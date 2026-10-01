@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
+<title>我的收藏 · 拾帧</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --input:#f6f7fb; }
+  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --input:#0f1219; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--txt); min-height: 100vh; }
+  .page-main { padding: 30px 40px 60px; }
+  @media (max-width: 760px) { .page-main { padding: 18px 14px 40px; } .grid.view-compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; } .view-list .card .thumb { width: 108px; flex-basis: 108px; height: 78px; } }
+  h1 { font-size: 24px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .desc { font-size: 14px; color: var(--sub); line-height: 1.7; max-width: 760px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; margin: 20px 0 6px; flex-wrap: wrap; }
+  .toolbar2 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; flex-wrap: wrap; }
+  .toolbar2 .sp { flex: 1; }
+  .toolbar input[type=search] { flex: 0 1 320px; min-width: 150px; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--txt); font-size: 12.5px; outline: none; }
+  .toolbar input[type=search]:focus { border-color: var(--acc); }
+  .toolbar .cnt { color: var(--sub); font-size: 13px; }
+  .toolbar .sp { flex: 1; }
+  .chips { display: flex; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 13px; border: 1px solid var(--line);
+    border-radius: 4px; background: none; color: var(--sub); cursor: pointer; }
+  .chip.on { color: var(--acc); border-color: var(--acc); background: rgba(108,140,255,.1); }
+  /* ---------- 展示样式（开关本体在 workbench.js 的 Wb.viewToggle，与资产库同一份） ----------
+     基样式＝「紧凑」档（方块网格，只留缩略图 + 两行标题）；「列表」档用 .grid.view-list 覆盖成横条。
+     选择器必须带 .grid 前缀，否则抢不过 .grid 自己的 display 声明。 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; position: relative;
+    transition: border-color .15s, box-shadow .15s, transform .12s; }
+  .card:hover { border-color: var(--acc); box-shadow: 0 6px 20px rgba(0,0,0,.09); transform: translateY(-2px); }
+  .card .thumb { height: 96px; background: var(--thumbbg, #e2e5ee); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .card .thumb img, .card .thumb video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .card .thumb .audio { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--sub); font-size: 12px; }
+  .card .body { padding: 7px 9px 9px; }
+  .card .t { font-size: 12px; line-height: 1.5; margin-bottom: 4px; word-break: break-word;
+    -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .m { font-size: 11.5px; color: var(--sub); }
+  .card .note { margin-top: 8px; }
+  .card .note textarea { width: 100%; min-height: 34px; max-height: 90px; resize: vertical; font-size: 12px; line-height: 1.5;
+    padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--input); color: var(--txt);
+    font-family: inherit; outline: none; }
+  .card .note textarea:focus { border-color: var(--acc); }
+  .card .note .hint { font-size: 10.5px; color: var(--sub); margin-top: 3px; }
+  .card .acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .card .acts .ghost { padding: 4px 10px; font-size: 11.5px; }
+  .card .unfav { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 4px; background: rgba(0,0,0,.45); color: #ffd166; cursor: pointer; z-index: 2; }
+  .card .unfav:hover { background: rgba(0,0,0,.65); }
+  .empty { padding: 60px 0; text-align: center; color: var(--sub); font-size: 14px; }
+  .drop { outline: 2px dashed var(--acc); outline-offset: -6px; }
+  /* 列表档：横条一行一条，把紧凑档藏起来的元信息/备注/按钮全部展开 */
+  .grid.view-compact { gap: 10px; }
+  .grid.view-list { display: flex; flex-direction: column; gap: 10px; }
+  .view-list .card { display: flex; align-items: stretch; }
+  .view-list .card .thumb { width: 168px; height: 104px; flex: 0 0 168px; border-right: 1px solid var(--line); }
+  .view-list .card .body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 10px 12px 12px; }
+  .view-list .card .t { font-size: 13.5px; -webkit-line-clamp: unset; display: block; overflow: visible; }
+  .view-list .card .m { display: block; }
+  .view-list .card .note { display: block; }
+  .view-list .card .acts { display: flex; }
+  .view-list .card .unfav { top: auto; bottom: 6px; right: 6px; }
+</style>
+</head>
+<body>
+<div class="page-main">
+  <h1 id="title"><span id="tic"></span>我的收藏</h1>
+
+  <div class="toolbar">
+    <div class="chips" id="chips"></div>
+    <input type="search" id="q" placeholder="搜索名称 / 提示词 / 备注">
+    <!-- AI 找素材：与搜索框同一行、直接读搜索框里的话，结果就地筛这个列表（不再另开输入窗口） -->
+    <button class="tool acc" id="aiFindBtn" title="在收藏里找：把搜索框里那句话交给文字 AI，按名称 / 类型 / 备注挑出收藏"></button>
+    <span id="aiChip"></span>
+    <span class="cnt" id="cnt"></span>
+  </div>
+  <div class="toolbar2">
+    <span class="sp"></span>
+    <span class="viewtoggle" id="fView"></span>
+    <button class="ghost" id="uploadBtn"></button>
+    <input type="file" id="uploadFile" multiple hidden>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div id="gridEnd" style="height:1px"></div>   <!-- 动态加载模式下的续拉哨兵 -->
+  <div class="pager-row" id="pagerRow">
+    <button class="ghost" id="pgPrev">‹ 上一页</button>
+    <span class="pginfo" id="pgInfo"></span>
+    <button class="ghost" id="pgNext">下一页 ›</button>
+  </div>
+</div>
+
+<script src="ui.js"></script>
+<script src="workbench.js"></script>
+<script src="sidebar.js"></script>
+<script src="assetlib.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  /* 页内轻提示：本页不使用任何浏览器弹窗 */
+  let toastTimer = null;
+  function toast(msg) {
+    let el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;max-width:72vw;'
+        + 'padding:10px 18px;border-radius:5px;font-size:13px;text-align:center;background:var(--panel);color:var(--txt);'
+        + 'border:1px solid var(--line);box-shadow:0 10px 28px rgba(0,0,0,.2)';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3600);
+  }
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  $('tic').innerHTML = window.icon ? icon('star', 20) : '';
+  $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
+
+  let filter = 'all';
+  let aiPick = null;            // AI 找出来的收藏（key 集合），非空时只显示这些
+  let aiWhy = '';               // AI 自报的一句话理由，显示在条件芯片上
+  let renderSeq = 0;            // 渲染令牌：异步画卡片时若又触发了一轮，旧的那轮立即放弃（否则卡片会重复）
+  const TYPES = [['all', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频'], ['文件', '其它']];
+  const byType = (it, t) => t === 'all' || (t === '音频' ? (it.type === '音频' || it.type === '音乐') : it.type === t);
+  const fmtSize = b => (!b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+
+  function paintChips() {
+    const items = Fav.list();
+    $('chips').innerHTML = TYPES.map(([k, t]) => {
+      const n = items.filter(x => byType(x, k)).length;
+      return `<button class="chip${filter === k ? ' on' : ''}" data-t="${k}">${t}${n ? ' ' + n : ''}</button>`;
+    }).join('');
+    $('chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { filter = c.dataset.t; resetPaging(); render(); });
+  }
+
+  let viewItems = [];            // 当前视图的条目（灯箱翻页范围 = 它）
+  /* ---------- 展示样式 + 分页 ----------
+     开关与分页都走公共实现（Wb.viewToggle / Wb.pager），和资产库同一套行为：
+     每页条数、翻页还是滚动续拉，都在「设置 → 列表分页 → 我的收藏」里配。 */
+  const PAGE_MODE = (function () { try { return localStorage.getItem('page_mode_favorites') === 'more' ? 'more' : 'page'; } catch (e) { return 'page'; } })();
+  const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_favorites') || 24) || 24);
+  let morePages = 1;             // 动态加载模式：已经拉了几页
+  /* 两档，与资产库同档数、同图标语义：列表（横条）/ 紧凑（方块网格）。
+     旧的第三档「卡片」与紧凑长得一样（图标还撞成了两个「紧凑」），已并掉；
+     存档里的旧值 card/compact 由 viewToggle 现算，认不出来时回落到第一档（列表）。 */
+  const viewToggle = Wb.viewToggle.create({
+    el: 'fView', key: 'dir_fav_view',
+    views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
+    onPick: applyView,
+  });
+  function applyView() {
+    const g = $('grid');
+    if (!g) return;
+    g.classList.remove('view-list', 'view-compact');
+    g.classList.add('view-' + ((viewToggle && viewToggle.value) || 'list'));
+  }
+  const shownCount = () => PAGE_MODE === 'more' ? Math.min(viewItems.length, morePages * PAGE_SIZE) : viewItems.length;
+  /* 页码/信息文案算的是「整个视图有多少条」，所以 pager.items 给全量，具体显示哪几条由 pageItems 决定 */
+  function pageItems() {
+    return PAGE_MODE === 'more' ? viewItems.slice(0, shownCount()) : pager.slice(viewItems);
+  }
+  function resetPaging() { morePages = 1; pager.setPage(0); }
+  const pager = Wb.pager.create({
+    mode: PAGE_MODE, pageSize: PAGE_SIZE,
+    items: () => viewItems,
+    hasMore: () => PAGE_MODE === 'more' && shownCount() < viewItems.length,
+    render: () => render(),
+  });
+  pager.bindButtons();
+  /* 灯箱 + 详情：与资产库 / 三个工作台共用 Wb.lightbox / Wb.detail（workbench.js）。
+     收藏以前点了没有任何反应（本地文件只是 blob 地址，直接打开会跳出页面）。 */
+  const favFileName = it => {
+    if (it.kind === 'local' && it.name) return it.name;
+    const base = String(it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').trim().slice(0, 30) || 'favorite';
+    return base + (it.format ? '.' + String(it.format).toLowerCase() : '');
+  };
+  const favKind = it => (it.type === '视频' ? 'video' : ((it.type === '音频' || it.type === '音乐') ? 'audio' : 'image'));
+  Wb.detail.init({
+    prompt: it => it.prompt || it.name || '',
+    status: it => (it.kind === 'local' ? '本地文件' : '已收藏'),
+    rows: it => [
+      ['来源', it.kind === 'local' ? '本地上传' : (it.providerName || '资产库')],
+      ['类型', it.type],
+      ['格式', it.format ? String(it.format).toUpperCase() : ''],
+      ['大小', it.size ? fmtSize(it.size) : ''],
+      ['时长', it.duration ? it.duration + 's' : ''],
+      ['备注', it.note || ''],
+      ['收藏时间', it.ts ? new Date(it.ts).toLocaleString() : ''],
+    ],
+  });
+  Wb.lightbox.init({
+    list: () => viewItems,
+    keyOf: it => it.key,
+    srcOf: it => Fav.urlOf(it),              // 本地文件要读 IndexedDB，所以是 Promise
+    nameOf: favFileName,
+    kindOf: favKind,
+    info: (it, el) => {
+      const w = (el && (el.videoWidth || el.naturalWidth)) || 0;
+      const h = (el && (el.videoHeight || el.naturalHeight)) || 0;
+      return [w ? w + '×' + h + 'px' : '', fmtSize(it.size), it.duration ? it.duration + 's' : '',
+        it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type,
+        it.format ? String(it.format).toUpperCase() : '', it.note ? '备注：' + it.note : ''];
+    },
+  });
+
+  /* 一张卡的缩略图（首屏 + 过期地址回源后重画都走这里，别写两份）。
+     本地收藏的 blob: 地址每次重建都不一样 —— 直接拿它当缓存键等于「抽好的首帧永远命不中」，
+     所以本地用 fileKey 做稳定键（见 workbench.js 的 Wb.thumbs.keyOf / bind 的 identity 参数）；
+     远程用 /getv 地址，keyOf 内部会归一化成 host+path，签名换了键也不变。 */
+  function thumbFor(it, url) {
+    const isAudio = it.type === '音频' || it.type === '音乐';
+    if (!url) return { html: '<div class="thumb"></div>', tkey: '', isAudio };
+    const tkey = it.kind === 'local' && it.fileKey ? 'fav-file:' + it.fileKey : url;
+    const html = isAudio
+      ? `<div class="thumb"><div class="audio">${window.icon ? icon('mic', 26) : ''}<span>${esc((it.format || '').toUpperCase() || '音频')}${it.duration ? ' · ' + it.duration + 's' : ''}</span></div></div>`
+      : it.type === '视频' ? `<div class="thumb">${Wb.thumbs.mediaHTML(url, { key: tkey })}</div>`
+      : `<div class="thumb">${Wb.thumbs.mediaHTML(url, { key: tkey, type: 'image', mediaAttrs: 'loading="lazy"' })}</div>`;
+    return { html, tkey, isAudio };
+  }
+
+  async function render() {
+    const seq = ++renderSeq;
+    paintChips();
+    paintAiChip();
+    applyView();
+    const q = $('q').value.trim();
+    const items = (q ? Fav.search(q) : Fav.list())
+      .filter(x => byType(x, filter) && (!aiPick || aiPick.has(x.key)));
+    viewItems = items.slice();               // 灯箱的翻页范围 = 当前视图（搜索/筛选后，不受分页影响）
+    $('cnt').textContent = items.length ? '共 ' + items.length + ' 项' : '';
+    const grid = $('grid');
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty">还没有收藏。去「资产库」点卡片上的 ☆，或点右上角「上传本地文件」。</div>';
+      $('pagerRow').style.display = 'none';
+      return;
+    }
+    const shown = pageItems();
+    $('pagerRow').style.display = '';
+    pager.update();
+    grid.innerHTML = '';
+    /* 先把所有缩略图地址并发取好（最多 6 个并发），再按顺序建卡片：
+       以前在 for 循环里逐条 await Fav.urlOf —— 本地收藏要读 IndexedDB、远程的走代理，
+       收藏多了首屏肉眼可见地卡。 */
+    const itemsArr = shown;
+    const urls = new Array(itemsArr.length);
+    let nextIdx = 0;
+    await Promise.all(Array.from({ length: Math.min(6, itemsArr.length) }, async () => {
+      while (nextIdx < itemsArr.length) {
+        const i = nextIdx++;
+        if (seq !== renderSeq) return;
+        urls[i] = await Fav.urlOf(itemsArr[i]).catch(() => '');
+      }
+    }));
+    if (seq !== renderSeq) return;          // 已经有更新的一轮在画，放弃这一轮
+    for (let ii = 0; ii < itemsArr.length; ii++) {
+      const it = itemsArr[ii];
+      if (seq !== renderSeq) return;
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.key = it.key;
+      const url = urls[ii] || '';
+      /* 本地收藏的 blob: 地址每次重建都不一样 —— 直接拿它当缓存键等于「抽好的首帧永远命不中」。
+         用 fileKey 做稳定键（见 workbench.js 的 Wb.thumbs.keyOf / bind 的 identity 参数）。 */
+      const t = thumbFor(it, url);
+      const isAudio = t.isAudio;
+      const thumb = t.html;
+      const tkey = t.tkey;
+      card.innerHTML = `${thumb}
+        <button class="unfav" title="移出收藏">${window.icon ? icon('starFill', 15) : ''}</button>
+        <div class="body">
+          <div class="t">${esc(it.prompt || it.name || '(无描述)')}</div>
+          <div class="m">${[it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type, it.format ? String(it.format).toUpperCase() : '', it.size ? fmtSize(it.size) : '', it.duration ? it.duration + 's' : ''].filter(Boolean).join(' · ')}</div>
+          <div class="note"><textarea placeholder="写备注：这条素材是干什么用的（搜索和 AI 都会用它）" rows="2">${esc(it.note || '')}</textarea></div>
+          <div class="acts">
+            ${it.kind === 'asset' ? '<button class="ghost reuse" title="带着这条素材去对应工作台">复用</button>' : ''}
+            <button class="ghost dl">下载</button>
+            <button class="ghost danger rm">移出收藏</button>
+          </div>
+        </div>`;
+      /* 点缩略图 / 标题 → 预览（与资产库同一个灯箱：左右切换、键盘、下载、另存为、详情） */
+      card.querySelector('.thumb').onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
+      card.querySelector('.t').onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
+      card.querySelector('.thumb').style.cursor = 'zoom-in';
+      const tw = card.querySelector('.thumb');
+      const tm = tw && tw.querySelector('video[data-src], video[src], img');
+      if (tm) Wb.thumbs.bind(tw, tm, url, null, tkey);      // 首帧缓存 + 懒加载（见 workbench.js 的 Wb.thumbs）
+      const ta = card.querySelector('.note textarea');
+      let noteTimer = null;
+      /* 备注保存：只写存储、不重画列表。
+         以前 Fav.setNote 会派发 fav-change → 页面监听里 render() → 整块 innerHTML 重建，
+         结果是「打字打一半输入框失焦、光标跳到开头」。 */
+      const saveNote = () => { Fav.setNote(it.key, ta.value, { silent: true }); };
+      ta.addEventListener('input', () => { clearTimeout(noteTimer); noteTimer = setTimeout(saveNote, 600); });
+      ta.addEventListener('blur', () => { clearTimeout(noteTimer); saveNote(); });
+      ta.onclick = e => e.stopPropagation();
+      /* 移出收藏：本地文件的文件本体也会一起删（不可恢复），所以要确认一下 */
+      const dropItem = async () => {
+        const isLocal = it.kind === 'local';
+        const ok = await Confirm.ask({
+          title: '移出收藏？', danger: true, okLabel: '移出',
+          body: isLocal ? '这是本地上传的文件，移出后文件本体也会从浏览器里删除，不可恢复。' : '只从「我的收藏」移出，资产库里的素材不受影响。',
+        });
+        if (!ok) return;
+        Fav.remove(it.key);
+        render();
+      };
+      card.querySelector('.unfav').onclick = e => { e.stopPropagation(); dropItem(); };
+      card.querySelector('.rm').onclick = e => { e.stopPropagation(); dropItem(); };
+      const dl = card.querySelector('.dl');
+      dl.onclick = async e => {
+        e.stopPropagation();
+        dl.disabled = true; dl.textContent = '下载中…';
+        try {
+          const b = await Fav.blobOf(it);
+          if (!b) throw new Error('取不到文件');
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(b);
+          a.download = (it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').slice(0, 30) + (it.format ? '.' + it.format : '');
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+          dl.textContent = '已开始下载';
+        } catch (err) { dl.textContent = '下载失败'; }
+        setTimeout(() => { dl.disabled = false; dl.textContent = '下载'; }, 1800);
+      };
+      const ru = card.querySelector('.reuse');
+      if (ru) ru.onclick = e => {
+        e.stopPropagation();
+        const kind = it.type === '视频' ? 'video' : (isAudio ? 'audio' : 'image');
+        const payload = { from: 'favorites', assetId: it.assetId, kind, prompt: it.prompt || '', provider: it.provider || '',
+          providerName: it.providerName || '', duration: it.duration || null, ts: it.ts || null };
+        try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (err) {}
+        location.href = (kind === 'image' ? 'image.html' : 'video.html') + '?reuse=1';
+      };
+      grid.appendChild(card);
+    }
+    resignSome(itemsArr, seq).catch(e => console.warn('[fav] 过期回源失败', e));
+  }
+
+  /* 签名过期的外链放进 <img>/<video> 就是 403 破图（收藏放几天后必然遇到）：
+     首屏照旧先画出来，这里放后台按任务号回源换新地址，换到了只重画那一张卡 ——
+     整表 render 会把正在输入的备注和滚动位置打断。新地址由 Fav.refreshUrl 顺手写回存储，
+     下次打开就是新鲜的，不用每回都吃一轮 403。（限量限并发在 Fav.resignSome 里） */
+  async function resignSome(items, seq) {
+    await Fav.resignSome(items, (it, next) => {
+      if (seq !== renderSeq) return;
+      const card = Array.from($('grid').children).find(x => x.dataset.key === it.key);
+      const old = card && card.querySelector('.thumb');
+      if (!old) return;
+      const t = thumbFor(it, next);
+      old.outerHTML = t.html;
+      const tw = card.querySelector('.thumb');
+      tw.style.cursor = 'zoom-in';
+      tw.onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
+      const tm = tw.querySelector('video[data-src], video[src], img');
+      if (tm) Wb.thumbs.bind(tw, tm, next, null, t.tkey);
+    });
+  }
+
+  $('q').oninput = () => { resetPaging(); render(); };
+  $('aiFindBtn').innerHTML = (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材';
+
+  /* AI 找素材：话就写在搜索框里，点一下就地筛这个列表 —— 与资产库页、统一选择器同一套做法。
+     以前这里弹一个独立输入窗口（两个框填的是同一件事，人要在两处来回跳），
+     旁边还挂着一个「AI 从资产库找并收藏」—— 那是资产库的活，收藏页只管挑已有的。 */
+  function paintAiChip() {
+    const el = $('aiChip');
+    if (!el) return;
+    el.innerHTML = aiPick
+      ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
+        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整列表">✕</button></span>`
+      : '';
+    const c = $('aiClear');
+    if (c) c.onclick = clearAiPick;
+  }
+  function clearAiPick() {
+    aiPick = null; aiWhy = ''; resetPaging(); render();
+  }
+  async function runAiFind() {
+    const box = $('q');
+    const q = (box.value || '').trim();
+    if (!Fav.list().length) { toast('还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」'); return; }
+    if (q.length < 2) { toast('先在搜索框里写要找什么（至少两个字），再点 AI 找素材'); box.focus(); return; }
+    const btn = $('aiFindBtn'), old = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'AI 正在挑…';
+    let msg = '';
+    try {
+      const reg = await Api.registry();
+      const sys = '你是素材管家。用户会描述要找的素材，你要在他「我的收藏」清单里挑出最合适的若干条。'
+        + '只返回 JSON：{"keys":["收藏ID"],"summary":"一句话说明挑了什么"}。'
+        + '优先看备注（备注写的是用途），其次看名称与类型；没有合适的就返回空数组。';
+      const txt = await TextAI.chat(reg, sys, JSON.stringify({ 需求: q, 我的收藏: Fav.text(100) }));
+      const j = TextAI.parseJson(txt) || {};
+      const keys = (Array.isArray(j.keys) ? j.keys : []).filter(k => Fav.has(k));
+      aiPick = keys.length ? new Set(keys) : null;
+      aiWhy = keys.length ? String(j.summary || '').slice(0, 40) : '';
+      /* 原话已经翻译成 key 集合：搜索框必须清掉，否则整句还会再 AND 过滤一遍，
+         而整句几乎不可能是某条备注的子串 —— 结果永远 0 条。 */
+      if (keys.length) box.value = '';
+      filter = 'all';
+      msg = keys.length ? '' : 'AI 没找到合适的收藏（换个说法再试）';
+    } catch (e) {
+      msg = 'AI 找素材失败：' + e.message;
+    } finally {
+      btn.disabled = false; btn.innerHTML = old;
+    }
+    resetPaging();
+    render();
+    /* 挑中了就不另写一句：条件芯片上已经写了「AI 挑的 N 条 · 理由」，
+       #cnt 保留 render 算出来的条数就够（以前两处各说一遍，同一件事两句话）。
+       只有失败/没结果要顶上去说一句，而那必须在 render 之后（它会重写 #cnt）。 */
+    if (msg) $('cnt').textContent = msg;
+  }
+  $('aiFindBtn').onclick = runAiFind;
+  $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; clearAiPick(); } });
+
+  $('uploadBtn').onclick = () => $('uploadFile').click();
+  $('uploadFile').onchange = async e => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!files.length) return;
+    $('uploadBtn').disabled = true;
+    const old = $('uploadBtn').innerHTML;
+    $('uploadBtn').textContent = '正在保存…';
+    // 上传失败要说出来（以前是空 catch，拖 10 个文件失败几个完全不知道）
+    let ok = 0; const fail = [];
+    for (const f of files) {
+      try { await Fav.addLocalFile(f); ok++; }
+      catch (err) { fail.push((f && f.name ? f.name : '文件') + '：' + err.message); }
+    }
+    if (fail.length) Toast.err(`有 ${fail.length} 个文件没能加入收藏：` + fail.slice(0, 3).join('；') + (fail.length > 3 ? ' 等' : ''));
+    else if (ok) Toast.ok('已加入 ' + ok + ' 个文件');
+    $('uploadBtn').disabled = false;
+    $('uploadBtn').innerHTML = old;
+    render();
+  };
+  // 拖拽本地文件到页面也能收藏
+  document.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drop'); });
+  document.addEventListener('dragleave', e => { if (e.target === document.documentElement) document.body.classList.remove('drop'); });
+  document.addEventListener('drop', async e => {
+    if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    document.body.classList.remove('drop');
+    let ok = 0; const fail = [];
+    for (const f of [...e.dataTransfer.files]) {
+      try { await Fav.addLocalFile(f); ok++; }
+      catch (err) { fail.push((f && f.name ? f.name : '文件') + '：' + err.message); }
+    }
+    if (fail.length) Toast.err(`有 ${fail.length} 个文件没能加入收藏：` + fail.slice(0, 3).join('；') + (fail.length > 3 ? ' 等' : ''));
+    else if (ok) Toast.ok('已加入 ' + ok + ' 个文件');
+    render();
+  });
+  Wb.thumbs.hydrate().then(n => { if (n) render(); }).catch(() => {});   // 首帧缓存：有就直接当图片用
+  /* 动态加载模式：滚到哨兵就再多拉一页（收藏是本地数据，不用请求，只要别一次画几百张卡片） */
+  if (PAGE_MODE === 'more') {
+    const loadMore = () => {
+      if (shownCount() >= viewItems.length) return;
+      morePages++;
+      render();
+    };
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '300px' })
+        .observe($('gridEnd'));
+    } else {
+      window.addEventListener('scroll', () => { if ($('gridEnd').getBoundingClientRect().top < window.innerHeight + 300) loadMore(); }, { passive: true });
+    }
+  }
+  // 收藏变化：本页是 fav-change，其它标签页是 storage 事件（都要重画列表）
+  window.addEventListener('fav-change', () => render());
+  window.addEventListener('storage', e => { if (!e.key || e.key === 'fav_items') render(); });
+  if (window.Dropdowns) Dropdowns.build(document);
+  render();
+})();
+</script>
+</body>
+</html>

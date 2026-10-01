@@ -1,0 +1,29 @@
+proxy.log
+*.log
+.asset-cache/
+node_modules/
+
+# 密钥与本地配置（绝不提交）
+# 用通配覆盖 .env.bak / .env.local / .env.production 等一切变体，
+# 只放行 .env.example（模板，不含真实密钥）—— 手写 .env 备份时最容易漏掉。
+.env
+.env.*
+!.env.example
+
+# 本地工作数据 / 助手记忆
+.workbuddy/
+.workbuddy-ai/
+
+# ffmpeg 渲染输出（本地成片）
+.renders/
+
+# 本地生成的资产（语音等同步产物落盘处）
+.assets/
+
+# 本地数据落盘（工作区 / 设置 / 历史；可能含密钥，绝不提交）
+.data/
+# 隔离测试实例的数据目录（自动化验证用，同属本地数据）
+.data-probe/
+
+# 提示词归档（每个任务的提示词，属于个人内容，不进版本库）
+prompts/

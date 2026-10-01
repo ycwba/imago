@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 创作工作台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
+<link rel="stylesheet" href="ui.css">
+<style>
+  /* 主题变量：各页面在自己 <style> 里各写一份，外壳也要有一份，否则侧栏取不到颜色 */
+  :root {
+    --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
+    --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
+  }
+  html[data-theme="dark"] {
+    --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
+    --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff; --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
+  /* 内容区在 iframe 里：切页只换 iframe，侧栏不动、不闪
+     （iframe 是替换元素，width:auto 会退回默认 300px，必须显式算宽度） */
+  #appFrame { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
+    border: 0; display: block; background: var(--bg); transition: left .18s ease, width .18s ease; }
+  html.sb-open #appFrame { left: 200px; width: calc(100% - 200px); }
+  /* 窄窗口（≤1100px）里侧栏展开是浮层：sidebar.js 此时不把 --sbw 改成 200px，
+     内容区也不让位 —— 小窗本来就窄，再被侧栏吃掉 200px 就更没法用了。 */
+  html.sb-narrow.sb-open #appFrame { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
+</style>
+</head>
+<body>
+<iframe id="appFrame" name="appFrame" title="工作区"></iframe>
+<script>window.__SB_SHELL = true;</script>
+<script src="ui.js"></script>
+<script src="sidebar.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

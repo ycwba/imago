@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置 · 拾帧</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --input:#f6f7fb; --pri:#7c5cff; }
+  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --input:#0f1219; --pri:#7c5cff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--txt); min-height: 100vh; }
+  .page-main { padding: 34px 60px; }
+  /* 窄窗口：收紧留白，键值行允许折行 */
+  @media (max-width: 820px) {
+    .page-main { padding: 18px 14px 40px; }
+    .krow { flex-wrap: wrap; }
+    .krow input, .krow select { min-width: 0; }
+  }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  .desc { font-size: 13px; color: var(--sub); margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.03); }
+  .card h2 { font-size: 15px; margin-bottom: 4px; }
+  .card .sub { font-size: 12px; color: var(--sub); margin-bottom: 12px; }
+  /* 清理缓存那一节：每行「名称 + 说明 + 清空」，说明占满剩余宽度 */
+  .krow .sub-line { flex: 1; min-width: 180px; font-size: 12.5px; color: var(--sub); }
+  .krow input { flex: 1; min-width: 240px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; color: var(--txt); font-size: 12.5px; font-family: monospace; outline: none; }
+  .krow input:focus { border-color: var(--acc); }
+  /* 侧栏余额勾选：.krow input 那条规则会把复选框也撑成 240px 宽，这里单独压回原形 */
+  .krow input[type=checkbox] { flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; accent-color: var(--acc); }
+  .krow .sbshow { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+    color: var(--sub); cursor: pointer; white-space: nowrap; }
+  .krow .sbshow:hover { color: var(--acc); }
+  .krow .eye { flex: 0 0 auto; padding: 7px 10px; line-height: 1; }
+  .krow .clr { flex: 0 0 auto; padding: 7px 10px; line-height: 1; }
+  /* 重复出现的小样式档位（以前是几十处行内 style）：按钮一档、说明一行、勾选一行 */
+  .ghost.wide { flex: 0 0 auto; padding: 8px 14px; }
+  .ghost.xs { padding: 5px 10px; font-size: 11.5px; }
+  .krow.tight { gap: 8px; flex-wrap: wrap; }
+  .sm { font-size: 11.5px; color: var(--sub); }
+  .dir-name { font-size: 12.5px; color: var(--sub); flex: 1; }
+  .crow { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  /* 平台名下面那行「能力 kinds」小字 */
+  .kn .kinds { font-size: 11px; color: var(--sub); }
+  /* 平台名可点击跳官网：不改字体颜色，仅悬停加下划线 */
+  .kn a.site { color: inherit; text-decoration: none; }
+  .kn a.site:hover { text-decoration: underline; }
+  .bases { margin-top: 4px; }
+  .bases .krow input { font-family: inherit; }
+  label.plabel { display: block; font-size: 12.5px; color: var(--sub); margin: 10px 0 5px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .presets button { font-size: 12.5px; color: var(--txt); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 13px; cursor: pointer; transition: all .15s; }
+  .presets button:hover { border-color: var(--acc); color: var(--acc); }
+  .presets button.on { border-color: var(--acc); color: var(--acc); background: rgba(108, 140, 255, .12); }
+  .presets button .b { display: block; font-size: 10.5px; color: var(--sub); margin-top: 1px; }
+  .polish-block { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;
+    background: var(--panel2); transition: border-color .15s; }
+  .polish-block:hover { border-color: var(--acc); }
+  .polish-block .pb-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .polish-block .pb-head b { font-size: 13px; }
+  .polish-block .pb-head .used { font-size: 11.5px; color: var(--sub); }
+  .polish-block .pb-head .ghost.mini { margin-left: auto; font-size: 11.5px; padding: 3px 10px; border-radius: 5px; }
+  .polish-block textarea { min-height: 92px; background: var(--panel); }
+  .polish-block .pb-tip { font-size: 11.5px; color: var(--sub); line-height: 1.6; margin-top: 7px; }
+  .polish-block .pb-tip code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 5px; font-size: 11px; }
+  textarea { width: 100%; min-height: 110px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; color: var(--txt); font-size: 12.5px; line-height: 1.6; padding: 10px 12px; font-family: inherit; resize: vertical; outline: none; }
+  textarea:focus { border-color: var(--acc); }
+  .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 12px 0; }
+  .savebar button { background: var(--pri); border: 0; color: #fff; font-weight: 600; border-radius: 4px; padding: 9px 22px; cursor: pointer; font-size: 13.5px; }
+  .savebar button:hover { filter: brightness(1.12); }
+  .okmsg { color: var(--ok); font-size: 12.5px; align-self: center; }
+</style>
+</head>
+<body>
+<div class="page-main">
+  <h1><span data-icon="gear" data-size="18"></span> 设置</h1>
+  <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（proxy.js 源码里不带任何密钥）。</div>
+
+  <div class="card">
+    <h2>平台密钥与余额</h2>
+    <div class="sub">文字 AI 的密钥在下方「文字 AI 接口与模型」里配置；勾掉「侧栏余额」的接口不出现在左侧栏的账户余额里。</div>
+    <div id="provList"></div>
+  </div>
+
+  <div class="card">
+    <h2>下载位置</h2>
+    <div class="sub">各页面「下载 / 保存」的默认位置；「另存为」仍可每次单独选。</div>
+    <div class="krow">
+      <span class="kicon"><span data-icon="scissors" data-size="15"></span></span><span class="kn">剪辑成片</span>
+      <button class="ghost wide" id="pickDirRender"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
+      <span class="dir-name" id="dirNameRender">未设置</span>
+      <button class="ghost wide" id="clearDirRender">清除</button>
+    </div>
+    <div class="krow">
+      <span class="kicon"><span data-icon="image" data-size="15"></span></span><span class="kn">图片</span>
+      <button class="ghost wide" id="pickDirImg"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
+      <span class="dir-name" id="dirNameImg">未设置</span>
+      <button class="ghost wide" id="clearDirImg">清除</button>
+    </div>
+    <div class="krow">
+      <span class="kicon"><span data-icon="film" data-size="15"></span></span><span class="kn">生成视频</span>
+      <button class="ghost wide" id="pickDirVideo"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
+      <span class="dir-name" id="dirNameVideo">未设置</span>
+      <button class="ghost wide" id="clearDirVideo">清除</button>
+    </div>
+    <div class="krow">
+      <span class="kicon"><span data-icon="mic" data-size="15"></span></span><span class="kn">语音</span>
+      <button class="ghost wide" id="pickDirAudio"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
+      <span class="dir-name" id="dirNameAudio">未设置</span>
+      <button class="ghost wide" id="clearDirAudio">清除</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>网络与刷新</h2>
+    <div class="krow" style="gap:10px;flex-wrap:wrap">
+      <label class="crow">请求超时
+        <input type="number" id="netTimeout" min="5" max="300" step="5" style="width:78px"> 秒</label>
+      <label class="crow">失败重试
+        <input type="number" id="netRetry" min="0" max="5" step="1" style="width:64px"> 次</label>
+      <label class="crow">任务刷新间隔
+        <input type="number" id="pollSec" min="2" max="60" step="1" style="width:64px"> 秒</label>
+      <span class="hint sm" id="netHint"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>列表分页</h2>
+    <div class="sub">「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。</div>
+    <div id="pageSettings"></div>
+  </div>
+
+  <div class="card">
+    <h2>提示词润色（文字 AI）</h2>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>① 视频提示词润色</b><span class="used">用于：视频工作台「AI 润色」 · 导演台右栏「AI 润色提示词」</span>
+        <button class="ghost mini" data-reset="polishVideo">恢复默认</button></div>
+      <textarea id="polishVideo"></textarea>
+    </div>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>② 图片提示词润色</b><span class="used">用于：图片工作台「AI 润色」</span>
+        <button class="ghost mini" data-reset="polishImg">恢复默认</button></div>
+      <textarea id="polishImg"></textarea>
+    </div>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>③ 分镜切片规划（决定张数 + 每张提示词）</b><span class="used">用于：导演台右栏「按描述生成这一镜的画面」</span>
+        <button class="ghost mini" data-reset="polishStory">恢复默认</button></div>
+      <textarea id="polishStory"></textarea>
+      <div class="pb-tip">这条指令要求文字 AI <b>只返回 JSON</b>（<code>{"frames":[{"t":0,"prompt":"…"}]}</code>）：由它决定生成几张、每张在第几秒、每张画什么，随后才会调图片 AI 出图。<b>改这条时请保留 JSON 格式要求</b>，否则会退化成按 2.5 秒硬切片。</div>
+    </div>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>④ 配音稿润色</b><span class="used">用于：语音工作台「AI 润色」</span>
+        <button class="ghost mini" data-reset="polishAudio">恢复默认</button></div>
+      <textarea id="polishAudio"></textarea>
+    </div>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>⑤ 剧本拆分镜</b><span class="used">用于：导演台「贴剧本，一键拆分镜」</span>
+        <button class="ghost mini" data-reset="polishSplit">恢复默认</button></div>
+      <textarea id="polishSplit"></textarea>
+      <div class="pb-tip">这条指令要求文字 AI <b>只返回 JSON</b>（<code>{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}</code>）；
+        末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。<b>改这条时请保留 JSON 格式要求</b>。</div>
+    </div>
+
+  </div>
+
+  <div class="card">
+    <h2>文字 AI 接口与模型</h2>
+    <div class="sub">任意 OpenAI 兼容服务。</div>
+
+    <label class="plabel">常用接口（点一下自动填地址，也可自己改）</label>
+    <div class="presets" id="presets"></div>
+
+    <label class="plabel">密钥（留空则使用服务端环境变量 / .env）</label>
+    <div class="krow" id="textKeyRow">
+      <span class="kicon"><span data-icon="key" data-size="15"></span></span>
+      <input type="password" data-key="deepseek" id="textKey" placeholder="填写文字 AI 密钥，或留空使用环境变量">
+      <button class="ghost eye" data-eye="deepseek" title="显示 / 隐藏密钥"><span data-icon="eye" data-size="13"></span></button>
+      <button class="ghost clr" data-clr="deepseek" title="清除本机保存的密钥">清除</button>
+    </div>
+
+    <label class="plabel">接口地址（OpenAI 兼容）</label>
+    <div class="krow"><span class="kicon"><span data-icon="link" data-size="15"></span></span><input id="textBase" placeholder="https://api.deepseek.com"></div>
+
+    <label class="plabel">模型</label>
+    <div class="krow">
+      <span class="kicon"><span data-icon="brain" data-size="15"></span></span>
+      <select id="textModel" style="flex:1"></select>
+      <button class="ghost" id="fetchModels" title="用上面的密钥调用 /models 接口">获取模型列表</button>
+      <button class="ghost" id="testTextAI" title="发一条测试消息验证密钥与模型">测试</button>
+    </div>
+    <div class="pb-tip" id="textModelTip">模型列表来自接口的 /models。</div>
+
+    <label class="plabel">识图能力（润色时把参考图一起发给文字 AI）</label>
+    <div class="krow">
+      <span class="kicon"><span data-icon="eye" data-size="15"></span></span>
+      <select id="textVision" style="flex:1">
+        <option value="auto">自动（按注册表声明 / 模型名判断）</option>
+        <option value="on">支持识图（把上传的图片一起发给它）</option>
+        <option value="off">不支持（只发文字）</option>
+      </select>
+    </div>
+    <div class="pb-tip" id="textVisionTip"></div>
+  </div>
+
+  <div class="card">
+    <h2>数据与同步</h2>
+    <div class="sub">开启后数据会同时写一份到本机项目目录的 <code>.data/</code>（普通 JSON 文件），可备份、可同步到你自己的网盘。</div>
+
+    <div class="krow">
+      <span class="kicon"><span data-icon="folder" data-size="15"></span></span>
+      <span class="kn">数据文件</span>
+      <span class="dir-name" id="dataDirInfo">读取中…</span>
+      <button class="ghost mini wide" id="copyDataDir">复制路径</button>
+      <button class="ghost mini wide" id="reloadDataInfo">刷新</button>
+    </div>
+
+    <div class="krow">
+      <span class="kicon"><span data-icon="clock" data-size="15"></span></span>
+      <span class="kn">浏览器存储</span>
+      <span class="dir-name" id="persistInfo">读取中…</span>
+      <button class="ghost mini wide" id="askPersist">申请持久化</button>
+    </div>
+
+    <div class="krow tight">
+      <button class="ghost wide" id="pushData">↑ 本机 → 数据文件</button>
+      <button class="ghost wide" id="pullData">↓ 数据文件 → 本机</button>
+      <button class="ghost wide" id="expAll">⤒ 导出整包备份</button>
+      <button class="ghost wide" id="impAll">⤓ 导入整包备份</button>
+      <input type="file" id="impAllFile" accept=".json,application/json" style="display:none">
+      <span class="hint sm" id="dataMsg"></span>
+    </div>
+
+    <label class="plabel" style="margin-top:14px">云同步（WebDAV）</label>
+    <div class="pb-tip" style="margin-bottom:8px">坚果云请在「账户信息 → 安全选项」里生成<b>应用密码</b>，不要填登录密码。</div>
+    <div class="krow"><span class="kicon"><span data-icon="link" data-size="15"></span></span><input id="cloudUrl" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">
+</div>
+    <div class="krow">
+      <span class="kicon"><span data-icon="key" data-size="15"></span></span>
+      <input id="cloudUser" placeholder="账号（邮箱）" style="flex:1">
+      <input type="password" id="cloudPass" placeholder="应用密码" style="flex:1">
+    </div>
+    <div class="krow tight">
+      <button class="ghost wide" id="cloudTest">测试连接</button>
+      <button class="ghost wide" id="cloudPush">↑ 上传到云端</button>
+      <button class="ghost wide" id="cloudPull">↓ 从云端下载</button>
+      <button class="ghost wide" id="cloudSync" title="两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边">⇅ 一键双向同步</button>
+      <label class="crow">
+        <input type="checkbox" id="cloudKeys"> 连密钥一起同步（默认否）</label>
+      <span class="hint sm" id="cloudMsg"></span>
+    </div>
+    <div class="krow" style="margin-top:2px">
+      <span class="hint sm" id="cloudState">读取同步状态…</span>
+    </div>
+    <!-- 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 -->
+    <div id="cloudConflicts"></div>
+    <!-- 备份：每次云端覆盖本机之前留的那一份，可一键恢复 -->
+    <div id="cloudBackups"></div>
+  </div>
+
+  <div class="card">
+    <h2>清理缓存</h2>
+    <div class="sub">下面清的都是<b>会自己长回来的副本</b>：平台应答、模型能力、缩略图、探测结果。
+      清了最多多等一次请求，不会删掉生成出来的图片/视频/语音、提示词归档和收藏。
+      换密钥、代理接了新平台、平台改了参数而又不想等缓存过期时用它。</div>
+    <div class="krow tight">
+      <span class="kn">平台接口应答</span>
+      <span class="sub-line">任务列表 / 详情、资产地址、模型能力、报价；分浏览器和代理两份</span>
+      <button class="ghost mini wide" id="clearCacheApi">清空</button>
+    </div>
+    <div class="krow tight">
+      <span class="kn">文字 AI 模型信息</span>
+      <span class="sub-line">每个模型记下的接口形状与识图能力判定（换了模型或它突然支持识图了）</span>
+      <button class="ghost mini wide" id="clearCacheMeta">清空</button>
+    </div>
+    <div class="krow tight">
+      <span class="kn">缩略图 / 体积探测</span>
+      <span class="sub-line">视频首帧与图片缩略图（本机存一份，重新抽帧即可恢复）</span>
+      <button class="ghost mini wide" id="clearCacheThumb">清空</button>
+    </div>
+    <div class="krow tight">
+      <span class="kn">「本机没有归档」标记</span>
+      <span class="sub-line">提示词归档里查不到的任务标记（记下后不再反复问，归档补回来后清一次即可）</span>
+      <button class="ghost mini wide" id="clearCacheMissed">清空</button>
+    </div>
+    <!-- 本地任务记录不是缓存（删了就没了），所以单独一组、按 HISTORY 声明动态列出，且要二次确认 -->
+    <div id="histClearRows"></div>
+    <div class="krow" style="margin-top:2px">
+      <span class="hint sm" id="cacheMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>提示词归档</h2>
+
+    <label class="plabel">归档目录</label>
+    <div class="krow">
+      <span class="kicon"><span data-icon="folderDoc" data-size="15"></span></span>
+      <input id="promptDir" placeholder="留空 = 项目目录下的 prompts/" style="flex:1">
+      <span id="promptDirInfo" style="font-size:12.5px;color:var(--sub);flex:0 0 auto">读取中…</span>
+    </div>
+    <div class="pb-tip">支持 <code>~</code> 开头（用户主目录）与绝对路径，目录不存在会自动创建；这一项不参与云同步。</div>
+
+    <div class="krow tight">
+      <button class="ghost wide" id="promptOpen">打开目录</button>
+      <button class="ghost wide" id="promptRefresh">刷新清单</button>
+      <span class="hint sm" id="promptMsg"></span>
+    </div>
+    <div id="promptRecent" style="font-size:12.5px;color:var(--sub);line-height:1.9;margin-top:6px"></div>
+  </div>
+
+  <div class="savebar">
+    <span class="okmsg" id="okmsg"></span>
+    <button class="ghost" id="expSet" title="把当前设置导出成 JSON（可换电脑导入）">⤒ 导出设置</button>
+    <button class="ghost" id="impSet" title="从导出的 JSON 恢复设置">⤓ 导入设置</button>
+    <button class="ghost danger" id="resetSet" title="清空密钥、接口地址、目录、分页与润色指令">恢复默认</button>
+    <input type="file" id="impSetFile" accept=".json,application/json" style="display:none">
+    <button id="saveAll">保存全部设置</button>
+  </div>
+</div>
+
+<script src="assetlib.js"></script>
+<script src="ui.js"></script>
+<!-- 清理缓存那一节要用 Wb.thumbs / Wb.History（只加载定义，本页没有 .wb2 布局不会触发分栏逻辑） -->
+<script src="workbench.js"></script>
+<script src="sidebar.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let REG = { providers: [] };
+let envInfo = {};
+const fmtMicros = m => '¥' + (Number(m || 0) / 1e6).toFixed(2);
+const keyFor = id => localStorage.getItem('sk_key_' + id) || '';
+
+async function loadReg() {
+  try { REG = await Api.registry(); } catch { REG = { providers: [] }; }
+  if (window.Api) Api.setRegistry(REG);
+  try { envInfo = await Net.json('/env-status', { timeout: 8000 }); } catch { envInfo = {}; }
+  renderProv();
+}
+function renderProv() {
+  const box = $('provList');
+  box.innerHTML = '';
+  const mergedMap = new Map();
+  (REG.providers || []).forEach(p => {
+    if (p.kind === 'text') return;   // 文字 AI 的密钥/模型统一在下方「文字 AI 接口与模型」里配置
+    const keyId = p.keyId || p.id;
+    let m = mergedMap.get(keyId);
+    if (!m) { m = { keyId, names: [], kinds: [], credits: null, baseEditable: false, site: '' }; mergedMap.set(keyId, m); }
+    m.names.push(p.name);
+    if (!m.site && p.site) m.site = p.site;
+    m.kinds.push(p.kind === 'image' ? '图片' : p.kind === 'video' ? '视频' : p.kind === 'text' ? '文字AI' : p.kind);
+    if (p.endpoints?.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
+    if (p.baseEditable) m.baseEditable = true;
+  });
+  mergedMap.forEach(m => { m.name = (m.names[0] || '').split(' ')[0]; m.kindLabel = [...new Set(m.kinds)].join('+'); });
+  mergedMap.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'krow';
+    const nameHtml = m.site
+      ? `<a class="site" href="${m.site}" target="_blank" rel="noopener" title="打开官网 ${m.site}">${m.name}</a>`
+      : m.name;
+    card.innerHTML = '<span class="kicon">' + icon('key', 15) + '</span><span class="kn">' + nameHtml + '<div class="kinds">' + m.kindLabel + '</div></span>' +
+      '<input type="password" data-key="' + m.keyId + '" value="' + (keyFor(m.keyId) || '').replace(/"/g, '&quot;') + '" placeholder="' + (envInfo[m.keyId]?.hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写密钥，或使用默认') + '">' +
+      '<button class="ghost eye" data-eye="' + m.keyId + '" title="显示 / 隐藏密钥">' + icon('eye', 13) + '</button>' +
+      '<button class="ghost clr" data-clr="' + m.keyId + '" title="清除本机保存的密钥">清除</button>' +
+      /* 侧栏「账户余额」只显示勾上的接口（勾选即时生效，左侧不用刷新） */
+      (m.credits ? '<label class="sbshow" title="勾选后在左侧栏「账户余额」里显示这个接口的余额">'
+        + '<input type="checkbox" data-bal="' + m.keyId + '"' + (SbBal.isOff(m.keyId) ? '' : ' checked') + '>侧栏余额</label>' : '');
+    box.appendChild(card);
+    // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，直接清掉，保持输入框为空
+    if (envInfo[m.keyId]?.hasEnv) {
+      const lk = keyFor(m.keyId);
+      if (lk && lk.slice(-4) === envInfo[m.keyId].tail) {
+        localStorage.removeItem('sk_key_' + m.keyId);
+        card.querySelector('input').value = '';
+      }
+    }
+  });
+  // 密钥默认密文，点眼睛可切换明文查看（全页绑定：顶部平台密钥 + 下方文字 AI 密钥）
+  document.querySelectorAll('[data-eye]').forEach(b => b.onclick = () => {
+    const inp = b.parentNode.querySelector('[data-key]');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    b.textContent = inp.type === 'password' ? icon('eye', 13) : icon('eyeOff', 13);
+    b.title = inp.type === 'password' ? '显示密钥' : '隐藏密钥';
+  });
+  /* 平台卡片上没有「重新读取能力」按钮：生成平台的能力由各工作台首次用到时自动拉
+     （Capabilities.load 带缓存），只有文字 AI 需要在这里手动取模型列表 / 判定识图能力。 */
+  // 侧栏余额勾选：写 SbBal（键 sb_bal_show），外壳里的侧栏收到 storage 事件就地重画
+  document.querySelectorAll('[data-bal]').forEach(cb => cb.onchange = () => {
+    SbBal.setOff(cb.dataset.bal, !cb.checked);
+  });
+  // 清除本机密钥：清空后走服务端环境变量
+  document.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => {
+    const kid = b.dataset.clr;
+    localStorage.removeItem('sk_key_' + kid);
+    b.parentNode.querySelector('[data-key]').value = '';
+    b.textContent = '已清除';
+    setTimeout(() => { b.textContent = '清除'; }, 1500);
+  });
+}
+/* ---------- 下载位置（各页面共用：IndexedDB sk_lib / key dir） ---------- */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('sk_lib', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const q = t.objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+function showDirName(id, name, ok) {
+  const el = $(id);
+  el.textContent = name || '未设置';
+  el.style.color = ok === false ? 'var(--err)' : '';
+}
+async function pickDir(key, labelId) {
+  if (!window.showDirectoryPicker) { showDirName(labelId, '当前浏览器不支持选择文件夹（请用 Chrome/Edge）', false); return; }
+  try {
+    const dir = await window.showDirectoryPicker({ id: 'skLib_' + key, startIn: 'desktop', mode: 'readwrite' });
+    await idbSet(key, dir);
+    showDirName(labelId, dir.name, true);
+  } catch (e) { if (e.name !== 'AbortError') showDirName(labelId, '选择失败：' + e.message, false); }
+}
+// 兼容：旧的统一文件夹 key 为 'dir'
+(async () => {
+  for (const [key, labelId] of [['dir_img', 'dirNameImg'], ['dir_video', 'dirNameVideo'], ['dir_render', 'dirNameRender'], ['dir_audio', 'dirNameAudio']]) {
+    try {
+      let d = await idbGet(key);
+      if (!d) d = await idbGet('dir');   // 兼容旧设置
+      showDirName(labelId, d?.name || '', !!d);
+    } catch { showDirName(labelId, '', false); }
+  }
+})();
+$('pickDirImg').onclick = () => pickDir('dir_img', 'dirNameImg');
+$('pickDirVideo').onclick = () => pickDir('dir_video', 'dirNameVideo');
+$('pickDirRender').onclick = () => pickDir('dir_render', 'dirNameRender');
+$('pickDirAudio').onclick = () => pickDir('dir_audio', 'dirNameAudio');
+/* 清除目录时 legacy 'dir' 也要一起清：读取时会回退到它（见上方 readDir 的兼容分支），
+   只清新键会导致「清除了目录，视频还是存进老文件夹」。四个目录行为保持一致。 */
+$('clearDirRender').onclick = async () => { await idbSet('dir_render', null); await idbSet('dir', null); showDirName('dirNameRender', '', false); };
+$('clearDirImg').onclick = async () => { await idbSet('dir_img', null); await idbSet('dir', null); showDirName('dirNameImg', '', false); };
+$('clearDirVideo').onclick = async () => { await idbSet('dir_video', null); await idbSet('dir', null); showDirName('dirNameVideo', '', false); };
+$('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); await idbSet('dir', null); showDirName('dirNameAudio', '', false); };
+
+/* ---------- 数据与同步 ---------- */
+(function () {
+  const $id = id => document.getElementById(id);
+  const msg = t => { const el = $id('dataMsg'); if (el) el.textContent = t || ''; };
+  const cmsg = t => { const el = $id('cloudMsg'); if (el) el.textContent = t || ''; };
+
+  /* ① 数据文件状态 */
+  async function refreshDataInfo() {
+    const el = $id('dataDirInfo');
+    if (!el) return;
+    try {
+      const r = await Net.fetch('/data', { timeout: 15000 });
+      const d = await r.json();
+      const n = (d.files || []).length;
+      const kb = Math.round((d.files || []).reduce((a, f) => a + f.size, 0) / 1024);
+      el.textContent = `${d.dir} · ${n} 份数据 · ${kb} KB`;
+      el.title = d.dir;
+    } catch (e) { el.textContent = '读不到（代理没在运行？）'; }
+  }
+  async function refreshPersistInfo() {
+    const el = $id('persistInfo');
+    if (!el || !window.DataSync) return;
+    const st = await DataSync.persistState();
+    if (!st.supported) { el.textContent = '该浏览器不支持持久化申请'; return; }
+    const use = st.usage ? `（已用 ${st.usage.usedMB} MB / 配额 ${st.usage.quotaMB} MB）` : '';
+    el.textContent = (st.granted ? '✓ 已持久化，浏览器不会自动清理' : '⚠ 未持久化：磁盘紧张时浏览器可能自动清理') + use;
+    $id('askPersist').style.display = st.granted ? 'none' : '';
+  }
+  refreshDataInfo();
+  refreshPersistInfo();
+
+  $id('copyDataDir').onclick = async () => {
+    try {
+      const d = await Net.json('/data', { timeout: 15000 });
+      const ok = await copyText(d.dir);
+      msg(ok ? '✓ 路径已复制：' + d.dir : '复制失败，路径见左边');
+    } catch { msg('读不到数据目录'); }
+  };
+  $id('reloadDataInfo').onclick = () => { refreshDataInfo(); refreshPersistInfo(); };
+  $id('askPersist').onclick = async () => {
+    const r = await DataSync.persist();
+    msg(r.granted ? '✓ 已获得持久化存储' : '浏览器这次没有授予（通常是因为站点使用度还不够，多用几次再来）');
+    refreshPersistInfo();
+  };
+
+  /* ② 本机 ↔ 数据文件 */
+  $id('pushData').onclick = async () => {
+    const b = $id('pushData'); b.disabled = true; msg('正在写入…');
+    try { const n = await DataSync.pushAll(); msg(`✓ 已把本机数据写入 .data/（${n} 项）`); }
+    catch (e) { msg('失败：' + e.message); }
+    finally { b.disabled = false; refreshDataInfo(); }
+  };
+  $id('pullData').onclick = async () => {
+    const ok = await Confirm.ask({ title: '从数据文件恢复？', danger: true, okLabel: '恢复并刷新',
+      body: '会用 .data/ 里的数据覆盖浏览器当前数据（设置、历史、收藏、工作区），然后自动刷新页面。' });
+    if (!ok) return;
+    const b = $id('pullData'); b.disabled = true; msg('正在恢复…');
+    try {
+      const n = await DataSync.pullAll();
+      msg(`✓ 已恢复 ${n} 项，正在刷新…`);
+      Toast.ok('已从数据文件恢复 ' + n + ' 项');
+      setTimeout(() => location.reload(), 800);
+    } catch (e) { msg('失败：' + e.message); b.disabled = false; }
+  };
+
+  /* ③ 整包备份 / 恢复 */
+  $id('expAll').onclick = async () => {
+    const pick = await Confirm.choose({
+      title: '导出整包备份', body: '要不要连本地文件（引擎里导入的视频、收藏的文件、参考音频）一起打包？',
+      options: [
+        { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏列表、导演台工作区；体积小、恢复够用' },
+        { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）' },
+      ],
+    });
+    if (!pick) return;
+    const b = $id('expAll'); b.disabled = true; msg('正在打包…');
+    try {
+      const pack = await DataSync.exportAll(pick === 'all');
+      const json = JSON.stringify(pack);
+      const name = 'ai-workbench-整包备份-' + new Date().toISOString().slice(0, 10) + (pick === 'all' ? '-含文件' : '') + '.json';
+      const blob = new Blob([json], { type: 'application/json' });
+      Net.save(blob, name);                       // 浏览器下载（设置页不依赖工作台的保存层）
+      msg(`✓ 已导出（${(blob.size / 1048576).toFixed(1)} MB）`);
+    } catch (e) { msg('导出失败：' + e.message); }
+    finally { b.disabled = false; }
+  };
+  $id('impAll').onclick = () => $id('impAllFile').click();
+  $id('impAllFile').onchange = e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        const pack = JSON.parse(r.result);
+        const ok = await Confirm.ask({ title: '导入整包备份？', danger: true, okLabel: '导入并刷新',
+          body: '会用备份里的内容覆盖浏览器当前数据（设置、历史、收藏、工作区，以及备份里带的本地文件），然后自动刷新。' });
+        if (!ok) return;
+        msg('正在导入…');
+        const res = await DataSync.importAll(pack);
+        Toast.ok(`已导入：${res.localStorage} 项数据${res.indexedDB ? '、' + res.indexedDB + ' 个本地文件' : ''}`);
+        setTimeout(() => location.reload(), 900);
+      } catch (err) { msg('导入失败：' + err.message); }
+    };
+    r.onerror = () => msg('读取文件失败');
+    r.readAsText(f);
+  };
+
+  /* ④ 云同步（WebDAV） */
+  const CK = { url: 'sk_cloud_url', user: 'sk_cloud_user', pass: 'sk_cloud_pass', keys: 'sk_cloud_keys' };
+  /* 默认填坚果云的 WebDAV 入口：最常见的用法，省得每次手打；换成别的服务商直接改这个输入框即可 */
+  const CLOUD_DEFAULT_URL = 'https://dav.jianguoyun.com/dav/ai-workbench/';
+  ['url', 'user', 'pass'].forEach(k => {
+    const el = $id('cloud' + k[0].toUpperCase() + k.slice(1));
+    if (!el) return;
+    const saved = localStorage.getItem(CK[k]);
+    el.value = (saved != null && saved !== '') ? saved : (k === 'url' ? CLOUD_DEFAULT_URL : '');
+  });
+  $id('cloudKeys').checked = localStorage.getItem(CK.keys) === '1';
+  const saveCloud = () => {
+    localStorage.setItem(CK.url, $id('cloudUrl').value.trim());
+    localStorage.setItem(CK.user, $id('cloudUser').value.trim());
+    localStorage.setItem(CK.pass, $id('cloudPass').value);
+    localStorage.setItem(CK.keys, $id('cloudKeys').checked ? '1' : '0');
+  };
+  ['cloudUrl', 'cloudUser', 'cloudPass'].forEach(id => $id(id).addEventListener('change', saveCloud));
+  $id('cloudKeys').addEventListener('change', saveCloud);
+
+  const cloudHeaders = () => {
+    saveCloud();
+    const h = { 'Content-Type': 'application/json' };
+    const u = $id('cloudUrl').value.trim(), n = $id('cloudUser').value.trim(), p = $id('cloudPass').value;
+    if (u) h['x-cloud-url'] = u;
+    if (n) h['x-cloud-user'] = n;
+    if (p) h['x-cloud-pass'] = p;
+    if ($id('cloudKeys').checked) h['x-cloud-keys'] = '1';
+    return h;
+  };
+  async function cloudCall(cmd, btnId) {
+    const b = $id(btnId); const old = b.textContent;
+    b.disabled = true; b.textContent = '处理中…'; cmsg('');
+    try {
+      /* 云同步可能跑很久：走统一网络层但关掉超时，POST 不自动重试 */
+      const r = await Net.fetch('/cloud/' + cmd, { method: 'POST', headers: cloudHeaders(), body: '{}', timeout: 0, retry: 0 });
+      const d = await r.json();
+      if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
+      /* 覆盖与跳过都显示出来：以前两边都改过时只是静默跳过/静默覆盖，
+         用户不知道哪份数据被替换了（被覆盖的那份在 .data/ 里留了 .bak.json）。 */
+      let extra = '';
+      if ((d.overwritten || []).length) {
+        const list = d.overwritten.slice(0, 4).join('、') + (d.overwritten.length > 4 ? '…' : '');
+        extra += '；用云端覆盖了本机较旧的 ' + d.overwritten.length + ' 份（覆盖前已在本机留 .bak.json：' + list + '）';
+      }
+      if ((d.averted || []).length) {
+        extra += '；另有 ' + d.averted.length + ' 份' + (cmd === 'push'
+          ? '云端更新，本次没上传（避免把云端覆盖成旧的）'
+          : '本机更新，本次没下载（避免把本机覆盖成旧的）');
+      }
+      if ((d.conflicts || []).length) {
+        extra += '；' + d.conflicts.length + ' 份两边都改过，已列为冲突待选择（见下方）';
+      }
+      if ((d.autoPicked || []).length) {
+        extra += '；' + d.autoPicked.length + ' 份首次同步按时间取了较新的一份（' + d.autoPicked.slice(0, 3).join('、') + (d.autoPicked.length > 3 ? '…' : '') + '）';
+      }
+      cmsg('✓ ' + (d.message || '完成') + extra);
+      if ((cmd === 'pull' || cmd === 'sync') && (d.down || d.count)) {
+        try { DataSync.resetBootFlags(); } catch {}     // 让 boot() 再跑一次，把刚拉下来的数据写进浏览器
+        setTimeout(() => location.reload(), 900);
+      }
+      refreshDataInfo();
+      refreshCloudPanel();
+    } catch (e) { cmsg('✗ ' + e.message); }
+    finally { b.disabled = false; b.textContent = old; }
+  }
+  $id('cloudTest').onclick = () => cloudCall('test', 'cloudTest');
+  $id('cloudPush').onclick = async () => {
+    await DataSync.flush();                       // 先把还没发完的本地写推上去
+    cloudCall('push', 'cloudPush');
+  };
+  $id('cloudSync').onclick = async () => {
+    await DataSync.flush();
+    cloudCall('sync', 'cloudSync');
+  };
+  $id('cloudPull').onclick = async () => {
+    const ok = await Confirm.ask({ title: '从云端下载？', danger: true, okLabel: '下载并刷新',
+      body: '云端比本机新的数据会覆盖到本机（含 .data/ 数据文件），然后自动刷新页面。' });
+    if (ok) cloudCall('pull', 'cloudPull');
+  };
+
+  /* ---------- 云同步面板：上次结果 · 冲突二选一 · 备份恢复 ---------- */
+  const fmtTime = ts => ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '—';
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const panelBox = (title, hint) => '<div style="margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel2)">'
+    + '<div style="font-size:12.5px;font-weight:600;margin-bottom:4px">' + title + '</div>'
+    + (hint ? '<div style="font-size:11.5px;color:var(--sub);margin-bottom:6px">' + hint + '</div>' : '');
+  async function refreshCloudPanel() {
+    const stEl = $id('cloudState'), cBox = $id('cloudConflicts'), bBox = $id('cloudBackups');
+    if (!stEl) return;
+    let d = null;
+    try { d = await Net.json('/cloud/status', { timeout: 10000 }); } catch { stEl.textContent = '读不到同步状态（代理没在运行？）'; return; }
+    stEl.textContent = (d.lastAt ? '上次同步 ' + fmtTime(d.lastAt) + '：' + (d.lastResult || '') : '还没有同步过')
+      + (d.envConfigured ? '（凭据来自 .env）' : '');
+    /* 冲突：每条两个按钮，选完立即执行（选云端会先在本机留 .bak.json 备份） */
+    const cf = d.conflicts || [];
+    if (cBox) {
+      if (!cf.length) cBox.innerHTML = '';
+      else {
+        cBox.innerHTML = panelBox('冲突待选择（' + cf.length + ' 份）',
+          '两边都改过，为避免覆盖你的数据，这里不自动决定。选一边后立即生效。')
+          + cf.map(x => '<div class="krow thin" style="align-items:center;gap:8px;padding:4px 0">'
+            + '<span class="kn" style="flex:0 0 auto;font-family:monospace;font-size:12px">' + escH(x.key) + '</span>'
+            + '<span style="font-size:11.5px;color:var(--sub);flex:1">本机 ' + escH(fmtTime(x.localTs)) + ' ／ 云端 ' + escH(fmtTime(x.remoteTs)) + '</span>'
+            + '<button class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="local">用本机覆盖云端</button>'
+            + '<button class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="remote">用云端覆盖本机</button>'
+            + '</div>').join('') + '</div>';
+        cBox.querySelectorAll('[data-cf]').forEach(b => b.onclick = async () => {
+          const key = b.dataset.cf, side = b.dataset.side;
+          if (side === 'remote') {
+            const ok = await Confirm.ask({ title: '用云端版本覆盖本机？', danger: true, okLabel: '覆盖本机',
+              body: '会覆盖本机这份数据（覆盖前自动留一份 .bak.json 可恢复），然后刷新页面。' });
+            if (!ok) return;
+          }
+          b.disabled = true;
+          try {
+            const r = await Net.fetch('/cloud/resolve', { method: 'POST', headers: cloudHeaders(), body: JSON.stringify({ key, side }), timeout: 60000, retry: 0 });
+            const rd = await r.json();
+            if (!r.ok) throw new Error((rd.error && rd.error.message) || ('HTTP ' + r.status));
+            Toast.ok((rd.message || '已解决') + (side === 'remote' ? '（正在刷新…）' : ''));
+            if (side === 'remote') {
+              /* 只有「用云端覆盖本机」才需要刷新：那份数据要重新进浏览器。
+                 「用本机覆盖云端」只动了云端文件，本机没变 —— 刷新会把设置页里没保存的输入冲掉。 */
+              try { DataSync.resetBootFlags(); } catch {}
+              setTimeout(() => location.reload(), 900);
+            } else {
+              refreshCloudPanel();
+            }
+          } catch (e) { Toast.err('解决冲突失败：' + e.message); b.disabled = false; }
+        });
+      }
+    }
+    /* 备份：云端覆盖过本机的那些键，随时可以退回去 */
+    let bk = [];
+    try { bk = ((await Net.json('/cloud/backups', { timeout: 10000 })).items) || []; } catch {}
+    if (bBox) {
+      if (!bk.length) bBox.innerHTML = '';
+      else {
+        bBox.innerHTML = panelBox('备份（' + bk.length + ' 份）',
+          '每次用云端覆盖本机之前，都会把本机那份留在 .data/ 里；恢复后刷新页面即生效。')
+          + bk.slice(0, 12).map(x => '<div class="krow thin" style="align-items:center;gap:8px;padding:4px 0">'
+            + '<span class="kn" style="flex:0 0 auto;font-family:monospace;font-size:12px">' + escH(x.key) + '</span>'
+            + '<span style="font-size:11.5px;color:var(--sub);flex:1">' + escH(fmtTime(x.mtime)) + ' · ' + Math.round(x.size / 1024) + ' KB</span>'
+            + '<button class="ghost mini xs" data-bk="' + escH(x.key) + '">恢复这份</button>'
+            + '</div>').join('')
+          + (bk.length > 12 ? '<div class="sm">…共 ' + bk.length + ' 份，仅列最近 12 份</div>' : '')
+          + '</div>';
+        bBox.querySelectorAll('[data-bk]').forEach(b => b.onclick = async () => {
+          const ok = await Confirm.ask({ title: '用备份覆盖当前数据？', danger: true, okLabel: '恢复并刷新',
+            body: '会用 .data/ 里的那份备份覆盖本机当前数据文件（' + b.dataset.bk + '），然后刷新页面。' });
+          if (!ok) return;
+          b.disabled = true;
+          try {
+            const r = await Net.fetch('/cloud/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.dataset.bk }), timeout: 60000, retry: 0 });
+            const rd = await r.json();
+            if (!r.ok) throw new Error((rd.error && rd.error.message) || ('HTTP ' + r.status));
+            Toast.ok((rd.message || '已恢复') + '（正在刷新…）');
+            try { DataSync.resetBootFlags(); } catch {}
+            setTimeout(() => location.reload(), 900);
+          } catch (e) { Toast.err('恢复失败：' + e.message); b.disabled = false; }
+        });
+      }
+    }
+  }
+  refreshCloudPanel();
+})();
+
+/* ---------- 网络与刷新设置（Net / Wb 都读这几个键） ---------- */
+{
+  /* 没存过（null）时要显示默认值：Number(null) 是 0，直接判断会把「重试 1 次」显示成 0 */
+  const num = (key, def, min) => {
+    const raw = localStorage.getItem(key);
+    if (raw == null || raw === '') return def;
+    const v = Number(raw);
+    return Number.isFinite(v) ? Math.max(min, v) : def;
+  };
+  const tEl = $('netTimeout'), rEl = $('netRetry'), pEl = $('pollSec');
+  tEl.value = num('sk_net_timeout', 30, 5);
+  rEl.value = num('sk_net_retry', 1, 0);
+  pEl.value = num('sk_poll_sec', 4, 2);
+  $('netHint').textContent = '改动后点底部「保存全部设置」生效；0 次重试表示不重试。';
+  const saveNet = () => {
+    const t = Math.min(300, Math.max(5, Number(tEl.value) || 30));
+    const r = Math.min(5, Math.max(0, Number(rEl.value) || 0));
+    const p = Math.min(60, Math.max(2, Number(pEl.value) || 4));
+    tEl.value = t; rEl.value = r; pEl.value = p;
+    localStorage.setItem('sk_net_timeout', String(t));
+    localStorage.setItem('sk_net_retry', String(r));
+    localStorage.setItem('sk_poll_sec', String(p));
+    if (window.Net) Net.reloadConfig();
+  };
+  [tEl, rEl, pEl].forEach(el => el.addEventListener('change', saveNet));
+}
+
+/* ---------- 提示词归档 ---------- */
+(function () {
+  const $id = id => document.getElementById(id);
+  const msg = t => { const el = $id('promptMsg'); if (el) el.textContent = t || ''; };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const dirEl = $id('promptDir'), infoEl = $id('promptDirInfo'), listEl = $id('promptRecent');
+  if (!dirEl || !window.PromptLog) return;
+
+  function paint(d) {
+    const rows = d.recent || [];
+    infoEl.textContent = rows.length ? (d.count + ' 份归档') : '还没有归档';
+    infoEl.title = d.dir;
+    if (!rows.length) { listEl.textContent = '创建任务后，提示词会自动归档到这里。'; return; }
+    listEl.innerHTML = rows.slice(0, 8).map(r => {
+      const t = r.ts ? new Date(r.ts).toLocaleString('zh-CN', { hour12: false }) : '';
+      return '<div>· <b>' + esc(r.t || r.f) + '</b> <span style="color:var(--sub)">' + esc(r.k || '') + ' · ' + esc(t) + '</span></div>';
+    }).join('') + (rows.length > 8 ? '<div>…共 ' + d.count + ' 份，仅列最近 8 份</div>' : '');
+  }
+  async function refresh() {
+    try { paint(await PromptLog.list()); }
+    catch (e) { infoEl.textContent = '读不到（本地代理没在运行？）'; listEl.textContent = ''; }
+  }
+  dirEl.value = PromptLog.dir();
+  refresh();
+
+  // 目录只存本机：换台机器路径就不一样了，跟着云同步反而添乱（所以不走 DataSync）
+  dirEl.addEventListener('change', () => {
+    PromptLog.setDir(dirEl.value.trim());
+    msg(dirEl.value.trim() ? '✓ 归档目录已改为：' + dirEl.value.trim() : '✓ 已改回默认目录（项目下的 prompts/）');
+    refresh();
+  });
+  $id('promptRefresh').onclick = () => { msg(''); refresh(); };
+  $id('promptOpen').onclick = async () => {
+    // 先把输入框里的值落到设置里，免得「改了目录却没保存」时打开的是旧目录
+    PromptLog.setDir(dirEl.value.trim());
+    const b = $id('promptOpen'); b.disabled = true;
+    try { const d = await PromptLog.open(); msg('✓ 已打开：' + d.dir); }
+    catch (e) { msg('打不开目录：' + e.message); }
+    finally { b.disabled = false; }
+  };
+})();
+
+/* ---------- 列表分页设置 ---------- */
+const PAGE_TARGETS = [
+  { key: 'image', name: '图片工作台', defMode: 'page', defSize: 12 },
+  { key: 'video', name: '视频工作台', defMode: 'page', defSize: 12 },
+  { key: 'audio', name: '语音工作台', defMode: 'more', defSize: 12 },
+  { key: 'assets', name: '资产库', defMode: 'more', defSize: 24 },
+  { key: 'favorites', name: '我的收藏', defMode: 'page', defSize: 24 },
+];
+function pageModeOf(key, def) { return localStorage.getItem('page_mode_' + key) || def; }
+function pageSizeOf(key, def) { return Math.max(1, Number(localStorage.getItem('page_size_' + key) || def)); }
+function renderPageSettings() {
+  const box = $('pageSettings');
+  box.innerHTML = '';
+  PAGE_TARGETS.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'krow thin';
+    row.innerHTML = `<span class="kn">${t.name}</span>
+      <select data-mode="${t.key}" style="flex:0 0 140px">
+        <option value="page" ${pageModeOf(t.key, t.defMode) === 'page' ? 'selected' : ''}>翻页</option>
+        <option value="more" ${pageModeOf(t.key, t.defMode) === 'more' ? 'selected' : ''}>动态加载（滚动自动加载）</option>
+      </select>
+      <span style="font-size:12.5px;color:var(--sub)">每页</span>
+      <input type="number" min="1" max="100" data-size="${t.key}" value="${pageSizeOf(t.key, t.defSize)}" style="flex:0 0 90px">
+      <span style="font-size:12.5px;color:var(--sub)">条</span>`;
+    box.appendChild(row);
+  });
+  if (window.Dropdowns) Dropdowns.build(box);   // 动态行里的下拉用自定义组件渲染
+}
+function savePageSettings() {
+  document.querySelectorAll('#pageSettings [data-mode]').forEach(s => localStorage.setItem('page_mode_' + s.dataset.mode, s.value));
+  document.querySelectorAll('#pageSettings [data-size]').forEach(i => localStorage.setItem('page_size_' + i.dataset.size, String(Math.max(1, Math.min(100, Number(i.value) || 12)))));
+}
+renderPageSettings();
+
+$('saveAll').onclick = () => {
+  document.querySelectorAll('[data-key]').forEach(inp => {
+    if (inp.value.trim()) localStorage.setItem('sk_key_' + inp.dataset.key, inp.value.trim());
+    else localStorage.removeItem('sk_key_' + inp.dataset.key);
+  });
+  const base = $('textBase').value.trim();
+  // 以前只认 https://，填内网 http 服务（Ollama / vLLM）会被静默丢掉，还不给任何提示
+  if (base) {
+    if (/^https?:\/\//.test(base)) { localStorage.setItem('sk_base_deepseek', base); }
+    else { $('okmsg').textContent = '⚠ 文字 AI 接口地址要以 http:// 或 https:// 开头，这次没有保存它'; renderProv(); return; }
+  } else localStorage.removeItem('sk_base_deepseek');
+  if ($('textModel') && $('textModel').value) localStorage.setItem('sk_model_deepseek', $('textModel').value);
+  localStorage.setItem('sk_polish_video', $('polishVideo').value);
+  localStorage.setItem('sk_polish_img', $('polishImg').value);
+  localStorage.setItem('sk_polish_story', $('polishStory').value);
+  if ($('polishAudio')) localStorage.setItem('sk_polish_audio', $('polishAudio').value);
+  if ($('polishSplit')) localStorage.setItem('sk_polish_split', $('polishSplit').value);
+  savePageSettings();
+  $('okmsg').textContent = '✓ 已保存（分页设置刷新页面后生效）';
+  setTimeout(() => { $('okmsg').textContent = ''; }, 2000);
+  renderProv();
+};
+
+/* ---------- 设置导入 / 导出 / 恢复默认 ----------
+   设置项散在 localStorage 的多个键里，换台机器要一项项重填；这里统一导出成一个 JSON。 */
+/* 可导出 / 可重置的设置项前缀。与各页面实际用到的键保持同步 ——
+   以前列了几个早已没人写的键（sk_tts_ / sk_save_dir / sk_default_dir），只会让导出的文件里
+   多出无用项；「网络与刷新」（sk_net_ / sk_poll_sec）现在也一起导出。
+   wb_split = 页面分栏比例（三个工作台 + 导演台共用一份，见 workbench.js 的 Wb.split）：
+   它也是「界面偏好」，以前不在导出清单里，换台机器栏宽全丢。 */
+const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_text_vision', 'sk_polish_', 'sk_dir_',
+  'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show'];
+/* 「恢复默认」不动的界面偏好：dir_ 前缀会把它们一起扫进来，
+   所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view，
+   恢复默认会把用户的视图档位一起清掉，而弹窗写的是「清掉目录」，两件事都对不上。 */
+const RESET_KEEP = ['dir_theme', 'dir_asset_view', 'dir_fav_view'];
+function exportSettings(includeKeys) {
+  const out = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    const hit = EXPORTABLE.some(p => k === p || k.startsWith(p));
+    if (!hit) continue;
+    if (!includeKeys && k.startsWith('sk_key_')) continue;      // 默认不导出密钥
+    out[k] = localStorage.getItem(k);
+  }
+  return { type: 'ai-workbench-settings', version: 1, ts: new Date().toISOString(), includeKeys: !!includeKeys, data: out };
+}
+if ($('expSet')) $('expSet').onclick = async () => {
+  const withKeys = await Confirm.choose({
+    title: '导出设置', body: '密钥（平台 API Key）要不要一起导出？',
+    options: [
+      { value: 'nokeys', label: '不含密钥（推荐）', hint: '只导出接口地址、目录、分页、润色指令等' },
+      { value: 'keys', label: '含密钥', hint: '方便换电脑直接用，但文件里会有明文密钥，别外传' },
+    ],
+  });
+  if (!withKeys) return;
+  const json = JSON.stringify(exportSettings(withKeys === 'keys'), null, 2);
+  const name = 'ai-workbench-设置-' + new Date().toISOString().slice(0, 10) + '.json';
+  Net.save(new Blob([json], { type: 'application/json' }), name);
+  Toast.ok('已导出设置' + (withKeys === 'keys' ? '（含密钥）' : ''));
+};
+if ($('impSet')) $('impSet').onclick = () => $('impSetFile').click();
+if ($('impSetFile')) $('impSetFile').onchange = e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d || !['ai-workbench-settings', 'sparkcine-settings'].includes(d.type) || !d.data) throw new Error('不是本工具导出的设置文件');
+      const n = Object.keys(d.data).length;
+      const ok = await Confirm.ask({ title: '导入设置', okLabel: '导入并覆盖',
+        body: `将写入 ${n} 项设置（同名项会被覆盖）。导入后页面会自动刷新。` });
+      if (!ok) return;
+      Object.entries(d.data).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch {} });
+      Toast.ok('已导入 ' + n + ' 项设置，正在刷新…');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) { Toast.err('导入失败：' + err.message); }
+  };
+  r.onerror = () => Toast.err('读取文件失败');
+  r.readAsText(f);
+};
+if ($('resetSet')) $('resetSet').onclick = async () => {
+  const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
+    body: '会清掉：平台密钥、文字 AI 接口地址与模型、润色指令、分页方式与每页条数、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
+      + '不会清掉：下载/渲染等「默认文件夹」（那是浏览器授权的目录句柄，另存于本机，可在上面的「目录」处单独改）；主题与列表视图偏好也会保留；生成历史、资产、收藏不受影响。' });
+  if (!ok) return;
+  let n = 0;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (RESET_KEEP.includes(k)) continue;                 // 主题 / 列表视图偏好留着（见 RESET_KEEP）
+    if (EXPORTABLE.some(p => k === p || k.startsWith(p))) { localStorage.removeItem(k); n++; }
+  }
+  Toast.ok('已清除 ' + n + ' 项设置，正在刷新…');
+  setTimeout(() => location.reload(), 800);
+};
+(async () => {
+  const defs = {
+    polishVideo: '你是专业的AI视频提示词工程师。把用户的镜头提示词润色为细节丰富、结构清晰、适合视频生成模型的中文提示词：补全主体、动作、场景、光线、镜头语言与氛围，不添加无关内容，直接返回润色后的提示词本身，不要任何解释。',
+    polishImg: '你是专业的AI图片提示词工程师。把用户的提示词润色为细节丰富、结构清晰、适合文生图模型的中文提示词：补全主体、构图、光线、风格与质感，不添加无关内容，直接返回润色后的提示词本身，不要任何解释。',
+    polishStory: `你是分镜师。根据镜头描述与时长，决定需要几张关键画面（3–8 张，视内容复杂度），并按时间顺序给出每一张的文生图提示词。
+只返回 JSON，不要任何解释或代码块标记，格式：
+{"frames":[{"t":0,"prompt":"画面提示词"}]}
+要求：t 为秒数，从 0 开始递增且不超过镜头时长；prompt 需包含主体、动作、构图、光线、氛围，不写镜头运动。`,
+    polishAudio: '你是配音稿编辑。把用户给的文本改写成适合语音合成的口播稿：口语化、句子短、标点清晰，数字与英文缩写写成中文读法，不加解释、不加标题，直接返回改写后的文本。',
+    polishSplit: `你是分镜师。把剧本/文案拆成「场景 → 镜头」。每个镜头给出适合视频生成的提示词（含主体、动作、场景、镜头运动、光线、氛围），并给出时长建议。
+只返回 JSON：{"title":"短片名","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5,"note":"一句画面说明"}]}]}`,
+  };
+  $('polishVideo').value = localStorage.getItem('sk_polish_video') || defs.polishVideo;
+  $('polishImg').value = localStorage.getItem('sk_polish_img') || defs.polishImg;
+  $('polishStory').value = localStorage.getItem('sk_polish_story') || defs.polishStory;
+  if ($('polishAudio')) $('polishAudio').value = localStorage.getItem('sk_polish_audio') || defs.polishAudio;
+  if ($('polishSplit')) $('polishSplit').value = localStorage.getItem('sk_polish_split') || defs.polishSplit;
+  $('textBase').value = localStorage.getItem('sk_base_deepseek') || '';
+
+  /* ---------- 常用文字 AI 接口预设 ---------- */
+  const PRESETS = [
+    { name: 'DeepSeek', base: 'https://api.deepseek.com', hint: 'platform.deepseek.com', models: ['deepseek-flash', 'deepseek-v4-pro'] },
+    { name: 'OpenAI', base: 'https://api.openai.com', hint: 'openai.com', models: ['gpt-4o-mini'] },
+    { name: '月之暗面 Kimi', base: 'https://api.moonshot.cn', hint: 'moonshot.cn', models: ['moonshot-v1-8k'] },
+    { name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', hint: 'bigmodel.cn', models: ['glm-4-flash'] },
+    { name: '阿里通义', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', hint: 'dashscope', models: ['qwen-plus'] },
+    { name: '硅基流动', base: 'https://api.siliconflow.cn/v1', hint: 'siliconflow.cn', models: ['deepseek-ai/DeepSeek-V3'] },
+    { name: '自定义', base: '', hint: '自己填地址', models: [] },
+  ];
+  const PT_KEY = 'sk_text_provider';
+  const presetBox = $('presets');
+  presetBox.innerHTML = PRESETS.map((p2, i) => `<button data-i="${i}">${p2.name}<span class="b">${p2.hint}</span></button>`).join('');
+  const markPreset = () => {
+    const cur = localStorage.getItem(PT_KEY) || 'DeepSeek';
+    presetBox.querySelectorAll('button').forEach(b => b.classList.toggle('on', PRESETS[+b.dataset.i].name === cur));
+  };
+  presetBox.querySelectorAll('button').forEach(b => b.onclick = () => {
+    const p2 = PRESETS[+b.dataset.i];
+    localStorage.setItem(PT_KEY, p2.name);
+    if (p2.base) $('textBase').value = p2.base;
+    if (p2.models.length) { fillModelOptions(p2.models); $('textModel').value = p2.models[0]; localStorage.setItem('sk_model_deepseek', p2.models[0]); }
+    $('textModelTip').textContent = p2.base ? `已选「${p2.name}」，记得保存后点「获取模型列表」确认可用模型。` : '自定义接口：请自己填写 OpenAI 兼容地址。';
+    markPreset();
+  });
+  markPreset();
+
+  /* ---------- 模型列表：填充 / 选择 / 拉取 / 测试 ---------- */
+  function fillModelOptions(ids, keep) {
+    const sel = $('textModel');
+    const prev = keep || localStorage.getItem('sk_model_deepseek') || '';
+    sel.innerHTML = ids.map(id2 => `<option value="${id2}">${id2}</option>`).join('');
+    sel.value = ids.includes(prev) ? prev : (ids[0] || '');
+  }
+  fillModelOptions(['deepseek-flash', 'deepseek-v4-pro']);
+  if (window.Dropdowns) Dropdowns.build(document);
+  
+  $('textModel').onchange = () => {
+    localStorage.setItem('sk_model_deepseek', $('textModel').value);
+    $('textModelTip').textContent = '已选择模型：' + $('textModel').value + '（自动保存，点「保存全部设置」确保写入）';
+    refreshVisionTip();
+  };
+  /* ---------- 识图能力：自动 / 支持 / 不支持（存 sk_text_vision） ----------
+     判定优先看接口返回的模型能力字段（input_modalities 等里有没有 image），
+     所以这里先把能力拉一次（有 12 小时缓存，不会每次都请求）。 */
+  let visionTipSeq = 0;
+  async function refreshVisionTip() {
+    const el = $('textVisionTip');
+    if (!el || !window.TextAI) return;
+    const seq = ++visionTipSeq;
+    const REG2 = window.__REG || { providers: [] };
+    el.textContent = '正在读取模型能力…';
+    let v;
+    try { v = await TextAI.visionAsync(REG2); }
+    catch { v = TextAI.vision(REG2); }
+    if (seq !== visionTipSeq) return;      // 期间又刷新了，丢弃这次结果
+    el.textContent = v.ok
+      ? `当前模型 ${v.model}：润色时会带上参考图 / 首尾帧一起发给它（判定依据：${v.why}）。`
+      : `当前模型 ${v.model}：润色时只发文字（判定依据：${v.why}）。若该模型确实能识图，把上面选成「支持识图」即可强制启用。`;
+  }
+  const tv = $('textVision');
+  if (tv) {
+    tv.value = localStorage.getItem('sk_text_vision') || 'auto';
+    tv.onchange = () => { localStorage.setItem('sk_text_vision', tv.value); refreshVisionTip(); };
+  }
+  Api.registry().then(d => { window.__REG = d; refreshVisionTip(); }).catch(() => {});
+  $('fetchModels').onclick = async () => {
+    const btn = $('fetchModels');
+    btn.disabled = true; btn.textContent = '获取中…';
+    try {
+      // 先把当前填的密钥/地址临时写本地，便于立即拉取（与「保存」等效）
+      const kv = document.querySelector('[data-key]');
+      if (kv) { for (const inp of document.querySelectorAll('[data-key]')) { if (inp.value.trim()) localStorage.setItem('sk_key_' + inp.dataset.key, inp.value.trim()); } }
+      const base2 = $('textBase').value.trim();
+      if (base2) localStorage.setItem('sk_base_deepseek', base2);
+      const list = await TextAI.models(await Api.registry());
+      if (!list.length) throw new Error('接口没有返回模型');
+      fillModelOptions(list.map(x => x.id));
+      localStorage.setItem('sk_model_deepseek', $('textModel').value);
+      $('textModelTip').textContent = `从「${base2 || '默认地址'}」获取到 ${list.length} 个模型` + (localStorage.getItem('sk_model_deepseek') ? '，已选 ' + localStorage.getItem('sk_model_deepseek') : '');
+      if (window.Dropdowns) Dropdowns.sync(document);
+      refreshVisionTip();
+      $('okmsg').textContent = '✓ 模型列表已更新';
+      setTimeout(() => { $('okmsg').textContent = ''; }, 2000);
+    } catch (e) {
+      $('textModelTip').textContent = '获取失败：' + e.message + '（检查密钥与接口地址）';
+    } finally { btn.disabled = false; btn.textContent = '获取模型列表'; }
+  };
+  $('testTextAI').onclick = async () => {
+    const btn = $('testTextAI');
+    btn.disabled = true; btn.textContent = '测试中…';
+    try {
+      const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok');
+      $('textModelTip').textContent = '✓ 测试成功（' + TextAI.model(TextAI.prov(await Api.registry())) + '）：' + out.slice(0, 60);
+    } catch (e) { $('textModelTip').textContent = '✗ 测试失败：' + e.message; }
+    finally { btn.disabled = false; btn.textContent = '测试'; }
+  };
+  // 文字 AI 密钥：回填本机值；若为空或同服务端环境密钥，则留空并提示「已使用服务端环境密钥」
+  const tk = $('textKey');
+  if (tk) {
+    const lk = localStorage.getItem('sk_key_deepseek') || '';
+    const env = envInfo['deepseek'] || {};
+    if (lk && env.hasEnv && lk.slice(-4) === env.tail) { localStorage.removeItem('sk_key_deepseek'); tk.value = ''; }
+    else tk.value = lk;
+    tk.placeholder = env.hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写文字 AI 密钥（或写进 .env / 系统环境变量）';
+  }
+
+  // 「恢复默认」：把对应指令重置为内置默认值
+  const defsForReset = { polishVideo: defs.polishVideo, polishImg: defs.polishImg, polishStory: defs.polishStory,
+    polishAudio: defs.polishAudio, polishSplit: defs.polishSplit };
+  document.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => {
+    const id2 = b.dataset.reset;
+    $(id2).value = defsForReset[id2] || '';
+    b.textContent = '已恢复';
+    setTimeout(() => { b.textContent = '恢复默认'; }, 1400);
+  });
+  await loadReg();
+})();
+
+/* ---------- 清理缓存 ----------
+   判断标准：这东西删掉后系统能自己重建，且不丢用户作品、不产生费用。
+   所以这里只有「副本」：平台应答、能力声明、模型元信息、缩略图、体积探测、归档缺档标记。
+   唯一的例外是最后那组「本地任务记录」——它不是缓存（删了就没了），所以按 HISTORY 声明动态列出、
+   必须二次确认，并且写清楚它会连带同步到 .data/ 与云端。各页面不再放清空按钮（工作台只留刷新）。 */
+(function () {
+  const $id = id => document.getElementById(id);
+  const msg = t => { const el = $id('cacheMsg'); if (el) el.textContent = t || ''; };
+
+  /* 每个按钮同一套外壳：按下即禁用、结果写回同一行提示，失败要说清是哪一段失败 */
+  const run = async (btnId, fn) => {
+    const b = $id(btnId);
+    if (!b) return;
+    const old = b.textContent;
+    b.disabled = true; b.textContent = '清理中…'; msg('');
+    try { msg(await fn()); }
+    catch (e) { msg('✗ 清理失败：' + ((e && e.message) || e)); }
+    finally { b.disabled = false; b.textContent = old; }
+  };
+
+  /* 代理侧的应答缓存：只有代理自己知道条数，所以让它回一份清理明细 */
+  const proxyCaches = async () => {
+    const r = await Net.fetch('/clear-cache', { method: 'POST', timeout: 10000, retry: 0 });
+    if (!r.ok) throw new Error('代理 HTTP ' + r.status + '（代理版本太旧？重启 proxy.js 即可）');
+    return (await r.json()).cleared || {};
+  };
+
+  $id('clearCacheApi').onclick = () => run('clearCacheApi', async () => {
+    Api.clearCaches();                       // 本机：注册表 / 列表快照 / 报价 / 能力来源标记
+    const c = await proxyCaches();           // 代理：任务列表 / 详情 / 资产地址 / 模型能力
+    const zh = { list: '列表', detail: '详情', assetUrl: '资产地址', cap: '能力' };
+    return '✓ 本机应答缓存已清空；代理侧 ' + Object.keys(zh).map(k => zh[k] + ' ' + (c[k] || 0)).join('、')
+      + ' 条（下次打开工作台会自动重新拉取）';
+  });
+
+  $id('clearCacheMeta').onclick = () => run('clearCacheMeta', async () =>
+    '✓ 已清掉 ' + TextAI.clearMeta() + ' 个模型的接口形状/识图判定（下次调用重新探测）');
+
+  $id('clearCacheThumb').onclick = () => run('clearCacheThumb', async () => {
+    const n = await Wb.thumbs.clearAll();
+    return '✓ 已清掉 ' + n + ' 张缩略图与 ' + Wb.clearSizes() + ' 条体积探测结果（列表会重新抽一次帧，之后照常秒开）';
+  });
+
+  $id('clearCacheMissed').onclick = () => run('clearCacheMissed', async () =>
+    '✓ 已清掉 ' + PromptLog.clearMissed() + ' 条「本机没有归档」标记（会重新去归档里找一次）');
+
+  /* 本地任务记录：kind / 键名 / 显示名都从 Wb.History 的声明现取，这里不写死平台 */
+  function renderHistRows() {
+    const host = $id('histClearRows');
+    if (!host) return;
+    const kinds = (window.Wb && Wb.History.kinds()) || [];
+    host.innerHTML = kinds.map(k => {
+      const n = Wb.History.read(k.kind).length;
+      return '<div class="krow" style="gap:8px;flex-wrap:wrap;margin-top:10px">'
+        + '<span class="kn">本地任务记录</span>'
+        + '<span class="sub-line">' + esc(k.label) + '：本机 ' + n + ' 条。'
+        + (n ? '这不是缓存——清掉后本机的任务号/提示词就没了（平台列表里的任务与已生成的文件不受影响），删除还会同步到数据文件与云端。'
+             : '本机没有记录。')
+        + '</span>'
+        + '<button class="ghost mini danger wide" data-hist="' + esc(k.kind) + '"'
+        + (n ? '' : ' disabled') + '>清空</button></div>';
+    }).join('');
+    host.querySelectorAll('[data-hist]').forEach(b => { b.onclick = () => clearHist(b.dataset.hist); });
+  }
+  async function clearHist(kind) {
+    const k = ((Wb.History.kinds() || []).find(x => x.kind === kind)) || { label: kind };
+    const n = Wb.History.read(kind).length;
+    const yes = await Confirm.ask({
+      title: '清空' + k.label + '？', danger: true, okLabel: '确定清空',
+      body: '这会删掉本机 ' + n + ' 条' + k.label + '（任务号、提示词、产物地址）。'
+        + '已经生成出来的图片/语音文件本身不会被删除，平台列表里的任务也还在。'
+        + '删除会同步到数据文件（.data/）和云端，云端会保留一份覆盖前的备份。',
+    });
+    if (!yes) return;
+    if (!Wb.History.clear(kind)) { msg('✗ 清空失败：浏览器存储写不进去（见上面的提示）'); return; }
+    msg('✓ 已清空 ' + k.label + '（' + n + ' 条）');
+    renderHistRows();
+  }
+  renderHistRows();
+})();
+</script>
+</body>
+</html>

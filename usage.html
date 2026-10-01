@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用量与余额 · AI 创作工作台</title>
+<link rel="stylesheet" href="ui.css">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('dir_theme') || 'light'; } catch (e) {}</script>
+<style>
+  /* 主题色变量（与资产库/设置页同一套；本页原先缺失，导致面板、边框、滚动条全都无样式） */
+  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --warn:#d97706; --input:#f6f7fb; --pri:#7c5cff; }
+  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --warn:#fbbf24; --input:#0f1219; --pri:#7c5cff; }
+  /* 本页只写结构样式：颜色变量、按钮（.ghost/.pri）、下拉（.dd）等全部沿用 ui.css 公共规范 */
+  body { background: var(--bg); color: var(--txt); min-height: 100vh; }
+  .page-main { padding: 30px 44px 60px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .desc { font-size: 13.5px; color: var(--sub); line-height: 1.7; max-width: 860px; }
+  .bar { display: flex; align-items: center; gap: 10px; margin: 20px 0 16px; flex-wrap: wrap; }
+  .bar .sp { flex: 1; }
+  .upd { font-size: 12px; color: var(--sub); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  /* 左右分栏：左＝余额/曲线/文字AI用量，右＝账单明细（较窄） */
+  .ub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 18px; align-items: start; }
+  .ub-left { min-width: 0; }
+  .ub-right { min-width: 0; }
+  .ub-right .panel { margin-top: 0; }
+  /* 右栏筛选：竖排铺满面板宽度，不允许换行/溢出（列方向的 wrap 会把控件挤出面板） */
+  .ub-right .filters { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 8px;
+    flex: 0 0 auto; min-width: 0; }
+  .ub-right .filters .ddwrap { flex: 0 0 auto; width: 100%; min-width: 0; }
+  .ub-right .filters .dd { width: 100%; min-width: 0; }
+  .ub-right .filters input { width: 100%; box-sizing: border-box; }
+  /* 账单区域：标题与筛选固定，只有列表本身滚动（独立滚动条，滚动条要看得见）
+     scrollbar-width/color 是 Windows 11 上实际生效的通道（会强制经典滚动条、始终可见）；
+     ::-webkit-scrollbar 系列覆盖其它浏览器，两者都留着 */
+  .bills-panel { display: flex; flex-direction: column; max-height: calc(100vh - 190px); position: sticky; top: 16px; }
+  .ub-right #bills { flex: 1 1 auto; min-height: 120px; overflow-y: auto; margin-right: -8px; padding-right: 8px;
+    scrollbar-width: thin; scrollbar-color: var(--sub) var(--panel2); }
+  html[data-theme="dark"] .ub-right #bills { scrollbar-color: var(--line) transparent; }
+  .ub-right #bills::-webkit-scrollbar { width: 10px; }
+  .ub-right #bills::-webkit-scrollbar-track { background: var(--panel2); border-radius: 4px; }
+  .ub-right #bills::-webkit-scrollbar-thumb { background: var(--sub); border-radius: 4px; border: 2px solid var(--panel2); }
+  .ub-right #bills::-webkit-scrollbar-thumb:hover { background: var(--acc); border-color: var(--panel2); }
+  @media (max-width: 1200px) {
+    .bills-panel { position: static; max-height: none; }
+    .ub-right #bills { max-height: 60vh; }
+  }
+  .ub-right table { font-size: 11.5px; }
+  .ub-right th, .ub-right td { padding: 6px 4px; }
+  .ub-right th.w, .ub-right td.w { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 1200px) {
+    .ub-layout { grid-template-columns: 1fr; }
+    .ub-right .filters { flex-direction: row; align-items: center; }
+    .ub-right .filters .ddwrap { flex: 0 0 150px; }
+    .ub-right .filters input { width: auto; flex: 1 1 200px; }
+  }
+  /* 窄窗口：收紧留白 */
+  @media (max-width: 760px) { .page-main { padding: 16px 12px 40px; } }
+  .bal { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 15px 16px; }
+  .bal .hd { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sub); }
+  .bal .hd .ic { font-size: 16px; }
+  .bal .v { font-size: 24px; font-weight: 700; margin: 9px 0 4px; letter-spacing: .3px; }
+  .bal .v small { font-size: 12.5px; font-weight: 400; color: var(--sub); margin-left: 6px; }
+  .bal .ex { font-size: 11.5px; color: var(--sub); min-height: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-top: 18px; }
+  .panel h2 { font-size: 14px; margin-bottom: 4px; }
+  .panel .hint { font-size: 11.5px; color: var(--sub); margin-bottom: 12px; }
+  .chart-units { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { font-size: 11.5px; padding: 4px 11px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--txt); cursor: pointer; }
+  .chip:hover { border-color: var(--acc); color: var(--acc); }
+  .chip.active { border-color: var(--acc); color: var(--acc); background: rgba(108,140,255,.12); }
+  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--sub); padding-top: 6px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11.5px; color: var(--sub); font-weight: 500; white-space: nowrap; }
+  td.num, th.num { text-align: right; white-space: nowrap; font-weight: 600; }
+  td.t { color: var(--sub); white-space: nowrap; font-size: 11.5px; }
+  td.p { color: var(--acc); white-space: nowrap; }
+  tr:hover td { background: var(--panel2); }
+  .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .filters .ddwrap { flex: 0 0 150px; }
+  .filters .dd-btn { padding: 8px 12px; font-size: 12.5px; }
+  .filters input { padding: 8px 12px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--input); color: var(--txt); outline: none; }
+  .filters input:focus { border-color: var(--acc); }
+  .empty { color: var(--sub); font-size: 13px; padding: 26px 0; text-align: center; }
+  .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 8px; }
+  .stat div { font-size: 12.5px; color: var(--sub); }
+  .stat b { display: block; font-size: 19px; color: var(--txt); margin-top: 3px; }
+</style>
+</head>
+<body>
+<div class="page-main">
+  <h1><span data-icon="chart" data-size="18"></span> 用量与余额</h1>
+  <div class="desc">只统计<b>已配置密钥</b>的平台。生成平台的花费取自接口返回的真实积分/价格；文字 AI 不折算金额，只统计消耗的 tokens。</div>
+
+  <div class="bar">
+    <button class="ghost" id="reload" style="padding:8px 15px"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+    <span class="sp"></span>
+    <span class="upd" id="upd"></span>
+  </div>
+
+  <div class="ub-layout">
+    <div class="ub-left">
+      <div class="cards" id="balances"><div class="empty">加载中…</div></div>
+
+      <div class="panel">
+        <h2>近 14 天每日消费</h2>
+        <div class="chart-units" id="chartUnits"></div>
+        <div id="chart"><div class="empty">加载中…</div></div>
+      </div>
+
+      <div class="panel" id="voicePanel">
+        <h2>语音用量</h2>
+        <div class="stat" id="voiceStat"></div>
+        <div id="voiceByModel"></div>
+        <h2 style="font-size:13px;margin:16px 0 6px">最近生成</h2>
+        <div id="voiceRecent"></div>
+      </div>
+
+      <div class="panel">
+        <h2>文字 AI 用量</h2>
+        <div class="stat" id="aiStat"></div>
+        <div class="hint" id="aiPriceNote" style="margin:2px 0 12px"></div>
+        <div id="aiByModel"></div>
+        <h2 style="font-size:13px;margin:16px 0 6px">按日用量</h2>
+        <div id="aiDaily"></div>
+      </div>
+    </div>
+
+    <aside class="ub-right">
+      <div class="panel bills-panel">
+        <h2>账单明细</h2>
+        <div class="filters">
+          <div class="ddwrap"><select id="fPlatform"><option value="">全部平台</option></select></div>
+          <div class="ddwrap"><select id="fRange">
+            <option value="1">今天</option>
+            <option value="7">近 7 天</option>
+            <option value="30" selected>近 30 天</option>
+            <option value="0">全部时间</option>
+          </select></div>
+          <input id="fQ" placeholder="搜索提示词 / 模型 / ID…">
+        </div>
+        <button class="ghost" id="expBills" title="把当前筛选出的账单导出成 CSV（Excel 可直接打开）">⤓ 导出 CSV</button>
+        <div class="upd" id="billCnt" style="margin-bottom:8px"></div>
+        <div id="bills"><div class="empty">加载中…</div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="ui.js"></script>
+<script src="sidebar.js"></script>
+<script src="assetlib.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const ROUND = v => Math.round((Number(v) || 0) * 100) / 100;
+const dayKey = ts => { const d = new Date(ts || Date.now()); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const fmtTime = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+let REG = null;
+let bills = [];
+let envStatus = null;      // /env-status 的结果：null = 读不到（代理没起来）
+let curBillRows = [];      // 当前筛选出的账单（导出 CSV 用）
+/* 文字 AI 厂商显示名：余额卡片、账单、图表统一用它 */
+const VENDOR_LABEL = { deepseek: 'DeepSeek', moonshot: 'Moonshot', siliconflow: 'SiliconFlow', openai: 'OpenAI', zhipu: '智谱 GLM', dashscope: '阿里通义', custom: '自定义' };
+
+/* 取 JSON：失败要能区分「读不到」和「内容为空」——以前两者都返回 null，
+   最后界面统一显示「还没有配置任何平台的密钥」，代理没起来时会被误导 */
+async function getJson(url) {
+  try {
+    const r = await Net.fetch(url, { timeout: 10000, retry: 1 });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.warn('[usage] 读取失败 ' + url + '：', e && e.message);
+    return null;
+  }
+}
+
+/* ---------- 已配置的平台（页面填了密钥，或服务端有环境密钥） ---------- */
+async function loadConfigured(reg) {
+  const env = await getJson('/env-status');
+  envStatus = env;                        // null = 读不到（代理没起来），{} = 读到了但没配密钥
+  const list = [];
+  for (const prov of ((reg && reg.providers) || [])) {
+    const kid = prov.keyId || prov.id;
+    const local = !!localStorage.getItem('sk_key_' + kid);
+    const hasEnv = !!((env || {})[kid] && (env || {})[kid].hasEnv);
+    if (local || hasEnv) list.push({ prov, kid, source: local ? '页面密钥' : '服务端环境密钥' });
+  }
+  return list;
+}
+
+/* ---------- 余额 ----------
+   生成平台余额统一按 registry 的声明查：endpoints.credits + balance.style（解析在 Api.balance）
+   同一密钥的平台（如 SparkCine 生图/视频）只查一次，展示名用 displayName（不分开统计） */
+async function loadBalances(reg, configured) {
+  const has = kid => configured.some(c => c.kid === kid);
+  const cards = [];
+  const jobs = [];
+  if (window.Api) Api.setRegistry(reg);
+
+  const genProvs = [];
+  ((reg && reg.providers) || []).forEach(p => {
+    if (!p.endpoints || !p.endpoints.credits) return;
+    const kid = p.keyId || p.id;
+    if (genProvs.some(x => (x.keyId || x.id) === kid)) return;
+    genProvs.push(p);
+  });
+  genProvs.forEach(p => {
+    const kid = p.keyId || p.id;
+    if (!has(kid)) return;
+    const name = p.displayName || p.name;
+    const ic = p.kind === 'video' ? icon('video', 15) : (p.kind === 'image' ? icon('film', 15) : icon('coin', 15));
+    jobs.push((async () => {
+      try {
+        const raw = await Api.request(p, 'credits');
+        const b = Api.balance(p, raw);
+        if (!b.ok) { cards.push({ ic, name, unit: '', val: '—', ex: '读取失败' }); return; }
+        const val = b.unit === '积分' ? Number(b.available).toLocaleString() : ('¥' + Number(b.available).toFixed(2));
+        const ex = b.unit === '积分'
+          ? ['冻结 ' + b.frozen + ' 积分', b.note].filter(Boolean).join(' · ')
+          : ['已用 ¥' + Number(b.spent ?? 0).toFixed(2), b.frozen ? '冻结 ¥' + Number(b.frozen).toFixed(2) : ''].filter(Boolean).join(' · ');
+        cards.push({ ic, name, unit: b.unit, val, ex });
+      } catch (e) { cards.push({ ic, name, unit: '', val: '—', ex: '查询失败：' + e.message }); }
+    })());
+  });
+
+  // 文字 AI：已配置的每个平台都单独查余额（展示直接用厂商名，见顶部 VENDOR_LABEL）
+  const textProvs = configured.filter(c => c.prov.kind === 'text');
+  textProvs.forEach(c => jobs.push((async () => {
+    const model = window.TextAI.model(c.prov);
+    const r = await window.TextAI.fetchBalance(reg, c.prov);
+    if (r.ok) {
+      cards.push({ ic: icon('brain', 15), name: (VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, '')) + '（' + model + '）', unit: r.currency || 'CNY',
+        val: (r.currency === 'CNY' || !r.currency ? '¥' : '') + Number(r.amount).toFixed(2),
+        ex: [r.extra, c.source, r.available === false ? '不可用' : ''].filter(Boolean).join(' · ') });
+    } else if (r.unsupported) {
+      cards.push({ ic: icon('brain', 15), name: VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, ''), unit: '', val: '无余额接口', ex: c.source + ' · 该平台不提供余额查询' });
+    } else {
+      cards.push({ ic: icon('brain', 15), name: VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, ''), unit: '', val: '—', ex: '查询失败：' + r.reason });
+    }
+  })()));
+
+  await Promise.all(jobs);
+  if (!cards.length) {
+    // 区分三种情况，别把「读不到配置」说成「没配密钥」
+    const envOk = envStatus !== null;
+    $('balances').innerHTML = envOk
+      ? '<div class="empty">还没有配置任何平台的密钥，请先到「设置」里填写</div>'
+      : '<div class="empty" style="color:var(--warn,#d97706)">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点「重新加载」。</div>';
+  }
+  else $('balances').innerHTML = cards.map(b => `<div class="bal">
+      <div class="hd"><span class="ic">${b.ic}</span><span>${b.name}</span></div>
+      <div class="v">${b.val}${b.unit ? `<small>${b.unit}</small>` : ''}</div>
+      <div class="ex">${b.ex || ''}</div>
+    </div>`).join('');
+  return cards.length;
+}
+
+/* ---------- 账单 ---------- */
+function readUsage() {
+  try { return window.TextAI.readUsageLog(); } catch { try { const v = JSON.parse(localStorage.getItem('ai_usage') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
+}
+async function loadBills() {
+  const out = [];
+  try {
+    if ($('upd')) $('upd').textContent = '正在读取生成记录…';
+    // 只拉最近 2 页（每平台各 100 条），足够 30 天账单与 14 天曲线，秒级返回
+    const { entries } = await AssetLib.load({ pages: 2 });
+    (entries || []).filter(e => e.kind === 'asset' || e.kind === 'task').forEach(e => {
+      const c = AssetLib.costOf(e);
+      const isVoice = e.type === '音乐' || e.type === '音频';
+      out.push({
+        ts: AssetLib.tsMs(e.ts), platform: e.providerName || e.provider || '—', genId: e.genId || e.id || '',
+        what: (e.type || '素材') + (e.model ? ' · ' + e.model : '') + (isVoice && e.voice ? ' · ' + e.voice : ''),
+        isVoice, chars: e.chars || null, tokens: e.tokens || null, duration: e.duration || null,
+        desc: [e.prompt || '', e.tier ? e.tier : '', e.res || '',
+          e.voice ? '音色 ' + e.voice : '',
+          e.chars ? e.chars + ' 字' : '',
+          e.tokens ? e.tokens + ' tokens' : '',
+          e.duration ? e.duration + 's' : '', e.format ? String(e.format).toUpperCase() : ''].filter(Boolean).join(' · '),
+        status: e.gstatus || (e.status === 'done' ? 'succeeded' : e.status || ''),
+        cost: c.cost, unit: c.unit,
+      });
+    });
+  } catch (e) { if ($('upd')) $('upd').textContent = '生成记录读取失败：' + e.message + '（下方仍显示本地文字 AI 记录）'; }
+  readUsage().forEach(u => {
+    const pt = u.pt || 0, ct = u.ct || 0;
+    out.push({
+      ts: u.ts, platform: VENDOR_LABEL[u.prov] || u.prov || '文字 AI', genId: '',
+      what: u.model || 'chat',
+      desc: `${pt.toLocaleString()} 输入 + ${ct.toLocaleString()} 输出 tokens`,
+      status: 'succeeded',
+      tokens: pt + ct,          // 文字 AI 只统计 tokens，不算金额
+      cost: null, unit: '',
+    });
+  });
+  out.sort((a, b) => b.ts - a.ts);
+  return out;
+}
+
+function renderBills() {
+  const pf = $('fPlatform').value, days = Number($('fRange').value), q = $('fQ').value.trim().toLowerCase();
+  const since = days ? Date.now() - days * 86400000 : 0;
+  const rows = bills.filter(b => (!pf || b.platform === pf) && (!since || (b.ts || 0) >= since)
+    && (!q || ((b.desc || '') + ' ' + (b.what || '') + ' ' + (b.genId || '')).toLowerCase().includes(q)));
+  const scSum = rows.filter(r => r.unit === '积分').reduce((a, r) => a + (r.cost || 0), 0);
+  const yuanSum = rows.filter(r => r.unit === '元').reduce((a, r) => a + (r.cost || 0), 0);
+  const tkSum = rows.reduce((a, r) => a + (r.tokens || 0), 0);
+  const noPrice = rows.filter(r => r.cost == null && r.tokens == null).length;
+  const LIMIT = 300;
+  const shown = rows.slice(0, LIMIT);
+  // 计数写清楚「只显示了前 N 条」，否则表格行数和 N 条对不上会让人以为漏数据
+  $('billCnt').textContent = `${rows.length} 条`
+    + (rows.length > LIMIT ? `（表格只列出前 ${LIMIT} 条，可用筛选或导出查看全部）` : '')
+    + ` · 积分 ${ROUND(scSum)}`
+    + (yuanSum ? ' · 金额 ¥' + yuanSum.toFixed(4) : '')
+    + (tkSum ? ' · 文字AI ' + tkSum.toLocaleString() + ' tokens' : '')
+    + (noPrice ? ` · ${noPrice} 条平台未返回价格` : '');
+  $('bills').innerHTML = shown.length ? `<table><thead><tr><th>时间</th><th>平台</th><th class="w">明细</th><th class="num">花费 / 用量</th></tr></thead><tbody>`
+    + shown.map(b => `<tr title="${((b.desc || '') + ' ' + (b.genId || '')).replace(/"/g, '&quot;').slice(0, 300)}">
+        <td class="t">${fmtTime(b.ts)}</td>
+        <td class="p">${b.platform || ''}</td>
+        <td class="w" style="color:var(--sub)">${b.what}${b.desc ? ' · ' + b.desc.replace(/</g, '&lt;').slice(0, 60) : ''}${b.genId ? ` <code style="font-size:10px">${String(b.genId).slice(0, 8)}</code>` : ''}${b.status && b.status !== 'succeeded' ? ` <span style="color:var(--err)">${b.status}</span>` : ''}</td>
+        <td class="num">${b.tokens != null ? b.tokens.toLocaleString() + ' tokens' : (b.cost == null ? '<span title="平台这次没返回价格，不是 0">平台未提供价格</span>' : (b.unit === '元' ? '¥' + Number(b.cost).toFixed(4) : b.cost + ' ' + b.unit))}</td>
+      </tr>`).join('') + '</tbody></table>'
+    : '<div class="empty">没有符合条件的账单</div>';
+  curBillRows = rows;      // 导出 CSV 用（导出的是筛选后的全部，不只是表格里显示的）
+  // 平台下拉选项
+  const ps = [...new Set(bills.map(b => b.platform))].filter(Boolean);
+  const cur = $('fPlatform').value;
+  $('fPlatform').innerHTML = '<option value="">全部平台</option>' + ps.map(x => `<option value="${x}"${x === cur ? ' selected' : ''}>${x}</option>`).join('');
+  if (window.Dropdowns) Dropdowns.sync(document);   // 选项变了，同步公共自定义下拉
+}
+
+/* ---------- 图表 ---------- */
+/* 自动配色：按平台名稳定分配（同一平台永远同色） */
+const CHART_COLORS = ['#6957e8', '#19b394', '#f59e0b', '#ef4444', '#3b82f6', '#a855f7', '#14b8a6', '#f97316', '#22c55e', '#eab308', '#ec4899', '#06b6d4'];
+function colorOf(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 100003;
+  const hit = colorCache.get(name);
+  if (hit) return hit;
+  const c = CHART_COLORS[colorIdx++ % CHART_COLORS.length];
+  colorCache.set(name, c);
+  return c;
+}
+let chartUnit = 'all';          // all | 积分 | 元
+const colorCache = new Map();
+let colorIdx = 0;
+const shortName = p => String(p || '').replace(/^文字 AI（(.+)）$/, '$1').replace(/^SparkCine.*/, 'SparkCine').replace(/^VGENV.*/, 'VGENV').slice(0, 16);
+/* 归一到「API」级别：同一 API 的生图 / 视频算同一个（如 SparkCine 生图 + SparkCine 视频 → SparkCine） */
+function apiOf(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '其它';
+  if (/^文字 AI/.test(raw)) return raw.replace(/^文字 AI（(.+)）$/, '$1');  // 文字 AI 直接用厂商名
+  const m = /^(SparkCine|VGENV|OpenAI|DeepSeek|Kimi|月之暗面|智谱|通义|硅基流动|MiniMax)/.exec(raw);
+  if (m) return m[1];
+  return raw.replace(/[\s·:：-]*(生图|视频|图片|音频|音乐)$/, '').trim() || raw;
+}
+
+/* 账单 → 按平台分组的分日数据 */
+function buildSeries(list, days) {
+  const N = days, buckets = [];
+  for (let i = N - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    buckets.push({ key: dayKey(d), label: (d.getMonth() + 1) + '/' + d.getDate() });
+  }
+  const idx = new Map(buckets.map((b, i) => [b.key, i]));
+  const series = new Map();     // API → { name, unit, vals[], total, subs:Map(子类型→每日值) }
+  list.forEach(b => {
+    if (b.cost == null) return;
+    const bk = idx.get(dayKey(b.ts));
+    if (bk == null) return;
+    const key = apiOf(b.platform);
+    if (!series.has(key)) series.set(key, { name: key, unit: b.unit || '', vals: new Array(N).fill(0), total: 0, subs: new Map() });
+    const sv = series.get(key);
+    const v = Number(b.cost) || 0;
+    sv.vals[bk] += v;
+    sv.total += v;
+    if (!sv.unit && b.unit) sv.unit = b.unit;
+    // 记录来源明细（生图 / 视频 / …），用于悬停时展示拆分
+    const sub = String(b.platform || '');
+    if (sub && sub !== key) {
+      if (!sv.subs.has(sub)) sv.subs.set(sub, new Array(N).fill(0));
+      sv.subs.get(sub)[bk] += v;
+    }
+  });
+  let arr = [...series.values()].sort((a, b) => b.total - a.total);
+  if (chartUnit !== 'all') arr = arr.filter(sv => sv.unit === chartUnit);
+  return { buckets, series: arr };
+}
+
+function chartSvg(list, days) {
+  const { buckets, series } = buildSeries(list, days);
+  const unitChips = $('chartUnits');
+  if (unitChips) {
+    const units = [...new Set(list.filter(b => b.cost != null).map(b => b.unit || ''))].filter(Boolean);
+    unitChips.innerHTML = [['all', '全部'], ...units.map(u => [u, u === '积分' ? '积分' : '金额（' + u + '）'])]
+      .map(([v, t]) => `<button class="chip${chartUnit === v ? ' active' : ''}" data-u="${v}">${t}</button>`).join('');
+    unitChips.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { chartUnit = b.dataset.u; renderChart(); });
+  }
+  if (!series.length) {
+    return `<div class="empty">该单位下近 ${days} 天没有消费记录</div>`;
+  }
+  const max = Math.max(1, ...buckets.map((_, i) => Math.max(0, ...series.map(sv => sv.vals[i]))));
+  const W = 760, H = 160, bw = W / buckets.length;
+  const n = series.length;
+  const barW = Math.max(2.5, Math.min(14, (bw - 6) / n));
+  const bars = buckets.map((b, i) => {
+    const x0 = i * bw + 3;
+    const inner = series.map((sv, k) => {
+      const v = sv.vals[i];
+      if (!v) return '';
+      const h = Math.max(1, Math.round((v / max) * (H - 34)));
+      const x = x0 + k * barW;
+      const fmtV = x2 => x2.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      const parts = [...sv.subs.entries()]
+        .filter(([, arr]) => arr[i] > 0)
+        .map(([sub, arr]) => sub.replace(/^SparkCine\s*/, '').replace(/^VGENV\s*/, '') + ' ' + fmtV(arr[i]));
+      const tip = `${b.label} · ${sv.name}：${fmtV(v)} ${sv.unit}` + (parts.length > 1 ? '（' + parts.join(' + ') + '）' : '');
+      return `<rect x="${x.toFixed(1)}" y="${H - 24 - h}" width="${Math.max(2, barW - 1).toFixed(1)}" height="${h}" rx="2" fill="${colorOf(sv.name)}">
+        <title>${tip}</title></rect>`;
+    }).join('');
+    return `<g>${inner}<text x="${x0 + (bw - 6) / 2}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--sub, #8a8fa3)">${b.label}</text></g>`;
+  }).join('');
+  const legend = series.map(sv => {
+    const subs = [...sv.subs.keys()].map(x => x.replace(/^SparkCine\s*/, '').replace(/^VGENV\s*/, '')).filter(Boolean);
+    const subTxt = subs.length ? `<i style="background:transparent;width:auto;margin:0 0 0 2px;font-style:normal;color:var(--sub)">（${subs.slice(0, 3).join('/')}${subs.length > 3 ? '…' : ''}）</i>` : '';
+    return `<span title="${sv.name}"><i style="background:${colorOf(sv.name)}"></i>${shortName(sv.name)}${subTxt}${sv.unit ? ' · ' + sv.unit : ''} <b style="color:var(--sub);font-weight:500">${ROUND(sv.total).toLocaleString()}</b></span>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="每日消费曲线">${bars}</svg>
+    <div class="legend" style="flex-wrap:wrap">${legend}<span style="margin-left:auto">近 ${days} 天</span></div>`;
+}
+function renderChart() {
+  const el = $('chart');
+  if (el) el.innerHTML = chartSvg(bills, 14);
+}
+
+/* ---------- 语音用量：从资产库里的语音条目汇总（字数 / 接口 tokens / 时长） ---------- */
+function renderVoiceStat() {
+  const el = $('voiceStat');
+  if (!el) return;
+  const rows = bills.filter(b => b.isVoice);
+  const cnt = rows.length;
+  const chars = rows.reduce((a, r) => a + (Number(r.chars) || 0), 0);
+  const tokens = rows.reduce((a, r) => a + (Number(r.tokens) || 0), 0);
+  const secs = rows.reduce((a, r) => a + (Number(r.duration) || 0), 0);
+  el.innerHTML = cnt
+    ? `<div>调用次数<b>${cnt}</b></div>
+       <div>累计字数<b>${chars.toLocaleString()}</b></div>
+       <div>累计 tokens<b>${tokens ? tokens.toLocaleString() : '—'}</b></div>
+       <div>累计时长<b>${secs ? secs.toFixed(1) + 's' : '—'}</b></div>
+       <div>平均时长<b>${secs && cnt ? (secs / cnt).toFixed(1) + 's' : '—'}</b></div>
+       <div>费用<b>${rows.some(r => r.cost != null) ? '见账单明细' : '平台未提供价格'}</b></div>`
+    : '<div class="empty">还没有语音记录（去「语音工作台」生成一条就会出现在这里）</div>';
+  // 按模型/音色汇总
+  const byModel = new Map();
+  rows.forEach(r => {
+    const k = r.what || '语音';
+    const cur = byModel.get(k) || { cnt: 0, chars: 0, tokens: 0, secs: 0 };
+    cur.cnt++; cur.chars += Number(r.chars) || 0; cur.tokens += Number(r.tokens) || 0; cur.secs += Number(r.duration) || 0;
+    byModel.set(k, cur);
+  });
+  $('voiceByModel').innerHTML = byModel.size
+    ? '<table><thead><tr><th>模型 / 音色</th><th>次数</th><th>字数</th><th>tokens</th><th class="num">时长</th></tr></thead><tbody>'
+      + [...byModel.entries()].sort((a, b) => b[1].cnt - a[1].cnt).map(([k, v]) => `<tr>
+          <td>${k}</td><td>${v.cnt}</td><td>${v.chars.toLocaleString()}</td>
+          <td>${v.tokens ? v.tokens.toLocaleString() : '—'}</td>
+          <td class="num">${v.secs ? v.secs.toFixed(1) + 's' : '—'}</td></tr>`).join('') + '</tbody></table>'
+    : '';
+  $('voiceRecent').innerHTML = rows.length
+    ? '<table><thead><tr><th>时间</th><th class="w">内容</th><th>时长</th><th class="num">tokens</th></tr></thead><tbody>'
+      + rows.slice(0, 10).map(r => `<tr title="${(r.desc || '').replace(/"/g, '&quot;')}">
+          <td class="t">${fmtTime(r.ts)}</td>
+          <td class="w" style="color:var(--sub)">${(r.platform || '')} · ${(r.desc || '').replace(/</g, '&lt;').slice(0, 70)}</td>
+          <td>${r.duration ? r.duration + 's' : '—'}</td>
+          <td class="num">${r.tokens ? Number(r.tokens).toLocaleString() : '—'}</td></tr>`).join('') + '</tbody></table>'
+    : '';
+}
+
+function renderAiStat() {
+  const usage = readUsage();
+  // 只按 tokens 汇总（不折算金额）
+  const byModel = new Map();
+  usage.forEach(u => {
+    const k = u.model || 'chat';
+    const cur = byModel.get(k) || { calls: 0, pt: 0, ct: 0 };
+    cur.calls++; cur.pt += u.pt || 0; cur.ct += u.ct || 0;
+    byModel.set(k, cur);
+  });
+  const tk = dayKey(Date.now());
+  const today = usage.filter(u => dayKey(u.ts) === tk);
+  const todayTokens = today.reduce((a, u) => a + (u.pt || 0) + (u.ct || 0), 0);
+  const all = usage.reduce((a, u) => ({ pt: a.pt + (u.pt || 0), ct: a.ct + (u.ct || 0) }), { pt: 0, ct: 0 });
+  $('aiStat').innerHTML = `<div>今日调用<b>${today.length}</b></div>
+    <div>今日 tokens<b>${todayTokens.toLocaleString()}</b></div>
+    <div>累计调用<b>${usage.length}</b></div>
+    <div>累计 tokens<b>${(all.pt + all.ct).toLocaleString()}</b></div>
+    <div>累计输入 / 输出<b>${all.pt.toLocaleString()} / ${all.ct.toLocaleString()}</b></div>`;
+  $('aiPriceNote').innerHTML = usage.length ? '' : '还没有调用记录。';
+  $('aiByModel').innerHTML = byModel.size
+    ? '<table><thead><tr><th>模型</th><th>次数</th><th>输入 tokens</th><th>输出 tokens</th><th class="num">合计 tokens</th></tr></thead><tbody>'
+      + [...byModel.entries()].sort((a, b) => (b[1].pt + b[1].ct) - (a[1].pt + a[1].ct)).map(([m, v]) => `<tr>
+          <td>${m}</td>
+          <td>${v.calls}</td><td>${v.pt.toLocaleString()}</td><td>${v.ct.toLocaleString()}</td>
+          <td class="num">${(v.pt + v.ct).toLocaleString()}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="empty">暂无数据</div>';
+  const byDay = new Map();
+  usage.forEach(u => { const k = dayKey(u.ts); byDay.set(k, (byDay.get(k) || 0) + (u.pt || 0) + (u.ct || 0)); });
+  const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10);
+  $('aiDaily').innerHTML = days.length
+    ? '<table><thead><tr><th>日期</th><th>调用次数</th><th class="num">tokens</th></tr></thead><tbody>'
+      + days.map(([k, t]) => {
+        const c = usage.filter(u => dayKey(u.ts) === k).length;
+        return `<tr><td class="t">${k}</td><td>${c}</td><td class="num">${t.toLocaleString()}</td></tr>`;
+      }).join('') + '</tbody></table>'
+    : '<div class="empty">暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）</div>';
+}
+
+async function reloadAll() {
+  $('reload').disabled = true;
+  try {
+    REG = await getJson('/registry');
+    const configured = await loadConfigured(REG);
+    await loadBalances(REG, configured);
+    bills = await loadBills();
+    renderChart();
+    renderAiStat();
+    renderVoiceStat();
+    renderBills();
+    $('upd').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
+  } catch (e) {
+    $('upd').textContent = '加载出错：' + e.message;
+  } finally { $('reload').disabled = false; }
+}
+$('reload').onclick = reloadAll;
+$('fPlatform').onchange = renderBills;
+$('fRange').onchange = renderBills;
+$('fQ').oninput = renderBills;
+/* 导出当前筛选出的账单（不是只导出屏幕上那 300 行） */
+$('expBills').onclick = () => {
+  if (!curBillRows.length) { Toast.warn('当前没有可导出的账单'); return; }
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  /* 表头必须与数据行一一对应（9 列）：以前表头多了一列「明细」，从第 3 列起全部错位，
+     导出来在 Excel 里「类型」列显示的是描述、「描述」列显示的是任务号。 */
+  const head = ['时间', '平台', '类型', '描述', '任务/资产ID', '状态', '花费', '单位', 'tokens'];
+  const lines = [head.map(q).join(',')].concat(curBillRows.map(b => [
+    new Date(b.ts || 0).toLocaleString('zh-CN'), b.platform || '', b.what || '', b.desc || '',
+    b.genId || '', b.status || '', b.cost == null ? '' : b.cost, b.unit || '', b.tokens == null ? '' : b.tokens,
+  ].map(q).join(',')));
+  // 加 BOM：Excel 打开中文不乱码
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  Net.save(blob, '用量账单-' + new Date().toISOString().slice(0, 10) + '.csv');
+  Toast.ok('已导出 ' + curBillRows.length + ' 条账单');
+};
+if (window.Dropdowns) Dropdowns.build(document);   // 下拉统一走公共组件（与其它页同一套外观）
+/* 先等一次加载完成再通知侧栏刷新余额：以前不 await 就派发，侧栏可能拿到旧余额 */
+reloadAll().finally(() => window.dispatchEvent(new Event('sb-balance-refresh')));
+</script>
+</body>
+</html>
