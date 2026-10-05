@@ -7,6 +7,7 @@
 <script src="workbench.js"></script>
 <script src="assetlib.js"></script>
 <script src="sidebar.js"></script>
+<script src="ai-chat.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>资产库 · 拾帧</title>
 <link rel="stylesheet" href="ui.css">
@@ -60,14 +61,14 @@
   }
   .frow .datepick:hover .dp-face::after { opacity: .85; }
   /* 展示样式切换的样式（.viewtoggle）与分页信息（.pginfo）在 ui.css 里，收藏页共用同一份 */
-  /* 列表卡片：与图片工作台 / 视频工作台同款 */
+  /* 列表卡片：与生成工作台的卡片同款 */
   /* 列表容器：卡片/紧凑的容器形态不同（流式 / 方块网格）。
      注意：要写成 #grid.view-x（ID+类）——#grid 自身的 display 优先级更高，只用类选择器会盖不过它 */
   #grid { display: flex; flex-direction: column; gap: 10px; }
   #grid .task { margin-bottom: 0; }                 /* 间距统一由容器 gap 控制 */
   #grid .task { content-visibility: auto; contain-intrinsic-size: auto 120px; }   /* 视口外的卡片跳过布局绘制，长列表更快 */
-  /* ---------- 展示样式：卡片（默认，纵向大卡片） ---------- */
-  #grid.view-card { display: flex; flex-direction: column; gap: 12px; }
+  /* ---------- 展示样式：列表（默认，横条一行一条，与素材库/收藏同一档名） ---------- */
+  #grid.view-list { display: flex; flex-direction: column; gap: 12px; }
   /* ---------- 展示样式：紧凑（方块网格） ---------- */
   #grid.view-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-items: start; }
   .view-compact .task { display: block; padding: 0; overflow: hidden; border-radius: 8px; }
@@ -101,8 +102,9 @@
   @keyframes rot { to { transform: rotate(360deg); } }
   .task .date { margin-left: auto; }
   .favnote { font-size: 11.5px; color: var(--acc); margin: 2px 0 4px; word-break: break-word; }
-  .localtag { display: inline-block; margin-left: 6px; padding: 0 5px; font-size: 10px; line-height: 16px; vertical-align: 1px;
-    color: var(--sub); border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); }
+  /* 原来这里有个 .localtag「本地归档」小标签：提示词从本机归档补回来时挂在提示词后面。
+     实际用起来它只是个「这条平台不返回提示词」的说明，而且会和卡片上的「（该平台接口不返回提示词）」
+     重复出现、还占掉提示词的位置 —— 已去掉；提示词补显示这件事靠 noPromptText() 的那句话说明。 */
   .task .tprompt { font-size: 13px; line-height: 1.5; margin: 5px 0; color: var(--txt);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .task .meta2 { font-size: 12px; color: var(--sub); }
@@ -124,9 +126,6 @@
   .det-refs img { width: 100%; height: 84px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
   .det-refs img:hover { border-color: var(--acc); }
   .det-k { font-size: 12px; color: var(--sub); margin: 8px 0 6px; }
-  /* 灯箱：避开左侧栏（--sbw 由 sidebar.js 设置） */
-    color: #fff; padding: 8px 16px; border-radius: 5px; font-size: 12.5px; display: flex; gap: 12px; align-items: center; max-width: 90vw; flex-wrap: wrap; }
-    color: #e5e7eb; padding: 12px 16px; border-radius: 6px; font-size: 12.5px; max-width: 70vw; max-height: 40vh; overflow-y: auto; display: none; white-space: pre-wrap; }
   /* 灯箱等公共组件样式统一来自 ui.css */
 </style>
 </head>
@@ -197,10 +196,8 @@
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
-const fmtMicros = m => '¥' + (Number(m || 0) / 1e6).toFixed(2);
 const fmtSize = b => { if (b == null || isNaN(Number(b))) return ''; const n = Number(b), u = ['B','KB','MB','GB']; let i = 0, v = n; while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return (i ? v.toFixed(1) : v) + ' ' + u[i]; };
 function ratioText(w, h) { if (!w || !h) return ''; const g2 = (a, b) => b ? g2(b, a % b) : a; const g = g2(w, h) || 1, r1 = w / g, r2 = h / g; return (r1 <= 40 && r2 <= 40) ? r1 + ':' + r2 : (w / h).toFixed(2) + ':1'; }
-const fileToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 
 /* ---------- 数据拉取与归一化 ----------
    条目结构：{ kind:'asset'|'task', id, type('图片'|'视频'), providerName, provider, format,
@@ -223,38 +220,10 @@ function refreshProviderChips() {
   provSig = sig;
   renderFilters();
 }
-/* 首屏缓存（sessionStorage）：刷新/重进页面先把上次的列表秒画出来，
-   接口随后返回的新数据按条目覆盖上去，避免每次都干等平台接口（SparkCine 列表可能要好几秒） */
-const CACHE_KEY = 'assets_cache_v1';
-/* 首屏缓存放 localStorage：新开标签页 / 重开浏览器都能立刻画出上次的内容（sessionStorage 换标签页就没了）。
-   **只缓存已完成（asset / 成功 / 失败）的条目**：缓存里留着「生成中/排队中」的快照，
-   下次打开会把早已完成的旧状态当成现状显示成一条永远不动的假任务
-   （新数据往往还没覆盖到它，因为它在后面几页）。未完成的状态一律等接口回来说话。 */
-const cacheable = e => !!e && (e.kind === 'asset' || e.status === 'done' || e.status === 'failed' || e.status === 'succeeded');
-function readCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY) || sessionStorage.getItem(CACHE_KEY);
-    const c = JSON.parse(raw || 'null');
-    const arr = (c && Array.isArray(c.entries)) ? c.entries : [];
-    return arr.filter(cacheable);
-  } catch { return []; }
-}
-function writeCache(list) {
-  const keep = (list || []).filter(cacheable);
-  const payload = JSON.stringify({ ts: Date.now(), entries: keep.slice(0, 200) });
-  try { localStorage.setItem(CACHE_KEY, payload); }
-  catch { try { sessionStorage.setItem(CACHE_KEY, payload); } catch {} }
-}
-const entryKey = e => (window.AssetLib && AssetLib.entryKey) ? AssetLib.entryKey(e)
-  : [e.kind || '', e.id || e.assetId || e.genId || '', e.assetId || ''].join('|');
-/* 合并 / 去重统一走 AssetLib（assetlib.js），页面不再各写一份：
-   · 同一个产物只留一条（老缓存里可能同时存在「本地占位」和「已完成」两条），取信息更全的；
-   · 收敛「任务 → 产物」跃迁造成的重复卡：列表接口先返回 kind:'task'（生成中），
-     下一批返回 kind:'asset'（已完成），genId 相同但 key 不同 —— 只按 key 去重会同时留下两张卡；
-   · 多图任务（同 gen_id 不同 asset_id）不受影响，本来就该是多条。 */
-function mergeEntries(base, add) {
-  return (window.AssetLib && AssetLib.mergeEntries) ? AssetLib.mergeEntries(base, add) : base.concat(add);
-}
+/* 首屏缓存与合并去重全部走 assetlib.js 的 AssetLib（各页一份实现的旧日子：
+   口径不一致，其中两份还把「生成中」的快照也缓存了 → 下次打开是一条永远不动的假任务）。
+   放 localStorage：新开标签页 / 重开浏览器都能立刻画出上次的内容（sessionStorage 换标签页就没了）。 */
+const LIST_CACHE = AssetLib.listCache('assets_cache_v1');
 /* 分批加载：每次让每个平台再拉 pages 页，page 一到就 onBatch 渲染（先到先显示） */
 let loadingNow = 0;            // 正在进行的加载批次数（界面上提示「加载中…」用）
 let loadErrors = {};           // 各来源的加载失败原因（{ 平台key: 错误 }）：断网/密钥失效要看得见
@@ -322,17 +291,17 @@ if ($('multiExit')) $('multiExit').onclick = () => setMultiMode(false);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && multiMode) setMultiMode(false); });
 /* ---------- 进行中的任务自动刷新 ----------
    以前这页只能手动点「重新加载」才会更新状态；现在有进行中的任务时自动轮询它，全部完成即停。 */
-/* 上游的成功状态各平台措辞不同（succeeded / done / success…）：除了「进行中 / 失败」都算完成。
+/* 上游的成功状态各平台措辞不同（succeeded / done / success / completed…）：判据只有 Wb.stLive / Wb.stBad 一份
+   （它们又走 assetlib.js 的 Api.classifyStatus，认 registry 的 statusMap）。以前这里手抄了一份「进行中的词表」，
+   少一个同义词（creating / pending / processing）就把还在跑的任务算成完成 → 触发一次白刷；
+   更糟的是轮询集合也只认 running / queued，那些任务从此不再被问，卡片停在错的状态上要等手动刷新。
    任务完成要触发一次列表重拉，让这张任务卡收敛成产物卡。 */
-const TASK_FINISHED = s => {
-  const v = String(s || '').toLowerCase();
-  return !!v && !['running', 'queued', 'creating', 'failed', 'cancelled', 'canceled', 'pending', 'processing'].includes(v);
-};
+const TASK_FINISHED = s => !!s && !Wb.stLive(s) && !Wb.stBad(s);
 /* Wb.poller 创建后自己定时跑（切走标签页暂停），页面不用握着句柄 */
 if (window.Wb && Wb.poller) Wb.poller({
   label: '资产状态', interval: 5000,
   tasks: () => assets.filter(a => a.kind === 'task'),
-  isRunning: a => ['running', 'queued'].includes(a.status),
+  isRunning: a => Wb.stLive(a.status),
   sig: a => String(a.status),
   pollOne: async a => {
     const p = await AssetLib.generationDetail(a.genId, a.provider);
@@ -347,8 +316,8 @@ if (window.Wb && Wb.poller) Wb.poller({
     if (p.error) a.failMsg = p.error;
   },
   onChange: () => {
-    assets = mergeEntries(assets, []);     // 触发一次引用更新，让卡片指纹变化
-    writeCache(assets); renderGrid();
+    assets = AssetLib.mergeEntries(assets, []);     // 触发一次引用更新，让卡片指纹变化
+    LIST_CACHE.write(assets); renderGrid();
     /* 任务真的完成了：拉一次列表让它收敛成「资产卡」（列表接口会带上产物 id，
        mergeEntries 会按 genId 把那张任务卡换成产物卡）。
        以前这里只重画：卡片停在任务形态，而 assetCardHTML 对 kind:'task' 只区分
@@ -395,12 +364,12 @@ function fetchMore(pages) {
       const res = await AssetLib.load({
         pages, reg: REG, cursors, noCache: noCacheOnce,
         seen: seenIds, out: assets,
-        onBatch: list => { if (gen !== loadGen) return; assets = mergeEntries(assets, list); refreshProviderChips(); renderGrid(); },
+        onBatch: list => { if (gen !== loadGen) return; assets = AssetLib.mergeEntries(assets, list); refreshProviderChips(); renderGrid(); },
       });
       if (gen !== loadGen) return;      // 期间点过「重新加载」：这批结果作废
-      assets = mergeEntries(assets, res.entries);
+      assets = AssetLib.mergeEntries(assets, res.entries);
       // 「条目即资产」的本地来源（一页即全量）：以服务端为准，清掉缓存里已被删掉的旧条目
-      // （在语音工作台/别的标签页删过文件时，这里也能自愈）
+      // （在生成工作台的语音栏 / 别的标签页删过文件时，这里也能自愈）
       for (const src of Api.listSources()) {
         if (!src.spec || !src.spec.selfAsset) continue;
         try {
@@ -412,7 +381,7 @@ function fetchMore(pages) {
       hasMoreFlag = res.hasMore;
       noCacheOnce = false;
       loadedPages += pages;
-      writeCache(assets);
+      LIST_CACHE.write(assets);
       refreshProviderChips();
       // 某个平台读失败时**要说出来**：以前只看 entries，断网/密钥失效时界面显示的是
       // 「没有匹配的资产」，让人以为数据没了
@@ -435,6 +404,10 @@ function fetchMore(pages) {
 /* ---------- 筛选 ---------- */
 const F = { type: '全部', provider: '全部', status: '全部', q: '', from: '', to: '' };
 let FAI = null;   // AI 检索条件：{ desc, cond:{keywords,type,after,before,minDuration,maxDuration,order,limit} }
+/* 音频与音乐是同一类：本机产物按字节判出来是「音频」，平台声明里写的是「音乐」，
+   筛这一类时两个词都要收（收藏页、生成工作台语音栏的选择器也是同一口径）。 */
+const isAudioType = t => t === '音频' || t === '音乐';
+const typeKey = t => (isAudioType(t) ? '音频' : t);
 function chipRow(el, values, cur, onpick) {
   el.innerHTML = '';
   values.forEach(v => { const b = document.createElement('button'); b.className = 'chip' + (v === cur ? ' active' : ''); b.textContent = v; b.onclick = () => onpick(v); el.appendChild(b); });
@@ -493,37 +466,44 @@ document.querySelectorAll('.datepick').forEach(dp => {
 });
 paintDateFaces();
 function renderFilters() {
-  chipRow($('fType'), ['全部', '图片', '视频', '音乐'], F.type, v => { F.type = v; renderFilters(); renderGrid(); });
+  chipRow($('fType'), ['全部', '图片', '视频', '音频'], F.type, v => { F.type = v; renderFilters(); renderGrid(); });
   chipRow($('fProv'), uniq('providerName'), F.provider, v => { F.provider = v; renderFilters(); renderGrid(); });
   chipRow($('fStatus'), ['全部', '已完成', '生成中', '排队中', '失败'], F.status, v => { F.status = v; renderFilters(); renderGrid(); });
 }
-/* 展示样式：card 大卡片 / compact 方块网格（右上角图标开关）——开关本体与本地记忆都在
-   workbench.js 的 Wb.viewToggle（收藏页用同一份），这里只提供页面自己的容器类名。 */
-let VIEW = 'card';
+/* 展示样式：list 横条列表 / compact 方块网格（右上角图标开关）——开关本体与本地记忆都在
+   workbench.js 的 Wb.viewToggle（素材库、收藏页用同一份），这里只提供页面自己的容器类名。
+   **档位名从 card 改成 list**：素材库与收藏页一直叫「列表」，这一页叫「卡片」，
+   于是设置页那张偏好表里同一个概念要写两种词（还漏了素材库那一项），
+   用户在设置里选了「列表」、进来看到的是另一种摆法。三个页面现在共用一套档位名。 */
+let VIEW = 'list';
 const viewToggle = Wb.viewToggle.create({
   el: 'fView', key: 'dir_asset_view',
-  views: [['card', '卡片', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
+  views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
   onPick: () => applyView(),
 });
 function applyView() {
   const g = $('grid');
   if (!g) return;
-  VIEW = (viewToggle && viewToggle.value) || 'card';
-  g.classList.remove('view-card', 'view-compact');
+  VIEW = (viewToggle && viewToggle.value) || 'list';
+  g.classList.remove('view-card', 'view-list', 'view-compact');   // view-card 是旧档位名，留在 DOM 上会盖掉新样式
   g.classList.add('view-' + VIEW);
 }
 const PAGE_MODE = localStorage.getItem('page_mode_assets') || 'more';   // more | page（设置页可改，默认动态加载）
 const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_assets') || 24));
 let assetsPage = 0;
 const ST_MAP = { '已完成': 'done', '生成中': 'running', '排队中': 'queued', '失败': 'failed' };
+/* 这一条属于哪一档（done / queued / running / failed）：列表给的是标准词、轮询写回的是平台原话
+   （succeeded / processing / creating…），两者混在同一个数组里。按原话比就会「筛生成中筛不出正在跑的那几条」，
+   所以统一过一遍判据（Api.classifyStatus，与卡片显示同一份）。 */
+const stBucket = a => a.kind !== 'task' ? 'done' : Api.classifyStatus(null, a.status);
 /* 筛选核心：类型 / 平台 / 状态 / 关键词 / 日期区间 / AI 检索条件 —— 全部条件都在这里。
    filtered() 在它之后做分页，filteredAll() 复用它（两者必须同口径，否则「共 N 项」和
    翻页禁用判断会在日期或 AI 筛选下算错）。 */
 function applyFilters() {
   let all = assets.filter(a =>
-    (F.type === '全部' || a.type === F.type) &&
+    (F.type === '全部' || typeKey(a.type) === typeKey(F.type)) &&
     (F.provider === '全部' || a.providerName === F.provider) &&
-    (F.status === '全部' || a.status === ST_MAP[F.status]) &&
+    (F.status === '全部' || stBucket(a) === ST_MAP[F.status]) &&
     (!F.q || (a.prompt || '').toLowerCase().includes(F.q) || assetIdsOf(a).includes(F.q))
   );
   // 日期区间筛选（按生成时间，兼容 ISO 字符串 / 秒 / 毫秒）
@@ -549,7 +529,7 @@ function applyFilters() {
     all = all.filter(a => {
       const hay = ((a.prompt || '') + ' ' + (a.providerName || '') + ' ' + (a.model || '')).toLowerCase();
       if (kw.length && !kw.some(k => hay.includes(k))) return false;
-      if (c.type && c.type !== '任意' && a.type !== c.type) return false;
+      if (c.type && c.type !== '任意' && typeKey(a.type) !== typeKey(c.type)) return false;
       const ms = AssetLib.tsMs(a.ts);
       if (after && (!ms || ms < after)) return false;
       if (before && (!ms || ms > before)) return false;
@@ -611,16 +591,19 @@ const assetSig = a => [a.kind, a.status, a.src, a.prompt, a.providerName, a.type
   (a.type === '视频' && a.src && Wb.thumbs.get(a.src)) ? 'i' : 'v'].join('|');   // 首帧缓存到手 → 重画成 <img>
 
 function assetCardHTML(a) {
-  const run = a.kind === 'task' && ['running', 'queued'].includes(a.status);
-  const bad = a.kind === 'task' && ['failed', 'cancelled'].includes(a.status);
+  /* 判定与文案都走公共那一份（Wb.stLive / stBad / stText → Api.classifyStatus）：
+     以前这里手写 ['running','queued'] 与 ['failed','cancelled'] 两张词表，少认一个同义词
+     就会把「已完成」画成失败（轮询写回的是平台原话 succeeded / processing / creating…）。 */
+  const run = a.kind === 'task' && Wb.stLive(a.status);
+  const bad = a.kind === 'task' && Wb.stBad(a.status);
   /* 已成功、但列表还没把产物拉回来（轮询先看到 done）：显示成「已完成（正在同步…）」，
      不能落进「生成中…」分支 —— 那会让卡片永远转圈、还被写进缓存。 */
-  const lateDone = a.kind === 'task' && !bad && !run && (a.status === 'done' || a.status === 'succeeded' || a.status === 'success');
+  const lateDone = a.kind === 'task' && !bad && !run;
   let media;
   if (a.kind === 'task') {
     media = lateDone
       ? '<div class="timg"><span style="color:var(--ok,#16a34a)">已完成（正在同步列表…）</span></div>'
-      : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + (a.status === 'failed' ? '生成失败' : '已取消') + '</span>' : (a.status === 'queued' ? '排队中' : '生成中…')) + '</div>';
+      : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + Wb.stText(a.status) + '</span>' : Wb.stText(a.status) + '…') + '</div>';
   } else if (a.type === '视频') {
     media = '<div class="timg">' + Wb.thumbs.mediaHTML(a.src) + '</div>';
   } else if (a.type === '音乐' || a.type === '音频') {
@@ -634,23 +617,27 @@ function assetCardHTML(a) {
   const date = a.ts ? new Date(a.ts).toLocaleDateString() + ' ' + new Date(a.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   return media + `
       <div class="tmain">
-        <div class="meta1"><span class="dot${run ? ' run' : bad ? ' fail' : ''}"></span><span>${a.kind === 'task' ? (bad ? '失败' : lateDone ? '已完成' : (a.status === 'queued' ? '排队中' : '生成中')) : '已完成'}</span><span class="date">${date}</span></div>
-        <div class="tprompt" title="${(a.prompt || '').replace(/"/g, '&quot;')}">${(a.prompt || noPromptText(a)).replace(/</g, '&lt;')}${a.promptLocal ? '<span class="localtag" title="该平台接口不返回提示词，这条是从本机提示词归档里取回的（设置 → 提示词归档）">本地归档</span>' : ''}</div>
+        <div class="meta1"><span class="dot${run ? ' run' : bad ? ' fail' : ''}"></span><span>${a.kind === 'task' ? (lateDone ? '已完成' : Wb.stText(a.status)) : '已完成'}</span><span class="date">${date}</span></div>
+        <div class="tprompt" title="${(a.prompt || '').replace(/"/g, '&quot;')}">${(a.prompt || noPromptText(a)).replace(/</g, '&lt;')}</div>
         ${favNote(a) ? `<div class="favnote" title="收藏备注">★ ${favNote(a).replace(/</g, '&lt;')}</div>` : ''}
         <div class="meta2">${[a.providerName, a.type, a.kind === 'asset' ? (a.format || '').toUpperCase() : '', a.duration ? a.duration + 's' : ''].filter(Boolean).join(' · ')}</div>
         <div class="acts">
           <button class="ghost cdetail">ⓘ 详情</button>
           ${a.kind === 'task' && a.genId && run ? `<button class="ghost danger cancel" data-id="${a.id}" data-provider="${a.provider}">取消任务</button>` : ''}
           ${a.kind === 'task' && bad && a.prompt ? '<button class="ghost retry">' + icon('refresh', 12) + ' 重试</button>' : ''}
-          ${a.kind === 'asset' ? '<button class="ghost dlbtn">保存</button><button class="ghost savbtn">⤓ 另存为</button>' : ''}
+          ${a.kind === 'asset' ? '<button class="ghost dlbtn" title="用浏览器默认方式下载">下载</button>' : ''}
           ${a.kind === 'asset' ? `<button class="ghost favbtn${window.Fav && Fav.has(Fav.assetKey(a)) ? ' on' : ''}" title="加入 / 移出我的收藏">${favLabel(a)}</button>` : ''}
           ${a.kind === 'asset' && a.localAsset ? '<button class="ghost danger delbtn" title="这个产物存在本机（.assets 目录），删除后会释放磁盘空间；平台侧的素材不受影响">删除本机文件</button>' : ''}
-          ${a.kind === 'asset' ? '<button class="ghost cureuse" title="在生图/视频工作台里带着这条提示词与素材继续创作">复用</button>' : ''}
+          ${a.kind === 'asset' ? '<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>' : ''}
         </div>
         <div class="cdet"></div>
       </div>`;
 }
 function bindAssetCard(d, a) {
+  /* 缩略图接线放在这里（新建卡片走 buildAssetCard、重绘走 paintAssetCard，两条路最后都汇到这一个函数）：
+     以前只在重绘那条路上接，于是筛选换平台后**新建**的卡片永远不抽帧 —— 要等下一次指纹变化重绘才有机会，
+     表现就是「选了视频 + 某个平台，缩略图整排是灰的」。 */
+  bindCardThumb(d, a);
   d.dataset.akey = assetKeyOf(a);
   /* 勾选框只在「多选」模式出现（平时点卡片是打开预览，不放勾选框，界面更干净） */
   const picked = multiMode && selected.has(selKeyOf(a));
@@ -718,16 +705,6 @@ function bindAssetCard(d, a) {
       setTimeout(() => { rt.innerHTML = icon('refresh', 12) + ' 重试'; }, 2000);
     }
   };
-  const sv = d.querySelector('.savbtn');
-  if (sv) sv.onclick = async e => {
-    e.stopPropagation();
-    sv.disabled = true; sv.textContent = '另存中…';
-    try {
-      const b = await fetchBlob(a);
-      await saveAsOnce(fileNameOf(a), b);
-    } catch (e2) { sv.textContent = '另存失败'; setTimeout(() => { sv.textContent = '⤓ 另存为'; }, 2000); }
-    sv.disabled = false; sv.textContent = '⤓ 另存为';
-  };
   const delb = d.querySelector('.delbtn');
   if (delb) delb.onclick = e => {
     e.stopPropagation();
@@ -744,12 +721,12 @@ function bindAssetCard(d, a) {
   const dlb = d.querySelector('.dlbtn');
   if (dlb) dlb.onclick = async e => {
     e.stopPropagation();
-    dlb.disabled = true; dlb.textContent = '保存中…';
+    dlb.disabled = true; dlb.textContent = '下载中…';
     try {
       const b = await fetchBlob(a);
-      await saveToDir(fileNameOf(a), b, a.type === '视频');
-    } catch (e2) { dlb.textContent = '保存失败'; setTimeout(() => { dlb.textContent = '保存'; }, 2000); }
-    dlb.disabled = false; dlb.textContent = '保存';
+      Net.save(b, fileNameOf(a));
+    } catch (e2) { dlb.textContent = '下载失败'; setTimeout(() => { dlb.textContent = '下载'; }, 2000); }
+    dlb.disabled = false; dlb.textContent = '下载';
   };
   return d;
 }
@@ -772,7 +749,6 @@ function paintAssetCard(d, a) {
     const nm = [...d.querySelectorAll('.timg img')].find(x => mediaId(x) === oldId);
     if (nm) nm.replaceWith(oldMedia);
   }
-  bindCardThumb(d, a);
   if (oldDet) { const nd = d.querySelector('.cdet'); if (nd) nd.replaceWith(oldDet); }
   return bindAssetCard(d, a);
 }
@@ -857,7 +833,7 @@ async function removeEntry(a) {
   assets = assets.filter(x => assetKeyOf(x) !== key);
   assetCardEls.delete(key);
   selected.delete(selKeyOf(a));     // 多选集合也要清：否则批量条还把它算成「已选」，数量对不上
-  writeCache(assets);
+  LIST_CACHE.write(assets);
   tally.run(true);          // 少了一条：后台重数总数（单飞 + 到点再补一趟，不会为一次删除打爆平台）
   return true;
 }
@@ -881,7 +857,6 @@ async function deleteLocalAsset(a, btn) {
 /* ---------- 详情：由 /registry 路由驱动（新 API 只要在路由里声明 poll/detail 端点即可点详情）---------- */
 let REG = { providers: [] };
 async function loadReg() { try { REG = await Api.registry(); } catch { REG = { providers: [] }; } }   // 注册表统一走 Api.registry（带缓存）
-const QZ = { draft: '草稿', standard: '标准', final: '精修' };
 /* 详情面板：与三个工作台共用 Wb.detail（workbench.js）——适配器只描述「这一页的条目长什么样」 */
 Wb.detail.init({
   prompt: a => a.prompt,
@@ -914,7 +889,7 @@ function noPromptText(a) {
 }
 
 /* 灯箱：与收藏 / 三个工作台共用 Wb.lightbox（workbench.js）——信息条与
-   「下载到本地 · ⤓ 另存为 · 详情」也统一走 Wb.lbBar / Wb.lbDetail，
+   「下载 · 详情」也统一走 Wb.lbBar / Wb.lbDetail，
    以前这里自写一套 #lbPanel + <a download>（点了只浏览器下载）。 */
 Wb.lightbox.init({
   list: () => filtered(),                       // 翻页范围 = 当前筛选/分页后的列表
@@ -954,51 +929,6 @@ function fileNameOf(a) {
   const raw = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())} ${p || 'file'}.${ext}`;
   return raw.replace(/[\\/:*?"<>|\x00-\x1f]/g, '-');
 }
-function idb() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open('sk_lib', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('kv');
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
-async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const q = t.objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
-async function verifyPerm(h) {
-  return (await h.queryPermission({ mode: 'readwrite' })) === 'granted' ||
-         (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
-}
-async function ensureDir(interactive, key) {
-  // 图片走 dir_img、视频走 dir_video（兼容旧的统一 dir）
-  let dir = null;
-  try { dir = await idbGet(key); } catch {}
-  if (!dir && !ensureDir._legacy) { ensureDir._legacy = true; try { dir = await idbGet('dir'); } catch {} }
-  if (dir && await verifyPerm(dir)) return dir;
-  if (!window.showDirectoryPicker) throw new Error('当前浏览器不支持选择文件夹，请用 Chrome/Edge');
-  if (interactive) { dir = await window.showDirectoryPicker({ id: 'skLib_' + key, startIn: 'desktop', mode: 'readwrite' }); await idbSet(key, dir); return dir; }
-  throw new Error('尚未设置默认下载文件夹，请到「设置」页选择');
-}
-function anchorDownload(name, blob) {   // 没有默认文件夹时的浏览器下载兜底
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 8000);
-}
-async function saveToDir(name, blob, isVideo) {
-  let dir = null;
-  try { dir = await ensureDir(true, isVideo ? 'dir_video' : 'dir_img'); } catch {}
-  if (!dir) { anchorDownload(name, blob); return; }
-  let fn = name;
-  try { await dir.getFileHandle(fn, { create: false }); fn = fn.replace(/(\.\w+)$/, '-2$1'); } catch {}
-  const fh = await dir.getFileHandle(fn, { create: true });
-  const w = await fh.createWritable(); await w.write(blob); await w.close();
-}
-async function saveAsOnce(name, blob) {
-  if (!window.showSaveFilePicker) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); return; }
-  const h = await window.showSaveFilePicker({ suggestedName: name, startIn: 'desktop' });
-  const w = await h.createWritable(); await w.write(blob); await w.close();
-}
 
 /* ---------- 事件与启动 ---------- */
 $('search').oninput = () => { F.q = $('search').value.trim().toLowerCase(); renderGrid(); };
@@ -1007,16 +937,15 @@ $('searchBtn').onclick = () => { F.q = $('search').value.trim().toLowerCase(); r
 /* ---------- 复用：按素材类型跳到对应工作台，带提示词 + 素材 ---------- */
 function reuseAsset(a) {
   if (a.kind !== 'asset') { toast('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
-  const kind = a.type === '视频' ? 'video' : a.type === '音乐' ? 'audio' : 'image';
+  const kind = a.type === '视频' ? 'video' : isAudioType(a.type) ? 'audio' : 'image';
   const payload = {
     from: 'assets', assetId: a.assetId || a.id, kind,
     prompt: a.prompt || '', provider: a.provider || '', providerName: a.providerName || '',
     duration: a.duration || null, ts: a.ts || null, ar: a.ar || null,
   };
   try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch {}
-  const target = kind === 'image' ? 'image.html' : 'video.html';
-  const label = kind === 'image' ? '图片工作台' : (kind === 'video' ? '视频工作台（参考视频）' : '视频工作台（参考音频）');
-  location.href = target + '?reuse=1';
+  /* 三个工作台合并成一页（studio.html）之后，跳过去要带上 ?t= 才知道落在哪一栏 */
+  location.href = 'studio.html?t=' + (kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio') + '&reuse=1';
 }
 
 /* ---------- AI 检索：只用上面搜索框里的文字，不再另开输入窗口 ---------- */
@@ -1037,9 +966,14 @@ async function runAiSearch() {
   }));
   // 我的收藏（含备注）：AI 可以用它理解“我收藏的那个…”这类说法
   const favs = window.Fav ? Fav.text(60) : [];
-  const sys = '你是素材检索助手。把用户需求翻译成筛选条件，只返回 JSON，不要解释或代码块：'
-    + '{"keywords":["关键词"],"type":"图片|视频|音乐|任意","after":"YYYY-MM-DD 或 null","before":"YYYY-MM-DD 或 null","minDuration":0,"maxDuration":null,"order":"asc|desc","limit":60,"summary":"一句话"}'
-    + '。注意：可用素材里带了「资产ID/任务ID」，如果用户给的是 ID，请把该 ID 原样放进 keywords 里。';
+  const sys = '你是素材检索助手：把用户的一句自然语言需求，翻译成本工作台能直接执行的筛选条件。\n'
+    + '规则：\n'
+    + '1. 只输出 JSON，不要任何解释、不要 markdown 代码块。格式：'
+    + '{"keywords":["关键词"],"type":"图片|视频|音频|任意","after":"YYYY-MM-DD 或 null","before":"YYYY-MM-DD 或 null","minDuration":0,"maxDuration":null,"order":"asc|desc","limit":60,"summary":"一句话"}\n'
+    + '2. keywords 写**素材里真实会出现的词**（提示词里的主体、风格、场景）；不要把整句需求塞进去。\n'
+    + '3. 用户没提时间/时长/排序时就给 null，不要自己编。\n'
+    + '4. 可用素材里带了「资产ID / 任务ID」：用户给的是 ID 时，把该 ID 原样放进 keywords。\n'
+    + '5. summary 用一句话说明你把需求理解成了什么（界面会显示给用户看）。';
   const btn = $('aiSearchBtn');
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = '检索中…';
@@ -1069,7 +1003,7 @@ function paintAiChip() {
   const el = $('aiChip');
   if (!el) return;
   el.innerHTML = FAI
-    ? `<span class="ai-chip">${icon('sparkles', 12)} ${FAI.desc.slice(0, 22)}${FAI.cond.summary ? ' · ' + FAI.cond.summary : ''}<button id="aiClear" title="清除 AI 条件">✕</button></span>`
+    ? `<span class="ai-chip">${icon('sparkles', 12)} ${esc(String(FAI.desc).slice(0, 22))}${FAI.cond.summary ? ' · ' + esc(FAI.cond.summary) : ''}<button id="aiClear" title="清除 AI 条件">${icon('close', 10)}</button></span>`
     : '';
   const c = $('aiClear');
   if (c) c.onclick = () => { FAI = null; paintAiChip(); renderGrid(); };
@@ -1156,7 +1090,7 @@ async function load() {
   renderFilters();
   if (!REG.providers.length) await loadReg();
   if (!assets.length) {                        // 首屏：先把上次缓存秒画出来，网络数据到了再逐条覆盖
-    const cached = readCache();
+    const cached = LIST_CACHE.read();
     if (cached.length) { assets = cached; refreshProviderChips(); renderGrid(); }
   }
   await fetchMore(1);          // 第一批：每平台先拉 1 页，尽快把内容显示出来

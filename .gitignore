@@ -13,17 +13,31 @@ node_modules/
 # 本地工作数据 / 助手记忆
 .workbuddy/
 .workbuddy-ai/
+# 启动.bat 记的「上次真正跑起来的端口」（换了端口也要能关对那个），纯本机状态
+.proxy-port
 
 # ffmpeg 渲染输出（本地成片）
 .renders/
+# 隔离验证实例的渲染输出（RENDER_DIR 指过去，免得探针成片混进用户那一份）
+.renders-probe/
+.renders-drama/
+.renders-chars/
 
 # 本地生成的资产（语音等同步产物落盘处）
 .assets/
+# 隔离验证实例的资产目录（ASSETS_DIR 指过去，免得探针素材写进用户那份）
+.assets-probe/
+.assets-drama/
 
 # 本地数据落盘（工作区 / 设置 / 历史；可能含密钥，绝不提交）
 .data/
 # 隔离测试实例的数据目录（自动化验证用，同属本地数据）
 .data-probe/
+.data-drama/
 
 # 提示词归档（每个任务的提示词，属于个人内容，不进版本库）
 prompts/
+prompts-drama/
+
+# 一次性验证脚本与探针产物（临时、可删，不该进版本库）
+.tmp-*

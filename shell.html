@@ -31,7 +31,16 @@
 <iframe id="appFrame" name="appFrame" title="工作区"></iframe>
 <script>window.__SB_SHELL = true;</script>
 <script src="ui.js"></script>
+<!-- 下面三份只为 AI 助手那一层准备：它挂在外壳，切页面时不重建，所以它自己就得读得到
+     注册表 / 能力声明 / 短剧与素材库（以前挂在内容页时，这些是脚下那一页带的）。
+     三份在加载时都只往 window 挂模块，不碰外壳的 DOM。 -->
+<script src="assetlib.js"></script>
+<script src="workbench.js"></script>
+<script src="drama.js"></script>
 <script src="sidebar.js"></script>
 <script src="app.js"></script>
+<!-- AI 助手只在外壳挂这一份：切页面只换 iframe，抽屉与对话记录都不重建（内容页那份会自动跳过挂载）。
+     必须放在上面这些之后 —— 它要用 Api / TextAI / Capabilities / AssetTransfer / Drama。 -->
+<script src="ai-chat.js"></script>
 </body>
 </html>

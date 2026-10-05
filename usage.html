@@ -154,6 +154,7 @@
 <script src="ui.js"></script>
 <script src="sidebar.js"></script>
 <script src="assetlib.js"></script>
+<script src="ai-chat.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const ROUND = v => Math.round((Number(v) || 0) * 100) / 100;
@@ -164,7 +165,7 @@ let bills = [];
 let envStatus = null;      // /env-status 的结果：null = 读不到（代理没起来）
 let curBillRows = [];      // 当前筛选出的账单（导出 CSV 用）
 /* 文字 AI 厂商显示名：余额卡片、账单、图表统一用它 */
-const VENDOR_LABEL = { deepseek: 'DeepSeek', moonshot: 'Moonshot', siliconflow: 'SiliconFlow', openai: 'OpenAI', zhipu: '智谱 GLM', dashscope: '阿里通义', custom: '自定义' };
+const VENDOR_LABEL = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', moonshot: 'Moonshot', siliconflow: 'SiliconFlow', openai: 'OpenAI', zhipu: '智谱 GLM', dashscope: '阿里通义', custom: '自定义' };
 
 /* 取 JSON：失败要能区分「读不到」和「内容为空」——以前两者都返回 null，
    最后界面统一显示「还没有配置任何平台的密钥」，代理没起来时会被误导 */
@@ -218,11 +219,14 @@ async function loadBalances(reg, configured) {
       try {
         const raw = await Api.request(p, 'credits');
         const b = Api.balance(p, raw);
-        if (!b.ok) { cards.push({ ic, name, unit: '', val: '—', ex: '读取失败' }); return; }
-        const val = b.unit === '积分' ? Number(b.available).toLocaleString() : ('¥' + Number(b.available).toFixed(2));
-        const ex = b.unit === '积分'
-          ? ['冻结 ' + b.frozen + ' 积分', b.note].filter(Boolean).join(' · ')
-          : ['已用 ¥' + Number(b.spent ?? 0).toFixed(2), b.frozen ? '冻结 ¥' + Number(b.frozen).toFixed(2) : ''].filter(Boolean).join(' · ');
+        if (!b.ok) { cards.push({ ic, name, unit: '', val: '—', ex: b.err || '读取失败' }); return; }
+        /* 单位跟着 balance 返回的 unit 走，**不按「是不是积分」写死两个分支**：
+           文字与语音类补上余额接口后 unit 可能是 USD / CNY，硬套 '¥' 会把美元显示成人民币。
+           unit 为空 = 平台没给单位（micros 那几家），按 ¥ 处理。 */
+        const amt = v => (b.unit === '积分' ? String(v)
+          : (b.unit ? Number(v || 0).toFixed(2) : '¥' + Number(v || 0).toFixed(2)));
+        const val = b.unit === '积分' ? Number(b.available).toLocaleString() : amt(b.available);
+        const ex = [b.frozen ? ('冻结 ' + amt(b.frozen)) : '', b.note].filter(Boolean).join(' · ');
         cards.push({ ic, name, unit: b.unit, val, ex });
       } catch (e) { cards.push({ ic, name, unit: '', val: '—', ex: '查询失败：' + e.message }); }
     })());
@@ -253,17 +257,16 @@ async function loadBalances(reg, configured) {
       : '<div class="empty" style="color:var(--warn,#d97706)">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点「重新加载」。</div>';
   }
   else $('balances').innerHTML = cards.map(b => `<div class="bal">
-      <div class="hd"><span class="ic">${b.ic}</span><span>${b.name}</span></div>
-      <div class="v">${b.val}${b.unit ? `<small>${b.unit}</small>` : ''}</div>
-      <div class="ex">${b.ex || ''}</div>
+      <div class="hd"><span class="ic">${b.ic}</span><span>${esc(b.name)}</span></div>
+      <div class="v">${esc(b.val)}${b.unit ? `<small>${esc(b.unit)}</small>` : ''}</div>
+      <div class="ex">${esc(b.ex || '')}</div>
     </div>`).join('');
   return cards.length;
 }
 
 /* ---------- 账单 ---------- */
-function readUsage() {
-  try { return window.TextAI.readUsageLog(); } catch { try { const v = JSON.parse(localStorage.getItem('ai_usage') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
-}
+/* 文字 AI 用量只有这一份读取入口：ui.js 的 Store + TextAI.readUsageLog（页面不再自己 parse） */
+function readUsage() { return window.TextAI.readUsageLog(); }
 async function loadBills() {
   const out = [];
   try {
@@ -290,7 +293,7 @@ async function loadBills() {
   readUsage().forEach(u => {
     const pt = u.pt || 0, ct = u.ct || 0;
     out.push({
-      ts: u.ts, platform: VENDOR_LABEL[u.prov] || u.prov || '文字 AI', genId: '',
+      ts: u.at, platform: VENDOR_LABEL[u.prov] || u.prov || '文字 AI', genId: '',
       what: u.model || 'chat',
       desc: `${pt.toLocaleString()} 输入 + ${ct.toLocaleString()} 输出 tokens`,
       status: 'succeeded',
@@ -321,10 +324,10 @@ function renderBills() {
     + (tkSum ? ' · 文字AI ' + tkSum.toLocaleString() + ' tokens' : '')
     + (noPrice ? ` · ${noPrice} 条平台未返回价格` : '');
   $('bills').innerHTML = shown.length ? `<table><thead><tr><th>时间</th><th>平台</th><th class="w">明细</th><th class="num">花费 / 用量</th></tr></thead><tbody>`
-    + shown.map(b => `<tr title="${((b.desc || '') + ' ' + (b.genId || '')).replace(/"/g, '&quot;').slice(0, 300)}">
+    + shown.map(b => `<tr title="${esc(String(((b.desc || '') + ' ' + (b.genId || ''))).slice(0, 300))}">
         <td class="t">${fmtTime(b.ts)}</td>
-        <td class="p">${b.platform || ''}</td>
-        <td class="w" style="color:var(--sub)">${b.what}${b.desc ? ' · ' + b.desc.replace(/</g, '&lt;').slice(0, 60) : ''}${b.genId ? ` <code style="font-size:10px">${String(b.genId).slice(0, 8)}</code>` : ''}${b.status && b.status !== 'succeeded' ? ` <span style="color:var(--err)">${b.status}</span>` : ''}</td>
+        <td class="p">${esc(b.platform || '')}</td>
+        <td class="w" style="color:var(--sub)">${esc(b.what)}${b.desc ? ' · ' + esc(String(b.desc).slice(0, 60)) : ''}${b.genId ? ` <code style="font-size:10px">${esc(String(b.genId).slice(0, 8))}</code>` : ''}${b.status && b.status !== 'succeeded' ? ` <span style="color:var(--err)">${esc(b.status)}</span>` : ''}</td>
         <td class="num">${b.tokens != null ? b.tokens.toLocaleString() + ' tokens' : (b.cost == null ? '<span title="平台这次没返回价格，不是 0">平台未提供价格</span>' : (b.unit === '元' ? '¥' + Number(b.cost).toFixed(4) : b.cost + ' ' + b.unit))}</td>
       </tr>`).join('') + '</tbody></table>'
     : '<div class="empty">没有符合条件的账单</div>';
@@ -332,7 +335,7 @@ function renderBills() {
   // 平台下拉选项
   const ps = [...new Set(bills.map(b => b.platform))].filter(Boolean);
   const cur = $('fPlatform').value;
-  $('fPlatform').innerHTML = '<option value="">全部平台</option>' + ps.map(x => `<option value="${x}"${x === cur ? ' selected' : ''}>${x}</option>`).join('');
+  $('fPlatform').innerHTML = '<option value="">全部平台</option>' + ps.map(x => `<option value="${esc(x)}"${x === cur ? ' selected' : ''}>${esc(x)}</option>`).join('');
   if (window.Dropdowns) Dropdowns.sync(document);   // 选项变了，同步公共自定义下拉
 }
 
@@ -456,7 +459,7 @@ function renderVoiceStat() {
        <div>累计时长<b>${secs ? secs.toFixed(1) + 's' : '—'}</b></div>
        <div>平均时长<b>${secs && cnt ? (secs / cnt).toFixed(1) + 's' : '—'}</b></div>
        <div>费用<b>${rows.some(r => r.cost != null) ? '见账单明细' : '平台未提供价格'}</b></div>`
-    : '<div class="empty">还没有语音记录（去「语音工作台」生成一条就会出现在这里）</div>';
+    : '<div class="empty">还没有语音记录（去「生成工作台」的语音栏生成一条就会出现在这里）</div>';
   // 按模型/音色汇总
   const byModel = new Map();
   rows.forEach(r => {
@@ -493,7 +496,7 @@ function renderAiStat() {
     byModel.set(k, cur);
   });
   const tk = dayKey(Date.now());
-  const today = usage.filter(u => dayKey(u.ts) === tk);
+  const today = usage.filter(u => dayKey(u.at) === tk);
   const todayTokens = today.reduce((a, u) => a + (u.pt || 0) + (u.ct || 0), 0);
   const all = usage.reduce((a, u) => ({ pt: a.pt + (u.pt || 0), ct: a.ct + (u.ct || 0) }), { pt: 0, ct: 0 });
   $('aiStat').innerHTML = `<div>今日调用<b>${today.length}</b></div>
@@ -510,12 +513,12 @@ function renderAiStat() {
           <td class="num">${(v.pt + v.ct).toLocaleString()}</td></tr>`).join('') + '</tbody></table>'
     : '<div class="empty">暂无数据</div>';
   const byDay = new Map();
-  usage.forEach(u => { const k = dayKey(u.ts); byDay.set(k, (byDay.get(k) || 0) + (u.pt || 0) + (u.ct || 0)); });
+  usage.forEach(u => { const k = dayKey(u.at); byDay.set(k, (byDay.get(k) || 0) + (u.pt || 0) + (u.ct || 0)); });
   const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10);
   $('aiDaily').innerHTML = days.length
     ? '<table><thead><tr><th>日期</th><th>调用次数</th><th class="num">tokens</th></tr></thead><tbody>'
       + days.map(([k, t]) => {
-        const c = usage.filter(u => dayKey(u.ts) === k).length;
+        const c = usage.filter(u => dayKey(u.at) === k).length;
         return `<tr><td class="t">${k}</td><td>${c}</td><td class="num">${t.toLocaleString()}</td></tr>`;
       }).join('') + '</tbody></table>'
     : '<div class="empty">暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）</div>';

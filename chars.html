@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
+<title>素材库 · 拾帧</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3;
+    --pri:#7c5cff; --acc:#6957e8; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --input:#f6f7fb; --thumbbg:#e2e5ee; }
+  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6;
+    --sub:#8f97ab; --pri:#9d8bff; --acc:#6c8cff; --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --input:#0f1219; --thumbbg:#1b1f2c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--txt); min-height: 100vh; }
+  .page-main { padding: 30px 40px 60px; }
+  h1 { font-size: 24px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .desc { font-size: 14px; color: var(--sub); line-height: 1.7; max-width: 860px; }
+  .toolbar, .toolbar2, .toolbar3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 6px; }
+  .toolbar2 { margin: 0 0 6px; }
+  .toolbar3 { margin: 0 0 16px; }
+  .toolbar .sp, .toolbar2 .sp, .toolbar3 .sp { flex: 1; }
+  .toolbar input[type=search] { flex: 0 1 300px; min-width: 150px; height: 30px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--txt); font-size: 12.5px; outline: none; }
+  .toolbar input[type=search]:focus { border-color: var(--acc); }
+  .toolbar .cnt { color: var(--sub); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 13px;
+    border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--sub); cursor: pointer; white-space: nowrap; }
+  .chip.on { color: var(--acc); border-color: var(--acc); background: rgba(108,140,255,.1); }
+  /* 型号这两个下拉：没有当前某一集的 opts，就按本页选的型号出图 / 出声音（存 char_opts） */
+  .pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--sub); }
+  /* 「画风」输入框与它的 .pick input 样式已于 2026-10 一并删掉（画风只属于每一集自己）。 */
+  /* 卡片上那句失败原因（一次出齐时不弹一串 toast，原因留在没出来的那一张上） */
+  .card .why { font-size: 11.5px; color: var(--err); line-height: 1.5; }
+  /* 分组那一排：下拉是「看哪一组」，按钮是「整组给哪一集」 */
+  .grp { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--sub); }
+  .grp select { min-width: 120px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; position: relative;
+    display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s; }
+  .card:hover { border-color: var(--acc); box-shadow: 0 6px 20px rgba(0,0,0,.09); }
+  .card .thumb { height: 150px; background: var(--thumbbg); display: flex; align-items: center; justify-content: center;
+    overflow: hidden; cursor: zoom-in; }
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .thumb .none { color: var(--sub); font-size: 12px; text-align: center; line-height: 1.6; padding: 0 10px; }
+  /* 有预览图时这一格是「看大图」，没有时是「自己挑一张」—— 两种手感要看得出来 */
+  .card .thumb[data-a="pickface"] { cursor: copy; }
+  .card .body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 6px; }
+  .card .nm { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .card .bio { font-size: 12.5px; color: var(--sub); line-height: 1.55; }
+  .card .assets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .card .assets .th { width: 46px; height: 46px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    background: var(--panel2); cursor: zoom-in; position: relative; }
+  .card .assets .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* 资产是**列表**了：一张一个缩略图，底下压一行类型标签 ——
+     否则三张图并排全是脸，用户分不清哪张是三视图、哪张是表情表。 */
+  .card .assets .th i { position: absolute; left: 0; right: 0; bottom: 0; font-style: normal;
+    font-size: 9.5px; line-height: 1.3; text-align: center; color: #fff; background: rgba(0,0,0,.62); }
+  /* 资产列表里的一张：缩略图 + **名字输入框** + 关联道具多选 + 重出 + 去掉。竖着排，别挤成一行。 */
+  .ui-asset { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; width: 100%;
+    padding: 6px 0; border-top: 1px solid var(--line); }
+  .ui-asset:first-of-type { border-top: 0; }
+  .ui-asset .ui-cand b { font-weight: 600; font-size: 12px; }
+  .ui-props { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+  .ui-proprow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11.5px; }
+  .ui-proprow > b { color: var(--sub); font-weight: 600; min-width: 52px; }
+  .ck.sm { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 400; }
+  /* 「加一张角色资产」那一行的三个输入：名字 / 模板 / 自定义描述。
+     宽度按内容分档，不给死 —— 自定义描述那一格要能写一句完整的话。
+     禁用的那一格（没选「自定义」时）**保持可见**：藏了会让人以为没这个功能。 */
+  .ui-inp { height: 26px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--fg); min-width: 0; }
+  .ui-inp:disabled { opacity: .5; cursor: default; }
+  .ui-inp[data-a="assetname"] { flex: 0 1 168px; }
+  .ui-inp[data-a="assetwhat"] { flex: 1 1 200px; }
+  .ui-asset .ui-inp[data-a="assetrename"] { flex: 0 1 168px; }
+  .card .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; align-items: center; }
+  .card .acts .sp { flex: 1; }   /* 编辑区那一行把「去掉参考音频」顶到行尾 */
+  .card .acts .ghost, .card .acts .tool { padding: 4px 10px; font-size: 11.5px; }
+  /* 就地展开的编辑区（名字 / 类型 / 分组 / 描述 / 声音）——不弹新窗，改完即存 */
+  .card .edit { border-top: 1px solid var(--line); padding: 10px 11px 12px; display: flex; flex-direction: column; gap: 8px; }
+  /* 展开中那一张要认得出来：卡片一大排，光看哪块多了输入框不够（编辑区在卡片底部，常在屏幕外） */
+  .card.open { border-color: var(--acc); box-shadow: 0 0 0 2px rgba(108,140,255,.18); }
+  /* 编辑区顶行：一句「在改谁」+ 收起。收起必须在这一块里就能按到 ——
+     只有卡片中部那颗「编辑」能收起时，长编辑区滚到底就收不掉。 */
+  .card .edit .eh { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); }
+  .card .edit .eh > .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .edit label { font-size: 12px; color: var(--sub); }
+  .card .edit input, .card .edit textarea { width: 100%; border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 8px; background: var(--input); color: var(--txt); font: inherit; font-size: 12.5px; resize: vertical; outline: none; }
+  /* 勾选框不吃上面那条 width:100%（否则一颗勾被拉成一整条灰块） */
+  .card .edit input[type=checkbox] { width: auto; padding: 0; height: auto; accent-color: var(--acc); }
+  .card .edit label.ck { display: flex; align-items: flex-start; gap: 7px; line-height: 1.5; }
+  .card .edit label.ck input { margin-top: 2px; }
+  .card .edit input:focus, .card .edit textarea:focus { border-color: var(--acc); }
+  .empty { padding: 60px 0; text-align: center; color: var(--sub); font-size: 14px; line-height: 1.9; }
+  .busy { font-size: 12px; color: var(--acc); }
+  /* 列表档：横条一行一位，缩略图在左、信息在右 */
+  .grid.view-list { display: flex; flex-direction: column; gap: 10px; }
+  .grid.view-list .card { flex-direction: row; align-items: stretch; }
+  .grid.view-list .card .thumb { width: 150px; height: auto; flex: 0 0 150px; border-right: 1px solid var(--line); }
+  /* 展开编辑区后整张卡有一人多高：缩略列是 stretch 的，不压一下就会把预览图拉成一条几倍高的色块
+     （object-fit:cover 只会把它放大到失真，不会留白）。让图钉在上沿、保持收起时那 150px。 */
+  .grid.view-list .card.open .thumb { align-items: flex-start; }
+  .grid.view-list .card.open .thumb img,
+  .grid.view-list .card.open .thumb .none { height: 150px; }
+  .grid.view-list .card.open .thumb .none { display: flex; align-items: center; justify-content: center; }
+  .grid.view-list .card .main { flex: 1; min-width: 0; }
+  @media (max-width: 760px) { .page-main { padding: 18px 14px 40px; }
+    .grid.view-list .card { flex-direction: column; } .grid.view-list .card .thumb { width: auto; flex: 0 0 auto; height: 150px; } }
+</style>
+</head>
+<body>
+<div class="page-main">
+  <h1><span id="tic"></span>素材库</h1>
+  <div class="desc">跨剧复用的<b>角色</b>、<b>场景</b>与<b>道具</b>。每条素材身上带的东西都是<b>拍的时候真的会发出去</b>的：
+    预览图（卡片缩略图，也是生图与生视频认脸、认景、认物的锚点）、<b>三视图</b>（只有角色有，随脸一起自动补进参考图，位置不够时按模型上限取舍）、
+    声音（角色才有；本机配音用，视频模型有「参考音频」槽位时也发给它）、外貌或场景或道具描述（交给文字 AI 自己决定要不要写进提示词）、
+    时段（场景才有；直接进这张场景图提示词里那句「…的光线」，库里没填就成了一句空话）。
+    <b>这一页只管存；往某一集里放请到「拍短剧 → 认角色」</b>，那边能多选、能整组给 AI，目标集就写在弹窗标题上。</div>
+
+  <div class="toolbar">
+    <div class="chips" id="chips"></div>
+    <input type="search" id="q" placeholder="搜索名字 / 人设 / 描述">
+    <button class="tool acc" id="aiFindBtn" title="把搜索框那句话交给文字 AI，按名字 / 人设 / 外貌挑人"></button>
+    <span id="aiChip"></span>
+    <span class="cnt" id="cnt"></span>
+  </div>
+  <div class="toolbar2">
+    <span class="grp">分组<span id="grpPick"></span></span>
+    <button class="tool" id="btnFill" title="把当前这一档里还没有预览图、角色还缺三视图的素材一次交给生图平台"></button>
+    <span class="sp"></span>
+    <span class="busy" id="busy"></span>
+    <button class="ghost" id="btnStop" hidden>停下</button>
+    <span class="viewtoggle" id="fView"></span>
+    <button class="tool" id="btnNew"></button>
+  </div>
+  <div class="toolbar3">
+    <span class="pick">出图型号<span id="imgPick"></span></span>
+    <span class="pick">语音型号<span id="ttsPick"></span></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div id="gridEnd" style="height:1px"></div>
+  <div class="pager-row" id="pagerRow">
+    <button class="ghost" id="pgPrev">‹ 上一页</button>
+    <span class="pginfo" id="pgInfo"></span>
+    <button class="ghost" id="pgNext">下一页 ›</button>
+  </div>
+</div>
+<datalist id="grpList"></datalist>
+
+<script src="ui.js"></script>
+<script src="workbench.js"></script>
+<script src="sidebar.js"></script>
+<script src="assetlib.js"></script>
+<script src="drama.js"></script>
+<script src="ai-chat.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const D = window.Drama, esc = s => window.esc(s);
+  const AK = D.Cast.ASSET_KINDS;
+  let REG = null;
+  let filter = 'all';
+  let group = '';                 // '' = 全部组；'__none' = 未分组
+  let aiPick = null, aiWhy = '';   // AI 挑出来的一批（id 集合）+ 它自报的理由
+  let openId = '';                 // 哪一张卡展开了编辑区
+  let busyMsg = '';
+  /* 「一次出齐」这一轮的两位状态：按过停下（不再开新的任务）、这一轮有没有停下可言。
+     声明在这一排而不是批量那一段里 —— paintBusy 每次记账都要读它们，
+     而 boot 之前若有别处调 paintBusy，`let` 还没执行到就会撞 TDZ。 */
+  let stopFlag = false, fillStoppable = false;
+  let renderSeq = 0;
+  const viewItems = [];            // 当前视图的素材（灯箱翻页范围）
+  const media = [];                // 当前视图能点开看的图（预览图 + 各资产）
+
+  /* 这一页没有「某一集」，所以出图 / 出声音用的型号在本页选一下（存 char_opts）。
+     传进 Drama.Pipe 时套成 drama 的样子（那些函数只读 opts.imgModel / opts.ttsModel / opts.ratio）。 */
+  let opts = { imgModel: '', ttsModel: '', ratio: '9:16', style: '' };
+  try { opts = Object.assign(opts, JSON.parse(localStorage.getItem('char_opts') || '{}')); } catch (e) {}
+  const fakeDrama = () => ({ opts: opts, characters: [], scenes: [], shots: [] });
+  function saveOpts() { try { localStorage.setItem('char_opts', JSON.stringify(opts)); } catch (e) {} }
+  function setBusy(m) { busyMsg = m; paintBusy(); }
+  /* 底栏一句话 + 「停下」那颗按钮 + 批量那颗按钮的可用性，都跟着这份记账走：
+     三处读同一张表，就不会出现「圈还在转、按钮已经能点」或反过来。 */
+  function paintBusy() {
+    const el = $('busy'); if (el) el.textContent = genLine() || busyMsg;
+    const b = $('btnStop'); if (b) b.hidden = !(genHas('fill', null) && fillStoppable);
+    paintFillBtn();
+  }
+  /* 谁在生成：一张表记「这一条的哪一项正在出」（预览图 / 某一类设定图 / 声音候选）。
+     三样事都读它：格子里的占位圈、按钮的禁用态、重复点同一项的闸门 —— 白花一次钱就在这一处拦。
+     不同条、不同项并发照旧放行，它们本来就互不相干（与拍短剧页的记账同一套做法）。 */
+  const GEN = new Map();
+  const gKey = (kind, id) => kind + '#' + id;
+  function genSet(kind, id, msg) { GEN.set(gKey(kind, id), msg); paintBusy(); }
+  function genClear(kind, id) { GEN.delete(gKey(kind, id)); paintBusy(); }
+  function genHas(kind, id) { return GEN.has(gKey(kind, id)); }
+  function genMsg(kind, id) { return GEN.get(gKey(kind, id)) || ''; }
+  function genLine() { return Array.from(GEN.values()).filter(Boolean).join('　｜　'); }
+  /* 「这一项上一次没出来，为什么」也按「哪一条的哪一项」记，与 GEN 同一套键。
+     为什么不记在素材对象上：`D.Lib.save` 的字段拷贝清单里没有 err 这类字段，
+     写进对象等于没写（刷新就没了），而记在页面上至少这一轮看得见原因。
+     批量那一轮尤其需要它 —— 40 条里砸 3 条，toast 会连着响三声把界面淹了，
+     而真正该看的那句话得留在这几张卡上。 */
+  const ERR = new Map();
+  function errSet(kind, id, msg) { const k = gKey(kind, id); if (msg) ERR.set(k, msg); else ERR.delete(k); }
+  function errOf(kind, id) { return ERR.get(gKey(kind, id)) || ''; }
+  const src = s => Api.mediaSrc(s);
+  const isScene = x => D.isSceneItem(x);
+  const isProp = x => D.isPropItem(x);
+  /* 「这一条会不会说话」只有这一份判据（D.Cast.isVoiced）—— 场景与道具不出声。
+     以前卡片、编辑区、筛选、灯箱各写一遍 `!isScene(c) && !isProp(c)`，漏一处就多一块音色控件，
+     而道具根本没有声音（`voiceTag` / `voiceRowHTML` 自己在数据层就返回空串，这里只是省掉判断）。 */
+  const voiced = x => D.Cast.isVoiced(x);
+  /* 「现在**能选哪几个出图模板**」读 D.Cast 一份判据，页面不自己列。
+     角色资产本身是**扁平的、名字自己起**的列表（任意种类、不限张数），
+     这里管的是「点『AI 出』时用哪段提示词」。场景与道具没有资产子项。 */
+  const assetTpls = c => D.Cast.assetTplsOf(c);
+  /* 「一次出几张」= 拍短剧页那份设置（Drama.SET.candN，可配 1~8）再夹生图型号声明的
+     `max_outputs`（drama.js 的 `Pipe.candCount` 一处判据）。**两页读的是同一个数** ——
+     素材库里攒下的候选会跟着角色拉进某一集，两个页面对「几张」各有一套定义就会出现
+     「这边出 3 张、那边只出 1 张」。`ONE` 保留给「明确只要一张」的那些调用
+     （失败重试、批量补画），它们不是候选场景。 */
+  const ONE = 1;
+  const candCount = () => Math.max(ONE, Number(D.candCount(REG, opts)) || ONE);
+  /* 「再画 N 张」那颗按钮：张数与文案都现算（设置改了、平台换了上限，按钮跟着变）。 */
+  function moreCandsBtn(kind, dis) {
+    const n = candCount();
+    return `<button class="ui-linkbtn" data-a="morecand" data-k="${esc(kind)}"${dis ? ' disabled' : ''}>`
+      + (n > 1 ? '再画 ' + n + ' 张候选' : '再画 1 张') + '</button>';
+  }
+  /* 一份字段表：主图与角色资产各处的「再画 N 张 / 用这一张」完全同构，候选都攒在
+     `x.faces` / `x.assetCands[tpl]`。
+     ⚠ 资产是**扁平列表**了（任意种类、不限张数、每张一个名字），
+        所以资产的候选**不再进这张表** —— 那套是「每一类一个候选排」，
+        与「一张图一个名字」冲突。资产出图走编辑区里那一行自己的表单。 */
+  const CANDK = {
+    face: { bus: 'face', lab: '预览图',
+      gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+      got: x => D.picOf(x), set: (x, v) => D.setPic(x, v) },
+  };
+  /* 场景 / 道具的主图与角色同一条路（`drawPreview` 按类型自己判），只是那张在用的字段
+     是 `img`（场景）而不是 `face`，所以这里补两个别名指向同一份实现。 */
+  CANDK.img = { bus: 'face', lab: '场景图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+    got: x => x.img, set: (x, v) => { x.img = v; } };
+  CANDK.prop = { bus: 'face', lab: '道具图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+    got: x => x.face, set: (x, v) => { x.face = v; } };
+  /* 这一条的主图属于哪一档（角色=face / 场景=img / 道具=prop） */
+  const mainKind = c => isScene(c) ? 'img' : isProp(c) ? 'prop' : 'face';
+  /* 出 N 张新候选，**不动已经选中的那张**（不传 replace）：挑还没挑就被人换掉，
+     比「只能一次出一张」更糟 —— 用户花钱攒的那一排会白攒。 */
+  async function moreCands(c, kind) {
+    const k = CANDK[kind]; if (!k) return;
+    await genRun(k.bus, c.id, c, '正在给「' + c.name + '」出 ' + candCount() + ' 张' + k.lab + '候选…',
+      () => k.gen(c));
+  }
+  function useCand(c, kind, src) {
+    const k = CANDK[kind]; if (!k || !src) return;
+    k.set(c, src); D.Lib.save(c, { exact: true }); paintCard(c);
+    toast('这条现在用这张。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
+  }
+  /* 跑一份生成：记账 → 只重画这一张卡（整页 render 会连编辑区一起收起）→ 跑 → 撤账再重画。
+     `quiet` 给批量那一轮用：原因写在这张卡上（errSet + 卡片红字），不再一条一声 toast。 */
+  async function genRun(kind, id, c, msg, fn, quiet) {
+    if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中，好了会自动出现，不用再点一次'); return false; }
+    genSet(kind, id, msg); errSet(kind, id, ''); paintCard(c);
+    let err = '';
+    try { await fn(); } catch (e) { err = (e && e.message) || String(e); }
+    genClear(kind, id);
+    /* 砸了也要写库：这一轮可能已经改动了候选/时间戳，只把原因记在页面上。 */
+    D.Lib.save(c, { exact: true });
+    errSet(kind, id, err);
+    paintCard(c);
+    if (err && !quiet) Toast.err(err);
+    return !err;
+  }
+  /* 只重画这一条卡。人正在这张卡里打字（名字 / 描述 / 声音描述）时也要重画 ——
+     不然「生成完会自动出现」就落空了；做法是重画后把焦点与光标位置还给原来那一格。 */
+  function paintCard(c) {
+    /* 「一次出齐」那条按整档现算，不只这张卡 —— 这张卡补上了预览图、勾了「只出声」，
+       那颗按钮上的数字与 title 就得当场跟着变，否则界面说的是上一轮的缺口。
+       放在最前面：下面几处提前 return（卡片不在当前视图 / 正在打字）都不能把它跳过。 */
+    paintFillBtn();
+    const el = document.querySelector('.card[data-id="' + c.id + '"]');
+    if (!el) return;
+    const a = document.activeElement;
+    const back = a && a !== document.body && el.contains(a) ? String(a.dataset.f || a.dataset.act || '') : '';
+    const pos = back && typeof a.selectionStart === 'number' ? a.selectionStart : -1;
+    el.innerHTML = cardHTML(c);
+    bindCard(el, c);
+    if (!back) return;
+    const nx = el.querySelector('[data-f="' + back + '"], [data-act="' + back + '"]');
+    if (!nx) return;
+    nx.focus();
+    if (pos >= 0 && nx.setSelectionRange) { try { nx.setSelectionRange(pos, pos); } catch (e) {} }
+  }
+
+  /* ---------- 顶部筛选 ---------- */
+  /* 三种类型各一档（与库里那三种平级，道具是 2026-10 加的），后面三个是「还缺什么」的缺口档。
+     缺口档的名字跟着现在的功能走。`noasset` = 角色**一张角色资产都还没有**
+     （以前叫「缺三视图」，是按类别数的；现在资产任意种类、不限张数，
+      按「有没有」数才对 —— 否则用户加了一张「雨天造型」之后这一档还会说他缺三视图）。 */
+  const FILTERS = [['all', '全部'], ['actor', '角色'], ['scene', '场景'], ['prop', '道具'],
+    ['nopic', '还没有预览图'], ['noasset', '还没有角色资产'], ['novoice', '还没有声音']];
+  function match(c, f) {
+    if (f === 'all') return true;
+    if (f === 'actor' || f === 'scene' || f === 'prop') return (D.libKindOf(c)) === f;
+    if (f === 'nopic') return !D.voiceOnlyOf(c) && !D.picOf(c);
+    /* `nothree` 是**旧档名**：老用户浏览器里存的就是它，直接认掉，
+       别让人升级后看着「没筛选生效」—— 删一个键就等于把他们的筛选丢掉。 */
+    if (f === 'noasset' || f === 'nothree') return !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length && !D.Cast.assetsOf(c).length;
+    return voiced(c) && !c.refAudio && !c.voice && !String(c.voiceNote || '').trim();
+  }
+  function paintChips() {
+    const all = D.Lib.list();
+    $('chips').innerHTML = FILTERS.map(([k, t]) => {
+      const n = all.filter(c => c && match(c, k)).length;
+      return `<button class="chip${filter === k ? ' on' : ''}" data-t="${k}">${t}${n ? ' ' + n : ''}</button>`;
+    }).join('');
+    $('chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { filter = b.dataset.t; resetPaging(); render(); });
+  }
+  function paintAiChip() {
+    const el = $('aiChip'); if (!el) return;
+    el.innerHTML = aiPick
+      ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
+        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整名单">${window.icon('close', 11)}</button></span>`
+      : '';
+    const c = $('aiClear'); if (c) c.onclick = () => { aiPick = null; aiWhy = ''; resetPaging(); render(); };
+  }
+
+  /* ---------- 分组：这一页只负责「看哪一组」 ----------
+     「把这一组 / 这一条加进某一集」**不在这一页**。
+     以前这里有两个按钮（工具条上的「整组加入这一集」与每张卡上的「加入当前这一集」），
+     它们都要求「拍短剧页当前正打开着一集」（D.activeId()）——
+     可这一页根本显示不出当前开着哪一集，于是要么点出「还没有打开的一集」的报错，
+     要么默默改了一集你压根没在拍的东西。这类按钮是「不该有的按钮」：
+     同样的事拍短剧页有一个更好的入口（`btnOpenLib` 那个挑选弹窗，支持多选、整组、
+     删除、就地新建，目标集就在标题栏写着），所以这里是纯粹的功能重复 + 看不见前提。 */
+  function paintGroups() {
+    const gs = D.Lib.groups();
+    const none = D.Lib.list().filter(c => c && !String(c.group || '').trim()).length;
+    const el = $('grpPick'); if (!el) return;
+    el.innerHTML = '<select id="grpSel"><option value=""' + (group ? '' : ' selected') + '>全部组</option>'
+      + gs.map(g => `<option value="${esc(g.name)}"${group === g.name ? ' selected' : ''}>${esc(g.name)}（${g.n}）</option>`).join('')
+      + (none ? `<option value="__none"${group === '__none' ? ' selected' : ''}>未分组（${none}）</option>` : '')
+      + '</select>';
+    const sel = $('grpSel');
+    sel.onchange = () => { group = sel.value; resetPaging(); render(); };
+    if (window.Dropdowns) Dropdowns.build(el);
+    $('grpList').innerHTML = gs.map(g => `<option value="${esc(g.name)}">`).join('');
+  }
+
+  /* ---------- 展示样式与分页（与收藏页同一套公共实现） ---------- */
+  const PAGE_MODE = (function () { try { return localStorage.getItem('page_mode_chars') === 'more' ? 'more' : 'page'; } catch (e) { return 'page'; } })();
+  const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_chars') || 18) || 18);
+  let morePages = 1;
+  const viewToggle = Wb.viewToggle.create({
+    el: 'fView', key: 'dir_char_view',
+    views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
+    onPick: applyView,
+  });
+  function applyView() {
+    const g = $('grid'); if (!g) return;
+    g.classList.remove('view-list', 'view-compact');
+    g.classList.add('view-' + ((viewToggle && viewToggle.value) || 'list'));
+  }
+  const shownCount = () => PAGE_MODE === 'more' ? Math.min(viewItems.length, morePages * PAGE_SIZE) : viewItems.length;
+  function pageItems() { return PAGE_MODE === 'more' ? viewItems.slice(0, shownCount()) : pager.slice(viewItems); }
+  function resetPaging() { morePages = 1; pager.setPage(0); }
+  const pager = Wb.pager.create({
+    mode: PAGE_MODE, pageSize: PAGE_SIZE,
+    items: () => viewItems,
+    hasMore: () => PAGE_MODE === 'more' && shownCount() < viewItems.length,
+    render: () => render(),
+  });
+  pager.bindButtons();
+
+  /* ---------- 灯箱与详情（同一个公共组件，条目形状按收藏页那套来） ---------- */
+  Wb.detail.init({
+    prompt: it => it.item ? D.descOf(it.item) : '',
+    status: () => '素材库',
+    rows: it => [
+      ['名字', it.item ? it.item.name : ''],
+      ['类型', it.item ? D.LIB_KINDS[D.libKindOf(it.item)] : ''],
+      ['分组', (it.item && it.item.group) || '未分组'],
+      ['这一张', it.label || ''],
+      /* 场景没有「人设」这一栏（它没有 bio 那层意思），道具那栏叫「用途」——
+         摆一格空的「人设」是在报一件界面上根本没有的事。 */
+      ['人设 / 用途', (it.item && it.item.bio) || ''],
+      [D.isPropItem(it.item) ? '道具描述' : D.isSceneItem(it.item) ? '场景描述' : '外貌', D.descOf(it.item) || ''],
+      /* 资产那一行对场景 / 道具是空的（D.Cast.assetNames 现在对它们返回空串），
+         那一行整个不出现 —— 见 assetNames 那段：说「还没画」是报一件不存在的事。 */
+      ['资产', it.item ? D.Cast.assetNames(it.item) : ''],
+    ],
+  });
+  Wb.lightbox.init({
+    list: () => media,
+    keyOf: it => it.key,
+    srcOf: it => src(it.s),
+    nameOf: it => it.name,
+    kindOf: () => 'image',
+    info: it => [it.name, it.item ? D.Cast.assetNames(it.item) : ''],
+  });
+
+  /* 标题那一行与描述那一行单独成函数：编辑区里改完名字 / 分组 / 描述，只需把这两行就地换掉。
+     整页 render 在这条路上是错的 —— 输入框 blur 先于按钮 click 触发，重建 DOM 会把刚点下去的
+     「收起」那颗按钮换成一个新节点，click 永远不发（表现就是「点了收起没反应」）。 */
+  function nmInner(c) {
+    return `${esc(c.name)}<span class="ui-tag">${D.LIB_KINDS[D.libKindOf(c)]}</span>`
+      /* 场景的时段直接进这张图的提示词（`drawPreview` 里那句「…的光线」），
+         所以它和类型一样是「一眼就该看见」的身份，不该藏在编辑区里。 */
+      + (isScene(c) && c.time ? `<span class="ui-tag">${esc(c.time)}</span>` : '')
+      + (!isScene(c) && !isProp(c) && D.voiceOnlyOf(c) ? '<span class="ui-tag">只出声</span>' : '')
+      + (c.group ? `<span class="ui-tag">${esc(c.group)}</span>` : '');
+  }
+  function bioInner(c) {
+    return esc(c.bio || '') + (c.bio && c.look ? '<br>' : '') + esc((c.look || '').slice(0, 80));
+  }
+  /* 就地更新那两行（只换 .nm / .bio 里的内容，不碰按钮与输入框）。
+     编辑区顶行那句「编辑「谁」」跟着一起换：改完名字后它还写着旧名，等于同一张卡上两个名字。 */
+  function paintHeads(c) {
+    const el = document.querySelector('.card[data-id="' + c.id + '"]'); if (!el) return;
+    const nm = el.querySelector('.nm'), bio = el.querySelector('.bio'), eh = el.querySelector('.edit .eh > .t');
+    if (nm) nm.innerHTML = nmInner(c);
+    if (bio) bio.innerHTML = bioInner(c);
+    if (eh) eh.textContent = '编辑「' + (c.name || '这条素材') + '」· 改完就地存';
+  }
+  /* blur 十有八九是「松手要按下面另一颗按钮」按出来的，而标题那一行改字数会把卡片撑高一截：
+     那一刻重排，鼠标底下的元素就换了（实测：点「用这一张」结果点在候选缩略图上 ——
+     click 派发给 mousedown 与 mouseup 两个目标的共同祖先）。数据在 blur 时已经存好，
+     所以这一行等这颗按钮松手之后再补画；没人松手（Tab 换格、程序化 blur）时 400ms 兜底。 */
+  let headPend = null, headTimer = 0;
+  function flushHeads() {
+    clearTimeout(headTimer); headTimer = 0;
+    const c = headPend; headPend = null;
+    if (c) paintHeads(c);
+  }
+  function queueHeads(c) {
+    headPend = c;
+    clearTimeout(headTimer);
+    headTimer = setTimeout(flushHeads, 400);
+  }
+  document.addEventListener('pointerup', () => setTimeout(flushHeads, 0), true);
+
+  /* 这一条身上那几张图叫什么：道具只有「预览图」一个说法，角色才有「三视图」这一档。
+     场景与道具没有资产子项，所以 `picWord` 之外不该再冒出「多角度 / 陈设细节」这类词。 */
+  function picWord(c) { return isProp(c) ? '道具图' : '预览图'; }
+  /* 主图下面那一排候选。角色 / 场景 / 道具三类同构（候选都攒在 `c.faces`，在用的那张另存
+     `face` 或 `img`），所以一份渲染；`kind` 由 `mainKind(c)` 判。
+     `busy` 时整排换成占位格：出着 3 张却只看见 1 张是不能接受的，反过来「3 张在排队」
+     也得看得见，否则会以为卡住了。按钮留着但禁用 —— 只剩一个转圈看着像「这个入口没了」。 */
+  function mainCandsHTML(c, pw, busy) {
+    const kind = mainKind(c);
+    const n = candCount();
+    const list = (c.faces || []).filter(x => x && x.src);
+    return busy
+      ? `<div class="ui-cands"><span class="lab">${esc(pw)}候选</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsBtn(kind, true)}</div>`
+      : D.Cast.picCandsHTML(list, D.picOf(c), { act: 'usecand', label: pw + '候选', name: c.name,
+          extra: ' data-k="' + kind + '"', tail: moreCandsBtn(kind, false) });
+  }
+  function cardHTML(c) {
+    const sc = isScene(c), pr = isProp(c);
+    const pw = picWord(c);
+    const pic = D.picOf(c);
+    /* 角色资产现在是**一个扁平列表**（任意种类、不限张数、每张自己一个名字）——
+       缩略图按列表逐张摆，每张带上它自己的名字。旧写法 `Object.keys(assets)`
+       遍历字典，每个 kind 只有一个坑位，多张时只能看到其中一张。 */
+    const assetList = D.Cast.assetsOf(c);
+    /* 关联道具的名字要显示在缩略图的 title 上，所以要能看到整份库里的道具 */
+    const libProps = D.Lib.list().filter(x => x && isProp(x));
+    const editOpen = openId === c.id;
+    const faceBusy = genHas('face', c.id);
+    const faceErr = errOf('face', c.id);
+    /* 试听：编辑区开着时不摆这一颗 —— 下面那块声音控件里本来就有同一件事（同一句话不能说两遍）。 */
+    const hasVoice = voiced(c) && !!(c.voice || c.voiceName || String(c.voiceNote || '').trim() || c.refAudio);
+    /* 只出声的那一位不进画面：出图的两个入口对它是纯噪音（拍短剧页那边同样不给它画脸），
+       所以这里连按钮都不画，而不是画一颗点了什么都不发生的按钮。 */
+    const vo = voiced(c) && D.voiceOnlyOf(c);
+    const thumb = vo
+      ? `<div class="thumb" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
+      : `<div class="thumb" data-a="${pic ? 'zoomface' : 'pickface'}" title="${pic
+        ? pw + '：点一下看大图'
+        : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + pw + '」'}">
+        ${pic ? `<img src="${esc(src(pic))}" alt="">` : (faceBusy
+          ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
+          : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`)}</div>`;
+    /* **收起状态下不摆任何生成按钮**（用户要求）。
+       以前这一行摆着「AI 重出预览图 / AI 重出三视图 / AI 出表情表 / AI 出服装」四颗 ——
+       每一颗都是**花钱动作**，而素材库这一屏是给人「浏览素材」的：
+       往下滚一屏就顺手点掉一颗，钱已经花了。生成入口**只在编辑区里**，
+       那里能一次看清这一位缺什么、要用哪一段描述、出几张。 */
+    const genBtns = '';
+    return `${thumb}
+      <div class="main"><div class="body">
+        <div class="nm">${nmInner(c)}</div>
+        <div class="tags">
+          ${D.Cast.voiceTag(c)}
+          ${!hasVoice || editOpen ? '' : `<button class="ui-linkbtn" data-a="play"${genHas('voice', c.id) ? ' disabled' : ''}>试听</button>`}
+        </div>
+        <div class="bio">${bioInner(c)}</div>
+        ${assetList.length ? `<div class="assets">${assetList.map(a => {
+          const lab = D.Cast.assetName(a);
+          const ps = (a.propIds || []).map(pid => libProps.find(p => p && p.id === pid)).filter(Boolean).map(p => p.name);
+          return `<div class="th" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" title="${esc(lab)}${ps.length ? '（连带 ' + esc(ps.join('、')) + '）' : ''}：点开看大图"><img src="${esc(src(a.src))}" alt=""><i>${esc(lab)}</i></div>`;
+        }).join('')}</div>` : ''}
+        ${faceErr ? `<div class="why">${esc(pw)}这次没出来：${esc(faceErr)}</div>` : ''}
+        ${vo ? '' : mainCandsHTML(c, pw, faceBusy)}
+        <div class="acts">
+          <button class="ghost" data-a="edit">${editOpen ? '收起' : '编辑'}</button>${genBtns}
+          <button class="ghost danger" data-a="del">从库里删掉</button>
+        </div>
+      </div>
+      ${editOpen ? editHTML(c) : ''}
+      </div>`;
+  }
+  /* 编辑区就地展开（不弹新窗）：名字 / 类型 / 分组 / 描述 / 时段（场景）/ 只出声（角色）/ 声音 / 角色资产。
+     每一类**按类型给字段**，不给的就不画：
+       角色 = 描述 + 人设 + 只出声 + 声音 + 角色资产
+       场景 = 描述 + 时段（没有声音，也没有资产子项）
+       道具 = 描述 + 用途（没有时段、没有声音、没有资产：它只有一张图就是它自己） */
+  function editHTML(c) {
+    const sc = isScene(c), pr = isProp(c);
+    const pw = picWord(c);
+    const vo = !sc && !pr && D.voiceOnlyOf(c);
+    /* 「点『AI 出』时能选哪几个模板」与出图表单读的是同一份（`assetTpls`）。 */
+    const tpls = assetTpls(c);
+    const list = D.Cast.assetsOf(c);
+    const libProps = D.Lib.list().filter(x => x && isProp(x));
+    /* 角色资产：**一个扁平列表**，任意种类、不限张数、每张自己一个名字。
+       每一行 = 缩略图 + **名字输入框**（可就地改）+ 关联道具多选 + 重出 + 去掉。
+       关联道具（用户要求）：这一张图上带着哪几件东西 —— 换衣服那张要把那顶帽子一起
+       算进这一位的道具，拍摄时才会跟着人走。挑法是多选，不是「这一张属于某件道具」，
+       因为同一张图可能同时带两件（风衣 + 围巾）。 */
+    const assetListHTML = list.length ? '<div class="ui-cands"><span class="lab">角色资产 ' + list.length + ' 张</span>'
+      + '<div class="ui-assets">' + list.map(a => {
+        const lab = D.Cast.assetName(a);
+        const opts = libProps.map(p => `<label class="ck sm" title="这一张图上带着「${esc(p.name)}」"><input type="checkbox" data-a="assetprop" data-id="${esc(a.id)}" data-pid="${esc(p.id)}"${(a.propIds || []).includes(p.id) ? ' checked' : ''}>${esc(p.name)}</label>`).join('');
+        return `<div class="ui-asset" data-aid="${esc(a.id)}">`
+          + `<span class="ui-cand"><img src="${esc(src(a.src))}" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" alt=""></span>`
+          + `<input class="ui-inp" data-a="assetrename" data-id="${esc(a.id)}" maxlength="24" value="${esc(lab)}" title="这一张叫什么（改了立刻存）">`
+          + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出这一张</button>`
+          + `<button class="ui-linkbtn" data-a="assetclear" data-id="${esc(a.id)}" data-label="${esc(lab)}">去掉这一张</button>`
+          + (libProps.length ? '<span class="ui-props">' + opts + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，可以在拍短剧页「道具」里加</span>')
+          + '</div>';
+      }).join('') + '</div>'
+      + '<div class="ui-hint sm">这些图拍摄时都会作为参考图发给视频 AI（按平台声明的上限截，超出的会点名哪几张没发）。</div>'
+      + '</div>' : '';
+    /* 出图表单：名字 / 模板 / 自定义描述 一次填一遍。模板只是**出图时**选一次，
+       存下来的只是一张有名字的角色资产 —— 所以界面上没有「三视图」「表情表」这些分栏。 */
+    const assetGenHTML = tpls.length ? '<div class="ui-cands"><span class="lab">加一张角色资产</span>'
+      + `<input class="ui-inp" data-a="assetname" maxlength="24" placeholder="这一张叫什么（留空就用模板名）">`
+      + `<select data-a="assettpl">${tpls.map(k => `<option value="${esc(k)}">${esc(D.Cast.assetLabel(c, k) || k)}</option>`).join('')}</select>`
+      + `<input class="ui-inp" data-a="assetwhat" maxlength="60" placeholder="选「自定义」时写清楚要画什么，例：雨天造型、侧脸特写">`
+      + `<button class="ghost mini" data-a="assetgen">AI 出这一张</button>`
+      + `<button class="ui-linkbtn" data-a="assetpick2">＋ 自己传一张</button>`
+      + '</div>' : '';
+    /* 每一张资产自己的失败原因（记账键 `asset#<资产 id>`，与「重出这一张」同一份）。 */
+    const assetMsgs = list.map(a => {
+      const e = errOf('asset#' + a.id, c.id);
+      return e ? `<div class="why">${esc(D.Cast.assetName(a))}这次没出来：${esc(e)}</div>` : '';
+    }).join('');
+    return `<div class="edit" data-edit="${esc(c.id)}">
+      <div class="eh"><span class="t">编辑「${esc(c.name || '这条素材')}」· 改完就地存</span>
+        <button class="ui-linkbtn" data-a="closeedit" title="收起这一块的编辑区（按 Esc 也一样）">收起</button></div>
+      <label>名字<input data-f="name" value="${esc(c.name || '')}" maxlength="20"></label>
+      <label>类型<select data-f="kind">${Object.keys(D.LIB_KINDS).map(k =>
+        `<option value="${k}"${D.libKindOf(c) === k ? ' selected' : ''}>${D.LIB_KINDS[k]}</option>`).join('')}</select></label>
+      <label>分组（拍短剧页可以整组一次交给 AI）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
+      <label>${pr ? '道具描述（出道具图就靠它）' : sc ? '场景描述（出场景图靠它）' : '外貌 / 人物特点（预览图与角色资产都靠它）'}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
+      ${sc ? `<label>时段（出这张场景图时那句「…的光线」用的就是它）<select data-f="time" title="不在下面四个档里的值会照实列出来，改回哪一档由你点">${D.Cast.timeOptsHTML(c)}</select></label>` : ''}
+      <label>${pr ? '一句话用途（剧情里这件东西干什么用，发给文字 AI）' : '一句话人设（发给文字 AI 当「人物特点」）'}<input data-f="bio" value="${esc(c.bio || '')}"></label>
+      ${voiced(c) ? `<label class="ck"><input type="checkbox" data-f="voiceOnly"${D.voiceOnlyOf(c) ? ' checked' : ''}>`
+        + ' 只出声（不出镜）—— 这一位不需要' + pw + '与角色资产，拉进某一集时按旁白处理</label>' : ''}
+      ${voiced(c) ? '<label>声音</label>' : ''}
+      ${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}
+      ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。'
+        + '拍摄时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
+      ${vo ? '<div class="ui-hint">这一位勾了「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就把上面那个勾去掉）。老库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
+      ${assetListHTML}${assetGenHTML}${vo ? '' : assetMsgs}
+      <div class="acts">
+        ${vo ? '' : `<button class="ghost" data-a="face"${genHas('face', c.id) ? ' disabled' : ''}>${genHas('face', c.id) ? '正在出' + pw : (D.picOf(c) ? 'AI 重出' : 'AI 出') + pw}</button>`}
+        ${vo ? '' : `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`}
+        <span class="sp"></span>
+        ${voiced(c) ? `<button class="ghost danger" data-a="refclear" ${c.refAudio ? '' : 'disabled'}>去掉参考音频</button>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function bindCard(card, c) {
+    /* 声音那一块（试听 / 音色胶囊 / 复刻上传）的标记来自 Drama.Cast.voiceRowHTML，
+       它用的是 data-act；本页自己的动作是 data-a。两套都要绑，漏一套就是
+       「点音色胶囊没反应」—— 与拍短剧页同一份标记，绑法也照它那一套。 */
+    const act = (el, fn) => { el.onclick = async e => { e.stopPropagation(); try { await fn(el); } catch (err) { Toast.err(err.message || String(err)); setBusy(''); } }; };
+    const acts = {
+      edit: async () => { toggleEdit(c.id); },
+      closeedit: async () => { toggleEdit(c.id, false); },
+      /* 主图：一次一张。`replace: true` 是必须的 —— 数据层只在**还没有图**时才写 pic，
+         而这一颗按钮在已经有图时写着「AI 重出」，不覆盖就等于点下去没反应。 */
+      face: async () => {
+        const pw = picWord(c);
+        await genRun('face', c.id, c, '正在出「' + c.name + '」的' + pw + '…',
+          () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, replace: true }));
+      },
+      /* 候选排那两个动作。主图走 CANDK，`data-k` 指明是哪一档
+         （主图那排 `picCandsHTML` 带的 extra 已经写好了）。资产不再有候选排。 */
+      morecand: async el => { await moreCands(c, el.dataset.k || mainKind(c)); },
+      usecand: async el => { useCand(c, el.dataset.k || mainKind(c), el.dataset.src); },
+      /* 候选排里的缩略图（picCandsHTML 用 data-act="zoom"）。两页共用那份标记，
+         所以点开看大图这一件事也得在这边接上 —— 不接就是一张点不开的小图。
+         它带的是 `data-name`（drama.js 拼的「名字 · 第 N 张」），本页 openZoom 读 `data-label`。 */
+      zoom: async el => { openZoom(c, el.dataset.label || el.dataset.name || '图', el.dataset.src); },
+      /* 就地二次确认（与拍短剧页同一份 Confirm.arm）：删除按钮原地变成「确认删掉」，
+         再点一下才真删 —— 素材库里常常连着清掉几位，弹一次窗就打断一次。 */
+      del: async el => {
+        if (Confirm.arm(el, '确认删掉', {
+          note: '本机存的参考音频会一起删掉；已经拉进某一集的那条不受影响',
+        })) return;
+        if (c.refAudio) await D.Pipe.clearRefAudio(c);
+        D.Lib.remove(c.id); openId = ''; render();
+      },
+      /* 统一选择器：资产库 / 我的收藏 / 本地上传三个入口在同一块界面里 */
+      pickface: async () => {
+        const pw = picWord(c);
+        const got = await AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
+          title: '给「' + c.name + '」选一张' + pw,
+          note: isProp(c) ? '道具图就是道具自己：挑一张最像的，拍每一段时它都会作为参考图发出去'
+            : pw + '是三视图与拍摄时认脸的凭据，挑一张最像的' });
+        if (got && got[0]) { D.setPic(c, got[0].src); keep(c, true); }
+      },
+      /* 「＋ 自己传一张」：落进**扁平的资产列表**，名字/模板取那一行表单上写的。 */
+      assetpick2: async el => {
+        const box = el.closest('.ui-cands') || card;
+        const nm = (box.querySelector('[data-a="assetname"]') || {}).value || '';
+        const tpl = (box.querySelector('[data-a="assettpl"]') || {}).value || 'custom';
+        const got = await AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
+          title: '给「' + c.name + '」加一张角色资产', note: '不靠生成，直接用现成的这一张' });
+        if (got && got[0]) { D.Cast.addAsset(c, { name: nm.trim(), tpl: tpl, src: got[0].src }); keep(c, true); }
+      },
+      /* 「AI 出这一张」：名字 / 模板 / 自定义描述三样都从**那一行**里读（按钮不带参数，
+         读的是表单上的值）。出完是**追加**一张，不是换掉谁。 */
+      assetgen: async el => {
+        const box = el.closest('.ui-cands') || card;
+        const nm = (box.querySelector('[data-a="assetname"]') || {}).value || '';
+        const tpl = (box.querySelector('[data-a="assettpl"]') || {}).value || 'three';
+        const what = (box.querySelector('[data-a="assetwhat"]') || {}).value || '';
+        if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
+        const lab = nm.trim() || D.Cast.assetLabel(c, tpl) || '资产';
+        const n = candCount();
+        await genRun('asset#new:' + tpl + ':' + (nm.trim() || what.trim()).slice(0, 20), c.id, c,
+          '正在出「' + c.name + '」的' + lab + '（' + n + ' 张）…',
+          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, tpl, { count: n, name: nm.trim(), what: what.trim() }));
+      },
+      /* 「重出这一张」：照**同一张**的模板与名字再出，换掉它（replaceId 指着具体那一张）。
+         不指的话就是新增一张，界面上看着像「点了没反应」。 */
+      assetregen: async el => {
+        const a = D.Cast.assetById(c, el.dataset.id);
+        if (!a) return Toast.err('这一张已经不在了');
+        const lab = D.Cast.assetName(a);
+        const n = candCount();
+        await genRun('asset#' + a.id, c.id, c, '正在重出「' + c.name + '」的' + lab + '（' + n + ' 张）…',
+          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, a.tpl, { count: n, name: lab, replaceId: a.id }));
+      },
+      /* 去掉**这一张**（资产是列表，去掉的是某一张而不是整类）。 */
+      assetclear: async el => {
+        const id = el.dataset.id; if (!id) return;
+        const lab = el.dataset.label || '这一张';
+        if (Confirm.arm(el, '确认去掉' + lab, { note: '素材库里这一张会空出来；已经拉进某一集的那条不受影响' })) return;
+        D.Cast.removeAsset(c, id);
+        keep(c, true);
+        Toast.ok('去掉了「' + c.name + '」的' + lab);
+      },
+      /* 关联道具：这一张图上带着哪几件东西。多选 —— 同一张图可能同时带两件
+         （风衣 + 围巾），所以不能用「这一张属于某一件」的单选判据。 */
+      assetprop: async el => {
+        const a = D.Cast.assetById(c, el.dataset.id);
+        if (!a) return Toast.err('这一张已经不在了');
+        const pid = el.dataset.pid;
+        const now = (a.propIds || []).slice();
+        const i = now.indexOf(pid);
+        if (el.checked) { if (i < 0) now.push(pid); } else if (i >= 0) now.splice(i, 1);
+        D.Cast.setAssetProps(c, a.id, now);
+        keep(c, true);
+      },
+      refclear: async () => { await D.Pipe.clearRefAudio(c); keep(c, true); },
+      play: async () => {
+        /* 试听会真的合成一小段，所以记在 `voice#这一条` 上：正在合成时再点第二次就是合成两遍 */
+        await genRun('voice', c.id, c, '正在合成「' + c.name + '」的试听…', async () => {
+          const r = await D.Cast.preview(REG, opts, c, { onStage: m => genSet('voice', c.id, m) });
+          if (r.why) Toast.err(r.why);
+          else if (r.label) Toast.ok('试听：' + r.label);
+        });
+      },
+      voice: async el => { c.voice = el.dataset.vid; c.voiceName = D.Cast.voiceName(REG, opts, c.voice, c.voiceMode); keep(c, true); },
+      /* 这一位用哪种方式出声（预设 / 描述 / 复刻）：整块重画，控件跟着方式换 */
+      voiceway: async el => {
+        const w = D.Pipe.setVoiceWay(REG, opts, c, el.dataset.way);
+        c.voiceBy = ''; c.voiceName = D.Cast.voiceName(REG, opts, c.voice, w.mode);
+        keep(c, true);
+        if (w.fellback) Toast.err('这个平台没有「' + D.Cast.wayLabel(el.dataset.way) + '」的型号，这一位现在按「' + D.Cast.wayLabel(w.mode) + '」出声');
+      },
+      refaudio: async () => { await pickRefAudio(c); },
+      /* 「没定成声音」那一行上的重试：清掉上一轮原因再问 AI 一次，判据同走 Pipe.autoVoice */
+      revoice: async () => {
+        await genRun('voicecands', c.id, c, '正在按人设定「' + c.name + '」的声音…', async () => {
+          const r = await D.Pipe.autoVoice(REG, fakeDrama(), c, {
+            cands: true,
+            onStage: m => genSet('voicecands', c.id, m),
+            onCands: (i, tot) => genSet('voicecands', c.id, '正在给「' + c.name + '」合成第 ' + i + ' / ' + tot + ' 条试听…'),
+          });
+          if (!r.ok) { c.voiceErr = r.why || '没定成'; c.voiceAuto = ''; }
+        });
+      },
+      /* 声音候选：一次合成几条试听。预设那一位挑一条=真的换音色；
+         描述 / 复刻那一位没有音色清单，那一排里压根不给「用这一条」（见 D.Cast.voiceCandsHTML）。 */
+      vgen: async el => {
+        const n = Math.max(1, Number(el.dataset.n) || 2);
+        await genRun('voicecands', c.id, c, '正在给「' + c.name + '」出 ' + n + ' 条试听…',
+          () => D.Pipe.voiceCands(REG, opts, c, {
+            onStep: (i, tot, nm) => genSet('voicecands', c.id,
+              '正在出「' + c.name + '」第 ' + i + ' / ' + tot + ' 条' + (nm ? '（' + nm + '）' : '') + '…')
+          }));
+      },
+      vplay: async el => {
+        /* 播本机已经存着的那一段：不再合成、不再花一次，所以不过闸门 */
+        const r = await D.Cast.playAsset(el.dataset.src);
+        if (r.why) Toast.err(r.why);
+      },
+      /* 拿这一条**已经生成**的音频去做复刻：同一份判据与同一份改法都在 `Pipe.cloneFromCands`，
+         两页各写一份的话迟早对不上（素材页切了方式、拍短剧页还按描述生成）。 */
+      vclone: async el => {
+        const r = D.Pipe.cloneFromCands(REG, opts, c, el.dataset.src, el.dataset.name);
+        if (!r.ok) { Toast.err(r.why); return; }
+        keep(c, true);
+        Toast.ok('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 6000);
+        render();
+      },
+      vuse: async el => {
+        c.voice = el.dataset.vid;
+        c.voiceName = el.dataset.vname || D.Cast.voiceName(REG, opts, c.voice, c.voiceMode);
+        keep(c, true);
+        Toast.ok('这一位以后按「' + (c.voiceName || c.voice) + '」念');
+      },
+    };
+    const bind = (el, a) => { if (acts[a]) act(el, acts[a]); };
+    card.querySelectorAll('[data-a]').forEach(el => {
+      const a = el.dataset.a;
+      if (a === 'zoom' || a === 'zoomface') {
+        el.onclick = e => { e.stopPropagation(); openZoom(c, a === 'zoomface' ? picWord(c) : (el.dataset.label || '图'), el.dataset.src || D.picOf(c)); };
+        return;
+      }
+      /* 这三个只是**填**的（按钮点下去时才读），不进点击动作 ——
+         进去的话点一下输入框就等于触发一个空动作。 */
+      if (a === 'assetname' || a === 'assetwhat' || a === 'assettpl' || a === 'assetrename') return;
+      bind(el, a);
+    });
+    /* 选「自定义」时才启用下面那格：两者的关系写在 placeholder 上，
+       但禁用的那一格是**看得见**的（而不是藏起来）—— 藏了用户会以为没有这个功能。 */
+    const tplSel = card.querySelector('[data-a="assettpl"]');
+    const whatIn = card.querySelector('[data-a="assetwhat"]');
+    if (tplSel && whatIn) {
+      const syncWhat = () => {
+        const custom = tplSel.value === 'custom';
+        whatIn.disabled = !custom;
+        whatIn.placeholder = custom ? '写清楚要画什么，例：雨天造型、侧脸特写' : '（只有选「自定义」时才用这一格）';
+      };
+      tplSel.onchange = syncWhat; syncWhat();
+    }
+    /* 改名走 `onchange`（敲完离开输入框才存）：走 onclick 的话，
+       用户改完名字直接点「去掉」，存的是还没改的那一份。 */
+    card.querySelectorAll('[data-a="assetrename"]').forEach(inp => {
+      inp.onchange = () => {
+        const nm = String(inp.value || '').trim();
+        const a = D.Cast.assetById(c, inp.dataset.id);
+        if (!a) return;
+        if (!nm) { inp.value = D.Cast.assetName(a); Toast.err('名字不能是空的：这是角色资产，没名字就分不清是哪一张'); return; }
+        if (nm === D.Cast.assetName(a)) return;
+        D.Cast.setAssetName(c, a.id, nm); keep(c, true);
+        Toast.ok('这一张改叫「' + nm + '」');
+      };
+    });
+    /* voicenote 是输入框（design 型号的声音描述）：走 oninput，不参与点击动作，
+       否则点一下输入框等于触发一个空动作。 */
+    card.querySelectorAll('[data-act]').forEach(el => {
+      if (el.dataset.act === 'voicenote') {
+        el.oninput = () => { c.voiceNote = el.value; };
+        el.onblur = () => { D.Lib.save(c, { exact: true }); };
+        el.onclick = e => e.stopPropagation();
+        return;
+      }
+      bind(el, el.dataset.act);
+    });
+    /* 编辑区的类型下拉先过公共下拉组件（.dd 由它包，页面只给裸 select），
+       再绑 data-f 的原生 change —— Dropdowns 的选项就是靠派发 change 通知我们的。 */
+    if (window.Dropdowns) Dropdowns.build(card);
+    card.querySelectorAll('[data-f]').forEach(el => {
+      const ck = el.type === 'checkbox';
+      const save = () => {
+        const k = el.dataset.f;
+        /* 勾选框的 `value` 恒是 "on"，要读的是 `checked` —— 少这一条，「只出声」会把 true 存成字符串 */
+        c[k] = ck ? el.checked : (el.value.trim ? el.value.trim() : el.value);
+        const saved = D.Lib.save(c, { exact: true });
+        /* 名字这一项库里有它自己的规矩（不许空、裁到 20 字）：清空它时库里退回旧名，
+           输入框却还摆着空白 —— 以库里那份为准写回，否则「界面空的、库里有人」。 */
+        if (k === 'name') { c.name = saved.name; el.value = saved.name; }
+        return k;
+      };
+      if (el.tagName === 'SELECT') el.onchange = () => { save(); render(); };
+      else if (ck) {
+        /* 勾一下就把整张卡重画：出预览图 / 设定图那几颗按钮要当场消失或回来，
+           等 blur（点别处才来）会让人以为勾了没反应。 */
+        el.onchange = () => { save(); paintCard(c); paintChips(); };
+      }
+      else {
+        el.oninput = () => { c[el.dataset.f] = el.value; };
+        /* blur 只写库（标题那一行等松手后补画，见 queueHeads）：这里整页 render 会吃掉「收起」
+           那颗按钮的 click（blur 在 mousedown 时就触发了，重建 DOM 后点下去的那颗按钮已经换成新节点）。 */
+        el.onblur = () => { save(); queueHeads(c); };
+      }
+      el.onclick = e => e.stopPropagation();
+    });
+  }
+  /* `genAsset` 随「每一类一颗按钮」一起删掉了：角色资产现在是一个扁平列表，
+     出图走编辑区里那一行自己的表单（`assetgen`），换一张走 `assetregen`。
+     留着一个按 kind 记账的函数，就还能通过它改出界面上不存在的东西 —— 第二份实现。 */
+
+  /* 「画风」这一格**已于 2026-10 删掉**：它是整页一份的出图取向，与「这一位长什么样」是两件事，
+     却会长成「素材库自己有一套画风、拍短剧那一集又有一套」——同一个名字两个地方各填各的，
+     出来的图色调对不上，而界面上没有任何一处说明它们是两套。
+     现在**只按每条素材自己的外貌 / 场景描述出图**（也就是原来「留空」那一种）。
+     拍短剧那一集的画风没动：它是剧集自己的 `opts.style`，走 `episodeStyle`（drama.js），
+     两边从来不互相读。 */
+
+  /* ---------- 一次出齐这一档 ----------
+     批量只补「这张卡上本来就该有的两样东西」：缺预览图的补预览图，缺三视图／多角度的补那一类。
+     表情／服装／道具不进批量 —— 拍摄时 planMaterials 只把预览图与三视图当参考图发出去，
+     那三类是给人自己看的，替用户连点四次不该点的生成是白花力气。
+     并发 6 与拍短剧页同一个理由（上游速率限制普遍在个位数并发上，再高就是「排了 8 条、
+     界面转 8 个圈、其实前 6 条还没跑完」那种假繁忙）；池子本身在数据层（D.Pipe.runPool）。
+     worker 按**素材**取、一条素材内部两步串行 —— runPool 的队列不保证同一素材两次的先后，
+     而三视图必须等它的预览图先落盘才能照着画。 */
+  const FILL_CONC = 6;
+  /* 批量只补「这一条本来就该有的两样东西」：缺主图的补主图，**角色**还没有「三视图」这张资产的补上。
+     场景与道具没有角色资产（`assetTpls` 那一份判据），所以它们只算主图这一件事 ——
+     以前这里写死 `!(x.assets && x.assets.three)`，于是每个场景、每件道具都被算成「缺三视图」，
+     按钮上的次数会莫名多出一截，点下去还会挨个报错。
+     ⚠ 判据走 `assetsOf`（唯一读入口）：直接摸 `x.assets.three` 在**列表**形状下恒为 undefined，
+       于是「有没有三视图」永远算成「没有」，每次点批量都要把全部角色重画一遍。 */
+  function fillPlan() {
+    const jobs = [];
+    let face = 0, three = 0, usable = 0;
+    viewItems.forEach(x => {
+      if (!x || D.voiceOnlyOf(x)) return;
+      usable++;
+      const f = !D.picOf(x);
+      const t = !!assetTpls(x).length && !D.Cast.assetsOfTpl(x, 'three').length;
+      if (!f && !t) return;
+      if (f) face++;
+      if (t) three++;
+      jobs.push({ c: x, face: f, three: t });
+    });
+    return { jobs, face, three, tasks: face + three, usable };
+  }
+  function paintFillBtn() {
+    const b = $('btnFill'); if (!b) return;
+    /* 能力声明回来之前不许说「你没配生图平台」—— 用户什么都没做错，只是还没读到。 */
+    if (!REG) { b.disabled = true; b.textContent = '一次出齐这一档'; b.title = '正在读平台能力声明…'; return; }
+    if (genHas('fill', null)) { b.disabled = true; b.textContent = '正在出齐这一档…'; return; }
+    if (!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) {
+      b.disabled = true; b.textContent = '一次出齐这一档';
+      b.title = '现在没有可用的生图平台：到设置页填一把密钥，或在右边「出图型号」里挑一个';
+      return;
+    }
+    const p = fillPlan();
+    b.disabled = !p.tasks;
+    b.textContent = p.tasks ? '一次出齐这一档（' + p.tasks + ' 次）' : '一次出齐这一档';
+    b.title = p.tasks
+      ? '这一档里 ' + p.face + ' 条还缺预览图／道具图、' + p.three + ' 位角色还缺三视图：每一条发一次生图请求，'
+        + '一次出一张。中途可以按「停下」'
+      : (p.usable ? '这一档里的预览图与三视图都齐了，没有要补的'
+        : (p.usable === 0 && viewItems.length ? '这一档里只有「只出声」的素材，它们不出画面' : '这一档里没有素材'));
+  }
+  async function fillRest() {
+    if (genHas('fill', null)) return;
+    const p = fillPlan();
+    if (!p.tasks) { Toast.ok(viewItems.length ? '这一档没有要补的图' : '这一档里还没有素材'); return; }
+    /* 多于一条真任务就先问（判据与拍短剧页那颗「开始拍」同一条：一条不问，多条先问）。
+       确认排在能力判据之后 —— paintFillBtn 已经按判据把按钮焊死过一轮了。 */
+    if (p.tasks > 1 && !await Confirm.ask({
+      title: '一次出齐这一档',
+      body: '这一档里有 ' + p.face + ' 条还缺预览图／道具图、' + p.three + ' 位角色还缺三视图，'
+        + '一共发 ' + p.tasks + ' 次生图请求（每次出一张）。'
+        + '中途可以按「停下」，但已经发出去的那些收不回来，平台那边会照样跑完。',
+      okLabel: '开始出',
+    })) return;
+    stopFlag = false;
+    /* 一条任务的回合没有「停下」可言（发都发了，等就是了）—— 摆一颗点了不改变任何事的按钮，
+       比不摆更糟。多于一项时才给出口。 */
+    fillStoppable = p.jobs.length > 1;
+    const bStop = $('btnStop'); if (bStop) bStop.disabled = false;
+    let done = 0;
+    /* 进度按**素材条目**数（jobs），不按请求条数（tasks）：一条素材可能要两次，
+       用 tasks 当分母的话这一句永远到不了头。 */
+    genSet('fill', null, '一次出齐：0 / ' + p.jobs.length + ' 条…');
+    try {
+      await D.Pipe.runPool(p.jobs, FILL_CONC, async (j) => {
+        if (stopFlag) return;
+        const c = j.c;
+        if (j.face) await genRun('face', c.id, c, '', () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE }), true);
+        if (stopFlag) return;
+        if (j.three) {
+          if (!D.picOf(c)) {
+            /* 预览图这一步没成，硬发第二步只会得到一张照着旧图（或什么都没有）画的三视图 ——
+               别让用户以为两张都出来了。原因写在卡上，不弹一串 toast。 */
+            errSet('asset#three', c.id, '预览图这次没出来；三视图要照着它画，所以这一步跳过了');
+            paintCard(c);
+          } else {
+            await genRun('asset#three', c.id, c, '', () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE }), true);
+          }
+        }
+        done++;
+        /* 每条消息都空着，进度就只有这一句（40 条的批量把 genLine 拼成一片墙就没法看了）。 */
+        if (genHas('fill', null)) genSet('fill', null, '一次出齐：' + done + ' / ' + p.tasks + ' 条…');
+      });
+    } finally {
+      fillStoppable = false;
+      genClear('fill', null);
+      render();
+    }
+  }
+  /* 改完一条：只写库 + 重画（keepOpen=true 时连展开的编辑区一起留着，声音那几项改完还要接着点）。
+     {exact:true} 是这一页的身份：改的就是库里那一条本身，空值要真的写进去（清空分组、删掉描述）。 */
+  function keep(c, keepOpen) {
+    D.Lib.save(c, { exact: true });
+    if (!keepOpen) openId = '';
+    setBusy('');
+    /* 编辑区还开在这一张上：只重画这一张 —— 整页 render 会把光标位置、滚动位置一起弄丢，
+       而人多半正要在这张卡上接着点（挑一张候选、再听一次）。筛选计数还是现算一遍。 */
+    if (openId === c.id) { paintCard(c); paintChips(); }
+    else render();
+  }
+  /* 展开 / 收起编辑区（按 id，Esc 那条手上没有对象）。展开时把这一张滚进视野：靠下的卡片
+     展开后编辑区整块在屏幕外，看着就像「点了编辑什么也没发生」。 */
+  function toggleEdit(id, force) {
+    const on = force == null ? openId !== id : !!force;
+    openId = on ? id : '';
+    render();
+    if (!on) return;
+    const el = document.querySelector('.card[data-id="' + id + '"]');
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* 打开一张图。`label` 是这一张叫什么（三视图 / 道具图 / 预览图…），
+     拼出来是「小雅 · 三视图」。找不到就在灯箱里现开一张（当前视图没收录它时）。 */
+  function openZoom(c, label, s) {
+    if (!s) { Toast.err('这一条还没有这张图'); return; }
+    const i = media.findIndex(x => x.s === s);
+    if (i >= 0) Wb.lightbox.open(media[i]);
+    else Wb.lightbox.open({ key: 'char:' + c.id + ':' + s, s, name: c.name + ' · ' + (label || '图'), item: c });
+  }
+
+  /* 参考音频：类型 / 大小上限都现读这个语音型号的能力声明（D.Cast.refAudioRule） */
+  async function pickRefAudio(c) {
+    const rr = D.Cast.refAudioRule(REG, opts);
+    const got = await AssetPicker.open({ types: rr.types, multiple: false, limit: 1,
+      title: '给「' + c.name + '」选一段参考音频', rule: rr.rule, upload: rr.upload });
+    if (!got || !got.length) return;
+    setBusy('正在读这段参考音频…');
+    const it = got[0];
+    const b = it.file || await Net.blob(it.dl || it.src, { timeout: 120000 });
+    if (rr.rule.maxBytes && b.size > rr.rule.maxBytes) { setBusy(''); return Toast.err('参考音频太大：上限 ' + Math.round(rr.rule.maxBytes / 1048576) + ' MB'); }
+    await D.Pipe.saveRefAudio(c, b, (it.prompt || it.name || '参考音频').slice(0, 20));
+    keep(c, true);
+    Toast.ok('参考音频挂上了，可以试听；视频模型有「参考音频」槽位时也会一起发过去');
+  }
+
+  /* 「加入某一集」整个搬到了拍短剧页：那边有一个挑选弹窗（多选 / 整组 / 就地新建 / 删除），
+     目标集就写在弹窗标题上，比在这一页放一个看不见前提的按钮强。合并规则仍在 Drama.Lib.pullInto。 */
+
+  /* 与「拍短剧 → 认角色」里手动建角色同一份字段（一次填齐比建完再补三栏省事）。
+     三种类型都在这一个表单里建：类型一下拉就是库里那三种，选完按类型给不同的占位示例 ——
+     道具没有「人设」那层意思（那一栏对它叫「用途」），描述才是它出图的唯一依据。 */
+  async function newChar() {
+    const v = await PromptForm.open({
+      title: '新建一条素材（存进素材库）', okLabel: '存进库',
+      fields: [
+        { key: 'name', label: '名字', type: 'text', placeholder: '例：小雅 / 天台 / 旧信封' },
+        { key: 'kind', label: '类型', type: 'select', value: 'actor',
+          options: Object.keys(D.LIB_KINDS).map(k => ({ v: k, t: D.LIB_KINDS[k] })) },
+        { key: 'group', label: '分组（可留空；拍短剧页能整组一次交给 AI）', type: 'text', placeholder: '例：校园篇主要角色' },
+        { key: 'bio', label: '一句话人设 / 用途（发给文字 AI）', type: 'textarea', placeholder: '例：嘴硬心软的师姐 ／ 用来交代那半页没写完的地址' },
+        { key: 'look', label: '外貌 / 场景 / 道具描述（出图就靠它）', type: 'textarea',
+          placeholder: '例：二十出头，齐肩黑发，总穿米色风衣 ／ 教学楼天台，傍晚，铁栏杆与晾衣绳 ／ 牛皮纸旧信封，边角磨白，盖一枚红蓝 postage 邮票' },
+      ],
+      validate: f => f.name && f.name.trim() ? '' : '名字不能空着',
+    });
+    if (!v) return;
+    const name = v.name.trim().slice(0, 20);
+    /* 库里「同类型 + 同名」= 两条一样的素材，之后「加入这一集」到底进哪一条说不清 —— 建的时候就拦住。
+       不同类型可以重名（角色「天台」与场景「天台」是两个东西），拉进本集时各进各的名单。 */
+    if (D.Lib.list().some(x => x && x.name === name && D.libKindOf(x) === v.kind)) {
+      return Toast.err('素材库里已经有「' + name + '」这条' + D.LIB_KINDS[v.kind] + '了：同名会被当成同一条');
+    }
+    const item = v.kind === 'scene' ? D.newScene({ name, desc: v.look, group: v.group })
+      : v.kind === 'prop' ? D.newProp({ name, look: v.look, bio: v.bio, group: v.group })
+        : D.newChar({ name, kind: v.kind, bio: v.bio, look: v.look, group: v.group });
+    const saved = D.Lib.save(item, { exact: true });
+    Toast.ok('建好了：' + saved.name + '。编辑区已经打开——' + (v.kind === 'scene'
+      ? '先在「时段」里挑一个光线（新建默认是深夜），这张场景图那句「…的光线」用的就是它'
+      : v.kind === 'prop'
+        ? '道具图在这里出：它就靠下面那句描述画，没有三视图那一套'
+        : '预览图与三视图在这里出，声音也在这里定'));
+    openId = saved.id; resetPaging(); render();
+  }
+
+  /* ---------- AI 找素材：话就写在搜索框里，结果就地筛这份名单（角色 / 场景 / 道具三种都算） ---------- */
+  /* 型号下拉与拍短剧/生成工作台同一套二级菜单（组头 = 平台显示名，选项文字 = 平台真正的调用名，
+     友好名放 title），数据源现读注册表：以前选项文字写着「MiMo TTS（音色设计）」那种整串，
+     看着像型号自带的能力说明，和别的页面对不上。 */
+  function paintModelPicks() {
+    const mk = (host, kind, mode, val, onpick, hint) => {
+      const el = $(host); if (!el) return;
+      el.innerHTML = D.Pipe.modelSelectHTML(REG, { id: 'sel_' + host, kind: kind, mode: mode, value: val, emptyText: hint });
+      const s = el.querySelector('select');
+      if (s) s.onchange = () => { onpick(s.value); };
+      if (window.Dropdowns) Dropdowns.build(el);
+    };
+    mk('imgPick', 'image', 'text_to_image', opts.imgModel,
+      v => { opts.imgModel = v; saveOpts(); render(); }, '没配生图平台');
+    mk('ttsPick', 'audio', 'text_to_speech', opts.ttsModel,
+      v => { opts.ttsModel = v; saveOpts(); render(); }, '没配语音平台');
+  }
+
+  async function runAiFind() {
+    const box = $('q');
+    const q = (box.value || '').trim();
+    const all = D.Lib.list();
+    if (!all.length) { Toast.err('素材库还是空的，先点右边「新建素材」'); return; }
+    if (q.length < 2) { Toast.err('先在搜索框写要什么样的素材（至少两个字），再点 AI 找'); box.focus(); return; }
+    const btn = $('aiFindBtn'), old = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'AI 正在挑…';
+    let msg = '';
+    try {
+      /* 三种类型都在这一份名单里（2026-10 加了道具），所以这段提示词不能再说「挑几位角色」——
+         需求写「一把伞」时，它要能挑出道具那一档。类型也照实告诉它：场景是地方不是人、道具是物件。 */
+      const sys = '你是选角导演：用户会用一句话描述需求，你要从他收藏的素材里挑最合适的几条。\n'
+        + '规则：\n1. 只输出 JSON，不要解释、不要 markdown：{"ids":["素材ID"],"summary":"一句话说明按什么挑的"}\n'
+        + '2 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
+        + '3. 宁缺毋滥：没有合适的就返回空数组。\n4. summary 说清你的理解，界面会显示给用户。';
+      const txt = await TextAI.chat(REG, sys, JSON.stringify({ 需求: q, 素材库: all.map(c => ({
+        id: c.id, 名字: c.name, 类型: D.LIB_KINDS[D.libKindOf(c)], 分组: c.group || '', 人设: c.bio || '', 描述: c.look || '',
+      })) }));
+      const j = TextAI.parseJson(txt) || {};
+      const ids = (Array.isArray(j.ids) ? j.ids : []).filter(x => D.Lib.get(x));
+      aiPick = ids.length ? new Set(ids) : null;
+      aiWhy = ids.length ? String(j.summary || '').slice(0, 40) : '';
+      if (ids.length) box.value = '';        // 原话已翻成 id，留着会再 AND 一遍（几乎必然 0 位）
+      filter = 'all';
+      msg = ids.length ? '' : 'AI 没挑到合适的（换个说法再试）';
+    } catch (e) { msg = 'AI 找素材失败：' + e.message; }
+    finally { btn.disabled = false; btn.innerHTML = old; }
+    resetPaging(); render();
+    if (msg) $('cnt').textContent = msg;
+  }
+
+  async function render() {
+    const seq = ++renderSeq;
+    paintChips(); paintAiChip(); paintGroups(); paintModelPicks(); applyView();
+    const q = $('q').value.trim();
+    const all = D.Lib.list();
+    const items = all.filter(c => c && match(c, filter)
+      && (!group || String(c.group || '').trim() === (group === '__none' ? '' : group))
+      && (!q || [c.name, c.bio, c.look, c.group].some(x => String(x || '').toLowerCase().includes(q.toLowerCase())))
+      && (!aiPick || aiPick.has(c.id)));
+    viewItems.length = 0; media.length = 0;
+    items.forEach(c => {
+      viewItems.push(c);
+      const pic = D.picOf(c);
+      if (pic) media.push({ key: 'char:' + c.id + ':face', s: pic, name: c.name + ' · ' + picWord(c), label: picWord(c), item: c });
+      /* 灯箱翻页范围用**存着的每一张**（含老库里那些已经不再出图类别的），
+         不是「现在能出哪几类」—— 前者要收进去老素材，否则那些图在灯箱里点不到了。
+         资产是列表：逐张收，`key` 带资产 id，所以同一个 kind 的两张在灯箱里是**两页**而不是互相顶掉。 */
+      D.Cast.assetsOf(c).forEach(a => {
+        const lab = D.Cast.assetLabel(c, a.kind) || '图';
+        media.push({ key: 'char:' + c.id + ':a:' + a.id, s: a.src, name: c.name + ' · ' + lab, label: lab, item: c });
+      });
+    });
+    $('cnt').textContent = items.length ? '共 ' + items.length + ' 条' : '';
+    /* 「一次出齐」的张数说的是**这一档**（筛选 + 分组 + 搜索之后的全部），不是当前这一页：
+       分页只决定画哪几张卡，批量该补几条不能跟着翻页变。 */
+    paintFillBtn();
+    const grid = $('grid');
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty">' + (all.length ? '这一档下没有东西。换个筛选条件、换个组，或清空搜索框。'
+        : '素材库还是空的。<br>在「拍短剧 → 认角色」里点「存进素材库」把用顺的人和场景留下，或点右上「新建素材」。') + '</div>';
+      $('pagerRow').style.display = 'none';
+      return;
+    }
+    $('pagerRow').style.display = '';
+    pager.update();
+    grid.innerHTML = '';
+    for (const c of pageItems()) {
+      if (seq !== renderSeq) return;
+      const card = document.createElement('div');
+      card.className = 'card' + (openId === c.id ? ' open' : '');
+      card.dataset.id = c.id;
+      card.innerHTML = cardHTML(c);
+      bindCard(card, c);
+      grid.appendChild(card);
+    }
+  }
+
+  async function boot() {
+    $('tic').innerHTML = window.icon ? icon('layers', 20) : '';
+    $('btnNew').innerHTML = (window.icon ? icon('plus', 13) : '') + ' 新建素材';
+    $('aiFindBtn').innerHTML = (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材';
+    $('btnNew').onclick = newChar;
+    $('aiFindBtn').onclick = runAiFind;
+    $('btnFill').onclick = fillRest;
+    /* 停下不撤回已经发出去的请求（那些钱已经花了、平台正在跑），只是不再开新的：
+       按下去那句要说清这一点，否则人以为整批停了。 */
+    $('btnStop').onclick = () => {
+      if (!genHas('fill', null)) return;
+      stopFlag = true;
+      genSet('fill', null, '正在停下：已经发出去的那 ' + Math.max(0, GEN.size - 1) + ' 条收不回来，等它们跑完这一批就不再发新的');
+      $('btnStop').disabled = true;
+    };
+    /* 画风那一格已删（2026-10，见上面 paintStyleWhy 留下的那段说明）：不再有 fStyle 输入框要接线。 */
+    /* char_opts.style 是旧版留下的值，**读得到但不再用** —— 直接从内存里抹掉，
+       免得以后谁翻到它以为素材库还认这一项（真正的画风是每一集自己的 opts.style）。 */
+    if (opts.style) { delete opts.style; try { saveOpts(); } catch (e) {} }
+    $('q').oninput = () => { resetPaging(); render(); };
+    $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; aiPick = null; aiWhy = ''; resetPaging(); render(); } });
+    /* Esc 收起正开着的编辑区（改到一半想收手不用滚回去找那颗按钮）。
+       搜索框自己的 Escape（清关键词）与弹窗 / 灯箱的 Escape 都不抢。
+       灯箱开没开只认 `#lightbox` 的 display（Wb.lightbox 就是这么判的，`#lbStage` 永远没有 hidden，
+       拿它当判据等于「Esc 永远被灯箱吃掉」）。 */
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || !openId) return;
+      if (e.target && e.target.id === 'q') return;
+      if (document.querySelector('dialog[open]')) return;
+      const lb = document.getElementById('lightbox');
+      if (lb && lb.style.display === 'flex') return;
+      toggleEdit(openId, false);
+    });
+    try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }
+    render();
+    if (PAGE_MODE === 'more') {
+      const more = () => { if (shownCount() >= viewItems.length) return; morePages++; render(); };
+      if ('IntersectionObserver' in window) new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) more(); }, { rootMargin: '300px' }).observe($('gridEnd'));
+      else window.addEventListener('scroll', () => { if ($('gridEnd').getBoundingClientRect().top < window.innerHeight + 300) more(); }, { passive: true });
+    }
+  }
+  /* 素材库写盘只走 Drama.Lib（内部是 Kv + localStorage），另一个标签页开着拍短剧页
+     存进库时这里要能跟着刷新 —— storage 事件是浏览器给跨标签页的那一条通道。 */
+  window.addEventListener('storage', e => { if (!e.key || e.key === 'drama_chars') render(); });
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -98,6 +98,7 @@
 <script src="workbench.js"></script>
 <script src="sidebar.js"></script>
 <script src="assetlib.js"></script>
+<script src="ai-chat.js"></script>
 <script>
 (function () {
   const $ = id => document.getElementById(id);
@@ -118,7 +119,7 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3600);
   }
-  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const esc = s => window.esc(s);
   $('tic').innerHTML = window.icon ? icon('star', 20) : '';
   $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
 
@@ -275,7 +276,7 @@
         <button class="unfav" title="移出收藏">${window.icon ? icon('starFill', 15) : ''}</button>
         <div class="body">
           <div class="t">${esc(it.prompt || it.name || '(无描述)')}</div>
-          <div class="m">${[it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type, it.format ? String(it.format).toUpperCase() : '', it.size ? fmtSize(it.size) : '', it.duration ? it.duration + 's' : ''].filter(Boolean).join(' · ')}</div>
+          <div class="m">${esc([it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type, it.format ? String(it.format).toUpperCase() : '', it.size ? fmtSize(it.size) : '', it.duration ? it.duration + 's' : ''].filter(Boolean).join(' · '))}</div>
           <div class="note"><textarea placeholder="写备注：这条素材是干什么用的（搜索和 AI 都会用它）" rows="2">${esc(it.note || '')}</textarea></div>
           <div class="acts">
             ${it.kind === 'asset' ? '<button class="ghost reuse" title="带着这条素材去对应工作台">复用</button>' : ''}
@@ -283,7 +284,7 @@
             <button class="ghost danger rm">移出收藏</button>
           </div>
         </div>`;
-      /* 点缩略图 / 标题 → 预览（与资产库同一个灯箱：左右切换、键盘、下载、另存为、详情） */
+      /* 点缩略图 / 标题 → 预览（与资产库同一个灯箱：左右切换、键盘、下载、详情） */
       card.querySelector('.thumb').onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
       card.querySelector('.t').onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
       card.querySelector('.thumb').style.cursor = 'zoom-in';
@@ -335,7 +336,7 @@
         const payload = { from: 'favorites', assetId: it.assetId, kind, prompt: it.prompt || '', provider: it.provider || '',
           providerName: it.providerName || '', duration: it.duration || null, ts: it.ts || null };
         try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (err) {}
-        location.href = (kind === 'image' ? 'image.html' : 'video.html') + '?reuse=1';
+        location.href = 'studio.html?t=' + (kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio') + '&reuse=1';
       };
       grid.appendChild(card);
     }
@@ -344,8 +345,9 @@
 
   /* 签名过期的外链放进 <img>/<video> 就是 403 破图（收藏放几天后必然遇到）：
      首屏照旧先画出来，这里放后台按任务号回源换新地址，换到了只重画那一张卡 ——
-     整表 render 会把正在输入的备注和滚动位置打断。新地址由 Fav.refreshUrl 顺手写回存储，
-     下次打开就是新鲜的，不用每回都吃一轮 403。（限量限并发在 Fav.resignSome 里） */
+     整表 render 会把正在输入的备注和滚动位置打断。新地址由 Fav.resignSome 顺手写回存储
+     （过期判定与按平台批量回源只在 assetlib.js 的 Api.healMedia 有一份），
+     下次打开就是新鲜的，不用每回都吃一轮 403。 */
   async function resignSome(items, seq) {
     await Fav.resignSome(items, (it, next) => {
       if (seq !== renderSeq) return;
@@ -373,7 +375,7 @@
     if (!el) return;
     el.innerHTML = aiPick
       ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
-        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整列表">✕</button></span>`
+        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整列表">${icon('close', 10)}</button></span>`
       : '';
     const c = $('aiClear');
     if (c) c.onclick = clearAiPick;
@@ -391,9 +393,12 @@
     let msg = '';
     try {
       const reg = await Api.registry();
-      const sys = '你是素材管家。用户会描述要找的素材，你要在他「我的收藏」清单里挑出最合适的若干条。'
-        + '只返回 JSON：{"keys":["收藏ID"],"summary":"一句话说明挑了什么"}。'
-        + '优先看备注（备注写的是用途），其次看名称与类型；没有合适的就返回空数组。';
+      const sys = '你是素材管家：用户会用一句话描述需求，你要从他「我的收藏」清单里挑出最合适的若干条。\n'
+        + '规则：\n'
+        + '1. 只输出 JSON，不要任何解释、不要 markdown 代码块。格式：{"keys":["收藏ID"],"summary":"一句话说明挑了什么"}\n'
+        + '2. 优先级：备注（备注写的是用途）> 名称/描述 > 类型。\n'
+        + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
+        + '4. summary 说清你按什么理解的需求，界面会显示给用户看。';
       const txt = await TextAI.chat(reg, sys, JSON.stringify({ 需求: q, 我的收藏: Fav.text(100) }));
       const j = TextAI.parseJson(txt) || {};
       const keys = (Array.isArray(j.keys) ? j.keys : []).filter(k => Fav.has(k));

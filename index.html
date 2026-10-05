@@ -59,9 +59,15 @@ window.addEventListener('unhandledrejection', e => {
   #banner[hidden] { display: none; }
   #banner { display: flex; align-items: flex-start; gap: 10px; }
   #banner .msg { flex: 1; }
-  /* 关闭按钮是这条错误唯一的出口，得看得见、点得到 */
-  #banner .bx { flex: 0 0 auto; border: 1px solid currentColor; background: none; color: inherit;
-    font-size: 14px; line-height: 1; cursor: pointer; opacity: .85; padding: 2px 7px; border-radius: 4px;
+  /* 关闭按钮是这条错误唯一的出口，得看得见、点得到。颜色跟着这条横幅的语义色走
+     （warn 黄 / err 红），所以**不套公共件 .iconbtn** —— 那个是固定 sub 色的，
+     权重也比这里低，加了不生效只会两套规则并存。内容是 icon('close') 的 SVG，
+     尺寸按正方形给（原来的 font-size:14px + padding 是给「×」字符准备的，
+     换成 SVG 后 font-size 对它无效，14px 宽的扁盒子套一颗 11px 的叉会歪）。 */
+  #banner .bx { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex;
+    align-items: center; justify-content: center;
+    border: 1px solid currentColor; background: none; color: inherit;
+    line-height: 0; cursor: pointer; opacity: .85; padding: 0; border-radius: 5px;
     font-family: inherit; }
   #banner .bx:hover { opacity: 1; background: rgba(127,127,127,.14); }
   #banner.warn { background: rgba(251,191,36,.1); color: var(--warn); border-color: rgba(251,191,36,.25); }
@@ -381,43 +387,14 @@ window.addEventListener('unhandledrejection', e => {
   #edPrompt:focus { border-color: var(--acc); }
   .polish { font-size: 12px; color: var(--acc); background: rgba(108,140,255,.08); border: 1px solid rgba(108,140,255,.3); border-radius: 4px; padding: 6px 12px; cursor: pointer; margin-bottom: 12px; }
   /* 提示词下方那行动作按钮用 ui.css 的 .btn-row / .tool（与三个工作台同一套），这里不再另立一套 */
-  .assets-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 6px; }
-  .asset-slot { aspect-ratio: 1.15; border: 1.5px dashed var(--line); border-radius: 4px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 4px; cursor: pointer; color: var(--sub); font-size: 11px; text-align: center; transition: border-color .15s; overflow: hidden; position: relative; }
-  .asset-slot:hover { border-color: var(--acc); }
-  .asset-slot img, .asset-slot video { width: 100%; height: 100%; object-fit: cover; }
-  .asset-slot .cap { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.55); font-size: 10px; padding: 2px; }
-  .asset-slot .x { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; border: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 10px; cursor: pointer; line-height: 16px; padding: 0; }
-  .asset-slot .ic { font-size: 18px; }
-  /* 槽位下那行小字（收什么文件、已有几张）：统一由 .sub 给字号，页面标记里不再抄行内 style */
-  .asset-slot .sub { font-size: 10px; }
-  .asset-slot .sub.err { color: var(--err); }
-  /* 与已选素材互斥的槽位（模型声明一次请求只能选一组）：变灰点不动，清空另一组后自动恢复 */
-  .asset-slot.blocked { opacity: .35; cursor: not-allowed; border-color: var(--err); }
-  .asset-slot.blocked:hover { border-color: var(--err); }
-  /* 互斥但已经放了素材（导入 / 历史数据）：标红提醒，生成前需清空一组 */
-  .asset-slot.conflict { border-style: solid; border-color: var(--err); color: var(--err); }
-  /* 互斥说明就地高亮（不用顶部横幅）：点被禁用的槽位时闪一下这一行 */
-  @keyframes conflictPulse { 0% { background: rgba(220,38,38,.20); } 100% { background: transparent; } }
-  .conflict-hint { border-radius: 3px; padding: 2px 4px; color: var(--err); margin-top: 6px; }
-  .conflict-hint.flash { animation: conflictPulse 1.1s ease-out 2; }
-  .slot-wide { grid-column: 1 / -1; aspect-ratio: auto; padding: 10px; }
-  /* 参考视频槽放了素材后改成行内布局：小缩略图 + 名称 + 删除按钮（缩略图走 Wb.thumbs 公共缓存） */
-  .asset-slot.has-media { flex-direction: row; justify-content: flex-start; align-items: center; gap: 10px; text-align: left; }
-  .rvthumb { position: relative; flex: 0 0 auto; width: 74px; height: 48px; border-radius: 4px; overflow: hidden; background: var(--thumbbg, #e9edf5); }
-  .rvthumb img, .rvthumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  /* 占位层只在不 ready 时显示：必须写成 :not(.ready)，否则会顶掉 ui.css 的 .ready .tph { display:none } */
-  .rvthumb:not(.ready) .tph { display: flex; align-items: center; justify-content: center; font-size: 9px; line-height: 1.2; color: var(--sub); text-align: center; padding: 2px; }
-  .rvmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .rvmeta b { font-weight: 600; font-size: 12.5px; overflow-wrap: anywhere; }
-  .rvmeta span { font-size: 10.5px; color: var(--sub); }
+  /* 素材槽位的样式（.assets-grid / .asset-slot / .rvthumb / 互斥禁用）已收进 ui.css，生成工作台同用 */
   .ed-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
   .ed-footer .can { font-size: 12px; color: var(--ok); }
   .ed-footer .can.no { color: var(--warn); }
   .ed-footer .pri { padding: 10px 20px; font-size: 14px; }
   .ed-footer .est { font-size: 11.5px; color: var(--sub); margin-right: auto; }
   .hint { font-size: 11px; color: var(--sub); margin-top: 8px; }
-  #lbCount { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.5); padding: 4px 14px; border-radius: 4px; font-size: 12.5px; }
+  /* #lbCount / #lbBar 的样式统一在 ui.css 的灯箱那一段 */
   dialog.script { background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 4px; padding: 20px; width: 520px; max-width: 92vw; margin: auto; }
   dialog.script::backdrop { background: rgba(0,0,0,.6); }
   dialog.script textarea { width: 100%; height: 200px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 13px; padding: 10px; font-family: inherit; resize: vertical; }
@@ -439,13 +416,14 @@ window.addEventListener('unhandledrejection', e => {
 <script src="workbench.js"></script>
 <script src="sidebar.js"></script>
 <script src="assetlib.js"></script>
+<script src="ai-chat.js"></script>
 </head>
 <body>
 <div class="page-main">
 <header>
   <span class="brand">导演台</span>
   <div style="position:relative">
-    <span class="tab" id="projSwitch" style="cursor:pointer"><span data-icon="film" data-size="13"></span> 我的短片 <b id="projCount">1</b> ▾</span>
+    <span class="tab" id="projSwitch" style="cursor:pointer"><span data-icon="film" data-size="13"></span> 我的短片 <b id="projCount">1</b> <span data-icon="chevronDown" data-size="11"></span></span>
     <div id="projMenu" hidden style="position:absolute;top:calc(100% + 8px);left:0;background:var(--panel);border:1px solid var(--line);border-radius:4px;min-width:250px;z-index:80;box-shadow:0 12px 32px rgba(0,0,0,.25);padding:6px"></div>
   </div>
   <input class="pname" id="projName" value="新项目">
@@ -479,15 +457,6 @@ window.addEventListener('unhandledrejection', e => {
   <div class="col col-right" id="edCol"></div>
 </div>
 
-<dialog class="script" id="settingsDlg">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <b style="font-size:14px">平台密钥设置</b>
-    <button class="ghost" id="settingsClose">✕</button>
-  </div>
-  <div id="settingsList"></div>
-  <div class="script-row" style="margin-top:10px"><button class="pri" id="settingsSave" style="padding:7px 18px">保存</button></div>
-</dialog>
-
 
 <dialog class="script" id="scriptDlg">
   <b style="font-size:14px">粘贴剧本，一键拆分镜</b>
@@ -501,14 +470,6 @@ window.addEventListener('unhandledrejection', e => {
   </div>
 </dialog>
 
-<div id="lightbox">
-  <button class="lb-btn" id="lbPrev">‹</button>
-  <img id="lbImg" style="display:none">
-  <video id="lbVideo" style="display:none" controls autoplay></video>
-  <button class="lb-btn" id="lbNext">›</button>
-  <span id="lbCount"></span>
-</div>
-
 <script>
 'use strict';
 /* ================================================================
@@ -519,9 +480,20 @@ const $ = id => document.getElementById(id);
 
 /* ---------- 常量 ---------- */
 const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
-const ST_ZH = { creating: '创建中', pending: '排队中', queued: '排队中', running: '生成中', processing: '生成中', succeeded: '已完成', failed: '失败', cancelled: '已取消' };
-const INFLIGHT = ['creating', 'pending', 'queued', 'running', 'processing'];
-const MAX_IMG = 5 * 1024 * 1024;   // 单张图 5 MiB
+const ST_ZH = Wb.ST;   // 状态文案只有 workbench.js 那一份（含各家平台的同义词）
+/* 这一页自己的候选状态词只有 draft / creating / queued / running / succeeded / failed / cancelled，
+   而轮询拿回来的是平台原话（success / completed / done / processing…）。写回之前先归一化：
+   否则「已完成」在这一页会被当成还在跑 —— shotReady、候选排序、缩略图、「用这条」按钮全按
+   'succeeded' 比，表现就是任务明明做完了，界面还写着生成中（要刷新重拉才对上）。
+   判据只有 Api.classifyStatus 一份（它认 registry 的 statusMap）。 */
+const canStatus = s => {
+  const c = (window.Api && Api.classifyStatus) ? Api.classifyStatus(null, s) : '';
+  if (c === 'done') return 'succeeded';
+  if (c === 'failed') return /cancel/i.test(String(s || '')) ? 'cancelled' : 'failed';
+  if (c === 'queued') return 'queued';
+  if (c === 'running') return 'running';
+  return String(s || '');      // 判据不在（assetlib 没加载）时原样留着，别把状态改没
+};
 
 /* ---------- 工作区（多个短片）---------- */
 let WS = { projects: [], curId: null };
@@ -558,7 +530,6 @@ function newShot(prompt = '') {
 const allShots = () => (proj ? proj.scenes.flatMap(sc => sc.shots) : []);
 const curScene = () => (proj ? proj.scenes[proj.curScene] || proj.scenes[0] : null);
 const curShot = () => curScene()?.shots[proj.curShot];
-const fmtMicros = m => '¥' + (Number(m || 0) / 1e6).toFixed(2);
 const fmtDur = s => (Math.round(s * 10) / 10) + ' 秒';
 const shotDur = sh => {
   const c = sh.candidates.find(c => c.vid === sh.selId) || sh.candidates.find(c => c.status === 'succeeded');
@@ -572,47 +543,11 @@ const shotDurText = sh => { const d = shotDur(sh); return d ? fmtDur(d) : '未�
 const shotReady = sh => sh.selId && sh.candidates.some(c => c.vid === sh.selId && c.status === 'succeeded');
 const totalDur = () => allShots().filter(shotReady).reduce((a, sh) => a + shotDur(sh), 0);
 
-/* ---------- 持久化（IndexedDB）---------- */
-/* 连接复用：以前每次 idb() 都新开一个连接且从不关闭，轮询期间每 3 秒保存一次会持续堆积连接 */
-let _dbP = null;
-function idb() {
-  if (!_dbP) {
-    _dbP = new Promise((res, rej) => {
-      /* 库可能是「有版本号但没有 kv 仓库」的空壳（老版里某处不带版本的 open 会凭空建出 v1 空库）。
-         那样任何 transaction('kv') 都抛 "One of the specified object stores was not found"，右栏整个空白。
-         所以打开后还要确认仓库真在，不在就用 version+1 重开一次补建。
-         反过来也正因为会补建，这里绝不能写死版本号：写死 1 会在补建之后（v2）永远打不开。 */
-      const ensure = db => {
-        if (db.objectStoreNames.contains('kv')) return res(db);
-        const next = db.version + 1;
-        try { db.close(); } catch {}
-        openAt(next, true);
-      };
-      const openAt = (ver, mustUpgrade) => {
-        let r;
-        try { r = ver == null ? indexedDB.open('director_db') : indexedDB.open('director_db', ver); }
-        catch (e) { _dbP = null; return rej(e); }
-        r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv'); };
-        r.onerror = () => { _dbP = null; rej(r.error); };
-        r.onblocked = () => { _dbP = null; rej(new Error('director_db 被其它标签页占用，关掉其它页面后刷新即可')); };
-        r.onsuccess = () => {
-          const db = r.result;
-          db.onversionchange = () => { try { db.close(); } catch {} _dbP = null; };   // 其它标签页升级库时让路
-          if (mustUpgrade && !db.objectStoreNames.contains('kv')) {
-            try { db.close(); } catch {}
-            return rej(new Error('director_db 缺少 kv 仓库，且无法升级：请关闭其它标签页后刷新'));
-          }
-          ensure(db);
-        };
-      };
-      openAt(null, false);
-    });
-  }
-  return _dbP;
-}
-async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
-async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const q = t.objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
-async function idbDel(k) { try { const db = await idb(); return new Promise(res => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').delete(k); t.oncomplete = res; t.onerror = res; }); } catch {} }
+/* ---------- 持久化（IndexedDB）----------
+   开库、缺仓库补建、连接复用全在 ui.js 的 Kv 里（本页以前自己写过一份最完整的，
+   现在设置页 / 资产库页 / 保存落点用的是同一份）。库/表名也不在这里抄：
+   Kv.at('ws') = 导演台工作区与本地视频。 */
+const wsKv = Kv.at('ws');
 /* ---------- 撤销 / 重做（快照式，Ctrl+Z / Ctrl+Y）---------- */
 const undoStack = [], redoStack = [];
 let lastSavedJson = '';
@@ -641,7 +576,7 @@ function restoreSnap(json) {
     WS.projects = ws.projects; WS.curId = ws.curId;
     proj = WS.projects.find(p => p.id === WS.curId) || WS.projects[0];
     sanitize(); renderAll();
-    idbSet('workspace', { projects: WS.projects, curId: WS.curId });
+    wsKv.put('workspace', { projects: WS.projects, curId: WS.curId });
     lastSavedJson = json;
   } catch {}
 }
@@ -712,7 +647,7 @@ async function tlClipSrc(c) {
   if (!cand.url && cand.vid && sameAssetSpace(cand.provider, ASSET_STORE)) return '/asset/' + cand.vid + '?v=2';
   // 本地导入 / 过期链接：转存成资产（走通用跨平台转存通道；/asset/ 只认这一家的资产号，见 ASSET_STORE 注释）
   if (c.assetId) return '/asset/' + c.assetId + '?v=2';
-  const blob = cand.blobKey ? await idbGet(cand.blobKey).catch(() => null) : null;
+  const blob = cand.blobKey ? await wsKv.get(cand.blobKey).catch(() => null) : null;
   const fresh = await freshUrl(cand).catch(() => null);
   const source = blob || fresh;
   if (!source) return null;
@@ -771,15 +706,41 @@ async function readJsonSafe(r, what) {
 const renderPost = body => Net.fetch('/render', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout: 0, retry: 0,
 }).then(r => readJsonSafe(r, '提交渲染任务'));
-const renderStatus = id => Net.fetch('/render/status?id=' + id, { timeout: 15000 }).then(r => readJsonSafe(r, '查询渲染进度'));
+const renderStatus = id => Net.fetch('/render/status?id=' + encodeURIComponent(id), { timeout: 15000 }).then(r => readJsonSafe(r, '查询渲染进度'));
+/* 等一轮渲染跑完：一次「查进度」失败不该把整次导出判成失败。
+   代理那边的 ffmpeg 仍在跑，网络抖动 / 15 秒超时只会让界面报「导出失败」，
+   用户重头再来又要多等几分钟。连续失败到上限（默认 10 次 ≈ 10 秒）才认输。
+   stopped() 由调用方给（导出与合并各有自己的取消标志），取消检查每轮都做。 */
+async function pollRenderJob(id, stopped, onTick, maxTicks = 900, maxFails = 10) {
+  let job = null, fails = 0;
+  for (let i = 0; i < maxTicks; i++) {
+    if (stopped()) throw new Error('已取消');
+    await new Promise(res => setTimeout(res, 1000));
+    try { job = await renderStatus(id); fails = 0; }
+    catch (e) {
+      if (++fails >= maxFails) {
+        throw new Error('查不到渲染进度（连续失败 ' + maxFails + ' 次）：' + ((e && e.message) || e));
+      }
+      continue;
+    }
+    if (job.state === 'done' || job.state === 'failed' || job.error) return job;
+    if (onTick) onTick(job);
+  }
+  return job;
+}
+/* 取消要真的取消：以前只把本地标志位翻一下，页面的轮询停了、代理里的 ffmpeg 却照样跑完（白占 CPU、
+   还在 .renders 里留下一条没人要的成片）。代理本来就有 /render/cancel（杀子进程 + 摘队列），接上它。 */
+const renderCancel = id => id ? Net.fetch('/render/cancel?id=' + encodeURIComponent(id),
+  { method: 'POST', timeout: 8000, retry: 0 }).catch(() => {}) : Promise.resolve();
 async function renderBlob(name, what) {
   const r = await Net.fetch('/render/dl?name=' + encodeURIComponent(name), { timeout: 300000 });
   if (!r.ok) throw new Error((what || '下载成片') + '：' + (r.status === 404 ? '成片文件不存在（可能已被清理），请重新合并' : 'HTTP ' + r.status));
   return await r.blob();
 }
 let renderCancelled = false;
+let renderJobId = null;      // 当前这一轮渲染的任务号（取消时交给代理去杀进程）
 /* 按钮统一走这个入口：渲染中再点一次 = 取消（长任务不再只能干等 15 分钟） */
-function exportFilmClick() { if (rendering) { renderCancelled = true; return; } exportFilmFFmpeg(); }
+function exportFilmClick() { if (rendering) { renderCancelled = true; renderCancel(renderJobId); return; } exportFilmFFmpeg(); }
 async function exportFilmFFmpeg() {
   if (rendering) { setStatus('已有导出任务在进行中…'); return; }
   const tl = tlEnsure();
@@ -798,24 +759,19 @@ async function exportFilmFFmpeg() {
       clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
     }
     const r = await renderPost({ name: stampName('mp4').replace(/\.mp4$/, ''), width: size.w, height: size.h, fps: 30, crf: 20, clips });
-    let job = null;
-    for (let i = 0; i < 900; i++) {
-      if (renderCancelled) throw new Error('已取消');
-      await new Promise(res => setTimeout(res, 1000));
-      job = await renderStatus(r.id);
-      if (job.state === 'done' || job.state === 'failed' || job.error) break;
-      if (btn) btn.textContent = '取消渲染 ' + (job.progress || 0) + '%';   // 进度显示在按钮上（顶部横幅不再播报进度）
-    }
+    renderJobId = r.id;
+    const job = await pollRenderJob(r.id, () => renderCancelled,
+      j => { if (btn) btn.textContent = '取消渲染 ' + (j.progress || 0) + '%'; });   // 进度显示在按钮上（顶部横幅不再播报进度）
     if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '渲染未完成');
     const blob = await renderBlob(job.out, '下载成片');
-    const saved = await saveBlob(job.out, blob, 'dir_render');
+    const saved = await saveBlob(job.out, blob);
     setStatus('<span class="ok">' + saved.msg + `（${tl.clips.length} 段 · ${fmtDur(tlDuration())} · ${(blob.size / 1048576).toFixed(1)} MB）</span>`);
   } catch (e) {
     setStatus(e.message === '已取消'
-      ? '已取消等待（服务端可能仍在渲染，完成后可在「设置 → 剪辑成片」目录查看）'
+      ? '已取消：本地停止等待，这一轮渲染也已通知代理中止'
       : '<span class="err">导出失败：' + e.message + '</span>');
   } finally {
-    rendering = false; renderCancelled = false;
+    rendering = false; renderCancelled = false; renderJobId = null;
     if (btn) { btn.disabled = false; btn.innerHTML = icon('download', 13) + ' 导出成片'; }
   }
 }
@@ -846,10 +802,12 @@ function parseJsonLoose(txt) {
   for (const c of cands) { v = tryParse(c); if (v) return v; }
   return null;
 }
+/* 两条共用约束：只回 JSON、别解释 —— 混在多条提示词里最容易丢，所以抽出来放在最前面 */
 const TL_SYS_COMMON = '你是专业视频剪辑师。只返回 JSON，不要任何解释或代码块标记。时间单位为秒，数值保留一位小数。';
-/* 「贴剧本，一键拆分镜」的指令：设置页可改（sk_polish_split），这里只放默认值 */
-const DEFAULT_SPLIT_SYS = `你是分镜师。把剧本/文案拆成「场景 → 镜头」。每个镜头给出适合视频生成的提示词（含主体、动作、场景、镜头运动、光线、氛围），并给出时长建议。
-只返回 JSON：{"title":"短片名","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5,"note":"一句画面说明"}]}]}`;
+/* 「贴剧本，一键拆分镜」的指令：取法只有一份（TextAI.prompt('split') = 用户改过的，没有就用 TextAI.DEF.split）。
+   以前这里写的是 `localStorage.getItem('sk_polish_split') || TextAI.DEF.split` —— 绕过了 prompt()，
+   于是「这条指令不许反问」（NO_ASK 里有 split）这一条保护对它不生效。 */
+const splitSysOf = () => TextAI.prompt('split');
 
 /* 时间线 → 给 LLM 的上下文摘要（连同 tlContextForLLM 一起已移除：从未被调用） */
 
@@ -1011,7 +969,7 @@ async function aiStoryboard() {
   });
   if (!v) return;
   // 指令可在「设置 → 提示词润色 ⑤ 剧本拆分镜」里改；末尾的两条约束由程序按本次输入追加
-  const splitSys = localStorage.getItem('sk_polish_split') || DEFAULT_SPLIT_SYS;
+  const splitSys = splitSysOf();
   const sys = `${TL_SYS_COMMON}
 ${splitSys}
 约束：镜头总数不超过 ${v.maxShots}；每个镜头时长 ${Math.max(1, Number(v.shotDur) || 5)} 秒左右（可在 2–10 秒间按内容调整）。`
@@ -1088,8 +1046,9 @@ ${splitSys}
 let merging = false;
 let mergeProgress = null;   // { pct, stage } 合成进行中时用于界面提示
 let mergeCancelled = false;
+let mergeJobId = null;      // 这一轮合并的任务号（取消时交给代理去杀进程）
 /* 合并按钮统一入口：合并中再点一次 = 取消 */
-function mergeFilmClick() { if (merging) { mergeCancelled = true; return; } mergeWholeFilm(); }
+function mergeFilmClick() { if (merging) { mergeCancelled = true; renderCancel(mergeJobId); return; } mergeWholeFilm(); }
 async function mergeWholeFilm() {
   if (merging) { setStatus('正在合并中…'); return; }
   if (!allShots().filter(shotReady).length) { setStatus('<span class="err">还没有已选用的镜头，先生成并选用</span>'); return; }
@@ -1112,24 +1071,20 @@ async function mergeWholeFilm() {
       clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
     }
     const r = await renderPost({ name: '全片-' + (proj.name || '成片') + '-' + Date.now().toString(36), width: size.w, height: size.h, fps: 30, crf: 20, clips });
-    let job = null;
-    for (let i = 0; i < 900; i++) {
-      if (mergeCancelled) throw new Error('已取消');
-      await new Promise(res => setTimeout(res, 1000));
-      job = await renderStatus(r.id);
-      if (job.state === 'done' || job.state === 'failed' || job.error) break;
-      mergeProgress = { pct: job.progress || 0, stage: job.stage || '合成中' };
-      if (btn) btn.textContent = '取消合并 ' + (job.progress || 0) + '%';
+    mergeJobId = r.id;
+    const job = await pollRenderJob(r.id, () => mergeCancelled, j => {
+      mergeProgress = { pct: j.progress || 0, stage: j.stage || '合成中' };
+      if (btn) btn.textContent = '取消合并 ' + (j.progress || 0) + '%';
       tick();
-    }
+    });
     if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '合并未完成');
     proj.merged = { name: job.out, duration: round1(tlDuration()), ts: Date.now(), clips: tl.clips.length, size: job.size || 0 };
     renderMid(); scheduleSave();
     setStatus('<span class="ok">✓ 已经接成一个完整视频，共 ' + fmtDur(tlDuration()) + '，可以直接下载</span>');
   } catch (e) {
-    setStatus(e.message === '已取消' ? '已取消合并' : '<span class="err">合并失败：' + e.message + '</span>');
+    setStatus(e.message === '已取消' ? '已取消合并（这一轮合成也已通知代理中止）' : '<span class="err">合并失败：' + e.message + '</span>');
   } finally {
-    merging = false; mergeCancelled = false;
+    merging = false; mergeCancelled = false; mergeJobId = null;
     mergeProgress = null;
     const b2 = $('mfMerge');
     if (b2) { b2.disabled = false; b2.innerHTML = icon('refresh', 13) + ' 重新合并'; }
@@ -1167,7 +1122,7 @@ async function downloadMergedFilm() {
   try {
     const blob = await renderBlob(m.name, '下载成片');
     if (!blob.size) throw new Error('成片文件为空，请重新合并');
-    const saved = await saveBlob(m.name, blob, 'dir_render');
+    const saved = await saveBlob(m.name, blob);
     setStatus('<span class="ok">' + saved.msg + '（' + (blob.size / 1048576).toFixed(1) + ' MB）</span>');
   } catch (e) { setStatus('<span class="err">下载失败：' + e.message + '</span>'); }
 }
@@ -1201,7 +1156,7 @@ function scheduleSave() {
     }
     try {
       const wsRec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, ts: Date.now() };
-      await idbSet('workspace', wsRec);
+      await wsKv.put('workspace', wsRec);
       lastSavedJson = snap;
       $('saveState').textContent = '已保存到本地';
       /* 同时写一份到代理的数据目录（.data/workspace.json）：浏览器存储被清掉时还能从磁盘恢复。
@@ -1218,7 +1173,6 @@ function scheduleSave() {
 }
 
 /* ---------- API ---------- */
-const keyFor = providerId => { const prov = window.Api ? Api.prov(providerId) : null; return prov ? Api.key(prov) : (localStorage.getItem('sk_key_' + providerId) || ''); };
 /* 读 JSON 的 fetch：先看 HTTP 状态再解析，错误页给可读提示（以前直接 .json() 会变成看不懂的解析异常） */
 
 const fileToDataURL = f => new Promise((res, rej) => {
@@ -1270,14 +1224,7 @@ function assetProvFor(sh) {
   const rm = resolvedModel(sh) || {};
   return rm.provider || ASSET_STORE;
 }
-/* 余额格式化：按 registry 声明的 balance.style 走（wallet-credits = 积分原样显示，micros = 折 ¥），
-   不按平台名判断 —— 接第二家积分制平台时不用回来加 if */
-function fmtBal(prov, entry) {
-  if (((prov && prov.balance) || {}).style === 'wallet-credits') return { a: (entry.available ?? '?') + ' 积分', f: (entry.reserved ?? 0) + ' 积分' };
-  const pick = v => typeof v === 'object' && v ? (v.amount_micros ?? 0) : (v ?? 0);
-  return { a: fmtMicros(pick(entry.availableMicros ?? entry.available)), f: fmtMicros(pick(entry.reservedMicros ?? entry.frozen ?? 0)) };
-}
-/* 余额已统一挪到侧边栏底部（sidebar.js）；这里保留函数签名，触发侧栏刷新 */
+/* 余额格式化与卡片都在 sidebar.js（侧边栏底部）；这里只负责触发它刷新 */
 async function loadCredits() { window.dispatchEvent(new Event('sb-balance-refresh')); }
 
 /* 生成中：空态下方显示这一镜的任务详情（模型 / 参数 / 提交时间 / 已耗时 / 队列位置 / 进度） */
@@ -1310,20 +1257,22 @@ function playerTaskDetails(sh) {
 function thumbKey(c) {
   const s = String((c && c.url) || '');
   if (/^blob:/i.test(s)) return c.vid ? 'local:' + c.vid : s;
-  return s;
+  /* 其余地址一律交给公共层归一化（签名参数剥掉才算得出同一个身份）：
+     自己拼原始签名地址当键，每轮刷新就换一个键，缓存永远命不中。 */
+  return Wb.thumbs.keyOf(s);
 }
-/* ---------- 候选卡片（键控复用：换候选只改 class，不重建 <video>/<img>，缩略图不再闪） ---------- */
-function candMediaHTML(c) {
-  if (c.url) {
-    const k = thumbKey(c);
-    const frame = Wb.thumbs.get(k);
-    if (frame) return `<img data-thumb-key="${esc(k)}" src="${frame}" alt="">`;
-    return `<video data-thumb-key="${esc(k)}" data-src="${esc(Api.mediaSrc(c.url))}" preload="metadata" muted playsinline></video><span class="tph"></span>`;
-  }
-  const st = c.status === 'draft' ? '待写描述'
+/* ---------- 候选卡片（媒体标记与首帧缓存全部走 Wb.thumbs.mediaHTML，页面不再自己拼） ---------- */
+/* 没有画面时那一格写什么：整块重画与轮询增量补丁共用这一份措辞
+   （两处各写一份时，增量那份漏了 draft 分支，待写描述的候选会被改成「生成中」）。 */
+function candStatusText(c) {
+  return c.status === 'draft' ? '待写描述'
     : c.status === 'failed' ? '生成失败' : c.status === 'cancelled' ? '已取消'
     : c.status === 'queued' ? '排队中' : (c.status === 'creating' ? '创建中' : '生成中');
-  return `<div class="pending${c.status === 'draft' ? ' draft' : ''}${c.status === 'failed' || c.status === 'cancelled' ? ' fail' : ''}">${st}</div>`;
+}
+function candMediaHTML(c) {
+  if (c.url) return Wb.thumbs.mediaHTML(c.url, { key: thumbKey(c) });
+  const cls = (c.status === 'draft' ? ' draft' : '') + (c.status === 'failed' || c.status === 'cancelled' ? ' fail' : '');
+  return `<div class="pending${cls}">${candStatusText(c)}</div>`;
 }
 function candTitle(c) {
   const bits = [c.status === 'draft' ? '待写描述' : (ST_ZH[c.status] || c.status)];
@@ -1356,7 +1305,7 @@ let midCandExpand = (function () { try { return localStorage.getItem('dir_cand_e
 function playerAreaHTML(sh) {
   const cands = sh.candidates || [];
   const cur = cands[proj.curCand];
-  const filmMode = midEditTrim && proj.tlTab === 'film';
+  const filmMode = isFilmMode();
   const readyShots = allShots().filter(shotReady);
   const mergedReady = !!(proj.merged && proj.merged.clips === readyShots.length);
   const readyDur = readyShots.reduce((a, s2) => a + shotDur(s2), 0);
@@ -1467,7 +1416,6 @@ function selectCandidate(at) {
       pl2.addEventListener('loadedmetadata', () => updateArBadge(pl2));
       if (pl2.readyState >= 1) updateArBadge(pl2);
     }
-    if (typeof bindMergedBox === 'function') bindMergedBox();
   }
   const ca = col.querySelector('#candActs');
   if (ca) { ca.innerHTML = candActsHTML(sh); bindCandActs(col); }
@@ -1496,7 +1444,7 @@ function updateMidLive() {
       tmp.innerHTML = candMediaHTML(c);
       while (tmp.firstChild) t.appendChild(tmp.firstChild);
       const m2 = t.querySelector('video, img');
-      if (m2) Wb.thumbs.bind(t, m2, Api.mediaSrc(c.url));
+      if (m2) Wb.thumbs.bind(t, m2, c.url);
     } else if (!c.url && media) {                           // 又变回没有画面（重试等）：媒体换回占位
       const tmp = document.createElement('div');
       tmp.innerHTML = candMediaHTML(c);
@@ -1504,10 +1452,10 @@ function updateMidLive() {
     } else if (!c.url) {                                    // 一直是占位：只改文案
       const p = t.querySelector('.pending');
       if (p) {
-        const txt = c.status === 'failed' ? '生成失败' : c.status === 'cancelled' ? '已取消'
-          : c.status === 'queued' ? '排队中' : (c.status === 'creating' ? '创建中' : '生成中');
+        const txt = candStatusText(c);
         if (p.textContent !== txt) p.textContent = txt;
         p.classList.toggle('fail', c.status === 'failed' || c.status === 'cancelled');
+        p.classList.toggle('draft', c.status === 'draft');
       }
     }
   });
@@ -1554,7 +1502,9 @@ function bindCandidateStrip(col) {
       };
     }
     const media = t.querySelector('video, img');
-    if (media) Wb.thumbs.bind(t, media, media.getAttribute('src'));
+    /* 接线走公共层，地址用候选自己那条（bind 会自己归一化出缓存键）：
+       别用 media.getAttribute('src') —— 占位 <video> 只有 data-src，取到的是 null。 */
+    if (media) Wb.thumbs.bind(t, media, media.getAttribute('data-src') || media.getAttribute('src') || '');
   });
   /* 候选条绑定已在上方处理 */
   const exp = col.querySelector('#candExpand');
@@ -1633,7 +1583,9 @@ function provById(id) {
 }
 function pollTick() {
   allShots().forEach(sh => sh.candidates.forEach(c => {
-    if (c.vid && !String(c.vid).startsWith('tmp_') && !['succeeded', 'failed', 'cancelled', 'creating'].includes(c.status) && !polling.has(c.vid)) {
+    /* 只跳过「已经是终局」的与本机占位号（tmp_*）：以前这里还把 'creating' 也排除了，
+       于是「create 已经回了任务号、状态还停在 creating」的候选永远不被问一次。 */
+    if (c.vid && !String(c.vid).startsWith('tmp_') && !['succeeded', 'failed', 'cancelled'].includes(c.status) && !polling.has(c.vid)) {
       polling.add(c.vid);
       let p2done = false;
       const prov = provById(c.provider);
@@ -1645,7 +1597,8 @@ function pollTick() {
         const p = r && r.p;
         // 状态/进度/产出/费用全部按 registry 的 list.map 解析（平台差异不再写在这里）
         if (p) {
-          c.status = p.status || c.status;
+          c.status = p.status ? canStatus(p.status) : c.status;
+          c.miss = 0;                                     // 这一轮在平台上找到了它
           c.progress = p.progress ?? 0;
           if (p.duration != null) c.duration = p.duration;
           c.error = p.error || null;
@@ -1665,17 +1618,24 @@ function pollTick() {
             p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
           }
         } else if (r) {
-          /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片（旧 M21 的成因） */
-          c.status = 'failed';
-          c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
-          p2done = true;
+          /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片（旧 M21 的成因）。
+             但要**连续几轮**都没有才认 —— 刚提交的任务可能还没同步进列表，游标翻页也可能这一轮没翻到，
+             单次落空就把卡片结掉，正是「任务明明在做完的那一刻变成失败」的成因之一。 */
+          c.miss = (c.miss || 0) + 1;
+          if (c.miss >= 3) {
+            c.status = 'failed';
+            c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
+            p2done = true;
+          }
         }
       }).catch(e => {
         /* 平台上查不到这条任务（404：已被清理 / 任务号失效）：结掉这张卡并写明原因，
            以前 .catch(()=>{}) 一律吞掉 —— 卡片永远停在「生成中」，还每 3 秒空打一次接口。
-           判定只认状态码与明确的「不存在」措辞：旧版用 /40[34]/ 在整条消息里找子串，
-           任务号或金额里带 403/404 的普通错误会被误判成「已清理」而当场结掉。 */
-        if (e && (e.status === 404 || e.status === 403 || /不存在|未找到|not\s*found/i.test(String(e.message || '')))) {
+           判定只认 404 与明确的「不存在」措辞：403 多半是限流或鉴权抖一下，任务号还有效，
+           当场结掉就是把还能跑的任务说成失败（三个工作台都是这个口径）；
+           /40[34]/ 在整条消息里找子串更不行 —— 任务号或金额里带 403/404 的普通错误会被误判。 */
+        const gone = e && (e.status === 404 || /不存在|未找到|not\s*found/i.test(String(e.message || '')));
+        if (gone && (c.miss = (c.miss || 0) + 1) >= 3) {
           c.status = 'failed';
           c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
           p2done = true;
@@ -1810,7 +1770,7 @@ async function submitCandidate(sh, ph) {
         if (!body.inputs) body.inputs = [];
         body.inputs.push({ role: 'reference_audio', asset_id: sh.refAudio.asset_id });
       }
-      v = await Api.request(prov, 'create', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body, log: log2 });
+      v = await Api.request(prov, 'create', { method: 'POST', body, log: log2 });
       if (v.error) throw new Error(v.error.message || '创建失败');
     } else {
       const body = {
@@ -1847,7 +1807,7 @@ async function submitCandidate(sh, ph) {
       }
       if (icSub.refVideo && sh.refVideo && sh.refVideo.asset_id) body.reference_video = { asset_id: sh.refVideo.asset_id };
       if (icSub.refAudio && sh.refAudio && sh.refAudio.asset_id) body.reference_audio = { asset_id: sh.refAudio.asset_id };
-      v = await Api.request(prov, 'create', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body, log: log2 });
+      v = await Api.request(prov, 'create', { method: 'POST', body, log: log2 });
       if (v.statusCode || v.code) throw new Error(v.message || v.code || '创建失败');
     }
     Object.assign(ph, {
@@ -1857,7 +1817,12 @@ async function submitCandidate(sh, ph) {
     });
     renderAll(); scheduleSave();
   } catch (e) {
-    ph.status = 'failed'; ph.error = e.message;
+    /* 「结果未知」不能写成「失败」：超时 / 断连 / 5xx 时请求多半已经被平台受理，
+       显示成失败就会诱导用户重拍 —— 重复建任务、重复扣费。
+       （哪一类错误算「可能已受理」由统一层标记：assetlib.js 的 Api.request、ui.js 的 Net.fetch） */
+    ph.status = 'failed';
+    ph.error = (e && e.maybeSubmitted ? '提交结果未知（平台可能已受理，重拍会再扣一次费）：' : '') + (e && e.message ? e.message : e);
+    if (e && e.maybeSubmitted) Toast.warn('这条提交结果未知：平台可能已经建好任务，先刷新候选，别急着重拍');
     renderAll(); scheduleSave();
     throw e;
   }
@@ -1885,20 +1850,41 @@ async function runPool(items, limit, worker) {
 }
 
 /* ---------- 渲染：左栏 ---------- */
-/* 缩略图元素复用：同一镜头 + 同一素材的 <video>/<img> 只建一次。
-   以前每次重渲染整列都会新建，<video> 要重新取元数据、图片要重新解码，缩略图就"总要等一会"。 */
-const thumbCache = new Map();          // key: shotId|src → 已创建的媒体元素
-function adoptThumb(slot, key, src) {
-  if (!slot || !src || slot.tagName === 'DIV') return;
-  const cached = thumbCache.get(key);
-  if (cached && !cached.isConnected) { slot.replaceWith(cached); return; }   // 复用（同一节点只能挂一处）
-  thumbCache.set(key, slot);                                                // 首次或换新：记下当前节点
-}
 /* 缩略图与首帧缓存：统一走 workbench.js 的 Wb.thumbs（全站一份实现）
-   —— 以前这四个页面各写一份，连缓存用的 IndexedDB 库都不一样。 */
+   —— 以前这四个页面各写一份，连缓存用的 IndexedDB 库都不一样。
+   页面这里不再自己攒「媒体元素复用表」：占位 <video> 从不加载（抽帧用的是公共层
+   自己的离屏 video），重画时命中缓存就直接出 <img>，复用旧节点反而会把已经画好的
+   那一帧换回空白节点。 */
 function hydrateThumbFrames() {
-  // Wb.thumbs.hydrate 自带旧 director_db 缓存迁移（见 workbench.js）
   return Wb.thumbs.hydrate().then(n => { if (n) { try { renderScenes(); } catch {} } });
+}
+/* 工作区里存着的镜头地址是平台产物的**签名外链**（VGENV 的 OSS 地址只管一天）。
+   放着不管，第二天这些镜头就是「缩略图永远加载不出来、点开只回一句 Format error」，
+   而界面上完全看不出原因。开机照旧先画旧地址（不阻塞首屏），这一趟放后台按任务号换新：
+   换到就写回工作区并重画那一块 —— 下次打开直接是新鲜的，不用再吃一轮 403。
+   过期判定、按平台整批回源（声明了 pollVia:'list' 的平台一次列表请求解出一批）都在
+   assetlib.js 的 Api.healMedia 里，页面不重复实现。 */
+function healStaleUrls() {
+  if (!window.Api || !Api.healMedia) return Promise.resolve(0);
+  const recs = [];
+  for (const p of WS.projects || []) for (const s of p.scenes || []) for (const sh of s.shots || [])
+    for (const c of sh.candidates || []) {
+      if (c.url && Api.mediaExpired(c.url)) recs.push({ provider: c.provider, id: c.vid, url: c.url, _c: c });
+    }
+  if (!recs.length) return Promise.resolve(0);
+  setStatus('有 ' + recs.length + ' 个镜头的外链签名过期，正在后台换新…');
+  return Api.healMedia(recs, {
+    limit: 60,
+    onFresh(rec, next) {
+      rec._c.url = next;
+      renderMidSoon();
+      scheduleSave();                       // 新地址落盘
+    },
+  }).then(n => {
+    setStatus(n ? '<span class="ok">✓ 已换新 ' + n + ' 个镜头的外链地址</span>'
+      : '这些镜头的外链换不到新地址（平台列表里没有它，或接口失败）——画面可能已被平台清理');
+    return n;
+  }).catch(() => 0);
 }
 
 /* 输入框逐字触发的重渲染走防抖：避免每敲一个字就整列重建（左栏/中栏互刷时更明显） */
@@ -1945,11 +1931,9 @@ function renderScenes() {
       it.draggable = false;   // 默认不可拖，按住 ⠿ 抓手才开启拖动
       const cur = sh.candidates.find(c => c.vid === sh.selId);
       const rawSrc = cur?.url || sh.firstFrame || '';
-      const sKey = cur?.url ? thumbKey(cur) : rawSrc;
-      const cachedFrame = rawSrc ? Wb.thumbs.get(sKey) : null;
-      const thumb = cachedFrame ? `<img class="sthumb" data-thumb-key="${esc(sKey)}" src="${cachedFrame}" alt="">`
-        : cur?.url ? `<video class="sthumb" data-thumb-key="${esc(sKey)}" data-src="${esc(Api.mediaSrc(cur.url))}" preload="metadata" muted playsinline></video>`
-        : sh.firstFrame ? Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
+      const sKey = cur?.url ? thumbKey(cur) : Wb.thumbs.keyOf(rawSrc);
+      const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
+        : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
         : `<div class="sthumb empty"></div>`;
       // 状态：已选用 / 生成中（带进度）/ 待选用 / 生成失败 / 待生成 / 待写描述
       const runC = sh.candidates.find(c => c.status === 'running' || c.status === 'queued' || c.status === 'creating');
@@ -1962,7 +1946,7 @@ function renderScenes() {
       const prog = runC ? Math.max(0, Math.min(100, Number(runC.progress) || 0)) : 0;
       const durTxt = shotDur(sh) ? ' · ' + fmtDur(shotDur(sh)) : '';   // 还没出片就不写「未生成」，避免「生成中 · 未生成」
       it.innerHTML = `<span class="num">${String(n).padStart(2, '0')}</span>
-        <div class="sthumb-wrap">${thumb}${rawSrc ? `<span class="tph"></span>` : ''}${runC ? `<span class="pbar"><i style="width:${prog}%"></i></span>` : ''}</div>
+        <div class="sthumb-wrap">${thumb}${runC ? `<span class="pbar"><i style="width:${prog}%"></i></span>` : ''}</div>
         <div class="sinfo"><div class="sname">${esc(sh.name)}</div>
         <div class="smeta">${statusTxt}${durTxt}</div></div>
         <div class="ops">
@@ -1970,10 +1954,6 @@ function renderScenes() {
           <button class="op-btn dup" title="复制镜头">⧉</button>
           <button class="op-btn del danger" title="删除镜头">${TRASH_SVG}</button>
         </div>`;
-      const thumbSrc = cur?.url ? (cur.url + '#t=0.1') : (sh.firstFrame || '');
-      // 有首帧图就直接用图（元素复用只针对 <video>，否则会把图片又换回旧的 video 元素）
-      if (cachedFrame) thumbCache.delete(sh.id + '|' + thumbSrc);
-      else adoptThumb(it.querySelector('.sthumb'), sh.id + '|' + thumbSrc, thumbSrc);
       Wb.thumbs.bind(it.querySelector('.sthumb-wrap'), it.querySelector('.sthumb'), rawSrc);
       it.onclick = () => { proj.curScene = si; proj.curShot = xi; renderAll(); };
       const grip = it.querySelector('.grip');
@@ -2001,8 +1981,12 @@ function renderScenes() {
         const [ , fsi, fxi ] = d2.split(':').map(Number);
         if (fsi === si && fxi === xi) return;
         const moved = proj.scenes[fsi].shots.splice(fxi, 1)[0];
-        sc.shots.splice(xi, 0, moved);
-        proj.curScene = si; proj.curShot = xi;
+        /* 目标下标要按「源已被移走之后的数组」来算：同一个场景里往后拖时，splice(fxi,1) 已经把
+           后面那些整体前移了一格，再拿原来的下标插入，落点就比用户放的位置多走一格
+           （表现为「拖到第 3 个位置却落到第 4 个」）。 */
+        const at = (fsi === si && fxi < xi) ? xi - 1 : xi;
+        sc.shots.splice(at, 0, moved);
+        proj.curScene = si; proj.curShot = at;
         renderAll(); scheduleSave();
       });
       it.querySelector('.dup').onclick = e => {
@@ -2016,12 +2000,20 @@ function renderScenes() {
       it.querySelector('.del').onclick = e => {
         e.stopPropagation();
         armConfirm(e.currentTarget, () => {
+        const wasCurScene = si === proj.curScene;
         releaseShotUrls(sc.shots[xi]);                     // 回收本地视频的 blob 地址
         sc.shots.splice(xi, 1);
-        if (!sc.shots.length) proj.scenes.splice(si, 1);   // 空场景一并清掉
+        if (!sc.shots.length) {
+          proj.scenes.splice(si, 1);                       // 空场景一并清掉
+          if (si < proj.curScene) proj.curScene--;         // 它后面的场景整体前移了一格，当前指针对着不动就选错场景
+        }
         ensureSceneLeft();                                 // 但至少留一个场景，别把项目删空
-        proj.curScene = Math.min(proj.curScene, proj.scenes.length - 1);
-        proj.curShot = 0;
+        proj.curScene = Math.max(0, Math.min(proj.curScene, proj.scenes.length - 1));
+        /* 只有删掉的正是「当前选中的那一镜」时才需要挪选中位（往前挪到它上面那条）。
+           以前无条件写成 0：在别的场景里删一个镜头，会把用户正在编辑的镜头跳到第一条。 */
+        if (wasCurScene && xi <= proj.curShot) proj.curShot = Math.max(0, proj.curShot - 1);
+        const curSc = proj.scenes[proj.curScene];
+        proj.curShot = Math.max(0, Math.min(proj.curShot, (curSc && curSc.shots.length ? curSc.shots.length : 1) - 1));
         renderAll(); scheduleSave();
         });
       };
@@ -2035,6 +2027,10 @@ function renderScenes() {
 
 /* ---------- 渲染：中栏 ---------- */
 let midEditTrim = false;   // 剪辑模式（本镜 / 全片 是它的子菜单）
+/* 「全片」这一档只有在剪辑模式打开时才算成立：本镜/全片那两个标签就在剪辑面板里，
+   关掉剪辑后 proj.tlTab 还留着 'film' —— 只看它的地方会把界面停在「全片」那套逻辑上
+   （以前两处各写一种判断，一处带 midEditTrim、一处不带，表现就是关掉剪辑还在按全片走）。 */
+const isFilmMode = () => midEditTrim && proj.tlTab === 'film';
 let midOrder = true;       // 顺序模式：下方显示镜头缩略图，可拖动排序（默认打开）
 /* 本镜时间线只显示时长：优先剪辑后时长，其次候选时长，没有就「未生成」 */
 const curDurText = (cur, sh) => {
@@ -2053,7 +2049,7 @@ function playerEmptyText(sh) {
   if (curDraftCand()) return ['这条候选还没有描述', '在右侧「提示词」里写一句，再点「生成这条」'];
   if (!sh.prompt.trim()) return ['这一镜还没有画面描述', '在右边写一句，或用「AI 润色提示词」帮你写'];
   if (!sh.candidates.length) return ['画面还没生成', '点右侧「生成这一镜（' + (sh.draw || 1) + ' 条）」开始生成'];
-  if (sh.candidates.some(c => INFLIGHT.includes(c.status))) return ['正在生成这一镜…', '排队位置与进度见下方候选卡片'];
+  if (sh.candidates.some(c => Wb.stLive(c.status))) return ['正在生成这一镜…', '排队位置与进度见下方候选卡片'];
   if (sh.candidates.every(c => ['failed', 'cancelled'].includes(c.status))) return ['这一镜生成失败', '候选卡上有失败原因，改改提示词或换个模型再来一次'];
   return ['候选还没有画面', '稍等片刻，或点右侧再生成一条'];
 }
@@ -2089,15 +2085,12 @@ function renderMid() {
   sortCandidates(sh);                              // 有片的排前面、排队/生成中的排后面（顺序变了当前条会跟着走）
   const cands = sh.candidates;
   if (cands.length) proj.curCand = Math.max(0, Math.min(Number(proj.curCand) || 0, cands.length - 1));
-  const filmMode = (proj.tlTab === 'film');                    // 「剪辑 → 全片」标签页
+  const filmMode = isFilmMode();
   const readyShots = allShots().filter(shotReady);
   const readyDur = readyShots.reduce((a, x) => a + shotDur(x), 0);
   const mergedReady = !!(proj.merged && proj.merged.clips === readyShots.length);
   const cur = cands[proj.curCand] || cands[0];
   const sel = sh.candidates.find(c => c.vid === sh.selId);
-  // 键控复用：同一条候选的缩略图节点保留（<video>/<img> 不重建 → 选候选时不闪、不重新加载）
-  const oldThumbs = new Map();
-  col.querySelectorAll('.cand-thumb[data-vid]').forEach(t => oldThumbs.set(t.dataset.vid, t));
   // 候选条的横向滚动位置也要保留：新增候选 / 轮询刷新后不再自动跳回第一条
   const oldThumbBox = col.querySelector('#candThumbs');
   const keepThumbScroll = oldThumbBox ? oldThumbBox.scrollLeft : 0;
@@ -2116,10 +2109,10 @@ function renderMid() {
     <div class="cand-strip${midCandExpand ? ' expanded' : ''}">
       <div class="thumbs" id="candThumbs">${cands.length ? cands.map((c, i) => candThumbInner(c, i === proj.curCand)).join('') + candAddTile() : candPlaceholder()}</div>
       ${cands.length ? `<span class="cand-pager">
-        <button class="ghost" id="candExpand" title="${midCandExpand ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${midCandExpand ? '⤡ 收起' : '⤢ 展开'}</button>
-        <button class="ghost" id="cPrev">‹</button>
+        <button class="ghost" id="candExpand" title="${midCandExpand ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpand ? 'chevronUp' : 'chevronDown', 13)}<span class="tx">${midCandExpand ? '收起' : '展开'}</span></button>
+        <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
         <span style="font-size:12px;color:var(--sub)">第 ${proj.curCand + 1} / ${cands.length} 条</span>
-        <button class="ghost" id="cNext">›</button>
+        <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
       </span>` : ''}
     </div>
     <div class="cand-acts" id="candActs" style="padding:0 16px 6px;justify-content:flex-end">
@@ -2174,25 +2167,7 @@ function renderMid() {
   if (cands.length) {
     col.querySelector('#cPrev').onclick = () => { selectCandidate(Math.max(0, proj.curCand - 1)); scrollCurThumbIntoView(); };
     col.querySelector('#cNext').onclick = () => { selectCandidate(Math.min(cands.length - 1, proj.curCand + 1)); scrollCurThumbIntoView(); };
-    // 换回旧的缩略图节点（键 = vid）：媒体已经加载好，切来切去都不会闪
-    if (oldThumbs.size) {
-      col.querySelectorAll('.cand-thumb[data-vid]').forEach(t => {
-        const old = oldThumbs.get(t.dataset.vid);
-        if (!old) return;
-        // 只有「同类型媒体 + 同一份画面」才复用（比如一直是这张图/这段视频）；
-        // 从"生成中"变成"有片"、或换了地址时，用新节点，免得显示成旧状态。
-        // 比对用归一化缩略图键：媒体地址每轮刷新都可能重新签名，直接比 src 永远判定成「换了」
-        const om = old.querySelector('video, img, .pending'), nm = t.querySelector('video, img, .pending');
-        const mid = el => String(el.getAttribute('data-thumb-key') || el.getAttribute('src') || el.getAttribute('data-src') || '');
-        const same = om && nm && om.tagName === nm.tagName && mid(om) === mid(nm);
-        if (!same) return;
-        old.className = t.className;
-        old.title = t.title;
-        old.dataset.i = t.dataset.i;
-        t.replaceWith(old);
-      });
-    }
-    bindCandidateStrip(col);
+    // 缩略图不再靠「换回旧节点」防闪：命中的首帧缓存由 Wb.thumbs.mediaHTML 直接出 <img>
     bindCandActs(col);
   }
   // 还原候选条滚动位置（新增候选 / 后台刷新重画后不再跳回第一条；只有 ‹ › 翻条才滚动到当前那条）
@@ -2217,7 +2192,7 @@ function renderMid() {
     setStatus(on ? '剪辑模式：调本镜入出点，或切到「全片」合并整片' : '已退出剪辑模式');
   };
   const libMid = col.querySelector('#libImportMid');
-  if (libMid) libMid.onclick = () => openLibDlg(sh, 'video');   // 中栏：只导入视频作为本镜候选
+  if (libMid) libMid.onclick = () => openLibDlg(sh);   // 中栏：只导入视频作为本镜候选
   const ta = col.querySelector('#trimApply');
   const applyTrimFromInputs = () => {
     if (!cur) return;
@@ -2343,16 +2318,12 @@ function renderShotStrip(col) {
     it.className = 'strip-item' + (sh === curShot() ? ' sel' : '') + (shotReady(sh) ? ' ready' : '');
     it.draggable = true;
     const stripRaw = c?.url || sh.firstFrame || '';
-    const stripKey = c?.url ? thumbKey(c) : stripRaw;
-    const stripFrame = stripRaw ? Wb.thumbs.get(stripKey) : null;
-    const thumb = stripFrame ? `<img data-thumb-key="${esc(stripKey)}" src="${stripFrame}" alt="">`
-      : c?.url ? `<video data-thumb-key="${esc(stripKey)}" data-src="${esc(Api.mediaSrc(c.url))}" preload="metadata" muted playsinline></video>`
-      : sh.firstFrame ? Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
+    const stripKey = c?.url ? thumbKey(c) : Wb.thumbs.keyOf(stripRaw);
+    const thumb = c?.url ? Wb.thumbs.mediaHTML(c.url, { key: stripKey })
+      : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
       : `<div class="ph"></div>`;
-    it.innerHTML = `${thumb}${stripRaw ? `<span class="tph"></span>` : ''}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
+    it.innerHTML = `${thumb}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
       <span class="st">${shotReady(sh) ? shotDurText(sh) : (sh.candidates.length ? '生成中' : '未生成')}</span>`;
-    const stripSrc = c?.url ? (c.url + '#t=0.1') : (sh.firstFrame || '');
-    adoptThumb(it.querySelector('video, img'), sh.id + '|strip|' + stripSrc, stripSrc);
     it.title = sh.name + '（点击切换，拖动排序）';
     Wb.thumbs.bind(it, it.querySelector('video, img'), stripRaw, 'mready');
     it.onclick = () => {
@@ -2371,7 +2342,9 @@ function renderShotStrip(col) {
       if (from === k) return;
       const f = idxOf(all[from]), t2 = idxOf(all[k]);
       const moved = proj.scenes[f.si].shots.splice(f.xi, 1)[0];
-      proj.scenes[t2.si].shots.splice(t2.xi, 0, moved);
+      /* 同上：同一场景里往后拖，插入下标要减一格，否则落点比手指位置远一个 */
+      const at = (f.si === t2.si && f.xi < t2.xi) ? t2.xi - 1 : t2.xi;
+      proj.scenes[t2.si].shots.splice(at, 0, moved);
       const sc = proj.scenes.find(x => x.shots.includes(moved));
       proj.curScene = proj.scenes.indexOf(sc); proj.curShot = sc.shots.indexOf(moved);
       renderAll(); scheduleSave();
@@ -2546,52 +2519,12 @@ async function freshUrl(c) {
   return c.url;
 }
 
-/* ---------- 导出成片：把已选用镜头按顺序拼接为一个视频（画布合成 + 音频混流，优先 MP4）---------- */
-async function exportFilm() {
-  // 导出成片：把「已选用镜头」按当前顺序（拖动后的顺序）合并成一个视频
-  if (!allShots().filter(shotReady).length) { setStatus('<span class="err">还没有已选用的镜头，先生成并选用</span>'); return; }
-  tlSyncFromShots();      // 顺序以镜头顺序为准，保留每段手工调过的入出点/倍速
-  renderMid();
-  await exportFilmFFmpeg();
-}
-
-/* ---------- 导出用：读取「设置」里的默认视频文件夹，没有就退回浏览器下载 ---------- */
-async function dirHandleForDownload(dirKey) {
-  const KEY = dirKey || 'dir_video';
-  try {
-    const db = await new Promise((res, rej) => {
-      const r = indexedDB.open('sk_lib', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('kv');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    });
-    const h = await new Promise((res, rej) => {
-      const t = db.transaction('kv', 'readonly');
-      const q = t.objectStore('kv').get(KEY);
-      q.onsuccess = () => res(q.result);
-      q.onerror = () => rej(q.error);
-    });
-    if (!h) return null;
-    const okPerm = (await h.queryPermission({ mode: 'readwrite' })) === 'granted' ||
-                   (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
-    return okPerm ? h : null;
-  } catch { return null; }
-}
-async function saveBlob(name, blob, dirKey) {
-  const dir = await dirHandleForDownload(dirKey);
-  if (dir) {
-    let fn = name;
-    try { await dir.getFileHandle(fn, { create: false }); fn = fn.replace(/(\.\w+)$/, '-2$1'); } catch {}
-    const fh = await dir.getFileHandle(fn, { create: true });
-    const w = await fh.createWritable(); await w.write(blob); await w.close();
-    return { msg: '✓ 成片已保存到默认文件夹：' + fn, saved: true };
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 15000);
-  return { msg: '✓ 已用浏览器下载：' + name + '（可在「设置 → 下载位置」里指定默认文件夹）', saved: false };
+/* ---------- 成片下载：一律走浏览器默认方式 ---------- */
+/* 项目已经没有「下载位置 / 另存为」这一层：无 File System Access 句柄、无 showSaveFilePicker、
+   也不许页面自己写一份落点实现 —— 全站只有 Net.save 这一份，存哪由浏览器/系统决定。 */
+function saveBlob(name, blob) {
+  Net.save(blob, name);
+  return { msg: '✓ 已交给浏览器下载：' + name, saved: false };
 }
 function stampName(ext) {
   const d = new Date(), p2 = n => String(n).padStart(2, '0');
@@ -2623,7 +2556,8 @@ function shotModels(sh) {
      页面自己用的是 first_last_frame / reference_images），按名字过滤会让加了首尾帧之后
      支持它的模型反而从下拉里消失。role 是提交模板的通用语言，按它筛才是对的。 */
   const need = shotUsedRoles(sh);
-  const provs = (REG?.providers || []).filter(p => p.kind === 'video');
+  /* Api.pickable：设置页勾掉「暂时不用」的那一家不出现在这一段可选的视频平台里 */
+  const provs = Api.pickable((REG?.providers || []).filter(p => p.kind === 'video'));
   const groups = (window.Capabilities && Capabilities.modelsFor)
     ? Capabilities.modelsFor(provs, need)
     : provs.map(p => ({ p, models: (p.models || []).filter(m => (m.modes || []).length) }));
@@ -2786,7 +2720,7 @@ function modelOptionsFor(sh) {
   groups.forEach(g => {
     opts += `<optgroup label="${g.displayName || g.name}">`;
     // 选项文字用平台的原始调用名（model id），友好名放 title；分组标签就是 API 来源
-    g.models.forEach(m => opts += `<option value="${m.id}" title="${(m.name || '').replace(/"/g, '&quot;')}" ${sh.model === m.id ? 'selected' : ''}>${m.id}</option>`);
+    g.models.forEach(m => opts += `<option value="${esc(m.id)}" title="${esc(m.name || '')}" ${sh.model === m.id ? 'selected' : ''}>${esc(m.id)}</option>`);
     opts += '</optgroup>';
   });
   return opts;
@@ -2833,24 +2767,28 @@ function renderEditor() {
   const idx = allShots().indexOf(sh) + 1;
   // 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例，全部跟随所选模型的能力声明
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
-  const durOpts = rm?.options?.durations || [4, 15];
+  /* 时长与条数上限**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
+     （[4, 15] 和 4）：平台没声明时界面照样能滑到 15 秒、照样列 4 条，提交才发现平台不吃。
+     没有声明就当作「这一项不给选」（时长控件不渲染），条数固定 1 条。 */
+  const durs = rm?.options?.durations;
+  const hasDur = Array.isArray(durs) && durs.length === 2 && Number(durs[1]) >= Number(durs[0]) && Number(durs[0]) > 0;
+  const durOpts = hasDur ? [Number(durs[0]), Number(durs[1])] : [];
+  const drawMax = Math.max(1, parseInt(rm?.options?.max_outputs, 10) || 1);
   // 防御性归一化：draw / duration 一旦是 NaN / 越界，进渲染前先纠正（避免「生成（NaN 条）」）
   {
-    const dmax = Math.max(1, parseInt(rm?.options?.max_outputs, 10) || 4);
     const d = parseInt(sh.draw, 10);
-    sh.draw = Math.max(1, Math.min(isFinite(d) ? d : 1, dmax));
-    const dlo = durOpts[0] ?? 4, dhi = durOpts[1] ?? dlo;
-    const du = parseFloat(sh.duration);
-    sh.duration = Math.max(dlo, Math.min(isFinite(du) ? du : dlo, dhi));
+    sh.draw = Math.max(1, Math.min(isFinite(d) ? d : 1, drawMax));
+    if (hasDur) {
+      const du = parseFloat(sh.duration);
+      sh.duration = Math.max(durOpts[0], Math.min(isFinite(du) ? du : durOpts[0], durOpts[1]));
+    }
   }
-  const durMin = durOpts[0] ?? 4, durMax = durOpts[1] ?? 15;
-  const drawMax = rm?.options?.max_outputs || 4;
+  const durMin = hasDur ? durOpts[0] : 0, durMax = hasDur ? durOpts[1] : 0;
   /* 参数控件按模型能力动态决定：模型没声明的参数不渲染、也不提交
      （例如 SparkCine 视频没有档位概念 → 不出现「档位」下拉） */
   const tiers = (rm?.options?.tiers || []).slice();
   const ars = (rm?.options?.aspect_ratios || []).slice();
   const ress = (rm?.options?.resolutions || []).slice();
-  const hasDur = Array.isArray(rm?.options?.durations) && rm.options.durations.length === 2 && rm.options.durations[1] > rm.options.durations[0];
   /* 能不能生成：提示词够长 + 有支持这些素材的模型 + 素材没有同时用互斥的两组 + 没有当前模型不支持的素材。
      以前只看提示词长度，非法状态也能点，点了才在后台报错。 */
   const blockWhy = shotBlockReason(sh, ic);
@@ -2874,7 +2812,7 @@ function renderEditor() {
         <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic">${icon('sparkles', 14)}</span>AI 润色</button>
       </div>
       <div id="polishInline" hidden></div>
-      <div class="ed-label" style="margin-top:16px"><span>画面素材</span><button class="tool" id="libImportBtn"><span class="ic">${icon('box', 14)}</span>从资产库导入</button><span class="cnt">顺序即参考顺序</span></div>
+      <div class="ed-label" style="margin-top:16px"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
       ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin:0 0 6px">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
       <button class="polish" id="kfGenBtn">${icon('sparkles', 13)} 按描述生成这一镜的画面</button>
       <div style="display:flex;align-items:center;gap:8px;margin:-4px 0 4px">
@@ -2883,33 +2821,31 @@ function renderEditor() {
         <span class="hint" id="kfEst" style="margin-top:0"></span>
       </div>
       <div class="assets-grid">
-        ${ic.first ? `<div class="asset-slot${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}" data-slot="first"${bFirst ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x" data-k="firstFrame">×</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
-        ${ic.last ? `<div class="asset-slot${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}" data-slot="last"${bLast ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x" data-k="lastFrame">×</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
+        ${ic.first ? `<div class="asset-slot${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}" data-slot="first"${bFirst ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${ic.last ? `<div class="asset-slot${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}" data-slot="last"${bLast ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
           <div class="asset-slot kf">
-            ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML('/asset/' + kf.assetId + '?v=2', { type: 'image' })}<button class="x" data-k="keyframes" data-i="${i}">×</button>`
-              : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button class="x" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">×</button>`
-              : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button class="x" data-k="keyframes" data-i="${i}" title="删掉这一张">×</button>`
-              : kf.status === 'queued' ? `<span class="spin-dot" style="opacity:.45"></span><span class="sub">排队中</span><button class="x" data-k="keyframes" data-i="${i}" title="删掉这一张">×</button>`
+            ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML('/asset/' + kf.assetId + '?v=2', { type: 'image' })}<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
+              : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">${icon('close', 11)}</button>`
+              : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
+              : kf.status === 'queued' ? `<span class="spin-dot" style="opacity:.45"></span><span class="sub">排队中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
               : kf.status === 'failed' ? `<span class="sub err" title="${esc(kf.err || '')}">失败</span>`
-                + `<button class="x" data-retry="${i}" title="重试这一张" style="right:20px">${icon('refresh', 12)}</button>`
-                + `<button class="x" data-k="keyframes" data-i="${i}" title="删掉这一张">×</button>`
-              : `<span class="ic">${icon('image', 16)}</span><button class="x" data-k="keyframes" data-i="${i}" title="删掉这一张">×</button>`}
+                + `<button class="x iconbtn on-dark" data-retry="${i}" title="重试这一张" style="right:20px">${icon('refresh', 12)}</button>`
+                + `<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
+              : `<span class="ic">${icon('image', 16)}</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
             <span class="cap">画面 ${i + 1} · 第 ${kf.t} 秒</span>
           </div>`).join('')}
-        ${ic.ref ? sh.refImages.map((d2, i) => `<div class="asset-slot">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button class="x" data-k="refImages" data-i="${i}">×</button><span class="cap">参考图 ${i + 1}</span></div>`).join('') : ''}
+        ${ic.ref ? sh.refImages.map((d2, i) => `<div class="asset-slot">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">参考图 ${i + 1}</span></div>`).join('') : ''}
         ${ic.ref && sh.refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (sh.refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${sh.refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
       </div>
       ${cNote ? `<div class="hint conflict-hint" id="conflictHint">${cNote}</div>` : ''}
       ${ic.none ? '<div class="hint">当前模型不支持参考素材</div>' : ''}
       ${ic.refVideo ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}" data-slot="refvideo"${bRefVideo ? ' title="与已选素材互斥，不能同时使用"' : ''}>
-        ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button class="x" data-k="refVideo">×</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
+        ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
       ${ic.refAudio ? `<div class="slot-wide asset-slot${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}" data-slot="refaudio"${bRefAudio ? ' title="与已选素材互斥，不能同时使用"' : ''}>
-        ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x" data-k="refAudio">×</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
+        ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
-      <div class="ed-label"><span>我的收藏</span><a href="favorites.html" target="_blank" style="font-size:11px;color:var(--acc);text-decoration:none">管理收藏 →</a></div>
-      <button class="ghost" id="favPickBtn" style="width:100%;padding:8px">${icon('star', 13)} 从收藏选素材（图片进参考图，视频 / 音频进对应槽位）</button>
       <div class="adv" id="advBox" style="margin-top:16px">
         <div class="adv-head" id="advHead">
           <h2>${icon('gear', 14)} 高级设置</h2>
@@ -2925,9 +2861,9 @@ function renderEditor() {
           </div>
           ${hasDur ? `<label>时长（${durMin}–${durMax} 秒，按模型支持范围限制）</label>
           <div class="row">
-            <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${sh.duration || 5}">
+            <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
             <div class="dur-num">
-              <input type="number" id="durNum" min="${durMin}" max="${durMax}" step="1" value="${sh.duration || 5}">
+              <input type="number" id="durNum" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
               <span>秒</span>
             </div>
           </div>` : ''}
@@ -2942,8 +2878,9 @@ function renderEditor() {
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
-  $('favPickBtn').onclick = favPickAdd;
-  $('libImportBtn').onclick = () => openLibDlg(sh, 'all');   // 按钮由本函数动态生成，必须在此绑定
+  /* 右栏原来这里有一个「从资产库导入」按钮（把素材一次性塞进参考图 / 参考视频），已按要求去掉：
+     素材入口在上面的参考图 / 首帧 / 尾帧 / 参考视频 / 参考音频各槽位上（点开就是同一个选择器），
+     不再有一个「全塞进去」的第二入口。 */
   refreshEst();   // 每次重渲染刷新费用预估
   // 事件
   const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave(); };
@@ -2991,9 +2928,10 @@ function renderEditor() {
     if (opts.resolutions && !opts.resolutions.includes(sh.res)) sh.res = opts.resolutions[0];
     if (opts.tiers && !opts.tiers.includes(sh.tier)) sh.tier = opts.tiers[0];
     if (opts.aspect_ratios && !opts.aspect_ratios.includes(sh.ar)) sh.ar = opts.aspect_ratios[0];
-    if (opts.durations) {
-      const lo = opts.durations[0] ?? 4, hi = opts.durations[1] ?? 15;
-      sh.duration = Math.min(hi, Math.max(lo, sh.duration || lo));
+    const dclDur = (Array.isArray(opts.durations) ? opts.durations : []).map(Number).filter(Number.isFinite);
+    if (dclDur.length) {
+      const lo = Math.min(...dclDur), hi = Math.max(...dclDur);
+      sh.duration = Math.min(hi, Math.max(lo, Number(sh.duration) || lo));
     }
     if (opts.max_outputs) {
       const mo = parseInt(opts.max_outputs, 10) || 1;
@@ -3061,8 +2999,8 @@ function renderEditor() {
     localStorage.setItem('sk_kf_model', kfModelId);   // 记住选择，换镜头也保持
     setStatus('正在读取模型能力…');
     await refreshCapsForModel((kfModelOf().prov || {}).id);   // 画面模型同样回源一次能力接口
-    const qs = (kfModelOf().model?.options?.qualities) || ['draft', 'standard', 'final'];
-    if (!qs.includes(kfQ)) kfQ = qs.includes('standard') ? 'standard' : qs[0];
+    /* 档位与默认值不在这里再判一次：renderEditor 重建画质下拉时 kfQualityOptions 会按新模型的
+       声明把 kfQ 校正到有效档位（以前这里又抄了一份兜底表，两处各写 'standard'，改一处漏一处）。 */
     renderEditor();                                   // 重建画质下拉（跟随新模型能力）
     setStatus('画面模型已切换：' + (kfModelOf().model?.name || kfModelId));
   };
@@ -3154,21 +3092,10 @@ function renderEditor() {
      · 先拿 sessionStorage 里上次的列表秒出内容（与资产库页面共用同一份缓存）
      · 接口每返回一页就回调一次，列表逐步补齐
    onUpdate(list) 会被调用多次；cacheFirst=true 时立刻返回缓存、后台继续刷新。 */
-const ASSET_CACHE_KEY = 'assets_cache_v1';
-function readAssetCache() {
-  try {
-    const c = JSON.parse(localStorage.getItem(ASSET_CACHE_KEY) || sessionStorage.getItem(ASSET_CACHE_KEY) || 'null');
-    return (c && Array.isArray(c.entries)) ? c.entries : [];
-  } catch { return []; }
-}
-function writeAssetCache(list) {
-  const payload = JSON.stringify({ ts: Date.now(), entries: list.slice(0, 200) });
-  try { localStorage.setItem(ASSET_CACHE_KEY, payload); } catch { try { sessionStorage.setItem(ASSET_CACHE_KEY, payload); } catch {} }
-}
-const assetEntryKey = e => [e.kind || '', e.id || e.assetId || e.genId || '', e.assetId || ''].join('|');
-function mergeAssetEntries(base, add) { const m = new Map(); base.forEach(e => m.set(assetEntryKey(e), e)); add.forEach(e => m.set(assetEntryKey(e), e)); return [...m.values()]; }
+const LIST_CACHE = AssetLib.listCache('assets_cache_v1');   // 与资产库页面同一份缓存
+const mergeAssetEntries = (base, add) => AssetLib.mergeEntries(base, add);
 function loadDirectoryAssets(pages, onUpdate, opts) {
-  const cached = readAssetCache();
+  const cached = LIST_CACHE.read();
   let acc = cached.slice();
   if (acc.length && onUpdate) onUpdate(acc);                 // 缓存先画
   const fresh = AssetLib.load({
@@ -3176,65 +3103,33 @@ function loadDirectoryAssets(pages, onUpdate, opts) {
     onBatch: list => { acc = mergeAssetEntries(cached, list); if (onUpdate) onUpdate(acc); },
   }).then(res => {
     acc = mergeAssetEntries(cached, res.entries);
-    writeAssetCache(acc);
+    LIST_CACHE.write(acc);
     return acc;
   }).catch(() => acc);
   return (opts && opts.cacheFirst && cached.length) ? Promise.resolve(acc) : fresh;
 }
 
 /* ---------- 从资产库 / 收藏导入（统一走 AssetPicker） ----------
-   中栏「导入」= 只挑视频，作为这一镜的候选画面；右栏「从资产库导入」= 给这一镜加素材（视频→参考视频，图片→参考图）。
-   界面和工作台选参考素材是同一份选择器，本地文件也在那同一个弹窗里选（顶部「本地上传」档位）。 */
-function openLibDlg(sh, kind) {
+   中栏「导入」= 只挑视频，作为这一镜的候选画面。
+   界面和工作台选参考素材是同一份选择器，本地文件也在那同一个弹窗里选（顶部「本地上传」档位）。
+   槽位规则只取 reference_video 那一条：右栏那个「图片/视频一起塞」的入口已经去掉，
+   参考图从各槽位进（openPickDlg），这里不再需要「取两个槽位里更严的一条」。 */
+function openLibDlg(sh) {
   if (!sh) { setStatus('<span class="err">先在左侧选一个镜头，再从资产库导入</span>'); return; }
-  const onlyVideo = kind !== 'all';
+  const rm = resolvedModel(sh) || {};
+  const rVid = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, 'reference_video') : null;
   AssetPicker.open({
-    types: onlyVideo ? ['视频'] : ['视频', '图片'],
+    types: ['视频'],
     multiple: false, limit: 1,
-    title: onlyVideo ? '导入视频作为本镜画面（资产库 / 收藏 / 本地文件）' : '从资产库 / 收藏导入素材',
-    note: onlyVideo ? '' : '视频进「参考视频」（沿用它的运镜与节奏），图片进「参考图」。',
+    rule: rVid,
+    title: '导入视频作为本镜画面（资产库 / 收藏 / 本地文件）',
     aiSearch: true,
-    onPick: e => useLibEntry(sh, e, !onlyVideo),
+    onPick: e => useLibEntry(sh, e),
   });
 }
-/* 选中的资产落到这一镜：右栏视频→参考视频（不在这家平台的资产库里要先转存），中栏视频→候选画面，图片→参考图 */
-async function useLibEntry(sh, it, fromRight) {
+/* 选中的资产落到这一镜：视频→本镜候选画面（本地收藏先转存成资产，地址才长期有效） */
+async function useLibEntry(sh, it) {
   if (!sh) return;
-  if (it.type === '视频' && fromRight) {
-    // 右栏导入视频 → 作为「参考视频」（沿用运镜节奏），不再当作候选画面
-    // 走和其它槽位一样的守卫：互斥的槽位（如已选首尾帧）在这里也要被拦下，不能绕过界面
-    if (!canAddSlot(sh, 'refVideo')) return;
-    const name = (it.prompt || '资产库视频').replace(/\s+/g, ' ').slice(0, 24) + '.mp4';
-    let aid = it.assetId || (String(it.src || '').match(/\/asset\/([A-Za-z0-9-]+)/) || [])[1];
-    const toProv = assetProvFor(sh);                       // 传给这一镜模型所属平台（VGENV 的参考视频只认 VGENV 资产）
-    if (!aid || !sameAssetSpace(it.provider, toProv) || Api.inputTemplate(provOf(toProv), 'reference_video')?.requiresAudio) {
-      // 资产不在这家平台的资产库里：经本地代理取回字节，转存成目标平台的资产再引用
-      try {
-        const toName = (provOf(toProv).displayName) || '目标平台';   // 平台名从注册表取，别写死
-        aid = await AssetTransfer.crossTransfer({ name: it.providerName || '其他平台' }, toProv, it.src, {
-          reg: REG, name, contentType: 'video/mp4', role: 'reference_video',
-          onStage: (stage, a, b) => {
-            if (stage === 'prepare' || stage === 'prepared') { setStatus(uploadStageText(stage, a, '参考视频')); return; }
-            if (stage === 'progress') { setStatus(uploadStageText('progress', a, '该视频')); return; }   // 真实进度（来自代理）
-            if (stage === 'fetch') { setStatus('正在取回该视频（经本地代理）…'); return; }
-            if (stage === 'put') { setStatus('正在上传为 ' + toName + ' 资产…'); return; }
-            setStatus('正在转存：' + a + ' → ' + (b || toName) + '…');    // intent 阶段（a = 文件名）
-          },
-        });
-      } catch (e) {
-        setStatus('<span class="err">转存失败：' + e.message + '（也可先下载该视频，再用「参考视频」槽本地上传）</span>');
-        return;
-      }
-    }
-    sh.refVideo = {
-      asset_id: aid,
-      name,
-      src: Api.mediaSrc(it.src), duration: it.duration || null, provider: toProv, preparedFor: toProv
-    };
-    scheduleSave(); renderAll();
-    setStatus('<span class="ok">✓ 已设为这一镜的参考视频（沿用其运镜与节奏）</span>');
-    return;
-  }
   if (it.type === '视频') {
     // 本地收藏（上传的文件）：先转存成资产，地址才长期有效
     if (it.localFav || it.fromLocal || /^blob:/.test(it.src || '')) {
@@ -3259,15 +3154,6 @@ async function useLibEntry(sh, it, fromRight) {
       url: it.src, local: !isPlat, locked: false, trimS: null, trimE: null, priceMicros: null, duration: it.duration || null, error: null };
     sh.candidates.push(cand);
     if (!sh.selId) sh.selId = cand.vid;
-  } else {
-    if (!canAddSlot(sh, 'ref')) return;   // 已选首尾帧 → 不能再加参考图
-    const lim = shotInputCaps(sh).maxRef;   // 只认模型声明的上限（没声明就是 0，不猜一个数）
-    if (sh.refImages.length >= lim) { setStatus('<span class="err">参考图最多 ' + lim + ' 张（首帧/尾帧不计入）</span>'); return; }
-    // 转成 dataURL 再存：接口不认 /asset/ 这类相对路径
-    const aid = it.assetId || (String(it.src).match(/\/asset\/([A-Za-z0-9-]+)/) || [])[1];
-    let src = aid ? await assetToDataURL(aid) : (it.file ? await fileToDataURL(it.file) : it.src);
-    if (/^blob:/.test(src)) { try { src = await blobToDataURL(await (await fetch(src)).blob()); } catch (e) {} }
-    addRefImage(sh, src, (it.localFav || it.fromLocal) ? '收藏' : null);
   }
   scheduleSave(); renderAll();
   setStatus('<span class="ok">✓ 已从资产库导入到当前镜头</span>');
@@ -3282,49 +3168,6 @@ async function libEntryToAssetId(it, name, contentType, provId, role) {
   if (aid && sameAssetSpace(it.provider, to) && !(template && template.requiresAudio)) return aid;
   return await AssetTransfer.toAsset(to, it.dl || it.src, { reg: REG, name, contentType, role, onStage: dlStage('素材') });
 }
-/* 从「我的收藏」挑素材：图片进参考图，视频/音频进对应槽位（本地收藏也支持） */
-async function favPickAdd() {
-  const sh = curShot();
-  if (!sh) return;
-  if (!window.Fav || !Fav.list().length) { setStatus('<span class="warn">还没有收藏。去「资产库」点卡片上的 ☆，或到「我的收藏」页上传本地文件</span>'); return; }
-  const list = await AssetPicker.open({
-    types: ['图片', '视频', '音乐', '音频'], multiple: true, title: '从我的收藏选素材',
-    favOnly: true, kinds: undefined,
-  });
-  if (!list || !list.length) return;
-  const cap = shotInputCaps(sh);
-  let added = 0, skipped = 0;
-  for (const it of list) {
-    try {
-      if (it.type === '图片') {
-        if (!canAddSlot(sh, 'ref')) { skipped++; continue; }         // 与已选素材互斥 → 跳过
-        if (sh.refImages.length >= cap.maxRef) { setStatus('<span class="err">参考图最多 ' + cap.maxRef + ' 张（按模型声明）</span>'); break; }
-        let d = it.src;
-        if (it.localFav || /^blob:/.test(it.src)) d = await blobToDataURL(await (await fetch(it.src)).blob());
-        addRefImage(sh, d, it.providerName || '收藏');
-        added++;
-      } else if (it.type === '视频') {
-        if (!canAddSlot(sh, 'refVideo')) { skipped++; continue; }
-        const aid = await libEntryToAssetId(it, (it.prompt || '收藏视频').replace(/\s+/g, ' ').slice(0, 20) + '.mp4', 'video/mp4', assetProvFor(sh), 'reference_video');
-        sh.refVideo = { asset_id: aid, name: (it.prompt || '收藏视频').slice(0, 24) + '（收藏）', src: it.src, provider: assetProvFor(sh), preparedFor: assetProvFor(sh) };
-        added++;
-      } else {
-        if (!canAddSlot(sh, 'refAudio')) { skipped++; continue; }
-        const isWav = (it.format || 'wav').toLowerCase() === 'wav';
-        const aid = await libEntryToAssetId(it, (it.prompt || '收藏音频').replace(/\s+/g, ' ').slice(0, 20) + (isWav ? '.wav' : '.mp3'), isWav ? 'audio/wav' : 'audio/mpeg', assetProvFor(sh));
-        sh.refAudio = { asset_id: aid, name: (it.prompt || '收藏音频').slice(0, 24) + '（收藏）' };
-        added++;
-      }
-    } catch (e) { setStatus('<span class="err">加入失败：' + e.message + '</span>'); }
-  }
-  if (added) { renderEditor(); renderScenes(); scheduleSave(); setStatus('<span class="ok">✓ 已从收藏加入 ' + added + ' 项素材</span>'); }
-  // 被互斥挡下的项：就地闪烁说明（顶部横幅只留给出错场景）
-  if (skipped) {
-    if (!added) renderEditor();
-    flashConflict('有 ' + skipped + ' 项素材与已选素材互斥，已跳过。' + conflictNote(shotInputCaps(sh)));
-  }
-}
-
 async function pickRefMedia(sh, kind) {
   const isAudio = kind === 'refaudio';
   const role = isAudio ? 'reference_audio' : 'reference_video';
@@ -3337,7 +3180,11 @@ async function pickRefMedia(sh, kind) {
   const types = (window.Capabilities && Capabilities.slotTypes) ? Capabilities.slotTypes(rm, role) : (isAudio ? ['音乐', '音频'] : ['视频']);
   const note = cap.slotNote(role);
   const list = await AssetPicker.open({
-    types, multiple: false, limit: Math.max(1, rule.max || 1),
+    types, multiple: false, limit: 1,
+    /* 这一镜的参考视频 / 参考音频**各只有一格**（提交体是 body.reference_video = { asset_id }），
+       所以规则里的数量按 1 显示 —— 平台声明的 max 再大也没地方放，照抄会出现
+       「弹窗写『还能加 1 个』、却又只能点一张」。类型与体积上限仍照平台声明走。 */
+    rule: Object.assign({}, rule, { max: 1 }),
     title: '选择' + label + '（来自资产库，也可上传本地文件' + (note ? '，' + note : '') + '）',
     upload: rule.accept ? { accept: rule.accept } : undefined,
   });
@@ -3380,12 +3227,26 @@ function polishImageList(sh) {
 /* 润色结果的就地状态：编辑器会被反复重渲染，面板内容存这里才不会丢
    { shotId, text, note, loading, run } */
 let polishUI = null;
-/* 按当前状态在 #polishInline 里画润色面板（renderEditor 每次重渲染后都会调） */
+/* 按当前状态在 #polishInline 里画润色面板（renderEditor 每次重渲染后都会调）
+   两个阶段都从这里画，状态全在 polishUI 里：切镜头再切回来不能丢内容。 */
 function renderPolishPanel(sh) {
   const host = $('polishInline');
   if (!host) return;
   if (!polishUI || !sh || polishUI.shotId !== sh.id) { InlinePolish.clear(host); return; }
-  if (polishUI.loading) { InlinePolish.loading(host, '正在润色这一镜的提示词…'); return; }
+  if (polishUI.loading) { InlinePolish.loading(host, polishUI.loadingText || '正在润色这一镜的提示词…'); return; }
+  /* 阶段一：AI 反问要点（选项 + 每题最后一个自由输入框）。就地展开，不开新弹窗。 */
+  if (polishUI.phase === 'ask' && polishUI.questions && polishUI.questions.length) {
+    InlinePolish.ask(host, {
+      title: 'AI 想先问几个问题',
+      intro: '点一个候选，或者在最后那个输入框里自己写；没答的按默认理解走',
+      questions: polishUI.questions,
+      state: polishUI.answers || [],
+      onChange: st => { if (polishUI) polishUI.answers = st; },
+      onSubmit: t => polishRun(t),
+      onSkip: () => polishRun(''),
+    });
+    return;
+  }
   const ta = $('edPrompt');
   InlinePolish.show(host, {
     after: polishUI.text, note: polishUI.note, before: ta ? ta.value : '',
@@ -3403,8 +3264,34 @@ function renderPolishPanel(sh) {
       polishUI.text = r.after; polishUI.note = r.note;
       return r;
     },
+    onReask: polishUI.questions && polishUI.questions.length
+      ? () => { polishUI.phase = 'ask'; renderPolishPanel(sh); }   // 回到问答改答案
+      : null,
     onClose: () => { polishUI = null; },
   });
+}
+/* 第二段：按回答润色 → 出结果面板（loading → 结果都走 polishUI，重渲染不丢） */
+async function polishRun(answers) {
+  const sh = curShot();
+  if (!polishUI || !sh || polishUI.shotId !== sh.id) return;
+  polishUI.loading = true;
+  polishUI.loadingText = answers ? '正在按你的回答润色…' : '正在润色这一镜的提示词…';
+  renderPolishPanel(sh);
+  const btn = $('polishBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await polishUI.run(answers);
+    polishUI.loading = false;
+    polishUI.phase = 'result';
+    polishUI.text = r.after; polishUI.note = [polishUI.note0, r.note, answers ? '已按你的回答润色' : ''].filter(Boolean).join(' · ');
+  } catch (e) {
+    polishUI = null;
+    InlinePolish.clear($('polishInline'));
+    setStatus('<span class="err">润色失败：' + e.message + '</span>');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 13) + ' AI 润色提示词'; }
+    renderPolishPanel(curShot());
+  }
 }
 async function polishPrompt() {
   const ta = $('edPrompt');
@@ -3412,81 +3299,74 @@ async function polishPrompt() {
   const sh = curShot();
   const original = (ta.value || '').trim();
   if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
-  const prov = (REG?.providers || []).find(x => x.kind === 'text');
-  if (!prov) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
-  const sysBase = localStorage.getItem('sk_polish_video') || '你是专业的AI视频提示词工程师。把用户的镜头提示词润色为细节丰富、结构清晰、适合视频生成模型的中文提示词：补全主体、动作、场景、光线、镜头语言与氛围，不添加无关内容，直接返回润色后的提示词本身，不要任何解释。';
-  let images = [], user = '', sys = sysBase;
-  const call = () => TextAI.chat(REG, sys, user, { images });
-  /* 一次润色 = 准备素材图（识图模型才带）→ 组装提示词 → 调用文字 AI；返回 { after, note } */
-  const run = async () => {
+  const sysBase = TextAI.prompt('video');   // 内置默认只有一份（TextAI.DEF，见设置页）
+  let images = [];
+  const call = (sys, user) => TextAI.chat(REG, sys, user, { images });
+  /* 素材清单：参考图 / 首帧 / 尾帧 / 时间切片会随消息附上；**参考视频与参考音频附不了**，
+     但必须写清「有几条、拿来干什么」—— 只说一句「还挂了参考视频」的话，模型既不知道数量
+     也不知道内容，只能靠猜（`TextAI.materialNote` 是公共实现，三个工作台共用一份措辞）。 */
+  const materials = () => {
+    const items = polishImageList(sh).map(x => ({ label: x.label, kind: '图片', sent: true }));
+    if (sh.refVideo) items.push({ label: '参考视频', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
+    if (sh.refAudio) items.push({ label: '参考音频', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
+    return items;
+  };
+  const prep = async () => {
     // 「随附图片」编号与 @参考图N 一致：参考图 → 首帧 / 尾帧 → 时间切片画面
     const picked = await TextAI.polishImages(REG, polishImageList(sh), { max: 6 });
     images = picked.images;
+    return picked;
+  };
+  /* 一次润色 = 准备素材图（识图模型才带）→ 交代素材清单 → 组装提示词 → 调用文字 AI；返回 { after, note }。
+     answers 是用户对「AI 先前的追问」的回答（没有追问时是空串）。 */
+  const run = async answers => {
+    const picked = await prep();
     const extra = [];
     if (images.length) extra.push('消息末尾的「随附图片」列出了每张图对应哪张素材，请结合图片内容润色。');
     if (/@参考图\s*\d+|@[^\s，。；、]+/.test(original)) extra.push('提示词里的 @参考图1、@角色名 这类标记是素材引用，必须原样保留，不要改写或删除。');
-    if (sh.refVideo) extra.push('这一镜还挂了参考视频（沿用它的运镜与节奏）。');
-    if (sh.refAudio) extra.push('这一镜还挂了参考音频（沿用它的节奏）。');
-    sys = sysBase + (extra.length ? ' ' + extra.join('') : '');
-    user = '请润色以下镜头提示词，直接返回润色结果：\n' + original;
-    return { after: await call(), note: picked.note };
+    const mNote = TextAI.materialNote(materials());
+    if (mNote) extra.push(mNote);
+    if (answers) extra.push('用户已经回答了你先前的追问，请严格按这些回答来写，不要再自行改动用户已定的选择：\n' + answers);
+    const sys = sysBase + (extra.length ? ' ' + extra.join('') : '');
+    const user = '请润色以下镜头提示词，直接返回润色结果：\n' + original;
+    return { after: await call(sys, user), note: picked.note };
   };
   const btn = $('polishBtn');
-  polishUI = { shotId: sh.id, loading: true, run };
+  const wantAsk = TextAI.shouldAsk();        // 设置选「从不问」时不发起这一轮
+  polishUI = { shotId: sh.id, phase: 'ask', loading: true, loadingText: '正在读这一镜，想想到底要先问什么…', run, note0: '', questions: [], answers: [] };
   if (btn) { btn.disabled = true; btn.textContent = '润色中…'; }
-  InlinePolish.loading($('polishInline'), '正在润色这一镜的提示词…');
-  try {
-    const first = await run();
-    polishUI = { shotId: sh.id, text: first.after, note: first.note, run };
-    renderPolishPanel(sh);
-  } catch (e) {
-    polishUI = null;
-    InlinePolish.clear($('polishInline'));
-    setStatus('<span class="err">润色失败：' + e.message + '</span>');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 13) + ' AI 润色提示词'; }
-    renderPolishPanel(sh);
-  }
-}
-
-
-
-/* ---------- 平台密钥设置 ---------- */
-function renderSettings() {
-  const box = $('settingsList');
-  box.innerHTML = '';
-  (REG?.providers || []).forEach(p => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:9px';
-    row.innerHTML = '<span style="flex:0 0 130px;font-size:13px">' + esc(p.name) + '</span>' +
-      '<input type="password" class="keyin" data-provider="' + esc(p.id) + '" value="' + esc(keyFor(p.id) || '') + '" placeholder="留空则用本机 .env / 环境变量里的密钥"' +
-      ' style="flex:1;padding:7px 10px;background:var(--input);border:1px solid var(--line);border-radius:4px;color:var(--txt);font-size:12.5px;font-family:monospace">' +
-      (p.endpoints?.credits ? '<span class="pbal" style="font-size:11px;color:var(--sub);flex:0 0 170px">余额…</span>' : '');
-    box.appendChild(row);
-    if (p.endpoints?.credits) {
-      const bal = row.querySelector('.pbal');
-      Api.request(p, 'credits')
-        .then(c => {
-          const entry = Array.isArray(c) ? c[0] : (c.data?.[0] || c);
-          const b2 = fmtBal(p, entry);
-          bal.innerHTML = '可用 <b style="color:var(--txt)">' + b2.a + '</b> · 冻结 <b style="color:var(--txt)">' + b2.f + '</b>';
-        }).catch(() => { bal.textContent = "余额获取失败"; });
+  /* 先反问：**由 AI 自己判断**值不值得问（need=false 就直接润色）。这一轮同样带素材图与清单 ——
+     看过画面再问，问出来的才是画面相关的问题。 */
+  let questions = [];
+  if (wantAsk) {
+    InlinePolish.loading($('polishInline'), '正在读这一镜，判断还缺什么…');
+    let r = { need: false, questions: [] };
+    try {
+      const picked = await prep();
+      const mNote = TextAI.materialNote(materials());
+      const askSys = sysBase + (picked.images.length ? ' 消息末尾附了这一镜的参考图/首尾帧，请结合图片内容提问。' : '') + (mNote ? ' ' + mNote : '');
+      r = await TextAI.askPolish(REG, askSys, '这是导演台的一个镜头提示词：\n' + original + '\n\n请针对它提出 2–4 个最影响成片的追问（这一镜挂了哪些素材见系统提示）。', { images });
     }
-  });
+    catch (e) { r = { need: false, questions: [] }; }
+    questions = (r && r.need) ? (r.questions || []) : [];
+  } else {
+    InlinePolish.loading($('polishInline'), '正在润色这一镜的提示词…');
+  }
+  if (!polishUI || polishUI.shotId !== sh.id) return;        // 期间切了镜头：这次润色作废
+  if (questions.length) {
+    polishUI.phase = 'ask';
+    polishUI.loading = false;
+    polishUI.questions = questions;
+    polishUI.answers = [];
+    if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 13) + ' AI 润色提示词'; }
+    renderPolishPanel(curShot());
+    return;
+  }
+  polishUI.note0 = wantAsk ? '这次没能反问，直接润色' : '';
+  await polishRun('');
 }
-const settingsBtnEl = $('settingsBtn');
-if (settingsBtnEl) settingsBtnEl.onclick = () => { renderSettings(); $('settingsDlg').showModal(); };
-$('settingsClose').onclick = () => $('settingsDlg').close();
-$('settingsSave').onclick = () => {
-  document.querySelectorAll('#settingsList .keyin').forEach(inp => {
-    const id = inp.dataset.provider;
-    if (inp.value.trim()) localStorage.setItem('sk_key_' + id, inp.value.trim());
-    else localStorage.removeItem('sk_key_' + id);
-  });
-  $('settingsDlg').close();
-  setStatus('<span class="ok">✓ 密钥已保存</span>');
-};
 
 /* 回收候选的 blob: URL（只针对本地导入的视频；/asset、blob: 之外的链接不动） */
 function releaseCandUrl(c) {
@@ -3510,7 +3390,7 @@ async function restoreLocalBlobs() {
   const jobs = [];
   (WS.projects || []).forEach(p => (p.scenes || []).forEach(sc => (sc.shots || []).forEach(sh => (sh.candidates || []).forEach(c => {
     if (c.provider === 'local' && c.blobKey) {
-      jobs.push(idbGet(c.blobKey).then(b => { if (b) { c.url = URL.createObjectURL(b); c._objUrl = true; } }).catch(() => {}));
+      jobs.push(wsKv.get(c.blobKey).then(b => { if (b) { c.url = URL.createObjectURL(b); c._objUrl = true; } }).catch(() => {}));
     }
   }))));
   await Promise.allSettled(jobs);
@@ -3522,11 +3402,6 @@ function applyTheme(t) {
   localStorage.setItem('dir_theme', t);
 }
 applyTheme(localStorage.getItem('dir_theme') || 'light');
-const themeBtnEl = $('themeBtn');
-if (themeBtnEl) themeBtnEl.onclick = () => {
-  const cur = document.documentElement.dataset.theme || 'light';
-  applyTheme(cur === 'light' ? 'dark' : 'light');
-};
 
 /* 素材 → dataURL：支持 dataURL 原样返回、/asset/xx 与相对路径先取回再转 */
 async function toDataURL(src) {
@@ -3546,11 +3421,24 @@ async function uploadImageDataUrl(src, name, provId) {
    生成入口不在这里（要出图去图片台，出完之后这里现成能选）。 */
 function openPickDlg(sh, kind) {
   const isFirst = kind === 'first';
+  const isRef = kind === 'ref';
   const prev = isFirst ? prevShotTail(sh) : null;
+  const role = isFirst ? 'first_frame' : kind === 'last' ? 'last_frame' : 'reference_image';
+  const rm = resolvedModel(sh) || {};
+  /* 参考图是**能放好几张**的槽位（sh.refImages 是数组，右栏就写着「已有 N / maxRef 张」），
+     选择器必须按「本槽位还剩几个位置」开成多选。以前三个槽位一律 multiple:false, limit:1，
+     表现就是「槽位写着还能加 9 张，弹窗却说『还能加 1 个』，选一张以后就选不了第二张」。
+     首帧 / 尾帧各只有一格，固定单选；参考图只剩一格时也自动退回单选。 */
+  const ic = shotInputCaps(sh);
+  const room = isRef ? Math.max(0, ic.maxRef - (sh.refImages || []).length) : 1;
+  if (isRef && room <= 0) { setStatus('<span class="err">参考图最多 ' + ic.maxRef + ' 张（首帧/尾帧不计入）</span>'); return; }
   AssetPicker.open({
     types: isFirst ? ['图片', '视频'] : ['图片'],
-    multiple: false, limit: 1,
-    title: isFirst ? '选一张开头画面' : kind === 'last' ? '选一张结尾画面' : '选一张参考图',
+    multiple: room > 1,
+    limit: room,
+    /* 这个槽位收什么类型、单文件多大：现读模型的能力声明（首帧槽也收视频，声明里写了就照它显示） */
+    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role) : null,
+    title: isFirst ? '选一张开头画面' : kind === 'last' ? '选一张结尾画面' : '选参考图（还能加 ' + room + ' 张）',
     note: isFirst ? '图片直接用；选视频则取它的<b>最后一帧</b>当开头画面（全在本机取帧）' : '',
     aiSearch: true,
     extraLabel: prev ? prev.label : '',
@@ -3592,12 +3480,22 @@ async function applyFrameEntry(sh, kind, e) {
       sh.firstFrame = await (e.file ? Wb.vframe.dataURLFromFile(e.file, 'last') : Wb.vframe.dataURL(e.dl || e.src, 'last'));
       setStatus('<span class="ok">✓ 已取该视频的最后一帧作为开头画面</span>');
     } else {
-      if (e.file && e.file.size > MAX_IMG) { setStatus('<span class="err">图片超过 5 MiB</span>'); return; }
+      /* 单文件多大由模型对这个槽位的声明决定（rule.maxBytes），不再写死 5 MiB：
+         平台允许 20 MiB 时本地多拦一道就是不让用户用好，平台只收 1 MiB 时写死的 5 MiB 又拦不住。
+         没声明就不在本地猜，交给平台判。 */
+      const role = SLOT_ROLE[kind] || 'first_frame';
+      const rule = (window.Capabilities && Capabilities.rule)
+        ? Capabilities.rule(resolvedModel(sh), role) : null;
+      const mb = Number((rule && rule.maxBytes) || 0);
+      if (e.file && mb > 0 && e.file.size > mb) {
+        setStatus('<span class="err">' + (ROLE_ZH[role] || '图片') + '超过平台声明的 ' + (mb / 1024 / 1024).toFixed(1) + ' MiB 上限</span>');
+        return;
+      }
       const src = e.file ? await fileToDataURL(await compressImg(e.file)) : await toDataURL(e.src);
       if (kind === 'first') sh.firstFrame = src;
       else if (kind === 'last') sh.lastFrame = src;
       else {
-        if (!canAddSlot(sh, 'ref')) return;                 // 已选首尾帧 → 不能再加参考图
+        if (!canAddSlot(sh, 'ref')) { setStatus('<span class="err">已选开头/结尾画面，本镜不能再加参考图（清空后才能换）</span>'); return; }
         const lim = shotInputCaps(sh).maxRef;   // 模型声明几张就是几张，不猜 9
         if (sh.refImages.length >= lim) { setStatus('<span class="err">参考图最多 ' + lim + ' 张（首帧/尾帧不计入）</span>'); return; }
         addRefImage(sh, src, (e.fromLocal || e.localFav) ? '收藏' : null);
@@ -3623,7 +3521,7 @@ function kfModelOf() {
   const g0 = groups[0];
   return g0 ? { prov: g0, model: g0.models[0] } : { prov: null, model: null };
 }
-function imgProviders() { return (REG?.providers || []).filter(p => p.kind === 'image'); }
+function imgProviders() { return Api.pickable((REG?.providers || []).filter(p => p.kind === 'image')); }
 /* 只列出能做文生图的图片模型（生成分镜画面必须支持 text_to_image） */
 function imgTextModels() {
   return imgProviders()
@@ -3643,16 +3541,21 @@ async function getPriceEstimate(sh) {
   if (!sh) return '';
   const rm = resolvedModel(sh) || {};
   const prov = provOf(rm.provider);
-  const r = await estimateCost(prov, rm, { count: sh.draw || 1, duration: sh.duration || 5, res: sh.res, tier: sh.tier, ar: sh.ar });
+  /* 时长就按这一镜现在记的值估：模型没声明时长时上面那段归一化不会去填它，
+     这里再 `|| 5` 等于凭空造一个平台没给过的秒数（报价跟着错）。 */
+  const r = await estimateCost(prov, rm, { count: sh.draw || 1, duration: sh.duration, res: sh.res, tier: sh.tier, ar: sh.ar });
   const name = prov?.name || rm.provider || '未知API';
   return r.ok ? name + ' · ' + r.text : name + ' · 报价不可用（' + r.reason + '）';
 }
+let estSeq = 0;
 async function refreshEst() {
   const sh = curShot();
   const el = $('estTxt');
   if (!el || !sh) return;
+  const my = ++estSeq;
   el.textContent = '估价中…';
-  el.textContent = await getPriceEstimate(sh);
+  const txt = await getPriceEstimate(sh);
+  if (my === estSeq) el.textContent = txt;    // 连点镜头时旧报价别把新的盖回去
 }
 
 /* ---------- 时间切片参考图（画面素材）---------- */
@@ -3663,8 +3566,13 @@ function assetToDataURL(assetId) {
 /* 画质档位跟随所选图片模型的 options.qualities 动态生成 */
 function kfQualityOptions() {
   const m = kfModelOf().model;
-  const qs = m?.options?.qualities || ['draft', 'standard', 'final'];
-  if (!qs.includes(kfQ)) kfQ = qs.includes('standard') ? 'standard' : qs[0];
+  /* 档位与默认档都只来自模型声明：以前兜底写 ['draft','standard','final'] 并把 'standard' 当默认，
+     等于给没声明档位表的平台摆了一份 SparkCine 的档位 —— 提交过去平台不认。
+     没声明就只有一项（用模型自己的默认值，也没有就不带 quality）。 */
+  const decl = m?.options?.defaults?.quality;
+  const qs = (m?.options?.qualities || []).slice();
+  if (!qs.length) { kfQ = decl || ''; return `<option value="${esc(kfQ)}">${esc(QUALITY_ZH[kfQ] || kfQ || '平台默认')}</option>`; }
+  if (!qs.includes(kfQ)) kfQ = qs.includes(decl) ? decl : qs[0];
   return qs.map(q => `<option value="${q}" ${q === kfQ ? 'selected' : ''}>${QUALITY_ZH[q] || q}${m?.price?.[q] != null ? ' · ' + m.price[q] + '积分' : ''}</option>`).join('');
 }
 /* 图片模型下拉：跨平台列出所有支持文生图的模型 */
@@ -3672,7 +3580,7 @@ function kfModelOptions() {
   const cur = kfModelOf().model;
   return imgTextModels().map(g =>
     `<optgroup label="${g.displayName || g.name}">` + (g.models || []).map(m =>
-      `<option value="${m.id}" title="${(m.name || '').replace(/"/g, '&quot;')}" ${cur && m.id === cur.id ? 'selected' : ''}>${m.id}</option>`).join('') + '</optgroup>').join('');
+      `<option value="${esc(m.id)}" title="${esc(m.name || '')}" ${cur && m.id === cur.id ? 'selected' : ''}>${esc(m.id)}</option>`).join('') + '</optgroup>').join('');
 }
 /* 时间切片估价：张数随时长变化，价格走统一 estimateCost */
 async function refreshKfEst() {
@@ -3693,11 +3601,7 @@ async function refreshKfEst() {
         ② 立刻在右栏建立对应数量的占位图（先出现，再慢慢生成）
         ③ 逐张调用图片 AI 生成，完成即替换占位
         ④ 生成好的画面同时加入「参考图」，供视频生成时引用                          */
-const DEFAULT_STORY_SYS = `你是分镜师。根据镜头描述与时长，决定需要几张关键画面（3–8 张，视内容复杂度），并按时间顺序给出每一张的文生图提示词。
-只返回 JSON，不要任何解释或代码块标记，格式：
-{"frames":[{"t":0,"prompt":"画面提示词"}]}
-要求：t 为秒数，从 0 开始递增且不超过镜头时长；prompt 需包含主体、动作、构图、光线、氛围，不写镜头运动。`;
-const storySysOf = () => localStorage.getItem('sk_polish_story') || DEFAULT_STORY_SYS;
+const storySysOf = () => TextAI.prompt('story');
 
 /* 从文字 AI 的回复里抠出 frames（兼容代码块 / 纯数组 / 单个对象） */
 function parseFrames(txt, dur) {
@@ -3727,18 +3631,18 @@ function parseFrames(txt, dur) {
   return out;
 }
 
-async function callTextAI(prov, sys, user) {
-  // 统一走 TextAI：模型用「设置 → 文字 AI 接口与模型」里选中的那个
+async function callTextAI(sys, user) {
+  // 统一走 TextAI：供应方与型号都用「设置 → 文字 AI 接口与模型」里当前选中的那一家
   return await TextAI.chat(REG, sys, user);
 }
 
 /* ① 规划：先让文字 AI 决定几张、每张什么时间点与提示词 */
-async function planKeyframes(sh, prov, dur) {
+async function planKeyframes(sh, dur) {
   const sys = storySysOf();
   const user = `镜头描述：${sh.prompt}
 镜头时长：${dur} 秒
 请决定需要几张关键画面（3–8 张，按内容复杂度），并按时间顺序给出每张的时间点与文生图提示词。只返回 JSON。`;
-  const txt = await callTextAI(prov, sys, user);
+  const txt = await callTextAI(sys, user);
   const frames = parseFrames(txt, dur);
   if (frames.length) return frames;
   // 兜底：文字 AI 没给出结构化结果时，按 2.5 秒切片逐帧润色（保持旧行为可用）
@@ -3747,7 +3651,7 @@ async function planKeyframes(sh, prov, dur) {
   if (times[times.length - 1] !== dur) times.push(dur);
   const out = [];
   for (const t of times) {
-    const p = await callTextAI(prov, sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
+    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
     if (p) out.push({ t, prompt: p.replace(/^["'`]|["'`]$/g, '').slice(0, 600) });
   }
   return out;
@@ -3771,27 +3675,29 @@ function addKeyframeToRefs(sh, assetId, kf, i) {
   if (ic.blockedRoles.has('reference_image')) return false;   // 已选首尾帧 → 画面不能同时当参考图
   const src = '/asset/' + assetId + '?v=2';
   if ((sh.refImages || []).includes(src)) return false;
-  if (sh.refImages.length >= (ic.maxRef || 9)) return false;
+  if (sh.refImages.length >= ic.maxRef) return false;   // 上限就是模型声明的那个数，不猜一个 9
   // label 留空 → 素材 chips 显示 @参考图N（可被 refSyntax 正确转换）
   addRefImage(sh, src, null);
   return true;
 }
 
 async function generateKeyframes(sh) {
-  const prov = (REG?.providers || []).find(x => x.kind === 'text');
-  if (!prov) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
   const pickImg = kfModelOf();
   const imgProv = pickImg.prov, imgModel = pickImg.model;
   if (!imgProv || !imgModel) { setStatus('<span class="err">注册路由里没有可用的图片生成模型</span>'); return; }
-  const dur = sh.duration || 5;
+  /* 时长没有就现取声明：模型默认的 duration → 声明里最短那一档；都不给才用最旧的那个数（只用于画面切片，不进提交体） */
+  const rmv = resolvedModel(sh);
+  const kfDur = (Array.isArray(rmv?.options?.durations) ? rmv.options.durations : []).map(Number).filter(Number.isFinite);
+  const dur = Number(sh.duration) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
   const quality = kfQ;
   const btn = $('kfGenBtn');
   if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
   try {
     // ① 文字 AI 规划：决定几张 + 每张的切片提示词
     setStatus('文字 AI 正在规划画面切片…');
-    const plan = await planKeyframes(sh, prov, dur);
+    const plan = await planKeyframes(sh, dur);
     if (!plan.length) throw new Error('文字 AI 没有给出可用的画面规划');
 
     // ①.5 先把规划结果给用户过一遍（可改文案 / 删掉不想生成的），确认后再出占位图并开始生成
@@ -3801,7 +3707,7 @@ async function generateKeyframes(sh) {
       items: plan.map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
       applyLabel: '采用并开始生成',
       hint: '可以逐条修改或删掉；确认后立即出占位图并开始生成',
-      retry: async () => (await planKeyframes(sh, prov, dur)).map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
+      retry: async () => (await planKeyframes(sh, dur)).map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
     });
     if (reviewed == null) { setStatus('已取消，未生成任何画面'); return; }
     const finalPlan = reviewed.map((it, i) => {
@@ -3883,7 +3789,7 @@ function renderAll() { renderPending = false; renderScenes(); renderMid(); rende
 function updateProjUI() {
   $('projCount').textContent = WS.projects.length;
   $('projName').value = proj.name;
-  if (typeof refreshEst === 'function') refreshEst();
+  refreshEst();
 }
 function renderProjMenu() {
   const menu = $('projMenu');
@@ -3926,7 +3832,7 @@ function renderProjMenu() {
     // 连带清理它引用的本地视频 blob，避免占空间
     try {
       (pp.scenes || []).forEach(sc2 => (sc2.shots || []).forEach(sh2 => (sh2.candidates || []).forEach(c => {
-        if (c && c.provider === 'local' && c.blobKey) { releaseCandUrl(c); idbDel(c.blobKey); }
+        if (c && c.provider === 'local' && c.blobKey) { releaseCandUrl(c); wsKv.del(c.blobKey).catch(() => {}); }
       })));
     } catch {}
     WS.projects = WS.projects.filter(x => x.id !== id);
@@ -4010,13 +3916,13 @@ let opStateTimer = null;
    以前它们既被丢掉、后来又改成弹 Toast，都会打扰操作。 */
 function setStatus(t) {
   const b = $('banner');
-  const html = String(t == null ? '' : t).trim();
+  const html = window.sanitizeHTML(String(t == null ? '' : t)).trim();
   if (!html) return;                       // 空调用不再顺手收起错误横幅（错误要留在屏幕上）
   const errRe = /class="err"|失败|错误|异常|无法|超时|中断|出错/;
   if (errRe.test(html) || /class="warn"/.test(html)) {
     b.hidden = false;
     b.className = errRe.test(html) ? 'err' : 'warn';
-    b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">×</button>';
+    b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">' + icon('close', 11) + '</button>';
     b.querySelector('.msg').innerHTML = html;
     b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
     return;
@@ -4121,7 +4027,7 @@ $('exportBtn').onclick = async () => {
   }));
   if (locals.length) {
     let total = 0;
-    for (const c of locals) { const b = await idbGet(c.blobKey).catch(() => null); if (b && b.size) total += b.size; }
+    for (const c of locals) { const b = await wsKv.get(c.blobKey).catch(() => null); if (b && b.size) total += b.size; }
     const mb = (total / 1048576).toFixed(1);
     const hint = `检测到 ${locals.length} 个本地导入的视频（约 ${mb} MB）。`;
     // 没有页内确认组件时按最保守的方式走：只导出引用
@@ -4132,7 +4038,7 @@ $('exportBtn').onclick = async () => {
       setStatus('正在打包本地视频…（' + locals.length + ' 个）');
       out.localBlobs = {};
       for (const c of locals) {
-        const b = await idbGet(c.blobKey).catch(() => null);
+        const b = await wsKv.get(c.blobKey).catch(() => null);
         if (!b) continue;
         const u = await blobToDataURL(b);
         if (u) out.localBlobs[c.blobKey] = u;
@@ -4164,7 +4070,7 @@ $('importFile').onchange = e => {
         let n = 0, failed = 0;
         for (const [k, u] of Object.entries(data.localBlobs)) {
           const b = dataURLtoBlob(u);
-          if (b) { const ok = await idbSet(k, b).then(() => true).catch(() => false); ok ? n++ : failed++; }
+          if (b) { const ok = await wsKv.put(k, b).then(() => true).catch(() => false); ok ? n++ : failed++; }
         }
         delete data.localBlobs;
         // 写不进 IndexedDB（配额满 / 隐私模式）过去是静默吞掉的，结果刷新后视频全没了还不知道
@@ -4203,29 +4109,16 @@ function validateImportedProject(data) {
   return { ok: true };
 }
 
-/* ---------- 灯箱 ---------- */
-let lbPages = [], lbIdx = 0;
-function lbShow() {
-  if (!lbPages.length) return;
-  lbIdx = ((lbIdx % lbPages.length) + lbPages.length) % lbPages.length;
-  const s = lbPages[lbIdx];
-  const im = $('lbImg'), vd = $('lbVideo');
-  im.style.display = s.video ? 'none' : 'block';
-  vd.style.display = s.video ? 'block' : 'none';
-  if (s.video) { vd.src = s.src; } else im.src = s.src;
-  $('lbCount').textContent = `${lbIdx + 1} / ${lbPages.length} · ${s.label || ''}`;
-  $('lightbox').style.display = 'flex';
-}
-function openLightbox(pages, idx) { lbPages = pages; lbIdx = idx; lbShow(); }
-$('lbPrev').onclick = e => { e.stopPropagation(); lbIdx--; lbShow(); };
-$('lbNext').onclick = e => { e.stopPropagation(); lbIdx++; lbShow(); };
-$('lightbox').onclick = e => { if (e.target.id === 'lightbox' || e.target.tagName === 'IMG') { $('lbVideo').pause(); $('lightbox').style.display = 'none'; } };
-document.addEventListener('keydown', e => {
-  if ($('lightbox').style.display !== 'flex') return;
-  if (e.key === 'ArrowLeft') { lbIdx--; lbShow(); }
-  else if (e.key === 'ArrowRight') { lbIdx++; lbShow(); }
-  else if (e.key === 'Escape') { $('lbVideo').pause(); $('lightbox').style.display = 'none'; }
+/* ---------- 灯箱：DOM 与翻页/键盘/关闭/信息条全在 Wb.lightbox（见 AGENTS.md §3），页面只声明怎么取地址 ---------- */
+Wb.lightbox.init({
+  list: () => [],                                  // 本页没有列表视图，翻页范围由 openLightbox 的第二个参数给
+  keyOf: it => (it && it.src) || '',
+  srcOf: it => (it && it.src) || '',
+  kindOf: it => (it && it.video ? 'video' : 'image'),
+  nameOf: it => ((it && it.label) || 'merged').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-') + '.mp4',
+  info: it => [(it && it.label) || ''],
 });
+function openLightbox(pages, idx) { Wb.lightbox.open(pages[idx], pages); }
 
 /* ---------- 数据消毒：修复中途写入的不完整工作区 ---------- */
 function sanitize() {
@@ -4293,24 +4186,20 @@ Wb.split.enable({
   try { REG = await Api.registry(); } catch { REG = { providers: [] }; }
   if (window.Api) Api.setRegistry(REG);   // 统一接口层复用同一份注册表
   if (window.Dropdowns) Dropdowns.build(document);   // 弹窗里的静态下拉一次性包装
-  // 工作区：多短片（兼容迁移旧的单项目存储）
-  let ws = await idbGet('workspace');
+  // 工作区：多短片
+  let ws = await wsKv.get('workspace');
   /* 和数据文件（.data/workspace.json）对账：服务器上的更新就用它（换机器 / 清过浏览器缓存时靠这条恢复）*/
   if (window.DataSync) {
     try {
       const srvWs = await DataSync.workspaceFromServer(ws && ws.ts);
       if (srvWs && Array.isArray(srvWs.projects) && srvWs.projects.length) {
         ws = srvWs;
-        await idbSet('workspace', srvWs);
+        await wsKv.put('workspace', srvWs);
         setStatus('<span class="ok">✓ 已从本机数据文件恢复工作区</span>');
       }
     } catch (e) { console.warn('[workspace] 数据文件对账失败：', e.message); }
   }
-  if (!ws || !ws.projects || !ws.projects.length) {
-    const legacy = await idbGet('project');
-    ws = { projects: [], curId: null, roles: (legacy && legacy.roles) || [] };
-    if (legacy && legacy.scenes && legacy.scenes.length) ws.projects.push(legacy);
-  }
+  if (!ws || !Array.isArray(ws.projects)) ws = { projects: [], curId: null, roles: [] };
   if (!ws.projects.length) {
     ws.projects.push({ id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] });
   }
@@ -4326,6 +4215,7 @@ Wb.split.enable({
   Capabilities.load(REG).then(() => { try { renderEditor(); } catch {} }).catch(() => {});
   restoreLocalBlobs().then(() => { try { renderAll(); } catch {} }).catch(() => {});
   hydrateThumbFrames();        // 上次抽好的缩略图首帧：读出来直接当图片用，不再等视频出画
+  healStaleUrls();             // 存过期的签名外链：后台按任务号换新地址并写回工作区
 })();
 </script>
 </div>

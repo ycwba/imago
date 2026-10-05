@@ -94,9 +94,11 @@
 
   const items = [
     { file: 'index.html', ic: 'film', label: '导演台' },
-    { file: 'image.html', ic: 'image', label: '图片工作台' },
-    { file: 'video.html', ic: 'video', label: '视频工作台' },
-    { file: 'audio.html', ic: 'mic', label: '语音工作台' },
+    { file: 'drama.html', ic: 'video', label: '拍短剧' },
+    { file: 'chars.html', ic: 'users', label: '素材库' },
+    /* 图片 / 视频 / 语音三个工作台合并成这一页：类型在页面左上角切，
+       侧栏只留一个入口（加三条就是三份入口指向同一页，反而让人以为功能丢了） */
+    { file: 'studio.html', ic: 'sparkles', label: '生成工作台' },
     { file: 'favorites.html', ic: 'star', label: '我的收藏' },
     { file: 'assets.html', ic: 'box', label: '资产库' },
     { file: 'usage.html', ic: 'chart', label: '用量与余额' },
@@ -157,6 +159,10 @@
     r.toggle('sb-narrow', n);
     r.toggle('sb-open', o);
     document.documentElement.style.setProperty('--sbw', (o && !n) ? OPEN_W + 'px' : '66px');
+    /* 收起 ↔ 展开改的是左边那一条带的宽度，而悬浮球只有 z=56、侧栏 90 —— 球停在被让出/占掉的那一条里
+       就点不到了（等于把助手弄丢）。发一个通知，ai-chat.js 监听后按新的 --sbw 重新摆一次。
+       放在 apply() 末尾：点 logo、启动、窗口 resize 三条路径都走这里，不用在每处各发一遍。 */
+    window.dispatchEvent(new CustomEvent('sb:toggle'));
   }
   const setWant = v => { localStorage.setItem('sb_open', v ? '1' : '0'); apply(); };
   const close = () => setWant(false);
@@ -175,29 +181,44 @@
   // 换背景（亮 / 暗主题）：全站统一放在左下角
   const themeBtn = sb.querySelector('#sbTheme');
   const themeIcon = dark => svgIc(dark ? 'sun' : 'moon');
+  /* 外壳里别处改了主题（AI 助手的 set_setting）也走这一条：换 data-theme + 同步 iframe + 补图标。
+     图标只有这里知道怎么画，别处再拼一份 svg 就是第二份实现。 */
+  window.__sbApplyTheme = t => {
+    document.documentElement.dataset.theme = t;
+    try { if (themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(t === 'dark'); } catch (e) {}
+    const f = document.getElementById('appFrame');
+    try { if (f && f.contentDocument) f.contentDocument.documentElement.dataset.theme = t; } catch (e) {}
+  };
   if (themeBtn) themeBtn.onclick = () => {
     const cur = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = cur;
     try { localStorage.setItem('dir_theme', cur); } catch {}
-    themeBtn.querySelector('.ic').innerHTML = themeIcon(cur === 'dark');
-    // 内容页在 iframe 里，同步换主题（页面已在 head 里读过一次 localStorage）
-    const f = document.getElementById('appFrame');
-    try { if (f && f.contentDocument) f.contentDocument.documentElement.dataset.theme = cur; } catch (e) {}
+    window.__sbApplyTheme(cur);
   };
+  /* 设置页改完「侧栏默认展开」要当场重排一次，不能等下次进页面：
+     栏宽、收起态、悬浮球避让全在 apply() 里算，所以把这个钩子递出去（和 __sbApplyTheme 同一类）。 */
+  window.__sbApplyOpen = apply;
   if (document.documentElement.dataset.theme === 'dark' && themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(true);
   window.addEventListener('resize', apply);
   apply();
+  /* 窄窗口里展开 = 浮层盖在内容上。点内容区要能把它收回去，但 iframe 里的点击不冒泡到外壳，
+     所以由 app.js 在 iframe 文档上挂监听、postMessage 过来（见 app.js 的 CLOSE_OVERLAY）。
+     这里只负责「收到就收」这一半，顺带保证宽窗口下点了内容区**不会**误关（宽窗口是真让位，不是浮层）。 */
+  window.__sbCloseOverlay = () => { if (narrow() && wantOpen()) close(); };
 
   /* ---------- 账户余额（按 API 分类显示，路由驱动；显示哪几个接口由设置页勾选） ---------- */
   const BAL_KEY = 'sb_bal_cache';
   const readBalCache = () => { try { const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}'); return Array.isArray(c.rows) ? c.rows : []; } catch { return []; } };
-  const sbKeyFor = id => localStorage.getItem('sk_key_' + id) || '';
   let balRows = [];                 // 最近一次拿到的**全量**余额行：勾选只影响渲染，不影响取数与缓存
-  const balCardHTML = r =>
-    `<div class="sb-bal-card" data-short="${r.short}" title="${r.name}：可用 ${r.avail}${r.unit} · 冻结 ${r.frozen}${r.unit}">
-       <div class="l1"><span class="ic">${svgIc('coin', 13)}</span><span class="nm">${r.name}</span></div>
-       <div class="l2">${r.availHtml} · 冻结 <b>${r.frozen}</b>${r.unit}</div>
+  /* 余额行的 name/available 来自上游接口，进 innerHTML 与 title 属性前必须转义
+     （这一页是外壳顶层文档，注入等于拿到 localStorage 里的密钥配置）。 */
+  const escA = v => window.esc(v);
+  const balCardHTML = r => {
+    const avail = escA(r.avail), frozen = escA(r.frozen), unit = escA(r.unit);
+    return `<div class="sb-bal-card" data-short="${escA(r.short)}" title="${escA(r.name)}：可用 ${avail}${unit} · 冻结 ${frozen}${unit}">
+       <div class="l1"><span class="ic">${svgIc('coin', 13)}</span><span class="nm">${escA(r.name)}</span></div>
+       <div class="l2">${r.failed ? escA(r.avail) : '可用 <b>' + avail + '</b>' + unit + ' · 冻结 <b>' + frozen + '</b>' + unit}</div>
      </div>`;
+  };
   function paintBal(box, rows, note) {
     const shown = (window.SbBal ? SbBal.filter(rows) : rows) || [];
     /* 一张卡都画不出来时的三种说法：接口读不到 / 平台压根没有余额接口 / 全被勾掉了。
@@ -219,37 +240,85 @@
     // 注册表统一走 Api.registry（带 60 秒缓存，和其它页面共用一份）；只有 assetlib 没加载时才现取
     try { reg = (window.Api && Api.registry) ? await Api.registry() : await (await fetch('/registry')).json(); }
     catch { if (!cached.length) paintBal(box, [], '余额读取失败'); return; }
-    // 按 keyId 合并（如 sparkcine-video 并入 sparkcine）；余额怎么读也按声明（balance.style）带出来
+    // 按 keyId 合并（如 sparkcine-video 并入 sparkcine）；带出**平台对象**，请求头与余额解析都走 Api 那一份实现
     const map = new Map();
     (reg.providers || []).forEach(p => {
       if (!p.endpoints?.credits) return;
       const kid = p.keyId || p.id;
-      if (!map.has(kid)) map.set(kid, { kid, name: (p.name || kid).split(' ')[0], relay: p.relay, ep: p.endpoints.credits,
-        style: (p.balance || {}).style || 'micros' });
+      if (!map.has(kid)) map.set(kid, { kid, name: (p.name || kid).split(' ')[0], p });
     });
-    if (!map.size) { paintBal(box, [], '这些平台没有余额接口'); return; }
-    const rows = await Promise.all([...map.values()].map(async m => {
+    if (!map.size) {
+      /* 一个有余额接口的平台都没有了，**照样要 prune 一次**：
+         以前那句 prune 排在下面「map 非空」的分支里，于是「平台全下架 / keyId 全改了」这一种
+         情况下隐藏名单永远清不掉 —— 那份名单只增不减地攒着，几年下来就是一串死数据。 */
+      if (window.SbBal) SbBal.prune([]);
+      paintBal(box, [], '这些平台没有余额接口');
+      return;
+    }
+    /* 顺手清一次勾选名单里的陈旧 kid：只有「有余额接口」的平台才可能出现在侧栏，
+       不在 map 里的（平台下架 / 改名 / keyId 变了 / 被删掉了）留着就是死数据。
+       这里用**注册表**那份名单而不是下面过滤后的 —— 隐藏与否是显示偏好，
+       不能因为一把钥匙暂时没配就把它从名单里抹掉（配回来时又冒出来才叫添乱）。 */
+    if (window.SbBal) SbBal.prune([...map.keys()]);
+    /* **本机压根没在用的那几家不画**：注册表里声明了 credits 端点的平台全都会被上面收进来，
+       以前不区分「用不用」，于是月之暗面这种没添加、没密钥的一家也占着一张卡，
+       内容永远是「获取失败」—— 一张永远失败的卡不是信息，是噪音。
+       判据用 `Api.provUsable`（与设置页那张卡列哪几家是同一份，见 assetlib.js）。
+       真的配了却读不通的那几家仍然会出现、并且照样显示「获取失败」—— 那是真错误，不能藏。 */
+    let env = {};
+    try { env = (window.Api && Api.envStatus) ? await Api.envStatus() : {}; } catch (e) {}
+    const usable = [...map.values()].filter(m => !window.Api || !Api.provUsable || Api.provUsable(m.p, env));
+    if (!usable.length) {
+      /* 缓存也要一起清掉：这一支直接 return，不清的话 `BAL_KEY` 里那几行会一直留着，
+         下次开页面先画缓存、又把它们画回来 —— 「已经不用了」的东西永远消不掉。 */
+      try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: [] })); } catch {}
+      balRows = [];
+      paintBal(box, [], '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
+      return;
+    }
+    const rows = await Promise.all(usable.map(async m => {
       try {
-        const c = await fetch(m.relay + m.ep, { headers: { 'Authorization': 'Bearer ' + sbKeyFor(m.kid) } }).then(r => r.json());
-        const entry = Array.isArray(c) ? c[0] : (c.data?.[0] || c);
-        let avail, frozen, unit;
-        /* wallet-credits = 积分账户（available/reserved 原样显示），micros = 金额账户（折 ¥）。
-           按 registry 的 balance.style 判，不按平台名 —— 第二家积分制平台接进来不用再改这里。 */
-        if (m.style === 'wallet-credits') { avail = entry.available ?? '?'; frozen = entry.reserved ?? 0; unit = ' 积分'; }
-        else {
-          const pick = v => typeof v === 'object' && v ? (v.amount_micros ?? 0) : (v ?? 0);
-          avail = '¥' + (Number(pick(entry.availableMicros ?? entry.available)) / 1e6).toFixed(2);
-          frozen = '¥' + (Number(pick(entry.reservedMicros ?? entry.frozen ?? 0)) / 1e6).toFixed(2);
-          unit = '';
-        }
-        return { kid: m.kid, name: m.name, avail, frozen, unit, availHtml: '可用 <b>' + avail + '</b>' + unit,
+        /* 请求头与余额解析都不在这份里写第二遍：Api.headers 带密钥**和自定义中转地址**
+           （少了 x-up-base，设置页换了中转地址就只有侧栏还在打官方地址，读出来的余额对不上），
+           Api.balance 按 registry 的 balance.style 解析（wallet-credits / micros）。 */
+        const c = await Api.request(m.p, 'credits');
+        const b = Api.balance(m.p, c);
+        const fmt = v => b.unit ? String(v) : '¥' + Number(v || 0).toFixed(2);
+        const avail = fmt(b.available), frozen = fmt(b.frozen), unit = b.unit ? ' ' + b.unit : '';
+        return { kid: m.kid, name: m.name, avail, frozen, unit,
           short: String(avail).slice(0, 7) };
-      } catch { return { kid: m.kid, name: m.name, avail: '获取失败', frozen: '-', unit: '', availHtml: '获取失败', short: '—' }; }
+      } catch { return { kid: m.kid, name: m.name, avail: '获取失败', failed: true, frozen: '-', unit: '', short: '—' }; }
     }));
     try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows })); } catch {}
     balRows = rows;
     paintBal(box, rows);
   }
+  /* 设置页删掉一家自定义平台 → **这一家的余额卡要当场消失**，不等这一轮 60 秒。
+     为什么要单独给一个口：refreshBalance 的第一件事是拿 localStorage 里的缓存先画一遍
+     （为了切页/刷新时余额立刻可见），被删掉的那家在缓存里还留着，不先剔掉的话，
+     删完看着还是「没删掉」，要等下一次真取数才消失。
+     顺带把这一家从隐藏名单里也摘掉（清掉一个再也不存在的 kid），
+     并让外壳立刻重画 —— 设置页在 iframe 里，靠外壳暴露的这个口（与 __sbApplyTheme 同一套路）。 */
+  window.__sbBalanceDrop = (kid) => {
+    if (!kid) return;
+    try {
+      const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}');
+      if (Array.isArray(c.rows)) {
+        const rows = c.rows.filter(r => r && r.kid !== kid);
+        if (rows.length !== c.rows.length) {
+          localStorage.setItem(BAL_KEY, JSON.stringify({ ts: c.ts, rows }));
+          balRows = rows;
+        }
+      }
+    } catch (e) {}
+    if (window.SbBal) {
+      const off = SbBal.off().map(String).filter(k => k !== String(kid));
+      if (off.length !== SbBal.off().length) SbBal.setList(off);
+    }
+    const box = sb.querySelector('#sbBalance');
+    if (box && balRows.length) paintBal(box, balRows);
+    else refreshBalance();
+  };
   /* 设置页在 iframe 里改勾选 → 同源的 storage 事件送到外壳：直接按缓存重画，不用重取余额 */
   window.addEventListener('storage', e => {
     if (!window.SbBal || e.key !== SbBal.KEY) return;

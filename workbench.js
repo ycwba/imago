@@ -13,7 +13,7 @@
      Wb.bindActs(el, t, o)  给上面那排按钮接线（取消/重试/删除都带确认与报错）
      Wb.History.read(kind) / Wb.History.write(kind, list)   带版本与上限的本地历史
      Wb.Blobs.put(k, blob) / get(k) / del(k)               大文件（参考音频等）存 IndexedDB
-     Wb.blob(url) / Wb.save(url, name) / Wb.saveAs(url, name)   产物下载（先判 HTTP 状态）
+     Wb.blob(url) / Wb.save(url, name)                       产物下载（先判 HTTP 状态，再走浏览器默认下载）
      Wb.poller({...})   轮询器：没任务就休眠、连续失败会提示并退避、切走标签页自动暂停
      Wb.searchNote(n)   搜索框旁的「仅筛选已加载的 N 条」说明
      Wb.ready({...})    生成按钮的就绪状态：禁用 + 悬停说明一直在，按钮下方那行原因等用户动过手才显示
@@ -21,25 +21,44 @@
      Wb.vframe.*        浏览器内取视频帧（首帧槽位选视频 / 接上一镜尾帧，共用一份）
    ========================================================================== */
 (function () {
-  const esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const esc = s => window.esc(s);          // 唯一实现在 ui.js
 
-  /* ---------- 状态：三台共用同一套文案与判定 ---------- */
+  /* ---------- 状态：三台共用同一套文案与判定 ----------
+     文案表尽量把各家平台的措辞都收进来（succeeded / success / completed、queued / pending / waiting…），
+     否则卡片上会直接摆一个英文原词，看着像状态没解析出来。 */
   const ST = {
-    creating: '创建中', queued: '排队中', pending: '排队中',
-    running: '生成中', processing: '生成中', synthesizing: '合成中',
-    succeeded: '已完成', done: '已完成', failed: '生成失败', cancelled: '已取消', canceled: '已取消',
+    creating: '创建中', created: '创建中', init: '创建中', initialized: '创建中', submitted: '已提交',
+    queued: '排队中', queue: '排队中', queuing: '排队中', pending: '排队中', waiting: '排队中', scheduled: '排队中',
+    running: '生成中', processing: '生成中', progress: '生成中', synthesizing: '合成中',
+    succeeded: '已完成', succeed: '已完成', success: '已完成', successful: '已完成',
+    done: '已完成', completed: '已完成', complete: '已完成', finished: '已完成', ready: '已完成',
+    failed: '生成失败', fail: '生成失败', error: '生成失败', aborted: '已中止', rejected: '被拒绝',
+    cancelled: '已取消', canceled: '已取消', expired: '已过期', invalid: '无效',
   };
-  const RUNNING = ['creating', 'queued', 'pending', 'running', 'processing', 'synthesizing'];
-  const FAILED = ['failed', 'cancelled', 'canceled'];
+  /* 兜底词表：判定的**唯一判据**是 assetlib.js 的 Api.classifyStatus（它认 registry 的 statusMap），
+     下面这两份只在 assetlib 还没加载时用（页面脚本顺序不该成为「状态判对判错」的因素）。 */
+  const RUNNING = ['creating', 'created', 'init', 'initialized', 'submitted', 'queued', 'queue', 'queuing',
+    'pending', 'waiting', 'scheduled', 'running', 'processing', 'progress', 'synthesizing'];
+  const FAILED = ['failed', 'fail', 'error', 'aborted', 'rejected', 'cancelled', 'canceled', 'expired', 'invalid'];
+  const cls = s => (window.Api && Api.classifyStatus) ? Api.classifyStatus(null, s) : '';
+  /* 空状态不算「活的」：本地记录刚建出来时 status 可能还没写，判成在跑会让轮询器永远扫它。 */
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+  const stLive = s => { const t = norm(s); if (!t) return false;
+    const c = cls(t); return c ? (c === 'running' || c === 'queued') : RUNNING.includes(t); };
+  const stBad = s => { const t = norm(s); if (!t) return false;
+    const c = cls(t); return c ? c === 'failed' : FAILED.includes(t); };
 
-  /* ---------- 本地历史：统一 key / 版本 / 上限，并自动接管各台的老数据 ---------- */
-  /* 以前三个台的上限分别是 150 / 60 / 80，超了就静默丢弃；现在统一 200，并且写不进去会提示。
-     注意：视频台**没有**这条 —— 它的任务卡片全部来自平台接口，本地不留任务记录（只有首屏缓存）。 */
+  /* ---------- 本地历史：统一 key / 上限，各台都走这一份 ---------- */
+  /* 上限统一 200，并且写不进去会提示。
+     注意：视频/图像两类任务卡片全部来自平台接口，本地不留任务记录（只有首屏缓存），
+     只有**同步合成的语音**例外 —— 上游没有任务号，本机记录就是它唯一的凭据。
+     image 这一条是三个工作台合并成 studio.html 之前留下的键（sparkcine_gallery）：
+     新页面不再写它，但用户的 localStorage 里还有，所以规格留着 —— 设置页「清缓存」那一节
+     按这张表渲染，直接删掉这一条会让这份用户数据既没人写、也没人能清。 */
   const HISTORY = {
-    image: { key: 'sparkcine_gallery', version: 2, cap: 200, label: '生图历史',
+    image: { key: 'sparkcine_gallery', cap: 200, label: '生图历史（合并前的旧工作台，已不再写入）',
       strip: it => { const o = { ...it }; delete o._blob; return o; } },
-    audio: { key: 'audio_tasks', version: 2, cap: 200, label: '语音任务',
+    audio: { key: 'audio_tasks', cap: 200, label: '语音任务',
       // 参考音频的 base64 有十几 MB，绝不能进 localStorage（以前就是它把整批历史写崩的）
       strip: t => { const o = { ...t }; delete o.voiceRef; return o; } },
   };
@@ -74,37 +93,21 @@
     return v === undefined ? undefined : v;
   }
 
-  /* ---------- 大文件存储（IndexedDB）：参考音频、参考视频这类大对象 ---------- */  const DB = 'wb_blobs', STORE = 'blobs';
-  let dbP = null;
-  function db() {
-    if (dbP) return dbP;
-    dbP = new Promise((res, rej) => {
-      let r;
-      try { r = indexedDB.open(DB, 1); } catch (e) { dbP = null; rej(e); return; }
-      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(STORE)) r.result.createObjectStore(STORE); };
-      r.onsuccess = () => {
-        const d = r.result;
-        d.onversionchange = () => { try { d.close(); } catch {} dbP = null; };
-        d.onclose = () => { dbP = null; };
-        res(d);
-      };
-      r.onerror = () => { dbP = null; rej(r.error); };   // 失败不缓存，下次重试
-      r.onblocked = () => { dbP = null; rej(new Error('IndexedDB 被其他标签页占用')); };
-    });
-    return dbP;
-  }
-  const tx = (mode, fn) => db().then(d => new Promise((res, rej) => {
-    const t = d.transaction(STORE, mode);
-    const q = fn(t.objectStore(STORE));
-    t.oncomplete = () => res(q && q.result);
-    t.onerror = () => rej(t.error);
-  }));
+  /* ---------- 大文件存储（IndexedDB）：参考音频、参考视频这类大对象 ----------
+     开库与事务用 ui.js 的 Kv（全项目唯一一份），库/表名也只在那边的登记表里写一次（blobs = wb_blobs/blobs）。
+     取用时才查登记表：ui.js 理论上可能晚于本模块加载，别在模块顶层就 window.Kv.* */
+  const blobsKv = () => window.Kv.at('blobs');
+  const tx = (mode, fn) => blobsKv().tx(mode, fn);
 
   window.Wb = {
-    ST, RUNNING, FAILED,
-    stText(s) { return ST[s] || s || ''; },
-    isRunning(t) { return !!t && RUNNING.includes(t.status); },
-    isFailed(t) { return !!t && FAILED.includes(t.status); },
+    ST,
+    stText(s) { const t = norm(s); return ST[t] || s || ''; },
+    /* 活 / 失败的判定只看状态串，页面别再自己列 ['failed','cancelled'] 这种词表
+       （少一个同义词就会把已完成的任务画成失败，或者把在跑的任务从轮询集合里漏掉）。 */
+    stLive,
+    stBad,
+    isRunning(t) { return !!t && stLive(t.status); },
+    isFailed(t) { return !!t && stBad(t.status); },
     esc,
 
     /* ---------- 卡片身份键（右栏 DOM 复用、详情展开状态、灯箱定位都靠它） ----------
@@ -167,26 +170,31 @@
     },
 
     History: {
-      spec(kind) { return HISTORY[kind] || { key: kind, version: 1, cap: 200, label: kind }; },
+      spec(kind) { return HISTORY[kind] || { key: kind, cap: 200, label: kind }; },
       read(kind) {
         const s = this.spec(kind);
-        const v = window.Store.read(s.key, [], { version: s.version });
+        const v = window.Store.read(s.key, []);
         return Array.isArray(v) ? v : [];
       },
       write(kind, list) {
         const s = this.spec(kind);
         const arr = (Array.isArray(list) ? list : []).map(it => (s.strip ? s.strip(it) : it));
         const clean = arr.map(it => slimForStorage(it, 0));      // 通用瘦身：内联二进制不落盘
-        let r = window.Store.write(s.key, clean, { version: s.version, cap: s.cap, label: s.label });
+        let r = window.Store.write(s.key, clean, { cap: s.cap, label: s.label });
         /* 还是写不下（配额满）时降级，而不是整批失败：
            先砍一半、再只留最近 20 条 —— 「少存几条」比「一条都没存下」有用，
            Store.write 失败时已经弹过一次提示，这里只需尽力保住历史。 */
         if (!r.ok) {
-          for (const n of [Math.floor(clean.length / 2), 20]) {
-            if (!clean.length || n >= clean.length) continue;
-            r = window.Store.write(s.key, clean.slice(0, n), { version: s.version, cap: s.cap, label: s.label });
-            if (r.ok) break;
+          let n = 0;
+          for (const cand of [Math.floor(clean.length / 2), 20]) {
+            /* n 必须至少 1 且真比现有少：Math.floor(1/2)=0 时写 slice(0,0) 等于**清空历史**，
+               而调用方看到的还是完整列表，以为都存下了。 */
+            if (cand < 1 || cand >= clean.length) continue;
+            r = window.Store.write(s.key, clean.slice(0, cand), { cap: s.cap, label: s.label });
+            if (r.ok) { n = cand; break; }
           }
+          /* 降级写入成功时返回真正存下来的那一段，别把没写进去的也报成已保存 */
+          if (n) return clean.slice(0, n);
         }
         return r.ok ? clean.slice(0, s.cap) : null;      // 写失败返回 null：调用方据此知道「历史没保存」
       },
@@ -197,7 +205,7 @@
         const s = HISTORY[kind];
         if (!s) return false;
         /* Store.write 返回的是 { ok, ... }，不是布尔值：按 ok 判断，别把失败当成功报给用户 */
-        const r = window.Store.write(s.key, [], { version: s.version, label: s.label });
+        const r = window.Store.write(s.key, [], { label: s.label });
         return !!(r && r.ok);
       },
     },
@@ -357,34 +365,14 @@
       _jobs: new Map(),           // 每个 key 一个任务，多个 wrap 订阅同一帧
       _queue: [], _active: 0,
       CONCURRENCY: 2,
+      RETRIES: 2,                     // 抽帧失败后自动重试几次（见 _retry）
+      RUN_TEXT: '正在取首帧…',
       CAP: 300,
       BYTES: 32 * 1024 * 1024,      // 缓存总量上限（图片缩略图比视频帧大，条数之外再加一道字节闸）
-      DB: 'wb_thumbs', STORE: 'thumbs',
-      _db() {
-        if (this._dbP) return this._dbP;
-        this._dbP = new Promise((res, rej) => {
-          let r;
-          try { r = indexedDB.open(this.DB, 1); } catch (e) { this._dbP = null; rej(e); return; }
-          r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(this.STORE)) r.result.createObjectStore(this.STORE); };
-          r.onsuccess = () => {
-            const d = r.result;
-            d.onclose = () => { this._dbP = null; };
-            d.onversionchange = () => { d.close(); this._dbP = null; };
-            res(d);
-          };
-          r.onerror = () => rej(r.error);
-          r.onblocked = () => rej(new Error('缩略图缓存被其他标签页占用'));
-        });
-        this._dbP.catch(() => { this._dbP = null; });
-        return this._dbP;
-      },
+      /* 开库、连接复用与事务全走 ui.js 的 Kv（这里以前也自己写过一份）；
+         库/表名在 Kv 的登记表里（thumbs = wb_thumbs/thumbs），到调用时才取 */
       _tx(mode, fn) {
-        return this._db().then(d => new Promise((res, rej) => {
-          const t = d.transaction(this.STORE, mode);
-          const q = fn(t.objectStore(this.STORE));
-          t.oncomplete = () => res(q && q.result);
-          t.onerror = t.onabort = () => rej(t.error || new Error('缩略图缓存事务中断'));
-        }));
+        return window.Kv.at('thumbs').tx(mode, fn);
       },
       /* 地址归一化：同一份素材无论经过什么包装，都要算出同一个键 —— 否则缩略图缓存永远命不中、
          观感就是「每次都重新加载」。要去掉三类每次都变的东西：
@@ -393,19 +381,18 @@
            · ?v=2           各页面固定的防缓存版本号（全站都写 2）
            · /getv?url=<签名地址> 里的签名（VGENV 走 OSS，Expires 与 Signature 每次刷新都不同）
              这种情况用内层地址的 host + path 当键（path 里带 asset/job id，是稳定的） */
+      /* 内层地址里「每次签名都会变」的参数怎么剥、素材身份怎么算，只在 assetlib.js 有一份
+         （Api.mediaKey / Api.innerMedia）—— 缩略图缓存键和「过期回源」必须算出同一个身份，
+         否则换到新鲜地址就等于换了一个键，缓存永远命不中。 */
       keyOf(src) {
         const s = String(src == null ? '' : src).split('#')[0];
         if (!s || /^(?:blob:|data:|fav-file:)/i.test(s)) return s;
         try {
+          const inner = window.Api && Api.innerMedia ? Api.innerMedia(s) : '';
+          /* 外链本身、或 /getv?url=<外链>：都用内层地址的素材身份当键（签名换了键不变） */
+          if (inner && /^https?:\/\//i.test(inner)) return '/getv?url=' + Api.mediaKey(inner);
           const u = new URL(s, location.href);
-          if (u.origin !== location.origin && /^https?:$/.test(u.protocol)) return '/getv?url=' + u.host + u.pathname;
-          if (u.pathname === '/getv' && u.searchParams.has('url')) {
-            const inner = u.searchParams.get('url');
-            // 已归一化的 host/path 也必须幂等，不能再当成相对请求地址。
-            if (!/^https?:\/\//i.test(inner)) return '/getv?url=' + inner;
-            const raw = new URL(inner);
-            return '/getv?url=' + raw.host + raw.pathname;
-          }
+          if (u.origin !== location.origin && /^https?:$/.test(u.protocol)) return '/getv?url=' + Api.mediaKey(u.href);
           if (u.searchParams.has('r')) u.searchParams.delete('r');
           /* ?v=2 是各页面自己加的固定版本号（全站都写 2，从没变过），留着它会把同一份素材拆成
              /asset/x 与 /asset/x?v=2 两个键 —— 同一张首帧被抽两次、缓存里存两份。统一剥掉。 */
@@ -424,41 +411,10 @@
         this._aliases.clear();
         this._loaded = Promise.resolve(0);   // 表已空，别让下次 hydrate 再把整表读回来
         try { await this._tx('readwrite', st => st.clear()); } catch (e) {}
-        try { await this._dropOld(); } catch (e) {}
         return n;
       },
-      /* 导演台旧的 thumbFrames 表：_migrateOld 会把它并进统一缓存。清缓存时必须连它一起删，
-         否则刷新页面老帧又被迁回来，看起来就是「清了但没清掉」。 */
-      _oldDbExists() {
-        if (!indexedDB.databases) return Promise.resolve(true);
-        return indexedDB.databases()
-          .then(list => (list || []).some(d => d && d.name === 'director_db'))
-          .catch(() => true);
-      },
-      _dropOld() {
-        return this._oldDbExists().then(ok => new Promise(res => {
-          if (!ok) return res();
-          /* 不带版本的 open() 对不存在的库会「凭空建出一个空库」——那会让导演台的
-             open('director_db', 1) 不再触发 onupgradeneeded，kv 仓库永远建不起来。
-             所以先确认库存在再打开；升级回调里直接关掉，绝不建表。 */
-          let r;
-          try { r = indexedDB.open('director_db'); } catch (e) { return res(); }
-          r.onerror = r.onblocked = res;
-          r.onupgradeneeded = () => { try { r.result.close(); } catch (e) {} res(); };
-          r.onsuccess = () => {
-            const d = r.result;
-            const close = () => { try { d.close(); } catch (e) {} done(); };
-            d.onversionchange = close;
-            if (!d.objectStoreNames.contains('kv')) return close();
-            try {
-              const t = d.transaction('kv', 'readwrite');
-              t.objectStore('kv').delete('thumbFrames');   // 只删这一个键，别的用户数据不动
-              t.oncomplete = t.onerror = t.onabort = close;
-            } catch (e) { close(); }
-          };
-        }));
-      },
-      /* bind 等待 hydrate 后原地换图；返回条数仅兼容旧调用，不需要整表重画。 */
+      /* bind 等待 hydrate 后原地换图；返回「这次读回了多少条」——
+         页面拿它决定要不要整表重画（0 条就不用动）。 */
       async hydrate() {
         if (!this._lifecycle) {
           this._lifecycle = true;
@@ -477,53 +433,16 @@
                 if (key !== r.k) { this._aliases.set(r.k, key); this._dirty.add(key); }
               });
           } catch (e) { console.warn('[Wb] 缩略图缓存读取失败（不影响播放）：', e && e.message); }
-          n += await this._migrateOld();
           this._flush();
           return n;
         })();
         return this._loaded;
       },
-      /* 兼容导演台旧 thumbFrames。保留旧记录作为落盘失败时的后备，不先删后存。 */
-      _migrateOld() {
-        return new Promise(res => {
-          const skip = () => res(0);
-          this._oldDbExists().then(ok => {
-            if (!ok) return skip();
-            let r;
-            try { r = indexedDB.open('director_db'); } catch (e) { return skip(); }
-            r.onerror = skip;
-            r.onblocked = skip;
-            r.onupgradeneeded = () => { try { r.result.close(); } catch (e) {} skip(); };   // 库不存在：没得迁移
-            r.onsuccess = () => {
-              const d = r.result;
-              d.onversionchange = () => { try { d.close(); } catch (e) {} };   // 别把导演台的补建升级堵死
-              if (!d.objectStoreNames.contains('kv')) { try { d.close(); } catch (e) {} return res(0); }
-              let n = 0;
-              try {
-                const t = d.transaction('kv', 'readonly');
-                const st = t.objectStore('kv');
-                const q = st.get('thumbFrames');
-                q.onsuccess = () => {
-                  const m = q.result;
-                  if (m && typeof m === 'object') {
-                    Object.entries(m).forEach(([k, v]) => {
-                      const key = this.keyOf(k);
-                      if (key && typeof v === 'string' && v && !this._map.has(key)) {
-                        this._map.set(key, v); this._dirty.add(key); n++;
-                      }
-                    });
-                  }
-                };
-                t.oncomplete = () => { try { d.close(); } catch (e) {} res(n); };
-                t.onerror = () => { try { d.close(); } catch (e) {} res(n); };
-              } catch (e) { try { d.close(); } catch (e2) {} res(0); }
-            };
-          });
-        });
-      },
       _save(k, v) {
         const key = this.keyOf(k);
-        if (!key || !v) return;
+        // 体积闸只挡「写缓存」：四档都缩不下的帧照样要显示（调用方拿到的还是那张图），
+        // 但不能让它把 wb_thumbs 撑爆 —— 缩略图丢了最多下次再抽，塞爆存储是另一回事。
+        if (!key || !v || v.length > this.MAXBYTES) return;
         this._map.set(key, v);
         this._dirty.add(key);
         this._flush();                    // 不 debounce：提帧后马上提交，快速切页也尽早落盘
@@ -576,6 +495,9 @@
       /* key 可显式指定稳定身份（如 fav-file:<fileKey>），实际取帧地址仍用 src。
          opts.type === 'image' → 图片缩略图：有缓存就直接用缓存（小图，秒出、零请求），
          没有就给原地址让浏览器渐进显示，同时在后台把这张图缩一份存进同一份缓存。
+         opts.inline === true → **卡片里就地播放**：即使缓存里已有首帧也仍然出 <video>，
+         把那一帧当 poster（缓存命中时不出 .tph 占位层）。给「视频要能在小栏里直接看、
+         点画面不强制打开灯箱」的列表用；默认行为不变（列表里仍然是一张静帧海报）。
          视频与图片共用同一套键（keyOf 归一化）与同一个 IndexedDB 存储。 */
       mediaHTML(src, opts) {
         if (!src) return '';
@@ -584,15 +506,24 @@
         const extra = (opts && opts.mediaAttrs) ? ' ' + String(opts.mediaAttrs).trim() : '';
         const cached = this.get(key);
         const live = esc(this._source(src));
+        const inline = !!(opts && opts.inline);
         if (opts && opts.type === 'image') {
           if (!live && !cached) return '';      // 地址取不回来（非 http 的怪协议）就别放一个空 src 让浏览器去请求本页
           // 图片不盖占位层：原生 <img> 自己会渐进显示，缓存命中时直接用缓存的小图
           return `<img${this._kattr(key)} data-src="${live}" src="${cached ? esc(cached) : live}"`
             + ` alt="" decoding="async"${extra}>`;
         }
-        if (cached) return `<img${this._kattr(key)} src="${esc(cached)}" alt="" decoding="sync"${extra}><span class="tph"></span>`;
+        if (cached && !inline) return `<img${this._kattr(key)} src="${esc(cached)}" alt="" decoding="sync"${extra}><span class="tph"></span>`;
         const tag = (opts && opts.videoAttrs) || 'preload="metadata" muted playsinline';
-        return `<video${this._kattr(key)} data-src="${live}" ${tag}${extra}></video><span class="tph"></span>`;
+        const poster = cached ? ` poster="${esc(cached)}"` : '';
+        /* inline（卡片里就地播放）直接给 src：静默模式下那个 <video> 只是抽帧用的，
+           地址由 Wb.thumbs.bind 在滚到旁边时再给；但就地播放的卡片必须自己就能播 ——
+           只给 data-src 的话浏览器根本不会取字节，视频永远是一帧黑屏（这就是「卡片里的视频播不动」）。
+           底图仍然用缓存里那张首帧（poster），并打上 data-thumb-play 供 bind 认出。 */
+        const srcAttr = inline ? ` src="${live}"` : ` data-src="${live}"`;
+        const playMark = inline ? ' data-thumb-play="1"' : '';
+        return `<video${this._kattr(key)}${playMark}${srcAttr} ${tag}${poster}${extra}></video>`
+          + (cached ? '' : '<span class="tph"></span>');
       },
       /* data: URL 当键会算出几 MB 的字符串：留着做内存里的查表键没问题，写进 DOM 属性就是灾难
          （每次重画都要序列化一遍）。超过 200 字符就不落到属性上，bind 会退回按 src 现算。 */
@@ -604,7 +535,12 @@
         try {
           const u = new URL(s, location.href);
           if (!/^https?:$/.test(u.protocol)) return '';
-          if (u.origin === location.origin) return u.pathname + u.search + u.hash;
+          /* 同源的本地路由也要过 mediaSrc：/getv?url=<过期签名> 在这里换成会话内回源到的
+             新鲜地址（只查内存表）。抽帧和播放用的是同一个地址，过期就一起过期。 */
+          if (u.origin === location.origin) {
+            const local = u.pathname + u.search + u.hash;
+            return window.Api && window.Api.mediaSrc ? Api.mediaSrc(local) : local;
+          }
           return window.Api && window.Api.mediaSrc ? window.Api.mediaSrc(u.href) : '/getv?url=' + encodeURIComponent(u.href);
         } catch { return ''; }
       },
@@ -618,6 +554,22 @@
       /* 保持占位 / 旧帧直到图片加载并解码完成；换图时保留导演台 sthumb 等样式。 */
       _show(b, frame) {
         if (b.showing) return;
+        /* 就地播放的视频：封面只当 poster，节点一直是那个 <video>。
+           曾经在这里直接把它换成 <img> → 卡片里的视频根本播不动（很快就能从缓存命中，
+           所以是「第一次能播、刷一下就不行」的那种）。 */
+        if (b.inline && b.media && b.media.tagName === 'VIDEO') {
+          b.showing = true;
+          const w = b.wrap;
+          if (frame) {
+            try { b.media.setAttribute('poster', frame); } catch (e) {}
+            w.classList.add(b.rc);          // 有封面就直接变亮
+            return;
+          }
+          const lit = () => w.classList.add(b.rc);
+          if (b.media.readyState >= 2) lit();
+          else ['loadeddata', 'canplay', 'playing', 'error'].forEach(ev => b.media.addEventListener(ev, lit, { once: true }));
+          return;
+        }
         b.showing = true;
         const old = b.media;
         const im = old.tagName === 'IMG' ? old : document.createElement('img');
@@ -673,14 +625,44 @@
           if (!job.subs.size && !job.running) this._jobs.delete(key);
         }
       },
+      /* 占位层上的一句实话：只在真的开始抽帧时写（并发 2，同时最多两张卡显示），
+         排队中的不写 —— 否则快速滚动会刷出一屏「正在取首帧」，那不是当下发生的事。 */
+      _note(job, text) {
+        for (const b of job.subs) {
+          const ph = b.wrap && b.wrap.querySelector('.tph');
+          if (ph && ph.textContent !== text) ph.textContent = text;
+        }
+      },
+      /* 抽帧失败不再一次性判死：网络抖动、/getv 一时取不回来、签名刚好过期而后台回源还没换完，
+         过几秒自己就好了。有限次重试（5s / 20s），用完才把原因写在占位层上。
+         以前失败即删 job + 解绑观察，卡片就永远是一块灰，只能整页重画才有机会再试一次。 */
+      _retry(job) {
+        const n = (job.tries || 0) + 1;
+        if (n > this.RETRIES || !job.subs.size) return false;
+        job.tries = n;
+        job.running = false;
+        job.queued = true;              // 等重试期间 _attach 不要重复入队
+        setTimeout(() => {
+          if (this._jobs.get(job.key) !== job || !job.subs.size) return;
+          this._queue.push(job);
+          this._pump();
+        }, n === 1 ? 5000 : 20000);
+        return true;
+      },
       _finish(job, frame) {
+        this._note(job, '');
+        if (!frame && this._retry(job)) return;
         for (const b of job.subs) {
           if (this._io) this._io.unobserve(b.wrap);
           if (!this._valid(b)) continue;
           if (frame) this._show(b, frame);
           else {
             const ph = b.wrap.querySelector('.tph');
-            if (ph) ph.textContent = '缩略图暂不可用';
+            if (!ph) continue;
+            /* 说清原因：签名过期是「换个地址就好」，不是素材坏了。这种外链一旦被存进本机记录
+               （导演台的候选、收藏）就会天天 403，后台回源换到新地址后页面会重画这一张。 */
+            ph.textContent = window.Api && Api.mediaExpired && Api.mediaExpired(job.src)
+              ? '外链签名已过期，等待换新…' : '缩略图暂不可用';
           }
         }
         job.subs.clear();
@@ -695,6 +677,7 @@
           if (frame) { this._finish(job, frame); continue; }
           job.running = true;
           this._active++;
+          this._note(job, this.RUN_TEXT);
           this._extract(job).then(v => this._finish(job, v), () => this._finish(job, '')).finally(() => {
             this._active--;
             this._pump();
@@ -757,12 +740,26 @@
           if (job) { job.src = raw; return; } // 只更新等待中的地址，不重建媒体 / 重启在途请求
         }
         if (this._io) this._io.unobserve(wrap);
-        const b = { wrap, media, src: raw, key, rc, ident: identity || '' };
+        /* 卡片里就地播放的视频（mediaHTML 的 inline）：它自己就是最终面，不能被尺寸缓存换成静帧。 */
+        const inline = media.tagName === 'VIDEO' && media.getAttribute('data-thumb-play') === '1';
+        const b = { wrap, media, src: raw, key, rc, ident: identity || '', inline };
         this._bindings.set(wrap, b);
         // <img> 已经是最终画面（缓存小图或原图）：标 ready，图片再顺手补一份缩略到缓存里
         if (media.tagName === 'IMG') { this._show(b); this._watchImg(b); return; }
-        // 兼容旧调用者直接给 video.src 的情况；公共 HTML 始终只生成 data-src。
-        if (media.getAttribute('src')) this._release(media);
+        /* 兼容旧调用者直接给 video.src 的情况；公共 HTML 始终只生成 data-src。
+           inline（卡片里就地播）例外 —— 它的 src 就是这张卡要播的那一路，
+           抹掉等于把它变成一个永远黑屏、永远不能播的元素。 */
+        if (!inline && media.getAttribute('src')) this._release(media);
+        /* 就地播放卡另给一条「自己有画面了」的快捷路：卡片里的视频不能只靠
+           抽帧缓存出帧才变亮（抽帧要另开一个视频元素去 seek，耗时）。
+           播放期间会自己触发 loadeddata/canplay，那时占位层就去掉。 */
+        if (inline) {
+          const w = b.wrap;
+          const lit = () => w.classList.add(rc);
+          if (media.readyState >= 2) lit();
+          else ['loadeddata', 'canplay', 'playing', 'timeupdate', 'error'].forEach(ev =>
+            media.addEventListener(ev, lit, { once: true }));
+        }
         this.hydrate().then(() => {
           if (!this._valid(b)) return;
           this._sweep();
@@ -772,6 +769,7 @@
           if (!job) { job = { key, src, subs: new Set() }; this._jobs.set(key, job); }
           job.src = b.src;
           job.subs.add(b);
+          if (job.running) this._note(job, this.RUN_TEXT);   // 半路加入的卡片也要有同一句状态
           const io = this._observer();
           if (io) io.observe(wrap); else this._attach(wrap);
         });
@@ -795,25 +793,40 @@
          视频和图片缩略图走同一套缓存」的前提是它们长一个样，否则同一张网格里清晰度会打架。
          512 够资产库紧凑网格（卡片最宽 ~300px，2x 屏 600 设备像素）用，又不至于把缓存撑爆。 */
       MAXSIDE: 512, Q: 0.72, MAXBYTES: 200 * 1024,
-      /* 把已解码的图/帧缩一份存成小图（最长边 MAXSIDE）。
-         有透明像素就走 PNG（logo 之类），否则 JPEG；结果过大就不缓存（宁可下次重取，也不塞爆存储）。 */
+      /* 逐级降尺寸 + 降质量，直到落到 MAXBYTES 以内（四档都不到位就用最小的那张，只是不再写缓存）。
+         以前这里是「超过 200KB 就整张丢掉」（return ''）：暗场 + 颗粒感的 512px JPEG 完全可能超限，
+         于是帧明明抽到了却被丢掉 → 缓存里没写、下次重画再抽再丢，表现就是「这条视频的缩略图永远加载不出来」。
+         图片看不出这个问题，是因为 mediaHTML 里图片有「原图」兜底；视频没有。丢帧不是保护，是死循环。 */
+      _shrinkPasses() {
+        return [[this.MAXSIDE, this.Q], [384, 0.6], [320, 0.5], [256, 0.42]];
+      },
       _shrink(el, w, h, opaque) {
-        const k = Math.min(1, this.MAXSIDE / Math.max(w, h));
+        let smallest = '';
+        for (const pass of this._shrinkPasses()) {
+          const out = this._shrinkOnce(el, w, h, pass[0], pass[1], opaque);
+          if (out === null) return '';                 // 画不出来 / 画布被污染：继续换尺寸也没用
+          if (out.length <= this.MAXBYTES) return out;
+          smallest = out;                              // 记下这一档（越往后越小），留给最后兜底
+        }
+        return smallest;
+      },
+      /* 把已解码的图/帧按「最长边 side + 质量 q」缩一份（有透明像素走 PNG，否则 JPEG）。
+         返回 null = 根本画不出来（调用方别再重试别的档位）；返回 '' = 画出来是空的。 */
+      _shrinkOnce(el, w, h, side, q, opaque) {
+        const k = Math.min(1, side / Math.max(w, h));
         const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
         const c = document.createElement('canvas');
         c.width = cw; c.height = ch;
         const ctx = c.getContext('2d');
-        if (!ctx) return '';
+        if (!ctx) return null;
         if (opaque) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch); }
-        try { ctx.drawImage(el, 0, 0, cw, ch); } catch (e) { return ''; }
-        let out;
+        try { ctx.drawImage(el, 0, 0, cw, ch); } catch (e) { return null; }
         try {
           const d = ctx.getImageData(0, 0, cw, ch).data;
           let alpha = false;
           for (let i = 3; i < d.length; i += 40) { if (d[i] < 250) { alpha = true; break; } }   // 每 10 个像素抽一次
-          out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', this.Q);
-        } catch (e) { return ''; }   // 画布被污染 / 内存不足
-        return out.length <= this.MAXBYTES ? out : '';
+          return alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+        } catch (e) { return null; }   // 画布被污染 / 内存不足
       },
       /* ---- 图片缩略图：不挡画面，等它自己加载完再缩一份进缓存 ----
          为什么不在渲染时就把 <img> 换成缓存图：原图本来就是最好的显示效果，抢在 onload 前换成
@@ -1120,44 +1133,31 @@
     /* ---------- 产物取回与保存（统一先判 HTTP 状态，不再把错误页存成成品） ---------- */
     blob(url, opts) { return window.Net.blob(url, { timeout: 180000, ...(opts || {}) }); },
 
-    /* 保存到「设置 → 目录」；没配目录就退回浏览器下载 */
+    /* 下载：**一律走浏览器默认方式**（Net.save = createObjectURL + <a download>，存哪由浏览器/系统决定）。
+       本项目不再有「下载位置 / 另存为」这一层：没有 File System Access 的目录句柄、
+       没有 showSaveFilePicker、页面也不准自己再写一份下载落点 —— 全站只有 Net.save 这一份实现。 */
     async save(url, name) {
       const b = await this.blob(url);
-      return await this._toDir(name, b);
-    },
-    /* 每次弹保存位置 */
-    async saveAs(url, name) {
-      const b = await this.blob(url);
-      return await this._toDir(name, b, true);
-    },
-    async _toDir(name, blob, forceAs) {
-      // 页面可以挂 WbSaveHook 接管保存（例如图片台用 File System Access API 写目录）；
-      // 没挂就用浏览器下载，行为一致、不再各写一套 fetch+blob。
-      const hook = window.WbSaveHook || {};
-      if (forceAs && typeof hook.asOnce === 'function') {
-        try { return await hook.asOnce(name, blob); } catch (e) { if (e && e.name === 'AbortError') return { ok: false, canceled: true }; }
-      } else if (!forceAs && typeof hook.toDir === 'function') {
-        try { return await hook.toDir(name, blob); }
-        catch (e) { if (e && e.name === 'AbortError') return { ok: false, canceled: true }; /* 目录没配 → 退回下载 */ }
-      }
-      window.Net.save(blob, name);
-      return { ok: true, fallback: true };
+      window.Net.save(b, name);
+      return { ok: true };
     },
 
     /* ---------- 卡片动作区：三台同一套按钮、同一套顺序 ---------- */
-    /* o = { preview, download, cancel, retry, remove, removeFile, retryTitle } */
+    /* o = { preview, previewLabel, download, cancel, retry, remove, removeFile }
+       「详情」那一颗的文字会在展开/收起时变（详情 → 收起），而它带着一颗 chevron：
+       页面用 ui.js 的 iconSet / btnText 各管一头（textContent = … 会把图标一起抹掉），
+       所以这个按钮的文字必须装在 .tx 里、图标装在 .ic 里 —— 结构就固定成下面这样。 */
     actsHTML(t, o = {}) {
       const run = this.isRunning(t), failed = this.isFailed(t);
       const hasMedia = !!o.preview;
       const B = [];
-      B.push('<button class="ghost dt">详情</button>');
-      if (hasMedia) B.push('<button class="ghost pv">' + icon('play', 12) + ' ' + esc(o.previewLabel || '预览') + '</button>');
+      B.push('<button class="ghost dt"><span class="ic">' + icon('chevronDown', 13) + '</span><span class="tx">详情</span></button>');
+      if (hasMedia) B.push('<button class="ghost pv"><span class="ic">' + icon('play', 12) + '</span> ' + esc(o.previewLabel || '预览') + '</button>');
       if (hasMedia && o.download !== false) {
-        B.push('<button class="ghost dl2" title="保存到「设置 → 目录」">保存</button>');
-        B.push('<button class="ghost sv2" title="每次选择保存位置">⤓ 另存为</button>');
+        B.push('<button class="ghost dl2" title="用浏览器默认方式下载">下载</button>');
       }
       if (run && o.cancel) B.push('<button class="ghost danger cx">取消</button>');
-      if (failed && o.retry && o.canRetry !== false) B.push('<button class="ghost rt">' + icon('refresh', 12) + ' 重试</button>');
+      if (failed && o.retry) B.push('<button class="ghost rt"><span class="ic">' + icon('refresh', 12) + '</span> 重试</button>');
       if (o.remove) B.push('<button class="ghost danger del">删除记录</button>');
       if (o.removeFile) B.push('<button class="ghost danger delfile" title="删除本机文件（上游没有资产存储）">删除文件</button>');
       return B.join('');
@@ -1176,8 +1176,7 @@
         catch (e) { window.Toast.err(e && e.message ? e.message : e); }
         finally { btn.disabled = false; btn.innerHTML = old; }
       };
-      on('.dl2', btn => busy(btn, '保存中…', () => this.save(o.dlUrl || t.dl || t.media, o.fileName || 'download')));
-      on('.sv2', btn => busy(btn, '另存中…', () => this.saveAs(o.dlUrl || t.dl || t.media, o.fileName || 'download')));
+      on('.dl2', btn => busy(btn, '下载中…', () => this.save(o.dlUrl || t.dl || t.media, o.fileName || 'download')));
 
       on('.cx', async btn => {
         const ok = await window.Confirm.ask({
@@ -1227,7 +1226,6 @@
       const label = o.label || '任务';
       let timer = null, fails = 0, warned = false, stopped = false, ticking = false;
       const taskFails = new WeakMap();       // 单任务连续失败计数（只提示一次）
-      const host = (o.host || document);
       const delay = () => Math.min(interval * Math.pow(2, Math.max(0, fails - 2)), 30000);
 
       const runningList = () => (o.tasks() || []).filter(t => o.isRunning(t) && (o.filter ? o.filter(t) : true));
@@ -1277,13 +1275,13 @@
         timer = setTimeout(tick, delay());
       }
       function onVisible() { if (!document.hidden) { fails = 0; tick(); } }
-      host.addEventListener('visibilitychange', onVisible);
+      document.addEventListener('visibilitychange', onVisible);
       window.addEventListener('beforeunload', () => { stopped = true; clearTimeout(timer); });
 
       schedule();
       return {
         tick,
-        stop() { stopped = true; clearTimeout(timer); host.removeEventListener('visibilitychange', onVisible); },
+        stop() { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); },
         kick() { clearTimeout(timer); tick(); },
       };
     },
@@ -1376,11 +1374,6 @@
               }
               ref = nx;
             }
-          },
-          /* 单条重绘（页面在别处改了条目状态时用） */
-          repaint(item) {
-            const el = els.get(String(o.keyOf(item)));
-            if (el) { paint(el, item); el._sig = sigOf(item); }
           },
           clear() { els.clear(); box.innerHTML = ''; },
         };
@@ -1568,7 +1561,6 @@
     viewToggle: {
       ROWS: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="1" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="5.4" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="9.8" width="12.8" height="3.2" rx="1.2"/></svg>',
       GRID: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="0.6" y="7.8" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="7.8" width="5.6" height="5.6" rx="1.4"/></svg>',
-      DENSE: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="0.6" width="3.6" height="3.6" rx="1"/><rect x="5.2" y="0.6" width="3.6" height="3.6" rx="1"/><rect x="9.8" y="0.6" width="3.6" height="3.6" rx="1"/><rect x="0.6" y="5.2" width="3.6" height="3.6" rx="1"/><rect x="5.2" y="5.2" width="3.6" height="3.6" rx="1"/><rect x="9.8" y="5.2" width="3.6" height="3.6" rx="1"/><rect x="0.6" y="9.8" width="3.6" height="3.6" rx="1"/><rect x="5.2" y="9.8" width="3.6" height="3.6" rx="1"/><rect x="9.8" y="9.8" width="3.6" height="3.6" rx="1"/></svg>',
       create(o) {
         const el = typeof o.el === 'string' ? document.getElementById(o.el) : o.el;
         if (!el) return null;
@@ -1740,12 +1732,12 @@
       },
     },
 
-    /* ---------- 灯箱底部操作条（三个工作台共用：信息 · 下载到本地 · ⤓ 另存为） ----------
+    /* ---------- 灯箱底部操作条（全站共用：信息 · 下载） ----------
        以前三台各写一份，长得不一样：图片台是两个 <button>（有 hover），视频/语音台是一个 <a>
-       （没有 hover、带下划线、而且点了只是浏览器下载，不会存到「设置 → 目录」）。
-       现在按钮在这里统一生成，样式统一放在 ui.css 的 #lbBar 一段 —— 结构上保证三台一致。
+       （没有 hover、带下划线）。现在按钮在这里统一生成，样式统一放在 ui.css 的 #lbBar 一段
+       —— 结构上保证各台一致。下载走浏览器默认方式（Wb.save → Net.save）。
        页面只要提供两件事：
-         fileName(item)  保存时的文件名
+         fileName(item)  下载时的文件名
          urlOf(item)     下载地址；返回空字符串表示这条没有文件可下载（按钮自动隐藏） */
     lbBar: {
       _cfg: null, _item: null,
@@ -1754,32 +1746,26 @@
         if (!bar) return;
         this._cfg = cfg || {};
         if (document.getElementById('lbSave')) return;      // 已经建过就不重复建
-        const mk = (id, text, mode) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'ghost';
-          b.id = id;
-          b.textContent = text;
-          b.onclick = async e => {
-            e.stopPropagation();
-            const it = this._item;
-            const url = (it && this._cfg.urlOf) ? this._cfg.urlOf(it) : '';
-            if (!url) { window.Toast.warn('这条没有可下载的文件'); return; }
-            const name = (this._cfg.fileName ? this._cfg.fileName(it) : '') || 'download';
-            const old = b.textContent;
-            b.disabled = true;
-            b.textContent = mode === 'save' ? '保存中…' : '另存中…';
-            try {
-              // 走统一保存：先判 HTTP 状态，再按「设置 → 目录」落盘（页面用 WbSaveHook 接管目录）
-              await (mode === 'save' ? window.Wb.save(url, name) : window.Wb.saveAs(url, name));
-            } catch (err) { window.Toast.err((err && err.message) || err); }
-            finally { b.disabled = false; b.textContent = old; }
-          };
-          bar.appendChild(b);
-          return b;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ghost';
+        b.id = 'lbSave';
+        b.textContent = '下载';
+        b.onclick = async e => {
+          e.stopPropagation();
+          const it = this._item;
+          const url = (it && this._cfg.urlOf) ? this._cfg.urlOf(it) : '';
+          if (!url) { window.Toast.warn('这条没有可下载的文件'); return; }
+          const name = (this._cfg.fileName ? this._cfg.fileName(it) : '') || 'download';
+          const old = b.textContent;
+          b.disabled = true;
+          b.textContent = '下载中…';
+          try {
+            await window.Wb.save(url, name);
+          } catch (err) { window.Toast.err((err && err.message) || err); }
+          finally { b.disabled = false; b.textContent = old; }
         };
-        mk('lbSave', '下载到本地', 'save');
-        mk('lbSaveAs', '⤓ 另存为', 'saveas');
+        bar.appendChild(b);
       },
       /* 灯箱换内容时调用：更新计数与信息，并按「有没有可下载地址」决定按钮显隐。
          o.parts 可以是字符串，也可以是 Promise<string>（例如体积要探测、尺寸要等媒体元数据），
@@ -1798,10 +1784,8 @@
           }
         });
         const url = (this._cfg && this._cfg.urlOf) ? this._cfg.urlOf(item) : '';
-        ['lbSave', 'lbSaveAs'].forEach(id => {
-          const b = document.getElementById(id);
-          if (b) b.hidden = !url;
-        });
+        const sb = document.getElementById('lbSave');
+        if (sb) sb.hidden = !url;
       },
       /* 媒体元数据加载完后再补信息（尺寸/体积等）：只改文字，不动按钮 */
       setInfo(text) {
@@ -1814,13 +1798,13 @@
        五个页面原来各写一份灯箱，还各有一套 DOM（#lbImg / #lbVideo / #lbAudio / #lbStage）
        与各自的信息条；收藏页干脆没有预览。现在收敛到这里：
          · DOM 由本模块创建（#lightbox > ‹ + #lbStage + › + #lbBar），页面不用再手写一遍
-         · 信息条与「下载到本地 / ⤓ 另存为 / 详情」直接用 Wb.lbBar + Wb.lbDetail
+         · 信息条与「下载 / 详情」直接用 Wb.lbBar + Wb.lbDetail
          · 图片 / 视频 / 音频 / 「进行中的任务」占位都在这里渲染
        页面只声明（cfg）：
          list()            翻页范围（通常是当前视图的条目）
          keyOf(item)       在列表里定位用
          srcOf(item)       媒体地址；可以是 Promise（收藏的本地文件要先读 IndexedDB）
-         nameOf(item)      下载/另存时的文件名
+         nameOf(item)      下载时的文件名
          kindOf(item)      'image' | 'video' | 'audio' | 'task'（其它值按图片处理）
          info(item, el)    信息行内容数组（可含 Promise）
          detail            详情渲染（默认 Wb.detail.render）
@@ -1887,11 +1871,6 @@
           bar.innerHTML = '<span id="lbCount"></span><span id="lbInfo"></span>';
           lb.appendChild(bar);
         }
-        /* 老灯箱的媒体节点与信息条（#lbImg/#lbVideo/#lbAudio/#lbPanel/#lbDetail）已由本模块接管 */
-        ['lbImg', 'lbVideo', 'lbAudio', 'lbPanel', 'lbDetail'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el && !el.closest('#lbStage')) el.remove();
-        });
       },
       isOpen() { const lb = document.getElementById('lightbox'); return !!lb && lb.style.display === 'flex'; },
       /* 打开：优先在当前视图里定位（找不到就单张显示被点的那条，别打开别的）。
@@ -1969,101 +1948,6 @@
         const stage = document.getElementById('lbStage');
         if (stage) stage.innerHTML = '';
         window.Wb.lbDetail.close();
-      },
-      /* 当前这条（灯箱详情等外部入口要用） */
-      current() { return this._cur; },
-    },
-
-    /* ---------- 「下载到本地 / ⤓ 另存为」的落点：默认文件夹（File System Access） ----------
-       图片台那套实现（句柄存 IndexedDB、没配目录时退回浏览器下载、重名自动 -2）收敛到这里；
-       视频台/语音台原来各写一份 ensureDir/saveToDir/saveAsOnce/anchorDownload，行为还不同
-       （有的吞掉取消、有的写完不提示）。页面只要声明自己的默认目录键：
-         Wb.saver.init({ dirKey: 'dir_video', pickerId: 'skLib_dir_video', label: '视频', status: fn }) */
-    saver: {
-      cfg: null, dir: null, _legacy: false,
-      init(cfg) {
-        this.cfg = cfg || {};
-        window.WbSaveHook = { toDir: (n, b) => this.toDir(n, b), asOnce: (n, b) => this.asOnce(n, b) };
-      },
-      _status(html) { try { if (this.cfg && this.cfg.status) this.cfg.status(html); } catch (e) {} },
-      _idb() {
-        if (this._dbP) return this._dbP;
-        this._dbP = new Promise((res, rej) => {
-          let r;
-          try { r = indexedDB.open('sk_lib', 1); } catch (e) { this._dbP = null; rej(e); return; }
-          r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv'); };
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => { this._dbP = null; rej(r.error); };
-        });
-        return this._dbP;
-      },
-      _idbGet(k) {
-        return this._idb().then(d => new Promise((res, rej) => {
-          const t = d.transaction('kv', 'readonly');
-          const q = t.objectStore('kv').get(k);
-          q.onsuccess = () => res(q.result);
-          q.onerror = () => rej(q.error);
-        })).catch(() => null);
-      },
-      _idbSet(k, v) {
-        return this._idb().then(d => new Promise((res, rej) => {
-          const t = d.transaction('kv', 'readwrite');
-          t.objectStore('kv').put(v, k);
-          t.oncomplete = res;
-          t.onerror = () => rej(t.error);
-        })).catch(() => {});
-      },
-      async _verify(h) {
-        try {
-          return (await h.queryPermission({ mode: 'readwrite' })) === 'granted'
-            || (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
-        } catch (e) { return false; }
-      },
-      async ensureDir(interactive) {
-        const c = this.cfg || {};
-        const label = c.label || '文件';
-        let dir = this.dir;
-        if (!dir && c.dirKey) dir = await this._idbGet(c.dirKey);
-        /* 兼容早期「统一目录」的老键，用户不用重新选一次 */
-        if (!dir && !this._legacy) { this._legacy = true; dir = await this._idbGet('dir'); }
-        if (dir && await this._verify(dir)) { this.dir = dir; return dir; }
-        this.dir = null;
-        if (!window.showDirectoryPicker) throw new Error('当前浏览器不支持选择文件夹（请用 Chrome / Edge 打开）');
-        if (!interactive) throw new Error('尚未设置' + label + '默认下载文件夹，请到「设置」页选择');
-        dir = await window.showDirectoryPicker({ id: c.pickerId || 'skLib_dir', startIn: 'desktop', mode: 'readwrite' });
-        this.dir = dir;
-        if (c.dirKey) await this._idbSet(c.dirKey, dir);
-        this._status('<span class="ok">默认下载文件夹已设为：' + dir.name + '，之后不再询问</span>');
-        return dir;
-      },
-      /* 存到默认文件夹；取消选目录 → { canceled:true }；不支持 FS API / 没配目录 → 浏览器下载 */
-      async toDir(name, blob) {
-        let dir = null;
-        try { dir = await this.ensureDir(true); }
-        catch (e) {
-          if (e && e.name === 'AbortError') return { ok: false, canceled: true };
-          window.Net.save(blob, name);
-          this._status('<span class="ok">✓ 已用浏览器下载：' + name + '（可在「设置」里指定默认文件夹）</span>');
-          return { ok: true, fallback: true };
-        }
-        let fn = name;
-        try { await dir.getFileHandle(fn, { create: false }); fn = fn.replace(/(\.\w+)$/, '-2$1'); } catch (e) {}
-        const fh = await dir.getFileHandle(fn, { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob);
-        await w.close();
-        this._status('<span class="ok">✓ 已保存：' + fn + '</span>');
-        return { ok: true, name: fn };
-      },
-      /* 每次弹窗自选位置 */
-      async asOnce(name, blob) {
-        if (!window.showSaveFilePicker) { window.Net.save(blob, name); return { ok: true, fallback: true }; }
-        const handle = await window.showSaveFilePicker({ suggestedName: name, startIn: (this.dir && this.dir) || 'desktop' });
-        const w = await handle.createWritable();
-        await w.write(blob);
-        await w.close();
-        this._status('<span class="ok">✓ 已另存：' + handle.name + '</span>');
-        return { ok: true, name: handle.name };
       },
     },
 
