@@ -2334,7 +2334,22 @@ window.Drama = (function () {
     }
     const list = voices(REG, opts, w.mode);
     /* 描述 / 复刻：没有清单，一次能出几条就照设置的「候选张数」（默认 3）。 */
-    if (w.mode !== 'preset') return { n: candN(), pickable: false, mode: w.mode, list: [], why: '' };
+    if (w.mode !== 'preset') {
+      /* **描述/复刻这两种方式，请求本体就是这一位身上的东西**：
+         按描述出声时那段描述是 `ttsOnce` 的 style 字段，复刻时要挂上参考音频。
+         缺了还照发，平台只会回一句 Param Incorrect —— 用户看到的是「参数不对」，
+         而他能改的那件事（写一句描述 / 点「AI 定音色」/ 挂一段参考音频）一个字都没提。
+         2026-10 实测：关掉自动补画（于是没跑自动定音色）的新角色，点「一次出 3 条试听」
+         就是这个下场：3 次请求、3 条失败、界面上只挂一句平台原话。
+         判据用 `voiceReady`（与第 2/3 步那份前置条件清单**同一份**，不另写条件）。
+         n=0 → `voiceCandsHTML` 不摆那颗按钮，并把 why 当原因写出来。 */
+      const r = voiceReady(REG, opts, char);
+      if (!r.ok) {
+        return { n: 0, pickable: false, mode: w.mode, list: [],
+          why: (r.why || '这一位还没定声音') + ' —— 先在上面写一句声音描述，或点「AI 定音色」让文字 AI 按人设写，再出试听' };
+      }
+      return { n: candN(), pickable: false, mode: w.mode, list: [], why: '' };
+    }
     if (!list.length) return { n: 0, pickable: true, mode: 'preset', list: [], why: '这个预设音色型号没有声明任何音色，出不了候选' };
     return { n: Math.min(candN(), list.length), pickable: true, mode: 'preset', list: list, why: '' };
   }
@@ -3675,7 +3690,13 @@ window.Drama = (function () {
        用户以为只出了 1 条 —— 于是反复点「一次出 3 条」，一次又一次地花 Synthesize 的钱。
        voiceCands 已经把失败原因记在 rec.err 上，这里把它摆出来（与图片候选排的失败显示对齐）。 */
     const failed = all.filter(x => x && !x.src && x.err);
-    if (cap.mode === 'none' || (!list.length && !failed.length && !(cap.n > 1))) return '';
+    /* **有理由要说的时候不许整块藏起来**。
+       以前这一行是 `cap.mode === 'none' || (!list.length && !failed.length && !(cap.n > 1))`，
+       于是「这一位还没写声音描述」这类新的守卫（cap.n=0 + cap.why 有话）会让整块直接返回空串 ——
+       按钮没了、原因也跟着没了，界面上一点痕迹都不留：那正是「按了没反应」的另一种样子。
+       现在只要 `cap.why` 有话就把这一块画出来（按钮仍然不摆，理由写在下面）。
+       顺带把「还没配语音接口」也纳进来：以前它在候选区一个字都不说。 */
+    if (!list.length && !failed.length && !(cap.n > 1) && !cap.why) return '';
     /* 正在出的那几条要有格子（`o.waiting` 是页面那一轮现在的文案）：
        只有底栏一句忙碌文字，界面这里看着就像「出了 0 条」或者「卡住了」。
        那颗「一次出几条」的按钮也留着（禁用）：整排只剩一个转圈，看着就像入口没了。 */
