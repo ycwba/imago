@@ -453,15 +453,20 @@
   /* 主图下面那一排候选。角色 / 场景 / 道具三类同构（候选都攒在 `c.faces`，在用的那张另存
      `face` 或 `img`），所以一份渲染；`kind` 由 `mainKind(c)` 判。
      `busy` 时整排换成占位格：出着 3 张却只看见 1 张是不能接受的，反过来「3 张在排队」
-     也得看得见，否则会以为卡住了。按钮留着但禁用 —— 只剩一个转圈看着像「这个入口没了」。 */
-  function mainCandsHTML(c, pw, busy) {
+     也得看得见，否则会以为卡住了。按钮留着但禁用 —— 只剩一个转圈看着像「这个入口没了」。
+     ⚠ `tail`（那颗「再画 N 张」，**按张计费**）只在编辑区里给。
+       收起态只留「用这一张」与点开看大图 —— 挑一张、翻一张都不花钱，
+       而生成入口摆在浏览屏上就是「往下滚一屏顺手点掉一颗，钱已经花了」。
+       （`genBtns` 只堵住了卡片底部那一处来源，这一排是**第二个**来源。） */
+  function mainCandsHTML(c, pw, busy, editOpen) {
     const kind = mainKind(c);
     const n = candCount();
     const list = (c.faces || []).filter(x => x && x.src);
+    const tail = editOpen ? moreCandsBtn(kind, false) : '';
     return busy
-      ? `<div class="ui-cands"><span class="lab">${esc(pw)}候选</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsBtn(kind, true)}</div>`
+      ? `<div class="ui-cands"><span class="lab">${esc(pw)}候选</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${editOpen ? moreCandsBtn(kind, true) : ''}</div>`
       : D.Cast.picCandsHTML(list, D.picOf(c), { act: 'usecand', label: pw + '候选', name: c.name,
-          extra: ' data-k="' + kind + '"', tail: moreCandsBtn(kind, false) });
+          extra: ' data-k="' + kind + '"', tail: tail });
   }
   function cardHTML(c) {
     const sc = isScene(c), pr = isProp(c);
@@ -500,7 +505,10 @@
         <div class="nm">${nmInner(c)}</div>
         <div class="tags">
           ${D.Cast.voiceTag(c)}
-          ${!hasVoice || editOpen ? '' : `<button class="ui-linkbtn" data-a="play"${genHas('voice', c.id) ? ' disabled' : ''}>试听</button>`}
+          ${/* 「试听」也只在编辑区里：它会**真的合成一小段**（play → D.Cast.preview），
+             是花钱动作。原来是「没定音色时收起也摆着」，那正是最容易被顺手点掉的一颗。
+             ⚠ 这段注释在模板串里，一个反引号都不能有（会当场闭合模板串 → 整页白屏）。 */
+            editOpen ? `<button class="ui-linkbtn" data-a="play"${genHas('voice', c.id) ? ' disabled' : ''}>试听</button>` : ''}
         </div>
         <div class="bio">${bioInner(c)}</div>
         ${assetList.length ? `<div class="assets">${assetList.map(a => {
@@ -509,7 +517,7 @@
           return `<div class="th" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" title="${esc(lab)}${ps.length ? '（连带 ' + esc(ps.join('、')) + '）' : ''}：点开看大图"><img src="${esc(src(a.src))}" alt=""><i>${esc(lab)}</i></div>`;
         }).join('')}</div>` : ''}
         ${faceErr ? `<div class="why">${esc(pw)}这次没出来：${esc(faceErr)}</div>` : ''}
-        ${vo ? '' : mainCandsHTML(c, pw, faceBusy)}
+        ${vo ? '' : mainCandsHTML(c, pw, faceBusy, editOpen)}
         <div class="acts">
           <button class="ghost" data-a="edit">${editOpen ? '收起' : '编辑'}</button>${genBtns}
           <button class="ghost danger" data-a="del">从库里删掉</button>
