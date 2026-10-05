@@ -27,34 +27,107 @@
   .krow .sub-line { flex: 1; min-width: 180px; font-size: 12.5px; color: var(--sub); }
   .krow input { flex: 1; min-width: 240px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; color: var(--txt); font-size: 12.5px; font-family: monospace; outline: none; }
   .krow input:focus { border-color: var(--acc); }
-  /* 侧栏余额勾选：.krow input 那条规则会把复选框也撑成 240px 宽，这里单独压回原形 */
-  .krow input[type=checkbox] { flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; accent-color: var(--acc); }
+  /* .krow input 那条规则会把「输入框」撑成 240px 宽；复选框与单选框（侧栏余额勾选、
+     供应商卡里的「作用文字 AI」）也写在 .krow 里，会被同一条撑成一条 240px 的横杠 ——
+     表现是单选框孤零零杵在行中间，文字被甩到另一头。两种一起压回原形。 */
+  .krow input[type=checkbox], .krow input[type=radio] {
+    flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; margin: 0; accent-color: var(--acc); }
   .krow .sbshow { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
     color: var(--sub); cursor: pointer; white-space: nowrap; }
   .krow .sbshow:hover { color: var(--acc); }
+  /* 这家没声明余额端点：入口照样给，但压暗一档，让「为什么勾了没反应」在界面上先看出来一点。 */
+  .krow .sbshow.dim { opacity: .62; }
+  .krow .sbshow.dim:hover { opacity: 1; }
   .krow .eye { flex: 0 0 auto; padding: 7px 10px; line-height: 1; }
   .krow .clr { flex: 0 0 auto; padding: 7px 10px; line-height: 1; }
   /* 重复出现的小样式档位（以前是几十处行内 style）：按钮一档、说明一行、勾选一行 */
   .ghost.wide { flex: 0 0 auto; padding: 8px 14px; }
   .ghost.xs { padding: 5px 10px; font-size: 11.5px; }
   .krow.tight { gap: 8px; flex-wrap: wrap; }
+  /* 自定义下拉（ui.js 的 Dropdowns 会在 select 外面包一层 .dd）也要参与伸缩 ——
+     不然它在 flex 行里会缩成一小条（供应方 / 识图能力那两行就是这个毛病）。 */
+  .krow .dd { flex: 1 1 240px; min-width: 200px; max-width: 460px; }
+  .krow .dd-btn { height: 34px; }
+  .krow input { height: 34px; }
+  /* 一行里的动作按钮：顶到行尾、同一基线，不再跟着输入框排下去 */
+  .krow .acts { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .krow .acts button { height: 34px; white-space: nowrap; }
+  .plabel { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; }
+  /* 「文字 AI 型号」块：不再是一张单独的卡，而是**每一家**供应商卡里的那一段
+     （供应方、密钥、地址、型号、识图现在都在同一张卡上，改哪一项不用来回对照两处）。 */
+  .tai { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--line); }
+  .tai .pb-tip { margin: 6px 0 2px; }
+  .tai .krow { margin-bottom: 2px; }
+  .tai .tai-h { display: flex; align-items: center; gap: 7px; margin: 0 0 6px;
+    font-size: 12.5px; font-weight: 600; color: var(--sub); }
+  .tai .tai-h:not(:first-child) { margin-top: 10px; }
+  .tai .tai-h .card-ic { flex: 0 0 auto; }
+  .tai [data-tchips]:empty { display: none; }
+  .tai .hint.sm { font-weight: 400; }
   .sm { font-size: 11.5px; color: var(--sub); }
   .dir-name { font-size: 12.5px; color: var(--sub); flex: 1; }
   .crow { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
   /* 平台名下面那行「能力 kinds」小字 */
   .kn .kinds { font-size: 11px; color: var(--sub); }
+  /* 生成平台一张卡：密钥一行、下面那句验证结果 / 转发到哪个地址。
+     勾掉「暂时不用」时整张压暗 + 虚线框，一眼看出这一家现在不参与新任务。 */
+  .prov { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 9px; margin-bottom: 10px; background: var(--panel2); }
+  .prov .krow { margin-bottom: 6px; }
+  .prov input[type="password"] { background: var(--panel); }
+  .prov .lab { flex: 0 0 auto; font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+  .prov .msg { font-size: 11.5px; color: var(--sub); line-height: 1.6; }
+  .prov .msg.ok { color: var(--ok); }
+  .prov .msg.err { color: var(--err); }
+  .prov.warned .msg { color: var(--err); }
+  .prov.off { border-style: dashed; }
+  .prov.off .kn, .prov.off input[data-key] { opacity: .5; }
+  /* 自定义那几家虚线左边加一道竖条：和内置那几家一眼分得开（出问题时先找自己加的那条） */
+  .prov.cus { border-left: 3px solid var(--acc); }
+  /* 一次只展开一家：这一行写明「地址从哪来、这把密钥还管哪些类型、型号清单一共几个」，
+     省得切来切去还得自己回忆上面那家配过什么。 */
+  .prov .meta { font-size: 11.5px; color: var(--sub); line-height: 1.7; margin: 2px 0 6px; }
+  .prov .meta code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 5px; font-size: 11px; }
+  #provTabs { margin-bottom: 10px; }
+  /* 「添加自定义供应商」那一格：型号是一排复选框，数量随接口形状变，窄窗口要能换行 */
+  .cus-models { display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px; min-width: 0; }
+  .cus-models .cus-m { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; flex-wrap: wrap; }
+  .cus-models .cus-m input { margin: 0; }
+  .cus-models .cus-m code { font-size: 11.5px; color: var(--sub); }
+  .cus-models .hint.sm { flex: 1 1 100%; }
+  .cus-acts { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  /* 「已添加的几家」清单：一行一个条目，编辑 / 删除跟名字并排。
+     正在改的那一条高亮 —— 否则编辑态和新增态长得一样，用户不知道点「保存这一家」会覆盖谁。 */
+  .cus-mine { display: flex; flex-direction: column; gap: 5px; flex: 1 1 320px; min-width: 0; }
+  .cus-mine-g { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .cus-mine-g > .hint.sm { flex: 0 0 auto; margin-right: 2px; }
+  .cus-mine-i { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px 2px 9px;
+    border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; background: var(--panel2, #f7f8fc); }
+  .cus-mine-i .t { font-weight: 600; }
+  .cus-mine-i.on { border-color: var(--acc); background: rgba(108,140,255,.10); }
   /* 平台名可点击跳官网：不改字体颜色，仅悬停加下划线 */
   .kn a.site { color: inherit; text-decoration: none; }
   .kn a.site:hover { text-decoration: underline; }
-  .bases { margin-top: 4px; }
-  .bases .krow input { font-family: inherit; }
   label.plabel { display: block; font-size: 12.5px; color: var(--sub); margin: 10px 0 5px; }
-  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
-  .presets button { font-size: 12.5px; color: var(--txt); background: var(--panel2); border: 1px solid var(--line);
-    border-radius: 6px; padding: 7px 13px; cursor: pointer; transition: all .15s; }
-  .presets button:hover { border-color: var(--acc); color: var(--acc); }
-  .presets button.on { border-color: var(--acc); color: var(--acc); background: rgba(108, 140, 255, .12); }
-  .presets button .b { display: block; font-size: 10.5px; color: var(--sub); margin-top: 1px; }
+  /* ---------- 每栏的标题行：图标位 + 标题（右侧留给动作按钮） ----------
+     图标位固定宽度：有图标的栏显图标，没有对应图标的显一个**空**位（不留白）——
+     否则十二栏的标题会随着有没有图标左右跳。不需要图标的地方（如页面大标题）不加这个位。 */
+  .card { position: relative; }
+  .card > h2.card-h { display: flex; align-items: center; gap: 8px; padding-right: 92px; }
+  .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; width: 16px; height: 16px; color: var(--sub); }
+  .card > h2.card-h .card-ic svg { width: 15px; height: 15px; fill: none; stroke: currentColor;
+    stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .card > h2.card-h .card-ic.empty { /* 没对应图标的栏：占位对齐，里面不留白 */ visibility: hidden; }
+  .card > .card-acts { position: absolute; top: 10px; right: 12px; display: flex; gap: 6px; }
+  /* 可折叠的卡：按钮在右上角，用公共的 .tool 胶囊样式（与页面里所有动作按钮同一套）。 */
+  .card.foldable > .fold-body { margin-top: 8px; }
+  .card.foldable:not(.open) > .fold-body { display: none; }
+  .fold-toggle::before { content: ''; display: inline-block; width: 0; height: 0; margin-right: 2px;
+    border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    transition: transform .15s; }
+  .card.foldable.open .fold-toggle::before { transform: rotate(90deg); }
+  .fold-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
   .polish-block { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;
     background: var(--panel2); transition: border-color .15s; }
   .polish-block:hover { border-color: var(--acc); }
@@ -63,15 +136,71 @@
   .polish-block .pb-head .used { font-size: 11.5px; color: var(--sub); }
   .polish-block .pb-head .ghost.mini { margin-left: auto; font-size: 11.5px; padding: 3px 10px; border-radius: 5px; }
   .polish-block textarea { min-height: 92px; background: var(--panel); }
-  .polish-block .pb-tip { font-size: 11.5px; color: var(--sub); line-height: 1.6; margin-top: 7px; }
-  .polish-block .pb-tip code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  /* .pb-tip 是「一段小灰说明」的通用类，八处都在用：字号/行高写在顶层，不要挂在 .polish-block 下面，
+     否则出了润色卡就继承 body 的 15px，看着像一段放大的正文。 */
+  .pb-tip { font-size: 11.5px; color: var(--sub); line-height: 1.6; margin-top: 7px; }
+  .pb-tip.err { color: var(--err, #dc2626); }
+  .pb-tip code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
     padding: 1px 5px; font-size: 11px; }
+  /* 分类标题：#polishGroups 里每个分类一块，块与块之间靠它分开（12 个块平铺会糊成一片）。 */
+  .pg-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    margin: 20px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .pg-head:first-child { margin-top: 4px; }
+  .pg-head b { font-size: 13.5px; }
+  .pg-head .n { font-size: 11px; color: var(--sub); border: 1px solid var(--line);
+    border-radius: 20px; padding: 1px 8px; }
+  .pg-note { font-size: 11.5px; color: var(--sub); line-height: 1.6; margin-bottom: 10px; }
   textarea { width: 100%; min-height: 110px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; color: var(--txt); font-size: 12.5px; line-height: 1.6; padding: 10px 12px; font-family: inherit; resize: vertical; outline: none; }
   textarea:focus { border-color: var(--acc); }
   .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 12px 0; }
+  /* ---------- 顶部的栏目导航 + 关键词筛选 ----------
+     吸附在最上面：这一页比屏幕高好几屏，没有它就只能滚回顶端才能换栏。
+     ⚠ 因为它 sticky，滚动定位必须**给它让出高度** —— `--setnavh` 由下面的 ResizeObserver
+     实时写进来，不是写死的数：`.set-nav-chips` 是 flex-wrap，窗口变窄 / 外壳侧栏展开收起
+     （--sbw 66↔200px）/ 用户放大字号时芯片会换行，栏高是会变的。
+     用 CSS 的 `scroll-margin-top` 而不是 JS 手算偏移：`scrollIntoView` 自己在算滚动容器，
+     页面滚动容器是这个 iframe 的 document（.page-main 没有 height/overflow），
+     手写 `window.scrollTo(0, el.offsetTop - X)` 的基准和它不保证等价。 */
+  .set-nav { position: sticky; top: 0; z-index: 6; background: var(--bg); padding: 8px 0 9px; margin: 0 0 14px;
+    border-bottom: 1px solid var(--line); }
+  .page-main > .card { scroll-margin-top: calc(var(--setnavh, 96px) + 14px); }
+  .set-nav-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .set-nav input[type=search] { flex: 1 1 220px; max-width: 380px; height: 32px; padding: 6px 11px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--txt);
+    font-size: 12.5px; outline: none; }
+  .set-nav input[type=search]:focus { border-color: var(--acc); }
+  .set-nav .ghost { padding: 6px 12px; font-size: 12px; }
+  .set-nav-sum { font-size: 11.5px; color: var(--sub); flex: 1 1 100%; }
+  .set-nav-sum.err { color: var(--err); }
+  .set-nav-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .set-chip { font-size: 11.5px; line-height: 1.4; padding: 4px 10px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--panel); color: var(--sub); cursor: pointer; white-space: nowrap;
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .set-chip:hover { border-color: var(--acc); color: var(--acc); }
+  .set-chip.dim { opacity: .45; }
+  /* 筛选期间只藏这一栏（用类而不是 hidden：#cusCard 自己拿 hidden 表示「还没打开那张卡」，别抢同一个开关） */
+  .card.set-off { display: none; }
+
   .savebar button { background: var(--pri); border: 0; color: #fff; font-weight: 600; border-radius: 4px; padding: 9px 22px; cursor: pointer; font-size: 13.5px; }
   .savebar button:hover { filter: brightness(1.12); }
   .okmsg { color: var(--ok); font-size: 12.5px; align-self: center; }
+  /* 未保存提示：这一页所有改动都点「保存全部设置」才生效，有改动时把保存按钮点亮成「待保存」 */
+  .savebar.dirty #saveAll { background: var(--warn, #d97706); }
+  .savebar.dirty .okmsg:not(:empty) { color: var(--warn, #d97706); }
+  .savebar .okmsg.dirty-note { color: var(--warn, #d97706); }
+  /* 空提示不占位（否则会留下一条空灰条，看着像坏掉的组件） */
+  .hint:empty, .sub:empty, .pb-tip:empty { display: none; }
+  /* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
+     用原生 <details>（不引任何依赖），summary 做成一行小字。 */
+  .ref { margin: 6px 0 2px; font-size: 11.5px; color: var(--sub); line-height: 1.6; }
+  .ref > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; user-select: none; }
+  .ref > summary::-webkit-details-marker { display: none; }
+  .ref > summary::before { content: '▸'; font-size: 9px; transition: transform .12s; }
+  .ref[open] > summary::before { transform: rotate(90deg); }
+  .ref > summary:hover { border-color: var(--sub); }
+  .ref .ref-body { margin-top: 6px; }
+  .ref code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -79,43 +208,87 @@
   <h1><span data-icon="gear" data-size="18"></span> 设置</h1>
   <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（proxy.js 源码里不带任何密钥）。</div>
 
+  <!-- 这一页有十多栏、两三千行，找一项设置全靠滚。这一条把「有哪些栏」与「搜关键词」放在最上面，
+       栏目清单是从下面的 .card 现读的（新加一栏自动出现，不要再手抄一份标题清单）。 -->
+  <div class="set-nav" id="setNav">
+    <div class="set-nav-top">
+      <input id="setQ" type="search" placeholder="找一项设置（密钥、ffmpeg、分页、润色…）" autocomplete="off" spellcheck="false">
+      <button class="ghost" id="setClear" hidden>清除筛选</button>
+      <span class="set-nav-sum" id="setSum"></span>
+    </div>
+    <div class="set-nav-chips" id="setChips"></div>
+  </div>
+
   <div class="card">
-    <h2>平台密钥与余额</h2>
-    <div class="sub">文字 AI 的密钥在下方「文字 AI 接口与模型」里配置；勾掉「侧栏余额」的接口不出现在左侧栏的账户余额里。</div>
+    <h2 class="card-h"><span class="card-ic" data-icon="key" data-size="15"></span>供应商与密钥（按生成类型分开）</h2>
+    <div class="sub">只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。
+      找不到某家，就是还没接进来 —— 点右边的「＋ 添加自定义供应商」。
+      <b>「识图能力」是全局一项</b>，所以只画在当前「作用文字 AI」的那张卡下面。</div>
+    <div class="ui-seg" id="provTabs"></div>
+    <div class="krow thin">
+      <span class="hint sm" id="provSum"></span>
+      <span class="sp"></span>
+      <span class="acts"><button class="ghost" id="cusNew">＋ 添加自定义供应商</button></span>
+    </div>
     <div id="provList"></div>
   </div>
 
-  <div class="card">
-    <h2>下载位置</h2>
-    <div class="sub">各页面「下载 / 保存」的默认位置；「另存为」仍可每次单独选。</div>
-    <div class="krow">
-      <span class="kicon"><span data-icon="scissors" data-size="15"></span></span><span class="kn">剪辑成片</span>
-      <button class="ghost wide" id="pickDirRender"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
-      <span class="dir-name" id="dirNameRender">未设置</span>
-      <button class="ghost wide" id="clearDirRender">清除</button>
+  <div class="card" id="cusCard" hidden>
+    <h2>添加自定义供应商（中转站 / 网关 / 企业部署）</h2>
+    <div class="sub">两种接法：①「供应商」选一家内置平台，<b>接口地址自动填好它官网的地址</b>，贴上密钥点添加；
+      ② 选末尾的「自定义」再挑一个<b>接口形状</b>（OpenAI 兼容 / H3 兼容…），地址与密钥填你自己的。
+      建出来的都是独立的一家：不设家数上限。
+      接口形状真不一样的平台要改 <code>proxy.js</code> 的 <code>REGISTRY</code>，这里不猜字段。</div>
+    <div class="krow thin" id="cusMineRow" hidden>
+      <span class="kn">已添加</span>
+      <div id="cusMine" class="cus-mine"></div>
     </div>
-    <div class="krow">
-      <span class="kicon"><span data-icon="image" data-size="15"></span></span><span class="kn">图片</span>
-      <button class="ghost wide" id="pickDirImg"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
-      <span class="dir-name" id="dirNameImg">未设置</span>
-      <button class="ghost wide" id="clearDirImg">清除</button>
+    <div class="krow thin">
+      <span class="kn">供应商</span>
+      <select id="cusProv" style="flex:1 1 auto"></select>
+      <span class="hint sm" style="flex:1 1 240px">内置那几家<b>照它整套走</b>（能力声明、上传流程、端点全继承），只换你的地址与密钥 ——
+        选了就<b>不用再挑接口形状</b>。最后一项「自定义」= 你跑的是别的厂商的协议。</span>
     </div>
-    <div class="krow">
-      <span class="kicon"><span data-icon="film" data-size="15"></span></span><span class="kn">生成视频</span>
-      <button class="ghost wide" id="pickDirVideo"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
-      <span class="dir-name" id="dirNameVideo">未设置</span>
-      <button class="ghost wide" id="clearDirVideo">清除</button>
+    <div class="krow thin" id="cusShapeRow" hidden>
+      <span class="kn">接口形状</span>
+      <select id="cusShape" style="flex:1 1 auto"></select>
+      <span class="hint sm" id="cusShapeHint" style="flex:1 1 240px"></span>
     </div>
-    <div class="krow">
-      <span class="kicon"><span data-icon="mic" data-size="15"></span></span><span class="kn">语音</span>
-      <button class="ghost wide" id="pickDirAudio"><span data-icon="folder" data-size="13"></span> 选择文件夹…</button>
-      <span class="dir-name" id="dirNameAudio">未设置</span>
-      <button class="ghost wide" id="clearDirAudio">清除</button>
+    <div class="krow thin">
+      <span class="kn">显示名</span>
+      <input id="cusName" placeholder="例如：图片1（会出现在型号下拉的分组名里）">
     </div>
+    <div class="krow thin">
+      <span class="kn">接口地址</span>
+      <input id="cusBase" placeholder="选了供应商会自动填它官网的地址 · 换成你自己的中转 / 网关地址也行（https://gw.example.com/api/v1）">
+    </div>
+    <div class="krow thin">
+      <span class="kn">密钥</span>
+      <input type="password" id="cusKey" placeholder="这一家自己的密钥（存 sk_key_，不进那份平台清单）">
+      <span class="acts"><button class="ghost eye" id="cusEye" title="显示 / 隐藏密钥"><span data-icon="eye" data-size="13"></span></button></span>
+    </div>
+    <div class="krow thin" style="align-items:flex-start">
+      <span class="kn">型号</span>
+      <div id="cusModels" class="cus-models"></div>
+    </div>
+    <div class="krow thin">
+      <span class="kn">自己填 id</span>
+      <input id="cusExtra" placeholder="逗号分隔（这一类没有型号列表接口时才用）">
+      <span class="acts"><button class="ghost xs" id="cusFetch" title="用上面填的地址与密钥，问一次它自己的型号列表（只读，不花钱、不建任务）">获取型号列表</button></span>
+    </div>
+    <div class="cus-acts">
+      <button class="tool acc" id="cusAdd">添加这一家</button>
+      <button class="ghost" id="cusCancel" hidden>取消编辑</button>
+      <span class="hint sm" id="cusCount"></span>
+      <span class="okmsg" id="cusMsg"></span>
+    </div>
+    <div class="sub">地址只收<b>公网 https</b>（回环、内网、明文 http 都会被代理拒绝）。
+      这一家的密钥<b>不会</b>回退到 <code>.env</code> 里的内置密钥。
+      添加与删除<b>当场落盘</b>，不用等「保存全部设置」。</div>
   </div>
 
   <div class="card">
-    <h2>网络与刷新</h2>
+    <h2 class="card-h"><span class="card-ic" data-icon="refresh" data-size="15"></span>网络与刷新</h2>
     <div class="krow" style="gap:10px;flex-wrap:wrap">
       <label class="crow">请求超时
         <input type="number" id="netTimeout" min="5" max="300" step="5" style="width:78px"> 秒</label>
@@ -128,90 +301,94 @@
   </div>
 
   <div class="card">
-    <h2>列表分页</h2>
+    <h2 class="card-h"><span class="card-ic" data-icon="list" data-size="15"></span>列表分页</h2>
     <div class="sub">「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。</div>
     <div id="pageSettings"></div>
   </div>
 
+  <!-- 主题 / 侧栏开合 / 两个列表页的视图档位：以前只能在那几处各点一下（左下角太阳月亮、点 logo 收展、
+       卡片右上角那两个图标），想统一改一次得跑三个页面，设置页里根本看不见它们 —— 于是助手也改不了。
+       控件全部由 ui.js 的 UI_PREFS 现算（键名、默认档、取值都在那张表点一次名），
+       这里只读同一份 localStorage 键、不另存第二份状态。 -->
   <div class="card">
-    <h2>提示词润色（文字 AI）</h2>
-
-    <div class="polish-block">
-      <div class="pb-head"><b>① 视频提示词润色</b><span class="used">用于：视频工作台「AI 润色」 · 导演台右栏「AI 润色提示词」</span>
-        <button class="ghost mini" data-reset="polishVideo">恢复默认</button></div>
-      <textarea id="polishVideo"></textarea>
-    </div>
-
-    <div class="polish-block">
-      <div class="pb-head"><b>② 图片提示词润色</b><span class="used">用于：图片工作台「AI 润色」</span>
-        <button class="ghost mini" data-reset="polishImg">恢复默认</button></div>
-      <textarea id="polishImg"></textarea>
-    </div>
-
-    <div class="polish-block">
-      <div class="pb-head"><b>③ 分镜切片规划（决定张数 + 每张提示词）</b><span class="used">用于：导演台右栏「按描述生成这一镜的画面」</span>
-        <button class="ghost mini" data-reset="polishStory">恢复默认</button></div>
-      <textarea id="polishStory"></textarea>
-      <div class="pb-tip">这条指令要求文字 AI <b>只返回 JSON</b>（<code>{"frames":[{"t":0,"prompt":"…"}]}</code>）：由它决定生成几张、每张在第几秒、每张画什么，随后才会调图片 AI 出图。<b>改这条时请保留 JSON 格式要求</b>，否则会退化成按 2.5 秒硬切片。</div>
-    </div>
-
-    <div class="polish-block">
-      <div class="pb-head"><b>④ 配音稿润色</b><span class="used">用于：语音工作台「AI 润色」</span>
-        <button class="ghost mini" data-reset="polishAudio">恢复默认</button></div>
-      <textarea id="polishAudio"></textarea>
-    </div>
-
-    <div class="polish-block">
-      <div class="pb-head"><b>⑤ 剧本拆分镜</b><span class="used">用于：导演台「贴剧本，一键拆分镜」</span>
-        <button class="ghost mini" data-reset="polishSplit">恢复默认</button></div>
-      <textarea id="polishSplit"></textarea>
-      <div class="pb-tip">这条指令要求文字 AI <b>只返回 JSON</b>（<code>{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}</code>）；
-        末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。<b>改这条时请保留 JSON 格式要求</b>。</div>
-    </div>
-
+    <h2 class="card-h"><span class="card-ic" data-icon="sun" data-size="15"></span>外观与界面</h2>
+    <div class="sub">这几项本来就是「用户调出来的界面」，跟着数据文件走（换台机器还在）。
+      和本页其它设置一样：<b>点下面的「保存全部设置」才生效</b>；保存的那一刻主题与左栏会当场跟着变。</div>
+    <div id="uiPrefs"></div>
   </div>
 
   <div class="card">
-    <h2>文字 AI 接口与模型</h2>
-    <div class="sub">任意 OpenAI 兼容服务。</div>
-
-    <label class="plabel">常用接口（点一下自动填地址，也可自己改）</label>
-    <div class="presets" id="presets"></div>
-
-    <label class="plabel">密钥（留空则使用服务端环境变量 / .env）</label>
-    <div class="krow" id="textKeyRow">
-      <span class="kicon"><span data-icon="key" data-size="15"></span></span>
-      <input type="password" data-key="deepseek" id="textKey" placeholder="填写文字 AI 密钥，或留空使用环境变量">
-      <button class="ghost eye" data-eye="deepseek" title="显示 / 隐藏密钥"><span data-icon="eye" data-size="13"></span></button>
-      <button class="ghost clr" data-clr="deepseek" title="清除本机保存的密钥">清除</button>
-    </div>
-
-    <label class="plabel">接口地址（OpenAI 兼容）</label>
-    <div class="krow"><span class="kicon"><span data-icon="link" data-size="15"></span></span><input id="textBase" placeholder="https://api.deepseek.com"></div>
-
-    <label class="plabel">模型</label>
-    <div class="krow">
-      <span class="kicon"><span data-icon="brain" data-size="15"></span></span>
-      <select id="textModel" style="flex:1"></select>
-      <button class="ghost" id="fetchModels" title="用上面的密钥调用 /models 接口">获取模型列表</button>
-      <button class="ghost" id="testTextAI" title="发一条测试消息验证密钥与模型">测试</button>
-    </div>
-    <div class="pb-tip" id="textModelTip">模型列表来自接口的 /models。</div>
-
-    <label class="plabel">识图能力（润色时把参考图一起发给文字 AI）</label>
-    <div class="krow">
-      <span class="kicon"><span data-icon="eye" data-size="15"></span></span>
-      <select id="textVision" style="flex:1">
-        <option value="auto">自动（按注册表声明 / 模型名判断）</option>
-        <option value="on">支持识图（把上传的图片一起发给它）</option>
-        <option value="off">不支持（只发文字）</option>
-      </select>
-    </div>
-    <div class="pb-tip" id="textVisionTip"></div>
+    <h2 class="card-h"><span class="card-ic" data-icon="film" data-size="15"></span>拍短剧</h2>
+    <div class="sub">这几项只作用于「拍短剧」那一页。控件按 <code>drama.js</code> 里那一张设置表现渲染，
+      页面上的说法与真的发给文字 AI 的参数用的是同一个开关 —— 改完要点下面「保存全部设置」才生效。</div>
+    <div id="dramaSet"></div>
   </div>
 
   <div class="card">
-    <h2>数据与同步</h2>
+    <h2 class="card-h"><span class="card-ic" data-icon="brain" data-size="15"></span>AI 助手</h2>
+    <div class="sub">右下角那个悬浮球 / 右侧抽屉（<code>Ctrl + /</code> 开合）。它<b>读</b>本机数据不用问；
+      <b>动手</b>（提交一次生成、改一项设置）默认要你在卡片上点「执行」。</div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acOff"> 启用 AI 助手（默认开；关掉后右下角不再有悬浮球，Ctrl + / 也不生效）</label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acAuto"> 执行前不用我点确认（卡片照画，动作自动提交）</label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acSnap"> 悬浮球拖到窗口边上时吸住（默认开）</label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acNotice"> 助手提交的任务出结果时弹一次系统通知</label>
+      <button class="ghost mini" id="acNoticeAsk">现在授权</button>
+      <span class="sub-line" id="acNoticeState"></span>
+    </div>
+    <div class="pb-tip">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着，
+      重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div>
+    <div class="pb-tip">勾上之后助手<b>校验完就立刻执行</b>，不等你点确认。一次生成在平台那边就是一条真任务，
+      <b>没把握就别勾</b>。</div>
+    <div class="pb-tip">「吸住」与「任务提醒」还有这个总开关都是<b>本机窗口</b>的事，<b>不跟着云同步</b>、不参与整包备份。</div>
+    <details class="ref"><summary>系统通知的授权怎么做</summary><div class="ref-body">
+      球上的数字不需要授权，抽屉收着也会在出结果时点亮；<b>系统通知</b>要浏览器点头，所以有上面那颗「现在授权」。
+      拒过一次浏览器就不再问，得去地址栏左边的「网站设置」里手动放开。
+      它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>
+  </div>
+
+  <!-- 长卡：默认折叠起来（平时几乎不用开这里），点标题就开合。
+       开合状态存 data-fold-key 指的键（set_fold_polish），下次进来还是你上次留下的那个。 -->
+  <div class="card foldable" id="polishCard" data-fold-key="set_fold_polish">
+    <h2 class="card-h"><span class="card-ic" data-icon="pencil" data-size="15"></span>提示词润色（文字 AI）</h2>
+    <div class="card-acts">
+      <button class="tool fold-toggle" type="button" aria-expanded="false"
+        id="polishFold" title="这些指令的默认文本都写好了，平时不用展开">展开</button>
+    </div>
+    <div class="sub">按用途分成几类，每一条的默认文本都写好了（见 <code>assetlib.js</code> 的 <code>TextAI.DEF</code>）。确实要改再展开。</div>
+
+    <div class="fold-body">
+    <!-- 分类与每一格都**由 assetlib.js 的 TextAI.PROMPTS 现算**（页面上不写死）——
+         以前这里是 11 个手写的 .polish-block，外加保存 / 读取 / 恢复默认三处各抄一遍键名，
+         加一条指令要改四个地方，漏一处就是「设置页列出来了但存盘没存上」或反过来。 -->
+    <div id="polishGroups"></div>
+
+    <div class="polish-block">
+      <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）</span></div>
+      <div class="krow tight">
+        <span class="kicon"><span data-icon="brain" data-size="15"></span></span>
+        <select id="polishAsk" style="flex:1;max-width:460px">
+          <option value="ai">交给 AI 判断（推荐）：它读完觉得缺什么才问</option>
+          <option value="on">强制先问</option>
+          <option value="off">从不问，直接润色</option>
+        </select>
+      </div>
+      <div class="pb-tip">「AI 判断」= 先让文字 AI 读一遍你的描述，<b>它自己决定</b>是先反问几个问题、还是直接润色
+        （按「补上这些会不会明显改变成片效果」判断，不按字数）。你答完，答案会当<b>硬约束</b>写进润色。</div>
+    </div>
+
+    </div>
+  </div>
+
+
+  <div class="card">
+    <h2 class="card-h"><span class="card-ic" data-icon="upload" data-size="15"></span>数据与同步</h2>
     <div class="sub">开启后数据会同时写一份到本机项目目录的 <code>.data/</code>（普通 JSON 文件），可备份、可同步到你自己的网盘。</div>
 
     <div class="krow">
@@ -254,6 +431,8 @@
       <button class="ghost wide" id="cloudSync" title="两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边">⇅ 一键双向同步</button>
       <label class="crow">
         <input type="checkbox" id="cloudKeys"> 连密钥一起同步（默认否）</label>
+      <label class="crow" title="提示词归档是磁盘上的一堆 .md，以前既不在 .data/ 也进不了整包备份 —— 换机器就没了。勾上以后跟着 push/pull/sync 一起走云端的 prompts/ 目录。只推不删：云端多出来的只报数量，不会动本机。">
+        <input type="checkbox" id="cloudPrompts"> 连提示词归档一起（默认否）</label>
       <span class="hint sm" id="cloudMsg"></span>
     </div>
     <div class="krow" style="margin-top:2px">
@@ -266,39 +445,51 @@
   </div>
 
   <div class="card">
-    <h2>清理缓存</h2>
-    <div class="sub">下面清的都是<b>会自己长回来的副本</b>：平台应答、模型能力、缩略图、探测结果。
-      清了最多多等一次请求，不会删掉生成出来的图片/视频/语音、提示词归档和收藏。
-      换密钥、代理接了新平台、平台改了参数而又不想等缓存过期时用它。</div>
+    <h2 class="card-h"><span class="card-ic" data-icon="gear" data-size="15"></span>本机环境</h2>
+    <div class="sub">问的是<b>这台机器现在能不能干活</b>：代理版本、导出成片要的 ffmpeg、三个落盘目录能不能写。
+      全部现读，<b>一个字节都不写</b>。</div>
+    <div id="sysRows"><span class="hint sm">体检中…</span></div>
+    <div class="krow tight" style="margin-top:6px">
+      <button class="ghost wide" id="sysRecheck">重新体检</button>
+      <button class="ghost wide" id="sysCopy" title="把上面这几行连原因一起复制成一段文字，贴给别人排查时不用再截图">复制体检结果</button>
+      <span class="hint sm" id="sysMsg"></span>
+    </div>
+    <div class="pb-tip">「重新体检」会让代理真的再跑一次 <code>ffmpeg -version</code>：刚装好 ffmpeg、或刚改过 PATH 时用这一颗，不用重启代理。</div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-h"><span class="card-ic" data-icon="trash" data-size="15"></span>清理缓存</h2>
+    <div class="sub">这四项都是<b>能自己重新生成的缓存</b>，清掉不会少任何作品（图片 / 视频 / 语音、提示词归档、收藏、历史一律不动）。
+      <b>换密钥、平台改了参数又不想干等过期</b>时用这一栏最快。</div>
     <div class="krow tight">
       <span class="kn">平台接口应答</span>
-      <span class="sub-line">任务列表 / 详情、资产地址、模型能力、报价；分浏览器和代理两份</span>
+      <span class="sub-line">平台返回的列表 / 任务详情 / 产物地址 / 能力表 / 报价的副本。换了密钥或平台改了参数时清它，清完下次打开重新拉一遍。</span>
       <button class="ghost mini wide" id="clearCacheApi">清空</button>
     </div>
     <div class="krow tight">
-      <span class="kn">文字 AI 模型信息</span>
-      <span class="sub-line">每个模型记下的接口形状与识图能力判定（换了模型或它突然支持识图了）</span>
+      <span class="kn">文字 AI 型号能力</span>
+      <span class="sub-line">每个文字型号「能不能识图」的判定结果（缓存 12 小时）。清了会在下次润色 / 打开设置时重新拉一次 —— 换了文字模型、或者某个型号突然支持识图了，就清它。</span>
       <button class="ghost mini wide" id="clearCacheMeta">清空</button>
     </div>
     <div class="krow tight">
-      <span class="kn">缩略图 / 体积探测</span>
-      <span class="sub-line">视频首帧与图片缩略图（本机存一份，重新抽帧即可恢复）</span>
+      <span class="kn">缩略图与体积探测</span>
+      <span class="sub-line">视频首帧与图片小图的本地副本，以及上传前的体积测量结果（存 IndexedDB）。清了下次看列表会重新抽帧 —— 视频多时 CPU 会忙一会儿，产物本身不受影响。</span>
       <button class="ghost mini wide" id="clearCacheThumb">清空</button>
     </div>
     <div class="krow tight">
-      <span class="kn">「本机没有归档」标记</span>
-      <span class="sub-line">提示词归档里查不到的任务标记（记下后不再反复问，归档补回来后清一次即可）</span>
+      <span class="kn">「没归档到」标记</span>
+      <span class="sub-line">哪些任务的提示词在本机归档里找不到（避免反复去问同一个任务号，只在本标签页有效）。往归档文件夹里手工补了文件、或换了归档目录之后清它，那些任务就能被补上提示词了。</span>
       <button class="ghost mini wide" id="clearCacheMissed">清空</button>
     </div>
     <!-- 本地任务记录不是缓存（删了就没了），所以单独一组、按 HISTORY 声明动态列出，且要二次确认 -->
     <div id="histClearRows"></div>
-    <div class="krow" style="margin-top:2px">
-      <span class="hint sm" id="cacheMsg"></span>
-    </div>
+    <!-- 结果提示行：以前包在 .krow 里，#cacheMsg 还没内容时就只剩一条**空灰条**（看着像多出来一个坏掉的组件）。
+         现在用普通块 + :empty 隐藏，没消息时整行不占位。 -->
+    <div class="hint sm" id="cacheMsg" style="margin-top:8px;min-height:14px"></div>
   </div>
 
   <div class="card">
-    <h2>提示词归档</h2>
+    <h2 class="card-h"><span class="card-ic empty"></span>提示词归档</h2>
 
     <label class="plabel">归档目录</label>
     <div class="krow">
@@ -330,126 +521,1069 @@
 <script src="ui.js"></script>
 <!-- 清理缓存那一节要用 Wb.thumbs / Wb.History（只加载定义，本页没有 .wb2 布局不会触发分栏逻辑） -->
 <script src="workbench.js"></script>
+<!-- 「拍短剧」那一节的控件由 drama.js 的 Drama.SET 现渲染（默认值与取值不许在设置页再抄一份） -->
+<script src="drama.js"></script>
 <script src="sidebar.js"></script>
+<script src="ai-chat.js"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
 let REG = { providers: [] };
+/* 注册表只有**一份真相**：下面「文字 AI」那一段在另一个闭包里，跨闭包只能读 window（见 AGENTS.md 第 3 节），
+   所以它看的是 `window.__REG`。加 / 删一家自定义供应商时只换 REG 就会出现「刚加的那家在供应方下拉里根本没有」
+   —— 两处一起换，而且只从这一个函数换，免得以后又有一处只改一半。 */
+function setREG(d) { REG = d && d.providers ? d : { providers: [] }; window.__REG = REG; return REG; }
 let envInfo = {};
-const fmtMicros = m => '¥' + (Number(m || 0) / 1e6).toFixed(2);
 const keyFor = id => localStorage.getItem('sk_key_' + id) || '';
+/* 平台名 / 官网地址 / 密钥与地址的已存值都要进 innerHTML（地址是用户输入的字符串）。 */
+const escA = s => window.esc(s);
+/* renderProv 画出来的那几行平台（按 keyId 存着）：验证按钮、保存地址、恢复默认都要按 keyId
+   找回它的原始声明（prov / 官方地址 / 显示名），不要在别处再拿 REG 现拼一份。 */
+const provRows = new Map();
+/* 「点保存才生效」的可视化：改动过就把保存按钮点亮成待保存色。
+   以前只有个别项即时生效、其它项要保存，两套口径混着最容易误操作，
+   现在统一成「都等保存」，那更需要一个明确的「还没存」信号。 */
+/* 这一页有 12 张卡，改完不保存就点侧栏 = 整份表单无声丢掉（iframe 一换，没有第二次机会）。
+   所以「有没有没存的改动」要能被外壳问一句（`__skDirty`），也要能拦住刷新 / 关标签页。
+   外壳答应了离开之后调 `__skLeaving()`，那一趟就不再问第二遍（beforeunload 与外壳的确认框会叠成两次）。 */
+let skDirty = false, skLeaving = false;
+window.__skDirty = () => (skDirty && !skLeaving)
+  ? '设置页有改动还没点「保存全部设置」：现在离开这一页，这些改动会全部丢掉（下面那些卡里的每一项都是）。' : '';
+window.__skLeaving = () => { skLeaving = true; };
+window.addEventListener('beforeunload', e => {
+  if (!skDirty || skLeaving) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+function markDirty() {
+  skDirty = true;
+  const bar = document.querySelector('.savebar');
+  if (bar) bar.classList.add('dirty');
+  const ok = document.getElementById('okmsg');
+  if (ok && !ok.textContent) { ok.className = 'okmsg dirty-note'; ok.textContent = '有改动，点「保存全部设置」生效'; }
+}
+function markSaved() {
+  skDirty = false; skLeaving = false;
+  const bar = document.querySelector('.savebar');
+  if (bar) bar.classList.remove('dirty');
+  const ok = document.getElementById('okmsg');
+  if (ok && !ok.textContent) ok.className = 'okmsg';   // 刚给「存了什么/跳过了什么」的提示留 4 秒，不抢
+}
 
 async function loadReg() {
-  try { REG = await Api.registry(); } catch { REG = { providers: [] }; }
+  try { setREG(await Api.registry()); } catch { setREG(null); }
   if (window.Api) Api.setRegistry(REG);
-  try { envInfo = await Net.json('/env-status', { timeout: 8000 }); } catch { envInfo = {}; }
+  try { envInfo = (window.Api && Api.envStatus) ? await Api.envStatus() : await Net.json('/env-status', { timeout: 8000 }); } catch { envInfo = {}; }
   renderProv();
+  /* 「接口形状 / 型号」两格的内容就是这份注册表里的内置平台与它们的型号，所以必须等 REG 到手才画得出来 */
+  renderCus();
 }
-function renderProv() {
-  const box = $('provList');
-  box.innerHTML = '';
-  const mergedMap = new Map();
+/* 供应商那张卡：内置的几家 + 设置页添加的自定义接口，全都来自 /registry（代理已经把两份合并好）。
+   按**生成类型**分开配 —— 图片认 image、视频认 video、语音认 audio（生成工作台顶部的类型开关就是按这个分的），文字 AI 在下面那张卡。
+   所以「添加一家」之后只要重取注册表，这一类的下拉和对应工作台的型号下拉都跟着变 —— 页面不认识具体厂商。 */
+const KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
+const PROV_KINDS = ['image', 'video', 'audio', 'text'];   // 文字 AI 的供应方也在这里配，不再单独开一个分类
+/* 当前开的是哪一类、每一类各自选中了哪一家。哪一类存进 sk_prov_tab：那是界面偏好，
+   「恢复默认」不清它（和主题、列表视图同一档，见 RESET_KEEP）。 */
+let provTab = localStorage.getItem('sk_prov_tab');
+if (PROV_KINDS.indexOf(provTab) < 0) provTab = 'image';
+const provSel = new Map();          // kind → 这一类里最后看过的 keyId（只用于默认展开哪张卡）
+/* 还没点保存的密钥 / 地址输入：切类型、重画面板时正在打的那个值不能丢。saveAll 落盘后清空。 */
+const keyDraft = new Map();
+const baseDraft = new Map();
+const draftKey = kid => (keyDraft.has(kid) ? keyDraft.get(kid) : keyFor(kid));
+const draftBase = kid => (baseDraft.has(kid) ? baseDraft.get(kid) : (localStorage.getItem('sk_base_' + kid) || ''));
+/* 文字 AI 现在用哪一家：供应商卡里那个单选框选的是哪一家（没选过就看 TextAI 自己的判定）。
+   下面那张「文字 AI 接口与模型」卡里的型号 / 识图都跟它走，两处只看同一个 provider。 */
+function curTextId() {
+  const list = TextAI.all(window.__REG || REG);
+  if (!list.length) return '';
+  const picked = document.querySelector('[data-tpick]:checked');
+  if (picked && picked.dataset.tpick) return picked.dataset.tpick;
+  const saved = TextAI.savedProv(window.__REG || REG);
+  return saved ? saved.id : (TextAI.prov(window.__REG || REG) || list[0]).id;
+}
+
+/* 按「存密钥的那一格」（keyId）归并：一家平台可以同时服务图片与视频，它们共用一把 sk_key_<keyId>，
+   界面上也就只该有一条 —— 同一次保存里两个框抢同一把钥匙，后写的那个会把前一个盖掉，那是真丢配置。 */
+function provGroups() {
+  const merged = new Map();
   (REG.providers || []).forEach(p => {
-    if (p.kind === 'text') return;   // 文字 AI 的密钥/模型统一在下方「文字 AI 接口与模型」里配置
+    /* 文字 AI 也过这口（kind:'text'）：密钥、可改的接口地址、停用、余额全部在这张卡里配。 */
     const keyId = p.keyId || p.id;
-    let m = mergedMap.get(keyId);
-    if (!m) { m = { keyId, names: [], kinds: [], credits: null, baseEditable: false, site: '' }; mergedMap.set(keyId, m); }
+    let m = merged.get(keyId);
+    /* prov 带第一家的原始声明：验证按钮要按它的 endpoints/balance.style 问一次只读接口，
+       自己另拼一份「先试余额再试列表」就是第二份实现（而且各家端点名不一样，拼不出）。 */
+    if (!m) {
+      m = { keyId, names: [], kindIds: [], credits: null, site: '', base: p.base || '', prov: p,
+        custom: !!p.custom, shapeName: p.customShapeName || '' };
+      merged.set(keyId, m);
+    }
     m.names.push(p.name);
     if (!m.site && p.site) m.site = p.site;
-    m.kinds.push(p.kind === 'image' ? '图片' : p.kind === 'video' ? '视频' : p.kind === 'text' ? '文字AI' : p.kind);
-    if (p.endpoints?.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
-    if (p.baseEditable) m.baseEditable = true;
+    m.kindIds.push(p.kind);
+    if (p.endpoints && p.endpoints.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
   });
-  mergedMap.forEach(m => { m.name = (m.names[0] || '').split(' ')[0]; m.kindLabel = [...new Set(m.kinds)].join('+'); });
-  mergedMap.forEach(m => {
-    const card = document.createElement('div');
-    card.className = 'krow';
+  const all = [...merged.values()];
+  all.forEach(m => {
+    m.name = (m.names[0] || '').split(' ')[0];
+    m.kindSet = [...new Set(m.kindIds)];
+    m.kindLabel = m.kindSet.map(k => KIND_ZH[k] || k).join('+');
+  });
+  return all;
+}
+/* 这一家的密钥现在是什么状态（下拉的选项文字与汇总行都用它，只算一遍） */
+function keyState(m) {
+  if (draftKey(m.keyId)) return '已填密钥';
+  if ((envInfo[m.keyId] || {}).hasEnv) return '用服务端密钥';
+  return '还没填密钥';
+}
+/* 「这一家现在算不算在用」= 上面那张清单列不列它。
+   判据本体在 `assetlib.js` 的 `Api.provUsable` —— 侧栏的余额列表用的是**同一份**。
+   各写一份就会出现「设置页里根本没有这一家、侧栏却挂着一张永远获取失败的余额卡」。
+   两档都算在用：自己添加进来的（`custom`，哪怕还没填密钥 —— 刚添加完总得看得见，
+   否则「我明明添加了」就只能靠猜），以及密钥已经有着落的（设置里填了 / `.env` 里有）。
+   剩下一档（内置平台且一把密钥都没有）不列：**在设置页摆一张填不了也用不上的卡**，
+   既回答不了「我在用哪几家」，又把真在用的那几家挤到下面去。 */
+function provUsable(m) {
+  return (window.Api && Api.provUsable) ? Api.provUsable({ keyId: m.keyId, id: m.prov.id, custom: m.custom }, envInfo)
+    : (!!m.custom || keyState(m) !== '还没填密钥');
+}
+/* 这一把密钥**现在是从哪来的** —— 写在卡上，因为「.env 里明明没有 DeepSeek，它怎么还列着」
+   是个真问题：密钥除了 .env / 服务端环境，还存在**设置页自己**那份
+   `.data/sk_key_<keyId>.json`（往卡里粘过并保存过就一直留着，跟 .env 无关）。
+   查文件是查不到的（键名对不上），所以只能在这里说清楚。 */
+function keySourceNote(kid) {
+  const local = !!draftKey(kid);
+  const env = !!(envInfo[kid] && envInfo[kid].hasEnv);
+  if (local && env) return '密钥来源：设置页里存着一把（与 .env 无关；留空即改回用 .env 那把）';
+  if (local) return '密钥来源：<b>设置页里存着的</b>（存在 <code>.data/sk_key_' + escA(kid) + '.json</code>，与 .env 无关）—— 点「清除」才会真的没有';
+  if (env) return '密钥来源：服务端环境密钥（.env 或系统环境变量）';
+  return '密钥来源：还没有（在上面填一把，或在 <code>.env</code> 里配同名变量）';
+}
+/* 「文字」一档里，每张供应商卡下面那一段（型号 / 自填型号 / 识图）。
+   只画骨架，取型号列表、判识图、请求 /models 这些都在闭包里的 window.__textForm（paint 时填）。
+   识图开关（sk_text_vision）是**全局一项**，所以只画在当前「作用文字 AI」的那一张卡上，
+   每张都画一份就成了三个开关改同一个键。 */
+function textBlock(m) {
+  const kid = escA(m.keyId);
+  const on = curTextId() === m.prov.id;
+  return '<div class="tai" data-tai="' + kid + '">'
+    + '<div class="tai-h">' + icon('brain', 13) + '文字 AI 型号'
+    + '<span class="hint sm">下拉里<b>只有这一家</b>的型号：接口返回（点「获取型号列表」）／自己添加</span></div>'
+    + '<div class="krow thin"><span class="kn">型号</span>'
+    + '<select data-tmodel="' + kid + '"></select>'
+    + '<span class="acts">'
+    + '<button class="ghost xs" data-tfetch="' + kid + '" title="用这一栏里现在的密钥与接口地址问一次它的 /models（不花钱）">获取型号列表</button>'
+    + '<button class="ghost xs" data-ttest="' + kid + '" title="给这一家发一条测试消息（用上面下拉里当前这个型号）">测试</button>'
+    + '</span></div>'
+    + '<div class="krow tight">'
+    + '<input data-tmnew="' + kid + '" placeholder="自己填一个型号，例如 openai/gpt-4o-mini、glm-4-flash">'
+    + '<button class="ghost wide" data-tadd="' + kid + '">添加型号</button></div>'
+    + '<div class="krow tight" data-tchips="' + kid + '"></div>'
+    + (on
+      ? '<div class="tai-h">' + icon('eye', 13) + '识图能力'
+        + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应方生效）</span></div>'
+        + '<div class="krow"><span class="kn">参考图</span>'
+        + '<select data-tvision="' + kid + '">'
+        + '<option value="auto">自动（按接口 / 平台声明）</option>'
+        + '<option value="on">支持识图（把图片一起发给它）</option>'
+        + '<option value="off">不支持（只发文字）</option>'
+        + '</select></div>'
+        + '<div class="pb-tip" data-vtip="' + kid + '"></div>'
+      : '')
+    + '</div>';
+}
+function renderProv() {
+  const all = provGroups();
+  /* ① 类型分段。按钮后面那个小数字 = 这一类**现在列着几家**（= 在用的几家）。
+     「注册表里一共几家可选」写在下面那行汇总里 —— 同一件事不说两遍。 */
+  const listed = k => all.filter(m => m.kindSet.includes(k) && provUsable(m)).length;
+  const tabs = $('provTabs');
+  tabs.innerHTML = PROV_KINDS.map(k => '<button data-tab="' + k + '"' + (k === provTab ? ' class="on"' : '') + '>'
+    + escA(KIND_ZH[k]) + '<b class="seg-n">' + listed(k) + '</b></button>').join('');
+  tabs.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+    if (b.dataset.tab === provTab) return;
+    provTab = b.dataset.tab;
+    localStorage.setItem('sk_prov_tab', provTab);
+    renderProv();
+    /* 「添加自定义供应商」那张卡的类型就是这一档（表单里没有类型下拉），
+       切档时顺手按新的一类重画它 —— 卡收着时不动，免得在背后清掉用户填了一半的东西。 */
+    cusKindChanged();
+  });
+  /* ② **只列「已经在用的」那几家**：自己添加进来的（`m.custom`），或者密钥已经有着落的
+     （设置里填了，或 `.env` 里有服务端密钥）。没密钥的内置平台**不列** ——
+     一张没有密钥的卡摆在设置页里既不能干什么，又把「我在用哪几家」这件真问题淹掉；
+     想用它就走右边的「＋ 添加自定义供应商」：选它、地址自动填好、贴把密钥、点添加。
+     归并仍然按 keyId（一家平台做图片与视频只出现一次），所以同一次保存里不会有两个框抢同一把钥匙。 */
+  const gs = all.filter(m => m.kindSet.includes(provTab) && provUsable(m));
+  const avail = all.filter(m => m.kindSet.includes(provTab));
+  provRows.clear();
+  gs.forEach(m => provRows.set(m.keyId, m));
+  const noKey = gs.filter(m => keyState(m) === '还没填密钥').length;
+  $('provSum').textContent = gs.length
+    ? KIND_ZH[provTab] + '类：已接 ' + gs.length + ' 家 · 注册表里共 ' + avail.length + ' 家可选'
+      + (noKey ? ' · 有 ' + noKey + ' 家还没填密钥' : ' · 密钥都配好了')
+    : (KIND_ZH[provTab] || provTab) + '类还没有在用的平台 —— 注册表里共 ' + avail.length
+      + ' 家可选，点右边的「＋ 添加自定义供应商」把要用的接进来（选它、填上密钥，地址会自动填好官网的）';
+  /* ③ 一家一张卡（一次一把钥匙只对应一个输入框，理由见 provGroups） */
+  const box = $('provList');
+  box.innerHTML = '';
+  const order = gs.slice().sort((a, b) => (a.custom === b.custom ? 0 : (a.custom ? 1 : -1)));
+  for (const cur of order) {
+    const m = cur, kid = m.keyId, off = Api.isOff(m.prov);
+    provRows.set(kid, m);
+    const wrap = document.createElement('div');
+    wrap.className = 'prov' + (off ? ' off' : '') + (m.custom ? ' cus' : '');
     const nameHtml = m.site
-      ? `<a class="site" href="${m.site}" target="_blank" rel="noopener" title="打开官网 ${m.site}">${m.name}</a>`
-      : m.name;
-    card.innerHTML = '<span class="kicon">' + icon('key', 15) + '</span><span class="kn">' + nameHtml + '<div class="kinds">' + m.kindLabel + '</div></span>' +
-      '<input type="password" data-key="' + m.keyId + '" value="' + (keyFor(m.keyId) || '').replace(/"/g, '&quot;') + '" placeholder="' + (envInfo[m.keyId]?.hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写密钥，或使用默认') + '">' +
-      '<button class="ghost eye" data-eye="' + m.keyId + '" title="显示 / 隐藏密钥">' + icon('eye', 13) + '</button>' +
-      '<button class="ghost clr" data-clr="' + m.keyId + '" title="清除本机保存的密钥">清除</button>' +
-      /* 侧栏「账户余额」只显示勾上的接口（勾选即时生效，左侧不用刷新） */
-      (m.credits ? '<label class="sbshow" title="勾选后在左侧栏「账户余额」里显示这个接口的余额">'
-        + '<input type="checkbox" data-bal="' + m.keyId + '"' + (SbBal.isOff(m.keyId) ? '' : ' checked') + '>侧栏余额</label>' : '');
-    box.appendChild(card);
+      ? '<a class="site" href="' + escA(m.site) + '" target="_blank" rel="noopener" title="打开官网 ' + escA(m.site) + '">' + escA(m.name) + '</a>'
+      : escA(m.name);
+    /* 内置那几家不给地址栏：要接同形状的中转站，请用「＋ 添加自定义供应商」登记成**另一家** ——
+       那样它的密钥、停用勾选、历史都独立算，不会和官方那一家搅在一起。 */
+    const others = m.kindSet.filter(k => k !== provTab).map(k => KIND_ZH[k] || k);
+    const meta = m.custom
+      ? ('转发到 <code>' + escA(m.prov.base) + '</code> · 接口形状取自「' + escA(m.shapeName) + '」 · 型号 '
+        + ((m.prov.models || []).length) + ' 个 —— 名字 / 地址 / 型号清单点下面那颗「编辑」改')
+      : (m.prov.baseEditable
+        ? '官方地址 <code>' + escA(m.base) + '</code>（可以改成任意 OpenAI 兼容地址，按供应方各存各的）'
+        : '官方地址 <code>' + escA(m.base) + '</code>（这一栏不收地址：同形状的中转站请添加成自定义供应商，'
+          + '免得和官方那一家共用一把密钥）');
+    wrap.innerHTML =
+      '<div class="krow">' +
+        '<span class="kicon">' + icon('key', 15) + '</span><span class="kn">' + nameHtml
+          + '<div class="kinds">' + escA(m.kindLabel) + (m.custom ? ' · 自定义' : '') + '</div></span>' +
+        '<input type="password" data-key="' + escA(kid) + '" value="' + escA(draftKey(kid)) + '" placeholder="'
+          + (m.custom ? '填写这一家自己的密钥（不会用内置平台的密钥）'
+            : envInfo[kid] && envInfo[kid].hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写密钥，或使用默认') + '">' +
+        '<span class="acts">' +
+          '<button class="ghost eye" data-eye="' + escA(kid) + '" title="显示 / 隐藏密钥">' + icon('eye', 13) + '</button>' +
+          '<button class="ghost clr" data-clr="' + escA(kid) + '">清除</button>' +
+          '<button class="ghost xs" data-vfy="' + escA(kid) + '"'
+            + ' title="用这一栏里现在的密钥问一次只读接口（余额 / 模型清单 / 列表），不建任务、不扣费；不用先点保存">验证</button>' +
+          /* 勾选框**一律画**，不再按「注册表声明了 credits 端点」过滤：
+             那个条件让文字与语音一家都画不出来（那几家平台当时没声明），四类里唯独这两类缺这一项，
+             看着像功能没做完。平台真没提供余额接口也画，只是把原因写进 title 并压暗一档 ——
+             勾了不显示，好过连入口都找不到。 */
+          '<label class="sbshow' + (m.credits ? '' : ' dim') + '" title="'
+          + (m.credits
+            ? '勾选后在左侧栏「账户余额」里显示这个接口的余额（点「保存全部设置」生效）'
+            : '这家平台没有提供余额查询接口，勾了也不会显示余额 —— 只有注册表里声明了余额端点的平台才画得出来')
+          + '"><input type="checkbox" data-bal="' + escA(kid) + '"' + (SbBal.isOff(kid) ? '' : ' checked') + '>侧栏余额</label>' +
+          '<label class="sbshow" title="勾上 = 这一家不进该工作台的型号下拉（历史任务照常能看）。点「保存全部设置」生效">'
+            + '<input type="checkbox" data-off="' + escA(kid) + '"' + (off ? ' checked' : '') + '>暂时不用</label>' +
+          (m.custom ? '<button class="ghost xs" data-cedit="' + escA(kid) + '">编辑</button>'
+            + '<button class="ghost xs danger" data-cdel="' + escA(kid) + '">删除</button>' : '') +
+          /* 「作用文字 AI」只对文字类型有意义（其它类型是按型号选，没有「默认供应方」这一说） */
+          (provTab === 'text' ? '<label class="sbshow" title="润色、识图、发送消息都发给这一家（点「保存全部设置」生效）">'
+            + '<input type="radio" name="textProvPick" data-tpick="' + escA(m.prov.id) + '"'
+            + (curTextId() === m.prov.id ? ' checked' : '') + '>作用文字 AI</label>' : '') +
+        '</span>' +
+      '</div>' +
+      (m.prov.baseEditable
+        ? '<div class="krow thin"><span class="kn">接口地址</span>'
+          + '<input data-base="' + escA(kid) + '" value="' + escA(draftBase(kid)) + '" placeholder="留空则用：' + escA(m.base) + '">'
+          + '<span class="hint sm" data-basehint="' + escA(kid) + '"></span></div>'
+        : '') +
+      '<div class="meta">' + meta
+      + (others.length ? '<br>同一把密钥也用于：' + escA(others.join(' / ')) + '（切上面那一档，看到的还是这一把）' : '')
+      + '<br>' + keySourceNote(kid)
+      + '</div>' +
+      '<div class="msg" data-msg="' + escA(kid) + '"></div>' +
+      /* 「文字」这一档才有的那一段：型号、自己填的型号、识图。
+         长在**这一家**的卡里而不是另开一张卡 —— 供应方、密钥、地址、型号、识图本来就是同一家的事，
+         拆成两处必然对不上（改完地址忘了改型号 / 看着型号在另一张卡里）。 */
+      (provTab === 'text' ? textBlock(m) : '');
+    box.appendChild(wrap);
     // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，直接清掉，保持输入框为空
-    if (envInfo[m.keyId]?.hasEnv) {
-      const lk = keyFor(m.keyId);
-      if (lk && lk.slice(-4) === envInfo[m.keyId].tail) {
-        localStorage.removeItem('sk_key_' + m.keyId);
-        card.querySelector('input').value = '';
+    if (!m.custom && envInfo[kid] && envInfo[kid].hasEnv) {
+      const lk = keyFor(kid);
+      if (lk && lk.slice(-4) === envInfo[kid].tail) {
+        localStorage.removeItem('sk_key_' + kid);
+        keyDraft.delete(kid);
+        wrap.querySelector('[data-key]').value = '';
       }
     }
+  }
+  /* 代理把清单里读不懂的条目丢掉时必须当场说出来：不然「我明明添加了，下拉里没有」只能靠猜。 */
+  const cu = REG && REG.custom;
+  const dropped = (cu && cu.dropped) || [];
+  if (dropped.length || (cu && cu.reason)) {
+    const line = document.createElement('div');
+    line.className = 'msg err';
+    line.textContent = '有 ' + dropped.length + ' 条自定义平台没被本地代理认：'
+      + dropped.map(d => '「' + d.id + '」' + d.why).join('；') + (cu.reason ? '（' + cu.reason + '）' : '') + '。';
+    box.appendChild(line);
+  }
+  /* 「验证」用的是**这一栏现在的值**（含还没保存的那把）：自定义平台的地址在代理那份声明里，
+     浏览器递不进第二个地址，所以只有密钥这一件事需要跟着输入框走。 */
+  box.querySelectorAll('[data-vfy]').forEach(btn => btn.onclick = async () => {
+    const k = btn.dataset.vfy, m = provRows.get(k);
+    btn.disabled = true;
+    const via = Api.verifyTarget(m.prov);
+    /* 文字 AI 的 registry 只声明了 chat（没有余额 / 模型清单端点），Api.verify 会直接拒绝。
+       它们的验证口径是拉一次 /models（不花钱、不建任务），就用 TextAI 那一份实现。 */
+    if (!via.via) {
+      setMsg(k, via.label || '', 'msg');
+      const r = await TextAI.verifyKey(m.prov, { key: draftKey(k), base: draftBase(k) || null });
+      btn.disabled = false;
+      setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.detail || r.why || '') + '（转发到 ' + m.prov.base + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
+      return;
+    }
+    setMsg(k, '正在用这一栏里的密钥问一次「' + via.label + '」…', 'msg');
+    const r = await Api.verify(m.prov, { key: draftKey(k), base: draftBase(k) || null });
+    btn.disabled = false;
+    setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + m.prov.base + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
   });
-  // 密钥默认密文，点眼睛可切换明文查看（全页绑定：顶部平台密钥 + 下方文字 AI 密钥）
+  /* 接口地址：输入时现算一次「这个 host 是不是别家的官方地址」，当场写在名字后面的提示里。 */
+  box.querySelectorAll('[data-base]').forEach(inp => inp.oninput = () => {
+    baseDraft.set(inp.dataset.base, inp.value.trim());
+    const m = provRows.get(inp.dataset.base);
+    const hint = document.querySelector('[data-basehint="' + inp.dataset.base + '"]');
+    const v = inp.value.trim();
+    if (!hint || !m) return;
+    const own = Api.hostOwner(REG, v, m.prov);
+    hint.textContent = !v ? '留空 = 用官方地址' : (own && own.kind === 'other-provider')
+      ? '⚠ 这是「' + own.name + '」的官方地址，用这家的密钥会被上游拒绝' : '';
+    hint.style.color = (own && own.kind === 'other-provider') ? 'var(--err)' : '';
+    markDirty();
+  });
+  /* 暂时不用：改的是勾选状态 + 那张卡的明暗，**不写盘**（和这一页其它项同一口径）。 */
+  box.querySelectorAll('[data-off]').forEach(cb => cb.onchange = () => {
+    cb.closest('.prov').classList.toggle('off', cb.checked);
+    markDirty();
+  });
+  box.querySelectorAll('[data-cedit]').forEach(b => b.onclick = () => cusEdit(b.dataset.cedit));
+  box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => cusRemove(b.dataset.cdel));
+  /* 密钥输入只标脏 + 记进那份未保存的草稿（切类型/切供应商还要把它带回来），落盘在 saveAll。 */
+  box.querySelectorAll('[data-tpick]').forEach(rb => rb.onchange = () => {
+    markDirty();
+    /* 换一家就整块重画：型号是每家各存各的，而识图那一段只画在「当前作用文字 AI」的那张卡上，
+       不重画的话它会留在上一家的卡里（看着像是给已经没在用的那家配的）。 */
+    renderProv();
+  });
+  box.querySelectorAll('[data-key]').forEach(inp => inp.oninput = () => {
+    if (inp.value.trim()) keyDraft.set(inp.dataset.key, inp.value.trim());
+    else keyDraft.delete(inp.dataset.key);
+    markDirty();
+  });
+  /* 密钥默认密文，点眼睛可切换明文查看（供应商那张卡 + 下方文字 AI 那一行）。
+     「添加自定义供应商」那格的密钥框没有 data-key，它有自己的 #cusEye 处理。 */
   document.querySelectorAll('[data-eye]').forEach(b => b.onclick = () => {
-    const inp = b.parentNode.querySelector('[data-key]');
+    const inp = b.closest('.krow').querySelector('[data-key]');
+    if (!inp) return;
     inp.type = inp.type === 'password' ? 'text' : 'password';
-    b.textContent = inp.type === 'password' ? icon('eye', 13) : icon('eyeOff', 13);
+    b.innerHTML = icon(inp.type === 'password' ? 'eye' : 'eyeOff', 13);
     b.title = inp.type === 'password' ? '显示密钥' : '隐藏密钥';
   });
   /* 平台卡片上没有「重新读取能力」按钮：生成平台的能力由各工作台首次用到时自动拉
-     （Capabilities.load 带缓存），只有文字 AI 需要在这里手动取模型列表 / 判定识图能力。 */
-  // 侧栏余额勾选：写 SbBal（键 sb_bal_show），外壳里的侧栏收到 storage 事件就地重画
-  document.querySelectorAll('[data-bal]').forEach(cb => cb.onchange = () => {
-    SbBal.setOff(cb.dataset.bal, !cb.checked);
-  });
+     （Capabilities.load 带缓存），只有文字 AI 需要在这里手动取型号列表 / 判定识图能力。 */
+  /* 型号块是**先画骨架、后填内容**的：取型号列表要等 TextAI 那边就绪（闭包在脚本末尾才装配好），
+     所以这里只交回一个 paint，不在 renderProv 里直接调闭包里的函数（那是第二份实现）。 */
+  if (window.__textForm) window.__textForm.paint();
+  /* 侧栏余额勾选：**不再即时写盘**（以前一点就生效，和这一页「点保存才生效」两套口径）。
+     现在只标脏，真正落盘在 saveAll 里一次写完（键 sb_bal_show，外壳侧栏靠 storage 事件重画）。 */
+  document.querySelectorAll('[data-bal]').forEach(cb => cb.onchange = markDirty);
   // 清除本机密钥：清空后走服务端环境变量
   document.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => {
     const kid = b.dataset.clr;
     localStorage.removeItem('sk_key_' + kid);
-    b.parentNode.querySelector('[data-key]').value = '';
+    keyDraft.delete(kid);
+    b.closest('.krow').querySelector('[data-key]').value = '';
     b.textContent = '已清除';
     setTimeout(() => { b.textContent = '清除'; }, 1500);
   });
 }
-/* ---------- 下载位置（各页面共用：IndexedDB sk_lib / key dir） ---------- */
-function idb() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open('sk_lib', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('kv');
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
+function setMsg(kid, text, cls) {
+  const el = document.querySelector('[data-msg="' + kid + '"]');
+  if (!el) return;
+  el.className = cls; el.textContent = text;
 }
-async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
-async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const q = t.objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
-function showDirName(id, name, ok) {
-  const el = $(id);
-  el.textContent = name || '未设置';
-  el.style.color = ok === false ? 'var(--err)' : '';
+
+/* ---------- 添加自定义供应商（中转站 / 网关 / 企业部署） ----------
+   界面只收四样：照哪一家的接口形状、显示名、地址、型号清单；密钥按 sk_key_<新 id> 单独存。
+   清单写成 sk_custom（DataSync 镜像成 .data/sk_custom.json，代理读那份合并进 /registry）。
+   四种类型都能加（图片 / 视频 / 语音 / 文字 AI）：文字那一类走的是同一条合并通道，
+   `TextAI.all()` 现读 kind:'text'，所以新加的一家自己就出现在下面那个供应方下拉里。
+   这一格点「添加」就落盘，和这一页其它项的「点保存才生效」不一样，是有意的：
+   它改的不是一个偏好，而是「本机有哪几家平台」—— 不立刻进注册表，工作台的型号下拉还是旧的，
+   「验证」也没有能打的 relay。真要等保存按钮，就得再造一套「暂存的自定义平台」，两份口径更难对齐。 */
+let cusEditing = '';                       // 正在编辑的条目 id（'' = 新增一家）
+const CUS_KINDS = [['image', '图片'], ['video', '视频'], ['audio', '语音'], ['text', '文字']];
+const CUS_CUSTOM = '__custom__';           // 「供应商」下拉里那一项「自定义」的值
+const cusHost = u => { try { return new URL(u).host; } catch { return String(u || ''); } };
+/* 这一类的类型**只有一个来源：上面那排类型档**（图片 / 视频 / 语音 / 文字）。
+   表单里不再给「类型」下拉：在哪一档点的「＋ 添加自定义供应商」，加出来的就是那一类 ——
+   以前给了一个下拉，结果「在语音那档点添加、类型却落在图片」的事只能靠人去核对，
+   而多出来这一个控件并不能帮人选出更对的类型（类型不是他选的，是他脚下那一档定的）。 */
+const cusKind = () => (PROV_KINDS.indexOf(provTab) >= 0 ? provTab : 'image');
+/* 内置平台（当「供应商」那一格的可选项）：有型号声明的才列出来 ——
+   照一家连型号都没有的平台当模板，加出来的家在型号下拉里是空的。 */
+function cusBuiltins(kind) {
+  return (REG.providers || []).filter(p => !p.custom && p.kind === kind && (p.models || []).length);
 }
-async function pickDir(key, labelId) {
-  if (!window.showDirectoryPicker) { showDirName(labelId, '当前浏览器不支持选择文件夹（请用 Chrome/Edge）', false); return; }
-  try {
-    const dir = await window.showDirectoryPicker({ id: 'skLib_' + key, startIn: 'desktop', mode: 'readwrite' });
-    await idbSet(key, dir);
-    showDirName(labelId, dir.name, true);
-  } catch (e) { if (e.name !== 'AbortError') showDirName(labelId, '选择失败：' + e.message, false); }
+/* 接口形状 = **接口族**（注册表的 interfaceShapes）：与厂商无关，只说「我跑的是哪一套协议」。
+   每一族照一个内置平台实现（buildCustom 照它整套克隆），所以这一格列的每一项都真实可用。 */
+function cusFamilies(kind) {
+  return ((REG && REG.interfaceShapes) || {})[kind] || [];
 }
-// 兼容：旧的统一文件夹 key 为 'dir'
-(async () => {
-  for (const [key, labelId] of [['dir_img', 'dirNameImg'], ['dir_video', 'dirNameVideo'], ['dir_render', 'dirNameRender'], ['dir_audio', 'dirNameAudio']]) {
-    try {
-      let d = await idbGet(key);
-      if (!d) d = await idbGet('dir');   // 兼容旧设置
-      showDirName(labelId, d?.name || '', !!d);
-    } catch { showDirName(labelId, '', false); }
+const cusProvById = id => (REG.providers || []).find(p => p.id === id) || null;
+/* 当前这份表单对应的**模板平台**（代理照它克隆的那一家）：
+   选了内置供应商就是它自己；选了「自定义」就是所选接口族点名的那一家。
+   落盘的 shape 一直是模板 id —— 所以清单格式没变，老条目照样认。 */
+function cusTemplate() {
+  const kind = cusKind();
+  const pv = $('cusProv').value;
+  if (pv && pv !== CUS_CUSTOM) return cusProvById(pv);
+  const fam = cusFamilies(kind).find(f => f.id === $('cusShape').value);
+  return fam ? cusProvById(fam.template) : null;
+}
+function cusSetMsg(text, cls) {
+  const el = $('cusMsg');
+  el.className = 'okmsg' + (cls ? ' ' + cls : '');
+  el.textContent = text || '';
+}
+/* 「已经加了几家」摆在按钮旁边。**不设上限**（代理那边 v11 起也撤了 12 家那道闸）：
+   内置平台现在也要先添加一次才进上面那张清单，常用平台都接一遍就撞上限，那道闸反而挡了正经事。
+   计数只作参考，所以按钮任何时候都不该被禁用 —— 禁用了又没上限可讲，就只剩「按钮坏了」一种解释。 */
+function paintCusCount() {
+  const el = $('cusCount'); if (!el) return;
+  const kind = cusKind();
+  const list = Api.customList();
+  const n = list.length;
+  const mine = list.filter(e => e && (e.kind || '') === kind).length;
+  /* 类型不另给下拉了（在哪一档点的添加就是哪一类），但**别让它凭空消失** ——
+     把「这一类是什么」写在计数行里，加完 / 删完都能一眼确认加到哪一档去了。 */
+  el.textContent = (KIND_ZH[kind] || kind) + '类 · 四种类型合计已接 ' + n + ' 家 · 这一类 ' + mine + ' 家';
+  el.style.color = 'var(--sub)';
+  $('cusAdd').disabled = false;
+  $('cusAdd').title = '';
+}
+/* 显示名默认给「图片1 / 视频1 / 语音1 / 文字1」：**按类型各自编号**，重名就往后顺延。
+   以前预填的是「SparkCine 中转」那种照模板名字拼的 —— 一次加三家就全是同一个名字，
+   而显示名正是型号下拉的分组名与收藏里的筛选项，重名会让那几组分不开。
+   编号只数**这一类**已有的，不受别的类型影响（图片已有两家就该给「图片3」）。 */
+function cusDefaultName(kind) {
+  const zh = (CUS_KINDS.find(k => k[0] === kind) || [, kind])[1];
+  const list = Api.customList().filter(e => e && (e.kind || 'image') === kind);
+  const taken = new Set(list.map(e => (e.name || '').trim()));
+  for (let i = 1; i < 200; i++) { const n = zh + i; if (!taken.has(n)) return n; }
+  return zh;
+}
+/* 记住「当前显示名是**我们**自动填的那个」：切类型时只有它还没被人手改过才跟着换。
+   只判空不够 —— 自动填的名字一直非空，不记这一份的话在视频那一档展开表单、
+   再顺手点一下「图片」档，带过去的就是「视频1」，加出来一个图片类叫「视频1」的家。 */
+let cusAutoName = '';
+const cusFillName = () => { cusAutoName = cusDefaultName(cusKind()); $('cusName').value = cusAutoName; };
+/* 接口地址同理：选了供应商 / 换一族接口形状之后，把**那一家官网的地址**填进去当默认值。
+   为什么要默认值：内置平台现在也要先「添加」一次才进上面那张清单，想用 SparkCine 就走这一格 ——
+   地址已经填好了，人只要贴一把密钥；填错了、改成自己中转站的地址，照样能改。
+   和显示名同一套记账（cusAutoBase）：**空着或还等于自动填的那个才替换，手打过的不动**，
+   否则「先把地址敲成自己网关、再回头换供应商」会被这一下抹掉。 */
+let cusAutoBase = '';
+function cusFillBase() {
+  const t = cusTemplate();
+  const b = (t && t.base) || '';
+  cusAutoBase = b;
+  $('cusBase').value = b;
+}
+/* 该不该把地址换成新的默认值：空着、或者还等于上一个自动填的值，才换。 */
+const cusSyncBase = () => {
+  const cur = $('cusBase').value.trim();
+  if (!cur || cur === cusAutoBase) cusFillBase();
+};
+/* 「已添加的几家」列在这张卡里：供应商那张卡上也有编辑 / 删除，但那是**按类型分档画的** ——
+   语音那一档加的只有切到语音才看得见，删一家要在四档之间来回找。放在这里就是「加它的地方也能改它、删它」。 */
+function paintCusMine() {
+  const row = $('cusMineRow'), box = $('cusMine');
+  if (!row || !box) return;
+  const list = Api.customList().filter(e => e && e.id);
+  row.hidden = !list.length;
+  if (!list.length) return;
+  box.innerHTML = CUS_KINDS.map(kv => {
+    const mine = list.filter(e => (e.kind || 'image') === kv[0]);
+    if (!mine.length) return '';
+    return '<div class="cus-mine-g"><span class="hint sm">' + escA(kv[1]) + '</span>'
+      + mine.map(e => '<span class="cus-mine-i' + (e.id === cusEditing ? ' on' : '') + '">'
+        + '<span class="t">' + escA(e.name || e.id) + '</span>'
+        + '<span class="hint sm">' + escA(((e.models || []).length) + ' 个型号') + '</span>'
+        + '<button class="ghost xs" data-cedit2="' + escA(e.id) + '">编辑</button>'
+        + '<button class="ghost xs danger" data-cdel2="' + escA(e.id) + '">删除</button>'
+        + '</span>').join('') + '</div>';
+  }).join('');
+  box.querySelectorAll('[data-cedit2]').forEach(b => b.onclick = () => cusEdit(b.dataset.cedit2));
+  box.querySelectorAll('[data-cdel2]').forEach(b => b.onclick = () => cusRemove(b.dataset.cdel2));
+}
+/* 从供应商那张卡旁边的「＋ 添加自定义供应商」进来：展开这张卡。
+   **类型不在这儿选** —— 用 `provTab`（用户当下那一档），点哪一档就加哪一类。
+   四种类型共用这一份表单（不是抄四份），差别只在 `cusKind()` 返回的是哪一项。 */
+function cusOpen() {
+  $('cusCard').hidden = false;
+  /* 点「＋ 添加自定义供应商」一定是**新增**，不是接着上一次编辑 ——
+     以前不重置：先编辑了 A 家、再点这个按钮，按钮上还是「保存这一家」、
+     类型还锁在 A 家那一档，看着像点了没反应，填完一提交才发现改的是上一条。
+     这一栏（#cusNew）只有「新增」一个入口，所以在这里无条件复位是对的。 */
+  if (cusEditing) cusReset();
+  $('cusProv').value = ''; $('cusShape').value = '';
+  renderCus();
+  const t = cusTemplate();
+  if (t && !$('cusName').value.trim()) cusFillName();
+  $('cusCard').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const focus = $('cusName').value.trim() ? $('cusBase') : $('cusName');
+  focus.focus();
+}
+/* 「类型（取自上面那排档）→ 供应商 → 接口形状 → 型号」联动：清单全取自 /registry 的声明，
+   这一页不写死任何一家、任何一个接口族、任何一个型号。 */
+function renderCus() {
+  const kind = cusKind();
+  paintCusCount();
+  paintCusMine();
+  /* ---- 供应商（内置那几家 + 末尾「自定义」） ---- */
+  const provs = cusBuiltins(kind);
+  const pSel = $('cusProv');
+  const pk = pSel.value;
+  /* 选项文字只给平台名：**不写「（N 个型号）」**。那一栏只有三个字宽的标签位，
+     后面拖着个括号会让长名字被截掉、也让「自定义」那最后一项在视觉上不像同一类东西；
+     型号数量在这一格与这一类的事都靠「点获取型号列表」现问（型号下拉里本来就是那一份）。 */
+  pSel.innerHTML = provs.map(p => '<option value="' + escA(p.id) + '"' + (p.id === pk ? ' selected' : '') + '>'
+      + escA(p.displayName || p.name) + '</option>').join('')
+    + '<option value="' + CUS_CUSTOM + '"' + (pk === CUS_CUSTOM ? ' selected' : '') + '>自定义（我跑的是别的厂商的协议）</option>';
+  /* 回落要在 sync **之前**做：sync 会照当时的选中项刷新按钮上的文字，
+     先 sync 再改 value 的话按钮写着第一家、真实选中的是「自定义」。
+     合法取值是**内置那几家 + 「自定义」**：拿 `provs` 单独去校验，
+     会把用户刚点的「自定义」当成非法值弹回第一家 —— 症状是「接口形状」那一行永远出不来。 */
+  const okIds = provs.map(p => p.id).concat([CUS_CUSTOM]);
+  if (!pSel.value || !okIds.includes(pSel.value)) {
+    pSel.value = (pk && okIds.includes(pk)) ? pk : (provs[0] ? provs[0].id : CUS_CUSTOM);
   }
+  if (window.Dropdowns) Dropdowns.sync(pSel);
+  /* ---- 接口形状：**只在「自定义」时出现**。选了内置那一家，整套接口就是它的，不用再挑 ---- */
+  const isCustom = pSel.value === CUS_CUSTOM;
+  const row = $('cusShapeRow'), sel = $('cusShape'), hint = $('cusShapeHint');
+  row.hidden = !isCustom;
+  if (isCustom) {
+    const fams = cusFamilies(kind);
+    const sk = sel.value;
+    const keep = fams.some(f => f.id === sk) ? sk : ((fams[0] && fams[0].id) || '');
+    sel.innerHTML = fams.length
+      ? fams.map(f => '<option value="' + escA(f.id) + '"' + (f.id === keep ? ' selected' : '') + '>' + escA(f.name) + '</option>').join('')
+      : '<option value="">这一类还没有登记接口形状</option>';
+    if (fams.length) sel.value = keep;          // 同上：先定 value 再 sync
+    if (window.Dropdowns) Dropdowns.sync(sel);
+    if (!fams.length) {
+      $('cusModels').innerHTML = '<span class="hint sm">这一类在注册表里还没有登记接口形状 ——'
+        + ' 要接这种平台请在 proxy.js 的 REGISTRY.interfaceShapes 里加一族（点名它照哪一家实现）。</span>';
+      hint.textContent = '';
+      cusSyncBase();            // 这一支提前 return，地址的默认值照样要跟上
+      return;
+    }
+    const f = fams.find(x => x.id === sel.value);
+    const tpl = f ? cusProvById(f.template) : null;
+    hint.textContent = (f && f.note ? f.note + ' ' : '') + '照「' + ((tpl && (tpl.displayName || tpl.name)) || '—') + '」那一家的声明走。';
+  }
+  /* 接口地址跟着刚选好的那一家走：选内置供应商就填它官网的地址，选某一族接口形状就填那一家的地址。
+     人已经自己敲过地址的**不换**（cusSyncBase 判的是「空着或还等于自动填的那个」）。 */
+  cusSyncBase();
+  /* 这一步不能省：#cusProv / #cusShape 都是公共自定义下拉（页面加载时就被 build 包装过），
+     **浮层里那份选项列表是 build 那一刻的快照**。只改 select.innerHTML 不通知它，
+     下拉按钮上写着什么、点开却列出什么会对不上 —— 表现就是「下拉里没有预定义的（空列表）」。
+     正确写法是「填完 options 就 sync 一下」，与 usage.html 那句同一口径。 */
+  renderCusModels();
+}
+/* 型号清单：**一律现取，不预填模板写死的那份**。
+   模板里的型号是「内置那一家的」声明，照抄给用户的中转站就等于替它编了它可能没有的型号
+   （填进去的每一个都会变成型号下拉里的一项）。所以这里只画两样：
+     ① 点「获取型号列表」拿回来的（用表单里的地址 + 密钥问它自己，只读不花钱）
+     ② 「自己填 id」手打的
+   已保存过的条目（编辑态）从 sk_custom 里读回来并默认勾上。 */
+let cusFetched = [];                         // [{id, name}]：最近一次从它自己 /models 拿到的
+let cusFetchFrom = '';                       // 上次打到哪个地址（界面上要写明，别让人以为是官方列表）
+function renderCusModels() {
+  const t = cusTemplate();
+  if (!t) return;
+  const box = $('cusModels');
+  const saved = cusEditing ? (((Api.customList().find(e => e && e.id === cusEditing) || {}).models) || []) : [];
+  const savedIds = saved.map(m => (m && m.id) || m).filter(Boolean);
+  const typed = [...new Set(String($('cusExtra').value || '').split(/[,，\s]+/).map(s => s.trim()).filter(Boolean))];
+  /* 三个来源并成一份、去掉重复；已保存的排前面（它们是「已经在用」的） */
+  const all = [];
+  const push = (id, name, tag) => { if (id && !all.some(x => x.id === id)) all.push({ id: String(id), name: name || id, tag: tag || '' }); };
+  savedIds.forEach(id => push(id, (saved.find(m => (m && m.id) === id) || {}).name || id, 'saved'));
+  cusFetched.forEach(m => push(m.id, m.name || m.id, 'fetched'));
+  typed.forEach(id => push(id, id, 'typed'));
+  if (!all.length) {
+    box.innerHTML = '<span class="hint sm">点右边「获取型号列表」用它自己的接口问一次，'
+      + '拿回来的型号在这里勾选；也可以用下面「自己填 id」手打。'
+      + '<br>这里<b>不会</b>替你预填内置那家的型号清单 —— 那是「内置那一家」的声明，中转站未必有。</span>';
+    return;
+  }
+  const want = savedIds.concat(typed);      // 勾选状态 = 已保存的 + 手打的；新拉回来的一律不勾，由用户自己选
+  const tag = { saved: '已保存', fetched: '接口返回', typed: '手填' };
+  box.innerHTML = all.map(x => '<label class="cus-m">'
+    + '<input type="checkbox" data-mid="' + escA(x.id) + '"' + (want.includes(x.id) ? ' checked' : '') + '>'
+    + '<span>' + escA(x.name) + ' <code>' + escA(x.id) + '</code>'
+    + ' <span class="hint sm">' + (tag[x.tag] || '') + '</span></span></label>').join('');
+}
+function cusPicked() {
+  return [...$('cusModels').querySelectorAll('[data-mid]')].filter(x => x.checked).map(x => ({ id: x.dataset.mid }));
+}
+/* `droppedKid` 是刚被删掉的那一家（新增时传空）：删掉之后侧栏那张余额卡要**当场**消失，
+   不等外壳那一轮 60 秒刷新。顺带把这一家从隐藏名单里摘掉（清掉一个再也不存在的 kid）——
+   两件事都在外壳那个口里（`top.__sbBalanceDrop`，与 __sbApplyTheme 同一套路），
+   单页被直接打开时没有外壳，try 一包就完了。 */
+async function afterCustomChanged(droppedKid) {
+  /* 先等 DataSync 把 sk_custom 送到代理（它默认 800ms 合并突发写，这里不等它）：
+     代理是从 .data/sk_custom.json 读这份清单的，没落盘就重取注册表等于白取。 */
+  try { await DataSync.flush(); } catch {}
+  Api.clearCaches();                        // 注册表有 60 秒缓存：刚加的一家要立刻出现在下拉里
+  setREG(await Api.registry().catch(() => null));
+  Api.setRegistry(REG);
+  renderProv();                 // 加/删一家之后这一类要重新列（renderProv 末尾会 paint 型号块）
+  paintCusCount();                   // 加/删一家之后按钮旁边的「N / 上限」要跟着变
+  /* 这一张清单也得跟着重画：renderProv 只管供应商卡上那一片，它不碰 #cusMine。
+     少了这一句，删掉一家之后「已添加」里那一行还挂着（再点它的删除会得到
+     「清单里找不到这一条」），要等重新展开这张卡才消失。 */
+  paintCusMine();
+  /* 隐藏名单里会攒下已经删掉的 kid（本来就只记「藏起来的那几个」）：趁这一刻清一次，
+     不用退到设置页去点保存。live 取的是**重取过的**注册表，所以刚删的那家已经不在里面了。 */
+  try {
+    if (window.SbBal) {
+      const live = new Set((REG.providers || []).map(p => p.keyId || p.id).map(String));
+      SbBal.setList(SbBal.off().map(String).filter(k => live.has(k)));
+    }
+    if (droppedKid && top && typeof top.__sbBalanceDrop === 'function') top.__sbBalanceDrop(droppedKid);
+  } catch (e) {}
+}
+/* 没有「类型」下拉了：换类型 = 用户点上面那排档。**这一钩子接在类型档上** ——
+   切档时把这份表单按新的一类重画（供应商与接口形状各自回落到第一项），并在还空着时
+   换上新的默认显示名（图片1 → 视频1）：两个类型同名会让型号下拉的分组分不开。 */
+function cusKindChanged() {
+  if (!$('cusCard') || $('cusCard').hidden) return;      // 卡是收着的，别在背后动它
+  $('cusProv').value = ''; $('cusShape').value = '';
+  renderCus();
+  /* 显示名只在「还是我们自动填的那个 / 干脆空着」时跟着换；
+     人已经手打过就别动 —— 那是他的决定，不是残留。 */
+  const cur = $('cusName').value.trim();
+  if (!cusEditing && (!cur || cur === cusAutoName)) cusFillName();
+}
+/* 选内置那一家 = 整套接口就是它的，「接口形状」那一格整行收起来（row.hidden 由 renderCus 管） */
+$('cusProv').onchange = () => renderCus();
+$('cusShape').onchange = () => {
+  renderCus();
+  /* 换接口形状不动显示名：那一格预填的名字是「这一类第几家」，与照哪一家无关。 */
+};
+$('cusExtra').oninput = () => renderCusModels();
+/* 入口就一个：供应商那张卡的按钮带上当前选中的类型（文字 AI 也在那张卡里配） */
+if ($('cusNew')) $('cusNew').onclick = () => cusOpen();
+$('cusEye').onclick = () => {
+  const inp = $('cusKey');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  $('cusEye').innerHTML = icon(inp.type === 'password' ? 'eye' : 'eyeOff', 13);
+};
+$('cusAdd').onclick = async () => {
+  const t = cusTemplate();
+  const isCustom = $('cusProv').value === CUS_CUSTOM;
+  if (!t) {
+    cusSetMsg(isCustom ? '在「接口形状」里选一套协议（OpenAI 兼容 / H3 兼容…）。' : '在「供应商」里选一家内置平台，或选「自定义」再挑一套接口形状。', 'err');
+    return;
+  }
+  const name = $('cusName').value.trim();
+  if (!name) { cusSetMsg('写个显示名 —— 型号下拉的分组名与收藏里的筛选项认的就是它。', 'err'); return; }
+  const base = $('cusBase').value.trim().replace(/\/+$/, '');
+  if (!/^https:\/\//i.test(base)) {
+    cusSetMsg('地址要以 https:// 开头（代理只放行公网 https：它会把密钥转发给这个地址，明文与内网一律拒）。', 'err');
+    return;
+  }
+  const clash = Api.hostOwner(REG, base, t);
+  /* 填的正是**另一家内置平台**的官方地址（不是自己这一家的）→ 那是「A 家的地址配 B 家的协议」，
+     必然发不通，直接拦掉并指路。撞的是另一家自定义平台不算错（一个网关同时管生图与生视频很常见），
+     只提一句、照样让你存。 */
+  if (clash && clash.kind === 'other-provider' && !clash.custom) {
+    cusSetMsg('这个地址是「' + clash.name + '」的官方地址，但这一格配的是「'
+      + ((t.displayName || t.name) || t.id) + '」的接口形状 —— 换成它自己那一档选它、填密钥就能用。', 'err');
+    return;
+  }
+  /* **不拦「就是这一家自己的官方地址」**：内置平台现在也要先添加一次才进上面那张供应商清单，
+     而那个地址正是表单自动填进去的默认值 —— 选一家、贴上密钥、点添加，就是「我要用这一家」。
+     同理 hostOwner(REG, base, t) 把 t 当「当前这一家」，本来就是它自己的官方地址时返回 null。 */
+  const models = cusPicked();
+  if (!models.length) { cusSetMsg('至少勾一个型号：型号清单就是这一家能被选到的东西。', 'err'); return; }
+  const id = cusEditing || Api.customId();
+  const list = Api.customList().filter(e => e && e.id !== id);
+  /* prov / shapeId 是**界面怎么选出来的**（选了哪家内置 / 选了哪一族），落盘是为了编辑时能原样还原。
+     代理只读 shape（模板 id），这两个字段它不看 —— 清单格式的实质部分没变，老条目照样认。 */
+  list.push({
+    id, name, kind: t.kind, shape: t.id,
+    prov: isCustom ? '' : $('cusProv').value,
+    shapeId: isCustom ? $('cusShape').value : '',
+    base, models,
+  });
+  Api.customSet(list);
+  const key = String($('cusKey').value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
+  if (key) localStorage.setItem('sk_key_' + id, key);
+  else if (cusEditing) localStorage.removeItem('sk_key_' + id);
+  /* 加完就把界面挪到这一家上面：上面那张卡展开它、下面文字 AI 的供应方下拉切到它。
+     否则「点了添加、消息说成功了、界面还停在原来那一家」，只能靠人去下拉里找。
+     一定要放在 afterCustomChanged **之后** —— 那一步才把新注册表取回来，
+     提前找的话清单里根本没有这一家（list() 现读 REG），切不过去还不报错。 */
+  if (t.kind !== 'text') {
+    provTab = t.kind;
+    try { localStorage.setItem('sk_prov_tab', t.kind); } catch {}
+    provSel.set(t.kind, id);
+  }
+  await afterCustomChanged();   // 里面已经重画了这一类（文字档的型号块也一起刷）
+  const wasEditing = cusEditing;
+  cusReset();
+  const via = Api.verifyTarget({ endpoints: t.endpoints });
+  cusSetMsg('已' + (wasEditing ? '保存' : '添加') + '「' + name + '」，界面已经切到这一家。'
+    + (t.kind === 'text'
+      ? '它的密钥 / 地址 / 型号清单都在这一张卡里（要成为默认的那家，点它卡上的「作用文字 AI」后点「保存全部设置」；'
+        + '地址与型号清单以后用「编辑」改）。'
+      : (KIND_ZH[t.kind] || t.kind) + '台与拍短剧的型号下拉里现在都有它。'
+        + '要确认地址与密钥通不通，点上面那张卡上的「验证」（问一次' + via.label + '，不建任务、不扣费）。'), 'ok');
+};
+$('cusCancel').onclick = () => { const n = cusEditing; cusReset(); cusSetMsg(n ? '已取消编辑，那一条照原样留着。' : '', ''); };
+function cusReset() {
+  cusEditing = '';
+  $('cusAdd').textContent = '添加这一家';
+  $('cusCancel').hidden = true;
+  ['cusName', 'cusBase', 'cusKey', 'cusExtra'].forEach(k => { $(k).value = ''; });
+  /* 复位后就是「可以开始加一家」的状态，顺手把下一个编号预填上：
+     加完第二家清空着等你打「图片2」纯属多余的一次输入。 */
+  $('cusName').value = cusDefaultName(cusKind());
+  cusAutoName = $('cusName').value;
+  cusFetched = []; cusFetchFrom = '';
+  renderCus();
+}
+/* 获取型号列表：拿**表单里现在的**地址与密钥去问它自己（只读接口，不建任务、不扣费）。
+   为什么必须走代理而不是页面直连：这条路由会把密钥递给你填的那个主机，
+   「只收公网 https / 拒回环与内网 / 不回退 .env 里的内置密钥」那三条安全判据都在代理里
+   （与 buildCustom 用的是同一个 safeOutboundUrl），页面自己发就等于把这套判据抄第二份。 */
+$('cusFetch').onclick = async () => {
+  const t = cusTemplate();
+  if (!t) { cusSetMsg('先选一个「接口形状」（照哪一家的接口）。', 'err'); return; }
+  const base = $('cusBase').value.trim().replace(/\/+$/, '');
+  if (!/^https:\/\//i.test(base)) { cusSetMsg('先填上面的接口地址（要 https:// 开头），获取型号要用它。', 'err'); return; }
+  const key = String($('cusKey').value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
+  if (!key) { cusSetMsg('先填密钥 —— 型号列表是要鉴权的接口。', 'err'); $('cusKey').focus(); return; }
+  const btn = $('cusFetch');
+  btn.disabled = true; const label0 = btn.textContent; btn.textContent = '获取中…';
+  try {
+    const r = await Net.fetch('/custom/models', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shape: t.id, base, key }), timeout: 25000, retry: 0,
+    });
+    let d = {};
+    try { d = (await r.json()) || {}; } catch (e) { throw new Error('代理没有返回 JSON（HTTP ' + r.status + '）'); }
+    const list = Array.isArray(d.models) ? d.models : [];
+    if (!list.length) throw new Error(d.error || ('它没有返回型号列表（HTTP ' + r.status + '）'));
+    /* 已经拿过一次再点：保留上一次勾选的，免得重取一次把选择全清掉 */
+    const keep = new Set([...$('cusModels').querySelectorAll('[data-mid]')].filter(x => x.checked).map(x => x.dataset.mid));
+    const savedIds = cusEditing ? (((Api.customList().find(e => e && e.id === cusEditing) || {}).models) || []).map(m => m.id) : [];
+    cusFetched = list; cusFetchFrom = (d.from || base);
+    renderCusModels();
+    [...$('cusModels').querySelectorAll('[data-mid]')].forEach(x => { if (keep.has(x.dataset.mid) || savedIds.includes(x.dataset.mid)) x.checked = true; });
+    cusSetMsg('从「' + cusFetchFrom + '」拿到 ' + list.length + ' 个型号，勾要用到的那些。'
+      + '（一个都没勾时添加会被拦下 —— 型号清单就是这一家在型号下拉里能被选到的东西。）', 'ok');
+  } catch (e) { cusSetMsg('获取失败：' + ((e && e.message) || e), 'err'); }
+  finally { btn.disabled = false; btn.textContent = label0; }
+};
+function cusEdit(kid) {
+  const e = Api.customList().find(x => x && x.id === kid);
+  if (!e) { setMsg(kid, '清单里找不到这一条（可能刚被删掉）—— 刷新一次页面看看。', 'msg err'); return; }
+  /* 这一条是哪一类的就回到哪一档：不然「在语音那一档点编辑、表单却是图片类」，
+     改完保存看着像没生效（面板还画在另一类上）。
+     **类型现在只有这一个来源（provTab）**，所以这一段是「把面板切过去」而不是「给下拉设值」。 */
+  if (e.kind && e.kind !== provTab) {
+    provTab = e.kind;
+    try { localStorage.setItem('sk_prov_tab', provTab); } catch {}
+    if (e.kind !== 'text') provSel.set(e.kind, kid);
+    renderProv();
+  }
+  $('cusCard').hidden = false;
+  cusEditing = kid;
+  /* 这一条的名字与地址是**清单里的**，不是「自动填的那个」：编辑期间再换供应商 / 接口形状，
+     都不许把它们改掉（下面 renderCus 里那两句默认填充会看这两个记账值）。 */
+  cusAutoName = '';
+  cusAutoBase = '';
+  /* 先把两格摆成「还没选」，再 renderCus 铺它们的 options，最后按清单里记的选回去。
+     顺序反了会被 renderCus 的回落逻辑按第一项覆盖（老条目没有 prov / shapeId 时尤其明显）。 */
+  $('cusProv').value = '';
+  $('cusShape').value = '';
+  renderCus();
+  /* 还原「当初是怎么选的」：
+     · 有 prov → 选的是那一家内置供应商（接口形状整行是收着的）；
+     · 有 shapeId → 选的自定义，按那一族还原；
+     · 两者都没有（清单是加这两个字段之前写的）→ 看 shape 是不是内置平台 id：
+       是就还原成「选了那一家」，不是就落到「自定义」并挑第一个照它的族。 */
+  const fams = cusFamilies(e.kind);
+  if (e.prov && cusProvById(e.prov)) $('cusProv').value = e.prov;
+  else if (e.shapeId && fams.some(f => f.id === e.shapeId)) { $('cusProv').value = CUS_CUSTOM; $('cusShape').value = e.shapeId; }
+  else if (cusProvById(e.shape)) $('cusProv').value = e.shape;
+  else {
+    $('cusProv').value = CUS_CUSTOM;
+    const f = fams.find(x => x.template === e.shape);
+    if (f) $('cusShape').value = f.id;
+  }
+  renderCus();
+  $('cusName').value = e.name || '';
+  cusAutoName = '';                    // 这一条是清单里的名字，不再是「自动填的那个」
+  cusAutoBase = '';
+  $('cusBase').value = e.base || '';
+  $('cusKey').value = keyFor(kid);
+  /* 已保存的型号现在**直接画成勾选项**（从 sk_custom 读），不再塞进「自己填 id」——
+     那个输入框只放用户临时手打的 id，塞进去会让已保存的和手填的混在一起分不清。 */
+  $('cusExtra').value = '';
+  cusFetched = []; cusFetchFrom = '';
+  renderCusModels();
+  $('cusAdd').textContent = '保存这一家';
+  $('cusCancel').hidden = false;
+  paintCusMine();                       // 清单上把正在改的那一条高亮出来
+  cusSetMsg('正在改「' + (e.name || kid) + '」：改完点「保存这一家」，型号清单立刻按新的那份算。', '');
+  $('cusProv').scrollIntoView({ block: 'center' });
+}
+async function cusRemove(kid) {
+  const e = Api.customList().find(x => x && x.id === kid);
+  const go = await Confirm.ask({
+    title: '删掉这一家？', danger: true, okLabel: '删除',
+    sub: '删掉「' + ((e && e.name) || kid) + '」，连它名下的密钥与「暂时不用」勾选一起清。',
+    body: '已经生成的产物与历史不受影响（那些记在平台列表与本机资产里）。'
+      + '以后还要用同一个网关就重新添加一家 —— 新的 id 不认旧密钥，需要重填一次。',
+  });
+  if (!go) return;
+  Api.customDrop(kid);
+  if (cusEditing === kid) cusReset();
+  await afterCustomChanged(kid);            // 传 kid：侧栏那一张余额卡当场消失
+  cusSetMsg('已删掉「' + ((e && e.name) || kid) + '」。', 'ok');
+}
+/* ---------- 本机环境（GET /sys-status，纯读） ---------- */
+(function () {
+  const $id = id => document.getElementById(id);
+  const esc = s => window.esc(String(s == null ? '' : s));
+  /* 一行 = 名字 + 状态芯片 + 详情。芯片只有三档：ok（能用）/ warn（能用但要说一句）/ err（这一步会失败）。
+     「还没建」的目录不算错 —— 代理第一次用到时自己会建，写成红的是骗人去修一个没问题东西。 */
+  function row(label, cls, chip, detail, title) {
+    return '<div class="krow tight"><span class="kn">' + esc(label) + '</span>'
+      + '<span class="ui-tag ' + cls + '">' + esc(chip) + '</span>'
+      + '<span class="dir-name"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(detail) + '</span></div>';
+  }
+  function toolRow(label, t, what) {
+    const r = Api.sysTool(t);
+    if (r.chip === '没读到') return row(label, r.cls, r.chip, what);
+    /* 能用那一档只报版本；不能用那一档把「为什么」和「没有它会怎样」并排给 ——
+       两句话缺一句，人就不知道该装什么、急不急。 */
+    return r.cls === 'ok'
+      ? row(label, 'ok', r.chip, r.why, r.why)
+      : row(label, 'err', r.chip, (r.why || '代理没说原因') + ' —— ' + what);
+  }
+  function dirRow(label, d) {
+    if (!d) return row(label, 'warn', '没读到', '代理没返回这一项');
+    const r = Api.sysDir(d);
+    return row(label, r.cls, r.chip, (d.路径 || '?') + (r.why ? '（' + r.why + '）' : ''), d.路径);
+  }
+  let last = null;
+  /* 复制出去的正文就是 Api.sysStatusLines：设置页看到什么就复制什么，
+     助手的 doctor 念的也是同一份（两处各拼一遍迟早写成两种说法）。 */
+  function sysText(s) {
+    return ['拾帧 本机环境体检 ' + new Date(s.at || Date.now()).toLocaleString()]
+      .concat(Api.sysStatusLines(s)).join('\n');
+  }
+  async function refreshSys(fresh) {
+    const box = $id('sysRows');
+    if (!box) return;
+    const msg = $id('sysMsg');
+    if (msg) msg.textContent = '';
+    let s = null;
+    try {
+      /* 探测会起子进程（ffmpeg -version），慢机器上 8 秒不够；超时与「不重试」都在 Api.sysStatus 里定一次 */
+      s = await Api.sysStatus(fresh);
+    } catch (e) {
+      /* 404 = 跑着的代理是加这一项之前启动的旧进程。这不是「环境坏了」，说清楚重启才有 */
+      last = null; syncCopyBtn();
+      box.innerHTML = e && e.status === 404
+        ? '<div class="ui-note info">这一项要<b>重启本地代理</b>才有（旧代理没有 <code>/sys-status</code> 这个接口）：'
+          + '启动.bat → 2 停止 → 1 启动，回来点「重新体检」。</div>'
+        : '<div class="ui-note err">读不到本机环境：' + esc((e && e.message) || e) + '</div>';
+      return;
+    }
+    last = s; syncCopyBtn();
+    const p = s.代理 || {};
+    const old = Api.oldProxyNotice(p.版本);
+    let html = '';
+    html += row('本地代理', old ? 'err' : 'ok', old ? '版本太旧' : '在运行',
+      '注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?') + ' · Node ' + (p.进程 || '?'),
+      '代理目录：' + (p.目录 || ''));
+    /* 一次生成任务、扣一次钱，卡片却卡在「导出成片」那一步 —— 所以 ffmpeg 单独一行，
+       并把「没装会怎么样」写出来，而不是只报一个「不可用」。 */
+    html += toolRow('成片合成（ffmpeg）', s.ffmpeg, Api.SYS_WHY.ffmpeg);
+    html += toolRow('时长测量（ffprobe）', s.ffprobe, Api.SYS_WHY.ffprobe);
+    const dirs = s.目录 || {};
+    html += dirRow('数据目录（.data）', dirs.数据);
+    html += dirRow('本机资产目录', dirs.资产);
+    html += dirRow('成片目录', dirs.渲染);
+    if (old) html += '<div class="ui-note err">' + esc(old) + '</div>';
+    box.innerHTML = html;
+    if (msg) msg.textContent = '上次体检：' + new Date(s.at || Date.now()).toLocaleTimeString()
+      + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（改过 PATH 请点「重新体检」）');
+  }
+  refreshSys(false);
+  const btn = $id('sysRecheck');
+  if (btn) btn.onclick = () => { btn.disabled = true; refreshSys(true).finally(() => { btn.disabled = false; }); };
+  /* 没读到（旧代理 / 代理没在跑）时没有可复制的东西，按钮就压着 —— 点了给一句「读不到」等于骗人 */
+  function syncCopyBtn() {
+    const b = $id('sysCopy');
+    if (!b) return;
+    b.disabled = !last;
+    b.title = last ? '把上面这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'
+      : '还没读到体检结果（代理没在运行，或它是加这一项之前启动的旧版）';
+  }
+  syncCopyBtn();
+  const cp = $id('sysCopy');
+  if (cp) cp.onclick = async () => {
+    const msg = $id('sysMsg');
+    if (!last) { if (msg) msg.textContent = '✗ 现在没有可复制的体检结果：先点「重新体检」'; return; }
+    const okc = await window.copyText(sysText(last));
+    if (msg) msg.textContent = okc ? '✓ 已复制 ' + sysText(last).split('\n').length + ' 行体检结果，直接粘出去就行'
+      : '✗ 浏览器不让写剪贴板（通常是因为这个标签页不在前台）；结果还摆在上面这一栏，手动选也行';
+  };
 })();
-$('pickDirImg').onclick = () => pickDir('dir_img', 'dirNameImg');
-$('pickDirVideo').onclick = () => pickDir('dir_video', 'dirNameVideo');
-$('pickDirRender').onclick = () => pickDir('dir_render', 'dirNameRender');
-$('pickDirAudio').onclick = () => pickDir('dir_audio', 'dirNameAudio');
-/* 清除目录时 legacy 'dir' 也要一起清：读取时会回退到它（见上方 readDir 的兼容分支），
-   只清新键会导致「清除了目录，视频还是存进老文件夹」。四个目录行为保持一致。 */
-$('clearDirRender').onclick = async () => { await idbSet('dir_render', null); await idbSet('dir', null); showDirName('dirNameRender', '', false); };
-$('clearDirImg').onclick = async () => { await idbSet('dir_img', null); await idbSet('dir', null); showDirName('dirNameImg', '', false); };
-$('clearDirVideo').onclick = async () => { await idbSet('dir_video', null); await idbSet('dir', null); showDirName('dirNameVideo', '', false); };
-$('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); await idbSet('dir', null); showDirName('dirNameAudio', '', false); };
+
+/* ---------- 栏目导航与关键词筛选（纯前端，不写盘、不进同步） ----------
+   这一页十几栏、两三千行，找一项全靠滚。芯片清单是**从下面的 .card 现读**的（标题取每栏自己的 h2），
+   新加一栏不用改这里 —— 手抄一份标题清单迟早和页面不一致。 */
+/* ---------- 可折叠的卡（默认折叠） ----------
+   就一个小器：卡上写 data-fold-key = 状态存哪个键（没写就不记住、每次刷新都折着）。
+   不新增第二套展开/折叠状态：它必须与下面那套「条目筛选」合流
+   （一张卡不能既被关掉又被折叠分开管两件事）。 */
+(function () {
+  const cards = [...document.querySelectorAll('.card.foldable[data-fold-key]')];
+  if (!cards.length) return;
+  cards.forEach(c => {
+    const btn = c.querySelector('.fold-toggle');
+    if (!btn) return;
+    const paint = () => {
+      const open = c.classList.contains('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const txt = btn.querySelector('.fold-txt') || btn;
+      txt.textContent = open ? '收起' : '展开';
+    };
+    c.classList.toggle('open', localStorage.getItem(c.dataset.foldKey) === '1');
+    paint();
+    btn.onclick = () => {
+      c.classList.toggle('open');
+      paint();
+      try { localStorage.setItem(c.dataset.foldKey, c.classList.contains('open') ? '1' : '0'); } catch (e) {}
+    };
+  });
+})();
+
+(function () {
+  const nav = document.getElementById('setNav');
+  const q = document.getElementById('setQ');
+  const clearBtn = document.getElementById('setClear');
+  const chipBox = document.getElementById('setChips');
+  const sum = document.getElementById('setSum');
+  if (!nav || !q || !chipBox) return;
+  const esc = s => window.esc(String(s == null ? '' : s));
+
+  /* 「添加自定义供应商」那张卡平时收着（它自己拿 hidden 表示），它不该占一个芯片位 */
+  const cards = () => [...document.querySelectorAll('.page-main > .card')].filter(c => !c.hidden);
+  const titleOf = c => { const h = c.querySelector('h2'); return (h && h.textContent.trim()) || '（这一栏没有标题）'; };
+  let sig = '';
+
+  /* 把吸附栏的真实高度写进 `--setnavh`，滚动定位靠它让位（见上面 `.card` 的 scroll-margin-top）。
+     **必须是 ResizeObserver 而不是量一次**：芯片是 flex-wrap，窗口变窄、外壳侧栏展开/收起
+     （--sbw 66↔200px）、用户改系统字号时这一栏都会换行、高度会变。
+     量早了会量到 0（sticky 元素在布局完成前 getBoundingClientRect 可能还没有高度），
+     所以初值给一个保守的 CSS 兜底，再让观察器纠正。 */
+  const navEl = $('setNav');
+  const setNavH = () => {
+    if (!navEl) return;
+    const h = Math.round(navEl.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--setnavh', h + 'px');
+  };
+  if (navEl && window.ResizeObserver) { new ResizeObserver(setNavH).observe(navEl); }
+  if (navEl) { window.addEventListener('resize', setNavH); if (document.fonts && document.fonts.ready) document.fonts.ready.then(setNavH); }
+  setNavH();
+
+  /* 芯片记的是**序号**，不是元素 id。
+     记 id 有两个真实的坑：① 卡片本身会被整块重画（供应商卡随 `/registry` 刷新、
+     自动保存目录卡随设置落盘），换出来的新元素身上没有 id；而下面那个 sig 去重只看标题，
+     标题没变就不重画 —— 于是芯片的 data-go 指向一个**已经不存在的元素**，
+     点它 `if (!el) return;` 什么都不做，正是「按钮按了没反应」；
+     ②「＋添加自定义供应商」那张卡靠 hidden 出没，一出一收后面所有卡的序号都平移，
+     按 id 点会跳到**名字对不上**的那一栏。
+     记序号 + 点击时现取 cards()[i]，这两种情况都自愈。 */
+  function paintChips(list) {
+    const now = list.map(titleOf).join(' | ');
+    if (now === sig) return;
+    sig = now;
+    chipBox.innerHTML = list.map((c, i) => {
+      const t = titleOf(c);
+      return '<button class="set-chip" data-i="' + i + '" title="' + esc(t) + '">' + esc(t) + '</button>';
+    }).join('');
+    chipBox.querySelectorAll('[data-i]').forEach(b => {
+      b.onclick = () => {
+        const el = cards()[+b.dataset.i];
+        if (!el) { Toast.err('这一栏刚被移走了，点一下别的标题重画后再试'); return; }
+        if (!el) { Toast.err('这一栏刚被移走了，点一下别的标题重画后再试'); return; }
+        /* 这一栏正被关键词筛掉：只把类去掉没用（sync 会立刻按同一个关键词再把它藏回去）。
+           人点它的意思就是「我不想筛了」，所以清掉关键词、整页恢复，再滚过去。 */
+        if (el.classList.contains('set-off')) { q.value = ''; sync(); }
+        el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      };
+    });
+  }
+
+  /* 搜的是这一栏里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容 ——
+     否则搜「key」会因为某把密钥里正好有这三个字母而把不相干的栏亮起来。 */
+  const hayOf = c => ((c.textContent || '') + ' '
+    + [...c.querySelectorAll('input,textarea,select,button')].map(x => x.placeholder || x.title || '').join(' ')).toLowerCase();
+
+  function sync() {
+    const list = cards();
+    paintChips(list);
+    const terms = (q.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    let hit = 0;
+    list.forEach((c, i) => {
+      const on = !terms.length || terms.every(t => hayOf(c).indexOf(t) >= 0);
+      c.classList.toggle('set-off', terms.length > 0 && !on);
+      if (on) hit++;
+      const chip = chipBox.children[i];
+      if (chip) chip.classList.toggle('dim', !on);
+    });
+    if (clearBtn) clearBtn.hidden = !terms.length;
+    if (!sum) return;
+    sum.className = 'set-nav-sum' + (terms.length && !hit ? ' err' : '');
+    sum.textContent = !terms.length
+      ? '共 ' + list.length + ' 栏 · 点标题直达，或输入关键词只看含它的栏目（这一栏的说明文字也算）'
+      : ('「' + terms.join(' ') + '」命中 ' + hit + ' / ' + list.length + ' 栏'
+        + (hit ? '，其余的先收起来，点「清除筛选」就都回来'
+               : ' —— 这一页没有含这些词的栏目。换个说法试试（密钥 / 地址 /  ffmpeg / 分页 / 润色 / 备份 / 缓存），'
+                 + '或者问右下角的 AI 助手这一项在哪一栏'));
+  }
+
+  q.oninput = sync;
+  if (clearBtn) clearBtn.onclick = () => { q.value = ''; sync(); q.focus(); };
+  q.addEventListener('keydown', e => { if (e.key === 'Escape') { q.value = ''; sync(); } });
+
+  /* 有些栏会被页面自己临时打开/收起（hidden 一变，芯片位就该跟着变）。
+     只认「.page-main 直系的那个 .card」的 hidden —— 页面上别的元素也常切 hidden，
+     而每来一次就把十几栏的文本全读一遍，打字时会卡。
+     判据不能拿「初始化时可见的那些栏」当名单：本来就收起的那一栏（添加自定义供应商）
+     打开时恰恰不在名单里，芯片就永远少一栏。 */
+  try {
+    const main = document.querySelector('.page-main');
+    const isCard = t => !!t && t.parentElement === main && t.classList && t.classList.contains('card');
+    let queued = 0;
+    const mo = new MutationObserver(ms => {
+      if (!ms.some(x => isCard(x.target))) return;
+      clearTimeout(queued);
+      queued = setTimeout(sync, 120);
+    });
+    mo.observe(main, { attributes: true, attributeFilter: ['hidden'], subtree: true });
+  } catch (e) { /* 老浏览器没有观察器：芯片照常只在筛选时刷新 */ }
+  sync();
+})();
 
 /* ---------- 数据与同步 ---------- */
 (function () {
@@ -519,21 +1653,31 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
   /* ③ 整包备份 / 恢复 */
   $id('expAll').onclick = async () => {
     const pick = await Confirm.choose({
-      title: '导出整包备份', body: '要不要连本地文件（引擎里导入的视频、收藏的文件、参考音频）一起打包？',
+      title: '导出整包备份', body: '要带哪些一起？提示词归档是磁盘上的一堆 .md，不显式勾就带不走。',
       options: [
         { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏列表、导演台工作区；体积小、恢复够用' },
-        { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）' },
+        { value: 'prompts', label: '数据 + 提示词归档', hint: '再把归档文件夹里那几百上千份 .md 一起打包（纯文本，体积增加不大）' },
+        { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）。**不含提示词归档** —— 那份另见上一项' },
       ],
     });
     if (!pick) return;
     const b = $id('expAll'); b.disabled = true; msg('正在打包…');
     try {
-      const pack = await DataSync.exportAll(pick === 'all');
+      const withPrompts = pick === 'prompts';
+      const pack = await DataSync.exportAll(pick === 'all', withPrompts);
       const json = JSON.stringify(pack);
-      const name = 'ai-workbench-整包备份-' + new Date().toISOString().slice(0, 10) + (pick === 'all' ? '-含文件' : '') + '.json';
+      const name = 'ai-workbench-整包备份-' + new Date().toISOString().slice(0, 10)
+        + (pick === 'all' ? '-含文件' : '') + (withPrompts ? '-含提示词' : '') + '.json';
       const blob = new Blob([json], { type: 'application/json' });
       Net.save(blob, name);                       // 浏览器下载（设置页不依赖工作台的保存层）
-      msg(`✓ 已导出（${(blob.size / 1048576).toFixed(1)} MB）`);
+      let extra = '';
+      if (withPrompts) {
+        extra = pack.prompts
+          ? `，含提示词归档 ${pack.prompts.files.length} 份`
+            + (pack.prompts.skipped ? `（另有 ${pack.prompts.skipped} 份超出上限没带上）` : '')
+          : `，但提示词归档没带上：${pack.promptsError || '未知原因'}`;
+      }
+      msg(`✓ 已导出（${(blob.size / 1048576).toFixed(1)} MB${escA(extra)}）`);
     } catch (e) { msg('导出失败：' + e.message); }
     finally { b.disabled = false; }
   };
@@ -545,12 +1689,16 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
     r.onload = async () => {
       try {
         const pack = JSON.parse(r.result);
+        const nP = (pack.prompts && pack.prompts.files && pack.prompts.files.length) || 0;
         const ok = await Confirm.ask({ title: '导入整包备份？', danger: true, okLabel: '导入并刷新',
-          body: '会用备份里的内容覆盖浏览器当前数据（设置、历史、收藏、工作区，以及备份里带的本地文件），然后自动刷新。' });
+          body: '会用备份里的内容覆盖浏览器当前数据（设置、历史、收藏、工作区，以及备份里带的本地文件'
+            + (nP ? `，还有 ${nP} 份提示词归档` : '')
+            + '），然后自动刷新。' + (nP ? '归档不会覆盖本机已有的同名文件。' : '') });
         if (!ok) return;
         msg('正在导入…');
         const res = await DataSync.importAll(pack);
-        Toast.ok(`已导入：${res.localStorage} 项数据${res.indexedDB ? '、' + res.indexedDB + ' 个本地文件' : ''}`);
+        Toast.ok(`已导入：${res.localStorage} 项数据${res.indexedDB ? '、' + res.indexedDB + ' 个本地文件' : ''}`
+          + (res.promptNote ? '；' + res.promptNote : ''));
         setTimeout(() => location.reload(), 900);
       } catch (err) { msg('导入失败：' + err.message); }
     };
@@ -559,7 +1707,7 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
   };
 
   /* ④ 云同步（WebDAV） */
-  const CK = { url: 'sk_cloud_url', user: 'sk_cloud_user', pass: 'sk_cloud_pass', keys: 'sk_cloud_keys' };
+  const CK = { url: 'sk_cloud_url', user: 'sk_cloud_user', pass: 'sk_cloud_pass', keys: 'sk_cloud_keys', prompts: 'sk_cloud_prompts' };
   /* 默认填坚果云的 WebDAV 入口：最常见的用法，省得每次手打；换成别的服务商直接改这个输入框即可 */
   const CLOUD_DEFAULT_URL = 'https://dav.jianguoyun.com/dav/ai-workbench/';
   ['url', 'user', 'pass'].forEach(k => {
@@ -569,14 +1717,17 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
     el.value = (saved != null && saved !== '') ? saved : (k === 'url' ? CLOUD_DEFAULT_URL : '');
   });
   $id('cloudKeys').checked = localStorage.getItem(CK.keys) === '1';
+  $id('cloudPrompts').checked = localStorage.getItem(CK.prompts) === '1';
   const saveCloud = () => {
     localStorage.setItem(CK.url, $id('cloudUrl').value.trim());
     localStorage.setItem(CK.user, $id('cloudUser').value.trim());
     localStorage.setItem(CK.pass, $id('cloudPass').value);
     localStorage.setItem(CK.keys, $id('cloudKeys').checked ? '1' : '0');
+    localStorage.setItem(CK.prompts, $id('cloudPrompts').checked ? '1' : '0');
   };
   ['cloudUrl', 'cloudUser', 'cloudPass'].forEach(id => $id(id).addEventListener('change', saveCloud));
   $id('cloudKeys').addEventListener('change', saveCloud);
+  $id('cloudPrompts').addEventListener('change', saveCloud);
 
   const cloudHeaders = () => {
     saveCloud();
@@ -588,12 +1739,15 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
     if ($id('cloudKeys').checked) h['x-cloud-keys'] = '1';
     return h;
   };
+  /* 归档目录是**本机设置**（prompt_dir），代理那边不知道，要跟着请求体带过去 */
+  const cloudBody = () => JSON.stringify($id('cloudPrompts').checked
+    ? { prompts: 1, promptDir: (window.PromptLog && PromptLog.dir()) || '' } : {});
   async function cloudCall(cmd, btnId) {
     const b = $id(btnId); const old = b.textContent;
     b.disabled = true; b.textContent = '处理中…'; cmsg('');
     try {
       /* 云同步可能跑很久：走统一网络层但关掉超时，POST 不自动重试 */
-      const r = await Net.fetch('/cloud/' + cmd, { method: 'POST', headers: cloudHeaders(), body: '{}', timeout: 0, retry: 0 });
+      const r = await Net.fetch('/cloud/' + cmd, { method: 'POST', headers: cloudHeaders(), body: cloudBody(), timeout: 0, retry: 0 });
       const d = await r.json();
       if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
       /* 覆盖与跳过都显示出来：以前两边都改过时只是静默跳过/静默覆盖，
@@ -613,6 +1767,20 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
       }
       if ((d.autoPicked || []).length) {
         extra += '；' + d.autoPicked.length + ' 份首次同步按时间取了较新的一份（' + d.autoPicked.slice(0, 3).join('、') + (d.autoPicked.length > 3 ? '…' : '') + '）';
+      }
+      /* 提示词归档：分开说，因为它的失败方式和数据键完全不同（只推不删，不会冲突） */
+      if (d.prompts) {
+        const p = d.prompts;
+        if (p.error) extra += '；提示词归档没同步：' + p.error;
+        else {
+          if (p.up) extra += '；归档上传 ' + p.up + ' 份';
+          if (p.down) extra += '；归档下载 ' + p.down + ' 份';
+          if (p.onlyRemote) extra += '；云端有 ' + p.onlyRemote + ' 份这次没拿下来'
+            + (cmd === 'push' ? '（这次是「只上传」，点「↓ 从云端下载」或「⇅ 一键双向同步」取回）' : '');
+          if (p.failed && p.failed.length) extra += '；归档 ' + p.failed.length + ' 份失败：' + p.failed.slice(0, 3).join('、') + (p.failed.length > 3 ? '…' : '');
+        }
+      } else if ($id('cloudPrompts').checked) {
+        extra += '；提示词归档没有参与这次同步（这一点不猜，见下方状态行）';
       }
       cmsg('✓ ' + (d.message || '完成') + extra);
       if ((cmd === 'pull' || cmd === 'sync') && (d.down || d.count)) {
@@ -641,7 +1809,7 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
 
   /* ---------- 云同步面板：上次结果 · 冲突二选一 · 备份恢复 ---------- */
   const fmtTime = ts => ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '—';
-  const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const escH = s => window.esc(s);
   const panelBox = (title, hint) => '<div style="margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel2)">'
     + '<div style="font-size:12.5px;font-weight:600;margin-bottom:4px">' + title + '</div>'
     + (hint ? '<div style="font-size:11.5px;color:var(--sub);margin-bottom:6px">' + hint + '</div>' : '');
@@ -649,9 +1817,14 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
     const stEl = $id('cloudState'), cBox = $id('cloudConflicts'), bBox = $id('cloudBackups');
     if (!stEl) return;
     let d = null;
-    try { d = await Net.json('/cloud/status', { timeout: 10000 }); } catch { stEl.textContent = '读不到同步状态（代理没在运行？）'; return; }
+    try { d = await Net.json('/cloud/status' + ((window.PromptLog && PromptLog.dir()) ? '?dir=' + encodeURIComponent(PromptLog.dir()) : ''), { timeout: 10000 }); } catch { stEl.textContent = '读不到同步状态（代理没在运行？）'; return; }
     stEl.textContent = (d.lastAt ? '上次同步 ' + fmtTime(d.lastAt) + '：' + (d.lastResult || '') : '还没有同步过')
-      + (d.envConfigured ? '（凭据来自 .env）' : '');
+      + (d.envConfigured ? '（凭据来自 .env）' : '')
+      /* 归档状态也报出来：它不在 .data/ 里（所以「上次同步」那句话根本不提它），
+         少了这一行用户会以为归档跟着数据一起有备份。 */
+      + (d.prompts ? (d.prompts.error ? '；提示词归档：' + escA(d.prompts.error)
+        : '；提示词归档本机 ' + d.prompts.count + ' 份' + ($id('cloudPrompts') && $id('cloudPrompts').checked ? '（已勾选跟着同步）' : '（未勾选跟着同步，勾上才会备份）'))
+        : '');
     /* 冲突：每条两个按钮，选完立即执行（选云端会先在本机留 .bak.json 备份） */
     const cf = d.conflicts || [];
     if (cBox) {
@@ -756,7 +1929,7 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
 (function () {
   const $id = id => document.getElementById(id);
   const msg = t => { const el = $id('promptMsg'); if (el) el.textContent = t || ''; };
-  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = s => window.esc(s);
   const dirEl = $id('promptDir'), infoEl = $id('promptDirInfo'), listEl = $id('promptRecent');
   if (!dirEl || !window.PromptLog) return;
 
@@ -795,60 +1968,404 @@ $('clearDirAudio').onclick = async () => { await idbSet('dir_audio', null); awai
 })();
 
 /* ---------- 列表分页设置 ---------- */
-const PAGE_TARGETS = [
-  { key: 'image', name: '图片工作台', defMode: 'page', defSize: 12 },
-  { key: 'video', name: '视频工作台', defMode: 'page', defSize: 12 },
-  { key: 'audio', name: '语音工作台', defMode: 'more', defSize: 12 },
-  { key: 'assets', name: '资产库', defMode: 'more', defSize: 24 },
-  { key: 'favorites', name: '我的收藏', defMode: 'page', defSize: 24 },
-];
+const PAGE_TARGETS = window.PAGE_TARGETS.rows;
 function pageModeOf(key, def) { return localStorage.getItem('page_mode_' + key) || def; }
 function pageSizeOf(key, def) { return Math.max(1, Number(localStorage.getItem('page_size_' + key) || def)); }
 function renderPageSettings() {
   const box = $('pageSettings');
+  const SZ = window.PAGE_TARGETS.size, MD = window.PAGE_TARGETS.modes;
   box.innerHTML = '';
   PAGE_TARGETS.forEach(t => {
     const row = document.createElement('div');
     row.className = 'krow thin';
     row.innerHTML = `<span class="kn">${t.name}</span>
       <select data-mode="${t.key}" style="flex:0 0 140px">
-        <option value="page" ${pageModeOf(t.key, t.defMode) === 'page' ? 'selected' : ''}>翻页</option>
-        <option value="more" ${pageModeOf(t.key, t.defMode) === 'more' ? 'selected' : ''}>动态加载（滚动自动加载）</option>
+        ${MD.map(m => `<option value="${m}" ${pageModeOf(t.key, t.defMode) === m ? 'selected' : ''}>${m === 'page' ? '翻页' : '动态加载（滚动自动加载）'}</option>`).join('')}
       </select>
       <span style="font-size:12.5px;color:var(--sub)">每页</span>
-      <input type="number" min="1" max="100" data-size="${t.key}" value="${pageSizeOf(t.key, t.defSize)}" style="flex:0 0 90px">
+      <input type="number" min="${SZ.min}" max="${SZ.max}" data-size="${t.key}" value="${pageSizeOf(t.key, t.defSize)}" style="flex:0 0 90px">
       <span style="font-size:12.5px;color:var(--sub)">条</span>`;
     box.appendChild(row);
   });
   if (window.Dropdowns) Dropdowns.build(box);   // 动态行里的下拉用自定义组件渲染
 }
 function savePageSettings() {
+  const SZ = window.PAGE_TARGETS.size;
   document.querySelectorAll('#pageSettings [data-mode]').forEach(s => localStorage.setItem('page_mode_' + s.dataset.mode, s.value));
-  document.querySelectorAll('#pageSettings [data-size]').forEach(i => localStorage.setItem('page_size_' + i.dataset.size, String(Math.max(1, Math.min(100, Number(i.value) || 12)))));
+  document.querySelectorAll('#pageSettings [data-size]').forEach(i =>
+    localStorage.setItem('page_size_' + i.dataset.size, String(Math.max(SZ.min, Math.min(SZ.max, Number(i.value) || 12)))));
 }
 renderPageSettings();
 
-$('saveAll').onclick = () => {
+/* ---------- 外观与界面：控件全部由 ui.js 的 UI_PREFS 现算 ----------
+   读现值 → 改动留在 DOM 上 → 落盘只在 saveAll 做一次（本页「点保存才生效」的统一口径）。
+   键名、默认档、取值都在那张表里点一次名：助手（ai-chat.js 的 writableKeys）也读同一张表，
+   所以不会出现「设置页有这一项、助手说改不了」，也不会两边各认一套档位名。 */
+function uiRow(r) {
+  const box = $('uiPrefs');
+  const row = document.createElement('div');
+  if (r.kind === 'bool') {
+    row.className = 'krow tight';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.ui = r.key;
+    const lab = document.createElement('label');
+    lab.className = 'crow';
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' ' + r.name));
+    row.appendChild(lab);
+    if (r.hint) { const h = document.createElement('span'); h.className = 'hint sm'; h.textContent = r.hint; row.appendChild(h); }
+    box.appendChild(row);
+    return;
+  }
+  row.className = 'krow thin';
+  const kn = document.createElement('span');
+  kn.className = 'kn';
+  kn.textContent = r.name;
+  const seg = document.createElement('div');
+  seg.className = 'ui-seg';
+  seg.dataset.ui = r.key;
+  seg.innerHTML = r.opts.map(o => '<button type="button" data-v="' + escA(o[0]) + '">' + escA(o[1]) + '</button>').join('');
+  row.appendChild(kn);
+  row.appendChild(seg);
+  if (r.hint) { const h = document.createElement('span'); h.className = 'hint sm'; h.textContent = r.hint; row.appendChild(h); }
+  box.appendChild(row);
+}
+function renderUiPrefs() {
+  const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
+  const box = $('uiPrefs');
+  if (!box || !rows.length) return;
+  box.innerHTML = '';
+  rows.forEach(r => {
+    uiRow(r);
+    let cur = '';
+    try { cur = localStorage.getItem(r.key) || ''; } catch (e) {}
+    if (r.kind === 'bool') {
+      const cb = box.querySelector('[data-ui="' + r.key + '"]');
+      if (cb) { cb.checked = cur === '1'; cb.onchange = markDirty; }
+      return;
+    }
+    const seg = box.querySelector('.ui-seg[data-ui="' + r.key + '"]');
+    if (!seg) return;
+    /* 坏值 / 那一页换了档位名留下的旧值 → 回落默认档（和 Wb.viewToggle 同一口径，别把脏值画成选中态） */
+    if (!r.opts.some(o => o[0] === cur)) cur = r.def;
+    seg.querySelectorAll('[data-v]').forEach(b => {
+      b.classList.toggle('on', b.dataset.v === cur);
+      b.onclick = () => {
+        seg.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b));
+        markDirty();
+      };
+    });
+  });
+  /* 底部一行实况：产物镜像到底存了多少、占了多少盘。
+     口径只有 AssetLocal.stats 一处（不在这儿另数一遍）；它是「指针表」里的条数与字节，
+     本体是 .assets/ 下的文件 —— 与同步生成的语音/生图放在同一个目录里（共用一张索引）。 */
+  try {
+    if (window.AssetLocal) {
+      const s = AssetLocal.stats();
+      const mb = s.bytes >= 1024 * 1024 * 1024 ? (s.bytes / 1073741824).toFixed(2) + ' GB'
+        : s.bytes >= 1024 * 1024 ? (s.bytes / 1048576).toFixed(1) + ' MB' : Math.round(s.bytes / 1024) + ' KB';
+      const line = document.createElement('div');
+      line.className = 'hint sm';
+      line.style.marginTop = '8px';
+      line.textContent = AssetLocal.saveOn()
+        ? ('本机已存 ' + s.count + ' 个产物，共 ' + mb + '（单个文件超过 200 MB 的不自动存，界面上会照常用平台地址显示）')
+        : '产物自动存本机已关闭：卡片只留平台地址，地址过期后只能靠「优先用本机文件」之外的手段找回。';
+      box.appendChild(line);
+    }
+  } catch (e) {}
+  renderAutosaveDirs(box);
+}
+/* ---------- 自动保存：按类型分别「存不存 / 另存到哪」 ----------
+   原来只有一个总开关（`sk_media_local`），产物一律落在项目下的 .assets/。
+   那份是**应用自己的库**（离线能看、删了能回源），不能因为想在「D:\AI图」里看到成品就不存 ——
+   所以这里是**额外再写一份**，两件事分开。
+   判据与分流只有一份（`AssetLocal.autosaveConf` / `setAutosaveConf` / `lastSave`），
+   这一页只负责画与存，不自己再读一遍 localStorage、更不自己判断哪一档开没开。
+
+   目录**两个办法都能用**：左边点「📁 选择…」由本机代理弹系统自带的文件夹选择框
+   （浏览器自己给不了真实路径 —— `<input type="file" webkitdirectory>` 只给文件夹名、
+   File System Access 给的是存不下来的句柄，所以这条路只能让本机进程去弹，
+   和它探 ffmpeg、开资源管理器是同一类活），右边直接手打路径也行。
+   两个入口填的是同一个值，所以「挑完就存」不用再点一次保存。 */
+function renderAutosaveDirs(box) {
+  if (!box || !window.AssetLocal) return;
+  const head = document.createElement('div');
+  head.className = 'sect-t';
+  head.textContent = '另存到指定文件夹（按类型）';
+  box.appendChild(head);
+  const tip = document.createElement('div');
+  tip.className = 'hint sm';
+  tip.style.margin = '-4px 0 8px';
+  tip.textContent = '每类可以分开设：关掉就不再自动存这一类；填了目录就在那边**额外**存一份（同名自动加序号，不覆盖）。'
+    + '目录可以点「📁 选择…」让系统弹框挑，也可以直接手打；目录不存在会自动建，写不进去时下面那一行会照实说原因。'
+    + '留空 = 只存在本机资产库（.assets）。';
+  box.appendChild(tip);
+  const conf = AssetLocal.autosaveConf();
+  const last = AssetLocal.lastSave();
+  AssetLocal.SAVE_KINDS.forEach(k => {
+    const row = document.createElement('div');
+    row.className = 'krow';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = !!conf[k.id].on; cb.dataset.as = k.id + ':on';
+    cb.onchange = () => { saveAutosave(); markDirty(); };
+    const kn = document.createElement('span');
+    kn.className = 'kn'; kn.textContent = k.zh;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = '留空 = 只存本机资产库　例：D:\\AI生成\\' + k.zh;
+    inp.value = conf[k.id].dir; inp.dataset.as = k.id + ':dir';
+    inp.style.minWidth = '260px';
+    inp.oninput = () => { saveAutosave(); };
+    inp.onchange = () => { saveAutosave(); markDirty(); };
+    const why = document.createElement('span');
+    why.className = 'hint sm'; why.dataset.aswhy = k.id;
+    const r = last[k.id];
+    if (r && !r.ok && r.why) why.innerHTML = '<b style="color:var(--err)">上次没存成：</b>' + escA(r.why);
+    else if (r && r.ok && r.file) why.textContent = '上次存成：' + r.file;
+    else if (r && r.ok && r.skipped) why.textContent = '没填目录，这一类只存在本机资产库';
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'tool';
+    pick.textContent = '📁 选择…';
+    pick.title = '弹出系统自带的文件夹选择框';
+    pick.onclick = () => pickDirFor(k, inp, pick, why);
+    row.appendChild(cb); row.appendChild(kn); row.appendChild(inp); row.appendChild(pick); row.appendChild(why);
+    box.appendChild(row);
+  });
+}
+/* 点「📁 选择…」：弹系统文件夹选择框，挑完直接填进输入框并落盘。
+   **取消不算错**：用户在框里点「取消」是正常的一步（挑错地方了、想重新挑），
+   这时既不弹红字也不改已有的目录 —— 当成什么都没发生。 */
+async function pickDirFor(k, inp, btn, why) {
+  if (!window.Api || !Api.pickDir) { if (why) why.innerHTML = '<b style="color:var(--err)">这页没加载到代理接口</b>'; return; }
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '等你在弹出的窗口里选…';
+  if (why) why.textContent = '系统文件夹选择框已经弹出来了（可能在窗口后面），选完点「选择」或直接关掉它。';
+  try {
+    const r = await Api.pickDir({ title: '选择「' + k.zh + '」要保存到的文件夹', start: String(inp.value || '').trim() });
+    if (r && r.cancelled) { if (why) why.textContent = '你取消了，目录没改。'; return; }
+    if (!r || !r.ok || !r.dir) { if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + escA((r && r.error && r.error.message) || '代理没有回路径'); return; }
+    inp.value = r.dir;
+    saveAutosave(); markDirty();
+    if (why) why.innerHTML = '已选：<b>' + escA(r.dir) + '</b>（已经存好了，下次生成就往这儿放）';
+  } catch (e) {
+    if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + escA((e && e.message) || String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+function saveAutosave() {
+  if (!window.AssetLocal) return;
+  const c = AssetLocal.autosaveConf();
+  document.querySelectorAll('[data-as]').forEach(el => {
+    const [kind, fld] = el.dataset.as.split(':');
+    if (!c[kind]) return;
+    if (fld === 'on') c[kind].on = !!el.checked;
+    else c[kind].dir = String(el.value || '').trim();
+  });
+  AssetLocal.setAutosaveConf(c);
+}
+function saveUiPrefs() {
+  for (const r of ((window.UI_PREFS && UI_PREFS.rows) || [])) {
+    const el = document.querySelector('[data-ui="' + r.key + '"]');
+    if (!el) continue;
+    if (r.kind === 'bool') {
+      /* 默认收起 = 不存键（`sidebar.js` 认 `=== '1'`），勾掉就删键 —— 和 ai_chat_snap 同一套「不留多余键」。 */
+      if (el.checked) localStorage.setItem(r.key, '1'); else localStorage.removeItem(r.key);
+    } else {
+      const b = el.querySelector('.on');
+      if (b) localStorage.setItem(r.key, b.dataset.v);
+    }
+  }
+  /* 存完就把界面拉到这一档，不能等下次进页面：换色与左栏重排各自只有一份实现
+     （外壳 sidebar.js 挂出来的这两个钩子），这里不重拼一套。视图档位不在这一页显示，不用当场动。 */
+  const top = window.top || window;
+  try {
+    const th = localStorage.getItem('dir_theme') || 'light';
+    if (top.__sbApplyTheme) top.__sbApplyTheme(th); else document.documentElement.dataset.theme = th;
+  } catch (e) {}
+  try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
+}
+renderUiPrefs();
+
+/* ---------- 拍短剧的设置 ----------
+   控件、默认值、文案全部来自 drama.js 的 Drama.SET 那一张表：拍短剧页面上的说法（「AI 会自己改时长」）
+   与真的发给文字 AI 的那份参数就是这张表，设置页再抄一遍字段名就会出现「这里改了、那边不跟着改」。
+   整集时长的真正上下限由视频平台声明的档位决定（Drama.durationBounds），所以这里不写 max。 */
+function renderDramaSet() {
+  const box = $('dramaSet');
+  const SET = window.Drama && window.Drama.SET;
+  if (!SET) { box.innerHTML = '<span class="hint sm">读不到「拍短剧」的设置表（drama.js 没加载？）</span>'; return; }
+  const esc = s => window.esc(String(s == null ? '' : s));
+  box.innerHTML = '';
+  Object.keys(SET).forEach(id => {
+    const it = SET[id];
+    const val = Drama.setting(id);
+    let ctl;
+    if (it.kind === 'bool') {
+      ctl = `<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="${id}"${val === '0' ? '' : ' checked'}> 开启</label>`;
+    } else if (it.kind === 'num') {
+      /* 单位跟着声明走，不写死成「分钟」：SET 里既有「整集时长（分钟）」这种把单位写进
+         名称的，也有 maxTakes 那样单给 unit 的。两种都见过，写死一个就有一半是错的。 */
+      ctl = `<input type="number" min="0" step="${esc(it.step || '0.5')}" data-set="${id}" value="${esc(val)}" style="flex:0 0 110px">`
+        + (it.unit ? '<span style="font-size:12.5px;color:var(--sub)">' + esc(it.unit) + '</span>' : '');
+    } else {
+      ctl = '<select data-set="' + id + '" style="flex:0 0 210px">'
+        + (it.options || []).map(o => '<option value="' + esc(o.id) + '"' + (o.id === val ? ' selected' : '') + '>' + esc(o.label) + '</option>').join('')
+        + '</select>';
+    }
+    const row = document.createElement('div');
+    row.className = 'krow thin';
+    row.innerHTML = `<span class="kn">${esc(it.label)}</span>` + ctl
+      + (it.hint ? `<span class="sub-line">${esc(it.hint)}</span>` : '');
+    box.appendChild(row);
+  });
+  box.querySelectorAll('[data-set]').forEach(el => { el.addEventListener('input', markDirty); el.addEventListener('change', markDirty); });
+  if (window.Dropdowns) Dropdowns.build(box);
+}
+function saveDramaSet() {
+  const SET = window.Drama && window.Drama.SET; if (!SET) return;
+  document.querySelectorAll('#dramaSet [data-set]').forEach(el => {
+    const it = SET[el.dataset.set]; if (!it) return;
+    if (it.kind === 'bool') localStorage.setItem(it.key, el.checked ? '1' : '0');
+    else if (it.kind === 'num') {
+      const n = Number(el.value);
+      localStorage.setItem(it.key, String(Number.isFinite(n) && n > 0 ? n : Number(it.def)));
+    } else if (el.value) localStorage.setItem(it.key, el.value);
+  });
+}
+renderDramaSet();
+
+$('saveAll').onclick = async () => {
+  const skipped = [];          // 只跳过有问题的那一两个字段，其余照常保存 —— 不能因为一个地址就整页不存
   document.querySelectorAll('[data-key]').forEach(inp => {
     if (inp.value.trim()) localStorage.setItem('sk_key_' + inp.dataset.key, inp.value.trim());
     else localStorage.removeItem('sk_key_' + inp.dataset.key);
   });
-  const base = $('textBase').value.trim();
-  // 以前只认 https://，填内网 http 服务（Ollama / vLLM）会被静默丢掉，还不给任何提示
-  if (base) {
-    if (/^https?:\/\//.test(base)) { localStorage.setItem('sk_base_deepseek', base); }
-    else { $('okmsg').textContent = '⚠ 文字 AI 接口地址要以 http:// 或 https:// 开头，这次没有保存它'; renderProv(); return; }
-  } else localStorage.removeItem('sk_base_deepseek');
-  if ($('textModel') && $('textModel').value) localStorage.setItem('sk_model_deepseek', $('textModel').value);
-  localStorage.setItem('sk_polish_video', $('polishVideo').value);
-  localStorage.setItem('sk_polish_img', $('polishImg').value);
-  localStorage.setItem('sk_polish_story', $('polishStory').value);
-  if ($('polishAudio')) localStorage.setItem('sk_polish_audio', $('polishAudio').value);
-  if ($('polishSplit')) localStorage.setItem('sk_polish_split', $('polishSplit').value);
+  /* 接口地址（只有注册表里 baseEditable 的那几家有这个输入框）：
+     必须以 http(s):// 开头（内网 http 服务也是合法用法，以前只认 https 被静默丢掉）；
+     它属于别家 / 非官方地址时问一次“仍然保存吗”—— 你说了算。 */
+  for (const inp of document.querySelectorAll('[data-base]')) {
+    const v = String(inp.value || '').trim();
+    if (!v) { localStorage.removeItem('sk_base_' + inp.dataset.base); continue; }
+    if (!/^https?:\/\//.test(v)) { skipped.push('接口地址（要以 http:// 或 https:// 开头）'); continue; }
+    const row = provRows.get(inp.dataset.base);
+    const own = row && row.prov ? Api.hostOwner(REG, v, row.prov) : null;
+    if (own && own.kind === 'other-provider') {
+      const go = await Confirm.ask({
+        title: '接口地址与供应方不是一家，仍然保存吗？',
+        okLabel: '仍然保存', danger: true,
+        sub: '这个地址属于「' + own.name + '」，而供应方是「' + ((row && row.name) || '当前家') + '」。'
+          + '用后者的密钥发这个地址，上游多半会以「密钥无效」拒绝。'
+          + '如果这是你的中转网关 / 自建代理、且它接受这把密钥，就存下来。',
+        body: '选「取消」= 这一项不写盘（其它设置照存，你的输入原样保留）。',
+      });
+      if (go) localStorage.setItem('sk_base_' + inp.dataset.base, v);
+      else skipped.push('接口地址（与选中的供应方不是一家）');
+    } else localStorage.setItem('sk_base_' + inp.dataset.base, v);
+  }
+  baseDraft.clear();
+  /* 落了盘，那份「还没保存的草稿」就不再是唯一真相了（下次重画面板要读的是磁盘上这一份）。 */
+  keyDraft.clear();
+  /* 「暂时不用」在这里落盘（表单里其它地方一律不写盘）。
+     生成平台的**地址**不在这一页改：内置那几家走官方地址，
+     同形状的中转站请在「添加自定义供应商」里登记成另一家（那个动作自己落盘并重取注册表）。 */
+  document.querySelectorAll('[data-off]').forEach(cb => {
+    if (cb.checked) localStorage.setItem('sk_off_' + cb.dataset.off, '1');
+    else localStorage.removeItem('sk_off_' + cb.dataset.off);
+  });
+  /* 侧栏余额勾选：以前一点就立刻写，侧栏当场重画 —— 和这一页「点保存才生效」两套口径，
+     很容易以为别的项也是即时的。现在跟着 saveAll 一起落盘（外层侧栏靠 storage 事件重画）。
+     **不能按屏幕上渲染出来的那几行重建整份名单**：一次只展开一家，那样每保存一次就把
+     别家「不显示余额」的选择抹掉一批。改成在现有名单上按这一行勾选增删，再顺手剪掉已经不存在的 kid。 */
+  if (window.SbBal) {
+    const off = new Set(SbBal.off());
+    document.querySelectorAll('[data-bal]').forEach(cb => { if (cb.checked) off.delete(cb.dataset.bal); else off.add(cb.dataset.bal); });
+    /* 不按类型排除：语音、文字同样能有余额（注册表里声明了 credits 端点就算）。 */
+    const live = new Set((REG.providers || []).map(p => p.keyId || p.id));
+    SbBal.setList([...off].filter(k => live.has(k)));
+  }
+  /* 文字 AI：「用哪一家」存 sk_text_prov。供应方、密钥、接口地址、型号、识图现在**全在**
+     「供应商与密钥」那张卡的「文字」一档里 —— 密钥与地址由上面的 [data-key] / [data-base] 落盘，
+     型号与识图由下面这两段落盘，同一次保存里各写各的键（同一把钥匙写两次才是异常）。
+     表单助手在闭包里，这里走 window.__textForm（见闭包内的说明）。 */
+  const tp = window.__textForm ? window.__textForm.prov() : null;
+  if (tp) {
+    /* 供应商卡里那个「作用文字 AI」单选框勾中了谁就存谁（没勾 = 保持原来那家） */
+    const pickedEl = document.querySelector('[data-tpick]:checked');
+    if (pickedEl && pickedEl.dataset.tpick) localStorage.setItem(TextAI.provKey(), pickedEl.dataset.tpick);
+    else if (!localStorage.getItem(TextAI.provKey())) localStorage.setItem(TextAI.provKey(), tp.id);
+    /* 保存完了就把「获取型号 / 测试」按钮留下的内存覆盖清掉：
+       它们只在没点保存期间临时顶上，存盘之后磁盘上那份才是唯一真相。 */
+    TextAI.setFormOverride(tp, null);
+  }
+  /* 型号：每张卡上自己那个下拉，存进**这一家**的 sk_model_<keyId>。
+     不按「当前那一家」筛 —— 文字档里顺手给别家挑好的默认型号也是有效配置，
+     只看当前那家会把它悄悄丢掉。 */
+  document.querySelectorAll('[data-tmodel]').forEach(sel => {
+    const kid = sel.dataset.tmodel, m = sel.value;
+    if (!m) return;
+    const p = (window.__textForm && window.__textForm.provByKid) ? window.__textForm.provByKid(kid) : null;
+    /* 归属守卫：下拉里这个型号得属于这一家才能存。
+       以前不管三七一十一都写进 sk_model_<kid>，于是「切供应方时下拉里的旧值」
+       会被存成别家的型号（表现就是明明选了 OpenRouter、实际发的是 DeepSeek 家的型号）。 */
+    if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, window.__textForm.fetchedOf(p))) {
+      skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）');
+    } else {
+      localStorage.setItem('sk_model_' + kid, m);
+    }
+  });
+  const tvEl = document.querySelector('[data-tvision]');
+  if (tvEl) localStorage.setItem('sk_text_vision', tvEl.value);
+  /* 润色指令：**按分类表逐条存**，键名走 TextAI.promptKey（= `sk_polish_<kind>`）。
+     以前这里是 10 行手抄的键名，新增一条指令忘了在这加一行，就是「设置页能改、存盘没存上」。 */
+  (window.TextAI.PROMPTS || []).forEach(g => (g.items || []).forEach(it => {
+    const el = document.getElementById('pp_' + it.key);
+    if (!el) return;
+    /* **与默认逐字节相同的不存**（反过来把这个键删掉）。
+       这个输入框初始化时填的就是默认值，所以以前「打开设置页点一次保存」会把默认
+       原样固化成存盘副本 —— 而 `TextAI.prompt()` 存盘优先，于是以后改 TextAI.DEF
+       对这台机器一条都不生效（修「指令里写死人称」时就是这么发现默认白改了）。
+       判定用 TextAI.defaultPrompt（只看默认、不碰存盘），和 prompt() 算的是同一份。 */
+    if (el.value === TextAI.defaultPrompt(it.key)) localStorage.removeItem(TextAI.promptKey(it.key));
+    else localStorage.setItem(TextAI.promptKey(it.key), el.value);
+  }));
+  if ($('polishAsk')) localStorage.setItem('sk_polish_ask', $('polishAsk').value);
+  /* 总开关默认开，所以和「吸住」同一套写法：键不在 = 开着，只有明确存了 '1' 才算关。
+     不写 === '1' 那样会变成默认关，和文案里的「默认开」对不上。 */
+  if ($('acOff')) {
+    if ($('acOff').checked) localStorage.removeItem('ai_chat_off');
+    else localStorage.setItem('ai_chat_off', '1');
+  }
+  if ($('acAuto')) {
+    if ($('acAuto').checked) localStorage.setItem('ai_chat_auto', '1');
+    else localStorage.removeItem('ai_chat_auto');
+  }
+  /* 吸附默认是**开**的，所以「开」= 删掉键（让默认值说话），只有关掉才存 '0' ——
+     和 ai_chat_auto 反过来，但同一套「不留多余键」的写法。 */
+  if ($('acSnap')) {
+    if ($('acSnap').checked) localStorage.removeItem('ai_chat_snap');
+    else localStorage.setItem('ai_chat_snap', '0');
+  }
+  /* 通知这一项默认关，所以「关」= 删键；开了才存 '1'（和 ai_chat_auto 同一套「不留多余键」）。
+     只存这一半：浏览器授权状态存不了也同步不了，换台机器要点一下「现在授权」。 */
+  if ($('acNotice')) {
+    if ($('acNotice').checked) localStorage.setItem('ai_chat_notice', '1');
+    else localStorage.removeItem('ai_chat_notice');
+  }
   savePageSettings();
-  $('okmsg').textContent = '✓ 已保存（分页设置刷新页面后生效）';
-  setTimeout(() => { $('okmsg').textContent = ''; }, 2000);
-  renderProv();
+  saveUiPrefs();
+  saveDramaSet();
+  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
+  $('okmsg').textContent = skipped.length
+    ? '✓ 其余设置已保存；没写入：' + skipped.join('、')
+    : '✓ 已保存（分页设置刷新页面后生效）';
+  $('okmsg').className = skipped.length ? 'okmsg dirty-note' : 'okmsg';
+  setTimeout(() => { $('okmsg').textContent = ''; }, 4000);
+  markSaved();
+  renderProv();                 // 存完重画：型号下拉回到已保存的值，识图段跟着新的当前供应方走
 };
 
 /* ---------- 设置导入 / 导出 / 恢复默认 ----------
@@ -858,12 +2375,22 @@ $('saveAll').onclick = () => {
    多出无用项；「网络与刷新」（sk_net_ / sk_poll_sec）现在也一起导出。
    wb_split = 页面分栏比例（三个工作台 + 导演台共用一份，见 workbench.js 的 Wb.split）：
    它也是「界面偏好」，以前不在导出清单里，换台机器栏宽全丢。 */
-const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_text_vision', 'sk_polish_', 'sk_dir_',
-  'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show'];
+const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
+  'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'dr_',
+  /* 只这一项助手设置：ai_chat 前缀会把对话记录和附件身份一起导出，那是数据不是设置。
+     sk_custom = 「添加自定义供应商」那份清单（照哪家的形状 + 地址 + 型号 id），
+     不含密钥（密钥还是按 keyId 存 sk_key_<id>），所以导出/恢复默认都把它当设置看待。 */
+  'ai_chat_auto', 'sk_custom', 'sk_prov_tab', 'sk_media_local', 'sk_media_prefer', 'sk_autosave'];
 /* 「恢复默认」不动的界面偏好：dir_ 前缀会把它们一起扫进来，
-   所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view，
+   所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view 与素材库的 dir_char_view，
    恢复默认会把用户的视图档位一起清掉，而弹窗写的是「清掉目录」，两件事都对不上。 */
-const RESET_KEEP = ['dir_theme', 'dir_asset_view', 'dir_fav_view'];
+const RESET_KEEP = ['set_fold_polish', 'dir_theme', 'dir_asset_view', 'dir_char_view', 'dir_fav_view', 'sb_open', 'dr_adv_open', 'dr_story_open', 'sk_prov_tab',
+  /* 产物镜像的两个开关也是「恢复默认」不该动的界面偏好：恢复设置与「把界面调好」是两件事。
+     （sk_local_mirror 那份索引不在 EXPORTABLE 里，本来就不会被这一轮扫到。）
+     sk_autosave（按类型的另存目录）同理：那是用户自己挑的落盘位置，
+     「恢复默认」把它清掉会让人以为文件存到别处去了，实际只是配置没了。 */
+  'sk_media_local', 'sk_media_prefer', 'sk_autosave'];
+
 function exportSettings(includeKeys) {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -913,8 +2440,8 @@ if ($('impSetFile')) $('impSetFile').onchange = e => {
 };
 if ($('resetSet')) $('resetSet').onclick = async () => {
   const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
-    body: '会清掉：平台密钥、文字 AI 接口地址与模型、润色指令、分页方式与每页条数、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
-      + '不会清掉：下载/渲染等「默认文件夹」（那是浏览器授权的目录句柄，另存于本机，可在上面的「目录」处单独改）；主题与列表视图偏好也会保留；生成历史、资产、收藏不受影响。' });
+    body: '会清掉：平台密钥、文字 AI 接口地址与模型、你「添加自定义供应商」那几家（清单与它们的密钥/停用勾选）、润色指令、分页方式与每页条数、拍短剧的整集时长与那两个 AI 自主权开关、做下一集的沿用范围、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
+      + '不会清掉：主题、列表视图与短剧页两个折叠面板的开合偏好也会保留；生成历史、资产、收藏不受影响（下载一律走浏览器默认位置，项目不再保存任何目录句柄）。' });
   if (!ok) return;
   let n = 0;
   for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -927,137 +2454,364 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
   setTimeout(() => location.reload(), 800);
 };
 (async () => {
-  const defs = {
-    polishVideo: '你是专业的AI视频提示词工程师。把用户的镜头提示词润色为细节丰富、结构清晰、适合视频生成模型的中文提示词：补全主体、动作、场景、光线、镜头语言与氛围，不添加无关内容，直接返回润色后的提示词本身，不要任何解释。',
-    polishImg: '你是专业的AI图片提示词工程师。把用户的提示词润色为细节丰富、结构清晰、适合文生图模型的中文提示词：补全主体、构图、光线、风格与质感，不添加无关内容，直接返回润色后的提示词本身，不要任何解释。',
-    polishStory: `你是分镜师。根据镜头描述与时长，决定需要几张关键画面（3–8 张，视内容复杂度），并按时间顺序给出每一张的文生图提示词。
-只返回 JSON，不要任何解释或代码块标记，格式：
-{"frames":[{"t":0,"prompt":"画面提示词"}]}
-要求：t 为秒数，从 0 开始递增且不超过镜头时长；prompt 需包含主体、动作、构图、光线、氛围，不写镜头运动。`,
-    polishAudio: '你是配音稿编辑。把用户给的文本改写成适合语音合成的口播稿：口语化、句子短、标点清晰，数字与英文缩写写成中文读法，不加解释、不加标题，直接返回改写后的文本。',
-    polishSplit: `你是分镜师。把剧本/文案拆成「场景 → 镜头」。每个镜头给出适合视频生成的提示词（含主体、动作、场景、镜头运动、光线、氛围），并给出时长建议。
-只返回 JSON：{"title":"短片名","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5,"note":"一句画面说明"}]}]}`,
-  };
-  $('polishVideo').value = localStorage.getItem('sk_polish_video') || defs.polishVideo;
-  $('polishImg').value = localStorage.getItem('sk_polish_img') || defs.polishImg;
-  $('polishStory').value = localStorage.getItem('sk_polish_story') || defs.polishStory;
-  if ($('polishAudio')) $('polishAudio').value = localStorage.getItem('sk_polish_audio') || defs.polishAudio;
-  if ($('polishSplit')) $('polishSplit').value = localStorage.getItem('sk_polish_split') || defs.polishSplit;
-  $('textBase').value = localStorage.getItem('sk_base_deepseek') || '';
+  /* 内置默认只有一份：assetlib.js 的 TextAI.DEF。页面（导演台 / 三个工作台）也用 TextAI.prompt(kind)
+     取「用户改过的，没有就用默认」—— 以前这里一份、四个页面里各抄一份兜底串，改一边另一边不跟着改。 */
+  const defs = window.TextAI.DEF;
 
-  /* ---------- 常用文字 AI 接口预设 ---------- */
-  const PRESETS = [
-    { name: 'DeepSeek', base: 'https://api.deepseek.com', hint: 'platform.deepseek.com', models: ['deepseek-flash', 'deepseek-v4-pro'] },
-    { name: 'OpenAI', base: 'https://api.openai.com', hint: 'openai.com', models: ['gpt-4o-mini'] },
-    { name: '月之暗面 Kimi', base: 'https://api.moonshot.cn', hint: 'moonshot.cn', models: ['moonshot-v1-8k'] },
-    { name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', hint: 'bigmodel.cn', models: ['glm-4-flash'] },
-    { name: '阿里通义', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', hint: 'dashscope', models: ['qwen-plus'] },
-    { name: '硅基流动', base: 'https://api.siliconflow.cn/v1', hint: 'siliconflow.cn', models: ['deepseek-ai/DeepSeek-V3'] },
-    { name: '自定义', base: '', hint: '自己填地址', models: [] },
-  ];
-  const PT_KEY = 'sk_text_provider';
-  const presetBox = $('presets');
-  presetBox.innerHTML = PRESETS.map((p2, i) => `<button data-i="${i}">${p2.name}<span class="b">${p2.hint}</span></button>`).join('');
-  const markPreset = () => {
-    const cur = localStorage.getItem(PT_KEY) || 'DeepSeek';
-    presetBox.querySelectorAll('button').forEach(b => b.classList.toggle('on', PRESETS[+b.dataset.i].name === cur));
-  };
-  presetBox.querySelectorAll('button').forEach(b => b.onclick = () => {
-    const p2 = PRESETS[+b.dataset.i];
-    localStorage.setItem(PT_KEY, p2.name);
-    if (p2.base) $('textBase').value = p2.base;
-    if (p2.models.length) { fillModelOptions(p2.models); $('textModel').value = p2.models[0]; localStorage.setItem('sk_model_deepseek', p2.models[0]); }
-    $('textModelTip').textContent = p2.base ? `已选「${p2.name}」，记得保存后点「获取模型列表」确认可用模型。` : '自定义接口：请自己填写 OpenAI 兼容地址。';
-    markPreset();
-  });
-  markPreset();
+  /* ---------- 「提示词润色」那张卡：分类与每一格都**现算** ----------
+     名单只有一份 —— assetlib.js 的 `TextAI.PROMPTS`（按用途分组）。
+     以前这里是 11 个手写的 .polish-block，外加下面保存 / 恢复默认两处各抄一遍键名：
+     加一条指令要改三个地方，漏一处就是「设置页列出来了、存盘没存上」或者反过来。
+     现在加一条只在 PROMPTS 里写一行，这一页自动多出一格。
+     键名仍走 `TextAI.promptKey(kind)`（`sk_polish_<kind>`），**不迁移**已有数据。 */
+  const PKEYS = (window.TextAI.PROMPTS || []).reduce((a, g) => a.concat((g.items || []).map(i => i.key)), []);
+  /* ref / tip 里的反引号是「这一段要渲染成 <code>」、双星号是「这一段要加粗」的约定
+     （见 assetlib.js 的说明）。顺序要紧：先整体转义（这些文本会被用户改），再把转义后的
+     记号换成标签 —— 反过来先换标签就会被转义掉，`<code>` 变成一串可见的字符。 */
+  const rich = s => escA(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/\n/g, '<br>');
+  const ppEl = k => document.getElementById('pp_' + k);
 
-  /* ---------- 模型列表：填充 / 选择 / 拉取 / 测试 ---------- */
-  function fillModelOptions(ids, keep) {
-    const sel = $('textModel');
-    const prev = keep || localStorage.getItem('sk_model_deepseek') || '';
-    sel.innerHTML = ids.map(id2 => `<option value="${id2}">${id2}</option>`).join('');
-    sel.value = ids.includes(prev) ? prev : (ids[0] || '');
+  (function renderPolishGroups() {
+    const box = $('polishGroups');
+    if (!box) return;
+    if (!window.TextAI.PROMPTS) { box.innerHTML = '<div class="pb-tip err">读不到 TextAI.PROMPTS（assetlib.js 没加载？）</div>'; return; }
+    box.innerHTML = window.TextAI.PROMPTS.map(g => {
+      const items = g.items || [];
+      return '<div class="pg-head"><b>' + escA(g.name) + '</b><span class="n">' + items.length + ' 条</span></div>'
+        + (g.note ? '<div class="pg-note">' + escA(g.note) + '</div>' : '')
+        + items.map(it => (
+          '<div class="polish-block">'
+          + '<div class="pb-head"><b>' + escA(it.label) + '</b>'
+          + '<span class="used">用于：' + escA(it.used) + '</span>'
+          + '<button class="ghost mini" type="button" data-reset="' + escA(it.key) + '">恢复默认</button></div>'
+          + '<textarea id="pp_' + escA(it.key) + '" spellcheck="false"></textarea>'
+          + (it.tip ? '<div class="pb-tip">' + rich(it.tip) + '</div>' : '')
+          + (it.ref ? '<div class="pb-tip">' + rich(it.ref) + '</div>' : '')
+          + '</div>')).join('');
+    }).join('');
+    /* 用户一改就标脏 —— 否则走掉了「保存全部设置」这一下，界面上看不出自己丢了东西。 */
+    box.addEventListener('input', e => { if (e.target && e.target.tagName === 'TEXTAREA') markDirty(); });
+    const fb = $('polishFold');
+    if (fb) fb.title = '这 ' + PKEYS.length + ' 条指令的默认文本都写好了（' + window.TextAI.PROMPTS.length + ' 类），平时不用展开';
+  })();
+
+  /* 读取：全部按 `TextAI.prompt(kind)` 取「用户改过的，没有就用内置默认」。
+     `askNote` 一律不传（=不追加那段「补充信息」）—— 那一段由页面在实际调用时才拼，
+     否则这里读出来、写回去就把「可以反问」固化进存盘值了（NO_ASK 那几条同理，见 assetlib.js）。 */
+  PKEYS.forEach(k => { const el = ppEl(k); if (el) el.value = TextAI.prompt(k); });
+  if ($('polishAsk')) {
+    $('polishAsk').value = localStorage.getItem('sk_polish_ask') || 'ai';
+    $('polishAsk').onchange = markDirty;
   }
-  fillModelOptions(['deepseek-flash', 'deepseek-v4-pro']);
+  /* AI 助手总开关：默认开 —— 键不在就是开着，只有明确存了 '1' 才是关（和 acSnap 同一套）。 */
+  if ($('acOff')) {
+    $('acOff').checked = localStorage.getItem('ai_chat_off') !== '1';
+    $('acOff').onchange = markDirty;
+  }
+  /* AI 助手「执行前不用确认」：勾了它，卡片照画、校验照做，只省掉那一下点击 ——
+     所以这一项要写在设置页里让人主动勾，而不是助手自己猜。 */
+  if ($('acAuto')) {
+    $('acAuto').checked = localStorage.getItem('ai_chat_auto') === '1';
+    $('acAuto').onchange = markDirty;
+  }
+  /* 「吸住」默认开，所以键不在 = 勾着；只有明确存了 '0' 才是关 ——
+     别写成 `=== '1'`，那样默认关、和文案里的「默认开」对不上。 */
+  if ($('acSnap')) {
+    $('acSnap').checked = localStorage.getItem('ai_chat_snap') !== '0';
+    $('acSnap').onchange = markDirty;
+  }
+  /* 系统通知这一项分两半：复选框是本机设置（点保存才生效），授权是**浏览器那一层的状态**
+     （origin 级的，外壳和这一页同源，所以在这儿点完球那边也就能弹了）。
+     授权只能由用户自己点一下触发 —— 浏览器不允许脚本静默要，所以给了一颗「现在授权」。 */
+  function noticeState() {
+    if (!window.Notification) return '这个浏览器不给网页弹通知（球上的数字照旧会亮，点开就能看到结果）';
+    const p = Notification.permission;
+    if (p === 'granted') return '浏览器已授权：出结果会弹系统通知';
+    if (p === 'denied') return '浏览器已经拒绝过授权，这里再点也不会弹 —— 要去地址栏左边的「网站设置」里放开';
+    return '还没授权：勾上并保存后，点一下「现在授权」，浏览器才会问你要不要弹';
+  }
+  function paintNoticeState() {
+    if ($('acNoticeState')) $('acNoticeState').textContent = noticeState();
+    if ($('acNoticeAsk')) $('acNoticeAsk').disabled = !window.Notification || Notification.permission === 'granted';
+  }
+  if ($('acNotice')) {
+    $('acNotice').checked = localStorage.getItem('ai_chat_notice') === '1';
+    $('acNotice').onchange = () => { markDirty(); paintNoticeState(); };
+    paintNoticeState();
+  }
+  if ($('acNoticeAsk')) $('acNoticeAsk').onclick = async () => {
+    try { await Notification.requestPermission(); } catch (e) { Toast.err('授权失败：' + ((e && e.message) || e)); }
+    paintNoticeState();
+    if (window.Notification && Notification.permission === 'granted') {
+      Toast.ok('已授权');
+      if ($('acNotice') && !$('acNotice').checked) { $('acNotice').checked = true; markDirty(); }
+    }
+  }
+  /* ---------- 文字 AI：型号 + 识图（供应方 / 密钥 / 地址在上面的「供应商与密钥」那张卡） ----------
+     以前这一整块写死 DeepSeek：基址存 sk_base_deepseek、型号存 sk_model_deepseek，
+     而且型号只能从 /models 拉回来的列表里选，接口没列的型号就用不了。现在：
+       · **用哪一家**由上面那张卡的「文字」一档决定（点那张卡上的「用作文字 AI」单选框），
+         存储键还是 sk_text_prov，TextAI.prov() 的兜底判定照旧（默认 OpenRouter，但它得有密钥才轮到它）。
+       · 密钥 / 接口地址也搬到了那张卡里（sk_key_ / sk_base_，按供应方的 keyId 各存各的），
+         这里**不再有一份地址栏、密钥框、预设表** —— 同一件事两处各写一份必然走岔。
+       · 型号下拉 = **这一家接口拉到的** + **自己填的**（sk_text_models_<keyId>），
+         **不展示 registry 里写死的「平台内置」**（那是固定清单，会让人以为型号是写死的；
+         仍然作为内部兜底，一个型号都没选时 model() 不会返回空）
+     这一卡里的改动统一「点保存全部设置才生效」（见 saveAll），和页面上其它设置一致。 */
+  /* 取回的型号列表**按供应方各存各的**：以前是一份全局变量，切了供应方还串着上一家的型号，
+     界面上就会出现「选了 OpenRouter 却看到 DeepSeek 的型号」。 */
+  const fetched = new Map();      // providerId → [{id,name}]（点「获取型号列表」的结果）
+  const fetchedOf = p => fetched.get((p && (p.keyId || p.id)) || '') || [];
+  function textProvList() { return (window.__REG && window.TextAI) ? TextAI.all(window.__REG) : []; }
+  /* 「当前用哪家」只看一处：上面那张卡里勾了哪个「用作文字 AI」；没勾就按 TextAI 自己的判定
+     （已保存的那家 → 默认供应方 → 第一家有密钥的）。 */
+  function curTextProv() {
+    const list = textProvList();
+    if (!list.length) return null;
+    const picked = list.find(x => x.id === curTextId());
+    return picked || TextAI.prov(window.__REG) || list[0];
+  }
+  /* 型号那一段现在长在**每一家**的供应商卡里（不再是单独一张「文字 AI 模型与识图」卡）：
+     供应方、密钥、接口地址、型号、识图本来就是同一家的事，拆成两张卡必然对不上。
+     下面这几个函数全部按 keyId 找元素，所以「文字」一档里画出来的每一张卡各填各的，
+     切到别家不会串型号，也不会出现「刚在这张卡改了地址、型号却在另一张卡上选」的情况。
+     识图开关（sk_text_vision）是**全局一项**，所以只画在当前「作用文字 AI」的那一张卡上；
+     每张都画一份就成了三个开关改同一个键。 */
+  const provByKid = kid => textProvList().find(x => (x.keyId || x.id) === kid) || null;
+  const selOf = kid => document.querySelector('[data-tmodel="' + kid + '"]');
+  const msgOf = kid => document.querySelector('[data-msg="' + kid + '"]');
+  /* 型号下拉：**只显示这一家**的型号，按来源分组（接口返回 / 平台内置 / 自己添加）。
+     keep：明确要选中的那个（点「添加型号」后用它）。 */
+  function fillModelOptions(kid, keep) {
+    const sel = selOf(kid);
+    if (!sel) return;
+    const p = provByKid(kid);
+    /* 认不出这一家就**什么都不画**。以前照画，TextAI.modelGroups 会拿 keyId(null) 的兜底键
+       去读 DeepSeek 存的那份，于是「选 OpenRouter、下拉里却是 DeepSeek 的型号」——
+       看不出是哪里错了，只会觉得型号自己会跑。 */
+    if (!p) {
+      sel.innerHTML = '<option value="">（没认出这一家，刷新一下页面再试）</option>';
+      sel.value = '';
+      return;
+    }
+    const prev = keep || localStorage.getItem('sk_model_' + kid) || '';
+    const { groups, ids } = TextAI.modelGroups(p, fetchedOf(p));
+    sel.innerHTML = groups.length
+      ? groups.map(g => `<optgroup label="${esc(g.label)}">` + g.ids.map(id2 => `<option value="${esc(id2)}">${esc(id2)}</option>`).join('') + '</optgroup>').join('')
+      : '<option value="">（还没有这家接口的型号）</option>';
+    const list = ids.length ? ids : [];
+    sel.value = list.includes(prev) ? prev : (list[0] || '');
+    if (!list.length) {
+      /* 只在没有别的提示时才写「还没有型号」：paint 每次重画卡片都会跑一遍，
+         不带这句判断就会把上面「验证密钥」的结果当场顶掉。 */
+      const cur = (msgOf(kid) || {}).textContent || '';
+      if (!cur || cur.indexOf('还没有型号') === 0) {
+        setMsg(kid, '还没有型号：点「获取型号列表」从它的 /models 拉，或在下面自己填一个（填的只属于这家）。'
+          + '型号完全由接口给你，我们不预置一份固定清单。', 'msg');
+      }
+    }
+    const row = sel.closest('.krow');
+    if (window.Dropdowns && row) { Dropdowns.build(row); Dropdowns.sync(row); }
+  }
+  /* 自己填的型号：可删的芯片，删掉立刻从这一家的下拉里消失 */
+  function renderCustomModels(kid) {
+    const box = document.querySelector('[data-tchips="' + kid + '"]');
+    if (!box) return;
+    /* 同样认不出就不画：读别家的自填列表会让人以为「这些是我在这家填的」，
+       删掉其中一个还会去动别家的盘。宁可是空的。 */
+    const p = provByKid(kid);
+    const list = (p && window.TextAI) ? TextAI.custom(p) : [];
+    box.innerHTML = list.length
+      ? '<span class="kn" style="flex:0 0 auto">自己填的</span>' + list.map(id2 =>
+        `<span class="ai-chip" style="cursor:default">${esc(id2)}<button title="移除这个型号" data-tdel="${esc(id2)}" data-tkid="${esc(kid)}">${icon('close', 10)}</button></span>`).join('')
+      : '';
+  }
+  /* paint：renderProv 每次重画卡片后调一次（型号块是先画骨架、后填内容：
+     取型号列表要等 TextAI 就绪，而这个闭包是脚本末尾才装配好的）。 */
+  function paintTextCards() {
+    document.querySelectorAll('[data-tmodel]').forEach(sel => {
+      const kid = sel.dataset.tmodel;
+      fillModelOptions(kid);
+      renderCustomModels(kid);
+    });
+    const tv = document.querySelector('[data-tvision]');
+    if (tv) { tv.value = localStorage.getItem('sk_text_vision') || 'auto'; refreshVisionTip(tv.dataset.tvision); }
+  }
   if (window.Dropdowns) Dropdowns.build(document);
-  
-  $('textModel').onchange = () => {
-    localStorage.setItem('sk_model_deepseek', $('textModel').value);
-    $('textModelTip').textContent = '已选择模型：' + $('textModel').value + '（自动保存，点「保存全部设置」确保写入）';
-    refreshVisionTip();
-  };
+  /* 这一段（文字 AI 型号块）整体在一个闭包里，而 saveAll / renderProv 在闭包**外面**
+     （前者要统一落盘全部设置，后者只管画卡）。按 AGENTS.md 第 3 节：跨闭包一律走 window 上的
+     公开接口 —— renderProv 只调 __textForm.paint()，saveAll 只用 provByKid / fetchedOf，
+     两边都不裸调对方闭包里的函数（会 ReferenceError，而且报错点离真正的原因很远）。 */
+  window.__textForm = { prov: curTextProv, list: textProvList, provByKid, fetchedOf, paint: paintTextCards };
+
   /* ---------- 识图能力：自动 / 支持 / 不支持（存 sk_text_vision） ----------
      判定优先看接口返回的模型能力字段（input_modalities 等里有没有 image），
      所以这里先把能力拉一次（有 12 小时缓存，不会每次都请求）。 */
   let visionTipSeq = 0;
-  async function refreshVisionTip() {
-    const el = $('textVisionTip');
+  async function refreshVisionTip(kid) {
+    const el = document.querySelector('[data-vtip="' + kid + '"]');
     if (!el || !window.TextAI) return;
     const seq = ++visionTipSeq;
     const REG2 = window.__REG || { providers: [] };
-    el.textContent = '正在读取模型能力…';
+    const p2 = provByKid(kid);                  // 判定的是**这一家 + 它下拉里选中的那个型号**
+    /* 认不出这一家就别判：visionAsync 内部要靠 keyId 找缓存与已拉的能力，
+       兜底键 'deepseek' 会把**别家**的判定结果写到这张卡上（和型号串台是同一个坑）。 */
+    if (!p2) { el.textContent = '没认出这一家供应方，识图能力判不了 —— 刷新一下页面再试。'; return; }
+    const mdl = ((selOf(kid) || {}).value) || '';
+    el.textContent = '正在读取型号能力…';
     let v;
-    try { v = await TextAI.visionAsync(REG2); }
-    catch { v = TextAI.vision(REG2); }
+    try { v = await TextAI.visionAsync(REG2, p2, mdl); }
+    catch { v = TextAI.vision(REG2, p2, mdl); }
     if (seq !== visionTipSeq) return;      // 期间又刷新了，丢弃这次结果
     el.textContent = v.ok
-      ? `当前模型 ${v.model}：润色时会带上参考图 / 首尾帧一起发给它（判定依据：${v.why}）。`
-      : `当前模型 ${v.model}：润色时只发文字（判定依据：${v.why}）。若该模型确实能识图，把上面选成「支持识图」即可强制启用。`;
+      ? `当前型号 ${v.model}：润色时会带上参考图 / 首尾帧一起发给它（判定依据：${v.why}）。`
+      : `当前型号 ${v.model}：润色时只发文字（判定依据：${v.why}）。若该型号确实能识图，把上面选成「支持识图」即可强制启用。`;
   }
-  const tv = $('textVision');
-  if (tv) {
-    tv.value = localStorage.getItem('sk_text_vision') || 'auto';
-    tv.onchange = () => { localStorage.setItem('sk_text_vision', tv.value); refreshVisionTip(); };
-  }
-  Api.registry().then(d => { window.__REG = d; refreshVisionTip(); }).catch(() => {});
-  $('fetchModels').onclick = async () => {
-    const btn = $('fetchModels');
-    btn.disabled = true; btn.textContent = '获取中…';
-    try {
-      // 先把当前填的密钥/地址临时写本地，便于立即拉取（与「保存」等效）
-      const kv = document.querySelector('[data-key]');
-      if (kv) { for (const inp of document.querySelectorAll('[data-key]')) { if (inp.value.trim()) localStorage.setItem('sk_key_' + inp.dataset.key, inp.value.trim()); } }
-      const base2 = $('textBase').value.trim();
-      if (base2) localStorage.setItem('sk_base_deepseek', base2);
-      const list = await TextAI.models(await Api.registry());
-      if (!list.length) throw new Error('接口没有返回模型');
-      fillModelOptions(list.map(x => x.id));
-      localStorage.setItem('sk_model_deepseek', $('textModel').value);
-      $('textModelTip').textContent = `从「${base2 || '默认地址'}」获取到 ${list.length} 个模型` + (localStorage.getItem('sk_model_deepseek') ? '，已选 ' + localStorage.getItem('sk_model_deepseek') : '');
-      if (window.Dropdowns) Dropdowns.sync(document);
-      refreshVisionTip();
-      $('okmsg').textContent = '✓ 模型列表已更新';
-      setTimeout(() => { $('okmsg').textContent = ''; }, 2000);
-    } catch (e) {
-      $('textModelTip').textContent = '获取失败：' + e.message + '（检查密钥与接口地址）';
-    } finally { btn.disabled = false; btn.textContent = '获取模型列表'; }
-  };
-  $('testTextAI').onclick = async () => {
-    const btn = $('testTextAI');
-    btn.disabled = true; btn.textContent = '测试中…';
-    try {
-      const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok');
-      $('textModelTip').textContent = '✓ 测试成功（' + TextAI.model(TextAI.prov(await Api.registry())) + '）：' + out.slice(0, 60);
-    } catch (e) { $('textModelTip').textContent = '✗ 测试失败：' + e.message; }
-    finally { btn.disabled = false; btn.textContent = '测试'; }
-  };
-  // 文字 AI 密钥：回填本机值；若为空或同服务端环境密钥，则留空并提示「已使用服务端环境密钥」
-  const tk = $('textKey');
-  if (tk) {
-    const lk = localStorage.getItem('sk_key_deepseek') || '';
-    const env = envInfo['deepseek'] || {};
-    if (lk && env.hasEnv && lk.slice(-4) === env.tail) { localStorage.removeItem('sk_key_deepseek'); tk.value = ''; }
-    else tk.value = lk;
-    tk.placeholder = env.hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写文字 AI 密钥（或写进 .env / 系统环境变量）';
-  }
+  /* 服务端环境密钥要提前读一次：TextAI.prov() 靠它判断「默认供应方能不能用」 */
+  if (window.TextAI) { try { await TextAI.warm(await Api.registry()); } catch (e) {} }
+  Api.registry().then(async d => {
+    setREG(d);                 // 两处一起换（见 setREG）：下面这几格读的是 window.__REG
+    await loadReg();
+  }).catch(() => { loadReg(); });
 
-  // 「恢复默认」：把对应指令重置为内置默认值
-  const defsForReset = { polishVideo: defs.polishVideo, polishImg: defs.polishImg, polishStory: defs.polishStory,
-    polishAudio: defs.polishAudio, polishSplit: defs.polishSplit };
+  /* 密钥输入的归一化：把复制时带上的 `Bearer ` 前缀、首尾空白和内部换行去掉。
+     头是本模块自己拼的（`Authorization: Bearer <key>`），带着前缀存进去会变成
+     `Bearer Bearer sk-or-…` → 上游一律回「api key is invalid」，而界面看不出哪里错了。
+     顺序要紧：先摘前缀再压空白 —— 反过来会把「Bearer sk-or-…」压成「Bearersk-or-…」。 */
+  const cleanKey = s => String(s == null ? '' : s).replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
+  /* 「获取型号列表 / 测试」这两颗按钮都要用**这一栏里刚填的**密钥与地址发一次请求。
+     走 TextAI.setFormOverride（只进内存），不写 localStorage —— 写盘统一归「点保存才生效」，
+     以前这里为了临时用一下就先把半成品存进本机，用户填到一半切走就留下了错密钥/错地址。
+     （「验证密钥」不再在这里出现：供应商卡上那排按钮里的「验证」对文字类已经走
+      TextAI.verifyKey 了，两处各放一颗就等于同一件事的两个入口。） */
+  const draftOf = kid => (typeof draftKey === 'function' ? draftKey(kid) : (localStorage.getItem('sk_key_' + kid) || ''));
+  const draftBaseOf = kid => (typeof draftBase === 'function' ? draftBase(kid) : (localStorage.getItem('sk_base_' + kid) || ''));
+  const useFormCreds = p => {
+    if (!p) return '';
+    const kid = p.keyId || p.id;
+    const raw = cleanKey(draftOf(kid));
+    const base = (draftBaseOf(kid) || '').trim();
+    TextAI.setFormOverride(p, { key: raw, base });
+    return raw;
+  };
+  /* 卡里那几颗按钮与两个下拉：**一次**绑定在 #provList 上（renderProv 只换它的 innerHTML，
+     监听器不会跟着一起丢），不必每重画一次就重新接一遍。 */
+  const provListEl = $('provList');
+  const kidOf = el => (el && el.dataset) ? (el.dataset.tkid || el.dataset.tmodel || el.dataset.tvision
+    || el.dataset.tfetch || el.dataset.ttest || el.dataset.tadd || '') : '';
+  provListEl.addEventListener('click', async ev => {
+    const b = ev.target.closest('[data-tfetch],[data-ttest],[data-tadd],[data-tdel]');
+    if (!b) return;
+    ev.preventDefault();
+    const kid = kidOf(b);
+    /* 「认不出这一家」时要**当场说清并停手**，不能照旧往下走：
+       TextAI.addCustom/removeCustom 内部对 null 是「什么都不做」，
+       这里若不拦，按钮看起来按了没反应，人只会再点一次或换个卡再填一遍。
+       更不能让它悄悄落到 keyId(null) 的兜底键上（那正是「型号跑到别家」的老成因）。 */
+    const prov = provByKid(kid);
+    if (!prov) {
+      setMsg(kid, '没认出「' + kid + '」这一家（注册表可能刚变过，或这家已经被删了）。'
+        + '先刷新一下页面再填 —— 宁可不加，也不能把型号写到别家去。', 'msg err');
+      return;
+    }
+    if (b.dataset.tdel != null) {              // 删掉一个自己填的型号
+      const id2 = b.dataset.tdel, sel2 = selOf(kid);
+      const was = sel2 && sel2.value === id2;
+      TextAI.removeCustom(prov, id2);
+      renderCustomModels(kid);
+      fillModelOptions(kid);
+      if (was) refreshVisionTip(kid);          // 删掉的正好是当前选中的：换一个顶上并重判识图
+      markDirty();
+      return;
+    }
+    if (b.dataset.tadd != null) {              // 自己添加型号：只加到**这一家**
+      const inp = document.querySelector('[data-tmnew="' + kid + '"]');
+      const id2 = ((inp || {}).value || '').trim();
+      if (!id2) { if (inp) inp.focus(); return; }
+      TextAI.addCustom(prov, id2);
+      if (inp) inp.value = '';
+      renderCustomModels(kid);
+      fillModelOptions(kid, id2);              // 加完就选中它
+      setMsg(kid, '已添加型号 ' + id2 + '（保存后一直可用，不依赖接口的 /models；切到别的供应方时不会出现）', 'msg ok');
+      refreshVisionTip(kid);
+      markDirty();
+      return;
+    }
+    if (b.dataset.tfetch != null) {            // 取一次 /models
+      const p = prov;                          // 上面的守卫已经认过一家了，不再问第二次
+      b.disabled = true; const label0 = b.textContent; b.textContent = '获取中…';
+      try {
+        useFormCreds(p);                        // 用这一栏里现在的密钥 + 地址（只在内存里，不落盘）
+        const list = await TextAI.models(await Api.registry(), p);
+        if (!list.length) throw new Error('接口没有返回型号');
+        fetched.set(kid, list);                 // 只存给这一家（切到别家不会串）
+        fillModelOptions(kid);
+        /* 写明「这次真正打到哪个地址」：填了自定义地址就是那个地址，否则是这一家的官方地址。
+           自定义供应商的 base 就是它自己那条 sk_custom 里的网关地址（TextAI.base 对它返回空，
+           因为代理不认它的 x-up-base 覆盖）—— 不说清就等于让人以为列表来自官方。 */
+        const from = TextAI.base(p) || p.base || '默认地址';
+        setMsg(kid, `从「${from}」获取到 ${list.length} 个型号（只属于「${p.name}」），当前选中 ${((selOf(kid) || {}).value) || '—'}`, 'msg ok');
+        refreshVisionTip(kid);
+        markDirty();
+        /* 有些平台（OpenRouter）的型号表是**公开**的：不带密钥也能拉到全量型号。
+           所以「列表拿到了」不能证明密钥有效，紧接着顺手验一下并说明，否则用户会以为配好了。 */
+        try {
+          const v = await TextAI.verifyKey(await Api.registry(), p);
+          setMsg(kid, (msgOf(kid) || {}).textContent + '　|　' + v.text
+            + (/OpenRouter|聚合/.test(p.name) ? '（它的型号表公开，所以这一步才有必要）' : ''), 'msg ok');
+        } catch (e) { /* 验证失败不拖累取列表 */ }
+      } catch (e) { setMsg(kid, '获取失败：' + e.message, 'msg err'); }
+      finally { b.disabled = false; b.textContent = label0; }
+      return;
+    }
+    if (b.dataset.ttest != null) {             // 发一条测试消息
+      const p = prov;                          // 同上
+      b.disabled = true; const label0 = b.textContent; b.textContent = '测试中…';
+      try {
+        useFormCreds(p);
+        /* 用**下拉里当前选中的**那个型号测：选了没保存也要测这一支 ——
+           以前这里走 TextAI.model(prov)（读的是保存值），会出现「下拉选了 A、实际测的是 B」。
+           再加一道归属检查：型号不属于这一家就别发（那是切供应方时残留的旧型号）。 */
+        const model = ((selOf(kid) || {}).value) || '';
+        if (!model) throw new Error('先在上面选一个型号，或自己填一个');
+        if (TextAI.ownsModel && !TextAI.ownsModel(p, model, fetchedOf(p))) {
+          throw new Error('「' + model + '」不属于「' + (p.name || '这一家') + '」的型号列表 —— 多半是刚切供应方时留下的旧值，重新选一个或点「获取型号列表」');
+        }
+        const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok', { model }, p);
+        setMsg(kid, '✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
+      } catch (e) { setMsg(kid, '✗ 测试失败：' + e.message, 'msg err'); }
+      finally { b.disabled = false; b.textContent = label0; }
+    }
+  });
+  provListEl.addEventListener('change', ev => {
+    const s = ev.target.closest('[data-tmodel],[data-tvision]');
+    if (!s) return;
+    const kid = s.dataset.tmodel || s.dataset.tvision;
+    /* 识图开关落盘交给 saveAll（与这一页其它项同一口径），这里只重判一次并标脏 */
+    if (s.dataset.tvision) { refreshVisionTip(kid); markDirty(); return; }
+    setMsg(kid, '已选择型号：' + (s.value || '（空）') + '（点「保存全部设置」写入；「测试」会直接用这个）', 'msg');
+    refreshVisionTip(kid);
+    markDirty();
+  });
+  provListEl.addEventListener('input', ev => {
+    const i = ev.target.closest && ev.target.closest('[data-tmnew]');
+    if (i) markDirty();
+  });
+  // 「恢复默认」：把对应指令重置为**内置默认值**（assetlib.js 的 TextAI.DEF[kind]，不是 DEF.ASK_NOTE）。
+  //   data-reset 里存的是 kind 而不是旧时代那个元素 id，所以加一条指令不用再来这里加一行；
+  //   `defs[kind]` 缺了就是分类表里点名了一条没有默认文本的指令 —— 那要报错，不能默默清空文本框。
   document.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => {
-    const id2 = b.dataset.reset;
-    $(id2).value = defsForReset[id2] || '';
+    const kind = b.dataset.reset, el = document.getElementById('pp_' + kind);
+    if (!el) return;
+    if (typeof defs[kind] !== 'string' || !defs[kind]) {
+      Toast.err('这一条在 TextAI.DEF 里没有默认文本，已跳过（请检查 assetlib.js）');
+      return;
+    }
+    el.value = defs[kind];
+    markDirty();
     b.textContent = '已恢复';
     setTimeout(() => { b.textContent = '恢复默认'; }, 1400);
   });

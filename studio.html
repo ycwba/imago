@@ -1,0 +1,2350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生成工作台 · 拾帧</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
+<link rel="stylesheet" href="ui.css">
+<style>
+  :root {
+    --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
+    --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6; --ok:#16a34a; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
+  }
+  html[data-theme="dark"] {
+    --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
+    --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff; --ok:#4ade80; --err:#ff7a7a; --input:#0f1219;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(900px 500px at 85% -5%, rgba(108,140,255,.14), transparent 60%),
+      radial-gradient(700px 500px at -10% 100%, rgba(160,108,255,.10), transparent 60%),
+      var(--bg);
+    color: var(--txt); min-height: 100vh;
+  }
+  /* 两栏布局（.layout / .col-left / .col-right #result / 滚动条）在 ui.css 的
+     「工作台共用布局」里统一定义：页面 <style> 里不要再抄一份。 */
+
+  /* ---------- 左栏顶部：类型切换（左） + 模型下拉（右） ---------- */
+  .st-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .st-top .ui-seg { flex: 0 0 auto; }
+  .st-top .st-model { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+  .st-top .st-model select { width: 100%; max-width: 340px; }
+  /* 「现在在服务的是哪一家 / 能力来自哪边」那一行：换类型时内容跟着换 */
+  .st-sub { font-size: 11.5px; color: var(--sub); margin: 0 2px 10px; min-height: 15px; }
+  .st-sub.warn { color: var(--warn, #b45309); }
+
+  /* ---------- 提示词区 ---------- */
+  .prompt-box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 6px 0; transition: border-color .15s; }
+  .prompt-box.over { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(108,140,255,.12); }
+  textarea { width: 100%; min-height: 132px; padding: 12px; background: transparent; color: var(--txt);
+    border: 0; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; resize: vertical; }
+  .prompt-box .slot-row { padding: 0 6px 8px; }
+  .prompt-box .slot-row:empty { display: none; }
+  /* 语音台的「风格 / 音色描述」是提示词之外唯一必填项，单独一行，别塞进高级设置里 */
+  .style-row { padding: 0 6px 10px; }
+  .style-row label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 5px; }
+  .style-row input { width: 100%; }
+
+  /* ---------- 高级设置（三种类型共用这一个容器，内容按类型重建） ---------- */
+  .adv { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; overflow: hidden; }
+  .adv-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; cursor: pointer; user-select: none; }
+  .adv-head h2 { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .adv-head .sum { font-size: 11.5px; color: var(--sub); display: flex; align-items: center; gap: 6px; }
+  .adv-head .chev { transition: transform .15s; display: inline-block; }
+  .adv.closed .adv-head .chev { transform: rotate(-90deg); }
+  .adv.closed .adv-body { display: none; }
+  .adv-body { padding: 0 14px 14px; }
+  .adv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px 12px; }
+  .adv-grid + .adv-grid { margin-top: 10px; }
+  .adv-grid > div { min-width: 0; }
+  .adv-grid label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 5px; }
+  .adv-grid select, .adv-grid input { width: 100%; }
+  .costbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px;
+    font-size: 12.5px; color: var(--sub); flex-wrap: wrap; }
+  .costbar .note { color: var(--sub); }
+  .hint { font-size: 11.5px; color: var(--sub); }
+  .ver { text-align: center; font-size: 11.5px; color: var(--sub); padding: 14px 0 4px; }
+
+  /* ---------- 左栏：素材槽磁贴的排布 ----------
+     磁贴长什么样只有 ui.css 那一份；这里只管这一页怎么排。ui.css 的 .assets-grid 是
+     导演台那套「固定三列」，原样搬过来会把一个槽拉成 300 多 px 的巨砖（这一页轨道比
+     导演台窄，槽位常常只剩一两个），看上去就是「磁贴大小不一、竖排参差」。
+     改成按容器宽度自动排的等宽方块：几列是算出来的，不是写死的。 */
+  #inputArea .assets-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+  #inputArea .asset-slot { min-width: 0; }
+  /* 只放一个素材的槽位（参考视频 / 参考音频 / 首尾帧）：那一格给两列宽，面积正好等于
+     两个空槽，缩略图也够大能认出是哪一段。 */
+  #inputArea .asset-slot.span2 { grid-column: span 2; aspect-ratio: 2.3 / 1; }
+  /* 名字较长的素材（本地文件名）别把磁贴撑变形 */
+  #inputArea .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
+
+  /* ---------- 右栏：历史资产库 ---------- */
+  .hist-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .hist-filters .sp { flex: 1; }
+  /* 卡片改成「画面在上、信息在下」的竖版网格：视频要能在小栏里直接看，
+     132×96 的横版小图放不下原生播放器（ui.css 的 .task 是给列表用的横版）。 */
+  body.wb2 .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+    gap: 12px; align-content: start; }
+  body.wb2 .col-right #result .task { flex-direction: column; gap: 8px; margin-bottom: 0; padding: 10px; }
+  body.wb2 .col-right #result .task .timg { width: 100%; height: auto; aspect-ratio: 16 / 9; cursor: default; align-self: stretch; }
+  body.wb2 .col-right #result .task .timg img,
+  body.wb2 .col-right #result .task .timg video { width: 100%; height: 100%; object-fit: cover; }
+  body.wb2 .col-right #result .task .timg.sound { aspect-ratio: 16 / 7; }
+  body.wb2 .col-right #result .task .timg audio { width: 100%; }
+  /* 卡片内的播放按钮：视频 / 音频共用一套（bindCardPlay 接线）。播放中淡出，鼠标移回画面才回来 */
+  #result .timg.playable { position: relative; }
+  /* 播放键在**左下角**（不覆盖画面中心，中心要留给首帧） */
+  #result .timg.playable .tplay { position: absolute; left: 8px; bottom: 8px; z-index: 4; width: 34px; height: 34px;
+    border-radius: 50%; border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: #fff; background: rgba(12, 14, 22, .68); box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+    transition: opacity .15s, transform .15s; }
+  #result .timg.playable .tplay:hover { transform: scale(1.08); }
+  #result .timg.playable .tplay svg { width: 15px; height: 15px; fill: currentColor; margin-left: 2px; }
+  #result .timg.playable .tplay svg rect { margin-left: -2px; }
+  #result .timg.playable.playing .tplay { opacity: 0; pointer-events: none; }
+  #result .timg.playable:hover.playing .tplay { opacity: 1; pointer-events: auto; }
+  /* 音频卡：一个大音频符号做背景（不是空白占位），播放器叠在上面 */
+  #result .timg.sound { background: var(--panel2, #f3f4f9); justify-content: center; }
+  #result .timg.sound .tbg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--line, #e4e6f0); pointer-events: none; }
+  #result .timg.sound .tbg svg { width: 46px; height: 46px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+  #result .timg.sound audio { position: relative; z-index: 2; width: 100%; margin-top: 14px; }
+  body.wb2 .col-right #result .task .tmain { gap: 5px; }
+  body.wb2 .col-right #result .task .tprompt { max-height: 2.9em; overflow: hidden; }
+  body.wb2 .col-right #result .task .meta2 { overflow-wrap: anywhere; }
+  body.wb2 .col-right #result .task .acts { margin-top: 2px; }
+  /* 拖拽提示：卡片可拖到左栏当参考素材（鼠标按住时给个明确的抓手） */
+  body.wb2 .col-right #result .task { cursor: grab; }
+  body.wb2 .col-right #result .task.dragging { opacity: .45; }
+  body.wb2 .col-right #result .task .acts,
+  body.wb2 .col-right #result .task .tdetail,
+  body.wb2 .col-right #result .task .timg video,
+  body.wb2 .col-right #result .task .timg audio { cursor: auto; }
+  .card-badge { display: inline-flex; align-items: center; gap: 5px; }
+  .card-badge .ui-tag { margin: 0; }
+  /* 卡片顶部那一行：类型 + 状态芯片在左、时间在右 */
+  #result .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #result .card-top .date { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+  /* 网格里那些要占满整行的（空态、平台读取失败提示条） */
+  body.wb2 .col-right #result > .list-note,
+  body.wb2 .col-right #result > .empty { grid-column: 1 / -1; }
+
+  @media (max-width: 720px) {
+    textarea { min-height: 112px; font-size: 13.5px; }
+    .st-top { flex-wrap: wrap; }
+    .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
+    .st-top .st-model select { max-width: none; }
+    body.wb2 .col-right #result { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  }
+</style>
+</head>
+<body class="wb2">
+<div class="page-main">
+<div class="layout">
+  <!-- 左栏：① 类型 + 模型 → ② 提示词与素材槽 → ③ 高级设置 → ④ 生成 -->
+  <div class="col-left">
+    <div class="st-top">
+      <div class="ui-seg" id="typeSeg" role="tablist" aria-label="生成类型">
+        <button type="button" class="on" data-t="video">视频</button>
+        <button type="button" data-t="image">图像</button>
+        <button type="button" data-t="audio">音频</button>
+      </div>
+      <div class="st-model"><select id="model" title="模型（按平台分组）"></select></div>
+    </div>
+    <div class="st-sub" id="stSub"></div>
+
+    <div class="prompt-box" id="promptBox">
+      <textarea id="prompt" spellcheck="false"></textarea>
+      <div class="btn-row">
+        <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
+        <!-- 平台自带的提示词优化：只为 registry 里 create.topBools 声明了这一项的平台出现 -->
+        <button class="tool" id="platPolishBtn" hidden><span class="ic" data-icon="wand" data-size="14"></span>平台自动润色</button>
+        <span class="sp"></span>
+        <button class="tool danger" id="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span>一键清空</button>
+      </div>
+      <div id="polishInline" hidden></div>
+      <!-- 语音台的「音色设计」必填项：只有那一种模型才出现 -->
+      <div class="style-row" id="styleRow" hidden>
+        <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计模型必填）</label>
+        <input id="style" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
+      </div>
+      <!-- 素材行：一个素材一块缩略图（随所选模型的能力出现；右栏卡片可直接拖进来） -->
+      <div class="slot-wrap" id="inputArea"></div>
+    </div>
+
+    <div class="adv" id="adv">
+      <div class="adv-head" id="advHead">
+        <h2><span data-icon="gear" data-size="14"></span> <span id="advTitle">高级设置</span></h2>
+        <span class="sum"><span id="advSum"></span><span class="chev">▼</span></span>
+      </div>
+      <div class="adv-body" id="advBody"></div>
+      <div class="hint" id="capHint" style="font-size:11.5px;color:var(--sub);margin-top:10px"></div>
+    </div>
+
+    <div class="costbar"><span id="costTxt">估价中…</span><span class="note" id="mode">文生视频</span></div>
+    <button class="go" id="go">生成视频</button>
+    <div class="hint" id="goWhy"></div>
+    <div id="status"></div>
+    <!-- 提交还在等平台响应时的提示（含秒数与「仍然再提交」）。**不用遮罩弹窗**：
+         状态行 #status 谁都可能写，这块只由 renderPendingHint 写，互不抢 -->
+    <div class="hint" id="pendingHint" style="display:none;font-size:11.5px;margin-top:6px"></div>
+  </div>
+
+  <!-- 右栏：三种类型合在一起的历史资产库 -->
+  <div class="col-right">
+    <div class="tasks-head">
+      <span class="tab">历史资产库</span>
+      <span class="sp"></span>
+      <span class="pgroup">
+        <input id="searchBox" placeholder="搜索提示词 / ID" autocomplete="off" spellcheck="false">
+        <button class="ghost" id="searchBtn">搜索</button>
+        <span class="pgsep"></span>
+        <button class="ghost" id="pgPrev" style="display:none">‹ 上一页</button>
+        <span class="pginfo" id="pgInfo">第 1 页</span>
+        <button class="ghost" id="pgNext" style="display:none">下一页 ›</button>
+        <input type="number" id="gotoPage" min="1" placeholder="跳页">
+        <button class="ghost" id="gotoBtn">跳转</button>
+        <button class="ghost" id="sync" title="重新从各平台取回这一屏列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+      </span>
+    </div>
+    <div class="hist-filters">
+      <!-- 类型分类由数据现算（paintKinds）：注册表里声明了哪些媒体类型、资产库里真有哪几类，就出现哪几个 -->
+      <div class="ui-seg" id="histFilter" role="tablist" aria-label="按类型筛选"></div>
+      <span class="sp"></span>
+      <span class="hint" id="histNote"></span>
+      <button class="ghost" id="winAll" title="默认只看最近 30 天；点这里看全部">查看全部</button>
+    </div>
+    <div id="result"></div>
+  </div>
+</div>
+<!-- 灯箱 DOM 由 workbench.js 的 Wb.lightbox 创建（结构全站一份）-->
+<div class="ver">生成工作台 · 视频 / 图像 / 音频 · 经本地代理 · 右栏卡片可拖到左栏当参考素材</div>
+</div>
+
+<script src="ui.js"></script>
+<script src="workbench.js"></script>
+<script src="assetlib.js"></script>
+<script src="sidebar.js"></script>
+<script src="ai-chat.js"></script>
+<script>
+'use strict';
+/* ============================================================================
+   生成工作台 —— 图片 / 视频 / 语音三个工作台合并成这一页。
+   ① 左栏顶部：类型分段开关（左）+ 模型下拉（右），类型决定下面挂哪一套表单
+   ② 左栏下方：提示词 + 素材槽 + 高级设置（三种类型共用同一套壳，内容按类型重建）
+   ③ 右栏：三种类型合在一起的历史资产库（可按类型筛、卡片内联播放、整张卡可拖到左栏当参考素材）
+   ---------------------------------------------------------------------------
+   三种类型共用哪些东西（别再各写一份）：素材槽与能力声明（Capabilities.specs/rule）、
+   提交前的校验与「结果未知 → 核对列表」记账、统一选择器 AssetPicker、缩略图缓存 Wb.thumbs、
+   卡片列表 Wb.cards、动态加载 Wb.pager、详情 Wb.detail、灯箱 Wb.lightbox、下载 Wb.save、
+   轮询器 Wb.poller、AI 润色 InlinePolish。
+   ========================================================================== */
+const $ = id => document.getElementById(id);
+let REG = { providers: [] };
+
+/* ============================ ① 类型 ============================ */
+const TYPES = {
+  video: { zh: '视频', provKind: 'video', go: '生成视频', adv: '高级设置' },
+  image: { zh: '图像', provKind: 'image', go: '生成图片', adv: '生成设置' },
+  audio: { zh: '音频', provKind: 'audio', go: '生成语音', adv: '合成设置' },
+};
+const TYPE_LIST = ['video', 'image', 'audio'];
+const isAudioType = t => t === '音频' || t === '音乐';
+
+function newState() {
+  return {
+    model: '',                                  // '平台id::型号id'
+    prompt: '',
+    style: '',                                  // 音色设计模型的风格描述
+    platPolish: false,                          // 平台自带的提示词优化开关
+    autoVals: {},                               // 「上次是界面自动填的」——用来分辨用户手动改过没有
+    liveModels: null,                           // 语音台从平台 /models 现取的型号：{ 平台id: [型号] }
+                                                  // **按平台分桶**——以前只有一个 voiceModels，
+                                                  // 加了第二家语音平台以后它取回来的型号会盖掉第一家那份。
+    inputs: { image: [], video: [], audio: [], frame_first: [], frame_last: [] },
+    lastModelId: '',                            // 参数面板上一次是给哪个型号画的
+  };
+}
+const ST = { video: newState(), image: newState(), audio: newState() };
+const cur = () => ST[TYPE];
+
+/* 类型：地址栏 ?t=… > 上次用的 > 视频。存一份在本地，回车时回到原来那一栏。 */
+function readTypeFromURL() {
+  const m = /[?&]t=(video|image|audio)/.exec(location.search || '');
+  return m ? m[1] : '';
+}
+let TYPE = '';
+function setType(t, fromUser) {
+  if (!TYPES[t]) t = 'video';
+  TYPE = t;
+  try { localStorage.setItem('studio_type', t); } catch (e) {}
+  /* 地址栏也跟着走：分享出去的链接、AI 助手跳过来的落点、外壳换页后的高亮都指着同一个地方。
+     用 replaceState 而不是 location.replace —— 后者会让外壳的 iframe load 监听多转一圈。 */
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.get('t') !== t) { u.searchParams.set('t', t); history.replaceState(null, '', u.pathname + u.search + u.hash); }
+  } catch (e) {}
+  document.querySelectorAll('#typeSeg button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  document.querySelectorAll('#advBody .adv-type').forEach(b => { b.hidden = b.dataset.t !== t; });
+  $('go').textContent = TYPES[t].go;
+  $('advTitle').textContent = TYPES[t].adv;
+  if (fromUser) paintLeft();
+}
+$('typeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-t]');
+  if (!b || b.dataset.t === TYPE) return;
+  InlinePolish.clear($('polishInline'));
+  setType(b.dataset.t, true);
+  setStatus('');
+});
+
+/* ============================ ② 小工具 ============================ */
+const fileToDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+/* 已选素材的显示地址：外链（平台签名地址）走本地 /getv 路由，本地资产 / DataURL 原样 */
+const mediaOf = it => ((window.Api && Api.mediaSrc) ? Api.mediaSrc((it && (it.src || it.url)) || '') : ((it && (it.src || it.url)) || ''));
+const srcToDataURL = async src => {
+  const r = await fetch((window.Api && Api.mediaSrc) ? Api.mediaSrc(src) : src);
+  if (!r.ok) throw new Error('素材读取失败 HTTP ' + r.status);
+  return await fileToDataURL(await r.blob());
+};
+/* DataURL → 纯 base64（/local-assets 收的是裸 base64，不带 data: 头） */
+const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
+function setStatus(html) { const el = $('status'); if (el) el.innerHTML = window.sanitizeHTML(html || ''); }
+/* 启动阶段的报错要看得见：这一页的初始化是一条长链（注册表 → 能力 → 列表 → 渲染），
+   任何一步抛错都会让后面全都不跑，而界面上只是「空的」——不接住就永远不知道是哪一步。 */
+window.addEventListener('error', e => {
+  const m = String((e && e.message) || '');
+  if (m) setStatus('<span class="err">' + escA(m) + (e.filename ? '（' + String(e.filename).split('/').pop() + ':' + e.lineno + '）' : '') + '</span>');
+});
+window.addEventListener('unhandledrejection', e => {
+  const r = e && e.reason;
+  setStatus('<span class="err">启动失败：' + escA(String((r && r.message) || r)) + '</span>');
+  console.error('[studio]', r);
+});
+/* 转义：统一走 ui.js 的 window.esc。**别把这一页的辅助函数也叫 esc** ——
+   顶层 function 声明会挂到 window 上、把 ui.js 那份覆盖掉，于是 Wb.esc → window.esc → 自己，死循环。 */
+const escA = s => window.esc(s);
+function syncDropdowns() { if (window.Dropdowns) { Dropdowns.build(document); Dropdowns.sync(document); } }
+function readLS(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+/* 选中的型号记一份（每种类型各记一个）。以前三个台刷新后一律回到第一家第一个型号，
+   合并成一页之后「我刚才在用哪个」必须自己记着，否则切一次类型就丢了。 */
+const PICK_KEY = 'studio_pick';
+function loadPicks() { try { return JSON.parse(readLS(PICK_KEY, '{}')) || {}; } catch (e) { return {}; } }
+function savePick(type, val) { const all = loadPicks(); all[type] = val; writeLS(PICK_KEY, JSON.stringify(all)); }
+
+/* ============================ ③ 注册表与型号 ============================ */
+/* 这一类任务能选哪几家：设置页勾掉「暂时不用」的那家不进下拉（Api.pickable）。
+   卡片上显示的平台名仍走 REG.providers 全量查，不然老任务会显示成未知平台。 */
+const groups = () => Api.pickable((REG.providers || []).filter(p => p.kind === TYPES[TYPE].provKind));
+function provLabelOf(id) {
+  const hit = (REG.providers || []).find(p => p.id === id);
+  const name = (hit && hit.name) || id || '';
+  return name.replace(/\s*(生图|视频|图片|音频|音乐)$/, '') || name;
+}
+/* 卡片上显示的平台名。本机资产库里什么类型都有（短剧末帧的 PNG、预演音轨、语音产物……），
+   而它只由「声明了 list: local:/local-assets」的那一家读出来 —— 三个台合并成一页之后，
+   一段本机视频会被挂成「MiMo 语音合成」，那是假的。类型对不上就说「本机」，别拿读它的那家顶名。 */
+function provLabelFor(it) {
+  const p = provById(it.provider);
+  const want = it.mtype === '图片' ? 'image' : it.mtype === '视频' ? 'video'
+    : isAudioType(it.mtype) ? 'audio' : '';
+  if (it.localAsset && p && want && p.kind !== want) return '本机';
+  return provLabelOf(it.provider);
+}
+const provById = id => (REG.providers || []).find(p => p.id === id) || null;
+/* 语音台以前只服务一家（provGroups 里 slice(0,1)），加第二家语音平台时下拉里根本选不到它 ——
+   音色/格式这些平台级声明本来就跟着 currentModel().prov 走，多列一家不需要新的机制。
+   型号取值一律用「平台id::型号id」，两家有同名型号也分得开。 */
+const provGroups = () => groups();
+/* 型号取值统一用「平台id::型号id」：两家可能有同名型号，只放型号名选不回来
+   （以前三个台都只存型号名，「复用」时拼一个 prov::model 出来就对不上，只能静默退回第一家）。 */
+function currentModel() {
+  const val = $('model').value;
+  const g = provGroups();
+  for (const p of g) for (const m of (p.models || [])) if (p.id + '::' + m.id === val) return { prov: p, model: m };
+  const g0 = g[0];
+  return g0 ? { prov: g0, model: (g0.models || [])[0] || {} } : { prov: null, model: {} };
+}
+/* 某一家语音平台的型号清单：现拉的（liveByProv）优先，声明的兜底，两者按 id 合并能力字段 */
+function audioModels(prov) {
+  const p = prov || null;
+  const base = (p && p.models) || [];
+  const declared = new Map(base.map(m => [m.id, m]));
+  const live = ((cur().liveModels || {})[p && p.id] || null);
+  const list = (live && live.length) ? live : base;
+  return list.map(m => Object.assign({}, m, declared.get(m.id) || {}));
+}
+function renderModelOptions() {
+  const sel = $('model');
+  const prev = sel.value || cur().model || loadPicks()[TYPE] || '';
+  const g = provGroups();
+  if (TYPE === 'audio') {
+    const list = g.filter(p => (p.models || []).length || ((cur().liveModels || {})[p.id] || []).length);
+    if (!list.length) { sel.innerHTML = '<option value="">注册路由里没有语音平台</option>'; sel.value = ''; syncDropdowns(); return; }
+    /* 每家一个 optgroup（与图片/视频台同一种形状）；音色、格式、字数上限随选中那家的 tts 声明走 */
+    sel.innerHTML = list.map(p =>
+      '<optgroup label="' + escA(p.displayName || p.name) + '">'
+      + audioModels(p).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
+      + '</optgroup>').join('');
+  } else {
+    sel.innerHTML = g.map(p =>
+      '<optgroup label="' + escA(p.displayName || p.name) + '">'
+      + (p.models || []).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA((m.name || '').replace(/"/g, '&quot;')) + '">' + escA(m.id) + '</option>').join('')
+      + '</optgroup>').join('');
+  }
+  const ok = prev && [...sel.options].some(o => o.value === prev);
+  sel.value = ok ? prev : (sel.options[0] ? sel.options[0].value : '');
+  if (sel.value) { cur().model = sel.value; savePick(TYPE, sel.value); }
+  syncDropdowns();
+  if (TYPE === 'audio') loadLiveAudioModels();
+}
+/* 语音台：优先读各家的型号接口（新模型自动出现），声明的能力按 id 合并上去。
+   一家一家地问、谁家有结果就存进 liveModels[平台id] —— 谁失败只记一条警告，
+   不影响别家（以前只问第一家，加了第二家以后第一家挂了整个下拉就空了）。
+   **只问本机在用的那几家**（判据同一份：`Api.provUsable`）：原来只要注册表里声明了
+   endpoints.models 就挨家发一次请求 —— 用户只加了一家语音平台，另外几家根本没碰过，
+   也照发白等、白耗额度，界面上还完全看不出区别。 */
+async function loadLiveAudioModels() {
+  const st = cur();
+  st.liveModels = {};
+  let env = {}, envKnown = false;
+  try { env = await Api.envStatus(); envKnown = !!(Api.envKnown && Api.envKnown()); } catch (e) { env = {}; }
+  /* env 没取到时退回全量：「哪几家有环境密钥」是**不知道**，不是「一家都没有」 */
+  const canJudge = !!(envKnown && Api.provUsable);
+  const provs = provGroups().filter(p => p.endpoints && p.endpoints.models
+    && (canJudge ? Api.provUsable(p, env) : true));
+  if (!provs.length) return;
+  const got = await Promise.all(provs.map(async prov => {
+    try {
+      const d = await Api.request(prov, 'models');
+      const list = (d.data || d.models || (Array.isArray(d) ? d : [])).map(m => (m && (m.id || m.name)) || '').filter(Boolean);
+      const re = prov.modelsFilter ? new RegExp(prov.modelsFilter) : null;
+      const found = list.filter(id => !re || re.test(id));
+      if (!found.length) return null;
+      const declared = new Map(((prov.models) || []).map(m => [m.id, m]));
+      return [prov.id, found.map(id => declared.get(id) || Object.assign({ id, name: id }, prov.newModelDefaults || {}))];
+    } catch (e) {
+      console.warn('[studio] ' + (prov.name || prov.id) + ' 的型号列表接口不可用，用注册声明：', e.message);
+      return null;
+    }
+  }));
+  got.forEach(pair => { if (pair) st.liveModels[pair[0]] = pair[1]; });
+  /* 取回来的型号要真出现在下拉里；用户刚选中的那一个不在新清单里就别硬改他的选择 */
+  const keep = $('model').value;
+  renderModelOptions();
+  if (keep && [...$('model').options].some(o => o.value === keep)) $('model').value = keep;
+}
+$('model').addEventListener('change', () => {
+  cur().model = $('model').value;
+  savePick(TYPE, cur().model);
+  renderParams();
+  renderInputArea();
+  refreshCaps();
+  paintLeft();
+});
+/* 「现在在服务的是哪一家 / 能力来自哪边」那一行 */
+function paintSubNote() {
+  const el = $('stSub');
+  const { prov } = currentModel();
+  const lead = [];
+  if (TYPE === 'audio') {
+    const all = Api.pickable((REG.providers || []).filter(p => p.kind === 'audio'));
+    /* 语音平台现在能一家一家切了（型号下拉按平台分组），所以只报「在用哪家 / 一共几家」。
+       原来那句「换的那请在设置页勾掉这一家的『暂时不用』」是「一次只服务一家」时写的 ——
+       留着会让人以为在语音台换不了家（那个下拉当时只有一家可选）。 */
+    if (all.length > 1 && prov) lead.push('当前这一家：' + (prov.displayName || prov.name) + '（共 ' + all.length + ' 家，在上面的型号下拉里换）');
+  }
+  let txt = lead.join(' · '), warn = false;
+  if (prov) {
+    const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(prov) : null;
+    const bits = [];
+    if (txt) bits.push(txt);
+    if (src) bits.push(src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底'));
+    if (TYPE !== 'audio') bits.push(prov.displayName || prov.name);
+    txt = bits.join(' · ');
+  }
+  el.textContent = txt;
+  el.classList.toggle('warn', warn);
+}
+
+/* ============================ ④ 素材槽（三种类型共用一套） ============================
+   样式与交互照导演台右栏那套磁贴（ui.css 的 .assets-grid / .asset-slot，全站一份）：
+   空槽 = 图标 + 名字 + 小字（收什么类型、已有 N / 上限，现算）+ 点开就是公共 AssetPicker；
+   已放素材 = 缩略图 + 右上角 × + 底部角标。
+   三条能力规则全部现算，页面不写死：
+     · 能用哪些槽位 / 每个槽位几张 / 收什么文件 → Capabilities.specs(model)（registry inputRoles 为准）
+     · 与已选素材互斥的槽位 → Capabilities.blockedRoles（点不动，就地闪烁说明原因）
+     · 换型号后不再接受的旧素材 → unsupportedKinds()，明说并拦住提交，不静默丢掉           */
+const ROLE_ZH = { first_frame: '首帧图', last_frame: '尾帧图', reference_image: '参考图', reference_video: '参考视频', reference_audio: '参考音频' };
+const SLOT_DEF = {
+  image: { label: '参考图', ic: 'image', accept: 'image/*', role: 'reference_image' },
+  video: { label: '参考视频', ic: 'film', accept: 'video/*', role: 'reference_video' },
+  audio: { label: '参考音频', ic: 'mic', accept: 'audio/*', role: 'reference_audio' },
+  /* 首帧槽位也能直接选视频：自动取该视频的**最后一帧**当首帧图（「把已有视频接着往下生成」）。
+     videoFrame 声明选视频时取哪一帧；没声明的槽位只收图片。抓帧全在浏览器里做（Wb.vframe）。 */
+  frame_first: { label: '首帧图', ic: 'film', accept: 'image/*,video/*', role: 'first_frame', videoFrame: 'last',
+    hint: '图片；选视频则取其最后一帧' },
+  frame_last: { label: '尾帧图', ic: 'image', accept: 'image/*', role: 'last_frame' },
+};
+const ROLE_KIND = { reference_image: 'image', reference_video: 'video', reference_audio: 'audio',
+  first_frame: 'frame_first', last_frame: 'frame_last' };
+let slots = [];                 // 当前类型 + 当前型号可用的槽位 [{kind, max, role, group, accept, maxBytes}]
+const inputs = () => cur().inputs;
+function slotItems(kind) { const m = inputs(); if (!m[kind]) m[kind] = []; return m[kind]; }
+/* 可用槽位 = 这个型号声明接受的输入 role（Capabilities.specs：registry 的 inputRoles 为准，能力接口补上限）。
+   只看上游 /models 的 modes.inputs 的话，「上游没声明的 role 就整个消失」。 */
+function modelSlots() {
+  const { model } = currentModel();
+  const specs = (window.Capabilities && model) ? Capabilities.specs(model)
+    : ((model && model.options && model.options.inputSpecs) || []);
+  const merged = [];
+  specs.forEach(sp => {
+    const kind = ROLE_KIND[sp.role];
+    if (!kind) return;
+    /* 语音台的参考音频是**单条**字段（提交体是一个值，不是数组）：即使平台声明 max > 1 也只收一条，
+       否则界面写着「还能加 3 个」而提交体只发得出一条。 */
+    const max = TYPE === 'audio' ? 1 : Math.max(1, sp.max || 1);
+    const hit = merged.find(y => y.kind === kind);
+    if (hit) hit.max = Math.max(hit.max, max);
+    else merged.push({ kind, max, role: sp.role, group: sp.group, accept: sp.accept || '', maxBytes: sp.maxBytes || 0 });
+  });
+  return merged;
+}
+/* 已经放进来、但当前型号不接受的素材（换型号后会遇到）：界面明说 + 拦住提交，不静默丢掉 */
+function unsupportedKinds() {
+  const have = new Set(slots.map(s => s.kind));
+  return Object.keys(SLOT_DEF).filter(k => !have.has(k) && slotItems(k).length);
+}
+function releaseItemUrl(it) {
+  const u = it && it.url;
+  if (u && String(u).startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch (e) {} it.url = ''; }
+}
+function removeSlotItem(kind, i) { const arr = slotItems(kind); const hit = arr[i]; if (!hit) return; arr.splice(i, 1); releaseItemUrl(hit); }
+function clearSlot(kind) { slotItems(kind).forEach(releaseItemUrl); inputs()[kind] = []; }
+/* 互斥（来自型号能力声明）：已经放了素材的那一组，与它互斥的槽位点不动了 */
+function usedRoles() { return slots.filter(s => slotItems(s.kind).length).map(s => s.role).filter(Boolean); }
+function blockedSlotKinds() {
+  if (!window.Capabilities || !Capabilities.blockedRoles) return new Set();
+  const blocked = Capabilities.blockedRoles(currentModel().model, usedRoles());
+  return new Set(slots.filter(s => s.role && blocked.has(s.role)).map(s => s.kind));
+}
+function conflictHint(blockedKinds) {
+  const label = k => SLOT_DEF[k].label;
+  if (window.Capabilities) {
+    const bad = Capabilities.illegalPairs(currentModel().model, usedRoles());
+    if (bad.length) return '已同时选了互斥的两组：' + bad.map(([a, b]) => '「' + (ROLE_ZH[a] || a) + ' + ' + (ROLE_ZH[b] || b) + '」').join('、')
+      + '，本型号一次请求只能用一组，请清空其中一组';
+  }
+  const blockers = slots.filter(s => slotItems(s.kind).length).map(s => label(s.kind));
+  const blocked = slots.filter(s => blockedKinds.has(s.kind)).map(s => label(s.kind));
+  return blocked.length
+    ? '「' + blockers.join(' / ') + '」与「' + blocked.join(' / ') + '」不能同时使用（本型号声明一次请求只能选一组），清空后可切换'
+    : '';
+}
+let slotHintTimer = null;
+function flashSlotHint(msg) {
+  const el = document.querySelector('#inputArea .conflict-hint');
+  if (!el) { if (msg) setStatus('<span class="err">' + msg + '</span>'); return; }
+  if (msg) el.textContent = msg;
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+  clearTimeout(slotHintTimer);
+  slotHintTimer = setTimeout(() => {
+    el.classList.remove('flash');
+    if (el.isConnected) el.textContent = conflictHint(blockedSlotKinds());
+  }, 2400);
+}
+/* 这个槽位收什么 / 还剩几格：现读能力声明（数量、类型、体积三条上限都只来自 Capabilities） */
+function slotRoom(sl) { return Math.max(0, sl.max - slotItems(sl.kind).length); }
+function slotNote(sl) {
+  const { prov, model } = currentModel();
+  const bits = [];
+  if (window.Capabilities && Capabilities.ruleText) { const t = Capabilities.ruleText(model, sl.role); if (t) bits.push(t); }
+  const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, sl.role) : null;
+  if (tpl && tpl.requiresAudio) bits.push('需含音频轨');
+  const def = SLOT_DEF[sl.kind];
+  if (def.hint) bits.push(def.hint);
+  return bits.filter(Boolean).join(' · ');
+}
+function slotTypes(sl) {
+  /* 选择器的类型档：也按能力声明给（首帧槽声明收视频就出现「视频」那一档） */
+  const accept = sl.accept || SLOT_DEF[sl.kind].accept || '';
+  const out = [];
+  if (accept.includes('image')) out.push('图片');
+  if (accept.includes('video')) out.push('视频');
+  if (accept.includes('audio')) out.push('音频');
+  return out.length ? out : ['图片'];
+}
+/* 本地文件入槽：拖进输入框、选择器顶部的「本地上传」、以及右栏卡片拖进来，共用这一条 */
+async function addSlotFiles(kind, fileList) {
+  const files = [...fileList];
+  const def = SLOT_DEF[kind] || SLOT_DEF.image;
+  const sl = slots.find(x => x.kind === kind);
+  if (!sl) { setStatus('<span class="err">当前型号不支持「' + def.label + '」这类素材（可用入口见输入框下方的小方块）</span>'); return 0; }
+  const max = sl.max;
+  if (blockedSlotKinds().has(kind)) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return 0; }
+  let added = 0;
+  for (const f of files) {
+    const arr = slotItems(kind);
+    if (arr.length >= max) { setStatus('<span class="err">' + def.label + '最多 ' + max + ' 个</span>'); break; }
+    const isAud = f.type.startsWith('audio/'), isVid = f.type.startsWith('video/');
+    if (isAud && !def.accept.includes('audio')) { setStatus('<span class="err">' + def.label + '不支持音频文件</span>'); continue; }
+    if (isVid) {
+      if (def.videoFrame) {
+        setStatus('正在从视频《' + (f.name || '') + '》取' + (def.videoFrame === 'last' ? '尾' : '首') + '帧…');
+        try { arr.push(await Wb.vframe.fromFile(f, def.videoFrame)); arr[arr.length - 1].kind = kind; added++; setStatus('<span class="ok">✓ 已取该视频的最后一帧作为' + def.label + '</span>'); }
+        catch (err) { setStatus('<span class="err">取帧失败：' + err.message + '</span>'); }
+        continue;
+      }
+      if (!def.accept.includes('video')) { setStatus('<span class="err">' + def.label + '不支持视频文件</span>'); continue; }
+      arr.push({ file: f, url: URL.createObjectURL(f), name: f.name, type: '视频', kind, fromLib: false });
+      added++;
+      continue;
+    }
+    if (!def.accept.includes('image')) { setStatus('<span class="err">' + def.label + '不支持图片文件</span>'); continue; }
+    arr.push({ file: f, url: URL.createObjectURL(f), name: f.name, type: isAud ? '音频' : '图片', kind, fromLib: false });
+    added++;
+  }
+  renderInputArea(); updateMode();
+  return added;
+}
+/* 点空槽：走公共选择器（资产库 / 我的收藏 / 本地上传三个档位，导演台与三个工作台同一份） */
+async function openSlotPicker(sl) {
+  const def = SLOT_DEF[sl.kind];
+  const room = slotRoom(sl);
+  if (room <= 0) { Toast.err(def.label + '已满（最多 ' + sl.max + ' 个）'); return; }
+  const { model } = currentModel();
+  const list = await AssetPicker.open({
+    types: slotTypes(sl), multiple: room > 1, limit: room,
+    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(model, sl.role) : null,
+    title: '选择' + def.label + (room > 1 ? '（还能加 ' + room + ' 个）' : ''),
+    upload: sl.accept ? { accept: sl.accept } : undefined,
+  });
+  if (!list || !list.length) return;
+  let added = 0;
+  for (const en of list) {
+    const arr = slotItems(sl.kind);
+    if (arr.length >= sl.max) break;
+    if (en.file) { added += await addSlotFiles(sl.kind, [en.file]); continue; }
+    if (en.type === '视频' && !def.accept.includes('video') && !def.videoFrame) continue;
+    if (en.type === '图片' && !def.accept.includes('image')) continue;
+    if (en.assetId && arr.some(x => x.assetId === en.assetId)) continue;
+    if (en.type === '视频' && def.videoFrame) {
+      setStatus('正在从资产库视频里取' + (def.videoFrame === 'last' ? '尾' : '首') + '帧…');
+      try {
+        const blob = await AssetTransfer.blobOf(en.dl || en.src);
+        const name = ((en.prompt || 'video').replace(/\s+/g, ' ').trim().slice(0, 14) || 'video') + '.mp4';
+        const vf = new File([blob], name, { type: blob.type || 'video/mp4' });
+        const it = await Wb.vframe.fromFile(vf, def.videoFrame); it.kind = sl.kind;
+        arr.push(it); added++;
+        setStatus('<span class="ok">✓ 已取该视频的最后一帧作为' + def.label + '</span>');
+      } catch (err) { setStatus('<span class="err">取帧失败：' + err.message + '</span>'); }
+      continue;
+    }
+    const item = { assetId: en.assetId, url: Api.mediaSrc(en.src), name: (en.prompt || '').slice(0, 14) || '资产',
+      type: en.type, kind: sl.kind, fromLib: true, src: en.src };
+    const usableId = window.AssetTransfer && AssetTransfer.isPlatformId(en.assetId);
+    if (en.type === '图片' && (!usableId || !/^\/asset\//.test(String(en.src || '')))) {
+      try {
+        const blob = await AssetTransfer.blobOf(en.dl || en.src);
+        const f = new File([blob], (item.name || 'ref') + '.png', { type: blob.type || 'image/png' });
+        item.file = f; item.url = URL.createObjectURL(f); item.src = item.url; delete item.assetId;
+      } catch (e) {}
+    }
+    arr.push(item); added++;
+  }
+  renderInputArea(); updateMode();
+  if (added) setStatus('<span class="ok">✓ 已加入 ' + added + ' 个素材</span>');
+}
+function slotTileHTML(sl, it, i, blocked) {
+  const def = SLOT_DEF[sl.kind];
+  const items = slotItems(sl.kind);
+  const cap = def.label + (items.length > 1 ? ' ' + (i + 1) : '');
+  const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
+  const fromVid = it.fromVideo ? '（取自视频《' + it.fromVideo + '》的' + (def.videoFrame === 'first' ? '第一帧' : '最后一帧') + '）' : '';
+  /* 音频没有可预览的封面，给一个图标 + 名字（其余走公共缩略图缓存，地址一律 Api.mediaSrc） */
+  const body = it.type === '音频'
+    ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + escA(name) + '</span>'
+    : Wb.thumbs.mediaHTML(mediaOf(it), { type: it.type === '视频' ? undefined : 'image',
+      mediaAttrs: 'onerror="this.parentElement.classList.add(\'broken\')"' });
+  /* 一次只放一个素材的槽位（参考视频 / 参考音频 / 首尾帧）给两列宽：
+     一个 132px 的小块根本认不出是哪一段视频/哪句音色。 */
+  const span2 = sl.max === 1 && items.length === 1 ? ' span2' : '';
+  return '<div class="asset-slot' + span2 + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
+    + ' title="' + escA(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
+    + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + escA(cap) + '</span></div>';
+}
+function renderInputArea() {
+  const area = $('inputArea');
+  if (!area) return;
+  slots = modelSlots();
+  const ta = $('prompt');
+  if (ta) {
+    ta.placeholder = TYPE === 'audio' ? '要合成的文本（数字、英文缩写建议写成读法）'
+      : TYPE === 'image' ? '描述人物、动作、场景或感觉…'
+        : '描述这一段视频的画面、镜头运动与氛围…';
+    ta.title = slots.length ? '下方小方块可上传素材（可用哪些、几张、收什么文件，随所选型号的能力变化）；也可以把右栏的素材卡直接拖进来'
+      : '当前型号只支持纯文字生成，换个型号可解锁参考素材';
+  }
+  /* #inputArea 只是容器，网格只有里面这一层（嵌套两层 grid 会把列宽算不对） */
+  area.innerHTML = '';
+  if (!slots.length) { updateGoState(); return; }
+  const blockedKinds = blockedSlotKinds();
+  const box = document.createElement('div');
+  box.className = 'assets-grid';
+  area.appendChild(box);
+  slots.forEach(sl => {
+    const def = SLOT_DEF[sl.kind];
+    const items = slotItems(sl.kind);
+    const blocked = blockedKinds.has(sl.kind);
+    const note = slotNote(sl);
+    /* 已选的：逐张一块，格子大小与空槽一致（只放一个的槽位那块横跨两列，见 slotTileHTML） */
+    items.forEach((it, i) => {
+      const d = document.createElement('div');
+      d.innerHTML = slotTileHTML(sl, it, i, blocked);
+      const t = d.firstElementChild;
+      const x = t.querySelector('.x');
+      if (x) x.onclick = e => { e.stopPropagation(); removeSlotItem(sl.kind, i); renderInputArea(); updateMode(); };
+      t.onclick = e => {
+        if (e.target.closest('.x')) return;
+        e.stopPropagation();
+        if (blocked) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return; }
+        openSlotPicker(sl);
+      };
+      const med = t.querySelector('video, img');
+      if (med) Wb.thumbs.bind(t, med, mediaOf(it));
+      box.appendChild(t);
+    });
+    /* 空槽 / 「再加一个」：数量上限到了整块不再渲染（不是画一个灰块） */
+    if (slotRoom(sl) > 0) {
+      const a = document.createElement('div');
+      a.className = 'asset-slot' + (blocked ? ' blocked' : '');
+      a.dataset.slot = sl.kind;
+      const sub = [];
+      if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+      if (note) sub.push(note);
+      a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
+        + (items.length ? '<span>再加一个</span>' : '<span>' + escA(def.label) + '</span>')
+        + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '');
+      a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
+        : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
+          + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
+      a.onclick = e => {
+        e.stopPropagation();
+        if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
+        openSlotPicker(sl);
+      };
+      box.appendChild(a);
+    }
+  });
+  const hint = conflictHint(blockedKinds);
+  if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + escA(hint) + '</div>');
+  const stray = unsupportedKinds();
+  if (stray.length) {
+    const box2 = document.createElement('div');
+    box2.className = 'conflict-hint';
+    box2.style.color = 'var(--warn)';
+    box2.innerHTML = '当前型号不支持已选的「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，'
+      + '<a href="#" class="lnk">清空这些素材</a> 或换回支持的型号';
+    box2.querySelector('.lnk').onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+    area.appendChild(box2);
+  }
+  updateGoState();
+}
+function updateMode() {
+  const m = inputs();
+  const used = Object.keys(SLOT_DEF).filter(k => (m[k] || []).length);
+  if (TYPE === 'audio') {
+    const mode = curTtsMode();
+    $('mode').textContent = mode === 'clone' ? '音色复刻' : (mode === 'design' ? '音色设计' : '文生语音');
+    return;
+  }
+  $('mode').textContent = used.length
+    ? used.map(k => SLOT_DEF[k].label + ' ×' + m[k].length).join(' · ')
+    : (TYPE === 'image' ? '文生图' : '文生视频');
+}
+/* ============================ ⑤ 参数面板（三种类型各一块，值各存在自己的块里） ============================
+   三块都建在 #advBody 里、按类型显隐：控件元素一直在，换类型时各自的已选值原样还在，
+   不需要「切走前把下拉值存一遍」这种代码（存了就有两份口径）。 */
+$('advBody').innerHTML =
+  '<div class="adv-type" data-t="video">'
+  + '<div class="adv-grid">'
+  + '<div id="tierWrap"><label>档位</label><select id="tier"></select></div>'
+  + '<div id="resWrap"><label>画质</label><select id="res"></select></div>'
+  + '<div id="durWrap"><label>时长（秒）</label><select id="dur"></select></div>'
+  + '<div id="arWrap"><label>画面比例</label><select id="ar"></select></div>'
+  + '</div><div class="adv-grid"><div><label>生成条数</label><select id="draw"></select></div></div>'
+  + '<div class="adv-grid" id="boolRows" style="margin-top:10px"></div>'
+  + '</div>'
+  + '<div class="adv-type" data-t="image" hidden>'
+  + '<div class="adv-grid">'
+  + '<div id="qualityWrap" hidden><label>质量</label><select id="quality"></select></div>'
+  + '<div id="ratioWrap" hidden><label>画面比例</label><select id="ratio"></select><div class="sel-hint" id="ratioHint"></div></div>'
+  /* 尺寸（WxH）是**另一类平台**的画幅参数：SiliconFlow / OpenAI 兼容生图收 image_size/size
+     这种「宽x高」，只认清单里的值，比例写法会被拒。所以与 ratioWrap 并列单开一列，
+     平台在 options.sizes 里声明了才出现（页面不写死清单，见 renderImageParams）。 */
+  + '<div id="sizeWrap" hidden><label>尺寸</label><select id="size"></select></div>'
+  + '<div id="countWrap" hidden><label>数量</label><select id="count"></select><div class="sel-hint" id="countHint"></div></div>'
+  + '<div id="formatWrap" hidden><label>格式</label><select id="format"></select><div class="sel-hint" id="formatHint"></div></div>'
+  + '</div></div>'
+  + '<div class="adv-type" data-t="audio" hidden>'
+  + '<div class="adv-grid">'
+  + '<div id="voiceCol"><label>音色</label><select id="voice"></select></div>'
+  + '<div><label>输出格式</label><select id="formatA"></select></div>'
+  + '<div id="boolBoxA" hidden></div>'
+  + '</div></div>';
+
+const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
+const RATIO_ZH = { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4', '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' };
+const RATIO_HINT = {
+  '1:1': ['方形，适合头像与商品图', ''], '16:9': ['横屏，适合风景与视频感画面', 'land'], '9:16': ['竖屏，适合手机全屏与人物', 'port'],
+  '4:3': ['横版，构图更稳', 'land'], '3:4': ['竖版，人物更显高', 'port'], '3:2': ['横版，接近相机比例', 'land'],
+  '2:3': ['竖版海报比例', 'port'], '21:9': ['超宽，电影宽银幕', 'land'], '4:5': ['竖版，社交平台常用', 'port'],
+};
+const RATIO_PX = { '1:1': '1024×1024', '16:9': '1024×576', '9:16': '576×1024', '4:3': '1024×768', '3:4': '768×1024', '3:2': '1024×683', '2:3': '683×1024', '21:9': '1024×439', '4:5': '819×1024' };
+const QUALITY_ZH = (window.AiGen && AiGen.QUALITY_ZH) || { draft: '草稿', standard: '标准', final: '精修' };
+const BOOL_ZH = { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频' };
+const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
+
+/* 下拉填充：**选项与显隐都现算自能力声明**，页面里不写死任何一项。
+   「用户手动改过」与「界面自动填的」用 autoVals 区分：能力刷新 / 换型号时，
+   用户自己挑过的值保住、没动过的才跟着新的默认值走。 */
+function fillSel(sel, values, fmt, defKey, id, opts) {
+  if (!sel || !values || !values.length) return;
+  const o = opts || {};
+  const av = cur().autoVals;
+  const prev = sel.value;
+  const untouched = av[id] === undefined || prev === av[id];
+  const defs = o.defaults || {};
+  sel.innerHTML = values.map(v => '<option value="' + escA(String(v)) + '">' + escA(fmt ? fmt(v) : String(v)) + '</option>').join('');
+  const has = v => v !== undefined && v !== null && values.some(x => String(x) === String(v));
+  const dflt = defKey ? defs[defKey] : undefined;
+  let next;
+  if (untouched && has(dflt)) next = String(dflt);
+  else if (has(prev)) next = prev;
+  else if (has(dflt)) next = String(dflt);
+  else next = String(values[0]);
+  sel.value = next;
+  av[id] = next;
+  if (sel._ddRebuild) sel._ddRebuild();
+}
+const show = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
+const val = id => { const el = $(id); return el ? el.value : ''; };
+
+function modelLimits(m) {
+  const o = (m && m.options) || {};
+  const maxOut = Number(o.max_outputs) > 0 ? Math.max(1, Math.floor(Number(o.max_outputs))) : 1;
+  const maxRef = (window.Capabilities && m && m.id) ? Math.max(0, Capabilities.rule(m, 'reference_image').max) : 0;
+  return { maxOut, maxRef, defs: o.defaults || {} };
+}
+function renderVideoParams() {
+  const { model } = currentModel();
+  const o = (model && model.options) || {};
+  const defs = o.defaults || {};
+  const changed = cur().lastModelId !== model.id;
+  cur().lastModelId = model.id;
+  const tiers = o.tiers || [], ress = o.resolutions || [], ars = o.aspect_ratios || [], sizes = o.sizes || [];
+  /* 时长只有「区间」声明（[4,15]）才渲染成每一秒一档；写成两个数的区间直接减会得到 NaN */
+  const durs = (Array.isArray(o.durations) && o.durations.length === 2 && o.durations[1] >= o.durations[0])
+    ? Array.from({ length: o.durations[1] - o.durations[0] + 1 }, (_, i) => o.durations[0] + i) : [];
+  /* 「尺寸」（WxH）这一列视频与图片**共用同一个 select**（参数行本来就是一整排）：
+     视频平台里也有收 image_size 的（SiliconFlow 视频只认 1280x720 / 720x1280 / 960x960，
+     传比例写法必被拒）。谁在当前型号上声明了 options.sizes 谁就画它，另一个渲染器会把它收走。 */
+  show('tierWrap', tiers.length); show('resWrap', ress.length); show('arWrap', ars.length); show('durWrap', durs.length);
+  show('sizeWrap', sizes.length);
+  if (tiers.length) fillSel($('tier'), tiers, v => TIER_ZH[v] || v, 'tier', 'tier', { defaults: defs });
+  if (ress.length) fillSel($('res'), ress, null, 'resolution', 'res', { defaults: defs });
+  if (durs.length) fillSel($('dur'), durs, v => v + ' 秒', 'duration', 'dur', { defaults: defs });
+  if (ars.length) fillSel($('ar'), ars, null, 'aspect_ratio', 'ar', { defaults: defs });
+  if (sizes.length) fillSel($('size'), sizes, v => v, 'size', 'size', { defaults: defs });
+  fillSel($('draw'), [1, 2, 3, 4], v => v + ' 条', null, 'draw');
+  renderBoolRows(model, changed, defs);
+  renderPlatPolish();
+  $('advSum').textContent = [model.name || val('model').split('::').pop(), val('res'), val('dur') ? val('dur') + '秒' : '',
+    val('ar'), (sizes.length && !val('ar')) ? val('size') : ''].filter(Boolean).join(' · ');
+}
+function renderBoolRows(model, modelChanged, defs) {
+  const box = $('boolRows');
+  if (!box) return;
+  const bools = (model && model.options && model.options.bools) || {};
+  const keys = Object.keys(bools);
+  const av = cur().autoVals;
+  box.innerHTML = keys.map(k => {
+    const key = 'bool_' + k;
+    const d = bools[k] || {};
+    const prev = av[key];
+    const on = (modelChanged || prev === undefined) ? (d.def !== false) : (prev === '1');
+    return '<div><label>' + escA(BOOL_ZH[k] || k) + '</label><select data-bool="' + escA(k) + '">'
+      + '<option value="1"' + (on ? ' selected' : '') + '>开</option>'
+      + '<option value="0"' + (on ? '' : ' selected') + '>关</option></select></div>';
+  }).join('');
+  box.hidden = !keys.length;
+  av._boolCount = keys.length;
+}
+function readBoolParams() {
+  const o = {};
+  document.querySelectorAll('#boolRows [data-bool]').forEach(sel => {
+    o[sel.dataset.bool] = sel.value === '1';
+    cur().autoVals['bool_' + sel.dataset.bool] = sel.value;
+  });
+  return o;
+}
+/* 平台自带的提示词优化：只为 create.topBools 声明了这一项的平台渲染（平台没有就不出现） */
+let platPolish = false, platField = '';
+function platTopBools() {
+  const prov = currentModel().prov;
+  const t = (prov && prov.create && prov.create.topBools) || null;
+  return t && typeof t === 'object' ? Object.entries(t) : [];
+}
+function renderPlatPolish() {
+  const btn = $('platPolishBtn');
+  if (!btn) return;
+  const decl = platTopBools();
+  btn.hidden = !decl.length;
+  platField = decl.length ? decl[0][0] : '';
+  if (decl.length) { btn.classList.toggle('on', !!cur().platPolish); btn.title = (decl[0][1] && decl[0][1].hint) || ''; }
+  platPolish = !!cur().platPolish;
+}
+function platPolishParams() {
+  const b = $('platPolishBtn');
+  if (!platField || (b && b.hidden)) return {};
+  return { [platField]: !!platPolish };
+}
+$('platPolishBtn').onclick = () => {
+  platPolish = !platPolish;
+  cur().platPolish = platPolish;
+  renderPlatPolish(); refreshEst();
+};
+function renderImageParams() {
+  const hit = (function () {
+    const g = provGroups();
+    for (const p of g) { const m = (p.models || []).find(x => p.id + '::' + x.id === $('model').value); if (m) return { p, m }; }
+    return g[0] ? { p: g[0], m: (g[0].models || [])[0] || {} } : { p: null, m: {} };
+  })();
+  const m = hit.m || {};
+  const o = m.options || {};
+  const lim = modelLimits(m);
+  const defs = lim.defs;
+  cur().lastModelId = m.id;
+  const ars = (o.aspect_ratios || []).slice();
+  const sizes = (o.sizes || []).slice();
+  const fmts = (o.output_formats || []).slice();
+  const qs = (o.qualities || []).slice();
+  show('qualityWrap', qs.length); show('ratioWrap', ars.length); show('sizeWrap', sizes.length); show('formatWrap', fmts.length > 1); show('countWrap', lim.maxOut > 1);
+  if (qs.length) fillSel($('quality'), qs, v => v + (m.price && m.price[v] != null ? ' · ' + m.price[v] + '积分/张' : ''), 'quality', 'quality', { defaults: defs });
+  if (ars.length) fillSel($('ratio'), ars, v => RATIO_ZH[v] || v, 'aspect_ratio', 'ratio', { defaults: defs });
+  if (sizes.length) fillSel($('size'), sizes, v => v, 'size', 'size', { defaults: defs });
+  if (fmts.length) fillSel($('format'), fmts, v => v, 'output_format', 'format', { defaults: defs });
+  const cnt = $('count');
+  if (lim.maxOut > 1) {
+    const ns = Array.from({ length: lim.maxOut }, (_, i) => i + 1);
+    fillSel(cnt, ns, n => n + ' 张', 'output_count', 'count', { defaults: defs });
+    $('countHint').textContent = '单次最多 ' + lim.maxOut + ' 张（按平台声明）';
+  } else {
+    cnt.innerHTML = '<option value="1">1 张</option>';
+    if (cnt._ddRebuild) cnt._ddRebuild();
+    cur().autoVals.count = '1';
+    $('countHint').textContent = '该型号单次只能 1 张';
+  }
+  const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(hit.p) : null;
+  const where = src ? (src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）') : '';
+  $('formatHint').textContent = fmts.length > 1
+    ? fmts.length + ' 种（' + (defs.output_format ? '平台默认 ' + String(defs.output_format).toUpperCase() : '未声明默认值') + '）· ' + where : '';
+  const r = val('ratio');
+  const hint = RATIO_HINT[r];
+  $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0] + (RATIO_PX[r] ? ' · 输出 ' + RATIO_PX[r] : '') + '</span>' : '';
+  $('advSum').textContent = [(QUALITY_ZH[val('quality')] || val('quality')), r, val('count') + '张'].filter(Boolean).join(' · ');
+}
+function curAudioModel() {
+  /* 一定带着**当前选中的那家**去取：语音台现在有多家平台，型号清单要按平台取，
+     不带参数就取到空数组，音色/格式会整块空掉。 */
+  const list = audioModels(currentModel().prov);
+  return list.find(m => $('model').value.split('::').pop() === m.id) || list[0] || {};
+}
+function curTtsMode() {
+  const m = curAudioModel();
+  const modes = (m.options && m.options.modes) || m.modes || [];
+  if (modes.includes('voice_clone')) return 'clone';
+  if (modes.includes('voice_design')) return 'design';
+  if (modes.includes('text_to_speech')) return 'preset';
+  return m.ttsMode || 'preset';
+}
+function audioBoolDecls() {
+  const prov = currentModel().prov;
+  return Object.entries((((prov || {}).create) || {}).topBools || {});
+}
+function renderAudioParams() {
+  const prov = currentModel().prov;
+  const tts = (prov && prov.tts) || {};
+  const models = audioModels(prov);
+  const m = models.find(x => $('model').value.split('::').pop() === x.id) || models[0] || {};
+  const fmts = ((m.options || {}).formats || tts.formats || ['wav']).slice();
+  fillSel($('formatA'), fmts, f => f.toUpperCase() + (f === 'pcm16' ? '（会自动封装成 WAV）' : ''), null, 'formatA');
+  const voices = (m.options || {}).voices || tts.voices || [];
+  const vs = $('voice');
+  const prevVoice = vs.value;
+  vs.innerHTML = voices.map(v => '<option value="' + escA(v.id) + '">' + escA(v.name) + (v.lang ? ' · ' + escA(v.lang) : '') + (v.gender ? ' · ' + escA(v.gender) : '') + '</option>').join('');
+  if (prevVoice && [...vs.options].some(o => o.value === prevVoice)) vs.value = prevVoice;
+  if (vs._ddRebuild) vs._ddRebuild();
+  const decls = audioBoolDecls();
+  const box = $('boolBoxA');
+  box.hidden = !decls.length;
+  box.innerHTML = decls.map(([k, d]) => '<div><label>' + escA(d.label || k) + '</label>'
+    + '<select data-abool="' + escA(k) + '" title="' + escA(d.hint || '') + '">'
+    + '<option value="0">关闭</option><option value="1">开启</option></select></div>').join('');
+  decls.forEach(([k, d]) => { const s = box.querySelector('[data-abool="' + k + '"]'); if (s) s.value = d.def ? '1' : '0'; });
+  applyAudioCaps();
+}
+function applyAudioCaps() {
+  const mode = curTtsMode();
+  show('voiceCol', mode === 'preset');
+  $('styleRow').hidden = mode !== 'design';
+  const refRule = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(curAudioModel(), 'reference_audio') : { max: 0 };
+  const tts = ((currentModel().prov || {}).tts) || {};
+  const range = [tts.minChars, tts.maxChars].filter(Boolean).join('–');
+  $('prompt').placeholder = '要合成的文本' + (range ? '（' + range + ' 字）' : '');
+  $('advSum').textContent = [($('model').value.split('::').pop()), mode === 'preset' ? val('voice') : MODE_ZH[mode], val('formatA')].filter(Boolean).join(' · ');
+}
+function readAudioBools() {
+  const o = {};
+  document.querySelectorAll('#boolBoxA [data-abool]').forEach(sel => { o[sel.dataset.abool] = sel.value === '1'; });
+  return o;
+}
+function renderParams() {
+  if (TYPE === 'video') renderVideoParams();
+  else if (TYPE === 'image') renderImageParams();
+  else { renderAudioParams(); paintSubNote(); updateGoState(); refreshEst(); return; }
+  paintSubNote();
+  syncDropdowns();
+  updateGoState();
+  refreshEst();
+}
+/* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份） */
+$('advBody').addEventListener('change', e => {
+  if (e.target.id === 'model') return;
+  if (TYPE === 'audio') { applyAudioCaps(); }
+  else if (TYPE === 'image') { renderImageParams(); }
+  else { readBoolParams(); renderVideoParams(); }
+  refreshEst(); updateGoState();
+});
+$('advBody').addEventListener('input', e => { if (e.target.id === 'style') { updateGoState(); } });
+$('advHead').addEventListener('click', () => {
+  $('adv').classList.toggle('closed');
+  writeLS('studio_adv_closed', $('adv').classList.contains('closed') ? '1' : '');
+});
+$('adv').classList.toggle('closed', readLS('studio_adv_closed', '') === '1');
+
+/* 换型号时问一次本地能力接口（/capabilities）：代理找端点、注入密钥、失败回退注册声明 */
+async function refreshCaps() {
+  const { prov } = currentModel();
+  if (!prov || !window.Capabilities) return;
+  const hint = $('capHint');
+  try {
+    const d = await Capabilities.refreshProvider(REG, prov, {});
+    /* 换到**没有声明能力接口**的平台时，必须把上一家留下的那句话清掉：
+       不清的话这里会一直挂着「能力来自上游接口（缓存）」，而正上方那行写着
+       「该平台没有声明能力接口」—— 同一块面板上两行自相矛盾，用户只能猜哪句是真的。
+       （refreshProvider 对没有 models 端点的平台返回 null，所以要走这条 early return。） */
+    if (!d) { hint.textContent = ''; paintSubNote(); return; }
+    renderParams(); renderInputArea();
+    if (d.source === 'api') hint.textContent = '能力来自上游接口' + (d.cached ? '（缓存）' : '');
+    else hint.textContent = d.note || '按平台声明兜底';
+  } catch (e) {
+    hint.textContent = '能力接口读取失败：' + e.message + '（仍按平台声明展示）';
+  }
+  paintSubNote();
+}
+
+/* ============================ ⑥ 费用预估 ============================ */
+const priceCache = {};
+async function refreshEst() {
+  const box = $('costTxt');
+  const { prov, model } = currentModel();
+  if (!prov) { box.textContent = '注册路由未加载'; return; }
+  box.textContent = '估价中…';
+  if (TYPE === 'audio') {
+    const pr = prov.pricing || {};
+    const m = curAudioModel();
+    const chars = ($('prompt').value || '').trim().length;
+    if (pr.type === 'per_1k_chars' && m.price && m.price.per1kChars != null && chars) {
+      const c = chars / 1000 * m.price.per1kChars;
+      box.innerHTML = '约 <b>' + (pr.currency || '¥') + c.toFixed(4) + '</b> <span class="note">' + chars + ' 字 × ' + (pr.currency || '¥') + m.price.per1kChars + '/千字</span>';
+    } else if (pr.type === 'quote' && pr.endpoint) box.innerHTML = '以平台实时报价为准';
+    else box.innerHTML = '<span class="note">平台未提供价格' + (chars ? '（本次 ' + chars + ' 字）' : '') + '</span>';
+    return;
+  }
+  const params = TYPE === 'image'
+    ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1) }
+    : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'), tier: val('tier'), ar: val('ar') };
+  try {
+    const r = await AssetLib.estimateCost(prov, model, params, { cache: priceCache });
+    box.innerHTML = r && r.ok
+      ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
+      : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>';
+  } catch (e) {
+    box.innerHTML = '<span class="note">估价失败：' + escA(String(e && e.message || e)) + '</span>';
+  }
+}
+
+/* ============================ ⑦ 就绪判定 ============================ */
+function submitBlockReason() {
+  const { prov, model } = currentModel();
+  const text = ($('prompt').value || '').trim();
+  if (!prov || !model || !model.id) return '注册路由里没有可用的' + TYPES[TYPE].zh + '模型';
+  if (!text) return TYPE === 'audio' ? '请输入要合成的文本' : '请输入提示词';
+  if (TYPE === 'audio') {
+    const tts = (prov.tts) || {};
+    const minChars = Math.max(0, Number(tts.minChars) || 0);
+    if (text.length < minChars) return '文本至少 ' + minChars + ' 个字';
+    const max = tts.maxChars || 0;
+    if (max && text.length > max) return '文本超长（最多 ' + max + ' 字）';
+    const mode = curTtsMode();
+    if (mode === 'design' && !($('style').value || '').trim()) return '「音色设计」型号必须填写风格 / 音色描述';
+    if (mode === 'clone' && !slotItems('audio').length) return '「音色复刻」必须先在输入框下方选一段参考音频';
+    return '';
+  }
+  /* 视频侧的长度下限不写死：注册表里只有语音声明了 minChars，没有声明 = 非空即可 */
+  if (unsupportedKinds().length) return '已选素材里有当前型号不支持的类型';
+  if (window.Capabilities && usedRoles().length) {
+    const bad = Capabilities.illegalPairs(model, usedRoles());
+    if (bad.length) return '「' + bad.map(([a, b]) => (ROLE_ZH[a] || a) + ' + ' + (ROLE_ZH[b] || b)).join('、') + '」不能同时使用，请先清空其中一组';
+  }
+  if (TYPE === 'image' && slotItems('image').length) {
+    const okRef = !window.Capabilities || Capabilities.specs(model).some(sp => sp.role === 'reference_image');
+    if (!okRef) return '当前型号不支持参考图：换一个支持它的型号，或清空参考图';
+  }
+  return '';
+}
+function updateGoState() { if (window.Wb) Wb.ready({ btn: 'go', tip: 'goWhy', scope: '.col-left', reason: submitBlockReason }); }
+$('prompt').addEventListener('input', () => { updateGoState(); if (TYPE === 'audio') refreshEst(); });
+$('prompt').addEventListener('change', updateGoState);
+$('clearAll').onclick = () => {
+  cur().inputs = { image: [], video: [], audio: [], frame_first: [], frame_last: [] };
+  cur().prompt = ''; cur().style = ''; cur().platPolish = false;
+  $('prompt').value = ''; $('style').value = '';
+  InlinePolish.clear($('polishInline'));
+  renderInputArea(); renderParams(); updateMode(); refreshEst(); setStatus('');
+};
+
+/* ============================ ⑧ AI 润色（三种类型共用一个入口，三套素材说明） ============================ */
+function polishImageList() {
+  const srcOf = it => it.file || it.src || it.url;
+  const out = [];
+  const m = inputs();
+  if (TYPE === 'audio') return out;
+  (m.image || []).forEach((it, i) => { const s = srcOf(it); if (s) out.push({ label: '参考图 ' + (i + 1), src: s }); });
+  (m.frame_first || []).forEach(it => { const s = srcOf(it); if (s) out.push({ label: '首帧（开头画面）', src: s }); });
+  (m.frame_last || []).forEach(it => { const s = srcOf(it); if (s) out.push({ label: '尾帧（结尾画面）', src: s }); });
+  return out;
+}
+function polishMaterials() {
+  const m = inputs();
+  if (TYPE === 'audio') {
+    const n = (m.audio || []).length;
+    const items = [];
+    for (let i = 0; i < n; i++) items.push({ label: '参考音频' + (n > 1 ? ' ' + (i + 1) : ''), kind: '音频', sent: false, hint: '按这个音色来念' });
+    return items;
+  }
+  const items = polishImageList().map(x => ({ label: x.label, kind: '图片', sent: true }));
+  const nVid = (m.video || []).length, nAud = (m.audio || []).length;
+  for (let i = 0; i < nVid; i++) items.push({ label: '参考视频' + (nVid > 1 ? ' ' + (i + 1) : ''), kind: '视频', sent: false, hint: '沿用它的运镜和节奏' });
+  for (let i = 0; i < nAud; i++) items.push({ label: '参考音频' + (nAud > 1 ? ' ' + (i + 1) : ''), kind: '音频', sent: false, hint: '沿用它的节奏' });
+  return items;
+}
+const POLISH_SYS = { video: 'video', image: 'img', audio: 'audio' };
+$('polishBtn').onclick = async () => {
+  const ta = $('prompt');
+  const original = ta.value.trim();
+  if (original.length < 2) { setStatus('<span class="err">先写几个字再润色</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
+  const sysBase = TextAI.prompt(POLISH_SYS[TYPE]);
+  const btn = $('polishBtn');
+  const host = $('polishInline');
+  const imgList = () => polishImageList();
+  const materials = () => polishMaterials();
+  let images = [];
+  const call = (sys, user, ctl) => ctl
+    ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
+    : TextAI.chat(REG, sys, user, { images });
+  const prep = async () => { const p = await TextAI.polishImages(REG, imgList(), { max: 6 }); images = p.images; return p; };
+  const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
+  const run = async (answers, ctl) => {
+    const picked = await prep();
+    const extra = [];
+    if (images.length) extra.push('消息末尾的「随附图片」列出了每张图对应哪张素材，请结合图片内容润色。');
+    const mn = TextAI.materialNote(materials());
+    if (mn) extra.push(mn);
+    if (answers) extra.push('用户已经回答了你先前的追问，请严格按这些回答来写，不要再自行改动用户已定的选择：\n' + answers);
+    const sys = sysBase + (extra.length ? ' ' + extra.join('') : '');
+    const user = '请润色以下' + taskWord + '，直接返回润色结果：\n' + original;
+    return { after: await call(sys, user, ctl), note: picked.note };
+  };
+  const ask = async () => {
+    const picked = await prep();
+    const mn = TextAI.materialNote(materials());
+    const sys = sysBase + (picked.images.length ? ' 消息末尾附了参考图，请结合图片内容提问。' : '') + (mn ? ' ' + mn : '');
+    return await TextAI.askPolish(REG, sys, '这是一段' + taskWord + '：\n' + original + '\n\n请针对它提出 2–4 个最影响成片的追问（素材清单见系统提示）。', { images });
+  };
+  btn.disabled = true; btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>润色中…';
+  try {
+    await InlinePolish.interactive(host, {
+      ask: TextAI.shouldAsk() ? ask : null, run, before: original,
+      askTitle: 'AI 想先问几个问题', askIntro: '点一个候选；都不合适就点最后一个「其他」自己写（会原样发给 AI）；没答的按默认理解走',
+      onApply: v => { ta.value = v; setStatus('<span class="ok">✓ 已替换' + (TYPE === 'audio' ? '文本' : '提示词') + '</span>'); },
+      onStatus: t => setStatus(t),
+    });
+  } catch (e) { InlinePolish.clear(host); setStatus('<span class="err">润色失败：' + e.message + '</span>'); }
+  finally { btn.disabled = false; btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>AI 润色'; }
+};
+/* ============================ ⑨ 提交（三条 create 路径，记账只有一份） ============================
+   「上一条提交还在等平台响应」这套记账三台共用：重复提交 = 重复扣费，
+   所以按钮禁用、结果未知时的后台核对、以及那句「仍然再提交」都收在这里。 */
+const SUBMIT_UI_MS = 12000, RESUBMIT_ARM_MS = 10000;
+const pendingSubmits = [];
+let submitRun = 0, armedAt = 0;
+const unresolvedSubmit = () => pendingSubmits.find(s => s.state !== 'settled') || null;
+const resubmitArmed = () => armedAt && Date.now() - armedAt < RESUBMIT_ARM_MS;
+function trackSubmit(rec, work) {
+  const at = Date.now();
+  rec.at = at; rec.state = 'inflight';
+  pendingSubmits.push(rec);
+  /* 已结清的记录留十分钟只为让那句提示能收尾，再早就没必要 */
+  while (pendingSubmits.length > 8) pendingSubmits.shift();
+  renderPendingHint();
+  const late = () => Date.now() - at > SUBMIT_UI_MS;
+  const settled = Promise.resolve().then(work).then(r => {
+    rec.state = 'settled';
+    if (late()) Toast.ok('平台刚受理（等了 ' + Math.round((Date.now() - at) / 1000) + ' 秒）：任务已取回列表');
+    renderPendingHint();
+    return r;
+  }, e => {
+    rec.failed = true;
+    /* 「结果未知」只按真正的传输层异常判（超时 / 断连 / 上游响应超时）：
+       这些情况下请求可能已经到了平台，界面必须说「正在核对列表」而不是「失败」——
+       否则用户会再点一次，那就是重复扣费。 */
+    const maybe = !!(e && (e.maybeSubmitted || /超时|timeout|中断|Failed to fetch|上游响应超时/i.test(String(e.message || ''))));
+    if (maybe) {
+      rec.state = 'uncertain'; rec.note = (e && e.message) || '请求中断';
+      setStatus('<span class="warn">平台可能已受理（' + rec.note + '），正在后台核对列表…</span>');
+      loadServer(1, true).catch(() => {}).then(() => {
+        rec.state = 'settled';
+        setStatus('<span class="warn">已核对列表：上面有这条任务就是成功了，别重复生成</span>');
+        renderPendingHint();
+      });
+    } else {
+      rec.state = 'settled';
+      setStatus('<span class="err">创建失败：' + escA(String((e && e.message) || e)) + '</span>');
+      renderPendingHint();
+    }
+    if (late()) Toast.err('创建失败：' + String((e && e.message) || e));
+    throw e;
+  });
+  settled.catch(() => {});
+  return settled;
+}
+function armResubmit() {
+  armedAt = Date.now();
+  Toast.warn('上一次提交还在等平台响应：再点一次「生成」就会再提交一份');
+  renderPendingHint();
+}
+function renderPendingHint() {
+  const box = $('pendingHint');
+  if (!box) return;
+  const un = unresolvedSubmit();
+  if (!un) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const secs = Math.max(1, Math.round((Date.now() - un.at) / 1000));
+  box.style.display = '';
+  box.innerHTML = '<span class="warn">上一条提交还在等平台响应（已 ' + secs + ' 秒）：'
+    + (un.state === 'inflight' ? '请求已经发出去了，平台受理后会自己出现在右边列表里。'
+      : '平台可能已受理（' + escA(un.note || '响应丢了') + '），正在核对列表。')
+    + '</span> 再点生成会再提交一份（可能重复扣费）：<a href="#" id="forceSubmit">仍然再提交</a>';
+  const b = $('forceSubmit');
+  if (b) b.onclick = e => { e.preventDefault(); armedAt = Date.now(); $('go').click(); };
+}
+setInterval(() => { if (unresolvedSubmit()) renderPendingHint(); }, 1000);
+
+/* 幂等键：不是每家平台都认（registry 的 create.idempotencyKey 声明，VGENV / MiMo 是 false），
+   给了对方不认的请求头，严格的上游会直接 400。 */
+const idemHeader = prov => ((prov && prov.create && prov.create.idempotencyKey === false) || !(window.crypto && crypto.randomUUID))
+  ? {} : { 'Idempotency-Key': crypto.randomUUID() };
+/* 平台的提示词编译失败可以安全重试（任务没创建、没扣费），统一按 assetlib 的判定来，
+   页面别各写一份正则。 */
+async function withCreateRetry(doCreate, msg) {
+  try { return await doCreate(); }
+  catch (e) {
+    if (window.Api && Api.isRetryableCreateError && Api.isRetryableCreateError(e)) {
+      setStatus('<span class="warn">' + msg + '正在自动重试一次…</span>');
+      await new Promise(r => setTimeout(r, 1200));
+      return await doCreate();
+    }
+    throw e;
+  }
+}
+async function uploadToPlatform(prov, blob, name, mime, onStage, role) {
+  return await AssetTransfer.toAsset(prov.id, blob, { reg: REG, name, contentType: mime, onStage, role });
+}
+/* 素材 → 提交体里的条目：平台声明 needsUpload 的先传成资产，其余走 DataURL
+   （有些平台的 reference_image 模板收的是它自己能取到的公网地址，本机回环地址它访问不到）。 */
+async function buildInputEntries(prov, model) {
+  const entries = [];
+  const m = inputs();
+  for (const k of Object.keys(SLOT_DEF)) {
+    if (k === 'audio' && TYPE === 'audio') continue;          // 语音台的参考音频走音色复刻字段，不进 inputEntries
+    for (const x of (m[k] || [])) {
+      const role = SLOT_DEF[k].role;
+      const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, role) : null;
+      if (tpl && tpl.needsUpload) {
+        const label = SLOT_DEF[k].label;
+        const onStage = (st, info) => { const t = uploadStageText(st, info, label); if (t) setStatus(t); };
+        const blob = await AssetTransfer.blobOf(x.file || x.src || x.url, onStage);
+        const mime = (x.file && x.file.type) || blob.type
+          || (x.type === '视频' ? 'video/mp4' : x.type === '音频' ? 'audio/mpeg' : 'image/png');
+        const aid = await uploadToPlatform(prov, blob, x.name || (label + (mime.includes('video') ? '.mp4' : '')), mime, onStage, role);
+        if (aid) entries.push({ role, assetId: aid });
+      } else {
+        const url = x.file ? await fileToDataURL(x.file) : await srcToDataURL(x.src || x.url);
+        if (url) entries.push({ role, url });
+      }
+    }
+  }
+  return entries;
+}
+
+/* ---------- 视频：一条一个任务，按「生成条数」循环提交 ---------- */
+async function createVideoOnce(prov, model, prompt, entries) {
+  const t = { model, prompt, tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, size: val('size'), entries };
+  const bools = readBoolParams();
+  const d = await Api.request(prov, 'create', {
+    method: 'POST', headers: idemHeader(prov),
+    log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
+      参考素材: entries.length ? entries.length + ' 个' : '',
+      生成音频: bools.generate_audio !== undefined ? (bools.generate_audio ? '是' : '否') : '',
+      平台润色: Object.keys(platPolishParams()).length ? '是' : '' } },
+    body: Api.createBody(prov, { model: t.model, prompt: t.prompt, tier: t.tier, duration: t.dur, res: t.res, ar: t.ar,
+      size: t.size, inputEntries: t.entries, params: Object.assign({}, bools, platPolishParams()) }),
+  });
+  if (d.error) throw new Error(d.error.message || '创建失败');
+  const p = Api.parseItem(prov, d) || {};
+  /* 任务号优先按 registry 声明的 list.map.id 取（MiniMax 是 task_id、SiliconFlow 视频是 requestId、
+     早先那几家是 id）—— 只认 d.id 的话，声明里换过字段名的平台拿回来的就是 undefined：
+     任务建了、界面却不接管轮询，卡片永远不出现在列表里（也不报错，最难查的一种）。 */
+  return { taskId: p.genId || d.id || d.task_id || d.requestId || d.job_id || p.assetId, priceText: Api.priceText(prov, p) };
+}
+/* ---------- 图片：一次请求出 N 张，按平台声明的 max_outputs 分批 ---------- */
+async function createImageOnce(prov, model, prompt, assetIds, n) {
+  const o = model.options || {};
+  const inputs2 = [];
+  if ((o.qualities || []).length) inputs2.push({ k: 'quality', v: val('quality') });
+  if ((o.aspect_ratios || []).length) inputs2.push({ k: 'ar', v: val('ratio') });
+  /* 尺寸（WxH）只在平台声明了 options.sizes 时才发 —— 没声明就发过去必被拒 */
+  if ((o.sizes || []).length) inputs2.push({ k: 'size', v: val('size') });
+  if ((o.output_formats || []).length) inputs2.push({ k: 'format', v: val('format') });
+  const std = { model: model.id, prompt };
+  for (const x of inputs2) std[x.k] = x.v;
+  /* 张数只有平台声明了 max_outputs 才发 —— 平台没这个概念时发过去会被拒 */
+  if (Number(o.max_outputs) > 0) std.count = n;
+  if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
+  const d = await Api.request(prov, 'create', {
+    method: 'POST', headers: idemHeader(prov),
+    log: { type: '图片生成', meta: { 画质: val('quality'), 画幅: val('ratio'), 格式: val('format'),
+      本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '' } },
+    body: Api.createBody(prov, std),
+  });
+  if (d.error) throw new Error(d.error.message || '创建失败');
+  /* 同步返回的平台（OpenAI 兼容生图那类）当场就给图，没有任务号 —— 照 registry 的 create.sync 取数，
+     取不到再走原来的「建任务 → 轮询」。别在这里 if (prov.id === …)，形状由平台自己声明。 */
+  const sync = Api.syncMedia(prov, d);
+  if (sync) return { sync, priceText: '' };
+  const p = Api.parseItem(prov, d) || {};
+  return { taskId: d.id || p.assetId, priceText: Api.priceText(prov, p) };
+}
+/* 同步拿回来的图：取回字节 → 存进本机资产库（外链有效期很短，列表里放外链明天就全裂）。
+   走 AssetTransfer.blobOf（内部 /getfile）取字节，和别的素材转存同一条路。 */
+async function saveSyncImages(prov, model, prompt, items) {
+  const out = [];
+  for (const it of items) {
+    let b64 = it.b64 || '';
+    if (!b64 && it.url) {
+      const onStage = (st, info) => { const t = uploadStageText(st, info, '产物'); if (t) setStatus(t); };
+      const blob = await AssetTransfer.blobOf(it.url, onStage);
+      if (!blob) continue;
+      b64 = dataURLToB64(await fileToDataURL(blob));
+    }
+    if (!b64) continue;
+    const url = it.url || '';
+    const ext = (url.match(/\.(png|jpe?g|webp)(?:\?|$)/i) || [])[1];
+    const fmt = (ext || String((model.options || {}).defaults?.output_format || 'png')).toLowerCase().replace('jpg', 'jpeg');
+    const saved = await Api.saveLocalAsset({
+      name: '生图-' + (prompt || '').replace(/\s+/g, ' ').trim().slice(0, 16) + '.' + fmt,
+      mime: fmt === 'jpeg' ? 'image/jpeg' : (fmt === 'webp' ? 'image/webp' : 'image/png'),
+      format: fmt === 'jpeg' ? 'jpeg' : fmt, data: b64,
+      meta: { prompt, model: model.id, provider: prov.id },
+    });
+    out.push({ id: saved.assetId || saved.id, url: saved.url || ('/asset/' + (saved.assetId || saved.id)) });
+  }
+  return out;
+}
+/* ---------- 语音：同步合成（上游没有任务号），本机记录就是唯一凭据 ---------- */
+const pcm16ToWav = (b64, sr) => AiGen.pcm16ToWav(b64, sr);
+const b64FromBuf = buf => AiGen.b64FromBuf(buf);
+/* 十六进制 → base64。MiniMax 的 t2a_v2 把音频放在 data.audio，官方文档写的是**十六进制**
+   （官方 WebSocket 指南明确写「用十六进制解码，别当 base64」），而 /local-assets 收的是 base64。
+   文档与第三方示例在这一点上不一致，所以认不出合法十六进制时**退回按 base64 试一次**，
+   两种都解不出才报错 —— 宁可多试一次，也不要让人对着一个能用的接口发愣。 */
+function hexToB64(hex) {
+  const h = String(hex || '').trim();
+  if (!h || h.length % 2 || !/^[0-9a-fA-F]+$/.test(h)) return '';
+  const bytes = new Uint8Array(h.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(h.substr(i * 2, 2), 16);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function audioRefBase64() {
+  const it = slotItems('audio')[0];
+  if (!it) return '';
+  let blob = it.file || null;
+  if (!blob && it.src) blob = await AssetTransfer.blobOf(it.src || it.url);
+  if (!blob) return '';
+  return await fileToDataURL(blob);
+}
+async function synthAudio(t) {
+  const prov = currentModel().prov;
+  const tts = (prov && prov.tts) || {};
+  const mode = t.voiceMode || 'preset';
+  const useRef = mode === 'clone';
+  const voiceValue = useRef ? (await audioRefBase64()) : (mode === 'design' ? '' : t.voice);
+  const res = await Api.create(prov, {
+    model: t.model, text: t.text, style: t.style || '', voice: voiceValue, format: t.format,
+    textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
+    ...(t.bools || {}),
+    log: false,                       // 同步合成没有平台任务号：归档在提交时按本地任务号做
+  });
+  let b64 = Api.pickPath(res, tts.responsePath || 'choices.0.message.audio.data');
+  if (b64 && tts.encoding === 'hex') {
+    const hx = hexToB64(b64);
+    if (hx) b64 = hx;
+    else console.warn('[studio] 声明 tts.encoding=hex，但返回值不是合法十六进制，按 base64 处理');
+  }
+  if (!b64) throw new Error('接口没有返回音频数据（检查 registry 里 tts.responsePath 声明）');
+  let outB64 = b64, fmt = t.format;
+  if (t.format === 'pcm16') { outB64 = b64FromBuf(pcm16ToWav(b64, tts.pcmSampleRate || 24000)); fmt = 'wav'; }
+  const mime = (tts.mime || {})[fmt] || 'audio/wav';
+  const name = '语音-' + (t.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt;
+  const saved = await Api.saveLocalAsset({ name, mime, format: fmt, data: outB64,
+    meta: { prompt: t.text, model: t.model, voice: useRef ? '参考音频复刻' : t.voice, provider: prov.id,
+      chars: (t.text || '').length, usage: (res && res.usage) || null } });
+  return { assetId: saved.assetId || saved.id, url: saved.url || ('/asset/' + (saved.assetId || saved.id)),
+    format: fmt, bytes: saved.bytes || 0, usageText: '', priceText: '', transcript: '' };
+}
+
+/* ---------- 生成按钮 ---------- */
+$('go').onclick = async () => {
+  const why = submitBlockReason();
+  if (why) { setStatus('<span class="err">' + why + '</span>'); updateGoState(); return; }
+  if (unresolvedSubmit() && !resubmitArmed()) { armResubmit(); return; }
+  const { prov, model } = currentModel();
+  const runId = ++submitRun;
+  const uiDeadline = Date.now() + SUBMIT_UI_MS;
+  $('go').disabled = true;            // 任何 await 之前先禁用：连点两次 = 两条任务 = 两次扣费
+  try {
+    const rec = { run: runId, kind: TYPE, at: 0, prompt: $('prompt').value, model: model.id, state: 'inflight' };
+    if (TYPE === 'audio') await submitAudio(rec);
+    else if (TYPE === 'image') await submitImage(rec, prov, model);
+    else await submitVideo(rec, prov, model, uiDeadline);
+  } catch (e) {
+    /* 记账层已经写过状态行了；这里只保证按钮状态回来 */
+  } finally {
+    updateGoState();
+    renderPendingHint();
+    if (!pendingSubmits.some(s => s.run === runId && s.failed)) { /* 成功路径各自写过 ✓ */ }
+  }
+};
+async function submitVideo(rec, prov, model, uiDeadline) {
+  const prompt = $('prompt').value.trim();
+  const draw = Math.max(1, Number(val('draw')) || 1);
+  const allIn = Object.keys(SLOT_DEF).flatMap(k => (inputs()[k] || []).map(x => ({ k, x })));
+  let entries = [];
+  if (allIn.length) {
+    if (window.Capabilities) {
+      const keep = Capabilities.submitRoles(model, allIn.map(({ k }) => SLOT_DEF[k].role));
+      if (keep && keep.drop && keep.drop.length) {
+        setStatus('<span class="warn">这个型号不收：' + keep.drop.map(r => ROLE_ZH[r] || r).join('、') + '，已不带去</span>');
+      }
+    }
+    setStatus('处理输入素材…');
+    entries = await buildInputEntries(prov, model);
+  }
+  const p = trackSubmit(rec, async () => {
+    const r = await withCreateRetry(() => createVideoOnce(prov, model, prompt, entries), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
+    if (r && r.taskId) adoptTask(prov, r.taskId);
+    tally.run(true);
+    return r;
+  });
+  const left = uiDeadline - Date.now();
+  if (left > 0) await Promise.race([p, new Promise(r => setTimeout(r, left))]);
+  setStatus('<span class="ok">✓ 已创建 ' + draw + ' 个任务，正在把任务取回列表…</span>');
+}
+async function submitImage(rec, prov, model) {
+  const prompt = $('prompt').value.trim();
+  const lim = modelLimits(model);
+  const total = Math.max(1, Number(val('count')) || 1);
+  /* 参考图要先传成平台资产（图片台的模板收的是 asset_id，不是 dataURL） */
+  const assetIds = [];
+  for (const p of (inputs().image || [])) {
+    if (p.assetId && (!window.AssetTransfer || AssetTransfer.isPlatformId(p.assetId))) { assetIds.push(p.assetId); continue; }
+    const onStage = (st, info) => { const t = uploadStageText(st, info, '参考图'); if (t) setStatus(t); };
+    let file = p.file;
+    if (!file) {
+      const blob = await AssetTransfer.blobOf(p.url || p.src, onStage);
+      file = new File([blob], 'ref.png', { type: blob.type || 'image/png' });
+    }
+    assetIds.push(await AssetTransfer.toAsset(prov.id, file, { reg: REG, name: file.name, onStage }));
+  }
+  const perReq = Math.max(1, lim.maxOut);
+  const created = [];
+  const synced = [];
+  let failed = 0;
+  for (let left = total; left > 0; left -= perReq) {
+    const n = Math.min(perReq, left);
+    const p = trackSubmit(rec, async () => {
+      const r = await withCreateRetry(() => createImageOnce(prov, model, prompt, assetIds, n), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
+      if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id });
+      else if (r && r.sync) synced.push(...r.sync);
+      tally.run(true);
+      return r;
+    });
+    try { await p; } catch (e) { failed++; }
+  }
+  /* 同步返回的平台（OpenAI 兼容生图那类）没有任务号：当场把产物取回存本机，
+     再刷一次列表 —— 它的列表源就是本机资产库，存完自然出现在右栏。 */
+  if (synced.length) {
+    setStatus('<span class="ok">✓ 已返回，正在把产物存进资产库…</span>');
+    const saved = await saveSyncImages(prov, model, prompt, synced);
+    setStatus('<span class="ok">✓ 已生成 ' + saved.length + ' 张，已存入资产库</span>');
+    loadServer(1); tally.run(true);
+  }
+  if (created.length) {
+    setStatus('<span class="ok">✓ 已创建 ' + created.length + ' 个任务，正在把任务取回列表…</span>');
+    adoptTasks(created).catch(() => {});
+  } else if (!synced.length) setStatus('<span class="err">创建失败</span>');
+}
+async function submitAudio(rec) {
+  const text = $('prompt').value.trim();
+  const mode = curTtsMode();
+  const t = { localId: 'at_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    text, style: mode === 'design' ? $('style').value.trim() : '', model: $('model').value.split('::').pop(),
+    format: val('formatA'), voice: mode === 'preset' ? val('voice') : (mode === 'clone' ? '参考音频复刻' : '音色设计'),
+    voiceMode: mode, bools: readAudioBools(), status: 'creating', ts: Date.now(),
+    mtype: '音频', provider: (currentModel().prov || {}).id || '', local: true };
+  /* 参考音频可能有十几 MB，绝不能进 localStorage：只存一个 IndexedDB 键，重试时取回来 */
+  if (mode === 'clone') {
+    const it = slotItems('audio')[0];
+    const blob = it && (it.file || null);
+    if (blob) { try { t.voiceRefKey = await Wb.Blobs.save(blob); t.voiceRefName = it.name || ''; } catch (e) { Toast.warn('参考音频没能存到本机库：重试时需要重新选择'); } }
+  }
+  if (window.PromptLog) {
+    PromptLog.save(REG, { type: '语音合成', prompt: t.text, model: t.model, task: t.localId, provider: t.provider,
+      meta: { 音色方式: MODE_ZH[mode] || mode, 音色: mode === 'design' ? '' : t.voice, 风格描述: t.style,
+        格式: t.format, 字数: t.text.length + ' 字' } });
+  }
+  audioTasks.unshift(t);
+  saveAudioTasks();
+  renderAll();
+  const p = trackSubmit(rec, () => synthAudio(t).then(r => {
+    Object.assign(t, { status: 'done', assetId: r.assetId, url: r.url, dl: r.url + '?dl=1&name=' + encodeURIComponent((t.text || 'voice').slice(0, 16) + '.' + r.format),
+      format: r.format, bytes: r.bytes, localAsset: true, usageText: r.usageText || '', priceText: r.priceText || '', transcript: r.transcript || '' });
+    setStatus('<span class="ok">✓ 合成完成，已存入资产库（大类型：音频）</span>');
+    loadServer(1); tally.run(true);
+    return r;
+  }));
+  try { await p; }
+  catch (e) { t.status = 'failed'; t.error = String((e && e.message) || e); setStatus('<span class="err">合成失败：' + escA(t.error) + '</span>'); }
+  finally { saveAudioTasks(); renderAll(); }
+}
+/* ============================================================================
+   ⑩ 右栏：历史资产库（三种类型合在一起）
+   数据来源只有两类，都在这一处汇合：
+     · 平台 / 本机资产的条目 —— AssetLib.load 一次把 image / video / audio 三类来源都读回来
+       （以前三个台各读各的，右栏只看得到当前那一个类型的东西）
+     · 语音的本地记录 —— MiMo 是同步合成、上游没有任务号，本机记录就是唯一凭据
+   ========================================================================== */
+/* 右栏默认**动态加载**（滚到底自动续拉，不翻页）。
+   合并前三个台各有一份分页设置（page_mode_video / _image / _audio）：不再沿用其中任何一份 ——
+   那种迁移会把「翻页」这个旧默认值带进来，正是要改掉的默认行为。用户自己在设置页改成
+   「翻页」过（page_mode_studio = 'page'）的话仍然尊重。 */
+const PAGE_MODE = (() => {
+  const v = readLS('page_mode_studio', '');
+  return (v === 'page') ? 'page' : 'more';
+})();
+const PAGE_SIZE = Math.max(1, Number(readLS('page_size_studio', '') || 24));
+const LIST_CACHE = AssetLib.listCache('studio_tasks_cache_v1');
+const MERGE_SERVER = (base, add) => AssetLib.mergeEntries(base, add);
+let serverEntries = [], serverCursors = {}, serverHasMore = true, serverGen = 0;
+let serverChain = Promise.resolve(), serverLoading = 0, serverErrs = {};
+let audioTasks = [];
+let searchQ = '', filterKind = 'all', showAll = false;
+const RECENT_MS = 30 * 24 * 3600 * 1000;      // 默认只看最近 30 天（「查看全部」放开）
+
+/* 本地语音记录：同步合成那一条没有平台任务号可跟，刷新时还挂着「在跑」的都是断了的 */
+function loadAudioTasks() {
+  audioTasks = Wb.History.read('audio');
+  audioTasks.forEach(t => { if (Wb.stLive(t.status)) { t.status = 'failed'; t.error = '页面刷新导致中断，可重试'; } });
+}
+function saveAudioTasks() { return Wb.History.write('audio', audioTasks); }
+
+/* ---------- 标准条目 → 卡片条目（三种类型同一份形状） ---------- */
+function priceTextOf(e) {
+  const c = (window.AssetLib && AssetLib.costOf) ? AssetLib.costOf(e) : { cost: null, unit: '' };
+  if (c.cost == null) return '';
+  return c.unit === '元' ? '¥' + Number(c.cost).toFixed(4) : c.cost + ' ' + c.unit;
+}
+function entryToItem(e) {
+  const isAsset = e.kind === 'asset';
+  const aid = e.assetId || (isAsset ? (e.id || '') : '');
+  return {
+    mtype: e.type || '', provider: e.provider || '', model: e.model || '',
+    status: isAsset ? 'succeeded' : (e.status || ''),
+    prompt: e.prompt || '',
+    raw: e.src || '', media: isAsset ? mediaOf({ src: e.src }) : (e.src ? mediaOf({ src: e.src }) : ''),
+    dl: e.dl || (aid ? '/asset/' + aid + '?dl=1' : ''),
+    assetId: aid, taskId: isAsset ? '' : (e.genId || ''),
+    ts: e.ts ? new Date(e.ts).getTime() : 0,
+    tier: e.tier, res: e.res, ar: e.ar, dur: e.duration, quality: e.quality, format: e.format,
+    voice: e.voice, durationSec: e.duration, credits: e.credits, size: e.byteLength,
+    priceText: priceTextOf(e), error: e.failMsg || '', local: false, localAsset: !!e.localAsset,
+  };
+}
+function localAudioItem(t) {
+  return {
+    mtype: '音频', provider: t.provider || '', model: t.model || '', status: t.status || 'creating',
+    prompt: t.text || '', raw: t.url || '', media: t.url || '', dl: t.dl || '',
+    assetId: t.assetId || '', taskId: '', localId: t.id, ts: t.ts || 0,
+    format: t.format, voice: t.voice, durationSec: t.duration, size: t.bytes,
+    usageText: t.usageText || '', priceText: t.priceText || '', transcript: t.transcript || '',
+    error: t.error || '', local: true, localAsset: !!t.localAsset, voiceRefKey: t.voiceRefKey, voiceMode: t.voiceMode,
+    srcRef: t,
+  };
+}
+const itemKey = it => Wb.taskKey(it, [it.assetId, it.taskId, it.localId]);
+/* 合成本地记录 + 平台/资产条目：同一条语音两边都有时只留一条，
+   本地独有的信息（接口用量 / 费用 / 文本转写）继承到平台那一条上。 */
+function mergedItems() {
+  const out = [];
+  const byKey = new Map();
+  for (const e of serverEntries) {
+    const it = entryToItem(e);
+    if (!it.mtype) continue;
+    out.push(it); byKey.set(itemKey(it), it);
+  }
+  const srvAssets = new Set(out.map(x => x.assetId).filter(Boolean));
+  /* 刚创建、平台列表还没回来的那几条：先插到最前面，列表回来之后同键的会被下面的合并吃掉 */
+  for (const a of adoptBuf) if (!byKey.has(itemKey(a))) { out.unshift(a); byKey.set(itemKey(a), a); }
+  for (const t of audioTasks) {
+    if (t.assetId && srvAssets.has(t.assetId)) {
+      const hit = out.find(x => x.assetId === t.assetId);
+      if (hit) { hit.usageText = hit.usageText || t.usageText || ''; hit.priceText = hit.priceText || t.priceText || '';
+        hit.transcript = hit.transcript || t.transcript || ''; hit.voiceMode = hit.voiceMode || t.voiceMode || ''; hit.size = hit.size || t.bytes; }
+      continue;
+    }
+    const it = localAudioItem(t);
+    if (!byKey.has(itemKey(it))) { out.push(it); byKey.set(itemKey(it), it); }
+  }
+  return out;
+}
+function inWindow(it) { return showAll || !it.ts || (Date.now() - it.ts) <= RECENT_MS; }
+function matched(it) {
+  if (!inWindow(it)) return false;
+  if (searchQ) {
+    const hay = [it.prompt, it.taskId, it.assetId, it.model].join(' ').toLowerCase();
+    if (!hay.includes(searchQ)) return false;
+  }
+  return true;
+}
+function filteredItems() {
+  return mergedItems()
+    .filter(it => matched(it))
+    .filter(it => filterKind === 'all' || it.mtype === filterKind)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+}
+/* 类型分类**现算**，页面不写死「视频 / 图片 / 音频」这三个按钮：
+   类型名本身来自条目（注册表的 list.media 声明 + 本机资产库里的实际类型），
+   出现过的类型按“第一次出现的顺序”排队（保持不跳动），
+   没有条目的类型自动隐藏。新增一个平台 / 一种文件类型时，分类自动多出来一个。 */
+let kindOrder = [];
+function kindTabs() {
+  const seen = new Set();
+  mergedItems().forEach(it => { if (it.mtype) seen.add(it.mtype); });
+  const next = kindOrder.filter(t => seen.has(t));
+  for (const t of seen) if (!next.includes(t)) next.push(t);
+  kindOrder = next;
+  return next;
+}
+function paintCounts() {
+  const matched_ = mergedItems().filter(matched);
+  const total = mergedItems().length;
+  const c = new Map();
+  matched_.forEach(it => { if (it.mtype) c.set(it.mtype, (c.get(it.mtype) || 0) + 1); });
+  const kinds = kindTabs();
+  /* 选中的类型还在、但这一轮没数量时不把它删掉（切类型后搜索词可能把它过滤清空） */
+  if (filterKind !== 'all' && !kinds.includes(filterKind)) kinds.push(filterKind);
+  const box = $('histFilter');
+  const want = ['all'].concat(kinds).join('|');
+  if (box.dataset.kinds !== want) {
+    box.dataset.kinds = want;
+    box.innerHTML = ['all'].concat(kinds)
+      .map(k => '<button type="button" data-k="' + escA(k) + '">' + escA(k === 'all' ? '全部' : k)
+        + '<span class="seg-n">0</span></button>').join('');
+  }
+  box.querySelectorAll('button[data-k]').forEach(b => {
+    const k = b.dataset.k;
+    const n = k === 'all' ? matched_.length : (c.get(k) || 0);
+    const el = b.querySelector('.seg-n');
+    if (el) el.textContent = n;
+    b.classList.toggle('on', k === filterKind);
+    b.hidden = (k !== 'all' && k !== filterKind && !n);
+  });
+  const note = $('histNote');
+  const hidden = total - matched_.length;
+  note.textContent = (showAll ? '全部时间范围' : '最近 30 天')
+    + (hidden > 0 ? ' · 另有 ' + hidden + ' 条更早的没显示' : '')
+    + (serverLoading ? ' · 正在取回…' : '');
+}
+$('histFilter').addEventListener('click', e => {
+  const b = e.target.closest('button[data-k]');
+  if (!b) return;
+  filterKind = b.dataset.k;
+  pager.setPage(0);
+  renderAll();
+});
+$('winAll').onclick = () => {
+  showAll = !showAll;
+  $('winAll').textContent = showAll ? '只看最近 30 天' : '查看全部';
+  pager.setPage(0);
+  renderAll();
+};
+
+/* ---------- 取数 ---------- */
+function loadServer(morePages, noCache) {
+  const gen = serverGen;
+  const run = async () => {
+    if (gen !== serverGen) return;
+    serverLoading++;
+    try {
+      const res = await AssetLib.load({
+        pages: morePages || 1, reg: REG, cursors: serverCursors, noCache: !!noCache,
+        /* 三类来源一次读完 —— 这就是「右栏一个库」的来源：图片平台、视频平台、本机资产库 */
+        kinds: ['image', 'video', 'audio'],
+        seen: new Set(), out: serverEntries,
+        onBatch: list => {
+          if (gen !== serverGen) return;
+          serverEntries = MERGE_SERVER(serverEntries, list);
+          renderAll();
+        },
+      });
+      if (gen !== serverGen) return;
+      serverEntries = MERGE_SERVER(serverEntries, res.entries);
+      serverCursors = res.cursors; serverHasMore = res.hasMore;
+      serverErrs = res.errors || {};
+      /* 服务端读到了：本地那些「资产已经不存在」的语音记录顺手清掉（在资产库删过文件时也能自愈） */
+      const alive = new Set(serverEntries.map(e => e.assetId || e.id).filter(Boolean));
+      const before = audioTasks.length;
+      audioTasks = audioTasks.filter(t => !t.assetId || alive.has(t.assetId));
+      if (audioTasks.length !== before) saveAudioTasks();
+      LIST_CACHE.write(serverEntries);
+    } catch (e) {
+      console.warn('[studio] 历史列表加载失败：', e);
+      if (gen === serverGen) setStatus('<span class="warn">历史列表这次没取回来（' + escA(String((e && e.message) || e)) + '）—— 点右上角「刷新」重试</span>');
+    } finally {
+      serverLoading = Math.max(0, serverLoading - 1);
+      if (gen === serverGen) renderAll();
+    }
+  };
+  serverChain = serverChain.then(run, run);
+  return serverChain;
+}
+/* 创建后把新任务取回列表：先按任务号问一次（快），问不到再刷整表（列表接口才是状态的最终依据） */
+async function adoptTask(prov, taskId) {
+  if (!taskId) return false;
+  let p = null;
+  try { const hit = await Api.pollTask(prov, taskId); p = hit && hit.p; }
+  catch (e) { console.warn('[studio] 取新任务状态失败，改刷列表：', e && e.message); }
+  if (p && p.status) {
+    upsertItem(itemFromPoll(prov, p));
+    renderAll(); poller.kick();
+    return true;
+  }
+  await resyncServer();
+  return false;
+}
+async function adoptTasks(list) {
+  if (!list || !list.length) return;
+  for (const one of list) {
+    const prov = provById(one.provider) || null;
+    if (!prov) continue;
+    await adoptTask(prov, one.id);
+  }
+}
+function itemFromPoll(prov, p) {
+  const done = p.done || p.status === 'succeeded' || p.status === 'done' || p.status === 'completed';
+  const aid = p.assetId || '';
+  return {
+    mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, p) : '',
+    provider: prov.id, model: p.model || '', status: p.status, prompt: p.prompt || Api.promptFor(prov.id, p.id) || '',
+    raw: p.url || '', media: done ? (aid ? '/asset/' + aid + '?v=2' : Api.mediaSrc(p.url)) : '',
+    dl: aid ? '/asset/' + aid + '?dl=1' : (p.url ? '/fetch?url=' + encodeURIComponent(p.url) : ''),
+    assetId: aid, taskId: p.id || '', ts: Date.parse(p.created || '') || (p.completed ? Date.parse(p.completed) : 0) || Date.now(),
+    tier: p.tier, res: p.res, ar: p.ar, dur: p.duration, durationSec: p.duration,
+    priceText: Api.priceText(prov, p) || '', error: p.error || '', local: false, localAsset: false,
+  };
+}
+function upsertItem(it) {
+  if (!it || !it.taskId) return;
+  const k = itemKey(it);
+  const i = adoptBuf.findIndex(x => itemKey(x) === k);
+  if (i >= 0) adoptBuf[i] = Object.assign(adoptBuf[i], it);
+  else adoptBuf.push(it);
+}
+/* 刚创建、还没被列表接口认领的那几条：先单独放一个数组参与渲染，列表刷新后由平台条目接手 */
+const adoptBuf = [];
+let _resyncP = null;
+function resyncServer() {
+  if (!_resyncP) _resyncP = loadServer(1, true).finally(() => { _resyncP = null; });
+  return _resyncP;
+}
+/* 轮询：只有「有任务号 + 还在跑 + 平台还在列表里」的那些才会发请求 */
+const running = it => Wb.isRunning(it) && !!it.taskId;
+async function pollOne(it) {
+  const prov = provById(it.provider);
+  if (!prov || !it.taskId) return;
+  const hit = (await Api.pollMany(prov, [it.taskId])).get(String(it.taskId)) || {};
+  if (hit.error) {
+    const msg = String((hit.error && hit.error.message) || hit.error);
+    const gone = hit.error && hit.error.status === 404 || /不存在|未找到|not\s*found/i.test(msg);
+    it.miss = (it.miss || 0) + 1;
+    /* 「平台上找不到」要连着 3 次才下结论：一次 404 也可能只是列表接口抖了一下 */
+    if (gone && it.miss >= 3) { it.status = 'failed'; it.error = '平台上找不到这条任务（可能已被清理或过期），可重试或重新提交'; it.taskId = ''; }
+    throw hit.error;
+  }
+  const p = hit.p;
+  if (!p) { it.miss = (it.miss || 0) + 1; if (it.miss >= 3) { it.status = 'failed'; it.error = '平台这次问不到这条任务了，可重试或重新提交'; } throw new Error('no item'); }
+  it.miss = 0;
+  const upd = itemFromPoll(prov, p);
+  Object.assign(it, upd, { taskId: it.taskId, ts: it.ts || upd.ts, local: false });
+}
+const poller = Wb.poller({
+  label: '生成', interval: 4000,
+  tasks: () => mergedItems(),
+  isRunning: it => running(it),
+  sig: it => [it.status, it.media, it.priceText, it.error].join('|'),
+  pollOne,
+  onChange: () => renderAll(),
+});
+/* 历史右栏里出现过的平台（含已在设置页停用的 —— 老任务的卡片要还能显示平台名） */
+function providersOfHistory() {
+  return (REG.providers || []).filter(p => p.kind === 'image' || p.kind === 'video' || p.kind === 'audio');
+}
+
+/* ---------- 卡片 ---------- */
+const KIND_TAG = { 图片: 'image', 视频: 'video', 音频: 'mic' };
+const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.model,
+  it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts].join('|');
+const openDetail = new Set();
+function dateText(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function mediaBox(it) {
+  const run = Wb.isRunning(it), bad = Wb.isFailed(it);
+  if (run) return '<div class="timg"><span class="spin-dot"></span>' + escA(Wb.stText(it.status) || '生成中') + '</div>';
+  if (bad) return '<div class="timg" style="color:var(--err)">' + escA(Wb.stText(it.status) || '生成失败') + '</div>';
+  if (it.mtype === '视频' && it.media) {
+    /* 视频在卡片里就地播：mediaHTML 的 inline 会直接给 src（只给 data-src 的话
+       浏览器根本不会取字节，那就是「卡片里的视频播不动」），缓存里有首帧就当封面。
+       左下角叠一个播放键（bindCardPlay 接线）：点它 = 播 / 暂停，不用先点开、
+       再找播放器的两步；播放中隐走、鼠标移回来再出现。要看大图用下面那排里的「放大」。 */
+    return '<div class="timg playable">' + Wb.thumbs.mediaHTML(it.media, {
+      inline: true, videoAttrs: 'playsinline preload=metadata',
+      mediaAttrs: 'title="就地播放；要看大图点下面的「放大」"' })
+      + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
+  }
+  if (isAudioType(it.mtype) && it.media) {
+    return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + escA(Api.mediaSrc(it.media)) + '"></audio>'
+      + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
+  }
+  if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'title="点一下看大图"' }) + '</div>';
+  if (it.mtype) return '<div class="timg">' + icon(KIND_TAG[it.mtype] || 'image', 24) + '</div>';
+  return '<div class="timg">…</div>';
+}
+/* 卡片里的「播放」按钮：视频与音频合用这一个实现。
+   按钮只负责播 / 暂停：播放期间隐走（否则卡片上一直摆着那个键），
+   播完 / 暂停后回来。卡片被重画时节点消失，下次绘制重接。 */
+function bindCardPlay(d, wrap) {
+  const btn = wrap && wrap.querySelector('.tplay');
+  const media = wrap && wrap.querySelector('video, audio');
+  if (!btn || !media) return;
+  const setState = playing => { wrap.classList.toggle('playing', !!playing); btn.innerHTML = icon(playing ? 'pause' : 'play', 22); };
+  btn.onclick = e => {
+    e.stopPropagation();
+    if (media.paused) { const pr = media.play(); if (pr && pr.catch) pr.catch(() => {}); }
+    else media.pause();
+  };
+  ['play', 'pause', 'ended'].forEach(ev => media.addEventListener(ev, () => setState(ev === 'play')));
+  setState(false);
+}
+function cardHTML(it) {
+  const bad = Wb.isFailed(it);
+  const meta = [provLabelFor(it), it.model, it.tier, it.res, it.ar,
+    it.dur != null && it.dur !== '' ? it.dur + 's' : '', it.voice ? '音色 ' + it.voice : '',
+    it.format ? String(it.format).toUpperCase() : '',
+    it.size ? Wb.fmtSize(it.size) : '',
+    it.priceText ? '费用 ' + it.priceText : '', it.usageText || ''].filter(Boolean).join(' · ');
+  return '<div class="card-top"><span class="card-badge">'
+    + (it.mtype ? '<span class="ui-tag">' + escA(it.mtype) + '</span>' : '')
+    + '<span class="ui-tag ' + (Wb.isRunning(it) ? 'run' : bad ? 'err' : 'ok') + '">' + escA(Wb.stText(it.status) || '') + '</span>'
+    + '</span><span class="date">' + escA(dateText(it.ts)) + '</span></div>'
+    + mediaBox(it)
+    + '<div class="tmain">'
+    + '<div class="tprompt" title="' + escA(it.prompt) + '">' + (escA(it.prompt) || '(无提示词)') + '</div>'
+    + (bad && it.error ? '<div class="terr" title="' + escA(String(it.error)) + '">' + escA(String(it.error)) + '</div>' : '')
+    + '<div class="meta2">' + escA(meta) + '</div>'
+    + '<div class="acts">' + Wb.actsHTML(it, {
+      preview: !!it.media, previewLabel: '放大', cancel: running(it),
+      retry: bad && !!(it.prompt || it.local), remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
+    }) + '</div>'
+    + '<div class="tdetail" hidden></div>'
+    + '</div>';
+}
+function fileNameOf(it) {
+  const d = new Date(it.ts || Date.now()), pad = n => String(n).padStart(2, '0');
+  const base = (it.prompt || it.mtype || 'asset').replace(/\s+/g, ' ').trim().slice(0, 24);
+  const ext = it.mtype === '视频' ? 'mp4' : it.mtype === '图片' ? 'png' : (it.format || 'wav');
+  const raw = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + ' ' + (base || 'asset') + '.' + ext;
+  return raw.replace(/[\\/:*?"<>|\x00-\x1f]/g, '-');
+}
+function bindCard(d, it) {
+  const det = d.querySelector('.tdetail');
+  const dtBtn = d.querySelector('.dt');
+  const setOpen = now => {
+    det.hidden = !now;
+    d.classList.toggle('open', now);
+    /* 文字和图标各管一头：btnText 保住那颗 chevron（textContent = … 会把它一起抹掉） */
+    if (dtBtn) { iconSet(dtBtn, now ? 'chevronUp' : 'chevronDown', 13); btnText(dtBtn, now ? '收起' : '详情'); }
+    if (now) { openDetail.add(itemKey(it)); Wb.detail.render(it, det); }
+    else openDetail.delete(itemKey(it));
+  };
+  d.dataset.tkey = itemKey(it);
+  d._setOpen = setOpen; d._det = det; d._item = it;
+  if (dtBtn) dtBtn.onclick = e => { e.stopPropagation(); setOpen(det.hidden); };
+  const tp = d.querySelector('.tprompt');
+  if (tp) tp.onclick = e => { e.stopPropagation(); setOpen(det.hidden); };
+  const pv = d.querySelector('.pv');
+  if (pv) pv.onclick = () => Wb.lightbox.open(it, browseList());
+  /* 图片点画面看大图；视频/音频就地播，点画面不抢播放器的动作 */
+  const imgWrap = d.querySelector('.timg');
+  if (imgWrap && !imgWrap.querySelector('video,audio')) imgWrap.onclick = () => Wb.lightbox.open(it, browseList());
+  bindCardPlay(d, imgWrap);
+  const wrap = imgWrap;
+  const media = wrap ? wrap.querySelector('video[data-src], video[src], img') : null;
+  if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
+  /* 整张卡可拖：拖到左栏输入框 = 当参考素材（这一页自己产的 mime 契约，两端都在这里） */
+  d.draggable = true;
+  d.addEventListener('dragstart', e => {
+    const p = { mtype: it.mtype, assetId: it.assetId, src: it.raw || it.media, dl: it.dl, name: (it.prompt || '').slice(0, 40),
+      provider: it.provider, taskId: it.taskId, model: it.model, prompt: it.prompt, ts: it.ts };
+    e.dataTransfer.setData('application/x-studio-ref', JSON.stringify(p));
+    if (it.assetId) e.dataTransfer.setData('application/x-asset-id', String(it.assetId));
+    e.dataTransfer.setData('text/plain', it.assetId ? '/asset/' + it.assetId : (it.raw || ''));
+    e.dataTransfer.effectAllowed = 'copy';
+    d.classList.add('dragging');
+  });
+  d.addEventListener('dragend', () => d.classList.remove('dragging'));
+  Wb.bindActs(d, it, {
+    fileName: fileNameOf(it),
+    dlUrl: it.dl || it.media || '',
+    onDetail: () => setOpen(det.hidden),
+    onPreview: () => Wb.lightbox.open(it, browseList()),
+    onCancel: async () => { await Wb.cancelTask(provById(it.provider), it.taskId); it.status = 'cancelled'; renderAll(); Toast.ok('已取消'); },
+    onRetry: () => retryItem(it),
+    onRemove: () => { audioTasks = audioTasks.filter(x => x !== it.srcRef); saveAudioTasks(); renderAll(); tally.run(true); },
+    onRemoveFile: () => deleteLocalAsset(it),
+  });
+  return d;
+}
+function paintCard(d, it) {
+  const old = d.querySelector('.timg video, .timg img');
+  const oldKey = old ? (old.getAttribute('data-thumb-key') || '') : '';
+  const wasOpen = !det0(d).hidden;
+  d.innerHTML = cardHTML(it);
+  const now = d.querySelector('.timg video, .timg img');
+  /* 指纹没变的重绘不要换掉媒体节点：换了等于重新加载一次（视频会从头播） */
+  if (old && now && oldKey && now.getAttribute('data-thumb-key') === oldKey) old.replaceWith(now);
+  bindCard(d, it);
+  if (wasOpen) { const det = d.querySelector('.tdetail'); det.hidden = false; Wb.detail.render(it, det); }
+  return d;
+}
+const det0 = d => d.querySelector('.tdetail') || { hidden: true };
+async function retryItem(it) {
+  if (it.local) {
+    /* 语音：本地记录就是全部凭据，重试 = 再合成一次 */
+    const rec = audioTasks.find(x => x.id === (it.localId || (it.srcRef && it.srcRef.id)));
+    if (!rec) { Toast.err('这条本地记录已经不在了'); return; }
+    if (rec.voiceMode === 'clone' && rec.voiceRefKey && !slotItems('audio').length) {
+      const blob = await Wb.Blobs.get(rec.voiceRefKey);
+      if (blob) { slotItems('audio').push({ file: blob, url: URL.createObjectURL(blob), name: rec.voiceRefName || '参考音频', type: '音频', kind: 'audio', fromLib: false }); renderInputArea(); }
+    }
+    setType('audio', true);
+    $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
+    rec.status = 'creating'; rec.error = ''; saveAudioTasks(); renderAll();
+    $('go').click();
+    return;
+  }
+  const prov = provById(it.provider);
+  if (!prov) { Toast.err('这个平台已经不在注册路由里了'); return; }
+  const m = { prompt: it.prompt, model: it.model || (prov.models || [])[0].id, tier: it.tier, res: it.res, ar: it.ar, dur: it.dur, quality: it.quality };
+  const t = it.mtype === '视频' ? '视频生成' : '图片生成';
+  const r = await Api.request(prov, 'create', {
+    method: 'POST', headers: idemHeader(prov), log: { type: t, meta: { 重试自: it.taskId || '' } },
+    body: Api.createBody(prov, Object.assign({ model: m.model, prompt: m.prompt }, it.mtype === '视频'
+      ? { tier: m.tier, duration: m.dur, res: m.res, ar: m.ar, inputEntries: [] }
+      : { quality: m.quality, ar: m.ar, count: 1 })),
+  });
+  if (r.error) throw new Error(r.error.message || '重新提交失败');
+  const taskId = r.id || (Api.parseItem(prov, r) || {}).assetId;
+  if (taskId) await adoptTask(prov, taskId);
+  tally.run(true);
+  Toast.ok('已重新提交');
+}
+async function deleteLocalAsset(it) {
+  try {
+    const res = await AssetLib.remove(it);
+    if (res && res.alreadyGone) Toast.info('文件已经不在了，列表已清掉');
+    else Toast.ok('已删除这条' + (it.mtype || '文件'));
+  } catch (e) { Toast.err('删除失败：' + ((e && e.message) || e)); return; }
+  audioTasks = audioTasks.filter(t => t.assetId !== it.assetId);
+  saveAudioTasks();
+  serverGen++; serverEntries = []; adoptBuf.length = 0; serverCursors = {}; serverHasMore = true;
+  loadServer(1); tally.run(true); renderAll();
+}
+const list = Wb.cards.create({
+  box: 'result',
+  keyOf: it => itemKey(it),
+  sigOf: it => cardSig(it),
+  paint: (d, it) => paintCard(d, it),
+  emptyHTML: () => '<div class="empty">还没有历史素材。左栏写好提示词点「生成」，出来的成品会自动出现在这里；也可以把素材拖到左栏当参考。</div>',
+  notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
+  onNew: el => { try { el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 280, easing: 'ease-out' }); } catch (e) {} },
+});
+const browseList = () => filteredItems().filter(x => x.media);
+function renderAll() {
+  const items = pager.slice();
+  pager.update();
+  list.paint(items);
+  paintCounts();
+  const el = $('histNote');
+  if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
+}
+/* 总数只是「共 M 页」的文案，后台慢慢数：三类来源一起数，页数封顶 3（≈300 条），
+   不然五个来源各翻十页会把上游打爆（数不准就显示「共 M+ 页」，不假装精确）。 */
+const tally = Wb.tally(() => AssetLib.countAll({ reg: REG, accept: e => !!e.type, maxPages: 3 }));
+tally.onDone.push(() => { try { renderAll(); } catch (e) {} });
+const pager = Wb.pager.create({
+  mode: PAGE_MODE, pageSize: PAGE_SIZE,
+  items: () => filteredItems(),
+  hasMore: () => serverHasMore,
+  total: () => tally.value(),
+  searchQ: () => searchQ,
+  render: () => renderAll(),
+  fill: async need => {
+    let guard = 0;
+    while (serverHasMore && guard++ < 20 && filteredItems().length < (need || 1) * PAGE_SIZE) await loadServer(2);
+  },
+});
+$('result').addEventListener('click', e => {
+  const card = e.target.closest('.task');
+  if (!card || !card._setOpen) return;
+  if (e.target.closest('.dt') || e.target.closest('.tprompt') || e.target.closest('button')) return;
+  if (e.target.closest('.tdetail') || e.target.closest('.acts')) return;
+  if (e.target.closest('video') || e.target.closest('audio')) return;   // 播放器的点击归播放器
+  card._setOpen(card._det.hidden);
+});
+$('result').addEventListener('click', e => {
+  const b = e.target.closest('#histRetry');
+  if (!b) return;
+  e.stopPropagation();
+  b.disabled = true;
+  loadServer(1, true);
+});
+
+/* ---------- 详情 / 灯箱 / 保存落点 ---------- */
+Wb.detail.init({
+  prompt: it => it.prompt,
+  status: it => it.status,
+  provider: it => provById(it.provider),
+  taskId: it => it.taskId || '',
+  rows: it => [
+    ['平台', it.provider ? provLabelFor(it) : ''],
+    ['型号', it.model],
+    ['档位', it.tier], ['质量', it.quality ? (QUALITY_ZH[it.quality] || it.quality) : ''],
+    ['分辨率', it.res], ['比例', it.ar],
+    ['时长', it.dur != null && it.dur !== '' ? it.dur + ' 秒' : ''],
+    ['数量', it.credits != null && it.credits !== '' ? it.credits : ''],
+    ['音色', it.voice], ['格式', it.format ? String(it.format).toUpperCase() : ''],
+    ['接口用量', it.usageText || ''], ['转写', it.transcript || ''],
+    ['大小', it.size ? Wb.fmtSize(it.size) : ''],
+    ['费用', it.priceText],
+    ['错误', it.error],
+    ['任务ID', it.taskId || (it.assetId ? it.assetId : '（本机记录，无任务号）')],
+  ],
+  actions: it => (it.media ? '<button class="ghost" data-act="reuse" title="把这条的提示词与素材填进左栏（按类型自动切过去）">'
+    + icon('reuse', 12) + ' 复用这次创作</button>' : ''),
+  bindActions: (host, it) => {
+    const b = host.querySelector('[data-act="reuse"]');
+    if (b) b.onclick = async e => { e.stopPropagation(); b.disabled = true; try { await reuseInto(it); } finally { b.disabled = false; } };
+  },
+});
+Wb.lightbox.init({
+  list: browseList,
+  keyOf: it => itemKey(it),
+  srcOf: it => it.media || '',
+  nameOf: it => fileNameOf(it),
+  kindOf: it => (it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image'),
+  info: (it, el) => [
+    provLabelFor(it), it.model,
+    it.dur ? it.dur + 's' : '', it.ar, it.voice ? '音色 ' + it.voice : '',
+    (el && el.videoWidth) ? el.videoWidth + '×' + el.videoHeight + 'px' : '',
+    Wb.mediaSize(it.media).then(n => (n ? Wb.fmtSize(n) : '')),
+  ],
+});
+
+/* ---------- 复用：把一条历史素材的提示词 + 素材填进左栏 ---------- */
+function slotKindFor(mtype) {
+  const has = k => slots.some(x => x.kind === k);
+  if (mtype === '视频') return has('video') ? 'video' : (has('frame_first') ? 'frame_first' : null);
+  if (isAudioType(mtype)) return has('audio') ? 'audio' : null;
+  return has('image') ? 'image' : (has('frame_first') ? 'frame_first' : (has('frame_last') ? 'frame_last' : null));
+}
+function modelSupportsSlot(kind) {
+  const { model } = currentModel();
+  if (!model || !kind) return false;
+  return Capabilities.specs(model).some(sp => sp.role === SLOT_DEF[kind].role);
+}
+function findModelWithSlot(kind) {
+  const role = (SLOT_DEF[kind] || {}).role;
+  if (!role) return null;
+  for (const p of provGroups()) for (const m of (p.models || [])) if (Capabilities.specs(m).some(sp => sp.role === role)) return { p, m };
+  return null;
+}
+async function reuseInto(it) {
+  const want = it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image';
+  if (TYPE !== want) setType(want, true);
+  if (it.prompt) $('prompt').value = it.prompt;
+  if (it.model) {
+    const g = provGroups().find(p => (p.models || []).some(m => m.id === it.model));
+    if (g) { $('model').value = g.id + '::' + it.model; $('model').dispatchEvent(new Event('change')); }
+  }
+  let added = 0;
+  if (it.media) {
+    const kind = slotKindFor(it.mtype);
+    if (!kind) { setStatus('<span class="warn">当前型号没有能接收' + it.mtype + '的入口，已只填入提示词</span>'); }
+    else {
+      if (!modelSupportsSlot(kind)) {
+        const hit = findModelWithSlot(kind);
+        if (!hit) { setStatus('<span class="err">没有支持「' + SLOT_DEF[kind].label + '」的型号，已只填入提示词</span>'); return; }
+        $('model').value = hit.p.id + '::' + hit.m.id;
+        $('model').dispatchEvent(new Event('change'));
+      }
+      const arr = slotItems(kind);
+      const sl = slots.find(x => x.kind === kind);
+      if (arr.some(x => x.assetId === it.assetId)) added = 0;
+      else if (sl && arr.length >= sl.max) setStatus('<span class="warn">' + SLOT_DEF[kind].label + '已满（最多 ' + sl.max + '）</span>');
+      else if (it.assetId && /^\/asset\//.test(String(it.raw || it.media))) {
+        arr.push({ assetId: it.assetId, url: it.raw || it.media, src: it.raw || it.media, name: (it.prompt || '资产').slice(0, 14),
+          type: it.mtype, kind, fromLib: true });
+        added = 1;
+      } else {
+        setStatus('正在取回素材字节…');
+        const blob = await AssetTransfer.blobOf(it.dl || it.raw || it.media);
+        const name = ((it.prompt || it.mtype) + '').replace(/\s+/g, ' ').trim().slice(0, 14) || 'ref';
+        const f = new File([blob], name + (isAudioType(it.mtype) ? '.mp3' : it.mtype === '视频' ? '.mp4' : '.png'),
+          { type: blob.type || 'application/octet-stream' });
+        added = await addSlotFiles(kind, [f]);
+      }
+    }
+  }
+  renderInputArea(); updateMode(); updateGoState();
+  setStatus(added
+    ? '<span class="ok">✓ 已复用：提示词 + 1 个' + it.mtype + '素材</span>'
+    : '<span class="ok">✓ 已复用提示词</span>');
+}
+/* 从资产库 / 收藏页「复用」跳过来时带的那一条（localStorage.sk_reuse，用完即删） */
+async function applyReuseFromAssets() {
+  let p2 = null;
+  try { p2 = JSON.parse(readLS('sk_reuse', '') || 'null'); } catch (e) {}
+  if (!p2 || (!p2.assetId && !p2.prompt)) return;
+  try { localStorage.removeItem('sk_reuse'); } catch (e) {}
+  const kind = p2.kind === 'video' ? '视频' : p2.kind === 'audio' ? '音频' : '图片';
+  await reuseInto({ mtype: kind, assetId: p2.assetId, raw: '/asset/' + p2.assetId + '?v=2', media: '/asset/' + p2.assetId + '?v=2',
+    dl: '/asset/' + p2.assetId + '?dl=1', prompt: p2.prompt || '', model: '', provider: p2.provider || '' });
+}
+
+/* ---------- 右栏控件 ---------- */
+$('searchBtn').onclick = () => { searchQ = $('searchBox').value.trim().toLowerCase(); pager.setPage(0); renderAll(); };
+$('searchBox').addEventListener('keydown', e => { if (e.key === 'Enter') $('searchBtn').click(); });
+$('sync').onclick = async () => {
+  const b = $('sync');
+  b.disabled = true; b.innerHTML = '<span class="spin-dot"></span> 刷新中';
+  try {
+    serverGen++;
+    serverEntries = []; adoptBuf.length = 0; serverCursors = {}; serverHasMore = true; serverErrs = {};
+    pager.setPage(0);
+    await loadServer(1);
+    tally.run(true);
+    renderAll();
+  } finally {
+    b.disabled = false; b.innerHTML = icon('refresh', 13) + ' 刷新';
+    if (PAGE_MODE === 'more') setTimeout(() => { try { pager.fill(pager.page + 2); } catch (e) {} }, 60);
+  }
+};
+/* 翻页 / 跳页由 Wb.pager.bindButtons + gotoInput 统一接（页面不要再各绑一遍） */
+$('gotoBtn').onclick = () => pager.gotoInput('gotoPage');
+$('gotoPage').addEventListener('keydown', e => { if (e.key === 'Enter') pager.gotoInput('gotoPage'); });
+function autoLoadMore() { if (PAGE_MODE === 'more' && serverHasMore) { try { pager.fill(pager.page + 2); } catch (e) {} } }
+window.addEventListener('resize', () => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); });
+
+/* ---------- 从右栏拖到左栏当参考素材 ---------- */
+function slotRowOver(on) { $('promptBox').classList.toggle('over', on); }
+['dragover', 'dragenter'].forEach(ev => $('promptBox').addEventListener(ev, e => {
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  const hasPayload = Array.from(dt.types || []).some(t => t === 'application/x-studio-ref' || t === 'application/x-asset-id' || t === 'Files');
+  if (!hasPayload) return;
+  e.preventDefault(); slotRowOver(true);
+}));
+$('promptBox').addEventListener('dragleave', e => { if (!$('promptBox').contains(e.relatedTarget)) slotRowOver(false); });
+$('promptBox').addEventListener('drop', async e => {
+  e.preventDefault(); slotRowOver(false);
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  /* ① 右栏卡片拖过来的（这一页自己产的 mime 契约） */
+  const raw = dt.getData('application/x-studio-ref');
+  if (raw) {
+    let p = null;
+    try { p = JSON.parse(raw); } catch (err) {}
+    if (p && p.src) { await dropRefMedia(p); return; }
+  }
+  /* ② 资产库 / 收藏页那套旧契约（application/x-asset-id） */
+  const aid = dt.getData('application/x-asset-id');
+  if (aid) {
+    await dropRefMedia({ mtype: '图片', assetId: aid, src: '/asset/' + aid + '?v=2', dl: '/asset/' + aid + '?dl=1' });
+    return;
+  }
+  /* ③ 从操作系统拖进来的文件：按类型落到对应槽位 */
+  const files = [...(dt.files || [])];
+  if (!files.length) return;
+  const has = k => slots.some(x => x.kind === k);
+  for (const f of files) {
+    const want = f.type.startsWith('video/')
+      ? (has('video') ? 'video' : (has('frame_first') ? 'frame_first' : null))
+      : f.type.startsWith('audio/') ? (has('audio') ? 'audio' : null)
+        : (has('image') ? 'image' : has('frame_first') ? 'frame_first' : (has('frame_last') ? 'frame_last' : null));
+    if (!want) { setStatus('<span class="err">当前型号没有可接收该文件的入口</span>'); return; }
+    await addSlotFiles(want, [f]);
+  }
+});
+async function dropRefMedia(p) {
+  const mtype = p.mtype || '图片';
+  const kind = slotKindFor(mtype);
+  if (!kind) { setStatus('<span class="err">当前型号没有能接收' + mtype + '的入口（换型号或清空已选素材再试）</span>'); return; }
+  if (blockedSlotKinds().has(kind)) { flashSlotHint(SLOT_DEF[kind].label + '与已选素材互斥，请先清空已选素材'); return; }
+  const sl = slots.find(x => x.kind === kind);
+  const arr = slotItems(kind);
+  if (sl && arr.length >= sl.max) { setStatus('<span class="err">' + SLOT_DEF[kind].label + '已满（最多 ' + sl.max + ' 个）</span>'); return; }
+  const src = p.src || '';
+  if (arr.some(x => p.assetId && x.assetId === p.assetId)) { setStatus('这条素材已经在「' + SLOT_DEF[kind].label + '」里了'); return; }
+  const def = SLOT_DEF[kind];
+  /* 平台/本机资产里能直接引用的（图片台那一套）：不必再取一遍字节 */
+  if (p.assetId && /^\/asset\//.test(String(src)) && !(mtype === '视频' && def.videoFrame)) {
+    arr.push({ assetId: p.assetId, url: src, src, name: (p.name || '历史素材').slice(0, 14), type: mtype, kind, fromLib: true });
+    renderInputArea(); updateMode(); updateGoState();
+    setStatus('<span class="ok">✓ 已把《' + ((p.name || '历史素材') + '').slice(0, 18) + '》加入' + def.label + '</span>');
+    return;
+  }
+  setStatus('正在取回素材字节…');
+  try {
+    const blob = await AssetTransfer.blobOf(p.dl || src);
+    const name = ((p.name || mtype) + '').replace(/\s+/g, ' ').trim().slice(0, 14) || 'ref';
+    const ext = mtype === '视频' ? '.mp4' : isAudioType(mtype) ? '.mp3' : '.png';
+    const f = new File([blob], name + ext, { type: blob.type || 'application/octet-stream' });
+    const n = await addSlotFiles(kind, [f]);
+    if (n) setStatus('<span class="ok">✓ 已把《' + name + '》加入' + def.label + '</span>');
+  } catch (err) {
+    setStatus('<span class="err">取回素材失败：' + escA(String((err && err.message) || err)) + '</span>');
+  }
+}
+
+/* ---------- 左栏整块重画（切类型 / 换型号之后） ---------- */
+function paintLeft() {
+  renderModelOptions();          // 型号下拉按当前类型重建（每种类型各记各的）
+  slots = modelSlots();
+  renderParams();
+  renderInputArea();
+  paintSubNote();
+  updateMode();
+  updateGoState();
+  refreshEst();
+}
+
+/* ============================ ⑪ 启动 ============================ */
+(async () => {
+  TYPE = readTypeFromURL() || readLS('studio_type', '') || 'video';
+  if (!TYPES[TYPE]) TYPE = 'video';
+  const picks = loadPicks();
+  ST[TYPE].model = picks[TYPE] || '';
+  ST[TYPE].prompt = readLS('studio_prompt_' + TYPE, '');
+  $('prompt').value = ST[TYPE].prompt;
+  setType(TYPE, false);
+  try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; }
+  if (window.Api) Api.setRegistry(REG);
+  renderModelOptions();
+  /* 首屏先用本地缓存画出来（只缓存终态条目），再等平台列表覆盖 —— 别让首屏空着等十几秒 */
+  if (!serverEntries.length) {
+    const cached = LIST_CACHE.read();
+    if (cached.length) serverEntries = cached;
+  }
+  loadAudioTasks();
+  paintLeft();
+  Wb.thumbs.hydrate().then(n => { if (n) { try { renderAll(); } catch (e) {} } }).catch(() => {});
+  loadServer(1).then(() => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60); }).catch(() => {});
+  tally.run();
+  poller.kick();
+  renderAll();
+  pager.bindButtons();
+  pager.bindScroll('result');
+
+  try { await Capabilities.load(REG); } catch (e) {}
+  renderModelOptions();
+  paintLeft();
+  refreshCaps();
+
+  if (/[?&]reuse=1/.test(location.search || '')) {
+    try { await applyReuseFromAssets(); } catch (e) { setStatus('<span class="err">复用失败：' + escA(String(e && e.message || e)) + '</span>'); }
+  }
+})().catch(e => {
+  setStatus('<span class="err">启动失败：' + escA(String((e && e.message) || e)) + '</span>');
+  console.error('[studio] 启动失败', e);
+});
+/* 提示词按类型各存一份：合并成一页之后切类型再切回来，写到一半的东西不该丢 */
+$('prompt').addEventListener('input', () => { cur().prompt = $('prompt').value; writeLS('studio_prompt_' + TYPE, $('prompt').value); });
+$('style').addEventListener('input', () => { cur().style = $('style').value; });
+window.addEventListener('pagehide', () => { writeLS('studio_prompt_' + TYPE, $('prompt').value); saveAudioTasks(); });
+</script>
+</body>
+</html>

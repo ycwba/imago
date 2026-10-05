@@ -8,9 +8,13 @@ const path = require('path');
 const os = require('os');
 const dns = require('dns');
 
-/* 端口默认 5175；PORT 环境变量可以另起一个实例（配合 DATA_DIR 用一份独立的数据目录），
+/* 端口默认 5175。PORT 也能写在项目目录的 .env 里 —— 所以这一行必须排在 loadEnvFile(true)
+   **后面**：以前它排在前面（在 require 之后立刻读），.env 里写的 PORT 根本不生效，
+   只有真的在命令行 set 过才管用。Windows 的 Hyper-V / winnat 会在开机时把一段连续端口
+   保留走（实测这台机器把 5174~6173 整段都占了），撞上报的是 `listen EACCES` 而不是
+   常见的 EADDRINUSE —— 换端口是唯一不用管理员权限的出路，所以这条路必须真的走得通。
+   另外 PORT 环境变量可以另起一个实例（配合 DATA_DIR 用一份独立的数据目录），
    自动化验证时就不必在真实用户数据上跑。 */
-const PORT = Number(process.env.PORT) || 5175;
 const UPSTREAM = 'https://hi.hi.run';
 
 /* ---------- 密钥注入（优先级：页面设置里填的 > 系统环境变量 > 同目录 .env） ----------
@@ -23,6 +27,11 @@ const ENV_FILE = path.join(__dirname, '.env');
 let envLoaded = false;
 let envMtime = 0;
 let envKeys = [];            // 上次由 .env 写入的键，用于清理「从 .env 里删掉」的变量
+/* .env 每一行**原本写的值**（不管最后有没有真的生效）。
+   优先级是「同名环境变量 > .env」，于是会出现这种完全看不出来的事：
+   窗口里还残留一个 set PORT=5175，.env 明明写着 6200，报出来的却是 5175 绑不上 ——
+   把文件里写的那个值留着，启动信息才答得出「这个端口到底从哪来、谁压掉了谁」。 */
+let envFileVals = {};
 /* 读取 .env 到 process.env（系统环境变量优先，不覆盖）；
    带 mtime 缓存，请求时调用 → 改完 .env 无需重启即可生效 */
 function loadEnvFile(force) {
@@ -32,7 +41,9 @@ function loadEnvFile(force) {
     if (!force && st.mtimeMs === envMtime) return envLoaded;
     envMtime = st.mtimeMs;
     const nowKeys = [];
+    const fileVals = {};
     let n = 0;
+    const skipped = [];        // 被同名环境变量压掉的键（只记名字，值不进日志）
     fs.readFileSync(ENV_FILE, 'utf8').split(/\r?\n/).forEach(raw => {
       const line = raw.trim();
       if (!line || line.startsWith('#')) return;
@@ -44,29 +55,57 @@ function loadEnvFile(force) {
       if (!/^["']/.test(v)) v = v.replace(/\s+#.*$/, '').trim();
       v = v.replace(/^(["'])([\s\S]*)\1$/, '$2');   // 只剥成对的引号，不平衡的保留原样
       nowKeys.push(k);                              // 空值也记下：允许用 KEY= 主动清空
+      fileVals[k] = v;
       // 系统环境变量优先；但 .env 内部改动时允许覆盖上次由 .env 写入的值
       if (!process.env[k] || process.env['__fromEnvFile_' + k]) {
         process.env[k] = v;
         process.env['__fromEnvFile_' + k] = '1';
         if (v) n++;
-      }
+      } else skipped.push(k);                         // 被同名环境变量压掉了（不是文件写错了）
     });
     // 从 .env 里删掉的键：清掉上次写入的值，否则旧密钥一直生效
     envKeys.filter(k => !nowKeys.includes(k)).forEach(k => {
       if (process.env['__fromEnvFile_' + k]) { delete process.env[k]; delete process.env['__fromEnvFile_' + k]; }
     });
     envKeys = nowKeys;
+    envFileVals = fileVals;
     envLoaded = true;
     // 启动阶段 LOG 可能还没初始化（TDZ），这里吞掉即可；热加载时会正常打印
-    if (force && n) { try { log(`.env 已加载 / 更新（${n} 个变量）`); } catch {} }
+    if (force && (n || skipped.length)) {
+      try {
+        log(`.env 已加载 / 更新（${n} 个变量）`);
+        // 只报键名：值可能是密钥，一个字都不进日志。不报出来的话，「另有 N 个被压掉」这种数字
+        // 反而像丢了东西（其实那几项本来就是环境变量在给，文件里写的是空）。
+        if (skipped.length) log(`       另有 ${skipped.length} 项由同名环境变量提供，.env 里的写法没生效：${skipped.join('、')}`);
+      } catch {}
+    }
     return true;
   } catch (e) { console.error('[警告] .env 读取失败：' + e.message); return false; }
 }
 loadEnvFile(true);
+const PORT_ENV = Number(process.env.PORT);
+const PORT = PORT_ENV || 5175;
+/* 端口来源要说得出口：绑不上时报的是哪一个号、这一个号是谁给的、.env 里那个有没有生效。
+   （PORT 这一行排在 loadEnvFile(true) 后面才有意义 —— 排在前面的话 .env 永远读不到。） */
+const PORT_BY_FILE = !!process.env['__fromEnvFile_PORT'];
+const PORT_FROM = PORT_BY_FILE ? `.env 里的 PORT=${PORT}`
+  : (PORT_ENV ? `环境变量 PORT=${process.env.PORT}（同名环境变量比 .env 优先）`
+    : (process.env.PORT ? `环境变量 PORT="${process.env.PORT}" 不是数字，退回默认 5175`
+      : (envFileVals.PORT ? `默认 5175（.env 里写的 PORT="${envFileVals.PORT}" 不是数字）` : '默认 5175（.env 里没写 PORT）')));
+const PORT_CLASH = (!PORT_BY_FILE && Number(envFileVals.PORT) && Number(envFileVals.PORT) !== PORT)
+  ? [`  顺带一句：.env 里写的是 PORT=${envFileVals.PORT}，但当前环境里已有一个 PORT=${process.env.PORT}，`,
+     '       同名环境变量优先级更高，把它压掉了（所以这一份用的才是 ' + PORT + '）。',
+     '       想按 .env 走就在同一个窗口先执行 set PORT= （清掉残留的那个），或直接走「启动.bat」。']
+  : [];
 
 /* 密钥统一从环境变量（含 .env 热加载）读，每次现取 → 改完 .env 立即生效，不受启动时快照影响 */
 const keyOf = name => (name && process.env[name]) || '';
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.mp4': 'video/mp4', '.woff2': 'font/woff2' };
+/* 静态文件的 Content-Type。音频与字幕要一并列上：少了音频类型，本地 mp3 / wav 经静态路由
+   取回来是 404（表现是「配乐选了却下载失败」，而且报错在代理下载那一步，看着像素材坏了），
+   少了 .srt 则下载到的字幕没有类型、浏览器当纯文本乱码。 */
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.mp4': 'video/mp4', '.webm': 'video/webm', '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
+  '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.ass': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const LOG = path.join(__dirname, 'proxy.log');
 /* 日志轮转：超过 2 MiB 只保留尾部 256 KiB。启动时先转一次，运行中每写 200 行再检查一次
    （只查 statSync 的开销可以忽略），避免长时间运行把磁盘写满。 */
@@ -121,6 +160,9 @@ const DEFAULTS = {};
      body        顶层字段：标准字段名 → 上游字段名（标准字段：model/prompt/tier/duration/res/ar/quality/count/format）
      nest        需要嵌进对象里的字段：[上游字段名, 标准字段名] 成对写：{ parameters: [['aspect_ratio','ar'], ...] }
      constants   固定值（如 optimize_prompt:false）
+     topBools    提交体**顶层**的布尔开关 { 字段名: {label, hint, def} }：
+                 页面只为声明了这一项的平台渲染开关（视频台的「平台自动润色」），
+                 值随 params 一起提交，落在顶层而不是 nest 那个嵌套对象里
      note        备注字段值（有些平台会记录）
      idempotencyKey  该平台是否支持幂等键（默认 true）：
                      true  → 客户端给 POST 带上 Idempotency-Key；网络超时后允许自动重试
@@ -132,11 +174,63 @@ const DEFAULTS = {};
      pollVia      'list' = 单条轮询走列表端点、按任务号找（平台的详情端点不可用时声明；见 VGENV）
      cancelMethod 取消任务用的 HTTP 方法（默认 POST）
      noPromptField 平台不返回提示词（界面据此提示「平台不返回」）
-     baseEditable 允许用 x-up-base 头临时换基址（文字 AI 的自定义接口地址）
+     baseEditable 允许用 x-up-base 头临时换基址（内置文字 AI 供应方的「自定义接口地址」）。
+                   生成平台不走这条路，同形状的中转站在设置页「添加自定义供应商」里登记成一条新 provider
+                   （见下面「自定义接口」一节）；自定义条目**连文字 AI 也不走** —— 那边 buildCustom 会把
+                   baseEditable 剥掉，地址固定在它自己那份声明里，免得「界面说改了地址、其实没改」）
 
    balance —— 余额卡片解析方式：'wallet-credits'（available/reserved 字段）| 'micros'（availableMicros 等）   */
 const REGISTRY = {
-  version: 1,
+  /* 代理/注册表版本。页面拿它判断「跑着的 proxy.js 是不是旧版」——
+     旧代理会让能力声明停在老样子（例如设置页「添加自定义供应商」登记的接口根本不进注册表，
+     各工作台的型号下拉里也就看不见；v6 起文字 AI 也能登记成自定义供应商，旧代理会把它当「找不到模板」丢掉；
+     v7 起文字 AI 有 9 家 OpenAI 兼容供应方并带余额接口，v8 起生图/语音多了同步返回那一族与 tts.encoding。
+     v9 起产物「只给文件号、要再换一次地址」那一族有了通用 retrieve 环节，并接了 MiniMax 视频 /
+     硅基流动视频 / 智谱 CogVideoX 三家视频平台。
+     v10 起注册表多了一张 `interfaceShapes`：设置页「添加自定义供应商」里「供应商 = 自定义」时
+     选的那一格（OpenAI 兼容接口、H3 兼容接口…），它按类型列**接口族**而不是厂商。
+     v11 起两处变化：① 撤掉自定义平台「最多 12 家」的上限（`custom.max` 字段一并删掉）；
+     ② 「地址不许撞模板自己的官方地址」不再算错 —— 内置平台现在也要先添加一次才进设置页的
+     供应商清单，那个官方地址正是设置页自动填进去的默认值（只拦撞到**别的**内置平台）。
+     改注册表结构时顺手 +1。 */
+  version: 11,
+  /* 「接口形状」= **接口族**清单，每一族点名它照哪一家内置声明实现。
+     为什么与「供应商」分开：厂商（SparkCine / 硅基流动 / MiniMax…）是「我照它那一家整套走」，
+     而接口形状是「我跑的就是这一套协议，厂商是谁不重要」—— 市面上大量中转站都跑 OpenAI 兼容那一套，
+     它们跟 OpenAI 官方不是一家，但接口一模一样。设置页「供应商」下拉末尾那一项「自定义」就是走这份清单。
+     每一项的 template 必须是一个**真实存在的内置平台 id**（buildCustom 照它整套克隆，
+     这一族的能力声明、上传流程、retrieve 环节全从它来）—— 所以这里不编不存在的形状，
+     加一族就是给某个内置平台补一个更好懂的名字。 */
+  interfaceShapes: {
+    image: [
+      { id: 'openai-image', name: 'OpenAI 兼容生图（POST /images/generations，当场返回图片）',
+        template: 'siliconflow-image', note: '一次请求出图、没有任务号；返回的外链一般一小时左右过期' },
+      { id: 'task-asset', name: '任务 + 资产号（建任务 → 轮询 → 按资产号换签名地址取图）',
+        template: 'sparkcine', note: '产物是资产号，取图要走 /asset/<id> 换一次上游签名地址' },
+    ],
+    video: [
+      { id: 'h3-compatible', name: 'H3 兼容接口（建任务 → 轮询 → 产物走资产号）',
+        template: 'sparkcine-video', note: '跑 H3 那一族的中转网关选它：模型名带 h3- 前缀那一套' },
+      { id: 'vgenv-compatible', name: 'VGENV 兼容接口（建任务 → 按任务列表轮询 → 产物是签名地址）',
+        template: 'vgenv', note: '没有可用的详情端点，状态靠列表接口按任务号找' },
+      { id: 'file-id-retrieve', name: '文件号 + retrieve 两段式（状态接口只给 file_id，要再换一次地址）',
+        template: 'minimax-video', note: '这是通用 retrieve 环节那一族：产物地址要再问一次文件接口' },
+      { id: 'submit-status', name: '提交 + 状态两段式（结果地址直给，但可能只管几分钟）',
+        template: 'siliconflow-video', note: '结果地址有效期很短，靠「产物自动存本机」那一层留住' },
+      { id: 'async-result', name: '异步结果（结果在一个数组里，状态 PROCESSING / SUCCESS / FAIL）',
+        template: 'zhipu-video', note: '结果不是单个字段而是 video_result 数组；状态是大写英文那套' },
+    ],
+    audio: [
+      { id: 'openai-chat-audio', name: 'OpenAI 兼容对话 + 音频参数（POST /chat/completions，音频放在 audio 字段）',
+        template: 'mimo', note: '文本回 assistant、音频参数放 audio 字段的那一套' },
+      { id: 'tts-hex', name: '专用 TTS 接口（POST /t2a_v2，音频是十六进制不是 base64）',
+        template: 'minimax-tts', note: '音频直接给十六进制串，不是 base64 也不是外链 —— 中转站基本不会这样' },
+    ],
+    text: [
+      { id: 'openai-chat', name: 'OpenAI 兼容对话（POST /chat/completions + GET /models）',
+        template: 'deepseek', note: '市面上绝大多数中转站 / 企业网关跑的就是这一套' },
+    ],
+  },
   providers: [
     {
       id: 'sparkcine', name: 'SparkCine 生图', displayName: 'SparkCine', kind: 'image', relay: '/sparkcine',
@@ -182,23 +276,23 @@ const REGISTRY = {
       },
       balance: { style: 'wallet-credits' },
       models: [
-        /* 输出格式：平台 /models 声明了 png / jpeg / webp，但**实测不生效** ——
-           提交 output_format: jpeg 后产物仍是 PNG（文件名 .png、mime_type=image/png、字节头 89 50 4E 47），
-           只有一个 metadata.declaredMimeType 记着你选过 jpeg。所以这里用 forceOptions 锁成 png，
-           界面上不再给「选了也没用」的格式选项（等上游真支持了，去掉 forceOptions 即可）。 */
+        /* 输出格式：平台 /models 声明了 png / jpeg / webp，这里**按平台声明给全**（不再用 forceOptions 锁 png）。
+           留个底：早前实测提交 jpeg 拿回来的产物仍是 PNG（文件名 .png、mime_type=image/png、
+           字节头 89 50 4E 47，只有一个 metadata.declaredMimeType 记着你选过 jpeg），
+           所以当时把这个选项锁掉了；现在按你的要求恢复成可选 —— 真出不了别的格式时，
+           平台返回的 optimized/declared mime 会如实摆在那里，看一眼就知道，不用界面替你做主。
+           真要恢复「只给 png」，把 forceOptions: ['output_formats'] 加回下面两个模型即可。 */
         /* 参考图上限：与上游 /api/open/v1/models 的 image_edit 声明对齐（实测 max 8）。
            以前生图模型没写 inputRoles，能力接口不可用时界面会退到「9 张」的猜测值，
            于是「能选 9 张、提交被上游拒」—— 兜底声明必须和平台真说的数一致。
            （上游还声明了 mask:1，但提交模板里没有能带 mask 的字段，所以不声明：
              没模板的槽位给了入口也发不出去，不如不出现。） */
         { id: 'img-2-5s', name: 'IMG-2.5S', modes: ['text_to_image', 'image_edit'], price: { draft: 1, standard: 2, final: 5 }, unit: '积分/张',
-          forceOptions: ['output_formats'],
           inputRoles: { reference_image: { max: 8, group: 'ref' } },
-          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png'], max_outputs: 4 } },
+          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png', 'jpeg', 'webp'], max_outputs: 4 } },
         { id: 'img-2-5t', name: 'IMG-2.5T', modes: ['text_to_image', 'image_edit'], price: { draft: 1, standard: 2, final: 5 }, unit: '积分/张',
-          forceOptions: ['output_formats'],
           inputRoles: { reference_image: { max: 8, group: 'ref' } },
-          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png'], max_outputs: 4 } },
+          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png', 'jpeg', 'webp'], max_outputs: 4 } },
       ],
     },
     {
@@ -222,8 +316,8 @@ const REGISTRY = {
         cancel: '/v2/videos/{id}',
         price: '/v2/pricing',
         credits: '/v1/credits',
-        assetUpload: '/v1/assets/uploads',
-        assetComplete: '/v1/assets/{id}/complete',
+        uploads: '/v1/assets/uploads',
+        complete: '/v1/assets/{id}/complete',
       },
       models: [
         {
@@ -355,8 +449,14 @@ const REGISTRY = {
         idempotencyKey: true,     // 与生图同一个上游（要求带幂等键）
         body: { model: 'model', prompt: 'prompt' },
         nest: { parameters: [['duration','duration'], ['resolution','res'], ['aspect_ratio','ar'], ['quality','quality'], ['output_count','count'], ['output_format','format'], ['generate_audio','genAudio']] },
-        constants: { optimize_prompt: false },
-        note: '视频工作台',
+        /* 提交体**顶层**的布尔开关（不进 parameters）。以前 optimize_prompt 是写死的 constants: false，
+           等于把「让平台自己润色提示词」这个功能焊死在关闭状态，界面上连入口都没有。
+           现在按声明给：视频工作台只为声明了这一项的平台渲染那个开关按钮，
+           平台没有这一项时按钮根本不出现（页面按 Capabilities 读，不写死平台名）。 */
+        topBools: {
+          optimize_prompt: { label: '平台自动润色', hint: '提交后由平台侧再优化一遍提示词（第三方润色，与上面的「AI 润色」互不影响）', def: false },
+        },
+        note: '视频生成',
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },
         /* 素材输入走 inputs 数组：[{ role, asset_id }]，且平台只认自己的资产 id
            （所以每个 role 都要先上传成资产，needsUpload=true）。
@@ -377,7 +477,6 @@ const REGISTRY = {
            · tts.voices     音色列表（工作台的下拉直接用）
            · tts.formats    输出格式
            · tts.textRole / tts.styleRole   目标文本、风格描述分别放在哪个 role 的消息里
-           · tts.audioParam 音频参数对象名（请求体里放 format/voice 的对象）
            · tts.responsePath   base64 音频在响应里的路径（用点路径）
            · tts.minChars / tts.maxChars   文本长度上下限（语音台的就绪判定直接读它，页面不写字数）
            · models[].ttsMode   该模型怎么定音色：preset（预设音色）/ design（风格描述必填）/ clone（参考音频必填）
@@ -427,7 +526,6 @@ const REGISTRY = {
         formats: ['wav', 'pcm16'],
         textRole: 'assistant',
         styleRole: 'user',
-        audioParam: 'audio',
         responsePath: 'choices.0.message.audio.data',
         mime: { wav: 'audio/wav', pcm16: 'audio/pcm' },
         maxChars: 5000,
@@ -443,7 +541,9 @@ const REGISTRY = {
         },
         statusMap: { succeeded: 'done' },
         selfAsset: true,            // 列表条目本身就是资产（本地落盘产物）
-        media: { fixed: '音乐' },
+        /* 大类型按条目自己的 media_type 现判（图片 / 视频 / 音频都可能是本机产物）——
+           以前写死 fixed，助手存进资产库的参考图也一律显示成音频类，别的页面按图片筛就挑不到它。 */
+        media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '音频' },
         priceStyle: 'none',
       },
       create: {
@@ -461,31 +561,508 @@ const REGISTRY = {
       },
     },
     {
+      /* ---- 文字 AI（OpenAI 兼容）：多家并存，谁在用由页面按 sk_text_prov 选 ----
+         文字 AI 以前只有 DeepSeek 一条，基址写死在客户端（sk_base_deepseek）。
+         现在每家都是一条正常的 provider：relay / base / keyEnv / models 各自独立，
+         新增一家只要在这里加一条，页面、设置页、余额、用量全都不用改。
+         default: true = 没显式选过时的首选（客户端还会看它有没有密钥，没有就退到下一家）。 */
+      id: 'openrouter', name: 'OpenRouter 文字AI', kind: 'text', relay: '/openrouter', default: true,
+      base: 'https://openrouter.ai/api/v1', keyEnv: 'OPENROUTER_API_KEY', baseEditable: true,
+      site: 'https://openrouter.ai',
+      endpoints: {
+        chat: '/chat/completions',
+        /* 余额：官方文档 GET /api/v1/credits → { data: { total_credits, total_usage } }。
+           **只有「管理密钥」能问**（普通 API key 回 403）—— 问不到不等于余额是 0，
+           解析见 assetlib.js 的 Api.balance 的 openrouter-credits。 */
+        credits: '/credits',
+      },
+      balance: { style: 'openrouter-credits' },
+      /* OpenRouter 聚合几百个模型，用 slug 调（openai/gpt-4o-mini 这种「厂商/型号」）。
+         这里只列几个常用兜底 —— 用户可以在设置页**自己填任意型号**，
+         也能点「获取模型列表」拉回全量（GET /api/v1/models）。 */
+      /* `openrouter/free` **不是模型，是自动路由**（官方说明：Auto-routes to best available free model）——
+         它每次随机挑一个免费模型，挑到内容审核分类器就会返回 "User Safety: safe" 这种东西，
+         而拆剧本 / 定音色要的是严格 JSON，于是表现为「问一次等 60 秒、回来一段没法解析的东西」。
+         所以兜底名单里必须**同时**给几个带 `:free` 后缀的**确定**型号：
+         同一个 id 每次都是同一个模型，行为可预期，OpenRouter 偶尔下架会直接报错而不是默默换人。
+         （免费额度：基础档 50 次/天，充 $10 后 1000 次/天，20 次/分钟。） */
+      models: [
+        { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3（免费·通用与 JSON 都行）', modes: ['text'] },
+        { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B（免费·中文更稳）', modes: ['text'] },
+        { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true },
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', modes: ['text'], vision: true },
+        { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', modes: ['text'], vision: true },
+        { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', modes: ['text'] },
+      ],
+    },
+    {
       id: 'deepseek', name: 'DeepSeek 文字AI', kind: 'text', relay: '/textai',
       base: 'https://api.deepseek.com', keyEnv: 'DEEPSEEK_API_KEY', baseEditable: true,
       site: 'https://platform.deepseek.com',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: {
+        chat: '/chat/completions',
+        /* 余额：官方文档 GET /user/balance → { is_available, balance_infos:[{ currency, total_balance, … }] }。
+           total_balance 是**字符串**，解析见 assetlib.js 的 Api.balance 的 deepseek-balance。 */
+        credits: '/user/balance',
+      },
+      balance: { style: 'deepseek-balance' },
       models: [
         { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', modes: ['text'] },
         { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', modes: ['text'] },
       ],
     },
+    /* ---- 下面这一组：OpenAI 兼容的文字供应方 ----
+       为什么能一口气加这么多：它们**全都只提供** POST {base}/chat/completions 与 GET {base}/models，
+       请求体与响应体都和 OpenAI 一样（流式、tools、vision 的字段名也一致）。
+       所以端点、请求体形状、能力判定全部照上面那家 OpenRouter 走，只有地址、密钥变量与型号不同。
+       **型号不写死**：这些平台改型号非常频繁，写死的清单会立刻过期（用户会以为型号是固定的）。
+       页面点一次「获取型号列表」就是它自己的 /models；一个型号都没拉到时 settings 的型号块会明说。
+       这里只留 1~2 个当**内部兜底**（model() 在没有任何来源时才用它），不展示在下拉里
+       （TextAI.modelGroups 对非自定义条目不列 registry 声明的型号，见 assetlib.js）。 */
+    {
+      id: 'openai', name: 'OpenAI 文字AI', kind: 'text', relay: '/textai',
+      base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
+      site: 'https://platform.openai.com',
+      endpoints: { chat: '/chat/completions' },
+      /* OpenAI 没有公开的余额 API（/dashboard/billing 要网页登录态，API key 问不了）—— 不声明，
+         设置页照样画出「侧栏余额」勾选框并写明「这家没提供余额接口」。 */
+      models: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
+    },
+    {
+      id: 'moonshot', name: '月之暗面 Kimi', kind: 'text', relay: '/textai',
+      base: 'https://api.moonshot.cn/v1', keyEnv: 'MOONSHOT_API_KEY', baseEditable: true,
+      site: 'https://platform.moonshot.cn',
+      endpoints: {
+        chat: '/chat/completions',
+        /* 官方文档 GET /v1/users/me/balance → { code, data: { available_balance, voucher_balance, cash_balance } }
+           单位是**人民币元**；available ≤ 0 时平台直接拒绝推理。 */
+        credits: '/users/me/balance',
+      },
+      balance: { style: 'moonshot-balance' },
+      models: [{ id: 'kimi-k2.6', name: 'Kimi K2.6', modes: ['text'] }],
+    },
+    {
+      id: 'zhipu', name: '智谱 GLM', kind: 'text', relay: '/textai',
+      base: 'https://open.bigmodel.cn/api/paas/v4', keyEnv: 'ZHIPUAI_API_KEY', baseEditable: true,
+      site: 'https://open.bigmodel.cn',
+      endpoints: { chat: '/chat/completions' },
+      models: [{ id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', modes: ['text'] }],
+    },
+    {
+      id: 'dashscope', name: '通义千问 百炼', kind: 'text', relay: '/textai',
+      base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', keyEnv: 'DASHSCOPE_API_KEY', baseEditable: true,
+      site: 'https://bailian.console.aliyun.com',
+      endpoints: { chat: '/chat/completions' },
+      models: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', modes: ['text'] }],
+    },
+    {
+      id: 'siliconflow', name: '硅基流动 SiliconFlow', kind: 'text', relay: '/textai',
+      base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', baseEditable: true,
+      site: 'https://cloud.siliconflow.cn',
+      endpoints: { chat: '/chat/completions' },
+      /* 硅基流动一个 key 覆盖 200+ 模型（DeepSeek / Qwen / GLM / MiniMax 都有），
+         型号名是「厂商/型号」带斜杠的那种 —— 写死一份清单只会过期得更快。 */
+      models: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
+    },
+    {
+      id: 'volcengine', name: '火山方舟 豆包', kind: 'text', relay: '/textai',
+      base: 'https://ark.cn-beijing.volces.com/api/v3', keyEnv: 'ARK_API_KEY', baseEditable: true,
+      site: 'https://console.volcengine.com/ark',
+      endpoints: { chat: '/chat/completions' },
+      models: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
+    },
+    {
+      id: 'minimax-text', name: 'MiniMax 文字AI', kind: 'text', relay: '/textai', keyId: 'minimax',
+      base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', baseEditable: true,
+      site: 'https://platform.minimax.io',
+      endpoints: { chat: '/chat/completions' },
+      models: [{ id: 'MiniMax-M3', name: 'MiniMax M3', modes: ['text'] }],
+    },
+    {
+      /* ---- 图片：OpenAI 兼容的 images/generations（**同步返回，没有任务号**）----
+         这一类接口（OpenAI 自己、硅基流动、大批中转站）形状都一样：
+         POST {base}/images/generations { model, prompt, n, size|image_size, … }
+           → 当场返回 { created, data: [ { url | b64_json } ] }。
+         声明方式：create.sync 说清产物数组在哪、url / b64 字段叫什么；
+         页面照声明把字节取回来存进本机资产库（外链一般**只有 1 小时有效**，
+         直接把外链摆进列表，明天打开就是一排裂图），然后刷列表。
+         跟 sparkcine 那类「建任务 → 轮询」的平台并存：create.sync 有没有决定走哪条，
+         页面里没有 if (prov.id === …)。以后再接同形状的平台（OpenAI / 豆包兼容网关 / 各家中转）
+         只要复制这一条换 base 与型号。 */
+      id: 'siliconflow-image', name: '硅基流动 生图', displayName: 'SiliconFlow', kind: 'image',
+      relay: '/siliconflow', keyId: 'siliconflow',   // 与上面那家文字共用一把密钥 → 设置页只出一张卡
+      base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', site: 'https://cloud.siliconflow.cn',
+      endpoints: {
+        create: '/images/generations',
+        list: 'local:/local-assets',               // 上游不留任务记录（同步返回也没有任务号），产物落本机资产库
+        remove: 'local:/local-assets/{id}',        // 删除本地产物
+      },
+      create: {
+        endpoint: 'create',
+        idempotencyKey: false,                     // 这套接口没有幂等键约定 → 不带、也不自动重试（重试 = 重复扣费）
+        sync: { items: 'data', url: 'url', b64: 'b64_json' },
+        /* size = 「宽x高」那一类画幅参数（页面新增的「尺寸」列就渲染 options.sizes）。
+           比例写法（16:9）发过去必被拒，所以映射的是 size 而不是 ar。
+           注意 body 的方向：**键是上游字段名、值是标准字段名**（createBody 按 body[上游] = std[标准] 取值，
+           nest 的 [上游, 标准] 成对写是同一个方向；写反了字段会被静默丢掉 —— 请求照发，参数一个没带上）。 */
+        body: { model: 'model', prompt: 'prompt', image_size: 'size', n: 'count', output_format: 'format' },
+      },
+      list: {
+        dataField: 'data',
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model', created: 'created_at', format: 'format' },
+        statusMap: { succeeded: 'done' },
+        selfAsset: true,                            // 条目本身就是本机产物
+        media: { by: 'media_type', imagePrefix: ['图片', 'image'], videoPrefix: ['视频', 'video'], fallback: '图片' },
+        priceStyle: 'none',
+      },
+      /* 尺寸逐个型号按官方文档写：image_size 只认清单里的值，
+         下拉里写错一项 = 「选了必失败」。平台还有 160+ 图像型号，
+         要别的型号走设置页「添加自定义供应商」（拿这一条当接口形状模板），
+         或在这里加一行 models —— 两种都不需要改页面。 */
+      models: [
+        { id: 'Kwai-Kolors/Kolors', name: 'Kolors（中文理解好）', modes: ['text_to_image'],
+          options: { sizes: ['1024x1024', '960x1280', '768x1024', '720x1440', '720x1280'], max_outputs: 4 } },
+        { id: 'black-forest-labs/FLUX.2-pro', name: 'FLUX.2 pro', modes: ['text_to_image'],
+          options: { sizes: ['512x512', '768x1024', '1024x768', '576x1024', '1024x576'],
+            output_formats: ['png', 'jpeg'], max_outputs: 1 } },
+      ],
+    },
+    {
+      /* ---- 语音：MiniMax t2a_v2（同步返回；音频是**十六进制**不是 base64）----
+         沿用 mimo 那套 tts 声明（template + responsePath + 存本机），只多一个 encoding:'hex'：
+         官方文档写 data.audio 是十六进制（WebSocket 指南明确说「用十六进制解码，别当 base64」），
+         而 /local-assets 收的是 base64，页面按这份声明转换（认不出合法十六进制时退回按 base64 试一次）。
+         一家平台同时做文字与语音时给两条 provider 同一个 keyId → 设置页只出一张密钥卡。 */
+      id: 'minimax-tts', name: 'MiniMax 语音合成', displayName: 'MiniMax', kind: 'audio', relay: '/minimax', keyId: 'minimax',
+      base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', site: 'https://platform.minimax.io',
+      pricing: { type: 'per_1k_chars', currency: '¥' },
+      endpoints: {
+        create: '/t2a_v2',                          // POST {model, text, stream:false, voice_setting, audio_setting}
+        list: 'local:/local-assets',
+        remove: 'local:/local-assets/{id}',
+      },
+      models: [
+        { id: 'speech-2.6-hd', name: 'Speech 2.6 高清', modes: ['text_to_speech'], ttsMode: 'preset',
+          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
+        { id: 'speech-2.6-turbo', name: 'Speech 2.6 快速', modes: ['text_to_speech'], ttsMode: 'preset',
+          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
+        { id: 'speech-02-hd', name: 'Speech 02 高清', modes: ['text_to_speech'], ttsMode: 'preset',
+          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
+        { id: 'speech-02-turbo', name: 'Speech 02 快速', modes: ['text_to_speech'], ttsMode: 'preset',
+          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
+      ],
+      tts: {
+        /* 系统音色：只列几个常用兜底，完整目录在平台控制台（那边能试听）。
+           这里不编不存在的音色 id —— 填一个平台没有的 id，上游会直接拒。 */
+        voices: [
+          { id: 'male-qn-qingse', name: '青涩青年（男）', lang: '中文', gender: '男' },
+          { id: 'female-shaonv', name: '少女（女）', lang: '中文', gender: '女' },
+          { id: 'presenter_male', name: '男性主播', lang: '中文', gender: '男' },
+          { id: 'presenter_female', name: '女性主播', lang: '中文', gender: '女' },
+          { id: 'audiobook_male_1', name: '有声书男声', lang: '中文', gender: '男' },
+          { id: 'English_expressive_narrator', name: '英文旁白', lang: '英文', gender: '男' },
+        ],
+        formats: ['mp3', 'wav', 'pcm', 'flac'],
+        mime: { mp3: 'audio/mpeg', wav: 'audio/wav', pcm: 'audio/pcm', flac: 'audio/flac' },
+        responsePath: 'data.audio',
+        encoding: 'hex',          // 声明式：页面据此把十六进制转成 base64 再存
+        maxChars: 10000,          // 官方写死「单次不超过 10000 字」，界面据此拦（页面不写死字数）
+        minChars: 1,
+        sync: true,
+      },
+      list: {
+        dataField: 'data',
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model', created: 'created_at',
+          duration: 'extra_info.audio_duration', format: 'format', chars: 'extra_info.usage_characters' },
+        statusMap: { succeeded: 'done' },
+        selfAsset: true,
+        media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '音频' },
+        priceStyle: 'none',
+      },
+      create: {
+        endpoint: 'create',
+        idempotencyKey: false,     // 没有幂等键约定 → 不自动重试（TTS 重试 = 重复扣费）
+        template: {
+          model: '{{model}}', text: '{{text}}', stream: false,
+          voice_setting: { voice_id: '{{voice}}', speed: 1, vol: 1, pitch: 0 },
+          audio_setting: { sample_rate: 32000, bitrate: 128000, format: '{{format}}' },
+        },
+      },
+    },
+    {
+      /* ---- 视频：MiniMax（Hailuo）—— 产物只给 file_id，要再换一次地址 ----
+         这一族（query 只回 file_id，真正的下载地址在另一个接口）是通用 `retrieve` 环节存在的理由：
+         没有它，这类平台的任务会永远停在「生成中」（产物字段空着，界面按未完成处理）。
+         Api.resolveItem 在轮询与列表两条路上各换一次，换回来的地址写进 raw.__url。
+         上游只给单任务查询、没有列表接口 → 不声明 endpoints.list（资产库里来自这条线的条目
+         是任务完成时自动落到本机的产物，见 studio 的本地镜像）。 */
+      id: 'minimax-video', name: 'MiniMax 视频', displayName: 'MiniMax', kind: 'video', relay: '/minimax', keyId: 'minimax',
+      base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', site: 'https://platform.minimax.io',
+      pricing: { type: 'quote', currency: '¥' },
+      noPromptField: true,     // query 响应不返回提示词（界面靠 PromptLog 归档的那份补显示）
+      endpoints: {
+        create: '/video_generation',                      // POST {model, prompt, first_frame_image?}
+        poll: '/query/video_generation?task_id={id}',    // GET → {status, status_msg, file_id}
+        retrieve: '/files/retrieve?file_id={id}',        // ← 通用 retrieve 环节
+      },
+      retrieve: { idFrom: 'file_id', urlFrom: 'file.download_url' },
+      list: {
+        map: {
+          id: 'task_id', status: 'status', prompt: 'prompt', model: 'model',
+          created: 'create_time', fileId: 'file_id', error: 'status_msg',
+        },
+        /* 上游原话是 Queueing / Preparing / Processing / Success / Fail：
+           前三个 classifyStatus 本来就认（排队/继续等），只把两个终局明确映射一下。 */
+        statusMap: { Success: 'done', Fail: 'failed' },
+        media: { fixed: '视频' },
+        priceStyle: 'none',
+      },
+      create: {
+        endpoint: 'create',
+        idempotencyKey: false,     // 没有幂等键约定 → 不自动重试（重试 = 重复扣费）
+        body: { model: 'model', prompt: 'prompt' },
+        /* 首帧收的是 dataURL 字符串（这一族没有上传接口），所以模板是标量而不是对象。 */
+        inputTemplates: { first_frame: { to: 'first_frame_image', many: false, tmpl: '$url' } },
+      },
+      models: [
+        { id: 'MiniMax-Hailuo-02', name: 'Hailuo 02', modes: ['text_to_video', 'first_last_frame'],
+          inputRoles: { first_frame: { max: 1, group: 'frame' } }, options: {} },
+        { id: 'T2V-01-Director', name: 'T2V-01 导演版（多运镜）', modes: ['text_to_video'], options: {} },
+        { id: 'T2V-01', name: 'T2V-01 基础版', modes: ['text_to_video'], options: {} },
+        { id: 'I2V-01-Director', name: 'I2V-01 导演版（首帧）', modes: ['first_last_frame'],
+          inputRoles: { first_frame: { max: 1, group: 'frame' } }, options: {} },
+      ],
+    },
+    {
+      /* ---- 视频：SiliconFlow —— 产物地址直给，但**只有 10 分钟有效期** ----
+         正好是「自动把产物存到本机」要解决的那一族：不做本地镜像的话，
+         明天打开资产库就是一排裂图，而条目本身还显示「已完成」。
+         声明里不写 expires（平台没给过期时间），由本机镜像那一层按「存过就用本地的」兜住。 */
+      id: 'siliconflow-video', name: '硅基流动 视频', displayName: 'SiliconFlow', kind: 'video',
+      relay: '/siliconflow', keyId: 'siliconflow',
+      base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', site: 'https://cloud.siliconflow.cn',
+      pricing: { type: 'quote', currency: '¥' },
+      noPromptField: true,
+      endpoints: {
+        create: '/video/submit',                   // POST {model, prompt, image?, image_size?} → {requestId}
+        poll: '/video/status?requestId={id}',     // GET → {status, results:{videos:[{url}]}}
+      },
+      list: {
+        map: {
+          id: 'requestId', status: 'status', prompt: 'prompt', model: 'model',
+          outputUrl: 'results.videos.0.url', error: 'message',
+        },
+        statusMap: { Succeed: 'done', Failed: 'failed' },
+        media: { fixed: '视频' },
+        priceStyle: 'none',
+      },
+      create: {
+        endpoint: 'create',
+        idempotencyKey: false,
+        /* image_size 只认清单里的尺寸，比例写法会被拒 → 映射标准字段 size（页面那一列是能力声明出来的）。 */
+        body: { model: 'model', prompt: 'prompt', image_size: 'size' },
+        inputTemplates: { first_frame: { to: 'image', many: false, tmpl: '$url' } },
+      },
+      models: [
+        { id: 'Wan-AI/Wan2.1-T2V-14B-720P', name: 'Wan2.1 文生视频 14B 720P', modes: ['text_to_video'],
+          options: { sizes: ['1280x720', '720x1280', '960x960'], defaults: { size: '1280x720' } } },
+        { id: 'Wan-AI/Wan2.1-I2V-14B-720P', name: 'Wan2.1 图生视频 14B 720P', modes: ['first_last_frame'],
+          inputRoles: { first_frame: { max: 1, group: 'frame' } },
+          options: { sizes: ['1280x720', '720x1280', '960x960'], defaults: { size: '1280x720' } } },
+      ],
+    },
+    {
+      /* ---- 视频：智谱 GLM（CogVideoX）—— 「异步结果」接口那一族 ----
+         创建回 {id}，状态在 /async-result/{id}，产物是 video_result 数组里的地址。
+         形状与上面两家不同（结果在单独数组里、状态是 PROCESSING/SUCCESS/FAIL），
+         字段全按声明取，页面没有 if (prov.id === …)。 */
+      id: 'zhipu-video', name: '智谱 CogVideoX 视频', displayName: '智谱 GLM', kind: 'video', relay: '/zhipu',
+      base: 'https://open.bigmodel.cn/api/paas/v4', keyEnv: 'ZHIPU_API_KEY', site: 'https://open.bigmodel.cn',
+      pricing: { type: 'quote', currency: '¥' },
+      noPromptField: true,
+      endpoints: {
+        create: '/videos/generations',      // POST {model, prompt, quality?} → {id}
+        poll: '/async-result/{id}',         // GET → {model, status, video_result:[{url}]}
+      },
+      list: {
+        map: {
+          id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+          outputUrl: 'video_result.0.url', error: 'error.message',
+        },
+        statusMap: { SUCCESS: 'done', FAIL: 'failed' },
+        media: { fixed: '视频' },
+        priceStyle: 'none',
+      },
+      create: {
+        endpoint: 'create',
+        idempotencyKey: false,
+        body: { model: 'model', prompt: 'prompt' },
+      },
+      models: [
+        { id: 'cogvideox-3', name: 'CogVideoX-3', modes: ['text_to_video'],
+          options: { resolutions: ['480p', '720p'], defaults: { resolution: '720p' } } },
+        { id: 'cogvideox-2', name: 'CogVideoX-2', modes: ['text_to_video'],
+          options: { resolutions: ['480p', '720p'], defaults: { resolution: '720p' } } },
+      ],
+    },
   ],
 };
 
-/* ---------- 注册表规范化：接入新平台时省事，别让同一种能力有两种写法 ----------
-   1) 素材上传端点统一成 uploads / complete：老平台写成 assetUpload / assetComplete 也认，
-      客户端（AssetTransfer）只认一套名字，声明了就能用。
-   2) kind 缺省时按 relay 推断（同 relay 的平台共用一条上游）。 */
-(function normalizeRegistry() {
-  const UPLOAD_ALIAS = { uploads: 'assetUpload', upload_intent: 'assetUpload', complete: 'assetComplete' };
-  REGISTRY.providers.forEach(p => {
-    p.endpoints = p.endpoints || {};
-    Object.entries(UPLOAD_ALIAS).forEach(([std, legacy]) => {
-      if (!p.endpoints[std] && p.endpoints[legacy]) p.endpoints[std] = p.endpoints[legacy];
-    });
+/* ============================================================================
+   用户在设置页「添加自定义供应商」时登记的接口（图片 / 视频 / 语音 / 文字 AI）
+   ----------------------------------------------------------------------------
+   为什么大多不需要改代码：市面上大量的中转站 / 企业网关跑的就是这里已经支持的那套接口，
+   只是**换一个地址、换一把密钥、型号清单不一样**。所以「添加一家」= 拿一条内置声明当
+   **接口形状模板**，只替换 id / 名称 / 地址 / 型号；endpoints、create、list、balance、
+   uploadFields 全照模板走，页面完全不知道「这一家是新加的」。
+   接口形状真不一样（另一套任务与字段命名）的平台仍然要改上面的 REGISTRY —— 这里不猜、不编字段。
+
+   文字 AI 走的是同一条路，不是另一套机制：`TextAI.all()` 现读**合并后**注册表里 `kind:'text'`
+   的那几条，所以加一家自定义文字供应方之后，设置页那个下拉、润色、识图、用量都自动多一项。
+
+   清单从哪来：设置页把表单写进 localStorage 的 `sk_custom`（一份 JSON 数组），
+   ui.js 的 DataSync 顺手镜像成 `.data/sk_custom.json` —— 这一节读的就是那个文件。
+   于是自定义平台自动跟着数据文件走（换机器、云同步、整包备份都不用另外登记一次）。
+   条目形状：`{ id, name, kind, shape:<内置 provider id>, base:<https 地址>, models:[{id,name}] }`
+
+   安全三条（动这里之前先读）：
+   1. **地址只收公网 https**：过 safeOutboundUrl，回环 / 内网 / 明文 http / 解析到内网的域名
+      一律丢掉整条并说明原因 —— 这一条路由会把浏览器递来的密钥转发出去。
+   2. **绝不回退到 .env 里的内置密钥**：这一家的 base 是用户自己填的陌生主机，
+      代理要是把 SPARKCINE_API_KEY 投过去，等于把内置密钥送到别人的服务器。
+      所以建出来的 provider 摘掉 keyEnv / defaultKey，转发时也不查 DEFAULTS（见 relayHit 那段）。
+   3. relay 前缀固定 `/custom/<id>`，和内置平台一样只接受同源请求（见 RELAY_PREFIXES）。
+   ========================================================================== */
+const CUSTOM_RELAY = '/custom';
+/* **不设家数上限**（v11 起）。以前是 12 家，理由是「加十几家足够了，顺便封掉刷爆注册表的写法」——
+   但它把两件正经事也堵死了：① 内置平台现在也要先「添加」一次才进设置页的供应商清单，
+   常用平台都接一遍就撞上限；② 用户要接十几个中转站是真的会发生的（一个网关一套协议）。
+   清单是**本机**文件、每条都要过一次下面的 customProblem（公网 https / 型号齐全 / 不撞别家），
+   刷不爆什么，所以这一层闸撤掉，只留下面那些真判据。 */
+const CUSTOM_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/;
+/* 内置声明里不能跟着用户走的那几项：身份、地址、密钥来源，以及「同一上游按媒体类型落到
+   另一条内置 provider」的路由（mediaProviders 里写的是内置 id，自定义条目套上去会指错家）。
+   pricing 也摘：单价是各家自己的事，照抄内置那一份会报出假价格（用量与预估都不该骗人）。 */
+const CUSTOM_STRIP = ['id', 'keyId', 'relay', 'base', 'keyEnv', 'defaultKey', 'site',
+  'name', 'displayName', 'kind', 'models', 'mediaProviders', 'pricing', 'custom', 'customShape',
+  /* default：内置「没显式选过时首选哪家」的旗标不能跟着复制 —— 照 OpenRouter 克隆一家，
+     表现就成了「凭空多了一家默认」，润色打到用户的网关上。
+     baseEditable：这一家的地址本来就是用户自己填的（就在 sk_custom 里），
+     没有「官方地址 + 临时覆盖」这回事。摘掉它，代理也就**不接受**这条 relay 上的 x-up-base 头
+     —— 否则浏览器递一个头就能把密钥改道送到别的主机。 */
+  'default', 'baseEditable'];
+
+const customNotice = { reason: '', dropped: [] };    // 最近一次读清单时丢掉的问题条目，/registry 带回去说明
+/* 缓存要连着 notice 一起存：以前只缓存了 provs，而 customNotice 是在**进函数时就清空**的，
+   于是命中缓存的那一次（/registry 被连着问两次就是它）报回去的是「没有坏条目」——
+   页面那句「有 N 条自定义平台没被本地代理认」会莫名消失，而坏条目其实还在清单里。
+   缓存键除了 mtime 还要带 **size**：同一毫秒里连着写两遍（一次添加连着触发两次读注册表就是这个情形）
+   可能拿到同一个 mtime，于是新加的那一家读不出来 —— 表现是「我明明添加了，下拉里没有」。
+   长度不同就不是同一份文件；长度与 mtime 都一样，那它本来就是同一份，命中无害。 */
+let _customCache = { file: '', mtime: 0, size: -1, provs: [], reason: '', dropped: [] };
+function customProviders() {
+  const file = dataFileOf('sk_custom');
+  let mtime = 0, size = -1;
+  try { const st = fs.statSync(file); mtime = st.mtimeMs; size = st.size; } catch { mtime = 0; }
+  if (_customCache.file === file && _customCache.mtime === mtime && _customCache.size === size) {
+    customNotice.reason = _customCache.reason;
+    customNotice.dropped = _customCache.dropped;
+    return _customCache.provs;
+  }
+  customNotice.reason = ''; customNotice.dropped = [];
+  if (!mtime) { _customCache = { file, mtime: 0, size, provs: [], reason: '', dropped: [] }; return []; }
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
+    customNotice.reason = '读取 .data/sk_custom.json 失败：' + e.message;
+    _customCache = { file, mtime, size, provs: [], reason: customNotice.reason, dropped: [] };
+    return [];
+  }
+  const list = Array.isArray(raw) ? raw : (Array.isArray(raw && raw.data) ? raw.data : []);
+  const out = [];
+  /* 四种类型都能当模板（文字 AI 也算一类）。旧的清单里如果有拿文字平台当形状的条目，
+     以前是「找不到模板」被丢掉并说明；现在它合法了，不必再让页面重新添加一次。 */
+  const builtins = REGISTRY.providers;
+  /* **不数家数上限**（v11 起，见上面「不设家数上限」那段）。坏条目照旧一条条说明为什么被丢掉，
+     但前面有坏条目不再占位置，也不再有「第 N+1 家」这种与真问题无关的拒绝原因。 */
+  list.forEach(e => {
+    const id = String((e && e.id) || '').slice(0, 44);
+    const bad = customProblem(e, builtins, out);
+    if (bad) { customNotice.dropped.push({ id, why: bad }); return; }
+    out.push(buildCustom(e, builtins.find(p => p.id === e.shape)));
   });
-})();
+  _customCache = { file, mtime, size, provs: out, reason: customNotice.reason, dropped: customNotice.dropped };
+  return out;
+}
+/* 一条自定义条目能不能用；能用返回 ''，不能用返回「为什么不能用」（界面与日志同一句话） */
+function customProblem(e, builtins, already) {
+  if (!e || typeof e !== 'object') return '不是对象';
+  if (!CUSTOM_ID_RE.test(String(e.id || ''))) return 'id 只能是字母数字与 -_（1~41 位）';
+  if (already.some(x => x.id === e.id)) return 'id 重复';
+  if (builtins.some(p => p.id === e.id)) return 'id 和内置平台撞名';
+  if (!builtins.some(p => p.id === e.shape)) return '找不到当模板的内置平台（shape）';
+  /* 条目自己声明的类型要和模板的类型一致：不一致就是清单被手改过（或页面改过类型后留下的旧条目）。
+     照模板的 kind 建出来，界面按 e.kind 分组、按模板的 kind 使用，两边对不上就是「加了但找不到」。 */
+  if (e.kind && (builtins.find(p => p.id === e.shape) || {}).kind !== e.kind) {
+    return '类型「' + e.kind + '」与模板「' + e.shape + '」不是同一类';
+  }
+  if (!/^https:\/\//i.test(String(e.base || ''))) return '地址必须以 https:// 开头';
+  if (!safeOutboundUrl(String(e.base || ''))) return '地址不是公网 https（回环 / 内网 / 域名解析到内网都拒绝）';
+  if (!Array.isArray(e.models) || !e.models.length) return '一个型号都没勾';
+  /* 地址撞**别的**内置平台官方地址 = 拿 A 家的地址配 B 家的协议（设置页表单也拦这一种）。
+     注意**不再**把「撞模板自己的官方地址」当错：v11 起内置平台也要先添加一次才进设置页清单，
+     那个官方地址正是设置页自动填进去的默认值，照它添加就是「我要用这一家」。
+     模板自己那个 host 要排除掉 —— 同一个上游往往有好几条内置 id（按媒体类型分的），
+     它们彼此不算「撞」。 */
+  const tpl = builtins.find(p => p.id === e.shape) || {};
+  const other = builtins.find(p => p.base && !sameHost(p.base, tpl.base) && sameHost(e.base, p.base));
+  if (other) {
+    return '这个地址是「' + (other.name || other.id) + '」的官方地址，却配着「'
+      + (tpl.name || tpl.id) + '」的接口形状 —— 选它自己、填密钥就能用，不用添加一遍';
+  }
+  return '';
+}
+/* 只比 host：路径不同（/v1 与 /api/v1）仍然是同一个上游，两个名字两把密钥照样说不清。 */
+function sameHost(a, b) {
+  const h = v => { try { return new URL(/^https?:\/\//i.test(String(v || '')) ? String(v) : 'https://' + v).host.toLowerCase(); } catch { return ''; } };
+  const x = h(a), y = h(b);
+  return !!x && !!y && x === y;
+}
+function buildCustom(e, tpl) {
+  const p = {};
+  Object.entries(tpl).forEach(([k, v]) => { if (!CUSTOM_STRIP.includes(k)) p[k] = v; });
+  p.id = String(e.id);
+  p.keyId = p.id;                                   // 密钥按这一家自己存：sk_key_<id>
+  p.relay = CUSTOM_RELAY + '/' + p.id;
+  p.base = safeOutboundUrl(String(e.base)).replace(/\/+$/, '');
+  p.name = String(e.name || p.id).slice(0, 40);
+  p.displayName = p.name;
+  p.kind = tpl.kind;
+  p.custom = true;
+  p.customShape = tpl.id;
+  p.customShapeName = tpl.displayName || tpl.name;
+  /* 型号：id 在模板里出现过 → 用模板那份完整声明（只换显示名）；
+     没出现过（这一家自己多出来的型号）→ 能力先照模板第一个型号起步，等它自己的 /models 覆盖。
+     为什么要给个起步：档位全空的型号在工作台里既选不了比例也选不了画质，看着像坏了。 */
+  const tmodels = tpl.models || [];
+  p.models = (e.models || []).map(x => {
+    const id = String((x && x.id) || (typeof x === 'string' ? x : '') || '').trim();
+    const hit = tmodels.find(m => m.id === id);
+    const base = hit || tmodels[0] || { modes: [] };
+    const m = { ...base, id, name: String((x && x.name) || (hit && hit.name) || id).slice(0, 60) };
+    if (!hit) m.optionsFrom = (tmodels[0] && tmodels[0].id) || '';
+    return m;
+  }).filter(m => m.id);
+  return p;
+}
+/* 内置 + 自定义。/registry、relay 转发、/capabilities 三处都读它 —— 合并只在这一个地方做，
+   免得出现「设置页加好了、能力接口却说找不到平台」。 */
+function allProviders() { return REGISTRY.providers.concat(customProviders()); }
+
+/* ---------- 注册表端点命名 ----------
+   素材上传端点统一叫 uploads / complete（客户端只认这一套名字）。
+   没有「老写法也认」那一层：改名就同时改声明，改完必须重启代理，
+   否则页面拿到的是旧注册表、上传直接报「暂无素材上传接口」——
+   这种情况由 REGISTRY.version 与页面的旧代理提示来说清楚。 */
 
 // 浏览器可能以任意来源访问本地代理，统一放行 CORS（含预检）
 function cors(req, res) {
@@ -521,7 +1098,20 @@ function readBody(req, res, limit) {
       chunks.push(c);
     });
     req.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
-    req.on('error', () => { if (!done) { done = true; resolve(null); } });
+    /* 请求体读一半就断（客户端取消、连接被掐）以前只 resolve(null)，而所有调用方都写
+       `if (body == null) return;` —— 于是响应停在「头都没发、也永远不会发」，
+       页面等到超时后报的是「超时」而不是「这次提交没送到」。这里补一个如实的 400。 */
+    req.on('error', () => {
+      if (done) return;
+      done = true;
+      try {
+        if (!res.headersSent) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: '读取请求体失败（连接中断），这次请求没有被执行' } }));
+        }
+      } catch (e) {}
+      resolve(null);
+    });
   });
 }
 /* 统一的出站请求：自动带超时（超时即 destroy 并回调 error），避免上游挂起时无人收场 */
@@ -576,15 +1166,50 @@ function ipv4FromMapped(s) {
   const m2 = /(?:^|:)ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(s);
   return m2 ? m2[1] : null;
 }
-/* IPv6 字面量：只挡回环 / 未指定 / 唯一本地（fc00::/7）/ 链路本地（fe80::/10）与 IPv4 映射，
-   其余放行 —— 双栈主机的 AAAA 记录是公网地址，一刀切拒绝会把正常域名也挡掉。 */
+/* IPv6 字面量：先展开成 8 组 16 位再判 —— 只比字符串的话
+   '0:0:0:0:0:0:0:1'（::1 的全写）与 '::127.0.0.1'（IPv4 兼容写法）都会当成公网放行，
+   而 Node 对 IP 字面量根本不做 DNS 解析，guardedLookup 那道兜底也碰不到它们。 */
+function ipv6Groups(h) {
+  let s = String(h || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!s.includes(':')) return null;
+  const v4 = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  if (v4) {
+    const q = [+v4[1], +v4[2], +v4[3], +v4[4]];
+    if (q.some(x => x > 255)) return null;
+    s = s.slice(0, v4.index).replace(/:$/, '') + ':' + ((q[0] << 8) + q[1]).toString(16) + ':' + ((q[2] << 8) + q[3]).toString(16);
+  }
+  if (!/^[0-9a-f:]*$/.test(s)) return null;
+  const dbl = s.indexOf('::');
+  let head, tail;
+  if (dbl >= 0) {
+    if (s.indexOf('::') !== s.lastIndexOf('::')) return null;         // 多个 :: 非法
+    head = s.slice(0, dbl).split(':').filter(Boolean);
+    tail = s.slice(dbl + 2).split(':').filter(Boolean);
+  } else {
+    head = s.split(':').filter(Boolean);
+    tail = [];
+    if (head.length !== 8) return null;
+  }
+  const need = 8 - head.length - tail.length;
+  if (need < 0) return null;
+  const g = [...head, ...Array(need).fill('0'), ...tail].map(x => parseInt(x, 16));
+  return g.length === 8 && g.every(x => Number.isFinite(x)) ? g : null;
+}
 function isPrivateIpv6(h) {
-  const s = String(h || '').toLowerCase();
-  if (s === '::' || s === '::1') return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(s)) return true;                       // fc00::/7 唯一本地
-  if (/^fe[89ab][0-9a-f]:/.test(s)) return true;                       // fe80::/10 链路本地
-  const v4 = ipv4FromMapped(s);                                        // IPv4 映射地址 → 按 v4 判
-  if (v4) return isPrivateHost(v4);
+  const g = ipv6Groups(h);
+  if (!g) return false;                                   // 展开不出来 = 不是合法 IPv6 字面量，交给域名那条路
+  const zero = g.slice(0, 6).every(x => x === 0);
+  if (zero && g[6] === 0xffff) return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
+  if (g.every(x => x === 0)) return true;                  // ::  未指定地址
+  if (zero && g[6] === 0 && g[7] === 1) return true;       // ::1 回环（含全写形式）
+  if (zero && (g[6] | g[7])) {                             // IPv4 兼容 ::a.b.c.d —— 已废弃，且几乎只会指向回环
+    return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
+  }
+  if ((g[0] & 0xfe00) === 0xfc00) return true;             // fc00::/7 唯一本地
+  if ((g[0] & 0xffc0) === 0xfe80) return true;             // fe80::/10 链路本地
+  /* 2001:db8::/32 文档地址与 3ffe::/16 旧骨干网都早就不在公网路由里，但真正要紧的是
+     2000::/3 那一整段就是现有公网地址空间 —— 别把它当「保留段」一刀切拒绝。 */
+  if (g[0] === 0x2001 && g[1] === 0xdb8) return true;      // 文档示例地址
   return false;
 }
 function isPrivateHost(host) {
@@ -748,11 +1373,11 @@ function log(line) {
    POST /render          提交 EDL（clips: src/in/out/speed/volume）→ 返回 { id }
    GET  /render/status   查询进度 { state, progress, stage, out, err, log }
    GET  /render/dl       下载成片 ?name=xxx
-   GET  /render/list     列出已渲染成片
+   POST /render/cancel   取消渲染（杀 ffmpeg 子进程 + 从队列摘掉）?id=xxx
    流程：下载每段素材 → 逐段标准化（尺寸/帧率/编码一致）→ concat 拼接 → 输出 mp4
    src 支持：/asset/<id>（用密钥解析最新签名链接）｜ http(s):// ｜ /local-path（经本机 http 取回） */
-const { spawn } = require('child_process');
-const RENDER_DIR = path.join(__dirname, '.renders');
+const { spawn, spawnSync } = require('child_process');
+const RENDER_DIR = path.join(__dirname, process.env.RENDER_DIR || '.renders');
 
 /* ---------- 本地生成资产库 ----------
    有些平台的产物是「同步返回」的二进制（例如语音合成直接给 base64 音频），上游没有资产 id。
@@ -762,7 +1387,36 @@ const RENDER_DIR = path.join(__dirname, '.renders');
      GET  /local-assets      列表（资产库/任务列表直接用 registry 的 list 声明读它）
      GET  /asset/<id>        本地优先：命中本地文件就本地读取（支持 Range），否则回源上游
    这样「语音工作台」生成的音频能像其它资产一样出现在资产库、被资产选择器挑选与复用。 */
-const LOCAL_DIR = path.join(__dirname, '.assets');
+/* 落盘目录：默认 .assets（用户资产库）；ASSETS_DIR 指到别处 —— 隔离验证实例必须指出去，
+   否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目。 */
+const LOCAL_DIR = path.join(__dirname, process.env.ASSETS_DIR || '.assets');
+/* ---------- 按类型另存到用户指定的文件夹（POST /save 用） ----------
+   配置在 `.data/sk_autosave.json`（设置页存进 localStorage 的 `sk_autosave`，由 DataSync 镜像过来，
+   所以换机器 / 云同步都跟着走 —— 里面只有目录路径，没有任何密钥）。
+   形状：{ image:{on:'on'|'off', dir:'D:\\AI图'}, video:{…}, audio:{…} }。
+   **目录不存在时自动建**（用户填 `D:\AI图\短剧` 而 `AI图` 还没有是常事），
+   建不出来就照实报错，不静默跳过 —— 静默跳过的话界面上什么痕迹都没有，
+   用户会以为「保存了」而文件其实没落盘。 */
+const SAVE_KINDS = ['image', 'video', 'audio'];
+const saveKindZh = { image: '图片', video: '视频', audio: '音频' };
+const typeLabel = t => saveKindZh[t] || t;
+function autosaveConf() {
+  /* 与下面 `dataDirPath()` 同一份表达式：这里**不能**去调它 —— 它是 2339 行的 const，
+     本函数在 1400 行，调用它就依赖「模块加载完之前不会被调用」这件事（能跑，但脆）。 */
+  const f = path.resolve(__dirname, process.env.DATA_DIR || '.data', 'sk_autosave.json');
+  try {
+    const v = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return (v && typeof v === 'object') ? v : {};
+  } catch { return {}; }
+}
+/** 这一类该存到哪个目录（'' = 没指定 → 不另存，只留在 .assets 资产库里） */
+function autosaveDir(kind) {
+  const c = (autosaveConf()[kind] || {});
+  if (c.on === 'off') return '';
+  const d = String(c.dir || '').trim();
+  if (!d) return '';
+  return path.resolve(d.replace(/[\\/]+$/, ''));
+}
 const localIndexPath = () => path.join(LOCAL_DIR, 'index.json');
 function localIndexRead() {
   const f = localIndexPath();
@@ -783,6 +1437,11 @@ function localIndexRead() {
     return [];
   }
 }
+/* 本机资产索引最多留多少条。**以前是 500 条（补建时 2000）** —— 那是「只存同步返回的语音/生图」
+   那个年代的量级：开了「产物自动存本机」之后每一条生成产物都进这张表，500 条一晚上就满，
+   满了以后新写的把旧的挤掉，被挤掉的文件还在磁盘上但索引里没了 → 资产库看不见、/asset 也取不回
+   （表现为「明明存过，点开却说已丢失」）。索引里一条只有几百字节，2 万条约几 MB，放得下。 */
+const LOCAL_INDEX_MAX = 20000;
 function localIndexWrite(list) {
   /* 和 /data 一样先写临时文件再 rename：整表覆盖时进程被杀 / 断电会留下半截 JSON，
      下一次读取失败就按空表继续，前面所有本地资产的索引一起丢（文件还在但资产库看不到）。 */
@@ -797,7 +1456,59 @@ function localIndexWrite(list) {
     log('[local-assets] 写入索引失败：' + e.message);
   }
 }
-function localAssetEntry(id) { return localIndexRead().find(x => x && x.id === id) || null; }
+function localAssetEntry(id) {
+  const hit = localIndexRead().find(x => x && x.id === id);
+  if (hit) return hit;
+  /* 索引只留最近 500 条（写入时截断），文件本身还在盘上。
+     不在这里按目录补建，被挤出索引的那条就永久取不回来：/asset/<id> 404、
+     DELETE /local-assets/<id> 也 404（文件删不掉，成孤儿）。逐句配音每句存一条，很快就到 500。 */
+  return localAssetRebuild(id);
+}
+/* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（落盘文件名就是 <id>.<格式>，最可靠），
+   再按 mime，最后按调用方给的 media_type（英文写法认成中文）。缺省过去写死 audio，
+   「短剧末帧」这种没传类型的 PNG 就被记成音频，资产库按图片筛永远挑不到它。 */
+const LOCAL_KIND_ALIAS = { image: '图片', video: '视频', audio: '音频' };
+const LOCAL_KIND_BY_EXT = {
+  png: '图片', jpg: '图片', jpeg: '图片', webp: '图片', gif: '图片', bmp: '图片', avif: '图片',
+  mp4: '视频', mov: '视频', webm: '视频', mkv: '视频', m4v: '视频',
+  mp3: '音频', wav: '音频', m4a: '音频', aac: '音频', ogg: '音频', oga: '音频', flac: '音频',
+  pcm: '音频', pcm16: '音频', opus: '音频',
+};
+function localMediaType(x) {
+  if (!x) return '音频';
+  const fmt = String(x.format || path.extname(x.file || '')).toLowerCase().replace(/^\./, '');
+  if (LOCAL_KIND_BY_EXT[fmt]) return LOCAL_KIND_BY_EXT[fmt];
+  const m = String((x && x.mime) || '').toLowerCase();
+  if (m.startsWith('image/')) return '图片';
+  if (m.startsWith('video/')) return '视频';
+  if (m.startsWith('audio/')) return '音频';
+  const given = String((x && x.media_type) || '').trim();
+  return given ? (LOCAL_KIND_ALIAS[given.toLowerCase()] || given) : '音频';
+}
+/* 按文件名补一条索引（文件名就是 <id>.<格式>），并写回索引 */
+function localAssetRebuild(id) {
+  const clean = String(id || '').replace(/[^A-Za-z0-9_-]/g, '');
+  if (!clean) return null;
+  let files = [];
+  try { files = fs.readdirSync(LOCAL_DIR); } catch { return null; }
+  const f = files.find(x => x.startsWith(clean + '.'));
+  if (!f) return null;
+  let st = null;
+  try { st = fs.statSync(path.join(LOCAL_DIR, f)); } catch { return null; }
+  if (!st.isFile()) return null;
+  const fmt = (path.extname(f).slice(1) || 'wav').toLowerCase();
+  const mime = MIME['.' + fmt] || 'application/octet-stream';
+  const item = {
+    id: clean, file: f, name: f, mime, format: fmt,
+    byte_length: st.size, created_at: st.mtime.toISOString(), media_type: localMediaType({ mime, format: fmt }),
+    prompt: '', model: '', voice: '', provider: 'local', duration: null,
+    credits: null, priceText: '', chars: null, usage: null, rebuilt: true,
+  };
+  const list = localIndexRead();
+  list.unshift(item);
+  localIndexWrite(list.slice(0, LOCAL_INDEX_MAX));      // 补建与正常写入用同一个上限，别两处各写一个数
+  return item;
+}
 function localAssetFile(id) {
   const it = localAssetEntry(id);
   if (!it || !it.file) return null;
@@ -894,7 +1605,9 @@ function untrackProc(jobId, p) {
 }
 function runFfmpeg(args, onLine, jobId) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', args, { windowsHide: true });
+    /* 固定 cwd = 代理所在目录：字幕滤镜用的是相对路径（.renders/<id>/subs.ass），
+       进程从别的目录启动时也能找到文件。 */
+    const p = spawn('ffmpeg', args, { windowsHide: true, cwd: __dirname });
     trackProc(jobId, p);
     let err = '';
     p.stderr.on('data', d => {
@@ -1060,20 +1773,64 @@ async function resolveSrc(src, reqKey) {
     try { return await guardOutboundUrl(s); }
     catch (e) { throw new Error('渲染素材地址不允许：' + e.message + '（' + s.slice(0, 100) + '）'); }
   }
-  const m = /^\/asset\/([A-Za-z0-9-]+)/.exec(s);
+  const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(s);
   if (m) {
+    /* **本机生成的资产**（逐句配音、预演音轨这些 /local-assets 存下来的 la_xxx）没有上游记录，
+       不能一律去上游换签名链接 —— 上游当然查不到这个 id，渲染会直接失败。
+       先查本地表，命中就走本机 /asset 通道（那个路由本来就先发本地文件）。
+       正则也必须收下划线：本地 id 是 la_ 前缀，只认 [A-Za-z0-9-] 会把 'la_xxx' 截成 'la'。 */
+    if (localAssetFile(m[1])) return `http://127.0.0.1:${PORT}/asset/${m[1]}`;
     const key = reqKey || keyOf('SPARKCINE_API_KEY');
     const info = await assetInfoOf(m[1], key);
     return info.url;
   }
-  // 相对路径：当作本机代理的静态资源（便于测试与本地素材）
-  return `http://127.0.0.1:${PORT}${s.startsWith('/') ? s : '/' + s}`;
+  // 相对路径：只允许「本机资产（上面已处理）」「/getv|/fetch 包着的公网地址」和同源静态文件。
+  /* 以前任何相对路径都直接拼成 http://127.0.0.1:<PORT><path> 让代理自己去取，而代理发出的请求
+     不带 Origin / Sec-Fetch-Site，sameOriginOnly 把这种「非浏览器调用」当本机工具放行 ——
+     于是 /render 的 clips[].src 写成 /data/fav_items、/env-status、/prompts/find 就能把用户数据与
+     密钥状态读进渲染任务里（工程文件是导入的，一句就够）。 */
+  const gv = /^(?:\/getv|\/fetch)\?url=([^&]+)/i.exec(s);
+  if (gv) {
+    const inner = safeDecode(gv[1]);
+    if (/^https?:\/\//i.test(inner)) {
+      try { return await guardOutboundUrl(inner); }
+      catch (e) { throw new Error('渲染素材地址不允许：' + e.message + '（' + inner.slice(0, 100) + '）'); }
+    }
+    throw new Error('渲染素材地址不允许：/getv 里必须包公网 https 地址（' + s.slice(0, 100) + '）');
+  }
+  if (/^\/[A-Za-z0-9._-]+$/.test(s) && !s.includes('..')
+    && /\.(html|js|css|png|jpe?g|webp|gif|svg|ico|mp4|webm|mp3|wav|m4a|aac|ogg|flac)$/i.test(s)
+    && !/^\/(proxy\.(js|log|out\.log)|package(-lock)?\.json|启动\.bat)$/i.test(s)) {
+    return `http://127.0.0.1:${PORT}${s}`;
+  }
+  throw new Error('渲染素材路径只能是 /asset/<id>、/getv?url=<公网地址> 或本机静态文件：' + s.slice(0, 100));
 }
 /* 单片渲染素材的下载上限（默认 2 GiB）：作用不是「限制正常素材」，而是防止超大 / 恶意地址把进程打爆 */
 const DOWNLOAD_MAX = 2 * 1024 * 1024 * 1024;
 /* 流式下载到文件：以前整段 arrayBuffer() 进内存，一个超大素材就能把代理进程吃掉几百 MB 到几 GB */
-async function downloadTo(url, dest) {
-  const r = await fetch(url);
+async function downloadTo(url, dest, hops) {
+  /* 每一跳都重新过护栏：这一条以前用 fetch 的默认 redirect:'follow'，
+     于是一个公网地址只要 302 到 http://127.0.0.1:5175/data/... 就绕过了 resolveSrc 的检查
+     （代理自己的请求不带 Origin，同源拦截把本机调用当工具放行）。 */
+  const depth = hops || 0;
+  if (depth > 4) throw new Error('素材下载重定向次数过多（已中止）');
+  let r;
+  try {
+    r = await fetch(url, { redirect: 'manual' });
+  } catch (e) {
+    throw new Error('素材下载失败：' + (e && e.message ? e.message : '无法连接'));
+  }
+  if ([301, 302, 303, 307, 308].includes(r.status)) {
+    const loc = r.headers.get('location');
+    if (!loc) throw new Error('素材下载失败：重定向没有给出地址');
+    let next = '';
+    try { next = new URL(loc, url).toString(); } catch { throw new Error('素材下载失败：重定向地址非法'); }
+    if (/^https?:\/\//i.test(next)) {
+      try { next = await guardOutboundUrl(next); }
+      catch (e) { throw new Error('素材重定向目标不允许：' + e.message); }
+    }
+    return downloadTo(next, dest, depth + 1);
+  }
   if (!r.ok) throw new Error('素材下载失败 HTTP ' + r.status);
   const len = Number(r.headers.get('content-length') || 0);
   if (len && len > DOWNLOAD_MAX) throw new Error('素材超过 ' + Math.round(DOWNLOAD_MAX / 1073741824) + ' GiB，已拒绝下载');
@@ -1104,11 +1861,140 @@ async function downloadTo(url, dest) {
   return size;
 }
 
+/* ============================================================================
+   字幕烧录（/render 的 clip.subs）
+   ---------------------------------------------------------------------------
+   字幕**不是**视频平台生成的（那边出的片子没有字幕），而是由页面上的字幕组件按台词
+   生成一条字幕轨，再交给本机的 ffmpeg 烧进画面（ffmpeg 带 libass + freetype + fontconfig，
+   中文字幕直接可用）。
+
+   时间轴一律**每段自带、相对该段自己的起点**（clips[i].subs[].start/end），
+   偏移量由代理用 ffprobe 量每一段标准化后的**真实时长**累加得出 ——
+   客户端自己累加会和实际时长差出零点几秒，字幕就会整体漂。
+   ========================================================================== */
+const SUB_MAX = 2000;                       // 单次渲染的字幕条数上限（防超大请求）
+const VOICE_MAX = 40;                       // 单段配音条数上限（同一段台词条数；防超大请求）
+const clampVol = (v, def) => Math.min(4, Math.max(0, v == null || Number.isNaN(Number(v)) ? (def == null ? 1 : def) : Number(v)));
+const SUB_FONTS = ['Microsoft YaHei', '微软雅黑', 'SimHei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Arial Unicode MS'];
+/* ASS 时间格式 H:MM:SS.cc */
+function assTime(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return h + ':' + String(m).padStart(2, '0') + ':' + (ss < 10 ? '0' : '') + ss.toFixed(2);
+}
+/* ASS 正文里 { } 是样式块、\ 是转义、换行要写成 \N */
+function assText(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/\{/g, '(').replace(/\}/g, ')')
+    .replace(/\r?\n/g, '\\N')
+    .trim();
+}
+/* 说话人配色：每个角色一种颜色，旁白用暖色（和参考产品一致：旁白一眼能认出来） */
+const SUB_SPEAKER_COLORS = ['&H00FFFFFF', '&H0060E0FF', '&H00E0A0FF', '&H0080FF80', '&H00FFC060', '&H00E07070', '&H00C0C0FF', '&H00FFD0F0'];
+function speakerStyleOf(name, idx) {
+  const isNarr = /旁白|narrat/i.test(String(name || ''));
+  return isNarr ? '&H00E8A0C8' : SUB_SPEAKER_COLORS[(idx || 0) % SUB_SPEAKER_COLORS.length];
+}
+/* 生成 ASS 文件内容：PlayRes 用成片尺寸，字号按高度缩放（竖屏 9:16 与横屏看起来一样大） */
+function buildAss(events, width, height, fontName) {
+  const fs_ = Math.max(18, Math.round(height * 0.055));
+  const marginV = Math.max(24, Math.round(height * 0.09));
+  const outline = Math.max(2, Math.round(fs_ * 0.09));
+  /* 每个说话人一种颜色（按首次出现顺序分配 —— 同一集里同一个角色颜色稳定） */
+  const styleOf = new Map();
+  for (const ev of events) {
+    const key = String(ev.speaker || '').trim() || '（画外）';
+    if (!styleOf.has(key)) styleOf.set(key, { idx: styleOf.size, col: speakerStyleOf(key, styleOf.size) });
+  }
+  const nameOf = key => 'c' + styleOf.get(key).idx;
+  const fmtLine = 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding';
+  const lines = [
+    '[Script Info]', 'ScriptType: v4.00+',
+    'PlayResX: ' + width, 'PlayResY: ' + height,
+    'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
+    '[V4+ Styles]', fmtLine,
+  ];
+  for (const [key, v] of styleOf) {
+    lines.push('Style: ' + nameOf(key) + ',' + fontName + ',' + fs_ + ',' + v.col
+      + ',&H000000FF,&H00202020,&H90000000,-1,0,0,0,100,100,0,0,1,' + outline + ',1,2,40,40,' + marginV + ',1');
+  }
+  lines.push('', '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
+  for (const ev of events) {
+    const who = String(ev.speaker || '').trim();
+    const txt = assText(ev.text);
+    if (!txt) continue;
+    const key = who || '（画外）';
+    lines.push('Dialogue: 0,' + assTime(ev.start) + ',' + assTime(Math.max(ev.start + 0.2, ev.end)) + ',' + nameOf(key)
+      + ',' + who.replace(/,/g, ' ') + ',0,0,0,,' + (who ? who + '：' : '') + txt);
+  }
+  return lines.join('\n') + '\n';
+}
+/* 把每段自带的字幕（相对该段起点）按**真实时长**累加成一条整片字幕轨。
+   偏移量用 ffprobe 量标准化后的实际时长 —— 客户端自己加会差零点几秒，字幕就整体漂。 */
+async function collectSubEvents(clips, parts, jid) {
+  const events = [];
+  let base = 0;
+  for (let i = 0; i < clips.length && events.length < SUB_MAX; i++) {
+    const list = Array.isArray(clips[i] && clips[i].subs) ? clips[i].subs : [];
+    for (const s of list) {
+      const t0 = base + Math.max(0, Number(s.start) || 0);
+      const t1 = base + Math.max(0, Number(s.end) || 0);
+      if (t1 > t0 + 0.05) events.push({ start: t0, end: t1, text: s.text, speaker: s.speaker });
+    }
+    if (i < parts.length) {
+      const d = await ffprobeDuration(parts[i], jid);
+      if (d > 0) base += d;
+    }
+  }
+  return events.slice(0, SUB_MAX);
+}
+
+/* 逐句配音 → 这一段自己的音轨文件（统一 aac/48k/双声道，concat 才能直拼）。
+   底噪永远是 anullsrc 静音轨，平台自带的人声按 clip.volume 混进来（短剧一般传 0：
+   台词是逐句合成的，平台自己生成的那路声音会和它打架）。每条配音按自己的 start 延迟后混，
+   normalize=0 很重要 —— 默认 amix 会按输入数把每路音量除下去，配音会越加越小。
+   末尾 apad + atrim：混出来的长度要么比画面长（最后一句拖出段外）要么短（句子之间的空隙），
+   都按这一段的 span 补齐/截断，音画才对得齐。 */
+async function buildClipAudio(dir, i, f, span, speed, jid) {
+  const out = path.join(dir, `aud_${i}.m4a`);
+  const S = Math.max(0.1, span).toFixed(3);
+  const voices = f.voices || [];
+  const hasNative = !f.black && f.file && (await hasAudioStream(f.file, jid));
+  const args = ['-y', '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=stereo:d=${S}`];
+  if (hasNative) args.push('-ss', String(Math.max(0, Number(f.in) || 0)), '-t', String(span), '-i', f.file);
+  for (const v of voices) args.push('-i', v.file);
+  const chain = ['[0:a]volume=0[sil]'];
+  const ins = ['[sil]'];
+  let n = 1;
+  if (hasNative) {
+    chain.push(`[${n}:a]volume=${clampVol(f.volume, 1)}[o]`);
+    ins.push('[o]'); n++;
+  }
+  for (const v of voices) {
+    const ms = Math.max(0, Math.round(v.start * 1000));
+    /* 新版 adelay 的第二个值是布尔 all（不是「两端各自的毫秒」）：adelay=delays=300:all=1 */
+    chain.push(`[${n}:a]adelay=delays=${ms}:all=1,volume=${v.vol}[v${n}]`);
+    ins.push(`[v${n}]`); n++;
+  }
+  chain.push(`${ins.join('')}amix=inputs=${ins.length}:duration=longest:normalize=0[m]`);
+  /* 变速时画面用 setpts 拉长/压短，音轨要同样变速才音画对得上 */
+  const sp = Math.min(4, Math.max(0.25, Number(speed) || 1));
+  chain.push(`[m]apad=whole_dur=${S},atrim=end=${S}${sp !== 1 ? `,atempo=${Math.min(2, Math.max(0.5, sp))}` : ''}[aout]`);
+  await runFfmpeg([...args, '-filter_complex', chain.join(';'), '-map', '[aout]',
+    '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', out], null, jid);
+  return out;
+}
+
 async function renderJob(job) {
   const dir = path.join(RENDER_DIR, job.id);
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { job.state = 'failed'; job.err = '无法创建渲染目录：' + e.message; return; }
   const jid = job.id;                    // 本任务的子进程都挂到这个号上（取消时按号杀，见 killJobProcs）
   const { clips, width, height, fps, crf, bgm } = job.spec;
+  const hasSubs = clips.some(c => c && Array.isArray(c.subs) && c.subs.some(s => s && String(s.text || '').trim()));
   // 渲染途中被取消：每一步之间检查一次，及时退出（而不是跑完整个片子）
   const abortIfCancelled = () => {
     if (job.state === 'cancelled') throw new Error('已取消');
@@ -1119,8 +2005,23 @@ async function renderJob(job) {
     for (let i = 0; i < clips.length; i++) {
       abortIfCancelled();
       const c = clips[i];
+      /* 逐句配音先取回来（黑场段也可能有旁白，所以放在 black 判断之前）。
+         每条 = { src, start, dur, vol }，start 相对**该段起点**（与 subs 同一套约定，
+         绝对偏移由这一段的 span 决定，客户端自己加会漂）。 */
+      const vFiles = [];
+      const voices = Array.isArray(c.voices) ? c.voices : [];
+      for (let k = 0; k < voices.length; k++) {
+        abortIfCancelled();
+        const v = voices[k];
+        const vurl = await resolveSrc(v.src, job.key);
+        const vext = (/\.([a-z0-9]{3,4})(\?|$)/i.exec(vurl) || [])[1] || 'mp3';
+        const vdest = path.join(dir, `voice_${i}_${k}.${vext}`);
+        await downloadTo(vurl, vdest);
+        vFiles.push({ file: vdest, start: Math.max(0, Number(v.start) || 0), dur: Math.max(0.1, Number(v.dur) || 0), vol: clampVol(v.vol, 1) });
+      }
+      if (vFiles.length) job.log.push(`[${i + 1}/${clips.length}] 配音 ${vFiles.length} 句`);
       if (String(c.src) === 'black') {   // 黑场：不下载，用 lavfi 生成
-        files.push({ ...c, file: null, black: true, size: 0 });
+        files.push({ ...c, file: null, black: true, size: 0, voices: vFiles });
         job.log.push(`[${i + 1}/${clips.length}] 黑场 ${((Number(c.out) - Number(c.in)) || 1).toFixed(1)}s`);
         continue;
       }
@@ -1128,13 +2029,18 @@ async function renderJob(job) {
       const ext = (/\.([a-z0-9]{3,4})(\?|$)/i.exec(url) || [])[1] || 'mp4';
       const dest = path.join(dir, `src_${i}.${ext}`);
       const size = await downloadTo(url, dest);
-      files.push({ ...c, file: dest, size });
+      files.push({ ...c, file: dest, size, voices: vFiles });
       job.progress = 2 + Math.round(((i + 1) / clips.length) * 33);
       job.log.push(`[${i + 1}/${clips.length}] 已下载 ${(size / 1048576).toFixed(2)} MB`);
     }
-    // 音频策略：所有片段都有音轨才保留，否则整片静音（避免 concat 混流失败）
+    /* 音频策略分两种：
+       · 没有逐句配音 → 沿用老规矩「所有片段都有音轨才保留，否则整片静音」（避免 concat 混流失败）
+       · 有逐句配音   → **每一段都单独铺一条统一规格的音轨**（没原声就垫静音底），
+         否则「一段有声、一段无声」会让 concat 整片静音，配音跟着整段消失。 */
+    const hasVoice = files.some(f => (f.voices || []).length);
     let keepAudio = true;
     for (const f of files) { if (f.black || !(await hasAudioStream(f.file, jid))) { keepAudio = false; break; } }
+    if (hasVoice) keepAudio = true;
     job.keepAudio = keepAudio;
     job.stage = keepAudio ? '逐段标准化（保留音频）' : '逐段标准化（静音）';
 
@@ -1148,20 +2054,34 @@ async function renderJob(job) {
         `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
         'setsar=1', `fps=${fps}`, 'format=yuv420p',
       ].join(',');
+      /* 这一段在成片里占多长：黑场按声明的 out-in，其余用 ffprobe 出来的真实时长把 out 夹紧
+         （平台给的 duration 常常比实际文件长，不夹会在片尾多出一段黑）。 */
+      const inP = Math.max(0, Number(f.in) || 0);
+      let span = Math.max(0.1, (Number(f.out) || 1) - inP);
+      if (!f.black) {
+        const dur = await ffprobeDuration(f.file, jid);
+        let outP = f.out != null && Number(f.out) > inP ? Number(f.out) : dur;
+        if (dur && outP > dur + 0.05) outP = dur;
+        span = Math.max(0.1, outP - inP);
+      }
+      const speed = Math.min(4, Math.max(0.25, Number(f.speed) || 1));
+      /* 有逐句配音 → 这一段单独铺一条统一规格的音轨（黑场段也铺：旁白本来就配在黑场上） */
+      const audFile = hasVoice ? await buildClipAudio(dir, i, f, span, speed, jid) : null;
       if (f.black) {
-        const d = Math.max(0.1, (Number(f.out) || 1) - (Number(f.in) || 0));
-        await runFfmpeg(['-y', '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:d=${d}:r=${fps}`, '-vf', vfBase, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-an', out], null, jid);
+        /* 输入必须全排在输出选项之前：'-i' 推在 '-vf'/'-c:v' 后面会被 ffmpeg 当成
+           「给已声明完输出的文件再开一个输入」，直接报 Invalid argument。 */
+        const a = ['-y', '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:d=${span}:r=${fps}`];
+        if (audFile) a.push('-i', audFile);
+        a.push('-vf', vfBase, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf));
+        if (audFile) a.push('-map', '0:v', '-map', '1:a', '-c:a', 'copy');
+        else a.push('-an');
+        a.push(out);
+        await runFfmpeg(a, null, jid);
         parts.push(out);
         job.progress = 35 + Math.round(((i + 1) / files.length) * 45);
-        job.log.push(`[${i + 1}/${files.length}] 黑场已生成 ${fmtTime(d)}`);
+        job.log.push(`[${i + 1}/${files.length}] 黑场已生成 ${fmtTime(span)}${audFile ? '（含配音）' : ''}`);
         continue;
       }
-      const dur = await ffprobeDuration(f.file, jid);
-      let inP = Math.max(0, Number(f.in) || 0);
-      let outP = f.out != null && Number(f.out) > inP ? Number(f.out) : dur;
-      if (dur && outP > dur + 0.05) outP = dur;
-      const span = Math.max(0.1, outP - inP);
-      const speed = Math.min(4, Math.max(0.25, Number(f.speed) || 1));
       const vf = [
         `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
         `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
@@ -1170,9 +2090,12 @@ async function renderJob(job) {
         speed !== 1 ? `setpts=PTS/${speed}` : null,
         'format=yuv420p',
       ].filter(Boolean).join(',');
-      const args = ['-y', '-ss', String(inP), '-t', String(span), '-i', f.file, '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf)];
-      if (keepAudio) {
-        const vol = Math.min(4, Math.max(0, f.volume == null ? 1 : Number(f.volume)));
+      const args = ['-y', '-ss', String(inP), '-t', String(span), '-i', f.file];
+      if (audFile) args.push('-i', audFile);
+      args.push('-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf));
+      if (audFile) args.push('-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-ar', '48000', '-ac', '2');
+      else if (keepAudio) {
+        const vol = clampVol(f.volume, 1);
         args.push('-af', `volume=${vol}${speed !== 1 ? ',atempo=' + Math.min(2, Math.max(0.5, speed)) : ''}`, '-c:a', 'aac', '-ar', '48000', '-ac', '2');
       } else args.push('-an');
       args.push(out);
@@ -1190,8 +2113,42 @@ async function renderJob(job) {
     // 成片名带上任务号后缀：同名任务并发时不再互相覆盖
     const outName = (job.name || '成片') + '-' + job.id.slice(-4) + '.mp4';
     const outPath = path.join(RENDER_DIR, outName);
+    /* 字幕轨：clips[i].subs 各自相对本段起点，这里按真实时长累加成整片时间轴。
+       有字幕就得**重新编码画面**（叠加滤镜与 -c copy 互斥），没有字幕仍是原来的直拼，速度不受影响。 */
+    let subFilter = '';
+    if (hasSubs) {
+      job.stage = '烧字幕';
+      const events = await collectSubEvents(clips, parts, jid);
+      if (events.length) {
+        const font = SUB_FONTS.indexOf(job.spec.subFont) >= 0 ? job.spec.subFont : SUB_FONTS[0];
+        const assFile = path.join(dir, 'subs.ass');
+        fs.writeFileSync(assFile, buildAss(events, width, height, font), 'utf8');
+        /* 字幕文件走**相对代理目录**的路径：Windows 的绝对路径带盘符，ffmpeg 的滤镜参数里
+           冒号要转义成 C\:，实测那条路读不到文件（报 original_size 非法）；
+           相对路径没有冒号，干净得多。为此 runFfmpeg 固定以 __dirname 为 cwd。 */
+        const rel = path.relative(__dirname, assFile).replace(/\\/g, '/');
+        subFilter = 'ass=' + rel;
+        job.log.push('字幕 ' + events.length + ' 条，字号按 ' + height + 'p 自适应（' + font + '）');
+        job.progress = Math.max(job.progress, 85);
+      }
+    }
     const concatArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy'];
-    if (bgm) {
+    if (subFilter) {
+      // 叠字幕：画面重新编码，音频仍然直拷
+      const vArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-vf', subFilter,
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf)];
+      if (keepAudio) vArgs.push('-c:a', 'copy'); else vArgs.push('-an');
+      vArgs.push(outPath);
+      if (bgm) {
+        const bgmFile = path.join(dir, 'bgm' + (path.extname(bgm) || '.mp3'));
+        await downloadTo(await resolveSrc(bgm, job.key), bgmFile);
+        await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-stream_loop', '-1', '-i', bgmFile,
+          '-filter_complex', '[0:v]' + subFilter + '[v];[1:a]volume=0.35[bg];[0:a][bg]amix=inputs=2:duration=first[a]',
+          '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-c:a', 'aac', '-shortest', outPath], null, jid);
+      } else {
+        await runFfmpeg(vArgs, null, jid);
+      }
+    } else if (bgm) {
       // 可选背景音乐：与成片混音（原声压低）
       const bgmFile = path.join(dir, 'bgm' + (path.extname(bgm) || '.mp3'));
       await downloadTo(await resolveSrc(bgm, job.key), bgmFile);
@@ -1291,27 +2248,6 @@ function handleRender(req, res, pathname, urlObj) {
     res.end(JSON.stringify({ ok: true, id, killed }));
     return true;
   }
-  if (req.url.startsWith('/render/delete')) {
-    // 删除成片（.renders 下的文件 + 任务记录）
-    const name = path.basename(urlObj.searchParams.get('name') || '');
-    const f = path.join(RENDER_DIR, name);
-    if (!name || !fs.existsSync(f)) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"成片不存在"}'); return true; }
-    rmrf(f);
-    for (const [id, job] of renders) { if (job.out === name) { renders.delete(id); break; } }
-    log('[render] 已删除成片 ' + name);
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ ok: true, name }));
-    return true;
-  }
-  if (req.url.startsWith('/render/list')) {
-    const items = fs.existsSync(RENDER_DIR) ? fs.readdirSync(RENDER_DIR).filter(f => f.endsWith('.mp4')).map(f => {
-      const st = fs.statSync(path.join(RENDER_DIR, f));
-      return { name: f, size: st.size, ts: st.mtimeMs };
-    }).sort((a, b) => b.ts - a.ts) : [];
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ dir: RENDER_DIR, items }));
-    return true;
-  }
   if (req.url.startsWith('/render/play')) {
     const name = path.basename(urlObj.searchParams.get('name') || '');
     const f = path.join(RENDER_DIR, name);
@@ -1350,12 +2286,26 @@ function handleRender(req, res, pathname, urlObj) {
         key: (req.headers.authorization || '').replace(/^Bearer\s*/, '') || keyOf('SPARKCINE_API_KEY'),
         name: (spec.name || '成片').replace(/[\\/:*?"<>|]/g, '-'),
         spec: {
-          clips: spec.clips,
+          /* clips 里额外放行 subs（该段自带的字幕轨，时间相对本段起点）与 volume；
+             voices 是这一段的**逐句配音**（同样相对本段起点，合成时按各自的 start 延迟混进去）。
+             三者都只做形状校验，取值范围在 renderJob 里夹紧 —— 不要在这里直接信任客户端 */
+          clips: spec.clips.map(c => ({
+            src: c && c.src, in: c && c.in, out: c && c.out, speed: c && c.speed, volume: c && c.volume,
+            voices: (c && Array.isArray(c.voices) ? c.voices.slice(0, VOICE_MAX) : []).map(v => ({
+              src: String(v && v.src || '').slice(0, 2000), start: Math.max(0, Number(v && v.start) || 0),
+              dur: Math.max(0, Number(v && v.dur) || 0), vol: Number.isFinite(Number(v && v.vol)) ? Number(v.vol) : 1,
+            })).filter(v => v.src),
+            subs: (c && Array.isArray(c.subs) ? c.subs.slice(0, SUB_MAX) : []).map(s => ({
+              start: Math.max(0, Number(s.start) || 0), end: Math.max(0, Number(s.end) || 0),
+              text: String(s.text == null ? '' : s.text).slice(0, 200), speaker: String(s.speaker == null ? '' : s.speaker).slice(0, 40),
+            })),
+          })),
           width: Math.max(64, Math.min(4096, parseInt(spec.width) || 1280)),
           height: Math.max(64, Math.min(4096, parseInt(spec.height) || 720)),
           fps: Math.max(12, Math.min(60, parseInt(spec.fps) || 30)),
           crf: Math.max(14, Math.min(32, parseInt(spec.crf) || 20)),
           bgm: spec.bgm || null,
+          subFont: String(spec.subFont || '').slice(0, 60),
         },
       };
       renders.set(id, job);
@@ -1390,6 +2340,50 @@ const LIST_CACHE_MAX = 60;     // 列表缓存条数上限，防止长时间运�
 const DATA_KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const dataDirPath = () => path.resolve(__dirname, process.env.DATA_DIR || '.data');
 const dataFileOf = key => path.join(dataDirPath(), key + '.json');
+/* ---------- 本机依赖体检（GET /sys-status，只同源） ----------
+   短剧导出成片要 ffmpeg。没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，
+   三种在界面上都只剩「无法启动 ffmpeg」一句 —— 现在导出前就能看见是哪一种。
+   探测要起子进程，所以进程期内只探一次并缓存；?fresh=1 强制重探
+   （刚改完 PATH 的人不该被迫重启代理才能看到变化）。 */
+let _sysStatus = null;
+function firstLine(s) { return String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean)[0] || ''; }
+const cap120 = s => (s.length > 120 ? s.slice(0, 120) + '…' : s);
+function probeTool(cmd) {
+  let r = null;
+  try { r = spawnSync(cmd, ['-version'], { windowsHide: true, cwd: __dirname, timeout: 6000, encoding: 'utf8' }); }
+  catch (e) { return { ok: false, why: '探测本身出错：' + ((e && e.message) || e) }; }
+  if (!r) return { ok: false, why: '探测没返回' };
+  if (r.error) return { ok: false, why: r.error.code === 'ENOENT' ? '没装，或者不在 PATH 里' : ('起不动：' + (r.error.message || r.error.code || r.error)) };
+  if (r.signal) return { ok: false, why: '6 秒没回话被停掉（装了，但一跑就卡住）' };
+  /* Windows 的「应用执行别名」会放一个占位 ffmpeg.exe：它确实能启动，只是退出来并留一句
+     「还没安装」。这一句比「退出码 9009」有用得多，所以把工具自己说的话带回去。 */
+  if (r.status !== 0) {
+    const say = firstLine(r.stderr) || firstLine(r.stdout);
+    return { ok: false, why: '退出码 ' + r.status + '：' + (say ? cap120(say) : '装了，但它跑不起来（PATH 里可能指向的不是真二进制）') };
+  }
+  const line = firstLine(r.stdout) || firstLine(r.stderr);
+  /* -version 的横幅走 stdout；少数构建（以及那个占位壳）走 stderr，两个都试才拿得到版本行 */
+  if (!/^ffmpeg|^ffprobe/i.test(line)) return { ok: false, why: '它没报出 ffmpeg 的版本行，八成不是同一个东西：' + cap120(line) };
+  return { ok: true, 版本: line.slice(0, 90) };
+}
+function dirState(dir) {
+  let st = null;
+  try { st = fs.statSync(dir); } catch (e) { return { 路径: dir, 状态: '还没建（第一次用到时代理自己会建）' }; }
+  if (!st.isDirectory()) return { 路径: dir, 状态: '路径上有个同名的文件，不是目录 —— 要移走它' };
+  try { fs.accessSync(dir, fs.constants.W_OK); } catch (e) { return { 路径: dir, 状态: '存在但写不进去（只读、权限，或被别的进程占着）' }; }
+  return { 路径: dir, 状态: '可写' };
+}
+function sysStatus(fresh) {
+  if (_sysStatus && !fresh) return _sysStatus;
+  _sysStatus = {
+    at: Date.now(),
+    代理: { 版本: REGISTRY.version, 端口: PORT, 目录: __dirname, 进程: process.version },
+    ffmpeg: probeTool('ffmpeg'),
+    ffprobe: probeTool('ffprobe'),
+    目录: { 数据: dirState(dataDirPath()), 资产: dirState(path.resolve(LOCAL_DIR)), 渲染: dirState(path.resolve(RENDER_DIR)) },
+  };
+  return _sysStatus;
+}
 function dataList() {
   try {
     const dir = dataDirPath();
@@ -1418,23 +2412,30 @@ function dataList() {
    一份备份至少留 BAK_KEEP_MS：连着几次误写不会把唯一那份好数据顶掉。 */
 const BAK_KEEP_MS = 10 * 60 * 1000;
 function keepDataBackup(key, nextBuf) {
-  if (/\.bak$/.test(key)) return;                     // 备份本身不再备份（云同步已自己留过一份）
+  if (/\.bak$/.test(key)) return true;                // 备份本身不再备份（云同步已自己留过一份）
+  /* 备份失败要报出来：调用方（覆盖/删除用户数据的那几条路由）据此中止写入。
+     界面已经承诺「覆盖前会留一份」，备份没成还照样覆盖 = 无提示地丢掉用户配置与密钥。 */
   const cur = dataFileOf(key), bak = dataFileOf(key + '.bak');
   let old;
-  try { if (!fs.existsSync(cur)) return; old = fs.readFileSync(cur); } catch { return; }
-  if (nextBuf && nextBuf.equals(old)) return;         // 写的内容和本机这份一模一样 → 没什么可备份的
+  try { if (!fs.existsSync(cur)) return true; old = fs.readFileSync(cur); } catch { return true; }
+  if (nextBuf && nextBuf.equals(old)) return true;         // 写的内容和本机这份一模一样 → 没什么可备份的
   try {
     if (fs.existsSync(bak)) {
-      if (Date.now() - fs.statSync(bak).mtimeMs < BAK_KEEP_MS) return;   // 刚留过，那份更旧也更值钱
-      if (fs.readFileSync(bak).equals(old)) return;                      // 内容没变，不用重复留
+      if (Date.now() - fs.statSync(bak).mtimeMs < BAK_KEEP_MS) return true;   // 刚留过，那份更旧也更值钱
+      if (fs.readFileSync(bak).equals(old)) return true;                      // 内容没变，不用重复留
     }
     fs.writeFileSync(bak, old);
-  } catch (e) { log('[data] 备份旧内容失败 ' + key + '：' + e.message); }
+    return true;
+  } catch (e) {
+    log('[data] 备份旧内容失败 ' + key + '：' + e.message);
+    return false;
+  }
 }
 function dataWriteRaw(key, buf) {
   const dir = dataDirPath();
   fs.mkdirSync(dir, { recursive: true });
-  keepDataBackup(key, buf);
+  /* 覆盖已有内容前先备份成功；备不出来就不写（宁可这次同步失败，也不能无声覆盖掉唯一的一份） */
+  if (!keepDataBackup(key, buf)) throw new Error('覆盖前备份失败（磁盘满 / 文件被占用），已中止写入：' + key);
   /* 临时名带 pid + 随机串：同一个键并发写时各自写各自的临时文件，
      否则两个请求共用 <key>.json.tmp，可能把两份内容混着 rename 出去。 */
   const tmp = dataFileOf(key) + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8);
@@ -1509,15 +2510,19 @@ function sameOriginOnly(req) {
    它们会把浏览器递来的 URL 取回甚至写穿，不限制来源就等于对外提供了一个匿名代理（读公网 + 写公网），
    而页面本来就只会同源调用它们。
    注意结尾的分隔符要同时认 `/`、`?` 和串尾 —— 这几条路由都带查询串（/getv?url=…），
-   只写 `(\/|$)` 会让它们漏掉拦截（踩过一次）。 */
-const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|env-status|clear-cache|render|media|s3put|getv|getfile|fetch)(?:[/?]|$)/;
+   只写 `(\/|$)` 会让它们漏掉拦截（踩过一次）。
+   `/pick-dir` 在里面是另一类理由：它把**本机磁盘上一个真实路径**回给调用方。
+   不拦的话，任意网页都能在用户机器上弹一次文件夹选择框、再把用户选中的目录读走。 */
+const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|save|pick-dir|env-status|sys-status|clear-cache|render|media|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
 /* relay 转发前缀（/sparkcine、/vgenv、/textai…）与 /asset/ 同样只服务本工作台页面。
    以前它们不在同源检查里：代理在客户端没带 Authorization 时会**自动注入 .env 里的密钥**，
    于是任意恶意网页只要 fetch('http://localhost:5175/sparkcine/...') 就能用你的密钥建任务、扣费、读余额
    —— 和之前 .env 能被直接下载是同一类问题。新接入平台时不用改这里：前缀从 registry 现取。 */
 const RELAY_PREFIXES = REGISTRY.providers
   .map(p => String(p.relay || ''))
-  .filter(r => r.startsWith('/') && r !== '/');
+  .filter(r => r.startsWith('/') && r !== '/')
+  // 设置页新添加的自定义平台走 /custom/<id>：前缀固定，加一家不用改这里
+  .concat([CUSTOM_RELAY]);
 function isWorkbenchOnlyUrl(raw) {
   if (LOCAL_ONLY.test(raw)) return true;
   const pathname = String(raw || '').split('?')[0];
@@ -1525,12 +2530,12 @@ function isWorkbenchOnlyUrl(raw) {
   return RELAY_PREFIXES.some(r => pathname === r || pathname.startsWith(r + '/'));
 }
 /* 会改状态的路由只接受 POST（GET 一律 405）。
-   以前 /cloud/sync、/render/cancel、/render/delete 连 GET 都执行：
+   以前 /cloud/sync、/render/cancel 连 GET 都执行：
    浏览器里 <img src="http://localhost:5175/cloud/sync"> 这种「不带 Origin 的 GET」
-   既能躲过旧的 Origin 检查，又能真的触发同步 / 杀进程 / 删成片。
+   既能躲过旧的 Origin 检查，又能真的触发同步 / 杀进程。
    同源检查是第一道，方法检查是第二道 —— 网页要发 POST 就必然带 Origin 与 Sec-Fetch-*，躲不掉。
    页面侧（设置页）本来就是用 POST 调这些命令的，所以这里只是补上约束。 */
-const POST_ONLY = /^\/(?:cloud\/(?:sync|push|pull|test|resolve|restore)|render\/(?:cancel|delete)|prompts\/open|clear-cache)$/;
+const POST_ONLY = /^\/(?:cloud\/(?:sync|push|pull|test|resolve|restore)|render\/cancel|prompts\/open|clear-cache|custom\/models)$/;
 function isPostOnlyUrl(raw) {
   return POST_ONLY.test(String(raw || '').split('?')[0]);
 }
@@ -1544,6 +2549,8 @@ function isPostOnlyUrl(raw) {
      GET  /prompts        目录信息 + 最近归档清单（设置页展示）
      GET  /prompts/find   按「平台 + 任务号」取回提示词（给不返回 prompt 的平台补显示）
      POST /prompts/open   用系统文件管理器打开归档目录
+     POST /prompts/export 导出全部归档（{name,text} 数组）—— 整包备份勾「连提示词归档」时走这条
+     POST /prompts/import 恢复归档（**一份也不覆盖**，撞名的报出来）
    目录：请求里的 dir > .env 的 PROMPTS_DIR > 项目下的 prompts/（设置页可改）。
    文件名：<时间>-<类型>-<标题>.md；标题由文字 AI 生成，没有文字 AI 就取提示词前 10 个字。
    ========================================================================== */
@@ -1556,7 +2563,14 @@ function promptsDir(raw) {
   if (s.indexOf(String.fromCharCode(0)) >= 0) throw new Error('目录里有非法字符');
   const home = process.env.HOME || process.env.USERPROFILE || '';
   const p = (/^~($|[\\/])/.test(s) && home) ? path.join(home, s.slice(1)) : s;
-  return path.resolve(p);
+  const abs = path.resolve(p);
+  /* 归档目录是浏览器递来的参数（设置页可填、GET /prompts?dir= 也能指定），限定在本项目目录
+     或用户目录之下：否则任何同源的请求都能把这台机器上任意位置的 .md 列出来、或往里写文件。 */
+  const roots = [path.resolve(__dirname)];
+  if (home) roots.push(path.resolve(home));
+  const outside = roots.some(r => abs === r || abs.startsWith(r + path.sep));
+  if (!outside) throw new Error('提示词目录只能在项目目录或用户目录之下：' + abs);
+  return abs;
 }
 /* 文件名里不能出现的字符（Windows 最严：\/:*?"<>| 加控制字符），统一换成 - */
 function fileSafe(s, max) {
@@ -1626,6 +2640,30 @@ function rebuildPromptIndex(dir) {
 }
 const promptRows = dir => readPromptIndex(dir) || rebuildPromptIndex(dir);
 
+/* 按任务号兜底查一份归档：索引只留最近 2000 条（writePromptIndex 会截断），
+   窗口外的老归档不在里面。不补这一步的话，「本机明明归档了」的老任务会被判成没有归档，
+   客户端把它记进 missed 之后同一标签页再也不问 —— 那份归档就再也回不来了。
+   只读每个文件头 1KB 比对 task，命中了才把正文读出来（比全量重建便宜得多）。 */
+function scanPromptTask(dir, id, cap) {
+  let files = [];
+  try { files = fs.readdirSync(dir).filter(f => f.endsWith('.md')); } catch { return []; }
+  const out = [];
+  for (const f of files) {
+    if (out.length >= (cap || 50)) break;
+    const o = promptMetaOf(path.join(dir, f));
+    if (!o || String(o.task || '') !== id) continue;
+    let pr = '';
+    try {
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      const i = text.indexOf('## 提示词');
+      if (i >= 0) pr = text.slice(i + '## 提示词'.length).replace(/\s+/g, ' ').trim().slice(0, 300);
+    } catch {}
+    out.push({ f, t: o.title || '', k: o.type || '', ts: Number(o.ts) || 0,
+      p: o.provider || '', m: o.model || '', i: o.task || '', pr });
+  }
+  return out;
+}
+
 function handlePrompts(req, res, urlObj) {
   const json = (code, obj) => {
     res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -1647,15 +2685,38 @@ function handlePrompts(req, res, urlObj) {
   if (req.method === 'GET' && where === 'find') {
     const id = String(urlObj.searchParams.get('id') || '');
     const prov = String(urlObj.searchParams.get('provider') || '');
-    const hit = id ? promptRows(dir).find(r => r.i && r.i === id && (!prov || !r.p || r.p === prov)) : null;
-    if (!hit) { json(404, { error: { message: '这个任务没有归档提示词' } }); return true; }
+    if (!id) { json(400, { error: { message: '缺少 id（任务号）' } }); return true; }
+    /* 本机生成的资产（/local-assets 存的 la_xxx：逐句配音、预演音轨…）压根没有上游任务号，
+       按任务号去归档里找必然落空 —— 于是每开一次资产库/语音台/用量页就是一串 404。
+       它们的提示词本来就存在本机索引里（保存时写进了 meta.prompt），直接回那份。 */
+    if (/^la_[A-Za-z0-9]+$/.test(id)) {
+      const it = localAssetEntry(id);
+      json(200, { ok: true, id, matched: 1, local: true, provider: (it && it.provider) || '',
+        file: (it && it.file) || '', title: (it && it.name) || '', type: 'local', prompt: (it && it.prompt) || '', all: [] });
+      return true;
+    }
+    /* 一次把**按任务号匹配到的全部归档**都返回，客户端不用再问第二次。
+       以前这里是「先按 provider 精确查、查不到再不带 provider 查一次」：
+       同一个任务号在界面上要打两个请求，第二个多半还是 404（归档文件头里的平台名
+       和列表来源不是一套时才用得上，例如 sparkcine / sparkcine-video 共用上游），
+       于是每条老任务固定多一个 404，浏览器的网络面板被刷满、控制台全是红字。
+       现在一次到位：provider 只用来决定「优先把哪一份当正文」，不影响是否命中。 */
+    const rows = promptRows(dir).filter(r => r.i && r.i === id);
+    if (!rows.length) rows.push(...scanPromptTask(dir, id));
+    if (!rows.length) { json(404, { error: { message: '这个任务没有归档提示词' } }); return true; }
+    rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const hit = (prov && rows.find(r => r.p === prov)) || rows.find(r => !r.p) || rows[0];
     let prompt = '';
     try {
       const text = fs.readFileSync(path.join(dir, hit.f), 'utf8');
       const i = text.indexOf('## 提示词');
       if (i >= 0) prompt = text.slice(i + '## 提示词'.length).trim();
     } catch {}
-    json(200, { ok: true, file: hit.f, path: path.join(dir, hit.f), title: hit.t, type: hit.k, prompt });
+    json(200, { ok: true, id, matched: rows.length, provider: hit.p || '',
+      file: hit.f, path: path.join(dir, hit.f), title: hit.t, type: hit.k, prompt,
+      /* 同一任务号的其它归档（换过平台 / 重复提交）：客户端据此把每份都记进内存索引，
+         换平台 id 再查时就直接命中缓存，不用再发请求。 */
+      all: rows.map(r => ({ file: r.f, title: r.t, type: r.k, provider: r.p || '', ts: r.ts || 0, pr: r.pr || '' })) });
     return true;
   }
   if (req.method === 'POST' && where === 'open') {
@@ -1734,6 +2795,57 @@ function handlePrompts(req, res, urlObj) {
     });
     return true;
   }
+  /* 归档的整包导出 / 恢复（设置页「导出整包备份」勾「连提示词归档一起」时走这一对）。
+     以前归档只躺在磁盘上的一堆 .md 里：它既不在 .data/ 里（所以云同步带不走），
+     也不在 localStorage / IndexedDB 里（所以整包备份同样带不走）——
+     换机器、清浏览器数据、误删目录，就只剩「没了」这一种结果。
+     格式直接用 JSON 里的 {name, text}：归档是纯文本，一份几百 KB，
+     万一路上万份也不会像 base64 打包文件那样把备份撑爆（真超了按 EXPORT_MAX 截断并**说清截掉多少**）。 */
+  const PROMPT_PACK_MAX_FILES = 20000, PROMPT_PACK_MAX_BYTES = 64 * 1024 * 1024;
+  if (req.method === 'POST' && (where === 'export' || where === 'import')) {
+    readBody(req, res, 128 * 1024 * 1024).then(async raw => {
+      if (raw == null) return;
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf8') || '{}'); } catch { return json(400, { error: { message: '请求体不是合法 JSON' } }); }
+      if (where === 'export') {
+        const all = promptFileList(dir);
+        const files = [];
+        let bytes = 0, skipped = 0;
+        for (const f of all) {
+          if (files.length >= PROMPT_PACK_MAX_FILES || bytes >= PROMPT_PACK_MAX_BYTES) { skipped++; continue; }
+          try {
+            const text = fs.readFileSync(path.join(dir, f.name), 'utf8');
+            bytes += text.length;
+            files.push({ name: f.name, text });
+          } catch (e) { skipped++; }
+        }
+        return json(200, { ok: true, dir, count: files.length, total: all.length, skipped, bytes, files,
+          message: '归档 ' + files.length + ' 份' + (skipped ? '（还有 ' + skipped + ' 份因为超出上限没带上）' : '')
+            + '，压缩后存进备份文件' });
+      }
+      /* 恢复：一份也不覆盖。归档文件名带时间戳、用独占创建写入，正常不会撞名；
+         真撞上了（用户手工改过文件名）跳过并报出来 —— 覆盖别人的提示词比少一份严重得多。 */
+      const list = Array.isArray(body.files) ? body.files : [];
+      let ok = 0, dup = 0, bad = 0;
+      const errs = [];
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return json(500, { error: { message: '建不了目录（' + dir + '）：' + e.message } }); }
+      for (const it of list) {
+        const name = String((it && it.name) || '');
+        if (!/^[^\\/:*?"<>|\u0000-\u001f]+\.md$/i.test(name) || name === '_index.md') { bad++; continue; }
+        try {
+          fs.writeFileSync(path.join(dir, name), String(it.text == null ? '' : it.text), { flag: 'wx' });
+          ok++;
+        } catch (e) {
+          if (e && e.code === 'EEXIST') { dup++; continue; }
+          bad++; if (errs.length < 5) errs.push(name + '（' + e.message + '）');
+        }
+      }
+      try { writePromptIndex(dir, rebuildPromptIndex(dir)); } catch (e) { /* 索引重建失败不影响文件本身 */ }
+      json(200, { ok: true, dir, restored: ok, dup, bad, errors: errs,
+        message: '恢复归档 ' + ok + ' 份' + (dup ? '，' + dup + ' 份本机已有同名（没覆盖）' : '') + (bad ? '，' + bad + ' 份没恢复' : '') });
+    });
+    return true;
+  }
   json(405, { error: { message: '不支持的请求：' + req.method + ' ' + urlObj.pathname } });
   return true;
 }
@@ -1749,6 +2861,8 @@ function handlePrompts(req, res, urlObj) {
      POST /cloud/push    本地 → 云端（只上传「比远端新」的文件）
      POST /cloud/pull    云端 → 本地（只下载「比本地新」的文件）
      GET  /cloud/status  配置来源与上次同步结果
+   四条都吃请求体 { prompts:1, promptDir }：勾了「连提示词归档一起」才带上 prompt_dir 这个
+   本机归档目录（代理自己不知道，目录仍要过 promptsDir 的校验），归档会跟着走云端的 prompts/ 子集合。
    冲突策略：个人单机多端场景，按修改时间取新的一份；两边都改过时以更新的为准，
    被覆盖的那份在本地留一份 .bak（在 /data 清单里能看到）。
    ========================================================================== */
@@ -1790,16 +2904,27 @@ function cloudRequest(cfg, method, sub, headers, body, asCollection) {
 }
 /* WebDAV 的 PROPFIND 响应是 XML，这里只取我们需要的三个信息（文件名 / 修改时间 / 大小）。
    命名空间前缀各服务商不一样（d: / D: / 无），所以按标签尾巴匹配。 */
-function parseDavList(xml) {
+/* kind='data'（默认）只收 .json 并按 DATA_KEY_RE 过滤键名 —— 数据键那套判据；
+   kind='md' 收 .md，键就是文件名 —— 提示词归档用。**不能只收 .json**：
+   那样云端明明有那几份归档、这边却每次都当「云端没有」重新传一遍（传得越多越慢，
+   而且真出问题时会被淹没在一堆重复上传里）。 */
+function parseDavList(xml, kind) {
+  const md = kind === 'md';
   const out = new Map();
   const blocks = String(xml).match(/<[a-zA-Z0-9]*:?response[\s>][\s\S]*?<\/[a-zA-Z0-9]*:?response>/g) || [];
   for (const b of blocks) {
     if (/<[a-zA-Z0-9]*:?collection\s*\/?>/.test(b)) continue;                 // 目录本身跳过
     const href = (/<[a-zA-Z0-9]*:?href>([\s\S]*?)<\/[a-zA-Z0-9]*:?href>/.exec(b) || [])[1] || '';
     const name = decodeURIComponent(href.trim().replace(/\/+$/, '').split('/').pop() || '');
-    if (!name.endsWith('.json')) continue;
-    const key = name.slice(0, -5);
-    if (!DATA_KEY_RE.test(key)) continue;
+    let key;
+    if (md) {
+      if (!/\.md$/i.test(name)) continue;
+      key = name;
+    } else {
+      if (!name.endsWith('.json')) continue;
+      key = name.slice(0, -5);
+      if (!DATA_KEY_RE.test(key)) continue;
+    }
     const lm = (/<[a-zA-Z0-9]*:?getlastmodified>([\s\S]*?)<\/[a-zA-Z0-9]*:?getlastmodified>/.exec(b) || [])[1] || '';
     const len = (/<[a-zA-Z0-9]*:?getcontentlength>(\d+)</.exec(b) || [])[1];
     const t = Date.parse(lm.trim());
@@ -1820,8 +2945,92 @@ async function cloudEnsureDir(cfg) {
   throw new Error('云端目录不存在，自动创建也失败（MKCOL 返回 ' + mk.status + '）。'
     + '有些网盘不允许通过 WebDAV 建目录，请先在网盘网页端手动建好这个目录：' + cfg.url);
 }
-/* 读某个数据文件里的写入时间（ts）：判「谁更新」只认它，不认文件 mtime */
-/* 从一份数据内容里取写入时间 ts（裸数组/字符串那种老格式没有 ts → 0） */
+/* ============================================================================
+   提示词归档 → 云端（默认不勾，跟着 push/pull/sync 一起走）
+   ---------------------------------------------------------------------------
+   归档是**只增不改**的一份份 `.md`：文件名带时间戳、落盘用独占创建（`wx`），
+   所以「文件名」就是它的身份 —— 同步因此比数据键那一套简单得多，也安全得多：
+     同名同内容 → 跳过；只有本机有 → 传；只有云端有 → 下载。
+   **永远不删云端那份。** 归档是一份只增的创作历史，误删一整份提示词没法恢复；
+   而「本机删了、云端也跟着删」要判对必须先有基线/墓碑，那是数据键那套才值得上的机制。
+   这里不引入它：云端多出来的只**报数量**，由用户自己决定要不要拉下来。
+   （`_index.json` 是派生索引，本机重建就行，不上传 —— 传了反而可能把另一台机器的条目带歪。）
+   ========================================================================== */
+const PROMPT_CLOUD_SUB = 'prompts';
+const PROMPT_CLOUD_MAX = 20000;        // 单次最多传多少份，防一个跑飞的目录把网盘塞满
+function promptCloudDir(raw) {
+  /* 归档目录是**浏览器那边的设置**（键 prompt_dir，刻意不同步），代理自己并不知道，
+     所以由设置页把当前值带过来。仍要过 promptsDir 的那道校验（只能在项目目录或用户目录之下）——
+     这个参数是同源请求递来的，少一道就等于让任何同源脚本往这台机器任意位置写文件。 */
+  try { return promptsDir(String(raw == null ? '' : raw)); } catch (e) { throw new Error('提示词目录不合法：' + e.message); }
+}
+function promptFileList(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  return names
+    .filter(n => /\.md$/i.test(n))
+    .map(n => { try { const st = fs.statSync(path.join(dir, n)); return { name: n, size: st.size, mtime: st.mtimeMs }; } catch { return null; } })
+    .filter(Boolean)
+    .sort((a, b) => a.mtime - b.mtime);
+}
+async function cloudEnsureSub(cfg, sub) {
+  const probe = await cloudRequest(cfg, 'PROPFIND', sub, { Depth: '0', 'Content-Type': 'application/xml' });
+  if (probe.status < 400) return true;
+  if (probe.status === 401 || probe.status === 403) throw new Error('云端拒绝访问（' + probe.status + '）');
+  if (probe.status !== 404) return false;                       // 有些网盘不给子目录 PROPFIND，试试直接写
+  const mk = await cloudRequest(cfg, 'MKCOL', sub, { 'Content-Length': 0 });
+  return mk.status < 400 || mk.status === 405;
+}
+async function cloudListSub(cfg, sub) {
+  if (!(await cloudEnsureSub(cfg, sub))) return new Map();
+  const r = await cloudRequest(cfg, 'PROPFIND', sub, { Depth: '1', 'Content-Type': 'application/xml' });
+  if (r.status === 401 || r.status === 403) throw new Error('云端拒绝访问（' + r.status + '）');
+  if (r.status === 404) return new Map();
+  if (r.status >= 400) return new Map();                        // 列不出来就当没有：只会上传，不会误删
+  return parseDavList(r.body.toString('utf8'), 'md');
+}
+/* 返回 { up, down, same, onlyRemote, failed[] }，**不删任何东西** */
+async function cloudSyncPrompts(cfg, dir, cmd) {
+  const out = { up: 0, down: 0, same: 0, onlyRemote: 0, skipped: 0, failed: [] };
+  const dirOk = await cloudEnsureSub(cfg, PROMPT_CLOUD_SUB);
+  if (!dirOk) { out.failed.push('云端建不出 ' + PROMPT_CLOUD_SUB + '/ 目录（有些网盘不允许 WebDAV 建目录，请在网盘网页端手动建一个）'); return out; }
+  let remote = new Map();
+  try { remote = await cloudListSub(cfg, PROMPT_CLOUD_SUB); }
+  catch (e) { out.failed.push('列云端归档失败：' + e.message); return out; }
+  const local = promptFileList(dir);
+  const byName = new Map(local.map(f => [f.name, f]));
+  for (const f of local) {
+    const finfo = remote.get(f.name) || null;
+    /* 「一致」先判，模式后判：这样 same 在三种模式下都是「两边一模一样」这一个意思，
+       pull 模式下也能如实报出「云端已有的那几份没动」。 */
+    if (finfo && Number(finfo.size) === f.size) { out.same++; continue; }   // 同名同大小：归档不会被改写，不必下载比对
+    if (cmd === 'pull') { out.skipped++; continue; }            // 只下载：本地那份不动
+    if (out.up >= PROMPT_CLOUD_MAX) { out.skipped++; continue; }
+    try {
+      const buf = fs.readFileSync(path.join(dir, f.name));
+      const putOnce = () => cloudRequest(cfg, 'PUT', PROMPT_CLOUD_SUB + '/' + encodeURIComponent(f.name),
+        { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Length': buf.length }, buf);
+      let r = await putOnce();
+      if (r.status === 404 || r.status === 409) { await cloudEnsureSub(cfg, PROMPT_CLOUD_SUB); r = await putOnce(); }
+      if (r.status >= 400) throw new Error('HTTP ' + r.status);
+      out.up++;
+    } catch (e) { out.failed.push(f.name + '（' + e.message + '）'); }
+  }
+  for (const [name, info] of remote) {
+    if (byName.has(name)) continue;
+    if (cmd === 'push') { out.onlyRemote++; continue; }        // 只上传：如实报「云端有本机没有」，不往本机写
+    try {
+      const got = await cloudRequest(cfg, 'GET', PROMPT_CLOUD_SUB + '/' + encodeURIComponent(name), {});
+      if (got.status !== 200) throw new Error('HTTP ' + got.status);
+      /* 独占创建：万一本机刚生成了同名的一份，绝不把它盖掉（归档丢了比多一份严重得多） */
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, name), got.body, { flag: 'wx' });
+      out.down++;
+    } catch (e) { if (!e || e.code !== 'EEXIST') { out.onlyRemote++; out.failed.push(name + '（' + (e && e.message) + '）'); } }
+  }
+  return out;
+}
+/* 读某个数据文件里的写入时间（ts）：判「谁更新」只认它，不认文件 mtime *//* 从一份数据内容里取写入时间 ts（裸数组/字符串那种老格式没有 ts → 0） */
 function tsOfBuf(buf) {
   try { const v = JSON.parse(buf.toString('utf8')); return (v && typeof v === 'object' && !Array.isArray(v) && v.ts) ? Number(v.ts) || 0 : 0; } catch { return 0; }
 }
@@ -1853,7 +3062,7 @@ const CAP_TTL = 60 * 1000;
 async function handleCapabilities(req, res, urlObj) {
   const want = String(urlObj.searchParams.get('provider') || '');
   const noCache = urlObj.searchParams.get('noCache') === '1';
-  const prov = REGISTRY.providers.find(p => p.id === want || (p.keyId || p.id) === want);
+  const prov = allProviders().find(p => p.id === want || (p.keyId || p.id) === want);
   if (!prov) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: { message: '找不到平台：' + want + '（检查 registry 里的 id）' } }));
@@ -2036,7 +3245,10 @@ function cloudBackups() {
 
 /* ---------- /data 与 /cloud 的一组路由（在 handleRequest 里调用；返回 true 表示已处理） ---------- */
 function handleData(req, res, urlObj) {
-  if (req.url === '/data' && req.method === 'GET') {
+  /* 这几条比较用 pathname：用原始 req.url 的话，带查询串的写法（/data?x=1）
+     匹配不上、掉到静态服务回 404 —— 客户端拿到的是「接口不存在」而不是数据。 */
+  const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
+  if (dataPath === '/data' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ dir: dataDirPath(), files: dataList() }));
     return true;
@@ -2097,8 +3309,17 @@ function handleData(req, res, urlObj) {
     if (req.method === 'DELETE') {
       /* 删不掉必须回错误，不能假装成功：客户端把「已删除」记进队列就不再重试，
          而服务器那份还在 → 下次启动对账把它拉回浏览器，用户看到「删了又回来」。 */
+      /* `?nobak=1` = 删干净、不留 .bak。**只给「一次性清死键」用**（ui.js 的 sweepLegacyKeys）：
+         走普通删除会给每个作废的键都留一份备份，于是设置页的「备份清单」里永远挂着
+         几行用户根本认不出、也永远不会去恢复的键名（page_mode_video.bak 之类）——
+         那是**已经宣告作废**的东西，为它留后悔药就是纯噪音。
+         别的删除路径（清空某项数据、云同步删远端）一律要留备份，别顺手带上这个参数。
+         顺带说明：`.bak` 文件只能经内部路由访问，`/data/<key>` 的键名白名单不允许点号
+         （DATA_KEY_RE），所以浏览器侧没法单独去删它 —— 只能靠这里**一开始就别生成**。 */
+      const q = req.url.split('?')[1] || '';
+      const nobak = /(^|&)nobak=1(&|$)/.test(q);
       try {
-        if (fs.existsSync(f)) { keepDataBackup(key); fs.unlinkSync(f); }   // 删掉的那份也留个找回的路
+        if (fs.existsSync(f)) { if (!nobak) keepDataBackup(key); fs.unlinkSync(f); }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('{"ok":true}');
       } catch (e) {
@@ -2125,12 +3346,15 @@ function handleData(req, res, urlObj) {
     }
     if (cmd === 'status' && req.method === 'GET') {
       const hasEnv = !!(process.env.CLOUD_WEBDAV_URL && process.env.CLOUD_WEBDAV_USER);
+      let prompts = null;
+      try { const d = promptCloudDir(urlObj.searchParams.get('dir')); prompts = { dir: d, count: promptFileList(d).length }; }
+      catch (e) { prompts = { error: e.message }; }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({
         dir: dataDirPath(), files: dataList().length,
         envConfigured: hasEnv, lastAt: cloudState.lastAt, lastResult: cloudState.lastResult,
         conflicts: cloudState.conflicts || [], lastUp: cloudState.lastUp || 0, lastDown: cloudState.lastDown || 0,
-        unread: cloudState.unread || [],
+        unread: cloudState.unread || [], prompts,
       }));
       return true;
     }
@@ -2207,18 +3431,43 @@ function handleData(req, res, urlObj) {
       (async () => {
         try {
           const cfg = cloudCfg(req);
+          /* 提示词归档默认不传（body 里带 prompts:1 才走）。归档里是创作正文，
+             比设置更不该默认出网；但它又恰恰是**丢了就没了**的那类东西（本地 .md 不进整包备份），
+             所以给一个明确的开关，而不是替用户决定。
+             body 放在最前面读：「测试连接」也要用它，好让「测一下」真的测出备份能不能成，
+             而不是只测出一个连得上、传上去照样失败的假通过。 */
+          let body = {};
+          try {
+            const raw = await readBody(req, res, 256 * 1024);
+            if (raw && raw.length) body = JSON.parse(raw.toString('utf8') || '{}');
+          } catch (e) { body = {}; }
           if (cmd === 'test') {
             await cloudEnsureDir(cfg);
             const list = await cloudList(cfg);
+            let msg = '连接正常（云端已有 ' + list.size + ' 份数据）';
+            let prompts = null;
+            if (body.prompts) {
+              try {
+                const pdir = promptCloudDir(body.promptDir);
+                const local = promptFileList(pdir).length;
+                const subOk = await cloudEnsureSub(cfg, PROMPT_CLOUD_SUB);
+                const remote = subOk ? await cloudListSub(cfg, PROMPT_CLOUD_SUB) : new Map();
+                prompts = { dir: pdir, local, remote: remote.size, ok: !!subOk };
+                msg += subOk
+                  ? '；归档可传（本机 ' + local + ' 份 · 云端 ' + remote.size + ' 份）'
+                  : '；归档目录建不出来（有些网盘不允许 WebDAV 建目录，请在网盘网页端手动建一个 ' + PROMPT_CLOUD_SUB + '/）';
+              } catch (e) { prompts = { error: e.message }; msg += '；归档不可用：' + e.message; }
+            }
             cloudState.lastAt = Date.now();
-            cloudState.lastResult = '连接正常（云端已有 ' + list.size + ' 份数据）';
+            cloudState.lastResult = msg;
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, remoteCount: list.size, message: cloudState.lastResult }));
+            res.end(JSON.stringify({ ok: true, remoteCount: list.size, prompts, message: msg }));
             return;
           }
           /* 密钥默认不进云端：sk_key_* 是各处平台的 API 密钥，传到第三方网盘属于额外风险。
              设置页勾选「同步密钥」后会带 x-cloud-keys: 1，那时才参与上传/下载。 */
           const withKeys = String(req.headers['x-cloud-keys'] || '') === '1';
+          const withPrompts = !!body.prompts;
           const base = cloudBaselineRead();
           let nUp = 0, nDown = 0, nDel = 0, same = 0;
           const details = [], conflicts = [], autoPicked = [], averted = [], backups = [], unread = [], skipDel = [], failed = [];
@@ -2265,6 +3514,15 @@ function handleData(req, res, urlObj) {
             } catch (ek) { failed.push(key + '（' + ek.message + '）'); }
           }
           cloudBaselineWrite(base);
+          /* 提示词归档跟着这一次同步走（勾了才走）。数据键全部处理完再动它 ——
+             归档是独立的一份文件集合，不共用上面的基线，失败也不该影响数据键的结果。 */
+          let prompts = null;
+          if (withPrompts) {
+            try {
+              const pdir = promptCloudDir(body.promptDir);
+              prompts = Object.assign({ dir: pdir }, await cloudSyncPrompts(cfg, pdir, cmd));
+            } catch (e) { prompts = { error: e.message, failed: [e.message] }; }
+          }
           cloudState.lastAt = Date.now();
           cloudState.conflicts = conflicts;       // 状态接口据此让设置页显示「待选择」清单
           cloudState.lastUp = nUp; cloudState.lastDown = nDown;
@@ -2274,17 +3532,29 @@ function handleData(req, res, urlObj) {
           if (nDel) parts.push('已删除云端 ' + nDel + ' 份（本机删掉的，云端同步删除；覆盖前留了 .bak）');
           if (skipDel.length) parts.push(skipDel.length + ' 份本机已删除但本次是「只下载」，没动云端');
           if (same) parts.push(same + ' 份一致');
-          if (conflicts.length) parts.push('**' + conflicts.length + ' 份冲突待选择**');
+          if (conflicts.length) parts.push('「' + conflicts.length + ' 份冲突待选择」');
           if (unread.length) parts.push(unread.length + ' 份读不下来（已跳过，未覆盖云端）');
-          if (failed.length) parts.push('**' + failed.length + ' 份处理失败**');
+          if (failed.length) parts.push('「' + failed.length + ' 份处理失败」');
+          if (prompts) {
+            if (prompts.error) parts.push('提示词归档：' + prompts.error);
+            else {
+              if (prompts.up) parts.push('归档上传 ' + prompts.up + ' 份');
+              if (prompts.down) parts.push('归档下载 ' + prompts.down + ' 份');
+              if (prompts.onlyRemote) parts.push('云端有 ' + prompts.onlyRemote + ' 份这次没拿下来'
+                + (cmd === 'push' ? '（这次是「只上传」；点「↓ 从云端下载」或「⇅ 一键双向同步」即可取回）' : ''));
+              if (prompts.same) parts.push('归档 ' + prompts.same + ' 份一致');
+              if (prompts.failed && prompts.failed.length) parts.push('「归档 ' + prompts.failed.length + ' 份处理失败」');
+            }
+          }
           cloudState.lastResult = parts.join('，') || '没有需要同步的数据';
           cloudState.unread = unread;
           log('[cloud] ' + cloudState.lastResult + (details.length ? '：' + details.join(' ') : '')
             + (unread.length ? '；读不下来：' + unread.join(' ') : '')
-            + (failed.length ? '；失败：' + failed.join(' ') : ''));
+            + (failed.length ? '；失败：' + failed.join(' ') : '')
+            + (prompts && prompts.failed && prompts.failed.length ? '；归档失败：' + prompts.failed.join(' ') : ''));
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, count: nUp + nDown, up: nUp, down: nDown, del: nDel, same, details,
-            conflicts, autoPicked, averted, backups, unread, failed, skipDel, message: cloudState.lastResult }));
+            conflicts, autoPicked, averted, backups, unread, failed, skipDel, prompts, message: cloudState.lastResult }));
         } catch (e) {
           cloudState.lastResult = '失败：' + e.message;
           log('[cloud] 失败：' + e.message);
@@ -2311,6 +3581,9 @@ server.on('clientError', (err, socket) => { try { socket.destroy(); } catch {} }
 
 async function handleRequest(req, res) {
   loadEnvFile(false);   // 热加载 .env：改完密钥不用重启
+  /* 路由比较统一用去掉查询串的路径：用原始 req.url 的话 /registry?v=1、/env-status?t=1
+     这类带查询串的写法会匹配不上、掉到静态服务回 404。 */
+  const dataPath = req.url.split('?')[0];
   /* 同源判定必须在 cors() 之前：跨站请求连预检都拿不到放行，也读不到任何响应内容。
      （CORS 是全站放开的，先放行再拒绝的话，跨站页面虽然拿不到数据，但连 403 都能读到；
        而且 /render 这类会吃 CPU / 落盘的路由也不该让外部页面碰到。） */
@@ -2332,12 +3605,21 @@ async function handleRequest(req, res) {
   /* 能力接口：页面问「这个平台的模型有什么能力」走这一条 —— 端点、密钥、兜底都在代理里 */
   if (req.url.startsWith('/capabilities')) { handleCapabilities(req, res, new URL(req.url, 'http://127.0.0.1')); return; }
   /* 提示词归档：写文件/查提示词/打开目录（见上方「提示词归档」一节） */
-  if (req.url === '/prompts' || req.url.startsWith('/prompts/') || req.url.startsWith('/prompts?')) {
+  if (dataPath === '/prompts' || dataPath.startsWith('/prompts/')) {
     handlePrompts(req, res, new URL(req.url, 'http://127.0.0.1'));
     return;
   }
   if (handleData(req, res, new URL(req.url, 'http://127.0.0.1'))) return;
-  if (req.url === '/env-status') {
+  /* 本机依赖体检：短剧导出成片要 ffmpeg，设置页与助手的「一键体检」都读这一份。
+     以前只有点导出才收到一句「无法启动 ffmpeg：…（请确认已安装并加入 PATH）」——
+     没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，三种在界面上长得一模一样。 */
+  if (dataPath === '/sys-status') {
+    const body = JSON.stringify(sysStatus(req.url.includes('fresh=1')));
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(body);
+    return;
+  }
+  if (dataPath === '/env-status') {
     // 密钥来源状态：只暴露「环境变量里有没有密钥」和密钥尾号（用于判断本地是否存了同一把默认密钥），不泄露完整密钥
     const out = {};
     for (const p of REGISTRY.providers) {
@@ -2356,23 +3638,267 @@ async function handleRequest(req, res) {
        assetUrlCache        —— 资产签名地址（换账号/签名失效时清）
        capCache             —— /capabilities 结果（平台改了能力声明，不想等 TTL）
      hostGuardCache 故意不清：那是 SSRF 防护的 DNS 结果，清了只会让外链请求重新解析域名。 */
-  if (req.url === '/clear-cache' && req.method === 'POST') {
+  if (dataPath === '/clear-cache' && req.method === 'POST') {
     const n = { list: listCache.size, detail: detailCache.size, assetUrl: assetUrlCache.size, cap: capCache.size };
     listCache.clear(); detailCache.clear(); assetUrlCache.clear(); capCache.clear();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: true, cleared: n }));
     return;
   }
-  if (req.url === '/registry') {
-    // 供客户端按能力过滤模型
-    const body = JSON.stringify(REGISTRY);
+  if (dataPath === '/registry') {
+    // 供客户端按能力过滤模型；设置页添加的自定义平台合并在这里（清单来自 .data/sk_custom.json）
+    const body = JSON.stringify({
+      ...REGISTRY,
+      providers: allProviders(),
+      /* 有哪些条目被丢掉、为什么：界面据此说清「我明明添加了，下拉里没有」，
+         而不是让人去猜是不是功能坏了（原因文本见 customProblem） */
+      custom: { dropped: customNotice.dropped, reason: customNotice.reason },
+    });
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
     res.end(body);
     return;
   }
-  if (req.url === '/local-assets' && req.method === 'POST') {
-    // 保存一份本地生成产物（语音等），返回可供资产库引用的 id / url
-    readBody(req, res, 128 * 1024 * 1024).then(raw => {      // base64 音频较大，给 128 MiB
+  /* 添加自定义供应商时的「获取型号列表」：拿**表单里现填的**形状 + 地址 + 密钥，问一次它自己的型号表。
+     为什么必须留在代理里、不能由页面直连：这条路由要把用户的密钥递到他自己填的那个主机，
+     「只收公网 https / 拒回环与内网 / 域名解析到内网也拒」那套判据（safeOutboundUrl，
+     与 buildCustom 用的是同一个）以及「绝不回退 .env 里的内置密钥」都在这一层。
+     页面自己发就等于把这套安全判据抄第二份 —— 而漏一份就是「密钥发去了不该去的主机」。
+     走已有平台的 relay 也不行：图片/视频/语音那几家都没有 baseEditable，
+     代理会拒掉 x-up-base（那是故意的，见 relay 转发那段注释）。 */
+  if (dataPath === '/custom/models' && req.method === 'POST') {
+    readBody(req, res, 8 * 1024).then(raw => {
+      if (raw == null) return;
+      let q = {};
+      try { q = JSON.parse(raw.toString('utf8')) || {}; } catch {}
+      const tpl = REGISTRY.providers.find(p => p.id === String(q.shape || ''));
+      const bad2 = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ ok: false, error: msg })); };
+      if (!tpl) { bad2(400, '找不到当模板的内置平台：' + (q.shape || '(空)')); return; }
+      const key = String(q.key || '').replace(/^\s*Bearer\s+/i, '').trim();
+      if (!key) { bad2(400, '没有密钥 —— 型号列表是要鉴权的接口'); return; }
+      /* 地址校验用**异步那份** guardOutboundUrl（除了字面量 IP 还会解析域名、拦住 *.nip.io
+         这类「看着是公网、实际指向 127.0.0.1」的写法），与取外链字节那条路同一套判据。
+         buildCustom 落盘时用的是同步那份 —— 那是「先存下来、真正发请求时再判」；
+         这里马上就要把密钥递出去，必须先判干净。 */
+      guardOutboundUrl(String(q.base || '')).then(base => {
+        /* 型号表端点：声明了就用它；OpenAI 兼容的那一族都在 base + /models（文字 AI 也走这条，
+           TextAI.rawModels 拼的就是 relay + '/models'）。没有声明就算 /models 而不是报错 ——
+           报「这一类没有型号列表接口」会让「其实有」的平台没法用。 */
+        const ep = (tpl.endpoints && tpl.endpoints.models) || '/models';
+        const url = base.replace(/\/+$/, '') + ep;
+        const rq = upRequest(url, { method: 'GET', headers: { authorization: 'Bearer ' + key, accept: 'application/json' }, timeoutMs: 20000 }, ur => {
+          const bufs = [];
+          ur.on('data', c => bufs.push(c));
+          ur.on('end', () => {
+            const buf = Buffer.concat(bufs);
+            const out = o => { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
+            if (ur.statusCode !== 200) {
+              const txt = buf.toString('utf8', 0, 400).replace(/\s+/g, ' ').trim();
+              out({ ok: false, from: url, error: '它回了 HTTP ' + ur.statusCode + (txt ? '：' + txt : '') });
+              return;
+            }
+            let d = {};
+            try { d = JSON.parse(buf.toString('utf8')) || {}; } catch (e) {}
+            const arr = d.data || d.models || d.result || (Array.isArray(d) ? d : []);
+            const models = (Array.isArray(arr) ? arr : [])
+              .map(m => { const id = m && (m.id || m.name); if (!id) return null; return { id: String(id), name: String((m && (m.display_name || m.name)) || id) }; })
+              .filter(Boolean);
+            out({ ok: models.length > 0, from: url, count: models.length, models,
+              error: models.length ? '' : '它回了 200，但响应里没有型号列表（不是 id 数组）' });
+          });
+          ur.on('error', e => failUpstream(res, e.message, '型号列表接口连不通'));
+        });
+        /* upRequest 的 timeoutMs 是**空闲**超时：域名解析那一步还没有 socket，不受它管。
+           不加这道墙钟的话，一个解析不出来的地址会让设置页的「获取型号列表」一直转圈。 */
+        const wall = setTimeout(() => { try { rq.destroy(new Error('等待上游超过 25 秒')); } catch (e) {} }, 25000);
+        rq.on('close', () => clearTimeout(wall));
+        rq.on('error', () => clearTimeout(wall));
+      }).catch(e => bad2(400, '地址不可用：' + e.message));
+    });
+    return;
+  }
+  /* ============================================================================
+     弹系统原生的「选择文件夹」（POST /pick-dir）
+     ---------------------------------------------------------------------------
+     为什么是代理干的活：设置页那个目录输入框，用户要的是「点一下、弹资源管理器、自己挑」。
+     纯前端做不到 —— 浏览器的 `<input type=file webkitdirectory>` **只给文件夹名不给全路径**，
+     File System Access API 给的是句柄、不是字符串、也存不下来。老老实实只留一个输入框
+     是把平台的限制原样甩给用户，所以这条路由让**本机代理**去弹系统自带的那个对话框
+     （和 `probeTool` 探 ffmpeg、`/local-assets/open` 开资源管理器是同一类：只有本机进程能弹）。
+
+     **用哪个 PowerShell 决定弹出来的是哪个框**（实测，两者不是同一个东西）：
+       · `pwsh`（PowerShell 7，.NET 8 的 WinForms，程序集在 `Program Files\PowerShell\7\`）
+         → `FolderBrowserDialog` 是**现代 IFileDialog** 实现：左边有快速访问/此电脑，
+           上面有地址栏、可搜索、能新建文件夹 —— **和 Chrome 选「下载文件夹」是同一个壳**。
+       · `powershell.exe`（5.1，GAC 里的 .NET Framework WinForms）
+         → 老式 `SHBrowseForFolder` 树形框，没有地址栏、不能搜索。
+     所以**优先找 pwsh，找不到才退回 5.1**，并且把用的哪一个回报给页面（`modern` 字段），
+     别让人以为选了个框其实弹出来的是另一个。
+
+     注入防护：start/title **一律走环境变量传进子进程**，脚本文本里不拼任何用户输入，
+     再用 `-EncodedCommand`（UTF-16LE base64）传脚本本身 —— PowerShell 不会对参数做二次解析，
+     所以路径里有引号、括号、分号、反引号都不会被当成命令。
+
+     路径走 **base64(UTF-8)** 回传，不直接写文本：子进程 stdout 是管道，走的是
+     「重定向输出」那套编码而不是控制台编码，`D:\AI生成\图片` 这种中文路径有变成乱码的
+     可能 —— 路径一旦存错，界面显示「已保存」而文件永远落在别处，且不报错。
+
+     退出码：0 = 选好了（stdout 一行 base64 路径）；3 = 用户取消（**不是失败**，页面不该弹红字）；
+             其它 = 真出错了，把 stderr 的话照实带回页面。
+     ========================================================================== */
+  if (dataPath === '/pick-dir' && req.method === 'POST') {
+    const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
+    if (process.platform !== 'win32') return fail(501, '弹系统文件夹选择框目前只做了 Windows（这台机器是 ' + process.platform + '），还是手填路径吧');
+    const SCRIPT = [
+      "$ErrorActionPreference = 'Stop'",
+      "try { Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop } catch { Write-Output 'NOFORMS'; exit 9 }",
+      "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
+      /* AutoUpgradeEnabled = 现代 IFileDialog（.NET Core 3.0+ 上 FolderBrowserDialog 的默认实现）。
+         显式写出来是为了「这个框是哪个」不靠默认值：默认值哪天变了，这里弹出来的框就悄悄换了样子。 */
+      "$d.AutoUpgradeEnabled = $true",
+      "$d.ShowNewFolderButton = $true",
+      "$t = $env:AII_PICK_TITLE; if ($t) { $d.Description = $t }",
+      "$s = $env:AII_PICK_START",
+      "if ($s -and (Test-Path -LiteralPath $s -PathType Container)) { $d.SelectedPath = $s }",
+      "$r = $null; try { $r = $d.ShowDialog() } catch { Write-Output ('SHOWFAIL: ' + $_.Exception.Message); exit 4 }",
+      "if ($r -ne [System.Windows.Forms.DialogResult]::OK) { exit 3 }",
+      "$p = $d.SelectedPath; if (-not $p) { Write-Output 'NOPATH'; exit 5 }",
+      /* base64(UTF-8) 传路径：绕开「管道输出用重定向编码」这个坑（中文目录名会变乱码） */
+      "[Console]::Out.WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($p)))",
+      "exit 0",
+    ].join('; ');
+    /* 优先 pwsh（现代框），退回 Windows PowerShell 5.1（老框）—— 两者都试过再报错 */
+    /* ⚠ 顺序就是优先级：**pwsh 在前**（现代框），5.1 只在没有 pwsh 的机器上兜底。
+       写成 5.1 在前的话这台机器明明装了 PowerShell 7，却还是弹出那个没有地址栏的老树形框
+       —— 自检 `.tmp-pickdir.cjs` 里有一条就是钉这个顺序的（踩过）。 */
+    const psCandidates = [
+      { exe: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', modern: true },
+      { exe: path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), modern: false },
+    ];
+    const ps = psCandidates.find(c => { try { return fs.existsSync(c.exe); } catch (e) { return false; } });
+    /* start 只是「对话框打开时停在哪」，可以为空；认不出来的（不存在 / 不是目录 / 太长）就当没给。
+       title 只影响对话框顶上那行字，截到 60 个字符免得有人往里塞整段文章。 */
+    readBody(req, res, 16 * 1024).then(raw => {
+      if (raw == null) return;
+      let title = '', start = '';
+      try {
+        const sp = JSON.parse(raw.toString('utf8')) || {};
+        title = String(sp.title || '').trim().slice(0, 60);
+        const s = String(sp.start || '').trim();
+        if (s && s.length <= 400 && path.isAbsolute(s) && fs.existsSync(s) && fs.statSync(s).isDirectory()) start = s;
+      } catch (e) { /* start / title 只影响对话框长什么样，读不到就用默认，不算错 */ }
+      const env2 = Object.assign({}, process.env, {
+        AII_PICK_TITLE: title || '选择要保存到的文件夹',
+        AII_PICK_START: start,
+      });
+      try {
+        if (!ps) return fail(501, '这台机器上既没有 PowerShell 7 也没有 Windows PowerShell，还是手填路径吧');
+        /* ⚠ 必须用**异步** spawn，不能用 spawnSync：
+           用户在文件夹选择框里慢慢翻目录可能一两分钟，而 spawnSync 是**堵死事件循环**的 ——
+           那段时间里整个代理一条请求都答不了：正在跑的拍片任务轮询、配音、抽帧全卡住，
+           表现是「点一下选择文件夹，整个应用都死了」。踩过一次。
+           `-STA` 是硬要求（WinForms 对话框要单线程套间，MTA 下弹出来是空白或者直接抛），
+           `-EncodedCommand` 见上面的注入防护。 */
+        const p = spawn(ps.exe, ['-NoProfile', '-STA', '-WindowStyle', 'Hidden',
+          '-EncodedCommand', Buffer.from(SCRIPT, 'utf16le').toString('base64')],
+          { env: env2, windowsHide: false, cwd: __dirname });
+        let out = '', err = '', over = false, timer = null;
+        const done = fn => { if (over) return; over = true; if (timer) clearTimeout(timer); try { p.kill(); } catch (e) {} fn(); };
+        /* 兜底上限：用户开着框忘了选，不能一直占着一个连接 */
+        timer = setTimeout(() => done(() => fail(504, '5 分钟没人选，代理把它关掉了（选完点「选择…」再试一次）')), 300000);
+        p.stdout.on('data', d => out += d.toString());
+        p.stderr.on('data', d => { err += d.toString(); if (err.length > 8000) err = err.slice(-8000); });
+        p.on('error', e => done(() => fail(500, '弹不出文件夹选择框：' + (e.message || e.code))));
+        p.on('close', code => done(() => {
+          /* 取消**不是失败**：回 200 + cancelled，页面据此安静收手，不弹红字 */
+          if (code === 3) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ ok: false, cancelled: true })); }
+          if (code !== 0) {
+            const say = firstLine(out) || firstLine(err);
+            if (say === 'NOFORMS') return fail(500, '这台机器的 PowerShell 装不上窗体组件（System.Windows.Forms），弹不出选择框 —— 还是手填路径吧');
+            return fail(500, '文件夹选择框没起来：' + cap120(say || ('退出码 ' + code)));
+          }
+          /* stdout 是 base64(UTF-8)。解不出来 / 解出来不是绝对路径时**退回按原文读** ——
+             万一某台机器上脚本换了个版本，也不至于直接报「没回路径」把整条功能废掉。 */
+          const rawLine = firstLine(out);
+          let dir = '';
+          try { dir = Buffer.from(rawLine, 'base64').toString('utf8'); } catch (e) { dir = ''; }
+          if (!path.isAbsolute(dir)) dir = rawLine;
+          if (!dir || !path.isAbsolute(dir)) return fail(500, '文件夹选择框没回路径（这是本机 PowerShell 的问题，不是设置的问题）');
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          /* modern=false 意味着弹出来的是 5.1 的老式树形框（没有地址栏、不能搜索）——
+             页面据此把这件事说清楚，而不是让用户以为「系统就是这个样」。 */
+          res.end(JSON.stringify({ ok: true, dir, modern: !!ps.modern }));
+        }));
+        /* 客户端自己走了（关了页面/切走）就把子进程收掉，别让一个没人要的框留在屏幕上 */
+        res.on('close', () => { if (!over) { over = true; if (timer) clearTimeout(timer); try { p.kill(); } catch (e) {} } });
+      } catch (e) {
+        log('[pick-dir] ' + e.message);
+        fail(500, '弹文件夹选择框时出错：' + e.message);
+      }
+    });
+    return true;
+  }
+  /* ============================================================================
+     按类型另存到用户指定的文件夹（POST /save）
+     ---------------------------------------------------------------------------
+     背景：设置页「自动保存」现在只能全开或全关，产物一律落在项目下的 .assets/。
+     用户要的是**按类型分别决定存不存、分别存到哪个文件夹**（图一个目录、片一个目录）。
+     目录由用户自己填（浏览器不允许网页拿到真实路径，所以只能文本输入 + 校验），
+     **代理不猜也不枚举目录**：只往「配置里写着的那个目录」里写一个文件，
+     写不写得进去（路径不存在、没权限、被别的程序占着）当场照实回话，页面不假装成功。
+
+     安全：① 这条路由在 LOCAL_ONLY 里（同源检查，跨站直接 403 —— 任意网页往你硬盘写文件是严重问题）；
+           ② **目录只从服务端读的配置来**，请求体里带目录一律忽略（否则就成了「让任意网页指定落盘路径」）；
+           ③ 文件名一律 path.basename + 白名单字符（防 ../ 穿越）；
+           ④ 类型只认 image / video / audio 三档，别的当 400，不接受调用方自造。
+     ========================================================================== */
+  if (dataPath === '/save' && req.method === 'POST') {
+    readBody(req, res, 288 * 1024 * 1024).then(raw => {      // base64 媒体较大，给足
+      if (raw == null) return;
+      let spec = null;
+      try { spec = JSON.parse(raw.toString('utf8')); } catch {}
+      const bad3 = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: msg } })); };
+      if (!spec || !spec.data) return bad3(400, '缺少 data(base64)');
+      const type = String(spec.type || '').toLowerCase();
+      if (!SAVE_KINDS.includes(type)) return bad3(400, 'type 只能是 ' + SAVE_KINDS.join(' / '));
+      /* ⚠ 目录**只从配置读**。请求体里就算递了 dir 也一视同仁地丢掉：
+         一旦认客户端递的目录，这条路由就等于「任意本机网页往任意路径写文件」。 */
+      const dir = autosaveDir(type);
+      if (!dir) return bad3(409, '设置里没有给' + typeLabel(type) + '指定文件夹（先到设置页填一个）');
+      const fmt = String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+      /* 文件名：只留 basename 与安全字符。同名时加 -2 / -3 序号，**不覆盖** ——
+         覆盖会把用户自己整理过的文件名换掉，而且没有任何提示。 */
+      const base = path.basename(String(spec.name || ('file.' + (fmt || 'bin'))))
+        .replace(/[^\w.\-一-龥]+/g, '_').replace(/^_+/, '').slice(0, 120) || ('file.' + (fmt || 'bin'));
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const buf = Buffer.from(String(spec.data), 'base64');
+        let file = base, n = 2;
+        while (fs.existsSync(path.join(dir, file))) {
+          const dot = base.lastIndexOf('.');
+          file = (dot > 0 ? base.slice(0, dot) : base) + '-' + n + (dot > 0 ? base.slice(dot) : '');
+          n++;
+          if (n > 999) return bad3(409, '那个目录里已经有一千个同名文件了');
+        }
+        const full = path.join(dir, file);
+        fs.writeFileSync(full, buf);
+        log(`[save] ${type} → ${dir}${path.sep}${file}（${(buf.length / 1024).toFixed(0)} KB）`);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: true, type, dir, file, bytes: buf.length, path: full }));
+      } catch (e) {
+        /* 目录写不进去**照实说**：路径不存在 / 没权限 / 盘满 / 别的程序占着。
+           页面照原样显示这一句，用户才知道要去改设置，而不是看到「保存失败」然后猜。 */
+        log('[save] 写入失败：' + e.message);
+        bad3(500, '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message);
+      }
+    });
+    return;
+  }
+  if (dataPath === '/local-assets' && req.method === 'POST') {
+    // 保存一份本地生成产物（语音 / 自动镜像的图像视频），返回可供资产库引用的 id / url
+    /* 288 MiB：客户端递的是 base64（比原文件大 4/3），一段 100MB 的视频 base64 就有 133MB。
+       128 MiB 那道闸是给「同步合成的音频」设的，开了产物镜像之后视频必然撞墙
+       （撞墙的表现是代理回 413，而页面只显示「保存失败」，看不出是体积上限）。 */
+    readBody(req, res, 288 * 1024 * 1024).then(raw => {      // base64 媒体较大，给足
       if (raw == null) return;
       let spec = null;
       try { spec = JSON.parse(raw.toString('utf8')); } catch {}
@@ -2380,6 +3906,7 @@ async function handleRequest(req, res) {
       try {
         const buf = Buffer.from(String(spec.data), 'base64');
         const fmt = String(spec.format || 'wav').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'wav';
+        const mime = spec.mime || (MIME['.' + fmt] || 'application/octet-stream');
         const meta = spec.meta || {};
         // WAV 头里能直接算出时长（字节率），不用客户端再解析
         let duration = meta.duration || null;
@@ -2395,18 +3922,25 @@ async function handleRequest(req, res) {
         fs.mkdirSync(LOCAL_DIR, { recursive: true });
         fs.writeFileSync(path.join(LOCAL_DIR, file), buf);
         const item = {
-          id, file, name: spec.name || file, mime: spec.mime || ('audio/' + fmt),
+          id, file, name: spec.name || file, mime,
           format: fmt, byte_length: buf.length, created_at: new Date().toISOString(),
-          media_type: spec.media_type || 'audio',
+          media_type: localMediaType(spec),
           prompt: meta.prompt || '', model: meta.model || '', voice: meta.voice || '',
           provider: meta.provider || 'local', duration,
           credits: meta.credits ?? null, priceText: meta.priceText || '',
           chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
           usage: meta.usage || null,
+          /* 镜像回源用：这份文件是从哪个外链取回来的字节。
+             /asset/<id> 在**本地文件被删掉**时靠它回源（见 /asset 那段），这是三级回退的中间一级 ——
+             以前本地文件一没就只剩 404，界面上直接判成「已删除」，其实上游那份可能还能取。 */
+          upstream: safeOutboundUrl(String(meta.upstream || '')) || '',
+          /* 任务详情原样带走：提示词、参数、费用、耗时、状态变迁。
+             平台那边的记录会随时间被清理，索引里这一份是「任务当时是什么样」的本地留底。 */
+          detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null,
         };
         const list = localIndexRead();
         list.unshift(item);
-        localIndexWrite(list.slice(0, 500));
+        localIndexWrite(list.slice(0, LOCAL_INDEX_MAX));
         log(`[local-assets] 新增 ${id}（${item.format}，${(buf.length / 1024).toFixed(0)} KB）`);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ ...item, status: 'succeeded', url: '/asset/' + id }));
@@ -2432,9 +3966,10 @@ async function handleRequest(req, res) {
     res.end(JSON.stringify({ ok: true, id }));
     return;
   }
-  if (req.url.startsWith('/local-assets') && req.method === 'GET') {
+  if (dataPath === '/local-assets' && req.method === 'GET') {
     // 列表：形状与上游列表一致（data + next_cursor），资产库用 registry 的 list 声明直接读
-    const items = localIndexRead().map(x => ({ ...x, status: 'succeeded', object: 'asset' }));
+    // 大类型每次现算 —— 老索引里写死过 'audio'，按扩展名重算才能把那张 PNG 认回图片
+    const items = localIndexRead().map(x => ({ ...x, media_type: localMediaType(x), status: 'succeeded', object: 'asset' }));
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ object: 'list', data: items, has_more: false, next_cursor: null }));
     return;
@@ -2442,18 +3977,41 @@ async function handleRequest(req, res) {
 
   /* ---------- 通用转发：所有 provider 的 relay 前缀都走这里 ----------
      /<relay>/<path> → <base><path>
-       · 密钥：优先取客户端 Authorization，其次读 keyEnv 声明的环境变量，最后用 defaultKey（如声明了）
-       · baseEditable 的平台允许用 x-up-base 头临时换基址（文字 AI 的自定义接口地址）
-     新接入一个平台（含语音合成）只要在 REGISTRY 里加一条：relay/base/keyEnv/endpoints，转发自动生效。 */
+       · 密钥：优先取客户端 Authorization；**只有内置平台**才允许回退到 keyEnv 环境密钥 / DEFAULTS
+       · baseEditable 的平台（文字 AI）允许用 x-up-base 头临时换基址
+       · 设置页新添加的自定义平台（p.custom）也在这一条里：relay 是 /custom/<id>，基址来自那份声明，
+       而且**不回退环境密钥**（环境里那把是内置平台的钥匙，递给一个陌生网关等于把密钥送出去）
+     改内置平台（含语音合成）在 REGISTRY 里加一条：relay/base/keyEnv/endpoints，转发自动生效；
+     换地址换密钥的同形状中转站在设置页「添加自定义供应商」里填表单即可，代理不用改。 */
   /* 列表接口的短 TTL 缓存：/generations、/v2/videos 这类列表接口上游很慢（SparkCine 6~14s），
      资产库 / 图片台 / 视频台 / 导演台会重复请求同一份数据。
      只缓存 GET 列表请求，TTL 由 registry 的 list.cacheTtl 声明；客户端带 x-no-cache 头可强制回源。 */
-  const relayHit = REGISTRY.providers.find(p => p.relay && p.relay !== '/' && req.url.startsWith(p.relay + '/'));
+  const relayHit = allProviders().find(p => p.relay && p.relay !== '/' && req.url.startsWith(p.relay + '/'));
   if (relayHit) {
     let base = relayHit.base;
     const upBase = req.headers['x-up-base'];
-    if (relayHit.baseEditable && upBase && /^https:\/\//.test(upBase)) base = upBase;
+    /* 自定义基址也要过出站护栏：这一条路由会在客户端没带 Authorization 时**自动注入 .env 里的密钥**，
+       以前只判 /^https:\/\//，于是把 x-up-base 指到 http 公网之外的任意主机（例如内网服务、
+       127.0.0.1:5175 自己）都能把那把密钥原样送出去。只允许公网 https。 */
+    let baseOverridden = false;
+    if (relayHit.baseEditable && upBase) {
+      const safeUp = safeOutboundUrl(upBase);
+      if (!safeUp) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ error: { message: '自定义接口地址只允许公网 https（回环/内网/明文 http 一律拒绝）' } }));
+        return;
+      }
+      base = safeUp;
+      baseOverridden = true;
+    }
+    /* 把地址换掉了，就**不能再用 .env 里那把内置密钥**：否则「客户端没带密钥 + 递来一个 x-up-base」
+       等于把你的 SPARKCINE / OpenRouter 密钥原样送到那个主机上（它只证明得了连接，证明不了那是你的网关）。
+       自定义平台没有可回退的环境密钥（建条目时 keyEnv / defaultKey 都摘掉了），缺密钥就是空 → 上游 401。 */
+    const keyFallback = !relayHit.custom && !baseOverridden;
     const pathAndQuery = req.url.slice(relayHit.relay.length);
+    /* 缓存键要带上实际基址与密钥尾号：同一个 relay 路径可能被打到不同的自定义地址
+       （x-up-base）或不同的账号密钥，只按 req.url 作键会把 A 家的列表端给 B 家的请求。 */
+    const cacheKey = req.url + '|' + base + '|' + ((req.headers.authorization || '').slice(-6));
     const listPath = relayHit.endpoints && relayHit.endpoints.list ? String(relayHit.endpoints.list).replace(/^local:/, '') : null;
     const createPath = relayHit.endpoints && relayHit.endpoints.create ? String(relayHit.endpoints.create).replace(/^local:/, '') : null;
     const listTtl = (relayHit.list && relayHit.list.cacheTtl) || 0;
@@ -2465,7 +4023,7 @@ async function handleRequest(req, res) {
     const isTaskDetail = req.method === 'GET'
       && /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|job_[A-Za-z0-9]+/i.test(pathAndQuery.split('?')[0]);
     if (isTaskDetail && !req.headers['x-no-cache']) {
-      const hit = detailCache.get(req.url);
+      const hit = detailCache.get(cacheKey);
       if (hit && Date.now() - hit.ts < (hit.ttl || DETAIL_TTL)) {
         res.writeHead(hit.status, { ...hit.headers, 'Cache-Control': 'no-store', 'X-Detail-Cache': 'hit' });
         res.end(hit.body);
@@ -2473,7 +4031,7 @@ async function handleRequest(req, res) {
       }
     }
     if (isList && listTtl && !req.headers['x-no-cache']) {
-      const hit = listCache.get(req.url);
+      const hit = listCache.get(cacheKey);
       if (hit && Date.now() - hit.ts < (hit.ttl || listTtl)) {
         res.writeHead(hit.status, { ...hit.headers, 'Cache-Control': 'no-store', 'X-List-Cache': 'hit' });
         res.end(hit.body);
@@ -2487,7 +4045,7 @@ async function handleRequest(req, res) {
          两个头同时存在是非法请求，chunked 请求会直接被拒。 */
       ['cookie', 'connection', 'origin', 'referer', 'accept-encoding', 'host', 'authorization', 'content-length', 'transfer-encoding', 'x-up-base', 'x-no-cache'].forEach(h => delete fwd[h]);
       const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
-        || keyOf(relayHit.keyEnv) || DEFAULTS[relayHit.keyId || relayHit.id] || relayHit.defaultKey || '';
+        || (keyFallback ? keyOf(relayHit.keyEnv) || DEFAULTS[relayHit.keyId || relayHit.id] || relayHit.defaultKey : '') || '';
       const up = upRequest(base + pathAndQuery, {
         method: req.method,
         headers: { ...fwd, authorization: 'Bearer ' + apiKey, 'content-length': body.length, 'accept-encoding': 'identity' },
@@ -2500,7 +4058,7 @@ async function handleRequest(req, res) {
             const buf = Buffer.concat(bufs);
             if (buf.length <= 8 * 1024 * 1024) {
               cacheSweep(listCache, LIST_CACHE_MAX);
-              listCache.set(req.url, { ts: Date.now(), ttl: listTtl, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
+              listCache.set(cacheKey, { ts: Date.now(), ttl: listTtl, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
             }
             res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store', 'X-List-Cache': 'miss' });
             res.end(buf);
@@ -2521,7 +4079,7 @@ async function handleRequest(req, res) {
               const hasOut = !!(d && ((Array.isArray(d.outputs) && d.outputs.length) || d.output_url || (d.output && d.output.url) || d.url || d.download_url));
               if (ur.statusCode === 200 && hasOut && /succeed|fail|cancel|done/i.test(st) && buf.length <= 2 * 1024 * 1024) {
                 cacheSweep(detailCache, 300);
-                detailCache.set(req.url, { ts: Date.now(), ttl: DETAIL_TTL, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
+                detailCache.set(cacheKey, { ts: Date.now(), ttl: DETAIL_TTL, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
               }
             } catch {}
             res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' });
@@ -2537,7 +4095,11 @@ async function handleRequest(req, res) {
       if (isCreatePost) {
         up.on('response', ur => ur.on('end', () => { listCache.clear(); log('[cache] 创建任务 → 清空列表缓存'); }));
       }
-      up.on('error', e => { log(`  → ${relayHit.id} error: ${e.message}`); failUpstream(res, e.message, relayHit.id + ' 转发失败'); });
+      /* 回给页面的那句要带**真正打出去的地址**：转发失败的原因（超时 / DNS / 拒绝连接）都只说现象，
+         而「是不是打到我了那个网关」恰恰是用户此刻最想确认的 —— 尤其是自定义供应商（地址是用户自己填的）、
+         以及内置平台被 x-up-base 换过地址的那几种情况。 */
+      const upHost = String(base).replace(/^https?:\/\//, '').split('/')[0];
+      up.on('error', e => { log(`  → ${relayHit.id} (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayHit.id + ' 转发失败（打到 ' + upHost + '）'); });
       up.end(body);
     });
     return;
@@ -2598,6 +4160,16 @@ async function handleRequest(req, res) {
     const q = new URL(req.url, 'http://x').searchParams;
     const localF = localAssetFile(m[1]);
     if (localF) { serveLocalFile(req, res, localF, q); return; }
+    /* 本地文件没了，但索引里记着这一份是从哪个外链取回来的（自动镜像时写下的）→ 回源。
+       这是「API/本地三级回退」的中间一级：没有它，本地文件一被删就只剩 404，
+       界面据此判成「已删除」，而上游那份其实可能还取得到（地址过期了也能重新从列表换一份新的）。
+       绕一跳 /getv 而不是直接 302 到外链：页面因此始终同源，签名地址、Range、跨域那些问题一个都不会冒出来。 */
+    const up0 = safeOutboundUrl(String((localAssetEntry(m[1]) || {}).upstream || ''));
+    if (up0) {
+      res.writeHead(302, { 'Location': '/getv?url=' + encodeURIComponent(up0), 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
     const key = (req.headers.authorization || '').replace(/^Bearer\s*/, '') || keyOf('SPARKCINE_API_KEY');
     assetInfoOf(m[1], key).then(info => {
       // Range 透传给 CDN：视频缩略图只取元数据、播放器可拖动进度，不再整段回源
@@ -2655,18 +4227,23 @@ async function handleRequest(req, res) {
     // 所以上游签名地址不会出现在任何 src 里。
     let target;
     try { target = await guardOutboundUrl(safeDecode(req.url.slice('/getv?url='.length))); }
-    catch (e) { log('[getv] 拒绝出站：' + e.message); res.writeHead(400); res.end('bad url: ' + e.message); return; }
+    catch (e) { log('[getv] 拒绝出站：' + e.message); res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('bad url: ' + e.message); return; }
     const upHeaders = { 'user-agent': 'local-workbench', connection: 'close' };
     if (req.headers.range) upHeaders.range = req.headers.range;
     const up = upRequest(target, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers: upHeaders, lookup: guardedLookup }, ur => {
+      /* 失败响应绝不缓存（和 /asset 那条 3039-3048 的教训同一件事）：签名过期回 403 时，
+         如果给它盖上 max-age=86400，浏览器会把这条 403 存一整天 —— 页面里表现为
+         「这条视频的缩略图/播放永远坏掉，怎么刷新都不恢复」，而这其实是换一个签名地址就能好的。 */
+      const bad = ur.statusCode >= 400;
       const h = {
-        'content-type': ur.headers['content-type'] || 'video/mp4',
+        'content-type': bad ? (ur.headers['content-type'] || 'text/plain; charset=utf-8')
+          : (ur.headers['content-type'] || 'video/mp4'),
         'accept-ranges': ur.headers['accept-ranges'] || 'bytes',
-        'cache-control': 'public, max-age=86400',
+        'cache-control': bad ? 'no-store' : 'public, max-age=86400',
         'Access-Control-Allow-Origin': '*',
       };
       if (ur.headers['content-range']) h['Content-Range'] = ur.headers['content-range'];
-      if (ur.headers['content-length']) h['Content-Length'] = ur.headers['content-length'];
+      if (ur.headers['content-length'] && !bad) h['Content-Length'] = ur.headers['content-length'];
       res.writeHead(ur.statusCode, h);
       pipeUpstream(ur, res, 'getv');
     });
@@ -2674,7 +4251,9 @@ async function handleRequest(req, res) {
     up.end();
     return;
   }
-  const FILE_MAP = { '/': 'shell.html', '/app.html': 'shell.html', '/shell.html': 'shell.html', '/index.html': 'index.html', '/director.html': 'director.html', '/image.html': 'image-gen.html', '/image-gen.html': 'image-gen.html', '/video.html': 'video-gen.html', '/video-gen.html': 'video-gen.html', '/audio.html': 'audio-gen.html', '/audio-gen.html': 'audio-gen.html', '/roles.html': 'favorites.html', '/favorites.html': 'favorites.html', '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/usage.html': 'usage.html', '/usage': 'usage.html', '/sidebar.js': 'sidebar.js', '/app.js': 'app.js', '/assetlib.js': 'assetlib.js' };
+  /* 三个工作台合并成 studio.html 之后，旧路径仍然能打开（手输 /video.html、老书签、
+     代理自己的探针脚本都还打这些地址）：统一落到 studio.html，类型由 studio_type / ?t= 决定。 */
+  const FILE_MAP = { '/': 'shell.html', '/app.html': 'shell.html', '/shell.html': 'shell.html', '/index.html': 'index.html', '/director.html': 'director.html', '/studio.html': 'studio.html', '/image.html': 'studio.html', '/image-gen.html': 'studio.html', '/video.html': 'studio.html', '/video-gen.html': 'studio.html', '/audio.html': 'studio.html', '/audio-gen.html': 'studio.html', '/roles.html': 'favorites.html', '/favorites.html': 'favorites.html', '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/usage.html': 'usage.html', '/usage': 'usage.html', '/sidebar.js': 'sidebar.js', '/app.js': 'app.js', '/assetlib.js': 'assetlib.js' };
   const urlPath = safeDecode(req.url.split('?')[0]);
   let file = FILE_MAP[urlPath];
   if (!file) {
@@ -2685,7 +4264,10 @@ async function handleRequest(req, res) {
     if (!/^\/[A-Za-z0-9._-]+$/.test(urlPath) || urlPath.includes('..') || /^\/\./.test(urlPath)) {
       res.writeHead(404); res.end('not found'); return;
     }
-    if (!/\.(html|js|css|png|jpe?g|webp|gif|svg|ico|json|mp4|woff2?)$/i.test(urlPath)) {
+    /* 静态服务的扩展名白名单。音频与字幕要一并放行（与 MIME 表保持一致）：
+       少了它们，本地 mp3 / wav / srt 取回来是 404 —— 表现是「配乐选了却下载失败」，
+       而且报错发生在代理下载素材那一步，看着像素材本身坏了。 */
+    if (!/\.(html|js|css|png|jpe?g|webp|gif|svg|ico|json|mp4|webm|woff2?|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|txt)$/i.test(urlPath)) {
       res.writeHead(404); res.end('not found'); return;
     }
     if (/^\/(proxy\.(js|log|out\.log)|package(-lock)?\.json|启动\.bat)$/i.test(urlPath)) { res.writeHead(404); res.end('not found'); return; }
@@ -2703,7 +4285,7 @@ async function handleRequest(req, res) {
 server.listen(PORT, () => {
   const kids = REGISTRY.providers.map(p => p.keyEnv).filter((v, i, a) => v && a.indexOf(v) === i);
   const missing = kids.filter(k => !keyOf(k));
-  log(`proxy 已启动: http://localhost:${PORT}${envLoaded ? '（已加载 .env，改完自动热加载）' : '（未找到 .env，可用环境变量）'}`);
+  log(`proxy 已启动: http://localhost:${PORT}（端口来自 ${PORT_FROM}${envLoaded ? '；已加载 .env，改完自动热加载' : '；未找到 .env，可用环境变量'}）`);
   if (missing.length) {
     log(`[提示] 以下平台还没配密钥，对应工作台会报「未配置密钥」：${missing.join('、')}。`);
     log('       填法：项目目录的 .env（KEY=VALUE 一行一个，改完自动生效），或页面「设置」里填写。');
@@ -2711,7 +4293,30 @@ server.listen(PORT, () => {
   if (renderQueue.length || renderRunning) log(`[render] 恢复队列：${renderQueue.length} 个待处理`);
 }).on('error', e => {
   if (e.code === 'EADDRINUSE') console.error(`[错误] 端口 ${PORT} 已被占用：项目可能已在运行（直接访问 http://localhost:${PORT}），或先用「启动.bat」里的停止功能关闭旧进程`);
-  else console.error('[错误] 启动失败：' + e.message);
+  else if (e.code === 'EACCES') {
+    /* EACCES 在 Windows 上几乎总是「这个端口被系统保留段占了」，不是权限不够：
+       Hyper-V / WSL2 的 winnat 开机时按 100 端口一段地划走，报出来既不是 EADDRINUSE
+       也看不出原因，只有一行 permission denied。把查法与三条出路一次说清。
+       还要先说清这个号是谁给的（环境变量 / .env / 默认）—— 不然窗口里残留一个
+       set PORT=5175 时，人只会对着「.env 明明写了 6200 为什么还报 5175」干瞪眼。 */
+    console.error([
+      `[错误] 端口 ${PORT} 绑不上（EACCES）。Windows 上这通常不是权限问题，而是这个端口落在系统保留段里`,
+      `       （Hyper-V / WSL2 的 winnat 开机时按段划走，一整个连续段几百个号，netstat 上看不见它们）。`,
+      `  这一次用的端口来自：${PORT_FROM}`,
+      ...PORT_CLASH,
+      `  查一下是不是这一类：netsh interface ipv4 show excludedportrange protocol=tcp   （看 ${PORT} 落在哪个区间里）`,
+      `  出路 1（不动系统、不用管理员，最快）：换一个真能 bind 的号 —— 直接跑「启动.bat」选 1，它会现测一个并说清换成了哪个；`,
+      `       或者在项目目录的 .env 里写一行 PORT=那个号 固定下来（改这里要重启代理才生效）。`,
+      `       页面全部走同源相对路径，换端口不影响任何功能。`,
+      `  出路 2：重启电脑。保留段每次开机重新划分，多半就挪走了。`,
+      `  出路 3（管理员，想把 ${PORT} 永久留给自己）：`,
+      `       net stop winnat`,
+      `       netsh int ipv4 add excludedportrange protocol=tcp startport=${PORT} numberofports=1 store=persistent`,
+      `       net start winnat`,
+      `       代价：中间这几秒 WSL / Hyper-V 的共享网络会断。`,
+    ].join('\n'));
+  }
+  else console.error('[错误] 启动失败：' + (e && e.message ? e.message : e));
   process.exit(1);
 });
 
