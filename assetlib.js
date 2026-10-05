@@ -3245,7 +3245,8 @@ window.TextAI = {
       + '2. 情节要能拍：写看得见的动作与场景，不写内心独白式的抽象描述。\n'
       + '3. 保留用户已经定下的人名、设定与结局走向，不要改成另一个故事。\n'
       + '4. 台词可以暗示，但不要在这里写完整对白（后面会由拆剧本那一步逐句生成）。\n'
-      + '5. 用户没给的细节（时代、地点、职业）自己补一个常见的，不要反问。\n\n'
+      + '5. 用户没给的细节（时代、地点、职业）自己补一个常见的，别为这些小事反问；'
+      + '真的缺了会明显改变成片效果的信息，就按下面「补充信息」那段问，**别把问题写进正文**。\n\n'
       + '禁止：不要解释、不要小标题、不要 markdown，只输出故事正文。',
     drama_split: '你是一位短剧编剧兼分镜师。用户给你一段故事，你要把它拆成可以直接拍的短剧剧本。\n\n'
       + '拆法：先定角色与场景，再按「谁、在哪、说什么」把故事切成若干段；每一段都要能一次拍完。\n\n'
@@ -3522,16 +3523,47 @@ window.TextAI = {
     /* 设定补写那五条（2026-10 搬进 DEF）：它们要的是一段描述 / 一段 JSON，
        模型先反问一句，页面就把这一格填成了一句话 —— 比不问更糟。 */
     'drama_look', 'drama_scenedesc', 'drama_propdesc', 'drama_open', 'drama_retouch', 'drama_subshot'],
+  /* 「没有存盘时这条指令应该长什么样」——**只算默认，绝不碰存盘**。
+     两处共用这一份，免得各算一遍：
+       · prompt()：没有存盘就返回它（用户改过的优先）
+       · 设置页：textarea 初始化成它，保存时拿它当「要不要真的存盘」的判据
+     加它的理由是一个反复咬人的坑：设置页那个输入框**初始化时就是默认值**，
+     而保存那一步以前把 `el.value` 原样写进 sk_polish_<kind>。于是「打开设置页点一次保存」
+     就把默认**盖死**成存盘副本 —— 以后再改 TextAI.DEF，这台机器永远读不到新默认。
+     本项目已经被咬过一次（story / split 被拼上「补充信息」，只能靠 stripAskNote 逐条打补丁），
+     2026-10 修「指令里写死人称」时又发现：修好的默认对已经存过盘的用户一条都不生效。 */
+  defaultPrompt(kind, askNote) {
+    const raw = this.DEF[kind] || '';
+    if (this.NO_ASK.indexOf(kind) >= 0) return this.stripAskNote(raw);
+    const note = (askNote === false || !this.DEF.ASK_NOTE) ? '' : this.DEF.ASK_NOTE;
+    if (!note || raw.indexOf('补充信息') >= 0) return raw;      // 默认自己已经写了就不重复追加
+    return raw + '\n\n' + note;
+  },
   prompt(kind, askNote) {
-    const raw = localStorage.getItem(this.promptKey(kind)) || this.DEF[kind] || '';
+    const stored = localStorage.getItem(this.promptKey(kind));
     /* NO_ASK 那几条还要**摘掉尾部那段追问说明**：story / split 以前不在名单里，
        设置页一保存就把 ASK_NOTE 整段写进了 sk_polish_story / sk_polish_split ——
        加进 NO_ASK 只管得住「以后不再拼」，已经被污染的那一份还在用户机器上，
        下一次读出来照样带着「你可以追问」，而这两条要的是 JSON（见上面那段注释）。 */
-    if (this.NO_ASK.indexOf(kind) >= 0) return this.stripAskNote(raw);
-    const note = (askNote === false || !this.DEF.ASK_NOTE) ? '' : this.DEF.ASK_NOTE;
-    if (!note || raw.indexOf('补充信息') >= 0) return raw;      // 用户自己已经写了就不重复追加
-    return raw + '\n\n' + note;
+    if (stored) return this.NO_ASK.indexOf(kind) >= 0 ? this.stripAskNote(stored) : stored;
+    return this.defaultPrompt(kind, askNote);
+  },
+  /* 一次性收拾「存盘副本其实就是默认」的那些键。
+     判据只有一条：**与当前默认逐字节相同**。人手敲不出这样一份一模一样的东西 ——
+     它只可能是「打开设置页点一次保存」固化下来的，所以删掉它不可能碰到用户真写的内容。
+     用户改过一个字的（哪怕只多一个标点）一律原样保留，删默认等于替他改回去。
+     每次页面加载都跑一遍（只有 PROMPTS 那十几条、纯 localStorage 读，可忽略不计），
+     以后再有人改 DEF，这一段就自动把「与新默认相同」的旧副本清掉，不用再逐条打补丁。 */
+  pruneStoredDefaults() {
+    let n = 0;
+    for (const g of (this.PROMPTS || [])) {
+      for (const it of ((g.items || []))) {
+        const key = this.promptKey(it.key);
+        const v = localStorage.getItem(key);
+        if (v && v === this.defaultPrompt(it.key)) { localStorage.removeItem(key); n++; }
+      }
+    }
+    return n;
   },
   /* 只摘**结尾**那一段（我们自动拼的位置）；用户在中间自己写的同样文字不动。 */
   stripAskNote(v) {
@@ -4207,6 +4239,10 @@ window.TextAI = {
     return { need, questions };
   },
 };
+/* 模块一装好就收拾一次「存盘副本其实就是默认」的键（见 pruneStoredDefaults 的注释）。
+   放在这里而不是各页面 boot 里：这一份是**所有**页面共用的，漏一个页面就等于没修。
+   判据是逐字节相同，删掉它不可能碰到用户真写的内容；重复跑也是幂等的。 */
+try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可用（隐私模式）就跳过 */ }
 
 /* ============================================================================
    AssetTransfer —— 跨平台素材转存通用通道

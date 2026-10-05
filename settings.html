@@ -2323,7 +2323,14 @@ $('saveAll').onclick = async () => {
      以前这里是 10 行手抄的键名，新增一条指令忘了在这加一行，就是「设置页能改、存盘没存上」。 */
   (window.TextAI.PROMPTS || []).forEach(g => (g.items || []).forEach(it => {
     const el = document.getElementById('pp_' + it.key);
-    if (el) localStorage.setItem(TextAI.promptKey(it.key), el.value);
+    if (!el) return;
+    /* **与默认逐字节相同的不存**（反过来把这个键删掉）。
+       这个输入框初始化时填的就是默认值，所以以前「打开设置页点一次保存」会把默认
+       原样固化成存盘副本 —— 而 `TextAI.prompt()` 存盘优先，于是以后改 TextAI.DEF
+       对这台机器一条都不生效（修「指令里写死人称」时就是这么发现默认白改了）。
+       判定用 TextAI.defaultPrompt（只看默认、不碰存盘），和 prompt() 算的是同一份。 */
+    if (el.value === TextAI.defaultPrompt(it.key)) localStorage.removeItem(TextAI.promptKey(it.key));
+    else localStorage.setItem(TextAI.promptKey(it.key), el.value);
   }));
   if ($('polishAsk')) localStorage.setItem('sk_polish_ask', $('polishAsk').value);
   /* 总开关默认开，所以和「吸住」同一套写法：键不在 = 开着，只有明确存了 '1' 才算关。
