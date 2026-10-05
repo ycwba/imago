@@ -2194,9 +2194,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   const candCount = (id) => Math.max(1, Number(D.candCount(REG, cur && cur.opts, id)) || 1);
   /* 一次出 N 张的那颗按钮。`o.wait` 是在生成中（占位格已经画出来了，入口仍然留着但禁用：
      整排只剩一个转圈看着就像「这个功能没了」）。文案按真实张数现算。 */
-  function moreCandsHTML(id, act, dis, extra) {
-    const n = candCount(id);
-    return `<button class="ui-linkbtn" data-act="${D.esc(act)}" data-kind="${D.esc(id)}"${extra || ''}${dis ? ' disabled' : ''}>`
+  /* 「一次出 N 张」那颗按钮。`o.wait` 是在生成中（占位格已经画出来了，入口仍然留着但禁用：
+     整排只剩一个转圈看着就像「这个功能没了」）。文案按真实张数现算。
+     **第一个参数是「哪一类」（face / img / prop），它会原样写进 `data-kind`** ——
+     处理分支 `act === 'candgen'` 读的就是它（`CANDK[kind]`）。
+     2026-10 踩过：这一格原来叫 `(id, act, dis, extra)`，把**设置键**（`candN`，算张数用的）
+     顺手写进了 `data-kind`，于是 `CANDK['candN']` 是 undefined、`genMoreCands` 静默 return ——
+     「再画 N 张候选」在脸 / 场景 / 道具三张卡上**从来没生效过**，而界面看不出任何异样。
+     两个含义（算几张 / 哪一类）挤在同一个参数上就会这样，所以现在把 kind 放第一位。 */
+  function moreCandsHTML(kind, act, dis, settingId) {
+    const n = candCount(settingId || 'candN');
+    return `<button class="ui-linkbtn" data-act="${D.esc(act)}" data-kind="${D.esc(kind || '')}"${dis ? ' disabled' : ''}>`
       + (n > 1 ? '再画 ' + n + ' 张候选' : '再画 1 张') + '</button>';
   }
   /* 「出图」那颗按钮的文案：**只有这一份**（整页渲染与定点重画共用）。
@@ -2219,9 +2227,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           <button class="ui-linkbtn" data-act="retryface">再试一次</button>`)
       /* 正在出的那一次：那一排换成占位格（「AI 出了 4 张、界面只有 1 张」是不能接受的），
          反过来「4 张在排队」也得看得见才不会以为卡住了。按钮留着但禁用。 */
-      + (waiting ? `<div class="ui-cands"><span class="lab">候选脸</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('candN', 'candgen', true)}</div>`
+      + (waiting ? `<div class="ui-cands"><span class="lab">候选脸</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('face', 'candgen', true)}</div>`
         : D.Cast.picCandsHTML(c.faces, c.face, { act: 'usecand', label: '候选脸', name: c.name,
-            extra: ' data-kind="face"', tail: moreCandsHTML('candN', 'candgen', false) }));
+            extra: ' data-kind="face"', tail: moreCandsHTML('face', 'candgen', false) }));
   }
   /* 角色资产：**一个扁平的列表**，任意种类、不限张数，每张自己一个名字 + 一组关联道具。
      （以前是「三视图 / 表情表 / 服装」三栏分开摆 —— 那是按**出图模板**分的栏，
@@ -2340,9 +2348,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       : (waiting ? waitHTML('场景图正在画') : '还没画<br>场景图')}</div>`
       + (waiting || !s.imgErr ? '' : `<div class="ui-note err">场景图没画出来：${D.esc(s.imgErr)}
           <button class="ui-linkbtn" data-act="retryscene">再试一次</button></div>`)
-      + (waiting ? `<div class="ui-cands"><span class="lab">候选场景图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('candN', 'candgen', true)}</div>`
+      + (waiting ? `<div class="ui-cands"><span class="lab">候选场景图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('img', 'candgen', true)}</div>`
         : D.Cast.picCandsHTML(s.faces, s.img, { act: 'usecand', zoom: 'zoom', label: '候选场景图', name: s.name,
-            extra: ' data-kind="img"', tail: moreCandsHTML('candN', 'candgen', false) }));
+            extra: ' data-kind="img"', tail: moreCandsHTML('img', 'candgen', false) }));
   }
   function sceneHTML(s) {
     /* 时段原来只被读（进提示词与 AI 优化那句），界面上改不了：选项就是 drama.js 的 TIME_OFS，
@@ -2371,9 +2379,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         : (waiting ? waitHTML('道具图\n正在画') : '还没画<br>道具图')}</div>`
       + (waiting || !p.faceErr ? '' : `<div class="ui-note err">道具图没画出来：${D.esc(p.faceErr)}
           <button class="ui-linkbtn" data-act="retryprop">再试一次</button></div>`)
-      + (waiting ? `<div class="ui-cands"><span class="lab">候选道具图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('candN', 'candgen', true)}</div>`
+      + (waiting ? `<div class="ui-cands"><span class="lab">候选道具图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('prop', 'candgen', true)}</div>`
         : D.Cast.picCandsHTML(p.faces, p.face, { act: 'usecand', label: '候选道具图', name: p.name,
-            extra: ' data-kind="prop"', tail: moreCandsHTML('candN', 'candgen', false) }));
+            extra: ' data-kind="prop"', tail: moreCandsHTML('prop', 'candgen', false) }));
   }
   function propHTML(p) {
     return `<div class="dr-card2" data-pid="${p.id}">
@@ -2462,7 +2470,12 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      挑还没挑就被人换掉，比「只能一次出一张」更糟。三视图返回的 notes 同样要落盘
      （「预览图没能发给生图 AI」是警告不是失败，红黄两条提示分别有各自的读处）。 */
   async function genMoreCands(x, kind) {
-    const k = CANDK[kind]; if (!k) return;
+    const k = CANDK[kind];
+    /* 认不出是哪一类就**说出来**，别静默 return。
+       2026-10 这一行原来是 `if (!k) return;`：按钮把设置键 `candN` 当成 kind 发了过来，
+       于是每一次点「再画 N 张候选」都在这里悄悄退出 —— 没请求、没提示、状态行不动，
+       界面看上去像平台没回话，而真因是参数名挤在了一个属性上（见 moreCandsHTML）。 */
+    if (!k) { toast('「再画候选」没接上：传过来的是「' + (kind || '空') + '」，不是脸 / 场景 / 道具', 'err'); return; }
     const n = candCount();
     await genRun(k.bus, x.id, '正在给「' + x.name + '」出 ' + n + ' 张' + k.lab + '候选…',
       async () => {
