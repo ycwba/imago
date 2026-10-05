@@ -2033,7 +2033,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         <button class="ui-linkbtn" id="btnAddChar">+ 手动加一个角色</button>
         <button class="ui-linkbtn" id="btnAiVoice"${(!D.aiVoiceOn() || genHas('aivoice', null)) ? ' disabled' : ''}
           title="${D.esc(D.aiVoiceOn()
-            ? '按每个人的人设与外貌，分别决定她怎么出声：有本人参考音频的走复刻，其余写一段音色描述或从平台预设里挑一个'
+            ? '按每个人的人设与外貌，分别决定这一位怎么出声：有本人参考音频的走复刻，其余写一段音色描述或从平台预设里挑一个'
             : '设置页里关掉了「让 AI 给角色定音色」，打开它才能用')}"
           >${ic('sparkles', 14)} 让 AI 给每位角色定声音</button></div>
       <div id="aiVoiceOut">${aiVoiceSumHTML()}</div>
@@ -2322,7 +2322,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         </div>`}
         <label>声音</label>
         ${D.Cast.voiceRowHTML(REG, cur.opts, c, { waiting: genMsg('voicecands', c.id) })}
-        ${isN ? '<div class="ui-hint">旁白不出镜，所以<b>不画脸也没有角色资产</b>（发一张脸过去，视频 AI 反而会去照着画她）—— 这一位只要在下面定一个声音。</div>' : `<div class="dr-assets">
+        ${isN ? '<div class="ui-hint">旁白不出镜，所以<b>不画脸也没有角色资产</b>（发一张脸过去，视频 AI 反而会去照着画出来）—— 这一位只要在下面定一个声音。</div>' : `<div class="dr-assets">
           <div class="txt"><b>角色资产</b>：<b>任意种类、不限张数</b>，每一张自己起个名字（三视图、表情表、服装、雨天造型…），
             拍每一段时随脸一起<b>自动进参考图</b>（上限按视频平台声明，超出的那几张下面会写明哪几张没发）。
             每张图还能<b>勾上它带的那几件道具</b>，勾了的会跟着这一位一起发出去。</div>
@@ -3288,7 +3288,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     return new Promise(res => {
       const dup = n => (cur.characters || []).some(x => x && x !== c && x.name === n);
       const old = host.innerHTML;
-      host.innerHTML = `<input class="dr-input" data-f="name" value="${D.esc(isNew ? '' : (c.name || ''))}" placeholder="她在剧里的名字" maxlength="20" style="max-width:120px">
+      host.innerHTML = `<input class="dr-input" data-f="name" value="${D.esc(isNew ? '' : (c.name || ''))}" placeholder="这一位在剧里的名字" maxlength="20" style="max-width:120px">
         <select class="dr-input" data-f="kind" style="max-width:130px">
           <option value="actor"${(!isNew || (c.kind || 'actor') === 'actor') ? ' selected' : ''}>角色（出镜）</option>
           <option value="narrator"${(!isNew && c.kind === 'narrator') ? ' selected' : ''}>旁白（只出声）</option>
@@ -3733,7 +3733,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       </div>
       ${!rest.length && anyChar ? '<div class="ui-hint">这一集的角色都已经在这一段里了</div>' : ''}
       ${!anyChar ? '<div class="ui-hint">这一集还没有角色 —— 回上一步加一位，或回列表删掉这一集重拆</div>' : ''}
-      ${offstage.length ? `<div class="ui-hint">${offstage.map(D.esc).join('、')} 在台词里说话但不在出场名单里：配音认得出嗓子，但他的脸<b>不会</b>随参考图发给视频 AI</div>` : ''}
+      ${offstage.length ? `<div class="ui-hint">${offstage.map(D.esc).join('、')} 在台词里说话但不在出场名单里：配音认得出嗓子，但这一位的脸<b>不会</b>随参考图发给视频 AI</div>` : ''}
       <div class="dr-sect">画面 <span>
         <button class="ui-linkbtn" data-a="camera" title="机位：出一批构图图让你**看着挑**（有候选图时直接看图；没有就还是从那几档里挑一个）">${ic('camera', 12)} 机位</button>
         ${!sh.startImg && !genHas('open', sh.id)
@@ -3793,7 +3793,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         return `<div class="ui-hint dr-tight">${D.esc(line)}</div>`; })()}
       <div class="dr-lines" id="lineBox">${linesHTML(sh)}</div>
       <div class="btn-row dr-fixrow">
-        <input id="fixHint" class="dr-input" placeholder="一句话让 AI 改这一段，比如「她更慌张一点」">
+        <input id="fixHint" class="dr-input" placeholder="一句话让 AI 改这一段，比如「这一位更慌张一点」">
         <button class="ghost mini" data-a="aifix">${ic('sparkles', 12)} 改</button>
       </div>
       ${subShotsHTML(sh, f)}
@@ -3899,7 +3899,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       if ((sh.chars || []).indexOf(id) >= 0) return;
       sh.chars = (sh.chars || []).concat([id]);
       save(); renderSide();
-      toast('「' + (c.name || '') + '」进这一段了' + (c.face ? '，他的脸会作为参考图发给视频 AI' : '（还没画脸 —— 拍出来认不出他，先回上一步出预览图）'));
+      toast('「' + (c.name || '') + '」进这一段了' + (c.face ? '，这一位的脸会作为参考图发给视频 AI' : '（还没画脸 —— 拍出来认不出这一位，先回上一步出预览图）'));
     };
     /* 细分镜头那几格：下拉（景别 / 机位 / 秒）改的是**这一镜**（`sh.shots[i]`），
        文本框边写边存。改完只重画这一块（`paintSubShots`），不整栏重画 ——
@@ -4294,7 +4294,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       sub: '会改这一段的开头画面描述与镜头描述，台词不动',
       okLabel: '让 AI 改',
       fields: [{ key: 'q', type: 'textarea', value: typed,
-        placeholder: '比如：她更慌张一点 / 镜头再近一些 / 灯光更冷',
+        placeholder: '比如：这一位更慌张一点 / 镜头再近一些 / 灯光更冷',
         hint: '写一句就行。改完可以直接重拍这一段看效果。' }],
       validate: v => v.q ? '' : '先写一句你想改什么',
     });

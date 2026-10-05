@@ -1887,7 +1887,14 @@ window.Drama = (function () {
       if (t && !/style/.test(JSON.stringify(t))) return false;
     }
     if (mode === 'clone') {
-      const ir = ((prov && prov.inputRoles) || {});
+      /* inputRoles 声明在**型号**上 —— 本项目所有平台都是这么写的（sparkcine / vgenv 的
+         reference_audio、mimo 的 voiceclone 都在 `models[i].inputRoles`），provider 那一层通常是空的。
+         以前这里只读 `prov.inputRoles`，于是 mimo 的复刻型号明明声明了 reference_audio 槽
+         （带 accept / maxBytes，参考音频就走 `voice` 字段发出去，模板里 `"voice":"{{voice}}"` 有位置），
+         却被判成「请求体里没有位置放音频」—— 守卫把一个**能用**的能力挡掉了，
+         界面上「拿这条去克隆」那颗按钮一颗都不出现，而哪里都没说明为什么。
+         顺序：型号自己声明的优先，没有再看 provider 那一层（认错了就当没有，不猜）。 */
+      const ir = (model && model.inputRoles) || (prov && prov.inputRoles) || {};
       if (!Object.keys(ir).some(r => /audio/.test(r))) return false;
     }
     return true;
@@ -2160,7 +2167,7 @@ window.Drama = (function () {
     if (ways.preset.length) can.push('preset（**这家没有生成音色型号时**才用）：从下面那份预设清单里挑一个 id');
     const cast = chars.map(c => '- ' + c.name + '（' + (c.kind === 'narrator' ? '只出声的旁白' : '出镜角色') + '）：'
       + (c.bio || '') + (c.look ? '；外貌：' + c.look : '')
-      + (c.refAudio ? '；已经有她本人的参考音频' : '')
+      + (c.refAudio ? '；已经有本人的参考音频' : '')
       + (String(c.voiceNote || '').trim() ? '；已有的声音描述：' + String(c.voiceNote).trim() : '')).join('\n');
     const sys = fillTpl(TextAI.prompt('drama_voice'), {
       ways: can.join('\n') || '（这个平台没有可用的定音色方式）',
@@ -2353,6 +2360,11 @@ window.Drama = (function () {
       const voice = v ? v.id : voiceOf(REG, { opts: opts }, char).id;
       if (o.onStep) o.onStep(i + 1, n, v ? v.name : '');
       const rec = { voice: voice, name: v ? v.name : voiceName(REG, opts, voice, cap.mode), mode: cap.mode };
+      /* 描述 / 复刻这两种方式**没有音色名**（`voiceName` 对它们回空），于是一次出的那几条
+         在界面上全都显示成同一个「声音描述」—— 一排一模一样的格子。
+         而「拿这条去克隆」点下去是「以后都按这一条的声音念」，用户根本分不清点的是哪一条。
+         所以按序号给个能分辨的名字（预设音色有真名，不动它）。 */
+      if (!v && !rec.name) rec.name = wayLabel(cap.mode) + ' 第 ' + (i + 1) + ' 条';
       /* 一条挂了不毁整批：这一条留一句原因摆在格子里，其余的照样出（和候选图那一排同一套做法）。 */
       try {
         const r = await ttsOnce(REG, { opts: opts, char: char, text: text, voice: voice, style: (char && char.voiceNote) || '' });
@@ -3006,7 +3018,7 @@ window.Drama = (function () {
     const inUse = (drama.characters || []).filter(c => c && usedIds.has(c.id));
     const noFace = inUse.filter(c => c.kind !== 'narrator' && !c.face);
     if (noFace.length) out.push({ key: 'face', label: '还没画脸', who: noFace.map(c => c.name).join('、'),
-      why: '画不了脸就认不出同一个人，视频平台也没法保持这一集里她的样子一致。', fix: 'cast', cid: noFace[0].id });
+      why: '画不了脸就认不出同一个人，视频平台也没法保持这一集里的样子一致。', fix: 'cast', cid: noFace[0].id });
     const miss = inUse.map(c => ({ c: c, m: voiceMiss(REG, drama.opts, c) })).filter(x => x.m);
     if (miss.length) {
       /* 同一类原因合并成一行（三位角色都缺参考音频，别排三条一样的话） */
