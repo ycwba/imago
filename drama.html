@@ -2565,8 +2565,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           if (b) { b.textContent = '已在素材库'; b.disabled = true; b.title = '已经在素材库里了'; }
         }
         else if (act === 'rename') { await charInfo(c); }
-        /* 传 el（就是那个「从这一集删掉」按钮）—— 就地二次确认要把它原地变成「确认删掉」 */
-        else if (act === 'delchar') { delChar(c, el); }
+        /* 传 el（就是那个「从这一集删掉」按钮）—— 会丢资产/音色时走 Confirm.choose，
+           那个分支用不上 btn（它得给选择，按钮武装只能显示一行字）；不会丢时才原地武装。 */
+        else if (act === 'delchar') { await delChar(c, el); }
         else if (act === 'play') await previewCharVoice(c);
         else if (act === 'voice') {
           c.voice = el.dataset.vid; c.voiceName = D.Cast.voiceName(REG, cur.opts, c.voice, c.voiceMode); save(); paintVoiceRow(c);
@@ -3328,19 +3329,50 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   }
   /* 从这一集删掉一个角色。素材库里那一条**留着**（那是跨剧复用的，与删段同一约定）；
      这一集里引用他/她的地方要一起清干净：出场名单、台词的说话人。
-     台词**不删**（那句可能还想要），只是不再指定说话人 —— 配音时会按名字落到旁白上。 */
-  function delChar(c, btn) {
+     台词**不删**（那句可能还想要），只是不再指定说话人 —— 配音时会按名字落到旁白上。
+
+     但删的不只是一个名字：这一位身上**已经花钱做出来的东西**（画好的脸、N 张角色资产、
+     配好的音色 / 参考音频、写好的声音描述）会跟着一起消失。以前的确认只说台词和
+     「素材库里存过的那条也还在」—— 没存进库的那些，确认框一个字都不提，
+     点两下就丢了，重拆一次要重画 8 张脸、重配一遍音色。
+     现在按「到底会丢什么」分两条路：
+       · 会丢东西 → Confirm.choose（**给得出选择**：存进素材库再删 / 直接删 / 取消）
+       · 不会丢   → 原地按钮武装（它只能显示一行字，这里也没有要选的，用不着打断）
+     判据在同一个地方算，`inLib` 一变（刚存进库）两条路的归属立刻跟着换。 */
+  async function delChar(c, btn) {
     if (!c) return;
     const used = (cur.shots || []).filter(sh => (sh.lines || []).some(l => l && l.whoId === c.id)).length;
-    /* 后果只在**真的会改变什么**的时候才说：这句话挂在按钮武装的那一秒（toast），
-       不影响这次操作的描述一句都不写 —— 武装期间要看的只有「会连带发生什么」。 */
-    const note = (used ? '有 ' + used + ' 段的台词由这一位念 —— 台词留着，但说话人会变成旁白。' : '')
-      + (c.inLib ? '素材库里存过的那条也还在。' : '');
-    if (Confirm.arm(btn, '确认删掉', { note: note })) return;
+    /* 只有「没存进素材库」的才算真会没 —— 库里有副本的，删完还能找回来 */
+    const lost = c.inLib ? [] : [
+      D.Cast.assetsOf(c).length ? D.Cast.assetsOf(c).length + ' 张角色资产' : '',
+      (c.voice || c.voiceName) ? '配好的音色' : '',
+      c.refAudio ? '挂着的参考音频' : '',
+      c.face ? '画好的脸' : '',
+      String(c.voiceNote || '').trim() ? '写好的声音描述' : '',
+    ].filter(Boolean);
+    const lineNote = used ? '有 ' + used + ' 段台词由这一位念 —— 台词留着，说话人会变成旁白。' : '';
+
+    if (lost.length) {
+      const pick = await Confirm.choose({
+        title: '「' + (c.name || '这一位') + '」还没存进素材库',
+        body: '从这一集删掉之后，' + lost.join('、') + '会跟着一起没了，救不回来。'
+          + (lineNote ? '\n' + lineNote : ''),
+        options: [
+          { label: '先存进素材库再删', hint: '存完立刻删，资产和音色都留得住', value: 'lib' },
+          { label: '直接删掉', hint: lost.join('、') + ' 一起没了', value: 'del' },
+        ],
+      });
+      if (pick === 'lib') { D.Lib.adopt(cur, c.id); toast('存进素材库了，正在从这一集删掉'); }
+      else if (pick !== 'del') return;                       // 取消
+    } else {
+      const note = lineNote + (c.inLib ? '素材库里存过的那条也还在。' : '');
+      if (Confirm.arm(btn, '确认删掉', { note: note })) return;
+    }
     const r = D.dropChar(cur, c.id);
     if (!r.ok) return toast(r.why, 'err');
     save(); render();
-    toast('删掉了「' + r.removed + '」' + (r.lines ? '，' + r.lines + ' 句台词改由旁白念' : ''));
+    toast('删掉了「' + r.removed + '」' + (r.lines ? '，' + r.lines + ' 句台词改由旁白念' : '')
+      + (r.shots ? '，' + r.shots + ' 段的出场名单去掉了这一位' : ''));
   }
   function delScene(s, btn) {
     if (!s) return;
@@ -5319,18 +5351,50 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     else if (cur.step === 2) renderCast();
     else renderStage();
   }
-  /* 「已经拆过、又被点回第 1 步」那一屏：照实说清它是什么，并把出口摆在手边。
-     **不给「重新拆剧本」那个按钮** —— 那是一次花钱、而且会整份换掉角色/场景/分段的动作，
-     加在这么一个「我只是回来看一眼」的页面上太容易误触；真想重来，回列表删掉这一集重新写故事更清楚。 */
+  /* 「已经拆过、又被点回第 1 步」那一屏。**但它有两种来路，说法不能一样**：
+       ① 真的拆出过东西（角色/场景/分段至少有一项）—— 用户只是回来看一眼，
+          原文只读 + 一个「回到第 N 步」的出口就够了。
+       ② 故事写了、**结果一个都没拆出来**（关掉页面 / 断网 / 拆分报错都停在这儿）。
+          以前这一屏无条件写「这一步已经拆过了」—— 对着 0 角色 0 场景 0 段说「已经拆过了」
+          是假话；更要命的是它**是个死胡同**：唯一那颗按钮把人送去一个空的第 2 步，
+          故事还在这儿却什么都做不了，只能回列表删掉重写。
+          所以这一支照实说「没拆出来」，并把「重新拆剧本」摆出来（**带确认**：
+          它要花钱，而且会整份换掉下面的角色/场景/分段）。
+     ①那一支仍然**不**给「重新拆剧本」—— 那次花钱动作加在「我只是回来看一眼」的页面上太容易误触。 */
   function renderRewound() {
     const nChar = (cur.characters || []).filter(c => c && c.name).length;
     const nScene = (cur.scenes || []).filter(s => s && s.name).length;
     const nShot = (cur.shots || []).length;
+    const done = nChar + nScene + nShot > 0;
     /* 回哪一步：它其实走到哪儿就回哪儿 —— 拍过就 4，有分段就 3，再不济有角色就 2。 */
     const shot = (cur.shots || []).find(sh => sh && (sh.takes || []).length);
     const back = shot ? 4 : (nShot ? 3 : 2);
     const STEP_CN = ['', '讲故事', '认角色', '看预演', '拍成片'];
     body.className = '';
+    if (!done) {
+      body.innerHTML = `<div class="wrap">
+        <div class="ui-note err">故事写了，但剧本<b>没拆出来</b> —— ${nChar} 位角色、${nScene} 个场景、${nShot} 段。
+          多半是拆到一半关掉了页面、断了网，或者那次调用报错了。
+          下面这段原文还在，重新拆一次就能接着往下走。</div>
+        <div class="dr-plain">${D.esc(cur.story || '（这一集没有存下故事原文 —— 那就回列表重写一段）')}</div>
+        <div class="btn-row">
+          ${cur.story ? '<button class="tool acc" id="btnResplit">重新拆剧本</button>' : ''}
+          <button class="tool" id="btnBackStep">回到短剧列表</button>
+        </div></div>`;
+      const rs = $('btnResplit');
+      if (rs) rs.onclick = () => {
+        /* 花钱动作：就地二次确认，说清它会换掉什么。
+           这一支里下游一定是空的，所以直接说「下面什么都没有」——
+           写死三个 0 的话，条件一旦放宽就成了一句假话。 */
+        if (Confirm.arm(rs, '确认重新拆', {
+          note: '要再调一次文字 AI 拆剧本。下面角色、场景、分段都还是空的，会被这次的结果整份填上。',
+        })) return;
+        runSplit(cur.story);
+      };
+      const bs2 = $('btnBackStep');
+      if (bs2) bs2.onclick = () => { stopPlayer(); cur = null; render(); };
+      return;
+    }
     body.innerHTML = `<div class="wrap">
       <div class="ui-note info">这一步已经拆过了，没有正在跑的拆分 —— ${nChar} 位角色、${nScene} 个场景、${nShot} 段都还在下面几步里。
         故事原文在这里，只读。</div>
@@ -5369,7 +5433,15 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     try { $('advStory').classList.toggle('closed', !JSON.parse(localStorage.getItem('dr_story_open') || 'false')); } catch {}
   }
 
-  $('btnBack').onclick = () => { stopPlayer(); cur = null; D.setActive(''); render(); };
+  /* 回到短剧列表：**不**清掉「当前是哪一部」。
+     列表只是个视图，不是状态变化 —— 以前这里顺手 `D.setActive('')`，
+     于是「点一下返回看看列表」就把在拍哪部剧忘了：关掉页面再打开直接落在入口页，
+     刚拍到一半的那部要找回来得在列表里翻。
+     清 active 只剩两处该做的事：这一部被**删掉**了（列表里删卡），以及拆剧本失败、
+     把半截的那一部整个删掉重来（startStory 的 catch）。
+     下面那行 `cur = null` 是**内存**里的，让列表渲染出来；`cur` 在下次 boot 时
+     由 `D.activeId()` 现取，所以「关掉再打开回到这一部」是自动的。 */
+  $('btnBack').onclick = () => { stopPlayer(); cur = null; render(); };
   $('btnRename').onclick = async () => {
     /* 改名走公共表单弹窗：浏览器自带的 prompt 输入框是另一套外观，还挡在页面正中 */
     const v = await PromptForm.open({ title: '改个名字', okLabel: '改好', fields: [

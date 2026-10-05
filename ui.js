@@ -1145,7 +1145,12 @@ window.copyText = async function copyText(txt) {
   function paintArmed(el, a) {
     el.classList.add('armed');
     el.textContent = a.label || '确认';
-    el.setAttribute('title', a.hint || '再点一次就真删了 · 点别处或过一会儿自动取消');
+    /* 默认提示**不许写死「真删了」**：arm() 是通用的就地二次确认，不只删除在用 ——
+       「重新拆剧本」这种**不删任何东西**、但要花钱的动作也走它，不传 hint 就会显示
+       「再点一次就真删了」，等于在告诉用户一件根本没发生的事。
+       所以默认说法从 label 里取动词：删除的地方照旧读成「真删了」，
+       不删的地方读成它自己那个动词，一处判据、不用每个调用方各写一句。 */
+    el.setAttribute('title', a.hint || ('再点一次就「' + (a.label || '执行') + '」 · 点别处或过一会儿自动取消'));
   }
   function disarm() {
     const a = armed; if (!a) return;
