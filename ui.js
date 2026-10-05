@@ -1144,7 +1144,20 @@ window.copyText = async function copyText(txt) {
   let armed = null;
   function paintArmed(el, a) {
     el.classList.add('armed');
-    el.textContent = a.label || '确认';
+    /* badge 模式（opts.badge）：**一个字都不动 el 的内容**，只在角上挂一枚小标签。
+       默认画法是 textContent —— 那对按钮是对的（按钮只有一行字），可拿来武装**一张脸 /
+       一张缩略图**就会把图整个冲掉：武装的那 5 秒里用户看到的是一块红底空白，
+       而「等的就是再点一下」必须让他看清**是哪一张**才成立。
+       还原走 disarm 里的 `el.innerHTML = a.html`（快照取自挂标签之前），所以下面
+       不用另外记状态；只要别忘了把 armed-badge 这个 class 也摘掉。 */
+    if (a.badge) {
+      el.classList.add('armed-badge');
+      const b = document.createElement('i');
+      b.className = 'arm-badge';
+      b.textContent = a.label || '确认';
+      el.appendChild(b);
+    }
+    else el.textContent = a.label || '确认';
     /* 默认提示**不许写死「真删了」**：arm() 是通用的就地二次确认，不只删除在用 ——
        「重新拆剧本」这种**不删任何东西**、但要花钱的动作也走它，不传 hint 就会显示
        「再点一次就真删了」，等于在告诉用户一件根本没发生的事。
@@ -1159,6 +1172,7 @@ window.copyText = async function copyText(txt) {
     const el = a.el;
     if (!el) return;
     el.classList.remove('armed');
+    el.classList.remove('armed-badge');
     /* 按钮可能已经被整块重画换掉了（内联脚本换过 innerHTML）—— 那就没什么可还原的 */
     if (el.isConnected) {
       el.innerHTML = a.html;
@@ -1233,9 +1247,9 @@ window.copyText = async function copyText(txt) {
       if (armed && armed.el === el) { disarm(); return false; }   // 第二次点：先还原，再放行
       disarm();                                                    // 整页同时只有一个「确认中」
       const ms = opts.ms || 5000;
-      armed = { el: el, key: opts.key || '', label: label, hint: opts.hint || '',
+      armed = { el: el, key: opts.key || '', label: label, hint: opts.hint || '', badge: !!opts.badge,
         html: el.innerHTML, title: el.getAttribute('title'), timer: 0, deadline: Date.now() + ms };
-      paintArmed(el, armed);                                        // 纯文本：按钮文案不吃 HTML
+      paintArmed(el, armed);                                        // 按钮走文字、badge 模式走角标（见上）
       armed.timer = setTimeout(disarm, ms);
       if (opts.note && window.Toast) window.Toast.err(opts.note, ms);
       return true;
@@ -1262,12 +1276,16 @@ window.copyText = async function copyText(txt) {
 
   /* 「再点一下就真删」这句话只在原地成立：人一挪开注意力就该自动撤销，
      不能隔着一个仍然点得中的按钮等着下一次误触（点别处 / Esc 都还原）。
-     监听装一次，用捕获阶段 —— 目标在按钮里就放过（那是第二次点击，由 arm 自己处理）。 */
+     监听装一次，用捕获阶段 —— 目标在**武装着的那一个**里就放过（那是第二次点击，由 arm 自己处理）。
+     判别式是 `.armed` 而不是 `button.armed`：badge 模式武装的是一个 div（带脸的格子），
+     写成 button.armed 的话，第二次点它自己反而会先把自己还原掉 ——
+     arm 只看「armed 里是不是同一个 el」，还原完 armed 成了 null，于是又重新武装一遍，
+     那个动作永远执行不到（看上去就是「点了没反应」）。 */
   if (typeof document !== 'undefined') {
     document.addEventListener('pointerdown', e => {
       if (!armed) return;
       const t = e.target;
-      if (t && t.closest && t.closest('button.armed')) return;
+      if (t && t.closest && t.closest('.armed')) return;
       disarm();
     }, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && armed) disarm(); }, true);

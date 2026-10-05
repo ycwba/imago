@@ -128,7 +128,7 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .dr-slot{display:flex;gap:10px;align-items:flex-start}
 .dr-pick{width:64px;height:88px;border-radius:8px;border:1px dashed var(--line);background:var(--panel2);cursor:pointer;
   display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:20px;overflow:hidden;position:relative;flex:0 0 64px}
-.dr-pick img{width:100%;height:100%;object-fit:cover}
+.dr-pick img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .dr-pick small{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:10.5px;background:rgba(0,0,0,.5);color:#fff;padding:1px 0}
 .dr-pick small svg{display:block;margin:0 auto}
 .dr-pick.has{border-style:solid}
@@ -155,6 +155,11 @@ body{display:flex;flex-direction:column;overflow:hidden}
    同一个「角色头像」在这一屏里有方形和长方形两种画法。改成正方形 44×44 再切 50% 才是正圆。
    `.dr-pick` 还被参考图/道具格共用（那些是竖幅素材，不该圆），所以只给 .cast 这一档切。 */
 .dr-pick.sm.cast{height:44px;border-radius:50%;border-style:solid;background:var(--panel2)}
+/* 武装态（Confirm.arm 的 badge 模式）：「移出」那枚角标挂在圆下面，
+   而 .dr-pick 有 overflow:hidden（那是把图裁成圆角用的）—— 不放开的话角标被切掉半截，
+   一个字都读不全，比不画还坏。放开的前提是图自己带圆角（上面那条 border-radius:inherit），
+   否则溢出的一瞬间那张脸就变成方的了。 */
+.dr-pick.armed-badge{overflow:visible}
 .dr-pick.sm.cast .dr-mic{color:var(--sub);opacity:.9;display:flex;align-items:center;justify-content:center}
 /* 圆形格里那个「×」：贴底的一小条会压到脸的下巴，改成右上角一个小圆点 */
 .dr-pick.sm.cast small{position:absolute;top:1px;right:1px;left:auto;bottom:auto;width:15px;height:15px;
@@ -3743,7 +3748,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       <div class="dr-sect">出场角色</div>
       <div class="ui-hint">这一段镜头里有谁 —— 他们的脸会作为参考图发给视频 AI</div>
       <div class="dr-mini">
-        ${cast.map(c => `<div class="dr-pick has sm cast" data-a="delcast" data-ci="${D.esc(c.id)}" title="${D.esc(c.name)} · 点一下从这一段移走（不会删掉这位角色）">${
+        ${cast.map(c => `<div class="dr-pick has sm cast" data-a="delcast" data-ci="${D.esc(c.id)}" title="${D.esc(c.name)} · 点一下准备移走，再点一下才真移走（不会删掉这位角色）">${
           c.kind === 'narrator' ? `<span class="dr-mic" title="旁白：只出声不出镜">${ic('mic', 18)}</span>`
             : c.face ? `<img src="${D.esc(Api.mediaSrc(c.face))}" alt="">`
             : '<span class="dr-ph">没脸</span>'}<small>${ic('close', 10, 1)}</small></div>`).join('')}
@@ -4402,14 +4407,25 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         save(); renderSide();
       }
       /* 从这一段移走一位角色：只是这一段不再有他，**不删角色**（脸上的图、声音、台词都留着）。
-         所以不追问确认 —— 照旁边的 delref 一样点一下就走，移错了上面那个下拉立刻能加回来。
+         **要二次确认**（用户要求）：以前点一下就走，而这一格是 44px 的圆 + 10px 的 ✕，
+         手指一滑人就没了，唯一的补救是翻上面那个下拉再手动加回来 —— 一次误触变成两趟操作。
+         用**原地武装**而不是弹窗：这一步不丢任何东西、也没有要选的（判据与 delChar 同源：
+         会丢 → 弹窗给出路；不会丢 → 原地武装），弹窗只会平白打断。
+         badge 模式：武装的那几秒那张脸必须原样留着（arm 默认用 textContent 覆盖）。
          台词不跟着删：配音是按 whoId 找嗓子的，whoId 不在出场名单里照样找得到（见 dropChar 的注释）。 */
       else if (a === 'delcast') {
         const id = el.dataset.ci;
         const c = (cur.characters || []).find(x => x && x.id === id);
+        const nm = (c && c.name) || '这一位';
+        const seg = '第 ' + (sh.no || '?') + ' 段';
+        if (Confirm.arm(el, '移出', {
+          key: 'delcast:' + (sh.id || '') + ':' + id, badge: true,
+          hint: '再点一次就把「' + nm + '」从' + seg + '的出场名单移走'
+            + '（角色还在本集里，脸与声音都没动）· 点别处或过一会儿自动取消',
+        })) return;
         sh.chars = (sh.chars || []).filter(x => x !== id);
         save(); renderSide();
-        toast('「' + ((c && c.name) || '这一位') + '」从这一段移走了（角色还在本集里，脸与声音都没动）');
+        toast('「' + nm + '」从' + seg + '移走了（角色还在本集里，脸与声音都没动；要加回来用上面那个下拉）');
       }
       else if (a === 'camera') await pickCamera(sh);
       /* 机位候选那两个动作：出 N 张 / 挑一张（挑中的那张还会作这一段的机位参考图）。 */

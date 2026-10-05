@@ -395,7 +395,26 @@ input[type="number"] { font-family: inherit; }
 /* 图标型删除按钮（🗑 / ✕）武装后会被撑宽，给个最短宽度免得整行重排一下。
    别给太大：4.6em 刚好装下「真删?」三个字，再宽就只是把那一行推得更开。 */
 button.armed { min-width: 4.6em; }
-@media (prefers-reduced-motion: reduce) { .armed { animation: none; } }
+/* badge 模式（Confirm.arm 传了 opts.badge）：武装的是**一张图 / 一张脸**而不是一行文字，
+   内容不能被 textContent 冲掉，所以通用那条「整块染红」在这里要盖掉 ——
+   红底会把脸盖成一团红，等于「等这一下」反而不指向具体是哪一张。
+   改成红环 + 环外一枚红底白字的小标签：环是「现在正等着你再点一下」，标签是「点完会做什么」。 */
+.armed.armed-badge {
+  background: transparent !important; color: inherit !important;
+  padding: 0; border-width: 2px; animation: armRing 1.1s ease-in-out infinite;
+}
+.arm-badge {
+  position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  background: var(--err, #dc2626); color: #fff; font-style: normal; font-size: 10px;
+  font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: 7px;
+  white-space: nowrap; pointer-events: none; z-index: 2;
+}
+/* 光晕用红（此时底色透明，白光晕在浅色格子上等于没有） */
+@keyframes armRing { 0%, 100% { box-shadow: 0 0 0 2px var(--err, #dc2626); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,.16); } }
+@media (prefers-reduced-motion: reduce) {
+  .armed { animation: none; }
+  .armed.armed-badge { animation: none; box-shadow: 0 0 0 2px var(--err, #dc2626); }
+}
 /* 已选素材的芯片跟在主操作右边：比胶囊矮一档，行高仍由 .tool 决定 */
 .btn-row .ref-chip { height: 26px; }
 .btn-row .sp { flex: 1; }        /* 把危险动作顶到行尾，三台一致 */
