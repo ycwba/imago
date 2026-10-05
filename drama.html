@@ -3288,10 +3288,18 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     return new Promise(res => {
       const dup = n => (cur.characters || []).some(x => x && x !== c && x.name === n);
       const old = host.innerHTML;
+      /* 新增时 `c` 是 **null**（`applyCharInline(row, null, true)`）。
+         原来这里写的是 `(!isNew || (c.kind || 'actor') === 'actor')`：
+         `isNew` 为真 → `!isNew` 为假 → **恰好落到 `c.kind` 上**，当场
+         `TypeError: Cannot read properties of null`。
+         表现是「＋ 手动加一个角色」一点就炸、角色永远加不进去，而控制台只在
+         渲染栈里留一行红字 —— 而手动模式正是文字 AI 挂掉时用户唯一的出路。
+         所以新增一律按「角色（出镜）」预选，根本不去碰 `c`。 */
+      const curKind = isNew ? 'actor' : (c.kind || 'actor');
       host.innerHTML = `<input class="dr-input" data-f="name" value="${D.esc(isNew ? '' : (c.name || ''))}" placeholder="这一位在剧里的名字" maxlength="20" style="max-width:120px">
         <select class="dr-input" data-f="kind" style="max-width:130px">
-          <option value="actor"${(!isNew || (c.kind || 'actor') === 'actor') ? ' selected' : ''}>角色（出镜）</option>
-          <option value="narrator"${(!isNew && c.kind === 'narrator') ? ' selected' : ''}>旁白（只出声）</option>
+          <option value="actor"${curKind === 'actor' ? ' selected' : ''}>角色（出镜）</option>
+          <option value="narrator"${curKind === 'narrator' ? ' selected' : ''}>旁白（只出声）</option>
         </select>
         <input class="dr-input" data-f="bio" value="${D.esc(isNew ? '' : (c.bio || ''))}" placeholder="一句话人设（可空）" style="flex:1 1 200px">
         <button class="tool acc" data-do="ok">${isNew ? '加进这一集' : '改好'}</button>
