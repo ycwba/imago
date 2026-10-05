@@ -471,6 +471,12 @@ async function readSseStream(res, onDelta) {
       }
       warnOldProxy(_reg);
       warnProxyDown(_reg);
+      /* 「这一家配没配密钥」顺带取一次：型号下拉要靠它把**没添加**的那几家筛掉
+         （`pickable` → `provUsable`）。以前只有设置页调 `envStatus()`，于是导演台 / 生成工作台 /
+         拍短剧各自的 `envKnown()` 恒为假 → 判据按「读不到就不筛」处理 → 没配密钥的厂商照样出现在
+         下拉里。**不在这里补，就只能每个页面各写一行**，而漏一处就有一页不对。
+         刻意不 await：它只影响下拉筛谁，不该让整页等它；失败也无所谓（envKnown 保持假 = 不筛）。 */
+      if (!_envOk) { try { await this.envStatus(); } catch (e) {} }
       return _reg;
     },
     /* 注册表读没读到（页面据此画一条不会消失的提示 + 重新连接按钮；
@@ -547,10 +553,30 @@ async function readSseStream(res, onDelta) {
     base(prov) { return (prov && prov.baseEditable) ? this.baseStored(prov) : ''; },
     /* 这一家在设置页被勾掉了「暂时不用」 */
     isOff(prov) { return this._ls(prov, 'sk_off_') === '1'; },
-    /* 新任务能用哪几家：设置页停用的那家不出现在型号下拉里。
-       **只筛这一条路径** —— Api.prov() 与 REG.providers 照样能查出停用的那家，
-       否则关掉一家会把它名下的历史任务渲染成「未知平台」（收藏、资产库、导演台都在读旧任务）。 */
-    pickable(provs) { return (provs || this.providers()).filter(p => !this.isOff(p)); },
+    /* 新任务能用哪几家：**停用的不出现，没添加（没配密钥）的也不出现**。
+       以前这里只筛「停用」（sk_off_），于是注册表里声明了型号、但本机压根没配密钥的那几家
+       （openai / moonshot / siliconflow / minimax-video …）照样出现在各页面型号下拉里 ——
+       用户在生成工作台的视频下拉里看到的是 minimax/h3、T2V-01-Director 这类
+       **本机根本调不通**的型号，而真正配了密钥的 vgenv 反而被挤到看不见。
+       「能不能用」直接问 provUsable（**唯一一份判据**：设置页「供应商与密钥」、
+       侧栏余额、这里三处共用），不再各写一份。
+       **读不到 /env-status 时保持原样**：envKnown() 为假时一律放行 ——
+       判据缺数据不等于「这一家没配」，把靠服务端 .env 配密钥的平台一起清掉是更坏的错。
+
+       **只筛这一条路径**：Api.prov() 与 REG.providers 照样能查出被筛掉的那几家，
+       否则关掉一家 / 没配密钥的那家，它名下的**历史任务**会被渲染成「未知平台」
+       （收藏、资产库、导演台都在读旧任务 —— 那是另一个查询，不是「新任务能用谁」）。 */
+    pickable(provs) {
+      const list = provs || this.providers();
+      return list.filter(p => {
+        if (this.isOff(p)) return false;
+        /* **必须把 _env 传进去**：provUsable 的环境密钥那一档读的是**参数** env，
+           不传就只剩 localStorage 与 custom 两档 —— 于是**靠服务端 .env 配密钥的
+           sparkcine / vgenv / mimo 会整批从下拉里消失**（比「多列出没配的」更坏：
+           那是把本来能用的也弄没了）。 */
+        return this.envKnown() ? this.provUsable(p, _env) : true;
+      });
+    },
     forKind(kind) { return this.pickable(this.providers().filter(p => p.kind === kind)); },
     /* ---- 设置页「添加自定义供应商」那一份清单（键 sk_custom，JSON 数组）----
        页面只存「照哪一家的接口形状 + 地址 + 型号 id + 显示名」，条目怎么拼成完整声明
