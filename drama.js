@@ -1404,6 +1404,18 @@ window.Drama = (function () {
     }
     return { hit, miss };
   }
+  /* 旁白在界面上的名字。
+     文字 AI 有时把旁白的 `name` 直接写成它自己 JSON 里的那个键 —— `narrator` / `Narrator`，
+     于是左轨上一排中文角色名中间夹一个英文占位符，界面上看着就像漏了个内部字段。
+     只治这一种：中文名（旁白 / 平台提示音 / 系统音…）**一律照原样留着** ——
+     「平台提示音」是有具体身份的角色名，硬改成「旁白」反而把信息抹掉了。
+     `kind` 不是 narrator 的走不到这里（出镜角色叫什么就是什么）。 */
+  const NARRATOR_SLOT = /^(narrator|narration|voice\s?over|narrator\s*voice|旁白|叙述者|解说|画外音)$/i;
+  function narratorName(raw, kind) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (kind !== 'narrator') return s.slice(0, 20);
+    return NARRATOR_SLOT.test(s) ? '旁白' : s.slice(0, 20);
+  }
   function normalizeScript(drama, j, story, extra) {
     /* 单段时长的上限来自视频模型的声明（由调用方算好传进来），不是这里拍的数 */
     const maxShot = Math.max(4, Number(extra && extra.maxShot) || MAX_SHOT_FALLBACK);
@@ -1440,8 +1452,8 @@ window.Drama = (function () {
     drama.characters = [];
     for (const c of (j.characters || [])) {
       if (!c || !c.name) continue;
-      const nm = String(c.name).slice(0, 20);
       const kind = c.kind === 'narrator' ? 'narrator' : 'actor';
+      const nm = narratorName(String(c.name), kind);
       const old = charOld[nm];
       if (old) {
         old.kind = kind;
