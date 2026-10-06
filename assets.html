@@ -83,8 +83,6 @@
   .view-compact .task .acts,
   .view-compact .task .cdet { display: none; }
   .view-compact .task:hover { transform: translateY(-2px); }
-  .task { display: flex; gap: 13px; background: var(--panel); border: 1px solid var(--line);
-    border-radius: 8px; padding: 12px; }
   .task .timg { width: 132px; height: 96px; border-radius: 6px; overflow: hidden; flex: 0 0 auto;
     background: var(--panel2); cursor: zoom-in; display: flex; flex-direction: column;
     align-items: center; justify-content: center; color: var(--sub); font-size: 11px; align-self: flex-start; }
@@ -99,8 +97,6 @@
   .task .dot.run { background: #fbbf24; animation: blink 1.2s infinite; }
   .task .dot.fail { background: var(--err); }
   @keyframes blink { 50% { opacity: .3; } }
-  .spin-dot { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--acc);
-    border-radius: 50%; animation: rot .8s linear infinite; display: inline-block; margin-bottom: 4px; }
   @keyframes rot { to { transform: rotate(360deg); } }
   .task .date { margin-left: auto; }
   .favnote { font-size: 11.5px; color: var(--acc); margin: 2px 0 4px; word-break: break-word; }
@@ -121,13 +117,10 @@
   .badge.fail { color: var(--err); background: rgba(220,38,38,.08); }
   .badge.done { color: var(--ok); background: rgba(74,222,128,.1); }
   .empty { color: var(--sub); font-size: 14px; text-align: center; padding: 60px 0; grid-column: 1/-1; }
-  .pginfo { font-size: 12px; min-width: 90px; }   /* 基础样式在 ui.css，这里只按本页需要微调 */
   /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
   .cdet { font-size: 11.5px; }
-  .det-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; }
   .det-refs img { width: 100%; height: 84px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
   .det-refs img:hover { border-color: var(--acc); }
-  .det-k { font-size: 12px; color: var(--sub); margin: 8px 0 6px; }
   /* 灯箱等公共组件样式统一来自 ui.css */
 </style>
 </head>

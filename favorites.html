@@ -322,11 +322,7 @@
         try {
           const b = await Fav.blobOf(it);
           if (!b) throw new Error('取不到文件');
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(b);
-          a.download = (it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').slice(0, 30) + (it.format ? '.' + it.format : '');
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+          Net.save(b, (it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').slice(0, 30) + (it.format ? '.' + it.format : ''));
           dl.textContent = '已开始下载';
         } catch (err) { dl.textContent = '下载失败'; }
         setTimeout(() => { dl.disabled = false; dl.textContent = '下载'; }, 1800);

@@ -4047,13 +4047,7 @@ $('exportBtn').onclick = async () => {
       }
     }
   }
-  const blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
-  const a = document.createElement('a');
-  const dlUrl = URL.createObjectURL(blob);
-  a.href = dlUrl;
-  a.download = (proj.name || 'project') + '.json';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(dlUrl), 8000);
+  Net.save(new Blob([JSON.stringify(out)], { type: 'application/json' }), (proj.name || 'project') + '.json');
   setStatus('<span class="ok">✓ 已导出项目（' + (out.localBlobs ? '含 ' + Object.keys(out.localBlobs).length + ' 个本地视频' : '不含本地视频文件') + '）</span>');
 };
 $('importBtn').onclick = () => $('importFile').click();
