@@ -113,12 +113,12 @@ window.Drama = (function () {
        想要更省就改 1（等于回到只出一张、挑不了）。 */
     candN: { key: 'dr_cand_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '8',
       label: '角色 / 场景 / 道具 一次出几张候选',
-      hint: '画一次就多一张的钱；实际张数还要看生图平台一次能让出几张（上游只让出一张时就只能出一张）' },
+      hint: '画一次就多一张的钱；这几张各用一条不同的提示词（背景、光线、表情各换一个方向），所以是几个可挑的路子而不是同一张的抖动。实际张数还要看生图平台一次能让出几张' },
     /* 机位候选出几张：机位图是**每段单独**画的，段数一多就是段数 × 这个数，
        所以默认比素材候选少（3 张够挑方向），并在界面上写明会乘以段数。 */
     camN: { key: 'dr_cam_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '9',
       label: '机位一次出几张候选',
-      hint: '机位是**每一段**单独出的：8 段的片子 × 3 张 = 24 张的钱。只想看看构图就不出，想挑就调大' },
+      hint: '机位是每一段单独出的：8 段的片子 × 3 张 = 24 张的钱。只想看看构图就不出，想挑就调大' },
   };
   /* 「这一次要出几张候选」：**判据只有这一处**（页面按钮文案、生图提交、界面上标的上限都读它）。
      夹到 `previewCap`（上游声明的上限）—— 请求一个上游只让出 1 张的模型出 3 张，
@@ -216,10 +216,12 @@ window.Drama = (function () {
       group: String(o.group || '').slice(0, 20), // 素材分组：整组一起交给 AI 用（库与剧侧都带）
       bio: o.bio || '',                         // 一句话人设
       look: o.look || '',                       // 外貌（画脸与一致性都用它）
-      /* faces 字段**留着但不再攒了**（2026-10）：老库里存着的那几张还在，
-         界面上不再有候选排也就不再往里加 —— 这个字段现在只作为「读老数据」的容器。
-         出预览图一律 count:1，主图直接写 face / img。 */
-      faces: Array.isArray(o.faces) ? o.faces : [],   // [{src, name}] 老的多张候选（只读）
+      /* faces 是**候选排**（界面上的「候选脸」那一排，见 picCandsHTML）。
+         一次出 N 张 = N 条不同的提示词（见 CAND_VAR），攒在这里让用户挑。
+         candTurn = 已经轮转到第几条差异轴：靠它保证「再画 N 张」拿到的是**下一批**轴，
+         而不是把同一批重画一遍（那等于让用户花两次钱挑同一组图）。 */
+      faces: Array.isArray(o.faces) ? o.faces : [],   // [{src, name}] 候选
+      candTurn: Number(o.candTurn) || 0,              // 差异轴轮转位（不归一成 0 以外的也没关系，只取数值）
       face: o.face || '',                       // 选中的那张（预览图 + 传给生图/生视频 AI 的脸）
       /* 角色资产：一个列表，每张有类型与关联道具 ——
          [{ id, kind:'three'|'expr'|'costume'|'custom', src, note, propIds:['p1'] }]。
@@ -269,6 +271,7 @@ window.Drama = (function () {
       face: o.face || '',                                   // 预览图（出图或自己传）
       group: String(o.group || '').slice(0, 20),
       faces: Array.isArray(o.faces) ? o.faces : [],
+      candTurn: Number(o.candTurn) || 0,               // 差异轴轮转位（与库条目同义，见 CAND_VAR）
       assets: o.assets || {}, assetCands: o.assetCands || {},
       inLib: !!o.inLib, libId: o.libId || '' };
   }
@@ -1661,7 +1664,49 @@ window.Drama = (function () {
     try { return await AssetTransfer.entryFor(v.prov, 'reference_image', src, { name: name || '预览图' }); }
     catch (e) { return { err: (e && e.message) || String(e) }; }
   }
-  /* 出预览图：角色 = 正面半身定妆照，场景 = 无人物的空镜，道具 = 单件物品陈列。
+  /* ---------- 候选之间要有差异：一次出 N 张 = N 条**不同的**提示词 ----------
+     以前是「一条提示词 + count:N」：同一条提示词下出的 N 张，长相与构图高度相似，
+     于是「出 3 张让你挑」挑出来的是同一张的三个抖动 —— 钱按 3 张付，挑的却不是三个方向。
+     现在改成 **N 次单张请求、每次换一条差异轴**。钱不变（还是 N 张），变的是「彼此像不像」。 */
+  /* 差异轴按对象分三种。角色的基准是**正面白底证件照**（见下面 baseWhat），
+     所以差异只在合规范围内动：背景远近、表情、留白。
+     **刻意不放「换角度/换发型/换服装」这类轴** —— 脸就是后面认脸与三视图的锚点，
+     轴一动就等于把人选好的那一张预览图作废（挑中了谁，另一几张却是另一个人）。 */
+  const CAND_VAR = {
+    char: [
+      '胸部以上构图，表情平静自然，肩线端正',
+      '胸像构图，面带轻微自然微笑，嘴角微微上扬',
+      '略近的胸像构图，五官在画面中占比更大，细节更清晰',
+      '肩部以上构图，头部居中，四周留白均衡',
+      '胸部以上构图，表情沉稳严肃，双唇自然闭合',
+      '胸像构图，双眼平视镜头，头部略微前倾，颈肩线条清晰',
+    ],
+    scene: [
+      '清晨侧光，光线低角度斜射，空气清冷，影子较长',
+      '正午顶光，影子短而硬，色彩明亮通透',
+      '黄昏暖光，光线压得很低，空间层次被拉长',
+      '阴天散射光，明暗对比柔和，色调偏冷灰',
+      '夜晚，以人工光源为主，局部暖色点缀，远景压暗',
+      '雨后，地面有积水反光，天空云层较厚',
+    ],
+    prop: [
+      '正侧 45 度视角，柔和均匀布光，形制与材质都看得清',
+      '正对镜头的平视视角，背景纯净，轮廓完整',
+      '略俯视视角，突出顶部轮廓与表面质感',
+      '正面视角，偏向表现材质纹理与做工细节',
+      '正侧视角，用轮廓光把边缘勾出来，形状从背景里分开',
+      '略仰视视角，物品显得更挺立，底座与支撑看得清',
+    ],
+  };
+  /* 第 n 张该配哪条差异轴。按 `item.candTurn` 轮转：连点两次「出 N 张」拿到的是**下一批**轴，
+     而不是把同一批重画一遍（那等于让用户花两次钱挑同一组图）。 */
+  function candVarOf(item, n) {
+    const bank = CAND_VAR[isPropItem(item) ? 'prop' : isSceneItem(item) ? 'scene' : 'char'];
+    if (!bank || !bank.length) return '';
+    const turn = Number(item.candTurn || 0), i = Number(n) || 0;
+    return bank[(((turn + i) % bank.length) + bank.length) % bank.length];
+  }
+  /* 出预览图：角色 = 正面白底证件照，场景 = 无人物的空镜，道具 = 单件物品陈列。
      三种类型以前只有前两种各写一份；现在这一份里按类型取 `what` 与画幅，改画风只改一处。
      `o.count` = 一次出几张候选 —— **上限看这个生图型号声明的 `max_outputs`**（不在这里写死）。
      2026-10 起两页都只传 `count: 1`（多张候选那一排已下掉），但 `count` 这个口仍然留着：
@@ -1672,28 +1717,56 @@ window.Drama = (function () {
     if (!v) throw new Error('没有可用的生图平台，先在设置页配好生图接口');
     /* 出几张：调用方给了 `o.count` 就照它（单张替换那颗按钮要的就是 1），
        没给就按设置里的「候选张数」再夹到这个型号声明的上限（`candCount` 那一处判据）。 */
-    const want = Math.max(1, Math.min(previewCap(v.model), Number(o && o.count) || candN()));
+    const total = Math.max(1, Math.min(previewCap(v.model), Number(o && o.count) || candN()));
     const scene = isSceneItem(item);
     const prop = isPropItem(item);
     const ratio = drama.opts.ratio || '9:16';
     /* 画幅：道具是单件物品，给竖幅反而浪费像素（1:1 最贴近「陈列一张图」）；
        场景跟整集画幅走（它就是这一集的取景框）；角色远景跟画幅走、近景给 1:1 定妆照。 */
     const ar = prop ? '1:1' : scene ? ratio : (ratio === '9:16' ? '9:16' : '1:1');
-    const what = prop
+    /* 基准提示词。角色的那句从「正面半身，纯净浅色背景」改成**正面白底证件照**：
+       预览图是后面认脸、三视图、生图与生视频的锚点，锚点越中性、背景越干净，
+       视频 AI 越不容易把背景、发型、构图一起搬进每一段；「浅色背景」还会被理解成米色/灰蓝，
+       白底才没有可被发挥的余地。 */
+    const baseWhat = prop
       /* 道具**没有脸可照**：它的图就靠这句描述，所以「只按文字画、别加人物」这两句必须写死 ——
          生图模型很容易给一件雨伞配上一个拿着它的人，而道具是拿去当参考图的，
          参考图里带个人会让视频 AI 在每一段都凭空多出一个人。 */
       ? '这件道具的单件陈列图：只有这一件物品本身，完整入镜、居中、纯净浅色背景，不要人物、不要手、不要环境，不要加别的配件'
       : scene ? '空场景图：无人物，构图留出人物站位，' + (item.time || '') + '的光线'
-        : (item.kind === 'narrator' || item.voiceOnly ? '这位角色的正面半身定妆照（只出声也要有个形象）' : '角色定妆照：正面半身，纯净浅色背景，五官清晰');
-    const prompt = await imagePrompt(REG, {
-      what: what,
-      name: item.name, look: descOf(item) || item.name, style: episodeStyle(drama), ar: ar,
+        : (item.kind === 'narrator' || item.voiceOnly
+          ? '这位角色的正面白底证件照（只出声也要有个形象）：纯白背景、正面平视、胸像构图、五官清晰无遮挡、表情自然'
+          : '角色正面白底证件照：纯白背景、正面平视看向镜头、胸像构图、五官清晰无遮挡、头发不遮脸、均匀柔和的正面光、无多余饰品');
+    const notes = [];
+    const list = [];
+    /* 两段式：先把 N 条提示词**一次写完**（每条换一条差异轴），再把这 N 次生图**一起发出去**。
+       串着跑的话 3 张要等 3 倍时间 —— 而它们互不依赖，谁也不需要等谁。
+       （第 1 步的「写提示词」是文字 AI 调用，第 2 步才是花钱的生图；两段都并行。） */
+    const whatOf = i => {
+      const dif = total > 1 ? candVarOf(item, i) : '';
+      return dif ? (baseWhat + '；' + dif) : baseWhat;
+    };
+    const whats = Array.from({ length: total }, (_, i) => whatOf(i));
+    /* 润色失败退回**设定原文**而不是不出图：imagePrompt 本身已有这层回退，
+       这里再兜一次是因为现在 N 条并行，文字 AI 限流时挂掉的是其中几条。 */
+    const prompts = await Promise.all(whats.map(w =>
+      imagePrompt(REG, { what: w, name: item.name, look: descOf(item) || item.name, style: episodeStyle(drama), ar: ar })
+        .catch(() => w)));
+    const type = prop ? '短剧-道具' : scene ? '短剧-场景' : '短剧-角色定妆';
+    const meta0 = prop ? { 道具: item.name, 画幅: ar } : scene ? { 场景: item.name } : { 角色: item.name, 画幅: ar };
+    const settled = await Promise.allSettled(prompts.map((prompt, i) =>
+      AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: ar, count: 1,
+        log: { type: type, meta: total > 1 ? Object.assign({ 候选: (i + 1) + '/' + total }, meta0) : meta0 } })
+        .then(e => (e.entries || [e]).filter(x => x && x.src))));
+    /* 一张没成不打断整批，但一定要照实说「出了几张、哪几次没成」——
+       默默少给一张，用户还以为是自己挑走了。全部没成才抛出去（那通常是系统性的：
+       没配生图接口、没余额、全部被限流），把每一条原因都带上。 */
+    settled.forEach((r, i) => {
+      if (r.status === 'fulfilled') list.push(...r.value);
+      else notes.push('第 ' + (i + 1) + '/' + total + ' 张没出成：' + ((r.reason && r.reason.message) || String(r.reason)));
     });
-    const e = await AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: ar, count: want,
-      log: { type: prop ? '短剧-道具' : scene ? '短剧-场景' : '短剧-角色定妆',
-        meta: prop ? { 道具: item.name, 画幅: ar } : scene ? { 场景: item.name } : { 角色: item.name, 画幅: ar } } });
-    const list = (e.entries || [e]).filter(x => x && x.src);
+    if (total > 1) item.candTurn = Number(item.candTurn || 0) + total;
+    if (!list.length) throw new Error(notes.join('；') || '一张都没出成');
     /* 候选一律攒进 faces（旧的排在后面，多的按上限裁掉）；已经选中的那张不动 ——
        重画几张不该把人选好的预览图顶掉。`o.replace` 是「AI 重出预览图」那颗按钮：
        单张替换，没有候选可挑时不换就是点了没反应。 */
@@ -1701,7 +1774,7 @@ window.Drama = (function () {
     item.faces = list.map((x, i) => ({ src: x.src, name: '第 ' + (old.length + i + 1) + ' 张' }))
       .concat(old).slice(0, FACE_CAP);
     if (!picOf(item) || (o && o.replace)) setPic(item, list[0].src);
-    return { src: list[0].src, n: list.length, cap: previewCap(v.model) };
+    return { src: list[0].src, n: list.length, cap: previewCap(v.model), notes: notes, want: total };
   }
   /* 一次能出几张候选：只问能力声明（max_outputs），没声明就当 1 张。
      界面上那颗「一次出 N 张」的按钮文字也用这一条，不要页面自己写个 3。 */
@@ -1718,13 +1791,13 @@ window.Drama = (function () {
      表情图锁住表情（不拍出木头脸），服装图锁住这一段穿什么（一个角色有多套衣服时
      不再每段都长成同一件），手持道具图让拿在手上的东西长对。所以三类都重新开放。 */
   const ASSET_PROMPTS = {
-    three: '角色三视图：同一人物的正面、侧面、背面全身排列，服装一致，浅色底',
+    three: '角色三视图：同一人物的正面、侧面、背面全身排列，服装一致，纯白背景',
     expr: '角色表情表：同一张脸的六种情绪并排（平静、微笑、大笑、愤怒、悲伤、惊讶），'
-      + '五官与发型完全一致，只有表情变化，浅色底',
+      + '五官与发型完全一致，只有表情变化，纯白背景',
     costume: '角色服装图：这一位角色的全套服装正面平铺展示（完整上身与下身、鞋、随身小物），'
-      + '与参考图里是同一个人、同一身形，浅色底',
+      + '与参考图里是同一个人、同一身形，纯白背景',
     prop: '角色手持道具图：这一位角色手里拿着的那件东西单独陈列（与参考图里是同一个人拿着它），'
-      + '中性背景，突出物件本身的形制与材质',
+      + '纯白背景，突出物件本身的形制与材质',
     /* `custom` 没有固定提示词 —— 用户自己写「画什么」。见下面 `what` 的取法。 */
     custom: '',
   };
@@ -3140,7 +3213,7 @@ window.Drama = (function () {
   async function takeLastFrame(drama, shot, take) {
     const src = takeVideo(drama, shot, take);
     if (!src) throw new Error('上一段没有画面，取不到最后一帧');
-    if (!window.Wb || !Wb.vframe) throw new Error('取帧组件没加载（workbench.js）');
+    if (!window.Wb || !Wb.vframe) throw new Error('取帧组件没加载（刷新一下这一页）');
     const g = await Wb.vframe.grab(src, 'last');
     const b64 = await new Promise((res, rej) => {
       const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1] || ''); rd.onerror = rej; rd.readAsDataURL(g.blob);

@@ -222,6 +222,11 @@ window.PickSel = function PickSel(o) {
   const multiple = opt.multiple !== false;
   const picked = new Set();
   let anchor = -1, sig = '';
+  /* 锚点的「那一段顺序」签名：从列表开头一直签到锚点那一张为止。
+     keyOf 可选：条目没有稳定 id 时用引用拼串没意义，交给调用方给键。 */
+  const keysUpTo = (arr, i) => arr.slice(0, i >= 0 ? i + 1 : arr.length)
+    .map((e, j) => (opt.keyOf ? opt.keyOf(e) : j)).join('|');
+  const setAnchor = (arr, i) => { anchor = i; sig = keysUpTo(arr, i); };
   const sync = () => { if (opt.onSync) { try { opt.onSync(); } catch {} } };
   const note = t => { if (opt.onNote) { try { opt.onNote(t); } catch {} } };
   /* 外部（本地上传）把条目塞进**同一个** picked：点卡片与传文件必须是同一份选中，
@@ -242,15 +247,19 @@ window.PickSel = function PickSel(o) {
     /* 返回真正加进去的个数，差值就是被上限挡掉的（调用方照实说，别自己再编一套上限） */
     add: addOne,
     addMany(list) { let n = 0; for (const e of list || []) if (addOne(e)) n++; if (n) sync(); return n; },
-    /* 顺序签名变了就把锚点作废。keyOf 可选：条目没有稳定 id 时用引用拼串没意义，交给调用方给键 */
+    /* 列表重画：锚点之前那一段没变就留着，变了才作废。
+       「一次画 200 条、滚到底再追加 200 条」时前面顺序一个字没动 —— 作废的表现是
+       Shift 连选忽然退成单选，用户以为连选坏了；而真换了筛选 / 档位、或者锚点那一张
+       已经不在列表里时，这一串键必然跟着变，照样作废（AGENTS 里那条「顺序变了锚点作废」守的就是这个）。 */
     reflow(order) {
-      const k = (order || []).map((e, i) => (opt.keyOf ? opt.keyOf(e) : i)).join('|');
-      if (k !== sig) { sig = k; anchor = -1; }
+      const arr = order || [];
+      if (anchor >= 0 && keysUpTo(arr, anchor) === sig) return;
+      setAnchor(arr, -1);
     },
     click(order, e, shift) {
       const arr = order || [];
       const idx = arr.indexOf(e);
-      if (!multiple) { picked.clear(); picked.add(e); anchor = idx; sync(); return; }
+      if (!multiple) { picked.clear(); picked.add(e); setAnchor(arr, idx); sync(); return; }
       if (shift && anchor >= 0 && idx >= 0) {
         const a = Math.min(anchor, idx), b = Math.max(anchor, idx);
         let overflow = 0;
@@ -260,18 +269,28 @@ window.PickSel = function PickSel(o) {
           if (cap && picked.size >= cap) { overflow++; continue; }
           picked.add(it);
         }
-        anchor = idx;
+        setAnchor(arr, idx);
         sync();
         if (overflow) note('这一段有 ' + (b - a + 1) + ' 个，已选满 ' + cap + ' 个，多的没选中');
         return;
       }
-      anchor = idx;
+      setAnchor(arr, idx);
       if (picked.has(e)) picked.delete(e);
       else {
         if (cap && picked.size >= cap) { note('最多选 ' + cap + ' 个（已选满，先取消一个再选）'); return; }
         picked.add(e);
       }
       sync();                       // 只改选中态，不重建卡片（否则缩略图又闪一次）
+    },
+    /* 池子变了（新到的一批把这一条并掉了）→ 选中跟着挪到留任的那一条上。
+       没有这一步，「同一份文件换了个来路」就等于把用户已经点中的东西无声丢掉
+       （选择器里收藏那一批先画、平台列表几秒后才到，正好撞上）。 */
+    replace(oldE, newE) {
+      if (!oldE || !picked.has(oldE)) return false;
+      picked.delete(oldE);
+      if (newE) picked.add(newE);
+      sync();
+      return true;
     },
     /* 池子变了（换筛选条件、刷新列表）→ 已经不在池里的选择要作废，别把幽灵条目交出去 */
     prune(keep) { [...picked].forEach(e => { if (!keep.has(e)) picked.delete(e); }); },

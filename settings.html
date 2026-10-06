@@ -5,6 +5,7 @@
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>设置 · 拾帧</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="ui.css">
 <style>
   :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --input:#f6f7fb; --pri:#7c5cff; }
@@ -206,7 +207,7 @@
 <body>
 <div class="page-main">
   <h1><span data-icon="gear" data-size="18"></span> 设置</h1>
-  <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（proxy.js 源码里不带任何密钥）。</div>
+  <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（代理程序本身不带任何密钥）。</div>
 
   <!-- 这一页有十多栏、两三千行，找一项设置全靠滚。这一条把「有哪些栏」与「搜关键词」放在最上面，
        栏目清单是从下面的 .card 现读的（新加一栏自动出现，不要再手抄一份标题清单）。 -->
@@ -221,9 +222,8 @@
 
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="key" data-size="15"></span>供应商与密钥（按生成类型分开）</h2>
-    <div class="sub">只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。
-      找不到某家，就是还没接进来 —— 点右边的「＋ 添加自定义供应商」。
-      <b>「识图能力」是全局一项</b>，所以只画在当前「作用文字 AI」的那张卡下面。</div>
+    <div class="sub">只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
+      <b>「识图能力」是全局一项</b>，只画在当前「作用文字 AI」的那张卡下面。</div>
     <div class="ui-seg" id="provTabs"></div>
     <div class="krow thin">
       <span class="hint sm" id="provSum"></span>
@@ -517,6 +517,7 @@
   </div>
 </div>
 
+<script src="ident.js"></script>
 <script src="assetlib.js"></script>
 <script src="ui.js"></script>
 <!-- 清理缓存那一节要用 Wb.thumbs / Wb.History（只加载定义，本页没有 .wb2 布局不会触发分栏逻辑） -->
@@ -745,9 +746,8 @@ function renderProv() {
       ? ('转发到 <code>' + escA(m.prov.base) + '</code> · 接口形状取自「' + escA(m.shapeName) + '」 · 型号 '
         + ((m.prov.models || []).length) + ' 个 —— 名字 / 地址 / 型号清单点下面那颗「编辑」改')
       : (m.prov.baseEditable
-        ? '官方地址 <code>' + escA(m.base) + '</code>（可以改成任意 OpenAI 兼容地址，按供应方各存各的）'
-        : '官方地址 <code>' + escA(m.base) + '</code>（这一栏不收地址：同形状的中转站请添加成自定义供应商，'
-          + '免得和官方那一家共用一把密钥）');
+        ? '官方地址 <code>' + escA(m.base) + '</code>（可改成任意 OpenAI 兼容地址，按供应方各存各的）'
+        : '官方地址 <code>' + escA(m.base) + '</code>（不收地址：中转站请添加成自定义供应商）');
     wrap.innerHTML =
       '<div class="krow">' +
         '<span class="kicon">' + icon('key', 15) + '</span><span class="kn">' + nameHtml
@@ -1071,7 +1071,7 @@ function renderCus() {
     if (window.Dropdowns) Dropdowns.sync(sel);
     if (!fams.length) {
       $('cusModels').innerHTML = '<span class="hint sm">这一类在注册表里还没有登记接口形状 ——'
-        + ' 要接这种平台请在 proxy.js 的 REGISTRY.interfaceShapes 里加一族（点名它照哪一家实现）。</span>';
+        + ' 接口形状完全不一样的平台需要改代理的注册表，这里不猜字段。</span>';
       hint.textContent = '';
       cusSyncBase();            // 这一支提前 return，地址的默认值照样要跟上
       return;
@@ -1400,8 +1400,8 @@ async function cusRemove(kid) {
       /* 404 = 跑着的代理是加这一项之前启动的旧进程。这不是「环境坏了」，说清楚重启才有 */
       last = null; syncCopyBtn();
       box.innerHTML = e && e.status === 404
-        ? '<div class="ui-note info">这一项要<b>重启本地代理</b>才有（旧代理没有 <code>/sys-status</code> 这个接口）：'
-          + '启动.bat → 2 停止 → 1 启动，回来点「重新体检」。</div>'
+        ? '<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
+          + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新体检」。</div>'
         : '<div class="ui-note err">读不到本机环境：' + esc((e && e.message) || e) + '</div>';
       return;
     }
@@ -2058,19 +2058,25 @@ function renderUiPrefs() {
     });
   });
   /* 底部一行实况：产物镜像到底存了多少、占了多少盘。
-     口径只有 AssetLocal.stats 一处（不在这儿另数一遍）；它是「指针表」里的条数与字节，
-     本体是 .assets/ 下的文件 —— 与同步生成的语音/生图放在同一个目录里（共用一张索引）。 */
+     口径只有 AssetLocal.stats 一处（不在这儿另数一遍）。
+     先画缓存、再用现算的覆盖它 —— stats() 读的是浏览器里那张指针表，
+     换端口 / 无痕窗口 / 清过浏览器数据之后它是空的，直接画就会写「本机已存 0 个产物」，
+     而 .assets 里其实有 83 份（实测无痕窗口打开设置页：磁盘上明明有，页面写 0）。
+     界面说的话必须等于事实，所以异步拉一次代理那份索引回来认，再把这一行改对。 */
   try {
     if (window.AssetLocal) {
-      const s = AssetLocal.stats();
-      const mb = s.bytes >= 1024 * 1024 * 1024 ? (s.bytes / 1073741824).toFixed(2) + ' GB'
-        : s.bytes >= 1024 * 1024 ? (s.bytes / 1048576).toFixed(1) + ' MB' : Math.round(s.bytes / 1024) + ' KB';
       const line = document.createElement('div');
       line.className = 'hint sm';
       line.style.marginTop = '8px';
-      line.textContent = AssetLocal.saveOn()
-        ? ('本机已存 ' + s.count + ' 个产物，共 ' + mb + '（单个文件超过 200 MB 的不自动存，界面上会照常用平台地址显示）')
-        : '产物自动存本机已关闭：卡片只留平台地址，地址过期后只能靠「优先用本机文件」之外的手段找回。';
+      const mbOf = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
+        : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+      const paint = s => {
+        line.textContent = AssetLocal.saveOn()
+          ? ('本机已存 ' + s.count + ' 个产物，共 ' + mbOf(s.bytes) + '（单个超过 200 MB 的不自动存）')
+          : '产物自动存本机已关闭：卡片只留平台地址，地址过期后只能靠「优先用本机文件」之外的手段找回。';
+      };
+      paint(AssetLocal.stats());            // 先给缓存，别让这一行空着等
+      if (AssetLocal.syncStats) AssetLocal.syncStats().then(paint).catch(() => {});
       box.appendChild(line);
     }
   } catch (e) {}
@@ -2087,7 +2093,17 @@ function renderUiPrefs() {
    （浏览器自己给不了真实路径 —— `<input type="file" webkitdirectory>` 只给文件夹名、
    File System Access 给的是存不下来的句柄，所以这条路只能让本机进程去弹，
    和它探 ffmpeg、开资源管理器是同一类活），右边直接手打路径也行。
-   两个入口填的是同一个值，所以「挑完就存」不用再点一次保存。 */
+   两个入口填的是同一个值，所以「挑完就存」不用再点一次保存。
+
+   下面紧跟着的那一整段（AS_LAST_TARGET / askFollowTarget / runFollow）解决的是
+   「换位置时旧的怎么办、没另存过的怎么补」—— 函数体在 saveAutosave 之后，
+   但这三个词法声明排在**这里**：renderAutosaveDirs 末尾要用 asSnapshot()，
+   而 renderUiPrefs() 什么时候调是页面的事；把声明放在使用点后面，
+   一次无关的重排就能把它推进 TDZ（当场 ReferenceError，整张设置页画不出来）。 */
+let AS_LAST_TARGET = null;          // 本页打开 / 那张卡重画时那一版配置（见 renderAutosaveDirs 末尾）
+let AS_ASKING = false;              // 已经在问了：再来一次触发直接跳过，别叠两层框
+const mbOf = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
+  : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
 function renderAutosaveDirs(box) {
   if (!box || !window.AssetLocal) return;
   const head = document.createElement('div');
@@ -2097,9 +2113,9 @@ function renderAutosaveDirs(box) {
   const tip = document.createElement('div');
   tip.className = 'hint sm';
   tip.style.margin = '-4px 0 8px';
-  tip.textContent = '每类可以分开设：关掉就不再自动存这一类；填了目录就在那边**额外**存一份（同名自动加序号，不覆盖）。'
+  tip.textContent = '每类可以分开设：关掉就不再自动存这一类；填了目录就在那边「额外」存一份（同名自动加序号，不覆盖）。'
     + '目录可以点「📁 选择…」让系统弹框挑，也可以直接手打；目录不存在会自动建，写不进去时下面那一行会照实说原因。'
-    + '留空 = 只存在本机资产库（.assets）。';
+    + '留空 = 存到项目下的「文件\\类型」文件夹（如 文件\\视频），那里你直接翻得到。';
   box.appendChild(tip);
   const conf = AssetLocal.autosaveConf();
   const last = AssetLocal.lastSave();
@@ -2108,21 +2124,25 @@ function renderAutosaveDirs(box) {
     row.className = 'krow';
     const cb = document.createElement('input');
     cb.type = 'checkbox'; cb.checked = !!conf[k.id].on; cb.dataset.as = k.id + ':on';
-    cb.onchange = () => { saveAutosave(); markDirty(); };
+    cb.onchange = () => { saveAutosave(true); markDirty(); };
     const kn = document.createElement('span');
     kn.className = 'kn'; kn.textContent = k.zh;
     const inp = document.createElement('input');
-    inp.type = 'text'; inp.placeholder = '留空 = 只存本机资产库　例：D:\\AI生成\\' + k.zh;
+    inp.type = 'text'; inp.placeholder = '留空 = 存到 文件\\' + k.zh + '\\　例：D:\\AI生成\\';
     inp.value = conf[k.id].dir; inp.dataset.as = k.id + ':dir';
     inp.style.minWidth = '260px';
     inp.oninput = () => { saveAutosave(); };
-    inp.onchange = () => { saveAutosave(); markDirty(); };
+    inp.onchange = () => { saveAutosave(true); markDirty(); };
     const why = document.createElement('span');
     why.className = 'hint sm'; why.dataset.aswhy = k.id;
     const r = last[k.id];
     if (r && !r.ok && r.why) why.innerHTML = '<b style="color:var(--err)">上次没存成：</b>' + escA(r.why);
     else if (r && r.ok && r.file) why.textContent = '上次存成：' + r.file;
-    else if (r && r.ok && r.skipped) why.textContent = '没填目录，这一类只存在本机资产库';
+    /* 以前这里还有一条 `r.skipped` →「这一类这次没落盘（没归到任何一类）」。
+       **`skipped` 这个字段现在的代码根本不写** —— 它是「目录留空就不存」那套旧逻辑
+       （2026-10 之前）留下的残留记录，而旧值还在 localStorage 里躺着。
+       照着它编一句理由，就是拿一条过时的事实告诉用户「没归到任何一类」，
+       而真实原因是他打开这一项之后**一次都没触发过**。所以不认这个字段。 */
     const pick = document.createElement('button');
     pick.type = 'button';
     pick.className = 'tool';
@@ -2132,6 +2152,12 @@ function renderAutosaveDirs(box) {
     row.appendChild(cb); row.appendChild(kn); row.appendChild(inp); row.appendChild(pick); row.appendChild(why);
     box.appendChild(row);
   });
+  /* 基线钉在这儿：**每次重画这张卡都重钉一次**。重画 = 刚打开设置页 / 切走再切回来，
+     那时的配置就是当前真相；不重钉的话，隔一天再打开会拿几小时前那一版去比，
+     问出「你这目录怎么变了」这种用户根本没经历过的变化。
+     代价是重画正好发生在「刚改完还没问」之间的那几毫秒里，这一问会丢 ——
+     宁可漏问一次，也不要每次切标签页都弹一次框。 */
+  AS_LAST_TARGET = asSnapshot();
 }
 /* 点「📁 选择…」：弹系统文件夹选择框，挑完直接填进输入框并落盘。
    **取消不算错**：用户在框里点「取消」是正常的一步（挑错地方了、想重新挑），
@@ -2147,7 +2173,7 @@ async function pickDirFor(k, inp, btn, why) {
     if (r && r.cancelled) { if (why) why.textContent = '你取消了，目录没改。'; return; }
     if (!r || !r.ok || !r.dir) { if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + escA((r && r.error && r.error.message) || '代理没有回路径'); return; }
     inp.value = r.dir;
-    saveAutosave(); markDirty();
+    saveAutosave(true); markDirty();
     if (why) why.innerHTML = '已选：<b>' + escA(r.dir) + '</b>（已经存好了，下次生成就往这儿放）';
   } catch (e) {
     if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + escA((e && e.message) || String(e));
@@ -2156,7 +2182,7 @@ async function pickDirFor(k, inp, btn, why) {
     btn.textContent = old;
   }
 }
-function saveAutosave() {
+function saveAutosave(maybeAsk) {
   if (!window.AssetLocal) return;
   const c = AssetLocal.autosaveConf();
   document.querySelectorAll('[data-as]').forEach(el => {
@@ -2166,6 +2192,107 @@ function saveAutosave() {
     else c[kind].dir = String(el.value || '').trim();
   });
   AssetLocal.setAutosaveConf(c);
+  /* 「要不要把之前存的搬过去 / 补一份」只在这一刻问：勾了开关、改完路径、挑完目录
+     —— 也就是用户明确动过之后。`oninput`（逐字输入）绝**不**问：打一个字弹一次框，
+     而且那时的目录多半还是半个，问了也是白问。 */
+  if (maybeAsk) askFollowTarget();
+}
+/* ---------- 换位置 / 刚打开开关：旧的搬过去、没存的补一份 ----------
+   为什么要有这一段：另存这条链只挂在**镜像流程内部**（assetlib.js 的 runOne），
+   而镜像那一步先被 offer() 的「这份产物已经存过了就跳过」挡在前面。
+   于是开关打开之前下载的那批（实测这台机器 83 个 / 86.4 MB）永远不会被补写 ——
+   用户把开关打开、目录也填对了，目录里还是空的，而界面上看不出任何异常。
+   「换了地方旧的那份还在原地」是同一类问题：用户已经主动换位置了，旧目录里那份
+   不搬走就是白占一份磁盘（86 MB 不小，两份就是两份）。
+
+   真正动文件的是代理那两条路由（/save-move、/save-local）。本页只递**本机号**与
+   **旧目录**，目标路径一律由代理从配置读 —— 与 /save 同一条安全立场：
+   浏览器递过去的路径没法验证，代理也没法验证调用方是不是本工作台的页面。
+
+   （AS_LAST_TARGET / AS_ASKING / mbOf 三个词法声明在 renderAutosaveDirs 前面 —— 
+   那张卡末尾要调 asSnapshot()，声明排在使用点后面会被一次重排推进 TDZ。） */
+/* 当前这一版配置长什么样。只认 AssetLocal.autosaveConf 一处，不自己再读一遍 localStorage。 */
+function asSnapshot() {
+  const c = AssetLocal.autosaveConf();
+  const out = {};
+  for (const k of AssetLocal.SAVE_KINDS) {
+    const r = c[k.id] || {};
+    out[k.id] = { on: !!r.on, dir: String(r.dir || '') };
+  }
+  return out;
+}
+/* 哪几类值得问一句：这一类**现在是开的**，而且（目录换了 / 从没开变开）。
+   关掉的不问 —— 不存了没什么可提醒的；没变化的也不问。 */
+function asChanges() {
+  if (!AS_LAST_TARGET) return [];
+  const now = asSnapshot();
+  const out = [];
+  for (const k of AssetLocal.SAVE_KINDS) {
+    const a = AS_LAST_TARGET[k.id] || { on: false, dir: '' }, b = now[k.id];
+    if (!b.on) continue;
+    if (a.on && a.dir === b.dir) continue;
+    out.push({ id: k.id, zh: k.zh, from: a.dir, to: b.dir, fromOn: a.on });
+  }
+  return out;
+}
+/* 旧目录里有没有东西可搬：以前这一类也是开的、而且目录真的换了。
+   以前是关着的 → 旧目录压根没被写过，搬了也是搬空气。 */
+function asCanMove(c) { return !!(c.fromOn && c.from !== c.to); }
+async function askFollowTarget() {
+  if (!AS_LAST_TARGET || AS_ASKING || !window.Api || !Api.saveLocal) return;
+  const chs = asChanges();
+  if (!chs.length) return;
+  AS_ASKING = true;
+  try { for (const c of chs) await runFollow(c); }
+  finally { AS_ASKING = false; AS_LAST_TARGET = asSnapshot(); }   // 问完就把基线推到当前，不反复问同一件事
+}
+async function runFollow(c) {
+  const ids = AssetLocal.mirrorIds().filter(x => x.kind === c.id).map(x => x.id);
+  const canMove = asCanMove(c);
+  if (!ids.length && !canMove) return;          // 库里没有这一类、旧目录也用不着搬 → 没什么可问
+  const opts = [];
+  if (canMove) opts.push({
+    value: 'both', label: '搬过去，并把没存过的补上',
+    hint: c.from + ' 里的 ' + c.zh + ' 移到 ' + c.to + '（搬完删掉旧的那份），再从本机资产库补齐没另存过的。',
+  });
+  opts.push({
+    value: 'fill', label: ids.length ? ('只补存（' + ids.length + ' 个）') : '只补存',
+    hint: '从本机资产库拷一份到 ' + c.to + '；旧目录里那份原样留着。',
+  });
+  const pick = await Confirm.choose({
+    title: c.zh + '：要把之前存的挪到新地方吗？',
+    sub: canMove ? '旧目录：' + c.from + '\n新目录：' + c.to : '新目录：' + c.to,
+    body: '字节都已经在本机资产库里了，这里只是拷/挪一份 —— 不重新下载、不回源，本机资产库那份一律不动。',
+    options: opts, cancelLabel: '先不动',
+  });
+  if (!pick) return;
+  /* 顺序：**先搬后补**。反过来会出问题 —— 补存把旧的又拷了一份到新目录，
+     紧接着搬迁再搬一份，同一个视频在新目录里就是两份（搬出来那个还带 -2 序号）。
+     先搬完，补存那一步就能看出「那边已经有了」并跳过（代理按内容 sha1 判，不是按文件名）。 */
+  try {
+    if (pick === 'both' && canMove) {
+      const mv = await Api.saveMove({ kind: c.id, from: c.from || '@default' });
+      const dup = (mv && mv.dup && mv.dup.length) || 0;
+      Toast.ok(c.zh + '：从 ' + c.from + ' 搬走 ' + ((mv && mv.moved.length) || 0) + ' 个'
+        + (dup ? '（新目录里已有同样内容，只清掉旧的那份 ' + dup + ' 个）' : '')
+        + ((mv && mv.failed && mv.failed.length) ? '，' + mv.failed.length + ' 个没搬成' : ''));
+    }
+    if (ids.length) {
+      const r = await Api.saveLocal({ ids });
+      const dup = (r && r.dup && r.dup.length) || 0;
+      const n = (r && r.saved && r.saved.length) || 0;
+      const bad = r && r.full && r.full.length;
+      if (bad) Toast.err(c.zh + '：补存了 ' + n + ' 个，' + bad + ' 个没存成（'
+        + ((r.full[0] && r.full[0].why) || '原因不明') + '）');
+      else if (n || dup) Toast.ok(c.zh + '：补存 ' + n + ' 个（' + mbOf((r && r.bytes) || 0) + '）'
+        + (dup ? '，那边已经有了 ' + dup + ' 个没重复拷' : ''));
+      else Toast.err(c.zh + '：这一类一个都没存成（' + ((r && r.full && r.full[0] && r.full[0].why) || '原因不明') + '）');
+    }
+  } catch (e) {
+    /* 照实说，不替用户猜。最常见的是旧目录不在代理的「写出去过的目录」名单里
+       —— 那是 2026-10 之前存的目录，代理没法证明它是自己写的，所以不搬。 */
+    Toast.err('没能搬/补：' + ((e && e.message) || String(e)));
+  }
 }
 function saveUiPrefs() {
   for (const r of ((window.UI_PREFS && UI_PREFS.rows) || [])) {
@@ -2197,7 +2324,7 @@ renderUiPrefs();
 function renderDramaSet() {
   const box = $('dramaSet');
   const SET = window.Drama && window.Drama.SET;
-  if (!SET) { box.innerHTML = '<span class="hint sm">读不到「拍短剧」的设置表（drama.js 没加载？）</span>'; return; }
+  if (!SET) { box.innerHTML = '<span class="hint sm">读不到「拍短剧」的设置表（模块没加载，刷新一下这一页）</span>'; return; }
   const esc = s => window.esc(String(s == null ? '' : s));
   box.innerHTML = '';
   Object.keys(SET).forEach(id => {
@@ -2477,7 +2604,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
   (function renderPolishGroups() {
     const box = $('polishGroups');
     if (!box) return;
-    if (!window.TextAI.PROMPTS) { box.innerHTML = '<div class="pb-tip err">读不到 TextAI.PROMPTS（assetlib.js 没加载？）</div>'; return; }
+    if (!window.TextAI.PROMPTS) { box.innerHTML = '<div class="pb-tip err">读不到文字 AI 的指令表（模块没加载，刷新一下这一页）</div>'; return; }
     box.innerHTML = window.TextAI.PROMPTS.map(g => {
       const items = g.items || [];
       return '<div class="pg-head"><b>' + escA(g.name) + '</b><span class="n">' + items.length + ' 条</span></div>'
@@ -2807,7 +2934,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     const kind = b.dataset.reset, el = document.getElementById('pp_' + kind);
     if (!el) return;
     if (typeof defs[kind] !== 'string' || !defs[kind]) {
-      Toast.err('这一条在 TextAI.DEF 里没有默认文本，已跳过（请检查 assetlib.js）');
+      Toast.err('这一条没有默认文本，已跳过');
       return;
     }
     el.value = defs[kind];
@@ -2841,7 +2968,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
   /* 代理侧的应答缓存：只有代理自己知道条数，所以让它回一份清理明细 */
   const proxyCaches = async () => {
     const r = await Net.fetch('/clear-cache', { method: 'POST', timeout: 10000, retry: 0 });
-    if (!r.ok) throw new Error('代理 HTTP ' + r.status + '（代理版本太旧？重启 proxy.js 即可）');
+    if (!r.ok) throw new Error('代理 HTTP ' + r.status + '（代理版本太旧？重启一下代理即可）');
     return (await r.json()).cleared || {};
   };
 

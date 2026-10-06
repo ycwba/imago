@@ -24,30 +24,20 @@
    于是那几处一执行就抛 ReferenceError：VGENV 的每条列表数据在归一化时全挂
    （被 Promise.allSettled 静默吞掉 → 界面上 VGENV 任务永远不出现），收藏资产也一并坏掉。
    Api.mediaSrc 仍然对外暴露同一个实现（页面统一用 Api.mediaSrc）。 */
-/* 内层地址里「每次签名都会变」的参数：剥掉它们，同一份素材才认得出是同一份
-   （缓存键、回源结果、去重全靠这个身份；其余 query 保留并排序 —— 有的平台把区分素材的
-   id 放在 query 里，只留 host+path 会让不同素材撞成同一个）。 */
-const VOLATILE_Q = /^(expires|signature|ossaccesskeyid|x-oss-[a-z-]+|key-pair-id|x-amz-[a-z0-9-]+|auth_key|policy|token|nonce|cachebust|r|v)$/i;
-/* /getv?url=<内层> 与 /fetch?url=<内层>&dl=1 都包着签名外链，取内层时两种都认。 */
-function innerMedia(u) {
-  const s = String(u == null ? '' : u);
-  if (!s) return '';
-  const m = /^\/(?:getv|fetch)\?[^#]*?\burl=([^&]+)/i.exec(s);
-  if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
-  return /^https?:\/\//i.test(s) ? s : '';
-}
-/* 素材身份：内外层地址都算得出来，签名换了它不变。 */
+/* 「剥哪些签名参数」「怎么从 /getv 包装里取内层」这两条判据只在 ident.js 有一份。
+   以前这里是本文件自己抄的一份正则，proxy.js 那边又抄了一份，注释里写着
+   「两边必须一致」却没有任何东西保证它一致 —— 漂一次的后果是同一份产物被反复
+   下载落盘、资产库里同一张卡重复出现 N 次。
+   ident.js 没加载就在下面这行当场炸（TypeError 指向 MediaId），**不要在这加兜底副本**：
+   悄悄退回第二份判据，正好是这次要拆掉的东西。 */
+const { innerMedia, upKeyOf } = window.MediaId;
+/* 素材身份：内外层地址都算得出来，签名换了它不变。相对地址靠 location.href 当 base；
+   代理那边只吃绝对外链所以不用 base —— 那一层差异留在各自的薄壳里，
+   共享的是 upKeyOf（「剥哪些参数、怎么拼」那一条真正会漂的判据）。 */
 function mediaKey(u) {
   const inner = innerMedia(u);
   if (!inner) return '';
-  try {
-    const x = new URL(inner, location.href);
-    const keep = [...x.searchParams.entries()]
-      .filter(([k]) => !VOLATILE_Q.test(k))
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-      .map(([k, v]) => k + '=' + v);
-    return x.host + x.pathname + (keep.length ? '?' + keep.join('&') : '');
-  } catch (e) { return inner; }
+  try { return upKeyOf(new URL(inner, location.href)); } catch (e) { return inner; }
 }
 /* 签名过期时刻（毫秒）：读不到过期参数就返回 0（本地 /asset/<id>、平台长期地址都不该反复回源）。 */
 function signedExpiry(u) {
@@ -103,6 +93,20 @@ function rewrapMedia(old, fresh) {
 function mediaSrc(url) {
   const u = String(url == null ? '' : url);
   if (!u) return '';
+  /* 产物在本机存过（自动镜像）→ 用本机那一份。这一步放在**地址层**而不是列表层：
+     以前只有 AssetLib.decorate 会换（它只服务列表条目），于是设置页那个
+     「优先用本机文件」的开关只管得着资产库那张列表 —— 收藏、导演台、短剧里存着的
+     还是当年的签名外链，第二天 403，表现就是「视频没有预览图、点开只回一句 Format error」，
+     而本机明明有那一个文件。勾了「优先用本机」却照打外链 = 开关在骗人。
+     只认 http(s) 与 /getv 包装（/fetch 的下载语义、本机地址自己都不用再换）。
+     **这里不处理 /asset/<平台产物号> 那一路**：它在抽帧那边已经由缩略图键解决
+     （keyOf → localAssetIdOf → 同一个本机号，抽帧地址随即变成本机文件，见 workbench.js）。
+     在这一层改它会越过「优先用本机文件」开关去换**画面上取哪个字节** —— 那是开关自己的活。 */
+  if (/^(https?:|\/getv\?)/i.test(u)) {
+    const AL = window.AssetLocal;
+    const loc = (AL && AL.localCopyOf) ? AL.localCopyOf(u) : '';
+    if (loc) return loc;
+  }
   /* 外链统一改走本地代理：页面里的 <img>/<video>/fetch 只碰本地地址，字节由代理取回
      （/getv 支持 Range，播放、抽帧、量体积、下载都能用），所以「所有外部访问都经过本地路由」
      这条规则没有例外，也不会因为上游没给 CORS 头而抽不出帧。 */
@@ -603,7 +607,7 @@ async function readSseStream(res, onDelta) {
     /* 端点 URL：端点名 → relay + 模板（{id} 用 sub 替换） */
     url(prov, name, sub) {
       const ep = prov && prov.endpoints && prov.endpoints[name];
-      if (!ep) throw new Error(((prov && prov.name) || '该平台') + ' 没有声明「' + name + '」接口（请在 proxy.js 的 REGISTRY 里补上）');
+      if (!ep) throw new Error(((prov && prov.name) || '该平台') + ' 没有声明「' + name + '」接口（这个型号没声明）');
       // 'local:/xxx' = 代理本地端点（如本地资产库），不加 relay 前缀
       const local = ep.startsWith('local:');
       const path = local ? ep.slice('local:'.length) : prov.relay + ep;
@@ -752,7 +756,7 @@ async function readSseStream(res, onDelta) {
     /* 创建任务：标准字段 → registry 声明的请求体（nest 决定哪些要嵌进 parameters） */
     createBody(prov, f = {}) {
       const spec = (prov && prov.create) || null;
-      if (!spec) throw new Error(((prov && prov.name) || '该平台') + ' 没有声明 create（请在 proxy.js 的 REGISTRY 里补上）');
+      if (!spec) throw new Error(((prov && prov.name) || '该平台') + ' 没有声明怎么提交（这个型号不完整）');
       const std = { model: f.model, prompt: f.prompt, tier: f.tier, duration: f.duration, res: f.res,
         ar: f.ar, quality: f.quality, count: f.count, format: f.format,
         /* size = 「宽x高」那一类画幅参数（SiliconFlow 的 image_size、OpenAI 兼容的 size）。
@@ -881,6 +885,29 @@ async function readSseStream(res, onDelta) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, name, mime, format, data }),
+      });
+    },
+    /* 把**已经存在本机资产库里的成品**补一份到设置里指定的那个文件夹。
+       为什么需要它：`saveToDir` 只挂在**镜像流程内部**（runOne），而镜像那一步先被
+       `offer()` 的「这份产物已经存过了就跳过」挡在前面 —— 功能加上之前下载的那批
+       永远不会被补写。字节已经在 .assets 里，这里只是让代理**拷一份**（不重新下载、
+       不重新回源、`.assets` 那份一律不动）。
+       页面递的是**本机资产号**，不是路径 —— 代理按自己读到的配置决定写到哪。 */
+    async saveLocal({ ids }) {
+      return rawFetch('/save-local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+      });
+    },
+    /* 换下载位置时把**旧目录里那些副本**搬过去（会删掉源文件）。
+       目标目录只由代理读配置决定，页面只能递「旧目录从哪来」——
+       而且代理会核对这个目录是不是本工作台自己写出去过的，不是就不搬。 */
+    async saveMove({ kind, from }) {
+      return rawFetch('/save-move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, from }),
       });
     },
     /* 弹系统自带的文件夹选择框，让用户点着挑一个目录回来。
@@ -1256,7 +1283,11 @@ async function readSseStream(res, onDelta) {
         if (!p.list || !p.endpoints || !p.endpoints.list) return;
         if (kinds && !kinds.includes(p.kind)) return;
         if (ids && !ids.includes(p.id)) return;
-        const k = p.relay + '|' + p.endpoints.list;
+        /* 本机资产库是**多家供应商共用的一条列表**（语音 / 生图 / 自定义各家都声明它）：
+           relay 各家不同，读回的却是同一份索引 —— 按 relay+端点去重会把它算成三个来源，
+           于是一屏产物被读三遍、请求发三遍、条目解析三遍（每遍都 emit 一次，界面就跟着多画几次，
+           这是「一闪一闪」里被重复劳动放大的那一半）。这一族只按端点去重。 */
+        const k = /^local:/.test(p.endpoints.list) ? p.endpoints.list : p.relay + '|' + p.endpoints.list;
         if (seen.has(k)) return;
         seen.add(k);
         out.push({ key: p.id, prov: p, spec: p.list });
@@ -1345,6 +1376,7 @@ async function readSseStream(res, onDelta) {
   };
 
   let idx = null;
+  let idxMaps = null;   // 镜像索引的反查表（{ up, la, aid }）；write() 时作废
   function read() {
     if (idx) return idx;
     let d = null;
@@ -1357,6 +1389,7 @@ async function readSseStream(res, onDelta) {
     const d = read();
     const keys = Object.keys(d.m);
     if (keys.length > IDX_MAX) for (const k of keys.slice(IDX_MAX)) { delete d.a[d.m[k].a]; delete d.m[k]; }
+    idxMaps = null;                    // 反查表跟着索引作废（下一次用再一次建）
     try { localStorage.setItem(K_IDX, JSON.stringify(d)); } catch (e) { /* 配额满：先留着内存里的，不打断界面 */ }
   }
 
@@ -1368,6 +1401,97 @@ async function readSseStream(res, onDelta) {
     if (o && o.genId) return p + '|g:' + o.genId;
     const u = o && (o.upstream || o.rawSrc || o.raw || o.url);
     return u ? p + '|u:' + mediaKey(String(u)) : '';
+  }
+
+  /* ---------- 「这份外链在本机有没有副本」的反查表 ----------
+     镜像记录按**产物身份**存（provider|a:/g:/u:），可页面手上常常只有一个签名外链：
+     收藏（fav_items）、导演台工作区（workspace）、短剧的 take 存的都是**当时**那个地址。
+     以前只有 AssetLib.decorate 会按身份去查（它只服务列表条目），所以「优先用本机文件」
+     这个开关只管得着资产库那一张列表 —— 别的页面第二天照旧打过期外链，
+     表现就是「视频没有预览图、点开只回一句 Format error」。
+     按地址查要扫一遍记录（原来 onMediaError 就是 Object.values 扫的），而这些查询现在
+     每次算地址都要跑（一屏几百条），所以一次遍历建两张反查表、索引写入时作废：
+       · up：外链素材身份 → 记录（地址层用，见 localCopyOf）
+       · la：本机资产号 → 镜像键（列表层用，见 twinOf；不靠索引里那份 a 表，
+              老记录里 a 表缺失也能自洽 —— 键与本机号本来就成对存在 m 里） */
+  function maps() {
+    if (idxMaps) return idxMaps;
+    const d = read();
+    const up = {}, la = {}, aid = {};
+    Object.keys(d.m).forEach(k => {
+      const rec = d.m[k];
+      if (!rec || !rec.a) return;
+      la[rec.a] = k;
+      const u = rec.up ? mediaKey(String(rec.up)) : '';
+      if (u) up[u] = rec;
+      /* 平台产物号 → 记录（第三张表，见 localAssetIdOf 里 /asset/<产物号> 那一路）。
+         产物号**只存在于键里**（keyOf 写成 prov|a:<assetId>），记录本身没存这一项，
+         所以只能从键上认回来 —— 这也是为什么这第三张表必须由 maps 现算而不是落盘。 */
+      const am = /\|a:(.+)$/.exec(k);
+      if (am && am[1]) aid[am[1]] = rec;
+    });
+    idxMaps = { up, la, aid };
+    return idxMaps;
+  }
+  /* 有本机镜像时给本机地址（没开「优先用本机文件」/ 查不到都返回空串）。
+     **不去问磁盘上文件还在不在** —— 那是每条地址一个请求。真被删了，代理那一级的
+     回退会按索引里的 upstream 302 回外链，界面上的 error 监听再兜一层（见 onMediaError）。 */
+  function localCopyOf(u) {
+    if (!preferLocal()) return '';
+    const la = localAssetIdOf(u);
+    return la ? '/asset/' + la + '?v=2' : '';
+  }
+  /* 这条地址对应**本机镜像的那个资产号**，不看「优先用本机文件」开关。
+     开关决定的是「画面上用哪个地址」，不是「这是哪一份东西」—— 所以凡是「同一份产物」的判据
+     （缩略图缓存键、列表合并、跨页去重）都必须走这一份而不是上面那个。
+     踩过：键跟着开关走，关掉开关之后同一个视频在缓存里成了两份 —— 抽两次帧、存两份小图，
+     而平台那一份外链一过期就永远抽不出来，表现是「开关一关，预览图全没了、滚回去又闪一次」。 */
+  function localAssetIdOf(u) {
+    const s = String(u == null ? '' : u);
+    const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(s);          // 已经是本机地址：资产号就在路上
+    if (m) {
+      if (/^la_/.test(m[1])) return m[1];                   // la_ 开头 = 本机文件号，代理按文件名就能取到
+      /* 平台产物号（/asset/<产物号>，代理会用密钥去上游换最新签名地址）：
+         这一路以前**认不出身份** —— 正则只放行 la_ 前缀，up 表又只按签名外链建键，
+         于是「本机明明存过镜像」也查不到 → 同一个产物算两个键 → 抽两次帧，
+         其中一次走公网回源（顺带把一份大文件再下一遍）。产物号在键里（|a:），
+         所以查第三张表 aids（见 maps）。 */
+      const rec = maps().aid[m[1]];
+      if (rec && rec.a) return String(rec.a);
+    }
+    const k = mediaKey(s);                     // mediaKey 自己会拆 /getv 包装（判据只有一份）
+    if (!k) return '';
+    const rec = maps().up[k];
+    return rec && rec.a ? String(rec.a) : '';
+  }
+  /* 一条产物在镜像索引里的身份。**平台列表那一条**由 decorate 挂上 mirrorKey；
+     **本机资产库那一条**（条目即资产，id 就是 la_xxx）只能按本机号反查。
+     这两条其实是同一个东西 —— 「同一个任务重复出现」与「提示词只有一半卡片上有」
+     都是它造成的，而判据只许有这一处。
+     第三种形状也要认：**收藏 / 工作区里那条既没有 mirrorKey、又不是 la_xxx**
+     （它存的是当初那个平台产物号，或者就是当初那个地址）。只认前两种的话，选择器里
+     「资产库那一条 + 我的收藏那一条」就是同一份文件的两个格子（用户看到的正是「视频任务重复」），
+     所以按产物号 / 按地址各现算一次身份，**只在索引里确有这条镜像时**才算数 ——
+     没有副本的产物各按各的 id 判，不多合并任何东西。
+     产物号那一路只认**带 assetId 的**（`|a:`）：任务号与地址那两种身份对多图任务不唯一 ——
+     同一次生成出来的四张图共用一个任务号，按任务号合一次就把四张并成一张。
+     地址那一路（`localAssetIdOf`）是逐个字节的，天生一份文件一个键，所以两种行都能走，
+     并且它**不看「优先用本机文件」开关** —— 开关管的是取哪个字节，不是「这是哪一份东西」。 */
+  function twinOf(e) {
+    if (!e) return '';
+    if (e.mirrorKey) return e.mirrorKey;
+    if (e.assetId) {
+      const k = keyOf(e.provider, e);
+      if (k && read().m[k]) return k;
+    }
+    const id = String(e.assetId || e.id || '');
+    const mp = maps();
+    if (id && mp.la[id]) return mp.la[id];
+    for (const u of [e.rawSrc, e.upstreamSrc, e.url, e.src]) {
+      const la = localAssetIdOf(u);
+      if (la && mp.la[la]) return mp.la[la];
+    }
+    return '';
   }
 
   function blobToB64(blob) {
@@ -1437,22 +1561,23 @@ async function readSseStream(res, onDelta) {
          存进 .assets 资产库是**应用自己的那份**（离线能看、删了能回源），不能因为用户
          想在「D:\AI图」里看到成品就不存 —— 那是两件事。所以这里是**额外再写一份**。
          三种情况都会发生，所以每一种都要有说法：
-           · 目录没填        → 什么都不做（这是默认，一句话都不该打扰）
-           · 写成功          → 记一笔，设置页能回看「上次存到哪、存了什么」
-           · 写不进去 / 没配 → **不打断界面**（产物该显示还是显示），但记进 lastSave 供设置页显示
-         静默吞掉是这里最坏的一种：用户填完目录、以为存上了，文件其实一次都没落盘。 */
+           · 这一类关了        → 什么都不做（不打扰）
+           · 目录留空          → **照样存**，落到代理那边的默认目录（项目下 文件/<类型>），
+                                 见 proxy.js 的 autosaveDefaultDir。以前这里是直接跳过的，
+                                 那就是「用户没填目录 = 成品永远只落在 .assets 这个看不见的目录里」。
+           · 写成功            → 记一笔，设置页能回看「上次存到哪、存了什么」
+           · 写不进去 / 没配   → **不打断界面**（产物该显示还是显示），但记进 lastSave 供设置页显示
+         静默吞掉是这里最坏的一种：用户以为存上了，文件其实一次都没落盘。
+         所以这一段**不再自己判目录** —— 目录只由代理那一层读配置决定（见 /save 那一段），
+         页面猜一遍就会出现「界面以为存了、代理其实没写」这种对不上的组合。 */
       const kind = kindOf(ext, blob.type);
       const conf = autosaveConf()[kind] || null;
       if (kind && conf && conf.on) {
         try {
-          if (conf.dir) {
-            const s = await Api.saveToDir({ type: kind, name: r && r.name ? r.name : nameOf(ent, ext),
-              mime: blob.type || '', format: r && r.format ? r.format : ext, data: b64 });
-            setLastSave(kind, s && s.ok ? { ok: true, file: s.file, dir: s.dir, at: Date.now() }
-              : { ok: false, why: (s && s.error && s.error.message) || '代理没有确认写入', at: Date.now() });
-          } else {
-            setLastSave(kind, { ok: true, skipped: true, at: Date.now() });
-          }
+          const s = await Api.saveToDir({ type: kind, name: r && r.name ? r.name : nameOf(ent, ext),
+            mime: blob.type || '', format: r && r.format ? r.format : ext, data: b64 });
+          setLastSave(kind, s && s.ok ? { ok: true, file: s.file, dir: s.dir, at: Date.now() }
+            : { ok: false, why: (s && s.error && s.error.message) || '代理没有确认写入', at: Date.now() });
         } catch (e) {
           setLastSave(kind, { ok: false, why: (e && e.message) || String(e), at: Date.now() });
         }
@@ -1472,6 +1597,12 @@ async function readSseStream(res, onDelta) {
     const k = keyOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
     if (!k) return;
     if (read().m[k] || queued.has(k)) return;
+    /* 产物身份换了写法也要认得同一个文件：键优先按平台产物号（`|a:`），但平台并不每次都给 ——
+       上一次按地址存的那条，这次按任务号算出来是另一个键，于是同一份文件再下一遍。
+       按**来源地址**再查一次反查表，命中就照搬那条记录（本机号 / 字节 / 时间都不用重取）。
+       代理那一道同身份的闸（`POST /local-assets` 的 localUpKey）是最终兜底，这一层只是省一趟下载。 */
+    const byUp = maps().up[mediaKey(url)];
+    if (byUp && byUp.a) { read().m[k] = { ...byUp }; write(); return; }
     queued.add(k);
     queue.push({ k, url, ent: ent || {} });
     pump();
@@ -1487,6 +1618,96 @@ async function readSseStream(res, onDelta) {
       if (!up) return;
       offer(e.provider, e, up);
     });
+  }
+
+  /* ---------- 从服务端那份索引**认回**镜像身份 ----------
+     本机资产库的列表行自己就带着来源外链与任务号，所以浏览器里那份 `sk_local_mirror` 丢了
+     （换端口 = 换源、清浏览器数据、无痕窗口）也不必把几百份产物重新下载一遍。
+     为什么必须在代理那一份列表里认：磁盘上「同一份产物存了几次」是代理的事，
+     浏览器每个源各记各的键，挡不住另一个源（另一个端口）把同一份再存一遍。
+     只补索引里没有的键，已有的原样留着（它记的是最近一次真镜像）。
+     键的算法与 offer/decorate **完全同一个表达式** —— 换成别的就是第二份判据，
+     会出现「认回来的键与卡片算的键对不上」，表现还是「同一个任务重复出现」。 */
+  let learnQueued = false;
+  /* 本次列表里**已经见过**的本机号。用途只有一个：认出「指针表指向的那份已经不在了」。
+     它是**内存**的（页面一开就空），所以不需要清理，也不会在多标签页之间打架。 */
+  const liveSeen = new Set();
+  function learn(raw) {
+    if (!saveOn() || !raw) return;
+    const id = String(raw.id || '');
+    if (!/^la_/.test(id)) return;
+    liveSeen.add(id);
+    const up = String(raw.upstream || '');
+    const d = read();
+    const det = (raw.detail && typeof raw.detail === 'object') ? raw.detail : null;
+    const k = keyOf(String(raw.provider || ''), { assetId: (det && det.asset) || '', genId: (det && det.task) || '', upstream: up });
+    /* ---------- 改指：指针表指的那份已经不在本机资产库里了 ----------
+       指针表是**只补不改**的（下面那句「只补索引里没有的键」），所以它永远不会自己修。
+       什么时候会指到一个死号？代理裁过索引（删掉同一份产物的重复副本）、用户删过本机副本、
+       或从另一台机器同步来一份旧指针。一旦指死了，卡片就一直去问一个查无此号的
+       /asset/<本机号>，拿到 422/404 之后靠 onMediaError 退到外链**重新下载** ——
+       而本机那份明明还在。实测裁掉 207 条重复索引后，一屏就冒出十几个 422。
+
+       判据：同一个键已有指针，而那个号**不在本机这次列出来的本机号里** → 改指到当前这条。
+       代理的 /local-assets 已经按身份折过重，一份产物只出一行，所以当前这条就是权威的。
+       `!d.a[id]` 这个前提别去掉：它保证当前这个号没绑在别的键上（绑了就该让旧的那条说了算，
+       见下面那段注释讲的那个坑）。
+
+       **这一段必须排在 `if (d.a[id]) return;` 之前** —— 第一版放在后面，
+       而被裁掉的那些号在 d.a 里全都还在，于是每次都先命中那句 return，
+       改写代码一行都执行不到：症状是「自愈加了、422 一条没少」。 */
+    const old = (k && d.m[k]) ? d.m[k].a : '';
+    if (k && old && old !== id && !d.a[id] && !liveSeen.has(old)) {
+      d.m[k] = Object.assign({}, d.m[k], {
+        a: id,
+        f: String(raw.format || '') || d.m[k].f,
+        n: String(raw.name || '') || d.m[k].n,
+        b: Number(raw.byte_length || 0) || d.m[k].b,
+        up: up || d.m[k].up,
+      });
+      if (d.a[old] === k) delete d.a[old];
+      d.a[id] = k;
+      if (idxMaps) { idxMaps.la[id] = k; const u = up ? mediaKey(up) : ''; if (u) idxMaps.up[u] = d.m[k]; }
+      if (!learnQueued) { learnQueued = true; Promise.resolve().then(() => { learnQueued = false; write(); }); }
+      return;
+    }
+    /* **先看这个本机号是不是已经绑过身份** —— 绑过就别再来一遍。
+       踩过：`d.a[<本机号>]` 已经指向平台那条的身份（`prov|g:job_1`，offer 落盘时写的），
+       而本机列表这一行自己算不出任何身份，于是又给它建了一个 `prov|f:la_xxx`，
+       把 `d.a[la_xxx]` 覆盖掉了 —— 同一份东西在索引里就有了两个键：
+       平台那条算出 g:job_1、本机那条算出 f:la_xxx，twinOf 合不到一起
+       （表现：同一个视频两张卡、提示词只有一半有、去重那几档全红）。
+       「一个本机号只能有一个身份」是这张表的全部意义，已有的那一条更权威（它带着平台信息）。 */
+    if (d.a[id]) return;
+    if (k && d.m[k]) return;
+    /* 上面那三种身份一个都算不出来时，**这一条就不进索引**（keyOf 返回空串）。
+       实测这不是边角：.assets 的 290 行里有 30 行既没有 upstream、detail 也是空的
+       （29 行 mimo + 1 行 local —— 本机直接生成的产物，落盘时压根没传来源地址），
+       于是它们永远查不到自己：twinOf 合不到、localAssetIdOf 认不出、
+       抽帧键算成本机地址以外的东西 → **同一份东西两条卡、两个缩略图键、提示词只有一半有**。
+       这一条不是「镜像」（磁盘上从没从外链取过），它**就是本机那个文件本身** ——
+       所以拿本机号当身份，命名空间 `|f:`（file），与 |a:/|g:/|u: 分开，
+       免得和平台产物号撞在一个桶里（撞了就等于把两个不同的东西认成一份）。 */
+    const key = k || (String(raw.provider || '') + '|f:' + id);
+    if (d.m[key]) return;
+    d.m[key] = { a: id, f: String(raw.format || ''), n: String(raw.name || ''), t: 0,
+      b: Number(raw.byte_length || 0), up };
+    d.a[id] = key;
+    /* 反查表要**当场**补上这一条，不能等下面那一次 write()：
+       write 是排到微任务里去的，而调用方（normalize → pushEntry → emit）还在同一个同步块里，
+       它马上就要按 la 号 / 按外链反查这一条 —— 表还是旧的那一份就查不到，
+       于是「刚认回来的镜像」在同批里等于没认：早到的平台条目不换本机地址（预览图没有）、
+       两条卡片也塌不到一起（同一个任务重复出现），非要等下一次加载才好。
+       增量插而不是整表作废：一屏几百行，逐行重建就是 O(n²)。 */
+    if (idxMaps) {
+      idxMaps.la[id] = key;
+      const u = up ? mediaKey(up) : '';
+      if (u) idxMaps.up[u] = d.m[key];
+      /* 产物号那一路也要同步补：键里带 |a: 的才进第三张表（判据与 maps 同一条正则）。 */
+      const am = /\|a:(.+)$/.exec(key);
+      if (am && am[1]) idxMaps.aid[am[1]] = d.m[key];
+    }
+    if (!learnQueued) { learnQueued = true; Promise.resolve().then(() => { learnQueued = false; write(); }); }
   }
 
   /* 给一条**刚解析出来的条目**挂上本机镜像信息，并把 src 换成该用的那个（第一级回退）。
@@ -1543,8 +1764,8 @@ async function readSseStream(res, onDelta) {
         return;
       }
     }
-    const upKey = 'u:' + mediaKey(raw);
-    const rec2 = d.m['u:' + mediaKey(raw)] || Object.values(d.m).find(r => r && r.up && mediaKey(r.up) === upKey);
+    const upKey = mediaKey(raw);
+    const rec2 = upKey ? maps().up[upKey] : null;
     if (rec2 && rec2.a && raw.indexOf('/asset/' + rec2.a) < 0) {
       el.dataset.fb = '1'; el.dataset.fbLoc = rec2.a;
       el.setAttribute('src', '/asset/' + rec2.a + '?v=2');
@@ -1559,21 +1780,65 @@ async function readSseStream(res, onDelta) {
     if (watching || typeof document === 'undefined') return;
     watching = true;
     document.addEventListener('error', onMediaError, true);
+    /* 别的标签页刚镜像完一份产物 → 本页那份内存里的索引要作废。
+       不作废的话，「优先用本机文件」在生成页之外的标签里永远看不见新存的那一份
+       （地址算出来还是过期外链 → 抽帧失败 → 预览图没有），要刷新整个页面才好。 */
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('storage', e => {
+        if (e && e.key === K_IDX) { idx = null; idxMaps = null; }
+      });
+    }
   }
 
   window.AssetLocal = {
     saveOn, preferLocal, offer, scan, decorate, watch,
+    /* 「这条产物在本机有副本吗 / 这是哪一条的镜像」：地址层（mediaSrc）与列表层（去重）都读这两个，
+       索引形状（m / a 两张表）只有本模块认识 */
+    localCopyOf, twinOf, learn,
+    /* 「这一条在本机镜像是哪一个资产号」：**不看开关**的身份查法（缩略图缓存键用它，
+       见 workbench.js 的 thumbs.keyOf）—— 开关只管画面上用哪个地址，不能管「这是哪一份东西」。 */
+    localAssetIdOf,
     /* 「自动保存：按类型分别存到哪」这一项的公共接口（设置页渲染与本页分流共用一份判据）。
        设置页只负责画与存，不自己再读一遍 localStorage、更不自己判断哪一档开没开。 */
     SAVE_KINDS, autosaveConf, setAutosaveConf, kindOf, lastSave,
-    /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单 */
+    /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单。
+       ⚠ 这一份读的是**本地指针表**，换端口 / 清浏览器数据 / 无痕窗口都会是空的 ——
+       所以下面那个 syncStats() 得先把代理那份索引拉回来认一遍，数字才等于事实。 */
     stats() {
       const rs = Object.values(read().m);
       return { count: rs.length, bytes: rs.reduce((a, r) => a + (Number(r && r.b) || 0), 0) };
     },
-    /* 关掉「存本机」时清掉本机索引（**不删磁盘上的文件**：那是用户的数据，
-       删不删该由资产库里那条「删除」决定，这儿只让界面别再指望它）。 */
-    forget() { idx = { v: 1, m: {}, a: {} }; try { localStorage.removeItem(K_IDX); } catch (e) {} },
+    /* 从**代理那份索引**（.assets/index.json）现算「本机存了多少」，顺带把指针表认回来。
+       为什么必须有这一步：stats() 读的那张表是「哪条产物存在本机」的**缓存**，
+       本体在 .assets/。表空的时候设置页会写「本机已存 0 个产物，共 0 KB」——
+       而 .assets 里其实有 83 份（实测：无痕窗口打开设置页，磁盘上明明有，页面写 0）。
+       界面说的话与事实不符，正是这一页最不能出的那种毛病。
+       走注册表声明的 selfAsset 列表（`local:/local-assets`），不自己拼地址；
+       每一行走 learn() —— 判据还是那一份，指针表当场认回来，
+       同一页下面的「补存」也才有东西可补（mirrorIds 读的就是这张表）。 */
+    async syncStats() {
+      try {
+        const reg = await Api.registry();
+        const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
+        if (!src) return this.stats();
+        const d = await Api.request(src, 'list', { query: 'limit=1000' });
+        const rows = (d && (d.data || d.items)) || [];
+        for (const r of rows) learn(r);
+      } catch (e) { /* 代理没起来就照旧报本地那份数，不要在这一页抛错 */ }
+      return this.stats();
+    },
+    /* 「补存」用：本机资产库里有哪些、分别属于哪一类。
+       判据是 kindOf（与镜像分流那一份同一处），**只给本机号** ——
+       路径一律由代理从配置读，页面递不得（见 Api.saveLocal）。 */
+    mirrorIds() {
+      return Object.values(read().m)
+        .filter(r => r && r.a)
+        .map(r => ({ id: r.a, kind: kindOf(r.f, ''), bytes: Number(r.b) || 0 }));
+    },
+    /* 这里原来还有一个 forget()：全站零调用，却能把整份索引 removeItem 掉。
+       「关掉自动存本机」要清索引的话，正确做法是**让下一次 read() 自然重建**
+       （learn 会按代理那份列表重新认回来，见上），而不是把用户的镜像记录整份删掉 ——
+       一个零调用的接口配一个整份 removeItem，就是一个谁都能踩、踩了不可逆的地雷。已删。 */
   };
   watch();
 })();
@@ -1599,6 +1864,10 @@ async function readSseStream(res, onDelta) {
     }
     return prov.kind === 'video' ? '视频' : '图片';
   }
+  /* 「这一条该按什么号去提示词归档里问」的判据只在 PromptLog.askId 一处（同文件，跨闭包走 window）：
+     本机资产库里那条的 id 是 `la_xxx`，那是**本机文件号、不是任务号**，拿它去问永远 404。
+     落盘时把当时的任务号一起留在了本机索引里（registry 的 `list.map.task`），所以本机条目
+     也认得出自己是哪一次生成的。 */
   /* 上游条目 → 标准条目（字段全部来自 list.map 声明）。
      外面再包一层 normalize()：先按声明解析，再交给 AssetLocal.decorate 决定这条该显示
      本机副本还是平台地址 —— **全项目只有这一个地方产出条目**，所以本地镜像这一层
@@ -1630,14 +1899,18 @@ async function readSseStream(res, onDelta) {
     const providerName = (ownProv && (ownProv.displayName || ownProv.name)) || prov.displayName || prov.name;
     // 上游没给 prompt 时用本机记录兜底（例如 VGENV 的接口不返回它），并标注来源
     const rawPrompt = g('prompt') || '';
+    /* 归档按平台任务号查（判据只有一处：PromptLog.askId，见 refillPrompts）；
+       本机条目那是索引里留下的 detail.task。这一层还认不出产物号（assetId 在下面按产物拆行时才定），
+       所以只递任务号与条目 id 两个。 */
+    const askId = (window.PromptLog && window.PromptLog.askId({ taskId: g('taskId'), id: g('id') })) || '';
     const localPrompt = rawPrompt ? '' : (window.Api
-      ? (Api.promptFor(prov.id, g('id')) || Api.promptFor(providerId, g('id'))) : '');
+      ? (Api.promptFor(prov.id, askId) || Api.promptFor(providerId, askId)) : '');
     const base = {
       type: media, provider: providerId, providerName, format: fmt,
       prompt: rawPrompt || localPrompt || '',
       promptLocal: !rawPrompt && !!localPrompt,
       ts: g('completed') || g('created') || '',
-      genId: g('id'), gstatus, model: g('model'), mode: g('mode'),
+      genId: g('id'), taskId: askId, gstatus, model: g('model'), mode: g('mode'),
       credits, creditsRaw: g('credits'),
       priceMicros: priceMicros != null ? Number(priceMicros) : null,
       currency: g('currency') || null,
@@ -1678,10 +1951,59 @@ async function readSseStream(res, onDelta) {
   }
   /* 解析 + 本地镜像装饰（decorate 只对资产条目做处理，任务条目原样返回） */
   function normalize(prov, spec, raw) {
+    /* 本机资产库的每一行都顺手把镜像身份认回来（浏览器那一份索引丢了也能接上，见 AssetLocal.learn）。
+       认回必须在 decorate 之前 —— 同一批里平台那一条要靠这个键与本机那条合成一张卡。 */
+    if (spec.selfAsset && window.AssetLocal) AssetLocal.learn(raw);
     let out;
     try { out = normalizeRaw(prov, spec, raw); } catch (e) { return []; }
     return (Array.isArray(out) ? out : []).map(e => (window.AssetLocal ? AssetLocal.decorate(e) : e));
   }
+  /* ---------- 「同一个产物只留一张卡」----------
+     产物自动存本机之后，一次生成在列表里出现两条：平台那一条（带任务号、型号、积分、状态）
+     与本机镜像那一条（la_xxx，带当年提交时的提示词）。它们指向的是同一个文件
+     —— 「优先用本机文件」时连地址都一模一样，界面上就是「同一个任务重复出现」。
+     合并取向固定：**留平台那一条当载体**（它信息更全，删了还能回平台查），
+     把本机那条独有的字段交给它。提示词是最常缺的一项：VGENV 的列表接口不返回 prompt，
+     而镜像时把提交那一刻的提示词留在了本机索引里 —— 于是以前空白的那张卡其实有话可说。 */
+  const AL_TWIN = e => (window.AssetLocal && AssetLocal.twinOf ? AssetLocal.twinOf(e) : '');
+  const platSide = e => !!(e && e.mirrorKey);      // decorate 认出来的那条来自平台列表
+  function fillTwin(keep, drop) {
+    if (!drop) return keep;
+    if (!keep.prompt && drop.prompt) { keep.prompt = drop.prompt; keep.promptLocal = !!drop.promptLocal; }
+    if (keep.byteLength == null && drop.byteLength != null) keep.byteLength = drop.byteLength;
+    if (!keep.model && drop.model) keep.model = drop.model;
+    if (!keep.dl && drop.dl) keep.dl = drop.dl;
+    return keep;
+  }
+  /* 换成保留的那一条时要**占住原来那个位置**（列表顺序就是界面顺序，挪到末尾等于乱了时间线） */
+  function swapIn(list, drop, keep) {
+    if (!drop || drop === keep) return;
+    const at = list.indexOf(drop);
+    if (at >= 0) list[at] = keep; else list.push(keep);
+  }
+  /* 合并一条进 { out, twins }：**增量**（pushEntry，拉到一页合一页）与
+     **整表**（collapseTwins，页面首屏那份 localStorage 缓存里还留着合并前的重复，
+     只在新批次里去重不够）用的是同一条规则，所以规则只写这一份，
+     两个入口只是「容器从哪来」不同 —— 以前两段 13 行几乎逐行相同，
+     改一边忘了另一边，症状是同一份产物在某些页合卡、某些页不合。 */
+  function collapseInto(st, e) {
+    const tk = AL_TWIN(e);
+    if (!tk) { st.out.push(e); return; }
+    const prev = st.twins.get(tk);
+    if (!prev) { st.twins.set(tk, e); st.out.push(e); return; }
+    /* 留平台那一条当载体（它信息更全，删了还能回平台查），把本机那条独有的字段搬过去 */
+    const cur = platSide(e) && !platSide(prev) ? e : prev;
+    fillTwin(cur, cur === prev ? e : prev);
+    if (cur !== prev) swapIn(st.out, prev, cur);   // 换载体时要占住原来那个位置（列表顺序就是界面顺序）
+    st.twins.set(tk, cur);
+  }
+  const pushEntry = (st, e) => collapseInto(st, e);
+  function collapseTwins(list) {
+    const st = { out: [], twins: new Map() };
+    (list || []).forEach(e => collapseInto(st, e));
+    return st.out;
+  }
+
   /* 拉一个来源的若干页：游标不前进 / 后续页失败 → 视为到底（不阻塞其它平台） */
   async function listOne(src, st) {
     const prov = src.prov, spec = src.spec, key = src.key;
@@ -1714,7 +2036,7 @@ async function readSseStream(res, onDelta) {
       const want = (typeof st.accept === 'function') ? st.accept : null;
       items.forEach(raw => {
         try {
-          normalize(prov, spec, raw).forEach(entry => { if (!want || want(entry)) st.out.push(entry); });
+          normalize(prov, spec, raw).forEach(entry => { if (!want || want(entry)) pushEntry(st, entry); });
         }
         catch (e) { skipped++; console.warn('[AssetLib] 条目解析失败（已跳过）', e, raw); }
       });
@@ -1731,24 +2053,12 @@ async function readSseStream(res, onDelta) {
     }
   }
 
-  /* 索引窗口（最近 800 条）之外的任务：按任务号回源补，**不 await** —— 补完就地改写条目再 emit 重绘，
-     首屏不为它多等一个请求。数量有限（默认 20 条），查过的会进 PromptLog 的 missed 集合，不会反复问。 */
+  /* 索引窗口之外的任务：按任务号回源补，**不 await** —— 补完就地改写条目再 emit 重绘，
+     首屏不为它多等一个请求。判据、限量与「问过就不再问」全在 PromptLog.refill 那一份里。 */
   function refillPrompts(st, limit = 20) {
     const P = window.PromptLog;
-    if (!P) return;
-    const want = [];
-    for (const e of st.out) {
-      if (want.length >= limit) break;
-      if (!e.prompt && e.genId && !P.missedFor(e.provider, e.genId)) want.push(e);
-    }
-    if (!want.length) return;
-    Promise.allSettled(want.map(e => P.findByTask(e.provider, e.genId))).then(() => {
-      want.forEach(e => {
-        const p = P.cached(e.provider, e.genId) || P.cachedById(e.genId);
-        if (p) { e.prompt = p; e.promptLocal = true; }
-      });
-      st.emit();          // 查到没查到都要重绘：没查到的卡片要从「正在归档里找」改成「两边都没有」
-    });
+    if (!P || !P.refill) return;
+    P.refill(st.out, { limit, onDone: () => st.emit() });
   }
 
   window.AssetLib = {
@@ -1789,13 +2099,34 @@ async function readSseStream(res, onDelta) {
         more: (opts.more && typeof opts.more === 'object') ? { ...opts.more } : {},
         lastFirst: {},
         seen: (opts.seen instanceof Set) ? opts.seen : new Set(),
+        twins: new Map(),        // 镜像身份 → 结果里那一条（见 pushEntry）
         out: Array.isArray(opts.out) ? opts.out : [],
         onBatch: (typeof opts.onBatch === 'function') ? opts.onBatch : null,
         accept: (typeof opts.accept === 'function') ? opts.accept : null,
         emit() {
+          /* 后到的一批会把镜像身份**认回**索引（AssetLocal.learn），可早到的那一批是在那之前
+             decorate 的：地址还挂在平台外链（勾了「优先用本机文件」也换不过来），同一产物的两条
+             也各占一张卡 —— 表现就是用户说的「视频没有预览图、要等下一次加载才好」「同一个任务重复出现」。
+             所以每次 emit 前把这两件事现算一遍：decorate 是幂等的（没镜像时原样返回），
+             合表判据仍然只有 twinOf 一处，不另编第二套。
+             数组**就地改**（不换 `st.out` 的引用）：续拉时页面把自己那份数组递进来，
+             引用一换它后面的合并就落在旧数组上。 */
+          const A = window.AssetLocal;
+          if (A && A.decorate) {
+            for (const e of this.out) {
+              if (e && e.kind === 'asset' && !e.mirrorKey && !e.localAsset) A.decorate(e);
+            }
+            const kept = collapseTwins(this.out);
+            if (kept.length !== this.out.length) {
+              /* 就地改，不换引用（同上）。twins 里因此留着已删条目的记录不要紧：
+                 下一次同产物的批次最多把一个不在表里的对象当 prev，紧接着这一趟塌表又会把它纠正过来。 */
+              this.out.length = 0;
+              kept.forEach(e => this.out.push(e));
+            }
+          }
           /* 每批到达就顺手把这批产物排去存本机（而不是等整个 load 结束）：
              列表动辄十几秒才拉完，等它结束再开始镜像，用户看到的头几分钟全是没本机副本的。 */
-          try { if (window.AssetLocal) AssetLocal.scan(this.out); } catch (e) {}
+          try { if (A) A.scan(this.out); } catch (e) {}
           if (!this.onBatch) return;
           try { this.onBatch(this.out); } catch (e) { console.warn('[AssetLib] onBatch 回调出错：', e); }
         },
@@ -1803,6 +2134,9 @@ async function readSseStream(res, onDelta) {
       st.errors = {};
       st.failed = {};                      // 本次有读取失败的来源（more 保持 true：界面可重试）
       st.noCache = !!opts.noCache;
+      /* 「续拉」时页面把上次那份数组递回来（out: assets）：那里面已经有的产物先登记，
+         否则这一次列表刷新会把它自己的镜像当成新条目再插一张卡（重复只会在翻页后出现）。 */
+      st.out.forEach(e => { const tk = AL_TWIN(e); if (tk && !st.twins.get(tk)) st.twins.set(tk, e); });
       const srcs = Api.listSources({ kinds: opts.kinds, ids: opts.ids });
       await Promise.allSettled(srcs.map(src => listOne(src, st)));
       if (opts.prompts !== false) refillPrompts(st);
@@ -1853,12 +2187,17 @@ async function readSseStream(res, onDelta) {
     entryKey(e) {
       return [((e && e.kind) || ''), ((e && (e.id || e.assetId || e.genId)) || ''), ((e && e.assetId) || '')].join('|');
     },
+    /* 「这一条该按什么号去归档里问」的判据在 PromptLog.askId（列表、收藏、这里三处共用一份）。 */
     /* 合并两批条目（增量加载的核心）：
        ① 同 key 以新数据为准；
        ② 消掉「任务 → 产物」跃迁造成的重复卡 ——
           列表接口在产物刚写好时会先返回 kind:'task'（生成中），下一批返回 kind:'asset'（已完成）；
           两者 genId 相同、但 key 不同（task 用任务号，asset 用产物号），只按 key 去重会同时留下两张卡；
-       ③ 产物级去重：同一个产物 id 只留信息更全的一条（有 src / 状态 / 提示词的优先）。
+       ③ 产物级去重：同一个产物 id 只留信息更全的一条（有 src / 状态 / 提示词的优先）；
+       ④ 平台那一条与它的**本机镜像**那一条合成一张卡（勾了「优先用本机文件」时同一份产物
+          会在两个来源各出现一次：平台的 `id=任务号` 与本机的 `assetId=la_xxx`，
+          上面三条谁也认不出它们是一回事 —— 表现就是「同一个任务重复出现」，
+          而且提示词只在其中一条上，另一条永远空着）。判据与交接见 `collapseTwins` / `fillTwin`。
        多图任务（同 genId 不同 assetId）不受影响 —— 它们本来就该是多条。 */
     mergeEntries(base, add) {
       const map = new Map();
@@ -1879,7 +2218,8 @@ async function readSseStream(res, onDelta) {
         if (!prev) { byAsset.set(k, e); return; }
         byAsset.set(k, score(e) >= score(prev) ? Object.assign({}, prev, e) : Object.assign({}, e, prev));
       });
-      return [...byAsset.values()];
+      /* ④ 平台那一条与它的本机镜像那一条合成一张（判据见 collapseTwins） */
+      return collapseTwins([...byAsset.values()]);
     },
     /* 哪些条目值得进首屏缓存：**只有已完成的**。缓存里留着「生成中 / 排队中」的快照，
        下次打开就会把早已结束的旧状态当成现状，画成一条永远不动的假任务
@@ -2371,11 +2711,12 @@ window.Capabilities = {
 
   /* 收藏一条「接口不返回提示词」的资产时，如果这条的提示词还没补上（列表那一轮回源没赶上），
      后台按任务号从本机归档补一次再写回 —— 否则「先收藏、提示词后到」的记录会永远空着，
-     收藏页的卡片、搜索和导出 CSV 都跟着缺。只问声明了 noPromptField 的平台，别白跑请求。 */
+     收藏页的卡片、搜索和导出 CSV 都跟着缺。只问声明了 noPromptField 的平台，别白跑请求。
+     要问的号按 PromptLog.askId 那一份判据取（收藏项常常只有产物号）。 */
   function fillFavPrompt(item) {
     const P = window.PromptLog;
-    if (!P || !item || item.prompt) return;
-    const id = item.genId || item.assetId || '';
+    if (!P || !item || item.prompt || !P.askId) return;
+    const id = P.askId(item);
     if (!id) return;
     const prov = window.Api && Api.prov ? Api.prov(item.provider) : null;
     if (!prov || !prov.noPromptField) return;
@@ -2387,6 +2728,30 @@ window.Capabilities = {
       hit.prompt = p;
       write(arr, { silent: true });      // 静默写：不广播 fav-change，免得打断正在输入的备注（下次渲染自然带上）
     }).catch(() => {});
+  }
+
+  /* 打开收藏页时把「归档里有、存着的这一条却空着」的提示词补回来并写盘 —— 判据与回源都走
+     PromptLog.refill 那一份（资产库/生成工作台的列表那一轮用的是同一个）。
+     为什么收藏页要单独补一次：归档是**本机创作历史**，收藏项存的却是当初建卡那一刻的快照；
+     那时补晚了（或者那条只留了产物号、判据还没认它）就永远空着，卡片显示「(无描述)」、
+     搜索与导出 CSV 也跟着缺，而同一份东西在资产库里是有提示词的。
+     查到了才写盘（写一次就够，下次打开直接就有），并且**静默写**：整块重画会把正在敲的备注框换掉。 */
+  function refillPrompts(cb) {
+    const P = window.PromptLog;
+    if (!P || !P.refill) return Promise.resolve(0);
+    const items = list();
+    return P.refill(items, { limit: 80, onDone: n => {
+      if (!n) return;
+      const byKey = new Map(items.map(x => [x.key, x]));
+      const arr = list();
+      let hit = 0;
+      arr.forEach(x => {
+        const f = byKey.get(x.key);
+        if (!x.prompt && f && f.prompt) { x.prompt = f.prompt; x.promptLocal = true; hit++; }
+      });
+      if (hit) write(arr, { silent: true });
+      if (cb) { try { cb(hit); } catch (e) { console.warn('[Fav] 提示词补齐后重画出错：', e); } }
+    } });
   }
 
   /* 签名外链的过期判定与回源都改用模块作用域那一份（mediaExpired / healMedia）：
@@ -2412,12 +2777,13 @@ window.Capabilities = {
 
   window.Fav = {
     list,
+    refillPrompts,
     has(key) { return list().some(x => x.key === key); },
     assetKey(e) { return 'a:' + (e.provider || '') + ':' + (e.assetId || e.id || ''); },
     /* 把一条资产条目变成收藏项 */
     fromEntry(e) {
       const it = { key: this.assetKey(e), kind: 'asset', provider: e.provider, providerName: e.providerName,
-        assetId: e.assetId || e.id, genId: e.genId || '', type: e.type, prompt: e.prompt || '',
+        assetId: e.assetId || e.id, genId: e.genId || '', taskId: e.taskId || '', type: e.type, prompt: e.prompt || '',
         src: mediaSrc(e.src || ''), dl: e.dl || '', rawSrc: e.rawSrc || '',
         format: e.format || '', duration: e.duration || null, ts: Date.now() };
       fillFavPrompt(it);
@@ -2711,6 +3077,7 @@ window.AssetPicker = {
         <div class="ap-body">
           <div class="ap-grid" id="apGrid"></div>
           <div class="ap-empty" id="apEmpty" hidden></div>
+          <div class="ap-more" id="apMore" hidden></div>
           <div class="ap-loading" id="apLoad"><span class="ap-spin"></span>正在加载资产库…</div>
         </div>
         <div class="ap-foot"><span class="cnt" id="apCnt"></span><span class="sp"></span>
@@ -2724,6 +3091,8 @@ window.AssetPicker = {
       const okBtn = $('apOk');
       const load = $('apLoad');
       const empty = $('apEmpty');
+      const more = $('apMore');
+      const bodyEl = dlg.querySelector('.ap-body');
       const search = $('apSearch');
       const typesBox = $('apTypes');
 
@@ -2772,6 +3141,12 @@ window.AssetPicker = {
       const idOf = e => String((e && (e.assetId || e.genId || e.id)) || '');
       const dKey = e => {
         if (e._ukey) return 'u:' + e._ukey;         // 本次本地上传：blob 地址每次都变，不能拿来当键
+        /* 同一份文件的几种来路合成一格：资产库里那条（la_xxx）、平台列表那条、我的收藏那条。
+           判据只有 AssetLocal.twinOf 一处，这里不另编一套 —— 以前只比 provider+产物号，
+           于是「列表里那条已经换成本机文件、收藏里那条还挂着老产物号」的两张卡谁也认不出谁，
+           表现就是用户说的「同一个视频任务在选择器里出现两遍」。 */
+        const tk = (window.AssetLocal && AssetLocal.twinOf) ? AssetLocal.twinOf(e) : '';
+        if (tk) return 't:' + tk;
         const i = idOf(e);
         if (i) return 'a:' + (e.provider || '') + ':' + i;
         return e.favItem ? 'f:' + e.favItem.key : (e.src ? 's:' + e.src : 'n:' + (e.name || ''));
@@ -2785,7 +3160,15 @@ window.AssetPicker = {
         libPool.forEach(e => { e._grp = 'lib'; map.set(dKey(e), e); });
         favPool.forEach(e => {
           const k = dKey(e), hit = map.get(k);
-          if (hit) { hit.fav = true; hit._favRec = hit._favRec || e._favRec; } else map.set(k, e);
+          if (hit) {
+            hit.fav = true; hit._favRec = hit._favRec || e._favRec;
+            /* 用户在这条并掉之前点中过它（收藏那一批先画出来、列表要几秒才到）→
+               选中跟着挪到留任的那一条上，别因为「同一份文件换了个来路」把已选的丢掉 */
+            if (pick.replace(e, hit)) {
+              const d = nodes.get(e);
+              if (d) { nodes.delete(e); nodes.set(hit, d); d._apEntry = hit; }
+            }
+          } else map.set(k, e);
         });
         upPool.forEach(e => { e._grp = 'local'; map.set(dKey(e), e); });
         base = [...map.values()].sort((a, b) => tsOf(b) - tsOf(a));
@@ -2805,17 +3188,38 @@ window.AssetPicker = {
         if (after && tsOf(e) && tsOf(e) < after) return false;
         return true;
       };
-      const visible = () => {
+      /* 一次只画 200 条，**滚到底再追加 200 条** —— 不是「只给 200 条」。
+         以前是 GRID_CAP 硬截断：几百条时排在第 200 条以后的那一类一张都不出现，
+         用户只会以为「这个库里没有这一类」，而真实原因只是窗口没往下翻。 */
+      const GRID_PAGE = 200;
+      let shownCap = GRID_PAGE;      // 当前渲染窗口的大小（每滚到底 += GRID_PAGE）
+      let rest = 0;                  // 命中了、但当前窗口还没画出来的条数
+      let aiCut = 0;                 // 命中了、但被 AI 的「只要 N 条」裁掉的条数
+      let winAll = 0;                // 当前筛选命中的总条数
+      let winKey = '';               // 筛选状态指纹：变了就把窗口收回第一屏
+      const matched = () => {
         /* AI 条件生效时，搜索框里那句原话不再参与过滤：整句几乎不可能是某条提示词的子串，
            再 AND 一层就等于「AI 挑完了又全部筛掉」。框里的字保留着，改一下就会重新按普通关键词筛
            （见 search.oninput），点 ✕ 也能退回普通筛选。 */
         const q = aiCond ? '' : search.value.trim().toLowerCase();
         let out = base.filter(e => inView(e) && matchesType(e) && (!q || hay(e).includes(q)) && (!aiCond || aiMatch(e)));
-        if (aiCond) {
-          if (aiCond.order === 'asc') out = out.slice().reverse();
-          out = out.slice(0, Math.max(1, Math.min(200, Number(aiCond.limit) || 30)));
-        }
-        return out.slice(0, 200);
+        if (aiCond && aiCond.order === 'asc') out = out.slice().reverse();
+        return out;
+      };
+      const visible = () => {
+        const all = matched();
+        /* 换了筛选条件（搜索框里的字 / 类型档 / 收藏视图 / AI 条件）就把窗口收回第一屏：
+           带着「已经翻到第 800 条」去看一个新筛选，第一眼看到的是不相干的一段。
+           判据只有这一处（筛选指纹），不要在每个改筛选的按钮里各写一遍「重置」。 */
+        const key = JSON.stringify([search.value, typeTab, favOnly, aiCond ? JSON.stringify(aiCond) : '']);
+        if (key !== winKey) { winKey = key; shownCap = GRID_PAGE; }
+        const capN = aiCond ? Math.max(1, Number(aiCond.limit) || 30) : Infinity;
+        const want = Math.min(all.length, capN);        // AI 钉住的那一条线以下才归窗口管
+        const take = Math.min(want, shownCap);
+        winAll = all.length;
+        rest = want - take;                              // 命中了、窗口还没画到的
+        aiCut = all.length - want;                       // 命中了、被 AI 的条数上限裁掉的
+        return all.slice(0, take);
       };
 
       /* 缩略图与卡片复用：每次筛选都 grid.innerHTML 重建的话，视频缩略图就重新取一次元数据
@@ -2846,22 +3250,39 @@ window.AssetPicker = {
          一张几百 KB ~ 几 MB），视频 `preload="metadata"` 也要回一段 Range —— 98 张一起抢连接，
          弹窗要等很久才出图，视频更慢。
          现在：卡片先画**占位格**（立刻能看、能点、能多选），媒体滚到附近才创建，并且**并发封顶**
-         （图 6 / 视频 2）—— 首屏只加载十来张，往下滚再续。缓存命中的（Wb.thumbs 已有的小图）不受排队影响。 */
+         （图 8 / 视频 2）—— 首屏只加载十来张，往下滚再续。缓存命中的（Wb.thumbs 已有的小图）不受排队影响。 */
       const MEDIA_CONC = { image: 8, video: 2 };
       const mediaWait = [];
       const mediaActive = { image: 0, video: 0 };
       const pendingMedia = new Map();          // 卡片 → true
+      /* 「这张卡现在就摆在滚动区可视带里」的判据只有一份（放 400px 余量，与观察器的 rootMargin 同一条）。
+         上面那个观察器负责「什么时候把卡片交给调度器」，这里负责「先给谁」—— 两者必须是同一个 400px，
+         否则会出现「观察器说在附近、调度器说不在」而每张都走第二轮。 */
+      const nearView = el => {
+        const r = el.getBoundingClientRect(), b = bodyEl.getBoundingClientRect();
+        if (!r.width || !r.height || !b.height) return false;
+        return r.bottom > b.top - 400 && r.top < b.bottom + 400;
+      };
       const pumpMedia = () => {
-        for (let i = 0; i < mediaWait.length; i++) {
-          const job = mediaWait[i];
-          const lim = MEDIA_CONC[job.kind] || 4;
-          /* 这一类满了要**跳过它继续看后面的**，不是 break 整个循环：
-             写成 break 时「视频槽位被占满」会连带把后面的图片也一起堵死，
-             而且上面那句注释本来写的就是「后面别的类还能走」。 */
-          if (mediaActive[job.kind] >= lim) continue;
-          mediaWait.splice(i--, 1);
-          mediaActive[job.kind]++;
-          Promise.resolve().then(job.run).catch(() => {}).then(() => { mediaActive[job.kind]--; pumpMedia(); });
+        /* 先服务**眼下看得见**的那几张，再补剩下的（第二轮）。
+           以前是纯 FIFO：快速滚到底时一次进队几百张，排在最前面的是**刚被滚过去、
+           谁也没在看**的那一批，而用户正盯着的底部那几张排在最末 ——
+           实测每张约 1.6 秒、视频并发只有 2，底部视口里的 14 张要等三分多钟才轮到，
+           这段时间里它们连 `<video>` 都没有（占位符「…」），看着就是「往下滚视频卡全是灰」。
+           判据用同一个 nearView（和观察器的 rootMargin 一样放 400px 余量）。 */
+        for (let pass = 0; pass < 2; pass++) {
+          for (let i = 0; i < mediaWait.length; i++) {
+            const job = mediaWait[i];
+            const lim = MEDIA_CONC[job.kind] || 4;
+            /* 这一类满了要**跳过它继续看后面的**，不是 break 整个循环：
+               写成 break 时「视频槽位被占满」会连带把后面的图片也一起堵死，
+               而且上面那句注释本来写的就是「后面别的类还能走」。 */
+            if (mediaActive[job.kind] >= lim) continue;
+            if (pass === 0 && !nearView(job.el)) continue;
+            mediaWait.splice(i--, 1);
+            mediaActive[job.kind]++;
+            Promise.resolve().then(job.run).catch(() => {}).then(() => { mediaActive[job.kind]--; pumpMedia(); });
+          }
         }
       };
       const fillMedia = (d, e) => {
@@ -2924,7 +3345,7 @@ window.AssetPicker = {
         // 缓存里已经有小图的（多半刚刚在别处看过）直接放行，不用排队
         const cached = (window.Wb && window.Wb.thumbs) ? Wb.thumbs.get(e.src, e._tkey) : '';
         if (cached) { fillMedia(d, e); return; }
-        mediaWait.push({ kind, run: () => fillMedia(d, e) });
+        mediaWait.push({ kind, el: d, run: () => fillMedia(d, e) });
         pumpMedia();
       };
       const io = ('IntersectionObserver' in window)
@@ -2936,6 +3357,19 @@ window.AssetPicker = {
             io.unobserve(en.target); } },
           { root: dlg.querySelector('.ap-body'), rootMargin: '400px 0px' })
         : null;
+      /* 滚到底追加下一批：判据与 `Wb.pager` 的「滚到底自动续拉」同一形状 —— 量的是滚动位置。
+         原来挂的是 IntersectionObserver（看见尾巴才追加），实测在页面处于后台时观察器
+         根本不发回调，怎么滚都停在 200 条；而「后面明明有 131 条却拿不到」是不能接受的。
+         这颗尾巴同时能点（more.onclick）—— 人工那条出口任何时候都要留着。 */
+      const grow = () => {
+        if (rest <= 0) return;
+        shownCap += GRID_PAGE;
+        paint();
+      };
+      bodyEl.addEventListener('scroll', () => {
+        if (bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 260) grow();
+      }, { passive: true });
+      more.onclick = grow;
       const build = e => {
         const d = document.createElement('div');
         d.className = 'ap-item';
@@ -3001,6 +3435,22 @@ window.AssetPicker = {
             : kw ? '没有匹配「' + kw.slice(0, 20) + '」的' + o.types.join(' / ') + '，换个说法试试'
               : (favOnly ? '我的收藏里还没有' : '资产库里还没有') + o.types.join(' / ')
                 + (favOnly ? '，去资产库或收藏页加几条' : '，先去生成或上传吧');
+        }
+        /* 窗口下面还有多少条没说 —— 这句必须在格子上摆着：
+           库里几百条时「这一类一张都没出现」看着就像「这个库里没有这一类」，
+           而真实原因只是窗口还停在最前面那 200 条（往下滚就来，点那一句也直接补）。 */
+        if (!shown.length) { more.hidden = true; more.classList.remove('go'); }
+        else if (rest > 0) {
+          more.hidden = false;
+          more.classList.add('go');
+          more.textContent = '往下滚加载后面的 ' + rest + ' 条（已列出 ' + shown.length + ' / ' + winAll + '）';
+        } else if (aiCut > 0) {
+          more.hidden = false;
+          more.classList.remove('go');
+          more.textContent = 'AI 只要这一类里的 ' + shown.length + ' 条（筛中了 ' + winAll + ' 条）';
+        } else {
+          more.hidden = true;
+          more.classList.remove('go');
         }
         syncSel();
       };
@@ -3161,9 +3611,12 @@ window.AssetPicker = {
             const e = await Fav.asEntry(x).catch(() => null);
             if (!e) return null;
             e._grp = 'fav'; e.fav = true; e._favRec = x;
-            // 稳定缩略图键：本地文件的 blob 地址每次都变，拿它当键等于永远命不中缓存
-            e._tkey = x.kind === 'local' && x.fileKey ? 'fav-file:' + x.fileKey
-              : ('fav-asset:' + (x.provider || '') + ':' + idOf(x));
+            /* 缩略图键：只有**本地文件收藏**要自己给一个稳定键（blob 地址每次都变，
+               拿它当键等于永远命不中缓存）。平台产物那一类**不再另起键名** ——
+               键只由 Wb.thumbs.keyOf(地址) 归一化算出（签名剥掉、有本机副本就并到 /asset/ 那一条）。
+               以前这儿自造了一个 'fav-asset:平台:id'，于是同一份视频在「我的收藏」这一档抽一次、
+               在资产库/列表那一档再抽一次，两份缓存互不相干 —— 就是「各个页面的预览不复用」。 */
+            e._tkey = x.kind === 'local' && x.fileKey ? 'fav-file:' + x.fileKey : '';
             return e;
           }))).filter(Boolean);
           refresh();
@@ -4770,6 +5223,55 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
   /* 这条任务是不是「本机确实没有归档」（回源查过才算，没查过返回 false）：
      界面据此区分「平台不返回提示词，但本机归档里能找到」和「两边都没有」。 */
   const missedFor = (provId, id) => !!id && (missed.has(keyOf(provId, id)) || missed.has(keyOf('', id)));
+  /* 「这一条该按什么号去归档里问」只有一份判据：任务号 → 产物号，逐个字节的本机资产号（la_）不算 ——
+     本机生成的那几条压根没有平台记录，拿 la_xxx 去问每一条固定一个 404、还永远问不出东西。
+     为什么也要看 assetId / id：**收藏与工作区里存的那条经常只有产物号**（VGENV 的任务号就是产物号，
+     而当初建卡时那条目可能就没有 genId），只认任务号就会永远跳过它 —— 归档明明有，卡片却空着一行。 */
+  const askId = rec => {
+    if (!rec) return '';
+    for (const v of [rec.taskId, rec.genId, rec.assetId, rec.id]) {
+      const s = String(v == null ? '' : v);
+      if (s && !/^la_/.test(s)) return s;
+    }
+    return '';
+  };
+  /* 缺提示词的记录就地补齐（**不等它**：返回的 Promise 只给愿意等的人，首屏不为它多待一个请求）。
+     查到就写 rec.prompt + promptLocal，然后回调一次让调用方重画 —— 列表（AssetLib.load）与收藏
+     （Fav.refillPrompts）走的是同一份判据、同一份回源，页面不要再自己拼一次 /prompts/find。
+     问过的会进 missed 集合（活过刷新），本机真没有归档的那些不会反复问。
+     两条省请求的判据，都在这一处：
+     ① **归档索引里已经有这句话的就当场填掉**（`load()` 已经拉过最近 800 条，一次 `/prompts/find` 都不必发）；
+     ② 限量名额只给「还得回源问」的那些 —— 索引命中那条不能把名额吃掉，否则一整屏都能填时
+        反而一个请求都不发、名额全浪费在没归档的行上。 */
+  function refill(recs, opts = {}) {
+    const limit = opts.limit > 0 ? opts.limit : 20;
+    const todo = [];
+    let filledNow = 0;
+    for (const r of (Array.isArray(recs) ? recs : [])) {
+      if (!r || r.prompt) continue;
+      const id = askId(r);
+      if (!id) continue;
+      const hit = cached(r.provider, id) || cachedById(id);
+      if (hit) { r.prompt = hit; r.promptLocal = true; filledNow++; continue; }
+      if (missedFor(r.provider, id)) continue;
+      if (todo.length >= limit) continue;
+      todo.push({ r, id });
+    }
+    if (!todo.length) {
+      if (opts.onDone && filledNow) { try { opts.onDone(filledNow, []); } catch (e) { console.warn('[PromptLog] 补齐后重画出错：', e); } }
+      return Promise.resolve(filledNow);
+    }
+    return Promise.allSettled(todo.map(x => findByTask(x.r.provider, x.id))).then(() => {
+      let n = filledNow;
+      todo.forEach(x => {
+        const p = cached(x.r.provider, x.id) || cachedById(x.id);
+        if (p) { x.r.prompt = p; x.r.promptLocal = true; n++; }
+      });
+      /* 查到没查到都要回调：没查到的那一行要从「正在归档里找」改成「两边都没有」 */
+      if (opts.onDone) { try { opts.onDone(n, todo.map(x => x.r)); } catch (e) { console.warn('[PromptLog] 补齐后重画出错：', e); } }
+      return n;
+    });
+  }
   /* 归档目录信息（设置页展示） */
   const list = () => req('?dir=' + encodeURIComponent(dir()));
   const open = () => req('/open?dir=' + encodeURIComponent(dir()), { method: 'POST' });
@@ -4786,7 +5288,7 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
      刚往归档目录里手工补了文件、或换了归档目录时用它，不用刷新页面。 */
   const clearMissed = () => { const n = missed.size; missed.clear(); saveMissed(); loadedAt = 0; return n; };
 
-  window.PromptLog = { save, load, cached, cachedById, findByTask, missedFor, clearMissed, list, open, dir, setDir, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
+  window.PromptLog = { save, load, cached, cachedById, findByTask, missedFor, askId, refill, clearMissed, list, open, dir, setDir, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
 })();
 
 /* ============================================================================

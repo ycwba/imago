@@ -7,6 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const dns = require('dns');
+/* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.js 顶部）。
+   这里 require 而不是抄一份：落盘闸要判断「这份产物本机有没有存过」，
+   而浏览器要算缓存键与跨页去重 —— 同一件事，两处各写一份就一定会漂。 */
+const MediaId = require('./ident.js');
 
 /* 端口默认 5175。PORT 也能写在项目目录的 .env 里 —— 所以这一行必须排在 loadEnvFile(true)
    **后面**：以前它排在前面（在 require 之后立刻读），.env 里写的 PORT 根本不生效，
@@ -192,8 +196,10 @@ const REGISTRY = {
      v11 起两处变化：① 撤掉自定义平台「最多 12 家」的上限（`custom.max` 字段一并删掉）；
      ② 「地址不许撞模板自己的官方地址」不再算错 —— 内置平台现在也要先添加一次才进设置页的
      供应商清单，那个官方地址正是设置页自动填进去的默认值（只拦撞到**别的**内置平台）。
+     v12 起本机资产库的 `list.map` 多一个 `taskId`（= 落盘时留在索引里的 `detail.task`）：
+     本机那一条的 id 是文件号 la_xxx，不是平台任务号，页面要靠它才知道该拿什么去问提示词归档。
      改注册表结构时顺手 +1。 */
-  version: 11,
+  version: 12,
   /* 「接口形状」= **接口族**清单，每一族点名它照哪一家内置声明实现。
      为什么与「供应商」分开：厂商（SparkCine / 硅基流动 / MiniMax…）是「我照它那一家整套走」，
      而接口形状是「我跑的就是这一套协议，厂商是谁不重要」—— 市面上大量中转站都跑 OpenAI 兼容那一套，
@@ -538,6 +544,10 @@ const REGISTRY = {
           id: 'id', status: 'status', prompt: 'prompt', model: 'model', voice: 'voice',
           created: 'created_at', duration: 'duration', format: 'format', credits: 'credits',
           chars: 'chars', tokens: 'usage.total_tokens', byteLength: 'byte_length',
+          /* 平台任务号：镜像落盘时留在索引里（POST 的 meta.detail.task）。本机这一条的 id 是
+             la_xxx —— 那是文件号不是任务号，页面拿它去问提示词归档永远 404，
+             「优先用本机文件」时老产物的卡片就一律空着（平台列表只留最近的，那些条目只剩本机这一条）。 */
+          taskId: 'detail.task',
         },
         statusMap: { succeeded: 'done' },
         selfAsset: true,            // 列表条目本身就是资产（本地落盘产物）
@@ -709,7 +719,8 @@ const REGISTRY = {
       },
       list: {
         dataField: 'data',
-        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model', created: 'created_at', format: 'format' },
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model', created: 'created_at', format: 'format',
+          taskId: 'detail.task' },        // 平台任务号留底，判据见上面 MiMo 那条的注释
         statusMap: { succeeded: 'done' },
         selfAsset: true,                            // 条目本身就是本机产物
         media: { by: 'media_type', imagePrefix: ['图片', 'image'], videoPrefix: ['视频', 'video'], fallback: '图片' },
@@ -773,7 +784,8 @@ const REGISTRY = {
       list: {
         dataField: 'data',
         map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model', created: 'created_at',
-          duration: 'extra_info.audio_duration', format: 'format', chars: 'extra_info.usage_characters' },
+          duration: 'extra_info.audio_duration', format: 'format', chars: 'extra_info.usage_characters',
+          taskId: 'detail.task' },        // 平台任务号留底，判据见上面 MiMo 那条的注释
         statusMap: { succeeded: 'done' },
         selfAsset: true,
         media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '音频' },
@@ -1400,6 +1412,14 @@ const LOCAL_DIR = path.join(__dirname, process.env.ASSETS_DIR || '.assets');
 const SAVE_KINDS = ['image', 'video', 'audio'];
 const saveKindZh = { image: '图片', video: '视频', audio: '音频' };
 const typeLabel = t => saveKindZh[t] || t;
+/* 没指定目录时的默认落盘地：项目下的「文件」文件夹，按类型分子目录。
+   为什么是这个：设置项留空原本的意思是「只存 .assets 资产库、不另存一份」，
+   于是用户永远看不到自己生成的成品，得自己去一个点号开头的隐藏目录里翻。
+   留空 = 用这个默认，是把「什么都不做」换成「存到看得见的地方」，
+   仍然随时能改 —— 逐类型的自定义路径优先级更高（见 autosaveDir）。
+   放项目目录下的理由：跟着项目走、跟着 DataSync 的仓库走，
+   且不写死绝对路径（换机器、云同步之后仍然对）。 */
+const autosaveDefaultDir = kind => path.join(__dirname, '文件', typeLabel(kind));
 function autosaveConf() {
   /* 与下面 `dataDirPath()` 同一份表达式：这里**不能**去调它 —— 它是 2339 行的 const，
      本函数在 1400 行，调用它就依赖「模块加载完之前不会被调用」这件事（能跑，但脆）。 */
@@ -1409,13 +1429,100 @@ function autosaveConf() {
     return (v && typeof v === 'object') ? v : {};
   } catch { return {}; }
 }
-/** 这一类该存到哪个目录（'' = 没指定 → 不另存，只留在 .assets 资产库里） */
+/** 这一类该存到哪个目录（'' = 这一类关了，不另存）。
+    留空不再等于「不另存」：那是 2026-10 之前的默认，代价是成品只落在 .assets 这个
+    点号开头的目录里，用户看不见。留空 = 用 autosaveDefaultDir（项目下 文件/<类型>）。 */
 function autosaveDir(kind) {
   const c = (autosaveConf()[kind] || {});
   if (c.on === 'off') return '';
   const d = String(c.dir || '').trim();
-  if (!d) return '';
+  if (!d) return autosaveDefaultDir(kind);
   return path.resolve(d.replace(/[\\/]+$/, ''));
+}
+/* 「图片/视频/音频」反回 image/video/audio。类型判据只有 localMediaType 一处，
+   这里只做中英互转，不另写一份扩展名名单（LOCAL_KIND_BY_EXT 已经有一份了）。 */
+const saveKindOf = zh => Object.keys(LOCAL_KIND_ALIAS).find(k => LOCAL_KIND_ALIAS[k] === zh) || '';
+/* 文件名：只留 basename 与安全字符（防 ../ 穿越）。三条另存路由共用这一份。 */
+function saveBaseName(name, fallback) {
+  return path.basename(String(name == null ? '' : name) || fallback || 'file.bin')
+    .replace(/[^\w.\-一-龥]+/g, '_').replace(/^_+/, '').slice(0, 120)
+    || (fallback || 'file.bin');
+}
+/* 在 dir 里找一个不撞名的文件名：同名加 -2 / -3 序号，**不覆盖** ——
+   覆盖会把用户自己整理过的文件名换掉，而且没有任何提示。
+   /save、/save-local、/save-move 三条路由共用这一份：各写一遍就会出现
+   「补存那次叫 a-2、下一回生成又叫 a-2」这种同目录里两套编号。 */
+function saveUniqueName(dir, base, onTooMany) {
+  let file = base, n = 2;
+  while (fs.existsSync(path.join(dir, file))) {
+    const dot = base.lastIndexOf('.');
+    file = (dot > 0 ? base.slice(0, dot) : base) + '-' + n + (dot > 0 ? base.slice(dot) : '');
+    n++;
+    if (n > 999) return onTooMany();
+  }
+  return file;
+}
+/* 目标目录里已经有哪些内容：建一张「字节数:摘要 → 文件名」的表。
+   为什么必须有这一步：另存是**镜像的附属动作** —— 用户改目录之前新生成的那批，
+   早就被 /save 写进旧目录了。不判重就补存的话，同一个视频会在新目录里出现两份：
+   一份是补存拷来的 `a.mp4`，一份是搬迁搬过来的 `a-2.mp4`（撞名才加的序号）。
+   只比字节数不够 —— 同长度不同内容是常事（改一帧的视频、改过参数的图），所以再比 sha1。
+   整条目录只读一遍、由调用方复用，别在循环里每个 id 重扫一次（83 个产物 × 目录里几十个
+   文件就是几千次全文件读）。`sha1Of` 定义在 3271 行，这里能安全引用：
+   本函数只在**收到请求之后**才被调用，那时模块早已加载完。 */
+/* 这个目录是不是**本机资产库本体**（.assets，或它里面的某个子目录）。
+   另存那三条路由都要过这一道。为什么单独拦、而不是靠白名单：
+   白名单（sk_autosave_used.json）证明的是「这个目录是本工作台写过的」，
+   证明不了「搬走 / 写进去它是安全的」—— 用户把另存目录填成 .assets 是完全合法的操作，
+   而那样 /save 写进去的副本会把 .assets 记进白名单，下一次换位置 /save-move 就会
+   **真的把资产库里的文件搬走**。.assets 是整个工作台的本体：离线能看、删了能回源、
+   缩略图全靠它，搬空了就是「资产库里什么都没有了」。
+   判据只有这一份（LOCAL_DIR 同一处），三条路由各调它，不再各写一遍前缀比较。 */
+function insideLocalDir(dir) {
+  if (!dir) return false;
+  try {
+    const base = path.resolve(LOCAL_DIR), s = path.resolve(dir);
+    return s === base || s.startsWith(base + path.sep);
+  } catch { return false; }
+}
+function saveDirSums(dir) {
+  const map = new Map();
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return map; }   // 目录还不存在 = 里面什么都没有
+  for (const n of names) {
+    const p = path.join(dir, n);
+    let st; try { st = fs.statSync(p); } catch { continue; }
+    if (!st.isFile()) continue;
+    try { map.set(st.size + ':' + sha1Of(fs.readFileSync(p)), n); } catch {}
+  }
+  return map;
+}
+/* ---------- 代理自己写过的目录名单（POST /save-move 的安全闸） ----------
+   换下载位置时页面要递「从哪个旧目录搬过来」，而 /save 特意**不接受**客户端递的目录 ——
+   认了它，这条路由就等于「任意本机网页往任意路径写/搬文件」。
+   所以旧目录必须能被证明是**本工作台自己写出来的**：代理每写一次就把那个目录记进
+   `.data/sk_autosave_used.json`，/save-move 只接受名单里的。
+   代价是「早于这份名单的旧目录」搬不了 —— 那种情况页面会照实说「那个目录不是本工作台写的」，
+   而不是替用户猜。 */
+const autosaveUsedPath = () => path.resolve(__dirname, process.env.DATA_DIR || '.data', 'sk_autosave_used.json');
+function autosaveUsedRead() {
+  try { const v = JSON.parse(fs.readFileSync(autosaveUsedPath(), 'utf8')); return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []; }
+  catch { return []; }
+}
+function autosaveUsedAdd(dir) {
+  try {
+    if (!dir) return;
+    const list = autosaveUsedRead();
+    const key = path.resolve(dir);
+    if (list.some(x => path.resolve(x) === key)) return;
+    list.push(key);
+    fs.writeFileSync(autosaveUsedPath(), JSON.stringify(list.slice(-50), null, 0));
+  } catch (e) { log('[save] 目录名单写不下去（不影响存文件）：' + e.message); }
+}
+function autosaveUsedHas(dir) {
+  if (!dir) return false;
+  const key = path.resolve(dir);
+  return autosaveUsedRead().some(x => { try { return path.resolve(x) === key; } catch { return false; } });
 }
 const localIndexPath = () => path.join(LOCAL_DIR, 'index.json');
 function localIndexRead() {
@@ -1484,6 +1591,54 @@ function localMediaType(x) {
   if (m.startsWith('audio/')) return '音频';
   const given = String((x && x.media_type) || '').trim();
   return given ? (LOCAL_KIND_ALIAS[given.toLowerCase()] || given) : '音频';
+}
+/* 这一条产物「是什么时候有的」——**必须是生成时间，不是落盘时间**。
+   镜像只是把平台上的产物搬到本机这一步：一次回源能把几百条老产物在同一天写进来，
+   索引里的 created_at 于是全成了「今天」，按它倒序排就把资产库里唯一那张图片挤出
+   选择器「全部」那一档的前 200 条（表现是「导演台开头画面切到『全部』，图片一张都不出现」）。
+   落盘时留在索引里的 detail.created 才是那一件事真正发生的时间；本机自己生成的
+   （逐句配音、同步产物）没有 detail，才退到 created_at。
+   取不出一个能用时间就退回落盘时间，绝不返回空/0 —— 排在最底等于对界面说「没有这回事」。 */
+function localAssetWhen(x) {
+  const d = (x && typeof x.detail === 'object' && x.detail) || null;
+  const raw = d && (d.created || d.completed);
+  let v = raw;
+  if (typeof v === 'string' && /^\d+$/.test(v)) v = Number(v);           // 纯数字的时间串按数字判
+  const ok = (typeof v === 'number' && v > 0)
+    || (typeof v === 'string' && !isNaN(Date.parse(v)));
+  return ok ? raw : ((x && x.created_at) || '');
+}
+/* 一份产物在本机资产库里的**身份**：来源外链的 host + path（+ 非易变的 query），签名参数一律不参与。
+   为什么判据要放在代理这一层：镜像键 `sk_local_mirror` 存在浏览器 localStorage 里，而
+   localStorage 是**按端口分家**的（5175 / 5199 / 6200 是三个源），换端口、清浏览器数据、开无痕
+   都把那份索引一起清零 —— 于是每一次开页面都把**同一份产物**重新下载、重新落盘一份新文件。
+   实测这台机器的索引里 290 行只对应 83 份产物（最多的一份重复 15 次，落盘时刻散在七个不同的
+   会话里），磁盘 0.45 GB 中真正在用的只有 0.08 GB；而资产库 / 素材选择器看到的就是
+   「同一个视频重复出现 N 张卡」。浏览器那一份只能挡同一个源，挡不住换源。
+   「剥掉哪些签名参数」这条判据在 ident.js 里只有一份（浏览器那边 assetlib.js require 同一个文件）——
+   以前这里是本文件自己抄的正则，注释写着「两边必须一致」却没有任何东西保证它一致，
+   漂一次就是上面那个数字重新涨一遍。 */
+function localUpKey(u) {
+  const s = String(u || '');
+  if (!/^https?:\/\//i.test(s)) return '';       // 这里只吃上游原始外链（meta.upstream），不会是 /getv 包装
+  let x = null;
+  try { x = new URL(s); } catch { return ''; }
+  return MediaId.upKeyOf(x);
+}
+/* 索引里没有的字段才用新到的那份补上 —— 外链每次镜像的签名参数不同，但提示词 / 任务详情
+   是同一件事；把已有非空值覆盖成空值等于「后到的那份把先到的信息弄丢了」。 */
+const LOCAL_FILL_FIELDS = ['prompt', 'model', 'voice', 'priceText', 'upstream'];
+function localFillMissing(old, inc) {
+  let changed = false;
+  for (const f of LOCAL_FILL_FIELDS) {
+    if (!old[f] && inc[f]) { old[f] = inc[f]; changed = true; }
+  }
+  for (const f of ['duration', 'credits', 'chars']) {
+    if (old[f] == null && inc[f] != null) { old[f] = inc[f]; changed = true; }
+  }
+  if (!old.usage && inc.usage) { old.usage = inc.usage; changed = true; }
+  if (!old.detail && inc.detail) { old.detail = inc.detail; changed = true; }   // 生成时间在这里，缺了就只能回落盘时间
+  return changed;
 }
 /* 按文件名补一条索引（文件名就是 <id>.<格式>），并写回索引 */
 function localAssetRebuild(id) {
@@ -2512,8 +2667,11 @@ function sameOriginOnly(req) {
    注意结尾的分隔符要同时认 `/`、`?` 和串尾 —— 这几条路由都带查询串（/getv?url=…），
    只写 `(\/|$)` 会让它们漏掉拦截（踩过一次）。
    `/pick-dir` 在里面是另一类理由：它把**本机磁盘上一个真实路径**回给调用方。
-   不拦的话，任意网页都能在用户机器上弹一次文件夹选择框、再把用户选中的目录读走。 */
-const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|save|pick-dir|env-status|sys-status|clear-cache|render|media|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
+   不拦的话，任意网页都能在用户机器上弹一次文件夹选择框、再把用户选中的目录读走。
+   另存那三条（`/save`、**`/save-local`**、**`/save-move`**）同源检查的理由更重：
+   后两条会**写文件、还会删源文件**。注意 `save` 后面那截 `(?:-(?:local|move))?` ——
+   写成裸 `save` 时结尾的 `(?:[/?]|$)` 匹配不上 `-`，于是这两条会**整条漏出同源检查**。 */
+const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|save(?:-(?:local|move))?|pick-dir|env-status|sys-status|clear-cache|render|media|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
 /* relay 转发前缀（/sparkcine、/vgenv、/textai…）与 /asset/ 同样只服务本工作台页面。
    以前它们不在同源检查里：代理在客户端没带 Authorization 时会**自动注入 .env 里的密钥**，
    于是任意恶意网页只要 fetch('http://localhost:5175/sparkcine/...') 就能用你的密钥建任务、扣费、读余额
@@ -2703,7 +2861,15 @@ function handlePrompts(req, res, urlObj) {
        现在一次到位：provider 只用来决定「优先把哪一份当正文」，不影响是否命中。 */
     const rows = promptRows(dir).filter(r => r.i && r.i === id);
     if (!rows.length) rows.push(...scanPromptTask(dir, id));
-    if (!rows.length) { json(404, { error: { message: '这个任务没有归档提示词' } }); return true; }
+    /* 「这个任务本机没归档过」是**正常结果**，不是错误 —— 平台大多不返回 prompt，
+       老任务更是从没归档过。回 404 会让浏览器把每一条都记成一条红色失败：
+       实测资产库一屏 13 条、语音台与用量页各十几条，控制台和网络面板全被刷满，
+       而界面上什么事都没有发生（客户端本来就把 404 当空结果 catch 掉，见 assetlib.js
+       的 findByTask：`catch { d = null }` → 记进 missed 集合 → 返回空串）。
+       改成 200 + matched:0：客户端走的是同一段（`d.prompt` 为空 → 同样进 missed），
+       语义一字不差，少掉的只有满屏红字。真正的请求错误（400 缺 id、500 读目录失败）
+       仍然是错误码。 */
+    if (!rows.length) { json(200, { ok: true, id, matched: 0, archived: false, prompt: '', all: [] }); return true; }
     rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     const hit = (prov && rows.find(r => r.p === prov)) || rows.find(r => !r.p) || rows[0];
     let prompt = '';
@@ -3089,7 +3255,7 @@ async function handleCapabilities(req, res, urlObj) {
     res.end(JSON.stringify(payload));
     return true;
   };
-  if (!endpoint) return reply({ ...base, source: 'registry', models: {}, note: '该平台没有声明能力接口（registry 里补 endpoints.models 即可）' });
+  if (!endpoint) return reply({ ...base, source: 'registry', models: {}, note: '这家没有开放的型号列表接口，参数按本项目的默认声明走' });
 
   const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
     || keyOf(prov.keyEnv) || DEFAULTS[prov.keyId || prov.id] || '';
@@ -3864,23 +4030,17 @@ async function handleRequest(req, res) {
          一旦认客户端递的目录，这条路由就等于「任意本机网页往任意路径写文件」。 */
       const dir = autosaveDir(type);
       if (!dir) return bad3(409, '设置里没有给' + typeLabel(type) + '指定文件夹（先到设置页填一个）');
+      if (insideLocalDir(dir)) return bad3(409, '另存目录不能设成本机资产库本体（.assets）—— 产物本来就存在那儿了，请换一个普通文件夹');
       const fmt = String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-      /* 文件名：只留 basename 与安全字符。同名时加 -2 / -3 序号，**不覆盖** ——
-         覆盖会把用户自己整理过的文件名换掉，而且没有任何提示。 */
-      const base = path.basename(String(spec.name || ('file.' + (fmt || 'bin'))))
-        .replace(/[^\w.\-一-龥]+/g, '_').replace(/^_+/, '').slice(0, 120) || ('file.' + (fmt || 'bin'));
+      const base = saveBaseName(spec.name, 'file.' + (fmt || 'bin'));
       try {
         fs.mkdirSync(dir, { recursive: true });
         const buf = Buffer.from(String(spec.data), 'base64');
-        let file = base, n = 2;
-        while (fs.existsSync(path.join(dir, file))) {
-          const dot = base.lastIndexOf('.');
-          file = (dot > 0 ? base.slice(0, dot) : base) + '-' + n + (dot > 0 ? base.slice(dot) : '');
-          n++;
-          if (n > 999) return bad3(409, '那个目录里已经有一千个同名文件了');
-        }
+        const file = saveUniqueName(dir, base, () => null);
+        if (!file) return bad3(409, '那个目录里已经有一千个同名文件了');
         const full = path.join(dir, file);
         fs.writeFileSync(full, buf);
+        autosaveUsedAdd(dir);          // 这个目录从此可以当「旧目录」被搬走（见 /save-move）
         log(`[save] ${type} → ${dir}${path.sep}${file}（${(buf.length / 1024).toFixed(0)} KB）`);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ ok: true, type, dir, file, bytes: buf.length, path: full }));
@@ -3890,6 +4050,156 @@ async function handleRequest(req, res) {
         log('[save] 写入失败：' + e.message);
         bad3(500, '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message);
       }
+    });
+    return;
+  }
+  /* ============================================================================
+     把**已经存在本机资产库里的成品**补一份到用户指定的文件夹（POST /save-local）
+     ---------------------------------------------------------------------------
+     为什么需要这一条：`/save` 只挂在**镜像流程内部**（assetlib.js 的 runOne），
+     而镜像那一步先被 `offer()` 的「这份产物已经存过了就跳过」挡在前面。
+     于是功能加上之前下载的那批（实测这台机器是 83 个 / 86.4 MB）永远不会被补写 ——
+     用户打开开关、目录也填对了，`文件\` 里还是空的，而界面上看不出任何异常。
+     这里补的就是那条缺口：**字节已经在 .assets 里，不重新下载、不重新回源，直接拷一份。**
+     `.assets` 里那份**一律不动** —— 它是资产库的本体（离线能看、删了能回源、
+     缩略图全靠它），移走了等于把工作台弄坏。
+
+     安全与 /save 同款：LOCAL_ONLY 同源、目录只从配置读（请求体里的 dir 一律忽略）、
+     文件名只认索引里已登记的本机号（不接受调用方自造路径或文件名）。
+     ========================================================================== */
+  if (dataPath === '/save-local' && req.method === 'POST') {
+    readBody(req, res, 8 * 1024 * 1024).then(raw => {
+      if (raw == null) return;
+      let spec = null;
+      try { spec = JSON.parse(raw.toString('utf8')); } catch {}
+      const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
+      const ids = Array.isArray(spec && spec.ids) ? spec.ids.filter(x => typeof x === 'string') : [];
+      if (!ids.length) return fail(400, '没有要补存的产物');
+      if (ids.length > 2000) return fail(400, '一次最多补存 2000 个');
+      const index = localIndexRead();
+      const saved = [], missing = [], noKind = [], full = [], dup = [];
+      let bytes = 0;
+      /* 目标目录的内容表按目录缓存：ids 里三种类型会各写各的目录，
+         目录一变就重扫一次（saveDirSums 自己把整个目录只读一遍）。 */
+      let sumsDir = '', sums = null;
+      for (const id of ids) {
+        const ent = index.find(x => x && x.id === id);
+        if (!ent) { missing.push(id); continue; }
+        /* 类型判据复用 localMediaType（扩展名 → mime → media_type），不另写一份名单 */
+        const kind = saveKindOf(localMediaType(ent));
+        if (!kind) { noKind.push(id); continue; }
+        const dir = autosaveDir(kind);
+        if (!dir) { full.push({ id, kind, why: typeLabel(kind) + '这一类现在是关着的' }); continue; }
+        if (insideLocalDir(dir)) { full.push({ id, kind, why: '另存目录被设成了本机资产库本体（.assets），不往里写' }); continue; }
+        const src = localAssetFile(id);
+        if (!src) { missing.push(id); continue; }
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+          const buf = fs.readFileSync(src);
+          /* 已经有同一份内容就别再拷 —— 用户改目录之前新生成的那批早就躺在旧目录里，
+             不挡这一下就会在新目录里出现两份同一个视频（见 saveDirSums 的注释）。 */
+          if (sumsDir !== dir) { sumsDir = dir; sums = saveDirSums(dir); }
+          const sig = buf.length + ':' + sha1Of(buf);
+          const hit = sums.get(sig);
+          if (hit) { autosaveUsedAdd(dir); dup.push({ id, kind, file: hit, dir }); continue; }
+          const base = saveBaseName(ent.name || ent.file || (id + '.' + (ent.format || 'bin')),
+            id + '.' + (ent.format || 'bin'));
+          const file = saveUniqueName(dir, base, () => null);
+          if (!file) { full.push({ id, kind, why: '那个目录里已经有一千个同名文件了' }); continue; }
+          fs.writeFileSync(path.join(dir, file), buf);
+          autosaveUsedAdd(dir);
+          sums.set(sig, file);            // 本次刚写的也要进表，后面那个同内容的 id 就不会再拷一遍
+          bytes += buf.length;
+          saved.push({ id, kind, file, dir });
+        } catch (e) { full.push({ id, kind, why: '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message }); }
+      }
+      log('[save-local] 补存：存了 ' + saved.length + ' 个（' + (bytes / 1048576).toFixed(1) + ' MB）'
+        + (dup.length ? '，那边已经有了 ' + dup.length + ' 个' : '')
+        + (missing.length ? '，索引/文件已不在 ' + missing.length + ' 个' : '')
+        + (noKind.length ? '，不归任何一类 ' + noKind.length + ' 个' : '')
+        + (full.length ? '，没存成 ' + full.length + ' 个' : ''));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, saved, dup, missing, noKind, full, bytes }));
+    });
+    return;
+  }
+  /* ============================================================================
+     换下载位置时把**旧目录里那些副本**搬过去（POST /save-move）
+     ---------------------------------------------------------------------------
+     为什么不合并进 /save-local：搬走会**删掉源文件**，性质与「再拷一份」不同，
+     走两条路由、两种返回，页面才能分别告诉用户「哪些是复制、哪些是搬走」。
+     目录：目标**只从配置读**（同 /save）；来源必须过 `autosaveUsedHas` ——
+     证明它是本工作台自己写出来的目录，否则这条路由就成了「搬任意路径的文件」。
+     顺序：先写目标、写成功才删源（写失败源文件留在原地，绝不反过来）。
+     ========================================================================== */
+  if (dataPath === '/save-move' && req.method === 'POST') {
+    readBody(req, res, 1024 * 1024).then(raw => {
+      if (raw == null) return;
+      let spec = null;
+      try { spec = JSON.parse(raw.toString('utf8')); } catch {}
+      const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
+      const kind = String((spec && spec.kind) || '').toLowerCase();
+      if (!SAVE_KINDS.includes(kind)) return fail(400, 'kind 只能是 ' + SAVE_KINDS.join(' / '));
+      const fromRaw = String((spec && spec.from) || '').trim();
+      if (!fromRaw) return fail(400, '没有要搬的旧目录');
+      /* from 传空串 / '@default' = 「旧的也是默认目录」。这一支**不需要**白名单：
+         路径是代理自己算的（autosaveDefaultDir），不是客户端递进来的 ——
+         白名单是拿来挡「客户端指定源目录」的，这一支压根没有客户端指定的路径。 */
+      const srcIsDefault = (fromRaw === '@default' || fromRaw === '');
+      const to = autosaveDir(kind);                       // 目标只由配置决定，请求体里的 dir 一律忽略
+      if (!to) return fail(409, typeLabel(kind) + '这一类现在是关着的');
+      let srcDir;
+      try { srcDir = srcIsDefault ? autosaveDefaultDir(kind) : path.resolve(fromRaw); }
+      catch { return fail(400, '旧目录不是一个有效路径'); }
+      /* 白名单挡不住一种情况：用户把「另存目录」**填成 .assets 或它的某个子目录**。
+         那样 /save 写进去的副本会让那个目录进白名单（autosaveUsedAdd），
+         之后这条路由就会**真的从资产库里把文件搬走** —— 而 .assets 是整个工作台的本体：
+         离线能看、删了能回源、缩略图全靠它，搬空了资产库就空了。
+         白名单证明的是「这个目录是本工作台写的」，证明不了「搬走它是安全的」，
+         所以资产库本体要单独拦 —— 判据是 insideLocalDir 那一份，三条路由共用。 */
+      if (insideLocalDir(srcDir)) return fail(403, '那个目录是本机资产库本体（.assets），不从那里搬 —— 资产库一空，工作台就看不到东西了');
+      if (insideLocalDir(to)) return fail(403, '另存目录不能设成本机资产库本体（.assets）—— 请换一个普通文件夹');
+      if (srcDir === to) return res.writeHead(200, { 'Content-Type': 'application/json' }),
+        res.end(JSON.stringify({ ok: true, moved: [], bytes: 0, note: '新旧目录是同一个，没什么可搬' }));
+      if (!srcIsDefault && !autosaveUsedHas(srcDir)) return fail(403, '那个目录不是本工作台写出去的，不搬（只搬自动存到过的目录）');
+      let names = [];
+      try { names = fs.readdirSync(srcDir); } catch (e) { return fail(404, '读不出旧目录：' + e.message); }
+      const moved = [], skipped = [], failed = [], dup = [];
+      let bytes = 0;
+      try { fs.mkdirSync(to, { recursive: true }); } catch (e) { return fail(500, '建不出 ' + to + '：' + e.message); }
+      const sums = saveDirSums(to);      // 目标里已有的内容，搬之前先看一眼，避免搬出 xxx-2 这种重复
+      for (const name of names) {
+        const src = path.join(srcDir, name);
+        let st; try { st = fs.statSync(src); } catch { continue; }
+        if (!st.isFile()) continue;
+        /* 属不属于这一类：复用 localMediaType（扩展名那一份名单），不另判 */
+        if (localMediaType({ file: name }) !== typeLabel(kind)) { skipped.push(name); continue; }
+        try {
+          const buf = fs.readFileSync(src);
+          const sig = st.size + ':' + sha1Of(buf);
+          /* 目标里已经有同一份内容：**不重写**，只把源文件删掉 —— 这仍然是「搬」，
+             内容在新目录里好好的一份；不这么做的话，用户补存过的那批会被搬成第二份。
+             删源之前已经确认过内容一致，所以这一步不会丢东西。 */
+          const hit = sums.get(sig);
+          if (hit) { fs.unlinkSync(src); autosaveUsedAdd(to); dup.push({ from: name, to: hit }); continue; }
+          const base = saveBaseName(name, name);
+          const file = saveUniqueName(to, base, () => null);
+          if (!file) { failed.push({ name, why: '新目录里已经有一千个同名文件了' }); continue; }
+          fs.writeFileSync(path.join(to, file), buf);
+          fs.unlinkSync(src);                            // 写成功了才删源
+          autosaveUsedAdd(to);
+          sums.set(sig, file);
+          bytes += buf.length;
+          moved.push({ from: name, to: file });
+        } catch (e) { failed.push({ name, why: (e && e.code ? e.code + ' ' : '') + e.message }); }
+      }
+      log('[save-move] ' + kind + ' ' + srcDir + ' → ' + to + '：搬走 ' + moved.length
+        + ' 个（' + (bytes / 1048576).toFixed(1) + ' MB）'
+        + (dup.length ? '，那边已有同样内容、只删了源 ' + dup.length + ' 个' : '')
+        + '，不是这一类 ' + skipped.length + ' 个'
+        + (failed.length ? '，没搬成 ' + failed.length + ' 个' : ''));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, from: srcDir, to, moved, dup, skipped, failed, bytes }));
     });
     return;
   }
@@ -3917,6 +4227,34 @@ async function handleRequest(req, res) {
             if (byteRate > 0 && dataSize > 0) duration = Math.round((dataSize / byteRate) * 10) / 10;
           } catch {}
         }
+        /* 来源外链先算出来：它是「这份产物本机有没有存过」的凭据（见 localUpKey）。 */
+        const up = safeOutboundUrl(String(meta.upstream || '')) || '';
+        const upKey = localUpKey(up);
+        const list0 = upKey ? localIndexRead() : [];
+        const twin = upKey ? list0.find(x => x && localUpKey(x.upstream) === upKey) : null;
+        if (twin) {
+          /* 已经有一份了：**不再落第二个文件**。客户端那份镜像键丢了（换端口 / 清浏览器数据 /
+             平台这次没给产物号）不代表盘上没有 —— 这里挡住才是唯一跨源有效的一道闸。
+             顺手复用它的 id：别的页面、收藏、导演台工作区里存过的 `/asset/<那个 id>` 照样能播。 */
+          const fp = path.join(LOCAL_DIR, path.basename(String(twin.file || '')));
+          let size = -1;
+          try { size = fs.statSync(fp).size; } catch {}
+          if (size !== buf.length) {
+            fs.mkdirSync(LOCAL_DIR, { recursive: true });
+            fs.writeFileSync(fp, buf);                     // 文件被删过 / 字节数不符：按原 id 补回来
+            twin.byte_length = buf.length;
+            if (twin.format !== fmt) { twin.format = fmt; twin.mime = mime; twin.file = path.basename(fp); }
+          }
+          const filled = localFillMissing(twin, { prompt: meta.prompt || '', model: meta.model || '',
+            voice: meta.voice || '', priceText: meta.priceText || '', duration, credits: meta.credits ?? null,
+            chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
+            usage: meta.usage || null, detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
+          if (filled) localIndexWrite(list0);              // 一个字段都没补上就不动盘（整表覆盖不是免费的）
+          log(`[local-assets] 已有本机副本 ${twin.id}（同一份产物，第 ${list0.filter(x => localUpKey(x && x.upstream) === upKey).length} 次镜像被挡下）`);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ...twin, status: 'succeeded', url: '/asset/' + twin.id, reused: true }));
+          return;
+        }
         const id = 'la_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const file = id + '.' + fmt;
         fs.mkdirSync(LOCAL_DIR, { recursive: true });
@@ -3933,7 +4271,7 @@ async function handleRequest(req, res) {
           /* 镜像回源用：这份文件是从哪个外链取回来的字节。
              /asset/<id> 在**本地文件被删掉**时靠它回源（见 /asset 那段），这是三级回退的中间一级 ——
              以前本地文件一没就只剩 404，界面上直接判成「已删除」，其实上游那份可能还能取。 */
-          upstream: safeOutboundUrl(String(meta.upstream || '')) || '',
+          upstream: up,
           /* 任务详情原样带走：提示词、参数、费用、耗时、状态变迁。
              平台那边的记录会随时间被清理，索引里这一份是「任务当时是什么样」的本地留底。 */
           detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null,
@@ -3969,9 +4307,23 @@ async function handleRequest(req, res) {
   if (dataPath === '/local-assets' && req.method === 'GET') {
     // 列表：形状与上游列表一致（data + next_cursor），资产库用 registry 的 list 声明直接读
     // 大类型每次现算 —— 老索引里写死过 'audio'，按扩展名重算才能把那张 PNG 认回图片
-    const items = localIndexRead().map(x => ({ ...x, media_type: localMediaType(x), status: 'succeeded', object: 'asset' }));
+    // 时间也每次现算：索引里那份 created_at 是**落盘**时刻，一次回源能把几百条老产物写成「今天」，
+    // 按它排序就把资产库里唯一的图片挤出选择器「全部」那一档的前 200 条（见 localAssetWhen）。
+    /* 同一个产物的多份副本只报一份（保留索引里最靠前的那一条 = 最新的一次镜像）。
+       这些重复是**镜像键丢了**那段历史留下的（POST 那一道闸已经把它挡住，不再新增），
+       文件仍在盘上，只是不再当成 N 个任务摆在界面上。`duplicates` 报出还压着多少份，
+       要清理由用户自己决定 —— 删文件是删用户数据，代理不擅自动手。 */
+    const all = localIndexRead().map(x => ({ ...x, created_at: localAssetWhen(x), media_type: localMediaType(x), status: 'succeeded', object: 'asset' }));
+    const items = [];
+    const seen = new Set();
+    let dups = 0;
+    for (const x of all) {                               // 顺序就是索引顺序（新→旧）
+      const k = localUpKey(x.upstream);
+      if (k) { if (seen.has(k)) { dups++; continue; } seen.add(k); }
+      items.push(x);
+    }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ object: 'list', data: items, has_more: false, next_cursor: null }));
+    res.end(JSON.stringify({ object: 'list', data: items, has_more: false, next_cursor: null, duplicates: dups }));
     return;
   }
 

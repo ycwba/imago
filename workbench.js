@@ -360,15 +360,54 @@
       _map: new Map(),            // 稳定身份键 → dataURL
       _loaded: null,
       _dirty: new Set(),
+      /* 这一页真的读到过首帧的那些键（get() 里记）。_prune 先淘汰没读过的：
+         表里的 ts 只在**写入**时刷新，读到不会 —— 所以「最早写入」不等于「最有用」，
+         天天在看的那批恰恰是第一次抽帧时写的，按 ts 淘汰会把它们最先挤掉，
+         下次打开又得重抽（这就是「每次打开都需要加载」的一半原因）。 */
+      _touched: new Set(),
       _aliases: new Map(),        // 旧签名键 → 归一化键，提交成功后才移除旧缓存
       _bindings: new WeakMap(),
       _jobs: new Map(),           // 每个 key 一个任务，多个 wrap 订阅同一帧
-      _queue: [], _active: 0,
-      CONCURRENCY: 2,
+      _queue: [],
+      /* 并发按「字节从哪来」分两档，不是一个数管全部：
+         外链一路要过公网、量的是别人的带宽与连接数，2 张已经不少（原来就是这个值）；
+         而「优先用本机文件」打开以后，产物地址是同源 /asset/la_xxx —— 读的是本机磁盘、
+         由本地代理回给同一个浏览器，慢不了。以前两者共用 2 这一档，290 条视频的素材库
+         首开就是 145 轮串行抽帧：整排先灰着、然后一张一张亮起来，
+         看着就像「每次打开都要重新加载、还一闪一闪」。 */
+      _active: { 外链: 0, 本机: 0 },
+      CONCURRENCY: 2,                 // 外链（要过公网）同时在抽几张
+      LOCAL_CONC: 6,                  // 本机 /asset/ 同时在抽几张
+      /* 一个任务算哪一档，看它**真正去取的那个地址**（_source 会把有镜像的 /getv 换成本机地址） */
+      _cls(job) {
+        if (job.slow) return '外链';      // 量出来的：这个地址第一次没在「本机那么快」的时间里出帧（见 _retry）
+        if (!job.cls) job.cls = /^\/asset\//.test(String(this._source(job.src) || '')) ? '本机' : '外链';
+        return job.cls;
+      },
+      /* 一次抽帧的时间预算（三条道各有各的判据，见 _pump 里选预算那一段）：
+         本机第一次只给 8 秒 —— 真落在本机磁盘上的文件（`/asset/la_*`、以及镜像回来存过的那批）
+         在同源回环上取首帧远用不到 8 秒；8 秒还没出来的，多半是代理**现从上游回源**的大文件
+         （`GET /asset/<id>` 是「本地优先，否则回源上游」，客户端光看地址分辨不了这两种）。
+         以前一律按「本机」给 6 个并发、20 秒预算：实测一条 13MB 的产物整包要 51 秒，
+         6 路同时抢同一条上游带宽 → 每路都超 20 秒 → 重试两次全超时 →
+         「勾了优先用本机文件，视频卡却一片灰并且写着缩略图暂不可用」，正是用户报的那条。
+         所以下一次换到慢道（并发 2）并给足 90 秒，让它**抽得到**，而不是快而空。 */
+      LOCAL_FIRST_MS: 8000,
+      SLOW_MS: 90000,
+      EXT_MS: 20000,
       RETRIES: 2,                     // 抽帧失败后自动重试几次（见 _retry）
       RUN_TEXT: '正在取首帧…',
-      CAP: 300,
-      BYTES: 32 * 1024 * 1024,      // 缓存总量上限（图片缩略图比视频帧大，条数之外再加一道字节闸）
+      /* 容量闸：**字节才是真闸，条数只当安全网**。
+         实测（从 wb_thumbs 里把真实帧读出来量，.tmp-thumbsize.cjs）：
+         512px JPEG dataURL 的中位 21KB、最大 25KB、平均 ~20KB —— 以前这条注释写的
+         「平均 ~100KB/帧，600 条约 60MB」**高估了 5 倍**，于是 CAP 看起来正好卡在预算上，
+         实际上 BYTES 那 64MB 只够装三千多条，**先被卡住的一直是 CAP=600**。
+         290 条本机文件 + 上百条平台产物 + 收藏/导演台/短剧各自那一批，
+         600 条正好卡在边缘上：刚好看完一轮就开始淘汰 → 「每次打开都要重新加载」复发。
+         单条的硬上限是 MAXBYTES(200KB)，所以把 CAP 抬到 3000 不会让最坏情况失控 ——
+         真正兜住总量的是 BYTES（3000 × 20KB ≈ 60MB，正好也在预算内）。 */
+      CAP: 3000,
+      BYTES: 64 * 1024 * 1024,      // 缓存总量上限（图片缩略图比视频帧大，条数之外再加一道字节闸）
       /* 开库、连接复用与事务全走 ui.js 的 Kv（这里以前也自己写过一份）；
          库/表名在 Kv 的登记表里（thumbs = wb_thumbs/thumbs），到调用时才取 */
       _tx(mode, fn) {
@@ -388,6 +427,18 @@
         const s = String(src == null ? '' : src).split('#')[0];
         if (!s || /^(?:blob:|data:|fav-file:)/i.test(s)) return s;
         try {
+          /* 有本机镜像的那一份，键按**本机那一条**算：同一个产物在资产库是 /asset/la_xxx、
+             在收藏 / 导演台是 /getv?url=<签名外链>，两个键 → 抽两次帧、缓存里存两份，
+             而过期那一个还永远抽不出来 —— 表现就是「资产库有预览图，别的页面没有」。
+             这一步走 localAssetIdOf（**只看身份、不看「优先用本机文件」开关**）：
+             以前串的是 localCopyOf，那个函数被开关挡着，于是关掉开关同一份产物又变两个键
+             （抽两次帧、闪两次，而平台外链一过期就整排空白）。开关管的是画面上取哪个字节，
+             不是「这是哪一份东西」。 */
+          const AL = window.AssetLocal;
+          if (AL && AL.localAssetIdOf) {
+            const la = AL.localAssetIdOf(s);
+            if (la) return '/asset/' + la;
+          }
           const inner = window.Api && Api.innerMedia ? Api.innerMedia(s) : '';
           /* 外链本身、或 /getv?url=<外链>：都用内层地址的素材身份当键（签名换了键不变） */
           if (inner && /^https?:\/\//i.test(inner)) return '/getv?url=' + Api.mediaKey(inner);
@@ -400,7 +451,14 @@
           return u.origin === location.origin ? u.pathname + u.search : s;
         } catch { return s; }
       },
-      get(src, key) { return this._map.get(this.keyOf(key || src)) || ''; },
+      get(src, key) {
+        const k = this.keyOf(key || src);
+        if (!k) return '';
+        const v = this._map.get(k);
+        /* 记一笔「这一页真的用到了它」—— _prune 按使用淘汰，不按写入时间淘汰（见那里的说明） */
+        if (v) this._touched.add(k);
+        return v || '';
+      },
       /* 设置页「清空缩略图缓存」：缩略图随时能重建（重新抽帧/缩放），清掉最多让列表重新加载一次，
          不动任何用户数据。先等落盘事务收尾，否则刚 clear 完 dirty 又被 _flush 写回去。 */
       async clearAll() {
@@ -408,6 +466,7 @@
         try { await this._flush(); } catch (e) {}
         this._map.clear();
         this._dirty.clear();
+        this._touched.clear();
         this._aliases.clear();
         this._loaded = Promise.resolve(0);   // 表已空，别让下次 hydrate 再把整表读回来
         try { await this._tx('readwrite', st => st.clear()); } catch (e) {}
@@ -470,26 +529,34 @@
         });
         return this._saving;
       },
-      /* 容量控制：超过 CAP 条或 BYTES 字节就按写入时间淘汰最早的
-         （缩略图可重建，丢了最多再抽一次帧；视频帧和图片共用这一份额度） */
+      /* 容量控制：超过 CAP 条或 BYTES 字节就淘汰。两趟，各管一件事：
+         ① 先删这一页**没读到过**的那些（`_touched` 以外），仍按写入时间从早到晚；
+         ② 只有「这一页在用的一批本身就超额度」时才连在用的也删 —— 那种情况再怎么排
+            都装不下，只能让最热的那几张也重抽一次。
+         待写的（`_dirty`）任何时候都不删：刚抽出来的帧还没落盘就被删掉，等于白抽。 */
       async _prune() {
         try {
           const drop = [];
           await this._tx('readwrite', st => {
             const q = st.getAll();
             q.onsuccess = () => {
-              const rows = (q.result || []).sort((a, b) => (a.ts || 0) - (b.ts || 0));
               const size = r => String(r.v || '').length;
+              const rows = (q.result || []).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+              const gone = new Set();
               let total = rows.reduce((n, r) => n + size(r), 0);
-              const over = Math.max(0, rows.length - this.CAP);
-              rows.forEach((r, i) => {
-                if (i >= over && total <= this.BYTES) return;
-                if (this._dirty.has(r.k)) return;      // 待写的别删，否则刚抽的帧还没落盘就没了
-                st.delete(r.k); drop.push(r); total -= size(r);
-              });
+              const free = r => {
+                if (!r || this._dirty.has(r.k) || gone.has(r.k)) return;
+                gone.add(r.k); st.delete(r.k); drop.push(r); total -= size(r);
+              };
+              const over = () => (rows.length - gone.size) > this.CAP || total > this.BYTES;
+              for (const r of rows) { if (!over()) break; if (!this._touched.has(r.k)) free(r); }
+              for (const r of rows) { if (!over()) break; free(r); }
             };
           });
-          for (const r of drop) { if (!this._dirty.has(r.k) && this._map.get(r.k) === r.v) this._map.delete(r.k); }
+          for (const r of drop) {
+            if (!this._dirty.has(r.k) && this._map.get(r.k) === r.v) this._map.delete(r.k);
+            this._touched.delete(r.k);
+          }
         } catch (e) {}
       },
       /* key 可显式指定稳定身份（如 fav-file:<fileKey>），实际取帧地址仍用 src。
@@ -606,6 +673,14 @@
         }, { rootMargin: '320px 0px' });
         return this._io;
       },
+      /* 「这一张现在就摆在视口里」的判据只有一份 —— 观察器不回调的那些容器（弹窗的 top layer、
+         没有 IntersectionObserver 的老浏览器）都读它，不要在调用点各量各的。 */
+      _inView(el) {
+        const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (!r || !r.width || !r.height) return false;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        return r.bottom > 0 && r.top < vh;
+      },
       _attach(wrap) {
         const b = this._bindings.get(wrap);
         if (!b || !this._valid(b)) return;
@@ -637,8 +712,14 @@
          过几秒自己就好了。有限次重试（5s / 20s），用完才把原因写在占位层上。
          以前失败即删 job + 解绑观察，卡片就永远是一块灰，只能整页重画才有机会再试一次。 */
       _retry(job) {
-        const n = (job.tries || 0) + 1;
-        if (n > this.RETRIES || !job.subs.size) return false;
+        /* 先降级、再数重试次数：本机道第一次是**超时**（不是播放错误）说明这个地址其实
+           是代理现从上游回源的大文件（实测 13MB 整包 51 秒），8 秒预算对它本来就不够。
+           给它换到慢道重跑，并且**不占** RETRIES 那两次额度 —— 记进去的话慢道那次会被算成
+           「第一次重试」，剩下两次仍在快道预算里，一次都出不来，卡片照样一片灰。 */
+        const slowNow = job.timedOut && !job.slow && job.cls === '本机';
+        if (slowNow) { job.slow = true; job.timedOut = false; }
+        const n = (job.tries || 0) + (slowNow ? 0 : 1);
+        if (!job.subs.size || (!slowNow && n > this.RETRIES)) return false;
         job.tries = n;
         job.running = false;
         job.queued = true;              // 等重试期间 _attach 不要重复入队
@@ -646,7 +727,7 @@
           if (this._jobs.get(job.key) !== job || !job.subs.size) return;
           this._queue.push(job);
           this._pump();
-        }, n === 1 ? 5000 : 20000);
+        }, slowNow ? 1000 : (n === 1 ? 5000 : 20000));
         return true;
       },
       _finish(job, frame) {
@@ -668,20 +749,45 @@
         job.subs.clear();
         if (this._jobs.get(job.key) === job) this._jobs.delete(job.key);
       },
+      /* 这一条任务有没有「现在就摆在屏幕上」的订阅者（一次接线会排上几百条，
+         而其中看得见的只有十几条）。 */
+      _jobVisible(job) {
+        for (const b of job.subs) if (this._valid(b) && this._inView(b.wrap)) return true;
+        return false;
+      },
       _pump() {
         this._sweep();
-        while (this._active < this.CONCURRENCY && this._queue.length) {
-          const job = this._queue.shift();
-          if (this._jobs.get(job.key) !== job) continue;
-          const frame = this.get(job.key);
-          if (frame) { this._finish(job, frame); continue; }
-          job.running = true;
-          this._active++;
-          this._note(job, this.RUN_TEXT);
-          this._extract(job).then(v => this._finish(job, v), () => this._finish(job, '')).finally(() => {
-            this._active--;
-            this._pump();
-          });
+        /* 按档取任务，不是「队头拿不到就整队停下」：
+           一处素材库往往本机与外链混着（有镜像的那几条还是签名外链），
+           外链那 2 个位置被慢请求占住时，本机那一批照样往下抽。
+           两轮扫：**先给看得见的那十几张**，再把位置给屏幕外的。按追加顺序排队时，
+           慢道只有 2 个位置、一条最贵 90 秒，而滚到底一次能排上 180 多条 ——
+           实测视口里的 14 张在 232 秒里一张都没出帧（「视频卡一片灰」正是这么来的）。
+           只在「这个档还有空位」时才去量矩形，档排满时整轮扫是廉价的。 */
+        for (let pass = 0; pass < 2; pass++) {
+          const vis = pass === 0;
+          for (let i = 0; i < this._queue.length;) {
+            const job = this._queue[i];
+            if (this._jobs.get(job.key) !== job) { this._queue.splice(i, 1); continue; }
+            const cls = this._cls(job);
+            const cap = cls === '本机' ? this.LOCAL_CONC : this.CONCURRENCY;
+            if (this._active[cls] >= cap) { i++; continue; }
+            if (vis !== this._jobVisible(job)) { i++; continue; }
+            this._queue.splice(i, 1);
+            const frame = this.get(job.key);
+            if (frame) { this._finish(job, frame); continue; }
+            job.running = true;
+            /* 时间预算按道给，并在每次开跑前把「这一次有没有超时」清掉（_retry 靠它判降级）：
+               本机第一次只给 LOCAL_FIRST_MS，慢道（降级过 / 本来就是外链的）给足。 */
+            job.timedOut = false;
+            job.ms = job.slow ? this.SLOW_MS : (cls === '本机' ? this.LOCAL_FIRST_MS : this.EXT_MS);
+            this._active[cls]++;
+            this._note(job, this.RUN_TEXT);
+            this._extract(job).then(v => this._finish(job, v), () => this._finish(job, '')).finally(() => {
+              this._active[cls]--;
+              this._pump();
+            });
+          }
         }
       },
       /* 提帧器不依附卡片 DOM：滚动 / 重画不会新开同 key 的视频流；结束、失败、超时都卸载。 */
@@ -708,7 +814,7 @@
           video.addEventListener('loadeddata', capture);
           video.addEventListener('seeked', capture);
           video.addEventListener('error', error);
-          timer = setTimeout(error, 20000);
+          timer = setTimeout(() => { job.timedOut = true; error(); }, job.ms || this.EXT_MS);
           const src = this._source(job.src);
           if (!src) { end(''); return; }
           try { video.src = src; video.load(); } catch { end(''); }
@@ -771,7 +877,16 @@
           job.subs.add(b);
           if (job.running) this._note(job, this.RUN_TEXT);   // 半路加入的卡片也要有同一句状态
           const io = this._observer();
-          if (io) io.observe(wrap); else this._attach(wrap);
+          if (!io) { this._attach(wrap); return; }
+          io.observe(wrap);
+          /* 观察器只判「相对视口相交」，而 **`<dialog>` 打开以后内容在 top layer**：
+             实测 root=null 的观察器对弹窗里的卡片**一次回调都没有** —— job 一直停在
+             queued:false / running:false，而同一时刻手动跑一次 `_extract` **6 毫秒**就出帧。
+             素材选择器（导演台/工作台那些槽位弹出的那一片）里的视频卡因此永远灰着，
+             同一份素材在资产库却有预览图 —— 这正是「其他页面没有预览图」的其中一条。
+             所以除了等回调，接上以后当场量一次：已经在视口里的立刻走同一条 `_attach`
+             （`_attach` 自己认「已入队/在跑就不重复」，多条卡片同一 key 也不会抽两遍）。 */
+          if (this._inView(wrap)) this._attach(wrap);
         });
       },
       /* 抽帧：只抽同源视频（跨域画进 canvas 会污染），失败静默（不影响播放） */
@@ -1991,7 +2106,7 @@
          猜错家等于取消别人的任务。 */
       const p = prov || null;
       if (!p) throw new Error('不知道这条任务属于哪个平台（条目缺 provider），先刷新列表再取消');
-      if (!p.endpoints || !p.endpoints.cancel) throw new Error((p.displayName || p.name || p.id) + ' 没有声明取消接口（可在 proxy.js 的 registry 里补 endpoints.cancel）');
+      if (!p.endpoints || !p.endpoints.cancel) throw new Error((p.displayName || p.name || p.id) + ' 没有声明取消接口（这个平台取消不了，任务会一直跑到出结果）');
       await window.Api.cancel(p, id);
     },
   };

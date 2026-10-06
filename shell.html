@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>AI 创作工作台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
 <link rel="stylesheet" href="ui.css">
@@ -34,6 +35,7 @@
 <!-- 下面三份只为 AI 助手那一层准备：它挂在外壳，切页面时不重建，所以它自己就得读得到
      注册表 / 能力声明 / 短剧与素材库（以前挂在内容页时，这些是脚下那一页带的）。
      三份在加载时都只往 window 挂模块，不碰外壳的 DOM。 -->
+<script src="ident.js"></script>
 <script src="assetlib.js"></script>
 <script src="workbench.js"></script>
 <script src="drama.js"></script>

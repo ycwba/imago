@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>用量与余额 · AI 创作工作台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="ui.css">
 <script>try { document.documentElement.dataset.theme = localStorage.getItem('dir_theme') || 'light'; } catch (e) {}</script>
 <style>
@@ -58,10 +59,15 @@
   @media (max-width: 760px) { .page-main { padding: 16px 12px 40px; } }
   .bal { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 15px 16px; }
   .bal .hd { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sub); }
-  .bal .hd .ic { font-size: 16px; }
+  .bal .hd .ic { font-size: 16px; flex: none; }
+  /* flex 子项默认 min-width:auto，不给 0 就不会收缩；型号串（~deepseek/deepseek-flash-latest）
+     与错误原文里没有断点，anywhere 才断得动 —— 以前整页被顶出一条横向滚动条。 */
+  .bal .hd > span:last-child { min-width: 0; overflow-wrap: anywhere; }
   .bal .v { font-size: 24px; font-weight: 700; margin: 9px 0 4px; letter-spacing: .3px; }
   .bal .v small { font-size: 12.5px; font-weight: 400; color: var(--sub); margin-left: 6px; }
-  .bal .ex { font-size: 11.5px; color: var(--sub); min-height: 16px; }
+  .bal .ex { font-size: 11.5px; color: var(--sub); min-height: 16px; overflow-wrap: anywhere; }
+  /* 型号单独一行：混在说明行里既读着像第二句话，又撑得那一行老长 */
+  .bal .md { font-size: 11.5px; color: var(--sub); opacity: .85; margin: -2px 0 4px; overflow-wrap: anywhere; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-top: 18px; }
   .panel h2 { font-size: 14px; margin-bottom: 4px; }
   .panel .hint { font-size: 11.5px; color: var(--sub); margin-bottom: 12px; }
@@ -153,6 +159,7 @@
 
 <script src="ui.js"></script>
 <script src="sidebar.js"></script>
+<script src="ident.js"></script>
 <script src="assetlib.js"></script>
 <script src="ai-chat.js"></script>
 <script>
@@ -213,13 +220,13 @@ async function loadBalances(reg, configured) {
   genProvs.forEach(p => {
     const kid = p.keyId || p.id;
     if (!has(kid)) return;
-    const name = p.displayName || p.name;
+    const name = p.kind === 'text' ? (VENDOR_LABEL[kid] || p.displayName || p.name) : (p.displayName || p.name);
     const ic = p.kind === 'video' ? icon('video', 15) : (p.kind === 'image' ? icon('film', 15) : icon('coin', 15));
     jobs.push((async () => {
       try {
         const raw = await Api.request(p, 'credits');
         const b = Api.balance(p, raw);
-        if (!b.ok) { cards.push({ ic, name, unit: '', val: '—', ex: b.err || '读取失败' }); return; }
+        if (!b.ok) { cards.push({ kid, ic, name, unit: '', val: '—', ex: b.err || '读取失败' }); return; }
         /* 单位跟着 balance 返回的 unit 走，**不按「是不是积分」写死两个分支**：
            文字与语音类补上余额接口后 unit 可能是 USD / CNY，硬套 '¥' 会把美元显示成人民币。
            unit 为空 = 平台没给单位（micros 那几家），按 ¥ 处理。 */
@@ -227,8 +234,8 @@ async function loadBalances(reg, configured) {
           : (b.unit ? Number(v || 0).toFixed(2) : '¥' + Number(v || 0).toFixed(2)));
         const val = b.unit === '积分' ? Number(b.available).toLocaleString() : amt(b.available);
         const ex = [b.frozen ? ('冻结 ' + amt(b.frozen)) : '', b.note].filter(Boolean).join(' · ');
-        cards.push({ ic, name, unit: b.unit, val, ex });
-      } catch (e) { cards.push({ ic, name, unit: '', val: '—', ex: '查询失败：' + e.message }); }
+        cards.push({ kid, ic, name, unit: b.unit, val, ex });
+      } catch (e) { cards.push({ kid, ic, name, unit: '', val: '—', ex: '查询失败：' + e.message }); }
     })());
   });
 
@@ -236,32 +243,64 @@ async function loadBalances(reg, configured) {
   const textProvs = configured.filter(c => c.prov.kind === 'text');
   textProvs.forEach(c => jobs.push((async () => {
     const model = window.TextAI.model(c.prov);
+    const label = VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, '');
     const r = await window.TextAI.fetchBalance(reg, c.prov);
+    /* 型号不塞进卡片标题：标题只放平台名，型号作为一条说明（model）。
+       原来拼成「OpenRouter 文字AI（~deepseek/deepseek-flash-latest）」，一屏摆两张同一家平台的卡、
+       标题里还夹着一条长型号串，整页横向溢出（审计抓到 CODE/SPAN 各 3 个越界）。 */
     if (r.ok) {
-      cards.push({ ic: icon('brain', 15), name: (VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, '')) + '（' + model + '）', unit: r.currency || 'CNY',
+      cards.push({ kid: c.kid, ic: icon('brain', 15), name: label, model, unit: r.currency || 'CNY',
         val: (r.currency === 'CNY' || !r.currency ? '¥' : '') + Number(r.amount).toFixed(2),
         ex: [r.extra, c.source, r.available === false ? '不可用' : ''].filter(Boolean).join(' · ') });
     } else if (r.unsupported) {
-      cards.push({ ic: icon('brain', 15), name: VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, ''), unit: '', val: '无余额接口', ex: c.source + ' · 该平台不提供余额查询' });
+      cards.push({ kid: c.kid, ic: icon('brain', 15), name: label, model, unit: '', val: '无余额接口', ex: [c.source, '该平台不提供余额查询'].filter(Boolean).join(' · ') });
     } else {
-      cards.push({ ic: icon('brain', 15), name: VENDOR_LABEL[c.kid] || c.prov.name.replace(/\s*文字AI\s*/, ''), unit: '', val: '—', ex: '查询失败：' + r.reason });
+      cards.push({ kid: c.kid, ic: icon('brain', 15), name: label, model, unit: '', val: '—', ex: '查询失败：' + r.reason });
     }
   })()));
 
   await Promise.all(jobs);
-  if (!cards.length) {
+  /* 同一把密钥只画一张卡。一家平台常常既在生成平台那张（registry 的 credits 端点）里、
+     又在文字 AI 那张（TextAI.fetchBalance）里 —— 查的是同一个账户，界面上摆两张就是
+     「同一个余额出现两遍」，看起来还像两家平台（DeepSeek / DeepSeek 文字AI 各一张）。
+     合成一张：保留先到的那张（生成平台那条更准），把另一条的说明并进来，型号只记一次。 */
+  const byKid = new Map();
+  for (const c of cards) {
+    const k = c.kid || c.name;
+    const prev = byKid.get(k);
+    if (!prev) { byKid.set(k, c); continue; }
+    if (prev.val === '—' && c.val !== '—') { prev.val = c.val; prev.unit = c.unit; }
+    if (!prev.model && c.model) prev.model = c.model;
+    /* 同一次失败会被两条路各报一遍（生成平台那条是上游原文，文字那条带「用的是哪把钥匙」），
+       直接拼起来就成了「查询失败：HTTP 401：密钥无效或过期：… · 查询失败：HTTP 401　用的是：…」——
+       同一件事说两遍。冒号前那段（失败类别）一样就当成同一次失败，只留**带得动**的那条。 */
+    const lead = t => String(t || '').split('：')[0];
+    const hasHint = t => String(t || '').includes('用的是：');
+    if (c.ex && lead(prev.ex) && lead(prev.ex) === lead(c.ex)) {
+      if (hasHint(c.ex) || (!hasHint(prev.ex) && c.ex.length > prev.ex.length)) prev.ex = c.ex;
+    } else {
+      /* 其余情况按「 · 」分段去重再拼：两条各有各的说明时整句拼起来，
+         有一段重复就变成「充值 $11.00 · 已用 $0.77 · 充值 $11.00 · 已用 $0.77」。 */
+      for (const s of String(c.ex || '').split(' · ')) {
+        if (s && !prev.ex.split(' · ').includes(s)) prev.ex = prev.ex ? prev.ex + ' · ' + s : s;
+      }
+    }
+  }
+  const list = [...byKid.values()];
+  if (!list.length) {
     // 区分三种情况，别把「读不到配置」说成「没配密钥」
     const envOk = envStatus !== null;
     $('balances').innerHTML = envOk
       ? '<div class="empty">还没有配置任何平台的密钥，请先到「设置」里填写</div>'
       : '<div class="empty" style="color:var(--warn,#d97706)">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点「重新加载」。</div>';
   }
-  else $('balances').innerHTML = cards.map(b => `<div class="bal">
+  else $('balances').innerHTML = list.map(b => `<div class="bal">
       <div class="hd"><span class="ic">${b.ic}</span><span>${esc(b.name)}</span></div>
       <div class="v">${esc(b.val)}${b.unit ? `<small>${esc(b.unit)}</small>` : ''}</div>
+      ${b.model && b.val !== '—' ? `<div class="md">${esc(b.model)}</div>` : ''}
       <div class="ex">${esc(b.ex || '')}</div>
     </div>`).join('');
-  return cards.length;
+  return list.length;
 }
 
 /* ---------- 账单 ---------- */
