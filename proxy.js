@@ -3851,12 +3851,22 @@ async function handleRequest(req, res) {
            报「这一类没有型号列表接口」会让「其实有」的平台没法用。 */
         const ep = (tpl.endpoints && tpl.endpoints.models) || '/models';
         const url = base.replace(/\/+$/, '') + ep;
+        /* 这条路由对「问不到型号」的回答一直是 200 + { ok:false, error }（上游回了非 200 也这么答），
+           连不通也走同一份 —— 设置页那一句 `d.error` 才拿得到真实原因。
+           以前只有 ur 上挂了 failUpstream，而**域名解析不出来**的错误是发在请求对象上的
+           （ur 压根没被创建），于是这个响应永远不结束：页面只能等到自己的超时，
+           报出来的是「连不上本地代理（proxy.js 没启动？）」—— 而代理活得好好的。 */
+        const out = o => {
+          if (res.headersSent) { try { res.destroy(); } catch {} return; }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(o));
+        };
+        const fail = e => out({ ok: false, from: url, error: '连不通（打到 ' + url + '）：' + String((e && e.message) || e || '') });
         const rq = upRequest(url, { method: 'GET', headers: { authorization: 'Bearer ' + key, accept: 'application/json' }, timeoutMs: 20000 }, ur => {
           const bufs = [];
           ur.on('data', c => bufs.push(c));
           ur.on('end', () => {
             const buf = Buffer.concat(bufs);
-            const out = o => { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
             if (ur.statusCode !== 200) {
               const txt = buf.toString('utf8', 0, 400).replace(/\s+/g, ' ').trim();
               out({ ok: false, from: url, error: '它回了 HTTP ' + ur.statusCode + (txt ? '：' + txt : '') });
@@ -3871,13 +3881,13 @@ async function handleRequest(req, res) {
             out({ ok: models.length > 0, from: url, count: models.length, models,
               error: models.length ? '' : '它回了 200，但响应里没有型号列表（不是 id 数组）' });
           });
-          ur.on('error', e => failUpstream(res, e.message, '型号列表接口连不通'));
+          ur.on('error', fail);
         });
         /* upRequest 的 timeoutMs 是**空闲**超时：域名解析那一步还没有 socket，不受它管。
            不加这道墙钟的话，一个解析不出来的地址会让设置页的「获取型号列表」一直转圈。 */
         const wall = setTimeout(() => { try { rq.destroy(new Error('等待上游超过 25 秒')); } catch (e) {} }, 25000);
         rq.on('close', () => clearTimeout(wall));
-        rq.on('error', () => clearTimeout(wall));
+        rq.on('error', e => { clearTimeout(wall); fail(e); });
       }).catch(e => bad2(400, '地址不可用：' + e.message));
     });
     return;
@@ -4398,6 +4408,14 @@ async function handleRequest(req, res) {
       ['cookie', 'connection', 'origin', 'referer', 'accept-encoding', 'host', 'authorization', 'content-length', 'transfer-encoding', 'x-up-base', 'x-no-cache'].forEach(h => delete fwd[h]);
       const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
         || (keyFallback ? keyOf(relayHit.keyEnv) || DEFAULTS[relayHit.keyId || relayHit.id] || relayHit.defaultKey : '') || '';
+      /* 转发失败那句话的主语必须是**真打出去的那一台**，不能是「前缀排第一的那家」：
+         relay 前缀可以好几家共用（九家文字 AI 里有八家的 relay 都是 /textai，上面那个 find 只按前缀
+         拿到排在最前的 deepseek），页面还能用 x-up-base 把地址整个换掉。以前这里写 relayHit.id，
+         界面就成了「deepseek 转发失败（打到 openrouter.ai）」—— 让人去别的一家翻密钥、翻设置。
+         地址是页面递来的（baseOverridden）时不再报平台名，只报那一台主机 —— 这才是唯一确定的事实。 */
+      const upHost = String(base).replace(/^https?:\/\//, '').split('/')[0];
+      const relayTag = (baseOverridden ? '转发失败' : (relayHit.name || relayHit.id) + ' 转发失败')
+        + '（打到 ' + upHost + '）';
       const up = upRequest(base + pathAndQuery, {
         method: req.method,
         headers: { ...fwd, authorization: 'Bearer ' + apiKey, 'content-length': body.length, 'accept-encoding': 'identity' },
@@ -4441,7 +4459,7 @@ async function handleRequest(req, res) {
           return;
         }
         res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' });
-        pipeUpstream(ur, res, relayHit.id);
+        pipeUpstream(ur, res, relayTag);
       });
       // 创建任务：回完就把列表短缓存清掉，这样刚提交的任务立刻能在资产库（列表接口）里看到
       if (isCreatePost) {
@@ -4449,9 +4467,8 @@ async function handleRequest(req, res) {
       }
       /* 回给页面的那句要带**真正打出去的地址**：转发失败的原因（超时 / DNS / 拒绝连接）都只说现象，
          而「是不是打到我了那个网关」恰恰是用户此刻最想确认的 —— 尤其是自定义供应商（地址是用户自己填的）、
-         以及内置平台被 x-up-base 换过地址的那几种情况。 */
-      const upHost = String(base).replace(/^https?:\/\//, '').split('/')[0];
-      up.on('error', e => { log(`  → ${relayHit.id} (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayHit.id + ' 转发失败（打到 ' + upHost + '）'); });
+         以及内置平台被 x-up-base 换过地址的那几种情况。（主机名与这句文案都在上面的 relayTag 里点一次名） */
+      up.on('error', e => { log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); });
       up.end(body);
     });
     return;

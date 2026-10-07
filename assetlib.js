@@ -173,6 +173,22 @@ async function healMedia(recs, opts) {
 function netFetch(url, opts) {
   return (window.Net && window.Net.fetch) ? window.Net.fetch(url, opts) : fetch(url, opts);
 }
+/* 响应体只读一次，交出「解析出的 JSON」与「不是 JSON 时的那段原文」。
+   为什么要有它：TextAI 那几处（型号列表 / 对话 / 流式 / 余额）自己发请求、不走 Api.rawFetch，
+   以前每个调用点各写一遍 `try { r.json() } catch {}` —— 解析一失败正文就被扔掉，于是本地代理写在
+   text/plain 里的那句真原因（打到哪一台、为什么连不上）在界面上只剩「HTTP 502」。
+   `plain` 只在解析失败时才有内容：JSON 响应本来就该走 d，把整包 JSON 当错误文案糊到界面上是另一种难读
+   （「没有返回内容」那种 200 空回复以前靠 'HTTP 200' 这句兜底才说得清，别把它换成一段正文）。
+   原文交给 Api.errorMessage 兜底（见那里的 textMsg），两条路共用同一份「状态码 → 一句人话」。 */
+async function respBody(r) {
+  const txt = await r.text();
+  try {
+    const p = txt ? JSON.parse(txt) : null;
+    return { d: (p && typeof p === 'object') ? p : {}, plain: '' };
+  } catch (e) {
+    return { d: {}, plain: txt };
+  }
+}
 
 /* 读 OpenAI 风格的 SSE 流（文字 AI 的 stream:true）：一帧 `data: {json}`，收尾一帧 `data: [DONE]`。
    onDelta(片段, 种类) 按到达顺序回调，种类是 'content'（正文）或 'reasoning'（模型的思考过程）。
@@ -363,15 +379,26 @@ async function readSseStream(res, onDelta) {
     [/too large|payload|413|文件过大/i, '素材太大：压缩后再传（视频/音频建议压到几十 MB 以内）'],
     [/unsupported|not support|不支持/i, '平台不支持这次请求的参数组合：换一个参数（分辨率 / 时长 / 比例）再试'],
     [/timeout|ETIMEDOUT|ECONNRESET|socket hang up/i, '与平台的连接中断（网络抖动）：稍后重试；若是大素材上传，先确认网络稳定'],
+    [/getaddrinfo|ENOTFOUND|EAI_AGAIN/i, '本机没能把那个域名解析成地址（DNS 给不出结果、被拦，或压根没有这个域名）：给这台电脑换一个能用的 DNS（如 223.5.5.5）再试，或在设置页把这家的接口地址换成可达的中转'],
   ];
   /* 上游「泛化校验失败」：只有一句 message、没有字段级 issues —— 实测是间歇性的（同一请求稍后就能过），
      界面会据此提示「隔一会儿再试」；但**不自动重试**（重试会连发请求、把平台限流顶得更死）。 */
   const isTransient = err => err && err.status === 400 && /VALIDATION_FAILED/i.test(err.code || '') && !(err.issues || []).length;
-  function errorMessage(d, status) {
+  /* 响应体不是 JSON 时，那一段正文就是唯一的信息：网关的错误页、以及本地代理转发失败时
+     写回的那句 text/plain 真原因（「打到 openrouter.ai：getaddrinfo ENOENT …」）。
+     以前只 JSON.parse 一次，解析失败就把整段扔掉，界面只剩一句 HTTP 502 —— 真实原因明明已经
+     到了客户端，却被我们自己丢了，而且 502 这个数字既不说是哪一台、也不说是哪一步坏的。
+     剥掉标签、压平空白、截到 200 字：够看清是哪一台哪一步，又不会把整页 HTML 糊进那一行。 */
+  function textMsg(t) {
+    const s = String(t == null ? '' : t).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    return s.length > 200 ? s.slice(0, 200) + '…' : s;
+  }
+  function errorMessage(d, status, rawText) {
     const e = (d && d.error) || {};
     const issues = (e.details && Array.isArray(e.details.issues)) ? e.details.issues
       : (Array.isArray(e.issues) ? e.issues : []);
-    const base = e.message || e.code || (d && (d.message || d.code)) || ('HTTP ' + status);
+    const base = e.message || e.code || (d && (d.message || d.code)) || textMsg(rawText) || ('HTTP ' + status);
     const detail = issues.map(describeIssue).filter(Boolean).join('；');
     const hint = (ERROR_HINT.find(([re]) => re.test(base)) || [])[1] || '';
     // 有字段级明细就用明细；没有明细（上游只给了一句泛化提示）就补人能看懂的下一步
@@ -395,7 +422,7 @@ async function readSseStream(res, onDelta) {
     let d = null, parseErr = null;
     try { d = txt ? JSON.parse(txt) : null; } catch (e) { parseErr = e; }
     if (!r.ok) {
-      const err = new Error(errorMessage(d, r.status));
+      const err = new Error(errorMessage(d, r.status, parseErr ? txt : ''));
       err.status = r.status;
       err.code = (d && d.error && d.error.code) || (d && d.code) || '';
       err.issues = (d && d.error && d.error.details && d.error.details.issues) || (d && d.issues) || [];
@@ -405,7 +432,10 @@ async function readSseStream(res, onDelta) {
       if (['POST', 'PUT', 'PATCH'].includes(method) && (r.status >= 500 || r.status === 408 || r.status === 429)) err.maybeSubmitted = true;
       throw err;
     }
-    if (d === null && parseErr) throw new Error('返回了非 JSON 内容（HTTP ' + r.status + '）');
+    if (d === null && parseErr) {
+      const t = textMsg(txt);
+      throw new Error('返回了非 JSON 内容（HTTP ' + r.status + '）' + (t ? '：' + t : ''));
+    }
     return d;
   }
 
@@ -4344,10 +4374,10 @@ window.TextAI = {
     const r = await netFetch(prov.relay + '/models', { headers: this._headers(prov), timeout: 20000 });
     /* 文字 AI 的失败也要过 ERROR_HINT：上游只回一句「Insufficient Balance」时，
        界面得说清是余额/额度不够、去哪儿处理，而不是把英文原样甩在计数条上。
-       错误体不一定是 JSON（网关的 HTML 错误页），先兜成空对象，别把真正的状态码错成解析异常。 */
-    let d = {}; try { d = (await r.json()) || {}; } catch (e) {}
+       错误体不一定是 JSON（网关的 HTML 错误页、代理那句 text/plain），所以原文一起带给 errorMessage。 */
+    const { d, plain } = await respBody(r);
     if (!r.ok) {
-      const m = window.Api.errorMessage(d, r.status);
+      const m = window.Api.errorMessage(d, r.status, plain);
       throw new Error(m + this.authHint(prov, r.status, m));
     }
     return d.data || d.models || (Array.isArray(d) ? d : []);
@@ -4574,11 +4604,11 @@ window.TextAI = {
       timeout: 120000,     // 长剧本拆解 / 带图润色本来就慢：给足时间，但不要无限等
       retry: 0,            // POST 不重试（没有幂等键，重试可能重复计费）
     });
-    /* 同 rawModels：错误体可能不是 JSON，先兜住；翻译统一走 Api.errorMessage（闭包外的 TextAI 不能直接
-       调 errorMessage，那是 Api 闭包里的私有函数 —— 以前这么调会抛 ReferenceError）。 */
-    let d = {}; try { d = (await r.json()) || {}; } catch (e) {}
+    /* 同 rawModels：错误文案统一走 Api.errorMessage（闭包外的 TextAI 不能直接调 errorMessage，
+       那是 Api 闭包里的私有函数 —— 以前这么调会抛 ReferenceError），原文一起带上兜住非 JSON 的响应体。 */
+    const { d, plain } = await respBody(r);
     if (!r.ok) {
-      const m = window.Api.errorMessage(d, r.status);
+      const m = window.Api.errorMessage(d, r.status, plain);
       throw new Error(m + this.authHint(prov, r.status, m));
     }
     const out = ((d.choices || [])[0] || {}).message?.content;
@@ -4620,8 +4650,8 @@ window.TextAI = {
       throw e;
     }
     if (!r.ok) {
-      let d = {}; try { d = (await r.json()) || {}; } catch (e) {}
-      const m = window.Api.errorMessage(d, r.status);
+      const { d, plain } = await respBody(r);
+      const m = window.Api.errorMessage(d, r.status, plain);
       /* 可以安全重发的只有「请求被拒」这一类 4xx：没受理、没扣费，去掉一个可选参数再试一次不会说两遍话。
        鉴权 / 欠费那种重发也还是同一个错（而且文案里带 key/余额，改它没意义），直接抛回去。
        判据不能只认 stream_options 这个字面（上游的说法五花八门：unknown parameter / not supported / extra field），
@@ -4631,8 +4661,8 @@ window.TextAI = {
       sentStreamOpts = false;
       r = await ask({ stream: true });          // 只退回「不认这个可选参数」，仍是流式
       if (!r.ok) {
-        let d2 = {}; try { d2 = (await r.json()) || {}; } catch (e) {}
-        const m2 = window.Api.errorMessage(d2, r.status);
+        const again = await respBody(r);
+        const m2 = window.Api.errorMessage(again.d, r.status, again.plain);
         if (!/stream|流式/i.test(m2)) throw new Error(m2 + this.authHint(prov, r.status, m2));
         return await this.chat(REG, sys, user, o, prov);   // ② 这家压根不流式
       }
@@ -4643,10 +4673,10 @@ window.TextAI = {
     const ct = String(r.headers.get('content-type') || '');
     if (!ct.includes('event-stream')) {
       /* ① 没流式：整包 JSON 也照样能用，只是没有过程显示 */
-      let d = {}; try { d = (await r.json()) || {}; } catch (e) {}
+      const { d, plain } = await respBody(r);
       const out = ((d.choices || [])[0] || {}).message?.content;
       if (!out || !String(out).trim()) {
-        const m = window.Api.errorMessage(d, r.status);
+        const m = window.Api.errorMessage(d, r.status, plain);
         throw new Error((m && m !== 'HTTP ' + r.status ? m : '文字 AI 没有返回内容') + this.authHint(prov, r.status, m));
       }
       this._logUsage(prov, model, d);
@@ -5354,9 +5384,11 @@ window.TextAI.fetchBalance = async function (REG, prov) {
   if (!spec) return { ok: false, unsupported: true, reason: '该平台没有公开的余额查询接口' };
   try {
     const r = await netFetch(prov.relay + spec.url, { headers: this._headers(prov), timeout: 15000 });
-    let d = {}; try { d = (await r.json()) || {}; } catch (e) {}
+    const { d, plain } = await respBody(r);
     if (!r.ok) {
-      const reason = (d.error && (d.error.message || d.error.code)) || ('HTTP ' + r.status);
+      /* 与非 2xx 的别处同一份文案口径（Api.errorMessage：JSON 用它的 error.message，
+         不是 JSON 就用正文里那句真原因），别再退回一句没有主语的 HTTP 502。 */
+      const reason = window.Api.errorMessage(d, r.status, plain);
       return { ok: false, status: r.status, reason: reason + this.authHint(prov, r.status, reason) };
     }
     const out = spec.parse(d);
