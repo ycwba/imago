@@ -1910,38 +1910,54 @@ window.PAGE_TARGETS = {
   modes: ['page', 'more'],
 };
 
-/* 「界面偏好（外观）有哪几项」只这一份：设置页按它渲染「外观与界面」那一栏，AI 助手按它列可改白名单，
+/* 「界面偏好有哪几项」只这一份：设置页按它渲染那两张卡，AI 助手按它列可改白名单，
    侧栏 / 资产库 / 收藏页读写的是同一批键。
    为什么要把这张表挪到公共层：主题以前只能点左下角那颗太阳、视图档位只能进那一页右上角换，
    设置页里根本看不见这几项 —— 于是助手也改不了（用户在设置页看得见、助手回一句「不让改这一项」，
    和 Drama.SET 那一条是同一个病）。取值写进表里而不是让页面自己猜，是因为**每一页的档位名不一样**
-   （资产库 card/compact，收藏 list/compact）：在这里统一成一个词，写进去的就是那一页根本不认的值。 */
+   （资产库 card/compact，收藏 list/compact）：在这里统一成一个词，写进去的就是那一页根本不认的值。
+
+   一项归哪张卡只在这里点名一次（group）。以前这张表是平的，设置页照着顺序全画进「外观与界面」一张卡，
+   于是「产物自动存本机」「优先用本机文件」也混在里面 —— 它们管的是**产物文件放哪、读哪**，跟界面无关，
+   放在「外观」底下读起来就是错的。助手那边同样：它给每一项取名时一律冠「界面 · 」，
+   于是助手会说「界面 · 产物自动存本机」—— 同一个错在第二个地方又长了一遍。 */
 window.UI_PREFS = {
+  /* 卡内的小节。设置页按它分小节渲染，助手那边拿同一个词当前缀。 */
+  groups: [
+    { id: 'look', name: '界面本身' },
+    { id: 'list', name: '列表默认摆法' },
+    { id: 'store', name: '产物存哪、读哪' },
+  ],
   rows: [
-    { key: 'dir_theme', name: '界面主题', kind: 'seg', def: 'light',
+    { key: 'dir_theme', group: 'look', name: '界面主题', kind: 'seg', def: 'light',
       opts: [['light', '浅色'], ['dark', '深色']],
       hint: '左下角那颗太阳 / 月亮是同一个开关的快捷入口。' },
-    { key: 'sb_open', name: '侧栏默认展开', kind: 'bool',
+    { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool',
       hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展，两边写的是同一个键。' },
-    { key: 'dir_asset_view', name: '资产库', kind: 'seg', def: 'list',
+    { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list',
       opts: [['list', '列表'], ['compact', '紧凑']],
       hint: '只是默认摆法：进了那一页还能用右上角的图标随时换。' },
-    { key: 'dir_char_view', name: '素材库', kind: 'seg', def: 'list',
+    { key: 'dir_char_view', group: 'list', name: '素材库', kind: 'seg', def: 'list',
       opts: [['list', '列表'], ['compact', '紧凑']],
       hint: '与资产库、收藏同一套档位名。这一项以前漏在这一张表外（页面自己能换、设置页里看不见，助手也改不了）。' },
-    { key: 'dir_fav_view', name: '我的收藏', kind: 'seg', def: 'list',
+    { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list',
       opts: [['list', '列表'], ['compact', '紧凑']],
       hint: '同上（三页的档位名现在完全一致）。' },
-    { key: 'sk_media_local', name: '产物自动存本机', kind: 'seg', def: 'on',
+    { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on',
       opts: [['on', '开'], ['off', '关']],
       hint: '生成完的图像 / 视频 / 语音当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
         + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增。' },
-    { key: 'sk_media_prefer', name: '优先用本机文件', kind: 'seg', def: 'on',
+    { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on',
       opts: [['on', '开'], ['off', '关']],
       hint: '开 = 卡片直接读本机副本（平台挂了也照样能看、用、传给别人）；'
         + '关 = 仍然直连平台地址（平台 CDN 更快，代价是地址一过期就什么都没有）。'
         + '本机文件被删了会自动回源平台，平台那边也没了会明写「已丢失」。' },
   ],
+  /* 某一组的显示名（助手取名时用）。认不出 group 的一律算「界面」，与旧口径一致。 */
+  groupName(id) {
+    const g = (this.groups || []).find(x => x.id === id);
+    return (g && g.name) || '界面';
+  },
 };
 
 /* ============================================================================

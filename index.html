@@ -969,7 +969,7 @@ async function aiStoryboard() {
     validate: o => (o.script || '').length < 20 ? '剧本太短了，至少 20 个字' : '',
   });
   if (!v) return;
-  // 指令可在「设置 → 提示词润色 ⑤ 剧本拆分镜」里改；末尾的两条约束由程序按本次输入追加
+  // 指令可在「设置 → 润色指令 → 剧本拆分镜」里改；末尾的两条约束由程序按本次输入追加
   const splitSys = splitSysOf();
   const sys = `${TL_SYS_COMMON}
 ${splitSys}
@@ -3204,7 +3204,7 @@ async function pickRefMedia(sh, kind) {
   }
 }
 
-/* ---------- 提示词润色（文字AI）---------- */
+/* ---------- 润色指令（文字AI）---------- */
 /* 润色要附带的素材图：编号与提示词里的 @参考图N 对齐（参考图 → 首帧 / 尾帧 → 时间切片画面） */
 function polishImageList(sh) {
   const out = [];

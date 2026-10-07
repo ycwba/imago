@@ -935,14 +935,18 @@
       out['page_mode_' + x.key] = { 名: x.name + ' · 列表模式', 取值: t.modes || ['page', 'more'], 说: 'page = 翻页，more = 加载更多' };
       out['page_size_' + x.key] = { 名: x.name + ' · 每页条数', 范围: t.size || { min: 1, max: 100 }, 说: '整数' };
     });
-    /* 界面偏好（主题 / 侧栏开合 / 两个列表页的视图档位）整张表来自 ui.js 的 UI_PREFS ——
-       设置页那一栏的控件也是它渲染的。两边读同一张表才不会出现「设置页有这一项、助手说改不了」，
-       取值也只能是那一页真认的那几个（资产库 card/compact、收藏 list/compact 本来就不一样）。 */
-    const up = window.UI_PREFS || { rows: [] };
+    /* 界面偏好（主题 / 侧栏开合 / 三个列表页的视图档位 / 产物存哪读哪）整张表来自 ui.js 的 UI_PREFS ——
+       设置页那两张卡的控件也是它渲染的。两边读同一张表才不会出现「设置页有这一项、助手说改不了」，
+       取值也只能是那一页真认的那几个（资产库 card/compact、收藏 list/compact 本来就不一样）。
+       名字前缀跟着表里的 group 走：以前一律冠「界面 · 」，于是「界面 · 产物自动存本机」——
+       设置页把那一项挪出外观栏之后，助手这边不跟着改就成了同一个错的第二份。 */
+    const up = window.UI_PREFS || { rows: [], groupName: null };
+    const grpName = id => (typeof up.groupName === 'function' ? up.groupName(id) : '界面');
     (up.rows || []).forEach(r => {
+      const who = grpName(r.group) + ' · ' + r.name;
       out[r.key] = r.kind === 'bool'
-        ? { 名: '界面 · ' + r.name, 取值: ['1', '0'], 说: '1 = 开启，0 = 关掉。' + (r.hint || '') }
-        : { 名: '界面 · ' + r.name, 取值: (r.opts || []).map(o => o[0]),
+        ? { 名: who, 取值: ['1', '0'], 说: '1 = 开启，0 = 关掉。' + (r.hint || '') }
+        : { 名: who, 取值: (r.opts || []).map(o => o[0]),
           说: (r.opts || []).map(o => o[0] + ' = ' + o[1]).join('；') + '。' + (r.hint || '') };
     });
     /* 键名、默认值、取值全来自 drama.js 的 Drama.SET，这里照同一张表列出来。

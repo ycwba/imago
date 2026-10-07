@@ -220,8 +220,8 @@
   </div>
 
   <div class="card">
-    <h2 class="card-h"><span class="card-ic" data-icon="key" data-size="15"></span>供应商与密钥（按生成类型分开）</h2>
-    <div class="sub">只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
+    <h2 class="card-h"><span class="card-ic" data-icon="key" data-size="15"></span>供应商与密钥</h2>
+    <div class="sub">按生成类型分开配（图片 / 视频 / 语音 / 文字 AI），只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
       <b>「识图能力」是全局一项</b>，只画在当前「作用文字 AI」的那张卡下面。</div>
     <div class="ui-seg" id="provTabs"></div>
     <div class="krow thin">
@@ -305,15 +305,25 @@
     <div id="pageSettings"></div>
   </div>
 
-  <!-- 主题 / 侧栏开合 / 两个列表页的视图档位：以前只能在那几处各点一下（左下角太阳月亮、点 logo 收展、
+  <!-- 主题 / 侧栏开合 / 三个列表页的视图档位：以前只能在那几处各点一下（左下角太阳月亮、点 logo 收展、
        卡片右上角那两个图标），想统一改一次得跑三个页面，设置页里根本看不见它们 —— 于是助手也改不了。
-       控件全部由 ui.js 的 UI_PREFS 现算（键名、默认档、取值都在那张表点一次名），
+       控件全部由 ui.js 的 UI_PREFS 现算（键名、默认档、取值、**归哪张卡**都在那张表点一次名），
        这里只读同一份 localStorage 键、不另存第二份状态。 -->
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="sun" data-size="15"></span>外观与界面</h2>
-    <div class="sub">这几项本来就是「用户调出来的界面」，跟着数据文件走（换台机器还在）。
-      和本页其它设置一样：<b>点下面的「保存全部设置」才生效</b>；保存的那一刻主题与左栏会当场跟着变。</div>
+    <div class="sub">界面长什么样、列表默认怎么摆。跟着数据文件走（换台机器还在）；
+      和本页其它设置一样，<b>点下面的「保存全部设置」才生效</b> —— 保存的那一刻主题与左栏会当场跟着变。</div>
     <div id="uiPrefs"></div>
+  </div>
+
+  <!-- 产物存放：以前这两项混在「外观与界面」里（那边那张表是平的，画出来就都落在同一栏），
+       而它们管的是**产物文件放哪、优先从哪读**，跟界面没关系。分成两栏之后，助手那边
+       也不再一律冠「界面 · 」—— 那一项归哪张卡只在 ui.js 的 UI_PREFS 里点名一次。 -->
+  <div class="card">
+    <h2 class="card-h"><span class="card-ic" data-icon="folder" data-size="15"></span>产物存放</h2>
+    <div class="sub">生成完的产物<b>留在哪、优先从哪读</b>。两项连着看：关掉「自动存本机」之后，
+      新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。</div>
+    <div id="storePrefs"></div>
   </div>
 
   <div class="card">
@@ -355,7 +365,7 @@
   <!-- 长卡：默认折叠起来（平时几乎不用开这里），点标题就开合。
        开合状态存 data-fold-key 指的键（set_fold_polish），下次进来还是你上次留下的那个。 -->
   <div class="card foldable" id="polishCard" data-fold-key="set_fold_polish">
-    <h2 class="card-h"><span class="card-ic" data-icon="pencil" data-size="15"></span>提示词润色（文字 AI）</h2>
+    <h2 class="card-h"><span class="card-ic" data-icon="pencil" data-size="15"></span>润色指令</h2>
     <div class="card-acts">
       <button class="tool fold-toggle" type="button" aria-expanded="false"
         id="polishFold" title="这些指令的默认文本都写好了，平时不用展开">展开</button>
@@ -685,10 +695,13 @@ function textBlock(m) {
       ? '<div class="tai-h">' + icon('eye', 13) + '识图能力'
         + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应方生效）</span></div>'
         + '<div class="krow"><span class="kn">参考图</span>'
+        /* 选项文字按公共约定只放**短标签**（全站下拉都是「浅色 / 深色」「列表 / 紧凑」那样），
+           说明放进 title —— 浮层里那一长串「（按接口 / 平台声明）」挤在标签后面，
+           三个选项长得参差不齐，而且下面 [data-vtip] 那行已经把话说全了。 */
         + '<select data-tvision="' + kid + '">'
-        + '<option value="auto">自动（按接口 / 平台声明）</option>'
-        + '<option value="on">支持识图（把图片一起发给它）</option>'
-        + '<option value="off">不支持（只发文字）</option>'
+        + '<option value="auto" title="按接口返回与平台声明自动判断">自动</option>'
+        + '<option value="on" title="强制把图片一起发给它">支持识图</option>'
+        + '<option value="off" title="强制只发文字">不支持</option>'
         + '</select></div>'
         + '<div class="pb-tip" data-vtip="' + kid + '"></div>'
       : '')
@@ -1524,7 +1537,6 @@ async function cusRemove(kid) {
       b.onclick = () => {
         const el = cards()[+b.dataset.i];
         if (!el) { Toast.err('这一栏刚被移走了，点一下别的标题重画后再试'); return; }
-        if (!el) { Toast.err('这一栏刚被移走了，点一下别的标题重画后再试'); return; }
         /* 这一栏正被关键词筛掉：只把类去掉没用（sync 会立刻按同一个关键词再把它藏回去）。
            人点它的意思就是「我不想筛了」，所以清掉关键词、整页恢复，再滚过去。 */
         if (el.classList.contains('set-off')) { q.value = ''; sync(); }
@@ -1656,7 +1668,7 @@ async function cusRemove(kid) {
       options: [
         { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏列表、导演台工作区；体积小、恢复够用' },
         { value: 'prompts', label: '数据 + 提示词归档', hint: '再把归档文件夹里那几百上千份 .md 一起打包（纯文本，体积增加不大）' },
-        { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）。**不含提示词归档** —— 那份另见上一项' },
+        { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）。不含提示词归档 —— 那份另见上一项' },
       ],
     });
     if (!pick) return;
@@ -2000,8 +2012,7 @@ renderPageSettings();
    读现值 → 改动留在 DOM 上 → 落盘只在 saveAll 做一次（本页「点保存才生效」的统一口径）。
    键名、默认档、取值都在那张表里点一次名：助手（ai-chat.js 的 writableKeys）也读同一张表，
    所以不会出现「设置页有这一项、助手说改不了」，也不会两边各认一套档位名。 */
-function uiRow(r) {
-  const box = $('uiPrefs');
+function uiRow(r, box) {
   const row = document.createElement('div');
   if (r.kind === 'bool') {
     row.className = 'krow tight';
@@ -2030,13 +2041,23 @@ function uiRow(r) {
   if (r.hint) { const h = document.createElement('span'); h.className = 'hint sm'; h.textContent = r.hint; row.appendChild(h); }
   box.appendChild(row);
 }
+/* 一项进哪张卡：公共表（ui.js 的 UI_PREFS）只点名 **group**，
+   「这张卡收哪几个组」由这里写 —— 公共表不该知道页面上容器的 id。
+   以前那张表是平的，renderUiPrefs 照顺序全画进 #uiPrefs，于是「产物自动存本机」
+   那一类跟界面无关的项也落进了「外观与界面」。 */
+const UI_PREF_CARDS = [
+  { box: 'uiPrefs', groups: ['look', 'list'] },
+  { box: 'storePrefs', groups: ['store'] },
+];
 function renderUiPrefs() {
   const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
-  const box = $('uiPrefs');
-  if (!box || !rows.length) return;
-  box.innerHTML = '';
+  if (!rows.length) return;
+  UI_PREF_CARDS.forEach(c => { const b = $(c.box); if (b) b.innerHTML = ''; });
   rows.forEach(r => {
-    uiRow(r);
+    const card = UI_PREF_CARDS.find(c => c.groups.indexOf(r.group) >= 0) || UI_PREF_CARDS[0];
+    const box = $(card.box);
+    if (!box) return;
+    uiRow(r, box);
     let cur = '';
     try { cur = localStorage.getItem(r.key) || ''; } catch (e) {}
     if (r.kind === 'bool') {
@@ -2056,6 +2077,12 @@ function renderUiPrefs() {
       };
     });
   });
+  /* 下面这两块（产物存量的实况、另存到指定文件夹）画的是**产物存放**那一栏，不是外观 ——
+     以前它们跟着 UI_PREFS 的行一起落进「外观与界面」，而 box 也是从那儿取的。
+     现在 box 变成 forEach 里的局部变量，这里必须自己点名容器；拿错容器或者沿用旧变量，
+     就是当场 ReferenceError，而它在 renderUiPrefs() 里抛出去会把**后面整段脚本**一起带走
+     （window.__textForm 挂不上、供应商卡永远空着 —— 症状离真正的原因隔着一千多行）。 */
+  const storeBox = $('storePrefs');
   /* 底部一行实况：产物镜像到底存了多少、占了多少盘。
      口径只有 AssetLocal.stats 一处（不在这儿另数一遍）。
      先画缓存、再用现算的覆盖它 —— stats() 读的是浏览器里那张指针表，
@@ -2063,7 +2090,7 @@ function renderUiPrefs() {
      而 .assets 里其实有 83 份（实测无痕窗口打开设置页：磁盘上明明有，页面写 0）。
      界面说的话必须等于事实，所以异步拉一次代理那份索引回来认，再把这一行改对。 */
   try {
-    if (window.AssetLocal) {
+    if (window.AssetLocal && storeBox) {
       const line = document.createElement('div');
       line.className = 'hint sm';
       line.style.marginTop = '8px';
@@ -2076,10 +2103,10 @@ function renderUiPrefs() {
       };
       paint(AssetLocal.stats());            // 先给缓存，别让这一行空着等
       if (AssetLocal.syncStats) AssetLocal.syncStats().then(paint).catch(() => {});
-      box.appendChild(line);
+      storeBox.appendChild(line);
     }
   } catch (e) {}
-  renderAutosaveDirs(box);
+  renderAutosaveDirs(storeBox);
 }
 /* ---------- 自动保存：按类型分别「存不存 / 另存到哪」 ----------
    原来只有一个总开关（`sk_media_local`），产物一律落在项目下的 .assets/。
@@ -2584,7 +2611,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
      取「用户改过的，没有就用默认」—— 以前这里一份、四个页面里各抄一份兜底串，改一边另一边不跟着改。 */
   const defs = window.TextAI.DEF;
 
-  /* ---------- 「提示词润色」那张卡：分类与每一格都**现算** ----------
+  /* ---------- 「润色指令」那张卡：分类与每一格都**现算** ----------
      名单只有一份 —— assetlib.js 的 `TextAI.PROMPTS`（按用途分组）。
      以前这里是 11 个手写的 .polish-block，外加下面保存 / 恢复默认两处各抄一遍键名：
      加一条指令要改三个地方，漏一处就是「设置页列出来了、存盘没存上」或者反过来。
@@ -2764,7 +2791,16 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
       renderCustomModels(kid);
     });
     const tv = document.querySelector('[data-tvision]');
-    if (tv) { tv.value = localStorage.getItem('sk_text_vision') || 'auto'; refreshVisionTip(tv.dataset.tvision); }
+    if (tv) {
+      tv.value = localStorage.getItem('sk_text_vision') || 'auto';
+      /* 这一行以前漏了，于是「参考图」是这张卡上唯一的裸 select（同一个「型号」是公共组件外观，
+         高度还不一样）。原因：build 得在 renderProv 换掉 #provList 的 innerHTML **之后**再跑，
+         而闭包末尾那句 Dropdowns.build(document) 只在装配时执行一次，管不到后来重画出来的节点。
+         顺序照旧：先定 value 再 sync（反过来按钮上写着第一家、真实选中的却是另一档）。 */
+      const tvRow = tv.closest('.krow');
+      if (window.Dropdowns && tvRow) { Dropdowns.build(tvRow); Dropdowns.sync(tvRow); }
+      refreshVisionTip(tv.dataset.tvision);
+    }
   }
   if (window.Dropdowns) Dropdowns.build(document);
   /* 这一段（文字 AI 型号块）整体在一个闭包里，而 saveAll / renderProv 在闭包**外面**
@@ -2792,6 +2828,13 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     try { v = await TextAI.visionAsync(REG2, p2, mdl); }
     catch { v = TextAI.vision(REG2, p2, mdl); }
     if (seq !== visionTipSeq) return;      // 期间又刷新了，丢弃这次结果
+    /* 型号还没选时**不能**照原样拼「当前型号 ${v.model}：…」—— 那是半截话，
+       页面上就是一行「当前型号 ：润色时只发文字…」。没型号时先说清要做什么。 */
+    if (!v.model) {
+      el.textContent = '还没选型号，识图能力判不了 —— 先点「获取型号列表」用它自己的 /models 拉一个，'
+        + '或在上面的输入框里自己填一个。';
+      return;
+    }
     el.textContent = v.ok
       ? `当前型号 ${v.model}：润色时会带上参考图 / 首尾帧一起发给它（判定依据：${v.why}）。`
       : `当前型号 ${v.model}：润色时只发文字（判定依据：${v.why}）。若该型号确实能识图，把上面选成「支持识图」即可强制启用。`;
