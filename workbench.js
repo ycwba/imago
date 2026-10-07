@@ -128,14 +128,10 @@
 
     /* ---------- 文件大小 ---------- */
     /* 统一的体积文案（原来只有图片台有，三台各写一份迟早会不一致） */
-    fmtSize(bytes) {
-      const n = Number(bytes);
-      if (!Number.isFinite(n) || n <= 0) return '';
-      const u = ['B', 'KB', 'MB', 'GB'];
-      let i = 0, v = n;
-      while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-      return (i ? v.toFixed(1) : v) + ' ' + u[i];
-    },
+    /* 与 ui.js 的 window.fmtBytes 逐字相同（同一个守卫、同一个换算循环），只差形参名。
+       原来是第三份，ui.js 那份的注释写着「界面各处共用一份」，这里没跟上。
+       走惰性查找而不是模块顶层引用：这样模块加载顺序不用动。 */
+    fmtSize(bytes) { return window.fmtBytes(bytes); },
     /* 实测某个媒体文件的体积 —— 上游接口基本都不返回体积（实测 VGENV / SparkCine 都没有），
        而下载整个文件只为量一下大小显然不行。这里只发一个 Range: bytes=0-0 的探测请求：
        服务端会回 Content-Range: bytes 0-0/<总大小>，拿到头就立刻断开，不下载正文。
@@ -1505,6 +1501,36 @@
                 total()（可选：后台数准的平台总条数，没数准返回 0/null）
        搜索说明（「只筛已加载」）由本模块挂在 pgInfo 的 title 上，页面不用各写一份。 */
     pager: {
+      /* 页面级滚动的续拉触发器（唯一一份）：观察一根哨兵，进了视口就回调 onMore。
+         与 create().bindScroll 的区别只在于**滚动发生在哪一层** —— 那份是列表容器自己滚
+         （工作台的结果区），这份是整页滚（角色 / 收藏 / 资产库都是这样，列表不自带滚动条）。
+         老浏览器没有 IntersectionObserver 时退回 window scroll，用同一个余量判断。
+
+         为什么单独立这一份：这三页原来各写一遍，机制逐字相同（哨兵 + rootMargin 300 +
+         window scroll 回退 + 300 余量），只有「触发之后做什么」不同。
+         **那部分故意不收**：资产库多一条 autoBusy（一屏没填满时会连发），
+         角色和收藏要判 shownCount 够不够 —— 塞进公共方法就成了第二份。
+         这里只管怎么触发，不管触发后做什么，也不判分页模式：
+         资产库的 autoLoadMore 第一句就 return 了，另外两页同理，守卫留在页面自己手里。 */
+      sentinel(sel, onMore) {
+        const box = (typeof sel === 'string') ? document.getElementById(sel) : sel;
+        if (!box || typeof onMore !== 'function') return null;
+        if (box._sentinelBound) return box._sentinelBound;   /* 同一根哨兵只绑一次 */
+        /* 回调出错不许连累观察器：IO 回调里抛出去会变成一条 window.onerror，
+           而哨兵是「一屏没填满就一直触发」的那种，出错一次就会连着错一串。 */
+        const fire = () => { try { onMore(); } catch (e) { if (window.console) console.warn('[pager] 续拉回调出错', e); } };
+        if ('IntersectionObserver' in window) {
+          const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) fire(); }, { rootMargin: '300px' });
+          io.observe(box);
+          box._sentinelBound = io;
+        } else {
+          box._sentinelBound = () => {
+            if (box.getBoundingClientRect().top < window.innerHeight + 300) fire();
+          };
+          window.addEventListener('scroll', box._sentinelBound, { passive: true });
+        }
+        return box._sentinelBound;
+      },
       /* 分页信息文案（唯一一份）：图片台自己的游标分页也用它，三个台的文字不会各写各的。
          平台的列表接口只有游标和 has_more，**根本没有任务总数**（SparkCine / VGENV 实测都一样），
          所以「共 M 页」有两种来历：

@@ -161,6 +161,33 @@
     return t.content.firstElementChild;
   }
 
+  /* ---------- 筛选芯片行（与 Dropdowns 同一类：一排可点的档位按钮） ----------
+     四个页面（资产库 / 角色库 / 收藏 / 用量）原先各写一份「拼 innerHTML + querySelectorAll 绑 onclick」，
+     连选中态的 class 字符串都是各拼各的（一度还分 ' active' 与 ' on' 两派）。
+     真正不同的只有两点，收成参数：标签后面跟不跟一个条数（count）、点完之后各自做什么（onPick）。 */
+  window.Chips = {
+    /* items: ['值'] 或 ['值', '显示文字']；cur 是当前值（相等就标上 .on）。 */
+    render(el, items, cur, onPick, opt) {
+      const box = typeof el === 'string' ? document.getElementById(el) : el;
+      if (!box) return;
+      const o = opt || {};
+      /* 选中判据默认是「值 === 当前值」。有一行的判据不一样：资产库的日期预设里，
+         手动填了起止日期时 presetDays 还停在 0，但「全部」那颗不该再亮着 ——
+         所以那一行自己给 isOn，别为了迁就它把公共那份改松。 */
+      const on = v => (o.isOn ? !!o.isOn(v) : v === cur);
+      box.innerHTML = items.map(it => {
+        const pair = Array.isArray(it);
+        const v = pair ? it[0] : it, label = pair ? it[1] : it;
+        const n = o.count ? Number(o.count(v)) || 0 : 0;
+        /* 值与标签都过一遍 esc：标签里有平台名 / 计量单位这种外来词，
+           原先五份里 assets 用 textContent（天然安全）、另几份直接拼进 innerHTML。统一到安全的那一侧。 */
+        return '<button class="chip' + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '">'
+          + window.esc(label) + (n ? ' ' + n : '') + '</button>';
+      }).join('');
+      box.querySelectorAll('.chip').forEach(b => { b.onclick = () => onPick(b.dataset.v); });
+    },
+  };
+
   window.Dropdowns = {
     build(root) {
       const scope = root && root.querySelectorAll ? root : document;
@@ -697,6 +724,16 @@ window.copyText = async function copyText(txt) {
     return (i ? v.toFixed(1) : v) + ' ' + u[i];
   }
   window.fmtBytes = fmtBytes;      // 界面各处「≤ 10 MB」这类文案共用一份
+  /* base64 → Uint8Array → Blob 的那段循环以前在 4 个地方各抄一份（导演台导出、拍短剧音色试听、
+     资产库字节转存、ui.js 自己的 DataSync 还原 Blob 行）。放在 ui.js 是因为它是唯一
+     每个页面都先加载的那一层 —— 放 assetlib.js 的话 ui.js 内部要用它就多一个加载顺序前提。 */
+  function b64Bytes(b64) {
+    const bin = atob(String(b64 || ''));
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  }
+  window.b64Bytes = b64Bytes;
   window.uploadStageText = function uploadStageText(stage, info, label) {
     const who = label || '素材';
     if (stage === 'fetch') return '正在取回' + who + '…';
@@ -2369,10 +2406,7 @@ window.UI_PREFS = {
         let val = v;
         if (v && v.__blob) {
           try {
-            const bin = atob(v.b64 || '');
-            const arr = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-            val = new Blob([arr], { type: v.type || 'application/octet-stream' });
+            val = new Blob([window.b64Bytes(v.b64)], { type: v.type || 'application/octet-stream' });
           } catch { continue; }
         }
         try {

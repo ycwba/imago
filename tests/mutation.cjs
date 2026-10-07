@@ -9,7 +9,7 @@ const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const J = path.join(ROOT, 'tests', 'selfcheck.cjs');
 const FILES = ['drama.html', 'assets.html', 'ident.js', 'assetlib.js', 'shell.html', 'proxy.js',
-  'drama.js', 'settings.html'];
+  'drama.js', 'settings.html', 'studio.html', 'ai-chat.js', 'favorites.html', 'chars.html', 'workbench.js'];
 /* ① 读进来时的字节就是唯一的还原依据 —— 绝不做「把 to 替换回 from」那种二次字符串还原：
       to 一旦是空串，replace('', x) 会把 x 插到文件最前面，当场污染源文件。 */
 const orig = new Map(FILES.map(f => [f, fs.readFileSync(path.join(ROOT, f))]));
@@ -23,6 +23,19 @@ function run() {
 }
 const write = (f, b) => fs.writeFileSync(path.join(ROOT, f), b);
 const restoreAll = () => { for (const [f, b] of orig) write(f, b); };
+
+/* 兜底还原：这个脚本会**临时改源文件**，所以「怎么结束」比「怎么开始」更要紧。
+   实测漏过一次：30 个变异要跑 30 遍全套判据，前台 60 秒窗口不够，进程被收走，
+   proxy.js 里留下了 §G 那个 `if (false && insideLocalDir(to))` 就没再被还原。
+   更糟的是**下一次运行看不出这件事** —— orig 是「读进来时的字节」，
+   那份泄漏就成了新的起始状态，被照单还原，最后还报一句「哈希一致」。
+   所以除了正常路径的还原，这里再挂上 exit 与信号处理器：
+   未捕获异常、Ctrl-C、SIGHUP 都会走到（只有 SIGKILL 拦不住）。
+   同理，**别用短超时跑它** —— 超时中断和杀进程是一回事。 */
+let restored = false;
+const safeRestore = () => { if (restored) return; restored = true; try { restoreAll(); } catch (e) { /* 兜底还原自己失败就只能人工看了 */ } };
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { safeRestore(); process.exit(130); });
+process.on('exit', safeRestore);
 
 const MUT = [
   { sec: '§A', name: '兄弟函数里裸调局部 const（drama.html 那次的原样复现）', file: 'drama.html',
@@ -73,13 +86,74 @@ const MUT = [
   { sec: '§H', name: '反向对照：给模型的系统提示词里用 markdown（应放行）', file: 'drama.js', expectGreen: true,
     anchor: "const K_DRAMAS = 'dramas';",
     to: "const __MUT_SYS__ = '请**严格**按下面的说明回答，不要凭空编造';\r\nconst K_DRAMAS = 'dramas';" },
+  /* §I 的三个分支各一个变异。第一个同时会打中「判断有两处」与「旧措辞复活」两档 ——
+     写第二份内联口径这两件事是同时发生的，不该拆成两个变异充数。 */
+  { sec: '§I', name: '某处改回内联写法（判断多出一处 + 旧措辞复活 + note 又被丢掉）', file: 'studio.html',
+    anchor: "  const where = src ? Capabilities.srcTextOf(src) : '';",
+    to: "  const where = src ? (src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）') : '';" },
+  { sec: '§I', name: 'srcTextOf 自己把 note 换成那句零信息的话', file: 'assetlib.js',
+    anchor: "    return src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底');",
+    to: "    return src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）';" },
+  { sec: '§I', name: '某处不再调 srcTextOf（口径分叉，但措辞一个字没多）', file: 'studio.html',
+    anchor: "    if (src) bits.push(Capabilities.srcTextOf(src));",
+    to: "    if (src) bits.push('能力来自上游接口');" },
   { sec: '§G', name: '补存那步的 .assets 闸被短路掉（文本还在、永远不执行）', file: 'proxy.js',
     anchor: "if (insideLocalDir(dir)) { full.push({ id, kind, why: '另存目录被设成了本机资产库本体（.assets），不往里写' }); continue; }",
     to: "if (false && insideLocalDir(dir)) { full.push({ id, kind, why: '另存目录被设成了本机资产库本体（.assets），不往里写' }); continue; }" },
-];
+/* §J 的五个分支各一个变异。这一档守的是「同一个功能只应有一份实现」，
+     而这类判据最容易变成一把**不坏的假尺子**：指纹太松会把不相干的写法一起抓
+     （第一版拿 new Uint8Array(x.length) 当 base64→字节的指纹，把 studio.html 那段
+      new Uint8Array(h.length / 2)（十六进制→文本）也照红了）；指纹太紧又查不出副本。
+     每条变异都必须真的让对应那档变红，否则这一档就是摆设。 */
+  { sec: '§J', name: '页面又抄了一份 base64→字节', file: 'favorites.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>function b64Bytes(b){ const s=atob(b||\'\'); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a; }</script>' },
+  { sec: '§J', name: '「下载落点」那个选择器复活（注释里提到不算）', file: 'assets.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutJ = () => showSaveFilePicker();</script>' },
+  { sec: '§J', name: '页面又自建了一份 toast()', file: 'chars.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>function toast(m){ const d=document.createElement("div"); d.textContent=m; document.body.appendChild(d); }</script>' },
+  { sec: '§J', name: 'Wb.fmtSize 又开始自己换算（不再委托 fmtBytes）', file: 'workbench.js',
+    anchor: '    fmtSize(bytes) { return window.fmtBytes(bytes); },',
+    to: "    fmtSize(bytes) { const u = ['B','KB','MB','GB']; let i = 0, v = Number(bytes); while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return (i ? v.toFixed(1) : v) + ' ' + u[i]; }," },
+  { sec: '§J', name: '页面又自建了一份续拉（不走 Wb.pager.sentinel）', file: 'favorites.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>new IntersectionObserver(function () {});</script>' },
+/* §J 芯片行的三个变异：旧写法有两种（拼 innerHTML 的模板串、createElement + className），
+   **两种都要测** —— 只测一种的话，另一种写法复活了判据照样全绿。
+   外加一条反向对照：.ai-chip / .ap-chip 是别的类名（那是「AI 挑了哪些」芯片与资产选择器的类型页），
+   它们长得像但不是筛选芯片行，不该被算进来。没有这条对照，「§J 什么都报」和「§J 什么都不报」
+   在驱动脚本里长得一模一样。 */
+  { sec: '§J', name: '页面又自建了一份芯片行（拼 innerHTML 那种写法）', file: 'chars.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips1 = items => items.map(v => \'<button class="chip">\' + v + \'</button>\').join(\'\');</script>' },
+  { sec: '§J', name: '页面又自建了一份芯片行（createElement + className 那种写法）', file: 'favorites.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips2 = () => { const b = document.createElement("button"); b.className = \'chip\'; return b; };</script>' },
+  { sec: '§J', name: '反向对照：.ai-chip / .ap-chip 是别的类名，不该算自建芯片行（应放行）', file: 'assets.html', expectGreen: true,
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips3 = () => \'<span class="ai-chip">x</span>\' + \'<span class="ap-chip">y</span>\';</script>' },
+/* §K 的三个变异：一条正向 + **两条反向对照**。
+   反向对照是必须的：这一档判的是「重复」，最容易变成一把无脑报警的尺子 ——
+   值差一位（那是分叉，要人拍板）、@media 上下文不同（作用范围不同，删掉会改小屏表现），
+   这两种都**不该**报。没有这两条的话，「§K 什么都报」和「§K 什么都不报」在驱动脚本里长得一模一样。 */
+  { sec: '§K', name: '页面又抄了一条 ui.css 已经全有的规则（应红）', file: 'assets.html',
+    anchor: '  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），',
+    to: '  .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }\r\n  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），' },
+  { sec: '§K', name: '反向对照：值差一位 —— 那是分叉不是重复（应放行）', file: 'assets.html', expectGreen: true,
+    anchor: '  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），',
+    to: '  .task .tmain { flex: 2; min-width: 0; display: flex; flex-direction: column; }\r\n  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），' },
+  { sec: '§K', name: '反向对照：同一条规则但写在 @media 里 —— 作用范围不同（应放行）', file: 'assets.html', expectGreen: true,
+    anchor: '  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），',
+    to: '  @media (max-width: 760px) { .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }\r\n  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），' },];
 
 let bad = 0;
 restoreAll();
+/* 把起始哈希打出来：万一上一次是被 SIGKILL 掐掉的（兜底还原拦不住那一种），
+   泄漏已经变成了这一次的「起始状态」，脚本自己发现不了 —— 但两份日志一对照就看出来了。 */
+console.log('起始基线（' + FILES.length + ' 个文件，跑完应完全一致）：'
+  + [...before].map(([f, h]) => f.slice(0, 4) + ':' + h.slice(0, 8)).join(' '));
 let r = run();
 if (r.code !== 0) { bad++; console.log('[红] 基线就不绿，尺子有问题：\n' + r.out); } else console.log('[绿] 基线全绿');
 

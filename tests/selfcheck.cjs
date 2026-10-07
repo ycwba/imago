@@ -31,6 +31,9 @@
  *   §F 另存那条链只有一个触发点（写盘一律挂在镜像内部）
  *   §G 另存的安全立场：页面不递目录、/save-local 不动 .assets、/save-move 先写后删
  *   §H 用户可见文案里不许出现 markdown 标记（注释与 AI 提示词不算界面）
+ *   §I 「能力来源」那句话全站只有一份口径（Capabilities.srcTextOf）
+ *      （踩过 studio.html 三处 + ai-chat.js 一处各写一遍：措辞两套、缓存标记两套，
+ *        而其中两处把 note 整个丢了 —— note 是「这家为什么没拿到上游能力」的唯一原因。）
  */
 const fs = require('fs');
 const path = require('path');
@@ -620,7 +623,380 @@ function sectionH() {
   return checks;
 }
 
+/* ================= §I =================
+   「能力来源」这句话全站只有一份口径（Capabilities.srcTextOf）。
+   踩过：同一份 Capabilities.sourceOf() 的结果，studio.html 里有三处各写一遍
+   （型号下拉下的副注、格式下拉下的 #formatHint、换平台后的 #capHint），ai-chat.js 里还有第四处。
+   措辞两套、缓存标记两套，而其中两处把 note 整个丢了 —— note 正是 proxy.js 四处兜底各给的
+   「这家为什么没拿到上游能力」（没声明该端点 / 返回 404 / 没返回模型列表 / 请求失败），
+   压成一句「上游接口没给或不可用」等于零信息，而同一屏上另一处正写着真正的原因。
+
+   指纹选「from 与 'api' 的比较」：任何一处要报能力来源，都必须先分 api 还是兜底
+   （不分就拿不到 note），所以这个比较是那套机制躲不掉的指纹 —— 写第二份就一定留下第二处。
+   指纹**用词法器找，不用正则**：上面那段注释里就写着「来自上游 /models」，
+   而这类判据的文档顺口提一句被收掉的措辞是常事，正则会当场把自己照红。
+   同一个原因，措辞黑名单也只查字符串字面量与模板串的静态文本，不查注释。 */
+function sectionI() {
+  const red0 = red;
+  const items = targets.js.map(f => ({ f, html: false })).concat(targets.html.map(f => ({ f, html: true })));
+  const files = items.map(i => i.f).filter(exists);
+  if (!files.length) { bad('§I', '一份源码都没读到 —— 判据本身坏了'); return 0; }
+
+  /* ① 实现只有一份：这个形态精确到函数头，注释里不会长这样 */
+  const items2 = [];
+  let defs = 0, inHome = 0, sites = [], strScan = 0;
+
+  for (const it of items) {
+    if (!exists(it.f)) continue;
+    const src = read(it.f);
+    const m = /srcTextOf\s*\(\s*src\s*\)\s*\{/.exec(src);
+    if (m) defs++;
+    const segs = it.html
+      ? Array.from(src.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi))
+        .filter(x => x[1].trim()).map(x => ({ code: x[1], base: lineAt(src, x.index) }))
+      : [{ code: src, base: 1 }];
+    for (const seg of segs) {
+      CUR_FILE = it.f;
+      const r = lex(seg.code, seg.base);
+      if (r.err) { bad('§I', it.f + ' 扫描器读不完：' + r.err + '（判据坏了，不是页面坏了）'); continue; }
+      const T = r.toks;
+      /* ① 从 from 那一行起、到函数配平的那一行止 —— 只有它体内的判断才算「这一份」 */
+      let rng = null;
+      if (m && !it.html) {
+        let j = m.index + m[0].length, depth = 1;
+        while (j < src.length && depth) { const c = src[j]; if (c === '{') depth++; else if (c === '}') depth--; j++; }
+        if (!depth) rng = { a: lineAt(src, m.index), b: lineAt(src, j) };
+      }
+      for (let k = 0; k + 2 < T.length; k++) {
+        /* `===` 被词法器拆成 `==` 与 `=` 两个 token，所以只认「以等号打头的比较符」 */
+        if (T[k].t !== 'id' || T[k].v !== 'from') continue;
+        /* === 被词法器拆成 == 与 = 两个 token，只看紧邻那一个就永远匹配不上（第一版 §I 一上线就报 0 处）。
+           先把连续的「以等号打头的比较符」跳过去；j === k + 1 排掉压根没有比较符的情况。 */
+        let j = k + 1;
+        while (j < T.length && T[j].t === 'p' && /^=+$/.test(String(T[j].v))) j++;
+        if (j === k + 1) continue;
+        /* 字符串字面量只吐一个 token：v 是引号、内容在 s 里 —— 当成「引号 + 内容」两个去看就永远对不上 */
+        if (T[j].t !== 'str' || T[j].s !== 'api') continue;
+        const inside = !!(rng && T[k].line >= rng.a && T[k].line <= rng.b);
+        if (inside) inHome++;
+        items2.push({ f: it.f, ln: T[k].line, inside });
+      }
+      /* ② 被收掉的那几套措辞，只在字符串字面量 / 模板串静态文本里查（注释不算界面） */
+      for (const t of T) {
+        if (t.t !== 'str' && t.t !== 'tpl') continue;
+        const s = String(t.s || '');
+        if (!s) continue;
+        for (const phrase of STALE) {
+          strScan++;
+          if (s.indexOf(phrase) < 0) continue;
+          bad('§I', '被收掉的旧措辞「' + phrase + '」又出现在 ' + it.f + ' 第 ' + t.line + ' 行的文案里');
+        }
+      }
+    }
+  }
+  sites = items2;
+
+  if (defs !== 1) bad('§I', 'srcTextOf 的实现有 ' + defs + ' 份 —— 一份数据只许一份口径');
+  if (sites.length !== 1) {
+    bad('§I', '「能力来源是 api 还是兜底」这个判断有 ' + sites.length + ' 处（'
+      + (sites.map(s => s.f + ':' + s.ln).join('、') || '一处都没有')
+      + '）—— 多出来的那处就是又一次内联写法，而内联写法一定要不了 note');
+  } else if (!sites[0].inside) {
+    bad('§I', '唯一那处判断在 ' + sites[0].f + ':' + sites[0].ln + '，不在 assetlib.js 的 srcTextOf 体内 —— 判据和实现脱节了');
+  } else if (inHome !== 1) {
+    bad('§I', 'srcTextOf 体内有 ' + inHome + ' 处 api 判断（应为 1）');
+  }
+
+  /* ③ 定义了却没人调 = 这档判据被悄悄废掉。4 = studio.html 三处（副注 / 格式下拉提示 /
+     换平台提示）+ ai-chat.js 一处（助手续述给用户）。少一处就是有一处改回了内联写法。 */
+  let calls = 0;
+  for (const it of items) {
+    if (!exists(it.f)) continue;
+    const src = read(it.f);
+    const n = src.split('srcTextOf(').length - 1;   /* 属性访问也算调用，不能排除掉前面的 '.' */
+    calls += it.f === 'assetlib.js' ? Math.max(0, n - 1) : n;
+  }
+  if (calls < 4) bad('§I', 'srcTextOf 只被调 ' + calls + ' 次（应至少 4 次：studio.html 的副注、格式下拉提示、换平台提示，ai-chat.js 的助手续述）—— 有一处改回了内联写法');
+
+  if (red === red0) ok('§I', '查了 ' + files.length + ' 份源码：能力来源只有 assetlib.js 的 srcTextOf 一处判断（被调 ' + calls
+    + ' 次），' + strScan + ' 段文案字面量里没有旧措辞');
+  return sites.length;
+}
+const STALE = ['来自上游 /models', '上游接口没给或不可用', '来自本项目的平台声明', '本项目兜底声明（还没从'];
+
+/* ================= §J =================
+   「同一个功能只应有一份实现」—— 把这几轮收拢的结果钉住，免得它们悄悄长回来。
+   下面每一条的期望值都是**先量过的真实分布**，不是猜的（量完发现三条设想全错，见下）：
+     ① b64Bytes 的定义恰好 1 处，且在 ui.js —— base64→字节那段以前在 4 个地方各抄一份
+        （导演台导出 / 拍短剧音色试听 / 资产库字节转存 / ui.js 自己的 DataSync）。
+     ② 它的调用至少 4 处 —— 有人把某处改回内联写法时，定义数不变而调用数掉下来，这条先红。
+     ③ showSaveFilePicker / showDirectoryPicker 作为标识符 0 处 —— 「下载落点」那一层已删干净。
+        **注释里可以提**（workbench.js 与 index.html 各有一句就在说明它被删了），
+        词法器剥注释，所以那两处不算。这一档正是靠词法器才分得开「提到」与「真调用」——
+        用正则去查的话，恰恰会被那两句说明文字照红。
+     ④ 页面里 function toast( 为 0 处 —— 提示组件只有 ui.js 的 window.Toast 一份。
+     ⑤ 字节单位数组 ['B','KB','MB','GB'] 恰好 2 处：ui.js 与 assets.html。
+        **后者是有意的分叉**：它的守卫是 b == null || isNaN(...)，对 0 / 负数 / Infinity
+        的输出与公共那份不同（0 会显示成 '0 B'），合并就改了行为，所以不收。
+        另配一条负向断言：workbench.js 里不许再出现 —— Wb.fmtSize 必须委托 window.fmtBytes。
+     ⑥ 页面里 new IntersectionObserver( 为 0 处 —— 页面级续拉走 Wb.pager.sentinel；
+        模块内那几处是允许的（assetlib.js 的懒抽帧、workbench.js 自己的两处），所以**只查页面**。
+
+   写这一档时踩到的两件事，都记在这儿免得重犯：
+   - **指纹太松会把不相干的写法一起抓**。第一版拿 `new Uint8Array(x.length)` 当
+     base64→字节的指纹，结果 studio.html 那段 `new Uint8Array(h.length / 2)`
+     （**十六进制 → 文本**）被一起照红。真想改用 charCodeAt，一量发现它全项目 5 处
+     （还有两种哈希算法和一个 WAV 头写入），于是这条指纹整个不成立 —— 宁可少守一条，
+     也不留一条会误报的。
+   - **量脚本自己漏传 lineBase**，页面内联脚本报出来的行号是相对脚本开头的，
+     studio.html 真正在 1403 行的那处被报成 1170，看着像词法器解析跑偏。
+     先怀疑产品之前先怀疑尺子，这次就是这么查清的。 */
+function sectionJ() {
+  const red0 = red;
+  const items = targets.js.map(f => ({ f, html: false })).concat(targets.html.map(f => ({ f, html: true })));
+  const files = items.map(i => i.f).filter(exists);
+  if (!files.length) { bad('§J', '一份源码都没读到 —— 判据本身坏了'); return 0; }
+
+  let scanned = 0, defs = 0, calls = 0, pickers = 0, toastDefs = 0, ioInPage = 0, unitInWb = 0;
+  let chipRows = 0, chipsDefs = 0, chipsCalls = 0;
+  const defSites = [], pickerSites = [], toastSites = [], ioSites = [], unitSites = [];
+  const chipRowSites = [], chipsDefSites = [], chipsCallSites = [];
+
+  for (const it of items) {
+    if (!exists(it.f)) continue;
+    const src = read(it.f);
+    const segs = it.html
+      ? Array.from(src.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi))
+        .filter(x => x[1].trim()).map(x => ({ code: x[1], base: lineAt(src, x.index) }))
+      : [{ code: src, base: 1 }];
+    for (const seg of segs) {
+      CUR_FILE = it.f;
+      const r = lex(seg.code, seg.base);
+      if (r.err) { bad('§J', it.f + ' 扫描器读不完：' + r.err + '（判据坏了，不是页面坏了）'); continue; }
+      scanned++;
+      const T = r.toks;
+      for (let k = 0; k < T.length; k++) {
+        const t = T[k], nx = T[k + 1], pv = T[k - 1];
+        /* ① 定义那处的下一个 token 也是 '('，所以要先排掉前面是 function 的那一次 */
+        if (t.t === 'id' && t.v === 'b64Bytes' && nx && nx.v === '(') {
+          if (pv && pv.t === 'id' && pv.v === 'function') { defs++; defSites.push(it.f + ':' + t.line); }
+          else calls++;
+        }
+        if (t.t === 'id' && (t.v === 'showSaveFilePicker' || t.v === 'showDirectoryPicker')) {
+          pickers++; pickerSites.push(it.f + ':' + t.line + ' ' + t.v);
+        }
+        if (it.html && t.t === 'id' && t.v === 'function' && nx && nx.t === 'id' && nx.v === 'toast') {
+          toastDefs++; toastSites.push(it.f + ':' + t.line);
+        }
+        if (it.html && t.t === 'id' && t.v === 'IntersectionObserver' && nx && nx.v === '(') {
+          ioInPage++; ioSites.push(it.f + ':' + t.line);
+        }
+        if (t.t === 'p' && t.v === '[' && T[k + 1] && T[k + 1].s === 'B' && T[k + 3] && T[k + 3].s === 'KB'
+          && T[k + 5] && T[k + 5].s === 'MB' && T[k + 7] && T[k + 7].s === 'GB') {
+          unitSites.push(it.f + ':' + t.line);
+          if (it.f === 'workbench.js') unitInWb++;
+        }
+        /* ② 芯片行：页面里不许再自己拼一颗 .chip 出来。
+           指纹用词法器取的字符串/模板串**内容**，不是正则扫源码 ——
+           旧写法有两种，模板串里 class="chip${…}" 与 className = 'chip' + …，
+           而正文里讲这件事的注释、.ai-chip / .ap-chip 这些别的类名都不该被算进来。
+           （'ai-chip' 不匹配 class=["']chip，因为它多了一段前缀。） */
+        if (it.html && (t.t === 'tpl' || t.t === 'str')) {
+          const sc = t.s || '';
+          /* 第二支要回看**两个** token：b.className = 'chip' 里，'chip' 前面是「=」，
+             className 在再前面一个。只看紧邻那个就永远匹配不上（这类「差一位」的红/绿都别当结论）。 */
+          const pv2 = T[k - 2];
+          if (/class(Name)?\s*=\s*["'`]chip/.test(sc)
+            || (t.t === 'str' && sc === 'chip' && pv2 && pv2.t === 'id' && pv2.v === 'className')) {
+            chipRows++; chipRowSites.push(it.f + ':' + t.line);
+          }
+        }
+        /* 芯片行的公共实现：window.Chips 一份定义 + 页面若干调用，两头都得在（少一头就是尺子坏了）。
+           注意两种写法的邻居不一样：调用是 Chips.render（`.` 在**后**），
+           定义是 window.Chips = {（`.` 在**前**）—— 一开始只看了后面那个，
+           于是定义数恒为 0，还差点把「定义没了」当成正常。 */
+        if (t.t === 'id' && t.v === 'Chips') {
+          if (nx && nx.t === 'p' && nx.v === '.') {
+            const nx2 = T[k + 2];
+            if (nx2 && nx2.t === 'id' && nx2.v === 'render') { chipsCalls++; chipsCallSites.push(it.f + ':' + t.line); }
+          } else if (pv && pv.t === 'p' && pv.v === '.' && nx && nx.t === 'p' && nx.v === '=') {
+            chipsDefs++; chipsDefSites.push(it.f + ':' + t.line);
+          }
+        }
+      }
+    }
+  }
+  if (!scanned) { bad('§J', '一段源码都没扫到 —— 空断言比没有断言更坏'); return 0; }
+
+  if (defs !== 1) bad('§J', 'b64Bytes 的定义有 ' + defs + ' 处（' + (defSites.join('、') || '一处都没有') + '）—— base64→字节只许一份');
+  else if (defSites[0].split(':')[0] !== 'ui.js') bad('§J', 'b64Bytes 的唯一定义在 ' + defSites[0] + '，不在 ui.js —— 判据和实现脱节了');
+  if (calls < 4) bad('§J', 'b64Bytes 只被调 ' + calls + ' 次（应至少 4：ui.js 的 DataSync、assetlib.js、drama.js、index.html）—— 有一处改回了内联写法');
+  if (pickers) bad('§J', '又用了「下载落点」那两个选择器：' + pickerSites.join('、') + ' —— 那一层已删，全站只剩 Net.save 一份（注释里提到不算）');
+  if (toastDefs) bad('§J', '页面又自建了 toast()：' + toastSites.join('、') + ' —— 提示组件只有 ui.js 的 window.Toast 一份');
+  if (ioInPage) bad('§J', '页面又自建了续拉：' + ioSites.join('、') + ' —— 页面级续拉走 Wb.pager.sentinel（模块内那几处是允许的）');
+  if (unitInWb) bad('§J', 'workbench.js 里又出现了字节单位数组 —— Wb.fmtSize 必须委托 window.fmtBytes，函数体只留一份');
+  const unitFiles = [...new Set(unitSites.map(s => s.split(':')[0]))].sort();
+  if (unitFiles.join(',') !== 'assets.html,ui.js')
+    bad('§J', '字节单位数组出现在 ' + (unitSites.join('、') || '没有') + ' —— 期望只有 ui.js 与 assets.html 两处（后者守卫不同，是有意的分叉）');
+  if (chipRows) bad('§J', '页面又自己拼了芯片行：' + chipRowSites.join('、') + ' —— 芯片行只有 ui.js 的 window.Chips 一份');
+  /* 两头都要在：页面 0 处自建**且** Chips 有定义有调用。少一头就是尺子坏了，
+     而「0 处自建」在 Chips 也没了的情况下和「真的一处都没有」长得一模一样。 */
+  if (chipsDefs !== 1) bad('§J', 'window.Chips 的定义有 ' + chipsDefs + ' 处（' + (chipsDefSites.join('、') || '一处都没有') + '）—— 芯片行只许一份');
+  else if (chipsDefSites[0].split(':')[0] !== 'ui.js') bad('§J', 'window.Chips 的唯一定义在 ' + chipsDefSites[0] + '，不在 ui.js —— 判据和实现脱节了');
+  if (chipsCalls < 4) bad('§J', 'window.Chips.render 只被调 ' + chipsCalls + ' 次（应至少 4：资产库 3 行、角色库、收藏、用量）—— 有一处改回了自己拼');
+
+  if (red === red0) ok('§J', '扫了 ' + scanned + ' 段源码：b64Bytes 定义 ' + defs + ' 处（被调 ' + calls + ' 次）、落点选择器 '
+    + pickers + ' 处、页面自建 toast ' + toastDefs + ' 处、页面自建续拉 ' + ioInPage + ' 处、字节单位数组 ' + unitSites.length
+    + ' 处、页面自建芯片行 ' + chipRows + ' 处（Chips 定义 ' + chipsDefs + ' / 被调 ' + chipsCalls + '）');
+  return defs + calls;
+}
+/* ================= §K =================
+   「页面不重复定义 ui.css 已经有的规则」—— 把这一轮删掉的 7 处冗余钉住。
+
+   判定口径比「两条文字长得一样」宽一档，也比它严一档：
+     · 宽：算**子集**。页面写的每一条属性只要 ui.css 里以**同样的值**有，就算冗余。
+       （`.task .timg img` 页面只写 width/height/object-fit，ui.css 那条还有一条 display:block，
+        照样是冗余 —— display:block 本来就已经在生效，删掉页面那份什么都不变。
+        只认「逐字相同」的话这类一个都漏 —— 本轮 7 处里只有 2 处是逐字相同。）
+     · 严：**@media 上下文必须相同**。页面那条在 @media 里、公共那条在顶层时两边作用范围不同，
+       删掉页面那份就会改掉小屏表现。所以键里带 at-rule 栈。
+     · 值写错一位就**不算**冗余（那是分叉，要人拍板，不归这一档管）。
+   期望值 0 —— 期望表是量出来的：刚删完那 7 处重跑仍是 0。
+   这一档自带一个反向对照（见 tests/mutation.cjs）：同一条规则放进 @media 里、或值改一位，都该放行；
+   没有那条对照的话，「§K 什么都报」和「§K 什么都不报」在驱动脚本里长得一模一样。 */
+function cssStripComments(css) {
+  let out = '', i = 0;
+  while (i < css.length) {
+    if (css[i] === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      const seg = css.slice(i, end < 0 ? css.length : end + 2);
+      for (const ch of seg) out += (ch === '\n' ? '\n' : '');   /* 换行占位：行号是这档的证据 */
+      i = end < 0 ? css.length : end + 2;
+      continue;
+    }
+    out += css[i++];
+  }
+  return out;
+}
+function cssDecls(body) {
+  const parts = []; let cur = '', d = 0, q = '';
+  for (const ch of body) {
+    if (q) { cur += ch; if (ch === q) q = ''; continue; }
+    if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
+    if (ch === '(') { d++; cur += ch; continue; }
+    if (ch === ')') { d--; cur += ch; continue; }
+    /* cur 必须清空：忘了清空的话所有声明累积成一个字符串，第一条属性会吃掉后面全部内容，
+       于是多声明规则永远判不出「已被覆盖」——读数会**假成 0**，看着干净反而最该怀疑。 */
+    if (ch === ';' && d === 0) { parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur);
+  const out = new Map();
+  for (const p of parts) {
+    const k = p.indexOf(':');
+    if (k < 0) continue;
+    const prop = p.slice(0, k).trim().toLowerCase();
+    if (prop) out.set(prop, p.slice(k + 1).trim().replace(/\s+/g, ' '));
+  }
+  return out;
+}
+function cssRules(css, off, media) {
+  const out = [];
+  let i = 0;
+  const lineAt = o => off + css.slice(0, o).split('\n').length - 1;
+  const block = start => {                       /* 括号感知的花括号配平：字符串/属性选择器里的括号不算 */
+    let d = 1, j = start;
+    while (j < css.length && d > 0) {
+      const c = css[j];
+      if (c === '(' || c === '[') { const close = c === '(' ? ')' : ']'; j++; let q = ''; while (j < css.length && css[j] !== close) { if (css[j] === '"' || css[j] === "'") { q = css[j]; j++; while (j < css.length && css[j] !== q) j++; } j++; } j++; continue; }
+      if (c === '"' || c === "'") { const q = c; j++; while (j < css.length && css[j] !== q) { if (css[j] === '\\') j++; j++; } j++; continue; }
+      if (c === '{') d++;
+      else if (c === '}') d--;
+      j++;
+    }
+    return [start, j - 1];
+  };
+  while (i < css.length) {
+    let k = i;                                   /* 先跳过规则之间的空白与残留分号 ——
+                                                    不跳的话 i 停在**上一条规则的收尾花括号**上，
+                                                    行号会少算「规则之间空了几行」 */
+    while (k < css.length && (css[k] === ' ' || css[k] === '\n' || css[k] === '\t' || css[k] === '\r' || css[k] === ';')) k++;
+    if (k >= css.length) break;
+    i = k;
+    if (css[i] === '}') { i++; continue; }
+    const braceAt = css.indexOf('{', i);
+    if (braceAt < 0) break;
+    const sel = css.slice(i, braceAt).trim();
+    const [bs, be] = block(braceAt + 1);
+    const ln = lineAt(i);
+    if (sel.charAt(0) === '@') {
+      if (sel.indexOf('@keyframes') < 0 && sel.indexOf('@font-face') < 0) {
+        const inner = sel.indexOf('(') > 0 ? sel.slice(sel.indexOf('(') + 1, sel.lastIndexOf(')')).trim() : '';
+        out.push(...cssRules(css.slice(bs, be), ln, (media ? media + ' && ' : '') + sel.split('(')[0] + (inner ? '(' + inner + ')' : '')));
+      }
+    } else out.push({ sel: sel, body: css.slice(bs, be), line: ln, media: media || '' });
+    i = be + 1;
+  }
+  return out;
+}
+function sectionK() {
+  const red0 = red;
+  if (!targets.html.length) { bad('§K', '没指定页面，这一档不成立'); return 0; }
+  if (!exists('ui.css')) { bad('§K', 'ui.css 不在，这一档不成立'); return 0; }
+
+  const map = new Map();                          /* "at-rule 栈||选择器" -> [{file,line,decls}] */
+  const eat = (css, file) => {
+    const clean = cssStripComments(css);
+    const chunks = [];
+    if (file.endsWith('.css')) chunks.push({ css: clean, off: 1 });
+    else {
+      let at = 0;
+      while (true) {
+        const a = clean.indexOf('<style>', at);
+        if (a < 0) break;
+        const b = clean.indexOf('</style>', a);
+        if (b < 0) break;
+        chunks.push({ css: clean.slice(a + 7, b), off: clean.slice(0, a).split('\n').length });
+        at = b + 8;
+      }
+    }
+    for (const ch of chunks) for (const r of cssRules(ch.css, ch.off, '')) {
+      for (const one of r.sel.split(',')) {         /* `.a,.b{…}` 只写一次算一份 */
+        const sel = one.trim().replace(/\s+/g, ' ');
+        if (!sel) continue;
+        const key = r.media + '||' + sel;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push({ file: file, line: r.line, decls: cssDecls(r.body) });
+      }
+    }
+  };
+  eat(read('ui.css'), 'ui.css');
+  for (const f of targets.html) if (exists(f)) eat(read(f), f);
+
+  let pairs = 0, hits = 0;
+  const where = [];
+  for (const [key, list] of map) {
+    const cs = list.filter(x => x.file === 'ui.css');
+    if (!cs.length) continue;
+    const cm = cs[0].decls;
+    for (const p of list) {
+      if (p.file === 'ui.css' || !p.decls.size) continue;
+      pairs++;
+      let covered = true;
+      for (const [prop, val] of p.decls) {
+        if (!cm.has(prop) || cm.get(prop) !== val) { covered = false; break; }
+      }
+      if (covered) { hits++; where.push(p.file + ':' + p.line + ' 的 ' + key.split('||')[1] + (key.split('||')[0] ? '（@' + key.split('||')[0] + ' 里）' : '')); }
+    }
+  }
+  if (!pairs) { bad('§K', '一对都没比上 —— 解析器多半坏了（空断言比没有断言更坏）'); return 0; }
+  if (hits) bad('§K', '页面里有 ' + hits + ' 条规则 ui.css 已经全有，重复写一遍只会两边慢慢漂掉：\n       ' + where.slice(0, 6).join('\n       '));
+
+  if (red === red0) ok('§K', '比了 ' + pairs + ' 对（公共里有、页面也写了同一个选择器的规则），页面没有一条是 ui.css 已经全有的');
+  return hits;
+}
 /* 跑全套是命令入口才做的事；被 require 时只导出下面那台词法扫描器。
+
    为什么抽出来：文案 / 漏字检查的脚本需要**同一台**扫描器取字符串字面量，
    旁边再手写一个更差的（只跳过整行注释，313 行里绝大多数是跨行注释的正文），
    那就是「一个机制写两份」—— 而更差的那份会给出一份看起来很合理的读数。 */
@@ -633,6 +1009,9 @@ console.log('§E 合卡规则只有一份'); sectionE();
 console.log('§F 另存那条链只有一个触发点'); sectionF();
 console.log('§G 另存的安全立场与 .assets 原件不动'); sectionG();
 console.log('§H 用户可见文案里不许有 markdown 标记'); sectionH();
+console.log('§I 「能力来源」那句话全站只有一份口径'); sectionI();
+console.log('§J 「同一个功能只应有一份实现」'); sectionJ();
+console.log('§K 页面不重复定义 ui.css 已有的规则'); sectionK();
 
 const over = [...seen.entries()].filter(([, n]) => n > 6);
 if (over.length) console.log('\n（折叠的同类红：' + over.map(([k, n]) => k.split('|')[0] + ' ' + k.split('|')[1] + ' ×' + (n - 6)).join('；') + '）');
@@ -640,5 +1019,8 @@ console.log('共 ' + green + ' 档绿 / ' + red + ' 条红');
 process.exit(red ? 1 : 0);
 }
 
-module.exports = { lex, runAll, sectionA, sectionB, sectionC, sectionD, sectionE, sectionF, sectionG, sectionH, routeBlock, fnBlock };
+/* cssRules / cssDecls / cssStripComments 一并导出：临时扫描脚本要列「某个选择器在 ui.css 与各页里
+   各长什么样」时，必须用**同一台** CSS 解析器 —— §K 判的就是这件事，旁边再手写一个只认单行声明的
+   版本，会给出一份比 §K 更宽松或更严的读数，而那份读数看起来同样合理。 */
+module.exports = { lex, runAll, sectionA, sectionB, sectionC, sectionD, sectionE, sectionF, sectionG, sectionH, sectionI, sectionJ, sectionK, routeBlock, fnBlock, cssRules, cssDecls, cssStripComments };
 if (require.main === module) runAll();

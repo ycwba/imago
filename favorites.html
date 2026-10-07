@@ -16,17 +16,9 @@
   @media (max-width: 760px) { .page-main { padding: 18px 14px 40px; } .grid.view-compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; } .view-list .card .thumb { width: 108px; flex-basis: 108px; height: 78px; } }
   h1 { font-size: 24px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
   .desc { font-size: 14px; color: var(--sub); line-height: 1.7; max-width: 760px; }
-  .toolbar { display: flex; align-items: center; gap: 10px; margin: 20px 0 6px; flex-wrap: wrap; }
+  .toolbar { margin: 20px 0 6px; }   /* flex / 间距 / 换行在 ui.css */
   .toolbar2 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; flex-wrap: wrap; }
-  .toolbar2 .sp { flex: 1; }
-  .toolbar input[type=search] { flex: 0 1 320px; min-width: 150px; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--txt); font-size: 12.5px; outline: none; }
-  .toolbar input[type=search]:focus { border-color: var(--acc); }
-  .toolbar .cnt { color: var(--sub); font-size: 13px; }
-  .toolbar .sp { flex: 1; }
-  .chips { display: flex; gap: 6px; }
-  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 13px; border: 1px solid var(--line);
-    border-radius: 4px; background: none; color: var(--sub); cursor: pointer; }
-  .chip.on { color: var(--acc); border-color: var(--acc); background: rgba(108,140,255,.1); }
+  .toolbar input[type=search] { flex: 0 1 320px; }   /* 盒子的样式在 ui.css，这里只留本页的宽度 */
   /* ---------- 展示样式（开关本体在 workbench.js 的 Wb.viewToggle，与资产库同一份） ----------
      基样式＝「紧凑」档（方块网格，只留缩略图 + 两行标题）；「列表」档用 .grid.view-list 覆盖成横条。
      选择器必须带 .grid 前缀，否则抢不过 .grid 自己的 display 声明。 */
@@ -48,15 +40,12 @@
   .card .note textarea:focus { border-color: var(--acc); }
   .card .note .hint { font-size: 10.5px; color: var(--sub); margin-top: 3px; }
   .card .acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-  .card .acts .ghost { padding: 4px 10px; font-size: 11.5px; }
   .card .unfav { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
     border: 0; border-radius: 4px; background: rgba(0,0,0,.45); color: #ffd166; cursor: pointer; z-index: 2; }
   .card .unfav:hover { background: rgba(0,0,0,.65); }
-  .empty { padding: 60px 0; text-align: center; color: var(--sub); font-size: 14px; }
   .drop { outline: 2px dashed var(--acc); outline-offset: -6px; }
   /* 列表档：横条一行一条，把紧凑档藏起来的元信息/备注/按钮全部展开 */
   .grid.view-compact { gap: 10px; }
-  .grid.view-list { display: flex; flex-direction: column; gap: 10px; }
   .view-list .card { display: flex; align-items: stretch; }
   .view-list .card .thumb { width: 168px; height: 104px; flex: 0 0 168px; border-right: 1px solid var(--line); }
   .view-list .card .body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 10px 12px 12px; }
@@ -104,23 +93,6 @@
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  /* 页内轻提示：本页不使用任何浏览器弹窗 */
-  let toastTimer = null;
-  function toast(msg) {
-    let el = document.getElementById('toast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'toast';
-      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;max-width:72vw;'
-        + 'padding:10px 18px;border-radius:5px;font-size:13px;text-align:center;background:var(--panel);color:var(--txt);'
-        + 'border:1px solid var(--line);box-shadow:0 10px 28px rgba(0,0,0,.2)';
-      document.body.appendChild(el);
-    }
-    el.textContent = msg;
-    el.style.display = 'block';
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3600);
-  }
   const esc = s => window.esc(s);
   $('tic').innerHTML = window.icon ? icon('star', 20) : '';
   $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
@@ -133,13 +105,12 @@
   const byType = (it, t) => t === 'all' || (t === '音频' ? (it.type === '音频' || it.type === '音乐') : it.type === t);
   const fmtSize = b => (!b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
 
+  /* 芯片行走 ui.js 的 Chips（与资产库 / 角色库 / 用量同一份）；这里只给「这一档有多少条」。 */
   function paintChips() {
     const items = Fav.list();
-    $('chips').innerHTML = TYPES.map(([k, t]) => {
-      const n = items.filter(x => byType(x, k)).length;
-      return `<button class="chip${filter === k ? ' on' : ''}" data-t="${k}">${t}${n ? ' ' + n : ''}</button>`;
-    }).join('');
-    $('chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { filter = c.dataset.t; resetPaging(); render(); });
+    window.Chips.render($('chips'), TYPES, filter,
+      v => { filter = v; resetPaging(); render(); },
+      { count: v => items.filter(x => byType(x, v)).length });
   }
 
   let viewItems = [];            // 当前视图的条目（灯箱翻页范围 = 它）
@@ -384,8 +355,8 @@
   async function runAiFind() {
     const box = $('q');
     const q = (box.value || '').trim();
-    if (!Fav.list().length) { toast('还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」'); return; }
-    if (q.length < 2) { toast('先在搜索框里写要找什么（至少两个字），再点 AI 找素材'); box.focus(); return; }
+    if (!Fav.list().length) { Toast.info('还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」'); return; }
+    if (q.length < 2) { Toast.info('先在搜索框里写要找什么（至少两个字），再点 AI 找素材'); box.focus(); return; }
     const btn = $('aiFindBtn'), old = btn.innerHTML;
     btn.disabled = true; btn.textContent = 'AI 正在挑…';
     let msg = '';
@@ -460,19 +431,13 @@
   });
   Wb.thumbs.hydrate().then(n => { if (n) render(); }).catch(() => {});   // 首帧缓存：有就直接当图片用
   /* 动态加载模式：滚到哨兵就再多拉一页（收藏是本地数据，不用请求，只要别一次画几百张卡片） */
-  if (PAGE_MODE === 'more') {
-    const loadMore = () => {
-      if (shownCount() >= viewItems.length) return;
-      morePages++;
-      render();
-    };
-    if ('IntersectionObserver' in window) {
-      new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '300px' })
-        .observe($('gridEnd'));
-    } else {
-      window.addEventListener('scroll', () => { if ($('gridEnd').getBoundingClientRect().top < window.innerHeight + 300) loadMore(); }, { passive: true });
-    }
-  }
+  /* 动态加载模式：滚到哨兵就再多拉一页（收藏是本地数据，不用请求，只要别一次画几百张卡片）。
+     触发机制走 Wb.pager.sentinel（全站一份）；守卫与「续拉之后做什么」是本页自己的账。 */
+  Wb.pager.sentinel('gridEnd', () => {
+    if (PAGE_MODE !== 'more' || shownCount() >= viewItems.length) return;
+    morePages++;
+    render();
+  });
   // 收藏变化：本页是 fav-change，其它标签页是 storage 事件（都要重画列表）
   window.addEventListener('fav-change', () => render());
   window.addEventListener('storage', e => { if (!e.key || e.key === 'fav_items') render(); });

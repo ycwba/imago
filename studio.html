@@ -50,17 +50,15 @@
   .style-row input { width: 100%; }
 
   /* ---------- 高级设置（三种类型共用这一个容器，内容按类型重建） ---------- */
-  .adv { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; overflow: hidden; }
-  .adv-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; cursor: pointer; user-select: none; }
-  .adv-head h2 { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-  .adv-head .sum { font-size: 11.5px; color: var(--sub); display: flex; align-items: center; gap: 6px; }
-  .adv-head .chev { transition: transform .15s; display: inline-block; }
-  .adv.closed .adv-head .chev { transform: rotate(-90deg); }
-  .adv.closed .adv-body { display: none; }
-  .adv-body { padding: 0 14px 14px; }
-  .adv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px 12px; }
+  /* 面板的底色 / 描边 / 圆角在 ui.css；这里只留它没有的两条：上边距、裁掉圆角让头行贴边。 */
+  .adv { margin-top: 12px; overflow: hidden; }
+  /* 字号、字重、以及那个把默认 h2 外边距和行高压掉的 margin:0 / line-height 都在 ui.css；
+     本页之前把整条重写了一遍，等于把那两行顺手又放了回去（头行凭空高出一截）。
+     这里只补公共没有的 —— 让标题里那个图标跟文字对齐。 */
+  .adv-head h2 { display: flex; align-items: center; gap: 6px; }
+  /* .adv 这一组的排版（间距、字号、列宽、折叠动画）统一在 ui.css，导演台用的是同一份。
+     这里只留它没有的：.adv 的上边距与裁圆角、标题里图标的 flex 对齐。 */
   .adv-grid + .adv-grid { margin-top: 10px; }
-  .adv-grid > div { min-width: 0; }
   .adv-grid label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 5px; }
   .adv-grid select, .adv-grid input { width: 100%; }
   .costbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px;
@@ -304,13 +302,12 @@ $('typeSeg').addEventListener('click', e => {
 });
 
 /* ============================ ② 小工具 ============================ */
-const fileToDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
 /* 已选素材的显示地址：外链（平台签名地址）走本地 /getv 路由，本地资产 / DataURL 原样 */
 const mediaOf = it => ((window.Api && Api.mediaSrc) ? Api.mediaSrc((it && (it.src || it.url)) || '') : ((it && (it.src || it.url)) || ''));
 const srcToDataURL = async src => {
   const r = await fetch((window.Api && Api.mediaSrc) ? Api.mediaSrc(src) : src);
   if (!r.ok) throw new Error('素材读取失败 HTTP ' + r.status);
-  return await fileToDataURL(await r.blob());
+  return await AssetTransfer.toDataURL(await r.blob());
 };
 /* DataURL → 纯 base64（/local-assets 收的是裸 base64，不带 data: 头） */
 const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
@@ -465,7 +462,7 @@ function paintSubNote() {
     const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(prov) : null;
     const bits = [];
     if (txt) bits.push(txt);
-    if (src) bits.push(src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底'));
+    if (src) bits.push(Capabilities.srcTextOf(src));
     if (TYPE !== 'audio') bits.push(prov.displayName || prov.name);
     txt = bits.join(' · ');
   }
@@ -954,7 +951,7 @@ function renderImageParams() {
     $('countHint').textContent = '该型号单次只能 1 张';
   }
   const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(hit.p) : null;
-  const where = src ? (src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）') : '';
+  const where = src ? Capabilities.srcTextOf(src) : '';
   $('formatHint').textContent = fmts.length > 1
     ? fmts.length + ' 种（' + (defs.output_format ? '平台默认 ' + String(defs.output_format).toUpperCase() : '未声明默认值') + '）· ' + where : '';
   const r = val('ratio');
@@ -1054,8 +1051,7 @@ async function refreshCaps() {
        （refreshProvider 对没有 models 端点的平台返回 null，所以要走这条 early return。） */
     if (!d) { hint.textContent = ''; paintSubNote(); return; }
     renderParams(); renderInputArea();
-    if (d.source === 'api') hint.textContent = '能力来自上游接口' + (d.cached ? '（缓存）' : '');
-    else hint.textContent = d.note || '按平台声明兜底';
+    hint.textContent = Capabilities.srcTextOf(d);
   } catch (e) {
     hint.textContent = '能力接口读取失败：' + e.message + '（仍按平台声明展示）';
   }
@@ -1310,7 +1306,7 @@ async function buildInputEntries(prov, model) {
         const aid = await uploadToPlatform(prov, blob, x.name || (label + (mime.includes('video') ? '.mp4' : '')), mime, onStage, role);
         if (aid) entries.push({ role, assetId: aid });
       } else {
-        const url = x.file ? await fileToDataURL(x.file) : await srcToDataURL(x.src || x.url);
+        const url = x.file ? await AssetTransfer.toDataURL(x.file) : await srcToDataURL(x.src || x.url);
         if (url) entries.push({ role, url });
       }
     }
@@ -1376,7 +1372,7 @@ async function saveSyncImages(prov, model, prompt, items) {
       const onStage = (st, info) => { const t = uploadStageText(st, info, '产物'); if (t) setStatus(t); };
       const blob = await AssetTransfer.blobOf(it.url, onStage);
       if (!blob) continue;
-      b64 = dataURLToB64(await fileToDataURL(blob));
+      b64 = dataURLToB64(await AssetTransfer.toDataURL(blob));
     }
     if (!b64) continue;
     const url = it.url || '';
@@ -1414,7 +1410,7 @@ async function audioRefBase64() {
   let blob = it.file || null;
   if (!blob && it.src) blob = await AssetTransfer.blobOf(it.src || it.url);
   if (!blob) return '';
-  return await fileToDataURL(blob);
+  return await AssetTransfer.toDataURL(blob);
 }
 async function synthAudio(t) {
   const prov = currentModel().prov;

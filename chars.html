@@ -18,18 +18,13 @@
   .page-main { padding: 30px 40px 60px; }
   h1 { font-size: 24px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
   .desc { font-size: 14px; color: var(--sub); line-height: 1.7; max-width: 860px; }
-  .toolbar, .toolbar2, .toolbar3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 6px; }
+  /* .toolbar 的 flex / 间距 / 换行在 ui.css（公共一份）；.toolbar2、.toolbar3 公共里没有，还在这里。 */
+  .toolbar { margin: 20px 0 6px; }
+  .toolbar2, .toolbar3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .toolbar2 { margin: 0 0 6px; }
   .toolbar3 { margin: 0 0 16px; }
-  .toolbar .sp, .toolbar2 .sp, .toolbar3 .sp { flex: 1; }
-  .toolbar input[type=search] { flex: 0 1 300px; min-width: 150px; height: 30px; padding: 0 12px;
-    border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--txt); font-size: 12.5px; outline: none; }
-  .toolbar input[type=search]:focus { border-color: var(--acc); }
-  .toolbar .cnt { color: var(--sub); font-size: 13px; }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 13px;
-    border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--sub); cursor: pointer; white-space: nowrap; }
-  .chip.on { color: var(--acc); border-color: var(--acc); background: rgba(108,140,255,.1); }
+  .toolbar3 .sp { flex: 1; }   /* .toolbar / .toolbar2 的那两条已收进 ui.css */
+  .toolbar input[type=search] { flex: 0 1 300px; }   /* 盒子的样式在 ui.css，这里只留本页的宽度 */
   /* 型号这两个下拉：没有当前某一集的 opts，就按本页选的型号出图 / 出声音（存 char_opts） */
   .pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--sub); }
   /* 「画风」输入框与它的 .pick input 样式已于 2026-10 一并删掉（画风只属于每一集自己）。 */
@@ -72,15 +67,13 @@
   /* 「加一张角色资产」那一行的三个输入：名字 / 模板 / 自定义描述。
      宽度按内容分档，不给死 —— 自定义描述那一格要能写一句完整的话。
      禁用的那一格（没选「自定义」时）**保持可见**：藏了会让人以为没这个功能。 */
-  .ui-inp { height: 26px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--line);
-    border-radius: 6px; background: var(--bg); color: var(--fg); min-width: 0; }
   .ui-inp:disabled { opacity: .5; cursor: default; }
   .ui-inp[data-a="assetname"] { flex: 0 1 168px; }
   .ui-inp[data-a="assetwhat"] { flex: 1 1 200px; }
   .ui-asset .ui-inp[data-a="assetrename"] { flex: 0 1 168px; }
   .card .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; align-items: center; }
   .card .acts .sp { flex: 1; }   /* 编辑区那一行把「去掉参考音频」顶到行尾 */
-  .card .acts .ghost, .card .acts .tool { padding: 4px 10px; font-size: 11.5px; }
+  .card .acts .tool { padding: 4px 10px; font-size: 11.5px; }   /* .ghost 已收进 ui.css */
   /* 就地展开的编辑区（名字 / 类型 / 分组 / 描述 / 声音）——不弹新窗，改完即存 */
   .card .edit { border-top: 1px solid var(--line); padding: 10px 11px 12px; display: flex; flex-direction: column; gap: 8px; }
   /* 展开中那一张要认得出来：卡片一大排，光看哪块多了输入框不够（编辑区在卡片底部，常在屏幕外） */
@@ -97,10 +90,9 @@
   .card .edit label.ck { display: flex; align-items: flex-start; gap: 7px; line-height: 1.5; }
   .card .edit label.ck input { margin-top: 2px; }
   .card .edit input:focus, .card .edit textarea:focus { border-color: var(--acc); }
-  .empty { padding: 60px 0; text-align: center; color: var(--sub); font-size: 14px; line-height: 1.9; }
+  .empty { line-height: 1.9; }   /* 其余交给 ui.css 的 .empty（字号跟公共的 13px） */
   .busy { font-size: 12px; color: var(--acc); }
   /* 列表档：横条一行一位，缩略图在左、信息在右 */
-  .grid.view-list { display: flex; flex-direction: column; gap: 10px; }
   .grid.view-list .card { flex-direction: row; align-items: stretch; }
   .grid.view-list .card .thumb { width: 150px; height: auto; flex: 0 0 150px; border-right: 1px solid var(--line); }
   /* 展开编辑区后整张卡有一人多高：缩略列是 stretch 的，不压一下就会把预览图拉成一条几倍高的色块
@@ -318,13 +310,12 @@
     if (f === 'noasset' || f === 'nothree') return !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length && !D.Cast.assetsOf(c).length;
     return voiced(c) && !c.refAudio && !c.voice && !String(c.voiceNote || '').trim();
   }
+  /* 芯片行走 ui.js 的 Chips（与资产库 / 收藏 / 用量同一份）；这里只给「这一档有多少条」。 */
   function paintChips() {
     const all = D.Lib.list();
-    $('chips').innerHTML = FILTERS.map(([k, t]) => {
-      const n = all.filter(c => c && match(c, k)).length;
-      return `<button class="chip${filter === k ? ' on' : ''}" data-t="${k}">${t}${n ? ' ' + n : ''}</button>`;
-    }).join('');
-    $('chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { filter = b.dataset.t; resetPaging(); render(); });
+    window.Chips.render($('chips'), FILTERS, filter,
+      v => { filter = v; resetPaging(); render(); },
+      { count: v => all.filter(c => c && match(c, v)).length });
   }
   function paintAiChip() {
     const el = $('aiChip'); if (!el) return;
@@ -1159,11 +1150,12 @@
     });
     try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }
     render();
-    if (PAGE_MODE === 'more') {
-      const more = () => { if (shownCount() >= viewItems.length) return; morePages++; render(); };
-      if ('IntersectionObserver' in window) new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) more(); }, { rootMargin: '300px' }).observe($('gridEnd'));
-      else window.addEventListener('scroll', () => { if ($('gridEnd').getBoundingClientRect().top < window.innerHeight + 300) more(); }, { passive: true });
-    }
+    /* 滚到底自动续拉：触发机制走 Wb.pager.sentinel（全站一份，哨兵 + IntersectionObserver + scroll 回退）。
+       守卫与「续拉之后做什么」是本页自己的账：翻页模式下不续、已经画完也不续。 */
+    Wb.pager.sentinel('gridEnd', () => {
+      if (PAGE_MODE !== 'more' || shownCount() >= viewItems.length) return;
+      morePages++; render();
+    });
   }
   /* 素材库写盘只走 Drama.Lib（内部是 Kv + localStorage），另一个标签页开着拍短剧页
      存进库时这里要能跟着刷新 —— storage 事件是浏览器给跨标签页的那一条通道。 */

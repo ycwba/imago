@@ -108,6 +108,20 @@ body.wb-splitting * { user-select: none !important; }
 .pgroup > button, .pgroup > .ghost { height: 30px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pgroup .pginfo { white-space: nowrap; font-size: 12px; }
 .toolbar > button { white-space: nowrap; }
+/* 工具行里的零件（角色库 / 收藏两页原本各抄一份）：搜索胶囊、弹性间隔、计数。
+   宽度（flex: 0 1 300px / 320px）两页不一样 —— 角色库是卡片网格、收藏是横条列表，
+   窄一点宽一点都说得通，所以那一条留给页面自己写，这里只放两边逐字相同的那部分。 */
+.toolbar .sp, .toolbar2 .sp { flex: 1; }
+.toolbar input[type="search"] { min-width: 150px; height: 30px; padding: 0 12px; border: 1px solid var(--line, #e4e6f0);
+  border-radius: 999px; background: var(--panel, #fff); color: var(--txt, #111); font-size: 12.5px; outline: none; }
+.toolbar input[type="search"]:focus { border-color: var(--acc, #6957e8); }
+.toolbar .cnt { color: var(--sub, #8a8fa3); font-size: 13px; }
+/* 卡片右下角那一排小动作按钮（角色库 / 收藏逐字相同）。列表档与紧凑档怎么排是各页自己的事，
+   只有按钮本身这一条两边一样 —— .card .acts .tool 留在角色库那边（那边有个恒为空的 genBtns 预留位）。 */
+.card .acts .ghost { padding: 4px 10px; font-size: 11.5px; }
+/* 「列表」展示档把网格压成竖排（开关本体在 workbench.js 的 Wb.viewToggle，资产库用的是另一套类名）。
+   只搬共同的那一条：缩略图尺寸、两页各自不同（角色库 150px / 收藏 168px），留在页面里。 */
+.grid.view-list { display: flex; flex-direction: column; gap: 10px; }
 .pgroup .pgsep { flex: 0 0 1px; align-self: stretch; background: var(--line, #e4e6f0); margin: 0 1px; }
 /* 小号按钮（设置页/详情里到处在用）：全站一份，页面不要再写行内 padding */
 .ghost.mini { height: 28px; padding: 0 12px; font-size: 11.5px; border-radius: 6px; }
@@ -158,6 +172,21 @@ body.wb-splitting * { user-select: none !important; }
 .task .acts { margin-top: auto; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .task .acts .ghost { padding: 5px 13px; border-radius: 6px; }
 .empty { color: var(--sub, #8a8fa3); font-size: 13px; text-align: center; padding: 60px 0; grid-column: 1/-1; }
+
+/* ---------- 筛选芯片 ---------- */
+/* 这一组以前在 chars / favorites / assets / usage 四个页面各写一份，四份两两都不同
+   （字号 12.5 与 11.5、圆角 4 与 8、选中态实心蓝底白字与描边淡蓝底），选中态的类名还分
+   .on 与 .active 两派。统一到一份，**选中态用 .on** —— 本项目分段控件的事实标准就是它
+   （assetlib.js 的 .ap-chip、设置页的 .set-chip 都是 .on）。
+   取的是 chars / favorites 那份：两页本来就在用，选中态是「蓝字 + 蓝边 + 淡蓝底」，与 .ap-chip 一致。
+   注意 .active **不是**选中态的通用类名 —— 侧栏当前页、workbench 的展示样式切换、
+   导演台的 .ghost 开关都还在用它，各有各的样式，别因为这次统一就顺手把它们也改了。 */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 13px;
+  border: 1px solid var(--line, #e4e6f0); border-radius: 4px; background: none; color: var(--sub, #8a8fa3);
+  cursor: pointer; white-space: nowrap; transition: border-color .12s, color .12s, background .12s; }
+.chip:hover { border-color: var(--acc, #6957e8); }
+.chip.on { color: var(--acc, #6957e8); border-color: var(--acc, #6957e8); background: rgba(108,140,255,.1); }
 
 /* 卡片内展开的详情：中性描边小卡片（不带强调色元素） */
 .tdetail, .cdet { display: none; margin-top: 10px; padding: 9px 12px;
@@ -427,7 +456,8 @@ button.armed { min-width: 4.6em; }
    .ui-seg  分段开关：两个到几个互斥选项（自动/手动、声音 1/2/3）
    .ui-pill 可选胶囊：若干可点的圆角标签，选中态一眼能看出来（音色、档位）
    .ui-tag  状态芯片：只读的一个词（已选用 / 配音中 / 没通过）
-   .ui-note 提示条（醒目，带底色）；.ui-hint 是弱提示（一行小字） */
+   .ui-note 提示条（醒目，带底色）；.ui-hint 是弱提示（一行小字）
+   .ui-inp  一行高的小输入框（角色素材行里的「这张叫什么」「要画什么」） */
 .ui-seg { display: inline-flex; border: 1px solid var(--line, #e4e6f0); border-radius: 8px; overflow: hidden; background: var(--panel, #fff); }
 .ui-seg > button { border: 0; background: none; color: var(--sub, #8a8fa3); padding: 5px 13px;
   cursor: pointer; font-size: 12.5px; font-family: inherit; white-space: nowrap; }
@@ -458,6 +488,13 @@ button.armed { min-width: 4.6em; }
 .ui-note.err { background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.3); color: var(--err, #dc2626); }
 .ui-hint { color: var(--sub, #8a8fa3); font-size: 12.5px; line-height: 1.5; }
 .ui-hint b { color: var(--txt, #23262f); }
+/* .ui-inp 角色素材行里那个一行高的小输入框（拍短剧页与角色库页共用一份标记）：
+   两页原来各写一份，基础配方逐字相同，只是 drama 那份多限定了一个 .dr-assets ——
+   收进公共的顺序见下面那段：查过没有任何别的规则会命中它，权重从两个 class 降到一个是安全的。
+   不写 color：原来那两份写的是 var(--fg)，而 --fg 全项目没定义 → 声明作废、回退继承，
+   继承到的正是 body 的 --txt，视觉本来就是对的；这里继续不写，继承语义一模一样。 */
+.ui-inp { height: 26px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--line, #e4e6f0);
+  border-radius: 6px; background: var(--bg, #f2f3f9); min-width: 0; }
 /* 声音那一行（试听圆钮 + 声波装饰 + 音色控件）：由 drama.js 的 Drama.Cast.voiceBoxHTML 生成，
    拍短剧页与角色库页共用一份标记 —— 各页再抄一份就会像以前那样「圆钮没样式，看着是莫名其妙的播放三角」。 */
 .ui-voice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

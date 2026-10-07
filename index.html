@@ -132,7 +132,6 @@ window.addEventListener('unhandledrejection', e => {
   button { font-family: inherit; }
   /* 本页按钮统一方正一点：共享的 .ghost/.dd 圆角在导演台收小 */
   .ghost, .ghost.mini, .dd-btn, .dd-opt { border-radius: 4px; }
-  .dd-opt { border-radius: 4px; }
   /* .ghost / .lb-btn / #lightbox 等公共组件样式统一来自 ui.css */
   .pri { background: var(--pri); border: 0; color: #fff; font-weight: 600;
     border-radius: 4px; cursor: pointer; transition: filter .15s; }
@@ -1175,13 +1174,6 @@ function scheduleSave() {
 }
 
 /* ---------- API ---------- */
-/* 读 JSON 的 fetch：先看 HTTP 状态再解析，错误页给可读提示（以前直接 .json() 会变成看不懂的解析异常） */
-
-const fileToDataURL = f => new Promise((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(r.result); r.onerror = rej;
-  r.readAsDataURL(f);
-});
 /* 上传图片前压缩：最长边 1600、JPEG 0.88，显著降低 IndexedDB 体积 */
 function compressImg(file) {
   return new Promise(res => {
@@ -3411,7 +3403,7 @@ async function toDataURL(src) {
   if (String(src).startsWith('data:')) return src;
   const url = String(src).startsWith('/asset/') ? (src + (src.includes('?') ? '&' : '?') + 'dl=1') : src;
   const b = await Net.blob(url, { timeout: 60000 });      // 统一取字节（带超时 + 先判状态）
-  return await fileToDataURL(b);
+  return await AssetTransfer.toDataURL(b);
 }
 async function uploadImageDataUrl(src, name, provId) {
   // 通用跨平台转存：dataURL / /asset/xx / 外部 https → 目标平台的资产
@@ -3493,7 +3485,7 @@ async function applyFrameEntry(sh, kind, e) {
         setStatus('<span class="err">' + (ROLE_ZH[role] || '图片') + '超过平台声明的 ' + (mb / 1024 / 1024).toFixed(1) + ' MiB 上限</span>');
         return;
       }
-      const src = e.file ? await fileToDataURL(await compressImg(e.file)) : await toDataURL(e.src);
+      const src = e.file ? await AssetTransfer.toDataURL(await compressImg(e.file)) : await toDataURL(e.src);
       if (kind === 'first') sh.firstFrame = src;
       else if (kind === 'last') sh.lastFrame = src;
       else {
@@ -3563,7 +3555,7 @@ async function refreshEst() {
 /* ---------- 时间切片参考图（画面素材）---------- */
 function assetToDataURL(assetId) {
   /* 取字节统一走 Net.blob（带超时、先判 HTTP 状态），不再裸 fetch */
-  return Net.blob(`/asset/${assetId}?dl=1&v=2`, { timeout: 60000 }).then(b => fileToDataURL(b));
+  return Net.blob(`/asset/${assetId}?dl=1&v=2`, { timeout: 60000 }).then(b => AssetTransfer.toDataURL(b));
 }
 /* 画质档位跟随所选图片模型的 options.qualities 动态生成 */
 function kfQualityOptions() {
@@ -4013,9 +4005,7 @@ function dataURLtoBlob(u) {
   const m = /^data:([^;,]*)[^,]*,(.*)$/s.exec(u || '');
   if (!m) return null;
   const mime = m[1] || 'video/mp4';
-  const bin = atob(m[2]);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const arr = window.b64Bytes(m[2]);
   return new Blob([arr], { type: mime });
 }
 $('exportBtn').onclick = async () => {

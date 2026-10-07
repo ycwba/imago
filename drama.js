@@ -2348,11 +2348,11 @@ window.Drama = (function () {
     return { b64: b64, format: outFmt, model: model.id, mode: real, asked: mode, provider: prov.id, usage: res.usage || null };
   }
   const AUDIO_MIME = { wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac' };
-  const b64ToWavBlobUrl = b64 => {
-    const bin = atob(String(b64 || ''));
-    const buf = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  /* Blob 的 type 得按真实格式给 —— 和下面正式配音那两条走的是同一张 AUDIO_MIME 表。
+     这一条以前写死 audio/wav：模型出 mp3 / m4a 时，试听拿到的 Blob 头上贴着一个假类型。 */
+  const b64ToAudioBlobUrl = (b64, fmt) => {
+    const buf = window.b64Bytes(b64);
+    return URL.createObjectURL(new Blob([buf], { type: AUDIO_MIME[fmt] || 'audio/wav' }));
   };
   /* 音色试听：合成两句就够听出性格了（会真的花一点点钱，所以先问一句）。
      和正式配音走同一个 ttsOnce，所以复刻型号在这里也会用同一段参考音频。 */
@@ -2363,7 +2363,7 @@ window.Drama = (function () {
     const r = await ttsOnce(REG, { opts: opts, char: char,
       text: '深夜了，' + who + '还没睡。' + (char && char.voiceNote ? '（' + String(char.voiceNote).slice(0, 20) + '）' : ''),
       voice: voiceId || voiceOf(REG, { opts: opts }, char).id, style: (char && char.voiceNote) || '' });
-    return b64ToWavBlobUrl(r.b64);
+    return b64ToAudioBlobUrl(r.b64, r.format);
   }
   /* 音频时长：没有现成探测，用 <audio> 读 metadata（10 秒兜底） */
   function audioDuration(url) {

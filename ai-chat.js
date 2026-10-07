@@ -322,7 +322,7 @@
           if (!m) continue;
           return {
             平台: p.id, 名称: p.name || p.displayName, 类型: p.kind, 型号: m.id, 显示名: m.name || m.id,
-            能力来源: (window.Capabilities && Capabilities.sourceOf(p)) || '本项目兜底声明（还没从这家平台的 /models 取过）',
+            能力来源: (window.Capabilities && Capabilities.srcTextOf(Capabilities.sourceOf(p))) || '还没从这家平台取过能力（按本项目的平台声明走）',
             参数: m.options || {},
             输入槽位: window.Capabilities ? Capabilities.specs(m) : (m.inputRoles || m.modes || '没有能力模块'),
             模型级声明: { modes: m.modes, maxRefImages: m.maxRefImages, output: m.output },
@@ -963,8 +963,9 @@
       const r = await reg();
       for (const p of TextAI.all(r)) {
         const kid = TextAI.keyId(p);
-        out['sk_model_' + kid] = { 名: (p.name || p.id) + ' · 默认型号', 文本: true,
-          说: '这一家的默认型号（设置页保存的那一项）；不确定它在这家清单里就先 models 查' };
+        out['sk_model_' + kid] = { 名: (p.name || p.id) + ' · 当前型号', 文本: true,
+          说: '这一家当前用的型号。**只能填从它自己的 /models 拉回来的、或用户自己填的**；' +
+              '填一个清单里没有的会在保存时被挡下。一个型号都还没取到时这里就是空的' };
       }
     } catch (e) { /* 代理没响应时至少有静态那几项 */ }
     return out;

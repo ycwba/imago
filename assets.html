@@ -33,13 +33,10 @@
   .filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
   .frow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .frow .flabel { font-size: 12px; color: var(--sub); flex: 0 0 64px; }
-  .chip { font-size: 12.5px; padding: 5px 13px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--txt); cursor: pointer; transition: all .12s; }
-  .chip:hover { border-color: var(--acc); }
-  .chip.active { background: var(--acc); color: #fff; border-color: var(--acc); }
   .frow input { padding: 7px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--txt); font-size: 13px; outline: none; width: 240px; }
   .frow input:focus { border-color: var(--acc); }
   .frow .sp { flex: 1; }
-  .toolbar { gap: 8px; justify-content: flex-end; }   /* 基础形态（flex/间距/控件高度）在 ui.css */
+  .toolbar { justify-content: flex-end; }   /* 基础形态（flex / 间距 / 控件高度）在 ui.css */
   /* 日期区间：紧凑一组；外观走公共规范（描边/圆角/主题色），点击打开站内日期弹层。
      注意：这里不能加 overflow:hidden —— 日期弹层 .dp-pop 就挂在本元素内部定位，裁掉就点不出来了 */
   .frow .daterange { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
@@ -86,19 +83,18 @@
   .task .timg { width: 132px; height: 96px; border-radius: 6px; overflow: hidden; flex: 0 0 auto;
     background: var(--panel2); cursor: zoom-in; display: flex; flex-direction: column;
     align-items: center; justify-content: center; color: var(--sub); font-size: 11px; align-self: flex-start; }
-  .task .timg img, .task .timg video { width: 100%; height: 100%; object-fit: cover; }
   /* 音频资产：音符方块（点击在灯箱里播放） */
   .task .timg.audio { background: linear-gradient(135deg, rgba(108,140,255,.16), rgba(160,108,255,.16)); color: var(--acc); }
   .task .timg.audio .note-ic { font-size: 26px; line-height: 1; }
   .task .timg.audio .dur { font-size: 10.5px; color: var(--sub); margin-top: 4px; }
-  .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  @media (max-width: 760px) { .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }
+  /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），
+     这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉。 */
   .task .meta1 { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); }
   .task .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
-  .task .dot.run { background: #fbbf24; animation: blink 1.2s infinite; }
   .task .dot.fail { background: var(--err); }
   @keyframes blink { 50% { opacity: .3; } }
   @keyframes rot { to { transform: rotate(360deg); } }
-  .task .date { margin-left: auto; }
   .favnote { font-size: 11.5px; color: var(--acc); margin: 2px 0 4px; word-break: break-word; }
   /* 原来这里有个 .localtag「本地归档」小标签：提示词从本机归档补回来时挂在提示词后面。
      实际用起来它只是个「这条平台不返回提示词」的说明，而且会和卡片上的「（该平台接口不返回提示词）」
@@ -106,9 +102,7 @@
   .task .tprompt { font-size: 13px; line-height: 1.5; margin: 5px 0; color: var(--txt);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .task .meta2 { font-size: 12px; color: var(--sub); }
-  .task .acts { margin-top: auto; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
-  .cdet { font-size: 11.5px; }
   .asset .meta .cancel { color: var(--err); cursor: pointer; }
   .badges { display: flex; gap: 5px; flex-wrap: wrap; }
   .badge { font-size: 10.5px; padding: 1px 7px; border-radius: 3px; background: var(--panel2); color: var(--sub); }
@@ -116,9 +110,7 @@
   .badge.run { color: var(--warn); background: rgba(217,119,6,.1); }
   .badge.fail { color: var(--err); background: rgba(220,38,38,.08); }
   .badge.done { color: var(--ok); background: rgba(74,222,128,.1); }
-  .empty { color: var(--sub); font-size: 14px; text-align: center; padding: 60px 0; grid-column: 1/-1; }
   /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
-  .cdet { font-size: 11.5px; }
   .det-refs img { width: 100%; height: 84px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
   .det-refs img:hover { border-color: var(--acc); }
   /* 灯箱等公共组件样式统一来自 ui.css */
@@ -403,10 +395,7 @@ let FAI = null;   // AI 检索条件：{ desc, cond:{keywords,type,after,before,
    筛这一类时两个词都要收（收藏页、生成工作台语音栏的选择器也是同一口径）。 */
 const isAudioType = t => t === '音频' || t === '音乐';
 const typeKey = t => (isAudioType(t) ? '音频' : t);
-function chipRow(el, values, cur, onpick) {
-  el.innerHTML = '';
-  values.forEach(v => { const b = document.createElement('button'); b.className = 'chip' + (v === cur ? ' active' : ''); b.textContent = v; b.onclick = () => onpick(v); el.appendChild(b); });
-}
+/* 芯片行走 ui.js 的 Chips（角色库 / 收藏 / 用量同一份），页面只给档位与选中后的动作。 */
 const uniq = k => ['全部', ...[...new Set(assets.map(a => a[k]))]];
 /* 可用于搜索的 ID 串：资产ID / 任务ID / 内部 id / vid */
 function assetIdsOf(a) {
@@ -417,12 +406,11 @@ const DATE_PRESETS = [['全部', 0], ['今天', 1], ['近 7 天', 7], ['近 30 �
 function paintDateChips() {
   const el = $('fDate');
   if (!el) return;
-  el.innerHTML = DATE_PRESETS.map(([label, days]) => {
-    const on = days === 0 ? (!F.from && !F.to) : (F.presetDays === days);
-    return `<button class="chip${on ? ' active' : ''}" data-days="${days}">${label}</button>`;
-  }).join('');
-  el.querySelectorAll('[data-days]').forEach(b => b.onclick = () => {
-    const days = Number(b.dataset.days);
+  /* 芯片行走 ui.js 的 Chips（与另外三行、另外三页同一份）。
+     只有选中判据是这一行自己的：手动填了起止日期时 presetDays 还停在 0，
+     但「全部」那颗不该再亮着 —— 所以传 isOn，不去改公共那份判据。 */
+  window.Chips.render(el, DATE_PRESETS.map(([label, days]) => [days, label]), F.presetDays, v => {
+    const days = Number(v);
     if (!days) { F.from = ''; F.to = ''; F.presetDays = 0; $('dFrom').value = ''; $('dTo').value = ''; }
     else {
       const now = new Date();
@@ -434,7 +422,7 @@ function paintDateChips() {
     paintDateFaces();
     paintDateChips();
     renderGrid();
-  });
+  }, { isOn: v => (Number(v) === 0 ? (!F.from && !F.to) : F.presetDays === Number(v)) });
 }
 /* 日期外观同步：把原生值显示到自定义外观上 */
 function paintDateFaces() {
@@ -461,9 +449,9 @@ document.querySelectorAll('.datepick').forEach(dp => {
 });
 paintDateFaces();
 function renderFilters() {
-  chipRow($('fType'), ['全部', '图片', '视频', '音频'], F.type, v => { F.type = v; renderFilters(); renderGrid(); });
-  chipRow($('fProv'), uniq('providerName'), F.provider, v => { F.provider = v; renderFilters(); renderGrid(); });
-  chipRow($('fStatus'), ['全部', '已完成', '生成中', '排队中', '失败'], F.status, v => { F.status = v; renderFilters(); renderGrid(); });
+  window.Chips.render($('fType'), ['全部', '图片', '视频', '音频'], F.type, v => { F.type = v; renderFilters(); renderGrid(); });
+  window.Chips.render($('fProv'), uniq('providerName'), F.provider, v => { F.provider = v; renderFilters(); renderGrid(); });
+  window.Chips.render($('fStatus'), ['全部', '已完成', '生成中', '排队中', '失败'], F.status, v => { F.status = v; renderFilters(); renderGrid(); });
 }
 /* 展示样式：list 横条列表 / compact 方块网格（右上角图标开关）——开关本体与本地记忆都在
    workbench.js 的 Wb.viewToggle（素材库、收藏页用同一份），这里只提供页面自己的容器类名。
@@ -667,7 +655,7 @@ function bindAssetCard(d, a) {
     fb.classList.toggle('on', on);
     fb.innerHTML = favLabel(a);
     if (on === before) return;             // 落盘失败（状态没变）：Fav 里已经提示过「存储已满」
-    toast(on ? '已加入我的收藏' : '已移出我的收藏');
+    Toast.ok(on ? '已加入我的收藏' : '已移出我的收藏');
   };
   const ru = d.querySelector('.cureuse');
   if (ru) ru.onclick = e => { e.stopPropagation(); reuseAsset(a); };
@@ -801,23 +789,6 @@ function renderGrid() {
   }
 }
 
-/* 页内轻提示：统一不用浏览器弹窗（alert/confirm） */
-let toastTimer = null;
-function toast(msg) {
-  let el = document.getElementById('toast');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'toast';
-    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;'
-      + 'max-width:72vw;padding:10px 18px;border-radius:6px;font-size:13px;text-align:center;'
-      + 'background:var(--panel,#fff);color:var(--fg,#111);border:1px solid var(--line,#e3e3e3);box-shadow:0 10px 28px rgba(0,0,0,.2)';
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.style.display = 'block';
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3200);
-}
 
 /* 删除本地落盘的素材：防连锁（同一资产只发一次请求，删完立刻从列表移除） */
 const deletingIds = new Set();
@@ -835,17 +806,17 @@ async function removeEntry(a) {
 async function deleteLocalAsset(a, btn) {
   const key = assetKeyOf(a);
   if (deletingIds.has(key)) return;
-  if (!assets.some(x => assetKeyOf(x) === key)) { toast('这条素材已经不在列表里了'); return; }   // 已经删过了
+  if (!assets.some(x => assetKeyOf(x) === key)) { Toast.info('这条素材已经不在列表里了'); return; }   // 已经删过了
   deletingIds.add(key);
   const label = btn.dataset.old || btn.textContent;
   btn.disabled = true; btn.textContent = '删除中…';
   try {
     await removeEntry(a);
     refreshProviderChips(); renderGrid();
-    toast('✓ 已删除这条本地素材');
+    Toast.ok('已删除这条本地素材');
   } catch (e2) {
     btn.disabled = false; btn.textContent = label;
-    toast('删除失败：' + e2.message);
+    Toast.err('删除失败：' + e2.message);
   } finally { deletingIds.delete(key); }
 }
 
@@ -931,7 +902,7 @@ $('searchBtn').onclick = () => { F.q = $('search').value.trim().toLowerCase(); r
 
 /* ---------- 复用：按素材类型跳到对应工作台，带提示词 + 素材 ---------- */
 function reuseAsset(a) {
-  if (a.kind !== 'asset') { toast('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
+  if (a.kind !== 'asset') { Toast.warn('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
   const kind = a.type === '视频' ? 'video' : isAudioType(a.type) ? 'audio' : 'image';
   const payload = {
     from: 'assets', assetId: a.assetId || a.id, kind,
@@ -950,9 +921,9 @@ async function runAiSearch() {
      人要在两处来回跳（和统一选择器里改掉的毛病是同一个）。 */
   const box = $('search');
   const q = ((box && box.value) || '').trim();
-  if (q.length < 2) { toast('先在搜索框里写要找什么（至少两个字），再点 AI 检索'); if (box) box.focus(); return; }
+  if (q.length < 2) { Toast.info('先在搜索框里写要找什么（至少两个字），再点 AI 检索'); if (box) box.focus(); return; }
   const v = { q };
-  if (!window.TextAI) { toast('文字 AI 未加载'); return; }
+  if (!window.TextAI) { Toast.err('文字 AI 未加载'); return; }
   const idx = assets.slice(0, 300).map(a => ({
     类型: a.type, 提示词: (a.prompt || '').slice(0, 90), 时长: a.duration || null, 平台: a.providerName,
     模型: a.model || '', 资产ID: a.assetId || '', 任务ID: a.genId || '',
@@ -982,9 +953,9 @@ async function runAiSearch() {
        而整句几乎不可能是某条提示词的子串 —— 结果就是永远 0 条。条件本身显示在下面那行提示里。 */
     if (box) box.value = '';
     F.q = '';
-    toast('AI 检索条件已生效（原话：' + v.q.slice(0, 24) + '），清空条件点下面的 ✕');
+    Toast.ok('AI 检索条件已生效（原话：' + v.q.slice(0, 24) + '），清空条件点下面的 ✕');
   } catch (e) {
-    toast('AI 检索失败：' + e.message);
+    Toast.err('AI 检索失败：' + e.message);
   } finally {
     btn.disabled = false; btn.textContent = old;
   }
@@ -1056,12 +1027,9 @@ async function autoLoadMore() {
   } catch {}
   autoBusy = false;
 }
-if ('IntersectionObserver' in window) {
-  new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) autoLoadMore(); }, { rootMargin: '300px' })
-    .observe($('gridEnd'));
-} else {
-  window.addEventListener('scroll', () => { if (nearBottom()) autoLoadMore(); }, { passive: true });
-}
+/* 触发机制走 Wb.pager.sentinel（全站一份）。nearBottom 留着别删：
+   autoLoadMore 填一屏的那个 while 循环还在用它判断「离底部还有多远」。 */
+Wb.pager.sentinel('gridEnd', autoLoadMore);
 $('reloadBtn').onclick = reload;
 $('cancelAllBtn').onclick = async () => {
   const rs = assets.filter(a => a.kind === 'task' && ['running', 'queued'].includes(a.status));

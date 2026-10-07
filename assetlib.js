@@ -2595,6 +2595,18 @@ window.Capabilities = {
   },
   /* 这个平台的能力是哪来的（界面用它提示「上游接口」还是「平台声明兜底」） */
   sourceOf(prov) { return ((this.sources || {})[prov && prov.id]) || null; },
+  /* 能力来源那句话：全站只此一份（界面三处 + AI 助手一处都调它）。
+     以前 studio.html 里有三处各写一遍 —— 型号下拉下的副注、格式下拉下的提示、
+     换平台后的 #capHint —— 措辞两套（「能力来自上游接口」与「来自上游 /models」）、
+     缓存标记两套（有 vs 没有），而格式下拉那处还把 note 整个丢了；ai-chat.js 那一处同样丢。
+     note 不是可有可无的说明，是「这家为什么没拿到上游能力」的唯一原因：proxy.js 的四处兜底
+     各给了不同的话（没声明该端点 / 返回 404 / 没返回模型列表 / 请求失败），压成一句
+     「上游接口没给或不可用」等于零信息，而同一屏上另一处正写着真正的原因。
+     措辞向原有的多数派收敛；端点名 /models 是代理侧的事，界面不必报。 */
+  srcTextOf(src) {
+    if (!src) return '';
+    return src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底');
+  },
   /* 启动时把所有平台的能力拉一遍（保持原签名；失败静默，界面用 registry 兜底）
      **并发限流，不是一个一个来**：注册表里十几家平台，每家一次请求、各自最多 25 秒超时，
      串行的话慢的那一家就把「能力声明还没回来」这件事拖到几十秒 —— 各页首屏因此会长时间
@@ -3649,8 +3661,9 @@ window.AssetPicker = {
 /* ============================================================================
    TextAI —— 文字 AI（OpenAI 兼容）统一入口
      · 供应商：REG 里 kind === 'text' 的那几条，用哪一家存 sk_text_prov（默认 OpenRouter）
-     · 模型：接口 /models 拉到的 + registry 兜底 + **用户自己填的**（sk_text_models_<keyId>），
-             当前选中存 sk_model_<keyId>
+     · 模型：**只有**接口 /models 拉到的 + **用户自己填的**（sk_text_models_<keyId>），
+             当前选中存 sk_model_<keyId>。**不从 registry 写死的清单里兜底** ——
+             没点过「获取型号列表」就是没有型号，请求前会点名让人去点它
      · 基址：可填自定义 OpenAI 兼容地址，存 sk_base_<keyId>（走 x-up-base 头临时换基址）
    用法：await TextAI.chat(REG, systemPrompt, userPrompt)  → 返回文本
         await TextAI.chat(REG, sys, user, { images })      → 带图（模型支持识图时按 OpenAI 多模态格式提交）
@@ -4170,8 +4183,9 @@ window.TextAI = {
   },
   /* ---- 型号：**完全动态** ----
      下拉里放两类：① 这一家接口返回的（点「获取型号列表」拿到的）② 用户自己填的。
-     registry 里声明的那几个「平台内置」**不展示**（那是一份写死的清单，用户看到会以为型号是固定的，
-     而且切供应方时那几行特别像串台）。但它仍作为**内部兜底**：一个型号都没选时 `model()` 不会返回空。
+     registry 里声明的那几个「平台内置」**既不展示、也不当内部兜底**（那是一份写死的清单，
+     用户看到会以为型号是固定的，切供应方时那几行特别像串台；拿来兜底等于我们替接口猜一个型号发出去）。
+     一个型号都没取到时 `model()` 返回空，由请求侧点名让人去点「获取型号列表」。
      **例外：用户自己添加的供应方**（`prov.custom`）—— 它那串型号是他在「添加自定义供应商」里一个个勾出来的，
      属于「他自己声明的这家有什么」，不是我们写死的平台表，所以照实列出来（否则刚加完一家网关、型号下拉是空的，
      还得再点一次「获取型号列表」才能用；`ownsModel` 也认这一份，免得「添加了却不让你保存」）。
@@ -4198,18 +4212,19 @@ window.TextAI = {
     if (!s) return false;
     return this.modelGroups(prov, fetchList).ids.indexOf(s) >= 0;
   },
-  /* 选中的模型：设置页存下来的优先，其次用户自己填的第一个，最后 registry 声明的第一个。
-     **认不出供应方时返回空**：modelGroups 会拿它填「当前选中」那一组，
+  /* 选中的模型：**只认从这一家接口动态取到的那一批，或用户自己填的**（当前选中存 sk_model_<keyId>）。
+     **不再拿 registry 写死的型号顶上去** —— 以前兜底是 prov.models[0] 再兜到 'deepseek-chat'，
+     于是从没点过「获取型号列表」的那一家也能被塞一个型号出去：发出去的是我们猜的，
+     界面看着一切正常，能不能用要等上游报错才知道。型号完全由接口动态获取，
+     没取到就是没有，由 _body() 抛一句「去点获取型号列表」。
+     **认不出供应方时同样返回空**：modelGroups 会拿它填「当前选中」那一组，
      而 keyId(null) 兜底成 'deepseek' —— 于是别家保存的型号会出现在这张卡的下拉里
-     （同一个坑，第二个入口）。发请求时 model 为空，上游会直接报错，
-     这比「界面看着是这一家、实际发的是别家的型号」诚实。 */
+     （同一个坑，第二个入口）。 */
   model(prov) {
     if (!this.hasProv(prov)) return '';
     const saved = localStorage.getItem('sk_model_' + this.keyId(prov));
     if (saved) return saved;
-    const firstCustom = this.custom(prov)[0];
-    if (firstCustom) return firstCustom;
-    return (prov && prov.models && prov.models[0] && prov.models[0].id) || 'deepseek-chat';
+    return this.custom(prov)[0] || '';
   },
   /* ---- 识图（视觉）能力判定 ----
      只有两级，**不再按模型名猜**（名字会骗人：同一家的命名五花八门，猜错就白带图浪费 tokens，
@@ -4517,6 +4532,11 @@ window.TextAI = {
     /* o.model = 页面当下选中的那个型号（设置页可能还没点保存）；不给就用本机保存的。
        「测试」按钮必须走它，否则会出现「下拉选了 A、实际发的是 B」。 */
     const model = o.model || this.model(prov);
+    /* 没型号就别发出去（model() 不再拿写死的清单兜底，见它的注释）。
+       空着发上游只会回一句多半看不懂的 4xx —— 这里点名说清要做什么。
+       守卫放在 _body 是因为 chat 与 chatStream 都从这里拼请求体，只剩一处。 */
+    if (!model) throw new Error('还没选「' + ((prov && prov.name) || '这一家')
+      + '」的型号：到设置页点「获取型号列表」用它自己的 /models 拉一个，或在型号下面自己填一个');
     const images = (o.images || []).filter(x => x && x.url);
     const useVision = images.length > 0 && (await this.visionAsync(REG, prov, model)).ok;
     const content = useVision
@@ -4773,9 +4793,7 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
     return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
   function b64ToBlob(dataUrl, mime) {
-    const bin = atob(String(dataUrl).split(',')[1] || '');
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const arr = window.b64Bytes(String(dataUrl).split(',')[1] || '');
     return new Blob([arr], { type: mime || 'application/octet-stream' });
   }
   function extOf(blob, name) {
@@ -4819,7 +4837,15 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
 
   window.AssetTransfer = {
     MAX_BYTES,
-    /* 本平台资产 id 的形态（SparkCine 是 UUID）。本地资产 la_* / 别家平台的 id 直接当 asset_id 提交会被上游判为
+    /* File/Blob → dataURL：导演台与生成工作台以前各写一份 fileToDataURL（同一个 FileReader 配方逐字重复，
+       改一处要记得改两处）。放这儿是因为它就是 blobOf 的下一步 —— 取回字节 → 变成 dataURL 交给上游。 */
+    toDataURL(fileOrBlob) {
+      return new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result); r.onerror = rej;
+        r.readAsDataURL(fileOrBlob);
+      });
+    },    /* 本平台资产 id 的形态（SparkCine 是 UUID）。本地资产 la_* / 别家平台的 id 直接当 asset_id 提交会被上游判为
        「Invalid UUID」→ 顶层只回一句「部分内容需要检查。」，所以提交前先用它把不属于本平台的 id 挡掉，改走上传字节。 */
     isPlatformId(id) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || '')); },
     /* 统一取 Blob（自动选路：本地 / 同源 / 外部代理） */
