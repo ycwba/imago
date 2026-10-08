@@ -4,7 +4,7 @@
   if (!frame) return;
 
   const LAST = 'sb_last_page';
-  const PAGES = ['index.html', 'drama.html', 'chars.html', 'studio.html', 'favorites.html', 'assets.html', 'usage.html', 'settings.html'];
+  const PAGES = ['director.html', 'drama.html', 'chars.html', 'studio.html', 'favorites.html', 'assets.html', 'usage.html', 'settings.html'];
   /* 三个工作台合并成一个 studio.html 之后，旧的页面名与别名都还指向它，并带上 ?t=<类型>：
      收藏进来的旧书签、别处的链接、AI 助手跳过来的落点都还能落在原来那一栏上。
      别名值里可以自带 ?t=…（下面 parse 会把它拆出来，file 仍是 studio.html，侧栏高亮才对得上）。 */
@@ -13,7 +13,7 @@
     'image.html': 'studio.html?t=image', 'image-gen.html': 'studio.html?t=image',
     'video.html': 'studio.html?t=video', 'video-gen.html': 'studio.html?t=video',
     'audio.html': 'studio.html?t=audio', 'audio-gen.html': 'studio.html?t=audio',
-    'director.html': 'index.html', '': 'index.html', '/': 'index.html',
+    '': 'director.html', '/': 'director.html',
   };
 
   /* 把各种写法（路径 / 带查询 / 别名）拆成「页面名 + 原样查询串」；不是工作台页面返回 null */
@@ -50,7 +50,7 @@
   let navigating = false;           // 确认框挂着时再点一次侧栏，不该问第二遍
 
   async function show(page, push) {
-    const t = parse(page) || parse('index.html');
+    const t = parse(page) || parse('director.html');
     if (t.src === cur) { highlight(t.file); return; }
     if (navigating) return;
     const why = leaveWhy();
@@ -81,7 +81,7 @@
   }
 
   // 初始页：地址栏 hash > 上次打开 > 导演台
-  const initial = (parse(location.hash.slice(1)) || parse(localStorage.getItem(LAST)) || parse('index.html')).src;
+  const initial = (parse(location.hash.slice(1)) || parse(localStorage.getItem(LAST)) || parse('director.html')).src;
   show(initial, true);
 
   // 浏览器前进 / 后退

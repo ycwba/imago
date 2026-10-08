@@ -1373,7 +1373,11 @@ function s3putStream(req, res, target) {
 
 let logLines = 0;
 function log(line) {
-  const out = `[${new Date().toISOString().slice(11, 19)}] ` + String(line);
+  // 本机时间而不是 UTC：启动器窗口把「[启动器]」与 proxy.js 两路输出并排画在同一块里，
+  // 两个时钟差 8 小时（实测 23:32 与 15:32 同屏），看着就像日志是昨天的。
+  const t = new Date();
+  const p2 = n => (n < 10 ? '0' : '') + n;
+  const out = `[${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}] ` + String(line);
   console.log(out);
   try {
     fs.appendFileSync(LOG, out + '\n');
@@ -4622,7 +4626,7 @@ async function handleRequest(req, res) {
   }
   /* 三个工作台合并成 studio.html 之后，旧路径仍然能打开（手输 /video.html、老书签、
      代理自己的探针脚本都还打这些地址）：统一落到 studio.html，类型由 studio_type / ?t= 决定。 */
-  const FILE_MAP = { '/': 'shell.html', '/app.html': 'shell.html', '/shell.html': 'shell.html', '/index.html': 'index.html', '/director.html': 'director.html', '/studio.html': 'studio.html', '/image.html': 'studio.html', '/image-gen.html': 'studio.html', '/video.html': 'studio.html', '/video-gen.html': 'studio.html', '/audio.html': 'studio.html', '/audio-gen.html': 'studio.html', '/roles.html': 'favorites.html', '/favorites.html': 'favorites.html', '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/usage.html': 'usage.html', '/usage': 'usage.html', '/sidebar.js': 'sidebar.js', '/app.js': 'app.js', '/assetlib.js': 'assetlib.js' };
+  const FILE_MAP = { '/': 'shell.html', '/app.html': 'shell.html', '/shell.html': 'shell.html', '/director.html': 'director.html', '/studio.html': 'studio.html', '/image.html': 'studio.html', '/image-gen.html': 'studio.html', '/video.html': 'studio.html', '/video-gen.html': 'studio.html', '/audio.html': 'studio.html', '/audio-gen.html': 'studio.html', '/roles.html': 'favorites.html', '/favorites.html': 'favorites.html', '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/usage.html': 'usage.html', '/usage': 'usage.html', '/sidebar.js': 'sidebar.js', '/app.js': 'app.js', '/assetlib.js': 'assetlib.js' };
   const urlPath = safeDecode(req.url.split('?')[0]);
   let file = FILE_MAP[urlPath];
   if (!file) {

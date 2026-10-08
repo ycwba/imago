@@ -558,9 +558,6 @@ async function readSseStream(res, onDelta) {
     /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、拍短剧导出的前置闸门、
        助手的 doctor 三边都要问，各写一遍就会出现「设置页说能用、助手说不能用」。 */
     sysStatus, sysTool, sysDir, sysStatusLines, SYS_WHY,
-    /* 本机环境（ffmpeg / ffprobe / 三个落盘目录）：取法与说法都只在这一处，见上面那段注释 */
-    sysStatus, sysTool, sysDir, sysStatusLines,
-    SYS_WHY,
     providers() { return (_reg && _reg.providers) || []; },
     /* 按 id / keyId / kind / relay 找平台 */
     prov(ref) {
@@ -1336,16 +1333,20 @@ async function readSseStream(res, onDelta) {
    于是：能看的地址过期了 → 用本机那份；本机文件被删了 → 代理按索引里的 upstream 回源；
    两边都没了 → 界面上明写「已丢失」，不再是一张裂图让人猜。
 
-   两个开关（都在设置页，与其它界面偏好放一起）：
-     sk_media_local   存不存产物到本机（默认开）。**关掉它，下面整条链都退化成旧行为**。
-     sk_media_prefer  显示时优先用本机文件吗（默认开）。关掉就仍然直连平台外链 ——
-                      平台自己有 CDN、更快，代价是地址一过期就什么都看不了。
+   三个开关（都在设置页，与其它界面偏好放一起）：
+     sk_media_local      存不存产物到本机（默认开）。**关掉它，下面整条链都退化成旧行为**。
+     sk_media_prefer     显示时优先用本机文件吗（默认开）。关掉就仍然直连平台外链 ——
+                         平台自己有 CDN、更快，代价是地址一过期就什么都看不了。
+     sk_media_cloud_hide 「不显示云端任务」：本机没有这份字节的产物**不出现在列表里**（默认关）。
+                         它必须依附上面两项 —— 不存本机就永远没有本机副本，不优先读本机就没有
+                         「只看本机」这回事；所以它只在两者都开着时才生效、才画出来。
 
    一份镜像记录：{ a: 本机资产号, f: 格式, n: 名字, t: 落盘时间, b: 字节数, up: 来源外链 }
    存在 localStorage 的 sk_local_mirror 里（只是「哪条产物在本机」的指针，不放字节）。
    ======================================================================== */
 (function () {
   const K_SAVE = 'sk_media_local', K_PREFER = 'sk_media_prefer', K_IDX = 'sk_local_mirror';
+  const K_HIDE_CLOUD = 'sk_media_cloud_hide';
   const IDX_MAX = 20000;                 // 与代理的 LOCAL_INDEX_MAX 对齐：两边都截一半就会出现「存过却取不回」
   const MIRROR_MAX = 200 * 1024 * 1024;  // 单个文件超过 200MB 不镜像（存它要占几百兆，值不值由用户自己定）
   const CONCURRENCY = 2;                 // 同时最多镜像几个：一次性下十几个视频会把上行和磁盘都占满
@@ -1356,6 +1357,9 @@ async function readSseStream(res, onDelta) {
   const on = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch (e) { return def; } };
   const saveOn = () => on(K_SAVE, 'on') !== 'off';
   const preferLocal = () => on(K_PREFER, 'on') !== 'off';
+  /* 「只看本机有的」真生效的条件是三条都开着：没存本机就永远没有本机副本，
+     不优先读本机就谈不上「只看本机」—— 只勾第三档时它**等于没勾**（设置页那一项也就不画）。 */
+  const localOnly = () => saveOn() && preferLocal() && on(K_HIDE_CLOUD, '') === '1';
 
   /* ---------- 按类型分别决定「存不存 / 存到哪个文件夹」（设置页「自动保存」那一卡）----------
      键 `sk_autosave`（前缀 sk_ 已跟着设置导出/云同步走），形状：
@@ -1524,6 +1528,50 @@ async function readSseStream(res, onDelta) {
     return '';
   }
 
+  /* 一条东西在镜像键上的身份，**条目与卡片两种形状算得出同一个**（卡片的 `taskId` = 条目的 `genId`，
+     卡片还多一个 `raw`）。与 offer / decorate / learn 那三处同一个表达式 —— 换一套就会出现
+     「卡片说在队列里、索引说没存过」，藏与不藏就全凭运气。 */
+  function keyFor(o) {
+    return keyOf(o.provider, {
+      assetId: o.assetId,
+      genId: o.genId || o.taskId || '',
+      upstream: o.rawSrc || o.upstreamSrc || o.raw || o.url,
+    });
+  }
+  /* 这一条在本机到底有没有字节。**判据只在这一处**，页面不许自己拼 `localAsset` / `mirrorKey` /
+     `/asset/` 前缀 —— 那几样分属「decorate 挂上的」「本机资产库那条」「平台列表那一条」三种形状，
+     自己拼一定会漏一种。 */
+  function hasLocal(o) {
+    if (!o) return false;
+    if (o.local || o.localAsset || o.mirrorKey || twinOf(o)) return true;
+    /* 地址本身就写着本机文件号（`/asset/la_xxx`）也算 —— 这一路不查索引，所以
+       「learn 刚把身份补上、反查表还没作废」的那一轮也不会把用户自己库里的东西当云端藏掉。 */
+    return !!(localAssetIdOf(o.src) || localAssetIdOf(o.rawSrc));
+  }
+  /* 这个**地址**在本机有没有凭据：收藏 / 素材库存的是一串地址，不是条目对象，只能按地址问。
+     `blob:` 是当场上传的那一份，换页就没了，**绝不算**本机副本（把它算进去等于
+     「开关开着、库里的图却被当成已经有了」，列表一藏就什么都找不到）。 */
+  function hasLocalAddr(u) {
+    const s = String(u || '');
+    return /^blob:/.test(s) ? false : !!localAssetIdOf(s);
+  }
+  /* 「不显示云端任务」藏的是**已经出了产物、可本机没有这份字节**的那一条。
+     三种情况刻意不藏，每一种都对应一种「看着像坏了」的表现：
+       · 还没出结果的（在跑 / 排队 / 状态没给）—— 卡片刚建时本机必然还没有副本，藏了就是
+         「点了生成，什么都没发生」；
+       · 失败的 —— 卡片上那句失败原因是唯一的凭据，藏起来人就再也看不到为什么没成；
+       · 正在往本机存的那一条 —— 否则刚生成的结果闪一下就没了，落盘完才回来，
+         而那一闪的时间正好是人去看结果的时间。
+     本机资产库那种「条目本身就是资产」的行（kind:'asset'）没有 status，有没有字节只看身份。 */
+  function hideAsCloud(o) {
+    if (!localOnly() || !o || hasLocal(o)) return false;
+    const k = keyFor(o);
+    if (k && queued.has(k)) return false;
+    if (o.kind === 'asset') return true;
+    const st = String(o.status || '');
+    return !!st && classifyStatus(null, st) === 'done';
+  }
+
   function blobToB64(blob) {
     return new Promise((ok, bad) => {
       const r = new FileReader();
@@ -1551,12 +1599,24 @@ async function readSseStream(res, onDelta) {
       }
     } finally { pumping = false; }
   }
+  /* 一条队列任务的回执。只有「用户亲手点『自动下载』」那一批会传 cb ——
+     后台自动镜像是静默的（产物该显示还是显示），没人等它的结果。 */
   async function runOne(job) {
     const { k, url, ent } = job;
+    const tell = (err, res) => {
+      if (!job.cb) return;
+      try { job.cb(err || null, res || {}); } catch (e) { console.warn('[AssetLocal] 落盘回执出错：', e); }
+    };
     try {
       const blob = await AssetTransfer.blobOf(url);
       if (!blob || !blob.size) throw new Error('取回字节为空');
-      if (blob.size > MIRROR_MAX) { read().skip = String(read().skip || ''); return; }
+      if (blob.size > MIRROR_MAX) {
+        read().skip = String(read().skip || '');
+        /* 超上限的这份**留在在途表里**：否则每刷一次列表就把两百多兆重下一遍。
+           手动那一路照实回执，按钮不能点了像没反应。 */
+        tell(new Error('这份比本机镜像的上限（' + window.fmtBytes(MIRROR_MAX) + '）还大，没有存'), { skip: true });
+        return;
+      }
       const ext = extOf(blob, ent && ent.format);
       const b64 = await blobToB64(blob);
       const r = await Api.saveLocalAsset({
@@ -1586,6 +1646,11 @@ async function readSseStream(res, onDelta) {
         d.m[k] = { a: r.id, f: r.format || ext, n: r.name || '', t: Date.now(), b: blob.size, up: url };
         d.a[r.id] = k;
         write();
+        tell(null, { id: r.id, size: blob.size });
+      } else {
+        /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
+           不然按钮说「已存好 N 条」而索引里一条都没有。 */
+        throw new Error('代理没有返回资产号');
       }
       /* ---------- 按类型另存一份到用户指定的文件夹 ----------
          存进 .assets 资产库是**应用自己的那份**（离线能看、删了能回源），不能因为用户
@@ -1614,28 +1679,58 @@ async function readSseStream(res, onDelta) {
       }
     } catch (e) {
       /* 镜像失败**不打扰界面**：它是锦上添花，产物该显示还是显示。
-         也不把失败写进索引 —— 下一轮列表刷新还会再 offer 一次（成功为止）。 */
+         也不把失败写进索引 —— 下一轮列表刷新还会再 offer 一次（成功为止）。
+         所以要把这一条从在途表里摘掉：以前失败的那一条永远留在表里，
+         「再 offer 一次」根本不会发生，用户再点一次「自动下载」也是一颗死按钮。 */
+      queued.delete(k);
+      tell(e instanceof Error ? e : new Error(String((e && e.message) || e || '存不进本机')));
     }
   }
 
   const queued = new Set();
-  /* 提交一条产物去存本机（幂等：已存过 / 正在存 / 关掉了开关都直接跳过） */
-  function offer(provId, ent, upstream) {
-    if (!saveOn()) return;
-    const url = String(upstream || (ent && (ent.rawSrc || ent.raw)) || '');
-    if (!url || !/^https?:/i.test(url)) return;
+  /* 提交一条产物去存本机（幂等：已存过 / 正在存 / 关掉了开关都直接跳过）。
+     返回这一条的去向，页面据此说话：
+       'saved' 索引里已经有了（或按来源地址认出同一条）· 'busy' 后台那一轮正在存
+       'queued' 排上了 · '' 这一条存不了（开关没开、或手里根本没有一条外链）。
+     opts.force：绕过「自动存本机」开关 —— 收藏与素材库那两颗「自动下载」是用户**当下点下去**的，
+       开关没开就什么都不做等于一颗死按钮（AGENTS.md：别让一个「看着能点、其实什么都不做」的控件留在界面上）。
+     opts.cb(err, {id})：只对 force 那一批有意义（见 runOne 上的 tell），后台自动镜像照旧静默。 */
+  function offer(provId, ent, upstream, opts) {
+    const o = opts || {};
+    if (!saveOn() && !o.force) return '';
+    const raw0 = String(upstream || (ent && (ent.rawSrc || ent.raw)) || '');
+    /* 收藏 / 工作区递来的常常是 `/getv?url=…` 这一层包装（字节还是那一份字节）。
+       剥出内层外链再判协议：以前只收 https，于是「从收藏点自动下载」一条都排不上，
+       而界面上一句回执都没有。 */
+    const url = /^https?:/i.test(raw0) ? raw0 : String(innerMedia(raw0) || '');
+    if (!/^https?:/i.test(url)) return '';
     const k = keyOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
-    if (!k) return;
-    if (read().m[k] || queued.has(k)) return;
+    if (!k) return '';
+    if (read().m[k]) { if (o.cb) o.cb(null, { id: read().m[k].a, kept: true }); return 'saved'; }
+    if (queued.has(k)) return 'busy';
     /* 产物身份换了写法也要认得同一个文件：键优先按平台产物号（`|a:`），但平台并不每次都给 ——
        上一次按地址存的那条，这次按任务号算出来是另一个键，于是同一份文件再下一遍。
        按**来源地址**再查一次反查表，命中就照搬那条记录（本机号 / 字节 / 时间都不用重取）。
        代理那一道同身份的闸（`POST /local-assets` 的 localUpKey）是最终兜底，这一层只是省一趟下载。 */
     const byUp = maps().up[mediaKey(url)];
-    if (byUp && byUp.a) { read().m[k] = { ...byUp }; write(); return; }
+    if (byUp && byUp.a) {
+      read().m[k] = { ...byUp };
+      write();
+      if (o.cb) o.cb(null, { id: byUp.a, kept: true });
+      return 'saved';
+    }
     queued.add(k);
-    queue.push({ k, url, ent: ent || {} });
+    queue.push({ k, url, ent: ent || {}, cb: o.cb });
     pump();
+    return 'queued';
+  }
+  /* 页面手上只有一条「收藏项 / 工作台卡片」那样的东西，没有 provider + 三条上限那套参数：
+     来源地址与平台身份都从这一份对象上现取，页面不许自己拼键（那是第二份身份判据）。
+     与 hideAsCloud 用的是同一个 `keyFor` —— 「有没有」与「要不要下」必须是同一件事。 */
+  function pull(o, opts) {
+    if (!o) return '';
+    const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || o.src || o.dl || '');
+    return offer(String(o.provider || ''), o, up, opts);
   }
   /* 扫一批条目（列表加载、增量加载都走它） */
   function scan(entries) {
@@ -1828,6 +1923,13 @@ async function readSseStream(res, onDelta) {
     /* 「这一条在本机镜像是哪一个资产号」：**不看开关**的身份查法（缩略图缓存键用它，
        见 workbench.js 的 thumbs.keyOf）—— 开关只管画面上用哪个地址，不能管「这是哪一份东西」。 */
     localAssetIdOf,
+    /* 「不显示云端任务」：一个开关的生效条件（localOnly）与它唯一的判据（hideAsCloud）。
+       页面只许调这两个，不许自己拼「有没有本机副本」—— 见上面的 hasLocal / hasLocalAddr。 */
+    localOnly, hideAsCloud, hasLocalAddr,
+    /* 「现在就把这一条存回本机」—— 收藏 / 素材库那两颗「自动下载」用的入口。
+       走的是后台自动镜像同一条落盘链（同一份索引、同一道去重、同一份按类型另存），
+       区别只在绕过开关与逐条回执，见上面的 pull。 */
+    pull,
     /* 「自动保存：按类型分别存到哪」这一项的公共接口（设置页渲染与本页分流共用一份判据）。
        设置页只负责画与存，不自己再读一遍 localStorage、更不自己判断哪一档开没开。 */
     SAVE_KINDS, autosaveConf, setAutosaveConf, kindOf, lastSave,
@@ -2903,6 +3005,14 @@ window.Capabilities = {
        页面首屏一律先给旧地址画出来，过期的那份放后台按任务号回源换新再局部重画 ——
        urlOf 里直接 await 回源的话，收藏一多首屏就被几个平台的慢接口拖住。 */
     expired(u) { return mediaExpired(u); },
+    /* 这一条的字节已经落到本机资产库里了 → 把收藏里的地址换成本机那一份。
+       落盘走 `writeUrlBack` 那一份 debounce（与过期回源同一条，静默写、绝不打断正在敲的备注），
+       页面不要再 list()→改→write() 一遍。`laUrl` 只收 `/asset/…`，别把签名外链当本机地址存回去。 */
+    localize(item, laUrl) {
+      if (!item || !/^\/asset\//.test(String(laUrl || ''))) return false;
+      writeUrlBack(item.key, laUrl);
+      return true;
+    },
     /* 按任务号换一条新鲜的产物地址；不是签名外链 / 没有任务号 / 平台接口失败 → 空串 */
     async refreshUrl(item, cur) {
       if (!item || item.kind === 'local') return '';
@@ -3756,6 +3866,17 @@ window.TextAI = {
       + '3. prompt 写清主体、动作、场景、镜头运动、光线、氛围；不编造台词与人物姓名。\n'
       + '4. 原文的信息点要全部覆盖，不要合并成一句长镜头。\n'
       + '5. 末尾的镜头数 / 每镜时长约束由程序自动追加，你不用自己数。',
+    /* 生成工作台图像栏「拆分片段批量生成」：一段描述 → 几张各自独立成片的图片提示词。
+       与 story（导演台关键帧）的区别：没有镜头时长概念，每张都是一张完整的图，
+       拆分维度（时间 / 场景 / 动作阶段）由用户在页面上定，不是按秒切片。 */
+    img_split: '你是美术分镜师。把一段画面描述拆成几张**各自独立成片**的图片提示词（每张都是一张完整的图，不是连环画里的格子）。\n\n要求：\n'
+      + '1. 只返回 JSON，不要任何解释、不要 markdown 代码块。格式：{"frames":[{"label":"片段名（6 个字以内）","prompt":"画面提示词"}]}\n'
+      + '2. 张数与拆分维度以用户给的为准；用户没指定时按内容复杂度定 2–6 张，选最自然的维度拆（时间先后 / 场景变化 / 动作或状态阶段）。\n'
+      + '3. 每条 prompt 自成一体：写清主体、动作或状态、场景、构图、光线、氛围，不看其他片段也能直接用。\n'
+      + '4. 几张之间主体与画风保持一致（同人、同景、同色调），只有拆分维度在变。\n'
+      + '5. 消息里附了参考图时，主体长相与画风以参考图为准，别用文字复述画面细节。\n'
+      + '6. 不编造人物姓名与品牌。\n\n'
+      + '只输出 JSON。',
     /* ---- 拍短剧（drama.html）传给三类 AI 的指令 ----
        花括号 {xxx} 是本项目的占位符，由 drama.js 在提交前替换成当次的事实（总时长、画幅、外貌、台词…）；
        改指令时占位符可以挪位置、可以删，但别改成别的名字 —— 程序只认这一套。
@@ -3984,6 +4105,8 @@ window.TextAI = {
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"t":0,"prompt":"…"}]}`），由它决定生成几张、每张在第几秒、每张画什么。改这条时请保留 JSON 格式要求，否则会退化成按 2.5 秒硬切片。' },
         { key: 'split', label: '剧本拆分镜', used: '导演台「贴剧本，一键拆分镜」',
           ref: '要求文字 AI `只返回 JSON`（`{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}`）；末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。改这条时请保留 JSON 格式要求。' },
+        { key: 'img_split', label: '图片片段拆分（一段描述 → 几张图的提示词）', used: '生成工作台「图像」栏「拆分片段生成」',
+          ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"label":"片段名","prompt":"…"}]}`）。改这条时请保留 JSON 格式要求，否则拆分会直接报「没有给出可用的拆分方案」。' },
       ] },
     { id: 'write', name: '拍短剧 · 写剧本',
       note: '这两条决定「故事写成什么样」：一条把点子写成梗概，一条把梗概拆成能拍的分段。',
@@ -4041,7 +4164,7 @@ window.TextAI = {
      界面报「AI 没有给出可用的分镜结构」。而设置页把 `prompt('story')` 的结果**整段写回**
      `sk_polish_story`（那是用户在设置页里能改的那一栏），只要 ASK_NOTE 被拼上去，
      下一次打开设置页再点保存，导演台读到的就是带着「你可以追问」的指令。 */
-  NO_ASK: ['drama_split', 'drama_image', 'drama_prop', 'drama_video', 'drama_voice', 'story', 'split', 'drama_camera',
+  NO_ASK: ['drama_split', 'drama_image', 'drama_prop', 'drama_video', 'drama_voice', 'story', 'split', 'drama_camera', 'img_split',
     /* 设定补写那五条（2026-10 搬进 DEF）：它们要的是一段描述 / 一段 JSON，
        模型先反问一句，页面就把这一格填成了一句话 —— 比不问更糟。 */
     'drama_look', 'drama_scenedesc', 'drama_propdesc', 'drama_open', 'drama_retouch', 'drama_subshot'],
@@ -5067,6 +5190,35 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
     async crossTransfer(from, toProv, source, opts = {}) {
       if (opts.onStage) opts.onStage('transfer', (from && from.name) || '外部来源', toProv);
       return await this.toAsset(toProv, source, opts);
+    },
+
+    /* 「把挑来的这一张落成本机资产，要的是一个**记得住**的地址」。
+       选择器递回来的条目有两种地址是「当场能用、过后就没了」：本地上传那张是 `blob:`（刷新即失效），
+       资产库/收藏那张可能是上游签名外链（只管一天）。而素材库存的是**字符串地址**（随 drama_chars 落盘），
+       记进这两种就等于把一张已经不存在的图写进库里 —— 第二天卡片是破图，拍的时候也带不上它。
+       本来就是本机资产的条目原样退回（`fresh:false`），不再存第二份。 */
+    async toLocalAsset(source, opts = {}) {
+      const direct = typeof source === 'string' ? source : '';
+      if (/^\/asset\/[^/?#]/.test(direct)) {
+        return { assetId: decodeURIComponent((/^\/asset\/([^/?#]+)/.exec(direct) || ['', ''])[1]), src: direct, fresh: false };
+      }
+      const blob = (typeof Blob === 'function' && source instanceof Blob) ? source : await this.blobOf(source, opts.onStage);
+      if (!blob || !blob.size) throw new Error('这条素材的字节取不到了（本机文件可能已经不在了）');
+      const nm = String(opts.name || blob.name || '素材').slice(0, 60);
+      const fmt = (nm.match(/\.(png|jpe?g|gif|webp|mp4|webm|mov|mp3|wav|ogg|m4a|flac|aac)$/i) || [])[1]
+        || (String(blob.type || '').split('/')[1] || 'bin').replace('jpeg', 'jpg');
+      const b64 = String(await this.toDataURL(blob)).split(',')[1] || '';
+      if (!b64) throw new Error('读不出这条素材的字节');
+      const ext = String(fmt).toLowerCase();
+      const safe = nm.replace(/[\\/:*?"<>|]/g, '_');
+      const r = await Api.saveLocalAsset({
+        name: safe.slice(-(ext.length + 1)).toLowerCase() === '.' + ext ? safe : safe + '.' + ext,
+        mime: blob.type || '', format: ext, data: b64,
+        meta: { prompt: opts.prompt || '', source: opts.from || 'picker' },
+      });
+      const id = r && (r.assetId || r.id);
+      if (!id) throw new Error('本机没收下这份素材（代理没返回资产号）');
+      return { assetId: id, src: '/asset/' + encodeURIComponent(id) + '?v=2', fresh: true };
     },
   };
 })();

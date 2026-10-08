@@ -567,6 +567,30 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     }
     return r;
   }
+  /* 写素材库那一条的唯一出口。`Lib.save` 在「素材库里那份读不出来」时**一个字都不写**、
+     返回值照旧是一个对象，页面紧接着一句「素材库里那一份也一起改了」就成了假话；
+     配额撞满时同样是「写了、其实没写」。这里把数据层留下的原因取走（取完即清），
+     照实弹出来并返回 null，调用方据此别提那句「也改了」。 */
+  function libWrite(item) {
+    const saved = D.Lib.save(item);
+    const e = D.Lib.writeError();
+    if (e) { toast(e, 'err', 9000); return null; }
+    return saved;
+  }
+  /* 删素材库的条目：`Lib.remove` 返回 false = 一条都没删（读坏了它会整个停手）。
+     返回**真删掉的那些 id** —— 调用方只该把这些从本集的 libId 里摘掉，
+     没删成的还挂着引用，下一次存盘又把「已在素材库」写回去，卡片与库里对不上。 */
+  function libRemove(ids) {
+    const gone = [];
+    let why = '';
+    for (const i of ids) {
+      if (D.Lib.remove(i)) gone.push(i);
+      const e = D.Lib.writeError();
+      if (e && !why) why = e;
+    }
+    if (why) toast(why, 'err', 9000);
+    return gone;
+  }
   /* 「做下一集」建好、还在等故事的那一集在数据上长这样：opts.nextOf 有值、故事与分段都是空的。
      靠数据认它（不是只靠一个会话内的变量）—— 刷新之后点「开始」同样落回它上面，
      带过来的角色与场景才不会因为又新建了一部空集而被丢在原处。 */
@@ -702,7 +726,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       toast('别处（另一个标签页或另一台机器）也动这一部了 —— 现在接着操作会把那边的改动覆盖掉。'
         + '先把要改的复制出来，再刷新这一页。', 'err', 8000);
     });
-    /* 先画界面，再去取注册表与能力声明（和导演台 index.html:4250 同一套做法）。
+    /* 先画界面，再去取注册表与能力声明（和导演台 director.html 同一套做法）。
        以前这两步是 boot() 开头的两个 await：/capabilities 在 assetlib.js:1279 还是
        **按平台串行**取的、单平台最坏 25 秒，而这期间 #body 是空的、#top/#bottom 出厂带 hidden ——
        表现就是「打开拍短剧页先白屏几秒」。 */
@@ -728,7 +752,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
        问句里的张数与 `fillBits` 同一份判据（也就是 `fillRest` 真正会发的那几张），
        不另数一遍 —— 确认框写 3 张、实际发 5 张，比不确认更糟。
        两个开关都在「手动」时不问 —— 否则每次开页面都弹一句「手动模式：…」 */
-    if (cur && cur.step === 2) setTimeout(() => askFill('这一集还有图没画', '生图平台按张计费 · 画完停在「认角色」这一步'), 400);
+    if (cur && cur.step === 2) setTimeout(() => askFill('这一集还有图没画', '每张单独出一次 · 画完停在「认角色」这一步'), 400);
   }
   /* 补画前的确认闸，**两个入口共用**（打开页面接着画 / 拆完剧本接着画）：
      「打开页面」这个动作本身完全没有花钱意图，站着一开就掉钱；
@@ -1132,7 +1156,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         const busy = D.runningTakes(got);
         const shots = (got.shots || []).length;
         const note = (busy.length
-          ? '⚠ 它还有 ' + busy.length + ' 次拍摄正在平台上跑着 —— 删掉之后那些任务照样跑、照样计费，而这一边再也接不回它们。'
+          ? '⚠ 它还有 ' + busy.length + ' 次拍摄正在平台上跑着 —— 删掉之后那些任务在平台那边照样会跑完，而这一边再也接不回它们。'
           : '')
           + (shots ? '这一集的剧本、' + shots + ' 段拍片都会没掉。' : '');
         if (Confirm.arm(btn, '确认删掉', { note: note })) return;
@@ -1305,7 +1329,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       })();
       /* 脸 → 角色资产 → 场景图一次补齐（都在 fillRest 这一轮里，各画各的那一张卡），
          但**先问一句**：拆剧本只该花文字 AI 那一次钱，紧跟着画 N 张图是另一笔。 */
-      askFill('剧本拆好了，接着画图？', '生图平台按张计费 · 画完停在「认角色」这一步');
+      askFill('剧本拆好了，接着画图？', '每张单独出一次 · 画完停在「认角色」这一步');
     } catch (e) {
       /* 拆失败就**别往前走**：以前这里无条件 cur.step = 2，用户被扔到一个
          零角色零分段的「认角色」页，而库里留下一部坏档（画脸/配音/拍摄全都无从下手）。
@@ -1405,7 +1429,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     }
     const bits = fillBits(what);
     stopFlag = false;
-    genSet('fill', null, '要画 ' + bits.join('、') + '（生图平台按张计费）');
+    genSet('fill', null, '要画 ' + bits.join('、') + '（每张单独出一次）');
     try {
       /* 三路**并发跑**（以前是 await fillChars() → await fillScenes()，两张池子中一张
          在等位、另一张才能开工，白白串行一倍）。三条各自走自己的 runPool，三条之间不共享队列，
@@ -2594,7 +2618,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           }, () => { save(); paintText(castCard(c), 'look', c.look); });
         }
         else if (act === 'lib') {
-          if (c.inLib) { D.Lib.save(Object.assign({}, c, { id: c.libId || c.id })); toast('已更新素材库里的这一条'); }
+          if (c.inLib) { if (libWrite(Object.assign({}, c, { id: c.libId || c.id }))) toast('已更新素材库里的这一条'); }
           else { D.Lib.adopt(cur, c.id); toast('存进素材库了'); }
           save();
           const b = card.querySelector('[data-act="lib"]');
@@ -2889,7 +2913,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           }, () => { save(); paintText(propCard(p), 'look', p.look); });
         }
         else if (act === 'lib') {
-          if (p.inLib) { D.Lib.save(Object.assign({}, p, { id: p.libId || p.id })); toast('已更新素材库里的这一条'); }
+          if (p.inLib) { if (libWrite(Object.assign({}, p, { id: p.libId || p.id }))) toast('已更新素材库里的这一条'); }
           else { D.Lib.adopt(cur, p.id); toast('存进素材库了'); }
           save();
           const b = card.querySelector('[data-act="lib"]');
@@ -2917,7 +2941,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       try {
         /* 场景入库与角色同一套：已入库的那种是「更新库里这一条」，不是又加一条同名的 */
         if (act === 'lib') {
-          if (s.inLib) { D.Lib.save(Object.assign({}, s, { id: s.libId || s.id })); toast('已更新素材库里的这一处场景'); }
+          if (s.inLib) { if (libWrite(Object.assign({}, s, { id: s.libId || s.id }))) toast('已更新素材库里的这一处场景'); }
           else { D.Lib.adopt(cur, s.id); toast('场景存进素材库了'); }
           save();
           const b = card.querySelector('[data-act="lib"]');
@@ -3156,17 +3180,18 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           if (Confirm.arm(delBtn, '确认删掉 ' + ids.length + ' 条', {
             note: '已经拉进某一集的那几条不受影响；本机存的参考音频会一起删掉',
           })) return;
-          ids.forEach(i => D.Lib.remove(i));
-          /* `Lib.remove` 清的是**存储里**各集的 libId，而这一集是页面手上这份对象 ——
-             不同步的话下一次 save() 就把刚删掉的库 id 又写回去，卡片显示「已在素材库」、
-             库里却根本没有那一条（「存进素材库」按钮从此永久 disabled）。 */
-          const gone = new Set(ids);
+          /* 只把**真删掉的**那些从本集摘掉引用（库里那份读不出来时 `libRemove` 整批停手并弹出原因），
+             全批没删成还照旧摘引用 = 下一次 save() 把「库里已经没有的 id」写回去，
+             卡片显示「已在素材库」、库里却根本没有那一条（「存进素材库」按钮从此永久 disabled）。
+             `Lib.remove` 清的是**存储里**各集的 libId，而这一集是页面手上这份对象 —— 三种类型都要同步：
+             原来只同步角色与场景，道具删完仍挂着旧 libId，与数据层对不上。 */
+          const gone = new Set(libRemove(ids));
           let unlinked = 0;
-          for (const arr of [cur.characters || [], cur.scenes || []])
+          for (const arr of [cur.characters || [], cur.scenes || [], cur.props || []])
             for (const c of arr) if (c && gone.has(c.libId)) { c.inLib = false; c.libId = ''; unlinked++; }
           if (unlinked) save();
           changed = true; pick.clear(); paint();
-          toast('从素材库删掉 ' + ids.length + ' 条');
+          if (gone.size) toast('从素材库删掉 ' + gone.size + ' 条');
         };
         /* 预选要在 grid / cnt / useBtn 都建好之后才灌（addMany 会回调 syncSel），
            而且只灌一次 —— 后面每次 paint() 都会重画卡片，灌第二次就把用户刚点的选择冲掉了。 */
@@ -3175,33 +3200,20 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       },
       actions: [
         { label: '＋ 新建素材', onClick: async () => {
-            const v = await PromptForm.open({
-              title: '手动建一条素材（存进素材库）', okLabel: '存进库',
-              fields: [
-                { key: 'name', label: '名字', type: 'text', placeholder: '例：小雅 / 天台' },
-                { key: 'kind', label: '类型', type: 'select', value: 'actor',
-                  options: Object.keys(D.LIB_KINDS).map(k => ({ v: k, t: D.LIB_KINDS[k] })) },
-                { key: 'group', label: '分组（可留空；整组一次交给 AI 时用）', type: 'text', placeholder: '例：校园篇主要角色' },
-                { key: 'bio', label: '一句话人设（只有角色用得到）', type: 'textarea', placeholder: '例：嘴硬心软的师姐' },
-                { key: 'look', label: '外貌 / 场景描述（出预览图与三视图都靠它）', type: 'textarea',
-                  placeholder: '例：二十出头，齐肩黑发，总穿米色风衣 ／ 教学楼天台，傍晚' },
-              ],
-              validate: f => f.name && f.name.trim() ? '' : '名字不能空着',
-            });
-            if (!v) return false;
-            const name = v.name.trim().slice(0, 20);
-            /* 同类型同名 = 两条一样的素材，之后「加入这一集」到底进哪一条说不清 —— 建的时候就拦住
-               （不同类型重名是合法的：角色「天台」与场景「天台」各进各的名单） */
-            if (D.Lib.list().some(x => x && x.name === name && D.libKindOf(x) === v.kind)) { toast('素材库里已经有「' + name + '」这条' + D.LIB_KINDS[v.kind] + '了', 'err'); return false; }
-            const item = v.kind === 'scene'
-              ? D.newScene({ name, desc: v.look, group: v.group })
-              : D.newChar({ name, kind: v.kind, bio: v.bio, look: v.look, group: v.group });
-            const saved = D.Lib.save(item);
+            /* 那张表单只有 `Drama.Lib.newForm` 一份（素材库页的「新建一条素材」走的就是它）。
+               这里原来是**第二份**，而且已经漂了：栏名与例子是旧措辞、场景少了「时段」那一行
+               （建出来的场景只能事后回编辑区补），道具还拿 `newChar` 建（该走 `newProp`，
+               于是带上一堆没人读的声音字段）。
+               建完不关弹窗：用户多半还要接着挑或再建一条，`onClick` 返回 false 就是「留着」。 */
+            const r = await D.Lib.newForm();
+            if (!r) return false;
+            if (r.error) { toast(r.error, 'err'); return false; }
+            const saved = r.item;
             toast('建好了：' + saved.name + (picking ? '。已经勾上了' : '。要用的时候点「加入这一集」'));
             changed = true;
             /* 建完顺手勾上：用户是在「点名」这件事的过程中发现少一个的，
                建完还得自己再点一下那张新卡才选得上，多余。 */
-            if (picking) pick.addMany([saved.id]);
+            if (picking && saved) pick.addMany([saved.id]);
             paint();
             return false;
           } },
@@ -3358,6 +3370,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     });
   }
   function applyCharInfo(c, isNew, name, kind, bio) {
+    let synced = false;
     if (isNew) {
       cur.characters = cur.characters || [];
       cur.characters.push(D.newChar({ name, kind, bio }));
@@ -3365,11 +3378,13 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       const oldKind = c.kind;
       c.name = name; c.kind = kind; c.bio = bio;
       if (oldKind !== kind && kind === 'narrator') { c.face = ''; c.faces = []; }
-      if (c.inLib && c.libId) D.Lib.save(Object.assign({}, c, { id: c.libId }));
+      if (c.inLib && c.libId) synced = !!libWrite(Object.assign({}, c, { id: c.libId }));
     }
     save(); render();
+    /* 那句「素材库里那一份也一起改了」只有在真写进去时才说 —— 名字是「同名 = 同一个人」的判据，
+       库里没跟着改，下次「加入这一集」并到的还是原来那位。 */
     toast(isNew ? '加好了，把外貌补一句就能画脸'
-      : '角色信息改好了' + (c && c.inLib ? '（素材库里那一份也一起改了）' : ''));
+      : '角色信息改好了' + (synced ? '（素材库里那一份也一起改了）' : ''));
   }
   /* 从这一集删掉一个角色。素材库里那一条**留着**（那是跨剧复用的，与删段同一约定）；
      这一集里引用他/她的地方要一起清干净：出场名单、台词的说话人。
@@ -3449,9 +3464,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         if (!name) { errEl.textContent = '名字不能空着'; return; }
         if (dup(name)) { errEl.textContent = '这一集里已经有同名场景了，改一个吧'; return; }
         s.name = name;
-        if (s.inLib && s.libId) D.Lib.save(Object.assign({}, s, { id: s.libId }));
+        const synced = !!(s.inLib && s.libId) && !!libWrite(Object.assign({}, s, { id: s.libId }));
         save(); render();
-        toast('场景改名为「' + name + '」' + (s.inLib ? '（素材库里那一份也一起改了）' : ''));
+        toast('场景改名为「' + name + '」' + (synced ? '（素材库里那一份也一起改了）' : ''));
         res(true);
       });
       const enter = e => { if (e.key === 'Enter') { e.preventDefault(); nm.querySelector('[data-do=ok]').click(); }
@@ -3490,9 +3505,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         p.name = name;
         /* 改名要连库里那一份一起改：道具的图与名字是一对（拍摄时按名字进提示词），
            两边对不上，下一次「从素材库选」会多出第二个同名道具。 */
-        if (p.inLib && p.libId) D.Lib.save(Object.assign({}, p, { id: p.libId }));
+        const synced = !!(p.inLib && p.libId) && !!libWrite(Object.assign({}, p, { id: p.libId }));
         save(); render();
-        toast('道具改名为「' + name + '」' + (p.inLib ? '（素材库里那一份也一起改了）' : ''));
+        toast('道具改名为「' + name + '」' + (synced ? '（素材库里那一份也一起改了）' : ''));
         res(true);
       });
       const enter = e => { if (e.key === 'Enter') { e.preventDefault(); nm.querySelector('[data-do=ok]').click(); }
@@ -4119,7 +4134,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     /* 这一格只出现在第 4 步（`renderTakes` 由 `renderSide` 在 !isPreview() 时调），而底栏
        「开始拍」只在第 3 步画 —— 原来这句话让人去按一个**这一屏根本没有**的按钮。
        这一屏真正能开拍的是右栏的「拍这一段」。预演怎么合成也说清（在本机，不调视频平台）。 */
-    if (!takes.length) { box.innerHTML = '<div class="ui-hint">这一段还没拍。预演是在本机把开头画面、配音与字幕实时合成的（不调视频平台、不花钱），'
+    if (!takes.length) { box.innerHTML = '<div class="ui-hint">这一段还没拍。预演是在本机把开头画面、配音与字幕实时合成的（不调视频平台、不占一次生成），'
       + '按「开始拍」才会真的生成视频 —— 上面那格里的「拍这一段」也可以。</div>'; return; }
     box.innerHTML = takes.map((t, i) => {
       /* 没选中的那几条也把**失败原因**露出来。以前只有当前那条展开详情，
@@ -4183,7 +4198,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
             ${Array.from({ length: Math.max(1, left) }, (_, i) => `<option value="${i + 1}">再来 ${i + 1} 次</option>`).join('')}
           </select></span>
         </div>
-        <p>每重拍一次都是一条真任务、单独计费；这一段最多 ${D.maxTakes()} 次，拍坏的那次可以在上面的记录里删掉。</p>
+        <p>每重拍一次都会再出一段画面，各自单独留在记录里；这一段最多 ${D.maxTakes()} 次，不要的那次可以在上面的记录里删掉再拍。</p>
       </div>` : '';
     return `<div class="dr-takedet">
       ${t.error ? `<div class="dr-why">${D.esc(t.error)}</div>` : ''}
@@ -4485,7 +4500,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         if (n > 1 && !await Confirm.ask({
           title: '这一段一次拍 ' + n + ' 次？',
           /* 纯文本：Confirm.ask 的正文走 textContent，写 <b> 会原样显示成一串标签 */
-          body: '每一次都是一条真任务、单独计费，一共 ' + n + ' 条。拍完在下面的「拍片记录」里能逐条删掉重拍。',
+          body: '每一次都会单独开一条任务、各出一段画面，一共 ' + n + ' 条。拍完在下面的「拍片记录」里能逐条删掉重拍。',
           okLabel: '就拍 ' + n + ' 次',
         })) return;
         if (n > 0) return await shootOne(sh, n, false);
@@ -4939,7 +4954,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     if (!capped.length && !await Confirm.ask({
       title: '重拍第 ' + list.map(sh => sh.no).join('、') + ' 段？',
       body: '第 ' + list.map(sh => sh.no).join('、') + ' 段' + (what ? what + '，' : '')
-        + '现在各重拍一次。每一段都是一条真任务、单独计费。' + tail,
+        + '现在各重拍一次。每一段都会单独开一条任务、各出一段画面。' + tail,
       okLabel: '就重拍这 ' + list.length + ' 段',
     })) return;
     if (capped.length && !await Confirm.ask({
@@ -5002,7 +5017,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
        `reshootShots` 自己已经问过了 → 由它传 confirmed 进来，别让人连点两下弹两次框。 */
     if (!confirmed && total > 1 && !await Confirm.ask({
       title: '开始拍这 ' + total + ' 段？',
-      body: '每一段都是一条真任务、单独计费，这一轮一共 ' + total + ' 条。'
+      body: '每一段都会单独开一条任务、各出一段画面，这一轮一共 ' + total + ' 条。'
         + (chains.length > 1
           ? '分 ' + chains.length + ' 条链，最多同时 ' + Math.min(D.Pipe.PARALLEL_CHAINS, chains.length) + ' 条。'
           : '这几段要接上一段的最后一帧，只能一段接一段拍（慢一些，但接得上）。')

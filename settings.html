@@ -311,8 +311,8 @@
        这里只读同一份 localStorage 键、不另存第二份状态。 -->
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="sun" data-size="15"></span>外观与界面</h2>
-    <div class="sub">界面长什么样、列表默认怎么摆。跟着数据文件走（换台机器还在）；
-      和本页其它设置一样，<b>点下面的「保存全部设置」才生效</b> —— 保存的那一刻主题与左栏会当场跟着变。</div>
+    <div class="sub">界面长什么样、列表默认怎么摆，跟着数据文件走（换台机器还在）。
+      本页所有改动都一样：<b>点下面的「保存全部设置」才生效</b>；主题与左栏在保存那一刻当场跟着变。</div>
     <div id="uiPrefs"></div>
   </div>
 
@@ -321,15 +321,15 @@
        也不再一律冠「界面 · 」—— 那一项归哪张卡只在 ui.js 的 UI_PREFS 里点名一次。 -->
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="folder" data-size="15"></span>产物存放</h2>
-    <div class="sub">生成完的产物<b>留在哪、优先从哪读</b>。两项连着看：关掉「自动存本机」之后，
-      新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。</div>
+    <div class="sub">生成完的产物<b>留在哪、优先从哪读、列表里要不要只显示本机有的</b>。三项连着看：关掉「自动存本机」之后，
+      新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
+      前两项没开着时这一行<b>整个收起来</b>（画着却不生效，等于骗人去勾一颗不管用的复选框）。</div>
     <div id="storePrefs"></div>
   </div>
 
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="film" data-size="15"></span>拍短剧</h2>
-    <div class="sub">这几项只作用于「拍短剧」那一页。控件按 <code>drama.js</code> 里那一张设置表现渲染，
-      页面上的说法与真的发给文字 AI 的参数用的是同一个开关 —— 改完要点下面「保存全部设置」才生效。</div>
+    <div class="sub">这几项只作用于「拍短剧」那一页：界面上的说法与真的发给文字 AI 的参数是同一个开关。</div>
     <div id="dramaSet"></div>
   </div>
 
@@ -440,7 +440,7 @@
       <button class="ghost wide" id="cloudSync" title="两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边">⇅ 一键双向同步</button>
       <label class="crow">
         <input type="checkbox" id="cloudKeys"> 连密钥一起同步（默认否）</label>
-      <label class="crow" title="提示词归档是磁盘上的一堆 .md，以前既不在 .data/ 也进不了整包备份 —— 换机器就没了。勾上以后跟着 push/pull/sync 一起走云端的 prompts/ 目录。只推不删：云端多出来的只报数量，不会动本机。">
+      <label class="crow" title="提示词归档是磁盘上的一堆 .md，不进整包备份 —— 换机器就没了。勾上就跟 push/pull/sync 一起走云端的 prompts/ 目录，只推不删（云端多出来的只报数量，不动本机）。">
         <input type="checkbox" id="cloudPrompts"> 连提示词归档一起（默认否）</label>
       <span class="hint sm" id="cloudMsg"></span>
     </div>
@@ -2014,6 +2014,7 @@ renderPageSettings();
    所以不会出现「设置页有这一项、助手说改不了」，也不会两边各认一套档位名。 */
 function uiRow(r, box) {
   const row = document.createElement('div');
+  row.dataset.uik = r.key;      // 给 syncUiNeeds 找回这一行（依附别的开关的那一项）
   if (r.kind === 'bool') {
     row.className = 'krow tight';
     const cb = document.createElement('input');
@@ -2054,6 +2055,10 @@ function renderUiPrefs() {
   if (!rows.length) return;
   UI_PREF_CARDS.forEach(c => { const b = $(c.box); if (b) b.innerHTML = ''; });
   rows.forEach(r => {
+    /* 依附别的开关的那一项（`needs`）**照样画出来**，只按 UI_PREFS.visible 的结果决定藏不藏
+       （见下面的 syncUiNeeds）。画而不删有两个必要：父档重新打开时它能当场回来
+       （整页重画会丢掉这一页其它还没保存的改动），而 saveUiPrefs 也照样能把它的勾选存回去
+       —— 藏起来是「现在不生效」，不是「这一项作废了」。 */
     const card = UI_PREF_CARDS.find(c => c.groups.indexOf(r.group) >= 0) || UI_PREF_CARDS[0];
     const box = $(card.box);
     if (!box) return;
@@ -2107,6 +2112,20 @@ function renderUiPrefs() {
     }
   } catch (e) {}
   renderAutosaveDirs(storeBox);
+  syncUiNeeds();
+}
+/* 依附别的开关的那一项（`needs`）当场收起来 / 放出来。
+   为什么不在 renderUiPrefs 里判完就完事：本页是「点保存才生效」，改了父档而还没保存时
+   localStorage 还是旧的，那一行就该按旧的画；真正要跟着变的是**存完之后** ——
+   所以这一句挂在 saveUiPrefs 末尾（写盘之后）与 renderUiPrefs 末尾各调一次。
+   父档关掉而第三档还亮着，界面就是在说「这一项开着」，而它一个字都不生效。 */
+function syncUiNeeds() {
+  const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
+  rows.forEach(r => {
+    if (!r.needs || !r.needs.length) return;
+    const el = document.querySelector('[data-uik="' + r.key + '"]');
+    if (el) el.hidden = !UI_PREFS.visible(r);
+  });
 }
 /* ---------- 自动保存：按类型分别「存不存 / 另存到哪」 ----------
    原来只有一个总开关（`sk_media_local`），产物一律落在项目下的 .assets/。
@@ -2340,6 +2359,9 @@ function saveUiPrefs() {
     if (top.__sbApplyTheme) top.__sbApplyTheme(th); else document.documentElement.dataset.theme = th;
   } catch (e) {}
   try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
+  /* 依附关系跟着刚写盘的值走一遍：把「优先用本机文件」改成关并保存，第三档当场就该藏起来。
+     放在这里而不是父档的 onclick 里 —— 还没保存时 localStorage 是旧值，那一行本来就该按旧的画。 */
+  syncUiNeeds();
 }
 renderUiPrefs();
 
@@ -2510,8 +2532,7 @@ $('saveAll').onclick = async () => {
   }
   savePageSettings();
   saveUiPrefs();
-  saveDramaSet();
-  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
+  saveDramaSet();  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
   $('okmsg').textContent = skipped.length
     ? '✓ 其余设置已保存；没写入：' + skipped.join('、')
     : '✓ 已保存（分页设置刷新页面后生效）';
@@ -2533,7 +2554,7 @@ const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', '
   /* 只这一项助手设置：ai_chat 前缀会把对话记录和附件身份一起导出，那是数据不是设置。
      sk_custom = 「添加自定义供应商」那份清单（照哪家的形状 + 地址 + 型号 id），
      不含密钥（密钥还是按 keyId 存 sk_key_<id>），所以导出/恢复默认都把它当设置看待。 */
-  'ai_chat_auto', 'sk_custom', 'sk_prov_tab', 'sk_media_local', 'sk_media_prefer', 'sk_autosave'];
+  'ai_chat_auto', 'sk_custom', 'sk_prov_tab', 'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_autosave'];
 /* 「恢复默认」不动的界面偏好：dir_ 前缀会把它们一起扫进来，
    所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view 与素材库的 dir_char_view，
    恢复默认会把用户的视图档位一起清掉，而弹窗写的是「清掉目录」，两件事都对不上。 */
@@ -2541,8 +2562,10 @@ const RESET_KEEP = ['set_fold_polish', 'dir_theme', 'dir_asset_view', 'dir_char_
   /* 产物镜像的两个开关也是「恢复默认」不该动的界面偏好：恢复设置与「把界面调好」是两件事。
      （sk_local_mirror 那份索引不在 EXPORTABLE 里，本来就不会被这一轮扫到。）
      sk_autosave（按类型的另存目录）同理：那是用户自己挑的落盘位置，
-     「恢复默认」把它清掉会让人以为文件存到别处去了，实际只是配置没了。 */
-  'sk_media_local', 'sk_media_prefer', 'sk_autosave'];
+     「恢复默认」把它清掉会让人以为文件存到别处去了，实际只是配置没了。
+     sk_media_cloud_hide 要单独点名：它不在 'sk_media_local' 那条前缀下面，
+     「以为前缀已经盖住了」的结果是恢复默认把这一档清成关闭。 */
+  'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_autosave'];
 
 function exportSettings(includeKeys) {
   const out = {};

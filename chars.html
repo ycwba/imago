@@ -30,7 +30,7 @@
   /* 「画风」输入框与它的 .pick input 样式已于 2026-10 一并删掉（画风只属于每一集自己）。 */
   /* 卡片上那句失败原因（一次出齐时不弹一串 toast，原因留在没出来的那一张上） */
   .card .why { font-size: 11.5px; color: var(--err); line-height: 1.5; }
-  /* 分组那一排：下拉是「看哪一组」，按钮是「整组给哪一集」 */
+  /* 分组那一排只有一个「看哪一组」的下拉（「把整组加进某一集」那颗按钮已删，见下面 paintGroups） */
   .grp { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--sub); }
   .grp select { min-width: 120px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 16px; }
@@ -109,22 +109,20 @@
 <body>
 <div class="page-main">
   <h1><span id="tic"></span>素材库</h1>
-  <div class="desc">跨剧复用的<b>角色</b>、<b>场景</b>与<b>道具</b>。每条素材身上带的东西都是<b>拍的时候真的会发出去</b>的：
-    预览图（卡片缩略图，也是生图与生视频认脸、认景、认物的锚点）、<b>三视图</b>（只有角色有，随脸一起自动补进参考图，位置不够时按模型上限取舍）、
-    声音（角色才有；本机配音用，视频模型有「参考音频」槽位时也发给它）、外貌或场景或道具描述（交给文字 AI 自己决定要不要写进提示词）、
-    时段（场景才有；直接进这张场景图提示词里那句「…的光线」，库里没填就成了一句空话）。
-    <b>这一页只管存；往某一集里放请到「拍短剧 → 认角色」</b>，那边能多选、能整组给 AI，目标集就写在弹窗标题上。</div>
+  <div class="desc">跨剧复用的<b>角色</b>、<b>场景</b>与<b>道具</b>。这一页只管存与改；
+    往某一集里放请到<b>「拍短剧 → 认角色」</b>，那边能多选、能整组交给 AI，目标集就写在弹窗标题上。</div>
 
   <div class="toolbar">
     <div class="chips" id="chips"></div>
-    <input type="search" id="q" placeholder="搜索名字 / 人设 / 描述">
-    <button class="tool acc" id="aiFindBtn" title="把搜索框那句话交给文字 AI，按名字 / 人设 / 外貌挑人"></button>
+    <input type="search" id="q" placeholder="搜索素材">
+    <button class="tool acc" id="aiFindBtn" title="把搜索框那句话交给文字 AI，由它从整个库里挑最合适的几条"></button>
     <span id="aiChip"></span>
     <span class="cnt" id="cnt"></span>
   </div>
   <div class="toolbar2">
     <span class="grp">分组<span id="grpPick"></span></span>
     <button class="tool" id="btnFill" title="把当前这一档里还没有预览图、角色还缺三视图的素材一次交给生图平台"></button>
+    <button class="tool" id="btnLocal" title="把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库存一份：换机器、外链过期、关掉网页都不影响它们。存好的那一份同时记进本机镜像索引，生成工作台与资产库也认得。"></button>
     <span class="sp"></span>
     <span class="busy" id="busy"></span>
     <button class="ghost" id="btnStop" hidden>停下</button>
@@ -162,12 +160,28 @@
   let filter = 'all';
   let group = '';                 // '' = 全部组；'__none' = 未分组
   let aiPick = null, aiWhy = '';   // AI 挑出来的一批（id 集合）+ 它自报的理由
+  let aiRank = null;               // AI 给的次序（id → 名次，最合适的排 0）；只有它挑过才照这个名次排
+  /* ---------- 顺序只有两种，界面上一颗都挑不了 ----------
+     AI 挑过 → 照它给的名次排（最合适的在前）；没挑过 → 按名称 A→Z。
+     以前这里有一排排序芯片（名称 / 类型 / 分组 / 时间），档位存 `dir_char_sort`，
+     那是个纯显示偏好；这一页真正常用的找法是上面的类型芯片、分组那一排与搜索框。
+     类型仍走 D.libKindOf 那一份判据，不按字段形状猜 —— 库里那条「还没写过外貌的角色」
+     读回来就没有 look，按形状猜会把角色认成场景（这个坑 AGENTS.md 里点名过）。 */
+  const aiRankOf = c => (aiRank && aiRank.has(c.id) ? aiRank.get(c.id) : Number.MAX_SAFE_INTEGER);
+  function orderItems(items) {
+    if (aiRank) return items.slice().sort((a, b) => aiRankOf(a) - aiRankOf(b));
+    /* 'zh' 要显式写：不带 locale 时按**浏览器默认**排，中文机上是拼音、英文机上就成了按码位排 ——
+       同一份库在两台机器上顺序不一样。素材库分组那一排（drama.js 的 groups）用的就是 'zh'。 */
+    return items.slice().sort((a, b) => String(a.name || '').trim().localeCompare(String(b.name || '').trim(), 'zh'));
+  }
   let openId = '';                 // 哪一张卡展开了编辑区
   let busyMsg = '';
   /* 「一次出齐」这一轮的两位状态：按过停下（不再开新的任务）、这一轮有没有停下可言。
      声明在这一排而不是批量那一段里 —— paintBusy 每次记账都要读它们，
      而 boot 之前若有别处调 paintBusy，`let` 还没执行到就会撞 TDZ。 */
   let stopFlag = false, fillStoppable = false;
+  /* 「存回本机」那颗按钮也在读这份状态（paintBusy 每次记账都要重画它），同理提前声明。 */
+  let localBusy = false;
   let renderSeq = 0;
   const viewItems = [];            // 当前视图的素材（灯箱翻页范围）
   const media = [];                // 当前视图能点开看的图（预览图 + 各资产）
@@ -185,25 +199,81 @@
     const el = $('busy'); if (el) el.textContent = genLine() || busyMsg;
     const b = $('btnStop'); if (b) b.hidden = !(genHas('fill', null) && fillStoppable);
     paintFillBtn();
+    paintLocalBtn();
   }
   /* 谁在生成：一张表记「这一条的哪一项正在出」（预览图 / 某一类设定图 / 声音候选）。
      三样事都读它：格子里的占位圈、按钮的禁用态、重复点同一项的闸门 —— 白花一次钱就在这一处拦。
      不同条、不同项并发照旧放行，它们本来就互不相干（与拍短剧页的记账同一套做法）。 */
   const GEN = new Map();
   const gKey = (kind, id) => kind + '#' + id;
+  /* 出图表单那一行（名字 / 模板 / 要画什么）的草稿，按素材 id 存。
+     它必须存在页面这一层：出完一张会重画这张卡（`paintCard`），
+     以前那三个输入框的值与焦点全被抹掉 —— 用户正在打「雨天造型」，
+     上一次出的结果一回来，字没了，模板也跳回第一项。 */
+  const DRAFT = new Map();
+  const draftOf = id => DRAFT.get(id) || { name: '', tpl: '', what: '' };
   function genSet(kind, id, msg) { GEN.set(gKey(kind, id), msg); paintBusy(); }
   function genClear(kind, id) { GEN.delete(gKey(kind, id)); paintBusy(); }
   function genHas(kind, id) { return GEN.has(gKey(kind, id)); }
   function genMsg(kind, id) { return GEN.get(gKey(kind, id)) || ''; }
   function genLine() { return Array.from(GEN.values()).filter(Boolean).join('　｜　'); }
   /* 「这一项上一次没出来，为什么」也按「哪一条的哪一项」记，与 GEN 同一套键。
-     为什么不记在素材对象上：`D.Lib.save` 的字段拷贝清单里没有 err 这类字段，
-     写进对象等于没写（刷新就没了），而记在页面上至少这一轮看得见原因。
+     记在页面上而不是素材对象上：这一轮的失败是**这一轮的**账（出图失败、平台超时），
+     落进库里就变成一条永久挂着、又不跟着重试清掉的旧话；数据层只留两条真需要跨页的
+     （`voiceErr` / `voiceAuto`，见 `Drama.Lib.save` 的拷贝清单）。
      批量那一轮尤其需要它 —— 40 条里砸 3 条，toast 会连着响三声把界面淹了，
      而真正该看的那句话得留在这几张卡上。 */
   const ERR = new Map();
   function errSet(kind, id, msg) { const k = gKey(kind, id); if (msg) ERR.set(k, msg); else ERR.delete(k); }
-  function errOf(kind, id) { return ERR.get(gKey(kind, id)) || ''; }
+  /* 这一条卡上**所有**的失败原因，一条一行。以前这里只查 `asset#<那一张的 id>` 一种键，
+     于是「AI 出这一张」（键是 `asset#new:模板:名字`）与批量那一轮「预览图没出来所以跳过三视图」
+     （键是 `asset#three`）两句永远不显示 —— 用户看到的只是「点了没反应」。
+     键的第二段就是这一条的 id，所以按尾缀取这一条的整份账，不再猜键名。 */
+  function errsHTML(c) {
+    const tail = '#' + c.id, out = [];
+    for (const [k, msg] of ERR) {
+      if (!k.endsWith(tail) || !msg) continue;
+      out.push('<div class="why">' + esc(errLabel(k.slice(0, k.length - tail.length), c)) + '：' + esc(msg) + '</div>');
+    }
+    return out.join('');
+  }
+  /* 记账键的第一段翻成人话（就是这一项在界面上叫什么）。 */
+  function errLabel(kind, c) {
+    if (kind === 'face') return '这张' + picWord(c);
+    if (kind === 'voice') return '试听';
+    if (kind === 'voicecands') return '声音候选';
+    if (kind.indexOf('asset#new:') === 0) {
+      const rest = kind.slice('asset#new:'.length), i = rest.indexOf(':');
+      return (i < 0 ? '' : rest.slice(i + 1)) || D.Cast.assetLabel(c, i < 0 ? rest : rest.slice(0, i)) || '这张角色资产';
+    }
+    if (kind.indexOf('asset#') === 0) {
+      const id = kind.slice('asset#'.length);
+      const a = D.Cast.assetById(c, id);
+      return (a && D.Cast.assetName(a)) || D.Cast.assetLabel(c, id) || '这张角色资产';
+    }
+    return '这一项';
+  }
+  /* 这一条身上有没有一项正在生成（删掉它之前要问一句：收尾那一次写库会把刚删的这条写回去）。 */
+  function genOn(c) {
+    const tail = '#' + c.id;
+    for (const k of GEN.keys()) if (k.endsWith(tail)) return k.slice(0, k.length - tail.length);
+    return '';
+  }
+  /* 存这一条 —— 全页写库的唯一出口（与拍短剧页的 `saveOf` 同一立场）。
+     `Lib.save` 有两种「没存进去」：配额撞满（写了、其实没落盘）与库里那份读不出来
+     （**一个字都不写**，写下去就把整库洗成一条）。两种原因都由数据层留着，这里取一次、
+     照实说，不让人对着「改完就地存」那句话以为已经保存了。 */
+  let libWarnedAt = 0;
+  function libSave(c) {
+    const saved = D.Lib.save(c, { exact: true });
+    const e = D.Lib.writeError();
+    if (e) {
+      const now = Date.now();
+      if (now - libWarnedAt > 8000) { libWarnedAt = now; Toast.err(e, 9000); }
+      return null;
+    }
+    return saved;
+  }
   const src = s => Api.mediaSrc(s);
   const isScene = x => D.isSceneItem(x);
   const isProp = x => D.isPropItem(x);
@@ -255,7 +325,12 @@
   }
   function useCand(c, kind, src) {
     const k = CANDK[kind]; if (!k || !src) return;
-    k.set(c, src); D.Lib.save(c, { exact: true }); paintCard(c);
+    k.set(c, src);
+    /* 存不进去时（`libSave` 已经把原因弹出来了）不再补一句「这条现在用这张」——
+       那一句在这个分支里是假话：画面上选了、库里没动，刷新就退回原来那张。 */
+    const ok = !!libSave(c);
+    paintCard(c);
+    if (!ok) return;
     toast('这条现在用这张。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
   }
   /* 跑一份生成：记账 → 只重画这一张卡（整页 render 会连编辑区一起收起）→ 跑 → 撤账再重画。
@@ -267,7 +342,7 @@
     try { await fn(); } catch (e) { err = (e && e.message) || String(e); }
     genClear(kind, id);
     /* 砸了也要写库：这一轮可能已经改动了候选/时间戳，只把原因记在页面上。 */
-    D.Lib.save(c, { exact: true });
+    libSave(c);
     errSet(kind, id, err);
     paintCard(c);
     if (err && !quiet) Toast.err(err);
@@ -280,6 +355,7 @@
        那颗按钮上的数字与 title 就得当场跟着变，否则界面说的是上一轮的缺口。
        放在最前面：下面几处提前 return（卡片不在当前视图 / 正在打字）都不能把它跳过。 */
     paintFillBtn();
+    paintLocalBtn();
     const el = document.querySelector('.card[data-id="' + c.id + '"]');
     if (!el) return;
     const a = document.activeElement;
@@ -323,7 +399,14 @@
       ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
         + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整名单">${window.icon('close', 11)}</button></span>`
       : '';
-    const c = $('aiClear'); if (c) c.onclick = () => { aiPick = null; aiWhy = ''; resetPaging(); render(); };
+    const c = $('aiClear'); if (c) c.onclick = clearAiPick;
+  }
+  /* 撤掉 AI 条件：三个字段一起清（以前 Escape 那条只清 aiPick / aiWhy，
+     留下 aiRank 会让顺序那一趟把每一条都算成没名次，整列却还挂在 AI 的话上）。
+     清完退回按名称 A→Z —— 这一页没有可挑的档位了。 */
+  function clearAiPick() {
+    aiPick = null; aiWhy = ''; aiRank = null;
+    resetPaging(); render();
   }
 
   /* ---------- 分组：这一页只负责「看哪一组」 ----------
@@ -395,7 +478,7 @@
     list: () => media,
     keyOf: it => it.key,
     srcOf: it => src(it.s),
-    nameOf: it => it.name,
+    nameOf: it => D.Pipe.fileSafe(it.name || '素材图', 60),
     kindOf: () => 'image',
     info: it => [it.name, it.item ? D.Cast.assetNames(it.item) : ''],
   });
@@ -443,6 +526,16 @@
   /* 这一条身上那几张图叫什么：道具只有「预览图」一个说法，角色才有「三视图」这一档。
      场景与道具没有资产子项，所以 `picWord` 之外不该再冒出「多角度 / 陈设细节」这类词。 */
   function picWord(c) { return isProp(c) ? '道具图' : '预览图'; }
+  /* 三种类型各自「这一栏叫什么、给个什么例子、建完提醒什么」在 `drama.js` 的 `KIND_FIELDS`
+     （现读 `D.Lib.kindF`）—— 新建一条素材也归了数据层那一份（`D.Lib.newForm`），
+     这一页与拍短剧的挑选弹窗都走它，措辞表留在页面里就成了第二份。
+     ⚠ 那张表**只管措辞**。「这一类到底有没有声音 / 时段 / 角色资产」仍然问 `voiced` /
+        `isScene` / `isProp` 那三份判据（数据层的字段形状说的），不在表里再立一套 ——
+        两处各判一次就会出现「表说场景没时段、编辑区却画出来了」。 */
+  const kindF = k => D.Lib.kindF(k);
+  /* 「能搜到哪些字」的表在 `D.Lib.SEARCH_FIELDS`（素材库页、框上那句说明、AI 助手三处共用一份）；
+     这一页不另列一份 —— 以前这一页只查名字 / 人设 / 外貌 / 分组，卡片上写着「深夜」「琪琪的常服」
+     却搜不出来。 */
   /* 主图下面那一排候选。角色 / 场景 / 道具三类同构（候选都攒在 `c.faces`，在用的那张另存
      `face` 或 `img`），所以一份渲染；`kind` 由 `mainKind(c)` 判。
      `busy` 时整排换成占位格：出着 3 张却只看见 1 张是不能接受的，反过来「3 张在排队」
@@ -473,7 +566,6 @@
     const libProps = D.Lib.list().filter(x => x && isProp(x));
     const editOpen = openId === c.id;
     const faceBusy = genHas('face', c.id);
-    const faceErr = errOf('face', c.id);
     /* 试听：编辑区开着时不摆这一颗 —— 下面那块声音控件里本来就有同一件事（同一句话不能说两遍）。 */
     const hasVoice = voiced(c) && !!(c.voice || c.voiceName || String(c.voiceNote || '').trim() || c.refAudio);
     /* 只出声的那一位不进画面：出图的两个入口对它是纯噪音（拍短剧页那边同样不给它画脸），
@@ -509,10 +601,13 @@
           const ps = (a.propIds || []).map(pid => libProps.find(p => p && p.id === pid)).filter(Boolean).map(p => p.name);
           return `<div class="th" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" title="${esc(lab)}${ps.length ? '（连带 ' + esc(ps.join('、')) + '）' : ''}：点开看大图"><img src="${esc(src(a.src))}" alt=""><i>${esc(lab)}</i></div>`;
         }).join('')}</div>` : ''}
-        ${faceErr ? `<div class="why">${esc(pw)}这次没出来：${esc(faceErr)}</div>` : ''}
+        ${errsHTML(c)}
         ${vo ? '' : mainCandsHTML(c, pw, faceBusy, editOpen)}
         <div class="acts">
           <button class="ghost" data-a="edit">${editOpen ? '收起' : '编辑'}</button>${genBtns}
+          ${/* 「拿去生成」不是花钱动作（它只是跳过去把这张图放进参考槽），所以收起状态也摆着。
+             只在真有一张图时画 —— 没有图就摆一颗按钮，点过去工作台那头什么也收不到。 */
+            pic ? `<button class="ghost" data-a="reuse" data-src="${esc(pic)}" data-name="${esc(c.name || '')}" title="带着这张${esc(pw)}去生成工作台，放进参考图那一栏">拿去生成</button>` : ''}
           <button class="ghost danger" data-a="del">从库里删掉</button>
         </div>
       </div>
@@ -526,6 +621,7 @@
        道具 = 描述 + 用途（没有时段、没有声音、没有资产：它只有一张图就是它自己） */
   function editHTML(c) {
     const sc = isScene(c), pr = isProp(c);
+    const kf = kindF(D.libKindOf(c));
     const pw = picWord(c);
     const vo = !sc && !pr && D.voiceOnlyOf(c);
     /* 「点『AI 出』时能选哪几个模板」与出图表单读的是同一份（`assetTpls`）。 */
@@ -545,6 +641,7 @@
           + `<span class="ui-cand"><img src="${esc(src(a.src))}" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" alt=""></span>`
           + `<input class="ui-inp" data-a="assetrename" data-id="${esc(a.id)}" maxlength="24" value="${esc(lab)}" title="这一张叫什么（改了立刻存）">`
           + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出这一张</button>`
+          + `<button class="ui-linkbtn" data-a="reuse" data-src="${esc(a.src || '')}" data-name="${esc(lab)}" title="带着这一张去生成工作台，放进参考图那一栏">拿去生成</button>`
           + `<button class="ui-linkbtn" data-a="assetclear" data-id="${esc(a.id)}" data-label="${esc(lab)}">去掉这一张</button>`
           + (libProps.length ? '<span class="ui-props">' + opts + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，可以在拍短剧页「道具」里加</span>')
           + '</div>';
@@ -552,19 +649,28 @@
       + '<div class="ui-hint sm">这些图拍摄时都会作为参考图发给视频 AI（按平台声明的上限截，超出的会点名哪几张没发）。</div>'
       + '</div>' : '';
     /* 出图表单：名字 / 模板 / 自定义描述 一次填一遍。模板只是**出图时**选一次，
-       存下来的只是一张有名字的角色资产 —— 所以界面上没有「三视图」「表情表」这些分栏。 */
+       存下来的只是一张有名字的角色资产 —— 所以界面上没有「三视图」「表情表」这些分栏。
+       三个值都从 `DRAFT` 里取（不是空着重画）：出完一张会重画这张卡，
+       正在打的字与挑好的模板不能跟着没。 */
+    const dr = draftOf(c.id);
+    const drTpl = tpls.includes(dr.tpl) ? dr.tpl : (tpls[0] || 'custom');
     const assetGenHTML = tpls.length ? '<div class="ui-cands"><span class="lab">加一张角色资产</span>'
-      + `<input class="ui-inp" data-a="assetname" maxlength="24" placeholder="这一张叫什么（留空就用模板名）">`
-      + `<select data-a="assettpl">${tpls.map(k => `<option value="${esc(k)}">${esc(D.Cast.assetLabel(c, k) || k)}</option>`).join('')}</select>`
-      + `<input class="ui-inp" data-a="assetwhat" maxlength="60" placeholder="选「自定义」时写清楚要画什么，例：雨天造型、侧脸特写">`
+      + `<input class="ui-inp" data-a="assetname" maxlength="24" value="${esc(dr.name)}" placeholder="这一张叫什么（留空就用模板名）">`
+      + `<select data-a="assettpl">${tpls.map(k => `<option value="${esc(k)}"${k === drTpl ? ' selected' : ''}>${esc(D.Cast.assetLabel(c, k) || k)}</option>`).join('')}</select>`
+      + `<input class="ui-inp" data-a="assetwhat" maxlength="60" value="${esc(dr.what)}" placeholder="选「自定义」时写清楚要画什么，例：雨天造型、侧脸特写">`
       + `<button class="ghost mini" data-a="assetgen">AI 出这一张</button>`
       + `<button class="ui-linkbtn" data-a="assetpick2">＋ 自己传一张</button>`
       + '</div>' : '';
-    /* 每一张资产自己的失败原因（记账键 `asset#<资产 id>`，与「重出这一张」同一份）。 */
-    const assetMsgs = list.map(a => {
-      const e = errOf('asset#' + a.id, c.id);
-      return e ? `<div class="why">${esc(D.Cast.assetName(a))}这次没出来：${esc(e)}</div>` : '';
-    }).join('');
+    /* 正在出的那几张（新加的与重出的）在资产这一块各给一行占位：以前只有底栏那一句在转，
+       这一格里看不出「正在画哪一张」，看着像点了没反应，于是再点一次 = 白花一次钱。 */
+    const waitRows = (() => {
+      const tail = '#' + c.id, out = [];
+      for (const [k, msg] of GEN) {
+        if (k.indexOf('asset#') !== 0 || !k.endsWith(tail)) continue;
+        out.push('<div class="ui-asset sm">' + D.Cast.waitHTML((msg || '正在出') + '…') + '</div>');
+      }
+      return out.join('');
+    })();
     return `<div class="edit" data-edit="${esc(c.id)}">
       <div class="eh"><span class="t">编辑「${esc(c.name || '这条素材')}」· 改完就地存</span>
         <button class="ui-linkbtn" data-a="closeedit" title="收起这一块的编辑区（按 Esc 也一样）">收起</button></div>
@@ -572,9 +678,9 @@
       <label>类型<select data-f="kind">${Object.keys(D.LIB_KINDS).map(k =>
         `<option value="${k}"${D.libKindOf(c) === k ? ' selected' : ''}>${D.LIB_KINDS[k]}</option>`).join('')}</select></label>
       <label>分组（拍短剧页可以整组一次交给 AI）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
-      <label>${pr ? '道具描述（出道具图就靠它）' : sc ? '场景描述（出场景图靠它）' : '外貌 / 人物特点（预览图与角色资产都靠它）'}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
-      ${sc ? `<label>时段（出这张场景图时那句「…的光线」用的就是它）<select data-f="time" title="不在下面四个档里的值会照实列出来，改回哪一档由你点">${D.Cast.timeOptsHTML(c)}</select></label>` : ''}
-      <label>${pr ? '一句话用途（剧情里这件东西干什么用，发给文字 AI）' : '一句话人设（发给文字 AI 当「人物特点」）'}<input data-f="bio" value="${esc(c.bio || '')}"></label>
+      <label>${kf.look.lab}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
+      ${sc ? `<label>${kf.time.lab}<select data-f="time" title="${esc(kf.time.hint)}">${D.Cast.timeOptsHTML(c)}</select></label>` : ''}
+      <label>${kf.bio.lab}<input data-f="bio" value="${esc(c.bio || '')}"></label>
       ${voiced(c) ? `<label class="ck"><input type="checkbox" data-f="voiceOnly"${D.voiceOnlyOf(c) ? ' checked' : ''}>`
         + ' 只出声（不出镜）—— 这一位不需要' + pw + '与角色资产，拉进某一集时按旁白处理</label>' : ''}
       ${voiced(c) ? '<label>声音</label>' : ''}
@@ -582,7 +688,7 @@
       ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。'
         + '拍摄时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
       ${vo ? '<div class="ui-hint">这一位勾了「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就把上面那个勾去掉）。老库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
-      ${assetListHTML}${assetGenHTML}${vo ? '' : assetMsgs}
+      ${assetListHTML}${waitRows}${assetGenHTML}
       <div class="acts">
         ${vo ? '' : `<button class="ghost" data-a="face"${genHas('face', c.id) ? ' disabled' : ''}>${genHas('face', c.id) ? '正在出' + pw : (D.picOf(c) ? 'AI 重出' : 'AI 出') + pw}</button>`}
         ${vo ? '' : `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`}
@@ -618,11 +724,31 @@
       /* 就地二次确认（与拍短剧页同一份 Confirm.arm）：删除按钮原地变成「确认删掉」，
          再点一下才真删 —— 素材库里常常连着清掉几位，弹一次窗就打断一次。 */
       del: async el => {
+        /* 提示会被错过，拒不会（与拍短剧页同一立场）：这一条身上还有活在跑时删掉它，
+           那一轮收尾会照旧 `Lib.save` 一次 —— 刚删的素材又被写回库里，
+           而用户已经以为删掉了（界面当时确实消失，因为整页重画过）。 */
+        const busy = genOn(c);
+        if (busy) return Toast.err('这一条正有一项在生成（' + errLabel(busy, c) + '），等它出来或按「停下」再删 —— 现在删掉，那一轮收尾会把它写回库里');
         if (Confirm.arm(el, '确认删掉', {
           note: '本机存的参考音频会一起删掉；已经拉进某一集的那条不受影响',
         })) return;
         if (c.refAudio) await D.Pipe.clearRefAudio(c);
-        D.Lib.remove(c.id); openId = ''; render();
+        /* 数据层在「库里那份读不出来」时会整批停手（一个字都不写），配额撞满则是「想删、没落盘」；
+           两种原因都由它留着，这里取一次照实说，并且**不把这张卡从界面上摘掉** ——
+           库里那条还在，画面上却没了就是骗人，下一次任何一次写库还会把它带回来。 */
+        const gone = D.Lib.remove(c.id);
+        const e = D.Lib.writeError();
+        if (e) Toast.err(e, 9000);
+        if (gone) { ERR.forEach((v, k) => { if (k.endsWith('#' + c.id)) ERR.delete(k); }); openId = ''; render(); }
+      },
+      /* 拿去生成工作台当参考图。素材库里存的**只是这张图的本机地址**（角色资产与预览图都是），
+         没有平台资产号 —— 载荷那一层（`Wb.reuse.go`）会从 `/asset/<号>` 形式的地址里认回数来，
+         工作台那头因此不必再回取一遍字节；别的形式的地址就走取字节那条路。
+         不带提示词：这一颗的意图是「用这张图」，把外貌描述糊进提示框会盖掉用户正写着的那句。 */
+      reuse: el => {
+        const s = el.dataset.src || '';
+        if (!s) return Toast.err('这一条还没有图，先在编辑区挑一张或让 AI 出一张');
+        Wb.reuse.go({ from: 'chars', mtype: '图片', src: s, name: el.dataset.name || c.name || '' });
       },
       /* 统一选择器：资产库 / 我的收藏 / 本地上传三个入口在同一块界面里 */
       pickface: async () => {
@@ -631,7 +757,7 @@
           title: '给「' + c.name + '」选一张' + pw,
           note: isProp(c) ? '道具图就是道具自己：挑一张最像的，拍每一段时它都会作为参考图发出去'
             : pw + '是三视图与拍摄时认脸的凭据，挑一张最像的' });
-        if (got && got[0]) { D.setPic(c, got[0].src); keep(c, true); }
+        if (got && got[0]) { const s = await durablePic(got[0], c.name + '-' + pw); if (s) { D.setPic(c, s); keep(c, true); } }
       },
       /* 「＋ 自己传一张」：落进**扁平的资产列表**，名字/模板取那一行表单上写的。 */
       assetpick2: async el => {
@@ -640,7 +766,7 @@
         const tpl = (box.querySelector('[data-a="assettpl"]') || {}).value || 'custom';
         const got = await AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
           title: '给「' + c.name + '」加一张角色资产', note: '不靠生成，直接用现成的这一张' });
-        if (got && got[0]) { D.Cast.addAsset(c, { name: nm.trim(), tpl: tpl, src: got[0].src }); keep(c, true); }
+        if (got && got[0]) { const s = await durablePic(got[0], c.name + '-' + (nm.trim() || got[0].name || '资产')); if (s) { D.Cast.addAsset(c, { name: nm.trim(), tpl: tpl, src: s }); keep(c, true); } }
       },
       /* 「AI 出这一张」：名字 / 模板 / 自定义描述三样都从**那一行**里读（按钮不带参数，
          读的是表单上的值）。出完是**追加**一张，不是换掉谁。 */
@@ -652,9 +778,15 @@
         if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
         const lab = nm.trim() || D.Cast.assetLabel(c, tpl) || '资产';
         const n = candCount();
-        await genRun('asset#new:' + tpl + ':' + (nm.trim() || what.trim()).slice(0, 20), c.id, c,
+        /* 闸门键只用「新加一张 + 模板」，**不带名字**：以前把名字拼进键里，于是
+           改一下名字再点一次就是另一个键 —— 「这一项正在生成」那道拦白花的闸门根本没关上，
+           同一张图会被发出去两次。名字只在进度那句话里说。 */
+        const ok = await genRun('asset#new:' + tpl, c.id, c,
           '正在出「' + c.name + '」的' + lab + '（' + n + ' 张）…',
           () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, tpl, { count: n, name: nm.trim(), what: what.trim() }));
+        /* 出成了就把这一行的名字/描述清空（它已经变成列表里那张有名字的资产），
+           模板留着 —— 连着出几张同类的最常见，不用每次重挑。 */
+        if (ok) DRAFT.set(c.id, { name: '', tpl: tpl, what: '' });
       },
       /* 「重出这一张」：照**同一张**的模板与名字再出，换掉它（replaceId 指着具体那一张）。
          不指的话就是新增一张，界面上看着像「点了没反应」。 */
@@ -748,21 +880,31 @@
       },
     };
     const bind = (el, a) => { if (acts[a]) act(el, acts[a]); };
+    /* 出图表单那三格只是**填**的（按钮点下去时才读），不进点击动作 ——
+       进去的话点一下输入框就等于触发一个空动作。但要把值抄进 `DRAFT`：
+       出完一张会重画这张卡，不抄的话正在打的字与挑好的模板一起没。 */
+    const nmIn = card.querySelector('[data-a="assetname"]');
+    const tplSel = card.querySelector('[data-a="assettpl"]');
+    const whatIn = card.querySelector('[data-a="assetwhat"]');
+    const syncDraft = () => DRAFT.set(c.id, {
+      name: (nmIn || {}).value || '', tpl: (tplSel || {}).value || '', what: (whatIn || {}).value || '',
+    });
+    [nmIn, tplSel, whatIn].forEach(x => {
+      if (!x) return;
+      x.addEventListener('input', syncDraft); x.addEventListener('change', syncDraft);
+    });
     card.querySelectorAll('[data-a]').forEach(el => {
       const a = el.dataset.a;
       if (a === 'zoom' || a === 'zoomface') {
         el.onclick = e => { e.stopPropagation(); openZoom(c, a === 'zoomface' ? picWord(c) : (el.dataset.label || '图'), el.dataset.src || D.picOf(c)); };
         return;
       }
-      /* 这三个只是**填**的（按钮点下去时才读），不进点击动作 ——
-         进去的话点一下输入框就等于触发一个空动作。 */
       if (a === 'assetname' || a === 'assetwhat' || a === 'assettpl' || a === 'assetrename') return;
       bind(el, a);
     });
     /* 选「自定义」时才启用下面那格：两者的关系写在 placeholder 上，
-       但禁用的那一格是**看得见**的（而不是藏起来）—— 藏了用户会以为没有这个功能。 */
-    const tplSel = card.querySelector('[data-a="assettpl"]');
-    const whatIn = card.querySelector('[data-a="assetwhat"]');
+       但禁用的那一格是**看得见**的（而不是藏起来）—— 藏了用户会以为没有这个功能。
+       （`tplSel` / `whatIn` 就是上面抄草稿的那两个，不再查一遍。） */
     if (tplSel && whatIn) {
       const syncWhat = () => {
         const custom = tplSel.value === 'custom';
@@ -789,7 +931,7 @@
     card.querySelectorAll('[data-act]').forEach(el => {
       if (el.dataset.act === 'voicenote') {
         el.oninput = () => { c.voiceNote = el.value; };
-        el.onblur = () => { D.Lib.save(c, { exact: true }); };
+        el.onblur = () => { libSave(c); };
         el.onclick = e => e.stopPropagation();
         return;
       }
@@ -802,12 +944,25 @@
       const ck = el.type === 'checkbox';
       const save = () => {
         const k = el.dataset.f;
+        const wasKind = D.libKindOf(c);
         /* 勾选框的 `value` 恒是 "on"，要读的是 `checked` —— 少这一条，「只出声」会把 true 存成字符串 */
         c[k] = ck ? el.checked : (el.value.trim ? el.value.trim() : el.value);
-        const saved = D.Lib.save(c, { exact: true });
+        /* 换类型要先查重名。库里「同类型 + 同名」= 同一条（新建时正是这句拦的），
+           而这一页把角色「天台」改成场景、库里已有一条场景「天台」，就会攒出两条一模一样的素材 ——
+           之后「加入这一集」到底并进哪一条没人说得清。判据与 `Lib.save` 里那条完全一样。 */
+        if (k === 'kind' && D.libKindOf(c) !== wasKind) {
+          const to = c.kind;
+          if (D.Lib.list().some(x => x && x.id !== c.id && x.name === c.name && D.libKindOf(x) === to)) {
+            c.kind = wasKind; el.value = wasKind;
+            Toast.err('素材库里已经有「' + c.name + '」这条' + (D.LIB_KINDS[to] || '同类') + '了：换成这一类就是两条一样的素材。先把名字改掉再换类型', 7000);
+            return k;
+          }
+        }
+        const saved = libSave(c);
         /* 名字这一项库里有它自己的规矩（不许空、裁到 20 字）：清空它时库里退回旧名，
-           输入框却还摆着空白 —— 以库里那份为准写回，否则「界面空的、库里有人」。 */
-        if (k === 'name') { c.name = saved.name; el.value = saved.name; }
+           输入框却还摆着空白 —— 以库里那份为准写回，否则「界面空的、库里有人」。
+           `libSave` 返回 null 是「这一笔没存进去」（原因它已经弹过了），那就更不该改输入框。 */
+        if (k === 'name' && saved) { c.name = saved.name; el.value = saved.name; }
         return k;
       };
       if (el.tagName === 'SELECT') el.onchange = () => { save(); render(); };
@@ -933,10 +1088,120 @@
       render();
     }
   }
+  /* ---------- 「存回本机」：把这一档里本机还没有那份字节的地址取回本机 ----------
+     这一页为什么不受「不显示云端任务」那一挡影响、却要单独有这么一颗按钮：
+     素材库存的是人自己攒的角色与场景，按「本机有没有副本」把它们藏掉，用户看到的只是
+     「我的库空了一半」—— 判据的副作用不该糊在人的数据上。所以这一页照旧全画，
+     只给一条把字节真正取回本机的路，存不存由人决定。
+     落盘走 `AssetLocal.pull`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
+     同一份按类型另存），所以存好之后生成工作台与资产库立刻也认得这一份，不用在那两页再存一遍。
+     ⚠ 它与 `durablePic` 不是同一件事：那一颗服务「当场挑来的那一张」（本地文件 / 刚生成的，
+        没有来源身份可记，只要一个记得住的地址）；这一颗服务「库里已经存着的一个外链地址」
+        （要的是把那份字节取回来、并按这条地址的身份记账）。 */
+  function localSlots(c) {
+    const out = [];
+    const k = CANDK[mainKind(c)];
+    if (k) { const v = k.got(c); if (v) out.push({ lab: k.lab, src: v, set: x => k.set(c, x) }); }
+    if (c.refAudio) out.push({ lab: '参考音频', src: c.refAudio, set: x => { c.refAudio = x; } });
+    const list = D.Cast.assetsOf(c);
+    list.forEach((a, i) => out.push({
+      lab: a.name || '资产', src: a.src,
+      /* 写回按**这一份 list** 的下标：老字典形状的 `assetsOf` 每次读都现造一批新 id，
+         两次读出来的不是同一个列表，按下标改第二次读的那一份就会改到别的东西上。 */
+      set: x => { list[i] = { ...list[i], src: x }; D.Cast.assetsSave(c, list); },
+    }));
+    /* `hasLocalAddr` 是唯一的「本机有没有这份字节」判据（收藏那颗按钮读的也是它）：
+       `/asset/la_xxx` 与「索引里认得出的那条外链」都算已经有，一条都不许多下一遍。 */
+    return out.filter(s => s.src && !AssetLocal.hasLocalAddr(s.src));
+  }
+  function localPlan() {
+    const jobs = [];
+    viewItems.forEach(c => { if (c) localSlots(c).forEach(s => jobs.push({ c, lab: s.lab, src: s.src, set: s.set })); });
+    return jobs;
+  }
+  /* `localBusy` 声明在上面（paintBusy 会读它）。 */
+  function paintLocalBtn() {
+    const b = $('btnLocal'); if (!b) return;
+    if (localBusy) { b.disabled = true; b.textContent = '正在存回本机…'; return; }
+    const n = localPlan().length;
+    b.disabled = !n;
+    b.textContent = n ? '存回本机（' + n + '）' : '存回本机';
+    b.title = n
+      ? '这一档里有 ' + n + ' 个格子的字节还不在本机（外链一过期就是破图）：逐张取回本机资产库，'
+        + '存好就换成本机地址。已经在本机的一条都不会重下。'
+      : (viewItems.length ? '这一档筛出来的图与参考音频，本机都已经有了，不用再存'
+        : '这一档里还没有素材');
+  }
+  async function pullLocal() {
+    if (localBusy) return;
+    const jobs = localPlan();
+    if (!jobs.length) { Toast.info(viewItems.length ? '这一档要存的本机都已经有了' : '这一档里还没有素材'); return; }
+    localBusy = true;
+    paintLocalBtn();
+    let ok = 0, kept = 0, busy = 0, cant = 0, done = 0;
+    const fails = [], dirty = new Set();
+    const wait = [];
+    const mark = () => setBusy('存回本机：' + done + ' / ' + jobs.length + ' 个…');
+    for (const j of jobs) {
+      let out = null;
+      const st = AssetLocal.pull({ url: j.src, rawSrc: j.src, prompt: (j.c.name || '素材') + '-' + j.lab }, {
+        force: true,                     // 「自动存本机」没开也照存：这是用户当下点下去的
+        cb: (err, r) => {
+          done++; mark();
+          if (err) { if (r && r.skip) cant++; else fails.push((j.c.name || '这条素材') + ' 的' + j.lab + '：' + err.message); }
+          else if (r && r.kept) kept++;
+          else if (r && r.id) {
+            ok++;
+            j.set('/asset/' + encodeURIComponent(r.id) + '?v=2');   // 库里那格换成能记住的本机地址
+            dirty.add(j.c);
+          }
+          if (out) out();
+        },
+      });
+      if (st === 'queued') wait.push(new Promise(rz => { out = rz; }));
+      else if (st === 'busy') { busy++; done++; }
+      else if (!st) { cant++; done++; }
+    }
+    await Promise.all(wait);
+    /* 存进去的地址一定要落盘：上面那些 `set` 只改了内存里的对象，
+       不 libSave 的话界面看着已经换成本机地址、刷新又退回那条外链（而那条多半已经过期）。 */
+    let lost = 0;
+    dirty.forEach(c => { if (!libSave(c)) lost++; });
+    localBusy = false;
+    setBusy('');
+    render();
+    const bits = [];
+    if (ok) bits.push('已存回本机 ' + ok + ' 个');
+    if (kept) bits.push('本机早就有 ' + kept + ' 个');
+    if (busy) bits.push('后台那一轮正在存 ' + busy + ' 个，没重复排');
+    if (cant) bits.push('有 ' + cant + ' 个存不了（比本机镜像的上限还大，或手上只剩一个转发地址、取不到原始外链）');
+    if (fails.length) bits.push('有 ' + fails.length + ' 个没成：' + fails.slice(0, 2).join('；') + (fails.length > 2 ? ' 等' : ''));
+    if (lost) bits.push('有 ' + lost + ' 条没写进库，那几格刷新会退回外链（保存为什么失败见上面那条提示）');
+    if (fails.length || cant || lost) Toast.err(bits.join(' · ') || '一个都没存进本机');
+    else if (ok) Toast.ok(bits.join(' · '));
+    else Toast.info(bits.join(' · ') || '这一档没有需要存的');
+  }
+
+  /* 挑来的图先落成本机资产再记进库。两种「当场能用、过后就没了」的地址不能直接存：
+     本地上传那一张是 `blob:`（刷新即失效），资产库 / 收藏那一张多半是包着签名外链的 `/getv`（外链只管一天）——
+     而库里存的是字符串地址，记成这两种等于把一张已经不存在的图写进库，第二天卡片是破图。
+     取字节与落盘那一步只有 `AssetTransfer.toLocalAsset` 一份，这里只补这一页怎么说。 */
+  async function durablePic(it, name) {
+    if (!it) return '';
+    setBusy('正在把这一张存进本机资产…');
+    try {
+      const r = await AssetTransfer.toLocalAsset(it.file || it.dl || it.src || it.url, { name, from: it.provider || 'picker' });
+      return r.src;
+    } catch (e) {
+      setBusy('');
+      Toast.err('这一张存不进素材库：' + ((e && e.message) || e));
+      return '';
+    }
+  }
   /* 改完一条：只写库 + 重画（keepOpen=true 时连展开的编辑区一起留着，声音那几项改完还要接着点）。
      {exact:true} 是这一页的身份：改的就是库里那一条本身，空值要真的写进去（清空分组、删掉描述）。 */
   function keep(c, keepOpen) {
-    D.Lib.save(c, { exact: true });
+    libSave(c);
     if (!keepOpen) openId = '';
     setBusy('');
     /* 编辑区还开在这一张上：只重画这一张 —— 整页 render 会把光标位置、滚动位置一起弄丢，
@@ -982,40 +1247,33 @@
   /* 「加入某一集」整个搬到了拍短剧页：那边有一个挑选弹窗（多选 / 整组 / 就地新建 / 删除），
      目标集就写在弹窗标题上，比在这一页放一个看不见前提的按钮强。合并规则仍在 Drama.Lib.pullInto。 */
 
-  /* 与「拍短剧 → 认角色」里手动建角色同一份字段（一次填齐比建完再补三栏省事）。
-     三种类型都在这一个表单里建：类型一下拉就是库里那三种，选完按类型给不同的占位示例 ——
-     道具没有「人设」那层意思（那一栏对它叫「用途」），描述才是它出图的唯一依据。 */
+  /* 表单本身（字段、按类型换措辞、重名拦截、建对象、存库）在 `drama.js` 的 `D.Lib.newForm` 一份 ——
+     拍短剧的挑选弹窗里那颗「＋ 新建素材」以前自己写了第二份，漂成了旧措辞、还漏了场景的「时段」一行。
+     这一页只管建完之后自己的事：四道筛选可能把新建的那一条挡住，以及把编辑区开到它上面。 */
   async function newChar() {
-    const v = await PromptForm.open({
-      title: '新建一条素材（存进素材库）', okLabel: '存进库',
-      fields: [
-        { key: 'name', label: '名字', type: 'text', placeholder: '例：小雅 / 天台 / 旧信封' },
-        { key: 'kind', label: '类型', type: 'select', value: 'actor',
-          options: Object.keys(D.LIB_KINDS).map(k => ({ v: k, t: D.LIB_KINDS[k] })) },
-        { key: 'group', label: '分组（可留空；拍短剧页能整组一次交给 AI）', type: 'text', placeholder: '例：校园篇主要角色' },
-        { key: 'bio', label: '一句话人设 / 用途（发给文字 AI）', type: 'textarea', placeholder: '例：嘴硬心软的师姐 ／ 用来交代那半页没写完的地址' },
-        { key: 'look', label: '外貌 / 场景 / 道具描述（出图就靠它）', type: 'textarea',
-          placeholder: '例：二十出头，齐肩黑发，总穿米色风衣 ／ 教学楼天台，傍晚，铁栏杆与晾衣绳 ／ 牛皮纸旧信封，边角磨白，盖一枚红蓝 postage 邮票' },
-      ],
-      validate: f => f.name && f.name.trim() ? '' : '名字不能空着',
-    });
-    if (!v) return;
-    const name = v.name.trim().slice(0, 20);
-    /* 库里「同类型 + 同名」= 两条一样的素材，之后「加入这一集」到底进哪一条说不清 —— 建的时候就拦住。
-       不同类型可以重名（角色「天台」与场景「天台」是两个东西），拉进本集时各进各的名单。 */
-    if (D.Lib.list().some(x => x && x.name === name && D.libKindOf(x) === v.kind)) {
-      return Toast.err('素材库里已经有「' + name + '」这条' + D.LIB_KINDS[v.kind] + '了：同名会被当成同一条');
+    const r = await D.Lib.newForm({ group: group === '__none' ? '' : group });
+    if (!r) return;                       // 用户按了取消
+    if (r.error) return Toast.err(r.error);
+    const saved = r.item;
+    /* 建完得真看得见这一张。这一页有四道筛选（类型档 / 分组 / 搜索框 / AI 挑的那批），
+       新建的那一条多半落在当前这一档之外 —— 于是 toast 说「编辑区已经打开」，
+       画面上却一张卡都没有（编辑区开在一条被筛掉的素材上）。哪一道把它挡住了就松开哪一道，并照实说。 */
+    const hid = [];
+    if (!match(saved, filter)) {
+      filter = D.libKindOf(saved);
+      hid.push('类型档切到「' + (D.LIB_KINDS[filter] || filter) + '」');
     }
-    const item = v.kind === 'scene' ? D.newScene({ name, desc: v.look, group: v.group })
-      : v.kind === 'prop' ? D.newProp({ name, look: v.look, bio: v.bio, group: v.group })
-        : D.newChar({ name, kind: v.kind, bio: v.bio, look: v.look, group: v.group });
-    const saved = D.Lib.save(item, { exact: true });
-    Toast.ok('建好了：' + saved.name + '。编辑区已经打开——' + (v.kind === 'scene'
-      ? '先在「时段」里挑一个光线（新建默认是深夜），这张场景图那句「…的光线」用的就是它'
-      : v.kind === 'prop'
-        ? '道具图在这里出：它就靠下面那句描述画，没有三视图那一套'
-        : '预览图与三视图在这里出，声音也在这里定'));
+    const g = String(saved.group || '').trim();
+    if (group && g !== (group === '__none' ? '' : group)) { group = g || '__none'; hid.push('分组跟着切过去'); }
+    const qq = $('q').value.trim();
+    if (qq && !D.Lib.hayOf(saved).includes(qq.toLowerCase())) { $('q').value = ''; hid.push('清空了搜索框'); }
+    if (aiPick && !aiPick.has(saved.id)) { aiPick = null; aiWhy = ''; hid.push('退出「AI 挑的那批」'); }
+    Toast.ok('建好了：' + saved.name + '。编辑区已经打开——' + r.tip
+      + (hid.length ? '（' + hid.join('、') + '，不然这一张不在当前这一档里）' : ''));
     openId = saved.id; resetPaging(); render();
+    /* 新建的那一条多半排在名单末尾（按创建时间），不滚过来人只看到一片旧卡 + 一句「已经打开」 */
+    const mine = document.querySelector('.card[data-id="' + saved.id + '"]');
+    if (mine && mine.scrollIntoView) mine.scrollIntoView({ block: 'center' });
   }
 
   /* ---------- AI 找素材：话就写在搜索框里，结果就地筛这份名单（角色 / 场景 / 道具三种都算） ---------- */
@@ -1058,8 +1316,13 @@
       const j = TextAI.parseJson(txt) || {};
       const ids = (Array.isArray(j.ids) ? j.ids : []).filter(x => D.Lib.get(x));
       aiPick = ids.length ? new Set(ids) : null;
+      aiRank = ids.length ? new Map(ids.map((k, i) => [k, i])) : null;
       aiWhy = ids.length ? String(j.summary || '').slice(0, 40) : '';
-      if (ids.length) box.value = '';        // 原话已翻成 id，留着会再 AND 一遍（几乎必然 0 位）
+      if (ids.length) {
+        box.value = '';        // 原话已翻成 id，留着会再 AND 一遍（几乎必然 0 位）
+        /* AI 返回的 ids 顺序本身就是「最合适在前」，aiRank 记下来就照着排 ——
+           以前这份顺序被整份丢掉，aiPick 只当集合用。 */
+      }
       filter = 'all';
       msg = ids.length ? '' : 'AI 没挑到合适的（换个说法再试）';
     } catch (e) { msg = 'AI 找素材失败：' + e.message; }
@@ -1073,10 +1336,10 @@
     paintChips(); paintAiChip(); paintGroups(); paintModelPicks(); applyView();
     const q = $('q').value.trim();
     const all = D.Lib.list();
-    const items = all.filter(c => c && match(c, filter)
+    const items = orderItems(all.filter(c => c && match(c, filter)
       && (!group || String(c.group || '').trim() === (group === '__none' ? '' : group))
-      && (!q || [c.name, c.bio, c.look, c.group].some(x => String(x || '').toLowerCase().includes(q.toLowerCase())))
-      && (!aiPick || aiPick.has(c.id)));
+      && (!q || D.Lib.hayOf(c).includes(q.toLowerCase()))
+      && (!aiPick || aiPick.has(c.id))));
     viewItems.length = 0; media.length = 0;
     items.forEach(c => {
       viewItems.push(c);
@@ -1094,6 +1357,8 @@
     /* 「一次出齐」的张数说的是**这一档**（筛选 + 分组 + 搜索之后的全部），不是当前这一页：
        分页只决定画哪几张卡，批量该补几条不能跟着翻页变。 */
     paintFillBtn();
+    /* 「存回本机」的张数同一套口径：按这一档筛出来的格子算，换筛选/换档都要跟着重算。 */
+    paintLocalBtn();
     const grid = $('grid');
     if (!items.length) {
       grid.innerHTML = '<div class="empty">' + (all.length ? '这一档下没有东西。换个筛选条件、换个组，或清空搜索框。'
@@ -1122,6 +1387,7 @@
     $('btnNew').onclick = newChar;
     $('aiFindBtn').onclick = runAiFind;
     $('btnFill').onclick = fillRest;
+    $('btnLocal').onclick = pullLocal;
     /* 停下不撤回已经发出去的请求（那些钱已经花了、平台正在跑），只是不再开新的：
        按下去那句要说清这一点，否则人以为整批停了。 */
     $('btnStop').onclick = () => {
@@ -1134,8 +1400,10 @@
     /* char_opts.style 是旧版留下的值，**读得到但不再用** —— 直接从内存里抹掉，
        免得以后谁翻到它以为素材库还认这一项（真正的画风是每一集自己的 opts.style）。 */
     if (opts.style) { delete opts.style; try { saveOpts(); } catch (e) {} }
+    /* 框上那句说明由那张字段表现拼：判据加一栏它就跟着多一栏，不用记着改两处。 */
+    $('q').placeholder = '搜' + D.Lib.SEARCH_FIELDS.map(f => f[0]).join(' / ');
     $('q').oninput = () => { resetPaging(); render(); };
-    $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; aiPick = null; aiWhy = ''; resetPaging(); render(); } });
+    $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; clearAiPick(); } });
     /* Esc 收起正开着的编辑区（改到一半想收手不用滚回去找那颗按钮）。
        搜索框自己的 Escape（清关键词）与弹窗 / 灯箱的 Escape 都不抢。
        灯箱开没开只认 `#lightbox` 的 display（Wb.lightbox 就是这么判的，`#lbStage` 永远没有 hidden，

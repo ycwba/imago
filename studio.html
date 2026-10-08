@@ -71,14 +71,16 @@
      磁贴长什么样只有 ui.css 那一份；这里只管这一页怎么排。ui.css 的 .assets-grid 是
      导演台那套「固定三列」，原样搬过来会把一个槽拉成 300 多 px 的巨砖（这一页轨道比
      导演台窄，槽位常常只剩一两个），看上去就是「磁贴大小不一、竖排参差」。
-     改成按容器宽度自动排的等宽方块：几列是算出来的，不是写死的。 */
+     改成按容器宽度自动排的等宽方块：几列是算出来的，不是写死的。
+     排列顺序照导演台右栏：图片类槽位进方格网格，参考视频 / 参考音频整行横排（.slot-wide）。 */
   #inputArea .assets-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
   #inputArea .asset-slot { min-width: 0; }
-  /* 只放一个素材的槽位（参考视频 / 参考音频 / 首尾帧）：那一格给两列宽，面积正好等于
-     两个空槽，缩略图也够大能认出是哪一段。 */
-  #inputArea .asset-slot.span2 { grid-column: span 2; aspect-ratio: 2.3 / 1; }
   /* 名字较长的素材（本地文件名）别把磁贴撑变形 */
   #inputArea .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
+  #inputArea > .slot-wide { margin-top: 9px; }
+  /* 拆分片段面板的选项行 */
+  .split-opts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--sub); }
+  .split-opts select { padding: 4px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 12px; }
 
   /* ---------- 右栏：历史资产库 ---------- */
   .hist-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -151,7 +153,7 @@
         <button type="button" data-t="image">图像</button>
         <button type="button" data-t="audio">音频</button>
       </div>
-      <div class="st-model"><select id="model" title="模型（按平台分组）"></select></div>
+      <div class="st-model"><select id="model"></select></div>
     </div>
     <div class="st-sub" id="stSub"></div>
 
@@ -159,18 +161,44 @@
       <textarea id="prompt" spellcheck="false"></textarea>
       <div class="btn-row">
         <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
+        <!-- 拆分片段批量生成：只有图像栏有（视频 / 语音没有「一段描述拆几张」这种用法） -->
+        <button class="tool" id="splitBtn" hidden title="把这段描述拆成几张图的提示词，确认后逐条提交（每条都是一条真任务）"><span class="ic" data-icon="sparkles" data-size="14"></span>拆分片段生成</button>
         <!-- 平台自带的提示词优化：只为 registry 里 create.topBools 声明了这一项的平台出现 -->
         <button class="tool" id="platPolishBtn" hidden><span class="ic" data-icon="wand" data-size="14"></span>平台自动润色</button>
         <span class="sp"></span>
         <button class="tool danger" id="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span>一键清空</button>
       </div>
       <div id="polishInline" hidden></div>
+      <!-- 拆分的选项面板：就地问（张数 / 维度），不开弹窗；规划结果在公共 PromptReview 里过一遍才提交 -->
+      <div class="pinl" id="splitInline" hidden>
+        <div class="pinl-hd">
+          <span class="pinl-tt">拆分片段批量生成</span>
+          <span class="pinl-note">每张是一条独立任务（逐条提交、各自计费）；下方槽里的参考图会一起带去</span>
+        </div>
+        <div class="split-opts">
+          <label>张数 <select id="splitCount">
+            <option value="">自动（AI 按内容定 2–6 张）</option>
+            <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+          </select></label>
+          <label>拆分维度 <select id="splitDim">
+            <option value="">自动（AI 选最自然的）</option>
+            <option>按时间顺序</option>
+            <option>按场景变化</option>
+            <option>按动作或状态阶段</option>
+          </select></label>
+          <span class="sp"></span>
+          <button class="tool acc" id="splitGo">开始规划</button>
+          <button class="tool" id="splitCancel">取消</button>
+        </div>
+      </div>
       <!-- 语音台的「音色设计」必填项：只有那一种模型才出现 -->
       <div class="style-row" id="styleRow" hidden>
         <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计模型必填）</label>
         <input id="style" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
       </div>
-      <!-- 素材行：一个素材一块缩略图（随所选模型的能力出现；右栏卡片可直接拖进来） -->
+      <!-- 素材行：排列照导演台右栏那套（栏目标签行 → 方格网格 → 全宽横排槽位）。
+           一个素材一块缩略图（随所选模型的能力出现；右栏卡片可直接拖进来） -->
+      <div class="ed-label" id="slotHead" hidden><span>参考素材</span><span class="cnt" id="slotHeadNote"></span></div>
       <div class="slot-wrap" id="inputArea"></div>
     </div>
 
@@ -220,7 +248,7 @@
   </div>
 </div>
 <!-- 灯箱 DOM 由 workbench.js 的 Wb.lightbox 创建（结构全站一份）-->
-<div class="ver">生成工作台 · 视频 / 图像 / 音频 · 经本地代理 · 右栏卡片可拖到左栏当参考素材</div>
+<div class="ver">生成工作台 · 视频 / 图像 / 音频 · 右栏卡片可拖到左栏当参考素材</div>
 </div>
 
 <script src="ui.js"></script>
@@ -671,12 +699,49 @@ function slotTileHTML(sl, it, i, blocked) {
     ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + escA(name) + '</span>'
     : Wb.thumbs.mediaHTML(mediaOf(it), { type: it.type === '视频' ? undefined : 'image',
       mediaAttrs: 'onerror="this.parentElement.classList.add(\'broken\')"' });
-  /* 一次只放一个素材的槽位（参考视频 / 参考音频 / 首尾帧）给两列宽：
-     一个 132px 的小块根本认不出是哪一段视频/哪句音色。 */
-  const span2 = sl.max === 1 && items.length === 1 ? ' span2' : '';
-  return '<div class="asset-slot' + span2 + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
+  return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
     + ' title="' + escA(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
     + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + escA(cap) + '</span></div>';
+}
+/* 整行横排槽位（参考视频 / 参考音频，照导演台右栏的 .slot-wide）：视频带小缩略图，音频给图标；
+   一个 132px 的方块根本认不出是哪一段视频 / 哪句音色。 */
+function wideSlotHTML(sl, it, i, blocked) {
+  const def = SLOT_DEF[sl.kind];
+  const note = slotNote(sl);
+  if (it) {
+    const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
+    const thumb = it.type === '视频'
+      ? '<span class="rvthumb">' + Wb.thumbs.mediaHTML(mediaOf(it)) + '</span>'
+      : '<span class="ic">' + icon(def.ic, 18) + '</span>';
+    return '<div class="slot-wide asset-slot has-media' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
+      + ' title="' + escA(def.label + '：' + name + '（点 × 移除）') + '">'
+      + thumb + '<span class="rvmeta"><b>' + escA(name) + '</b><span>' + def.label + (note ? ' · ' + escA(note) : '') + '</span></span>'
+      + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button></div>';
+  }
+  const items = slotItems(sl.kind);
+  const sub = [];
+  if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+  if (note) sub.push(note);
+  return '<div class="slot-wide asset-slot' + (blocked ? ' blocked' : '') + '" data-slot="' + sl.kind + '"'
+    + ' title="' + escA(blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
+      : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传）') + '">'
+    + '<span class="ic">' + icon(def.ic, 18) + '</span><span>' + (items.length ? '再加一个' : def.label) + '</span>'
+    + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '') + '</div>';
+}
+/* 图片类槽位进方格网格，视频 / 音频整行横排（导演台右栏的同一种排法） */
+const GRID_KINDS = ['image', 'frame_first', 'frame_last'];
+function bindSlotTile(t, sl, it, i, blocked) {
+  const def = SLOT_DEF[sl.kind];
+  const x = t.querySelector('.x');
+  if (x) x.onclick = e => { e.stopPropagation(); removeSlotItem(sl.kind, i); renderInputArea(); updateMode(); };
+  t.onclick = e => {
+    if (e.target.closest('.x')) return;
+    e.stopPropagation();
+    if (blocked) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return; }
+    openSlotPicker(sl);
+  };
+  if (it) { const med = t.querySelector('video, img'); if (med) Wb.thumbs.bind(t, med, mediaOf(it)); }
+  return t;
 }
 function renderInputArea() {
   const area = $('inputArea');
@@ -692,53 +757,73 @@ function renderInputArea() {
   }
   /* #inputArea 只是容器，网格只有里面这一层（嵌套两层 grid 会把列宽算不对） */
   area.innerHTML = '';
+  const head = $('slotHead'), headNote = $('slotHeadNote');
+  if (head) {
+    head.hidden = false;
+    /* 没有可用槽位也要把这一栏摆出来并照实说原因（导演台右栏 ic.none 那一句），
+       不然「这个型号到底能不能放素材」只能靠猜 */
+    if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序' : '当前型号只支持纯文字生成，换个型号可解锁参考素材';
+  }
   if (!slots.length) { updateGoState(); return; }
   const blockedKinds = blockedSlotKinds();
-  const box = document.createElement('div');
-  box.className = 'assets-grid';
-  area.appendChild(box);
-  slots.forEach(sl => {
-    const def = SLOT_DEF[sl.kind];
+  const gridSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) >= 0);
+  const wideSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) < 0);
+  if (gridSlots.length) {
+    const box = document.createElement('div');
+    box.className = 'assets-grid';
+    area.appendChild(box);
+    gridSlots.forEach(sl => {
+      const items = slotItems(sl.kind);
+      const blocked = blockedKinds.has(sl.kind);
+      /* 已选的：逐张一块，格子大小与空槽一致 */
+      items.forEach((it, i) => {
+        const d = document.createElement('div');
+        d.innerHTML = slotTileHTML(sl, it, i, blocked);
+        box.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
+      });
+      /* 空槽 / 「再加一个」：数量上限到了整块不再渲染（不是画一个灰块） */
+      if (slotRoom(sl) > 0) {
+        const def = SLOT_DEF[sl.kind];
+        const note = slotNote(sl);
+        const a = document.createElement('div');
+        a.className = 'asset-slot' + (blocked ? ' blocked' : '');
+        a.dataset.slot = sl.kind;
+        const sub = [];
+        if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+        if (note) sub.push(note);
+        a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
+          + (items.length ? '<span>再加一个</span>' : '<span>' + escA(def.label) + '</span>')
+          + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '');
+        a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
+          : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
+            + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
+        a.onclick = e => {
+          e.stopPropagation();
+          if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
+          openSlotPicker(sl);
+        };
+        box.appendChild(a);
+      }
+    });
+  }
+  wideSlots.forEach(sl => {
     const items = slotItems(sl.kind);
     const blocked = blockedKinds.has(sl.kind);
-    const note = slotNote(sl);
-    /* 已选的：逐张一块，格子大小与空槽一致（只放一个的槽位那块横跨两列，见 slotTileHTML） */
     items.forEach((it, i) => {
       const d = document.createElement('div');
-      d.innerHTML = slotTileHTML(sl, it, i, blocked);
-      const t = d.firstElementChild;
-      const x = t.querySelector('.x');
-      if (x) x.onclick = e => { e.stopPropagation(); removeSlotItem(sl.kind, i); renderInputArea(); updateMode(); };
-      t.onclick = e => {
-        if (e.target.closest('.x')) return;
-        e.stopPropagation();
-        if (blocked) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return; }
-        openSlotPicker(sl);
-      };
-      const med = t.querySelector('video, img');
-      if (med) Wb.thumbs.bind(t, med, mediaOf(it));
-      box.appendChild(t);
+      d.innerHTML = wideSlotHTML(sl, it, i, blocked);
+      area.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
     });
-    /* 空槽 / 「再加一个」：数量上限到了整块不再渲染（不是画一个灰块） */
     if (slotRoom(sl) > 0) {
-      const a = document.createElement('div');
-      a.className = 'asset-slot' + (blocked ? ' blocked' : '');
-      a.dataset.slot = sl.kind;
-      const sub = [];
-      if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
-      if (note) sub.push(note);
-      a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
-        + (items.length ? '<span>再加一个</span>' : '<span>' + escA(def.label) + '</span>')
-        + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '');
-      a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
-        : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
-          + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
-      a.onclick = e => {
+      const d = document.createElement('div');
+      d.innerHTML = wideSlotHTML(sl, null, 0, blocked);
+      const t = d.firstElementChild;
+      t.onclick = e => {
         e.stopPropagation();
-        if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
+        if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (SLOT_DEF[sl.kind].label + '与已选素材互斥，不能同时使用')); return; }
         openSlotPicker(sl);
       };
-      box.appendChild(a);
+      area.appendChild(t);
     }
   });
   const hint = conflictHint(blockedKinds);
@@ -1164,6 +1249,7 @@ $('polishBtn').onclick = async () => {
   const sysBase = TextAI.prompt(POLISH_SYS[TYPE]);
   const btn = $('polishBtn');
   const host = $('polishInline');
+  $('splitInline').hidden = true;
   const imgList = () => polishImageList();
   const materials = () => polishMaterials();
   let images = [];
@@ -1200,6 +1286,131 @@ $('polishBtn').onclick = async () => {
   } catch (e) { InlinePolish.clear(host); setStatus('<span class="err">润色失败：' + e.message + '</span>'); }
   finally { btn.disabled = false; btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>AI 润色'; }
 };
+
+/* ==================== ⑧-b 拆分片段批量生成（仅图像栏） ====================
+   与导演台「按描述生成这一镜的画面」的区别：导演台的段是镜头（进关键帧槽、占张数上限），
+   这里每张都是**最终产物**，确认后逐条提交进右栏历史；没有镜头时长概念，
+   张数与拆分维度由用户在这个面板里定。参考图有两个去处：
+   规划时发给文字 AI 让提示词贴着素材写（polishImages，只有识图型号才带）；
+   提交时与主生成按钮同一套 uploadImageRefs 传一次，每张生成都带上。 */
+$('splitBtn').onclick = () => {
+  const p = $('splitInline');
+  const show = p.hidden;
+  p.hidden = !show;
+  if (show) { try { InlinePolish.clear($('polishInline')); } catch (e) {} }
+};
+$('splitCancel').onclick = () => { $('splitInline').hidden = true; };
+
+/* 文字 AI 回的拆分方案 → [{label,prompt}]：剥 markdown 代码块、兼容数组/对象包层，
+   段名取 label/name/title，给的是秒数（t/time）时翻成「第 N 秒」。 */
+function parseSegs(txt) {
+  let s = String(txt || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  let v = null;
+  try { v = JSON.parse(s); } catch (e) {
+    const m = s.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+    if (m) { try { v = JSON.parse(m[1]); } catch (e2) {} }
+  }
+  const list = Array.isArray(v) ? v : (v && (v.frames || v.segments || v.shots || v.list));
+  if (!Array.isArray(list)) return [];
+  return list.map((f, i) => {
+    let label = String(f && (f.label || f.name || f.title) || '').trim();
+    if (!label) {
+      const t = f && (f.t ?? f.time);
+      const sec = (t !== undefined && t !== null && t !== '') ? parseFloat(t) : NaN;
+      label = isFinite(sec) ? ('第 ' + sec + ' 秒') : ('片段 ' + (i + 1));
+    }
+    return { label: label.slice(0, 12), prompt: String(f && (f.prompt || f.desc || f.text) || '').trim().slice(0, 600) };
+  }).filter(x => x.prompt).slice(0, 8);
+}
+
+/* 按当前输入 + 槽位参考图请文字 AI 出拆分方案（原输入框一个字不动）。 */
+async function planImageSegments() {
+  const src = ($('prompt').value || '').trim();
+  const cnt = ($('splitCount').value || '').trim();
+  const dim = ($('splitDim').value || '').trim();
+  let user = '把下面这段描述拆成图片提示词：\n' + src;
+  user += '\n\n张数：' + (cnt ? ('恰好 ' + cnt + ' 张，一张不多一张不少') : '你按内容复杂度定（2 到 6 张）');
+  user += '\n拆分维度：' + (dim || '你选最自然的（时间先后 / 场景变化 / 动作阶段都行，拆法写进每个片段名）');
+  const pm = polishMaterials();
+  if (pm.length) user += '\n' + TextAI.materialNote(pm);
+  user += '\n只返回 JSON。';
+  let images = [];
+  try { images = (await TextAI.polishImages(REG, polishImageList(), { max: 6 })).images; }
+  catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
+  const txt = await TextAI.chat(REG, TextAI.prompt('img_split'), user, { images });
+  const segs = parseSegs(txt);
+  if (!segs.length) throw new Error('文字 AI 没有给出可用的拆分方案，换一条描述或再试一次');
+  return segs;
+}
+
+let splitBusy = false;
+$('splitGo').onclick = async () => {
+  if (splitBusy) return;
+  if (($('prompt').value || '').trim().length < 2) { setStatus('<span class="err">先写一段描述再拆分</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（拆分方案靠它出）</span>'); return; }
+  /* 与主生成按钮同一道闸（型号不可用 / 素材互斥 / 参考图超限都在里面）；
+     提示词非空上面已查，这里返回的只会是别的原因 */
+  const blk = submitBlockReason();
+  if (blk) { setStatus('<span class="err">' + escA(blk) + '</span>'); return; }
+  const btn = $('splitGo'), prev = btn.textContent;
+  splitBusy = true; btn.disabled = true;
+  try {
+    btn.textContent = '规划片段…'; setStatus('正在请文字 AI 拆分片段…');
+    const planned = await planImageSegments();
+    setStatus('');
+    /* 确认闸：这批是 N 条真任务、各自计费，必须先在公共 PromptReview 里过一遍（可改可删可重新规划） */
+    const items = await PromptReview.openList({
+      title: '片段拆分方案（文字 AI 出的提示词）', sub: '确认后按当前型号与参数逐条提交生图，每条可改、可删',
+      items: planned.map(sg => ({ label: sg.label, text: sg.prompt })),
+      applyLabel: '采用并生成这批图',
+      hint: '逐条修改或删掉不想生成的片段',
+      retry: async () => (await planImageSegments()).map(sg => ({ label: sg.label, text: sg.prompt })),
+    });
+    if (!items) { setStatus(''); return; }
+    const segs = items.map(it => ({ label: String(it.label || '').slice(0, 12), prompt: String(it.text || '').trim() })).filter(x => x.prompt);
+    if (!segs.length) { Toast.err('没有可用的片段'); return; }
+    $('splitInline').hidden = true;
+    const { prov, model } = currentModel();
+    await submitImageBatch(segs, prov, model);
+  } catch (e) {
+    setStatus(''); Toast.err('拆分片段失败：' + ((e && e.message) || e));
+  } finally { splitBusy = false; btn.disabled = false; btn.textContent = prev; }
+};
+
+/* 批量提交：参考图只传一次，逐条 createImageOnce（每张各自计费，不用 max_outputs 并批 ——
+   每条提示词不同，本来就没法并）。单张失败不整批中止；传输层「结果未知」的那几张单独点出来
+   —— 可能已受理，别重复生成。不走 trackSubmit：那是拦「同一次提交点两下」的，批量是 N 次有意提交。 */
+async function submitImageBatch(segs, prov, model) {
+  $('go').disabled = true;
+  try {
+    setStatus('批量生成 ' + segs.length + ' 张：正在上传参考图…');
+    const assetIds = await uploadImageRefs(prov);
+    const created = [];
+    let failed = 0, uncertain = 0;
+    for (let i = 0; i < segs.length; i++) {
+      const sg = segs[i];
+      try {
+        setStatus('批量生成 ' + segs.length + ' 张（' + (i + 1) + '/' + segs.length + '）：' + escA(sg.label));
+        const out = await withCreateRetry(() => createImageOnce(prov, model, sg.prompt, assetIds, 1), '第 ' + (i + 1) + ' 张「' + escA(sg.label) + '」创建失败，');
+        if (out.taskId) created.push({ provider: prov.id, id: out.taskId });
+        else if (out.sync) await saveSyncImages(prov, model, sg.prompt, out.sync);
+      } catch (e) {
+        if (maybeSubmitErr(e)) { uncertain++; console.warn('[拆分] 片段「' + sg.label + '」结果未知：', e.message); }
+        else { failed++; console.warn('[拆分] 片段「' + sg.label + '」提交失败：', e.message); }
+      }
+    }
+    if (created.length) await adoptTasks(created);
+    try { await loadServer(1); } catch (e) {}
+    tally.run(true);
+    if (uncertain) { try { await loadServer(1, true); } catch (e) {} }
+    const parts = ['已提交 ' + segs.length + ' 张'];
+    if (failed) parts.push(failed + ' 张失败（原因见控制台）');
+    if (uncertain) parts.push(uncertain + ' 张当时没等到平台响应（可能已受理，以右栏列表为准，别重复生成）');
+    setStatus(parts.join('；'));
+  } finally { updateGoState(); }
+}
+
 /* ============================ ⑨ 提交（三条 create 路径，记账只有一份） ============================
    「上一条提交还在等平台响应」这套记账三台共用：重复提交 = 重复扣费，
    所以按钮禁用、结果未知时的后台核对、以及那句「仍然再提交」都收在这里。 */
@@ -1208,6 +1419,10 @@ const pendingSubmits = [];
 let submitRun = 0, armedAt = 0;
 const unresolvedSubmit = () => pendingSubmits.find(s => s.state !== 'settled') || null;
 const resubmitArmed = () => armedAt && Date.now() - armedAt < RESUBMIT_ARM_MS;
+/* 「结果未知」只按真正的传输层异常判（超时 / 断连 / 上游响应超时）：
+   这些情况下请求可能已经到了平台，界面必须说「正在核对列表」而不是「失败」——
+   否则用户会再点一次，那就是重复扣费。trackSubmit 与拆分批量提交共用这一条判据。 */
+const maybeSubmitErr = e => !!(e && (e.maybeSubmitted || /超时|timeout|中断|Failed to fetch|上游响应超时/i.test(String(e.message || ''))));
 function trackSubmit(rec, work) {
   const at = Date.now();
   rec.at = at; rec.state = 'inflight';
@@ -1223,11 +1438,7 @@ function trackSubmit(rec, work) {
     return r;
   }, e => {
     rec.failed = true;
-    /* 「结果未知」只按真正的传输层异常判（超时 / 断连 / 上游响应超时）：
-       这些情况下请求可能已经到了平台，界面必须说「正在核对列表」而不是「失败」——
-       否则用户会再点一次，那就是重复扣费。 */
-    const maybe = !!(e && (e.maybeSubmitted || /超时|timeout|中断|Failed to fetch|上游响应超时/i.test(String(e.message || ''))));
-    if (maybe) {
+    if (maybeSubmitErr(e)) {
       rec.state = 'uncertain'; rec.note = (e && e.message) || '请求中断';
       setStatus('<span class="warn">平台可能已受理（' + rec.note + '），正在后台核对列表…</span>');
       loadServer(1, true).catch(() => {}).then(() => {
@@ -1489,11 +1700,9 @@ async function submitVideo(rec, prov, model, uiDeadline) {
   if (left > 0) await Promise.race([p, new Promise(r => setTimeout(r, left))]);
   setStatus('<span class="ok">✓ 已创建 ' + draw + ' 个任务，正在把任务取回列表…</span>');
 }
-async function submitImage(rec, prov, model) {
-  const prompt = $('prompt').value.trim();
-  const lim = modelLimits(model);
-  const total = Math.max(1, Number(val('count')) || 1);
-  /* 参考图要先传成平台资产（图片台的模板收的是 asset_id，不是 dataURL） */
+/* 参考图先传成平台资产（图片台的模板收的是 asset_id，不是 dataURL）。
+   单张提交与「拆分片段批量生成」共用这一条 —— 批量那一批全部片段复用同一份 assetIds，只传一次。 */
+async function uploadImageRefs(prov) {
   const assetIds = [];
   for (const p of (inputs().image || [])) {
     if (p.assetId && (!window.AssetTransfer || AssetTransfer.isPlatformId(p.assetId))) { assetIds.push(p.assetId); continue; }
@@ -1505,6 +1714,13 @@ async function submitImage(rec, prov, model) {
     }
     assetIds.push(await AssetTransfer.toAsset(prov.id, file, { reg: REG, name: file.name, onStage }));
   }
+  return assetIds;
+}
+async function submitImage(rec, prov, model) {
+  const prompt = $('prompt').value.trim();
+  const lim = modelLimits(model);
+  const total = Math.max(1, Number(val('count')) || 1);
+  const assetIds = await uploadImageRefs(prov);
   const perReq = Math.max(1, lim.maxOut);
   const created = [];
   const synced = [];
@@ -1607,7 +1823,7 @@ function entryToItem(e) {
   const isAsset = e.kind === 'asset';
   const aid = e.assetId || (isAsset ? (e.id || '') : '');
   return {
-    mtype: e.type || '', provider: e.provider || '', model: e.model || '',
+    mtype: e.type || '', provider: e.provider || '', providerName: e.providerName || '', model: e.model || '',
     status: isAsset ? 'succeeded' : (e.status || ''),
     prompt: e.prompt || '',
     raw: e.src || '', media: isAsset ? mediaOf({ src: e.src }) : (e.src ? mediaOf({ src: e.src }) : ''),
@@ -1620,8 +1836,13 @@ function entryToItem(e) {
   };
 }
 function localAudioItem(t) {
+  /* providerName 与 entryToItem 同一份口径（现问注册表，不自己编名字）：
+     卡片上「平台」那一行显示的就是这一个字段，本地记录只给 id 的话，
+     同一家平台会在列表里两种写法混着出现（一条写 mimo、一条写 MiMo）。 */
+  const lp = (window.Api && Api.prov && Api.prov(t.provider)) || null;
   return {
-    mtype: '音频', provider: t.provider || '', model: t.model || '', status: t.status || 'creating',
+    mtype: '音频', provider: t.provider || '', providerName: (lp && (lp.displayName || lp.name)) || t.provider || '',
+    model: t.model || '', status: t.status || 'creating',
     prompt: t.text || '', raw: t.url || '', media: t.url || '', dl: t.dl || '',
     assetId: t.assetId || '', taskId: '', localId: t.id, ts: t.ts || 0,
     format: t.format, voice: t.voice, durationSec: t.duration, size: t.bytes,
@@ -1657,6 +1878,8 @@ function mergedItems() {
   return out;
 }
 function inWindow(it) { return showAll || !it.ts || (Date.now() - it.ts) <= RECENT_MS; }
+/* 本轮被「不显示云端任务」藏掉的条数（paintCounts 现攒；卡片空态与下面那句说明都读它）。 */
+let hiddenCloud = 0;
 function matched(it) {
   if (!inWindow(it)) return false;
   if (searchQ) {
@@ -1666,9 +1889,13 @@ function matched(it) {
   return true;
 }
 function filteredItems() {
+  /* 这一列只有一种顺序：最新的在最前面（新增的排在最上面，与左栏「刚点生成的那一条」对得上）。
+     条目来自 entryToItem / localAudioItem（形状就这两处），没有 ts 的一律沉到最后。
+     「不显示云端任务」是第三道闸，判据只有 `AssetLocal.hideAsCloud` 一处（三开关 + 本机有没有这份字节）。
+     藏了几条不在这里数 —— 由 paintCounts 攒进 hiddenCloud，卡片空态与下面那句说明读同一个数，
+     两处各数一遍就会出现「说明写 3 条、空态却说还没有素材」。 */
   return mergedItems()
-    .filter(it => matched(it))
-    .filter(it => filterKind === 'all' || it.mtype === filterKind)
+    .filter(it => matched(it) && (filterKind === 'all' || it.mtype === filterKind) && !AssetLocal.hideAsCloud(it))
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
 }
 /* 类型分类**现算**，页面不写死「视频 / 图片 / 音频」这三个按钮：
@@ -1685,7 +1912,11 @@ function kindTabs() {
   return next;
 }
 function paintCounts() {
-  const matched_ = mergedItems().filter(matched);
+  /* 时间窗 + 搜索词先过，再单独数「被『不显示云端任务』藏了多少」：
+     这两个数混成一句「另有 N 条更早的没显示」就是假话 —— 藏掉的那些可能就在今天。 */
+  const passable = mergedItems().filter(matched);
+  const matched_ = passable.filter(it => !AssetLocal.hideAsCloud(it));
+  hiddenCloud = passable.length - matched_.length;
   const total = mergedItems().length;
   const c = new Map();
   matched_.forEach(it => { if (it.mtype) c.set(it.mtype, (c.get(it.mtype) || 0) + 1); });
@@ -1709,9 +1940,10 @@ function paintCounts() {
     b.hidden = (k !== 'all' && k !== filterKind && !n);
   });
   const note = $('histNote');
-  const hidden = total - matched_.length;
+  const hidden = total - matched_.length - hiddenCloud;
   note.textContent = (showAll ? '全部时间范围' : '最近 30 天')
     + (hidden > 0 ? ' · 另有 ' + hidden + ' 条更早的没显示' : '')
+    + (hiddenCloud > 0 ? ' · ' + hiddenCloud + ' 条本机还没有这份字节，按「不显示云端任务」藏起来了' : '')
     + (serverLoading ? ' · 正在取回…' : '');
 }
 $('histFilter').addEventListener('click', e => {
@@ -1955,8 +2187,10 @@ function bindCard(d, it) {
   /* 整张卡可拖：拖到左栏输入框 = 当参考素材（这一页自己产的 mime 契约，两端都在这里） */
   d.draggable = true;
   d.addEventListener('dragstart', e => {
-    const p = { mtype: it.mtype, assetId: it.assetId, src: it.raw || it.media, dl: it.dl, name: (it.prompt || '').slice(0, 40),
-      provider: it.provider, taskId: it.taskId, model: it.model, prompt: it.prompt, ts: it.ts };
+    /* 载荷只带接收方真读的字段（`refIntoSlot` 认 mtype / assetId / src / dl / name）。
+       以前还捎着 provider / taskId / model / prompt / ts，落进槽位一步都没读过 ——
+       带上它们只会让人以为拖拽能还原型号与提示词。 */
+    const p = { mtype: it.mtype, assetId: it.assetId, src: it.raw || it.media, dl: it.dl, name: (it.prompt || '').slice(0, 40) };
     e.dataTransfer.setData('application/x-studio-ref', JSON.stringify(p));
     if (it.assetId) e.dataTransfer.setData('application/x-asset-id', String(it.assetId));
     e.dataTransfer.setData('text/plain', it.assetId ? '/asset/' + it.assetId : (it.raw || ''));
@@ -2036,7 +2270,14 @@ const list = Wb.cards.create({
   keyOf: it => itemKey(it),
   sigOf: it => cardSig(it),
   paint: (d, it) => paintCard(d, it),
-  emptyHTML: () => '<div class="empty">还没有历史素材。左栏写好提示词点「生成」，出来的成品会自动出现在这里；也可以把素材拖到左栏当参考。</div>',
+  emptyHTML: () => (hiddenCloud
+    /* 空着的时候最容易说一句假话：成品明明在平台上做好了，只是本机还没这份字节，
+       而按设置不显示 —— 这时讲「还没有历史素材、去点生成」就是把人往回指。
+       这里刻意不承诺「等一下自己会出现」：没落到本机的原因有好几种（还没存、存过但失败了、
+       文件太大没存），只有「正在存」那一种会自己出现，而界面分不出是哪一种。 */
+    ? '<div class="empty">这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，按「不显示云端任务」藏起来了。'
+      + '要看它们就在设置页关掉这一项（它们还在平台那边，收藏与素材库也不受这一项影响）。</div>'
+    : '<div class="empty">还没有历史素材。左栏写好提示词点「生成」，出来的成品会自动出现在这里；也可以把素材拖到左栏当参考。</div>'),
   notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
   onNew: el => { try { el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 280, easing: 'ease-out' }); } catch (e) {} },
 });
@@ -2044,8 +2285,11 @@ const browseList = () => filteredItems().filter(x => x.media);
 function renderAll() {
   const items = pager.slice();
   pager.update();
-  list.paint(items);
+  /* 先算计数、再画列表：藏了多少条由 paintCounts 现攒，而空态那句是在 list.paint 里取的。
+     顺序反了不会报错，只会拿上一轮的数说话 —— 第一轮就是 0，于是明明藏着一屏，
+     屏上写的是「还没有历史素材」。 */
   paintCounts();
+  list.paint(items);
   const el = $('histNote');
   if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
 }
@@ -2062,7 +2306,10 @@ const pager = Wb.pager.create({
   render: () => renderAll(),
   fill: async need => {
     let guard = 0;
-    while (serverHasMore && guard++ < 20 && filteredItems().length < (need || 1) * PAGE_SIZE) await loadServer(2);
+    /* 一次只拉**一页**（= 平台上声明的一整批，一般 100 条）：拉到就渲染，还缺再拉下一页。
+       原来一次 2 页是两个串行的冷请求，第一屏要等两倍时间；公共层的单飞锁与追轮上限在
+       Wb.pager（makePuller）那一处，这里的 guard 只防「这一屏怎么都填不满」。 */
+    while (serverHasMore && guard++ < 20 && filteredItems().length < (need || 1) * PAGE_SIZE) await loadServer(1);
   },
 });
 $('result').addEventListener('click', e => {
@@ -2123,22 +2370,69 @@ Wb.lightbox.init({
 });
 
 /* ---------- 复用：把一条历史素材的提示词 + 素材填进左栏 ---------- */
-function slotKindFor(mtype) {
-  const has = k => slots.some(x => x.kind === k);
-  if (mtype === '视频') return has('video') ? 'video' : (has('frame_first') ? 'frame_first' : null);
-  if (isAudioType(mtype)) return has('audio') ? 'audio' : null;
-  return has('image') ? 'image' : (has('frame_first') ? 'frame_first' : (has('frame_last') ? 'frame_last' : null));
-}
-function modelSupportsSlot(kind) {
-  const { model } = currentModel();
-  if (!model || !kind) return false;
-  return Capabilities.specs(model).some(sp => sp.role === SLOT_DEF[kind].role);
-}
-function findModelWithSlot(kind) {
-  const role = (SLOT_DEF[kind] || {}).role;
-  if (!role) return null;
-  for (const p of provGroups()) for (const m of (p.models || [])) if (Capabilities.specs(m).some(sp => sp.role === role)) return { p, m };
+/* 一条素材的类型 → 能收它的槽位（按优先级）。这张表要分成两半用：
+   `slotKindFor` 只在「当前型号真的收」的那些里挑第一个，而跨页复用还得能说出
+   「换个型号就收得下」—— 所以整份候选列在这儿，而不是藏在筛选之后。 */
+const SLOT_CANDS = { 视频: ['video', 'frame_first'], 音频: ['audio'], 图片: ['image', 'frame_first', 'frame_last'] };
+const slotCands = mtype => SLOT_CANDS[mtype === '视频' ? '视频' : (isAudioType(mtype) ? '音频' : '图片')] || SLOT_CANDS['图片'];
+function slotKindFor(mtype) { return slotCands(mtype).find(k => slots.some(x => x.kind === k)) || null; }
+function findModelWithSlot(kinds) {
+  const arr = (Array.isArray(kinds) ? kinds : [kinds]).map(k => (SLOT_DEF[k] || {}).role).filter(Boolean);
+  if (!arr.length) return null;
+  for (const p of provGroups()) for (const m of (p.models || [])) if (Capabilities.specs(m).some(sp => arr.includes(sp.role))) return { p, m };
   return null;
+}
+/* 「一条素材推进它那一类的槽位」全站只有这一份：右栏卡片拖进左栏、详情面板的「复用这次创作」、
+   资产库 / 收藏 / 素材库跨页带过来的那一条，三个入口都走它。
+   以前跨页那一份是另写的，少了两条判据 —— 槽位与已选素材互斥（拖拽那份会先挡）、
+   首帧槽位收到视频要在浏览器里抽最后一帧（拖拽那份会绕开「直接引用地址」的快速路径），
+   于是复用一段视频进首帧槽塞进去的是视频直链，要到提交才被平台拒。
+   三个入口唯一允许不一样的地方是**能不能替用户换型号**：跨页复用与「复用这次创作」能
+   （用户点它就是为了让这条素材进得去），拖拽不能（那会悄悄换掉他挑好的型号）。
+   它不抛错：取字节失败也归成一个 `why` 交回调用方，由各自的界面说话。 */
+async function refIntoSlot(mtype, p, o) {
+  const auto = !!(o && o.autoSwitch);
+  let kind = slotKindFor(mtype);
+  if (!kind && auto) {
+    const hit = findModelWithSlot(slotCands(mtype));
+    if (hit) { $('model').value = hit.p.id + '::' + hit.m.id; $('model').dispatchEvent(new Event('change')); kind = slotKindFor(mtype); }
+  }
+  if (!kind) return { ok: false, code: 'noslot', why: (auto ? '没有哪个型号收' + mtype + '这类素材' : '当前型号没有能接收' + mtype + '的入口') };
+  const def = SLOT_DEF[kind];
+  if (blockedSlotKinds().has(kind)) return { ok: false, code: 'blocked', why: def.label + '与已选素材互斥，请先清空已选素材' };
+  const arr = slotItems(kind), sl = slots.find(x => x.kind === kind);
+  if (sl && arr.length >= sl.max) return { ok: false, code: 'full', why: def.label + '已满（最多 ' + sl.max + ' 个）' };
+  const src = String(p.src || '');
+  const idn = p.assetId ? String(p.assetId) : '';
+  /* 同一条素材只认身份：有资产号按号比，只有地址的按地址比。
+     以前只比 assetId，而素材库递过来的两边资产号都是空 —— 「这条已经在槽里」当场成立，
+     第二条素材被静默丢掉，看着就是「点了没反应」。 */
+  if (arr.some(x => (idn ? String(x.assetId) === idn : (!!src && (x.src === src || x.url === src)))))
+    return { ok: false, code: 'dup', why: '这条素材已经在「' + def.label + '」里了' };
+  const name = String(p.name || '').replace(/\s+/g, ' ').trim().slice(0, 14) || mtype;
+  /* 平台/本机资产里能直接引用的：不必再取一遍字节。首帧槽位收到的是视频时不能走这条
+     （要走 addSlotFiles 里的抽帧那一步，它只认 File）。 */
+  if (idn && /^\/asset\//.test(src) && !(mtype === '视频' && def.videoFrame)) {
+    arr.push({ assetId: idn, url: src, src, name, type: mtype, kind, fromLib: true });
+    renderInputArea(); updateMode(); updateGoState();
+    return { ok: true, kind, name };
+  }
+  if (!src && !p.fileKey) return { ok: false, code: 'nosrc', why: '这条素材既没有本机地址也没有本机文件号，取不到字节' };
+  setStatus('正在取回素材字节…');
+  let blob = null;
+  try {
+    /* 收藏里的本地文件：字节在本机 IndexedDB 里，只有一个号，既没有资产号也没有地址。 */
+    blob = p.fileKey ? await Fav.fileOf({ kind: 'local', fileKey: p.fileKey })
+      : await AssetTransfer.blobOf(p.dl || (window.Api && Api.mediaSrc ? Api.mediaSrc(src) : src));
+  } catch (err) {
+    return { ok: false, code: 'nobytes', why: '取回素材失败：' + ((err && err.message) || err) };
+  }
+  if (!blob || !blob.size) return { ok: false, code: 'nobytes', why: '这条素材的字节取不到了（本机文件可能已经不在了）' };
+  const f = new File([blob], name + (mtype === '视频' ? '.mp4' : isAudioType(mtype) ? '.mp3' : '.png'),
+    { type: blob.type || 'application/octet-stream' });
+  const n = await addSlotFiles(kind, [f]);
+  if (!n) return { ok: false, code: 'rejected', why: def.label + '没收这条素材（类型或体积不在这一栏的声明里）' };
+  return { ok: true, kind, name };
 }
 async function reuseInto(it) {
   const want = it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image';
@@ -2148,49 +2442,34 @@ async function reuseInto(it) {
     const g = provGroups().find(p => (p.models || []).some(m => m.id === it.model));
     if (g) { $('model').value = g.id + '::' + it.model; $('model').dispatchEvent(new Event('change')); }
   }
-  let added = 0;
-  if (it.media) {
-    const kind = slotKindFor(it.mtype);
-    if (!kind) { setStatus('<span class="warn">当前型号没有能接收' + it.mtype + '的入口，已只填入提示词</span>'); }
-    else {
-      if (!modelSupportsSlot(kind)) {
-        const hit = findModelWithSlot(kind);
-        if (!hit) { setStatus('<span class="err">没有支持「' + SLOT_DEF[kind].label + '」的型号，已只填入提示词</span>'); return; }
-        $('model').value = hit.p.id + '::' + hit.m.id;
-        $('model').dispatchEvent(new Event('change'));
-      }
-      const arr = slotItems(kind);
-      const sl = slots.find(x => x.kind === kind);
-      if (arr.some(x => x.assetId === it.assetId)) added = 0;
-      else if (sl && arr.length >= sl.max) setStatus('<span class="warn">' + SLOT_DEF[kind].label + '已满（最多 ' + sl.max + '）</span>');
-      else if (it.assetId && /^\/asset\//.test(String(it.raw || it.media))) {
-        arr.push({ assetId: it.assetId, url: it.raw || it.media, src: it.raw || it.media, name: (it.prompt || '资产').slice(0, 14),
-          type: it.mtype, kind, fromLib: true });
-        added = 1;
-      } else {
-        setStatus('正在取回素材字节…');
-        const blob = await AssetTransfer.blobOf(it.dl || it.raw || it.media);
-        const name = ((it.prompt || it.mtype) + '').replace(/\s+/g, ' ').trim().slice(0, 14) || 'ref';
-        const f = new File([blob], name + (isAudioType(it.mtype) ? '.mp3' : it.mtype === '视频' ? '.mp4' : '.png'),
-          { type: blob.type || 'application/octet-stream' });
-        added = await addSlotFiles(kind, [f]);
-      }
-    }
-  }
+  /* 素材地址在三个入口里有三种带法（详情面板那条条目用 media / raw，跨页载荷用 src），
+     这里一次归一，槽位那一层只认 src。 */
+  const src = it.src || it.media || it.raw || '';
+  const has = !!src || !!it.assetId || !!it.fileKey;
+  const r = has ? await refIntoSlot(it.mtype, { src, assetId: it.assetId, dl: it.dl, fileKey: it.fileKey,
+    name: it.name || it.prompt }, { autoSwitch: true }) : null;
   renderInputArea(); updateMode(); updateGoState();
-  setStatus(added
-    ? '<span class="ok">✓ 已复用：提示词 + 1 个' + it.mtype + '素材</span>'
-    : '<span class="ok">✓ 已复用提示词</span>');
+  if (r && !r.ok) { setStatus('<span class="' + (r.code === 'dup' ? 'warn' : 'err') + '">'
+    + escA(r.why + (it.prompt ? '（提示词已经填上）' : '')) + '</span>'); return; }
+  const bits = [];
+  if (it.prompt) bits.push('提示词');
+  if (r && r.ok) bits.push('1 个' + it.mtype + '素材');
+  setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>');
 }
-/* 从资产库 / 收藏页「复用」跳过来时带的那一条（localStorage.sk_reuse，用完即删） */
+/* 资产库 / 收藏 / 素材库「拿去生成」带过来的那一条（localStorage.sk_reuse，用完即删）。
+   载荷由 `Wb.reuse.go` 拼（三页那一份），里面**可以只有地址**：素材库存的是一张图本身的地址、
+   收藏里的本地文件只有一个本机文件号，两边都没有平台资产号，所以这里不能替它编一个
+   `/asset/undefined` —— 以前正是这一句让那两页的复用永远进不了槽位。 */
 async function applyReuseFromAssets() {
   let p2 = null;
   try { p2 = JSON.parse(readLS('sk_reuse', '') || 'null'); } catch (e) {}
-  if (!p2 || (!p2.assetId && !p2.prompt)) return;
+  if (!p2) return;
   try { localStorage.removeItem('sk_reuse'); } catch (e) {}
-  const kind = p2.kind === 'video' ? '视频' : p2.kind === 'audio' ? '音频' : '图片';
-  await reuseInto({ mtype: kind, assetId: p2.assetId, raw: '/asset/' + p2.assetId + '?v=2', media: '/asset/' + p2.assetId + '?v=2',
-    dl: '/asset/' + p2.assetId + '?dl=1', prompt: p2.prompt || '', model: '', provider: p2.provider || '' });
+  const mtype = p2.kind === 'video' ? '视频' : p2.kind === 'audio' ? '音频' : '图片';
+  const src = p2.src || (p2.assetId ? '/asset/' + p2.assetId + '?v=2' : '');
+  if (!src && !p2.fileKey && !p2.prompt) return;
+  await reuseInto({ mtype, src, assetId: p2.assetId || '', dl: p2.dl || '', fileKey: p2.fileKey || '',
+    name: p2.name || '', prompt: p2.prompt || '', model: '' });
 }
 
 /* ---------- 右栏控件 ---------- */
@@ -2208,13 +2487,19 @@ $('sync').onclick = async () => {
     renderAll();
   } finally {
     b.disabled = false; b.innerHTML = icon('refresh', 13) + ' 刷新';
-    if (PAGE_MODE === 'more') setTimeout(() => { try { pager.fill(pager.page + 2); } catch (e) {} }, 60);
+    if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60);
   }
 };
 /* 翻页 / 跳页由 Wb.pager.bindButtons + gotoInput 统一接（页面不要再各绑一遍） */
 $('gotoBtn').onclick = () => pager.gotoInput('gotoPage');
 $('gotoPage').addEventListener('keydown', e => { if (e.key === 'Enter') pager.gotoInput('gotoPage'); });
-function autoLoadMore() { if (PAGE_MODE === 'more' && serverHasMore) { try { pager.fill(pager.page + 2); } catch (e) {} } }
+/* 「把这一屏补满」只有一个触发口：公共层给回的那颗 kick（bindScroll 的返回值）。
+   原来这三处写的是 `pager.fill(n)` —— Wb.pager.create() 的返回值上**根本没有 fill 这个方法**，
+   而调用点套着 try/catch，于是 TypeError 被静默吞掉，「刷新后补齐 / 窗口变高再拉 / 首屏再拉」
+   三条路一次都没跑到过（语法自测与控制台都不报，只有真的等过才发现）。
+   判据（还贴不贴着底、正在拉时不许再排、追几轮）全在公共层，这里只负责「什么时候请它拉一次」。 */
+let pullMore = null;
+function autoLoadMore() { if (pullMore) pullMore(); }
 window.addEventListener('resize', () => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); });
 
 /* ---------- 从右栏拖到左栏当参考素材 ---------- */
@@ -2236,7 +2521,7 @@ $('promptBox').addEventListener('drop', async e => {
   if (raw) {
     let p = null;
     try { p = JSON.parse(raw); } catch (err) {}
-    if (p && p.src) { await dropRefMedia(p); return; }
+    if (p && (p.src || p.assetId)) { await dropRefMedia(p); return; }
   }
   /* ② 资产库 / 收藏页那套旧契约（application/x-asset-id） */
   const aid = dt.getData('application/x-asset-id');
@@ -2257,41 +2542,24 @@ $('promptBox').addEventListener('drop', async e => {
     await addSlotFiles(want, [f]);
   }
 });
+/* 拖进左栏：与「复用这次创作」、跨页复用走同一份投递（判据、抽帧、取字节都在 `refIntoSlot` 里）。
+   唯一不一样的是**不替用户换型号** —— 拖素材时把人家挑好的型号悄悄换掉比拒绝更糟。 */
 async function dropRefMedia(p) {
   const mtype = p.mtype || '图片';
-  const kind = slotKindFor(mtype);
-  if (!kind) { setStatus('<span class="err">当前型号没有能接收' + mtype + '的入口（换型号或清空已选素材再试）</span>'); return; }
-  if (blockedSlotKinds().has(kind)) { flashSlotHint(SLOT_DEF[kind].label + '与已选素材互斥，请先清空已选素材'); return; }
-  const sl = slots.find(x => x.kind === kind);
-  const arr = slotItems(kind);
-  if (sl && arr.length >= sl.max) { setStatus('<span class="err">' + SLOT_DEF[kind].label + '已满（最多 ' + sl.max + ' 个）</span>'); return; }
-  const src = p.src || '';
-  if (arr.some(x => p.assetId && x.assetId === p.assetId)) { setStatus('这条素材已经在「' + SLOT_DEF[kind].label + '」里了'); return; }
-  const def = SLOT_DEF[kind];
-  /* 平台/本机资产里能直接引用的（图片台那一套）：不必再取一遍字节 */
-  if (p.assetId && /^\/asset\//.test(String(src)) && !(mtype === '视频' && def.videoFrame)) {
-    arr.push({ assetId: p.assetId, url: src, src, name: (p.name || '历史素材').slice(0, 14), type: mtype, kind, fromLib: true });
-    renderInputArea(); updateMode(); updateGoState();
-    setStatus('<span class="ok">✓ 已把《' + ((p.name || '历史素材') + '').slice(0, 18) + '》加入' + def.label + '</span>');
-    return;
-  }
-  setStatus('正在取回素材字节…');
-  try {
-    const blob = await AssetTransfer.blobOf(p.dl || src);
-    const name = ((p.name || mtype) + '').replace(/\s+/g, ' ').trim().slice(0, 14) || 'ref';
-    const ext = mtype === '视频' ? '.mp4' : isAudioType(mtype) ? '.mp3' : '.png';
-    const f = new File([blob], name + ext, { type: blob.type || 'application/octet-stream' });
-    const n = await addSlotFiles(kind, [f]);
-    if (n) setStatus('<span class="ok">✓ 已把《' + name + '》加入' + def.label + '</span>');
-  } catch (err) {
-    setStatus('<span class="err">取回素材失败：' + escA(String((err && err.message) || err)) + '</span>');
-  }
+  const r = await refIntoSlot(mtype, p);
+  if (r.ok) { setStatus('<span class="ok">✓ 已把《' + (r.name || mtype) + '》加入' + SLOT_DEF[r.kind].label + '</span>'); return; }
+  if (r.code === 'blocked') { flashSlotHint(r.why); return; }
+  if (r.code === 'dup') { setStatus(escA(r.why)); return; }
+  setStatus('<span class="err">' + escA(r.why) + (r.code === 'noslot' ? '（换型号或清空已选素材再试）' : '') + '</span>');
 }
 
 /* ---------- 左栏整块重画（切类型 / 换型号之后） ---------- */
 function paintLeft() {
   renderModelOptions();          // 型号下拉按当前类型重建（每种类型各记各的）
   slots = modelSlots();
+  /* 「拆分片段生成」只有图像栏有；切走时把它的选项面板一起收掉（润色面板在分段开关那里已经清了） */
+  $('splitBtn').hidden = TYPE !== 'image';
+  if (TYPE !== 'image') $('splitInline').hidden = true;
   renderParams();
   renderInputArea();
   paintSubNote();
@@ -2325,7 +2593,7 @@ function paintLeft() {
   poller.kick();
   renderAll();
   pager.bindButtons();
-  pager.bindScroll('result');
+  pullMore = pager.bindScroll('result');
 
   try { await Capabilities.load(REG); } catch (e) {}
   renderModelOptions();

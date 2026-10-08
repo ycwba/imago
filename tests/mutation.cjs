@@ -9,7 +9,8 @@ const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const J = path.join(ROOT, 'tests', 'selfcheck.cjs');
 const FILES = ['drama.html', 'assets.html', 'ident.js', 'assetlib.js', 'shell.html', 'proxy.js',
-  'drama.js', 'settings.html', 'studio.html', 'ai-chat.js', 'favorites.html', 'chars.html', 'workbench.js'];
+  'drama.js', 'settings.html', 'studio.html', 'ai-chat.js', 'favorites.html', 'chars.html',
+  'workbench.js', 'ui.js'];
 /* ① 读进来时的字节就是唯一的还原依据 —— 绝不做「把 to 替换回 from」那种二次字符串还原：
       to 一旦是空串，replace('', x) 会把 x 插到文件最前面，当场污染源文件。 */
 const orig = new Map(FILES.map(f => [f, fs.readFileSync(path.join(ROOT, f))]));
@@ -21,11 +22,25 @@ function run() {
     return { code: 0, out: execFileSync(process.execPath, [J], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) };
   } catch (e) { return { code: e.status || 1, out: (e.stdout || '') + (e.stderr || '') }; }
 }
-const write = (f, b) => fs.writeFileSync(path.join(ROOT, f), b);
+/* Windows 上写文件会被第三方**短暂**占住（本机实测：Defender / 索引器一闪，
+   `fs.writeFileSync` 报 `errno -4094 UNKNOWN open`，一次就抛）。
+   这里绝不能「一次失败就抛」—— 抛在 restoreAll 中间就等于**留下变异过的一半源文件**，
+   而 `orig` 是启动时读的字节，下一次运行会把那份污染当基线照单还原，最后还报一句「哈希一致」。
+   所以退避重试；真的重试完还不行就明确报错并说清是哪一档（宁可停下，也不要带着坏状态继续跑）。 */
+function write(f, b) {
+  const p = path.join(ROOT, f);
+  let last = null;
+  for (let k = 0; k < 12; k++) {
+    try { fs.writeFileSync(p, b); return; }
+    catch (e) { last = e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250); }
+  }
+  throw new Error('写不回 ' + f + '（重试 12 次仍然被占用：' + (last && last.code) + '）—— '
+    + '源文件可能停在变异状态，先手工核对再跑判据');
+}
 const restoreAll = () => { for (const [f, b] of orig) write(f, b); };
 
 /* 兜底还原：这个脚本会**临时改源文件**，所以「怎么结束」比「怎么开始」更要紧。
-   实测漏过一次：30 个变异要跑 30 遍全套判据，前台 60 秒窗口不够，进程被收走，
+   实测漏过一次：那时有 30 个变异就要跑 30 遍全套判据（现在 44 个），前台 60 秒窗口不够，进程被收走，
    proxy.js 里留下了 §G 那个 `if (false && insideLocalDir(to))` 就没再被还原。
    更糟的是**下一次运行看不出这件事** —— orig 是「读进来时的字节」，
    那份泄漏就成了新的起始状态，被照单还原，最后还报一句「哈希一致」。
@@ -83,6 +98,12 @@ const MUT = [
   { sec: '§H', name: '界面赋值的那句提示里带 markdown 标记', file: 'drama.js',
     anchor: '机位是每一段单独出的：',
     to: '机位是**每一段**单独出的：' },
+  /* 这一条只钉住 UI_SINK 上新加的两个名字（sub / body）。
+     Confirm.ask / choose 的正文与副标题都走 textContent，星号会原样糊到用户脸上；
+     少了这一条，名单里写没写过它们看不出来 —— 上面那一条打在 `hint:` 上，替不了这一档。 */
+  { sec: '§H', name: 'Confirm.choose 的副标题里带 markdown 标记（认 sub 这一档才会红）', file: 'drama.html',
+    anchor: "sub: '下一集是新故事；画幅 / 画质 / 模型 / 配乐照这一集沿用',",
+    to: "sub: '下一集是新故事；**画幅 / 画质 / 模型 / 配乐**照这一集沿用'," },
   { sec: '§H', name: '反向对照：给模型的系统提示词里用 markdown（应放行）', file: 'drama.js', expectGreen: true,
     anchor: "const K_DRAMAS = 'dramas';",
     to: "const __MUT_SYS__ = '请**严格**按下面的说明回答，不要凭空编造';\r\nconst K_DRAMAS = 'dramas';" },
@@ -120,6 +141,25 @@ const MUT = [
   { sec: '§J', name: '页面又自建了一份续拉（不走 Wb.pager.sentinel）', file: 'favorites.html',
     anchor: '<script src="ai-chat.js"></script>',
     to: '<script src="ai-chat.js"></script>\r\n<script>new IntersectionObserver(function () {});</script>' },
+/* §J 的第 ⑦ 支（页面对 Wb.pager.create() 返回值的成员访问必须在 api 面上）要三个变异：
+     A 公共层改个方法名 → 页面那几处调用点必须红（证明面是**现取**的，不是名单）；
+     B 把坏写法 pager.fill(...) 放回去 → 红（这正是 2026-10 真实存在过的 bug）；
+     C 让实例名认不出来（换个变量名）→ 红在「只看到 14 处访问」那一条 ——
+       没有这一条，「越界 0 处」到底是「调用点都在面上」还是「一处都没扫到」就分不开。
+   外加一条反向对照：注释里提一句 pager.fill 不算（那一行正在解释它坏在哪，
+   与 ③ 的 showSaveFilePicker 同一套路，靠词法器剥注释才分得开「提到」与「真调用」）。 */
+  { sec: '§J', name: '公共层把 bindScroll 改名，页面调用点没跟上（api 面现取，应红）', file: 'workbench.js',
+    anchor: '          bindScroll(boxSel) {',
+    to: '          bindScrollRenamed(boxSel) {' },
+  { sec: '§J', name: '把坏写法 pager.fill(...) 放回 studio.html（api 上没这个方法，应红）', file: 'studio.html',
+    anchor: "  pullMore = pager.bindScroll('result');",
+    to: "  try { pager.fill(pager.page + 2); } catch (e) {}\r\n  pullMore = pager.bindScroll('result');" },
+  { sec: '§J', name: '尺子坏了也要红：换掉接收 create() 返回值的变量名（访问数从 18 掉下来）', file: 'chars.html',
+    anchor: '  const pager = Wb.pager.create({',
+    to: '  const pagerRenamed = Wb.pager.create({' },
+  { sec: '§J', name: '反向对照：注释里提到 pager.fill 不该算越界（应放行）', file: 'favorites.html', expectGreen: true,
+    anchor: '  const pager = Wb.pager.create({',
+    to: '  /* 这一页以前也写过 pager.fill(n) —— api 上根本没有这个方法，别加回来 */\r\n  const pager = Wb.pager.create({' },
 /* §J 芯片行的三个变异：旧写法有两种（拼 innerHTML 的模板串、createElement + className），
    **两种都要测** —— 只测一种的话，另一种写法复活了判据照样全绿。
    外加一条反向对照：.ai-chip / .ap-chip 是别的类名（那是「AI 挑了哪些」芯片与资产选择器的类型页），
@@ -134,6 +174,48 @@ const MUT = [
   { sec: '§J', name: '反向对照：.ai-chip / .ap-chip 是别的类名，不该算自建芯片行（应放行）', file: 'assets.html', expectGreen: true,
     anchor: '<script src="ai-chat.js"></script>',
     to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips3 = () => \'<span class="ai-chip">x</span>\' + \'<span class="ap-chip">y</span>\';</script>' },
+/* §J 的第 ⑧ 支（跨页复用载荷只有一份）要三个变异 + 一条反向对照：
+     A 页面自己再拼一份载荷（写第二处 sk_reuse）→ 红；
+     B 消费端多读一遍（读到第二次就已经被前一处删掉了，正是这个 bug 的形状）→ 红；
+     C 把某一页的入口摘掉（Wb.reuse.go 掉到 2 次）→ 红 —— 没有这一条，
+       「写入只有一份」会因为三页全都不递素材而照样全绿，那是空断言。
+   反向对照：注释里写一句 localStorage.setItem('sk_reuse', ...) 不该算第二处写入
+   （与 ③ 的 showSaveFilePicker 同一套路，靠词法器剥注释才分得开「提到」与「真写」）。 */
+  { sec: '§J', name: '页面又自己拼了一份跨页载荷（写入点变成两处，应红）', file: 'chars.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutReuse1 = p => { try { localStorage.setItem("sk_reuse", JSON.stringify(p)); } catch (e) {} };</script>' },
+  { sec: '§J', name: '消费端把同一条载荷读两遍（读取点变成三处，应红）', file: 'studio.html',
+    anchor: "  try { localStorage.removeItem('sk_reuse'); } catch (e) {}",
+    to: "  try { localStorage.getItem('sk_reuse'); localStorage.removeItem('sk_reuse'); } catch (e) {}" },
+  { sec: '§J', name: '某一页的「复用」不再走公共那一份（Wb.reuse.go 掉到 2 次，应红）', file: 'assets.html',
+    anchor: "  Wb.reuse.go({ from: 'assets'",
+    to: "  Wb.reuse.goX({ from: 'assets'" },
+  { sec: '§J', name: '反向对照：注释里提到 setItem(sk_reuse) 不该算第二处写入（应放行）', file: 'favorites.html', expectGreen: true,
+    anchor: '  const pager = Wb.pager.create({',
+    to: '  /* 这一页以前自己 localStorage.setItem(\'sk_reuse\', ...) 拼载荷，现在只走 Wb.reuse.go */\r\n  const pager = Wb.pager.create({' },
+/* §J 的第 ⑨ 支（本机落盘链只有一条，2026-10 加「自动下载」两颗按钮时立的）要四个变异 + 一条反向对照：
+     A 页面自己拼 /local-assets 落盘 → 红（绕过身份判据与去重，正是这一档要防的第一号长法）；
+     B 第三页也去藏云端成品 → 红在「调用点 4 处 / 出现在 chars.html」那一条；
+     C 某一页的「自动下载」不走公共那一条链 → 红在 pull 掉到 1 处；
+     D 判据长出第二份（页面里再写一个 hideAsCloud）→ 红在定义数；
+     反向对照：注释里提一句 fetch('/local-assets') 不该算自拼路由
+       （studio.html 正文里本来就有三句这样的说明文字，基线全绿靠的正是词法器剥注释 —— 没有这一条对照，
+        「⑨ 第四头永远报 0」和「⑨ 第四头根本没在扫」在驱动脚本里长得一模一样）。 */
+  { sec: '§J', name: '页面自己拼 /local-assets 落盘（绕过那一道去重，应红）', file: 'favorites.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutLocal1 = p => Net.post("/local-assets", p);</script>' },
+  { sec: '§J', name: '第三页也跟着藏云端成品（收藏 / 素材库故意不藏，应红）', file: 'chars.html',
+    anchor: '  const pager = Wb.pager.create({',
+    to: '  window.__mutHide = x => AssetLocal.hideAsCloud(x);\r\n  const pager = Wb.pager.create({' },
+  { sec: '§J', name: '某一页的「自动下载」不走公共那一条链（pull 掉到 1 处，应红）', file: 'favorites.html',
+    anchor: '  const st = AssetLocal.pull(it, {',
+    to: '  const st = AssetLocal.pullX(it, {' },
+  { sec: '§J', name: '「藏不藏」长出第二份判据（应红在定义数）', file: 'assets.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: "<script src=\"ai-chat.js\"></script>\r\n<script>function hideAsCloud(o) { return !!o; }</script>" },
+  { sec: '§J', name: '反向对照：注释里提到 /local-assets 不该算页面自拼路由（应放行）', file: 'favorites.html', expectGreen: true,
+    anchor: '  const pager = Wb.pager.create({',
+    to: "  /* 这一页以前想直接 fetch('/local-assets') 落盘，现在只走 AssetLocal.pull */\r\n  const pager = Wb.pager.create({" },
 /* §K 的三个变异：一条正向 + **两条反向对照**。
    反向对照是必须的：这一档判的是「重复」，最容易变成一把无脑报警的尺子 ——
    值差一位（那是分叉，要人拍板）、@media 上下文不同（作用范围不同，删掉会改小屏表现），

@@ -99,6 +99,33 @@
   const blobsKv = () => window.Kv.at('blobs');
   const tx = (mode, fn) => blobsKv().tx(mode, fn);
 
+  /* ---------- 续拉的「什么时候该拉」：哨兵与容器滚共用的一份判据 ----------
+     提前量按**视口高度**算，不写死 300px：一次冷请求要好几秒（实测 VGENV 一页 5.2 秒、
+     SparkCine 2.9 秒），余量只有 300px 时用户永远是在底部原地等满一轮。
+     追轮上限（一次触发最多连着拉几批）也从这一处来 —— 页面各自 guard 20 的写法会失控。 */
+  const LEAD_VH = 1.5;
+  const PULL_MAX_ROUNDS = 8;
+  const pullLeadPx = h => Math.max(240, Math.round((Number(h) || 0) * LEAD_VH) || 240);
+  /* near() 判「还贴着底」，step() 真去拉一批。
+     **只有 step 返回 Promise 才追下一轮** —— 角色库 / 收藏那两页的回调是纯本地翻页（同步返回），
+     给它们追轮就是一圈空转；反过来资产库 / 工作台返回真请求，才需要「拉完还贴着就接着拉」。
+     单飞锁 busy 也在这里：一次滚动会连发几十个事件，同一个续拉不许排成一串。 */
+  function makePuller(near, step) {
+    let busy = false;
+    return async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        for (let round = 0; round < PULL_MAX_ROUNDS && near(); round++) {
+          let r;
+          try { r = step(); } catch (e) { console.warn('[pager] 续拉回调出错', e); break; }
+          if (!r || typeof r.then !== 'function') break;
+          try { await r; } catch (e) { console.warn('[pager] 续拉失败，这一轮不再追', e); break; }
+        }
+      } finally { busy = false; }
+    };
+  }
+
   window.Wb = {
     ST,
     stText(s) { const t = norm(s); return ST[t] || s || ''; },
@@ -1504,29 +1531,28 @@
       /* 页面级滚动的续拉触发器（唯一一份）：观察一根哨兵，进了视口就回调 onMore。
          与 create().bindScroll 的区别只在于**滚动发生在哪一层** —— 那份是列表容器自己滚
          （工作台的结果区），这份是整页滚（角色 / 收藏 / 资产库都是这样，列表不自带滚动条）。
-         老浏览器没有 IntersectionObserver 时退回 window scroll，用同一个余量判断。
+         老浏览器没有 IntersectionObserver 时退回 window scroll，用同一个提前量判断。
 
          为什么单独立这一份：这三页原来各写一遍，机制逐字相同（哨兵 + rootMargin 300 +
          window scroll 回退 + 300 余量），只有「触发之后做什么」不同。
-         **那部分故意不收**：资产库多一条 autoBusy（一屏没填满时会连发），
-         角色和收藏要判 shownCount 够不够 —— 塞进公共方法就成了第二份。
-         这里只管怎么触发，不管触发后做什么，也不判分页模式：
-         资产库的 autoLoadMore 第一句就 return 了，另外两页同理，守卫留在页面自己手里。 */
+         **「拉完之后还要不要再来一轮」现在归这里**（IntersectionObserver 只在相交状态
+         **翻转**时回调，哨兵一直留在视口里就永远不再触发 —— 这正是「滚到底等了半天什么都没出来」
+         里最难复现的那一半），而**「要不要开始拉」的守卫仍留在页面手里**：
+         翻页模式 / 已经到底 / 这一批读失败，页面自己 return（同步返回就等于「别追轮」）。 */
       sentinel(sel, onMore) {
         const box = (typeof sel === 'string') ? document.getElementById(sel) : sel;
         if (!box || typeof onMore !== 'function') return null;
         if (box._sentinelBound) return box._sentinelBound;   /* 同一根哨兵只绑一次 */
-        /* 回调出错不许连累观察器：IO 回调里抛出去会变成一条 window.onerror，
-           而哨兵是「一屏没填满就一直触发」的那种，出错一次就会连着错一串。 */
-        const fire = () => { try { onMore(); } catch (e) { if (window.console) console.warn('[pager] 续拉回调出错', e); } };
+        const lead = pullLeadPx(window.innerHeight);
+        const pull = makePuller(
+          () => box.getBoundingClientRect().top < window.innerHeight + lead, onMore);
         if ('IntersectionObserver' in window) {
-          const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) fire(); }, { rootMargin: '300px' });
+          const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) pull(); },
+            { rootMargin: lead + 'px' });
           io.observe(box);
           box._sentinelBound = io;
         } else {
-          box._sentinelBound = () => {
-            if (box.getBoundingClientRect().top < window.innerHeight + 300) fire();
-          };
+          box._sentinelBound = () => { pull(); };
           window.addEventListener('scroll', box._sentinelBound, { passive: true });
         }
         return box._sentinelBound;
@@ -1552,7 +1578,6 @@
         const el = id => document.getElementById(o[id + 'Id'] || id);
         let page = 0;
         let reqSeq = 0;        // 翻页/续拉的代际号：慢的旧请求回来时用它作废
-        let filling = false;   // 动态加载的单飞锁
         const api = {
           mode, PAGE_SIZE,
           get page() { return page; },
@@ -1617,24 +1642,30 @@
             if (g !== reqSeq) return;
             if (o.render) o.render();
           },
-          /* 滚到底自动续拉（动态加载模式）：内容不足一屏时也会继续拉，直到拉满或到底 */
+          /* 滚到底自动续拉（动态加载模式）：提前量与「拉完还贴着就再拉」都走 pullLeadPx / makePuller
+             （与哨兵同一份判据，只是滚动发生在容器自己身上）。
+             **返回那颗 kick（pull）**，页面「刷新后补一屏」「窗口变高了一屏没填满」都用它 —— 判据只有这一份。
+             （这里原来被页面当成 `pager.fill(n)` 调过：api 上根本没有 `fill` 这个方法，调用点是
+             `try { pager.fill(...) } catch {}`，于是那两条补齐的路**一次都没跑到过**。）
+             绑定后先跑一次：内容不足一屏时**根本不会有任何 scroll 事件**，
+             不主动跑这一次，这一屏就永远停在「看着像加载完了」。 */
           bindScroll(boxSel) {
             const box = (typeof boxSel === 'string') ? document.getElementById(boxSel) : (boxSel || o.box);
-            if (!box || box._pagerBound) return;
-            box._pagerBound = true;
-            box.addEventListener('scroll', () => {
-              if (mode !== 'more' || filling || !o.hasMore || !o.hasMore()) return;
-              if (box.scrollTop + box.clientHeight >= box.scrollHeight - 160) {
-                if (!o.fill) return;
-                // 单飞：一次滚动会连发几十个 scroll 事件，别把同一个续拉排成一串
-                filling = true;
+            if (!box) return null;
+            if (box._pagerPull) return box._pagerPull;   // 同一个容器只绑一次
+            const lead = pullLeadPx(box.clientHeight || window.innerHeight);
+            const pull = makePuller(
+              () => box.scrollTop + box.clientHeight >= box.scrollHeight - lead,
+              () => {
+                if (mode !== 'more' || !o.fill || (o.hasMore && !o.hasMore())) return;
                 const g = ++reqSeq;
-                Promise.resolve(o.fill())
-                  .then(() => { if (g === reqSeq && o.render) o.render(); })
-                  .catch(() => {})
-                  .then(() => { filling = false; });
-              }
-            });
+                return Promise.resolve(o.fill())
+                  .then(() => { if (g === reqSeq && o.render) o.render(); });
+              });
+            box._pagerPull = pull;
+            box.addEventListener('scroll', () => { pull(); }, { passive: true });
+            pull();
+            return pull;
           },
           bindButtons() {
             const prev = el('pgPrev'), next = el('pgNext');
@@ -1651,6 +1682,36 @@
           },
         };
         return api;
+      },
+    },
+
+    /* ---------- 跨页「拿去生成工作台继续」：载荷与跳转只在这里点一次名 ----------
+       资产库 / 收藏 / 素材库三页都要「带着这一条素材跳到工作台对应那一栏」。以前三页各拼一份
+       载荷、各写一遍地址，而**消费端只认资产号**：素材库里的一张图只有本机地址、收藏里的本地文件
+       只有 IndexedDB 号，两边都没有平台资产号 —— 递过去的是 `assetId: undefined`，工作台那头
+       无条件拼出 `/asset/undefined`，取字节必然 404，而界面只留一句「已复用提示词」，
+       素材根本没进槽这件事在界面上看不出来。
+       载荷只带**工作台真会读的字段**：地址（src）、资产号（assetId，有就带上，能省一次取字节）、
+       本机文件号（fileKey，收藏的本地文件只有这个）、名字、提示词。
+       别把平台 / 时长 / 画幅塞进来充数 —— 工作台一个字都不读，递了就是「界面上说带过去了、其实没带」。 */
+    reuse: {
+      kindOf(type) {
+        const t = String(type || '');
+        return t === '视频' ? 'video' : (t === '音频' || t === '音乐') ? 'audio' : 'image';
+      },
+      go(o) {
+        const raw = String(o.src || '');
+        /* 地址本身就是本机资产时，号就写在地址里 —— 认出来，页面只递地址也能走「直接引用」那条快路，
+           不必到工作台那头再把字节取一遍。素材库与收藏里的本地文件正是这种情况。 */
+        const m = /^\/asset\/([^/?#]+)/.exec(raw);
+        const aid = String(o.assetId || (m ? decodeURIComponent(m[1]) : ''));
+        const src = raw || (aid ? '/asset/' + aid + '?v=2' : '');
+        const kind = o.kind || this.kindOf(o.mtype || o.type);
+        const payload = { from: o.from || '', kind, assetId: aid, src,
+          dl: o.dl || (aid && /^\/asset\//.test(src) ? '/asset/' + aid + '?dl=1' : ''),
+          fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '' };
+        try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (e) {}
+        location.href = 'studio.html?t=' + kind + '&reuse=1';
       },
     },
 

@@ -1,7 +1,7 @@
 # AGENTS.md —— 在本项目里干活前先读这几条
 
 本项目是一个**本地优先的 AI 创作工作台**：纯前端页面 + 一个本地 Node 代理（`proxy.js`，默认 `http://localhost:5175`），
-所有生成平台都通过代理转发。页面：导演台 `index.html`、**生成工作台 `studio.html`（视频 / 图像 / 语音三合一，2026-10 合并；旧
+所有生成平台都通过代理转发。页面：导演台 `director.html`（旧名 `index.html` 已删除，旧地址不再能打开）、**生成工作台 `studio.html`（视频 / 图像 / 语音三合一，2026-10 合并；旧
 `video-gen.html` / `image-gen.html` / `audio-gen.html` 已删除，`/video.html` 之类的旧短名与 `?t=video|image|audio` 别名仍能打开）**、
 拍短剧 `drama.html`、素材库 `chars.html`、资产库 `assets.html`、收藏 `favorites.html`、设置 `settings.html`、用量 `usage.html`；
 公共模块：`ui.js`（Net / Toast / Store / DataSync / Dropdowns / Confirm…）、`assetlib.js`（Api / AssetLib / Capabilities /
@@ -111,22 +111,43 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 规矩：**页面里调另一个函数，先确认它在当前这条链路上真的在作用域里**；同名不要紧，
 **同名但在不同函数里就一定会炸**。这一档现在有**常驻判据** `tests/selfcheck.cjs`
 （`node tests/selfcheck.cjs`，不带参数就查全套）：十一档 —— §A 内联脚本裸调用的作用域
-（按花括号分层 + 函数帧父指针解析，`function` 提升也认；当前 19 段内联脚本 / 1468 处裸调用零红）、
+（按花括号分层 + 函数帧父指针解析，`function` 提升也认；当前 19 段内联脚本 / 1453 处裸调用零红）、
 §B 模板串原始文本里的「块注释 + 反引号」（`studio.html` 踩过：当场闭合模板串 → 整页白屏 + 满屏源码当正文，
 而 `node --check` 照样绿）、§C 素材身份判据只有一份、§D `ident.js` 排在 `assetlib.js` 前面、
 §E 合卡规则只有一份、§F 另存那条链只有一个触发点、§G 另存的安全立场与 `.assets` 原件不动、
 §H **用户可见文案里不许出现 markdown 标记**（见下）、
 §I **「能力来源」那句话全站只有一份口径**（`Capabilities.srcTextOf`，见下）、
 §J **「同一个功能只应有一份实现」**（本轮收拢的那几样各留一条，防它们悄悄长回来）——
-**芯片行是最新加的一条**：四个页面（资产库 4 行含日期预设、角色库、收藏、用量）原先各写一份
+**本机落盘链（§J 第 ⑨ 支）是最新加的一条**（两颗「自动下载」只走 `AssetLocal.pull`，判据只有一份 `hideAsCloud`，见 §7 那两段）、
+**跨页「拿去生成」的载荷**是它前面一条（见下，紧接芯片行那段）、
+**芯片行**：四个页面（资产库 4 行含日期预设、角色库、收藏、用量）原先各写一份
 「拼 innerHTML + 遍历绑 onclick」，现在只有 `ui.js` 的 `window.Chips.render` 一份。
 它的指纹用**词法器取的字符串内容**，两种旧写法都要认（模板串里的 `class="chip…"` 与
 `className = 'chip'`），反向对照是 `.ai-chip` / `.ap-chip` —— 长得像但不是筛选芯片行，不该被算进来；
 而且**「页面自建 0 处」与「Chips 定义 1 / 被调 7」两头都得在**，少一头就是尺子坏了。
+（这个 7 是**先量过**的读数，不是抄来的：原先是 8，多出来的那一次调用在 `ui.js` 的 `SortBy.control` 里 ——
+2026-10 全站排序删掉时那一次一起没了。**别照记忆里的数字改判据**。）
 这条刚上线就抓出一处漏掉的：`assets.html` 的日期预设 `paintDateChips`（按函数名 `chipRow` 找，
 按类名找就会漏掉它），于是芯片行是 **5 份不是 4 份** —— 又一次印证「照记忆里的数字动手」不靠谱。
 它的选中判据与别处不同（手动填了起止日期时 `presetDays` 还停在 0，但「全部」那颗不该再亮着），
 所以 `Chips.render` 收了一个可选的 `isOn`：**页面特殊就页面自己传判据，别为了迁就它把公共那份改松**。
+**跨页「拿去生成」那一条**守的是同一件事的另一半：载荷的**写入**只有一处（`workbench.js` 的 `Wb.reuse.go`），
+**读 + 删**只有两处且都在 `studio.html`（页面自己不许再 `getItem` / `readLS` 这个键一遍 ——
+`ui.js` 的 `window.readLS` 也在白名单里，绕成它照样算第二处消费；消费两次就是
+「第二次拿到空对象、界面上那句『已复用』是假的」）。这一档**三头**都要在：写入 1、读取 2、
+`Wb.reuse.go` 被调 3（资产库 / 收藏 / 素材库）—— 第三头不是凑数，
+只查前两头的读数不通 —— 把三页的入口全改名或全删掉，前两头的读数照样是 1 和 2，仍然全绿。
+反向对照是一句**注释**里提到
+`localStorage.setItem('sk_reuse', …)`（`favorites.html` 写着「这里以前自己拼载荷」），必须放行。
+**「挑来的图先落成本机资产」是同一件事的第三条腿，但这一条目前只有约定、没有常驻判据**（§J 的计数里没有它的一行）：
+约定是落盘只有一处实现（`assetlib.js` 的 `AssetTransfer.toLocalAsset`，内部调 `Api.saveLocalAsset` 一次），
+页面那一层只管怎么说进度与失败（`chars.html` 的 `durablePic`，调用一处）。
+**为什么还没加这一档**：加判据就得跑 `tests/mutation.cjs`，而它要临时改源文件；
+本轮另一路会话正在写同一份目录，跑一次就是拿别人未落盘的改动去赌（见 §5 第 ⑥ 条）。
+真要补的时候，指纹取**调用**不是定义（定义那一头与「被调 0 次」同形，写不进断言），
+而 `Api.saveLocalAsset` 那一头**不要按份数判** —— 它是全站各处自己的本机落盘（同步生图、短剧的角色图与配音、
+镜像入队都各调一次，本轮实测一次数下来是十一处），把它钉成「1 份」就是给下一轮埋一条永远红的尺子。
+**要判份数的判据，先把「什么算副本」定义清楚**；定义不干净就只报读数、不设期望。
 §K **页面不重复定义 ui.css 已有的规则**（把这一轮删掉的 7 处冗余钉住）。
 **§K 的口径比「两条文字长得一样」宽一档，也比它严一档**：宽在算**子集** —— 页面写的每一条属性
 只要 ui.css 里以同样的值有就算冗余（本轮 7 处里只有 2 处是逐字相同，另 5 处是子集，只认逐字
@@ -139,8 +160,8 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
 ——十六进制转文本——也照红了）、`createObjectURL` 散在 8 个文件（预览图 blob URL 也用它，
 所以它**不能**当「下载只有 Net.save 一份」的判据）。宁可少守一条，也不留一条会误报的。
 §J 特意靠**词法器剥注释**才分得开 `showSaveFilePicker` 的「注释里提到」与「真调用」——
-`workbench.js` 与 `index.html` 各有一句注释正在说明它被删了，正则去查会被那两句照红。
-**改完判据本身要跑 `node tests/mutation.cjs`** —— 30 个变异逐一改坏源文件、
+`workbench.js` 与 `director.html` 各有一句注释正在说明它被删了，正则去查会被那两句照红。
+**改完判据本身要跑 `node tests/mutation.cjs`** —— 44 个变异逐一改坏源文件、
 确认对应那档如期变红、最后按 SHA256 核对还原干净。判据自己也会「悄悄变成一把不坏的假尺子」：
 第一版 §A 用正则扫，被正则字面量里的花括号和字符串里的反引号带跑，一口气报了 3643 条假红；
 §G 第一版查「块里出现过 `insideLocalDir(` 就算过」，被人 `if (false && insideLocalDir(...))`
@@ -151,6 +172,16 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
 拼给模型的系统提示词里 `**` 是故意要 markdown 的，漏进去必须**放行** ——
 没有这条对照的话，「§H 什么都报」和「§H 什么都不报」在驱动脚本里长得一模一样。
 §H 刚上线就抓出两处真漏字（`drama.js` 的两条 `hint:`），都是源码里完全看不出问题的普通中文字符串。
+**而它「页面内联脚本」那一支其实一直是假绿**，本轮给 `UI_SINK` 补 `sub` / `body` 时配的那条变异当场抓出来：
+`lex` 拿的是 `seg.base`（那一页 `<script>` 在整份文件里的行号），token 的 `line` 是**全文件行号**，
+而取上下文用的却是 `ls[t.line - 1]`（`ls` 是**这一段脚本自己的**第几行）—— 模块 `base=1` 恰好没错，
+内联脚本整体偏移几百行，于是 `UI_SINK` 永远对不上，**星号真的漏进界面也报不出来**。
+改成 `ls[t.line - seg.base]` 之后，把 `**` 注进 `drama.html:5252` 那颗 `Confirm.choose` 的副标题才如期变红。
+**教训：一支判据「从来没红过」，先怀疑它读错了仪表，别当成「代码很干净」。**
+同一轮还撞见变异脚本自己的一个坏法：Windows 上 `fs.writeFileSync` 会被第三方（Defender / 索引器）
+**短暂**占住，报 `errno -4094 UNKNOWN open`，本机两次运行各撞一次、一次抛在 `restoreAll` 中间 ——
+抛在那里就等于留下变异过的一半源文件，而 `orig` 是启动时读的字节，下一轮会把污染当基线照单还原还报「哈希一致」。
+现在 `write()` 退避重试 12 次，仍失败就明确报错说清是哪个文件（宁可停下，也不带着坏状态继续跑）。
 写判据时踩的坑与页面里踩的是同一批，**先证尺子再信读数**。
 **§I 那一档**（能力来源那句话只有一份口径）是本轮加的，抓的是「同一份数据四处各写一遍」：
 `studio.html` 三处（型号下拉下的副注、格式下拉下的提示、换平台后的 `#capHint`）
@@ -194,12 +225,12 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
    `node --check` 报的行号指向的是注释的**第二行**，离真正的原因隔着一百多行。
    而修它的那个脚本第一行注释里又嵌了块注释的起止标记，把自己写炸了一次 —— 同一类错，一天内撞两次。
 ⑥ **`tests/mutation.cjs` 会临时改源文件，所以「怎么结束」比「怎么开始」更要紧**（2026-10 实测漏过一次）：
-   30 个变异要跑 30 遍全套判据，前台 60 秒窗口不够，进程被收走，`proxy.js` 里留下了 §G 那个
+   那时有 34 个变异就要跑 34 遍全套判据（现在 44 个），前台 60 秒窗口不够，进程被收走，`proxy.js` 里留下了 §G 那个
    `if (false && insideLocalDir(to))` 就再没被还原 —— 而 `git status` 里它只是混在改动里，
    不逐行看根本发现不了。**更坏的是下一次运行发现不了**：`orig` 是「读进来时的字节」，
    那份泄漏就成了新的起始状态，被照单还原，最后还报一句「哈希一致」。
    已加两道：① `process.on('exit'/'SIGINT'/'SIGTERM'/'SIGHUP')` 里兜底还原（只有 SIGKILL 拦不住）；
-   ② 开跑时把 13 个被跟踪文件的 SHA256 短哈希打出来，两份日志一对照就能看出起点变了。
+   ② 开跑时把 14 个被跟踪文件的 SHA256 短哈希打出来，两份日志一对照就能看出起点变了。
    **别用短超时跑它**，超时中断和杀进程是一回事。跑完再扫一遍残留指纹才作数。
 ⑦ **内联 `node -e "…"` 在 PowerShell 下会翻车，写成 `.cjs` 文件**。本轮一天撞三次：
    反斜杠被当成普通字符（正则里的 `\\n` 变成字面 `\n` 的意思不对、`\\.` 变成 `.`），
@@ -282,17 +313,28 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
 灯箱预览用 `Wb.lightbox`，下载走 `Wb.save(url,name)` → `Net.save`**
 （都在 `workbench.js`，配套样式在 `ui.css` 的 `.det-*` / `.tph` / `#lbStage`；
 页面只提供适配器，别再各写一份 renderDetail / fmtDetail / 卡片列表 / 灯箱）。
-**页面级滚动的续拉触发器 `Wb.pager.sentinel(哨兵, onMore)`**（2026-10 新增，替代三页各写一份）：
-`Wb.pager` 原来只有 `create().bindScroll(容器)`，它假设**列表容器自己滚**（工作台的结果区）。
-而角色 / 收藏 / 资产库是**整页滚**（列表不带滚动条），这三条以前各写一遍：
-`IntersectionObserver` 观察 `<div id="gridEnd">`（`rootMargin:300px`）+ 老浏览器退回 `window scroll`
-（余量 300）。三份**逐字相同**，只有「触发之后做什么」不同。
-差别在滚动发生在哪一层，不在续拉本身，所以单立一个静态方法；**它只管怎么触发，不管触发后做什么**：
-资产库多一条 `autoBusy`（一屏没填满时会连发），角色和收藏要判 `shownCount()` 够不够 ——
-塞进公共方法就成了第二份。**也不判分页模式**：守卫留在页面自己手里，
-`page` 模式下三页的回调都会在第一句 return（实测过：翻页模式滚到底条数确实不变）。
+**续拉的「什么时候拉、拉几批」只在 `workbench.js` 的 `pullLeadPx` + `makePuller` 算一次**（2026-10 重构）：
+`Wb.pager` 原来有两条各写一套触发的路 —— `create().bindScroll(容器)`（列表容器自己滚，工作台结果区）
+和静态的 `sentinel(哨兵, onMore)`（整页滚：角色 / 收藏 / 资产库）。两者都只解决「怎么被触发」，
+**拉完之后还要不要再来一轮、正在拉时不许再排一个** 都没管，于是症状是「滑到底等好久才出来」：
+① 提前量写死（哨兵 `rootMargin:300px`、容器 `scrollHeight-160`），而一次冷请求实测 5.2 秒（VGENV）/
+2.9 秒（SparkCine），300px 走两步就用完了，用户只能**在底部原地等满一轮**；
+② `IntersectionObserver` 只在「相交状态翻面」那一下回调，一次滚到底只拉一批，拉完还贴着底
+**不会再触发**，得往上滚一点再滚回来；
+③ 一次滚动连发几十个事件，没有单飞锁时同一个续拉能排成一串。
+现在两头都走同一份判据：**提前量 = 视口高 × 1.5**（下限 240px，所以窄窗也不会退回「只有几百像素」）；
+**一次触发最多追 8 轮**（`PULL_MAX_ROUNDS`，替掉了页面里那圈 `guard < 20`），而且
+**只有回调返回 Promise 才追下一轮** —— 角色库 / 收藏是纯本地翻页（同步返回），给它们追轮就是一圈空转。
+`bindScroll` 另外补一句：**绑定时先 pull 一次**。列表还没填满一屏时根本不会产生 scroll 事件，
+老写法就等于「永远不等」。
+**仍然留在页面手里的是「要不要开始拉」**：分页模式、`hasMore()`、`loadFailed()`、够不够一屏这些守卫，
+各页判法不一样（`page` 模式下三页的回调都在第一句 return，实测过滚到底条数确实不变），
+塞进公共方法就成了第二份。**回调第一句 `return`（不返回 Promise）等于告诉公共层「这次别追轮」**。
 哨兵 div 仍由页面写在 HTML 里（`style="height:1px"`，没有高度就不会被观察），
 但绑定的活归公共方法，`box._sentinelBound` 幂等 —— 同一根哨兵不会被绑第二次。
+资产库那页的 `autoBusy` + `nearBottom` + 「一屏没填满连发 fetchMore(2)」是**同一件事的页面私有实现**，已删；
+顺带把「一次触发发两个串行请求」也收成 `fetchMore(1)`（1 = 平台声明的一整批 ~100 条），
+**首批到达时间因此砍掉一半**。`bindScroll` 的 `mode` / `reqSeq` 代际号照常归 `create()`。
 
 **跑 headless / 自动化浏览器测试之前，先给 `.data/` 落基线**（2026-10 踩过）：
 「用 `--user-data-dir=<临时目录>` 起隔离 profile」**不等于隔离数据** —— `ui.js` 的 `Store.write`
@@ -350,8 +392,8 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 外壳那份现取；现在只有 `drama.html` 注册，因为只有那一页的状态在闭包里、外面读不到。
 界面上的下拉当前值由 `domPicks()` 自己扫 DOM，页面**不要**再抄一份「我选了哪个型号」）。
 硬约定：
-- **读与写是两张表**：`TOOLS` 里全是 GET 与本机读（16 项：`overview` / `tasks` / `doctor` / `models` / `model` / `dramas` / `chars` / `fav` / `assets` /
-  `prompts` / `usage` / `settings` / `credits` / `go` / `files` / `read_file`）；写只在 `ACTS` 里（`generate` 提交一次生成任务、
+- **读与写是两张表**：`TOOLS` 里全是 GET 与本机读（17 项：`overview` / `tasks` / `history` / `models` / `model` / `dramas` / `chars` / `fav` / `assets` /
+  `prompts` / `usage` / `settings` / `doctor` / `credits` / `go` / `files` / `read_file`）；写只在 `ACTS` 里（`generate` 提交一次生成任务、
   `set_setting` 改一项设置）。**新增查询只加 `TOOLS` 一个条目**（`arg` / `doc` / `run` 三样写在一起），系统提示词里那份清单由这张表现拼 ——
   分成两处写就会出现「指令还在教模型用已经改掉的参数」。
 - **助手提交的任务由外壳自己等**（`ai_chat_watch`，`K_WATCH`）：`runGenerate` 拿到任务号就 `addWatch`，`watchTick` 每 `WATCH_EVERY`
@@ -383,7 +425,10 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
   数值型只校验「是个大于 0 的数」并写明单位与**它管不了什么**（整集分钟数最终仍被视频平台声明的档位夹），
   **不要在助手里另编一套上下限**（那是第二份判据）。`sk_key_*` 与 `sk_base_*` 明确拒掉 ——
   前者会把密钥写进对话记录（`ai_chat` 跟着云同步出网），后者容易造出「A 家密钥打到 B 家地址」那种必然失败的组合。
-- **供应方与型号只存自己的 `ai_chat_pick`，不许写 `sk_text_prov` / `sk_model_*`**（那是设置页「点保存才生效」的动作）；
+- **助手自己在界面上挑的那一家 / 那一个型号只存 `ai_chat_pick`，绝不写 `sk_text_prov`**（「作用文字 AI」是设置页
+  「点保存才生效」的动作，替用户改就等于把他选的供应方换了）。**但 `sk_model_<kid>` 是白名单里的一项**
+  （见上条）—— 那是「把某一家的默认型号改成 X」这种用户会主动要求的动作，走 `set_setting` 的确认卡片，
+  和「这一轮对话我自己临时用哪个型号」是两件事，别写成一句「都不许改」。
   发请求时把选中的那家**显式**当 `prov` 传给 `TextAI.chatStream`，别让它退回 `TextAI.prov(REG)`（保存值）。
 - **流式进行中不许「清空」**（`paint()` 会把正在往里写字的那条气泡一起清掉 —— 字丢了，请求还在跑、还在扣 tokens）；
   断开这一层（刷新 / 关掉外壳）时 `pagehide` 要把**已经写出来的字**落盘，并写明这次断了。
@@ -528,6 +573,20 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
   ③ **别再叠浏览器自己的 `loading="lazy"`** —— 放行由调度器说了算，屏幕外那几张会被压着不取，
   并发插槽白占到 15 秒兜底才放行，反而更慢。
 - 媒体**一律**用 `Api.mediaSrc` / `Wb.thumbs.mediaHTML` 出地址，缩略图缓存键走 `Wb.thumbs.keyOf` 归一化。
+- **写进本机记录的地址必须是「记得住的」地址，`blob:` 与上游签名外链都不算**（2026-10 素材库踩过）：
+  选择器（`AssetPicker`）递回来的条目有两种地址是「当场能用、过后就没了」—— 本地上传那一张是 `blob:`
+  （刷新即失效），资产库 / 收藏那一张多半是包着签名外链的 `/getv`（外链只管一天）。而**素材库存的是字符串地址**
+  （`drama_chars` 是 JSON 落盘），记成这两种等于把一张已经不存在的图写进库：第二天卡片是破图，
+  拍短剧把它交给平台时也取不到字节。所以入库前先过 `AssetTransfer.toLocalAsset(source, opts)` 落成本机资产
+  （`chars.html` 的那一层薄封装叫 `durablePic`，只管「这一页怎么说进度与失败」）。
+  **落盘只有这一处实现**：`/asset/` 形状原样退回（`fresh:false`，不再存第二份）、其余按字节走
+  `Api.saveLocalAsset` 落成 `/asset/<id>?v=2`；字节取不到、代理没回资产号都**照实抛错**，
+  绝不回一个空串让库里悄悄存一条没图的记录。
+  反过来，`/asset/<id>` 形状**只按形状收**、不去验文件在不在 —— 那不是偷懒，是本机的三级回退
+  （代理 `/asset/<id>` 本地优先 → 索引里的 `upstream` 重下 → 问平台要地址）本来就是为「文件真没了」准备的，
+  卡片上会显示「已丢失」角标；在这里先验一遍等于每次打开都多发一个请求。
+  **这一条还没有常驻判据**（§J 那张表里没有它的一行）：要加就得跑 `tests/mutation.cjs`，
+  而那个脚本会临时改源文件 —— 与另一路会话同时写同一份目录时不要跑（见 §5 那一条）。
 - **文本要转义**：凡是插进 `innerHTML` 的用户文字 / AI 文字都过 `Drama.esc()`（或页面自己的转义函数）。
   剧本文本、角色名、台词全是模型或用户给的原始字符串，直接拼进模板就是一条 XSS。
   纯文本内容用 `textContent`；只有确定没有用户输入的地方才用 `innerHTML`。
@@ -628,6 +687,11 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
   要几个选项用 `Confirm.choose`，要几个字段用 `PromptForm.open`。
   直接 `document.createElement('dialog')` 写 `.dr-head` / `.pr-foot` 就是又一份实现（踩过：样式慢慢走样，
   而且 `.pr-*` 的样式全挂在 `#prDlg` / `#cfDlg` 这些 **id 选择器**下，换个 id 的新弹窗会**完全没有样式**）。
+- **`PromptForm` 要「选了这一项，别几项跟着改口」只有一条路：传 `onChange(key, api)`**。公共层不认识具体语义，
+  它只交出三个口子 —— `api.values()` 读现在的值、`api.set(key, {label,placeholder,hint,value,hidden})` 改某一行的
+  文字或取值、藏一整行。**不给重画整张表单**（那会把用户刚打进去的字清掉，而这是弹窗里最常见的动作）。
+  字段声明支持 `hidden: true`，**藏起来的行不进返回值**（留着它会把上一次切换时那个 `<select>` 的取值一起递出去 ——
+  表现为「道具身上存了一个时段」）。要改的取值是 `select` 时 `api.set` 会自己补一次 `Dropdowns.sync`，页面不用管。
 - **页面必须自带完整的 `:root` 主题变量块**（与其它页面一致，含 `html[data-theme="dark"]`）。
   只写一两个变量（比如只写 `--pri`）看起来没事，但 `var(--panel2)` 之类取到的是**空值** ——
   「变量存在但值为空」**不会**触发 `var()` 的回退值，整条声明直接失效（背景变透明、边框消失）。
@@ -967,10 +1031,11 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 - **播放键统一在媒体区左下角**（`.tplay`，34px 圆形），播放中淡出、hover 回来；
   音频卡另有一个大号音频符号 `.tbg` 做背景（不是空白占位）。
 - **左栏素材槽的磁贴样式是 `ui.css` 那一份**（`.assets-grid` / `.asset-slot` / `.cap` / `.x` / `.blocked` /
-  `.conflict` / `.rvthumb` …），与导演台右栏共用，`studio.html` **只管怎么排**：
-  `#inputArea .assets-grid` 用 `repeat(auto-fill, minmax(132px,1fr))`（列数是算出来的，不是写死三列 ——
-  `ui.css` 那条固定三列搬过来会把一个槽拉成 300 多 px 的巨砖）；一次只放一个素材的槽位
-  （参考视频 / 参考音频 / 首尾帧）那一块加 `.span2` 横跨两列。**不要再自绘一套磁贴。**
+  `.conflict` / `.rvthumb` …），与导演台右栏共用，`studio.html` **只管怎么排**，排列也照导演台右栏那套：
+  栏目标签行 `.ed-label`（左标题、右 `.cnt` 现算说明，样式在 ui.css 一份）→ 方格槽（参考图 / 首尾帧）进
+  `#inputArea .assets-grid`（`repeat(auto-fill, minmax(132px,1fr))`，列数是算出来的，不是写死三列 ——
+  `ui.css` 那条固定三列搬过来会把一个槽拉成 300 多 px 的巨砖）→ 单值槽（参考视频 / 参考音频）整行
+  `.slot-wide` 排在网格**外面**（`.rvthumb` + `.rvmeta` 横排，与导演台同一份）。**不要再自绘一套磁贴。**
   数量 / 类型 / 体积上限全部来自 `Capabilities`，点开就是公共 `AssetPicker`。
 - **右栏类型分类是数据驱动的**：`kindOrder` + `kindTabs()` 按 `mtype` 现算分类与计数
   （选中的分类即使计数为 0 也保留），别写死「图片 / 视频 / 音频」。
@@ -979,8 +1044,31 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 - **卡片可以拖进左栏当参考素材**：整张卡 `draggable`，载荷是本页自产的 `application/x-studio-ref`（JSON），
   同时兼容旧 `application/x-asset-id`；落到当前模型**能接收该类型**的槽位上，必要时先 `AssetTransfer.blobOf`
   取回字节再入槽。
-- **「复用这次创作」**在详情面板里（`reuseInto`），配合 `?reuse=1` + `sk_reuse` 供资产库 / 收藏页跳转；
-  按目标类型自动切栏，必要时自动换到支持该槽位的型号。
+- **「把一条素材推进它那一类的槽位」全站只有 `studio.html` 的 `refIntoSlot(mtype, p, o)` 一份**，三个入口都走它：
+  右栏卡片拖进左栏（`dropRefMedia`）、详情面板的「复用这次创作」（`reuseInto`）、跨页带过来的那一条
+  （`applyReuseFromAssets`）。以前跨页那一份是另写的，少了两条判据 —— 槽位与已选素材互斥（拖拽那份会先挡）、
+  首帧槽位收到视频要绕开「直接引用地址」那条快路（否则塞进去的是视频直链，到提交才被平台拒）。
+  **三个入口唯一允许不一样的地方是 `o.autoSwitch`**：跨页复用与「复用这次创作」能替用户换到收得下这类素材的型号
+  （用户点它就是为了让这条进得去），拖拽不能（那会悄悄换掉他挑好的型号）。
+  它不抛错：取字节失败也归成一个 `code` + `why` 交回调用方，由各自的界面说话。
+- **跨页载荷只由 `workbench.js` 的 `Wb.reuse.go(o)` 拼，只由 `studio.html` 读一次**（§J 第 ⑧ 支守着这个「各一份」）：
+  素材库 / 收藏 / 资产库三页各写一份 JSON 时，消费端**只认平台资产号**，而素材库那张图只有本机地址、
+  收藏里的本地文件只有 IndexedDB 号 —— 两边递过去的是 `assetId: undefined`，工作台拼出 `/asset/undefined`，
+  取字节必然 404，而界面只说一句「已复用提示词」，素材根本没进槽看不出来。三条约定：
+  ① 载荷只带**工作台真会读的字段**（`src` / `assetId` / `dl` / `fileKey` / `name` / `prompt`），
+  别把平台、时长、画幅塞进来充数 —— 递了就是「界面上说带过去了、其实没带」；
+  ② `go()` 会从 `/asset/<号>` 形式的地址里**认出号来**，所以页面只递地址也能走「直接引用」那条快路；
+  ③ 收藏里的本地文件**不许带 `urlOf()` 那条 `blob:` 地址**（blob 地址属于当前文档，跳页就失效），
+  带的是 `fileKey`，工作台按号去 IndexedDB 取字节。素材库（`chars.html`）的「拿去生成」是这一条的新入口：
+  预览图那一颗在收起状态的 acts 行（它不是花钱动作，所以摆得着），角色资产每一行各一颗。
+- **图像栏「拆分片段批量生成」只有图像栏有**（`#splitBtn` + 就地面板 `#splitInline`，张数与拆分维度用户定）：
+  文字 AI 出方案（指令 `TextAI.DEF.img_split`，在 `NO_ASK` 里 —— 它要 JSON，不能拼追问说明；
+  设置页 PROMPTS 表自动多一格，不用改设置页）→ **必须过 `PromptReview.openList` 确认**
+  （N 条真任务各自计费，可改可删可重新规划）→ 逐条 `createImageOnce` 进右栏历史，**不建本地任务卡**。
+  参考图两个去处：规划时 `TextAI.polishImages` 带给文字 AI（只有识图型号才发），
+  提交时与主生成按钮同一套 `uploadImageRefs` 传一次、每张都带。
+  批量**不走 `trackSubmit`**（那是拦「同一次提交点两下」的，批量是 N 次有意提交）；
+  「结果未知」与主提交共用 `maybeSubmitErr` 一条判据（传输层异常才算，别各写正则）。
 - 调试提示：这一页在 iframe 里，**浏览器控制台 / 网络面板只看得到外壳顶层**，页内报错很难看见。
   真要查就在页内临时挂 `window.onerror` 往 `PUT /data/<名字>` 写一份启动日志，**查完连代码带落盘文件一起删**
   —— 别把这种诊断通道留在正式代码里。
@@ -1039,14 +1127,66 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 - 用户的工作区、历史、归档是用户数据：清理前先确认是测试残留，别擅自删。
 - **端口不再固定 5175**：`proxy.js` 现读 `.env` 的 `PORT`（系统环境变量优先，都没有才退到 5175；
   `PORT` 那一行必须排在 `loadEnvFile(true)` **后面**，排在前面就等于 `.env` 里写的端口永远不生效），
-  `启动.bat` 认同一个优先级并把**实际跑起来的端口**记进 `.proxy-port`（停止 / 重启 / 退出都按它关，只杀 node 的进程）。
+  启动器 `launcher.ps1` 认同一个优先级并把**实际跑起来的端口**记进 `.proxy-port`（停止 / 重启 / 退出 / **关掉那个窗口**都按它关，只杀 node 的进程）。
   之所以要做成这样：Windows 的 Hyper-V / winnat 开机时保留走一段连续端口（本机实测 5174~6173 整段不可用，
   **5199 也在里面**），撞上报的是 `listen EACCES`，而 `netstat` 根本看不见那个号 ——
-  「这个端口能不能用」只能真 bind 一次问系统（`启动.bat` 的 `:findfree` 就是这么挑的，往上找 8000 个不到一秒）。
+  「这个端口能不能用」只能真 bind 一次问系统（`launcher.ps1` 的 `Find-FreePort` 就是这么挑的，往上找 8000 个不到一秒）。
   保留段每次开机都可能不一样，所以文档里的端口号只是「当时实测能用」的样本，绑不上就换一个。
-  **改 `启动.bat` 要先在临时目录写成 UTF-8，再 `iconv -f utf-8 -t gbk` + CRLF 落回项目里**：
-  这一个文件是 GBK（`chcp 936`）而其余文件全是 UTF-8，直接用编辑器写回去，每一行中文都会成乱码，
+- **启动这一层现在是两份文件，改行为只改那一份**：`启动.bat` 是薄入口（只负责拉起 `launcher.ps1`，找不到就照实说并给出
+  「直接跑 `node proxy.js`」的出路），界面 / 起停 / 端口判据 / 日志全在 `launcher.ps1` 里。
+  **`启动.bat` 是 GBK（`chcp 936`）而其余文件全是 UTF-8**：改它要先在临时目录写成 UTF-8，再
+  `iconv -f utf-8 -t gbk` + CRLF 落回项目里，直接用编辑器写回去每一行中文都会成乱码，
   而且 `node --check` 那类语法自查一行都报不出来（它不是 js）。
+  **那一句 `start` 必须带 `-WindowStyle Hidden`**（截图上暴露的：桌面上同时挂着 GUI 和一个空的
+  「Windows PowerShell」控制台）。理由不是「难看」：控制台那一个**更好按**，而关掉它是**硬杀进程**
+  （`FormClosing` 根本不走）—— 端口上的服务当场变成没人认领的孤儿，「关掉这个窗口会停掉服务」只剩 GUI 那一个出口。
+  藏掉控制台就带来另一个坏法：`launcher.ps1` 一旦解析不过，双击是**完全没反应**（窗口不出现、日志也没有）。
+  所以 bat 在 `start` **之前**用 `Parser::ParseFile` 预检一次，不过就把原因打在自己这块看得见的控制台里并 `exit /b 1`。
+  两条路都有临时探针验过（`.tmp-batwin.cjs`：A 桩界面起来后按 pid 枚举窗口，控制台必须在；
+  B 故意给一份语法坏的 `launcher.ps1`，必须看得见原因且退出码是 1）。
+  `launcher.ps1` **必须是 UTF-8 带 BOM + CRLF**：PS 5.1 不带 BOM 就按系统 ANSI 代码页读，界面上每一句中文都是乱码，
+  而 `Add-Type` 那段编译错误也会跟着一起看不出来。
+  自检：`powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest`（跑的就是界面用的那一份真源码，
+  `-EnvFile` / `-StateFile` / `-EnvAdd` / `-NoBrowser` 是给它用的探针口，所以全程不碰用户真实的 `.env`、`.proxy-port`、`.data`）。
+  **`-EnvAdd` 在命令行上只能连成一串递（`-EnvAdd A=1,B=2,C=3`），launcher 自己按逗号拆**：
+  `-File` 那条路上 PowerShell 只会把**一个** argv 绑给 `[string[]]`（本机实测四种写法：三项各占一个 argv 只收到
+  第一项；带引号的逗号串会连引号一起进来；只有 `-Command "& x -EnvAdd 'A=1','B=2','C=3'"` 才绑成三个，
+  而双击走的是 `-File`，所以那条路不算）。这一条要紧是因为漏掉的那两个是 `ASSETS_DIR` / `RENDER_DIR` ——
+  探针生成的素材与成片会直接写进用户真实的 `.assets` / `.renders`（那里没有 `.data` 的 `.bak` 与对账保护），
+  而「真实 `.data` 一个字节都没动」这项断言**照样全绿**。判据要落在 `/sys-status` 的三个目录上（数据 / 资产 / 渲染都点名），
+  只查 `DATA_DIR` 等于没查。
+  **界面里每一个 `[类型]` 字面量都要在自检里点一遍名**（`Get-TypeLiteralReport`，自检 ⓪-b 档）：
+  踩过一次真崩在用户面前 —— `[System.Windows.Forms.MessageBoxIcons]` 多写一个 s（正确是单数 `MessageBoxIcon`），
+  `Parser::ParseFile` 与 `node --check` 那一类语法自查**一个字都不报**，只有运行到那一条分支
+  （「服务不是这个窗口起的，要停吗？」）才弹 WinForms 那面「未处理的异常」大字报，而那条分支平时根本走不到。
+  所以这一档不测行为、只测名字。两个必须写在一起的细节：
+  ① `-as [type]` 之外还要按 `AppDomain` 走一遍，否则本文件里 `Add-Type` 编出来的 `Native.Dpi` /
+  `WorkbenchRunner` 会**假红**；② 还要断言「扫到的类型字面量 ≥ 20 个」，因为**扫出 0 个也算全过**
+  （`TypeAst` 在 PS 5.1 里是 internal，写它的名字去判类型就会撞上这一档正要抓的那个错，要认它两个公开子类
+  `TypeExpressionAst` / `TypeConstraintAst`）。三个变异各钉住一半：改坏类型名 → 只那一条红并点名错的那一个；
+  点名函数恒返回 `$null` → 整份名单红；扫描条件恒假 → 报「共 0 个」。
+  **状态灯与日志必须说同一件事（自检 ⓪-c 档，`Get-StartFlagOrder`）**：等监听那个块里「端口上真有人在听」
+  要排在「等满了没有」前面。反过来的那一版界面不会报错，只会**说谎** —— 日志里早写着
+  「proxy 已启动：http://localhost:6500」、页面也开好了，顶上还挂着「正在启动 / 正在等服务监听上 6500」
+  整整 25 秒（截图拍到过）。判据落在**两处落地的先后**上：查「块里出现过 `Proxy-Running` 这个词」会算上注释，
+  查「出现过 `StartingSince = $null`」超时那一条也满足，两种都是假绿的尺子。
+  写这一档时又撞见一次「尺子自己坏」：PS 5.1 的 `IfStatementAst` **没有 `Condition` 属性**（只有
+  `Clauses`，每项是个 Tuple：`Item1` 条件、`Item2` 那一段），拿 `.Condition.Extent.Text` 去比永远拿到 null，
+  于是新加的那一条报「找不到那块」—— 看着像代码不对，是判据读错了仪表。
+  `BinaryOperatorType` 在这个 run-space 里**根本解析不到**（正好被 ⓪-b 那一档当场抓出来），所以比较符不要写枚举，
+  认「右操作数是 `$StartGiveUpSec` 的 `BinaryExpressionAst`」就够（赋值不是二元比较，字符串里提一句变量名也不会冒充）。
+  三个变异各钉一半：退回先问超时 → 红在「问监听在第 N 行，问超时在第 N 行」；拿掉超时 → 红在「没有超时那一条」；
+  外层条件改名 → 红在「这样的等待块有 0 处」。
+  **要看界面上某一瞬间长什么样，得自己截图，不能靠 MCP 那一跳**（它的往返延迟比「正在启动」这一秒的状态还长，
+  拍到的一定是之后的样子）。两个必须做对的细节，做错了就是「截到的不是那个窗口」：
+  ① `Get-Process` 的 `MainWindowHandle` 对 `powershell.exe` 起的 GUI 常常是**那个蓝色控制台**，
+  要按类名前缀 `WindowsForms` 现枚举该 pid 的可见顶层窗口；
+  ② 截屏进程必须 `SetProcessDPIAware`，否则 `GetWindowRect` 给的是虚拟化坐标而 `CopyFromScreen` 用真实像素，
+  截出来偏掉一大块（本项目实测 125% 缩放下偏到窗口外面，只拍到一条边）。
+  另外**连拍十几张（每 350~400ms 一张）**才掐得住那种一秒就过的状态；关窗用 `PostMessage WM_CLOSE`，
+  不要用 `Kill`（那正是跳过 `FormClosing` 的那条路，等于没测）。
+  改完这一层要**连 `launcher.ps1` 一起进 `tests/selfcheck.cjs` 那类语法自查之外**单独跑一次：PS 的语法用
+  `[System.Management.Automation.Language.Parser]::ParseFile(...)`，`node --check` 对它什么都看不见。
 - **自动化 / headless 验证一律跑隔离实例，不要在真实实例上写**：`PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-probe node proxy.js`
   起一份独立代理，测试脚本的 `BASE` 默认指向它。原因：浏览器侧每一次 `localStorage.setItem` 都会镜像成 `PUT /data/<key>`（last-writer-wins），
   而启动对账 `DataSync.boot()` 是异步的 —— 在全新上下文里跑真实实例，很容易把**加载前读到的旧快照**盖回用户数据上
@@ -1085,15 +1225,15 @@ done
 # 注意 re 要写在循环**里面**：带 g 的共享正则会把 lastIndex 带到下一个文件，
 # 于是从中间切段，报出一堆「Unexpected identifier」的假语法错误（踩过）
 node -e "const fs=require('fs'),vm=require('vm');
-for (const f of ['index.html','drama.html','studio.html','assets.html','favorites.html','settings.html','usage.html','shell.html']) {
+for (const f of ['director.html','drama.html','studio.html','assets.html','favorites.html','settings.html','usage.html','shell.html']) {
   const h=fs.readFileSync(f,'utf8'), re=/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
   let m,i=0;
   while ((m=re.exec(h))) { i++; new vm.Script(m[1],{filename:f+'#'+i}); }
   console.log('OK',f,i+' 段');}"
 ```
 
-- 改的是 `proxy.js`（不是 `.env`）→ **必须重启代理**才生效（`启动.bat` → 2 停止 → 1 启动；或杀掉 `.proxy-port` 上那个 node 后 `node proxy.js`）。
-- 改完至少把页面各加载一次（`shell.html#…` 里逐个切：index / drama / studio（视频 / 图像 / 语音三种类型都要切一遍，
+- 改的是 `proxy.js`（不是 `.env`）→ **必须重启代理**才生效（启动器窗口里点「重启」；或杀掉 `.proxy-port` 上那个 node 后 `node proxy.js`）。
+- 改完至少把页面各加载一次（`shell.html#…` 里逐个切：director / drama / studio（视频 / 图像 / 语音三种类型都要切一遍，
   `studio.html?t=video` / `?t=image` / `?t=audio`）/ chars / favorites / assets / usage / settings，
   外加直接打开 `drama.html` 与 `studio.html`），确认没有错误横幅、没有控制台报错、关键列表/下拉有内容。
 - **`vm.Script` 全绿 ≠ 模块能加载。** 一天之内踩到两处，都是「删掉页面私有实现」留下的**裸调用**，
@@ -1144,8 +1284,9 @@ for (const f of ['index.html','drama.html','studio.html','assets.html','favorite
   最后每个裸调用从它所在块往外一层层找。**`−1` 是脚本顶层作用域，也要查** ——
   多数页面是「顶层声明 + IIFE 里用」的形状，只查块会全判成查不到。
   还要排掉三类不是调用的写法：`new X(`、对象方法简写（`)` 之后紧跟 `{`）、
-  以及 `window.X` 导出的公共层。`Assets/Index/Studio/Settings/Usage/Drama/Chars` 八个页面
-  现在共 3455 处裸调用全部解析得到，这一档就该是绿的。
+  以及 `window.X` 导出的公共层。九个页面（`director` / `studio` / `drama` / `assets` / `chars`
+  / `favorites` / `settings` / `usage` / `shell`）的 19 段内联脚本现在共 1453 处裸调用全部解析得到，
+  这一档就该是绿的。
 - **数据层要拿真源码跑一遍桩，不能只读代码**：`drama.js` 装进最小 window 桩
   （`Store` 与 `localStorage` **必须共用同一份底座** —— 真实现就是 `Store` 写 `localStorage`，
   两者分开就等于没测 `listBroken`；`Store` 还要照抄信封 `{data,ts}` + `cap` 的语义）。
@@ -1276,7 +1417,7 @@ for (const f of ['index.html','drama.html','studio.html','assets.html','favorite
   ③ `Api.mediaSrc(url)` 会查那张内存表 —— 所以页面**一行都不用改**：播放器、缩略图抽帧（`Wb.thumbs._source`）、
      灯箱、`/fetch?url=…&dl=1` 的下载链接都跟着换成新鲜地址。
   落盘由调用方在 `onFresh` 里做（收藏写回 `fav_items`，导演台写回工作区并 `DataSync.mirrorWs`），别指望内存表跨会话。
-  开机回源这一趟必须放后台（`index.html` 的 `healStaleUrls()`），别在首屏 await —— 收藏/镜头一多就被慢接口拖住。
+  开机回源这一趟必须放后台（`director.html` 的 `healStaleUrls()`），别在首屏 await —— 收藏/镜头一多就被慢接口拖住。
   **别拿 assetId 拼 `/asset/<id>` 当新鲜地址**：那条本地路由只服务本工作台落盘的产物，别平台的资产号进去就是 404 破图。
 - 云同步：`POST /cloud/sync`（一键双向）/ `resolve`（冲突二选一）/ `GET /cloud/backups` + `POST /cloud/restore`。
   冲突判定靠 `.data/.cloud-state.json` 基线（点开头 = 内部状态，不参与 dataList/上传/下载）。
@@ -1312,13 +1453,69 @@ etrieve 是「产物只给文件号」那一族的通用环节，不是某一家
   （error 不冒泡但捕获阶段截得到，所以卡片 / 列表 / 灯箱 / 详情面板一次全覆盖，页面一行都不用改）。
   入队只有 `offer`（同步入队）与 `scan`（列表每批到达时扫一遍）两个口，下载在队列里异步做。
   **镜像索引 `sk_local_mirror` 刻意不进 `DataSync.SYNCABLE`**（本体在 `.assets/`，换机器那些 `la_xxx` 压根不存在）；
-  两个开关（`sk_media_local` / `sk_media_prefer`）要进。代理的 `LOCAL_INDEX_MAX`（2 万）与客户端的 `IDX_MAX`
+  三个开关（`sk_media_local` / `sk_media_prefer` / `sk_media_cloud_hide`）要进。代理的 `LOCAL_INDEX_MAX`（2 万）与客户端的 `IDX_MAX`
   **必须一样** —— 两边各截一半会出现「明明存过，点开却说已丢失」。
-- **下拉浮层挂 `body` 用 `fixed` 定位，不留在 `<select>` 原来的位置上**（`ui.js` 的 `Dropdowns` + `ui.css` 的 `.dd-list`）：
+- **「不显示云端任务」是一张闸，不是一套筛选**（`AssetLocal.hideAsCloud(o)` 是全项目唯一判据，内部现问
+  `localOnly()` = 三档开关都开着）：页面**不许自己拼「三个开关都开着 + 本机没有这份字节」**，
+  也不许在列表里另加一条 `if (云端) return false`。
+  ① **生效范围只有两处**：生成工作台与资产库的列表。**我的收藏与素材库一概不藏** —— 那两页存的是人手工挑进来的东西，
+  一条看不见就是「我收的东西没了」，而不是「云端的东西过滤掉了」；
+  ② **三种情况故意不藏**：在跑的 / 排队中的（`queued` 里有这一条就不藏，否则刚生成的闪一下就没了，
+  落盘完才回来，而那一闪正好是人看结果的那几秒）、失败的（藏了失败原因一起丢）、还没有产物的；
+  ③ **计数与翻页要吃同一个过滤结果**（`assets.html` 的 `hiddenCloud` 那一处）：先数后滤的话
+  「共 N 项」和翻页禁用判断拿到的是含云端那一份，界面上就是两个自相矛盾的数字。
+  **第三档开关的 `needs` 只写在 `ui.js` 的 `UI_PREFS` 声明里**（设置页按它决定画不画），
+  真生效判据仍是 `localOnly()` —— 「依附前两档」这件事有一处声明、一处生效，不要在第三处再判一遍。
+- **两颗「自动下载」（`favorites.html` 的 `#pullBtn`、`chars.html` 的 `#btnLocal`）只走 `AssetLocal.pull` 这一条落盘链**：
+  与后台自动镜像同一个队列、同一份身份判据（`keyOf`）、同一道去重、同一份按类型另存；
+  页面**不许**自己 `fetch('/local-assets')`、也不许复制一份 `runOne`。
+  `opts.force: true` 只绕过「自动存本机」那档开关 —— 用户亲手点的这一颗不该被一个后台开关挡掉，
+  但**绕不过身份与去重**（同一个身份第二次点得到 `saved` + `kept`，一个字节都不许多下）。
+  「有没有本机副本」统一问 `AssetLocal.hasLocalAddr(u)`（收藏 / 素材库存的是一串地址而不是条目，只能按地址问；
+  `blob:` 一律不算，那是当场上传、换页就没了的那一份）。存好后各自写回**本页已有的**持久化出口
+  （收藏 `Fav.localize` → `fav_items`，素材库走本页 `libSave`）—— 写了内存不写库的话，界面看着换成本机地址了、
+  刷新又退回那条已经过期的外链。回执按桶说人话（成了几个 / 本机早就有 N 个 / 后台那一轮正在存没重复排 /
+  存不了的为什么 / 没写进库的有几条），**失败必须有回执**：`runOne` 失败要把这一条从 `queued` 摘掉，
+  否则「再点一次自动下载」永远得到 `busy`，那颗按钮从此是死的。
+  这一条现在有三处兜着：`tests/selfcheck.cjs` 的 §J 第 ⑨ 支（静态扫：pull 调用点恰好 2、
+  hideAsCloud 定义 1 / 调用 3 且只在那两页、页面里不许出现 `/local-assets` 字面量；
+  四个变异 + 一条反向对照在 `tests/mutation.cjs` 里，反向对照是「注释里提一句那条路由不该算」），
+  行为侧有 `.tmp-mirror.cjs`（真 `ident.js` + 真 `assetlib.js` 装进 vm，钉住 force / 去重 / 在途 /
+  失败摘队 / `/getv` 解包 / 代理落空 这几档，三个内置变异各钉一半），
+  接线侧有 `.tmp-btn.cjs`（headless CDP 打隔离实例，验两颗按钮画出来了、绑上了、按真实缺口计数、
+  失败后照实说一句且没被焊死 —— 它第一版读的是**已经散掉的提示**，先在页内轮询才测得出来）。
+- **下拉浮层挂到容器外面用 `fixed` 定位，不留在 `<select>` 原来的位置上**（`ui.js` 的 `Dropdowns` + `ui.css` 的 `.dd-list`）：
   原地展开时任何祖先的 `overflow` 都会把它裁掉（生成工作台 `.adv` 是 hidden、左右栏是 `auto`、外层 `.layout` 还是 hidden
   —— 一个下拉要穿三层裁剪）。**逐个容器去改 overflow 等于把同一个毛病抄 N 份**，根在浮层脱离文档流。
   下方空间不足 160px 而上方更宽裕时自动加 `.up` 往上开；页面滚动 / 窗口变化按 `rAF` 重新 `place`。
   **`ai-chat.js` 里那条 `.ac-picks .dd-list` 容器特例已经删掉了，别再加回来。**
+- **`.dd-list` 的坐标两分支都必须显式写 `'auto'`，不能靠 `= ''` 清空**（`ui.js` 的 `place()`）：
+  `= ''` 清掉的是**内联**样式，而 `ui.css:298` 的 `.dd-list` 自己带着 `top: 0`。固定定位 + 高度确定
+  （内容撑到 `max-height: 264px` 就是确定的）时，`top` 与 `bottom` 同时有值属于**过约束**，
+  按 CSS 2.1 的规矩**丢弃 `bottom`** —— 于是往上开的那一块整钉在视口顶上，离按钮差几百 px。
+  这就是「素材库场景的『时段』选项跑到屏幕最上面」的根因：时段行在表单**底部**，下方空间不够才走这一支；
+  往下开那支看不出问题，只是因为内联的 `top` 正好把样式表的 `0` 盖掉了。**所以这一条影响的是全站每一个
+  往上开的下拉**，不是时段那一栏的事。判据落在行为上（`.tmp-ddpos.cjs`：面板与按钮的水平差 ≤2px、
+  垂直间隙按 `up` 分支各算一次，另加一次滚动 180px 复检「浮层跟着走」），
+  变异侧 `.tmp-mutdd.cjs` 把 `'auto'` 退回 `''` 会如期变红（实测 `listY:0 / gapUp:469`）。
+- **浮层挂在**哪一个**容器由 `ui.js` 的 `hostFor(select)` 现判：普通页面挂 `body`，`<dialog>` 里的挂那一个 dialog**。
+  判据放公共层，因为「弹窗里的下拉点开只剩一项」是**每一个弹窗**的同一个毛病（`PromptForm` 两处、`UiDialog`、导演台的
+  `scriptDlg`），在页面里各修一次就是 N 份实现。原因不是 `overflow` 也不是 z-index 不够：
+  `dialog.showModal()` 的**顶层（top layer）**盖过任意 z-index，所以挂到 `body` 的浮层会开在弹窗**背面** ——
+  选项一个都没少、`<select>` 的值照样能改，界面上却看不见也点不着，而且**控制台一条红字都没有**。
+  表现就是「新建素材的类型下拉只有一个角色类型」（其实三项都在，只是全在弹窗底下）。
+  挂进 dialog 之后定位仍然对：本项目**没有任何 dialog 的 CSS 带 `transform` / `filter` / `will-change` / `contain`**
+  （`ui.css` 里唯一的 `filter` 挂在 `.pr-foot .pri:hover` 那一个叶子按钮上），所以 fixed 元素的包含块仍是视口；
+  而 fixed 是出流元素，不参与 dialog 的 flex 布局，父级 `.pf-body` / `.pr-body` 的 `overflow:auto` 也裁不到它。
+  行为侧的常驻探针是 **`.tmp-newmat.cjs`**（headless CDP 打隔离实例：浮层的 `parentElement` 必须是那一个 dialog、
+  `elementFromPoint` 命中的必须是它自己、三项都在 —— 这一条正是「三项一直在、却只显一项」的判据；
+  换类型的说法/时段收放、真存一条场景后 `descOf` 与 `time` 回读、以及下面那条回收）；
+  它第一版是**假绿**（`ok(消息, 条件)` 的参数顺序写反、又拿 `textContent` 比带「✓」前缀的选项、
+  又按剧侧字段名 `desc` 去查库侧的 `look`），三个变异各钉一半 —— 读数与预期相反时先怀疑探针。
+- **重画一块区域要回收孤立的浮层：`Dropdowns.build()` 开头自己调 `sweepPortals()`**，别再往容器里塞一份。
+  这一档以前是一个**导出的 `sweep()` 而全站零调用** —— 于是「`innerHTML` 换掉后浮层还挂在 body 上」从来没被解决过，
+  只是没人记得按；弹窗型表单每开合一次还多攒一串。与「定义了从没被调用」那一类毛病同名，
+  **不要再做成导出的 `sweep()`（页面不会记得调），回收是 `build` 自己的一件事。**
 - **资产库 / 素材库 / 收藏三页的展示档位名统一成 `list` / `compact`**（`Wb.viewToggle` 的 `views` 数组）。
   以前资产库叫「卡片」、另两页叫「列表」，同一个概念在 `UI_PREFS.rows` 里要写两种词，还漏了 `dir_char_view`
   —— 表现是「在设置里选了列表，进来是另一种摆法」。**三页的名字、`UI_PREFS.rows` 的行、`RESET_KEEP` 必须同时改。**
@@ -1453,6 +1650,18 @@ etrieve 是「产物只给文件号」那一族的通用环节，不是某一家
   分界线用**可用区**（扣掉侧栏之后 `minX = 8 + sbW()`、`maxX = innerWidth - BALL - 6`）的中点，
   不是窗口中点：侧栏展开时可用区整体偏右，拿窗口中点判会把明显偏右的位置也吸到左边。
   设关（键 `ai_chat_snap`，存 `'0'`）时**原样落手**。`clampXY` 仍然兜底把球夹在窗口内。
+- **摆放与「拖完松手」必须走同一条吸附判据**（`ai-chat.js` 的 `placeBall()` 里 `clampXY → snapXY → clampXY`）：
+  以前启动摆放**只 clamp 不吸**，于是两种情况把球留在半屏 —— ① 全新 profile 的默认坐标是
+  「离右边留 16px」，那一版从来没吸过边；② 窗口一变宽（或存档是另一台宽度算出来的），`clampXY`
+  只把**超出**窗口的拽回来，比右边小的那个坐标原样留着，球就停在「上一次那个宽度的右边」，
+  离新的右边差几百 px。用户报的「启动时 ai 助手在屏幕中间而不是边缘」就是这一条。
+  摆放后仍要把吸好的坐标写回 `ai_chat_xy`（上一段的那条约定），否则下一次 `pointerdown` 又从旧值起算、球先跳一下。
+  常驻探针是 **`.tmp-ball.cjs`**（headless CDP 打隔离实例，六个场景：全新 profile 贴边 / 存档在中间+吸附开
+  → 拉回边且写回值==摆放值 / 吸附关+中间值**同一次**设进去 → 原样摆并断言离两边都 >40px /
+  窗口 1400→1800 → 重新贴右 / 真点 `.sb-brand` 展开侧栏 → 球不在侧栏盖住的那一条里 / 全程零报错）。
+  两个探针写法上的坑：① `Page.navigate` 到**完全相同的 URL+hash 不会重新加载**，`placeBall` 根本不重跑，
+  改前的基线会被读成「球钉在 1338 不动」—— 要用 `Page.reload`；② 场景③ 如果只改 `ai_chat_snap`，
+  上一步写回的贴边值会让断言退化成一个 `74 === 74` 的平凡通过，必须**连中间坐标一起设**。
 - **提示词归档要有备份出口 —— 它曾经两头都漏**（`POST /prompts/export` / `/prompts/import` + `/cloud/*` 的 `prompts/` 子集合）：
   归档是磁盘上的一堆 `.md`，**既不在 `.data/`（云同步带不走）也不在 localStorage / IndexedDB
   （整包备份同样带不走）** —— 换机器、清浏览器数据、误删目录，就只剩「没了」这一种结果。
@@ -1677,3 +1886,15 @@ etrieve 是「产物只给文件号」那一族的通用环节，不是某一家
   **`paintSecs()` 漏了同一句** —— 凡是「读界面上的控件」算出来的显示，守卫要一起加。
   （caps 回来后 `renderEntry()` 会自己重跑，所以等一下就好，不需要轮询。）
 
+- **素材库三类素材的说法只有一张表：`chars.html` 的 `KIND_FIELDS`（`kindF(k)`）**（2026-10）：
+  同一栏对角色叫「外貌 / 人物特点」、对道具叫「道具描述」、对场景叫「场景描述」，以前**新建表单与卡片编辑区各写一套**，
+  漂开是迟早的事。现在两处都从这张表取标签与占位文字。**这张表只承载措辞** ——
+  「有没有声音 / 有没有时段 / 有没有角色资产」仍然现问 `voiced` / `isScene` / `isProp`，
+  不要在表里再存一套布尔判据（那是第二份「这一类有什么」的定义）。
+  时段选项现读 `D.TIME_OFS`，页面不另写一份名单。
+- **建素材的表单是**一张**表单，三种类型都在里面选**（不是三颗按钮各开一格）：选了类型就把那一类的说法换上来
+  （`PromptForm` 的 `onChange`），**不重画整张表单**。时段那一行只有场景要，默认 `hidden` ——
+  给角色摆一行「填了也没地方存」的控件，比不给更让人糊涂。
+  **场景的「一句话说明」在页面侧补**（`Object.assign(D.newScene(…), { bio })`），**不动数据层**：
+  库里这一条的 `bio` 有人读（关键词搜索 `D.Lib.SEARCH_FIELDS` 的「人设」、本页「AI 找素材」、描述空时 `descOf` 的退路），
+  而剧侧那一集里根本不存在放它的地方，硬加字段只会多一个没人读的键。

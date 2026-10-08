@@ -71,6 +71,7 @@
   <div class="toolbar2">
     <span class="sp"></span>
     <span class="viewtoggle" id="fView"></span>
+    <button class="ghost" id="pullBtn" title="把当前筛选结果里「本机还没有那份字节」的收藏，取回本机资产库存一份。本地上传的那一批不算（它的字节本来就在浏览器里）。存好之后生成工作台与资产库也认得这一份。"></button>
     <button class="ghost" id="uploadBtn"></button>
     <input type="file" id="uploadFile" multiple hidden>
   </div>
@@ -96,14 +97,27 @@
   const esc = s => window.esc(s);
   $('tic').innerHTML = window.icon ? icon('star', 20) : '';
   $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
+  /* 这颗按钮的字要就地改（进度写在 .tx 上），所以图标与文字分两个格子 ——
+     整颗 `textContent = …` 会把图标一起抹掉（见 ui.js 的 btnText）。 */
+  $('pullBtn').innerHTML = `<span class="ic">${window.icon ? icon('download', 13) : ''}</span><span class="tx">自动下载</span>`;
 
   let filter = 'all';
   let aiPick = null;            // AI 找出来的收藏（key 集合），非空时只显示这些
+  let aiRank = null;            // AI 给的次序（key → 名次，最合适的排 0）；只有它挑过才照这个名次排
   let aiWhy = '';               // AI 自报的一句话理由，显示在条件芯片上
   let renderSeq = 0;            // 渲染令牌：异步画卡片时若又触发了一轮，旧的那轮立即放弃（否则卡片会重复）
   const TYPES = [['all', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频'], ['文件', '其它']];
   const byType = (it, t) => t === 'all' || (t === '音频' ? (it.type === '音频' || it.type === '音乐') : it.type === t);
   const fmtSize = b => (!b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+
+  /* ---------- 顺序只有两种，界面上一颗都挑不了 ----------
+     AI 挑过 → 照 AI 给的名次排（最合适的在前）；没挑过 → 照存盘顺序（`Fav.add` 把新的 unshift 到最前）。
+     以前这里有一排排序芯片（时间 / 名称 / 类型 / 平台 / 时长），档位存 `dir_fav_sort`：
+     那是个纯显示偏好，换台机器要重新配一遍，而收藏攒多了真正用的是搜索框与「AI 找素材」。 */
+  const aiRankOf = it => (aiRank && aiRank.has(it.key) ? aiRank.get(it.key) : Number.MAX_SAFE_INTEGER);
+  function orderItems(items) {
+    return aiRank ? items.slice().sort((a, b) => aiRankOf(a) - aiRankOf(b)) : items;
+  }
 
   /* 芯片行走 ui.js 的 Chips（与资产库 / 角色库 / 用量同一份）；这里只给「这一档有多少条」。 */
   function paintChips() {
@@ -189,7 +203,7 @@
      远程用 /getv 地址，keyOf 内部会归一化成 host+path，签名换了键也不变。 */
   function thumbFor(it, url) {
     const isAudio = it.type === '音频' || it.type === '音乐';
-    if (!url) return { html: '<div class="thumb"></div>', tkey: '', isAudio };
+    if (!url) return { html: '<div class="thumb"></div>', tkey: '' };
     const tkey = it.kind === 'local' && it.fileKey ? 'fav-file:' + it.fileKey : url;
     const html = isAudio
       ? `<div class="thumb"><div class="audio">${window.icon ? icon('mic', 26) : ''}<span>${esc((it.format || '').toUpperCase() || '音频')}${it.duration ? ' · ' + it.duration + 's' : ''}</span></div></div>`
@@ -204,9 +218,9 @@
     paintAiChip();
     applyView();
     const q = $('q').value.trim();
-    const items = (q ? Fav.search(q) : Fav.list())
-      .filter(x => byType(x, filter) && (!aiPick || aiPick.has(x.key)));
-    viewItems = items.slice();               // 灯箱的翻页范围 = 当前视图（搜索/筛选后，不受分页影响）
+    const items = orderItems((q ? Fav.search(q) : Fav.list())
+      .filter(x => byType(x, filter) && (!aiPick || aiPick.has(x.key))));   // 灯箱的翻页范围 = 当前视图（搜索/筛选后，不受分页影响）
+    viewItems = items;
     $('cnt').textContent = items.length ? '共 ' + items.length + ' 项' : '';
     const grid = $('grid');
     if (!items.length) {
@@ -242,7 +256,6 @@
       /* 本地收藏的 blob: 地址每次重建都不一样 —— 直接拿它当缓存键等于「抽好的首帧永远命不中」。
          用 fileKey 做稳定键（见 workbench.js 的 Wb.thumbs.keyOf / bind 的 identity 参数）。 */
       const t = thumbFor(it, url);
-      const isAudio = t.isAudio;
       const thumb = t.html;
       const tkey = t.tkey;
       card.innerHTML = `${thumb}
@@ -252,7 +265,10 @@
           <div class="m">${esc([it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type, it.format ? String(it.format).toUpperCase() : '', it.size ? fmtSize(it.size) : '', it.duration ? it.duration + 's' : ''].filter(Boolean).join(' · '))}</div>
           <div class="note"><textarea placeholder="写备注：这条素材是干什么用的（搜索和 AI 都会用它）" rows="2">${esc(it.note || '')}</textarea></div>
           <div class="acts">
-            ${it.kind === 'asset' ? '<button class="ghost reuse" title="带着这条素材去对应工作台">复用</button>' : ''}
+            ${/* 本地文件也给这一颗：它的字节在本机 IndexedDB 里，带过去的是文件号（fileKey），
+               以前这一颗只画给资产类收藏，本地文件连入口都没有 —— 而它才是真能保证还在本机的那一批。 */
+              (it.kind === 'asset' || it.fileKey)
+                ? `<button class="ghost reuse" title="带着这条素材去${Wb.reuse.kindOf(it.type) === 'video' ? '视频' : Wb.reuse.kindOf(it.type) === 'audio' ? '语音' : '图像'}那一栏">复用</button>` : ''}
             <button class="ghost dl">下载</button>
             <button class="ghost danger rm">移出收藏</button>
           </div>
@@ -301,15 +317,34 @@
       const ru = card.querySelector('.reuse');
       if (ru) ru.onclick = e => {
         e.stopPropagation();
-        const kind = it.type === '视频' ? 'video' : (isAudio ? 'audio' : 'image');
-        const payload = { from: 'favorites', assetId: it.assetId, kind, prompt: it.prompt || '', provider: it.provider || '',
-          providerName: it.providerName || '', duration: it.duration || null, ts: it.ts || null };
-        try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (err) {}
-        location.href = 'studio.html?t=' + (kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio') + '&reuse=1';
+        /* 载荷归公共那一份（`Wb.reuse`）。本地文件**不能带 `url` 里那条 blob: 地址** ——
+           blob 地址属于当前这份文档，跳页就失效；它能带走的只有本机文件号（fileKey），
+           工作台那头按号去 IndexedDB 取字节。以前这一条只把 assetId 递过去，
+           而本地文件压根没有资产号，等于什么都没带。 */
+        Wb.reuse.go(it.kind === 'local'
+          ? { from: 'favorites', kind: Wb.reuse.kindOf(it.type), fileKey: it.fileKey, name: it.name, prompt: it.prompt || '' }
+          : { from: 'favorites', kind: Wb.reuse.kindOf(it.type), assetId: it.assetId, src: url, prompt: it.prompt || '' });
       };
       grid.appendChild(card);
     }
     resignSome(itemsArr, seq).catch(e => console.warn('[fav] 过期回源失败', e));
+  }
+
+  /* 一张卡的缩略图就地重画（「过期地址回源换新」与「刚把字节存回本机」两条路都要它，别写两份）。
+     只换那一个 .thumb 节点，不整表 render —— 备注框正在打字时整表重画会把光标弄丢。
+     地址由调用方递进来：过期回源那一路手里已经是新地址了，这里再走一次 Fav.urlOf
+     会拿到存储里那份还没落盘的旧地址（写回是 debounce 的）。 */
+  function repaintThumb(it, url) {
+    const card = Array.from($('grid').children).find(x => x.dataset.key === it.key);
+    const old = card && card.querySelector('.thumb');
+    if (!old || !url) return;
+    const t = thumbFor(it, url);
+    old.outerHTML = t.html;
+    const tw = card.querySelector('.thumb');
+    tw.style.cursor = 'zoom-in';
+    tw.onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
+    const tm = tw.querySelector('video[data-src], video[src], img');
+    if (tm) Wb.thumbs.bind(tw, tm, url, null, t.tkey);
   }
 
   /* 签名过期的外链放进 <img>/<video> 就是 403 破图（收藏放几天后必然遇到）：
@@ -320,16 +355,7 @@
   async function resignSome(items, seq) {
     await Fav.resignSome(items, (it, next) => {
       if (seq !== renderSeq) return;
-      const card = Array.from($('grid').children).find(x => x.dataset.key === it.key);
-      const old = card && card.querySelector('.thumb');
-      if (!old) return;
-      const t = thumbFor(it, next);
-      old.outerHTML = t.html;
-      const tw = card.querySelector('.thumb');
-      tw.style.cursor = 'zoom-in';
-      tw.onclick = e => { e.stopPropagation(); Wb.lightbox.open(it); };
-      const tm = tw.querySelector('video[data-src], video[src], img');
-      if (tm) Wb.thumbs.bind(tw, tm, next, null, t.tkey);
+      repaintThumb(it, next);
     });
   }
 
@@ -350,7 +376,10 @@
     if (c) c.onclick = clearAiPick;
   }
   function clearAiPick() {
-    aiPick = null; aiWhy = ''; resetPaging(); render();
+    aiPick = null; aiWhy = ''; aiRank = null;
+    /* AI 的名次一清，顺序就退回存盘那一种（新添加的在前）—— 不是「回到某个用户挑过的档位」，
+       这一页没有档位可挑了。 */
+    resetPaging(); render();
   }
   async function runAiFind() {
     const box = $('q');
@@ -372,10 +401,15 @@
       const j = TextAI.parseJson(txt) || {};
       const keys = (Array.isArray(j.keys) ? j.keys : []).filter(k => Fav.has(k));
       aiPick = keys.length ? new Set(keys) : null;
+      aiRank = keys.length ? new Map(keys.map((k, i) => [k, i])) : null;
       aiWhy = keys.length ? String(j.summary || '').slice(0, 40) : '';
       /* 原话已经翻译成 key 集合：搜索框必须清掉，否则整句还会再 AND 过滤一遍，
          而整句几乎不可能是某条备注的子串 —— 结果永远 0 条。 */
-      if (keys.length) box.value = '';
+      if (keys.length) {
+        box.value = '';
+        /* AI 返回的 keys 顺序本身就是「最合适在前」（提示词里写了优先级：备注 > 名称 > 类型），
+           aiRank 记下来就照着排 —— 以前这份顺序被整份丢掉，画出来还是存盘顺序。 */
+      }
       filter = 'all';
       msg = keys.length ? '' : 'AI 没找到合适的收藏（换个说法再试）';
     } catch (e) {
@@ -392,6 +426,79 @@
   }
   $('aiFindBtn').onclick = runAiFind;
   $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; clearAiPick(); } });
+
+  /* ---------- 「自动下载」：把这一屏里本机还没有那份字节的收藏取回本机 ----------
+     为什么这一页不跟着「不显示云端任务」一起筛，却要单独有这么一颗按钮：
+     收藏存的是人自己挑过的东西，按「本机有没有副本」把它们藏掉，用户看到的只是
+     「我的收藏凭空少了一批」—— 判据的副作用不该糊在人的数据上。所以这一页照旧全画，
+     只给一条把字节真正取回本机的路，存没存由人决定。
+     落盘走 `AssetLocal.pull`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
+     同一份按类型另存），所以存回本机之后生成工作台与资产库立刻也认得这一份，
+     不需要在那两页再存第二遍。 */
+  function pullScope() {
+    const seen = new Set();
+    return viewItems.filter(it => {
+      if (it.kind === 'local') return false;        // 字节本来就在浏览器库里，不用下
+      if (!it.key || seen.has(it.key)) return false;
+      seen.add(it.key);
+      return !AssetLocal.hasLocalAddr(it.src || it.dl || '');
+    });
+  }
+  const pullName = it => String(it.prompt || it.name || '这一条').slice(0, 12);
+  async function pullLocal() {
+    const todo = pullScope();
+    const btn = $('pullBtn');
+    if (!todo.length) {
+      /* 一句实话，并且要说清「为什么没有可下的」—— 只回「都存好了」会让人以为按钮坏了。 */
+      Toast.info(viewItems.some(x => x.kind !== 'local')
+        ? '这一屏要存的本机都已经有了（本地上传的那一批不算，它的字节本来就在浏览器里）'
+        : '这一屏只有本地上传的文件，字节本来就在浏览器里，不用存');
+      return;
+    }
+    btn.disabled = true;
+    let ok = 0, kept = 0, busy = 0, big = 0, cant = 0, done = 0;
+    const fails = [];
+    const wait = [];
+    const mark = () => btnText(btn, '存回本机 ' + done + ' / ' + todo.length);
+    for (const it of todo) {
+      let out = null;
+      const st = AssetLocal.pull(it, {
+        force: true,                 // 「自动存本机」没开也照存：这是用户当下点下去的
+        cb: (err, r) => {
+          done++; mark();
+          if (err) { if (r && r.skip) big++; else fails.push(pullName(it) + '：' + err.message); }
+          else if (r && r.kept) kept++;                       // 索引里已有，不用重下一遍
+          else if (r && r.id) {
+            ok++;
+            const u = '/asset/' + encodeURIComponent(r.id) + '?v=2';
+            Fav.localize(it, u);                              // 换回来的本机地址落回收藏项
+            repaintThumb(it, u);                              // 只重画这一张，备注框不动
+          }
+          if (out) out();
+        },
+      });
+      /* pull 的返回值只说「这一条排上了没有」；排上了之后成没成要等 cb。
+         'saved' 那一路的 cb 是同步回来的，所以 done/kept 已经加过，这里不再补。 */
+      if (st === 'queued') wait.push(new Promise(rz => { out = rz; }));
+      else if (st === 'busy') { busy++; done++; }
+      else if (!st) { cant++; done++; }
+    }
+    await Promise.all(wait);
+    btn.disabled = false;
+    iconSet(btn, 'download', 13); btnText(btn, '自动下载');
+    const bits = [];
+    if (ok) bits.push('已存回本机 ' + ok + ' 条');
+    if (kept) bits.push('本机早就有 ' + kept + ' 条');
+    if (busy) bits.push('后台那一轮正在存 ' + busy + ' 条，没重复排');
+    if (big) bits.push('有 ' + big + ' 条比本机镜像的上限还大，没存');
+    if (cant) bits.push('有 ' + cant + ' 条手上只剩转发地址、取不到原始外链，没法存');
+    if (fails.length) bits.push('有 ' + fails.length + ' 条没成：' + fails.slice(0, 2).join('；') + (fails.length > 2 ? ' 等' : ''));
+    /* 一条都没落地就别报「已存好」：ok 为 0 时这一句换成红字或灰字，说清到底卡在哪。 */
+    if (fails.length || cant) Toast.err(bits.join(' · ') || '一条都没存进本机');
+    else if (ok) Toast.ok(bits.join(' · '));
+    else Toast.info(bits.join(' · ') || '这一屏没有需要存的收藏');
+  }
+  $('pullBtn').onclick = pullLocal;
 
   $('uploadBtn').onclick = () => $('uploadFile').click();
   $('uploadFile').onchange = async e => {

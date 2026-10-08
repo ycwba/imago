@@ -288,9 +288,12 @@ html[data-embedded] #lightbox { inset: 0; }
    以前是 left:0;right:0（跟 .dd 同宽），入口页那个 80px 的时长下拉里「1 分钟」被折成两行、
    「自定义…」直接被裁掉 —— 看着像坏了。min-width:100% 保证比按钮窄时仍然铺满，
    max-width 封顶免得长型号名把面板撑到屏幕外，超出后面板内部省略号。
-   浮层本身**挂在 body 上**（position:fixed，坐标由 ui.js 的 place() 按按钮位置算，
+   浮层本身**挂在容器外面**（position:fixed，坐标由 ui.js 的 place() 按按钮位置算，
    下方不够就往上开）—— 原来它是 .dd 的子节点、原地 absolute，于是被祖先的 overflow
    裁掉（生成工作台的 .adv 是 hidden、左右栏是 auto、外层 .layout 还是 hidden）。
+   挂在**哪一个**由 ui.js 的 `hostFor` 决定：普通页面挂 body，在 `<dialog>` 里的挂那一个 dialog
+   自己 —— showModal 的弹窗在 top layer 上，盖过任何 z-index，挂 body 的浮层开在弹窗背面，
+   看不见也点不着（界面上一条报错都没有）。dialog 没有 transform，固定元素的包含块仍是视口。
    .dd.open 只负责按钮态，浮层自己的显隐看 .dd-list.on。 */
 .dd-list { position: fixed; z-index: 40; left: 0; top: 0; width: max-content; max-width: min(88vw, 340px);
   background: var(--panel, #fff); border: 1px solid var(--line, #e4e6f0); border-radius: 6px;
@@ -538,6 +541,9 @@ button.armed { min-width: 4.6em; }
   .tool { height: 28px; padding: 0 9px; font-size: 11.5px; }
 }
 /* 素材缩略图块：一个素材一块（视频工作台的参考图 / 首尾帧 / 参考视频 / 参考音频） */
+/* 素材区栏目标签行（导演台右栏 + 生成工作台左栏共用）：左标题、右说明 */
+.ed-label { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--sub); margin: 12px 0 6px; }
+.ed-label .cnt { color: var(--sub); font-size: 11px; margin-right: 8px; }
 /* ---------- 素材槽位（导演台右栏 + 生成工作台左栏共用，全站一份）----------
    磁贴样式与交互统一：空槽 = 图标 + 名字 + 小字（收什么类型、已有几张，现算）；
    已放素材 = 缩略图 + 右上 × 删除 + 底部角标。
@@ -886,7 +892,7 @@ dialog.ui-dlg .pr-foot .ghost { padding: 6px 14px; border-radius: 6px; }
 #grid .task.picked { outline: 2px solid var(--acc, #6957e8); outline-offset: -1px; }
 
 /* ---------- 状态文字的语义色（各页原本各自定义 .err/.ok，缺 .warn） ----------
-   index.html 的 setStatus 会按 class="warn" 判断警示级；视频台的互斥提示也用它。
+   director.html 的 setStatus 会按 class="warn" 判断警示级；视频台的互斥提示也用它。
    这里补成全局规则，没定义过的页面自动生效，已定义的页面不受影响（同优先级、后者生效）。 */
 .err { color: var(--err, #dc2626); }
 .ok { color: var(--ok, #16a34a); }

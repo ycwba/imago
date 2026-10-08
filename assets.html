@@ -214,6 +214,10 @@ const LIST_CACHE = AssetLib.listCache('assets_cache_v1');
 /* 分批加载：每次让每个平台再拉 pages 页，page 一到就 onBatch 渲染（先到先显示） */
 let loadingNow = 0;            // 正在进行的加载批次数（界面上提示「加载中…」用）
 let loadErrors = {};           // 各来源的加载失败原因（{ 平台key: 错误 }）：断网/密钥失效要看得见
+/* 本轮被「不显示云端任务」藏掉的条数（由 applyFilters 现攒，上面那条说明与空态那句都读它）。
+   这一档是**设置里的选择**，不是加载失败，所以和 loadErrors 分开记：混在一起就会出现
+   「平台明明好好的，界面却说部分内容加载失败」。 */
+let hiddenCloud = 0;
 function loadErrorsText() {
   const ks = Object.keys(loadErrors || {});
   if (!ks.length) return '';
@@ -224,12 +228,17 @@ function loadErrorsText() {
 /* 有来源读取失败时先不要再自动续拉：more 保持 true（界面能重试），
    但连着重试同一个失败来源只会把上游打得更死 —— 等用户点「重新加载」或「加载更多」。 */
 const loadFailed = () => Object.keys(loadErrors || {}).length > 0;
-function paintLoadErrors() {
+function paintLoadErrors(listEmpty) {
   const box = $('loadErr');
   if (!box) return;
   const txt = loadErrorsText();
-  box.innerHTML = txt ? '<div class="hint" style="color:var(--warn,#d97706);margin:6px 0">'
+  const err = txt ? '<div class="hint" style="color:var(--warn,#d97706);margin:6px 0">'
     + Object.keys(loadErrors).map(k => esc(String(k)) + ' 加载失败：' + esc(String(loadErrors[k]))).join('；') + '</div>' : '';
+  /* 藏了多少条要摆在眼前：不说的话，「共 N 项」与屏上卡片数就是一笔对不上的账。
+     列表空着的时候这一句交给空态去说（同一件事在两处各说一遍，两处迟早对不上）。 */
+  const hide = (!listEmpty && hiddenCloud > 0)
+    ? '<div class="hint sm">已按「不显示云端任务」藏起 ' + hiddenCloud + ' 条本机还没有那份字节的成品。</div>' : '';
+  box.innerHTML = err + hide;
 }
 
 /* ---------- 多选（工具栏「多选」按钮开启） ----------
@@ -397,6 +406,19 @@ const isAudioType = t => t === '音频' || t === '音乐';
 const typeKey = t => (isAudioType(t) ? '音频' : t);
 /* 芯片行走 ui.js 的 Chips（角色库 / 收藏 / 用量同一份），页面只给档位与选中后的动作。 */
 const uniq = k => ['全部', ...[...new Set(assets.map(a => a[k]))]];
+/* ---------- 顺序：只有「最新的在前」这一种 ----------
+   以前这里有一排排序芯片（时间 / 类型 / 平台 / 型号 / 时长），档位存 `dir_asset_sort`，
+   那是个纯显示偏好 —— 换台机器要重新配一遍，而「找最早的那一张」在这一页有更快的路：
+   日期区间筛选，或让 AI 按时间正序给一批（见下面 aiAsc）。
+   时间归一只走 AssetLib.tsMs 那一份（条目带的 ts 可能是 ISO 字符串、秒或毫秒）。 */
+const sortByTime = (arr, asc) => arr.slice().sort((a, b) => {
+  const x = AssetLib.tsMs(a.ts) || 0;
+  const y = AssetLib.tsMs(b.ts) || 0;
+  return asc ? x - y : y - x;
+});
+/* AI 检索条件里那句「按时间正序给我」只在这一次检索里生效（0 = AI 没说，1 = 最早的在前）。
+   它不能存进偏好：用户没点过任何东西，不该替他改长期的界面设置。 */
+let aiAsc = 0;
 /* 可用于搜索的 ID 串：资产ID / 任务ID / 内部 id / vid */
 function assetIdsOf(a) {
   return [a.assetId, a.genId, a.id, a.vid, a.taskId].filter(Boolean).join(' ').toLowerCase();
@@ -483,12 +505,16 @@ const stBucket = a => a.kind !== 'task' ? 'done' : Api.classifyStatus(null, a.st
    filtered() 在它之后做分页，filteredAll() 复用它（两者必须同口径，否则「共 N 项」和
    翻页禁用判断会在日期或 AI 筛选下算错）。 */
 function applyFilters() {
-  let all = assets.filter(a =>
-    (F.type === '全部' || typeKey(a.type) === typeKey(F.type)) &&
-    (F.provider === '全部' || a.providerName === F.provider) &&
-    (F.status === '全部' || stBucket(a) === ST_MAP[F.status]) &&
-    (!F.q || (a.prompt || '').toLowerCase().includes(F.q) || assetIdsOf(a).includes(F.q))
-  );
+  /* 「不显示云端任务」排在最前面：藏掉的条数要连着下面所有条件一起攒（日期、AI 那两批都算），
+     否则「共 N 项」与翻页禁用判断拿到的是含云端的那一份。判据只有 AssetLocal.hideAsCloud 一处。 */
+  hiddenCloud = 0;
+  let all = assets.filter(a => {
+    if (AssetLocal.hideAsCloud(a)) { hiddenCloud++; return false; }
+    return (F.type === '全部' || typeKey(a.type) === typeKey(F.type)) &&
+      (F.provider === '全部' || a.providerName === F.provider) &&
+      (F.status === '全部' || stBucket(a) === ST_MAP[F.status]) &&
+      (!F.q || (a.prompt || '').toLowerCase().includes(F.q) || assetIdsOf(a).includes(F.q));
+  });
   // 日期区间筛选（按生成时间，兼容 ISO 字符串 / 秒 / 毫秒）
   if (F.from || F.to) {
     const fromMs = F.from ? Date.parse(F.from) : null;
@@ -522,11 +548,17 @@ function applyFilters() {
       if (maxD && d > maxD) return false;
       return true;
     });
-    if (c.order === 'asc') all = all.slice().sort((a, b) => (AssetLib.tsMs(a.ts) || 0) - (AssetLib.tsMs(b.ts) || 0));
+    /* 截断之前先按时间排一次：AI 要的「最早的 20 条」要是先截后排，截到的是「这一批里最后加载进来的
+       20 条」，与它说的不是同一批。（AI 给 order:'asc' 时 aiAsc 就是 1，见 runAiSearch。） */
+    all = sortByTime(all, aiAsc === 1);
     if (c.limit) all = all.slice(0, Math.max(1, Math.min(200, Number(c.limit) || 50)));
   }
-  all = all.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
-  return all;
+  /* 出口：最新的在前（AI 那一批要「最早的在前」时照 aiAsc，与上面那趟是同一个方向，排两次结果不变）。
+     以前这一行是无条件 `(b.ts||'').localeCompare(a.ts||'')`：
+     它既会把上面 AI 刚排好的顺序盖掉（limit 截的是最旧的、界面显示的是这批里最新的），
+     也会在某条条目带的是**数字** ts 时当场抛（数字没有 localeCompare）
+     —— 时间归一现在统一走 AssetLib.tsMs 那一份。 */
+  return sortByTime(all, aiAsc === 1);
 }
 function filtered() {
   const all = applyFilters();
@@ -761,9 +793,15 @@ function renderGrid() {
   const grid = $('grid');
   if (!list.length) {
     assetCardEls.clear();
-    grid.innerHTML = loadErrorsText() || '<div class="empty">没有匹配的资产</div>';
+    paintLoadErrors(true);
+    /* 一屏被「只看本机」藏空了，绝不能说「没有匹配的资产」—— 那些成品都在，只是本机没这份字节 */
+    grid.innerHTML = loadErrorsText()
+      || (hiddenCloud ? '<div class="empty">这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，'
+        + '按「不显示云端任务」藏起来了。要看它们就在设置页关掉这一项（它们还在平台那边）。</div>'
+        : '<div class="empty">没有匹配的资产</div>');
     return;
   }
+  paintLoadErrors(false);
   const emptyEl = grid.querySelector('.empty');
   if (emptyEl) emptyEl.remove();
   let ref = grid.firstElementChild;
@@ -903,15 +941,9 @@ $('searchBtn').onclick = () => { F.q = $('search').value.trim().toLowerCase(); r
 /* ---------- 复用：按素材类型跳到对应工作台，带提示词 + 素材 ---------- */
 function reuseAsset(a) {
   if (a.kind !== 'asset') { Toast.warn('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
-  const kind = a.type === '视频' ? 'video' : isAudioType(a.type) ? 'audio' : 'image';
-  const payload = {
-    from: 'assets', assetId: a.assetId || a.id, kind,
-    prompt: a.prompt || '', provider: a.provider || '', providerName: a.providerName || '',
-    duration: a.duration || null, ts: a.ts || null, ar: a.ar || null,
-  };
-  try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch {}
-  /* 三个工作台合并成一页（studio.html）之后，跳过去要带上 ?t= 才知道落在哪一栏 */
-  location.href = 'studio.html?t=' + (kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio') + '&reuse=1';
+  /* 载荷与跳转归公共那一份（`Wb.reuse`）：地址、资产号、本机文件号三条带法只在那里点一次名 */
+  Wb.reuse.go({ from: 'assets', kind: Wb.reuse.kindOf(a.type),
+    assetId: a.assetId || a.id, src: a.src, dl: a.dl, prompt: a.prompt || '' });
 }
 
 /* ---------- AI 检索：只用上面搜索框里的文字，不再另开输入窗口 ---------- */
@@ -949,6 +981,9 @@ async function runAiSearch() {
     const j = TextAI.parseJson(out);
     if (!j) throw new Error('AI 没有给出可用的检索条件');
     FAI = { desc: v.q, cond: j };
+    /* AI 说了「按时间正序给我」→ 这一次检索就照它排（只改内存里那一个标记：
+       用户没点过任何东西，不该替他改长期的界面设置）。清掉 AI 条件时一并收回，见 aiClear。 */
+    aiAsc = j.order === 'asc' ? 1 : (j.order === 'desc' ? -1 : 0);
     /* 搜索框里的原话已经翻译成 AI 条件了：关键词必须清掉，否则「整句描述」还会再 AND 过滤一遍，
        而整句几乎不可能是某条提示词的子串 —— 结果就是永远 0 条。条件本身显示在下面那行提示里。 */
     if (box) box.value = '';
@@ -960,6 +995,7 @@ async function runAiSearch() {
     btn.disabled = false; btn.textContent = old;
   }
   paintAiChip();
+  renderFilters();
   renderGrid();
 }
 $('aiSearchBtn').onclick = () => runAiSearch();
@@ -969,10 +1005,15 @@ function paintAiChip() {
   const el = $('aiChip');
   if (!el) return;
   el.innerHTML = FAI
-    ? `<span class="ai-chip">${icon('sparkles', 12)} ${esc(String(FAI.desc).slice(0, 22))}${FAI.cond.summary ? ' · ' + esc(FAI.cond.summary) : ''}<button id="aiClear" title="清除 AI 条件">${icon('close', 10)}</button></span>`
+    ? `<span class="ai-chip">${icon('sparkles', 12)} ${esc(String(FAI.desc).slice(0, 22))}${FAI.cond.summary ? ' · ' + esc(FAI.cond.summary) : ''}${aiAsc === 1 ? ' · 最早的在前' : ''}<button id="aiClear" title="清除 AI 条件">${icon('close', 10)}</button></span>`
     : '';
   const c = $('aiClear');
-  if (c) c.onclick = () => { FAI = null; paintAiChip(); renderGrid(); };
+  /* 清掉 AI 条件时把它临时定的「最早的在前」也收回去 —— 不收的话条件没了、
+     列表却还按 AI 那一次的顺序排着，芯片上那一行也还在说 AI 的话。 */
+  if (c) c.onclick = () => {
+    FAI = null; aiAsc = 0;
+    paintAiChip(); renderFilters(); renderGrid();
+  };
 }
 
 async function reload() {
@@ -1014,21 +1055,16 @@ async function gotoPageInput() {
   b.disabled = false; b.textContent = '跳转';
   renderGrid();
 }
-/* 滚到列表底部自动续拉（动态加载模式）：不用点按钮也会一部分一部分地长出来 */
-let autoBusy = false;
-const nearBottom = () => $('gridEnd').getBoundingClientRect().top < window.innerHeight + 300;
-async function autoLoadMore() {
-  if (autoBusy || PAGE_MODE === 'page' || !hasMore()) return;
-  autoBusy = true;
-  try {
-    // 一屏没填满就继续拉下一批，直到填满或数据取完（最多 40 页，防失控）
-    let guard = 0;
-    while (hasMore() && !loadFailed() && guard++ < 20 && nearBottom()) await fetchMore(2);
-  } catch {}
-  autoBusy = false;
+/* 滚到列表底部自动续拉（动态加载模式）：不用点按钮也会一部分一部分地长出来。
+   「还贴着底就再来一轮」与单飞锁在 Wb.pager.sentinel 里（全站一份），
+   这里只给两条判据：**要不要开始拉**（翻页模式 / 已经到底 / 这一批读失败就同步 return，
+   同步 return 等于告诉公共层「别追轮」），以及**一次拉几页**（1 页 —— 一页就是平台上声明的
+   一整批（一般 100 条），拿到就渲染；原来一次拉 2 页是两个串行冷请求，第一屏要等两倍的时间）。
+   公共层的追轮上限（8 轮）替掉了原来页面里那圈 guard 20。 */
+function autoLoadMore() {
+  if (PAGE_MODE === 'page' || !hasMore() || loadFailed()) return;
+  return fetchMore(1);
 }
-/* 触发机制走 Wb.pager.sentinel（全站一份）。nearBottom 留着别删：
-   autoLoadMore 填一屏的那个 while 循环还在用它判断「离底部还有多远」。 */
 Wb.pager.sentinel('gridEnd', autoLoadMore);
 $('reloadBtn').onclick = reload;
 $('cancelAllBtn').onclick = async () => {

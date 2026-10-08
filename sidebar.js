@@ -1,5 +1,5 @@
 /* 全局侧边栏：只在外壳页（shell.html）里渲染。
-   内容页（index / 图片 / 视频 / 语音 / 收藏 / 资产库 / 用量 / 设置）跑在外壳的 iframe 里，
+   内容页（导演台 / 生成工作台 / 拍短剧 / 素材库 / 收藏 / 资产库 / 用量 / 设置）跑在外壳的 iframe 里，
    自己不再画侧栏；万一被直接打开（顶层窗口），就转到外壳，避免出现两套左栏。 */
 (function () {
   // ① 在 iframe 里的内容页：什么都不做（侧栏由外层提供，也不注入给页面留左边距的样式）
@@ -7,7 +7,7 @@
   if (window.self !== window.top) { document.documentElement.dataset.embedded = '1'; return; }
   // ② 内容页被直接打开：replace 到共用外壳（带上原查询串，如 image.html?reuse=1）
   if (!window.__SB_SHELL) {
-    const file = (location.pathname.replace(/^.*\//, '') || 'index.html');
+    const file = (location.pathname.replace(/^.*\//, '') || 'director.html');
     if (!/^(shell|app)\.html$/.test(file)) {
       location.replace('shell.html#' + file + location.search);
       return;
@@ -93,7 +93,7 @@
   document.head.appendChild(style);
 
   const items = [
-    { file: 'index.html', ic: 'film', label: '导演台' },
+    { file: 'director.html', ic: 'film', label: '导演台' },
     { file: 'drama.html', ic: 'video', label: '拍短剧' },
     { file: 'chars.html', ic: 'users', label: '素材库' },
     /* 图片 / 视频 / 语音三个工作台合并成这一页：类型在页面左上角切，

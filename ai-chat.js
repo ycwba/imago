@@ -50,8 +50,10 @@
   const HIST = 14, HIST_EACH = 900;      // 带进上下文的最近条数 / 每条截断
   const READ_DEF = 6000, READ_MAX = 20000;
   const STEP_CN = { 1: '讲故事', 2: '认角色', 3: '看预演', 4: '拍成片' };
-  /* 生成工作台合并成一个页面之后，首屏缓存也只有一份（studio.html 写的），别再按类型分三个键 */
-  const CACHES = { studio_tasks_cache_v1: '生成工作台历史' };
+  /* 本机那份「首屏缓存」有两处：生成工作台合并成一张页之后是 `studio_tasks_cache_v1` 一份，
+     资产库（与导演台的素材目录）另写 `assets_cache_v1` 一份。两个都要报，
+     否则助手说「本机只有 N 条历史」而资产库明明开着几百条。 */
+  const CACHES = { studio_tasks_cache_v1: '生成工作台历史', assets_cache_v1: '资产库首屏缓存' };
   /* scope → 条目上的 type 字段（AssetLib.normalize 写的是中文媒体类型） */
   const SCOPE_TYPE = { image: ['图片'], video: ['视频'], audio: ['音频', '音乐'] };
   const TEXT_EXT = /\.(txt|md|markdown|json|jsonl|csv|tsv|log|ini|conf|ya?ml|toml|js|ts|tsx|jsx|css|scss|html|xml|srt|vtt|ass|py|sh|bat)$/i;
@@ -62,7 +64,7 @@
   const KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
   /* 提示词里指代当前页：正文页文件名 → 界面上的名字。
      三个工作台合并成 studio.html 之后只有一条；`?t=` 只是落在同一页的不同类型上。 */
-  const ACT_PAGE = { 'index.html': '导演台', 'drama.html': '拍短剧', 'chars.html': '素材库',
+  const ACT_PAGE = { 'director.html': '导演台', 'drama.html': '拍短剧', 'chars.html': '素材库',
     'studio.html': '生成工作台（视频 / 图像 / 音频）', 'assets.html': '资产库', 'favorites.html': '收藏',
     'settings.html': '设置', 'usage.html': '用量与余额' };
   /* 左栏只有一个「生成工作台」入口，跳过去时按类型带上 ?t=（video / image / audio） */
@@ -121,7 +123,7 @@
     } catch (e) {}
     const h = String(location.hash || '').replace(/^#\/?/, '').split('?')[0];
     if (h) return /\.[a-z]+$/i.test(h) ? h : h + '.html';
-    return String(location.pathname || '').replace(/^.*\//, '') || 'index.html';
+    return String(location.pathname || '').replace(/^.*\//, '') || 'director.html';
   }
   const pageZh = () => ACT_PAGE[page()] || page();
   /* 页面注册在这份 window 上的只读快照（拍短剧那种「闭包里的状态」） */
@@ -281,7 +283,7 @@
        查到的条目一律画在回答下面：图片能看、视频能就地播、语音能听。 */
     history: {
       arg: '{ "remote": true, "kind": "image|video|audio|all", "provider": "平台 id", "status": "done|failed|…", "q": "关键词", "limit": 6, "pages": 2, "show": true }',
-      doc: '本机历史任务与产物。默认查本机列表缓存（快、离线）；加 "remote": true 就真去平台的列表接口查这个账号下的全部任务（慢十几秒，只给声明了列表接口的平台）—— 用户说「平台上还有别的吗」「我换台机器做的」「删掉浏览器之后那些呢」就用 remote',
+      doc: '本机历史任务与产物。默认查本机列表缓存（快、离线）；加 "remote": true 就真去平台的列表接口查这个账号下的全部任务（慢十几秒，只给声明了列表接口的平台）—— 用户说「平台上还有别的吗」「我换台机器做的」「删掉浏览器之后那些呢」就用 remote。问**某一条任务**就把任务号直接写进 q（判据含任务号 / 平台 / 型号 / 提示词 / 状态）',
       async run(a) {
         return a && (a.remote || a.live || a.source === 'api') ? remoteHistory(a) : localHistory(a);
       },
@@ -367,27 +369,38 @@
       },
     },
     chars: {
-      arg: '{ "q": "名字里含", "group": "分组名" }（都省略 = 全部）',
-      doc: '素材库（跨剧复用的角色与场景）：类型（角色 / 场景）、分组、预览图 / 三视图或多角度图、音色（预设、描述、参考音频三种）、人设与描述',
+      arg: '{ "q": "关键词", "group": "分组名" }（都省略 = 全部）',
+      doc: '素材库（跨剧复用的角色 / 场景 / 道具）：类型、分组、预览图 / 设定图、声音、人设与描述、场景的时段。q 与素材库页搜索框同一套判据（名字 / 人设 / 描述 / 分组 / 时段 / 设定图名 / 声音）',
       async run(a) {
         const rows = charRows();
-        if (!rows.length) return '素材库还是空的。（拍短剧页的「认角色」那一步可以把角色与场景存进库；素材库页也能直接新建。）';
+        if (!rows.length) return '素材库还是空的。（拍短剧页的「认角色」那一步可以把角色 / 场景 / 道具存进库；素材库页也能直接新建。）';
         const q = String(a.q || a.name || '').toLowerCase();
         const g = String(a.group || '').trim();
-        let hit = q ? rows.filter(c => String(c.name || '').toLowerCase().includes(q)) : rows;
+        /* 关键词查哪些字段跟着素材库页那一份判据走（`Lib.hayOf`）：以前这里只查名字，
+           用户问「那个下雨的仓库」助手回「库里没有」，而库里就躺着一条叫「仓库」、时段写着「深夜」的场景。 */
+        const hay = c => (window.Drama && Drama.Lib.hayOf) ? Drama.Lib.hayOf(c)
+          : String(c.name || '').toLowerCase();
+        let hit = q ? rows.filter(c => hay(c).includes(q)) : rows;
         if (g) hit = hit.filter(c => String(c.group || '').trim() === g);
         const n = num(a.limit, 40);
         /* 素材库的类型 / 预览图 / 描述这三条读法只在 drama.js 有一份；
            这一份查询在没有它的极端情况下（模块没加载上）退回裸字段，不能拿裸标识去猜。 */
         const D = window.Drama || null;
-        const kindOf = c => D ? D.LIB_KINDS[D.libKindOf(c)] : (c.kind === 'scene' ? '场景' : '角色');
+        /* 道具（2026-10 加的第三种类型）在兜底分支里以前会被说成「角色」——
+           助手于是会建议用户「把这位角色拉进这一集」，而拉进去的是一件物件。 */
+        const kindOf = c => D ? D.LIB_KINDS[D.libKindOf(c)]
+          : (c.kind === 'scene' ? '场景' : c.kind === 'prop' ? '道具' : '角色');
         const onlyVoice = c => !!D && D.voiceOnlyOf(c);
         const descOf = c => D ? D.descOf(c) : (c.look || c.desc || c.bio || '');
         const picOf = c => (D ? D.picOf(c) : (c.face || c.img)) || '';
         return { 共: rows.length, 匹配: hit.length, 条目: hit.slice(0, n).map(c => ({
+          /* 编号要报出来：助手下一轮要「把这一条拉进某一集」「按这一条去出图」全靠它指认，
+             只报名字时两位同名素材就分不开了（素材库允许同名不同人，合并判据是「同名 + 同类型」）。 */
+          编号: c.id,
           名称: c.name,
           类型: kindOf(c) + (onlyVoice(c) ? '（只出声）' : ''),
           分组: c.group || '',
+          时段: c.time || '',
           人设: cap(c.bio, 160), 描述: cap(descOf(c), 240),
           预览图: !!picOf(c), 候选图: (c.faces || []).length,
           /* 资产是**一个扁平列表**了（任意种类、不限张数、每张自己一个名字）。
@@ -672,8 +685,15 @@
             return { 名称: rec.name, 型号: model, 看到的: cap(txt, TOOL_OUT) };
           } catch (e) { return '看图这一步失败了：' + cap((e && e.message) || e, 220); }
         }
+        /* 走到这一支的是「视频 / 音频 / 其它」三种。以前一律回一句「本机没有听视频 / 音频的模型」，
+           而用户递来的是一张 PDF、一个 zip 或一份 Word —— 那句话把原因说错了，
+           听起来像「再装一个语音模型就能读」，其实这一层根本不解析二进制文档。 */
+        const playable = rec.kind === '视频' || rec.kind === '音频';
         return { 名称: rec.name, 类型: rec.kind, 大小: window.fmtBytes(rec.size),
-          结论: '本机没有听视频/音频内容的模型，读不出里面的内容。需要它参与生成就直接当素材提交（RUN generate 的 inputs），不要替它编内容。' };
+          结论: playable
+            ? '本机没有听视频/音频内容的模型，读不出里面的内容。需要它参与生成就直接当素材提交（RUN generate 的 inputs），不要替它编内容。'
+            : '这一类文件（' + (rec.mime || '没声明类型') + '）本工作台不解析，读不出正文；要它参与生成就直接当素材提交（RUN generate 的 inputs），'
+              + '要看内容就请用户把正文粘进输入框。**不要**根据文件名猜里面写了什么。' };
       },
     },
   };
@@ -1402,8 +1422,17 @@
   }
   function addWatch(rec) {
     const st = wread();
-    st.items = [Object.assign({ at: Date.now() }, rec)].concat(st.items);
+    const all = [Object.assign({ at: Date.now() }, rec)].concat(st.items);
+    /* 挤出去的那几条要**说给用户听**：它们是已经提交、已经扣过钱的任务，
+       从前 `slice(0, WATCH_CAP)` 一句不响就把最老的那条丢掉，于是「助手说它在等、其实不再跟了」，
+       而界面上没有任何地方看得出少了一条。任务本身还在平台那边跑，所以只报「不再跟进」，
+       绝不报成「失败了」，也不重新提交（重提交就是再扣一次钱）。 */
+    const gone = all.slice(WATCH_CAP);
+    st.items = all.slice(0, WATCH_CAP);
     wwrite(st);
+    if (gone.length) push('note', '在等的任务最多记 ' + WATCH_CAP + ' 条，这次挤掉了最早的那 '
+      + gone.length + ' 条，我不再跟进它们的结果（任务本身还在平台那边跑，去「生成工作台」的任务列表看）：'
+      + gone.map(x => x.id).join('、'));
   }
   function stopWatch() {
     if (watchTimer) { clearTimeout(watchTimer); watchTimer = null; }
@@ -2266,7 +2295,15 @@
   function placeBall() {
     if (!el.ball) return;
     const saved = xyGet();
-    const p = clampXY(...Object.values(saved || { x: window.innerWidth - BALL - 16, y: window.innerHeight - BALL - 18 }));
+    const p0 = clampXY(...Object.values(saved || { x: window.innerWidth - BALL - 16, y: window.innerHeight - BALL - 18 }));
+    /* 摆放与「拖完松手」必须走同一条判据：吸附开着就按**当前窗口**再吸一次边。
+       以前这里只 clamp 不吸，于是两种情况把球留在半屏：
+       ① 全新 profile 的默认坐标是「离右边留 16px」，从来没吸过边；
+       ② 窗口一变宽（或存档是另一台宽度算出来的），`clampXY` 只把**超出**的拽回来，
+          比右边小的那个坐标原样留着 —— 球就停在「上一次那个宽度的右边」，离新右边差几百 px，
+          看上去就是「助手怎么在屏幕中间」（用户报的这一条）。
+       上下不吸是 snapXY 自己的口径（只管左右），关了吸附它原样返回，所以用户手摆的位置不会被动。 */
+    const p = clampXY(...Object.values(snapXY(p0.x, p0.y)));
     el.ball.style.left = p.x + 'px';
     el.ball.style.top = p.y + 'px';
     /* 摆正之后把坐标也写回去（只在真的挪过的时候写）：不写的话「保存值」和「看见的位置」是两回事，
@@ -2541,8 +2578,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     el.send.onclick = () => send(el.ta.value);
     /* 新建会话：这一段留在历史里，随时能切回去；不是「清空」 */
     el.newS.onclick = () => {
-      if (live) return toast('上一条还在写，先按「停止」', 'warn');
-      if (pendingRun()) return toast('还有一张没确认的卡片，先点「执行」或「取消」', 'warn');
+      if (!canLeave()) return;
       newSession(); paint(); paintHist();
       closeHist();
       try { el.ta.focus(); } catch (e) {}
@@ -2560,10 +2596,10 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     if (histClose) histClose.onclick = closeHist;
 
     el.wipe.onclick = () => {
-      /* 正在写 / 还有一张没确认的卡片时不清：paint() 会把它们一起画掉，
-         前者丢字而请求还在跑，后者是用户本来打算执行的提案 */
-      if (live) return toast('上一条还在写，先按「停止」', 'warn');
-      if (pendingRun()) return toast('还有一张没确认的卡片，先点「执行」或「取消」', 'warn');
+      /* 拦的就是 canLeave() 那两条（与「新建会话」「切页」同一份判据）：
+         paint() 会把正在写的那条气泡一起画掉 —— 字丢了而请求还在跑、还在扣 tokens；
+         而没确认的卡片是用户本来打算执行的提案。 */
+      if (!canLeave()) return;
       if (!msgs.length) return toast('已经是空的了', 'info');
       msgs = []; acts = []; save(); paint(); paintHist(); toast('这一段对话清空了（历史会话里还留着别的段）', 'ok');
     };
@@ -2700,6 +2736,13 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     pageCtx(fn) { try { frameWin().__acPageCtx = typeof fn === 'function' ? fn : undefined; } catch (e) {} },
     /* 把已经拿到的文件递给助手（页面里选完素材想让它照图说话时用） */
     attach(list) { mount(); return addFiles(list); },
-    clear() { msgs = []; acts = []; save(); paint(); paintHist(); },
+    /* 清空这一段。**守卫与界面上那颗按钮同一条**（canLeave：正在写 / 有没确认的卡片就不清）——
+       页面调这个口时如果不过守卫，就会把正在流式写出的那条回答连字带节点一起抹掉，
+       而请求还在跑、还在扣 tokens。守卫写在数据这一头而不是按钮上，两个入口才分不开。 */
+    clear() {
+      if (!canLeave()) return false;
+      msgs = []; acts = []; save(); paint(); paintHist();
+      return true;
+    },
   };
 })();

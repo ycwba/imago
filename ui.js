@@ -10,7 +10,7 @@
    ========================================================================== */
 (function () {
   const ARW = '<svg class="arw" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="#8f97ab" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
-  /* 下拉浮层**挂到 body 上用 fixed 定位**，不留在 <select> 原来的位置上。
+  /* 下拉浮层**挂到容器外面用 fixed 定位**（挂在哪一个容器见下面的 `hostFor`），不留在 <select> 原来的位置上。
      以前是原地展开（.dd-list 是 .dd 的子节点），于是任何祖先的 overflow 都会把它裁掉：
      生成工作台的高级设置面板 .adv 是 overflow:hidden、左右两栏是 overflow-y:auto、外层
      .layout 还是 overflow:hidden —— 一个下拉要穿过三层裁剪，表现就是「点开了但只露出一条边」。
@@ -20,9 +20,34 @@
   const DD_GAP = 6;              // 浮层与按钮的间距
   const DD_EDGE = 10;            // 离视口边缘留一点，贴着边会被裁
 
-  /* 已挂到 body 的浮层（收起时留着节点，只是不显示 —— 省得每次展开重画一遍） */
+  /* 已挂出去的浮层（收起时留着节点，只是不显示 —— 省得每次展开重画一遍） */
   const portals = [];
   let openDd = null;
+
+  /* 浮层挂在**哪一个**容器里：默认 body，但 select 在 `<dialog>` 里时必须挂进那一个 dialog。
+     `showModal()` 的弹窗在 top layer 上，那一层盖过任何 z-index —— 浮层挂 body 就被整块压在弹窗底下，
+     看不见也点不着，表现是「下拉里只有当前这一项、换不了」，而界面上一处报错都没有
+     （新建素材那个「类型」下拉就是这么只剩「角色」的：三个选项一直在，列表开在弹窗背面）。
+     挂进 dialog 自己里面就跟着进 top layer；fixed 定位仍按视口摆（dialog 没有 transform，不成为固定元素的包含块）。 */
+  function hostFor(dd) {
+    const dlg = dd.closest && dd.closest('dialog');
+    return dlg && dlg.isConnected ? dlg : document.body;
+  }
+
+  /* 把已经不连在文档里的浮层回收掉。为什么排在 `build` 的最前面：页面每次重画一块区域都会再调一次
+     build，那正是「上一批 .dd 刚被 innerHTML 换掉」的时刻 —— 那些浮层节点还在 host 上挂着
+     （每个都带着自己的一份选项副本），不收就是每重画一次攒一串。
+     弹窗里的那一类更明显：`.dd` 跟着 dialog 一起 remove 了，`portals` 数组里那条引用却留着，
+     开一次收一次就攒一条，永远不清。 */
+  function sweepPortals() {
+    for (let i = portals.length - 1; i >= 0; i--) {
+      const dd = portals[i];
+      if (dd.isConnected) continue;
+      if (dd._ddList && dd._ddList.isConnected) dd._ddList.remove();
+      portals.splice(i, 1);
+      if (openDd === dd) openDd = null;
+    }
+  }
 
   function place(dd) {
     const btn = dd._ddBtn, list = dd._ddList;
@@ -42,10 +67,15 @@
     list.style.maxWidth = Math.min(window.innerWidth - DD_EDGE * 2, Math.max(r.width, 340)) + 'px';
     if (up) {
       list.classList.add('up');
-      list.style.top = ''; list.style.bottom = Math.round(vh - r.top + DD_GAP) + 'px';
+      /* 必须显式写 `auto`，不能只 `= ''`：清空的是**内联**的 top，而 `ui.css` 的 `.dd-list` 自己带着 `top: 0`。
+         固定定位 + 高度确定（内容撑到 max-height 就是确定的）时，`top` 与 `bottom` 同时有值属于「过约束」，
+         按 CSS 2.1 规矩**丢弃 bottom** —— 于是往上开的面板整块钉在视口顶上，离按钮差几百 px。
+         这就是「时段那一栏点开，选项跑到屏幕最上面」的根因：时段行在表单底部，下方不够才走这一支。
+         往下开那支看不出问题，只是因为内联的 top 正好把样式表的 0 盖掉了。 */
+      list.style.top = 'auto'; list.style.bottom = Math.round(vh - r.top + DD_GAP) + 'px';
     } else {
       list.classList.remove('up');
-      list.style.bottom = ''; list.style.top = Math.round(r.bottom + DD_GAP) + 'px';
+      list.style.top = Math.round(r.bottom + DD_GAP) + 'px'; list.style.bottom = 'auto';
     }
     /* 横向也别顶出视口 */
     const lw = list.offsetWidth || r.width;
@@ -55,7 +85,7 @@
 
   function openDd_(dd) {
     if (openDd && openDd !== dd) closeDd(openDd);
-    if (!dd._ddList.isConnected) document.body.appendChild(dd._ddList);
+    if (!dd._ddList.isConnected) hostFor(dd).appendChild(dd._ddList);
     dd.classList.add('open');
     dd._ddList.classList.add('on');
     openDd = dd;
@@ -148,7 +178,7 @@
     };
     dd._ddBtn = btn;
     dd._ddList = list;
-    dd.append(btn);            // 浮层不进 .dd：它挂在 body 上（见上面的说明）
+    dd.append(btn);            // 浮层不进 .dd：它挂到 hostFor 选出的容器上（弹窗里就进那一个 dialog）
     sel.before(dd);
     dd.appendChild(sel);   // 原生 select 留在里面并隐藏，作为数据源
     sel._ddBuilt = true;
@@ -181,7 +211,8 @@
         const n = o.count ? Number(o.count(v)) || 0 : 0;
         /* 值与标签都过一遍 esc：标签里有平台名 / 计量单位这种外来词，
            原先五份里 assets 用 textContent（天然安全）、另几份直接拼进 innerHTML。统一到安全的那一侧。 */
-        return '<button class="chip' + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '">'
+        const ti = o.title ? ' title="' + window.esc(o.title(v)) + '"' : '';
+        return '<button class="chip' + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
           + window.esc(label) + (n ? ' ' + n : '') + '</button>';
       }).join('');
       box.querySelectorAll('.chip').forEach(b => { b.onclick = () => onPick(b.dataset.v); });
@@ -190,6 +221,7 @@
 
   window.Dropdowns = {
     build(root) {
+      sweepPortals();
       const scope = root && root.querySelectorAll ? root : document;
       if (scope.matches && scope.matches('select')) buildOne(scope);
       scope.querySelectorAll('select').forEach(buildOne);
@@ -204,17 +236,9 @@
       scope.querySelectorAll('select').forEach(sel => { if (sel._ddBuilt) sel._ddRebuild(); });
       if (openDd) place(openDd);
     },
-    /* 切页 / 重建那一块 DOM 之后，把已经不连在文档里的浮层节点回收掉 ——
-       否则 body 上会攒下一堆孤立的 .dd-list（每个都还带着自己的选项副本）。 */
-    sweep() {
-      for (let i = portals.length - 1; i >= 0; i--) {
-        const dd = portals[i];
-        if (dd.isConnected) continue;
-        if (dd._ddList && dd._ddList.isConnected) dd._ddList.remove();
-        portals.splice(i, 1);
-        if (openDd === dd) openDd = null;
-      }
-    },
+    /* 没有对外的 `sweep()`：回收浮层是 `build` 自己开头做的一件事（见 `sweepPortals`）。
+       以前它是一个导出的方法而**全站零调用** —— 于是「重画一块区域就攒一串孤立 .dd-list」
+       这件事从来没被解决过，只是没人看见。接在唯一那个自然的时机上，比留一颗等人记得按的按钮可靠。 */
   };
 
   document.addEventListener('click', e => {
@@ -956,7 +980,7 @@ window.copyText = async function copyText(txt) {
                不必自己去找那个输入框（找不到就等于没有这个功能）。 */
             + `<button class="pinl-opt pinl-other" data-i="${i}" data-j="other" title="这些都不合适？点这里自己写"><span class="ic">${icon('pencil', 12)}</span>其他</button></div>` : '')
           /* 自由输入永远是每题的最后一块 —— 候选里没有的写法靠它 */
-          + `<div class="pinl-own"><input type="text" data-i="${i}" placeholder="或者自己写…（也可以先点上面的「其他」）"></div>`;
+          + `<div class="pinl-own"><input type="text" data-i="${i}" placeholder="或者自己写…"></div>`;
         wrapEl.querySelector('.pinl-qt').textContent = q.q;
         const inp = wrapEl.querySelector('.pinl-own input');
         const chips = [...wrapEl.querySelectorAll('.pinl-opt')].filter(c => c.dataset.j !== 'other');
@@ -967,7 +991,7 @@ window.copyText = async function copyText(txt) {
           const onOther = state[i].own.trim().length > 0;
           if (otherChip) otherChip.classList.toggle('on', onOther);
           inp.classList.toggle('on', onOther);
-          inp.placeholder = onOther ? '在这里写你要的答案…（会原样发给 AI）' : '或者自己写…（也可以先点上面的「其他」）';
+          inp.placeholder = onOther ? '在这里写你要的答案…' : '或者自己写…';
         };
         chips.forEach(c => c.onclick = () => {
           const j = c.dataset.j;
@@ -1416,8 +1440,13 @@ window.copyText = async function copyText(txt) {
    PromptForm —— 通用表单弹窗（AI 剪辑指令 / 剧本分镜 / 素材检索 共用）
    const v = await PromptForm.open({
      title, sub, okLabel,
-     fields: [{ key, label, type:'textarea'|'text'|'number'|'select', value, placeholder, hint, options:[{v,t}] }],
-   });   // 取消返回 null
+     fields: [{ key, label, type:'textarea'|'text'|'number'|'select', value, placeholder, hint,
+                options:[{v,t}], hidden:true }],
+     // 要在弹窗里做「选了这一项，别几项跟着改口」才传 onChange —— 公共层不认识具体语义，
+     // 它只交出三个口子：读现在的值、改某一行的文字（标签 / 占位 / 说明）、藏一整行。
+     // api 见下面的 parts 那一段；重画整张表单是不给的（那会把用户刚打的字清掉）。
+     onChange(key, api) {},
+   });   // 取消返回 null；带 hidden 的那一行不会出现在返回值里
    ========================================================================== */
 (function () {
   window.PromptForm = {
@@ -1433,7 +1462,7 @@ window.copyText = async function copyText(txt) {
             if (f.type === 'textarea') ctl = `<textarea id="${id}" placeholder="${esc(f.placeholder || '')}">${esc(f.value || '')}</textarea>`;
             else if (f.type === 'select') ctl = `<select id="${id}">${(f.options || []).map(x => `<option value="${esc(x.v)}"${String(x.v) === String(f.value) ? ' selected' : ''}>${esc(x.t)}</option>`).join('')}</select>`;
             else ctl = `<input id="${id}" type="${f.type || 'text'}" value="${esc(f.value == null ? '' : String(f.value))}" placeholder="${esc(f.placeholder || '')}">`;
-            return `<div class="pf-field" data-key="${esc(f.key)}"><label>${esc(f.label || '')}</label>${ctl}${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
+            return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"><label>${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
           }).join('')}</div>
           <div class="pf-foot"><span class="hint" id="pfMsg"></span><span class="sp"></span>
             <button class="ghost" id="pfCancel">取消</button><button class="pri" id="pfOk">${esc(o.okLabel || '确定')}</button></div>`;
@@ -1441,12 +1470,55 @@ window.copyText = async function copyText(txt) {
         dlg.showModal();
         /* select 字段也过公共下拉组件（原生留在 DOM 里当数据源，读取仍走 .value） */
         if (window.Dropdowns) Dropdowns.build(dlg);
+        /* 「某一项变了要让别的项跟着改口」的那三个口子（`onChange`）。
+           为什么不给页面一份重画整张表单的能力：重画会把用户刚打进去的字清掉。
+           所以这里只交出**改文字 / 改取值 / 藏一整行**三样，哪一类给哪几句话是页面自己的语义，
+           公共层不认识「角色」与「场景」。`hint != null` 才画那一行 —— 页面想「先留空、等选了再填」
+           就传 `hint: ''`，不然没有节点可填。 */
+        const parts = {};
+        dlg.querySelectorAll('.pf-field').forEach(el => {
+          parts[el.dataset.key] = { row: el, ctl: el.querySelector('textarea,input,select'),
+            lab: el.querySelector('label'), hint: el.querySelector('.hint') };
+        });
+        const api = {
+          values() {
+            const out = {};
+            for (const k of Object.keys(parts)) {
+              const c = parts[k].ctl;
+              if (c) out[k] = String(c.value).trim();
+            }
+            return out;
+          },
+          set(key, patch) {
+            const p = parts[key];
+            if (!p || !patch) return;
+            if ('label' in patch && p.lab) p.lab.textContent = patch.label;
+            if ('placeholder' in patch && p.ctl) p.ctl.placeholder = patch.placeholder || '';
+            if ('hint' in patch && p.hint) p.hint.textContent = patch.hint;
+            if ('value' in patch && p.ctl) {
+              p.ctl.value = patch.value == null ? '' : String(patch.value);
+              /* 程序化改完 select 必须通知公共下拉：浮层那份列表是 build 那一刻的快照，
+                 不 sync 就是按钮上写着 A、真实选中的是 B（与「填完 options 要 sync」同一条）。 */
+              if (p.ctl.tagName === 'SELECT' && window.Dropdowns) Dropdowns.sync(p.ctl);
+            }
+            if ('hidden' in patch) p.row.hidden = !!patch.hidden;
+          },
+        };
+        if (typeof o.onChange === 'function') {
+          for (const k of Object.keys(parts)) {
+            const c = parts[k].ctl;
+            if (c) c.addEventListener('change', () => o.onChange(k, api));
+          }
+        }
         const done = out => { try { dlg.close(); } catch {} dlg.remove(); resolve(out); };
         dlg.querySelector('#pfCancel').onclick = () => done(null);
         dlg.addEventListener('cancel', e => { e.preventDefault(); done(null); });
         dlg.querySelector('#pfOk').onclick = () => {
           const out = {};
           dlg.querySelectorAll('.pf-field').forEach(el => {
+            /* 藏起来的行不算「填了」：这一类没有这一栏时，交回页面的就该是没有这一栏。
+               留着它会把上一次切换时那个 select 的取值一起递出去（页面据此写字段就写错了）。 */
+            if (el.hidden) return;
             const k = el.dataset.key, ctl = el.querySelector('textarea,input,select');
             out[k] = ctl.value.trim();
           });
@@ -1616,7 +1688,7 @@ window.copyText = async function copyText(txt) {
     save(blob, filename) {
       const u = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = u; a.download = filename || 'download';
+      a.href = u; a.download = withExt(filename || 'download', blob && blob.type);
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(u), 4000);
     },
@@ -1625,6 +1697,22 @@ window.copyText = async function copyText(txt) {
   function upstreamMsg(d) {
     if (!d) return '';
     return (d.error && (d.error.message || d.error.code)) || d.message || d.error || '';
+  }
+  /* 下载名没带扩展名时按 blob 的 MIME 补一个：素材库与灯箱递出来的是「小雅 · 预览图」这种
+     人话名字，浏览器存下来就成了一个**没有类型**的文件（双击打不开、也看不出是 png 还是 webp）。
+     名字里已经有一个点就原样放行（SRT / 成片那些本来就带着 `.srt` `.mp4`），
+     MIME 认不出来也原样放行 —— 这一层只补，绝不改坏已经对的名字。 */
+  const MIME_EXT = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
+    'audio/wav-format': 'wav', 'audio/ogg': 'ogg',
+    'text/plain': 'txt', 'text/vtt': 'vtt', 'application/json': 'json', 'application/pdf': 'pdf',
+  };
+  function withExt(name, mime) {
+    if (/\.[A-Za-z0-9]{1,5}$/.test(name)) return name;
+    const ext = MIME_EXT[String(mime || '').split(';')[0].trim().toLowerCase()];
+    return ext ? name + '.' + ext : name;
   }
 })();
 
@@ -1952,7 +2040,33 @@ window.UI_PREFS = {
       hint: '开 = 卡片直接读本机副本（平台挂了也照样能看、用、传给别人）；'
         + '关 = 仍然直连平台地址（平台 CDN 更快，代价是地址一过期就什么都没有）。'
         + '本机文件被删了会自动回源平台，平台那边也没了会明写「已丢失」。' },
+    /* 第三档依附前两档：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」，
+       所以它只在两者都开着时才画出来（`needs` 由 settings.html 的渲染处现判），
+       而**真生效**的判据在 assetlib.js 的 AssetLocal.localOnly —— 页面不许自己再拼一次「三个开关都开着」。
+       键名刻意不叫 sk_media_local_only：SYNCABLE / EXPORTABLE 里有 'sk_media_local' 这一条**前缀**，
+       那样起名会被它顺带命中（同一类的坑在下面的 NOT_SYNC 注释里点名过）。 */
+    { key: 'sk_media_cloud_hide', group: 'store', name: '不显示云端任务', kind: 'bool',
+      needs: ['sk_media_local', 'sk_media_prefer'],
+      hint: '勾上 = 生成工作台与资产库的列表里只留本机有这份字节的成品，还没落到本机的那一条条不再出现。'
+        + '在跑的、排队中的、失败的不藏（藏了就等于把「点了生成没反应」和失败原因一起弄丢）。'
+        + '我的收藏与素材库不受这一项影响 —— 那两页各有一颗「自动下载」，由人自己决定把哪几张存回本机。'
+        + '这一项要上面两项都开着才生效：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」。' },
   ],
+  /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
+     只有这一份读法，设置页判「该不该画」与别处判「生效没」都走它，别各自 getItem 一遍。 */
+  isOn(k) {
+    const r = (this.rows || []).find(x => x.key === k);
+    if (!r) return false;
+    let v = null;
+    try { v = localStorage.getItem(k); } catch (e) { return r.kind === 'bool' ? !!r.def : r.def !== 'off'; }
+    if (r.kind === 'bool') return v == null ? (r.def === true || r.def === '1') : (v !== '' && v !== '0');
+    return (v == null ? (r.def != null ? r.def : '') : v) !== 'off';
+  },
+  /* 这一行现在画不画（needs 点名的那几项全开着才画）。 */
+  visible(r) {
+    const need = (r && r.needs) || [];
+    return !need.length || need.every(k => this.isOn(k));
+  },
   /* 某一组的显示名（助手取名时用）。认不出 group 的一律算「界面」，与旧口径一致。 */
   groupName(id) {
     const g = (this.groups || []).find(x => x.id === id);
@@ -2000,10 +2114,12 @@ window.UI_PREFS = {
        刻意不写整个 'dir_' 前缀：dir_img / dir_video / dir_audio / dir_render 是**本机磁盘路径**，
        换台机器就不成立（和 prompt_dir 同理，见下面的注释）。 */
     'wb_split', 'dir_split', 'dir_asset_view', 'dir_char_view', 'dir_fav_view', 'dir_cand_expand', 'dir_muted', 'sb_open', 'sb_bal_show',
-    /* 产物镜像的两个开关：属于「用户调出来的界面/习惯」，跟着数据文件走。
+    /* 产物镜像的三个开关：属于「用户调出来的界面/习惯」，跟着数据文件走。
        **只同步开关，不同步 sk_local_mirror 那份索引**（见 NOT_SYNC）——
-       索引里记的是本机资产号 la_xxx，另一台机器上那些文件压根不存在。 */
-    'sk_media_local', 'sk_media_prefer',
+       索引里记的是本机资产号 la_xxx，另一台机器上那些文件压根不存在。
+       第三个开关要单独点名：它不在 'sk_media_local' 这个前缀下面（叫 sk_media_cloud_hide），
+       「顺手以为前缀已经盖住」的结果是这一项换台机器就回到关闭。 */
+    'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide',
     /* 拍短剧：短剧本体（剧本 / 角色 / 场景 / 每一段的每一次拍摄）与**素材库**。
        素材库要跨剧复用（同一个角色在好几部剧里出现），所以单独一个键、跟着云同步走。 */
     'dramas', 'drama_chars', 'drama_active',
@@ -2292,7 +2408,7 @@ window.UI_PREFS = {
     /* 启动时自动对账：服务器有更新就覆盖本地并刷新一次（每页每次会话只刷一次，避免循环） */
     async boot() {
       if (!window.Store.available) return;
-      const page = (location.pathname.split('/').pop() || 'index.html');
+      const page = (location.pathname.split('/').pop() || 'director.html');
       const flag = '__synced_' + page;
       try {
         if (sessionStorage.getItem(flag)) return;              // 本次会话已经同步过
@@ -2510,6 +2626,11 @@ window.UI_PREFS = {
        供应方 / 型号 / 识图并进了「文字」那一档的每一家卡里。
      · video_tasks —— 视频台的卡片改成从接口取，本机不再留任务副本。
        **audio_tasks 还在用**（workbench.js 的历史仓），别顺手一起删。
+     · dir_studio_sort / dir_asset_sort / dir_fav_sort / dir_char_sort —— 2026-10 把四页
+       （生成工作台右栏 / 资产库 / 收藏 / 素材库）那一排排序芯片全去掉了，公共的 window.SortBy
+       也整块删除：那是个纯显示偏好，换台机器要重配，而「找最早的那一张」在资产库有日期筛选、
+       在收藏与素材库有「AI 找素材」（AI 给的名次照样生效，只是不再是可挑的档位）。
+       那份「档位:方向」从此再没有读者。
    两处都要清：localStorage 里的本体，和 `.data/` 里那份镜像。
    镜像走 `DELETE /data/<键>?nobak=1`（代理删东西默认留一份 .bak，这条路**特意绕开**）：
    这几个键是「已经宣告作废」的，为它们留后悔药只会让设置页的「备份清单」里永远挂着
@@ -2519,6 +2640,7 @@ window.UI_PREFS = {
 const LEGACY_KEYS = [
   'page_mode_image', 'page_size_image', 'page_mode_video', 'page_size_video',
   'page_mode_audio', 'page_size_audio', 'sk_text_provider', 'video_tasks',
+  'dir_studio_sort', 'dir_asset_sort', 'dir_fav_sort', 'dir_char_sort',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

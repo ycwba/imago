@@ -103,7 +103,7 @@ window.Drama = (function () {
        而 tooltip、拍片记录与批量拍摄三处都拿它当「最多几次」的承诺 —— 说了却改不了。
        搬进设置项之后：设置页照这张表自动渲染控件，AI 助手也自动能改，页面上只管读。 */
     maxTakes: { key: 'dr_maxtakes', kind: 'num', def: '3', unit: '次', step: '1', label: '每段最多重拍几次',
-      hint: '每次重拍都是一条真任务、单独计费；拍坏了的那次可以在「拍片记录」里删掉再拍' },
+      hint: '每重拍一次都会再出一段画面，各自单独留在「拍片记录」里；拍坏了的那次可以在记录里删掉再拍' },
     /* 候选张数（2026-10 按用户要求加回）：角色、场景、道具**一次出几张**让你挑，机位候选同一档。
        它是**下限**，实际张数由两个数取小的那个：
          ① 这个设置（这里，1~8）；
@@ -113,12 +113,12 @@ window.Drama = (function () {
        想要更省就改 1（等于回到只出一张、挑不了）。 */
     candN: { key: 'dr_cand_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '8',
       label: '角色 / 场景 / 道具 一次出几张候选',
-      hint: '画一次就多一张的钱；这几张各用一条不同的提示词（背景、光线、表情各换一个方向），所以是几个可挑的路子而不是同一张的抖动。实际张数还要看生图平台一次能让出几张' },
+      hint: '调大就是多画几张：这几张各用一条不同的提示词（背景、光线、表情各换一个方向），所以是几个可挑的路子而不是同一张的抖动。实际张数还要看生图平台一次能让出几张' },
     /* 机位候选出几张：机位图是**每段单独**画的，段数一多就是段数 × 这个数，
        所以默认比素材候选少（3 张够挑方向），并在界面上写明会乘以段数。 */
     camN: { key: 'dr_cam_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '9',
       label: '机位一次出几张候选',
-      hint: '机位是每一段单独出的：8 段的片子 × 3 张 = 24 张的钱。只想看看构图就不出，想挑就调大' },
+      hint: '机位是每一段单独出的：8 段的片子 × 3 张 = 24 张，段数一多就成倍地多。只想看看构图就调到 1，想挑方向再调大' },
   };
   /* 「这一次要出几张候选」：**判据只有这一处**（页面按钮文案、生图提交、界面上标的上限都读它）。
      夹到 `previewCap`（上游声明的上限）—— 请求一个上游只让出 1 张的模型出 3 张，
@@ -395,18 +395,23 @@ window.Drama = (function () {
      但 put 是拿 list() 的结果当写入底座的 —— 那一刻一次普通保存就会把
      「空列表 + 当前这一集」写回去，磁盘上还完好的其它短剧整批消失，且随 storage 钩子
      同步覆盖到 .data/dramas.json。原始值非空而读出来是空 = 读坏了，不是没有。 */
-  function listBroken() {
+  /* 判据只有一份，键与给人看的词由调用方给（dramas 与 drama_chars 是同一个形状、同一类风险）。 */
+  function brokenOf(key, label) {
     let raw = null;
-    try { raw = localStorage.getItem(K_DRAMAS); } catch { return '本机存储读不出来（隐私模式？）'; }
+    try { raw = localStorage.getItem(key); } catch { return '本机存储读不出来（隐私模式？）'; }
     if (raw == null || raw === '') return '';
     let p = null;
-    try { p = JSON.parse(raw); } catch { return '这份短剧数据在本机解析不了（可能写坏了）'; }
+    try { p = JSON.parse(raw); } catch { return '这份' + label + '在本机解析不了（可能写坏了）'; }
     const isEnv = p && typeof p === 'object' && !Array.isArray(p) && 'data' in p;
     /* 不是信封 = 旧格式（历史上存过裸值）。Store.read 对它也返回默认值，同样是「看起来没有」。 */
-    if (!isEnv) return '这份短剧数据是旧格式（不是 { data, ts } 信封），现在读不出来';
-    if (!Array.isArray(p.data)) return '这份短剧数据的结构不对（不是一串短剧）';
+    if (!isEnv) return '这份' + label + '是旧格式（不是 { data, ts } 信封），现在读不出来';
+    if (!Array.isArray(p.data)) return '这份' + label + '的结构不对（不是一串记录）';
     return '';
   }
+  function listBroken() { return brokenOf(K_DRAMAS, '短剧数据'); }
+  /* 同一个问题在素材库上的一张脸：`Lib.save` / `Lib.remove` 也是「list() → 改一处 → 写回去」，
+     所以库里那条读坏了之后，保存一次就把它洗成「只剩正在改的这一条」。 */
+  function libBroken() { return brokenOf(K_CHARS, '素材库数据'); }
   function put(d) {
     const broken = listBroken();
     if (broken) {
@@ -518,7 +523,7 @@ window.Drama = (function () {
     const busy = runningTakes(drama).filter(b => b.no === xs[i].no);
     if (busy.length) {
       return { ok: false, why: '第 ' + xs[i].no + ' 段还有 ' + busy.length + ' 次拍摄正在平台上跑着（第 '
-        + busy[0].tno + ' 次，' + (busy[0].stage || '在跑') + '）—— 删掉之后任务照样跑完、照样计费，'
+        + busy[0].tno + ' 次，' + (busy[0].stage || '在跑') + '）—— 删掉之后那些任务在平台那边照样会跑完，'
         + '而这一边再也接不回它。先在拍片记录里把那些「不等了」，或者等它们出结果' };
     }
     xs.splice(i, 1);
@@ -573,9 +578,9 @@ window.Drama = (function () {
     const prov = t.taskProvider ? Api.prov(t.taskProvider) : null;
     if (prov && prov.endpoints && prov.endpoints.cancel) {
       try { await Api.cancel(prov, t.taskId); cancelled = true; }
-      catch (e) { note = '平台上撤不掉（' + ((e && e.message) || e) + '）—— 那条任务可能还在跑、也还可能计费，可以到视频工作台里看看'; }
+      catch (e) { note = '平台上撤不掉（' + ((e && e.message) || e) + '）—— 那条任务可能还在跑，可以到视频工作台里看看'; }
     } else {
-      note = '这家平台没有提供撤单接口，那条任务撤不掉、可能还在计费（可以到视频工作台里看看）';
+      note = '这家平台没有提供撤单接口，那条任务撤不掉、可能还在跑（可以到视频工作台里看看）';
     }
     return { ok: true, cancelled: cancelled, note: note, no: t.no || 0 };
   }
@@ -661,6 +666,35 @@ window.Drama = (function () {
      **道具**（2026-10）是与角色、场景平级的第三种类型：它有自己的名字、描述与预览图，
      出图不靠别人的脸（照描述直接出），也没有表情 / 服装 / 三视图那一套 —— 只有一张图就是它自己。 */
   const LIB_KINDS = { actor: '角色', scene: '场景', prop: '道具' };
+  /* 三种类型各自「这一栏叫什么、给个什么例子、建完提醒什么」—— **全站只有这一份表**。
+     新建弹窗与素材库卡片的编辑区都读它：以前同一个字段在两处是两个名字（编辑区写「场景描述（出场景图靠它）」、
+     新建写「外貌 / 场景 / 道具描述（出图就靠它）」），而新建那一版把三种例子塞进一个占位里，
+     选了什么类型都看到同一句又长又杂的话。
+     ⚠ 这里**只管措辞**。「这一类到底有没有声音 / 时段 / 角色资产」仍然问 `isVoiced` /
+        `isSceneItem` / `isPropItem` 那三份判据（数据层的字段形状说的），不在表里再立一套 ——
+        两处各判一次就会出现「表说场景没时段、编辑区却画出来了」。
+     放在数据层而不是素材库页里，是因为「新建一条素材」有**两个入口**（素材库页、拍短剧的挑选弹窗）：
+     写在页面里第二处就会漂 —— 事实正是漂过：短剧那份没有场景的「时段」一行（建出来的场景只能事后
+     回编辑区补），例子还是三种类型混在一格。现在两个入口都走 `Lib.newForm`。 */
+  const KIND_FIELDS = {
+    actor: {
+      look: { lab: '外貌 / 人物特点（预览图与角色资产都靠它）', ph: '例：二十出头，齐肩黑发，总穿米色风衣' },
+      bio: { lab: '一句话人设（发给文字 AI 当「人物特点」）', ph: '例：嘴硬心软的师姐，嘴上不饶人但每次都替别人收尾' },
+      tip: '预览图与角色资产在这里出，声音也在这里定',
+    },
+    scene: {
+      look: { lab: '场景描述（出场景图靠它）', ph: '例：教学楼天台，傍晚，铁栏杆与晾衣绳' },
+      bio: { lab: '一句话说明（这一处是什么地方：只进搜索与文字 AI，不影响出图）', ph: '例：两人摊牌的地方，视野开阔但没有能躲的角落' },
+      time: { lab: '时段（出这张场景图时那句「…的光线」用的就是它）', hint: '不在下面几档里的值会照实列出来，改回哪一档由你点' },
+      tip: '光线按上面那一档「时段」走（没动就还是默认的深夜），出图那句「…的光线」用的就是它',
+    },
+    prop: {
+      look: { lab: '道具描述（出道具图就靠它）', ph: '例：牛皮纸旧信封，边角磨白，盖一枚红蓝邮票' },
+      bio: { lab: '一句话用途（剧情里这件东西干什么用，发给文字 AI）', ph: '例：用来交代那半页没写完的地址' },
+      tip: '道具就靠上面那句描述画一张图，没有角色资产那一套，也不出声',
+    },
+  };
+  const kindF = k => KIND_FIELDS[k] || KIND_FIELDS.actor;
   /* 只在来源值非空时覆盖库值 —— 否则用户在库里手改的脸 / 音色会被「存进素材库」无声覆盖 */
   const nz = (v, base) => (v && String(v).length ? v : base);
   /* 候选列表（脸 / 设定图 / 声音）入库时的合并：**新的排在前面**、按 keyOf 去重、按上限裁掉。
@@ -766,12 +800,56 @@ window.Drama = (function () {
     return pool.find(c => c && (c.libId === src.id || (c.name && c.name === src.name))) || null;
   }
 
+  /* 素材库存盘的两种「没存进去」都在这一处留话，页面只问一次（与 drama.html 的 saveOf 同一立场：
+     存盘失败必须看得见，不能界面照旧写「改完就地存」）。
+     ① 配额撞满 / 存储不可用 —— `Store.write` 返回 {ok:false}，以前这里的返回值被整句丢掉；
+     ② 库里那份读不出来（`libBroken`）—— 这时**根本不写**，写下去就是把整库洗成一条。 */
+  let libWriteErr = '';
+  function writeLib(xs) {
+    const r = write(K_CHARS, xs, CAP_CHARS);
+    libWriteErr = (r && r.ok === false) ? String(r.error || '本机存储写不进去') : '';
+    return r;
+  }
+  const LIB_STOP = '：已停止保存，磁盘上原来的数据一个字没动。先别在素材库页上继续改'
+    + '（继续改会拿这一条把整库覆盖掉）；到「设置」导出一次整包备份确认数据还在，再回来。';
+
+  /* 「这一条素材能被搜到哪些字」只有这一份表。三个读它的地方：
+     ① 素材库页的关键词过滤；② 那一行搜索说明（从这张表现拼，加一栏就一起变）；
+     ③ AI 助手的 `chars` 查询。以前页面只查名字 / 人设 / 外貌 / 分组、助手只查名字，
+     于是「深夜」「琪琪的常服」「中年男声」这些卡片上明摆着写的字，页面上搜不出、
+     助手还要回一句「库里没有这一位」。
+     时段只有场景有、设定图只有角色与老场景有、道具那些声音字段本来就不存在 ——
+     取不到就并进空串，不按类型分叉。 */
+  const SEARCH_FIELDS = [
+    ['名字', c => c.name],
+    ['人设', c => c.bio],
+    ['描述', c => c.look || c.desc],
+    ['分组', c => c.group],
+    ['时段', c => c.time],
+    ['设定图', c => assetsOf(c).map(a => a.name).join(' ')],
+    ['声音', c => [c.voiceName, c.voiceNote, c.refAudioName].join(' ')],
+  ];
+  function hayOf(c, lower) {
+    const s = SEARCH_FIELDS.map(f => String((f[1] || (() => ''))(c || {}) || '')).join('\n');
+    return lower ? s.toLowerCase() : s;
+  }
+
   const Lib = {
+    /* 搜索的字段表与那份「拼成一串」的文本：页面与助手都读这一处（见上面 SEARCH_FIELDS） */
+    SEARCH_FIELDS,
+    hayOf(c) { return hayOf(c, true); },
     list() { return read(K_CHARS, []) || []; },
+    /* 这一份读得出来吗（'' = 没问题）。页面在**任何**写入之前不需要问，因为 save / remove 自己会拒；
+       要主动在界面上摆一句「这一页现在存不进去」时才用它。 */
+    broken: libBroken,
+    /* 取走最近一次素材库写入失败的原因（取完即清，避免下一次成功写入还带着旧账）。 */
+    writeError() { const e = libWriteErr; libWriteErr = ''; return e; },
     /* 挂出来是因为页面要拿它判断卡片上那个「已在本集」角标 —— 同一份判据，
        别在 drama.html 里再写一遍 `libId || 同名`。找不到返回 null。 */
     inEpisode,
     save(char, o) {
+      const broken = libBroken();
+      if (broken) { libWriteErr = broken + LIB_STOP; return char; }
       const xs = Lib.list();
       /* 同名 = 同一个人（与 pullInto 的合并规则同一套）：以前只按 id 认，
          「阿May 存了、改名再存、另一集又存一个阿May」会在库里越攒越多，
@@ -842,10 +920,18 @@ window.Drama = (function () {
            预设音色按「同一种方式 + 同一个音色」去重（重合成同一把嗓子不必并排两条），
            描述 / 复刻那一位没有音色 id，按本机资产地址各算一条。 */
         voiceCands: mergeCands(char.voiceCands, base.voiceCands, VOICE_CAND_CAP, voiceKey),
+        /* 自动定音色的两条留痕（与 `newChar` 的字段表同一批）：`voiceErr` 是「这一位为什么没声音」，
+           `voiceAuto` 是定成的那句摘要。库里不存它们，素材库页上「没定成声音：…（再让 AI 定一次）」
+           那一块就是刷新即消失 —— 而这块的唯一用处正是让用户知道下一步该按哪一颗。 */
+        voiceErr: keep(char.voiceErr, base.voiceErr),
+        voiceAuto: keep(char.voiceAuto, base.voiceAuto),
+        /* 差异轴的轮转位也必须入库：`drawPreview` 每次出完 N 张就把它加 N，
+           不落盘就等于下一次出候选又从第一条轴开始 —— 用户花两次钱挑同一批图。 */
+        candTurn: Number(char.candTurn || base.candTurn) || 0,
       });
       const i = merge ? (byId >= 0 ? byId : byName) : 0;
       if (merge) xs[i] = c; else xs.unshift(c);
-      write(K_CHARS, xs, CAP_CHARS);
+      writeLib(xs);
       return c;
     },
     get(id) { return Lib.list().find(c => c && c.id === id) || null; },
@@ -864,6 +950,16 @@ window.Drama = (function () {
       return Lib.list().filter(x => x && String(x.group || '').trim() === g);
     },
     remove(id) {
+      /* 删库里这一位要动**两份**数据：素材清单 + 各集里指向它的标记。两份都必须先确认读得出来，
+         因为下面拿的正是 `read()` / `Lib.list()` 的结果当写入底座 —— 读坏了还照旧写回去，
+         磁盘上完好的那一整批就没了（与 `put` / `save` 同一立场，见 `brokenOf`）。
+         两份里任意一份读不出来就整个停手：宁可这一条删不掉，也不能删掉别的那些。 */
+      const lb = libBroken(), db = listBroken();
+      if (lb || db) {
+        libWriteErr = '这一条没删掉：' + (lb || db + '（删一条素材要连带清理各集里指向它的标记）')
+          + '。已停手，磁盘上原来的数据一个字没动；到「设置」导出一次整包备份确认数据还在，再来删。';
+        return false;
+      }
       // 删掉库里这一位时，清掉各集里指向它的标记 —— 否则「存进素材库」按钮
       // 永久 disabled 且显示「已在素材库」，用户看着像坏了。**三种类型都要清**。
       const xs = read(K_DRAMAS, []);
@@ -874,7 +970,8 @@ window.Drama = (function () {
         }
       }
       if (changed) write(K_DRAMAS, xs, CAP_DRAMAS);
-      write(K_CHARS, Lib.list().filter(c => c && c.id !== id), CAP_CHARS);
+      writeLib(Lib.list().filter(c => c && c.id !== id));
+      return true;
     },
     /* 把一集里的角色 / 场景 / 道具收进素材库（页面上的「存进素材库」按钮）。
        找人的顺序 = 三种类型各查一次：id 在全集里唯一，但同一次查找要覆盖三栏，
@@ -1020,6 +1117,71 @@ window.Drama = (function () {
       scan(drama.scenes, 'scene');
       scan(drama.props, 'prop');
       return out;
+    },
+    /* 「新建一条素材」那一张表单：字段、措辞、重名拦截、按类型建对象、存进库 —— 只有这一份。
+       两个入口（素材库页的「新建」与拍短剧挑选弹窗里的「＋ 新建素材」）各写一份时漂成了两副样子，
+       短剧那一份连场景的「时段」都没给（见上面 KIND_FIELDS 那段）。
+       页面之间的差异只有两件，都从参数进来 / 交回页面自己做：
+       ① 分组默认值（素材库正筛着某一组时带过去，拍短剧那边没有）；
+       ② 建完之后干什么（素材库要松开挡住它的筛选、开编辑区并滚过去；拍短剧要刷新网格并顺手勾上）。
+       返回值：`null` = 用户取消；`{ error }` = 没建成（那句话直接给人看）；
+       `{ item, kind, tip }` = 建好了，`tip` 是这一类「接下来在哪儿出图 / 出声」的那句说明。 */
+    /* 措辞表对外只有这一个口子：素材库页的卡片编辑区与新建回执都读它，页面不再自己抄一份。 */
+    kindF,
+    async newForm(o) {
+      const opt = o || {};
+      const kf = kindF('actor');
+      /* 选了类型就把那一类的说法换上来。`PromptForm` 的 `onChange` 只交出「读值 / 改文字 / 藏一行」
+         三个口子，整张表单不重画 —— 重画会把刚打进去的字清掉。 */
+      const paint = (k, api) => {
+        const f = kindF(k);
+        api.set('look', { label: f.look.lab, placeholder: f.look.ph });
+        api.set('bio', { label: f.bio.lab, placeholder: f.bio.ph });
+        /* 时段只有场景有：给角色摆一行「填了也没地方存」的控件，比不给更让人糊涂。 */
+        api.set('time', { hidden: k !== 'scene' });
+      };
+      const v = await PromptForm.open({
+        title: '新建一条素材（存进素材库）', okLabel: '存进库',
+        fields: [
+          { key: 'name', label: '名字', type: 'text', placeholder: '例：小雅 / 天台 / 旧信封' },
+          { key: 'kind', label: '类型', type: 'select', value: 'actor',
+            options: Object.keys(LIB_KINDS).map(k => ({ v: k, t: LIB_KINDS[k] })) },
+          /* 分组带当前这一档：正看着「校园篇主要角色」这一组、顺手新建一位，
+             十有八九是要加进这一组 —— 让人再抄一遍组名是多余的一步（筛到「未分组」时不带）。 */
+          { key: 'group', label: '分组（可留空；拍短剧页能整组一次交给 AI）', type: 'text',
+            value: opt.group || '', placeholder: '例：校园篇主要角色' },
+          { key: 'bio', label: kf.bio.lab, type: 'textarea', placeholder: kf.bio.ph },
+          { key: 'look', label: kf.look.lab, type: 'textarea', placeholder: kf.look.ph },
+          /* 一开是收着的（默认类型是角色）；选到场景才露出来。选项现读 `TIME_OFS`，
+             不在页面里另写一份时段名单。 */
+          { key: 'time', label: kindF('scene').time.lab, hint: kindF('scene').time.hint,
+            type: 'select', value: '深夜', options: TIME_OFS.map(t => ({ v: t.id, t: t.label })),
+            hidden: true },
+        ],
+        onChange: (key, api) => { if (key === 'kind') paint(api.values().kind, api); },
+        validate: f => f.name && f.name.trim() ? '' : '名字不能空着',
+      });
+      if (!v) return null;
+      const name = String(v.name || '').trim().slice(0, 20);
+      /* 库里「同类型 + 同名」= 两条一样的素材，之后「加入这一集」到底进哪一条说不清 —— 建的时候就拦住。
+         不同类型可以重名（角色「天台」与场景「天台」是两个东西），拉进本集时各进各的名单。 */
+      if (Lib.list().some(x => x && x.name === name && libKindOf(x) === v.kind)) {
+        return { error: '素材库里已经有「' + name + '」这条' + LIB_KINDS[v.kind] + '了：同名会被当成同一条' };
+      }
+      /* 场景也带上那句说明：`newScene` 是给剧侧用的（那边场景只有描述 / 图 / 时段三项，没有这一栏），
+         而**库里**这一条的 bio 有人读 —— 关键词搜索（`Lib.SEARCH_FIELDS` 的「人设」）、
+         素材库页的「AI 找素材」、以及描述空时 `descOf` 的退路。所以在这里补这一项，
+         不动剧侧的对象：那一集里根本不存在放它的地方，硬加字段只会多一个没人读的键。 */
+      const item = v.kind === 'scene'
+        ? Object.assign(newScene({ name, desc: v.look, time: v.time, group: v.group }), { bio: v.bio || '' })
+        : v.kind === 'prop' ? newProp({ name, look: v.look, bio: v.bio, group: v.group })
+          : newChar({ name, kind: v.kind, bio: v.bio, look: v.look, group: v.group });
+      const saved = Lib.save(item, { exact: true });
+      /* 存不进去（配额撞满 / 库里那份读不出来）就别让页面接着说「建好了」：原因由数据层留着，
+         取出来交回调用方去说（两个入口的提示组件不一样，话只能说一句）。 */
+      const e = Lib.writeError();
+      if (e) return { error: e };
+      return { item: saved, kind: v.kind, tip: kindF(v.kind).tip };
     },
   };
 

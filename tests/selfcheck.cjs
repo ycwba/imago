@@ -16,7 +16,7 @@
  * 它的红和绿都只是它自己的毛病。扫描器读不完一个文件时会**自己报红**，
  * 而不是悄悄给出一份错的读数。
  *
- * 八档：
+ * 十一档（§A–§K；每档的来龙去脉在 AGENTS.md §3 / §5 里点名）：
  *   §A 内联脚本里的裸调用必须落在本作用域或 window 上
  *      （AGENTS.md §5 第 ⑩ 档。踩过 drama.html 的 renderRewound 调 bind()，
  *        而 bind 只是 renderBottom 里一个 const —— 语法检查一行都不报、页面照常渲染，
@@ -34,6 +34,8 @@
  *   §I 「能力来源」那句话全站只有一份口径（Capabilities.srcTextOf）
  *      （踩过 studio.html 三处 + ai-chat.js 一处各写一遍：措辞两套、缓存标记两套，
  *        而其中两处把 note 整个丢了 —— note 是「这家为什么没拿到上游能力」的唯一原因。）
+ *   §J 「同一个功能只应有一份实现」（b64Bytes / 落点选择器 / toast / 续拉 / 字节单位 / 芯片行 / 跨页复用载荷 / 本机落盘链）
+ *   §K 页面不重复定义 ui.css 已经全有的规则（算子集、@media 上下文必须相同）
  */
 const fs = require('fs');
 const path = require('path');
@@ -45,7 +47,8 @@ const TRACE = !!process.env.SC_TRACE;
 let CUR_FILE = '';                                  // TRACE 时跟着打印，混着多个文件看不出来是哪一份
 const JS_FILES = ['ui.js', 'assetlib.js', 'workbench.js', 'drama.js', 'ai-chat.js', 'sidebar.js',
   'app.js', 'ident.js', 'proxy.js'];
-const HTML_FILES = ['index.html', 'studio.html', 'drama.html', 'assets.html', 'chars.html',
+/* 导演台的本名是 director.html（2026-10 从 index.html 改过来，那一份跳转出口已删除）。 */
+const HTML_FILES = ['director.html', 'studio.html', 'drama.html', 'assets.html', 'chars.html',
   'favorites.html', 'settings.html', 'usage.html', 'shell.html'];
 const argFiles = process.argv.slice(2);
 const targets = { js: argFiles.length ? argFiles : JS_FILES, html: argFiles.length ? [] : HTML_FILES };
@@ -76,7 +79,7 @@ function lex(code, lineBase) {
   let i = 0, line = lineBase || 1, err = null;
   /* 显式帧栈：code（代码，带花括号深度）/ tpl（模板串原始文本）。
      嵌套模板串靠这个栈自然处理 —— 第一版把 ${} 里的扫描写成一段不递归的内联循环，
-     于是 `${x ? `a${y}` : ''}` 这种套嵌一进来就跑偏（index.html:2138 就是这么炸的：
+     于是 `${x ? `a${y}` : ''}` 这种套嵌一进来就跑偏（导演台那一页，当时还叫 index.html，2138 行就是这么炸的：
      判据报「正则字面量跨行」，而那一行根本是一段 HTML 标签）。 */
   const st = [{ k: 'code', d: 0, at: line }];
   const top = () => st[st.length - 1];
@@ -571,8 +574,11 @@ function sectionG() {
    注释天然查不到（lex 直接跳过整段），AI 提示词天然查不到（它们不挂在界面属性名上）。
 
    判「界面属性名」只认**同一行**：写成「往下看两行」就会把
-   `$('hint').textContent = 'a'; toast('**b**')` 里那个 b 也算成界面文案 —— 假红比漏红更费人。 */
-const UI_SINK = /\b(?:textContent|innerText|innerHTML|outerHTML|insertAdjacentHTML|title|placeholder|alt|label|ariaLabel|aria-label|hint|note|desc|empty|tooltip|caption)\s*[:=]/;
+   `$('hint').textContent = 'a'; toast('**b**')` 里那个 b 也算成界面文案 —— 假红比漏红更费人。
+   `sub` / `body` 是 `Confirm.ask` / `Confirm.choose` 的正文与副标题（都走 `textContent`），
+   2026-10 补进来：那一处 `sub: '**沿用上一次…**'` 语法、渲染都不报错，只有点开那颗按钮才看见两个星号。
+   `UiDialog` 的 `body(el) { … }` 不会被这一条命中 —— 名字后面紧跟的是 `(el)` 不是 `:` / `=`。 */
+const UI_SINK = /\b(?:textContent|innerText|innerHTML|outerHTML|insertAdjacentHTML|title|placeholder|alt|label|ariaLabel|aria-label|hint|note|desc|empty|tooltip|caption|sub|body)\s*[:=]/;
 
 function sectionH() {
   const red0 = red;
@@ -610,7 +616,13 @@ function sectionH() {
         for (const piece of String(t.s).split('${')) {
           if (piece.indexOf('**') < 0) continue;
           checks++;
-          const ctx = ls[t.line - 1] || '';
+          /* 行号要按**这一段**去查：lex 拿的是 seg.base（那一页 <script> 在整份文件里的行号），
+             所以 token 的 line 是「全文件的行号」，而 ls 是「这段脚本自己的第几行」。
+             写成 ls[t.line - 1] 时模块（base=1）恰好没错，页面内联脚本却整体偏移几百行 ——
+             ctx 取到的是另一行，UI_SINK 永远对不上，**内联脚本那一支等于一直在假绿**
+             （2026-10 加 sub/body 两个界面属性名时靠变异才发现：星号注进 drama.html 的
+              Confirm.choose 副标题，判据一声不吭，而 checks 计数确实涨了 —— 字找到了，行取错了）。 */
+          const ctx = ls[t.line - seg.base] || '';
           if (!UI_SINK.test(ctx)) continue;
           bad('§H', f + ' 第 ' + t.line + ' 行 markdown 标记漏进界面：' + piece.trim().slice(0, 44));
         }
@@ -731,7 +743,7 @@ const STALE = ['来自上游 /models', '上游接口没给或不可用', '来自
         （导演台导出 / 拍短剧音色试听 / 资产库字节转存 / ui.js 自己的 DataSync）。
      ② 它的调用至少 4 处 —— 有人把某处改回内联写法时，定义数不变而调用数掉下来，这条先红。
      ③ showSaveFilePicker / showDirectoryPicker 作为标识符 0 处 —— 「下载落点」那一层已删干净。
-        **注释里可以提**（workbench.js 与 index.html 各有一句就在说明它被删了），
+        **注释里可以提**（workbench.js 与 director.html 各有一句就在说明它被删了），
         词法器剥注释，所以那两处不算。这一档正是靠词法器才分得开「提到」与「真调用」——
         用正则去查的话，恰恰会被那两句说明文字照红。
      ④ 页面里 function toast( 为 0 处 —— 提示组件只有 ui.js 的 window.Toast 一份。
@@ -741,6 +753,13 @@ const STALE = ['来自上游 /models', '上游接口没给或不可用', '来自
         另配一条负向断言：workbench.js 里不许再出现 —— Wb.fmtSize 必须委托 window.fmtBytes。
      ⑥ 页面里 new IntersectionObserver( 为 0 处 —— 页面级续拉走 Wb.pager.sentinel；
         模块内那几处是允许的（assetlib.js 的懒抽帧、workbench.js 自己的两处），所以**只查页面**。
+     ⑦ 页面对 Wb.pager.create() 返回值的成员访问，名字必须在 workbench.js 的 api 面上。
+        踩过：studio.html 三处 `try { pager.fill(n) } catch {}` —— api 上**从来没有** fill，
+        TypeError 被那句 try/catch 吞掉，于是「刷新后补齐 / 窗口变高再拉 / 首屏再拉」三条路
+        一次都没跑到过，而语法自测与控制台都不报（§5 里「页面要用数据层的东西就得先进导出表」那一类）。
+        api 那张面**从 workbench.js 现取**（认 `const api = {` 那一层花括号里的成员名，
+        带 async/get/set 前缀的也算），不手抄名单 —— 抄一份名单就是第二份真相，
+        公共层加一个方法还得记得回来改判据，忘了就红在产品上。
 
    写这一档时踩到的两件事，都记在这儿免得重犯：
    - **指纹太松会把不相干的写法一起抓**。第一版拿 `new Uint8Array(x.length)` 当
@@ -759,8 +778,67 @@ function sectionJ() {
 
   let scanned = 0, defs = 0, calls = 0, pickers = 0, toastDefs = 0, ioInPage = 0, unitInWb = 0;
   let chipRows = 0, chipsDefs = 0, chipsCalls = 0;
+  let pagerCalls = 0, pagerOff = 0;
   const defSites = [], pickerSites = [], toastSites = [], ioSites = [], unitSites = [];
-  const chipRowSites = [], chipsDefSites = [], chipsCallSites = [];
+  const chipRowSites = [], chipsDefSites = [], chipsCallSites = [], pagerOffSites = [];
+  /* ⑧ 跨页「拿去生成」的载荷：写的人只许有一个（workbench.js 的 `Wb.reuse.go`），
+     读的人只许有一个（studio.html 那一处，读完就删）。三页以前各拼一份 JSON、各写一遍地址，
+     而消费端只认平台资产号 —— 素材库与收藏里的本地文件压根没有那个号，
+     于是递过去 `/asset/undefined`，界面还说「已复用」。收成一份之后拿这一档钉住。 */
+  let reuseWrite = 0, reuseRead = 0, reuseGoCalls = 0;
+  const reuseWriteSites = [], reuseReadSites = [];
+  /* ⑨ 本机落盘这一条链（本轮加的）：
+       · 手动「自动下载」只有 `AssetLocal.pull` 这一个落盘口，恰好 2 处、分属收藏与素材库各一颗；
+       · 「藏不藏云端成品」只有 `hideAsCloud` 一份判据（定义 1 处且在 assetlib.js），
+         页面调用点恰好 3 处，且**只许出现在资产库与生成工作台** —— 收藏 / 素材库故意不藏
+         （那两页存的是人手工挑进来的东西，一条看不见就是「我收的东西没了」）；
+       · 「本机有没有这份字节」只有 `hasLocalAddr` 一份，恰好 2 处（两颗按钮各问一次）；
+       · 页面里不许出现 `'/local-assets'` 这个字面量 —— 要落盘就调公共那一条链，
+         自己 POST 等于绕过身份判据与去重（同一份产物反复下载、资产库同一张卡重复 N 次）。
+         ai-chat.js 那一句是 GET 读清单，而且它是模块不是页面，所以只查 `*.html`。 */
+  let dlPull = 0, hideDef = 0, hideCalls = 0, addrCalls = 0, rawLocalInPage = 0;
+  const dlPullSites = [], hideDefSites = [], hideCallSites = [], addrCallSites = [], rawLocalSites = [];
+
+  /* ⑦-a pager 的 api 面：从 workbench.js 现取，不手抄名单（见上面 ⑦ 的说明）。
+     认 `const api = {` 那一层花括号里处在成员位置的标识符：前驱是 { 或 ,（或 async/get/set 前缀），
+     后继是 ( 、: 或 , 、}（简写属性）。方法体里的东西都在更深层，靠深度自然挡掉。
+     这一份提法与「真把 workbench.js 装进 vm 跑一次、问 create() 的返回值要 keys」逐字相等
+     （11 个名字，两边都对过 —— 提法松或紧过一次就会报出差异，那是尺子红）。
+   ⑧ 跨页「拿去生成」的载荷（sk_reuse）：写入恰好 1 处且在 workbench.js，读 / 删恰好 2 处且都在
+      studio.html，Wb.reuse.go 至少被调 3 次。三页（资产库 / 收藏 / 素材库）以前各拼一份 JSON、
+      各写一遍地址，而消费端只认平台资产号 —— 素材库那张图只有本机地址、收藏里的本地文件只有
+      IndexedDB 号，两边递过去的 assetId 都是空，于是拼出 `/asset/undefined`、取字节必然 404，
+      而界面只留一句「已复用提示词」，素材根本没进槽这件事在界面上看不出来。
+      **第三头（被调次数）不是凑数**：只查「写入一份」的话，把三页的入口全拆掉它照样全绿。 */
+  const apiKeys = new Set();
+  if (exists('workbench.js')) {
+    const rw = lex(read('workbench.js'), 1);
+    if (rw.err) bad('§J', 'workbench.js 扫描器读不完：' + rw.err + '（pager 面的判据坏了）');
+    else {
+      const W = rw.toks;
+      for (let k = 0; k + 2 < W.length; k++) {
+        if (!(W[k].t === 'id' && W[k].v === 'api' && W[k + 1].t === 'p' && W[k + 1].v === '='
+          && W[k + 2].t === 'p' && W[k + 2].v === '{')) continue;
+        let d = 0;
+        for (let j = k + 2; j < W.length; j++) {
+          const u = W[j];
+          if (u.t === 'p' && u.v === '{') { d++; continue; }
+          if (u.t === 'p' && u.v === '}') { d--; if (d === 0) break; continue; }
+          if (d !== 1 || u.t !== 'id') continue;
+          const pv = W[j - 1], nx = W[j + 1];
+          const isStart = pv && (pv.t === 'p' ? (pv.v === '{' || pv.v === ',')
+            : pv.t === 'id' && (pv.v === 'async' || pv.v === 'get' || pv.v === 'set'));
+          if (!isStart) continue;
+          if ((u.v === 'async' || u.v === 'get' || u.v === 'set') && nx && nx.t === 'id') { apiKeys.add(nx.v); continue; }
+          if (nx && nx.t === 'p' && (nx.v === '(' || nx.v === ':' || nx.v === ',' || nx.v === '}')) apiKeys.add(u.v);
+        }
+        break;
+      }
+      if (apiKeys.size < 8)
+        bad('§J', '从 workbench.js 只提出 ' + apiKeys.size + ' 个 pager 方法名（实测 11 个，少于 8 就是提法坏了）：'
+          + [...apiKeys].join(','));
+    }
+  } else bad('§J', '读不到 workbench.js —— pager 面判据没底座');
 
   for (const it of items) {
     if (!exists(it.f)) continue;
@@ -775,6 +853,12 @@ function sectionJ() {
       if (r.err) { bad('§J', it.f + ' 扫描器读不完：' + r.err + '（判据坏了，不是页面坏了）'); continue; }
       scanned++;
       const T = r.toks;
+      /* ⑦-b 这一段里「= Wb.pager.create(...)」的那个变量名（三个页面都叫 pager，但按段现认，不写死） */
+      const inst = new Set();
+      for (let k = 0; k + 6 < T.length; k++)
+        if (T[k].t === 'id' && T[k + 1] && T[k + 1].v === '=' && T[k + 2] && T[k + 2].v === 'Wb'
+          && T[k + 3] && T[k + 3].v === '.' && T[k + 4] && T[k + 4].v === 'pager'
+          && T[k + 5] && T[k + 5].v === '.' && T[k + 6] && T[k + 6].v === 'create') inst.add(T[k].v);
       for (let k = 0; k < T.length; k++) {
         const t = T[k], nx = T[k + 1], pv = T[k - 1];
         /* ① 定义那处的下一个 token 也是 '('，所以要先排掉前面是 function 的那一次 */
@@ -823,6 +907,51 @@ function sectionJ() {
             chipsDefs++; chipsDefSites.push(it.f + ':' + t.line);
           }
         }
+        /* ⑧ 跨页复用的载荷：认「(setItem|getItem|removeItem|readLS)\s*(\s*'sk_reuse'」这一串 token。
+           用词法器而不是正则，是因为 ui.js 的 NOT_SYNC 名单里也点名了 'sk_reuse'（那是**同步**的事，
+           不是读写），正则扫全文会把它一起算进来；而它长成 `…, 'sk_reuse', …`，前驱是 ','，天然不匹配。 */
+        if (t.t === 'id' && (t.v === 'setItem' || t.v === 'getItem' || t.v === 'removeItem' || t.v === 'readLS')
+          && nx && nx.t === 'p' && nx.v === '(') {
+          const nx2 = T[k + 2];
+          if (nx2 && nx2.t === 'str' && nx2.s === 'sk_reuse') {
+            if (t.v === 'setItem') { reuseWrite++; reuseWriteSites.push(it.f + ':' + t.line); }
+            else { reuseRead++; reuseReadSites.push(it.f + ':' + t.line + ' ' + t.v); }
+          }
+        }
+        if (t.t === 'id' && t.v === 'reuse' && pv && pv.t === 'p' && pv.v === '.'
+          && nx && nx.t === 'p' && nx.v === '.' && T[k + 2] && T[k + 2].t === 'id' && T[k + 2].v === 'go') {
+          reuseGoCalls++;
+        }
+        /* ⑨ 本机落盘链：认「AssetLocal . 方法」这一串 token（`.` 在后，与 Chips 那一档同一形状）。
+           注释里那句「落盘走 AssetLocal.pull」不算 —— 词法器剥注释，两个页面的说明文字正好用它讲这件事。 */
+        if (t.t === 'id' && t.v === 'AssetLocal' && nx && nx.t === 'p' && nx.v === '.') {
+          const m = T[k + 2], open = T[k + 3];
+          if (m && m.t === 'id' && open && open.t === 'p' && open.v === '(') {
+            if (m.v === 'pull') { dlPull++; dlPullSites.push(it.f + ':' + t.line); }
+            else if (m.v === 'hideAsCloud') { hideCalls++; hideCallSites.push(it.f + ':' + t.line); }
+            else if (m.v === 'hasLocalAddr') { addrCalls++; addrCallSites.push(it.f + ':' + t.line); }
+          }
+        }
+        if (t.t === 'id' && t.v === 'function' && nx && nx.t === 'id' && nx.v === 'hideAsCloud') {
+          hideDef++; hideDefSites.push(it.f + ':' + t.line);
+        }
+        /* 字符串与模板串的**内容**里出现 /local-assets 才算页面自己拼了那条路由；
+           正文注释里那三处（studio.html 讲 base64、讲本机资产库来源、讲十六进制）不在这里。 */
+        if (it.html && (t.t === 'str' || t.t === 'tpl') && String(t.s || '').indexOf('/local-assets') >= 0) {
+          rawLocalInPage++; rawLocalSites.push(it.f + ':' + t.line);
+        }
+        /* ⑦-c 对 pager 实例的成员访问：名字必须在那张现取的 api 面上。
+           `Wb.pager.sentinel(...)` 这种**静态面**要排掉（它的前驱是 '.'，而 `pager` 恰好也是实例名）。
+           注释里写的 `pager.fill(...)` 不算 —— 这一档上线时 studio.html 就有一句正在讲它坏在哪，
+           词法器剥注释，所以说明文字不会把自己照红（与 ③ 同一套路）。 */
+        if (t.t === 'id' && inst.has(t.v) && nx && nx.t === 'p' && nx.v === '.'
+          && T[k + 2] && T[k + 2].t === 'id' && !(pv && pv.t === 'p' && pv.v === '.')) {
+          pagerCalls++;
+          if (apiKeys.size >= 8 && !apiKeys.has(T[k + 2].v)) {
+            pagerOff++;
+            pagerOffSites.push(it.f + ':' + t.line + ' pager.' + T[k + 2].v);
+          }
+        }
       }
     }
   }
@@ -830,7 +959,7 @@ function sectionJ() {
 
   if (defs !== 1) bad('§J', 'b64Bytes 的定义有 ' + defs + ' 处（' + (defSites.join('、') || '一处都没有') + '）—— base64→字节只许一份');
   else if (defSites[0].split(':')[0] !== 'ui.js') bad('§J', 'b64Bytes 的唯一定义在 ' + defSites[0] + '，不在 ui.js —— 判据和实现脱节了');
-  if (calls < 4) bad('§J', 'b64Bytes 只被调 ' + calls + ' 次（应至少 4：ui.js 的 DataSync、assetlib.js、drama.js、index.html）—— 有一处改回了内联写法');
+  if (calls < 4) bad('§J', 'b64Bytes 只被调 ' + calls + ' 次（应至少 4：ui.js 的 DataSync、assetlib.js、drama.js、director.html）—— 有一处改回了内联写法');
   if (pickers) bad('§J', '又用了「下载落点」那两个选择器：' + pickerSites.join('、') + ' —— 那一层已删，全站只剩 Net.save 一份（注释里提到不算）');
   if (toastDefs) bad('§J', '页面又自建了 toast()：' + toastSites.join('、') + ' —— 提示组件只有 ui.js 的 window.Toast 一份');
   if (ioInPage) bad('§J', '页面又自建了续拉：' + ioSites.join('、') + ' —— 页面级续拉走 Wb.pager.sentinel（模块内那几处是允许的）');
@@ -844,10 +973,52 @@ function sectionJ() {
   if (chipsDefs !== 1) bad('§J', 'window.Chips 的定义有 ' + chipsDefs + ' 处（' + (chipsDefSites.join('、') || '一处都没有') + '）—— 芯片行只许一份');
   else if (chipsDefSites[0].split(':')[0] !== 'ui.js') bad('§J', 'window.Chips 的唯一定义在 ' + chipsDefSites[0] + '，不在 ui.js —— 判据和实现脱节了');
   if (chipsCalls < 4) bad('§J', 'window.Chips.render 只被调 ' + chipsCalls + ' 次（应至少 4：资产库 3 行、角色库、收藏、用量）—— 有一处改回了自己拼');
+  /* ⑦ 两头：调用点全在面上，**且**确实看到了 18 处访问（先量过：studio 10 / chars 4 / favorites 4）。
+     只有前一条的话，把 `inst` 那一段认坏了（一个实例名都收不到）就等于「全过」。 */
+  if (pagerOff) bad('§J', '页面调了 Wb.pager.create() 返回值上**没有**的方法：' + pagerOffSites.join('、')
+    + ' —— 调用点要是套着 try/catch，TypeError 会被静默吞掉，那条路一次都跑不到（studio.html 的 pager.fill 就是）');
+  if (pagerCalls < 18) bad('§J', '只看到 ' + pagerCalls + ' 处对 pager 实例的成员访问（先量过的是 18 处：studio 10 / chars 4 / favorites 4）—— 少一头就是判据或调用点坏了');
+  /* ⑧ 三头都要在：写的人一份、读的人一份、**且**真看到 3 个页面在递载荷。
+     少了第三头，「一份写入点」会因为三页全被改成不递素材而照样全绿 —— 那正是这一档要防的反面。 */
+  if (reuseWrite !== 1) bad('§J', '往 localStorage 写 sk_reuse 的地方有 ' + reuseWrite + ' 处（'
+    + (reuseWriteSites.join('、') || '一处都没有') + '）—— 跨页复用的载荷只许 workbench.js 的 Wb.reuse.go 一份，页面自己拼就会各漏一种地址带法');
+  else if (reuseWriteSites[0].split(':')[0] !== 'workbench.js')
+    bad('§J', 'sk_reuse 的唯一定义在 ' + reuseWriteSites[0] + '，不在 workbench.js —— 判据和实现脱节了');
+  const readFiles = [...new Set(reuseReadSites.map(s => s.split(':')[0]))];
+  if (reuseRead !== 2 || readFiles.join(',') !== 'studio.html')
+    bad('§J', '读 / 删 sk_reuse 的地方是 ' + (reuseReadSites.join('、') || '没有') + ' —— 期望 studio.html 两处（读出一次 + 用完即删），'
+      + '消费端多一处就会把同一条载荷读两遍、第二遍是空的');
+  if (reuseGoCalls < 3) bad('§J', 'Wb.reuse.go 只被调 ' + reuseGoCalls + ' 次（先量过的是 3 次：资产库 / 收藏 / 素材库）'
+    + ' —— 有一页的「拿去生成」又退回自己拼载荷，或压根没了入口');
+  /* ⑨ 三头都要在，而且**两头是「恰好」**：这一档防的是「长第二份」，
+     所以既不能少（把某一页的按钮改成自己 POST）也不能多（第三页偷偷也藏云端成品）。 */
+  if (dlPull !== 2) bad('§J', 'AssetLocal.pull 的调用点是 ' + (dlPullSites.join('、') || '一处都没有')
+    + ' —— 期望恰好 2 处（收藏 #pullBtn / 素材库 #btnLocal 各一颗）：手动落盘只有这一条链，'
+    + '多出的一处多半是自己 POST /local-assets，会绕过身份判据与去重');
+  const pullFiles = [...new Set(dlPullSites.map(s => s.split(':')[0]))].sort();
+  if (dlPull === 2 && pullFiles.join(',') !== 'chars.html,favorites.html')
+    bad('§J', '两颗「自动下载」落在 ' + pullFiles.join(',') + ' —— 期望是收藏页与素材库这两页');
+  if (hideDef !== 1) bad('§J', 'hideAsCloud 的定义有 ' + hideDef + ' 处（' + (hideDefSites.join('、') || '一处都没有')
+    + '）—— 「不显示云端任务」的判据只许 assetlib.js 的 AssetLocal 一份');
+  else if (hideDefSites[0].split(':')[0] !== 'assetlib.js')
+    bad('§J', 'hideAsCloud 的唯一定义在 ' + hideDefSites[0] + '，不在 assetlib.js —— 判据和实现脱节了');
+  const hideFiles = [...new Set(hideCallSites.map(s => s.split(':')[0]))].sort();
+  if (hideCalls !== 3 || hideFiles.join(',') !== 'assets.html,studio.html')
+    bad('§J', 'AssetLocal.hideAsCloud 的调用点是 ' + (hideCallSites.join('、') || '没有')
+      + ' —— 期望 studio.html 两处 + assets.html 一处，且只在这两页：收藏 / 素材库故意不藏');
+  if (addrCalls !== 2) bad('§J', 'AssetLocal.hasLocalAddr 只被调 ' + (addrCallSites.join('、') || '一次都没有')
+    + ' —— 期望两颗按钮各问一次；「本机有没有这份字节」的判据也只许这一份');
+  if (rawLocalInPage) bad('§J', '页面又自己拼了 /local-assets：' + rawLocalSites.join('、')
+    + ' —— 落盘只有公共那两个口（页面的手动按钮走 AssetLocal.pull，模块走 Api.saveLocalAsset），'
+    + '页面自己拼路由等于绕过那一道按身份的去重');
 
   if (red === red0) ok('§J', '扫了 ' + scanned + ' 段源码：b64Bytes 定义 ' + defs + ' 处（被调 ' + calls + ' 次）、落点选择器 '
     + pickers + ' 处、页面自建 toast ' + toastDefs + ' 处、页面自建续拉 ' + ioInPage + ' 处、字节单位数组 ' + unitSites.length
-    + ' 处、页面自建芯片行 ' + chipRows + ' 处（Chips 定义 ' + chipsDefs + ' / 被调 ' + chipsCalls + '）');
+    + ' 处、页面自建芯片行 ' + chipRows + ' 处（Chips 定义 ' + chipsDefs + ' / 被调 ' + chipsCalls
+    + '）、pager 实例成员访问 ' + pagerCalls + ' 处（面上 ' + apiKeys.size + ' 个名字，越界 ' + pagerOff
+    + ' 处）、跨页复用载荷写入 ' + reuseWrite + ' 处 / 读取 ' + reuseRead + ' 处 / Wb.reuse.go ' + reuseGoCalls + ' 处'
+    + ' ⑨落盘链：pull ' + dlPull + ' 处、hideAsCloud 定义 ' + hideDef + ' / 调用 ' + hideCalls
+    + ' 处、hasLocalAddr ' + addrCalls + ' 处、页面自拼 /local-assets ' + rawLocalInPage + ' 处');
   return defs + calls;
 }
 /* ================= §K =================
