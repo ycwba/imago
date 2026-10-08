@@ -81,6 +81,9 @@
   /* 拆分片段面板的选项行 */
   .split-opts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--sub); }
   .split-opts select { padding: 4px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 12px; }
+  /* 「自定义」那一档就地展开的输入框：跟上一个下拉一样高，整行还是 flex-wrap，窄屏会自己掉下一行 */
+  .split-opts input { padding: 4px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 12px; width: 212px; }
+  .split-opts input:focus { outline: none; border-color: var(--acc, #6957e8); }
 
   /* ---------- 右栏：历史资产库 ---------- */
   .hist-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -185,7 +188,11 @@
             <option>按时间顺序</option>
             <option>按场景变化</option>
             <option>按动作或状态阶段</option>
+            <!-- 自定义：勾了就地多出一个输入框，自己写拆法（上面四项覆盖不了的写法靠它） -->
+            <option value="__custom">自定义…</option>
           </select></label>
+          <label id="splitDimCustomWrap" hidden><input id="splitDimCustom" maxlength="60"
+            placeholder="例：按主角情绪变化 / 按道具出现的先后顺序"></label>
           <span class="sp"></span>
           <button class="tool acc" id="splitGo">开始规划</button>
           <button class="tool" id="splitCancel">取消</button>
@@ -409,24 +416,36 @@ function renderModelOptions() {
   const sel = $('model');
   const prev = sel.value || cur().model || loadPicks()[TYPE] || '';
   const g = provGroups();
+  /* 先拼成字符串，再决定要不要碰 DOM —— 见下面「选项没变就别碰 DOM」那一段 */
+  let html;
   if (TYPE === 'audio') {
     const list = g.filter(p => (p.models || []).length || ((cur().liveModels || {})[p.id] || []).length);
-    if (!list.length) { sel.innerHTML = '<option value="">注册路由里没有语音平台</option>'; sel.value = ''; syncDropdowns(); return; }
     /* 每家一个 optgroup（与图片/视频台同一种形状）；音色、格式、字数上限随选中那家的 tts 声明走 */
-    sel.innerHTML = list.map(p =>
+    html = list.length ? list.map(p =>
       '<optgroup label="' + escA(p.displayName || p.name) + '">'
       + audioModels(p).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
-      + '</optgroup>').join('');
+      + '</optgroup>').join('')
+      : '<option value="">注册路由里没有语音平台</option>';
   } else {
-    sel.innerHTML = g.map(p =>
+    html = g.map(p =>
       '<optgroup label="' + escA(p.displayName || p.name) + '">'
       + (p.models || []).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA((m.name || '').replace(/"/g, '&quot;')) + '">' + escA(m.id) + '</option>').join('')
       + '</optgroup>').join('');
   }
+  /* **选项没变就别碰 DOM。** 型号下拉是公共 Dropdowns 画的浮层，重画一次就是把整份选项行
+     `list.innerHTML=''` 再逐条重建 —— 摊开着正要往下选的用户，手底下那颗选项节点已经换掉了
+     （症状就是「一直闪、点不中」）。这里比的是本页刚拼出来的原文，不做任何规范化；
+     比不出来就按老样子重画，宁可多画一次也不猜。 */
+  const listChanged = sel.innerHTML !== html;
+  if (listChanged) sel.innerHTML = html;
   const ok = prev && [...sel.options].some(o => o.value === prev);
-  sel.value = ok ? prev : (sel.options[0] ? sel.options[0].value : '');
+  const next = ok ? prev : (sel.options[0] ? sel.options[0].value : '');
+  const valChanged = sel.value !== next;
+  if (valChanged) sel.value = next;
   if (sel.value) { cur().model = sel.value; savePick(TYPE, sel.value); }
-  syncDropdowns();
+  /* 选了别的型号 → 显示文字要跟着换；头一回画 → 浮层还没建。两样都没发生就别重画浮层。
+     这里只管 #model 自己，别顺带把整篇 select 全 sync 一遍（那本来也只在真变过时才有必要）。 */
+  if (listChanged || valChanged || !sel._ddBuilt) syncDropdowns();
   if (TYPE === 'audio') loadLiveAudioModels();
 }
 /* 语音台：优先读各家的型号接口（新模型自动出现），声明的能力按 id 合并上去。
@@ -434,36 +453,61 @@ function renderModelOptions() {
    不影响别家（以前只问第一家，加了第二家以后第一家挂了整个下拉就空了）。
    **只问本机在用的那几家**（判据同一份：`Api.provUsable`）：原来只要注册表里声明了
    endpoints.models 就挨家发一次请求 —— 用户只加了一家语音平台，另外几家根本没碰过，
-   也照发白等、白耗额度，界面上还完全看不出区别。 */
+   也照发白等、白耗额度，界面上还完全看不出区别。
+
+   **同一批平台只取一次**（在取的时候复用同一轮）：原来本函数末尾回调 renderModelOptions()，
+   而它末尾又调本函数 —— 自激环。一轮接一轮，每轮重发一遍型号接口、并且把 #model 的选项
+   整份重画一遍；摊开下拉正要往下点的人，手底下的选项节点一次次被换掉，
+   表现就是「一直闪、点不中」，同时白白把接口打满。切点就是下面 `key === LIVE.key` 那一句。 */
+const LIVE = { key: '', busy: null };
 async function loadLiveAudioModels() {
-  const st = cur();
-  st.liveModels = {};
-  let env = {}, envKnown = false;
-  try { env = await Api.envStatus(); envKnown = !!(Api.envKnown && Api.envKnown()); } catch (e) { env = {}; }
-  /* env 没取到时退回全量：「哪几家有环境密钥」是**不知道**，不是「一家都没有」 */
-  const canJudge = !!(envKnown && Api.provUsable);
-  const provs = provGroups().filter(p => p.endpoints && p.endpoints.models
-    && (canJudge ? Api.provUsable(p, env) : true));
-  if (!provs.length) return;
-  const got = await Promise.all(provs.map(async prov => {
-    try {
-      const d = await Api.request(prov, 'models');
-      const list = (d.data || d.models || (Array.isArray(d) ? d : [])).map(m => (m && (m.id || m.name)) || '').filter(Boolean);
-      const re = prov.modelsFilter ? new RegExp(prov.modelsFilter) : null;
-      const found = list.filter(id => !re || re.test(id));
-      if (!found.length) return null;
-      const declared = new Map(((prov.models) || []).map(m => [m.id, m]));
-      return [prov.id, found.map(id => declared.get(id) || Object.assign({ id, name: id }, prov.newModelDefaults || {}))];
-    } catch (e) {
-      console.warn('[studio] ' + (prov.name || prov.id) + ' 的型号列表接口不可用，用注册声明：', e.message);
-      return null;
-    }
-  }));
-  got.forEach(pair => { if (pair) st.liveModels[pair[0]] = pair[1]; });
-  /* 取回来的型号要真出现在下拉里；用户刚选中的那一个不在新清单里就别硬改他的选择 */
-  const keep = $('model').value;
-  renderModelOptions();
-  if (keep && [...$('model').options].some(o => o.value === keep)) $('model').value = keep;
+  if (TYPE !== 'audio') return;
+  if (LIVE.busy) return;                 // 这一轮还没取完，它自己会重画下拉，这里不必等更不必另起一轮
+  const run = (async () => {
+    const st = cur();
+    let env = {}, envKnown = false;
+    try { env = await Api.envStatus(); envKnown = !!(Api.envKnown && Api.envKnown()); } catch (e) { env = {}; }
+    /* env 没取到时退回全量：「哪几家有环境密钥」是**不知道**，不是「一家都没有」 */
+    const canJudge = !!(envKnown && Api.provUsable);
+    const provs = provGroups().filter(p => p.endpoints && p.endpoints.models
+      && (canJudge ? Api.provUsable(p, env) : true));
+    /* 签名按「平台 id 列表」现算：反复调到这里（每次切类型 / 换型号都会走到）不再发请求，
+       而用户真去设置页补了一把密钥之后，同一批会重新取一次。 */
+    const key = provs.map(p => p.id).join(',');
+    if (key === LIVE.key) return;
+    LIVE.key = key;
+    if (!provs.length) return;
+    /* 清空放在判定之后：早一步会把上一轮取回来的型号抹掉，下拉就退回注册声明那份 */
+    st.liveModels = {};
+    const got = await Promise.all(provs.map(async prov => {
+      try {
+        const d = await Api.request(prov, 'models');
+        const list = (d.data || d.models || (Array.isArray(d) ? d : [])).map(m => (m && (m.id || m.name)) || '').filter(Boolean);
+        const re = prov.modelsFilter ? new RegExp(prov.modelsFilter) : null;
+        const found = list.filter(id => !re || re.test(id));
+        if (!found.length) return null;
+        const declared = new Map(((prov.models) || []).map(m => [m.id, m]));
+        return [prov.id, found.map(id => declared.get(id) || Object.assign({ id, name: id }, prov.newModelDefaults || {}))];
+      } catch (e) {
+        console.warn('[studio] ' + (prov.name || prov.id) + ' 的型号列表接口不可用，用注册声明：', e.message);
+        return null;
+      }
+    }));
+    const okList = got.filter(Boolean);
+    /* 一家都没取到就别把签名记死：这一轮等于没成功，下一次调用（切回语音栏、换型号）还能再试；
+       记死了就等于永久退回注册声明那份，而界面上完全看不出「刚才那次拉失败了」。 */
+    if (!okList.length) LIVE.key = '';
+    okList.forEach(pair => { st.liveModels[pair[0]] = pair[1]; });
+    /* 取回来的型号要真出现在下拉里；用户刚选中的那一个不在新清单里就别硬改他的选择。
+       **期间切走类型就别重画**：这一轮是为语音栏取的，别人那一栏的选项不归它管。 */
+    if (TYPE !== 'audio' || cur() !== st) return;
+    const keep = $('model').value;
+    renderModelOptions();
+    if (keep && [...$('model').options].some(o => o.value === keep)) $('model').value = keep;
+  })();
+  LIVE.busy = run;
+  try { return await run; }
+  finally { if (LIVE.busy === run) LIVE.busy = null; }
 }
 $('model').addEventListener('change', () => {
   cur().model = $('model').value;
@@ -1301,6 +1345,22 @@ $('splitBtn').onclick = () => {
 };
 $('splitCancel').onclick = () => { $('splitInline').hidden = true; };
 
+/* 「自定义」那一档：上面三个预设（时间先后 / 场景变化 / 动作阶段）覆盖不了的拆法 —— 按主角情绪、
+   按道具出现的先后、按每个镜头要传达的情绪 —— 只能自己写，所以它不是装饰，是「前三项之外」的兜底。
+   判据只有 isCustomDim() 一处：显隐读它、拼提示词也读它，别在别处再比一遍那个字符串。 */
+const DIM_CUSTOM = '__custom';
+const isCustomDim = () => $('splitDim').value === DIM_CUSTOM;
+function syncSplitDimCustom() {
+  const on = isCustomDim();
+  $('splitDimCustomWrap').hidden = !on;
+  /* 勾完就把光标放进那个框：选了「自定义…」的人下一步一定是想写字。
+     closeDd 不动焦点（它只摘 class），这里抢得到、也不会被谁抢回去。 */
+  if (on) { try { $('splitDimCustom').focus(); } catch (e) {} }
+}
+$('splitDim').addEventListener('change', syncSplitDimCustom);
+/* 用户改选项时提示词那边一并存一份：面板可以随手关掉，下次打开还在（别让他重写一遍） */
+$('splitDimCustom').addEventListener('input', () => { writeLS('studio_split_dim_custom', $('splitDimCustom').value); });
+
 /* 文字 AI 回的拆分方案 → [{label,prompt}]：剥 markdown 代码块、兼容数组/对象包层，
    段名取 label/name/title，给的是秒数（t/time）时翻成「第 N 秒」。 */
 function parseSegs(txt) {
@@ -1327,7 +1387,10 @@ function parseSegs(txt) {
 async function planImageSegments() {
   const src = ($('prompt').value || '').trim();
   const cnt = ($('splitCount').value || '').trim();
-  const dim = ($('splitDim').value || '').trim();
+  /* 维度取值的判据只有 isCustomDim() 一处：选了「自定义」就用他自己写的，原样传给文字 AI
+     —— 别替他改写成「按场景变化」那类预设，那正是他自己不要的；
+     选了却没填就当没选（退回「你选最自然的」），不要把半句话发过去。 */
+  const dim = isCustomDim() ? ($('splitDimCustom').value || '').trim() : ($('splitDim').value || '').trim();
   let user = '把下面这段描述拆成图片提示词：\n' + src;
   user += '\n\n张数：' + (cnt ? ('恰好 ' + cnt + ' 张，一张不多一张不少') : '你按内容复杂度定（2 到 6 张）');
   user += '\n拆分维度：' + (dim || '你选最自然的（时间先后 / 场景变化 / 动作阶段都行，拆法写进每个片段名）');
@@ -2576,6 +2639,9 @@ function paintLeft() {
   ST[TYPE].model = picks[TYPE] || '';
   ST[TYPE].prompt = readLS('studio_prompt_' + TYPE, '');
   $('prompt').value = ST[TYPE].prompt;
+  /* 拆分维度的自定义写法跟提示词一样是自己写的东西，重开一次页面不该要人重打一遍。
+     只存那一句；选哪一档仍由下拉自己管（默认落在「自动」，那个输入框也就看不见）。 */
+  $('splitDimCustom').value = readLS('studio_split_dim_custom', '');
   setType(TYPE, false);
   try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; }
   if (window.Api) Api.setRegistry(REG);
