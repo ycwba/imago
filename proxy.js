@@ -1485,25 +1485,15 @@ async function guardOutboundUrl(raw) {
 /* 出站响应流 → 客户端：上游中途断开（RST / 空闲超时）时不能只让 pipe 抛错 ——
    以前几处 pipe 没有 error 监听：上游一断，代理这边刷未捕获异常，客户端拿到一个永远不结束的响应。
    统一入口：响应还没发头 → 502 + 可读原因；已经发过头 → 直接断开连接。 */
-/* 把上游的字节转发给客户端。`total` 已知时额外发一个响应头 `X-Bytes-Sent`——
-   页面要靠它显示「下到百分之几」（回环那一段秒完，用户看到的慢的是「本机 → 上游」那一段，
-   而那一段只有代理看得见；这条头是把它透出来的那一小段）。
-   头不是 CORS 敏感，但为了万一是自定义头，客户端读不到时按「大小未知」显示，不假装有进度。 */
-function pipeUpstream(ur, res, tag, total) {
+/* 把上游的字节转发给客户端。`total` 参数**刻意不再使用**：
+   先前这一版想在流里回写 `X-Bytes-Sent` 头透出「上游那一段下到哪了」，但那是死代码 ——
+   `pipe` 的第一次 flush 就把响应头发出去了，之后再 `setHeader` 在 Node 里是**静默空操作**，
+   而浏览器侧 fetch 也要等头部到达才拿得到 `r.headers`，两边都永远读不到中途的值。
+   下载进度由客户端自己算（`AssetTransfer.readBlobWithProgress` 数 chunk）：
+   代理 → 上游、上游 → 代理、代理 → 浏览器三段是同一条 TCP 链，回环那一段攒不出整个缓冲，
+   背压会让客户端看到的速率≈上游速率，不需要额外把头塞进流里。 */
+function pipeUpstream(ur, res, tag) {
   ur.on('error', e => failUpstream(res, e.message, tag || '上游中断'));
-  if (!total) { ur.pipe(res); return; }
-  let sent = 0, lastAt = 0, lastPct = -1;
-  ur.on('data', c => {
-    sent += c.length;
-    const pct = Math.floor(sent * 100 / total);
-    const now = Date.now();
-    /* 每 200ms 或每跨过 1% 写一次头：写太密会让响应变慢（每帧都是一次 TCP 写），
-     而这个数字的用途是给人看的，1% 的粒度已经足够。 */
-    if (now - lastAt >= 200 || (pct >= 0 && pct > lastPct)) {
-      lastAt = now; lastPct = pct;
-      try { res.setHeader('X-Bytes-Sent', String(sent)); } catch (e) {}
-    }
-  });
   ur.pipe(res);
 }
 
@@ -5011,7 +5001,10 @@ async function handleRequest(req, res) {
         /* 把上游的长度**原样透出**（不 CORS 敏感，客户端读得到就能算下载进度）——
            以前一个头都没有，于是「正在把产物存到本机」只能显示「正在存 N 份」，
            一个 200MB 的视频下到 5% 与 95% 在界面上长得一模一样，用户只能干等。
-           没有长度（chunked）时客户端会看到 null，按「大小未知」显示（不假装有进度）。 */
+           没有长度（chunked）时客户端会看到 null，按「大小未知」显示（不假装有进度）。
+           本机实测：开着 Windows 系统代理（Clash 一类，走上面的 CONNECT 隧道）时，
+           jsdelivr 的响应常被中转**重新分块、丢掉 Content-Length** —— 那是隧道那一跳的事实，
+           不是这段透传坏了（PROXY_OFF=1 直连同一个地址，头原样到达）。别去改这里找 bug。 */
         const len = Number(ur.headers['content-length'] || 0) || null;
         const hd = {
           'Content-Type': ur.headers['content-type'] || 'application/octet-stream',

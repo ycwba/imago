@@ -250,6 +250,16 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && openDd) closeDd(openDd);
   });
+
+  /* DOM 就绪时自动包一遍全页的 <select>（不等到异步数据回来）。
+     以前只有各页在自己的渲染链路里调 Dropdowns.build —— 而那条链要等 /registry、
+     能力声明回来才跑（生成工作台首屏几百毫秒到几秒），于是每次切页都先画出
+     一排**原生控件**、等数据回来才整批换成公共样式（「基础组件闪一下再变样」）。
+     build 本身幂等（_ddBuilt），页面后来的 build/sync 只剩「补增量新节点」一件事。
+     包早了不怕选项没填：lbl 退回「请选择」，页面填完 options 照旧要调 sync。 */
+  const autoBuild = () => { try { window.Dropdowns.build(document); } catch (e) {} };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', autoBuild);
+  else autoBuild();
 })();
 
 /* ============================================================================

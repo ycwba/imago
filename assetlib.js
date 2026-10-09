@@ -5445,8 +5445,9 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
       const url = isExternal ? '/getfile?url=' + encodeURIComponent(s)
         : (s.startsWith('/asset/') ? s + (s.includes('?') ? '&' : '?') + 'dl=1' : s);
       /* `onStage('fetch', {sent, total})` 边下边报进度：读响应体时按 chunk 累加，
-         总量取 Content-Length。**代理在流里回写 X-Bytes-Sent**（见 proxy.js 的 pipeUpstream）
-         —— 那一段（代理 → 上游）才是真正慢的一段，回环那一段秒完就完了。
+         总量取 Content-Length（代理在 /getfile 那一支把上游的长度原样透出）。
+         进度不需要代理额外报数：取回是同一条 TCP 链，上游慢 → 代理这边就出字节慢 →
+         chunk 到得慢，客户端数出来的百分比就是真实进度。
          读不到 Content-Length（chunked）时 total = 0：调用方要按「大小未知」显示，
          不能拿 0 当分母算出个假进度。 */
       if (onStage) onStage('fetch', { sent: 0, total: 0, name: s });

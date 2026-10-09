@@ -8,7 +8,7 @@
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
 <link rel="stylesheet" href="ui.css">
 <style>
-  /* 主题变量：各页面在自己 <style> 里各写一份，外壳也要有一份，否则侧栏取不到颜色 */
+  /* 主题变量在 ui.css 的 :root / html[data-theme="dark"] 里（全站一份，上面已引） */
 
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
   /* 内容区在 iframe 里：切页只换 iframe，侧栏不动、不闪
