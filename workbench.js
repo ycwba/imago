@@ -1717,7 +1717,12 @@
         const kind = o.kind || this.kindOf(o.mtype || o.type);
         const payload = { from: o.from || '', kind, assetId: aid, src,
           dl: o.dl || (aid && /^\/asset\//.test(src) ? '/asset/' + aid + '?dl=1' : ''),
-          fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '' };
+          fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '',
+          /* 参数也带上（E7）：满意某张图的画幅与质量想照着再来一版，复用后全跳回默认、
+             得逐个重选 —— 这些值本来就随条目存在，直接取，不另记一份。
+             只带**页面上真有那个下拉**的那几项（缺的那几个接收端会自己跳过）。 */
+          tier: o.tier || '', res: o.res || '', ar: o.ar || '',
+          dur: o.dur == null ? '' : String(o.dur), quality: o.quality || '', size: o.size || '' };
         try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (e) {}
         location.href = 'studio.html?t=' + kind + '&reuse=1';
       },
@@ -2128,14 +2133,30 @@
         it.__lbUrl = src || '';                             // lbBar 的下载按钮用它（同步取）
         const kind = (c.kindOf ? c.kindOf(it) : 'image') || 'image';
         const mk = tag => { const el = document.createElement(tag); el.src = src; el.controls = true; el.autoplay = true; return el; };
+        /* 视频 / 音频也要有加载失败的兜底：图片那一支本来就有（下面 im.onerror），
+           媒体这两支漏了 —— 于是成片被清理掉之后（.renders 只保留最近 20 部）灯箱里是一片黑，
+           界面上什么都不说。判据：这一条是不是成片（标签写明「成片」，且有重新合并的路）。 */
+        const mediaBad = el => {
+          el.onerror = () => {
+            const tip = document.createElement('div');
+            tip.className = 'lb-hint';
+            tip.textContent = /\/(render|play)\b/.test(String(src))
+              ? '成片文件已被清理（只保留最近 20 部）—— 重新合并一次就好，素材都还在'
+              : '这条视频 / 音频现在读不出来（可能已过期或已被清理）';
+            stage.innerHTML = '';
+            stage.appendChild(tip);
+          };
+        };
         stage.innerHTML = '';
         if (kind === 'task') {
           stage.innerHTML = '<div class="lb-hint">' + W.esc(it.status === 'failed' ? '生成失败' : '生成中…') + '</div>';
         } else if (kind === 'video') {
           const v = mk('video');
+          mediaBad(v);
           stage.appendChild(v);
         } else if (kind === 'audio') {
           const au = mk('audio');
+          mediaBad(au);
           stage.appendChild(au);
         } else if (src) {
           const im = document.createElement('img');

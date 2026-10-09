@@ -174,8 +174,27 @@
       notice: (r.custom && r.custom.reason) || '',
     };
   }
-  const dramaRows = () => (window.Drama ? Drama.list() : Store.read('dramas', []) || []);
-  const charRows = () => (window.Drama ? Drama.Lib.list() : Store.read('drama_chars', []) || []);
+  /* 拿数据层（`window.Drama`）——**要从内容页那个窗口取**。
+     助手挂在外壳（顶层）上，而 drama.js 只在内容页加载，所以顶层这一层没有 `window.Drama`：
+     以前凡是直接读 `window.Drama` 的地方，在外壳形态下都静默地退到 `Store.read(...)` 的裸读
+     —— 于是「素材库」这类需要 Drama 判据的查询（`Lib.hayOf` / `libKindOf` / `Cast.assetsOf`）
+     全部退化成「只查名字」，而且**看不出退化**（界面上只是一句话照常返回）。
+     所以这里收一个口：顶层先找自己，找不到就去内容页（frameWin）找。 */
+  const DRA = () => {
+    try { if (window.Drama) return window.Drama; } catch (e) {}
+    try { const w = frameWin(); if (w && w.Drama) return w.Drama; } catch (e) {}
+    return null;
+  };
+  /* 「数据层那一层在不在」—— 素材库的读写动作要靠它（`newForm` / `commitForm` / `save` / `remove`），
+     只有 Store 那点裸读是干不了这些的。答案是「不在」时要说清为什么，而不是照旧执行一半。 */
+  const needDRA = () => {
+    const D = DRA();
+    if (D && D.Lib && D.Lib.save) return D;
+    throw new Error('现在不在内容页里（助手挂在应用外壳上），拿不到素材库那一层。'
+      + '切到「拍短剧」或「素材库」那一页再问我一次就行 —— 那两页开着的时候我能直接读写真实数据');
+  };
+  const dramaRows = () => { const D = DRA(); return D ? D.list() : (Store.read('dramas', []) || []); };
+  const charRows = () => { const D = DRA(); return D ? D.Lib.list() : (Store.read('drama_chars', []) || []); };
 
   function usageStat(days) {
     const arr = (window.TextAI && TextAI.readUsageLog()) || [];
@@ -343,7 +362,7 @@
         const pick = want ? rows.filter(d => d && (d.id === want || d.title === want)) : rows;
         if (!pick.length) return '没有 id 或名称为「' + want + '」的短剧。不带 id 再查一次可以看全部。';
         let r = null;
-        if (window.Drama && Drama.Pipe) { try { r = await reg(); } catch (e) { r = null; } }
+        if (DRA() && Drama.Pipe) { try { r = await reg(); } catch (e) { r = null; } }
         return pick.map(d => {
           const shots = d.shots || [];
           const o = {
@@ -353,7 +372,7 @@
             选中的视频模型: (d.opts || {}).videoModel || '（还没选）', 最后改动: when(d.updatedAt),
           };
           /* 前置条件与导出检查要读能力声明，代理没响应时不能把整条查询带崩 */
-          if (window.Drama && Drama.Pipe && r) {
+          if (DRA() && Drama.Pipe && r) {
             try {
               const vm = Drama.Pipe.voiceMode(r, d.opts || {});
               const pre = Drama.Pipe.prereqs(d, null, vm);
@@ -378,14 +397,14 @@
         const g = String(a.group || '').trim();
         /* 关键词查哪些字段跟着素材库页那一份判据走（`Lib.hayOf`）：以前这里只查名字，
            用户问「那个下雨的仓库」助手回「库里没有」，而库里就躺着一条叫「仓库」、时段写着「深夜」的场景。 */
-        const hay = c => (window.Drama && Drama.Lib.hayOf) ? Drama.Lib.hayOf(c)
+        const hay = c => (DRA() && Drama.Lib.hayOf) ? Drama.Lib.hayOf(c)
           : String(c.name || '').toLowerCase();
         let hit = q ? rows.filter(c => hay(c).includes(q)) : rows;
         if (g) hit = hit.filter(c => String(c.group || '').trim() === g);
         const n = num(a.limit, 40);
         /* 素材库的类型 / 预览图 / 描述这三条读法只在 drama.js 有一份；
            这一份查询在没有它的极端情况下（模块没加载上）退回裸字段，不能拿裸标识去猜。 */
-        const D = window.Drama || null;
+        const D = DRA();
         /* 道具（2026-10 加的第三种类型）在兜底分支里以前会被说成「角色」——
            助手于是会建议用户「把这位角色拉进这一集」，而拉进去的是一件物件。 */
         const kindOf = c => D ? D.LIB_KINDS[D.libKindOf(c)]
@@ -408,7 +427,7 @@
              助手会说「这个角色没有资产」而界面上明明摆了四张；
              后来改成读 `a.kind`（类别），资产有了自己的名字之后又会与界面对不上。
              走 `Cast.assetsOf` 一份（老字典它会现算），报的是**用户自己起的名字**。 */
-          资产: (window.Drama && Drama.Cast && Drama.Cast.assetsOf(c) || []).map(a => (Drama.Cast.assetName(a) || '?') + '=' + cap(a.src, 40)),
+          资产: (DRA() && Drama.Cast && Drama.Cast.assetsOf(c) || []).map(a => (Drama.Cast.assetName(a) || '?') + '=' + cap(a.src, 40)),
           音色: c.voice || '', 音色描述: cap(c.voiceNote, 120), 参考音频: !!c.refAudio,
         })) };
       },
@@ -488,6 +507,9 @@
              这几项故意不在 writableKeys 白名单里 —— 「不用确认」能被 AI 自己打开是不安全的，
              系统通知的授权还在浏览器那一层，AI 改了开关也弹不出来。 */
           助手: { 执行前不用确认: autoRun() ? '已开启（卡片照画，校验做完就自动提交）' : '关闭（要点「执行」）',
+            自定义脚本注入: injectOn()
+              ? (injectAuto() ? '已开启，而且勾了免确认（点「执行」就直接跑任意代码）' : '已开启（卡片逐字显示代码，执行前还要再确认）')
+              : '关闭（这一档默认关；要用到「设置 → AI 助手」里勾上）',
             球吸附边缘: snapOn() ? '开' : '关',
             系统通知: (localStorage.getItem(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
               + (window.Notification ? Notification.permission : '这个浏览器不支持'),
@@ -530,6 +552,7 @@
           }),
           停用: off.length ? off.join(' / ') + '（各页下拉里没有它们；这一项存在本机、只在这台机器生效）' : '没有',
           助手: { 执行前不用确认: autoRun() ? '开着（卡片照画，校验做完就自动提交）' : '关（要点「执行」）',
+            自定义脚本注入: injectOn() ? (injectAuto() ? '开着 + 免确认' : '开着（执行前再确认）') : '关',
             球吸附边缘: snapOn() ? '开' : '关',
             系统通知: (localStorage.getItem(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
               + (window.Notification ? Notification.permission : '这个浏览器不支持'),
@@ -605,6 +628,35 @@
           } catch (e) { out.push({ 平台: p.id, 错误: cap((e && e.message) || e, 200) }); }
         }
         return out.length ? out : '这些平台都没声明余额接口';
+      },
+    },
+    /* ---------- 脚下这一页现在是什么样 ----------
+     fill / click 两个动作的**前提**是「模型看得见控件叫什么、在哪一块」，
+     没有这一份它只能猜 —— 猜错按钮比点不到更糟。所以这是那两个动作的配套查询，不是可选项。
+     列的是**看得见且没 disabled** 的控件（藏起来的与禁用的不给点，给了就是骗模型）。
+     `kind` 可以筛："button" / "input" / 不给 = 两样都列。 */
+    page_state: {
+      arg: '{ "kind": "button|input", "zone": "可选：只看某一块" }',
+      doc: '当前这一页（助手脚下那页）的可操作控件清单：名字、类型、在哪一块、输入框/下拉现在是什么值。'
+        + '要替用户填字或点按钮之前**先查这个**，别凭印象猜控件的名字',
+      async run(a) {
+        const kind = String((a && (a.kind || a.类型)) || '').toLowerCase();
+        const zone = String((a && (a.zone || a.块)) || '').trim();
+        const kinds = kind === 'button' ? ['button'] : kind === 'input' ? ['input'] : ['input', 'button'];
+        let pagePath = '';
+        try { const w = frameWin(); pagePath = (w.location.pathname.split('/').pop() || w.location.href); } catch (e) {}
+        const out = { 页面: pagePath || (location.pathname.split('/').pop() || location.href), 区块: {} };
+        for (const k of kinds) {
+          let inv = uiInventory(k, 140);
+          if (zone) inv = { 共: inv.共, 列出: inv.列出.filter(x => String(x.位置).indexOf(zone) >= 0), 说明: '（只列了「' + zone + '」那一块）' };
+          out.区块[k === 'button' ? '可点的按钮' : '可填的输入框'] = inv;
+        }
+        /* 这一页自己报的状态（各页挂 window 的那几个）：有的页面才知道「我现在在第几步」 */
+        const extra = {};
+        if (typeof window.__pageState === 'function') { try { Object.assign(extra, window.__pageState() || {}); } catch (e) {} }
+        else if (window.dramaState) Object.assign(extra, window.dramaState);
+        if (Object.keys(extra).length) out.页面自己报的 = extra;
+        return out;
       },
     },
     go: {
@@ -994,6 +1046,125 @@
     } catch (e) { /* 代理没响应时至少有静态那几项 */ }
     return out;
   }
+  /* ---------- 素材库：新建/更新 与 删除 ---------- */
+  const CHAR_KINDS = { actor: '角色', scene: '场景', prop: '道具' };
+  /* 「库里这一位被哪些短剧引用」—— 用户删一条之前必须知道这件事：
+     素材库是「跨剧复用」的，删掉库里那一位**不会**自动从各剧里去掉引用
+     （那些剧里存的是各自的一份拷贝），于是会出现「库里没了、剧里还在」的不一致。
+     所以这句话要说在**删除之前**。判据是各剧里的同名项（与 Lib.inEpisode 同一套口径）。 */
+  function charRefs(name, kind) {
+    const out = [];
+    for (const d of (dramaRows() || [])) {
+      for (const pair of [['角色', d.characters], ['场景', d.scenes], ['道具', d.props]]) {
+        for (const c of (pair[1] || [])) {
+          if (!c || String(c.name || '') !== name) continue;
+          if (kind && String(c.kind || '') && String(c.kind) !== kind) continue;
+          out.push({ 剧: d.title || d.id || '(未命名)', 类型: pair[0] });
+        }
+      }
+    }
+    return out;
+  }
+  function chkChar(a) {
+    try { needDRA(); } catch (e) { return { err: e.message }; }
+    if (!a || typeof a !== 'object') return { err: 'save_char 的参数要是一个 JSON 对象：{"name":"小雅","kind":"actor","look":"齐肩黑发"}' };
+    const name = String(a.name || a.名字 || '').trim().slice(0, 20);
+    if (!name) return { err: '要给 name（这条素材的名字）' };
+    const kind = String(a.kind || a.类型 || 'actor').trim();
+    if (!CHAR_KINDS[kind]) return { err: 'kind 只能是 actor（角色）/ scene（场景）/ prop（道具）' };
+    const D = DRA();
+    const same = (D.Lib.list() || []).find(x => x && x.name === name && D.libKindOf(x) === kind);
+    const isUpdate = !!same;
+    if (isUpdate && !a.replace) {
+      return { err: '素材库里已经有「' + name + '」这条' + CHAR_KINDS[kind]
+        + '了。要改它就带 "replace": true（直接覆盖，不合并）；只是想新建一条换个名字就行。' };
+    }
+    const look = String(a.look || a.外貌 || a.desc || a.描述 || '');
+    const fields = [
+      '类型：' + CHAR_KINDS[kind],
+      '分组：' + (String(a.group || '').trim() || '（未分组）'),
+      look ? (kind === 'scene' ? '描述：' : kind === 'prop' ? '外观：' : '外貌：') + look : (kind === 'scene' ? '描述：（空）' : '外貌：（空）'),
+      a.bio ? '人设：' + a.bio : '',
+      kind === 'scene' ? '时段：' + (String(a.time || '').trim() || '深夜（默认）') : '',
+      '图片与音色：' + (isUpdate ? '保留原来那份' : '还没有（要在素材库页出图 / 定音色，那两件要花钱）'),
+    ].filter(Boolean);
+    return { 说明: (isUpdate ? '覆盖' : '新建') + '素材库里的「' + name + '」',
+      人话: fields, 是更新: isUpdate,
+      原: isUpdate ? { look: same.look || same.desc || '', group: same.group || '' } : null };
+  }
+  /* run 一律**自己重新跑一次 check**（与 runAdjust / runGenerate 同一约定：
+     校验结果不靠「上一步存着」传进来 —— 那份状态在弹窗关掉、页面重画之后就没了）。 */
+  async function runChar(a) {
+    const chk = chkChar(a);
+    if (chk.err) return { ok: false, text: chk.err };
+    const D = needDRA();
+    /* 归一在这里做一遍（check 里做过一次是为了写卡片；run 里要再做是因为
+       run 不该依赖「上一步算过什么」）。取值口子是同几个字段名，别自己另列一套。 */
+    const src = a || {};
+    const fields = {
+      name: String(src.name || src.名字 || '').trim().slice(0, 20),
+      kind: String(src.kind || src.类型 || 'actor').trim(),
+      group: String(src.group || '').trim(),
+      look: String(src.look || src.外貌 || src.desc || src.描述 || ''),
+      bio: String(src.bio || src.人设 || ''),
+      time: String(src.time || '').trim(),
+    };
+    /* 覆盖时留空 = **不**清掉原来那份（用户只想改外貌、没提分组，不该把分组也抹了）。 */
+    if (!fields.look && chk.是更新) fields.look = (chk.原 && chk.原.look) || '';
+    if (!fields.group && chk.是更新) fields.group = (chk.原 && chk.原.group) || '';
+    const r = D.Lib.commitForm(fields, {});
+    if (r && r.error) return { ok: false, text: '没存进去：' + r.error };
+    const saved = r.item;
+    try { const w = frameWin(); if (w && w.__charsChanged) w.__charsChanged(); } catch (e) {}
+    return { ok: true, text: (chk.是更新 ? '已更新' : '已存进素材库') + '：' + saved.name
+      + '（' + (CHAR_KINDS[fields.kind] || '角色') + (saved.group ? ' · ' + saved.group : '') + '）。'
+      + '图片与音色还是空的话，到素材库那一页点「AI 出预览图」与「AI 定音色」' };
+  }
+  function chkRemoveChar(a) {
+    try { needDRA(); } catch (e) { return { err: e.message }; }
+    if (!a || typeof a !== 'object') return { err: 'remove_char 的参数要是一个 JSON 对象：{"name":"小雅"}' };
+    const name = String(a.name || a.名字 || '').trim();
+    if (!name) return { err: '要给 name（要删掉哪一条的名字）' };
+    const kind = String(a.kind || a.类型 || '').trim();
+    const D = DRA();
+    const hit = (D.Lib.list() || []).filter(x => x && x.name === name && (!kind || D.libKindOf(x) === kind));
+    if (!hit.length) return { err: '素材库里没有叫「' + name + '」' + (kind ? '这条' + (CHAR_KINDS[kind] || kind) : '') + '。先用 chars 查一下现有哪些。' };
+    if (hit.length > 1) return { err: '有 ' + hit.length + ' 条都叫「' + name + '」（'
+      + hit.map(x => CHAR_KINDS[D.libKindOf(x)] || '角色').join('、') + '）。加 kind 限一下要删哪一类。' };
+    const refs = charRefs(name, kind);
+    return { 说明: '从素材库删掉「' + name + '」',
+      人话: ['类型：' + (CHAR_KINDS[D.libKindOf(hit[0])] || '角色'),
+        refs.length
+          ? ('注意：这一位被 ' + refs.length + ' 部短剧引用（' + refs.slice(0, 4).map(r => r.剧).join('、') + (refs.length > 4 ? ' 等' : '') + '）—— 库里这份删掉后那些剧里各自的一份还留着，但以后拉不进新的一集')
+          : '没有任何短剧引用它，删掉不影响别的剧',
+        '本机存的图片与音频文件不会被删（只是从素材库里摘掉这一条）',
+        '删除不可撤销 —— 真的要删才点执行'],
+      危险: true };
+  }
+  async function runRemoveChar(a) {
+    const chk = chkRemoveChar(a);
+    if (chk.err) return { ok: false, text: chk.err };
+    /* 删除要**第二次**确认：它不可撤销，而且这一档用户是「让它顺手清掉一条」。
+       弹窗里摆的是这条的名字与它被哪些剧引用 —— 与卡片上写的是同一份话。 */
+    if (window.Confirm && Confirm.ask) {
+      const nm = String(a.name || a.名字 || '').trim();
+      const ok = await Confirm.ask({
+        title: '从素材库删掉「' + nm + '」？',
+        body: '这一位被 ' + charRefs(nm, String(a.kind || '')).length + ' 部短剧引用。删除不可撤销（本机的图片音频文件不动）。',
+        okLabel: '删掉', danger: true,
+      });
+      if (!ok) return { ok: false, text: '没有删（你取消了）' };
+    }
+    const D = needDRA();
+    const nm2 = String(a.name || a.名字 || '').trim();
+    const kind2 = String(a.kind || '').trim();
+    const target = (D.Lib.list() || []).find(x => x && x.name === nm2 && (!kind2 || D.libKindOf(x) === kind2));
+    if (!target) return { ok: false, text: '素材库里已经找不到「' + nm2 + '」了（可能刚被别人删了）' };
+    const r = D.Lib.remove(target.id);
+    if (r && r.ok === false) return { ok: false, text: '没能删掉：' + (r.why || r.error || '未知原因') };
+    try { const w = frameWin(); if (w && w.__charsChanged) w.__charsChanged(); } catch (e) {}
+    return { ok: true, text: '已从素材库删掉「' + nm2 + '」。' };
+  }
   async function adjustCheck(a) {
     if (!a || typeof a !== 'object') return { err: 'set_setting 的参数要是一个 JSON 对象：{"key":"dir_theme","value":"dark"}' };
     const key = String(a.key || a.键 || '').trim();
@@ -1029,19 +1200,489 @@
     return { ok: true, text: '已改「' + chk.名 + '」：' + (chk.旧 || '（原来没设过）') + ' → ' + chk.值 + '\n' + chk.说
       + '\n这一项和设置页「点保存才生效」是同一份存储，别的页面切回去会读到新值。' };
   }
+  /* ============================================================================
+     UI 原语：填输入框 / 点按钮 / 读当前页状态
+     ----------------------------------------------------------------------------
+     为什么要有这三样：助手原来只能**读数据**与**提交生成任务**，
+     而这个项目里绝大多数功能（加一段、选类型、挑素材、开某张卡、翻到下一集）
+     都是「操作页面上的一个控件」，没有对应的动作 —— 于是助手能回答「怎么做」却做不了，
+     用户问一句就得自己去点。这三样把它能做的事从「13 个查询 + 1 个写」扩到「整个项目」。
+     为什么敢让模型点按钮：① **一切都先在卡片上列清单**，用户点「执行」才真做（与 generate / set_setting 同一道闸）；
+     ② 危险动作另有 `RISKY` 名单，命中就要求用户**再确认一次**（花钱 / 删数据 / 覆盖）；
+     ③ 定位靠**界面上看得见的文字**（按钮文案 / title / aria-label / label），
+        不靠猜 class 或 id —— 看得见的文字正是用户自己找那个按钮时用的东西。
+     ========================================================================== */
+  /* 「看得见的文字」—— 取一个控件叫什么。这是定位的**唯一**依据。
+     读的是节点上用户能看见/ 读屏能念出来的那几处（title / aria-label / 旁边的 label），
+     顺序按用户实际会念的那几处排。文本按钮与 placeholder 都在内 —— 一个输入框
+     旁边的 label 就是用户会说的那个名字。 */
+  function labelOf(el) {
+    if (!el) return '';
+    const bits = [];
+    const t = (el.tagName || '').toLowerCase();
+    if (t !== 'input' && t !== 'textarea' && t !== 'select') {
+      const own = Array.from(el.childNodes).filter(n => n.nodeType === 3)
+        .map(n => String(n.textContent || '').trim()).join(' ').trim();
+      if (own) bits.push(own);
+    }
+    for (const a of ['title', 'aria-label', 'placeholder', 'data-label', 'name']) {
+      const v = el.getAttribute && el.getAttribute(a);
+      if (v && String(v).trim()) bits.push(String(v).trim());
+    }
+    /* 输入框 / 下拉的名字在它旁边的 label 上（for=id 或包着它）*/
+    const box = el.closest && el.closest('label');
+    if (box) { const s = String(box.textContent || '').replace(el.textContent || '', '').trim(); if (s) bits.push(s); }
+    const fid = el.id && Array.from((el.ownerDocument || hostDoc()).querySelectorAll('label[for]'))
+      .find(l => l.getAttribute('for') === el.id);
+    if (fid) { const s = String(fid.textContent || '').trim(); if (s) bits.push(s); }
+    return bits.join(' · ').replace(/\s+/g, ' ').trim();
+  }
+  /* 在「脚下这一页」里找控件。
+     `within` 可以是页面上某个容器的可见文字（先找到那个容器，再在它里面找）——
+     同一个文案在一页里出现多次时（九个侧栏项都叫「设置」之类），这是唯一的区分办法。
+     找不到就**如实说找不到并把候选列出来**，绝不猜一个相近的（点错按钮比点不到更糟）。 */
+  /* 「**不是给助手点的**」—— 助手自己那一层（抽屉）与外壳侧栏。
+     助手要操作的是**内容页**上的控件；让它点到自己的「新建会话 / 历史会话 / 收起」是笑话，
+     让它点到侧栏的「设置 / 资产库」也不对（那是导航，用 go 那条路更稳，而且 `go` 只跳内容页）。
+     判据只此一处 —— findUI 与 uiInventory 都过滤它，两处各判一次就会漏。 */
+  function notForAi(el) {
+    return !!(el.closest && el.closest('#acPanel,#acBall,.sidebar,.sb-bal-card'));
+  }
+  function findUI(q, kind, within) {
+    const sel = kind === 'input' ? 'input:not([type=hidden]),textarea,select'
+      : kind === 'button' ? 'button,[role=button],a.btn,.ui-linkbtn,.tool,.ghost,.pri,.seg button,label.ck'
+        : '*';
+    /* 文档取`hostDoc()`：**外壳里内容页在 iframe 里**（shell.html 的 #appFrame），
+       用全局 document 的话在 Assistant 上看到的永远是外壳那一层 ——
+       侧栏 + 助手抽屉，内容页的控件一个都没有（实测生成工作台清单 0 条）。
+       这一处错了三个原语全废，而且界面上完全看不出原因。 */
+    const doc = hostDoc();
+    let root = doc;
+    if (within) {
+      const hosts = Array.from(doc.querySelectorAll('div,section,form,fieldset,tr,li'))
+        .filter(el => String(el.textContent || '').trim().length < 4000);
+      const hit = hosts.filter(el => String(labelOf(el) || '').indexOf(within) >= 0
+        || String(el.textContent || '').trim().indexOf(within) >= 0)
+        .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
+      if (hit) root = hit;
+    }
+    const want = String(q || '').trim();
+    const all = Array.from(root.querySelectorAll(sel)).filter(el => {
+      if (!el.offsetParent && el.tagName !== 'BODY') return false;        // 藏起来的不给点
+      if (el.disabled) return false;
+      if (notForAi(el)) return false;                                     // 助手自己与外壳不给点
+      return true;
+    });
+    const score = el => {
+      const lb = labelOf(el);
+      if (!lb) return -1;
+      if (lb === want) return 1000;
+      /* 「按钮：拍这一段」被问成「拍这一段」要能中；而「开始」不该因为按钮叫
+         「开始拍第 3 段」就当成同一个 —— 那是两件事（一个是开始拆剧本，一个是开拍）。
+         所以：整串包含给的分按**贴合度**排（差得越少分越高），
+         而且只有当「找的那串」是按钮文字的**开头**时才给高分（用户念的就是头那几个字）。 */
+      const at = lb.indexOf(want);
+      if (at >= 0) {
+        const head = at === 0 ? 200 : 0;
+        const tight = Math.max(0, 200 - Math.min(180, (lb.length - want.length) * 6));
+        const wordEdge = /[\s·、，,]/.test(lb.charAt(at - 1) || ' ') ? 40 : 0;
+        return head + tight + wordEdge;
+      }
+      if (want.indexOf(lb) >= 0 && lb.length >= 3) return 60;   // 按钮更短、问得更长
+      return -1;
+    };
+    /* 同分时取**文字最短**的那个：页面上「重拍」与「重拍这一段的全部台词」都有时，
+       用户说的「重拍」指的是前者 —— 取长的那个等于替他点了一颗更大的按钮。 */
+    const scored = all.map(el => ({ el, s: score(el), n: labelOf(el).length }))
+      .filter(x => x.s >= 0)
+      .sort((a, b) => (b.s - a.s) || (a.n - b.n));
+    return { hit: scored.length ? scored[0].el : null, all, scored, root };
+  }
+  /* 可点的控件清单 —— `page_state` 查询用它。**只列看得见的、没藏的**，
+     免得清单长到几百行把上下文塞满；超过上限就按区块截断并说明。 */
+  function uiInventory(kind, limit) {
+    const sel = kind === 'input' ? 'input:not([type=hidden]),textarea,select' : 'button,[role=button],a.btn,.ui-linkbtn';
+    const out = [];
+    const doc = hostDoc();
+    Array.from(doc.querySelectorAll(sel)).forEach(el => {
+      if (!el.offsetParent) return;
+      if (el.disabled) return;
+      if (notForAi(el)) return;
+      const lb = labelOf(el);
+      if (!lb) return;
+      const t = (el.tagName || '').toLowerCase();
+      out.push({ 名字: cap(lb, 40), 类型: t === 'button' || t === 'a' ? '按钮' : (t === 'select' ? '下拉' : (t === 'textarea' ? '多行输入框' : '输入框')),
+        位置: cap(zoneOf(el), 24), 当前: t === 'select' || t === 'input' ? String(el.value || '').slice(0, 60) : '' });
+    });
+    const n = limit || 120;
+    return { 共: out.length, 列出: out.slice(0, n), 说明: out.length > n ? ('这一页一共 ' + out.length + ' 个可操作的控件，这里只列了前 ' + n + ' 个；'
+      + '要的控件不在里面就换一个更具体的名字，或先翻到它所在的那一块') : '' };
+  }
+  /* 控件在页面的哪一块 —— 用最近的带标题的容器（panel-head / 卡片标题 / 段条），
+     这样清单里同一段有五个按钮时，用户与助手都说得清「是哪一个」。 */
+  function zoneOf(el) {
+    const z = el.closest && el.closest('[data-zone],.panel-head,.pf-head,.ui-note,.dr-seg,.card,.cardhead,.seg,.hd,.head,section,fieldset');
+    if (z) {
+      const nm = (z.getAttribute && (z.getAttribute('data-zone') || z.getAttribute('data-title')))
+        || String(z.querySelector && (z.querySelector('b,h3,h4,label,.hd-t,.cardhead b') || {}).textContent || '').trim();
+      if (nm) return nm;
+    }
+    return (hostDoc() && hostDoc().title) || '本页';
+  }
+
+  /* ---------- UI 原语的校验与执行 ----------
+     `check` 返回的东西会**原样画在确认卡片上**（与 generate / set_setting 同一张卡），
+     所以字段名是给人看的（「在哪一块 / 现在是什么 / 要改成什么」），不是给机器解析的。 */
+  function fillCheck(a) {
+    if (!a || typeof a !== 'object') return { err: 'fill 的参数要是一个 JSON 对象：{"name":"控件名","value":"要填的内容"}' };
+    const name = String(a.name || a.控件 || a.label || '').trim();
+    if (!name) return { err: '要给 name（控件上看得见的文字）。先 page_state 看清单，别凭印象猜。' };
+    const value = a.value === undefined || a.value === null ? '' : String(a.value);
+    const within = String(a.within || a.在哪 || a.块 || '').trim();
+    const r = findUI(name, 'input', within);
+    if (!r.hit) {
+      const near = uiInventory('input', 40).列出.filter(x => String(x.名字).indexOf(name.slice(0, 2)) >= 0).slice(0, 8);
+      return { err: '这一页找不到叫「' + name + '」的输入框'
+        + (within ? '（限定在「' + within + '」那一块里找）' : '')
+        + '。相近的有：' + (near.length ? near.map(x => '「' + x.名字 + '」').join('、') : '（这一页当前没有可填的输入框 —— 可能要先切到那一步，或者它在别的页面上，用 go 先跳过去）') };
+    }
+    const el = r.hit;
+    const tag = (el.tagName || '').toLowerCase();
+    /* 下拉要选的是一个**存在的选项**：给一个表里没有的值，页面照写进去就是「界面上不认的那个值」 */
+    if (tag === 'select') {
+      const opts = Array.from(el.options || []).map(o => String(o.value));
+      if (value && opts.indexOf(value) < 0) {
+        return { err: '「' + name + '」这个下拉里没有「' + value + '」这一项。只能选：' + (opts.slice(0, 20).join(' / ') || '（空）') };
+      }
+    }
+    /* 人话是**卡片上一行行的正文**（runNode 按数组逐行画），所以字段名要说给人听。 */
+    const 现在 = String(el.value || '').slice(0, 80);
+    return { 说明: '往「' + zoneOf(el) + '」的' + (tag === 'select' ? '下拉' : tag === 'textarea' ? '多行输入框' : '输入框') + '里填一段字（不提交）',
+      人话: ['控件：' + cap(labelOf(el), 60),
+        '位置：' + zoneOf(el),
+        '现在：' + (现在 || '（空）'),
+        '要填：' + (value ? cap(value, 200) : '（清空这一栏）'),
+        '之后：只是把内容填好，没有提交 —— 要生效请你自己按那颗按钮'],
+      说: '只填不点：填完不会自动提交（提交/生成那一类按钮一律要用户自己按）' };
+  }
+  async function runFill(a, pin) {
+    const r = findUI(String(a.name || a.控件 || ''), 'input', String(a.within || ''));
+    if (!r.hit) return { ok: false, text: '那个输入框已经不在页面上了（可能重画过）—— 再查一次 page_state' };
+    const el = r.hit, value = a.value === undefined || a.value === null ? '' : String(a.value);
+    /* 页面大多靠 input/change 事件把值落盘（bindText 那一路），所以两个都要发。
+       只发 input 会让「存盘」那条路拿不到值 —— 填了字一刷新就没。 */
+    try {
+      if (el.tagName === 'SELECT') {
+        el.value = value;
+        if (window.Dropdowns && Dropdowns.sync) Dropdowns.sync(el);
+      } else {
+        /* 原生 setter 绕开框架的 value 追踪（React 之类），本项目是原生但仍走这一份最稳 */
+        const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (setter && setter.set) setter.set.call(el, value); else el.value = value;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      try { el.focus(); } catch (e) {}
+      if (typeof pin === 'function') pin();
+      return { ok: true, text: '已经填好「' + cap(labelOf(el), 30) + '」：' + cap(value, 60)
+        + '（没有提交 —— 要生效请自己按那颗按钮）' };
+    } catch (e) {
+      return { ok: false, text: '填不进去：' + ((e && e.message) || e) };
+    }
+  }
+  function clickCheck(a) {
+    if (!a || typeof a !== 'object') return { err: 'click 的参数要是一个 JSON 对象：{"name":"按钮上的文字"}' };
+    const name = String(a.name || a.按钮 || a.label || '').trim();
+    if (!name) return { err: '要给 name（按钮上看得见的文字）。先 page_state 看清单。' };
+    const within = String(a.within || a.在哪 || a.块 || '').trim();
+    const r = findUI(name, 'button', within);
+    if (!r.hit) {
+      const near = uiInventory('button', 40).列出.filter(x => String(x.名字).indexOf(name.slice(0, 2)) >= 0).slice(0, 8);
+      return { err: '这一页找不到叫「' + name + '」的按钮'
+        + (within ? '（限定在「' + within + '」那一块里找）' : '')
+        + '。相近的有：' + (near.length ? near.map(x => '「' + x.名字 + '」').join('、') : '（这一页当前没有可点的按钮 —— 可能要先切到那一步，或者它在别的页面上，用 go 先跳过去）') };
+    }
+    const el = r.hit;
+    /* 同名多个 → **不说「找到了哪一颗」**，直说「有几颗、用 within 限定」。
+       随手挑一个就是替用户在三个「重拍」里赌一个（页面里同名按钮一抓一把）。
+       判据是**这一页里可见控件中逐字等于这个名字的个数**，不是「匹配得分最高的那几个」——
+       用后者会漏掉那些文字更长的（它们得分低但仍然是同一个按钮）。 */
+    const same = Array.from(hostDoc().querySelectorAll('button,[role=button],a.btn,.ui-linkbtn'))
+      .filter(x => x.offsetParent && !x.disabled && !notForAi(x) && labelOf(x).trim() === name);
+    if (same.length > 1) {
+      const wh = Array.from(new Set(same.map(x => zoneOf(x)))).filter(Boolean);
+      return { err: '这一页有 ' + same.length + ' 个按钮都叫「' + name + '」'
+        + (wh.length ? '，分别在「' + wh.slice(0, 4).join('」「') + '」' : '') + '。'
+        + '用 within 指定在哪一块找（{"name":"' + name + '","within":"' + (wh[0] || '') + '"}）' };
+    }
+    const risky = riskyOf(labelOf(el));
+    return { 说明: '点一下「' + zoneOf(el) + '」里的「' + cap(labelOf(el), 40) + '」'
+        + (risky ? '（这一颗是' + risky + '类动作）' : ''),
+      人话: ['按钮：' + cap(labelOf(el), 60),
+        '位置：' + zoneOf(el),
+        risky ? '注意：这是一件' + risky + '的事，可能会花钱或删掉本机数据 —— 真正点下去之前还会再问你一次'
+          : '之后：点完界面会自己重画；助手不会再替你点别的',
+        '之后：点了之后发生了什么，你自己看一眼确认'],
+      危险动作: risky || '',
+      说: risky ? ('这一颗是「' + risky + '」类动作 —— 真执行前请再确认一次：它可能花钱或删掉本机数据')
+        : '点下去之后界面会自己重画；助手不会替你再点别的' };
+  }
+  /* ============================================================================
+     注入：直接在这一页执行一段脚本
+     ----------------------------------------------------------------------------
+     为什么要有：点按钮与填输入框只覆盖「界面已经做出来的事」。
+     这个项目里还有一批**界面上没有入口**的事 —— 批量把某类东西改一遍、
+     翻出一个只有数据层知道的开关、导出一份页面自己都不提供的清单。
+     没有注入的话助手只能说「建议你手动…」，而那些事往往正是用户懒得手工做的。
+
+     三道闸，缺一道就不做（这是全项目权限最高的一个动作）：
+       ① **设置里显式勾选**（`ai_chat_inject`，默认关）—— 没勾时这个动作根本不存在，
+          模型在提示词里也看不到它，编出来的 RUN inject 会被直接拒；
+       ② 卡片上**逐字显示**要执行的代码（人话那一行就是代码本体，不做任何改写）；
+       ③ 执行前**再问一次**，`Confirm.ask` 里也是那段代码 —— 即使用户在设置里
+          勾了「执行前不用确认」，注入这一档也照问不误。
+     另外只给「一次执行」的函数，不给常驻：`eval` 出来的东西随这一轮就过去，
+     页面刷新后没有残留 —— 想留着的效果请让助手改代码。
+     ========================================================================== */
+  const K_INJECT = 'ai_chat_inject';
+  const injectOn = () => localStorage.getItem(K_INJECT) === '1';
+  /* 「执行前不用确认」—— **注入单独一个开关**，不与其它动作共用那一个。
+     为什么不能共用：那一档对 generate / set_setting 的意思是「校验做完了就自动提交」，
+     而注入能跑任意代码 —— 把两者绑在一起，等于用户为了少点一次「生成」，
+     顺手把「任意脚本自动执行」也一起打开了，而且界面上看不出这一层。
+     所以：勾了自动执行的那一档，注入**照问不误**；要免确认得单独再勾一次。 */
+  const K_INJECT_AUTO = 'ai_chat_inject_auto';
+  const injectAuto = () => injectOn() && localStorage.getItem(K_INJECT_AUTO) === '1';
+
+  /* 注入的执行环境 —— **整个项目**，不只脚下这一页。
+     这一层的窗口结构是「外壳（顶层，装 ui/assetlib/sidebar/app）+ 内容页（iframe，装全套）」，
+     两者同源，所以一份代码能同时看到两边。给的是三层句柄：
+
+       P.host   内容页窗口（脚下这一页；自挂载时就是 window）
+       P.shell  外壳顶层窗口（侧栏、左栏、内容区都在这儿）
+       P.win(page)  切到某一页并等它加载完，返回那个页面的窗口
+       P.doc / P.$  当前内容页的 document / getElementById
+       P.D / P.Api / P.Store / P.AssetLib / P.AssetLocal / P.Wb / P.Fav / P.PromptLog / P.Net
+                —— 跨页公用的那几个模块，**从顶层取**（外壳那一层就加载了 ui/assetlib，
+                所以它们在顶层与在内容页是同一份，不必问「现在是哪个窗口」）；
+                只有 Drama（drama.js，只在内容页加载）要回退去内容页取。
+
+     为什么不给裸 `window`：给了它，代码就能改外壳的页面状态、自己跳走、
+     或者拿 top 去做任何事 —— 那样「在当前这一页做这件事」这句话就完全失效了。
+     三个句柄足够覆盖「批量改一类东西 / 切到某页去看 / 翻一个只有数据层知道的开关」，
+     而每一层都还在用户的界面上看得见。 */
+  function injectEnv() {
+    let shell = window;
+    try { if (window.top) shell = window.top; } catch (e) {}
+    let host = window;
+    try { host = frameWin(); } catch (e) {}
+    const mod = n => { try { return (host && host[n]) || (shell && shell[n]) || (window && window[n]); } catch (e) { return undefined; } };
+    const P = {
+      host, shell,
+      get page() { try { return String((host && host.location.pathname) || '').split('/').pop() || page(); } catch (e) { return page(); } },
+      /* 切到某一页并等它加载完 —— 「去看一眼那个页」与「回来改点什么」都需要它。
+         只认内容页自己的那些名字（director / drama / chars / studio / assets / favorites / usage / settings）。 */
+      async go(pg) {
+        const file = /\.html$/i.test(pg) ? pg : pg + '.html';
+        const nap = ms => new Promise(ok => setTimeout(ok, ms));
+        try { shell.location.hash = '#' + file; } catch (e) {}
+        /* 等 iframe 的 load 事件（切页是换 src，最多等 8 秒；超时就照实返回 null） */
+        const f = (function () { try { return shell.document.getElementById('appFrame'); } catch (e) { return null; } })();
+        if (!f) { await nap(1200); return shell; }
+        await new Promise(ok => {
+          let done = false;
+          const fin = () => { if (done) return; done = true; ok(); };
+          f.addEventListener('load', fin, { once: true });
+          setTimeout(fin, 8000);
+        });
+        await nap(500);
+        try { return f.contentWindow; } catch (e) { return shell; }
+      },
+      doc() { try { return host.document || document; } catch (e) { return document; } },
+      $: (id) => { try { return (host.document || document).getElementById(id); } catch (e) { return null; } },
+      $$: (sel) => { try { return Array.from((host.document || document).querySelectorAll(sel)); } catch (e) { return []; } },
+    };
+    /* 跨页公用的模块：挂一份在 P 上，代码里直接 P.Api.xxx / P.D.list() 就行。
+       顶层（外壳）加载了 ui.js 与 assetlib.js，所以这些在顶层就有；
+       Drama 只在内容页加载 —— 两处都试，取到哪个是哪个。 */
+    P.Api = mod('Api'); P.Store = mod('Store'); P.Net = mod('Net');
+    P.AssetLib = mod('AssetLib'); P.AssetLocal = mod('AssetLocal'); P.AssetTransfer = mod('AssetTransfer');
+    P.Capabilities = mod('Capabilities'); P.TextAI = mod('TextAI'); P.PromptLog = mod('PromptLog');
+    P.Confirm = mod('Confirm'); P.Wb = mod('Wb'); P.Fav = mod('Fav'); P.Chips = mod('Chips');
+    P.Icons = mod('ICONS'); P.Dropdowns = mod('Dropdowns');
+    try { P.D = mod('Drama'); } catch (e) {}
+    P.AiChat = (typeof window !== 'undefined' && window.AiChat) ? window.AiChat : undefined;
+    return P;
+  }
+  /* 「危险」判据：注入不像点按钮那样能靠文案认出好坏，所以**一律当危险**（宁可多问一次）。
+     这里额外拦几种一眼就过界的：写文件、往外发、读密钥、删存储。 */
+  const INJECT_RISKY = /(localStorage\.|sessionStorage\.|indexedDB|document\.cookie|fetch\s*\(\s*['\"]https?:|XMLHttpRequest|navigator\.sendBeacon|new\s+Worker|eval\s*\(|importScripts|require\s*\(|process\b|child_process|fs\.)/;
+  function injectCheck(a) {
+    if (!injectOn()) {
+      return { err: '注入没有开。这一档默认关着 —— 要用的话到「设置 → AI 助手」里勾上「允许助手执行自定义脚本」。'
+        + '不开是对的：它能绕过界面上所有的按钮与确认。' };
+    }
+    if (!a || typeof a !== 'object') return { err: 'inject 的参数要是一个 JSON 对象：{"code":"这里是要执行的代码"}' };
+    const code = String(a.code || a.代码 || a.script || '');
+    if (!code.trim()) return { err: '要给 code（要执行的那段脚本）' };
+    if (code.length > 4000) return { err: '这段代码太长了（' + code.length + ' 字符，上限 4000）。长脚本请让助手改到项目文件里，那才是它该待的地方。' };
+    /* 只跑函数体，不跑裸语句之外任何东西：`new Function` 的参数里没有 window/document 的捷径，
+       代码里要用就自己取（下面自动注入 host / D / $ 三个常用句柄，见 runInject）。 */
+    const risky = INJECT_RISKY.test(code);
+    const lines = code.split('\n').length;
+    return { 说明: '在这一页执行一段脚本（' + lines + ' 行 · ' + code.length + ' 字符）'
+        + (risky ? '（它碰到了存储 / 网络 / 密钥这类东西）' : ''),
+      人话: ['要执行的代码（原样，没有改写）：', '', ...code.split('\n').map(l => '　' + l), '',
+        risky ? '注意：这段代码碰到了存储 / 网络 / 密钥一类的东西' : '执行环境：整个项目（不只是当前这一页）',
+        injectAuto() ? '已经勾了「注入不用确认」，所以点「执行」就会直接跑'
+          : '执行前会再问你一次；点「取消」这一轮就到此为止',
+        '可用句柄：P.host（当前页）/ P.shell（外壳）/ P.go(页名) / P.$ / P.$$ '
+          + 'P.D / P.Api / P.Store / P.AssetLib / P.AssetLocal / P.Wb / P.Fav —— 以及标准 JS'],
+      代码: code, 危险: risky,
+      说: risky ? '这段代码碰到了存储 / 网络 / 密钥一类的东西'
+        : '注入只在这一轮有效，页面刷新后不留东西' };
+  }
+  async function runInject(a, pin) {
+    const chk = injectCheck(a);
+    if (chk.err) return { ok: false, text: chk.err };
+    /* 二次确认摆的就是那段代码本身：注入不像点按钮能靠文案认出好坏，
+       用户唯一能判断的依据就是「它到底要执行什么」。
+       `injectAuto()` 是**注入自己那一个开关**（不是外面那个「执行前不用我点确认」）——
+       见 K_INJECT_AUTO 那段：把两者绑在一起的话，用户为了少点一次生成，
+       就顺手把「任意脚本自动执行」也打开了。 */
+    if (!injectAuto() && window.Confirm && Confirm.ask) {
+      const ok = await Confirm.ask({
+        title: '执行这段脚本？',
+        sub: '下面就是将要执行的代码（原样）',
+        body: chk.代码,
+        okLabel: '执行', danger: true,
+      });
+      if (!ok) return { ok: false, text: '没有执行（你取消了）' };
+    }
+    /* 执行环境（见 injectEnv 的注释）：给的是**整个项目**的三层句柄，
+       不只是脚下这一页的 window。 */
+    const env = injectEnv();
+    try {
+      const fn = new Function('P', 'return (async () => {\n' + chk.代码 + '\n})();');
+      const out = await fn(env);
+      if (typeof pin === 'function') pin();
+      const shown = (out === undefined || out === null) ? '' : ('返回：' + (typeof out === 'object' ? JSON.stringify(out) : String(out)));
+      return { ok: true, text: '执行完了' + (shown ? '。' + shown.slice(0, 300) : '（没有返回值）')
+        + '。页面已经自己更新 —— 这一步做了什么，你自己看一眼确认' };
+    } catch (e) {
+      return { ok: false, text: '这段脚本跑出错：' + ((e && e.message) || e) };
+    }
+  }
+  async function runClick(a, pin) {
+    const r = findUI(String(a.name || a.按钮 || ''), 'button', String(a.within || ''));
+    if (!r.hit) return { ok: false, text: '那个按钮已经不在页面上了（可能重画过）—— 再查一次 page_state' };
+    const el = r.hit, nm = labelOf(el);
+    /* 危险动作要**第二次**确认：用户点的是「执行」这一下，
+       而这一下等于替他点了一颗会花钱/会删数据的按钮 —— 那不该由一次点击就生效。
+       二次确认摆的是那颗按钮自己的文字与所在块，不是我们编的说法。 */
+    const risky = riskyOf(nm);
+    if (risky && window.Confirm && Confirm.ask) {
+      const ok = await Confirm.ask({
+        title: '确定要点「' + nm + '」？',
+        body: '它在「' + zoneOf(el) + '」那一块。这是一颗' + risky + '类的动作，可能会花钱或删掉本机数据 —— 要助手替你点下去吗？',
+        okLabel: '点它', danger: true,
+      });
+      if (!ok) return { ok: false, text: '没有点（你取消了）' };
+    }
+    try {
+      el.click();
+      if (typeof pin === 'function') pin();
+      return { ok: true, text: '点了「' + cap(nm, 40) + '」。界面已经自己更新 —— 这一步之后发生了什么，你自己看一眼确认' };
+    } catch (e) {
+      return { ok: false, text: '点不动：' + ((e && e.message) || e) };
+    }
+  }
+
   const ACTS = {
     generate: {
       arg: '{ "provider": "平台 id", "model": "型号 id", "prompt": "提示词", "params": { "count|duration|res|ar|quality|tier|format": 值 }, "inputs": [ { "role": "reference_image", "file": 0 } ] }',
       doc: '向图片/视频平台提交一次生成任务（花钱的动作）。inputs 只能引用 files 里的附件序号或本机 asset 号；型号、取值、槽位上限都要先查过',
-      check: genCheck, run: runGenerate,
+      title: '提交生成任务（要花钱）', check: genCheck, run: runGenerate,
+    },
+    /* ---------- 素材库的三个动作（新增/改名/删除） ----------
+       为什么要有：素材库是助手唯一「看得见却改不了」的一层 ——
+       `chars` 查询能列出来，但用户要改一条只能自己切到素材库页去。
+       而这三件事都不需要判断画面好不好，正是助手该干的（「把叫小雅的那位改成短发」）。
+       全走 `Lib` 那一层（`newForm` / `commitForm` / `save` / `remove`），
+       **页面不许自己拼字段** —— 那些函数各自带判据与拒绝条件（读坏了拒写、同名即同一条）。
+       写动作一律要用户在卡片上点「执行」。 */
+    save_char: {
+      title: '新建或更新一条素材',
+      arg: '{ "name": "名字", "kind": "actor|scene|prop", "group": "可选分组", "look": "外貌 / 描述", "bio": "可选人设", "time": "场景的时段", "replace": "按名字覆盖已有的（默认不覆盖，只新建）" }',
+      doc: '往素材库里新建一条（角色 / 场景 / 道具）。同名同类型会走 Lib.save 的合并规则；'
+        + '只是改已有的一条就带上它的名字（replace:true 直接覆盖，不合并）。'
+        + '**出图与定音色请让用户自己在素材库页点** —— 那两件要花钱，且要先看过图再定，不该由助手替他决定',
+      check: chkChar, run: runChar,
+    },
+    remove_char: {
+      title: '从素材库删掉一条（要再确认一次）',
+      arg: '{ "name": "名字", "kind": "可选：限actor|scene|prop" }',
+      doc: '删掉素材库里的一条。会先说清它被哪些短剧引用（那些剧里会跟着少这一位），再由用户确认',
+      check: chkRemoveChar, run: runRemoveChar,
     },
     set_setting: {
       arg: '{ "key": "dir_theme", "value": "dark" }',
       doc: '改一项设置。能改哪些**以 settings 查询里「能改的」那一份清单为准**（别凭印象报键名）；'
         + '密钥 sk_key_* 与自定义地址 sk_base_* 明确不让改',
-      check: adjustCheck, run: runAdjust,
+      title: '改一项设置', check: adjustCheck, run: runAdjust,
+    },
+    /* ---------- 三个 UI 原语：让助手能操作整个项目，而不只是读数据 ---------- */
+    fill: {
+      arg: '{ "name": "控件上看得见的文字", "value": "要填进去的内容", "within": "可选：限定在页面上哪一块里找" }',
+      title: '往输入框里填一段字（不提交）',
+      doc: '往这一页的某个输入框/下拉里填一段字（或选一个下拉项）。'
+        + '先 page_state 看清楚有哪些控件、叫什么、在哪一块，别凭印象猜名字。'
+        + '**只填不点**：填完不会自动提交，用户自己按那颗按钮（提交类按钮一律要人点）',
+      check: fillCheck, run: runFill,
+    },
+    click: {
+      arg: '{ "name": "按钮上看得见的文字", "within": "可选：限定在哪一块里找" }',
+      title: '点一个按钮',
+      doc: '点这一页上的某个按钮/链接。'
+        + '先 page_state 看清单。花钱、删数据、覆盖这三类会**再问一次**才执行（卡片上写明是什么动作）',
+      check: clickCheck, run: runClick,
     },
   };
+
+  /* 「注入」默认**不在表里**：模型看得见什么，它就会去试什么。
+     一个它看得见、而用户还没授权的动作，等于诱导模型每轮都提议一次 ——
+     用户只会觉得这助手话多。所以它在设置里勾上之后才挂进来（判据 injectOn 一处，
+     勾了之后要刷新这一页才会生效：提示词是模块加载时生成的）。 */
+  if (injectOn()) {
+    ACTS.inject = {
+      title: '执行一段脚本（高权限）',
+      arg: '{ "code": "要执行的 JavaScript；可以直接 return 一个值给用户看" }',
+      doc: '执行一段脚本，**用来做界面上没有入口的事**'
+        + '（批量改一类东西、翻一个只有数据层知道的开关、导一份页面自己不给的清单）。'
+        + '执行环境是**整个项目**，不只当前这一页。句柄都挂在 P 上：P.host（当前内容页）/ '
+        + 'P.shell（外壳顶层）/ P.go(页名)（切过去并等它加载完，返回那个页的窗口）/ P.doc() / P.$ / P.$$，'
+        + '以及跨页公用的模块 P.D（Drama）/ P.Api / P.Store / P.AssetLib / P.AssetLocal / '
+        + 'P.AssetTransfer / P.Capabilities / P.Wb / P.Fav / P.Confirm / P.Dropdowns。'
+        + '卡片上会逐字显示代码，执行前还要再确认一次（除非用户单独勾了「注入不用确认」），'
+        + '而它不留下任何持久化的东西',
+      check: injectCheck, run: runInject,
+    };
+  }
+
+  /* 「这个动作危险吗」—— 命中就要求用户**在卡片上再确认一次**。
+     这不是猜：名单里点名的都是**真的会花钱或真的丢本机数据**的动作
+     （生成类花真钱、删除类丢数据、导出/另存会往磁盘写、恢复默认会覆盖设置）。
+     刻意**不含**「上传」「打开」「保存」「提交」这类中性的词 ——
+     「上传剧本文件」只是打开一个文件选择器、「保存设置」只是写一条偏好，
+     把它们算成危险会让这一层天天弹二次确认，用户很快就一路点过去，闸就白设了。
+     宁可漏判（漏判还有「用户点执行」那道主闸），不要误判（误判只是让闸失效）。 */
+  const RISKY = /(删除|删掉|删了|清空|丢弃|移除|重置|恢复默认|清掉|开始拍|就拍|重拍|再拍|再来|生成|出图|出整集|导出全部|导出成片|发布|另存|覆盖)/;
+  function riskyOf(name) {
+    const s = String(name || '');
+    const m = RISKY.exec(s);
+    return m ? m[1] : '';
+  }
 
   /* ---------- 系统提示词：身份 → 任务 → 硬性要求 → 禁止 → 输出格式（全站同一条骨架） ---------- */
   const SYS = [
@@ -1051,12 +1692,23 @@
     '',
     '任务：回答关于这台机器与这个项目的问题 —— 哪家平台能用、某型号支持哪些参数取值、',
     '本机有几部短剧各到哪一步、有哪些角色/收藏/产物/提示词归档、这次该选哪个模型、某一步卡住了该怎么补；',
-    '并且按用户明确要求，替他提交一次生成任务或改一项设置。',
+    '并且按用户明确要求，替他提交一次生成任务或改一项设置，'
+      + '以及**替他把这一页上的控件用起来**（填输入框、点按钮、切页面 —— 见硬性要求 3b/3c）。',
     '',
     '硬性要求：',
     '1. 平台 id、型号名、参数取值、数量上限、余额、条目数**只能来自查询结果**。没查过就不要报数字或型号 —— 编出来的型号根本不存在，用户照抄一定撞报错。',
     '2. 需要本机或平台的数据就先查，要查几次查几次、查到够用为止；**同一件事不要重复查**（结果已经接回上下文里了），查完照着结果说，不要把同一份数据再复述一遍。',
     '3. 用中文、短句、先结论后理由。要动手的事说清「哪个页面、哪个按钮」，让用户点得到。',
+    '3b. **你可以真的替用户操作这个项目，不只是回答** —— 三个原语（都要用户点「执行」才生效）：'
+      + 'RUN fill（往某个输入框/下拉里填字）、RUN click（点某个按钮）、以及 page_state（查当前这一页有哪些控件）。'
+      + '规矩：① **动手之前必须先 page_state**，照着清单里的「名字 / 在哪一块」给，不要凭印象猜控件名；'
+      + '② 同一个名字在一页里出现多次就用 within 限定在哪一块，'
+      + '清单里「类型」写「下拉」的值只有表里那几个，给别的值会被拒（照它列的值给）；'
+      + '③ fill **只填不点**：用户要的是「提示词写好了」，不是「已经花掉一次生图额度」—— '
+      + '所以提交/生成/开始拍那几颗永远留给用户自己按，除非他明确说「替我点」。',
+    '3c. **提交类按钮不要替用户点**（生成、出图、开始拍、导出、发布这类）。'
+      + '它们要么花钱、要么覆盖本机数据 —— 一律先填好内容，再告诉用户「内容填好了，点这颗就行」。'
+      + '他明确说「替我点」时才用 click，并在卡片上写清那是一颗花钱的动作。',
     '4. 查不到就照实说「本机没有这条记录」「代理没响应」，不要补一段看起来像答案的猜测。',
     '5. 涉及附带的文件：先用 files 看有哪些、是什么类型；要看内容就 read_file 真去看（图片要当前型号支持识图才看得见；视频和音频读不出内容，就明说不知道，别替它编）。',
     '6. 要提交生成任务就把型号、参数、素材来源写全 —— 本机会在卡片上按能力声明校验并显示「哪一家/哪个型号/什么参数/哪些素材从哪来」，用户点「执行」才真发请求。',
@@ -1093,6 +1745,12 @@
     '可用查询（全部只读）：',
     ...Object.keys(TOOLS).map(k => '· ' + k + ' ' + TOOLS[k].arg + ' —— ' + TOOLS[k].doc),
     '',
+    '素材库这一层你能**直接改**（动作走下面那张表里 save_char / remove_char）：',
+    '  · 新建或改一条：给名字 + 类型（actor角色 / scene场景 / prop道具）+ 外貌或描述；改已有的要带 replace。',
+    '  · 删一条：remove_char 会先告诉你它被哪几部短剧引用，再要用户点确认 —— 别替用户决定删不删。',
+    '  · **出图与定音色不要用动作去做**：那两件要花钱、而且用户得先看过图再定，该让用户自己去素材库页点。',
+    '  · 用户现在不在「拍短剧 / 素材库」这两页时，这两个动作会说「拿不到素材库那一层」——',
+    '    这不是出错，是让你告诉他切过去；不要改用注入去绕（绕过去就没有那些判据与二次确认了）。',
     '可用动作（要点是「用户点执行才真做」，卡片上会写清做什么）：',
     ...Object.keys(ACTS).map(k => '· ' + k + ' ' + ACTS[k].arg + ' —— ' + ACTS[k].doc),
   ].join('\n');
@@ -1190,8 +1848,11 @@
     }
     Store.write(KEY, SESS, { label: 'AI 助手对话' });
   }
-  function push(kind, text, extra) {
-    const m = Object.assign({ r: kind, t: String(text == null ? '' : text), at: Date.now() }, extra || {});
+  function push(kind, text, extra, more) {
+    /* more 是给气泡挂的「行为按钮」（如失败后的「重发」），与消息本体分开走：
+       它不进 t（正文）也不进 fs（附件快照），只是让这一条能自己带一个出口。
+       以前答到一半出错后**没有任何重发入口** —— 用户只能把原话重新打一遍。 */
+    const m = Object.assign({ r: kind, t: String(text == null ? '' : text), at: Date.now() }, extra || {}, more || {});
     msgs.push(m);
     msgs = msgs.slice(-CAP);
     save();
@@ -1243,22 +1904,54 @@
       }
       files.push(rec);
     }
+    /* 上限**在写侧也生效**：以前只在 loadFiles 读回来时 slice(-20)，
+       于是拖进 21 个附件时内存里 21 个、落盘 21 个、刷新后只剩后20 个 ——
+       序号整体前移一位，于是卡片上写着「参考图 ← 附件第 0 个（猫.png）」，
+       点执行却报「第0 个（卡片上原本是…）」。存与取必须用同一个上限（FILES_MAX）。
+       截掉哪几个要当场说清，不能让人以为 21 个都在。 */
+    const dropped = [];
+    while (files.length > FILES_MAX) { const f = files.shift(); if (f) dropped.push(f.name || '未命名'); }
     saveFiles();
     paintFiles();
+    if (dropped.length) push('step', '附件最多留 ' + FILES_MAX + ' 个，挤掉了最早加的那几个：'
+      + dropped.join('、') + '。要留它们就别一次拖这么多，或者先发一轮。');
   }
+  /* 附件个数上限 —— **存与取共用这一个数**（见 addFiles 末尾那段注释：
+     只在读侧截会让序号整体漂移，卡片上的附件序号与实际递进去的对不上）。 */
+  const FILES_MAX = 20;
   /* 附件的「身份」落盘：File 句柄过不了 JSON，所以媒体记本机资产地址、文本记快照。
      换页 / 刷新之后序号仍和气泡里对得上，read_file 也还能读 —— 不必让人重拖一次。 */
+  let filesSaveWarned = false;    // 写盘失败只报一次，别一句接一句
   function saveFiles() {
+    /* 走公共的 Store.write —— 前面那句 `try { localStorage.setItem } catch {}` 绕开了它，
+       于是存储满时**全程静默**：这一轮带出去的附件（连同它们的序号）刷新后全没了，
+       而用户已经按「执行」把生成任务提交出去了。同一份持久化有两份可靠性是这一类错的温床。
+       Store 自己有配额提示与节流，这里只把它返回的失败照实说一句（每轮最多一次，
+       不然写盘失败会变成一句接一句的 toast）。 */
     try {
-      localStorage.setItem(K_FILES, JSON.stringify(files.map(f => ({ name: f.name, size: f.size, mime: f.mime,
-        kind: f.kind, src: f.src || '', la: f.la || '', txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '' }))));
-    } catch (e) {}
+      const r = Store.write(K_FILES, files.map(f => ({ name: f.name, size: f.size, mime: f.mime,
+        kind: f.kind, src: f.src || '', la: f.la || '', txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '' })),
+        { label: 'AI 助手的附件清单' });
+      if (r && r.ok === false && !filesSaveWarned) {
+        filesSaveWarned = true;
+        push('step', '附件清单没能存下来：' + (r.error || '存储写不进去')
+          + '。刷新之后这些附件（和它们的序号）会丢 —— 生成卡片上的附件序号会指错东西。');
+      } else if (r && r.ok !== false) filesSaveWarned = false;
+    } catch (e) {
+      if (!filesSaveWarned) { filesSaveWarned = true; push('step', '附件清单没能存下来：' + cap((e && e.message) || e, 120)); }
+    }
   }
   function loadFiles() {
+    /* 读也走 Store.read（与 saveFiles 那一次 write 同源）：裸 localStorage.getItem 在
+       换端口/换源时读不到，而 Store 会按本项目的键规则处理 ——
+       两边各用一套就会出现「写进去了、读回来是空的」。 */
     let arr = [];
-    try { arr = JSON.parse(localStorage.getItem(K_FILES) || '[]') || []; } catch (e) { arr = []; }
+    try {
+      const v = (window.Store && Store.read) ? Store.read(K_FILES, []) : JSON.parse(localStorage.getItem(K_FILES) || '[]');
+      arr = v || [];
+    } catch (e) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
-    files = arr.filter(x => x && typeof x === 'object' && x.name).slice(-20).map(x => ({
+    files = arr.filter(x => x && typeof x === 'object' && x.name).slice(-FILES_MAX).map(x => ({
       name: String(x.name), size: Number(x.size) || 0, mime: String(x.mime || ''), kind: String(x.kind || '其他'),
       src: String(x.src || ''), la: String(x.la || ''), txt: String(x.txt || ''), note: String(x.note || ''), file: null }));
   }
@@ -1287,6 +1980,21 @@
   function clearFiles() {
     if (!files.length) return;
     files = [];
+    saveFiles();
+    paintFiles();
+  }
+  /* 「重新问一次」时把当初那些附件放回输入框。
+     判据与 addFiles 一致（name/kind/size 齐全的才收），字节已经不在的照实标出来，
+     **绝不拿别的东西替用户提交** —— 一条「图不见了」比一条错的图安全得多。 */
+  function restoreFiles(list) {
+    const back = [];
+    for (const f of (list || [])) {
+      if (!f || !f.name) continue;
+      const ok = !!(f.src || f.assetId || f.asset);
+      back.push(Object.assign({}, f, { ok: ok, note: ok ? (f.note || '') : '字节已不在（那条没发出去）' }));
+    }
+    if (!back.length) return;
+    files = back.slice(-FILES_MAX);
     saveFiles();
     paintFiles();
   }
@@ -1337,7 +2045,10 @@
     c.className = 'ac-bd ac-run-card';
     const hd = document.createElement('div');
     hd.className = 'ac-run-hd';
-    hd.textContent = (m.act === 'set_setting' ? '改设置' : '提交生成任务')
+    /* 标题**按动作取**，不是写死两个 —— 以前只有 generate 与 set_setting 两张卡，
+       加上「填输入框 / 点按钮」之后一律写「提交生成任务」会让用户以为助手要花钱，
+       而这一下要的只是把字填好。判据只此一份（ACTS 各自的标题）。 */
+    hd.textContent = (ACTS[m.act] && ACTS[m.act].title || ACTS[m.act] && ACTS[m.act].名 || '执行')
       + (m.auto ? ' · 按设置自动执行' : ' · 等你确认');
     c.appendChild(hd);
     (m.人话 || [m.t]).forEach(L => {
@@ -1348,7 +2059,11 @@
     });
     if (m.out) {
       const st = document.createElement('div');
-      st.className = 'ac-run-st ' + (m.st === 'err' ? 'err' : m.st === 'run' ? 'run' : 'ok');
+      /* 「结果未知」是第四种状态：不是成功也不是失败，颜色与措辞都不能复用那两档
+         （复用 err 那档等于换个样子说「失败」，用户还是会立刻重做）。 */
+      st.className = 'ac-run-st ' + (m.st === 'err' ? 'err'
+        : m.st === 'uncertain' ? 'uncertain'
+        : m.st === 'run' ? 'run' : 'ok');
       st.textContent = m.out;
       c.appendChild(st);
     }
@@ -1374,11 +2089,11 @@
     }
     return d;
   }
-  /* 真的执行这一张卡片。校验在画卡片之前就全做完了（见 send 里 RUN 那一支），
+  /* 真的执行这一张卡片。校验在画卡片之前就全做完了（见 send 里RUN 那一支），
      所以「不用确认」只是省掉那一下点击 —— 一张卡片只认一次执行这条不能省：
      重复提交 = 平台那边多一条任务（没有幂等键的家尤其如此）。 */
   async function execRun(m) {
-    if (m.st) return;                          // 已经执行 / 取消过：再点什么都不做
+    if (m.st && m.st !== 'uncertain') return;    // 已执行 / 取消过：再点什么都不做
     if (live) return toast('正在写回答，先按「停止」再执行', 'warn');
     m.st = 'run';
     m.out = '正在提交…';
@@ -1391,9 +2106,22 @@
       m.out = (r && r.text) || '做完了';
       acts.push({ 动作: m.act, 结果: m.st === 'err' ? '失败' : '成功', 说明: cap(m.out, 300), at: Date.now() });
     } catch (e) {
-      m.st = 'err';
-      m.out = '失败了：' + cap((e && e.message) || e, 400);
-      acts.push({ 动作: m.act, 结果: '失败', 说明: cap(m.out, 300), at: Date.now() });
+      /* 「结果未知」**绝不写成「失败」**。
+         Net 默认 30 秒没回响应就超时，而视频平台建任务经常超过 30 秒 ——
+         那不是边缘情况，是常态。这一路上游很可能已经受理并扣了费，
+         卡片写「失败了」的话，用户最自然的反应是再问一次让助手重做 —— **那就是第二次扣费**。
+         同一个 App 里 studio.html 与导演台都专门分出了这一类（判据是 Api.maybeSubmitted），
+         只有助手这条路径缺了这道防线。 */
+      if (window.Api && Api.maybeSubmitted && Api.maybeSubmitted(e)) {
+        m.st = 'uncertain';
+        m.out = '已提交，但没等到回应。平台那边可能已经受理了（视频建任务经常超过 30 秒就是这一档）—— '
+          + '请先到生成工作台的右栏列表里核对，别马上重做：再来一次就是第二次扣费。';
+        acts.push({ 动作: m.act, 结果: '结果未知', 说明: cap(m.out, 300), at: Date.now() });
+      } else {
+        m.st = 'err';
+        m.out = '失败了：' + cap((e && e.message) || e, 400);
+        acts.push({ 动作: m.act, 结果: '失败', 说明: cap(m.out, 300), at: Date.now() });
+      }
     }
     save(); paint();
   }
@@ -1865,6 +2593,23 @@
       d.appendChild(fw);
     }
     d.appendChild(b);
+    /* 「重发」：答到一半出错时挂在这条下面（m.again 是当时那句原话）。
+       以前失败后**没有任何出口** —— 输入框在发请求之前就清空了，想再问一遍得重打一遍。 */
+    if (m.again) {
+      const ft2 = document.createElement('div');
+      ft2.className = 'ac-ft';
+      const ag = document.createElement('button');
+      ag.textContent = '重新问一次';
+      ag.title = '把刚才那句原话放回输入框（附件也一并放回）';
+      ag.onclick = () => {
+        try { el.ta.value = m.again; } catch (e) {}
+        if (m.files && m.files.length) restoreFiles(m.files);
+        openPanel();
+        el.ta.focus();
+      };
+      ft2.appendChild(ag);
+      d.appendChild(ft2);
+    }
     if (m.r === 'ai' || m.r === 'note') {
       const ft = document.createElement('div');
       ft.className = 'ac-ft';
@@ -1904,6 +2649,18 @@
           : '你点「执行」才真做 —— 我不点、不替你点，也不重复点。')
         + '密钥和自定义地址我不碰。';
       w.appendChild(who);
+      /* 空态的第一颗不是问句，是一颗**能立刻拿到答案**的按钮：
+         新用户点开抽屉看到六颗问句，得自己猜「我该问什么」；
+         而 `doctor` 那份体检（代理在不在线、哪家真能用、ffmpeg 装没装、云同步配没配）
+         写得很全却只有模型能调 —— 用户没有界面入口。
+         这颗走的是现成那条 send（照样经文字 AI 那条路，拿到的是一份**说人话**的体检结论），
+         不另搭一套：另搭一套就会与 doctor 那份判据走样。 */
+      const dr = document.createElement('button');
+      dr.className = 'ac-qi ac-dr';
+      dr.textContent = '先体检这台机器';
+      dr.title = '一次看完：代理在不在、哪几家平台真能用、导出成片的本机条件齐不齐、云同步配没配';
+      dr.onclick = () => send('先给我做一次这台机器的体检，告诉我缺什么、每样怎么补');
+      w.appendChild(dr);
       const q = document.createElement('div');
       q.className = 'ac-q';
       QUICK.forEach(s => {
@@ -2076,7 +2833,11 @@
     if (!lines.some(L => MARK.test(L))) return '';              // 一个安全关键词都没有
     if (!lines.every(L => NOTICE.test(L))) return '';           // 只要有一行不是「通知」，就当它是正文
     const cats = (/safety\s*categor(?:y|ies)\s*[:=]\s*([^\n]+)/i.exec(b) || [])[1] || '';
-    return '这一轮**上游的安全过滤把请求挡住了，它没有作答**'
+    /* 这一句会走 push('err', …) —— 错误气泡是**纯 textContent**，不渲染 markdown，
+       所以正文里写 ** 会把两个星号原样露在界面上（AGENTS.md §H）。
+       §H 的判据只认同一行出现 textContent/title/hint 这类属性名，这里是 return '…'，
+       属于那一档的盲区；所以这一句本身就是判据 —— 别往里加标记。 */
+    return '这一轮上游的安全过滤把请求挡住了，它没有作答'
       + (cats ? '（它自己标的类别：' + cap(cats.trim(), 80) + '）' : '')
       + '。这不是本机出问题，也不是你的操作有错 —— 换个说法、把那张图撤掉再试，'
       + '或者到设置页换一个型号（不同模型的尺度不一样，你现在是「每次随机换一个免费模型」）。';
@@ -2114,7 +2875,11 @@
     clearFiles();
     aborter = new AbortController();
     busy(true);
-    const ctx = { list: [], keep: 0 };
+    /* 这一轮的账：查了什么、提了什么动作（判据在这一处记一次，收据只读它）。
+       以前全是散在气泡之间的灰色小条与确认卡片，用户要自己拼「这一轮我到底让它干了什么」——
+       而「它查了 5 次」与「它提交了 1 个生成任务」的性质完全不同，
+       前者不动数据、后者花钱了，两件事混在一条时间线里就看不出后者。 */
+    const ctx = { list: [], keep: 0, 查过: [], 做过: [] };
     let stale = 0;                         // 连续几轮只查了重复的东西
     try {
       /* 查询次数不设上限：模型要查几次就查几次。退出只看三件事 —— 它自己交出了正文（不再写 CALL/RUN）、
@@ -2133,7 +2898,12 @@
           const m = (e && e.message) || String(e);
           const got = st.text();
           live = null; st.drop();
-          push(got ? 'ai' : 'err', got ? got + '\n\n（这次写到这儿断了：' + m + '）' : m);
+          /* 断在半路的这一轮：把原话**留在输入框里**并给一颗「重发」。
+             以前 `el.ta.value=''` 是在发请求**之前**清的，失败后只剩一行原因文字，
+             想再问一遍得把原话重新打一遍 —— 而同一个 App 里的「AI 润色」面板是有「重新润色」的。 */
+          const tip = got ? got + '\n\n（这次写到这儿断了：' + m + '）' : m;
+          push(got ? 'ai' : 'err', tip, null, { again: q, files: shot });
+          try { el.ta.value = q; } catch (e2) {}
           return;
         }
         live = null; st.drop();
@@ -2188,6 +2958,10 @@
             continue;
           }
           const m = push('run', chk.说明, { act: ins.name, arg: ins.arg, 人话: chk.人话, st: '', 钉: chk.钉 });
+          /* 记进这一轮的账（收据要念它）：动作**被采纳**就算「做过」——
+             即使用户还没点执行，卡片已经摆在他面前了，说「没有改动任何数据」会不准确。
+             那张卡片自己会写明「等你确认」。 */
+          ctx.做过.push({ 名: ACTS[ins.name] && ACTS[ins.name].title || ins.name, 等确认: true });
           if (ins.rest) push('step', cap(ins.rest, 120));
           /* 设置里勾了「执行前不用我点确认」时，卡片照画（写了什么、成没成都要看得见），
              只是不等人那一下点击。校验在上面已经全做完了，所以这里没有任何东西被跳过。 */
@@ -2215,6 +2989,7 @@
         push('step', '查了 ' + ins.name + '(' + cap(JSON.stringify(ins.arg || {}), 120) + ') → ' + txt.length + ' 字'
           + (ins.rest ? ' · ' + cap(ins.rest, 90) : ''));
         stale = 0;
+        ctx.查过.push({ 名: ins.name, 字: txt.length });
         addCtx(ctx, '> 查询 ' + ins.name + '(' + cap(JSON.stringify(ins.arg || {}), 200) + ') 的结果：\n' + txt + '\n', k);
       }
     } finally {
@@ -2224,12 +2999,57 @@
       /* roundFiles **故意不清**：它就是「助手这一头现在能看到的附件」。
          清了的话下一轮追问「第二张里是什么」就没得答、生成卡片上的附件序号也会指空。
          下一轮 send() 会用新的快照顶掉它。 */
+      pushReceipt(ctx);
     }
   }
+
+  /* 一轮结束的**收据**：一句话说清「这一轮查了什么、改了什么」。
+     为什么要有：那一串灰色小条是按时间排的查询流水，用户得自己数、自己拼；
+     而「查了 5 次」与「提交了 1 个生成任务（任务号 xxx）」是完全不同的两件事 ——
+     前者不动任何数据，后者花了钱。没有收据时用户在意的永远是后者，却只能从一堆灰条里翻。
+     写清「没有改动任何数据」也重要：那正是用户最想知道的一句（这一轮我只查了，什么都没动）。
+     只读ctx 上那两份账，不自己另记一份。 */
+  function pushReceipt(ctx) {
+    const q = (ctx && ctx.查过) || [], d = (ctx && ctx.做过) || [];
+    if (!q.length && !d.length) return;
+    const uniq = [];
+    for (const x of q) if (uniq.indexOf(x.名) < 0) uniq.push(x.名);
+    const parts = [];
+    if (uniq.length) parts.push('查了 ' + uniq.length + ' 项（' + uniq.slice(0, 5).join(' / ') + (uniq.length > 5 ? ' 等' : '') + '）');
+    if (d.length) parts.push('动了 ' + d.length + ' 处本机数据（' + d.map(x => x.名).join('、') + '）');
+    else parts.push('没有改动任何数据');
+    push('step', '这一轮：' + parts.join('；') + '。');
+  }
+  /* 「正在写…」的进度提示。
+     以前只把「停止」那颗放出来，而上游**连上不吐字也不断开**时界面上永远停在这一句：
+     用户既不知道等了多久，也判断不了是卡住了还是在慢慢想。带等待时长之后，
+     「已等 40 秒」与「已等 3 分钟」给人的判断完全不同 —— 后者该停了。
+     阈值取三档：30 秒开始报时长，90 秒起劝一句「还等着，也可以按停止」，180 秒起建议重试。
+     判据只有这一个计时器；停/完成/出错都要清它（不清就会在下一轮继续倒数）。 */
+  let busyTimer = 0, busySince = 0;
   function busy(on) {
     el.send.disabled = !!on;
     el.stop.hidden = !on;
     if (el.attach) el.attach.disabled = !!on;
+    clearInterval(busyTimer); busyTimer = 0;
+    if (!on) { busySince = 0; return; }
+    busySince = Date.now();
+    let last = '';
+    busyTimer = setInterval(() => {
+      if (!live) return;
+      const sec = Math.round((Date.now() - busySince) / 1000);
+      const box = el.body && el.body.querySelector('.ac-live');
+      if (!box) return;
+      let tip = '正在写…（已等 ' + sec + ' 秒）';
+      if (sec >= 180) tip += ' · 上游多半是卡住了，可以按「停止」后重试一次';
+      else if (sec >= 90) tip += ' · 还等着；不想要了就按「停止」';
+      /* 只在真的变了的时候改 DOM：每 200ms 覆一次会把正在流出来的字打断/重排 */
+      if (tip === last) return;
+      last = tip;
+      let h = box.querySelector('.ac-live-tip');
+      if (!h) { h = document.createElement('div'); h.className = 'ac-live-tip'; box.appendChild(h); }
+      h.textContent = tip;
+    }, 1000);
   }
 
   /* ---------- 展开 / 收起 ----------
@@ -2237,15 +3057,28 @@
      而这一层是悬浮球 —— 想要的时候点一下就有。 */
   function setOpen(v) {
     document.documentElement.classList.toggle('ac-open', !!v);
-    if (v) {
-      if (el.ta) el.ta.focus();
-      if (el.body) el.body.scrollTop = el.body.scrollHeight;
-      /* 抽屉一开就算「看过了」：球上的点清掉，但等待清单不动 ——
-         它记的是「有没有提醒过你」，不是「任务还没完」。 */
-      const st = wread();
-      if (st.unread) { st.unread = 0; try { localStorage.setItem(K_WATCH, JSON.stringify(st)); } catch (e) {} }
-      tickBadge(st);
+    /* 关闭态必须**移出焦点顺序**，光有 pointer-events:none 是不够的 ——
+       那只挡鼠标，不挡焦点：收起之后按 Tab，焦点会依次落进屏幕外的
+       「＋文件 / 输入框 / 发送 / 清空 / 两个下拉」：往看不见的输入框打字看不到任何字，
+       按回车就把这句发了；Tab 到「清空」按回车，当前这段对话当场消失。
+       文件里已经有人知道 [hidden] 对 display:flex 无效（.ac-hist[hidden] 那处补过），
+       面板这一处漏了同一个处理。inert 一句话把整块移出焦点与点击，不支持的浏览器再退 visibility。
+       收起时把焦点还给悬浮球（键盘用户不至于丢在屏幕外）。 */
+    if (el.panel) {
+      try { el.panel.inert = !v; } catch (e) {}
+      el.panel.classList.toggle('closed', !v);
     }
+    if (!v) {
+      try { if (el.ball) el.ball.focus(); } catch (e) {}
+      return;
+    }
+    if (el.ta) el.ta.focus();
+    if (el.body) el.body.scrollTop = el.body.scrollHeight;
+    /* 抽屉一开就算「看过了」：球上的点清掉，但等待清单不动 ——
+       它记的是「有没有提醒过你」，不是「任务还没完」。 */
+    const st = wread();
+    if (st.unread) { st.unread = 0; try { localStorage.setItem(K_WATCH, JSON.stringify(st)); } catch (e) {} }
+    tickBadge(st);
   }
   const isOpen = () => document.documentElement.classList.contains('ac-open');
   /* 不叫 open/close：模块里 shadow 掉全局 open 以后，谁再想 window.open 一下就被无声改道 */
@@ -2268,7 +3101,16 @@
      所以左边界让开 --sbw（展开时 sidebar.js 把它改成 200px），存过的旧位置也在下一次摆放时挪回来。 */
   const sbW = () => {
     const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sbw'));
-    return Number.isFinite(v) && v > 0 ? v : 0;
+    /* 窄窗 + 侧栏展开时，sidebar.js 把 --sbw 写成 66px（那是折叠态的宽度），
+       而浮层**实际**是 200px（OPEN_W）—— 球停在 74~120px 就被浮层完全盖住，
+       点不到也看不见。而 sb:toggle 那条「重摆一次」本来就为防这个，读到的却是错的 66，
+       于是**主动把球摆到了会被盖住的位置**。所以这里取两者的大。
+       判据只此一份：clampXY 与 snapXY 都调它。 */
+    const narrowOpen = document.documentElement.classList.contains('sb-narrow')
+      && document.documentElement.classList.contains('sb-open');
+    const real = narrowOpen ? 200 : 0;
+    const a = Number.isFinite(v) && v > 0 ? v : 0;
+    return Math.max(a, real);
   };
   const clampXY = (x, y) => ({
     x: Math.max(8 + sbW(), Math.min(window.innerWidth - BALL - 6, x)),
@@ -2372,10 +3214,14 @@
 #acBall.drag{cursor:grabbing;transition:none}
 #acBall:focus-visible{outline:2px solid var(--acc,#6957e8);outline-offset:2px}
 html.ac-open #acBall{display:none}
+/* 收起态除了 translateX 还要 visibility:hidden（配 transition 延迟）——
+   pointer-events:none 只挡鼠标、不挡焦点：不加这一条，收起之后按 Tab 焦点会落进屏幕外那排控件
+   （输入框回车即发送、「清空」回车即删掉这段对话）。setOpen 里另有一个 inert，那份是双保险，
+   也是给不支持 inert 的浏览器的兜底路径。 */
 #acPanel{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);z-index:56;background:var(--panel,#fff);
   border-left:1px solid var(--line,#e4e6f0);display:flex;flex-direction:column;
-  transform:translateX(101%);transition:transform .18s ease;pointer-events:none}
-html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px rgba(20,22,40,.14)}
+  transform:translateX(101%);transition:transform .18s ease,visibility .18s ease;pointer-events:none;visibility:hidden}
+html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px rgba(20,22,40,.14);visibility:visible}
 .ac-hd{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--line,#e4e6f0);
   background:linear-gradient(180deg,rgba(124,92,255,.09),rgba(124,92,255,0))}
 .ac-hd .ac-tt{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;color:var(--acc,#6957e8)}
@@ -2390,6 +3236,15 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
 .ac-qi{border:1px solid var(--line,#e4e6f0);background:var(--panel,#fff);color:var(--txt,#23262f);
   border-radius:14px;padding:5px 10px;font-size:11.5px;cursor:pointer;white-space:normal;text-align:left}
 .ac-qi:hover{border-color:var(--acc,#6957e8);color:var(--acc,#6957e8)}
+/* 「先体检这台机器」：空态第一颗，摆在所有问句之上。
+   要显眼一点 —— 它是给「刚打开、还不知道能问什么」的那个人准备的入口，
+   跟下面那排举例问句不是一类东西（一颗是动作，六颗是问题的样本）。 */
+.ac-qi.ac-dr{background:var(--acc,#6957e8);color:#fff;border-color:var(--acc,#6957e8);font-weight:600}
+.ac-qi.ac-dr:hover{filter:brightness(1.08);color:#fff}
+/* 「正在写…（已等 N 秒）」那一行：挂在正在流式那块的最后。
+   它随那一块一起被替换掉（收尾时整块换成正式气泡），所以不用自己去清。 */
+.ac-live-tip{flex:0 0 auto;margin-top:4px;font-size:11px;color:var(--sub,#8a8fa3);
+  border-top:1px dashed var(--line,#e4e6f0);padding-top:4px}
 .ac-m{display:flex;flex-direction:column;gap:3px}
 .ac-ai{align-items:flex-start}.ac-me{align-items:flex-end}.ac-err{align-items:flex-start}.ac-note{align-items:flex-start}
 .ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12.5px;line-height:1.62;padding:8px 10px;border-radius:8px;max-width:100%}
@@ -2451,6 +3306,9 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
 /* 正在执行的那一会儿不能是绿色：绿色 = 「已经做完了」，而这一行写的是「正在提交…」，
    看着就像提交已经成功（其实接口还没回）。 */
 .ac-run-st.run{background:var(--panel2,#f3f4f9);border:1px solid var(--line,#e4e6f0);color:var(--sub,#8a8fa3)}
+/* 「结果未知」用警告色（琥珀）：红色会被读成「没成」，绿色会被读成「成了」——
+   这一档的真实含义是「不知道」，所以既不能借用失败色也不能借用成功色。 */
+.ac-run-st.uncertain{background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.28);color:var(--warn,#d97706)}
 .ac-files{display:flex;flex-wrap:wrap;gap:5px}
 .ac-fi{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;line-height:1.4;color:var(--txt,#23262f);
   background:var(--panel2,#f3f4f9);border:1px solid var(--line,#e4e6f0);border-radius:12px;padding:2px 4px 2px 8px;max-width:100%;overflow-wrap:anywhere}
@@ -2595,13 +3453,32 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     const histClose = $('acHistClose');
     if (histClose) histClose.onclick = closeHist;
 
-    el.wipe.onclick = () => {
+    el.wipe.onclick = async () => {
       /* 拦的就是 canLeave() 那两条（与「新建会话」「切页」同一份判据）：
          paint() 会把正在写的那条气泡一起画掉 —— 字丢了而请求还在跑、还在扣 tokens；
          而没确认的卡片是用户本来打算执行的提案。 */
       if (!canLeave()) return;
       if (!msgs.length) return toast('已经是空的了', 'info');
-      msgs = []; acts = []; save(); paint(); paintHist(); toast('这一段对话清空了（历史会话里还留着别的段）', 'ok');
+      /* 只有这一段的时候，「清空」与「删除一段会话」是同一件事 ——
+         安全性却差了一档（删会话有二次确认，清空没有），而清空之后**找不回来**。
+         段数 > 1 时不加闸：另一段还在历史里，丢的只是当前这段，弹窗只是多一次点击。 */
+      const others = Math.max(0, (SESS.list || []).length - 1);
+      if (!others && window.Confirm && Confirm.ask) {
+        const ok = await Confirm.ask({
+          title: '清空这一段对话？',
+          body: '这是唯一的一段对话（历史里没有别的段），清空之后找不回来。要清吗？',
+          okLabel: '清空', danger: true,
+        });
+        if (!ok) return;
+        msgs = []; acts = []; save(); paint(); paintHist();
+        toast('这一段对话清空了（这一段是唯一的，没有别的段可以切回去）', 'ok');
+        return;
+      }
+      msgs = []; acts = []; save(); paint(); paintHist();
+      /* toast 按实际段数说话 —— 以前这一句恒写「历史会话里还留着别的段」，
+         而只有一段时那句话是假的，用户会以为还能切回去。 */
+      toast(others ? '这一段对话清空了（历史会话里还留着 ' + others + ' 段）'
+        : '这一段对话清空了', 'ok');
     };
     el.stop.onclick = () => {
       if (!aborter) return;
@@ -2744,5 +3621,12 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
       msgs = []; acts = []; save(); paint(); paintHist();
       return true;
     },
+    /* 助手能力的只读出口 —— **只给查询与校验，不给 run**。
+       为什么要有：`page_state` 的定位判据（按可见文字找控件）与三个原语的 `check`
+       是这一层最容易写坏、又最难一眼看出来的地方（改坏了只是「点不到」，不会报错）。
+       挂出来就能在浏览器里直接验，也方便页面自己问一句「这一页有哪些能点的按钮」。
+       run 一律不给：写动作的唯一入口仍然是「用户在卡片上点执行」那道闸。 */
+    TOOLS, ACTS,
+    ui: { inventory: uiInventory, find: findUI, label: labelOf, zone: zoneOf },
   };
 })();

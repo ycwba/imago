@@ -55,7 +55,26 @@
   .sb-bal-card .l1 { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt); font-weight: 600; white-space: nowrap; }
   .sb-bal-card .l1 .ic { font-size: 12px; }
   .sb-bal-card .l2 { margin-top: 3px; font-size: 11px; color: var(--sub); white-space: normal; line-height: 1.5; word-break: break-all; }
+  /* 「产物正在存进本机」那一行：侧栏唯一的本机落盘实况。
+     为什么必须在这儿而不是只在设置页：自动存本机是**后台**发生的（用户早就不在设置页了），
+     而从「点生成」到「字节落盘」要几秒到几十秒 —— 这段时间界面上一个字都没有时，
+     用户看到的就是「开了没反应」。侧栏是唯一全程都在的界面（九页都有）。 */
+  .sb-mirror { margin-top: 6px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; background: var(--panel2); }
+  .sb-mirror .l1 { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt); font-weight: 600; }
+  .sb-mirror .l1 .spin-dot { width: 9px; height: 9px; }
+  .sb-mirror .l2 { margin-top: 3px; font-size: 11px; color: var(--sub); line-height: 1.5; }
+  .sb-mirror .l2 b { color: var(--txt); }
+  /* 下载进度条：一条细轨，跟「正在存 N 份」那行连着读 —— 一眼看出「在下第几个、下到多少」。 */
+  .sb-mirror .dlbar{height:3px;border-radius:2px;background:var(--line,#e4e6f0);overflow:hidden;margin-top:5px}
+  .sb-mirror .dlbar i{display:block;height:100%;background:var(--acc,#6957e8);border-radius:2px;transition:width .2s}
+  .sb-mirror.bad { border-color: var(--warn); }
+  .sb-mirror.bad .l2 { color: var(--warn); }
+  /* 侧栏折叠时只留一颗小圆点，别把整段文字挤成竖条 */
+  html:not(.sb-open) .sb-mirror .l1 .nm, html:not(.sb-open) .sb-mirror .l2 { display: none; }
+  html:not(.sb-open) .sb-mirror { padding: 5px 0; text-align: center; }
   .sb-bal-card .l2 b { color: var(--txt); font-weight: 600; }
+  /* 余额取不到时那一行（L42）：要说得出「这是失败」，不能和正常的数字长一个样 */
+  .sb-bal-card .l2 .balerr { color: var(--err, #dc2626); }
   .sb-bal-refresh { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px;
     font-size: 11px; color: var(--sub); cursor: pointer; }
   .sb-bal-refresh:hover { color: var(--acc); background: var(--panel2); }
@@ -214,12 +233,24 @@
   const escA = v => window.esc(v);
   const balCardHTML = r => {
     const avail = escA(r.avail), frozen = escA(r.frozen), unit = escA(r.unit);
-    return `<div class="sb-bal-card" data-short="${escA(r.short)}" title="${escA(r.name)}：可用 ${avail}${unit} · 冻结 ${frozen}${unit}">
+    /* 失败那一行把原因放进 title（L42）：卡面上一行放不下「HTTP 401：密钥无效或过期」，
+       但「为什么失败」正是这张卡唯一有用的信息 —— 藏掉它就等于只报结果不报因。
+       正常行照旧：可用 / 冻结。 */
+    const tip = r.failed
+      ? `${escA(r.name)}：${escA(r.why || r.avail)}`
+      : `${escA(r.name)}：可用 ${avail}${unit} · 冻结 ${frozen}${unit}`;
+    return `<div class="sb-bal-card" data-short="${escA(r.short)}" title="${tip}">
        <div class="l1"><span class="ic">${svgIc('coin', 13)}</span><span class="nm">${escA(r.name)}</span></div>
-       <div class="l2">${r.failed ? escA(r.avail) : '可用 <b>' + avail + '</b>' + unit + ' · 冻结 <b>' + frozen + '</b>' + unit}</div>
+       <div class="l2">${r.failed
+        ? '<span class="balerr">获取失败（鼠标停一下看原因）</span>'
+        : '可用 <b>' + avail + '</b>' + unit + ' · 冻结 <b>' + frozen + '</b>' + unit}</div>
      </div>`;
   };
   function paintBal(box, rows, note) {
+    /* 整个余额区关掉（设置页勾）：**连卡片都不画**。
+       以前只有「按平台勾选」，没有「一块都不要」这一档 ——
+       于是用户只能把每一家都取消勾，而「刷新余额」那颗按钮还留在那儿点不动。 */
+    if (window.AssetLocal && AssetLocal.sbBalOn && !AssetLocal.sbBalOn()) { box.innerHTML = ''; return; }
     const shown = (window.SbBal ? SbBal.filter(rows) : rows) || [];
     /* 一张卡都画不出来时的三种说法：接口读不到 / 平台压根没有余额接口 / 全被勾掉了。
        以前这里和下面各有两段手写的 innerHTML，收成一个提示卡。 */
@@ -227,8 +258,71 @@
       : '<div class="sb-bal-card"><div class="l1"><span class="ic">' + svgIc('coin', 13) + '</span><span class="nm">余额</span></div>'
         + '<div class="l2">' + (note || (rows.length ? '要显示哪些接口在「设置 → 平台密钥与余额」里勾' : '无余额接口')) + '</div></div>';
     box.innerHTML = '<div class="sb-bal">' + body
-      + '<div class="sb-bal-refresh" title="刷新余额"><span class="ic">' + svgIc('refresh', 13) + '</span><span>刷新余额</span></div></div>';
+      + '<div class="sb-bal-refresh" title="刷新余额"><span class="ic">' + svgIc('refresh', 13) + '</span><span>刷新余额</span></div></div>'
+      + mirrorBarHTML();
     box.querySelector('.sb-bal-refresh').onclick = () => refreshBalance();
+    mountMirrorBar(box);
+  }
+  /* ---------- 「产物正在存进本机」这一行 ----------
+     读数一律来自 AssetLocal.info（assetlib.js 那一份判据），侧栏不自己数。
+     关闭时**不画** —— 开关关着就没有在途，挂着一条「已存 N 个」只是占地方；
+     有在途 / 失败过 / 开着开关时才画，用户随时看得到「它到底在不在干活」。 */
+  function mirrorBarHTML(st) {
+    /* 这一块要能单独关掉（设置页勾）：侧栏是**全局**的，一个不需要看它的人
+       （比如只用生成工作台、从不进资产库）不该被它占掉三行。 */
+    if (window.AssetLocal && AssetLocal.sbMirrorOn && !AssetLocal.sbMirrorOn()) return '';
+    const s2 = st || (window.AssetLocal && AssetLocal.info ? AssetLocal.info() : null);
+    if (!s2 || !s2.on) return '';
+    const busy = s2.inFlight > 0;
+    const bad = !busy && s2.lastErr;
+    const sizeOf = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
+      : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+    /* 在途时把「正在下这一份」摆出来：只有「正在存 N 份」的话，
+       一个 200MB 的视频从 0% 到 100% 在界面上长得一模一样，人只能干等
+       （「自动存本机看起来没反应」剩下的那一半 —— 另一半是根本不知道它在跑）。
+       百分比来自 AssetLocal.info（它读的是响应头里的总量与已发送字节）。
+       **拿不到总量就不摆条**（只显示「正在下这一份…」）：拿 0 当分母算出来的进度是假的。 */
+    let dl = '';
+    if (busy && s2.dlTotal > 0) {
+      const pct = Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal)));
+      dl = '<div class="dlbar" title="' + escA(String(s2.dlName || '')) + '"><i style="width:' + pct + '%"></i></div>'
+        + '<div class="l2" style="margin-top:3px">正在下这一份 <b>' + pct + '%</b>'
+        + (s2.dlName ? '（' + escA(String(s2.dlName).slice(0, 18)) + '）' : '')
+        + ' · 已 ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal) + '</div>';
+    } else if (busy && s2.dlName) {
+      dl = '<div class="l2" style="margin-top:3px">正在下这一份…（' + escA(String(s2.dlName).slice(0, 18)) + '）</div>';
+    }
+    const l2 = busy
+      ? '正在存 <b>' + s2.inFlight + '</b> 份（产物完成后自动开始）'
+      : (bad ? escA(s2.lastErr)
+        : '本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+          + (s2.fail ? ' · 累计没存成 ' + s2.fail + ' 份' : ''));
+    return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
+      + (busy ? ' title="产物自动存本机正在跑，字节落盘之后这里会变成本机已存 N 份"' : '')
+      + (bad ? ' title="最后一次没存成：' + escA(s2.lastErr) + '（下一轮列表刷新时会再试一次）"' : '')
+      + '><div class="l1"><span class="ic">'
+      + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
+      + '</span><span class="nm">产物存本机</span></div>'
+      + '<div class="l2">' + l2 + '</div>' + dl + '</div>';
+  }
+  /* 订阅一次就够：AssetLocal.onInfo 每次落盘事件都推一遍，这里只改那一行。
+     没有这一层的话「正在存 N 份」永远停在 0 —— 而那正是用户判断开关有没有生效的那句话。
+     注意 paintBal 会整块换掉 innerHTML（余额刷新时会发生），换掉的新块**已经带了这一行**
+     （paintBal 里拼了 mirrorBarHTML()），所以订阅回调里找不到旧节点就insert 一个；
+     回调本身不用管「节点被换掉了」—— 那是 paintBal 的事。 */
+  let mirrorUnsub = null;
+  function mountMirrorBar(box) {
+    const A = window.AssetLocal;
+    if (!A || !A.onInfo || mirrorUnsub) return;
+    mirrorUnsub = A.onInfo(st => {
+      const b2 = sb.querySelector('#sbBalance');
+      if (!b2) return;
+      const old = b2.querySelector('.sb-mirror');
+      const want = mirrorBarHTML(st);
+      if (!want) { if (old) old.remove(); return; }
+      if (old) { const tmp = document.createElement('div'); tmp.innerHTML = want; old.replaceWith(tmp.firstElementChild); }
+      else b2.querySelector('.sb-bal').insertAdjacentHTML('beforeend', want);
+    });
   }
   async function refreshBalance() {
     const box = sb.querySelector('#sbBalance');
@@ -296,7 +390,14 @@
         const avail = fmt(b.available), frozen = fmt(b.frozen), unit = b.unit ? ' ' + b.unit : '';
         return { kid: m.kid, name: m.name, avail, frozen, unit,
           short: String(avail).slice(0, 7) };
-      } catch { return { kid: m.kid, name: m.name, avail: '获取失败', failed: true, frozen: '-', unit: '', short: '—' }; }
+      } catch (e) {
+        /* 失败原因要跟着行一起走（L42）。以前整个 throw 被吞掉，只剩「获取失败」四个字 ——
+           密钥过期 / 代理没起来 / 平台限流在这张卡上长得一模一样，而同一个错在用量页
+           能读到「查询失败：HTTP 401：密钥无效或过期」。侧栏把原因挂到 title 上，
+           卡面只留一句短的（不然一行小字塞不下）。 */
+        return { kid: m.kid, name: m.name, avail: '获取失败', failed: true,
+          why: '查询失败：' + ((e && e.message) || e || '未知原因'), frozen: '-', unit: '', short: '—' };
+      }
     }));
     try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows })); } catch {}
     balRows = rows;
@@ -308,6 +409,23 @@
      删完看着还是「没删掉」，要等下一次真取数才消失。
      顺带把这一家从隐藏名单里也摘掉（清掉一个再也不存在的 kid），
      并让外壳立刻重画 —— 设置页在 iframe 里，靠外壳暴露的这个口（与 __sbApplyTheme 同一套路）。 */
+  /* 「这两块显示不显示」被设置页改了之后，外壳立刻重画。
+     设置页在 iframe 里，它写的是别人的键（sb_bal_on / sb_mirror_on）——
+     所以要么它自己拼一遍余额卡与产物行（那就是第二份实现），
+     要么由这里挂一个口出来（与 __sbApplyTheme / __sbApplyOpen 同一套路）。挂口。
+     `paintBal` 开头会自己判「余额区关没关」，本机产物那块在 `mirrorBarHTML` 里判 ——
+     所以这个口只是「重新读一次键、画一次」，不含任何规则。 */
+  window.__sbApplyBalance = () => {
+    try {
+      const box = sb.querySelector('#sbBalance');
+      if (box) paintBal(box, balRows);
+      /* 本机产物那块的订阅已经挂过一次（mountMirrorBar 会记住），
+         这里主动补画一次：开关从关到开时那一块原本不在文档里，得重新插入。 */
+      const b2 = sb.querySelector('#sbBalance');
+      if (b2) { const cur = mirrorBarHTML(); if (cur && !b2.querySelector('.sb-mirror')) b2.querySelector('.sb-bal').insertAdjacentHTML('beforeend', cur); }
+    } catch (e) {}
+  };
+
   window.__sbBalanceDrop = (kid) => {
     if (!kid) return;
     try {

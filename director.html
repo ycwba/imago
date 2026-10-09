@@ -19,20 +19,7 @@ window.addEventListener('unhandledrejection', e => {
 </script>
 <link rel="stylesheet" href="ui.css">
 <style>
-  :root {
-    --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
-    --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
-    --thumbbg:#e2e5ee; --thumbfg:#9aa1b4;
-    /* 提示词里 @素材 那块的底色：浅色主题用「深一点的灰」，深色主题必须反过来用「浅一点的灰」，
-       一个 rgba 盖不住两套主题（在深色下会直接看不见）。 */
-    --atbg: rgba(35, 38, 47, .13);
-  }
-  html[data-theme="dark"] {
-    --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
-    --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff; --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
-    --thumbbg:#39415a; --thumbfg:#aab2c6;
-    --atbg: rgba(255, 255, 255, .13);
-  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -530,7 +517,6 @@ window.addEventListener('unhandledrejection', e => {
   <div class="col col-right" id="edCol"></div>
 </div>
 
-
 <dialog class="script" id="scriptDlg">
   <b style="font-size:14px">粘贴剧本，一键拆分镜</b>
   <div class="tip">每行会变成一个分镜；以「#」开头的行作为场景名。</div>
@@ -613,6 +599,24 @@ const shotDur = sh => {
 };
 /* 本镜时长文案：没生成就写「未生成」 */
 const shotDurText = sh => { const d = shotDur(sh); return d ? fmtDur(d) : '未生成'; };
+/* 裁剪落地之后那一句（两个入口共用）—— **必须说清这一条在不在成片里**（L57）。
+   剪辑这段改的是「我现在正在看的那条候选」（curCand），
+   而左栏镜头时长、工具条「全片 X 秒」算的是「已选用的那条」（selId）。
+   两者不是同一条时，一句光秃秃的「✓ 已保留 3 秒」会让人以为成片短了 2 秒 ——
+   去看成片却发现一点没变（还是第 1 条那 5 秒），于是以为这个功能坏了。 */
+function trimStatus(sh, c, extra) {
+  const sec = fmtDur(Math.max(0, (Number(c && c.trimE) || 0) - (Number(c && c.trimS) || 0)));
+  const inFilm = !!(c && c.vid === sh.selId);
+  const at = (sh.candidates || []).findIndex(x => x.vid === sh.selId);
+  const tail = inFilm ? '（这一条正被选用，成片跟着变）'
+    : '，但这一条还没被选用 —— 成片现在用的是' + (at >= 0 ? '第 ' + (at + 1) + ' 条' : '别的候选')
+      + '，左栏时长与「全片」的秒数都按它算；要让这次裁剪进成片，先在这一条上点「用这条」';
+  /* 「截断」是真出了事（我们改了你输了的值），照旧走横幅；其余走工具栏那行小字 ——
+     这里**不能用 warn 类**：那会把顶部横幅点亮，而拖动裁剪是每拖一下都会发生的高频动作，
+     一个常驻横幅会变成噪音（用户上次特意说过「除非出 bug 不要弹东西」）。 */
+  if (extra) return '<span class="err">' + extra + '；已保留 ' + sec + (inFilm ? tail : '') + '</span>';
+  return inFilm ? '<span class="ok">✓ 已保留 ' + sec + tail + '</span>' : '已保留 ' + sec + tail;
+}
 const shotReady = sh => sh.selId && sh.candidates.some(c => c.vid === sh.selId && c.status === 'succeeded');
 const totalDur = () => allShots().filter(shotReady).reduce((a, sh) => a + shotDur(sh), 0);
 
@@ -624,14 +628,33 @@ const wsKv = Kv.at('ws');
 /* ---------- 撤销 / 重做（快照式，Ctrl+Z / Ctrl+Y）---------- */
 const undoStack = [], redoStack = [];
 let lastSavedJson = '';
-/* 快照是整份工作区 JSON（含内联图片），必须限总量：以前无上限保留 50 份，大工程会吃掉上百 MB 内存 */
+/* 快照是整份工作区 JSON（含内联图片），必须限总量：以前无上限保留 50 份，大工程会吃掉上百 MB 内存。
+   **两档上限都不在界面上**（README 与项目介绍曾写「最多 50 步」，实际是 30 步 / 24 MB），
+   所以按 Ctrl+Z 突然「没有可撤销的操作」时用户不会知道是触了步数还是触了内存 ——
+   那一瞬看起来就像坏了。工具条上常驻一句「撤销 N/30」，耗尽时说清是哪一档顶到了。 */
 const UNDO_MAX_BYTES = 24 * 1024 * 1024, UNDO_MAX_COUNT = 30;
 let undoBytes = 0;
+/* 「为什么存不下」—— pushUndo 的两处早退各有一个原因，耗尽时照实报出去。
+   判据与 pushUndo 同一处，不在这里重算。 */
+let undoSkipWhy = '';
 function pushUndo(json) {
-  if (!json || json.length > UNDO_MAX_BYTES / 2) return;   // 单份就超预算一半：不存（避免一份快照把预算吃光）
+  if (!json) return;
+  if (json.length > UNDO_MAX_BYTES / 2) {
+    /* 单份就超预算一半：不存（避免一份快照把预算吃光） */
+    undoSkipWhy = '这一份工作区太大（' + (json.length / 1048576).toFixed(1) + ' MB，超过单份上限 '
+      + (UNDO_MAX_BYTES / 2 / 1048576).toFixed(0) + ' MB）';
+    return;
+  }
   undoStack.push(json);
   undoBytes += json.length;
+  const was = undoStack.length;
   while (undoStack.length > UNDO_MAX_COUNT || undoBytes > UNDO_MAX_BYTES) undoBytes -= undoStack.shift().length;
+  if (was <= UNDO_MAX_COUNT && undoStack.length < was) undoSkipWhy = '撤销已用满上限（' + UNDO_MAX_COUNT + ' 步）';
+}
+/* 工具条上那一句（判据只有这两处：栈长与字节数）。 */
+function undoMeterText() {
+  return '撤销 ' + undoStack.length + '/' + UNDO_MAX_COUNT
+    + (undoBytes > UNDO_MAX_BYTES * 0.6 ? '（内存 ' + (undoBytes / 1048576).toFixed(1) + '/' + (UNDO_MAX_BYTES / 1048576).toFixed(0) + ' MB）' : '');
 }
 function pushRedo(json) {
   if (!json || json.length > UNDO_MAX_BYTES / 2) return;
@@ -640,8 +663,16 @@ function pushRedo(json) {
 }
 // 快照剔除轮询的瞬态字段（进度/排队位置），避免自动轮询污染撤销栈
 function snapOf() {
+  /* 游标不进快照。`curScene` / `curShot` / `curCand` 是「我现在在看哪一个」，
+     不是「作品是什么」—— 以前它们被一起序列化，于是点6 次候选缩略图比较效果，
+     再按 Ctrl+Z，第一下退回去的是「我刚才在看第 2 条候选」，真正的编辑还排在后面。
+     而撤销上限只有 30 步（L10），翻看几次就能把真正的改动挤出栈。
+     剔掉它们之后，「翻看」不再消耗撤销次数，而撤销回去时视口停在当前这一镜
+     （restoreSnap 之后 renderAll 会照 proj.curCand 重画，指向的那一条仍然是它，
+     因为那一镜的候选列表没变）。 */
   return JSON.stringify({ projects: WS.projects, curId: WS.curId },
-    (k, v) => (k === 'progress' || k === 'queue_position') ? undefined : v);
+    (k, v) => (k === 'progress' || k === 'queue_position'
+      || k === 'curScene' || k === 'curShot' || k === 'curCand') ? undefined : v);
 }
 function restoreSnap(json) {
   try {
@@ -654,7 +685,12 @@ function restoreSnap(json) {
   } catch {}
 }
 function undo() {
-  if (!undoStack.length) { setStatus('没有可撤销的操作'); return; }
+  if (!undoStack.length) {
+    setStatus('<span class="err">可撤销的已经用完了'
+      + (undoSkipWhy ? '（' + undoSkipWhy + '）' : '') + ' —— 不是「没有可撤销的操作」</span>');
+    return;
+  }
+  undoSkipWhy = '';
   pushRedo(snapOf());
   restoreSnap(undoStack.pop());
   setStatus('<span class="ok">✓ 已撤销（Ctrl+Y 重做）</span>');
@@ -691,7 +727,6 @@ const tlDuration = () => tlEnsure().clips.reduce((a, c) => a + tlClipDur(c), 0);
 const tlCandidateOf = (sh, candId) =>
   (sh.candidates || []).find(c => c.vid === candId) || (sh.candidates || []).find(c => c.vid === sh.selId) || null;
 
-
 /* 从已选用镜头派生时间线（会覆盖现有 clips） */
 function tlFromShots() {
   const clips = [];
@@ -720,9 +755,11 @@ async function tlClipSrc(c) {
   if (!cand.url && cand.vid && sameAssetSpace(cand.provider, ASSET_STORE)) return '/asset/' + cand.vid + '?v=2';
   // 本地导入 / 过期链接：转存成资产（走通用跨平台转存通道；/asset/ 只认这一家的资产号，见 ASSET_STORE 注释）
   if (c.assetId) return '/asset/' + c.assetId + '?v=2';
-  const blob = cand.blobKey ? await wsKv.get(cand.blobKey).catch(() => null) : null;
+  /* 原来这里还先取`cand.blobKey` 指向的 IndexedDB 字节 —— 而 blobKey 从没有一处赋值，
+     那一支恒为null，等于多一次查库却从不生效（IndexedDB 里没有 blobKey 的索引）。删掉。
+     真正在用的是下面这条：本地导入/ 过期链接当场转存成 `.assets` 资产（toAsset）。 */
   const fresh = await freshUrl(cand).catch(() => null);
-  const source = blob || fresh;
+  const source = fresh;
   if (!source) return null;
   const aid = await AssetTransfer.toAsset(ASSET_STORE, source, { reg: REG, name: (cand.name || 'clip') + '.mp4', contentType: 'video/mp4' });
   c.assetId = aid; scheduleSave();
@@ -816,8 +853,18 @@ let renderJobId = null;      // 当前这一轮渲染的任务号（取消时交
 function exportFilmClick() { if (rendering) { renderCancelled = true; renderCancel(renderJobId); return; } exportFilmFFmpeg(); }
 async function exportFilmFFmpeg() {
   if (rendering) { setStatus('已有导出任务在进行中…'); return; }
-  const tl = tlEnsure();
-  if (!tl.clips.length) { setStatus('<span class="err">成片时间线是空的：先在候选卡上点「用这条」选用镜头，或切到「全片」标签页自动合成</span>'); return; }
+  /* 时间线**先建**，再判空。
+     以前这里是 `tlEnsure()`：它只在 `proj.timeline` 缺失时补一个空壳，不从镜头建内容 ——
+     而 `tlSyncFromShots`（能从镜头建出时间线的那一份）只在 mergeWholeFilm 里被调。
+     于是同一个工具条上「播放成片」会自动合并（它走 playOrMergeFilm → tlSyncFromShots），
+     而「导出成片」不会：生成了 5 个镜头但没打开过「剪辑 → 全片」时点导出被拦，
+     报的是「先在候选卡上点『用这条』选用镜头」—— **而镜头全都已选用**。
+     判据与理由都换成同一句：先把时间线同步出来，真的空了才是「没有可用镜头」。 */
+  const tl = tlSyncFromShots();
+  if (!tl.clips.length) {
+    setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
+    return;
+  }
   const size = filmSize();
   const btn = $('exportFilm');   // 主栏那个「导出成片（ffmpeg）」
   rendering = true; renderCancelled = false;
@@ -838,6 +885,13 @@ async function exportFilmFFmpeg() {
     if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '渲染未完成');
     const blob = await renderBlob(job.out, '下载成片');
     const saved = await saveBlob(job.out, blob);
+    /* 导出也是一份成片：记进 proj.merged（带内容指纹，判据与 playOrMergeFilm 同一句）。
+       以前不记，于是导出完之后点「播放成片」会**再合成一遍** ——
+       用户刚导出的东西没被认下来，白等一次几十秒的合成。
+       指纹字段名与 mergeWholeFilm 那处一致（fp），否则 filmIsCurrent 会当成没有指纹而退回比段数。 */
+    proj.merged = { name: job.out, duration: round1(tlDuration()), ts: Date.now(),
+      clips: tl.clips.length, fp: filmFingerprint(tl.clips), size: job.size || blob.size || 0 };
+    scheduleSave();
     setStatus('<span class="ok">' + saved.msg + `（${tl.clips.length} 段 · ${fmtDur(tlDuration())} · ${(blob.size / 1048576).toFixed(1)} MB）</span>`);
   } catch (e) {
     setStatus(e.message === '已取消'
@@ -1024,7 +1078,6 @@ function tlFilterAssets(entries, plan) {
   return hits.slice(0, Math.max(1, Math.min(60, Number(plan.limit) || 20)));
 }
 
-
 /* ---------------- ④ 剧本 / 文案一键分镜（AI 拆场景与镜头） ---------------- */
 async function aiStoryboard() {
   const v = await PromptForm.open({
@@ -1125,6 +1178,21 @@ let mergeCancelled = false;
 let mergeJobId = null;      // 这一轮合并的任务号（取消时交给代理去杀进程）
 /* 合并按钮统一入口：合并中再点一次 = 取消 */
 function mergeFilmClick() { if (merging) { mergeCancelled = true; renderCancel(mergeJobId); return; } mergeWholeFilm(); }
+/* 这一份成片对应的是**哪一串内容**：每段的 [镜头 id, 选用的候选, 入点, 出点, 速度, 音量]，按顺序。
+   取址与合成一致（顺序取 tlSyncFromShots 的结果 —— 拖动顺序就体现在这里），
+   所以「换候选 / 改入出点 / 拖顺序」三件事任何一件都会让指纹变。 */
+function filmFingerprint(clips) {
+  return (clips || []).map(c => [c.shotId || '', c.candId || c.vid || c.cand || '', c.in || 0, c.out || 0,
+    c.speed || 1, c.volume == null ? 1 : c.volume].join('~')).join('|');
+}
+/* 「盘上那一份成片是不是当前的」—— 三处判据（播放 / 自动合并 / 陈旧提示）只问这一句。
+   旧数据（合并时还没存指纹的）没有 fp：那时候只按段数判，与原行为一致，不把它当陈旧。 */
+function filmIsCurrent(m) {
+  if (!m) return false;
+  const tl = tlSyncFromShots();
+  if (m.fp == null) return m.clips === tl.clips.length;      // 老成片：退回段数（与从前一致）
+  return m.fp === filmFingerprint(tl.clips);
+}
 async function mergeWholeFilm() {
   if (merging) { setStatus('正在合并中…'); return; }
   if (!allShots().filter(shotReady).length) { setStatus('<span class="err">还没有已选用的镜头，先生成并选用</span>'); return; }
@@ -1154,7 +1222,14 @@ async function mergeWholeFilm() {
       tick();
     });
     if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '合并未完成');
-    proj.merged = { name: job.out, duration: round1(tlDuration()), ts: Date.now(), clips: tl.clips.length, size: job.size || 0 };
+    /* 「这一份成片是按什么合出来的」—— 内容指纹。
+       以前这里只存 `clips: 段数`，而三处判据也只比段数。后果：换一个候选点「用这条」、
+       改入点/出点、拖动镜头顺序 —— **段数没变**，于是「播放成片」直接播上一次合并出来的旧片，
+       界面上还写着「✓ 已经接成一个完整视频，可以直接下载」，连 renderMergeBox 的陈旧提示都不响。
+       指纹只认**决定画面的那几项**：每一段的镜头 id、选用哪条候选、入点、出点、顺序。
+       （画面速度/音量也算内容，但 tlSyncFromShots 会保留用户设过的值，一并带上更保险。） */
+    proj.merged = { name: job.out, duration: round1(tlDuration()), ts: Date.now(),
+      clips: tl.clips.length, fp: filmFingerprint(tl.clips), size: job.size || 0 };
     renderMid(); scheduleSave();
     setStatus('<span class="ok">✓ 已经接成一个完整视频，共 ' + fmtDur(tlDuration()) + '，可以直接下载</span>');
   } catch (e) {
@@ -1172,18 +1247,20 @@ async function playOrMergeFilm() {
   const ready = allShots().filter(shotReady).length;
   if (!ready) { setStatus('<span class="err">还没有已选用的镜头</span>'); return; }
   const m = proj.merged;
-  if (m && m.clips === ready && !merging) { playMergedFilm(); return; }
+  /* 判据是**内容指纹**，不是段数：换候选 / 改入出点 / 拖顺序之后段数不变，
+     只比段数等于「陈旧这件事恒为假」，播出来的是上一轮的旧画面。 */
+  if (m && filmIsCurrent(m) && !merging) { playMergedFilm(); return; }
   setStatus(m ? '镜头有变动，正在重新合并…' : '还没有合并过的成片，正在合并…');
   await mergeWholeFilm();
-  if (proj.merged && proj.merged.clips === allShots().filter(shotReady).length) playMergedFilm();
+  if (proj.merged && filmIsCurrent(proj.merged)) playMergedFilm();
 }
 
-/* 进入「全片」页时按需自动合并：已合并且镜头数一致就不重复合成 */
+/* 进入「全片」页时按需自动合并：已合并且内容没变就不重复合成 */
 async function autoMergeFilm() {
   const ready = allShots().filter(shotReady).length;
   if (!ready) return;                                    // 没有已选用镜头，空态里给提示
   if (merging) return;                                   // 已经在合成中
-  if (proj.merged && proj.merged.clips === ready) return; // 已有最新成片，直接用
+  if (proj.merged && filmIsCurrent(proj.merged)) return; // 已有最新成片，直接用
   await mergeWholeFilm();
 }
 
@@ -1209,10 +1286,13 @@ function renderMergeBox(col) {
   const dur = ready.reduce((a, sh) => a + shotDur(sh), 0);
   box.querySelector('#mfCount').innerHTML = `全部 <b>${ready.length}</b> 个镜头，共 <b>${round1(dur)}</b> 秒`;
   const m = proj.merged;
-  const stale = m && m.clips !== ready.length;
+  /* 陈旧判据与播放 / 自动合并**同一句**（filmIsCurrent）。
+     以前这里只比段数，于是换一条候选、改入出点、拖顺序之后这一格照样写
+     「已经接成一个完整视频，可以直接下载」—— 而播出来的是上一轮那一份。 */
+  const stale = m ? !filmIsCurrent(m) : false;
   box.querySelector('#mfState').innerHTML = m
     ? (stale
-      ? `<span style="color:var(--sub)">镜头数已变动（合并时 ${m.clips} 个），建议点「重新合并」</span>`
+      ? `<span style="color:var(--sub)">内容已变动（合并时是${m.fp == null ? m.clips + ' 个镜头' : '另一版选法'}），建议点「重新合并」</span>`
       : `已经接成一个完整视频，共 ${fmtDur(m.duration)}，可以直接下载。`)
     : '尚未合并过：点「重新合并」把全部已选用镜头接成一个完整视频';
   if (!merging) box.querySelector('#mfMerge').onclick = mergeFilmClick;
@@ -1236,7 +1316,10 @@ function scheduleSave() {
       lastSavedJson = snap;
       $('saveState').textContent = '已保存到本地';
       /* 同时写一份到代理的数据目录（.data/workspace.json）：浏览器存储被清掉时还能从磁盘恢复。
-         本地视频的 Blob 不在这里（它们在 IndexedDB 里按 blobKey 存），所以这份 JSON 不会太大。 */
+         这里只有**引用**（每条素材指向 `.assets` 里的一个资产号），视频字节不在 JSON 里 ——
+         那份镜像之所以还能当备份用，是因为 `.assets` 与它一起在项目目录下。
+         （原来这句写的是「Blob 在 IndexedDB 里按 blobKey 存」—— 那个键全项目没有一处赋值，
+          见下面 exportProject 那一段的注释。） */
       if (window.DataSync) {
         try { window.DataSync.mirrorWs(JSON.stringify({ v: 1, data: wsRec, ts: wsRec.ts })); } catch {}
       }
@@ -1376,12 +1459,16 @@ function playerAreaHTML(sh) {
   const cur = cands[proj.curCand];
   const filmMode = isFilmMode();
   const readyShots = allShots().filter(shotReady);
-  const mergedReady = !!(proj.merged && proj.merged.clips === readyShots.length);
+  const mergedReady = filmIsCurrent(proj.merged);   // 内容指纹，不是段数（判据见 filmIsCurrent）
   const readyDur = readyShots.reduce((a, s2) => a + shotDur(s2), 0);
   if (filmMode) {
     if (mergedReady) {
+      /* `.renders` 只保留最近 20 部成片，旧的那批会被自动清掉 —— 数据没丢（重新合并就有），
+         但一个黑框加一句「全片 · 8 镜」是在撒谎。下载那条早就有兜底（:810），预览这条以前没有。
+         onerror 挂在 <video> 上：把整块换成一句「已被清理 + 重新合并」的提示。 */
       return `<div class="player-box">
-        <video id="player" src="/render/play?name=${encodeURIComponent(proj.merged.name)}" playsinline></video>
+        <video id="player" src="/render/play?name=${encodeURIComponent(proj.merged.name)}" playsinline
+          onerror="this.closest('.player-box').innerHTML='<div class=&quot;pe-t&quot;>成片文件已被清理（只保留最近 20 部）</div><div class=&quot;pe-d&quot;>点下面「重新合并」再合一次就好，素材都还在</div>'"></video>
         <div class="pb-bar">
           <button class="pb-btn" id="pbBtn" title="播放 / 暂停">${icon('play', 15)}</button>
           <button class="pb-btn" id="pbMute" title="声音开关">${localStorage.getItem('dir_muted') === '1' ? icon('speakerOff', 14) : icon('speaker', 14)}</button>
@@ -1434,22 +1521,36 @@ function bindCandActs(col) {
   const uc = col.querySelector('#usec');
   if (uc) uc.onclick = () => { sh.selId = cur.vid; renderAll(); scheduleSave(); };   // 选用后不自动锁定，可手动加锁
   const un = col.querySelector('#unsel');
-  if (un) un.onclick = e => armConfirm(e.currentTarget, () => { sh.selId = null; renderAll(); scheduleSave(); }, '确认取消？');
+  if (un) un.onclick = e => { const b = e.currentTarget;
+    /* note 写清后果：取消选用之后这一镜的成片位置就空出来了，全片会少这一段 */
+    Confirm.arm(b, '确认取消？', { note: '取消选用后，这一镜不再进成片（全片会少这一段）' })
+      || (sh.selId = null, renderAll(), scheduleSave()); };
   const lk = col.querySelector('#lockc');
   if (lk) lk.onclick = () => { if (cur) { cur.locked = !cur.locked; renderAll(); scheduleSave(); } };
   const dl = col.querySelector('#delc');
-  if (dl) dl.onclick = e => armConfirm(e.currentTarget, () => {
-    if (!cur || cur.locked) return;
-    if (cur.status === 'queued' || cur.status === 'running') {   // 还在跑的先取消上游任务
-      // 取消走统一路由：POST 还是 DELETE 由 registry 的 cancelMethod 声明决定
-      Api.cancel(provById(cur.provider), cur.vid).catch(() => {});
-    }
-    sh.candidates = (sh.candidates || []).filter(c => c !== cur);
-    if (sh.selId === cur.vid) sh.selId = null;
-    releaseCandUrl(cur);                                          // 本地视频的 blob: URL 用完了要回收
-    proj.curCand = Math.max(0, Math.min(proj.curCand, sh.candidates.length - 1));
-    renderAll(); scheduleSave();
-  }, '确认删除？');
+  if (dl) dl.onclick = e => {
+    const b = e.currentTarget;
+    /* 后果说明只写与这次删除直接相关的两条：
+       ① 这一条正被选用 → 删了全片会少一段（以前完全静默，用户看到的是成片莫名少一镜）；
+       ② 还在平台跑着 → 会顺带撤掉那个任务。
+       「还会连带 N 条」这种与本次无关的一句都不写。 */
+    const notes = [];
+    if (cur && sh.selId === cur.vid) notes.push('这一条正被选用：删掉之后全片会少这一段');
+    if (cur && (cur.status === 'queued' || cur.status === 'running')) notes.push('这一条还在平台上跑：删掉会顺带撤掉这个任务');
+    Confirm.arm(b, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
+      || (() => {
+        if (!cur || cur.locked) return;
+        if (cur.status === 'queued' || cur.status === 'running') {   // 还在跑的先取消上游任务
+          // 取消走统一路由：POST 还是 DELETE 由 registry 的 cancelMethod 声明决定
+          Api.cancel(provById(cur.provider), cur.vid).catch(() => {});
+        }
+        sh.candidates = (sh.candidates || []).filter(c => c !== cur);
+        if (sh.selId === cur.vid) sh.selId = null;
+        releaseCandUrl(cur);                                          // 本地视频的 blob: URL 用完了要回收
+        proj.curCand = Math.max(0, Math.min(proj.curCand, sh.candidates.length - 1));
+        renderAll(); scheduleSave();
+      })();
+  };
 }
 /* 切换查看的候选：只改瓦片高亮 + 换播放器地址（<video> 元素原地保留，不动缩略图） */
 function selectCandidate(at) {
@@ -1458,6 +1559,13 @@ function selectCandidate(at) {
   const cands = sh.candidates || [];
   if (at < 0 || at >= cands.length || at === proj.curCand) return;
   proj.curCand = at;
+  /* 换了看的那一条 → 提示词框跟着它走，**并且把这一镜的描述也切成它**。
+     为什么要连 sh.prompt 一起改：框里那句话就是「接下来点生成会用哪句」，
+     而 drawShot / 批量生成 / 左栏卡片读的都是 sh.prompt —— 只改框不改它，
+     就会出现「屏幕上写着 B、生成出来的却是 A」。 */
+  const picked = cands[at];
+  if (picked && picked.prompt) sh.prompt = picked.prompt;
+  paintPromptBox(sh);
   col.querySelectorAll('.cand-thumb[data-vid]').forEach(t => {
     const c = cands.find(x => String(x.vid) === t.dataset.vid);
     t.classList.toggle('cur', c === cands[at]);
@@ -1642,23 +1750,46 @@ function sortCandidates(sh) {
 
 /* ---------- 生成轮询引擎 ---------- */
 const polling = new Set();
-/* 平台对象一律来自注册路由（/registry）。找不到时给一个「空声明」对象：
-   后续 Api.url / Api.createBody 会明确报「该平台没有声明 xxx 接口」，而不是偷偷打到别的平台 */
+/* 平台对象一律来自注册表。**认不出就返回 null**，不兜底到别家 ——
+   `Api.prov('video')` 那个兜底是同一个病的另一个实例：它会把「这一条候选属于 A 家」
+   悄悄改成「按 B 家的接口去问」，于是轮询拿 B 的字段名读 A 的任务 —— 永远读不到状态。
+   调用方本来都写了 `if (!prov) ...`（下面 pollTick 那处会标 failed 并说清原因），
+   去掉兜底反而让它们走到本来准备好的那条路上。 */
 function provById(id) {
-  if (window.Api && Api.prov) return Api.prov(id) || Api.prov('video') || { id: id || 'unknown', relay: '/' + (id || 'unknown'), endpoints: {}, models: [] };
+  if (window.Api && Api.prov) return Api.prov(id);
   const list = (REG?.providers || []);
-  return list.find(p => p.id === id || (p.keyId || p.id) === id) || list.find(p => p.kind === 'video')
-    || { id: id || 'unknown', relay: '/' + (id || 'unknown'), endpoints: {}, models: [] };
+  return list.find(p => p.id === id || (p.keyId || p.id) === id) || null;
 }
 let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变（S1）
 function pollTick() {
-  allShots().forEach(sh => sh.candidates.forEach(c => {
+  /* 轮询覆盖**所有短片**，不只是当前这一部（L55）。
+     以前只看 allShots()（= 当前短片）：在短片 A 上点了「生成全部分镜」，随手切到 B ——
+     A 的镜头就永远停在「● 生成中」加一条不动的进度条，再也不会更新；
+     批量收尾的消息还会写进 B 的左栏，看着像是在说 B。
+     `mine` = 「这一条属于我现在正看着的那部短片」：只有在途候选属于当前短片时才允许
+     触发左栏 / 中栏重画（在别的短片上重画当前短片 = 串台）。落盘是全局的，照旧。 */
+  for (const p0 of (WS.projects || [])) {
+    if (!p0 || !Array.isArray(p0.scenes)) continue;
+    const mine = p0 === proj;
+    p0.scenes.forEach(sc => (sc.shots || []).forEach(sh => (sh.candidates || []).forEach(c => {
     /* 只跳过「已经是终局」的与本机占位号（tmp_*）：以前这里还把 'creating' 也排除了，
        于是「create 已经回了任务号、状态还停在 creating」的候选永远不被问一次。 */
     if (c.vid && !String(c.vid).startsWith('tmp_') && !['succeeded', 'failed', 'cancelled'].includes(c.status) && !polling.has(c.vid)) {
       polling.add(c.vid);
       let p2done = false;
       const prov = provById(c.provider);
+      /* 认不出平台（换过端口 / 清过缓存 / 那一家被停用）：**当场把话说清**，
+         而不是继续轮询一条永远问不到的 URL（`pollTask(null,…)` 每次都失败，
+         用户看到的是任务永远停在「生成中」）。
+         说清之后仍然标 failed —— 用户能点重试，而重试会重新提交一条新任务。 */
+      if (!prov) {
+        polling.delete(c.vid);
+        c.status = 'failed';
+        c.error = '这一条属于「' + (c.provider || '?') + '」，但当前平台清单里没有这一家 —— '
+          + '到「设置 → 供应商与密钥」重新勾一下它，再点重试';
+        c.progress = '';
+        return;                 // 这一条就此收场（这是 forEach 的回调，用 return 不是 continue）
+      }
       /* 轮询返回「状态没变、进度没动」是最常见的情况（占比压倒性），以前那种情况照样在
          .finally 里付一整轮 renderScenes()：整块重建左栏、逐镜头重挂十几个监听器。
          左栏实际只看这几样：选中候选的 url、有没有在跑的候选、跑着的那个的进度、状态文案。
@@ -1723,14 +1854,21 @@ function pollTick() {
         saveScheduleSoft();
         /* 左栏只在真的变了时才重画（见上面 dStatus 那段）：一次 tick 里 K 条候选最多合并成
            一次渲染（renderScenesSoon 的 350 ms 防抖），而「什么都没变」时一次都不画。 */
-        if (c.status !== dStatus || c.progress !== dProgress || c.url !== dUrl || sh.selId !== dSel) scenesDirty = true;
-        if (scenesDirty) { scenesDirty = false; renderScenesSoon(); }
-        updateMidLive();                                     // 中栏就地更新（不重建 → 候选缩略图不刷新）
-        updateBanner(); updateProjUI();
-        if (p2done) forceMid = true;                         // 结构需要变（占位→播放器）时，下一次走完整重画
+        if (mine && (c.status !== dStatus || c.progress !== dProgress || c.url !== dUrl || sh.selId !== dSel)) scenesDirty = true;
+        if (mine) {
+          if (scenesDirty) { scenesDirty = false; renderScenesSoon(); }
+          updateMidLive();                                   // 中栏就地更新（不重建 → 候选缩略图不刷新）
+          updateBanner(); updateProjUI();
+          if (p2done) forceMid = true;                       // 结构需要变（占位→播放器）时，下一次走完整重画
+        }
       });
-    }
-  }));
+      }                                  // if (c.vid && …) 那一层
+    })));                                // c-arrow 体 + 三个 forEach（sc / sh / c）
+  }
+  /* 切回某一部短片时，那部里在别的短片上跑完的任务早就把数据改好了 ——
+     这里补一次状态行，免得回到 A 时它还挂着「生成中…」（下一次 tick 也会跟上，
+     但用户切回来的那一瞬间就该是对的）。 */
+  updateBanner(); updateProjUI();
 }
 let softTimer = null;
 function saveScheduleSoft() { clearTimeout(softTimer); softTimer = setTimeout(scheduleSave, 300); }
@@ -1767,7 +1905,9 @@ async function submitCandidate(sh, ph) {
   if (!rm) throw new Error('没有支持这一镜素材的模型（当前输入：' +
     (shotUsedRoles(sh).map(r => ROLE_ZH[r] || r).join(' / ') || '纯文字') + '）：换一个支持它的模型，或清空这组素材');
   const modelId = rm.id;
-  const prov = provOf(rm.provider);
+  /* 提交这一下必须用 needProv：认不出平台就**停下并说清**，绝不默默发给另一家
+     （见 provOf 那段注释 —— 那个兜底正是「model must match …/…」这个看不懂的报错的来源）。 */
+  const prov = needProv(rm.provider, (rm.name || modelId));
   /* 素材互斥兜底：一组输入（首尾帧 / 参考素材）一次请求只能选一组。
      界面已把另一组置灰，走到这里说明是导入 / 历史数据 → 明确报错，不悄悄丢掉素材。
      用 illegalPairs 判断「已经同时用上」（blockedRoles 按定义不含已用的 role，查不出非法状态）。 */
@@ -1995,13 +2135,14 @@ function renderScenes() {
     head.querySelector('input').oninput = e => { sc.name = e.target.value; scheduleSave(); renderMidSoon(); };
     head.querySelector('[data-act=addshot]').onclick = e => { e.stopPropagation(); addShotToScene(sc); };
     head.querySelector('[data-act=delscene]').onclick = e => {
-      armConfirm(e.currentTarget, () => {
-      releaseSceneUrls(proj.scenes[si]);                 // 回收本地视频的 blob 地址，否则一直占内存
-      proj.scenes.splice(si, 1);
-      ensureSceneLeft();                                 // 删到最后一个场景时自动补一个空的，避免项目变成 0 场景
-      proj.curScene = Math.min(proj.curScene, proj.scenes.length - 1);
-      renderAll(); scheduleSave();
-      });
+      const b = e.currentTarget;
+      const n = (sc.shots || []).length;
+      Confirm.arm(b, '确认删除？', { note: n ? '这个场景里还有 ' + n + ' 个镜头，会一起删掉' : null })
+        || (releaseSceneUrls(sc),                          // 回收本地视频的 blob 地址，否则一直占内存
+            proj.scenes.splice(si, 1),
+            ensureSceneLeft(),                            // 删到最后一个场景时自动补一个空的，避免项目变成 0 场景
+            proj.curScene = Math.min(proj.curScene, proj.scenes.length - 1),
+            renderAll(), scheduleSave());
     };
     blk.appendChild(head);
     sc.shots.forEach((sh, xi) => {
@@ -2079,7 +2220,15 @@ function renderScenes() {
       };
       it.querySelector('.del').onclick = e => {
         e.stopPropagation();
-        armConfirm(e.currentTarget, () => {
+        /* 后果只说与这一次删除直接相关的三条：这一镜已被选用 → 成片会少一段；
+           这一镜里还有别的生成结果 → 那些会一起没；删的是最后一个镜头 → 场景也没了。 */
+        const notes = [];
+        if (sh.selId) notes.push('这一镜已经被选用：删掉之后成片会少这一段');
+        const nc = (sh.candidates || []).filter(c => c.status !== 'draft').length;
+        if (nc > 1) notes.push('这一镜里还有 ' + (nc - 1) + ' 条生成结果，会一起删掉');
+        if (sc.shots.length === 1) notes.push('这是最后一个镜头：删掉之后这个场景也会一起没');
+        Confirm.arm(e.currentTarget, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
+          || (() => {
         const wasCurScene = si === proj.curScene;
         releaseShotUrls(sc.shots[xi]);                     // 回收本地视频的 blob 地址
         sc.shots.splice(xi, 1);
@@ -2095,7 +2244,7 @@ function renderScenes() {
         const curSc = proj.scenes[proj.curScene];
         proj.curShot = Math.max(0, Math.min(proj.curShot, (curSc && curSc.shots.length ? curSc.shots.length : 1) - 1));
         renderAll(); scheduleSave();
-        });
+        })();
       };
       blk.appendChild(it);
     });
@@ -2125,9 +2274,41 @@ function curDraftCand() {
   const c = sh && (sh.candidates || [])[proj.curCand];
   return (c && c.status === 'draft') ? c : null;
 }
+/* 「这一条候选是用哪句话生成的」—— 当前查看的那条候选自己的描述优先，没有才回落到这一镜的描述。
+   为什么必须按**候选**取：每条候选都记着生成它时用的那句（`c.prompt`，submitCandidate 里写的），
+   而提示词框原来写死读 `sh.prompt`，于是：
+     · 用 A 生成第一条、改成 B 生成第二条，回头点第一条 —— 框里还是 B（那一条的描述再也看不见）；
+     · 换一条候选看，框里的字**一个字都不动**（selectCandidate 只换播放器与操作行）。
+   用户的说法是「应该保留生成候选镜头时的提示词在输入框」，就是这么一件事。 */
+function promptTextOf(sh) {
+  const c = sh && (sh.candidates || [])[proj.curCand];
+  if (c && c.prompt != null && c.prompt !== '') return c.prompt;
+  return (sh && sh.prompt) || '';
+}
+/* 把提示词框按**当前查看的候选**刷一遍（字数、@ 高亮镜像、按钮状态一起）。
+   selectCandidate 走的就是它 —— 那一条路刻意不重画整栏（重画会重建候选缩略图）。 */
+function paintPromptBox(sh) {
+  const ta = $('edPrompt');
+  if (!ta || !sh) return;
+  const txt = promptTextOf(sh);
+  if (ta.value !== txt) ta.value = txt;
+  const pc = $('pCnt'); if (pc) pc.textContent = ta.value.trim().length + ' 字';
+  const cg = !!ta.value.trim();
+  const g1 = $('genOne'); if (g1) g1.disabled = !cg;
+  const fc = $('edFooterCan'); if (fc) { fc.className = 'can ' + (cg ? '' : 'no'); fc.textContent = footerCanText(cg, NO_PROMPT_WHY); }
+  syncAtBack(sh);
+}
 function playerEmptyText(sh) {
   if (curDraftCand()) return ['这条候选还没有描述', '在右侧「提示词」里写一句，再点「生成这条」'];
-  if (!sh.prompt.trim()) return ['这一镜还没有画面描述', '在右边写一句，或用「AI 润色提示词」帮你写'];
+  /* 还没写提示词时**不要**推荐「AI 润色提示词」：那道润色入口的守卫是
+     「提示词不能为空」（见 polish 那一支的 if (!sh.prompt.trim())），
+     而新工作区默认只有一个空镜头 —— 于是这句话推荐的那个按钮，
+     对第一次打开的人**必定失败**。
+     也不能说「直接点生成，平台会自己编」：空提示词会被 shotBlockReason 拦下（NO_PROMPT_WHY），
+     生成按钮压根不发起请求 —— 那是另一句兑现不了的承诺。
+     只说一件照做就能成的事：先写一句。（引号里给出可照抄的句式，省掉「该写什么」的猜测。） */
+  if (!sh.prompt.trim()) return ['这一镜还没有画面描述',
+    '先在右边写一句就能生成 —— 例：「她站在天台栏杆边，风把头发吹起来，背影」'];
   if (!sh.candidates.length) return ['画面还没生成', '点右侧「生成这一镜（' + (sh.draw || 1) + ' 条）」开始生成'];
   if (sh.candidates.some(c => Wb.stLive(c.status))) return ['正在生成这一镜…', '排队位置与进度见下方候选卡片'];
   if (sh.candidates.every(c => ['failed', 'cancelled'].includes(c.status))) return ['这一镜生成失败', '候选卡上有失败原因，改改提示词或换个模型再来一次'];
@@ -2154,6 +2335,10 @@ function updateArBadge(media) {
   el.textContent = ratioLabel(w, h);
   el.title = w + '×' + h;
 }
+/* 撤销 / 重做那两颗按钮（E28）：原来只有快捷键，不知道有这功能的人一直找不到，
+   而笔记本 / 外接键盘没有 Ctrl 的场景**完全无法撤销**。
+   disabled 按栈长现算 —— 判据就是 undoStack / redoStack 那两处，与按键走同一份，
+   所以按钮与快捷键永远不会出现「一个能点一个不能」。 */
 function renderMid() {
   const col = $('midCol');
   const sc = curScene(), sh = curShot();
@@ -2168,7 +2353,7 @@ function renderMid() {
   const filmMode = isFilmMode();
   const readyShots = allShots().filter(shotReady);
   const readyDur = readyShots.reduce((a, x) => a + shotDur(x), 0);
-  const mergedReady = !!(proj.merged && proj.merged.clips === readyShots.length);
+  const mergedReady = filmIsCurrent(proj.merged);   // 内容指纹，不是段数（判据见 filmIsCurrent）
   const cur = cands[proj.curCand] || cands[0];
   const sel = sh.candidates.find(c => c.vid === sh.selId);
   // 候选条的横向滚动位置也要保留：新增候选 / 轮询刷新后不再自动跳回第一条
@@ -2182,6 +2367,10 @@ function renderMid() {
       <span class="sp"></span>
       <button class="ghost" id="prevShot">‹</button>
       <button class="ghost" id="nextShot">›</button>
+      <!-- 撤销 / 重做：见renderMid 开头那段说明；disabled 按栈长现算 -->
+      <button class="ghost" id="btnUndo" title="撤销上一步（Ctrl+Z）。上限 ${UNDO_MAX_COUNT} 步 / ${UNDO_MAX_BYTES / 1048576} MB，右边写着现在用到第几步"${undoStack.length ? '' : ' disabled'}>撤销</button>
+      <button class="ghost" id="btnRedo" title="重做（Ctrl+Y）"${redoStack.length ? '' : ' disabled'}>重做</button>
+      <span class="meta" id="undoMeter" title="能撤销的步数 / 上限；内存快用满时会补一句字节数">${esc(undoMeterText())}</span>
       <button class="ghost" id="exportFilm" title="把已选用镜头按拖动后的顺序用 ffmpeg 合并成一个完整视频，并保存到「设置 → 剪辑成片」目录">${icon('download', 13)} 导出成片</button>
       <button class="pri" id="playFilm" style="padding:6px 14px" title="播放合并好的成片；还没合并或镜头有变动时会先自动合并">${icon('play', 14)} 播放成片</button>
     </div>
@@ -2240,6 +2429,10 @@ function renderMid() {
   col.querySelector('#nextShot').onclick = () => stepShot(1);
   col.querySelector('#playFilm').onclick = playOrMergeFilm;  // 播放成片（用合并结果）
   col.querySelector('#exportFilm').onclick = exportFilmClick;
+  /* 撤销 / 重做两颗按钮（E28）：与 Ctrl+Z / Ctrl+Y 走**同一个函数**，
+     所以两处的判据与上限永远一致（自己写一份接线就会出现「按钮能点但没反应」）。 */
+  const bu = col.querySelector('#btnUndo'); if (bu) bu.onclick = undo;
+  const br = col.querySelector('#btnRedo'); if (br) br.onclick = redo;
   const peMerge = col.querySelector('#peMerge');
   if (peMerge) peMerge.onclick = mergeWholeFilm;
   renderMergeBox(col);  // 剪辑 → 全片：合并 / 播放 / 下载
@@ -2289,7 +2482,7 @@ function renderMid() {
     if (s2 >= e2) s2 = Math.max(0, e2 - 0.2);
     cur.trimS = Math.round(s2 * 10) / 10;
     cur.trimE = Math.round(e2 * 10) / 10;
-    setStatus(clamped ? `<span class="err">已按视频实际时长 ${fmtDur(total)} 截断</span>` : `<span class="ok">✓ 已保留 ${fmtDur(cur.trimE - cur.trimS)}</span>`);
+    setStatus(trimStatus(sh, cur, clamped ? `已按视频实际时长 ${fmtDur(total)} 截断` : ''));
     renderAll(); scheduleSave();
   };
   if (ta) ta.onclick = applyTrimFromInputs;
@@ -2433,11 +2626,13 @@ function renderShotStrip(col) {
   });
 }
 /* 剪辑：拖动时间线两端的红色把手选择保留片段（左右拖动 = 入点 / 出点） */
-function bindTrimDrag(seg, c, total) {
+function bindTrimDrag(seg, c, total, sh) {
   const l = seg.querySelector('.cut.l'), r = seg.querySelector('.cut.r');
   const ml = seg.querySelector('.mask.l'), mr = seg.querySelector('.mask.r');
   const label = seg.querySelector('span');
-  const commit = () => { renderMid(); scheduleSave(); };
+  /* 拖动结束时给一句话：以前这里一个字都不说，用户不知道这次裁剪到底落没落地、
+     更不知道它有没有进成片（L57）。输入框那条路一直有提示，拖动这条路没有 —— 同一个动作两种反馈。 */
+  const commit = () => { if (sh) setStatus(trimStatus(sh, c)); renderMid(); scheduleSave(); };
   // 拖动过程中只改 DOM，不整体重渲染（重渲染会销毁正在拖的元素，导致拖不动）
   const paint = () => {
     const s0 = c.trimS ?? 0, e0 = c.trimE ?? total;
@@ -2518,7 +2713,7 @@ function renderTimeline(col, sh, cur) {
       const r = seg.getBoundingClientRect();
       seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
     });
-    if (c) bindTrimDrag(seg, c, total);   // 有候选才谈得上剪辑
+    if (c) bindTrimDrag(seg, c, total, sh);   // 有候选才谈得上剪辑
     bar.appendChild(seg);
   } else {
     const list = allShots().filter(shotReady);
@@ -2826,8 +3021,6 @@ function modelOptionsFor(sh) {
 
 
 
-
-
 /* 选了模型就问一次本地能力接口（/capabilities），按上游返回的能力重画参数与素材槽位。
    和图片台 / 视频台同一套：端点、密钥、兜底都在代理里，页面只管「问一句、照着画」。
    返回代理的答复（含 source/note），失败返回 null —— 界面继续用 registry 的兜底声明。 */
@@ -2839,11 +3032,25 @@ async function refreshCapsForModel(provId) {
 }
 
 /* 平台对象一律来自注册路由（/registry），别写死某个平台 —— 接新供应方时页面不用改 */
+/* 「这个模型属于哪一家平台」。
+   ⚠ 以前这里有一个**兜底**：找不到就默默取第一家视频平台。那是错的，而且错法极其隐蔽：
+     项目里两家视频平台的型号 id 形状不同（SparkCine 是 `h3-video`，VGENV 是 `minimax/h3`），
+     而上游校验是 `model must match /^[a-z0-9][a-z0-9._-]*\/...$/` ——
+     于是「模型属于 A、请求发给了 B」表现为**一个看不懂的 model 格式错误**，
+     而界面上「型号」那一栏明明选的是 A（用户什么都没做错）。
+   常见触发：换了端口 / 清过缓存 / 恢复过设置，REG 里的 id 与工作区里存着的 providerId 对不上。
+   所以现在**绝不兜底到另一家**：认不出就返回 null，由调用方报一句说清原因的话
+   （「这个型号属于「xxx」，但当前注册表里没有这一家 —— 到设置页重新勾一下」）。 */
 function provOf(providerId) {
   const list = (REG?.providers || []);
-  return list.find(p => p.id === providerId || (p.keyId || p.id) === providerId)
-    || list.find(p => p.kind === 'video')
-    || { id: providerId || 'unknown', relay: '/' + (providerId || 'unknown'), endpoints: {}, models: [] };
+  return list.find(p => p.id === providerId || (p.keyId || p.id) === providerId) || null;
+}
+/** 同上，但**认不出时给一句能照做的话**，而不是把请求发给别家。 */
+function needProv(providerId, where) {
+  const p = provOf(providerId);
+  if (p) return p;
+  throw new Error('「' + (where || '这个型号') + '」属于「' + (providerId || '?') + '」，'
+    + '但当前的平台清单里没有这一家 —— 到「设置 → 供应商与密钥」重新勾一下它，再回来重试');
 }
 
 /* ---------- 渲染：右栏编辑器 ---------- */
@@ -3411,7 +3618,7 @@ function renderEditor() {
              只给 @片段 画底（文字本身透明，看得见的还是 textarea 里那行字 ——
              中文输入法正在拼的那几个字照旧看得见）。见 atBackHTML / syncAtBack。 -->
         <div class="ta-back" id="edPromptBack" aria-hidden="true"></div>
-        <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…（打 @ 可以引用素材库）">${esc(curDraftCand() ? (curDraftCand().prompt || '') : sh.prompt)}</textarea>
+        <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…（打 @ 可以引用素材库）">${esc(promptTextOf(sh))}</textarea>
       </div>
       ${/* 「提到素材」：这一镜的参考图，每张一枚芯片，写的是提交时会被平台认的 `@参考图N`
            （与参考图角标、refTokenize 同一份编号）。点一下写进提示词；鼠标移上去弹预览
@@ -3571,7 +3778,16 @@ function renderEditor() {
   ta.oninput = () => {
     const d0 = curDraftCand();
     const hadText = !!(d0 ? d0.prompt : sh.prompt).trim();
-    if (d0) d0.prompt = ta.value; else sh.prompt = ta.value;
+    /* 三处一起写，各管各的事，**不是三份实现**：
+         · 当前查看的这条候选 —— 「这条是用哪句话生成的」，回头点它还能看见（本轮用户要的）；
+         · `sh.prompt` —— 这一镜的描述：左栏卡片、底部「为什么还不能生成」、批量生成都读它；
+         · 界面（字数 / 按钮 / 左栏卡片）—— 见下面那几行。
+       以前只写「草稿 or sh.prompt」其中之一：草稿分支不写 sh.prompt，
+       于是新建一镜写完描述、直接点「生成全部分镜」会报「这一镜还没有画面描述」；
+       真实候选分支不写候选，于是那条候选的描述一旦被改就再也回不去。 */
+    const c0 = (sh.candidates || [])[proj.curCand];
+    if (c0) c0.prompt = ta.value;
+    sh.prompt = ta.value;
     $('pCnt').textContent = ta.value.trim().length + ' 字';
     edPromptTouched = true;                     // 用户开始动手，之后卡住的原因才实时显示在底部
     const cg = !!ta.value.trim();
@@ -4544,18 +4760,12 @@ function updateBanner() {
     ? `✓ ${ready} 个分镜已完成，可以播放成片`
     : `已完成 ${ready}/${all.length} 个分镜`;
 }
-function armConfirm(btn, fn, text) {
-  if (btn.dataset.armed) { btn.dataset.armed = ''; btn.classList.remove('armed'); fn(); return; }
-  btn.dataset.armed = '1';
-  btn.dataset.oldHTML = btn.innerHTML;          // 存 innerHTML：按钮里是图标时 textContent 会丢掉图标
-  btn.textContent = text || '确认？';
-  btn.classList.add('armed');
-  setTimeout(() => {
-    if (btn.dataset.armed && btn.isConnected) {
-      btn.dataset.armed = ''; btn.innerHTML = btn.dataset.oldHTML; btn.classList.remove('armed');
-    }
-  }, 2500);
-}
+/* 「就地二次确认」全站**只有ui.js 的 Confirm.arm 一份**（AGENTS.md §J）。
+   这一页以前自建了一个 armConfirm：没有后果说明、Esc 不取消、点别处不取消、窗口只有 2.5 秒，
+   而且没有「整页同时只有一个确认中」—— 可以同时点亮两颗删除按钮，
+   用户点下第一颗之后才点第二颗，**两颗一起执行**。
+   四个调用点已全部改调 Confirm.arm，这个函数不再需要。 */
+
 /* 在指定场景末尾新建镜头并立刻进入编辑状态 */
 function addShotToScene(sc, idx) {
   const sh = newShot();
@@ -4630,10 +4840,21 @@ $('scriptOk').onclick = () => {
    注意筛选条件是「没有非草稿候选」而不是「没有候选」——新建镜头默认带一条 draft 占位，
    按后者判断的话每个新镜头都算「已有候选」，这个按钮就永远点不动了。 */
 const hasRealCandidate = sh => (sh.candidates || []).some(c => c && c.status !== 'draft');
+/* 「这一镜试过、但一条都没成」—— failed / cancelled 也算「没出画面」（L54）。
+   为什么必须单独判一次：批量提交失败（余额不足、上游 5xx、提示词被安全策略拦下）之后，
+   那一镜留下的是一条 failed 候选；只按「有没有非草稿候选」筛的话，这些镜头**永远**进不了 todo ——
+   补好额度再点「生成全部分镜」，得到的还是「所有镜头都已有生成结果，无需重复生成」，
+   而失败提示明明写着「可单独重试这些镜头」。想重来只剩一条路：逐个进镜头、手动删掉那批失败候选。
+   （有 succeeded 的镜头**不**算「试过没成」—— 想重跑是另一回事，那是「再生成一条」，不是补失败。） */
+const shotAllFailed = sh => (sh.candidates || []).length > 0
+  && (sh.candidates || []).every(c => c && ['failed', 'cancelled'].includes(c.status));
 const GEN_CONCUR = 3;            // 同时在飞的创建请求数（想更激进/更保守改这里）
 $('genAll').onclick = async () => {
-  const todo = allShots().filter(sh => !hasRealCandidate(sh));
-  if (!todo.length) { setStatus('<span class="err">所有镜头都已有生成结果，无需重复生成（想重跑先删掉那一镜的候选）</span>'); return; }
+  const todo = allShots().filter(sh => !hasRealCandidate(sh) || shotAllFailed(sh));
+  if (!todo.length) {
+    setStatus('<span class="err">所有镜头都已有生成结果，无需重复生成（想重跑先删掉那一镜的候选）</span>');
+    return;
+  }
   // 先挑出不能生成的镜头（提示词不合格 / 素材互斥 / 有当前模型不支持的素材）：不阻塞其他镜头，也不白建占位
   const blockWhy = new Map();
   const bad = todo.filter(sh => { const w = shotBlockReason(sh); if (w) { blockWhy.set(sh, w); return true; } return false; });
@@ -4663,12 +4884,11 @@ $('genAll').onclick = async () => {
   if (failed.length) parts.push('失败 ' + failed.length + ' 条（' + failed[0].j.sh.name + '：' + ((failed[0].e && failed[0].e.message) || '未知错误') + '，其余看候选上的红字）');
   // 成功/部分成功走按钮下方小字（横幅只留给出错），失败另外弹横幅提醒
   setGenAllMsg(parts.join('；'));
-  if (failed.length) setStatus('<span class="err">有 ' + failed.length + ' 条提交失败，可单独重试这些镜头</span>');
+  if (failed.length) {
+    setStatus('<span class="err">有 ' + failed.length + ' 条提交失败：这些镜头现在算「一条都没成」，'
+      + '点「生成全部分镜」会只补它们（已成功的那几镜不会再重投）</span>');
+  }
 };
-/* 把 Blob 读成 dataURL（导出本地视频时用） */
-function blobToDataURL(b) {
-  return new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(null); fr.readAsDataURL(b); });
-}
 function dataURLtoBlob(u) {
   const m = /^data:([^;,]*)[^,]*,(.*)$/s.exec(u || '');
   if (!m) return null;
@@ -4679,34 +4899,26 @@ function dataURLtoBlob(u) {
 $('exportBtn').onclick = async () => {
   // 导出当前短片
   // 说明：在线生成的视频只保存「引用」（SparkCine 存 /asset/<id>，VGENV 存资产/链接），
-  //       本地导入的视频本体存在 IndexedDB，可选一并打包进 JSON（base64），换机器也能还原。
+  /* 导出只带**引用**，不带视频字节 —— 这是事实，不是取舍。
+     以前这里有一段「检测到 N 个本地导入的视频，要不要打包进 JSON」的逻辑，
+     而它的判据 `c.blobKey` **全项目没有一处赋值**（只有读），
+     所以 `locals` 永远是空的：那段代码一次都没跑过，
+     而界面承诺的「换电脑可完整还原」是一个兑现不了的系统。
+     本地视频的字节其实早就落在 `.assets` 资产库里了（useLibEntry 会先转存，
+     见上面 tlClipSrc 那段），所以正确的说法是「视频在本机资产库里，
+     换电脑要连 `.assets` 一起带走」—— 那一句才是用户真正需要知道的。
+     别再把这段死代码加回来；要真做「打包进 JSON」，先在 useLibEntry 里写 blobKey。 */
   const out = { ...proj };
-  const locals = [];
+  const 本机资产 = [];
   allShots().forEach(sh => (sh.candidates || []).forEach(c => {
-    if (c && c.provider === 'local' && c.blobKey) locals.push(c);
+    const a = c && (c.assetId || String(c.url || '').match(/^\/asset\/(la_[^?]+)/));
+    if (a) 本机资产.push(typeof a === 'string' ? a : a.assetId);
   }));
-  if (locals.length) {
-    let total = 0;
-    for (const c of locals) { const b = await wsKv.get(c.blobKey).catch(() => null); if (b && b.size) total += b.size; }
-    const mb = (total / 1048576).toFixed(1);
-    const hint = `检测到 ${locals.length} 个本地导入的视频（约 ${mb} MB）。`;
-    // 没有页内确认组件时按最保守的方式走：只导出引用
-    const yes = window.Confirm
-      ? await Confirm.ask({ title: '导出项目', sub: hint, body: '要一并打包这些本地视频吗？打包后 JSON 会变大，但换电脑可完整还原；只导出引用则新电脑上需要重新导入。', okLabel: '打包进 JSON', cancelLabel: '只导出引用' })
-      : false;
-    if (yes) {
-      setStatus('正在打包本地视频…（' + locals.length + ' 个）');
-      out.localBlobs = {};
-      for (const c of locals) {
-        const b = await wsKv.get(c.blobKey).catch(() => null);
-        if (!b) continue;
-        const u = await blobToDataURL(b);
-        if (u) out.localBlobs[c.blobKey] = u;
-      }
-    }
-  }
+  const uniq = [...new Set(本机资产)];
   Net.save(new Blob([JSON.stringify(out)], { type: 'application/json' }), (proj.name || 'project') + '.json');
-  setStatus('<span class="ok">✓ 已导出项目（' + (out.localBlobs ? '含 ' + Object.keys(out.localBlobs).length + ' 个本地视频' : '不含本地视频文件') + '）</span>');
+  setStatus('<span class="ok">✓ 已导出项目（引用清单；'
+    + (uniq.length ? uniq.length + ' 处素材指向本机资产库 .assets，换电脑要把那个目录一起带走' : '不含视频字节')
+    + '）</span>');
 };
 $('importBtn').onclick = () => $('importFile').click();
 $('importFile').onchange = e => {
@@ -4719,6 +4931,9 @@ $('importFile').onchange = e => {
       // 导入的是外部文件，字段可能被手改过：先做结构校验，别让坏元素在后面 renderAll 时才炸
       const v = validateImportedProject(data);
       if (!v.ok) { setStatus('<span class="err">项目文件无效：' + v.why + '</span>'); return; }
+      /* 兼容**旧版**项目文件：那批文件里带 `localBlobs`（base64 的视频本体）。
+         现在导出不再写这个字段了（本地视频在 `.assets` 里），但别人手里/以前导出的文件仍有，
+         所以这一段留着 —— 它是导入侧的兼容分支，不是活路径。 */
       // JSON 里带着本地视频时，先把文件写回 IndexedDB，再落项目（blobKey 对得上就能直接播放）
       if (data.localBlobs && typeof data.localBlobs === 'object') {
         let n = 0, failed = 0;

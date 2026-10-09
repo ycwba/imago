@@ -59,6 +59,34 @@ const MUT = [
   { sec: '§A', name: '调一个压根没声明的名字', file: 'assets.html',
     anchor: '<script src="ai-chat.js"></script>',
     to: '<script src="ai-chat.js"></script>\r\n<script>__neverDeclared__();</script>' },
+  /* ↓ 这一条钉的是 `studio.html` 真发生过的 `t is not defined`：
+     把一个函数的局部 const 拿到**兄弟函数**里当成员访问的基对象用。
+     它原先从判据下面整个走过去了（旧版只查裸调用，而 `t.dur` 是成员访问），
+     表现出来的样子是「点生成什么都不发生」。修好作用域分析之后它才真的咬人；
+     下面两条反向对照是同一批加的 —— 没有它们，「§A 什么都报」与
+     「§A 报得准」在这里长得一模一样。 */
+  { sec: '§A', name: '兄弟函数里拿别人的局部 const 当基对象（t is not defined 的原样复现）', file: 'assets.html',
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA4__(){ const __mutT__ = { dur: 1 }; return __mutT__.dur; } function __mutA5__(){ return __mutT__.dur; }</script>' },
+  { sec: '§A', name: '反向对照：外层函数声明、里层箭头函数用（合法闭包，应放行）', file: 'assets.html', expectGreen: true,
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA6__(){ const __mutT2__ = { dur: 1 }; return () => __mutT2__.dur; }</script>' },
+  { sec: '§A', name: '反向对照：表达式体箭头把自己的形参当基对象（应放行）', file: 'assets.html', expectGreen: true,
+    anchor: '<script src="ai-chat.js"></script>',
+    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA7__(){ const f = __mutT3__ => __mutT3__.dur; return f; }</script>' },
+  /* ↓ 模块文件那一半（§A-2）。真实事故：assetlib.js 里 `readBlobWithProgress` 是
+     `window.AssetTransfer` 的属性方法，而 `blobOf` 里写成了裸名调用 ——
+     每一次「自动存本机」都抛 `readBlobWithProgress is not defined`，
+     整条下载链是死的，界面只写「获取失败」。当时 §A 只扫 HTML 内联脚本，
+     一行都没查过模块文件，所以这个错从判据底下整个走过去。
+     反向对照必须有：模块里「把回调当形参传进来再调」的写法满地都是，
+     没有这一条，§A-2 把整类写法全判成红也看不出来。 */
+  { sec: '§A', name: '模块里把对象方法当裸函数调（assetlib 下载链断掉的那一次）', file: 'assetlib.js',
+    anchor: 'const b = await AssetTransfer.readBlobWithProgress(r, onStage, total);',
+    to: 'const b = await readBlobWithProgress(r, onStage, total);' },
+  { sec: '§A', name: '反向对照：模块里通过形参传进来的回调调一次（应放行）', file: 'workbench.js', expectGreen: true,
+    anchor: 'window.Wb = {',
+    to: 'function __mutCb(near, step) { return step(); }\n  window.Wb = {' },
   { sec: '§B', name: '模板串原始文本里写「块注释 + 反引号」', file: 'drama.html',
     anchor: '<script src="ai-chat.js"></script>',
     to: '<script src="ai-chat.js"></script>\r\n<script>var __mutB__ = `前缀 /* 注释里有个反引号 ` 后面`;</script>' },
@@ -276,9 +304,12 @@ try {
   bad++; console.log('[黄] 指定不存在的文件时仍然 exit 0');
 } catch (e) { console.log('[绿] 指定不存在的文件会判红（exit ' + (e.status || 1) + '）'); }
 const plain = execFileSync(process.execPath, [J], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-const nums = /查了 (\d+) 段内联脚本 \/ (\d+) 处裸调用/.exec(plain);
-if (!nums || Number(nums[1]) < 5 || Number(nums[2]) < 100) { bad++; console.log('[黄] 不带参数时没有真的在查'); }
-else console.log('[绿] 不带参数也真查：' + nums[1] + ' 段 / ' + nums[2] + ' 处');
+/* §A 的结论句里这两个数是「真的查了」的证据。改措辞时这里要跟着改 ——
+   不然判据照常全绿，而这条守门员自己悄悄失效（它守的正是「不带参数也真查」）。 */
+const nums = /查了 (\d+) 段内联脚本：(\d+) 处裸调用、(\d+) 处成员访问/.exec(plain);
+if (!nums || Number(nums[1]) < 5 || Number(nums[2]) < 100 || Number(nums[3]) < 100) {
+  bad++; console.log('[黄] 不带参数时没有真的在查');
+} else console.log('[绿] 不带参数也真查：' + nums[1] + ' 段 / ' + nums[2] + ' 处裸调用 / ' + nums[3] + ' 处成员访问');
 
 console.log('\n' + (bad ? '变异自检红 ' + bad + ' 条' : '变异自检全绿：' + MUT.length + ' 个变异都能让对应判据变红，还原后哈希一致'));
 process.exit(bad ? 1 : 0);

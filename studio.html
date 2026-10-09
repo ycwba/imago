@@ -8,14 +8,7 @@
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
 <link rel="stylesheet" href="ui.css">
 <style>
-  :root {
-    --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
-    --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6; --ok:#16a34a; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
-  }
-  html[data-theme="dark"] {
-    --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
-    --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff; --ok:#4ade80; --err:#ff7a7a; --input:#0f1219;
-  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -42,6 +35,9 @@
   .prompt-box.over { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(108,140,255,.12); }
   textarea { width: 100%; min-height: 132px; padding: 12px; background: transparent; color: var(--txt);
     border: 0; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; resize: vertical; }
+  /* 输入框下面那一行：语音的字数（超了就红）。贴着输入框，不占右边那排按钮的位置 */
+  .prompt-hint { padding: 0 12px 8px; font-size: 11.5px; line-height: 1.5; color: var(--sub); }
+  .prompt-hint.bad { color: var(--err, #dc2626); }
   .prompt-box .slot-row { padding: 0 6px 8px; }
   .prompt-box .slot-row:empty { display: none; }
   /* 语音台的「风格 / 音色描述」是提示词之外唯一必填项，单独一行，别塞进高级设置里 */
@@ -166,6 +162,8 @@
 
     <div class="prompt-box" id="promptBox">
       <textarea id="prompt" spellcheck="false"></textarea>
+      <!-- 语音的字数提示：型号声明的上下限就摆在这儿，别等点生成才被拦下（L16） -->
+      <div class="prompt-hint" id="promptHint" hidden></div>
       <div class="btn-row">
         <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
         <!-- 拆分片段批量生成：只有图像栏有（视频 / 语音没有「一段描述拆几张」这种用法） -->
@@ -808,15 +806,46 @@ function bindSlotTile(t, sl, it, i, blocked) {
   if (it) { const med = t.querySelector('video, img'); if (med) Wb.thumbs.bind(t, med, mediaOf(it)); }
   return t;
 }
+/* 提示框的 placeholder 与「还差多少字」那一行 —— **全站只有这一份**。
+   为什么要收成一份：placeholder 原来被两处各写一遍（renderInputArea 写通用那句、
+   applyAudioCaps 写带字数的音频那句），而 paintLeft 里 renderParams 先跑、renderInputArea 后跑，
+   于是音频那句**每次都被覆盖掉**：型号声明「最多 500 字」，输入框里一个字都不提，
+   用户写 800 字界面毫无反应，只有点生成才被拦下（L16）。
+   现在两处入口都只调这一个函数，谁后跑都不会把对方的信息抹掉。
+   字数行只在语音台、且型号声明了 minChars/maxChars 时出现 —— 别的类型没有「字数」这回事，
+   摆一行空提示就是报一件界面上没有的事。 */
+function paintPromptHint() {
+  const ta = $('prompt'), hint = $('promptHint');
+  if (!ta) return;
+  const tts = ((currentModel().prov || {}).tts) || {};
+  const min = Number(tts.minChars) || 0, max = Number(tts.maxChars) || 0;
+  const range = [min, max].filter(Boolean).join('–');
+  ta.placeholder = TYPE === 'audio'
+    ? '要合成的文本' + (range ? '（' + range + ' 字）' : '') + '（数字、英文缩写建议写成读法）'
+    : TYPE === 'image' ? '描述人物、动作、场景或感觉…'
+      : '描述这一段视频的画面、镜头运动与氛围…';
+  if (!hint) return;
+  if (TYPE !== 'audio' || (!min && !max)) { hint.hidden = true; hint.textContent = ''; return; }
+  const n = (ta.value || '').trim().length;
+  const bits = ['已写 ' + n + ' 字'];
+  if (min && max) bits.push('平台要 ' + min + '–' + max + ' 字');
+  else if (max) bits.push('平台最多 ' + max + ' 字');
+  else bits.push('平台至少要 ' + min + ' 字');
+  let bad = false;
+  if (max && n > max) { bits.push('超了 ' + (n - max) + ' 字，提交会被平台拒收'); bad = true; }
+  else if (min && n && n < min) bits.push('还差 ' + (min - n) + ' 字');
+  hint.hidden = false;
+  hint.className = 'prompt-hint' + (bad ? ' bad' : '');
+  hint.textContent = bits.join(' · ');
+  $('promptBox').classList.toggle('over', bad);
+}
 function renderInputArea() {
   const area = $('inputArea');
   if (!area) return;
   slots = modelSlots();
   const ta = $('prompt');
   if (ta) {
-    ta.placeholder = TYPE === 'audio' ? '要合成的文本（数字、英文缩写建议写成读法）'
-      : TYPE === 'image' ? '描述人物、动作、场景或感觉…'
-        : '描述这一段视频的画面、镜头运动与氛围…';
+    paintPromptHint();
     ta.title = slots.length ? '下方小方块可上传素材（可用哪些、几张、收什么文件，随所选型号的能力变化）；也可以把右栏的素材卡直接拖进来'
       : '当前型号只支持纯文字生成，换个型号可解锁参考素材';
   }
@@ -928,7 +957,7 @@ $('advBody').innerHTML =
   + '<div id="resWrap"><label>画质</label><select id="res"></select></div>'
   + '<div id="durWrap"><label>时长（秒）</label><select id="dur"></select></div>'
   + '<div id="arWrap"><label>画面比例</label><select id="ar"></select></div>'
-  + '</div><div class="adv-grid"><div><label>生成条数</label><select id="draw"></select></div></div>'
+  + '</div><div class="adv-grid"><div id="drawWrap"><label>生成条数</label><select id="draw"></select><div class="sel-hint" id="drawHint"></div></div></div>'
   + '<div class="adv-grid" id="boolRows" style="margin-top:10px"></div>'
   + '</div>'
   + '<div class="adv-type" data-t="image" hidden>'
@@ -1012,7 +1041,21 @@ function renderVideoParams() {
   if (durs.length) fillSel($('dur'), durs, v => v + ' 秒', 'duration', 'dur', { defaults: defs });
   if (ars.length) fillSel($('ar'), ars, null, 'aspect_ratio', 'ar', { defaults: defs });
   if (sizes.length) fillSel($('size'), sizes, v => v, 'size', 'size', { defaults: defs });
-  fillSel($('draw'), [1, 2, 3, 4], v => v + ' 条', null, 'draw');
+  /* 「生成条数」的上限来自**能力声明**，不是写死的1–4（AGENTS.md §2）。
+     平台自己的 /models 声明 max_outputs 优先，registry 兜底。
+     上限是 1 时整块藏掉 —— 一个只能选 1 的下拉摆在那里只会让人以为还能多出几条。
+     注意上限是「一次提交多少条」，视频那边是**一条一个任务**循环提交的（submitVideo）。 */
+  const limV = modelLimits(model);
+  show('drawWrap', limV.maxOut > 1);
+  if (limV.maxOut > 1) {
+    const ns = Array.from({ length: limV.maxOut }, (_, i) => i + 1);
+    fillSel($('draw'), ns, v => v + ' 条', null, 'draw');
+    $('drawHint').textContent = '单次最多 ' + limV.maxOut + ' 条（按平台声明）· 视频一条一个任务提交';
+  } else {
+    $('draw').innerHTML = '<option value="1">1 条</option>';
+    if ($('draw')._ddRebuild) $('draw')._ddRebuild();
+    cur().autoVals.draw = '1';
+  }
   renderBoolRows(model, changed, defs);
   renderPlatPolish();
   $('advSum').textContent = [model.name || val('model').split('::').pop(), val('res'), val('dur') ? val('dur') + '秒' : '',
@@ -1165,10 +1208,8 @@ function applyAudioCaps() {
   const mode = curTtsMode();
   show('voiceCol', mode === 'preset');
   syncStyleRow();
-  const refRule = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(curAudioModel(), 'reference_audio') : { max: 0 };
-  const tts = ((currentModel().prov || {}).tts) || {};
-  const range = [tts.minChars, tts.maxChars].filter(Boolean).join('–');
-  $('prompt').placeholder = '要合成的文本' + (range ? '（' + range + ' 字）' : '');
+  /* 字数上限那句话与 placeholder 都归 paintPromptHint 管（见那里的注释：写两处就会互相覆盖） */
+  paintPromptHint();
   $('advSum').textContent = [($('model').value.split('::').pop()), mode === 'preset' ? val('voice') : MODE_ZH[mode], val('formatA')].filter(Boolean).join(' · ');
 }
 function readAudioBools() {
@@ -1281,7 +1322,7 @@ function submitBlockReason() {
   return '';
 }
 function updateGoState() { if (window.Wb) Wb.ready({ btn: 'go', tip: 'goWhy', scope: '.col-left', reason: submitBlockReason }); }
-$('prompt').addEventListener('input', () => { updateGoState(); if (TYPE === 'audio') refreshEst(); });
+$('prompt').addEventListener('input', () => { updateGoState(); paintPromptHint(); if (TYPE === 'audio') refreshEst(); });
 $('prompt').addEventListener('change', updateGoState);
 $('clearAll').onclick = () => {
   /* 换对象之前先把槽位里的 blob 地址收掉（S8）：以前直接换掉 `cur().inputs`，
@@ -1496,7 +1537,10 @@ async function submitImageBatch(segs, prov, model) {
       try {
         setStatus('批量生成 ' + segs.length + ' 张（' + (i + 1) + '/' + segs.length + '）：' + escA(sg.label));
         const out = await withCreateRetry(() => createImageOnce(prov, model, sg.prompt, assetIds, 1), '第 ' + (i + 1) + ' 张「' + escA(sg.label) + '」创建失败，');
-        if (out.taskId) created.push({ provider: prov.id, id: out.taskId });
+        /* 占位条目要显示得出「这一条是哪一段」，所以带提示词与片段名 ——
+           只有 id 的话右栏会插出一排没有说明的空白卡。 */
+        if (out.taskId) created.push({ provider: prov.id, id: out.taskId, prompt: sg.prompt,
+          extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, model: (model && model.id) || '' } });
         else if (out.sync) await saveSyncImages(prov, model, sg.prompt, out.sync);
       } catch (e) {
         if (maybeSubmitErr(e)) { uncertain++; console.warn('[拆分] 片段「' + sg.label + '」结果未知：', e.message); }
@@ -1507,7 +1551,7 @@ async function submitImageBatch(segs, prov, model) {
     try { await loadServer(1); } catch (e) {}
     tally.run(true);
     if (uncertain) { try { await loadServer(1, true); } catch (e) {} }
-    const parts = ['已提交 ' + segs.length + ' 张'];
+    const parts = ['已提交 ' + segs.length + ' 张（右栏已列出）'];
     if (failed) parts.push(failed + ' 张失败（原因见控制台）');
     if (uncertain) parts.push(uncertain + ' 张当时没等到平台响应（可能已受理，以右栏列表为准，别重复生成）');
     setStatus(parts.join('；'));
@@ -1524,8 +1568,11 @@ const unresolvedSubmit = () => pendingSubmits.find(s => s.state !== 'settled') |
 const resubmitArmed = () => armedAt && Date.now() - armedAt < RESUBMIT_ARM_MS;
 /* 「结果未知」只按真正的传输层异常判（超时 / 断连 / 上游响应超时）：
    这些情况下请求可能已经到了平台，界面必须说「正在核对列表」而不是「失败」——
-   否则用户会再点一次，那就是重复扣费。trackSubmit 与拆分批量提交共用这一条判据。 */
-const maybeSubmitErr = e => !!(e && (e.maybeSubmitted || /超时|timeout|中断|Failed to fetch|上游响应超时/i.test(String(e.message || ''))));
+   否则用户会再点一次，那就是重复扣费。
+   判据本体在 assetlib.js 的 Api.maybeSubmitted（就住在给它打 maybeSubmitted 标记的那一行旁边），
+   这一行只是委托 —— 以前这里是页面自己写的一份正则，与导演台、拍短剧各写一遍，
+   助手那条路径干脆没有（把超时判成了「失败」，用户重问一次就是第二次扣费）。 */
+const maybeSubmitErr = e => !!(window.Api && Api.maybeSubmitted ? Api.maybeSubmitted(e) : false);
 function trackSubmit(rec, work) {
   const at = Date.now();
   rec.at = at; rec.state = 'inflight';
@@ -1630,7 +1677,16 @@ async function buildInputEntries(prov, model) {
 
 /* ---------- 视频：一条一个任务，按「生成条数」循环提交 ---------- */
 async function createVideoOnce(prov, model, prompt, entries) {
-  const t = { model, prompt, tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, size: val('size'), entries };
+  /* ⚠ `model` 是**模型对象**（`currentModel()` 给的是 `{prov, model}` 两个对象），
+     而提交给平台的 `model` 字段要的是**型号 id 字符串**（VGENV 是 `minimax/h3`、
+     SparkCine 是 `h3-video`）。这里以前写的是裸 `model` —— 于是上游收到一个对象，
+     报的是「model must be a string / must match /^…\/…$/」，
+     而那句话与用户在界面上做的事毫无关系（图片那一路的 `createImageOnce` 一直写的是 `model.id`，
+     两边不一致正是这个 bug 藏这么久的原因）。
+     `Api.createBody` 现在也有一道类型闸（传对象会当场报错并说清是哪一项），这里是它的上游修正。 */
+  const modelId = (model && model.id) || String(model || '');
+  if (!modelId) throw new Error('没选出要用的视频型号 —— 在左栏「型号」里挑一个再点生成');
+  const t = { model: modelId, prompt, tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, size: val('size'), entries };
   const bools = readBoolParams();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
@@ -1780,6 +1836,11 @@ $('go').onclick = async () => {
 };
 async function submitVideo(rec, prov, model, uiDeadline) {
   const prompt = $('prompt').value.trim();
+  /* 「生成条数」要真的提交这么多条。
+     以前 draw 读出来之后**再也没被用过**：循环早被删掉，只留下了下拉、估价乘法与那句
+     「已创建 N 个任务」的文案 —— 于是选4 条时界面报 4 个任务、估价按 4 条报，右栏只出现 1 张卡。
+     视频平台的 create 请求体里没有条数字段（图像那栏的 count 是真的塞进 body 的），
+     所以多条只能**一条一个任务**地提交，与图像栏同一形状（见 submitImage 的循环）。 */
   const draw = Math.max(1, Number(val('draw')) || 1);
   const allIn = Object.keys(SLOT_DEF).flatMap(k => (inputs()[k] || []).map(x => ({ k, x })));
   let entries = [];
@@ -1793,15 +1854,33 @@ async function submitVideo(rec, prov, model, uiDeadline) {
     setStatus('处理输入素材…');
     entries = await buildInputEntries(prov, model);
   }
-  const p = trackSubmit(rec, async () => {
-    const r = await withCreateRetry(() => createVideoOnce(prov, model, prompt, entries), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
-    if (r && r.taskId) adoptTask(prov, r.taskId);
-    tally.run(true);
-    return r;
-  });
-  const left = uiDeadline - Date.now();
-  if (left > 0) await Promise.race([p, new Promise(r => setTimeout(r, left))]);
-  setStatus('<span class="ok">✓ 已创建 ' + draw + ' 个任务，正在把任务取回列表…</span>');
+  const created = [];
+  let failed = 0;
+  for (let i = 0; i < draw; i++) {
+    /* 界面时限：多提交几条时每一条都要留在这一轮里，别让后面的几条被时限砍掉 */
+    const left = uiDeadline - Date.now();
+    const p = trackSubmit(rec, async () => {
+      const r = await withCreateRetry(() => createVideoOnce(prov, model, prompt, entries), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
+      /* `extra` 是给占位条目显示用的（右栏要立刻有一条写着「第几段、什么参数」的卡）。
+         ⚠ 这里**不能**读 `createVideoOnce` 里那个 `t` —— 那是另一个函数的局部变量
+         （上一版就是抄了 `t.dur`，结果整条提交路径抛 `t is not defined`：
+         界面表现是「点生成什么都不发生」，而 §A 那条判据只查裸函数调用、
+         查不到 `t.dur` 这种成员访问，所以它没被拦住）。参数一律从**当前界面**现取。 */
+      const dur0 = Number(val('dur')) || 0;
+      if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id, prompt,
+        extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: dur0, model: (model && model.id) || '' } });
+      tally.run(true);
+      return r;
+    });
+    if (left > 0) await Promise.race([p, new Promise(r => setTimeout(r, left))]);
+    else await p;
+    try { await p; } catch (e) { failed++; }
+  }
+  if (created.length) {
+    setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务，右栏已经能看到（生成完成会自动出现在上面）</span>'
+      + (failed ? '<span class="warn">（另有 ' + failed + ' 条没提交出去）</span>' : ''));
+    adoptTasks(created).catch(() => {});
+  } else setStatus('<span class="err">创建失败</span>' + (failed ? '（' + failed + ' 条都提交失败）' : ''));
 }
 /* 参考图先传成平台资产（图片台的模板收的是 asset_id，不是 dataURL）。
    单张提交与「拆分片段批量生成」共用这一条 —— 批量那一批全部片段复用同一份 assetIds，只传一次。 */
@@ -1832,7 +1911,8 @@ async function submitImage(rec, prov, model) {
     const n = Math.min(perReq, left);
     const p = trackSubmit(rec, async () => {
       const r = await withCreateRetry(() => createImageOnce(prov, model, prompt, assetIds, n), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
-      if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id });
+      if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id, prompt,
+        extra: { tier: val('tier'), res: val('res'), ar: val('ar'), quality: val('quality'), size: val('size'), model: (model && model.id) || '' } });
       else if (r && r.sync) synced.push(...r.sync);
       tally.run(true);
       return r;
@@ -1848,7 +1928,7 @@ async function submitImage(rec, prov, model) {
     loadServer(1); tally.run(true);
   }
   if (created.length) {
-    setStatus('<span class="ok">✓ 已创建 ' + created.length + ' 个任务，正在把任务取回列表…</span>');
+    setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务，右栏已经能看到（生成完成会自动出现在上面）</span>');
     adoptTasks(created).catch(() => {});
   } else if (!synced.length) setStatus('<span class="err">创建失败</span>');
 }
@@ -2111,25 +2191,61 @@ function loadServer(morePages, noCache) {
   return serverChain;
 }
 /* 创建后把新任务取回列表：先按任务号问一次（快），问不到再刷整表（列表接口才是状态的最终依据） */
-async function adoptTask(prov, taskId) {
+/* 把一条刚提交的任务「认领」进右栏。
+   为什么先插一条「生成中」再问平台（这一条是这一轮改的要点）：
+     以前是先 `pollTask` 问一次，问到状态就插、问不到就 `resyncServer()` 拉整页列表。
+     而**刚提交的任务在平台上通常还查不到**（列表接口有几十秒的可见延迟），
+     于是每一次提交都要等「问一次 + 拉一页列表」才出现在右栏 ——
+     视频一条几十秒、批量十几条，用户点完生成看到的是**界面毫无变化**，
+     只能怀疑是不是没点上。
+     现在：先无条件插一条 status='queued' 的占位（任务号已经拿到了，身份是确定的），
+     立刻 renderAll + 让轮询器接手；问平台的结果只用来**升级**那一条的状态，
+     问不到就让它继续以占位身份被轮询刷新。 */
+async function adoptTask(prov, taskId, seed) {
   if (!taskId) return false;
+  /* 占位：只带「已经确定」的那些字段（平台、任务号、型号、提示词、提交时刻）。
+     画面那几项刻意留空 —— 有地址才有缩略图，没有就不摆一个裂图/转圈（那是另一套语义）。 */
+  const ph = Object.assign({
+    mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, {}) : '',
+    provider: prov.id, status: 'queued', prompt: '', raw: '', media: '', dl: '',
+    assetId: '', taskId, ts: Date.now(), local: false, localAsset: false,
+  }, seed || {});
+  ph.prompt = ph.prompt || Api.promptFor(prov.id, taskId) || '';
+  upsertItem(ph);
+  renderAll(); poller.kick();
+  /* 然后再问一次平台：问到了就用真状态覆盖那一条（进度、费用、产物地址）。
+     问不到不是错 —— 占位已经在列表里，轮询器会接着刷。 */
   let p = null;
   try { const hit = await Api.pollTask(prov, taskId); p = hit && hit.p; }
-  catch (e) { console.warn('[studio] 取新任务状态失败，改刷列表：', e && e.message); }
+  catch (e) { console.warn('[studio] 取新任务状态失败，交给轮询器接着刷：', e && e.message); }
   if (p && p.status) {
-    upsertItem(itemFromPoll(prov, p));
+    upsertItem(Object.assign(itemFromPoll(prov, p), { prompt: (p.prompt || '') || ph.prompt }));
     renderAll(); poller.kick();
     return true;
   }
-  await resyncServer();
+  /* 不再 resyncServer()：那一次拉整页列表是「等半天才出现」的另一半原因，
+     而轮询器已经在做同样的事了（每几秒问一次，状态一变就更新那条卡片）。 */
   return false;
 }
 async function adoptTasks(list) {
   if (!list || !list.length) return;
+  /* 先把每一条的占位**全部**插进去，再一条一条去问平台 ——
+     顺序反了的话，第二条还是要等第一条问完才出现（视频一条就能问十几秒）。 */
   for (const one of list) {
     const prov = provById(one.provider) || null;
     if (!prov) continue;
-    await adoptTask(prov, one.id);
+    upsertItem(Object.assign({
+      mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, {}) : '',
+      provider: prov.id, status: 'queued', prompt: one.prompt || Api.promptFor(prov.id, one.id) || '',
+      raw: '', media: '', dl: '', assetId: '', taskId: one.id, ts: Date.now(),
+      local: false, localAsset: false,
+    }, one.extra || {}));
+  }
+  renderAll(); poller.kick();
+  for (const one of list) {
+    const prov = provById(one.provider) || null;
+    if (!prov) continue;
+    await adoptTask(prov, one.id, one);
   }
 }
 function itemFromPoll(prov, p) {
@@ -2187,10 +2303,6 @@ const poller = Wb.poller({
   pollOne,
   onChange: () => renderAll(),
 });
-/* 历史右栏里出现过的平台（含已在设置页停用的 —— 老任务的卡片要还能显示平台名） */
-function providersOfHistory() {
-  return (REG.providers || []).filter(p => p.kind === 'image' || p.kind === 'video' || p.kind === 'audio');
-}
 
 /* ---------- 卡片 ---------- */
 const KIND_TAG = { 图片: 'image', 视频: 'video', 音频: 'mic' };
@@ -2579,27 +2691,81 @@ async function refIntoSlot(mtype, p, o) {
   if (!n) return { ok: false, code: 'rejected', why: def.label + '没收这条素材（类型或体积不在这一栏的声明里）' };
   return { ok: true, kind, name };
 }
+/* 复用一条产物，「复用」复的是**提示词与参数**，不是把那条产物本身再当素材塞进参考槽。
+   以前无条件 `refIntoSlot(it.mtype, …)` —— 于是「复用一条视频」的结果是：
+     切到视频栏 + 填上那条视频的提示词 + **把那条视频又放进「参考视频」槽**，
+   而参考视频的语义是「拿这条视频当画面/运动参考」，用户复用它是为了照着再来一条，
+   不是拿它当参考 —— 于是界面上多了一条他自己没要求的素材，
+   提交时它也跟着发出去（视频平台的参考视频往往另收一笔或根本不收这个 role）。
+
+   判据（`it.asMaterial`）只有调用方给，两个入口都是 false：
+     · 详情面板那颗「复用」—— 复的是提示词；
+     · 资产库 / 收藏 / 素材库跨页过来的那条 —— 同理。
+   真的要把一条素材塞进槽时，走的是 @ 素材 / 拖拽 / 挑选器那几条路（它们直接调 refIntoSlot，
+   根本不经过这里），所以这个开关不需要第二个真值 —— **别再加一条「有时候要填」的入口**，
+   那会立刻长成第二个实现。 */
 async function reuseInto(it) {
-  const want = it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image';
-  if (TYPE !== want) setType(want, true);
+  const wantType = it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image';
+  if (TYPE !== wantType) setType(wantType, true);
   if (it.prompt) $('prompt').value = it.prompt;
+  /* 型号先定下来：参数下拉是**按型号声明**画出来的，型号没定就设值等于设在一个
+     马上就要被重画掉的节点上（setType / model 的 change 都会跑 renderParams）。 */
   if (it.model) {
     const g = provGroups().find(p => (p.models || []).some(m => m.id === it.model));
     if (g) { $('model').value = g.id + '::' + it.model; $('model').dispatchEvent(new Event('change')); }
+  }
+  /* 参数也一起带过去（E7）：以前只带提示词与型号，满意某张图的画幅与质量想照着再来一版，
+     复用后全跳回默认，得逐个重选。这些值本来就随条目存在，直接取，不另记一份。
+     下拉的 id 就是这几个名字（见那一块模板）；**当前类型/型号没声明的那一栏根本没有那个节点**，
+     取到 null 就跳过 —— 那是能力驱动该有的样子（型号不支持这档就不摆）。
+     设完要 renderParams()：下拉的 options 是按声明填的，光改 value 不通知它就是「按钮上写着 A、
+     真实选中的是 B」（与 PromptForm 里 sync select 是同一条道理）。 */
+  const REUSE_KEYS = ['tier', 'res', 'ar', 'dur', 'quality', 'size'];
+  const want = {};
+  for (const k of REUSE_KEYS) if (it[k] != null && it[k] !== '') want[k] = String(it[k]);
+  /* **顺序很重要**：先让 renderParams 把下拉按型号声明填好，再照它**已有的那些选项**设值。
+     反过来（先设值再 renderParams）的话 fillSel 会把它按默认档覆盖回去 ——
+     症状就是「参数带过来了，但界面上还是默认的那一档」，而用户看不出为什么。 */
+  if (Object.keys(want).length) {
+    try { renderParams(); } catch (e) {}
+    for (const k of Object.keys(want)) {
+      const el = $(k);
+      if (!el || el.tagName !== 'SELECT') continue;
+      const opts = Array.from(el.options || []).map(o => String(o.value));
+      /* 只填**声明里有**的那一档：用户存的是 1080p 而这个型号只声明到 768p 时，
+         硬填会得到一个界面上不存在的值（那正是「界面承诺兑现不了」的一种）。 */
+      if (opts.length && opts.indexOf(want[k]) < 0) continue;
+      try {
+        el.value = want[k];
+        if (window.Dropdowns && Dropdowns.sync) Dropdowns.sync(el);
+      } catch (e) {}
+    }
+    try { paintSubNote(); refreshEst(); updateGoState(); } catch (e) {}
   }
   /* 素材地址在三个入口里有三种带法（详情面板那条条目用 media / raw，跨页载荷用 src），
      这里一次归一，槽位那一层只认 src。 */
   const src = it.src || it.media || it.raw || '';
   const has = !!src || !!it.assetId || !!it.fileKey;
-  const r = has ? await refIntoSlot(it.mtype, { src, assetId: it.assetId, dl: it.dl, fileKey: it.fileKey,
-    name: it.name || it.prompt }, { autoSwitch: true }) : null;
+  const r = (has && it.asMaterial)
+    ? await refIntoSlot(it.mtype, { src, assetId: it.assetId, dl: it.dl, fileKey: it.fileKey,
+      name: it.name || it.prompt }, { autoSwitch: true })
+    : null;
   renderInputArea(); updateMode(); updateGoState();
   if (r && !r.ok) { setStatus('<span class="' + (r.code === 'dup' ? 'warn' : 'err') + '">'
     + escA(r.why + (it.prompt ? '（提示词已经填上）' : '')) + '</span>'); return; }
   const bits = [];
   if (it.prompt) bits.push('提示词');
+  if (it.model) bits.push('型号');
   if (r && r.ok) bits.push('1 个' + it.mtype + '素材');
-  setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>');
+  /* 说清「那条视频没被当成参考」—— 复用一条视频而界面不说，用户会以为漏了；
+     说清了就变成一个可核对的事实：带过来的是提示词与参数。 */
+  const dropped = (has && !it.asMaterial)
+    ? (wantType === 'video'
+      ? '（这一条视频本身没有进「参考视频」槽 —— 复用带过来的是提示词与参数；要拿它当参考请用「@ 素材」）'
+      : '（这一条素材本身没有进槽 —— 要拿它当参考请用「@ 素材」）')
+    : '';
+  setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>'
+    + (dropped ? '<span class="warn">　' + dropped + '</span>' : ''));
 }
 /* 资产库 / 收藏 / 素材库「拿去生成」带过来的那一条（localStorage.sk_reuse，用完即删）。
    载荷由 `Wb.reuse.go` 拼（三页那一份），里面**可以只有地址**：素材库存的是一张图本身的地址、

@@ -15,14 +15,7 @@
 /* 主题变量：每个页面在自己的 <style> 里写这一份（变量名与 ui.css / 其它页面保持一致）。
    以前这里只声明了 --pri/--pri2，结果 var(--panel2) / var(--txt) / var(--line) 全部取到空值 ——
    「变量存在但值为空」不会走 var() 的回退值，整条声明直接失效（背景变透明）。 */
-:root {
-  --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
-  --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
-}
-html[data-theme="dark"] {
-  --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
-  --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff; --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
-}
+
 /* 与其它九页同一份盒模型（chars.html 等页都有这条，本页以前漏了）：
    少了它，`width:100%` 的 textarea 会再加一遍自己的 padding + border，
    于是「外貌 / 场景描述 / 台词」那几个框永远比卡片宽 22px，右边戳出组件。 */
@@ -92,7 +85,14 @@ body{display:flex;flex-direction:column;overflow:hidden}
 /* 还没有开头画面时的占位（舞台是深底，所以这两条颜色不跟主题走） */
 .dr-noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;background:#161a24;font-size:13px}
 .dr-subs{position:absolute;left:0;right:0;bottom:6%;text-align:center;padding:0 8%;
-  font-size:calc(var(--fs,20)*1px);font-weight:700;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,1);line-height:1.4;pointer-events:none}
+  font-size:calc(var(--fs,20)*1px);font-weight:700;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,1);line-height:1.4}
+ /* 字幕**可以点**（点它跳回这一句的开头，E32），所以不能再 pointer-events:none ——
+    那一行是当初为了「字幕不挡住画面上的点击」加的，而#subs 在 bottom:6% 那一条窄带里，
+    真正需要挡的 <video> 播放区它压根不覆盖。
+    没有它的话那一句显示在画面上却点不动，是又一处「界面看着能点其实什么也不做」。 */
+.dr-subs.seeking{cursor:pointer;border-radius:6px;transition:background .12s}
+.dr-subs.seeking:hover{background:rgba(255,255,255,.12)}
+/* 还没出总时长（这一段刚建、内容还在变）时不摆可点的暗示：点了也不会跳。 */
 .dr-subs .who{color:#e8a0c8}
 .dr-badge{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.95);color:#111;
   padding:5px 12px;border-radius:8px;font-size:12.5px;font-weight:600;max-width:88%;text-align:center}
@@ -116,6 +116,17 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .dr-seg .st{position:absolute;top:3px;right:3px;font-size:12px}
 .dr-seg .cap{font-size:11.5px;text-align:center;padding:3px 2px;color:var(--txt)}
 .dr-seg .cap.warn{color:var(--warn)} .dr-seg .cap.ok{color:var(--ok)} .dr-seg .cap.run{color:var(--pri)}
+/* 「这一段还差什么」角标：压在缩略图的右上角，**不占高度**（.dr-seg 是固定 88px 宽 + overflow:hidden，
+   另起一行会把整条段条撑高、连着下面所有段的纵坐标都动）。
+   三个档各有颜色：缺前置条件=中性（可以先拍别的）、旧末帧=琥珀（有接缝）、进不了成片=红（导出会被拦）。*/
+.sfl{position:absolute;top:4px;right:4px;display:flex;flex-direction:column;gap:3px;align-items:flex-end;z-index:2}
+.dr-seg{position:relative}
+.sfl .sf{font-size:10px;line-height:1.3;padding:1px 5px;border-radius:9px;
+  background:rgba(20,22,40,.62);color:#fff;white-space:nowrap;backdrop-filter:blur(2px)}
+.sfl .sf.miss{background:rgba(220,38,38,.9)}
+.sfl .sf.stale{background:rgba(217,119,6,.9)}
+.sfl .sf.pre{background:rgba(20,22,40,.55)}
+.dr-seg.on .sfl .sf{box-shadow:0 0 0 1px rgba(255,255,255,.5)}
 /* 「加一段」那一格：不是一个段，是一条动作，所以虚线、不跟别的格子抢高亮 */
 .dr-seg.add{border-style:dashed;cursor:pointer}
 .dr-seg.add .th{display:flex;align-items:center;justify-content:center}
@@ -254,6 +265,13 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .dr-takex.sq{width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 /* 这一条开头画面的来源：取不到上一段末帧时会悄悄改用本段开头画面，画面上得看得见 */
 .dr-take .ch{flex:0 0 auto;font-size:11px;color:var(--sub);opacity:.85}
+/* 「用这一条」：这一页唯一能改「进成片的是哪一次」的入口，所以它得像个正动作，
+   不能长得跟旁边那颗「不等了」一样（那是收手的动作）。accent 描边 + 白底。 */
+.dr-take .dr-takeuse{flex:0 0 auto;padding:2px 9px;border:1px solid var(--acc);border-radius:8px;
+  background:transparent;color:var(--acc);cursor:pointer;font-size:11.5px;white-space:nowrap}
+.dr-take .dr-takeuse:hover{background:var(--acc);color:#fff}
+/* 已经是选用中的那一条：与「✓ 已选用」那几处同一个口径的视觉，不做成按钮（点了也没意义） */
+.dr-take .ch.used{color:var(--ok,#16a34a);opacity:1;font-weight:600}
 /* 角色卡 / 场景卡上的「从这一集删掉」：同页段、拍片、台词都能删，这两个以前只增不减 */
 .dr-del{color:var(--err)}
 .dr-del:hover:not(:disabled){background:rgba(220,38,38,.08)}
@@ -263,6 +281,11 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .dr-edlrow .e1{flex:0 0 68px;color:var(--sub);font-size:12px}
 .dr-edlrow .e2{flex:0 0 56px;color:var(--sub);font-size:12px}
 .dr-edlrow .e3{flex:1 1 auto;color:var(--err);font-size:12px}
+/* 「换一条 ›」：清单里唯一能改选的那一下，摆在行尾。做成可点的样子，
+   别让它看着像一句说明 —— 否则用户读到「用第几次」却还是不知道去哪儿改。 */
+.dr-edlrow .e5{flex:0 0 auto;color:var(--acc);font-size:12px;cursor:pointer;padding:1px 6px;
+  border:1px solid transparent;border-radius:6px;white-space:nowrap}
+.dr-edlrow .e5:hover{border-color:var(--acc);background:rgba(105,87,232,.07)}
 .dr-edlrow.warn{background:rgba(220,38,38,.07)}
 
 /* ---------- 底部条 ---------- */
@@ -626,6 +649,19 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   let nextDraft = '';          // 入口页点「开始」时要用上的那一集（由 pendingDraft 现算）
   let shotIdx = 0;             // 当前段
   let takeIdx = 0;             // 当前看的是哪一次拍摄
+  /* 「切到某一段」时 takeIdx 取几 —— **四处切段入口共用这一句**（段条点击 / gotoShot 键盘导航 /
+     gotoIdx 连放跳转 / 删段回填）。以前那四处一律 `takeIdx = 0`，于是切过去看的是**最早那次**：
+     某段第 1 次失败、第 2 次拍成时，段条与右栏芯片都写着「✓ 已选用」（读的是 chosen），
+     舞台角标却是「这一段还没拍好」（读的是 takes[0]）—— 界面自相矛盾，
+     而界面上没有任何一处写着「现在看的是第 1 次 · 不是选用的那条」，用户只会以为「拍成的那段坏了」。
+     判据：选中那条（chosen）的下标；还没有选用就照旧 0。
+     别在别处再写一份「这一段看第几次」—— 那正是这四份实现的由来。 */
+  const takeIdxFor = sh => {
+    if (!sh) return 0;
+    const ts = sh.takes || [];
+    const i = ts.findIndex(x => x && x.id === sh.chosen);
+    return i >= 0 ? i : 0;
+  };
   let railMin = false;         // 左轨是否收起
   let autoplay = false;
   let playerT = 0, playerTimer = null, playerClock = 0, previewAudios = [], previewTimers = [];
@@ -884,7 +920,10 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       if (Confirm.arm(x, '确认丢掉', {
         note: '这一集带过来的角色与场景引用一起清掉（素材库里存过的还在），写故事会另起一部',
       })) return;
-      D.remove(d.id);
+      /* D.remove 会拒删（这一集还有拍摄在平台上跑着），**返回值必须接**：
+         拒了还报「丢掉那一集了」并把 nextDraft 清掉，用户以为没了、列表里那一部还在。 */
+      const rr = D.remove(d.id);
+      if (rr && rr.ok === false) { toast(rr.why || rr.error || '这一集没能丢掉', 'err', 9000); return; }
       if (D.activeId() === d.id) D.setActive('');
       nextDraft = '';
       const el = $('story'); const t = el ? el.value : '';
@@ -922,6 +961,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           <span class="secs" id="secs"></span>
           <button class="tool acc" id="btnStart">开始</button>
         </div>
+        <div class="ui-hint" id="capNote"></div>
       </div>
       <div class="dr-list"><div class="dr-mine" id="mine"></div></div>
     </div>`;
@@ -1150,6 +1190,26 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     }
 
     $('btnStart').onclick = () => startStory();
+    /* 容量常驻一行（判据只有 D.cap / D.count 两处，页面不自己写那个 40）：
+       满了就在**点之前**说清「新建不了了，先删一部」，而不是点完才被数据层拦 ——
+       那样用户看到的是「我明明点了开始，怎么什么都没发生」。 */
+    (() => {
+      const n = D.count ? D.count() : 0, cap = D.cap ? D.cap() : 0;
+      const el2 = $('capNote');
+      const bs = $('btnStart');
+      if (!cap) return;
+      const left = cap - n;
+      if (left <= 0) {
+        el2.innerHTML = '短剧已存满 ' + cap + ' 部 —— 新建不了了。回到列表删掉一部不要的，或者先到「设置」导出一次备份。';
+        if (bs) { bs.disabled = true; bs.title = '已经存满 ' + cap + ' 部：新建会把最旧的一部挤掉，所以这里直接不让你点'; }
+      } else if (left <= 3) {
+        el2.textContent = '还能再存 ' + left + ' 部（上限 ' + cap + ' 部）。';
+        if (bs) bs.title = '还能再存 ' + left + ' 部（上限 ' + cap + ' 部）';
+      } else {
+        el2.textContent = '已存 ' + n + ' / ' + cap + ' 部。';
+        if (bs) bs.title = '新建一部短剧（还能再存 ' + left + ' 部）';
+      }
+    })();
     bindDraftNote();
     paintImproveBtn();
     $('btnImport').onclick = () => importScript();
@@ -1320,7 +1380,16 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   }
 
   async function runSplit(story) {
-    cur.step = 1; genSet('split', null, 'AI 导演正在读故事、拆分镜'); render();
+    /* **先把这一集抓住**：这一趟要跑十几秒到几十秒（拆剧本 + 可选的补画），
+       而这段时间里用户完全可以按「‹ 返回」去列表、点开另一部短剧 —— 列表卡片点一下就把
+       `cur` 换成另一部了。以前这一路全程用全局 cur，收尾时摸到的是「此刻」的那一集：
+         · 拆失败 → D.remove(bad.id) 删掉的是**用户正在看的另一部剧**
+           （remove 只挡「有拍摄在跑」，一部拍过但都完了的剧照删 —— 剧本、分段、全部拍片引用一起没）；
+         · 拆成功 → cur = d 把视图**劫持**到新一集，用户正看着另一集。
+       下面每一处都只操作 mine（与 shootAll / resumePending 同一个写法）。 */
+    const mine = cur;
+    if (!mine) return;
+    mine.step = 1; genSet('split', null, 'AI 导演正在读故事、拆分镜'); render();
     const say = t => genSet('split', null, t);
     /* 流式：文字 AI 一边写分场剧本，画面一边长出来。以前这里只有一句「正在拆分镜」干等十几秒 ——
        看不出它写到第几场、方向对不对，也没法中途停（AbortController 一路传到 Net.fetch）。
@@ -1330,8 +1399,11 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const lv = host ? InlinePolish.live(host, { title: 'AI 导演正在写这一集', onStop: () => ac.abort() }) : null;
     try {
       say('拆成分场剧本：谁、在哪、说什么');
-      const d = await D.Pipe.splitScript(cur, story, lv && ((p, k) => lv.push(p, k)),
+      const d = await D.Pipe.splitScript(mine, story, lv && ((p, k) => lv.push(p, k)),
         { signal: ac.signal }, { aiDur: D.aiDurOn() });
+      /* 用户中途切走就不劫持他的视图：结果已经落盘（saveOf），他自己会看到。
+         这一段与 shootAll 收尾那句 `if (cur === mine)` 同一份立场。 */
+      if (cur !== mine) { saveOf(mine); toast('这一集拆好了，你正在看别的剧 —— 回到列表就能继续', 'ok'); return; }
       cur = d; save();
       /* 分场剧本已经落成这一集的角色与分段（下一步就能看到），原始文本不再需要占着画面 */
       if (lv) InlinePolish.clear(host);
@@ -1362,14 +1434,32 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
          零角色零分段的「认角色」页，而库里留下一部坏档（画脸/配音/拍摄全都无从下手）。
          普通的一集（刚才还是空的）删掉最干净；但「做下一集」那一集身上带着上一集的角色与场景，
          删了就等于把承诺的沿用一起删掉 —— 留着它、清掉半截的分段与故事，
-         故事原文还回文本框，改一句再点「开始」仍然落在这一集上。 */
-      const bad = cur;
-      if (bad.opts && bad.opts.nextOf) { bad.shots = []; bad.story = ''; D.put(bad); nextDraft = bad.id; }
-      else { D.remove(bad.id); D.setActive(''); }
-      cur = null; genClear('split', null); render();
-      const el = $('story'); if (el) el.value = story;
+         故事原文还回文本框，改一句再点「开始」仍然落在这一集上。
+
+         **只动 mine**（开跑时抓住的那一集）：用户中途切去了别的集，
+         以前这里的 `const bad = cur` 摸到的是「此刻」那一集，于是删掉了**他正在看的那部**。
+         另外两处也都补齐了：存盘走 saveOf（撞配额要照实说「这一集现在没有存下来」），
+         D.remove 的返回值**必须接**（有拍摄在跑时它会拒删，拒了还报「丢掉那一集了」并把当前集忘了）。 */
+      const bad = mine;
+      let why = '';
+      if (bad.opts && bad.opts.nextOf) {
+        bad.shots = []; bad.story = '';
+        const rr = saveOf(bad);          // 撞配额时它已经 toast 过一句，这里只把原因带上
+        if (rr && rr.ok === false) why = '（这一集没能存下来：' + (rr.error || rr.why || '存盘失败') + '）';
+        else nextDraft = bad.id;
+      } else {
+        const rr = D.remove(bad.id);
+        if (rr && rr.ok === false) why = '：' + (rr.why || rr.error || '这一集没能删掉');
+      }
+      genClear('split', null);
+      /* 用户还停在这一集上才动视图 —— 他已经切走就别把人从别的集拽回来 */
+      if (cur === bad) {
+        if (!why) D.setActive('');
+        cur = null; render();
+        const el = $('story'); if (el) el.value = story;
+      }
       toast(ac.signal.aborted ? '已经停下（这一集没拆完，故事原文还给你，改一句就能重试）'
-        : '拆剧本没成功：' + (e.message || e), ac.signal.aborted ? 'ok' : 'err');
+        : '拆剧本没成功' + why + '：' + (e.message || e), ac.signal.aborted ? 'ok' : 'err');
       return;
     }
   }
@@ -1699,12 +1789,19 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       if (el) el.onclick = () => a.go();
     });
     if (panelOpen('edl')) body.querySelectorAll('.dr-edlrow').forEach(row => {
-      row.onclick = () => {
+      row.onclick = e => {
+        /* 点「换一条」那几颗（它们在行内）：先跳过去，落到那一段的拍片记录那一块，
+           那里逐条摆着「用这一条」。清单里**不**自己改 chosen ——
+           判据与收尾都归 D.Shots.chooseShot 一份管，页面这一处只做导航。 */
+        const pick = e.target && e.target.closest && e.target.closest('[data-edlsel]');
         const no = Number(row.dataset.edl);
         const i = (cur.shots || []).findIndex(s => s && s.no === no);
         if (i < 0) return;
-        shotIdx = i; takeIdx = 0; render();
-        toast('跳到第 ' + no + ' 段');
+        shotIdx = i; takeIdx = takeIdxFor((cur.shots || [])[i]); panelHide(); render();
+        if (pick) {
+          flashTo($('takeBox'));
+          toast('第 ' + no + ' 段：在下面「每一条拍片」里点「用这一条」改选');
+        } else toast('跳到第 ' + no + ' 段');
       };
     });
     /* 两颗动作按钮都**现算**该点哪几段（判据只有 staleChains / edlCheck 那两份），
@@ -1749,11 +1846,19 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       const t = curTake(sh);
       const has = !!(t && t.state === 'done');
       const w = [byNo[sh.no], staleByNo[sh.no]].filter(Boolean).join('；');
+      /* 这一行末尾给一颗「换一条」（E-51）：清单里逐行写着「用第几次」，用户读的就是这一份，
+         而改动只能回右栏的拍片记录里点 —— 渲之前核对到一半说「这一次更好」却找不到地方换。
+         跳过去就是那一段的拍片记录（那里逐条摆着「用这一条」），不在清单里另做一套改选逻辑
+         —— 判据与收尾都由 D.Shots.chooseShot 一份管（与右栏那颗同一个函数）。 */
+      const swap = (sh.takes || []).filter(x => x && x.state === 'done' && x.videoUrl).length > 1
+        ? '<span class="e4">有 ' + (sh.takes || []).filter(x => x && x.state === 'done' && x.videoUrl).length + ' 条可用</span>' : '';
       return '<div class="dr-edlrow' + (w ? ' warn' : '') + '" data-edl="' + D.esc(sh.no) + '"'
         + ' title="点一下跳到这一段">' + D.esc(sh.title || ('第 ' + sh.no + ' 段'))
         + '<span class="e1">' + (has ? '第 ' + (t.no || '?') + ' 次' : (t ? stateCn(t) : '没拍')) + '</span>'
         + '<span class="e2">' + (has ? Math.round(Number(t.sec) || 0) + ' 秒' : '—') + '</span>'
-        + (w ? '<span class="e3">⚠ ' + D.esc(w) + '</span>' : '') + '</div>';
+        + (w ? '<span class="e3">⚠ ' + D.esc(w) + '</span>' : '')
+        + (swap ? '<span class="e5" data-edlsel="' + D.esc(sh.no) + '" title="跳到这一段，在拍片记录里点「用这一条」改选">换一条 ›</span>' : '')
+        + '</div>';
     }).join('');
     const nv = (edl.clips || []).reduce((n, c) => n + ((c.voices || []).length), 0);
     const total = (edl.clips || []).reduce((n, c) => n + (Number(c.out) || 0), 0);
@@ -2043,9 +2148,32 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
        「配乐选好了」，用户以为铺了配乐，成片里却还是原声。 */
     const src = it.src || it.dl || '';
     if (!src) return toast('这一条没有可用的音频地址，没能选上 —— 换一条试试', 'err');
-    cur.opts.bgm = src;
+    /* **入库前先过 AssetTransfer.toLocalAsset**：选择器递回来的地址有两种是「当场能用、过后就没了」——
+       本地上传那一张是 `blob:`（只属于当前文档，刷新/换页即失效，**代理更是根本取不到**），
+       资产库/收藏那一张多半是包着签名外链的 /getv（只管一天）。
+       而代理的 /render 拿到 bgm 地址后是 `resolveSrc → downloadTo` 去下载的（proxy.js:2560），
+       拿不到字节就在 ffmpeg 那一步炸，而报出来的是一句 ffmpeg 错误 ——
+       真正的原因（配乐根本取不到）在界面上看不出来。
+       「选好了」这句话不许配一个没验过字节的结果：成功提示排在 await **之后**。 */
+    let local = '';
+    try {
+      genSet('bgm', null, '正在把这一段配乐存进本机…');
+      const r = await AssetTransfer.toLocalAsset(it.file || src, { name: (it.name || it.prompt || '配乐') + '.mp3', type: 'audio', from: it.provider || 'picker' });
+      local = (r && r.src) || '';
+    } catch (e) {
+      genClear('bgm', null);
+      return toast('这一段配乐存不进本机：' + ((e && e.message) || e)
+        + ' —— 没选上（换个文件或换一家平台再试）。导出时要重新下载这个地址，'
+        + 'blob: 地址刷新后就没了、签名外链一天就过期。', 'err', 9000);
+    }
+    if (!local) { genClear('bgm', null); return toast('这一段配乐的字节取不到，没能选上 —— 换个文件再试', 'err'); }
+    cur.opts.bgm = local;
     cur.opts.bgmName = it.prompt || it.name || '配乐';
-    save(); toast('配乐选好了：' + cur.opts.bgmName.slice(0, 16)); render();
+    /* 顺带说清它在哪儿（E-52）：判据用公共那一个 AssetLocal.hasLocalAddr，
+       界面就能告诉用户「刷新后还在」而不是让他自己猜。 */
+    const where = (window.AssetLocal && AssetLocal.hasLocalAddr(local)) ? '已存进本机' : '在平台那边（外链一天后会过期）';
+    genClear('bgm', null);
+    save(); toast('配乐选好了：' + cur.opts.bgmName.slice(0, 16) + '（' + where + '）', 'ok'); render();
   }
   /* `c` 真的会是 null：**拆剧本失败的收尾路径**就是 `cur = null; genClear('split', null)`，
      而 `paintStatus` 那行是 `el.textContent = t || statusOf(cur)` —— GEN 一清空 `t` 就是空串，
@@ -2294,7 +2422,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       /* 正在出的那一次：那一排换成占位格（「AI 出了 4 张、界面只有 1 张」是不能接受的），
          反过来「4 张在排队」也得看得见才不会以为卡住了。按钮留着但禁用。 */
       + (waiting ? `<div class="ui-cands"><span class="lab">候选脸</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('face', 'candgen', true)}</div>`
-        : D.Cast.picCandsHTML(c.faces, c.face, { act: 'usecand', label: '候选脸', name: c.name,
+        /* `del` 让每一格带一颗「删掉」—— 与素材库页同一条路（E21：出 4 张里 3 张不要
+           是最常见的结局，而原来只能整个重出、挑剩的永远留在那儿）。 */
+        : D.Cast.picCandsHTML(c.faces, c.face, { act: 'usecand', del: 'canddel', label: '候选脸', name: c.name,
             extra: ' data-kind="face"', tail: moreCandsHTML('face', 'candgen', false) }));
   }
   /* 角色资产：**一个扁平的列表**，任意种类、不限张数，每张自己一个名字 + 一组关联道具。
@@ -2416,7 +2546,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           <button class="ui-linkbtn" data-act="retryscene">再试一次</button></div>`)
       + (waiting || !s.candNote ? '' : `<div class="ui-note">${D.esc(s.candNote)}</div>`)
       + (waiting ? `<div class="ui-cands"><span class="lab">候选场景图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('img', 'candgen', true)}</div>`
-        : D.Cast.picCandsHTML(s.faces, s.img, { act: 'usecand', zoom: 'zoom', label: '候选场景图', name: s.name,
+        : D.Cast.picCandsHTML(s.faces, s.img, { act: 'usecand', del: 'canddel', zoom: 'zoom', label: '候选场景图', name: s.name,
             extra: ' data-kind="img"', tail: moreCandsHTML('img', 'candgen', false) }));
   }
   function sceneHTML(s) {
@@ -2448,7 +2578,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           <button class="ui-linkbtn" data-act="retryprop">再试一次</button></div>`)
       + (waiting || !p.candNote ? '' : `<div class="ui-note">${D.esc(p.candNote)}</div>`)
       + (waiting ? `<div class="ui-cands"><span class="lab">候选道具图</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${moreCandsHTML('prop', 'candgen', true)}</div>`
-        : D.Cast.picCandsHTML(p.faces, p.face, { act: 'usecand', label: '候选道具图', name: p.name,
+        : D.Cast.picCandsHTML(p.faces, p.face, { act: 'usecand', del: 'canddel', label: '候选道具图', name: p.name,
             extra: ' data-kind="prop"', tail: moreCandsHTML('prop', 'candgen', false) }));
   }
   function propHTML(p) {
@@ -2567,6 +2697,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     save(); k.repaint(x);
     toast('这一位现在用这张。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
   }
+  /* 删掉候选排里的某一张（E21）。规则走数据层那一份 `D.Cast.dropFaceCand` ——
+     它管「删掉正在用的那张要不要顺位递补」，素材库页也调它，两边行为必然一致。
+     提示里说清「已经拍过的段还是旧参考图」，与 useCand 同一句（这是这两件事共同的副作用）。 */
+  function dropCand(x, kind, src) {
+    const k = CANDK[kind]; if (!k || !src) return;
+    const r = D.Cast.dropFaceCand(x, src, { got: k.got, set: k.set });
+    if (!r.ok) return toast(r.why || '这一张已经不在了', 'err');
+    save(); k.repaint(x);
+    toast(r.left ? ('删掉了这一张，还剩 ' + r.left + ' 张。已经拍过的段还是旧参考图，要生效得重拍那一段')
+      : '删掉了这一张（这一类清空了）。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
+  }
   const castCard = c => body.querySelector('.dr-card2[data-cid="' + c.id + '"]');
   const sceneCard = s => body.querySelector('.dr-card2[data-sid="' + s.id + '"]');
   const propCard = p => body.querySelector('.dr-card2[data-pid="' + p.id + '"]');
@@ -2625,6 +2766,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         /* 候选排那两个动作（脸 / 三视图）：字段表在上面的 CANDK，一份实现。 */
         else if (act === 'candgen') { await genMoreCands(c, el.dataset.kind || 'face'); }
         else if (act === 'usecand') { useCand(c, el.dataset.kind || 'face', el.dataset.src); }
+        else if (act === 'canddel') { dropCand(c, el.dataset.kind || 'face', el.dataset.src); }
         else if (act === 'redraw') {
           /* 已经有脸时**不必先清空**再去画：`drawPreview` 加了 `replace` 就是为了这个 ——
              以前靠 `c.face = ''` 让数据层认「还没有图」，于是这一格在画之前先闪成空白，
@@ -2930,6 +3072,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         /* 候选排那两个动作（与角色卡同一份 CANDK） */
         else if (act === 'candgen') { await genMoreCands(p, 'prop'); }
         else if (act === 'usecand') { useCand(p, 'prop', el.dataset.src); }
+        else if (act === 'canddel') { dropCand(p, 'prop', el.dataset.src); }
         else if (act === 'aiopt') {
           await genRun('aiopt', p.id, 'AI 正在把道具描述写细…', async () => {
             /* 同上：指令在 `TextAI.DEF.drama_propdesc`。这一条里「不要人物/手/环境」是铁律
@@ -2991,6 +3134,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         /* 候选排那两个动作（与角色卡同一份 CANDK） */
         else if (act === 'candgen') { await genMoreCands(s, 'img'); }
         else if (act === 'usecand') { useCand(s, 'img', el.dataset.src); }
+        else if (act === 'canddel') { dropCand(s, 'img', el.dataset.src); }
         else if (act === 'rename') {
           await sceneInfo(s);
         }
@@ -3020,7 +3164,6 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   function openLibPicker(mode) {
     const M = mode || {};
     const picking = !!M.pick;               // true = 只交回选择，不往这一集里拉
-    let pickGroup = '';                       // '' = 全部组
     let changed = false;                      // 素材库或这一集动过（关掉后要重画：页面 hints 读的就是这两个数）
     let pendingPre = null;                    // 预选名单，等 body() 里 grid 建好之后再灌进 PickSel
     let grpRow, grid, empty, cnt, useBtn, delBtn;
@@ -3032,10 +3175,16 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     let libCache = null;
     const all = () => (libCache || (libCache = D.Lib.list()));
     const withLib = fn => { const prev = libCache; libCache = D.Lib.list(); try { return fn(); } finally { libCache = prev; } };
+    let pickGroup = '';                       // '' = 全部组
+    let pickQ = '';                           // 关键词（E22：库里攒到几十条以后靠滚动找那一位很慢）
     const inGroup = c => !pickGroup || String(c.group || '').trim() === pickGroup;
+    /* 「这一条命中关键词吗」——判据是 `Lib.hayOf` 那一份（它与素材库页的搜索框、
+       「AI 找素材」用的是同一个：覆盖哪些字段由 `Lib.SEARCH_FIELDS` 决定）。
+       这里不自己拼「名字 + 外貌 + 人设」那几项 —— 拼一份就会与另两处不一致。 */
+    const hitQ = c => !pickQ || D.Lib.hayOf(c).includes(pickQ.toLowerCase());
     /* 顺序数组只算一次：PickSel 的 Shift 连选按「当前可见顺序」取那一段 */
     let order = [];
-    const shown = () => all().filter(c => c && inGroup(c));
+    const shown = () => all().filter(c => c && inGroup(c) && hitQ(c));
     /* 「这一条是不是已经在本集里」的判据必须和 `Lib.pullInto` 认人的判据**一模一样**（先按 libId，再按同名）：
        以前只看 libId，于是库里那位「小雅」在卡片上写着本集没有，点「加入这一集」却只是把字段并过去、
        并不多出一个人 —— 卡片说的话与真正会发生的事不一致，而这条正是「要不要再挑一次」的判断依据。
@@ -3146,10 +3295,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         el.onclick = ev => pick.click(order, el.dataset.lib, ev.shiftKey);
       });
       empty.hidden = !!xs.length;
-      empty.textContent = all().length ? '这个组里还没有素材，点「全部」看别的组。'
-        : (picking
+      /* 空态要说清是「库里根本没有」还是「有、但被筛掉了」——
+         两者的下一步完全不同（前者要去存一批，后者只要换个词）。
+         判据是 `all().length` 与 `shown().length` 这两个数，不另写一套。 */
+      empty.textContent = all().length === 0
+        ? (picking
           ? '素材库还是空的：先拍一集并把角色与场景「存进素材库」，或点下面「＋ 新建素材」手动建一条。'
-          : '素材库还是空的：在下面「把本集角色与场景存进素材库」存一批，或「＋ 新建素材」直接手动建一条。');
+          : '素材库还是空的：在下面「把本集角色与场景存进素材库」存一批，或「＋ 新建素材」直接手动建一条。')
+        : (pickQ
+          ? '没有一条命中「' + pickQ + '」。搜的是名字、外貌、人设、用途这几处（换成其中一个词试试）。'
+          : (pickGroup ? '「' + pickGroup + '」这一组里还没有素材，点「全部」看别的组。'
+            : '当前筛选下没有素材。'));
       pick.reflow(order);
       syncSel();
     });
@@ -3194,7 +3350,12 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         : '跨剧复用 · 点卡片多选，或按分组整组加入（角色进角色栏、场景进场景栏、道具进道具栏）',
       body(el, close) {
         dlgClose = close;
-        el.innerHTML = '<div class="ap-chips" id="libGrp"></div>'
+        /* 搜索框（E22）：判据 `Lib.hayOf` 一份，与素材库页的搜索框、「AI 找素材」同一个。
+           放在分组芯片**上面**：先按字找、再在命中的那些里按组收窄，是自然的顺序。
+           过滤时不清选择（`pick` 不动）—— 用户搜是为了定位，不是为了把之前的勾清掉。 */
+        el.innerHTML = '<div class="ap-search">' + ic('search', 14)
+          + '<input id="libQ" type="search" placeholder="搜名字 / 外貌 / 人设 / 用途…" autocomplete="off"></div>'
+          + '<div class="ap-chips" id="libGrp"></div>'
           + '<div class="ap-grid" id="libGrid" style="margin-top:10px"></div>'
           + '<div class="ap-empty" id="libEmpty" hidden></div>'
           + '<div class="btn-row" style="margin-top:12px"><button class="tool acc" id="libUse" disabled>加入这一集</button>'
@@ -3203,6 +3364,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           + '<button class="tool danger" id="libDel" disabled>删掉选中的</button></div>';
         grpRow = el.querySelector('#libGrp'); grid = el.querySelector('#libGrid');
         empty = el.querySelector('#libEmpty'); cnt = el.querySelector('#libCnt');
+        /* 搜索框接线：输入即筛（不用点「搜索」——这一页没有那种按钮）。
+           Esc 清空并重画；上下键在这一页不做跳转（那是素材库页搜索框的行为，两处别混）。 */
+        const qIn = el.querySelector('#libQ');
+        if (qIn) {
+          qIn.value = pickQ;
+          qIn.oninput = () => { pickQ = String(qIn.value || '').trim(); paint(); };
+          qIn.onkeydown = e => {
+            if (e.key === 'Escape') { e.stopPropagation(); qIn.value = ''; pickQ = ''; paint(); }
+          };
+        }
+        try { if (window.fillIcons) fillIcons(el); } catch (e) {}
         useBtn = el.querySelector('#libUse'); delBtn = el.querySelector('#libDel');
         useBtn.onclick = useSel;
         delBtn.onclick = async () => {
@@ -3303,6 +3475,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           <button id="cNext" title="下一段（→）">${ic('stepNext', 15)}</button>
           <button id="cAll" title="把已经拍出来的段按段号连着放一遍（只放平台出的原片；导出成片仍是另一个动作）">${ic('play', 13)} 整集连放</button>
           <span class="nm">${sh ? ('第 ' + sh.no + ' 段 · ' + D.esc(sh.title)) : '还没有段'}</span>
+          <span class="tb" id="tb" title="点或拖动跳转；左右键各一秒"></span>
           <span class="tm" id="tm">00:00 / 00:00</span>
         </div>
         <div class="dr-segs" id="segs"></div>
@@ -3632,6 +3805,12 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      舞台却还按 chosen 播 —— 于是展开的是这一条、播的还是那一条，字幕也跟着错。
      段条状态与成片拼段仍然读 curTake：**看**哪一条不该改变**用**哪一条。 */
   const takeAt = sh => ((sh && sh.takes) || [])[takeIdx] || curTake(sh);
+  /* 「这一条有没有画面」—— **全页只有这一份**（连放 / 舞台播放 / 舞台角标三处读它）。
+     以前那三处各写一遍 `t.videoUrl && t.state !== 'failed'`：这属于「判据只有一份」那一族，
+     而这一族的后果是实的 —— 判据一改（比如「本机优先」那一档调整）要改三遍，
+     漏掉一处就会出现「导出的成片是本机那份、舞台播的是外链」这种对不上。
+     注意它判的是**有没有画面**，不是「用了哪一条」—— 那件事读 curTake / takeAt。 */
+  const hasPicture = t => !!(t && t.videoUrl && t.state !== 'failed');
   const curShot = () => (cur.shots || [])[shotIdx] || null;
   /* 进到某一步时的善后 = 重画一次。前置条件是**现算**的（`prereqs` 在 renderBottom 里当场所取），
      所以用户回第 2 步补了音色再回来，「开始拍」上那句压暗的「前置条件还没齐」会自己散掉，
@@ -3649,6 +3828,12 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      而那条配音其实早就完了。 */
   const takeRunning = t => !!t && (t.state === 'pending' || t.state === 'dubbing' || t.state === 'shooting');
 
+  /* 「这一次提交不知道平台收没收到」——判据本体在 assetlib.js 的 Api.maybeSubmitted
+     （就住在给它打 maybeSubmitted 标记的那一行旁边）。这一行只是委托。
+     **网络不通 / 等不到 ≠ 任务失败**：把它当成失败会让「重拍没成的 N 段」把这一段算进去，
+     用户点下去就是第二次扣费。 */
+  const maybeSubmitErr = e => !!(window.Api && Api.maybeSubmitted && Api.maybeSubmitted(e));
+
   /* 段条那一颗：外壳（选中态 + data-i + 接线）归 renderSegs，**内容单独一份** ——
      某一段的开头画面或配音跑完了，只换这一颗的内容，不重画整条（滚动位置与接线都不动）。 */
   function segInner(sh) {
@@ -3664,7 +3849,46 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       <div class="cap ${st}">${D.esc(label)}${t && t.sec ? ' · ' + Math.round(t.sec) + ' 秒' : ''}</div>`;
   }
   function segHTML(sh, i) {
-    return `<div class="dr-seg${i === shotIdx ? ' on' : ''}" data-i="${i}">${segInner(sh)}</div>`;
+    const fl = segFlags(sh);
+    return `<div class="dr-seg${i === shotIdx ? ' on' : ''}" data-i="${i}"`
+      + (fl.length ? ` title="${D.esc('第 ' + sh.no + ' 段：' + fl.map(x => x.说).join('；'))}"` : '')
+      + '>' + segInner(sh) + (fl.length
+        ? '<div class="sfl">' + fl.map(x => `<span class="sf ${x.k}" title="${D.esc(x.说)}">${x.字}</span>`).join('') + '</div>'
+        : '') + '</div>';
+  }
+
+  /* 「这一段还差什么」—— 三个角标，数据**全是现成的**（prereqs / staleChains / edlCheck 那三份）。
+     为什么加：这些信息原来只存在于底栏的红条与前置清单里，
+     而底栏在第 2/3/4 步的形态各不相同 —— 于是「哪几段进不了成片」要滑到段条上完全看不出来，
+     要等到点导出那一刻才知道。
+     角标只标「**这一段**的问题」，不重复「整个这一集」级别的那些（那儿有底栏）。
+     判据只有这一处（段条与 tooltip 都读它），别在别处再算一遍。 */
+  function segFlags(sh) {
+    if (!sh || !cur) return [];
+    const out = [];
+    /* ① 这一段缺前置条件（角色没脸 / 没音色 / 场景缺时段…）——
+       `prereqs(cur, sh, REG)` 是**这一段**的那一份（不是整集）。 */
+    try {
+      const pr = D.Pipe.prereqs(cur, sh, REG) || [];
+      if (pr.length) out.push({ k: 'pre', 字: '缺', 说: pr.map(x => (x.who ? x.who + '：' : '') + x.label).join('；') });
+    } catch (e) { /* prereqs 读不到就不标这个角标，不要为了一个角标把整条段条弄坏 */ }
+    /* ② 接的是上一段的旧末帧（改了选用的那一条之后没跟着重拍）。
+       staleChains 返回的是「这一段接着哪一段的第几次」，按段号对上号。 */
+    try {
+      const st = D.Pipe.staleChains(cur) || [];
+      const hit = st.find(x => x.no === sh.no);
+      if (hit) out.push({ k: 'stale', 字: '旧帧', 说: '接的还是第 ' + (hit.prevNo || '?') + ' 段'
+        + (hit.fromNo ? '第 ' + hit.fromNo + ' 次' : '') + '的末帧，成片里这一处会对不上' });
+    } catch (e) {}
+    /* ③ 进不了成片（选用的那一条没画面 / 没台词）—— 这一条最要紧，标红一点。 */
+    try {
+      const edl = D.Pipe.edlCheck(cur) || {};
+      if ((edl.missing || []).some(x => x.no === sh.no)) {
+        const one = edl.missing.find(x => x.no === sh.no);
+        out.push({ k: 'miss', 字: '进不了', 说: '这一段进不了成片：' + (one.why || '选用的那一条没有画面') });
+      }
+    } catch (e) {}
+    return out;
   }
   function paintSeg(sh) {
     const i = (cur.shots || []).indexOf(sh); if (i < 0) return;
@@ -3679,7 +3903,8 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
          以前手动模式只有角色和场景能手动加，段没有入口 —— 勾了「我自己排」还是只能等 AI 拆。 */
       + `<div class="dr-seg add" id="segAdd" title="自己加一段（不想全靠 AI 拆的时候）"><div class="th"><span class="plus">${ic('plus', 20, 1)}</span></div><div class="cap">加一段</div></div>`;
     /* 点段条也是「我自己要看这一段」：连放要让位，否则在 `onended` 里又被拽回队列。 */
-    box.querySelectorAll('.dr-seg[data-i]').forEach(el => el.onclick = () => { stopAll(); stopPlayer(); shotIdx = Number(el.dataset.i); takeIdx = 0; render(); });
+    box.querySelectorAll('.dr-seg[data-i]').forEach(el => el.onclick = () => { stopAll(); stopPlayer();
+      shotIdx = Number(el.dataset.i); takeIdx = takeIdxFor((cur.shots || [])[shotIdx]); render(); });
     const sa = $('segAdd');
     if (sa) sa.onclick = () => {
       cur.shots = cur.shots || [];
@@ -3893,7 +4118,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         /* 看预演那一步还没拍过任何一条 —— 摆一个「重拍这段」在那儿既是顺序错乱，
            也是个真的会开拍的按钮。预演阶段这一块整个不出现。 */
         ? ''
-        : `<div class="dr-sect">每一条拍片 <span><button class="ghost mini" data-a="reshoot" data-n="${takesLeft(sh)}"${takesLeft(sh) ? '' : ' disabled title="已经拍到重拍上限了 —— 先在下面删掉拍坏的那次才能再拍"'}>重拍这段</button></span></div>
+        : `<div class="dr-sect">每一条拍片 <span><button class="ghost mini" data-a="reshoot" data-n="1"${takesLeft(sh) ? '' : ' disabled title="已经拍到重拍上限了 —— 先在下面删掉拍坏的那次才能再拍"'}>重拍这段</button></span></div>
            <div id="takeBox"></div>
            <div class="btn-row"><button class="tool acc" data-a="shoot1"${takesLeft(sh) ? '' : ' disabled title="已经拍到重拍上限了 —— 先在下面删掉拍坏的那次才能再拍"'}>拍这一段</button></div>`}`;
     if (!isPreview()) renderTakes(sh);
@@ -4164,9 +4389,13 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   /* 上一次 `renderTakes` 画出来的**结构签名**（条数 / 状态 / 选中 / 有无画面 / 有无错误）。
      只变 `t.stage`（进度文案）时走定点 patch，不重建整列 —— 见 renderTakes 开头那段。 */
   let takesSig = '';
-  function takesStructSig(takes) {
-    return takeIdx + '|' + takes.length + '|' + takes.map(t => {
+  function takesStructSig(sh) {
+    const takes = (sh && sh.takes) || [];
+    return takeIdx + '|' + takes.length + '|' + (sh ? (sh.chosen || '') : '') + '|' + takes.map(t => {
       const running = !!(t.taskId && !t.abandoned && t.state !== 'done' && t.state !== 'failed');
+      /* 「选用中 / 可选用」这两个标记也要进签名：换一次选用之后结构就变了
+         （一颗按钮变成「✓ 选用中」），签名不变的话定点刷新那一支会直接 return，
+         界面上就还摆着旧那颗「用这一条」。 */
       return [t.no, t.state, running ? 1 : 0, (t.videoUrl || t.video) ? 1 : 0,
         t.error ? 1 : 0, (t.notes || []).length].join(':');
     }).join(',');
@@ -4186,7 +4415,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
        每 4 秒把整个右栏扫一遍重接一遍，而实际只有一行状态字变了。
        签名没变（条数/状态/选中/有无画面/有无错误都一样）且 DOM 行数对得上 → 只改 .st 文本；
        只要有任何结构变化，照样走下面的完整重建（那条路把 bindSideCtl 补上，见末尾那段注释）。 */
-    const sig = takesStructSig(takes);
+    const sig = takesStructSig(sh);
     const rows = box.querySelectorAll('[data-ti]');
     if (sig === takesSig && rows.length === takes.length) {
       rows.forEach(el => {
@@ -4212,6 +4441,16 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
          「上一次拍的时候三视图带上了没有」问的是那一次 —— 数据层拍的时候记，这里照实摆。 */
       const mats = t.applied && t.applied.mats && t.applied.mats.length
         ? `<span class="ch" title="这一次发出去的素材：${D.esc(t.applied.mats.join('、'))}">素材 ${t.applied.mats.length} 项</span>` : '';
+      /* 「用这一条」—— 这一页目前唯一「界面说了、系统不做」的能力缺口：
+         chosen 全项目只有自动写入（拍完时第一次有画面的那条、删掉时挪一次），
+         用户重拍三次以后进成片的还是最早那条，而这一屏一个能改选的入口都没有。
+         只在**拍成了、有画面**的那一条上出现（判据与 D.Shots.chooseShot 的守卫同一条，
+         别在页面再写一份「能不能选」）；已经是选用中的那颗不画（点了也没意义）。 */
+      const canUse = t.state === 'done' && t.videoUrl;
+      const isUsed = sh.chosen === t.id;
+      const chosenMark = canUse && !isUsed
+        ? `<button class="dr-takeuse" data-a="usethis" data-tid="${D.esc(t.id || '')}" title="让这一段进成片时用这一条（下一段的接帧也改用它）">用这一条</button>`
+        : (isUsed ? '<span class="ch used" title="这一段进成片时用的是这一条">✓ 选用中</span>' : '');
       /* 出了画面就摆一条「⬇」：以前要把某一段单独拿去用，只能导出整集（几十秒的渲染）再从成片里裁，
          而这一条本来就是一段成片。名字由 D.Pipe.takeName 统一拼（哪一集·哪一段·第几次）。 */
       const dl = (t.state === 'done' && (t.videoUrl || t.video))
@@ -4219,7 +4458,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       return `<div class="dr-take${i === takeIdx ? ' on' : ''}" data-ti="${i}">
         <span class="no">第 ${t.no} 次</span>
         <span class="st">${D.esc(t.state === 'done' ? '已出画面' : stateCn(t))}</span>
-        ${chain}${mats}
+        ${chosenMark}${chain}${mats}
         ${dl}
         ${running ? `<button class="dr-takex" data-a="abandon" data-tid="${D.esc(t.id || '')}" title="不等这一条了：去平台撤单，撤不掉也先把手松开">不等了</button>` : ''}
         <button class="dr-takedel iconbtn" data-a="deltake" data-tid="${D.esc(t.id || '')}" title="删掉第 ${t.no} 次拍摄">${ic('trash', 12)}</button>
@@ -4551,23 +4790,41 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       else if (a === 'reshoot') {
         /* 次数只认**这个按钮自己**的那一份，两处绝不串台：
            · 详情块里的「再重拍」与「再来 N 次」下拉挨在一起（按钮带 data-more）—— 下拉显式选了几次就几次；
-           · 段标题上的「重拍这段」是另一个按钮，它身上写的是 data-n。
-           以前两个按钮都去读 #moreTimes：用户在某一条里选了「再来 3 次」，回头点段标题那个按钮
-           就凭空多开两条真任务 —— 那不是「重拍这一段」，是替用户决定花三份钱。 */
+           · 段标题上的「重拍这段」是另一个按钮，它身上写的是 data-n="1"。
+             （它以前写的是 takesLeft(sh) —— 「还剩几次就拍几次」，于是只拍过 1 次、上限 3 时
+              点一颗「重拍这段」就是 **2 条真任务**，而次数只藏在 data-n 里、
+              只有 Confirm 弹出来那一刻才看得见；现在它与旁边「拍这一段」一致，都是 1 次。
+              一次多条只留给那个显式写下拉。） */
         const sel = el && el.dataset.more ? document.getElementById('moreTimes') : null;
-        const n = sel ? (Number(sel.value) || 1) : (Number(el && el.dataset.n) || 0);
+        const n = sel ? (Number(sel.value) || 1) : (Number(el && el.dataset.n) || 1);
         /* 一次开 N 条 = 各自一条真任务、各自计费。开之前说清楚，别让「重拍这段」四个字
            悄悄变成 N 倍账单（一次拍完也是这一段反复重拍的本意，所以不禁，只是不许默认发生）。 */
         if (n > 1 && !await Confirm.ask({
           title: '这一段一次拍 ' + n + ' 次？',
-          /* 纯文本：Confirm.ask 的正文走 textContent，写 <b> 会原样显示成一串标签 */
-          body: '每一次都会单独开一条任务、各出一段画面，一共 ' + n + ' 条。拍完在下面的「拍片记录」里能逐条删掉重拍。',
+          /* 纯文本：Confirm.ask 的正文走 textContent，写 <b> 会原样显示成一串标签。
+             顺带把配音那笔说清楚：每条新 take 都会把这一段的台词重新合成一遍，
+             用户按「N 条视频任务」估算成本，实际还叠着 N 倍的语音调用（见 L11）。 */
+          body: '每一次都会单独开一条任务、各出一段画面，一共 ' + n + ' 条。'
+            + '每一段还会重新合成这一段的全部台词配音（' + ((sh.lines || []).length || 0) + ' 句）。'
+            + '拍完在下面的「拍片记录」里能逐条删掉重拍。',
           okLabel: '就拍 ' + n + ' 次',
         })) return;
-        if (n > 0) return await shootOne(sh, n, false);
-        /* 走到这里 = 这一格没写还剩几次：按 1 次拍，但**说一声**，别让用户以为拍了 N 次 */
-        toast('这一格没写还能拍几次，先按 1 次拍；要一次拍几遍，用这一条展开后的「再重拍」', 'err');
-        return await shootOne(sh, 1, false);
+        return await shootOne(sh, n, false);
+      }
+      else if (a === 'usethis') {
+        /* 「用这一条」—— 让这一段进成片时用这一条（下一段的接帧也改用它）。
+           判据与收尾都在 D.Shots.chooseShot 一处（页面不自己判断「能不能选」）。
+           收尾要走那三件会重算的东西：段条、右栏、底栏（下一段的接帧提醒会自己跟上）。 */
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        const r = D.Shots.chooseShot(cur, sh.id, el && el.dataset.tid);
+        if (!r.ok) return toast(r.why, 'err');
+        save();
+        /* 切过去看一眼这一条：舞台、字幕、角标都跟着换成选用的那一条 */
+        takeIdx = r.at;
+        paintShotState(sh); renderSegs(); renderBottom(); paintStage(); renderSide();
+        if (r.same) return;
+        toast('第 ' + sh.no + ' 段改用第 ' + ((sh.takes[r.at] || {}).no || r.at + 1) + ' 次'
+          + ' —— 成片与后面几段的接帧都以它为准', 'ok');
       }
       else if (a === 'deltake') {
         /* 拍片记录里那一行的 ✕：这一格是「查看/切换这一条」，点 ✕ 不该顺手把选中态也换掉。
@@ -4649,9 +4906,16 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      连放只是把已有的原片接起来看，两者不能互相顶替。
      没拍的那几段照常在列表里标着「还没拍」—— 连放只走有画面的段，不拿预演画面凑数。 */
   let allList = [], allAt = -1, allOn = false;
-  const playedShots = () => (cur.shots || []).filter(sh => {
-    const t = takeAt(sh);
-    return sh && t && t.videoUrl && t.state !== 'failed';
+  /* 连放「整集」走的是**成片那一条**（chosen），不是「现在正在看的那一条」。
+     以前这里读 takeAt（= takes[takeIdx]），而 takeIdx 是**跨段共用的下标**：
+       · 某段第 1 次失败、第 2 次拍成 → 连放把这一段整个跳过（跳的是 takes[0]），
+         结尾 toast 还说「还有 N 段没拍」，而段条上它是 ✓ —— 用户以为是自己没拍好；
+       · 用户在别的段展开过「第 2 次」→ 之后每一段连放播的都是它自己的 takes[1]，
+         未必是选用的那条，与那颗按钮 title 上写的「实际生成后的视频」不符。
+     判据与 edlCheck / 成片拼段同一份（curTake = chosenTake）。 */
+const playedShots = () => (cur.shots || []).filter(sh => {
+    const t = curTake(sh);
+    return sh && hasPicture(t);
   });
   function playAll() {
     allList = playedShots();
@@ -4670,7 +4934,11 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      别在这里自己再写一份「切段」—— 两份切法迟早有一处漏掉高亮。 */
   function gotoIdx(i) {
     if (i < 0 || i >= (cur.shots || []).length) return;
-    shotIdx = i; renderSegs(); renderSide();
+    shotIdx = i;
+    /* takeIdx 也要对齐到该段选用那一条 —— 舞台/字幕读的是它，不对齐的话
+       连放播的是这一段的 takes[takeIdx]（别的段留下的下标），与段条上的「✓ 已选用」不符。 */
+    takeIdx = takeIdxFor((cur.shots || [])[i]);
+    renderSegs(); renderSide();
   }
   function stageMedia() {
     const sh = curShot(), box = $('stageMedia'); if (!box || !sh) return;
@@ -4683,7 +4951,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
        舞台还是那张开头画面，用户看不到刚才拍的那条 —— 得先切到第 4 步才看得到。
        「点一下拍完却没反应」是这一页最贵的一种体验问题，而它只是一行多余的 step 判断。
        预演仍然在：这一段还没拍过时走下面那段（开头画面 + 配音 + 字幕，本机实时合成）。 */
-    if (t && t.videoUrl && t.state !== 'failed') {
+    if (hasPicture(t)) {
       /* 地址取用只走 Drama.Pipe.takeVideo（它与导出、EDL 用的是同一份），页面不自己读 videoUrl */
       box.innerHTML = `<video id="vid" playsinline preload="metadata" src="${D.esc(D.Pipe.takeVideo(cur, sh, t))}"></video>`;
       const v = $('vid');
@@ -4696,7 +4964,11 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
          留着连放状态就���被强行拽回下一段。 */
       v.onended = () => {
         iconSet($('cPlay'), 'play', 15);
-        if (!allOn) return;
+        /* 非连放的那一支要 stopPlayer()：autoplay 仍为真 → tick 那条 RAF 继续按__total
+           累加 playerT，到点归零又 playPreviewAudio() —— 用户看到的是「片子放完了，
+           字幕还在自己走、声音又来一遍」，而中央那颗大播放键（只在 stopPlayer 里恢复）也不回来。
+           stopPlayer 已经把 playerT 归零并取消 RAF，就用它。 */
+        if (!allOn) { stopPlayer(); return; }
         if (allAt + 1 >= allList.length) { stopAll(); autoplay = false; toast('整集放完了', 'ok'); return; }
         allAt++;
         const nx = allList[allAt];
@@ -4732,6 +5004,8 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   let subsKey = '', subsCache = [];
   const subsFp = arr => (arr || []).map(l => [l.text || '', l.who || '', l.start, l.end, l.dur].join('\u0001')).join('\u0002');
   let lastSubHit = null;
+  /* 当前浮在画面上的那一句（paintSubs 里写，见那里的点击说明） */
+  let subHit = null;
   function paintSubs(t) {
     const el = $('subs'); if (!el) return;
     const sh = curShot(); if (!sh) return;
@@ -4746,9 +5020,25 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     if (!hit) { el.hidden = true; return; }
     el.hidden = false;
     el.innerHTML = (hit.speaker ? `<span class="who">${D.esc(hit.speaker)}：</span>` : '') + D.esc(hit.text);
+    /* 记下这一句的起点与总长：点一下就跳到它开头（E32）。
+       为什么不做成「点哪句跳哪句」的列表—— 那是字幕轨浏览器的做法，
+       而这里只有一句浮在画面上：点它跳回**自己**的开头，用户就能重听刚过去的那半句。 */
+    subHit = hit;
+    const total = (curShot() || {}).__total || 0;
+    el.classList.toggle('seeking', total > 0);
+    el.title = total > 0 ? ('点一下跳回这一句的开头（' + mmss(hit.start) + '）') : '';
   }
   const mmss = s => String(Math.floor((s || 0) / 60)).padStart(2, '0') + ':' + String(Math.floor((s || 0) % 60)).padStart(2, '0');
-  function paintTime(dur) { const el = $('tm'); if (el) el.textContent = mmss(playerT) + ' / ' + mmss(dur || (curShot() || {}).__total || 0); }
+  function paintTime(dur) {
+    const total = dur || (curShot() || {}).__total || 0;
+    const el = $('tm'); if (el) el.textContent = mmss(playerT) + ' / ' + mmss(total);
+    /* 进度条跟着走（宽度用 CSS 变量填，不改 style.width —— 那是布局属性，每帧改会触重排）。 */
+    const bar = $('tb');
+    if (bar) {
+      bar.classList.toggle('no-total', !total);
+      bar.style.setProperty('--p', total ? Math.max(0, Math.min(100, (playerT / total) * 100)).toFixed(1) + '%' : '0%');
+    }
+  }
   function paintStage() {
     const sh = curShot(), t = sh ? takeAt(sh) : null;
     stageMedia();
@@ -4757,7 +5047,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       /* 角标跟着舞台**真正在放什么**说话（判据与 stageMedia 同一份：有没有拍出画面）：
          原来只看 step，第 3 步哪怕刚拍完也压着「先画一张开头画面，再看预演」——
          片子就在那儿，角标却说没有。 */
-      if (t && t.videoUrl && t.state !== 'failed') { badge.hidden = true; }
+      if (hasPicture(t)) { badge.hidden = true; }
       else if (t && t.state === 'failed') { badge.hidden = false; badge.textContent = '这一段还没拍好'; }
       else if (isPreview()) { badge.hidden = false; badge.textContent = sh && sh.startImg ? '预演：开头画面 + 配音 + 字幕（本机合成）' : '先画一张开头画面，再看预演'; }
       else { badge.hidden = true; }
@@ -4765,6 +5055,19 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     paintSubs(t); paintTime();
   }
   function bindStage() {
+    /* 进度条接线（工具条每次重画都换新节点，所以跟着 paintStage 走 —— 与那几个按钮同一层）。 */
+    bindTimeline();
+    /* 字幕那一句可点（跳回它自己的开头）。绑在 #subs 上而不是每次重画换节点的那一层 ——
+       paintSubs 只改 innerHTML、不换 #subs 本身，所以这一次绑就够了。 */
+    const sb = $('subs');
+    if (sb && !sb._bound) {
+      sb._bound = true;
+      sb.onclick = () => {
+        if (!subHit || !subHit.start) return;
+        seekTo(subHit.start);
+        if (!autoplay && !$('vid')) startPlayer();      // 预演这一路：跳完顺手播起来，否则用户点了没反应
+      };
+    }
     /* 三个走带按钮点完就 blur：快捷键**只认焦点所在**（下面的规则③），
        不 blur 的话点完「下一段」焦点还留在那颗钮上，接着按空格会去重新点它而不是播放 ——
        用户看着就是「空格没反应」。 */
@@ -4789,7 +5092,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const n = (cur.shots || []).length;
     const j = Math.max(0, Math.min(n - 1, shotIdx + dir));
     if (j === shotIdx) return;
-    shotIdx = j; takeIdx = 0; render();
+    shotIdx = j; takeIdx = takeIdxFor((cur.shots || [])[j]); render();
   }
   /* 舞台快捷键：空格 = 播放/暂停，← / → = 上/下一段。
      四条放行规则，缺一条就会变成最招人烦的那几种毛病：
@@ -4815,12 +5118,61 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       if (!cur || !$('stage')) return;
       if (window.Wb && Wb.lightbox && Wb.lightbox.isOpen()) return;
       if (document.querySelector('dialog[open]')) return;
+      /* ④ 守卫还漏了本页自己的两块浮层 —— AGENTS.md §7「页面级快捷键四条守卫缺一不可」：
+         · 第 3/4 步「看一眼角色」开的是 div#castDrawer：role="dialog" 但**不是 <dialog>**，
+           而且代码 el.focus() 让 activeElement 变成 DIV，连第 ③ 条「焦点在 button 上放行」也绕不开；
+         · 底栏那四块就地面板是 .dr-panel（panelShow）。
+         浮层盖在舞台上时按 ←/→/空格**仍在换段、仍在播片**。判据只写这一处。 */
+      if ($('castDrawer')) return;
+      if (document.querySelector('.dr-panel')) return;
       if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); togglePlay(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); gotoShot(-1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); gotoShot(1); }
     };
   }
   function togglePlay() { autoplay ? stopPlayer() : startPlayer(); }
+  /* 「跳到第几秒」—— 真片（<video>）与预演（RAF + playerT）两条路各写一份 seek 就是两份判据，
+     而这里要做的事只有一件：把 playerT 挪过去，并让当前那一路立刻看到新位置。 */
+  function seekTo(sec) {
+    const t = Math.max(0, Number(sec) || 0);
+    const total = (curShot() || {}).__total || 0;
+    if (total) playerT = Math.min(t, total);
+    const v = $('vid');
+    if (v) { try { v.currentTime = playerT; } catch (e) {} }
+    /* 预演这一路是 RAF 自己累加 playerT 的：不改 playerClock 的话，下一帧立刻又从旧位置加上去，
+       拖动的手感是「一松手就弹回去」。所以这里把 playerClock 拨回当前时刻。 */
+    playerClock = performance.now();
+    paintSubs(takeAt(curShot()));
+    paintTime(v && v.duration ? v.duration : total);
+  }
+  /* 进度条：点与拖都跳（D39：以前 #tm 只是两个字的文本，想重看第 3 秒只能从头放）。
+     键盘也能操作（←/→ 各退进 1 秒，Home/End 到头尾）—— 只给鼠标的话键盘用户又少一条路。 */
+  function bindTimeline() {
+    const bar = $('tb');
+    if (!bar) return;
+    const at = e => {
+      const r = bar.getBoundingClientRect();
+      if (!r.width) return;
+      const x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) / r.width;
+      const total = (curShot() || {}).__total || ($('vid') && $('vid').duration) || 0;
+      if (total) seekTo(Math.max(0, Math.min(1, x)) * total);
+    };
+    bar.onclick = at;
+    bar.onpointerdown = e => { bar._drag = true; bar.setPointerCapture && bar.setPointerCapture(e.pointerId); at(e); };
+    bar.onpointermove = e => { if (bar._drag) at(e); };
+    bar.onpointerup = bar.onpointercancel = () => { bar._drag = false; };
+    bar.setAttribute('tabindex', '0');
+    bar.setAttribute('role', 'slider');
+    bar.setAttribute('aria-label', '播放进度（左右键各一秒，Home/End 到头尾）');
+    bar.onkeydown = e => {
+      const total = (curShot() || {}).__total || ($('vid') && $('vid').duration) || 0;
+      if (!total) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); seekTo(playerT - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); seekTo(playerT + 1); }
+      else if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); seekTo(0); }
+      else if (e.key === 'End') { e.preventDefault(); e.stopPropagation(); seekTo(total); }
+    };
+  }
   /* 预演时间轴按**真实时间**走（performance.now 的帧间隔）。以前是每帧 +0.05 秒 ——
      60Hz 屏上等于 3 倍速：字幕提前换、配音还没念完字就跳下一句。 */
   function startPlayer() {
@@ -4835,13 +5187,18 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       const total = (curShot() || {}).__total || 8;
       playerT += Math.min(0.25, (now - playerClock) / 1000);
       playerClock = now;
-      if (playerT >= total) { playerT = 0; if (isPreview()) playPreviewAudio(); }
+      /* 判据与 stageMedia 同一句：**这一条有没有画面**（hasPicture），不是 isPreview()。
+         这一段已经拍出画面时 <video> 播的是平台原声，而成片里视频自带的人声是被压掉的
+         （AGENTS.md §3 配音那第 ③ 条）—— 于是这一处再叠一路 take.lines 的逐句配音 =
+         「预演听到的是两遍人声、真成片只有一遍」，预演不再是成片的预演。 */
+      if (playerT >= total) { playerT = 0; if (!hasPicture(takeAt(curShot()))) playPreviewAudio(); }
       paintSubs(takeAt(curShot()));
       paintTime(total);
       playerTimer = requestAnimationFrame(tick);
     };
     cancelAnimationFrame(playerTimer); playerTimer = requestAnimationFrame(tick);
-    if (isPreview()) playPreviewAudio();
+    /* 同上：有画面就只播 <video>（它自带原声），没画面才走预演配音 */
+    if (!hasPicture(takeAt(curShot()))) playPreviewAudio();
   }
   function stopPlayer() {
     autoplay = false; cancelAnimationFrame(playerTimer);
@@ -5029,10 +5386,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const capped = list.filter(sh => takesLeft(sh) <= 0);
     const tail = what === STALE_WHAT
       ? '拍完每一段会重新接上前面那一段的末帧。' : '';
+    /* 后果要报的是**调用次数**，不只是段数（AGENTS.md「花钱先问」）：
+       每条新 take 都会把这一段的台词逐句重新合成一遍 —— 3 段 8 句就是 3 条视频任务
+       外加 24 次真实语音合成调用。只写「各重拍一次」的话，用户按 3 段视频估算成本，
+       而配音那笔与视频的花费无关地叠上去。句数取这一集现成的 lines（不另算一份）。 */
+    const lineN = list.reduce((a, sh) => a + (sh.lines || []).length, 0);
     if (!capped.length && !await Confirm.ask({
       title: '重拍第 ' + list.map(sh => sh.no).join('、') + ' 段？',
       body: '第 ' + list.map(sh => sh.no).join('、') + ' 段' + (what ? what + '，' : '')
-        + '现在各重拍一次。每一段都会单独开一条任务、各出一段画面。' + tail,
+        + '现在各重拍一次。每一段都会单独开一条任务、各出一段画面'
+        + (lineN ? '，并且重新合成这 ' + lineN + ' 句台词的配音' : '')
+        + '。' + tail,
       okLabel: '就重拍这 ' + list.length + ' 段',
     })) return;
     if (capped.length && !await Confirm.ask({
@@ -5082,7 +5446,13 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     /* 链要**整条留着**（只在循环里跳过不拍的那些段）：把已经拍好的段从链里抽掉，
        「上一段」就接错了 —— 1|2|3 里 2 早拍好了，3 会去取 1 的最后一帧。 */
     const chains = D.Pipe.chainPlan(mine).map(c => c.shots).filter(l => l.some(todo));
-    const total = chains.reduce((n, l) => n + l.filter(todo).length, 0);
+    const willShoot = new Set();
+    for (const l of chains) for (const sh of l) if (todo(sh)) willShoot.add(sh.id);
+    const total = willShoot.size;
+    /* 配音这一笔也要报：每条新 take 都会把这一段的台词逐句重新合成一遍，
+       用户按「N 条视频任务」估算成本时看不到它（与视频的花费无关地叠上去）。 */
+    let lineTotal = 0;
+    for (const sh of (mine.shots || [])) if (willShoot.has(sh.id)) lineTotal += (sh.lines || []).length;
     if (!total) {
       toast((mine.shots || []).length ? '每一段都已经有了选定的画面' : '还没有段落 —— 先在下面那一格「＋ 加一段」', 'err'); return;
     }
@@ -5096,6 +5466,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     if (!confirmed && total > 1 && !await Confirm.ask({
       title: '开始拍这 ' + total + ' 段？',
       body: '每一段都会单独开一条任务、各出一段画面，这一轮一共 ' + total + ' 条。'
+        + (lineTotal ? '另外这些段的 ' + lineTotal + ' 句台词会重新配音（每条新记录都自带一份配音快照）。' : '')
         + (chains.length > 1
           ? '分 ' + chains.length + ' 条链，最多同时 ' + Math.min(D.Pipe.PARALLEL_CHAINS, chains.length) + ' 条。'
           : '这几段要接上一段的最后一帧，只能一段接一段拍（慢一些，但接得上）。')
@@ -5128,7 +5499,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
             try { link = await D.Pipe.takeLastFrame(mine, ls.prev, ls.take); linkFrom = ls.take.id; }
             catch (e) { sayShot(sh, '取帧失败（' + e.message + '）'); }
           }
-          await shootOne(sh, 1, true, link, linkFrom);
+          await shootOne(sh, 1, true, link, linkFrom, mine);
         }
       }
     };
@@ -5140,6 +5511,9 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     }
     if (stopFlag) toast('收到，剩下的段没再派出去 —— 已经交出去的那几条还在平台跑，回来会自动接上', 'ok');
     stopFlag = false;
+    /* 一轮跑完给一张总账（E-44）：成败逐段现数 `sh.takes[].state`，不另记一份数据。
+       以前只有一句 toast，用户回到第 4 步后只能自己一段段点段条数哪些成了。 */
+    sayBatchTally(mine);
     /* 拍完要走到「拍成片」那一步 —— 不然用户还停在看预演，
        拍出来的每一条根本没有地方显示（参考产品拍完就切到成片那一步）。
        **但只在这一集还开着的时候**：用户中途切去别的集了，把**那一集**推到第 4 步
@@ -5150,18 +5524,42 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       enterStep(4);
     }
   }
+  /* 这一轮的成绩单：成 / 没成 / 结果未知 / 不等了，各多少段。
+     「结果未知」单列一档 —— 它与「没成」在界面上必须分开：
+     前者平台那边很可能已经做出画面了（重拍就是第二次扣费），后者才是真没成。 */
+  function sayBatchTally(mine) {
+    const c = { done: 0, failed: 0, unknown: 0, abandoned: 0, no: 0 };
+    for (const sh of (mine.shots || [])) {
+      const t = takeAt(sh) || (sh.takes || [])[(sh.takes || []).length - 1];
+      if (!t || t.state === 'done') { if (t) c.done++; continue; }
+      if (t.state === 'abandoned') c.abandoned++;
+      else if (t.state === 'pending' && t.error) c.unknown++;
+      else if (t.state === 'failed') c.failed++;
+      else c.no++;
+    }
+    const parts = ['成 ' + c.done + ' 段'];
+    if (c.failed) parts.push('没成 ' + c.failed + ' 段');
+    if (c.unknown) parts.push('结果未知 ' + c.unknown + ' 段（平台那边可能已经出了画面，核对后再决定要不要重拍）');
+    if (c.abandoned) parts.push('不等了 ' + c.abandoned + ' 段');
+    if (c.no) parts.push('还在跑 ' + c.no + ' 段');
+    toast(parts.join(' · '), c.failed || c.unknown ? 'warn' : 'ok');
+  }
   /* 拍一条（times 次）：
        · 批量拍摄（stopWhenPass）—— 闸门已经由 shootAll 过过一次，这里直接干活
-       · 界面点「拍这一段 / 再重拍」—— 走 genRun，闸门按**这一段**记，正在拍时再点只拦这一段 */
-  async function shootOne(sh, times, stopWhenPass, linkFrame, linkFrom) {
-    const mine = cur;   // 用户中途切集时，下面那句「后面几段接旧末帧」不该在别人的界面上弹（见 shootAll 的同一段说明）
-    if (stopWhenPass) return shootLoop(sh, times, true, linkFrame, linkFrom);
+       · 界面点「拍这一段 / 再重拍」—— 走 genRun，闸门按**这一段**记，正在拍时再点只拦这一段
+     `mine`（拍的是哪一集）由调用方**传进来**：批量那一路是 shootAll 派下来的活，
+     用户在并发链跑到一半时切去别的集是常事，函数内再读一次 `cur` 拿到的可能是**另一部剧**——
+     于是 D.Pipe.dubShot / shoot 拿的是别人的 drama（钱扣在 A 集、结果长在 B 集上），
+     而 A 集新长出来的那条 take 一次都没落盘，刷新即没。 */
+  async function shootOne(sh, times, stopWhenPass, linkFrame, linkFrom, mine) {
+    const who = mine || cur;   // 用户中途切集时，下面那句「后面几段接旧末帧」不该在别人的界面上弹（见 shootAll 的同一段说明）
+    if (stopWhenPass) return shootLoop(sh, times, true, linkFrame, linkFrom, who);
     const r = await genRun('shoot', sh.id, '拍第 ' + sh.no + ' 段…',
-      () => shootLoop(sh, times, false), () => refreshShot(sh));
+      () => shootLoop(sh, times, false, undefined, undefined, who), () => refreshShot(sh));
     /* 单段重拍完**当场**说后面几段接的已经不是它了：批量重拍时后面几段会一起重拍（自然接上），
        单段重拍不会 —— 那一瞬间是唯一能说清这件事的时机，隔到导出就只剩一条有接缝的成片了。
        用户中途切到别的集就别弹了：这句话问的是**这一集**的后续段，在别人的界面上冒出来没有意义。 */
-    if (r && cur === mine) askStale();
+    if (r && cur === who) askStale();
     return r;
   }
   /* 后面几段接的还是旧末帧 → 给一条能直接重拍的路（判据与算法都在 D.Pipe.staleChains 一处）。
@@ -5172,24 +5570,26 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     if (!stale.length) return;
     panelShow('stale', { nos: stale.map(s => s.no) });
   }
-  async function shootLoop(sh, times, stopWhenPass, linkFrame, linkFrom) {
-    /* 这一集在开拍**之前**抓住（与 resumePending / healTakeUrls / shootAll 同一个写法）：
-       下面每一个 save() 与每一次数据层调用都必须落在**拍的是哪一集**上。
-       用裸 `save()`（= 存 cur）的话，用户中途按「‹ 返回」再打开另一部，这一段刚拍出来的
-       take 就只留在内存里 —— 钱已经扣了，刷新一下全没。 */
-    const mine = cur;
+  async function shootLoop(sh, times, stopWhenPass, linkFrame, linkFrom, mine) {
+    /* 「拍的是哪一集」由调用方传进来（批量那一路是 shootAll 派下来的活）。
+       以前这里是 `const mine = cur` —— 抓的是**worker 起跑那一刻**的 cur，
+       而并发链上任何一段都可能在用户切集之后才开跑，那时 cur 已经是另一部剧了：
+       D.Pipe.dubShot / shoot 拿的是别人的 drama（钱扣在 A 集、画面长在 B 集上），
+       saveOf(who) 把 B 集存了一遍又一遍，而 A 集新长出来的那条 take 一次都没落盘 ——
+       钱已经扣了，刷新即没。下面每一个 saveOf 与每一次数据层调用都必须落在**拍的是哪一集**上。 */
+    const who = mine || cur;
     /* 单段拍摄同样先看前置条件（手动点「拍这一段」时最容易踩） */
-    if (!stopWhenPass && showPrereq(D.Pipe.prereqs(mine, sh, REG), sh)) return;
+    if (!stopWhenPass && showPrereq(D.Pipe.prereqs(who, sh, REG), sh)) return;
     /* linkFrame：批量拍摄由 shootAll 按链算好传进来（传空串就是「这一段不接」）。
        单段重拍没传（undefined）时自己找**排在前面的那一段**取最后一帧 —— 否则「重拍第 3 段」
        拍出来接不上第 2 段。判据仍走 D.Pipe.linkSource（要不要接、跨不跨场景都只判一次），
        linkFrom 一路带着：只记地址的话，「后面第 4 段接的还是第 3 段上一版的末帧」这件事就查不出来。 */
     if (linkFrame === undefined) {
-      const ls = D.Pipe.linkSource(mine, sh);
+      const ls = D.Pipe.linkSource(who, sh);
       const pt = ls ? ls.take : null;
       if (pt && pt.state === 'done') {
         sayShot(sh, '取第 ' + ls.prev.no + ' 段最后一帧…');
-        try { linkFrame = await D.Pipe.takeLastFrame(mine, ls.prev, pt); linkFrom = pt.id; } catch (e) { linkFrame = ''; linkFrom = ''; }
+        try { linkFrame = await D.Pipe.takeLastFrame(who, ls.prev, pt); linkFrom = pt.id; } catch (e) { linkFrame = ''; linkFrom = ''; }
       } else { linkFrame = ''; linkFrom = ''; }
     }
     stopPlayer();
@@ -5201,23 +5601,39 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         const take = D.newTake({ no: (sh.takes || []).length + 1, linkFrame: linkFrame || '', linkFrom: linkFrom || '' });
         sh.takes = sh.takes || []; sh.takes.push(take);
         if (!batch) takeIdx = sh.takes.length - 1;   // 并发时两条链抢同一个侧栏选中没有意义
-        saveOf(mine); paintShotState(sh);
+        saveOf(who); paintShotState(sh);
         const say = s => sayShot(sh, s);
         try {
           say('配音…');
-          await D.Pipe.dubShot(REG, mine, sh, take, m => { say(m); }); saveOf(mine);
+          await D.Pipe.dubShot(REG, who, sh, take, m => { say(m); }); saveOf(who);
           say('拍摄…');
           /* 第四个回调：提交一拿到任务号就立刻写盘。以前要等整条拍完才 put，
              中途关掉网页就丢了任务号 —— 回来只能重新提交，等于又扣一次钱。 */
-          await D.Pipe.shoot(REG, mine, sh, take, s => { say(s); }, () => saveOf(mine));
+          await D.Pipe.shoot(REG, who, sh, take, s => { say(s); }, () => saveOf(who));
         } catch (e) {
           /* 用户在拍片记录里按了「不等了」：这不是失败，是他自己收的手 ——
              记成 failed 会让段条显示「没拍成」，还占掉重拍上限里的一次。 */
           if (e && e.abandoned || (take && take.abandoned)) {
             take.state = 'abandoned'; take.stage = '不等了'; take.error = '';
+          } else if (maybeSubmitErr(e)) {
+            /* 「结果未知」**不等于失败**，这是这一页最贵的一处判错。
+               提交类请求遇到 5xx / 超时 / 断连时，请求很可能已经到了平台并已扣费 ——
+               公共层早就把它标成 err.maybeSubmitted（assetlib.js / ui.js 都有），
+               导演台与生成工作台都照它写文案，**只有这一路把「不知道」记成了 failed**。
+               记成 failed 的连锁：这一条没有 taskId（提交没回来）→ 续接不了；
+               isFailedShot 把它认成「没成的段」→ 底栏「重拍没成的 N 段」会把它算进去 →
+               用户点下去就是**又一条真任务**，而平台那边很可能早就做出了画面。
+
+               状态留 pending + 写明 error：界面按「还在跑」处理（画转圈、给「不等了」），
+               出口由用户自己点「不等了」。判据读公共那一份（Api.maybeSubmitted）。 */
+            take.state = 'pending';
+            take.stage = '结果未知';
+            take.error = '提交结果未知（平台可能已受理，重拍会再扣一次费）：' + String(e.message || e).slice(0, 200);
+            toast('第 ' + sh.no + ' 段：提交结果未知 —— 平台那边可能已经受理了。'
+              + '先到视频工作台核对，别马上重拍；不要了就按「不等了」。', 'warn', 9000);
           } else { take.state = 'failed'; take.error = e.message; toast('第 ' + sh.no + ' 段：' + e.message, 'err'); }
         }
-        saveOf(mine);
+        saveOf(who);
         /* 这一条**拍完就收工** —— 不在这儿自动重来。重拍是花钱动作，
            一次失败就默默再来一条，等于替用户点了几次他没点的按钮（最多能连着扣 maxTakes 次）。
            `times` 只在用户明确点了「再来 N 次」时才大于 1，那是他自己要的次数。 */
@@ -5346,7 +5762,12 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       }
       for (const c of chars) {
         d.characters.push(D.newChar(Object.assign({}, c, {
-          id: D.uid('c'), faces: (c.faces || []).slice(), assets: Object.assign({}, c.assets),
+          /* assets 走 D.Cast.assetsOf 复制一份，别用 Object.assign({}, c.assets) ——
+             那一写法对**字典**成立；资产改成列表之后它会把数组摊成 {"0":…,"1":…}，
+             Array.isArray 变false，于是下一集里那张角色卡的资产格整格裂掉（缩略图读不出来，
+             道具关联 propIds 也一起丢）。 */
+          id: D.uid('c'), faces: (c.faces || []).slice(),
+          assets: D.Cast.mergeAssetLists([], D.Cast.assetsOf(c)),
           inLib: !!c.inLib, libId: c.libId, group: c.group || '',
         })));
       }
@@ -5357,7 +5778,8 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         n.look = src.look || n.look;
         n.face = src.face || n.face;
         n.faces = (src.faces || []).length ? src.faces.slice() : n.faces;
-        n.assets = Object.assign({}, src.assets, n.assets);
+        /* 资产同样走 mergeAssetLists（剧侧在前保住已画好的），理由见上面那一条 */
+        n.assets = D.Cast.mergeAssetLists(D.Cast.assetsOf(src), D.Cast.assetsOf(n));
         n.voice = src.voice || n.voice;
         n.voiceName = src.voiceName || n.voiceName;
         n.voiceNote = src.voiceNote || n.voiceNote;
@@ -5367,7 +5789,17 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       }
     }
     d.step = 1; d.shots = [];
-    D.put(d); D.setActive(d.id);
+    /* 存盘走 saveOf 并**按返回值决定要不要往下走**。
+       以前是裸 D.put(d) 且不接返回值：localStorage 满时界面上照样出现
+       「下一集开好了…」并把当前集指向它，用户写完故事点开始 → 那一集在盘上根本没有 →
+       报「这一部已经不在了」。 */
+    const pr = saveOf(d);
+    if (pr && pr.ok === false) {
+      toast((pr.error || pr.why || '这一集没能存下来') + ' —— 下一集没有建起来。'
+        + '先清一点本机存储（设置 → 清理缓存）再试。', 'err', 9000);
+      return;
+    }
+    D.setActive(d.id);
     nextDraft = d.id;
     cur = null; shotIdx = 0; takeIdx = 0;
     render();
@@ -5394,7 +5826,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const mine = cur;
     /* 先当面试一遍：缺哪几段就当场摊开让人去补，别等提交渲染才回一句笼统的错 */
     const edl = D.Pipe.edlCheck(mine);
-    if (edl.missing.length) return showMissing(edl.missing);
+    if (edl.missing.length) return showMissing(edl.missing, mine);
     pendingMissing = null; pendingMissingFor = '';   /* 走到这里说明这一段一次都齐了：上一次那份清单别再挂着 */
     if (!edl.clips.length) return toast('还没有拍好的段落', 'err');
     /* 进度只改底栏那一行（genSet 里就做了），不重画整页也不重画整条底栏：
@@ -5412,7 +5844,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       genClear('render', null); if (cur === mine) render();
       /* 用户自己按的「停下」不是出错：说清楚 ffmpeg 已经撤了，别弹一个「出整集没成功」。 */
       if (e && e.cancelled) { toast('已取消渲染（本机的 ffmpeg 已经撤掉了）', 'ok'); return; }
-      showRenderErr(e.message);
+      showRenderErr(e.message, mine);
     }
   }
   /* 「进不了成片的段」清单：2026-10 依用户要求去弹窗 —— 一句话 toast + 跳到第一段，
@@ -5420,22 +5852,39 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      直到某一次导出真的过了这道检查、或用户点「知道了」才清。
      只靠那句 toast 的话，用户看到的就是「点了导出，没反应」。 */
   let pendingMissing = null, pendingMissingFor = '';
-  function showMissing(missing) {
-    pendingMissing = missing; pendingMissingFor = cur.id;
+  /* 归属显式收进来（`forId` = 讲这件事的是哪一集）。
+     这一段以前只读全局 `cur`：调用点 `exportFinal` 在 `await` **之前**用它，所以今天够不到；
+     但 `showRenderErr` 的调用点跨了几十秒的 await，那一处是真的会把红字挂到别人底栏上。
+     两个函数是同一颗雷，一起改掉，别等下一个调用点也变成跨 await 的。 */
+  function showMissing(missing, forId) {
+    const who = forId || (cur && cur.id) || '';
+    const d = (cur && cur.id === who) ? cur : D.get(who);
+    if (!d) return;
+    pendingMissing = missing; pendingMissingFor = who;
     const no = (missing[0] && missing[0].no) || 0;
-    const sh = (cur.shots || []).find(x => x.no === no);
-    if (sh) { shotIdx = (cur.shots || []).indexOf(sh); takeIdx = 0; }
-    const head = '有 ' + missing.length + ' 段还进不了成片（' + missing.map(m => '第 ' + m.no + ' 段').join('、') + '）—— 已经带你跳到第 ' + no + ' 段';
-    cur.step = 4; save(); render();
+    const sh = (d.shots || []).find(x => x.no === no);
+    /* 只有用户还停在这一集上才动他的视图（挪段号、推进到第 4 步、重画）——
+       他已经打开另一部剧了，把这一部的内容画到那一部的界面上没有任何意义。 */
+    if (cur && cur.id === who) {
+      if (sh) { shotIdx = (cur.shots || []).indexOf(sh); takeIdx = takeIdxFor(sh); }
+      cur.step = 4; save(); render();
+    }
+    const head = '有 ' + missing.length + ' 段还进不了成片（' + missing.map(m => '第 ' + m.no + ' 段').join('、') + '）'
+      + (cur && cur.id === who ? '—— 已经带你跳到第 ' + no + ' 段' : '（这一集：' + (d.title || d.id) + '）');
     toast(head, 'err');
   }
   /* 渲染失败：不再弹窗，直接 toast 出真实原因；同一时间把 lastRenderErr 留着，
      底栏常驻一条红字写明「上一次为什么没成」，直到下一次成功导出或点「知道了」才清。 */
   let lastRenderErr = null, lastRenderErrFor = '';
-  function showRenderErr(msg) {
+  function showRenderErr(msg, forId) {
     lastRenderErr = String(msg || '未知错误');
-    lastRenderErrFor = cur ? cur.id : '';
-    if (cur) render();
+    /* 归属显式收进来：`exportFinal` 跨了几十秒的 `await D.Pipe.render`，
+       收尾时 `cur` 可能已经是用户中途打开的**另一部**短剧 ——
+       以前这里 `lastRenderErrFor = cur.id` 记在「此刻那一集」上，
+       于是那条常驻红字出现在一部一次都没导过的短剧底栏，
+       而真正的失败那一部反而没留下原因。 */
+    lastRenderErrFor = forId || (cur ? cur.id : '');
+    if (cur && cur.id === lastRenderErrFor) render();
     toast('出整集没成功：' + lastRenderErr, 'err');
   }
   /* 字幕单独下载：成片画面里已经烧了字，这份是给「要改台词 / 要配别的播放器」用的 */

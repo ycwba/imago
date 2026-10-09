@@ -9,8 +9,7 @@
 <script>try { document.documentElement.dataset.theme = localStorage.getItem('dir_theme') || 'light'; } catch (e) {}</script>
 <style>
   /* 主题色变量（与资产库/设置页同一套；本页原先缺失，导致面板、边框、滚动条全都无样式） */
-  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --warn:#d97706; --input:#f6f7fb; --pri:#7c5cff; }
-  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --warn:#fbbf24; --input:#0f1219; --pri:#7c5cff; }
+
   /* 本页只写结构样式：颜色变量、按钮（.ghost/.pri）、下拉（.dd）等全部沿用 ui.css 公共规范 */
   body { background: var(--bg); color: var(--txt); min-height: 100vh; }
   .page-main { padding: 30px 44px 60px; }
@@ -562,10 +561,30 @@ function renderAiStat() {
     : '<div class="empty">暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）</div>';
 }
 
+/* 代理没起来时的这一页该长什么样（L34）。
+   以前是：`/registry` 读不到 → `getJson` 返回 null（它把失败吞了）→ 后面几段照着 null 走，
+   三块面板**永远停在初始那句「加载中…」**，而状态行照样写「更新于 15:32:07」——
+   整页看起来像「加载完了、只是没数据」，而真正的原因（本机代理没跑）一个字都没说。
+   现在：读不到注册表就当场把三块面板换成一句能照做的话，状态行也照实说。
+   判据只有这一处（`REG` 为 null 就是「代理不在」—— 与 getJson 的约定一致）。 */
+function showProxyDown(why) {
+  const tip = '<div class="empty">读不到本机代理' + (why ? '（' + why + '）' : '') + '：'
+    + '这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。<br>'
+    + '先跑一次项目目录里的「启动.bat」（或 <code>node proxy.js</code>），再点右上「刷新」。</div>';
+  const b = document.getElementById('balances'); if (b) b.innerHTML = tip;
+  const c = document.getElementById('chart'); if (c) c.innerHTML = tip;
+  const l = document.getElementById('bills'); if (l) l.innerHTML = tip;
+  const u = document.getElementById('upd');
+  if (u) u.textContent = '代理没起来 —— 三块面板都取不到数';
+}
 async function reloadAll() {
   $('reload').disabled = true;
   try {
     REG = await getJson('/registry');
+    /* 读不到注册表 = 代理不在（这一页**所有**数据都经它）：
+       当场说清并收工，不要继续往下走 —— 走下去的结果就是三块面板停在「加载中」，
+       而用户完全看不出是哪一环有问题。 */
+    if (!REG) { showProxyDown('代理没响应'); return; }
     const configured = await loadConfigured(REG);
     await loadBalances(REG, configured);
     bills = await loadBills();

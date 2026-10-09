@@ -14,10 +14,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="ui.css">
 <style>
-  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --warn:#d97706; --input:#f6f7fb; --pri:#7c5cff;
-    /* 日期选择器的日历图标（mask 用，只看形状不看颜色） */
-    --dp-cal: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.2' y='3.5' width='11.6' height='10.3' rx='1.7'/%3E%3Cpath d='M2.2 6.7h11.6M5.5 2.2v2.6M10.5 2.2v2.6'/%3E%3C/svg%3E"); }
-  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --warn:#fbbf24; --input:#0f1219; --pri:#7c5cff; }
+  /* 这一页只自定义一条日历图标变量；其余主题变量一律跟 ui.css 走（见 ui.css 顶部 L43 的说明）。
+     注意 --dp-cal 的值里带着一个 data:image/svg+xml —— 里面有分号也有逗号，
+     所以它必须整条写在一行里（拆成多行会被「按分号切声明」的处理弄断，日历图标当场变没）。 */
+  :root {
+    --dp-cal: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.2' y='3.5' width='11.6' height='10.3' rx='1.7'/%3E%3Cpath d='M2.2 6.7h11.6M5.5 2.2v2.6M10.5 2.2v2.6'/%3E%3C/svg%3E");
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--txt); min-height: 100vh; }
   .page-main { padding: 24px 32px; }
@@ -87,6 +89,7 @@
   .task .timg.audio { background: linear-gradient(135deg, rgba(108,140,255,.16), rgba(160,108,255,.16)); color: var(--acc); }
   .task .timg.audio .note-ic { font-size: 26px; line-height: 1; }
   .task .timg.audio .dur { font-size: 10.5px; color: var(--sub); margin-top: 4px; }
+  @media (max-width: 760px) { .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }
   @media (max-width: 760px) { .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }
   /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），
      这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉。 */
@@ -171,13 +174,6 @@
 
   <div class="grid" id="grid"><div class="empty">加载中…</div></div>
   <div id="gridEnd" style="height:1px"></div>   <!-- 滚动到这里的哨兵：自动续拉下一批 -->
-</div>
-
-<div id="lightbox">
-  <button class="lb-btn" id="lbPrev">‹</button>
-  <div id="lbStage"></div>
-  <button class="lb-btn" id="lbNext">›</button>
-  <div id="lbBar"><span id="lbCount"></span><span id="lbInfo"></span></div>
 </div>
 
 <script>
@@ -395,7 +391,6 @@ function fetchMore(pages) {
   });
   return loadChain;
 }
-
 
 /* ---------- 筛选 ---------- */
 const F = { type: '全部', provider: '全部', status: '全部', q: '', from: '', to: '' };
@@ -642,7 +637,9 @@ function assetCardHTML(a) {
           ${a.kind === 'task' && bad && a.prompt ? '<button class="ghost retry">' + icon('refresh', 12) + ' 重试</button>' : ''}
           ${a.kind === 'asset' ? '<button class="ghost dlbtn" title="用浏览器默认方式下载">下载</button>' : ''}
           ${a.kind === 'asset' ? `<button class="ghost favbtn${window.Fav && Fav.has(Fav.assetKey(a)) ? ' on' : ''}" title="加入 / 移出我的收藏">${favLabel(a)}</button>` : ''}
-          ${a.kind === 'asset' && a.localAsset ? '<button class="ghost danger delbtn" title="这个产物存在本机（.assets 目录），删除后会释放磁盘空间；平台侧的素材不受影响">删除本机文件</button>' : ''}
+          ${a.kind === 'asset' && a.localAsset ? (a.mirror
+            ? '<button class="ghost danger delbtn" title="本机存了一份这个产物的副本（.assets 目录）。删掉只释放磁盘空间：平台那边的那份不动，这张卡片也会留着，只是以后从平台回源取">删除本机副本</button>'
+            : '<button class="ghost danger delbtn" title="这个产物存在本机（.assets 目录），删除后会释放磁盘空间；平台侧的素材不受影响">删除本机文件</button>') : ''}
           ${a.kind === 'asset' ? '<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>' : ''}
         </div>
         <div class="cdet"></div>
@@ -723,14 +720,13 @@ function bindAssetCard(d, a) {
   const delb = d.querySelector('.delbtn');
   if (delb) delb.onclick = e => {
     e.stopPropagation();
-    if (!delb.dataset.armed) {                    // 第一次点击：待确认（2.5 秒内再点才删）
-      delb.dataset.armed = '1';
-      delb.dataset.old = delb.textContent;
-      delb.textContent = '确认删除？';
-      setTimeout(() => { if (delb.isConnected && delb.dataset.armed) { delb.dataset.armed = ''; delb.textContent = delb.dataset.old; } }, 2500);
-      return;
-    }
-    delb.dataset.armed = '';
+    /* 就地二次确认走公共那一份（ui.js 的 Confirm.arm）。这一处以前是页面内联抄的：
+       没有后果说明、Esc 不取消、点别处不取消、窗口只有 2.5 秒，也没有「整页同时只有一个确认中」。
+       note 只写与这次删除直接相关的后果，别的什么都不说。 */
+    const note = a.mirror
+      ? '只删本机这一份副本（平台那边的素材不动，卡片会留着）'
+      : '本机这一份会删掉（平台那边的素材不动，卡片会留着）';
+    if (Confirm.arm(delb, '确认删掉', { note })) return;
     deleteLocalAsset(a, delb);
   };
   const dlb = d.querySelector('.dlbtn');
@@ -827,19 +823,36 @@ function renderGrid() {
   }
 }
 
-
 /* 删除本地落盘的素材：防连锁（同一资产只发一次请求，删完立刻从列表移除） */
 const deletingIds = new Set();
 /* 从列表移除一条（不发 UI 提示）：批量删除与单条删除共用，避免两套逻辑 */
 async function removeEntry(a) {
   const key = assetKeyOf(a);
-  await AssetLib.remove(a);
+  const r = await AssetLib.remove(a);
+  /* 镜像副本：只删掉了本机那一份字节，**平台那份还在** —— 所以卡片必须留着，
+     只把本机索引里的指针抹掉，并把 src 换回平台外链。
+     以前这里一律removeEntry 式的「从列表摘掉」，那对镜像条目是错的：
+     摘掉之后用户再打开资产库，从平台列表里又会加载回来（而字节已经没了），
+     表现为「刚删掉的东西刷新一下又出现了，只是打不开了」。 */
+  if (r && r.mirrorGone) {
+    AssetLib.forgetMirror && AssetLib.forgetMirror(a);
+    assets = assets.map(x => {
+      if (assetKeyOf(x) !== key) return x;
+      const c = Object.assign({}, x);
+      delete c.mirror; delete c.mirrorKey; delete c.localAsset;
+      if (x.upstreamSrc) c.src = x.upstreamSrc;
+      return c;
+    });
+    LIST_CACHE.write(assets);
+    assetCardEls.delete(key);
+    return { kept: true };
+  }
   assets = assets.filter(x => assetKeyOf(x) !== key);
   assetCardEls.delete(key);
   selected.delete(selKeyOf(a));     // 多选集合也要清：否则批量条还把它算成「已选」，数量对不上
   LIST_CACHE.write(assets);
   tally.run(true);          // 少了一条：后台重数总数（单飞 + 到点再补一趟，不会为一次删除打爆平台）
-  return true;
+  return { kept: false };
 }
 async function deleteLocalAsset(a, btn) {
   const key = assetKeyOf(a);
@@ -849,9 +862,12 @@ async function deleteLocalAsset(a, btn) {
   const label = btn.dataset.old || btn.textContent;
   btn.disabled = true; btn.textContent = '删除中…';
   try {
-    await removeEntry(a);
+    const r = await removeEntry(a);
     refreshProviderChips(); renderGrid();
-    Toast.ok('已删除这条本地素材');
+    /* 两条不同的结局，说两句不同的话：镜像副本只是本机那份没了，卡片还得留着。 */
+    Toast.ok(r && r.kept
+      ? '已删掉本机这一份副本（平台那边的素材没动，这张卡片还会留着）'
+      : '已删除这条本地素材');
   } catch (e2) {
     btn.disabled = false; btn.textContent = label;
     Toast.err('删除失败：' + e2.message);
@@ -1068,21 +1084,15 @@ function autoLoadMore() {
 Wb.pager.sentinel('gridEnd', autoLoadMore);
 $('reloadBtn').onclick = reload;
 $('cancelAllBtn').onclick = async () => {
-  const rs = assets.filter(a => a.kind === 'task' && ['running', 'queued'].includes(a.status));
   const btn = $('cancelAllBtn');
-  if (!rs.length) { btn.textContent = '没有进行中的任务'; setTimeout(() => { btn.textContent = '⏹ 取消全部进行中'; }, 1800); return; }
-  if (!btn.dataset.armed) {                        // 页内二次确认：按钮自己变成确认态
-    btn.dataset.armed = '1';
-    btn.dataset.old = btn.textContent;
-    btn.textContent = '确认取消 ' + rs.length + ' 个？';
-    setTimeout(() => { btn.dataset.armed = ''; if (btn.isConnected) btn.textContent = btn.dataset.old; }, 3000);
-    return;
-  }
-  btn.dataset.armed = '';
-  btn.textContent = '取消中…';
+  const rs = assets.filter(a => a.kind === 'task' && ['running', 'queued'].includes(a.status));
+  if (!rs.length) { Toast.info('没有进行中的任务'); return; }
+  /* 就地二次确认走公共那一份（ui.js 的 Confirm.arm）：这颗按钮里装着 <span class="ic"> 图标，
+     以前页内手搓的 btn.textContent 每次都把图标一起抹掉（还原串还和标记里的文字不一致）。
+     arm 存的是 innerHTML、还原也走它，图标保得住，还白得 Esc / 点别处取消与「整页只有一个确认中」。 */
+  if (Confirm.arm(btn, '确认取消 ' + rs.length + ' 个？')) return;
   await Promise.allSettled(rs.map(a => AssetLib.cancel(a)));
   await reload();
-  btn.textContent = btn.dataset.old || '⏹ 取消全部进行中';
 };
 async function load() {
   if (window.Dropdowns) Dropdowns.build(document);

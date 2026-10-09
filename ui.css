@@ -1,8 +1,36 @@
 /* ============================================================================
    ui.css —— 全站公共组件样式（以「生图工作台」的列表 UI 为基准）
    各页面在 <style> 之前引入本文件，页面里可以再覆盖。
-   只定义组件，不定义主题色变量；颜色全部走页面里的 var(--x)，并带兜底值。
+   颜色全部走下面这一组主题变量（var(--x)），组件里仍带兜底值。
    ========================================================================== */
+
+/* ---------- 主题变量：**全站唯一一份定义**（L43）----------
+   以前这一组变量在九个页面的 <style> 开头各抄一份，抄着抄着就漂了：
+     · studio.html 少写 --warn（而它用 var(--warn) 画警告）→ 于是「注意」与「出错」
+       两级提示落到了同一个兜底色上，界面上看不出轻重；
+     · chars.html 深色的 --thumbbg 写成 #1b1f2c，而导演台写的是 #39415a ——
+       同一个「缩略图占位底色」在两页是两个颜色。
+   九份副本没有一个地方能一眼看全，所以把**公共部分**搬到这里（ui.css 九页都引）：
+   页面 <style> 在 ui.css **之后**，所以页面想覆盖照样覆盖（chars 的 --pri 就是有意的差异），
+   但「不写就等于跟全站一致」这件事从此成立。
+   下面这两块的值 = 原 director.html 那份（九页里最全的一份）。
+   改这里的任何一条 = 全站一起变；只想改一页，在那一页的 :root 里单独写。 */
+:root {
+  --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
+  --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6;
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
+  --thumbbg:#e2e5ee; --thumbfg:#9aa1b4;
+  /* 提示词里 @素材 那块的底色：浅色主题用「深一点的灰」，深色主题必须反过来用
+     「浅一点的灰」，一个 rgba 盖不住两套主题（深色下会直接看不见）。 */
+  --atbg: rgba(35, 38, 47, .13);
+}
+html[data-theme="dark"] {
+  --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
+  --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff;
+  --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
+  --thumbbg:#39415a; --thumbfg:#aab2c6;
+  --atbg: rgba(255, 255, 255, .13);
+}
 
 /* ---------- 工作台共用布局（图片 / 视频 / 语音；<body class="wb2">） ----------
    三页的左右两栏必须在同尺寸窗口下宽度完全一致，所以这份定义只留一处，页面 <style> 里不要再抄。
@@ -682,6 +710,12 @@ button.armed { min-width: 4.6em; }
    这几条**不带 #apDlg**：拍短剧「从素材库挑人」复用同一套芯片与网格（同一件选择器只画一份样式），
    弹窗自己的左右边距由下面那两条 #apDlg 的补回去。 */
 .ap-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* 素材库挑选弹窗的搜索框。摆成分组芯片**上面**的一整行：
+   先按字找、再在命中的那些里按组收窄，是自然的顺序；反过来（先选组再搜）会让人以为搜不到就别的那几组。 */
+.ap-search { display: flex; align-items: center; gap: 6px; padding: 2px 0 8px; }
+.ap-search .ic { color: var(--sub, #8a8fa3); display: inline-flex; }
+.ap-search input { flex: 1 1 auto; min-width: 0; }
+#apDlg .ap-search { padding: 12px 16px 0; }
 .ap-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 4px 12px;
   border: 1px solid var(--line, #e4e6f0); border-radius: 4px; background: none; color: var(--sub, #8a8fa3); cursor: pointer;
   flex: 0 0 auto; }

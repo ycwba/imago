@@ -384,11 +384,25 @@ window.Drama = (function () {
     for (const d of xs) {
       for (const sh of ((d && d.shots) || [])) {
         for (const t of ((sh && sh.takes) || [])) {
-          if (!t || t.state !== 'dubbing' || t.taskId) continue;
+          /* 范围要盖住 **pending**：以前只处理 dubbing，于是「先 push 一条 take 再落盘」
+             （shootLoop 的 5201-5204）刷新正好落在配音开始前时，会留下一条 state:'pending'
+             且没有 taskId 的记录 ——
+             页面永远显示「排队中」（takeRunning 认 pending），resumeTake 认不了它（没有任务号），
+             「不等了」也不给（drama.js 的 runningTakes 要求有 taskId），
+             isFailedShot 更不算它失败 → **这一段既不会被重拍、又白占一格 maxTakes**。
+             那正是「它到底还在跑吗」两套判据的差集，崩溃/刷新留下的就是这一类。 */
+          if (!t || t.taskId) continue;
+          if (t.state !== 'dubbing' && t.state !== 'pending') continue;
+          /* 画面已经出来了的那种不管：那是「拍完了但没落状态」，落回 done 而不是失败。 */
+          if (t.state === 'pending' && t.videoUrl) { t.state = 'done'; t.stage = '完成'; n++; continue; }
           const has = !!(t.lines && t.lines.length);
           t.state = has ? 'dubbed' : 'failed';
           t.stage = '';
-          if (!has && !t.error) t.error = '这一段配音没出来（上次配音跑到一半就断了）';
+          if (!has && !t.error) {
+            t.error = t.state === 'dubbing'
+              ? '这一段配音没出来（上次配音跑到一半就断了）'
+              : '上次没提交出去（刷新/断网正好落在提交那一刻），这一段没有画面';
+          }
           n++;
         }
       }
@@ -397,7 +411,14 @@ window.Drama = (function () {
     return n;
   }
   function saveList(xs) { return write(K_DRAMAS, xs, CAP_DRAMAS); }
+  /* 容量判据（新建前拦 + 列表头那一句都读它）。判据只有这一个数。 */
+  const dramaCap = () => CAP_DRAMAS;
+  /* 素材库那条上限走的是同一个 cap（CAP_CHARS）—— 但那一类是「用户攒着不删也不怪」，
+     截断掉的是**最旧的一条**；这里不做新建前拦（素材库新增走 Lib.save 的合并，
+     拦了会打断正常编辑），只在返回值里把 dropped 报出去（Store.write 现在会给）。 */
   function get(id) { return list().find(d => d && d.id === id) || null; }
+  /* 上限与已存条数 —— 入口页那一句「共 N / 40 部」读它，别在页面里再写一个 40。 */
+  function count() { return list().length; }
   /* list() 读不出来的时候**不能当成「本来就没有」**。
      Store.read 为了「别让一条脏数据卡死整页」，解析失败与「不是信封」都直接返回默认值 []；
      但 put 是拿 list() 的结果当写入底座的 —— 那一刻一次普通保存就会把
@@ -430,6 +451,16 @@ window.Drama = (function () {
     d.updatedAt = nowTs();
     const xs = list();
     const i = xs.findIndex(x => x && x.id === d.id);
+    /* 新建一部时先问一次容量：`Store.write` 的 cap 会在**写完之后**把数组末尾切掉
+       （新剧是 unshift 到头的，被切掉的正是数组末尾那一部 = **最旧的一集**）——
+       于是用户点「开始」、新集存好了、界面也说「建好了」，刷新后那一集凭空消失，
+       而且链上没有任何一环知道自己截断了。
+       这里改成**先拦**：快满时直接回错，让用户先删一部或导出一次。
+       已经在库里那一部的改动不受影响（i >= 0 那条路继续走）。 */
+    if (i < 0 && xs.length >= CAP_DRAMAS) {
+      return { ok: false, error: '短剧最多存 ' + CAP_DRAMAS + ' 部，现在满了 —— 先删掉一部不要的，或者到「设置」导出一次备份再新建。'
+        + '（以前这里是直接存进去、把最旧的那一部悄悄挤掉，刷新后你会发现它不见了。）' };
+    }
     if (i >= 0) xs[i] = d; else xs.unshift(d);
     return saveList(xs);
   }
@@ -447,6 +478,19 @@ window.Drama = (function () {
     return out;
   }
   function remove(id) {
+    /* 读坏了这道闸**不能少**。remove 是「list() → 改一处 → 写回去」的第二个实例，
+       形状与 put 一模一样，put 早就问了一次读坏没有：
+       Store.read 遇到脏值 / 旧格式 / 结构不对一律返回默认值 []（drama.js:401-405 写得很清楚），
+       于是读坏时 list() 返回 []，下面 saveList([...]) 就把**整批短剧**写回去 ——
+       「删掉这一部」在盘上有任何一条脏数据时会抹掉其它所有短剧，
+       随 storage 钩子同步覆盖 .data/dramas.json，界面上还报「删掉了」（remove 确实回 ok:true）。
+       素材库那一条已经有同一道闸（Lib.save / Lib.remove 走 libBroken）。 */
+    const broken = listBroken();
+    if (broken) {
+      return { ok: false, why: broken + '：已停止删除，磁盘上原来的数据一个字没动。'
+        + '先别在这个页面上操作（继续操作会拿空列表把它整批覆盖掉）；'
+        + '到「设置」导出一次整包备份确认数据还在，再回来。' };
+    }
     const xs = list();
     const d = xs.find(x => x && x.id === id) || null;
     const busy = d ? runningTakes(d) : [];
@@ -517,6 +561,32 @@ window.Drama = (function () {
     xs.splice(i + 1, 0, copy);
     resequence(drama);
     return { ok: true, at: i + 1, shot: copy };
+  }
+  /* 「用哪一条」—— 改选这一段进成片的那一次。
+     这一段以前**根本没有这个函数**：chosen 的写入全项目只有四处，全是自动的
+     （拍完时「第一次有画面」、进段时兜底、删掉选用那条时挪一次），
+     而界面在段条、右栏芯片、底栏、清单四处都写着「✓ 已选用」——
+     于是「第 3 次比第 1 次好得多」这件事用户看得见、点得到下载，却**没有任何办法让它变成成片里那一条**。
+     重拍三次以后，进成片的还是最早那条，接下一段的末帧也是那条。
+
+     守卫与 dropTake 同一份口径：只让选「已经拍成、而且有画面」的那一次。
+     - 还在跑的那一次不能选（画面还不存在）
+     - 没拍成的那一次不能选（选了成片里就是一段黑）
+     resequence 不用动 —— 改选用不改变段的顺序。
+     返回 { ok, at } 让页面照 dropTake 的形状接着收尾。 */
+  function chooseShot(drama, shotId, takeId) {
+    const sh = (drama.shots || []).find(x => x && x.id === shotId);
+    if (!sh) return { ok: false, why: '这一段已经不在了' };
+    const ts = sh.takes || [];
+    const i = ts.findIndex(x => x && x.id === takeId);
+    if (i < 0) return { ok: false, why: '这一次已经不在了' };
+    const t = ts[i], no = t.no || i + 1;
+    if (t.state !== 'done' || !t.videoUrl) {
+      return { ok: false, why: '第 ' + no + ' 次还没拍出画面' + (t.stage ? '（' + t.stage + '）' : '') + ' —— 只有拍成了才能选用' };
+    }
+    if (sh.chosen === takeId) return { ok: true, at: i, same: true };
+    sh.chosen = takeId;
+    return { ok: true, at: i };
   }
   /* 删除只去掉这一集里的引用，**不动本机资产文件**（那些是用户存下来的产物，
      别的段落、收藏、资产库可能还在用）。调用方负责先问用户一句。 */
@@ -842,7 +912,44 @@ window.Drama = (function () {
     return lower ? s.toLowerCase() : s;
   }
 
+  /* ============================================================================
+     素材库的对外接口 —— **这一份清单是「有哪些 API」的答案**
+     ----------------------------------------------------------------------------
+     为什么把它写成代码而不是文档：文档会过期，而这一层每个函数头上都有判据说明。
+     `Drama.Lib.api()` 返回它（也挂成 `Drama.Lib.API`），页面、助手与新代码都能现查 ——
+     「素材库能不能从外部调」这件事从此是可核对的事实，不用记。
+     分三组：读 / 写 / 与短剧那一集打交道。
+     ========================================================================== */
+  const LIB_API = [
+    /* ---- 读（不花钱、不写盘）---- */
+    ['list()', '库里全部条目（角色 / 场景 / 道具混在一个数组里，用 libKindOf 分类型）'],
+    ['get(id)', '按 id 取一条；找不到 null'],
+    ['ofGroup(name)', '某一组的全部条目'],
+    ['hayOf(c)', '把一条拼成可搜索的一串文本（配合 SEARCH_FIELDS）'],
+    ['SEARCH_FIELDS', '搜索覆盖哪几个字段（一份表，页面不要自己再列一遍）'],
+    ['inEpisode(drama, c)', '这一位是不是已经在某一集里了 → {in, item} 或 null'],
+    ['broken()', '这一份读得出来吗（空串 = 没问题）；读坏了时任何写入都会被拒'],
+    ['Drama.toEpisodeChar(src)', '库里那一条 → 剧侧角色对象（唯一的字段映射，外部不要自己拼）'],
+
+    /* ---- 写（会落盘；save/remove 会自己拒「读坏了」与「还在跑」）---- */
+    ['save(char, {exact})', '存一条。默认按「同类型 + 同名」合并（库里手改的字段优先），exact:true 则原样覆盖'],
+    ['remove(id)', '删一条。返回 {ok:false, why} 时是拒删（有在跑的拍摄 / 库读坏了），**调用方必须接**'],
+    ['newForm({group, onlyFields})', '新建素材的表单。默认填完就建档；onlyFields:true 只做校验与归一、把字段交回（配commitForm 用）'],
+    ['commitForm(fields)', '拿一份字段 + 挑好的图与音色**建档**（只有Fields 那条路用；这是那一路唯一写库的一下）'],
+    ['adoptAll(drama)', '把某一集的角色/场景/道具整批存进素材库（三类都存）'],
+    ['staleIn(drama)', '库里那份与这一集已经不是同一份了的那些（判据只有这一份）'],
+
+    /* ---- 与某一集打交道（拍短剧页那几颗「加入这一集」走它们）---- */
+    ['pullInto(drama, ids)', '把库里指定的几条拉进某一集，返回真正加进去的那些'],
+    ['pullGroup(drama, name)', '整组一次交给 AI'],
+    ['Drama.libPickOf(drama)', '这一集点名了库里哪几条（界面上「已点名 N 条」那个数）'],
+    ['Drama.episodePool(drama, kind)', '某一集里某类型的条目（注意它是剧侧那一池，不是库）'],
+  ];
   const Lib = {
+    /* 接口清单（自描述）：`Drama.Lib.API` 或 `Drama.Lib.api()`。
+       加了新接口就往那张表里加一行 —— 它是给人看的，也是给新代码找路的。 */
+    API: LIB_API,
+    api() { return LIB_API.slice(); },
     /* 搜索的字段表与那份「拼成一串」的文本：页面与助手都读这一处（见上面 SEARCH_FIELDS） */
     SEARCH_FIELDS,
     hayOf(c) { return hayOf(c, true); },
@@ -1032,6 +1139,17 @@ window.Drama = (function () {
             take('desc', src.look);
             take('img', src.face);
             take('time', src.time);
+            /* 场景的多角度设定图与候选也要并 —— 这一段以前漏了，于是素材库里给「河岸」
+               重出了一组设定图、回到这一集「加入」时既不带过来、也不报「库里已经变了」
+               （staleIn 的场景那一行同样没比 assets，两处漏的是同一件事）。
+               道具那一路**不是漏**：newProp 没有资产子项，所以道具没有 assets 是对的。 */
+            same.assets = force
+              ? mergeAssetLists(assetsOf(same), assetsOf(src))
+              : mergeAssetLists(assetsOf(src), assetsOf(same));
+            if (src.assetCands && Object.keys(src.assetCands).length) {
+              if (!same.assetCands) same.assetCands = {};
+              Object.assign(same.assetCands, src.assetCands);
+            }
           } else if (isProp) {
             /* 道具只补它自己的那几个字段：声音那一路对它没有意义，拷过去只会让
                `toLibItem` 之后又原样带回来，看着像「道具也定了音色」。 */
@@ -1058,8 +1176,14 @@ window.Drama = (function () {
             if (src.voiceCands && src.voiceCands.length && (force || !(same.voiceCands || []).length)) {
               same.voiceCands = src.voiceCands.slice(0, VOICE_CAND_CAP);
             }
-            if (!same.assets) same.assets = {};
-            Object.assign(same.assets, src.assets);
+            /* 资产：**走assetsOf / mergeAssetLists 那一份**，不用 Object.assign。
+               那一写法对字典成立，资产改成列表之后它会把数组摊成 `{"0":…}` ——
+               Array.isArray 变false，每一张图都变成「读不到」，整格资产在界面上裂掉。
+               谁在前：**剧侧**（force 为假时）—— 本集已经花钱画好的那几张不该被库里同位置那张顶掉，
+               而弹窗那句话写的是「预览图 / 三视图 / 声音已经**并**过去了」。force 才反过来。 */
+            same.assets = force
+              ? mergeAssetLists(assetsOf(same), assetsOf(src))
+              : mergeAssetLists(assetsOf(src), assetsOf(same));
           }
           take('group', src.group);
           same.inLib = true; same.libId = src.id;
@@ -1069,9 +1193,10 @@ window.Drama = (function () {
         // 新增：保持库里内容，只换本集用的 id 并打上库标记
         const c = isScene
           ? newScene({ name: src.name, desc: src.look || '', img: src.face || '', time: src.time || '深夜', group: src.group || '',
-            /* 场景的多角度图 / 其余候选也要一起带进来：以前只搬了 name / desc / img，
-               库里那一组设定图拉进这一集等于没拉（拍摄时 planMaterials 认的就是 assets）。 */
-            assets: Object.assign({}, src.assets), assetCands: Object.assign({}, src.assetCands) })
+            /* 场景的多角度图 / 其余候选也要一起带进来：以前只搬了name / desc / img，
+               库里那一组设定图拉进这一集等于没拉（拍摄时 planMaterials 认的就是 assets）。
+               同样走assetsOf / mergeAssetLists —— 摊成字典会把整组设定图读不出来。 */
+            assets: mergeAssetLists([], assetsOf(src)), assetCands: Object.assign({}, src.assetCands) })
           : isProp ? toEpisodeProp(src) : newChar(toEpisodeChar(src));
         c.inLib = true; c.libId = src.id;
         pool.push(c);
@@ -1100,10 +1225,16 @@ window.Drama = (function () {
          剧侧角色是 face / look、剧侧场景是 img / desc（这一处差别只在 `Lib` 里换，别在页面判）。 */
       const PAIRS = {
         actor: [['预览图', s => s.face, s => s.face], ['外貌', s => s.look, s => s.look],
+          ['设定图', s => assetsOf(s).map(x => x.name).join('|'), s => assetsOf(s).map(x => x.name).join('|')],
           ['音色', s => s.voice, s => s.voice], ['音色描述', s => s.voiceNote, s => s.voiceNote],
           ['参考音频', s => s.refAudio, s => s.refAudio]],
         scene: [['预览图', s => s.face, s => s.img], ['描述', s => s.look, s => s.desc],
-          ['时段', s => s.time, s => s.time]],
+          ['时段', s => s.time, s => s.time],
+          /* 设定图（多角度那一组）也要算「库里变了」：它在库里重出一次，剧侧那一份就该报出来，
+             否则「加入这一集」既不带过来也不提醒。读法一律走 assetsOf（唯一读入口），
+             比的是**名字集合**—— 图片地址在库里可能被换过签名外链，比地址会一直假红。
+             角色那一支同样有 assets，缺的是这一项，这里一并补上。 */
+          ['设定图', s => assetsOf(s).map(x => x.name).join('|'), s => assetsOf(s).map(x => x.name).join('|')]],
         /* 道具同样要查：它进 planMaterials 的参考图，也进这一段的提示词 ——
            库里换了图而这一集还发着旧图，成片里那个物件就换了样。字段名与库侧一致（face / look）。 */
         prop: [['预览图', s => s.face, s => s.face], ['描述', s => s.look, s => s.look]],
@@ -1183,7 +1314,7 @@ window.Drama = (function () {
             type: 'select', value: '深夜', options: TIME_OFS.map(t => ({ v: t.id, t: t.label })),
             hidden: true },
         ],
-        onChange: (key, api) => { if (key === 'kind') paint(api.values().kind, api); },
+        onChange: (key, api) => { paint(api.values().kind, api); },
         /* 重名**必须在这一步拦**：放到提交之后再报的话表单已经关了 ——
            用户刚打进去的名字、描述、人设一起丢掉，只剩一句 toast。
            validate 返回非空就停在表单里，输入全在。 */
@@ -1208,6 +1339,16 @@ window.Drama = (function () {
          而**库里**这一条的 bio 有人读 —— 关键词搜索（`Lib.SEARCH_FIELDS` 的「人设」）、
          素材库页的「AI 找素材」、以及描述空时 `descOf` 的退路。所以在这里补这一项，
          不动剧侧的对象：那一集里根本不存在放它的地方，硬加字段只会多一个没人读的键。 */
+      /* 「先出后选」那条路要**只填不建**：`onlyFields` 为真时这里只做校验（名字 / 重名）与归一，
+         把表单值原样交回去，由页面拿它去出图出声、让用户挑完再调 `commitForm` 建档。
+         **必须排在建档之前** —— 放在 `Lib.save` 之后就等于「先出后选」这条路已经偷偷建了一条空记录，
+         用户挑完图再 commit 时，那条重名记录会把它挡下来（同名即同一条）。
+         以前只有「填完立刻建」一种走法，于是出图与出声只能发生在建之后 ——
+         用户要么接受一张没挑选过的图，要么手动再重出一次。 */
+      if (o && o.onlyFields) {
+        return { fields: { name, kind: v.kind, group: String(v.group || ''), look: String(v.look || ''),
+          bio: String(v.bio || ''), time: String(v.time || '深夜'), pic: v.pic || '' }, kind: v.kind };
+      }
       const item = v.kind === 'scene'
         ? Object.assign(newScene({ name, desc: v.look, time: v.time, group: v.group }), { bio: v.bio || '' })
         : v.kind === 'prop' ? newProp({ name, look: v.look, bio: v.bio, group: v.group })
@@ -1221,6 +1362,41 @@ window.Drama = (function () {
       const e = Lib.writeError();
       if (e) return { error: e };
       return { item: saved, kind: v.kind, tip: kindF(v.kind).tip };
+    },
+    /* 「先出后选」的第二半：拿一份字段 + 用户挑好的图与音色**建档**。
+       建档这一下是唯一写库的地方（与 commitForm 是同一段），所以「哪些字段进了库」
+       永远只有一个实现。`pic` 是挑中的那一张；`voice` 那几项直接写进库里那一条。 */
+    commitForm(f, opts) {
+      const o2 = opts || {};
+      const kind = String((f && f.kind) || 'actor');
+      const name = String((f && f.name) || '').trim().slice(0, 20);
+      if (!name) return { error: '名字不能空着' };
+      if (Lib.list().some(x => x && x.name === name && libKindOf(x) === kind)) {
+        return { error: '素材库里已经有「' + name + '」这条' + (LIB_KINDS[kind] || '') + '了：同名会被当成同一条' };
+      }
+      const item = kind === 'scene'
+        ? Object.assign(newScene({ name, desc: f.look, time: f.time || '深夜', group: f.group }), { bio: f.bio || '' })
+        : kind === 'prop' ? newProp({ name, look: f.look, bio: f.bio, group: f.group })
+          : newChar({ name, kind, bio: f.bio, look: f.look, group: f.group });
+      if (f.pic) setPic(item, f.pic);
+      /* 挑好的音色（design 写描述 / preset 选 id / clone 带参考音频）—— 直接写进库里那一条，
+         界面上「声音」那一块立刻认得出是 AI 定的还是用户挑的。 */
+      if (f.voice) {
+        item.voice = f.voice.voice || '';
+        item.voiceName = f.voice.voiceName || '';
+        item.voiceNote = f.voice.voiceNote || '';
+        item.voiceMode = f.voice.voiceMode || 'preset';
+        if (f.voice.refAudio) { item.refAudio = f.voice.refAudio; item.refAudioName = f.voice.refAudioName || ''; }
+        item.voiceBy = f.voice.voiceBy || 'user';
+      }
+      if (Array.isArray(f.faces) && f.faces.length) {
+        item.faces = f.faces.slice(0, FACE_CAP);
+        if (!picOf(item) && f.faces[0]) setPic(item, f.faces[0].src);
+      }
+      const saved2 = Lib.save(item, { exact: true });
+      const e2 = Lib.writeError();
+      if (e2) return { error: e2 };
+      return { item: saved2, kind, tip: kindF(kind).tip, dropped: o2.faceDrop || 0 };
     },
   };
 
@@ -1589,7 +1765,10 @@ window.Drama = (function () {
       /* 方式也要跟着拷：库里那位是「参考音频复刻」，只拷了 refAudio 而没拷 voiceMode，
          配音还是按界面上选中的预设型号走 —— 音频白存了，人还以为是复刻没生效 */
       c.voiceMode = src.voiceMode || c.voiceMode;
-      c.assets = Object.assign({}, src.assets, c.assets);
+      /* 资产：同 pullInto 那条路 —— 剧侧在前（这一集已经画好的保住），走 mergeAssetLists。
+         这一行以前是 `Object.assign({}, src.assets, c.assets)`，字典写法；
+         资产改成列表之后它把数组摊成 {"0":…,"1":…}，整格资产在界面上读不出来。 */
+      c.assets = mergeAssetLists(assetsOf(src), assetsOf(c));
       c.inLib = true; c.libId = src.id;
       hit++;
     }
@@ -2439,7 +2618,12 @@ window.Drama = (function () {
     const ways = ttsWays(REG, drama.opts);
     if (!ways.ok) throw new Error(ways.why);
     const chars = (drama.characters || []).filter(c => c && c.name);
+    /* `only`：**只给这几位定声音**（素材库页新建一位时只想定这一位，
+       不必为了它临时凑一整集角色出来 —— 那样一次要花的钱是它的好几倍）。
+       判据还是「名字非空 + 在 o.only 里」，与上面那道同一份，不另立一套。 */
+    const pick = o.only && o.only.length ? chars.filter(c => o.only.indexOf(c.name) >= 0) : chars;
     if (!chars.length) return { changed: [], skipped: [], why: '这一集还没有角色 —— 先拆完剧本或自己加两位' };
+    if (!pick.length) return { changed: [], skipped: [], why: '挑中的那几位在库里找不到（可能已经删掉了）' };
     const can = [];
     /* 顺序即优先级（2026-10 用户要求：「自动调用生成音色的模型，而不是让我选择音色」）。
        以前三行平铺，文字 AI 经常挑 preset —— 从一份固定清单里选一个 id，于是每个角色的嗓子
@@ -2448,7 +2632,7 @@ window.Drama = (function () {
     if (ways.design) can.push('design（**首选**）：写一段音色描述，这个型号照描述现造一把嗓子');
     if (ways.clone) can.push('clone：只给**已经有本人参考音频**的角色用');
     if (ways.preset.length) can.push('preset（**这家没有生成音色型号时**才用）：从下面那份预设清单里挑一个 id');
-    const cast = chars.map(c => '- ' + c.name + '（' + (c.kind === 'narrator' ? '只出声的旁白' : '出镜角色') + '）：'
+    const cast = pick.map(c => '- ' + c.name + '（' + (c.kind === 'narrator' ? '只出声的旁白' : '出镜角色') + '）：'
       + (c.bio || '') + (c.look ? '；外貌：' + c.look : '')
       + (c.refAudio ? '；已经有本人的参考音频' : '')
       + (String(c.voiceNote || '').trim() ? '；已有的声音描述：' + String(c.voiceNote).trim() : '')).join('\n');
@@ -2464,7 +2648,7 @@ window.Drama = (function () {
     const rows = (j && (j.roles || j.characters)) || [];
     if (!Array.isArray(rows) || !rows.length) throw new Error('文字 AI 没给出可用的音色方案（换个说法再试一次）');
     const changed = [], skipped = [];
-    for (const c of chars) {
+    for (const c of pick) {
       const r = rows.find(x => x && String(x.name || '').trim() === c.name) || {};
       const got = applyVoiceRow(REG, drama, c, r, ways);
       if (!got.ok) { skipped.push({ name: c.name, why: got.why }); continue; }
@@ -3289,10 +3473,18 @@ window.Drama = (function () {
       if (!shot.chosen) shot.chosen = take.id;
       return true;
     } catch (e) {
-      take.state = 'failed';
-      take.error = /等了太久/.test(e.message)
-        ? '等了很久平台还没给出结果，任务号 ' + take.taskId + ' —— 到视频工作台能找到这一条'
-        : ('接着等的时候失败：' + e.message);
+      /* 「等太久」**不是失败**。任务号在这儿（提交那一刻就落盘了），
+         平台那边很可能正在做、甚至已经做完 —— 记成 failed 的话：
+         isFailedShot 把它算成「没成的段」，底栏「重拍没成的 N 段」会把它算进去，
+         用户点下去就是**又一条真任务**（而这一条的任务号就此再也接不回来）。
+         状态留 pending：界面按「还在跑」处理（画转圈、给「不等了」），
+         刷新回来 resumeTake 还会接着等它（那才是这一档的正解），出口由用户自己收。 */
+      const slow = /等了太久/.test(e.message || '');
+      take.state = 'pending';
+      take.stage = slow ? '还在跑（这次没等完）' : '';
+      take.error = slow
+        ? '这次没等到结果，但任务还在平台跑着（任务号 ' + take.taskId + '，到视频工作台能找到这一条）—— 不是失败，别重拍'
+        : ('接着等的时候没拿到结果：' + e.message + '（任务号 ' + take.taskId + '）');
       return false;
     }
   }
@@ -3953,6 +4145,28 @@ window.Drama = (function () {
      `o.extra` 是这一格要多带的属性（例如设定图的 data-kind="three"），`o.tail` 是接在行尾的标记
      （那颗「一次出 N 张」的按钮）—— 带 tail 时哪怕一张候选还没有也要把这一排行画出来，
      否则「还没有候选」和「连出候选的入口都没有」在界面上长成同一个样子。 */
+  /* 从候选排里删掉一张 —— **两页共用这一份**（素材库页的角色/场景/道具卡、拍短剧的同三处）。
+     为什么要有：攒了一排不满意的候选，原来只能「用这一张」或整个重出，
+     挑剩下来的永远留在那儿 —— 而「出4 张里3 张不要」是最常见的结局。
+     `pick` 是「这一类的候选放在哪个字段」：`faces`（角色/场景/道具的预览图）
+     或机位构图那种别的字段；`got/set` 是读写那个「正在用的」字段（`face` / `img`）。
+     删掉正在用的那一张时**顺位递补**成第一张，而不是把这一类清空 ——
+     清空的话用户会发现「我删了一张预览图，整张卡的脸也没了」。 */
+  function dropFaceCand(item, src, io2) {
+    const a2 = io2 || {};
+    const before = (item.faces || []).slice();
+    const next = before.filter(x => x && x.src !== src);
+    if (next.length === before.length) return { ok: false, why: '这一张已经不在了' };
+    item.faces = next;
+    if (a2.got && a2.got(item) === src) {
+      /* 正在用的那张被删了：顺位递补（原来那张位置上的下一张；没有了就空）。 */
+      const idx = before.findIndex(x => x && x.src === src);
+      const fill = next[idx] || next[0] || null;
+      if (a2.set) a2.set(item, fill ? fill.src : '');
+    }
+    return { ok: true, left: next.length };
+  }
+
   function picCandsHTML(list, cur, o) {
     o = o || {};
     const arr = (Array.isArray(list) ? list : []).filter(x => x && x.src);
@@ -4273,7 +4487,7 @@ window.Drama = (function () {
        页面自己判 kind === 'scene' 就会和 pullInto 走岔。`episodePool` 也挂出来 ——
        页面要增删某一栏（拍短剧第 2 步加道具）就得按类型找对那一栏，不能自己拼三元。 */
     LIB_KINDS, libKindOf, voiceOnlyOf, isSceneItem, isPropItem, picOf, setPic, descOf, episodePool,
-    list, get, put, remove, activeId, setActive, runningTakes, dropChar, dropScene, dropProp,
+    list, get, put, remove, activeId, setActive, runningTakes, dropChar, dropScene, dropProp, count, cap: dramaCap,
     /* `listBroken` **有页面调用方**（drama.html 的 storage 钩子要分「真被删」与
        「整份读不出来」—— 以前它只在 `put` 里自查，页面只能看着 `get` 返回 null
        就断言「被删了」，那是在数据明明读不出来时撒一个假话）。
@@ -4283,7 +4497,7 @@ window.Drama = (function () {
     settleStuckDubbing,
     /* `Shots.resequence` 曾经挂在这儿，但**外部零调用**（只在
        `moveShot`/`duplicateShot`/`dropShot` 里调）—— 挂出来只会让人以为页面在用它们。 */
-    Shots: { moveShot, duplicateShot, dropShot, dropTake, abandon, setScene, setLink },
+    Shots: { moveShot, duplicateShot, dropShot, dropTake, chooseShot, abandon, setScene, setLink },
     Lib, Subs, Pipe,
     /* 「这一集要用库里哪几条」对外露一份：页面上那行「已点名 N 条」的摘要要报同样的数，
        两处各数一遍就会出现「框里勾了 3 个、下面写着 4 个」。 */
@@ -4296,11 +4510,17 @@ window.Drama = (function () {
       /* 角色资产的读写**只有这一套**（`assets` 是扁平列表：任意种类、不限张数、
          每张一个名字 + 一组关联道具）。页面不要再写 `c.assets[kind]` —— 那是旧字典形状的读法，
          在列表形状下恒为 undefined，表现是「界面永远显示没有资产」。 */
-      assetsOf, assetsSave, assetsOfTpl, firstAssetOf, assetById, addAsset, removeAsset, setAssetName,
+      assetsOf, assetsSave, assetsOfTpl, firstAssetOf, assetById, addAsset, removeAsset, setAssetName, dropFaceCand,
       setAssetProps, assetsUsingProp, mergeAssetLists,
       isVoiced, timeOptsHTML, WAVE, assetNames, voiceName, voiceChips, voiceBoxHTML, voiceRowHTML, voiceTag, refAudioRule, voiceReady, preview, playAsset, wayLabel, voiceWaySeg,
       /* 候选那一排的公共标记（两页共用一份，样式在 ui.css 的 .ui-cands / .ui-wait）：
          页面只提供「绑哪个动作」和「这一格正在出第几张」，不要再各写一套占位与格子。 */
       waitHTML, picCandsHTML, voiceCandsHTML },
+    /* 库里那一条 → 剧侧角色对象。**唯一一份**（pullInto 的角色分支走它）：
+       素材库页「新建时就让 AI 定音色」也走它 —— `assignVoices` 要的是「一集的角色」，
+       那一集是现搭的壳，壳里那一位必须是这条素材按同一套映射转出来的对象，
+       否则两边字段对不上（voiceMode / refAudio / voiceErr 这些只在转的时候拷）。
+       页面不要自己拼那一个壳里的字段。 */
+    toEpisodeChar,
   };
 })();

@@ -8,10 +8,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="ui.css">
 <style>
-  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3;
-    --pri:#7c5cff; --acc:#6957e8; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --input:#f6f7fb; --thumbbg:#e2e5ee; }
-  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6;
-    --sub:#8f97ab; --pri:#9d8bff; --acc:#6c8cff; --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --input:#0f1219; --thumbbg:#1b1f2c; }
+  
+  /* 本页**有意**与全站不同的一条：深色下的强调色更亮一点（素材库卡片密度高，
+     深底上 #7c5cff 那些数字偏暗）。**只留真正不同的这一条** ——
+     其余公共变量一律跟 ui.css 走（原来这里还写过 --thumbbg:#1b1f2c，
+     与导演台的 #39415a 不是同一个颜色，同一个「缩略图占位底色」两页两个色，见 ui.css 顶部的说明）。 */
+  html[data-theme="dark"] { --pri:#9d8bff; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg); color: var(--txt); min-height: 100vh; }
@@ -842,17 +844,16 @@
          以前只能「用这一张」或整个重出，挑剩下的永远留在那儿。
          删的正好是**在用的那张**时把当前图顺位挪到剩下第一张，一张不剩就清空 ——
          否则 picOf 会指着一张已经不在的图（界面上是破图 + 出图按钮还写着「已有」）。 */
+      /* 删候选的规则走数据层那一份（D.Cast.dropFaceCand）—— 拍短剧的同三处也调它。
+         以前这里是页面自己写的一套：两边各删一次，规则（删掉正在用的那张要不要顺位递补）
+         就有了两份，改一处就会在另一个页面上失效。 */
       canddel: async el => {
         const k = CANDK[el.dataset.k || mainKind(c)]; if (!k) return;
-        const src = el.dataset.src;
-        const before = (c.faces || []).slice();
-        const next = before.filter(x => x && x.src !== src);
-        if (next.length === before.length) return;
-        c.faces = next;
-        if (k.got(c) === src) k.set(c, (next[0] && next[0].src) || '');
+        const r2 = D.Cast.dropFaceCand(c, el.dataset.src, { got: k.got, set: k.set });
+        if (!r2.ok) return toast(r2.why, 'err');
         const ok = !!libSave(c);
         paintCard(c);
-        if (ok) toast('删掉了这一张候选', 'ok');
+        if (ok) toast('删掉了这一张候选' + (r2.left ? '，还剩 ' + r2.left + ' 张' : '（这一类清空了）'), 'ok');
       },
       /* 候选排里的缩略图（picCandsHTML 用 data-act="zoom"）。两页共用那份标记，
          所以点开看大图这一件事也得在这边接上 —— 不接就是一张点不开的小图。
@@ -1406,14 +1407,239 @@
   /* 「加入某一集」整个搬到了拍短剧页：那边有一个挑选弹窗（多选 / 整组 / 就地新建 / 删除），
      目标集就写在弹窗标题上，比在这一页放一个看不见前提的按钮强。合并规则仍在 Drama.Lib.pullInto。 */
 
-  /* 表单本身（字段、按类型换措辞、重名拦截、建对象、存库）在 `drama.js` 的 `D.Lib.newForm` 一份 ——
+  /* 表单本身（字段、按类型换措辞、重名拦截）在 `drama.js` 的 `D.Lib.newForm` 一份 ——
      拍短剧的挑选弹窗里那颗「＋ 新建素材」以前自己写了第二份，漂成了旧措辞、还漏了场景的「时段」一行。
-     这一页只管建完之后自己的事：四道筛选可能把新建的那一条挡住，以及把编辑区开到它上面。 */
+
+     「先出后选再创建」是这条流程现在的样子（用户要求）：
+       ① 填名字 / 类型 / 描述（也可以顺手挑一张现成的图）；
+       ② **当场出图与出声**，过程中这一格显示占位符（不是转圈，是「这一格正在长出来」）；
+       ③ 在一个挑选弹窗里**预览并挑选**满意的图与音色，可以重出、可以只用文字直接建；
+       ④ 挑完才点「创建素材」—— 这时候才写库。
+     为什么是这个顺序：以前是「先建档、再出图」，于是用户要么接受一张没挑选过的图，
+     要么手动再重出一次（多花一次生成），而「重出」这一下在素材还没建的时候根本做不到。
+     `newForm({onlyFields})` 只做校验与归一（不写库），`Lib.commitForm` 是唯一写库的那一下。 */
   async function newChar() {
-    const r = await D.Lib.newForm({ group: group === '__none' ? '' : group });
-    if (!r) return;                       // 用户按了取消
+    const r = await D.Lib.newForm({ group: group === '__none' ? '' : group, onlyFields: true });
+    if (!r) return;                              // 用户按了取消
     if (r.error) return Toast.err(r.error);
-    const saved = r.item;
+    const f = r.fields;
+    const kind = r.kind;
+
+    /* 能不能生成：出图要一个描述 + 一个能用的图片模型；出声只对角色有效。
+       凑不齐就走「只用文字创建」那条 —— 不在这里把用户退回表单（他填的东西会丢）。 */
+    const look = String(f.look || '').trim();
+    /* 「有没有能用的生图型号」判据是 `D.Pipe.pickProvModel` 一份（这一页 1188 行那一处也是它）——
+       自己再判一遍「opts.imgModel 非空 / 注册表里有这一类」就会与真正出图的那次走偏。 */
+    const canPic = !!look && !!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image');
+    const canVoice = kind === 'actor' && D.aiVoiceOn();
+    if (!f.pic && !canPic && !canVoice) {
+      /* 一张图与一把嗓子都出不来：不必走过场，直接问一句要不要就用文字建。
+         这是最省事的一种结局，不该让用户对着一个空弹窗。 */
+      const yes = !window.Confirm || await Confirm.ask({
+        title: '这一条只能存文字',
+        body: (look ? '现在没有可用的生图平台（设置页填一把密钥，或在上面「出图型号」里挑一个）' : '还没写描述（出图靠它）')
+          + (kind === 'actor' ? '；「让 AI 给角色定音色」那个开关也没开' : '')
+          + '，所以这次出不了图。仍然要把它存进素材库吗？',
+        okLabel: '只用文字创建', cancelLabel: '回去补',
+      });
+      if (!yes) return;
+      return commitNew(f, kind, { pic: f.pic || '' });
+    }
+
+    /* 一个临时的对象：**不写库**，出图与出声都长在它身上（drawPreview / assignVoices
+       都只读它的字段、就地写 faces 与音色 —— 判据是同一套，不需要为预览另做一份）。 */
+    const tmp = {
+      id: 'draft_' + Date.now().toString(36), kind: kind,
+      name: f.name, group: f.group, look: f.look, bio: f.bio,
+      desc: kind === 'scene' ? f.look : '', time: kind === 'scene' ? f.time : '',
+      faces: [], voice: '', voiceName: '', voiceNote: '', voiceMode: '',
+    };
+
+    /* 生成过程中这一格显示什么：占位符（跟卡片上「正在出」的那一档同一套形状），
+       不是一句 toast。用户点完「生成」之后界面必须**立刻**变 ——
+       否则「我点了，怎么没反应」和「正在生成」之间那几秒是最容易以为坏了的时候。 */
+    const host = document.createElement('div');
+    host.className = 'ui-draft';
+    host.innerHTML = draftPlaceholder(f.name, kind, { pic: !!canPic, voice: canVoice });
+    document.body.appendChild(host);
+
+    const state = { pic: f.pic || '', faces: [], voice: null, busy: { pic: !!canPic, voice: canVoice } };
+    /* 出图与出声**并排跑**：两个都只花钱不写库，谁先完谁先落在 state 上。
+       串行的话用户要多等一份钱的时间，而这两件事互不依赖。 */
+    const jobs = [];
+    if (canPic) {
+      jobs.push((async () => {
+        await genRun('face', tmp.id, tmp, '正在出「' + f.name + '」的预览图…',
+          () => D.Pipe.drawPreview(REG, fakeDrama(), tmp, { count: candCount(), onTask: onTaskHook }));
+        state.faces = (tmp.faces || []).slice();
+      })());
+    }
+    if (canVoice) {
+      jobs.push((async () => {
+        /* assignVoices 要的是「一集的角色」，所以现搭一个只装这一位的壳
+           （D.toEpisodeChar 是库→剧侧那一份字段映射，只有它一份）。 */
+        const shell = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar(Object.assign({}, tmp, { kind: 'actor' }))] });
+        await genRun('voice', tmp.id, tmp, '正在按人设定「' + f.name + '」的声音…',
+          () => D.Pipe.assignVoices(REG, shell, { only: [f.name] }));
+        const one = shell.characters[0] || {};
+        if (one.voice || one.refAudio || String(one.voiceNote || '').trim()) {
+          state.voice = { voice: one.voice, voiceName: one.voiceName, voiceNote: one.voiceNote,
+            voiceMode: one.voiceMode, refAudio: one.refAudio, refAudioName: one.refAudioName, voiceBy: 'ai' };
+        }
+      })());
+    }
+    await Promise.allSettled(jobs);
+    /* 一张都没出来也要说清为什么 —— 不然用户面对一个空弹窗，只能猜是不是坏了。 */
+    const why = [];
+    if (canPic && !state.faces.length) why.push('图没出来' + (look ? '' : '（没写描述）'));
+    if (canVoice && !state.voice) why.push('声音没定出来');
+    host.remove();
+
+    const picked = await pickDraft(f, kind, state, why);
+    if (!picked) return;                            // 用户取消：什么也不写
+    return commitNew(f, kind, picked);
+  }
+
+  /* 生成过程中的占位符。形状刻意照抄卡片里「正在出」那一档（同一份 `ui-cands` / `.ui-wait`）——
+     占位符与真正生成中的候选长得一样，用户才认得出「这就是它在长的样子」。 */
+  function draftPlaceholder(name, kind, want) {
+    /* 形状照 ui.css 的 `.ui-wait.fill`（那一档就是「铺满一格正在长」）：
+       自建一个 `.ui-thumb` 会在九页里长出第二份「缩略图该多大」的判据。 */
+    const one = (lab) => '<div class="ui-cand"><div class="ui-wait fill" style="width:76px;height:76px">'
+      + '<i></i><span>' + lab + '…</span></div></div>';
+    return '<div class="ui-pick"><div class="ui-hint" style="margin-bottom:8px">'
+      + '正在给「' + D.esc(name) + '」准备 ' + (want.voice ? '图与声音' : '图')
+      + ' —— 出好了会让你挑；这一步还没存进素材库</div>'
+      + '<div class="ui-cands">' + (want.pic ? one('图') : '') + (want.voice ? one('声音') : '') + '</div></div>';
+  }
+
+  /* 「这把嗓子现在能不能试听」—— 有参考音频（复刻）或已经是资产地址的才真能播。
+     音色描述与预设音色要等素材建好、配音跑过一次之后才有音频。
+     判据只有这一处（挑选窗里那个键的 disabled 与那句提示都读它）。 */
+  const canPlayNow = st => !!(st && st.voice && (st.voice.refAudio || st.voice.voice));
+  /* 挑选弹窗：预览 + 选。返回 null = 取消（什么也不写），返回 { pic, faces, voice } = 按这个建。
+     这一格是「用户唯一能看到结果的地方」，所以图要点开能放大、声音要能试听 ——
+     只摆一排缩略图让人凭想象挑，等于没有挑选。 */
+  async function pickDraft(f, kind, state, why) {
+    const body = document.createElement('div');
+    body.className = 'ui-pick';
+    let chosen = state.faces.length ? 0 : -1;      // 默认选第一张出得最好的
+    let useTextOnly = !state.faces.length && !state.voice;
+
+    const draw = () => {
+      const pw = D.picWord ? D.picWord(f) : '预览图';
+      const secPic = state.faces.length
+        ? '<div class="ui-sec">挑一张' + D.esc(pw) + '（第 ' + (chosen + 1) + ' / ' + state.faces.length + ' 张）</div>'
+          + '<div class="ui-cands">' + state.faces.map((x, i) =>
+            '<div class="ui-cand' + (i === chosen ? ' on' : '') + '" data-pi="' + i + '" title="点一下就选它">'
+            + '<img src="' + D.esc(x.src) + '" alt="第 ' + (i + 1) + ' 张">'
+            + '<span class="t">第 ' + (i + 1) + ' 张</span></div>').join('') + '</div>'
+          + '<div class="btn-row"><button class="ghost" id="pdOpen">放大看这一张</button>'
+          + '<button class="ghost" id="pdAgain">再出几张</button></div>'
+        : '<div class="ui-sec">' + D.esc(pw) + '</div><div class="ui-hint">'
+          + (why.length && why[0].indexOf('图') >= 0 ? why[0] + '。' : '这次没出图（已经有图或描述还没写）。')
+          + '你可以只用文字创建，之后在编辑区里点「AI 出' + D.esc(pw) + '」再出。</div>';
+      const secVoice = kind === 'actor'
+        ? '<div class="ui-sec">声音</div>' + (state.voice
+          ? '<div class="ui-box" id="pdVoice"><div class="ui-hint">'
+          + (state.voice.voiceMode === 'clone' ? '复刻这一位的参考音频' : (state.voice.voiceNote ? '音色描述：' + state.voice.voiceNote : '预设音色：' + (state.voice.voiceName || state.voice.voice || '')))
+          + '</div><div class="btn-row"><button class="ghost" id="pdPlay">试听</button>'
+          + '<button class="ghost" id="pdVoiceAgain">让 AI 换一个</button></div>'
+          + (canPlayNow(state) ? '' : '<div class="ui-hint">音色描述与预设音色要等素材建好、拿到预览音频之后才能试听</div>')
+          + '</div>'
+          : '<div class="ui-hint">'
+          + (why.length && why.some(x => x.indexOf('声音') >= 0) ? why.find(x => x.indexOf('声音') >= 0) + '。' : '这次没定音色（设置里那个开关没开）。')
+          + '仍然可以只用文字创建，之后在编辑区里点「AI 定音色」。</div>')
+        : '';
+      body.innerHTML = secPic + secVoice
+        + '<div class="ui-hint" style="margin-top:10px">挑完点下面的「创建素材」才写进素材库；'
+        + '直接关掉这一窗则什么都不会保存。</div>';
+      body.querySelectorAll('[data-pi]').forEach(el => {
+        el.onclick = () => { chosen = Number(el.dataset.pi); useTextOnly = false; draw(); };
+      });
+      const ag = $('pdAgain');
+      if (ag) ag.onclick = async () => { useTextOnly = false; await againPic(); };
+      const op = $('pdOpen');
+      if (op) op.onclick = () => {
+        /* 放大看：lightbox.open 是 (item, listOverride)，不是 (list, index) ——
+           顺序传错的话它会在 listOverride 里找 item（找不到就把 list 换成 [item]），
+           结果是「能打开、但翻页没了」。传整份列表进去，翻页就还在。 */
+        const x = state.faces[chosen];
+        if (!x) return;
+        const items = state.faces.map(f2 => ({ src: f2.src, label: f.name }));
+        Wb.lightbox.open(Object.assign({ key: 'draft:' + f.name + ':' + chosen }, items[chosen]), items);
+      };
+      /* 「试听」只在**有参考音频**时才是真的能播（复刻模式）：`Cast.playAsset` 播的是素材地址，
+         而「音色描述 / 预设音色」根本还没有音频 —— 给它摆一颗「试听」按钮，
+         点下去只能报一句「还没出声」，那是又一个兑现不了的承诺。
+         所以：复刻的给真的试听键；设计/预设的那一档给「保存后到编辑区试听」这句话。 */
+      const canPlay = !!(state.voice && (state.voice.refAudio || state.voice.voice));
+      const pb = $('pdPlay');
+      if (pb && !canPlay) { pb.disabled = true; pb.title = '音色描述 / 预设音色要等素材建好、拿到预览音频之后才能试听'; }
+      if (pb) pb.onclick = async () => {
+        try { await D.Cast.playAsset(state.voice.refAudio || state.voice.voice); }
+        catch (e) { Toast.err('试听没出声：' + ((e && e.message) || e)); }
+      };
+      const va = $('pdVoiceAgain');
+      if (va) va.onclick = async () => { useTextOnly = false; await againVoice(); };
+    };
+    /* 重出与换音色都只改state，然后重画这一格 —— 挑选窗一直开着，用户能来回比。 */
+    const againPic = async () => {
+      const look2 = String(f.look || '').trim();
+      if (!look2) return Toast.warn('出图要靠上面那段描述 —— 先补一句');
+      if (!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) {
+        return Toast.warn('现在没有可用的生图平台：到设置页填一把密钥，或在右边「出图型号」里挑一个');
+      }
+      const tmp2 = { id: 'draft_pic', kind, name: f.name, look: f.look, desc: kind === 'scene' ? f.look : '',
+        time: kind === 'scene' ? f.time : '', faces: [] };
+      const old = state.faces.slice();
+      const okk = await genRun('face', 'draft_pic', tmp2, '正在再出几张…',
+        () => D.Pipe.drawPreview(REG, fakeDrama(), tmp2, { count: candCount(), onTask: onTaskHook }));
+      const got = (tmp2.faces || []).slice();
+      if (got.length) { state.faces = old.concat(got); chosen = old.length; draw(); }
+      else { Toast.warn('这次没出成（生成失败或被拒绝了）—— 可以再试一次，或直接只用文字创建', 8000); draw(); }
+    };
+    const againVoice = async () => {
+      if (!D.aiVoiceOn()) return Toast.warn('设置里「让 AI 给角色定音色」没开');
+      const shell2 = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar({ id: 'd', kind: 'actor', name: f.name, look: f.look, bio: f.bio })] });
+      await genRun('voice', 'draft_voice', { id: 'draft_voice' }, '正在换一个音色…',
+        () => D.Pipe.assignVoices(REG, shell2, { only: [f.name] }));
+      const one2 = shell2.characters[0] || {};
+      if (one2.voice || one2.refAudio || String(one2.voiceNote || '').trim()) {
+        state.voice = { voice: one2.voice, voiceName: one2.voiceName, voiceNote: one2.voiceNote,
+          voiceMode: one2.voiceMode, refAudio: one2.refAudio, refAudioName: one2.refAudioName, voiceBy: 'ai' };
+        draw();
+      } else Toast.warn('这次没定成 —— 可以再试一次，或直接只用文字创建', 8000);
+    };
+    draw();
+
+    if (!window.Confirm || !Confirm.choose) return { pic: '', faces: [], voice: null };
+    const pick = await Confirm.choose({
+      title: '挑一下，再创建「' + f.name + '」',
+      bodyNode: body,
+      options: [{ value: 'ok', label: '创建素材', hint: (state.faces.length && chosen >= 0 ? '用第 ' + (chosen + 1) + ' 张图' : '不带图')
+          + (state.voice ? ' · 带刚定的那把嗓子' : '') },
+      { value: 'text', label: '只用文字创建', hint: '不带图也不带声音，之后随时能补' }],
+      cancelLabel: '取消（什么也不保存）',
+    });
+    if (pick === 'text') return { pic: '', faces: [], voice: null };
+    if (!pick) return null;
+    if (useTextOnly) return { pic: '', faces: [], voice: null };
+    const chosenSrc = chosen >= 0 && state.faces[chosen] ? state.faces[chosen].src : '';
+    return { pic: chosenSrc || f.pic || '', faces: state.faces, voice: state.voice };
+  }
+
+  /* 真的建档。**这是整个流程里唯一写库的一下**（`Lib.commitForm`）。
+     写完之后才做「把这一张露出来」那几件事：四道筛选可能挡住它、
+     名单按拼音排可能落在别的页上。 */
+  async function commitNew(f, kind, picked) {
+    const c = D.Lib.commitForm(Object.assign({}, f, {
+      pic: (picked && picked.pic) || f.pic || '',
+      faces: (picked && picked.faces) || [],
+      voice: (picked && picked.voice) || null,
+    }));
+    if (c && c.error) return Toast.err(c.error);
+    const saved = c.item;
     /* 建完得真看得见这一张。这一页有四道筛选（类型档 / 分组 / 搜索框 / AI 挑的那批），
        新建的那一条多半落在当前这一档之外 —— 于是 toast 说「编辑区已经打开」，
        画面上却一张卡都没有（编辑区开在一条被筛掉的素材上）。哪一道把它挡住了就松开哪一道，并照实说。 */
@@ -1427,8 +1653,9 @@
     const qq = $('q').value.trim();
     if (qq && !D.Lib.hayOf(saved).includes(qq.toLowerCase())) { $('q').value = ''; hid.push('清空了搜索框'); }
     if (aiPick && !aiPick.has(saved.id)) { aiPick = null; aiWhy = ''; hid.push('退出「AI 挑的那批」'); }
-    Toast.ok('建好了：' + saved.name + '。编辑区已经打开——' + r.tip
-      + (hid.length ? '（' + hid.join('、') + '，不然这一张不在当前这一档里）' : ''));
+    const bits = ['编辑区已经打开——' + c.tip];
+    if (picked && picked.faces && picked.faces.length > 1) bits.push('刚才挑的是第几张可以随时换');
+    Toast.ok('建好了：' + saved.name + '。' + bits.join('；') + (hid.length ? '（' + hid.join('、') + '，不然这一张不在当前这一档里）' : ''));
     openId = saved.id; resetPaging(); await render();
     /* 名单是按**名字拼音**排的（见 orderItems），新建的那一条可能落在任何一页 ——
        只写一句「编辑区已经打开」，人却在当前这一页上找不到它。
@@ -1436,9 +1663,6 @@
     if (revealItem(saved.id)) await render();
     const mine = document.querySelector('.card[data-id="' + saved.id + '"]');
     if (mine && mine.scrollIntoView) mine.scrollIntoView({ block: 'center' });
-    /* 建完顺手问一句「现在出一张图」：这一条刚写好描述，正是出图最顺的时候。
-       不问的话得自己进编辑区再点一次「AI 出预览图」—— 中间那一步几乎没人会想起来。 */
-    await offerFirstPic(saved);
   }
   /* 把某一条拉进当前显示范围。返回 true = 分页窗口动过，调用方要重画一次。 */
   function revealItem(id) {
@@ -1453,34 +1677,6 @@
     if (pager.page === Math.floor(i / PAGE_SIZE)) return false;
     pager.setPage(Math.floor(i / PAGE_SIZE));
     return true;
-  }
-  /* 刚建好的一条：描述非空、又有能用的图片模型时，问一句要不要马上出主图。
-     出的过程走 genRun —— 卡片上先占位、出完自动换上（见 cardHTML 的 thumb 分支），
-     所以这里不必自己管进度。 */
-  async function offerFirstPic(saved) {
-    const look = String(saved.look || saved.desc || '').trim();
-    if (!look) return;
-    /* 取库里那一份再动手：`Lib.save` 返回的是合并后的对象，页面上那张卡读的是库里的引用 */
-    const live = D.Lib.list().find(x => x && x.id === saved.id);
-    if (!live) return;
-    /* 建档时已经挑好一张预览图了：不再问「要不要出图」—— 人家已经给了图。 */
-    if (D.picOf(live)) return;
-    const pw = picWord(live);
-    const pick = kfModelOf();
-    if (!pick.prov || !pick.model) {
-      Toast.warn('素材已经存好了。要给它出' + pw + '的话，先在上面「出图型号」里选一个能用的图片模型，再进编辑区点「AI 出' + pw + '」', 7000);
-      return;
-    }
-    const ok = await Confirm.ask({
-      title: '现在出一张' + pw + '？',
-      body: '按你写的那段描述出 ' + candCount() + ' 张（用「' + (pick.model.name || pick.model.id) + '」，'
-        + '第 1 张直接当这一条的' + pw + '，其余进候选让你换；会消耗 ' + candCount() + ' 次生图额度）。'
-        + '也可以先不出：之后在编辑区里随时点「AI 出' + nSuffix() + pw + '」。',
-      okLabel: '出 ' + candCount() + ' 张',
-    });
-    if (!ok) return;
-    await genRun('face', live.id, live, '正在出「' + live.name + '」的' + pw + '（' + candCount() + ' 张）…',
-      () => D.Pipe.drawPreview(REG, fakeDrama(), live, { count: candCount(), replace: true, onTask: onTaskHook }));
   }
 
   /* ---------- AI 找素材：话就写在搜索框里，结果就地筛这份名单（角色 / 场景 / 道具三种都算） ---------- */
@@ -1727,6 +1923,11 @@
      存进库时这里要能跟着刷新 —— storage 事件是浏览器给跨标签页的那一条通道。 */
   window.addEventListener('storage', e => { if (!e.key || e.key === 'drama_chars') render(); });
   boot();
+  /* 助手在别处改了素材库（`RUN save_char` / `remove_char`）之后调它重画 ——
+     有了它，助手说一句「已存进素材库」时界面**当场**就变了；
+     没有的话用户得自己刷新才看得见，而「它说存了、界面上没有」是最坏的一种。
+     助手那边是 `frameWin().__charsChanged()`（见 ai-chat.js 的 runChar / runRemoveChar）。 */
+  window.__charsChanged = () => { try { render(); } catch (e) {} };
 })();
 </script>
 </body>

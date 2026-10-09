@@ -1284,7 +1284,12 @@ window.copyText = async function copyText(txt) {
     choose(o) {
       return new Promise(resolve => {
         const { dlg, body, foot } = shell(o.title || '请选择', o.sub);
-        if (o.body) { body.innerHTML = '<div class="cf-msg" style="margin-bottom:12px"></div>'; body.querySelector('.cf-msg').textContent = o.body; }
+        /* `bodyNode`：**带交互的正文**（选择器、预览、试听…）。走 o.body 的那条只放纯文本
+           （textContent）—— 那是这一层的立场：用户可见的文案不塞未转义的 HTML。
+           要真需要一块能点的内容，就由页面造好一个节点递进来（节点是它自己造的，不是字符串）。
+           两者只许给一个；都给了以 bodyNode 为准（它显然是更具体的那一个）。 */
+        if (o.bodyNode) body.appendChild(o.bodyNode);
+        else if (o.body) { body.innerHTML = '<div class="cf-msg" style="margin-bottom:12px"></div>'; body.querySelector('.cf-msg').textContent = o.body; }
         const box = document.createElement('div');
         box.className = 'cf-opts';
         (o.options || []).forEach(op => {
@@ -1541,6 +1546,12 @@ window.copyText = async function copyText(txt) {
             const c = parts[k].ctl;
             if (c) c.addEventListener('change', () => o.onChange(k, api));
           }
+          /* 表单刚打开时也走一次：调用方要按**默认值**决定哪几行先露出来
+             （例：新建素材时默认类型是角色，「出声」那一行要露；换到道具就收）。
+             没有这一下，页面只能把所有行的初值都写死在 fields 里 ——
+             而初值里那些「这一行该不该露」是互相依赖的（露/收要看别的行现在是什么值），
+             写死就会出现「默认是道具却摆着出图勾选框」这种界面与行为不一致。 */
+          try { o.onChange(String(Object.keys(parts)[0] || ''), api); } catch (e) {}
         }
         const done = out => { try { dlg.close(); } catch {} dlg.remove(); resolve(out); };
         dlg.querySelector('#pfCancel').onclick = () => done(null);
@@ -1764,11 +1775,25 @@ window.copyText = async function copyText(txt) {
     return box;
   }
   const ICON = { ok: '✓', err: '!', warn: '!', info: 'i' };
+  /* 「右上角弹窗」的两档安静：
+       · err / warn  → 一定弹。出错与警告是**必须看见**的（弹窗是它们唯一的出口）；
+       · ok / info   → 默认**不弹**（`sk_quiet_ok` = '1' 时才弹）。
+     为什么默认安静：这一类全是「已经做完了」或「这里没有东西可做」——
+     做完的那件事在界面上本来就看得见（卡片换了、列表多了一行、按钮变成已选），
+     而「没有东西可做」更是用户自己刚点的按钮造成的，不提示比提示更好。
+     右上一排堆着七八条绿色对勾时，最该被看见的那条错误就淹在里面了 ——
+     安静下来之后，右上角弹出来的**就是**真问题。
+     判据只有这一处（`Toast.show` 的开头），页面不要自己各处判断。
+     开关在「设置 → 界面」里（「操作成功也给一声提示」），默认关。 */
+  const K_QUIET_OK = 'sk_quiet_ok';
+  const quietOk = () => { try { return localStorage.getItem(K_QUIET_OK) === '1'; } catch (e) { return false; } };
   window.Toast = {
     show(text, type, ms) {
       const msg = String(text == null ? '' : text).trim();
       if (!msg) return;
       const kind = ICON[type] ? type : 'info';
+      /* 安静档只压 ok / info；调用方给的 ms 一律照旧（有人靠 ms=0 做「一直挂着」的那种）。 */
+      if (quietOk() && (kind === 'ok' || kind === 'info') && ms !== 0) return;
       const now = Date.now();
       if (msg === last.t && now - last.ts < 1500) return;    // 去重：同一句话不连弹
       last = { t: msg, ts: now };
@@ -1818,10 +1843,17 @@ window.copyText = async function copyText(txt) {
       console.warn('[Store] ' + key + ' 不是信封格式，已按空处理；请运行一次「升级历史数据.cjs」');
       return def;
     },
-    /* 返回 { ok, error }；cap 会对数组自动截断（总量控制，避免写爆配额） */
+    /* 返回 { ok, bytes, truncated?, dropped? }；cap 会对数组自动截断（总量控制，避免写爆配额）。
+       **截断要报出来**：以前截断与写成功是同一个返回值（ok:true），
+       于是「存满了 40 部，第 41 部把最旧那一部挤掉了」在界面上完全看不出来 ——
+       刷新后那一集凭空消失，而用户刚点过「新建」。调用方照 `{ok}` 判就永远不知道发生了这件事。 */
     write(key, val, opts = {}) {
       let v = val;
-      if (opts.cap && Array.isArray(v) && v.length > opts.cap) v = v.slice(0, opts.cap);
+      let dropped = 0;
+      if (opts.cap && Array.isArray(v) && v.length > opts.cap) {
+        dropped = v.length - opts.cap;
+        v = v.slice(0, opts.cap);
+      }
       /* 序列化也要包在 try 里：数据里混进 BigInt / 循环引用时 JSON.stringify 会直接抛，
          以前它在 try 之外 —— 一次脏数据就把整个保存流程打断（页面后续逻辑全不执行）。 */
       let body;
@@ -1835,7 +1867,9 @@ window.copyText = async function copyText(txt) {
       }
       try {
         localStorage.setItem(key, body);
-        return { ok: true, bytes: body.length };
+        /* 截断过就在返回值里说明（同时 console 一句，便于事后查盘上的数据对不上） */
+        if (dropped) console.warn('[Store] ' + key + ' 超出上限 ' + opts.cap + '，截掉了 ' + dropped + ' 条（' + (opts.label || key) + '）');
+        return { ok: true, bytes: body.length, truncated: dropped ? opts.cap : 0, dropped };
       } catch (e) {
         const quota = /quota|exceed|full/i.test(String(e && e.name) + String(e && e.message));
         const msg = quota
@@ -2054,6 +2088,9 @@ window.UI_PREFS = {
       hint: '左下角那颗太阳 / 月亮是同一个开关的快捷入口。' },
     { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool',
       hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展，两边写的是同一个键。' },
+    { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool',
+      hint: '默认关（安静）：右上角只在出错与警告时弹。「已经做完了」「这里没有东西可做」这类不弹 —— ' +
+        '做完的事界面上本来就看得见，而一排绿色对勾会把真正该看的那条错误淹掉。' },
     { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list',
       opts: [['list', '列表'], ['compact', '紧凑']],
       hint: '只是默认摆法：进了那一页还能用右上角的图标随时换。' },
@@ -2146,6 +2183,9 @@ window.UI_PREFS = {
        刻意不写整个 'dir_' 前缀：dir_img / dir_video / dir_audio / dir_render 是**本机磁盘路径**，
        换台机器就不成立（和 prompt_dir 同理，见下面的注释）。 */
     'wb_split', 'dir_split', 'dir_asset_view', 'dir_char_view', 'dir_fav_view', 'dir_cand_expand', 'dir_muted', 'sb_open', 'sb_bal_show',
+    /* 「操作成功也给一声提示」（默认关 = 安静档）：这是用户自己调出来的界面偏好，
+       与 dir_theme 同级 —— 换台机器就该还是安静的，而不是突然开始弹一排绿色对勾。 */
+    'sk_quiet_ok',
     /* 产物镜像的三个开关：属于「用户调出来的界面/习惯」，跟着数据文件走。
        **只同步开关，不同步 sk_local_mirror 那份索引**（见 NOT_SYNC）——
        索引里记的是本机资产号 la_xxx，另一台机器上那些文件压根不存在。

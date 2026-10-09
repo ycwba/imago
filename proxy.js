@@ -1485,8 +1485,25 @@ async function guardOutboundUrl(raw) {
 /* 出站响应流 → 客户端：上游中途断开（RST / 空闲超时）时不能只让 pipe 抛错 ——
    以前几处 pipe 没有 error 监听：上游一断，代理这边刷未捕获异常，客户端拿到一个永远不结束的响应。
    统一入口：响应还没发头 → 502 + 可读原因；已经发过头 → 直接断开连接。 */
-function pipeUpstream(ur, res, tag) {
+/* 把上游的字节转发给客户端。`total` 已知时额外发一个响应头 `X-Bytes-Sent`——
+   页面要靠它显示「下到百分之几」（回环那一段秒完，用户看到的慢的是「本机 → 上游」那一段，
+   而那一段只有代理看得见；这条头是把它透出来的那一小段）。
+   头不是 CORS 敏感，但为了万一是自定义头，客户端读不到时按「大小未知」显示，不假装有进度。 */
+function pipeUpstream(ur, res, tag, total) {
   ur.on('error', e => failUpstream(res, e.message, tag || '上游中断'));
+  if (!total) { ur.pipe(res); return; }
+  let sent = 0, lastAt = 0, lastPct = -1;
+  ur.on('data', c => {
+    sent += c.length;
+    const pct = Math.floor(sent * 100 / total);
+    const now = Date.now();
+    /* 每 200ms 或每跨过 1% 写一次头：写太密会让响应变慢（每帧都是一次 TCP 写），
+     而这个数字的用途是给人看的，1% 的粒度已经足够。 */
+    if (now - lastAt >= 200 || (pct >= 0 && pct > lastPct)) {
+      lastAt = now; lastPct = pct;
+      try { res.setHeader('X-Bytes-Sent', String(sent)); } catch (e) {}
+    }
+  });
   ur.pipe(res);
 }
 
@@ -1804,6 +1821,14 @@ function localIndexWrite(list) {
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
     log('[local-assets] 写入索引失败：' + e.message);
+    /* **必须抛出去**（L50）：以前这里只写一行日志，调用方照常回 200「已保存」。
+       磁盘满的时候表现是：卡片当场显示「已保存」、刷新后资产库里没有它、
+       GET /local-assets 也不列它（列表只读索引）—— 字节其实好好躺在 .assets 里，
+       只是没人知道它存在。回 200 等于告诉调用方「记下了」，而它并没有被记下。
+       带上 indexWrite 标记，路由那边据此说清「字节在、索引不在」。 */
+    const err = new Error('本机资产索引写盘失败：' + (e.message || e));
+    err.indexWrite = true;
+    throw err;
   }
 }
 function localAssetEntry(id) {
@@ -1904,7 +1929,10 @@ function localAssetRebuild(id) {
   };
   const list = localIndexRead();
   list.unshift(item);
-  localIndexWrite(list.slice(0, LOCAL_INDEX_MAX));      // 补建与正常写入用同一个上限，别两处各写一个数
+  /* 补建是**读**路径上的一步（文件就在眼前，条目已经拼好了），索引写不成也不该让读操作失败 ——
+     真正需要「写不成就要报错」的是落盘那两条路（见 localIndexWrite 里的说明）。 */
+  try { localIndexWrite(list.slice(0, LOCAL_INDEX_MAX)); }   // 补建与正常写入用同一个上限，别两处各写一个数
+  catch (e) { log('[local-assets] 补建条目写索引失败（文件仍在，本次按读到的算）：' + e.message); }
   return item;
 }
 function localFileFromEntry(ent) {
@@ -3596,7 +3624,42 @@ async function handleCapabilities(req, res, urlObj) {
   }
 }
 
-const cloudState = { lastAt: 0, lastResult: '' };
+/* 云同步的**结果状态**（上次跑成什么样、有哪些冲突待选）——
+   与基线同生共死：基线本来就是落盘的（.data/.cloud-state.json），这块却是进程内存（L51）。
+   于是「报出 3 份冲突待选择 → 重启代理（或换端口起实例）→ 设置页回到『还没同步过』、
+   待选清单空了」，用户以为冲突没了，按下去又跑一次，冲突重新冒出来 —— 整个过程在界面上无法解释。
+   现在两块一起写进同一个文件（同一个文件、同一次写，就不存在「一个持久一个不持久」）。 */
+const cloudState = { lastAt: 0, lastResult: '', conflicts: [], unread: [], lastUp: 0, lastDown: 0 };
+/* 读整个文件（基线 + 这块结果状态）；写只用 read-modify-write，免得把基线那一半抹掉。 */
+function cloudStateFileRead() {
+  try { return JSON.parse(fs.readFileSync(path.join(dataDirPath(), '.cloud-state.json'), 'utf8')) || {}; } catch { return {}; }
+}
+function cloudStateSave() {
+  try {
+    const cur = cloudStateFileRead();
+    fs.mkdirSync(dataDirPath(), { recursive: true });
+    fs.writeFileSync(path.join(dataDirPath(), '.cloud-state.json'), JSON.stringify({
+      ts: Date.now(), keys: cur.keys || {},
+      ui: { at: cloudState.lastAt, result: cloudState.lastResult, conflicts: cloudState.conflicts || [],
+        unread: cloudState.unread || [], up: cloudState.lastUp || 0, down: cloudState.lastDown || 0 },
+    }));
+  } catch (e) { log('[cloud] 状态写入失败：' + e.message); }
+}
+/* 赋值 + 落盘一次（调用方只管说「现在是什么样」，不要自己记着还要写盘） */
+function cloudStateSet(patch) {
+  Object.assign(cloudState, patch || {});
+  cloudStateSave();
+}
+function cloudStateLoad() {
+  const ui = cloudStateFileRead().ui;
+  if (!ui || typeof ui !== 'object') return;
+  cloudState.lastAt = Number(ui.at) || 0;
+  cloudState.lastResult = String(ui.result || '');
+  cloudState.conflicts = Array.isArray(ui.conflicts) ? ui.conflicts : [];
+  cloudState.unread = Array.isArray(ui.unread) ? ui.unread : [];
+  cloudState.lastUp = Number(ui.up) || 0;
+  cloudState.lastDown = Number(ui.down) || 0;
+}
 
 /* ============================================================================
    云同步的「计划」：先判定每个键该怎么动，再执行
@@ -3611,12 +3674,19 @@ const cloudState = { lastAt: 0, lastResult: '' };
    为什么要基线：只看修改时间取新，等于「两边都改过」时静默丢弃一边 —— 用户不知道哪份数据被顶掉了。
    ========================================================================== */
 const CLOUD_STATE_FILE = () => path.join(dataDirPath(), '.cloud-state.json');
+/* 启动就把上一次的同步结果读回来 —— 与基线同一份文件，读到什么就是什么。
+   （函数声明提升，上面 cloudStateLoad 的调用点写在文件稍后，见那里。） */
 function cloudBaselineRead() {
   try { const v = JSON.parse(fs.readFileSync(CLOUD_STATE_FILE(), 'utf8')); return (v && v.keys) || {}; } catch { return {}; }
 }
 function cloudBaselineWrite(keys) {
-  try { fs.mkdirSync(dataDirPath(), { recursive: true }); fs.writeFileSync(CLOUD_STATE_FILE(), JSON.stringify({ ts: Date.now(), keys })); }
-  catch (e) { log('[cloud] 基线写入失败：' + e.message); }
+  try {
+    /* 保留同一份文件里的 ui（结果状态）那一半：这里是**整文件覆盖**，
+       不带上它就是「同步一次把上次的诊断信息抹掉」（L51 的同一个坑的另一种形态）。 */
+    const cur = (() => { try { return JSON.parse(fs.readFileSync(CLOUD_STATE_FILE(), 'utf8')) || {}; } catch { return {}; } })();
+    fs.mkdirSync(dataDirPath(), { recursive: true });
+    fs.writeFileSync(CLOUD_STATE_FILE(), JSON.stringify(Object.assign(cur, { ts: Date.now(), keys })));
+  } catch (e) { log('[cloud] 基线写入失败：' + e.message); }
 }
 const sha1Of = buf => require('crypto').createHash('sha1').update(buf).digest('hex').slice(0, 12);
 /* 拉两边现状，给出每个键的动作：
@@ -3931,8 +4001,7 @@ function handleData(req, res, urlObj) {
                   : '；归档目录建不出来（有些网盘不允许 WebDAV 建目录，请在网盘网页端手动建一个 ' + PROMPT_CLOUD_SUB + '/）';
               } catch (e) { prompts = { error: e.message }; msg += '；归档不可用：' + e.message; }
             }
-            cloudState.lastAt = Date.now();
-            cloudState.lastResult = msg;
+            cloudStateSet({ lastAt: Date.now(), lastResult: msg });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, remoteCount: list.size, prompts, message: msg }));
             return;
@@ -3996,9 +4065,8 @@ function handleData(req, res, urlObj) {
               prompts = Object.assign({ dir: pdir }, await cloudSyncPrompts(cfg, pdir, cmd));
             } catch (e) { prompts = { error: e.message, failed: [e.message] }; }
           }
-          cloudState.lastAt = Date.now();
-          cloudState.conflicts = conflicts;       // 状态接口据此让设置页显示「待选择」清单
-          cloudState.lastUp = nUp; cloudState.lastDown = nDown;
+          /* 状态接口据此让设置页显示「待选择」清单；一起落盘，重启代理也还在（L51） */
+          cloudStateSet({ lastAt: Date.now(), conflicts, lastUp: nUp, lastDown: nDown });
           const parts = [];
           if (nUp) parts.push('已上传 ' + nUp + ' 份');
           if (nDown) parts.push('已下载 ' + nDown + ' 份');
@@ -4019,8 +4087,7 @@ function handleData(req, res, urlObj) {
               if (prompts.failed && prompts.failed.length) parts.push('「归档 ' + prompts.failed.length + ' 份处理失败」');
             }
           }
-          cloudState.lastResult = parts.join('，') || '没有需要同步的数据';
-          cloudState.unread = unread;
+          cloudStateSet({ lastResult: parts.join('，') || '没有需要同步的数据', unread });
           log('[cloud] ' + cloudState.lastResult + (details.length ? '：' + details.join(' ') : '')
             + (unread.length ? '；读不下来：' + unread.join(' ') : '')
             + (failed.length ? '；失败：' + failed.join(' ') : '')
@@ -4029,7 +4096,7 @@ function handleData(req, res, urlObj) {
           res.end(JSON.stringify({ ok: true, count: nUp + nDown, up: nUp, down: nDown, del: nDel, same, details,
             conflicts, autoPicked, averted, backups, unread, failed, skipDel, prompts, message: cloudState.lastResult }));
         } catch (e) {
-          cloudState.lastResult = '失败：' + e.message;
+          cloudStateSet({ lastResult: '失败：' + e.message });
           log('[cloud] 失败：' + e.message);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { message: e.message } }));
@@ -4136,6 +4203,17 @@ async function handleRequest(req, res) {
     const body = JSON.stringify(sysStatus(req.url.includes('fresh=1')));
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(body);
+    return;
+  }
+  /* 「这个端口上是不是本项目」—— 启动器判断身份用的一条。
+     为什么必须有它：以前判据是「端口上有人在听」，而那个号上可能是**别的 node 程序**。
+     后果不是「打不开页面」，而是启动器会把那个号当成「本项目在跑」直接开页面，
+     而点「停止」时按「监听者不是 node 才不动」那条闸继续往下走 —— **杀掉别人机器上的 node 进程**。
+     这一条只回一个身份标记，不含任何密钥、地址或用户数据。
+     launcher.ps1 的 Test-OurProxy 读的是 app + registry.version 两个字段。 */
+  if (dataPath === '/whoami') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ app: 'shiji-workbench', registry: REGISTRY.version, port: PORT, pid: process.pid }));
     return;
   }
   if (dataPath === '/env-status') {
@@ -4551,10 +4629,21 @@ async function handleRequest(req, res) {
           fs.writeFileSync(path.join(to, file), buf);
           fs.unlinkSync(src);                            // 写成功了才删源
           autosaveUsedAdd(to);
-          sums.set(sig, file);
+          /* 记账**先于**任何可能抛异常的缓存写入** —— 这一段早先写成 sums.set(sig, file)，
+             sig 从未声明，于是每搬一个文件都在记账那一行抛 ReferenceError：
+             文件已经搬成功了，界面却报「没搬成」，还顺手造出 a.mp4 与 a-2.mp4 两份。
+             位置刻意放在 fs.unlinkSync 之后 —— 字节已经落地才算搬成。 */
           bytes += buf.length;
           moved.push({ from: name, to: file });
-        } catch (e) { failed.push({ name, why: (e && e.code ? e.code + ' ' : '') + e.message }); }
+          /* 本次刚写进去的文件要能立刻被后面同内容的请求命中 —— 与 /save-local 同一句 */
+          sums.add(buf.length, hash, file);
+        } catch (e) {
+          /* 内部标识符不原样甩给用户：ReferenceError 是我们的错，不是他目录的错 */
+          const why = (e instanceof ReferenceError)
+            ? '内部错误（记账那一步出错），文件其实已经搬好了 —— 请把这份日志给作者'
+            : ((e && e.code ? e.code + ' ' : '') + (e && e.message));
+          failed.push({ name, why });
+        }
       }
       log('[save-move] ' + kind + ' ' + srcDir + ' → ' + to + '：搬走 ' + moved.length
         + ' 个（' + (bytes / 1048576).toFixed(1) + ' MB）'
@@ -4647,7 +4736,15 @@ async function handleRequest(req, res) {
         res.end(JSON.stringify({ ...item, status: 'succeeded', url: '/asset/' + id }));
       } catch (e) {
         log('[local-assets] 保存失败：' + e.message);
-        res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: e.message } }));
+        /* 索引写不成时把话说到位（L50）：字节确实已经写进 .assets 了，缺的只是索引那一行。
+           不这么说的话，调用方看到 500 会当「整件事都没成」而丢掉已经存好的那份，
+           或者反过来（以前）看到 200 而当「成了」—— 两种说法都和盘上的实情对不上。 */
+        const msg = e && e.indexWrite
+          ? ('字节已经写进本机资产库（.assets）了，但索引没写成：' + e.message
+            + '。库里面现在看不到它。腾出磁盘空间后再保存一次；'
+            + '索引缺失的那一条会在下次读取时按文件名自动补回来。')
+          : e.message;
+        res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: msg } }));
       }
     });
     return;
@@ -4658,10 +4755,37 @@ async function handleRequest(req, res) {
     const list = localIndexRead();
     const hit = list.find(x => x && x.id === id);
     if (!hit) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: '本地资产不存在：' + id } })); return; }
-    try {
-      if (hit.file) { const f = path.join(LOCAL_DIR, path.basename(hit.file)); if (fs.existsSync(f)) fs.unlinkSync(f); }
-    } catch (e) { log('[local-assets] 删除文件失败：' + e.message); }
-    localIndexWrite(list.filter(x => x && x.id !== id));
+    /* **文件删不掉就不许裁索引**（L49）。为什么这条最要紧：索引是这些文件唯一的查找途径 ——
+       条目一没，那个 mp4 在资产库里看不见、/asset/<id> 也 404，而它明明还躺在 .assets 里，
+       只是再也没人能按名字找回来（文件名是 la_xxx.mp4，人认不出来）。
+       什么情况下删不掉：文件正被播放器 / 预览器打开、被同步盘（OneDrive 之类）占着、
+       被杀毒软件扫着 —— 都是常见情形，不是罕见边角。
+       立场与 /data 的 DELETE 完全一样（那边注释写得很清楚：删不掉必须回错误，
+       否则用户看到「删了又回来」）—— 这条路由当时是同一件事的第二份实现，这边漏了。 */
+    if (hit.file) {
+      const f = path.join(LOCAL_DIR, path.basename(hit.file));
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f); }
+        catch (e) {
+          log('[local-assets] 删除文件失败，索引没有动：' + e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ error: { message: '文件删不掉（' + (e.code || e.message)
+            + '）：它可能正被播放器 / 同步盘 / 杀毒软件占着。这一条原样留着（资产库里还在，还能打开）——'
+            + '关掉占着它的程序再删一次。' } }));
+          return;
+        }
+      }
+    }
+    try { localIndexWrite(list.filter(x => x && x.id !== id)); }
+    catch (e) {
+      /* 文件已经删掉了，但索引没写回去：这一条会「复活」成一条指向不存在文件的记录，
+         下次打开会显示成「已丢失」。如实说，别回「已删除」——那会让用户以为干净了。 */
+      log('[local-assets] 文件已删、索引未更新：' + e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: { message: '文件已经删掉了，但索引没能更新（' + e.message
+        + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。' } }));
+      return;
+    }
     log(`[local-assets] 已删除 ${id}`);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: true, id }));
@@ -4884,11 +5008,18 @@ async function handleRequest(req, res) {
           guardOutboundUrl(next).then(u2 => fetchHop(u2, hops + 1), e => failUpstream(res, e.message, 'getfile 重定向'));
           return;
         }
-        res.writeHead(ur.statusCode, {
+        /* 把上游的长度**原样透出**（不 CORS 敏感，客户端读得到就能算下载进度）——
+           以前一个头都没有，于是「正在把产物存到本机」只能显示「正在存 N 份」，
+           一个 200MB 的视频下到 5% 与 95% 在界面上长得一模一样，用户只能干等。
+           没有长度（chunked）时客户端会看到 null，按「大小未知」显示（不假装有进度）。 */
+        const len = Number(ur.headers['content-length'] || 0) || null;
+        const hd = {
           'Content-Type': ur.headers['content-type'] || 'application/octet-stream',
           'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store',
-        });
-        pipeUpstream(ur, res, 'getfile');
+        };
+        if (len) hd['Content-Length'] = String(len);
+        res.writeHead(ur.statusCode, hd);
+        pipeUpstream(ur, res, 'getfile', len);
       });
       up.on('error', e => { log(`  → getfile error: ${e.message}`); failUpstream(res, e.message, 'getfile'); });
       up.end();
@@ -5030,6 +5161,16 @@ async function handleRequest(req, res) {
   const full = path.resolve(__dirname, file.replace(/^\/+/, ''));
   if (!full.startsWith(path.resolve(__dirname) + path.sep)) { res.writeHead(404); res.end('not found'); return; }
   serveStatic(req, res, full, path.extname(file));
+}
+
+/* 把上一次的云同步结果读回来（L51）。
+   以前这块只在进程内存里，重启代理就归零 —— 设置页从「3 份冲突待选择」变回「还没同步过」，
+   用户以为冲突没了，按一下又跑出同样的冲突，整个过程在界面上无法解释。
+   与基线写在同一个文件里（.data/.cloud-state.json），所以在这里一次性读回。 */
+cloudStateLoad();
+if (cloudState.lastAt) {
+  log('[cloud] 上次同步结果（从盘上读回）：' + (cloudState.lastResult || '（无记录）')
+    + (cloudState.conflicts.length ? '，其中 ' + cloudState.conflicts.length + ' 份冲突待选择' : ''));
 }
 
 server.listen(PORT, () => {

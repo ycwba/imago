@@ -208,6 +208,7 @@ const BUILTINS = new Set(('globalThis window document navigator location history
   + 'Float64Array ArrayBuffer DataView DOMParser XMLSerializer Image Audio Video HTMLElement Node Element NodeList '
   + 'HTMLInputElement HTMLTextAreaElement HTMLSelectElement HTMLCanvasElement AudioContext matchMedia '
   + 'getComputedStyle scrollTo scrollBy postMessage BroadcastChannel fs path http os dns require module '
+  + 'top parent self frames frameElement name status closed length origin innerWidth innerHeight '
   + 'exports process Buffer __dirname __filename MediaId NODE_ENV btoa atob TextEncoderStream '
   + 'TextDecoderStream ReadableStream WritableStream TransformStream Blob URLPattern true false null this arguments').split(/\s+/).filter(Boolean));
 const NO_CALL = new Set(['function', 'class', 'const', 'let', 'var', 'new', 'typeof', 'await', 'of', 'in',
@@ -250,39 +251,173 @@ function analyse(toks) {
   const stack = [0];
   const cur = () => all[stack[stack.length - 1]].names;
   const calls = [];
-  let paren = 0, declRun = 0;
+  /* 「下一个 id 是这条声明的**声明目标**吗」——
+     以前这里是一个 `declRun`（遇到 const/let/var 置 1、遇到 `;` 清 0），
+     而它在 `= 表达式` 里**一路有效**：`const isAudioType = t => t === '音频'` 里
+     箭头函数的形参 `t` 于是被当成了**模块层的**声明收进去。
+     后果不是这一档自己报错，而是**别处写错时它报不出来**：
+     某个函数里写了 `t.dur`（把另一个函数的局部变量拿来用）本该报红，
+     而模块层恰好有个被误收的 `t`，`resolves` 就说「解析得到」—— 判据静默失效。
+     （studio.html 的 `t is not defined` 就是这么漏过去的。）
+     现在改成两个状态：`inDecl`（在一条声明语句里）+ `declExpect`（下一个 id 是声明目标）。
+     只有紧跟 const/let/var 的那个 id、以及**声明语句顶层**逗号之后的 id 才算声明目标；
+     表达式里的裸标识符一个都不收。 */
+  /* `declParen` = 看见 const/let/var 那一瞬的括号深度。
+     为什么不能用「paren === 0」判断「我在语句层」：这些页面的内联脚本整段被
+     `(function(){ … })()` 包着，于是 paren **整段都 ≥ 1**，`paren === 0` 一次都不成立 ——
+     `const a = 1, b = 2` 里 `b` 这种「逗号后面的声明符」一个都收不到
+     （更早的版本是靠「形参规则」歪打正着收下的，那把形参规则修对之后它们就全丢了，
+     drama.html 的 `let grpRow, grid, …` 只剩第一个 grpRow，`useBtn.disabled` 立刻变假红）。
+     现在按「看见声明关键字时的层」比：逗号回到同一层才算下一个声明符。 */
+  let inDecl = false, declExpect = false, declParen = 0;
+  const braceStack = [];        // 每个 `{` 是「进了帧」(true) 还是「解构」(false)，`}` 按 LIFO 消费
+  /* 成员访问的**基对象**（`t.dur` 里的 `t`）也收一份。为什么要收：
+     §A 原来只查裸调用，而 `t.dur` 是成员访问 —— 一个「把别的函数的局部变量拿来用」
+     的错误（studio.html 真发生过：submitVideo 里写了 createVideoOnce 的 `t.dur`）
+     就这样从这条判据下面走过去了，表现是点生成什么都不发生。
+     只收「后面跟点、且前面不是点」的那个 id：链式 `a.b.c` 里只有 a 是基对象。 */
+  const members = [];
+  let paren = 0;
+  /* ------------------ 形参必须挂到**它自己那个函数**的帧上 ------------------
+     踩过的坑：老写法把形参直接 `cur().add()`，而扫到形参列表时函数体的 `{`
+     还没出现 —— 于是 `function setType(t, fromUser) {…}` 里的 `t` 落进了
+     **模块层**，`const isAudioType = t => …` 里的 `t` 同样落进模块层。
+     后果是整份文件里任何地方写 `t.xxx` 都「解析得到」，§A 新加的成员访问判据
+     因此在 studio.html 上一直不咬人（注回 `t.dur` 照样全绿，反向对照当场拆穿）。
+     现在的做法：形参先攒在 `pending` 里，等**函数体的那个 `{`** 开帧之后再灌进去。
+     表达式体的箭头函数（`t => t.a`）没有 `{`，就当场开一个「箭头帧」，
+     由最近的分隔符（`;` `,` `)` `]` `}` 里先到的那一个）收口 —— 见 popArrows。 */
+  const parens = [];            // 每个 `(` 一组：{ cands, fn, ctrl }，`)` 时决定这批 id 是不是形参
+  let pending = [];             // 已确认是形参、等着灌进「即将出现的函数体帧」的名字
+  const arrows = [];            // 表达式体箭头：{ depth, len }
+  const CONTROL = new Set(['if', 'for', 'while', 'switch', 'catch', 'do', 'else', 'with', 'return']);
+  const flushPending = () => { for (const q of pending) cur().add(q); pending = []; };
+  /* 收口：只收最里面那一个，且必须「箭头之后没再开过帧」（`stack.length <= len`）——
+     否则 `x.map(t => { return t.a; })` 里那个 `;` 会把箭头帧提前收掉，
+     后面 `t.a` 就变成解析不到。 */
+  /* 收口的分隔符只认 `;` `)` `}` —— 逗号与 `]` 都不算。
+     两处都踩过假红，形状是同一个：**表达式体是个字面量**。
+       · 逗号：`xs.map(c => [c.a, c.b])` 在第一个逗号处就把箭头帧收掉了，
+         后面那个 `c.b` 立刻「解析不到」；
+       · `]`：`rows: it => [['类型', D.LIB_KINDS[D.libKindOf(it.item)]]]` 里
+         内层 `]` 与箭头**同一个括号深度**（方括号没进 depth 计数），也被当成收口。
+     少收几个只会让箭头帧稍微多活一会儿（`f(t => t.a, other)` 里 `other`
+     也落进箭头帧），那是更宽松、不会误报的一侧。 */
+  const popArrows = v => {
+    while (arrows.length) {
+      const a = arrows[arrows.length - 1];
+      if (stack.length > a.len) return;                    // 里面还开着帧 → 表达式没结束
+      const close = (v === '}') ? true : (paren <= a.depth);
+      if (!close) return;
+      stack.pop(); arrows.pop();
+    }
+  };
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i], nx = toks[i + 1], p = toks[i - 1];
-    if (t.t === 'p' && t.v === '(') { paren++; continue; }
-    if (t.t === 'p' && t.v === ')') { if (paren > 0) paren--; continue; }
-    if (t.t === 'p' && (t.v === '{' || t.v === '${')) {
-      all.push({ names: new Set(), parent: stack[stack.length - 1] });   // ${ 也进一层
-      stack.push(all.length - 1);
+    if (t.t === 'p' && (t.v === ';' || t.v === ')' || t.v === '}')) popArrows(t.v);
+    if (t.t === 'p' && t.v === '(') {
+      paren++;
+      const o = toks[i - 1];
+      const after = toks[i - 2];
+      const isFn = !!o && ((o.t === 'id' && o.v === 'function')
+        || (o.t === 'id' && after && after.t === 'id' && after.v === 'function'));
+      parens.push({ cands: [], fn: isFn, head: o, ctrl: !!o && o.t === 'id' && CONTROL.has(o.v) });
       continue;
     }
-    if (t.t === 'p' && t.v === '}') { if (stack.length > 1) stack.pop(); continue; }
-    if (t.t === 'p' && t.v === ';' && paren === 0) { declRun = 0; continue; }
+    if (t.t === 'p' && t.v === ')') {
+      if (paren > 0) paren--;
+      const g = parens.pop() || { cands: [], fn: false, head: null, ctrl: true };
+      /* 这一组到底是不是形参列表 —— 只有三种情况算：
+           ① 紧跟 `function`（含具名）；② `)` 后面就是 `=>`（箭头形参，可能是空 `()`）；
+           ③ `)` 后面就是 `{` 且左括号前面是普通标识符（`foo(a) {…}` 方法简写 / `get x()`）。
+         其余一律丢掉：`f(a, b)` 的实参、`if (x)` 的条件都不该被当成声明 ——
+         老写法无条件收，于是模块层被塞满了别人调用的实参名，判据跟着变瞎。
+         注意 `catch (e) {` 也算「不是形参组」（ctrl），`e` 由下面 catch 那条单独收。 */
+      const method = nx && nx.t === 'p' && nx.v === '{' && !g.ctrl
+        && g.head && g.head.t === 'id';
+      /* `catch (e) { … }` 的 `e` 也挂到 catch 块那一帧上（CONTROL 里含 catch，
+         所以上面那条 method 认不出它，单列一条）。 */
+      const catchGrp = nx && nx.t === 'p' && nx.v === '{'
+        && g.head && g.head.t === 'id' && g.head.v === 'catch';
+      if (g.fn || (nx && nx.t === 'p' && nx.v === '=>') || method || catchGrp) pending = g.cands;
+      continue;
+    }
+    /* `{` 有两种身份，**必须分开**：
+         · 块 / 函数体 / 模板串的 `${`  → 进一层新帧
+         · **解构声明**（`const { a, b } = x`、`for (const { k, v } of …)`）→ **不进帧**：
+           它里面的 `a`/`b`/`k`/`v` 是**外层**的绑定，收进一个没人用得到的子帧就等于
+           「这些名字在外层解析不到」—— usage.html 的 `series`/`buckets`、
+           chars.html 的 `rec` 全被这一条误报过（它们都是合法的解构）。
+       `braceStack` 按 LIFO 记下每个 `{` 是哪一种，`}` 才配得对
+       （只看「有没有 push 过帧」会错位：解构里的对象字面量仍要进帧）。 */
+    if (t.t === 'p' && (t.v === '{' || t.v === '${')) {
+      const pv2 = toks[i - 1];
+      const destr = t.v === '{' && pv2 && pv2.t === 'id'
+        && (pv2.v === 'const' || pv2.v === 'let' || pv2.v === 'var');
+      if (destr) braceStack.push(false);                       // 解构：不进帧，名字归外层
+      else {
+        all.push({ names: new Set(), parent: stack[stack.length - 1] });   // ${ 也进一层
+        stack.push(all.length - 1);
+        braceStack.push(true);
+        flushPending();                                        // ★ 函数体开帧 → 形参这时才灌进去
+      }
+      continue;
+    }
+    if (t.t === 'p' && t.v === '}') {
+      if (braceStack.pop() && stack.length > 1) stack.pop();    // 只有进过帧的那个才 pop
+      continue;
+    }
+    if (t.t === 'p' && t.v === '=>') {
+      /* 单形参箭头 `e => …`：形参就是 `=>` 左边那个标识符 —— 必须在这里补一道，
+         因为 `addEventListener('x', e => {` 这种写法里 `e` 所在的括号组
+         **要到下面几十行才闭合**，而 `e` 早被「括号里的候选形参」收走了，
+         `)` 那时才轮到判断，`=>` 却已经先到 —— 候选没人取，`e` 就这么丢了
+         （director.html 第 13 行丢的 `e` 会让紧接着的 `e.reason` 变成假红）。 */
+      const prevT = toks[i - 1];
+      if (prevT && prevT.t === 'id' && !NO_CALL.has(prevT.v)) pending = [prevT.v];
+      /* 表达式体的箭头：开一个帧，形参灌进去；块体的箭头交给紧跟着的 `{`（见上）。 */
+      if (!(nx && nx.t === 'p' && nx.v === '{')) {
+        all.push({ names: new Set(), parent: stack[stack.length - 1] });
+        stack.push(all.length - 1);
+        arrows.push({ depth: paren, len: stack.length });
+        flushPending();
+      }
+      continue;
+    }
+    /* `,` 只在**声明语句的顶层**才是「下一个也是声明目标」的分隔符：
+       `const a = f(x, y), b = 2` 里那个 f(…) 内的逗号不在顶层（paren > 0），不置位。 */
+    /* 声明语句顶层的 `,`、以及**正在解构**时的 `,` —— 两种都意味着「下一个 id 也是绑定名」。
+       后者必须收：`for (const { key, rec } of …)` 里那个逗号在 `for (` 之内（paren > 0），
+       只认 paren === 0 的话 `rec` 收不到，循环体里用它就是误报。 */
+    if (t.t === 'p' && t.v === ',' && inDecl && paren === declParen) { declExpect = true; continue; }
+    if (t.t === 'p' && t.v === ';' && inDecl && paren <= declParen) { inDecl = false; declExpect = false; continue; }
     if (t.t !== 'id') continue;
     const w = t.v;
     if (NO_CALL.has(w)) {
-      if (w === 'const' || w === 'let' || w === 'var') { declRun = 1; continue; }
+      if (w === 'const' || w === 'let' || w === 'var') { inDecl = true; declExpect = true; declParen = paren; continue; }
       if ((w === 'function' || w === 'class') && nx && nx.t === 'id') cur().add(nx.v);
       continue;
     }
     const isMember = p && p.t === 'p' && p.v === '.';
+    /* 基对象：后面是点、自己前面不是点（`a.b.c` 里 a 是基对象、b 是属性名）。 */
+    if (nx && nx.t === 'p' && nx.v === '.' && !isMember) {
+      members.push({ name: w, line: t.line, frame: stack[stack.length - 1] });
+    }
     /* 多声明符：`const d = new Date(), pad = n => …` 里第二个之后的也得算声明
        （漏了它，pad() / p2() 会在模板串里被报成裸调用 —— 而它们确实是本段声明的） */
-    if (declRun && !isMember) { cur().add(w); continue; }
+    if (declExpect && !isMember) { cur().add(w); declExpect = false; continue; }
     if (p && p.t === 'id' && (p.v === 'const' || p.v === 'let' || p.v === 'var'
       || p.v === 'function' || p.v === 'class')) { cur().add(w); continue; }
     if (p && p.t === 'p' && p.v === '{' && nx && nx.t === 'p' && (nx.v === ',' || nx.v === '}')) {
       cur().add(w); continue;                                       // 解构 { a, b } = …
     }
-    if (p && p.t === 'id' && p.v === 'catch') { cur().add(w); continue; }
-    /* 形参与箭头参数：宁可放宽（把实参也收进来），也别把正常代码判成红 */
-    if (paren > 0 && !isMember
-      && nx && nx.t === 'p' && (nx.v === ',' || nx.v === ')' || nx.v === '=' || nx.v === '=>')) { cur().add(w); continue; }
-    if (nx && nx.t === 'p' && nx.v === '=>') { cur().add(w); continue; }
+    /* 形参与箭头参数：先攒进**当前这一组括号**，`)` 时再判它是不是形参。
+       宁可放宽（把实参也当候选），也别把正常代码判成红 —— 反正不是形参就在 `)` 丢掉。
+       `]` 也要认 —— 数组解构形参的**最后一个**名字后面是 `]`（`([k, t]) => …` 里的 t）。 */
+    if (paren > 0 && !isMember && parens.length
+      && nx && nx.t === 'p' && (nx.v === ',' || nx.v === ')' || nx.v === '=' || nx.v === '=>' || nx.v === ']')) {
+      parens[parens.length - 1].cands.push(w); continue;
+    }
     if (nx && nx.t === 'p' && nx.v === '(') {
       if (isMember) continue;                                        // 成员访问
       if (p && p.t === 'id' && (p.v === 'get' || p.v === 'set' || p.v === 'async' || p.v === 'static')) continue;
@@ -293,7 +428,7 @@ function analyse(toks) {
       calls.push({ name: w, line: t.line, frame: stack[stack.length - 1] });
     }
   }
-  return { all, calls };
+  return { all, calls, members };
 }
 /* 这个名字能不能从第 k 层作用域解析到 */
 function resolves(all, k, name) {
@@ -302,9 +437,190 @@ function resolves(all, k, name) {
 }
 
 
+/* 「这个名字在本文件里被声明成过局部变量吗」——
+   用来把 `t.dur` 这类错挑出来，同时**不**误伤浏览器给的隐式全局
+   （HTML 里 `id="side"` 会让 `side` 变成 window 上的属性，那种用法是合法的，
+   而它不会出现在下面这份名单里 —— 它从来没被 const/let/var 声明过）。
+   只收 const/let/var 与 function 声明：形参不算（形参本来就该在函数里解析得到，
+   解析不到说明确实用错了地方，但那种情况下面「基对象」那条会更早报出来）。 */
+function localDeclaredNames() {
+  const out = new Map();                       // 名字 → 声明所在的行号数组
+  const add = (n, line) => { if (!out.has(n)) out.set(n, []); out.get(n).push(line); };
+  for (const f of targets.html.concat(targets.js)) {
+    if (!exists(f)) continue;
+    const src = read(f);
+    const at = idx => src.slice(0, idx).split(String.fromCharCode(10)).length;
+    let m;
+    /* 声明名：`const|let|var` 后面那一段（到 `=` / `;` / 换行为止）里的**每个声明符**。
+       两个坑都在这儿踩过：
+         · 只收紧跟 let 的第一个名字 → `let grpRow, grid, …, delBtn;` 里后面那几个收不到
+           （drama.html 的 delBtn 就是这么被误报的）；
+         · 把 `X = …` 一律当声明 → `useBtn = el.querySelector(…)` 这种**赋值**也被收成声明，
+           于是「声明行」里躺着的是赋值点，判「同不同一个顶层函数」时对不上。 */
+    const reDecl = /\b(?:const|let|var)\s+([^=;\n]*)/g;
+    while ((m = reDecl.exec(src))) {
+      const seg = m[1];
+      const line = at(m.index);
+      if (/[{[]/.test(seg)) {           // 解构：把里面的标识符都收进来（多收无妨，只是更宽松）
+        (seg.match(/[A-Za-z_$][\w$]*/g) || []).forEach(n => add(n, line));
+      } else {
+        seg.split(',').forEach(part => {
+          /* 只取每一段的**第一个**标识符：`for (const x of xs)` 的 `of xs` 里
+             `of` / `xs` 不是声明名。 */
+          const one = /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(part);
+          if (one) add(one[1], line);
+        });
+      }
+    }
+    const re3 = /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm;
+    while ((m = re3.exec(src))) add(m[1], at(m.index));
+  }
+  return out;
+}
+
+/* 「这两个行号落不落在**同一个函数体**里」—— 区分两种「解析不到」：
+     · 同在一个函数体里 → 嵌套闭包引用（`let delBtn` 在外层函数体、里层箭头函数用它），合法，放行；
+     · 分属两个函数体 → 把上一个函数的局部变量拿到下一个函数里用了（`t.dur` 那种），报红。
+   用**词法器配平**算每个 `function …{…}` 的行区间。不按缩进：同一段里 0 缩进与 2 缩进的
+   顶层函数混着，靠缩进定「顶层」会认错（第一版就是这么错的，delBtn 那条一直误报）。
+   只认 `function` 关键字、不认箭头函数：箭头函数通常很短，它的外层几乎总有一个 function，
+   于是「同一函数体」仍然成立 —— 宁可宽一点，也不要误报。 */
+function fnRanges(toks) {
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    if (!(toks[i].t === 'id' && toks[i].v === 'function')) continue;
+    let j2 = i + 1;
+    while (j2 < toks.length) {                       // 找到函数体的 `{`
+      const x = toks[j2];
+      if (x.t === 'p' && (x.v === ';' || x.v === '{')) break;
+      j2++;
+    }
+    if (!(j2 < toks.length && toks[j2].v === '{')) continue;
+    let depth = 0, k2 = j2;
+    for (; k2 < toks.length; k2++) {
+      const x = toks[k2];
+      if (x.t === 'p' && (x.v === '{' || x.v === '${')) depth++;
+      else if (x.t === 'p' && x.v === '}') { depth--; if (depth === 0) break; }
+    }
+    out.push({ start: toks[i].line, end: (toks[k2] || toks[j2]).line });
+  }
+  return out;
+}
+function sameFnOf(ranges, a, b) {
+  return ranges.some(r => r.start <= a && a <= r.end && r.start <= b && b <= r.end);
+}
+
+/* §A-2：**模块文件**里的裸调用，只报一类 ——
+   名字在本文件里当过「对象 / 类的属性方法」（`foo(a) { … }`），
+   却没被声明成任何绑定，然后被当成裸函数调用了。
+   为什么要单独收这一条：assetlib.js 里 `readBlobWithProgress` 是 `window.AssetTransfer` 的成员，
+   而 `blobOf` 里写的是裸名 `readBlobWithProgress(...)` —— 于是**每一次「自动存本机」都抛
+   `readBlobWithProgress is not defined`**，整条下载链是死的，界面上只写「获取失败」。
+   而 §A 原来只扫 HTML 内联脚本，一行都没查过模块文件，这个错从判据底下整个走过去了。
+   范围收得这么窄是有意的：模块文件里裸调用满天飞（window 上的全局、别的模块导出的名字、
+   IIFE 参数），全查会误报一片；而「本文件里当过属性方法、又没被声明」几乎没有第二种解释。 */
+function memberSites(toks) {
+  /* 属性方法：`name ( … ) {`，且 `name` 前面是 `{` `,` `;` 或 get/set/async/static ——
+     只看「后面跟着 ( 且配对的 ) 后面是 {」，能同时盖住对象字面量与 class 体。 */
+  const prop = new Set();
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.t !== 'id' || NO_CALL.has(t.v)) continue;
+    const nx = toks[i + 1];
+    if (!(nx && nx.t === 'p' && nx.v === '(')) continue;
+    /* matchParen 收的是**左括号的下标**（analyse 里传的是 id 的下标 + 1，因为那里只有 id 可用）。
+       这里 i 指的是 id，所以左括号是 i+1 —— 传 i+2 会从括号**里面**开始数，
+       深度永远回不到 0，一路扫到几百行外，判据整个失效（§A-2 第一版就是这么不咬人的）。 */
+    const close = matchParen(toks, i + 1);
+    const after = close >= 0 ? toks[close + 1] : null;
+    if (!(after && after.t === 'p' && after.v === '{')) continue;
+    const p = toks[i - 1];
+    const p2 = toks[i - 2];
+    const okPrev = !p || (p.t === 'p' && (p.v === '{' || p.v === ',' || p.v === ';'))
+      || (p.t === 'id' && (p.v === 'async' || p.v === 'get' || p.v === 'set' || p.v === 'static'))
+      || (p && p.t === 'p' && p.v === '*' && p2);
+    if (okPrev) prop.add(t.v);
+  }
+  return prop;
+}
+/* 本文件里被当过**形参**的名字（含箭头函数与对象方法简写的形参列表）。
+   为什么必须单独收：`function makePuller(near, step) { … step() … }` 里的 `step`
+   完全合法，而它不是 `function/const/let/var` 声明 —— 不收就会把这一整套
+   「把回调当参数传进来再调」的正常写法全判成红（workbench.js / drama.js 各一处，实测如此）。 */
+function paramNames(toks) {
+  const out = new Set();
+  const addIds = (a, b) => { for (let j = a; j < b; j++) if (toks[j] && toks[j].t === 'id' && !NO_CALL.has(toks[j].v)) out.add(toks[j].v); };
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.t === 'id' && toks[i + 1] && toks[i + 1].t === 'p' && toks[i + 1].v === '=>') {
+      if (!NO_CALL.has(t.v)) out.add(t.v);          // 单形参箭头
+      continue;
+    }
+    if (!(t.t === 'p' && t.v === '(')) continue;
+    const o = toks[i - 1], o2 = toks[i - 2];
+    const isFn = !!o && ((o.t === 'id' && o.v === 'function')
+      || (o.t === 'id' && o2 && o2.t === 'id' && o2.v === 'function'));
+    const close = matchParen(toks, i);          // i 就是左括号本身（见 memberSites 里那段说明）
+    const after = close >= 0 ? toks[close + 1] : null;
+    const isArrow = !!(after && after.t === 'p' && after.v === '=>');
+    /* 方法简写那一支要**双重确认**：`name(…) {` 之外，`name` 前面还得是 `{` `,` `;`
+       或 async/get/set/static —— 否则 `Object.assign(a, b) {` 这种「调用之后恰好跟了个花括号」
+       会被当成参数列表，一路 addIds 把后面几十行的标识符全收进「形参名单」，
+       于是 §A-2 要抓的那个名字被它误当成形参放行（实测：readBlobWithProgress 就是这么漏的）。 */
+    const pv = toks[i - 2];
+    const prevOk = !pv || (pv.t === 'p' && (pv.v === '{' || pv.v === ',' || pv.v === ';'))
+      || (pv.t === 'id' && (pv.v === 'async' || pv.v === 'get' || pv.v === 'set' || pv.v === 'static'));
+    const isMethod = !!(o && o.t === 'id' && !NO_CALL.has(o.v) && prevOk
+      && after && after.t === 'p' && after.v === '{');
+    if (!isFn && !isArrow && !isMethod) continue;
+    if (close > i) addIds(i + 1, close);
+  }
+  return out;
+}
+function sectionA2() {
+  const globals = harvestGlobals();
+  let files = 0, calls = 0, badCalls = 0;
+  for (const f of targets.js) {
+    if (!exists(f)) continue;
+    files++;
+    const src = read(f);
+    CUR_FILE = f;
+    const r = lex(src, 1);
+    if (r.err) { bad('§A', f + ' 扫描器读不完：' + r.err + '（判据坏了）'); continue; }
+    const an = analyse(r.toks);
+    const prop = memberSites(r.toks);
+    const params = paramNames(r.toks);      // 通过形参传进来的回调：合法，见 paramNames
+    /* 本文件里出现过的**任何**绑定名：宁可放宽，也不要误报。 */
+    const decl = new Set();
+    let m;
+    let re = /\b(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
+    while ((m = re.exec(src))) decl.add(m[1]);
+    re = /(?:window|globalThis)\.([A-Za-z_$][\w$]*)\s*=/g;
+    while ((m = re.exec(src))) decl.add(m[1]);
+    re = /\b(?:import|export)\s*\{([^}]*)\}/g;
+    while ((m = re.exec(src))) (m[1].match(/[A-Za-z_$][\w$]*/g) || []).forEach(x => decl.add(x));
+    const seen = new Set();
+    for (const c of an.calls) {
+      calls++;
+      if (globals.has(c.name) || decl.has(c.name) || params.has(c.name)) continue;
+      if (!prop.has(c.name)) continue;
+      if (seen.has(c.name)) continue;
+      seen.add(c.name);
+      badCalls++;
+      bad('§A', f + ':' + c.line + ' 裸调用 ' + c.name + '() —— 这个名字在本文件里只是某个对象 / 类的**属性方法**，'
+        + '从没被声明成绑定（多半该写 `XXX.' + c.name + '(...)`）：调用它必然抛 `'
+        + c.name + ' is not defined`，而调用点看上去完全正常');
+    }
+  }
+  if (files && !badCalls) ok('§A', '模块文件也查了：' + files + ' 份 / ' + calls + ' 处裸调用，'
+    + '没有「拿对象方法当裸函数调」的那一类（assetlib.js 的 readBlobWithProgress 就是这么断的下载链）');
+  return files;
+}
 function sectionA() {
   const globals = harvestGlobals();
-  let segs = 0, calls = 0, misses = 0, lexErr = 0;
+  /* 本文件里被声明过的局部名（见上面那段注释：用来只报「拿错作用域」这一种）。 */
+  const locals = localDeclaredNames();
+  let segs = 0, calls = 0, misses = 0, lexErr = 0, badBase = 0, mems = 0, judged = 0;
   for (const f of targets.html) {
     if (!exists(f)) { bad('§A', f + ' 不存在'); continue; }
     const html = read(f);
@@ -318,16 +634,48 @@ function sectionA() {
       const r = lex(m[1], base);
       if (r.err) { lexErr++; bad('§A', f + ' 第 ' + si + ' 段扫描器读不完：' + r.err + '（判据坏了，不是页面坏了）'); continue; }
       const an = analyse(r.toks);
+      /* 所有 `function` 区间 + 去掉**脚本容器**（`(function(){ … })()` 那个）之后的那一份。
+         为什么要去容器：这些页面的内联脚本几乎都被 IIFE 包着，于是任意两个顶层函数
+         都有一个「公共函数」= 整个脚本 —— 拿它当「同一个函数」就等于全部放行
+         （第一版就是这么漏掉 `t.dur` 的：注回去照样全绿）。
+         判据：起点在段首几行、终点在段尾几行 → 它就是那个容器。 */
+      const allRanges = fnRanges(r.toks);
+      const lastLine = r.toks.length ? r.toks[r.toks.length - 1].line : base;
+      const ranges = allRanges.filter(x => !(x.start <= base + 2 && x.end >= lastLine - 2));
       for (const c of an.calls) {
         calls++;
         if (globals.has(c.name)) continue;
         if (resolves(an.all, c.frame, c.name)) continue;
         misses++; bad('§A', f + ':' + c.line + ' 裸调用 ' + c.name + '() 既不在本作用域也不在 window 上');
       }
+      /* 成员访问的基对象：只报「这个名字在本文件里被声明过、但当前位置解析不到」的 ——
+         那正是「把别的函数的局部变量拿来用」（studio.html 的 `t.dur` 就是这么错的）。
+         不报别的：HTML 的隐式全局（`side.value`）、页面自己挂到 window 上的名字都不在这份名单里。 */
+      for (const b2 of an.members) {
+        mems++;
+        /* **builtin 优先**：`top` / `name` / `length` 这些既是浏览器的全局，
+           又常被本项目当局部变量名用（settings.html 就有 `const top = window.top || window`）。
+           同时命中时按「它是全局」放行 —— 宁可放过，也不要报一条要人查半天才知道是误报的红。
+           真正抓的是「这个名字**只**在别处被声明过」（如 `t.dur` 里的 t）。 */
+        if (globals.has(b2.name)) continue;
+        const declLines = locals.get(b2.name);
+        if (!declLines) continue;
+        /* 形参那条路已经修好了（见 analyse 里形参挂在函数自己的帧上），
+           所以这里 `resolves` 就足够判：解析得到 = 合法（含形参、闭包、模块级）；
+           解析不到 = 这个名字在本文件里被声明过、但**不在当前作用域链上**：
+           正是「把别的函数的局部变量拿来用」。 */
+        judged++;
+        if (resolves(an.all, b2.frame, b2.name)) continue;
+        badBase++; bad('§A', f + ':' + b2.line + ' ' + b2.name + '.… —— 「' + b2.name
+          + '」在本文件里被声明过（第 ' + declLines.slice(0, 3).join('、') + ' 行等），'
+          + '但这里解析不到：多半是把上一个函数的局部变量拿来用了');
+      }
     }
   }
   if (segs === 0) bad('§A', '一段内联脚本都没查到 —— 判据本身坏了（不带参数时不该出现）');
-  else if (!misses && !lexErr) ok('§A', '查了 ' + segs + ' 段内联脚本 / ' + calls + ' 处裸调用，全部落在本作用域或 window 上');
+  else if (!misses && !lexErr && !badBase) ok('§A', '查了 ' + segs + ' 段内联脚本：' + calls + ' 处裸调用、'
+    + mems + ' 处成员访问的基对象（其中 ' + judged + ' 个名字在本文件里被声明过，逐个问过作用域链），'
+    + '全部落在本作用域或 window 上');
   return segs;
 }
 
@@ -588,7 +936,14 @@ function sectionH() {
     const f = item.f;
     if (!exists(f)) { bad('§H', f + ' 不存在'); continue; }
     const src = read(f);
-    /* ① 静态正文与属性值：把 script / style / 注释整块挖掉，剩下的就是会直接显示的字 */
+    /* ① 静态正文与属性值：把 script / style / 注释整块挖掉，剩下的就是会直接显示的字。
+       ⚠ 挖法必须连**标签本身**一起挖（下面那句连 `<script…>` 一起替换成换行）——
+       只挖标签之间的内容会留下一堆孤立的模板串片段
+       （页面把整段 UI 写在 col.innerHTML = \`…\` 里，那一整块就变成了「正文」），
+       于是 `${idx}</span>\` 里跨过插值的那一段会被当成静态正文，
+       正好在它后面挨着 `**` 时报一条根本不存在的红。
+       这就是「尺子自己坏掉」的样子：第一版就是这么写的，
+       加了两颗按钮（文案里没有 markdown）之后 §H 突然红了。 */
     if (item.html) {
       checks++;
       const visible = src.replace(/<script[\s\S]*?<\/script>/gi, '\n')
@@ -770,6 +1125,17 @@ const STALE = ['来自上游 /models', '上游接口没给或不可用', '来自
    - **量脚本自己漏传 lineBase**，页面内联脚本报出来的行号是相对脚本开头的，
      studio.html 真正在 1403 行的那处被报成 1170，看着像词法器解析跑偏。
      先怀疑产品之前先怀疑尺子，这次就是这么查清的。 */
+/* 「这一个赋值挂在 window 上吗」—— §J 判「某组件的实现有几处」时用。
+   为什么需要它：`obj.X = ...` 与 `window.X = ...` 在词法器里长得几乎一样
+   （只差左边那个 token 是`id` 还是「`window` 这个 id 后面跟一个点」），
+   而前者只是**把手里的东西挂到一个对象上**（注入执行环境里的 `P.Chips = mod('Chips')` 就是），
+   不是第二个实现 —— 不区分就会凭空报一条红，而且改代码的人永远查不出哪里错了。 */
+function onWindow(tok) {
+  if (!tok) return false;
+  const v = String(tok.s || tok.v || '');
+  return v === 'window' || v === 'globalThis' || v === 'self' || v === 'top' || v === 'parent';
+}
+
 function sectionJ() {
   const red0 = red;
   const items = targets.js.map(f => ({ f, html: false })).concat(targets.html.map(f => ({ f, html: true })));
@@ -797,6 +1163,8 @@ function sectionJ() {
          自己 POST 等于绕过身份判据与去重（同一份产物反复下载、资产库同一张卡重复 N 次）。
          ai-chat.js 那一句是 GET 读清单，而且它是模块不是页面，所以只查 `*.html`。 */
   let dlPull = 0, hideDef = 0, hideCalls = 0, addrCalls = 0, rawLocalInPage = 0;
+  let armDef = 0, armCalls = 0, armInline = 0, assetMerge = 0, mergeCalls = 0;
+  const armDefSites = [], armCallSites = [], armInlineSites = [], assetMergeSites = [];
   const dlPullSites = [], hideDefSites = [], hideCallSites = [], addrCallSites = [], rawLocalSites = [];
 
   /* ⑦-a pager 的 api 面：从 workbench.js 现取，不手抄名单（见上面 ⑦ 的说明）。
@@ -903,7 +1271,12 @@ function sectionJ() {
           if (nx && nx.t === 'p' && nx.v === '.') {
             const nx2 = T[k + 2];
             if (nx2 && nx2.t === 'id' && nx2.v === 'render') { chipsCalls++; chipsCallSites.push(it.f + ':' + t.line); }
-          } else if (pv && pv.t === 'p' && pv.v === '.' && nx && nx.t === 'p' && nx.v === '=') {
+          } else if (pv && pv.t === 'p' && pv.v === '.' && nx && nx.t === 'p' && nx.v === '='
+            /* 定义只认**挂在 window 上的**那个（`window.Chips = {` / 顶层裸赋值 `Chips = {`）。
+               不看这一点就会把「往一个对象上挂一个同名属性」（注入的执行环境里
+               `P.Chips = mod('Chips')` 就是这么写的）数成第二个定义 ——
+               那不是实现，只是把手里的东西递出去。 */
+            && onWindow(T[k - 2])) {
             chipsDefs++; chipsDefSites.push(it.f + ':' + t.line);
           }
         }
@@ -940,6 +1313,49 @@ function sectionJ() {
         if (it.html && (t.t === 'str' || t.t === 'tpl') && String(t.s || '').indexOf('/local-assets') >= 0) {
           rawLocalInPage++; rawLocalSites.push(it.f + ':' + t.line);
         }
+        /* ⑩ 「就地二次确认」的实现处数。全站只许 ui.js 的 Confirm.arm 一份
+             （后果说明 / Esc 取消 / 点别处取消 / 整页唯一 / 5 秒窗口，五件事都在那一份里）。
+             这一档是被 L5 逼出来的：导演台自己写过一份 armConfirm、资产库内联抄过第三份，
+             两份都**少了护栏**，最缺护栏的那份还允许同时点亮两颗删除按钮、两颗一起执行。
+             判据抓两件事：`window.Confirm = {` 这个**唯一定义点**必须恰好 1 处（在 ui.js），
+             以及 `Confirm.arm(` 的调用点至少若干处 —— 只查定义的话，
+             「页面全改回手搓」与「判据坏了」长得一模一样。
+             另外扫页面里 `dataset.armed` 那一串字符串：那是自建实现的指纹，
+             ui.js 的 Confirm 自己内部也会写（paintArmed），所以只算 `*.html` 里的。 */
+        if (t.t === 'id' && t.v === 'Confirm') {
+          if (nx && nx.t === 'p' && nx.v === '.') {
+            const nx2 = T[k + 2];
+            if (nx2 && nx2.t === 'id' && nx2.v === 'arm') { armCalls++; armCallSites.push(it.f + ':' + t.line); }
+          } else if (pv && pv.t === 'p' && pv.v === '.' && nx && nx.t === 'p' && nx.v === '='
+            && onWindow(T[k - 2])) {      // 同上：只看 window.Confirm = {...} 那一个
+            armDef++; armDefSites.push(it.f + ':' + t.line);
+          }
+        }
+        /* 指纹：页面自建的那份实现必然有个**自己的函数**（director.html 叫 armConfirm、
+           资产库内联那份没有名字但会先点亮一个 dataset标记）。
+           函数名这一条比字符串可靠：`dataset.armed` 在词法器里是属性访问，不产生 str token，
+           按字符串扫会把真的手搓实现也放过（实测注进去照样全绿 —— 那就是一把坏尺子）。
+           所以这里盯住**「页面里定义了一个名字里带 confirm / armConfirm 的确认函数」**：
+           这类名字在全项目只应该出现在 ui.js 的 Confirm 组件注释里，页面里出现即是分叉。
+           反向对照：往 drama.html 里塞一个 `function armConfirm(){}`，本档必须报红。 */
+        if (it.html && t.t === 'id' && t.v === 'function' && nx && nx.t === 'id' && /confirm/i.test(nx.v)) {
+          armInline++; armInlineSites.push(it.f + ':' + t.line + ' function ' + nx.v);
+        }
+        /* ⑪ 资产合并只有一份：`.assets =` 右边出现 Object.assign 就是摊成字典那一份实现。
+             判据选 `Object.assign` 而不是 `mergeAssetLists` 的调用数 ——
+             摊字典这件事在别的名字下也能写出来（spread 也一样），盯住那个调用更耐改。
+             drama.js / drama.html 两处正文里都写着「以前是 Object.assign」，
+             词法器剥注释，所以说明文字不会把自己照红。 */
+        if (t.t === 'id' && t.v === 'Object' && nx && nx.t === 'p' && nx.v === '.'
+          && T[k + 2] && T[k + 2].t === 'id' && T[k + 2].v === 'assign'
+          && T[k - 1] && T[k - 1].t === 'p' && T[k - 1].v === '.') {
+          const p = T[k - 1], pk = k - 2;
+          if (p && pk && T[pk] && T[pk].t === 'id' && T[pk].v === 'assets') {
+            assetMerge++; assetMergeSites.push(it.f + ':' + t.line);
+          }
+        }
+        /* 反向对照：`Cast.mergeAssetLists` / `D.Cast.mergeAssetLists` 的调用点数 */
+        if (t.t === 'id' && t.v === 'mergeAssetLists') mergeCalls++;
         /* ⑦-c 对 pager 实例的成员访问：名字必须在那张现取的 api 面上。
            `Wb.pager.sentinel(...)` 这种**静态面**要排掉（它的前驱是 '.'，而 `pager` 恰好也是实例名）。
            注释里写的 `pager.fill(...)` 不算 —— 这一档上线时 studio.html 就有一句正在讲它坏在哪，
@@ -1006,11 +1422,62 @@ function sectionJ() {
   if (hideCalls !== 3 || hideFiles.join(',') !== 'assets.html,studio.html')
     bad('§J', 'AssetLocal.hideAsCloud 的调用点是 ' + (hideCallSites.join('、') || '没有')
       + ' —— 期望 studio.html 两处 + assets.html 一处，且只在这两页：收藏 / 素材库故意不藏');
-  if (addrCalls !== 2) bad('§J', 'AssetLocal.hasLocalAddr 只被调 ' + (addrCallSites.join('、') || '一次都没有')
-    + ' —— 期望两颗按钮各问一次；「本机有没有这份字节」的判据也只许这一份');
+  /* 三处：收藏与素材库那两颗「自动下载」按钮各问一次，
+     外加拍短剧页 chooseBgm 选完配乐后问一次（E-52：告诉用户这一份在本机还是在外链）。
+     数字是量过的 —— 少于 3 说明某一处改成了自己判，多于 3 说明有人在别处也写了一份
+     「有没有本机副本」（那正是这一档要防的）。 */
+  if (addrCalls !== 3) bad('§J', 'AssetLocal.hasLocalAddr 只被调 ' + (addrCallSites.join('、') || '一次都没有')
+    + ' —— 期望三处各问一次（收藏 / 素材库 / 拍短剧的配乐）；「本机有没有这份字节」的判据也只许这一份');
   if (rawLocalInPage) bad('§J', '页面又自己拼了 /local-assets：' + rawLocalSites.join('、')
     + ' —— 落盘只有公共那两个口（页面的手动按钮走 AssetLocal.pull，模块走 Api.saveLocalAsset），'
     + '页面自己拼路由等于绕过那一道按身份的去重');
+  /* ⑩ 两头都要在：定义恰好 1 处（在 ui.js）**且**页面里确实看到若干处调用。
+     只查定义的话，「全站一处调用都没有」与「判据坏了」长得一模一样。 */
+  if (armDef !== 1) bad('§J', '「就地二次确认」的实现有 ' + armDef + ' 处（' + (armDefSites.join('、') || '一处都没有')
+    + '）—— 只许 ui.js 的 Confirm.arm 一份；页面自建的那份少了护栏（Esc 不取消、点别处不取消、无后果说明）');
+  else if (armDefSites[0].split(':')[0] !== 'ui.js')
+    bad('§J', 'Confirm.arm 的唯一定义在 ' + armDefSites[0] + '，不在 ui.js —— 判据和实现脱节了');
+  if (armInline) bad('§J', '页面里又自建了确认函数：' + armInlineSites.join('、')
+    + ' —— 就地二次确认只许 ui.js 的 Confirm.arm 一份（后果说明 / Esc / 点别处 / 整页唯一都在它那儿）');
+  if (armCalls < 5) bad('§J', 'Confirm.arm 只被调 ' + armCalls + ' 处（应至少 5：导演台四处 + 资产库一处）'
+    + ' —— 要么有页面改回了手搓，要么这一档的调用点识别坏了');
+  /* ⑪ 同两头：0 处自摊 + mergeAssetLists 确实在用。 */
+  if (assetMerge) bad('§J', '又用 Object.assign 摊资产：' + assetMergeSites.join('、')
+    + ' —— 资产是**列表**，摊成字典后 Array.isArray 为false，每一张图都变成「读不到」。改调 Cast.mergeAssetLists');
+  if (!mergeCalls) bad('§J', 'Cast.mergeAssetLists 一处调用都没看到 —— 「资产合并只有一份」这把尺子不成立');
+  /* ⑫ 「按 id 找平台」不许兜底到别家。导演台的 provOf 以前是
+        `find(按 id) || find(kind==='video') || {假平台}` —— 认不出就默默取第一家视频平台，
+        于是「模型属于 A、请求发给了 B」。项目里两家视频平台的型号 id 形状不同
+        （h3-video vs minimax/h3），上游校验 model must match xxx/yyy，
+        那个看不懂的报错就是这么来的，而界面上型号那一栏明明选的是 A。
+     判据：出现「find(...) || find(... kind ...)」这种**跨类型兜底**就报红。 */
+  const fallbacks = [];
+  for (const it of items) {
+    const src = read(it.f);
+    if (!src) continue;
+    for (const m of src.matchAll(/\|\|\s*(?:list|[A-Za-z_$][\w$]*)\.find\(\s*\w+\s*=>\s*\w+\.kind\s*===\s*'/g)) {
+      fallbacks.push(it.f + ':' + lineAt(src, m.index));
+    }
+  }
+  /* ⑬ 提交体的 `model` 必须是**型号 id 字符串**——那道闸必须在（assetlib.js 的 createBody 里）。
+     为什么写成「闸存在性」而不是扫每处调用点：调用点的形状太多
+     （`model: model.id` / `model: t.model` / `model: fields.model` 都可能是对的），
+     静态认不出来；而这里的判据是明确的 —— 「传对象要在发出去之前被拦下」。
+     这一条拦的正是工作台视频那一路的 bug：图片那一路写 `model.id`（对）、
+     视频那一路写裸 `model`（错），上游收到对象后回的是「model must be a string」，
+     与用户在界面上做的事毫无关系。 */
+  let gate = 0;
+  {
+    const src = read('assetlib.js');
+    if (/typeof\s+f\.model\s*!==\s*'string'/.test(src)) gate = 1;
+  }
+  if (!gate) bad('§J', 'assetlib.js 的 createBody 里没有「model 必须是字符串」那道闸 —— '
+    + '去掉它之后，页面把模型**对象**顺手传进来时会一路发到上游，'
+    + '换回一句「model must be a string / must match xxx/yyy」，而那句话与用户的操作毫无关系');
+
+  if (fallbacks.length) bad('§J', '按 id 找平台时兜底到了别家：' + fallbacks.join('、')
+    + ' —— 认不出平台要**停下并说清**（用户在设置页重新勾一下即可），不能默默发给另一家：'
+    + '型号形状不同会让上游报一个与操作无关的格式错误');
 
   if (red === red0) ok('§J', '扫了 ' + scanned + ' 段源码：b64Bytes 定义 ' + defs + ' 处（被调 ' + calls + ' 次）、落点选择器 '
     + pickers + ' 处、页面自建 toast ' + toastDefs + ' 处、页面自建续拉 ' + ioInPage + ' 处、字节单位数组 ' + unitSites.length
@@ -1018,7 +1485,9 @@ function sectionJ() {
     + '）、pager 实例成员访问 ' + pagerCalls + ' 处（面上 ' + apiKeys.size + ' 个名字，越界 ' + pagerOff
     + ' 处）、跨页复用载荷写入 ' + reuseWrite + ' 处 / 读取 ' + reuseRead + ' 处 / Wb.reuse.go ' + reuseGoCalls + ' 处'
     + ' ⑨落盘链：pull ' + dlPull + ' 处、hideAsCloud 定义 ' + hideDef + ' / 调用 ' + hideCalls
-    + ' 处、hasLocalAddr ' + addrCalls + ' 处、页面自拼 /local-assets ' + rawLocalInPage + ' 处');
+    + ' 处、hasLocalAddr ' + addrCalls + ' 处、页面自拼 /local-assets ' + rawLocalInPage + ' 处'
+    + ' ⑩就地确认：Confirm.arm 定义 ' + armDef + ' / 调用 ' + armCalls + ' / 页面手搓 ' + armInline
+    + ' 处、⑪资产合并：Object.assign 摊字典 ' + assetMerge + ' 处（mergeAssetLists 被调 ' + mergeCalls + ' 次）');
   return defs + calls;
 }
 /* ================= §K =================
@@ -1171,8 +1640,80 @@ function sectionK() {
    为什么抽出来：文案 / 漏字检查的脚本需要**同一台**扫描器取字符串字面量，
    旁边再手写一个更差的（只跳过整行注释，313 行里绝大多数是跨行注释的正文），
    那就是「一个机制写两份」—— 而更差的那份会给出一份看起来很合理的读数。 */
+/* ================= §L =================
+   「只许用真有的浏览器 API」—— 这一档是被 `CSS.escape` 逼出来的。
+
+   那一行写在助手的控件定位里（`labelOf` 找 label[for] 时用了
+   `querySelector('label[for="' + CSS.escape(id) + '"]')`）。它读起来完全正常、
+   语法检查也过，但 **`CSS.escape` 不是标准 API** —— 那一页一加载就抛
+   `TypeError: CSS.escape is not a function`，于是**助手的三条 UI 原语全废**
+   （点不到任何按钮），而页面上没有任何可见症状：只有控制台一条红字。
+   这类错静态查不出来（它就是一个合法的成员访问），只有真跑起来才会炸，
+   所以这一档按「名字本身就不在白名单里」来判。
+
+   白名单是**真有的**那几十个（document / window / localStorage / fetch /
+   requestAnimationFrame / getComputedStyle / CSS.escape 不在里面，见下）。
+   反向对照：把 CSS.escape 换成 querySelectorAll 那种写法（浏览器有）就该放行。 */
+/* 注意写法：名单里存的是**词法器认得出的几段**，不是一个整串。
+   `CSS.escape` 在 token 流里是三个（`CSS` / `.` / `escape`），按整串去 indexOf 永远匹配不上 ——
+   第一版就是这么写的，注回去实测**照样全绿**，一把不咬人的尺子比没有尺子更坏。
+   判据照§C 那几档的形状：`['CSS', '.', 'escape']` 这样的 token 序列。 */
+const BANNED_API = [
+  [['CSS', '.', 'escape'], 'CSSOM 草案里的 API，实现极少（当年就在这里栽过：助手三条 UI 原语全废，界面上却什么都没有）—— 用 querySelectorAll("label[for]") 再按 getAttribute 比对'],
+  [['CSS', '.', 'supports'], '这一页不需要特性检测；真要用先确认目标浏览器有'],
+  [['structuredClone'], '不存在的全局（Node 有、浏览器没有）'],
+];
+function sectionL() {
+  const red0 = red;
+  const items = targets.js.map(f => ({ f, html: false })).concat(targets.html.map(f => ({ f, html: true })));
+  const files = items.map(i => i.f).filter(exists);
+  if (!files.length) { bad('§L', '一份源码都没读到 —— 判据本身坏了'); return 0; }
+  const hits = [];
+  let scanned = 0;
+  for (const it of items) {
+    const src = read(it.f);
+    if (!src) continue;
+    /* 页面要扫的是**内联脚本**（页面自己的 JS），模块文件扫全文。
+       行号用 lineAt 换算成文件里的真行 —— 报一个脚本内偏移的号会让人以为解析跑偏。 */
+    const units = it.html
+      ? Array.from(src.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi))
+        .filter(x => x[1].trim()).map(x => ({ code: x[1], base: lineAt(src, x.index) }))
+      : [{ code: src, base: 1 }];
+    for (const u of units) {
+      const r = lex(u.code, u.base);
+      if (r.err) continue;
+      scanned++;
+      const T = r.toks;
+      for (const [seq, why] of BANNED_API) {
+        for (let k = 0; k + seq.length <= T.length; k++) {
+          let eq = true;
+          for (let j = 0; j < seq.length; j++) {
+            const tk = T[k + j];
+            const v = String(tk.s || tk.v || '');
+            if (v !== seq[j]) { eq = false; break; }
+          }
+          if (eq) hits.push({ f: it.f, line: T[k].line, name: seq.join('.'), why });
+        }
+      }
+    }
+  }
+  if (!scanned) { bad('§L', '一段源码都没扫到 —— 空断言比没有断言更坏'); return 0; }
+  if (hits.length) {
+    const byName = {};
+    for (const h of hits) (byName[h.name] = byName[h.name] || []).push(h.f + ':' + h.line);
+    const whyOf = n => { const b = BANNED_API.find(x => x[0].join('.') === n); return b ? b[1] : ''; };
+    bad('§L', '用了浏览器里**不存在**的 API：'
+      + Object.keys(byName).map(n => n + '（' + byName[n].join('、') + '）—— ' + whyOf(n)).join('；')
+      + '。这类错静态语法检查查不出来（它就是一次合法的成员访问），只有真跑起来才炸 —— '
+      + '而炸的时候界面上往往什么都没有，只有控制台一条红字。');
+  } else {
+    ok('§L', '扫了 ' + scanned + ' 段源码：' + BANNED_API.length + ' 个不存在/非标准的浏览器 API 一个都没用到');
+  }
+  return hits.length;
+}
+
 function runAll() {
-console.log('§A 内联脚本裸调用的作用域'); sectionA();
+console.log('§A 内联脚本裸调用的作用域'); sectionA(); sectionA2();
 console.log('§B 模板串里的「块注释 + 反引号」'); sectionB();
 console.log('§C 素材身份判据只有一份'); sectionC();
 console.log('§D ident.js 排在 assetlib.js 前面'); sectionD();
@@ -1183,6 +1724,7 @@ console.log('§H 用户可见文案里不许有 markdown 标记'); sectionH();
 console.log('§I 「能力来源」那句话全站只有一份口径'); sectionI();
 console.log('§J 「同一个功能只应有一份实现」'); sectionJ();
 console.log('§K 页面不重复定义 ui.css 已有的规则'); sectionK();
+  console.log('§L 只许用真有的浏览器 API'); sectionL();
 
 const over = [...seen.entries()].filter(([, n]) => n > 6);
 if (over.length) console.log('\n（折叠的同类红：' + over.map(([k, n]) => k.split('|')[0] + ' ' + k.split('|')[1] + ' ×' + (n - 6)).join('；') + '）');
@@ -1193,5 +1735,9 @@ process.exit(red ? 1 : 0);
 /* cssRules / cssDecls / cssStripComments 一并导出：临时扫描脚本要列「某个选择器在 ui.css 与各页里
    各长什么样」时，必须用**同一台** CSS 解析器 —— §K 判的就是这件事，旁边再手写一个只认单行声明的
    版本，会给出一份比 §K 更宽松或更严的读数，而那份读数看起来同样合理。 */
-module.exports = { lex, runAll, sectionA, sectionB, sectionC, sectionD, sectionE, sectionF, sectionG, sectionH, sectionI, sectionJ, sectionK, routeBlock, fnBlock, cssRules, cssDecls, cssStripComments };
+/* analyse / resolves / localDeclaredNames 一并导出：写「为什么这一档没抓到那个 bug」这类
+   临时调试脚本时要用**同一台**作用域分析器（旁边手写一份只会给出另一份看起来同样合理的读数）。 */
+module.exports = { lex, runAll, sectionA, sectionA2, memberSites, paramNames, sectionB, sectionC, sectionD, sectionE, sectionF, sectionG, sectionH,
+  sectionI, sectionJ, sectionK, sectionL, routeBlock, fnBlock, cssRules, cssDecls, cssStripComments,
+  analyse, resolves, localDeclaredNames };
 if (require.main === module) runAll();

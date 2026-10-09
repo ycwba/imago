@@ -8,8 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="ui.css">
 <style>
-  :root { --bg:#f2f3f9; --panel:#fff; --panel2:#f3f4f9; --line:#e4e6f0; --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --ok:#16a34a; --err:#dc2626; --input:#f6f7fb; --pri:#7c5cff; }
-  html[data-theme="dark"] { --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d; --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --ok:#4ade80; --err:#ff7a7a; --input:#0f1219; --pri:#7c5cff; }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--txt); min-height: 100vh; }
   .page-main { padding: 34px 60px; }
@@ -190,6 +189,8 @@
   .savebar .okmsg.dirty-note { color: var(--warn, #d97706); }
   /* 空提示不占位（否则会留下一条空灰条，看着像坏掉的组件） */
   .hint:empty, .sub:empty, .pb-tip:empty { display: none; }
+  /* 注册表读不到时那一行要看得出来是「出错了」而不是普通说明（L40） */
+  .hint.kerr { color: var(--err, #dc2626); }
   /* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
      用原生 <details>（不引任何依赖），summary 做成一行小字。 */
   .ref { margin: 6px 0 2px; font-size: 11.5px; color: var(--sub); line-height: 1.6; }
@@ -325,6 +326,23 @@
       新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
       前两项没开着时这一行<b>整个收起来</b>（画着却不生效，等于骗人去勾一颗不管用的复选框）。</div>
     <div id="storePrefs"></div>
+    <!-- 存哪一档：只存新生成的 / 连历史一起补齐。判据在 AssetLocal.wantSave 一处，
+         这里只负责把选中的那个写回去 + 说清各自会多花什么。 -->
+    <div class="krow tight" id="saveScopeRow">
+      <label class="crow" style="flex:1">自动存本机要存哪一档
+        <select id="saveScopeSel">
+          <option value="all">连历史产物一起补齐（推荐默认）</option>
+          <option value="new">只存开启之后新生成的</option>
+        </select>
+        <div class="hint sm" id="saveScopeHint"></div></label>
+    </div>
+    <!-- 侧栏那两块各自能不能显示（侧栏是全局的，一个不需要看它的人不该被它占位置） -->
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="sbBalOn"> 左栏显示余额</label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="sbMirrorOn"> 左栏显示本机产物（正在存几份 / 已存多少）</label>
+    </div>
   </div>
 
   <div class="card">
@@ -342,6 +360,19 @@
     </div>
     <div class="krow tight">
       <label class="crow" style="flex:1"><input type="checkbox" id="acAuto"> 执行前不用我点确认（卡片照画，动作自动提交）</label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acInject"> 允许助手执行自定义脚本（高权限，默认关）
+        <div class="hint sm">开了之后助手能在当前页面执行一段脚本 —— 用来做界面上没有入口的事（批量改一类东西、翻一个只有数据层知道的开关）。
+          卡片上会<b>逐字显示</b>那段代码，执行前还要再确认一次，而且不留下任何持久化的东西。
+          它能绕过界面上所有的按钮与确认，所以默认关着；勾上之后要刷新这一页才对助手生效。</div></label>
+    </div>
+    <div class="krow tight">
+      <label class="crow" style="flex:1"><input type="checkbox" id="acInjectAuto"> 注入不用每次再确认（<b>风险最高的一档</b>）
+        <div class="hint sm">只对「注入」这一条生效，<b>不跟着上面那个「执行前不用我点确认」走</b> ——
+          那一档是「校验做完了就自动提交」，而注入能跑任意代码，绑在一起的话，
+          你为了少点一次生成就顺手把「任意脚本自动执行」也打开了。
+          勾上之后卡片照画、代码照逐字显示，但点「执行」就直接跑。要临时用一次而不改设置：留着它不勾。</div></label>
     </div>
     <div class="krow tight">
       <label class="crow" style="flex:1"><input type="checkbox" id="acSnap"> 悬浮球拖到窗口边上时吸住（默认开）</label>
@@ -394,7 +425,6 @@
 
     </div>
   </div>
-
 
   <div class="card">
     <h2 class="card-h"><span class="card-ic" data-icon="upload" data-size="15"></span>数据与同步</h2>
@@ -579,6 +609,16 @@ function markSaved() {
   const ok = document.getElementById('okmsg');
   if (ok && !ok.textContent) ok.className = 'okmsg';   // 刚给「存了什么/跳过了什么」的提示留 4 秒，不抢
 }
+/* 本页自己要刷新时走这一条 —— **不能直接 location.reload()**：
+   这一页装了 beforeunload（上面那段），直接从代码里 reload 会把它自己撞响：
+   用户看到的是浏览器那句「您所做的更改不会保存」，而这一趟是页面**自己**发起的刷新，
+   用户点「取消」反而留在原地 —— 此时 localStorage 已经被导入的值覆盖，
+   再点一次「保存全部设置」就把屏幕上那份旧表单又盖回去（L36）。
+   skLeaving 就是给这一趟放的通行证：外壳那边也是同一个信号。 */
+function reloadAfter(ms) {
+  skLeaving = true;
+  setTimeout(() => location.reload(), ms || 800);
+}
 
 async function loadReg() {
   try { setREG(await Api.registry()); } catch { setREG(null); }
@@ -601,7 +641,15 @@ const provSel = new Map();          // kind → 这一类里最后看过的 keyI
 /* 还没点保存的密钥 / 地址输入：切类型、重画面板时正在打的那个值不能丢。saveAll 落盘后清空。 */
 const keyDraft = new Map();
 const baseDraft = new Map();
-const draftKey = kid => (keyDraft.has(kid) ? keyDraft.get(kid) : keyFor(kid));
+/* 「点了清除、但还没保存」的 keyId（L37）。
+   为什么要单开一份名单：这一页所有输入都是「改了先留着，点保存才落盘」，
+   唯独「清除」以前**当场 removeItem** —— 同一张卡上两套口径，而且它清完不重画自己写下的那句
+   「密钥来源：设置页里存着的 …… 点『清除』才会真的没有」：框空了、按钮闪了一下，
+   底下那行字还在说盘上有一把。现在清除也只记在草稿里，跟着 saveAll 一起落盘。
+   `draftKey` 认这份名单（返回空串）—— 验证、汇总行、卡片文案读的都是它，三处自然一致。 */
+const keyCleared = new Set();
+const draftKey = kid => (keyCleared.has(kid) ? ''
+  : (keyDraft.has(kid) ? keyDraft.get(kid) : keyFor(kid)));
 const draftBase = kid => (baseDraft.has(kid) ? baseDraft.get(kid) : (localStorage.getItem('sk_base_' + kid) || ''));
 /* 文字 AI 现在用哪一家：供应商卡里那个单选框选的是哪一家（没选过就看 TextAI 自己的判定）。
    下面那张「文字 AI 接口与模型」卡里的型号 / 识图都跟它走，两处只看同一个 provider。 */
@@ -664,6 +712,12 @@ function provUsable(m) {
    `.data/sk_key_<keyId>.json`（往卡里粘过并保存过就一直留着，跟 .env 无关）。
    查文件是查不到的（键名对不上），所以只能在这里说清楚。 */
 function keySourceNote(kid) {
+  /* 「点了清除、还没保存」要单独说 —— 这一刻盘上那把**还在**，别处也仍用它。
+     不说清楚的话，用户以为已经换成 .env 那把了，接着去排查「为什么还在用旧的」。 */
+  if (keyCleared.has(kid) && localStorage.getItem('sk_key_' + kid)) {
+    return '密钥来源：已经点了「清除」，但还没保存 —— 磁盘上那把还在，别的地方现在用的仍是它。'
+      + '点下面的「保存全部设置」之后才会真的没有（改用 .env / 服务端环境变量那把）。';
+  }
   const local = !!draftKey(kid);
   const env = !!(envInfo[kid] && envInfo[kid].hasEnv);
   if (local && env) return '密钥来源：设置页里存着一把（与 .env 无关；留空即改回用 .env 那把）';
@@ -733,12 +787,31 @@ function renderProv() {
   const avail = all.filter(m => m.kindSet.includes(provTab));
   provRows.clear();
   gs.forEach(m => provRows.set(m.keyId, m));
-  const noKey = gs.filter(m => keyState(m) === '还没填密钥').length;
-  $('provSum').textContent = gs.length
-    ? KIND_ZH[provTab] + '类：已接 ' + gs.length + ' 家 · 注册表里共 ' + avail.length + ' 家可选'
-      + (noKey ? ' · 有 ' + noKey + ' 家还没填密钥' : ' · 密钥都配好了')
-    : (KIND_ZH[provTab] || provTab) + '类还没有在用的平台 —— 注册表里共 ' + avail.length
-      + ' 家可选，点右边的「＋ 添加自定义供应商」把要用的接进来（选它、填上密钥，地址会自动填好官网的）';
+  /* 汇总行单独成函数：清掉一把密钥之后要就地重算（见上面清除按钮那段）。
+     不能整张卡重画 —— 卡里还有别的没保存的勾选，重画会把它们抹回盘上的值。 */
+  const paintSum = () => {
+    /* 注册表压根没读到（代理没起来）时**不能**照 `avail.length` 出文案（L40）：
+       那会把「读不到」说成「注册表里共 0 家可选」——内建明明有十几家，用户照着这句话
+       会以为这个工具一家都不支持。assetlib 已经有 regFailed()/regError() 这一对判据，
+       drama.html 也早就在用；设置页当时没用，于是四类档的数字全是 0 而没人说为什么。 */
+    if (window.Api && Api.regFailed && Api.regFailed()) {
+      $('provSum').textContent = '读不到注册表 —— 本地代理没连上或还没启动'
+        + (Api.regError ? '（原因：' + Api.regError() + '）' : '')
+        + '。先把 proxy.js 启动起来（启动.bat 选 1，或 node proxy.js）再刷新这一页；'
+        + '在它起来之前，下面这些「配没配密钥 / 能出几张 / 这个型号支持什么」都是错的。';
+      $('provSum').className = 'hint sm kerr';
+      return;
+    }
+    $('provSum').className = 'hint sm';
+    const g2 = all.filter(m => m.kindSet.includes(provTab) && provUsable(m));
+    const noKey = g2.filter(m => keyState(m) === '还没填密钥').length;
+    $('provSum').textContent = g2.length
+      ? KIND_ZH[provTab] + '类：已接 ' + g2.length + ' 家 · 注册表里共 ' + avail.length + ' 家可选'
+        + (noKey ? ' · 有 ' + noKey + ' 家还没填密钥' : ' · 密钥都配好了')
+      : (KIND_ZH[provTab] || provTab) + '类还没有在用的平台 —— 注册表里共 ' + avail.length
+        + ' 家可选，点右边的「＋ 添加自定义供应商」把要用的接进来（选它、填上密钥，地址会自动填好官网的）';
+  };
+  paintSum();
   /* ③ 一家一张卡（一次一把钥匙只对应一个输入框，理由见 provGroups） */
   const box = $('provList');
   box.innerHTML = '';
@@ -798,7 +871,7 @@ function renderProv() {
         : '') +
       '<div class="meta">' + meta
       + (others.length ? '<br>同一把密钥也用于：' + escA(others.join(' / ')) + '（切上面那一档，看到的还是这一把）' : '')
-      + '<br>' + keySourceNote(kid)
+      + '<br><span data-ksrc="' + escA(kid) + '">' + keySourceNote(kid) + '</span>'
       + '</div>' +
       '<div class="msg" data-msg="' + escA(kid) + '"></div>' +
       /* 「文字」这一档才有的那一段：型号、自己填的型号、识图。
@@ -878,6 +951,9 @@ function renderProv() {
     renderProv();
   });
   box.querySelectorAll('[data-key]').forEach(inp => inp.oninput = () => {
+    /* 重新打字 = 撤销掉刚才那一笔「清除」（否则 draftKey 会一直返回空串，
+       验证、汇总、卡片文案全都当这把钥匙不存在，而你明明刚填了一把）。 */
+    keyCleared.delete(inp.dataset.key);
     if (inp.value.trim()) keyDraft.set(inp.dataset.key, inp.value.trim());
     else keyDraft.delete(inp.dataset.key);
     markDirty();
@@ -899,14 +975,23 @@ function renderProv() {
   /* 侧栏余额勾选：**不再即时写盘**（以前一点就生效，和这一页「点保存才生效」两套口径）。
      现在只标脏，真正落盘在 saveAll 里一次写完（键 sb_bal_show，外壳侧栏靠 storage 事件重画）。 */
   document.querySelectorAll('[data-bal]').forEach(cb => cb.onchange = markDirty);
-  // 清除本机密钥：清空后走服务端环境变量
+  /* 清除本机密钥：清空后走服务端环境变量。
+     **不在这里 removeItem**（L37）：这一页所有输入都是「点保存才落盘」，清除也不例外。
+     以前它当场写盘、不标脏、也不重画——同一张卡上两套口径，而且底下那行
+     「密钥来源：设置页里存着的 …… 点『清除』才会真的没有」在清完之后仍然挂着。 */
   document.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => {
     const kid = b.dataset.clr;
-    localStorage.removeItem('sk_key_' + kid);
+    const inp = b.closest('.krow').querySelector('[data-key]');
+    if (inp) inp.value = '';
     keyDraft.delete(kid);
-    b.closest('.krow').querySelector('[data-key]').value = '';
-    b.textContent = '已清除';
-    setTimeout(() => { b.textContent = '清除'; }, 1500);
+    keyCleared.add(kid);
+    markDirty();
+    b.textContent = '待保存';
+    b.title = '清空已经记下了：点「保存全部设置」之后才真的从盘上删掉';
+    setTimeout(() => { b.textContent = '清除'; b.title = '清掉本机存的这把密钥（保存后生效）'; }, 1500);
+    const src = document.querySelector('[data-ksrc="' + kid + '"]');
+    if (src) src.innerHTML = keySourceNote(kid);
+    paintSum();
   });
 }
 function setMsg(kid, text, cls) {
@@ -1359,11 +1444,16 @@ function cusEdit(kid) {
 }
 async function cusRemove(kid) {
   const e = Api.customList().find(x => x && x.id === kid);
+  /* 这一家现在是不是「作用文字 AI」的：是的话要单独说一句，因为删完之后润色会换成别家 ——
+     不提醒的话，用户点了删除、接着去润色，得到的是另一个模型写出来的东西，而他不知道换过。 */
+  const wasText = (() => { try { return curTextId() === kid; } catch (err) { return false; } })();
   const go = await Confirm.ask({
     title: '删掉这一家？', danger: true, okLabel: '删除',
-    sub: '删掉「' + ((e && e.name) || kid) + '」，连它名下的密钥与「暂时不用」勾选一起清。',
+    sub: '删掉「' + ((e && e.name) || kid) + '」，连它名下的密钥、型号选择与「暂时不用」勾选一起清。',
     body: '已经生成的产物与历史不受影响（那些记在平台列表与本机资产里）。'
-      + '以后还要用同一个网关就重新添加一家 —— 新的 id 不认旧密钥，需要重填一次。',
+      + '以后还要用同一个网关就重新添加一家 —— 新的 id 不认旧密钥，需要重填一次。'
+      + (wasText ? '\n\n注意：这一家正是现在「作用文字 AI」的那一家，删掉之后 AI 润色 / 拆分 / 助手会改用别家'
+        + '（在「文字 AI」那一档重新选一家，或先切过去再回来）。' : ''),
   });
   if (!go) return;
   Api.customDrop(kid);
@@ -2114,17 +2204,55 @@ function renderUiPrefs() {
       line.style.marginTop = '8px';
       const mbOf = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
         : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
-      const paint = s => {
-        line.textContent = AssetLocal.saveOn()
-          ? ('本机已存 ' + s.count + ' 个产物，共 ' + mbOf(s.bytes) + '（单个超过 200 MB 的不自动存）')
+      const paint = st => {
+        if (!st) return;
+        /* 这一行要回答的是「我开了，它到底在不在干活」——
+           只报「已存 N 个」的话，从生成完成到字节落盘那几秒（视频更久）界面上一个字都没有，
+           用户看到的就是「开了没反应」；真失败时更静默（后台镜像的回执不进界面）。
+           所以在途数、失败次数与最后一次失败的原因都要摆出来（判据：AssetLocal.info 一处）。 */
+        const busy = st.inFlight > 0 ? '，正在存 ' + st.inFlight + ' 份' : '';
+        const okLine = st.on
+          ? ('本机已存 ' + st.count + ' 个产物，共 ' + mbOf(st.bytes) + busy
+            + '（单个超过 200 MB 的不自动存）')
           : '产物自动存本机已关闭：卡片只留平台地址，地址过期后只能靠「优先用本机文件」之外的手段找回。';
+        const parts = [okLine];
+        if (st.on && st.lastAt) {
+          parts.push(st.lastErr
+            ? '最后一次没存成：' + st.lastErr + '（这一份下一轮列表刷新时会再试一次）'
+            : '最后一次存成功。');
+        }
+        line.textContent = parts.join('　·　');
       };
-      paint(AssetLocal.stats());            // 先给缓存，别让这一行空着等
+      paint(AssetLocal.info ? AssetLocal.info() : AssetLocal.stats());   // 先给缓存，别让这一行空着等
       if (AssetLocal.syncStats) AssetLocal.syncStats().then(paint).catch(() => {});
+      /* 订阅在途状态：落盘每一份都会推一次，这一行跟着动。
+         不订阅的话「正在存 N 份」永远停在 0 —— 而这正是用户判断开关有没有生效的那句话。 */
+      if (AssetLocal.onInfo) AssetLocal.onInfo(i => paint(i));
       storeBox.appendChild(line);
     }
   } catch (e) {}
   renderAutosaveDirs(storeBox);
+  /* 「存哪一档」+ 侧栏那两块：读回来并说清各自会多花什么。
+     下拉走公共组件（Dropdowns），所以建完之后要 sync 一次 —— 与PromptForm 里那条同理由。 */
+  (() => {
+    const A = window.AssetLocal;
+    if (!A) return;
+    const sel = $('saveScopeSel');
+    if (sel) {
+      sel.value = A.saveScope ? A.saveScope() : 'all';
+      if (window.Dropdowns && Dropdowns.build) { try { Dropdowns.build(sel.parentElement || sel); } catch (e) {} }
+      if (window.Dropdowns && Dropdowns.sync) Dropdowns.sync(sel);
+    }
+    const hint = $('saveScopeHint');
+    if (hint) hint.textContent = (A.saveScope && A.saveScope() === 'new')
+      ? '只存开启之后新生成的。已经生成的那些永远不会再存 —— 想补回来就切回上面那一档。'
+      : '连历史产物一起补齐：第一次打开这一档会把列表里已有的产物**逐个下载存进本机**。'
+        + '产物多的时候这会占不少带宽与磁盘（左栏会显示「正在存几份」）。';
+    const cb = $('sbBalOn');
+    if (cb) cb.checked = A.sbBalOn ? A.sbBalOn() : true;
+    const cm = $('sbMirrorOn');
+    if (cm) cm.checked = A.sbMirrorOn ? A.sbMirrorOn() : true;
+  })();
   syncUiNeeds();
 }
 /* 依附别的开关的那一项（`needs`）当场收起来 / 放出来。
@@ -2353,6 +2481,12 @@ async function runFollow(c) {
   }
 }
 function saveUiPrefs() {
+  /* 记下「产物自动存本机**是从关到开**的这一刻」——
+     「只存开启之后新生成的」那一档靠它判新旧。**只在从关到开的那一刻记**：
+     每次保存都记的话，用户中途关一次再开，历史补齐的边界就跟着往后挪，
+     看起来像「以前生成的那些存不下来」。
+     判据与读侧 `AssetLocal.saveSince` 是同一个键（sk_media_local_since）。 */
+  const __wasSaveOn = (function () { try { return localStorage.getItem('sk_media_local') !== 'off'; } catch (e) { return true; } })();
   for (const r of ((window.UI_PREFS && UI_PREFS.rows) || [])) {
     const el = document.querySelector('[data-ui="' + r.key + '"]');
     if (!el) continue;
@@ -2372,9 +2506,38 @@ function saveUiPrefs() {
     if (top.__sbApplyTheme) top.__sbApplyTheme(th); else document.documentElement.dataset.theme = th;
   } catch (e) {}
   try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
+  /* 从关到开：记下这一刻（上面的 __wasSaveOn 是保存**前**的读数）。 */
+  try {
+    const nowSaveOn = localStorage.getItem('sk_media_local') !== 'off';
+    if (nowSaveOn && !__wasSaveOn && window.AssetLocal && AssetLocal.markSaveOn) {
+      AssetLocal.markSaveOn();
+    }
+  } catch (e) {}
+  /* 「存哪一档」+ 侧栏那两块：它们不在 UI_PREFS 那张表里（不是「界面偏好」那一族），
+     所以自己写盘。判据仍在 AssetLocal 那边（这里只写键，不自己实现规则）。
+     「存哪一档」从 all 切到 new 时要**重画一次左栏** —— 那边的筛选结果变了
+     （历史产物不再被扫），不动的话用户看到的还是旧的那批。 */
+  (() => {
+    const A = window.AssetLocal;
+    if (!A) return;
+    const sel = $('saveScopeSel');
+    if (sel) localStorage.setItem('sk_media_local_scope', sel.value === 'new' ? 'new' : 'all');
+    const cb = $('sbBalOn');
+    if (cb) { if (cb.checked) localStorage.setItem('sb_bal_on', '1'); else localStorage.setItem('sb_bal_on', '0'); }
+    const cm = $('sbMirrorOn');
+    if (cm) { if (cm.checked) localStorage.setItem('sb_mirror_on', '1'); else localStorage.setItem('sb_mirror_on', '0'); }
+  })();
   /* 依附关系跟着刚写盘的值走一遍：把「优先用本机文件」改成关并保存，第三档当场就该藏起来。
      放在这里而不是父档的 onclick 里 —— 还没保存时 localStorage 是旧值，那一行本来就该按旧的画。 */
   syncUiNeeds();
+  /* 左栏那两块当场重画（写的是别人的键，sidebar.js 不会自动跟着变）：
+     走它自己挂出来的那一个钩子，别在这儿自己拼一遍余额卡/产物行。 */
+  try {
+    const top = window.top || window;
+    if (top.__sbApplyBalance) top.__sbApplyBalance();
+    else if (top.__sbRefresh) top.__sbRefresh();
+    if (top.__sbApplyOpen) top.__sbApplyOpen();
+  } catch (e) {}
 }
 renderUiPrefs();
 
@@ -2426,18 +2589,45 @@ function saveDramaSet() {
 }
 renderDramaSet();
 
-$('saveAll').onclick = async () => {
+/* 「保存全部设置」的**唯一一份实现**。抽成有名函数是为了让「导出设置」那条路能
+   `await` 它 —— 以前它是一个匿名的 onclick，导出想先说「先把改动存下来再导」时
+   只能去 `$('saveAll').click()`，而那是异步的、等不到结果（L39）。 */
+async function saveAllNow() {
+  /* ---------- 写盘的唯一一个口（L33）----------
+     以前这一整段**没有 try/catch**：localStorage 满的时候 `setItem` 抛 QuotaExceededError，
+     整个函数当场中断 —— 后面那些项**一个字都没存**，而 `$('okmsg')` 那两行也没执行到，
+     所以界面上**什么都没有说**。用户点了一次「保存全部设置」、看到页面上一切正常，
+     以为存好了，实际只写了前半截（下一次进设置页才发现有几项回到了旧值）。
+     现在每一项都走下面这两个口：单项失败只记下这一项、不拖累其它项（以前是「一项炸、后面全丢」），
+     结尾把失败的键**逐条报出来**。
+     `W` 返回是否成功，需要的地方可以判；不需要的地方照旧当语句用。 */
+  const failedKeys = [];
+  const W = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; } };
+  const Wdel = (k) => { try { localStorage.removeItem(k); return true; } catch (e) { if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; } };
+  /* 开写之前先探一下：配额已经满时，下面几十项会逐项失败，报一长串键名不如当场说清。
+     探针键名带下划线前缀，与任何真实设置都不冲突，写完立刻删掉。 */
+  let quotaDead = false;
+  try { localStorage.setItem('_probe_write', '1'); localStorage.removeItem('_probe_write'); }
+  catch (e) { quotaDead = true; }
+  if (quotaDead) {
+    /* 用这一页自己的提示位（`#okmsg` + `.dirty-note` 那个样式）——
+       这一页没有通用的状态行，别去造一个不存在的函数。 */
+    $('okmsg').textContent = '本机存储写不进去了 —— 设置没有保存。先到「本机环境 → 清理缓存」清一批，'
+      + '或在浏览器里给这个站点腾点空间，再点一次保存。';
+    $('okmsg').className = 'okmsg dirty-note';
+    return false;
+  }
   const skipped = [];          // 只跳过有问题的那一两个字段，其余照常保存 —— 不能因为一个地址就整页不存
   document.querySelectorAll('[data-key]').forEach(inp => {
-    if (inp.value.trim()) localStorage.setItem('sk_key_' + inp.dataset.key, inp.value.trim());
-    else localStorage.removeItem('sk_key_' + inp.dataset.key);
+    if (inp.value.trim()) W('sk_key_' + inp.dataset.key, inp.value.trim());
+    else Wdel('sk_key_' + inp.dataset.key);
   });
   /* 接口地址（只有注册表里 baseEditable 的那几家有这个输入框）：
      必须以 http(s):// 开头（内网 http 服务也是合法用法，以前只认 https 被静默丢掉）；
      它属于别家 / 非官方地址时问一次“仍然保存吗”—— 你说了算。 */
   for (const inp of document.querySelectorAll('[data-base]')) {
     const v = String(inp.value || '').trim();
-    if (!v) { localStorage.removeItem('sk_base_' + inp.dataset.base); continue; }
+    if (!v) { Wdel('sk_base_' + inp.dataset.base); continue; }
     if (!/^https?:\/\//.test(v)) { skipped.push('接口地址（要以 http:// 或 https:// 开头）'); continue; }
     const row = provRows.get(inp.dataset.base);
     const own = row && row.prov ? Api.hostOwner(REG, v, row.prov) : null;
@@ -2450,19 +2640,22 @@ $('saveAll').onclick = async () => {
           + '如果这是你的中转网关 / 自建代理、且它接受这把密钥，就存下来。',
         body: '选「取消」= 这一项不写盘（其它设置照存，你的输入原样保留）。',
       });
-      if (go) localStorage.setItem('sk_base_' + inp.dataset.base, v);
+      if (go) W('sk_base_' + inp.dataset.base, v);
       else skipped.push('接口地址（与选中的供应方不是一家）');
-    } else localStorage.setItem('sk_base_' + inp.dataset.base, v);
+    } else W('sk_base_' + inp.dataset.base, v);
   }
   baseDraft.clear();
   /* 落了盘，那份「还没保存的草稿」就不再是唯一真相了（下次重画面板要读的是磁盘上这一份）。 */
   keyDraft.clear();
+  keyCleared.clear();
+  /* 型号 / 识图的草稿也一样：落了盘，盘上那份就是唯一真相（L38） */
+  if (window.__textForm && window.__textForm.clearDrafts) window.__textForm.clearDrafts();
   /* 「暂时不用」在这里落盘（表单里其它地方一律不写盘）。
      生成平台的**地址**不在这一页改：内置那几家走官方地址，
      同形状的中转站请在「添加自定义供应商」里登记成另一家（那个动作自己落盘并重取注册表）。 */
   document.querySelectorAll('[data-off]').forEach(cb => {
-    if (cb.checked) localStorage.setItem('sk_off_' + cb.dataset.off, '1');
-    else localStorage.removeItem('sk_off_' + cb.dataset.off);
+    if (cb.checked) W('sk_off_' + cb.dataset.off, '1');
+    else Wdel('sk_off_' + cb.dataset.off);
   });
   /* 侧栏余额勾选：以前一点就立刻写，侧栏当场重画 —— 和这一页「点保存才生效」两套口径，
      很容易以为别的项也是即时的。现在跟着 saveAll 一起落盘（外层侧栏靠 storage 事件重画）。
@@ -2483,8 +2676,8 @@ $('saveAll').onclick = async () => {
   if (tp) {
     /* 供应商卡里那个「作用文字 AI」单选框勾中了谁就存谁（没勾 = 保持原来那家） */
     const pickedEl = document.querySelector('[data-tpick]:checked');
-    if (pickedEl && pickedEl.dataset.tpick) localStorage.setItem(TextAI.provKey(), pickedEl.dataset.tpick);
-    else if (!localStorage.getItem(TextAI.provKey())) localStorage.setItem(TextAI.provKey(), tp.id);
+    if (pickedEl && pickedEl.dataset.tpick) W(TextAI.provKey(), pickedEl.dataset.tpick);
+    else if (!localStorage.getItem(TextAI.provKey())) W(TextAI.provKey(), tp.id);
     /* 保存完了就把「获取型号 / 测试」按钮留下的内存覆盖清掉：
        它们只在没点保存期间临时顶上，存盘之后磁盘上那份才是唯一真相。 */
     TextAI.setFormOverride(tp, null);
@@ -2502,11 +2695,11 @@ $('saveAll').onclick = async () => {
     if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, window.__textForm.fetchedOf(p))) {
       skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）');
     } else {
-      localStorage.setItem('sk_model_' + kid, m);
+      W('sk_model_' + kid, m);
     }
   });
   const tvEl = document.querySelector('[data-tvision]');
-  if (tvEl) localStorage.setItem('sk_text_vision', tvEl.value);
+  if (tvEl) W('sk_text_vision', tvEl.value);
   /* 润色指令：**按分类表逐条存**，键名走 TextAI.promptKey（= `sk_polish_<kind>`）。
      以前这里是 10 行手抄的键名，新增一条指令忘了在这加一行，就是「设置页能改、存盘没存上」。 */
   (window.TextAI.PROMPTS || []).forEach(g => (g.items || []).forEach(it => {
@@ -2517,43 +2710,59 @@ $('saveAll').onclick = async () => {
        原样固化成存盘副本 —— 而 `TextAI.prompt()` 存盘优先，于是以后改 TextAI.DEF
        对这台机器一条都不生效（修「指令里写死人称」时就是这么发现默认白改了）。
        判定用 TextAI.defaultPrompt（只看默认、不碰存盘），和 prompt() 算的是同一份。 */
-    if (el.value === TextAI.defaultPrompt(it.key)) localStorage.removeItem(TextAI.promptKey(it.key));
-    else localStorage.setItem(TextAI.promptKey(it.key), el.value);
+    if (el.value === TextAI.defaultPrompt(it.key)) Wdel(TextAI.promptKey(it.key));
+    else W(TextAI.promptKey(it.key), el.value);
   }));
-  if ($('polishAsk')) localStorage.setItem('sk_polish_ask', $('polishAsk').value);
+  if ($('polishAsk')) W('sk_polish_ask', $('polishAsk').value);
   /* 总开关默认开，所以和「吸住」同一套写法：键不在 = 开着，只有明确存了 '1' 才算关。
      不写 === '1' 那样会变成默认关，和文案里的「默认开」对不上。 */
   if ($('acOff')) {
-    if ($('acOff').checked) localStorage.removeItem('ai_chat_off');
-    else localStorage.setItem('ai_chat_off', '1');
+    if ($('acOff').checked) Wdel('ai_chat_off');
+    else W('ai_chat_off', '1');
   }
   if ($('acAuto')) {
-    if ($('acAuto').checked) localStorage.setItem('ai_chat_auto', '1');
-    else localStorage.removeItem('ai_chat_auto');
+    if ($('acAuto').checked) W('ai_chat_auto', '1');
+    else Wdel('ai_chat_auto');
+    /* 注入这一档：写完要刷新这一页才对助手生效（提示词是 ai-chat.js 加载时生成的，
+       动作表在那时就定好了 —— 这一点在勾选项的说明里写明，不让人以为保存后立刻就能用）。 */
+    if ($('acInject').checked) W('ai_chat_inject', '1');
+    else Wdel('ai_chat_inject');
+    /* 注入免确认：没开注入时连带清掉 —— 留着这个键没有意义（injectAuto 也要 injectOn），
+       而一个「早就开着」的状态留在盘上最坏：用户后来关了注入、又开回来时会以为免确认还在。 */
+    if ($('acInjectAuto').checked && $('acInject').checked) W('ai_chat_inject_auto', '1');
+    else Wdel('ai_chat_inject_auto');
   }
   /* 吸附默认是**开**的，所以「开」= 删掉键（让默认值说话），只有关掉才存 '0' ——
      和 ai_chat_auto 反过来，但同一套「不留多余键」的写法。 */
   if ($('acSnap')) {
-    if ($('acSnap').checked) localStorage.removeItem('ai_chat_snap');
-    else localStorage.setItem('ai_chat_snap', '0');
+    if ($('acSnap').checked) Wdel('ai_chat_snap');
+    else W('ai_chat_snap', '0');
   }
   /* 通知这一项默认关，所以「关」= 删键；开了才存 '1'（和 ai_chat_auto 同一套「不留多余键」）。
      只存这一半：浏览器授权状态存不了也同步不了，换台机器要点一下「现在授权」。 */
   if ($('acNotice')) {
-    if ($('acNotice').checked) localStorage.setItem('ai_chat_notice', '1');
-    else localStorage.removeItem('ai_chat_notice');
+    if ($('acNotice').checked) W('ai_chat_notice', '1');
+    else Wdel('ai_chat_notice');
   }
   savePageSettings();
   saveUiPrefs();
   saveDramaSet();  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
-  $('okmsg').textContent = skipped.length
-    ? '✓ 其余设置已保存；没写入：' + skipped.join('、')
+  /* 收尾：把「跳过的」与「写盘失败的」分开说 —— 它们的原因完全不同
+     （前者是值有问题、后者是本机存不下），对用户来说也都是「有几项没生效」。 */
+  const bad2 = skipped.concat(failedKeys.map(k => k + '（本机存不下）'));
+  $('okmsg').textContent = bad2.length
+    ? '✓ 其余设置已保存；没写入：' + bad2.slice(0, 6).join('、')
+      + (bad2.length > 6 ? ' 等 ' + bad2.length + ' 项' : '')
     : '✓ 已保存（分页设置刷新页面后生效）';
-  $('okmsg').className = skipped.length ? 'okmsg dirty-note' : 'okmsg';
+  $('okmsg').className = bad2.length ? 'okmsg dirty-note' : 'okmsg';
   setTimeout(() => { $('okmsg').textContent = ''; }, 4000);
   markSaved();
   renderProv();                 // 存完重画：型号下拉回到已保存的值，识图段跟着新的当前供应方走
-};
+  /* 返回「盘上是不是真的等于屏幕上这份」。导出那条路拿它来决定要不要接着导（L39）：
+     有一项没写进去就导出，导出的还是旧值，而用户以为导出的是刚存下的。 */
+  return failedKeys.length === 0;
+}
+$('saveAll').onclick = () => saveAllNow();
 
 /* ---------- 设置导入 / 导出 / 恢复默认 ----------
    设置项散在 localStorage 的多个键里，换台机器要一项项重填；这里统一导出成一个 JSON。 */
@@ -2567,7 +2776,12 @@ const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', '
   /* 只这一项助手设置：ai_chat 前缀会把对话记录和附件身份一起导出，那是数据不是设置。
      sk_custom = 「添加自定义供应商」那份清单（照哪家的形状 + 地址 + 型号 id），
      不含密钥（密钥还是按 keyId 存 sk_key_<id>），所以导出/恢复默认都把它当设置看待。 */
-  'ai_chat_auto', 'sk_custom', 'sk_prov_tab', 'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_autosave'];
+  'ai_chat_auto', 'ai_chat_inject', 'ai_chat_inject_auto', 'sk_custom', 'sk_prov_tab',
+  'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_media_local_scope',
+  'sb_bal_on', 'sb_mirror_on', 'sk_autosave'];
+/* sk_media_local_since（自动存本机的开启时刻）**刻意不在上面两份名单里**：
+   它是「此刻」的坐标不是「我想要什么」—— 跟着云同步带到另一台机器上，
+   那边一条产物都没有，用别处的时刻判「新不新」只会存得莫名其妙。 */
 /* 「恢复默认」不动的界面偏好：dir_ 前缀会把它们一起扫进来，
    所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view 与素材库的 dir_char_view，
    恢复默认会把用户的视图档位一起清掉，而弹窗写的是「清掉目录」，两件事都对不上。 */
@@ -2578,7 +2792,8 @@ const RESET_KEEP = ['set_fold_polish', 'dir_theme', 'dir_asset_view', 'dir_char_
      「恢复默认」把它清掉会让人以为文件存到别处去了，实际只是配置没了。
      sk_media_cloud_hide 要单独点名：它不在 'sk_media_local' 那条前缀下面，
      「以为前缀已经盖住了」的结果是恢复默认把这一档清成关闭。 */
-  'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_autosave'];
+  'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide', 'sk_media_local_scope',
+  'sb_bal_on', 'sb_mirror_on', 'sk_autosave'];
 
 function exportSettings(includeKeys) {
   const out = {};
@@ -2592,7 +2807,29 @@ function exportSettings(includeKeys) {
   }
   return { type: 'ai-workbench-settings', version: 1, ts: new Date().toISOString(), includeKeys: !!includeKeys, data: out };
 }
+/* 导出前先问一句「还有没保存的改动」（L39）。
+   这一步非加不可：本页为「点保存才生效」建了三道闸（保存条 / beforeunload / 外壳离开时那句），
+   而**导出是第四个出口** —— 整段只读 localStorage，屏幕上的表单改了没保存，
+   导出去的是**上一次保存的那份**，用户却看到「已导出设置」。
+   换台电脑导入，过来的是旧地址旧密钥，而这边屏幕上写的是新值 —— 两边都「看起来是对的」。 */
+async function askExportWhenDirty() {
+  if (!skDirty) return true;
+  return await Confirm.choose({
+    title: '还有改动没保存',
+    body: '「导出设置」导出的是上一次保存的那份，屏幕上刚改的还没进去。要先把它们存下来再导出吗？',
+    options: [
+      { value: 'save', label: '先保存再导出（推荐）', hint: '把屏幕上这份写进本机，导出的就是它' },
+      { value: 'raw', label: '不管，就导出上次保存的那份', hint: '屏幕上的改动会丢掉（这一趟导出的文件里没有它们）' },
+    ],
+  });
+}
 if ($('expSet')) $('expSet').onclick = async () => {
+  const choice = await askExportWhenDirty();
+  if (!choice) return;
+  if (choice === 'save') {
+    /* 没存成（存储写满）就别接着导 —— 导出去还是旧值，而用户以为这份文件就是屏幕上那份 */
+    if (!(await saveAllNow())) { Toast.err('设置没能完整保存，先腾出本机存储再导出'); return; }
+  }
   const withKeys = await Confirm.choose({
     title: '导出设置', body: '密钥（平台 API Key）要不要一起导出？',
     options: [
@@ -2616,12 +2853,33 @@ if ($('impSetFile')) $('impSetFile').onchange = e => {
       const d = JSON.parse(r.result);
       if (!d || !['ai-workbench-settings', 'sparkcine-settings'].includes(d.type) || !d.data) throw new Error('不是本工具导出的设置文件');
       const n = Object.keys(d.data).length;
+      /* 先在**问之前**把名单分好，确认框里报的数才是「真的会写进去几项」——
+         以前报的是文件里有多少项，而其中可能有几项根本不是设置（L35）。 */
+      const extra = Object.keys(d.data).filter(k => !EXPORTABLE.some(p => k === p || k.startsWith(p)));
       const ok = await Confirm.ask({ title: '导入设置', okLabel: '导入并覆盖',
-        body: `将写入 ${n} 项设置（同名项会被覆盖）。导入后页面会自动刷新。` });
+        body: `将写入 ${n - extra.length} 项设置（同名项会被覆盖）。导入后页面会自动刷新。`
+          + (extra.length ? `\n文件里另有 ${extra.length} 项不是设置项，会跳过：`
+            + extra.slice(0, 5).join('、') + (extra.length > 5 ? ' 等' : '') : '') });
       if (!ok) return;
-      Object.entries(d.data).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch {} });
-      Toast.ok('已导入 ' + n + ' 项设置，正在刷新…');
-      setTimeout(() => location.reload(), 800);
+      /* 逐项写 + 逐项记账（L35）：
+         `catch {}` 一吞，存满时会出现「已导入 40 项」而实际只写进去 12 项 ——
+         用户拿着这句话去用别家的地址，查半天查不出为什么。 */
+      const bad = [];
+      Object.entries(d.data).forEach(([k, v]) => {
+        if (extra.includes(k)) return;
+        try { localStorage.setItem(k, v); } catch (e) { bad.push(k); }
+      });
+      const wrote = n - bad.length - extra.length;
+      if (bad.length) {
+        Toast.err(`已导入 ${wrote} 项，${bad.length} 项没写进去（本机存储满了，先清一点再试）：`
+          + bad.slice(0, 3).join('、') + (bad.length > 3 ? ' 等' : ''));
+      } else if (extra.length) {
+        Toast.warn(`已导入 ${wrote} 项；文件里另有 ${extra.length} 项不是设置（${extra.slice(0, 3).join('、')}`
+          + (extra.length > 3 ? ' 等' : '') + '），已跳过');
+      } else {
+        Toast.ok('已导入 ' + wrote + ' 项设置，正在刷新…');
+      }
+      reloadAfter(900);
     } catch (err) { Toast.err('导入失败：' + err.message); }
   };
   r.onerror = () => Toast.err('读取文件失败');
@@ -2640,7 +2898,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     if (EXPORTABLE.some(p => k === p || k.startsWith(p))) { localStorage.removeItem(k); n++; }
   }
   Toast.ok('已清除 ' + n + ' 项设置，正在刷新…');
-  setTimeout(() => location.reload(), 800);
+  reloadAfter(800);
 };
 (async () => {
   /* 内置默认只有一份：assetlib.js 的 TextAI.DEF。页面（导演台 / 三个工作台）也用 TextAI.prompt(kind)
@@ -2704,6 +2962,19 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
      所以这一项要写在设置页里让人主动勾，而不是助手自己猜。 */
   if ($('acAuto')) {
     $('acAuto').checked = localStorage.getItem('ai_chat_auto') === '1';
+    $('acInject').checked = localStorage.getItem('ai_chat_inject') === '1';   // 默认关：读不到就是没开
+    $('acInjectAuto').checked = localStorage.getItem('ai_chat_inject_auto') === '1';
+    /* 注入没开时这一格收起来并压暗：勾一个不生效的东西比不摆更让人糊涂 */
+    const ia = $('acInjectAuto');
+    if (ia) { ia.closest('.krow').hidden = !$('acInject').checked; ia.disabled = !$('acInject').checked; }
+    $('acInject').onchange = () => {
+      const k2 = $('acInjectAuto');
+      if (!k2) return;
+      const on2 = $('acInject').checked;
+      k2.closest('.krow').hidden = !on2;
+      k2.disabled = !on2;
+      if (!on2) k2.checked = false;      // 关掉注入就顺手把免确认也撤了（与保存时一致）
+    };
     $('acAuto').onchange = markDirty;
   }
   /* 「吸住」默认开，所以键不在 = 勾着；只有明确存了 '0' 才是关 ——
@@ -2754,6 +3025,14 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
      界面上就会出现「选了 OpenRouter 却看到 DeepSeek 的型号」。 */
   const fetched = new Map();      // providerId → [{id,name}]（点「获取型号列表」的结果）
   const fetchedOf = p => fetched.get((p && (p.keyId || p.id)) || '') || [];
+  /* 型号 / 识图这两档也要有草稿（L38）。这一页的密钥与地址早就有草稿
+     （keyDraft / baseDraft：改了、切一档看看别的、再切回来，值还在），
+     型号与识图没有 —— `renderProv` 每次重画都从**已存盘**那份读，于是
+     「文字档把型号换成 B → 点图片 → 点回文字」下拉悄悄回到 A，没有任何提示；
+     此时点保存就把 A 写回盘里，B 静默消失。同一页上两种口径，用户只会觉得「它自己会变」。
+     键是 keyId（与 sk_model_<keyId> 同一把钥匙）；识图是全局一项，只存一个值。 */
+  const modelDraft = new Map();
+  const visionDraft = { v: null };
   function textProvList() { return (window.__REG && window.TextAI) ? TextAI.all(window.__REG) : []; }
   /* 「当前用哪家」只看一处：上面那张卡里勾了哪个「用作文字 AI」；没勾就按 TextAI 自己的判定
      （已保存的那家 → 默认供应方 → 第一家有密钥的）。 */
@@ -2786,7 +3065,9 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
       sel.value = '';
       return;
     }
-    const prev = keep || localStorage.getItem('sk_model_' + kid) || '';
+    /* 顺序：调用方点名 > 还没保存的草稿 > 盘上那份。
+       少了中间这一档，切一档回来就会静默回退到盘上的旧值（见上面 modelDraft 的说明）。 */
+    const prev = keep || (modelDraft.has(kid) ? modelDraft.get(kid) : (localStorage.getItem('sk_model_' + kid) || ''));
     const { groups, ids } = TextAI.modelGroups(p, fetchedOf(p));
     sel.innerHTML = groups.length
       ? groups.map(g => `<optgroup label="${esc(g.label)}">` + g.ids.map(id2 => `<option value="${esc(id2)}">${esc(id2)}</option>`).join('') + '</optgroup>').join('')
@@ -2828,7 +3109,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     });
     const tv = document.querySelector('[data-tvision]');
     if (tv) {
-      tv.value = localStorage.getItem('sk_text_vision') || 'auto';
+      tv.value = visionDraft.v != null ? visionDraft.v : (localStorage.getItem('sk_text_vision') || 'auto');
       /* 这一行以前漏了，于是「参考图」是这张卡上唯一的裸 select（同一个「型号」是公共组件外观，
          高度还不一样）。原因：build 得在 renderProv 换掉 #provList 的 innerHTML **之后**再跑，
          而闭包末尾那句 Dropdowns.build(document) 只在装配时执行一次，管不到后来重画出来的节点。
@@ -2843,7 +3124,11 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
      （前者要统一落盘全部设置，后者只管画卡）。按 AGENTS.md 第 3 节：跨闭包一律走 window 上的
      公开接口 —— renderProv 只调 __textForm.paint()，saveAll 只用 provByKid / fetchedOf，
      两边都不裸调对方闭包里的函数（会 ReferenceError，而且报错点离真正的原因很远）。 */
-  window.__textForm = { prov: curTextProv, list: textProvList, provByKid, fetchedOf, paint: paintTextCards };
+  window.__textForm = { prov: curTextProv, list: textProvList, provByKid, fetchedOf, paint: paintTextCards,
+    /* 落盘之后清掉这两份草稿（saveAll 在闭包外面，看不见它们）。
+       不清的话：存完之后草稿还压着盘上那份，下次重画读到的仍是草稿 ——
+       而草稿与盘上此刻是同一个值，看不出问题；真正出事的是「存了 A 又改回 B 再存」这类来回操作。 */
+    clearDrafts() { modelDraft.clear(); visionDraft.v = null; } };
 
   /* ---------- 识图能力：自动 / 支持 / 不支持（存 sk_text_vision） ----------
      判定优先看接口返回的模型能力字段（input_modalities 等里有没有 image），
@@ -2996,7 +3281,9 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     if (!s) return;
     const kid = s.dataset.tmodel || s.dataset.tvision;
     /* 识图开关落盘交给 saveAll（与这一页其它项同一口径），这里只重判一次并标脏 */
-    if (s.dataset.tvision) { refreshVisionTip(kid); markDirty(); return; }
+    if (s.dataset.tvision) { visionDraft.v = s.value; refreshVisionTip(kid); markDirty(); return; }
+    /* 记进草稿：切供应方档、重画卡片之后要能从草稿里把刚选的这个拿回来 */
+    modelDraft.set(kid, s.value);
     setMsg(kid, '已选择型号：' + (s.value || '（空）') + '（点「保存全部设置」写入；「测试」会直接用这个）', 'msg');
     refreshVisionTip(kid);
     markDirty();

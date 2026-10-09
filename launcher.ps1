@@ -240,6 +240,20 @@ function Test-PortListening([int]$Port) {
   return $ok
 }
 
+function Test-OurProxy([int]$Port) {
+  # 「这个号上是不是本项目」—— 判据只此一份，问的是 proxy.js 自己的 /whoami。
+  # 为什么必须有它：以前「有没有服务」只看「端口上有人在听」，而那个号上可能是**别的 node 程序**
+  #（用户自己起的开发服务器、别的工具）。后果不是打不开页面，而是两件更糟的事：
+  #   ① Start-Proxy 把别人的服务当成「本项目在跑」，直接开页面 —— 打开的是一个不相干的程序；
+  #   ② Stop-PortListener 的闸只问「监听者是不是 node」，于是点「停止」会**杀掉别人机器上的 node**。
+  # 判据要能被证伪，所以这里必须真的发一次请求并读 JSON，不靠端口号或进程名猜。
+  # 读不出来 / 不是本项目 / 请求失败，一律当作「不是本项目的」—— 宁可多问一次启动器，也不要误杀。
+  if ($Port -lt 1) { return $false }
+  $j = Get-JsonUtf8 "http://127.0.0.1:$Port/whoami"
+  if (-not $j) { return $false }
+  return ("$($j.app)" -eq 'shiji-workbench')
+}
+
 function Wait-Listening([int]$Port, [double]$Seconds) {
   # 等的是「它最终起来了 / 终于停了」，不是「这一瞬间的快照」。每一轮都重新问一次系统 ——
   # 不点名 Ask-Net 的话循环读到的还是同一份旧快照，等于原地干等（第一版的假红就在这）。
@@ -287,6 +301,16 @@ function Stop-PortListener([int]$Port) {
   # proxy.js 的退出协议一起改，别只在这里装优雅。
   $killed = @()
   $messages = @()
+  # 先问身份，再动进程 —— 「是不是 node」这道闸挡不住「就是 node，但不是本项目的」。
+  # 以前这一段只按进程名判，于是用户自己起的 node 开发服务器会被点「停止」杀掉。
+  if (-not (Test-OurProxy $Port)) {
+    $who = @(Get-PortOwnerPids $Port | ForEach-Object {
+      $n = (Get-Process -Id $_ -ErrorAction SilentlyContinue).ProcessName
+      if ($n) { "$n(PID $_)" }
+    })
+    $messages += "端口 $Port 上不是本工作台的服务（$($who -join '、')），没有动它 —— 只停本项目起的进程。"
+    return @{ Killed = $killed; Messages = $messages }
+  }
   foreach ($p in @(Get-PortOwnerPids $Port)) {
     $name = (Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName
     if ($name -ne 'node') {
@@ -307,11 +331,13 @@ function Stop-PortListener([int]$Port) {
 # ---------- 服务的唯一一条起路 / 一条停路（界面与自检走的是同一份） ----------
 
 function Proxy-Running {
-  # 判「有没有服务」只有一条口径：端口上有人在听。
+  # 判「有没有服务」只有一条口径：**这个号上是本工作台**（不是「有人在听」）。
   # 进程还在但监听没起来（proxy.js 自己绑不上就 process.exit(1)，换号那一下也可能残留）时
   # 要说「没起来」，不能因为 HasExited 是 false 就画成运行中 —— 那正是让人对着一个
   # 打不开的页面干等的写法。
-  if ($script:ActivePort -gt 0 -and (Test-PortListening $script:ActivePort)) { return $true }
+  # 加上身份这一层是防这一种：用户自己有个 node 程序占着这个号，
+  # 界面曾经把它画成「运行中」，而「停止」会把它杀掉。现在两处问的是同一个 Test-OurProxy。
+  if ($script:ActivePort -gt 0 -and (Test-PortListening $script:ActivePort) -and (Test-OurProxy $script:ActivePort)) { return $true }
   return $false
 }
 
@@ -325,6 +351,12 @@ function Start-Proxy {
   $seen = @($script:ActivePort, (Read-StatePort), $d.Port) | Where-Object { $_ -gt 0 } | Select-Object -Unique
   foreach ($p in $seen) {
     if (Test-PortListening $p) {
+      # 「有人在听」与「是本项目」是两件事：认错了会开出一个不相干的页面，
+      # 而点「停止」时更会动到别人的进程。所以这里先问身份（判据见 Test-OurProxy）。
+      if (-not (Test-OurProxy $p)) {
+        Add-LogLine "端口 $p 上有人在听，但不是本工作台的服务 —— 这次改用一个空号启动，别去动它。"
+        continue
+      }
       $script:ActivePort = $p
       $script:WantOpen = $true
       $script:StartingSince = $null
@@ -549,11 +581,14 @@ function Invoke-SelfTest {
   $mine = @(Get-PortOwnerPids $heldPort)
   Check 'Get-PortOwnerPids 报出的是本机这个进程' ($mine -contains $PID) "读到 $($mine -join ',')"
 
-  # ③ 「不是 node 就不动它」这条闸门。它坏掉的表现是**本进程被自己杀掉**（输出就此断掉，
+  # ③ 「不是本项目就不动它」这条闸门。它坏掉的表现是**本进程被自己杀掉**（输出就此断掉，
   #    没有最后一行）—— 这是这一条能拿到的最强证据，也是它必须放在后面跑的原因。
+  #    这里占着号的是 PowerShell 自己：它**不是 node**，身份也不是本项目，两道闸都该拦住。
   $g = Stop-PortListener $heldPort
-  Check '监听者不是 node 时一个进程都不动' (@($g.Killed).Count -eq 0 -and (($g.Messages) -join ' ') -like '*不是 node*') (($g.Messages) -join ' / ')
+  Check '监听者不是本项目时一个进程都不动' (@($g.Killed).Count -eq 0 -and (($g.Messages) -join ' ') -like '*不是本工作台*') (($g.Messages) -join ' / ')
   Check '上面那一圈确实没把自己停掉' (Test-PortListening $heldPort) ''
+  # 身份判据单独验一次：占着一个号但答不出 /whoami，就该判成「不是本项目的」
+  Check '占着号但不答 /whoami 时身份判false' (-not (Test-OurProxy $heldPort)) "端口 $heldPort"
   $hold.Stop()
 
   # ④ 状态文件与旧 bat 写的那份格式互通（旧文件只有一个号 + CRLF）
@@ -573,6 +608,9 @@ function Invoke-SelfTest {
   $up = Wait-Listening $startedPort $StartGiveUpSec
   Check '启动后端口上真的在监听' $up "端口 $startedPort"
   Check '状态文件写的是实际跑起来的端口' ((Read-StatePort) -eq $startedPort) ''
+  # 「是本项目」这条身份判据必须与「在监听」同时成立 —— 只在监听不认身份的话，
+  # 停止按钮会连自己的服务都不敢停（另一头是认错人就会杀掉别人的 node）。
+  Check '本项目的服务身份认得出来（/whoami）' (Test-OurProxy $startedPort) "端口 $startedPort"
   $seen = @()
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {

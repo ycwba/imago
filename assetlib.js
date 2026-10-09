@@ -451,6 +451,20 @@ async function readSseStream(res, onDelta) {
     return /PROMPT_COMPILER|PROMPT_OPTIMI|prompt compiler/i.test(t);
   }
 
+  /* 「这次提交**不知道平台收没收到**」—— 全站只此一份判据（就在它产生的地方旁边）。
+     两个来源合起来：
+       ① err.maybeSubmitted —— 上面那条对 5xx / 408 / 429 的标记；
+       ② 传输层就断了（Net 超时、断连）—— 那时连HTTP 状态码都没拿到，平台那边可能早已受理。
+     **必须把它当成「未知的成功」而不是「失败」**：用户看到「失败」最自然的反应是再点一次，
+     而视频平台建任务经常超过 30 秒 —— 那不是边缘情况，是常态，那一下就是第二次扣费。
+     studio.html 的 trackSubmit、director.html 的提示、拍短剧的 take.state、以及助手这一路都读它。 */
+  function maybeSubmitted(e) {
+    if (!e) return false;
+    if (e.maybeSubmitted) return true;
+    return /超时|timeout|中断|连接|Failed to fetch|fetch failed|上游响应超时|ECONNABORTED|ETIMEDOUT/i
+      .test(String(e.message || e));
+  }
+
   /* 列表快照的存活时间：轮询器一轮里会把每个在跑的任务各问一次（见 Api.pollMany），
      同一轮里的请求共用一份列表，所以这个窗口只要盖住「同一轮」就够（轮询间隔 3~4 秒）。 */
   const LIST_SNAP_TTL = 1500;
@@ -474,6 +488,7 @@ async function readSseStream(res, onDelta) {
          「检索失败：errorMessage is not defined」。） */
     errorMessage,
     isRetryableCreateError,         // 平台提示词编译失败等「任务肯定没建」的错误 → 可安全重试
+    maybeSubmitted,              // 「可能已受理，结果未知」—— 绝不能写成「失败」，判据全站只有这一份
     setRegistry(r) { if (r && r.providers) _reg = r; },
     /* 清掉本机那些「自己会长回来」的接口缓存（设置页的清理按钮用它）：
        换密钥、代理接入新平台、上游改了能力声明却不想等 TTL 时，不必刷新整页。
@@ -633,7 +648,11 @@ async function readSseStream(res, onDelta) {
        'deepseek'，于是这份死数据在别处被读出来时表现成「别家凭空多出几个我填过的型号」。 */
     customDrop(id) {
       this.customSet(this.customList().filter(e => e && e.id !== id));
-      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_text_models_'].forEach(p => localStorage.removeItem(p + id));
+      /* 清干净这一家名下的每一把钥匙。
+         `sk_model_` 是漏掉过的那一个（L41）：设置页「保存全部设置」按 `sk_model_<keyId>` 存
+         型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
+         跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
+      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_text_models_', 'sk_model_'].forEach(p => localStorage.removeItem(p + id));
     },
     /* 端点 URL：端点名 → relay + 模板（{id} 用 sub 替换） */
     url(prov, name, sub) {
@@ -788,6 +807,31 @@ async function readSseStream(res, onDelta) {
     createBody(prov, f = {}) {
       const spec = (prov && prov.create) || null;
       if (!spec) throw new Error(((prov && prov.name) || '该平台') + ' 没有声明怎么提交（这个型号不完整）');
+      /* ---------- 提交体第一道闸：`model` 必须是**型号 id 字符串** ----------
+         上游对 model 的形状校验最严（`model must be a string` + 一条 `xxx/yyy` 的正则），
+         而页面很容易把**模型对象**顺手传进来 —— 因为「选中的模型」在页面里就是对象
+         （`currentModel()` 给 `{prov, model}`），只有 `.id` 才是那个字符串。
+         studio.html 的视频那一路就这么错了很久：图片那一路写的是 `model.id`（对）、
+         视频那一路写的是裸 `model`（错），两边不一致 → 上游收到一个对象，
+         回的是「model must be a string / must match …」，
+         而那句话与用户在界面上做的事**毫无关系**（他明明选了型号）。
+         所以在这里当场拦下并**说清怎么修**（给的是哪一项、现在的值长什么样）——
+         把「一个看不懂的上游报错」变成「一句话指出代码哪一处传错了」。
+         只有声明里真的要用 model 的平台才校验：TTS 那一族有的不收这个字段，
+         对它们传什么都不该因此报错。 */
+      const usesModel = Object.values(spec.body || {}).includes('model')
+        || Object.values(spec.nest || {}).some(pairs => (pairs || []).some(x => (Array.isArray(x) ? x[1] : x) === 'model'))
+        || /\{\{\s*model\s*\}\}/.test(String(spec.template || ''));
+      if (usesModel) {
+        if (typeof f.model !== 'string' || !f.model.trim()) {
+          const got = f.model === undefined ? 'undefined（压根没传）'
+            : f.model === null ? 'null'
+              : (typeof f.model === 'object' ? '一个对象' + (f.model.id ? '（里面那个 id 是「' + f.model.id + '」，看起来该传的是它）' : '（它身上连 id 都没有）') : typeof f.model + '：' + String(f.model));
+          throw new Error('提交给「' + ((prov && (prov.displayName || prov.name)) || prov.id) + '」的 model 要是**型号 id 字符串**，'
+            + '现在拿到的是 ' + got + '。这一项由页面点明 —— 页面里「选中的模型」是对象，'
+            + '传之前要取它的 `.id`（型号 id 长这样：' + ((prov && prov.models && prov.models[0] && prov.models[0].id) || 'xxx/yyy') + '）');
+        }
+      }
       const std = { model: f.model, prompt: f.prompt, tier: f.tier, duration: f.duration, res: f.res,
         ar: f.ar, quality: f.quality, count: f.count, format: f.format,
         /* size = 「宽x高」那一类画幅参数（SiliconFlow 的 image_size、OpenAI 兼容的 size）。
@@ -1351,6 +1395,45 @@ async function readSseStream(res, onDelta) {
 (function () {
   const K_SAVE = 'sk_media_local', K_PREFER = 'sk_media_prefer', K_IDX = 'sk_local_mirror';
   const K_HIDE_CLOUD = 'sk_media_cloud_hide';
+  /* 「补不补历史产物」—— 自动存本机分两档：
+       'all'（默认，与原来的行为一致）：扫到什么存什么，所以开启之后**历史产物也会被补齐**；
+       'new'：只存开启之后新生成的那些。
+     为什么要分：'all' 在攒了三百条产物之后第一次打开这一档，会**当场开始下载几百个文件**
+     （带宽、磁盘、时间都不小，而用户可能只是想「以后生成的就顺手存下来」）。
+     但反过来，把默认设成 'new' 又是**静默的损失** —— 已经生成的那些永远存不下来。
+     所以默认给 'all'（行为与从前一致，不制造意外），把 'new' 作为明确的选择摆出来。
+     判据只有 `wantSave(e)` 一处：scan 每一批都问它一次。 */
+  const K_SAVE_SCOPE = 'sk_media_local_scope';
+  /* 开启的时刻：'new' 那一档靠它判断「这条是不是开启之后生成的」。
+     第一次用（这个键不存在）时**当作一直是开的** —— 否则 'new' 在第一次用时等于什么都不存，
+     而用户看到的是「我明明开了，一份也没存」。 */
+  const K_SAVE_SINCE = 'sk_media_local_since';
+  function saveSince() { return Number(on(K_SAVE_SINCE, '0')) || 0; }
+  /* 记下「本次开启的时刻」。由设置页在**从关到开**的那一刻调一次（不是每次保存都调，
+     否则用户中途关一次再开，历史补齐的边界就跟着往后挪，看起来像「存不下来」）。 */
+  function markSaveOn(at) {
+    const t = Number(at) || Date.now();
+    try { localStorage.setItem(K_SAVE_SINCE, String(t)); } catch (e) {}
+    return t;
+  }
+  /* 「这一条该不该存」—— scan / 手动补存 / 页面那条按钮都读它。
+     `mode` 缺省读设置；传字符串是为了测试与「按类型另存」那一档复用。 */
+  function saveScope() { return on(K_SAVE_SCOPE, 'all') === 'new' ? 'new' : 'all'; }
+  function wantSave(e, mode) {
+    if (!e || e.kind !== 'asset' || e.localAsset) return false;
+    if ((mode || saveScope()) !== 'new') return true;
+    const since = saveSince();
+    if (!since) return true;                                   // 从来没记过开启时刻 → 当作一直是开的
+    /* 用 `completed` / `created`（平台给的实际出结果时刻）比，没有就用 `ts`（本机记的创建时刻）。
+       没有任何一个时刻的条目**一律放行**：判成「旧的」而不存，用户看到的就是凭空少了一份，
+       而「多存一份」的代价只是磁盘。 */
+    const t = Number(e.completed || e.created || e.ts || 0);
+    return !t || t >= since;
+  }
+  /* 侧栏那两块各自能不能显示（设置页勾）。默认都开着 —— 与从前一致。 */
+  const K_SB_BAL = 'sb_bal_on', K_SB_MIRROR = 'sb_mirror_on';
+  const sbBalOn = () => on(K_SB_BAL, '1') !== '0';
+  const sbMirrorOn = () => on(K_SB_MIRROR, '1') !== '0';
   const IDX_MAX = 20000;                 // 与代理的 LOCAL_INDEX_MAX 对齐：两边都截一半就会出现「存过却取不回」
   const MIRROR_MAX = 200 * 1024 * 1024;  // 单个文件超过 200MB 不镜像（存它要占几百兆，值不值由用户自己定）
   const CONCURRENCY = 2;                 // 同时最多镜像几个：一次性下十几个视频会把上行和磁盘都占满
@@ -1615,6 +1698,41 @@ async function readSseStream(res, onDelta) {
   }
   /* 一条队列任务的回执。只有「用户亲手点『自动下载』」那一批会传 cb ——
      后台自动镜像是静默的（产物该显示还是显示），没人等它的结果。 */
+  /* 「正在往本机存」的状态观察口——**判据只有这一处**。
+     没有它的时候这个功能的表现是「开了没反应」：一份产物从列表出现到字节落盘要好几秒
+     （视频更大），这段时间界面上**一个字都没有**，用户以为开关没生效；
+     真失败时（超上限 / 网络断 / 代理没回资产号）更是静默 —— 后台镜像的 tell 明确不回执。
+     这不是加一个装饰，是把这个功能唯一的说得清的地方补上。
+     onChange 订阅者只用来刷新那一行文案，不参与任何写盘决策。 */
+  /* `dlName/dlTotal/dlSent` 是**当前正在下载的那一份**（用户要看到的不只是「N 份在途」，
+     还要看到「这一份下到多少」—— 一个 200MB 的视频在界面上从 0% 到 100% 长得一模一样时，
+     人只能干等）。三个字段都由 runOne 那一处写，这里只声明（判据不散在别处）。 */
+  const INFOS = { inFlight: 0, ok: 0, fail: 0, lastErr: '', lastAt: 0,
+    dlName: '', dlTotal: 0, dlSent: 0, listeners: new Set() };
+function infoChanged() {
+  for (const f of INFOS.listeners) { try { f(INFOS); } catch (e) { /* 订阅者出错不许影响落盘 */ } }
+}
+function infoNote(ok, err) {
+  if (ok) { INFOS.ok++; INFOS.lastAt = Date.now(); INFOS.lastErr = ''; }
+  else { INFOS.fail++; INFOS.lastAt = Date.now(); INFOS.lastErr = String((err && err.message) || err || '未知原因'); }
+  infoChanged();
+}
+/* 订阅：返回退订函数。页面用它刷新那一行实况（设置页 / 资产库底部）。 */
+function onInfo(fn) {
+  if (typeof fn !== 'function') return () => {};
+  INFOS.listeners.add(fn);
+  try { fn(INFOS); } catch (e) {}
+  return () => INFOS.listeners.delete(fn);
+}
+function info() {
+  const s = read();
+  return { inFlight: INFOS.inFlight + queued.size, ok: INFOS.ok, fail: INFOS.fail,
+    lastErr: INFOS.lastErr, lastAt: INFOS.lastAt,
+      dlName: INFOS.dlName, dlTotal: INFOS.dlTotal, dlSent: INFOS.dlSent,
+    count: Object.keys(s.m || {}).length, bytes: Object.values(s.m || {}).reduce((a, r) => a + (Number(r && r.b) || 0), 0),
+    on: saveOn() };
+}
+
   async function runOne(job) {
     const { k, url, ent } = job;
     const tell = (err, res) => {
@@ -1628,7 +1746,9 @@ async function readSseStream(res, onDelta) {
         read().skip = String(read().skip || '');
         /* 超上限的这份**留在在途表里**：否则每刷一次列表就把两百多兆重下一遍。
            手动那一路照实回执，按钮不能点了像没反应。 */
-        tell(new Error('这份比本机镜像的上限（' + window.fmtBytes(MIRROR_MAX) + '）还大，没有存'), { skip: true });
+        const tooBig = new Error('这份比本机镜像的上限（' + window.fmtBytes(MIRROR_MAX) + '）还大，没有存');
+        infoNote(false, tooBig);
+        tell(tooBig, { skip: true });
         return;
       }
       const ext = extOf(blob, ent && ent.format);
@@ -1660,6 +1780,8 @@ async function readSseStream(res, onDelta) {
         d.m[k] = { a: r.id, f: r.format || ext, n: r.name || '', t: Date.now(), b: blob.size, up: url };
         d.a[r.id] = k;
         queueWrite();
+        queued.delete(k);          // 成功也要摘：留在在途表里下一轮就不会再 offer（那份已经存过了）
+        infoNote(true);
         tell(null, { id: r.id, size: blob.size });
       } else {
         /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
@@ -1697,11 +1819,40 @@ async function readSseStream(res, onDelta) {
          所以要把这一条从在途表里摘掉：以前失败的那一条永远留在表里，
          「再 offer 一次」根本不会发生，用户再点一次「自动下载」也是一颗死按钮。 */
       queued.delete(k);
-      tell(e instanceof Error ? e : new Error(String((e && e.message) || e || '存不进本机')));
+      const err = e instanceof Error ? e : new Error(String((e && e.message) || e || '存不进本机'));
+      infoNote(false, err);
+      tell(err);
+    } finally {
+      /* 在途计数在 finally 里减：runOne 里的每一条出口（成功 / 超上限 / 抛错）
+         都要走它一次，而在这些出口上分别写一遍减法就会漏。 */
+      INFOS.inFlight = Math.max(0, INFOS.inFlight - 1);
+      infoChanged();
     }
   }
 
   const queued = new Set();
+  /* 抹掉「这一条本机镜像」的记录 —— 用户刚在资产库点「删除本机文件」之后调它。
+     与 learn / decorate 共用同一张表和同一套反查表（否则删掉了却还有指针指着一个死号，
+     卡片会一直去问一个查无此号的 /asset/<本机号>，拿到 422 之后又重新下载一遍）。
+     **只抹本机索引，不碰平台那份素材，也不把这条从列表里摘掉** —— 那是 assets.html 的事。 */
+  function forgetMirror(ent) {
+    const k = ent && ent.mirrorKey;
+    if (!k) return false;
+    const d = read();
+    const rec = d.m[k];
+    if (!rec) return false;
+    delete d.m[k];
+    if (rec.a && d.a[rec.a] === k) delete d.a[rec.a];
+    const im = idxMaps;
+    if (im) {
+      if (rec.a) delete im.la[rec.a];
+      for (const u in im.up) { if (im.up[u] === rec || im.up[u] && im.up[u].a === rec.a) delete im.up[u]; }
+      for (const aid in im.aid) { if (im.aid[aid] === rec || im.aid[aid] && im.aid[aid].a === rec.a) delete im.aid[aid]; }
+    }
+    liveSeen.delete(rec.a);
+    queueWrite();
+    return true;
+  }
   /* 提交一条产物去存本机（幂等：已存过 / 正在存 / 关掉了开关都直接跳过）。
      返回这一条的去向，页面据此说话：
        'saved' 索引里已经有了（或按来源地址认出同一条）· 'busy' 后台那一轮正在存
@@ -1712,12 +1863,17 @@ async function readSseStream(res, onDelta) {
   function offer(provId, ent, upstream, opts) {
     const o = opts || {};
     if (!saveOn() && !o.force) return '';
-    const raw0 = String(upstream || (ent && (ent.rawSrc || ent.raw)) || '');
-    /* 收藏 / 工作区递来的常常是 `/getv?url=…` 这一层包装（字节还是那一份字节）。
-       剥出内层外链再判协议：以前只收 https，于是「从收藏点自动下载」一条都排不上，
-       而界面上一句回执都没有。 */
-    const url = /^https?:/i.test(raw0) ? raw0 : String(innerMedia(raw0) || '');
-    if (!/^https?:/i.test(url)) return '';
+    const raw0 = String(upstream || (ent && (ent.rawSrc || ent.raw)) || byteSrcOf(ent));
+    /* 剥出内层外链再判协议：以前只收 https，于是「从收藏点自动下载」一条都排不上，
+       而界面上一句回执都没有。
+       **同源路由也要收**（/asset/<id>、/getv?url=…、/fetch?url=…&dl=1）：代理自己就能下这些，
+       而「平台返回产物 id」那一族只有它们（见 byteSrcOf 的注释）——
+       只收 https 时这一族永远排不上队列，「自动存本机」看起来就是没开张。 */
+    const isHttp = /^https?:/i.test(raw0);
+    const isSameOrigin = /^\/(?:asset|getv|fetch|local-assets)\b/.test(raw0);
+    if (!isHttp && !isSameOrigin) return '';
+    const url = isHttp ? raw0 : String(innerMedia(raw0) || raw0);
+    if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch|local-assets)\b/.test(url)) return '';
     const k = keyOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
     if (!k) return '';
     if (read().m[k]) { if (o.cb) o.cb(null, { id: read().m[k].a, kept: true }); return 'saved'; }
@@ -1734,6 +1890,8 @@ async function readSseStream(res, onDelta) {
       return 'saved';
     }
     queued.add(k);
+    INFOS.inFlight++;
+    infoChanged();
     queue.push({ k, url, ent: ent || {}, cb: o.cb });
     pump();
     return 'queued';
@@ -1743,19 +1901,40 @@ async function readSseStream(res, onDelta) {
      与 hideAsCloud 用的是同一个 `keyFor` —— 「有没有」与「要不要下」必须是同一件事。 */
   function pull(o, opts) {
     if (!o) return '';
-    const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || o.src || o.dl || '');
+    const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || byteSrcOf(o) || o.src || o.dl || '');
     return offer(String(o.provider || ''), o, up, opts);
   }
   /* 扫一批条目（列表加载、增量加载都走它） */
+  /* 「这一条能从哪儿取到字节」—— **地址来源只有这一份**。
+     以前 scan 只认 `e.rawSrc`，于是只有「外链产物」那一族排得上镜像；
+     「平台返回产物 id」那一族（src=/asset/<id>、dl=/asset/<id>?dl=1）没有 rawSrc，
+     表现为「自动存本机开了也没用」—— 这是这一整个功能最常见的失效形态。
+     认全四种（外链 / 上游 / url / dl），dl 排在最后：它是「取字节」那一路，
+     外链那一路更适合认身份（keyOf 用的是 upstream，不是 dl）。 */
+  function byteSrcOf(e) {
+    if (!e) return '';
+    for (const u of [e.rawSrc, e.upstreamSrc, e.url, e.dl, e.src]) {
+      const s = String(u || '');
+      /* 本机资产库那一份自己有字节了，别再存一遍（decorate 会打 localAsset，
+         但它可能在 scan 之后才跑 —— 这里再判一次 `queued`，两头都挡住）。 */
+      if (/^https?:/i.test(s)) return s;
+      if (/^\/(?:asset|getv|fetch|local-assets)\b/.test(s) && s.indexOf('?dl=1') >= 0) return s;
+      if (/^\/asset\//.test(s)) return s.replace(/\?.*$/, '') + '?dl=1';
+    }
+    return '';
+  }
   function scan(entries) {
     if (!saveOn()) return;
     (Array.isArray(entries) ? entries : [entries]).forEach(e => {
-      if (!e || e.kind !== 'asset' || e.localAsset) return;
-      const st = e.status || '';
+      if (!e) return;
+      /* 状态：列表接口的产物行常不带 status（按成事处理），任务行缺 status 是「还不知道」
+         —— 后者由 kind 那一关挡掉了（kind!=='asset'）。所以 status 为空即可视为已完成。 */
+      const st = String(e.status || '');
       if (st && st !== 'done' && st !== 'succeeded') return;
-      const up = e.rawSrc || '';
-      if (!up) return;
-      offer(e.provider, e, up);
+      /* 「该不该存」只问wantSave 一处（它管着「补不补历史」那一档），
+         这一页不要自己再判一遍「是不是历史产物」。 */
+      if (!wantSave(e)) return;
+      offer(e.provider, e, byteSrcOf(e));
     });
   }
 
@@ -1930,6 +2109,13 @@ async function readSseStream(res, onDelta) {
 
   window.AssetLocal = {
     saveOn, preferLocal, offer, scan, decorate, watch,
+    /* 「补不补历史产物」那一档 + 判据：页面与设置页都读它，不要自己按时间戳判一遍。 */
+    saveScope, markSaveOn, wantSave, saveSince,
+    /* 侧栏那两块各自显示与否（设置页勾）。判据各一份，sidebar.js 直接调。 */
+    sbBalOn, sbMirrorOn,
+    /* 「正在存 / 存成了几份 / 失败原因」—— 页面据此把「开了没反应」变成看得见的实况。
+       onInfo 返回退订函数；info() 立刻给一份当前读数（订阅时也会回调一次）。 */
+    info, onInfo,
     /* 「这条产物在本机有副本吗 / 这是哪一条的镜像」：地址层（mediaSrc）与列表层（去重）都读这两个，
        索引形状（m / a 两张表）只有本模块认识 */
     localCopyOf, twinOf, learn,
@@ -1965,12 +2151,15 @@ async function readSseStream(res, onDelta) {
       try {
         const reg = await Api.registry();
         const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
-        if (!src) return this.stats();
-        const d = await Api.request(src, 'list', { query: 'limit=1000' });
-        const rows = (d && (d.data || d.items)) || [];
-        for (const r of rows) learn(r);
+        if (src) {
+          const d = await Api.request(src, 'list', { query: 'limit=1000' });
+          const rows = (d && (d.data || d.items)) || [];
+          for (const r of rows) learn(r);
+        }
       } catch (e) { /* 代理没起来就照旧报本地那份数，不要在这一页抛错 */ }
-      return this.stats();
+      /* 返回的是 `info()` 那一份（不是 stats()）：设置页那一行还要读在途数与最后一次失败原因，
+         两个形状各回各的就会出现「count 更新了、在途数永远是 undefined」。 */
+      return info();
     },
     /* 「补存」用：本机资产库里有哪些、分别属于哪一类。
        判据是 kindOf（与镜像分流那一份同一处），**只给本机号** ——
@@ -1980,6 +2169,8 @@ async function readSseStream(res, onDelta) {
         .filter(r => r && r.a)
         .map(r => ({ id: r.a, kind: kindOf(r.f, ''), bytes: Number(r.b) || 0 }));
     },
+    /* 抹掉一条本机镜像的记录（用户点「删除本机文件」成功之后）。判据与实现都在 learn 那份旁边。 */
+    forgetMirror,
     /* 这里原来还有一个 forget()：全站零调用，却能把整份索引 removeItem 掉。
        「关掉自动存本机」要清索引的话，正确做法是**让下一次 read() 自然重建**
        （learn 会按代理那份列表重新认回来，见上），而不是把用户的镜像记录整份删掉 ——
@@ -2077,6 +2268,10 @@ async function readSseStream(res, onDelta) {
           dl: '/asset/' + base.genId + '?dl=1&name=' + encodeURIComponent((base.prompt || 'file').slice(0, 20) + '.' + fmt) }];
       }
       if (Array.isArray(outs) && outs.length) {
+        /* ⚠ 这一支以前**不带 rawSrc**，而 `AssetLocal.scan` 唯一认的就是 rawSrc ——
+           于是「平台返回产物 id」这一族（最常见的一族）永远排不上镜像，
+           「产物自动存本机」表现为「开了也没用」。dl 就是取字节的入口（`/fetch?...&dl=1`），
+           代理那边照样能下（它走的是同一道同源检查），所以地址来源写在这里。 */
         return outs.map(aid => ({ ...base, kind: 'asset', id: aid, assetId: aid, status: 'done',
           src: '/asset/' + aid + '?v=2',
           dl: '/asset/' + aid + '?dl=1&name=' + encodeURIComponent((base.prompt || 'file').slice(0, 20) + '.' + fmt) }));
@@ -2263,17 +2458,12 @@ async function readSseStream(res, onDelta) {
              数组**就地改**（不换 `st.out` 的引用）：续拉时页面把自己那份数组递进来，
              引用一换它后面的合并就落在旧数组上。 */
           const A = window.AssetLocal;
-          if (A && A.decorate) {
-            for (const e of this.out) {
-              if (e && e.kind === 'asset' && !e.mirrorKey && !e.localAsset) A.decorate(e);
-            }
-            const kept = collapseTwins(this.out);
-            if (kept.length !== this.out.length) {
-              /* 就地改，不换引用（同上）。twins 里因此留着已删条目的记录不要紧：
-                 下一次同产物的批次最多把一个不在表里的对象当 prev，紧接着这一趟塌表又会把它纠正过来。 */
-              this.out.length = 0;
-              kept.forEach(e => this.out.push(e));
-            }
+          const kept = this.settleEntries(this.out);
+          if (kept.length !== this.out.length) {
+            /* 就地改，不换引用（同上）。twins 里因此留着已删条目的记录不要紧：
+               下一次同产物的批次最多把一个不在表里的对象当 prev，紧接着这一趟塌表又会把它纠正过来。 */
+            this.out.length = 0;
+            kept.forEach(e => this.out.push(e));
           }
           /* 每批到达就顺手把这批产物排去存本机（而不是等整个 load 结束）：
              列表动辄十几秒才拉完，等它结束再开始镜像，用户看到的头几分钟全是没本机副本的。
@@ -2388,6 +2578,21 @@ async function readSseStream(res, onDelta) {
        放 localStorage（换标签页、重开浏览器都还在），写爆配额时退回 sessionStorage。
        四个页面以前各写一份，其中两份**没有过滤未完成条目**（就是上面那条老毛病）。
        键沿用各页原来的名字，已有的缓存不用重建。 */
+    /* 一批条目**进界面之前**要做的两件事：给产物补上本机镜像信息（decorate）、
+       再把「同一个产物的任务条目 + 资产条目 + 本机副本」合成一张（collapseTwins）。
+       为什么收成一份：列表那条路（emit）一直在做，**首屏缓存那条路没做** ——
+       于是刷新时先按缓存画出来（一个任务一张、它的镜像又来一张），
+       等真列表回来 emit 里一合，就少一张：用户看到的是「卡片先出现、过一会儿又消失」。
+       两条路现在都调这一个函数，画出来的第一屏就与之后一致。 */
+    settleEntries(list) {
+      const arr = Array.isArray(list) ? list : [];
+      const A = window.AssetLocal;
+      if (!A || !A.decorate) return arr;
+      for (const e of arr) {
+        if (e && e.kind === 'asset' && !e.mirrorKey && !e.localAsset) A.decorate(e);
+      }
+      return collapseTwins(arr);
+    },
     listCache(key, cap) {
       const AL = this, LIMIT = cap || 200;
       return {
@@ -2395,7 +2600,9 @@ async function readSseStream(res, onDelta) {
           try {
             const c = JSON.parse(localStorage.getItem(key) || sessionStorage.getItem(key) || 'null');
             const arr = (c && Array.isArray(c.entries)) ? c.entries : [];
-            return arr.filter(e => AL.cacheable(e));
+            /* 与真列表走同一条「进界面前的处理」（见 settleEntries）：
+               不然缓存那一眼会多出几张马上要消失的卡。 */
+            return AL.settleEntries(arr.filter(e => AL.cacheable(e)));
           } catch { return []; }
         },
         write(list) {
@@ -2414,8 +2621,27 @@ async function readSseStream(res, onDelta) {
       return Api.cancel(prov, entry.genId || entry.id);
     },
     /* 删除来源侧素材：只对「本地落盘」的资产有效（上游没有资产存储的那种，如语音合成产物）。
-       端点由 registry 声明（endpoints.remove），没声明的来源会明确报错而不是静默失败。 */
+       端点由 registry 声明（endpoints.remove），没声明的来源会明确报错而不是静默失败。
+
+       **本机镜像副本走另一条路**（这一条以前是颗永远点不动的按钮）：
+       `localAsset` 一个布尔身兼两义 —— 「本机自生成的产物」与「云端产物的本机副本」，
+       而 deleteLocal 那条路只对前者成立（它要求来源自己声明了 endpoints.remove，
+       注册表里只有三家selfAsset 平台声明了）。于是自动镜像一开（默认），
+       每一条平台视频都带着这颗按钮，hover 还写着「删除后会释放磁盘空间」，
+       点两下确认后**必然**抛「…的素材存放在平台侧，本地无法删除」。
+
+       而镜像副本同样落在 /local-assets（代理那边 twin判重后回同一个 la_xxx），
+       `DELETE /local-assets/<la_id>` 本来就能删 —— 代码只是没走那条路。
+       返回 mirrorGone:true，让调用方**只清本机索引、不要把整条从列表摘掉**：
+       平台那份还在，卡片必须留着。 */
     async remove(entry) {
+      if (entry && entry.mirror && entry.mirror.a) {
+        const reg = await Api.registry();
+        const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
+        if (!src) throw new Error('找不到本机资产库这条来源（注册表里没有声明本机端点的平台）');
+        await Api.request(src, 'remove', { id: entry.mirror.a, method: 'DELETE' });
+        return { mirrorGone: true, id: entry.mirror.a };
+      }
       const prov = Api.prov(entry.provider);
       if (!prov) throw new Error('找不到平台：' + entry.provider);
       if (!prov.endpoints || !prov.endpoints.remove) {
@@ -5176,6 +5402,34 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
        「Invalid UUID」→ 顶层只回一句「部分内容需要检查。」，所以提交前先用它把不属于本平台的 id 挡掉，改走上传字节。 */
     isPlatformId(id) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || '')); },
     /* 统一取 Blob（自动选路：本地 / 同源 / 外部代理） */
+    /* 读响应体并顺带报进度。为什么要自己读而不是 `r.blob()`：
+       `blob()` 只给你一个成品 Blob，中途任何百分比都拿不到 ——
+ 而「正在把产物存到本机」这件事慢就慢在下载上（一个 200MB 的视频几分钟），
+ 用户在侧栏看到的却是同一个「正在存」不动。流式读一遍就为了这个数字。 */
+    async readBlobWithProgress(r, onStage, total) {
+      if (!onStage || !r.body || !r.body.getReader) { const b0 = await r.blob(); return b0; }
+      const rd = r.body.getReader();
+      const parts = [];
+      let sent = 0, lastAt = 0, lastPct = -1;
+      for (;;) {
+        const chunk = await rd.read();
+        if (chunk.done) break;
+        if (!chunk.value || !chunk.value.length) continue;
+        parts.push(chunk.value);
+        sent += chunk.value.length;
+        const now = Date.now();
+        /* 每 200ms 或每跨过 1% 报一次：更密没有意义（那个数字是给人看的），
+           更疏会让 100MB 的视频看起来一跳一跳。 */
+        const pct = total ? Math.floor(sent * 100 / total) : -1;
+        if (now - lastAt >= 200 || (pct >= 0 && pct > lastPct)) {
+          lastAt = now; lastPct = pct;
+          onStage('fetch', { sent, total });
+        }
+      }
+      const all = new Blob(parts, { type: (r.headers && r.headers.get && r.headers.get('content-type')) || '' });
+      onStage('fetch', { sent, total });
+      return all;
+    },
     async blobOf(source, onStage) {
       if (!source) throw new Error('素材为空');
       if (typeof source === 'object' && typeof source.arrayBuffer === 'function' && typeof source.size === 'number') return source;   // File / Blob
@@ -5190,10 +5444,16 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
       const isExternal = /^https?:\/\//i.test(s);
       const url = isExternal ? '/getfile?url=' + encodeURIComponent(s)
         : (s.startsWith('/asset/') ? s + (s.includes('?') ? '&' : '?') + 'dl=1' : s);
-      if (onStage) onStage('fetch', s);
+      /* `onStage('fetch', {sent, total})` 边下边报进度：读响应体时按 chunk 累加，
+         总量取 Content-Length。**代理在流里回写 X-Bytes-Sent**（见 proxy.js 的 pipeUpstream）
+         —— 那一段（代理 → 上游）才是真正慢的一段，回环那一段秒完就完了。
+         读不到 Content-Length（chunked）时 total = 0：调用方要按「大小未知」显示，
+         不能拿 0 当分母算出个假进度。 */
+      if (onStage) onStage('fetch', { sent: 0, total: 0, name: s });
       const r = await netFetch(url, { timeout: 180000, retry: 1 });   // 大视频取回可能较久；GET 可安全重试
       if (!r.ok) throw new Error('取回素材失败 HTTP ' + r.status);
-      const b = await r.blob();
+      const total = Number(r.headers && (r.headers.get ? r.headers.get('content-length') : r.headers['content-length'])) || 0;
+      const b = await AssetTransfer.readBlobWithProgress(r, onStage, total);
       if (!b.size) throw new Error('取回的内容为空（链接可能已过期）');
       return b;
     },
