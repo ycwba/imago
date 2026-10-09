@@ -831,6 +831,10 @@ function renderProv() {
   box.querySelectorAll('[data-vfy]').forEach(btn => btn.onclick = async () => {
     const k = btn.dataset.vfy, m = provRows.get(k);
     btn.disabled = true;
+    /* 这一句里那个地址必须是**真打出去的那一个**：以前写死 `m.prov.base`（注册表里的官方地址），
+       而这一栏填过自定义地址时请求其实打到别处 —— 报错时人照着那句去查官方后台，
+       永远查不出问题。有草稿就用草稿，没有才回落到官方地址。 */
+    const to = () => draftBase(k) || m.prov.base;
     const via = Api.verifyTarget(m.prov);
     /* 文字 AI 的 registry 只声明了 chat（没有余额 / 模型清单端点），Api.verify 会直接拒绝。
        它们的验证口径是拉一次 /models（不花钱、不建任务），就用 TextAI 那一份实现。 */
@@ -838,13 +842,13 @@ function renderProv() {
       setMsg(k, via.label || '', 'msg');
       const r = await TextAI.verifyKey(m.prov, { key: draftKey(k), base: draftBase(k) || null });
       btn.disabled = false;
-      setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.detail || r.why || '') + '（转发到 ' + m.prov.base + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
+      setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.detail || r.why || '') + '（转发到 ' + to() + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
       return;
     }
     setMsg(k, '正在用这一栏里的密钥问一次「' + via.label + '」…', 'msg');
     const r = await Api.verify(m.prov, { key: draftKey(k), base: draftBase(k) || null });
     btn.disabled = false;
-    setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + m.prov.base + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
+    setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + to() + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
   });
   /* 接口地址：输入时现算一次「这个 host 是不是别家的官方地址」，当场写在名字后面的提示里。 */
   box.querySelectorAll('[data-base]').forEach(inp => inp.oninput = () => {
@@ -1424,6 +1428,15 @@ async function cusRemove(kid) {
     html += row('本地代理', old ? 'err' : 'ok', old ? '版本太旧' : '在运行',
       '注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?') + ' · Node ' + (p.进程 || '?'),
       '代理目录：' + (p.目录 || ''));
+    /* 出站代理：本机开着代理软件时，平台请求要真的从它出去。这一行是
+       「为什么所有平台都连不上」的第一个排查点 —— 没走代理时页面只会显示
+       「转发失败（打到 xxx）」，看不出根因是网络根本出不去。 */
+    const op = s.出站代理;
+    if (op) {
+      const on = /^走 /.test(op.状态 || '');
+      html += row('出站代理', on ? 'ok' : 'warn', on ? '走代理' : '直连',
+        (op.来源 || '没检测到代理') + (on ? '' : '（本机 / 内网地址始终直连）'), op.绕过 || '');
+    }
     /* 一次生成任务、扣一次钱，卡片却卡在「导出成片」那一步 —— 所以 ffmpeg 单独一行，
        并把「没装会怎么样」写出来，而不是只报一个「不可用」。 */
     html += toolRow('成片合成（ffmpeg）', s.ffmpeg, Api.SYS_WHY.ffmpeg);

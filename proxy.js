@@ -2,11 +2,13 @@
 // 所有生成平台都走 REGISTRY 声明的 relay 前缀转发（见下方 REGISTRY）：
 // 页面只认 /registry 里的声明，不认具体厂商，所以接入新平台不用改页面。
 const http = require('http');
-const { request: httpsRequest } = require('https');
+const { request: httpsRequest, Agent: HttpsAgent } = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const dns = require('dns');
+const zlib = require('zlib');
+const tls = require('tls');
 /* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.js 顶部）。
    这里 require 而不是抄一份：落盘闸要判断「这份产物本机有没有存过」，
    而浏览器要算缓存键与跨页去重 —— 同一件事，两处各写一份就一定会漂。 */
@@ -40,8 +42,10 @@ let envFileVals = {};
    带 mtime 缓存，请求时调用 → 改完 .env 无需重启即可生效 */
 function loadEnvFile(force) {
   try {
-    if (!fs.existsSync(ENV_FILE)) { envLoaded = false; return false; }
-    const st = fs.statSync(ENV_FILE);
+    /* 一次 statSync 顶掉以前的 existsSync + statSync：loadEnvFile 在每个请求开头都会调，
+       两次 syscall 合成一次（实测 existsSync 47 µs + statSync 22 µs / 次）。文件不存在时
+       statSync 直接抛 ENOENT，语义与以前「existsSync 为假」完全一致。 */
+    let st; try { st = fs.statSync(ENV_FILE); } catch { envLoaded = false; return false; }
     if (!force && st.mtimeMs === envMtime) return envLoaded;
     envMtime = st.mtimeMs;
     const nowKeys = [];
@@ -1109,7 +1113,11 @@ function readBody(req, res, limit) {
       }
       chunks.push(c);
     });
-    req.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
+    /* 只有一个分片时**直接返回它**，不做整份复制（P8）：`Buffer.concat([c])` 会把整个请求体
+       再拷一遍，而 288 MiB 上限下这一段就是几百 MB 的峰值内存。
+       （真正的大头是 base64 链路本身的 5× 放大 —— raw / utf8 串 / spec.data / 解码结果，
+       那要改成流式解析 JSON 才动得了，风险与改动面都大得多，本轮只做这一步。） */
+    req.on('end', () => { if (!done) { done = true; resolve(chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)); } });
     /* 请求体读一半就断（客户端取消、连接被掐）以前只 resolve(null)，而所有调用方都写
        `if (body == null) return;` —— 于是响应停在「头都没发、也永远不会发」，
        页面等到超时后报的是「超时」而不是「这次提交没送到」。这里补一个如实的 400。 */
@@ -1127,6 +1135,161 @@ function readBody(req, res, limit) {
   });
 }
 /* 统一的出站请求：自动带超时（超时即 destroy 并回调 error），避免上游挂起时无人收场 */
+/* ⚠ 连接复用（keep-alive，P4）**只给这两条通道**：
+     · relay —— 转发平台接口（列表 / 详情 / 余额 / 建任务），
+     · /capabilities —— 拉平台的能力声明。
+   它们的**目标主机来自注册表声明**（prov.base / endpoints.models），不是浏览器递来的 URL，
+   而 /getv /fetch /getfile /s3put 这四条取回 / 上传通道靠 `lookup: guardedLookup`
+   （见 1252 附近）做 **DNS rebinding 防护**：开了 keep-alive 之后，第二条请求可能复用
+   第一条已经建好的 socket 而**跳过 lookup**，那道 SSRF 闸就会在复用路径上被绕过。
+   所以这四条**保持每次新建**，绝不要「顺手统一」。shutdown() 里补了 agent.destroy()。 */
+const keepAliveAgent = new HttpsAgent({ keepAlive: true, maxSockets: 32, keepAliveMsecs: 15000 });
+
+/* ============================================================================
+   出站代理：本机开着代理软件（Clash / V2Ray / 公司网关…）时，项目也走它
+   ---------------------------------------------------------------------------
+   为什么必须自己做：Node 的 `https.request` **不认** Windows 的「系统代理」设置，
+   也不认 HTTP_PROXY / HTTPS_PROXY（除非 Node ≥ 24 且显式开了 NODE_USE_ENV_PROXY）。
+   于是在必须走代理才能出网的环境里，代理进程自己反而在直连 —— 所有平台请求超时 / DNS 失败，
+   而界面只显示「转发失败（打到 xxx）」，看不出根因是「没走代理」。
+   三件事：
+     ① 找代理：环境变量（HTTPS_PROXY / HTTP_PROXY / ALL_PROXY，大小写都认）优先；
+        其次读 Windows 注册表的系统代理（HKCU\...\Internet Settings 的 ProxyEnable / ProxyServer）。
+        30 秒一份缓存，所以开关代理软件不用重启本项目。
+     ② 走代理：https 目标用 CONNECT 隧道（自己实现 —— 本项目不引任何依赖）；
+        http 目标不代理（云同步那类自建 WebDAV 多半是本机 / 内网，代理反而添乱）。
+     ③ 不该走的不走：回环 / 内网 / 链路本地地址、NO_PROXY 里列的、以及 .env 里 `PROXY_OFF=1` 时全部直连。
+
+   安全边界（与 keep-alive 那条同一套谨慎，别顺手改）：
+     走代理时 DNS 由**代理解析**，所以 /getv /fetch /getfile /s3put 那四条通道的
+     `lookup: guardedLookup` 用不上（它本来就在建连时校验解析结果）。
+     但那四条**仍然先过 `guardOutboundUrl`**（本地解析 + 拒绝回环/内网/保留地址），
+     所以「域名指向内网」这类写法在发起请求之前就被挡掉了；
+     剩下的只是「本地校验 → 代理再解析」之间被换 IP 的那一小段窗口 —— 这是走代理的固有代价，
+     换来的正是「在必须走代理的网络里能用」。不想要就 PROXY_OFF=1。
+   ========================================================================== */
+const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
+function parseProxySpec(s) {
+  let v = String(s || '').trim();
+  if (!v) return null;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = 'http://' + v;      // 只写 host:port 时补上协议
+  let o = null;
+  try { o = new URL(v); } catch { return null; }
+  const proto = o.protocol.replace(':', '').toLowerCase();
+  /* 只做 http(s) 代理：SOCKS 需要额外握手，本项目不引依赖也自己写不动。
+     （写 socks5:// 时会解析不出来 → 当作没配代理，日志里那句会照实说。） */
+  if (proto !== 'http' && proto !== 'https') return null;
+  const host = o.hostname;
+  if (!host) return null;
+  const port = Number(o.port) || (proto === 'https' ? 443 : 80);
+  let auth = '';
+  try {
+    if (o.username || o.password) {
+      auth = 'Basic ' + Buffer.from(decodeURIComponent(o.username) + ':' + decodeURIComponent(o.password)).toString('base64');
+    }
+  } catch (e) {}
+  return { proto, host, port, auth, label: proto + '://' + host + ':' + port };
+}
+/* Windows 的「系统代理」：ProxyEnable=1 且 ProxyServer 有值才算。
+   ProxyServer 有两种写法 —— 单一地址，或按协议分开的 `http=1.2.3.4:80;https=1.2.3.4:443`。 */
+function systemProxyFromRegistry() {
+  if (process.platform !== 'win32') return null;
+  try {
+    const { spawnSync } = require('child_process');
+    const q = spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'],
+      { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    if (!q || q.status !== 0 || !q.stdout) return null;
+    const on = /ProxyEnable\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(q.stdout);
+    if (!on || parseInt(on[1], 16) !== 1) return null;
+    const srv = /ProxyServer\s+REG_SZ\s+(.+)/i.exec(q.stdout);
+    if (!srv) return null;
+    let spec = srv[1].trim();
+    if (spec.includes('=')) {
+      const parts = {};
+      spec.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) parts[kv.slice(0, i).trim().toLowerCase()] = kv.slice(i + 1).trim(); });
+      spec = parts.https || parts.http || '';
+    }
+    return parseProxySpec(spec);
+  } catch (e) { return null; }
+}
+const PROXY_TTL = 30 * 1000;
+let _proxyCfg = null, _proxySrc = '', _proxyAt = 0;
+function outboundProxy() {
+  const now = Date.now();
+  if (now - _proxyAt < PROXY_TTL) return { cfg: _proxyCfg, src: _proxySrc };
+  _proxyAt = now; _proxyCfg = null; _proxySrc = '';
+  if (String(process.env.PROXY_OFF || '') === '1') { _proxySrc = 'PROXY_OFF=1（.env 里关掉了，全部直连）'; return { cfg: null, src: _proxySrc }; }
+  for (const k of PROXY_ENV_KEYS) {
+    const c = parseProxySpec(process.env[k]);
+    if (c) { _proxyCfg = c; _proxySrc = '环境变量 ' + k + ' = ' + c.label; return { cfg: _proxyCfg, src: _proxySrc }; }
+  }
+  const c = systemProxyFromRegistry();
+  if (c) { _proxyCfg = c; _proxySrc = 'Windows 系统代理 ' + c.label; return { cfg: _proxyCfg, src: _proxySrc }; }
+  return { cfg: null, src: '' };
+}
+/* 这些目标不走代理：本机 / 内网 / NO_PROXY 里列的。
+   判据复用 isPrivateHost（回环、私有段、链路本地、保留段都在里面），不另写一份名单。 */
+function proxyBypassed(host) {
+  const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(':')) return isPrivateHost(h);
+  const list = String(process.env.NO_PROXY || process.env.no_proxy || '')
+    .split(',').map(s => s.trim().toLowerCase().replace(/^\./, '')).filter(Boolean);
+  return list.some(p => p === '*' || h === p || h.endsWith('.' + p));
+}
+/* https 目标走 HTTP 代理的 CONNECT 隧道：先连代理 → CONNECT host:port → 在这条 socket 上做 TLS。
+   覆盖 https.Agent 的 createConnection 就是全部（Agent 负责按 host:port 复用连接，
+   所以隧道不会串到别的目标上去）。 */
+class ProxyTunnelAgent extends HttpsAgent {
+  constructor(cfg) { super({ keepAlive: true, maxSockets: 32, keepAliveMsecs: 15000 }); this.cfg = cfg; }
+  createConnection(options, cb) {
+    const cfg = this.cfg;
+    const host = options.host, port = options.port || 443;
+    let done = false;
+    const finish = (err, sock) => { if (done) return; done = true; cb(err, sock); };
+    const mod = cfg.proto === 'https' ? httpsRequest : http.request;
+    const preq = mod({
+      host: cfg.host, port: cfg.port, method: 'CONNECT',
+      path: host + ':' + port, agent: false, rejectUnauthorized: false,
+      headers: Object.assign({ host: host + ':' + port }, cfg.auth ? { 'proxy-authorization': cfg.auth } : {}),
+    });
+    preq.once('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        try { socket.destroy(); } catch (e) {}
+        return finish(new Error('代理拒绝 CONNECT（HTTP ' + res.statusCode + '）：' + cfg.label + ' 连不上 ' + host + ':' + port));
+      }
+      const tlsSock = tls.connect({
+        socket,
+        servername: options.servername || host,
+        rejectUnauthorized: options.rejectUnauthorized !== false,
+      }, () => finish(null, tlsSock));
+      tlsSock.once('error', e => finish(e));
+    });
+    preq.once('error', e => finish(new Error('连不上代理 ' + cfg.label + '：' + e.message)));
+    preq.end();
+  }
+}
+let _tunnelAgent = null, _tunnelKey = '';
+function proxyAgentFor(cfg) {
+  if (_tunnelAgent && _tunnelKey === cfg.label) return _tunnelAgent;
+  try { if (_tunnelAgent) _tunnelAgent.destroy(); } catch (e) {}
+  _tunnelAgent = new ProxyTunnelAgent(cfg);
+  _tunnelKey = cfg.label;
+  return _tunnelAgent;
+}
+/* 这次出站该用哪个 agent：有代理且目标不是本机/内网 → 走代理；否则直连
+   （keepAlive 只给 relay / capabilities 那两条 —— 见 keepAliveAgent 上面那段边界说明）。 */
+function agentFor(url, keepAlive) {
+  const p = outboundProxy();
+  if (p.cfg) {
+    let host = '';
+    try { host = new URL(url).hostname; } catch (e) {}
+    if (!proxyBypassed(host)) return proxyAgentFor(p.cfg);
+  }
+  return keepAlive ? keepAliveAgent : undefined;
+}
+
 function upRequest(url, opts, cb) {
   /* 空闲超时可按请求覆盖（opts.timeoutMs）：创建任务这类"平台要在服务端排队、迟迟不回"的接口
      需要更长的耐心 —— 60 秒就掐断的后果是「任务其实建好了，页面却看到失败」，
@@ -1134,6 +1297,8 @@ function upRequest(url, opts, cb) {
   const o = { ...(opts || {}) };
   const idle = Number(o.timeoutMs) || UP_TIMEOUT;
   delete o.timeoutMs;
+  const ka = o.keepAlive === true; delete o.keepAlive;
+  if (!o.agent) o.agent = agentFor(url, ka);      // 没指定就按「本机有没有代理」自动选
   const r = httpsRequest(url, o, cb);
   r.setTimeout(idle, () => { r.destroy(new Error('上游响应超时（' + Math.round(idle / 1000) + 's）')); });
   return r;
@@ -1155,8 +1320,12 @@ function failUpstream(res, msg, tag) {
 
 /* 按协议自选模块：云同步允许本机回环用 http（自建 WebDAV 调试），其余一律 https */
 function anyRequest(url, opts, cb) {
+  const o = { ...(opts || {}) };
+  /* 只给 https 目标套 agent：http 目标（云同步那类自建 WebDAV）多半是本机 / 内网，
+     而 http 走代理要改写成绝对 URI，代价与收益不成比例 —— 那一条保持直连。 */
+  if (!o.agent && /^https:\/\//i.test(url)) o.agent = agentFor(url, false);
   const mod = /^http:\/\//i.test(url) ? http.request : httpsRequest;
-  const r = mod(url, opts, cb);
+  const r = mod(url, o, cb);
   r.setTimeout(UP_TIMEOUT, () => { r.destroy(new Error('请求超时（' + (UP_TIMEOUT / 1000) + 's）')); });
   return r;
 }
@@ -1269,6 +1438,16 @@ function safeOutboundUrl(u) {
   if (isPrivateHost(o.hostname)) return null;
   return o.toString();
 }
+/* 两个基址**是不是同一个地址**：只比协议 + 主机（小写）+ 端口 + 路径（去掉末尾斜杠）。
+   末尾斜杠、主机大小写、默认端口这些写法差异不算「换了地址」。
+   用途见 relay 里 x-up-base 那一段：设置页添加内置平台时地址是自动填好的（就是它自己的官方地址），
+   存过一次之后每个请求都会带上 x-up-base —— 不能因为「写了同一句话」就把 .env 的密钥回退关掉。 */
+function baseKeyOf(u) {
+  try {
+    const o = new URL(String(u));
+    return o.protocol + '//' + o.hostname.toLowerCase() + (o.port ? ':' + o.port : '') + o.pathname.replace(/\/+$/, '');
+  } catch { return String(u == null ? '' : u).replace(/\/+$/, '').toLowerCase(); }
+}
 /* 解析域名，确认所有解析结果都是公网地址 —— 挡「域名指向内网」的写法
    （如 *.nip.io / *.sslip.io / localtest.me：字面量看着是公网域名，实际解析到 127.0.0.1）。
    结果按主机名缓存 5 分钟：外链视频播放会发很多 Range 请求，不能每个都解析一次。 */
@@ -1372,17 +1551,37 @@ function s3putStream(req, res, target) {
 }
 
 let logLines = 0;
+/* 连续同一句话只记「重复了几次」（P6）。实测 proxy.log 17,239 行里，
+   openrouter.ai 7322 + hi.hi.run 1262 + api.vgenv.com 1225 = 9,809 / **57%** 是三类同形
+   DNS 失败的重复（根因在客户端重试 ui.js 的 Net.fetch，代理侧只放大了一半）。
+   这里只是**收拢**，不是把日志静音：**计数必须留着**，它是用户排障的主要依据。
+   判据：与上一条逐字相同的连续重复，只在第 2 / 10 / 100 / 1000 / 10000 次各写一行带计数的；
+   换一句话、或超过 30 秒没有新的重复，就立刻照常写。单次发生的话一句都不会被吞。 */
+const logDedup = { msg: '', n: 0, at: 0 };
+function writeLog(s) {
+  console.log(s);
+  try {
+    fs.appendFileSync(LOG, s + '\n');
+    if (++logLines % 200 === 0) rotateLog();   // 运行中轮转，不再只靠启动那一次
+  } catch {}
+}
 function log(line) {
   // 本机时间而不是 UTC：启动器窗口把「[启动器]」与 proxy.js 两路输出并排画在同一块里，
   // 两个时钟差 8 小时（实测 23:32 与 15:32 同屏），看着就像日志是昨天的。
   const t = new Date();
   const p2 = n => (n < 10 ? '0' : '') + n;
   const out = `[${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}] ` + String(line);
-  console.log(out);
-  try {
-    fs.appendFileSync(LOG, out + '\n');
-    if (++logLines % 200 === 0) rotateLog();   // 运行中轮转，不再只靠启动那一次
-  } catch {}
+  const now = Date.now();
+  const key = String(line);
+  if (key === logDedup.msg && now - logDedup.at < 30000) {
+    logDedup.n++; logDedup.at = now;
+    const n = logDedup.n;
+    if (!(n === 2 || n === 10 || n === 100 || n === 1000 || n === 10000)) return;
+    writeLog(out + '  （与上一行相同，前面已重复 ' + (n - 1) + ' 次）');
+    return;
+  }
+  logDedup.msg = key; logDedup.n = 1; logDedup.at = now;
+  writeLog(out);
 }
 
 /* ---------- ffmpeg 离线渲染服务 ----------
@@ -1489,17 +1688,57 @@ function insideLocalDir(dir) {
     return s === base || s.startsWith(base + path.sep);
   } catch { return false; }
 }
-function saveDirSums(dir) {
-  const map = new Map();
-  let names = [];
-  try { names = fs.readdirSync(dir); } catch { return map; }   // 目录还不存在 = 里面什么都没有
-  for (const n of names) {
-    const p = path.join(dir, n);
-    let st; try { st = fs.statSync(p); } catch { continue; }
-    if (!st.isFile()) continue;
-    try { map.set(st.size + ':' + sha1Of(fs.readFileSync(p)), n); } catch {}
-  }
-  return map;
+/* 目录内容指纹表（判重按**内容 sha1 不按文件名**，见 §G）。
+   以前对目录里**每一个**文件都 readFileSync + sha1 —— `文件\视频` 512 个文件 / 788 MB，
+   实测外推约 1,848 ms 的**同步**阻塞（全在请求回调里），期间轮询、/asset 取图、/getv 播放
+   全部停摆。而判重本来就是「同 size 才可能同内容」，所以改成**按 size 建桶、懒算 sha1**：
+     · 目录里 size 只出现一次的那些，一个字节都不用读（不同内容的视频 size 几乎必然不同）；
+     · 只有真拿一个 size 来查、且这个 size 在目录里出现过时，才去读那几个同 size 的文件。
+   再按目录 mtime 缓存整张表（判据照抄 _customCache 的 mtime 双键，不引入新范式）：
+   目录没变就直接复用，连那 512 次 statSync 都省掉。 */
+const dirIndexCache = new Map();          // dir → { mtimeMs, idx }
+function buildDirIndex(dir) {
+  const bySize = new Map();               // size → [名字]
+  try {
+    for (const n of fs.readdirSync(dir)) {
+      let st; try { st = fs.statSync(path.join(dir, n)); } catch { continue; }
+      if (!st.isFile()) continue;
+      const arr = bySize.get(st.size); if (arr) arr.push(n); else bySize.set(st.size, [n]);
+    }
+  } catch { /* 目录还不存在 = 里面什么都没有 */ }
+  const shaCache = new Map();             // 名字 → sha1（同一份文件在一次请求里可能被查多次）
+  const shaOfName = n => {
+    if (shaCache.has(n)) return shaCache.get(n);
+    let h = '';
+    try { h = sha1Of(fs.readFileSync(path.join(dir, n))); } catch {}
+    shaCache.set(n, h);
+    return h;
+  };
+  return {
+    /* 目录里有没有与这段内容完全相同的文件？有就返回它的文件名。 */
+    get(size, hash) {
+      const cands = bySize.get(size);
+      if (!cands) return undefined;
+      for (const n of cands) if (shaOfName(n) === hash) return n;
+      return undefined;
+    },
+    /* 本次刚写进去的文件也要能立刻被后面的同内容请求命中（与以前 sums.set 同一个语义）。 */
+    add(size, hash, name) {
+      const arr = bySize.get(size);
+      if (arr) { if (arr.indexOf(name) < 0) arr.push(name); } else bySize.set(size, [name]);
+      shaCache.set(name, hash);
+    },
+  };
+}
+function saveDirIndex(dir) {
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(dir).mtimeMs; } catch { mtimeMs = 0; }
+  const hit = dirIndexCache.get(dir);
+  if (hit && mtimeMs && hit.mtimeMs === mtimeMs) return hit.idx;
+  const idx = buildDirIndex(dir);
+  dirIndexCache.set(dir, { mtimeMs, idx });
+  if (dirIndexCache.size > 16) { const k = dirIndexCache.keys().next().value; dirIndexCache.delete(k); }
+  return idx;
 }
 /* ---------- 代理自己写过的目录名单（POST /save-move 的安全闸） ----------
    换下载位置时页面要递「从哪个旧目录搬过来」，而 /save 特意**不接受**客户端递的目录 ——
@@ -1668,11 +1907,13 @@ function localAssetRebuild(id) {
   localIndexWrite(list.slice(0, LOCAL_INDEX_MAX));      // 补建与正常写入用同一个上限，别两处各写一个数
   return item;
 }
-function localAssetFile(id) {
-  const it = localAssetEntry(id);
-  if (!it || !it.file) return null;
-  const f = path.join(LOCAL_DIR, path.basename(it.file));
+function localFileFromEntry(ent) {
+  if (!ent || !ent.file) return null;
+  const f = path.join(LOCAL_DIR, path.basename(ent.file));
   return fs.existsSync(f) ? f : null;
+}
+function localAssetFile(id) {
+  return localFileFromEntry(localAssetEntry(id));
 }
 /* 本地文件读取：支持 Range（播放器可拖动进度），带长缓存（同一 id 内容恒定） */
 /* 文件流 → 响应：读流出错（文件被删、被别的进程占用、磁盘读失败）时 pipe 只会抛一个没人接的 error，
@@ -1712,9 +1953,12 @@ function sendFileWithRange(req, res, file, headers) {
   res.writeHead(200, headers);
   pipeFile(fs.createReadStream(file), res);
 }
-function serveLocalFile(req, res, file, q) {
+/* entry 由调用方给时就不再全量读一遍索引：/asset/<id> 这条链手里已经握着 entry，
+   以前却在这里又 localIndexRead() 一次 —— 页面上每一张缩略图、每一个 <video> 都打它，
+   索引攒大之后就是每个媒体请求 2 次全量读盘解析。 */
+function serveLocalFile(req, res, file, q, entry) {
   const base = path.basename(file);
-  const entry = localIndexRead().find(x => x && x.file === base) || {};
+  if (!entry) entry = localIndexRead().find(x => x && x.file === base) || {};
   const headers = {
     'Content-Type': entry.mime || 'application/octet-stream',
     'Accept-Ranges': 'bytes',
@@ -1873,12 +2117,25 @@ async function prepareReferenceVideo(req, res) {
 }
 /* 缓存回收（列表 / 详情 / 资产签名地址都用它）：过期即删；仍超上限时按「最早写入」淘汰
    （Map 保持插入顺序）。以前是「超了就整个 clear()」，一次大批量请求会把还有用的缓存全清掉。 */
-function cacheSweep(cache, max) {
+/* 缓存淘汰：先按 TTL 过期，再按条数封顶；给了 maxBytes 时**再按字节**封顶（P5）。
+   以前只按条数封顶，而 listCache 每条最大 8 MiB、detailCache 每条最大 2 MiB ——
+   算术上限 60×8 + 300×2 = **1.08 GB 常驻 Buffer**，还在 V8 堆外，`--max-old-space-size` 拦不住。
+   今天 listCache 约 9.6 MB，不是问题，是**没有闸**。 */
+function cacheSweep(cache, max, maxBytes) {
   const now = Date.now();
   for (const [k, v] of cache) {
     if (!v || !v.ttl || now - v.ts > v.ttl) cache.delete(k);
   }
   while (cache.size > max) cache.delete(cache.keys().next().value);
+  if (!maxBytes) return;
+  let bytes = 0;
+  for (const v of cache.values()) bytes += (v && v.body ? v.body.length : 0);
+  while (bytes > maxBytes && cache.size > 1) {
+    const k = cache.keys().next().value;
+    const v = cache.get(k);
+    bytes -= (v && v.body ? v.body.length : 0);
+    cache.delete(k);
+  }
 }
 /* 资产下载地址缓存（/asset/<id> 与渲染/下载都走它）
    以前每取一张图都要先问一次上游「这个资产的最新签名地址」（实测 1~3.6s），而签名地址本身有 ~30 分钟有效期；
@@ -2484,6 +2741,15 @@ const listCache = new Map();   // url → { ts, status, headers, body }
 const detailCache = new Map(); // 单条任务详情（已完成的）短缓存：url → { ts, status, headers, body }
 const DETAIL_TTL = 5 * 60 * 1000;
 const LIST_CACHE_MAX = 60;     // 列表缓存条数上限，防止长时间运行无限增长
+const LIST_CACHE_BYTES = 64 * 1024 * 1024;    // 字节上限（单条最大 8 MiB，条数封顶挡不住总量）
+const DETAIL_CACHE_BYTES = 64 * 1024 * 1024;  // 同上（单条最大 2 MiB）
+/* 在途请求合并表（single-flight，P3）。四份缓存以前都只在「已完成时命中」，miss 就直接回源：
+   多个页面同时打开、各自拉同一平台的列表端点时，N 个**完全相同**的请求全部 miss、全部打上游，
+   而 SparkCine 的列表端点要 6~14 s。这里配一张「在途表」：同一 key 的第二个请求不再发出去，
+   而是挂到第一个的回调上，一起拿同一份响应；settle 后**立即 delete** —— 它只活在这一次在途里，
+   绝不做成第二份持久缓存（持久那份是 listCache / detailCache）。 */
+const listInflight = new Map();     // cacheKey → [res, …]（正在回源的同一份列表）
+const detailInflight = new Map();   // cacheKey → [res, …]（正在回源的同一份详情）
 
 /* ============================================================================
    本地数据落盘（/data）
@@ -2533,10 +2799,18 @@ function dirState(dir) {
   return { 路径: dir, 状态: '可写' };
 }
 function sysStatus(fresh) {
-  if (_sysStatus && !fresh) return _sysStatus;
+  /* 出站代理那一段每次现算（它 30 秒一份缓存、跟着代理软件开关变），不跟着整份体检结果一起缓存 */
+  const px = outboundProxy();
+  const proxyField = {
+    状态: px.cfg ? ('走 ' + px.cfg.label) : '直连',
+    来源: px.src || '没检测到（环境变量 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY 与 Windows 系统代理都没有）',
+    绕过: '回环 / 内网 / 链路本地地址与 NO_PROXY 里列的一律直连；.env 里写 PROXY_OFF=1 可整体关掉',
+  };
+  if (_sysStatus && !fresh) { _sysStatus.出站代理 = proxyField; return _sysStatus; }
   _sysStatus = {
     at: Date.now(),
     代理: { 版本: REGISTRY.version, 端口: PORT, 目录: __dirname, 进程: process.version },
+    出站代理: proxyField,
     ffmpeg: probeTool('ffmpeg'),
     ffprobe: probeTool('ffprobe'),
     目录: { 数据: dirState(dataDirPath()), 资产: dirState(path.resolve(LOCAL_DIR)), 渲染: dirState(path.resolve(RENDER_DIR)) },
@@ -3228,6 +3502,10 @@ async function cloudList(cfg) {
    ========================================================================== */
 const capCache = new Map();          // base|endpoint → { ts, payload }
 const CAP_TTL = 60 * 1000;
+/* 在途合并（P3）。⚠️ `noCache=1`（设置页「重新读取」）必须走旁路：它既**不读**缓存，
+   也**不加入**在途合并 —— 否则「强制刷新」会拿到别人那一次的结果，看着像刷新没生效。
+   所以注册与加入都以 `!noCache` 为前提。 */
+const capInflight = new Map();       // cacheKey → { p, resolve }
 
 async function handleCapabilities(req, res, urlObj) {
   const want = String(urlObj.searchParams.get('provider') || '');
@@ -3245,6 +3523,7 @@ async function handleCapabilities(req, res, urlObj) {
   const base = { provider: prov.id, name: prov.name, displayName: prov.displayName || prov.name, endpoint, registryModels };
 
   const cacheKey = prov.base + '|' + endpoint;
+  let capResolve = null;
   if (endpoint && !noCache) {
     const hit = capCache.get(cacheKey);
     if (hit && Date.now() - hit.ts < CAP_TTL) {
@@ -3252,11 +3531,34 @@ async function handleCapabilities(req, res, urlObj) {
       res.end(JSON.stringify({ ...hit.payload, cached: true }));
       return true;
     }
+    /* 已经在取同一家的能力声明 → 等它拿结果（同一轮里几个页面同时开时会一起打上游） */
+    const wait = capInflight.get(cacheKey);
+    if (wait) {
+      try { await wait.p; } catch {}
+      const hit2 = capCache.get(cacheKey);
+      if (hit2) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ...hit2.payload, cached: true }));
+        return true;
+      }
+      /* 在途那次连兜底都没写进缓存（极少见）：自己照常往下走，回源一次 */
+    } else {
+      let r0 = null;
+      const p = new Promise(r => { r0 = r; });
+      capInflight.set(cacheKey, { p, resolve: r0 });
+      capResolve = r0;
+    }
   }
   const reply = payload => {
-    if (endpoint) capCache.set(cacheKey, { ts: Date.now(), payload });
+    if (endpoint) {
+      capCache.set(cacheKey, { ts: Date.now(), payload });
+      /* 以前 capCache 是**唯一一份完全没有淘汰**的缓存（全文 cacheSweep 三处调用都没它），
+         而 v11 起自定义供应商不设家数上限，条目只增不减。CAP_TTL 只有 60 秒，整表清掉没代价。 */
+      if (capCache.size > 200) capCache.clear();
+    }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(payload));
+    if (capResolve) { const r = capResolve; capResolve = null; capInflight.delete(cacheKey); r(payload); }
     return true;
   };
   if (!endpoint) return reply({ ...base, source: 'registry', models: {}, note: '这家没有开放的型号列表接口，参数按本项目的默认声明走' });
@@ -3268,6 +3570,7 @@ async function handleCapabilities(req, res, urlObj) {
       const up = upRequest(prov.base + endpoint, {
         method: 'GET',
         headers: { authorization: 'Bearer ' + apiKey, accept: 'application/json', 'accept-encoding': 'identity' },
+        keepAlive: true,              // 目标主机来自注册表声明（见 keepAliveAgent / agentFor）
       }, ur => {
         const bufs = [];
         ur.on('data', c => bufs.push(c));
@@ -3738,6 +4041,52 @@ function handleData(req, res, urlObj) {
   return false;
 }
 
+/* ---------- 静态文件（工作台自己的前端资源）----------
+   以前这里是「readFile + Cache-Control: no-store」：内容页在 iframe 里，每次切页都是一次
+   全新的文档导航，no-store 让浏览器把同一批 JS/CSS 重新下载、重新解析、重新执行一遍
+   （实测一次切页实际传 ~2 MB）。改成 ETag + 304：内容没变就只回一个 304 空响应，
+   浏览器复用本地那份。再给 text/* 加 gzip：JS 实测 1,189 KB → 433 KB（-63.6%）。
+   语义上 no-store 与 ETag 冲突，这里二选一 —— 用 no-cache（可缓存但每次必须带 ETag 回验）。
+   注意：**只有这一处静态资源这么做**；/render*、/asset/*、/local-assets、带签名的媒体路由
+   的 no-store 是有意的，绝不能跟着改（见 AGENTS「统一路由（硬性约定）」）。 */
+const staticGz = new Map();          // full → { mtimeMs, size, buf }：按 mtime+size 失效的压缩结果
+const STATIC_GZ_MAX = 64;            // 只留最近若干份，避免无界（静态文件本来就那十几个）
+function serveStatic(req, res, full, ext) {
+  fs.stat(full, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404); res.end('not found'); return; }
+    const etag = '"' + st.mtimeMs.toString(36) + '-' + st.size.toString(36) + '"';
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' }); res.end(); return; }
+    const type = MIME[ext] || 'application/octet-stream';
+    /* 只压文本类：图片 / 字体 / 视频已经压过或压不动，压了白费 CPU 还可能变大 */
+    const compressible = /^(text\/|application\/(javascript|json|svg))/.test(type) || /^image\/svg/.test(type);
+    const wantGz = compressible && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+    const head = { 'Content-Type': type, 'Cache-Control': 'no-cache', ETag: etag };
+    if (wantGz) head['Vary'] = 'Accept-Encoding';
+    const cached = staticGz.get(full);
+    if (wantGz && cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      head['Content-Encoding'] = 'gzip';
+      head['Content-Length'] = String(cached.buf.length);
+      res.writeHead(200, head);
+      res.end(req.method === 'HEAD' ? undefined : cached.buf);
+      return;
+    }
+    fs.readFile(full, (err2, buf) => {
+      if (err2) { res.writeHead(404); res.end('not found'); return; }
+      if (req.method === 'HEAD') { head['Content-Length'] = String(buf.length); res.writeHead(200, head); res.end(); return; }
+      if (!wantGz) { head['Content-Length'] = String(buf.length); res.writeHead(200, head); res.end(buf); return; }
+      zlib.gzip(buf, (err3, gz) => {
+        if (err3 || !gz) { head['Content-Length'] = String(buf.length); res.writeHead(200, head); res.end(buf); return; }
+        staticGz.set(full, { mtimeMs: st.mtimeMs, size: st.size, buf: gz });
+        if (staticGz.size > STATIC_GZ_MAX) { const k = staticGz.keys().next().value; staticGz.delete(k); }
+        head['Content-Encoding'] = 'gzip';
+        head['Content-Length'] = String(gz.length);
+        res.writeHead(200, head);
+        res.end(gz);
+      });
+    });
+  });
+}
+
 const server = http.createServer((req, res) => {
   // handleRequest 是 async（出站地址护栏要解析域名），所以这里用 Promise 链兜异常：
   // 同步抛与异步拒绝都走同一个 500 分支，单个请求出错不拖垮整个代理进程。
@@ -4094,7 +4443,7 @@ async function handleRequest(req, res) {
       const saved = [], missing = [], noKind = [], full = [], dup = [];
       let bytes = 0;
       /* 目标目录的内容表按目录缓存：ids 里三种类型会各写各的目录，
-         目录一变就重扫一次（saveDirSums 自己把整个目录只读一遍）。 */
+         目录一变就重扫一次（saveDirIndex 按 mtime 缓存整张表，目录没变就直接复用）。 */
       let sumsDir = '', sums = null;
       for (const id of ids) {
         const ent = index.find(x => x && x.id === id);
@@ -4105,16 +4454,16 @@ async function handleRequest(req, res) {
         const dir = autosaveDir(kind);
         if (!dir) { full.push({ id, kind, why: typeLabel(kind) + '这一类现在是关着的' }); continue; }
         if (insideLocalDir(dir)) { full.push({ id, kind, why: '另存目录被设成了本机资产库本体（.assets），不往里写' }); continue; }
-        const src = localAssetFile(id);
+        const src = localFileFromEntry(ent);
         if (!src) { missing.push(id); continue; }
         try {
           fs.mkdirSync(dir, { recursive: true });
           const buf = fs.readFileSync(src);
           /* 已经有同一份内容就别再拷 —— 用户改目录之前新生成的那批早就躺在旧目录里，
-             不挡这一下就会在新目录里出现两份同一个视频（见 saveDirSums 的注释）。 */
-          if (sumsDir !== dir) { sumsDir = dir; sums = saveDirSums(dir); }
-          const sig = buf.length + ':' + sha1Of(buf);
-          const hit = sums.get(sig);
+             不挡这一下就会在新目录里出现两份同一个视频（见 saveDirIndex 的注释）。 */
+          if (sumsDir !== dir) { sumsDir = dir; sums = saveDirIndex(dir); }
+          const hash = sha1Of(buf);
+          const hit = sums.get(buf.length, hash);
           if (hit) { autosaveUsedAdd(dir); dup.push({ id, kind, file: hit, dir }); continue; }
           const base = saveBaseName(ent.name || ent.file || (id + '.' + (ent.format || 'bin')),
             id + '.' + (ent.format || 'bin'));
@@ -4122,7 +4471,7 @@ async function handleRequest(req, res) {
           if (!file) { full.push({ id, kind, why: '那个目录里已经有一千个同名文件了' }); continue; }
           fs.writeFileSync(path.join(dir, file), buf);
           autosaveUsedAdd(dir);
-          sums.set(sig, file);            // 本次刚写的也要进表，后面那个同内容的 id 就不会再拷一遍
+          sums.add(buf.length, hash, file);   // 本次刚写的也要进表，后面那个同内容的 id 就不会再拷一遍
           bytes += buf.length;
           saved.push({ id, kind, file, dir });
         } catch (e) { full.push({ id, kind, why: '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message }); }
@@ -4181,7 +4530,7 @@ async function handleRequest(req, res) {
       const moved = [], skipped = [], failed = [], dup = [];
       let bytes = 0;
       try { fs.mkdirSync(to, { recursive: true }); } catch (e) { return fail(500, '建不出 ' + to + '：' + e.message); }
-      const sums = saveDirSums(to);      // 目标里已有的内容，搬之前先看一眼，避免搬出 xxx-2 这种重复
+      const sums = saveDirIndex(to);     // 目标里已有的内容，搬之前先看一眼，避免搬出 xxx-2 这种重复
       for (const name of names) {
         const src = path.join(srcDir, name);
         let st; try { st = fs.statSync(src); } catch { continue; }
@@ -4190,11 +4539,11 @@ async function handleRequest(req, res) {
         if (localMediaType({ file: name }) !== typeLabel(kind)) { skipped.push(name); continue; }
         try {
           const buf = fs.readFileSync(src);
-          const sig = st.size + ':' + sha1Of(buf);
+          const hash = sha1Of(buf);
           /* 目标里已经有同一份内容：**不重写**，只把源文件删掉 —— 这仍然是「搬」，
              内容在新目录里好好的一份；不这么做的话，用户补存过的那批会被搬成第二份。
              删源之前已经确认过内容一致，所以这一步不会丢东西。 */
-          const hit = sums.get(sig);
+          const hit = sums.get(buf.length, hash);
           if (hit) { fs.unlinkSync(src); autosaveUsedAdd(to); dup.push({ from: name, to: hit }); continue; }
           const base = saveBaseName(name, name);
           const file = saveUniqueName(to, base, () => null);
@@ -4367,8 +4716,15 @@ async function handleRequest(req, res) {
         res.end(JSON.stringify({ error: { message: '自定义接口地址只允许公网 https（回环/内网/明文 http 一律拒绝）' } }));
         return;
       }
-      base = safeUp;
-      baseOverridden = true;
+      /* 「换了地址」才算换 —— 只有**指向别处**才关掉 .env 密钥回退（见下面 keyFallback 那一段）。
+         设置页添加内置平台时地址是**自动填好的**（就是它自己的官方地址），于是 sk_base_<id>
+         存过之后每个请求都带着 x-up-base；以前只要带了这个头就算「换了网关」，
+         .env 里那把密钥就再也不回退 —— 表现正是「.env 里明明有 OPENROUTER_API_KEY，
+         点验证却报 401 Missing Authentication header（转发到 https://openrouter.ai/api/v1）」，
+         而且不只验证，聊天与生成**所有**请求都会这样。
+         地址与注册表里那一份等价（只差末尾斜杠 / 大小写）就按「没换」处理，用回 registry 那一份。 */
+      baseOverridden = baseKeyOf(safeUp) !== baseKeyOf(relayHit.base);
+      base = baseOverridden ? safeUp : relayHit.base;
     }
     /* 把地址换掉了，就**不能再用 .env 里那把内置密钥**：否则「客户端没带密钥 + 递来一个 x-up-base」
        等于把你的 SPARKCINE / OpenRouter 密钥原样送到那个主机上（它只证明得了连接，证明不了那是你的网关）。
@@ -4395,6 +4751,10 @@ async function handleRequest(req, res) {
         res.end(hit.body);
         return;
       }
+      /* 已经在取同一条详情 → 挂上去等，不再打第二次上游 */
+      const waiters = detailInflight.get(cacheKey);
+      if (waiters) { waiters.push(res); return; }
+      detailInflight.set(cacheKey, []);
     }
     if (isList && listTtl && !req.headers['x-no-cache']) {
       const hit = listCache.get(cacheKey);
@@ -4403,9 +4763,23 @@ async function handleRequest(req, res) {
         res.end(hit.body);
         return;
       }
+      /* 已经在取同一份列表 → 挂上去等（SparkCine 的列表要 6~14 s，这一下省得很实在） */
+      const waiters = listInflight.get(cacheKey);
+      if (waiters) { waiters.push(res); return; }
+      listInflight.set(cacheKey, []);
     }
+    /* 本请求若占了在途表，**每一条出口都必须**把等着的那些一起回掉并摘掉条目 ——
+       漏一处，后来的同 key 请求就会永远挂在一张再也不会 fulfill 的表上。 */
+    const inflightMap = (isTaskDetail && !req.headers['x-no-cache']) ? detailInflight
+      : (isList && listTtl && !req.headers['x-no-cache']) ? listInflight : null;
+    const flushInflight = respond => {
+      if (!inflightMap) return;
+      const ws = inflightMap.get(cacheKey) || [];
+      inflightMap.delete(cacheKey);
+      for (const w of ws) { try { respond(w); } catch {} }
+    };
     readBody(req, res).then(body => {
-      if (body == null) return;                    // 超过上限已回 413
+      if (body == null) { flushInflight(w => failUpstream(w, '请求体读取失败', '上游')); return; }   // 超过上限已回 413
       const fwd = { ...req.headers };
       /* transfer-encoding 必须剥掉：下面强制带上 content-length（上游大多要求），
          两个头同时存在是非法请求，chunked 请求会直接被拒。 */
@@ -4424,6 +4798,7 @@ async function handleRequest(req, res) {
         method: req.method,
         headers: { ...fwd, authorization: 'Bearer ' + apiKey, 'content-length': body.length, 'accept-encoding': 'identity' },
         timeoutMs: isCreatePost ? 120000 : 0,
+        keepAlive: true,              // relay 的目标主机来自注册表声明（见 keepAliveAgent / agentFor）
       }, ur => {
         if (isList && listTtl && ur.statusCode === 200) {
           const bufs = [];
@@ -4431,13 +4806,14 @@ async function handleRequest(req, res) {
           ur.on('end', () => {
             const buf = Buffer.concat(bufs);
             if (buf.length <= 8 * 1024 * 1024) {
-              cacheSweep(listCache, LIST_CACHE_MAX);
+              cacheSweep(listCache, LIST_CACHE_MAX, LIST_CACHE_BYTES);
               listCache.set(cacheKey, { ts: Date.now(), ttl: listTtl, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
             }
             res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store', 'X-List-Cache': 'miss' });
             res.end(buf);
+            flushInflight(w => { w.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store', 'X-List-Cache': 'shared' }); w.end(buf); });
           });
-          ur.on('error', e => failUpstream(res, e.message, '列表上游中断'));
+          ur.on('error', e => { failUpstream(res, e.message, '列表上游中断'); flushInflight(w => failUpstream(w, e.message, '列表上游中断')); });
           return;
         }
         if (isTaskDetail) {
@@ -4452,18 +4828,22 @@ async function handleRequest(req, res) {
               const st = String((d && d.status) || '');
               const hasOut = !!(d && ((Array.isArray(d.outputs) && d.outputs.length) || d.output_url || (d.output && d.output.url) || d.url || d.download_url));
               if (ur.statusCode === 200 && hasOut && /succeed|fail|cancel|done/i.test(st) && buf.length <= 2 * 1024 * 1024) {
-                cacheSweep(detailCache, 300);
+                cacheSweep(detailCache, 300, DETAIL_CACHE_BYTES);
                 detailCache.set(cacheKey, { ts: Date.now(), ttl: DETAIL_TTL, status: ur.statusCode, headers: { ...ur.headers }, body: buf });
               }
             } catch {}
             res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' });
             res.end(buf);
+            flushInflight(w => { w.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' }); w.end(buf); });
           });
-          ur.on('error', e => failUpstream(res, e.message, '详情上游中断'));
+          ur.on('error', e => { failUpstream(res, e.message, '详情上游中断'); flushInflight(w => failUpstream(w, e.message, '详情上游中断')); });
           return;
         }
         res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' });
         pipeUpstream(ur, res, relayTag);
+        /* 上游没回 200（例如列表端点 5xx）：这一支不会进缓存，等着的那些别干等，
+           给一个明确的失败让它们自己重试（挂死在这里是最坏的结果）。 */
+        flushInflight(w => failUpstream(w, '上游返回 ' + ur.statusCode, relayTag));
       });
       // 创建任务：回完就把列表短缓存清掉，这样刚提交的任务立刻能在资产库（列表接口）里看到
       if (isCreatePost) {
@@ -4472,9 +4852,9 @@ async function handleRequest(req, res) {
       /* 回给页面的那句要带**真正打出去的地址**：转发失败的原因（超时 / DNS / 拒绝连接）都只说现象，
          而「是不是打到我了那个网关」恰恰是用户此刻最想确认的 —— 尤其是自定义供应商（地址是用户自己填的）、
          以及内置平台被 x-up-base 换过地址的那几种情况。（主机名与这句文案都在上面的 relayTag 里点一次名） */
-      up.on('error', e => { log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); });
+      up.on('error', e => { log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); flushInflight(w => failUpstream(w, e.message, relayTag)); });
       up.end(body);
-    });
+    }).catch(e => { flushInflight(w => failUpstream(w, (e && e.message) || String(e), '上游')); });
     return;
   }
   if (req.url.startsWith('/getfile?url=')) {
@@ -4531,8 +4911,9 @@ async function handleRequest(req, res) {
     const m = req.url.match(/^\/asset\/([A-Za-z0-9_-]+)(\?|$)/);
     if (!m) { res.writeHead(400); res.end('bad id'); return; }
     const q = new URL(req.url, 'http://x').searchParams;
-    const localF = localAssetFile(m[1]);
-    if (localF) { serveLocalFile(req, res, localF, q); return; }
+    const localEnt = localAssetEntry(m[1]);
+    const localF = localFileFromEntry(localEnt);
+    if (localF) { serveLocalFile(req, res, localF, q, localEnt); return; }
     /* 本地文件没了，但索引里记着这一份是从哪个外链取回来的（自动镜像时写下的）→ 回源。
        这是「API/本地三级回退」的中间一级：没有它，本地文件一被删就只剩 404，
        界面据此判成「已删除」，而上游那份其实可能还取得到（地址过期了也能重新从列表换一份新的）。
@@ -4648,17 +5029,24 @@ async function handleRequest(req, res) {
   }
   const full = path.resolve(__dirname, file.replace(/^\/+/, ''));
   if (!full.startsWith(path.resolve(__dirname) + path.sep)) { res.writeHead(404); res.end('not found'); return; }
-  fs.readFile(full, (err, buf) => {
-    if (err) { res.writeHead(404); res.end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(buf);
-  });
+  serveStatic(req, res, full, path.extname(file));
 }
 
 server.listen(PORT, () => {
   const kids = REGISTRY.providers.map(p => p.keyEnv).filter((v, i, a) => v && a.indexOf(v) === i);
   const missing = kids.filter(k => !keyOf(k));
   log(`proxy 已启动: http://localhost:${PORT}（端口来自 ${PORT_FROM}${envLoaded ? '；已加载 .env，改完自动热加载' : '；未找到 .env，可用环境变量'}）`);
+  /* 出站代理那一句放在启动信息里：在必须走代理才能出网的环境里，
+     「有没有走代理」是第一个要确认的事，而页面上只看得到「转发失败（打到 xxx）」。 */
+  const px0 = outboundProxy();
+  if (px0.cfg) {
+    log(`出站代理：${px0.src} —— 平台请求与媒体取回都从它出去（本机 / 内网地址与 NO_PROXY 里的仍直连）。`);
+    log('       想关掉：在 .env 里写一行 PROXY_OFF=1，或把代理软件的系统代理关掉（30 秒内自动跟上）。');
+  } else if (px0.src) {
+    log(`出站代理：${px0.src}`);
+  } else {
+    log('出站代理：没检测到（直连）。本机开着代理软件却连不上平台时，在 .env 里写 HTTPS_PROXY=http://127.0.0.1:端口。');
+  }
   if (missing.length) {
     log(`[提示] 以下平台还没配密钥，对应工作台会报「未配置密钥」：${missing.join('、')}。`);
     log('       填法：项目目录的 .env（KEY=VALUE 一行一个，改完自动生效），或页面「设置」里填写。');
@@ -4701,6 +5089,8 @@ function shutdown(code) {
   const n = allProcs().length;
   if (n) { log(`[退出] 结束 ${n} 个 ffmpeg/ffprobe 子进程`); allProcs().forEach(p => { try { p.kill('SIGKILL'); } catch {} }); }
   try { server.close(); } catch {}
+  try { keepAliveAgent.destroy(); } catch {}     // 复用池里的空闲 socket 也要关掉，别把进程吊在那儿
+  try { if (_tunnelAgent) _tunnelAgent.destroy(); } catch {}   // 走代理时的隧道连接同理
   setTimeout(() => process.exit(code), 120);
 }
 process.on('SIGINT', () => { log('[退出] 收到 Ctrl+C'); shutdown(0); });

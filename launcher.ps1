@@ -68,17 +68,36 @@ $script:NetRows = $null
 $script:NetTick = 0
 $script:NetRunning = $false
 $script:Bad = 0
+$script:PortProbeCache = @{}   # 同一个 tick 里的直连探测结果（见 Test-PortListening）
+$script:NetFailNoted = $false  # netstat 读不到时只提醒一次（见 Get-NetRows）
 
 function Get-NetRows([switch]$Fresh) {
   # 一次 netstat 要一两百毫秒，所以一个判断周期里只问一次、后面各条判据共用这一份快照。
   # 这份快照**不按时间自动过期**：第一版给它配了 400ms 的 TTL，于是「刚刚 bind 上的号」
   # 会被上一秒那份快照判成没人在听 —— 界面与自检同时报一批假「没起来」。
   # 现在只有 Ask-Net 会真的重新问系统，谁要新读数谁自己点名。
-  if ($Fresh -or -not $script:NetRows) { $script:NetRows = @(& netstat.exe -ano) }
+  #
+  # **读不到也不能抛**：Refresh-View 每一跳都会走到这里，一抛异常整跳就断在 Ask-Net 上 ——
+  # 状态机再也不往前推，界面永远停在「正在启动」，连 25 秒那条兜底都轮不到。
+  # 那正是「日志里明明写着 proxy 已启动、顶上却一直正在启动」的一种成因。
+  # 所以这里退回空表：端口判活由 Test-PortListening 里的**直连探测**兜底（它不依赖 netstat），
+  # 只有「拿 PID 去杀」那一步还非要 netstat 不可。
+  if ($Fresh -or -not $script:NetRows) {
+    try { $script:NetRows = @(& netstat.exe -ano) }
+    catch {
+      $script:NetRows = @()
+      if (-not $script:NetFailNoted) {
+        $script:NetFailNoted = $true
+        # 这一句**必须写成一行**：命令模式的参数里跨行的括号组在 PowerShell 5.1 上解析不了
+        # （`F ('a' 换行 + 'b')` 会报 MissingEndParenthesisInExpression），实测纯 ASCII 也一样。
+        Add-LogLine ('读不到 netstat 的端口表（' + $_.Exception.Message + '）：端口判活改走直连探测，「停止」只能停这个窗口自己起的那个实例。')
+      }
+    }
+  }
   return $script:NetRows
 }
 
-function Ask-Net { [void](Get-NetRows -Fresh) }
+function Ask-Net { $script:PortProbeCache = @{}; [void](Get-NetRows -Fresh) }
 
 function Need-Net {
   # 界面每一跳都要判「端口上有没有人在听」，而一次 netstat 要一两百毫秒 —— 每 350ms 问一次
@@ -184,13 +203,42 @@ function Get-PortOwnerPids([int]$Port) {
     if ($c.Count -lt 5) { continue }
     if ($c[0] -ne 'TCP') { continue }
     if ($c[3] -ne 'LISTENING') { continue }
-    if ($c[1] -match (':' + $Port + '$')) { [void]$out.Add([int]$c[4]) }
+    # PID 那一格不是数字就跳过（`[int]` 直接转型会抛，而抛出去会打断整个 Refresh-View）
+    if ($c[1] -match (':' + $Port + '$')) { $n = 0; if ([int]::TryParse($c[4], [ref]$n)) { [void]$out.Add($n) } }
   }
   # 同一个进程常在 IPv4 与 IPv6 各占一行，不去重就会把「已停止」同一句话打印两遍
   return @($out | Select-Object -Unique)
 }
 
-function Test-PortListening([int]$Port) { return @(Get-PortOwnerPids $Port).Count -gt 0 }
+function Test-TcpConnect([int]$Port, [int]$TimeoutMs = 400) {
+  # 不依赖 netstat 的「有没有人在听」：真连一次。
+  # 为什么必须有这条兜底：实测有一类环境里 netstat.exe 读不到本进程刚 bind 上的号
+  # （启动器的自检里「认得出刚占住的号」与「启动后端口上真的在监听」两条就是被它红的），
+  # 而界面表现正是**永远停在「正在启动」** —— 服务明明起来了、页面却一直没人开。
+  # 直连只答「有没有人在听」，要 PID 还是得问 netstat（那是另一件事，见 Stop-PortListener）。
+  if ($Port -lt 1) { return $false }
+  $c = $null
+  try {
+    $c = New-Object System.Net.Sockets.TcpClient
+    $iar = $c.BeginConnect('127.0.0.1', $Port, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) { return $false }
+    $c.EndConnect($iar)     # 连不上会在这里抛（连接被拒 / 超时）
+    return $true
+  } catch { return $false }
+  finally { if ($c) { try { $c.Close() } catch {} } }
+}
+
+function Test-PortListening([int]$Port) {
+  if ($Port -lt 1) { return $false }
+  # 一个 tick 里这条会被问好几次（WantOpen / StartingSince / Update-Status 各一次），
+  # 结果按「端口 + 当前 tick」缓存一份；Ask-Net 会把它清掉，所以每个判断周期都是新读数。
+  $k = [string]$Port + '@' + [string]$script:NetTick
+  if ($script:PortProbeCache.ContainsKey($k)) { return [bool]$script:PortProbeCache[$k] }
+  $ok = Test-TcpConnect $Port
+  if (-not $ok) { $ok = @(Get-PortOwnerPids $Port).Count -gt 0 }
+  $script:PortProbeCache[$k] = $ok
+  return $ok
+}
 
 function Wait-Listening([int]$Port, [double]$Seconds) {
   # 等的是「它最终起来了 / 终于停了」，不是「这一瞬间的快照」。每一轮都重新问一次系统 ——
@@ -838,6 +886,11 @@ function Refresh-View {
       # 日志里早就写着「proxy 已启动：http://localhost:6500」、页面也开好了，顶上还挂着
       # 「正在启动 / 正在等服务监听上 6500」二十多秒 —— 同一块界面上两句话互相打脸。
       $script:StartingSince = $null
+    } elseif (-not ($script:Child -and -not $script:Child.HasExited)) {
+      # 进程已经没了 → 不必再空等那 25 秒。它退出的原因就在上面那几行日志里
+      # （端口绑不上、语法错、缺模块），照实说一句，别让人对着「正在启动」猜。
+      $script:StartingSince = $null
+      Add-LogLine 'proxy.js 已经退出了，没能在这个端口上监听 —— 上面那几行就是它退出的原因。'
     } elseif ($sp -gt $StartGiveUpSec) {
       $script:StartingSince = $null
       Add-LogLine "等了 $StartGiveUpSec 秒还没等到监听，先不等了。上面那一句才是真原因（常见：端口绑不上 → 换个号或写进 .env）。"

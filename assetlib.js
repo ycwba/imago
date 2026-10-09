@@ -335,6 +335,10 @@ async function readSseStream(res, onDelta) {
     const p = s.代理 || {}, dirs = s.目录 || {}, out = [];
     out.push('本地代理：注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?')
       + ' · Node ' + (p.进程 || '?') + ' · 目录 ' + (p.目录 || '?'));
+    /* 出站代理那一行紧跟着「本地代理」：在必须走代理才能出网的环境里，
+       「平台请求有没有从代理出去」是排查「所有平台都连不上」的第一个问题。 */
+    const op = s.出站代理;
+    if (op) out.push('出站代理：' + (op.状态 || '?') + ' —— ' + (op.来源 || '?'));
     ['ffmpeg', 'ffprobe'].forEach(k => {
       const t = sysTool(s[k], k);
       out.push(k + '：' + t.chip + (t.why ? (t.cls === 'ok' ? '（' + t.why + '）' : '：' + t.why) : '')
@@ -1411,6 +1415,7 @@ async function readSseStream(res, onDelta) {
 
   let idx = null;
   let idxMaps = null;   // 镜像索引的反查表（{ up, la, aid }）；write() 时作废
+  let writeQueued = false;   // 同一微任务里的多次改动合并成一次落盘（见 queueWrite）
   function read() {
     if (idx) return idx;
     let d = null;
@@ -1425,6 +1430,15 @@ async function readSseStream(res, onDelta) {
     if (keys.length > IDX_MAX) for (const k of keys.slice(IDX_MAX)) { delete d.a[d.m[k].a]; delete d.m[k]; }
     idxMaps = null;                    // 反查表跟着索引作废（下一次用再一次建）
     try { localStorage.setItem(K_IDX, JSON.stringify(d)); } catch (e) { /* 配额满：先留着内存里的，不打断界面 */ }
+  }
+  /* 微任务合并落盘（A2）。learn() 一直是这么做的，而 runOne / offer 这两条**更频繁**的路径
+     以前每成功一条就独立 write() 一次：批量镜像 N 条新产物 = N 次整表 JSON.stringify + N 次整表
+     写盘，全同步在主线程上（镜像队列并发是 2，一次批量操作很容易攒出几十条）。
+     合并窗口只有一个微任务，所以「合并期内进程被关」的丢数据风险并不存在 —— 同一个任务里就跑完了。 */
+  function queueWrite() {
+    if (writeQueued) return;
+    writeQueued = true;
+    Promise.resolve().then(() => { writeQueued = false; write(); });
   }
 
   /* 一条产物的稳定身份。**优先用平台给的 id（assetId / 任务号），最后才退到地址** ——
@@ -1645,7 +1659,7 @@ async function readSseStream(res, onDelta) {
         const d = read();
         d.m[k] = { a: r.id, f: r.format || ext, n: r.name || '', t: Date.now(), b: blob.size, up: url };
         d.a[r.id] = k;
-        write();
+        queueWrite();
         tell(null, { id: r.id, size: blob.size });
       } else {
         /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
@@ -1715,7 +1729,7 @@ async function readSseStream(res, onDelta) {
     const byUp = maps().up[mediaKey(url)];
     if (byUp && byUp.a) {
       read().m[k] = { ...byUp };
-      write();
+      queueWrite();
       if (o.cb) o.cb(null, { id: byUp.a, kept: true });
       return 'saved';
     }
@@ -1753,7 +1767,6 @@ async function readSseStream(res, onDelta) {
      只补索引里没有的键，已有的原样留着（它记的是最近一次真镜像）。
      键的算法与 offer/decorate **完全同一个表达式** —— 换成别的就是第二份判据，
      会出现「认回来的键与卡片算的键对不上」，表现还是「同一个任务重复出现」。 */
-  let learnQueued = false;
   /* 本次列表里**已经见过**的本机号。用途只有一个：认出「指针表指向的那份已经不在了」。
      它是**内存**的（页面一开就空），所以不需要清理，也不会在多标签页之间打架。 */
   const liveSeen = new Set();
@@ -1793,7 +1806,7 @@ async function readSseStream(res, onDelta) {
       if (d.a[old] === k) delete d.a[old];
       d.a[id] = k;
       if (idxMaps) { idxMaps.la[id] = k; const u = up ? mediaKey(up) : ''; if (u) idxMaps.up[u] = d.m[k]; }
-      if (!learnQueued) { learnQueued = true; Promise.resolve().then(() => { learnQueued = false; write(); }); }
+      queueWrite();
       return;
     }
     /* **先看这个本机号是不是已经绑过身份** —— 绑过就别再来一遍。
@@ -1832,7 +1845,7 @@ async function readSseStream(res, onDelta) {
       const am = /\|a:(.+)$/.exec(key);
       if (am && am[1]) idxMaps.aid[am[1]] = d.m[key];
     }
-    if (!learnQueued) { learnQueued = true; Promise.resolve().then(() => { learnQueued = false; write(); }); }
+    queueWrite();
   }
 
   /* 给一条**刚解析出来的条目**挂上本机镜像信息，并把 src 换成该用的那个（第一级回退）。
@@ -2233,6 +2246,12 @@ async function readSseStream(res, onDelta) {
         seen: (opts.seen instanceof Set) ? opts.seen : new Set(),
         twins: new Map(),        // 镜像身份 → 结果里那一条（见 pushEntry）
         out: Array.isArray(opts.out) ? opts.out : [],
+        /* 已经交给 `AssetLocal.scan` 过的条目（A1）。按**对象身份**记而不是按下标：
+           `collapseTwins` 会把 out 就地缩短，下标会错位。scan 本身是幂等的
+           （已镜像的条目在 `read().m[k]` 处就 return 'saved'），所以只喂这一批新到的即可 ——
+           以前每次 emit 都对**整份不断变长的 out** 扫一遍，emit 次数 ≈ 16~24 次，是 O(n²)。
+           `st` 每次 load 都是新的（续拉时 opts.out 会重新登记一遍），所以跨轮不会漏扫。 */
+        emitted: new WeakSet(),
         onBatch: (typeof opts.onBatch === 'function') ? opts.onBatch : null,
         accept: (typeof opts.accept === 'function') ? opts.accept : null,
         emit() {
@@ -2257,8 +2276,15 @@ async function readSseStream(res, onDelta) {
             }
           }
           /* 每批到达就顺手把这批产物排去存本机（而不是等整个 load 结束）：
-             列表动辄十几秒才拉完，等它结束再开始镜像，用户看到的头几分钟全是没本机副本的。 */
-          try { if (A) A.scan(this.out); } catch (e) {}
+             列表动辄十几秒才拉完，等它结束再开始镜像，用户看到的头几分钟全是没本机副本的。
+             只喂**这一批新到的**条目（A1）：scan 幂等，重复扫已经镜像过的只是白跑一次
+             `offer` → 一次同步 `localStorage.getItem`。 */
+          try {
+            if (A && A.scan) {
+              const fresh = this.out.filter(e => e && !this.emitted.has(e));
+              if (fresh.length) { A.scan(fresh); fresh.forEach(e => this.emitted.add(e)); }
+            }
+          } catch (e) {}
           if (!this.onBatch) return;
           try { this.onBatch(this.out); } catch (e) { console.warn('[AssetLib] onBatch 回调出错：', e); }
         },
@@ -2529,6 +2555,14 @@ window.Capabilities = {
              > registry 的 modes 推导（老兜底）。 */
   specs(model) {
     const o = (model && model.options) || {};
+    /* 记忆化（A4）。以前每次调用都 new Map + 为每个 role new 对象 + 建新数组，而
+       `rule()` = 整表 specs + find，`providerLimit()` = 遍历 prov.models 逐个 rule() ——
+       N 个模型就是 N 次全量重建，而它在每次上传前都调（studio 的 findModelWithSlot 一次最多 45 次）。
+       失效判据挂在 `model.options` 的**引用**上，是免费且正确的：Capabilities.apply() 每次刷新
+       都给每个模型赋一个**新对象**（`m.options = base` 那句），所以能力一刷新记忆自动失效，
+       不会读到陈旧能力 —— 界面照旧跟着能力声明变。只加记忆、不改判据。 */
+    const memo = model && typeof model === 'object' ? this._specsMemo.get(model) : null;
+    if (memo && memo.opts === o) return memo.specs;
     const out = new Map();
     const declared = (model && model.inputRoles) || null;
     const api = o.inputSpecs || [];
@@ -2544,7 +2578,7 @@ window.Capabilities = {
           accept: (d && d.accept) || '', maxBytes: (d && d.maxBytes) || 0,
           group: this.groupOf(sp.role, d || sp), modes: (sp.modes || []).slice(), src: d ? 'both' : 'api' });
       });
-      return [...out.values()];
+      return this._memoSpecs(model, o, [...out.values()]);
     }
     if (declared) {
       Object.entries(declared).forEach(([role, d]) => {
@@ -2553,7 +2587,7 @@ window.Capabilities = {
           accept: d.accept || '', maxBytes: d.maxBytes || 0,
           group: this.groupOf(role, d), modes: (d.modes || []).slice(), src: 'registry' });
       });
-      return [...out.values()];
+      return this._memoSpecs(model, o, [...out.values()]);
     }
     const modes = (model && model.modes) || [];
     /* max 为 0（没声明）就不推这个 role：没有声明就当作平台不接受，
@@ -2571,7 +2605,14 @@ window.Capabilities = {
     push('last_frame', 1);
     push('reference_video', 1);
     push('reference_audio', 1);
-    return [...out.values()];
+    return this._memoSpecs(model, o, [...out.values()]);
+  },
+  /* 记忆化的落点只有这一处（三条 return 都过它）：model 不是对象时（外部可能传空）不记忆 ——
+     WeakMap.set 对非对象键会抛 TypeError。 */
+  _specsMemo: new WeakMap(),
+  _memoSpecs(model, opts, specs) {
+    if (model && typeof model === 'object') this._specsMemo.set(model, { opts, specs });
+    return specs;
   },
   /* 某个模型某个槽位「收什么」：数量上下限 + 接受的文件类型 + 单文件字节上限。
      界面文案、统一选择器的档位与本地上传 accept、上传前的体积校验都只读这里，
@@ -2837,12 +2878,40 @@ window.Capabilities = {
   }
   // 页面卸载时统一回收
   window.addEventListener('beforeunload', () => { urlCache.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); urlCache.clear(); });
+  /* 别的标签页改了收藏 → 本页那份缓存作废（A3 的失效判据之一；另一处是 write 自己） */
+  window.addEventListener('storage', e => { if (e && e.key === KEY) { _fav = null; _favKeys = null; } });
   /* 收藏项变了：只更新本地缓存，不主动重画（页面自己决定怎么刷新，避免打字时被重绘打断） */
   /* 读写都走 ui.js 的 Store：信封里的 ts 让「浏览器 ↔ .data/」能判出谁新（裸数组那份做不到） */
-  const list = () => { const a = window.Store && Store.read(KEY, []); return Array.isArray(a) ? a : []; };
+  /* 缓存（A3）：`list()` 每次都是 `getItem` + `JSON.parse` **整份**收藏，而 `has(key)` 是
+     **每张卡片**调一次（结构是 O(卡片数 × 收藏数 × 单条大小)）。今天实测只有 582 B，
+     绝对开销接近 0，但结构会随收藏数长大 —— 这里缓存一份，写盘与 storage 事件（别的标签页
+     改过）时失效，`has` 走键集合变 O(1)。
+     ⚠ 返回的是**同一份引用**：查过全部调用方（favorites / assets / ai-chat），都是只读；
+     本文件里直接改元素的（fillFavPrompt / writeUrlBack / refillPrompts）都是「改了立刻 write 回去」，
+     不依赖「每次拿到新对象」。 */
+  let _fav = null, _favKeys = null, _favAt = 0;
+  /* 3 秒软过期：够覆盖「一次渲染里几百次 has()」（它们全在同一瞬间），
+     又不会在「别处直写 fav_items」（云同步把远端那份写回 localStorage 时走的是
+     ui.js 里那条 setItem 钩子，不会触发本标签页的 storage 事件）之后长期读到旧值。 */
+  const FAV_TTL = 3000;
+  const list = () => {
+    if (_fav && Date.now() - _favAt < FAV_TTL) return _fav;
+    const a = window.Store && Store.read(KEY, []);
+    _fav = Array.isArray(a) ? a : [];
+    _favAt = Date.now();
+    _favKeys = null;
+    return _fav;
+  };
+  const favKeys = () => { if (!_favKeys) _favKeys = new Set(list().map(x => x && x.key)); return _favKeys; };
   function write(arr, opts) {
     const r = window.Store && Store.write(KEY, Array.isArray(arr) ? arr : [], { label: '收藏' });
     const ok = !!(r && r.ok);
+    /* 只在**真的写进去了**才把这份当缓存：配额撞满时 Store.write 会失败，那时若把 arr 当最新一份，
+       后续 `list()` 会读出一个「其实没存下来」的收藏（页面据此画成已收藏，刷新后又没了）。
+       写失败就作废缓存，下一次老实重读盘上那份。 */
+    _fav = ok && Array.isArray(arr) ? arr : null;
+    _favAt = Date.now();
+    _favKeys = null;
     if (opts && opts.silent) return ok;      // 静默写：不广播事件（编辑备注时用，免得页面重画打断输入）
     /* 事件里带上 failed：写不进去时页面重画出来的就是**真实**状态（未收藏），
        不能按「已收藏」渲染然后刷新后消失。 */
@@ -2922,7 +2991,7 @@ window.Capabilities = {
   window.Fav = {
     list,
     refillPrompts,
-    has(key) { return list().some(x => x.key === key); },
+    has(key) { return favKeys().has(key); },
     assetKey(e) { return 'a:' + (e.provider || '') + ':' + (e.assetId || e.id || ''); },
     /* 把一条资产条目变成收藏项 */
     fromEntry(e) {
@@ -3111,8 +3180,12 @@ window.AiGen = {
   /* 生成图：create → 轮询到 done → 取产物 id。
      `o.count` = 想要几张（候选一次出多张就靠它）。上限**不在这写死**：调用方按能力声明
      `max_outputs` 传进来，这里只兜底成 1；一张时返回的就是这一条条目（旧调用方照旧用 `.src`），
-     多张时额外带 `entries[]`（`src` 仍是第一张，所以没有一处要改）。 */
-  async image(o) {
+     多张时额外带 `entries[]`（`src` 仍是第一张，所以没有一处要改）。
+
+     **拆成 create / wait 两段是为了「切页之后还能把任务认领回来」**：外壳换页会把这一页的 JS
+     整个丢掉，可平台那边的任务还在跑。`o.onTask({prov, id})` 在拿到任务号的那一刻回调一次，
+     调用方把它落盘；下次打开这一页用 `adopt(provId, id)` 接着等 —— **不重发、不重复花钱**。 */
+  async create(o) {
     const prov = o.prov, m = o.model || {};
     const fmts = (m.options && m.options.output_formats) || ['png'];
     const fmt = fmts.includes('png') ? 'png' : fmts[0];
@@ -3127,6 +3200,16 @@ window.AiGen = {
     const p0 = Api.parseItem(prov, gen);
     const id = (p0 && p0.genId) || (gen && (gen.id || gen.task_id || gen.job_id));
     if (!id) throw new Error((gen && (gen.message || gen.code)) || '接口没有返回任务号');
+    if (typeof o.onTask === 'function') { try { o.onTask({ prov: prov, id: id }); } catch (e) {} }
+    return { prov: prov, id: id, want: want, fmt: fmt, prompt: o.prompt || '' };
+  },
+  /* 等一个**已经存在**的任务出结果（自己刚建的，或切页之前建的那一个）。 */
+  async wait(t, o) {
+    o = o || {};
+    const prov = t.prov, id = t.id;
+    const want = Math.max(1, Number(t.want) || 1);
+    const fmt = t.fmt || 'png';
+    const prompt = t.prompt || o.prompt || '';
     /* 轮询只看得到什么就取什么：产物号 / 外链先出现就立刻收（状态字段常常比产物字段晚一两个心跳）。
        失败以 Api.parseItem 的判定为准 —— 它已经把「认不出的中间态」归到进行中，不会一次就误报失败。 */
     for (let i = 0; i < 120; i++) {
@@ -3139,13 +3222,13 @@ window.AiGen = {
          「一次出 3 张候选」会变成「一次出 1 张、另外 2 张永远看不见」，
          而界面已经写了「正在出第 2、3 张」。 */
       if (ids.length && (ids.length >= want || (p && p.done))) {
-        const list = ids.slice(0, want).map(a => this._entry(prov, { assetId: a, genId: id, type: '图片', prompt: o.prompt, format: fmt }));
+        const list = ids.slice(0, want).map(a => this._entry(prov, { assetId: a, genId: id, type: '图片', prompt: prompt, format: fmt }));
         return Object.assign(list[0], { entries: list });
       }
       /* 产物是外链的不是资产 id（VGENV 这类）：一样换成 /getv 本地路由再回给调用方，
          否则拿到的是过期就 403 的签名地址。 */
       if (p && p.url) {
-        const one = this._entry(prov, { id: id, genId: id, type: '图片', prompt: o.prompt, format: fmt,
+        const one = this._entry(prov, { id: id, genId: id, type: '图片', prompt: prompt, format: fmt,
           src: Api.mediaSrc(p.url), dl: '/fetch?url=' + encodeURIComponent(p.url) + '&dl=1' });
         return Object.assign(one, { entries: [one] });
       }
@@ -3154,6 +3237,17 @@ window.AiGen = {
       if (p && p.failed) throw new Error('图片生成失败' + (p.status ? '（' + p.status + '）' : ''));
     }
     throw new Error('生成超时（可能还在排队），稍后可在资产库看到它');
+  },
+  async image(o) { return this.wait(await this.create(o), o); },
+  /* 认领一个「切页之前发出去」的任务：只接着等，不重新提交。
+     第一参可以给平台对象，也可以给平台 id（落盘时存的是 id，重启后只能按 id 找回来）。 */
+  adopt(provRef, id, o) {
+    const list = this.providers() || [];
+    const prov = (provRef && typeof provRef === 'object') ? provRef
+      : list.find(p => p && (p.id === provRef || p.keyId === provRef));
+    if (!prov) return Promise.reject(new Error('这一家平台现在不在注册表里了（可能被删掉或改了 id）'));
+    if (!id) return Promise.reject(new Error('没有任务号'));
+    return this.wait({ prov: prov, id: id, want: (o && o.want) || 1, fmt: (o && o.fmt) || 'png', prompt: (o && o.prompt) || '' }, o);
   },
 };
 
@@ -3248,7 +3342,19 @@ window.AssetPicker = {
       const search = $('apSearch');
       const typesBox = $('apTypes');
 
-      const close = out => { try { io.disconnect(); } catch {} try { dlg.close(); } catch {} dlg.remove(); resolve(out); };
+      /* 关窗的唯一出口。取消 / 额外动作这两条路**没有把条目交出去**，所以上传时造的 blob 地址
+         要在这里收掉（A6）—— 以前它们随条目一起被丢掉，blob URL 无人 revoke，每次
+         「上传 → 又取消」就漏一份（视频一条可达几十 MB）。
+         确定那条路（entries 非空）**绝不能 revoke**：页面会把 src 拿去真取字节（转存/引用），
+         revoke 早了就是静默破图。所以判据是「这一次有没有把条目交出去」。 */
+      const close = out => {
+        if (!out || !out.length) {
+          upPool.forEach(e => {
+            if (e && e.src && String(e.src).startsWith('blob:')) { try { URL.revokeObjectURL(e.src); } catch (err) {} }
+          });
+        }
+        try { io.disconnect(); } catch {} try { dlg.close(); } catch {} dlg.remove(); resolve(out);
+      };
       $('apCancel').onclick = () => close([]);
       dlg.addEventListener('cancel', e => { e.preventDefault(); close([]); });
       /* 交出去之前把选中的收藏条目换成新鲜地址：渲染时那一批（最多 12 条）已经换过一轮，
@@ -3332,7 +3438,23 @@ window.AssetPicker = {
         : favOnly ? (e._grp === 'fav' || !!e.fav) : e._grp === 'lib';
       const matchesType = e => !typeTabs.length || typeTab === '全部'
         || e.type === typeTab || (typeTab === '音频' && isAudio(e.type));
-      const hay = e => [e.prompt, e.name, e.providerName, (e._favRec && e._favRec.note) || ''].join(' ').toLowerCase();
+      /* hay 每条只拼一次（A5）：搜索框每敲一键，`matched()` 就要对**每一条**重拼一遍
+         （join + toLowerCase），一屏 200 条就是 200 次。按条目缓存，键里带上唯一会变的那一项
+         （收藏备注 `_favRec.note`），所以备注改了照样立刻生效。 */
+      const hayCache = new WeakMap();
+      const hay = e => {
+        const note = (e._favRec && e._favRec.note) || '';
+        const c = hayCache.get(e);
+        if (c && c.note === note) return c.s;
+        const s = [e.prompt, e.name, e.providerName, note].join(' ').toLowerCase();
+        hayCache.set(e, { note, s });
+        return s;
+      };
+      /* 筛选指纹（A5）：以前是 `JSON.stringify(aiCond)` —— 每次 paint 都把整份条件序列化一遍。
+         改成只取真正参与判定的那几个字段（aiMatch 用 keywords/after，visible 用 order/limit）。 */
+      const aiFp = () => aiCond
+        ? [aiCond.order || '', aiCond.limit || '', aiCond.after || '', (aiCond.keywords || []).join('|')].join('~')
+        : '';
       const aiMatch = e => {
         const kw = (aiCond.keywords || []).map(k => String(k).toLowerCase().trim()).filter(Boolean);
         if (kw.length && !kw.some(k => hay(e).includes(k))) return false;
@@ -3363,7 +3485,7 @@ window.AssetPicker = {
         /* 换了筛选条件（搜索框里的字 / 类型档 / 收藏视图 / AI 条件）就把窗口收回第一屏：
            带着「已经翻到第 800 条」去看一个新筛选，第一眼看到的是不相干的一段。
            判据只有这一处（筛选指纹），不要在每个改筛选的按钮里各写一遍「重置」。 */
-        const key = JSON.stringify([search.value, typeTab, favOnly, aiCond ? JSON.stringify(aiCond) : '']);
+        const key = [search.value, typeTab, favOnly, aiFp()].join('\u0001');
         if (key !== winKey) { winKey = key; shownCap = GRID_PAGE; }
         const capN = aiCond ? Math.max(1, Number(aiCond.limit) || 30) : Infinity;
         const want = Math.min(all.length, capN);        // AI 钉住的那一条线以下才归窗口管
@@ -3830,21 +3952,66 @@ window.TextAI = {
       + '· 只有在「补上缺失信息会明显改变成片效果」时才问（典型缺口：风格取向、光线与时间、镜头怎么动、画幅、情绪基调）。\n'
       + '· 用户已经写明的不要再问；缺几项就问几项，每一题都要能点选。\n'
       + '· 收到答案后：把每条答案当作**硬约束**落实进结果，不要再自行改动，也不要再反问同一件事。',
-    video: '你是资深的 AI 视频提示词工程师，把用户的镜头描述改写成视频生成模型能直接吃的高质量中文提示词。\n\n改写要求：\n'
-      + '1. 保留用户的主体、动作与场景意图，只在这些维度上补细节；不要替换主题，不要新增用户没提的剧情。\n'
-      + '2. 按「主体 → 动作 → 场景与时间 → 光线与色调 → 镜头语言 → 氛围质感」的顺序组织，读下来是一段连贯中文。\n'
-      + '3. 镜头语言要落到具体动作（缓慢推进、环绕跟拍、固定长镜头、手持跟随、俯冲…），不要写「镜头感很好」这类空话。\n'
-      + '4. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。\n'
-      + '5. 用户已经明确给出的风格、光线、时长、画幅、景别要尊重，不要反过来推翻。\n'
-      + '6. 不要编造品牌、台词、具体人名或数字。\n\n'
-      + '输出：只输出润色后的提示词本身。不要标题、不要引号、不要解释、不要 markdown、不要给多个方案。',
-    img: '你是资深的 AI 图片提示词工程师，把用户的描述改写成文生图模型能直接吃的高质量中文提示词。\n\n改写要求：\n'
-      + '1. 保留主体与意图，只补细节；不替换主题、不新增用户没提的元素。\n'
-      + '2. 按「主体 → 动作或状态 → 构图（景别/机位/画幅）→ 光线与时间 → 风格与媒介 → 材质与细节 → 氛围」的顺序组织。\n'
-      + '3. 风格要落到具体流派或媒介（写实摄影、胶片、赛博朋克、水彩、3D 渲染、扁平插画…），不要只写「高级感」「有质感」。\n'
-      + '4. 用户文字里的 @参考图1 这类素材引用标记必须**原样保留**。\n'
-      + '5. 用户已给的画幅、画质、光线要尊重。\n'
-      + '6. 不要编造品牌、人物姓名、招牌文字。\n\n'
+    /* 视频那一条按 **MiniMax H3 官方手册**的公式重构（手册原文：
+       完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明）。
+       另外三条硬规则也来自那份手册的「最常毁掉生成结果的错误」清单：
+       运镜要写具体动作而不是「环绕运镜」；只写看得见的、不写比喻；要一镜到底必须明说
+       （不说模型会自己切镜）；画面内文字与台词必须逐字写出；不要 BGM 就别自相矛盾。
+       项目自己那两条（@参考图N 原样保留、只输出结果）放在最后，位置不变。 */
+    video: '你是资深的 AI 视频提示词工程师，把用户的镜头描述改写成视频生成模型能直接吃的高质量中文提示词。\n\n'
+      + '按 MiniMax H3 官方手册给的公式组织：**完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明**。'
+      + '三块按这个顺序写；可以带【】小标题，也可以写成连贯的几段 —— 内容齐、顺序对就行。\n'
+      + '· 参考素材说明：这一镜挂了参考素材（首帧 / 尾帧 / 参考图 / 参考视频 / 参考音频）才写这一段，'
+      + '没挂就整块不要写。每个素材都要**声明用途**，不能只列编号。用途从这些里挑：人物参考（锁脸）、'
+      + '物体参考（锁道具）、场景参考、关键帧（写明是首帧还是尾帧）、风格参考、构图参考、动作参考、'
+      + '运镜参考、音色参考、音频复用。写法照这个例子：「@参考图1 是人物参考（锁这位女子的脸），'
+      + '@参考图2 是场景参考（锁樱花庭院）」。\n'
+      + '· 核心创意：四件事写全 —— 主体（谁 / 什么）、地点、事件（在做什么）、题材与风格'
+      + '（写实 / 动画 / 电影感 / 广告片，或赛博朋克这类具名风格）。镜头行为也写在这里：'
+      + '要**一镜到底必须明说**（不说它会自己切镜）；要切镜就写清切到什么景别、画面里是哪个角色'
+      + '（跨切镜保持脸一致全靠这一句）。\n'
+      + '· 画面过程说明：按时间轴写发生了什么，例如「0–3 秒：……，3–7 秒：……」；短镜头可以不分段，'
+      + '但动作的先后顺序要读得出来。与素材相关的元素在这里用 @ 挂上。\n\n'
+      + '硬性要求：\n'
+      + '1. 保留用户的主体、动作与场景意图，只在这些维度上补细节；不替换主题，不新增用户没提的剧情。\n'
+      + '2. 运镜写**具体动作**（缓慢推进、truck left + pan right、环绕跟拍、固定长镜头、手持跟随、俯冲…），'
+      + '不要写「环绕运镜」「镜头感很好」这类笼统说法。\n'
+      + '3. 只写镜头**看得见**的东西，不写它意味着什么：「雨水打湿的霓虹倒映在皮夹克上」'
+      + '远胜「一种都市忧郁的氛围」。\n'
+      + '4. 画面里要出现文字就把**原文逐字写出**（招牌、按钮、标题都给确切字样）；台词写原话 —— '
+      + '写「她说了句动人的话」只会生成一团糊。\n'
+      + '5. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。\n'
+      + '6. 用户已经明确给出的风格、光线、时长、画幅、景别要尊重，不要反过来推翻。\n'
+      + '7. 不要自相矛盾：一句话要配乐、另一句话又禁 BGM 是最常见的失败模式；'
+      + '不要音乐就明确写出不要。\n'
+      + '8. 不要编造品牌、台词、具体人名或数字。\n\n'
+      + '输出：只输出润色后的提示词本身。不要引号、不要解释、不要 markdown 代码块、不要给多个方案。',
+    /* 图片那一条按通行的图片提示词公式重构：**用途 → 主体 → 环境 → 动作 → 构图 → 光线 → 风格与媒介 → '
+       + '色彩与材质 → 画幅与限制**。三条最容易犯的错也写进去了：风格自相矛盾、跳过光线、没有构图指引
+       （没有构图指引时模型只会给居中中景的安全构图）。 */
+    img: '你是资深的 AI 图片提示词工程师，把用户的描述改写成文生图模型能直接吃的高质量中文提示词。\n\n'
+      + '按这个顺序组织，每一项只留与结果有关的，别堆形容词：\n'
+      + '1. 用途：这张图拿去干什么（公众号头图 / 商品主图 / 分镜画面 / 角色三视图…）。'
+      + '它决定画幅与留白怎么留；用户没说用途就按画面内容选最合理的一种，不要为此反问，也不必把它写进结果。\n'
+      + '2. 主体：具体到可数、可看（「一个有卷发、神情自信、穿亮黄夹克的年轻女生」远胜「一个女生」）—— '
+      + '数量、外观特征、正在做什么。\n'
+      + '3. 环境与时间：在哪里、什么时间、天气与空间层次。\n'
+      + '4. 构图：景别与机位（远景全场景 / 中景 / 特写 / 俯拍 / 三分法，主体放哪一侧）、留白留在哪一边'
+      + '（要叠字就写清标题安全区）。**不能省**：不写构图，模型只会给居中中景的安全构图。\n'
+      + '5. 光线：光源方向与性质（柔和漫射自然光 / 戏剧性侧光加硬阴影 / 棚拍柔光箱加轮廓光）。'
+      + '**这一段影响最大**，同一个主体换光线就是两张图；只写「光线好」等于没写。\n'
+      + '6. 风格与媒介：落到具体流派或媒介（超写实商业摄影 / 胶片 / 时尚杂志编辑风 / 水彩 / 3D 渲染 / '
+      + '扁平插画），不要只写「高级感」「有质感」。\n'
+      + '7. 色彩与材质：给可执行的配色与材质（低饱和墨绿与银、柔和侧光、材质细节克制）。\n'
+      + '8. 画幅与限制：画幅（16:9 / 9:16 / 1:1）；必须保留什么、必须避免什么，只写最容易出错的三到五项，'
+      + '不要堆一长串互相冲突的否定词。\n\n'
+      + '硬性要求：\n'
+      + '1. 保留主体与意图，只补细节；不替换主题，不新增用户没提的元素。\n'
+      + '2. **一次只选一种视觉语言**：不要同时写「超写实」和「卡通」这类互相打架的风格 —— '
+      + '模型碰到冲突信号会取折中，最后生出一张什么都不像的图。\n'
+      + '3. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。\n'
+      + '4. 用户已给的画幅、画质、光线要尊重，不要反过来推翻。\n'
+      + '5. 不要编造品牌、人物姓名、招牌文字。\n\n'
       + '输出：只输出润色后的提示词本身。不要标题、不要引号、不要解释、不要 markdown、不要给多个方案。',
     audio: '你是配音稿编辑，把用户给的文字改写成适合语音合成的口播稿。\n\n改写要求：\n'
       + '1. 口语化：拆成长短句，删掉「此外」「综上所述」「值得注意的是」这类书面语连接词。\n'
@@ -4098,8 +4265,15 @@ window.TextAI = {
     { id: 'gen', name: '通用润色（生成工作台 / 导演台）',
       note: '这几条是用户点「AI 润色」时用的，改它们影响所有页面。',
       items: [
-        { key: 'video', label: '视频提示词润色', used: '生成工作台「视频」那一栏的「AI 润色」 · 导演台右栏「AI 润色提示词」' },
-        { key: 'img', label: '图片提示词润色', used: '图片工作台「AI 润色」' },
+        { key: 'video', label: '视频提示词润色', used: '生成工作台「视频」那一栏的「AI 润色」 · 导演台右栏「AI 润色提示词」',
+          ref: '这一条按 **MiniMax H3 官方手册**的公式写：`完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明`。'
+            + '改它时建议保留这几条 —— 它们都来自那份手册点名的常见失败模式：运镜写具体动作（`truck left + pan right`）而不是「环绕运镜」；'
+            + '要一镜到底必须明说（不说模型会自己切镜）；画面内文字与台词逐字写出；不要 BGM 就别自相矛盾。'
+            + '`@参考图1` / `@角色名` 这类素材引用标记必须原样保留（导演台提交时会把它们换成平台的引用语法）。' },
+        { key: 'img', label: '图片提示词润色', used: '图片工作台「AI 润色」',
+          ref: '这一条按通行的图片提示词公式写：`用途 → 主体 → 环境 → 构图 → 光线 → 风格与媒介 → 色彩与材质 → 画幅与限制`。'
+            + '改它时建议保留这三条最常见的坑：一次只选一种视觉语言（同时写「超写实」和「卡通」模型只会取折中）、'
+            + '光线不能省（影响最大的单项）、构图不能省（不写只会给居中中景的安全构图）。' },
         { key: 'audio', label: '配音稿润色', used: '生成工作台「语音」那一栏的「AI 润色」' },
         { key: 'story', label: '分镜切片规划（决定张数 + 每张提示词）', used: '导演台右栏「按描述生成这一镜的画面」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"t":0,"prompt":"…"}]}`），由它决定生成几张、每张在第几秒、每张画什么。改这条时请保留 JSON 格式要求，否则会退化成按 2.5 秒硬切片。' },
@@ -5488,9 +5662,12 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
   const ctxType = prov => KIND_ZH[(prov && prov.kind) || ''] || '任务';
 
   /* 启动后拉一次索引（资产库给不返回提示词的任务补显示要用），之后每 5 分钟对一次；
-     代理没在跑就静默失败 —— 归档是锦上添花，不能挡住页面本身。 */
+     代理没在跑就静默失败 —— 归档是锦上添花，不能挡住页面本身。
+     `load(true)` 会**绕过** 60 秒 TTL 闸，所以这 5 分钟是硬周期；标签页藏在后台时
+     照样每 5 分钟发一次 `GET /prompts?limit=800`，加一道可见性判断（A8）：
+     这是本文件**唯一**的 setInterval，且只在脚本求值时注册一次，没有「每页面实例一个」的泄漏。 */
   setTimeout(() => load(false), 2500);
-  setInterval(() => load(true), 5 * 60 * 1000);
+  setInterval(() => { if (document.hidden) return; load(true); }, 5 * 60 * 1000);
 
   /* 「本机没有这条归档」的结论（sessionStorage）：清掉它会重新按任务号回源问一遍。
      刚往归档目录里手工补了文件、或换了归档目录时用它，不用刷新页面。 */

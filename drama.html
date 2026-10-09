@@ -567,6 +567,33 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     }
     return r;
   }
+  /* 逐字输入的落盘节流（D1）。以前 `bindText` 的 apply 里直接 `save()`：敲一个字就把
+     **整份短剧库**读两次（listBroken + list）、对全部短剧跑一遍 fixTakes、再序列化写回一次 ——
+     改一集的台词，所有其它短剧陪着解析两遍、写回一遍。实测 32 部时 0.91 ms/次、接近上限时
+     5.23 ms/次、40 部×4 倍段数时 15.85 ms/次，按 8 键/秒就是最高 127 ms/秒的主线程占用。
+     这里只把**逐字输入**这条链改成 trailing debounce（400 ms）：内存里立刻改（apply 先写对象），
+     落盘合并成一次。其余 100+ 处 `save()` 全是离散事件（点按钮、切步骤、任务回调），
+     它们要的是「当场落盘」，所以保持同步 —— 只动输入这条热路径。
+     窗口内用户切走这一集也安全：saveSoon 记的是调用那一刻的 `d`（默认 `cur`），
+     不会等到 flush 时才去认「现在打开的是哪一集」。 */
+  let saveSoonTimer = 0;
+  const saveSoonSet = new Set();
+  function saveSoon(d) {
+    saveSoonSet.add(d || cur);
+    if (saveSoonTimer) clearTimeout(saveSoonTimer);
+    saveSoonTimer = setTimeout(flushSaveSoon, 400);
+  }
+  function flushSaveSoon() {
+    if (saveSoonTimer) { clearTimeout(saveSoonTimer); saveSoonTimer = 0; }
+    if (!saveSoonSet.size) return;
+    const ds = [...saveSoonSet];
+    saveSoonSet.clear();
+    for (const d of ds) saveOf(d);
+  }
+  /* 刚敲完立刻刷新/切标签页时，把还没落盘的那一次补上（debounce 的唯一代价就是这个窗口）。 */
+  window.addEventListener('pagehide', flushSaveSoon);
+  window.addEventListener('beforeunload', flushSaveSoon);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSaveSoon(); });
   /* 写素材库那一条的唯一出口。`Lib.save` 在「素材库里那份读不出来」时**一个字都不写**、
      返回值照旧是一个对象，页面紧接着一句「素材库里那一份也一起改了」就成了假话；
      配额撞满时同样是「写了、其实没写」。这里把数据层留下的原因取走（取完即清），
@@ -2552,11 +2579,11 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   }
   function bindCastCard(card, c) {
     const look = card.querySelector('textarea[data-act="look"]');
-    if (look) bindText(look, v => { c.look = v; save(); });
+    if (look) bindText(look, v => { c.look = v; saveSoon(); });
     /* 音色描述（design 型号）是输入框：边写边存，不点别的地方也不丢。
        它带 data-act，但走的是 oninput，不参与下面那圈点击动作（否则点一下输入框等于触发一个空动作）。 */
     const vn = card.querySelector('[data-act="voicenote"]');
-    if (vn) bindText(vn, v => { c.voiceNote = v; save(); });
+    if (vn) bindText(vn, v => { c.voiceNote = v; saveSoon(); });
     /* 角色资产那一行的三个输入：名字 / 模板 / 自定义描述。
        它们只是**填**的，按钮点下去时才读 —— 所以不进下面那圈点击动作
        （进去的话点一下输入框就等于触发一个空动作）。
@@ -2883,7 +2910,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
      不复用角色的：'pickprop' / 'redraw' / 'retryprop' / 'lib' / 'rename' / 'delprop' / 'aiopt'。 */
   function bindPropCard(card, p) {
     const look = card.querySelector('textarea[data-act="look"]');
-    if (look) bindText(look, v => { p.look = v; save(); });
+    if (look) bindText(look, v => { p.look = v; saveSoon(); });
     Dropdowns.build(card);
     card.querySelectorAll('[data-act]:not([data-act="zoom"])').forEach(el => el.onclick = async () => {
       const act = el.dataset.act;
@@ -2927,7 +2954,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   }
   function bindSceneCard(card, s) {
     const ta = card.querySelector('textarea[data-act="desc"]');
-    if (ta) bindText(ta, v => { s.desc = v; save(); });
+    if (ta) bindText(ta, v => { s.desc = v; saveSoon(); });
     /* 时段：下拉换成公共组件后，选项点一下会派发 change（ui.js 的 Dropdowns），所以绑 onchange */
     const tm = card.querySelector('select[data-act="time"]');
     if (tm) tm.onchange = () => { s.time = tm.value; save(); toast('时段改成「' + tm.value + '」'); };
@@ -2998,7 +3025,13 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     let pendingPre = null;                    // 预选名单，等 body() 里 grid 建好之后再灌进 PickSel
     let grpRow, grid, empty, cnt, useBtn, delBtn;
     let dlgClose = null;             // UiDialog 把 close 作为 body 的第二个参数传进来（见下面 body(el, close)）
-    const all = () => D.Lib.list();
+    /* 素材库整份列表在一次绘制里只读一次（D5）：`all()` = `D.Lib.list()` 的**整份读**，
+       而它在这个弹窗里被调得很密 —— paint() 一次要调 5 处，syncSel() 里 kindOf 还对
+       每个已选 id 各调两次（是乘法）。这里在 paint()/syncSel() 入口取一次、出口还原，
+       纯局部变量提升，判据一个字不改（`shown` / `kindOf` 只是改吃这一份）。 */
+    let libCache = null;
+    const all = () => (libCache || (libCache = D.Lib.list()));
+    const withLib = fn => { const prev = libCache; libCache = D.Lib.list(); try { return fn(); } finally { libCache = prev; } };
     const inGroup = c => !pickGroup || String(c.group || '').trim() === pickGroup;
     /* 顺序数组只算一次：PickSel 的 Shift 连选按「当前可见顺序」取那一段 */
     let order = [];
@@ -3054,7 +3087,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
             : ' · 三视图 ' + (three ? '有' : '无')}</div>
           ${D.Cast.voiceTag(c)}        </div></div>`;
     };
-    const syncSel = () => {
+    const syncSel = () => withLib(() => {
       const ids = pick.list();
       grid.querySelectorAll('.ap-item').forEach(el => el.classList.toggle('sel', pick.has(el.dataset.lib)));
       const sc = ids.filter(id => kindOf(id) === 'scene').length;
@@ -3072,8 +3105,8 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         ? (ids.length ? '用这些（' + ids.length + '）' : '清空点名 · 用整个素材库')
         : (ids.length ? '加入这一集（' + ids.length + '）' : '加入这一集');
       delBtn.disabled = !ids.length;
-    };
-    const paint = () => {
+    });
+    const paint = () => withLib(() => {
       const xs = shown();
       order = xs.map(c => c.id);
       const gs = D.Lib.groups().filter(g => all().some(x => x && String(x.group || '').trim() === g.name));
@@ -3119,7 +3152,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
           : '素材库还是空的：在下面「把本集角色与场景存进素材库」存一批，或「＋ 新建素材」直接手动建一条。');
       pick.reflow(order);
       syncSel();
-    };
+    });
     const useSel = () => {
       const ids = pick.list();
       if (picking) {
@@ -3936,7 +3969,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     /* 开头画面描述：边写边存（照台词那一列的写法）。AI 优化完只顶内容、不重画整栏
        —— 整页重画会把光标一起抹掉（paintText：正在敲这一格时连内容都不动）。 */
     const od = side.querySelector('textarea[data-act="openDesc"]');
-    if (od) bindText(od, v => { sh.openDesc = v; save(); });
+    if (od) bindText(od, v => { sh.openDesc = v; saveSoon(); });
     /* 场景 / 接上一段末帧：这两个字段原来只由文字 AI 写，AI 判错了界面上没有自救路径。
        下拉换成公共组件后，选项点一下会派发 change 事件（ui.js 的 Dropdowns），所以绑 onchange。 */
     side.querySelectorAll('[data-sel]').forEach(el => el.onchange = () => {
@@ -3972,7 +4005,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
       save(); paintSubShots(sh);
     });
     side.querySelectorAll('textarea[data-kf="desc"]').forEach(el =>
-      bindText(el, v => { const k = (sh.shots || [])[Number(el.dataset.k)]; if (k) { k.desc = v; save(); } }));
+      bindText(el, v => { const k = (sh.shots || [])[Number(el.dataset.k)]; if (k) { k.desc = v; saveSoon(); } }));
     /* 这两个下拉也要套公共下拉外壳（渲染时就地换掉原生 select，所以每次重画都要再 build 一次） */
     Dropdowns.build(side);
     /* `zoom` 要排除掉：机位候选的缩略图是 `data-a="zoom"`（右栏派发 `data-a`，
@@ -4096,7 +4129,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     paintDrift(sh);
     box.querySelectorAll('[data-lt]').forEach(el => {
       const i = Number(el.dataset.lt);
-      bindText(el, v => { if (sh.lines[i]) { sh.lines[i].text = v; save(); paintDrift(sh); } });
+      bindText(el, v => { if (sh.lines[i]) { sh.lines[i].text = v; saveSoon(); paintDrift(sh); } });
     });
     box.querySelectorAll('[data-li]').forEach(el => el.onchange = () => {
       const i = Number(el.dataset.li);
@@ -4128,14 +4161,42 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
   function takesLeft(sh) {
     return Math.max(0, D.maxTakes() - ((sh && sh.takes) || []).length);
   }
+  /* 上一次 `renderTakes` 画出来的**结构签名**（条数 / 状态 / 选中 / 有无画面 / 有无错误）。
+     只变 `t.stage`（进度文案）时走定点 patch，不重建整列 —— 见 renderTakes 开头那段。 */
+  let takesSig = '';
+  function takesStructSig(takes) {
+    return takeIdx + '|' + takes.length + '|' + takes.map(t => {
+      const running = !!(t.taskId && !t.abandoned && t.state !== 'done' && t.state !== 'failed');
+      return [t.no, t.state, running ? 1 : 0, (t.videoUrl || t.video) ? 1 : 0,
+        t.error ? 1 : 0, (t.notes || []).length].join(':');
+    }).join(',');
+  }
   function renderTakes(sh) {
     const box = $('takeBox'); if (!box) return;
     const takes = sh.takes || [];
     /* 这一格只出现在第 4 步（`renderTakes` 由 `renderSide` 在 !isPreview() 时调），而底栏
        「开始拍」只在第 3 步画 —— 原来这句话让人去按一个**这一屏根本没有**的按钮。
        这一屏真正能开拍的是右栏的「拍这一段」。预演怎么合成也说清（在本机，不调视频平台）。 */
-    if (!takes.length) { box.innerHTML = '<div class="ui-hint">这一段还没拍。预演是在本机把开头画面、配音与字幕实时合成的（不调视频平台、不占一次生成），'
+    if (!takes.length) { takesSig = ''; box.innerHTML = '<div class="ui-hint">这一段还没拍。预演是在本机把开头画面、配音与字幕实时合成的（不调视频平台、不占一次生成），'
       + '按「开始拍」才会真的生成视频 —— 上面那格里的「拍这一段」也可以。</div>'; return; }
+    /* 定点刷新（D3）：每条进度文案变化都会走 sayShot → paintShotState → renderTakes，
+       而进度只改 `t.stage` 一个字。以前这一格**每次都整列重建**：innerHTML 全换、
+       全部 [data-ti] 重绑、Dropdowns.build(box)，最后还 `bindSideCtl($('side'), sh)`
+       —— 那一下要扫整个右栏（262 行 / 约 103 个标签）并重挂每个 [data-a] 的 onclick。
+       每 4 秒把整个右栏扫一遍重接一遍，而实际只有一行状态字变了。
+       签名没变（条数/状态/选中/有无画面/有无错误都一样）且 DOM 行数对得上 → 只改 .st 文本；
+       只要有任何结构变化，照样走下面的完整重建（那条路把 bindSideCtl 补上，见末尾那段注释）。 */
+    const sig = takesStructSig(takes);
+    const rows = box.querySelectorAll('[data-ti]');
+    if (sig === takesSig && rows.length === takes.length) {
+      rows.forEach(el => {
+        const t = takes[Number(el.dataset.ti)];
+        const st = el.querySelector('.st');
+        if (t && st) st.textContent = t.state === 'done' ? '已出画面' : stateCn(t);
+      });
+      return;
+    }
+    takesSig = sig;
     box.innerHTML = takes.map((t, i) => {
       /* 没选中的那几条也把**失败原因**露出来。以前只有当前那条展开详情，
          列表里清一色一句「没拍成」—— 到底是平台报错、素材没送上去、还是报了别的什么，
@@ -4660,11 +4721,28 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
         : '<div class="dr-noimg">还没画开头画面</div>');
     sh.__subs = subs; sh.__total = total;
   }
+  /* 字幕轨缓存 + 逐帧早退（D4）。`D.Subs.takeSubs` 每次都新建一个数组和一批新对象，
+     于是「这一帧该显示的那一句与上一帧是不是同一句」根本没法比 —— 对象每次都是新的，
+     结果就是**每一帧都无条件 `el.innerHTML = …`**（浏览器重新 parse 字符串、拆节点、换 DOM），
+     60 Hz 不间断，而绝大多数帧的台词一个字都没变。这里做两件事：
+       ① 按内容指纹缓存字幕轨 —— 只有台词/说话人/时间轴真的变了才重算；
+       ② 记住上一帧那个 `hit` 的**引用**，同一个就直接 return，不碰 DOM。
+     指纹只取真正决定字幕的那几个字段；真实数据单段最多 5 句，这点成本远小于一次 innerHTML 解析。
+     §J：字幕轨推算仍然只有 `D.Subs` 这一份，这里只是把它**算一次**再多次读，没有另写一份。 */
+  let subsKey = '', subsCache = [];
+  const subsFp = arr => (arr || []).map(l => [l.text || '', l.who || '', l.start, l.end, l.dur].join('\u0001')).join('\u0002');
+  let lastSubHit = null;
   function paintSubs(t) {
     const el = $('subs'); if (!el) return;
     const sh = curShot(); if (!sh) return;
-    const subs = (t && t.lines && t.lines.length) ? D.Subs.takeSubs(sh, t) : (sh.__subs || D.Subs.previewSubs(sh));
+    const useTake = !!(t && t.lines && t.lines.length);
+    const key = sh.id + '|' + (t ? t.id : '') + '|' + (useTake ? 'T' + subsFp(t.lines) : 'S' + subsFp(sh.lines));
+    let subs;
+    if (key === subsKey) subs = subsCache;
+    else { subsKey = key; subs = subsCache = useTake ? D.Subs.takeSubs(sh, t) : (sh.__subs || D.Subs.previewSubs(sh)); }
     const hit = D.Subs.activeAt(subs, playerT);
+    if (hit === lastSubHit) { el.hidden = !hit; return; }     // 同一句：一个字都不改
+    lastSubHit = hit;
     if (!hit) { el.hidden = true; return; }
     el.hidden = false;
     el.innerHTML = (hit.speaker ? `<span class="who">${D.esc(hit.speaker)}：</span>` : '') + D.esc(hit.text);

@@ -431,6 +431,8 @@
          真正兜住总量的是 BYTES（3000 × 20KB ≈ 60MB，正好也在预算内）。 */
       CAP: 3000,
       BYTES: 64 * 1024 * 1024,      // 缓存总量上限（图片缩略图比视频帧大，条数之外再加一道字节闸）
+      PRUNE_MIN_MS: 8000,           // 两次全表淘汰之间至少隔这么久（见 _prune 的节流注释）
+      _lastPruneAt: 0,
       /* 开库、连接复用与事务全走 ui.js 的 Kv（这里以前也自己写过一份）；
          库/表名在 Kv 的登记表里（thumbs = wb_thumbs/thumbs），到调用时才取 */
       _tx(mode, fn) {
@@ -546,7 +548,13 @@
           if (ok && this._dirty.size) return this._flush();
           if (ok) {
             clearTimeout(this._pruneT);
-            this._pruneT = setTimeout(() => { this._prune(); }, 1000);
+            /* 节流闸（U6）：`_save` 是不 debounce 的，抽帧并发最高 6 路，首屏抽几十帧
+               就是几十次 `_flush` → 几十次 `_prune`，而每次 `_prune` 都在一个 readwrite
+               事务里 `getAll()` 把**整张缩略图表**读进内存排序（上限 3000 条 / 64 MB）。
+               淘汰语义（`_touched` / `_dirty` 保护、两趟顺序）一个字都不动，只加一道闸：
+               距上一次真扫不够 PRUNE_MIN_MS 就往后排，把几十次并成一次。 */
+            const wait = Math.max(1000, this.PRUNE_MIN_MS - (Date.now() - this._lastPruneAt));
+            this._pruneT = setTimeout(() => { this._lastPruneAt = Date.now(); this._prune(); }, wait);
           }
           return ok;                      // 失败保留 dirty，下一次保存 / hide 再试，不循环重试
         });
@@ -1810,7 +1818,13 @@
         const key = o.key || 'wb_split';
         const st = this._read(key);
         const clamp = (h, w) => Math.round(Math.min(h.max || 1200, Math.max(h.min || 160, w)));
-        const save = () => { try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
+        /* 落盘加 trailing debounce（U1）：拖拽期间 `move` 按屏幕刷新率触发（60~120 Hz），
+           以前每一个 pointermove 都同步写一次 localStorage（还连带 Storage 钩子的 queue）。
+           wb_split 在 SYNCABLE 名单里，queue 的 800 ms 合并窗口只压得住 PUT，压不住 setItem 本身。
+           拖拽中最多每 250 ms 写一次，松手时 flush 一次落定 —— 观感与「实时保存」无异。 */
+        let saveT = 0;
+        const flush = () => { if (saveT) { clearTimeout(saveT); saveT = 0; } try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
+        const save = () => { if (saveT) clearTimeout(saveT); saveT = setTimeout(flush, 250); };
         const put = (h, w) => { st[h.varName] = w; box.style.setProperty('--' + h.varName, w + 'px'); save(); };
         const clear = h => { delete st[h.varName]; box.style.removeProperty('--' + h.varName); save(); };
         hs.forEach(h => { if (Number(st[h.varName]) > 0) box.style.setProperty('--' + h.varName, clamp(h, st[h.varName]) + 'px'); });
@@ -1836,6 +1850,7 @@
               el.removeEventListener('pointercancel', up);
               el.classList.remove('on');
               document.body.classList.remove('wb-splitting');
+              flush();                       // 松手落定：把拖拽期间防抖掉的那一次补上（见 save 那段）
               layout();
             };
             el.addEventListener('pointermove', move);

@@ -48,6 +48,14 @@ window.Drama = (function () {
   };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  /* 可被「切回前台」提前唤醒的 sleep（D2）：后台标签页里轮询要放慢，
+     但用户切回来的那一刻应该立刻问一次，而不是干等一个被放大过的间隔。 */
+  const sleepWake = ms => new Promise(r => {
+    let t = setTimeout(done, ms);
+    function done() { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); r(); }
+    function onVis() { if (!document.hidden) done(); }
+    document.addEventListener('visibilitychange', onVis);
+  });
   const nowTs = () => Date.now();
   function read(k, def) { try { return (window.Store && Store.read) ? Store.read(k, def) : def; } catch { return def; } }
   function write(k, v, cap) {
@@ -1150,8 +1158,25 @@ window.Drama = (function () {
              十有八九是要加进这一组 —— 让人再抄一遍组名是多余的一步（筛到「未分组」时不带）。 */
           { key: 'group', label: '分组（可留空；拍短剧页能整组一次交给 AI）', type: 'text',
             value: opt.group || '', placeholder: '例：校园篇主要角色' },
-          { key: 'bio', label: kf.bio.lab, type: 'textarea', placeholder: kf.bio.ph },
+          /* 描述排在「人设」前面：它是出图与出资产的依据，先写「长什么样」再写「是什么人」更顺。
+             （以前两行是反的，填表时很容易把外貌写成性格。） */
           { key: 'look', label: kf.look.lab, type: 'textarea', placeholder: kf.look.ph },
+          /* 预览图**在建档这一步就能配**（用户要求）：不靠生成，直接从资产库 / 我的收藏 /
+             本机文件里拿一张现成的。留空也行 —— 存好之后还能出图或再挑。
+             选来的那张会先落成本机资产（本地上传的 blob: 地址一刷新就没了，
+             生成工作台与资产库那边也认不出它）。 */
+          { key: 'pic', label: '预览图（可留空）', type: 'pic', pickLabel: '挑一张',
+            hint: '从资产库 / 我的收藏 / 本机文件里挑一张现成的；留空也行，存好后还能按描述出图',
+            pick: async api => {
+              const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
+                title: '给这一条选一张预览图' });
+              if (!got || !got[0]) return;
+              const it = got[0];
+              const r = await window.AssetTransfer.toLocalAsset(it.file || it.dl || it.src || it.url,
+                { name: ((api.values().name || '素材') + '-预览图').slice(0, 40), from: it.provider || 'picker' });
+              api.set('pic', { value: r.src });
+            } },
+          { key: 'bio', label: kf.bio.lab, type: 'textarea', placeholder: kf.bio.ph },
           /* 一开是收着的（默认类型是角色）；选到场景才露出来。选项现读 `TIME_OFS`，
              不在页面里另写一份时段名单。 */
           { key: 'time', label: kindF('scene').time.lab, hint: kindF('scene').time.hint,
@@ -1159,12 +1184,23 @@ window.Drama = (function () {
             hidden: true },
         ],
         onChange: (key, api) => { if (key === 'kind') paint(api.values().kind, api); },
-        validate: f => f.name && f.name.trim() ? '' : '名字不能空着',
+        /* 重名**必须在这一步拦**：放到提交之后再报的话表单已经关了 ——
+           用户刚打进去的名字、描述、人设一起丢掉，只剩一句 toast。
+           validate 返回非空就停在表单里，输入全在。 */
+        validate: f => {
+          const nm = String(f.name || '').trim();
+          if (!nm) return '名字不能空着';
+          const cut = nm.slice(0, 20);
+          if (Lib.list().some(x => x && x.name === cut && libKindOf(x) === f.kind)) {
+            return '素材库里已经有「' + cut + '」这条' + (LIB_KINDS[f.kind] || '') + '了：同名会被当成同一条，换个名字';
+          }
+          return '';
+        },
       });
       if (!v) return null;
       const name = String(v.name || '').trim().slice(0, 20);
-      /* 库里「同类型 + 同名」= 两条一样的素材，之后「加入这一集」到底进哪一条说不清 —— 建的时候就拦住。
-         不同类型可以重名（角色「天台」与场景「天台」是两个东西），拉进本集时各进各的名单。 */
+      /* 兜底再查一次：表单开着的时候库可能被别的标签页改过（storage 事件那边会重画页面）。
+         走到这里才失败属于极少数，照旧返回 error 由调用方说话。 */
       if (Lib.list().some(x => x && x.name === name && libKindOf(x) === v.kind)) {
         return { error: '素材库里已经有「' + name + '」这条' + LIB_KINDS[v.kind] + '了：同名会被当成同一条' };
       }
@@ -1176,6 +1212,9 @@ window.Drama = (function () {
         ? Object.assign(newScene({ name, desc: v.look, time: v.time, group: v.group }), { bio: v.bio || '' })
         : v.kind === 'prop' ? newProp({ name, look: v.look, bio: v.bio, group: v.group })
           : newChar({ name, kind: v.kind, bio: v.bio, look: v.look, group: v.group });
+      /* 建档时挑好的那张预览图：`setPic` 按类型写到该写的字段上（角色/道具 face、场景 img），
+         页面不必知道这一条存的是哪个键。 */
+      if (v.pic) setPic(item, v.pic);
       const saved = Lib.save(item, { exact: true });
       /* 存不进去（配额撞满 / 库里那份读不出来）就别让页面接着说「建好了」：原因由数据层留着，
          取出来交回调用方去说（两个入口的提示组件不一样，话只能说一句）。 */
@@ -1918,6 +1957,9 @@ window.Drama = (function () {
     const meta0 = prop ? { 道具: item.name, 画幅: ar } : scene ? { 场景: item.name } : { 角色: item.name, 画幅: ar };
     const settled = await Promise.allSettled(prompts.map((prompt, i) =>
       AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: ar, count: 1,
+        /* 任务号回传给调用方落盘：切页之后这一轮 JS 就没了，但任务还在平台上跑 ——
+           存下号来，下次打开这一页能把它认领回来（见 assetlib 的 AiGen.adopt）。 */
+        onTask: o && o.onTask,
         log: { type: type, meta: total > 1 ? Object.assign({ 候选: (i + 1) + '/' + total }, meta0) : meta0 } })
         .then(e => (e.entries || [e]).filter(x => x && x.src))));
     /* 一张没成不打断整批，但一定要照实说「出了几张、哪几次没成」——
@@ -2000,12 +2042,18 @@ window.Drama = (function () {
     } else {
       notes.push('这个生图型号没有「参考图」槽位，' + label + '只能按文字描述重画，样子可能对不上预览图');
     }
+    /* 用户在这一行填的名字**要进提示词**，不能只当标签：填「雨天造型」却按通用「角色服装图」
+       去画，出来的东西跟他要的不是一回事（名字以前只写进了 `assetName`，图是按模板那句画的）。
+       名字放在最前面当主语，模板那句照旧跟在后面。 */
+    const typed = String((o && o.name) || '').trim();
     const prompt = await imagePrompt(REG, {
-      what: (table[tpl] || what) + (inputEntries ? '。严格沿用参考图里的同一个人与同一套服装，不要换脸、不要改发型' : ''),
+      what: (typed ? typed + '。' : '') + (table[tpl] || what)
+        + (inputEntries ? '。严格沿用参考图里的同一个人与同一套服装，不要换脸、不要改发型' : ''),
       name: item.name, look: descOf(item), style: episodeStyle(drama), ar: '16:9',
     });
     const e = await AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: '16:9', count: want,
       inputEntries: inputEntries,
+      onTask: o && o.onTask,        // 同上：任务号回传给页面落盘，切页回来能认领
       log: { type: '短剧-角色资产', meta: { 角色: item.name, 资产: name, 模板: tpl } } });
     const list = (e.entries || [e]).filter(x => x && x.src);
     /* 候选一律攒进 assetCands[tpl]，**已经存着的那张不因此被顶掉**（与预览图同一套做法）。
@@ -3108,8 +3156,17 @@ window.Drama = (function () {
   async function waitVideo(prov, taskId, onStage, timeoutMs, alive) {
     const t0 = Date.now();
     const limit = timeoutMs || 15 * 60 * 1000;
+    /* 指数退避 + 后台放慢（D2）：以前固定 4 秒，配 15 分钟上限 = **单条 take 最多 225 次轮询**，
+       6 条并发（PARALLEL_CHAINS）一次批量拍摄就是约 1350 次请求打向本地代理。
+       改成 4s 起、每轮 +2s、30s 封顶：早段仍够密（平台通常几分钟出片），晚段明显变稀；
+       标签页隐藏时再乘 4，回前台时 sleepWake 会立刻醒、马上问一次。
+       下面那两条语义（alive 放弃检查 / 超时）一个字都没动。 */
+    let step = 0;
     for (;;) {
-      await sleep(4000);
+      let wait = Math.min(30000, 4000 + step * 2000);
+      if (document.hidden) wait *= 4;
+      await sleepWake(wait);
+      if (step < 13) step++;
       /* 用户在拍片记录里按了「不等了」：立刻收手，不必再等满 15 分钟。
          任务号还留着（平台上那条多半还在跑、可能还会扣费），由 abandon 一并去取消。 */
       if (alive && !alive()) { const e = new Error('不等了'); e.abandoned = true; throw e; }
@@ -3414,14 +3471,24 @@ window.Drama = (function () {
   async function resumeAll(REG, drama, onStep, shouldStop) {
     const out = [];
     let stopped = 0;
+    const jobs = [];
     for (const sh of (drama.shots || [])) {
       for (const t of (sh.takes || [])) {
         if (t && t.abandoned) continue;          // 用户已经说「不等了」：刷新回来也不该又把它等一遍
         if (shouldStop && shouldStop()) { stopped++; continue; }   // 剩下的原样留在 takes 里，下次刷新接着接
-        if (onStep) onStep('第 ' + sh.no + ' 段 · ' + (t.stage || t.state));
-        try { if (await resumeTake(REG, drama, sh, t, onStep)) out.push({ sh: sh, take: t }); } catch {}
+        jobs.push({ sh: sh, t: t });
       }
     }
+    /* 并发续等（D6）：以前是双层 for + 逐条 await —— pending 上限 = PARALLEL_CHAINS = 6，
+       6 条各等 3 分钟就是 **18 分钟**。这里改用现成的 runPool（与批量拍摄同一条并发池，
+       不另写一份并发）。逐条的 try/catch 与「哪几条接回来了」的收集语义原样保留；
+       runPool 自己也会吞掉抛错，所以某一集出问题不会拖垮其余几条。
+       停下的判断放进 worker（不再预先筛掉），这样按「停下」之后池子里剩下的也会立刻收手。 */
+    await runPool(jobs, PARALLEL_CHAINS, async job => {
+      if (shouldStop && shouldStop()) { stopped++; return; }
+      if (onStep) onStep('第 ' + job.sh.no + ' 段 · ' + (job.t.stage || job.t.state));
+      try { if (await resumeTake(REG, drama, job.sh, job.t, onStep)) out.push({ sh: job.sh, take: job.t }); } catch {}
+    });
     if (stopped) out.stopped = stopped;
     return out;
   }
@@ -3905,7 +3972,12 @@ window.Drama = (function () {
           + ' data-src="' + esc(x.src) + '" data-name="' + esc((nm ? nm + ' · ' : '') + label) + '" alt="">'
           + '<span class="t">' + label + '</span>'
           + '<button class="ui-linkbtn" ' + A + '="' + esc(o.act || '') + '" data-src="' + esc(x.src) + '"'
-          + (o.extra || '') + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一张') + '</button></span>';
+          + (o.extra || '') + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一张') + '</button>'
+          /* 删掉这一张候选（`o.del` 由调用方给动作名）：攒了一排不满意的，得能一张张清掉 ——
+             以前只能「用这一张」或整个重出，挑剩下的永远留在那儿。 */
+          + (o.del ? '<button class="ui-linkbtn danger" ' + A + '="' + esc(o.del) + '" data-src="' + esc(x.src) + '"'
+            + (o.extra || '') + '>删掉</button>' : '')
+          + '</span>';
       }).join('') + (o.tail || '') + '</div>';
   }
   /* 声音候选那一排：一次合成几条试听、挑一条当这一位的声音。
@@ -4032,10 +4104,21 @@ window.Drama = (function () {
      不传就退回「注册表里第一个语音型号」，于是试听的是 A、拍出来是 B。
      返回值而不是抛错：{ why } 缺条件、{ cancelled } 用户自己关掉、{ label } 真放出来了。 */
   let previewAud = null;
+  /* 当前试听那个 blob 地址（D9）。`b64ToAudioBlobUrl` 是全项目**唯一**一处 createObjectURL，
+     而以前零处 revoke —— 每点一次试听就漏一个 URL（旧 previewAud 置空后可被 GC，
+     但 blob URL 本身要显式 revoke 才回收，是「依赖 GC 的软泄漏」）。换一条时把上一条收掉。
+     注意顺序：先 revoke **旧**的，再 new Audio(新 url) —— 反了会让刚拿到的地址变死链。 */
+  let previewAudUrl = '';
+  function dropPreviewUrl() {
+    if (!previewAudUrl) return;
+    try { URL.revokeObjectURL(previewAudUrl); } catch (e) {}
+    previewAudUrl = '';
+  }
   async function preview(REG, opts, c, o) {
     const stage = (o && o.onStage) || function () {};
     if (previewAud) { try { previewAud.pause(); } catch (e) {} }
     previewAud = null;
+    dropPreviewUrl();
     const rdy = voiceReady(REG, opts, c);
     if (!rdy.ok) return { why: rdy.why };
     /* 试听不再先弹一层模态问「会合成一小段」（2026-10 依用户要求去掉弹窗）：
@@ -4047,6 +4130,7 @@ window.Drama = (function () {
          于是「存的 X 不是这个型号的声音」（界面已经挂了黄标）时，试听放的是 X、拍出来的是 Y ——
          正是这里注释声称已避免的「试听听着是 A、拍出来是 B」。传 null 让它自己走 voiceOf。 */
       const url = await previewVoice(REG, c, null, opts);
+      previewAudUrl = url;
       previewAud = new Audio(url);
       previewAud.play().catch(() => { if (window.Toast) Toast.err('浏览器拦了自动播放，点一下再放'); });
       const vm = voiceWay(c, REG, opts).mode;
@@ -4058,6 +4142,7 @@ window.Drama = (function () {
   async function playAsset(src) {
     if (!src) return { why: '这一段不在了，重新出一次候选' };
     if (previewAud) { try { previewAud.pause(); } catch (e) {} previewAud = null; }
+    dropPreviewUrl();                                  // 换成资产地址了，上一条试听的 blob 地址收掉
     const a = new Audio(Api.mediaSrc(src));
     previewAud = a;
     try { await a.play(); } catch (e) { return { why: '浏览器没让自动播放：' + ((e && e.message) || e) }; }
@@ -4180,6 +4265,9 @@ window.Drama = (function () {
     DUR_PRESETS, ROLE_SOURCES, SET, TIME_OFS,
     durationBounds, durationFromMinutes, durationMinutes,
     setting, defaultDuration, aiDurOn, aiVoiceOn, nextInherit, maxTakes, candN, camN, previewCap, candCount,
+    /* 一份素材身上最多留几张候选图：页面在「认领切页前没等完的出图」时要把新图并进 faces，
+       上限必须与 drawPreview 用的**同一个数**，所以把它导出去（页面别自己写一个 8）。 */
+    FACE_CAP,
     newDrama, newChar, newScene, newProp, newShot, newTake, uid, esc,
     /* 素材库的「类型 / 分组 / 预览图」三件套：字段名只在这几个函数里换（库 face/look ↔ 剧侧 img/desc），
        页面自己判 kind === 'scene' 就会和 pullInto 走岔。`episodePool` 也挂出来 ——

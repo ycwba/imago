@@ -90,6 +90,11 @@
   .card .edit label.ck { display: flex; align-items: flex-start; gap: 7px; line-height: 1.5; }
   .card .edit label.ck input { margin-top: 2px; }
   .card .edit input:focus, .card .edit textarea:focus { border-color: var(--acc); }
+  /* 编辑区的小节标题：把原来一长条 label 分成「基本信息 / 描述 / 画面 / 声音」几组。
+     `.edit` 是 flex column + gap:8px，所以这里只补「上面多留一点」的那一点边距。 */
+  .card .edit .ed-sec { margin: 6px 0 -2px; font-size: 11px; font-weight: 600; color: var(--sub); letter-spacing: .05em; }
+  /* 一节里并排的几颗按钮（画面那两颗、声音那两颗） */
+  .card .edit .ed-acts { display: flex; flex-wrap: wrap; gap: 8px; }
   .empty { line-height: 1.9; }   /* 其余交给 ui.css 的 .empty（字号跟公共的 13px） */
   .busy { font-size: 12px; color: var(--acc); }
   /* 列表档：横条一行一位，缩略图在左、信息在右 */
@@ -131,6 +136,7 @@
   </div>
   <div class="toolbar3">
     <span class="pick">出图型号<span id="imgPick"></span></span>
+    <span class="pick">出图张数<span id="candPick"></span></span>
     <span class="pick">语音型号<span id="ttsPick"></span></span>
   </div>
 
@@ -275,6 +281,84 @@
     return saved;
   }
   const src = s => Api.mediaSrc(s);
+  /* ---------- 「切页不丢」：把正在跑的出图任务号落盘 ----------
+     外壳换页会把这一页的 JS 整个丢掉，但**平台那边的任务还在跑**。以前回来之后占位没了、
+     图也没了，只能重花一次钱；现在拿到任务号就存下来，下次打开这一页把它们认领回来接着等
+     （`D.AiGen.adopt`，不重发请求）。
+     形状：{ 'bus#条目id': { kind, id, at, label, tasks: [{ prov, id }] } }
+     用 localStorage 而不是 Store：这是本机一次性的临时状态，不该跟着云同步走。 */
+  const PEND = (() => {
+    let m = {};
+    try { m = JSON.parse(localStorage.getItem('char_pending') || '{}') || {}; } catch (e) { m = {}; }
+    const save = () => { try { localStorage.setItem('char_pending', JSON.stringify(m)); } catch (e) {} };
+    return {
+      get(k) { return m[k]; },
+      set(k, rec) { m[k] = rec; save(); },
+      del(k) { if (m[k]) { delete m[k]; save(); } },
+      all() { return Object.keys(m).map(k => ({ key: k, rec: m[k] })); },
+    };
+  })();
+  /* 交给 D.Pipe 的 onTask：拿到任务号就记进待认领表。
+     `genRun` 在跑之前把它设成当前那一条的记录器（见 genRun），所以生成函数里
+     只要原样把 `onTask: onTaskHook` 传下去就行，不必每处各写一遍 id 与 bus。 */
+  let curPend = null;
+  const onTaskHook = info => {
+    if (!curPend || !info || !info.id) return;
+    const rec = PEND.get(curPend.key) || { kind: curPend.kind, id: curPend.id, at: 0, label: '', tasks: [] };
+    rec.at = Date.now();
+    rec.label = curPend.label || rec.label;
+    if (!rec.tasks.some(t => String(t.id) === String(info.id))) {
+      rec.tasks.push({ prov: (info.prov && info.prov.id) || '', id: info.id });
+    }
+    PEND.set(curPend.key, rec);
+  };
+  /* 回来把上次没等完的出图认领回来：不重发请求，只接着等，拿到就按**与正常出图同一套规则**
+     写回（预览图进 faces、没有主图就顶上；资产追加一张）。半小时以前的不再打扰（平台多半已经清了）。 */
+  async function resumePending() {
+    const stale = 30 * 60 * 1000;
+    let done = 0, lost = 0;
+    for (const { key, rec } of PEND.all()) {
+      if (!rec || !Array.isArray(rec.tasks) || !rec.tasks.length) { PEND.del(key); continue; }
+      if (Number(rec.at) < Date.now() - stale) { PEND.del(key); continue; }
+      const c = D.Lib.list().find(x => x && x.id === rec.id);
+      if (!c) { PEND.del(key); continue; }
+      genSet(rec.kind, rec.id, '正在取回上次没等完的出图…');
+      paintCard(c);
+      const got = [];
+      for (const t of rec.tasks) {
+        try {
+          const e = await D.AiGen.adopt(t.prov, t.id, { want: 1 });
+          (e.entries || [e]).filter(x => x && x.src).forEach(x => got.push(x.src));
+        } catch (e2) { /* 取不回来的那条不打断其余的；下面照实说 */ }
+      }
+      genClear(rec.kind, rec.id);
+      PEND.del(key);
+      if (!got.length) { lost++; paintCard(c); continue; }
+      const bus = String(rec.kind || '');
+      if (bus === 'face') {
+        const old = (c.faces || []).slice();
+        c.faces = got.map((s2, i) => ({ src: s2, name: '第 ' + (old.length + i + 1) + ' 张' })).concat(old).slice(0, D.FACE_CAP);
+        if (!D.picOf(c)) D.setPic(c, got[0]);
+      } else if (bus.indexOf('asset#new:') === 0) {
+        D.Cast.addAsset(c, { name: rec.label || '', tpl: bus.slice('asset#new:'.length), src: got[0] });
+      } else if (bus.indexOf('asset#') === 0) {
+        const a = D.Cast.assetById(c, bus.slice('asset#'.length));
+        if (a) { a.src = got[0]; D.Cast.assetsSave(c, D.Cast.assetsOf(c)); }
+      }
+      libSave(c);
+      done++;
+      paintCard(c);
+    }
+    if (done) Toast.ok('取回了 ' + done + ' 条上次没等完的出图（切页之前发出去的，任务一直在平台上跑）', 6000);
+    if (lost) Toast.warn('有 ' + lost + ' 条上次的出图没取回来（平台可能已经清了那条任务），在编辑区里重出一次即可', 8000);
+  }
+  /* 编辑区打字时的落盘：700ms 防抖（见 bindCard 的 data-f 那一圈）。
+     只留一个计时器：同时只可能有一个编辑区开着（`openId`），不必按条目分桶。 */
+  let fieldTimer = null;
+  function queueFieldSave(c) {
+    clearTimeout(fieldTimer);
+    fieldTimer = setTimeout(() => { libSave(c); }, 700);
+  }
   const isScene = x => D.isSceneItem(x);
   const isProp = x => D.isPropItem(x);
   /* 「这一条会不会说话」只有这一份判据（D.Cast.isVoiced）—— 场景与道具不出声。
@@ -292,6 +376,9 @@
      （失败重试、批量补画），它们不是候选场景。 */
   const ONE = 1;
   const candCount = () => Math.max(ONE, Number(D.candCount(REG, opts)) || ONE);
+  /* 按钮文案里的张数：**只在多于 1 张时才写出来**（1 张时说「出预览图」本来就是一张）。
+     一律现算 `candCount()` —— 文案上的数与真正发出去的数量必须是同一个数。 */
+  const nSuffix = () => { const n = candCount(); return n > 1 ? ' ' + n + ' 张' : ''; };
   /* 「再画 N 张」那颗按钮：张数与文案都现算（设置改了、平台换了上限，按钮跟着变）。 */
   function moreCandsBtn(kind, dis) {
     const n = candCount();
@@ -305,14 +392,14 @@
         与「一张图一个名字」冲突。资产出图走编辑区里那一行自己的表单。 */
   const CANDK = {
     face: { bus: 'face', lab: '预览图',
-      gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+      gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, { onTask: onTaskHook }),
       got: x => D.picOf(x), set: (x, v) => D.setPic(x, v) },
   };
   /* 场景 / 道具的主图与角色同一条路（`drawPreview` 按类型自己判），只是那张在用的字段
      是 `img`（场景）而不是 `face`，所以这里补两个别名指向同一份实现。 */
-  CANDK.img = { bus: 'face', lab: '场景图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+  CANDK.img = { bus: 'face', lab: '场景图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, { onTask: onTaskHook }),
     got: x => x.img, set: (x, v) => { x.img = v; } };
-  CANDK.prop = { bus: 'face', lab: '道具图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, {}),
+  CANDK.prop = { bus: 'face', lab: '道具图', gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, { onTask: onTaskHook }),
     got: x => x.face, set: (x, v) => { x.face = v; } };
   /* 这一条的主图属于哪一档（角色=face / 场景=img / 道具=prop） */
   const mainKind = c => isScene(c) ? 'img' : isProp(c) ? 'prop' : 'face';
@@ -335,12 +422,21 @@
   }
   /* 跑一份生成：记账 → 只重画这一张卡（整页 render 会连编辑区一起收起）→ 跑 → 撤账再重画。
      `quiet` 给批量那一轮用：原因写在这张卡上（errSet + 卡片红字），不再一条一声 toast。 */
-  async function genRun(kind, id, c, msg, fn, quiet) {
+  async function genRun(kind, id, c, msg, fn, quiet, label) {
     if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中，好了会自动出现，不用再点一次'); return false; }
     genSet(kind, id, msg); errSet(kind, id, ''); paintCard(c);
+    /* 这一轮的任务号记到哪个条目上（见 PEND / onTaskHook）：生成函数里把 `onTask: onTaskHook`
+       原样传下去，拿到号就落盘 —— 切页之后回来能认领。
+       `label` 只在「切页后要凭它给新资产起名」时才用得到（资产那一行填的名字）。 */
+    const prevPend = curPend;
+    curPend = { key: kind + '#' + id, kind: kind, id: id, label: label || '' };
     let err = '';
     try { await fn(); } catch (e) { err = (e && e.message) || String(e); }
+    curPend = prevPend;
     genClear(kind, id);
+    /* 这一轮已经结束了（成没成都一样），从待认领表里摘掉：留着的话下次开页面会去等一个
+       早就收完的任务，白转一圈。 */
+    PEND.del(kind + '#' + id);
     /* 砸了也要写库：这一轮可能已经改动了候选/时间戳，只把原因记在页面上。 */
     libSave(c);
     errSet(kind, id, err);
@@ -551,7 +647,7 @@
     const tail = editOpen ? moreCandsBtn(kind, false) : '';
     return busy
       ? `<div class="ui-cands"><span class="lab">${esc(pw)}候选</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${editOpen ? moreCandsBtn(kind, true) : ''}</div>`
-      : D.Cast.picCandsHTML(list, D.picOf(c), { act: 'usecand', label: pw + '候选', name: c.name,
+      : D.Cast.picCandsHTML(list, D.picOf(c), { act: 'usecand', del: 'canddel', label: pw + '候选', name: c.name,
           extra: ' data-k="' + kind + '"', tail: tail });
   }
   function cardHTML(c) {
@@ -571,14 +667,18 @@
     /* 只出声的那一位不进画面：出图的两个入口对它是纯噪音（拍短剧页那边同样不给它画脸），
        所以这里连按钮都不画，而不是画一颗点了什么都不发生的按钮。 */
     const vo = voiced(c) && D.voiceOnlyOf(c);
+    /* 生成中**先占位**（哪怕这一条已经有旧图）：旧图一动不动地留在那里，
+       人分不清「点了没反应」和「正在出」；出完 genRun 会重画这一张卡，新图自动换上。
+       占位期间不给 data-a —— 那时候点开的是**旧图**，会让人以为新图已经出来了。 */
     const thumb = vo
       ? `<div class="thumb" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
-      : `<div class="thumb" data-a="${pic ? 'zoomface' : 'pickface'}" title="${pic
-        ? pw + '：点一下看大图'
-        : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + pw + '」'}">
-        ${pic ? `<img src="${esc(src(pic))}" alt="">` : (faceBusy
-          ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
-          : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`)}</div>`;
+      : `<div class="thumb"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'pickface'}"`} title="${faceBusy
+        ? '正在出' + esc(pw) + '：出来会自动换上'
+        : pic ? pw + '：点一下看大图'
+          : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + pw + '」'}">
+        ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
+          : pic ? `<img src="${esc(src(pic))}" alt="">`
+            : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`}</div>`;
     /* **收起状态下不摆任何生成按钮**（用户要求）。
        以前这一行摆着「AI 重出预览图 / AI 重出三视图 / AI 出表情表 / AI 出服装」四颗 ——
        每一颗都是**花钱动作**，而素材库这一屏是给人「浏览素材」的：
@@ -590,10 +690,11 @@
         <div class="nm">${nmInner(c)}</div>
         <div class="tags">
           ${D.Cast.voiceTag(c)}
-          ${/* 「试听」也只在编辑区里：它会**真的合成一小段**（play → D.Cast.preview），
-             是花钱动作。原来是「没定音色时收起也摆着」，那正是最容易被顺手点掉的一颗。
-             ⚠ 这段注释在模板串里，一个反引号都不能有（会当场闭合模板串 → 整页白屏）。 */
-            editOpen ? `<button class="ui-linkbtn" data-a="play"${genHas('voice', c.id) ? ' disabled' : ''}>试听</button>` : ''}
+          ${/* 导演台里有多少个镜头写了 @这个名字（见上面 loadRefUse）。引用是按名字对上的，
+               改了名这里就归零 —— 那正是「提示词里的 @旧名 已经对不上了」的信号。
+               ⚠ 这段注释在模板串里，一个反引号都不能有（会当场闭合模板串 → 整页白屏）。 */
+            refTag(c)}
+          ${editOpen ? `<button class="ui-linkbtn" data-a="play"${genHas('voice', c.id) ? ' disabled' : ''}>试听</button>` : ''}
         </div>
         <div class="bio">${bioInner(c)}</div>
         ${assetList.length ? `<div class="assets">${assetList.map(a => {
@@ -632,7 +733,19 @@
        每一行 = 缩略图 + **名字输入框**（可就地改）+ 关联道具多选 + 重出 + 去掉。
        关联道具（用户要求）：这一张图上带着哪几件东西 —— 换衣服那张要把那顶帽子一起
        算进这一位的道具，拍摄时才会跟着人走。挑法是多选，不是「这一张属于某件道具」，
-       因为同一张图可能同时带两件（风衣 + 围巾）。 */
+       因为同一张图可能同时带两件（风衣 + 围巾）。
+
+       ⚠ 这一整段全是 `const`，**拼模板之前必须全部算完**：模板里用到谁，谁就得先声明。
+       2026-10 出过一次真实事故 —— `assetListHTML` 里用了下面才声明的 `anTxt`，
+       而它包在 `list.length ?` 里：只有「有角色资产的条目」点编辑时抛 TDZ，
+       整张卡当场从列表里消失（连它后面那几张也一起不画了）。
+       新增片段时一律加在这个注释块下面、return 之前。 */
+    const dr = draftOf(c.id);
+    const drTpl = tpls.includes(dr.tpl) ? dr.tpl : (tpls[0] || 'custom');
+    /* 资产这一档**固定一张**，不跟「出图张数」走：这些图拍摄时都会作为参考图发给视频 AI
+       （按平台声明的上限截），一次出 3 张就是 3 张几乎一样的参考图去抢那几个位置 ——
+       数量越多反而越差。所以按钮上写「这一张」，提交也是 1 张。 */
+    const anTxt = '这一张';
     const assetListHTML = list.length ? '<div class="ui-cands"><span class="lab">角色资产 ' + list.length + ' 张</span>'
       + '<div class="ui-assets">' + list.map(a => {
         const lab = D.Cast.assetName(a);
@@ -640,7 +753,7 @@
         return `<div class="ui-asset" data-aid="${esc(a.id)}">`
           + `<span class="ui-cand"><img src="${esc(src(a.src))}" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" alt=""></span>`
           + `<input class="ui-inp" data-a="assetrename" data-id="${esc(a.id)}" maxlength="24" value="${esc(lab)}" title="这一张叫什么（改了立刻存）">`
-          + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出这一张</button>`
+          + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出${anTxt}</button>`
           + `<button class="ui-linkbtn" data-a="reuse" data-src="${esc(a.src || '')}" data-name="${esc(lab)}" title="带着这一张去生成工作台，放进参考图那一栏">拿去生成</button>`
           + `<button class="ui-linkbtn" data-a="assetclear" data-id="${esc(a.id)}" data-label="${esc(lab)}">去掉这一张</button>`
           + (libProps.length ? '<span class="ui-props">' + opts + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，可以在拍短剧页「道具」里加</span>')
@@ -651,14 +764,14 @@
     /* 出图表单：名字 / 模板 / 自定义描述 一次填一遍。模板只是**出图时**选一次，
        存下来的只是一张有名字的角色资产 —— 所以界面上没有「三视图」「表情表」这些分栏。
        三个值都从 `DRAFT` 里取（不是空着重画）：出完一张会重画这张卡，
-       正在打的字与挑好的模板不能跟着没。 */
-    const dr = draftOf(c.id);
-    const drTpl = tpls.includes(dr.tpl) ? dr.tpl : (tpls[0] || 'custom');
-    const assetGenHTML = tpls.length ? '<div class="ui-cands"><span class="lab">加一张角色资产</span>'
-      + `<input class="ui-inp" data-a="assetname" maxlength="24" value="${esc(dr.name)}" placeholder="这一张叫什么（留空就用模板名）">`
+       正在打的字与挑好的模板不能跟着没。
+       `!vo`：勾了「只出声」的这一位不出画面，入口就不摆（下面那句提示就是这么说的，
+       以前照样摆着 —— 提示与界面互相打脸）。 */
+    const assetGenHTML = (tpls.length && !vo) ? '<div class="ui-cands"><span class="lab">加一张角色资产</span>'
+      + `<input class="ui-inp" data-a="assetname" maxlength="24" value="${esc(dr.name)}" placeholder="这一张叫什么（填了就按它画，留空用模板名）">`
       + `<select data-a="assettpl">${tpls.map(k => `<option value="${esc(k)}"${k === drTpl ? ' selected' : ''}>${esc(D.Cast.assetLabel(c, k) || k)}</option>`).join('')}</select>`
       + `<input class="ui-inp" data-a="assetwhat" maxlength="60" value="${esc(dr.what)}" placeholder="选「自定义」时写清楚要画什么，例：雨天造型、侧脸特写">`
-      + `<button class="ghost mini" data-a="assetgen">AI 出这一张</button>`
+      + `<button class="ghost mini" data-a="assetgen">AI 出${anTxt}</button>`
       + `<button class="ui-linkbtn" data-a="assetpick2">＋ 自己传一张</button>`
       + '</div>' : '';
     /* 正在出的那几张（新加的与重出的）在资产这一块各给一行占位：以前只有底栏那一句在转，
@@ -671,30 +784,35 @@
       }
       return out.join('');
     })();
+    /* 主图那两颗按钮：摆在「画面」这一节里，而不是编辑区最底下 ——
+       它们动的是这一条的主图，与「去掉参考音频」不是一类事。 */
+    const picBtns = vo ? '' : `<button class="ghost" data-a="face"${genHas('face', c.id) ? ' disabled' : ''}>${genHas('face', c.id) ? '正在出' + pw : (D.picOf(c) ? 'AI 重出' : 'AI 出') + nSuffix() + pw}</button>`
+      + `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`;
     return `<div class="edit" data-edit="${esc(c.id)}">
       <div class="eh"><span class="t">编辑「${esc(c.name || '这条素材')}」· 改完就地存</span>
+        ${refTag(c)}
         <button class="ui-linkbtn" data-a="closeedit" title="收起这一块的编辑区（按 Esc 也一样）">收起</button></div>
+
+      <div class="ed-sec">基本信息</div>
       <label>名字<input data-f="name" value="${esc(c.name || '')}" maxlength="20"></label>
       <label>类型<select data-f="kind">${Object.keys(D.LIB_KINDS).map(k =>
         `<option value="${k}"${D.libKindOf(c) === k ? ' selected' : ''}>${D.LIB_KINDS[k]}</option>`).join('')}</select></label>
       <label>分组（拍短剧页可以整组一次交给 AI）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
+
+      <div class="ed-sec">描述</div>
       <label>${kf.look.lab}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
       ${sc ? `<label>${kf.time.lab}<select data-f="time" title="${esc(kf.time.hint)}">${D.Cast.timeOptsHTML(c)}</select></label>` : ''}
       <label>${kf.bio.lab}<input data-f="bio" value="${esc(c.bio || '')}"></label>
       ${voiced(c) ? `<label class="ck"><input type="checkbox" data-f="voiceOnly"${D.voiceOnlyOf(c) ? ' checked' : ''}>`
         + ' 只出声（不出镜）—— 这一位不需要' + pw + '与角色资产，拉进某一集时按旁白处理</label>' : ''}
-      ${voiced(c) ? '<label>声音</label>' : ''}
-      ${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}
-      ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。'
-        + '拍摄时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
       ${vo ? '<div class="ui-hint">这一位勾了「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就把上面那个勾去掉）。老库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
+      ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。拍摄时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
+
+      ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>`}
       ${assetListHTML}${waitRows}${assetGenHTML}
-      <div class="acts">
-        ${vo ? '' : `<button class="ghost" data-a="face"${genHas('face', c.id) ? ' disabled' : ''}>${genHas('face', c.id) ? '正在出' + pw : (D.picOf(c) ? 'AI 重出' : 'AI 出') + pw}</button>`}
-        ${vo ? '' : `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`}
-        <span class="sp"></span>
-        ${voiced(c) ? `<button class="ghost danger" data-a="refclear" ${c.refAudio ? '' : 'disabled'}>去掉参考音频</button>` : ''}
-      </div>
+
+      ${voiced(c) ? `<div class="ed-sec">声音</div>${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}`
+        + `<div class="ed-acts"><button class="ghost danger" data-a="refclear" ${c.refAudio ? '' : 'disabled'} title="清掉这一位复刻用的那段参考音频">去掉参考音频</button></div>` : ''}
     </div>`;
   }
 
@@ -710,13 +828,32 @@
          而这一颗按钮在已经有图时写着「AI 重出」，不覆盖就等于点下去没反应。 */
       face: async () => {
         const pw = picWord(c);
-        await genRun('face', c.id, c, '正在出「' + c.name + '」的' + pw + '…',
-          () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, replace: true }));
+        /* 出几张跟着「出图张数」走（= 设置页那一项）：第 1 张顶上当当前图，其余进候选让你换。
+           以前这里写死 `count: ONE`，而同一个页面上的「再画 N 张候选」按设置出 N 张 ——
+           两个按钮对「几张」各有一套说法，用户只能猜。 */
+        await genRun('face', c.id, c, '正在出「' + c.name + '」的' + pw + '（' + candCount() + ' 张）…',
+          () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: candCount(), replace: true, onTask: onTaskHook }));
       },
       /* 候选排那两个动作。主图走 CANDK，`data-k` 指明是哪一档
          （主图那排 `picCandsHTML` 带的 extra 已经写好了）。资产不再有候选排。 */
       morecand: async el => { await moreCands(c, el.dataset.k || mainKind(c)); },
       usecand: async el => { useCand(c, el.dataset.k || mainKind(c), el.dataset.src); },
+      /* 删掉一张候选（用户要求）：攒了一排不满意的得能一张张清掉，
+         以前只能「用这一张」或整个重出，挑剩下的永远留在那儿。
+         删的正好是**在用的那张**时把当前图顺位挪到剩下第一张，一张不剩就清空 ——
+         否则 picOf 会指着一张已经不在的图（界面上是破图 + 出图按钮还写着「已有」）。 */
+      canddel: async el => {
+        const k = CANDK[el.dataset.k || mainKind(c)]; if (!k) return;
+        const src = el.dataset.src;
+        const before = (c.faces || []).slice();
+        const next = before.filter(x => x && x.src !== src);
+        if (next.length === before.length) return;
+        c.faces = next;
+        if (k.got(c) === src) k.set(c, (next[0] && next[0].src) || '');
+        const ok = !!libSave(c);
+        paintCard(c);
+        if (ok) toast('删掉了这一张候选', 'ok');
+      },
       /* 候选排里的缩略图（picCandsHTML 用 data-act="zoom"）。两页共用那份标记，
          所以点开看大图这一件事也得在这边接上 —— 不接就是一张点不开的小图。
          它带的是 `data-name`（drama.js 拼的「名字 · 第 N 张」），本页 openZoom 读 `data-label`。 */
@@ -777,13 +914,15 @@
         const what = (box.querySelector('[data-a="assetwhat"]') || {}).value || '';
         if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
         const lab = nm.trim() || D.Cast.assetLabel(c, tpl) || '资产';
-        const n = candCount();
+        /* 固定 1 张（见上面 anTxt 那段）：这些图拍摄时都会当参考图发出去，多出几张只会互相抢位置。 */
+        const n = ONE;
         /* 闸门键只用「新加一张 + 模板」，**不带名字**：以前把名字拼进键里，于是
            改一下名字再点一次就是另一个键 —— 「这一项正在生成」那道拦白花的闸门根本没关上，
            同一张图会被发出去两次。名字只在进度那句话里说。 */
         const ok = await genRun('asset#new:' + tpl, c.id, c,
-          '正在出「' + c.name + '」的' + lab + '（' + n + ' 张）…',
-          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, tpl, { count: n, name: nm.trim(), what: what.trim() }));
+          '正在出「' + c.name + '」的' + lab + '…',
+          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, tpl, { count: n, name: nm.trim(), what: what.trim(), onTask: onTaskHook }),
+          false, lab);
         /* 出成了就把这一行的名字/描述清空（它已经变成列表里那张有名字的资产），
            模板留着 —— 连着出几张同类的最常见，不用每次重挑。 */
         if (ok) DRAFT.set(c.id, { name: '', tpl: tpl, what: '' });
@@ -794,9 +933,8 @@
         const a = D.Cast.assetById(c, el.dataset.id);
         if (!a) return Toast.err('这一张已经不在了');
         const lab = D.Cast.assetName(a);
-        const n = candCount();
-        await genRun('asset#' + a.id, c.id, c, '正在重出「' + c.name + '」的' + lab + '（' + n + ' 张）…',
-          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, a.tpl, { count: n, name: lab, replaceId: a.id }));
+        await genRun('asset#' + a.id, c.id, c, '正在重出「' + c.name + '」的' + lab + '…',
+          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, a.tpl, { count: ONE, name: lab, replaceId: a.id, onTask: onTaskHook }));
       },
       /* 去掉**这一张**（资产是列表，去掉的是某一张而不是整类）。 */
       assetclear: async el => {
@@ -942,8 +1080,12 @@
     if (window.Dropdowns) Dropdowns.build(card);
     card.querySelectorAll('[data-f]').forEach(el => {
       const ck = el.type === 'checkbox';
-      const save = () => {
-        const k = el.dataset.f;
+      const k = el.dataset.f;
+      /* 名字在**聚焦那一刻**先记一份：oninput 会实时把 c.name 改成新值，
+         等 blur 再想问「原来叫什么」就已经没了 —— 而改名要拿旧名去查 @ 引用。 */
+      let nameBefore = '';
+      if (k === 'name') el.onfocus = () => { nameBefore = String(c.name || '').trim(); };
+      const save = async () => {
         const wasKind = D.libKindOf(c);
         /* 勾选框的 `value` 恒是 "on"，要读的是 `checked` —— 少这一条，「只出声」会把 true 存成字符串 */
         c[k] = ck ? el.checked : (el.value.trim ? el.value.trim() : el.value);
@@ -958,11 +1100,26 @@
             return k;
           }
         }
+        /* 改名会让导演台提示词里的 @旧名 再也对不上（引用是**按名字**对上的，见 loadRefUse）：
+           有引用就先问一句，别让人改完名才发现那些镜头指着一个不存在的东西。
+           取消就把输入框与数据一起退回去。 */
+        if (k === 'name' && nameBefore && String(c.name || '').trim() !== nameBefore) {
+          const n = refUse.get(nameBefore) || 0;
+          if (n) {
+            const ok = await Confirm.ask({
+              title: '这个名字有 ' + n + ' 处引用',
+              body: '导演台里有 ' + n + ' 个镜头的提示词写着 @' + nameBefore + '，引用是按名字对上的 —— '
+                + '改成新名字之后，那些 @' + nameBefore + ' 就指不到这一条了。仍然改吗？',
+              okLabel: '改名',
+            });
+            if (!ok) { c.name = nameBefore; el.value = nameBefore; queueHeads(c); return k; }
+          }
+        }
         const saved = libSave(c);
         /* 名字这一项库里有它自己的规矩（不许空、裁到 20 字）：清空它时库里退回旧名，
            输入框却还摆着空白 —— 以库里那份为准写回，否则「界面空的、库里有人」。
            `libSave` 返回 null 是「这一笔没存进去」（原因它已经弹过了），那就更不该改输入框。 */
-        if (k === 'name' && saved) { c.name = saved.name; el.value = saved.name; }
+        if (k === 'name' && saved) { c.name = saved.name; el.value = saved.name; nameBefore = saved.name; }
         return k;
       };
       if (el.tagName === 'SELECT') el.onchange = () => { save(); render(); };
@@ -972,10 +1129,12 @@
         el.onchange = () => { save(); paintCard(c); paintChips(); };
       }
       else {
-        el.oninput = () => { c[el.dataset.f] = el.value; };
+        /* 打字时也落盘（700ms 防抖）：以前只在 blur 存，打完字直接关页面 / 切页那一笔就没了。
+           **名字不在这一列** —— 它要等 blur 时那次「改名会断开 @ 引用」的确认。 */
+        el.oninput = () => { c[k] = el.value; if (k !== 'name') queueFieldSave(c); };
         /* blur 只写库（标题那一行等松手后补画，见 queueHeads）：这里整页 render 会吃掉「收起」
            那颗按钮的 click（blur 在 mousedown 时就触发了，重建 DOM 后点下去的那颗按钮已经换成新节点）。 */
-        el.onblur = () => { save(); queueHeads(c); };
+        el.onblur = () => { clearTimeout(fieldTimer); save(); queueHeads(c); };
       }
       el.onclick = e => e.stopPropagation();
     });
@@ -1066,7 +1225,7 @@
       await D.Pipe.runPool(p.jobs, FILL_CONC, async (j) => {
         if (stopFlag) return;
         const c = j.c;
-        if (j.face) await genRun('face', c.id, c, '', () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE }), true);
+        if (j.face) await genRun('face', c.id, c, '', () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, onTask: onTaskHook }), true);
         if (stopFlag) return;
         if (j.three) {
           if (!D.picOf(c)) {
@@ -1075,7 +1234,7 @@
             errSet('asset#three', c.id, '预览图这次没出来；三视图要照着它画，所以这一步跳过了');
             paintCard(c);
           } else {
-            await genRun('asset#three', c.id, c, '', () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE }), true);
+            await genRun('asset#three', c.id, c, '', () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE, onTask: onTaskHook }), true);
           }
         }
         done++;
@@ -1270,10 +1429,58 @@
     if (aiPick && !aiPick.has(saved.id)) { aiPick = null; aiWhy = ''; hid.push('退出「AI 挑的那批」'); }
     Toast.ok('建好了：' + saved.name + '。编辑区已经打开——' + r.tip
       + (hid.length ? '（' + hid.join('、') + '，不然这一张不在当前这一档里）' : ''));
-    openId = saved.id; resetPaging(); render();
-    /* 新建的那一条多半排在名单末尾（按创建时间），不滚过来人只看到一片旧卡 + 一句「已经打开」 */
+    openId = saved.id; resetPaging(); await render();
+    /* 名单是按**名字拼音**排的（见 orderItems），新建的那一条可能落在任何一页 ——
+       只写一句「编辑区已经打开」，人却在当前这一页上找不到它。
+       先把显示窗口撑到它那一格（动态加载）/ 跳到它所在那一页（翻页模式），再重画一次。 */
+    if (revealItem(saved.id)) await render();
     const mine = document.querySelector('.card[data-id="' + saved.id + '"]');
     if (mine && mine.scrollIntoView) mine.scrollIntoView({ block: 'center' });
+    /* 建完顺手问一句「现在出一张图」：这一条刚写好描述，正是出图最顺的时候。
+       不问的话得自己进编辑区再点一次「AI 出预览图」—— 中间那一步几乎没人会想起来。 */
+    await offerFirstPic(saved);
+  }
+  /* 把某一条拉进当前显示范围。返回 true = 分页窗口动过，调用方要重画一次。 */
+  function revealItem(id) {
+    const i = viewItems.findIndex(x => x && x.id === id);
+    if (i < 0) return false;                       // 被筛选挡在外面（调用方已经松过筛选，正常到不了这）
+    if (PAGE_MODE === 'more') {
+      const want = Math.ceil((i + 1) / PAGE_SIZE);
+      if (want <= morePages) return false;
+      morePages = want;
+      return true;
+    }
+    if (pager.page === Math.floor(i / PAGE_SIZE)) return false;
+    pager.setPage(Math.floor(i / PAGE_SIZE));
+    return true;
+  }
+  /* 刚建好的一条：描述非空、又有能用的图片模型时，问一句要不要马上出主图。
+     出的过程走 genRun —— 卡片上先占位、出完自动换上（见 cardHTML 的 thumb 分支），
+     所以这里不必自己管进度。 */
+  async function offerFirstPic(saved) {
+    const look = String(saved.look || saved.desc || '').trim();
+    if (!look) return;
+    /* 取库里那一份再动手：`Lib.save` 返回的是合并后的对象，页面上那张卡读的是库里的引用 */
+    const live = D.Lib.list().find(x => x && x.id === saved.id);
+    if (!live) return;
+    /* 建档时已经挑好一张预览图了：不再问「要不要出图」—— 人家已经给了图。 */
+    if (D.picOf(live)) return;
+    const pw = picWord(live);
+    const pick = kfModelOf();
+    if (!pick.prov || !pick.model) {
+      Toast.warn('素材已经存好了。要给它出' + pw + '的话，先在上面「出图型号」里选一个能用的图片模型，再进编辑区点「AI 出' + pw + '」', 7000);
+      return;
+    }
+    const ok = await Confirm.ask({
+      title: '现在出一张' + pw + '？',
+      body: '按你写的那段描述出 ' + candCount() + ' 张（用「' + (pick.model.name || pick.model.id) + '」，'
+        + '第 1 张直接当这一条的' + pw + '，其余进候选让你换；会消耗 ' + candCount() + ' 次生图额度）。'
+        + '也可以先不出：之后在编辑区里随时点「AI 出' + nSuffix() + pw + '」。',
+      okLabel: '出 ' + candCount() + ' 张',
+    });
+    if (!ok) return;
+    await genRun('face', live.id, live, '正在出「' + live.name + '」的' + pw + '（' + candCount() + ' 张）…',
+      () => D.Pipe.drawPreview(REG, fakeDrama(), live, { count: candCount(), replace: true, onTask: onTaskHook }));
   }
 
   /* ---------- AI 找素材：话就写在搜索框里，结果就地筛这份名单（角色 / 场景 / 道具三种都算） ---------- */
@@ -1292,6 +1499,41 @@
       v => { opts.imgModel = v; saveOpts(); render(); }, '没配生图平台');
     mk('ttsPick', 'audio', 'text_to_speech', opts.ttsModel,
       v => { opts.ttsModel = v; saveOpts(); render(); }, '没配语音平台');
+    paintCandPick();
+  }
+  /* 「出图张数」：写的是**设置页那一项同一个键**（`D.SET.candN.key` = dr_cand_n），
+     改哪边两边都变 —— 素材库里攒的候选会跟着角色拉进某一集，两页各存一份就会
+     「这边出 3 张、那边 1 张」。只建一次（选项 1~8 是固定的），之后只同步值，
+     免得每次 render 都重建一个 select（下拉开着的时候会被拆掉）。 */
+  let candSelBuilt = false;
+  function paintCandPick() {
+    const host = $('candPick'); if (!host) return;
+    const it = D.SET.candN;
+    const lo = Number(it.min) || 1, hi = Number(it.max) || 8;
+    if (!candSelBuilt) {
+      candSelBuilt = true;
+      host.innerHTML = '<select id="candSel">'
+        + Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+          .map(n => '<option value="' + n + '">' + n + ' 张</option>').join('')
+        + '</select>';
+      const s = $('candSel');
+      if (s) s.onchange = () => {
+        try { localStorage.setItem(it.key, String(Number(s.value) || Number(it.def))); } catch (e) {}
+        render();                    // 按钮文案、候选排的占位张数都跟着变
+      };
+      if (window.Dropdowns) Dropdowns.build(host);
+    }
+    const sel = $('candSel'); if (!sel) return;
+    const raw = String(Number(D.setting('candN')) || Number(it.def));
+    if (sel.value !== raw) { sel.value = raw; if (window.Dropdowns) Dropdowns.sync(sel); }
+    /* 实际张数还要被生图型号声明的 `max_outputs` 夹住（`candCount` 那一处判据）——
+       夹住了就照实说，否则「设了 3 张、只出 1 张」又成了另一种文案不一致。 */
+    const real = candCount();
+    sel.title = '一次出几张预览图候选（角色 / 场景 / 道具的主图）。'
+      + (real < Number(raw) ? '当前生图型号最多一次出 ' + real + ' 张，所以实际是 ' + real + ' 张。' : '')
+      + '与设置页「角色 / 场景 / 道具 一次出几张候选」是同一个设置。'
+      + '「加一张角色资产」与「一次出齐这一档」不受它影响，都固定出 1 张。';
+    host.title = sel.title;
   }
 
   async function runAiFind() {
@@ -1331,7 +1573,48 @@
     if (msg) $('cnt').textContent = msg;
   }
 
+  /* ---------- 「这一条被导演台几个镜头引用了」 ----------
+     导演台的提示词里可以打 `@名字` 引用素材库（见 director.html 的 mention 那一段），
+     引用是**按名字**对上的。素材库这边把它数出来，卡片上就能一眼看出「这一条还有没有在用」——
+     尤其是改了名之后：`@旧名` 就再也对不上了，这里会立刻归零。
+     数据在导演台工作区（IndexedDB director_db / kv 的 workspace 键），与素材库同一个源，
+     只读；读不到（没打开过导演台 / 库还没建）就当 0，不弹任何错。 */
+  let refUse = new Map(), refUseAt = 0;
+  async function loadRefUse() {
+    if (Date.now() - refUseAt < 5000) return refUse;      // 5 秒一份：一次 render 只读一次盘
+    const map = new Map();
+    try {
+      const ws = await Kv.at('ws').get('workspace');
+      const shots = [];
+      ((ws && ws.projects) || []).forEach(p => ((p && p.scenes) || []).forEach(sc =>
+        ((sc && sc.shots) || []).forEach(sh => { if (sh) shots.push(sh); })));
+      /* 与 director.html 的 mentionAt 同一套词法：@ 起一个新词（前面不能是字母 / 数字，
+         否则邮箱 a@b.com 也会被算成引用），名字里不能有空白。
+         注意**不能**要求「@ 前面是空白」—— 中文句子不打空格，那样一个都数不到。 */
+      const re = /(^|[^A-Za-z0-9._%+-])@([^\s\u3000@，。；、,.!?！？：:（）()【\[\]「」『』"']{1,24})/g;
+      shots.forEach(sh => {
+        const txt = String(sh.prompt || '');
+        if (txt.indexOf('@') < 0) return;
+        const names = new Set();
+        let m;
+        re.lastIndex = 0;
+        while ((m = re.exec(txt))) names.add(m[2]);
+        names.forEach(n => map.set(n, (map.get(n) || 0) + 1));
+      });
+    } catch (e) { /* 读不到就当没有引用 */ }
+    refUse = map; refUseAt = Date.now();
+    return map;
+  }
+  /* 「导演台里有几个镜头写了 @这个名字」那枚小标签。卡片与编辑区**共用这一份** ——
+     两处各拼一遍迟早写成两种说法。 */
+  function refTag(c) {
+    const n = refUse.get(String((c && c.name) || '')) || 0;
+    if (!n) return '';
+    return '<span class="ui-tag" title="导演台的提示词里有 ' + n + ' 个镜头写了 @' + esc(c.name) + '">被 ' + n + ' 镜引用</span>';
+  }
+
   async function render() {
+    await loadRefUse();          // 卡片上的「被 N 镜引用」要用它（5 秒缓存，不会每轮都读盘）
     const seq = ++renderSeq;
     paintChips(); paintAiChip(); paintGroups(); paintModelPicks(); applyView();
     const q = $('q').value.trim();
@@ -1374,8 +1657,21 @@
       const card = document.createElement('div');
       card.className = 'card' + (openId === c.id ? ' open' : '');
       card.dataset.id = c.id;
-      card.innerHTML = cardHTML(c);
-      bindCard(card, c);
+      /* 一条画不出来**不能让整页空掉**：以前 cardHTML 抛一次异常，这个 for 就断在这里，
+         而 grid 上面刚清空过 —— 后面那些条目一张都不再追加，界面上看着就是
+         「点了编辑，卡片消失了」（2026-10 真实发生过：编辑区里一个 TDZ 引用，
+         只在「有角色资产的条目」上触发）。
+         现在把坏的那一条画成一张说明卡，其余照常画。 */
+      try {
+        card.innerHTML = cardHTML(c);
+        bindCard(card, c);
+      } catch (e) {
+        console.error('[chars] 这一条画不出来：', e, c);
+        card.innerHTML = '<div class="edit"><div class="eh"><span class="t">这一条画不出来</span></div>'
+          + '<div class="ui-hint">' + esc((c && c.name) || '（这一条没有名字）') + '：'
+          + esc((e && e.message) || String(e))
+          + '<br>其余条目不受影响；这一条的数据还在库里，刷新一下再看看。</div></div>';
+      }
       grid.appendChild(card);
     }
   }
@@ -1418,6 +1714,8 @@
     });
     try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }
     render();
+    /* 把上次切页时没等完的出图认领回来（见 resumePending）：不阻塞首屏，画完再悄悄去收。 */
+    resumePending();
     /* 滚到底自动续拉：触发机制走 Wb.pager.sentinel（全站一份，哨兵 + IntersectionObserver + scroll 回退）。
        守卫与「续拉之后做什么」是本页自己的账：翻页模式下不续、已经画完也不续。 */
     Wb.pager.sentinel('gridEnd', () => {

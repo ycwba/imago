@@ -78,6 +78,10 @@
   /* 名字较长的素材（本地文件名）别把磁贴撑变形 */
   #inputArea .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
   #inputArea > .slot-wide { margin-top: 9px; }
+  /* 拖到**某一格**上时的落点提示（比整块高亮更具体：这一格就是要收下它的那一栏，
+     拖到首帧就进首帧）。落点判据见下面 #inputArea 上那几条委托监听。 */
+  #inputArea .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: rgba(108,140,255,.10);
+    box-shadow: 0 0 0 3px rgba(108,140,255,.16); }
   /* 拆分片段面板的选项行 */
   .split-opts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--sub); }
   .split-opts select { padding: 4px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 12px; }
@@ -512,10 +516,14 @@ async function loadLiveAudioModels() {
 $('model').addEventListener('change', () => {
   cur().model = $('model').value;
   savePick(TYPE, cur().model);
-  renderParams();
-  renderInputArea();
-  refreshCaps();
+  /* 换一次型号以前触发**三轮**左栏重建：这里先显式调 renderParams()+renderInputArea()，
+     再 refreshCaps()（内部第三次），最后 paintLeft() 又整个调一遍；而 renderParams 与
+     paintLeft 尾部各调一次 refreshEst() → 一次换型号 = 3×renderParams + 3×renderInputArea
+     + 4×refreshEst + 3×(重建 17 个下拉)。paintLeft() 已经把 renderParams / renderInputArea /
+     refreshEst 全覆盖，所以这里只留它 + refreshCaps()（能力回来那一次的重画）。
+     refreshCaps 的 early return 分支（无 models 端点的平台）不碰左栏，所以 paintLeft 必须先跑。 */
   paintLeft();
+  refreshCaps();
 });
 /* 「现在在服务的是哪一家 / 能力来自哪边」那一行 */
 function paintSubNote() {
@@ -564,8 +572,21 @@ const SLOT_DEF = {
 const ROLE_KIND = { reference_image: 'image', reference_video: 'video', reference_audio: 'audio',
   first_frame: 'frame_first', last_frame: 'frame_last' };
 let slots = [];                 // 当前类型 + 当前型号可用的槽位 [{kind, max, role, group, accept, maxBytes}]
+/* 拖拽时「当前被指着的那一格」（落点提示一次只亮一格）。声明放在这一层是因为 renderInputArea
+   会调 clearSlotOver()，而它在文件里排在拖拽那一段之前 —— 放后面会踩 let 的暂时性死区。 */
+let overSlot = null;
 const inputs = () => cur().inputs;
 function slotItems(kind) { const m = inputs(); if (!m[kind]) m[kind] = []; return m[kind]; }
+/* 这一栏收不收这种素材 —— 判据与 addSlotFiles 里那几条完全同一个口径（SLOT_DEF 的 accept / videoFrame）。
+   拖到**指定槽位**上时必须先过这一道：不然「把一张图拖到参考音频那一格」会顺着 refIntoSlot
+   的快速路径（有资产号 + /asset/ 地址就直接引用）塞进去，绕过类型校验。 */
+function slotTakesType(kind, mtype) {
+  const def = SLOT_DEF[kind] || {};
+  const acc = String(def.accept || '');
+  if (mtype === '视频') return !!def.videoFrame || acc.includes('video');
+  if (isAudioType(mtype)) return acc.includes('audio');
+  return acc.includes('image');
+}
 /* 可用槽位 = 这个型号声明接受的输入 role（Capabilities.specs：registry 的 inputRoles 为准，能力接口补上限）。
    只看上游 /models 的 modes.inputs 的话，「上游没声明的 role 就整个消失」。 */
 function modelSlots() {
@@ -801,6 +822,7 @@ function renderInputArea() {
   }
   /* #inputArea 只是容器，网格只有里面这一层（嵌套两层 grid 会把列宽算不对） */
   area.innerHTML = '';
+  clearSlotOver();     // 上面那一行把槽位节点全丢了，落点提示跟着失效（overSlot 指着的已经是游离节点）
   const head = $('slotHead'), headNote = $('slotHeadNote');
   if (head) {
     head.hidden = false;
@@ -1128,10 +1150,21 @@ function renderAudioParams() {
   decls.forEach(([k, d]) => { const s = box.querySelector('[data-abool="' + k + '"]'); if (s) s.value = d.def ? '1' : '0'; });
   applyAudioCaps();
 }
+/* 「风格 / 音色描述」那一行的显隐**只有这一份判据**：它只在「语音台 + 音色设计型号」下出现。
+   以前这件事只写在 applyAudioCaps 里，而那条链只有语音台自己会跑 —— 从语音台切到视频 / 图像时
+   压根没人碰它，于是这一行（还带一个红色的 *）就留在屏幕上，看着像「视频台也得填这个」。
+   换型号那条路也要走它：renderModelOptions 会在当前型号不在新清单里时**悄悄改掉 select 的值**
+   （它不派发 change），只靠 applyAudioCaps 会漏。所以 paintLeft（切类型 / 换型号 / 换平台都走它）
+   末尾无条件调一次，applyAudioCaps 里也调 —— 同一份判据，两处入口。 */
+function syncStyleRow() {
+  const row = $('styleRow');
+  if (!row) return;
+  row.hidden = !(TYPE === 'audio' && curTtsMode() === 'design');
+}
 function applyAudioCaps() {
   const mode = curTtsMode();
   show('voiceCol', mode === 'preset');
-  $('styleRow').hidden = mode !== 'design';
+  syncStyleRow();
   const refRule = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(curAudioModel(), 'reference_audio') : { max: 0 };
   const tts = ((currentModel().prov || {}).tts) || {};
   const range = [tts.minChars, tts.maxChars].filter(Boolean).join('–');
@@ -1251,6 +1284,13 @@ function updateGoState() { if (window.Wb) Wb.ready({ btn: 'go', tip: 'goWhy', sc
 $('prompt').addEventListener('input', () => { updateGoState(); if (TYPE === 'audio') refreshEst(); });
 $('prompt').addEventListener('change', updateGoState);
 $('clearAll').onclick = () => {
+  /* 换对象之前先把槽位里的 blob 地址收掉（S8）：以前直接换掉 `cur().inputs`，
+     旧数组里的 `blob:` URL 既没 revoke 也没被引用 —— 每次清空泄漏 = 当时所有槽位素材的
+     字节和（视频一条可达几十 MB）。用户反复「上传视频 → 觉得不对 → 清空」就能累积到上百 MB。
+     `releaseItemUrl` 与单槽清空走的是同一份回收（597 那段），不另写一套。
+     ⚠ 不要改成走 /save-local 之类：§J 第 ⑨ 支管着本机落盘链，这里只是内存回收。 */
+  const m = inputs();
+  Object.keys(m).forEach(k => (m[k] || []).forEach(releaseItemUrl));
   cur().inputs = { image: [], video: [], audio: [], frame_first: [], frame_last: [] };
   cur().prompt = ''; cur().style = ''; cur().platPolish = false;
   $('prompt').value = ''; $('style').value = '';
@@ -1917,7 +1957,15 @@ function localAudioItem(t) {
 const itemKey = it => Wb.taskKey(it, [it.assetId, it.taskId, it.localId]);
 /* 合成本地记录 + 平台/资产条目：同一条语音两边都有时只留一条，
    本地独有的信息（接口用量 / 费用 / 文本转写）继承到平台那一条上。 */
+/* 同一轮渲染里 mergedItems() 会被调 5~6 遍（pager.slice / pager.update / paintCounts 的
+   filter 与 .length / kindTabs），每遍都对每条 entryToItem(e) 新建一次对象。
+   这里挂一个「一轮内有效」的缓存：renderAll 开头物化一次、结尾失效，中间所有调用共用同一份。
+   状态一变（onBatch / onChange / 增删条目）都会走 renderAll，所以缓存不会跨轮残留；
+   `filteredItems()` 每次仍建新数组（它要 sort），只是不再重建条目对象。
+   合并逻辑本身是幂等的（`hit.usageText = hit.usageText || …`），共用一份不会重复叠加。 */
+let mergedBatch = null;
 function mergedItems() {
+  if (mergedBatch) return mergedBatch;
   const out = [];
   const byKey = new Map();
   for (const e of serverEntries) {
@@ -2172,7 +2220,10 @@ function mediaBox(it) {
     return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + escA(Api.mediaSrc(it.media)) + '"></audio>'
       + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
   }
-  if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'title="点一下看大图"' }) + '</div>';
+  /* loading="lazy"（S7）：卡片一画出来就发媒体请求，而 PAGE_MODE 默认 'more' 时 pager.slice()
+     返回的是**整个已加载列表**，不是一页。director.html 的 renderScenes 早就这么做了，本页漏改。
+     mediaAttrs 是共享层明确支持的透传口，不需要动 workbench.js。 */
+  if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" title="点一下看大图"' }) + '</div>';
   if (it.mtype) return '<div class="timg">' + icon(KIND_TAG[it.mtype] || 'image', 24) + '</div>';
   return '<div class="timg">…</div>';
 }
@@ -2274,13 +2325,19 @@ function bindCard(d, it) {
   return d;
 }
 function paintCard(d, it) {
+  /* 「指纹没变的重绘不换媒体节点」这一段以前是**死代码**（S9）：`d.innerHTML = cardHTML(it)`
+     执行完，`old` 的 `parentNode` 已经是 null，而 `replaceWith()` 遇到无父节点直接返回 ——
+     结果每次重绘都用新解析出来的媒体节点，`<video src>` 会重新取一次 metadata。
+     先把旧节点**摘下来**（这样它的 parentNode 还在我们手里）再重建，指纹一致时放回去。
+     多加一道 `className` 比较：只有外观也一样才复用，免得把新状态类丢掉。 */
   const old = d.querySelector('.timg video, .timg img');
   const oldKey = old ? (old.getAttribute('data-thumb-key') || '') : '';
+  const oldCls = old ? old.className : '';
+  if (old) old.remove();
   const wasOpen = !det0(d).hidden;
   d.innerHTML = cardHTML(it);
   const now = d.querySelector('.timg video, .timg img');
-  /* 指纹没变的重绘不要换掉媒体节点：换了等于重新加载一次（视频会从头播） */
-  if (old && now && oldKey && now.getAttribute('data-thumb-key') === oldKey) old.replaceWith(now);
+  if (old && now && oldKey && now.getAttribute('data-thumb-key') === oldKey && now.className === oldCls) now.replaceWith(old);
   bindCard(d, it);
   if (wasOpen) { const det = d.querySelector('.tdetail'); det.hidden = false; Wb.detail.render(it, det); }
   return d;
@@ -2346,15 +2403,22 @@ const list = Wb.cards.create({
 });
 const browseList = () => filteredItems().filter(x => x.media);
 function renderAll() {
-  const items = pager.slice();
-  pager.update();
-  /* 先算计数、再画列表：藏了多少条由 paintCounts 现攒，而空态那句是在 list.paint 里取的。
-     顺序反了不会报错，只会拿上一轮的数说话 —— 第一轮就是 0，于是明明藏着一屏，
-     屏上写的是「还没有历史素材」。 */
-  paintCounts();
-  list.paint(items);
-  const el = $('histNote');
-  if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
+  /* 开头物化一次 mergedItems（见上面那段注释）：本轮里 pager / paintCounts / kindTabs
+     全部共用这一份，不再各自重建一遍条目对象。`filteredItems()` 仍然算一次并把结果喂给
+     `pager.slice(all)`（它的 `slice` 本来就接受已算好的数组），省掉 update() 之外那次重复筛选。 */
+  mergedBatch = mergedItems();
+  try {
+    const all = filteredItems();
+    const items = pager.slice(all);
+    pager.update();
+    /* 先算计数、再画列表：藏了多少条由 paintCounts 现攒，而空态那句是在 list.paint 里取的。
+       顺序反了不会报错，只会拿上一轮的数说话 —— 第一轮就是 0，于是明明藏着一屏，
+       屏上写的是「还没有历史素材」。 */
+    paintCounts();
+    list.paint(items);
+    const el = $('histNote');
+    if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
+  } finally { mergedBatch = null; }
 }
 /* 总数只是「共 M 页」的文案，后台慢慢数：三类来源一起数，页数封顶 3（≈300 条），
    不然五个来源各翻十页会把上游打爆（数不准就显示「共 M+ 页」，不假装精确）。 */
@@ -2368,11 +2432,24 @@ const pager = Wb.pager.create({
   searchQ: () => searchQ,
   render: () => renderAll(),
   fill: async need => {
-    let guard = 0;
-    /* 一次只拉**一页**（= 平台上声明的一整批，一般 100 条）：拉到就渲染，还缺再拉下一页。
-       原来一次 2 页是两个串行的冷请求，第一屏要等两倍时间；公共层的单飞锁与追轮上限在
-       Wb.pager（makePuller）那一处，这里的 guard 只防「这一屏怎么都填不满」。 */
-    while (serverHasMore && guard++ < 20 && filteredItems().length < (need || 1) * PAGE_SIZE) await loadServer(1);
+    /* `need` 只有**跳页**那条路会给（`pager.go(n)` → `fill(n + 1)`），意思是「至少要凑够 n 页」；
+       滚动到底那条路调的是 `fill()`（不带参数），意思是「**再来一页**」。
+       以前两种都套同一个门槛 `(need || 1) * PAGE_SIZE` —— 不带参数时它等于
+       「本地已经有 PAGE_SIZE(24) 条就什么都不做」，而首屏一次就拉回一整个来源的 limit
+       （平台一般声明 100 条），于是**再往下滚永远一页都不拉**：
+       表现就是「右栏只能看到第一批资产，怎么滚都不再出来」。两种语义在这里分开。 */
+    if (need) {
+      let guard = 0;
+      const floor = Math.max(1, need) * PAGE_SIZE;
+      while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
+      return;                       // 跳页：凑够就收手，不让公共层接着追轮
+    }
+    /* 不带参数：这一趟只拉**一页**（= 平台上声明的一整批，一般 100 条）。
+       「还贴着底就再来一轮」与单飞锁在 Wb.pager（makePuller / bindScroll）那一处，全站一份 ——
+       所以一次滚到底的手势照样能连着拉好几页，而这里不必自己写追轮循环。
+       同步 return（到底了）就等于告诉公共层「别再追了」。 */
+    if (!serverHasMore) return;
+    return loadServer(1);
   },
 });
 $('result').addEventListener('click', e => {
@@ -2455,16 +2532,21 @@ function findModelWithSlot(kinds) {
    它不抛错：取字节失败也归成一个 `why` 交回调用方，由各自的界面说话。 */
 async function refIntoSlot(mtype, p, o) {
   const auto = !!(o && o.autoSwitch);
-  let kind = slotKindFor(mtype);
+  /* forceKind：素材被**直接拖到某个槽位上**时用（拖到首帧就进首帧，不再按素材类型猜入口）。
+     不传就照旧按素材类型找它那一类槽位。 */
+  let kind = (o && o.forceKind) || slotKindFor(mtype);
   if (!kind && auto) {
     const hit = findModelWithSlot(slotCands(mtype));
     if (hit) { $('model').value = hit.p.id + '::' + hit.m.id; $('model').dispatchEvent(new Event('change')); kind = slotKindFor(mtype); }
   }
   if (!kind) return { ok: false, code: 'noslot', why: (auto ? '没有哪个型号收' + mtype + '这类素材' : '当前型号没有能接收' + mtype + '的入口') };
   const def = SLOT_DEF[kind];
-  if (blockedSlotKinds().has(kind)) return { ok: false, code: 'blocked', why: def.label + '与已选素材互斥，请先清空已选素材' };
   const arr = slotItems(kind), sl = slots.find(x => x.kind === kind);
-  if (sl && arr.length >= sl.max) return { ok: false, code: 'full', why: def.label + '已满（最多 ' + sl.max + ' 个）' };
+  /* 槽位不存在就不能再往下走：以前只靠 slotKindFor 保证这件事，加了 forceKind 得自己挡一道，
+     否则 `arr.length >= sl.max` 会抛在 undefined 上。 */
+  if (!sl) return { ok: false, code: 'noslot', why: '当前型号没有「' + def.label + '」这个入口（换型号或清空已选素材再试）' };
+  if (blockedSlotKinds().has(kind)) return { ok: false, code: 'blocked', why: def.label + '与已选素材互斥，请先清空已选素材' };
+  if (arr.length >= sl.max) return { ok: false, code: 'full', why: def.label + '已满（最多 ' + sl.max + ' 个）' };
   const src = String(p.src || '');
   const idn = p.assetId ? String(p.assetId) : '';
   /* 同一条素材只认身份：有资产号按号比，只有地址的按地址比。
@@ -2565,13 +2647,80 @@ let pullMore = null;
 function autoLoadMore() { if (pullMore) pullMore(); }
 window.addEventListener('resize', () => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); });
 
-/* ---------- 从右栏拖到左栏当参考素材 ---------- */
+/* ---------- 从右栏 / 操作系统拖到左栏当参考素材 ----------
+   两条落点：落在**某一格槽位**上就进那一格（拖到首帧就是首帧、拖到参考音频就是参考音频）；
+   落在输入框其余位置仍按素材类型自动落位（老行为，一个字没改）。 */
 function slotRowOver(on) { $('promptBox').classList.toggle('over', on); }
+const dragHasPayload = dt => !!dt && Array.from(dt.types || [])
+  .some(t => t === 'application/x-studio-ref' || t === 'application/x-asset-id' || t === 'Files');
+/* 当前被指着的那一格：落点提示一次只亮一格，换格时先把上一格熄灭 */
+function markSlotOver(el) {
+  if (overSlot === el) return;
+  if (overSlot) overSlot.classList.remove('drop-on');
+  overSlot = el;
+  if (el) el.classList.add('drop-on');
+}
+function clearSlotOver() { if (overSlot) { overSlot.classList.remove('drop-on'); overSlot = null; } }
+/* 拖到**某个具体槽位**上：直接用用户指的那一栏，不再按素材类型猜入口。
+   类型不合就照实说 —— addSlotFiles / refIntoSlot 里那一份判据会给出「首帧图不支持音频文件」这类话。 */
+async function dropRefMediaInto(kind, p) {
+  const def = SLOT_DEF[kind];
+  if (!slots.some(s => s.kind === kind)) { setStatus('<span class="err">当前型号没有「' + def.label + '」这个入口</span>'); return; }
+  const mtype = p.mtype || '图片';
+  /* 类型不对就当场说清，不进 refIntoSlot —— 它的快速路径（资产号 + /asset/ 地址）不看 accept，
+     放进去的话「把图拖到参考音频那一格」会被当成一条参考音频收下。 */
+  if (!slotTakesType(kind, mtype)) { setStatus('<span class="err">' + def.label + '不收' + mtype + '素材</span>'); return; }
+  const r = await refIntoSlot(mtype, p, { forceKind: kind });
+  if (r.ok) { setStatus('<span class="ok">✓ 已把《' + escA(r.name || mtype) + '》加入' + def.label + '</span>'); return; }
+  if (r.code === 'blocked') { flashSlotHint(r.why); return; }
+  setStatus('<span class="err">' + escA(r.why) + '</span>');
+}
+/* 落在某一格上时那三种载荷的分派：右栏卡片（本页自己的 mime 契约）、
+   资产库 / 收藏页那套旧契约（application/x-asset-id）、操作系统拖进来的文件。 */
+async function dropOntoSlot(kind, dt) {
+  const def = SLOT_DEF[kind];
+  if (!def) return;
+  if (!slots.some(s => s.kind === kind)) { setStatus('<span class="err">当前型号没有「' + def.label + '」这个入口</span>'); return; }
+  const raw = dt.getData('application/x-studio-ref');
+  if (raw) {
+    let p = null; try { p = JSON.parse(raw); } catch (err) {}
+    if (p && (p.src || p.assetId)) { await dropRefMediaInto(kind, p); return; }
+  }
+  const aid = dt.getData('application/x-asset-id');
+  if (aid) { await dropRefMediaInto(kind, { mtype: '图片', assetId: aid, src: '/asset/' + aid + '?v=2', dl: '/asset/' + aid + '?dl=1' }); return; }
+  const files = [...(dt.files || [])];
+  if (!files.length) return;
+  const n = await addSlotFiles(kind, files);
+  if (n) setStatus('<span class="ok">✓ 已把 ' + n + ' 个文件加入' + def.label + '</span>');
+}
+/* 落点判据**委托在 #inputArea 上**：槽位节点每次重画都会换，绑在节点上会跟着丢。
+   命中某一格就 stopPropagation —— 不再走下面那条「整块按类型自动落位」的老路（否则会加两遍）。 */
+['dragover', 'dragenter'].forEach(ev => $('inputArea').addEventListener(ev, e => {
+  const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
+  if (!el || !dragHasPayload(e.dataTransfer)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  slotRowOver(false);          // 落到具体某一格上时，整块那圈高亮让位给这一格
+  markSlotOver(el);
+}));
+$('inputArea').addEventListener('dragleave', e => {
+  if (overSlot && (!e.relatedTarget || !overSlot.contains(e.relatedTarget))) clearSlotOver();
+});
+$('inputArea').addEventListener('drop', async e => {
+  const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
+  if (!el) return;             // 没落在具体槽位上 → 交给下面 #promptBox 那条按类型自动落位的老路
+  e.preventDefault();
+  e.stopPropagation();
+  clearSlotOver();
+  slotRowOver(false);
+  await dropOntoSlot(el.dataset.slot, e.dataTransfer);
+});
+/* 拖拽取消 / 在别处松手时把落点提示收掉（不然那一格会一直亮着） */
+window.addEventListener('drop', clearSlotOver);
+window.addEventListener('dragend', clearSlotOver);
+/* 落在输入框其余位置：仍按素材类型自动落位（老行为） */
 ['dragover', 'dragenter'].forEach(ev => $('promptBox').addEventListener(ev, e => {
-  const dt = e.dataTransfer;
-  if (!dt) return;
-  const hasPayload = Array.from(dt.types || []).some(t => t === 'application/x-studio-ref' || t === 'application/x-asset-id' || t === 'Files');
-  if (!hasPayload) return;
+  if (!dragHasPayload(e.dataTransfer)) return;
   e.preventDefault(); slotRowOver(true);
 }));
 $('promptBox').addEventListener('dragleave', e => { if (!$('promptBox').contains(e.relatedTarget)) slotRowOver(false); });
@@ -2629,6 +2778,7 @@ function paintLeft() {
   updateMode();
   updateGoState();
   refreshEst();
+  syncStyleRow();      // 「风格 / 音色描述」那一行的显隐跟着类型+型号走（见 syncStyleRow 那段）
 }
 
 /* ============================ ⑪ 启动 ============================ */
@@ -2654,8 +2804,13 @@ function paintLeft() {
   loadAudioTasks();
   paintLeft();
   Wb.thumbs.hydrate().then(n => { if (n) { try { renderAll(); } catch (e) {} } }).catch(() => {});
-  loadServer(1).then(() => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60); }).catch(() => {});
-  tally.run();
+  /* tally（后台数总数）挪到首批到位之后再跑（S4）：以前它与 loadServer(1) **背靠背**发起，
+     两边都落到 AssetLib.load()、来源集合也一样，等于首屏白白多打一轮列表请求
+     （首屏 ≈4 次 list，后台计数 maxPages:3 ≈12 次）。数不准时显示的「共 M+ 页」本来就有意如此
+     —— 别为了「早点有数」把 run(true) 提前到首屏之前，那样 pager.total 会先报 0。 */
+  loadServer(1).then(() => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60); })
+    .catch(() => {})
+    .then(() => { tally.run(); });
   poller.kick();
   renderAll();
   pager.bindButtons();
@@ -2673,10 +2828,19 @@ function paintLeft() {
   setStatus('<span class="err">启动失败：' + escA(String((e && e.message) || e)) + '</span>');
   console.error('[studio] 启动失败', e);
 });
-/* 提示词按类型各存一份：合并成一页之后切类型再切回来，写到一半的东西不该丢 */
-$('prompt').addEventListener('input', () => { cur().prompt = $('prompt').value; writeLS('studio_prompt_' + TYPE, $('prompt').value); });
+/* 提示词按类型各存一份：合并成一页之后切类型再切回来，写到一半的东西不该丢。
+   落盘走 250 ms 防抖（S5）：localStorage 是**同步**写，以前每敲一个字就写一次，
+   连续输入时这段同步 I/O 全压在主线程上。内存里的 cur().prompt 仍然逐字更新，
+   所以防抖只推迟「写盘」，不影响任何读它的逻辑；pagehide 里那句同步补写保证不丢内容，
+   但必须先把定时器清掉 —— 否则卸载后还会再触发一次孤儿写。 */
+let promptLsTimer = 0;
+$('prompt').addEventListener('input', () => {
+  cur().prompt = $('prompt').value;
+  clearTimeout(promptLsTimer);
+  promptLsTimer = setTimeout(() => { promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); }, 250);
+});
 $('style').addEventListener('input', () => { cur().style = $('style').value; });
-window.addEventListener('pagehide', () => { writeLS('studio_prompt_' + TYPE, $('prompt').value); saveAudioTasks(); });
+window.addEventListener('pagehide', () => { clearTimeout(promptLsTimer); promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); saveAudioTasks(); });
 </script>
 </body>
 </html>

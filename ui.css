@@ -835,6 +835,15 @@ dialog.ui-dlg .pr-foot .ghost { padding: 6px 14px; border-radius: 6px; }
 #pfDlg .pf-foot .pri { background: var(--pri, #7c5cff); border: 0; color: #fff; font-weight: 600;
   border-radius: 6px; padding: 8px 18px; cursor: pointer; font-size: 13px; }
 #pfDlg .pf-foot .pri:hover { filter: brightness(1.12); }
+/* 图片那一栏（`type:'pic'`）：左边一张缩略图、右边一颗「挑一张」。
+   值本身存在一个 hidden input 里，这里只负责画。 */
+#pfDlg .pf-pic { display: flex; align-items: center; gap: 10px; }
+#pfDlg .pf-pic-t { width: 72px; height: 72px; flex: 0 0 72px; border-radius: 6px; overflow: hidden;
+  background: var(--thumbbg, #e2e5ee); border: 1px solid var(--line, #e4e6f0);
+  display: flex; align-items: center; justify-content: center; }
+#pfDlg .pf-pic-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#pfDlg .pf-pic-t .none { font-size: 11px; color: var(--sub, #8a8fa3); }
+#pfDlg .pf-pic button { flex: 0 0 auto; }
 
 /* ---------- 自定义日期选择弹层 DatePicker ---------- */
 .dp-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: 246px;

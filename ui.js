@@ -613,7 +613,11 @@ window.ICONS = {
   upload: '<path d="M8 10.6V3.2M5.2 6L8 3.2 10.8 6M3.4 12.4h9.2"/>',
   download: '<path d="M8 2.6v7.4M5.2 7.2L8 10l2.8-2.8M3.4 12.6h9.2"/>',
   refresh: '<path d="M13 8a5 5 0 1 1-1.7-3.8"/><path d="M13 2.6V6h-3.4"/>',
-  trash: '<path d="M2.7 4.4h10.6M6.2 4.4V2.9h3.6v1.5M4.5 4.4l.5 8.1c0 .6.5 1 1 1h4c.6 0 1-.4 1-1l.5-8.1"/><path d="M6.7 7.1v3.9M9.3 7.1v3.9"/>',
+  /* 垃圾桶：三条线就够 —— 盖沿（比桶身宽，这一截才让人一眼认出是垃圾桶）、
+     提手（圆角 U 形）、微微收口的桶身（底部圆角）。
+     **里面那两条竖线删掉了**：这个图标实际只画 12~14px，两条竖线在这个尺寸上会糊成一片，
+     整只桶看上去就是一团脏点（就是它「丑」的来源）。细节留给大尺寸，小尺寸只要轮廓清楚。 */
+  trash: '<path d="M2.6 4.4h10.8"/><path d="M6.3 4.4V3.3a.9.9 0 0 1 .9-.9h1.6a.9.9 0 0 1 .9.9v1.1"/><path d="M4.4 4.4l.5 8.2a1.1 1.1 0 0 0 1.1 1.1h4a1.1 1.1 0 0 0 1.1-1.1l.5-8.2"/>',
   lock: '<rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4"/><path d="M5.7 7V5.4a2.3 2.3 0 0 1 4.6 0V7"/>',
   scissors: '<circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="12" r="1.8"/><path d="M5.7 10.7L12 2.6M10.3 10.7L4 2.6"/>',
   list: '<path d="M5.6 4h8M5.6 8h8M5.6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01"/>',
@@ -1454,13 +1458,28 @@ window.copyText = async function copyText(txt) {
       return new Promise(resolve => {
         const dlg = document.createElement('dialog');
         dlg.id = 'pfDlg';
+        /* 图片那一栏的缩略图（`type:'pic'`）：有值就画图，没值画一句「还没有图」。 */
+        const pfPicHTML = v => (v
+          ? '<img src="' + esc(window.Api && Api.mediaSrc ? Api.mediaSrc(v) : v) + '" alt="">'
+          : '<span class="none">还没有图</span>');
         const fields = o.fields || [];
+        /* 图片那一栏（type:'pic'）的动作由调用方给（见下面 data-picpick 的接线）：
+           公共层不认识资产库 / 我的收藏 / 本地上传，也不该认识。 */
+        const picOf = {};
         dlg.innerHTML = `<div class="pf-head"><b>${esc(o.title || '输入')}</b>${o.sub ? `<div class="sub">${esc(o.sub)}</div>` : ''}</div>
           <div class="pf-body">${fields.map((f, i) => {
             const id = 'pf_' + i;
             let ctl;
             if (f.type === 'textarea') ctl = `<textarea id="${id}" placeholder="${esc(f.placeholder || '')}">${esc(f.value || '')}</textarea>`;
             else if (f.type === 'select') ctl = `<select id="${id}">${(f.options || []).map(x => `<option value="${esc(x.v)}"${String(x.v) === String(f.value) ? ' selected' : ''}>${esc(x.t)}</option>`).join('')}</select>`;
+            else if (f.type === 'pic') {
+              /* 值存在一个 hidden input 里 —— `values()` 照旧读 `.value`，取数口子不必为它开特例。
+                 缩略图与那颗按钮摆在一起，选完由 `api.set(key, {value})` 换图（见 set 里那一段）。 */
+              picOf[id] = f;
+              ctl = `<input type="hidden" id="${id}" value="${esc(f.value || '')}">`
+                + `<div class="pf-pic"><span class="pf-pic-t" data-picbox="${id}">${pfPicHTML(f.value)}</span>`
+                + `<button type="button" class="ghost mini" data-picpick="${id}">${esc(f.pickLabel || '挑一张')}</button></div>`;
+            }
             else ctl = `<input id="${id}" type="${f.type || 'text'}" value="${esc(f.value == null ? '' : String(f.value))}" placeholder="${esc(f.placeholder || '')}">`;
             return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"><label>${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
           }).join('')}</div>
@@ -1500,10 +1519,23 @@ window.copyText = async function copyText(txt) {
               /* 程序化改完 select 必须通知公共下拉：浮层那份列表是 build 那一刻的快照，
                  不 sync 就是按钮上写着 A、真实选中的是 B（与「填完 options 要 sync」同一条）。 */
               if (p.ctl.tagName === 'SELECT' && window.Dropdowns) Dropdowns.sync(p.ctl);
+              /* 图片那一栏：值变了要把缩略图一起换掉（隐藏 input 自己不会画） */
+              const box = dlg.querySelector('[data-picbox="' + p.ctl.id + '"]');
+              if (box) box.innerHTML = pfPicHTML(p.ctl.value);
             }
             if ('hidden' in patch) p.row.hidden = !!patch.hidden;
           },
         };
+        /* 图片那一栏那颗「挑一张」：动作完全由调用方给（公共层不认识资产库 / 收藏 / 本地上传）。
+           没给 pick 的就把按钮藏掉 —— 摆一颗点了什么都不发生的按钮比不摆更糟。 */
+        dlg.querySelectorAll('[data-picpick]').forEach(btn => {
+          const f = picOf[btn.dataset.picpick];
+          if (!f || typeof f.pick !== 'function') { btn.hidden = true; return; }
+          btn.onclick = async () => {
+            const msg = dlg.querySelector('#pfMsg');
+            try { await f.pick(api); } catch (e) { if (msg) msg.textContent = '选图失败：' + ((e && e.message) || e); }
+          };
+        });
         if (typeof o.onChange === 'function') {
           for (const k of Object.keys(parts)) {
             const c = parts[k].ctl;

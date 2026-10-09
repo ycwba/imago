@@ -40,9 +40,10 @@
   .card .note textarea:focus { border-color: var(--acc); }
   .card .note .hint { font-size: 10.5px; color: var(--sub); margin-top: 3px; }
   .card .acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-  .card .unfav { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-    border: 0; border-radius: 4px; background: rgba(0,0,0,.45); color: #ffd166; cursor: pointer; z-index: 2; }
-  .card .unfav:hover { background: rgba(0,0,0,.65); }
+  /* 以前缩略图右上角还压着一颗星（.unfav），它和下面那颗「移出收藏」是**同一个动作**
+     （都走 dropItem → Confirm → Fav.remove）：一页全是要移除的东西，再挂一颗「已收藏」的星
+     既重复又盖住了画面。移除入口只留「移出收藏」那一颗 —— 它在操作行里、与复用/下载并列，
+     不挡内容，也不用猜那颗星是「标记」还是「按钮」。 */
   .drop { outline: 2px dashed var(--acc); outline-offset: -6px; }
   /* 列表档：横条一行一条，把紧凑档藏起来的元信息/备注/按钮全部展开 */
   .grid.view-compact { gap: 10px; }
@@ -53,7 +54,6 @@
   .view-list .card .m { display: block; }
   .view-list .card .note { display: block; }
   .view-list .card .acts { display: flex; }
-  .view-list .card .unfav { top: auto; bottom: 6px; right: 6px; }
 </style>
 </head>
 <body>
@@ -259,7 +259,6 @@
       const thumb = t.html;
       const tkey = t.tkey;
       card.innerHTML = `${thumb}
-        <button class="unfav" title="移出收藏">${window.icon ? icon('starFill', 15) : ''}</button>
         <div class="body">
           <div class="t">${esc(it.prompt || it.name || '(无描述)')}</div>
           <div class="m">${esc([it.kind === 'local' ? '本地文件' : (it.providerName || '资产库'), it.type, it.format ? String(it.format).toUpperCase() : '', it.size ? fmtSize(it.size) : '', it.duration ? it.duration + 's' : ''].filter(Boolean).join(' · '))}</div>
@@ -300,7 +299,6 @@
         Fav.remove(it.key);
         render();
       };
-      card.querySelector('.unfav').onclick = e => { e.stopPropagation(); dropItem(); };
       card.querySelector('.rm').onclick = e => { e.stopPropagation(); dropItem(); };
       const dl = card.querySelector('.dl');
       dl.onclick = async e => {

@@ -276,7 +276,16 @@
       paintBal(box, [], '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
       return;
     }
-    const rows = await Promise.all(usable.map(async m => {
+    /* 用户把这几家**全取消勾选**了 → 取数阶段就短路（U2）：以前 `SbBal.filter` 只在
+       paintBal 里过滤**渲染**，取数照跑，于是「设置里全不勾」照样每分钟去取它们的钱。
+       这里复用同一份 filter（§J「同一功能只有一份实现」），不新写一份判据。
+       全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
+    const wanted = window.SbBal ? SbBal.filter(usable) : usable;
+    if (!wanted.length) {
+      paintBal(box, [], '这几家都被你在「设置 → 平台密钥与余额」里藏起来了');
+      return;
+    }
+    const rows = await Promise.all(wanted.map(async m => {
       try {
         /* 请求头与余额解析都不在这份里写第二遍：Api.headers 带密钥**和自定义中转地址**
            （少了 x-up-base，设置页换了中转地址就只有侧栏还在打官方地址，读出来的余额对不上），
@@ -327,7 +336,16 @@
   });
   window.addEventListener('sb-balance-refresh', refreshBalance);
   refreshBalance();
-  setInterval(refreshBalance, 60000);
+  /* 定时器跑在外壳顶层文档，是全会话里活得最久的一个（app.js 切页只换 frame.src、外壳不重建），
+     所以它必须自己会「停」：
+       · 后台标签页里一轮都不发（U2）—— 不看 document.hidden 的话，切走一小时就是 60 轮 × (1+N) 个请求；
+       · 间隔从 60 s 提到 120 s（= REG_TTL 的两倍）：以前两者都正好是 60,000 ms，而判据用的是
+         **严格大于**（`now - _regTs > REG_TTL`），上一轮取数到下一轮 tick 之间必然多出一点抖动，
+         于是注册表缓存的命中率恒为 0 —— 每分钟稳定发一次 /registry + /env-status + N × credits。
+         留出一倍余量，缓存才真的被用上（见性能优化文档「轮询间隔与缓存 TTL 撞车」）。 */
+  const balanceTick = () => { if (!document.hidden) refreshBalance(); };
+  setInterval(balanceTick, 120000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshBalance(); });
   // 挂载放最后：head 里加载时 body 还不存在，而且上面的状态常量要先生效完
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
