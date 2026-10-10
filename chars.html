@@ -304,16 +304,22 @@
      `genRun` 在跑之前把它设成当前那一条的记录器（见 genRun），所以生成函数里
      只要原样把 `onTask: onTaskHook` 传下去就行，不必每处各写一遍 id 与 bus。 */
   let curPend = null;
-  const onTaskHook = info => {
-    if (!curPend || !info || !info.id) return;
-    const rec = PEND.get(curPend.key) || { kind: curPend.kind, id: curPend.id, at: 0, label: '', tasks: [] };
-    rec.at = Date.now();
-    rec.label = curPend.label || rec.label;
-    if (!rec.tasks.some(t => String(t.id) === String(info.id))) {
-      rec.tasks.push({ prov: (info.prov && info.prov.id) || '', id: info.id });
+  /* 每轮一个**绑定好的**记录器：`genRun` 把它当参数递给生成函数。
+     为什么不能只靠 `curPend` 这个全局游标 —— 「一次出齐这一档」是 runPool 并发 6 路
+     （:1226），每个 worker 的 genRun 都会把全局改写成自己，await 期间又被下一路覆盖，
+     于是 onTaskHook 读到的是**最后启动那一条**的记录，任务号写进别人的键，
+     切页回来认领时 A 的图挂到 B 的卡上。靠参数传下去就没有「当前是谁」这回事了。 */
+  const pendHook = rec => info => {
+    if (!rec || !info || !info.id) return;
+    const cur = PEND.get(rec.key) || { kind: rec.kind, id: rec.id, at: 0, label: '', tasks: [] };
+    cur.at = Date.now();
+    cur.label = rec.label || cur.label;
+    if (!cur.tasks.some(t => String(t.id) === String(info.id))) {
+      cur.tasks.push({ prov: (info.prov && info.prov.id) || '', id: info.id });
     }
-    PEND.set(curPend.key, rec);
+    PEND.set(rec.key, cur);
   };
+  const onTaskHook = info => pendHook(curPend)(info);
   /* 回来把上次没等完的出图认领回来：不重发请求，只接着等，拿到就按**与正常出图同一套规则**
      写回（预览图进 faces、没有主图就顶上；资产追加一张）。半小时以前的不再打扰（平台多半已经清了）。 */
   async function resumePending() {
@@ -432,8 +438,11 @@
        `label` 只在「切页后要凭它给新资产起名」时才用得到（资产那一行填的名字）。 */
     const prevPend = curPend;
     curPend = { key: kind + '#' + id, kind: kind, id: id, label: label || '' };
+    /* 并发的那几处（fillRest 的 runPool）要拿**这一轮自己的**记录器，见上面 pendHook 的说明；
+       顺序执行的调用点继续用全局 onTaskHook 也一样对。 */
+    const hook = pendHook(curPend);
     let err = '';
-    try { await fn(); } catch (e) { err = (e && e.message) || String(e); }
+    try { await fn(hook); } catch (e) { err = (e && e.message) || String(e); }
     curPend = prevPend;
     genClear(kind, id);
     /* 这一轮已经结束了（成没成都一样），从待认领表里摘掉：留着的话下次开页面会去等一个
@@ -1226,7 +1235,7 @@
       await D.Pipe.runPool(p.jobs, FILL_CONC, async (j) => {
         if (stopFlag) return;
         const c = j.c;
-        if (j.face) await genRun('face', c.id, c, '', () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, onTask: onTaskHook }), true);
+        if (j.face) await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, onTask: hook }), true);
         if (stopFlag) return;
         if (j.three) {
           if (!D.picOf(c)) {
@@ -1235,12 +1244,14 @@
             errSet('asset#three', c.id, '预览图这次没出来；三视图要照着它画，所以这一步跳过了');
             paintCard(c);
           } else {
-            await genRun('asset#three', c.id, c, '', () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE, onTask: onTaskHook }), true);
+            await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE, onTask: hook }), true);
           }
         }
         done++;
-        /* 每条消息都空着，进度就只有这一句（40 条的批量把 genLine 拼成一片墙就没法看了）。 */
-        if (genHas('fill', null)) genSet('fill', null, '一次出齐：' + done + ' / ' + p.tasks + ' 条…');
+        /* 每条消息都空着，进度就只有这一句（40 条的批量把 genLine 拼成一片墙就没法看了）。
+           分母用 jobs.length（素材条目数），不是 p.tasks（请求条数）：一条素材可能要发两次，
+           用请求数当分母，这一句永远到不了头（1231 那句注释说的就是这件事）。 */
+        if (genHas('fill', null)) genSet('fill', null, '一次出齐：' + done + ' / ' + p.jobs.length + ' 条…');
       });
     } finally {
       fillStoppable = false;

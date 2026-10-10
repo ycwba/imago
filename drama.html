@@ -872,7 +872,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const why = (Api.regError && Api.regError()) || '注册表是空的';
     $('proxyBarMsg').textContent = '本地代理没连上（' + why + '）：这一页的型号下拉、'
       + '「这一家配没配密钥」、能出几张、有没有某项参数，全都读不到 —— '
-      + '所以上面那句「还没配语音接口」之类的**不作数**。把代理启动起来（启动.bat → 1）再点右边这个。';
+      + '所以上面那句「还没配语音接口」之类的话先别信。把代理启动起来（启动.bat → 1）再点右边这个。';
   }
   function paintProxyBarBind() {
     const b = $('btnRetryProxy');
@@ -4580,7 +4580,7 @@ dialog#drLibDlg{max-width:min(700px,94vw)}
     const v = await Confirm.choose({
       title: '机位',
       sub: '机位会写进这一段的视频提示词，AI 按它拍' + (cur2 ? '　·　现在用的是「' + cur2.split('，')[0] + '」' : '　·　这一段还没设机位')
-        + '　·　想**看着图挑**，点下面那颗「出 N 个机位图」',
+        + '　·　想看着图挑，点下面那颗「出 N 个机位图」',
       options: CAMERAS.map(c => ({ label: c.id, hint: c.desc, value: c.id })),
       cancelLabel: '不改',
     });
@@ -5628,6 +5628,11 @@ const playedShots = () => (cur.shots || []).filter(sh => {
                出口由用户自己点「不等了」。判据读公共那一份（Api.maybeSubmitted）。 */
             take.state = 'pending';
             take.stage = '结果未知';
+            /* `maybeSubmitted` 是这一条的**独立记号**：只靠 stage/error 那两句中文，
+               开页面时 settleStuckDubbing 没法把它和「上次崩在提交那一刻」分开 ——
+               它那一支只认 state + taskId，于是会把这一条改写成「配音好了」，
+               那句「别重拍、会再扣一次费」的警告就没了（D-43 的修法被 D-47 顶掉了）。 */
+            take.maybeSubmitted = 1;
             take.error = '提交结果未知（平台可能已受理，重拍会再扣一次费）：' + String(e.message || e).slice(0, 200);
             toast('第 ' + sh.no + ' 段：提交结果未知 —— 平台那边可能已经受理了。'
               + '先到视频工作台核对，别马上重拍；不要了就按「不等了」。', 'warn', 9000);

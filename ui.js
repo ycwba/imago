@@ -2243,6 +2243,18 @@ window.UI_PREFS = {
      一比就永远「不一致」，镜像静默不落地（踩过：.data/workspace.json 停在两天前，
      换机器 / 清过浏览器缓存时恢复出来的是旧工作区，签名外链的换新也白做）。 */
   const NO_LOCAL = new Set(['workspace']);
+  /* 「这条待发的内容还是不是本机的当前值」——**一处判据，三个调用点**
+     （queue 的定时器 / flush / flushKeepalive 都问它）。
+     以前三处各写一遍，其中只有 queue 那份带了 NO_LOCAL 豁免，于是：
+     保存工程 → 800ms 内切页或切标签 → flushKeepalive 认为「本机没有这个值，不一致」
+     → 把这次保存当过期任务丢掉（.data/workspace.json 停在旧内容）；
+     就算当时没丢、后来进了死信，boot 里的补传（:2551 那个 flush）也会用同样的理由再丢一次 ——
+     「上次没送出去的任务这里补一次」对 workspace 永远补不上。 */
+  const diverged = (key, body) => {
+    const cur = localStorage.getItem(key);
+    const stale = body == null ? (cur != null && cur !== '') : cur !== body;
+    return stale && !NO_LOCAL.has(key);
+  };
 
   const syncable = key => !!key
     && !NOT_SYNC.some(x => key === x || key.endsWith(x) || key.startsWith(x))
@@ -2304,10 +2316,8 @@ window.UI_PREFS = {
     const t = setTimeout(async () => {
       pending.delete(k);
       /* 发之前再看一眼本机当前值：合并窗口里如果值被别处改写（例如 boot 刚从服务器拉回更新的一份），
-         这条任务就已经过期，发出去会把旧的盖给新的。（NO_LOCAL 那些键本机没有值，不比。） */
-      const cur = localStorage.getItem(k);
-      const diverged = payload == null ? (cur != null && cur !== '') : cur !== payload;
-      if (diverged && !NO_LOCAL.has(k)) return;
+         这条任务就已经过期，发出去会把旧的盖给新的。判据在 diverged 一处（NO_LOCAL 那些键本机没有值，不比）。 */
+      if (diverged(k, payload)) return;
       try {
         if (payload == null) await delData(k);
         else await putData(k, payload);
@@ -2338,11 +2348,10 @@ window.UI_PREFS = {
     if (!jobs.length) return;
     for (const [key, job] of jobs) {
       clearTimeout(job.t);
-      /* 和 queue 的定时器、flush 一样先看本机当前值：boot 对账期间暂存的写补发之后，
+      /* 和 queue 的定时器、flush 一样先过 diverged：boot 对账期间暂存的写补发之后，
          页面经常马上被刷新一次（changed→reload），这条任务很可能已经被服务器那份覆盖，
          不做这一步就会把「拉回真实数据之前那份误写」用 keepalive 送出去，用户数据又被顶掉。 */
-      const cur = localStorage.getItem(key);
-      if (job.body == null ? (cur != null && cur !== '') : cur !== job.body) continue;
+      if (diverged(key, job.body)) continue;
       const url = '/data/' + encodeURIComponent(key);
       const keep = job.body == null || job.body.length < 60000;
       try {
@@ -2422,9 +2431,9 @@ window.UI_PREFS = {
       for (const [key, job] of jobs) {
         if (job.t) clearTimeout(job.t);
         /* 队列里的内容已经不是本机当前值了（期间用户又写过，或者 boot 刚从服务器拉回更新的一份）
-           → 这条任务过期，直接丢掉：再发会把较旧的内容盖到较新的上面（云端那份还会被顶掉）。 */
-        const cur = localStorage.getItem(key);
-        if (job.body == null ? (cur != null && cur !== '') : cur !== job.body) continue;
+           → 这条任务过期，直接丢掉：再发会把较旧的内容盖到较新的上面（云端那份还会被顶掉）。
+           判据同样走 diverged（workspace 那类本机没有值的键要放行，见那里的说明）。 */
+        if (diverged(key, job.body)) continue;
         try {
           /* 待删除的键走删除接口：以前只对有值的键 put，删除任务被静默丢弃，
              服务器上的文件还在，下次 boot 会把已经删掉的数据拉回来。 */

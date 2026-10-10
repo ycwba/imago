@@ -921,12 +921,32 @@ function sectionG() {
      ② JS 里**挂在界面属性名上**的字符串字面量（textContent / innerHTML / title / placeholder …）。
    注释天然查不到（lex 直接跳过整段），AI 提示词天然查不到（它们不挂在界面属性名上）。
 
-   判「界面属性名」只认**同一行**：写成「往下看两行」就会把
-   `$('hint').textContent = 'a'; toast('**b**')` 里那个 b 也算成界面文案 —— 假红比漏红更费人。
+   判「界面属性名」只认**同一行**，外加「以 `+` 开头的续写行往上找 3 行」（见 sinkLineOf）：
+   写成「不管续写、随便往下看两行」就会把 `$('hint').textContent = 'a'; toast('**b**')`
+   里那个 b 也算成界面文案 —— 假红比漏红更费人。
    `sub` / `body` 是 `Confirm.ask` / `Confirm.choose` 的正文与副标题（都走 `textContent`），
    2026-10 补进来：那一处 `sub: '**沿用上一次…**'` 语法、渲染都不报错，只有点开那颗按钮才看见两个星号。
    `UiDialog` 的 `body(el) { … }` 不会被这一条命中 —— 名字后面紧跟的是 `(el)` 不是 `:` / `=`。 */
 const UI_SINK = /\b(?:textContent|innerText|innerHTML|outerHTML|insertAdjacentHTML|title|placeholder|alt|label|ariaLabel|aria-label|hint|note|desc|empty|tooltip|caption|sub|body)\s*[:=]/;
+/* 「这段带 markdown 的文字，是挂在哪个界面属性上的」——ls 里第 i 行那段脚本。
+   同一行认不出来时**只往上找 3 行**，且必须每一行都以 `+` 开头（字符串续写）才继续：
+   界面文案经常是这么写的
+       sub: '机位会写进…' + (cur2 ? '…' : '…')
+         + '　·　想**看着图挑**，点下面那颗「出 N 个机位图」',
+   形如 sub: 的属性名在第一行、带星号的字面量在第二行 —— 只认同一行就整段漏过去，
+   而 `Confirm.choose` 把它当副标题原样摆到屏幕上（drama.html:4582-4583 踩过，
+   判据当时一声不吭）。
+   限定「以 + 开头」是为了不把 `$('hint').textContent = 'a'; toast('**b**')` 里那个 b 算进来：
+   那种写法本行不以 + 开头，走到上一层就停了 —— 假红比漏红更费人（见上面那段注释）。 */
+function sinkLineOf(ls, i) {
+  for (let k = 0; k < 4; k++, i--) {
+    if (i < 0) return -1;
+    const ctx = ls[i] || '';
+    if (UI_SINK.test(ctx)) return i;
+    if (!/^\s*\+/.test(ctx)) return -1;
+  }
+  return -1;
+}
 
 function sectionH() {
   const red0 = red;
@@ -977,9 +997,9 @@ function sectionH() {
              ctx 取到的是另一行，UI_SINK 永远对不上，**内联脚本那一支等于一直在假绿**
              （2026-10 加 sub/body 两个界面属性名时靠变异才发现：星号注进 drama.html 的
               Confirm.choose 副标题，判据一声不吭，而 checks 计数确实涨了 —— 字找到了，行取错了）。 */
-          const ctx = ls[t.line - seg.base] || '';
-          if (!UI_SINK.test(ctx)) continue;
-          bad('§H', f + ' 第 ' + t.line + ' 行 markdown 标记漏进界面：' + piece.trim().slice(0, 44));
+          const at = sinkLineOf(ls, t.line - seg.base);
+          if (at < 0) continue;
+          bad('§H', f + ' 第 ' + (seg.base + at) + ' 行 markdown 标记漏进界面：' + piece.trim().slice(0, 44));
         }
       }
     }

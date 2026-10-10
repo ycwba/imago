@@ -1872,8 +1872,17 @@ async function submitVideo(rec, prov, model, uiDeadline) {
       tally.run(true);
       return r;
     });
-    if (left > 0) await Promise.race([p, new Promise(r => setTimeout(r, left))]);
-    else await p;
+    /* ⚠ `Promise.race` **不吞 reject**：p 一旦失败，这一句就把异常抛出 `submitVideo`，
+       下面那句 `try { await p } catch { failed++ }` 永远接不到 —— 于是
+       ① 循环中断，剩下的条数不再提交（这一半要等某家视频平台在 /models 里声明
+          max_outputs > 1 才可能发生：没有声明时 modelLimits 返回 1，drawWrap 整块藏着，
+          循环只跑一次）；
+       ② **单条失败时也中招** —— 末尾那句「创建失败…」根本没机会写，而
+          `$('go').onclick` 的 catch 注释写着「记账层已经写过状态行了」，
+          于是状态行停在上一句（比如「正在取回…」），用户看不到失败。
+       这里只把 race 的抛出**接住**（失败由下面那句 await p 统一记账，不会记两次），
+       p 本身仍然等完 —— 不等完的话后面的几条会被时间上限砍掉。 */
+    if (left > 0) { try { await Promise.race([p, new Promise(r => setTimeout(r, left))]); } catch (e) { /* 下面记账 */ } }
     try { await p; } catch (e) { failed++; }
   }
   if (created.length) {
@@ -2193,7 +2202,7 @@ function loadServer(morePages, noCache) {
 /* 创建后把新任务取回列表：先按任务号问一次（快），问不到再刷整表（列表接口才是状态的最终依据） */
 /* 把一条刚提交的任务「认领」进右栏。
    为什么先插一条「生成中」再问平台（这一条是这一轮改的要点）：
-     以前是先 `pollTask` 问一次，问到状态就插、问不到就 `resyncServer()` 拉整页列表。
+     以前是先 `pollTask` 问一次，问到状态就插、问不到就拉整页列表。
      而**刚提交的任务在平台上通常还查不到**（列表接口有几十秒的可见延迟），
      于是每一次提交都要等「问一次 + 拉一页列表」才出现在右栏 ——
      视频一条几十秒、批量十几条，用户点完生成看到的是**界面毫无变化**，
@@ -2223,7 +2232,7 @@ async function adoptTask(prov, taskId, seed) {
     renderAll(); poller.kick();
     return true;
   }
-  /* 不再 resyncServer()：那一次拉整页列表是「等半天才出现」的另一半原因，
+  /* 问不到就到此为止，**不再拉整页列表**：那一次拉表是「等半天才出现」的另一半原因，
      而轮询器已经在做同样的事了（每几秒问一次，状态一变就更新那条卡片）。 */
   return false;
 }
@@ -2270,13 +2279,21 @@ function upsertItem(it) {
 }
 /* 刚创建、还没被列表接口认领的那几条：先单独放一个数组参与渲染，列表刷新后由平台条目接手 */
 const adoptBuf = [];
-let _resyncP = null;
-function resyncServer() {
-  if (!_resyncP) _resyncP = loadServer(1, true).finally(() => { _resyncP = null; });
-  return _resyncP;
-}
 /* 轮询：只有「有任务号 + 还在跑 + 平台还在列表里」的那些才会发请求 */
 const running = it => Wb.isRunning(it) && !!it.taskId;
+/* 「连续问不到」的次数按**任务号**记在轮询器外面，不挂在条目上。
+   挂在条目上的那一版永远达不到阈值：条目对象每轮由 `entryToItem()` 重建
+   （`mergedItems` 的 `mergedBatch` 缓存只在一轮渲染内有效，renderAll 的 finally 就清了），
+   所以 `it.miss` 每轮从 undefined 重新开始，「连着 3 次才判失败」这条判据形同虚设 ——
+   平台把任务清掉之后，卡片永远显示「生成中」，poller 每 4 秒继续打，且没有重试按钮。
+   用任务号当键：条目重建不影响它，成功一次就清掉（换句话说这里记的是「连续」，不是累计）。 */
+const missOf = new Map();
+const missAdd = it => { const k = String(it.taskId || ''); if (!k) return 0; const n = (missOf.get(k) || 0) + 1; missOf.set(k, n); return n; };
+const missClear = it => { const k = String(it.taskId || ''); if (k) missOf.delete(k); };
+/* 条目被删掉 / 任务号被换掉时别让这张表一直长（页面开着不退就一直轮询着） */
+const missSweep = () => { if (missOf.size < 200) return;
+  const live = new Set(mergedItems().map(it => String(it.taskId || '')).filter(Boolean));
+  for (const k of [...missOf.keys()]) if (!live.has(k)) missOf.delete(k); };
 async function pollOne(it) {
   const prov = provById(it.provider);
   if (!prov || !it.taskId) return;
@@ -2284,16 +2301,17 @@ async function pollOne(it) {
   if (hit.error) {
     const msg = String((hit.error && hit.error.message) || hit.error);
     const gone = hit.error && hit.error.status === 404 || /不存在|未找到|not\s*found/i.test(msg);
-    it.miss = (it.miss || 0) + 1;
+    const miss = missAdd(it);
     /* 「平台上找不到」要连着 3 次才下结论：一次 404 也可能只是列表接口抖了一下 */
-    if (gone && it.miss >= 3) { it.status = 'failed'; it.error = '平台上找不到这条任务（可能已被清理或过期），可重试或重新提交'; it.taskId = ''; }
+    if (gone && miss >= 3) { it.status = 'failed'; it.error = '平台上找不到这条任务（可能已被清理或过期），可重试或重新提交'; it.taskId = ''; missClear(it); }
     throw hit.error;
   }
   const p = hit.p;
-  if (!p) { it.miss = (it.miss || 0) + 1; if (it.miss >= 3) { it.status = 'failed'; it.error = '平台这次问不到这条任务了，可重试或重新提交'; } throw new Error('no item'); }
-  it.miss = 0;
+  if (!p) { const miss = missAdd(it); if (miss >= 3) { it.status = 'failed'; it.error = '平台这次问不到这条任务了，可重试或重新提交'; } throw new Error('no item'); }
+  missClear(it);                     // 问到过一次就重新开始数「连续」
   const upd = itemFromPoll(prov, p);
   Object.assign(it, upd, { taskId: it.taskId, ts: it.ts || upd.ts, local: false });
+  missSweep();
 }
 const poller = Wb.poller({
   label: '生成', interval: 4000,

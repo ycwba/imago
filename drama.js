@@ -393,6 +393,11 @@ window.Drama = (function () {
              那正是「它到底还在跑吗」两套判据的差集，崩溃/刷新留下的就是这一类。 */
           if (!t || t.taskId) continue;
           if (t.state !== 'dubbing' && t.state !== 'pending') continue;
+          /* 「提交结果未知」那一条**不能碰**：它是 pending + 没有 taskId，和「上次崩在提交那一刻」
+             在这一层长得一模一样，但语义相反 —— 前者平台可能已经受理并扣了费，
+             改写成「配音好了」就等于把那句「重拍会再扣一次费」的警告抹掉（D-43 被 D-47 顶掉的那一处）。
+             页面侧给这类记录留了独立记号，这里只认那一个。 */
+          if (t.maybeSubmitted) continue;
           /* 画面已经出来了的那种不管：那是「拍完了但没落状态」，落回 done 而不是失败。 */
           if (t.state === 'pending' && t.videoUrl) { t.state = 'done'; t.stage = '完成'; n++; continue; }
           const has = !!(t.lines && t.lines.length);

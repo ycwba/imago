@@ -2618,6 +2618,22 @@ async function saveAllNow() {
     return false;
   }
   const skipped = [];          // 只跳过有问题的那一两个字段，其余照常保存 —— 不能因为一个地址就整页不存
+  /* ---------- 先把「本轮改过、但此刻没画出来」的草稿落盘 ----------
+     卡片是**按类型档过滤**渲染的（renderProv:786 只画 provTab 那一档），而下面几段落盘
+     全部从 **DOM** 取值 —— 于是「在文字档填了密钥 → 点图片档 → 点保存」时，那个输入框
+     根本不在文档里，扫不到；紧接着下面又把内存里那份草稿 clear() 掉，界面照样报「✓ 已保存」。
+     这把钥匙从来没落过盘，而且**没有任何提示**。
+     （给型号/识图加草稿就是为了治这个症状，但只治了「重画时不丢」那一半。）
+     所以先按草稿把看不见的那几家写一遍，当前看得见的随后由下面几段 DOM 扫描再写同样的值（幂等）。 */
+  const domKeys = new Set([...document.querySelectorAll('[data-key]')].map(i => i.dataset.key));
+  for (const [kid, v] of keyDraft) if (!domKeys.has(kid)) W('sk_key_' + kid, v);
+  for (const kid of keyCleared) if (!domKeys.has(kid)) Wdel('sk_key_' + kid);
+  const domBases = new Set([...document.querySelectorAll('[data-base]')].map(i => i.dataset.base));
+  /* 地址没有「跨家确认」那一步可走（那个问句是 DOM 上的按钮触发的），但它是在用户看得见
+     的时候亲手填进去的、输入时也现算过「这是别家官方地址」的警告 —— 这里照写即可。 */
+  for (const [kid, v] of baseDraft) if (!domBases.has(kid) && v) W('sk_base_' + kid, v);
+  /* 型号 / 识图的草稿在 __textForm 闭包里（它才认识归属守卫），让它自己 flush */
+  if (window.__textForm && window.__textForm.flushDrafts) window.__textForm.flushDrafts(W, Wdel, skipped, domKeys);
   document.querySelectorAll('[data-key]').forEach(inp => {
     if (inp.value.trim()) W('sk_key_' + inp.dataset.key, inp.value.trim());
     else Wdel('sk_key_' + inp.dataset.key);
@@ -3128,7 +3144,24 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     /* 落盘之后清掉这两份草稿（saveAll 在闭包外面，看不见它们）。
        不清的话：存完之后草稿还压着盘上那份，下次重画读到的仍是草稿 ——
        而草稿与盘上此刻是同一个值，看不出问题；真正出事的是「存了 A 又改回 B 再存」这类来回操作。 */
-    clearDrafts() { modelDraft.clear(); visionDraft.v = null; } };
+    clearDrafts() { modelDraft.clear(); visionDraft.v = null; },
+    /* 把「本轮改过、此刻没画出来」的型号/识图草稿落盘（saveAll 在闭包外面调它）。
+       为什么闭包自己来：归属守卫（这个型号是不是这一家的）要用 provByKid 与 fetchedOf，
+       那是这一份的知识，外面的 saveAll 复述一遍就成了第二份判据。
+       `domKeys` 是 saveAll 递进来的「此刻 DOM 里画得出来的那些 keyId」，
+       里面有的那家由 saveAll 的 DOM 扫描照常写（值一样，幂等），这里只补看不见的。 */
+    flushDrafts(W, Wdel, skipped, domKeys) {
+      for (const [kid, m] of modelDraft) {
+        if (domKeys && domKeys.has(kid)) continue;
+        if (!m) continue;
+        const p = provByKid(kid);
+        if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, fetchedOf(p))) { skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）'); continue; }
+        W('sk_model_' + kid, m);
+      }
+      /* 识图是全局一项，但它只画在「当前作用文字 AI」那张卡上 ——
+         停在别的类型档时那个 select 根本不在 DOM 里，草稿就得自己写。 */
+      if (visionDraft.v != null && !document.querySelector('[data-tvision]')) W('sk_text_vision', visionDraft.v);
+    } };
 
   /* ---------- 识图能力：自动 / 支持 / 不支持（存 sk_text_vision） ----------
      判定优先看接口返回的模型能力字段（input_modalities 等里有没有 image），

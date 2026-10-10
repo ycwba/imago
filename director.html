@@ -767,8 +767,8 @@ async function tlClipSrc(c) {
 }
 
 /* 按当前镜头顺序（拖动后的顺序）同步成片时间线：
-   段落顺序 = 场景/镜头顺序；同一 shot+candidate 的手工调整（入点/出点/倍速/音量）会保留；
-   黑场按原先与其相邻的镜头锚定回来 */
+   段落顺序 = 场景/镜头顺序；入点/出点一律现算（跟着候选的 trimS/trimE），
+   倍速/音量沿用时间线里已有的值；黑场按原先与其相邻的镜头锚定回来 */
 function tlSyncFromShots() {
   const old = tlEnsure().clips;
   const fresh = tlFromShots().clips;
@@ -777,7 +777,12 @@ function tlSyncFromShots() {
   const synced = fresh.map(c => {
     const o = oldByKey.get(c.shotId + '|' + c.candId);
     if (!o) return c;
-    return { ...c, in: o.in, out: o.out, speed: o.speed, volume: o.volume };
+    /* 入点/出点**不再沿用旧的**：它们是候选 trimS/trimE 派生的（tlFromShots:737-738），
+       而裁剪那一步写的正是候选上的 trimS/trimE —— 把旧值按回来等于「刚裁的又白裁了」，
+       filmFingerprint 也不变，于是播放/导出的还是改之前那一份，界面却写「已经接成一个完整视频」。
+       倍速与音量反过来：全项目没有任何一处写它们（tlFromShots 恒给 1/1），
+       这里留着只是为了不丢老工程里已经存下来的值。 */
+    return { ...c, speed: o.speed == null ? c.speed : o.speed, volume: o.volume == null ? c.volume : o.volume };
   });
   // 黑场：锚在「它前面最近的那个镜头」之后
   const blacks = old.map((c, i) => ({ c, i })).filter(x => x.c.kind === 'black');

@@ -1777,9 +1777,14 @@ function info() {
       }
       if (!blob || !blob.size) throw new Error('取回字节为空');
       if (blob.size > MIRROR_MAX) {
-        read().skip = String(read().skip || '');
-        /* 超上限的这份**留在在途表里**：否则每刷一次列表就把两百多兆重下一遍。
-           手动那一路照实回执，按钮不能点了像没反应。 */
+        /* 超上限的这份**放弃自动重试**（记进 SKIPPED），同时把它从在途表里摘掉。
+           以前这两件事都靠「不 delete 就等于不重试」顶 —— 那一挂就是 bug：
+           `info()` 的在途数是 `INFOS.inFlight + queued.size`（:1731）、hideAsCloud 也读它，
+           于是一份没存下来的产物永远占着「正在存 N 份」，而用户从头到尾看不到为什么。
+           「本机镜像的上限」是可以调的（设置页），所以这一份只在本次会话里放弃；
+           下次开页面重新试，用户改大了上限它就能存下来。 */
+        SKIPPED.add(k);
+        queued.delete(k);
         const tooBig = new Error('这份比本机镜像的上限（' + window.fmtBytes(MIRROR_MAX) + '）还大，没有存');
         infoNote(false, tooBig);
         tell(tooBig, { skip: true });
@@ -1865,6 +1870,11 @@ function info() {
   }
 
   const queued = new Set();
+  /* 「试过、超出本机镜像上限、放弃自动重试」的那几个键。
+     以前这条意图只留了一句 `read().skip = String(read().skip || '')` —— 写回同一个值，
+     全项目没有任何一处读它，于是「别再自动重下」实际上靠的是「永远挂在 queued 里」，
+     代价是在途数与「只看本机」从此失真（一份没存下来的东西永远显示「正在存」）。 */
+  const SKIPPED = new Set();
   /* 抹掉「这一条本机镜像」的记录 —— 用户刚在资产库点「删除本机文件」之后调它。
      与 learn / decorate 共用同一张表和同一套反查表（否则删掉了却还有指针指着一个死号，
      卡片会一直去问一个查无此号的 /asset/<本机号>，拿到 422 之后又重新下载一遍）。
@@ -1911,6 +1921,9 @@ function info() {
     const k = keyOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
     if (!k) return '';
     if (read().m[k]) { if (o.cb) o.cb(null, { id: read().m[k].a, kept: true }); return 'saved'; }
+    /* 试过、太大下不动的那一份不再自动重试（它连字节都没取回来，重来一次还是超大）。
+       判据见 SKIPPED 的声明；手动那一路（force）不受影响，用户点了还是要照实回执。 */
+    if (SKIPPED.has(k)) return o.force ? '' : 'skip';
     if (queued.has(k)) return 'busy';
     /* 产物身份换了写法也要认得同一个文件：键优先按平台产物号（`|a:`），但平台并不每次都给 ——
        上一次按地址存的那条，这次按任务号算出来是另一个键，于是同一份文件再下一遍。
