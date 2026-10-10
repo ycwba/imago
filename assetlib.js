@@ -248,6 +248,14 @@ async function readSseStream(res, onDelta) {
      Api.mediaSrc / mediaKey / mediaExpired     媒体地址：外链→本地路由、素材身份、签名是否过期
      Api.healMedia(recs, {onFresh})             一批过期签名地址批量回源换新（页面不用自己判过期）
    ========================================================================== */
+/* 顶层开关（create.topBools）在线上真正发什么值 —— **一处判据**，提交体与报价体都用它。
+   默认就是布尔的开 / 关；声明了 `send: { on, off }` 的按那一对发别的形状 ——
+   VGENV 的提示词优化就是这种：prompt_optimization 必须是**对象**（{mode:'enhance'} / {mode:'raw'}），
+   发布尔或字符串上游一律 400（2026-10 实测）。 */
+function topBoolValue(decl, on) {
+  if (decl && decl.send) return on ? decl.send.on : decl.send.off;
+  return !!on;
+}
 (function () {
   let _reg = null;
   let _regTs = 0;
@@ -865,7 +873,10 @@ async function readSseStream(res, onDelta) {
         const keys = Object.keys(f.params).filter(k => f.params[k] !== undefined && f.params[k] !== null);
         if (keys.length) {
           const rest = [], o = {};
-          keys.forEach(k => { if (Object.prototype.hasOwnProperty.call(tops, k)) body[k] = f.params[k]; else rest.push(k); });
+          keys.forEach(k => {
+            if (Object.prototype.hasOwnProperty.call(tops, k)) body[k] = topBoolValue(tops[k], f.params[k]);
+            else rest.push(k);
+          });
           if (rest.length) {
             const parent = Object.keys(spec.nest || {})[0];
             if (parent) { rest.forEach(k => o[k] = f.params[k]); body[parent] = { ...(body[parent] || {}), ...o }; }
@@ -6184,6 +6195,13 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         for (const [remote, local] of Object.entries(pr.body || {})) {
           const v = src[local];
           if (v != null && v !== '') qbody[remote] = v;
+        }
+        /* 顶层开关也带上：文档说报价「使用**创建接口的相同参数**」——
+           不带的话报价回来的是一个我们根本不会创建的规格（比如平台默认开了提示词优化，
+           而用户恰好关了它），价差就落到生成那一刻才暴露。开/关各发什么值由同一处判决定。 */
+        const tDecl2 = (prov && prov.create && prov.create.topBools) || {};
+        for (const [field, on] of Object.entries(p.topBools || {})) {
+          if (tDecl2[field]) qbody[field] = topBoolValue(tDecl2[field], on);
         }
       }
       const q = '?duration=' + sec0(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');

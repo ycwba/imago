@@ -409,6 +409,22 @@ const REGISTRY = {
           reference_video: { to: 'reference_video', many: false, tmpl: { asset_id: '$assetId' }, needsUpload: true, requiresAudio: true },
           reference_audio: { to: 'reference_audio', many: false, tmpl: { asset_id: '$assetId' }, needsUpload: true },
         },
+        /* 平台自带的提示词优化（2026-10 实测出来的能力，以前没声明 → 界面上就没有这颗开关）：
+             · prompt_optimization 必须是**对象**，mode 只收 `enhance` / `raw`；
+               发布尔或字符串上游一律 400（nested property … must be either object or array）。
+             · **不传就是 enhance**（报价响应里会回显 prompt_optimization:{mode:"enhance"}），
+               所以这一档默认开；想关就发 {mode:"raw"}。
+             · 实测两种模式报价相同（300000 micros）—— 这一项在 VGENV 不额外收钱，
+               所以声明里不写 priceKey（写了也只会加 0）。
+             · turbo 是另一份独立授权，我们没有 —— 实测发过去直接 500，别碰。 */
+        topBools: {
+          prompt_optimization: {
+            label: '平台提示词优化',
+            hint: '让平台先把提示词改写得更像视频描述再生成；关掉则原样提交（平台默认是开着的）',
+            def: true,
+            send: { on: { mode: 'enhance' }, off: { mode: 'raw' } },
+          },
+        },
         // 上传接口的字段命名（VGENV 用驼峰，SparkCine 是下划线）
         uploadFields: { fileName: 'fileName', contentType: 'contentType', sizeBytes: 'sizeBytes' },
       },
