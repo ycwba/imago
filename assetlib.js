@@ -2765,7 +2765,14 @@ window.Capabilities = {
     /* 布尔型参数（如 generate_audio）：界面按这份声明动态生成「开 / 关」选项，
        新平台声明了新的布尔参数就能自动出现，不用改页面。 */
     const bools = {};
-    Object.entries(P).forEach(([k, v]) => { if (v && v.valueType === 'boolean') bools[k] = { def: v.default === true }; });
+    Object.entries(P).forEach(([k, v]) => {
+      if (!v || v.valueType !== 'boolean') return;
+      /* `bills`（billingRelevant）一起留着。平台自己声明「这个开关不参与计价」时，
+         界面要能照实说，而不是让用户拨一下发现报价纹丝不动、以为是坏了 ——
+         SparkCine 的 mute_reference_video 就是这一类：billingRelevant:false、routingRelevant:true，
+         它只影响路由（参考视频要不要保留声音），钱不变。 */
+      bools[k] = { def: v.default === true, bills: v.billingRelevant !== false };
+    });
     if (Object.keys(bools).length) cap.bools = bools;
     const price = {};
     ((m.pricing && m.pricing.perOutput) || []).forEach(x => { if (x.quality) price[x.quality] = x.credits; });
@@ -6107,6 +6114,11 @@ function clearQuoteMarks() {
   QUOTE_UNAVAILABLE.clear();
   try { localStorage.removeItem(QUOTE_MARK_KEY); } catch (e) {}
 }
+/* 报价的**结果**缓存（ukey → { at, r }）。并发去重只挡住「同一时刻的两个请求」，
+   挡不住「导演台每次重渲染都问一遍」—— 那会让报价行在同一个数之间来回闪。
+   换个键就自然过期（键里有平台/端点/请求体），所以参数一变立刻重新问。 */
+const QUOTE_CACHE = new Map();
+const QUOTE_TTL = 45 * 1000, QUOTE_FAIL_TTL = 10 * 1000;
 window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
   const pr = (prov && prov.pricing) || null;
   if (!pr) return { ok: false, reason: '该 API 未声明定价方式' };
@@ -6130,8 +6142,17 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       const sec = Number(p.duration || 5);
       const ps = ((m && m.pricing && m.pricing.perSecond) || []).find(x => x.resolution === p.res);
       if (ps) {
-        const total = Math.round(ps.credits * sec * n * 100) / 100;
-        return { ok: true, text: '约 ' + total + ' ' + cur, detail: ps.credits + ' ' + cur + '/秒 × ' + sec + '秒 × ' + n + ' 条' };
+        let total = Math.round(ps.credits * sec * n * 100) / 100;
+        const detail = [ps.credits + ' ' + cur + '/秒 × ' + sec + '秒 × ' + n + ' 条'];
+        /* 「平台自动润色」是**单独计价**的一项（上游定价表里的 promptOptimizationCredits），
+           以前完全没算 —— 开关拨了报价纹丝不动，看着像开关没生效。
+           判据读上游那份定价，页面只把「开关开没开」递进来，不自己写死 5 这个数。 */
+        const optCredits = Number((m && m.pricing && m.pricing.promptOptimizationCredits) || 0);
+        if (p.optimizePrompt && optCredits) {
+          total = Math.round((total + optCredits) * 100) / 100;
+          detail.push('平台自动润色 +' + optCredits + ' ' + cur);
+        }
+        return { ok: true, text: '约 ' + total + ' ' + cur, detail: detail.join(' · ') };
       }
       if (m && m.pricing && m.pricing.minimumCredits) return { ok: true, text: '最低 ' + m.pricing.minimumCredits + ' ' + cur };
       return { ok: false, reason: '模型表中没有 ' + (p.res || '?') + ' 的单价' };
@@ -6167,6 +6188,15 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       /* 同参数的并发只发一趟：导演台一次重排会给每个分镜估一次价，参数常常一模一样，
          报价接口又是 15 秒超时的那种 —— 七条一样的请求既白等也打上游。 */
       const ukey = full + (method === 'GET' ? '' : '|' + JSON.stringify(qbody));
+      /* 结果缓存（不只是并发去重）：导演台的 refreshEst 挂在「每次重渲染」上，
+         而重渲染在输入、选中、切镜头时都会发生 —— 同一组参数于是被反复问一遍上游，
+         报价那行也跟着「估价中… → 同一个数」来回闪（实测两次 refreshEst 发了 4 次请求，
+         数字一次没变）。加上 TTL 之后：同参数直接读缓存，回调在同一帧里落地，界面不闪。
+         TTL 定 45 秒：平台自己也说「报价后库存可能变化，创建会重新核验并返回最终金额」，
+         所以短缓存不会让用户按着一个过时的价去提交。失败只缓存 10 秒，别把一次网络抖动
+         钉成一分半钟的「报不出来」。 */
+      const hit = QUOTE_CACHE.get(ukey);
+      if (hit && Date.now() - hit.at < (hit.r && hit.r.ok ? QUOTE_TTL : QUOTE_FAIL_TTL)) return hit.r;
       if (QUOTE_INFLIGHT[ukey]) return await QUOTE_INFLIGHT[ukey];
       const one = (async () => {
         const opt = { headers: Api.headers(prov), timeout: 15000, retry: 0 };
@@ -6194,7 +6224,11 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         return { ok: false, reason: d.message || '报价接口未返回价格' };
       })();
       QUOTE_INFLIGHT[ukey] = one;
-      try { return await one; } finally { delete QUOTE_INFLIGHT[ukey]; }
+      try {
+        const r = await one;
+        QUOTE_CACHE.set(ukey, { at: Date.now(), r });
+        return r;
+      } finally { delete QUOTE_INFLIGHT[ukey]; }
     }
     if (pr.type === 'per_1k_chars') {
       const unit = model && model.price ? model.price.per1kChars : null;

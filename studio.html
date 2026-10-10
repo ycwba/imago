@@ -997,7 +997,8 @@ const RATIO_HINT = {
 };
 const RATIO_PX = { '1:1': '1024×1024', '16:9': '1024×576', '9:16': '576×1024', '4:3': '1024×768', '3:4': '768×1024', '3:2': '1024×683', '2:3': '683×1024', '21:9': '1024×439', '4:5': '819×1024' };
 const QUALITY_ZH = (window.AiGen && AiGen.QUALITY_ZH) || { draft: '草稿', standard: '标准', final: '精修' };
-const BOOL_ZH = { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频' };
+const BOOL_ZH = { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频',
+  mute_reference_video: '静音参考视频' };
 const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
 
 /* 下拉填充：**选项与显隐都现算自能力声明**，页面里不写死任何一项。
@@ -1102,7 +1103,11 @@ function renderBoolRows(model, modelChanged, defs) {
     const d = bools[k] || {};
     const prev = av[key];
     const on = (modelChanged || prev === undefined) ? (d.def !== false) : (prev === '1');
-    return '<div><label>' + escA(BOOL_ZH[k] || k) + '</label><select data-bool="' + escA(k) + '">'
+    return '<div><label>' + escA(BOOL_ZH[k] || k)
+      /* 平台自己声明 billingRelevant:false 的开关（SparkCine 的「静音参考视频」就是）——
+         拨它报价本来就不该变。与其让人以为开关没生效，不如把这句话写在标签上。 */
+      + ((d.bills === false) ? '<span class="sel-hint">不影响计价</span>' : '')
+      + '</label><select data-bool="' + escA(k) + '">'
       + '<option value="1"' + (on ? ' selected' : '') + '>开</option>'
       + '<option value="0"' + (on ? '' : ' selected') + '>关</option></select></div>';
   }).join('');
@@ -1325,39 +1330,45 @@ const priceCache = {};
    第一轮的报价最后到，界面上写的是上一组参数的钱。同一屏上别的异步回写都带这个
    （pager 的 reqSeq、loadServer 的 serverGen），估价原先是唯一一处没有的。 */
 let estGen = 0;
+let estShown = '';        // 屏上此刻摆着的那句完整文案
 async function refreshEst() {
   const box = $('costTxt');
   const { prov, model } = currentModel();
   const gen = ++estGen;
   const alive = () => gen === estGen;              // 已经不是最新一轮就什么都别写
   if (!prov) { box.textContent = '注册路由未加载'; return; }
-  box.textContent = '估价中…';
+  /* 屏上已经是同一个答案就别先写「估价中…」——参数没变却让估价闪一下，
+     用户看着像「报价老是自己在跳」（实测：导演台每次重渲染都调，同一个数被写了两遍）。 */
+  if (!estShown || box.textContent !== estShown) box.textContent = '估价中…';
+  const put = html => { if (!alive()) return; estShown = html; if (box.innerHTML !== html) box.innerHTML = html; };
   if (TYPE === 'audio') {
     const pr = prov.pricing || {};
     const m = curAudioModel();
     const chars = ($('prompt').value || '').trim().length;
     if (pr.type === 'per_1k_chars' && m.price && m.price.per1kChars != null && chars) {
       const c = chars / 1000 * m.price.per1kChars;
-      box.innerHTML = '约 <b>' + (pr.currency || '¥') + c.toFixed(4) + '</b> <span class="note">' + chars + ' 字 × ' + (pr.currency || '¥') + m.price.per1kChars + '/千字</span>';
-    } else if (pr.type === 'quote' && pr.endpoint) box.innerHTML = '以平台实时报价为准';
-    else box.innerHTML = '<span class="note">平台未提供价格' + (chars ? '（本次 ' + chars + ' 字）' : '') + '</span>';
+      put('约 <b>' + (pr.currency || '¥') + c.toFixed(4) + '</b> <span class="note">' + chars + ' 字 × ' + (pr.currency || '¥') + m.price.per1kChars + '/千字</span>');
+    } else if (pr.type === 'quote' && pr.endpoint) put('以平台实时报价为准');
+    else put('<span class="note">平台未提供价格' + (chars ? '（本次 ' + chars + ' 字）' : '') + '</span>');
     return;
   }
   /* `prompt` 也要递：VGENV 的报价接口与 create 同形且**必填** model + prompt，
-     少了 prompt 上游直接 400。语音台按字数计价，不走这一支。 */
+     少了 prompt 上游直接 400（没有提示词时走注册表里声明的占位串，见 pricing.consts）。
+     语音台按字数计价，不走这一支。 */
   const params = TYPE === 'image'
     ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
     : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
-        tier: val('tier'), ar: val('ar'), prompt: $('prompt').value };
+        tier: val('tier'), ar: val('ar'), prompt: $('prompt').value,
+        /* 「平台自动润色」是单独计价的一项（上游定价表里有 promptOptimizationCredits），
+           不递进来估价就当它免费 —— 开关拨了报价不动，看着像开关没生效。 */
+        optimizePrompt: !!cur().platPolish };
   try {
     const r = await AssetLib.estimateCost(prov, model, params, { cache: priceCache });
-    if (!alive()) return;
-    box.innerHTML = r && r.ok
+    put(r && r.ok
       ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
-      : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>';
+      : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>');
   } catch (e) {
-    if (!alive()) return;
-    box.innerHTML = '<span class="note">估价失败：' + escA(String(e && e.message || e)) + '</span>';
+    put('<span class="note">估价失败：' + escA(String(e && e.message || e)) + '</span>');
   }
 }
 

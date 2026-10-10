@@ -4431,14 +4431,21 @@ async function getPriceEstimate(sh) {
   return r.ok ? name + ' · ' + r.text : name + ' · 报价不可用（' + r.reason + '）';
 }
 let estSeq = 0;
+let estShown = '';          // 屏上此刻摆着的那句完整文案
 async function refreshEst() {
   const sh = curShot();
   const el = $('estTxt');
   if (!el || !sh) return;
   const my = ++estSeq;
-  el.textContent = '估价中…';
+  /* 屏上已经摆着同一个答案，就**不要先写「估价中…」**。
+     refreshEst 挂在「每次重渲染」上（输入、选中、切镜头都会重渲染），不动参数也会被调用 ——
+     先写加载态再写回同一个数，等于让那一行闪一下（值其实没变，用户看着像「报价老在跳」）。
+     拿不到答案（第一次、或者参数变了）才显示加载态。 */
+  if (!estShown || el.textContent !== estShown) el.textContent = '估价中…';
   const txt = await getPriceEstimate(sh);
-  if (my === estSeq) el.textContent = txt;    // 连点镜头时旧报价别把新的盖回去
+  if (my !== estSeq) return;              // 连点镜头时旧报价别把新的盖回去
+  estShown = txt;
+  if (el.textContent !== txt) el.textContent = txt;
 }
 
 /* ---------- 时间切片参考图（画面素材）---------- */
