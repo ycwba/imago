@@ -314,7 +314,16 @@ const REGISTRY = {
          同一个任务于是在界面上裂成两张（假失败卡 + 列表里真实的完成卡）。
          列表接口返回完整对象（含 status / output.url），所以轮询声明走列表按任务号找。 */
       pollVia: 'list',
-      pricing: { type: 'quote', currency: '¥', endpoint: 'price' },
+      /* 报价接口：**POST /v3/videos/quote**（2026-10 实测）。
+         请求体与 create 同形，而且**必填 model + prompt**（prompt 要 5–30000 字，
+         少任一个都回 400 BAD_REQUEST 并把缺哪个写在 message 里）——
+         所以估价那一路要把当前提示词也递过来，别只递参数。
+         响应：`{ price: { currency:'CNY', amount_micros, unit_price_micros } }`，
+         缺参数时平台会把默认值回显出来（不传 duration 回 15、tier 回 fast…）。
+         旧声明指向的 GET /v2/pricing 实际不可用（页面上一律报「未开放报价接口」），已删。 */
+      pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST',
+        body: { model: 'model', prompt: 'prompt', tier: 'tier', duration: 'duration',
+          resolution: 'res', aspect_ratio: 'ar' } },
       noPromptField: true,   // 接口不返回提示词（列表/详情/V1/流水都实测过），界面据此提示"平台不返回"
       // 注意：VGENV 的列表 / 详情 / V1 兼容接口 / 余额流水都不返回 prompt（实测过），
       // 所以提示词只能靠客户端创建任务时归档一份（assetlib 的 PromptLog → /prompts 存进归档文件夹，
@@ -324,7 +333,7 @@ const REGISTRY = {
         poll: '/v2/videos/{id}',
         list: '/v2/videos',
         cancel: '/v2/videos/{id}',
-        price: '/v2/pricing',
+        quote: '/v3/videos/quote',
         credits: '/v1/credits',
         uploads: '/v1/assets/uploads',
         complete: '/v1/assets/{id}/complete',

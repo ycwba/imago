@@ -131,8 +131,16 @@ body.wb-splitting * { user-select: none !important; }
    左边搜索框 + 搜索，一条分隔线，右边上一页/第几页/下一页/跳页/跳转/刷新。
    组内控件统一高度（30px）。这一组按「尽量一行」设计（按钮内边距、间距都收得比较紧），
    右栏被拖得实在放不下时才自己换行 —— 按钮文案已 nowrap，不会在按钮里折断成两行。 */
+/* 组内控件统一高度（30px）。这一组按「尽量一行」设计（按钮内边距、间距都收得比较紧），
+   右栏被拖得实在放不下时才自己换行 —— 按钮文案已 nowrap，不会在按钮里折断成两行。
+   边框/底色/圆角也归到这里：以前只写了宽高与字号，搜索框与跳页框留着浏览器默认的
+   2px inset 白框，夹在一排 styled 的 .ghost 按钮中间格外显眼（实测 computed：
+   border 2px inset、radius 0、白底）—— 也就是「搜索框和跳页没有使用公共 UI」。 */
+.pgroup input { border: 1px solid var(--line, #e4e6f0); border-radius: 6px;
+  background: var(--input, #f6f7fb); color: var(--txt, #23262f); font-family: inherit; outline: none; }
+.pgroup input:focus { border-color: var(--acc, #6957e8); }
 .pgroup input:not([type="number"]) { flex: 0 1 150px; min-width: 96px; width: 150px; height: 30px; padding: 0 8px; font-size: 12.5px; }
-.pgroup input[type="number"] { width: 50px; height: 30px; padding: 0 6px; font-size: 12.5px; }
+.pgroup input[type="number"] { width: 50px; height: 30px; padding: 0 6px; font-size: 12.5px; text-align: center; }
 .pgroup > button, .pgroup > .ghost { height: 30px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pgroup .pginfo { white-space: nowrap; font-size: 12px; }
 .toolbar > button { white-space: nowrap; }

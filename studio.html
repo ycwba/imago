@@ -88,6 +88,10 @@
   /* ---------- 右栏：历史资产库 ---------- */
   .hist-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .hist-filters .sp { flex: 1; }
+  /* 类型筛选那一排**不许被挤窄**：`.ui-seg` 自带 overflow:hidden，右栏一窄它就会把
+     最后一颗切掉半截（看着就像那颗「没有公共样式」了）。数字位数一变宽度就变
+     （全部 12 → 全部 491），所以这里给它自然宽度，挤不下就整排换行。 */
+  .hist-filters > .ui-seg { flex: 0 0 auto; }
   /* 卡片改成「画面在上、信息在下」的竖版网格：视频要能在小栏里直接看，
      132×96 的横版小图放不下原生播放器（ui.css 的 .task 是给列表用的横版）。 */
   body.wb2 .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
@@ -235,7 +239,7 @@
       <span class="tab">历史资产库</span>
       <span class="sp"></span>
       <span class="pgroup">
-        <input id="searchBox" placeholder="搜索提示词 / ID" autocomplete="off" spellcheck="false">
+        <input type="search" id="searchBox" placeholder="搜索提示词 / ID" autocomplete="off" spellcheck="false">
         <button class="ghost" id="searchBtn">搜索</button>
         <span class="pgsep"></span>
         <button class="ghost" id="pgPrev" style="display:none">‹ 上一页</button>
@@ -1226,14 +1230,20 @@ function renderParams() {
   updateGoState();
   refreshEst();
 }
-/* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份） */
+/* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份）。
+   **换型号也要重算**：以前这里 `if (e.target.id === 'model') return;` 直接跳过 ——
+   换一个价钱差一截的型号，界面上的估价还挂着上一家的钱。 */
 $('advBody').addEventListener('change', e => {
-  if (e.target.id === 'model') return;
+  if (e.target.id === 'model') { paintSubNote(); refreshEst(); updateGoState(); return; }
   if (TYPE === 'audio') { applyAudioCaps(); }
   else if (TYPE === 'image') { renderImageParams(); }
   else { readBoolParams(); renderVideoParams(); }
   refreshEst(); updateGoState();
 });
+/* 这里只管高级设置面板里的输入框（提示词框不在 #advBody 内，它自己的监听在 :1344：
+   语音台按字数计价的那一路已经跟着提示词逐字重算了）。视频/图像走平台报价接口，
+   提示词是报价入参，每敲一个字发一次上游既慢又打接口，所以只在「改完高级设置 / 换型号」
+   这类明确动作之后重算。 */
 $('advBody').addEventListener('input', e => { if (e.target.id === 'style') { updateGoState(); } });
 $('advHead').addEventListener('click', () => {
   $('adv').classList.toggle('closed');
@@ -1263,9 +1273,15 @@ async function refreshCaps() {
 
 /* ============================ ⑥ 费用预估 ============================ */
 const priceCache = {};
+/* 代际号：估价是异步的，慢的旧请求回来会盖掉新那轮 —— 典型是「改完参数马上又改一项」，
+   第一轮的报价最后到，界面上写的是上一组参数的钱。同一屏上别的异步回写都带这个
+   （pager 的 reqSeq、loadServer 的 serverGen），估价原先是唯一一处没有的。 */
+let estGen = 0;
 async function refreshEst() {
   const box = $('costTxt');
   const { prov, model } = currentModel();
+  const gen = ++estGen;
+  const alive = () => gen === estGen;              // 已经不是最新一轮就什么都别写
   if (!prov) { box.textContent = '注册路由未加载'; return; }
   box.textContent = '估价中…';
   if (TYPE === 'audio') {
@@ -1279,15 +1295,20 @@ async function refreshEst() {
     else box.innerHTML = '<span class="note">平台未提供价格' + (chars ? '（本次 ' + chars + ' 字）' : '') + '</span>';
     return;
   }
+  /* `prompt` 也要递：VGENV 的报价接口与 create 同形且**必填** model + prompt，
+     少了 prompt 上游直接 400。语音台按字数计价，不走这一支。 */
   const params = TYPE === 'image'
-    ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1) }
-    : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'), tier: val('tier'), ar: val('ar') };
+    ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
+    : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
+        tier: val('tier'), ar: val('ar'), prompt: $('prompt').value };
   try {
     const r = await AssetLib.estimateCost(prov, model, params, { cache: priceCache });
+    if (!alive()) return;
     box.innerHTML = r && r.ok
       ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
       : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>';
   } catch (e) {
+    if (!alive()) return;
     box.innerHTML = '<span class="note">估价失败：' + escA(String(e && e.message || e)) + '</span>';
   }
 }

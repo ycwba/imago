@@ -6140,14 +6140,44 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       const ep = pr.endpoint || 'price';
       const qk = (prov && prov.id ? prov.id : String(ep)) + '|' + ep;
       if (quoteDead(qk)) return { ok: false, reason: '该平台未开放报价接口' };
+      /* 报价可以声明成 **POST + JSON 体**（VGENV 的 /v3/videos/quote 就是），
+         默认仍是 GET + 查询串。判据读声明，页面不按平台 id 分支（AGENTS.md §2）。
+         请求体的字段映射也从声明来：`body: { 上游字段名: 本地参数名 }`，
+         取值与 create.body 同一套本地参数名（model/prompt/tier/duration/res/resolution/ar）。 */
+      const method = String(pr.method || 'GET').toUpperCase();
+      const qbody = {};
+      if (method !== 'GET') {
+        /* 取值口径：声明右边写的是**本地参数名**，而 `model` 在 estimateCost 的签名里是
+           单独的第二个参数、不在 p 里 —— 不把它并进来，body 就少了 model 字段，
+           上游回 400「model must be a string」，而界面只会显示一句「报价接口要这些…」。 */
+        const src = Object.assign({}, p, { model: (model && model.id) || p.model });
+        for (const [remote, local] of Object.entries(pr.body || {})) {
+          const v = src[local];
+          if (v != null && v !== '') qbody[remote] = v;
+        }
+      }
       const q = '?duration=' + sec0(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');
-      const full = Api.url(prov, ep) + q;
+      const full = Api.url(prov, ep) + (method === 'GET' ? q : '');
       /* 同参数的并发只发一趟：导演台一次重排会给每个分镜估一次价，参数常常一模一样，
          报价接口又是 15 秒超时的那种 —— 七条一样的请求既白等也打上游。 */
-      if (QUOTE_INFLIGHT[full]) return await QUOTE_INFLIGHT[full];
+      const ukey = full + (method === 'GET' ? '' : '|' + JSON.stringify(qbody));
+      if (QUOTE_INFLIGHT[ukey]) return await QUOTE_INFLIGHT[ukey];
       const one = (async () => {
-        const r0 = await Net.fetch(full, { headers: Api.headers(prov), timeout: 15000, retry: 0 });
+        const opt = { headers: Api.headers(prov), timeout: 15000, retry: 0 };
+        if (method !== 'GET') {
+          opt.method = 'POST';
+          opt.headers['Content-Type'] = 'application/json';
+          opt.body = JSON.stringify(qbody);
+        }
+        const r0 = await Net.fetch(full, opt);
         if (r0.status === 404) { markQuoteDead(qk); return { ok: false, reason: '该平台未开放报价接口' }; }
+        if (r0.status === 400) {
+          /* 上游把「缺哪个字段」写在 message 里（VGENV 回的是数组），照实说给用户，
+             别一律压成「未开放报价接口」—— 那是另一个意思。 */
+          let msg = '';
+          try { const j = await r0.json(); msg = [].concat(j.message || j.error || '').join('；'); } catch (e) {}
+          return { ok: false, reason: msg ? ('报价接口要这些：' + msg.slice(0, 120)) : ('报价接口 HTTP 400') };
+        }
         if (!r0.ok) return { ok: false, reason: '报价接口 HTTP ' + r0.status };
         const d = await r0.json();
         const micros = (d.price && d.price.amount_micros) ?? d.amount_micros ?? (d.data && d.data.price && d.data.price.amount_micros);
@@ -6157,8 +6187,8 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         }
         return { ok: false, reason: d.message || '报价接口未返回价格' };
       })();
-      QUOTE_INFLIGHT[full] = one;
-      try { return await one; } finally { delete QUOTE_INFLIGHT[full]; }
+      QUOTE_INFLIGHT[ukey] = one;
+      try { return await one; } finally { delete QUOTE_INFLIGHT[ukey]; }
     }
     if (pr.type === 'per_1k_chars') {
       const unit = model && model.price ? model.price.per1kChars : null;
