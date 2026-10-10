@@ -301,7 +301,13 @@ function newState() {
     prompt: '',
     style: '',                                  // 音色设计模型的风格描述
     platPolish: false,                          // 平台自带的提示词优化开关
-    autoVals: {},                               // 「上次是界面自动填的」——用来分辨用户手动改过没有
+    autoVals: {},                               // 「上次是界面自动填的」——只记值
+    /* 用户**亲手点过**哪些控件。`autoVals` 记的是值、不是「谁写的」，
+       而 fillSel 的 untouched 判据是「当前值 === 上次自动填的值」——
+       于是用户改过的那个控件在下一次重画时被判成 untouched，跟着平台默认值走，
+       **改一个选项、其余全被重置**（实测：改完时长 15 秒，再动一下比例，时长就回到 5 秒）。
+       这里单独记一份「谁点的」，判据才是它。 */
+    touched: {},
     liveModels: null,                           // 语音台从平台 /models 现取的型号：{ 平台id: [型号] }
                                                   // **按平台分桶**——以前只有一个 voiceModels，
                                                   // 加了第二家语音平台以后它取回来的型号会盖掉第一家那份。
@@ -1002,7 +1008,11 @@ function fillSel(sel, values, fmt, defKey, id, opts) {
   const o = opts || {};
   const av = cur().autoVals;
   const prev = sel.value;
-  const untouched = av[id] === undefined || prev === av[id];
+  /* 「没被动过」只看**用户点没点过这一项**（cur().touched），不看「当前值是不是上次自动填的那个」。
+     以前是后者：用户改了时长之后，下一次重画把 av 同步成新值，于是它立刻「变回」没动过 ——
+     再下一次重画（改比例、换能力…）就按平台默认值把它盖回去。
+     用户挑过的值只有换型号时才该被重置（型号变了、原来那档可能不存在），那是换型号那条路。 */
+  const untouched = !(cur().touched || {})[id];
   const defs = o.defaults || {};
   sel.innerHTML = values.map(v => '<option value="' + escA(String(v)) + '">' + escA(fmt ? fmt(v) : String(v)) + '</option>').join('');
   const has = v => v !== undefined && v !== null && values.some(x => String(x) === String(v));
@@ -1018,6 +1028,13 @@ function fillSel(sel, values, fmt, defKey, id, opts) {
 }
 const show = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
 const val = id => { const el = $(id); return el ? el.value : ''; };
+/* 记下当前型号；**换了型号**就把「用户点过哪些」清空 —— 新型号的参数是另一套，
+   拿旧型号的手动选择去压住它的默认值才是错的（而且那些值在新型号上多半根本不存在）。
+   同一个型号内的重画（改能力、重新取回列表）不清，用户挑过的档位要留着。 */
+function noteModel(m) {
+  const s = cur();
+  if (s.lastModelId !== (m && m.id)) { s.lastModelId = m && m.id; s.touched = {}; }
+}
 
 function modelLimits(m) {
   const o = (m && m.options) || {};
@@ -1030,7 +1047,7 @@ function renderVideoParams() {
   const o = (model && model.options) || {};
   const defs = o.defaults || {};
   const changed = cur().lastModelId !== model.id;
-  cur().lastModelId = model.id;
+  noteModel(model);
   const tiers = o.tiers || [], ress = o.resolutions || [], ars = o.aspect_ratios || [], sizes = o.sizes || [];
   /* 时长只有「区间」声明（[4,15]）才渲染成每一秒一档；写成两个数的区间直接减会得到 NaN */
   const durs = (Array.isArray(o.durations) && o.durations.length === 2 && o.durations[1] >= o.durations[0])
@@ -1062,7 +1079,16 @@ function renderVideoParams() {
   }
   renderBoolRows(model, changed, defs);
   renderPlatPolish();
-  $('advSum').textContent = [model.name || val('model').split('::').pop(), val('res'), val('dur') ? val('dur') + '秒' : '',
+  paintVideoHints(model);
+}
+/* 「随当前值变的那几行字」——重画与改值**共用同一份**（§J：同一件事只写一遍）。
+   改一个选项时不再整块重画参数（那会把没动过的下拉全判成 untouched 跟着平台默认值走，
+   于是其余选项被重置；renderBoolRows 的 innerHTML 重建还会留下裸 select），
+   改成只重算这几行字 —— 见 advBody 的 change 监听。 */
+function paintVideoHints(m) {
+  const sizes = (currentModel().model.options || {}).sizes || [];
+  const name = (m && m.name) || val('model').split('::').pop();
+  $('advSum').textContent = [name, val('res'), val('dur') ? val('dur') + '秒' : '',
     val('ar'), (sizes.length && !val('ar')) ? val('size') : ''].filter(Boolean).join(' · ');
 }
 function renderBoolRows(model, modelChanged, defs) {
@@ -1127,7 +1153,7 @@ function renderImageParams() {
   const o = m.options || {};
   const lim = modelLimits(m);
   const defs = lim.defs;
-  cur().lastModelId = m.id;
+  noteModel(m);
   const ars = (o.aspect_ratios || []).slice();
   const sizes = (o.sizes || []).slice();
   const fmts = (o.output_formats || []).slice();
@@ -1152,6 +1178,10 @@ function renderImageParams() {
   const where = src ? Capabilities.srcTextOf(src) : '';
   $('formatHint').textContent = fmts.length > 1
     ? fmts.length + ' 种（' + (defs.output_format ? '平台默认 ' + String(defs.output_format).toUpperCase() : '未声明默认值') + '）· ' + where : '';
+  paintImageHints();
+}
+/* 同 paintVideoHints：图像台随值变的是比例提示与摘要，两处共用一份 */
+function paintImageHints() {
   const r = val('ratio');
   const hint = RATIO_HINT[r];
   $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0] + (RATIO_PX[r] ? ' · 输出 ' + RATIO_PX[r] : '') + '</span>' : '';
@@ -1232,12 +1262,26 @@ function renderParams() {
 }
 /* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份）。
    **换型号也要重算**：以前这里 `if (e.target.id === 'model') return;` 直接跳过 ——
-   换一个价钱差一截的型号，界面上的估价还挂着上一家的钱。 */
+   换一个价钱差一截的型号，界面上的估价还挂着上一家的钱。
+
+   ⚠ 这里**不再整块重画参数**（以前调 renderImageParams / renderVideoParams）。两个后果都是
+   用户看得见的：
+     ① 每个下拉都被 fillSel 重填一遍，而它按「这个值动过没有」决定保不保留 ——
+        没动过的那几个一律判成 untouched、跟着平台默认值走，于是**改一个选项、其余全被重置**；
+     ② renderBoolRows 是 box.innerHTML = …，重建出来的是**裸 select**（没包 .dd），
+        而 syncDropdowns 只在 paintLeft 里调 —— 于是那一排退回浏览器原生外观，
+        看着就是「有的高级设置变成基础样式」。
+   真正需要整块重画的是「换型号 / 能力刷新」，那两条走 paintLeft / refreshCaps。
+   这里只重算随值变的那几行字（摘要、比例提示）—— 三处摘要各写一份的毛病也一并收掉。 */
 $('advBody').addEventListener('change', e => {
+  /* 记下「这一项是用户亲手挑的」：换型号/能力刷新重画时，未被点过的才跟平台默认值走。
+     键就是 fillSel 用的那个 id，也正是控件自己的 id（tier/res/dur/ar/draw…）。 */
+  const tid = e.target && e.target.id;
+  if (tid && cur().touched) cur().touched[tid] = 1;
   if (e.target.id === 'model') { paintSubNote(); refreshEst(); updateGoState(); return; }
-  if (TYPE === 'audio') { applyAudioCaps(); }
-  else if (TYPE === 'image') { renderImageParams(); }
-  else { readBoolParams(); renderVideoParams(); }
+  if (TYPE === 'audio') applyAudioCaps();          // 它本来就只改显隐/提示/摘要，不重建控件
+  else if (TYPE === 'image') paintImageHints();
+  else { readBoolParams(); paintVideoHints(); }
   refreshEst(); updateGoState();
 });
 /* 这里只管高级设置面板里的输入框（提示词框不在 #advBody 内，它自己的监听在 :1344：
@@ -1264,6 +1308,10 @@ async function refreshCaps() {
        （refreshProvider 对没有 models 端点的平台返回 null，所以要走这条 early return。） */
     if (!d) { hint.textContent = ''; paintSubNote(); return; }
     renderParams(); renderInputArea();
+    /* 能力回来之后会**整块重画参数**（renderBoolRows 那种 innerHTML 重建），
+       而 syncDropdowns 只在 paintLeft 里调 —— 不在这里补一次，重建出来的下拉就是裸的，
+       那一排退回浏览器原生外观（能力接口可用 + 换型号时必现）。 */
+    syncDropdowns();
     hint.textContent = Capabilities.srcTextOf(d);
   } catch (e) {
     hint.textContent = '能力接口读取失败：' + e.message + '（仍按平台声明展示）';
