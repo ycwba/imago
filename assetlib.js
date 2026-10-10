@@ -3089,7 +3089,22 @@ window.Capabilities = {
     const prov = list.find(p => p.id === providerId || (p.keyId || p.id) === providerId);
     if (!prov) return 0;
     let n = 0;
+    /* 同一家平台同时做图与视频时（SparkCine：两条 provider 共用同一个上游），
+       /models 返回的是**一份合在一起的清单** —— 不切分的话视频台会列出 img-*、
+       图片台会列出 h3-video-*。切分判据用平台自己的 list.media 声明
+       （videoPrefix / imagePrefix，与列表分类同一份），provider 用 `modelMedia` 点名自己要哪一类。 */
+    const md = (prov.list && prov.list.media) || {};
+    const wantMedia = prov.modelMedia || '';
+    const lower = v => String(v || '').toLowerCase();
+    const mediaOf = id => {
+      const s = lower(id);
+      if ((md.imagePrefix || []).some(p => s.startsWith(lower(p)))) return '图片';
+      if ((md.videoPrefix || []).some(p => s.startsWith(lower(p)))) return '视频';
+      return '';
+    };
+    const skip = id => { const c = mediaOf(id); return !!(wantMedia && c && c !== wantMedia); };
     (prov.models || []).forEach(m => {
+      if (skip(m.id)) return;
       const cap = capsById[m.id];
       const base = Object.assign({}, m.options || {});
       if (!cap) { m.options = base; return; }          // 接口没给这个模型 → 保留声明
@@ -3113,6 +3128,7 @@ window.Capabilities = {
        现在型号清单来自接口（声明退化成接口形状与必要映射），平台上新一个型号刷新就能看到。 */
     for (const [id, cap] of Object.entries(capsById || {})) {
       if ((prov.models || []).some(m => m.id === id)) continue;
+      if (skip(id)) continue;                         // 不是这一类媒体的型号（见上面 modelMedia）
       prov.models = prov.models || [];
       prov.models.push({ id, name: (cap && cap.name) || id, modes: (cap && cap.modes) || [],
         options: Object.assign({}, cap || {}) });

@@ -248,6 +248,10 @@ const REGISTRY = {
       base: 'https://hi.hi.run', keyEnv: 'SPARKCINE_API_KEY', site: 'https://hi.hi.run',
       // 同一个上游的列表里既有图也有视频：按媒体类型落到各自的 provider id（路由/取消/轮询用）
       mediaProviders: { '图片': 'sparkcine', '视频': 'sparkcine-video' },
+      /* 这一条与 sparkcine-video 共用同一个上游与同一个 /models —— 返回的是**一份混合清单**
+         （img-* 与 h3-video-* 全在一起）。`modelMedia` 点名这一条只要图片那类，
+         能力层据此切分，否则视频台会列出图片模型、图片台会列出视频模型。 */
+      modelMedia: '图片',
       pricing: { type: 'per_image_table', currency: '积分' },
       endpoints: {
         create: '/api/open/v1/generations',
@@ -401,6 +405,8 @@ const REGISTRY = {
       id: 'sparkcine-video', name: 'SparkCine 视频', displayName: 'SparkCine', kind: 'video', relay: '/sparkcine', keyId: 'sparkcine',
       base: 'https://hi.hi.run', keyEnv: 'SPARKCINE_API_KEY', site: 'https://hi.hi.run',
       pricing: { type: 'per_second_table', currency: '积分', endpoint: 'models' },
+      /* 与 sparkcine 共用同一个 /models（返回混合清单），这一条只要视频那类 —— 见上面 modelMedia 的说明 */
+      modelMedia: '视频',
       endpoints: {
         create: '/api/open/v1/generations',
         poll: '/api/open/v1/generations/{id}',
