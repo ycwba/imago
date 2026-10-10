@@ -286,25 +286,10 @@ const REGISTRY = {
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },
       },
       balance: { style: 'wallet-credits' },
-      models: [
-        /* 输出格式：平台 /models 声明了 png / jpeg / webp，这里**按平台声明给全**（不再用 forceOptions 锁 png）。
-           留个底：早前实测提交 jpeg 拿回来的产物仍是 PNG（文件名 .png、mime_type=image/png、
-           字节头 89 50 4E 47，只有一个 metadata.declaredMimeType 记着你选过 jpeg），
-           所以当时把这个选项锁掉了；现在按你的要求恢复成可选 —— 真出不了别的格式时，
-           平台返回的 optimized/declared mime 会如实摆在那里，看一眼就知道，不用界面替你做主。
-           真要恢复「只给 png」，把 forceOptions: ['output_formats'] 加回下面两个模型即可。 */
-        /* 参考图上限：与上游 /api/open/v1/models 的 image_edit 声明对齐（实测 max 8）。
-           以前生图模型没写 inputRoles，能力接口不可用时界面会退到「9 张」的猜测值，
-           于是「能选 9 张、提交被上游拒」—— 兜底声明必须和平台真说的数一致。
-           （上游还声明了 mask:1，但提交模板里没有能带 mask 的字段，所以不声明：
-             没模板的槽位给了入口也发不出去，不如不出现。） */
-        { id: 'img-2-5s', name: 'IMG-2.5S', modes: ['text_to_image', 'image_edit'], price: { draft: 1, standard: 2, final: 5 }, unit: '积分/张',
-          inputRoles: { reference_image: { max: 8, group: 'ref' } },
-          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png', 'jpeg', 'webp'], max_outputs: 4 } },
-        { id: 'img-2-5t', name: 'IMG-2.5T', modes: ['text_to_image', 'image_edit'], price: { draft: 1, standard: 2, final: 5 }, unit: '积分/张',
-          inputRoles: { reference_image: { max: 8, group: 'ref' } },
-          options: { qualities: ['draft', 'standard', 'final'], aspect_ratios: ['1:1', '5:4', '4:3', '3:2', '16:9', '2:1', '21:9', '3:4', '2:3', '9:16', '1:2', '1:3'], output_formats: ['png', 'jpeg', 'webp'], max_outputs: 4 } },
-      ],
+      /* 型号清单**不在本地写死**（2026-10）：这一家的 /api/open/v1/models 实测能拿到全部 8 个型号
+         与它们的画质/比例/格式/张数/参考图上限/价格，全部实时获取。
+         以前这里硬写两条 img-* 兜底声明 —— 平台加一个型号要改注册表才能看见，
+         而能力接口不可用时那份声明又会与实测漂移（曾经锁 png、参考图上限猜 9）。 */
     },
     {
       id: 'vgenv', name: 'VGENV 视频', displayName: 'VGENV', kind: 'video', relay: '/vgenv',
@@ -341,39 +326,21 @@ const REGISTRY = {
         list: '/v2/videos',
         cancel: '/v2/videos/{id}',
         quote: '/v3/videos/quote',
+        /* 型号与能力清单（2026-10 实测）：返回该 Key 获授权的已发布模型（base/cinematic/origin）
+           与每档 combinations —— 档位、时长区间与默认、分辨率/比例默认、超分与 Turbo 资格。
+           形状是 `configurations[]`（数组，一项一档），不是常见的 parameters 对象，
+           所以配了 `modelsShape` 让能力层按这个形状归一；**型号清单不再在本地写兜底**
+           （平台加一个模型，刷新页面就能看到，页面不用改）。 */
+        models: '/v3/models',
         credits: '/v1/credits',
         uploads: '/v1/assets/uploads',
         complete: '/v1/assets/{id}/complete',
       },
-      models: [
-        {
-          id: 'minimax/h3', name: 'Minimax H3',
-          modes: ['text_to_video', 'first_last_frame', 'reference_images', 'reference_video', 'reference_audio'],
-          /* 这个模型实际接受的输入 role 与上限（界面按它显示/禁用槽位）。
-             group 表示「一次请求只能选一组」：首尾帧是一组，参考素材（图/视频/音频）是另一组
-             —— 传了 first_frame/last_frame 就不能再传 reference_images（VGENV 文档明确互斥），
-             界面据此把另一组置灰，而不是等提交时才报错。 */
-          inputRoles: {
-            first_frame: { max: 1, group: 'frame' },
-            last_frame: { max: 1, group: 'frame' },
-            reference_image: { max: 9, group: 'ref' },
-            /* accept / maxBytes 是「这个槽位原样收什么样的文件」：界面文案、统一选择器的本地上传档位、
-               上传前的体积校验都读它，不要在页面里写死「MP4 ≤ 200MB」。
-               首尾帧不声明 accept：那一槽是「选视频就地取帧」（见 video-gen.html 的 SLOT_DEF.videoFrame），
-               交给平台的永远是图片，按槽位声明会把这个功能拦掉。 */
-            reference_video: { max: 1, group: 'ref', accept: 'video/mp4', maxBytes: 200 * 1024 * 1024 },
-            reference_audio: { max: 1, group: 'ref', accept: 'audio/mpeg,audio/wav', maxBytes: 50 * 1024 * 1024 },
-          },
-          options: {
-            tiers: ['fast', 'standard', 'enhanced', 'quality'],
-            resolutions: ['480p', '768p'],
-            durations: [4, 15],
-            aspect_ratios: ['9:16', '2:3', '3:4', '1:1', '4:3', '3:2', '16:9', '21:9'],
-            // VGENV 没有能力接口，上面这些是兜底；默认值也由我们定（否则会落到列表第一项）
-            defaults: { duration: 5, resolution: '768p', aspect_ratio: '16:9' },
-          },
-        },
-      ],
+      modelsShape: 'vgenvConfigurations',
+      /* 型号清单**不在本地写死**：全部来自 GET /v3/models（见上面 endpoints.models）。
+         平台按 Key 授权发布什么型号、每一档支持什么组合，都是它说了算 ——
+         以前这里硬写一个 `minimax/h3`（连名字都是上游别名，报价时会被映射成 base），
+         平台加了 cinematic/origin 我们看不见，删了档位我们还在发。 */
       list: {
         dataField: 'data', cursorField: 'next_cursor', cursorParam: 'cursor', limitParam: 'limit', limit: 100,
         cacheTtl: 8000,
@@ -445,31 +412,14 @@ const REGISTRY = {
         uploads: '/api/open/v1/uploads',
         complete: '/api/open/v1/uploads/{id}/complete',
       },
-      /* 兜底声明：与上游 /api/open/v1/models 的实测结果对齐（接口不可用时用它，
-         避免界面少给选项 —— 例如漏掉 960p/1080p、漏掉参考音频、漏掉「生成音频」开关）。
-         上游给了能力接口时以接口为准。 */
-      models: [
-        { id: 'h3-video', name: 'H3 视频（SparkCine）',
-          modes: ['text_to_video', 'image_to_video', 'multimodal_reference'],
-          /* 这个模型收哪些参考素材：以平台 /models 的声明为准（它只声明了
-             image_to_video / multimodal_reference 两个输入 role：reference_image 与 reference_audio），
-             所以界面上只会出现「参考图 / 参考音频」两个入口 —— 首尾帧、参考视频在这个模型上不显示
-             （平台没声明 → 不赌它支持，免得用户传完才在上游报错）。
-             这里只补上限与分组：参考音频平台写着 max 3，但提交模板是单个 {asset_id} 对象，所以按 1。
-             这份声明同时也是能力接口不可用时的兜底。 */
-          inputRoles: {
-            reference_image: { max: 9, group: 'ref' },
-            reference_audio: { max: 1, group: 'ref' },
-          },
-          options: {
-            resolutions: ['480p', '768p', '960p', '1080p'],
-            aspect_ratios: ['16:9', '9:16'],
-            durations: [4, 15],
-            // 默认值：上游声明 duration=6 / resolution=768p / aspect_ratio=16:9 / generate_audio=true
-            defaults: { duration: 6, resolution: '768p', aspect_ratio: '16:9', generate_audio: true },
-            bools: { generate_audio: { def: true } },
-          } },
-      ],
+      /* 型号清单同样**实时获取**（/api/open/v1/models 实测含全部 h3-video-* 型号及其能力）。
+         留在这里的唯一一份声明是**输入槽位的上限与分组**（参考音频平台写 max 3，
+         而提交模板是单个 {asset_id} 对象，所以按 1）—— 那是提交形状的约束，
+         不是「平台支持哪些型号」的兜底。 */
+      inputRoles: {
+        reference_image: { max: 9, group: 'ref' },
+        reference_audio: { max: 1, group: 'ref' },
+      },
       // 与 sparkcine 生图同一个上游接口：list 声明保持一致（relay 相同 → 客户端只拉一次）
       list: {
         dataField: 'data', cursorField: 'next_cursor', cursorParam: 'cursor', limitParam: 'limit', limit: 100,
@@ -842,10 +792,15 @@ const REGISTRY = {
       },
     },
     {
-      /* ---- 视频：MiniMax（Hailuo）—— 产物只给 file_id，要再换一次地址 ----
-         这一族（query 只回 file_id，真正的下载地址在另一个接口）是通用 `retrieve` 环节存在的理由：
-         没有它，这类平台的任务会永远停在「生成中」（产物字段空着，界面按未完成处理）。
-         Api.resolveItem 在轮询与列表两条路上各换一次，换回来的地址写进 raw.__url。
+      /* ---- 视频：MiniMax（H3）—— 官方现行协议是 **v2** ----
+         2026-10 按官方文档改接 v2（原来接的是 v1 的 Video-01/Hailuo 一代）：
+           POST /v2/video_generation      { model, content:[ {type, …, role} ], duration, resolution, ratio }
+           GET  /v2/query/video_generation/{task_id}   ← **路径参数**（v1 是 ?task_id=）
+                → { task: { status: queued|Preparing|processing|succeeded|failed|cancelled,
+                            content: { url }, error } }
+           成功**直接给地址**（task.content.url），v1 那个 file_id → /files/retrieve 环节在 v2 不存在。
+         content[] 那一族才是多模态的正规写法：文本一项 + 图片/视频/音频项（带 role 首帧/尾帧/参考图…），
+         所以 inputTemplates 的落点是 content 数组，不是 v1 的 first_frame_image 标量。
          上游只给单任务查询、没有列表接口 → 不声明 endpoints.list（资产库里来自这条线的条目
          是任务完成时自动落到本机的产物，见 studio 的本地镜像）。 */
       id: 'minimax-video', name: 'MiniMax 视频', displayName: 'MiniMax', kind: 'video', relay: '/minimax', keyId: 'minimax',
@@ -853,36 +808,48 @@ const REGISTRY = {
       pricing: { type: 'quote', currency: '¥' },
       noPromptField: true,     // query 响应不返回提示词（界面靠 PromptLog 归档的那份补显示）
       endpoints: {
-        create: '/video_generation',                      // POST {model, prompt, first_frame_image?}
-        poll: '/query/video_generation?task_id={id}',    // GET → {status, status_msg, file_id}
-        retrieve: '/files/retrieve?file_id={id}',        // ← 通用 retrieve 环节
+        create: '/video_generation',                    // POST /v2 形状（见下面 create）
+        poll: '/query/video_generation/{id}',          // GET，任务号是**路径参数**
       },
-      retrieve: { idFrom: 'file_id', urlFrom: 'file.download_url' },
       list: {
         map: {
-          id: 'task_id', status: 'status', prompt: 'prompt', model: 'model',
-          created: 'create_time', fileId: 'file_id', error: 'status_msg',
+          /* v2 的查询响应整体裹在 task 里：{ task: { status, content:{url}, error } } */
+          id: 'task_id', status: 'task.status', prompt: 'prompt', model: 'model',
+          created: 'create_time', outputUrl: 'task.content.url', error: 'task.error',
         },
-        /* 上游原话是 Queueing / Preparing / Processing / Success / Fail：
-           前三个 classifyStatus 本来就认（排队/继续等），只把两个终局明确映射一下。 */
-        statusMap: { Success: 'done', Fail: 'failed' },
+        statusMap: { succeeded: 'done', failed: 'failed', cancelled: 'failed' },
         media: { fixed: '视频' },
         priceStyle: 'none',
       },
       create: {
         endpoint: 'create',
         idempotencyKey: false,     // 没有幂等键约定 → 不自动重试（重试 = 重复扣费）
-        body: { model: 'model', prompt: 'prompt' },
-        /* 首帧收的是 dataURL 字符串（这一族没有上传接口），所以模板是标量而不是对象。 */
-        inputTemplates: { first_frame: { to: 'first_frame_image', many: false, tmpl: '$url' } },
+        /* v2 的 prompt 是 content[] 里的一项（type:text），不是一个平铺字段 —— body 里不放 prompt。 */
+        body: { model: 'model', duration: 'duration', resolution: 'res', ar: 'ratio' },
+        inputTemplates: {
+          first_frame: { to: 'content', many: false, tmpl: { type: 'image_url', image_url: { url: '$url' }, role: 'first_frame' } },
+          last_frame: { to: 'content', many: false, tmpl: { type: 'image_url', image_url: { url: '$url' }, role: 'last_frame' } },
+          reference_image: { to: 'content', many: true, tmpl: { type: 'image_url', image_url: { url: '$url' }, role: 'reference_image' } },
+          reference_video: { to: 'content', many: true, tmpl: { type: 'video_url', video_url: { url: '$url' }, role: 'reference_video' } },
+          reference_audio: { to: 'content', many: true, tmpl: { type: 'audio_url', audio_url: { url: '$url' }, role: 'reference_audio' } },
+        },
+        /* v2 的 content[] 必须**第一项是 text**：把提示词按本地字段拼进去，
+           不写在 body 里（上游不接受平铺的 prompt 字段）。 */
+        textItem: { to: 'content', key: 'prompt', type: 'text' },
       },
       models: [
-        { id: 'MiniMax-Hailuo-02', name: 'Hailuo 02', modes: ['text_to_video', 'first_last_frame'],
-          inputRoles: { first_frame: { max: 1, group: 'frame' } }, options: {} },
-        { id: 'T2V-01-Director', name: 'T2V-01 导演版（多运镜）', modes: ['text_to_video'], options: {} },
-        { id: 'T2V-01', name: 'T2V-01 基础版', modes: ['text_to_video'], options: {} },
-        { id: 'I2V-01-Director', name: 'I2V-01 导演版（首帧）', modes: ['first_last_frame'],
-          inputRoles: { first_frame: { max: 1, group: 'frame' } }, options: {} },
+        /* v2 对应 H3 一代（官方示例用的就是 MiniMax-H3）。
+           ⚠ 这一档**不能删**：MiniMax 的 GET /v1/models 列的是**对话**模型
+           （MiniMax-M3 / M2.7 / M2.5 那一批），里面没有视频/语音型号 ——
+           接上去只会让视频台下拉变成一堆聊天模型。 */
+        { id: 'MiniMax-H3', name: 'MiniMax H3', modes: ['text_to_video', 'first_last_frame', 'reference_images', 'reference_video', 'reference_audio'],
+          inputRoles: {
+            first_frame: { max: 1, group: 'frame' }, last_frame: { max: 1, group: 'frame' },
+            reference_image: { max: 9, group: 'ref' },
+            reference_video: { max: 1, group: 'ref', accept: 'video/mp4', maxBytes: 200 * 1024 * 1024 },
+            reference_audio: { max: 1, group: 'ref', accept: 'audio/mpeg,audio/wav', maxBytes: 50 * 1024 * 1024 },
+          },
+          options: { durations: [4, 15], resolutions: ['768p', '1080p', '2K'], aspect_ratios: ['16:9', '9:16', '21:9', '4:3', '1:1', '3:4', '4:5'] } },
       ],
     },
     {
@@ -938,7 +905,11 @@ const REGISTRY = {
       },
       list: {
         map: {
-          id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+          /* ⚠ 官方字段是 **task_status**（PROCESSING / SUCCESS / FAIL），没有 `status`。
+             以前这里写成 'status'，取到空串 → classifyStatus 按「没给状态 = 还不知道」
+             一直等 —— 于是任务提交成功、轮询永远转圈、永远不收敛。
+             （下面 statusMap 映射的正是 task_status 的值，说明当初就是笔误。） */
+          id: 'id', status: 'task_status', prompt: 'prompt', model: 'model',
           outputUrl: 'video_result.0.url', error: 'error.message',
         },
         statusMap: { SUCCESS: 'done', FAIL: 'failed' },
@@ -948,13 +919,26 @@ const REGISTRY = {
       create: {
         endpoint: 'create',
         idempotencyKey: false,
-        body: { model: 'model', prompt: 'prompt' },
+        /* `size` 才是这一族的画幅字段（官方枚举 1280x720 / 1920x1080 / …，没有 resolution）。
+           以前只映射 model/prompt：界面上「画质」下拉画得出来、选了也**根本没发出去**，
+           上游一律按默认出片 —— 界面说了一套、系统做了另一套。
+           ⚠ `quality`（官方 speed|quality）不能直接映射我们的 `tier`（fast|standard|enhanced|quality）：
+           值集对不上，上游会拒。所以下面把这一家的档位**声明成它自己的值集**，
+           界面上那一列显示的就是 speed / quality，映射过去才对得上。 */
+        body: { model: 'model', prompt: 'prompt', size: 'size', quality: 'tier', duration: 'duration' },
       },
       models: [
-        { id: 'cogvideox-3', name: 'CogVideoX-3', modes: ['text_to_video'],
-          options: { resolutions: ['480p', '720p'], defaults: { resolution: '720p' } } },
+        /* ⚠ 这一档同样不能删：智谱的 GET /api/paas/v4/models 列的是 glm-4.5 / glm-5 那一批
+           **对话**模型，不含 cogvideox。接上去视频台会变成聊天模型下拉。 */
+        { id: 'cogvideox-3', name: 'CogVideoX-3', modes: ['text_to_video', 'first_last_frame'],
+          inputRoles: { first_frame: { max: 1, group: 'frame' }, last_frame: { max: 1, group: 'frame' } },
+          options: { tiers: ['speed', 'quality'], sizes: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
+            durations: [5, 10], bools: { with_audio: { def: false } },
+            defaults: { tier: 'speed', size: '1920x1080', duration: 5 } } },
         { id: 'cogvideox-2', name: 'CogVideoX-2', modes: ['text_to_video'],
-          options: { resolutions: ['480p', '720p'], defaults: { resolution: '720p' } } },
+          options: { tiers: ['speed', 'quality'], sizes: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
+            durations: [5, 10], bools: { with_audio: { def: false } },
+            defaults: { tier: 'speed', size: '1920x1080', duration: 5 } } },
       ],
     },
   ],

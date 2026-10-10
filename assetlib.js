@@ -901,9 +901,22 @@ function topBoolValue(decl, on) {
             return v;
           };
           if (!groups.has(t.to)) groups.set(t.to, { many: !!t.many, tmpl: t.tmpl, items: [] });
+          else if (t.many) groups.get(t.to).many = true;   // 同一个落点上多个模板：只要有一个是 many，落点就得是数组
           groups.get(t.to).items.push(fill(t.tmpl));
         });
         groups.forEach((g, to) => { if (g.items.length) body[to] = g.many ? g.items : g.items[0]; });
+        /* 「文本项」：有些平台把提示词放在一个**多模态数组**里而不是平铺字段
+           （MiniMax v2 的 content[] 第一项必须是 {type:'text', text:提示词}，
+           v1 是平铺 prompt、v2 不是 —— 两种形状不能混）。
+           声明 `create.textItem: { to:'content', key:'prompt', type:'text' }` 即启用；
+           它排在最前面（上游要求 text 项在前），且提示词为空时整项省略。 */
+        const ti = spec.textItem;
+        if (ti && f.prompt != null && String(f.prompt).trim() !== '') {
+          const arr = Array.isArray(body[ti.to]) ? body[ti.to] : (body[ti.to] ? [body[ti.to]] : []);
+          const item = { type: ti.type || 'text' };
+          item.text = String(f.prompt);
+          body[ti.to] = [item].concat(arr);
+        }
       }
       /* 页面显式指定 note 时才带（如导演台写镜头名）。
          **不要**退回到 `spec.note` —— 那是注册表里给界面看的说明文字（如「视频生成」），
@@ -2752,9 +2765,59 @@ const MIME_SHORT = {
   'video/mp4': 'MP4', 'video/quicktime': 'MOV', 'video/*': '视频',
   'audio/mpeg': 'MP3', 'audio/wav': 'WAV', 'audio/*': '音频',
 };
+/* 上游 models 响应**不是**「parameters 对象」那种形状时的归一化，一处一种。
+   注册表用 `modelsShape: '<键>'` 点名，按形状而不是按平台 id 分派（换一家同形状的厂商不用改代码）。 */
+const NORM_SHAPES = {
+  /* VGENV /v3/models：{ id, object, configurations:[ { tier, mode, duration:{min,max,default},
+     resolutions:[], default_resolution, aspect_ratios:[], default_aspect_ratio, upscale,
+     inputs:{role:{min,max}}, turbo } ] }
+     每一项 configuration 就是「一档完整组合」，所以把各档**并起来**才是这个型号的可用范围
+     （分辨率/比例取并集、时长取 min..max 的并集、默认值取第一档带 default 的那个）。 */
+  vgenvConfigurations(m) {
+    const cfgs = Array.isArray(m && m.configurations) ? m.configurations : [];
+    if (!cfgs.length) return null;
+    const uniq = a => [...new Set(a.filter(x => x !== undefined && x !== null && x !== ''))];
+    const durs = uniq(cfgs.map(c => c.duration && [c.duration.min, c.duration.max].filter(v => v != null).join('-')).filter(Boolean));
+    const cap = {
+      tiers: uniq(cfgs.map(c => c.tier)),
+      resolutions: uniq(cfgs.map(c => c.resolutions || []).flat()),
+      aspect_ratios: uniq(cfgs.map(c => c.aspect_ratios || []).flat()),
+      upscale: uniq(cfgs.map(c => c.upscale)).filter(Boolean),
+      turbo: cfgs.some(c => c.turbo === true),
+      modes: uniq(cfgs.map(c => c.mode)),
+    };
+    /* 时长：上游给的是 {min,max} 区间，我们内部按 [min,max] 存 */
+    const mins = cfgs.map(c => c.duration && c.duration.min).filter(v => v != null);
+    const maxs = cfgs.map(c => c.duration && c.duration.max).filter(v => v != null);
+    if (mins.length && maxs.length) cap.durations = [Math.min(...mins), Math.max(...maxs)];
+    const defs = {};
+    const c0 = cfgs.find(c => c.duration && c.duration.default != null) || cfgs[0] || {};
+    if (c0.duration && c0.duration.default != null) defs.duration = c0.duration.default;
+    if (c0.default_resolution) defs.resolution = c0.default_resolution;
+    if (c0.default_aspect_ratio) defs.aspect_ratio = c0.default_aspect_ratio;
+    if (c0.tier) defs.tier = c0.tier;
+    if (Object.keys(defs).length) cap.defaults = defs;
+    /* 输入槽位：各档 inputs 的并集（上游给的是 {role: {min,max}} 而不是数组） */
+    const roles = {};
+    cfgs.forEach(c => Object.entries(c.inputs || {}).forEach(([role, r]) => {
+      const mx = Number(r && r.max) || 0;
+      if (mx > (roles[role] || 0)) roles[role] = mx;
+    }));
+    const spec = [];
+    Object.entries(roles).forEach(([role, max]) => spec.push({ role, media_type: '', min: 0, max }));
+    if (spec.length) cap.inputRoles = spec;
+    return cap;
+  },
+};
 window.Capabilities = {
-  /* 把上游 models 结构归一化成前端用的 options */
-  norm(m) {
+  /* 把上游 models 结构归一化成前端用的 options。
+     `shape`：注册表用 `modelsShape` 点名一种**形状**（不是平台 id），
+     由下面的 NORM_SHAPES 接住 —— 上游形状不是「parameters 对象」的那种
+     （VGENV 的 /v3/models 是 configurations 数组，一项一档组合），
+     归一化得按形状走，不能把 `parameters` 当对象硬读（读到空 → 整块能力消失）。 */
+  norm(m, shape) {
+    const custom = shape && NORM_SHAPES[shape];
+    if (custom) return Object.assign({ source: 'api' }, custom(m) || {});
     const P = m.parameters || {};
     const av = k => (P[k] && Array.isArray(P[k].allowedValues)) ? P[k].allowedValues.slice() : undefined;
     const rng = k => (P[k] && P[k].minimum !== undefined) ? [P[k].minimum, P[k].maximum] : undefined;
@@ -3044,6 +3107,17 @@ window.Capabilities = {
       if (cap.max_ref_images && !forced.has('max_ref_images')) m.maxRefImages = cap.max_ref_images;
       n++;
     });
+    /* 接口给了、声明里没有的型号 → **照样长出来**。
+       以前只遍历 prov.models，所以「型号清单」实际上是由 registry 声明决定的，
+       能力接口只能给已声明的那些补能力 —— 于是「去掉兜底声明」等于「把这一家的型号全删掉」。
+       现在型号清单来自接口（声明退化成接口形状与必要映射），平台上新一个型号刷新就能看到。 */
+    for (const [id, cap] of Object.entries(capsById || {})) {
+      if ((prov.models || []).some(m => m.id === id)) continue;
+      prov.models = prov.models || [];
+      prov.models.push({ id, name: (cap && cap.name) || id, modes: (cap && cap.modes) || [],
+        options: Object.assign({}, cap || {}) });
+      n++;
+    }
     return n;
   },
   /* 拉某个平台的最新能力并合并；返回代理给的原始答复（含 source / note） */
@@ -3051,7 +3125,7 @@ window.Capabilities = {
     const d = await this.fetchCaps(prov, opts);
     if (!d) return null;
     const byId = {};
-    Object.entries(d.models || {}).forEach(([id, raw]) => { byId[id] = this.norm(raw); });
+    Object.entries(d.models || {}).forEach(([id, raw]) => { byId[id] = this.norm(raw, prov.modelsShape); });
     const n = this.apply(REG, prov.id, byId);
     this.sources = this.sources || {};
     this.sources[prov.id] = { from: d.source, note: d.note || '', at: Date.now(), cached: !!d.cached, models: n };
@@ -3093,7 +3167,10 @@ window.Capabilities = {
         envKnown = !!(Api.envKnown && Api.envKnown());
       }
     } catch (e) { env = {}; envKnown = false; }
-    const all = (REG.providers || []).filter(p => (p.models || []).length);
+    /* 问哪几家：看**有没有能力端点**（声明了 endpoints.models），或本地还留着型号声明。
+       以前是「有兜底 models 才问」—— 那一改把两件事绑死了：删掉兜底声明 = 这一家永远不会被问。
+       现在能力端点是主路径，声明只是「还没拉到时的样子」。 */
+    const all = (REG.providers || []).filter(p => (p.endpoints && p.endpoints.models) || (p.models || []).length);
     const usable = p => !window.Api || !Api.provUsable ? true : Api.provUsable(p, env);
     /* 知道「哪几家有环境密钥」才敢筛；`/env-status` 没取到时退回全量 ——
        那时是**不知道**哪几家在用，不是「一家都没有」，拿「不知道」当「没有」
