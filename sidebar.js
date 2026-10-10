@@ -54,6 +54,8 @@
   .sb-bal-card { border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; background: var(--panel2); cursor: default; }
   .sb-bal-card .l1 { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt); font-weight: 600; white-space: nowrap; }
   .sb-bal-card .l1 .ic { font-size: 12px; }
+  /* 正在取数的那张卡：图标位换成一颗小转点（公共 .spin-dot 是 18px，塞进 12px 的图标位会溢出卡面） */
+  .sb-bal-card .l1 .ic .spin-dot { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; }
   .sb-bal-card .l2 { margin-top: 3px; font-size: 11px; color: var(--sub); white-space: normal; line-height: 1.5; word-break: break-all; }
   /* 「产物正在存进本机」那一行：侧栏唯一的本机落盘实况。
      为什么必须在这儿而不是只在设置页：自动存本机是**后台**发生的（用户早就不在设置页了），
@@ -135,7 +137,7 @@
     '<nav>' + items.map(i =>
       `<a href="${hrefOf(i.file)}" data-page="${i.file}" class=""><span class="ic">${svgIc(i.ic)}</span><span class="lb">${i.label}</span></a>`
     ).join('') + '</nav>' +
-    '<div class="sb-group">账户余额</div>' +
+    '<div class="sb-group" id="sbBalGroup">账户余额</div>' +
     '<div class="sb-bottom" id="sbBalance"></div>' +
     '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set"><span class="ic">' + svgIc('gear') + '</span><span class="lb">设置</span></a>' +
     '<button class="sb-set" id="sbTheme" title="切换亮色 / 暗色背景"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
@@ -157,6 +159,9 @@
   };
   const setLink = sb.querySelector('a.sb-set[data-page="settings.html"]');
   if (setLink) setLink.dataset.page = 'settings.html';
+  /* 「账户余额」那个分组标题：余额关掉时要跟着藏（那一格里只剩产物进度那一行，
+     挂着一句说「账户余额」的标题就是在说错话）。标题本身仍由这段 HTML 出，不另写一份。 */
+  const balGroup = sb.querySelector('#sbBalGroup');
 
 
   // head 里加载时 body 尚不存在，等 DOM 就绪再挂载
@@ -226,12 +231,35 @@
 
   /* ---------- 账户余额（按 API 分类显示，路由驱动；显示哪几个接口由设置页勾选） ---------- */
   const BAL_KEY = 'sb_bal_cache';
-  const readBalCache = () => { try { const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}'); return Array.isArray(c.rows) ? c.rows : []; } catch { return []; } };
-  let balRows = [];                 // 最近一次拿到的**全量**余额行：勾选只影响渲染，不影响取数与缓存
+  /* 缓存里除了余额行，还存着**上一轮要问哪几家**（kids）。
+     为什么连这份名单也要留：第一次勾上「左栏显示余额」时本机没有任何缓存，
+     而「要问哪几家」得等 /registry + /env-status 回来才知道 —— 那之前整块是空的。
+     有了 kids，刚勾上就能按名单先画出一排占位卡（名字对、钱还没到），
+     而不是让用户对着空白等到最后「突然冒出来」。老缓存没有 kids，退回单张「正在读取…」也一样不空。 */
+  const readBalCache = () => {
+    try {
+      const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}');
+      return { ts: Number(c.ts) || 0,
+        rows: Array.isArray(c.rows) ? c.rows.filter(r => r && r.kid) : [],
+        kids: Array.isArray(c.kids) ? c.kids.filter(k => k && k.kid) : [] };
+    } catch { return { ts: 0, rows: [], kids: [] }; }
+  };
+  let balRows = [];      // 最近一次拿到的**全量**余额行：勾选只影响渲染，不影响取数与缓存
+  let balKids = [];      // 上一轮**要问哪几家**（[{kid,name}]）：只问出名字时也能先画占位卡
+  let balPending = null; // 这一轮正在取的那几家（[{kid,name}]）。null = 还没算到要问谁
   /* 余额行的 name/available 来自上游接口，进 innerHTML 与 title 属性前必须转义
      （这一页是外壳顶层文档，注入等于拿到 localStorage 里的密钥配置）。 */
   const escA = v => window.esc(v);
   const balCardHTML = r => {
+    /* 正在取的那几家：先画一张占位卡。名字已经知道了，钱还没到。
+       以前这里是「等 N 个请求全回来才一起画」，于是慢的那一家把快的那一家一起拖住，
+       界面上从头到尾一张卡都没有，最后「突然冒出来」N 张 ——
+       与「一直显示着、一家一家填上」是两回事（后者还顺便说明了到底在问哪几家）。 */
+    if (r.pending) {
+      return `<div class="sb-bal-card" data-kid="${escA(r.kid)}" data-short="…" title="${escA(r.name)}：正在查询…">
+        <div class="l1"><span class="ic"><span class="spin-dot"></span></span><span class="nm">${escA(r.name)}</span></div>
+        <div class="l2">正在读取…</div></div>`;
+    }
     const avail = escA(r.avail), frozen = escA(r.frozen), unit = escA(r.unit);
     /* 失败那一行把原因放进 title（L42）：卡面上一行放不下「HTTP 401：密钥无效或过期」，
        但「为什么失败」正是这张卡唯一有用的信息 —— 藏掉它就等于只报结果不报因。
@@ -239,27 +267,72 @@
     const tip = r.failed
       ? `${escA(r.name)}：${escA(r.why || r.avail)}`
       : `${escA(r.name)}：可用 ${avail}${unit} · 冻结 ${frozen}${unit}`;
-    return `<div class="sb-bal-card" data-short="${escA(r.short)}" title="${tip}">
+    return `<div class="sb-bal-card" data-kid="${escA(r.kid)}" data-short="${escA(r.short)}" title="${tip}">
        <div class="l1"><span class="ic">${svgIc('coin', 13)}</span><span class="nm">${escA(r.name)}</span></div>
        <div class="l2">${r.failed
         ? '<span class="balerr">获取失败（鼠标停一下看原因）</span>'
         : '可用 <b>' + avail + '</b>' + unit + ' · 冻结 <b>' + frozen + '</b>' + unit}</div>
      </div>`;
   };
-  function paintBal(box, rows, note) {
-    /* 整个余额区关掉（设置页勾）：**连卡片都不画**。
+  /* 这一轮要显示的那几张卡：**已有数的用旧值，还在路上的一律给占位卡**。
+     顺序按「要问哪几家」来（balKids / balPending），所以某一家先回来时它就地变成数字，
+     不会把后面的卡挤来挤去；缓存里有、这一轮没问的（刚被取消勾选之类）按原顺序补在后面。
+     过滤仍走 SbBal.filter —— 勾选名单只有那一份实现（§J），这里不自己判。 */
+  function balList() {
+    const byKid = new Map(balRows.map(r => [String(r.kid), r]));
+    const names = new Map();
+    for (const m of (balKids || [])) names.set(String(m.kid), m.name);
+    for (const m of (balPending || [])) names.set(String(m.kid), m.name);
+    const keys = [];
+    for (const k of names.keys()) keys.push(k);
+    for (const r of balRows) if (keys.indexOf(String(r.kid)) < 0) keys.push(String(r.kid));
+    const list = keys.map(k => byKid.get(k)
+      || { kid: k, name: names.get(k) || k, pending: true });
+    return window.SbBal ? SbBal.filter(list) : list;
+  }
+  /* 一家回来就换掉它那一张卡（不整块重画）：整块重画会把用户正在看的其他卡也抖一遍，
+     而这一轮可能还有几家在路上。找不到那张卡（还没画 / 已经被整块重画掉了）才退回整块。 */
+  function upsertBal(row) {
+    const i = balRows.findIndex(r => r && String(r.kid) === String(row.kid));
+    if (i >= 0) balRows[i] = row; else balRows.push(row);
+    const box = sb.querySelector('#sbBalance');
+    if (!box) return;
+    const old = [...box.querySelectorAll('.sb-bal-card')].find(c => String(c.dataset.kid) === String(row.kid));
+    if (!old) { paintBal(box); return; }
+    const tmp = document.createElement('div');
+    tmp.innerHTML = balCardHTML(row);
+    old.replaceWith(tmp.firstElementChild);
+  }
+  /* 「余额那一块显示不显示」只有这一份判据（设置页勾的那颗，写在别的键上）：
+     paintBal 画不画卡片、`__sbApplyBalance` 要不要去取数，两处都问它 ——
+     各写一遍 `AssetLocal.sbBalOn && !AssetLocal.sbBalOn()` 就是两条会走岔的判据。 */
+  const balOn = () => !(window.AssetLocal && AssetLocal.sbBalOn && !AssetLocal.sbBalOn());
+  function paintBal(box, note) {
+    const mirror = mirrorBarHTML();   // 产物进度那一行**与余额开关无关**（见下面那两段）
+    /* 整个余额区关掉（设置页勾）：**余额卡片不画**。
        以前只有「按平台勾选」，没有「一块都不要」这一档 ——
-       于是用户只能把每一家都取消勾，而「刷新余额」那颗按钮还留在那儿点不动。 */
-    if (window.AssetLocal && AssetLocal.sbBalOn && !AssetLocal.sbBalOn()) { box.innerHTML = ''; return; }
-    const shown = (window.SbBal ? SbBal.filter(rows) : rows) || [];
-    /* 一张卡都画不出来时的三种说法：接口读不到 / 平台压根没有余额接口 / 全被勾掉了。
-       以前这里和下面各有两段手写的 innerHTML，收成一个提示卡。 */
+       于是用户只能把每一家都取消勾，而「刷新余额」那颗按钮还留在那儿点不动。
+       ⚠ 这里早退的是**余额卡片**，不是整个盒子：「左栏显示本机产物」是另一个独立的开关，
+       而那一行以前就塞在余额区里，于是「关掉余额」会顺手把「显示本机产物」也一起关掉
+       （两个开关共用一个容器，这一句 return 之后 mirrorBarHTML 根本没机会跑）。
+       它自带标题（产物存本机），所以余额关掉时连分组标题也一起藏掉，不留一句说错的「账户余额」。 */
+    if (!balOn()) {
+      box.innerHTML = mirror ? '<div class="sb-bal">' + mirror + '</div>' : '';
+      if (balGroup) balGroup.hidden = true;
+      mountMirrorBar(box);
+      return;
+    }
+    if (balGroup) balGroup.hidden = false;
+    const shown = balList();
+    /* 一张卡都画不出来时的三种说法：正在读 / 接口读不到 / 平台压根没有余额接口 / 全被勾掉了。
+       「正在读取…」这一档是这次加的：没取到数的那一小段时间里，
+       界面上必须有一行字说明「它在动」，不能是一整块空白。 */
     const body = shown.length ? shown.map(balCardHTML).join('')
       : '<div class="sb-bal-card"><div class="l1"><span class="ic">' + svgIc('coin', 13) + '</span><span class="nm">余额</span></div>'
-        + '<div class="l2">' + (note || (rows.length ? '要显示哪些接口在「设置 → 平台密钥与余额」里勾' : '无余额接口')) + '</div></div>';
+        + '<div class="l2">' + escA(note || (balRows.length ? '要显示哪些接口在「设置 → 平台密钥与余额」里勾' : '正在读取…')) + '</div></div>';
     box.innerHTML = '<div class="sb-bal">' + body
       + '<div class="sb-bal-refresh" title="刷新余额"><span class="ic">' + svgIc('refresh', 13) + '</span><span>刷新余额</span></div></div>'
-      + mirrorBarHTML();
+      + mirror;
     box.querySelector('.sb-bal-refresh').onclick = () => refreshBalance();
     mountMirrorBar(box);
   }
@@ -309,31 +382,66 @@
      没有这一层的话「正在存 N 份」永远停在 0 —— 而那正是用户判断开关有没有生效的那句话。
      注意 paintBal 会整块换掉 innerHTML（余额刷新时会发生），换掉的新块**已经带了这一行**
      （paintBal 里拼了 mirrorBarHTML()），所以订阅回调里找不到旧节点就insert 一个；
-     回调本身不用管「节点被换掉了」—— 那是 paintBal 的事。 */
+     回调本身不用管「节点被换掉了」—— 那是 paintBal 的事。
+     ⚠ 回调**不要用 onInfo 递过来的那个参数**：那是 assetlib.js 内部的 INFOS，
+     它没有 `on` 字段（`on: saveOn()` 只在 info() 的返回值里补），
+     而 mirrorBarHTML 第一句就是 `if (!s2.on) return ''` ——
+     以前这里传的是 `st`，于是**每一条落盘事件都算成「没有这一行」把它删掉**：
+     界面上表现为「开了显示本机产物，一有东西要存那一行就没了」，
+     下载中更是全程不显示（paintBal 画出来的那一份被第一个事件抹掉）。
+     要读数就现问 AssetLocal.info()（同一份判据，且带 on）。 */
   let mirrorUnsub = null;
   function mountMirrorBar(box) {
     const A = window.AssetLocal;
     if (!A || !A.onInfo || mirrorUnsub) return;
-    mirrorUnsub = A.onInfo(st => {
+    mirrorUnsub = A.onInfo(() => {
       const b2 = sb.querySelector('#sbBalance');
       if (!b2) return;
       const old = b2.querySelector('.sb-mirror');
-      const want = mirrorBarHTML(st);
+      const want = mirrorBarHTML();
       if (!want) { if (old) old.remove(); return; }
       if (old) { const tmp = document.createElement('div'); tmp.innerHTML = want; old.replaceWith(tmp.firstElementChild); }
-      else b2.querySelector('.sb-bal').insertAdjacentHTML('beforeend', want);
+      /* 「往哪儿插」要找 `.sb-bal`；两块都关着时盒子里是空的（那种情况 want 必然也是空，
+         上面已经 return 了）—— 但仍判一下，别让一个 null 抛在订阅回调里被静默吞掉。 */
+      else { const host = b2.querySelector('.sb-bal'); if (host) host.insertAdjacentHTML('beforeend', want); }
     });
+  }
+  /* 单取一家：请求头与余额解析都不在这份里写第二遍 ——
+     Api.headers 带密钥**和自定义中转地址**（少了 x-up-base，设置页换了中转地址就只有侧栏还在打官方地址，
+     读出来的余额对不上），Api.balance 按 registry 的 balance.style 解析（wallet-credits / micros）。 */
+  async function balRowOf(m) {
+    try {
+      const c = await Api.request(m.p, 'credits');
+      const b = Api.balance(m.p, c);
+      const fmt = v => b.unit ? String(v) : '¥' + Number(v || 0).toFixed(2);
+      const avail = fmt(b.available), frozen = fmt(b.frozen), unit = b.unit ? ' ' + b.unit : '';
+      return { kid: m.kid, name: m.name, avail, frozen, unit,
+        short: String(avail).slice(0, 7) };
+    } catch (e) {
+      /* 失败原因要跟着行一起走（L42）。以前整个 throw 被吞掉，只剩「获取失败」四个字 ——
+         密钥过期 / 代理没起来 / 平台限流在这张卡上长得一模一样，而同一个错在用量页
+         能读到「查询失败：HTTP 401：密钥无效或过期」。侧栏把原因挂到 title 上，
+         卡面只留一句短的（不然一行小字塞不下）。 */
+      return { kid: m.kid, name: m.name, avail: '获取失败', failed: true,
+        why: '查询失败：' + ((e && e.message) || e || '未知原因'), frozen: '-', unit: '', short: '—' };
+    }
   }
   async function refreshBalance() {
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
-    // 先画缓存：切页/刷新时余额立刻可见，不会先空一下再跳出来
+    /* **先画一次再发请求**：切页/刷新时余额立刻可见（缓存），第一次勾上开关时也不会空着
+       （缓存里没有就画「正在读取…」，有 kids 就按名单画一排占位卡）。
+       以前这一支是「有缓存才画」，于是刚勾上开关的那一次：盒子空着 → 等 N 个请求全回来 →
+       N 张卡一起冒出来。用户看到的就是「开了没反应，然后突然全出来了」。 */
     const cached = readBalCache();
-    if (cached.length) { balRows = cached; paintBal(box, cached); }
+    if (cached.rows.length) balRows = cached.rows;
+    if (cached.kids.length) balKids = cached.kids;
+    balPending = null;
+    paintBal(box, balRows.length ? '' : '正在读取…');
     let reg;
     // 注册表统一走 Api.registry（带 60 秒缓存，和其它页面共用一份）；只有 assetlib 没加载时才现取
     try { reg = (window.Api && Api.registry) ? await Api.registry() : await (await fetch('/registry')).json(); }
-    catch { if (!cached.length) paintBal(box, [], '余额读取失败'); return; }
+    catch { if (!cached.rows.length) paintBal(box, '余额读取失败'); return; }
     // 按 keyId 合并（如 sparkcine-video 并入 sparkcine）；带出**平台对象**，请求头与余额解析都走 Api 那一份实现
     const map = new Map();
     (reg.providers || []).forEach(p => {
@@ -346,7 +454,8 @@
          以前那句 prune 排在下面「map 非空」的分支里，于是「平台全下架 / keyId 全改了」这一种
          情况下隐藏名单永远清不掉 —— 那份名单只增不减地攒着，几年下来就是一串死数据。 */
       if (window.SbBal) SbBal.prune([]);
-      paintBal(box, [], '这些平台没有余额接口');
+      balKids = [];
+      paintBal(box, '这些平台没有余额接口');
       return;
     }
     /* 顺手清一次勾选名单里的陈旧 kid：只有「有余额接口」的平台才可能出现在侧栏，
@@ -365,9 +474,9 @@
     if (!usable.length) {
       /* 缓存也要一起清掉：这一支直接 return，不清的话 `BAL_KEY` 里那几行会一直留着，
          下次开页面先画缓存、又把它们画回来 —— 「已经不用了」的东西永远消不掉。 */
-      try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: [] })); } catch {}
-      balRows = [];
-      paintBal(box, [], '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
+      try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: [], kids: [] })); } catch {}
+      balRows = []; balKids = [];
+      paintBal(box, '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
       return;
     }
     /* 用户把这几家**全取消勾选**了 → 取数阶段就短路（U2）：以前 `SbBal.filter` 只在
@@ -376,32 +485,25 @@
        全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
     const wanted = window.SbBal ? SbBal.filter(usable) : usable;
     if (!wanted.length) {
-      paintBal(box, [], '这几家都被你在「设置 → 平台密钥与余额」里藏起来了');
+      paintBal(box, '这几家都被你在「设置 → 平台密钥与余额」里藏起来了');
       return;
     }
+    /* 算出要问哪几家之后**先画占位卡**，再发请求；哪一家先回来就换掉它那一张。
+       以前是 `await Promise.all(全部)` 之后才 paintBal 一次：慢的那一家能把快的那一家一起拖住，
+       界面上从头到尾一张卡都没有，直到最后一起冒出来。 */
+    balKids = wanted.map(m => ({ kid: m.kid, name: m.name }));
+    balPending = balKids.slice();
+    paintBal(box);
     const rows = await Promise.all(wanted.map(async m => {
-      try {
-        /* 请求头与余额解析都不在这份里写第二遍：Api.headers 带密钥**和自定义中转地址**
-           （少了 x-up-base，设置页换了中转地址就只有侧栏还在打官方地址，读出来的余额对不上），
-           Api.balance 按 registry 的 balance.style 解析（wallet-credits / micros）。 */
-        const c = await Api.request(m.p, 'credits');
-        const b = Api.balance(m.p, c);
-        const fmt = v => b.unit ? String(v) : '¥' + Number(v || 0).toFixed(2);
-        const avail = fmt(b.available), frozen = fmt(b.frozen), unit = b.unit ? ' ' + b.unit : '';
-        return { kid: m.kid, name: m.name, avail, frozen, unit,
-          short: String(avail).slice(0, 7) };
-      } catch (e) {
-        /* 失败原因要跟着行一起走（L42）。以前整个 throw 被吞掉，只剩「获取失败」四个字 ——
-           密钥过期 / 代理没起来 / 平台限流在这张卡上长得一模一样，而同一个错在用量页
-           能读到「查询失败：HTTP 401：密钥无效或过期」。侧栏把原因挂到 title 上，
-           卡面只留一句短的（不然一行小字塞不下）。 */
-        return { kid: m.kid, name: m.name, avail: '获取失败', failed: true,
-          why: '查询失败：' + ((e && e.message) || e || '未知原因'), frozen: '-', unit: '', short: '—' };
-      }
+      const row = await balRowOf(m);
+      balPending = (balPending || []).filter(p => String(p.kid) !== String(m.kid));
+      upsertBal(row);      // 就地填这一张：别的卡不动，用户正在看的那几家不抖
+      return row;
     }));
-    try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows })); } catch {}
+    balPending = null;
+    try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows, kids: balKids })); } catch {}
     balRows = rows;
-    paintBal(box, rows);
+    paintBal(box);
   }
   /* 设置页删掉一家自定义平台 → **这一家的余额卡要当场消失**，不等这一轮 60 秒。
      为什么要单独给一个口：refreshBalance 的第一件事是拿 localStorage 里的缓存先画一遍
@@ -418,11 +520,19 @@
   window.__sbApplyBalance = () => {
     try {
       const box = sb.querySelector('#sbBalance');
-      if (box) paintBal(box, balRows);
+      if (box) paintBal(box, balRows.length ? '' : '正在读取…');
       /* 本机产物那块的订阅已经挂过一次（mountMirrorBar 会记住），
          这里主动补画一次：开关从关到开时那一块原本不在文档里，得重新插入。 */
       const b2 = sb.querySelector('#sbBalance');
-      if (b2) { const cur = mirrorBarHTML(); if (cur && !b2.querySelector('.sb-mirror')) b2.querySelector('.sb-bal').insertAdjacentHTML('beforeend', cur); }
+      if (b2) {
+        const cur = mirrorBarHTML(), host = b2.querySelector('.sb-bal');
+        if (cur && host && !b2.querySelector('.sb-mirror')) host.insertAdjacentHTML('beforeend', cur);
+      }
+      /* 刚在设置页勾上「左栏显示余额」而本机一份数都没有 → 现在去取，别让那块地方
+         一直停在占位上（那正是用户说的「等它刷出来」，勾开关本来就是为了现在就要看见）。
+         缓存还热（60 秒内刚取过）就不白跑一遍 —— 改勾选、改「存哪一档」走的是重画，不是重新取数。 */
+      const ts = readBalCache().ts;
+      if (balOn() && Date.now() - ts > 60000) refreshBalance();
     } catch (e) {}
   };
 
@@ -433,24 +543,29 @@
       if (Array.isArray(c.rows)) {
         const rows = c.rows.filter(r => r && r.kid !== kid);
         if (rows.length !== c.rows.length) {
-          localStorage.setItem(BAL_KEY, JSON.stringify({ ts: c.ts, rows }));
+          /* kids（占位卡名单）也要一起写回：整份换掉时漏了它，
+             下一次打开左栏就退回「一张泛泛的正在读取…」，而这一家明明在名单里。 */
+          localStorage.setItem(BAL_KEY, JSON.stringify({ ts: c.ts,
+            rows, kids: (c.kids || []).filter(k => k && String(k.kid) !== String(kid)) }));
           balRows = rows;
         }
       }
     } catch (e) {}
+    balKids = balKids.filter(k => String(k.kid) !== String(kid));
+    if (balPending) balPending = balPending.filter(k => String(k.kid) !== String(kid));
     if (window.SbBal) {
       const off = SbBal.off().map(String).filter(k => k !== String(kid));
       if (off.length !== SbBal.off().length) SbBal.setList(off);
     }
     const box = sb.querySelector('#sbBalance');
-    if (box && balRows.length) paintBal(box, balRows);
+    if (box && balRows.length) paintBal(box);
     else refreshBalance();
   };
   /* 设置页在 iframe 里改勾选 → 同源的 storage 事件送到外壳：直接按缓存重画，不用重取余额 */
   window.addEventListener('storage', e => {
     if (!window.SbBal || e.key !== SbBal.KEY) return;
     const box = sb.querySelector('#sbBalance');
-    if (box && balRows.length) paintBal(box, balRows);
+    if (box && balRows.length) paintBal(box);
   });
   window.addEventListener('sb-balance-refresh', refreshBalance);
   refreshBalance();

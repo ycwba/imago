@@ -1599,7 +1599,7 @@ function log(line) {
    流程：下载每段素材 → 逐段标准化（尺寸/帧率/编码一致）→ concat 拼接 → 输出 mp4
    src 支持：/asset/<id>（用密钥解析最新签名链接）｜ http(s):// ｜ /local-path（经本机 http 取回） */
 const { spawn, spawnSync } = require('child_process');
-const RENDER_DIR = path.join(__dirname, process.env.RENDER_DIR || '.renders');
+const RENDER_DIR = path.resolve(__dirname, process.env.RENDER_DIR || '.renders');   // 同 ASSETS_DIR：绝对路径要能直接用
 
 /* ---------- 本地生成资产库 ----------
    有些平台的产物是「同步返回」的二进制（例如语音合成直接给 base64 音频），上游没有资产 id。
@@ -1610,8 +1610,12 @@ const RENDER_DIR = path.join(__dirname, process.env.RENDER_DIR || '.renders');
      GET  /asset/<id>        本地优先：命中本地文件就本地读取（支持 Range），否则回源上游
    这样「语音工作台」生成的音频能像其它资产一样出现在资产库、被资产选择器挑选与复用。 */
 /* 落盘目录：默认 .assets（用户资产库）；ASSETS_DIR 指到别处 —— 隔离验证实例必须指出去，
-   否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目。 */
-const LOCAL_DIR = path.join(__dirname, process.env.ASSETS_DIR || '.assets');
+   否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目。
+   用 path.resolve 而不是 path.join：join 把「绝对路径」当相对片段拼上去
+   （path.join('/a/b', 'C:\\x') → '/a/b/C:\\x'），于是照着上面那句注释传一个绝对路径，
+   目录会静默落到一个不存在的拼接路径上 —— 现象是「隔离实例照样 422 / 找不到文件」，
+   很容易被误判成探针写错了。DATA_DIR / PROMPTS_DIR 本来就是 resolve，只有这两个是 join。 */
+const LOCAL_DIR = path.resolve(__dirname, process.env.ASSETS_DIR || '.assets');
 /* ---------- 按类型另存到用户指定的文件夹（POST /save 用） ----------
    配置在 `.data/sk_autosave.json`（设置页存进 localStorage 的 `sk_autosave`，由 DataSync 镜像过来，
    所以换机器 / 云同步都跟着走 —— 里面只有目录路径，没有任何密钥）。

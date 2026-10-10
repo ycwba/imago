@@ -1706,9 +1706,11 @@ async function readSseStream(res, onDelta) {
      onChange 订阅者只用来刷新那一行文案，不参与任何写盘决策。 */
   /* `dlName/dlTotal/dlSent` 是**当前正在下载的那一份**（用户要看到的不只是「N 份在途」，
      还要看到「这一份下到多少」—— 一个 200MB 的视频在界面上从 0% 到 100% 长得一模一样时，
-     人只能干等）。三个字段都由 runOne 那一处写，这里只声明（判据不散在别处）。 */
+     人只能干等）。三个字段都由 runOne 那一处写，这里只声明（判据不散在别处）。
+     `dlot` 是**占着这条进度的是哪一份**（runOne 里那个 k）：并发两份时只摆一份，
+     不写它就会出现两个文件抢同一条进度、两个数字互相覆盖。 */
   const INFOS = { inFlight: 0, ok: 0, fail: 0, lastErr: '', lastAt: 0,
-    dlName: '', dlTotal: 0, dlSent: 0, listeners: new Set() };
+    dlot: '', dlName: '', dlTotal: 0, dlSent: 0, listeners: new Set() };
 function infoChanged() {
   for (const f of INFOS.listeners) { try { f(INFOS); } catch (e) { /* 订阅者出错不许影响落盘 */ } }
 }
@@ -1740,7 +1742,39 @@ function info() {
       try { job.cb(err || null, res || {}); } catch (e) { console.warn('[AssetLocal] 落盘回执出错：', e); }
     };
     try {
-      const blob = await AssetTransfer.blobOf(url);
+      /* ---- 这一份的下载进度：侧栏那行「正在下这一份 N%」的全部数据来源 ----
+         ⚠ 这里以前**根本没接**：`blobOf` 是支持 onStage 的（流式读响应体，每 200ms / 每 1% 报一次，
+         总量取 Content-Length，代理在 /getfile 那一支把上游的长度原样透出），
+         这一行却只调了 `blobOf(url)` —— 于是 `INFOS.dlSent/dlTotal/dlName` 三个字段
+         **全项目没有任何一处给它们赋值**，侧栏那段进度条的 HTML 画得挺好，条件却永远不成立
+         （`busy && dlTotal > 0` 里 dlTotal 恒为 0）。用户看到的就是「正在存 N 份」一直不动，
+         一个 200MB 的视频从 0 到 100% 全程没有第二个字。
+         CONCURRENCY=2 时两份同时在下，dl* 只摆一份：**先抢到的那份占着**，直到它下完，
+         免得那条进度在两个文件之间来回跳（比不显示更难读）；它下完后另一份接手。 */
+      const dlName = String((ent && (ent.prompt || ent.title)) || '').trim().slice(0, 24);
+      const claimDl = () => {
+        if (INFOS.dlot === k) return true;
+        if (INFOS.dlot) return false;                 // 另一份正占着位置
+        INFOS.dlot = k; INFOS.dlName = dlName; INFOS.dlSent = 0; INFOS.dlTotal = 0;
+        return true;
+      };
+      if (claimDl()) infoChanged();                   // 先把「正在下这一份（名字）」摆出来
+      let blob;
+      try {
+        blob = await AssetTransfer.blobOf(url, (stage, p) => {
+          if (stage !== 'fetch' || !p || !claimDl()) return;
+          INFOS.dlSent = Number(p.sent) || 0;
+          INFOS.dlTotal = Number(p.total) || 0;      // total 为 0 = 上游没给长度，侧栏只显示名字不摆条
+          infoChanged();
+        });
+      } finally {
+        /* 下载这一段一结束就把进度收掉：后面还有转 base64 与写盘，那几秒里挂着一条 100% 的条、
+           还写着「正在下这一份」，是在说一件已经不成立的事。 */
+        if (INFOS.dlot === k) {
+          INFOS.dlot = ''; INFOS.dlName = ''; INFOS.dlSent = 0; INFOS.dlTotal = 0;
+          infoChanged();
+        }
+      }
       if (!blob || !blob.size) throw new Error('取回字节为空');
       if (blob.size > MIRROR_MAX) {
         read().skip = String(read().skip || '');
