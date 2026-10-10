@@ -6151,6 +6151,12 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
            单独的第二个参数、不在 p 里 —— 不把它并进来，body 就少了 model 字段，
            上游回 400「model must be a string」，而界面只会显示一句「报价接口要这些…」。 */
         const src = Object.assign({}, p, { model: (model && model.id) || p.model });
+        /* `consts`：上游**必填、但内容不参与计价**的字段（VGENV 的 prompt）。
+           它按文档要求 5–30000 字，可报价那一路明确「不运行提示词优化或换人分析」——
+           内容根本不影响价钱。发调用方的真提示词只会平白多出两种挂法：
+           用户提示词不足 5 字、或超过 30000 字，报价就问不成了。
+           所以占位串写在注册表里（`consts`），调用方真给了值也盖得住它。 */
+        Object.assign(qbody, pr.consts || {});
         for (const [remote, local] of Object.entries(pr.body || {})) {
           const v = src[local];
           if (v != null && v !== '') qbody[remote] = v;
