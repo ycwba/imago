@@ -4411,13 +4411,14 @@ function imgTextModels() {
     .map(g => Object.assign({}, g, { models: (g.models || []).filter(m => (m.modes || []).includes('text_to_image')) }))
     .filter(g => g.models.length);
 }
-const priceCache = {};
 /* 通用估价：返回 { ok:true, text, detail } 或 { ok:false, reason }
    p: { quality?, count?, duration?, res?, tier?, ar? } */
 /* 费用预估统一走公共实现（assetlib.js 的 AssetLib.estimateCost）：
-   以前导演台和视频台各写一份近乎逐行的重复代码，改一处容易漏另一处。 */
+   以前导演台和视频台各写一份近乎逐行的重复代码，改一处容易漏另一处。
+   定价表的实时取价也在公共层（60 秒 TTL）；页面**不要**再自己传一份进程内缓存 ——
+   以前那份 priceCache 没有 TTL，页面开着多久就是多久的旧价，平台调价要刷新页面才看得到。 */
 async function estimateCost(prov, model, p) {
-  return AssetLib.estimateCost(prov, model, p || {}, { cache: priceCache, qualityLabel: QUALITY_ZH });
+  return AssetLib.estimateCost(prov, model, p || {}, { qualityLabel: QUALITY_ZH });
 }
 /* 视频生成估价：显示在「生成这一镜」按钮旁，失败只提示、不影响生成 */
 async function getPriceEstimate(sh) {

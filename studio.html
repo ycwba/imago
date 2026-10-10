@@ -1355,7 +1355,8 @@ async function refreshCaps() {
 }
 
 /* ============================ ⑥ 费用预估 ============================ */
-const priceCache = {};
+/* 定价表的实时取价在公共层（assetlib 的 estimateCost，60 秒 TTL）；这里不再自己存一份 ——
+   以前页面里那个 priceCache 没有 TTL，页面开着多久就是多久的旧价。 */
 /* 代际号：估价是异步的，慢的旧请求回来会盖掉新那轮 —— 典型是「改完参数马上又改一项」，
    第一轮的报价最后到，界面上写的是上一组参数的钱。同一屏上别的异步回写都带这个
    （pager 的 reqSeq、loadServer 的 serverGen），估价原先是唯一一处没有的。 */
@@ -1393,7 +1394,7 @@ async function refreshEst() {
            开关拨了报价不动，看着像开关没生效。加价由 estimateCost 按声明的 priceKey 现取。 */
         topBools: topBoolParams() };
   try {
-    const r = await AssetLib.estimateCost(prov, model, params, { cache: priceCache });
+    const r = await AssetLib.estimateCost(prov, model, params, {});
     put(r && r.ok
       ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
       : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>');

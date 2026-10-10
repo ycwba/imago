@@ -6130,26 +6130,47 @@ function clearQuoteMarks() {
    换个键就自然过期（键里有平台/端点/请求体），所以参数一变立刻重新问。 */
 const QUOTE_CACHE = new Map();
 const QUOTE_TTL = 45 * 1000, QUOTE_FAIL_TTL = 10 * 1000;
+/* 平台的**实时定价表**：按 provider 现拉一次 /models，带 60 秒 TTL。
+   为什么不用页面上那份：图片那一档以前读的是能力表归一化出来的 `price[quality]`（客户端缓存
+   12 小时），视频那一档虽然是自己拉的、却一次都不重取（页面开着就是老价）——
+   平台调了价，两边都要刷新页面才看得到。60 秒 TTL 与注册表缓存一致：
+   连着改几次参数只打一趟，���过一分钟自动跟上。
+   拉不到就退回注册表里声明的那份（离线时也还能给个数）。 */
+const LIVE_PRICE_TTL = 60 * 1000;
+const livePrice = new Map();          // prov.id → { at, list }
+async function liveModelsOf(prov) {
+  const id = (prov && prov.id) || '';
+  const hit = livePrice.get(id);
+  if (hit && Date.now() - hit.at < LIVE_PRICE_TTL) return hit.list;
+  const r = await Api.request(prov, (prov && prov.pricing && prov.pricing.endpoint) || 'models');
+  const list = (r && (r.data || r.models)) || [];
+  livePrice.set(id, { at: Date.now(), list });
+  return list;
+}
 window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
   const pr = (prov && prov.pricing) || null;
   if (!pr) return { ok: false, reason: '该 API 未声明定价方式' };
   const n = Number(p.count || 1) || 1;
   const cur = pr.currency || '';
+  /* 现拉一次定价表；拉不到就只用注册表声明（离线也有个数），并在明细里说明来源 */
+  let live = null, liveWhy = '';
+  try { live = await liveModelsOf(prov); } catch (e) { liveWhy = (e && e.message) || '取价失败'; }
+  const liveEntry = live ? live.find(x => x && x.id === (model && model.id)) : null;
+  const where = liveEntry ? '实时价' : '平台声明价';
   try {
     if (pr.type === 'per_image_table') {
-      const unit = model && model.price ? model.price[p.quality] : null;
+      let unit = model && model.price ? model.price[p.quality] : null;
+      let src = '平台声明价';
+      const row = liveEntry && liveEntry.pricing && (liveEntry.pricing.perOutput || []).find(x => x && x.quality === p.quality);
+      if (row && row.credits != null) { unit = Number(row.credits); src = '实时价'; }
       if (unit == null) {
         const q = opts.qualityLabel ? (opts.qualityLabel[p.quality] || p.quality) : p.quality;
         return { ok: false, reason: '该模型没有「' + (q || '?') + '」档定价' };
       }
-      return { ok: true, text: '约 ' + (unit * n) + ' ' + cur, detail: unit + ' ' + cur + '/张 × ' + n + ' 张' };
+      return { ok: true, text: '约 ' + (unit * n) + ' ' + cur, detail: unit + ' ' + cur + '/张 × ' + n + ' 张 · ' + src };
     }
     if (pr.type === 'per_second_table') {
-      const cache = opts.cache || {};
-      const ck = 'mt_' + prov.id;
-      if (!cache[ck]) cache[ck] = await Api.request(prov, pr.endpoint || 'models');
-      const list = cache[ck].data || cache[ck].models || [];
-      const m = list.find(x => x && x.id === (model && model.id));
+      const m = liveEntry || null;
       const sec = Number(p.duration || 5);
       const ps = ((m && m.pricing && m.pricing.perSecond) || []).find(x => x.resolution === p.res);
       if (ps) {
@@ -6166,10 +6187,18 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
           const add = pk ? Number(((m && m.pricing) || {})[pk]) || 0 : 0;
           if (add) { total = Math.round((total + add * n) * 100) / 100; detail.push(((tDecl[field] && tDecl[field].label) || field) + ' +' + add + ' ' + cur); }
         }
-        return { ok: true, text: '约 ' + total + ' ' + cur, detail: detail.join(' · ') };
+        return { ok: true, text: '约 ' + total + ' ' + cur, detail: detail.join(' · ') + ' · ' + where };
       }
       if (m && m.pricing && m.pricing.minimumCredits) return { ok: true, text: '最低 ' + m.pricing.minimumCredits + ' ' + cur };
-      return { ok: false, reason: '模型表中没有 ' + (p.res || '?') + ' 的单价' };
+      /* 实时表里没有这一档：退回声明的单价（能力归一化后的 model.perSecond，或注册表兜底
+         声明的 options.perSecond），别直接说「没有价」 */
+      const declRows = (model && (model.perSecond || (model.options && model.options.perSecond))) || [];
+      const dps = declRows.find(x => x && x.resolution === p.res);
+      if (dps && dps.credits != null) {
+        const total = Math.round(dps.credits * sec * n * 100) / 100;
+        return { ok: true, text: '约 ' + total + ' ' + cur, detail: dps.credits + ' ' + cur + '/秒 × ' + sec + '秒 × ' + n + ' 条 · 平台声明价' };
+      }
+      return { ok: false, reason: '模型表中没有 ' + (p.res || '?') + ' 的单价' + (liveWhy ? '（实时取价失败：' + liveWhy + '）' : '') };
     }
     if (pr.type === 'quote') {
       const ep = pr.endpoint || 'price';
