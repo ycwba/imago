@@ -6144,13 +6144,16 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       if (ps) {
         let total = Math.round(ps.credits * sec * n * 100) / 100;
         const detail = [ps.credits + ' ' + cur + '/秒 × ' + sec + '秒 × ' + n + ' 条'];
-        /* 「平台自动润色」是**单独计价**的一项（上游定价表里的 promptOptimizationCredits），
-           以前完全没算 —— 开关拨了报价纹丝不动，看着像开关没生效。
-           判据读上游那份定价，页面只把「开关开没开」递进来，不自己写死 5 这个数。 */
-        const optCredits = Number((m && m.pricing && m.pricing.promptOptimizationCredits) || 0);
-        if (p.optimizePrompt && optCredits) {
-          total = Math.round((total + optCredits) * 100) / 100;
-          detail.push('平台自动润色 +' + optCredits + ' ' + cur);
+        /* 平台在 create.topBools 里声明的**顶层**开关可能单独计价（声明里写 priceKey，
+           指向上游定价表里的那个字段，例如 SparkCine 的 promptOptimizationCredits）。
+           按声明算，不按字段名写死 —— 平台再加一个带价的顶层开关，页面不用改。
+           以前这里完全没算这一段，开关拨了报价纹丝不动，看着像开关没生效。 */
+        const tDecl = (prov && prov.create && prov.create.topBools) || {};
+        for (const [field, on] of Object.entries(p.topBools || {})) {
+          if (!on) continue;
+          const pk = tDecl[field] && tDecl[field].priceKey;
+          const add = pk ? Number(((m && m.pricing) || {})[pk]) || 0 : 0;
+          if (add) { total = Math.round((total + add * n) * 100) / 100; detail.push(((tDecl[field] && tDecl[field].label) || field) + ' +' + add + ' ' + cur); }
         }
         return { ok: true, text: '约 ' + total + ' ' + cur, detail: detail.join(' · ') };
       }

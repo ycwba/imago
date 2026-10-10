@@ -168,9 +168,10 @@ const DEFAULTS = {};
      body        顶层字段：标准字段名 → 上游字段名（标准字段：model/prompt/tier/duration/res/ar/quality/count/format）
      nest        需要嵌进对象里的字段：[上游字段名, 标准字段名] 成对写：{ parameters: [['aspect_ratio','ar'], ...] }
      constants   固定值（如 optimize_prompt:false）
-     topBools    提交体**顶层**的布尔开关 { 字段名: {label, hint, def} }：
-                 页面只为声明了这一项的平台渲染开关（视频台的「平台自动润色」），
-                 值随 params 一起提交，落在顶层而不是 nest 那个嵌套对象里
+     topBools    提交体**顶层**的布尔开关 { 字段名: {label, hint, def, priceKey?} }：
+                 页面把声明出来的**每一项**都渲染成高级设置里的一颗磁贴（三种类型共用一块），
+                 值随 params 一起提交，落在顶层而不是 nest 那个嵌套对象里；
+                 priceKey 指向该平台定价表里的字段（开启后另加这个价），声明了就自动进估价
      note        备注字段值（有些平台会记录）
      idempotencyKey  该平台是否支持幂等键（默认 true）：
                      true  → 客户端给 POST 带上 Idempotency-Key；网络超时后允许自动重试
@@ -479,7 +480,11 @@ const REGISTRY = {
            现在按声明给：视频工作台只为声明了这一项的平台渲染那个开关按钮，
            平台没有这一项时按钮根本不出现（页面按 Capabilities 读，不写死平台名）。 */
         topBools: {
-          optimize_prompt: { label: '平台自动润色', hint: '提交后由平台侧再优化一遍提示词（第三方润色，与上面的「AI 润色」互不影响）', def: false },
+          optimize_prompt: { label: '平台自动润色', hint: '提交后由平台侧再优化一遍提示词（第三方润色，与「AI 润色」互不影响）', def: false,
+            /* priceKey = 这一项开启后另加多少钱，指向上游定价表里的那个字段
+               （上面 /models 的 pricing 里就有 promptOptimizationCredits）。
+               声明了就自动进估价与提示文字，页面不写死这个数。 */
+            priceKey: 'promptOptimizationCredits' },
         },
         note: '视频生成',
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },

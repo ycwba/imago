@@ -172,8 +172,6 @@
         <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
         <!-- 拆分片段批量生成：只有图像栏有（视频 / 语音没有「一段描述拆几张」这种用法） -->
         <button class="tool" id="splitBtn" hidden title="把这段描述拆成几张图的提示词，确认后逐条提交（每条都是一条真任务）"><span class="ic" data-icon="sparkles" data-size="14"></span>拆分片段生成</button>
-        <!-- 平台自带的提示词优化：只为 registry 里 create.topBools 声明了这一项的平台出现 -->
-        <button class="tool" id="platPolishBtn" hidden><span class="ic" data-icon="wand" data-size="14"></span>平台自动润色</button>
         <span class="sp"></span>
         <button class="tool danger" id="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span>一键清空</button>
       </div>
@@ -300,7 +298,7 @@ function newState() {
     model: '',                                  // '平台id::型号id'
     prompt: '',
     style: '',                                  // 音色设计模型的风格描述
-    platPolish: false,                          // 平台自带的提示词优化开关
+    topBools: {},                               // 平台顶层开关（create.topBools）的当前值，按类型各存一份
     autoVals: {},                               // 「上次是界面自动填的」——只记值
     /* 用户**亲手点过**哪些控件。`autoVals` 记的是值、不是「谁写的」，
        而 fillSel 的 untouched 判据是「当前值 === 上次自动填的值」——
@@ -986,7 +984,12 @@ $('advBody').innerHTML =
   + '<div id="voiceCol"><label>音色</label><select id="voice"></select></div>'
   + '<div><label>输出格式</label><select id="formatA"></select></div>'
   + '<div id="boolBoxA" hidden></div>'
-  + '</div></div>';
+  + '</div></div>'
+  /* 平台在 create.topBools 里声明的**顶层**开关（SparkCine 的「平台自动润色」）。
+     它属于「生成参数」而不是提示词 —— 提示词附近已经有「AI 润色」（我们自己那一份），
+     两个开关摆在一起会让人以为是同一个功能。所以放在高级设置里、三种类型共用一块：
+     声明是 provider 级��（一家平台做图与做视频都带它），按当前型号显隐。 */
+  + '<div class="adv-grid" id="topBools" style="margin-top:10px" hidden></div>';
 
 const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
 const RATIO_ZH = { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4', '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' };
@@ -1079,7 +1082,6 @@ function renderVideoParams() {
     cur().autoVals.draw = '1';
   }
   renderBoolRows(model, changed, defs);
-  renderPlatPolish();
   paintVideoHints(model);
 }
 /* 「随当前值变的那几行字」——重画与改值**共用同一份**（§J：同一件事只写一遍）。
@@ -1122,32 +1124,45 @@ function readBoolParams() {
   });
   return o;
 }
-/* 平台自带的提示词优化：只为 create.topBools 声明了这一项的平台渲染（平台没有就不出现） */
-let platPolish = false, platField = '';
+/* 平台在 create.topBools 里声明的**顶层**开关：整块渲染在高级设置里（见 #topBools）。
+   以前是一个按钮、只取声明里的**第一项**、而且只在视频台渲染 ——
+   于是图像台/语音台永远看不见，平台声明了两项也只露第一项。
+   现在：声明几项就画几颗，按当前 provider 显隐，值按类型各存一份。 */
 function platTopBools() {
   const prov = currentModel().prov;
   const t = (prov && prov.create && prov.create.topBools) || null;
   return t && typeof t === 'object' ? Object.entries(t) : [];
 }
-function renderPlatPolish() {
-  const btn = $('platPolishBtn');
-  if (!btn) return;
+/* 某个顶层开关开启后另加多少钱由 estimateCost 按 priceKey 现取上游定价，
+   算出来的明细会写进估价那一行（「平台自动润色 +5 积分」）。
+   这里**不再另做一份数字来源** —— 归一化后的型号上未必留着 pricing，
+   多写一处就多一处可能对不上的口径（§J）。 */
+function renderTopBools() {
+  const box = $('topBools');
+  if (!box) return;
   const decl = platTopBools();
-  btn.hidden = !decl.length;
-  platField = decl.length ? decl[0][0] : '';
-  if (decl.length) { btn.classList.toggle('on', !!cur().platPolish); btn.title = (decl[0][1] && decl[0][1].hint) || ''; }
-  platPolish = !!cur().platPolish;
+  const st = cur().topBools || (cur().topBools = {});
+  /* 换平台/型号后，声明里没有的那些字段（上一家的开关）要清掉 —— 不然会被带进提交体 */
+  for (const f of Object.keys(st)) if (!decl.some(x => x[0] === f)) delete st[f];
+  box.hidden = !decl.length;
+  if (!decl.length) { box.innerHTML = ''; return; }
+  box.innerHTML = decl.map(([f, d]) => {
+    const on = st[f] === undefined ? !!(d && d.def) : !!st[f];
+    return '<div><span class="ed-label">' + escA((d && d.label) || f) + '</span>'
+      + '<button type="button" class="tool' + (on ? ' on' : '') + '" data-tb="' + escA(f) + '"'
+      + ((d && d.hint) ? ' title="' + escA(d.hint) + '"' : '') + '>'
+      + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>';
+  }).join('');
+  if (window.fillIcons) fillIcons(box);
 }
-function platPolishParams() {
-  const b = $('platPolishBtn');
-  if (!platField || (b && b.hidden)) return {};
-  return { [platField]: !!platPolish };
+/* 提交时要带的那几项（createBody 会把它们放到请求体**顶层**，不混进 parameters） */
+function topBoolParams() {
+  const decl = platTopBools();
+  const st = cur().topBools || {};
+  const out = {};
+  decl.forEach(([f, d]) => { out[f] = st[f] === undefined ? !!(d && d.def) : !!st[f]; });
+  return out;
 }
-$('platPolishBtn').onclick = () => {
-  platPolish = !platPolish;
-  cur().platPolish = platPolish;
-  renderPlatPolish(); refreshEst();
-};
 function renderImageParams() {
   const hit = (function () {
     const g = provGroups();
@@ -1259,12 +1274,27 @@ function readAudioBools() {
 function renderParams() {
   if (TYPE === 'video') renderVideoParams();
   else if (TYPE === 'image') renderImageParams();
-  else { renderAudioParams(); paintSubNote(); updateGoState(); refreshEst(); return; }
+  else { renderAudioParams(); paintSubNote(); renderTopBools(); updateGoState(); refreshEst(); return; }
   paintSubNote();
   syncDropdowns();
+  /* 顶层开关那块：三种类型共用一份渲染（声明是 provider 级的），
+     放在这里而不是各类型的 renderer 里 —— 以前只有视频台调它，
+     图像台/语音台于是永远不显示（平台声明了也看不见）。 */
+  renderTopBools();
   updateGoState();
   refreshEst();
 }
+$('advBody').addEventListener('click', e => {
+  /* 顶层开关（#topBools 里的磁贴）：点了就翻一下，立刻重画 + 重算估价。
+     用委托而不是逐个绑 —— 这一块每次重画都是 innerHTML 重建，逐个绑会越攒越多。 */
+  const tb = e.target.closest && e.target.closest('[data-tb]');
+  if (!tb) return;
+  const f = tb.dataset.tb;
+  const st = cur().topBools || (cur().topBools = {});
+  const decl = platTopBools().find(x => x[0] === f);
+  st[f] = st[f] === undefined ? !(decl && decl[1] && decl[1].def) : !st[f];
+  renderTopBools(); refreshEst(); updateGoState();
+});
 /* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份）。
    **换型号也要重算**：以前这里 `if (e.target.id === 'model') return;` 直接跳过 ——
    换一个价钱差一截的型号，界面上的估价还挂着上一家的钱。
@@ -1359,9 +1389,9 @@ async function refreshEst() {
     ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
     : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
         tier: val('tier'), ar: val('ar'), prompt: $('prompt').value,
-        /* 「平台自动润色」是单独计价的一项（上游定价表里有 promptOptimizationCredits），
-           不递进来估价就当它免费 —— 开关拨了报价不动，看着像开关没生效。 */
-        optimizePrompt: !!cur().platPolish };
+        /* 顶层开关（平台自动润色等）是**单独计价**的：不递进来估价就当它免费，
+           开关拨了报价不动，看着像开关没生效。加价由 estimateCost 按声明的 priceKey 现取。 */
+        topBools: topBoolParams() };
   try {
     const r = await AssetLib.estimateCost(prov, model, params, { cache: priceCache });
     put(r && r.ok
@@ -1413,7 +1443,7 @@ $('clearAll').onclick = () => {
   const m = inputs();
   Object.keys(m).forEach(k => (m[k] || []).forEach(releaseItemUrl));
   cur().inputs = { image: [], video: [], audio: [], frame_first: [], frame_last: [] };
-  cur().prompt = ''; cur().style = ''; cur().platPolish = false;
+  cur().prompt = ''; cur().style = ''; cur().topBools = {};
   $('prompt').value = ''; $('style').value = '';
   InlinePolish.clear($('polishInline'));
   renderInputArea(); renderParams(); updateMode(); refreshEst(); setStatus('');
@@ -1773,9 +1803,9 @@ async function createVideoOnce(prov, model, prompt, entries) {
     log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
       参考素材: entries.length ? entries.length + ' 个' : '',
       生成音频: bools.generate_audio !== undefined ? (bools.generate_audio ? '是' : '否') : '',
-      平台润色: Object.keys(platPolishParams()).length ? '是' : '' } },
+      平台润色: (function () { const t = topBoolParams(); const on = Object.keys(t).filter(k => t[k]); return on.length ? '是' : ''; })() } },
     body: Api.createBody(prov, { model: t.model, prompt: t.prompt, tier: t.tier, duration: t.dur, res: t.res, ar: t.ar,
-      size: t.size, inputEntries: t.entries, params: Object.assign({}, bools, platPolishParams()) }),
+      size: t.size, inputEntries: t.entries, params: Object.assign({}, bools, topBoolParams()) }),
   });
   if (d.error) throw new Error(d.error.message || '创建失败');
   const p = Api.parseItem(prov, d) || {};
