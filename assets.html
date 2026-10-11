@@ -327,6 +327,12 @@ function queueDoneRefresh() {
     reload().catch(e => console.warn('[assets] 完成任务后刷新列表失败：', e));
   }, 1200);
 }
+/* 别处（工作台 / 导演台 / 素材库 / 另一个标签页）提交、状态翻转、或刚往本机存好一份产物时，
+   这一页也要跟着收敛：本页的轮询器只问自己列表里那几条任务，而外壳换页会把 iframe 整个拆掉重建
+   （见 workbench.js 的 BUS）。动作直接复用上面那一份 queueDoneRefresh —— 它本来就是
+   「任务变了 → 重拉列表让任务卡变成产物卡」，只是触发条件从「本页问到了」放宽成「任何一处发生了」。
+   外面再套一层 busRefresh 合流：一次批量镜像能连发几十条 'local'，逐条整表重拉就是打爆平台接口。 */
+if (window.Wb && Wb.busOn) Wb.busOn(Wb.busRefresh(queueDoneRefresh, 8000));
 $('bulkAll').onclick = () => {
   const list = applyFilters();
   const allOn = list.length && list.every(a => selected.has(selKeyOf(a)));
@@ -1084,12 +1090,21 @@ Wb.pager.sentinel('gridEnd', autoLoadMore);
 $('reloadBtn').onclick = reload;
 $('cancelAllBtn').onclick = async () => {
   const btn = $('cancelAllBtn');
-  const rs = assets.filter(a => a.kind === 'task' && ['running', 'queued'].includes(a.status));
-  if (!rs.length) { Toast.info('没有进行中的任务'); return; }
+  /* 「还在跑」只有一个判据（Wb.stLive → Api.classifyStatus，认注册表的 statusMap）。
+     以前这里手抄了一份 ['running','queued'] 词表：少一个同义词（creating / pending / processing）
+     这些任务就不在这一批里 —— 与上面轮询集合那个同样的错法，卡片停在错的状态上等手动刷新。
+     「这一家能不能撤单」同样只看 Api.canCancel 一份：没声明 cancel 端点的那几家点了也是白发一条请求，
+     与其收下 N 个必然失败的调用，不如当场说清有几家撤不了。 */
+  const live = assets.filter(a => a.kind === 'task' && Wb.stLive(a.status));
+  if (!live.length) { Toast.info('没有进行中的任务'); return; }
+  const provOf = a => { try { return Api.prov(a.provider); } catch { return null; } };
+  const rs = live.filter(a => { const p = provOf(a); return p && Api.canCancel(p); });
+  const dim = live.length - rs.length;
+  if (!rs.length) { Toast.warn('这些任务所在的平台没有提供撤单接口，只能等平台那边自己结束'); return; }
   /* 就地二次确认走公共那一份（ui.js 的 Confirm.arm）：这颗按钮里装着 <span class="ic"> 图标，
      以前页内手搓的 btn.textContent 每次都把图标一起抹掉（还原串还和标记里的文字不一致）。
      arm 存的是 innerHTML、还原也走它，图标保得住，还白得 Esc / 点别处取消与「整页只有一个确认中」。 */
-  if (Confirm.arm(btn, '确认取消 ' + rs.length + ' 个？')) return;
+  if (Confirm.arm(btn, '确认取消 ' + rs.length + ' 个？' + (dim ? '（另有 ' + dim + ' 个的平台没有撤单接口）' : ''))) return;
   await Promise.allSettled(rs.map(a => AssetLib.cancel(a)));
   await reload();
 };

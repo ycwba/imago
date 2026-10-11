@@ -1807,6 +1807,42 @@ async function guardOutboundUrl(raw) {
   return u;
 }
 
+/* 「把 ?url= 解出来 → 过完整护栏 → 过不去就 400 并写明原因」只这一份。
+   /getfile、/s3put、/fetch、/getv 四条通道以前各抄一遍（连 400 的响应头都写成了两样），
+   而这类样板漂移的方向是坏的：少抄一道护栏就等于「任意本机网页可以借代理打内网」。
+   返回 null 表示已经替调用方把 400 回掉了，调用方直接 return。 */
+async function takeOutboundUrl(req, res, prefix, tag) {
+  try { return await guardOutboundUrl(safeDecode(req.url.slice(prefix.length))); }
+  catch (e) {
+    log(`[${tag}] 拒绝出站：` + e.message);
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('bad url: ' + e.message);
+    return null;
+  }
+}
+
+/* 「上游那份响应原样流给浏览器」的响应头只算一次（/asset 与 /getv 各写了一遍同一件事）：
+   状态码原样透传、失败响应绝不缓存、Range 与跨域那几个头。
+   最要紧的是中间那一条 —— 签名过期回 403 时如果给它盖上 max-age 一天，
+   浏览器就把这条 403 存一整天，页面表现为「这条视频的缩略图永远坏掉、怎么刷新都不恢复」，
+   而换一个签名地址本来就能好。两处各写一份就意味着其中一处迟早漏掉这条守卫。
+   o：{ status（上游状态码，小于 200 视为 502）、okType（成功时的 content-type，调用方算好）、
+       cacheOk（成功时的 Cache-Control）、cors（要带 Access-Control-Allow-Origin）、disposition } */
+function passthroughHeaders(upH, o) {
+  const st = (o.status >= 200 ? o.status : 502);
+  const bad = st >= 400;
+  const h = {
+    'content-type': bad ? (upH['content-type'] || 'text/plain; charset=utf-8') : (o.okType || 'application/octet-stream'),
+    'cache-control': bad ? 'no-store' : o.cacheOk,
+    'accept-ranges': upH['accept-ranges'] || 'bytes',
+  };
+  if (o.cors) h['Access-Control-Allow-Origin'] = '*';
+  if (upH['content-range']) h['Content-Range'] = upH['content-range'];
+  if (upH['content-length'] && !bad) h['Content-Length'] = upH['content-length'];
+  if (o.disposition) h['content-disposition'] = o.disposition;
+  return { st, bad, h };
+}
+
 /* 出站响应流 → 客户端：上游中途断开（RST / 空闲超时）时不能只让 pipe 抛错 ——
    以前几处 pipe 没有 error 监听：上游一断，代理这边刷未捕获异常，客户端拿到一个永远不结束的响应。
    统一入口：响应还没发头 → 502 + 可读原因；已经发过头 → 直接断开连接。 */
@@ -5385,9 +5421,8 @@ async function handleRequest(req, res) {
   if (req.url.startsWith('/getfile?url=')) {
     // 取回通道：把外部 https 资源（如 VGENV CDN 的视频）以同源方式流给浏览器
     // 用途：把非 SparkCine 资产转存成 SparkCine 资产（参考视频 / 参考音频）
-    let target;
-    try { target = await guardOutboundUrl(safeDecode(req.url.slice('/getfile?url='.length))); }
-    catch (e) { log('[getfile] 拒绝出站：' + e.message); res.writeHead(400); res.end('bad url: ' + e.message); return; }
+    const target = await takeOutboundUrl(req, res, '/getfile?url=', 'getfile');
+    if (!target) return;
     log(`[getfile] GET ${target.slice(0, 120)}`);
     /* 跟随重定向：**每一跳都重新过完整护栏**（含 DNS 解析到内网的判定）。
        以前重定向目标只过 safeOutboundUrl（纯字面量），*.nip.io / *.sslip.io 这类
@@ -5434,9 +5469,8 @@ async function handleRequest(req, res) {
   if (req.url.startsWith('/s3put?url=')) {
     // 素材上传通道：浏览器无法直传 S3（跨域），由代理携带签名头转发 PUT。
     // 请求体流式转发、进度以 NDJSON 帧回给页面（见 s3putStream）。
-    let target;
-    try { target = await guardOutboundUrl(safeDecode(req.url.slice('/s3put?url='.length))); }
-    catch (e) { log('[s3put] 拒绝出站：' + e.message); res.writeHead(400); res.end('bad url: ' + e.message); return; }
+    const target = await takeOutboundUrl(req, res, '/s3put?url=', 's3put');
+    if (!target) return;
     s3putStream(req, res, target);
     return;
   }
@@ -5465,21 +5499,15 @@ async function handleRequest(req, res) {
       const upHeaders = { 'user-agent': 'local-workbench', connection: 'close' };
       if (req.headers.range) upHeaders.range = req.headers.range;
       upRequest(info.url, { headers: upHeaders }, ir => {
-        /* 状态码要原样透传：以前只分「206 或 200」，签名过期(403)/资产已删(404) 的错误页
-           会被当成一张图发回 200，还盖上 immutable 一年的缓存 —— 页面显示破图、
-           之后每次刷新都命中那条缓存，怎么都修不好。 */
-        const st = ir.statusCode >= 200 ? ir.statusCode : 502;
-        const bad = st >= 400;
-        const h = {
-          'content-type': bad ? (ir.headers['content-type'] || 'text/plain; charset=utf-8')
-            : (info.mime || ir.headers['content-type'] || 'application/octet-stream'),
-          // 同一 URL 内容恒定：浏览器正常缓存即可，未命中时才回源（失败响应不缓存）
-          'Cache-Control': bad ? 'no-store' : 'public, max-age=31536000, immutable',
-          'Accept-Ranges': 'bytes',
-        };
-        if (ir.headers['content-range']) h['Content-Range'] = ir.headers['content-range'];
-        if (ir.headers['content-length'] && !bad) h['Content-Length'] = ir.headers['content-length'];
-        if (!bad && q.get('dl')) h['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(q.get('name') || 'image.png')}`;
+        /* 状态码原样透传、失败响应绝不缓存 —— 判据在 passthroughHeaders（与 /getv 同一份）。
+           这一份的特别处只在：成功时用索引里记的 mime，并且同一 URL 内容恒定 → 盖一年 immutable，
+           未命中才回源（失败仍然 no-store，见公共层那段注释）。 */
+        const { st, h } = passthroughHeaders(ir.headers, {
+          status: ir.statusCode,
+          okType: info.mime || ir.headers['content-type'] || 'application/octet-stream',
+          cacheOk: 'public, max-age=31536000, immutable',
+          disposition: (!q.get('dl') || st >= 400) ? '' : `attachment; filename*=UTF-8''${encodeURIComponent(q.get('name') || 'image.png')}`,
+        });
         res.writeHead(st, h);
         pipeUpstream(ir, res, '资产取回');
       }).on('error', e => failUpstream(res, e.message, '资产取回失败')).end();
@@ -5491,9 +5519,8 @@ async function handleRequest(req, res) {
   }
   if (req.url.startsWith('/fetch?url=')) {
     // 素材下载通道：把任意 https 图片经本地代理取回，绕过浏览器跨域限制（网络瞬断自动重试 2 次）
-    let target;
-    try { target = await guardOutboundUrl(safeDecode(req.url.slice('/fetch?url='.length))); }
-    catch (e) { log('[fetch] 拒绝出站：' + e.message); res.writeHead(400); res.end('bad url: ' + e.message); return; }
+    const target = await takeOutboundUrl(req, res, '/fetch?url=', 'fetch');
+    if (!target) return;
     let attempt = 0;
     const go = () => {
       attempt++;
@@ -5514,26 +5541,19 @@ async function handleRequest(req, res) {
     // 外链媒体通道：把任意 https 资源（视频/图片）经本地代理取回，支持 Range。
     // 页面里的播放、抽帧（canvas 需要同源）、体积探测、下载都走它（见 README「统一路由（硬性约定）」），
     // 所以上游签名地址不会出现在任何 src 里。
-    let target;
-    try { target = await guardOutboundUrl(safeDecode(req.url.slice('/getv?url='.length))); }
-    catch (e) { log('[getv] 拒绝出站：' + e.message); res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('bad url: ' + e.message); return; }
+    const target = await takeOutboundUrl(req, res, '/getv?url=', 'getv');
+    if (!target) return;
     const upHeaders = { 'user-agent': 'local-workbench', connection: 'close' };
     if (req.headers.range) upHeaders.range = req.headers.range;
     const up = upRequest(target, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers: upHeaders, lookup: guardedLookup }, ur => {
-      /* 失败响应绝不缓存（和 /asset 那条 3039-3048 的教训同一件事）：签名过期回 403 时，
-         如果给它盖上 max-age=86400，浏览器会把这条 403 存一整天 —— 页面里表现为
-         「这条视频的缩略图/播放永远坏掉，怎么刷新都不恢复」，而这其实是换一个签名地址就能好的。 */
-      const bad = ur.statusCode >= 400;
-      const h = {
-        'content-type': bad ? (ur.headers['content-type'] || 'text/plain; charset=utf-8')
-          : (ur.headers['content-type'] || 'video/mp4'),
-        'accept-ranges': ur.headers['accept-ranges'] || 'bytes',
-        'cache-control': bad ? 'no-store' : 'public, max-age=86400',
-        'Access-Control-Allow-Origin': '*',
-      };
-      if (ur.headers['content-range']) h['Content-Range'] = ur.headers['content-range'];
-      if (ur.headers['content-length'] && !bad) h['Content-Length'] = ur.headers['content-length'];
-      res.writeHead(ur.statusCode, h);
+      /* 失败响应绝不缓存、Range 要原样透出、状态码不许压成 200 —— 判据在 passthroughHeaders（与 /asset 同一份）。 */
+      const { st, h } = passthroughHeaders(ur.headers, {
+        status: ur.statusCode,
+        okType: ur.headers['content-type'] || 'video/mp4',
+        cacheOk: 'public, max-age=86400',
+        cors: true,
+      });
+      res.writeHead(st, h);
       pipeUpstream(ur, res, 'getv');
     });
     up.on('error', e => failUpstream(res, e.message, 'getv'));

@@ -6,10 +6,10 @@
    （sidebar.js 会把直接打开的页面转到外壳），而它挂在 iframe 里第一件事就是检测到
    window.top.__SB_SHELL 然后 return —— 每次切页白下载白执行 249 KB 阻塞脚本，
    把 DOMContentLoaded（也就是外壳换页的时机）往后推。
-   页面要把自己那份只读快照交给助手，直接设 `window.__acPageCtx` 即可（drama.html 那么写），
+   页面要把自己那份只读快照交给助手，直接设 `window.__acPageCtx` 即可（director.html 那么写），
    不要改成调 `AiChat.pageCtx` —— 那要求内容页先把这 249 KB 装上。
-   外壳为了这一层额外引了 assetlib.js / workbench.js / drama.js（注册表、能力声明、
-   短剧与素材库都在那三份里），所以查询不再取决于脚下开的是哪一页。
+   外壳为了这一层额外引了 assetlib.js / workbench.js / chars.js（注册表、能力声明、
+   素材库那一层就在那三份里），所以查询不再取决于脚下开的是哪一页。
 
    读：这一页自己的状态从 iframe 现取（frameWin() / __acPageCtx / 扫 DOM 的下拉当前值）。
    写：两个动作，都要用户在卡片上点「执行」才真做（见 ACTS）——一次生成任务或一次改设置。
@@ -68,7 +68,7 @@
   const KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
   /* 提示词里指代当前页：正文页文件名 → 界面上的名字。
      三个工作台合并成 studio.html 之后只有一条；`?t=` 只是落在同一页的不同类型上。 */
-  const ACT_PAGE = { 'director.html': '导演台', 'drama.html': '拍短剧', 'chars.html': '素材库',
+  const ACT_PAGE = { 'director.html': '导演台', 'chars.html': '素材库',
     'studio.html': '生成工作台（视频 / 图像 / 音频）', 'assets.html': '资产库', 'favorites.html': '收藏',
     'settings.html': '设置', 'usage.html': '用量与余额' };
   /* 左栏只有一个「生成工作台」入口，跳过去时按类型带上 ?t=（video / image / audio） */
@@ -130,7 +130,7 @@
     return String(location.pathname || '').replace(/^.*\//, '') || 'director.html';
   }
   const pageZh = () => ACT_PAGE[page()] || page();
-  /* 页面注册在这份 window 上的只读快照（拍短剧那种「闭包里的状态」） */
+  /* 页面注册在这份 window 上的只读快照（那种「状态关在页面闭包里」的页面） */
   function hostCtx() {
     try {
       const fn = frameWin().__acPageCtx;
@@ -178,15 +178,15 @@
       notice: (r.custom && r.custom.reason) || '',
     };
   }
-  /* 拿数据层（`window.Drama`）——**要从内容页那个窗口取**。
-     助手挂在外壳（顶层）上，而 drama.js 只在内容页加载，所以顶层这一层没有 `window.Drama`：
-     以前凡是直接读 `window.Drama` 的地方，在外壳形态下都静默地退到 `Store.read(...)` 的裸读
-     —— 于是「素材库」这类需要 Drama 判据的查询（`Lib.hayOf` / `libKindOf` / `Cast.assetsOf`）
+  /* 拿数据层（`window.Chars`）——**要从内容页那个窗口取**。
+     助手挂在外壳（顶层）上，而 chars.js 只在内容页加载，所以顶层这一层没有 `window.Chars`：
+     以前凡是直接读 `window.Chars` 的地方，在外壳形态下都静默地退到 `Store.read(...)` 的裸读
+     —— 于是「素材库」这类需要 Chars 判据的查询（`Lib.hayOf` / `libKindOf` / `Cast.assetsOf`）
      全部退化成「只查名字」，而且**看不出退化**（界面上只是一句话照常返回）。
      所以这里收一个口：顶层先找自己，找不到就去内容页（frameWin）找。 */
   const DRA = () => {
-    try { if (window.Drama) return window.Drama; } catch (e) {}
-    try { const w = frameWin(); if (w && w.Drama) return w.Drama; } catch (e) {}
+    try { if (window.Chars) return window.Chars; } catch (e) {}
+    try { const w = frameWin(); if (w && w.Chars) return w.Chars; } catch (e) {}
     return null;
   };
   /* 「数据层那一层在不在」—— 素材库的读写动作要靠它（`newForm` / `commitForm` / `save` / `remove`），
@@ -195,10 +195,9 @@
     const D = DRA();
     if (D && D.Lib && D.Lib.save) return D;
     throw new Error('现在不在内容页里（助手挂在应用外壳上），拿不到素材库那一层。'
-      + '切到「拍短剧」或「素材库」那一页再问我一次就行 —— 那两页开着的时候我能直接读写真实数据');
+      + '切到「素材库」那一页再问我一次就行 —— 那一页开着的时候我能直接读写真实数据');
   };
-  const dramaRows = () => { const D = DRA(); return D ? D.list() : (Store.read('dramas', []) || []); };
-  const charRows = () => { const D = DRA(); return D ? D.Lib.list() : (Store.read('drama_chars', []) || []); };
+  const charRows = () => { const D = DRA(); return D ? D.Lib.list() : (Store.read('char_lib', []) || []); };
 
   function usageStat(days) {
     const arr = (window.TextAI && TextAI.readUsageLog()) || [];
@@ -244,7 +243,7 @@
   const TOOLS = {
     overview: {
       arg: '无参数',
-      doc: '本机现状一页：代理与平台、文字 AI 当前用哪家哪个型号、短剧/素材库/收藏/缓存/归档各有多少条、此刻在哪个页面、这次带了哪几个附件',
+      doc: '本机现状一页：代理与平台、文字 AI 当前用哪家哪个型号、素材库/收藏/缓存/归档各有多少条、此刻在哪个页面、这次带了哪几个附件',
       async run() {
         const r = await reg();
         await caps(r);
@@ -252,7 +251,6 @@
         const pf = provFlags(r);
         const tp = TextAI.prov(r);
         const data = {};
-        data.短剧 = dramaRows().length;
         data.素材库 = charRows().length;
         if (window.Fav) data.收藏 = Fav.list().length;
         if (window.AssetLib) Object.keys(CACHES).forEach(k => { data[CACHES[k]] = AssetLib.listCache(k).read().length; });
@@ -278,10 +276,10 @@
         if (dropped.length) out.添加未生效的平台 = dropped;
         if (r.custom && r.custom.reason) out.自定义清单读不了 = r.custom.reason;
         const ctx = hostCtx();
-        /* 「当前界面」这一项不是坏了，是**只有拍短剧那一页注册了快照**（它的关键状态在页面闭包里，外面读不到）。
+        /* 「当前界面」这一项不是坏了，是**只有少数页面注册了快照**（它们的关键状态在页面闭包里，外面读不到）。
            不写清这一句，模型会以为查询缺了一块、反复去找那个不存在的开关。 */
         if (ctx) out.当前界面 = ctx;
-        else out.当前界面 = '这一页没有额外注册只读快照（它看得见的下拉值已经在「界面上选中的」里了）；只有拍短剧那一页有这一项';
+        else out.当前界面 = '这一页没有额外注册只读快照（它看得见的下拉值已经在「界面上选中的」里了）；只有把状态关在页面闭包里的页面才有这一项';
         return out;
       },
     },
@@ -356,57 +354,22 @@
         return { 错误: '注册表里没有型号「' + want + '」', 提示: '先用 models 查出清单，id 要照抄' };
       },
     },
-    dramas: {
-      arg: '{ "id": "短剧 id" }（省略 = 全部）',
-      doc: '短剧清单与进度：走到第几步、几段、几段已有画面、还差什么前置条件、能不能导成片',
-      async run(a) {
-        const rows = dramaRows();
-        if (!rows.length) return '本机一部短剧都没有。去「拍短剧」新建一部（go {"page":"drama.html"}）。';
-        const want = String(a.id || '').trim();
-        const pick = want ? rows.filter(d => d && (d.id === want || d.title === want)) : rows;
-        if (!pick.length) return '没有 id 或名称为「' + want + '」的短剧。不带 id 再查一次可以看全部。';
-        let r = null;
-        if (DRA() && Drama.Pipe) { try { r = await reg(); } catch (e) { r = null; } }
-        return pick.map(d => {
-          const shots = d.shots || [];
-          const o = {
-            id: d.id, 名称: d.title, 第几步: d.step + '（' + (STEP_CN[d.step] || '?') + '）',
-            段数: shots.length, 已有画面: shots.filter(s => (s.takes || []).some(t => t && t.state === 'done')).length,
-            角色: (d.characters || []).length, 场景: (d.scenes || []).length,
-            选中的视频模型: (d.opts || {}).videoModel || '（还没选）', 最后改动: when(d.updatedAt),
-          };
-          /* 前置条件与导出检查要读能力声明，代理没响应时不能把整条查询带崩 */
-          if (DRA() && Drama.Pipe && r) {
-            try {
-              const vm = Drama.Pipe.voiceMode(r, d.opts || {});
-              const pre = Drama.Pipe.prereqs(d, null, vm);
-              if (pre.length) o.还差 = pre.map(x => x.label + '：' + x.who);
-              const edl = Drama.Pipe.edlCheck(d);
-              o.能导成片 = !edl.missing.length;
-              if (edl.missing.length) o.导不出 = edl.missing.slice(0, 10).map(x => '第 ' + x.no + ' 段：' + x.why);
-            } catch (e) { o.检查 = '这一部算不下去：' + cap((e && e.message) || e, 140); }
-          }
-          if (want && d.story) o.故事 = cap(d.story, 1200);
-          return o;
-        });
-      },
-    },
     chars: {
       arg: '{ "q": "关键词", "group": "分组名" }（都省略 = 全部）',
-      doc: '素材库（跨剧复用的角色 / 场景 / 道具）：类型、分组、预览图 / 设定图、声音、人设与描述、场景的时段。q 与素材库页搜索框同一套判据（名字 / 人设 / 描述 / 分组 / 时段 / 设定图名 / 声音）',
+      doc: '素材库（角色 / 场景 / 道具）：类型、分组、预览图 / 设定图、声音、人设与描述、场景的时段。q 与素材库页搜索框同一套判据（名字 / 人设 / 描述 / 分组 / 时段 / 设定图名 / 声音）',
       async run(a) {
         const rows = charRows();
-        if (!rows.length) return '素材库还是空的。（拍短剧页的「认角色」那一步可以把角色 / 场景 / 道具存进库；素材库页也能直接新建。）';
+        if (!rows.length) return '素材库还是空的。到「素材库」页新建一条（角色 / 场景 / 道具都行），它会被导演台与生成工作台一起复用。';
         const q = String(a.q || a.name || '').toLowerCase();
         const g = String(a.group || '').trim();
         /* 关键词查哪些字段跟着素材库页那一份判据走（`Lib.hayOf`）：以前这里只查名字，
            用户问「那个下雨的仓库」助手回「库里没有」，而库里就躺着一条叫「仓库」、时段写着「深夜」的场景。 */
-        const hay = c => (DRA() && Drama.Lib.hayOf) ? Drama.Lib.hayOf(c)
+        const hay = c => (DRA() && Chars.Lib.hayOf) ? Chars.Lib.hayOf(c)
           : String(c.name || '').toLowerCase();
         let hit = q ? rows.filter(c => hay(c).includes(q)) : rows;
         if (g) hit = hit.filter(c => String(c.group || '').trim() === g);
         const n = num(a.limit, 40);
-        /* 素材库的类型 / 预览图 / 描述这三条读法只在 drama.js 有一份；
+        /* 素材库的类型 / 预览图 / 描述这三条读法只在 chars.js 有一份；
            这一份查询在没有它的极端情况下（模块没加载上）退回裸字段，不能拿裸标识去猜。 */
         const D = DRA();
         /* 道具（2026-10 加的第三种类型）在兜底分支里以前会被说成「角色」——
@@ -431,7 +394,7 @@
              助手会说「这个角色没有资产」而界面上明明摆了四张；
              后来改成读 `a.kind`（类别），资产有了自己的名字之后又会与界面对不上。
              走 `Cast.assetsOf` 一份（老字典它会现算），报的是**用户自己起的名字**。 */
-          资产: (DRA() && Drama.Cast && Drama.Cast.assetsOf(c) || []).map(a => (Drama.Cast.assetName(a) || '?') + '=' + cap(a.src, 40)),
+          资产: (DRA() && Chars.Cast && Chars.Cast.assetsOf(c) || []).map(a => (Chars.Cast.assetName(a) || '?') + '=' + cap(a.src, 40)),
           音色: c.voice || '', 音色描述: cap(c.voiceNote, 120), 参考音频: !!c.refAudio,
         })) };
       },
@@ -658,13 +621,12 @@
         /* 这一页自己报的状态（各页挂 window 的那几个）：有的页面才知道「我现在在第几步」 */
         const extra = {};
         if (typeof window.__pageState === 'function') { try { Object.assign(extra, window.__pageState() || {}); } catch (e) {} }
-        else if (window.dramaState) Object.assign(extra, window.dramaState);
         if (Object.keys(extra).length) out.页面自己报的 = extra;
         return out;
       },
     },
     go: {
-      arg: '{ "page": "drama.html" }（生成工作台可带类型：studio.html?t=video|image|audio）',
+      arg: '{ "page": "chars.html" }（生成工作台可带类型：studio.html?t=video|image|audio）',
       doc: '带你跳到左栏里的某个页面（只是跳转，不改任何数据）。「生成工作台」是图片/视频/语音合并的一页，用 ?t= 指定落在哪一栏',
       async run(a) {
         const kids = navItems();
@@ -990,19 +952,19 @@
     const t = window.PAGE_TARGETS;
     return (t && t.rows) || [];
   }
-  /* 拍短剧那张设置表在 drama.js 里。外壳层引了它；单页被直接打开时这一页多半没引，
+  /* 素材库那张设置表在 chars.js 里。外壳层引了它；单页被直接打开时这一页多半没引，
      就现取一次 —— 否则同一个助手「从外壳进」和「直接开页面」两种情况下能改的清单不一样，
      用户在设置页看得见的开关，助手却回一句「不让改这一项」。 */
-  let dramaLib = null;
-  async function dramaSET() {
-    if (window.Drama && window.Drama.SET) return window.Drama.SET;
-    if (!dramaLib) dramaLib = new Promise(res => {
+  let charsLib = null;
+  async function charsSET() {
+    if (window.Chars && window.Chars.SET) return window.Chars.SET;
+    if (!charsLib) charsLib = new Promise(res => {
       const s = document.createElement('script');
-      s.src = 'drama.js';
-      s.onload = s.onerror = () => setTimeout(() => res((window.Drama && window.Drama.SET) || null), 0);
+      s.src = 'chars.js';
+      s.onload = s.onerror = () => setTimeout(() => res((window.Chars && window.Chars.SET) || null), 0);
       document.head.appendChild(s);
     });
-    return dramaLib;
+    return charsLib;
   }
   async function writableKeys() {
     const out = Object.assign({}, ADJUST);
@@ -1025,17 +987,16 @@
         : { 名: who, 取值: (r.opts || []).map(o => o[0]),
           说: (r.opts || []).map(o => o[0] + ' = ' + o[1]).join('；') + '。' + (r.hint || '') };
     });
-    /* 键名、默认值、取值全来自 drama.js 的 Drama.SET，这里照同一张表列出来。
+    /* 键名、默认值、取值全来自 chars.js 的 Chars.SET，这里照同一张表列出来。
        再抄一份键名就会出现「助手能改的」和「设置页有的」对不上。 */
-    const DS = await dramaSET();
+    const DS = await charsSET();
     if (DS) Object.keys(DS).forEach(id => {
       const it = DS[id];
-      if (it.kind === 'bool') out[it.key] = { 名: '拍短剧 · ' + it.label, 取值: ['1', '0'], 说: '1 = 开启，0 = 关掉' };
-      else if (it.kind === 'num') out[it.key] = { 名: '拍短剧 · ' + it.label, 数值: true,
-        /* 单位与「它管不了什么」都照声明走：SET 里 durMin 把单位写在名称里、没给 unit，
-           maxTakes 单给 unit。写成固定的一句「单位是分钟」就会对着 maxTakes 说错话。 */
+      if (it.kind === 'bool') out[it.key] = { 名: '素材库 · ' + it.label, 取值: ['1', '0'], 说: '1 = 开启，0 = 关掉' };
+      else if (it.kind === 'num') out[it.key] = { 名: '素材库 · ' + it.label, 数值: true,
+        /* 单位与「它管不了什么」都照声明走，不写死成某一项的单位。 */
         说: (it.unit ? '单位是' + it.unit + '，' : '') + '要大于 0。' + (it.hint || '') };
-      else out[it.key] = { 名: '拍短剧 · ' + it.label, 取值: (it.options || []).map(x => x.id),
+      else out[it.key] = { 名: '素材库 · ' + it.label, 取值: (it.options || []).map(x => x.id),
         说: (it.options || []).map(x => x.id + ' = ' + x.label).join('；') };
     });
     /* 文字 AI 的默认型号按供应方各存一份，可以改；要先知道有哪些供应方，所以是异步 */
@@ -1052,23 +1013,9 @@
   }
   /* ---------- 素材库：新建/更新 与 删除 ---------- */
   const CHAR_KINDS = { actor: '角色', scene: '场景', prop: '道具' };
-  /* 「库里这一位被哪些短剧引用」—— 用户删一条之前必须知道这件事：
-     素材库是「跨剧复用」的，删掉库里那一位**不会**自动从各剧里去掉引用
-     （那些剧里存的是各自的一份拷贝），于是会出现「库里没了、剧里还在」的不一致。
-     所以这句话要说在**删除之前**。判据是各剧里的同名项（与 Lib.inEpisode 同一套口径）。 */
-  function charRefs(name, kind) {
-    const out = [];
-    for (const d of (dramaRows() || [])) {
-      for (const pair of [['角色', d.characters], ['场景', d.scenes], ['道具', d.props]]) {
-        for (const c of (pair[1] || [])) {
-          if (!c || String(c.name || '') !== name) continue;
-          if (kind && String(c.kind || '') && String(c.kind) !== kind) continue;
-          out.push({ 剧: d.title || d.id || '(未命名)', 类型: pair[0] });
-        }
-      }
-    }
-    return out;
-  }
+  /* ⚠ `charRefs`（「库里这一位被哪些短剧引用」）随拍短剧页删除一起去掉了 ——
+     素材库现在是**就地编辑** char_lib 的唯一数据源，不再往任何一集里塞拷贝，
+     所以删一条只影响它自己，没有「别处还留着旧的那份」这回事。 */
   function chkChar(a) {
     try { needDRA(); } catch (e) { return { err: e.message }; }
     if (!a || typeof a !== 'object') return { err: 'save_char 的参数要是一个 JSON 对象：{"name":"小雅","kind":"actor","look":"齐肩黑发"}' };
@@ -1135,26 +1082,22 @@
     if (!hit.length) return { err: '素材库里没有叫「' + name + '」' + (kind ? '这条' + (CHAR_KINDS[kind] || kind) : '') + '。先用 chars 查一下现有哪些。' };
     if (hit.length > 1) return { err: '有 ' + hit.length + ' 条都叫「' + name + '」（'
       + hit.map(x => CHAR_KINDS[D.libKindOf(x)] || '角色').join('、') + '）。加 kind 限一下要删哪一类。' };
-    const refs = charRefs(name, kind);
     return { 说明: '从素材库删掉「' + name + '」',
       人话: ['类型：' + (CHAR_KINDS[D.libKindOf(hit[0])] || '角色'),
-        refs.length
-          ? ('注意：这一位被 ' + refs.length + ' 部短剧引用（' + refs.slice(0, 4).map(r => r.剧).join('、') + (refs.length > 4 ? ' 等' : '') + '）—— 库里这份删掉后那些剧里各自的一份还留着，但以后拉不进新的一集')
-          : '没有任何短剧引用它，删掉不影响别的剧',
         '本机存的图片与音频文件不会被删（只是从素材库里摘掉这一条）',
+        '导演台与生成工作台里正在用这一位的参考图会跟着失效',
         '删除不可撤销 —— 真的要删才点执行'],
       危险: true };
   }
   async function runRemoveChar(a) {
     const chk = chkRemoveChar(a);
     if (chk.err) return { ok: false, text: chk.err };
-    /* 删除要**第二次**确认：它不可撤销，而且这一档用户是「让它顺手清掉一条」。
-       弹窗里摆的是这条的名字与它被哪些剧引用 —— 与卡片上写的是同一份话。 */
+    /* 删除要**第二次**确认：它不可撤销，而且这一档用户是「让它顺手清掉一条」。 */
     if (window.Confirm && Confirm.ask) {
       const nm = String(a.name || a.名字 || '').trim();
       const ok = await Confirm.ask({
         title: '从素材库删掉「' + nm + '」？',
-        body: '这一位被 ' + charRefs(nm, String(a.kind || '')).length + ' 部短剧引用。删除不可撤销（本机的图片音频文件不动）。',
+        body: '删除不可撤销。本机的图片音频文件不动，只是从素材库里摘掉这一条。',
         okLabel: '删掉', danger: true,
       });
       if (!ok) return { ok: false, text: '没有删（你取消了）' };
@@ -1470,7 +1413,7 @@
        P.D / P.Api / P.Store / P.AssetLib / P.AssetLocal / P.Wb / P.Fav / P.PromptLog / P.Net
                 —— 跨页公用的那几个模块，**从顶层取**（外壳那一层就加载了 ui/assetlib，
                 所以它们在顶层与在内容页是同一份，不必问「现在是哪个窗口」）；
-                只有 Drama（drama.js，只在内容页加载）要回退去内容页取。
+                只有 Chars（chars.js，只在内容页加载）要回退去内容页取。
 
      为什么不给裸 `window`：给了它，代码就能改外壳的页面状态、自己跳走、
      或者拿 top 去做任何事 —— 那样「在当前这一页做这件事」这句话就完全失效了。
@@ -1486,7 +1429,7 @@
       host, shell,
       get page() { try { return String((host && host.location.pathname) || '').split('/').pop() || page(); } catch (e) { return page(); } },
       /* 切到某一页并等它加载完 —— 「去看一眼那个页」与「回来改点什么」都需要它。
-         只认内容页自己的那些名字（director / drama / chars / studio / assets / favorites / usage / settings）。 */
+         只认内容页自己的那些名字（director / chars / studio / assets / favorites / usage / settings）。 */
       async go(pg) {
         const file = /\.html$/i.test(pg) ? pg : pg + '.html';
         const nap = ms => new Promise(ok => setTimeout(ok, ms));
@@ -1509,13 +1452,13 @@
     };
     /* 跨页公用的模块：挂一份在 P 上，代码里直接 P.Api.xxx / P.D.list() 就行。
        顶层（外壳）加载了 ui.js 与 assetlib.js，所以这些在顶层就有；
-       Drama 只在内容页加载 —— 两处都试，取到哪个是哪个。 */
+       Chars 只在内容页加载 —— 两处都试，取到哪个是哪个。 */
     P.Api = mod('Api'); P.Store = mod('Store'); P.Net = mod('Net');
     P.AssetLib = mod('AssetLib'); P.AssetLocal = mod('AssetLocal'); P.AssetTransfer = mod('AssetTransfer');
     P.Capabilities = mod('Capabilities'); P.TextAI = mod('TextAI'); P.PromptLog = mod('PromptLog');
     P.Confirm = mod('Confirm'); P.Wb = mod('Wb'); P.Fav = mod('Fav'); P.Chips = mod('Chips');
     P.Icons = mod('ICONS'); P.Dropdowns = mod('Dropdowns');
-    try { P.D = mod('Drama'); } catch (e) {}
+    try { P.D = mod('Chars'); } catch (e) {}
     P.AiChat = (typeof window !== 'undefined' && window.AiChat) ? window.AiChat : undefined;
     return P;
   }
@@ -1627,7 +1570,7 @@
     remove_char: {
       title: '从素材库删掉一条（要再确认一次）',
       arg: '{ "name": "名字", "kind": "可选：限actor|scene|prop" }',
-      doc: '删掉素材库里的一条。会先说清它被哪些短剧引用（那些剧里会跟着少这一位），再由用户确认',
+      doc: '删掉素材库里的一条。会先说清这一条是什么、删掉会影响谁，再由用户确认',
       check: chkRemoveChar, run: runRemoveChar,
     },
     set_setting: {
@@ -1666,7 +1609,7 @@
         + '（批量改一类东西、翻一个只有数据层知道的开关、导一份页面自己不给的清单）。'
         + '执行环境是**整个项目**，不只当前这一页。句柄都挂在 P 上：P.host（当前内容页）/ '
         + 'P.shell（外壳顶层）/ P.go(页名)（切过去并等它加载完，返回那个页的窗口）/ P.doc() / P.$ / P.$$，'
-        + '以及跨页公用的模块 P.D（Drama）/ P.Api / P.Store / P.AssetLib / P.AssetLocal / '
+        + '以及跨页公用的模块 P.D（Chars）/ P.Api / P.Store / P.AssetLib / P.AssetLocal / '
         + 'P.AssetTransfer / P.Capabilities / P.Wb / P.Fav / P.Confirm / P.Dropdowns。'
         + '卡片上会逐字显示代码，执行前还要再确认一次（除非用户单独勾了「注入不用确认」），'
         + '而它不留下任何持久化的东西',
@@ -1691,11 +1634,11 @@
   /* ---------- 系统提示词：身份 → 任务 → 硬性要求 → 禁止 → 输出格式（全站同一条骨架） ---------- */
   const SYS = [
     '身份：你是「本地优先 AI 创作工作台」的内置助手。这项目是纯前端页面 + 一个本机 Node 代理（proxy.js，默认 http://localhost:5175），',
-    '页面有：导演台、拍短剧、素材库、图片台、视频台、语音台、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
+    '页面有：导演台、素材库、生成工作台（视频 / 图像 / 语音）、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
     '你挂在外壳那一层，切页面不会打断你；脚下那一页的当前下拉值与它自己的状态，都在 overview 里。',
     '',
     '任务：回答关于这台机器与这个项目的问题 —— 哪家平台能用、某型号支持哪些参数取值、',
-    '本机有几部短剧各到哪一步、有哪些角色/收藏/产物/提示词归档、这次该选哪个模型、某一步卡住了该怎么补；',
+    '素材库里有哪些角色/场景/道具、有哪些收藏/产物/提示词归档、这次该选哪个模型、某一步卡住了该怎么补；',
     '并且按用户明确要求，替他提交一次生成任务或改一项设置，'
       + '以及**替他把这一页上的控件用起来**（填输入框、点按钮、切页面 —— 见硬性要求 3b/3c）。',
     '',
@@ -1751,9 +1694,9 @@
     '',
     '素材库这一层你能**直接改**（动作走下面那张表里 save_char / remove_char）：',
     '  · 新建或改一条：给名字 + 类型（actor角色 / scene场景 / prop道具）+ 外貌或描述；改已有的要带 replace。',
-    '  · 删一条：remove_char 会先告诉你它被哪几部短剧引用，再要用户点确认 —— 别替用户决定删不删。',
+    '  · 删一条：remove_char 会先说清删的是哪一条、有什么影响，再要用户点确认 —— 别替用户决定删不删。',
     '  · **出图与定音色不要用动作去做**：那两件要花钱、而且用户得先看过图再定，该让用户自己去素材库页点。',
-    '  · 用户现在不在「拍短剧 / 素材库」这两页时，这两个动作会说「拿不到素材库那一层」——',
+    '  · 用户现在不在「素材库」那一页时，素材库相关的动作会说「拿不到素材库那一层」——',
     '    这不是出错，是让你告诉他切过去；不要改用注入去绕（绕过去就没有那些判据与二次确认了）。',
     '可用动作（要点是「用户点执行才真做」，卡片上会写清做什么）：',
     ...Object.keys(ACTS).map(k => '· ' + k + ' ' + ACTS[k].arg + ' —— ' + ACTS[k].doc),
@@ -1786,8 +1729,10 @@
   /* 切会话要拦的两种状态和「清空」那一条一样：正在写（字会丢）、
      还有一张没确认的卡片（那是用户本来打算执行的提案）。 */
   function canLeave() {
-    if (live) { toast('上一条还在写，先按「停止」', 'warn'); return false; }
-    if (pendingRun()) { toast('还有一张没确认的卡片，先点「执行」或「取消」', 'warn'); return false; }
+    /* 拦下时才说（说明为什么没换），而且说在抽屉里：切会话 / 新建 / 清空这三颗按钮都在抽屉上，
+       右上角那条既压着抽屉标题，又离按钮半屏远。 */
+    if (live) { note('上一条还在写，先按「停止」', 'warn'); return false; }
+    if (pendingRun()) { note('还有一张没确认的卡片，先点「执行」或「取消」', 'warn'); return false; }
     return true;
   }
   /* 返回**有没有真的切过去** —— 点一条之后要不要收起浮层看的就是这个：
@@ -1800,13 +1745,13 @@
     if (!s || s.id === SESS.cur) return false;
     if (!canLeave()) return false;
     SESS.cur = id; bind(); save();
-    paint(); paintHist();
+    paint(true); paintHist();
     return true;
   }
   async function delSession(id) {
     const s = SESS.list.find(x => x.id === id);
     if (!s) return;
-    if (SESS.list.length <= 1) { toast('至少留一个会话（要重来就点「新建」）', 'warn'); return; }
+    if (SESS.list.length <= 1) { note('至少留一个会话（要重来就点「新建」）', 'warn'); return; }
     /* 有内容的那一段要二次确认：删掉就找不回来了（对话记录跟着云同步出网，
        但同步的那一份也不会因为你在这里删了就跟着删）。 */
     if ((s.msgs || []).length && window.Confirm) {
@@ -1818,8 +1763,10 @@
     }
     SESS.list = SESS.list.filter(x => x.id !== id);
     if (SESS.cur === id) { SESS.cur = SESS.list[0].id; bind(); }
-    save(); paint(); paintHist();
-    toast('已删除那段会话', 'ok');
+    save(); paint(true); paintHist();
+    /* 删除这种「按下去东西就没了」的动作要有一句就地回执（历史列表里那一行确实少了，
+       但用户看的常常是对话区，那里只是换成了另一段，容易被当成点错了）。 */
+    note('已删掉「' + (s.title || '（还没说话）') + '」那一段');
   }
   function load() {
     let o = null;
@@ -1883,7 +1830,8 @@
   }
   async function addFiles(list) {
     const arr = Array.from(list || []).filter(Boolean);
-    if (!arr.length) return;
+    if (!arr.length) return { added: 0, want: 0 };
+    const fresh = [];                       // 这一次真的推进队列的那几条（末尾按上限截断后要回数）
     for (const f of arr) {
       if (window.AssetTransfer && f.size > AssetTransfer.MAX_BYTES) {
         push('step', '没收「' + (f.name || '未命名') + '」：' + window.fmtBytes(f.size) + ' 超过本机素材上限 ' + window.fmtBytes(AssetTransfer.MAX_BYTES));
@@ -1907,6 +1855,7 @@
         catch (e) { rec.note = '读不出文本：' + cap((e && e.message) || e, 90); }
       }
       files.push(rec);
+      fresh.push(rec);
     }
     /* 上限**在写侧也生效**：以前只在 loadFiles 读回来时 slice(-20)，
        于是拖进 21 个附件时内存里 21 个、落盘 21 个、刷新后只剩后20 个 ——
@@ -1919,6 +1868,16 @@
     paintFiles();
     if (dropped.length) push('step', '附件最多留 ' + FILES_MAX + ' 个，挤掉了最早加的那几个：'
       + dropped.join('、') + '。要留它们就别一次拖这么多，或者先发一轮。');
+    /* 这一句写在 addFiles 里，不写在三个入口（选文件 / 拖到抽屉 / 拖到窗口）各一份：
+       三份文案一模一样而「带进来 N 个」的 N 以前抄的是 `list.length`（用户拖了几个），
+       于是超上限被没收的那几个也一起报进数 —— 界面说「带进来 3 个」，输入框里只有 1 个，
+       这正是「选好了这句话配着一个空结果」那一类。回数的只能是**最后真的留在队列里的那几条**。 */
+    const added = fresh.filter(x => files.includes(x)).length;
+    const want = arr.length;
+    if (added === want) note('带进来 ' + added + ' 个附件');
+    else if (added > 0) note('带进来 ' + added + ' 个，另有 ' + (want - added) + ' 个没收（原因在上面那行）', 'warn');
+    else note('一个附件都没带进来（原因在上面那行）', 'warn');
+    return { added, want };
   }
   /* 附件个数上限 —— **存与取共用这一个数**（见 addFiles 末尾那段注释：
      只在读侧截会让序号整体漂移，卡片上的附件序号与实际递进去的对不上）。 */
@@ -2039,7 +1998,7 @@
 
   /* ---------- 画 ---------- */
   const QUICK = [
-    '我现在哪些平台能用？', '本机短剧都到哪一步了？', '拍短剧还差什么才能导成片？',
+    '我现在哪些平台能用？', '素材库里有哪些角色？', '这一条素材的音色配好了吗？',
     '生图有哪些型号，分别支持什么参数？', '最近 7 天文字 AI 用了多少？', '把这张图看看，照它的样子出一张',
   ];
   function runNode(m) {
@@ -2098,7 +2057,7 @@
      重复提交 = 平台那边多一条任务（没有幂等键的家尤其如此）。 */
   async function execRun(m) {
     if (m.st && m.st !== 'uncertain') return;    // 已执行 / 取消过：再点什么都不做
-    if (live) return toast('正在写回答，先按「停止」再执行', 'warn');
+    if (live) { note('正在写回答，先按「停止」再执行', 'warn'); return; }
     m.st = 'run';
     m.out = '正在提交…';
     save(); paint();
@@ -2501,7 +2460,7 @@
         const old = dl.textContent;
         dl.disabled = true; dl.textContent = '下载中…';
         try { await Wb.save(url, (id || type || 'media') + '.' + ext); }
-        catch (err) { toast('下载失败：' + cap((err && err.message) || err, 90), 'warn'); }
+        catch (err) { note('下载失败：' + cap((err && err.message) || err, 90), 'warn'); }
         finally { dl.disabled = false; dl.textContent = old; }
       };
       ft.appendChild(dl);
@@ -2624,15 +2583,19 @@
       cp.onclick = () => {
         const t = m.t;
         (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
-          () => toast('已复制到剪贴板', 'ok'),
-          () => toast('浏览器不让直接复制，选中正文手动复制吧', 'warn'));
+          () => note('已复制到剪贴板', 'ok'),
+          () => note('浏览器不让直接复制，选中正文手动复制吧', 'warn'));
       };
       ft.appendChild(span); ft.appendChild(cp);
       d.appendChild(ft);
     }
     return d;
   }
-  function paint() {
+  /* jump=true：这一次重画**一定要**滚到底 —— 打开/切换会话、清空、刚发出去一句话，
+     这些时候用户要看的就是最新那条，哪怕重画前他正往上翻着找上一次的答案。
+     不加参数而让所有 paint 都滚到底，等于把「往上翻」这个动作废掉了：
+     finishTask 那 12 秒一轮的定时器、系统通知、任务出结果都会重画，翻上去的手感会被一次次拽回来。 */
+  function paint(jump) {
     const box = el.body;
     if (!box) return;
     /* 正在流式写出的那条气泡要在重画之后**原样挂回去**：
@@ -2640,6 +2603,10 @@
        finishTask 由 12 秒定时器驱动，正好落在流式期间时，那条气泡会被摘出 DOM 当场消失
        （请求还在跑、还在扣 tokens，字却不见了）。挂的是**同一个节点**，
        所以 addStream 闭包里那几个 bd/th/cur 引用照样有效，已经写出来的字也还在。 */
+    /* 重画之前先看一眼「用户此刻是不是贴着底」与「最后一条是不是他自己刚发的」——
+       这两个判据必须在 innerHTML='' **之前**读，清空之后再量就永远是 0。 */
+    const wasBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+    const lastMine = !!msgs.length && msgs[msgs.length - 1].r === 'me';
     const keep = live ? liveEl : null;
     box.innerHTML = '';
     if (!msgs.length) {
@@ -2678,7 +2645,12 @@
       box.appendChild(w);
     } else msgs.forEach(m => box.appendChild(node(m)));
     if (keep && keep.parentNode !== box) box.appendChild(keep);
-    box.scrollTop = box.scrollHeight;
+    /* 「贴到底」只在该贴的时候贴：任务出结果、系统通知、切页都会触发整块重画，
+     * 而用户常常正在往上翻上一条结果 —— 无条件 scrollHeight 把他刚找到的那一行拽回底部
+     * （表现为「往上翻两行它自己跳回去」）。
+     * 三种情况才贴：调用方明说（切会话 / 新建 / 清空 / 刚发出去一条）、重画前本来就贴着底。
+     * 那 40px 与 addStream 的 follow() 同一口径。 */
+    if (jump || wasBottom || lastMine) box.scrollTop = box.scrollHeight;
   }
   /* 流式那一条：先只画已经收到的字，收尾时整块换成正式气泡 */
   function addStream() {
@@ -2862,7 +2834,7 @@
        别让助手以为用户真的只说了这一句。 */
     const onlyFiles = !q && files.length > 0;
     if (!q && !onlyFiles) return;
-    if (live) { toast('上一条还在写，先按「停止」', 'warn'); return; }
+    if (live) { note('上一条还在写，先按「停止」', 'warn'); return; }
     let r;
     try { r = await reg(); } catch (e) { push('err', (e && e.message) || e); return; }
     const prov = await provNow();
@@ -3087,7 +3059,7 @@
   const isOpen = () => document.documentElement.classList.contains('ac-open');
   /* 不叫 open/close：模块里 shadow 掉全局 open 以后，谁再想 window.open 一下就被无声改道 */
   function openPanel() {
-    if (!isOpen()) setOpen(true);
+    if (!isOpen()) setOpen(true);   // 「开的时候落到最新一条」在 setOpen 里，这里不再刷一遍
     if (el.histBox && !el.histBox.hidden) paintHist();
   }
   function closePanel() { if (isOpen()) setOpen(false); }
@@ -3340,6 +3312,14 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
 .ac-picks .dd{flex:0 1 auto;min-width:0}
 .ac-picks .dd-btn{padding:6px 9px;font-size:12px;border-radius:7px;max-width:186px;background:var(--panel,#fff)}
 .ac-hint{font-size:10.5px;line-height:1.5;color:var(--sub,#8a8fa3)}
+/* 抽屉里那一行**一次性**提示（note() 用）：与上面常驻的 .ac-hint 分两条通道 ——
+   合成一句的话「型号取不到」那种要一直挂着的状态会被下一条提示冲掉，
+   而「已删除那段会话」会在抽屉底下赖着不走。与 ui.js 的 AssetPicker 计数条同一套形状。 */
+.ac-note{font-size:11px;line-height:1.5;margin-top:3px;color:var(--sub,#8a8fa3)}
+.ac-note[hidden]{display:none}
+.ac-note.ok{color:var(--ok,#16a34a)}
+.ac-note.warn{color:var(--warn,#d97706)}
+.ac-note.err{color:var(--err,#dc2626)}
 /* 历史会话：盖在对话区**上面**的一块浮层，不把对话区换掉（换掉的话点错一下，写的字就没了） */
 .ac-hist{position:absolute;left:8px;right:8px;top:42px;z-index:3;background:var(--panel,#fff);
   border:1px solid var(--line,#e4e6f0);border-radius:9px;box-shadow:0 10px 26px rgba(20,22,40,.18);
@@ -3363,6 +3343,25 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
 .ac-x.on{color:var(--acc,#6957e8);background:var(--input,#f6f7fb)}
 #acPanel.ac-drop{outline:2px dashed var(--acc,#6957e8);outline-offset:-6px}
 `;
+
+  /* ---------- 抽屉里的就地提示 ----------
+     助手的每一次操作都发生在这块抽屉里，而右上角那排 Toast 固定挂在 top:14 / right:16
+     （z-index 200，抽屉是 56）——「新会话已开」「已删除那段会话」弹在那里，
+     正好压在抽屉标题与刚点开的「历史会话」浮层上，离用户刚按的那颗按钮有半屏远。
+     所以这一层的提示写回抽屉自己（输入框上面那一行），4 秒后让位给常驻的那条状态。
+     只有「跳转失败」这种要跑到别的页面才看得见的仍然走 Toast —— 那时抽屉马上就没了。 */
+  let noteT = 0;
+  function note(t, kind) {
+    const n = el.note;
+    if (!n) return;
+    clearTimeout(noteT);
+    const s = String(t == null ? '' : t).trim();
+    if (!s) { n.hidden = true; n.textContent = ''; return; }
+    n.textContent = s;
+    n.className = 'ac-note' + (kind === 'ok' || kind === 'warn' || kind === 'err' ? ' ' + kind : '');
+    n.hidden = false;
+    noteT = setTimeout(() => { n.hidden = true; n.textContent = ''; }, 4200);
+  }
 
   function mount() {
     if (document.getElementById('acPanel')) return;
@@ -3422,6 +3421,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
           <button class="ghost" id="acStop" hidden>停止</button>
           <button class="tool acc" id="acSend">发送</button>
         </div>
+        <div class="ac-note" id="acNote" hidden></div>
         <div class="ac-hint" id="acHint"></div>
       </div>`;
     document.body.appendChild(p);
@@ -3429,7 +3429,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     el.panel = p;
     el.body = $('acBody'); el.ta = $('acTa'); el.send = $('acSend'); el.stop = $('acStop');
     el.prov = $('acProv'); el.model = $('acModel'); el.picks = $('acPicks');
-    el.wipe = $('acWipe'); el.here = $('acHere'); el.hint = $('acHint');
+    el.wipe = $('acWipe'); el.here = $('acHere'); el.hint = $('acHint'); el.note = $('acNote');
     el.close = $('acClose'); el.attach = $('acFile'); el.fileIn = $('acFileIn'); el.files = $('acFiles');
     el.newS = $('acNew'); el.hist = $('acHist'); el.histBox = $('acHistBox'); el.histList = $('acHistList');
     /* 图标只有 ICONS 一份几何：这里写 data-icon，由 ui.js 的 fillIcons 填成 SVG */
@@ -3441,10 +3441,10 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     /* 新建会话：这一段留在历史里，随时能切回去；不是「清空」 */
     el.newS.onclick = () => {
       if (!canLeave()) return;
-      newSession(); paint(); paintHist();
+      newSession(); paint(true); paintHist();
       closeHist();
       try { el.ta.focus(); } catch (e) {}
-      toast('新会话已开（上一段在「历史会话」里）', 'ok');
+      note('新会话已开（上一段在「历史会话」里）');
     };
     el.hist.onclick = () => {
       if (!el.histBox) return;
@@ -3462,7 +3462,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
          paint() 会把正在写的那条气泡一起画掉 —— 字丢了而请求还在跑、还在扣 tokens；
          而没确认的卡片是用户本来打算执行的提案。 */
       if (!canLeave()) return;
-      if (!msgs.length) return toast('已经是空的了', 'info');
+      if (!msgs.length) { note('这一会话已经是空的了', 'info'); return; }
       /* 只有这一段的时候，「清空」与「删除一段会话」是同一件事 ——
          安全性却差了一档（删会话有二次确认，清空没有），而清空之后**找不回来**。
          段数 > 1 时不加闸：另一段还在历史里，丢的只是当前这段，弹窗只是多一次点击。 */
@@ -3474,15 +3474,15 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
           okLabel: '清空', danger: true,
         });
         if (!ok) return;
-        msgs = []; acts = []; save(); paint(); paintHist();
-        toast('这一段对话清空了（这一段是唯一的，没有别的段可以切回去）', 'ok');
+        msgs = []; acts = []; save(); paint(true); paintHist();
+        note('这一段对话清空了（这一段是唯一的，没有别的段可以切回去）');
         return;
       }
-      msgs = []; acts = []; save(); paint(); paintHist();
-      /* toast 按实际段数说话 —— 以前这一句恒写「历史会话里还留着别的段」，
+      msgs = []; acts = []; save(); paint(true); paintHist();
+      /* 就地那一句按实际段数说话 —— 以前这一句恒写「历史会话里还留着别的段」，
          而只有一段时那句话是假的，用户会以为还能切回去。 */
-      toast(others ? '这一段对话清空了（历史会话里还留着 ' + others + ' 段）'
-        : '这一段对话清空了', 'ok');
+      note(others ? '这一段对话清空了（历史会话里还留着 ' + others + ' 段）'
+        : '这一段对话清空了');
     };
     el.stop.onclick = () => {
       if (!aborter) return;
@@ -3492,7 +3492,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     el.attach.onclick = () => el.fileIn.click();
     el.fileIn.onchange = async () => {
       const list = el.fileIn.files;
-      if (list && list.length) { await addFiles(list); toast('带进来 ' + list.length + ' 个文件', 'ok'); }
+      if (list && list.length) await addFiles(list);   // 回一句「带进来几个」在 addFiles 里，三个入口共用一份
       el.fileIn.value = '';
     };
     ['dragenter', 'dragover'].forEach(t => p.addEventListener(t, e => {
@@ -3505,7 +3505,6 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
       if (!list || !list.length) return;
       e.preventDefault();
       await addFiles(list);
-      toast('带进来 ' + list.length + ' 个文件', 'ok');
     });
     /* 外壳这一层（侧栏、抽屉外的边距）也接住：抽屉收起时用户会往窗口上丢文件。
        页面内部的下落发生在 iframe 自己的文档里，到不了这一层 —— 那种情况先把抽屉打开再拖。 */
@@ -3515,9 +3514,8 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
       const list = e.dataTransfer && e.dataTransfer.files;
       if (!list || !list.length) return;
       e.preventDefault();
-      await addFiles(list);
       openPanel();
-      toast('带进来 ' + list.length + ' 个文件', 'ok');
+      await addFiles(list);
     });
     el.prov.onchange = () => {
       const v = el.prov.value;
@@ -3540,7 +3538,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     };
     if (window.Dropdowns) Dropdowns.build(el.picks);
     load();
-    paint();
+    paint(true);   // 首次装配 = 落在最新那一条（面板那时还收起，量不到高度；展开时 setOpen 会再滚一次）
     paintFiles();
     paintPicks().catch(e => { el.hint.textContent = '型号取不到：' + ((e && e.message) || e); });
 
@@ -3622,7 +3620,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
        而请求还在跑、还在扣 tokens。守卫写在数据这一头而不是按钮上，两个入口才分不开。 */
     clear() {
       if (!canLeave()) return false;
-      msgs = []; acts = []; save(); paint(); paintHist();
+      msgs = []; acts = []; save(); paint(true); paintHist();
       return true;
     },
     /* 助手能力的只读出口 —— **只给查询与校验，不给 run**。

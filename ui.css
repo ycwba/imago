@@ -439,8 +439,8 @@ input[type="number"] { font-family: inherit; }
    能力驱动的显隐（语音台的参考音频、视频台的平台自动润色）全靠这一条，
    项目里已有同样的先例（#lbBar .ghost[hidden]）。 */
 /* 全站兜底一条（每个页面都挂 ui.css）：任何自带 display 的容器都会把浏览器默认的
-   [hidden]{display:none} 顶掉 —— 踩过一次：拍短剧入口页的 .dr-top[hidden] 还是 flex，
-   左上角挂着一整条「‹ 未命名短剧 ✎」空壳顶栏，看着就是多余的按钮。
+   [hidden]{display:none} 顶掉 —— 踩过一次：顶部那一栏（.dr-top）以前是 flex，
+   一整条空壳顶栏挂在那儿，看着就是多余的按钮。
    组件里再写 `.tool[hidden]` 这类具体规则仍然保留（权重更明确），这条只兜住漏网的。 */
 [hidden] { display: none !important; }
 .tool[hidden] { display: none; }
@@ -527,8 +527,8 @@ button.armed { min-width: 4.6em; }
 .ui-note.err { background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.3); color: var(--err, #dc2626); }
 .ui-hint { color: var(--sub, #8a8fa3); font-size: 12.5px; line-height: 1.5; }
 .ui-hint b { color: var(--txt, #23262f); }
-/* .ui-inp 角色素材行里那个一行高的小输入框（拍短剧页与角色库页共用一份标记）：
-   两页原来各写一份，基础配方逐字相同，只是 drama 那份多限定了一个 .dr-assets ——
+/* .ui-inp 角色素材行里那个一行高的小输入框（各页共用一份标记）：
+   两页原来各写一份，基础配方逐字相同，只是其中一份多限定了一个更窄的选择器 ——
    收进公共的顺序见下面那段：查过没有任何别的规则会命中它，权重从两个 class 降到一个是安全的。
    不写 color：原来那两份写的是 var(--fg)，而 --fg 全项目没定义 → 声明作废、回退继承，
    继承到的正是 body 的 --txt，视觉本来就是对的；这里继续不写，继承语义一模一样。 */
@@ -567,8 +567,8 @@ button.armed { min-width: 4.6em; }
 .mlist-row .mlist-src { margin-left: auto; flex: 0 0 auto; color: var(--sub, #8a8fa3);
   font-size: 10.5px; white-space: nowrap; }
 .mlist-empty { padding: 7px 6px; font-size: 11.5px; color: var(--sub, #8a8fa3); line-height: 1.6; }
-/* 声音那一行（试听圆钮 + 声波装饰 + 音色控件）：由 drama.js 的 Drama.Cast.voiceBoxHTML 生成，
-   拍短剧页与角色库页共用一份标记 —— 各页再抄一份就会像以前那样「圆钮没样式，看着是莫名其妙的播放三角」。 */
+/* 声音那一行（试听圆钮 + 声波装饰 + 音色控件）：由 chars.js 的 Chars.Cast.voiceBoxHTML 生成，
+   素材库页在用 —— 各页再抄一份就会像以前那样「圆钮没样式，看着是莫名其妙的播放三角」。 */
 .ui-voice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ui-voice .play { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--txt, #23262f);
   color: var(--panel, #fff); cursor: pointer; font-size: 13px; flex: 0 0 34px; padding: 0;
@@ -583,7 +583,7 @@ button.armed { min-width: 4.6em; }
 /* 行内小输入框（声音描述）：宽度跟着那一行走，别把胶囊挤掉 */
 .ui-in { flex: 1 1 240px; min-width: 0; border: 1px solid var(--line, #e4e6f0); border-radius: 8px; padding: 7px 9px;
   background: var(--input, #f6f7fb); color: var(--txt, #23262f); font: inherit; font-size: 12.5px; }
-/* 候选那一排（预览图 / 设定图 / 声音）：拍短剧页与素材库页共用一份标记，由 Drama.Cast 产字符串。
+/* 候选那一排（预览图 / 设定图 / 声音）：素材库页与导演台共用一份标记，由 Chars.Cast 产字符串。
    「AI 出了 4 条、界面只看得见 1 条」是不能接受的 —— 挑的凭据要一排摆出来，
    正在出的那几条也要占着格子（.ui-wait），否则看着像只出了一条、剩下的悄悄失败了。 */
 .ui-cands { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -748,7 +748,7 @@ button.armed { min-width: 4.6em; }
   display: none; }
 .ap-item.sel .chk { display: block; }
 /* 选择器顶部的入口切换（资产库 / 我的收藏 / 本地上传 / AI 生成）+ 类型筛选。
-   这几条**不带 #apDlg**：拍短剧「从素材库挑人」复用同一套芯片与网格（同一件选择器只画一份样式），
+   这几条**不带 #apDlg**：别处（导演台的参考图挑选）复用同一套芯片与网格（同一件选择器只画一份样式），
    弹窗自己的左右边距由下面那两条 #apDlg 的补回去。 */
 .ap-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 /* 素材库挑选弹窗的搜索框。摆成分组芯片**上面**的一整行：
@@ -958,6 +958,29 @@ dialog.ui-dlg .pr-foot .ghost { padding: 6px 14px; border-radius: 6px; }
 .toast.info { border-left-color: var(--acc, #6957e8); } .toast.info .ic { background: var(--acc, #6957e8); }
 .toast.out { opacity: 0; transform: translateX(12px); transition: opacity .2s, transform .2s; }
 @keyframes toastIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 顶部错误横幅（全站统一，由 ui.js 的 ErrBanner 写；样式原在 director.html 的 <style> 里） ----------
+   平常完全隐藏（不占头部空间），只有出错 / 异常时才出现。
+   页面没有写 <div id="banner"> 也能用 —— ErrBanner 第一次要显示时自己插一个。 */
+#banner { margin: 10px 20px 0; padding: 9px 16px; border-radius: 4px; font-size: 13px;
+  background: rgba(251,191,36,.1); color: var(--warn, #d97706); border: 1px solid rgba(251,191,36,.25); flex: 0 0 auto; }
+#banner[hidden] { display: none; }
+#banner { display: flex; align-items: flex-start; gap: 10px; }
+#banner .msg { flex: 1; overflow-wrap: anywhere; }
+/* 关闭按钮是这条错误唯一的出口，得看得见、点得到。颜色跟着这条横幅的语义色走
+   （warn 黄 / err 红），所以**不套公共件 .iconbtn** —— 那个是固定 sub 色的，
+   权重也比这里低，加了不生效只会两套规则并存。内容是 icon('close') 的 SVG，
+   尺寸按正方形给（原来的 font-size:14px + padding 是给「×」字符准备的，
+   换成 SVG 后 font-size 对它无效，14px 宽的扁盒子套一颗 11px 的叉会歪）。 */
+#banner .bx { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex;
+  align-items: center; justify-content: center;
+  border: 1px solid currentColor; background: none; color: inherit;
+  line-height: 0; cursor: pointer; opacity: .85; padding: 0; border-radius: 5px;
+  font-family: inherit; }
+#banner .bx:hover { opacity: 1; background: rgba(127,127,127,.14); }
+#banner.warn { background: rgba(251,191,36,.1); color: var(--warn, #d97706); border-color: rgba(251,191,36,.25); }
+#banner.err { background: rgba(220,38,38,.08); color: var(--err, #dc2626); border-color: rgba(220,38,38,.3); }
+@media (max-width: 1200px) { #banner { margin: 10px 14px 0; } }
 
 /* ---------- 资产库批量操作条 ---------- */
 .bulkbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 8px;

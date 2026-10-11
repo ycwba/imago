@@ -350,9 +350,9 @@
   </div>
 
   <div class="card">
-    <h2 class="card-h"><span class="card-ic" data-icon="film" data-size="15"></span>拍短剧</h2>
-    <div class="sub">这几项只作用于「拍短剧」那一页：界面上的说法与真的发给文字 AI 的参数是同一个开关。</div>
-    <div id="dramaSet"></div>
+    <h2 class="card-h"><span class="card-ic" data-icon="users" data-size="15"></span>素材库</h2>
+    <div class="sub">这几项只作用于「素材库」那一页：界面上的说法与真的发给文字 AI 的参数是同一个开关。</div>
+    <div id="charsSet"></div>
   </div>
 
   <div class="card">
@@ -565,8 +565,8 @@
 <script src="ui.js"></script>
 <!-- 清理缓存那一节要用 Wb.thumbs / Wb.History（只加载定义，本页没有 .wb2 布局不会触发分栏逻辑） -->
 <script src="workbench.js"></script>
-<!-- 「拍短剧」那一节的控件由 drama.js 的 Drama.SET 现渲染（默认值与取值不许在设置页再抄一份） -->
-<script src="drama.js"></script>
+<!-- 「素材库」那一节的控件由 chars.js 的 Chars.SET 现渲染（默认值与取值不许在设置页再抄一份） -->
+<script src="chars.js"></script>
 <script src="sidebar.js"></script>
 <script>
 'use strict';
@@ -822,7 +822,7 @@ function renderProv() {
     /* 注册表压根没读到（代理没起来）时**不能**照 `avail.length` 出文案（L40）：
        那会把「读不到」说成「注册表里共 0 家可选」——内建明明有十几家，用户照着这句话
        会以为这个工具一家都不支持。assetlib 已经有 regFailed()/regError() 这一对判据，
-       drama.html 也早就在用；设置页当时没用，于是四类档的数字全是 0 而没人说为什么。 */
+       chars.html 也早就在用；设置页当时没用，于是四类档的数字全是 0 而没人说为什么。 */
     if (window.Api && Api.regFailed && Api.regFailed()) {
       $('provSum').textContent = '读不到注册表 —— 本地代理没连上或还没启动'
         + (Api.regError ? '（原因：' + Api.regError() + '）' : '')
@@ -1405,7 +1405,7 @@ $('cusAdd').onclick = async () => {
     + (t.kind === 'text'
       ? '它的密钥 / 地址 / 型号清单都在这一张卡里（要成为默认的那家，点它卡上的「作用文字 AI」后点「保存全部设置」；'
         + '地址与型号清单以后用「编辑」改）。'
-      : (KIND_ZH[t.kind] || t.kind) + '台与拍短剧的型号下拉里现在都有它。'
+      : (KIND_ZH[t.kind] || t.kind) + '台与素材库的型号下拉里现在都有它。'
         + '要确认地址与密钥通不通，点上面那张卡上的「验证」（问一次' + via.label + '，不建任务、不扣费）。'), 'ok');
 };
 $('cusCancel').onclick = () => { const n = cusEditing; cusReset(); cusSetMsg(n ? '已取消编辑，那一条照原样留着。' : '', ''); };
@@ -1448,7 +1448,7 @@ $('cusFetch').onclick = async () => {
     cusFetched = list; cusFetchFrom = (d.from || base);
     renderCusModels();
     cusSetMsg('从「' + cusFetchFrom + '」拿到 ' + list.length + ' 个型号，已<b>全部勾上</b>（用不上的再自己勾掉）。'
-      + '　勾选的意思只有一个：它会出现在工作台与拍短剧的型号下拉里。'
+      + '　勾选的意思只有一个：它会出现在工作台与素材库的型号下拉里。'
       + '（一个都没勾时添加会被拦下 —— 型号清单就是这一家能被选到的东西。）', 'ok');
   } catch (e) { cusSetMsg('获取失败：' + ((e && e.message) || e), 'err'); }
   finally { btn.disabled = false; btn.textContent = label0; }
@@ -2624,25 +2624,25 @@ function saveUiPrefs() {
 }
 renderUiPrefs();
 
-/* ---------- 拍短剧的设置 ----------
-   控件、默认值、文案全部来自 drama.js 的 Drama.SET 那一张表：拍短剧页面上的说法（「AI 会自己改时长」）
+/* ---------- 素材库的设置 ----------
+   控件、默认值、文案全部来自 chars.js 的 Chars.SET 那一张表：素材库页面上的说法
    与真的发给文字 AI 的那份参数就是这张表，设置页再抄一遍字段名就会出现「这里改了、那边不跟着改」。
-   整集时长的真正上下限由视频平台声明的档位决定（Drama.durationBounds），所以这里不写 max。 */
-function renderDramaSet() {
-  const box = $('dramaSet');
-  const SET = window.Drama && window.Drama.SET;
-  if (!SET) { box.innerHTML = '<span class="hint sm">读不到「拍短剧」的设置表（模块没加载，刷新一下这一页）</span>'; return; }
+   2026-10 拍短剧页删除后，这张卡原来叫「拍短剧」，里面的整集时长 / 重拍上限 / 机位候选几项
+   随之没有了 —— 现在只剩音色怎么定、角色/场景/道具候选出几张、AI 是否自动定音色这三项。 */
+function renderCharsSet() {
+  const box = $('charsSet');
+  const SET = window.Chars && window.Chars.SET;
+  if (!SET) { box.innerHTML = '<span class="hint sm">读不到「素材库」的设置表（模块没加载，刷新一下这一页）</span>'; return; }
   const esc = s => window.esc(String(s == null ? '' : s));
   box.innerHTML = '';
   Object.keys(SET).forEach(id => {
     const it = SET[id];
-    const val = Drama.setting(id);
+    const val = Chars.setting(id);
     let ctl;
     if (it.kind === 'bool') {
       ctl = `<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="${id}"${val === '0' ? '' : ' checked'}> 开启</label>`;
     } else if (it.kind === 'num') {
-      /* 单位跟着声明走，不写死成「分钟」：SET 里既有「整集时长（分钟）」这种把单位写进
-         名称的，也有 maxTakes 那样单给 unit 的。两种都见过，写死一个就有一半是错的。 */
+      /* 单位跟着声明走，不写死：SET 里有单给 unit 的，也有把单位写进 label 的。 */
       ctl = `<input type="number" min="0" step="${esc(it.step || '0.5')}" data-set="${id}" value="${esc(val)}" style="flex:0 0 110px">`
         + (it.unit ? '<span style="font-size:12.5px;color:var(--sub)">' + esc(it.unit) + '</span>' : '');
     } else {
@@ -2659,9 +2659,9 @@ function renderDramaSet() {
   box.querySelectorAll('[data-set]').forEach(el => { el.addEventListener('input', markDirty); el.addEventListener('change', markDirty); });
   if (window.Dropdowns) Dropdowns.build(box);
 }
-function saveDramaSet() {
-  const SET = window.Drama && window.Drama.SET; if (!SET) return;
-  document.querySelectorAll('#dramaSet [data-set]').forEach(el => {
+function saveCharsSet() {
+  const SET = window.Chars && window.Chars.SET; if (!SET) return;
+  document.querySelectorAll('#charsSet [data-set]').forEach(el => {
     const it = SET[el.dataset.set]; if (!it) return;
     if (it.kind === 'bool') localStorage.setItem(it.key, el.checked ? '1' : '0');
     else if (it.kind === 'num') {
@@ -2670,7 +2670,7 @@ function saveDramaSet() {
     } else if (el.value) localStorage.setItem(it.key, el.value);
   });
 }
-renderDramaSet();
+renderCharsSet();
 
 /* 「保存全部设置」的**唯一一份实现**。抽成有名函数是为了让「导出设置」那条路能
    `await` 它 —— 以前它是一个匿名的 onclick，导出想先说「先把改动存下来再导」时
@@ -2845,7 +2845,7 @@ async function saveAllNow() {
   }
   savePageSettings();
   saveUiPrefs();
-  saveDramaSet();  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
+  saveCharsSet();  /* 说清楚「存了什么、跳过了什么」：有一个字段有问题就整页不存，用户会以为设置没生效而反复点 */
   /* 收尾：把「跳过的」与「写盘失败的」分开说 —— 它们的原因完全不同
      （前者是值有问题、后者是本机存不下），对用户来说也都是「有几项没生效」。 */
   const bad2 = skipped.concat(failedKeys.map(k => k + '（本机存不下）'));
@@ -2871,7 +2871,7 @@ $('saveAll').onclick = () => saveAllNow();
    wb_split = 页面分栏比例（三个工作台 + 导演台共用一份，见 workbench.js 的 Wb.split）：
    它也是「界面偏好」，以前不在导出清单里，换台机器栏宽全丢。 */
 const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
-  'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'dr_',
+  'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
   /* 只这一项助手设置：ai_chat 前缀会把对话记录和附件身份一起导出，那是数据不是设置。
      sk_custom = 「添加自定义供应商」那份清单（照哪家的形状 + 地址 + 型号 id），
      不含密钥（密钥还是按 keyId 存 sk_key_<id>），所以导出/恢复默认都把它当设置看待。 */
@@ -2884,7 +2884,7 @@ const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', '
 /* 「恢复默认」不动的界面偏好：dir_ 前缀会把它们一起扫进来，
    所以每改一处界面偏好都要同步这里 —— 以前漏了收藏页的 dir_fav_view 与素材库的 dir_char_view，
    恢复默认会把用户的视图档位一起清掉，而弹窗写的是「清掉目录」，两件事都对不上。 */
-const RESET_KEEP = ['set_fold_polish', 'dir_theme', 'dir_asset_view', 'dir_char_view', 'dir_fav_view', 'sb_open', 'dr_adv_open', 'dr_story_open', 'sk_prov_tab',
+const RESET_KEEP = ['set_fold_polish', 'dir_theme', 'dir_asset_view', 'dir_char_view', 'dir_fav_view', 'sb_open', 'sk_prov_tab',
   /* 产物镜像的两个开关也是「恢复默认」不该动的界面偏好：恢复设置与「把界面调好」是两件事。
      （sk_local_mirror 那份索引不在 EXPORTABLE 里，本来就不会被这一轮扫到。）
      sk_autosave（按类型的另存目录）同理：那是用户自己挑的落盘位置，
@@ -2986,8 +2986,8 @@ if ($('impSetFile')) $('impSetFile').onchange = e => {
 };
 if ($('resetSet')) $('resetSet').onclick = async () => {
   const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
-    body: '会清掉：平台密钥、文字 AI 接口地址与模型、你「添加自定义供应商」那几家（清单与它们的密钥/停用勾选）、润色指令、分页方式与每页条数、拍短剧的整集时长与那两个 AI 自主权开关、做下一集的沿用范围、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
-      + '不会清掉：主题、列表视图与短剧页两个折叠面板的开合偏好也会保留；生成历史、资产、收藏不受影响（下载一律走浏览器默认位置，项目不再保存任何目录句柄）。' });
+    body: '会清掉：平台密钥、文字 AI 接口地址与模型、你「添加自定义供应商」那几家（清单与它们的密钥/停用勾选）、润色指令、分页方式与每页条数、素材库的音色与候选张数那几项、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
+      + '不会清掉：主题、列表视图与各页折叠面板的开合偏好也会保留；生成历史、资产、收藏、素材库本身都不受影响（下载一律走浏览器默认位置，项目不再保存任何目录句柄）。' });
   if (!ok) return;
   let n = 0;
   for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -3292,7 +3292,7 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
         return '<div class="mlist-row' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
           + ' data-tpick-model="' + id2 + '" data-tkid="' + escA(kid) + '"'
           + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
-          + ' title="' + (on ? '正在用：全站润色（导演台、短剧里的 AI 文字）都用这一个'
+          + ' title="' + (on ? '正在用：全站润色（导演台、素材库里的 AI 文字）都用这一个'
             : '点这一行 = 全站润色改用这个型号') + '">'
           + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + escA(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
           + '<span class="mlist-src">' + (on ? '正在用' : src) + '</span>' + del

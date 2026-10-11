@@ -314,7 +314,7 @@ function newState() {
     shape: {},
     autoVals: {},                               // 「上次是界面自动填的」——只记值
     /* 用户**亲手点过**哪些控件。`autoVals` 记的是值、不是「谁写的」，
-       而 fillSel 的 untouched 判据是「当前值 === 上次自动填的值」——
+       而当年那版回落判据是「当前值 === 上次自动填的值」——
        于是用户改过的那个控件在下一次重画时被判成 untouched，跟着平台默认值走，
        **改一个选项、其余全被重置**（实测：改完时长 15 秒，再动一下比例，时长就回到 5 秒）。
        这里单独记一份「谁点的」，判据才是它。 */
@@ -374,16 +374,9 @@ const srcToDataURL = async src => {
 const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
 function setStatus(html) { const el = $('status'); if (el) el.innerHTML = window.sanitizeHTML(html || ''); }
 /* 启动阶段的报错要看得见：这一页的初始化是一条长链（注册表 → 能力 → 列表 → 渲染），
-   任何一步抛错都会让后面全都不跑，而界面上只是「空的」——不接住就永远不知道是哪一步。 */
-window.addEventListener('error', e => {
-  const m = String((e && e.message) || '');
-  if (m) setStatus('<span class="err">' + escA(m) + (e.filename ? '（' + String(e.filename).split('/').pop() + ':' + e.lineno + '）' : '') + '</span>');
-});
-window.addEventListener('unhandledrejection', e => {
-  const r = e && e.reason;
-  setStatus('<span class="err">启动失败：' + escA(String((r && r.message) || r)) + '</span>');
-  console.error('[studio]', r);
-});
+   任何一步抛错都会让后面全都不跑，而界面上只是「空的」——不接住就永远不知道是哪一步。
+   接住它的是 ui.js 的 ErrBanner（全站一份，写顶部 #banner 横幅），
+   这里以前自己挂了 error / unhandledrejection 两份 —— 与导演台那份是同一条约定，已收掉。 */
 /* 转义：统一走 ui.js 的 window.esc。**别把这一页的辅助函数也叫 esc** ——
    顶层 function 声明会挂到 window 上、把 ui.js 那份覆盖掉，于是 Wb.esc → window.esc → 自己，死循环。 */
 const escA = s => window.esc(s);
@@ -405,7 +398,7 @@ function provLabelOf(id) {
   const name = (hit && hit.name) || id || '';
   return name.replace(/\s*(生图|视频|图片|音频|音乐)$/, '') || name;
 }
-/* 卡片上显示的平台名。本机资产库里什么类型都有（短剧末帧的 PNG、预演音轨、语音产物……），
+/* 卡片上显示的平台名。本机资产库里什么类型都有（分镜末帧的 PNG、预演音轨、语音产物……），
    而它只由「声明了 list: local:/local-assets」的那一家读出来 —— 三个台合并成一页之后，
    一段本机视频会被挂成「MiMo 语音合成」，那是假的。类型对不上就说「本机」，别拿读它的那家顶名。 */
 function provLabelFor(it) {
@@ -629,7 +622,7 @@ function slotTakesType(kind, mtype) {
 const INTENT_ZH = { person_replacement: '视频换人' };
 /* 模式名从数据现拼：先说这一档带哪一组素材，再补「换人」这一类意图。
    不写一张「t2va = 文生视频」的固定表 —— 上游哪天加一个 mode，界面上顶多露出原始名，
-   不会像写死表那样直接少一档（与 TIER_ZH / RATIO_ZH 同一套做法）。 */
+   不会像写死表那样直接少一档（与公共层那两张档位 / 比例中文名表同一套做法）。 */
 function comboLabel(cb) {
   if (!cb) return '';
   const roles = (cb.roles || []).map(r => r.role);
@@ -1151,22 +1144,24 @@ $('advBody').innerHTML =
      不给的项照声明说出原因，而不是留一格点了没反应的空控件。 */
   + '<div class="adv-grid" id="shapeFields" style="margin-top:10px" hidden></div>';
 
-const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
-const RATIO_ZH = { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4', '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' };
+/* 档位 / 比例的中文名表**不在这一页**：公共层 `AdvParams.label` 那一份（assetlib.js）同时管下拉、
+   摘要与归档日志，导演台两族也读它。以前这里抄过一份 `TIER_ZH` / `RATIO_ZH` / `QUALITY_ZH`，
+   导演台又抄一份 —— 平台新增一档时两边都显示成英文原值，而界面看起来「已经支持了」。 */
 const RATIO_HINT = {
   '1:1': ['方形，适合头像与商品图', ''], '16:9': ['横屏，适合风景与视频感画面', 'land'], '9:16': ['竖屏，适合手机全屏与人物', 'port'],
   '4:3': ['横版，构图更稳', 'land'], '3:4': ['竖版，人物更显高', 'port'], '3:2': ['横版，接近相机比例', 'land'],
   '2:3': ['竖版海报比例', 'port'], '21:9': ['超宽，电影宽银幕', 'land'], '4:5': ['竖版，社交平台常用', 'port'],
 };
 const RATIO_PX = { '1:1': '1024×1024', '16:9': '1024×576', '9:16': '576×1024', '4:3': '1024×768', '3:4': '768×1024', '3:2': '1024×683', '2:3': '683×1024', '21:9': '1024×439', '4:5': '819×1024' };
-const QUALITY_ZH = (window.AiGen && AiGen.QUALITY_ZH) || { draft: '草稿', standard: '标准', final: '精修' };
 const BOOL_ZH = { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频',
   mute_reference_video: '静音参考视频' };
 const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
 
-/* 下拉填充：**选项与显隐都现算自能力声明**，页面里不写死任何一项。
-   「用户手动改过」与「界面自动填的」用 autoVals 区分：能力刷新 / 换型号时，
-   用户自己挑过的值保住、没动过的才跟着新的默认值走。 */
+/* 下拉填充：现在**只剩语音那一族**用它（音色 / 输出格式不是同一族档，AdvParams 管不着）。
+   图像与视频两族的「清单 / 回落 / 显示名 / 这一档出现吗 / 提交体带哪几项 / 摘要」全部在
+   `assetlib.js` 的 `AdvParams.plan` 一份里 —— 这一页与导演台都只负责把算好的值摆进自己的 DOM
+   （这一页的控件常驻 DOM、换类型不重建；导演台整块随编辑器重绘）。
+   以前这里自己写一份回落、导演台再写一份，同一个档两套叫法、平台改一次声明两边各自漂开。 */
 function fillSel(sel, values, fmt, defKey, id, opts) {
   if (!sel || !values || !values.length) return;
   const o = opts || {};
@@ -1207,48 +1202,61 @@ function modelLimits(m) {
   const maxRef = (window.Capabilities && m && m.id) ? Math.max(0, Capabilities.rule(m, 'reference_image', cur().combo).max) : 0;
   return { maxOut, maxRef, defs: o.defaults || {} };
 }
+/* 高级设置那两族档的「算」只有一份，在 `assetlib.js` 的 `AdvParams`（导演台的图片块与视频块读同一份）。
+   这里只留这一页特有的两件事：① 每一档对应哪个常驻控件（id），② 把算好的清单摆进那个 select。
+   `touched` 的键在页面上是控件 id（change 监听记的就是 `e.target.id`），递进 plan 之前换成档名 ——
+   这层映射只有这一页需要，因为公共层不认识 DOM。 */
+const ADV = {
+  video: { kinds: AdvParams.VIDEO_KINDS, units: { count: '条' }, prefix: true,
+    ids: { tier: 'tier', resolution: 'res', aspect_ratio: 'ar', size: 'size', duration: 'dur', count: 'draw' } },
+  image: { kinds: AdvParams.IMAGE_KINDS, units: { count: '张' },
+    ids: { quality: 'quality', aspect_ratio: 'ratio', size: 'size', output_format: 'format', count: 'count' } },
+};
+function advPlan(model, family) {
+  const a = ADV[family], ids = a.ids || {}, t = cur().touched || {};
+  const now = {}, vals = {};
+  a.kinds.forEach(k => {
+    const id = ids[k];
+    vals[k] = val(id);                       // 现值就在控件里，不另存一份
+    if (t[id]) now[k] = 1;
+  });
+  return AdvParams.plan(model, {
+    kinds: a.kinds, ids: ids, cur: vals, touched: now, units: a.units,
+    scoped: true, combo: cur().combo,
+    prefix: a.prefix ? ((model && model.name) || '') : '',
+  });
+}
+/* 把一档摆进它的 select。**这一档不出现时也照样填**（只有一个取值 / 没声明）：
+   隐藏 ≠ 不发 —— 声明了的那一个仍然进提交体，而 `val()` 读到的永远是声明里的那个，
+   不会留着上一家的档位。没声明时清单是空的，select 跟着清空，提交体也少那一项。 */
+function paintSel(k) {
+  const sel = $(k.id);
+  if (!sel) return;
+  sel.innerHTML = AdvParams.optionsHTML(k);
+  sel.value = k.value;
+  cur().autoVals[k.id] = k.value;
+  if (sel._ddRebuild) sel._ddRebuild();
+}
+function paintAdv(plan) {
+  Object.keys(plan.kinds).forEach(x => { const k = plan.kinds[x]; paintSel(k); show(k.id + 'Wrap', k.on); });
+}
 function renderVideoParams() {
   const { model } = currentModel();
-  /* 取值范围与默认值按**当前输入模式**那一档取（Capabilities.scopedOptions）：
+  /* 取值范围与默认值按**当前输入模式**那一档取（AdvParams.plan 内部走 scopedOptions）：
      平台在「视频换人」里只给 768p、时长上限另算，界面就只给 768p ——
      不在页面写一句「选了换人就少几个档」（那是第二份判据，一定和提交体漂开）。
      没有模式声明的家 scopedOptions 原样退回型号总表，参数面板一字不变。 */
-  const o = (window.Capabilities && Capabilities.scopedOptions)
-    ? Capabilities.scopedOptions(model, cur().combo) : ((model && model.options) || {});
-  const defs = o.defaults || {};
-
   const changed = cur().lastModelId !== model.id;
   noteModel(model);
-  const tiers = o.tiers || [], ress = o.resolutions || [], ars = o.aspect_ratios || [], sizes = o.sizes || [];
-  /* 时长只有「区间」声明（[4,15]）才渲染成每一秒一档；写成两个数的区间直接减会得到 NaN */
-  const durs = (Array.isArray(o.durations) && o.durations.length === 2 && o.durations[1] >= o.durations[0])
-    ? Array.from({ length: o.durations[1] - o.durations[0] + 1 }, (_, i) => o.durations[0] + i) : [];
-  /* 「尺寸」（WxH）这一列视频与图片**共用同一个 select**（参数行本来就是一整排）：
-     视频平台里也有收 image_size 的（SiliconFlow 视频只认 1280x720 / 720x1280 / 960x960，
-     传比例写法必被拒）。谁在当前型号上声明了 options.sizes 谁就画它，另一个渲染器会把它收走。 */
-  show('tierWrap', tiers.length); show('resWrap', ress.length); show('arWrap', ars.length); show('durWrap', durs.length);
-  show('sizeWrap', sizes.length);
-  if (tiers.length) fillSel($('tier'), tiers, v => TIER_ZH[v] || v, 'tier', 'tier', { defaults: defs });
-  if (ress.length) fillSel($('res'), ress, null, 'resolution', 'res', { defaults: defs });
-  if (durs.length) fillSel($('dur'), durs, v => v + ' 秒', 'duration', 'dur', { defaults: defs });
-  if (ars.length) fillSel($('ar'), ars, null, 'aspect_ratio', 'ar', { defaults: defs });
-  if (sizes.length) fillSel($('size'), sizes, v => v, 'size', 'size', { defaults: defs });
-  /* 「生成条数」的上限来自**能力声明**，不是写死的1–4（AGENTS.md §2）。
-     平台自己的 /models 声明 max_outputs 优先，registry 兜底。
-     上限是 1 时整块藏掉 —— 一个只能选 1 的下拉摆在那里只会让人以为还能多出几条。
+  const plan = advPlan(model, 'video');
+  paintAdv(plan);
+  /* 「生成条数」的上限来自**能力声明**，不是写死的 1–4（AGENTS.md §2）。
+     上限是 1 时整块藏掉 —— 一个只能选 1 的下拉摆在那里只会让人以为还能多出几条（`on` 已判）。
      注意上限是「一次提交多少条」，视频那边是**一条一个任务**循环提交的（submitVideo）。 */
-  const limV = modelLimits(model);
-  show('drawWrap', limV.maxOut > 1);
-  if (limV.maxOut > 1) {
-    const ns = Array.from({ length: limV.maxOut }, (_, i) => i + 1);
-    fillSel($('draw'), ns, v => v + ' 条', null, 'draw');
-    $('drawHint').textContent = '单次最多 ' + limV.maxOut + ' 条（按平台声明）· 视频一条一个任务提交';
-  } else {
-    $('draw').innerHTML = '<option value="1">1 条</option>';
-    if ($('draw')._ddRebuild) $('draw')._ddRebuild();
-    cur().autoVals.draw = '1';
-  }
-  renderBoolRows(model, changed, defs);
+  const dc = plan.kinds.count;
+  $('drawHint').textContent = dc.list.length > 1
+    ? '单次最多 ' + dc.list.length + ' 条（按平台声明）· 视频一条一个任务提交' : '';
+  renderBoolRows(model, changed, plan.defaults);
   paintVideoHints(model);
 }
 /* 「随当前值变的那几行字」——重画与改值**共用同一份**（§J：同一件事只写一遍）。
@@ -1256,10 +1264,9 @@ function renderVideoParams() {
    于是其余选项被重置；renderBoolRows 的 innerHTML 重建还会留下裸 select），
    改成只重算这几行字 —— 见 advBody 的 change 监听。 */
 function paintVideoHints(m) {
-  const sizes = (currentModel().model.options || {}).sizes || [];
-  const name = (m && m.name) || val('model').split('::').pop();
-  $('advSum').textContent = [name, val('res'), val('dur') ? val('dur') + '秒' : '',
-    val('ar'), (sizes.length && !val('ar')) ? val('size') : ''].filter(Boolean).join(' · ');
+  /* 摘要就是 plan 拼好的那一句，与下拉、提交体同一份。
+     以前这里自己按 val() 拼一遍（档位与条数都没列），改一处就和面板各说各的。 */
+  $('advSum').textContent = advPlan(m || currentModel().model, 'video').summary;
 }
 function renderBoolRows(model, modelChanged, defs) {
   const box = $('boolRows');
@@ -1502,49 +1509,37 @@ function shapeFieldBad() {
   });
   return bad;
 }
+/* 图像栏当前选中的型号（型号下拉是三家混排的，所以按 `prov::model` 找回去）。
+   只有一份：重画参数与「随值变的那行摘要」都问它，否则一处按下拉那一项、一处按分组第一项，
+   摘要说的是另一个型号的参数。 */
+function curImageModel() {
+  const g = provGroups();
+  for (const p of g) { const m = (p.models || []).find(x => p.id + '::' + x.id === $('model').value); if (m) return m; }
+  const f = g[0] ? (g[0].models || [])[0] : null;
+  return f || {};
+}
 function renderImageParams() {
-  const hit = (function () {
-    const g = provGroups();
-    for (const p of g) { const m = (p.models || []).find(x => p.id + '::' + x.id === $('model').value); if (m) return { p, m }; }
-    return g[0] ? { p: g[0], m: (g[0].models || [])[0] || {} } : { p: null, m: {} };
-  })();
-  const m = hit.m || {};
-  const o = m.options || {};
-  const lim = modelLimits(m);
-  const defs = lim.defs;
+  const m = curImageModel();
   noteModel(m);
-  const ars = (o.aspect_ratios || []).slice();
-  const sizes = (o.sizes || []).slice();
-  const fmts = (o.output_formats || []).slice();
-  const qs = (o.qualities || []).slice();
-  show('qualityWrap', qs.length); show('ratioWrap', ars.length); show('sizeWrap', sizes.length); show('formatWrap', fmts.length > 1); show('countWrap', lim.maxOut > 1);
-  if (qs.length) fillSel($('quality'), qs, v => v + (m.price && m.price[v] != null ? ' · ' + m.price[v] + '积分/张' : ''), 'quality', 'quality', { defaults: defs });
-  if (ars.length) fillSel($('ratio'), ars, v => RATIO_ZH[v] || v, 'aspect_ratio', 'ratio', { defaults: defs });
-  if (sizes.length) fillSel($('size'), sizes, v => v, 'size', 'size', { defaults: defs });
-  if (fmts.length) fillSel($('format'), fmts, v => v, 'output_format', 'format', { defaults: defs });
-  const cnt = $('count');
-  if (lim.maxOut > 1) {
-    const ns = Array.from({ length: lim.maxOut }, (_, i) => i + 1);
-    fillSel(cnt, ns, n => n + ' 张', 'output_count', 'count', { defaults: defs });
-    $('countHint').textContent = '单次最多 ' + lim.maxOut + ' 张（按平台声明）';
-  } else {
-    cnt.innerHTML = '<option value="1">1 张</option>';
-    if (cnt._ddRebuild) cnt._ddRebuild();
-    cur().autoVals.count = '1';
-    $('countHint').textContent = '该型号单次只能 1 张';
-  }
-  const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(hit.p) : null;
+  /* 清单 / 回落 / 显示名 / 出现与否全在 AdvParams（与视频栏、导演台同一份）；
+     这一页只把算好的值摆进常驻的 select。 */
+  const plan = advPlan(m, 'image');
+  paintAdv(plan);
+  const cnt = plan.kinds.count, fmt = plan.kinds.output_format;
+  $('countHint').textContent = cnt.list.length > 1
+    ? '单次最多 ' + cnt.list.length + ' 张（按平台声明）' : '该型号单次只能 1 张';
+  const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(currentModel().prov) : null;
   const where = src ? Capabilities.srcTextOf(src) : '';
-  $('formatHint').textContent = fmts.length > 1
-    ? fmts.length + ' 种（' + (defs.output_format ? '平台默认 ' + String(defs.output_format).toUpperCase() : '未声明默认值') + '）· ' + where : '';
+  $('formatHint').textContent = fmt.list.length > 1
+    ? fmt.list.length + ' 种（' + (plan.defaults.output_format ? '平台默认 ' + String(plan.defaults.output_format).toUpperCase() : '未声明默认值') + '）· ' + where : '';
   paintImageHints();
 }
-/* 同 paintVideoHints：图像台随值变的是比例提示与摘要，两处共用一份 */
+/* 同 paintVideoHints：图像栏随值变的是比例提示与摘要，两处共用一份 */
 function paintImageHints() {
   const r = val('ratio');
   const hint = RATIO_HINT[r];
   $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0] + (RATIO_PX[r] ? ' · 输出 ' + RATIO_PX[r] : '') + '</span>' : '';
-  $('advSum').textContent = [(QUALITY_ZH[val('quality')] || val('quality')), r, val('count') + '张'].filter(Boolean).join(' · ');
+  $('advSum').textContent = advPlan(curImageModel(), 'image').summary;
 }
 function curAudioModel() {
   /* 一定带着**当前选中的那家**去取：语音台现在有多家平台，型号清单要按平台取，
@@ -1645,7 +1640,7 @@ $('advBody').addEventListener('click', e => {
 
    ⚠ 这里**不再整块重画参数**（以前调 renderImageParams / renderVideoParams）。两个后果都是
    用户看得见的：
-     ① 每个下拉都被 fillSel 重填一遍，而它按「这个值动过没有」决定保不保留 ——
+     ① 每个下拉都被重填一遍（公共层的 `AdvParams.plan` 判回落），而它按「这个值动过没有」决定保不保留 ——
         没动过的那几个一律判成 untouched、跟着平台默认值走，于是**改一个选项、其余全被重置**；
      ② renderBoolRows 是 box.innerHTML = …，重建出来的是**裸 select**（没包 .dd），
         而 syncDropdowns 只在 paintLeft 里调 —— 于是那一排退回浏览器原生外观，
@@ -1654,7 +1649,8 @@ $('advBody').addEventListener('click', e => {
    这里只重算随值变的那几行字（摘要、比例提示）—— 三处摘要各写一份的毛病也一并收掉。 */
 $('advBody').addEventListener('change', e => {
   /* 记下「这一项是用户亲手挑的」：换型号/能力刷新重画时，未被点过的才跟平台默认值走。
-     键就是 fillSel 用的那个 id，也正是控件自己的 id（tier/res/dur/ar/draw…）。 */
+     键是控件自己的 id（tier/res/dur/ar/draw…）；`advPlan` 递进公共层之前把它换成档名，
+     因为公共层不认识这一页的 DOM。 */
   const tid = e.target && e.target.id;
   if (tid && cur().touched) cur().touched[tid] = 1;
   /* 顶层非布尔字段（#shapeFields 里那几格）：值只认 `cur().shape` 这一份，控件是它的展示。
@@ -1684,11 +1680,10 @@ $('advBody').addEventListener('input', e => {
   const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
   if (sf) (cur().shape || (cur().shape = {}))[sf] = e.target.value;
 });
-$('advHead').addEventListener('click', () => {
-  $('adv').classList.toggle('closed');
-  writeLS('studio_adv_closed', $('adv').classList.contains('closed') ? '1' : '');
-});
-$('adv').classList.toggle('closed', readLS('studio_adv_closed', '') === '1');
+/* 折叠外壳也收进了公共层（`AdvParams.fold` / `closed`）：工作台一块、导演台两块，
+   键各一个；三处各写「点标题 → toggle closed → 落盘」迟早写成三种。
+   打开时写空串是这一页原本的存法（`closed` 判 '1'），存量数据不用迁移。 */
+AdvParams.fold($('advHead'), $('adv'), 'studio_adv_closed');
 
 /* 换型号时问一次本地能力接口（/capabilities）：代理找端点、注入密钥、失败回退注册声明 */
 async function refreshCaps() {
@@ -1757,6 +1752,11 @@ async function refreshEst() {
      少了 prompt 上游直接 400（没有提示词时走注册表里声明的占位串，见 pricing.consts）。
      语音台按字数计价，不走这一支。 */
   const cb = comboNow();
+  /* 型号还没取到（启动时注册表与能力接口都还没回来）就不要发这一次询价：
+     报价体里连 `model` 字段都拼不出来，上游必回 400「model must be a string」，
+     而界面上先闪一句「报价不可用（…BAD_REQUEST）」，看着像报价接口坏了。
+     （实测：启动那一次 400，型号取到之后紧接着那一轮同样的参数就正常回价。） */
+  if (!model || !model.id) { put(prov.name + ' · <span class="note">型号还没取到，取到之后自动重算</span>'); return; }
   const params = TYPE === 'image'
     ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
     : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
@@ -2084,7 +2084,7 @@ const resubmitArmed = () => armedAt && Date.now() - armedAt < RESUBMIT_ARM_MS;
    这些情况下请求可能已经到了平台，界面必须说「正在核对列表」而不是「失败」——
    否则用户会再点一次，那就是重复扣费。
    判据本体在 assetlib.js 的 Api.maybeSubmitted（就住在给它打 maybeSubmitted 标记的那一行旁边），
-   这一行只是委托 —— 以前这里是页面自己写的一份正则，与导演台、拍短剧各写一遍，
+   这一行只是委托 —— 以前这里是页面自己写的一份正则，与导演台各写一遍，
    助手那条路径干脆没有（把超时判成了「失败」，用户重问一次就是第二次扣费）。 */
 const maybeSubmitErr = e => !!(window.Api && Api.maybeSubmitted ? Api.maybeSubmitted(e) : false);
 function trackSubmit(rec, work) {
@@ -2130,7 +2130,8 @@ function renderPendingHint() {
   const box = $('pendingHint');
   if (!box) return;
   const un = unresolvedSubmit();
-  if (!un) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (!un) { box.style.display = 'none'; box.innerHTML = ''; stopPendingTick(); return; }
+  startPendingTick();
   const secs = Math.max(1, Math.round((Date.now() - un.at) / 1000));
   box.style.display = '';
   box.innerHTML = '<span class="warn">上一条提交还在等平台响应（已 ' + secs + ' 秒）：'
@@ -2140,7 +2141,15 @@ function renderPendingHint() {
   const b = $('forceSubmit');
   if (b) b.onclick = e => { e.preventDefault(); armedAt = Date.now(); $('go').click(); };
 }
-setInterval(() => { if (unresolvedSubmit()) renderPendingHint(); }, 1000);
+/* 「上一条提交还在等平台响应（已 N 秒）」这一行每秒要走一次，但**只在真有未决提交时**才走：
+   以前是一条永不停、不看可见性的 setInterval —— 一张什么都没提交的页面也每秒醒一次，
+   而切到后台时那一行根本没人看（这一页在 iframe 里，切走页面时定时器还会跟着文档一起没，
+   但标签页不可见的那几分钟纯属白跑）。定时器的起停由 renderPendingHint 自己管。 */
+let pendingTick = null;
+function startPendingTick() { if (!pendingTick) pendingTick = setInterval(() => { if (document.hidden) return; renderPendingHint(); }, 1000); }
+function stopPendingTick() { if (pendingTick) { clearInterval(pendingTick); pendingTick = null; } }
+/* 回到前台时立刻补一次（隐藏的秒数不刷新，回来要当场说对，而不是再等一秒） */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) renderPendingHint(); });
 
 /* 幂等键：不是每家平台都认（registry 的 create.idempotencyKey 声明，VGENV / MiMo 是 false），
    给了对方不认的请求头，严格的上游会直接 400。 */
@@ -2208,7 +2217,12 @@ async function createVideoOnce(prov, model, prompt, entries) {
      提交体却把它判成不提供而漏掉，两边各算一半比都不算更难查。 */
   const cb = comboNow();
   const shape = { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
-  const t = { model: modelId, prompt, tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, size: val('size'), entries };
+  /* 这几档**从 plan 的 payload 来**，不再逐个 `val()` 直读 DOM：面板藏着某一档时 DOM 里留着的是
+     上一家的那个值，直读就是「界面没有这一档、提交体却带着它」（AGENTS §2 反复拦的那件事）。
+     payload 只装声明了且真发得出去的那几项，未声明的一律缺席。 */
+  const ap = advPlan(model, 'video').payload;
+  const t = { model: modelId, prompt, tier: ap.tier || '', res: ap.res || '', ar: ap.ar || '',
+    dur: Number(ap.duration) || 0, size: ap.size || '', entries };
   const bools = readBoolParams();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
@@ -2232,17 +2246,16 @@ async function createVideoOnce(prov, model, prompt, entries) {
 }
 /* ---------- 图片：一次请求出 N 张，按平台声明的 max_outputs 分批 ---------- */
 async function createImageOnce(prov, model, prompt, assetIds, n) {
-  const o = model.options || {};
   const inputs2 = [];
-  if ((o.qualities || []).length) inputs2.push({ k: 'quality', v: val('quality') });
-  if ((o.aspect_ratios || []).length) inputs2.push({ k: 'ar', v: val('ratio') });
-  /* 尺寸（WxH）只在平台声明了 options.sizes 时才发 —— 没声明就发过去必被拒 */
-  if ((o.sizes || []).length) inputs2.push({ k: 'size', v: val('size') });
-  if ((o.output_formats || []).length) inputs2.push({ k: 'format', v: val('format') });
+  /* 「哪几档进提交体」由同一份 plan 判（声明了才带）—— 以前这里按 qualities / aspect_ratios /
+     sizes / output_formats 各判一遍，那是回落判据之外的第二个「平台收不收这一项」的口径。 */
+  const ap = advPlan(model, 'image').payload;
+  ['quality', 'ar', 'size', 'format'].forEach(k => { if (ap[k] !== undefined) inputs2.push({ k: k, v: ap[k] }); });
   const std = { model: model.id, prompt };
   for (const x of inputs2) std[x.k] = x.v;
-  /* 张数只有平台声明了 max_outputs 才发 —— 平台没这个概念时发过去会被拒 */
-  if (Number(o.max_outputs) > 0) std.count = n;
+  /* 张数只用 plan 判「这一家收不收 count 这个字段」，值取**分批后的 n**（一次点生成按
+     max_outputs 切批发好几条，下拉那一档是「一共几张」，比它更具体）。 */
+  if (ap.count !== undefined) std.count = n;
   if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
   /* 平台在 create.topBools / create.shapeFields 里声明的那几项，图像台这一路也必须真的带上。
      那两排控件现在是**按声明给三种类型都渲染**的（以前只在视频台画），而这一路只递 std 里那几样、
@@ -2254,7 +2267,7 @@ async function createImageOnce(prov, model, prompt, assetIds, n) {
   std.shape = topBoolCtx();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
-    log: { type: '图片生成', meta: { 画质: val('quality'), 画幅: val('ratio'), 格式: val('format'),
+    log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
       本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '',
       顶层参数: shapeFieldsSummary() } },
     body: Api.createBody(prov, std),
@@ -2734,6 +2747,20 @@ function loadServer(morePages, noCache) {
   serverChain = serverChain.then(run, run);
   return serverChain;
 }
+/* 别处（别的页面 / 别的标签页）提交了一条任务、问到了状态翻转、或刚往本机存好一份产物 ——
+   这一页的轮询器只认自己列表里那几条，而外壳换页是把 iframe 整个拆掉重建的，
+   所以「在别的页面干完活，回到这一页卡片还停在旧状态」只能靠这条总线收敛（见 workbench.js 的 BUS）。
+   这里刻意**不清 serverEntries**，与右上角那颗「刷新」不同：用户可能正看着第 5 页，
+   整屏清空会把他的位置抹掉；新出现在第一页的产物与翻转的状态由 MERGE_SERVER 按身份并进来。
+   但游标必须清 —— loadServer 是照着 serverCursors 往前翻页的，不清游标调一次等于「拉下一页」，
+   根本不是刷新（这一条最容易写错，写错了界面还是一片祥和）。noCache 同理：
+   平台列表在代理侧有缓存（SparkCine 声明 8 秒），拿缓存那份重拉等于什么都没看见。 */
+const busSync = Wb.busRefresh(async () => {
+  serverCursors = {}; serverHasMore = true;
+  await loadServer(1, true);
+  tally.run(true);
+}, 8000);
+Wb.busOn(busSync);
 /* 创建后把新任务取回列表：先按任务号问一次（快），问不到再刷整表（列表接口才是状态的最终依据） */
 /* 把一条刚提交的任务「认领」进右栏。
    为什么先插一条「生成中」再问平台（这一条是这一轮改的要点）：
@@ -2757,13 +2784,17 @@ async function adoptTask(prov, taskId, seed) {
   ph.prompt = ph.prompt || Api.promptFor(prov.id, taskId) || '';
   upsertItem(ph);
   renderAll(); poller.kick();
-  /* 然后再问一次平台：问到了就用真状态覆盖那一条（进度、费用、产物地址）。
+  /* 一次批量问回这一批（与上面「整批认领」同一口径：一家一次，不逐条打列表）。
      问不到不是错 —— 占位已经在列表里，轮询器会接着刷。 */
   let p = null;
-  try { const hit = await Api.pollTask(prov, taskId); p = hit && hit.p; }
+  try {
+    const got = await Api.pollMany(prov, [taskId]);
+    const hit = got.get(String(taskId));
+    p = hit && hit.p;
+  }
   catch (e) { console.warn('[studio] 取新任务状态失败，交给轮询器接着刷：', e && e.message); }
   if (p && p.status) {
-    upsertItem(Object.assign(itemFromPoll(prov, p), { prompt: (p.prompt || '') || ph.prompt }));
+    upgradeItem(prov, p, ph.prompt);
     renderAll(); poller.kick();
     return true;
   }
@@ -2786,11 +2817,35 @@ async function adoptTasks(list) {
     }, one.extra || {}));
   }
   renderAll(); poller.kick();
+  /* 按平台分组、一家一次批量问（Api.pollMany 认 registry 的 pollVia:'list'，一次列表解出整批）。
+     原来是一条问完才问下一条：VGENV 一次列表实测 5.2 秒，批量十几条时卡片明明都插好了，
+     状态却排着队升级，看着像「只出来了一条」；而并发地各问一条更糟 —— 逐条 pollTask
+     每次都是一整页 100 条的列表（上游被打爆、请求互相排队，状态反而更刷不出来）。
+     某一条没问回来不是错：占位已经在列表里，轮询器会接着刷。 */
+  const byProv = new Map();
   for (const one of list) {
     const prov = provById(one.provider) || null;
     if (!prov) continue;
-    await adoptTask(prov, one.id, one);
+    if (!byProv.has(prov)) byProv.set(prov, []);
+    byProv.get(prov).push(one);
   }
+  await Promise.allSettled([...byProv].map(async ([prov, ones]) => {
+    const got = await Api.pollMany(prov, ones.map(x => x.id));
+    let changed = false;
+    for (const one of ones) {
+      const p = (got.get(String(one.id)) || {}).p;
+      if (!p || !p.status) continue;
+      upgradeItem(prov, p, one.prompt || Api.promptFor(prov.id, one.id) || '');
+      changed = true;
+    }
+    if (changed) renderAll();
+  }));
+  poller.kick();
+}
+/* 「问到了就用真状态升级那一条」只有一份：单条认领与整批认领都走它，
+   否则两处对「平台没回提示词时保留本机归档那一句」的判据会各自漂移。 */
+function upgradeItem(prov, p, fallbackPrompt) {
+  upsertItem(Object.assign(itemFromPoll(prov, p), { prompt: (p.prompt || '') || fallbackPrompt || '' }));
 }
 function itemFromPoll(prov, p) {
   const done = p.done || p.status === 'succeeded' || p.status === 'done' || p.status === 'completed';
@@ -2910,6 +2965,11 @@ function bindCardPlay(d, wrap) {
 }
 function cardHTML(it) {
   const bad = Wb.isFailed(it);
+  const run = running(it), cxProv = run ? provById(it.provider) : null;
+  /* 「能不能取消」由注册表声明决定（判据只有 Api.canCancel 一份）：
+     没声明 cancel 端点的那几家（MiniMax / 硅基流动 / 智谱视频，以及照它们克隆的自定义中转），
+     画一颗能点的按钮等于承诺一件做不到的事 —— 改成压暗的一颗并把原因写在 title 上。 */
+  const canCx = run && window.Api.canCancel(cxProv);
   const meta = [provLabelFor(it), it.model, it.tier, it.res, it.ar,
     it.dur != null && it.dur !== '' ? it.dur + 's' : '', it.voice ? '音色 ' + it.voice : '',
     it.format ? String(it.format).toUpperCase() : '',
@@ -2925,7 +2985,8 @@ function cardHTML(it) {
     + (bad && it.error ? '<div class="terr" title="' + escA(String(it.error)) + '">' + escA(String(it.error)) + '</div>' : '')
     + '<div class="meta2">' + escA(meta) + '</div>'
     + '<div class="acts">' + Wb.actsHTML(it, {
-      preview: !!it.media, previewLabel: '放大', cancel: running(it),
+      preview: !!it.media, previewLabel: '放大', cancel: canCx,
+      cancelWhy: (run && cxProv && !canCx) ? Wb.cancelWhyNot(cxProv) : '',
       retry: bad && !!(it.prompt || it.local), remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
     }) + '</div>'
     + '<div class="tdetail" hidden></div>'
@@ -3142,7 +3203,7 @@ Wb.detail.init({
   rows: it => [
     ['平台', it.provider ? provLabelFor(it) : ''],
     ['型号', it.model],
-    ['档位', it.tier], ['质量', it.quality ? (QUALITY_ZH[it.quality] || it.quality) : ''],
+    ['档位', it.tier], ['质量', it.quality ? AdvParams.label('quality', it.quality) : ''],
     ['分辨率', it.res], ['比例', it.ar],
     ['时长', it.dur != null && it.dur !== '' ? it.dur + ' 秒' : ''],
     ['数量', it.credits != null && it.credits !== '' ? it.credits : ''],
@@ -3285,7 +3346,7 @@ async function reuseInto(it) {
   const want = {};
   for (const k of REUSE_KEYS) if (it[k] != null && it[k] !== '') want[k] = String(it[k]);
   /* **顺序很重要**：先让 renderParams 把下拉按型号声明填好，再照它**已有的那些选项**设值。
-     反过来（先设值再 renderParams）的话 fillSel 会把它按默认档覆盖回去 ——
+     反过来（先设值再 renderParams）的话重画会把它按默认档覆盖回去 ——
      症状就是「参数带过来了，但界面上还是默认的那一档」，而用户看不出为什么。 */
   if (Object.keys(want).length) {
     try { renderParams(); } catch (e) {}

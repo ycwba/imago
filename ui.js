@@ -1795,15 +1795,18 @@ window.copyText = async function copyText(txt) {
      安静下来之后，右上角弹出来的**就是**真问题。
      判据只有这一处（`Toast.show` 的开头），页面不要自己各处判断。
      开关在「设置 → 界面」里（「操作成功也给一声提示」），默认关。 */
-  const K_QUIET_OK = 'sk_quiet_ok';
-  const quietOk = () => { try { return localStorage.getItem(K_QUIET_OK) === '1'; } catch (e) { return false; } };
+  const K_QUIET_OK = 'sk_quiet_ok';   // 键名是历史包袱：它现在存的是「要不要也弹一声」，不是「安静」
+  const sayOk = () => { try { return localStorage.getItem(K_QUIET_OK) === '1'; } catch (e) { return false; } };
   window.Toast = {
     show(text, type, ms) {
       const msg = String(text == null ? '' : text).trim();
       if (!msg) return;
       const kind = ICON[type] ? type : 'info';
-      /* 安静档只压 ok / info；调用方给的 ms 一律照旧（有人靠 ms=0 做「一直挂着」的那种）。 */
-      if (quietOk() && (kind === 'ok' || kind === 'info') && ms !== 0) return;
+      /* 安静档只压 ok / info；调用方给的 ms 一律照旧（有人靠 ms=0 做「一直挂着」的那种）。
+         这一行原来写的是 `if (quietOk() && ...)` —— 判据正好反了：勾上「操作成功也给一声提示」
+         的人被静音，什么都没设（默认）的人反而每一条成功都弹。用户报的「切换会话 / 新建会话
+         老在右上角弹窗」就是这一条：右上角那一排本来默认该是空的。 */
+      if (!sayOk() && (kind === 'ok' || kind === 'info') && ms !== 0) return;
       const now = Date.now();
       if (msg === last.t && now - last.ts < 1500) return;    // 去重：同一句话不连弹
       last = { t: msg, ts: now };
@@ -1826,6 +1829,63 @@ window.copyText = async function copyText(txt) {
     info(t, ms) { this.show(t, 'info', ms); },
   };
   window.toast = (t, type, ms) => window.Toast.show(t, type, ms);
+})();
+
+/* ============================================================================
+   ErrBanner —— 顶部那条「出错了」横幅，全站只有一份（样式在 ui.css 的 #banner）
+     ErrBanner.show(那句话的 html, 'err' | 'warn')
+   为什么要收成公共这一份：以前只有导演台接了（<head> 里内联的 window.onerror +
+   unhandledrejection 两段），生成工作台另写一份（把错误打进 #status 那一行小字），
+   **其余八页什么都没接** —— 页面初始化是一条长链（注册表 → 能力 → 列表 → 渲染），
+   任何一步抛错后面全都不跑，而界面上只剩「空白」；这一页又装在 iframe 里、
+   浏览器控制台只看得到外壳（AGENTS.md §5 同一条），于是「打开就是空的」根本查不动。
+   干净 profile 第一次进导演台就是撞上这一类（加载期竞态抛 TypeError），
+   当时能看出来正是因为导演台有这条横幅。现在引了 ui.js 的页面自动都有，
+   两个 handler 全站只装一次，页面里不要再写第二份。
+   资源加载失败（图片 / 视频 404）故意**不**报：那多半是过期签名外链，
+   公共层为它准备了回退与「已丢失」角标（assetlib.js 的 AssetLocal），
+   混进这条横幅只会把真错误淹掉。
+   ========================================================================== */
+(function () {
+  const pending = [];
+  function hostEl() {
+    const old = document.getElementById('banner');
+    if (old) return old;                     // 页面自己写了标记就用那一个（导演台）
+    const d = document.createElement('div');
+    d.id = 'banner';
+    d.hidden = true;
+    document.body.insertBefore(d, document.body.firstChild);
+    return d;
+  }
+  window.ErrBanner = {
+    show(html, kind) {
+      const msg = String(html == null ? '' : html).trim();
+      if (!msg) return;                       // 空调用不许顺手收起已经在亮着的错误
+      const put = () => {
+        const b = hostEl();
+        b.hidden = false;
+        b.className = kind === 'warn' ? 'warn' : 'err';
+        b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">' + window.icon('close', 11) + '</button>';
+        b.querySelector('.msg').innerHTML = window.sanitizeHTML(msg);
+        b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
+      };
+      if (document.body) put(); else pending.push(put);   // body 还没开始排时就先攒着
+    },
+  };
+  if (document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', () => { while (pending.length) pending.shift()(); }, { once: true });
+  }
+  window.addEventListener('error', e => {
+    if (!e || !e.message) return;
+    const at = e.filename ? '（' + String(e.filename).split('/').pop() + ':' + e.lineno + '）' : '';
+    window.ErrBanner.show(window.esc('脚本错误：' + e.message + at));
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const r = e && e.reason;
+    const line = r && r.stack ? String(r.stack).split('\n').slice(1, 3).join(' | ') : '';
+    window.ErrBanner.show(window.esc('未处理错误：' + String((r && r.message) || r) + (line ? ' @ ' + line.trim().slice(0, 160) : '')));
+    console.error(r);
+  });
 })();
 
 /* ============================================================================
@@ -2078,7 +2138,7 @@ window.PAGE_TARGETS = {
    侧栏 / 资产库 / 收藏页读写的是同一批键。
    为什么要把这张表挪到公共层：主题以前只能点左下角那颗太阳、视图档位只能进那一页右上角换，
    设置页里根本看不见这几项 —— 于是助手也改不了（用户在设置页看得见、助手回一句「不让改这一项」，
-   和 Drama.SET 那一条是同一个病）。取值写进表里而不是让页面自己猜，是因为**每一页的档位名不一样**
+   和 Chars.SET 那一条是同一个病）。取值写进表里而不是让页面自己猜，是因为**每一页的档位名不一样**
    （资产库 card/compact，收藏 list/compact）：在这里统一成一个词，写进去的就是那一页根本不认的值。
 
    一项归哪张卡只在这里点名一次（group）。以前这张表是平的，设置页照着顺序全画进「外观与界面」一张卡，
@@ -2205,12 +2265,17 @@ window.UI_PREFS = {
        第三个开关要单独点名：它不在 'sk_media_local' 这个前缀下面（叫 sk_media_cloud_hide），
        「顺手以为前缀已经盖住」的结果是这一项换台机器就回到关闭。 */
     'sk_media_local', 'sk_media_prefer', 'sk_media_cloud_hide',
-    /* 拍短剧：短剧本体（剧本 / 角色 / 场景 / 每一段的每一次拍摄）与**素材库**。
-       素材库要跨剧复用（同一个角色在好几部剧里出现），所以单独一个键、跟着云同步走。 */
-    'dramas', 'drama_chars', 'drama_active',
-    /* 拍短剧那一页的设置（dr_ 前缀：整集时长目标、两个 AI 自主权开关、做下一集的沿用范围，
-       以及两个折叠面板的开合）。它们和 page_mode_ / sk_polish_ 一样属于「换台机器要重配一遍」的东西。 */
-    'dr_',
+    /* 素材库（角色 / 场景 / 道具）。键名 2026-10 由 drama_chars 改成 char_lib：
+       拍短剧页删掉之后 drama_ 前缀已经名不副实。搬运用下面的 `migrateRenamedKeys()`。
+       旧名 drama_chars **刻意不在这里**：它在名单里就意味着「服务器上有一份也要拉回来」，
+       而迁移正是要把那份删掉的 —— 留着会让一次失败的 DELETE（代理不在 / 超时）变成
+       「下次 boot 又拉回来」，于是每次开页面重复一遍拉回 / 删掉。
+       不在名单里的代价是：那一份文件万一没删掉，它就静静躺在 .data/ 里不再被读 ——
+       这比一条死循环划算得多（迁移里对每条旧键都显式发一次 DELETE ?nobak=1，绕开 .bak）。 */
+    'char_lib',
+    /* 素材库那一页的设置（char_ 前缀：音色怎么定、候选张数、是否让 AI 自动定音色）。
+       它们和 page_mode_ / sk_polish_ 一样属于「换台机器要重配一遍」的东西。 */
+    'char_',
     /* AI 助手的对话记录：换浏览器 / 换机器还想接着上次问，所以和数据文件走。
        只存问答正文（上限 60 条），工具查出来的东西不落盘 —— 那是随时能重查的。 */
     'ai_chat',
@@ -2706,13 +2771,71 @@ window.UI_PREFS = {
      于是每次开页面都重复一遍「拉回来 / 删掉」，还在 `.data/` 留下一串 `.bak`。 */
   const afterSynced = () => {
     try { if (window.ModelPrefs) window.ModelPrefs.migrate(); } catch (e) {}
-    return sweepLegacyKeys();
+    return migrateRenamedKeys().then(sweepLegacyKeys, sweepLegacyKeys);
   };
   const afterBoot = () => { window.DataSync.boot().then(afterSynced, afterSynced); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', afterBoot);
   else afterBoot();
   setTimeout(() => { try { window.DataSync.persist(); } catch {} }, 1500);
 })();
+
+/* ============================================================================
+   键改名 —— 一次性，把「功能改了、键名还留着旧前缀」的那批搬过去
+   ---------------------------------------------------------------------------
+   2026-10 拍短剧页删除之后，素材库那一族键名里的 drama_ / dr_ 已经名不副实：
+   短剧没了，键还在（而且是**用户本机已有的数据** —— 几百条素材、改过的提示词）。
+   这里把它们搬成 char_ 前缀。
+
+   三条纪律（每一条都对应踩过或预判过的坑）：
+     ① **按原始字符串搬，不重新序列化**。这一族键的形状**不统一**：
+        char_lib / char_* 走 `Store`，存的是 `{data, ts}` 信封；
+        `sk_polish_*` 是设置页直接 setItem 的**裸值**。
+        getItem → setItem(同一个串) 两种都原样过去；重新 JSON.stringify 一遍，
+        裸值那份必被包成信封，于是 `prompt()` 读出来是 `{"data":"……"}` 这种源码。
+     ② **新键已经有值就不搬**（以新键为准）。万一是另一台机器同步回来的陈旧值，
+        拿它覆盖本机刚填的那份就是倒退 —— 与 `ModelPrefs.migrate()` 同一立场。
+     ③ **`.data/` 里那份镜像要显式删**，不能只 removeItem：旧键已经不在 SYNCABLE 里了，
+        存储钩子不认它，服务器上那份会留下来；下一次 boot 看见「服务器有、本地没有」
+        就把它拉回 localStorage，于是每次开页面重复一遍「拉回来 / 删掉」。
+        这就是下面 DELETE 用 `?nobak=1` 的原因（同 sweepLegacyKeys）：
+        这几个键是「已经换过名、宣告作废」的，留 .bak 只会让备份清单里永远挂着旧键名。
+
+   排在 `DataSync.boot()` **之后** —— 理由见上面 afterSynced 那段注释。
+   ========================================================================== */
+const KEY_RENAME = {
+  /* 素材库本体（几百条角色 / 场景 / 道具）—— 唯一一份不能丢的 */
+  'drama_chars': 'char_lib',
+  /* 素材库那一页的设置项 */
+  'dr_ai_voice': 'char_ai_voice',
+  'dr_tts_mode': 'char_tts_mode',
+  'dr_cand_n': 'char_cand_n',
+  /* 用户在设置页改过的提示词（Def 的 drama_image / drama_voice 一并改了名，
+     promptKey() 是 'sk_polish_' + kind，所以这两条跟着换名） */
+  'sk_polish_drama_image': 'sk_polish_char_image',
+  'sk_polish_drama_voice': 'sk_polish_char_voice',
+};
+async function migrateRenamedKeys() {
+  if (!window.Store || !Store.available) return [];
+  const moved = [];
+  for (const [from, to] of Object.entries(KEY_RENAME)) {
+    let raw = null;
+    try { raw = localStorage.getItem(from); } catch { continue; }
+    if (raw == null) continue;
+    /* ② 新键已有值 → 以新键为准，不搬 */
+    let cur = null;
+    try { cur = localStorage.getItem(to); } catch (e) {}
+    if (cur == null) {
+      try { localStorage.setItem(to, raw); } catch (e) { console.warn('[Store] 键改名失败 ' + from + ' → ' + to, e); continue; }
+    }
+    /* ① 搬的是原始字符串，形状原样过去；搬过就删旧键（搬失败上面已经 continue 了） */
+    try { localStorage.removeItem(from); } catch (e) {}
+    /* ③ 服务器上那份也要删（见上面那段注释：旧键已不在 SYNCABLE，钩子不会替你发） */
+    try { await Net.fetch('/data/' + encodeURIComponent(from) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) {}
+    moved.push(from + ' → ' + to);
+  }
+  if (moved.length) console.info('[Store] 改了几个键名：' + moved.join('、'));
+  return moved;
+}
 
 /* ============================================================================
    旧键清理 —— 一次性，删掉「功能已经改了、键却还留着」的那批
@@ -2733,6 +2856,15 @@ window.UI_PREFS = {
        也整块删除：那是个纯显示偏好，换台机器要重配，而「找最早的那一张」在资产库有日期筛选、
        在收藏与素材库有「AI 找素材」（AI 给的名次照样生效，只是不再是可挑的档位）。
        那份「档位:方向」从此再没有读者。
+     · drama_ 那一族（2026-10 拍短剧页删除）——
+       `dramas` / `drama_active` 是短剧本体（剧本、每一段的每一次拍摄）；
+       `dr_adv_open` / `dr_story_open` 是那个页两个折叠面板的开合偏好。
+       素材库那一侧（drama_chars / dr_* / sk_polish_drama_*）**不在这里** ——
+       它们要留着数据，`migrateRenamedKeys()` 搬过去。
+     · sk_polish_drama_story / _split / _prop / _video / _open / _subshot / _retouch /
+       _camera / _look / _scenedesc / _propdesc —— 那 11 条是拍短剧页的 AI 指令，
+       页面删了之后指令本身也从 TextAI.DEF 里删了，设置页那一张卡不再列它们。
+       用户改过的文案留着也没人读，跟着云同步整包带走还是一份死数据。
    两处都要清：localStorage 里的本体，和 `.data/` 里那份镜像。
    镜像走 `DELETE /data/<键>?nobak=1`（代理删东西默认留一份 .bak，这条路**特意绕开**）：
    这几个键是「已经宣告作废」的，为它们留后悔药只会让设置页的「备份清单」里永远挂着
@@ -2743,6 +2875,12 @@ const LEGACY_KEYS = [
   'page_mode_image', 'page_size_image', 'page_mode_video', 'page_size_video',
   'page_mode_audio', 'page_size_audio', 'sk_text_provider', 'video_tasks',
   'dir_studio_sort', 'dir_asset_sort', 'dir_fav_sort', 'dir_char_sort',
+  /* 拍短剧页删除（2026-10）：短剧本体与那个页的界面偏好。素材库那一侧另有搬运用，见上。 */
+  'dramas', 'drama_active', 'dr_adv_open', 'dr_story_open',
+  /* 拍短剧页的 11 条 AI 指令 —— 指令条目已随页面从 TextAI.DEF 删除，设置页也不再列它们。 */
+  'sk_polish_drama_story', 'sk_polish_drama_split', 'sk_polish_drama_prop', 'sk_polish_drama_video',
+  'sk_polish_drama_open', 'sk_polish_drama_subshot', 'sk_polish_drama_retouch', 'sk_polish_drama_camera',
+  'sk_polish_drama_look', 'sk_polish_drama_scenedesc', 'sk_polish_drama_propdesc',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

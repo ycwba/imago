@@ -20,8 +20,9 @@ node_modules/
 .renders/
 # 隔离验证实例的渲染输出（RENDER_DIR 指过去，免得探针成片混进用户那一份）
 .renders-probe/
-.renders-drama/
 .renders-chars/
+# 2026-10 拍短剧页删除后留下的历史隔离目录名（当时那些探针用）。探针已不在，
+# 但目录可能还在用户机器上 —— 留着这几行是为了别让它们冒进 git status，不是还要用。
 
 # 本地生成的资产（语音等同步产物落盘处）
 .assets/

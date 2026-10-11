@@ -16,7 +16,9 @@
  * 它的红和绿都只是它自己的毛病。扫描器读不完一个文件时会**自己报红**，
  * 而不是悄悄给出一份错的读数。
  *
- * 十一档（§A–§K；每档的来龙去脉在 AGENTS.md §3 / §5 里点名）：
+ * §A–§L 十二个字母（§A 另有 A-2 一支，所以末行汇总报 13 条；每档的来龙去脉在
+ *   docs/agents-公共层与界面约定.md 里点名，AGENTS.md §3 只留每一条的标题行当索引；
+ *   AGENTS.md §5 那几条自测纪律仍在 AGENTS.md）：
  *   §A 内联脚本里的裸调用必须落在本作用域或 window 上
  *      （AGENTS.md §5 第 ⑩ 档。踩过 drama.html 的 renderRewound 调 bind()，
  *        而 bind 只是 renderBottom 里一个 const —— 语法检查一行都不报、页面照常渲染，
@@ -36,6 +38,8 @@
  *        而其中两处把 note 整个丢了 —— note 是「这家为什么没拿到上游能力」的唯一原因。）
  *   §J 「同一个功能只应有一份实现」（b64Bytes / 落点选择器 / toast / 续拉 / 字节单位 / 芯片行 / 跨页复用载荷 / 本机落盘链）
  *   §K 页面不重复定义 ui.css 已经全有的规则（算子集、@media 上下文必须相同）
+ *   §L 只许用真有的浏览器 API（黑名单按词法器 token 段比对，不按整串 indexOf ——
+ *        整串写法会让这一档永远不咬人：`CSS.escape` 在 token 流里是 `CSS` / `.` / `escape` 三段）
  */
 const fs = require('fs');
 const path = require('path');
@@ -45,10 +49,11 @@ const ROOT = path.resolve(__dirname, '..');
    「到底是哪一段没配平」，只报「剩 1 层」等于让下一个人重新查一遍。 */
 const TRACE = !!process.env.SC_TRACE;
 let CUR_FILE = '';                                  // TRACE 时跟着打印，混着多个文件看不出来是哪一份
-const JS_FILES = ['ui.js', 'assetlib.js', 'workbench.js', 'drama.js', 'ai-chat.js', 'sidebar.js',
+const JS_FILES = ['ui.js', 'assetlib.js', 'workbench.js', 'chars.js', 'ai-chat.js', 'sidebar.js',
   'app.js', 'ident.js', 'proxy.js'];
-/* 导演台的本名是 director.html（2026-10 从 index.html 改过来，那一份跳转出口已删除）。 */
-const HTML_FILES = ['director.html', 'studio.html', 'drama.html', 'assets.html', 'chars.html',
+/* 导演台的本名是 director.html（2026-10 从 index.html 改过来，那一份跳转出口已删除）。
+   拍短剧页 drama.html 同日删除，它的后端 drama.js 瘦身改名成 chars.js（素材库的后端）。 */
+const HTML_FILES = ['director.html', 'studio.html', 'assets.html', 'chars.html',
   'favorites.html', 'settings.html', 'usage.html', 'shell.html'];
 const argFiles = process.argv.slice(2);
 const targets = { js: argFiles.length ? argFiles : JS_FILES, html: argFiles.length ? [] : HTML_FILES };
@@ -1453,12 +1458,13 @@ function sectionJ() {
   if (hideCalls !== 3 || hideFiles.join(',') !== 'assets.html,studio.html')
     bad('§J', 'AssetLocal.hideAsCloud 的调用点是 ' + (hideCallSites.join('、') || '没有')
       + ' —— 期望 studio.html 两处 + assets.html 一处，且只在这两页：收藏 / 素材库故意不藏');
-  /* 三处：收藏与素材库那两颗「自动下载」按钮各问一次，
-     外加拍短剧页 chooseBgm 选完配乐后问一次（E-52：告诉用户这一份在本机还是在外链）。
-     数字是量过的 —— 少于 3 说明某一处改成了自己判，多于 3 说明有人在别处也写了一份
+  /* 两处：收藏与素材库那两颗「自动下载」按钮各问一次。
+     原来还有第三处（拍短剧页 chooseBgm 选完配乐后问一次，E-52），
+     2026-10 拍短剧页整体删除，随之只剩这两处 —— 数字随之从 3 改成 2，不是判据放宽。
+     少于 2 说明某一处改成了自己判，多于 2 说明有人在别处也写了一份
      「有没有本机副本」（那正是这一档要防的）。 */
-  if (addrCalls !== 3) bad('§J', 'AssetLocal.hasLocalAddr 只被调 ' + (addrCallSites.join('、') || '一次都没有')
-    + ' —— 期望三处各问一次（收藏 / 素材库 / 拍短剧的配乐）；「本机有没有这份字节」的判据也只许这一份');
+  if (addrCalls !== 2) bad('§J', 'AssetLocal.hasLocalAddr 只被调 ' + (addrCallSites.join('、') || '一次都没有')
+    + ' —— 期望两处各问一次（收藏 / 素材库）；「本机有没有这份字节」的判据也只许这一份');
   if (rawLocalInPage) bad('§J', '页面又自己拼了 /local-assets：' + rawLocalSites.join('、')
     + ' —— 落盘只有公共那两个口（页面的手动按钮走 AssetLocal.pull，模块走 Api.saveLocalAsset），'
     + '页面自己拼路由等于绕过那一道按身份的去重');

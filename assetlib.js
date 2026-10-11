@@ -95,7 +95,7 @@ function mediaSrc(url) {
   if (!u) return '';
   /* 产物在本机存过（自动镜像）→ 用本机那一份。这一步放在**地址层**而不是列表层：
      以前只有 AssetLib.decorate 会换（它只服务列表条目），于是设置页那个
-     「优先用本机文件」的开关只管得着资产库那张列表 —— 收藏、导演台、短剧里存着的
+     「优先用本机文件」的开关只管得着资产库那张列表 —— 收藏、导演台里存着的
      还是当年的签名外链，第二天 403，表现就是「视频没有预览图、点开只回一句 Format error」，
      而本机明明有那一个文件。勾了「优先用本机」却照打外链 = 开关在骗人。
      只认 http(s) 与 /getv 包装（/fetch 的下载语义、本机地址自己都不用再换）。
@@ -404,11 +404,11 @@ function topBoolState(decl, ctx) {
   }
 
   /* ---------- 本机环境（/sys-status）：一份取法、一份说法 ----------
-     三个地方问的是同一件事：设置页「本机环境」那一栏、拍短剧导出前的闸门、助手的 doctor。
+     两个地方问的是同一件事：设置页「本机环境」那一栏、助手的 doctor。
      各写一遍就会出现「设置页说能用、助手说不能用」，探测参数也会走样 ——
      它要在本机起子进程跑 ffmpeg -version，慢机器上几秒不够，而且**不许重试**（同一次体检打两遍）。 */
   const SYS_WHY = {
-    ffmpeg: '拍短剧导出成片、烧字幕、把配音和配乐混进视频都靠它；没有它前面几步照常能走，到「导出」才拦',
+    ffmpeg: '导演台「合并全片 / 导出成片」靠本机 ffmpeg 把时间线拼起来、把配音混进视频；没装时生成照常能走，到合并那一步才拦',
     ffprobe: '量每段视频的真实秒数（字幕与配音按它排）；没有它成片时间会漂',
   };
   function sysStatus(fresh) {
@@ -560,7 +560,7 @@ function topBoolState(decl, ctx) {
        ② 传输层就断了（Net 超时、断连）—— 那时连HTTP 状态码都没拿到，平台那边可能早已受理。
      **必须把它当成「未知的成功」而不是「失败」**：用户看到「失败」最自然的反应是再点一次，
      而视频平台建任务经常超过 30 秒 —— 那不是边缘情况，是常态，那一下就是第二次扣费。
-     studio.html 的 trackSubmit、director.html 的提示、拍短剧的 take.state、以及助手这一路都读它。 */
+     studio.html 的 trackSubmit、director.html 的提示、以及助手这一路都读它。 */
   function maybeSubmitted(e) {
     if (!e) return false;
     if (e.maybeSubmitted) return true;
@@ -629,7 +629,7 @@ function topBoolState(decl, ctx) {
       warnProxyDown(_reg);
       /* 「这一家配没配密钥」顺带取一次：型号下拉要靠它把**没添加**的那几家筛掉
          （`pickable` → `provUsable`）。以前只有设置页调 `envStatus()`，于是导演台 / 生成工作台 /
-         拍短剧各自的 `envKnown()` 恒为假 → 判据按「读不到就不筛」处理 → 没配密钥的厂商照样出现在
+         各页面各自的 `envKnown()` 恒为假 → 判据按「读不到就不筛」处理 → 没配密钥的厂商照样出现在
          下拉里。**不在这里补，就只能每个页面各写一行**，而漏一处就有一页不对。
          刻意不 await：它只影响下拉筛谁，不该让整页等它；失败也无所谓（envKnown 保持假 = 不筛）。 */
       if (!_envOk) { try { await this.envStatus(); } catch (e) {} }
@@ -677,7 +677,7 @@ function topBoolState(decl, ctx) {
     /* 跑着的代理是不是旧版由 warnOldProxy 在取注册表时顺手提醒，界面不需要单独读版本号 */
     oldProxyNotice,
     warnProxyDown,
-    /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、拍短剧导出的前置闸门、
+    /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、
        助手的 doctor 三边都要问，各写一遍就会出现「设置页说能用、助手说不能用」。 */
     sysStatus, sysTool, sysDir, sysStatusLines, SYS_WHY,
     providers() { return (_reg && _reg.providers) || []; },
@@ -833,6 +833,13 @@ function topBoolState(decl, ctx) {
             title: opts.log && opts.log.title, meta: opts.log && opts.log.meta });
         }
       } catch (e) {}
+      /* 建了一条真任务就说一声（判据与发送都在 workbench.js 的总线那一处）：
+         此刻活着的那个页面如果手里没有这一条，它既不会去轮询、也不会自己重拉列表 ——
+         表现就是「在导演台出了图，资产库不点重新加载就一直看不到」。
+         包一层 try：这是通知，不能因为它把「任务其实已经建好了」这件事说成一次提交失败。 */
+      if (name === 'create') {
+        try { if (window.Wb && Wb.busEmit) Wb.busEmit('create', { provider: (prov && prov.id) || '' }); } catch (e) {}
+      }
       return d;
     },
     /* 「这个 host 属于 registry 里哪一家」=「A 家密钥打到 B 家地址」与「第三方中转」两类告警的唯一判据。
@@ -1239,6 +1246,11 @@ function topBoolState(decl, ctx) {
       if (url) raw.__url = url;
       return raw;
     },
+    /* 「这一家到底取不取得消」的唯一判据：注册表有没有声明 cancel 端点。
+       界面按它决定画 active 还是 disabled 的取消按钮，调用点不要再自己比平台 id。 */
+    canCancel(prov) {
+      return !!(prov && prov.endpoints && prov.endpoints.cancel);
+    },
     async cancel(prov, id) {
       return this.request(prov, 'cancel', { id, method: (prov && prov.cancelMethod) || 'POST' });
     },
@@ -1460,15 +1472,32 @@ function topBoolState(decl, ctx) {
          pollTask / pollMany / 各页各写一遍 —— 少一个入口就意味着「某个平台的产物永远不落盘」。
          offer 只是入队（真正下载在队列里异步做），所以同步这里调它不影响返回速度。 */
       if (isDone && window.AssetLocal) {
+        /* 字节来源有两种给法：平台直接给产物外链（VGENV / MiniMax），或**只给产物号**
+           （SparkCine 那一族，取字节靠代理的 /asset/<号> 换成最新签名地址）。
+           以前只认前者 —— 于是「任务完成那一刻」这一族一条都排不上镜像，界面上就是
+           「自动存本机开了也没用」，要等下一次列表加载由 normalize 造出 dl 才被 scan 补上
+           （而用户多半早就切走了页）。列表那一路早就认四种来源（见 byteSrcOf），
+           轮询这一路漏了资产号那一种。
+           多产物时每个号各排一条：以前只镜像 outs[0]，一次出 3 张就只有第 1 张落本机。 */
         const up = g('outputUrl') || raw.__url || '';
-        if (up) AssetLocal.offer(prov && prov.id, {
-          assetId: firstOut, genId: g('id'), url: up, model: g('model'),
+        /* 每一条都要同时给出「产物号」和「取字节的地址」两样：镜像记录的键优先按**产物号**算
+           （keyOf 的 `|a:` 那一档），而列表那一路（normalize → scan）递过去的一直是裸的产物号。
+           这里要是把 `/asset/<号>` 整条地址当产物号递过去，算出来的键就是 `|a:/asset/<号>` ——
+           同一个文件两份记录，列表加载时再下一遍（表现为「自动存本机存了双份」）。 */
+        const srcs = up ? [{ id: firstOut, url: up }]
+          : (Array.isArray(outs) ? outs.filter(Boolean).map(a => ({ id: a, url: '/asset/' + a })) : []);
+        for (const s of srcs) AssetLocal.offer(prov && prov.id, {
+          /* provider 要跟着递：runOne 落盘时把它写进本机资产条目（「这条是本机哪一家生成的」
+             是资产库列表与筛选的读数）。这一族在任务完成那一刻就先排上镜像，不给 provider 的话
+             本机那一条就是空平台名，而列表那一路（scan）递的条目本来带 provider —— 两边口径得一致。 */
+          provider: (prov && prov.id) || '',
+          assetId: s.id, genId: g('id'), url: s.url, model: g('model'),
           prompt: g('prompt') || (window.Api ? window.Api.promptFor(prov && prov.id, g('id')) : ''),
           duration: g('duration') ?? null, tier: g('tier'), res: g('res'), ar: g('ar'),
           count: g('count'), quality: g('quality'), format: g('format'),
           credits, priceMicros: pm, currency: g('currency') || '',
           gstatus: rawStatus, created: g('created'), completed: g('completed'),
-        }, up);
+        }, s.url);
       }
       // 上游没给 prompt 时用本机记录兜底（例如 VGENV 的列表与详情都不返回它），并标注来源
       const rawPrompt = g('prompt') || '';
@@ -1688,7 +1717,7 @@ function topBoolState(decl, ctx) {
 
   /* ---------- 「这份外链在本机有没有副本」的反查表 ----------
      镜像记录按**产物身份**存（provider|a:/g:/u:），可页面手上常常只有一个签名外链：
-     收藏（fav_items）、导演台工作区（workspace）、短剧的 take 存的都是**当时**那个地址。
+     收藏（fav_items）、导演台工作区（workspace）、素材库存的都是**当时**那个地址。
      以前只有 AssetLib.decorate 会按身份去查（它只服务列表条目），所以「优先用本机文件」
      这个开关只管得着资产库那一张列表 —— 别的页面第二天照旧打过期外链，
      表现就是「视频没有预览图、点开只回一句 Format error」。
@@ -1973,6 +2002,9 @@ function info() {
         queueWrite();
         queued.delete(k);          // 成功也要摘：留在在途表里下一轮就不会再 offer（那份已经存过了）
         infoNote(true);
+        /* 本机多了一份产物就说一声：别的页面那一张卡还挂在平台外链上（「已存本机」的标记、
+           与本机那一条合成一张卡都靠重拉列表时的 decorate / 合表），不重拉就一直停在云端形态。 */
+        try { if (window.Wb && Wb.busEmit) Wb.busEmit('local', { id: r.id, key: k }); } catch (e) {}
         tell(null, { id: r.id, size: blob.size });
       } else {
         /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
@@ -4064,11 +4096,16 @@ window.AiGen = {
   async create(o) {
     const prov = o.prov, m = o.model || {};
     const fmts = (m.options && m.options.output_formats) || ['png'];
-    const fmt = fmts.includes('png') ? 'png' : fmts[0];
+    /* 格式：调用方（导演台的高参设置按平台声明渲染的下拉）选过就照它选的，没选过才退回「优先 png」。
+       选中的值不在这一份清单里也退回默认 —— 那个值可能是上一次那份声明（换过型号 / 平台改口）留下的。 */
+    const fmt = (o.format && fmts.indexOf(o.format) >= 0) ? o.format : (fmts.includes('png') ? 'png' : fmts[0]);
     const want = Math.max(1, Number(o.count) || 1);
     const gen = await Api.create(prov, {
       model: m.id, prompt: o.prompt, quality: o.quality, ar: o.ar, count: want, format: fmt,
-      /* 参考图条目（短剧的「三视图按预览图生成」用它）：形状由 registry 的 inputTemplates 决定，
+      /* 尺寸（WxH）：平台在 create.body / nest 里映射了才会进提交体，没映射的传过去是空转 ——
+         所以这里不带「有没有声明」的判断，判断留给调用方（它按下拉的显隐决定传不传）。 */
+      size: o.size,
+      /* 参考图条目（素材库的「三视图按预览图生成」用它）：形状由 registry 的 inputTemplates 决定，
          调用方给的是 AssetTransfer.entryFor 出来的 { role, assetId|url }。没传就不带这个字段。 */
       inputEntries: o.inputEntries,
       log: o.log || { type: '图片生成', meta: { 画质: o.quality || '', 画幅: o.ar || '' } },
@@ -4089,7 +4126,10 @@ window.AiGen = {
     /* 轮询只看得到什么就取什么：产物号 / 外链先出现就立刻收（状态字段常常比产物字段晚一两个心跳）。
        失败以 Api.parseItem 的判定为准 —— 它已经把「认不出的中间态」归到进行中，不会一次就误报失败。 */
     for (let i = 0; i < 120; i++) {
-      await new Promise(r => setTimeout(r, 2500));
+      /* 先问一次再等：切页之前发出去的那一批多半早就在平台做完了，
+         「睡 2.5 秒才问第一回」等于每条白等一轮 —— 而认领那一趟是逐条串着的，几条就是几轮。
+         首问不多发请求：本来每一轮也要问一次。 */
+      if (i) await new Promise(r => setTimeout(r, 2500));
       let raw = null;
       try { raw = (await Api.pollTask(prov, id)).raw; } catch (e) { continue; }
       const p = raw ? Api.parseItem(prov, raw) : null;
@@ -4124,6 +4164,186 @@ window.AiGen = {
     if (!prov) return Promise.reject(new Error('这一家平台现在不在注册表里了（可能被删掉或改了 id）'));
     if (!id) return Promise.reject(new Error('没有任务号'));
     return this.wait({ prov: prov, id: id, want: (o && o.want) || 1, fmt: (o && o.fmt) || 'png', prompt: (o && o.prompt) || '' }, o);
+  },
+};
+
+/* ============================================================================
+   AdvParams —— 「高级设置里那几档参数」的取值口径，只有一份（生成工作台 + 导演台共用）
+     为什么要有这一块：同一件事以前有四份实现 ——
+       · 工作台图像栏 `renderImageParams` + `fillSel`（选项现读声明、回落看「用户点过没有」）
+       · 工作台视频栏 `renderVideoParams`（同一套判据，另写一遍）
+       · 导演台画面块 `kfOpt` / `kfImgParams`（又是同一套，多了「跟随这一镜」）
+       · 导演台视频块（`tiers` / `ars` / `ress` 直接在模板串里 `=== 现值 ? 'selected' : ''`，
+         连回落都没有：存的档位被平台下架之后，界面显示第一项、发出去的是另一项）
+     四份各自漂开的结果本项目已经反复撞上：「界面写着 A、提交体里是 B」「摘要与下拉各格式化一次」
+     （`png` vs `PNG`）、`TIER_ZH` 在两个页面各抄一份。所以这里收口成一份**纯判据**：
+     算出每一档的「清单 / 当前值（含回落）/ 显示名 / 这一档出现吗 / 真正发出去的那个值」，
+     再顺手拼出摘要与提交体要带的那一份。
+     **页面各自的 DOM 画法不在这里**：工作台是「控件常驻 DOM、换类型不重建」（故意的，
+     否则换一次档用户挑过的值全丢），导演台是「整块随编辑器重绘」——
+     两种都从同一份 `plan()` 取值，就只剩「怎么把值摆进 select」这一层是各页的。
+     折叠外壳（`fold`）也在这一层：三块面板各自写「点标题 → toggle closed → 落盘」迟早写成三种。
+   ========================================================================== */
+window.AdvParams = {
+  /* 中文名表只在这里有一份。导演台与工作台以前各抄了一份 `TIER_ZH`（一字不差），
+     平台新增一个档位时两边都会显示成英文原值，而界面看起来「已经支持了」。 */
+  TIER_ZH: { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' },
+  RATIO_ZH: { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4',
+    '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' },
+  /* 每一档：清单从 `options` 的哪个字段来、默认值从 `defaults` 的哪个键来、
+     提交体里叫什么（与 `Api.createBody` 的标准字段同名）、界面上叫什么、摘要里带什么单位。
+     `label` 是**这一档在界面上的名字**，两个页面的控件标题与摘要里那句「按平台默认」都读它
+     （以前工作台写「画面比例 / 质量」、导演台写「画幅 / 画质」，同一个档两套叫法）。
+     `unit` 除了摘要里的单位，还决定按档计价那句「· N积分/张」的尾巴 —— 生图只有「张」这一种计量，
+     所以写在这一档的声明里，而不是让页面各传一份（工作台传了「/张」、导演台没传，
+     同一档在两个页面上就一个写「12积分」一个写「12积分/张」）。
+     `keepEmpty` = 空串是这一档的**一个真取值**（「跟随画面自己的比例」），不是「还没选」；
+     `many` = 只有一项时不必摆下拉（只有一个格式可选的下拉是假控件），但**声明了照发** ——
+     「界面没这一档」与「提交体没这个字段」是两件事，前者看 `on`、后者看有没有声明。 */
+  SPEC: {
+    tier: { opt: 'tiers', def: 'tier', field: 'tier', label: '档位' },
+    quality: { opt: 'qualities', def: 'quality', field: 'quality', label: '画质', unit: '张' },
+    resolution: { opt: 'resolutions', def: 'resolution', field: 'res', label: '画质' },
+    aspect_ratio: { opt: 'aspect_ratios', def: 'aspect_ratio', field: 'ar', label: '画面比例', keepEmpty: true },
+    size: { opt: 'sizes', def: 'size', field: 'size', label: '尺寸' },
+    output_format: { opt: 'output_formats', def: 'output_format', field: 'format', label: '格式', many: true },
+    duration: { opt: 'durations', def: 'duration', field: 'duration', label: '时长', unit: '秒', numeric: true },
+    count: { opt: 'max_outputs', def: 'output_count', field: 'count', label: '生成条数', unit: '条', many: true, numeric: true },
+  },
+  IMAGE_KINDS: ['quality', 'aspect_ratio', 'size', 'output_format', 'count'],
+  VIDEO_KINDS: ['tier', 'resolution', 'aspect_ratio', 'size', 'duration', 'count'],
+  /* 显示名只有一份：下拉里的文字、摘要里的那一项、归档日志里的写法，全部过它。
+     （撞过的红：下拉写 `png`、摘要写 `PNG` —— 同一个值格式化两次，改一处就对不上。） */
+  label(kind, v, model, unit) {
+    if (v === undefined || v === null || v === '') return '';
+    const s = String(v);
+    let t = kind === 'quality' ? ((window.AiGen && AiGen.QUALITY_ZH[s]) || s)
+      : kind === 'tier' ? (this.TIER_ZH[s] || s)
+        : kind === 'aspect_ratio' ? (this.RATIO_ZH[s] || s)
+          : kind === 'output_format' ? s.toUpperCase()
+            : kind === 'duration' ? s + ' 秒'
+              : kind === 'count' ? s + ' ' + (unit || '条')
+                : s;
+    /* 价格挂在型号上（`model.price[档位]`），只有按档计价的平台才有；单位跟着这一档的计量走
+       （图片是「积分/张」、视频是「积分/条」），别在页面各拼一句。 */
+    const p = model && model.price && model.price[s];
+    if (p != null && (kind === 'quality' || kind === 'tier' || kind === 'resolution')) t += ' · ' + p + '积分' + (unit ? '/' + unit : '');
+    return t;
+  },
+  /* 一族的参数全算一遍：`o.kinds` 要算哪几档、`o.ids` 页面控件名（回显给调用方接线用）、
+     `o.cur` 页面现在存的值、`o.touched` 用户亲手点过哪几档（没有这份账就传 null）、
+     `o.follow` 空值时借用谁（只在型号声明里收这个值时才借，借不上就照实说）、
+     `o.combo` + `o.scoped` 按输入模式取档（Capabilities.scopedOptions）。 */
+  plan(model, o) {
+    o = o || {};
+    const m = model || {};
+    const raw = (o.scoped && window.Capabilities && Capabilities.scopedOptions)
+      ? (Capabilities.scopedOptions(m, o.combo) || {}) : (m.options || {});
+    const defs = raw.defaults || {};
+    const cur = o.cur || {}, touched = o.touched || null, follow = o.follow || {}, ids = o.ids || {}, units = o.units || {};
+    const kinds = {};
+    const payload = {};
+    (o.kinds || Object.keys(this.SPEC)).forEach(k => {
+      const s = this.SPEC[k];
+      if (!s) return;
+      let list = [];
+      if (k === 'count') {
+        const n = Number(raw.max_outputs) > 0 ? Math.max(1, Math.floor(Number(raw.max_outputs))) : 0;
+        list = n > 0 ? Array.from({ length: n }, (_, i) => i + 1) : [];
+      } else if (k === 'duration') {
+        /* 时长只有「区间」声明（[4,15]）才展开成每一秒一档；写成两个数而后者更小会得到 NaN */
+        const d = raw.durations;
+        list = (Array.isArray(d) && d.length === 2 && Number(d[1]) >= Number(d[0]) && Number(d[0]) > 0)
+          ? Array.from({ length: Number(d[1]) - Number(d[0]) + 1 }, (_, i) => Number(d[0]) + i) : [];
+      } else list = (raw[s.opt] || []).map(String);
+      const has = v => v !== undefined && v !== null && v !== '' && list.some(x => String(x) === String(v));
+      const dflt = s.def ? defs[s.def] : undefined;
+      const prev = cur[k];
+      const f = follow[k];
+      /* 回落的顺序就是这五条（每一页以前都在这里各写一遍，写法还不一样）：
+         ① 「跟随」是一个真取值 → 空串留着，不参与回落；
+         ② 用户没点过这一档、而声明里有默认档 → 用默认档（能力刷新时自动跟上平台改口）；
+         ③ 现值还在清单里 → 保住用户挑的那个；
+         ④ 数字档（秒数 / 条数）且现值是个数 → **夹到最近的那一档**：导演台的时长是个滑块，
+            12 秒的镜头换到 4–6 秒的型号上应该是 6 秒，跳回最短的那一档等于把人家排好的时间轴打乱
+            （这是导演台原来的 clamp 语义，收进公共层一份，不再两处各写）；
+         ⑤ 剩下的（档位被平台下架、换过型号）→ 默认档，再没有就第一项。 */
+      let value;
+      const near = () => {
+        const n = Number(prev);
+        let best = list[0], bd = Infinity;
+        list.forEach(x => { const d = Math.abs(Number(x) - n); if (d < bd) { bd = d; best = x; } });
+        return String(best);
+      };
+      if (s.keepEmpty && (prev === '' || prev === undefined || prev === null) && f) value = '';
+      else if (touched && !touched[k] && has(dflt)) value = String(dflt);
+      else if (has(prev)) value = String(prev);
+      else if (s.numeric && Number.isFinite(Number(prev)) && prev !== '' && prev !== null && prev !== undefined) value = near();
+      else if (has(dflt)) value = String(dflt);
+      else value = list.length ? String(list[0]) : '';
+      /* 真正进提交体的那一个：跟随档在「型号确实收这个值」时才借得到，否则一个字都不发
+         （借一个平台不收的写法进去必被拒，这正是导演台画面块上一轮修掉的那件事）。 */
+      let sent = value, note = '';
+      if (!value && f) {
+        if (has(f.value)) { sent = String(f.value); note = (f.note || '跟随画面') + '（' + sent + '）'; }
+        else { sent = undefined; note = '按平台默认（不收 ' + (f.value || '这一档') + '）'; }
+      }
+      const unit = units[k] || s.unit || '';
+      kinds[k] = {
+        id: ids[k] || k, name: k, label: s.label, list: list, value: value, sent: sent, unit: unit,
+        on: !!list.length && !(s.many && list.length < 2),
+        min: k === 'duration' && list.length ? list[0] : 0,
+        max: k === 'duration' && list.length ? list[list.length - 1] : 0,
+        note: note,
+        text: v => this.label(k, v === undefined ? value : v, m, unit),
+      };
+      if (list.length && sent !== undefined && sent !== '') payload[s.field] = sent;
+    });
+    /* 摘要：只列**这一族真会用到的**那几档 —— 画出来的、以及「声明了但只有一个取值、
+       所以不摆下拉却照样发出去」的那几档（不列的话折叠状态下那句「发的是什么」就少一项，
+       而少写一项与多写一项一样是编）。没声明的档一个字都不上账。
+       顺序按 kinds 传的次序，单位与显示名与下拉同一份 `label`。 */
+    const bits = [];
+    if (o.prefix) bits.push(o.prefix);
+    (o.kinds || Object.keys(this.SPEC)).forEach(k => {
+      const x = kinds[k];
+      if (!x) return;
+      /* 有取值时只写取值（下拉里也是这样，两处同一句）；只有「借来的 / 发不出去」这种
+         note 才带档名 —— 它没有值可指，不带名字就不知道在说哪一档。 */
+      if (x.on) bits.push(x.note ? x.label + x.note : x.text());
+      else if (x.note) bits.push(x.label + x.note);
+      else if (x.sent !== undefined && x.list.length === 1) bits.push(x.text());
+    });
+    return { model: m, options: raw, defaults: defs, kinds: kinds, payload: payload, summary: bits.filter(Boolean).join(' · ') };
+  },
+  /* 一档的 `<option>` 列表：`value` 属性是**声明里的原始值**（提交体用的那一个），
+     看得见的文字过 `label()` —— 下拉与摘要因此永远不会一个写 `png` 一个写 `PNG`。
+     `o.first` 是页面自己那一行「跟随 …」：它的值必须是空串，且只有 plan 真的把这一档
+     判成空值时才带上 selected（借不到值时 plan 已经回落成实值，选它就得选实值那一项）。
+     两种画法都吃这一份：导演台整块重绘拼字符串，工作台给常驻的 select 换 innerHTML。 */
+  optionsHTML(k, o) {
+    if (!k) return '';
+    o = o || {};
+    const one = (v, txt, on) => '<option value="' + window.esc(v) + '"' + (on ? ' selected' : '') + '>' + window.esc(txt) + '</option>';
+    return (o.first ? one('', o.first, k.value === '') : '')
+      + k.list.map(v => one(String(v), k.text(v), String(v) === k.value)).join('');
+  },
+  /* 折叠外壳：点标题收起/展开，并把状态按调用方给的键落盘（工作台一块、导演台两块，键各一个）。
+     打开时写空串而不是 '0'：工作台那份存量数据就是空串，别为了统一去改用户已经存着的键。
+     「这一档面板现在是收起的」只有 `closed()` 一份判据，模板据此写初始 class ——
+     页面再存一份模块变量的话，点过折叠之后那份变量就是旧的，重绘时面板自己弹开/收起。 */
+  closed(key) {
+    try { return localStorage.getItem(key) === '1'; } catch (e) { return false; }
+  },
+  fold(head, box, key) {
+    if (!head || !box) return () => { };
+    box.classList.toggle('closed', this.closed(key));
+    const fn = () => {
+      box.classList.toggle('closed');
+      try { localStorage.setItem(key, box.classList.contains('closed') ? '1' : ''); } catch (e) { }
+    };
+    head.addEventListener('click', fn);
+    return () => head.removeEventListener('click', fn);
   },
 };
 
@@ -4921,58 +5141,15 @@ window.TextAI = {
       + '5. 消息里附了参考图时，主体长相与画风以参考图为准，别用文字复述画面细节。\n'
       + '6. 不编造人物姓名与品牌。\n\n'
       + '只输出 JSON。',
-    /* ---- 拍短剧（drama.html）传给三类 AI 的指令 ----
-       花括号 {xxx} 是本项目的占位符，由 drama.js 在提交前替换成当次的事实（总时长、画幅、外貌、台词…）；
+    /* ---- 素材库（chars.js）出图与配音用的两条指令 ----
+       花括号 {xxx} 是本项目的占位符，由 chars.js 在提交前替换成当次的事实（画幅、外貌、角色清单…）；
        改指令时占位符可以挪位置、可以删，但别改成别的名字 —— 程序只认这一套。
-       drama_story 是入口页「AI 帮我完善」（散文，允许反问）；
-       下面三条不走「反问」那一段（短剧缺的信息由这三条自己补全），所以写在 NO_ASK 里。 */
-    drama_story: '你是短剧编剧助手。用户给你一句或一段故事点子，把它写成**能直接拆成分镜的短剧故事梗概**。\n\n'
-      + '要求：\n'
-      + '1. 3~5 段话，讲清：主要人物（给名字）、他/她想要什么、拦着的是什么、转折点在哪、结尾留一个钩子。\n'
-      + '2. 情节要能拍：写看得见的动作与场景，不写内心独白式的抽象描述。\n'
-      + '3. 保留用户已经定下的人名、设定与结局走向，不要改成另一个故事。\n'
-      + '4. 台词可以暗示，但不要在这里写完整对白（后面会由拆剧本那一步逐句生成）。\n'
-      + '5. 用户没给的细节（时代、地点、职业）自己补一个常见的，别为这些小事反问；'
-      + '真的缺了会明显改变成片效果的信息，就按下面「补充信息」那段问，**别把问题写进正文**。\n\n'
-      + '禁止：不要解释、不要小标题、不要 markdown，只输出故事正文。',
-    drama_split: '你是一位短剧编剧兼分镜师。用户给你一段故事，你要把它拆成可以直接拍的短剧剧本。\n\n'
-      + '拆法：先定角色与场景，再按「谁、在哪、说什么」把故事切成若干段；每一段都要能一次拍完。\n\n'
-      + '硬性要求：\n'
-      + '1. 整集目标时长约 {duration} 秒。**这一家视频平台能出的单段时长只有这几个档：{durs} 秒** —— '
-      + '每段的 wantSec 只能从这几个数里挑，挑中间的值没有意义（平台会把它吸到某一档，'
-      + '等于你白填，还可能吸到比台词需要的更短的那一档）。台词多的剧情要自己拆成多段，'
-      + '段数由你按总时长和剧情密度决定；每一段都不超过 {maxShot} 秒。\n'
-      + '2. {duration} 只是用户给的目标。**这个目标合不合适由你判断**：按这个故事的信息量，'
-      + '太短就把情节压成一句话、太长就得靠空镜凑 —— 需要调整时，在顶层 `duration` 里返回你定的整集秒数，'
-      + '并让每段的 wantSec 加起来对得上它；合适就原样返回同一个数。\n'
-      + '3. 每段的 wantSec 按「这一段的台词念完要多久」挑**装得下的最小那一档**。{caps}\n'
-      + '   **所以拆段时按台词的字数来卡**：一档装不下就把它拆成两段（说话人分两句说、'
-      + '或者一个人说一句另一个人接一句），而不是把这一段塞进长档了事 —— '
-      + '塞进长档拍出来就是后面拖一大段空镜。\n'
-      + '   **不要所有段都填同一个数**：台词少的段落填最短档，台词多的段落才用长档。\n'
-      + '4. 画风、光线、色调、氛围由你按剧情决定，并为**每一段**写一句 style（例如「冷调夜戏，手持跟拍」）——'
-      + '用户没有指定画风，不要在追问里反问，直接定。\n'
-      + '5. 角色：给名字、身份、性格、外貌（要能画出来：年龄、脸型、发型、服装）；出镜的 kind="actor"，只出声的 kind="narrator"。\n'
-      + '6. 场景：给名字与一段环境描述（空间、摆设、光线），必须能直接当画面提示词用。\n'
-      + '6b. 道具：把剧情里**靠它推动、或者反复出现的那一两件实物**认下来（信、手机、伞、名单、钥匙、行李箱…），'
-      + '给 name（短，2~6 字）、bio（一句话：什么用、在哪几段出现）、look（材质、颜色、大小、磨损，要能照着画）。'
-      + '**只认真正出镜的物件**——墙上的挂钟、地上的水渍、路人身上的衣服这类背景杂物不要列。'
-      + '这一栏可以为空（没有关键道具就写 []，别硬凑）。\n'
-      + '7. 分段：每段给标题、场景、时间、出场角色、**逐句台词**（who 用角色名，每句不超过 25 字、口语化）、'
-      + '镜头（1~3 个，写清画面内容与景别运镜）、开头那一帧的画面描述 openDesc。\n'
-      + '8. 相邻两段如果发生在**同一个场景、人物接着上一段的状态**，把 link 写成 "auto"（拍摄时会把上一段最后一帧当作下一段的首帧参考，'
-      + '保证人和场景前后一致）；换了场景或不需要相接就写 "off"。\n'
-      + '9. 画幅 {ratio}。\n'
-      + '{cast}\n\n'
-      + '禁止：不要解释、不要 markdown 代码块、不要输出 JSON 以外的任何字符；不要新增用户没提的主线剧情；不要编造品牌名。\n\n'
-      + '只输出 JSON，格式：\n'
-      + '{"title":"这一集的名字","duration":60,"characters":[{"name":"…","kind":"actor|narrator","bio":"一句话人设","look":"外貌"}],\n'
-      + '"scenes":[{"name":"…","desc":"环境描述"}],\n'
-      + '"props":[{"name":"…","bio":"什么用、在哪几段出现","look":"外观设定"}],\n'
-      + '"shots":[{"title":"…","scene":"场景名","time":"深夜|白天|黄昏|清晨",\n'
-      + '"style":"这一段画风","link":"auto|off","chars":["角色名"],"lines":[{"who":"角色名","text":"台词"}],\n'
-      + '"shots":[{"desc":"镜头内容","camera":"景别/运镜","sec":3}],"openDesc":"开头那一帧的画面","wantSec":4}]}',
-    drama_image: '你是短剧的美术设定师，为下面这一张图写出**文生图模型能直接吃的高质量中文提示词**。\n\n'
+       2026-10 拍短剧页删除：这一族原有 13 条，现在只剩下面两条 —— 素材库出图（char_image）
+       与角色定音色（char_voice）。拆剧本 / 道具图 / 视频提示词 / 开头画面 / 细分镜头 /
+       一句话改写 / 机位候选 / 设定补写那几条跟着拍短剧页一起删了。
+       键名由 drama_ 改成 char_ 前缀：用户在设置页改过的文案存在 sk_polish_drama_image / _voice，
+       搬运由 ui.js 的 migrateRenamedKeys() 一次性做完（连 .data 里那份镜像一起）。 */
+    char_image: '你是美术设定师，为下面这一张图写出**文生图模型能直接吃的高质量中文提示词**。\n\n'
       + '这一张是：{what}\n'
       + '角色/场景：{name}\n'
       + '外貌或环境设定：{look}\n'
@@ -4987,43 +5164,9 @@ window.TextAI = {
       + '只输出提示词本身，不要标题、引号、编号或解释。',
     /* 道具图**单独一条指令**（2026-10）：道具与角色/场景的画法不一样 ——
        要的是「一件物品的完整陈列」，提示词里写一句「不要人物/不要手/不要环境」就够，
-       混在 drama_image 的 {what} 里等于把这一条铁律交给调用方每次现写，
+       混在 char_image 的 {what} 里等于把这一条铁律交给调用方每次现写，
        少写一次道具图上就多出一个人，而它是要整集每段当参考图发出去的。 */
-    drama_prop: '你是短剧的道具设定师，为下面这一件道具写出**文生图模型能直接吃的高质量中文提示词**。\n\n'
-      + '这件道具：{name}\n'
-      + '设定：{look}\n'
-      + '整集画风取向：{style}\n'
-      + '画幅：{ar}\n\n'
-      + '硬性要求：\n'
-      + '1. 按「整件物品 → 材质与工艺 → 颜色与磨损 → 构图（居中/微距/平视）→ 光线与背景 → 风格与媒介」组织成一段连贯中文。\n'
-      + '2. **画面里只有这一件物品本身**：不要人物、不要手、不要身体、不要环境场景、不要包装盒、不要第二件配件。\n'
-      + '3. 物品要**完整入镜**、轮廓清楚，四条边都看得见（不要裁掉一角、不要只拍局部特写）。\n'
-      + '4. 严格沿用上面的设定，不要换成另一件东西；设定里没写的细节可以补，但要常见、要有年代感。\n'
-      + '5. 背景写「纯净浅色背景 + 柔和侧光」，方便它被裁成参考图。\n'
-      + '6. 结尾必须带上：无文字、无水印、无字幕。\n\n'
-      + '只输出提示词本身，不要标题、引号、编号或解释。',
-    drama_video: '你是短剧的分镜师，把下面这段剧情写成**视频生成模型能直接吃的高质量中文提示词**。\n\n'
-      + '这一段要的画面：{open}\n'
-      + '镜头：{shots}\n'
-      + '台词（角色用中文原声说出来）：{lines}\n'
-      + '出场人物（按参考图里的那张脸画，别换人）：{cast}\n'
-      + '人物特点备查（性格、背景、外貌细节）：\n{traits}\n'
-      + '场景：{scene}\n'
-      + '这一段画风：{style}\n'
-      + '时长 {sec} 秒，画幅 {ar}。\n\n'
-      + '硬性要求：\n'
-      + '1. 按「主体 → 动作 → 场景与时间 → 光线与色调 → 镜头语言 → 氛围质感」组织成一段连贯中文。\n'
-      + '2. 镜头语言落到具体动作（缓慢推进、固定特写、手持跟随…），不要写「镜头感很好」这类空话。\n'
-      + '3. 台词要念得完：按给定时长安排说话节奏，别塞进念不完的内容。\n'
-      + '4. 人物长相、服装必须与参考图一致，段与段之间不能换人换装 —— '
-      + '**长相由参考图负责，别用文字把外貌再复述一遍**。\n'
-      + '5. 「人物特点备查」那一栏**由你自己取舍**：只写进这一段真的看得出来的那几条'
-      + '（例：特写里能看见的旧疤、符合当下情绪的性格），与这一段画面无关的（背景故事、职业、'
-      + '这幕里看不到的细节）一条都不要抄进去；整栏都用不上就一个字也别提。\n'
-      + '6. 不要编造品牌、招牌文字、额外人物。\n\n'
-      + '禁止：画面里不要字幕、不要水印、不要标题卡。\n\n'
-      + '只输出提示词本身，不要解释、不要 markdown。',
-    drama_voice: '你是短剧的配音导演。下面这一集的角色清单来了，你要**逐位**决定：这一位的声音从哪里来，'
+    char_voice: '你是素材库的配音导演。下面这一集的角色清单来了，你要**逐位**决定：这一位的声音从哪里来，'
       + '并把要用的东西写出来。\n\n'
       + '这家语音平台能提供的定音色方式（只能从这里选，写别的方式发不出去）：\n{ways}\n\n'
       + '可选的预设音色清单（way="preset" 时 voice 必须**一字不差**地用下面某一行的 id）：\n{preset}\n\n'
@@ -5046,92 +5189,6 @@ window.TextAI = {
       + '{"roles":[{"name":"角色名","way":"clone|design|preset","voice":"预设清单里的 id，或空",'
       + '"note":"音色描述，或空"}]}',
 
-    /* ---- 拍短剧 · 设定补写（2026-10 从 drama.html 的内联字符串搬到这里）----
-       这五条以前直接写死在页面里：用户改不到、设置页列不出来、页面一改文案就与别处走样。
-       搬进 DEF 之后它们与别的指令一样「用户改过的优先、没有就用默认」，也能在设置页按分类找到。
-       它们都是「一次把活干完」的短任务（缺的信息自己补），所以全在 NO_ASK 里。 */
-    drama_look: '你是美术设定师。把用户写的角色外貌补成一条能直接拿去画定妆照的描述。\n\n'
-      + '角色：{name}\n'
-      + '人设：{bio}\n'
-      + '用户写的外貌：{look}\n\n'
-      + '要求：\n'
-      + '1. 写清年龄、脸型五官、发型发色、体型、皮肤质感、常穿的衣服与配饰 —— 要具体到能照着画出来。\n'
-      + '2. **保持与原文一致**：用户写了什么就保留什么，不要替换人物、不要新增人物、不要改年龄。\n'
-      + '3. 原文没提到的部分自己补，补出来的要常见、要在同一设定里说得通，不要堆砌形容词。\n'
-      + '4. 写成一两句话，不要分段、不要列条目。\n\n'
-      + '只输出描述本身，不要解释、不要 markdown、不要引号。',
-    drama_scenedesc: '你是场景设定师。把用户写的场景补成一段能直接当画面提示词用的描述。\n\n'
-      + '场景：{name}\n'
-      + '时段：{time}\n'
-      + '用户写的描述：{look}\n\n'
-      + '要求：\n'
-      + '1. 写清空间大小、结构、材质、主要摆设与陈设、光线来源与方向、色调、时间氛围。\n'
-      + '2. **保持与原文一致**，不要换成另一个地方；原文没写的部分自己补，补得具体、能照着画。\n'
-      + '3. 这是**空场景**（还没有人站进去）：不要写人物、路人、剪影。\n'
-      + '4. 结尾不要写镜头运镜（那是拍摄那一步的事），也不要写文字、招牌与字幕。\n'
-      + '5. 写成一整段，不要列条目。\n\n'
-      + '只输出描述本身，不要解释、不要 markdown、不要引号。',
-    drama_propdesc: '你是美术设定师。把用户写的这件道具补成一条能直接拿去画陈列图的描述。\n\n'
-      + '道具：{name}\n'
-      + '用途：{bio}\n'
-      + '用户写的描述：{look}\n\n'
-      + '要求：\n'
-      + '1. 写清材质、工艺、颜色、大小比例、形状细节、使用痕迹（磨损、划痕、锈迹、折痕）与年代感。\n'
-      + '2. **保持与原文一致**，不要换成另一件东西；原文没写的部分自己补。\n'
-      + '3. 描述的是**这一件物品本身**：不要写人物、手、房间、桌面，也不要提别的配件。\n'
-      + '4. 写成一两句话，不要列条目。\n\n'
-      + '只输出描述本身，不要解释、不要 markdown、不要引号。',
-    drama_open: '你是分镜师。把这一段的开头画面描述写细。\n\n'
-      + '这一段的开头：{desc}\n'
-      + '出场人物：{cast}\n'
-      + '场景：{scene}\n\n'
-      + '要求：\n'
-      + '1. 一句话说清：人物在哪、在做什么、光线什么感觉、镜头多近（景别）。\n'
-      + '2. 保持原意，不要改成另一个动作或另一个画面。\n'
-      + '3. 不要写镜头运镜（推拉摇移由拍摄那一步统一处理），不要写台词、字幕、水印。\n\n'
-      + '只输出这一句描述，不要解释、不要 markdown。',
-    /* 细分镜头里**某一镜**的画面描述（第 3/4 步右栏展开一镜后那个「AI 优化」）。
-       与 `drama_open` 分开：那是「整段的开头那一眼」，这一条是「这一段第 N 镜里发生什么」——
-       同一句话套用会出现「把整段的开场又写一遍」或「补一个不在这一镜里的人物」。
-       `{size}` / `{camera}` 是用户已经选定的景别与机位，**照抄不要改**：
-       程序把这两个值原样拼在描述后面交给视频模型，模型在这里另写一套就会和下拉里选的对不上。 */
-    drama_subshot: '你是分镜师。把下面这一镜的画面描述写细。\n\n'
-      + '这一镜现在的写法：{desc}\n'
-      + '这一段已经选定的景别：{size}\n'
-      + '这一段已经选定的机位：{camera}\n'
-      + '出场人物：{cast}\n'
-      + '场景：{scene}\n\n'
-      + '要求：\n'
-      + '1. 一句话说清：这一镜里人物在做什么、在画面哪个位置、光线什么感觉。\n'
-      + '2. **保持原意**，不要改成另一个动作、另一个画面，也不要补不在这一镜里的人物。\n'
-      + '3. 不要写台词、字幕、水印，也不要重写景别与机位（那两栏用户自己选）。\n'
-      + '4. 这一镜只有 ' + '{sec}' + ' 秒左右，所以只写这个时间跨度内看得见的东西，不要跨镜。\n\n'
-      + '只输出这一句描述，不要解释、不要 markdown。',
-    drama_retouch: '你是分镜师。用户会给一段短剧的当前写法与一句修改要求，你要**只按那句话**改这一段。\n\n'
-      + '要求：\n'
-      + '1. 台词、角色、场景、段落标题**一律不改**；只改镜头内容、景别运镜与时长。\n'
-      + '2. 镜头数量与原来一致。\n'
-      + '3. 用户那句话里点名的元素必须全部落实（例：「机位压低一点」→ 每一镜的 camera 都要真的压低）。\n'
-      + '4. 只输出 JSON，不要解释、不要 markdown：\n'
-      + '{"openDesc":"改后的开头画面描述","shots":[{"desc":"镜头内容","camera":"景别与运镜","sec":3}]}',
-    drama_camera: '你是分镜师。用户要为一个镜头挑机位，你要给出几个**明显不同**的机位方案。\n\n'
-      + '这一段的开头画面：{desc}\n'
-      + '出场人物：{cast}\n'
-      + '场景：{scene}\n'
-      + '现在用的机位：{cur}\n\n'
-      + '要求：\n'
-      + '1. 给 **{n} 个**方案，**彼此要在方位或景别上真的不一样**'
-      + '（比如一个中景平视、一个近景俯视、一个远景侧逆光）—— 三个都写「中景平视」等于只给了一个。\n'
-      + '2. 每个方案两个字段：\n'
-      + '   · `label`：**给人看的标签**，4~10 个字，格式照「左前方·中景」「正面·大俯拍·远景」'
-      + '（方位或角度 + 「·」 + 景别），不要超过 10 个字。\n'
-      + '   · `desc`：**给生图 AI 的画面描述**，一到两句，写清机位怎么摆、景别多近、'
-      + '人物在画面里的位置与视线方向、光线从哪来。不要写运镜（推拉摇移由拍摄那一步处理），'
-      + '不要写台词、字幕、水印。\n'
-      + '3. 每个方案都要**能用上面的画面描述画出来**：场景、人物、动作保持原样，只换怎么看它。\n'
-      + '4. 至少有一个方案贴近「现在用的机位」或它的反面，方便用户对照，不至于全部推翻重选。\n'
-      + '5. 只输出 JSON，不要解释、不要 markdown：\n'
-      + '{"cams":[{"label":"左前方·中景","desc":"……"},{"label":"……","desc":"……"}]}',
   },
   /* ---------- 提示词的分类表（2026-10） ----------
      设置页「提示词润色」那张卡**按这张表画**：分类标题、每条的名称、它用在哪、占位符说明全在这里。
@@ -5159,66 +5216,29 @@ window.TextAI = {
         { key: 'img_split', label: '图片片段拆分（一段描述 → 几张图的提示词）', used: '生成工作台「图像」栏「拆分片段生成」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"label":"片段名","prompt":"…"}]}`）。改这条时请保留 JSON 格式要求，否则拆分会直接报「没有给出可用的拆分方案」。' },
       ] },
-    { id: 'write', name: '拍短剧 · 写剧本',
-      note: '这两条决定「故事写成什么样」：一条把点子写成梗概，一条把梗概拆成能拍的分段。',
+    { id: 'charpic', name: '素材库 · 出图',
+      note: '素材库的预览图与各类设定图出图前，先由文字 AI 把设定写成高质量提示词，再交给图片 AI。',
       items: [
-        { key: 'drama_story', label: '故事完善（一句点子 → 能拆分的梗概）', used: '拍短剧第一页「✧ AI 帮我完善」',
-          tip: '这一条是**散文**，所以它会跟着下面「润色前要不要先反问」那个设置走；输出会原样写回故事框，你可以接着改。' },
-        { key: 'drama_split', label: '拆剧本（故事 → 角色 / 场景 / 分段）', used: '拍短剧「开始」把故事交给文字 AI 拆成可拍的分段',
-          ref: '要求文字 AI `只返回 JSON`，由它决定分几段、每段多长、每段画风。改这条时请保留 JSON 格式要求。\n`{duration}` = 整集总时长（秒，页面上填的那一个数），`{maxShot}` = 视频平台声明的单段上限，`{ratio}` = 画幅，`{cast}` = 已经定下的人与地方（沿留下来的那一批，以及选了「从素材库选」时库里已有的角色与场景），让它按同样的名字复用脸、音色与场景图。\n占位符可以挪位置、可以删，但别改成别的名字 —— 程序只认这一套。' },
+        { key: 'char_image', label: '角色脸 / 三视图 / 场景图提示词', used: '素材库页画预览图、角色资产（三视图 / 表情 / 服装 / 道具）',
+          ref: '占位符：`{what}` 要画什么（角色定妆照 / 三视图 / 空场景图）、`{name}` 角色或场景名、`{look}` 外貌与环境设定、`{style}` 这一段画风、`{ar}` 画幅。\n键名由 drama_ 改成 char_（2026-10），旧键由 ui.js 的 migrateRenamedKeys() 一次性搬过去。' },
       ] },
-    { id: 'asset', name: '拍短剧 · 素材出图',
-      note: '这几条决定「每一条素材长什么样」：出图前先由文字 AI 把设定写成高质量提示词，再交给图片 AI。',
-      items: [
-        { key: 'drama_image', label: '角色脸 / 三视图 / 场景图提示词', used: '拍短剧「认角色」那一步画脸、画三视图、画场景图',
-          ref: '占位符：`{what}` 要画什么（角色定妆照 / 三视图 / 空场景图）、`{name}` 角色或场景名、`{look}` 外貌与环境设定、`{style}` 这一段画风、`{ar}` 画幅。' },
-        { key: 'drama_prop', label: '道具图提示词', used: '拍短剧「认角色」→「道具」那一步画道具图',
-          ref: '占位符：`{name}` 道具名、`{look}` 道具设定、`{style}` 这一段画风、`{ar}` 画幅。\n道具图与角色/场景的画法不同（只要一件物品、完整入镜、不要人物），所以单独一条指令 —— 它要整集每段都作为参考图发出去，混进上一条里少写一句就多出一个人。' },
-      ] },
-    { id: 'shoot', name: '拍短剧 · 拍摄与画面',
-      note: '这几条决定「拍出来的那一段」：提交给视频 AI 的话、每一段的开头画面、以及「一句话改这一段」。',
-      items: [
-        { key: 'drama_video', label: '视频提示词', used: '拍短剧「拍这一段」提交给视频 AI 的那段话',
-          ref: '`{open}` 开头那一帧的画面、`{shots}` 镜头清单、`{lines}` 逐句台词、`{cast}` 出场人物、`{traits}` 人物特点备查、`{props}` 这一集认下的道具、`{scene}` 场景、`{style}` 这一段画风、`{sec}` 这一段时长、`{ar}` 画幅。\n这一条改坏的表现是「人物与参考图不一致 / 台词念不完」，因为程序把参考图与时长都按这里的说法交给模型。' },
-        { key: 'drama_open', label: '开头画面写细', used: '拍短剧第 3 步每段那一格「写细」',
-          ref: '占位符：`{desc}` 现在的开头描述、`{cast}` 出场人物、`{scene}` 场景。' },
-        { key: 'drama_subshot', label: '细分镜头写细', used: '拍短剧第 3/4 步右栏展开一镜后的「AI 优化」',
-          ref: '占位符：`{desc}` 这一镜现在的写法、`{size}` 用户已选的景别、`{camera}` 用户已选的机位、`{sec}` 这一镜约几秒、`{cast}` 出场人物、`{scene}` 场景。\n`{size}` / `{camera}` 是**照抄**给模型的参考（模型不该另写一套），改坏的表现是「下拉里选的景别和提示词里写的不一样」。' },
-        { key: 'drama_retouch', label: '一句话改这一段', used: '拍短剧第 3 步每段那一格「改这一段」',
-          ref: '要求文字 AI `只返回 JSON`（`{"openDesc":"…","shots":[{"desc":"…","camera":"…","sec":3}]}`）。改这条时请保留 JSON 格式要求：程序按它重写这一段的镜头，解析不出来就等于什么都没改。' },
-        { key: 'drama_camera', label: '机位候选', used: '拍短剧第 3 步每段那一格「机位」（出 N 张构图图让你挑）',
-          ref: `占位符：\`{n}\` 要几个机位方案、\`{desc}\` 这一段的开头画面、\`{cast}\` 出场人物、\`{scene}\` 场景、\`{cur}\` 现在用的机位。\n要求返回 \`{"cams":[{"label":"左前方·中景","desc":"给生图 AI 的画面描述"}]}\`，改坏的表现是「出不了候选图」——程序按它逐个出图，挑中的那张标签会写进这一段的镜头。` },
-      ] },
-    { id: 'voice', name: '拍短剧 · 声音',
+    { id: 'voice', name: '素材库 · 声音',
       note: '这一条决定「谁怎么出声」：它逐位决定每位角色的声音从哪里来。',
       items: [
-        { key: 'drama_voice', label: '给每位角色定音色', used: '拍短剧「认角色」→「✧ 让 AI 给每位角色定声音」',
-          ref: '`{ways}` = 这一家语音平台真能用的定音色方式（预设 / 声音描述 / 参考音频复刻），`{preset}` = 平台声明的预设音色清单（`id｜名字 · 语言 · 性别`），`{cast}` = 这一集的角色清单（人设、外貌、有没有本人的参考音频）。\n要求文字 AI `只返回 JSON`（`{"roles":[{"name":"…","way":"preset|design|clone","voice":"…","note":"…"}]}`），改这条时请保留 JSON 格式要求：程序按 `name` 对上角色、按 `way` 挑对应型号，音色 id 只认清单里真有的那一些（编一个 id 平台不认，要到配音时才报错）。' },
-      ] },
-    { id: 'desc', name: '拍短剧 · 设定补写',
-      note: '这几条是第 2 步那三颗「✧ AI 优化」：把你随手写的一句话补成能直接拿去画 / 去拍的设定。',
-      items: [
-        { key: 'drama_look', label: '角色外貌补细', used: '拍短剧「认角色」角色卡上的「✧ AI 优化」',
-          ref: '占位符：`{name}` 角色名、`{bio}` 一句话人设、`{look}` 你现在写的外貌。' },
-        { key: 'drama_scenedesc', label: '场景描述补细', used: '拍短剧「认角色」场景卡上的「✧ AI 优化」',
-          ref: '占位符：`{name}` 场景名、`{time}` 时段、`{look}` 你现在写的描述。' },
-        { key: 'drama_propdesc', label: '道具描述补细', used: '拍短剧「认角色」道具卡上的「✧ AI 优化」',
-          ref: '占位符：`{name}` 道具名、`{bio}` 用途、`{look}` 你现在写的描述。' },
+        { key: 'char_voice', label: '给每位角色定音色', used: '素材库页「✧ 让 AI 给角色定声音」与「画完就给他定声音」',
+          ref: '`{ways}` = 这一家语音平台真能用的定音色方式（预设 / 声音描述 / 参考音频复刻），`{preset}` = 平台声明的预设音色清单（`id｜名字 · 语言 · 性别`），`{cast}` = 这一次要定声音的角色清单（人设、外貌、有没有本人的参考音频）。\n要求文字 AI `只返回 JSON`（`{"roles":[{"name":"…","way":"preset|design|clone","voice":"…","note":"…"}]}`），改这条时请保留 JSON 格式要求：程序按 `name` 对上角色、按 `way` 挑对应型号，音色 id 只认清单里真有的那一些（编一个 id 平台不认，要到配音时才报错）。\n键名同样由 drama_ 改成 char_，旧键由 migrateRenamedKeys() 搬过去。' },
       ] },
   ],
   /* 取「用户改过的，没有就用内置默认」——页面与设置页共用这一份。
      askNote=true 时把「补充信息」那段也接上（只有会反问的三条润色指令要）。 */
-  /* 这些指令是「一次把活干完」的（短剧那四条：缺的信息由指令自己补全），
+  /* 这些指令是「一次把活干完」的（缺的信息由指令自己补全），
      接上「可以反问」只会让模型把输出变成问题，所以显式排除。
      **story / split 也在这一列里**（导演台那两条）：它们要的是 JSON / 结构化分镜，
      页面拿 `parseJsonLoose` / `parseFrames` 去解 —— 模型一旦先反问，解出来就是空，
      界面报「AI 没有给出可用的分镜结构」。而设置页把 `prompt('story')` 的结果**整段写回**
      `sk_polish_story`（那是用户在设置页里能改的那一栏），只要 ASK_NOTE 被拼上去，
      下一次打开设置页再点保存，导演台读到的就是带着「你可以追问」的指令。 */
-  NO_ASK: ['drama_split', 'drama_image', 'drama_prop', 'drama_video', 'drama_voice', 'story', 'split', 'drama_camera', 'img_split',
-    /* 设定补写那五条（2026-10 搬进 DEF）：它们要的是一段描述 / 一段 JSON，
-       模型先反问一句，页面就把这一格填成了一句话 —— 比不问更糟。 */
-    'drama_look', 'drama_scenedesc', 'drama_propdesc', 'drama_open', 'drama_retouch', 'drama_subshot'],
+  NO_ASK: ['char_image', 'char_voice', 'story', 'split', 'img_split'],
   /* 「没有存盘时这条指令应该长什么样」——**只算默认，绝不碰存盘**。
      两处共用这一份，免得各算一遍：
        · prompt()：没有存盘就返回它（用户改过的优先）
@@ -6289,7 +6309,7 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
 
     /* 「把挑来的这一张落成本机资产，要的是一个**记得住**的地址」。
        选择器递回来的条目有两种地址是「当场能用、过后就没了」：本地上传那张是 `blob:`（刷新即失效），
-       资产库/收藏那张可能是上游签名外链（只管一天）。而素材库存的是**字符串地址**（随 drama_chars 落盘），
+       资产库/收藏那张可能是上游签名外链（只管一天）。而素材库存的是**字符串地址**（随 char_lib 落盘），
        记进这两种就等于把一张已经不存在的图写进库里 —— 第二天卡片是破图，拍的时候也带不上它。
        本来就是本机资产的条目原样退回（`fresh:false`），不再存第二份。 */
     async toLocalAsset(source, opts = {}) {
@@ -6737,19 +6757,35 @@ async function liveModelsOf(prov) {
   const id = (prov && prov.id) || '';
   const hit = livePrice.get(id);
   if (hit && Date.now() - hit.at < LIVE_PRICE_TTL) return hit.list;
-  const r = await Api.request(prov, (prov && prov.pricing && prov.pricing.endpoint) || 'models');
-  const list = (r && (r.data || r.models)) || [];
-  livePrice.set(id, { at: Date.now(), list });
-  return list;
+  /* 拉失败也要记进那张表（list 记成 null）：不记的话每一次估价都要重新问一趟一个正在挂掉的接口，
+     60 秒 TTL 就成了「只缓存成功」的半边 —— 而调用方本来就已经会退回注册表声明的价。 */
+  try {
+    const r = await Api.request(prov, (prov && prov.pricing && prov.pricing.endpoint) || 'models');
+    const list = (r && (r.data || r.models)) || [];
+    livePrice.set(id, { at: Date.now(), list });
+    return list;
+  } catch (e) {
+    livePrice.set(id, { at: Date.now(), list: null });
+    throw e;
+  }
 }
 window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
   const pr = (prov && prov.pricing) || null;
   if (!pr) return { ok: false, reason: '该 API 未声明定价方式' };
   const n = Number(p.count || 1) || 1;
   const cur = pr.currency || '';
-  /* 现拉一次定价表；拉不到就只用注册表声明（离线也有个数），并在明细里说明来源 */
+  /* 现拉一次定价表；拉不到就只用注册表声明（离线也有个数），并在明细里说明来源。
+     **只有真的读这张表的两个分支才拉**（`per_image_table` 读 `liveEntry.pricing.perOutput`、
+     `per_second_table` 读 `liveEntry.pricing.perSecond`）—— 判据是「下面有没有读」，不是「有没有 pricing」。
+     以前不分类型先拉一次，而 `liveModelsOf` 取的端点写的是 `pricing.endpoint`：
+     VGENV 声明的那一个是**报价接口**（POST /v3/videos/quote），于是它被当成型号清单 GET 了一遍，
+     上游回 400 抛错 → 这一句被 try 吞掉、而 `livePrice` 因为抛错**不落缓存** →
+     每次估价（导演台每改一次时长、每次重渲染）都白打一趟平台接口，界面上却什么都看不出来。
+     `quote` 的价全部来自下面那一次实时报价，`per_1k_chars` 只按字数现算 —— 两个都一个字段都不读。 */
   let live = null, liveWhy = '';
-  try { live = await liveModelsOf(prov); } catch (e) { liveWhy = (e && e.message) || '取价失败'; }
+  if (pr.type === 'per_image_table' || pr.type === 'per_second_table') {
+    try { live = await liveModelsOf(prov); } catch (e) { liveWhy = (e && e.message) || '取价失败'; }
+  }
   const liveEntry = live ? live.find(x => x && x.id === (model && model.id)) : null;
   const where = liveEntry ? '实时价' : '平台声明价';
   try {

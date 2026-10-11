@@ -6,7 +6,7 @@
   if (!frame) return;
 
   const LAST = 'sb_last_page';
-  const PAGES = ['director.html', 'drama.html', 'chars.html', 'studio.html', 'favorites.html', 'assets.html', 'usage.html', 'settings.html'];
+  const PAGES = ['director.html', 'chars.html', 'studio.html', 'favorites.html', 'assets.html', 'usage.html', 'settings.html'];
   /* 三个工作台合并成一个 studio.html 之后，旧的页面名与别名都还指向它，并带上 ?t=<类型>：
      收藏进来的旧书签、别处的链接、AI 助手跳过来的落点都还能落在原来那一栏上。
      别名值里可以自带 ?t=…（下面 parse 会把它拆出来，file 仍是 studio.html，侧栏高亮才对得上）。 */

@@ -8,8 +8,8 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const J = path.join(ROOT, 'tests', 'selfcheck.cjs');
-const FILES = ['drama.html', 'assets.html', 'ident.js', 'assetlib.js', 'shell.html', 'proxy.js',
-  'drama.js', 'settings.html', 'studio.html', 'ai-chat.js', 'favorites.html', 'chars.html',
+const FILES = ['director.html', 'assets.html', 'ident.js', 'assetlib.js', 'shell.html', 'proxy.js',
+  'chars.js', 'settings.html', 'studio.html', 'ai-chat.js', 'favorites.html', 'chars.html',
   'workbench.js', 'ui.js'];
 /* ① 读进来时的字节就是唯一的还原依据 —— 绝不做「把 to 替换回 from」那种二次字符串还原：
       to 一旦是空串，replace('', x) 会把 x 插到文件最前面，当场污染源文件。 */
@@ -53,7 +53,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { safeR
 process.on('exit', safeRestore);
 
 const MUT = [
-  { sec: '§A', name: '兄弟函数里裸调局部 const（drama.html 那次的原样复现）', file: 'drama.html',
+  { sec: '§A', name: '兄弟函数里裸调局部 const（当年 drama.html 那次的原样复现；该页已删，改钉 director.html）', file: 'director.html',
     anchor: '<script src="assetlib.js"></script>',
     to: '<script src="assetlib.js"></script>\r\n<script>function __mutA__(){ const onlyHere = function(){return 1;}; return onlyHere(); } function __mutB__(){ return onlyHere(); }</script>' },
   { sec: '§A', name: '调一个压根没声明的名字', file: 'assets.html',
@@ -87,7 +87,7 @@ const MUT = [
   { sec: '§A', name: '反向对照：模块里通过形参传进来的回调调一次（应放行）', file: 'workbench.js', expectGreen: true,
     anchor: 'window.Wb = {',
     to: 'function __mutCb(near, step) { return step(); }\n  window.Wb = {' },
-  { sec: '§B', name: '模板串原始文本里写「块注释 + 反引号」', file: 'drama.html',
+  { sec: '§B', name: '模板串原始文本里写「块注释 + 反引号」（改钉在 director.html）', file: 'director.html',
     anchor: '<script src="assetlib.js"></script>',
     to: '<script src="assetlib.js"></script>\r\n<script>var __mutB__ = `前缀 /* 注释里有个反引号 ` 后面`;</script>' },
   { sec: '§C', name: '多出第二份 VOLATILE_Q 正则', file: 'ident.js',
@@ -123,25 +123,31 @@ const MUT = [
   { sec: '§H', name: '页面静态正文里出现 markdown 标记', file: 'settings.html',
     anchor: '<h1><span data-icon="gear" data-size="18"></span> 设置</h1>',
     to: '<h1><span data-icon="gear" data-size="18"></span> 设置 **这里不该有星号**</h1>' },
-  { sec: '§H', name: '界面赋值的那句提示里带 markdown 标记', file: 'drama.js',
-    anchor: '机位是每一段单独出的：',
-    to: '机位是**每一段**单独出的：' },
-  /* 这一条只钉住 UI_SINK 上新加的两个名字（sub / body）。
+  { sec: '§H', name: '界面赋值的那句提示里带 markdown 标记', file: 'chars.js',
+    anchor: '调大就是多画几张：',
+    to: '调大就是**多画几张**：' },
+  /* 这一条只钉住 UI_SINK 上新加的两个名字（sub / body）**与「以 + 开头的续写行往上找 3 行」那一条**。
      Confirm.ask / choose 的正文与副标题都走 textContent，星号会原样糊到用户脸上；
-     少了这一条，名单里写没写过它们看不出来 —— 上面那一条打在 `hint:` 上，替不了这一档。 */
-  { sec: '§H', name: 'Confirm.choose 的副标题里带 markdown 标记（认 sub 这一档才会红）', file: 'drama.html',
-    anchor: "sub: '下一集是新故事；画幅 / 画质 / 模型 / 配乐照这一集沿用',",
-    to: "sub: '下一集是新故事；**画幅 / 画质 / 模型 / 配乐**照这一集沿用'," },
-  { sec: '§H', name: '反向对照：给模型的系统提示词里用 markdown（应放行）', file: 'drama.js', expectGreen: true,
-    anchor: "const K_DRAMAS = 'dramas';",
-    to: "const __MUT_SYS__ = '请**严格**按下面的说明回答，不要凭空编造';\r\nconst K_DRAMAS = 'dramas';" },
+     少了这一条，名单里写没写过它们看不出来 —— 上面那一条打在 `hint:` 上，替不了这一档。
+     星号注在**续写行**上（不是 sub: 那一行）：那才是当年判据一声不吭的形态。 */
+  { sec: '§H', name: 'Confirm 弹窗副标题的续写行里带 markdown 标记（认 sub + 续写行这两档才会红）', file: 'settings.html',
+    anchor: "          + '用后者的密钥发这个地址，上游多半会以「密钥无效」拒绝。'",
+    to: "          + '用后者的**密钥**发这个地址，上游多半会以「密钥无效」拒绝。'" },
+  { sec: '§H', name: '反向对照：给模型的系统提示词里用 markdown（应放行）', file: 'assetlib.js', expectGreen: true,
+    anchor: "    char_image: '你是美术设定师，",
+    to: "    const __MUT_SYS__ = '请**严格**按下面的说明回答，不要凭空编造';\r\n    char_image: '你是美术设定师，" },
   /* §I 的三个分支各一个变异。第一个同时会打中「判断有两处」与「旧措辞复活」两档 ——
      写第二份内联口径这两件事是同时发生的，不该拆成两个变异充数。 */
   { sec: '§I', name: '某处改回内联写法（判断多出一处 + 旧措辞复活 + note 又被丢掉）', file: 'studio.html',
     anchor: "  const where = src ? Capabilities.srcTextOf(src) : '';",
     to: "  const where = src ? (src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）') : '';" },
+  /* ⚠ 这一条以前锚在一个单行三元 `return src.from === 'api' ? (…) : (…)` 上，
+     而 srcTextOf 早就改成 `if (src.from === 'api') { … }` 分块写法（为了塞 stale 那一句）。
+     锚点匹配不上 → replace 空转 → 变异根本没发生 → 这一档**一直**在报「通过」。
+     判据自己骗自己，所以改成锚在现存的 `return src.note || …` 那一行上：
+     把它换成内联的三元，旧措辞会复活，同时多出一处判断。 */
   { sec: '§I', name: 'srcTextOf 自己把 note 换成那句零信息的话', file: 'assetlib.js',
-    anchor: "    return src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底');",
+    anchor: "    return src.note || '按平台声明兜底';",
     to: "    return src.from === 'api' ? '来自上游 /models' : '来自本项目的平台声明（上游接口没给或不可用）';" },
   { sec: '§I', name: '某处不再调 srcTextOf（口径分叉，但措辞一个字没多）', file: 'studio.html',
     anchor: "    if (src) bits.push(Capabilities.srcTextOf(src));",

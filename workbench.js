@@ -126,6 +126,33 @@
     };
   }
 
+  /* ---------- 跨页 / 跨标签的「这边数据变了」总线 ----------
+     为什么要有这一份：外壳换页是把那一份 iframe **整个拆掉重建**的（见 app.js 的 loadFrame），
+     所以每一页的轮询器只在自己活着的那段时间管用。用户停在资产库上时，工作台的轮询器已经不存在了，
+     那边刚提交的任务这一页既不在列表里、也没人去问；反过来停在工作台时，导演台/短剧提交的任务同理。
+     表现就是用户说的那句「任务状态变了，不手动刷新页面卡片就不会自动变」。
+     BroadcastChannel 同源通用（同一标签页里的各个 iframe 之间、以及各标签页之间都能收到），
+     但**不会回声给发消息的那一个 channel 对象** —— 而本页恰恰也需要收到（刚存好一份产物的那
+     一页正是「右栏该出现成品」的那一页），所以 busEmit 里先手动跑一遍本地订阅者，再交给 channel。
+     三种消息：
+       · 'create' —— 某处提交了一条真任务（assetlib.js 的 Api.request 那一个出口）
+       · 'task'   —— 某页的轮询器问到了状态变化（Wb.poller 自己判的 dirty）
+       · 'local'  —— 某页刚往本机落了一份产物字节（AssetLocal 的镜像队列）
+     发的人只管发，收的人自己决定怎么补（各页订阅后按 Wb.busRefresh 合流，重拉一次列表）。
+     不会形成回声风暴：'task' 只在**状态真的翻转**那一次发，收到重拉列表并不再翻转；
+     'create'/'local' 同理各只发一次。没有 BroadcastChannel 的老浏览器只剩本页那一份，
+     行为不比原来差（原来连这一份都没有）。 */
+  const BUS = (function () {
+    let ch = null;
+    try { if (window.BroadcastChannel) ch = new BroadcastChannel('wb-bus'); } catch (e) { ch = null; }
+    const subs = new Set();
+    if (ch) ch.onmessage = e => {
+      const d = e.data || {};
+      for (const f of subs) { try { f(d.kind || '', d.detail || null); } catch (err) { console.warn('[Wb] 总线订阅者出错：', err); } }
+    };
+    return { ch, subs };
+  })();
+
   window.Wb = {
     ST,
     stText(s) { const t = norm(s); return ST[t] || s || ''; },
@@ -1308,6 +1335,11 @@
         B.push('<button class="ghost dl2" title="用浏览器默认方式下载">下载</button>');
       }
       if (run && o.cancel) B.push('<button class="ghost danger cx">取消</button>');
+      /* 平台没声明 cancel 端点时不画一颗点了只报错的按钮（AGENTS.md §2「界面要跟着能力显隐 / 禁用」)：
+         画一颗压暗的、把原因写在 title 上 —— 找不到「怎么停掉它」的人需要的是答案，不是一个消失的按钮。
+         判据在 Api.canCancel 一份，那句话在 Wb.cancelWhyNot 一份；两颗都只在「这一条还在跑」时才画（run 在这里判），
+         页面只决定给不给那句话 —— 否则一条已经完成的卡上也挂颗「取消不了」。 */
+      else if (run && o.cancelWhy) B.push('<button class="ghost danger cx" disabled title="' + esc(o.cancelWhy) + '">取消</button>');
       if (failed && o.retry) B.push('<button class="ghost rt"><span class="ic">' + icon('refresh', 12) + '</span> 重试</button>');
       if (o.remove) B.push('<button class="ghost danger del">删除记录</button>');
       if (o.removeFile) B.push('<button class="ghost danger delfile" title="删除本机文件（上游没有资产存储）">删除文件</button>');
@@ -1361,6 +1393,44 @@
         if (ok && o.onRemoveFile) await o.onRemoveFile(t);
       });
       return el;
+    },
+
+    /* ---------- 总线对外那几个口（定义见文件前面的 BUS） ---------- */
+    busEmit(kind, detail) {
+      const msg = { kind: kind, detail: detail || null };
+      /* 本页自己那份先走：BroadcastChannel 不会把消息投给发消息的那一个 channel 对象，
+         而「本页刚存好一份产物」恰恰是本页最该重拉列表的那一刻
+         （勾了「不显示云端任务」时，右栏那条卡片只有在本机出现这份字节之后才会变成成品）。
+         跨页 / 跨标签那一份交给 channel。 */
+      for (const f of BUS.subs) { try { f(msg.kind, msg.detail); } catch (e) { console.warn('[Wb] 总线订阅者出错：', e); } }
+      try { if (BUS.ch) BUS.ch.postMessage(msg); }
+      catch (e) { console.warn('[Wb] 总线发送失败：', e); }
+    },
+    /* 订阅：返回退订函数。没有 BroadcastChannel 时也照样收得到本页自己那一份
+       （上面 busEmit 里本地先走的那一圈），只是收不到别的标签页的。 */
+    busOn(fn) {
+      if (typeof fn !== 'function') return () => {};
+      BUS.subs.add(fn);
+      return () => BUS.subs.delete(fn);
+    },
+    /* 把「收到一条变化」包成「一段时间内最多反应一次」：一次批量镜像能连发几十条 'local'
+       （还有 'task' / 'create'），逐条重拉列表就是把平台的列表接口打爆
+       （它动辄 6~14 秒，而这一页正在等人家的结果）。
+       先立即跑一次、这段时间内的后续都攒到末尾再跑一次 —— 只攒不跑会漏掉最后那一条，
+       只跑不攒就是上面那个打爆；两头都要。 */
+    busRefresh(fn, ms) {
+      if (typeof fn !== 'function') return () => {};
+      const every = Math.max(1000, Number(ms) || 8000);
+      let last = 0, timer = null;
+      const go = () => {
+        timer = null; last = Date.now();
+        try { fn(); } catch (e) { console.warn('[Wb] 收到别处的变化之后刷新失败：', e); }
+      };
+      return () => {
+        if (timer) return;                       // 已经排了末尾那一次
+        const wait = every - (Date.now() - last);
+        if (wait <= 0) go(); else timer = setTimeout(go, wait);
+      };
     },
 
     /* ---------- 轮询器 ---------- */
@@ -1418,6 +1488,8 @@
           } else taskFails.delete(t);
         });
         if (dirty && o.onChange) { try { o.onChange(); } catch (e) { console.warn('[Wb] onChange 出错：', e); } }
+        /* 状态真的翻了才说一声（'task' 只在 dirty 那一次发）：别的页面据此重拉自己的列表。 */
+        if (dirty) window.Wb.busEmit('task', { label: label });
         schedule();
       }
       function schedule() {
@@ -2234,8 +2306,14 @@
          猜错家等于取消别人的任务。 */
       const p = prov || null;
       if (!p) throw new Error('不知道这条任务属于哪个平台（条目缺 provider），先刷新列表再取消');
-      if (!p.endpoints || !p.endpoints.cancel) throw new Error((p.displayName || p.name || p.id) + ' 没有声明取消接口（这个平台取消不了，任务会一直跑到出结果）');
+      if (!window.Api.canCancel(p)) throw new Error(window.Wb.cancelWhyNot(p));
       await window.Api.cancel(p, id);
+    },
+    /* 「这一家取不取消」那句话只在这里写一份：卡片上那颗压暗按钮的 title 与点下去的报错都用它。
+       说清后果（任务会跑完、可能计费）而不是只说「不支持」，否则用户会以为按钮坏了。 */
+    cancelWhyNot(prov) {
+      const n = prov && (prov.displayName || prov.name || prov.id) || '这个平台';
+      return n + ' 没有提供取消任务的接口：本机松手之后，平台上那条任务还是会跑完并计费。';
     },
   };
 })();

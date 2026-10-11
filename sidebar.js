@@ -115,7 +115,6 @@
 
   const items = [
     { file: 'director.html', ic: 'film', label: '导演台' },
-    { file: 'drama.html', ic: 'video', label: '拍短剧' },
     { file: 'chars.html', ic: 'users', label: '素材库' },
     /* 图片 / 视频 / 语音三个工作台合并成这一页：类型在页面左上角切，
        侧栏只留一个入口（加三条就是三份入口指向同一页，反而让人以为功能丢了） */

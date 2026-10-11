@@ -33,15 +33,15 @@
 <iframe id="appFrame" class="appframe" name="appFrame" title="工作区"></iframe>
 <script>window.__SB_SHELL = true;</script>
 <script src="ui.js"></script>
-<!-- AI 助手那一层（workbench / drama / ai-chat，约 608 KB）**按需加载**（L2）：
+<!-- AI 助手那一层（workbench / chars / ai-chat，约 480 KB）**按需加载**（L2）：
      助手挂在**外壳**这一层，切页只换 #appFrame 的内容，抽屉与对话记录都不重建。
      内容页一律不再引这三份（2026-10）：它们挂在 iframe 里第一件事就是检测到
      window.top.__SB_SHELL 然后 return，每一次切页都白付 608 KB 的下载与执行，
      而这恰好又把内容页的 DOMContentLoaded 往后推 —— 那正是外壳换页的时机。
-     页面要交出自己的只读快照，直接设 window.__acPageCtx（见 drama.html）。
+     页面要交出自己的只读快照，直接设 window.__acPageCtx（见 director.html）。
      真正立刻要用的只有下面这几份：ui.js（公共组件）、ident.js + assetlib.js（侧栏余额与
      注册表都要它）、sidebar.js、app.js。助手那三份在浏览器空闲时再插进来（见下面那段），
-     顺序不能变 —— ai-chat.js 要用 Wb / Drama，且它自己会做「公共层没齐就不装」的守卫。 -->
+     顺序不能变 —— ai-chat.js 要用 Wb / Chars，且它自己会做「公共层没齐就不装」的守卫。 -->
 <script src="ident.js"></script>
 <script src="assetlib.js"></script>
 <script src="sidebar.js"></script>
@@ -53,7 +53,7 @@
    而这几百毫秒里既没有任务可看护、也没人点得到球）。不引占位球，就不会多出一套
    和真球不一样的位置/拖动/角标行为。 */
 (function () {
-  var files = ['workbench.js', 'drama.js', 'ai-chat.js'];
+  var files = ['workbench.js', 'chars.js', 'ai-chat.js'];
   var started = false;
   function load() {
     if (started) return; started = true;

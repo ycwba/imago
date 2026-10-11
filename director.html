@@ -6,17 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>导演台 · 视频生成与剪辑</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
-<script>
-'use strict';
-// 任何脚本错误都显示到顶部横幅（横幅平常隐藏，只有这类错误才出现），便于诊断
-window.onerror = (msg, src, line) => { const b = document.getElementById('banner'); if (b) { b.hidden = false; b.className = 'err'; b.textContent = '脚本错误：' + msg + '（第 ' + line + ' 行）'; } };
-window.addEventListener('unhandledrejection', e => {
-    const r = e.reason; const line = (r && r.stack ? r.stack.split('\n').slice(1, 3).join(' | ') : '') || '';
-    const b = document.getElementById('banner');
-    if (b) { b.hidden = false; b.className = 'err'; b.textContent = '未处理错误：' + (r?.message || r) + ' @ ' + line.trim().slice(0, 160); }
-    console.error(r);
-  });
-</script>
 <link rel="stylesheet" href="ui.css">
 <style>
 
@@ -45,25 +34,7 @@ window.addEventListener('unhandledrejection', e => {
   header .sp { flex: 1; }
   header .bal { font-size: 12px; color: var(--sub); }
   header .bal b { color: var(--txt); }
-  /* 顶部横幅：平常完全隐藏（不占头部空间），只有出错 / 异常时才出现 */
-  #banner { margin: 10px 20px 0; padding: 9px 16px; border-radius: 4px; font-size: 13px;
-    background: rgba(251,191,36,.1); color: var(--warn); border: 1px solid rgba(251,191,36,.25); flex: 0 0 auto; }
-  #banner[hidden] { display: none; }
-  #banner { display: flex; align-items: flex-start; gap: 10px; }
-  #banner .msg { flex: 1; }
-  /* 关闭按钮是这条错误唯一的出口，得看得见、点得到。颜色跟着这条横幅的语义色走
-     （warn 黄 / err 红），所以**不套公共件 .iconbtn** —— 那个是固定 sub 色的，
-     权重也比这里低，加了不生效只会两套规则并存。内容是 icon('close') 的 SVG，
-     尺寸按正方形给（原来的 font-size:14px + padding 是给「×」字符准备的，
-     换成 SVG 后 font-size 对它无效，14px 宽的扁盒子套一颗 11px 的叉会歪）。 */
-  #banner .bx { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex;
-    align-items: center; justify-content: center;
-    border: 1px solid currentColor; background: none; color: inherit;
-    line-height: 0; cursor: pointer; opacity: .85; padding: 0; border-radius: 5px;
-    font-family: inherit; }
-  #banner .bx:hover { opacity: 1; background: rgba(127,127,127,.14); }
-  #banner.warn { background: rgba(251,191,36,.1); color: var(--warn); border-color: rgba(251,191,36,.25); }
-  #banner.err { background: rgba(220,38,38,.08); color: var(--err); border-color: rgba(220,38,38,.3); }
+  /* 顶部横幅 #banner 的样式在 ui.css（全站那一份），这里不再抄。 */
   .layout { display: flex; gap: 16px; padding: 14px 20px; flex: 1 1 auto; min-height: 0; position: relative; }
   .col { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow-y: auto; }
   .col::-webkit-scrollbar { width: 8px; } .col::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
@@ -87,7 +58,6 @@ window.addEventListener('unhandledrejection', e => {
     .layout { gap: 12px; padding: 12px 14px; }
     header { gap: 10px; padding: 9px 14px; }
     header input.pname { width: 180px; }
-    #banner { margin: 10px 14px 0; }
   }
   @media (max-width: 900px) {
     html, body { height: auto; }
@@ -472,10 +442,10 @@ window.addEventListener('unhandledrejection', e => {
 <script src="sidebar.js"></script>
 <script src="ident.js"></script>
 <script src="assetlib.js"></script>
-<!-- 素材库（window.Drama 的 Lib / picOf / LIB_KINDS）住在这里。**必须有这一行**：
-     提示词里 @ 引用的候选就是素材库；少了它 window.Drama 是 undefined，
+<!-- 素材库（window.Chars 的 Lib / picOf / LIB_KINDS）住在这里。**必须有这一行**：
+     提示词里 @ 引用的候选就是素材库；少了它 window.Chars 是 undefined，
      素材库里哪怕有几百条，浮层也只会说「素材库还是空的」。 -->
-<script src="drama.js"></script>
+<script src="chars.js"></script>
 </head>
 <body>
 <div class="page-main">
@@ -494,7 +464,7 @@ window.addEventListener('unhandledrejection', e => {
   <button class="ghost" id="exportBtn">导出项目</button>
   <input type="file" id="importFile" accept=".json" hidden>
 </header>
-<div id="banner" hidden></div>   <!-- 只在出错 / 异常时显示，平时隐藏 -->
+<div id="banner" hidden></div>   <!-- 出错 / 异常时才出现；内容由 ui.js 的 ErrBanner 写，样式在 ui.css -->
 
 <div class="layout">
   <div class="col col-left">
@@ -537,7 +507,7 @@ window.addEventListener('unhandledrejection', e => {
 const $ = id => document.getElementById(id);
 
 /* ---------- 常量 ---------- */
-const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
+/* 档位 / 比例 / 格式的中文名表不在这里抄第二份：在 `assetlib.js` 的 `AdvParams`（工作台与导演台同一份）。 */
 const ST_ZH = Wb.ST;   // 状态文案只有 workbench.js 那一份（含各家平台的同义词）
 /* 这一页自己的候选状态词只有 draft / creating / queued / running / succeeded / failed / cancelled，
    而轮询拿回来的是平台原话（success / completed / done / processing…）。写回之前先归一化：
@@ -560,13 +530,36 @@ let REG = null;         // /registry：API 注册路由（提供商/模型/能�
 let saveTimer = null;
 const uid = () => crypto.randomUUID().slice(0, 8);
 
-/* 一个空的候选占位：新增镜头 / 点 ＋ 都先建它，描述在右栏写、写完点「生成这条」 */
-function mkDraftCandidate(sh) {
-  const prov = provOf((resolvedModel(sh) || {}).provider);
+/* 「一条候选占位有哪些字段」全站只在这一个函数里点一次名。
+   以前命名了三份：mkDraftCandidate 一份、addCandidateDraft 抄了一份逐字相同的十行、
+   pushPlaceholders 又抄了第三份（只差 vid 前缀与状态）—— 给占位加一个字段就要三处同步，
+   漏一处的表现是「从某个入口建出来的候选少带一个字段」（界面正常、提交时才取到 undefined）。
+   provider 在这里只是「这一条将来要发给谁」的一个记号：draft 阶段既不会提交也不会被轮询
+   （pollLive 按 tmp_ 号跳过）。以前这里写的是 `provOf(...).id` —— 页面刚打开、/registry 还没回来的
+   那一瞬间 provOf 给的是 null，于是「建第一个镜头」当场抛 TypeError，
+   干净 profile 一进去就是「未处理错误」横幅 + 右栏一直空着（加载期竞态，与 §7
+   「能力声明回来之前不许说你没配 X 接口」是同一类）。
+   现在直接取型号自己记着的那一家，认不出就留空 —— 真要点「生成这条」时那一路有 needProv，
+   会给一句能照做的话，而不是在建立占位的时候崩掉整页。 */
+function mkCandidateBase(sh, vid) {
+  const rm = resolvedModel(sh) || {};
   return {
-    vid: 'tmp_draft_' + uid(), provider: prov.id, status: 'draft', progress: 0,
+    vid, provider: rm.provider || '', status: 'draft', progress: 0,
     url: null, error: null, selected: false, locked: false, trimS: null, trimE: null,
     shotId: sh.id, created: Date.now(), prompt: (sh.prompt || '').trim(),
+  };
+}
+/* 一个空的候选占位：新增镜头 / 点 ＋ 都先建它，描述在右栏写、写完点「生成这条」 */
+function mkDraftCandidate(sh) { return mkCandidateBase(sh, 'tmp_draft_' + uid()); }
+/* 「把一份外部视频塞进候选条」也是一份候选，只是它已经成了：状态/进度/裁剪/价格这几项
+   三个导入入口（素材库批量投递、收藏转存、中栏单条导入）以前各写一遍同样的八个字段，
+   加一项就得三处同步。现在页面只递「哪一条、从哪来、地址是什么」。 */
+function mkImportedCandidate(o) {
+  return {
+    vid: o.vid, provider: o.provider, status: 'succeeded', progress: 100,
+    url: o.url, local: !!o.local, locked: false, trimS: null, trimE: null,
+    priceMicros: null, duration: o.duration || null, error: null,
+    ...(o.fromAsset ? { fromAsset: true } : {}),
   };
 }
 function newShot(prompt = '') {
@@ -577,7 +570,7 @@ function newShot(prompt = '') {
     refImages: [],                            // dataURL[]
     refVideo: null, refAudio: null,           // { asset_id, name }
     keyframes: [],                            // { t, desc, status, assetId } 时间切片参考图
-    candidates: [],                           // { vid, status, progress, url, expires, priceMicros, error, selected, locked, trimS, trimE, duration }
+    candidates: [],                           // { vid, status, progress, url, priceMicros, error, selected, locked, trimS, trimE, duration }
     selId: null,                              // 选中的候选 vid
   };
   sh.candidates.push(mkDraftCandidate(sh));   // 默认带一个候选占位（默认选中它）
@@ -765,6 +758,26 @@ async function tlClipSrc(c) {
   return '/asset/' + aid + '?v=2';
 }
 
+/* 时间线 → 送给 /render 的 clips。导出与「合并全片」以前各抄了一份逐字相同的循环
+   （连「第 N 段没有可用素材」那句一起），收成这一份。
+   `tl` 由调用方递进来（就是它刚 `tlSyncFromShots()` 出来的那一份），
+   因为这一页没有一个全局的「当前时间线」可变对象 —— 每次都是现同步。
+   循环前先把过期外链**一次批量**换新一轮（healStaleUrls → Api.healMedia 按平台分组，
+   声明了 pollVia:'list' 的那一族一次列表请求解出整批）：
+   逐段 tlClipSrc → freshUrl 各问一次的话，三十段就是三十次「100 条的列表」，
+   而它们问的是同一家平台的同一份数据。 */
+async function buildRenderClips(tl) {
+  await healStaleUrls().catch(() => 0);      // 换不到新地址不是错：下面照旧拿旧地址试一次
+  const clips = [];
+  for (let i = 0; i < tl.clips.length; i++) {
+    const c = tl.clips[i];
+    const src = await tlClipSrc(c);
+    if (!src) throw new Error(`第 ${i + 1} 段「${c.name || ''}」没有可用素材（本地文件可能已被清理）`);
+    clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
+  }
+  return clips;
+}
+
 /* 按当前镜头顺序（拖动后的顺序）同步成片时间线：
    段落顺序 = 场景/镜头顺序；入点/出点一律现算（跟着候选的 trimS/trimE），
    倍速/音量沿用时间线里已有的值；黑场按原先与其相邻的镜头锚定回来 */
@@ -875,13 +888,7 @@ async function exportFilmFFmpeg() {
   if (btn) { btn.disabled = false; btn.textContent = '取消渲染'; }
   try {
     setStatus('正在准备素材地址…');
-    const clips = [];
-    for (let i = 0; i < tl.clips.length; i++) {
-      const c = tl.clips[i];
-      const src = await tlClipSrc(c);
-      if (!src) throw new Error(`第 ${i + 1} 段「${c.name || ''}」没有可用素材（本地文件可能已被清理）`);
-      clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
-    }
+    const clips = await buildRenderClips(tl);
     const r = await renderPost({ name: stampName('mp4').replace(/\.mp4$/, ''), width: size.w, height: size.h, fps: 30, crf: 20, clips });
     renderJobId = r.id;
     const job = await pollRenderJob(r.id, () => renderCancelled,
@@ -1041,12 +1048,10 @@ async function openAssetSearchToShots() {
       sh2 = (sc.shots || [])[0];
       if (!sh2) { miss++; return; }
     }
-    const st = { ...e };
-    const cand = {
-      vid: 'asset_' + e.assetId, provider: e.provider || ASSET_STORE, status: 'succeeded', progress: 100,
-      url: e.src || ('/asset/' + e.assetId + '?v=2'), local: false, locked: false,
-      trimS: null, trimE: null, priceMicros: null, duration: e.duration || null, error: null, fromAsset: true,
-    };
+    const cand = mkImportedCandidate({
+      vid: 'asset_' + e.assetId, provider: e.provider || ASSET_STORE,
+      url: e.src || ('/asset/' + e.assetId + '?v=2'), duration: e.duration, fromAsset: true,
+    });
     if ((sh2.candidates || []).some(c => c.vid === cand.vid)) { miss++; return; }   // 已有同素材候选
     sh2.candidates.push(cand);
     added++;
@@ -1211,13 +1216,7 @@ async function mergeWholeFilm() {
   try {
     setStatus('正在准备素材…');
     tick();
-    const clips = [];
-    for (let i = 0; i < tl.clips.length; i++) {
-      const c = tl.clips[i];
-      const src = await tlClipSrc(c);
-      if (!src) throw new Error(`第 ${i + 1} 段「${c.name || ''}」没有可用素材（本地文件可能已被清理）`);
-      clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
-    }
+    const clips = await buildRenderClips(tl);
     const r = await renderPost({ name: '全片-' + (proj.name || '成片') + '-' + Date.now().toString(36), width: size.w, height: size.h, fps: 30, crf: 20, clips });
     mergeJobId = r.id;
     const job = await pollRenderJob(r.id, () => mergeCancelled, j => {
@@ -1540,13 +1539,20 @@ function bindCandActs(col) {
        「还会连带 N 条」这种与本次无关的一句都不写。 */
     const notes = [];
     if (cur && sh.selId === cur.vid) notes.push('这一条正被选用：删掉之后全片会少这一段');
-    if (cur && (cur.status === 'queued' || cur.status === 'running')) notes.push('这一条还在平台上跑：删掉会顺带撤掉这个任务');
+    /* 还在跑的这一条要不要说「顺带撤单」，由注册表声明决定（判据只有 Api.canCancel 一份）。
+       没有取消接口的那几家（MiniMax / 硅基流动 / 智谱视频）删了本机记录，平台上那条照样跑完 ——
+       原来那句「删掉会顺带撤掉这个任务」在那几家是句假话（AGENTS.md「界面上的承诺要么实现、要么改文案」）。 */
+    const live = !!cur && (cur.status === 'queued' || cur.status === 'running');
+    const cxProv = live ? provById(cur.provider) : null;
+    if (live && cxProv && Api.canCancel(cxProv)) notes.push('这一条还在平台上跑：删掉会顺带向平台撤掉这个任务');
+    else if (live && cxProv) notes.push(cxProv.displayName + ' 没有取消任务的接口：本机删掉之后，平台上那一条还是会跑完');
     Confirm.arm(b, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
       || (() => {
         if (!cur || cur.locked) return;
-        if (cur.status === 'queued' || cur.status === 'running') {   // 还在跑的先取消上游任务
+        if (live && cxProv && Api.canCancel(cxProv)) {   // 还在跑的先取消上游任务
           // 取消走统一路由：POST 还是 DELETE 由 registry 的 cancelMethod 声明决定
-          Api.cancel(provById(cur.provider), cur.vid).catch(() => {});
+          // 撤单失败不能静默吞 —— 那样用户以为平台上也没了，而那条还在计费
+          Api.cancel(cxProv, cur.vid).catch(e => Toast.warn('没能让平台停掉这条任务：' + ((e && e.message) || '未知错误') + '（平台上可能还在跑）'));
         }
         sh.candidates = (sh.candidates || []).filter(c => c !== cur);
         if (sh.selId === cur.vid) sh.selId = null;
@@ -1695,16 +1701,12 @@ function bindCandidateStrip(col) {
     renderMid();
   };
 }
-/* 新增候选 = 建一个空的候选占位：给它写一条自己的描述，再点「生成这条」 */
+/* 新增候选 = 建一个空的候选占位：给它写一条自己的描述，再点「生成这条」
+   （占位字段归 mkDraftCandidate 那一份，这里只管「加进去并选中它」） */
 function addCandidateDraft() {
   const sh = curShot();
   if (!sh) return;
-  const prov = provOf((resolvedModel(sh) || {}).provider);
-  const ph = {
-    vid: 'tmp_draft_' + uid(), provider: prov.id, status: 'draft', progress: 0,
-    url: null, error: null, selected: false, locked: false, trimS: null, trimE: null,
-    shotId: sh.id, created: Date.now(), prompt: (sh.prompt || '').trim(),   // 先复制当前描述，方便改
-  };
+  const ph = mkDraftCandidate(sh);
   sh.candidates.push(ph);
   proj.curCand = sh.candidates.length - 1;         // 新占位直接选中，马上就能写描述
   renderAll(); scheduleSave();
@@ -1753,11 +1755,10 @@ function sortCandidates(sh) {
 }
 
 /* ---------- 生成轮询引擎 ---------- */
-const polling = new Set();
 /* 平台对象一律来自注册表。**认不出就返回 null**，不兜底到别家 ——
    `Api.prov('video')` 那个兜底是同一个病的另一个实例：它会把「这一条候选属于 A 家」
    悄悄改成「按 B 家的接口去问」，于是轮询拿 B 的字段名读 A 的任务 —— 永远读不到状态。
-   调用方本来都写了 `if (!prov) ...`（下面 pollTick 那处会标 failed 并说清原因），
+   调用方本来都写了 `if (!prov) ...`（下面 pollOne 那处会标 failed 并说清原因），
    去掉兜底反而让它们走到本来准备好的那条路上。 */
 function provById(id) {
   if (window.Api && Api.prov) return Api.prov(id);
@@ -1765,137 +1766,155 @@ function provById(id) {
   return list.find(p => p.id === id || (p.keyId || p.id) === id) || null;
 }
 let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变（S1）
-function pollTick() {
-  /* 轮询覆盖**所有短片**，不只是当前这一部（L55）。
-     以前只看 allShots()（= 当前短片）：在短片 A 上点了「生成全部分镜」，随手切到 B ——
-     A 的镜头就永远停在「● 生成中」加一条不动的进度条，再也不会更新；
-     批量收尾的消息还会写进 B 的左栏，看着像是在说 B。
-     `mine` = 「这一条属于我现在正看着的那部短片」：只有在途候选属于当前短片时才允许
-     触发左栏 / 中栏重画（在别的短片上重画当前短片 = 串台）。落盘是全局的，照旧。 */
+/* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部，L55）。
+   以前只看 allShots()（= 当前短片）：在短片 A 上点了「生成全部分镜」，随手切到 B ——
+   A 的镜头就永远停在「● 生成中」加一条不动的进度条，再也不会更新；
+   批量收尾的消息还会写进 B 的左栏，看着像是在说 B。
+   `mine` = 「这一条属于我现在正看着的那部短片」：只有在途候选属于当前短片时才允许
+   触发左栏 / 中栏重画（在别的短片上重画当前短片 = 串台）。落盘是全局的，照旧。
+   每条候选配一个 `{ c, sh, mine }` 的壳，是因为轮询器只认「一个任务对象」，
+   而这里写回状态之外还要知道它属于哪个镜头、要不要重画。
+   **壳要跨轮复用同一个对象**（下面 shells 那张缓存）：公共轮询器按任务对象记「这一条连续失败几次」，
+   每轮新建一个壳等于那份计数永远从零开始 —— 坏掉的详情端点就又变成「一直转圈、一声不吭」。 */
+let pollShells = new Map();      // 候选对象 → 它的壳（身份稳定；每轮整张换掉，留下的只有这一轮还认得的）
+function pollTasks() {
+  const next = new Map();
+  const out = [];
   for (const p0 of (WS.projects || [])) {
     if (!p0 || !Array.isArray(p0.scenes)) continue;
     const mine = p0 === proj;
     p0.scenes.forEach(sc => (sc.shots || []).forEach(sh => (sh.candidates || []).forEach(c => {
-    /* 只跳过「已经是终局」的与本机占位号（tmp_*）：以前这里还把 'creating' 也排除了，
-       于是「create 已经回了任务号、状态还停在 creating」的候选永远不被问一次。 */
-    if (c.vid && !String(c.vid).startsWith('tmp_') && !['succeeded', 'failed', 'cancelled'].includes(c.status) && !polling.has(c.vid)) {
-      polling.add(c.vid);
-      let p2done = false;
-      const prov = provById(c.provider);
-      /* 认不出平台（换过端口 / 清过缓存 / 那一家被停用）：**当场把话说清**，
-         而不是继续轮询一条永远问不到的 URL（`pollTask(null,…)` 每次都失败，
-         用户看到的是任务永远停在「生成中」）。
-         说清之后仍然标 failed —— 用户能点重试，而重试会重新提交一条新任务。 */
-      if (!prov) {
-        polling.delete(c.vid);
-        c.status = 'failed';
-        c.error = '这一条属于「' + (c.provider || '?') + '」，但当前平台清单里没有这一家 —— '
-          + '到「设置 → 供应商与密钥」重新勾一下它，再点重试';
-        c.progress = '';
-        return;                 // 这一条就此收场（这是 forEach 的回调，用 return 不是 continue）
-      }
-      /* 轮询返回「状态没变、进度没动」是最常见的情况（占比压倒性），以前那种情况照样在
-         .finally 里付一整轮 renderScenes()：整块重建左栏、逐镜头重挂十几个监听器。
-         左栏实际只看这几样：选中候选的 url、有没有在跑的候选、跑着的那个的进度、状态文案。
-         所以进请求前先把这几个值记下来，回来一比，没变就不重画。 */
-      const dStatus = c.status, dProgress = c.progress, dUrl = c.url, dSel = sh.selId;
-      /* 统一走 Api.pollTask：它认 registry 的 pollVia:'list'。以前这里自己按 endpoints.detail 拼请求，
-         而 VGENV 的 /v2/videos/{id} 是 404 空壳 —— 在跑的任务会被判成「平台上找不到这条任务」，
-         界面裂成假失败卡 + 列表里真实的完成卡，用户重试就是重复扣费（AGENTS.md：只走 Api.pollTask 这类统一入口）。 */
-      Api.pollTask(prov, c.vid).then(r => {
-        const v = (r && r.raw) || null;
-        const p = r && r.p;
-        // 状态/进度/产出/费用全部按 registry 的 list.map 解析（平台差异不再写在这里）
-        if (p) {
-          c.status = p.status ? canStatus(p.status) : c.status;
-          c.miss = 0;                                     // 这一轮在平台上找到了它
-          c.progress = p.progress ?? 0;
-          if (p.duration != null) c.duration = p.duration;
-          c.error = p.error || null;
-          if (v && v.queue_position != null) c.queue_position = v.queue_position;
-          if (p.priceMicros != null) c.priceMicros = p.priceMicros;
-          const pt = Api.priceText(prov, p);
-          if (pt) c.priceText = pt;
-          if (p.done && p.assetId) {              // 产出是资产 id → 本地直链，不受签名有效期影响
-            c.assetId = p.assetId;
-            c.url = '/asset/' + p.assetId + '?v=2';
-          } else if (p.done && p.url) {           // 产出是可播放 URL
-            c.url = p.url;
-            c.expires = (v && v.output && v.output.expires_at) || null;
-          }
-          if (p.done || p.failed) {
-            if (!sh.selId && p.done) { sh.selId = c.vid; }   // 第一条成功的自动选用
-            p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
-          }
-        } else if (r) {
-          /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片（旧 M21 的成因）。
-             但要**连续几轮**都没有才认 —— 刚提交的任务可能还没同步进列表，游标翻页也可能这一轮没翻到，
-             单次落空就把卡片结掉，正是「任务明明在做完的那一刻变成失败」的成因之一。 */
-          c.miss = (c.miss || 0) + 1;
-          if (c.miss >= 3) {
-            c.status = 'failed';
-            c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
-            p2done = true;
-          }
-        }
-      }).catch(e => {
-        /* 平台上查不到这条任务（404：已被清理 / 任务号失效）：结掉这张卡并写明原因，
-           以前 .catch(()=>{}) 一律吞掉 —— 卡片永远停在「生成中」，还每 3 秒空打一次接口。
-           判定只认 404 与明确的「不存在」措辞：403 多半是限流或鉴权抖一下，任务号还有效，
-           当场结掉就是把还能跑的任务说成失败（三个工作台都是这个口径）；
-           /40[34]/ 在整条消息里找子串更不行 —— 任务号或金额里带 403/404 的普通错误会被误判。 */
-        const gone = e && (e.status === 404 || /不存在|未找到|not\s*found/i.test(String(e.message || '')));
-        if (gone && (c.miss = (c.miss || 0) + 1) >= 3) {
-          c.status = 'failed';
-          c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
-          p2done = true;
-        } else if (e) {
-          console.warn('[director] 候选轮询失败：', e.message || e);   // 其它错误交给下一次 tick 重试
-        }
-      }).finally(() => {
-        polling.delete(c.vid);                               // 请求结束就释放：下一次 tick 可以再查（否则一次异常会永久卡住这条）
-        sortCandidates(sh);                                  // 生成的往前排、排队的往后排
-        saveScheduleSoft();
-        /* 左栏只在真的变了时才重画（见上面 dStatus 那段）：一次 tick 里 K 条候选最多合并成
-           一次渲染（renderScenesSoon 的 350 ms 防抖），而「什么都没变」时一次都不画。 */
-        if (mine && (c.status !== dStatus || c.progress !== dProgress || c.url !== dUrl || sh.selId !== dSel)) scenesDirty = true;
-        if (mine) {
-          if (scenesDirty) { scenesDirty = false; renderScenesSoon(); }
-          updateMidLive();                                   // 中栏就地更新（不重建 → 候选缩略图不刷新）
-          updateBanner(); updateProjUI();
-          if (p2done) forceMid = true;                       // 结构需要变（占位→播放器）时，下一次走完整重画
-        }
-      });
-      }                                  // if (c.vid && …) 那一层
-    })));                                // c-arrow 体 + 三个 forEach（sc / sh / c）
+      if (!c || !c.vid) return;
+      const t = pollShells.get(c) || {};
+      t.c = c; t.sh = sh; t.mine = mine;              // 归属每轮现跟，只有身份是攒下来的
+      next.set(c, t);
+      out.push(t);
+    })));
   }
-  /* 切回某一部短片时，那部里在别的短片上跑完的任务早就把数据改好了 ——
-     这里补一次状态行，免得回到 A 时它还挂着「生成中…」（下一次 tick 也会跟上，
-     但用户切回来的那一瞬间就该是对的）。 */
-  updateBanner(); updateProjUI();
+  pollShells = next;
+  return out;
 }
+/* 「这一条还要不要问」：本机占位号（tmp_）与终局不问。
+   'creating' **不在**排除名单里 —— 以前把它也排除了，于是「create 已经回了任务号、
+   状态还停在 creating」的候选永远不被问一次。 */
+function pollLive(t) {
+  const c = t.c;
+  return !String(c.vid).startsWith('tmp_') && !['succeeded', 'failed', 'cancelled'].includes(c.status);
+}
+function pollOne(t) {
+  const { c, sh, mine } = t;
+  const prov = provById(c.provider);
+  /* 认不出平台（换过端口 / 清过缓存 / 那一家被停用）：**当场把话说清**，
+     而不是继续轮询一条永远问不到的 URL（`pollTask(null,…)` 每次都失败，
+     用户看到的是任务永远停在「生成中」）。
+     说清之后仍然标 failed —— 用户能点重试，而重试会重新提交一条新任务。 */
+  if (!prov) {
+    c.status = 'failed';
+    c.error = '这一条属于「' + (c.provider || '?') + '」，但当前平台清单里没有这一家 —— '
+      + '到「设置 → 供应商与密钥」重新勾一下它，再点重试';
+    c.progress = '';
+    return Promise.resolve();
+  }
+  /* 轮询返回「状态没变、进度没动」是最常见的情况（占比压倒性），以前那种情况照样在
+     .finally 里付一整轮 renderScenes()：整块重建左栏、逐镜头重挂十几个监听器。
+     左栏实际只看这几样：选中候选的 url、有没有在跑的候选、跑着的那个的进度、状态文案。
+     所以进请求前先把这几个值记下来，回来一比，没变就不重画。 */
+  const dStatus = c.status, dProgress = c.progress, dUrl = c.url, dSel = sh.selId;
+  let p2done = false;
+  /* 统一走 Api.pollTask：它认 registry 的 pollVia:'list'。以前这里自己按 endpoints.detail 拼请求，
+     而 VGENV 的 /v2/videos/{id} 是 404 空壳 —— 在跑的任务会被判成「平台上找不到这条任务」，
+     界面裂成假失败卡 + 列表里真实的完成卡，用户重试就是重复扣费（AGENTS.md：只走 Api.pollTask 这类统一入口）。 */
+  return Api.pollTask(prov, c.vid).then(r => {
+    const v = (r && r.raw) || null;
+    const p = r && r.p;
+    // 状态/进度/产出/费用全部按 registry 的 list.map 解析（平台差异不再写在这里）
+    if (p) {
+      c.status = p.status ? canStatus(p.status) : c.status;
+      c.miss = 0;                                     // 这一轮在平台上找到了它
+      c.progress = p.progress ?? 0;
+      if (p.duration != null) c.duration = p.duration;
+      c.error = p.error || null;
+      if (v && v.queue_position != null) c.queue_position = v.queue_position;
+      if (p.priceMicros != null) c.priceMicros = p.priceMicros;
+      const pt = Api.priceText(prov, p);
+      if (pt) c.priceText = pt;
+      if (p.done && p.assetId) {              // 产出是资产 id → 本地直链，不受签名有效期影响
+        c.assetId = p.assetId;
+        c.url = '/asset/' + p.assetId + '?v=2';
+      } else if (p.done && p.url) {           // 产出是可播放 URL
+        c.url = p.url;
+      }
+      if (p.done || p.failed) {
+        if (!sh.selId && p.done) { sh.selId = c.vid; }   // 第一条成功的自动选用
+        p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
+      }
+    } else if (r) {
+      /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片（旧 M21 的成因）。
+         但要**连续几轮**都没有才认 —— 刚提交的任务可能还没同步进列表，游标翻页也可能这一轮没翻到，
+         单次落空就把卡片结掉，正是「任务明明在做完的那一刻变成失败」的成因之一。 */
+      c.miss = (c.miss || 0) + 1;
+      if (c.miss >= 3) {
+        c.status = 'failed';
+        c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
+        p2done = true;
+      }
+    }
+  }).catch(e => {
+    /* 平台上查不到这条任务（404：已被清理 / 任务号失效）：结掉这张卡并写明原因，
+       以前 .catch(()=>{}) 一律吞掉 —— 卡片永远停在「生成中」，还每 3 秒空打一次接口。
+       判定只认 404 与明确的「不存在」措辞：403 多半是限流或鉴权抖一下，任务号还有效，
+       当场结掉就是把还能跑的任务说成失败（三个工作台都是这个口径）；
+       /40[34]/ 在整条消息里找子串更不行 —— 任务号或金额里带 403/404 的普通错误会被误判。 */
+    const gone = e && (e.status === 404 || /不存在|未找到|not\s*found/i.test(String(e.message || '')));
+    if (gone && (c.miss = (c.miss || 0) + 1) >= 3) {
+      c.status = 'failed';
+      c.error = '平台上找不到这条任务（可能已被清理或过期），可重新生成';
+      p2done = true;
+      return;                       // 这条已经结掉，不必再算成「刷新失败」
+    }
+    /* 其它错误（超时 / 5xx / 断连）交给公共轮询器：它按「整轮全失败」退避并提示，
+       按「同一条连续三次」单独说一句 —— 以前这里只 console.warn，一条坏掉的详情端点
+       会让卡片永远转圈、界面一声不吭，而且每 3 秒照打不误。 */
+    throw e;
+  }).finally(() => {
+    sortCandidates(sh);                                  // 生成的往前排、排队的往后排
+    saveScheduleSoft();
+    /* 左栏只在真的变了时才重画（见上面 dStatus 那段）：一次 tick 里 K 条候选最多合并成
+       一次渲染（renderScenesSoon 的 350 ms 防抖），而「什么都没变」时一次都不画。 */
+    if (mine && (c.status !== dStatus || c.progress !== dProgress || c.url !== dUrl || sh.selId !== dSel)) scenesDirty = true;
+    if (mine) {
+      if (scenesDirty) { scenesDirty = false; renderScenesSoon(); }
+      updateMidLive();                                   // 中栏就地更新（不重建 → 候选缩略图不刷新）
+      if (p2done) forceMid = true;                       // 结构需要变（占位→播放器）时，下一次走完整重画
+    }
+  });
+}
+/* 「什么时候问、问多密、连续失败怎么办」交回公共轮询器 Wb.poller（与生成工作台、资产库同一台）：
+   ① 间隔听设置页那一项「任务刷新间隔」（以前这里写死 3 秒 setInterval，那项设置对导演台形同虚设）；
+   ② 整轮失败会指数退避、同一条连续三次会单独说一句（以前只 console.warn）；
+   ③ 切走标签页自动暂停、回到前台立刻补一次（以前是本页自己抄的一份 visibilitychange）；
+   ④ 一轮没跑完不会再起一轮 —— 所以原来那个「这一条正在请求中」的 polling Set 是多余的，删掉。
+   切回某一部短片时补一次状态行：靠 onChange（这一轮有任何一条变过就重画横幅）。 */
+const poller = Wb.poller({
+  label: '分镜', interval: 3000,
+  tasks: pollTasks,
+  isRunning: pollLive,
+  sig: t => [t.c.status, t.c.progress, t.c.url, t.c.miss].join('|'),
+  pollOne,
+  onChange: () => { updateBanner(); updateProjUI(); },
+});
 let softTimer = null;
 function saveScheduleSoft() { clearTimeout(softTimer); softTimer = setTimeout(scheduleSave, 300); }
-/* 轮询：页面切到后台时停掉（不白跑请求），回到前台立刻补一次 */
-let pollTimer = setInterval(pollTick, 3000);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { clearInterval(pollTimer); pollTimer = null; }
-  else if (!pollTimer) { pollTimer = setInterval(pollTick, 3000); pollTick(); }
-});
 
 /* ---------- 创建视频（可一次生成多条，按注册路由选择提供商）---------- */
 /* 一条任务一个提交单元：先建占位候选（界面立刻有反馈），创建失败只标记这一条 */
 function pushPlaceholders(sh, count) {
-  const prov = provOf((resolvedModel(sh) || {}).provider);
   const phs = [];
   for (let k = 0; k < count; k++) {
-    const ph = {
-      vid: 'tmp_' + uid(), provider: prov.id, status: 'creating', progress: 0,
-      priceText: '', duration: sh.duration || undefined, url: null, error: null,
-      selected: false, locked: false, trimS: null, trimE: null, shotId: sh.id,
-      created: Date.now(),                       // 提交时间（空态/候选卡上显示耗时用）
-      prompt: (sh.prompt || '').trim(),           // 这条候选自己的描述（可在中栏单独改）
-    };
+    /* 字段清单归 mkCandidateBase 那一份；这里只补「已经提交出去了」才有的三项：
+       占位状态、平台回的价格文案、这一镜的时长。 */
+    const ph = Object.assign(mkCandidateBase(sh, 'tmp_' + uid()),
+      { status: 'creating', priceText: '', duration: sh.duration || undefined });
     phs.push(ph);
     sh.candidates.push(ph);
   }
@@ -2778,23 +2797,23 @@ function stepShot(d) {
 }
 
 /* ---------- 成片播放 ---------- */
-/* 签名 URL 过期刷新：播放/导出前取最新下载地址（走统一路由：端点/字段都由 registry 声明） */
+/* 签名 URL 过期刷新：播放/导出前取最新下载地址。
+   「过没过期」问 `Api.mediaExpired`、「怎么换新」走 `Api.healMedia` —— 与开机那一趟
+   （`healStaleUrls`）同一套，全站只有这一份判据。
+   以前这里自己按 `c.expires` 判一次、再自己 `pollTask` 问一次，是同一件事的第二份实现：
+   那个字段来自平台列表里的 `output.expires_at`，与地址里那位签名参数**不是同一个口径**，
+   两处对不上时就变成「开机那一趟说没过期、播放这一句说过期了」，来回各打一条路；
+   而逐条 pollTask 在 `pollVia:'list'` 那一族每次都是一整页 100 条的列表。
+   healMedia 换到的新地址还会进那张内存表，`Api.mediaSrc` 认它 ——
+   于是缩略图、灯箱、下载链接在同一次会话里一起跟着新鲜，不只这一个调用点。 */
 async function freshUrl(c) {
   // 只刷新「任务号来自平台」的候选：local_/tmp_/asset_ 是本机造的号，上游没有这条任务可问
-  if (!c || !c.vid || /^(local_|tmp_|asset_)/.test(String(c.vid))) return c?.url;
-  const now = Math.floor(Date.now() / 1000);
-  if (c.url && (!c.expires || c.expires - 60 > now)) return c.url;
-  try {
-    /* 走 Api.pollTask（认 pollVia:'list'）：以前直打 Api.detail，而 VGENV 的详情端点是 404 空壳，
-       于是「过期自愈」从来没成功过，播放/导出只是拿到那条过期地址然后报错，还看不出原因。 */
-    const r = await Api.pollTask(provById(c.provider), c.vid);
-    const p = r && r.p;
-    const nu = (p && (p.url || (p.assetId ? '/asset/' + p.assetId + '?v=2' : ''))) || '';
-    if (nu) { c.url = nu; c.expires = (p && p.expires) || c.expires; if (p && p.assetId) c.assetId = p.assetId; saveScheduleSoft(); }
-    else Toast.warn('拿不到这条任务的新下载地址（平台上可能已被清理），播放/导出可能失败：' + (c.name || c.vid));
-  } catch (e) {
-    Toast.warn('刷新下载地址失败：' + ((e && e.message) || '未知错误') + '（播放/导出可能失败）');
-  }
+  if (!c || !c.vid || /^(local_|tmp_|asset_)/.test(String(c.vid))) return c && c.url;
+  if (!c.url || !Api.mediaExpired(c.url)) return c.url;
+  const got = await Api.healMedia([{ provider: c.provider, id: c.vid, url: c.url }], {
+    onFresh: (rec, next) => { c.url = next; saveScheduleSoft(); },
+  }).catch(() => 0);
+  if (!got) Toast.warn('拿不到这条任务的新下载地址（平台上可能已被清理），播放/导出可能失败：' + (c.name || c.vid));
   return c.url;
 }
 
@@ -3118,7 +3137,7 @@ function mentionAt(ta) {
    每一行与挑选浮层一致：缩略图 · `@名字` · 右边一列「类型 · 来源」；
    没有预览图的素材压暗并写明原因（引用不了 —— 加不进参考图）。 */
 function mentionCands(sh, q) {
-  const D = window.Drama;
+  const D = window.Chars;
   const kw = String(q || '').toLowerCase();
   const out = [];
   (sh.refImages || []).forEach((src, i) => {
@@ -3172,7 +3191,7 @@ function mentionedMats(sh) {
      · `参考图N` —— 手动传的、切片生成的参考图只有这个写法。
    另外把**已经加进这一镜的** refMeta.label 也收进来（老数据里可能有对不上库的名字）。 */
 function atNames(sh) {
-  const D = window.Drama;
+  const D = window.Chars;
   const s = new Set();
   const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
   lib.forEach(c => {
@@ -3236,7 +3255,7 @@ function hoverAt(sh, e) {
   });
   if (!hit) return hideAtPeek();
   const nm = hit.dataset.nm || '';
-  const D = window.Drama;
+  const D = window.Chars;
   const lib = ((D && D.Lib) ? (D.Lib.list() || []) : []);
   const kindZhOf = x => (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(x)]) || '素材';
   let pic = '', meta = '';
@@ -3320,7 +3339,7 @@ function mentionPlace(rect) {
 /* 这一条素材身上**有哪几张图**：预览图在前，然后是每一张角色资产。
    二级菜单与「选中之后加哪一张」都读它这一份 —— 两处各列一遍迟早对不上。 */
 function libPicChoices(entry) {
-  const D = window.Drama;
+  const D = window.Chars;
   if (!D || !entry) return [];
   const out = [];
   const pic = D.picOf(entry) || '';
@@ -3407,10 +3426,10 @@ function showMention(sh, cands, range, rect) {
         + '<span class="mt-n">@' + esc(c.name) + '</span>'
         + '<span class="mt-k">' + esc(c.meta || '') + '</span></div>';
     }).join('')
-    : '<div class="mt-empty">' + (window.Drama && Drama.Lib
-      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具（或者从短剧里存进去），它们就会出现在这里；已经有预览图的那几条，选中时会自动加进这一镜的参考图。'
+    : '<div class="mt-empty">' + (window.Chars && Chars.Lib
+      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具，它们就会出现在这里；已经有预览图的那几条，选中时会自动加进这一镜的参考图。'
       /* 读不到模块和「库里没东西」是两件事，不能都说成「空的」—— 前者要说清是哪儿断了 */
-      : '读不到素材库模块（这一页没把 drama.js 引进来）。刷新一次这一页；还不行就到「素材库」页确认一下它自己能不能打开。')
+      : '读不到素材库模块（这一页没把 chars.js 引进来）。刷新一次这一页；还不行就到「素材库」页确认一下它自己能不能打开。')
       + '</div>';
   /* 用 mousedown + preventDefault 而不是 click：click 之前 textarea 会先 blur，
      浮层一收这一下就落空了（经典坑）。 */
@@ -3511,7 +3530,7 @@ function addLibPicToShot(sh, entry, pick) {
   const nm = (entry && entry.name) || '这一条';
   const note = String((pick && pick.note) || '').trim();
   const label = libTokenOf(nm, note);
-  const pic = (pick && pick.src) || (window.Drama ? Drama.picOf(entry) : '');
+  const pic = (pick && pick.src) || (window.Chars ? Chars.picOf(entry) : '');
   if (!pic) {
     return { ok: false, why: note
       ? '《' + nm + '》的' + note + '还没有图'
@@ -3575,33 +3594,38 @@ function renderEditor() {
   hideAtPeek();                                   // 悬停小卡同理
   const sh = curShot();
   if (!sh) { col.innerHTML = ''; return; }        // 没有镜头先退出，别去解析模型
-  const rm = resolvedModel(sh);
   const idx = allShots().indexOf(sh) + 1;
-  // 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例，全部跟随所选模型的能力声明
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
   const mats = mentionedMats(sh);                    // 「提到素材」那排芯片（= 带来源标签的参考图）
-  /* 时长与条数上限**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
+  /* 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例：**判据在 `assetlib.js` 的 `AdvParams.plan`**
+     （与生成工作台视频栏同一份），这里只写导演台自己的 DOM 与「把回落后的值记回这一镜」。
+     以前模板串里是 `t === sh.tier ? 'selected' : ''`，**完全没有回落** —— 存的档位被平台下架之后
+     浏览器默默显示第一项，而发出去的还是那个下架的值（界面写着 A、提交体是 B）。
+     取值范围与上限仍然**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
      （[4, 15] 和 4）：平台没声明时界面照样能滑到 15 秒、照样列 4 条，提交才发现平台不吃。
-     没有声明就当作「这一项不给选」（时长控件不渲染），条数固定 1 条。 */
-  const durs = rm?.options?.durations;
-  const hasDur = Array.isArray(durs) && durs.length === 2 && Number(durs[1]) >= Number(durs[0]) && Number(durs[0]) > 0;
-  const durOpts = hasDur ? [Number(durs[0]), Number(durs[1])] : [];
-  const drawMax = Math.max(1, parseInt(rm?.options?.max_outputs, 10) || 1);
-  // 防御性归一化：draw / duration 一旦是 NaN / 越界，进渲染前先纠正（避免「生成（NaN 条）」）
-  {
-    const d = parseInt(sh.draw, 10);
-    sh.draw = Math.max(1, Math.min(isFinite(d) ? d : 1, drawMax));
-    if (hasDur) {
-      const du = parseFloat(sh.duration);
-      sh.duration = Math.max(durOpts[0], Math.min(isFinite(du) ? du : durOpts[0], durOpts[1]));
-    }
-  }
-  const durMin = hasDur ? durOpts[0] : 0, durMax = hasDur ? durOpts[1] : 0;
-  /* 参数控件按模型能力动态决定：模型没声明的参数不渲染、也不提交
-     （例如 SparkCine 视频没有档位概念 → 不出现「档位」下拉） */
-  const tiers = (rm?.options?.tiers || []).slice();
-  const ars = (rm?.options?.aspect_ratios || []).slice();
-  const ress = (rm?.options?.resolutions || []).slice();
+     没有声明就当作「这一项不给选」：时长控件不渲染，条数按平台默认一次一条、下拉也不摆
+     （只有一个可选项的下拉是假控件，这条与工作台同判据）。 */
+  const videoPlan = () => {
+    const mm = resolvedModel(sh) || {};      // 现取：改完 edModel 之后摘要要跟着新型号，不能拿渲染时那一份
+    return AdvParams.plan(mm, {
+      kinds: ['tier', 'resolution', 'aspect_ratio', 'duration', 'count'],
+      ids: { tier: 'edTier', resolution: 'edRes', aspect_ratio: 'edAr', duration: 'durRange', count: 'edDraw' },
+      cur: { tier: sh.tier, resolution: sh.res, aspect_ratio: sh.ar, duration: sh.duration, count: sh.draw },
+      prefix: mm.name || '',
+      units: { count: '条' },
+    });
+  };
+  const vp = videoPlan();
+  const vk = vp.kinds;
+  /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
+     duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。 */
+  if (vk.tier.list.length) sh.tier = vk.tier.value;
+  if (vk.resolution.list.length) sh.res = vk.resolution.value;
+  if (vk.aspect_ratio.list.length) sh.ar = vk.aspect_ratio.value;
+  if (vk.duration.list.length) sh.duration = Number(vk.duration.value);
+  sh.draw = vk.count.list.length ? Number(vk.count.value) : 1;
+  const hasDur = vk.duration.list.length > 0;
+  const durMin = vk.duration.min, durMax = vk.duration.max;
   /* 能不能生成：提示词够长 + 有支持这些素材的模型 + 素材没有同时用互斥的两组 + 没有当前模型不支持的素材。
      以前只看提示词长度，非法状态也能点，点了才在后台报错。 */
   const blockWhy = shotBlockReason(sh, ic);
@@ -3613,6 +3637,22 @@ function renderEditor() {
   const bRef = ic.ref && ic.blockedRoles.has('reference_image');
   const bRefVideo = ic.refVideo && ic.blockedRoles.has('reference_video');
   const bRefAudio = ic.refAudio && ic.blockedRoles.has('reference_audio');
+  /* 「按描述生成画面」那一档的高参：选项与上限现读**图片模型**的声明（不是这一镜视频模型的）。
+     放在模板外面算，是因为摘要那一行与下面的说明句要用同一份数（抄两遍就会各说各的）。 */
+  const kp = kfImgParams(sh);
+  const kfRefN = (sh.refImages || []).filter(Boolean).length;
+  const kfRefCap = kfRefMax(kp.model);
+  const kfRefLine = kfRefCap
+    ? (kfRefN
+      ? '生成画面会带上这 ' + Math.min(kfRefN, kfRefCap) + ' 张参考图'
+      + (kfRefN > kfRefCap ? ' · 这个生图型号一次最多收 ' + kfRefCap + ' 张，多出的 ' + (kfRefN - kfRefCap) + ' 张不带' : '')
+      : '这一镜还没有参考图 · 在上面的「参考图」槽位挑几张，画面会更贴同一个形象（这个型号一次最多收 ' + kfRefCap + ' 张）')
+    : (kfRefN ? '这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + kfRefN + ' 张参考图不会带上）'
+      : '这个生图型号没有「参考图」槽位，画面只按文字生成');
+  /* 把 plan 算好的一档画进下拉：清单、当前值、显示名、这一档出不出现，全部读 AdvParams 那一份，
+     这里只写导演台自己的 DOM（整块随编辑器重绘，与工作台「控件常驻 DOM」是两种画法、同一份数）。 */
+  const advSel = (k, o) => (!k || !k.on) ? ''
+    : `<div><label>${esc(k.label)}</label><select id="${esc(k.id)}">${AdvParams.optionsHTML(k, o)}</select></div>`;
   col.innerHTML = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
@@ -3649,9 +3689,27 @@ function renderEditor() {
       <button class="polish" id="kfGenBtn">${icon('sparkles', 13)} 按描述生成这一镜的画面</button>
       <div style="display:flex;align-items:center;gap:8px;margin:-4px 0 4px">
         <select id="kfModel" style="flex:1;min-width:120px;padding:5px 8px;background:var(--input);border:1px solid var(--line);border-radius:3px;color:var(--txt);font-size:12px">${kfModelOptions()}</select>
-        <select id="kfQuality" style="padding:5px 8px;background:var(--input);border:1px solid var(--line);border-radius:3px;color:var(--txt);font-size:12px">${kfQualityOptions()}</select>
         <span class="hint" id="kfEst" style="margin-top:0"></span>
       </div>
+      ${/* 画面生成的高级设置：与图片工作台同一套形状（折叠 + 摘要 + 按声明显隐的档位）。
+           四档一个都没声明、且这个型号压根不收参考图时，整块不出现 ——
+           摆一个空盒子写着「高级设置」比没有更让人以为有东西可调。 */
+        (['quality', 'aspect_ratio', 'size', 'output_format'].some(x => kp.kinds[x].on) || kfRefCap)
+          ? `<div class="adv${AdvParams.closed('sk_kf_adv_closed') ? ' closed' : ''}" id="kfAdvBox" style="margin:0 0 10px">
+        <div class="adv-head" id="kfAdvHead">
+          <h2>${icon('gear', 14)} 画面高级设置</h2>
+          <span class="sum"><span id="kfAdvSum">${esc(kp.summary)}</span><span class="chev">▼</span></span>
+        </div>
+        <div class="adv-body">
+          <div class="adv-grid">
+            ${advSel(kp.kinds.quality)}
+            ${advSel(kp.kinds.aspect_ratio, { first: sh.ar ? '跟随这一镜（' + sh.ar + '）' : '' })}
+            ${advSel(kp.kinds.size)}
+            ${advSel(kp.kinds.output_format)}
+          </div>
+          <div class="hint" id="kfRefHint" style="margin-top:8px">${esc(kfRefLine)}</div>
+        </div>
+      </div>` : ''}
       <div class="assets-grid">
         ${ic.first ? `<div class="asset-slot${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}" data-slot="first"${bFirst ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
         ${ic.last ? `<div class="asset-slot${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}" data-slot="last"${bLast ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
@@ -3685,20 +3743,20 @@ function renderEditor() {
       ${ic.refAudio ? `<div class="slot-wide asset-slot${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}" data-slot="refaudio"${bRefAudio ? ' title="与已选素材互斥，不能同时使用"' : ''}>
         ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
-      <div class="adv" id="advBox" style="margin-top:16px">
+      <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top:16px">
         <div class="adv-head" id="advHead">
           <h2>${icon('gear', 14)} 高级设置</h2>
-          <span class="sum"><span id="advSum">${(rm?.name || '')} · ${sh.res} · ${sh.ar} · ${sh.duration || 5}秒</span><span class="chev">▼</span></span>
+          <span class="sum"><span id="advSum">${esc(vp.summary)}</span><span class="chev">▼</span></span>
         </div>
         <div class="adv-body">
           <div class="adv-grid">
             <div><label>模型</label><select id="edModel">${modelOptionsFor(sh)}</select></div>
-            ${tiers.length ? `<div><label>档位</label><select id="edTier">${tiers.map(t => `<option value="${t}" ${t === sh.tier ? 'selected' : ''}>${TIER_ZH[t] || t}</option>`).join('')}</select></div>` : ''}
-            ${ars.length ? `<div><label>画面比例</label><select id="edAr">${ars.map(a => `<option ${a === sh.ar ? 'selected' : ''}>${a}</option>`).join('')}</select></div>` : ''}
-            ${ress.length ? `<div><label>画质</label><select id="edRes">${ress.map(r => `<option ${r === sh.res ? 'selected' : ''}>${r}</option>`).join('')}</select></div>` : ''}
-            <div><label>生成条数</label><select id="edDraw">${Array.from({ length: drawMax }, (_, i) => i + 1).map(n => `<option ${n === sh.draw ? 'selected' : ''}>${n} 条</option>`).join('')}</select></div>
+            ${advSel(vk.tier)}
+            ${advSel(vk.aspect_ratio)}
+            ${advSel(vk.resolution)}
+            ${advSel(vk.count)}
           </div>
-          ${hasDur ? `<label>时长（${durMin}–${durMax} 秒，按模型支持范围限制）</label>
+          ${hasDur ? `<label>${esc(vk.duration.label)}（${durMin}–${durMax} 秒，按模型支持范围限制）</label>
           <div class="row">
             <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
             <div class="dur-num">
@@ -3724,7 +3782,9 @@ function renderEditor() {
   // 事件
   const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave(); };
   const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { sh.res = e.target.value; scheduleSave(); };
-  $('edDraw').onchange = e => {
+  /* 条数下拉在「这个型号一次只能出一条」时根本不画（与工作台同一判据，见 AdvParams.plan 的 many），
+     所以这里不能像以前那样裸用 `$('edDraw').onchange` —— 那是 TypeError。 */
+  const edDrawEl = $('edDraw'); if (edDrawEl) edDrawEl.onchange = e => {
     sh.draw = Math.max(1, parseInt(e.target.value, 10) || 1);
     scheduleSave();
     renderEditor();      // 让右下角「生成这一镜（N 条）」按钮同步条数
@@ -3736,16 +3796,14 @@ function renderEditor() {
     const el2 = col.querySelector('#' + id2);
     if (el2) el2.addEventListener('change', () => { refreshEst(); updateBanner(); });
   });
-  // 生成参数卡片：折叠 / 展开 + 摘要跟随参数（与图片工作台的高级设置一致）
+  // 生成参数卡片：折叠 / 展开 + 摘要跟随参数（外壳与摘要文本都在公共层，见 AdvParams）
   const updateAdvSum = () => {
     const sum = $('advSum');
-    if (!sum) return;
-    const r2 = resolvedModel(sh) || {};
-    sum.textContent = `${r2.name || ''} · ${sh.res} · ${sh.ar} · ${sh.duration || 5}秒`;
+    if (sum) sum.textContent = videoPlan().summary;
   };
   const advHeadEl = $('advHead'), advBoxEl = $('advBox');
   if (advHeadEl && advBoxEl) {
-    advHeadEl.onclick = () => { advBoxEl.classList.toggle('closed'); };
+    AdvParams.fold(advHeadEl, advBoxEl, 'sk_dir_adv_closed');
     ['edAr', 'edRes', 'edDraw', 'edTier', 'edModel'].forEach(id2 => {
       const el2 = $('' + id2);
       if (el2) el2.addEventListener('change', updateAdvSum);
@@ -3761,21 +3819,9 @@ function renderEditor() {
     setStatus('正在读取模型能力…');
     const caps = await refreshCapsForModel((resolvedModel(sh) || {}).provider);
     if (caps) setStatus(caps.source === 'api' ? '✓ 已按上游接口更新模型能力' : '按平台声明展示模型能力');
-    const rm2 = resolvedModel(sh);
-    const opts = rm2?.options || {};
-    // 换模型后把不支持的值全部纠正回该模型支持的范围内
-    if (opts.resolutions && !opts.resolutions.includes(sh.res)) sh.res = opts.resolutions[0];
-    if (opts.tiers && !opts.tiers.includes(sh.tier)) sh.tier = opts.tiers[0];
-    if (opts.aspect_ratios && !opts.aspect_ratios.includes(sh.ar)) sh.ar = opts.aspect_ratios[0];
-    const dclDur = (Array.isArray(opts.durations) ? opts.durations : []).map(Number).filter(Number.isFinite);
-    if (dclDur.length) {
-      const lo = Math.min(...dclDur), hi = Math.max(...dclDur);
-      sh.duration = Math.min(hi, Math.max(lo, Number(sh.duration) || lo));
-    }
-    if (opts.max_outputs) {
-      const mo = parseInt(opts.max_outputs, 10) || 1;
-      sh.draw = Math.max(1, Math.min(parseInt(sh.draw, 10) || 1, mo));
-    }
+    /* 换模型后「这一档在新模型上不存在」的纠正不在这里做：renderEditor 里的 AdvParams.plan
+       就是那份回落（这里以前自己写了一遍 resolutions/tiers/aspect_ratios/durations/max_outputs
+       的逐项纠正，写法与下拉画出来那一份、发出去那一份是三套 —— 现在同一判据只走 plan 一次）。 */
     renderEditor(); renderMid(); scheduleSave();
   };
   const ta = $('edPrompt');
@@ -3875,15 +3921,35 @@ function renderEditor() {
     renderEditor(); scheduleSave();
     setStatus('<span class="ok">✓ 已清除失败的画面</span>');
   };
-  $('kfQuality').onchange = () => { kfQ = $('kfQuality').value; scheduleSave(); refreshKfEst(); };
+  /* 画面高参的四档：控件按型号声明渲染，**可能整块不在 DOM 里**（这个型号什么都没声明）。
+     以前这里裸用 `$('kfQuality').onchange` —— 与上面 durNum 踩过的那个坑同一个：
+     控件不在就是 null，TypeError 让 renderEditor 从这一行中断，
+     「生成这一镜」、素材槽位、润色按钮一个都绑不上。 */
+  [['kfQuality', 'q'], ['kfAr', 'ar'], ['kfSize', 'size'], ['kfFormat', 'fmt']].forEach(pair => {
+    const el = $(pair[0]);
+    if (!el) return;
+    el.onchange = () => {
+      if (pair[1] === 'q') kfQ = el.value;
+      else if (pair[1] === 'ar') kfAr = el.value;
+      else if (pair[1] === 'size') kfSize = el.value;
+      else kfFormat = el.value;
+      kfParamsSave();
+      refreshKfEst();
+      const sum = $('kfAdvSum'); if (sum) sum.textContent = kfImgParams(sh).summary;
+    };
+  });
+  /* 折叠状态记住（外壳与键的读写都在公共层，与图片台 `studio_adv_closed` 同一份实现）：
+     右栏每次切镜头都重建这一块，不记住的话每次都得重新点开一遍才能看到摘要以外的那几档。 */
+  const kfAdvHeadEl = $('kfAdvHead'), kfAdvBoxEl = $('kfAdvBox');
+  if (kfAdvHeadEl && kfAdvBoxEl) AdvParams.fold(kfAdvHeadEl, kfAdvBoxEl, 'sk_kf_adv_closed');
   $('kfModel').onchange = async () => {
     kfModelId = $('kfModel').value;
     localStorage.setItem('sk_kf_model', kfModelId);   // 记住选择，换镜头也保持
     setStatus('正在读取模型能力…');
     await refreshCapsForModel((kfModelOf().prov || {}).id);   // 画面模型同样回源一次能力接口
-    /* 档位与默认值不在这里再判一次：renderEditor 重建画质下拉时 kfQualityOptions 会按新模型的
-       声明把 kfQ 校正到有效档位（以前这里又抄了一份兜底表，两处各写 'standard'，改一处漏一处）。 */
-    renderEditor();                                   // 重建画质下拉（跟随新模型能力）
+    /* 四档的取值与默认值不在这里再判一次：renderEditor 重建这些下拉时 kfImgParams 会按新模型的
+       声明把每个值校正到有效档位（以前这里又抄了一份兜底表，两处各写 'standard'，改一处漏一处）。 */
+    renderEditor();                                   // 重建高参（跟随新模型能力）
     setStatus('画面模型已切换：' + (kfModelOf().model?.name || kfModelId));
   };
   refreshKfEst();
@@ -3915,13 +3981,14 @@ function renderEditor() {
       btn.textContent = '…'; btn.disabled = true;
       kf.status = 'generating'; kf.err = null; renderEditor();
       try {
-        const prompt = (kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面'))
-
-        const aid = await genOneImage(pick.prov, pick.model, prompt, kfQ, sh.ar,
-          { type: '导演台-关键帧', meta: { 镜头: sh.name || '', 秒点: kf.t != null ? kf.t + 's' : '', 画质: kfQ, 画幅: sh.ar } });
+        const prompt = (kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面'));
+        const notes = [];
+        const refs = await kfRefEntries(sh, t => notes.push(t));
+        if (notes.length) setStatus('<span class="err">' + esc(notes.join('；')) + '</span>');
+        const aid = await genOneImage(pick.prov, pick.model, prompt, kfGenOpts(sh, { inputEntries: refs, at: kf.t }));
         kf.assetId = aid; kf.status = aid ? 'done' : 'failed';
         if (aid) addKeyframeToRefs(sh, aid, kf, i);
-        setStatus('<span class="ok">✓ 画面 ' + (i + 1) + ' 重新生成成功</span>');
+        setStatus('<span class="ok">✓ 画面 ' + (i + 1) + ' 重新生成成功' + (notes.length ? '（' + esc(notes.join('；')) + '）' : '') + '</span>');
       } catch (e2) { kf.status = 'failed'; kf.err = e2.message; setStatus('<span class="err">重试失败：' + e2.message + '</span>'); }
       renderEditor(); scheduleSave();
     });
@@ -4018,9 +4085,8 @@ async function useLibEntry(sh, it) {
       try {
         setStatus('正在把本地收藏的视频转存为资产…');
         const aid2 = await libEntryToAssetId(it, (it.prompt || it.name || '收藏视频').replace(/\s+/g, ' ').slice(0, 20) + '.mp4', 'video/mp4');
-        const cand2 = { vid: 'local_' + uid(), provider: ASSET_STORE, status: 'succeeded', progress: 100,
-          url: '/asset/' + aid2 + '?v=2', local: false, locked: false, trimS: null, trimE: null, priceMicros: null,
-          duration: it.duration || null, error: null };
+        const cand2 = mkImportedCandidate({ vid: 'local_' + uid(), provider: ASSET_STORE,
+          url: '/asset/' + aid2 + '?v=2', duration: it.duration });
         sh.candidates.push(cand2);
         if (!sh.selId) sh.selId = cand2.vid;
         scheduleSave(); renderAll();
@@ -4032,8 +4098,8 @@ async function useLibEntry(sh, it) {
     //            判断依据是注册表里有没有这一家视频平台，而不是写死某个平台名）
     const isPlat = ((REG && REG.providers) || []).some(p => p.kind === 'video' && p.id === it.provider) && it.id
       && !/^(local_|tmp_|asset_)/.test(String(it.id));
-    const cand = { vid: isPlat ? it.id : 'local_' + uid(), provider: isPlat ? it.provider : 'local', status: 'succeeded', progress: 100,
-      url: it.src, local: !isPlat, locked: false, trimS: null, trimE: null, priceMicros: null, duration: it.duration || null, error: null };
+    const cand = mkImportedCandidate({ vid: isPlat ? it.id : 'local_' + uid(),
+      provider: isPlat ? it.provider : 'local', url: it.src, local: !isPlat, duration: it.duration });
     sh.candidates.push(cand);
     if (!sh.selId) sh.selId = cand.vid;
   }
@@ -4391,6 +4457,28 @@ async function applyFrameEntry(sh, kind, e) {
 /* ---------- 费用预估：统一按 REGISTRY 的 pricing 声明估价（新 API 只需在 proxy.js 声明 pricing）---------- */
 const QUALITY_ZH = AiGen.QUALITY_ZH;   // 画质档位中文名只有 assetlib.js 的 AiGen 那一份
 let kfQ = 'standard';   // 时间切片画质选择（编辑器会反复重渲染，存在变量里不丢）
+/* 画面生成（时间切片）的高参：画质 / 画幅 / 尺寸 / 格式。
+   值存模块变量（右栏每次重渲染都重建这一块），并整份存进 localStorage ——
+    reload 之后又回默认档，用户每次都得重挑一遍。
+   `kfAr = ''` 是「跟随这一镜的画幅」（原来的行为：关键帧直接用 sh.ar），
+   所以这一档默认不变，只是**给了一个出口**：生图型号声明的画幅与视频那一条对得上时自己挑。 */
+let kfAr = '', kfSize = '', kfFormat = '';
+/* 两块面板的折叠状态不在这里各存一份模块变量：模板与 AdvParams.fold 都直接读那一个键
+   （AdvParams.closed），存成变量的那份迟早和点出来的那一份对不上。 */
+try {
+  const kp = JSON.parse(localStorage.getItem('sk_kf_params') || '{}');
+  if (kp && typeof kp === 'object') {
+    if (kp.q !== undefined) kfQ = String(kp.q || '');
+    if (kp.ar !== undefined) kfAr = String(kp.ar || '');
+    if (kp.size !== undefined) kfSize = String(kp.size || '');
+    if (kp.fmt !== undefined) kfFormat = String(kp.fmt || '');
+  }
+} catch (e) { }
+/* 四个值一次落盘（一个键）：分四个键就是四次「这算设置项还是算界面状态」的争论，
+   而且换一台机器只带走一半。 */
+function kfParamsSave() {
+  try { localStorage.setItem('sk_kf_params', JSON.stringify({ q: kfQ, ar: kfAr, size: kfSize, fmt: kfFormat })); } catch (e) { }
+}
 let kfModelId = localStorage.getItem('sk_kf_model') || '';   // 生成画面用的图片模型（可切换）
 let kfRun = false;      // 关键帧批量生成是否进行中（期间删除占位只做标记）
 /* 当前选中的图片模型（找不到就回退到第一个可用模型） */
@@ -4453,17 +4541,60 @@ function assetToDataURL(assetId) {
   /* 取字节统一走 Net.blob（带超时、先判 HTTP 状态），不再裸 fetch */
   return Net.blob(`/asset/${assetId}?dl=1&v=2`, { timeout: 60000 }).then(b => AssetTransfer.toDataURL(b));
 }
-/* 画质档位跟随所选图片模型的 options.qualities 动态生成 */
-function kfQualityOptions() {
-  const m = kfModelOf().model;
-  /* 档位与默认档都只来自模型声明：以前兜底写 ['draft','standard','final'] 并把 'standard' 当默认，
-     等于给没声明档位表的平台摆了一份 SparkCine 的档位 —— 提交过去平台不认。
-     没声明就只有一项（用模型自己的默认值，也没有就不带 quality）。 */
-  const decl = m?.options?.defaults?.quality;
-  const qs = (m?.options?.qualities || []).slice();
-  if (!qs.length) { kfQ = decl || ''; return `<option value="${esc(kfQ)}">${esc(QUALITY_ZH[kfQ] || kfQ || '平台默认')}</option>`; }
-  if (!qs.includes(kfQ)) kfQ = qs.includes(decl) ? decl : qs[0];
-  return qs.map(q => `<option value="${q}" ${q === kfQ ? 'selected' : ''}>${QUALITY_ZH[q] || q}${m?.price?.[q] != null ? ' · ' + m.price[q] + '积分' : ''}</option>`).join('');
+/* 画面生成（时间切片）那几档参数的**判据在 `assetlib.js` 的 `AdvParams.plan`**（与生成工作台图像栏同一份）：
+   选项来自图片模型自己的声明、回落顺序、显示名、摘要、提交体要带哪几项，全在那一处。
+   这里只留三件导演台自己的事：① 值存在模块变量里（整块随编辑器重绘，控件不是常驻 DOM），
+   ② 「跟随这一镜」这个借用值从 `sh.ar` 来，③ 归档日志的写法。 */
+function kfImgPlan(sh) {
+  const m = kfModelOf().model || {};
+  const ar = sh && sh.ar ? String(sh.ar) : '';
+  return AdvParams.plan(m, {
+    kinds: ['quality', 'aspect_ratio', 'size', 'output_format'],
+    ids: { quality: 'kfQuality', aspect_ratio: 'kfAr', size: 'kfSize', output_format: 'kfFormat' },
+    cur: { quality: kfQ, aspect_ratio: kfAr, size: kfSize, output_format: kfFormat },
+    /* 「跟随这一镜」只在**这个生图型号也收这一比例**时才成立：sh.ar 是视频那条的取值，
+       生图那一家没声明过它就是「发一个平台不认的字段值」（借 sh.ar 正是本轮修掉的那件事）。 */
+    follow: ar ? { aspect_ratio: { value: ar, note: '随这一镜' } } : null,
+    units: { count: '张' },
+  });
+}
+/* 算一遍并把回落后的值写回模块变量（下一次重绘与提交都读这一份） */
+function kfImgParams(sh) {
+  const pl = kfImgPlan(sh);
+  kfQ = pl.kinds.quality.value; kfAr = pl.kinds.aspect_ratio.value;
+  kfSize = pl.kinds.size.value; kfFormat = pl.kinds.output_format.value;
+  return pl;
+}
+/* 折叠状态下摘要那一行就是 plan 拼好的那一句（`kp.summary`），与下拉、提交体同源
+   （以前这里自己按四档各判一次「要不要写进摘要」，改一处就和面板各说各的）。 */
+/* 「参考图」槽位在这个**生图型号**上的上限（视频型号那份 maxRef 是另一码事，两家数字不同） */
+function kfRefMax(model) {
+  try {
+    const r = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(model, 'reference_image') : null;
+    return r && Number(r.max) > 0 ? Number(r.max) : 0;
+  } catch (e) { return 0; }
+}
+/* 画面生成发出去的那一份参数：`payload` 就是 plan 算好的「声明了才带」那几项
+   （与工作台图像栏 `createImageOnce` 同一个来源，不再是两处各判一遍）。
+   两处入口（整批 / 单张重试）共用这一份，否则改了批量那一路、重试那一条发的还是旧的，
+   而界面上看着完全一样。归档日志（meta）也照同一份写 —— 说的和提交的是同一件事。 */
+function kfGenOpts(sh, extra) {
+  extra = extra || {};
+  const pl = kfImgPlan(sh);
+  const p = Object.assign({}, pl.payload, { inputEntries: extra.inputEntries || null });
+  const k = pl.kinds;
+  const meta = { 镜头: sh.name || '' };
+  if (p.quality) meta.画质 = AdvParams.label('quality', p.quality, pl.model);
+  meta.画幅 = p.ar || '平台默认';
+  if (p.size) meta.尺寸 = p.size;
+  if (p.format) meta.格式 = AdvParams.label('output_format', p.format, pl.model);
+  if (p.inputEntries) meta.参考图 = p.inputEntries.length + ' 张';
+  if (extra.at != null) meta.秒点 = extra.at + 's';
+  p.log = { type: '导演台-关键帧', meta: meta };
+  /* 摘要与提交体同口径：这一句里的画幅就是 payload.ar（跟随不上时 payload 里没有它） */
+  p.summary = pl.summary;
+  p.kinds = k;
+  return p;
 }
 /* 图片模型下拉：跨平台列出所有支持文生图的模型 */
 function kfModelOptions() {
@@ -4550,12 +4681,38 @@ async function planKeyframes(sh, dur) {
 /* ③ 单张图片生成：创建与轮询都收敛到 assetlib.js 的 AiGen.image ——
    它按 Api.pollTask 走（声明了 pollVia:'list' 的平台不会被轮到一个 404 的详情端点），
    也不会把认不出的中间状态当成「生成失败」。这里只取产物号。 */
-async function genOneImage(imgProv, imgModel, prompt, quality, ar, logInfo) {
+async function genOneImage(imgProv, imgModel, prompt, o) {
   const m = (imgModel && imgModel.id) ? imgModel : (imgProv.models || [])[0];
   if (!m) throw new Error('该平台没有可用的图片模型');
-  const e = await AiGen.image({ prov: imgProv, model: m, prompt, quality, ar, log: logInfo });
+  /* 参数整包交下去（画质 / 画幅 / 尺寸 / 格式 / 参考图条目）：一个函数六个位置参数，
+     调用点想漏哪个都看不出来 —— 高参加进来之后更容易漏的是这一类。 */
+  const e = await AiGen.image(Object.assign({ prov: imgProv, model: m, prompt: prompt }, o));
   if (!e.assetId) throw new Error('这个平台产出的是外链而不是资产号，关键帧流程用不了');
   return e.assetId;
+}
+
+/* 画面生成要带的参考图：把这一镜挑好的 sh.refImages 转成**生图平台**认的输入条目。
+   上限现读图片模型的 reference_image 声明 —— 视频模型那份 maxRef 是另一码事，
+   两家数字不一样时多出来的几张不能发，也不能假装发了（「选好了」配一个空结果）。
+   整批只转存一次（在生成循环外面调用）：循环里各转一遍，同一张图会往同一家平台传 N 遍。
+   转不动的那一张照数据层的口径退回「只按文字画」，并把原因通过 note 说给用户听。 */
+async function kfRefEntries(sh, note) {
+  const pick = kfModelOf();
+  if (!pick.prov) return null;
+  const list = (sh.refImages || []).filter(Boolean);
+  const max = kfRefMax(pick.model);
+  if (!max) { if (list.length) note('这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + list.length + ' 张参考图没带上）'); return null; }
+  const use = list.slice(0, max);
+  if (list.length > max) note('参考图只带前 ' + max + ' 张（这个生图型号一次最多收 ' + max + ' 张，另有 ' + (list.length - max) + ' 张没带）');
+  const out = [], bad = [];
+  for (const src of use) {
+    try {
+      const en = await AssetTransfer.entryFor(pick.prov, 'reference_image', src, { reg: REG, name: '导演台-画面参考图' });
+      if (en) out.push(en); else bad.push('平台没有返回可用的条目');
+    } catch (e) { bad.push((e && e.message) || String(e)); }
+  }
+  if (bad.length) note(bad.length + ' 张参考图没能转给生图平台（' + bad[0] + '），那几张不带了');
+  return out.length ? out : null;
 }
 
 /* ④ 生成好的画面同时进入「参考图」（受模型能力与上限约束；与首尾帧互斥时不进） */
@@ -4581,7 +4738,6 @@ async function generateKeyframes(sh) {
   const rmv = resolvedModel(sh);
   const kfDur = (Array.isArray(rmv?.options?.durations) ? rmv.options.durations : []).map(Number).filter(Number.isFinite);
   const dur = Number(sh.duration) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
-  const quality = kfQ;
   const btn = $('kfGenBtn');
   if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
   try {
@@ -4593,7 +4749,7 @@ async function generateKeyframes(sh) {
     // ①.5 先把规划结果给用户过一遍（可改文案 / 删掉不想生成的），确认后再出占位图并开始生成
     const reviewed = await PromptReview.openList({
       title: '画面切片规划（文字 AI 出的提示词）',
-      sub: `第 ${allShots().indexOf(sh) + 1} 镜 · 时长 ${dur} 秒 · 共 ${plan.length} 张 · 画质 ${kfQ}`,
+      sub: `第 ${allShots().indexOf(sh) + 1} 镜 · 时长 ${dur} 秒 · 共 ${plan.length} 张 · 画质 ${QUALITY_ZH[kfQ] || kfQ || '平台默认'}`,
       items: plan.map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
       applyLabel: '采用并开始生成',
       hint: '可以逐条修改或删掉；确认后立即出占位图并开始生成',
@@ -4614,6 +4770,11 @@ async function generateKeyframes(sh) {
     renderEditor(); scheduleSave();
     setStatus(`已确认 ${finalPlan.length} 张画面（${finalPlan.map(f => f.t + 's').join(' / ')}），开始生成…`);
 
+    // ②.5 参考图先转存一次，整批复用同一份条目（循环里各转一遍 = 同一张图传 N 趟）
+    const refNotes = [];
+    const kfRefs = await kfRefEntries(sh, t => refNotes.push(t));
+    if (refNotes.length) setStatus('<span class="err">' + esc(refNotes.join('；')) + '</span>');
+
     // ③ 逐张生成 → 替换占位 → 同时加入参考图（后台刷新走 renderSoft：正在右栏编辑时不打断输入）
     kfRun = true;
     let okN = 0, refN = 0;
@@ -4623,8 +4784,7 @@ async function generateKeyframes(sh) {
       kf.status = 'generating'; renderSoft(['edit']);
       try {
         const prompt = kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面');
-        const assetId = await genOneImage(imgProv, imgModel, prompt, quality, sh.ar,
-          { type: '导演台-关键帧', meta: { 镜头: sh.name || '', 秒点: kf.t != null ? kf.t + 's' : '', 画质: quality, 画幅: sh.ar } });
+        const assetId = await genOneImage(imgProv, imgModel, prompt, kfGenOpts(sh, { inputEntries: kfRefs, at: kf.t }));
         kf.assetId = assetId;
         kf.status = assetId ? 'done' : 'failed';
         if (assetId) { okN++; if (addKeyframeToRefs(sh, assetId, kf, i)) refN++; }
@@ -4637,6 +4797,9 @@ async function generateKeyframes(sh) {
     loadCredits();
     setStatus(okN
       ? `<span class="ok">✓ 已生成 ${okN}/${sh.keyframes.length} 张画面${refN ? '，并加入参考图' : (shotInputCaps(sh).blockedRoles.has('reference_image') ? '（已选首尾帧，画面未加入参考图）' : '')}</span>`
+        /* 参考图那一句要说到底：中途说过一次，收尾又被「已生成 N 张」盖掉的话，
+           「有几张其实没带上」这件事就只在屏上一闪而过（失败原因要留在卡片上，不弹一次就算）。 */
+        + (refNotes.length ? '<span class="err"> · ' + esc(refNotes.join('；')) + '</span>' : '')
       : '<span class="err">画面生成失败，请检查图片AI密钥或稍后重试</span>');
   } catch (e) {
     setStatus('<span class="err">生成失败：' + e.message + '</span>');
@@ -4799,16 +4962,13 @@ let opStateTimer = null;
    普通提示（「已定位到 8.2 秒」「✓ 已采用这条」这种）走工具栏那行小字，不弹任何浮层：
    以前它们既被丢掉、后来又改成弹 Toast，都会打扰操作。 */
 function setStatus(t) {
-  const b = $('banner');
   const html = window.sanitizeHTML(String(t == null ? '' : t)).trim();
   if (!html) return;                       // 空调用不再顺手收起错误横幅（错误要留在屏幕上）
   const errRe = /class="err"|失败|错误|异常|无法|超时|中断|出错/;
   if (errRe.test(html) || /class="warn"/.test(html)) {
-    b.hidden = false;
-    b.className = errRe.test(html) ? 'err' : 'warn';
-    b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">' + icon('close', 11) + '</button>';
-    b.querySelector('.msg').innerHTML = html;
-    b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
+    /* 横幅本身（元素、.msg/.bx 结构、关闭按钮、样式）归 ui.js 的 ErrBanner + ui.css 那一份，
+       本页只留「什么算错误」这条页面私有的路由判据。 */
+    ErrBanner.show(html, errRe.test(html) ? 'err' : 'warn');
     return;
   }
   const el = $('opState');
@@ -5090,7 +5250,7 @@ Wb.split.enable({
   lastSavedJson = snapOf();    // 撤销栈基线
   $('projName').value = proj.name;
   renderAll();                 // 首屏：不等能力接口、不等本地视频、不等余额
-  pollTick();
+  poller.kick();             // 首屏立刻问一次在途候选，不等第一轮间隔
   loadCredits();
   // 后台补齐（都不阻塞首屏）
   Capabilities.load(REG).then(() => { try { renderEditor(); } catch {} }).catch(() => {});

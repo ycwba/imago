@@ -116,8 +116,8 @@
 <body>
 <div class="page-main">
   <h1><span id="tic"></span>素材库</h1>
-  <div class="desc">跨剧复用的<b>角色</b>、<b>场景</b>与<b>道具</b>。这一页只管存与改；
-    往某一集里放请到<b>「拍短剧 → 认角色」</b>，那边能多选、能整组交给 AI，目标集就写在弹窗标题上。</div>
+  <div class="desc">可复用的<b>角色</b>、<b>场景</b>与<b>道具</b>：预览图、描述、声音与角色资产都在这里改一次，
+    导演台选参考图、生成工作台出图出配音都直接用这一份，不必每处重画。</div>
 
   <div class="toolbar">
     <div class="chips" id="chips"></div>
@@ -157,11 +157,11 @@
 <script src="sidebar.js"></script>
 <script src="ident.js"></script>
 <script src="assetlib.js"></script>
-<script src="drama.js"></script>
+<script src="chars.js"></script>
 <script>
 (function () {
   const $ = id => document.getElementById(id);
-  const D = window.Drama, esc = s => window.esc(s);
+  const D = window.Chars, esc = s => window.esc(s);
   const AK = D.Cast.ASSET_KINDS;
   let REG = null;
   let filter = 'all';
@@ -178,7 +178,7 @@
   function orderItems(items) {
     if (aiRank) return items.slice().sort((a, b) => aiRankOf(a) - aiRankOf(b));
     /* 'zh' 要显式写：不带 locale 时按**浏览器默认**排，中文机上是拼音、英文机上就成了按码位排 ——
-       同一份库在两台机器上顺序不一样。素材库分组那一排（drama.js 的 groups）用的就是 'zh'。 */
+       同一份库在两台机器上顺序不一样。素材库分组那一排（chars.js 的 groups）用的就是 'zh'。 */
     return items.slice().sort((a, b) => String(a.name || '').trim().localeCompare(String(b.name || '').trim(), 'zh'));
   }
   let openId = '';                 // 哪一张卡展开了编辑区
@@ -194,9 +194,12 @@
   const media = [];                // 当前视图能点开看的图（预览图 + 各资产）
 
   /* 这一页没有「某一集」，所以出图 / 出声音用的型号在本页选一下（存 char_opts）。
-     传进 Drama.Pipe 时套成 drama 的样子（那些函数只读 opts.imgModel / opts.ttsModel / opts.ratio）。 */
+     传进 Chars.Pipe 时套成 drama 的样子（那些函数只读 opts.imgModel / opts.ttsModel / opts.ratio）。 */
   let opts = { imgModel: '', ttsModel: '', ratio: '9:16', style: '' };
   try { opts = Object.assign(opts, JSON.parse(localStorage.getItem('char_opts') || '{}')); } catch (e) {}
+  /* 出图与配音那两条流水线照旧吃一个「一集」当参数（它们要读 opts.imgModel / ttsModel / ratio，
+     也需要一个角色数组来收结果）。素材库页没有「一集」，所以现搭一个壳传进去 ——
+     数据层的 assignVoices 不再把它写回任何地方（没有宿主可写）。 */
   const fakeDrama = () => ({ opts: opts, characters: [], scenes: [], shots: [] });
   function saveOpts() { try { localStorage.setItem('char_opts', JSON.stringify(opts)); } catch (e) {} }
   function setBusy(m) { busyMsg = m; paintBusy(); }
@@ -210,7 +213,7 @@
   }
   /* 谁在生成：一张表记「这一条的哪一项正在出」（预览图 / 某一类设定图 / 声音候选）。
      三样事都读它：格子里的占位圈、按钮的禁用态、重复点同一项的闸门 —— 白花一次钱就在这一处拦。
-     不同条、不同项并发照旧放行，它们本来就互不相干（与拍短剧页的记账同一套做法）。 */
+     不同条、不同项并发照旧放行，它们本来就互不相干。 */
   const GEN = new Map();
   const gKey = (kind, id) => kind + '#' + id;
   /* 出图表单那一行（名字 / 模板 / 要画什么）的草稿，按素材 id 存。
@@ -227,7 +230,7 @@
   /* 「这一项上一次没出来，为什么」也按「哪一条的哪一项」记，与 GEN 同一套键。
      记在页面上而不是素材对象上：这一轮的失败是**这一轮的**账（出图失败、平台超时），
      落进库里就变成一条永久挂着、又不跟着重试清掉的旧话；数据层只留两条真需要跨页的
-     （`voiceErr` / `voiceAuto`，见 `Drama.Lib.save` 的拷贝清单）。
+     （`voiceErr` / `voiceAuto`，见 `Chars.Lib.save` 的拷贝清单）。
      批量那一轮尤其需要它 —— 40 条里砸 3 条，toast 会连着响三声把界面淹了，
      而真正该看的那句话得留在这几张卡上。 */
   const ERR = new Map();
@@ -266,7 +269,7 @@
     for (const k of GEN.keys()) if (k.endsWith(tail)) return k.slice(0, k.length - tail.length);
     return '';
   }
-  /* 存这一条 —— 全页写库的唯一出口（与拍短剧页的 `saveOf` 同一立场）。
+  /* 存这一条 —— 全页写库的唯一出口。
      `Lib.save` 有两种「没存进去」：配额撞满（写了、其实没落盘）与库里那份读不出来
      （**一个字都不写**，写下去就把整库洗成一条）。两种原因都由数据层留着，这里取一次、
      照实说，不让人对着「改完就地存」那句话以为已经保存了。 */
@@ -324,11 +327,22 @@
   async function resumePending() {
     const stale = 30 * 60 * 1000;
     let done = 0, lost = 0;
+    const jobs = [];
     for (const { key, rec } of PEND.all()) {
       if (!rec || !Array.isArray(rec.tasks) || !rec.tasks.length) { PEND.del(key); continue; }
       if (Number(rec.at) < Date.now() - stale) { PEND.del(key); continue; }
       const c = D.Lib.list().find(x => x && x.id === rec.id);
       if (!c) { PEND.del(key); continue; }
+      jobs.push({ key, rec, c });
+    }
+    /* 并发认领（与「一次出齐」同一套池子、同一个上限 FILL_CONC）：
+       逐条串行等的时候，一条还没出图的能把整趟拖住五分钟（AiGen.wait 的单条上限），
+       二十几条待认领就是二十几分钟 —— 而排在后面的那些连「正在取回」都还没摆出来，
+       看着就像「上次那批图没了」。正常出图那一趟本来就是并发跑 AiGen 的，
+       认领这一趟不该比它更占上游，所以沿用同一个上限，不另编一个数。
+       每条任务**内部**仍然串行：一个 rec 里的几条是同一档候选，收齐了才一次写回。 */
+    await D.Pipe.runPool(jobs, FILL_CONC, async job => {
+      const { key, rec, c } = job;
       genSet(rec.kind, rec.id, '正在取回上次没等完的出图…');
       paintCard(c);
       const got = [];
@@ -340,7 +354,7 @@
       }
       genClear(rec.kind, rec.id);
       PEND.del(key);
-      if (!got.length) { lost++; paintCard(c); continue; }
+      if (!got.length) { lost++; paintCard(c); return; }
       const bus = String(rec.kind || '');
       if (bus === 'face') {
         const old = (c.faces || []).slice();
@@ -355,7 +369,7 @@
       libSave(c);
       done++;
       paintCard(c);
-    }
+    });
     if (done) Toast.ok('取回了 ' + done + ' 条上次没等完的出图（切页之前发出去的，任务一直在平台上跑）', 6000);
     if (lost) Toast.warn('有 ' + lost + ' 条上次的出图没取回来（平台可能已经清了那条任务），在编辑区里重出一次即可', 8000);
   }
@@ -376,8 +390,8 @@
      角色资产本身是**扁平的、名字自己起**的列表（任意种类、不限张数），
      这里管的是「点『AI 出』时用哪段提示词」。场景与道具没有资产子项。 */
   const assetTpls = c => D.Cast.assetTplsOf(c);
-  /* 「一次出几张」= 拍短剧页那份设置（Drama.SET.candN，可配 1~8）再夹生图型号声明的
-     `max_outputs`（drama.js 的 `Pipe.candCount` 一处判据）。**两页读的是同一个数** ——
+  /* 「一次出几张」= 设置页「素材库」那张卡的 candN（可配 1~8）再夹生图型号声明的
+     `max_outputs`（chars.js 的 `Pipe.candCount` 一处判据）。**两页读的是同一个数** ——
      素材库里攒下的候选会跟着角色拉进某一集，两个页面对「几张」各有一套定义就会出现
      「这边出 3 张、那边只出 1 张」。`ONE` 保留给「明确只要一张」的那些调用
      （失败重试、批量补画），它们不是候选场景。 */
@@ -516,13 +530,13 @@
   }
 
   /* ---------- 分组：这一页只负责「看哪一组」 ----------
-     「把这一组 / 这一条加进某一集」**不在这一页**。
      以前这里有两个按钮（工具条上的「整组加入这一集」与每张卡上的「加入当前这一集」），
      它们都要求「拍短剧页当前正打开着一集」（D.activeId()）——
      可这一页根本显示不出当前开着哪一集，于是要么点出「还没有打开的一集」的报错，
      要么默默改了一集你压根没在拍的东西。这类按钮是「不该有的按钮」：
-     同样的事拍短剧页有一个更好的入口（`btnOpenLib` 那个挑选弹窗，支持多选、整组、
-     删除、就地新建，目标集就在标题栏写着），所以这里是纯粹的功能重复 + 看不见前提。 */
+     同样的事拍短剧页有一个更好的入口（挑选弹窗，支持多选、整组、删除、就地新建，
+     目标集就在标题栏写着）。2026-10 拍短剧页整体删除，这一页就是素材库的唯一入口 ——
+     分组现在纯粹是「筛与查」的手段。 */
   function paintGroups() {
     const gs = D.Lib.groups();
     const none = D.Lib.list().filter(c => c && !String(c.group || '').trim()).length;
@@ -632,9 +646,9 @@
   /* 这一条身上那几张图叫什么：道具只有「预览图」一个说法，角色才有「三视图」这一档。
      场景与道具没有资产子项，所以 `picWord` 之外不该再冒出「多角度 / 陈设细节」这类词。 */
   function picWord(c) { return isProp(c) ? '道具图' : '预览图'; }
-  /* 三种类型各自「这一栏叫什么、给个什么例子、建完提醒什么」在 `drama.js` 的 `KIND_FIELDS`
+  /* 三种类型各自「这一栏叫什么、给个什么例子、建完提醒什么」在 `chars.js` 的 `KIND_FIELDS`
      （现读 `D.Lib.kindF`）—— 新建一条素材也归了数据层那一份（`D.Lib.newForm`），
-     这一页与拍短剧的挑选弹窗都走它，措辞表留在页面里就成了第二份。
+     表单与这一页都走它，措辞表留在页面里就成了第二份。
      ⚠ 那张表**只管措辞**。「这一类到底有没有声音 / 时段 / 角色资产」仍然问 `voiced` /
         `isScene` / `isProp` 那三份判据（数据层的字段形状说的），不在表里再立一套 ——
         两处各判一次就会出现「表说场景没时段、编辑区却画出来了」。 */
@@ -674,7 +688,7 @@
     const faceBusy = genHas('face', c.id);
     /* 试听：编辑区开着时不摆这一颗 —— 下面那块声音控件里本来就有同一件事（同一句话不能说两遍）。 */
     const hasVoice = voiced(c) && !!(c.voice || c.voiceName || String(c.voiceNote || '').trim() || c.refAudio);
-    /* 只出声的那一位不进画面：出图的两个入口对它是纯噪音（拍短剧页那边同样不给它画脸），
+    /* 只出声的那一位不进画面：出图的两个入口对它是纯噪音（同样不给它画脸），
        所以这里连按钮都不画，而不是画一颗点了什么都不发生的按钮。 */
     const vo = voiced(c) && D.voiceOnlyOf(c);
     /* 生成中**先占位**（哪怕这一条已经有旧图）：旧图一动不动地留在那里，
@@ -766,7 +780,7 @@
           + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出${anTxt}</button>`
           + `<button class="ui-linkbtn" data-a="reuse" data-src="${esc(a.src || '')}" data-name="${esc(lab)}" title="带着这一张去生成工作台，放进参考图那一栏">拿去生成</button>`
           + `<button class="ui-linkbtn" data-a="assetclear" data-id="${esc(a.id)}" data-label="${esc(lab)}">去掉这一张</button>`
-          + (libProps.length ? '<span class="ui-props">' + opts + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，可以在拍短剧页「道具」里加</span>')
+          + (libProps.length ? '<span class="ui-props">' + opts + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，点右上「新建素材」加一条（类型选「道具」）</span>')
           + '</div>';
       }).join('') + '</div>'
       + '<div class="ui-hint sm">这些图拍摄时都会作为参考图发给视频 AI（按平台声明的上限截，超出的会点名哪几张没发）。</div>'
@@ -807,7 +821,7 @@
       <label>名字<input data-f="name" value="${esc(c.name || '')}" maxlength="20"></label>
       <label>类型<select data-f="kind">${Object.keys(D.LIB_KINDS).map(k =>
         `<option value="${k}"${D.libKindOf(c) === k ? ' selected' : ''}>${D.LIB_KINDS[k]}</option>`).join('')}</select></label>
-      <label>分组（拍短剧页可以整组一次交给 AI）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
+      <label>分组（可留空；素材库页能按整组筛与查找）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
 
       <div class="ed-sec">描述</div>
       <label>${kf.look.lab}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
@@ -827,9 +841,9 @@
   }
 
   function bindCard(card, c) {
-    /* 声音那一块（试听 / 音色胶囊 / 复刻上传）的标记来自 Drama.Cast.voiceRowHTML，
+    /* 声音那一块（试听 / 音色胶囊 / 复刻上传）的标记来自 Chars.Cast.voiceRowHTML，
        它用的是 data-act；本页自己的动作是 data-a。两套都要绑，漏一套就是
-       「点音色胶囊没反应」—— 与拍短剧页同一份标记，绑法也照它那一套。 */
+       「点音色胶囊没反应」—— 标记只有 Chars.Cast 这一份，页面只绑自己的 data-act。 */
     const act = (el, fn) => { el.onclick = async e => { e.stopPropagation(); try { await fn(el); } catch (err) { Toast.err(err.message || String(err)); setBusy(''); } }; };
     const acts = {
       edit: async () => { toggleEdit(c.id); },
@@ -852,7 +866,7 @@
          以前只能「用这一张」或整个重出，挑剩下的永远留在那儿。
          删的正好是**在用的那张**时把当前图顺位挪到剩下第一张，一张不剩就清空 ——
          否则 picOf 会指着一张已经不在的图（界面上是破图 + 出图按钮还写着「已有」）。 */
-      /* 删候选的规则走数据层那一份（D.Cast.dropFaceCand）—— 拍短剧的同三处也调它。
+      /* 删候选的规则走数据层那一份（D.Cast.dropFaceCand）。
          以前这里是页面自己写的一套：两边各删一次，规则（删掉正在用的那张要不要顺位递补）
          就有了两份，改一处就会在另一个页面上失效。 */
       canddel: async el => {
@@ -865,12 +879,12 @@
       },
       /* 候选排里的缩略图（picCandsHTML 用 data-act="zoom"）。两页共用那份标记，
          所以点开看大图这一件事也得在这边接上 —— 不接就是一张点不开的小图。
-         它带的是 `data-name`（drama.js 拼的「名字 · 第 N 张」），本页 openZoom 读 `data-label`。 */
+         它带的是 `data-name`（chars.js 拼的「名字 · 第 N 张」），本页 openZoom 读 `data-label`。 */
       zoom: async el => { openZoom(c, el.dataset.label || el.dataset.name || '图', el.dataset.src); },
-      /* 就地二次确认（与拍短剧页同一份 Confirm.arm）：删除按钮原地变成「确认删掉」，
+      /* 就地二次确认（公共层的 Confirm.arm）：删除按钮原地变成「确认删掉」，
          再点一下才真删 —— 素材库里常常连着清掉几位，弹一次窗就打断一次。 */
       del: async el => {
-        /* 提示会被错过，拒不会（与拍短剧页同一立场）：这一条身上还有活在跑时删掉它，
+        /* 提示会被错过，拒不会：这一条身上还有活在跑时删掉它，
            那一轮收尾会照旧 `Lib.save` 一次 —— 刚删的素材又被写回库里，
            而用户已经以为删掉了（界面当时确实消失，因为整页重画过）。 */
         const busy = genOn(c);
@@ -1011,7 +1025,7 @@
         if (r.why) Toast.err(r.why);
       },
       /* 拿这一条**已经生成**的音频去做复刻：同一份判据与同一份改法都在 `Pipe.cloneFromCands`，
-         两页各写一份的话迟早对不上（素材页切了方式、拍短剧页还按描述生成）。 */
+         调用方各写一份的话迟早对不上（素材库页切了方式、别处还按描述生成）。 */
       vclone: async el => {
         const r = D.Pipe.cloneFromCands(REG, opts, c, el.dataset.src, el.dataset.name);
         if (!r.ok) { Toast.err(r.why); return; }
@@ -1153,17 +1167,17 @@
      留着一个按 kind 记账的函数，就还能通过它改出界面上不存在的东西 —— 第二份实现。 */
 
   /* 「画风」这一格**已于 2026-10 删掉**：它是整页一份的出图取向，与「这一位长什么样」是两件事，
-     却会长成「素材库自己有一套画风、拍短剧那一集又有一套」——同一个名字两个地方各填各的，
+     却会长成「素材库自己有一套画风、生成时又有一套」——同一个名字两个地方各填各的，
      出来的图色调对不上，而界面上没有任何一处说明它们是两套。
      现在**只按每条素材自己的外貌 / 场景描述出图**（也就是原来「留空」那一种）。
-     拍短剧那一集的画风没动：它是剧集自己的 `opts.style`，走 `episodeStyle`（drama.js），
+     这一页的画风不动：它走 `episodeStyle`（chars.js），
      两边从来不互相读。 */
 
   /* ---------- 一次出齐这一档 ----------
      批量只补「这张卡上本来就该有的两样东西」：缺预览图的补预览图，缺三视图／多角度的补那一类。
      表情／服装／道具不进批量 —— 拍摄时 planMaterials 只把预览图与三视图当参考图发出去，
      那三类是给人自己看的，替用户连点四次不该点的生成是白花力气。
-     并发 6 与拍短剧页同一个理由（上游速率限制普遍在个位数并发上，再高就是「排了 8 条、
+     并发 6 的理由是上游速率限制普遍在个位数并发上，再高就是「排了 8 条、
      界面转 8 个圈、其实前 6 条还没跑完」那种假繁忙）；池子本身在数据层（D.Pipe.runPool）。
      worker 按**素材**取、一条素材内部两步串行 —— runPool 的队列不保证同一素材两次的先后，
      而三视图必须等它的预览图先落盘才能照着画。 */
@@ -1212,7 +1226,7 @@
     if (genHas('fill', null)) return;
     const p = fillPlan();
     if (!p.tasks) { Toast.ok(viewItems.length ? '这一档没有要补的图' : '这一档里还没有素材'); return; }
-    /* 多于一条真任务就先问（判据与拍短剧页那颗「开始拍」同一条：一条不问，多条先问）。
+    /* 多于一条真任务就先问（一条不问，多条先问）。
        确认排在能力判据之后 —— paintFillBtn 已经按判据把按钮焊死过一轮了。 */
     if (p.tasks > 1 && !await Confirm.ask({
       title: '一次出齐这一档',
@@ -1414,11 +1428,12 @@
     Toast.ok('参考音频挂上了，可以试听；视频模型有「参考音频」槽位时也会一起发过去');
   }
 
-  /* 「加入某一集」整个搬到了拍短剧页：那边有一个挑选弹窗（多选 / 整组 / 就地新建 / 删除），
-     目标集就写在弹窗标题上，比在这一页放一个看不见前提的按钮强。合并规则仍在 Drama.Lib.pullInto。 */
+  /* ⚠ 「把这一条加进某一集」随拍短剧页一起删除了（合并规则原本在 Chars.Lib.pullInto，
+     那是「剧侧 ↔ 库」两套数据的对齐，页面一删就没有第二套数据要对齐了）。
+     2026-10 起素材库是**就地编辑**的唯一数据源，导演台与工作台直接引用它。 */
 
-  /* 表单本身（字段、按类型换措辞、重名拦截）在 `drama.js` 的 `D.Lib.newForm` 一份 ——
-     拍短剧的挑选弹窗里那颗「＋ 新建素材」以前自己写了第二份，漂成了旧措辞、还漏了场景的「时段」一行。
+  /* 表单本身（字段、按类型换措辞、重名拦截）在 `chars.js` 的 `D.Lib.newForm` 一份 ——
+     当年拍短剧的挑选弹窗里那颗「＋ 新建素材」自己写了第二份，漂成了旧措辞、还漏了场景的「时段」一行。
 
      「先出后选再创建」是这条流程现在的样子（用户要求）：
        ① 填名字 / 类型 / 描述（也可以顺手挑一张现成的图）；
@@ -1690,7 +1705,7 @@
   }
 
   /* ---------- AI 找素材：话就写在搜索框里，结果就地筛这份名单（角色 / 场景 / 道具三种都算） ---------- */
-  /* 型号下拉与拍短剧/生成工作台同一套二级菜单（组头 = 平台显示名，选项文字 = 平台真正的调用名，
+  /* 型号下拉与生成工作台同一套二级菜单（组头 = 平台显示名，选项文字 = 平台真正的调用名，
      友好名放 title），数据源现读注册表：以前选项文字写着「MiMo TTS（音色设计）」那种整串，
      看着像型号自带的能力说明，和别的页面对不上。 */
   function paintModelPicks() {
@@ -1707,7 +1722,7 @@
       v => { opts.ttsModel = v; saveOpts(); render(); }, '没配语音平台');
     paintCandPick();
   }
-  /* 「出图张数」：写的是**设置页那一项同一个键**（`D.SET.candN.key` = dr_cand_n），
+  /* 「出图张数」：写的是**设置页那一项同一个键**（`D.SET.candN.key` = char_cand_n），
      改哪边两边都变 —— 素材库里攒的候选会跟着角色拉进某一集，两页各存一份就会
      「这边出 3 张、那边 1 张」。只建一次（选项 1~8 是固定的），之后只同步值，
      免得每次 render 都重建一个 select（下拉开着的时候会被拆掉）。 */
@@ -1851,7 +1866,7 @@
     const grid = $('grid');
     if (!items.length) {
       grid.innerHTML = '<div class="empty">' + (all.length ? '这一档下没有东西。换个筛选条件、换个组，或清空搜索框。'
-        : '素材库还是空的。<br>在「拍短剧 → 认角色」里点「存进素材库」把用顺的人和场景留下，或点右上「新建素材」。') + '</div>';
+        : '素材库还是空的。<br>点右上「新建素材」把用顺的人和场景留下 —— 建好之后导演台选参考图、生成工作台出图出配音都会直接用它。') + '</div>';
       $('pagerRow').style.display = 'none';
       return;
     }
@@ -1929,9 +1944,9 @@
       morePages++; render();
     });
   }
-  /* 素材库写盘只走 Drama.Lib（内部是 Kv + localStorage），另一个标签页开着拍短剧页
+  /* 素材库写盘只走 Chars.Lib（内部是 Kv + localStorage），另一个标签页开着这一页
      存进库时这里要能跟着刷新 —— storage 事件是浏览器给跨标签页的那一条通道。 */
-  window.addEventListener('storage', e => { if (!e.key || e.key === 'drama_chars') render(); });
+  window.addEventListener('storage', e => { if (!e.key || e.key === 'char_lib') render(); });
   boot();
   /* 助手在别处改了素材库（`RUN save_char` / `remove_char`）之后调它重画 ——
      有了它，助手说一句「已存进素材库」时界面**当场**就变了；
