@@ -1113,7 +1113,12 @@
         const P_ZH = { aspect_ratio: '比例', quality: '画质', resolution: '分辨率', output_count: '数量',
           duration: '时长', output_format: '格式', optimize_prompt: '优化提示词', width: '宽', height: '高', seed: '种子' };
         const T_ZH = { duration: '时长', resolution: '分辨率', aspect_ratio: '比例', progress: '进度(%)',
-          queue_position: '队列位置', note: '备注', priority: '优先级', webhook: '回调' };
+          queue_position: '队列位置', note: '备注', priority: '优先级', webhook: '回调',
+          /* VGENV 顶层回的那些（文档 02 节的参数表；turbo_requested 是「用户请求了」、
+             turbo 是「平台这一次真给了」，两个都留在详情里才对得上报价与账单） */
+          seed: '随机种子', upscale: '超分', turbo: 'Turbo', turbo_requested: '请求了 Turbo',
+          motion_start_seconds: '动作起点(秒)', preserve_source_audio: '保留原声音',
+          creation_intent: '创作意图' };
         /* 平台返回但「对人没用」的字段：对象类型名、内部 id、原始时间戳 */
         const T_SKIP = new Set(['object', 'source', 'route_goal', 'workspace_id', 'user_id', 'project_id',
           'revision', 'api_version', 'status_code', 'metadata', 'optimized_prompt', 'id', 'prompt',

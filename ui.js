@@ -2168,7 +2168,10 @@ window.UI_PREFS = {
   /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建）与一次性的 sk_reuse */
   const SYNCABLE = [
     'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_vision', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
-    /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走 */
+    /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走。
+       `sk_text_models_` 在 v13 起已经改成一份 `sk_model_prefs`（见 assetlib.js 的 ModelPrefs），
+       这一条**先留着**：迁移是把旧键删掉的，键不在名单里就轮不到 `syncable()`，那次删除
+       就不会镜像到 `.data/` —— 旧文件留在服务器上，下次对账又把它拉回来。 */
     'sk_text_prov', 'sk_text_models_',
     /* 设置页「添加自定义供应商」登记的接口（图片 / 视频 / 语音 / 文字 AI 四类都能加）：一份 JSON 数组，
        代理读它的镜像 `.data/sk_custom.json` 合并进 /registry —— 跟着数据文件走才能换机器还在。
@@ -2696,8 +2699,16 @@ window.UI_PREFS = {
   };
   /* 页面加载后自动对账一次；并顺手申请持久化存储（不需要用户手势）。
      旧键清理**排在 boot 之后**：boot 会拿 `.data/` 里的文件去补 localStorage（清过浏览器数据后靠它恢复），
-     先清本地再对账的话，那几份死文件会被「恢复」回来 —— 顺序反了就等于没清。 */
-  const afterBoot = () => { window.DataSync.boot().then(sweepLegacyKeys, sweepLegacyKeys); };
+     先清本地再对账的话，那几份死文件会被「恢复」回来 —— 顺序反了就等于没清。
+     `ModelPrefs.migrate()` 排在同一站，道理一模一样：它把旧的 `sk_text_models_<kid>` 并进
+     `sk_model_prefs` 然后**把旧键删掉**。放在脚本求值阶段（boot 之前）删的话，正在跑的 boot
+     看见「服务器有、本地没有」会把旧键拉回来，紧接着的 flush 又把手里那份 DELETE 送出去 ——
+     于是每次开页面都重复一遍「拉回来 / 删掉」，还在 `.data/` 留下一串 `.bak`。 */
+  const afterSynced = () => {
+    try { if (window.ModelPrefs) window.ModelPrefs.migrate(); } catch (e) {}
+    return sweepLegacyKeys();
+  };
+  const afterBoot = () => { window.DataSync.boot().then(afterSynced, afterSynced); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', afterBoot);
   else afterBoot();
   setTimeout(() => { try { window.DataSync.persist(); } catch {} }, 1500);

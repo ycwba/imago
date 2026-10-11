@@ -88,12 +88,10 @@
   .prov .meta code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
     padding: 1px 5px; font-size: 11px; }
   #provTabs { margin-bottom: 10px; }
-  /* 「添加自定义供应商」那一格：型号是一排复选框，数量随接口形状变，窄窗口要能换行 */
-  .cus-models { display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px; min-width: 0; }
-  .cus-models .cus-m { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; flex-wrap: wrap; }
-  .cus-models .cus-m input { margin: 0; }
-  .cus-models .cus-m code { font-size: 11.5px; color: var(--sub); }
-  .cus-models .hint.sm { flex: 1 1 100%; }
+  /* 「添加自定义供应商」那一格：这一列只管「占多宽」，里面的清单是公共的 .mlist（ui.css）。
+     以前这里是另一份 `.cus-m`：同样是「接口给回来的型号清单」，只有勾选、没有滚动 ——
+     一家几十个型号就把整页撑开，而隔壁同一件事的清单是限高滚动的。同一件事两种排版就是漂移的开始。 */
+  .cus-models { flex: 1 1 240px; min-width: 0; }
   .cus-acts { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
   /* 「已添加的几家」清单：一行一个条目，编辑 / 删除跟名字并排。
      正在改的那一条高亮 —— 否则编辑态和新增态长得一样，用户不知道点「保存这一家」会覆盖谁。 */
@@ -119,14 +117,20 @@
     stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .card > h2.card-h .card-ic.empty { /* 没对应图标的栏：占位对齐，里面不留白 */ visibility: hidden; }
   .card > .card-acts { position: absolute; top: 10px; right: 12px; display: flex; gap: 6px; }
-  /* 可折叠的卡：按钮在右上角，用公共的 .tool 胶囊样式（与页面里所有动作按钮同一套）。 */
-  .card.foldable > .fold-body { margin-top: 8px; }
-  .card.foldable:not(.open) > .fold-body { display: none; }
+  /* 可折叠的一块：按钮用公共的 .tool 胶囊样式（与页面里所有动作按钮同一套）。
+     选择器**不再限定 `.card`** —— 供应商卡里那一段「型号清单」也要折叠，
+     同一套折叠只留一份规则，不要在下面另写 `.mblk:not(.open)` 那种第二份。 */
+  .foldable > .fold-body { margin-top: 8px; }
+  .foldable:not(.open) > .fold-body { display: none; }
   .fold-toggle::before { content: ''; display: inline-block; width: 0; height: 0; margin-right: 2px;
     border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
     transition: transform .15s; }
-  .card.foldable.open .fold-toggle::before { transform: rotate(90deg); }
+  .foldable.open .fold-toggle::before { transform: rotate(90deg); }
   .fold-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+  /* 「型号清单」那一段的骨架：折叠头 + 折叠体。**清单本身是公共的 .mlist（ui.css）**，
+     这里只管这一段的排布 —— 限高自滚、勾选框配色、隐藏态与选中态都在那边，两处共用一份。 */
+  .mblk { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+  .mblk > .mb-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .polish-block { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;
     background: var(--panel2); transition: border-color .15s; }
   .polish-block:hover { border-color: var(--acc); }
@@ -269,7 +273,7 @@
     </div>
     <div class="krow thin" style="align-items:flex-start">
       <span class="kn">型号</span>
-      <div id="cusModels" class="cus-models"></div>
+      <div id="cusModels" class="cus-models mlist"></div>
     </div>
     <div class="krow thin">
       <span class="kn">自己填 id</span>
@@ -564,7 +568,6 @@
 <!-- 「拍短剧」那一节的控件由 drama.js 的 Drama.SET 现渲染（默认值与取值不许在设置页再抄一份） -->
 <script src="drama.js"></script>
 <script src="sidebar.js"></script>
-<script src="ai-chat.js"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -725,41 +728,67 @@ function keySourceNote(kid) {
   if (env) return '密钥来源：服务端环境密钥（.env 或系统环境变量）';
   return '密钥来源：还没有（在上面填一把，或在 <code>.env</code> 里配同名变量）';
 }
-/* 「文字」一档里，每张供应商卡下面那一段（型号 / 自填型号 / 识图）。
-   只画骨架，取型号列表、判识图、请求 /models 这些都在闭包里的 window.__textForm（paint 时填）。
-   识图开关（sk_text_vision）是**全局一项**，所以只画在当前「作用文字 AI」的那一张卡上，
-   每张都画一份就成了三个开关改同一个键。 */
-function textBlock(m) {
+/* 「型号清单」这一段：四类供应方（图片 / 视频 / 语音 / 文字）都画，长在**自己那张供应商卡**里。
+   默认折叠 —— 一家上百个型号（硅基流动 160+、vgenv 一整排档位），摊开的话一张卡占满一屏，
+   而绝大多数时候只想知道「现在列着几个、藏着几个」，那一句就写在折叠按钮旁边。
+   只画骨架：认家、取型号列表、画每一行都在闭包里的 window.__textForm（paint 时填）。 */
+const KIND_MNEW = {
+  text: '自己填一个型号，例如 openai/gpt-4o-mini、glm-4-flash',
+  image: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
+  video: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
+  audio: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
+};
+function modelsBlock(m) {
   const kid = escA(m.keyId);
-  const on = curTextId() === m.prov.id;
-  return '<div class="tai" data-tai="' + kid + '">'
-    + '<div class="tai-h">' + icon('brain', 13) + '文字 AI 型号'
-    + '<span class="hint sm">下拉里<b>只有这一家</b>的型号：接口返回（点「获取型号列表」）／自己添加</span></div>'
-    + '<div class="krow thin"><span class="kn">型号</span>'
-    + '<select data-tmodel="' + kid + '"></select>'
-    + '<span class="acts">'
-    + '<button class="ghost xs" data-tfetch="' + kid + '" title="用这一栏里现在的密钥与接口地址问一次它的 /models（不花钱）">获取型号列表</button>'
-    + '<button class="ghost xs" data-ttest="' + kid + '" title="给这一家发一条测试消息（用上面下拉里当前这个型号）">测试</button>'
-    + '</span></div>'
+  const text = provTab === 'text';
+  const p = m.prov || {};
+  /* 「从接口获取」画不画 = 这一家有没有 models 端点（文字那几家是 OpenAI 兼容的 /models，
+     由 TextAI 那一路问；图片 / 视频 / 语音走注册表的 endpoints.models）。
+     没有端点的家（MiniMax 视频与语音、硅基流动、智谱 —— 它们的 /models 只列**对话**模型）
+     不画这颗按钮，否则点下去必然失败，而失败原因只有开发者看得懂。 */
+  const canFetch = text || !!(p.endpoints && p.endpoints.models);
+  const head = text
+    ? '<div class="krow thin"><span class="kn">型号</span>'
+      + '<select data-tmodel="' + kid + '"></select>'
+      + '<span class="acts"><button class="ghost xs" data-ttest="' + kid + '"'
+      + ' title="给这一家发一条测试消息（用左边下拉里当前这个型号）">测试</button></span></div>'
+    : '';
+  return '<div class="tai mblk foldable" data-mblk="' + kid + '" data-fold-key="set_fold_models_' + kid + '" data-fold-once>'
+    + head
+    + '<div class="mb-head">'
+    + '<button class="tool fold-toggle" type="button" aria-expanded="false"'
+    + ' title="展开可以自己填型号、从接口取一次清单，并逐个决定哪一个出现在工作台下拉里">'
+    + '型号清单<span class="fold-txt">展开</span></button>'
+    + '<span class="hint sm" data-mcount="' + kid + '"></span>'
+    + '</div>'
+    + '<div class="fold-body">'
     + '<div class="krow tight">'
-    + '<input data-tmnew="' + kid + '" placeholder="自己填一个型号，例如 openai/gpt-4o-mini、glm-4-flash">'
-    + '<button class="ghost wide" data-tadd="' + kid + '">添加型号</button></div>'
-    + '<div class="krow tight" data-tchips="' + kid + '"></div>'
-    + (on
-      ? '<div class="tai-h">' + icon('eye', 13) + '识图能力'
-        + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应方生效）</span></div>'
-        + '<div class="krow"><span class="kn">参考图</span>'
-        /* 选项文字按公共约定只放**短标签**（全站下拉都是「浅色 / 深色」「列表 / 紧凑」那样），
-           说明放进 title —— 浮层里那一长串「（按接口 / 平台声明）」挤在标签后面，
-           三个选项长得参差不齐，而且下面 [data-vtip] 那行已经把话说全了。 */
-        + '<select data-tvision="' + kid + '">'
-        + '<option value="auto" title="按接口返回与平台声明自动判断">自动</option>'
-        + '<option value="on" title="强制把图片一起发给它">支持识图</option>'
-        + '<option value="off" title="强制只发文字">不支持</option>'
-        + '</select></div>'
-        + '<div class="pb-tip" data-vtip="' + kid + '"></div>'
-      : '')
+    + '<input data-tmnew="' + kid + '" placeholder="' + escA(KIND_MNEW[provTab] || KIND_MNEW.text) + '">'
+    + '<button class="ghost wide" data-tadd="' + kid + '">添加型号</button>'
+    + (canFetch ? '<button class="ghost xs" data-tfetch="' + kid + '"'
+      + ' title="用这一栏里现在的密钥与接口地址问一次它的型号清单（不花钱、不建任务）">获取型号列表</button>' : '')
+    + '</div>'
+    + '<div class="mlist" data-tchips="' + kid + '"></div>'
+    + '</div>'
     + '</div>';
+}
+/* 识图那三行：只有「作用文字 AI」的那一张卡画（sk_text_vision 是全局一项，
+   每张都画一份就成了三个开关改同一个键）。放在折叠**外面** —— 它不是型号清单的一部分，
+   藏在折叠里等于「润色突然不图了，得先去把四个折叠挨个点开找找原因」。 */
+function visionBlock(m) {
+  const kid = escA(m.keyId);
+  return '<div class="tai-h">' + icon('eye', 13) + '识图能力'
+    + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应方生效）</span></div>'
+    + '<div class="krow"><span class="kn">参考图</span>'
+    /* 选项文字一律只放**短标签**（全站下拉都是「浅色 / 深色」「列表 / 紧凑」那样），
+       说明放进 title —— 浮层里那一长串「（按接口 / 平台声明）」挤在标签后面，
+       三个选项长得参差不齐，而下面 [data-vtip] 那行已经把话说全了。 */
+    + '<select data-tvision="' + kid + '">'
+    + '<option value="auto" title="按接口返回与平台声明自动判断">自动</option>'
+    + '<option value="on" title="强制把图片一起发给它">支持识图</option>'
+    + '<option value="off" title="强制只发文字">不支持</option>'
+    + '</select></div>'
+    + '<div class="pb-tip" data-vtip="' + kid + '"></div>';
 }
 function renderProv() {
   const all = provGroups();
@@ -874,10 +903,12 @@ function renderProv() {
       + '<br><span data-ksrc="' + escA(kid) + '">' + keySourceNote(kid) + '</span>'
       + '</div>' +
       '<div class="msg" data-msg="' + escA(kid) + '"></div>' +
-      /* 「文字」这一档才有的那一段：型号、自己填的型号、识图。
-         长在**这一家**的卡里而不是另开一张卡 —— 供应方、密钥、地址、型号、识图本来就是同一家的事，
+      /* 型号清单：四类都画（默认折叠），文字那一档额外有「当前型号」下拉与「测试」。
+         识图那三行画在折叠**外面**，只挂在「作用文字 AI」的那一张卡上。
+         长在**这一家**的卡里而不是另开一张卡 —— 供应方、密钥、地址、型号本来就是同一家的事，
          拆成两处必然对不上（改完地址忘了改型号 / 看着型号在另一张卡里）。 */
-      (provTab === 'text' ? textBlock(m) : '');
+      modelsBlock(m)
+      + (provTab === 'text' && curTextId() === m.prov.id ? visionBlock(m) : '');
     box.appendChild(wrap);
     // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，直接清掉，保持输入框为空
     if (!m.custom && envInfo[kid] && envInfo[kid].hasEnv) {
@@ -897,6 +928,17 @@ function renderProv() {
     line.className = 'msg err';
     line.textContent = '有 ' + dropped.length + ' 条自定义平台没被本地代理认：'
       + dropped.map(d => '「' + d.id + '」' + d.why).join('；') + (cu.reason ? '（' + cu.reason + '）' : '') + '。';
+    box.appendChild(line);
+  }
+  /* 「自己填的型号」与「藏了哪几个」存在本机一份记录里，代理读它才能把它们并进注册表。
+     读不懂时**必须在这里说一句**：不然用户藏掉的型号会悄悄回到工作台下拉里，
+     而界面上每一处都显示「我已经藏起来了」—— 因为勾确实勾着，只是没生效。 */
+  const mp = REG && REG.modelPrefs;
+  if (mp && mp.reason) {
+    const line = document.createElement('div');
+    line.textContent = '⚠ ' + mp.reason + ' —— 这一家的「自己填的型号」和「隐藏 / 展示」现在都没生效，'
+      + '工作台上看到的仍是接口给的那一份原始清单。修好之前别在这里勾（勾了也不会变）。';
+    line.className = 'msg err';
     box.appendChild(line);
   }
   /* 「验证」用的是**这一栏现在的值**（含还没保存的那把）：自定义平台的地址在代理那份声明里，
@@ -970,7 +1012,9 @@ function renderProv() {
   /* 平台卡片上没有「重新读取能力」按钮：生成平台的能力由各工作台首次用到时自动拉
      （Capabilities.load 带缓存），只有文字 AI 需要在这里手动取型号列表 / 判定识图能力。 */
   /* 型号块是**先画骨架、后填内容**的：取型号列表要等 TextAI 那边就绪（闭包在脚本末尾才装配好），
-     所以这里只交回一个 paint，不在 renderProv 里直接调闭包里的函数（那是第二份实现）。 */
+     所以这里只交回一个 paint，不在 renderProv 里直接调闭包里的函数（那是第二份实现）。
+     折叠要先接：新画出来的那几块还没绑过开合，而 paint 里会读它们的内容。 */
+  initFolds(box);
   if (window.__textForm) window.__textForm.paint();
   /* 侧栏余额勾选：**不再即时写盘**（以前一点就生效，和这一页「点保存才生效」两套口径）。
      现在只标脏，真正落盘在 saveAll 里一次写完（键 sb_bal_show，外壳侧栏靠 storage 事件重画）。 */
@@ -1017,10 +1061,15 @@ const cusHost = u => { try { return new URL(u).host; } catch { return String(u |
    以前给了一个下拉，结果「在语音那档点添加、类型却落在图片」的事只能靠人去核对，
    而多出来这一个控件并不能帮人选出更对的类型（类型不是他选的，是他脚下那一档定的）。 */
 const cusKind = () => (PROV_KINDS.indexOf(provTab) >= 0 ? provTab : 'image');
-/* 内置平台（当「供应商」那一格的可选项）：有型号声明的才列出来 ——
-   照一家连型号都没有的平台当模板，加出来的家在型号下拉里是空的。 */
+/* 内置平台（当「供应商」那一格的可选项）：**这一类的全部内置家**。
+   以前这里有个筛选「有型号声明的才列出来」—— 那条判据是**跟着注册表里那份写死的型号清单走的**，
+   v16 起文字 AI 那几家已经不下发清单了（改名 modelDocs，型号一律现取），于是这一格直接空了：
+   注册表明明写着「文字类：注册表里有 9 家可选」，点开却只有「自定义」一项。
+   而它当初的理由也已经不成立：「照一家连型号都没有的平台当模板，加出来的家在型号下拉里是空的」——
+   现在型号是**添加时**用那个网关自己的 /models 现取、再由用户一个个勾的（proxy.js 的 /custom/models），
+   模板有没有写死清单与加出来的那家能不能用无关。 */
 function cusBuiltins(kind) {
-  return (REG.providers || []).filter(p => !p.custom && p.kind === kind && (p.models || []).length);
+  return (REG.providers || []).filter(p => !p.custom && p.kind === kind);
 }
 /* 接口形状 = **接口族**（注册表的 interfaceShapes）：与厂商无关，只说「我跑的是哪一套协议」。
    每一族照一个内置平台实现（buildCustom 照它整套克隆），所以这一格列的每一项都真实可用。 */
@@ -1171,8 +1220,8 @@ function renderCus() {
     if (fams.length) sel.value = keep;          // 同上：先定 value 再 sync
     if (window.Dropdowns) Dropdowns.sync(sel);
     if (!fams.length) {
-      $('cusModels').innerHTML = '<span class="hint sm">这一类在注册表里还没有登记接口形状 ——'
-        + ' 接口形状完全不一样的平台需要改代理的注册表，这里不猜字段。</span>';
+      $('cusModels').innerHTML = '<div class="mlist-empty">这一类在注册表里还没有登记接口形状 ——'
+        + ' 接口形状完全不一样的平台需要改代理的注册表，这里不猜字段。</div>';
       hint.textContent = '';
       cusSyncBase();            // 这一支提前 return，地址的默认值照样要跟上
       return;
@@ -1195,9 +1244,15 @@ function renderCus() {
    （填进去的每一个都会变成型号下拉里的一项）。所以这里只画两样：
      ① 点「获取型号列表」拿回来的（用表单里的地址 + 密钥问它自己，只读不花钱）
      ② 「自己填 id」手打的
-   已保存过的条目（编辑态）从 sk_custom 里读回来并默认勾上。 */
+   已保存过的条目（编辑态）从 sk_custom 里读回来。 */
 let cusFetched = [];                         // [{id, name}]：最近一次从它自己 /models 拿到的
 let cusFetchFrom = '';                       // 上次打到哪个地址（界面上要写明，别让人以为是官方列表）
+/* 这一轮里被用户**勾掉**的那几个。
+   为什么记这一份而不是直接读界面上的 checked：重画时勾选状态是从这里算出来的，
+   而重画的原因恰恰是「它要变了」——重新获取一次型号列表、切一次接口形状、点一次保存。
+   不记的话，「我刚勾掉三个用不上的，再点一次获取型号列表又全勾回来了」——
+   勾选在这一张卡上就成了按一次就复原的装饰。 */
+let cusOff = new Set();
 function renderCusModels() {
   const t = cusTemplate();
   if (!t) return;
@@ -1212,21 +1267,32 @@ function renderCusModels() {
   cusFetched.forEach(m => push(m.id, m.name || m.id, 'fetched'));
   typed.forEach(id => push(id, id, 'typed'));
   if (!all.length) {
-    box.innerHTML = '<span class="hint sm">点右边「获取型号列表」用它自己的接口问一次，'
-      + '拿回来的型号在这里勾选；也可以用下面「自己填 id」手打。'
-      + '<br>这里<b>不会</b>替你预填内置那家的型号清单 —— 那是「内置那一家」的声明，中转站未必有。</span>';
+    box.innerHTML = '<div class="mlist-empty">点右边「获取型号列表」用它自己的接口问一次，'
+      + '拿回来的型号会<b>全部勾上</b>（用不上的再自己勾掉）；也可以用下面「自己填 id」手打。'
+      + '<br>这里<b>不会</b>替你预填内置那家的型号清单 —— 那是「内置那一家」的声明，中转站未必有。</div>';
     return;
   }
-  const want = savedIds.concat(typed);      // 勾选状态 = 已保存的 + 手打的；新拉回来的一律不勾，由用户自己选
   const tag = { saved: '已保存', fetched: '接口返回', typed: '手填' };
-  box.innerHTML = all.map(x => '<label class="cus-m">'
-    + '<input type="checkbox" data-mid="' + escA(x.id) + '"' + (want.includes(x.id) ? ' checked' : '') + '>'
-    + '<span>' + escA(x.name) + ' <code>' + escA(x.id) + '</code>'
-    + ' <span class="hint sm">' + (tag[x.tag] || '') + '</span></span></label>').join('');
+  /* **默认全勾**：接口能给回来的型号一律先勾上，等于「全都要」，用户要的是挑少数几个时再勾掉。
+     以前这里是「已保存的 + 手打的才勾，新拉回来的一律不勾」—— 那等于让用户先把密钥填好、
+     拉一次清单、再逐个勾一遍才能用；而工作台下拉里此时一个型号都没有，看着像「这家没接上」。 */
+  box.innerHTML = all.map(x => '<label class="mlist-row">'
+    + '<input type="checkbox" data-mid="' + escA(x.id) + '"' + (cusOff.has(x.id) ? '' : ' checked') + '>'
+    + '<span>' + escA(x.name) + ' <code>' + escA(x.id) + '</code></span>'
+    + '<span class="mlist-src">' + (tag[x.tag] || '') + '</span></label>').join('');
 }
 function cusPicked() {
   return [...$('cusModels').querySelectorAll('[data-mid]')].filter(x => x.checked).map(x => ({ id: x.dataset.mid }));
 }
+/* 勾选变化的唯一记账点：`cusOff` 只记「用户勾掉了谁」，不记「勾上了谁」——
+   默认全勾 + 只记例外，重画（换接口形状、重新获取、保存后）才复原得出来同一份选择。
+   用 change 而不是 input：勾选框没有「输入中」这一态，两者在这里等价，但 change 语义更准。 */
+$('cusModels').addEventListener('change', ev => {
+  const cb = ev.target.closest && ev.target.closest('[data-mid]');
+  if (!cb) return;
+  const id = cb.dataset.mid;
+  if (cb.checked) cusOff.delete(id); else cusOff.add(id);
+});
 /* `droppedKid` 是刚被删掉的那一家（新增时传空）：删掉之后侧栏那张余额卡要**当场**消失，
    不等外壳那一轮 60 秒刷新。顺带把这一家从隐藏名单里摘掉（清掉一个再也不存在的 kid）——
    两件事都在外壳那个口里（`top.__sbBalanceDrop`，与 __sbApplyTheme 同一套路），
@@ -1352,7 +1418,7 @@ function cusReset() {
      加完第二家清空着等你打「图片2」纯属多余的一次输入。 */
   $('cusName').value = cusDefaultName(cusKind());
   cusAutoName = $('cusName').value;
-  cusFetched = []; cusFetchFrom = '';
+  cusFetched = []; cusFetchFrom = ''; cusOff = new Set();
   renderCus();
 }
 /* 获取型号列表：拿**表单里现在的**地址与密钥去问它自己（只读接口，不建任务、不扣费）。
@@ -1377,14 +1443,13 @@ $('cusFetch').onclick = async () => {
     try { d = (await r.json()) || {}; } catch (e) { throw new Error('代理没有返回 JSON（HTTP ' + r.status + '）'); }
     const list = Array.isArray(d.models) ? d.models : [];
     if (!list.length) throw new Error(d.error || ('它没有返回型号列表（HTTP ' + r.status + '）'));
-    /* 已经拿过一次再点：保留上一次勾选的，免得重取一次把选择全清掉 */
-    const keep = new Set([...$('cusModels').querySelectorAll('[data-mid]')].filter(x => x.checked).map(x => x.dataset.mid));
-    const savedIds = cusEditing ? (((Api.customList().find(e => e && e.id === cusEditing) || {}).models) || []).map(m => m.id) : [];
+    /* 勾掉的那些（cusOff）原样留着，不因为重取一次就勾回来 —— 默认全勾只在**第一次**出现这条型号时生效，
+       已经表态过的型号不该被一次只读查询抹掉。 */
     cusFetched = list; cusFetchFrom = (d.from || base);
     renderCusModels();
-    [...$('cusModels').querySelectorAll('[data-mid]')].forEach(x => { if (keep.has(x.dataset.mid) || savedIds.includes(x.dataset.mid)) x.checked = true; });
-    cusSetMsg('从「' + cusFetchFrom + '」拿到 ' + list.length + ' 个型号，勾要用到的那些。'
-      + '（一个都没勾时添加会被拦下 —— 型号清单就是这一家在型号下拉里能被选到的东西。）', 'ok');
+    cusSetMsg('从「' + cusFetchFrom + '」拿到 ' + list.length + ' 个型号，已<b>全部勾上</b>（用不上的再自己勾掉）。'
+      + '　勾选的意思只有一个：它会出现在工作台与拍短剧的型号下拉里。'
+      + '（一个都没勾时添加会被拦下 —— 型号清单就是这一家能被选到的东西。）', 'ok');
   } catch (e) { cusSetMsg('获取失败：' + ((e && e.message) || e), 'err'); }
   finally { btn.disabled = false; btn.textContent = label0; }
 };
@@ -1402,6 +1467,9 @@ function cusEdit(kid) {
   }
   $('cusCard').hidden = false;
   cusEditing = kid;
+  /* 进编辑态时把「勾掉了谁」清空：这一家已保存的型号本来就都是勾着的（它们正是上次选出来的），
+     带着上一家的 cusOff 进来会凭空少勾几个 —— 而且那一份对不上任何东西。 */
+  cusOff = new Set();
   /* 这一条的名字与地址是**清单里的**，不是「自动填的那个」：编辑期间再换供应商 / 接口形状，
      都不许把它们改掉（下面 renderCus 里那两句默认填充会看这两个记账值）。 */
   cusAutoName = '';
@@ -1565,31 +1633,46 @@ async function cusRemove(kid) {
 /* ---------- 栏目导航与关键词筛选（纯前端，不写盘、不进同步） ----------
    这一页十几栏、两三千行，找一项全靠滚。芯片清单是**从下面的 .card 现读**的（标题取每栏自己的 h2），
    新加一栏不用改这里 —— 手抄一份标题清单迟早和页面不一致。 */
-/* ---------- 可折叠的卡（默认折叠） ----------
-   就一个小器：卡上写 data-fold-key = 状态存哪个键（没写就不记住、每次刷新都折着）。
+/* ---------- 可折叠的一块（默认折叠） ----------
+   小器一只：这一块写 data-fold-key = 状态存哪个键（没写就不记住、每次刷新都折着）。
    不新增第二套展开/折叠状态：它必须与下面那套「条目筛选」合流
-   （一张卡不能既被关掉又被折叠分开管两件事）。 */
-(function () {
-  const cards = [...document.querySelectorAll('.card.foldable[data-fold-key]')];
-  if (!cards.length) return;
-  cards.forEach(c => {
+   （一张卡不能既被关掉又被折叠分开管两件事）。
+   **可调用的 initFolds(root) 而不是「装配时扫一遍文档」**：供应商卡是 renderProv() 每次重画
+   都换 innerHTML 画出来的，一次性扫描只认得页面里那几张静态卡，新画出来的型号块
+   就成了「看着像坏了的按钮」—— 点了没反应，因为压根没绑上。幂等靠 el._foldWired。 */
+function initFolds(root) {
+  const host = root || document;
+  [...host.querySelectorAll('[data-fold-key]')].forEach(c => {
+    if (c._foldWired) return;
     const btn = c.querySelector('.fold-toggle');
     if (!btn) return;
+    c._foldWired = true;
+    /* 「每次都折着」的一类（带 data-fold-once）：折叠状态**不记**。
+       型号清单那一块是其中之一 —— 一家可能列着几百个型号，展开着它把整张卡撑成一屏，
+       而用户多半只是想看一眼「有几个」。不记状态 = 每次进设置页都收着，点开这一次有效、
+       不会一直占着地方。
+       判据是这个属性本身，**不是「键名长什么样」** —— 让键名去承担语义，换个人起个名字就失效了。
+       没写 data-fold-key 的块压根不会被这里扫到（那才是「每次都折着」的老写法，
+       代价是那颗按钮没人绑、点了没反应 —— 见上面那段说明）。 */
+    const once = c.hasAttribute('data-fold-once');
     const paint = () => {
       const open = c.classList.contains('open');
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       const txt = btn.querySelector('.fold-txt') || btn;
       txt.textContent = open ? '收起' : '展开';
     };
-    c.classList.toggle('open', localStorage.getItem(c.dataset.foldKey) === '1');
+    /* 默认折叠：键没写过就是关着的（只有明确存过 '1' 才展开）；once 的一类永远折着。 */
+    c.classList.toggle('open', !once && localStorage.getItem(c.dataset.foldKey) === '1');
     paint();
     btn.onclick = () => {
       c.classList.toggle('open');
       paint();
+      if (once) return;
       try { localStorage.setItem(c.dataset.foldKey, c.classList.contains('open') ? '1' : '0'); } catch (e) {}
     };
   });
-})();
+}
+initFolds(document);
 
 (function () {
   const nav = document.getElementById('setNav');
@@ -3058,16 +3141,87 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     const picked = list.find(x => x.id === curTextId());
     return picked || TextAI.prov(window.__REG) || list[0];
   }
-  /* 型号那一段现在长在**每一家**的供应商卡里（不再是单独一张「文字 AI 模型与识图」卡）：
-     供应方、密钥、接口地址、型号、识图本来就是同一家的事，拆成两张卡必然对不上。
-     下面这几个函数全部按 keyId 找元素，所以「文字」一档里画出来的每一张卡各填各的，
+  /* 「型号清单」那一段现在长在**每一家**的供应商卡里（不再是单独一张「文字 AI 模型与识图」卡）：
+     供应方、密钥、接口地址、型号本来就是同一家的事，拆成两张卡必然对不上。
+     下面这几个函数全部按 keyId 找元素，所以四类档里画出来的每一张卡各填各的，
      切到别家不会串型号，也不会出现「刚在这张卡改了地址、型号却在另一张卡上选」的情况。
      识图开关（sk_text_vision）是**全局一项**，所以只画在当前「作用文字 AI」的那一张卡上；
      每张都画一份就成了三个开关改同一个键。 */
-  const provByKid = kid => textProvList().find(x => (x.keyId || x.id) === kid) || null;
+  /* 认家按**整份注册表**找（以前只在文字那几家裡找）：四类都画型号块之后，
+     图片 / 视频 / 语音那几张卡上的按钮与勾子都靠这个函数认家，只查文字就会一律「没认出这一家」。
+     同一把 keyId 可能对应两条 provider（sparkcine 同时做图片与视频）—— 优先取**当前这一档**的，
+     因为型号清单要按媒体类型切分（拿图片那条去列视频档的清单就是上一轮的回归）。 */
+  const provByKid = kid => {
+    const list = ((window.__REG && window.__REG.providers) || []);
+    const same = list.filter(p => String(p.keyId || p.id) === String(kid));
+    if (!same.length) return null;
+    return same.find(p => p.kind === provTab) || same[0];
+  };
+  /* 型号块里的每一行都要知道自己是哪一家的，委托监听才认得出 kid。
+     勾子写在行上（而不是靠容器）—— 行是重画出来的，容器却是 renderProv 那次留下的。 */
+  const kidOf = el => {
+    if (!el || !el.dataset) return '';
+    const blk = el.closest && el.closest('[data-mblk]');
+    return el.dataset.tkid || el.dataset.tmodel || el.dataset.tvision
+      || el.dataset.tfetch || el.dataset.ttest || el.dataset.tadd
+      || (blk ? blk.dataset.mblk : '');
+  };
   const selOf = kid => document.querySelector('[data-tmodel="' + kid + '"]');
   const msgOf = kid => document.querySelector('[data-msg="' + kid + '"]');
-  /* 型号下拉：**只显示这一家**的型号，按来源分组（接口返回 / 平台内置 / 自己添加）。
+  const countOf = kid => document.querySelector('[data-mcount="' + kid + '"]');
+  /* 这一家「都有哪些型号」= 三路并起来，**包含被藏起来的那一些**：
+     ① 注册表里那份（代理已经把藏掉的筛掉了，所以它只给「正在展示的」）；
+     ② 本轮点过「获取型号列表」拿回来的那份（还没并进注册表，只在内存）；
+     ③ 本机记录里 typed（自己填的）与 off（藏起来的）—— off 这一路是必需的，
+        不然藏掉的那一行就从此画不出来，也就再也勾不回来（「隐藏」变成单向门）。
+     名字取不到就照实用 id —— 这里不是「我们猜了一份型号清单」，是「平台接口给过什么就列什么」。 */
+  function allModelsOf(p) {
+    const map = new Map();
+    const skip = id => !!(p && window.Capabilities && Capabilities.skipMedia && Capabilities.skipMedia(p, id));
+    const put = (id, name, api) => {
+      const s = String(id || '').trim();
+      if (!s || skip(s)) return;
+      const cur = map.get(s);
+      if (cur) { if (!cur.name && name) cur.name = String(name).trim(); cur.api = cur.api || api; }
+      else map.set(s, { id: s, name: String(name || '').trim(), api, typed: false });
+    };
+    /* 顺序要紧：先「接口给的 / 注册表在用的」这些**带名字**的来源，再补本机记录里
+       只有 id 的那两条（off / typed）—— 反过来的话一条型号的名字会被空串占住再也填不上。
+       got（落盘的那份接口清单）排在最前：它才是「这一家到底有哪些型号」的真身，
+       本轮的 fetched 只是它的内存副本 —— 以前只读后者，于是刷新一次这张清单就空了。 */
+    const prefs = (window.ModelPrefs && p) ? ModelPrefs.of(p) : { typed: [], off: [], got: [] };
+    (prefs.got || []).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
+    fetchedOf(p).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
+    ((p && p.models) || []).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
+    /* off 这一路是必需的：藏掉之后注册表里就没有它了，不并回来的话这一行画不出来，
+       也就再也勾不回来 —— 「隐藏」成了单向门。 */
+    prefs.off.forEach(id => put(id, '', false));
+    prefs.typed.forEach(id => put(id, '', false));
+    const tset = new Set(prefs.typed);
+    map.forEach(x => { x.typed = tset.has(x.id); });
+    const arr = [...map.values()];
+    return arr.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  /* 折叠按钮旁边那一句：不展开也知道这一家现在列着几个、藏着几个。
+     「藏」这件事只有在这里看得见 —— 工作台的下拉里它就是消失了。
+     「共 0 个」要说明下一步做什么，不然这一句读起来像坏了。
+     文字那档不说「工作台列几个」：它没有工作台下拉，这一句只报「现在用的是哪一个」。 */
+  function setCount(kid) {
+    const el = countOf(kid);
+    if (!el) return;
+    const p = provByKid(kid);
+    if (!p) { el.textContent = '（没认出这一家，刷新一下页面再试）'; return; }
+    const list = allModelsOf(p);
+    const empty = '还没有型号：点「获取型号列表」问一次它的接口，或在下面自己填一个 id';
+    if (!list.length) { el.textContent = empty; return; }
+    if (p.kind === 'text') {
+      const cur = ((selOf(kid) || {}).value) || '';
+      el.textContent = '共 ' + list.length + ' 个 · ' + (cur ? '现在用 ' + cur : '还没选（在下面点一行）');
+      return;
+    }
+    const off = list.filter(x => window.ModelPrefs && ModelPrefs.isOff(p, x.id)).length;
+    el.textContent = '共 ' + list.length + ' 个 · 工作台列 ' + (list.length - off) + ' 个' + (off ? ' · 藏着 ' + off + ' 个' : '');
+  }  /* 型号下拉：**只显示这一家**的型号，按来源分组（接口返回 / 平台内置 / 自己添加）。
      keep：明确要选中的那个（点「添加型号」后用它）。 */
   function fillModelOptions(kid, keep) {
     const sel = selOf(kid);
@@ -3102,27 +3256,111 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     const row = sel.closest('.krow');
     if (window.Dropdowns && row) { Dropdowns.build(row); Dropdowns.sync(row); }
   }
-  /* 自己填的型号：可删的芯片，删掉立刻从这一家的下拉里消失 */
-  function renderCustomModels(kid) {
+  /* 每一行 = 一个型号 + 一个「在工作台上展示」的勾选 +（自己填的那几条）一颗「移除」。
+     勾选判据只有 `ModelPrefs.isOff` 这一处 —— 工作台下拉少不少它就是同一个判据，这里再画一份
+     就会出现「勾着、下拉里却没有」。
+     `<button>` 刻意**不放进 `<label>`**：label 里包着按钮时点它也会翻掉勾选，
+     表现是「我想移除一个型号，结果先把它勾显/勾隐了一次」。 */
+  function renderModelRows(kid) {
     const box = document.querySelector('[data-tchips="' + kid + '"]');
     if (!box) return;
-    /* 同样认不出就不画：读别家的自填列表会让人以为「这些是我在这家填的」，
-       删掉其中一个还会去动别家的盘。宁可是空的。 */
+    /* 认不出这一家就一片空白：读别家的型号清单会让人以为「这些是我在这家填的」，
+       删掉其中一个还会去动别家的盘（与 fillModelOptions 同一条守卫）。 */
     const p = provByKid(kid);
-    const list = (p && window.TextAI) ? TextAI.custom(p) : [];
-    box.innerHTML = list.length
-      ? '<span class="kn" style="flex:0 0 auto">自己填的</span>' + list.map(id2 =>
-        `<span class="ai-chip" style="cursor:default">${esc(id2)}<button title="移除这个型号" data-tdel="${esc(id2)}" data-tkid="${esc(kid)}">${icon('close', 10)}</button></span>`).join('')
-      : '';
+    if (!p) { box.innerHTML = ''; return; }
+    const list = allModelsOf(p);
+    const cur = ((selOf(kid) || {}).value) || '';
+    if (!list.length) {
+      box.innerHTML = '<div class="mlist-empty">这一家一个型号都还没有。'
+        + '它有列型号的接口就点上面「获取型号列表」；没有就在上面填一个型号 id —— 我们不会替它编一份清单。</div>';
+      return;
+    }
+    /* 文字 AI 是**单选**，生成三类是**多选** —— 不是两种口味，是两个问题：
+       多选那档问的是「哪几个型号允许出现在工作台的下拉里」（判据只有 `ModelPrefs.isOff` 一处）；
+       文字那档压根没有工作台下拉，它问的是「全站润色用哪一个」，答案就是 `sk_model_<keyId>`。
+       两件事画在同一张卡上时，一排勾选框会让人以为「勾上 = 润色用它」，
+       于是勾了三个、润色仍旧用最上面那个下拉里的 —— 两处都能改、都生效、互相不认。 */
+    const text = p.kind === 'text';
+    box.innerHTML = list.map(x => {
+      const id2 = escA(x.id);
+      const src = x.typed ? '自己填的' : (x.api ? '接口给的' : '本机记的');
+      const del = x.typed
+        ? '<button class="ghost xs" title="移除这个型号（只清本机记录，平台那边不受影响）"'
+          + ' data-tdel="' + id2 + '" data-tkid="' + escA(kid) + '">' + icon('close', 10) + '</button>' : '';
+      if (text) {
+        const on = x.id === cur;
+        return '<div class="mlist-row' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
+          + ' data-tpick-model="' + id2 + '" data-tkid="' + escA(kid) + '"'
+          + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+          + ' title="' + (on ? '正在用：全站润色（导演台、短剧里的 AI 文字）都用这一个'
+            : '点这一行 = 全站润色改用这个型号') + '">'
+          + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + escA(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
+          + '<span class="mlist-src">' + (on ? '正在用' : src) + '</span>' + del
+          + '</div>';
+      }
+      const off = window.ModelPrefs ? ModelPrefs.isOff(p, x.id) : false;
+      return '<div class="mlist-row' + (off ? ' off' : '') + '">'
+        + '<label title="' + (off ? '勾上 = 让它重新出现在工作台的型号下拉里'
+          : '勾掉 = 在工作台的型号下拉里藏掉这一条（不是删掉，随时能勾回来）') + '">'
+        + '<input type="checkbox" data-mshow="' + id2 + '" data-tkid="' + escA(kid) + '"' + (off ? '' : ' checked') + '>'
+        + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + escA(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
+        + '</label>'
+        + '<span class="mlist-src">' + src + '</span>' + del
+        + '</div>';
+    }).join('');
   }
+  /* 在清单上点一行 = 选中这一个（文字 AI 单选档的唯一入口）。
+     **它与上面那个「型号」下拉写的是同一个键**（sk_model_<keyId>，也就是 TextAI.model 读的那一个），
+     所以点完之后两处必须同时动：下拉的值、清单上的高亮。少动一处就会出现
+     「界面上这一行是选中的、润色用的却是下拉里那个」—— 两处都能改、都生效、互相不认。
+     落盘仍交给 saveAll（与这一页其它项同一口径）：当场就写盘的话，
+     「在清单上点了还没点保存」和「下拉里选了还没点保存」会变成两种不同的数据状态。 */
+  function pickTextModel(kid, id) {
+    const p = provByKid(kid);
+    const sel = selOf(kid);
+    const m = String(id || '');
+    if (!p || !sel || !m) return;
+    /* 选一个**下拉装不下**的型号就停下：设一个不存在的 option.value 会把整个 select 变成空值，
+       于是「当前用的是什么」当场没了 —— 而那一栏只有一个答案，写错了下一次润色立刻换人写，
+       还看不出是谁换的。清单与下拉本该是同一份数据的两种画法，对不上就是数据出问题了。 */
+    if (![...sel.options].some(o => o.value === m)) {
+      setMsg(kid, '这一行不在下拉的选项里（清单与下拉对不上）—— 点「获取型号列表」重新取一次。', 'msg err');
+      return;
+    }
+    if (sel.value === m && modelDraft.get(kid) === m) return;   // 没变就别重画，白闪一次
+    sel.value = m;
+    modelDraft.set(kid, m);
+    renderModelRows(kid);
+    setCount(kid);
+    refreshVisionTip(kid);                    // 换型号 = 换识图判定，跟着走
+    setMsg(kid, '已选择型号：' + m + '（全站润色都用它；点「保存全部设置」写入，「测试」会直接用这个）', 'msg');
+    markDirty();
+  }
+
+  /* 文字档改单选之后，「藏起来」这件事在这一档**不再有界面**了 —— 而旧版本可能给某家文字
+     供应方留过 off 记录。留着它们的后果是：那些型号会被 allModelsOf 并回清单（那条路径正是为了
+     「能勾回来」才存在的），却**不在**型号下拉的选项里（modelGroups 照样按 isOff 滤掉了），
+     于是清单上那一行点下去把下拉清空 —— 而界面上看不出它点不动。
+     所以这一档照旧把它们摘掉：这就是「勾回来」在现在这个界面上该做的事。跑第二次就是空的，不重复写。 */
+  function forgetTextOff(p) {
+    if (!window.ModelPrefs || !p || p.kind !== 'text') return;
+    const off = ModelPrefs.of(p).off;
+    off.forEach(id => ModelPrefs.setOff(p, id, false));
+  }
+
   /* paint：renderProv 每次重画卡片后调一次（型号块是先画骨架、后填内容：
-     取型号列表要等 TextAI 就绪，而这个闭包是脚本末尾才装配好的）。 */
+     取型号列表要等 TextAI 就绪，而这个闭包是脚本末尾才装配好的）。
+     遍历 `[data-mblk]` 而不是 `[data-tmodel]` —— 四类档现在都有型号块，而只有文字那档才画
+     「当前型号」下拉；按下拉找的话图片 / 视频 / 语音那三档的清单永远空着。 */
   function paintTextCards() {
-    document.querySelectorAll('[data-tmodel]').forEach(sel => {
-      const kid = sel.dataset.tmodel;
+    document.querySelectorAll('[data-mblk]').forEach(blk => {
+      const kid = blk.dataset.mblk;
+      forgetTextOff(provByKid(kid));   // 顺序要紧：必须在下拉填选项**之前**清，清完那一次下拉才拿得到
       fillModelOptions(kid);
-      renderCustomModels(kid);
+      renderModelRows(kid);
+      setCount(kid);
     });
+    scheduleAutofetch();              // 这一档画完就补型号清单（每家一次机会，见 autofetchModels）
     const tv = document.querySelector('[data-tvision]');
     if (tv) {
       tv.value = visionDraft.v != null ? visionDraft.v : (localStorage.getItem('sk_text_vision') || 'auto');
@@ -3220,12 +3458,96 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     TextAI.setFormOverride(p, { key: raw, base });
     return raw;
   };
-  /* 卡里那几颗按钮与两个下拉：**一次**绑定在 #provList 上（renderProv 只换它的 innerHTML，
-     监听器不会跟着一起丢），不必每重画一次就重新接一遍。 */
+  /* 「获取型号列表」按**问哪一路**分两条：
+     文字那几家走 TextAI（它认这一栏里刚填、还没保存的密钥与地址 —— setFormOverride），
+     图片 / 视频 / 语音走注册表的 endpoints.models（`Api.request`）。
+     后面这一条只认**已经存下来**的密钥（`Api.key(prov)` 读 localStorage），所以失败时要说清
+     「刚填的密钥先点保存再取」—— 不然用户对着 401 只能猜。 */
+  const fetchTextModels = async p => {
+    useFormCreds(p);
+    return TextAI.models(await Api.registry(), p);
+  };
+  const fetchMediaModels = async p => {
+    const d = await Api.request(p, 'models');
+    const raw = (d && (d.data || d.models)) || (Array.isArray(d) ? d : []);
+    const seen = new Set(), out = [];
+    const re = p.modelsFilter ? new RegExp(p.modelsFilter) : null;
+    (raw || []).forEach(m => {
+      const id = String((m && (m.id || m.name)) || m || '').trim();
+      /* 与工作台同一份筛选：注册表声明了 modelsFilter（vgenv 的 /models 一次列完图片与视频）
+         就是为了把不相干的那一半挡在清单外。这里不挡的话设置页列 40 个、下拉只有 8 个，
+         而「藏起来的那些」根本无从解释。 */
+      if (!id || seen.has(id) || (re && !re.test(id))) return;
+      seen.add(id);
+      out.push({ id, name: String((m && m.name) || '') });
+    });
+    return out;
+  };
+  /* 取一次「这一家到底有哪些型号」，**并落盘**。
+     手动那颗按钮与开页自动补齐走的是同一条路：两条路各写一遍的话，迟早会有一边忘了落盘，
+     而症状正好是「刷新一次清单又空了」—— 与「压根没取过」在界面上长得一模一样，分不出是哪一种。 */
+  async function runFetchModels(p, kid) {
+    const list = p.kind === 'text' ? await fetchTextModels(p, kid) : await fetchMediaModels(p);
+    if (!list.length) throw new Error('接口没有返回型号');
+    fetched.set(kid, list);                            // 本轮内存副本：带这次返回的原始形状
+    /* 落盘的那一份（ModelPrefs.got）才是真身 —— 刷新之后、别的页面（AI 助手的型号下拉）
+       都靠它。以前只有上面那行内存副本，于是：刷新一次清单就空了、助手那边永远看不见。 */
+    if (window.ModelPrefs) ModelPrefs.setGot(p, list);
+    renderModelRows(kid);
+    setCount(kid);
+    fillModelOptions(kid);
+    return list;
+  }
+  /* 开页把「当前这一档」里清单还空着的家补齐。
+     为什么必须有这一步：v13 起注册表**不再声明型号清单**，而设置页按设计不拉能力
+     （「能力由各工作台首次用到时自动拉」，见上面那句注释）—— 于是这一档打开永远是
+     「这一家一个型号都还没有」，而同一个平台在工作台里的型号下拉却是满的。
+     两边对不上，用户只会以为自己没配好。
+     只取**当前画着的那一档**里注册表声明了 models 端点的家（注册表一页只画一档），一家一家来，
+     不在开页那一帧并发打一排请求。文字那档不在这里取：它牵涉「作用文字 AI」与识图判定，
+     由那颗按钮连着校验密钥一起做更合适。
+     每家**一次机会**（`autofetchTried`）：切档来回重画不会反复打同一个平台，
+     取失败也不在这一轮里刷屏重试 —— 失败照样由卡片上那句提示说明怎么手动取。 */
+  const autofetchTried = new Set();
+  let autofetchRunning = false;
+  async function autofetchModels() {
+    if (autofetchRunning) return;
+    autofetchRunning = true;
+    try {
+      for (const blk of [...document.querySelectorAll('[data-mblk]')]) {
+        const kid = blk.dataset.mblk;
+        if (autofetchTried.has(kid)) continue;
+        const p = provByKid(kid);
+        if (!p || p.kind === 'text') continue;                   // 认不出 / 文字那档按需取
+        if (!(p.endpoints && p.endpoints.models)) continue;       // 没有型号接口的取不了，别白打一次
+        if (allModelsOf(p).length) { autofetchTried.add(kid); continue; }   // 已有（落盘的 / 自己填的）
+        autofetchTried.add(kid);
+        try { await runFetchModels(p, kid); } catch (e) { /* 取不到就照旧显示那句提示 */ }
+      }
+    } finally { autofetchRunning = false; }
+  }
+  /* 挂到每次重画后面（而不是只在开页时跑一次）：设置页一页只画一档，
+     用户切到另一档时那些家是**新画出来的**，不在这一刻补就又要手动点一次。
+     用一个在途标记防重入 —— 补齐过程自己会 renderModelRows，进而再次走到这里。 */
+  function scheduleAutofetch() {
+    if (scheduleAutofetch._busy) return;
+    scheduleAutofetch._busy = true;
+    setTimeout(() => { scheduleAutofetch._busy = false; autofetchModels(); }, 400);
+  }
+  /* 卡里那几颗按钮、两个下拉与型号清单上的每一行：**一次**绑定在 #provList 上
+     （renderProv 只换它的 innerHTML，监听器不会跟着一起丢），不必每重画一次就重新接一遍。
+     所以每一行自己带 data-tkid —— 行是重画出来的，容器却是上一次留下的。 */
   const provListEl = $('provList');
-  const kidOf = el => (el && el.dataset) ? (el.dataset.tkid || el.dataset.tmodel || el.dataset.tvision
-    || el.dataset.tfetch || el.dataset.ttest || el.dataset.tadd || '') : '';
   provListEl.addEventListener('click', async ev => {
+    /* 文字 AI 型号清单上那几行：**点哪一行 = 全站润色改用哪一个**。
+       它先接住，而且要点开那一行的「移除」按钮时不能顺手把它也选上
+       （按钮在 row 里而不是 row 外，所以这里先看最近的 [data-tdel]）。 */
+    const row = ev.target.closest('[data-tpick-model]');
+    if (row && !ev.target.closest('[data-tdel]')) {
+      ev.preventDefault();
+      pickTextModel(kidOf(row), row.dataset.tpickModel);
+      return;
+    }
     const b = ev.target.closest('[data-tfetch],[data-ttest],[data-tadd],[data-tdel]');
     if (!b) return;
     ev.preventDefault();
@@ -3244,10 +3566,11 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
       const id2 = b.dataset.tdel, sel2 = selOf(kid);
       const was = sel2 && sel2.value === id2;
       TextAI.removeCustom(prov, id2);
-      renderCustomModels(kid);
+      renderModelRows(kid);
+      setCount(kid);
       fillModelOptions(kid);
       if (was) refreshVisionTip(kid);          // 删掉的正好是当前选中的：换一个顶上并重判识图
-      markDirty();
+      setMsg(kid, '已移除型号「' + id2 + '」（只清本机记录；接口自己列出的那些不受影响）', 'msg ok');
       return;
     }
     if (b.dataset.tadd != null) {              // 自己添加型号：只加到**这一家**
@@ -3256,37 +3579,46 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
       if (!id2) { if (inp) inp.focus(); return; }
       TextAI.addCustom(prov, id2);
       if (inp) inp.value = '';
-      renderCustomModels(kid);
+      renderModelRows(kid);
+      setCount(kid);
       fillModelOptions(kid, id2);              // 加完就选中它
-      setMsg(kid, '已添加型号 ' + id2 + '（保存后一直可用，不依赖接口的 /models；切到别的供应方时不会出现）', 'msg ok');
+      /* 「立刻生效」是这里的实话：自己填的型号写进 sk_model_prefs 就直接落盘（与这一页
+         「点保存才生效」不同口径 —— 它不是一把密钥、也不是一个地址，改错了不会伤到别家）。
+         不说清就会出现「填完没点保存就切页，回来发现型号还在」这种人解释不了的场面。 */
+      setMsg(kid, '已添加型号 ' + id2 + '（立刻生效、不用点保存；只属于「' + (prov.name || '这一家')
+        + '」，切到别家不会出现。工作台的型号下拉下一次打开就有它）', 'msg ok');
       refreshVisionTip(kid);
-      markDirty();
       return;
     }
-    if (b.dataset.tfetch != null) {            // 取一次 /models
+    if (b.dataset.tfetch != null) {            // 取一次型号清单
       const p = prov;                          // 上面的守卫已经认过一家了，不再问第二次
       b.disabled = true; const label0 = b.textContent; b.textContent = '获取中…';
       try {
-        useFormCreds(p);                        // 用这一栏里现在的密钥 + 地址（只在内存里，不落盘）
-        const list = await TextAI.models(await Api.registry(), p);
-        if (!list.length) throw new Error('接口没有返回型号');
-        fetched.set(kid, list);                 // 只存给这一家（切到别家不会串）
-        fillModelOptions(kid);
+        const list = await runFetchModels(p, kid);
         /* 写明「这次真正打到哪个地址」：填了自定义地址就是那个地址，否则是这一家的官方地址。
            自定义供应商的 base 就是它自己那条 sk_custom 里的网关地址（TextAI.base 对它返回空，
            因为代理不认它的 x-up-base 覆盖）—— 不说清就等于让人以为列表来自官方。 */
-        const from = TextAI.base(p) || p.base || '默认地址';
+        const from = (p.kind === 'text' ? (TextAI.base(p) || p.base) : (p.base || '')) || '这一家的默认地址';
         setMsg(kid, `从「${from}」获取到 ${list.length} 个型号（只属于「${p.name}」），当前选中 ${((selOf(kid) || {}).value) || '—'}`, 'msg ok');
         refreshVisionTip(kid);
         markDirty();
         /* 有些平台（OpenRouter）的型号表是**公开**的：不带密钥也能拉到全量型号。
-           所以「列表拿到了」不能证明密钥有效，紧接着顺手验一下并说明，否则用户会以为配好了。 */
-        try {
-          const v = await TextAI.verifyKey(await Api.registry(), p);
-          setMsg(kid, (msgOf(kid) || {}).textContent + '　|　' + v.text
-            + (/OpenRouter|聚合/.test(p.name) ? '（它的型号表公开，所以这一步才有必要）' : ''), 'msg ok');
-        } catch (e) { /* 验证失败不拖累取列表 */ }
-      } catch (e) { setMsg(kid, '获取失败：' + e.message, 'msg err'); }
+           所以「列表拿到了」不能证明密钥有效，紧接着顺手验一下并说明，否则用户会以为配好了。
+           —— 只有文字那一路有这套判据（verifyKey 走余额接口），生成平台没有就不硬凑一句。 */
+        if (p.kind === 'text') {
+          try {
+            const v = await TextAI.verifyKey(await Api.registry(), p);
+            setMsg(kid, (msgOf(kid) || {}).textContent + '　|　' + v.text
+              + (/OpenRouter|聚合/.test(p.name) ? '（它的型号表公开，所以这一步才有必要）' : ''), 'msg ok');
+          } catch (e) { /* 验证失败不拖累取列表 */ }
+        }
+      } catch (e) {
+        /* 失败要能指出一条路：这一档最常见的原因是**密钥刚填还没保存** ——
+           `Api.request` 只认已存下来的那把（草稿只给文字那一路用），所以这里必须说出来。 */
+        const hint = p.kind === 'text' ? ''
+          : '（生成平台的型号清单是用**已保存**的密钥去问的：刚贴上去的那把先点下面「保存全部设置」再取一次）';
+        setMsg(kid, '获取失败：' + e.message + hint, 'msg err');
+      }
       finally { b.disabled = false; b.textContent = label0; }
       return;
     }
@@ -3310,6 +3642,35 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     }
   });
   provListEl.addEventListener('change', ev => {
+    /* 型号清单上那一排勾选先接住：它改的是「工作台的下拉里有没有这一条」，判据与工作台共用
+       `ModelPrefs.isOff` 一处。这一项**当场落盘、当场生效**（和这一页「点保存才生效」两套口径），
+       所以回执里必须写「不用点保存」—— 否则人会去找那颗保存按钮，而它跟这件事无关。
+       为什么允许即时：它只是本机的一条显示偏好，不是一把密钥、也不是一个地址，
+       写错了不会把 A 家的密钥发到 B 家，随时还能勾回来。 */
+    const cb = ev.target.closest && ev.target.closest('[data-mshow]');
+    if (cb) {
+      const kid = kidOf(cb), id2 = cb.dataset.mshow;
+      const p = provByKid(kid);
+      if (!p || !window.ModelPrefs) {
+        cb.checked = !cb.checked;              // 认不出这一家就**不许改这个勾选**（画面上也不留改动）
+        setMsg(kid, '没认出这一家（注册表可能刚变过）。先刷新页面再勾 —— 藏 / 展示不能写到别家去。', 'msg err');
+        return;
+      }
+      const hide = !cb.checked;
+      ModelPrefs.setOff(p, id2, hide);
+      const wasCur = ((selOf(kid) || {}).value) === id2;
+      renderModelRows(kid);
+      setCount(kid);
+      fillModelOptions(kid);                   // 只有文字那档画了这个下拉，别的家它是空操作
+      const sel2 = selOf(kid);
+      if (sel2) modelDraft.set(kid, sel2.value);   // 藏掉当前那个之后下拉换了项，草稿要跟着走
+      refreshVisionTip(kid);                   // 没有 [data-vtip] 时自己 return
+      setMsg(kid, (hide ? '已隐藏 ' : '已展示 ') + id2
+        + '（立刻生效、不用点保存' + (hide ? '；这不是删掉，勾回来它就在工作台上了' : '') + '）'
+        + (hide && wasCur ? '　|　它原本是这一家选中的型号，下拉已换到清单里的第一个；要把新的那个存成默认，点「保存全部设置」' : ''),
+        'msg ok');
+      return;
+    }
     const s = ev.target.closest('[data-tmodel],[data-tvision]');
     if (!s) return;
     const kid = s.dataset.tmodel || s.dataset.tvision;
@@ -3317,7 +3678,12 @@ if ($('resetSet')) $('resetSet').onclick = async () => {
     if (s.dataset.tvision) { visionDraft.v = s.value; refreshVisionTip(kid); markDirty(); return; }
     /* 记进草稿：切供应方档、重画卡片之后要能从草稿里把刚选的这个拿回来 */
     modelDraft.set(kid, s.value);
-    setMsg(kid, '已选择型号：' + (s.value || '（空）') + '（点「保存全部设置」写入；「测试」会直接用这个）', 'msg');
+    /* 清单上的高亮跟着挪：下拉与清单是**同一个选择**的两处显示（都写 sk_model_<keyId>），
+       在下拉里换了一个却不重画清单，就会看到「刚选的型号」那一行还是旧的高亮 ——
+       而那行上写着「正在用」，两处对着干。 */
+    renderModelRows(kid);
+    setCount(kid);
+    setMsg(kid, '已选择型号：' + (s.value || '（空）') + '（全站润色都用它；点「保存全部设置」写入，「测试」会直接用这个）', 'msg');
     refreshVisionTip(kid);
     markDirty();
   });

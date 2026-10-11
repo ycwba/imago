@@ -388,14 +388,17 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 外壳为此额外引了 `assetlib.js` / `workbench.js` / `drama.js`，查询不再取决于脚下开的是哪一页。
 **但这三份（加上 `ai-chat.js`）在外壳里是「空闲时再加载」的**（`shell.html` 末尾那段 `requestIdleCallback`）：
 首屏关键路径只留 `ui.js` / `ident.js` / `assetlib.js` / `sidebar.js` / `app.js`，助手那一层等浏览器空闲
-（带 1.2 s 超时兜底）再按顺序插进来 —— 实测一次切页外壳与 iframe 各执行一份同一批 JS，
-为「大多数时候不打开的功能」白付约 608 KB 的下载与执行。`assetlib.js` **不能**跟着延后：
-`sidebar.js` 的余额卡要用 `Api.registry` / `Api.request` / `Api.provUsable`。新增入口若要在脚本到位前调
-`window.AiChat.*`，先 `window.__sbLoadAssistant()` 等它（目前全项目没有这样的调用者）。
+（带 1.2 s 超时兜底）再按顺序插进来。**内容页一律不引 `workbench.js` / `drama.js` / `ai-chat.js`**（2026-10 起）：
+它们挂在 iframe 里第一件事就是检测到 `window.top.__SB_SHELL` 然后 return，之前每次切页都白付约 608 KB
+的下载与执行，而这又正好把内容页的 `DOMContentLoaded` 往后推——那正是外壳换页的时机（实测换位只要 25–37 ms，
+砍掉这批之后瓶颈更不可能在壳这一层）。`assetlib.js` **不能**跟着延后：`sidebar.js` 的余额卡要用
+`Api.registry` / `Api.request` / `Api.provUsable`。新增入口若要在脚本到位前调 `window.AiChat.*`，
+先 `window.__sbLoadAssistant()` 等它（目前全项目没有这样的调用者）。
 **夹悬浮球位置的左边界要让开侧栏**（`clampXY` 读 `--sbw`：收起 66px / 展开 200px）：球是 `z-index:56`、侧栏 90，
 停在它覆盖的那一条里就点不到 —— 等于把助手弄丢，而且存过的旧位置每次都重新踩回去。
-要让助手看得见这一页的状态，调一次 `AiChat.pageCtx(() => ({ ... }))` 注册**只读**快照（它写到 iframe 的 `window.__acPageCtx`，
-外壳那份现取；现在只有 `drama.html` 注册，因为只有那一页的状态在闭包里、外面读不到。
+要让助手看得见这一页的状态，**直接设 `window.__acPageCtx = () => ({ ... })`** 注册**只读**快照
+（外壳那份现取；现在只有 `drama.html` 注册，因为只有那一页的状态在闭包里、外面读不到）。
+**不要写成 `AiChat.pageCtx(...)`** —— 那是助手自己提供的封装，内容页照抄就等于又把 249 KB 装回来。
 界面上的下拉当前值由 `domPicks()` 自己扫 DOM，页面**不要**再抄一份「我选了哪个型号」）。
 硬约定：
 - **读与写是两张表**：`TOOLS` 里全是 GET 与本机读（17 项：`overview` / `tasks` / `history` / `models` / `model` / `dramas` / `chars` / `fav` / `assets` /

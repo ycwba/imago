@@ -11,23 +11,34 @@
   /* 主题变量在 ui.css 的 :root / html[data-theme="dark"] 里（全站一份，上面已引） */
 
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
-  /* 内容区在 iframe 里：切页只换 iframe，侧栏不动、不闪
-     （iframe 是替换元素，width:auto 会退回默认 300px，必须显式算宽度） */
-  #appFrame { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
-    border: 0; display: block; background: var(--bg); transition: left .18s ease, width .18s ease; }
-  html.sb-open #appFrame { left: 200px; width: calc(100% - 200px); }
+  /* 内容区在 iframe 里：切页只换 iframe，侧栏不动。
+     用类名而不是 id 来定位尺寸：**加载中的那一份还没有 id**（id 是它加载好、换上位之后才拿到的），
+     而它必须和当前那一份尺寸一模一样 —— 否则换页期间侧栏展开态会让新页面先贴在左边再跳过来。
+     id 全程只有一个，外壳别处（主题同步等）按 id 找的仍是当前可见的那一个。 */
+  .appframe { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
+    border: 0; display: block; background: var(--bg); z-index: 1; transition: left .18s ease, width .18s ease; }
+  /* 正在加载的那一份压在**下面**：上面那份旧内容就一直显示着，换页过程中屏幕上不会空出一片底色。 */
+  .appframe.staging { z-index: 0; }
+  /* 刚换上位、但旧的那份还没退场的那一两帧：新的一层**透明**，底下旧内容继续顶着。
+     没有这一层的话，换位那一刻新文档可能一两个子元素都还没有，露出来的是底色 ——
+     也就是把「等 load 才换」省下来的时间，又在换位的那一瞬还回去了。 */
+  .appframe.behind { background: transparent; }
   /* 窄窗口（≤1100px）里侧栏展开是浮层：sidebar.js 此时不把 --sbw 改成 200px，
      内容区也不让位 —— 小窗本来就窄，再被侧栏吃掉 200px 就更没法用了。 */
-  html.sb-narrow.sb-open #appFrame { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
+  html.sb-narrow.sb-open .appframe { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
+  html.sb-open:not(.sb-narrow) .appframe { left: 200px; width: calc(100% - 200px); }
 </style>
 </head>
 <body>
-<iframe id="appFrame" name="appFrame" title="工作区"></iframe>
+<iframe id="appFrame" class="appframe" name="appFrame" title="工作区"></iframe>
 <script>window.__SB_SHELL = true;</script>
 <script src="ui.js"></script>
 <!-- AI 助手那一层（workbench / drama / ai-chat，约 608 KB）**按需加载**（L2）：
-     外壳为了「切页不重建的助手」预先带上了它们，而每个内容页在 iframe 里又把其中几份各加载
-     一遍 —— 为一个大多数时候不会打开的功能，首屏白付这 608 KB 的下载与执行。
+     助手挂在**外壳**这一层，切页只换 #appFrame 的内容，抽屉与对话记录都不重建。
+     内容页一律不再引这三份（2026-10）：它们挂在 iframe 里第一件事就是检测到
+     window.top.__SB_SHELL 然后 return，每一次切页都白付 608 KB 的下载与执行，
+     而这恰好又把内容页的 DOMContentLoaded 往后推 —— 那正是外壳换页的时机。
+     页面要交出自己的只读快照，直接设 window.__acPageCtx（见 drama.html）。
      真正立刻要用的只有下面这几份：ui.js（公共组件）、ident.js + assetlib.js（侧栏余额与
      注册表都要它）、sidebar.js、app.js。助手那三份在浏览器空闲时再插进来（见下面那段），
      顺序不能变 —— ai-chat.js 要用 Wb / Drama，且它自己会做「公共层没齐就不装」的守卫。 -->

@@ -534,6 +534,39 @@ button.armed { min-width: 4.6em; }
    继承到的正是 body 的 --txt，视觉本来就是对的；这里继续不写，继承语义一模一样。 */
 .ui-inp { height: 26px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--line, #e4e6f0);
   border-radius: 6px; background: var(--bg, #f2f3f9); min-width: 0; }
+/* ---------- .mlist 型号清单（全站一份，设置页两处共用）----------
+   设置页有两处「一份平台接口给回来的型号清单」：供应商卡里那一张、添加自定义供应商时那一张。
+   以前两边各写各的（`.mb-list` 与 `.cus-models`），结果是同一件事两种排版、两种勾选框、
+   只有一处限高滚动 —— 另一处直接把整页撑开。收进公共组件后：
+     · `.mlist`      限高自滚的容器（**数量不限**，滚动不是靠限制条数实现的）
+     · `.mlist-row`  一行：勾选 + 名字 + id + 来源小字
+     · `.off`        藏起来的那一条（仍在清单里、随时勾回来，只是不进工作台下拉）
+     · `.pick`       单选档（文字 AI）当前选中的那一个
+   生成三类多选（勾选 = 出现在工作台型号下拉里）；文字 AI 单选（选中的那个就是全局润色模型）。 */
+.mlist { display: flex; flex-direction: column; gap: 1px; max-height: 264px; overflow-y: auto;
+  overscroll-behavior: contain; border: 1px solid var(--line, #e4e6f0); border-radius: 6px;
+  padding: 5px 6px; background: var(--panel, #fff); }
+/* 勾选框跟主题主色：浏览器原生那个永远是系统蓝，跟全站的紫放在一起一眼像没做完。 */
+.mlist input[type="checkbox"], .mlist input[type="radio"] { accent-color: var(--pri, #7c5cff);
+  margin: 0; flex: 0 0 auto; }
+.mlist-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 6px;
+  border-radius: 5px; }
+.mlist-row:hover { background: var(--panel2, #f3f4f9); }
+.mlist-row > label { display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; }
+.mlist-row code { font-size: 11px; }
+.mlist-row > label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 藏起来的那一条：淡下去 + 一道删除线，一眼看出「它还在，只是不进下拉了」。 */
+.mlist-row.off { color: var(--sub, #8a8fa3); }
+.mlist-row.off > label { text-decoration: line-through; text-decoration-color: rgba(140,140,160,.55); }
+/* 单选档当前选中：**中性底色 + 加粗**。
+   原来这里给一道紫色竖条（inset shadow）+ 淡紫底，是照 .cus-mine-i.on 抄来的 ——
+   那一条是「正在编辑这一家」的操作态，不是「正在用它」的选择态，放在一屏几十行里
+   就是一列刺眼的紫。选中态只用底色与字重说，不抢颜色。 */
+.mlist-row.pick { background: var(--panel2, #f3f4f9); font-weight: 600; }
+.mlist-row.pick code { font-weight: 600; }
+.mlist-row .mlist-src { margin-left: auto; flex: 0 0 auto; color: var(--sub, #8a8fa3);
+  font-size: 10.5px; white-space: nowrap; }
+.mlist-empty { padding: 7px 6px; font-size: 11.5px; color: var(--sub, #8a8fa3); line-height: 1.6; }
 /* 声音那一行（试听圆钮 + 声波装饰 + 音色控件）：由 drama.js 的 Drama.Cast.voiceBoxHTML 生成，
    拍短剧页与角色库页共用一份标记 —— 各页再抄一份就会像以前那样「圆钮没样式，看着是莫名其妙的播放三角」。 */
 .ui-voice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

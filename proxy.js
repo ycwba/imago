@@ -145,9 +145,16 @@ const DEFAULTS = {};
      { type:'per_image_table',  currency:'积分' }                    模型自带 price{quality:单价}，×张数
      { type:'per_second_table', currency:'积分', endpoint:'models' } 从 endpoint 拉模型表，pricing.perSecond×秒数×条数
      { type:'quote',            currency:'¥',    endpoint:'price' }  实时报价接口，按参数查价×条数
+     quote 那一型还可以声明三样（见 VGENV 那一条）：
+       `method:'POST'` + `body:{ 上游字段名: 本地参数名 }` + `consts:{ 上游必填但不计价的字段 }`；
+       `noQuote:{ when:{…}, why:'…' }` = **这一档没有询价这条路**（不是「询价失败了」）。
+       VGENV 的动作换人在报价时要求带上那段参考视频，而报价是纯参数查询、拿不到用户手里的字节，
+       实测十二种参数全回 422 —— 界面据此说一句「这一档平台不问价」，也不再发那一次注定失败的请求。
    模型能力：provider 声明 endpoints.models 后，客户端会调该接口拿「真实支持范围」
      （allowedValues: 分辨率/画质/比例/输出格式/时长范围/张数上限 + pricing 积分价），
-     自动覆盖 registry 里写的 options（写死的只是兜底）。VGENV 目前没有该接口（404）→ 用兜底值。
+     自动覆盖 registry 里写的 options（写死的只是兜底）。
+     上游形状不是「parameters 对象」的那种（VGENV 的 /v3/models 是 configurations 数组，一项一档组合）
+     配 `modelsShape` 点名一种归一化形状，按形状而不是按平台 id 分派。
    素材引用语法（可选）：provider 上加 refSyntax: '[image{n}]'，客户端提交前会把提示词里的
      @参考图N 自动换成该语法；不声明则原样保留（参考图仍按第 N 张 = 数组第 N 个上传）。
 
@@ -171,7 +178,37 @@ const DEFAULTS = {};
      topBools    提交体**顶层**的布尔开关 { 字段名: {label, hint, def, priceKey?} }：
                  页面把声明出来的**每一项**都渲染成高级设置里的一颗磁贴（三种类型共用一块），
                  值随 params 一起提交，落在顶层而不是 nest 那个嵌套对象里；
-                 priceKey 指向该平台定价表里的字段（开启后另加这个价），声明了就自动进估价
+                 priceKey 指向该平台定价表里的字段（开启后另加这个价），声明了就自动进估价。
+                 v14 起这两项可以**按这一次请求的形状**变化（形状 = Capability 的 combo：
+                 `{mode, intent}`，页面从「输入模式」那排芯片原样递过来）：
+                   def:  { when: {…}, then: true, else: false }  同一开关在不同形状下默认值不同
+                         （VGENV 的「保留原声」：普通生成默认关，动作换人默认开）
+                   hide: { when: {…} } + hideNote               这一档**根本没有这个字段**，
+                         界面不画、提交体与报价体一个字都不发（VGENV 换人时显式发
+                         prompt_optimization:{mode:'raw'} 会 422，不发才是对的）
+                 判据只在 assetlib.js 的 topBoolState 一份，页面 / 提交 / 报价三处都问它；
+                 没有形状声明的平台（combo 为空）一律「用普通默认值、不隐藏」，行为与 v13 逐字相同
+                 v15 起再加一种「不给画」的来路，因为「有没有」不总在形状里：
+                   need: 'caps.xxx' + needNote / needMissingNote
+                        这一项**存在**还要看**这一次的那一行能力**给不给（逐行能力来自
+                        平台自己的 /models，归一化成 combo.states，见 Capabilities.shapeState）。
+                        VGENV 的 turbo 就是这一种：文档写明「需独立授权与运行开放」，
+                        实测同一个模式里带参考视频的那几种组合一律 false、其余为 true ——
+                        按「这个型号总共有没有」画开关，就会发一个平台当场拒的字段。
+                        两句说明分开写：needNote = 这一档确实不给；needMissingNote =
+                        **能力清单还没取回来**（加载期），把后者写成前者就是替用户下结论。
+     shapeFields 提交体**顶层**的非布尔字段 { 字段名: {label, hint, kind, from?, min?, max?,
+                        none?, only?:{when,why}, emptyNote?, missingNote?} }（v15 起）：
+                 与 topBools 同一套思路 —— 页面只为声明出来的项渲染控件，取值随 params 提交、
+                 落在顶层，报价体按 `pricing.body` 的映射带上；判据在 Capabilities.shapeFieldState 一份。
+                   kind: 'select' 取值清单来自 `from:'caps.xxx'`（逐行能力，例如 VGENV 的 2x 超分
+                         只在部分 tier × 素材组合里给）；`none` 给一个「不超分（默认）」这种
+                         **空值选项**（值为空串 → 提交体与报价体都不发，这一家未知/空值会被拒）
+                   kind: 'int' | 'number' 用 min/max 当场校验并写进说明（seed 的 0–281474976710654
+                         是文档给的，与实测 400 消息里那两个数一致）
+                   only: { when: {…} } 只有这种请求形状才有这个字段（VGENV 的 motion_start_seconds
+                         发到普通生成上是 422 PERSON_REPLACEMENT_INTENT_REQUIRED）
+                 什么都没声明的平台这一块整块不出现，行为与 v14 逐字相同。
      note        备注字段值（有些平台会记录）
      idempotencyKey  该平台是否支持幂等键（默认 true）：
                      true  → 客户端给 POST 带上 Idempotency-Key；网络超时后允许自动重试
@@ -183,6 +220,9 @@ const DEFAULTS = {};
      pollVia      'list' = 单条轮询走列表端点、按任务号找（平台的详情端点不可用时声明；见 VGENV）
      cancelMethod 取消任务用的 HTTP 方法（默认 POST）
      noPromptField 平台不返回提示词（界面据此提示「平台不返回」）
+     roleRules    按**输入角色**声明「收什么文件、单个多大」：`{ role: { accept, maxBytes, media } }`。
+                   只在能力接口不给这两条时写（VGENV 的 /v3/models 只给数量），归一化时并进每一条输入规格；
+                   写在平台级而不是型号级，是因为 v13 起注册表不再按型号列清单、`models[].inputRoles` 已删。
      baseEditable 允许用 x-up-base 头临时换基址（内置文字 AI 供应方的「自定义接口地址」）。
                    生成平台不走这条路，同形状的中转站在设置页「添加自定义供应商」里登记成一条新 provider
                    （见下面「自定义接口」一节）；自定义条目**连文字 AI 也不走** —— 那边 buildCustom 会把
@@ -203,8 +243,37 @@ const REGISTRY = {
      供应商清单，那个官方地址正是设置页自动填进去的默认值（只拦撞到**别的**内置平台）。
      v12 起本机资产库的 `list.map` 多一个 `taskId`（= 落盘时留在索引里的 `detail.task`）：
      本机那一条的 id 是文件号 la_xxx，不是平台任务号，页面要靠它才知道该拿什么去问提示词归档。
+     v13 起**注册表不再列型号清单**：型号由「平台自己的 /models 现取」+「设置页自己填」两条路来，
+     并新增 `.data/sk_model_prefs.json`（每家一个 `{typed, off}` —— 手填的型号与逐个「隐藏 / 展示」）。
+     `models: [...]` 只剩两种去处：① 有型号接口的家 → 整条删掉（清单归接口）；
+     ② 没有型号接口、或它的 /models 只列对话模型的家 → 改名 `modelDocs`，
+       它不再是「清单」，只是「文档里写过这个 id 支持什么」的表，用户真填了这个 id 才用得上。
+     老代理（v12 及以下）不读那份偏好：设置页里勾了「隐藏」的型号还会出现在下拉里、
+     手填的型号永远进不来 —— 所以 `PROXY_VERSION_MIN` 一起升到 13，让页面把「请先重启代理」说出来。
+     v14 起两处**新结构**：① provider 级 `roleRules`（每种素材「收什么文件 / 单个多大」）——
+       型号清单归接口之后，这两条规矩在接口响应里根本没有，只能在这儿按平台声明一次；
+       旧代理不带它，界面上「收什么文件」那一行会整块消失。
+     ② `create.topBools` 的声明多了「按**这一次请求的形状**（mode + creation_intent）成不成立」一层
+       （`hide.when` / `def.when`）。
+       旧代理不认识这些键 → 「视频换人」模式下会把一个平台明确拒绝的开关照发过去（422）。
+     v15 起把「有没有这一项」补上第三种来路，并新增一类非布尔字段：
+     ① `create.topBools.*.need: 'caps.xxx'`（配 needNote / needMissingNote 两句说明）——
+       存在与否不再只看形状，还要看**这一次的那一行能力**。VGENV 的 turbo 是这一种：
+       /v3/models 把它写在 (tier × 素材组合) 上，带参考视频的那几种一律 false，
+       按「型号总共有」画开关就会发一个被拒的字段。归一化那一份存在 `combo.states`，
+       判据在 assetlib 的 Capabilities.shapeState（v15 起才有 states，旧代理没有）。
+     ② `create.shapeFields`（超分档 / 随机种子 / 换人的动作起点这一类**顶层非布尔**字段）
+       与 `pricing.noQuote`（这一档根本不询价）。旧代理两者都不认识：
+       界面上那几项不会出现，而「动作换人」会继续对着报价接口发一次注定 422 的请求，
+       把「这一档平台不问价」显示成一句失败。
+     v16 起文字 AI 那九家的 `models: [...]` 全部改名 `modelDocs` —— **注册表不再下发任何一份
+     文字型号清单**。这份写死的清单看着像「兜底」，实际是「型号就这几个」的假象：设置页那张清单
+     与型号下拉都从它派生时，用户看到六个、下拉里也是那六个，而他自己刚取回来的几百个一个都不在里面。
+     改成 modelDocs 之后它只剩两个用途（识图判定、自定义供应商的接口形状参照），不再冒充清单。
+     旧页面（v15 及以下）读的是 `models`：它仍然认 modelDocs 吗？不认 → 那几个 id 的识图判定会退回「自动」，
+     而型号清单本来就要靠页面点一次「获取型号列表」取回，取回的那份存在 `.data/sk_model_prefs.json` 里。
      改注册表结构时顺手 +1。 */
-  version: 12,
+  version: 16,
   /* 「接口形状」= **接口族**清单，每一族点名它照哪一家内置声明实现。
      为什么与「供应商」分开：厂商（SparkCine / 硅基流动 / MiniMax…）是「我照它那一家整套走」，
      而接口形状是「我跑的就是这一套协议，厂商是谁不重要」—— 市面上大量中转站都跑 OpenAI 兼容那一套，
@@ -318,8 +387,20 @@ const REGISTRY = {
          旧声明指向的 GET /v2/pricing 实际不可用（页面上一律报「未开放报价接口」），已删。 */
       pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST',
         body: { model: 'model', tier: 'tier', duration: 'duration',
-          resolution: 'res', aspect_ratio: 'ar' },
-        consts: { prompt: '报价预估（不创建任务）' } },
+          resolution: 'res', aspect_ratio: 'ar', creation_intent: 'creation_intent',
+          /* 超分档也进报价体：文档写明 2x 是「生成附加费」，报价接口按同一套参数算 ——
+             不带过去，界面上拨了 2x 而报价纹丝不动，差价就落到创建那一刻才暴露。
+             取值来自 `create.shapeFields.upscale`（页面按**那一行能力**给的档渲染，
+             空值「不超分」不发），与提交体、界面共用同一份判据。 */
+          upscale: 'upscale' },
+        consts: { prompt: '报价预估（不创建任务）' },
+        /* 动作换人**问不出价**：文档 03 节写明报价也要带上那段参考视频，而报价是一次纯参数查询、
+           手里没有字节 —— 实测十二种换人参数组合全回 422 `PERSON_REPLACEMENT_INPUT_INVALID`。
+           这不是「报价接口坏了」，是这一档没有这条路，所以声明成 noQuote：
+           客户端直接回一句人话、连那一次注定失败的请求都不发。
+           （普通生成一切正常，别照这一条把整个平台的估价关掉。） */
+        noQuote: { when: { intent: 'person_replacement' },
+          why: '动作换人不问价：平台要求报价时一起交那段参考视频，而这里是纯参数查询' } },
       noPromptField: true,   // 接口不返回提示词（列表/详情/V1/流水都实测过），界面据此提示"平台不返回"
       // 注意：VGENV 的列表 / 详情 / V1 兼容接口 / 余额流水都不返回 prompt（实测过），
       // 所以提示词只能靠客户端创建任务时归档一份（assetlib 的 PromptLog → /prompts 存进归档文件夹，
@@ -341,6 +422,22 @@ const REGISTRY = {
         complete: '/v1/assets/{id}/complete',
       },
       modelsShape: 'vgenvConfigurations',
+      /* 每一种素材「收什么文件、单个多大」——接口只给数量（inputs 的 min/max），
+         类型与体积上限在文档的「素材输入」一节（2026-10 对照文档写明）：
+           图片 JPEG/PNG/WebP，每张 ≤ 5 MiB（不另设总量）
+           视频 MP4，≤ 200 MiB，且**必须含音频流**（无音频流创建时 422，静音轨可以）
+           音频 MP3/WAV，≤ 50 MiB，单个 Video 最多一条
+         为什么写在**平台级**而不是型号级：v13 起型号清单不再本地兜底，按型号写的
+         `models[].inputRoles` 已随之删除，而能力接口的形状里根本没有这两条规矩 ——
+         没有这一份声明，界面上「收什么文件 / 单个多大」两行会整块消失（真的丢过一次）。
+         归一化时并到每一条输入规格上（assetlib 的 NORM_SHAPES.vgenvConfigurations）。 */
+      roleRules: {
+        reference_image: { accept: 'image/jpeg,image/png,image/webp', maxBytes: 5 * 1024 * 1024 },
+        first_frame: { accept: 'image/jpeg,image/png,image/webp', maxBytes: 5 * 1024 * 1024 },
+        last_frame: { accept: 'image/jpeg,image/png,image/webp', maxBytes: 5 * 1024 * 1024 },
+        reference_video: { accept: 'video/mp4', maxBytes: 200 * 1024 * 1024 },
+        reference_audio: { accept: 'audio/mpeg,audio/wav', maxBytes: 50 * 1024 * 1024 },
+      },
       /* 型号清单**不在本地写死**：全部来自 GET /v3/models（见上面 endpoints.models）。
          平台按 Key 授权发布什么型号、每一档支持什么组合，都是它说了算 ——
          以前这里硬写一个 `minimax/h3`（连名字都是上游别名，报价时会被映射成 base），
@@ -362,8 +459,22 @@ const REGISTRY = {
       },
       create: {
         endpoint: 'create',
-        idempotencyKey: false,    // 平台没声明支持幂等键 → 不带、也不自动重试（避免重复建任务重复扣费）
-        body: { model: 'model', prompt: 'prompt', tier: 'tier', duration: 'duration', resolution: 'res', aspect_ratio: 'ar' },
+        /* 幂等键：**平台自己强烈建议带**（文档 02 节「鉴权与幂等」），以前这里写 false 是因为
+           「文档没写支持」—— 那个判断错了，代价是网络抖动时**不但不重试，还不防重复**：
+           超时之后我们只能报「结果未知」，用户要么干等要么手动再来一次，而后一次可能是第二份钱。
+           带上之后语义是文档写明的两条：同一个 Key + **完全相同**的请求 → 返回第一次那条 Video、
+           不重复冻结余额；改了参数还复用同一个 Key → 409 IDEMPOTENCY_KEY_REUSED。
+           客户端的两种挂法正好对上：每次调用现生成一个新 UUID（所以参数不同必然 Key 不同），
+           自动重试沿用**同一个** Key 和同一个请求体（assetlib 的 Api.request + ui.js 的 Net.fetch）。 */
+        idempotencyKey: true,
+        /* `creation_intent` 是**请求形状**字段而不是参数：省略 = 普通生成，
+           person_replacement = 动作换人（文档 03 节那一行）。
+           页面从「输入模式」选中那一档原样递进来（Api.createBody 的标准字段），
+           没选换人时它是空串 → 按标准字段的规矩**整个不发**（发 `""` 上游会拒）。
+           ⚠ 与之对照：`mode`（t2va / fl2va / ref2va）**不是请求字段** —— 平台按送上来的素材自己推断，
+           它只当声明的上下文用，永远不进提交体。 */
+        body: { model: 'model', prompt: 'prompt', tier: 'tier', duration: 'duration', resolution: 'res',
+          aspect_ratio: 'ar', creation_intent: 'creation_intent' },
         /* 素材输入怎么进请求体 —— 按官方开发文档（vgenv.com/developers/docs）声明。
              未知字段会被拒绝，所以形状必须精确；tmpl 里 $url = DataURL/公网 https 地址，
              $assetId = 先上传成资产再引用。
@@ -387,13 +498,95 @@ const REGISTRY = {
                所以这一档默认开；想关就发 {mode:"raw"}。
              · 实测两种模式报价相同（300000 micros）—— 这一项在 VGENV 不额外收钱，
                所以声明里不写 priceKey（写了也只会加 0）。
-             · turbo 是另一份独立授权，我们没有 —— 实测发过去直接 500，别碰。 */
+             · **动作换人时这一项不存在**（文档 03 节：换人三个版本均自动分析素材，
+               显式发 raw 回 422 PERSON_REPLACEMENT_ANALYSIS_REQUIRED）→ 声明成按形状隐藏，
+               界面不画、提交体与报价体一个字都不发（不发 = 平台默认，正是要的结果）。 */
         topBools: {
           prompt_optimization: {
             label: '平台提示词优化',
             hint: '让平台先把提示词改写得更像视频描述再生成；关掉则原样提交（平台默认是开着的）',
             def: true,
             send: { on: { mode: 'enhance' }, off: { mode: 'raw' } },
+            hide: { when: { intent: 'person_replacement' } },
+            hideNote: '动作换人由平台自动分析素材与人物，没有「关掉提示词优化」这一档（显式关掉会被拒）',
+          },
+          /* 保留参考视频的原音轨（文档 03 节最后一列）：普通生成默认 false，**换人默认 true**。
+             这一项是纯布尔、不带 send 形状，所以提交体里就是 true / false 本身。
+             默认值随形状变（def.when）而不是在页面里写一句「选了换人就默认打开」——
+             判据只有 topBoolState 一份，界面画的默认、提交发的默认、报价带的默认才是同一个。
+             换人关掉它的后果要照文档说清：不保留原音轨，也**不保证**另外生成声音。 */
+          preserve_source_audio: {
+            label: '保留原视频声音',
+            hint: '直接复用参考视频自己的音轨（换人时按动作起点与时长裁剪）；关掉则不保留原音轨，也不保证另外生成声音',
+            def: { when: { intent: 'person_replacement' }, then: true, else: false },
+          },
+          /* Turbo（文档 02 节参数表：默认 false，**需独立授权与运行开放**，对生成费用加收 30%，
+             附加超分不加价）。以前这里一句都没有，注释还写着「我们没有这一份授权，发过去直接 500」——
+             那句是错的，而且是**双向**错：既少了一个能用的功能，也把原因说成了「没授权」。
+             2026-10 实测：/v3/models 给本机这把 Key 列出的组合里大量 turbo 为 true；
+             报价接口收 turbo:true，回显 `turbo_requested:true`，金额恰好是同档的 1.3 倍。
+             真正的门不在「有没有授权」而在**这一次的那一行**：base 型号那八种素材组合里，
+             凡是收参考视频的那几种为 false（quality 档与动作换人照给）；Origin 反倒逐行都给 Turbo
+             （它给不了的是超分 —— 48 行的 upscale 全是空）。
+             所以这一项声明成 `need:'caps.turbo'` —— 开关跟着那一行长灭，而不是按「这个型号总共有」画。
+             不加 priceKey：这是 quote 型定价，加价由报价接口自己算（实测就是 1.3 倍）。 */
+          turbo: {
+            label: 'Turbo 加速档',
+            hint: '平台另一条执行通道，文档写明对生成费用加收 30%（报价会照实算进去）；这一档给不给由平台按素材组合决定',
+            def: false,
+            need: 'caps.turbo',
+            /* 三句话对应三种真原因（判据在 assetlib 的 whyNote，两处共用一份）：
+               这一行确实没有 / 这一行还没认出来（素材没放齐）/ 清单还在读。
+               以前只有第一句，于是「首尾帧那一档还没放图」也被说成「平台不给 Turbo」，
+               而用户该做的事是把素材放上去了。 */
+            needNote: '这一次的这一档（画质档 + 手上的素材种类）平台没给 Turbo —— 带参考视频的那几种组合一般不给，换个画质档或换个不带参考视频的组合再试',
+            needUnknownNote: '这一档要求的素材还没放齐（或手上这一批的组合平台没列进清单），还看不出给不给 Turbo —— 先把上面写的那几类素材放进来',
+            needMissingNote: '还在读平台的能力清单，读完才知道这一档给不给 Turbo',
+          },
+        },
+        /* 「顶层的非布尔字段」这一类（v15 起，判据在 assetlib 的 Capabilities.shapeFieldState 一份）：
+           与 topBools 同一种形状 —— 声明了才在高级设置里渲染，值随 params 提交、落在顶层，
+           报价按 pricing.body 的映射带上；页面不写一句 `if (平台 === 'vgenv')`。
+           三个都是从文档 + 实测各核过一遍的：
+             upscale   文档 02 节：普通生成可请求成片 2x，默认 none，**换人不支持**；
+                       能力清单把它写在 (tier × 素材组合) 上（enhanced 档与 Origin 全家没有 2x，
+                       实测报价对 enhanced+2x 回 422 ENHANCED_UPSCALE_UNAVAILABLE，
+                       换人+2x 回 422 PERSON_REPLACEMENT_CONFIGURATION_UNSUPPORTED）。
+                       所以取值清单必须来自 `caps.upscale`（那一行给的档），不能是型号总表的并集；
+                       「不超分」在上游写成 `upscale:"none"`，它不是一个档位 ——
+                       归一化已经把 "none" 剔掉了（NORM_SHAPES 的 isUpLevel），
+                       「不超分」这里是界面自己给的一个**空值**选项：空串不进提交体也不进报价体。
+             seed      文档 02 节：0–281474976710654，省略时服务端生成并写在 Video 响应里。
+                       这两个边界实测过：越界回 400，消息里点名的就是这两个数。
+                       留空 = 不发这个字段（不是发 0 —— 发 0 是「固定用种子 0」，两件事）。
+             motion_start_seconds
+                       文档 02 节 + 03 节：**只有动作换人收**，非负，默认 0，
+                       动作与保留音轨共用同一个裁剪窗口；起点 + 时长必须落在源视频内，
+                       超出回 MOTION_WINDOW_EXCEEDS_SOURCE。
+                       发到普通生成上实测 422 PERSON_REPLACEMENT_INTENT_REQUIRED，
+                       所以声明成 `only.when`（只有那一档才画、才发）；
+                       上限由**用户那段源视频**决定，平台没有声明一个数，所以这里不编一个 max。 */
+        shapeFields: {
+          upscale: {
+            kind: 'select', label: '成片超分',
+            hint: '生成时一并做 2x（文档：支持情况与加价以能力接口和报价为准）；不超分就是平台默认',
+            from: 'caps.upscale',
+            none: { value: '', label: '不超分（平台默认）' },
+            emptyNote: '这一档（画质档 + 手上的素材种类）平台没有给超分',
+            unknownNote: '这一档要求的素材还没放齐（或手上这一批的组合平台没列进清单），还看不出能不能超分 —— 先把上面写的那几类素材放进来',
+            missingNote: '还在读平台的能力清单，读完才知道这一档能不能超分',
+          },
+          seed: {
+            kind: 'int', label: '随机种子',
+            hint: '0–281474976710654；留空 = 平台自己生成（会写在任务详情里，照着它才能复现同一批画面）',
+            min: 0, max: 281474976710654,
+          },
+          motion_start_seconds: {
+            kind: 'number', label: '动作起点（秒）',
+            hint: '从参考视频的第几秒开始取动作与音轨，默认 0；起点 + 时长必须落在源视频里面，超出会被平台退回',
+            min: 0,
+            only: { when: { intent: 'person_replacement' },
+              why: '只有动作换人收这一项（发到普通生成会被平台拒）' },
           },
         },
         // 上传接口的字段命名（VGENV 用驼峰，SparkCine 是下划线）
@@ -498,11 +691,15 @@ const REGISTRY = {
       },
       modelsFilter: '-tts',                         // /v1/models 里只取带 -tts 的模型（该接口也返回文本/ASR 模型）
       newModelDefaults: { modes: ['text_to_speech'], ttsMode: 'preset', options: { formats: ['wav', 'pcm16'] } },
-      // 想显示预估费用：给模型加 price: { per1kChars: 0.2 }（配合 pricing.type='per_1k_chars'）；
+      // 想显示预估费用：给型号加 price: { per1kChars: 0.2 }（配合 pricing.type='per_1k_chars'）；
       // 不声明就显示「平台未提供价格」，页面不会自己编价格。
-      // ttsMode 声明「这个模型怎么定音色」，工作台据此显示/校验对应输入：
-      //   preset = 从预设音色下拉选；design = 必填风格/音色描述；clone = 必须上传参考音频
-      models: [
+      /* ttsMode 声明「这个型号怎么定音色」，工作台据此显示/校验对应输入：
+         preset = 从预设音色下拉选；design = 必填风格/音色描述；clone = 必须上传参考音频。
+         ⚠ 这一份**不是型号清单**（v13 起清单归它自己的 /v1/models + 设置页手填）：
+         它是「文档里写过这三个 id 各自怎么定音色」的表 —— 三档的输入形态不一样
+         （预设 / 描述 / 参考音频），所以不能都拿 provider 级 newModelDefaults 那份 preset 起步；
+         接口只给 id 不给能力，能力就从这张表取。用户没在手填框里打过、接口也没列出的 id 不会出现在界面上。 */
+      modelDocs: [
         { id: 'mimo-v2.5-tts', name: 'MiMo TTS（预设音色）', modes: ['text_to_speech'], ttsMode: 'preset',
           options: { formats: ['wav', 'pcm16'] } },
         { id: 'mimo-v2.5-tts-voicedesign', name: 'MiMo TTS（音色设计）', modes: ['text_to_speech', 'voice_design'], ttsMode: 'design',
@@ -583,16 +780,19 @@ const REGISTRY = {
         credits: '/credits',
       },
       balance: { style: 'openrouter-credits' },
-      /* OpenRouter 聚合几百个模型，用 slug 调（openai/gpt-4o-mini 这种「厂商/型号」）。
-         这里只列几个常用兜底 —— 用户可以在设置页**自己填任意型号**，
-         也能点「获取模型列表」拉回全量（GET /api/v1/models）。 */
-      /* `openrouter/free` **不是模型，是自动路由**（官方说明：Auto-routes to best available free model）——
+      /* **这里不声明型号清单** —— 清单归它自己的 GET /api/v1/models（设置页点一次「获取型号列表」，
+         拉回来的落进 .data/sk_model_prefs.json，清单与型号下拉都是那一份）。
+         下面这段是 `modelDocs`：**不是清单**，只是「文档里写过这个 id、支持什么」的表，
+         用户自己在设置页填了这个 id 才用得上（识图判定与自定义供应商的接口形状照它查）。
+         为什么非得留这张表：OpenRouter 聚合几百个模型，真要「一份能用的清单」只有它能给，
+         而我们写死的任何一份都会过期 —— 用户看到的是「型号就这几个」，然后发现下拉里全不是它们。
+         `openrouter/free` **不是模型，是自动路由**（官方说明：Auto-routes to best available free model）——
          它每次随机挑一个免费模型，挑到内容审核分类器就会返回 "User Safety: safe" 这种东西，
          而拆剧本 / 定音色要的是严格 JSON，于是表现为「问一次等 60 秒、回来一段没法解析的东西」。
-         所以兜底名单里必须**同时**给几个带 `:free` 后缀的**确定**型号：
+         所以这张表里只留几个带 `:free` 后缀的**确定**型号：
          同一个 id 每次都是同一个模型，行为可预期，OpenRouter 偶尔下架会直接报错而不是默默换人。
          （免费额度：基础档 50 次/天，充 $10 后 1000 次/天，20 次/分钟。） */
-      models: [
+      modelDocs: [
         { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3（免费·通用与 JSON 都行）', modes: ['text'] },
         { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B（免费·中文更稳）', modes: ['text'] },
         { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true },
@@ -612,7 +812,7 @@ const REGISTRY = {
         credits: '/user/balance',
       },
       balance: { style: 'deepseek-balance' },
-      models: [
+      modelDocs: [
         { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', modes: ['text'] },
         { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', modes: ['text'] },
       ],
@@ -621,10 +821,11 @@ const REGISTRY = {
        为什么能一口气加这么多：它们**全都只提供** POST {base}/chat/completions 与 GET {base}/models，
        请求体与响应体都和 OpenAI 一样（流式、tools、vision 的字段名也一致）。
        所以端点、请求体形状、能力判定全部照上面那家 OpenRouter 走，只有地址、密钥变量与型号不同。
-       **型号不写死**：这些平台改型号非常频繁，写死的清单会立刻过期（用户会以为型号是固定的）。
-       页面点一次「获取型号列表」就是它自己的 /models；一个型号都没拉到时 settings 的型号块会明说。
-       这里只留 1~2 个当**内部兜底**（model() 在没有任何来源时才用它），不展示在下拉里
-       （TextAI.modelGroups 对非自定义条目不列 registry 声明的型号，见 assetlib.js）。 */
+       **型号一条都不写死**：这些平台改型号非常频繁，写死的清单会立刻过期（用户会以为型号是固定的）。
+       型号清单一律来自它自己的 GET {base}/models —— 设置页点一次「获取型号列表」就取回全量，
+       取回的落进 .data/sk_model_prefs.json，设置页那张清单、型号下拉、AI 助手的下拉都从那一份派生。
+       下面那一行 `modelDocs` 是**「文档里写过这个 id 支持什么」**，不是清单：
+       用户自己填了这个 id 才用得上（识图判定照它查）。它不参与任何「型号有哪些」的判断。 */
     {
       id: 'openai', name: 'OpenAI 文字AI', kind: 'text', relay: '/textai',
       base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
@@ -632,7 +833,7 @@ const REGISTRY = {
       endpoints: { chat: '/chat/completions' },
       /* OpenAI 没有公开的余额 API（/dashboard/billing 要网页登录态，API key 问不了）—— 不声明，
          设置页照样画出「侧栏余额」勾选框并写明「这家没提供余额接口」。 */
-      models: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
+      modelDocs: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
     },
     {
       id: 'moonshot', name: '月之暗面 Kimi', kind: 'text', relay: '/textai',
@@ -645,21 +846,21 @@ const REGISTRY = {
         credits: '/users/me/balance',
       },
       balance: { style: 'moonshot-balance' },
-      models: [{ id: 'kimi-k2.6', name: 'Kimi K2.6', modes: ['text'] }],
+      modelDocs: [{ id: 'kimi-k2.6', name: 'Kimi K2.6', modes: ['text'] }],
     },
     {
       id: 'zhipu', name: '智谱 GLM', kind: 'text', relay: '/textai',
       base: 'https://open.bigmodel.cn/api/paas/v4', keyEnv: 'ZHIPUAI_API_KEY', baseEditable: true,
       site: 'https://open.bigmodel.cn',
       endpoints: { chat: '/chat/completions' },
-      models: [{ id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', modes: ['text'] }],
+      modelDocs: [{ id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', modes: ['text'] }],
     },
     {
       id: 'dashscope', name: '通义千问 百炼', kind: 'text', relay: '/textai',
       base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', keyEnv: 'DASHSCOPE_API_KEY', baseEditable: true,
       site: 'https://bailian.console.aliyun.com',
       endpoints: { chat: '/chat/completions' },
-      models: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', modes: ['text'] }],
+      modelDocs: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', modes: ['text'] }],
     },
     {
       id: 'siliconflow', name: '硅基流动 SiliconFlow', kind: 'text', relay: '/textai',
@@ -668,21 +869,21 @@ const REGISTRY = {
       endpoints: { chat: '/chat/completions' },
       /* 硅基流动一个 key 覆盖 200+ 模型（DeepSeek / Qwen / GLM / MiniMax 都有），
          型号名是「厂商/型号」带斜杠的那种 —— 写死一份清单只会过期得更快。 */
-      models: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
+      modelDocs: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
     },
     {
       id: 'volcengine', name: '火山方舟 豆包', kind: 'text', relay: '/textai',
       base: 'https://ark.cn-beijing.volces.com/api/v3', keyEnv: 'ARK_API_KEY', baseEditable: true,
       site: 'https://console.volcengine.com/ark',
       endpoints: { chat: '/chat/completions' },
-      models: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
+      modelDocs: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
     },
     {
       id: 'minimax-text', name: 'MiniMax 文字AI', kind: 'text', relay: '/textai', keyId: 'minimax',
       base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', baseEditable: true,
       site: 'https://platform.minimax.io',
       endpoints: { chat: '/chat/completions' },
-      models: [{ id: 'MiniMax-M3', name: 'MiniMax M3', modes: ['text'] }],
+      modelDocs: [{ id: 'MiniMax-M3', name: 'MiniMax M3', modes: ['text'] }],
     },
     {
       /* ---- 图片：OpenAI 兼容的 images/generations（**同步返回，没有任务号**）----
@@ -722,11 +923,13 @@ const REGISTRY = {
         media: { by: 'media_type', imagePrefix: ['图片', 'image'], videoPrefix: ['视频', 'video'], fallback: '图片' },
         priceStyle: 'none',
       },
-      /* 尺寸逐个型号按官方文档写：image_size 只认清单里的值，
-         下拉里写错一项 = 「选了必失败」。平台还有 160+ 图像型号，
-         要别的型号走设置页「添加自定义供应商」（拿这一条当接口形状模板），
-         或在这里加一行 models —— 两种都不需要改页面。 */
-      models: [
+      /* ⚠ 这一份**不是型号清单**（v13 起）：这一家没在本项目里声明型号接口，
+         界面上一个型号都不会出现，直到用户在设置页那张卡里自己填 id（或添加成自定义供应商）。
+         这里只留「官方文档写过这两个 id 的 image_size 认哪些值」：
+         image_size 只认清单里的值，下拉里写错一项 = 「选了必失败」，所以填了这两个 id 时能力照这份表取。
+         平台还有 160+ 图像型号，填表外的 id 时参数面板会是空的并写明「没有能力声明」——
+         那是真话，比替它编一档尺寸诚实。 */
+      modelDocs: [
         { id: 'Kwai-Kolors/Kolors', name: 'Kolors（中文理解好）', modes: ['text_to_image'],
           options: { sizes: ['1024x1024', '960x1280', '768x1024', '720x1440', '720x1280'], max_outputs: 4 } },
         { id: 'black-forest-labs/FLUX.2-pro', name: 'FLUX.2 pro', modes: ['text_to_image'],
@@ -748,16 +951,12 @@ const REGISTRY = {
         list: 'local:/local-assets',
         remove: 'local:/local-assets/{id}',
       },
-      models: [
-        { id: 'speech-2.6-hd', name: 'Speech 2.6 高清', modes: ['text_to_speech'], ttsMode: 'preset',
-          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
-        { id: 'speech-2.6-turbo', name: 'Speech 2.6 快速', modes: ['text_to_speech'], ttsMode: 'preset',
-          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
-        { id: 'speech-02-hd', name: 'Speech 02 高清', modes: ['text_to_speech'], ttsMode: 'preset',
-          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
-        { id: 'speech-02-turbo', name: 'Speech 02 快速', modes: ['text_to_speech'], ttsMode: 'preset',
-          options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
-      ],
+      /* v13 起这里**没有型号清单**：这一家的 GET /v1/models 列的是对话模型（MiniMax-M3 那一批，
+         与上面视频那条同一个事实），没有 t2a 型号可问 —— 所以型号来自设置页手填。
+         这四项的差别只在 id（高清 / 快速 / 版本）， modes、ttsMode、格式取值完全一样，
+         所以不再留一份 per-id 的表，只在 provider 级点一次名：手填进来的任何一个 id 都照这一份起步。
+         （要真给某个 id 单独声明能力，就照 mimo 那样加一段 modelDocs，别在这里加清单。） */
+      newModelDefaults: { modes: ['text_to_speech'], ttsMode: 'preset', options: { formats: ['mp3', 'wav', 'pcm', 'flac'] } },
       tts: {
         /* 系统音色：只列几个常用兜底，完整目录在平台控制台（那边能试听）。
            这里不编不存在的音色 id —— 填一个平台没有的 id，上游会直接拒。 */
@@ -843,11 +1042,12 @@ const REGISTRY = {
            不写在 body 里（上游不接受平铺的 prompt 字段）。 */
         textItem: { to: 'content', key: 'prompt', type: 'text' },
       },
-      models: [
-        /* v2 对应 H3 一代（官方示例用的就是 MiniMax-H3）。
-           ⚠ 这一档**不能删**：MiniMax 的 GET /v1/models 列的是**对话**模型
-           （MiniMax-M3 / M2.7 / M2.5 那一批），里面没有视频/语音型号 ——
-           接上去只会让视频台下拉变成一堆聊天模型。 */
+      /* ⚠ 这一份**不是型号清单**（v13 起）：MiniMax 的 GET /v1/models 列的是**对话**模型
+         （MiniMax-M3 / M2.7 / M2.5 那一批），里面没有视频型号 —— 接上去只会让视频台下拉变成一堆聊天模型，
+         所以这一家既没有现取的路，也不自动列型号：型号来自设置页手填。
+         这里留的是「文档写过 H3 这一档认哪些输入角色与取值」（首尾帧 / 参考图 9 张 / 参考视频 / 参考音频、
+         分辨率与时长档位）：手填 `MiniMax-H3` 时能力照这份取，填别的 id 时参数面板为空并照实说明。 */
+      modelDocs: [
         { id: 'MiniMax-H3', name: 'MiniMax H3', modes: ['text_to_video', 'first_last_frame', 'reference_images', 'reference_video', 'reference_audio'],
           inputRoles: {
             first_frame: { max: 1, group: 'frame' }, last_frame: { max: 1, group: 'frame' },
@@ -888,7 +1088,11 @@ const REGISTRY = {
         body: { model: 'model', prompt: 'prompt', image_size: 'size' },
         inputTemplates: { first_frame: { to: 'image', many: false, tmpl: '$url' } },
       },
-      models: [
+      /* ⚠ 这一份**不是型号清单**（v13 起）：这一家没在本项目里声明型号接口，
+         界面上的型号来自设置页手填；这里只是「文档写过这两个 id 各自认什么」——
+         文生视频与图生视频的 modes / 首帧槽位不一样，混成一份就会出现「界面让填首帧、上游不收」，
+         所以按 id 各留一条，而不是给一个 provider 级兜底。 */
+      modelDocs: [
         { id: 'Wan-AI/Wan2.1-T2V-14B-720P', name: 'Wan2.1 文生视频 14B 720P', modes: ['text_to_video'],
           options: { sizes: ['1280x720', '720x1280', '960x960'], defaults: { size: '1280x720' } } },
         { id: 'Wan-AI/Wan2.1-I2V-14B-720P', name: 'Wan2.1 图生视频 14B 720P', modes: ['first_last_frame'],
@@ -933,9 +1137,11 @@ const REGISTRY = {
            界面上那一列显示的就是 speed / quality，映射过去才对得上。 */
         body: { model: 'model', prompt: 'prompt', size: 'size', quality: 'tier', duration: 'duration' },
       },
-      models: [
-        /* ⚠ 这一档同样不能删：智谱的 GET /api/paas/v4/models 列的是 glm-4.5 / glm-5 那一批
-           **对话**模型，不含 cogvideox。接上去视频台会变成聊天模型下拉。 */
+      /* ⚠ 这一份**不是型号清单**（v13 起）：智谱的 GET /api/paas/v4/models 列的是 glm-4.5 / glm-5
+         那一批**对话**模型，不含 cogvideox —— 接上去视频台会变成聊天模型下拉。
+         所以这一家的型号也来自设置页手填，这里只按 id 留「文档写过它认什么」：
+         3 代能吃首尾帧、2 代只有文生视频，合成一份就会出现「界面让填末帧、上游不收」。 */
+      modelDocs: [
         { id: 'cogvideox-3', name: 'CogVideoX-3', modes: ['text_to_video', 'first_last_frame'],
           inputRoles: { first_frame: { max: 1, group: 'frame' }, last_frame: { max: 1, group: 'frame' } },
           options: { tiers: ['speed', 'quality'], sizes: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
@@ -1085,7 +1291,9 @@ function buildCustom(e, tpl) {
   /* 型号：id 在模板里出现过 → 用模板那份完整声明（只换显示名）；
      没出现过（这一家自己多出来的型号）→ 能力先照模板第一个型号起步，等它自己的 /models 覆盖。
      为什么要给个起步：档位全空的型号在工作台里既选不了比例也选不了画质，看着像坏了。 */
-  const tmodels = tpl.models || [];
+  /* 模板能给的能力参照物 = 模板自己的清单（v13 起多半是空的）+ 那份按 id 写的 modelDocs。
+     前者归接口，后者归文档，两者都不是「替你决定这一家有什么型号」—— 用户勾了哪些才列哪些。 */
+  const tmodels = (tpl.models || []).concat(tpl.modelDocs || []);
   p.models = (e.models || []).map(x => {
     const id = String((x && x.id) || (typeof x === 'string' ? x : '') || '').trim();
     const hit = tmodels.find(m => m.id === id);
@@ -1096,9 +1304,100 @@ function buildCustom(e, tpl) {
   }).filter(m => m.id);
   return p;
 }
-/* 内置 + 自定义。/registry、relay 转发、/capabilities 三处都读它 —— 合并只在这一个地方做，
-   免得出现「设置页加好了、能力接口却说找不到平台」。 */
-function allProviders() { return REGISTRY.providers.concat(customProviders()); }
+/* ============================================================================
+   型号清单偏好（设置页那一张「型号清单」卡里勾出来的）
+   ----------------------------------------------------------------------------
+   存 localStorage 的 `sk_model_prefs`（ui.js 的 DataSync 顺手镜像成 `.data/sk_model_prefs.json`，
+   `sk_model_` 这一条 SYNCABLE 前缀盖得住它，所以云同步与整包备份都不用另外登记）：
+   `{ "<keyId>": { "typed": ["型号id"], "off": ["型号id"] } }`
+   两件事合在一个键里是刻意的：「显示 / 隐藏」与「自己添加 / 删掉」改的都是同一份清单，
+   拆成两个键就会出现「只删得掉、藏不住」或反之（而界面上一颗勾覆盖的是整行）。
+   按 **keyId** 归并（与密钥同一口径）：一家平台同时做图片与视频时共用一把密钥，
+   它的型号清单也应当是一份 —— 否则「在图片那张卡藏了 img-2-5t，视频那张卡里它还在」。
+
+   为什么**不**拿 `sk_text_models_<kid>` 继续用：那一键只管文字一类，
+   生成三类若各长出一个「手填型号」的键与判据，就是同一件事的第四份实现（文字 AI 那份已经
+   在 ModelPrefs 里，读旧键的一次性搬迁见 assetlib.js 的 `ModelPrefs.migrate`）。
+
+   合并只在这一个地方做（allProviders）：/registry、relay 转发、/capabilities 三处都读它，
+   分开合就会出现「设置页藏掉了、下拉里还在」。 */
+const MODEL_PREFS_KEY = 'sk_model_prefs';
+const modelPrefsNotice = { reason: '' };
+/* 缓存键与 customProviders 同一套：mtime + size。少了 size 的话同一毫秒连写两遍拿到同一个 mtime，
+   刚勾掉的那个型号在注册表里还在 —— 表现是「藏了没生效，要等下一次刷新」。 */
+let _prefsCache = { file: '', mtime: 0, size: -1, map: {} };
+function modelPrefs() {
+  const file = dataFileOf(MODEL_PREFS_KEY);
+  let mtime = 0, size = -1;
+  try { const st = fs.statSync(file); mtime = st.mtimeMs; size = st.size; } catch { mtime = 0; }
+  if (_prefsCache.file === file && _prefsCache.mtime === mtime && _prefsCache.size === size) return _prefsCache.map;
+  if (!mtime) { _prefsCache = { file, mtime: 0, size, map: {} }; modelPrefsNotice.reason = ''; return {}; }
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
+    /* 读不动就当没勾过（退回上游清单），但要把原因留下：设置页那句「有 N 家勾过没被代理认」
+       与「我明明藏了、它还挂着」只有这一处能说清。 */
+    modelPrefsNotice.reason = '读取 .data/' + MODEL_PREFS_KEY + '.json 失败：' + e.message;
+    _prefsCache = { file, mtime, size, map: {} };
+    return {};
+  }
+  modelPrefsNotice.reason = '';
+  /* 客户端可能走 Store（信封 { data: 值, ts }）也可能裸写 JSON 文本，值本身还可能是一串 JSON。
+     一层层解到对象为止，最多两次 —— 超过两次就是有人手改了盘上的文件，按没勾过处理。 */
+  for (let i = 0; i < 2; i++) {
+    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = null; break; } continue; }
+    if (raw && !Array.isArray(raw) && typeof raw.data === 'object' && raw.data !== null) { raw = raw.data; continue; }
+    break;
+  }
+  const out = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    Object.entries(raw).forEach(([kid, v]) => {
+      const list = a => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean) : []);
+      out[String(kid)] = { typed: list(v && v.typed), off: list(v && v.off) };
+    });
+  }
+  _prefsCache = { file, mtime, size, map: out };
+  return out;
+}
+/* 用户手填的那个型号，能力声明从哪来（**只在这一处**答这个问题）：
+   ① provider 的 `modelDocs` —— 「文档里写过这个 id 支持什么」的表（见下面那五家的注释），
+      它不是清单，只有用户真填了这个 id 才用得上；
+   ② provider 级 `newModelDefaults` —— 这一族型号的起步能力（mimo 早就在用这一档）；
+   ③ 都没有 → 只带 id。此时参数面板是空的，界面会照实说「这个型号没有能力声明」，
+      而不是替平台猜一档（猜出来的档位发过去就是上游报错）。 */
+function modelDeclFor(prov, id) {
+  const hit = (prov.modelDocs || []).find(m => m && m.id === id);
+  if (hit) return { ...hit };
+  const d = prov.newModelDefaults;
+  if (d) {
+    const m = { id, name: id, modes: d.modes || [], options: { ...(d.options || {}) } };
+    if (d.ttsMode) m.ttsMode = d.ttsMode;
+    if (d.inputRoles) m.inputRoles = { ...d.inputRoles };
+    return m;
+  }
+  return { id, name: id, modes: [], options: {} };
+}
+/* 把偏好合到一条 provider 上：追加手填的、剔掉勾掉的。没有偏好的家**原样返回**（不复制），
+   免得每次 /registry 都把十几条声明重抄一遍 —— 也免得有人以为「复制出来的那份才是真的」。 */
+function withModelPrefs(p, prefs) {
+  const pref = prefs[String(p.keyId || p.id)];
+  if (!pref || (!pref.typed.length && !pref.off.length)) return p;
+  const models = (p.models || []).slice();
+  pref.typed.forEach(id => { if (!models.some(m => m && m.id === id)) models.push(modelDeclFor(p, id)); });
+  const merged = { ...p, models: pref.off.length ? models.filter(m => !pref.off.includes(String(m && m.id))) : models };
+  /* 手填的型号在 /capabilities 那一侧是「接口没给过的」，apply 会把它们保留（声明优先），
+     但上游真给出同 id 的声明时应当覆盖 —— 那已由 Capabilities.apply 第一段循环做掉。
+     这里刻意不再往 provider 上抄一份「哪些是手填的 / 哪些被藏了」：页面本来就读同一个 localStorage 键，
+     多带一份就是第二个真相源（两边不一致时没人说得清哪一份是用户刚勾的）。 */
+  return merged;
+}
+/* 内置 + 自定义 + 型号偏好。/registry、relay 转发、/capabilities 三处都读它 —— 合并只在这一个地方做，
+   免得出现「设置页加好了、能力接口却说找不到平台」。
+   偏好只读一次（一次 statSync + 可能的解析）再逐家套：一条请求里问二十次同一个文件没有意义。 */
+function allProviders() {
+  const prefs = modelPrefs();
+  return REGISTRY.providers.concat(customProviders()).map(p => withModelPrefs(p, prefs));
+}
+
 
 /* ---------- 注册表端点命名 ----------
    素材上传端点统一叫 uploads / complete（客户端只认这一套名字）。
@@ -3554,65 +3853,65 @@ const CAP_TTL = 60 * 1000;
    也**不加入**在途合并 —— 否则「强制刷新」会拿到别人那一次的结果，看着像刷新没生效。
    所以注册与加入都以 `!noCache` 为前提。 */
 const capInflight = new Map();       // cacheKey → { p, resolve }
+/* **落盘的一层**（2026-10）。以前 capCache 是纯内存的，于是「工作台的型号怎么这么慢」
+   有一个固定的、每天第一次都会重演一遍的成因：代理重启（或 60 秒一过）之后，第一个打开工作台的
+   页面必须**等回源**才看得到型号 —— 实测 vgenv 一次 6.9 秒、SparkCine 两家各 1.1 秒，
+   而上一轮把注册表里的兜底型号清单删掉之后，这段时间里型号下拉是**空的**（不是慢，是「没有」）。
+   现在把每次真取到的上游清单落到 `.data/.cap-cache.json`：
+   · 只要拿得出**一天以内**的真清单（内存过期的那份或落盘的那份，取较新的）就先照它答（`stale:true`），
+     同时后台回源刷新一轮 —— **有别人正在飞也一样先答**，不等那一次往返（见 handleCapabilities）；
+   · 一份旧副本都没有（冷启动 / 过期）→ 照旧阻塞回源。
+   文件名以点开头 = 代理自己的内部状态，和 `.cloud-state.json` 一样不进 `/data` 清单、不参与云同步
+   （它记的是「上游平台有什么型号」，那是平台的事，不是用户的数据，换台机器本来就该重新问一遍）。
+   ⚠ 只缓存**用服务端 .env 密钥取到的**那些家：自定义供应商的密钥只在浏览器那一侧，
+   代理存不了它的清单，那些家照旧每次现问（设置页的型号清单走 /custom/models，另有自己的在途合并）。 */
+const capDiskFile = () => path.join(dataDirPath(), '.cap-cache.json');
+const CAP_DISK_TTL = 24 * 60 * 60 * 1000;
+let capDisk = null;                  // cacheKey → { ts, payload }
+function capDiskLoad() {
+  if (capDisk) return capDisk;
+  try { capDisk = JSON.parse(fs.readFileSync(capDiskFile(), 'utf8')) || {}; }
+  catch { capDisk = {}; }
+  return capDisk;
+}
+let capDiskWriteAt = 0;
+function capDiskPut(cacheKey, payload) {
+  const d = capDiskLoad();
+  d[cacheKey] = { ts: Date.now(), payload };
+  /* 整表重写，所以自己夹一个 2 秒的下限：一次开机十几个后台刷新挤在一起时，
+     没必要为每一条都写一遍同一个文件（写的是同一个内存表，少写几次不丢东西）。 */
+  if (Date.now() - capDiskWriteAt < 2000) return;
+  capDiskWriteAt = Date.now();
+  try {
+    fs.mkdirSync(dataDirPath(), { recursive: true });
+    fs.writeFileSync(capDiskFile(), JSON.stringify(d));
+  } catch (e) { console.warn('[capabilities] 落盘缓存写不了：', e.message); }
+}
+/* 后台刷新一轮：命中落盘答完之后悄悄把上游问一遍，写进两层缓存，供下一次（或下一台页面）用。
+   与 handleCapabilities 用同一个 capInflight 键，所以「同时在飞」的只有这一条。 */
+function capWarm(cacheKey, prov, endpoint, apiKey) {
+  if (capInflight.has(cacheKey)) return;
+  let r0 = null;
+  const p = new Promise(r => { r0 = r; });
+  capInflight.set(cacheKey, { p, resolve: r0 });
+  capFetchPayload(prov, endpoint, apiKey)
+    .then(payload => {
+      /* 只把真清单写进两层缓存：一次 404 / 断连不该把上一次的好清单从落盘里顶掉
+         （内存那一份照旧写 —— 它 60 秒就过期，本来就该如实反映「刚刚问过」）。 */
+      capCache.set(cacheKey, { ts: Date.now(), payload });
+      if (payload.source === 'api') capDiskPut(cacheKey, payload);
+    })
+    .catch(() => {})
+    .finally(() => { capInflight.delete(cacheKey); r0(); });
+}
 
-async function handleCapabilities(req, res, urlObj) {
-  const want = String(urlObj.searchParams.get('provider') || '');
-  const noCache = urlObj.searchParams.get('noCache') === '1';
-  const prov = allProviders().find(p => p.id === want || (p.keyId || p.id) === want);
-  if (!prov) {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: { message: '找不到平台：' + want + '（检查 registry 里的 id）' } }));
-    return true;
-  }
+/* 真去上游问一次型号清单。四种结果各回一句话（页面那句「能力来源」直接把 note 原样显示，
+   压成一句「上游接口没给或不可用」等于零信息 —— 见 assetlib.js 的 Capabilities.srcTextOf）。 */
+async function capFetchPayload(prov, endpoint, apiKey) {
   const registryModels = (prov.models || []).map(m => ({
     id: m.id, name: m.name, modes: m.modes, options: m.options, price: m.price,
   }));
-  const endpoint = (prov.endpoints && prov.endpoints.models) || null;
   const base = { provider: prov.id, name: prov.name, displayName: prov.displayName || prov.name, endpoint, registryModels };
-
-  const cacheKey = prov.base + '|' + endpoint;
-  let capResolve = null;
-  if (endpoint && !noCache) {
-    const hit = capCache.get(cacheKey);
-    if (hit && Date.now() - hit.ts < CAP_TTL) {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ ...hit.payload, cached: true }));
-      return true;
-    }
-    /* 已经在取同一家的能力声明 → 等它拿结果（同一轮里几个页面同时开时会一起打上游） */
-    const wait = capInflight.get(cacheKey);
-    if (wait) {
-      try { await wait.p; } catch {}
-      const hit2 = capCache.get(cacheKey);
-      if (hit2) {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ...hit2.payload, cached: true }));
-        return true;
-      }
-      /* 在途那次连兜底都没写进缓存（极少见）：自己照常往下走，回源一次 */
-    } else {
-      let r0 = null;
-      const p = new Promise(r => { r0 = r; });
-      capInflight.set(cacheKey, { p, resolve: r0 });
-      capResolve = r0;
-    }
-  }
-  const reply = payload => {
-    if (endpoint) {
-      capCache.set(cacheKey, { ts: Date.now(), payload });
-      /* 以前 capCache 是**唯一一份完全没有淘汰**的缓存（全文 cacheSweep 三处调用都没它），
-         而 v11 起自定义供应商不设家数上限，条目只增不减。CAP_TTL 只有 60 秒，整表清掉没代价。 */
-      if (capCache.size > 200) capCache.clear();
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(payload));
-    if (capResolve) { const r = capResolve; capResolve = null; capInflight.delete(cacheKey); r(payload); }
-    return true;
-  };
-  if (!endpoint) return reply({ ...base, source: 'registry', models: {}, note: '这家没有开放的型号列表接口，参数按本项目的默认声明走' });
-
-  const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
-    || keyOf(prov.keyEnv) || DEFAULTS[prov.keyId || prov.id] || '';
   try {
     const r = await new Promise((resolve, reject) => {
       const up = upRequest(prov.base + endpoint, {
@@ -3629,19 +3928,98 @@ async function handleCapabilities(req, res, urlObj) {
       up.end();
     });
     if (r.status >= 400) {
-      return reply({ ...base, source: 'registry', models: {}, note: '上游能力接口返回 ' + r.status + '（按平台声明兜底）' });
+      return { ...base, source: 'registry', models: {}, note: '上游能力接口返回 ' + r.status + '（按平台声明兜底）' };
     }
     const j = JSON.parse(r.body.toString('utf8'));
     const list = j.data || j.models || (Array.isArray(j) ? j : []);
     const models = {};
     list.forEach(m => { if (m && m.id) models[m.id] = m; });
     if (!Object.keys(models).length) {
-      return reply({ ...base, source: 'registry', models: {}, note: '上游能力接口没有返回模型列表（按平台声明兜底）' });
+      return { ...base, source: 'registry', models: {}, note: '上游能力接口没有返回模型列表（按平台声明兜底）' };
     }
-    return reply({ ...base, source: 'api', models, fetchedAt: Date.now(), note: '' });
+    return { ...base, source: 'api', models, fetchedAt: Date.now(), note: '' };
   } catch (e) {
-    return reply({ ...base, source: 'registry', models: {}, note: '上游能力接口请求失败：' + e.message + '（按平台声明兜底）' });
+    return { ...base, source: 'registry', models: {}, note: '上游能力接口请求失败：' + e.message + '（按平台声明兜底）' };
   }
+}
+
+async function handleCapabilities(req, res, urlObj) {
+  const want = String(urlObj.searchParams.get('provider') || '');
+  const noCache = urlObj.searchParams.get('noCache') === '1';
+  const prov = allProviders().find(p => p.id === want || (p.keyId || p.id) === want);
+  if (!prov) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: '找不到平台：' + want + '（检查 registry 里的 id）' } }));
+    return true;
+  }
+  const endpoint = (prov.endpoints && prov.endpoints.models) || null;
+  const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
+    || keyOf(prov.keyEnv) || DEFAULTS[prov.keyId || prov.id] || '';
+  const send = payload => {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(payload));
+    return true;
+  };
+  const cacheKey = prov.base + '|' + endpoint;
+  let capResolve = null;
+  if (endpoint && !noCache) {
+    const hit = capCache.get(cacheKey);
+    if (hit && Date.now() - hit.ts < CAP_TTL) return send({ ...hit.payload, cached: true });
+    /* 手上「还能用、但可能不是刚刚问过」的那一份清单：内存里过期的与落盘里一天内的，取较新的。
+       只认真清单（source==='api'）—— 兜底那一份现在可能压根没有型号，答出去等于下拉是空的。 */
+    const staleCopy = () => {
+      const cand = [];
+      if (hit && hit.payload && hit.payload.source === 'api') cand.push(hit);
+      const d = capDiskLoad()[cacheKey];
+      if (d && d.payload && d.payload.source === 'api' && Date.now() - d.ts < CAP_DISK_TTL) cand.push(d);
+      return cand.sort((a, b) => b.ts - a.ts)[0] || null;
+    };
+    /* 已经在取同一家的能力声明 → 同一轮里几个页面同时开时会一起打上游。
+       ⚠ 但「有别人在飞」**不等于**「我必须干等那一轮」：上一版这里无条件 `await wait.p`，
+       于是哪怕落盘里就躺着一份一天以内的真清单，第二个、第三个请求也要等满一次上游往返
+       （实测 vgenv 一次 6.8 秒 —— 用户看到的就是「工作台型号出来好慢」，而慢的那一段本来能答）。
+       现在顺序是**先答旧副本、后台那一轮照旧刷**；只有旧副本一个都没有才真的等。 */
+    const wait = capInflight.get(cacheKey);
+    if (wait) {
+      const st0 = staleCopy();
+      if (st0) return send({ ...st0.payload, cached: true, stale: true });
+      try { await wait.p; } catch {}
+      const hit2 = capCache.get(cacheKey);
+      if (hit2) return send({ ...hit2.payload, cached: true });
+      /* 在途那次连兜底都没写进缓存（极少见）：自己照常往下走，回源一次 */
+    } else {
+      /* 内存没命中、但有一天内落盘的 → 先照那份答（型号下拉立刻就有内容），后台再回源刷新一轮
+         （capWarm 自己认在途，所以这里不会重复派一整批上游请求）。 */
+      const st = staleCopy();
+      if (st) {
+        capWarm(cacheKey, prov, endpoint, apiKey);
+        return send({ ...st.payload, cached: true, stale: true });
+      }
+      let r0 = null;
+      const p = new Promise(r => { r0 = r; });
+      capInflight.set(cacheKey, { p, resolve: r0 });
+      capResolve = r0;
+    }
+  }
+  const reply = payload => {
+    if (endpoint) {
+      capCache.set(cacheKey, { ts: Date.now(), payload });
+      if (payload.source === 'api') capDiskPut(cacheKey, payload);
+      /* 以前 capCache 是**唯一一份完全没有淘汰**的缓存（全文 cacheSweep 三处调用都没它），
+         而 v11 起自定义供应商不设家数上限，条目只增不减。CAP_TTL 只有 60 秒，整表清掉没代价。 */
+      if (capCache.size > 200) capCache.clear();
+    }
+    const out = send(payload);
+    if (capResolve) { const r = capResolve; capResolve = null; capInflight.delete(cacheKey); r(payload); }
+    return out;
+  };
+  if (!endpoint) {
+    return reply({ provider: prov.id, name: prov.name, displayName: prov.displayName || prov.name,
+      endpoint: null, registryModels: (prov.models || []).map(m => ({ id: m.id, name: m.name,
+        modes: m.modes, options: m.options, price: m.price })),
+      source: 'registry', models: {}, note: '这家没有开放的型号列表接口，参数按本项目的默认声明走' });
+  }
+  return reply(await capFetchPayload(prov, endpoint, apiKey));
 }
 
 /* 云同步的**结果状态**（上次跑成什么样、有哪些冲突待选）——
@@ -4270,6 +4648,9 @@ async function handleRequest(req, res) {
       /* 有哪些条目被丢掉、为什么：界面据此说清「我明明添加了，下拉里没有」，
          而不是让人去猜是不是功能坏了（原因文本见 customProblem） */
       custom: { dropped: customNotice.dropped, reason: customNotice.reason },
+      /* 型号清单偏好读不动时要说出来（与上面 custom.notice 同一立场）：
+         不然「我把这个型号藏了，下拉里怎么还在」只能靠猜。 */
+      modelPrefs: { reason: modelPrefsNotice.reason, key: MODEL_PREFS_KEY },
     });
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
     res.end(body);

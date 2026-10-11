@@ -139,6 +139,11 @@
   /* 网格里那些要占满整行的（空态、平台读取失败提示条） */
   body.wb2 .col-right #result > .list-note,
   body.wb2 .col-right #result > .empty { grid-column: 1 / -1; }
+  /* 「输入模式」那一排：单颗胶囊的样式在 ui.css 的 .ui-pill，这里只管怎么排。
+     换行放在最后一条 —— 说明句要占满一行，芯片挤在左边。 */
+  .mode-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 10px; }
+  .mode-row .ui-pill { font-size: 12px; padding: 4px 10px; }
+  .mode-row .why { flex-basis: 100%; font-size: 11.5px; color: var(--sub); }
 
   @media (max-width: 720px) {
     textarea { min-height: 112px; font-size: 13.5px; }
@@ -207,6 +212,11 @@
         <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计模型必填）</label>
         <input id="style" class="ui-inp" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
       </div>
+      <!-- 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
+           这一排就按那份声明出现或消失。只有把素材分成互斥几档的平台（VGENV 的首尾帧 / 参考素材 /
+           视频换人）才会画它；没有这种声明的家一个芯片都不会出现，槽位沿用原来的互斥置灰。 -->
+      <div class="ed-label" id="modeHead" hidden><span>输入模式</span><span class="cnt" id="modeHeadNote"></span></div>
+      <div class="mode-row" id="modeRow" hidden></div>
       <!-- 素材行：排列照导演台右栏那套（栏目标签行 → 方格网格 → 全宽横排槽位）。
            一个素材一块缩略图（随所选模型的能力出现；右栏卡片可直接拖进来） -->
       <div class="ed-label" id="slotHead" hidden><span>参考素材</span><span class="cnt" id="slotHeadNote"></span></div>
@@ -267,7 +277,6 @@
 <script src="ident.js"></script>
 <script src="assetlib.js"></script>
 <script src="sidebar.js"></script>
-<script src="ai-chat.js"></script>
 <script>
 'use strict';
 /* ============================================================================
@@ -299,6 +308,10 @@ function newState() {
     prompt: '',
     style: '',                                  // 音色设计模型的风格描述
     topBools: {},                               // 平台顶层开关（create.topBools）的当前值，按类型各存一份
+    /* 平台在 create.shapeFields 里声明的**顶层非布尔字段**（超分档 / 随机种子 / 动作起点）的当前值。
+       与 topBools 分开存：那一些是布尔（有「开/关」两种状态、默认值随形状变），这一批是「值」，
+       空值等于「这个字段不发」，混在一份里就要为两种语义写两个判据。 */
+    shape: {},
     autoVals: {},                               // 「上次是界面自动填的」——只记值
     /* 用户**亲手点过**哪些控件。`autoVals` 记的是值、不是「谁写的」，
        而 fillSel 的 untouched 判据是「当前值 === 上次自动填的值」——
@@ -310,6 +323,9 @@ function newState() {
                                                   // **按平台分桶**——以前只有一个 voiceModels，
                                                   // 加了第二家语音平台以后它取回来的型号会盖掉第一家那份。
     inputs: { image: [], video: [], audio: [], frame_first: [], frame_last: [] },
+    /* 「输入模式」= 这一次请求的形状（Capabilities.combos 里选中的那一条 id）。
+       按类型各存一份，与型号一样刷新要能回来。平台不给形状声明时一直是空串，界面也不画那一排。 */
+    combo: '',
     lastModelId: '',                            // 参数面板上一次是给哪个型号画的
   };
 }
@@ -413,13 +429,17 @@ function currentModel() {
   const g0 = g[0];
   return g0 ? { prov: g0, model: (g0.models || [])[0] || {} } : { prov: null, model: {} };
 }
-/* 某一家语音平台的型号清单：现拉的（liveByProv）优先，声明的兜底，两者按 id 合并能力字段 */
+/* 某一家语音平台的型号清单：现拉的（liveByProv）优先，声明的兜底，两者按 id 合并能力字段。
+   **现拉那一份要自己过一次「隐藏」判据**：注册表里 `p.models` 已经被代理按 `sk_model_prefs` 筛过，
+   但语音的型号是本页现问上游 /models 拿回来的原始清单 —— 不在这儿筛一次，
+   在设置页藏掉的那个型号过一轮刷新又回到下拉里（表现就是「藏了等于没藏」）。 */
 function audioModels(prov) {
   const p = prov || null;
   const base = (p && p.models) || [];
   const declared = new Map(base.map(m => [m.id, m]));
   const live = ((cur().liveModels || {})[p && p.id] || null);
-  const list = (live && live.length) ? live : base;
+  const off = m => !!(window.ModelPrefs && window.ModelPrefs.isOff(p, (m && m.id) || m));
+  const list = (live && live.length) ? live.filter(m => !off(m)) : base;
   return list.map(m => Object.assign({}, m, declared.get(m.id) || {}));
 }
 function renderModelOptions() {
@@ -429,11 +449,13 @@ function renderModelOptions() {
   /* 先拼成字符串，再决定要不要碰 DOM —— 见下面「选项没变就别碰 DOM」那一段 */
   let html;
   if (TYPE === 'audio') {
-    const list = g.filter(p => (p.models || []).length || ((cur().liveModels || {})[p.id] || []).length);
+    /* 判「这一家要不要出现在下拉里」要看**筛过隐藏之后**的那一份：
+       按原始长度判会留一个空的 optgroup（分组标题在、选项一个没有，看着像下拉坏了）。 */
+    const opts = g.map(p => ({ p, ms: audioModels(p) })).filter(x => x.ms.length);
     /* 每家一个 optgroup（与图片/视频台同一种形状）；音色、格式、字数上限随选中那家的 tts 声明走 */
-    html = list.length ? list.map(p =>
+    html = opts.length ? opts.map(({ p, ms }) =>
       '<optgroup label="' + escA(p.displayName || p.name) + '">'
-      + audioModels(p).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
+      + ms.map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
       + '</optgroup>').join('')
       : '<option value="">注册路由里没有语音平台</option>';
   } else {
@@ -496,7 +518,12 @@ async function loadLiveAudioModels() {
         const re = prov.modelsFilter ? new RegExp(prov.modelsFilter) : null;
         const found = list.filter(id => !re || re.test(id));
         if (!found.length) return null;
-        const declared = new Map(((prov.models) || []).map(m => [m.id, m]));
+        /* 按 id 查声明时 **modelDocs 也要查**：v13 起 `prov.models` 只装「接口给的 + 用户自己填的」，
+           而那份「官方文档写过这个 id 认什么」的表不进清单（只有用户手填过它，代理才并进 models）。
+           这里拿到的却是上游原始的 /models —— 不一起查的话，文档里那些 per-id 的差别
+           （文生视频与图生视频认的 modes / 首帧槽位不一样）就丢了。
+           「藏起来的那一个」不在这里筛，归 audioModels() 一处筛（见那里）。 */
+        const declared = new Map((prov.models || []).concat(prov.modelDocs || []).map(m => [m.id, m]));
         return [prov.id, found.map(id => declared.get(id) || Object.assign({ id, name: id }, prov.newModelDefaults || {}))];
       } catch (e) {
         console.warn('[studio] ' + (prov.name || prov.id) + ' 的型号列表接口不可用，用注册声明：', e.message);
@@ -593,30 +620,125 @@ function slotTakesType(kind, mtype) {
   if (isAudioType(mtype)) return acc.includes('audio');
   return acc.includes('image');
 }
+/* ---- 「输入模式」= 这一次请求的形状 ----
+   specs() 回答的是「这个型号总共收哪些素材」，而**一次**能同时用哪几种是另一件事：
+   平台把答案声明成 Capabilities.combos（VGENV 的 /v3/models 按 mode + creation_intent 一档一档给），
+   有声明就画这一排芯片，槽位、每个槽位的数量、参数取值三样都跟着选中那一档收窄。
+   没有这种声明的家 combos() 是空数组 —— 这一排一个芯片都不出现，槽位回到原来的「互斥就置灰」，
+   行为与合并前逐字相同（所以这一排不是「新机制盖住旧页面」，是给真有互斥形状的平台少踩一次）。 */
+const INTENT_ZH = { person_replacement: '视频换人' };
+/* 模式名从数据现拼：先说这一档带哪一组素材，再补「换人」这一类意图。
+   不写一张「t2va = 文生视频」的固定表 —— 上游哪天加一个 mode，界面上顶多露出原始名，
+   不会像写死表那样直接少一档（与 TIER_ZH / RATIO_ZH 同一套做法）。 */
+function comboLabel(cb) {
+  if (!cb) return '';
+  const roles = (cb.roles || []).map(r => r.role);
+  const g = [];
+  if (roles.some(r => r === 'first_frame' || r === 'last_frame')) g.push('首尾帧');
+  if (roles.some(r => String(r).indexOf('reference') === 0)) g.push('参考素材');
+  const intent = cb.intent ? (INTENT_ZH[cb.intent] || cb.intent) : '';
+  const base = g.length ? g.join(' + ') : '纯文字';
+  return intent ? base + ' · ' + intent : base;
+}
+function comboList() {
+  const { model } = currentModel();
+  return (window.Capabilities && Capabilities.combos) ? Capabilities.combos(model) : [];
+}
+function comboNow() { return comboList().find(c => c.id === cur().combo) || null; }
+/* 已经放进槽位的素材属于哪几个 role（找「收得下这批素材的那一档」用） */
+function heldRoles() { return Object.keys(SLOT_DEF).filter(k => slotItems(k).length).map(k => SLOT_DEF[k].role); }
+/* 「有没有哪一档收得下这些素材」全站只有这一份判据：换型号时回落、跨页复用、拖进来都问它。
+   在页面里各比一遍 role 字符串就是第二份判据 —— 一定会和提交体那套过滤漂开。 */
+function comboCovering(roles) {
+  const need = (roles || []).filter(Boolean);
+  return comboList().find(c => need.every(r => (c.roles || []).some(x => x.role === r && (x.max || 0) > 0))) || null;
+}
+/* 选中的模式还成立吗（换型号、能力刷新之后 id 会变）：
+   先退到**收得下当前素材**的那一档，没有再退到「一次都不带素材」那一档（归一化时排在最前）。
+   退档不删素材 —— 收不下的那一些由下面那行黄色说明摆出来，并拦住提交。 */
+function ensureCombo() {
+  const s = cur(), list = comboList();
+  if (!list.length) { s.combo = ''; return; }
+  if (list.some(c => c.id === s.combo)) return;
+  s.combo = (comboCovering(heldRoles()) || list[0]).id;
+}
+function setCombo(id) {
+  const s = cur();
+  if (!id || s.combo === id || !comboList().some(c => c.id === id)) return;
+  s.combo = id;
+  paintLeft();
+}
+/* 画那一排芯片（#modeHead / #modeRow 在 #inputArea 外面，所以 renderInputArea 清容器不会碰到它们）。
+   没有任何模式声明时整块 hidden —— 与「这一排存在但一个芯片都没有」是两件事，后者会让人以为功能坏了。 */
+function renderModeChips() {
+  const head = $('modeHead'), row = $('modeRow');
+  const list = comboList();
+  if (!list.length) {
+    if (head) head.hidden = true;
+    if (row) { row.hidden = true; row.innerHTML = ''; }
+    return;
+  }
+  const cb = comboNow();
+  if (head) {
+    head.hidden = false;
+    const note = $('modeHeadNote');
+    if (note) note.textContent = !cb ? '' : (cb.roles.length
+      ? '这一档收：' + cb.roles.map(r => (ROLE_ZH[r.role] || r.role) + (r.min > 0 ? '（至少 ' + r.min + '）' : '') + ' ≤' + r.max).join(' · ')
+      /* 纯文字那一档一个文件槽都不画，这句话就没人核对得上 —— 留着「这一档收：」挂个空尾巴，
+         看着像清单没加载出来。直接说清「这一档不需要素材」，与左栏一个槽位都没画这件事一致。 */
+      : '这一档只用文字提示词，不需要参考素材');
+  }
+  if (!row) return;
+  row.hidden = false;
+  row.innerHTML = list.map(c => '<button type="button" class="ui-pill' + (c.id === cur().combo ? ' on' : '')
+    + '" data-cid="' + escA(c.id) + '">' + escA(comboLabel(c)) + '</button>').join('')
+    + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已经放好的不清掉；'
+    + '当前模式收不下的那一类会标出来，并且提交前先拦住。</span>';
+  row.querySelectorAll('.ui-pill').forEach(b => { b.onclick = () => setCombo(b.dataset.cid); });
+}
 /* 可用槽位 = 这个型号声明接受的输入 role（Capabilities.specs：registry 的 inputRoles 为准，能力接口补上限）。
-   只看上游 /models 的 modes.inputs 的话，「上游没声明的 role 就整个消失」。 */
+   只看上游 /models 的 modes.inputs 的话，「上游没声明的 role 就整个消失」。
+   有「输入模式」声明时再按选中那一档过滤一次，数量也照那一档的（9 张参考图在换人档必须恰好 1 张）。 */
 function modelSlots() {
+  ensureCombo();
   const { model } = currentModel();
   const specs = (window.Capabilities && model) ? Capabilities.specs(model)
     : ((model && model.options && model.options.inputSpecs) || []);
+  const cb = comboNow();
+  const inCombo = cb ? new Set((cb.roles || []).map(r => r.role)) : null;
   const merged = [];
   specs.forEach(sp => {
     const kind = ROLE_KIND[sp.role];
     if (!kind) return;
+    if (inCombo && !inCombo.has(sp.role)) return;
     /* 语音台的参考音频是**单条**字段（提交体是一个值，不是数组）：即使平台声明 max > 1 也只收一条，
        否则界面写着「还能加 3 个」而提交体只发得出一条。 */
-    const max = TYPE === 'audio' ? 1 : Math.max(1, sp.max || 1);
+    let max = sp.max || 1;
+    if (inCombo && window.Capabilities && Capabilities.rule) {
+      max = Capabilities.rule(model, sp.role, cur().combo).max || 0;
+    }
+    max = TYPE === 'audio' ? 1 : Math.max(1, max);
     const hit = merged.find(y => y.kind === kind);
     if (hit) hit.max = Math.max(hit.max, max);
     else merged.push({ kind, max, role: sp.role, group: sp.group, accept: sp.accept || '', maxBytes: sp.maxBytes || 0 });
   });
   return merged;
 }
+
 /* 已经放进来、但当前型号不接受的素材（换型号后会遇到）：界面明说 + 拦住提交，不静默丢掉 */
 function unsupportedKinds() {
   const have = new Set(slots.map(s => s.kind));
   return Object.keys(SLOT_DEF).filter(k => !have.has(k) && slotItems(k).length);
 }
+/* 同一批素材说不通时有两种原因，别混成一句「当前型号不支持」：
+   有模式声明的那一家，是**这一档请求形状**不收它（换个模式就能用，型号没变）；
+   没有模式声明的，才是这个型号根本收不了这类素材。判据跟着 comboNow() 走，不在页面里比平台名。 */
+function strayWhy() {
+  const cb = comboNow();
+  return cb ? '当前输入模式（「' + comboLabel(cb) + '」）不收已选的'
+    : '当前型号不支持已选的';
+}
+
 function releaseItemUrl(it) {
   const u = it && it.url;
   if (u && String(u).startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch (e) {} it.url = ''; }
@@ -674,10 +796,14 @@ function slotTypes(sl) {
   const accept = sl.accept || SLOT_DEF[sl.kind].accept || '';
   const out = [];
   if (accept.includes('image')) out.push('图片');
-  if (accept.includes('video')) out.push('视频');
+  /* 声明只写了图片、但这一格允许「选一段视频就地取帧」（SLOT_DEF.videoFrame）→ 视频那一档照样要给。
+     少了这一句，注册表一按平台声明写上 accept=image/...（v14 的 roleRules 就是），
+     这个功能会从选择器里整个消失 —— 而它一直是有的。 */
+  if (accept.includes('video') || SLOT_DEF[sl.kind].videoFrame) out.push('视频');
   if (accept.includes('audio')) out.push('音频');
   return out.length ? out : ['图片'];
 }
+
 /* 本地文件入槽：拖进输入框、选择器顶部的「本地上传」、以及右栏卡片拖进来，共用这一条 */
 async function addSlotFiles(kind, fileList) {
   const files = [...fileList];
@@ -717,12 +843,22 @@ async function openSlotPicker(sl) {
   const room = slotRoom(sl);
   if (room <= 0) { Toast.err(def.label + '已满（最多 ' + sl.max + ' 个）'); return; }
   const { model } = currentModel();
+  /* 规则按**当前输入模式**取（同一角色在换人档必须恰好 1 张，在参考素材档能到 9 张）。
+     这一格还能「选一段视频就地取帧」时，本地上传那道体积闸要放宽到这一家给视频的上限：
+     传上来的 mp4 只在浏览器里取一帧，真正提交的是那张 PNG，用图片的 5 MB 去拦一段
+     本来就只当素材来源的视频，等于把这个功能当场拦死（放宽只是少拦，平台仍会按它自己的规矩拒）。 */
+  const rule = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(model, sl.role, cur().combo) : null;
+  const vidBytes = def.videoFrame && window.Capabilities && Capabilities.rule
+    ? (Capabilities.rule(model, 'reference_video', cur().combo).maxBytes || 0) : 0;
+  if (rule && vidBytes > (rule.maxBytes || 0)) rule.maxBytes = vidBytes;
+  const upAccept = [sl.accept, def.videoFrame ? 'video/*' : ''].filter(Boolean).join(',');
   const list = await AssetPicker.open({
     types: slotTypes(sl), multiple: room > 1, limit: room,
-    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(model, sl.role) : null,
+    rule: rule || null,
     title: '选择' + def.label + (room > 1 ? '（还能加 ' + room + ' 个）' : ''),
-    upload: sl.accept ? { accept: sl.accept } : undefined,
+    upload: upAccept ? { accept: upAccept } : undefined,
   });
+
   if (!list || !list.length) return;
   let added = 0;
   for (const en of list) {
@@ -851,11 +987,19 @@ function renderInputArea() {
   const area = $('inputArea');
   if (!area) return;
   slots = modelSlots();
+  renderModeChips();
+  /* 手上这批素材的种类变了，问的就是**另一行能力**：Turbo 那颗开关与超分档都要按新的那一行重算
+     （以前只有换型号/能力刷新才重画，于是加一段参考视频之后开关还挂着，点下去就是发一个平台会拒的字段）。
+     只有真重画了才重问一次估价 —— 那一行没变，价也不会变，别白打一次上游。 */
+  {
+    const a = renderTopBools(), b = renderShapeFields();
+    if (a || b) refreshEst();
+  }
   const ta = $('prompt');
   if (ta) {
     paintPromptHint();
     ta.title = slots.length ? '下方小方块可上传素材（可用哪些、几张、收什么文件，随所选型号的能力变化）；也可以把右栏的素材卡直接拖进来'
-      : '当前型号只支持纯文字生成，换个型号可解锁参考素材';
+      : (comboNow() ? '当前输入模式不带素材，想带就换上面那一档' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
   }
   /* #inputArea 只是容器，网格只有里面这一层（嵌套两层 grid 会把列宽算不对） */
   area.innerHTML = '';
@@ -865,9 +1009,11 @@ function renderInputArea() {
     head.hidden = false;
     /* 没有可用槽位也要把这一栏摆出来并照实说原因（导演台右栏 ic.none 那一句），
        不然「这个型号到底能不能放素材」只能靠猜 */
-    if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序' : '当前型号只支持纯文字生成，换个型号可解锁参考素材';
+    if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序'
+      : (comboNow() ? '这一档不带参考素材（换上面一档就能加）' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
   }
   if (!slots.length) { updateGoState(); return; }
+
   const blockedKinds = blockedSlotKinds();
   const gridSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) >= 0);
   const wideSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) < 0);
@@ -936,11 +1082,21 @@ function renderInputArea() {
     const box2 = document.createElement('div');
     box2.className = 'conflict-hint';
     box2.style.color = 'var(--warn)';
-    box2.innerHTML = '当前型号不支持已选的「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，'
-      + '<a href="#" class="lnk">清空这些素材</a> 或换回支持的型号';
-    box2.querySelector('.lnk').onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+    /* 收得下这批素材的那一档就在声明里，找到了就给一条「切过去」的路，而不是只让人清空。
+       找不到（这个型号确实没有这一档）才只剩下「清空这些素材」或换型号。 */
+    const fit = comboCovering(stray.map(k => SLOT_DEF[k].role));
+    box2.innerHTML = strayWhy() + '「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，'
+      + (fit ? '<a href="#" class="lnk">切到「' + escA(comboLabel(fit)) + '」</a>'
+        : '<a href="#" class="lnk">清空这些素材</a>')
+      + (fit ? ' 或 <a href="#" class="lnk2">清空这些素材</a>' : ' 或换回支持的型号');
+    const go = box2.querySelector('.lnk');
+    if (fit) go.onclick = e => { e.preventDefault(); setCombo(fit.id); };
+    else go.onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+    const cl = box2.querySelector('.lnk2');
+    if (cl) cl.onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
     area.appendChild(box2);
   }
+
   updateGoState();
 }
 function updateMode() {
@@ -989,7 +1145,11 @@ $('advBody').innerHTML =
      它属于「生成参数」而不是提示词 —— 提示词附近已经有「AI 润色」（我们自己那一份），
      两个开关摆在一起会让人以为是同一个功能。所以放在高级设置里、三种类型共用一块：
      声明是 provider 级��（一家平台做图与做视频都带它），按当前型号显隐。 */
-  + '<div class="adv-grid" id="topBools" style="margin-top:10px" hidden></div>';
+  + '<div class="adv-grid" id="topBools" style="margin-top:10px" hidden></div>'
+  /* 平台在 create.shapeFields 里声明的**顶层非布尔字段**（VGENV 的成片超分、随机种子、换人的动作起点）。
+     与上面那一块同一个来路、同一套判据：声明了几项就画几项，每一项还要问「**这一次的那一行能力**给不给」，
+     不给的项照声明说出原因，而不是留一格点了没反应的空控件。 */
+  + '<div class="adv-grid" id="shapeFields" style="margin-top:10px" hidden></div>';
 
 const TIER_ZH = { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' };
 const RATIO_ZH = { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4', '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' };
@@ -1041,15 +1201,22 @@ function noteModel(m) {
 }
 
 function modelLimits(m) {
-  const o = (m && m.options) || {};
+  const o = (window.Capabilities && Capabilities.scopedOptions)
+    ? Capabilities.scopedOptions(m, cur().combo) : ((m && m.options) || {});
   const maxOut = Number(o.max_outputs) > 0 ? Math.max(1, Math.floor(Number(o.max_outputs))) : 1;
-  const maxRef = (window.Capabilities && m && m.id) ? Math.max(0, Capabilities.rule(m, 'reference_image').max) : 0;
+  const maxRef = (window.Capabilities && m && m.id) ? Math.max(0, Capabilities.rule(m, 'reference_image', cur().combo).max) : 0;
   return { maxOut, maxRef, defs: o.defaults || {} };
 }
 function renderVideoParams() {
   const { model } = currentModel();
-  const o = (model && model.options) || {};
+  /* 取值范围与默认值按**当前输入模式**那一档取（Capabilities.scopedOptions）：
+     平台在「视频换人」里只给 768p、时长上限另算，界面就只给 768p ——
+     不在页面写一句「选了换人就少几个档」（那是第二份判据，一定和提交体漂开）。
+     没有模式声明的家 scopedOptions 原样退回型号总表，参数面板一字不变。 */
+  const o = (window.Capabilities && Capabilities.scopedOptions)
+    ? Capabilities.scopedOptions(model, cur().combo) : ((model && model.options) || {});
   const defs = o.defaults || {};
+
   const changed = cur().lastModelId !== model.id;
   noteModel(model);
   const tiers = o.tiers || [], ress = o.resolutions || [], ars = o.aspect_ratios || [], sizes = o.sizes || [];
@@ -1133,35 +1300,207 @@ function platTopBools() {
   const t = (prov && prov.create && prov.create.topBools) || null;
   return t && typeof t === 'object' ? Object.entries(t) : [];
 }
+/* 这些开关「在不在、默认开还是关」由声明里的 when / hide / need 决定，判据只有 Capabilities.fieldState 一份
+   （同一份判据还管着提交体与报价体 —— 页面自己比 intent 字符串就会出现「界面藏着、其实照样发出去了」）。
+   上下文 = 当前输入模式那一档的 {mode, intent} + **这一次的那一行能力**（shapeCaps）；
+   没有模式声明时前两个都是空串，任何 when 都不成立；没有逐行清单时 caps 退回型号总表的并集。 */
+/* 「这一次的那一行能力」全站只算在这一处：画质档 + 当前输入模式 + 手上这批素材的种类
+   在上游 /v3/models 的逐行清单里查到哪一行，就按那一行给不给 Turbo、给不给超分（v15 起）。
+   为什么不能问「这个型号有没有 turbo」：实测同一个模式里凡是带参考视频的那几种组合它一律 false，
+   按并集画开关就是画一颗发出去会被拒的按钮。提交体与报价体拿的是同一个返回值（走 f.shape.caps）。 */
+function shapeCaps() {
+  const { model } = currentModel();
+  if (TYPE === 'audio' || !model || !model.id) return null;
+  if (!window.Capabilities || !Capabilities.shapeState) return null;
+  return Capabilities.shapeState(model, cur().combo, heldRoles(), val('tier'));
+}
+/* 「这一次问的是哪一行能力」由这几样决定：型号 / 输入模式 / 画质档 / 手上这批素材的种类。
+   顶层开关与顶层非布尔字段那两块的「要不要重画」都以它起头 —— 两处各拼一遍就会有一处漏掉
+   某个维度（漏了素材种类，表现就是「加了一段参考视频，Turbo 那颗还挂着」）。 */
+function capRowKey() {
+  const cs = shapeCaps();
+  return [val('model'), cur().combo || '', val('tier'), heldRoles().join(','),
+    cs ? (cs.known ? 'ok' : 'unknown') : 'nocaps'].join('|');
+}
+function topBoolCtx() {
+  const cb = comboNow();
+  return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
+}
+function topBoolStateOf(d) {
+  if (window.Capabilities && Capabilities.fieldState) return Capabilities.fieldState(d, topBoolCtx());
+  return { hidden: false, def: !!(d && d.def), note: '' };
+}
 /* 某个顶层开关开启后另加多少钱由 estimateCost 按 priceKey 现取上游定价，
    算出来的明细会写进估价那一行（「平台自动润色 +5 积分」）。
    这里**不再另做一份数字来源** —— 归一化后的型号上未必留着 pricing，
    多写一处就多一处可能对不上的口径（§J）。 */
-function renderTopBools() {
+/* `force`：点了磁贴那一路必须传（值存在 st 里、不在指纹里，不强制就重画不出来）。
+   返回值 = 「这一次真的重画了吗」，素材变化那一路据此决定要不要重问一次估价。 */
+let BOOLS_FP = '';
+function renderTopBools(force) {
   const box = $('topBools');
-  if (!box) return;
+  if (!box) return false;
   const decl = platTopBools();
   const st = cur().topBools || (cur().topBools = {});
   /* 换平台/型号后，声明里没有的那些字段（上一家的开关）要清掉 —— 不然会被带进提交体 */
   for (const f of Object.keys(st)) if (!decl.some(x => x[0] === f)) delete st[f];
+  const fp = capRowKey() + '|' + decl.map(([f, d]) => {
+    const s = topBoolStateOf(d);
+    return f + ':' + (s.hidden ? '!' + s.note : (s.def ? 'd' : 'o'));
+  }).join(';');
+  if (!force && fp === BOOLS_FP) return false;
+  BOOLS_FP = fp;
   box.hidden = !decl.length;
-  if (!decl.length) { box.innerHTML = ''; return; }
-  box.innerHTML = decl.map(([f, d]) => {
-    const on = st[f] === undefined ? !!(d && d.def) : !!st[f];
-    return '<div><span class="ed-label">' + escA((d && d.label) || f) + '</span>'
+  if (!decl.length) { box.innerHTML = ''; return true; }
+  const shown = [], muted = [];
+  decl.forEach(([f, d]) => {
+    const s = topBoolStateOf(d);
+    if (s.hidden) { if (s.note) muted.push(s.note); return; }
+    const on = st[f] === undefined ? s.def : !!st[f];
+    shown.push('<div><span class="ed-label">' + escA((d && d.label) || f) + '</span>'
       + '<button type="button" class="tool' + (on ? ' on' : '') + '" data-tb="' + escA(f) + '"'
       + ((d && d.hint) ? ' title="' + escA(d.hint) + '"' : '') + '>'
-      + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>';
-  }).join('');
+      + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>');
+  });
+  /* 被形状藏掉的那一项不是「消失了」，是「这一档没有这个开关」—— 照声明把原因说出来（hideNote），
+     否则用户刚在普通模式见过它，切到换人就凭空不见了，只能自己猜是不是坏了。 */
+  box.innerHTML = shown.join('')
+    + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(escA).join('<br>') + '</div>' : '');
   if (window.fillIcons) fillIcons(box);
+  return true;
 }
-/* 提交时要带的那几项（createBody 会把它们放到请求体**顶层**，不混进 parameters） */
+/* 提交时要带的那几项（createBody 会把它们放到请求体**顶层**，不混进 parameters）。
+   被形状藏掉的这里也不返回 —— 与 createBody 里那道 hide 过滤同一个判据，两边不会漂。 */
 function topBoolParams() {
-  const decl = platTopBools();
   const st = cur().topBools || {};
   const out = {};
-  decl.forEach(([f, d]) => { out[f] = st[f] === undefined ? !!(d && d.def) : !!st[f]; });
+  platTopBools().forEach(([f, d]) => {
+    const s = topBoolStateOf(d);
+    if (!s.hidden) out[f] = st[f] === undefined ? s.def : !!st[f];
+  });
   return out;
+}
+
+/* ==================== 顶层非布尔字段（create.shapeFields：超分档 / 随机种子 / 动作起点） ====================
+   与上面那一排开关是同一套思路，只是这里交出去的是**值**而不是布尔：
+   声明了几项就画几项，每一项再问一次「这一档给不给」（判据在 assetlib 顶层的 shapeFieldState 一份），
+   不给的那一项不留一格空控件，而是照声明说出为什么（emptyNote / missingNote / only.why）。
+   页面不写一句 if (平台 === 'vgenv')，也不写死「2x」或「种子最大是多少」。 */
+function platShapeFields() {
+  const prov = currentModel().prov;
+  const t = (prov && prov.create && prov.create.shapeFields) || null;
+  return t && typeof t === 'object' ? Object.entries(t) : [];
+}
+function shapeFieldStateOf(d) {
+  if (window.Capabilities && Capabilities.shapeFieldState) {
+    return Capabilities.shapeFieldState(d, shapeCaps(), topBoolCtx());
+  }
+  return { shown: true, values: [], min: d && d.min, max: d && d.max, none: (d && d.none) || null };
+}
+/* 重画只发生在「递给界面上的东西**真的**变了」的时候：这一格里有自由输入框（随机种子），
+   每次动一下素材就重建 innerHTML 的话，正在打的字会没（boolRows 那一排为同一件事写过注释）。
+   指纹 = 「这一次问的是哪一行能力」（capRowKey）+ 每一项在不在、给哪些值。 */
+function shapeFingerprint() {
+  return capRowKey() + '|' + platShapeFields().map(([f, d]) => {
+    const s = shapeFieldStateOf(d);
+    return f + ':' + (s.shown ? ((s.values || []).join('|') || 'free') : '!' + (s.why || ''));
+  }).join(';');
+}
+/* 画那一块：声明几项就画几项，「这一档给不给」逐项问一次判据；
+   不给的那一项不留一格点了没反应的空控件，而是照声明把原因写在原位（why 来自声明，页面不编）。
+   `force` 与返回值同 renderTopBools（换型号那一路要强制重画）。 */
+let SHAPE_FP = '';
+function renderShapeFields(force) {
+  const box = $('shapeFields');
+  if (!box) return false;
+  const fp = shapeFingerprint();
+  if (!force && fp === SHAPE_FP) return false;
+  SHAPE_FP = fp;
+  const decl = platShapeFields();
+  const st = cur().shape || (cur().shape = {});
+  /* 与上面那块同一件清理：换到没有这一项的一家时，留在 cur().shape 里的旧值会被带进提交体
+     （而那一家的判据是「没声明的字段进嵌套对象」，等于往 parameters 里塞一个别家的键）。 */
+  for (const f of Object.keys(st)) if (!decl.some(x => x[0] === f)) delete st[f];
+  if (!decl.length) { box.hidden = true; box.innerHTML = ''; return true; }
+  const cells = [], muted = [];
+  decl.forEach(([f, d]) => {
+    const s = shapeFieldStateOf(d);
+    const name = (d && d.label) || f;
+    if (!s.shown) { if (s.why) muted.push(name + '：' + s.why); return; }
+    const label = '<label' + (d.hint ? ' title="' + escA(d.hint) + '"' : '') + '>' + escA(name) + '</label>';
+    const have = st[f] === undefined || st[f] === null ? '' : String(st[f]);
+    const vals = s.values || [];
+    if (vals.length) {
+      /* 取值清单来自**这一行的能力**（`from:'caps.xxx'`），一项都不写死。
+         声明里的 `none` 是界面自己给的空值选项 —— 「不超分」在上游不是一个档位，是「不发这个字段」。 */
+      const keep = vals.some(x => String(x) === have) ? have
+        : (d.none && String(d.none.value) === have ? have : String(vals[0]));
+      st[f] = keep;
+      cells.push('<div>' + label + '<select data-sf="' + escA(f) + '">'
+        + (d.none ? '<option value="' + escA(String(d.none.value)) + '"'
+          + (String(d.none.value) === keep ? ' selected' : '') + '>' + escA(d.none.label || '不设') + '</option>' : '')
+        + vals.map(x => '<option value="' + escA(String(x)) + '"' + (String(x) === keep ? ' selected' : '') + '>'
+          + escA(String(x)) + '</option>').join('') + '</select></div>');
+    } else {
+      const num = d.kind === 'int' || d.kind === 'number';
+      cells.push('<div>' + label + '<input class="ui-inp" type="' + (num ? 'number' : 'text') + '"'
+        + (num && d.kind === 'int' ? ' step="1"' : '')
+        + (d.min !== undefined ? ' min="' + d.min + '"' : '')
+        + (d.max !== undefined ? ' max="' + d.max + '"' : '')
+        + ' data-sf="' + escA(f) + '" value="' + escA(have) + '" placeholder="'
+        + escA(d.placeholder || (num ? '留空 = 不发这一项' : '')) + '"></div>');
+    }
+  });
+  box.innerHTML = cells.join('')
+    + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(escA).join('<br>') + '</div>' : '');
+  box.hidden = !cells.length && !muted.length;
+  /* build 而不是 sync：这一块的 select 是刚 innerHTML 出来的，还没被公共下拉包过
+     （sync 只认 `_ddBuilt` 的那些，对新建出来的一律不动 —— 那就是「点开只剩一项」那一类毛病）。 */
+  if (window.Dropdowns && box.querySelector('select[data-sf]')) Dropdowns.build(box);
+  return true;
+}
+/* 提交体与报价体都只从这一份取值（与 createBody 里那道 shown 过滤问的是同一个判据，两边不会漂）：
+   这一档不给的字段一个字都不发，空值也不发 —— 这一家「未知字段会被拒绝」是实测过的。
+   数字类按声明的 kind 转成数，转不出数就当没填（发一个 NaN 上去是骗接口）。 */
+function shapeFieldParams() {
+  const out = {};
+  const st = cur().shape || {};
+  platShapeFields().forEach(([f, d]) => {
+    if (!shapeFieldStateOf(d).shown) return;
+    const raw = st[f];
+    if (raw === undefined || raw === null || String(raw) === '') return;
+    if (d.kind === 'int' || d.kind === 'number') {
+      const n = Number(raw);
+      if (Number.isFinite(n)) out[f] = n;
+      return;
+    }
+    out[f] = String(raw);
+  });
+  return out;
+}
+/* 提示词归档里那句「这次到底带了哪几项」：只报真发出去的（与提交体同一个 shapeFieldParams），
+   标签用声明里的中文名 —— 自己拼一遍字段名就会出现「归档说带了、其实那一项被这一档滤掉了」。 */
+function shapeFieldsSummary() {
+  const sent = shapeFieldParams();
+  return platShapeFields().filter(([f]) => sent[f] !== undefined)
+    .map(([f, d]) => ((d && d.label) || f) + ' ' + sent[f]).join(' · ');
+}
+/* 填了却明显越界的值，当场拦住比让平台回一句 400 好（边界只读声明里的 min/max，页面不编一个数）。 */
+function shapeFieldBad() {
+  const st = cur().shape || {};
+  const bad = [];
+  platShapeFields().forEach(([f, d]) => {
+    if (!shapeFieldStateOf(d).shown) return;
+    const raw = st[f];
+    if (raw === undefined || raw === null || String(raw) === '') return;
+    if (d.kind !== 'int' && d.kind !== 'number') return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) { bad.push(((d && d.label) || f) + '要填一个数'); return; }
+    if (d.min !== undefined && n < Number(d.min)) bad.push(((d && d.label) || f) + '不能小于 ' + d.min);
+    else if (d.max !== undefined && n > Number(d.max)) bad.push(((d && d.label) || f) + '不能大于 ' + d.max);
+    else if (d.kind === 'int' && !Number.isInteger(n)) bad.push(((d && d.label) || f) + '要填整数');
+  });
+  return bad;
 }
 function renderImageParams() {
   const hit = (function () {
@@ -1274,8 +1613,11 @@ function readAudioBools() {
 function renderParams() {
   if (TYPE === 'video') renderVideoParams();
   else if (TYPE === 'image') renderImageParams();
-  else { renderAudioParams(); paintSubNote(); renderTopBools(); updateGoState(); refreshEst(); return; }
+  else { renderAudioParams(); paintSubNote(); renderTopBools(); renderShapeFields(); updateGoState(); refreshEst(); return; }
   paintSubNote();
+  /* 顶层非布尔字段那块与上面的开关同一来路：三种类型共用一份渲染，放在这里而不是各类型的
+     renderer 里（以前只有视频台调，图像/语音台就永远看不见平台声明的那几项）。 */
+  renderShapeFields();
   syncDropdowns();
   /* 顶层开关那块：三种类型共用一份渲染（声明是 provider 级的），
      放在这里而不是各类型的 renderer 里 —— 以前只有视频台调它，
@@ -1292,8 +1634,10 @@ $('advBody').addEventListener('click', e => {
   const f = tb.dataset.tb;
   const st = cur().topBools || (cur().topBools = {});
   const decl = platTopBools().find(x => x[0] === f);
-  st[f] = st[f] === undefined ? !(decl && decl[1] && decl[1].def) : !st[f];
-  renderTopBools(); refreshEst(); updateGoState();
+  /* 「还没被点过」时的起点是**这一档的默认值**（声明里 def 可以是 {when,then,else} 这种随形状变的东西），
+     不是「非真即为开」—— 以前那句 `!(decl[1].def)` 遇到对象默认值会永远翻成 true。 */
+  st[f] = st[f] === undefined ? !topBoolStateOf(decl && decl[1]).def : !st[f];
+  renderTopBools(true); refreshEst(); updateGoState();
 });
 /* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份）。
    **换型号也要重算**：以前这里 `if (e.target.id === 'model') return;` 直接跳过 ——
@@ -1313,17 +1657,33 @@ $('advBody').addEventListener('change', e => {
      键就是 fillSel 用的那个 id，也正是控件自己的 id（tier/res/dur/ar/draw…）。 */
   const tid = e.target && e.target.id;
   if (tid && cur().touched) cur().touched[tid] = 1;
+  /* 顶层非布尔字段（#shapeFields 里那几格）：值只认 `cur().shape` 这一份，控件是它的展示。
+     所以先落地再让 renderShapeFields 自己判要不要重画（指纹没变就不会动 DOM，正在打的字不会没）。 */
+  const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
+  if (sf) (cur().shape || (cur().shape = {}))[sf] = e.target.value;
   if (e.target.id === 'model') { paintSubNote(); refreshEst(); updateGoState(); return; }
   if (TYPE === 'audio') applyAudioCaps();          // 它本来就只改显隐/提示/摘要，不重建控件
   else if (TYPE === 'image') paintImageHints();
   else { readBoolParams(); paintVideoHints(); }
+  /* 画质档变了 → 「这一次的那一行能力」就是另一行 → 超分档 / Turbo 那一排要重算
+     （两块各自带指纹守卫，没变就一个字都不动）。
+     ⚠ 两边都要重算：以前只调 renderShapeFields，于是从 quality 换到 fast 之后
+     「成片超分」那一格当场消失了，而同一行的 Turbo 磁贴还挂着上一档的样子 ——
+     同一个原因引起的两件事只修一半，界面上就是「一半跟着变一半不变」。 */
+  renderShapeFields(); renderTopBools();
   refreshEst(); updateGoState();
 });
 /* 这里只管高级设置面板里的输入框（提示词框不在 #advBody 内，它自己的监听在 :1344：
    语音台按字数计价的那一路已经跟着提示词逐字重算了）。视频/图像走平台报价接口，
    提示词是报价入参，每敲一个字发一次上游既慢又打接口，所以只在「改完高级设置 / 换型号」
    这类明确动作之后重算。 */
-$('advBody').addEventListener('input', e => { if (e.target.id === 'style') { updateGoState(); } });
+$('advBody').addEventListener('input', e => {
+  if (e.target.id === 'style') { updateGoState(); return; }
+  /* 随机种子 / 动作起点这类自由输入框：逐字把值落到 cur().shape（提交读的就是这一份），
+     但**不重算估价** —— 视频台走平台报价接口，每敲一个数字发一次上游既慢又打接口（同上面那段）。 */
+  const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
+  if (sf) (cur().shape || (cur().shape = {}))[sf] = e.target.value;
+});
 $('advHead').addEventListener('click', () => {
   $('adv').classList.toggle('closed');
   writeLS('studio_adv_closed', $('adv').classList.contains('closed') ? '1' : '');
@@ -1342,12 +1702,22 @@ async function refreshCaps() {
        「该平台没有声明能力接口」—— 同一块面板上两行自相矛盾，用户只能猜哪句是真的。
        （refreshProvider 对没有 models 端点的平台返回 null，所以要走这条 early return。） */
     if (!d) { hint.textContent = ''; paintSubNote(); return; }
+    /* 能力刷新会换掉 combos 的 id 集合（每一档的取值范围也跟着变），
+       所以先把「输入模式」回落成成立的那一档，再重画参数 —— 顺序反了的话
+       renderParams 会拿一个已经不存在的模式去 scopedOptions，界面上是空的参数面板。 */
+    ensureCombo();
     renderParams(); renderInputArea();
+
     /* 能力回来之后会**整块重画参数**（renderBoolRows 那种 innerHTML 重建），
        而 syncDropdowns 只在 paintLeft 里调 —— 不在这里补一次，重建出来的下拉就是裸的，
        那一排退回浏览器原生外观（能力接口可用 + 换型号时必现）。 */
     syncDropdowns();
-    hint.textContent = Capabilities.srcTextOf(d);
+    /* 递给口径的是 `sourceOf(prov)` 那一份，不是代理的原始答复 `d`：
+       srcTextOf 认的是 `from`，而原始答复里的字段叫 `source` —— 传 `d` 时那一句永远走
+       最后一支（`note || '按平台声明兜底'`），而 api 成功的答复根本没有 note，
+       于是上游明明给了清单，这里却一直写着「按平台声明兜底」（`#stSub` 同一屏写着「来自上游接口」，
+       两处自相矛盾）。refreshProvider 成功后必然写了这一份，所以它不是 null。 */
+    hint.textContent = Capabilities.srcTextOf(Capabilities.sourceOf(prov));
   } catch (e) {
     hint.textContent = '能力接口读取失败：' + e.message + '（仍按平台声明展示）';
   }
@@ -1386,18 +1756,36 @@ async function refreshEst() {
   /* `prompt` 也要递：VGENV 的报价接口与 create 同形且**必填** model + prompt，
      少了 prompt 上游直接 400（没有提示词时走注册表里声明的占位串，见 pricing.consts）。
      语音台按字数计价，不走这一支。 */
+  const cb = comboNow();
   const params = TYPE === 'image'
     ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
     : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
         tier: val('tier'), ar: val('ar'), prompt: $('prompt').value,
+        /* 报价接口与 create 同形，所以「这一次请求的形状」也要递进去：
+           `creation_intent` 是真字段（走 pricing.body 的映射，换人档的价与时长算法都不一样），
+           `mode` 只当声明的上下文（估价那一份 qctx 用它判 hide / def），不进请求体。
+           没有模式声明的平台这两个都是空串 = 与合并前同一个请求体。 */
+        creation_intent: (cb && cb.intent) || '', mode: (cb && cb.mode) || '',
         /* 顶层开关（平台自动润色等）是**单独计价**的：不递进来估价就当它免费，
            开关拨了报价不动，看着像开关没生效。加价由 estimateCost 按声明的 priceKey 现取。 */
-        topBools: topBoolParams() };
+        topBools: topBoolParams(),
+        /* 「这一次的那一行能力」一起递过去：声明了 `need:'caps.xxx'` 的开关（VGENV 的 Turbo）
+           在**这一行**不给时连报价体都不该带它 —— 判据与提交体同一份，不递就等于永远判成「不给」。 */
+        caps: shapeCaps() };
+  /* 顶层非布尔字段（成片超分这一类）也进报价：注册表在 pricing.body 里写了映射才带得过去，
+     而「这一档给不给、留没留空」由 shapeFieldParams() 与提交体同一处决定 —— 报价与创建必须是同一个规格，
+     否则差价就落到生成那一刻才暴露。 */
+  Object.assign(params, shapeFieldParams());
+
   try {
     const r = await AssetLib.estimateCost(prov, model, params, {});
     put(r && r.ok
       ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
-      : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>');
+      /* `skip` 与「报价失败了」是两件事：这一档根本没有询价这条路（声明里的 noQuote），
+         写成「报价不可用（…INVALID）」会让人以为接口坏了，跑去重试或换平台。 */
+      : (r && r.skip
+        ? prov.name + ' · <span class="note">' + escA((r && r.reason) || '这一档平台不提供询价') + '，以平台结算为准</span>'
+        : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>'));
   } catch (e) {
     put('<span class="note">估价失败：' + escA(String(e && e.message || e)) + '</span>');
   }
@@ -1421,8 +1809,19 @@ function submitBlockReason() {
     return '';
   }
   /* 视频侧的长度下限不写死：注册表里只有语音声明了 minChars，没有声明 = 非空即可 */
-  if (unsupportedKinds().length) return '已选素材里有当前型号不支持的类型';
+  const stray = unsupportedKinds();
+  if (stray.length) return strayWhy() + '「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，换一档或清空它';
+  /* 这一档**必须**带哪几类素材按声明的 min 判（动作换人 = 一条参考视频 + 恰好一张人物图）：
+     当场拦住并说清缺哪一类，好过提交上去被平台拒成 422。取值只问 Capabilities.rule 那一份声明。 */
+  const cb = comboNow();
+  if (cb && window.Capabilities) {
+    const miss = cb.roles
+      .filter(r => r.min > 0 && ROLE_KIND[r.role] && slotItems(ROLE_KIND[r.role]).length < r.min)
+      .map(r => (ROLE_ZH[r.role] || r.role) + '（至少 ' + r.min + '）');
+    if (miss.length) return '当前输入模式（「' + comboLabel(cb) + '」）必须带上：' + miss.join('、');
+  }
   if (window.Capabilities && usedRoles().length) {
+
     const bad = Capabilities.illegalPairs(model, usedRoles());
     if (bad.length) return '「' + bad.map(([a, b]) => (ROLE_ZH[a] || a) + ' + ' + (ROLE_ZH[b] || b)).join('、') + '」不能同时使用，请先清空其中一组';
   }
@@ -1430,6 +1829,10 @@ function submitBlockReason() {
     const okRef = !window.Capabilities || Capabilities.specs(model).some(sp => sp.role === 'reference_image');
     if (!okRef) return '当前型号不支持参考图：换一个支持它的型号，或清空参考图';
   }
+  /* 顶层非布尔字段（随机种子、动作起点）越界：平台回的是 400、消息里只点名那两个数，
+     先在本机拦一句。上下限仍然只读声明里的 min / max，页面不编一个边界。 */
+  const sfbad = shapeFieldBad();
+  if (sfbad.length) return sfbad[0];
   return '';
 }
 function updateGoState() { if (window.Wb) Wb.ready({ btn: 'go', tip: 'goWhy', scope: '.col-left', reason: submitBlockReason }); }
@@ -1797,17 +2200,29 @@ async function createVideoOnce(prov, model, prompt, entries) {
      `Api.createBody` 现在也有一道类型闸（传对象会当场报错并说清是哪一项），这里是它的上游修正。 */
   const modelId = (model && model.id) || String(model || '');
   if (!modelId) throw new Error('没选出要用的视频型号 —— 在左栏「型号」里挑一个再点生成');
+  /* 这一次请求的形状（有「输入模式」声明的平台才有；没有就两个空串 = 与合并前同一个提交体）。
+     `creation_intent` 是**上游字段**（省略 = 普通生成，person_replacement = 动作换人）；
+     `mode` 不是字段 —— 平台按送上来的素材自己推断，它只用来判声明里的 when / hide，
+     走 `shape` 这个上下文递进 createBody，永远不进请求体（这一家「未知字段会被拒绝」）。
+     `caps` 同样只当上下文：**不递它就没有「这一行给不给」的判据** —— 界面按那一行画出了 Turbo，
+     提交体却把它判成不提供而漏掉，两边各算一半比都不算更难查。 */
+  const cb = comboNow();
+  const shape = { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
   const t = { model: modelId, prompt, tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, size: val('size'), entries };
   const bools = readBoolParams();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
     log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
+      输入模式: cb ? comboLabel(cb) : '',
+      顶层参数: shapeFieldsSummary(),
       参考素材: entries.length ? entries.length + ' 个' : '',
       生成音频: bools.generate_audio !== undefined ? (bools.generate_audio ? '是' : '否') : '',
       平台润色: (function () { const t = topBoolParams(); const on = Object.keys(t).filter(k => t[k]); return on.length ? '是' : ''; })() } },
     body: Api.createBody(prov, { model: t.model, prompt: t.prompt, tier: t.tier, duration: t.dur, res: t.res, ar: t.ar,
-      size: t.size, inputEntries: t.entries, params: Object.assign({}, bools, topBoolParams()) }),
+      size: t.size, creation_intent: shape.intent, shape, inputEntries: t.entries,
+      params: Object.assign({}, bools, topBoolParams(), shapeFieldParams()) }),
   });
+
   if (d.error) throw new Error(d.error.message || '创建失败');
   const p = Api.parseItem(prov, d) || {};
   /* 任务号优先按 registry 声明的 list.map.id 取（MiniMax 是 task_id、SiliconFlow 视频是 requestId、
@@ -1829,10 +2244,19 @@ async function createImageOnce(prov, model, prompt, assetIds, n) {
   /* 张数只有平台声明了 max_outputs 才发 —— 平台没这个概念时发过去会被拒 */
   if (Number(o.max_outputs) > 0) std.count = n;
   if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
+  /* 平台在 create.topBools / create.shapeFields 里声明的那几项，图像台这一路也必须真的带上。
+     那两排控件现在是**按声明给三种类型都渲染**的（以前只在视频台画），而这一路只递 std 里那几样、
+     params 一个没带 —— 于是「高级设置里画得出来、提交体里一个字都没有」，正是本项目反复要拦的那一类。
+     今天生图这一族还没声明过顶层开关（带过去的是空对象），但判据与视频那一路同一份：
+     声明一出现就到提交体，不用再改这里。
+     `shape` 取 topBoolCtx()：图像台没有「输入模式」，mode / intent 就是空串，与画面那块同一个上下文。 */
+  std.params = Object.assign({}, topBoolParams(), shapeFieldParams());
+  std.shape = topBoolCtx();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
     log: { type: '图片生成', meta: { 画质: val('quality'), 画幅: val('ratio'), 格式: val('format'),
-      本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '' } },
+      本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '',
+      顶层参数: shapeFieldsSummary() } },
     body: Api.createBody(prov, std),
   });
   if (d.error) throw new Error(d.error.message || '创建失败');
@@ -2782,7 +3206,15 @@ async function refIntoSlot(mtype, p, o) {
   }
   if (!kind) return { ok: false, code: 'noslot', why: (auto ? '没有哪个型号收' + mtype + '这类素材' : '当前型号没有能接收' + mtype + '的入口') };
   const def = SLOT_DEF[kind];
+  /* 当前**输入模式**不收这一类素材，而同一个型号有收得下它的模式 → 先切到那一档。
+     切模式既不删素材也不花钱，所以三个入口都可以替用户做（这与「能不能替用户换型号」是两件事，
+     后者仍归 o.autoSwitch 管 —— 拖拽时悄悄换掉他挑好的型号才是坏事）。 */
+  if (!slots.some(x => x.kind === kind)) {
+    const fit = comboCovering([def.role]);
+    if (fit && fit.id !== cur().combo) setCombo(fit.id);   // setCombo 里会 paintLeft，slots 随之重算
+  }
   const arr = slotItems(kind), sl = slots.find(x => x.kind === kind);
+
   /* 槽位不存在就不能再往下走：以前只靠 slotKindFor 保证这件事，加了 forceKind 得自己挡一道，
      否则 `arr.length >= sl.max` 会抛在 undefined 上。 */
   if (!sl) return { ok: false, code: 'noslot', why: '当前型号没有「' + def.label + '」这个入口（换型号或清空已选素材再试）' };

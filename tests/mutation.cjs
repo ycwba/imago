@@ -54,11 +54,11 @@ process.on('exit', safeRestore);
 
 const MUT = [
   { sec: '§A', name: '兄弟函数里裸调局部 const（drama.html 那次的原样复现）', file: 'drama.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA__(){ const onlyHere = function(){return 1;}; return onlyHere(); } function __mutB__(){ return onlyHere(); }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function __mutA__(){ const onlyHere = function(){return 1;}; return onlyHere(); } function __mutB__(){ return onlyHere(); }</script>' },
   { sec: '§A', name: '调一个压根没声明的名字', file: 'assets.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>__neverDeclared__();</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>__neverDeclared__();</script>' },
   /* ↓ 这一条钉的是 `studio.html` 真发生过的 `t is not defined`：
      把一个函数的局部 const 拿到**兄弟函数**里当成员访问的基对象用。
      它原先从判据下面整个走过去了（旧版只查裸调用，而 `t.dur` 是成员访问），
@@ -66,14 +66,14 @@ const MUT = [
      下面两条反向对照是同一批加的 —— 没有它们，「§A 什么都报」与
      「§A 报得准」在这里长得一模一样。 */
   { sec: '§A', name: '兄弟函数里拿别人的局部 const 当基对象（t is not defined 的原样复现）', file: 'assets.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA4__(){ const __mutT__ = { dur: 1 }; return __mutT__.dur; } function __mutA5__(){ return __mutT__.dur; }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function __mutA4__(){ const __mutT__ = { dur: 1 }; return __mutT__.dur; } function __mutA5__(){ return __mutT__.dur; }</script>' },
   { sec: '§A', name: '反向对照：外层函数声明、里层箭头函数用（合法闭包，应放行）', file: 'assets.html', expectGreen: true,
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA6__(){ const __mutT2__ = { dur: 1 }; return () => __mutT2__.dur; }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function __mutA6__(){ const __mutT2__ = { dur: 1 }; return () => __mutT2__.dur; }</script>' },
   { sec: '§A', name: '反向对照：表达式体箭头把自己的形参当基对象（应放行）', file: 'assets.html', expectGreen: true,
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function __mutA7__(){ const f = __mutT3__ => __mutT3__.dur; return f; }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function __mutA7__(){ const f = __mutT3__ => __mutT3__.dur; return f; }</script>' },
   /* ↓ 模块文件那一半（§A-2）。真实事故：assetlib.js 里 `readBlobWithProgress` 是
      `window.AssetTransfer` 的属性方法，而 `blobOf` 里写成了裸名调用 ——
      每一次「自动存本机」都抛 `readBlobWithProgress is not defined`，
@@ -88,8 +88,8 @@ const MUT = [
     anchor: 'window.Wb = {',
     to: 'function __mutCb(near, step) { return step(); }\n  window.Wb = {' },
   { sec: '§B', name: '模板串原始文本里写「块注释 + 反引号」', file: 'drama.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>var __mutB__ = `前缀 /* 注释里有个反引号 ` 后面`;</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>var __mutB__ = `前缀 /* 注释里有个反引号 ` 后面`;</script>' },
   { sec: '§C', name: '多出第二份 VOLATILE_Q 正则', file: 'ident.js',
     anchor: 'const VOLATILE_Q = /^(expires|signature',
     to: 'const VOLATILE_Q = /^(a|b)$/i; const LOCAL_VOLATILE_Q = /^(expires|signature' },
@@ -155,20 +155,20 @@ const MUT = [
       new Uint8Array(h.length / 2)（十六进制→文本）也照红了）；指纹太紧又查不出副本。
      每条变异都必须真的让对应那档变红，否则这一档就是摆设。 */
   { sec: '§J', name: '页面又抄了一份 base64→字节', file: 'favorites.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function b64Bytes(b){ const s=atob(b||\'\'); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a; }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function b64Bytes(b){ const s=atob(b||\'\'); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a; }</script>' },
   { sec: '§J', name: '「下载落点」那个选择器复活（注释里提到不算）', file: 'assets.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutJ = () => showSaveFilePicker();</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutJ = () => showSaveFilePicker();</script>' },
   { sec: '§J', name: '页面又自建了一份 toast()', file: 'chars.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>function toast(m){ const d=document.createElement("div"); d.textContent=m; document.body.appendChild(d); }</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function toast(m){ const d=document.createElement("div"); d.textContent=m; document.body.appendChild(d); }</script>' },
   { sec: '§J', name: 'Wb.fmtSize 又开始自己换算（不再委托 fmtBytes）', file: 'workbench.js',
     anchor: '    fmtSize(bytes) { return window.fmtBytes(bytes); },',
     to: "    fmtSize(bytes) { const u = ['B','KB','MB','GB']; let i = 0, v = Number(bytes); while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return (i ? v.toFixed(1) : v) + ' ' + u[i]; }," },
   { sec: '§J', name: '页面又自建了一份续拉（不走 Wb.pager.sentinel）', file: 'favorites.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>new IntersectionObserver(function () {});</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>new IntersectionObserver(function () {});</script>' },
 /* §J 的第 ⑦ 支（页面对 Wb.pager.create() 返回值的成员访问必须在 api 面上）要三个变异：
      A 公共层改个方法名 → 页面那几处调用点必须红（证明面是**现取**的，不是名单）；
      B 把坏写法 pager.fill(...) 放回去 → 红（这正是 2026-10 真实存在过的 bug）；
@@ -194,14 +194,14 @@ const MUT = [
    它们长得像但不是筛选芯片行，不该被算进来。没有这条对照，「§J 什么都报」和「§J 什么都不报」
    在驱动脚本里长得一模一样。 */
   { sec: '§J', name: '页面又自建了一份芯片行（拼 innerHTML 那种写法）', file: 'chars.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips1 = items => items.map(v => \'<button class="chip">\' + v + \'</button>\').join(\'\');</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutChips1 = items => items.map(v => \'<button class="chip">\' + v + \'</button>\').join(\'\');</script>' },
   { sec: '§J', name: '页面又自建了一份芯片行（createElement + className 那种写法）', file: 'favorites.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips2 = () => { const b = document.createElement("button"); b.className = \'chip\'; return b; };</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutChips2 = () => { const b = document.createElement("button"); b.className = \'chip\'; return b; };</script>' },
   { sec: '§J', name: '反向对照：.ai-chip / .ap-chip 是别的类名，不该算自建芯片行（应放行）', file: 'assets.html', expectGreen: true,
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutChips3 = () => \'<span class="ai-chip">x</span>\' + \'<span class="ap-chip">y</span>\';</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutChips3 = () => \'<span class="ai-chip">x</span>\' + \'<span class="ap-chip">y</span>\';</script>' },
 /* §J 的第 ⑧ 支（跨页复用载荷只有一份）要三个变异 + 一条反向对照：
      A 页面自己再拼一份载荷（写第二处 sk_reuse）→ 红；
      B 消费端多读一遍（读到第二次就已经被前一处删掉了，正是这个 bug 的形状）→ 红；
@@ -210,8 +210,8 @@ const MUT = [
    反向对照：注释里写一句 localStorage.setItem('sk_reuse', ...) 不该算第二处写入
    （与 ③ 的 showSaveFilePicker 同一套路，靠词法器剥注释才分得开「提到」与「真写」）。 */
   { sec: '§J', name: '页面又自己拼了一份跨页载荷（写入点变成两处，应红）', file: 'chars.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutReuse1 = p => { try { localStorage.setItem("sk_reuse", JSON.stringify(p)); } catch (e) {} };</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutReuse1 = p => { try { localStorage.setItem("sk_reuse", JSON.stringify(p)); } catch (e) {} };</script>' },
   { sec: '§J', name: '消费端把同一条载荷读两遍（读取点变成三处，应红）', file: 'studio.html',
     anchor: "  try { localStorage.removeItem('sk_reuse'); } catch (e) {}",
     to: "  try { localStorage.getItem('sk_reuse'); localStorage.removeItem('sk_reuse'); } catch (e) {}" },
@@ -230,8 +230,8 @@ const MUT = [
        （studio.html 正文里本来就有三句这样的说明文字，基线全绿靠的正是词法器剥注释 —— 没有这一条对照，
         「⑨ 第四头永远报 0」和「⑨ 第四头根本没在扫」在驱动脚本里长得一模一样）。 */
   { sec: '§J', name: '页面自己拼 /local-assets 落盘（绕过那一道去重，应红）', file: 'favorites.html',
-    anchor: '<script src="ai-chat.js"></script>',
-    to: '<script src="ai-chat.js"></script>\r\n<script>window.__mutLocal1 = p => Net.post("/local-assets", p);</script>' },
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.__mutLocal1 = p => Net.post("/local-assets", p);</script>' },
   { sec: '§J', name: '第三页也跟着藏云端成品（收藏 / 素材库故意不藏，应红）', file: 'chars.html',
     anchor: '  const pager = Wb.pager.create({',
     to: '  window.__mutHide = x => AssetLocal.hideAsCloud(x);\r\n  const pager = Wb.pager.create({' },
@@ -239,7 +239,7 @@ const MUT = [
     anchor: '  const st = AssetLocal.pull(it, {',
     to: '  const st = AssetLocal.pullX(it, {' },
   { sec: '§J', name: '「藏不藏」长出第二份判据（应红在定义数）', file: 'assets.html',
-    anchor: '<script src="ai-chat.js"></script>',
+    anchor: '<script src="assetlib.js"></script>',
     to: "<script src=\"ai-chat.js\"></script>\r\n<script>function hideAsCloud(o) { return !!o; }</script>" },
   { sec: '§J', name: '反向对照：注释里提到 /local-assets 不该算页面自拼路由（应放行）', file: 'favorites.html', expectGreen: true,
     anchor: '  const pager = Wb.pager.create({',

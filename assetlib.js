@@ -256,6 +256,85 @@ function topBoolValue(decl, on) {
   if (decl && decl.send) return on ? decl.send.on : decl.send.off;
   return !!on;
 }
+/* 「这一次请求的形状」（Capabilities 的 combo：{mode, intent}）决定某个声明字段成不成立。
+   判据只有这一份，界面画不画、默认值取哪一边、提交体发不发、报价体带不带都问它 ——
+   声明里写 `when: { intent: 'person_replacement' }`，值拿去和这一次的形状比，
+   所以页面与代理都不需要 `if (平台 id)`（AGENTS.md §2）。
+   没有形状声明的平台（combos 为空 → 这里收到 null / 空对象）一律「不隐藏、用普通默认值」，
+   行为与加这一档之前逐字相同。 */
+function whenMatches(when, ctx) {
+  if (!when || typeof when !== 'object' || !ctx) return false;
+  return Object.entries(when).every(([k, v]) => String(ctx[k] || '') === String(v));
+}
+/* 「这一次的形状能不能用某个**逐行能力**」不在 {mode, intent} 里，而在上游能力清单的**每一行**里：
+   VGENV 的 /v3/models 把 turbo 与 2x 超分写在 (tier × 这一批素材组合) 上（同一 chip 的八种素材组合里，
+   凡是带参考视频的那几种 turbo 一律 false；enhanced 档根本没有 2x），
+   所以「并起来这个型号有 turbo」不足以下结论 —— 得问**这一次**的那一行。
+   归一化把每一行存进 `combo.states[tier][素材组合键]`（见 NORM_SHAPES.vgenvConfigurations），
+   这里只认 `caps.<位名>` 这一种写法、读一次：界面画不画、提交发不发、报价带不带全问它。
+   caps 为 null（这一家没有逐行声明）或 known:false（这一档上游根本没列过这一组）都算**不提供** ——
+   宁可少一个开关，也不要发一个平台可能拒收的字段（这一家「未知字段会被拒绝」是实测过的）。 */
+function capsValue(caps, path) {
+  if (!caps || !caps.known || !path) return undefined;
+  return caps[String(path).replace(/^caps\./, '')];
+}
+function capsOffers(caps, path) {
+  const v = capsValue(caps, path);
+  return Array.isArray(v) ? v.length > 0 : v === true;
+}
+/* 「这一批素材种类」在上游逐行清单里的键：去重、按名字排序，再用一个 role 名里不可能出现的
+   分隔符连起来。归一化那一边（NORM_SHAPES 建 `combo.states`）与界面查这一档那一边
+   （Capabilities.shapeState）**必须用同一个函数** —— 两边各拼一次就会出现「清单里明明有这一行，
+   界面却查不到」，而症状是那个开关凭空不出现。 */
+function shapeRolesKey(roles) {
+  return [...new Set((roles || []).map(x => String(x || '')).filter(Boolean))].sort().join('\u0002');
+}
+/* `create.shapeFields`（超分档 / 随机种子 / 换人的动作起点这一类**顶层非布尔**字段）
+   「这一项在不在、给哪些值」的判据。与 topBoolState 同一层（模块顶层一份），
+   因为**页面画不画**与**提交体发不发**必须问同一个函数：
+   只在 Capabilities 上给一个方法、createBody 里再判一遍 intent 字符串，就会出现
+   「界面藏着、其实照样发出去了」（这一家未知字段直接被拒）。
+   · `only:{when,why}` = 只有这种请求形状才有这个字段（换人的动作起点发到普通生成是 422）
+   · `from:'caps.xxx'` = 取值清单来自**这一次的那一行能力**（Capabilities.shapeState），
+     那一行没给就整项不画、不发；`none` 是界面自己给的空值选项（空串不进任何请求体）。 */
+/* 「这一项为什么没有」有三种，不能只写两句：
+   ① 能力清单还没取到（加载期）→ 说「还在读」；
+   ② 取到了，但**这一行不在上游那份逐行清单里**（这一档要求的素材还没放齐，或手上这批的组合
+      上游根本没列过）→ 说「还看不出来」；
+   ③ 这一行确实没有这一项 → 才是「平台没给」。
+   把 ② 说成 ③ 就是替平台下结论：用户看到的是一句「这一档不支持」，
+   而真要做的事是把素材放齐 —— 与 AGENTS.md「能力声明回来之前不许说你没配」是同一类毛病。
+   两处判据（topBoolState / shapeFieldState）共用这一份，别再各写一套按键名取文案的分支。 */
+function whyNote(caps, d, missKey, unkKey, noKey) {
+  const k = !caps ? missKey : (caps.known === false ? unkKey : noKey);
+  return String(d[k] || d[noKey] || d[missKey] || '');
+}
+function shapeFieldState(decl, caps, ctx) {
+  const d = decl && typeof decl === 'object' ? decl : {};
+  if (d.only && !whenMatches(d.only.when, ctx)) return { shown: false, why: String(d.only.why || '') };
+  if (d.from) {
+    const v = capsValue(caps, d.from);
+    const values = Array.isArray(v) ? v.slice() : (v === undefined || v === null || v === false ? [] : [v]);
+    if (!values.length) return { shown: false, why: whyNote(caps, d, 'missingNote', 'unknownNote', 'emptyNote') };
+    return { shown: true, values, min: d.min, max: d.max, none: d.none || null };
+  }
+  return { shown: true, values: [], min: d.min, max: d.max, none: d.none || null };
+}
+function topBoolState(decl, ctx) {
+  const d = decl && typeof decl === 'object' ? decl : {};
+  const caps = (ctx && ctx.caps) || null;
+  /* `need: 'caps.xxx'` —— 这一项**存在**还要看这一档给不给（给不给是逐行能力，不是请求形状）。
+     说不给的原因有三句（加载期 / 这一行还没认出来 / 这一行确实没有），见 whyNote。 */
+  const needMiss = !!(d.need && !capsOffers(caps, d.need));
+  const hidden = needMiss || !!(d.hide && whenMatches(d.hide.when, ctx));
+  let def;
+  if (d.def && typeof d.def === 'object') def = whenMatches(d.def.when, ctx) ? d.def.then !== false : d.def.else === true;
+  else def = d.def !== false && !!d.def;
+  let note = '';
+  if (hidden) note = needMiss ? whyNote(caps, d, 'needMissingNote', 'needUnknownNote', 'needNote')
+    : String(d.hideNote || '');
+  return { hidden, def, note, needMiss };
+}
 (function () {
   let _reg = null;
   let _regTs = 0;
@@ -268,14 +347,30 @@ function topBoolValue(decl, on) {
   /* 跑着的 proxy.js 比这份页面代码旧 → 一次说清，别让「某个选项没出现」变成猜谜。
      （旧代理的能力声明停在老样子：例如生图的输出格式还被 forceOptions 锁成 png，
        界面就整块不显示，看着像功能坏了，其实重启一次就好了。每个标签页只提醒一次。） */
-  const PROXY_VERSION_MIN = 11;
-  /* 文案单独做成纯函数：好单测（页面里那条提示本身没什么分支，值不值得测的是这句话写没写清楚）。 */
+  const PROXY_VERSION_MIN = 16;
+  /* 文案单独做成纯函数：好单测（页面里那条提示本身没什么分支，值不值得测的是这句话写没写清楚）。
+      newest 的那一条排在最前面 —— 用户撞上的永远是这一版新加的那些声明没生效，
+     从最老的说起等于让他先去找一个和他无关的原因。 */
   function oldProxyNotice(version) {
     const v = Number(version || 0);
     if (!v || v >= PROXY_VERSION_MIN) return '';
     return '本地代理是旧版（v' + v + '，这一版页面要 v' + PROXY_VERSION_MIN + '）：部分能力声明不会生效'
-      + '（最明显的是设置页「添加自定义供应商」登记的那几家——旧代理不读 .data/sk_custom.json，'
-      + '各工作台的型号下拉里根本不会出现那一家；文字 AI 那一类在旧代理上也会被当成「找不到模板」丢掉）。'
+      + '（v16 起注册表**不再下发任何一份写死的文字型号清单**（全部改名 modelDocs）：'
+      + '型号清单一律来自平台自己的 /models，取回的落进 .data/sk_model_prefs.json。'
+      + '旧代理还会把那份写死的清单当「型号有哪些」发过来，于是设置页那张清单列的是它、'
+      + '型号下拉里没有它，点下去报「不在下拉的选项里」；'
+      + 'v15 起「这一档到底给不给」多了一层**逐行能力**：VGENV 的 Turbo 与成片 2x 超分写在'
+      + '(画质档 × 手上这批素材种类) 上，旧代理没有那份逐行清单，界面上这两项不会出现；'
+      + '同一版还把随机种子与「动作起点（秒）」做成声明式的顶层字段（`create.shapeFields`），'
+      + '旧代理不认识就整块不画；「动作换人」那一档也不再声明成「根本不询价」，'
+      + '旧代理会对着报价接口发一次注定被平台拒的请求，把「这一档不问价」显示成一句失败；'
+      + '同一版还按平台文档给 VGENV 带上了幂等键 —— 旧代理不带，超时后既不敢重试也挡不住重复扣费。'
+      + '再往前：v14 起「每一种素材收什么文件、单个多大」写在注册表的 `roleRules` 里，'
+      + '旧代理没有这一份，界面上那两行规矩会整块消失；v13 起型号清单也不在本地兜底，'
+      + '旧代理不读 .data/sk_model_prefs.json，所以在设置页「自己填的型号」'
+      + '与「隐藏 / 展示」在工作台里完全不生效，下拉里还是它自己那份写死的清单；'
+      + '设置页「添加自定义供应商」登记的那几家也是旧代理才要读 .data/sk_custom.json，'
+      + '文字 AI 那一类在更旧的代理上还会被当成「找不到模板」丢掉）。'
       + '请重启 proxy.js（启动.bat → 2 停止 → 1 启动）后刷新页面。';
   }
   function warnOldProxy(reg) {
@@ -650,9 +745,9 @@ function topBoolValue(decl, on) {
     },
     customSet(list) { localStorage.setItem('sk_custom', JSON.stringify(list || [])); },
     customId() { return 'cus-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); },
-    /* 删掉一家：清单里那条 + 它名下的密钥 / 停用勾选 / 万一存过的地址 / 自己填的型号一起清。
+    /* 删掉一家：清单里那条 + 它名下的密钥 / 停用勾选 / 万一存过的地址 / 型号偏好一起清。
        只删清单会留下 `sk_key_cus-xxx` 这种没人认领的死数据，而且它跟着云同步出网。
-       sk_text_models_ 以前没清：删掉之后它那份自填型号还留在盘上，而 keyId(null) 会兜底成
+       自填型号那一格以前没清：删掉之后它那份型号还留在盘上，而 keyId(null) 会兜底成
        'deepseek'，于是这份死数据在别处被读出来时表现成「别家凭空多出几个我填过的型号」。 */
     customDrop(id) {
       this.customSet(this.customList().filter(e => e && e.id !== id));
@@ -660,7 +755,11 @@ function topBoolValue(decl, on) {
          `sk_model_` 是漏掉过的那一个（L41）：设置页「保存全部设置」按 `sk_model_<keyId>` 存
          型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
-      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_text_models_', 'sk_model_'].forEach(p => localStorage.removeItem(p + id));
+      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => localStorage.removeItem(p + id));
+      /* 「自己填的型号」与「隐藏了哪几个」现在住在同一份 `sk_model_prefs` 里、按 keyId 分格，
+         所以这里按格子摘，而不是再往 `sk_text_models_<id>` 上删一次 —— 那个键已经并进新键了，
+         留着一条删除路径等于承认还有两处记录。 */
+      if (window.ModelPrefs) window.ModelPrefs.drop(id);
     },
     /* 端点 URL：端点名 → relay + 模板（{id} 用 sub 替换） */
     url(prov, name, sub) {
@@ -845,7 +944,13 @@ function topBoolValue(decl, on) {
         /* size = 「宽x高」那一类画幅参数（SiliconFlow 的 image_size、OpenAI 兼容的 size）。
            与 ar（比例写法）是两种东西：平台在 create.body 里把 size 映射到自己的字段名即可，
            页面不按平台 id 分支。 */
-        size: f.size };
+        size: f.size,
+        /* creation_intent = 「这一次要的是什么形状的请求」（VGENV 的动作换人是 person_replacement）。
+           它和 mode 一样是**请求形状**而不是开关，但它**是一个真的上游字段**（要进提交体），
+           所以走 body 映射；mode 不是字段（平台按送上来的素材自己推断），它只当声明的上下文，
+           写在 f.shape 里、不进提交体 —— 这一家「未知字段会被拒绝」，多塞一个 mode 就是 400。 */
+        creation_intent: f.creation_intent };
+      const shape = f.shape || {};
       const body = {};
       Object.entries(spec.body || {}).forEach(([k2, src]) => {
         const v = std[src];
@@ -870,12 +975,35 @@ function topBoolValue(decl, on) {
          没声明的照旧进嵌套对象 —— 两类字段不能混，混了平台会拒。 */
       if (f.params && typeof f.params === 'object') {
         const tops = (spec.topBools || {});
-        const keys = Object.keys(f.params).filter(k => f.params[k] !== undefined && f.params[k] !== null);
+        const shps = (spec.shapeFields || {});
+        /* 判「这一项存不存在」的上下文只有一份：形状（mode + creation_intent）+ **这一次的那一行能力**。
+           `caps` 由页面按 Capabilities.shapeState 现算递进来 —— 不递的话
+           声明了 `need:'caps.xxx'` 的开关会被判成「不提供」，界面已经把开关画出来了、
+           提交体却把它漏掉（两边各判一半，比都不判更难查）。 */
+        const sctx = { mode: shape.mode, intent: std.creation_intent, caps: shape.caps || null };
+        /* `mode` 是**界面上的「输入模式」名**，不是任何一个平台的请求字段（VGENV 明确说
+           「未知字段会被拒绝」，而它的请求字段表里没有 mode —— 它按送上来的素材自己推断）。
+           它只当声明的上下文用（见上面 f.shape），所以在这里从「原样发给上游」那一批里摘掉。
+           哪一家真的收 mode 字段，就在 create.body / nest 里点名映射，不靠这一条兜底。
+           空串同样不发：`shapeFields` 里「不超分」「不设种子」交给界面的就是空值，
+           而这一家「未知字段会被拒」——发 `upscale:""` 比不发更糟（与上面 body 映射同一口径）。 */
+        const keys = Object.keys(f.params).filter(k => k !== 'mode'
+          && f.params[k] !== undefined && f.params[k] !== null && f.params[k] !== '');
         if (keys.length) {
           const rest = [], o = {};
           keys.forEach(k => {
-            if (Object.prototype.hasOwnProperty.call(tops, k)) body[k] = topBoolValue(tops[k], f.params[k]);
-            else rest.push(k);
+            if (Object.prototype.hasOwnProperty.call(tops, k)) {
+              /* 这一次请求的形状（页面从 Capabilities.combo 原样递到 f.shape）
+                 可能让某个开关**根本不存在**：VGENV 的动作换人由平台自动分析素材，
+                 显式发 {mode:'raw'} 会被拒（422 PERSON_REPLACEMENT_ANALYSIS_REQUIRED）。
+                 所以隐藏的那一项一个字都不发，让它回到平台默认 —— 比发一个会被拒的值诚实。 */
+              if (!topBoolState(tops[k], sctx).hidden) body[k] = topBoolValue(tops[k], f.params[k]);
+            } else if (Object.prototype.hasOwnProperty.call(shps, k)) {
+              /* 顶层非布尔字段同样按声明过滤：`only.when` 不成立（动作起点发到普通生成 = 422）、
+                 或 `from:'caps.xxx'` 那一行没给这个值，都一个字不发。
+                 值本身不转换 —— 页面按 kind 交过来的就是数或字符串，这里再兜一份等于第二份口径。 */
+              if (shapeFieldState(shps[k], sctx.caps, sctx).shown) body[k] = f.params[k];
+            } else rest.push(k);
           });
           if (rest.length) {
             const parent = Object.keys(spec.nest || {})[0];
@@ -2768,23 +2896,110 @@ const MIME_SHORT = {
 /* 上游 models 响应**不是**「parameters 对象」那种形状时的归一化，一处一种。
    注册表用 `modelsShape: '<键>'` 点名，按形状而不是按平台 id 分派（换一家同形状的厂商不用改代码）。 */
 const NORM_SHAPES = {
-  /* VGENV /v3/models：{ id, object, configurations:[ { tier, mode, duration:{min,max,default},
-     resolutions:[], default_resolution, aspect_ratios:[], default_aspect_ratio, upscale,
-     inputs:{role:{min,max}}, turbo } ] }
+  /* VGENV /v3/models：{ id, object, configurations:[ { tier, mode, creation_intent,
+     duration:{min,max,default}, resolutions:[], default_resolution, aspect_ratios:[], default_aspect_ratio,
+     upscale, inputs:{role:{min,max}}, turbo } ] }
      每一项 configuration 就是「一档完整组合」，所以把各档**并起来**才是这个型号的可用范围
-     （分辨率/比例取并集、时长取 min..max 的并集、默认值取第一档带 default 的那个）。 */
-  vgenvConfigurations(m) {
+     （分辨率/比例取并集、时长取 min..max 的并集、默认值取第一档带 default 的那个）。
+     ⚠ 并集只用来回答「这个型号总共能干什么」；「一次请求能同时用哪些素材」是另一件事 ——
+     上游把答案写在 `mode` + `creation_intent` 这一对键上（同一次的各档只有 tier/时长不同，
+     输入角色完全一致），所以这里**同时**按这一对键归并出 `combos`，界面拿它当「输入模式」。 */
+  vgenvConfigurations(m, prov) {
     const cfgs = Array.isArray(m && m.configurations) ? m.configurations : [];
     if (!cfgs.length) return null;
     const uniq = a => [...new Set(a.filter(x => x !== undefined && x !== null && x !== ''))];
-    const durs = uniq(cfgs.map(c => c.duration && [c.duration.min, c.duration.max].filter(v => v != null).join('-')).filter(Boolean));
+    /* 上游的 role 写法与本项目内部名只有这一处不一致：`reference` = 参考图。
+       提交模板（create.inputTemplates.reference_image）、互斥分组（ROLE_GROUP）、统一选择器
+       全按 `reference_image` 走，所以**在这个形状里翻一次**，往上不出现上游的写法。 */
+    const canon = r => (r === 'reference' ? 'reference_image' : String(r));
+    /* 上游把「不超分」也写成一个值（`upscale: "none"`），它不是一个档位。
+       以前 `if (c.upscale)` 把它一起收进清单，界面上就多出一个「none」选项。 */
+    const isUpLevel = v => !!v && String(v) !== 'none';
+    /* 这一行**接受**的那几类素材（不收的 role 上游也列出来，写 max:0）。
+       键只用「接受哪些 role」，不看数量 —— 实测同一个 (tier, role 集合) 的多行只在 upscale 上不同，
+       min / max / duration / resolutions / aspect_ratios 完全一致（2026-10 全 204 行逐行核过）。
+       **这个键由这里生成一次**，界面查这一档时也走 shapeRolesKey 同一份，两边不会漂。 */
+    const acceptedOf = c => Object.entries(c.inputs || {})
+      .filter(([, r]) => Number(r && r.max) > 0).map(([k]) => canon(k)).sort();
+    /* 「收什么文件、单个多大」上游 /v3/models 根本不给（它只给数量），所以这两条规矩写在
+       注册表的平台级 `roleRules` 里，归一化时并进每一条输入规格 —— 界面不必按平台 id 找补。
+       写在平台级而不是型号级：v13 起注册表不再按型号列清单，`models[].inputRoles` 已删。 */
+    const rules = (prov && prov.roleRules) || {};
+    const buckets = new Map();
+    cfgs.forEach(c => {
+      const intent = c.creation_intent ? String(c.creation_intent) : '';
+      const id = intent ? String(c.mode || '') + '|' + intent : String(c.mode || '');
+      let b = buckets.get(id);
+      if (!b) { b = { id, mode: String(c.mode || ''), intent, roles: new Map(),
+        _t: new Set(), _r: new Set(), _a: new Set(), _u: new Set(),
+        _min: null, _max: null, turbo: false, defaults: {}, _rows: new Map() }; buckets.set(id, b); }
+      if (c.tier) b._t.add(c.tier);
+      (c.resolutions || []).forEach(x => b._r.add(x));
+      (c.aspect_ratios || []).forEach(x => b._a.add(x));
+      if (isUpLevel(c.upscale)) b._u.add(c.upscale);
+      if (c.turbo === true) b.turbo = true;
+      /* 逐行能力：键 = tier + 这一行的素材组合。同一键出现两行 = 一行 none 一行 2x，
+         所以这里把 upscale **并起来**（2x 有就是有），turbo 同一键下只会是一个值（实测无冲突）。 */
+      const tier = String(c.tier || '');
+      const rk = shapeRolesKey(acceptedOf(c));
+      const rowKey = tier + '\u0001' + rk;
+      let row = b._rows.get(rowKey);
+      if (!row) { row = { tier, rolesKey: rk, turbo: c.turbo === true, _u: new Set() }; b._rows.set(rowKey, row); }
+      if (isUpLevel(c.upscale)) row._u.add(c.upscale);
+      const d = c.duration || {};
+      if (d.min != null) b._min = b._min === null ? d.min : Math.min(b._min, d.min);
+      if (d.max != null) b._max = b._max === null ? d.max : Math.max(b._max, d.max);
+      /* 默认值取这一组里**第一条带 default 的**：同组各档只有 tier 不同，默认值是一样的 */
+      if (b.defaults.duration === undefined && d.default != null) b.defaults.duration = d.default;
+      if (!b.defaults.resolution && c.default_resolution) b.defaults.resolution = c.default_resolution;
+      if (!b.defaults.aspect_ratio && c.default_aspect_ratio) b.defaults.aspect_ratio = c.default_aspect_ratio;
+      if (!b.defaults.tier && c.tier) b.defaults.tier = c.tier;
+      Object.entries(c.inputs || {}).forEach(([role, r]) => {
+        const key = canon(role);
+        const hit = b.roles.get(key) || { role: key, min: Infinity, max: 0 };
+        hit.min = Math.min(hit.min, Number(r && r.min) || 0);
+        hit.max = Math.max(hit.max, Number(r && r.max) || 0);
+        b.roles.set(key, hit);
+      });
+    });
+    /* 把这一档攒下的逐行归并成一份**纯 JSON**（`{ tier: { 素材组合键: { turbo, upscale } } }`）：
+       Set 与 Map 进不了 localStorage / 代理的缓存，界面也拿不到；键只用字符串。 */
+    const statesOf = b => {
+      const o = {};
+      b._rows.forEach(r => {
+        const t = o[r.tier] || (o[r.tier] = {});
+        t[r.rolesKey] = { turbo: r.turbo, upscale: [...r._u].sort() };
+      });
+      return o;
+    };
+    const combos = [...buckets.values()].map(b => ({
+      id: b.id, mode: b.mode, intent: b.intent,
+      /* max 为 0 的 role 是「这一档根本不接受这种素材」，不是「能收 0 个」——
+         上游在每一条 configuration 里把五个 role 全列出来，不收的写 max:0。 */
+      roles: [...b.roles.values()].filter(x => x.max > 0).map(x => ({ role: x.role, min: Math.max(0, x.min === Infinity ? 0 : x.min), max: x.max })),
+      tiers: [...b._t], resolutions: [...b._r], aspect_ratios: [...b._a], upscale: [...b._u],
+      /* 逐行能力：`states[tier][素材组合键] = { turbo, upscale:[…] }`。
+         为什么要到「这一 tier × 这一批素材」这么细：实测同一 chip 里凡是带参考视频的那几种组合
+         turbo 一律 false，而 enhanced 档根本没有 2x —— 「这个型号总共有 turbo」是真话，
+         「这一次能用 turbo」却是另一件事，界面按前者画开关、提交就按后者发，会被平台拒。
+         全 204 行里没有 (tier × 素材组合) 的空档，所以查不到键只可能是「素材还没选齐 / 选了清单外的一批」。 */
+      states: statesOf(b),
+      turbo: b.turbo, durations: (b._min != null && b._max != null && b._max >= b._min) ? [b._min, b._max] : undefined,
+      defaults: b.defaults,
+    }));
+    /* 「一次都不带素材」那一档排在最前：界面上的默认模式就该是它（用户没放素材时
+       提交的就是纯文字生成），放最后会让下拉一进来就选中一个他还没备齐素材的模式。 */
+    combos.sort((x, y) => (x.roles.length ? 1 : 0) - (y.roles.length ? 1 : 0));
     const cap = {
       tiers: uniq(cfgs.map(c => c.tier)),
       resolutions: uniq(cfgs.map(c => c.resolutions || []).flat()),
       aspect_ratios: uniq(cfgs.map(c => c.aspect_ratios || []).flat()),
-      upscale: uniq(cfgs.map(c => c.upscale)).filter(Boolean),
+      /* 型号总表的 upscale = 各档的**并集**（回答「这个型号总共能不能超分」）；
+         「这一次能不能」在 states 里，界面按那一行的读数画选项。`"none"` 不是档位，别收进来。 */
+      upscale: uniq(cfgs.map(c => c.upscale).filter(isUpLevel)),
       turbo: cfgs.some(c => c.turbo === true),
       modes: uniq(cfgs.map(c => c.mode)),
+      combos,
     };
     /* 时长：上游给的是 {min,max} 区间，我们内部按 [min,max] 存 */
     const mins = cfgs.map(c => c.duration && c.duration.min).filter(v => v != null);
@@ -2797,27 +3012,204 @@ const NORM_SHAPES = {
     if (c0.default_aspect_ratio) defs.aspect_ratio = c0.default_aspect_ratio;
     if (c0.tier) defs.tier = c0.tier;
     if (Object.keys(defs).length) cap.defaults = defs;
-    /* 输入槽位：各档 inputs 的并集（上游给的是 {role: {min,max}} 而不是数组） */
-    const roles = {};
-    cfgs.forEach(c => Object.entries(c.inputs || {}).forEach(([role, r]) => {
-      const mx = Number(r && r.max) || 0;
-      if (mx > (roles[role] || 0)) roles[role] = mx;
+    /* 输入规格：各模式的**并集**（modelsFor / 素材跨页 / providerLimit 这些不知道用户选了哪个模式，
+       只能按「这个型号总共收不收这种素材」判）；每一角色记下它属于哪些模式，
+       界面上的「输入模式」切换与「这一档不收」的说明都读 combos。 */
+    const bag = new Map();
+    combos.forEach(cb => cb.roles.forEach(r => {
+      const hit = bag.get(r.role) || { role: r.role, min: Infinity, max: 0, modes: [] };
+      hit.min = Math.min(hit.min, r.min);
+      hit.max = Math.max(hit.max, r.max);
+      if (!hit.modes.includes(cb.id)) hit.modes.push(cb.id);
+      bag.set(r.role, hit);
     }));
-    const spec = [];
-    Object.entries(roles).forEach(([role, max]) => spec.push({ role, media_type: '', min: 0, max }));
-    if (spec.length) cap.inputRoles = spec;
+    const spec = [...bag.values()].map(sp => {
+      const d = rules[sp.role] || {};
+      return { role: sp.role, media: d.media || '', min: Math.max(0, sp.min === Infinity ? 0 : sp.min), max: sp.max,
+        accept: d.accept || '', maxBytes: d.maxBytes || 0, modes: sp.modes };
+    });
+    if (spec.length) cap.inputSpecs = spec;
+    let maxRef = 0;
+    spec.forEach(sp => { if (sp.role === 'reference_image') maxRef = Math.max(maxRef, sp.max); });
+    if (maxRef) cap.max_ref_images = maxRef;
     return cap;
   },
 };
+/* ============================================================================
+   ModelPrefs —— 「这一家有哪些型号、哪一个被藏起来」的唯一一份本机记录
+   ----------------------------------------------------------------------------
+   一条 keyId 一份 `{ typed:[手填的 id], off:[被勾掉「隐藏」的 id] }`，整包存 `sk_model_prefs`
+   （ui.js 的 DataSync 按 `sk_model_` 前缀镜像成 `.data/sk_model_prefs.json`，代理在 allProviders()
+   里把它并进注册表 —— 所以「藏起来的型号在工作台消失」这件事不需要每个页面各判一遍）。
+
+   为什么要有 typed：v13 起注册表不再写死型号清单。有型号接口的家（SparkCine / VGENV / MiMo）
+   清单现取；没有的（MiniMax 视频与语音、硅基流动、智谱 —— 它们的 /models 只列**对话**模型，
+   接上去只会把视频台变成聊天模型下拉）就只能由用户自己填 id。
+   为什么要有 off：现取的清单动辄上百个型号（硅基流动 160+、vgenv 一整排档位），
+   「这一家我只用两个」以前没有出口 —— 只能整个停用这一家（`sk_off_`），那是把密钥与历史一起停了。
+
+   三条硬约定（都是本项目踩过的那一类）：
+   ① **每个读写口都要先认出 keyId**（`of()` 里的判据），认不出就返回空 / 不写。
+      以前 `keyId(null)` 会兜底成 'deepseek'，于是「填在 OpenRouter 的型号跑到另一家」；
+   ② **旧键 `sk_text_models_<kid>` 一次性搬进来**（`migrate`），搬完就把旧键删掉 ——
+      留着会变成「同一个概念两份记录」，谁新谁旧没人说得清。
+      `migrate` 由 `ui.js` 在 **DataSync 对账之后**调一次，不在模块加载时跑（顺序反了会被对账拉回来）；
+   ③ 界面要判「这个型号藏了没」只问 `isOff()` 一处，别在页面里再 `getItem('sk_model_prefs')` 数一遍。
+   ========================================================================== */
+window.ModelPrefs = {
+  KEY: 'sk_model_prefs',
+  LEGACY_PREFIX: 'sk_text_models_',
+  _raw() {
+    try {
+      const v = JSON.parse(localStorage.getItem(this.KEY) || '{}');
+      return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+    } catch { return {}; }             // 读坏了就当没勾过，绝不拿脏数据当写入底座
+  },
+  /* 认出这一家：与 TextAI.hasProv 同一条判据（认不出就不读写，宁可不加也不能写到别家去）。 */
+  kid(prov) { const k = prov && (prov.keyId || prov.id); return k ? String(k) : ''; },
+  of(prov) {
+    const k = this.kid(prov);
+    if (!k) return { typed: [], off: [], got: [] };
+    const e = this._raw()[k] || {};
+    const list = a => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean) : []);
+    /* got = 「这一家的接口给过哪些型号」，落盘的一份。
+       为什么必须落盘：以前它只活在设置页的内存 Map 里，于是
+       ① 刷新一次那张清单就空了，界面上写着「这一家一个型号都还没有」；
+       ② 别的页面（AI 助手的型号下拉）根本没有这份数据，只能看见自己填的那一两个。
+       存 `{id, name}` 而不是光存 id：名字是接口给的，重新取一次不一定还带着，
+       而清单上只有一串 id 时谁也认不出那是哪个型号。 */
+    const got = (Array.isArray(e.got) ? e.got : [])
+      .map(m => (m && typeof m === 'object'
+        ? { id: String(m.id || '').trim(), name: String(m.name || '').trim() }
+        : { id: String(m || '').trim(), name: '' }))
+      .filter(m => m.id);
+    return { typed: list(e.typed), off: list(e.off), got };
+  },
+  typed(prov) { return this.of(prov).typed; },
+  got(prov) { return this.of(prov).got; },
+  /* 取回来的型号清单存下来（按 id 合并，**保留先到的那份名字**）。
+     合并而不是整份替换：分页/多次取回、或用户手填的那几条不能被一次重取抹掉。
+     不设条数上限 —— 滚动框就是为「很多条」准备的。 */
+  setGot(prov, list) {
+    if (!this.kid(prov)) return this.got(prov);
+    const cur = this.of(prov).got;
+    const map = new Map(cur.map(m => [m.id, m]));
+    (Array.isArray(list) ? list : []).forEach(m => {
+      const id = String((m && m.id) || m || '').trim();
+      if (!id) return;
+      const name = String((m && m.name) || '').trim();
+      const old = map.get(id);
+      map.set(id, { id, name: name || (old ? old.name : '') });
+    });
+    const all = [...map.values()];
+    this._set(prov, { got: all });
+    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    return all;
+  },
+  isOff(prov, id) {
+    const s = String(id || '');
+    return !!s && this.of(prov).off.includes(s);
+  },
+  _set(prov, patch) {
+    const k = this.kid(prov);
+    if (!k) return false;                       // 认不出这一家就不写：见上面第 ① 条
+    const all = this._raw();
+    const cur = all[k] || {};
+    /* 三个字段**都要**先带出来再打 patch：早先这里只带 typed 与 off，
+       于是 setOff(勾一下「展示」) 会把同一格里的 got 整份抹掉 ——
+       表现为「我刚获取的型号列表，勾了一下就没了」，而勾选与获取看着毫无关系。 */
+    all[k] = Object.assign({ typed: cur.typed || [], off: cur.off || [], got: cur.got || [] }, patch);
+    try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch {}
+    return true;
+  },
+  addTyped(prov, id) {
+    const s = String(id || '').trim();
+    if (!s) return this.typed(prov);
+    const t = this.typed(prov);
+    if (!t.includes(s)) t.push(s);
+    /* **不设条数上限**（以前是 `t.slice(-200)`，那行是「防 localStorage 写爆」想出来的，
+       但它砍掉的是**最早的**那几条 —— 而那几条恰恰是用户最先手填、最可能还在用的。
+       症状不像「存不下」，像「我填过的型号莫名少了几条」，而且没有任何提示。
+       真要担心体积，滚轮条就是答案：设置页那块清单限高自滚，几百条也只占一屏。 */
+    this._set(prov, { typed: t, off: this.of(prov).off.filter(x => x !== s) });
+    /* 手填一次就把代理那份注册表缓存抵掉：不抵的话「填了型号，下拉里没有」要等到 60 秒缓存过期，
+       而这一页的用户刚做完添加动作，那句话看起来就像填错了地方。 */
+    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    return this.typed(prov);
+  },
+  removeTyped(prov, id) {
+    const s = String(id || '');
+    this._set(prov, { typed: this.typed(prov).filter(x => x !== s), off: this.of(prov).off.filter(x => x !== s) });
+    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    return this.typed(prov);
+  },
+  setOff(prov, id, off) {
+    const s = String(id || '');
+    if (!s) return;
+    /* 文字 AI 不记「藏起来」：那一档的型号清单是**单选**（选中的那个就是全站润色模型），
+       界面上根本没有勾选框 —— 藏了就是藏了没人看得见、也勾不回来。
+       而下拉仍然按 isOff 筛（同一个判据），于是一条被藏住的文字型号会：
+       画在设置页那张清单里，点下去却报「不在下拉的选项里」。
+       挡住写入口，这一类就再也不会产生「藏得住、看不见」的记录。 */
+    if (off && prov && prov.kind === 'text') return;
+    const list = this.of(prov).off.filter(x => x !== s);
+    if (off) list.push(s);
+    this._set(prov, { off: list });
+    /* 与 addTyped 同一件事：藏/展示改的是「注册表里那一份 models」，而浏览器与代理都缓存着它。
+       不抵掉的话「勾掉了，工作台下拉里它还挂着」要等到 60 秒，而这一页刚点完的人只会以为没生效。 */
+    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+  },
+  /* 一家整个从本机消失时（设置页删掉自定义那一家）把它名下的记录摘掉，
+     不然死数据跟着云同步出网，换台机器还多出一份没人认领的清单。 */
+  drop(keyId) {
+    const k = String(keyId || '');
+    if (!k) return;
+    const all = this._raw();
+    if (!(k in all)) return;
+    delete all[k];
+    try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch {}
+  },
+  /* 旧键 `sk_text_models_<kid>`（文字 AI 那份「自己填的型号」）搬进 typed。
+     只在模块装好时跑一次：搬完删旧键（localStorage 的 removeItem 会经 DataSync 变成
+     DELETE /data/<键>，服务端那份也跟着没 —— 留着就是「两个键都说这一家自己填了什么」）。
+     新键里已经有这一家时**不搬**（以新键为准）：万一旧键是另一台机器同步回来的陈旧值，
+     拿它覆盖本机刚填的那一批就是倒退。 */
+  migrate() {
+    const moved = [];
+    let all = null;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith(this.LEGACY_PREFIX)) continue;
+        const kid = key.slice(this.LEGACY_PREFIX.length);
+        if (!kid) continue;
+        let old = [];
+        try { const v = JSON.parse(localStorage.getItem(key) || '[]'); old = Array.isArray(v) ? v.map(String) : []; } catch {}
+        all = all || this._raw();
+        const cur = (all[kid] || {}).typed || [];
+        const merged = [...new Set(cur.concat(old.map(x => x.trim()).filter(Boolean)))];
+        if (merged.length !== cur.length || JSON.stringify(merged) !== JSON.stringify(cur)) all[kid] = Object.assign({}, all[kid], { typed: merged });
+        localStorage.removeItem(key);
+        moved.push(kid);
+      }
+    } catch { return moved; }              // localStorage 不可用（隐私模式）：什么都不动
+    if (moved.length) { try { localStorage.setItem(this.KEY, JSON.stringify(all || {})); } catch {} }
+    return moved;
+  },
+};
+/* `migrate()` **不在这里跑**：由 `ui.js` 的 DataSync 对账之后调一次（见那里 `afterSynced`）。
+   在这里跑等于「先删旧键、再去对账」—— boot 看见服务器有本地没有会把它拉回来，
+   每次开页面重复一遍拉回 / 删掉，还在 `.data/` 留一串 `.bak`。 */
+
 window.Capabilities = {
   /* 把上游 models 结构归一化成前端用的 options。
      `shape`：注册表用 `modelsShape` 点名一种**形状**（不是平台 id），
      由下面的 NORM_SHAPES 接住 —— 上游形状不是「parameters 对象」的那种
      （VGENV 的 /v3/models 是 configurations 数组，一项一档组合），
      归一化得按形状走，不能把 `parameters` 当对象硬读（读到空 → 整块能力消失）。 */
-  norm(m, shape) {
+  norm(m, shape, prov) {
     const custom = shape && NORM_SHAPES[shape];
-    if (custom) return Object.assign({ source: 'api' }, custom(m) || {});
+    if (custom) return Object.assign({ source: 'api' }, custom(m, prov) || {});
     const P = m.parameters || {};
     const av = k => (P[k] && Array.isArray(P[k].allowedValues)) ? P[k].allowedValues.slice() : undefined;
     const rng = k => (P[k] && P[k].minimum !== undefined) ? [P[k].minimum, P[k].maximum] : undefined;
@@ -2927,9 +3319,13 @@ window.Capabilities = {
     if (api.length) {
       api.forEach(sp => {
         const d = (declared && declared[sp.role]) || null;
+        /* accept / maxBytes 两条规矩**先读声明再读 model.inputRoles**：v13 起注册表不再按型号写
+           inputRoles，文件类型与单文件体积改在平台级 `roleRules` 声明，归一化时并到每一条规格上
+           （见 NORM_SHAPES.vgenvConfigurations）。以前这一行只从 d 取，于是「接口给了 role、
+           注册表没按型号声明」时界面上「收什么文件 / 单个多大」整块消失 —— 那是白丢的规矩。 */
         out.set(sp.role, { role: sp.role, media: sp.media || (d && d.media) || '',
           min: sp.min || 0, max: (d && d.max) || sp.max || 1,
-          accept: (d && d.accept) || '', maxBytes: (d && d.maxBytes) || 0,
+          accept: sp.accept || (d && d.accept) || '', maxBytes: sp.maxBytes || (d && d.maxBytes) || 0,
           group: this.groupOf(sp.role, d || sp), modes: (sp.modes || []).slice(), src: d ? 'both' : 'api' });
       });
       return this._memoSpecs(model, o, [...out.values()]);
@@ -2968,12 +3364,84 @@ window.Capabilities = {
     if (model && typeof model === 'object') this._specsMemo.set(model, { opts, specs });
     return specs;
   },
+  /* ---- 「输入模式」：一次请求的形状 ----
+     specs() 回答的是「这个型号总共收哪些素材」，而**一次**能同时用哪些是另一件事：
+     VGENV 把答案写在 /v3/models 的 (mode, creation_intent) 上（首尾帧与参考素材互斥、
+     「动作换人」只收一条参考视频 + 恰好一张人物图），归一化成 options.combos 交到这里。
+     没有这一份的平台（能力接口不区分请求形状，或根本没给）combos() 返回空数组 ——
+     界面就不画那一排模式芯片，继续按 group 的互斥判据把槽位置灰，行为一字不变。 */
+  combos(model) {
+    const o = (model && model.options) || {};
+    return Array.isArray(o.combos) ? o.combos : [];
+  },
+  comboOf(model, id) { return id ? (this.combos(model).find(c => c.id === id) || null) : null; },
+  /* 这一个模式接受哪些 role；没有任何模式声明时返回 null（= 不按模式过滤）。
+     只有一份判据：界面渲染槽位、拖拽落点、就绪判定都问它，不许在页面里自己比 mode 字符串。 */
+  comboRoles(model, id) {
+    const cb = this.comboOf(model, id);
+    return cb ? new Set(cb.roles.map(r => r.role)) : null;
+  },
+  /* 当前模式下这一组参数的**取值范围与默认值**：有模式声明就按那一档的，
+     没有就退回型号总表。平台在换人档里只给 768p / 没有 2x，界面就只给 768p ——
+     页面不许另写一句「选了换人就少几个档」（那是第二份判据）。 */
+  scopedOptions(model, id) {
+    const base = (model && model.options) || {};
+    const cb = this.comboOf(model, id);
+    if (!cb) return base;
+    const o = Object.assign({}, base);
+    ['tiers', 'resolutions', 'aspect_ratios', 'upscale', 'durations'].forEach(k => {
+      if (cb[k] !== undefined && cb[k] !== null) o[k] = cb[k];
+    });
+    if (cb.defaults) o.defaults = Object.assign({}, base.defaults || {}, cb.defaults);
+    return o;
+  },
+  /* 某个声明字段（create.topBools 里那几项）在**这一次的形状**下成不成立：{ hidden, def, note }。
+     判据只在模块顶层那一份（topBoolState），这里只是对外的入口 ——
+     页面不许自己比 intent 字符串（那是第二份判据，一定会和提交体的过滤漂开）。 */
+  fieldState(decl, ctx) { return topBoolState(decl, ctx || null); },
+  /* ---- 「这一次的那一行」：逐行能力 ----
+     VGENV 把 turbo 与 2x 超分写在 (tier × 这一批素材组合) 上，实测同一个模式里：
+     带参考视频的那几种组合 turbo 一律 false；enhanced 档没有 2x；而 quality 档与换人档又给 turbo。
+     所以「这个型号总共有没有 turbo」（options.turbo，并集）**回答不了**「这一次能不能用」——
+     按并集画开关、按并集发字段，就会被平台以未知/不支持的组合拒掉。
+     这份判据只在这里算一次，界面画不画、提交发不发、报价带不带全问它。
+     返回 `{ known, perRow, turbo, upscale }`：
+     · `perRow:false` = 这一家没有逐行清单（combos 里没有 states）→ 退回型号总表的并集，
+       行为与加这一档之前逐字相同；
+     · `known:false`  = 有逐行清单，但**上游没列过这一档**（素材还没选齐、或选了清单外的一批）。
+       实测全 204 行不存在 (tier × 素材组合) 的空档，所以走到这一支必然是界面这边的问题，
+       一律「不给字段」而不是猜一个 —— 这一家「未知字段会被拒绝」是实测过的。 */
+  shapeState(model, comboId, roles, tier) {
+    const o = (model && model.options) || {};
+    const cb = this.comboOf(model, comboId);
+    const fb = { known: true, perRow: false, turbo: o.turbo === true, upscale: (o.upscale || []).slice() };
+    if (!cb || !cb.states) return fb;
+    const t = String(tier || (cb.defaults && cb.defaults.tier) || '');
+    const key = shapeRolesKey(roles);
+    const row = (cb.states[t] || {})[key];
+    if (!row) return { known: false, perRow: true, turbo: false, upscale: [], tier: t, rolesKey: key };
+    return { known: true, perRow: true, turbo: !!row.turbo, upscale: (row.upscale || []).slice(), tier: t, rolesKey: key };
+  },
+  /* `create.shapeFields` 里声明的那些**不是布尔**的顶层字段（超分档、随机种子、换人的动作起点）：
+     与 topBools 同一套思路 —— 页面只为声明出来的项渲染控件，取值与提交都按这一份判据。
+     判据本体在模块顶层（shapeFieldState），提交体那一路（Api.createBody）问的是同一个函数，
+     所以「界面画不画」「提交发不发」「报价带不带」不会漂。这里只是对外的入口。 */
+  shapeFieldState,
   /* 某个模型某个槽位「收什么」：数量上下限 + 接受的文件类型 + 单文件字节上限。
      界面文案、统一选择器的档位与本地上传 accept、上传前的体积校验都只读这里，
-     不要在页面里写死「9 张 / 10MB / mp3-wav」。没声明就是 0 / 空串（界面要显示「平台未声明」而不是猜）。 */
-  rule(model, role) {
+     不要在页面里写死「9 张 / 10MB / mp3-wav」。没声明就是 0 / 空串（界面要显示「平台未声明」而不是猜）。
+     `comboId`（当前输入模式）传进来时，数量按**那一档**的声明：同一个人物图角色在
+     「参考素材」里能到 9 张，在「视频换人」里必须恰好 1 张 —— 只看并集就会让用户传到第 2 张才被平台拒。 */
+  rule(model, role, comboId) {
     const sp = this.specs(model).find(x => x.role === role) || {};
-    return { role, max: sp.max || 0, min: sp.min || 0, accept: sp.accept || '', maxBytes: sp.maxBytes || 0, group: sp.group || '' };
+    let min = sp.min || 0, max = sp.max || 0;
+    const cb = this.comboOf(model, comboId);
+    if (cb) {
+      const r = cb.roles.find(x => x.role === role);
+      min = r ? r.min : 0;
+      max = r ? r.max : 0;
+    }
+    return { role, max, min, accept: sp.accept || '', maxBytes: sp.maxBytes || 0, group: sp.group || '' };
   },
   /* 槽位声明 →  AssetPicker 的 types（先看声明的 media / accept；都没写就按 role 本身推） */
   slotTypes(model, role) {
@@ -3083,6 +3551,26 @@ window.Capabilities = {
     if (!r.ok) throw new Error('能力接口 HTTP ' + r.status);
     return await r.json();
   },
+  /* 这一家的这一个型号是哪种媒体（'图片' / '视频' / '' = 判不出）。
+     判据用平台自己的 `list.media` 前缀声明（与列表分类同一份），不是我们猜的名字规律。 */
+  mediaOf(prov, id) {
+    const md = (prov && prov.list && prov.list.media) || {};
+    const s = String(id || '').toLowerCase();
+    const low = a => (a || []).map(x => String(x).toLowerCase());
+    if (low(md.imagePrefix).some(p => s.startsWith(p))) return '图片';
+    if (low(md.videoPrefix).some(p => s.startsWith(p))) return '视频';
+    return '';
+  },
+  /* 一份 /models 常常同时列图片与视频（SparkCine：两条 provider 共用一个上游）。
+     这一家的清单只留 `modelMedia` 点名的那一类 —— 判据只有这一处：
+     合并进注册表时用它（apply），设置页列「这一家都有哪些型号」时也用同一个，
+     各判一遍就会出现「下拉里没有它，设置页却列着一行能用」。 */
+  skipMedia(prov, id) {
+    const want = (prov && prov.modelMedia) || '';
+    if (!want) return false;
+    const got = this.mediaOf(prov, id);
+    return !!(got && got !== want);
+  },
   /* 把能力合并进 REG 里对应平台的模型声明：接口优先，registry 声明兜底 */
   apply(REG, providerId, capsById) {
     const list = (REG && REG.providers) || [];        // 注册表还没就绪时不要抛错
@@ -3091,18 +3579,13 @@ window.Capabilities = {
     let n = 0;
     /* 同一家平台同时做图与视频时（SparkCine：两条 provider 共用同一个上游），
        /models 返回的是**一份合在一起的清单** —— 不切分的话视频台会列出 img-*、
-       图片台会列出 h3-video-*。切分判据用平台自己的 list.media 声明
-       （videoPrefix / imagePrefix，与列表分类同一份），provider 用 `modelMedia` 点名自己要哪一类。 */
-    const md = (prov.list && prov.list.media) || {};
-    const wantMedia = prov.modelMedia || '';
-    const lower = v => String(v || '').toLowerCase();
-    const mediaOf = id => {
-      const s = lower(id);
-      if ((md.imagePrefix || []).some(p => s.startsWith(lower(p)))) return '图片';
-      if ((md.videoPrefix || []).some(p => s.startsWith(lower(p)))) return '视频';
-      return '';
-    };
-    const skip = id => { const c = mediaOf(id); return !!(wantMedia && c && c !== wantMedia); };
+       图片台会列出 h3-video-*。切分判据只有一份，见上面的 skipMedia。 */
+    const skip = id => this.skipMedia(prov, id);
+    /* 「这一个型号被本机勾了隐藏」只问 ModelPrefs.isOff 一处（判据跟着数据走，不在页面里数一遍）。
+       注册表里那一份已经被代理按偏好筛过了，但**能力接口这一份是上游的原始清单** ——
+       不在下面第二个循环筛一次的话，「隐藏」过的型号会被能力刷新重新塞回 `prov.models`，
+       表现就是「在设置里藏掉了，过一会儿又出现在工作台下拉里」。 */
+    const hidden = id => !!(window.ModelPrefs && window.ModelPrefs.isOff(prov, id));
     (prov.models || []).forEach(m => {
       if (skip(m.id)) return;
       const cap = capsById[m.id];
@@ -3128,7 +3611,7 @@ window.Capabilities = {
        现在型号清单来自接口（声明退化成接口形状与必要映射），平台上新一个型号刷新就能看到。 */
     for (const [id, cap] of Object.entries(capsById || {})) {
       if ((prov.models || []).some(m => m.id === id)) continue;
-      if (skip(id)) continue;                         // 不是这一类媒体的型号（见上面 modelMedia）
+      if (skip(id) || hidden(id)) continue;            // 不是这一类媒体的型号（见上面 modelMedia）/ 本机已经藏起来的那一个
       prov.models = prov.models || [];
       prov.models.push({ id, name: (cap && cap.name) || id, modes: (cap && cap.modes) || [],
         options: Object.assign({}, cap || {}) });
@@ -3141,10 +3624,11 @@ window.Capabilities = {
     const d = await this.fetchCaps(prov, opts);
     if (!d) return null;
     const byId = {};
-    Object.entries(d.models || {}).forEach(([id, raw]) => { byId[id] = this.norm(raw, prov.modelsShape); });
+    Object.entries(d.models || {}).forEach(([id, raw]) => { byId[id] = this.norm(raw, prov.modelsShape, prov); });
     const n = this.apply(REG, prov.id, byId);
     this.sources = this.sources || {};
-    this.sources[prov.id] = { from: d.source, note: d.note || '', at: Date.now(), cached: !!d.cached, models: n };
+    this.sources[prov.id] = { from: d.source, note: d.note || '', at: Date.now(), cached: !!d.cached,
+      stale: !!d.stale, models: n };
     return d;
   },
   /* 这个平台的能力是哪来的（界面用它提示「上游接口」还是「平台声明兜底」） */
@@ -3159,7 +3643,15 @@ window.Capabilities = {
      措辞向原有的多数派收敛；端点名 /models 是代理侧的事，界面不必报。 */
   srcTextOf(src) {
     if (!src) return '';
-    return src.from === 'api' ? ('能力来自上游接口' + (src.cached ? '（缓存）' : '')) : (src.note || '按平台声明兜底');
+    if (src.from === 'api') {
+      /* stale = 这一份是代理**本机落盘的上次真清单**（上游这次还没答回来，后台正在刷新）。
+         它和 cached 必须分开说：「（缓存）」会被读成「60 秒内的新鲜答复」，
+         而 stale 那份可能是几小时前的 —— 平台刚上新型号时用户看到的清单少一条，
+         界面上得有一句真话解释为什么少。 */
+      if (src.stale) return '能力来自上游接口（本机上次取回的清单，正在后台刷新）';
+      return '能力来自上游接口' + (src.cached ? '（缓存）' : '');
+    }
+    return src.note || '按平台声明兜底';
   },
   /* 启动时把所有平台的能力拉一遍（保持原签名；失败静默，界面用 registry 兜底）
      **并发限流，不是一个一个来**：注册表里十几家平台，每家一次请求、各自最多 25 秒超时，
@@ -4307,7 +4799,8 @@ window.AssetPicker = {
 /* ============================================================================
    TextAI —— 文字 AI（OpenAI 兼容）统一入口
      · 供应商：REG 里 kind === 'text' 的那几条，用哪一家存 sk_text_prov（默认 OpenRouter）
-     · 模型：**只有**接口 /models 拉到的 + **用户自己填的**（sk_text_models_<keyId>），
+     · 模型：**只有**接口 /models 拉到的 + **用户自己填的**（自己填的那一批与「藏了哪几个」
+             一起存在 `sk_model_prefs` 里，按 keyId 分格 —— 见 window.ModelPrefs），
              当前选中存 sk_model_<keyId>。**不从 registry 写死的清单里兜底** ——
              没点过「获取型号列表」就是没有型号，请求前会点名让人去点它
      · 基址：可填自定义 OpenAI 兼容地址，存 sk_base_<keyId>（走 x-up-base 头临时换基址）
@@ -4857,41 +5350,25 @@ window.TextAI = {
      以前只比文字 AI 那几家，生成平台也能填自定义地址后就变成两份判据 —— 同一串地址在文字 AI 里报警、
      在生图平台里不报，那种「到底哪家会被串密钥」的差别没人能解释。 */
   baseOwner(REG, base, prov) { return Api.hostOwner(REG, base, prov); },
-  /* ---- 模型：接口列表 / registry 兜底 / **用户自己填的型号** 三者合并 ----
+  /* ---- 模型：接口列表 / **用户自己填的型号** 两者合并 ----
      「自己添加型号」是硬要求：OpenRouter 这类聚合平台有几百个型号，/models 一次全拉回来
-     未必顺滑，而用户手上往往就认准一两个写法。所以自定义型号单独存一份（sk_text_models_<keyId>），
-     永远出现在下拉里，不依赖 /models 有没有列它。 */
-  customKey(prov) { return 'sk_text_models_' + this.keyId(prov); },
+     未必顺滑，而用户手上往往就认准一两个写法。所以自己填的型号永远出现在下拉里，
+     不依赖 /models 有没有列它。
+     **存法在 v13 起换了地方**：不再是每家一个 `sk_text_models_<keyId>`，而是并进
+     `ModelPrefs` 那一份 `sk_model_prefs`（同一个概念的两件事 —— 「自己填了什么」与
+     「哪一个被隐藏」—— 拆成两个键迟早对不上）。下面这三颗只是旧的调用名，判据与落盘都在 ModelPrefs 里。 */
   /* 「认出这一家了吗」——**单独一处判据**。
      为什么必须单独判：keyId(null) 会兜底成 'deepseek'（早期只有一家文字 AI 时留下的行为），
      于是只要 prov 一旦是 null（注册表还没就绪、代理热重载、刚加的那家还没并进 REG），
      用户在这张卡上自己填的型号就会被写进 **DeepSeek** 的那一份，
      接着 renderCustomModels 又把 DeepSeek 的自填型号原样画到这张卡的芯片区 ——
      表现正是「我填的型号跑到了另一家供应商里」，而且没有任何报错。
-     兜底键在「读」上无害（读不到就当没填），在「写」上是有害的，所以写的地方一律先问这一句。 */
+     兜底键在「读」上无害（读不到就当没填），在「写」上是有害的，所以写的地方一律先问这一句。
+     ModelPrefs.kid 用的是同一条判据（认不出就返回空、什么都不写）。 */
   hasProv(prov) { return !!(prov && (prov.keyId || prov.id)); },
-  custom(prov) {
-    if (!this.hasProv(prov)) return [];
-    try {
-      const v = JSON.parse(localStorage.getItem(this.customKey(prov)) || '[]');
-      return Array.isArray(v) ? v.map(x => String(x).trim()).filter(Boolean) : [];
-    } catch { return []; }
-  },
-  addCustom(prov, id) {
-    const s = String(id || '').trim();
-    if (!s) return [];
-    if (!this.hasProv(prov)) return [];        // 认不出这一家就不写：宁可不加，也不能写到别家去
-    const list = this.custom(prov);
-    if (!list.includes(s)) list.push(s);
-    try { localStorage.setItem(this.customKey(prov), JSON.stringify(list.slice(-200))); } catch {}
-    return list;
-  },
-  removeCustom(prov, id) {
-    if (!this.hasProv(prov)) return [];        // 同上：删除也不能落到兜底键上
-    const list = this.custom(prov).filter(x => x !== String(id));
-    try { localStorage.setItem(this.customKey(prov), JSON.stringify(list)); } catch {}
-    return list;
-  },
+  custom(prov) { return window.ModelPrefs ? window.ModelPrefs.typed(prov) : []; },
+  addCustom(prov, id) { return window.ModelPrefs ? window.ModelPrefs.addTyped(prov, id) : []; },
+  removeCustom(prov, id) { return window.ModelPrefs ? window.ModelPrefs.removeTyped(prov, id) : []; },
   /* ---- 型号：**完全动态** ----
      下拉里放两类：① 这一家接口返回的（点「获取型号列表」拿到的）② 用户自己填的。
      registry 里声明的那几个「平台内置」**既不展示、也不当内部兜底**（那是一份写死的清单，
@@ -4904,17 +5381,35 @@ window.TextAI = {
      返回 { groups: [{label, ids:[]}], ids: [] }，调用方直接渲染成 <optgroup>（Dropdowns 支持）。 */
   modelGroups(prov, fetchList) {
     const seen = new Set();
-    const uniq = ids => ids.map(String).filter(id => { if (!id || seen.has(id)) return false; seen.add(id); return true; });
-    const fetched = uniq((fetchList || []).map(m => (m && m.id ? m.id : m)));
+    /* 隐藏判据只问 ModelPrefs.isOff 一处。这里必须自己筛一遍：文字 AI 的清单是
+       「接口拉回来的 + 自己填的」在页面现拼的，不经过代理那份注册表筛选。 */
+    const off = id => !!(window.ModelPrefs && window.ModelPrefs.isOff(prov, id));
+    const uniq = ids => ids.map(String).filter(id => { if (!id || seen.has(id) || off(id)) return false; seen.add(id); return true; });
+    const prefs = window.ModelPrefs ? ModelPrefs.of(prov) : { typed: [], off: [], got: [] };
+    /* 四路并成**同一份**清单。以前这个函数与设置页那张清单各拼各的，各漏一半，于是两头对着干：
+         · 下拉只收 fetchList（**页面内存里**的，刷新即空）＋自己填的；
+           设置页那张清单却有注册表声明的那几条 → 点它就报「不在下拉的选项里」。
+         · 反过来「获取型号列表」取回来的东西只在设置页活着 ——
+           AI 助手那张型号下拉（modelGroups(cur)，压根没有 fetchList 这一路）永远看不见。
+       现在统一收口到 ModelPrefs：接口给过什么存在 got 里，落盘、跨页面、刷新都在。 */
+    const fromApi = uniq(prefs.got.map(m => m.id)
+      .concat((fetchList || []).map(m => (m && m.id ? m.id : m))));
     const custom = uniq(this.custom(prov));
-    const declared = prov && prov.custom ? uniq((prov.models || []).map(m => (m && m.id) || m)) : [];
+    /* 注册表里声明的那一份**只给自定义供应方**列（它那串型号是用户在「添加自定义供应商」里
+       一个个勾出来的，属于「他自己声明的这家有什么」）。
+       内置的文字供应方一条都不列 —— v16 起代理已经不下发任何文字型号清单（那份写死的
+       `models` 全改名 `modelDocs` 了）。所以这一档的清单只有一个来源：它自己的 /models。 */
+    const declared = (prov && prov.custom) ? uniq((prov.models || []).map(m => (m && m.id) || m)) : [];
     const groups = [];
-    if (fetched.length) groups.push({ label: '接口返回（' + ((prov && prov.name) || '当前接口') + '）', ids: fetched });
+    if (fromApi.length) groups.push({ label: '接口返回（' + ((prov && prov.name) || '当前接口') + '）', ids: fromApi });
     if (custom.length) groups.push({ label: '自己添加', ids: custom });
     if (declared.length) groups.push({ label: '添加这一家时勾的型号', ids: declared });
-    /* 一个都没取到时，别让已保存的型号凭空消失 —— 单独一组标出来（它可能已下架，也可能是还没点获取） */
+    /* 一个都没取到时，别让已保存的型号凭空消失 —— 单独一组标出来（它可能已下架，也可能是还没点获取）。
+       两种原因要分开说：「被自己藏了」和「接口还没取过」是两件事，混成一句会让人去点获取。 */
     const saved = this.model(prov);
-    if (saved && !seen.has(saved)) groups.push({ label: '当前选中（这家接口还没取过列表）', ids: [saved] });
+    if (saved && !seen.has(saved)) {
+      groups.push({ label: off(saved) ? '当前选中（这一型号在设置页被藏起来了）' : '当前选中（这家接口还没取过列表）', ids: [saved] });
+    }
     return { groups, ids: groups.reduce((a, x) => a.concat(x.ids), []) };
   },
   /* 这个型号是不是属于这一家？（设置页守门用：切了供应方却把上一家的型号存/发出去，就是错配） */
@@ -5103,7 +5598,14 @@ window.TextAI = {
       return { ok: !!hit.vision, model, why: '接口字段 ' + (hit.field || 'capabilities') + (hit.vision ? ' 声明支持图片' : ' 未包含 image') };
     }
     // ③ 注册表声明
-    const decl = ((prov && prov.models) || []).find(m => m && m.id === model);
+    /* 两处都查：`models` 与 `modelDocs` 都是「按 id 写的声明表」，只是来路不同 ——
+       `models` 是**用户自己勾的**（自定义供应方在「添加自定义供应商」里一个个勾出来的那串），
+       `modelDocs` 是「文档里写过这个 id 支持什么」（内置那几家，v16 起文字型号清单全部改名成它，
+       注册表不再下发任何一份写死的文字型号清单）。
+       只查 models 的话，内置那几家改完名之后识图一律退回「接口与平台声明都没说」——
+       而它们明明在 modelDocs 里写着 vision: true。 */
+    const decl = (((prov && prov.models) || []).concat((prov && prov.modelDocs) || []))
+      .find(m => m && m.id === model);
     if (decl && decl.vision !== undefined) return { ok: !!decl.vision, model, why: '平台声明' };
     /* 接口与平台声明都没说 → 按不支持。**不猜模型名**：名字会骗人（gpt-4o / claude 这类名字
        经常出现在不支持图的开源复刻上，vl 后缀也可能是纯文本微调），猜错就是白花 tokens。 */
@@ -6303,6 +6805,12 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
          取值与 create.body 同一套本地参数名（model/prompt/tier/duration/res/resolution/ar）。 */
       const method = String(pr.method || 'GET').toUpperCase();
       const qbody = {};
+      /* 「这一次的形状」在这里只有一份：mode + creation_intent + 逐行能力（`p.caps`，
+         由页面按 Capabilities.shapeState 现算后递进来）。
+       顶层开关要不要进报价体问它，「这一档根本不报价」也问它 ——
+       判据与提交体、界面三处共用同一份（模块顶层的 topBoolState / whenMatches），
+       不传 caps 的话声明了 `need:'caps.xxx'` 的开关会被判成「不提供」，报价就少算那一档的加价。 */
+      const qctx = { mode: p.mode, intent: '', caps: p.caps || null };
       if (method !== 'GET') {
         /* 取值口径：声明右边写的是**本地参数名**，而 `model` 在 estimateCost 的签名里是
            单独的第二个参数、不在 p 里 —— 不把它并进来，body 就少了 model 字段，
@@ -6318,13 +6826,22 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
           const v = src[local];
           if (v != null && v !== '') qbody[remote] = v;
         }
+        qctx.intent = qbody.creation_intent || '';
         /* 顶层开关也带上：文档说报价「使用**创建接口的相同参数**」——
            不带的话报价回来的是一个我们根本不会创建的规格（比如平台默认开了提示词优化，
            而用户恰好关了它），价差就落到生成那一刻才暴露。开/关各发什么值由同一处判决定。 */
         const tDecl2 = (prov && prov.create && prov.create.topBools) || {};
         for (const [field, on] of Object.entries(p.topBools || {})) {
-          if (tDecl2[field]) qbody[field] = topBoolValue(tDecl2[field], on);
+          if (tDecl2[field] && !topBoolState(tDecl2[field], qctx).hidden) qbody[field] = topBoolValue(tDecl2[field], on);
         }
+      }
+      /* `noQuote: { when, why }` —— 这一档**没有报价这条路**，不是「报价失败了」。
+         VGENV 的动作换人在报价时要求带上那段参考视频（文档写明），而报价是纯参数查询、
+         拿不到用户手里的字节 —— 实测十二种换人参数全回 422 `PERSON_REPLACEMENT_INPUT_INVALID`。
+         以前界面把这件事显示成「报价不可用（…INVALID）」，用户以为是接口坏了；
+         现在回 `skip`，由界面照实说一句「这一档平台不问价」，并且**不去发那一次注定失败的请求**。 */
+      if (pr.noQuote && whenMatches(pr.noQuote.when, qctx)) {
+        return { ok: false, skip: true, reason: String(pr.noQuote.why || '这一档平台不提供询价') };
       }
       const q = '?duration=' + sec0(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');
       const full = Api.url(prov, ep) + (method === 'GET' ? q : '');
