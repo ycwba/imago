@@ -146,6 +146,19 @@
   .scene-head .icon-btn:hover { background: var(--panel2); color: var(--acc); }
   .scene-head .icon-btn.del:hover { background: rgba(220,38,38,.08); color: var(--err); }
   .scene-head .icon-btn.armed { width: auto; padding: 0 7px; background: rgba(220,38,38,.08); color: var(--err); font-size: 11px; }
+  /* 场景图那一格：与旁边的图标按钮同宽同高，有图时是一张 24×24 的方图。
+     position:relative 是给右上角那颗 × 用的（它绝对定位在这一格里面，不另占布局）。 */
+  .scene-head .sc-thumb { position: relative; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; border: 1px dashed var(--line); border-radius: 4px;
+    background: none; color: var(--sub); cursor: pointer; transition: border-color .15s, background .15s; }
+  .scene-head .sc-thumb:hover { border-color: var(--acc); color: var(--acc); background: var(--panel2); }
+  .scene-head .sc-thumb:not(.none) { border-style: solid; }
+  .scene-head .sc-thumb .sp { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* × 平时不占视觉（只有悬停才浮出来）—— 常驻的话每一行右上角都挂一个红叉，左栏会变成一片叉 */
+  .scene-head .sc-thumb .sp-x { position: absolute; right: 1px; top: 1px; width: 14px; height: 14px; border-radius: 3px;
+    display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.62); color: #fff; cursor: pointer; }
+  .scene-head .sc-thumb:hover .sp-x { display: inline-flex; }
+  .scene-head .sc-thumb .sp-x .ic { line-height: 0; }
   .shot-item { display: flex; align-items: center; gap: 10px; padding: 4px 8px 4px 16px; height: 54px; box-sizing: border-box;
     border-radius: 4px; cursor: pointer; margin-bottom: 3px; position: relative; }
   .shot-item:hover { background: var(--panel2); }
@@ -950,18 +963,35 @@ const splitSysOf = () => TextAI.prompt('split');
 /* 时间线 → 给 LLM 的上下文摘要（连同 tlContextForLLM 一起已移除：从未被调用） */
 
 /* ============================================================================
-   素材检索建镜头 —— 自然语言 → AI 检索资产库 → 组织成 场景 / 镜头 / 候选
-   追加到当前短片（命中视频作为「已选用候选」，命中图片作为镜头的参考图）
+   素材检索建镜头 —— 自然语言 → 检索资产库 → 组织成 场景 / 镜头
+   两步走：① AI 把需求翻成过滤条件，本机在**全库**上过滤；② 把过滤后的那一小批交给 AI 分配场景/镜头。
+   追加到当前短片（命中视频成为「已选用之外的候选」，命中图片成为镜头的参考图）
    ========================================================================== */
+/* 投进来的那张图在提示词与芯片上叫什么：资产库的条目没有名字，就用它提示词开头那一段
+   （截 12 字），实在没有再退到资产号末 4 位 —— 三张都叫「素材」的话芯片就分不出谁是谁。 */
+const assetRefName = e => {
+  const t = String((e && e.prompt) || '').split('\n')[0].trim().slice(0, 12);
+  return t || ('素材' + String((e && e.assetId) || '').slice(-4));
+};
+/* 长期存进 `sh.refImages` 的地址只可能是这两种：本机资产号，或素材库那条自己的 dataURL。
+   `e.src` 往往是包着签名外链的 /getv（一天就 403），存进工作区就是「记得住一个记不住的地址」。 */
+const assetPicSrc = e => {
+  if (e && e.assetId) return '/asset/' + e.assetId;
+  const s = String((e && e.src) || '');
+  return /^(data:|\/asset\/)/.test(s) ? s : '';
+};
 async function openAssetSearchToShots() {
   const scenes = (proj.scenes || []);
   if (!scenes.length) { setStatus('<span class="err">当前短片还没有场景/镜头，先加场景再检索</span>'); return; }
   const v = await PromptForm.open({
-    title: '素材检索 → 加入候选镜头',
-    sub: '描述要什么素材，AI 会先把它翻译成检索条件，再把命中的视频按「场景名 / 镜头名」投进对应镜头的候选里（不自动选用）',
+    title: '素材检索 → 加入对应镜头',
+    sub: '描述要什么素材。AI 先把它翻译成检索条件，本机按条件在整个资产库里筛，再把筛出来的那批按「场景名 / 镜头名」投进对应镜头（不自动选用）',
     okLabel: '检索并投递',
     fields: [
       { key: 'q', type: 'textarea', label: '想要什么素材', placeholder: '例：最近 3 天生成的雪景视频，每条 5 秒左右，按生成时间从早到晚' },
+      { key: 'want', type: 'select', label: '要找哪一类', value: '视频',
+        options: [{ v: '视频', t: '视频（投成这一镜的候选画面）' }, { v: '图片', t: '图片（投成这一镜的参考图）' },
+        { v: '都要', t: '都要（各投各的去处）' }] },
       { key: 'target', type: 'text', label: '投递目标（留空 = AI 按内容自动匹配）', placeholder: '例：场景1 / 开场空镜 ｜ 也可以只写场景名把整场都加上' },
       { key: 'max', type: 'number', label: '最多投递几条', value: 8 },
     ],
@@ -971,49 +1001,78 @@ async function openAssetSearchToShots() {
   let entries = [];
   try {
     setStatus('正在读取资产库索引…');
-    entries = (await loadDirectoryAssets(4, null, { cacheFirst: true })).filter(e => e.kind === 'asset' && e.type === '视频');
+    /* 视频与图片都留着：以前这里先 `e.type === '视频'` 砍一刀，
+       于是「投成参考图」那一路根本没有素材可投，界面上那句「命中图片作为参考图」是句空话。 */
+    entries = (await loadDirectoryAssets(4, null, { cacheFirst: true }))
+      .filter(e => e.kind === 'asset' && (e.type === '视频' || e.type === '图片'));
   } catch (e) { setStatus('<span class="err">资产库读取失败：' + e.message + '</span>'); return; }
-  if (!entries.length) { setStatus('<span class="err">资产库里还没有视频素材</span>'); return; }
+  if (!entries.length) { setStatus('<span class="err">资产库里还没有可用的素材（视频或图片）</span>'); return; }
 
   const maxN = Math.max(1, Math.min(20, parseInt(v.max, 10) || 8));
-  const idx = entries.slice(0, 300).map(e => ({
-    id: e.assetId, 提示词: (e.prompt || '').slice(0, 110), 时长: e.duration || null,
-    平台: e.providerName, 日期: AssetLib.tsMs(e.ts) ? new Date(AssetLib.tsMs(e.ts)).toISOString().slice(0, 10) : null,
-  }));
   const want = scenes.map(sc => ({
     场景: sc.name,
-    镜头: (sc.shots || []).map(sh2 => ({ 名称: sh2.name, 提示词: (sh2.prompt || '').slice(0, 70), 已有候选: (sh2.candidates || []).length })),
+    镜头: (sc.shots || []).map(sh2 => ({ 名称: sh2.name, 提示词: (sh2.prompt || '').slice(0, 70), 已有候选: (sh2.candidates || []).length }),
+    )
   }));
-  const sys = `${TL_SYS_COMMON}
-你是素材投递助手。任务分两步：
-① 把用户需求翻译成检索条件；
-② 从命中的素材里挑最多 ${maxN} 条，**按内容判断应该放进哪个场景的哪个镜头**（必须使用给定的场景名与镜头名原文），同一镜头可以放多条。
+  const KIND_ZH_WANT = { '视频': '视频', '图片': '图片', '都要': '任意' };
+  const condSys = `${TL_SYS_COMMON}
+你是素材检索条件生成器。**这一步只把需求翻译成本机的过滤条件，不要挑具体素材**（本机拿条件在全库筛完之后才轮到下一步分配）。
 只返回 JSON：
-{"keywords":["关键词"],"type":"视频","after":"YYYY-MM-DD 或 null","before":"YYYY-MM-DD 或 null","minDuration":0,"maxDuration":null,"order":"asc|desc","limit":${maxN},
- "assignments":[{"assetId":"素材 id","sceneName":"场景名","shotName":"镜头名","reason":"简短理由"}],"summary":"一句话"}${v.target ? `\n用户指定的投递目标：${v.target}（请优先投到该目标）` : ''}`
-  let plan = null;
+{"keywords":["关键词"],"type":"${KIND_ZH_WANT[v.want] || '视频'}","after":"YYYY-MM-DD 或 null","before":"YYYY-MM-DD 或 null","minDuration":0,"maxDuration":null,"order":"asc|desc","limit":${maxN}}
+要求：
+· 日期今天是多少由这里给：${new Date().toLocaleDateString('sv')}（你不看得到系统时间，别自己猜）；
+· 时间、时长、条数一律写进 after / before / minDuration / maxDuration / limit 这些字段，由本机真过滤，不要塞进 keywords 当模糊词；
+· 需求里没提时间就 after、before 都给 null；提了「最近 N 天」就把 after 写成今天往前 N 天，并把 order 写成 desc（新的在前）；
+· keywords 只放画面内容本身的词（雪景、街道、人物…），可以给多个；
+· type 只能是「${v.want === '都要' ? '视频、图片 或 任意' : v.want}」之一。`;
+  const assignSys = n => `${TL_SYS_COMMON}
+你是素材投递助手。下面给的是**已经按条件筛出来并排好序的 ${n} 条素材**，条件不用也不许再改，只做一件事：
+按内容判断每一条应该放进哪个场景的哪个镜头（必须使用给定的场景名与镜头名原文），同一镜头可以放多条，实在对不上的可以不给。
+只返回 JSON：
+{"assignments":[{"assetId":"素材 id","sceneName":"场景名","shotName":"镜头名","reason":"简短理由"}],"summary":"一句话"}${v.target ? `\n用户指定的投递目标：${v.target}（请优先投到该目标）` : ''}`;
+  let plan = null, summary = '';
   const ask = async () => {
-    const txt = await TextAI.chat(REG, sys, JSON.stringify({ 需求: v.q, 可投递的场景与镜头: want, 可用素材: idx }));
-    const j = parseJsonLoose(txt);
-    if (!j) throw new Error('AI 没有给出可用的检索条件');
-    plan = j;
-    const hits = tlFilterAssets(entries, j);
+    /* 第 ① 步：只出条件。以前这一步与分配合成一次调用，并把 `entries.slice(0, 300)` 一起喂进去 ——
+       那份清单是按生成时间**升序**的最旧 300 条，于是「最近 3 天的雪景」永远挑不到：
+       最近那批根本没进过 AI 的眼，条件写得再对也没用。 */
+    setStatus('AI 正在把需求翻成检索条件…');
+    const jc = parseJsonLoose(await TextAI.chat(REG, condSys, JSON.stringify({ 需求: v.q })));
+    if (!jc || !jc.keywords) throw new Error('AI 没有给出可用的检索条件');
+    plan = jc;
+    /* 「要找哪一类」是用户在表单里选死的，不是 AI 猜的：它漏写 type、或把「都要」写成「视频」都不该改变结果。
+       条数同理，以用户填的那一个为准，不让 AI 自己放大。 */
+    plan.type = KIND_ZH_WANT[v.want] || '视频';
+    plan.limit = maxN;
+    const hits = tlFilterAssets(entries, plan);
     if (!hits.length) throw new Error('没有匹配的素材（可放宽关键词或时间范围）');
-    const byId = new Map(hits.map(h => [h.assetId, h]));
-    const rows = (j.assignments || []).filter(a => byId.has(a.assetId));
+    /* 第 ② 步：只分配，看得见的全是过滤后的那几条 */
+    setStatus('AI 正在把 ' + hits.length + ' 条素材对到镜头上…');
+    const idx = hits.map(e => ({
+      id: e.assetId, 类型: e.type, 提示词: (e.prompt || '').slice(0, 110), 时长: e.duration || null,
+      平台: e.providerName, 日期: AssetLib.tsMs(e.ts) ? new Date(AssetLib.tsMs(e.ts)).toISOString().slice(0, 10) : null,
+    }));
+    const ja = parseJsonLoose(await TextAI.chat(REG, assignSys(hits.length),
+      JSON.stringify({ 需求: v.q, 检索条件: plan, 可投递的场景与镜头: want, 本次候选素材: idx })));
+    const rows = ((ja && ja.assignments) || []).filter(a => idx.some(x => x.id === a.assetId));
     if (!rows.length) throw new Error('AI 没能把素材对到具体镜头上，请把场景/镜头名字写清楚些');
+    summary = (ja && ja.summary) || '';
     return rows.slice(0, maxN).map(a => {
-      const e = byId.get(a.assetId);
-      return { label: `${a.sceneName} / ${a.shotName}`, text: `${(e.prompt || '(无提示词)').slice(0, 200)}${a.reason ? '\n投递理由：' + a.reason : ''}\n[assetId:${a.assetId}]` };
+      const e = hits.find(h => h.assetId === a.assetId);
+      const to = e.type === '图片' ? '参考图' : '候选画面';
+      return {
+        label: `${a.sceneName} / ${a.shotName}`,
+        text: `${(e.prompt || '(无提示词)').slice(0, 200)}${a.reason ? '\n投递理由：' + a.reason : ''}`
+          + `\n[assetId:${a.assetId}]（${e.type}，投成${to}）`,
+      };
     });
   };
   let items;
-  try { setStatus('AI 正在检索并匹配镜头…'); items = await ask(); }
-  catch (e) { setStatus('<span class="err">' + e.message + '</span>'); return; }
+  try { items = await ask(); }
+  catch (e) { setStatus('<span class="err">' + esc(e.message) + '</span>'); return; }
   const reviewed = await PromptReview.openList({
-    title: '素材 → 对应镜头的候选',
-    sub: (plan && plan.summary ? 'AI 的理解：' + plan.summary + ' · ' : '') + '确认后加入这些镜头的候选（不影响已选用的镜头）',
-    items, applyLabel: '加入候选镜头', hint: '每条会成为一个候选，可稍后在右栏挑选/选用',
+    title: '素材 → 对应镜头',
+    sub: (summary ? 'AI 的理解：' + summary + ' · ' : '') + '确认后投进这些镜头：视频进候选、图片进参考图（都不影响已选用的画面）',
+    items, applyLabel: '投递到对应镜头', hint: '每条会成为一个候选或一张参考图，可稍后在右栏挑选/选用',
     retry: ask,
   });
   if (!reviewed) { setStatus('已取消'); return; }
@@ -1023,7 +1082,7 @@ async function openAssetSearchToShots() {
   /* 按**审核结果**投递（reviewed = 用户在确认弹窗里留下的条目，可能被删过几条、改过文字）。
      以前是拿 AI 原始 assignments 重算、只按 reviewed.length 截断 ——
      用户删掉的条目照样被投递，顺序也可能对不上。assetId 从条目文字里的 [assetId:xxx] 取
-     （弹窗只允许改正文，标签 sc/镜头 不会被改）。 */
+     （弹窗只允许改正文，标签 场景/镜头 不会被改）。 */
   const rows = (reviewed || []).map(r => {
     const m = /\[assetId:([^\]\s]+)\]/.exec(r.text || '');
     let assetId = m ? m[1].trim() : '';
@@ -1035,31 +1094,47 @@ async function openAssetSearchToShots() {
     const parts = String(r.label || '').split('/').map(s => s.trim());
     return { assetId, sceneName: parts[0] || '', shotName: parts.slice(1).join('/') || '' };
   }).filter(a => byId.has(a.assetId));
-  let added = 0, miss = 0;
-  const norm = t => String(t || '').replace(/\s+/g, '').toLowerCase();
+  let cands = 0, pics = 0, dup = 0, miss = 0, why = '';
+  /* 场景名 / 镜头名的「同名」判据与左栏认领素材库场景图用的是同一把尺子（nameKey） */
+  const inScene = (list, nm) => {
+    const k = nameKey(nm);
+    if (!k) return null;
+    return (list || []).find(x => nameKey(x.name) === k)
+      || (list || []).find(x => nameKey(x.name).includes(k) || k.includes(nameKey(x.name)));
+  };
   rows.forEach(a => {
     const e = byId.get(a.assetId);
     if (!e) { miss++; return; }
-    let sc = scenes.find(x => norm(x.name) === norm(a.sceneName)) || scenes.find(x => norm(x.name).includes(norm(a.sceneName)) || norm(a.sceneName).includes(norm(x.name)));
+    const sc = inScene(scenes, a.sceneName);
     if (!sc) { miss++; return; }
-    let sh2 = (sc.shots || []).find(x => norm(x.name) === norm(a.shotName)) || (sc.shots || []).find(x => norm(x.name).includes(norm(a.shotName)) || norm(a.shotName).includes(norm(x.name)));
-    if (!sh2) {
-      // 只给了场景名：投到该场景第一个镜头
-      sh2 = (sc.shots || [])[0];
-      if (!sh2) { miss++; return; }
+    /* 只给了场景名：投到该场景第一个镜头 */
+    const sh2 = inScene(sc.shots, a.shotName) || (sc.shots || [])[0];
+    if (!sh2) { miss++; return; }
+    if (e.type === '图片') {
+      /* 判据与「@ 素材」那条链同一份（能力声明 + 素材互斥 + 上限 + 按图去重），这里不重写一遍。 */
+      const r = addLibPicToShot(sh2, { name: assetRefName(e) }, { src: assetPicSrc(e) });
+      if (r.ok) { r.dup ? dup++ : pics++; }
+      else { miss++; if (!why) why = r.why || ''; }
+      return;
     }
     const cand = mkImportedCandidate({
       vid: 'asset_' + e.assetId, provider: e.provider || ASSET_STORE,
       url: e.src || ('/asset/' + e.assetId + '?v=2'), duration: e.duration, fromAsset: true,
     });
-    if ((sh2.candidates || []).some(c => c.vid === cand.vid)) { miss++; return; }   // 已有同素材候选
+    if ((sh2.candidates || []).some(c => c.vid === cand.vid)) { dup++; return; }   // 已有同素材候选
     sh2.candidates.push(cand);
-    added++;
+    cands++;
   });
   renderAll(); scheduleSave();
-  setStatus(added
-    ? `<span class="ok">✓ 已把 ${added} 条素材加入对应镜头的候选${miss ? '（' + miss + ' 条未匹配到镜头，已跳过）' : ''}</span>`
-    : '<span class="err">没有素材成功加入（场景/镜头名可能对不上，可在下一步改投递目标）</span>');
+  /* 「重复」不能算进「未匹配」：同一素材投第二次是它本来就在，不是场景/镜头名对不上，
+     把两者说成一句会让人去找一个并不存在的错。 */
+  const bits = [];
+  if (cands) bits.push(cands + ' 条视频进了候选');
+  if (pics) bits.push(pics + ' 张图进了参考图');
+  const tail = [dup ? dup + ' 条本来就有了' : '', miss ? miss + ' 条没对上镜头' : ''].filter(Boolean).join('，');
+  if (bits.length) setStatus(`<span class="ok">✓ 已把 ${esc(bits.join('、'))}${tail ? '（' + esc(tail) + '）' : ''}</span>`);
+  else setStatus('<span class="err">没有素材成功加入' + (tail ? '（' + esc(tail) + '）' : '') + '——场景/镜头名可能对不上，可在上一步改投递目标</span>');
+  if (why) Toast.warn('有素材投不成参考图：' + why);
 }
 
 /* 本地按 AI 给出的条件过滤素材 */
@@ -1088,6 +1163,15 @@ function tlFilterAssets(entries, plan) {
 }
 
 /* ---------------- ④ 剧本 / 文案一键分镜（AI 拆场景与镜头） ---------------- */
+/* 镜头时长的口径只有这两个数：给 AI 的那句约束、它回来的那个数的 clamp、
+   以及「用户没填目标时长时的默认值」，三处都从这里取。
+   以前文案写「2–10 秒」、clamp 写 1–15 —— 界面说给 AI 听的范围与真的落盘的范围是两套，
+   AI 交回 12 秒时界面上那句「2–10」就成了假话。 */
+const SB_SEC = { min: 2, max: 15, dflt: 5 };
+const sbSec = n => {
+  const x = Number(n);
+  return Math.max(SB_SEC.min, Math.min(SB_SEC.max, Number.isFinite(x) && x > 0 ? x : SB_SEC.dflt));
+};
 async function aiStoryboard() {
   const v = await PromptForm.open({
     title: 'AI 一键分镜（剧本 / 文案 → 场景与镜头）',
@@ -1107,7 +1191,7 @@ async function aiStoryboard() {
   const splitSys = splitSysOf();
   const sys = `${TL_SYS_COMMON}
 ${splitSys}
-约束：镜头总数不超过 ${v.maxShots}；每个镜头时长 ${Math.max(1, Number(v.shotDur) || 5)} 秒左右（可在 2–10 秒间按内容调整）。`
+约束：镜头总数不超过 ${v.maxShots}；每个镜头时长 ${sbSec(v.shotDur)} 秒左右（可在 ${SB_SEC.min}–${SB_SEC.max} 秒间按内容调整）。`
   let draft = null;
   const ask = async () => {
     const txt = await TextAI.chat(REG, sys, `剧本/文案：\n${v.script}` + (v.style ? `\n风格要求：${v.style}` : ''));
@@ -1160,19 +1244,29 @@ ${splitSys}
     const sh3 = newShot();
     sh3.name = (srcShot && srcShot.note ? String(srcShot.note).slice(0, 12) : '') || ('镜头 ' + (sc.shots.length + 1));
     sh3.prompt = it.text;
-    sh3.duration = Math.max(1, Math.min(15, Number((srcShot && srcShot.duration) || v.shotDur) || 5));
+    sh3.duration = sbSec((srcShot && srcShot.duration) || v.shotDur);
     if (v.style) sh3.prompt = (sh3.prompt + '，' + v.style).trim();
     sc.shots.push(sh3);
   });
   if (v.mode === 'append') {
-    const cur = proj.scenes[proj.curScene] || proj.scenes[0];
-    newScenes.forEach(sc => cur.shots.push(...sc.shots));
-    setStatus(`<span class="ok">✓ 已追加 ${reviewed.length} 个镜头到「${esc(cur.name)}」</span>`);
+    /* 追加要保住场景划分（判据在 placeScenesInto 那一份，探针问的就是它）：
+       以前是 `newScenes.forEach(sc => cur.shots.push(...sc.shots))` —— AI 拆出来的几个场景
+       全被压进「当前那一场」，左栏既看不出分过场，场景图也失去了归属。 */
+    const r0 = placeScenesInto(proj.scenes, newScenes);
+    proj.curScene = r0.at; proj.curShot = 0;
+    reportScenePics(r0.pics,
+      `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : ''));
   } else {
+    let added = 0, why = '';
+    newScenes.forEach(sc => {                        // 新短片：场景本身还没有图，于是认素材库里同名那条
+      const r = feedScenePics(sc, sc.shots);
+      added += r.added; if (r.why && !why) why = r.why;
+    });
     const np = { id: uid(), name: (draft && draft.title) || ('AI 短片 ' + new Date().toLocaleDateString('zh-CN')), scenes: newScenes };
     WS.projects.push(np);
     switchProject(np.id);
-    setStatus(`<span class="ok">✓ 已新建短片「${esc(np.name)}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头</span>`);
+    reportScenePics({ added: added, why: why },
+      `已新建短片「${np.name}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头`);
   }
   renderAll(); scheduleSave();
 }
@@ -1936,19 +2030,24 @@ async function submitCandidate(sh, ph) {
      用 illegalPairs 判断「已经同时用上」（blockedRoles 按定义不含已用的 role，查不出非法状态）。 */
   const icSub = shotInputCaps(sh);
   const badPairs = icSub.illegal || [];
-  const frame = [];
-  if (sh.firstFrame) frame.push({ type: 'image_url', image_url: { url: sh.firstFrame }, frame_type: 'first_frame' });
-  if (sh.lastFrame) frame.push({ type: 'image_url', image_url: { url: sh.lastFrame }, frame_type: 'last_frame' });
-  const kfs = (sh.keyframes || []).filter(k => k.assetId);
+  /* 这一镜手上的素材（提交与归档文案都按同一份数）：画面切片只数真的有资产号的，
+     生成失败或被删掉的不能算「已带上」。 */
+  const kfs = shotKeyframes(sh);
+  const nFrame = (sh.firstFrame ? 1 : 0) + (sh.lastFrame ? 1 : 0);
   /* @名字 → @参考图N → 平台声明的引用语法。归档那一份存的是**原始**描述（还是 @名字，
      人看得懂、复用也方便），只有真正发出去的 body 用转换后的。 */
   const pApi = applyRefSyntax(refTokenize(sh, p), prov);
+  /* 高级设置那一读要**在归档之前**做完：摘要里写的是「这一次真的发出去了哪些顶层开关」，
+     先拼好文案才不会出现「归档写着平台润色、提交体里根本没有」这种自相矛盾的存档。 */
+  const ex = shotAdvExtras(sh);
+  const ctxAdv = shotAdvCtx(sh);
   /* 归档到提示词文件夹时要写在文件头里的信息：存**原始**描述（含 @参考图N 的写法，
      比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog */
   const log2 = { type: '导演台-分镜', prompt: p, meta: {
-    镜头: sh.name || '', 模型档位: sh.tier, 分辨率: sh.res, 画幅: sh.ar,
+    镜头: sh.name || '', 模型档位: sh.tier, 分辨率: sh.res, 画幅: sh.ar, 尺寸: sh.size || '',
     时长: sh.duration ? sh.duration + 's' : '',
-    参考素材: [frame.length ? frame.length + ' 帧' : '', kfs.length ? kfs.length + ' 关键帧' : '',
+    顶层参数: ex.summary,
+    参考素材: [nFrame ? nFrame + ' 帧' : '', kfs.length ? kfs.length + ' 关键帧' : '',
       (sh.refImages || []).length ? sh.refImages.length + ' 参考图' : '',
       sh.refVideo ? '参考视频' : '', sh.refAudio ? '参考音频' : ''].filter(Boolean).join(' / ') } };
   try {
@@ -1961,6 +2060,9 @@ async function submitCandidate(sh, ph) {
         throw new Error('这一镜的「' + icSub.unsupported.map(r => ROLE_ZH[r] || r).join(' / ') + '」在 '
           + (rm.name || modelId) + ' 上不支持（换模型后留下来的素材），请清空或换回支持的模型');
       }
+      /* 越界的形状字段（种子、超分档那种）当场拒掉，不发一个必然被上游驳回的请求：
+         界面已经压暗并写了原因，走到这里说明是导入 / 历史数据留下的值。 */
+      if (ex.bad.length) throw new Error(ex.bad.join('、'));
       const videoTemplate = Api.inputTemplate(prov, 'reference_video');
       if (icSub.refVideo && sh.refVideo && videoTemplate?.requiresAudio && sh.refVideo.preparedFor !== prov.id) {
         const ref = sh.refVideo;
@@ -1971,88 +2073,25 @@ async function submitCandidate(sh, ph) {
         ref.preparedFor = prov.id;
         scheduleSave();
       }
-      let v;
-      /* 两个上游的**请求体形状**不同：素材统一进一个 inputs 数组（SparkCine 那套），
-         还是各占一个顶层字段（reference_images / frame_images，VGENV 那套）。
-         这个差异 registry 的 create.inputTemplates[].to 已经声明过了，就按声明分支 ——
-         以前写死 prov.id === 'sparkcine-video'，接第二家 inputs 式平台时页面不会跟着走对的那条。 */
-      const inputsStyle = Object.values((prov.create && prov.create.inputTemplates) || {}).some(t => t && t.to === 'inputs');
-      if (inputsStyle) {
-      // inputs 式（SparkCine 原生接口：h3-video 走 generations，keyframes 先上传为资产再引用）
-      const body = {
-        model: modelId, prompt: pApi, optimize_prompt: false,
-        parameters: { duration: sh.duration || 5, resolution: sh.res, aspect_ratio: sh.ar },
-        note: (sh.name || 'shot').slice(0, 80),
-      };
-      if (frame.length) {
-        body.inputs = [];
-        for (const f2 of frame) {
-          body.inputs.push({ role: f2.frame_type === 'last_frame' ? 'last_frame' : 'first_frame', asset_id: await uploadImageDataUrl(f2.image_url.url, f2.frame_type, prov.id) });
-        }
-      } else {
-        /* 画面切片 + 手动参考图一起提交（以前是 else if 二选一：有切片时手动参考图被整体丢掉，没有提示）。
-           上限用模型声明的 max（不写死数字：导演台以前兜底 9，图片台兜底 8，和平台说的都不一致）。 */
-        const refs = [];
-        const maxRef = Math.max(1, icSub.maxRef);
-        for (const k2 of kfs) { if (k2.assetId) refs.push({ role: 'reference_image', asset_id: k2.assetId }); }
-        let failed = 0;
-        for (const img of (sh.refImages || [])) {
-          if (refs.length >= maxRef) break;
-          try { refs.push({ role: 'reference_image', asset_id: await uploadImageDataUrl(img, 'reference', prov.id) }); }
-          catch (e) { failed++; console.warn('[director] 参考图上传失败：', e); }
-        }
-        if (failed) { setStatus('<span class="warn">有 ' + failed + ' 张参考图上传失败（可能已过期），本次没带上</span>'); Toast.warn('少了 ' + failed + ' 张参考素材（上传失败）'); }
-        if (refs.length) body.inputs = refs.slice(0, maxRef);
-      }
-      // 参考视频 / 参考音频：与上面的参考图并列提交（模型能力里声明了才发）
-      if (icSub.refVideo && sh.refVideo && sh.refVideo.asset_id) {
-        if (!body.inputs) body.inputs = [];
-        body.inputs.push({ role: 'reference_video', asset_id: sh.refVideo.asset_id });
-      }
-      if (icSub.refAudio && sh.refAudio && sh.refAudio.asset_id) {
-        if (!body.inputs) body.inputs = [];
-        body.inputs.push({ role: 'reference_audio', asset_id: sh.refAudio.asset_id });
-      }
-      v = await Api.request(prov, 'create', { method: 'POST', body, log: log2 });
+      /* 提交体完全交给 `Api.createBody` + registry 声明（与生成工作台同一条路）：
+         标准字段往哪个上游字段名映射、哪些要嵌进 parameters、顶层开关与形状字段怎么过滤、
+         素材按什么形状进请求体，全是声明里的事，页面不抄第二份。 */
+      const v = await Api.request(prov, 'create', { method: 'POST', log: log2,
+        body: Api.createBody(prov, {
+          model: modelId, prompt: pApi, tier: sh.tier, duration: sh.duration || undefined,
+          res: sh.res, ar: sh.ar, size: sh.size,
+          note: sh.name || '',                       // 只有声明了 acceptsNote 的那一族会真的带上（见 Api.createBody）
+          inputEntries: await shotInputEntries(sh, prov, icSub),
+          shape: { mode: ctxAdv.mode, caps: ctxAdv.caps }, params: ex.params,
+        }) });
+      /* 三种「上游说没成」的形状都要认（`Api.request` 返回的是上游原始响应体）：
+         `{error:{message}}`（SparkCine 那一族与照它克隆的中转）、
+         顶层 `statusCode >= 400`（VGENV 那一族）、
+         以及只回一个业务 `code` 而没有任务号（ MiniMax / 智谱那一族）。
+         少认一种就是把一个真失败当成「任务已建」，卡片会一直转圈等一条不存在的任务。 */
       if (v.error) throw new Error(v.error.message || '创建失败');
-    } else {
-      const body = {
-        model: modelId, tier: sh.tier, prompt: pApi,
-        duration: sh.duration || undefined, resolution: sh.res, aspect_ratio: sh.ar,
-      };
-      /* 参考图 / 首尾帧的形状按 registry 的 inputTemplates 拼（VGENV 要求
-         [{ type:'image_url', image_url:{ url } }]；写成字符串数组会被上游判为格式错误）。
-         上限用模型声明的 max（不猜数：声明多少收多少）。 */
-      const tplRef = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, 'reference_image') : null;
-      const refTmpl = (tplRef && tplRef.tmpl) || { type: 'image_url', image_url: { url: '$url' } };
-      const asRefItem = url => ({ type: refTmpl.type || 'image_url', image_url: { url } });
-      const maxRef = Math.max(1, icSub.maxRef);
-      if (frame.length) body.frame_images = frame;
-      else {
-        /* 画面切片与手动参考图**合并**后按上限截断：
-           以前用 else if 二选一 —— 有切片时用户手动加的参考图被整体丢弃（SparkCine 分支同构），没有任何提示。
-           切片是「AI 生成的画面」，和手动参考图一样都是 reference_image，本来就该一起提交。 */
-        const refs = [];
-        let failed = 0;
-        for (const k2 of kfs) {                     // 关键帧：只有 assetId（没有 dataUrl 字段，以前这里拿到的是 undefined）
-          if (!k2.assetId) continue;
-          try { refs.push(asRefItem(await assetToDataURL(k2.assetId))); }
-          catch (e) { failed++; console.warn('[director] 关键帧转 dataURL 失败：', e); }
-        }
-        for (const img of (sh.refImages || [])) {
-          if (refs.length >= maxRef) break;
-          try { refs.push(asRefItem(await toDataURL(img))); }
-          catch (e) { failed++; console.warn('[director] 参考图转 dataURL 失败：', e); }
-        }
-        /* 提交前状态条会被「已提交/取回中」覆盖，所以少了素材要用 Toast 说，否则用户看不到 */
-        if (failed) { setStatus('<span class="warn">有 ' + failed + ' 张参考素材读不出来（可能已过期），本次没带上</span>'); Toast.warn('少了 ' + failed + ' 张参考素材（读不出来/已过期）'); }
-        if (refs.length) body.reference_images = refs.slice(0, maxRef);
-      }
-      if (icSub.refVideo && sh.refVideo && sh.refVideo.asset_id) body.reference_video = { asset_id: sh.refVideo.asset_id };
-      if (icSub.refAudio && sh.refAudio && sh.refAudio.asset_id) body.reference_audio = { asset_id: sh.refAudio.asset_id };
-      v = await Api.request(prov, 'create', { method: 'POST', body, log: log2 });
-      if (v.statusCode || v.code) throw new Error(v.message || v.code || '创建失败');
-    }
+      if (Number(v.statusCode) >= 400) throw new Error(v.message || v.code || '创建失败');
+      if (v.code && !v.id) throw new Error(v.message || v.code || '创建失败');
     Object.assign(ph, {
       vid: v.id, provider: prov.id, status: v.status || 'queued', progress: 0,
       priceText: Api.priceText(prov, Api.parseItem(prov, v)) || '',
@@ -2140,6 +2179,131 @@ function ensureSceneLeft() {
   proj.scenes.push({ id: uid(), name: '场景 1', shots: [newShot()] });
   proj.curScene = 0; proj.curShot = 0;
 }
+/* ============================================================================
+   场景图 —— 左栏每个场景一张图，这个场景里新建的镜头自动把它带进参考图
+   ----------------------------------------------------------------------------
+   「这一镜能不能收参考图 / 收到第几张 / 这张是不是已经有了」不在这里重写一遍：
+   全部走 `addLibPicToShot`（能力声明 + 素材互斥 + 上限 + 按图去重那份判据），
+   这里只回答两件事：**图从哪来**、**这句要不要跟用户说**。
+   ========================================================================== */
+/* 场景名的归一化只有一份：判「同一个场景」与「素材库里同名那一条」用的是同一把尺子
+   （素材投递以前另有一个局部 norm，两处对「同名」的判法迟早分家）。 */
+function nameKey(t) { return String(t || '').replace(/\s+/g, '').toLowerCase(); }
+/* 素材库里那一族「场景」条目，按名字认领一张图。**只兜底**：用户在左栏亲手挑的那张永远优先，
+   库里换了图也不必把工作区里那份覆盖掉。 */
+function libScenePic(scName) {
+  const D = window.Chars;
+  if (!D || !D.Lib || !D.libKindOf || !D.picOf) return '';
+  const k = nameKey(scName);
+  if (!k) return '';
+  const hit = (D.Lib.list() || []).find(x => x && D.libKindOf(x) === 'scene' && nameKey(x.name) === k);
+  return (hit && D.picOf(hit)) || '';
+}
+/* 这个场景**现在**对得上的那张图：左栏挑的 → 素材库同名那条 → 没有。
+   `sc.noPic` = 用户在左栏按过「这个场景不带图」，连素材库那张也不认领。
+   这一项不是多余的状态：缩略图上显示的就是库里那张，只把 `sc.img` 清掉的话
+   点完「×」画面一个字没变 —— 看着像按钮坏了，而用户确实想让它不带。 */
+function scenePicOf(sc) {
+  if (!sc || sc.noPic) return '';
+  return sc.img || libScenePic(sc.name) || '';
+}
+/* 一批新镜头落进某个场景之后统一认领它的场景图，结果收成 {added, why}。
+   `skipped`（这个场景本来就没有图）不进统计、也不吭声 —— 界面上不该为「本来就没有的东西」报一句；
+   但「型号不收参考图」「已经选了首尾帧」「超出上限」这些**带不上的**必须说，
+   否则用户以为新镜头带着场景图，实际提交的是干净的提示词。 */
+function feedScenePics(sc, shots) {
+  let added = 0, why = '';
+  (shots || []).forEach(sh => {
+    const r = applyScenePic(sh, sc);
+    if (r.skipped) return;
+    if (r.ok) { if (!r.dup) added++; return; }
+    if (!why) why = r.why || '';
+  });
+  return { added: added, why: why };
+}
+function applyScenePic(sh, sc) {
+  const pic = scenePicOf(sc);
+  if (!pic) return { ok: false, skipped: true };
+  return addLibPicToShot(sh, { name: (sc && sc.name) || '场景' }, { src: pic });
+}
+/* 把 AI 拆出来的一批场景落进一个**已有项目**：同名（归一之后）的并进那一场，对不上号的才新建一场。
+   单独成一个函数的两个理由：
+   ① 这一条判据要能被探针问一遍 —— `aiStoryboard` 那一整段要等文字 AI 与两个确认弹窗，探针跑不动它；
+   ② 「并进已有场景时场景图归谁」必须以**那一场**为准（它可能自己挑过一张、也可能按过 ×），
+      把这段就地写在页面里最容易漏掉这一半。
+   `at` = 最后落笔的那一场在哪，调用方据此放光标：全部并进球场时 `scenes.length-1` 指的是
+   一个与本次毫无关系的老场景，光标跳过去会让人以为追加错了地方。 */
+function placeScenesInto(scenes, newScenes) {
+  const list = scenes || [];
+  let merged = 0, created = 0, added = 0, why = '', at = Math.max(0, list.length - 1);
+  (newScenes || []).forEach(sc => {
+    const k = nameKey(sc.name);
+    const dst = k ? list.find(x => nameKey(x.name) === k) : null;
+    const host = dst || sc;
+    if (dst) { dst.shots.push(...sc.shots); merged++; }
+    else { list.push(sc); created++; }
+    at = Math.max(0, list.indexOf(host));
+    const r = feedScenePics(host, sc.shots);        // 只喂这一次新建的镜头，那一场里原有的不动
+    added += r.added; if (r.why && !why) why = r.why;
+  });
+  return { merged: merged, created: created, at: at, pics: { added: added, why: why } };
+}
+/* 结果怎么说：成功走顶部那行小字（不弹浮层，不打扰正在打字的人），
+   带不上走 Toast.warn —— 它是「用户该知道、但此刻不在他眼前」的那一半。
+   `tail` 给调用方把自己那句结果（「已追加 N 个镜头」）拼进来：顶部那一行只有一个位置，
+   分两次 setStatus 等于后一句把前一句顶掉，界面上就只剩一半。 */
+function reportScenePics(res, tail) {
+  const bits = [];
+  if (tail) bits.push(tail);
+  if (res && res.added) bits.push('场景图已自动带进 ' + res.added + ' 个新镜头的参考图');
+  if (bits.length) setStatus('<span class="ok">✓ ' + esc(bits.join(' · ')) + '</span>');
+  if (res && res.why) Toast.warn('场景图没能带进镜头：' + res.why);
+}
+/* 这一格长什么样只有一份画法：整片重画（renderScenes）与「改完名就地重画」走同一个函数 ——
+   两处各拼一遍迟早变成「改了场景名，那一格还挂着按旧名字认领的图」。 */
+function paintSceneThumb(btn, sc) {
+  if (!btn) return;
+  const pic = scenePicOf(sc);
+  btn.classList.toggle('none', !pic);
+  btn.title = sc.img ? '这个场景自己挑的场景图 · 点击换一张'
+    : pic ? '场景图认的是素材库里同名那条（「' + (sc.name || '') + '」）· 点击换成自己挑的'
+      : '还没有场景图：点一下挑一张，这个场景里新建的镜头会自动带上它当参考图';
+  btn.innerHTML = pic
+    ? Wb.thumbs.mediaHTML(Api.mediaSrc(pic), { type: 'image', mediaAttrs: 'class="sp" loading="lazy"' })
+    + '<span class="sp-x" data-act="scpicclear" title="这个场景不再自动带图">' + icon('close', 9) + '</span>'
+    : icon('image', 13);
+  if (pic) Wb.thumbs.bind(btn, btn.querySelector('img'), Api.mediaSrc(pic));
+}
+/* 挑一张场景图：右栏那几个槽位用的同一份选择器（资产库 / 收藏 / 本地上传 / AI 检索都在里面）。 */
+function pickScenePic(sc) {
+  AssetPicker.open({
+    types: ['图片'], multiple: false, limit: 1, aiSearch: true,
+    title: '给场景「' + (sc.name || '未命名') + '」挑一张图',
+    note: '挑中之后，这个场景里新建的每个镜头都会自动把它带进参考图（已经建好的镜头不动）。',
+    onPick: e => setScenePic(sc, e),
+  });
+}
+async function setScenePic(sc, e) {
+  try {
+    /* 存成 dataURL，不存选择器递回来的那个地址：/getv 那条包的是平台签名外链，一天就过期，
+       而这一张要长期挂在左栏，还要整份拷进每个新镜头的 refImages（那里面存的本来就是 dataURL）。 */
+    sc.img = e.file ? await AssetTransfer.toDataURL(await compressImg(e.file)) : await toDataURL(e.src);
+    sc.noPic = false;                         // 重新挑一张 = 「这一场要带图」，之前按过 × 那句话作废
+    renderScenes(); scheduleSave();
+    /* 这句要说清「生效范围是以后的新镜头」：已经建好的那些一张都没动，
+       界面却在下一次新建镜头时才带上图 —— 不说清会让人以为整场都换好了。 */
+    setStatus('<span class="ok">✓ 已给「' + esc(sc.name || '这个场景') + '」设好场景图：这个场景里新建的镜头会自动带上它，已有的镜头不动</span>');
+  } catch (err) {
+    setStatus('<span class="err">场景图取回来失败：' + esc((err && err.message) || String(err)) + '</span>');
+  }
+}
+/* 清掉 = 「这个场景不自动带图」，不只是抹掉自己挑的那一张：
+   素材库里恰好有同名那条时，只清 `sc.img` 的话这一格画出来还是原来那张，按下去就是「没反应」。 */
+function clearScenePic(sc) {
+  sc.img = ''; sc.noPic = true;
+  renderScenes(); scheduleSave();
+  setStatus('已让「' + esc(sc.name || '这个场景') + '」不再自动带场景图（点那一格可以重新挑）');
+}
 /* 图标：垃圾桶（内联 SVG，颜色跟着按钮走，深浅主题都干净） */
 const TRASH_SVG = icon('trash', 14);
 function renderScenes() {
@@ -2151,11 +2315,29 @@ function renderScenes() {
     blk.className = 'scene-block';
     const head = document.createElement('div');
     head.className = 'scene-head';
-    head.innerHTML = `<input value="${esc(sc.name)}" title="点一下可以改场景名">
+    /* 场景图那一格：有图就显示图，没图显示一个虚线空位。
+       右上角那颗 ×「这个场景不再自动带图」，与「换一张」放在同一个格子里 ——
+       分开放要多占一个 flex 子项，而左栏最窄只有 198px，四个按钮加改名框就顶不下了。 */
+    head.innerHTML = `<button class="sc-thumb" data-act="scpic"></button>
+      <input value="${esc(sc.name)}" title="点一下可以改场景名">
       <span class="sc-cnt">${sc.shots.length} 镜</span>
       <button class="icon-btn add" data-act="addshot" title="在这个场景末尾新建一个镜头">＋</button>
       <button class="icon-btn del" data-act="delscene" title="删除整个场景（连带里面的镜头）">${TRASH_SVG}</button>`;
-    head.querySelector('input').oninput = e => { sc.name = e.target.value; scheduleSave(); renderMidSoon(); };
+    paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
+    /* 改名要当场重画这一格（素材库里同名那条的图是**按名字**认领的），但不能整片 renderScenes：
+       那会把这个正在打字 input 一起换掉、光标跳走。只换那一颗按钮的内容。 */
+    head.querySelector('input').oninput = e => {
+      sc.name = e.target.value; scheduleSave(); renderMidSoon();
+      paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
+    };
+    /* 一格两个动作：点图本身 = 换一张，点右上角 × = 这一场不带图。
+       × 不做二次确认 —— 它随时可以反悔（再点一次图挑回来就是原样），
+       而 Confirm.arm 会把按钮文字换成「确认…」，连带抹掉里面那张缩略图。 */
+    head.querySelector('[data-act=scpic]').onclick = e => {
+      e.stopPropagation();
+      if (e.target.closest('[data-act=scpicclear]')) { clearScenePic(sc); return; }
+      pickScenePic(sc);
+    };
     head.querySelector('[data-act=addshot]').onclick = e => { e.stopPropagation(); addShotToScene(sc); };
     head.querySelector('[data-act=delscene]').onclick = e => {
       const b = e.currentTarget;
@@ -2963,6 +3145,249 @@ function shotInputCaps(sh) {
   return caps;
 }
 
+/* ==================== 三排「AdvParams 那几档之外」的声明驱动参数 ====================
+   判据与画法都在 `assetlib.js` 的 `AdvExtras`，与生成工作台共用同一份：
+     · 型号能力里的布尔参数（`options.bools`，进嵌套 parameters）
+     · 提交体**顶层**的布尔开关（`create.topBools`，如 SparkCine 的「平台自动润色」、VGENV 的「Turbo 加速档」）
+     · 提交体**顶层**的非布尔字段（`create.shapeFields`，如成片超分档、随机种子）
+   导演台以前整块没有这三排 —— 同一个平台在工作台上能勾的那些开关，在这一镜上连控件都不画、
+   提交体里一个字都不发，用户以为两个页面走的是同一套参数。
+   状态挂在**这一镜**上（`sh.adv`）而不是模块变量：导演台一次编辑的是镜头，切镜头就要跟着换。 */
+function shotAdvState(sh) {
+  if (!sh.adv) sh.adv = { bools: {}, topBools: {}, shape: {} };
+  return sh.adv;
+}
+/* 「这一次的那一行能力」：导演台没有「输入模式」那排芯片（形状由送上去的素材决定），
+   所以 combo 传 null、mode / intent 是空串，roles 用这一镜已经放进来的素材种类。 */
+function shotShapeCaps(sh) {
+  const rm = resolvedModel(sh) || {};
+  if (!rm.id || !window.Capabilities || !Capabilities.shapeState) return null;
+  return Capabilities.shapeState(rm, null, shotUsedRoles(sh), sh.tier);
+}
+function shotAdvCtx(sh) {
+  return { mode: '', intent: '', caps: shotShapeCaps(sh) };
+}
+/* 画那三排（整块随编辑器重绘，所以不需要工作台那套指纹守卫）。
+   `forceDef` = 换型号的那一次：型号布尔那一排按**新声明**的默认值重画，用户点过的照样保住。 */
+function paintShotAdv(sh, forceDef) {
+  const rm = resolvedModel(sh) || {};
+  const prov = provOf(rm.provider);
+  const st = shotAdvState(sh);
+  const ctx = shotAdvCtx(sh);
+  const boolBox = $('edBoolRows');
+  if (boolBox) {
+    const b = window.AdvExtras.html.bools(rm, { av: st.bools, forceDef: !!forceDef });
+    boolBox.innerHTML = b.html;
+    boolBox.hidden = !b.count;
+  }
+  const tbBox = $('edTopBools');
+  if (tbBox) {
+    const decl = window.AdvExtras.topBoolDecls(prov);
+    /* 换型号/换平台后把声明里没有的旧值清掉：留着会被带进提交体（公共层那份清理与工作台同一处）。 */
+    window.AdvExtras.prune(st.topBools, decl);
+    const h = window.AdvExtras.html.topBools(prov, rm, ctx, st.topBools);
+    tbBox.innerHTML = h.html;
+    tbBox.hidden = !decl.length;
+    if (window.fillIcons) fillIcons(tbBox);
+  }
+  const sfBox = $('edShapeFields');
+  if (sfBox) {
+    const decl = window.AdvExtras.shapeFieldDecls(prov);
+    window.AdvExtras.prune(st.shape, decl);
+    const h = window.AdvExtras.html.shapeFields(prov, ctx.caps, ctx, st.shape);
+    sfBox.innerHTML = h.html;
+    sfBox.hidden = !decl.length;
+    /* build 而不是 sync：这一格的 select 是刚 innerHTML 出来的，还没被公共下拉包过。 */
+    if (window.Dropdowns && sfBox.querySelector('select[data-sf]')) Dropdowns.build(sfBox);
+  }
+  bindShotAdv(sh);
+  return true;
+}
+/* 接线：每一块重绘后绑一次（编辑器整块重建，旧节点上的监听跟着没了，不会越攒越多）。
+   磁贴那一路要 `renderEditor(true)` 之外的最小重画 —— 这里直接重画整块编辑器：
+   值落在 `sh.adv` 上，摘要与估价都跟着它，重画整块才是最不容易漏更新的画法。 */
+function bindShotAdv(sh) {
+  const tbBox = $('edTopBools');
+  if (tbBox) {
+    tbBox.addEventListener('click', e => {
+      const btn = e.target.closest && e.target.closest('[data-tb]');
+      if (!btn) return;
+      const f = btn.dataset.tb;
+      const st = shotAdvState(sh);
+      const decl = window.AdvExtras.topBoolDecls(provOf((resolvedModel(sh) || {}).provider)).find(x => x[0] === f);
+      /* 「还没被点过」时的起点是**这一档的默认值**（声明里 def 可以是 {when,then,else} 这种随形状变的东西），
+         不是「非真即为开」—— 遇到对象默认值时 `!decl[1].def` 会永远翻成 true。 */
+      const s = window.AdvExtras.topBoolStateOf(decl && decl[1], shotAdvCtx(sh));
+      st.topBools[f] = st.topBools[f] === undefined ? !s.def : !st.topBools[f];
+      renderEditor(); updateBanner(); scheduleSave();
+    });
+  }
+  ['edBoolRows', 'edShapeFields'].forEach(id => {
+    const box = $(id);
+    if (!box) return;
+    box.addEventListener('change', e => {
+      const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
+      if (sf) shotAdvState(sh).shape[sf] = e.target.value;   // 布尔那一排由 shotAdvExtras 现读 DOM，不必另存
+      const sum = $('advSum');
+      if (sum) sum.textContent = advSumText(sh);   // 摘要跟着这一排走，否则折叠行看不出勾了什么
+      refreshEst(); updateBanner(); scheduleSave();
+    });
+    box.addEventListener('input', e => {
+      const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
+      if (!sf) return;
+      shotAdvState(sh).shape[sf] = e.target.value;
+      scheduleSave();          // 逐字只落值，不重算报价（随机种子那种长数字，打一半就发一次询价没意义）
+    });
+  });
+}
+/* 读回提交体与报价体要用的那一批（与 Api.createBody 里那道 hide / need 过滤同一个判据）。 */
+function shotAdvExtras(sh) {
+  const rm = resolvedModel(sh) || {};
+  const ctx = shotAdvCtx(sh);
+  const st = shotAdvState(sh);
+  /* ⚠ 只有「正在编辑的这一镜」才从 DOM 读：批量生成时 `submitCandidate` 会在屏幕上还是另一镜的情况下提交
+     （连拍、按段排队都是这样），那时 #edAdvBody 里挂着的是**别人那一镜**的控件 ——
+     读 DOM 就等于把 A 的参数发到 B 的任务上。非当前镜头一律 root:null，退回 `sh.adv` 那份状态。 */
+  const live = sh === curShot() && !!$('edAdvBody');
+  return window.AdvExtras.read({
+    root: live ? $('edAdvBody') : null, prov: provOf(rm.provider), ctx: ctx, caps: ctx.caps,
+    topBoolState: st.topBools, shapeState: st.shape, bools: shotAdvBools(sh),
+  });
+}
+/* 型号布尔那一排：正在编辑的这一镜读控件，别的镜头读 `sh.adv.bools` 那本账（没记过的按声明默认）。 */
+function shotAdvBools(sh) {
+  const st = shotAdvState(sh);
+  if (sh === curShot() && $('edBoolRows')) return window.AdvExtras.boolsFromDom($('edBoolRows'), st.bools);
+  const decls = window.AdvExtras.boolDecls(resolvedModel(sh) || {});
+  const out = {};
+  Object.keys(decls).forEach(k => {
+    const prev = st.bools['bool_' + k];
+    out[k] = prev === undefined ? (decls[k].def !== false) : prev === '1';
+  });
+  return out;
+}
+/* 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例：**判据在 `assetlib.js` 的 `AdvParams.plan`**
+   （与生成工作台视频栏同一份），这里只写导演台自己的 DOM 与「把回落后的值记回这一镜」。
+   以前模板串里是 `t === sh.tier ? 'selected' : ''`，**完全没有回落** —— 存的档位被平台下架之后
+   浏览器默默显示第一项，而发出去的还是那个下架的值（界面写着 A、提交体是 B）。
+   取值范围与上限仍然**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
+   （[4, 15] 和 4）：平台没声明时界面照样能滑到 15 秒、照样列 4 条，提交才发现平台不吃。
+   没有声明就当作「这一项不给选」：时长控件不渲染，条数按平台默认一次一条、下拉也不摆
+   （只有一个可选项的下拉是假控件，这条与工作台同判据）。
+   ⚠ 现取 `resolvedModel(sh)`：改完 edModel 之后摘要要跟着新型号，不能拿渲染时那一份。 */
+function videoPlanOf(sh) {
+  const mm = resolvedModel(sh) || {};
+  return AdvParams.plan(mm, {
+    kinds: ['tier', 'resolution', 'aspect_ratio', 'size', 'duration', 'count'],
+    ids: { tier: 'edTier', resolution: 'edRes', aspect_ratio: 'edAr', size: 'edSize', duration: 'durRange', count: 'edDraw' },
+    cur: { tier: sh.tier, resolution: sh.res, aspect_ratio: sh.ar, size: sh.size, duration: sh.duration, count: sh.draw },
+    prefix: mm.name || '',
+    units: { count: '条' },
+  });
+}
+/* 折叠行那一句摘要 = AdvParams 四档的摘要 + 三排里**真进提交体**的那几项（同一个 `AdvExtras.read` 的产物）。
+   两句必须同源：以前摘要只写四档，于是勾了「平台自动润色」之后折叠行一个字不提，
+   而提交体里带着它 —— 用户只能猜自己勾的东西到底发没发。
+   ⚠ 只在三排**画完之后**调（`shotAdvExtras` 读的是活控件，DOM 还没重建时读到的是上一镜的）。 */
+function advSumText(sh) {
+  return [videoPlanOf(sh).summary, shotAdvExtras(sh).summary].filter(Boolean).join(' · ');
+}
+/* 这一镜能交出去的画面切片：只数「有资产号（= 出图真的成了）而且没被删掉」的那几张。
+   判据在这里只有一份，提交体与归档文案都读它 —— 否则界面写「已带上 3 张关键帧」而请求里只有 1 张。 */
+function shotKeyframes(sh) {
+  return (sh.keyframes || []).filter(k => k && k.assetId && !k.deleted);
+}
+/* 素材 → 能交给平台的地址。签名外链本来就是公网 https，原样给它；
+   而 `data:`、`/asset/xx`、`/getv?url=` 是本机回环或浏览器内地址，平台根本访问不到
+   （表现为「素材被静默丢掉」），要先读成字节转成 DataURL。
+   只服务 `needsUpload` 没声明的那一族 —— 声明了要上传的平台走资产编号，不经过这里。 */
+async function shotPlatformUrl(src) {
+  const s = String(src || '');
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s) && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(s)) return s;
+  return await toDataURL(s);
+}
+/* 这一镜的素材 → `Api.createBody` 的 inputEntries（每项 { role, url? | assetId? }）。
+   每一项交 url 还是交资产号，完全按 registry 的 `create.inputTemplates[role].needsUpload` 决定，
+   与生成工作台 `buildInputEntries` 是同一个口径。以前这里在页面里把两家的**请求体形状**各抄了一遍
+   （inputs 数组 vs reference_images / frame_images 顶层字段，字段名、嵌套、数组与否全写死），
+   于是接第三家（MiniMax 的 content[]）时拼出去的是上游不认的字段名，
+   而且「界面按能力把素材画出来了、提交体却把它发错地方」这种问题只在扣费之后才暴露。
+   形状交给声明，这一页只负责回答「这个槽位手上有什么」：
+     · 首尾帧 = `sh.firstFrame` / `sh.lastFrame`（选素材时就已经是 DataURL）
+     · 参考图 = 画面切片 + 手动参考图**合并**后按型号声明的 maxRef 截断
+     · 参考视频 / 参考音频 = 槽位上的那份素材（上面那段 `requiresAudio` 的重传逻辑已经把资产号备好）
+   以前切片与手动参考图是 `else if` 二选一：有切片时用户手动加的参考图被整体丢弃、一个字都不说。
+   首尾帧与参考素材互斥由 `illegalPairs` 在提交前拦住，所以这里不再用「有帧就不发参考图」代替它。 */
+async function shotInputEntries(sh, prov, ic) {
+  const out = [];
+  const tplOf = r => (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, r) : null;
+  /* 「这一家收不收这个槽位」的判据只有注册表那一份。界面早就按能力声明把素材画出来了，
+     走到这里却没有模板 = 注册表漏写，要说清补哪里，而不是发一个猜出来的形状。 */
+  const needSlot = (role, name, n) => {
+    if (n && !tplOf(role)) throw new Error('「' + name + '」这一家在注册表里没有声明怎么接收'
+      + '（registry 的 create.inputTemplates.' + role + '），补上声明才能提交');
+  };
+  /* `asset` = { id, fromPlatform? }：这份素材手上的资产编号，以及它**本来就是目标平台那一族的编号**吗。
+     `fromPlatform` 为假（或压根没给）时不能直接引用 —— 导演台的画面切片、本机上传、素材库里的东西
+     存的都是本项目自己的 `/asset/<id>` 编号，上游看见它会当成一个不存在的资产。 */
+  const add = async (role, src, name, asset) => {
+    const t = tplOf(role);
+    const id = asset && asset.id ? asset.id : '';
+    const localSrc = id && !asset.fromPlatform ? '/asset/' + id : src;
+    if (t.needsUpload) {
+      const got = (asset && asset.fromPlatform) ? id : (localSrc ? await uploadImageDataUrl(localSrc, name, prov.id) : '');
+      if (!got) throw new Error('这份「' + name + '」转不成 ' + ((prov.displayName || prov.name) || '目标平台') + ' 的资产，请重新选一次素材');
+      out.push({ role, assetId: got });
+    } else {
+      const url = await shotPlatformUrl(localSrc);
+      if (!url) throw new Error('这份「' + name + '」取不到能交给平台的地址，请重新选一次素材');
+      out.push({ role, url });
+    }
+  };
+  const kfs = shotKeyframes(sh);
+  const refs = sh.refImages || [];
+  const frames = [['first_frame', sh.firstFrame, '首帧'], ['last_frame', sh.lastFrame, '尾帧']].filter(x => x[1]);
+  needSlot('first_frame', '首帧', sh.firstFrame ? 1 : 0);
+  needSlot('last_frame', '尾帧', sh.lastFrame ? 1 : 0);
+  needSlot('reference_image', '参考图', (kfs.length + refs.length) ? 1 : 0);
+  for (const [role, src, name] of frames) await add(role, src, name, null);
+  /* 读不出字节 / 超上限的那几张不能闷着不发：提交前状态条会被「已提交」覆盖，所以要用 Toast 说。 */
+  const maxRef = Math.max(1, ic.maxRef);
+  let got = 0, failed = 0, over = 0;
+  const pushRef = async (src, name, asset) => {
+    if (got >= maxRef) { over++; return; }
+    try { await add('reference_image', src, name, asset); got++; }
+    catch (e) { failed++; console.warn('[director] ' + name + '没交出去：', e); }
+  };
+  /* 画面切片 = 导演台自己的生图产物，存的是 `/asset/<id>` 那一份本机资产 */
+  for (const k of kfs) await pushRef('', '画面切片', { id: k.assetId });
+  for (const img of refs) await pushRef(img, '参考图', null);
+  if (failed || over) {
+    const why = [failed ? failed + ' 个读不出来（可能已过期）' : '', over ? over + ' 个超出这个型号的上限 ' + maxRef : '']
+      .filter(Boolean).join('，');
+    setStatus('<span class="warn">有参考素材本次没带上：' + why + '</span>');
+    Toast.warn('少了参考素材：' + why);
+  }
+  const medias = [];
+  if (ic.refVideo && sh.refVideo) medias.push(['reference_video', sh.refVideo, '参考视频']);
+  if (ic.refAudio && sh.refAudio) medias.push(['reference_audio', sh.refAudio, '参考音频']);
+  for (const [role, ref, name] of medias) {
+    needSlot(role, name, 1);
+    /* 以前这一条写的是「没有 asset_id 就整个跳过」—— 素材明明选了，提交体里一个字没有，
+       界面上却写着「已带上参考视频」。现在交不出能用的地址就直接报错，让用户看得见。
+       资产号属于哪一家由 `ref.provider` 现问（与上面 `requiresAudio` 那段重传同一份判据）：
+       本机资产对任何平台都要先转存，别把本机的编号当平台编号发给上游。 */
+    const local = sameAssetSpace(ref.provider, ASSET_STORE);
+    const src = ref.src || (local && ref.asset_id ? '/asset/' + ref.asset_id : '');
+    try {
+      await add(role, src, name, ref.asset_id ? { id: ref.asset_id, fromPlatform: !local } : null);
+    }
+    catch (e) { throw new Error('这份「' + name + '」没能交给平台：' + ((e && e.message) || e)); }
+  }
+  return out;
+}
+
 /* 互斥提示文案：已选的一组在挡着另一组；两组都选了就是非法状态（生成会被拒） */
 function conflictNote(ic) {
   const zh = r => ROLE_ZH[r] || r;
@@ -2978,6 +3403,11 @@ function conflictNote(ic) {
    所以页面不再自己编「至少 5 个字」这种数字。 */
 const NO_PROMPT_WHY = '先写这一镜的提示词';
 let edPromptTouched = false;      // 用户在这个镜的提示词框里动过手没有（决定底部那行要不要刷屏）
+/* 换型号那一次要「按新声明的默认值」重画型号布尔那一排（用户点过的保住，没点过的跟声明走）。
+   与生成工作台那个 `modelChanged` 参数同一语义，只是导演台的重绘入口在这里。 */
+let edModelChanged = false;
+/* 画面生成（生图型号）那一路的同一个旗标：换生图型号那一次，型号布尔按新声明的默认值重画。 */
+let kfModelChanged = false;
 function shotBlockReason(sh, ic) {
   const p = String((sh && sh.prompt) || '').trim();
   if (!p) return NO_PROMPT_WHY;
@@ -2987,6 +3417,10 @@ function shotBlockReason(sh, ic) {
     return '「' + caps.unsupported.map(r => ROLE_ZH[r] || r).join(' / ') + '」当前模型不支持，请清空或换模型';
   }
   if (!resolvedModel(sh)) return '没有支持这组素材的模型';
+  /* 高级设置里越界或非数的那一项（种子、超分档那种）：与生成工作台同一个判据、同一处拦。
+     不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
+  const bad = shotAdvExtras(sh).bad;
+  if (bad.length) return bad.join('、');
   return '';
 }
 /* 底部那行「为什么还不能生成」跟三个工作台同一套规矩（见 workbench.js 的 Wb.ready）：
@@ -3597,31 +4031,16 @@ function renderEditor() {
   const idx = allShots().indexOf(sh) + 1;
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
   const mats = mentionedMats(sh);                    // 「提到素材」那排芯片（= 带来源标签的参考图）
-  /* 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例：**判据在 `assetlib.js` 的 `AdvParams.plan`**
-     （与生成工作台视频栏同一份），这里只写导演台自己的 DOM 与「把回落后的值记回这一镜」。
-     以前模板串里是 `t === sh.tier ? 'selected' : ''`，**完全没有回落** —— 存的档位被平台下架之后
-     浏览器默默显示第一项，而发出去的还是那个下架的值（界面写着 A、提交体是 B）。
-     取值范围与上限仍然**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
-     （[4, 15] 和 4）：平台没声明时界面照样能滑到 15 秒、照样列 4 条，提交才发现平台不吃。
-     没有声明就当作「这一项不给选」：时长控件不渲染，条数按平台默认一次一条、下拉也不摆
-     （只有一个可选项的下拉是假控件，这条与工作台同判据）。 */
-  const videoPlan = () => {
-    const mm = resolvedModel(sh) || {};      // 现取：改完 edModel 之后摘要要跟着新型号，不能拿渲染时那一份
-    return AdvParams.plan(mm, {
-      kinds: ['tier', 'resolution', 'aspect_ratio', 'duration', 'count'],
-      ids: { tier: 'edTier', resolution: 'edRes', aspect_ratio: 'edAr', duration: 'durRange', count: 'edDraw' },
-      cur: { tier: sh.tier, resolution: sh.res, aspect_ratio: sh.ar, duration: sh.duration, count: sh.draw },
-      prefix: mm.name || '',
-      units: { count: '条' },
-    });
-  };
-  const vp = videoPlan();
+  const vp = videoPlanOf(sh);
   const vk = vp.kinds;
   /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
      duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。 */
   if (vk.tier.list.length) sh.tier = vk.tier.value;
   if (vk.resolution.list.length) sh.res = vk.resolution.value;
   if (vk.aspect_ratio.list.length) sh.ar = vk.aspect_ratio.value;
+  /* size 是「宽x高」那一族平台用的画幅写法（SiliconFlow 的 image_size / OpenAI 兼容的 size），
+     与 ar（比例）是两种字段 —— 声明了才回写、才发，没声明的这一档一个字都不带。 */
+  if (vk.size.list.length) sh.size = vk.size.value;
   if (vk.duration.list.length) sh.duration = Number(vk.duration.value);
   sh.draw = vk.count.list.length ? Number(vk.count.value) : 1;
   const hasDur = vk.duration.list.length > 0;
@@ -3649,6 +4068,9 @@ function renderEditor() {
       : '这一镜还没有参考图 · 在上面的「参考图」槽位挑几张，画面会更贴同一个形象（这个型号一次最多收 ' + kfRefCap + ' 张）')
     : (kfRefN ? '这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + kfRefN + ' 张参考图不会带上）'
       : '这个生图型号没有「参考图」槽位，画面只按文字生成');
+  /* 「四档之外」那三排在这一路上到底画得出几颗（决定整块出不出现）：
+     计数判据在公共层（AdvExtras.visibleCount：被形状藏掉的那一项不占数），页面不再自己数一遍。 */
+  const kfExtras = kfExtrasVisible(sh);
   /* 把 plan 算好的一档画进下拉：清单、当前值、显示名、这一档出不出现，全部读 AdvParams 那一份，
      这里只写导演台自己的 DOM（整块随编辑器重绘，与工作台「控件常驻 DOM」是两种画法、同一份数）。 */
   const advSel = (k, o) => (!k || !k.on) ? ''
@@ -3692,21 +4114,28 @@ function renderEditor() {
         <span class="hint" id="kfEst" style="margin-top:0"></span>
       </div>
       ${/* 画面生成的高级设置：与图片工作台同一套形状（折叠 + 摘要 + 按声明显隐的档位）。
-           四档一个都没声明、且这个型号压根不收参考图时，整块不出现 ——
-           摆一个空盒子写着「高级设置」比没有更让人以为有东西可调。 */
-        (['quality', 'aspect_ratio', 'size', 'output_format'].some(x => kp.kinds[x].on) || kfRefCap)
+           四档一个都没声明、这个型号压根不收参考图、而且「四档之外」那三排也画不出任何一项时，
+           整块不出现 —— 摆一个空盒子写着「高级设置」比没有更让人以为有东西可调。
+           反过来只声明了顶层开关（如 VGENV 的「平台提示词优化」）的四档全空型号，这块**必须**出现，
+           否则同一个平台在视频那一面能勾、在画面生成里连入口都没有。 */
+        (['quality', 'aspect_ratio', 'size', 'output_format'].some(x => kp.kinds[x].on) || kfRefCap || kfExtras)
           ? `<div class="adv${AdvParams.closed('sk_kf_adv_closed') ? ' closed' : ''}" id="kfAdvBox" style="margin:0 0 10px">
         <div class="adv-head" id="kfAdvHead">
           <h2>${icon('gear', 14)} 画面高级设置</h2>
           <span class="sum"><span id="kfAdvSum">${esc(kp.summary)}</span><span class="chev">▼</span></span>
         </div>
-        <div class="adv-body">
+        <div class="adv-body" id="kfAdvBody">
           <div class="adv-grid">
             ${advSel(kp.kinds.quality)}
             ${advSel(kp.kinds.aspect_ratio, { first: sh.ar ? '跟随这一镜（' + sh.ar + '）' : '' })}
             ${advSel(kp.kinds.size)}
             ${advSel(kp.kinds.output_format)}
           </div>
+          ${/* 三排「AdvParams 四档之外」的声明驱动控件：画法与判据都在 assetlib.js 的 AdvExtras，
+               与上面视频那一面、与生成工作台图像栏都是同一一份。容器常驻，内容由 paintKfAdv 现画。 */ ''}
+          <div class="adv-grid" id="kfBoolRows" style="margin-top:10px" hidden></div>
+          <div class="adv-grid" id="kfTopBools" style="margin-top:10px" hidden></div>
+          <div class="adv-grid" id="kfShapeFields" style="margin-top:10px" hidden></div>
           <div class="hint" id="kfRefHint" style="margin-top:8px">${esc(kfRefLine)}</div>
         </div>
       </div>` : ''}
@@ -3748,12 +4177,13 @@ function renderEditor() {
           <h2>${icon('gear', 14)} 高级设置</h2>
           <span class="sum"><span id="advSum">${esc(vp.summary)}</span><span class="chev">▼</span></span>
         </div>
-        <div class="adv-body">
+        <div class="adv-body" id="edAdvBody">
           <div class="adv-grid">
             <div><label>模型</label><select id="edModel">${modelOptionsFor(sh)}</select></div>
             ${advSel(vk.tier)}
             ${advSel(vk.aspect_ratio)}
             ${advSel(vk.resolution)}
+            ${advSel(vk.size)}
             ${advSel(vk.count)}
           </div>
           ${hasDur ? `<label>${esc(vk.duration.label)}（${durMin}–${durMax} 秒，按模型支持范围限制）</label>
@@ -3764,6 +4194,13 @@ function renderEditor() {
               <span>秒</span>
             </div>
           </div>` : ''}
+          ${/* 三排「AdvParams 那几档之外」的声明驱动控件（型号布尔参数 / 提交体顶层开关 / 提交体顶层非布尔字段）。
+               画法与判据都在 assetlib.js 的 AdvExtras，与生成工作台是同一一份 ——
+               导演台以前整块没有它们，于是同一个平台在工作台能勾「Turbo 加速档」「平台自动润色」，
+               在这一镜上连控件都不画、提交体里一个字都不发。容器常驻，内容由 paintShotAdv 现画。 */ ''}
+          <div class="adv-grid" id="edBoolRows" style="margin-top:10px" hidden></div>
+          <div class="adv-grid" id="edTopBools" style="margin-top:10px" hidden></div>
+          <div class="adv-grid" id="edShapeFields" style="margin-top:10px" hidden></div>
         </div>
       </div>
       <div class="ed-footer">
@@ -3775,6 +4212,18 @@ function renderEditor() {
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
+  /* 三排声明驱动的额外参数（型号布尔 / 顶层开关 / 顶层非布尔字段）在这里现画：
+     整块编辑器每次重绘都重建 DOM，所以不需要工作台那套指纹守卫，但**画法与判据是同一份**（AdvExtras）。 */
+  paintShotAdv(sh, edModelChanged);
+  edModelChanged = false;
+  /* 摘要里那句「顶层参数」必须在三排**画完之后**再读：模板串拼的时候 #edAdvBody 还是上一镜的那一份，
+     在拼串时读 DOM 等于把 A 镜的开关状态写成 B 镜的摘要。 */
+  const advSumEl = $('advSum');
+  if (advSumEl) advSumEl.textContent = advSumText(sh);
+  paintKfAdv(sh, kfModelChanged);
+  kfModelChanged = false;
+  const kfSumEl = $('kfAdvSum');
+  if (kfSumEl) kfSumEl.textContent = kfAdvSumText(sh);
   /* 右栏原来这里有一个「从资产库导入」按钮（把素材一次性塞进参考图 / 参考视频），已按要求去掉：
      素材入口在上面的参考图 / 首帧 / 尾帧 / 参考视频 / 参考音频各槽位上（点开就是同一个选择器），
      不再有一个「全塞进去」的第二入口。 */
@@ -3782,6 +4231,8 @@ function renderEditor() {
   // 事件
   const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave(); };
   const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { sh.res = e.target.value; scheduleSave(); };
+  /* 尺寸档只有这一家声明了才画出来（advSel 判 `k.on`），所以这里同样是「有节点才接线」。 */
+  const edSizeEl = $('edSize'); if (edSizeEl) edSizeEl.onchange = e => { sh.size = e.target.value; scheduleSave(); };
   /* 条数下拉在「这个型号一次只能出一条」时根本不画（与工作台同一判据，见 AdvParams.plan 的 many），
      所以这里不能像以前那样裸用 `$('edDraw').onchange` —— 那是 TypeError。 */
   const edDrawEl = $('edDraw'); if (edDrawEl) edDrawEl.onchange = e => {
@@ -3791,20 +4242,20 @@ function renderEditor() {
     updateBanner();      // 横幅提示同步
   };
   const edTierEl = $('edTier'); if (edTierEl) edTierEl.onchange = e => { sh.tier = e.target.value; scheduleSave(); };
-  /* 分辨率 / 比例改动后要重算报价（edTier、edDraw 上面各自已有 onchange，这里只管这两个） */
-  ['edRes', 'edAr'].forEach(id2 => {
+  /* 分辨率 / 比例 / 尺寸改动后要重算报价（edTier、edDraw 上面各自已有 onchange，这里只管这几个） */
+  ['edRes', 'edAr', 'edSize'].forEach(id2 => {
     const el2 = col.querySelector('#' + id2);
     if (el2) el2.addEventListener('change', () => { refreshEst(); updateBanner(); });
   });
-  // 生成参数卡片：折叠 / 展开 + 摘要跟随参数（外壳与摘要文本都在公共层，见 AdvParams）
+  // 生成参数卡片：折叠 / 展开 + 摘要跟随参数（外壳在公共层，摘要文本见上面的 advSumText —— 四档 + 三排同源）
   const updateAdvSum = () => {
     const sum = $('advSum');
-    if (sum) sum.textContent = videoPlan().summary;
+    if (sum) sum.textContent = advSumText(sh);
   };
   const advHeadEl = $('advHead'), advBoxEl = $('advBox');
   if (advHeadEl && advBoxEl) {
     AdvParams.fold(advHeadEl, advBoxEl, 'sk_dir_adv_closed');
-    ['edAr', 'edRes', 'edDraw', 'edTier', 'edModel'].forEach(id2 => {
+    ['edAr', 'edRes', 'edSize', 'edDraw', 'edTier', 'edModel'].forEach(id2 => {
       const el2 = $('' + id2);
       if (el2) el2.addEventListener('change', updateAdvSum);
     });
@@ -3814,6 +4265,7 @@ function renderEditor() {
   }
   $('edModel').onchange = async e => {
     sh.model = e.target.value;
+    edModelChanged = true;                // 换型号那一次，型号布尔那一排按**新声明**的默认值重画
     /* 每次换模型都回源一次能力接口，再按拿到的最新能力纠正参数 —— 上层把模型
        的分辨率 / 时长 / 张数改了、或加了新的输入槽位，界面跟着变，不用改代码。 */
     setStatus('正在读取模型能力…');
@@ -3935,7 +4387,7 @@ function renderEditor() {
       else kfFormat = el.value;
       kfParamsSave();
       refreshKfEst();
-      const sum = $('kfAdvSum'); if (sum) sum.textContent = kfImgParams(sh).summary;
+      const sum = $('kfAdvSum'); if (sum) sum.textContent = kfAdvSumText(sh);
     };
   });
   /* 折叠状态记住（外壳与键的读写都在公共层，与图片台 `studio_adv_closed` 同一份实现）：
@@ -3944,6 +4396,7 @@ function renderEditor() {
   if (kfAdvHeadEl && kfAdvBoxEl) AdvParams.fold(kfAdvHeadEl, kfAdvBoxEl, 'sk_kf_adv_closed');
   $('kfModel').onchange = async () => {
     kfModelId = $('kfModel').value;
+    kfModelChanged = true;                              // 型号布尔那一排按**新声明**的默认值重画
     localStorage.setItem('sk_kf_model', kfModelId);   // 记住选择，换镜头也保持
     setStatus('正在读取模型能力…');
     await refreshCapsForModel((kfModelOf().prov || {}).id);   // 画面模型同样回源一次能力接口
@@ -4463,6 +4916,14 @@ let kfQ = 'standard';   // 时间切片画质选择（编辑器会反复重渲�
    `kfAr = ''` 是「跟随这一镜的画幅」（原来的行为：关键帧直接用 sh.ar），
    所以这一档默认不变，只是**给了一个出口**：生图型号声明的画幅与视频那一条对得上时自己挑。 */
 let kfAr = '', kfSize = '', kfFormat = '';
+/* 「AdvParams 那四档之外」的三排（型号布尔 / 提交体顶层开关 / 提交体顶层非布尔字段）：
+   判据、画法、读回都在 assetlib.js 的 AdvExtras，与视频那一面、与生成工作台都是同一份。
+   这里只记账：`topBools` / `shape` 与四档一起落盘（切镜头、刷新都不该重挑一遍）。 */
+let kfTopBools = {}, kfShape = {};
+/* 型号布尔那一排的「用户动过没有」账（`bool_<k>` = '1'/'0'）：公共层的 `html.bools` 靠它区分
+   「按声明默认」与「保住用户挑的那个」。不落盘 —— 它记的是这一轮的界面状态，
+   而声明默认值本身可能随型号变，跨刷新留着反而会把旧型号的意图压到新型号上。 */
+let kfBoolAv = {};
 /* 两块面板的折叠状态不在这里各存一份模块变量：模板与 AdvParams.fold 都直接读那一个键
    （AdvParams.closed），存成变量的那份迟早和点出来的那一份对不上。 */
 try {
@@ -4472,12 +4933,18 @@ try {
     if (kp.ar !== undefined) kfAr = String(kp.ar || '');
     if (kp.size !== undefined) kfSize = String(kp.size || '');
     if (kp.fmt !== undefined) kfFormat = String(kp.fmt || '');
+    if (kp.tb && typeof kp.tb === 'object') kfTopBools = kp.tb;
+    if (kp.sf && typeof kp.sf === 'object') kfShape = kp.sf;
   }
 } catch (e) { }
 /* 四个值一次落盘（一个键）：分四个键就是四次「这算设置项还是算界面状态」的争论，
    而且换一台机器只带走一半。 */
 function kfParamsSave() {
-  try { localStorage.setItem('sk_kf_params', JSON.stringify({ q: kfQ, ar: kfAr, size: kfSize, fmt: kfFormat })); } catch (e) { }
+  try {
+    localStorage.setItem('sk_kf_params', JSON.stringify({
+      q: kfQ, ar: kfAr, size: kfSize, fmt: kfFormat, tb: kfTopBools, sf: kfShape,
+    }));
+  } catch (e) { }
 }
 let kfModelId = localStorage.getItem('sk_kf_model') || '';   // 生成画面用的图片模型（可切换）
 let kfRun = false;      // 关键帧批量生成是否进行中（期间删除占位只做标记）
@@ -4490,6 +4957,109 @@ function kfModelOf() {
   }
   const g0 = groups[0];
   return g0 ? { prov: g0, model: g0.models[0] } : { prov: null, model: null };
+}
+/* ---------- 画面生成的「三排声明驱动控件」（与视频那一面、与生成工作台共用 AdvExtras） ----------
+   注意型号是**生图型号**：这一路的 caps 按「这一批要带几张参考图」现算，
+   不能借视频型号那一份（两家在同一平台上常常给不同的行）。 */
+function kfAdvCtx(sh) {
+  const m = kfModelOf().model || {};
+  const caps = (window.Capabilities && Capabilities.shapeState && m.id)
+    ? Capabilities.shapeState(m, null,
+      ((sh && sh.refImages && sh.refImages.length) || shotKeyframes(sh).length) ? ['reference_image'] : [], undefined)
+    : null;
+  return { mode: '', intent: '', caps: caps };
+}
+/* 画那三排：整块随编辑器重绘，所以不需要工作台那套指纹守卫。
+   `forceDef` = 换了生图型号那一次，型号布尔按**新声明**的默认值重画。 */
+function paintKfAdv(sh, forceDef) {
+  const pick = kfModelOf();
+  const ctx = kfAdvCtx(sh);
+  const boolBox = $('kfBoolRows');
+  if (boolBox) {
+    const b = window.AdvExtras.html.bools(pick.model || {}, { av: kfBoolAv, forceDef: !!forceDef });
+    boolBox.innerHTML = b.html;
+    boolBox.hidden = !b.count;
+  }
+  const tbBox = $('kfTopBools');
+  if (tbBox) {
+    const decl = window.AdvExtras.topBoolDecls(pick.prov);
+    window.AdvExtras.prune(kfTopBools, decl);
+    const h = window.AdvExtras.html.topBools(pick.prov, pick.model, ctx, kfTopBools);
+    tbBox.innerHTML = h.html;
+    tbBox.hidden = !decl.length;
+    if (window.fillIcons) fillIcons(tbBox);
+  }
+  const sfBox = $('kfShapeFields');
+  if (sfBox) {
+    const decl = window.AdvExtras.shapeFieldDecls(pick.prov);
+    window.AdvExtras.prune(kfShape, decl);
+    const h = window.AdvExtras.html.shapeFields(pick.prov, ctx.caps, ctx, kfShape);
+    sfBox.innerHTML = h.html;
+    sfBox.hidden = !decl.length;
+    if (window.Dropdowns && sfBox.querySelector('select')) Dropdowns.build(sfBox);
+  }
+  bindKfAdv(sh);
+}
+/* 三块的接线：编辑器整块重建，旧节点上的监听跟着没了，不会越攒越多。
+   磁贴那一路重画整块编辑器（摘要、估价都跟着它，重画整块最不容易漏更新）；
+   自由输入那一路（随机种子）逐字只落值，不重算报价 —— 打一半就发一次询价没意义。 */
+function bindKfAdv(sh) {
+  const tbBox = $('kfTopBools');
+  if (tbBox) {
+    tbBox.addEventListener('click', e => {
+      const btn = e.target.closest && e.target.closest('[data-tb]');
+      if (!btn) return;
+      const f = btn.dataset.tb;
+      const decl = window.AdvExtras.topBoolDecls(kfModelOf().prov).find(x => x[0] === f);
+      /* 没点过的起点是**这一档的默认值**（`def` 可以是随形状变的 {when,then,else}），不是「非真即为开」。 */
+      const s = window.AdvExtras.topBoolStateOf(decl && decl[1], kfAdvCtx(sh));
+      kfTopBools[f] = kfTopBools[f] === undefined ? !s.def : !kfTopBools[f];
+      renderEditor(); kfParamsSave();
+    });
+  }
+  ['kfBoolRows', 'kfShapeFields'].forEach(id => {
+    const box = $(id);
+    if (!box) return;
+    box.addEventListener('change', e => {
+      const ds = e.target && e.target.dataset;
+      if (ds && ds.sf) kfShape[ds.sf] = e.target.value;
+      /* 型号布尔那一排不往模块变量里另存一份值：`boolsFromDom` 读控件的同时把
+         「用户动过这一项」记进 `kfBoolAv`，重画时公共画法照这本账保住他挑的那一个。 */
+      else if (ds && ds.bool) window.AdvExtras.boolsFromDom(box, kfBoolAv);
+      else return;
+      const sum = $('kfAdvSum');
+      if (sum) sum.textContent = kfAdvSumText(sh);   // 折叠行要跟着这一排变，否则看不出勾了什么
+      refreshKfEst(); kfParamsSave();
+    });
+    box.addEventListener('input', e => {
+      const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
+      if (!sf) return;
+      kfShape[sf] = e.target.value;
+      kfParamsSave();
+    });
+  });
+}
+/* 读回提交体与报价体要用的那一批（root 就是画面高级设置那一格，控件是活的） */
+function kfAdvExtras(sh) {
+  const ctx = kfAdvCtx(sh);
+  return window.AdvExtras.read({
+    root: $('kfAdvBody'), prov: kfModelOf().prov, ctx: ctx, caps: ctx.caps,
+    topBoolState: kfTopBools, shapeState: kfShape,
+    bools: window.AdvExtras.boolsFromDom($('kfBoolRows'), kfBoolAv),
+  });
+}
+/* 这三排在这一路里到底有没有东西（决定「画面高级设置」整块出不出现）：
+   四档一个都没声明、又不收参考图、也没有这三排时，摆一个空盒子写着「高级设置」比没有更让人以为有东西可调。
+   计数只用公共层的 `AdvExtras.visibleCount`（被形状藏掉的那一项不占数）—— 页面自己数一遍
+   「声明了几项」会把「这一档这一型压根不画」的那几颗也算成有东西，空盒子就是这么来的。 */
+function kfExtrasVisible(sh) {
+  const pick = kfModelOf();
+  return window.AdvExtras ? AdvExtras.visibleCount(pick.prov, pick.model, kfAdvCtx(sh)) : 0;
+}
+/* 折叠行摘要 = 四档那一句 + 三排里真进提交体的那几项（与视频那一面的 advSumText 同一个形状）。
+   ⚠ 只能在 paintKfAdv 之后调：`kfAdvExtras` 读的是活控件。 */
+function kfAdvSumText(sh) {
+  return [kfImgParams(sh).summary, window.AdvExtras ? kfAdvExtras(sh).summary : ''].filter(Boolean).join(' · ');
 }
 function imgProviders() { return Api.pickable((REG?.providers || []).filter(p => p.kind === 'image')); }
 /* 只列出能做文生图的图片模型（生成分镜画面必须支持 text_to_image） */
@@ -4514,7 +5084,15 @@ async function getPriceEstimate(sh) {
   const prov = provOf(rm.provider);
   /* 时长就按这一镜现在记的值估：模型没声明时长时上面那段归一化不会去填它，
      这里再 `|| 5` 等于凭空造一个平台没给过的秒数（报价跟着错）。 */
-  const r = await estimateCost(prov, rm, { count: sh.draw || 1, duration: sh.duration, res: sh.res, tier: sh.tier, ar: sh.ar });
+  /* 顶层那两排也进报价：注册表在 `pricing.body` 里写了映射才带得过去，
+     而「这一档给不给」与提交体问的是同一个判据（AdvExtras.read → Capabilities）。
+     不递就等于「界面上勾了 Turbo、报价还是那一档的钱」—— 差价要到生成那一刻才暴露。 */
+  const ex = shotAdvExtras(sh);
+  const ctx = shotAdvCtx(sh);
+  const r = await estimateCost(prov, rm, Object.assign({
+    count: sh.draw || 1, duration: sh.duration, res: sh.res, tier: sh.tier, ar: sh.ar, size: sh.size,
+    topBools: ex.topBools, caps: ctx.caps,
+  }, ex.shapeFields));
   const name = prov?.name || rm.provider || '未知API';
   return r.ok ? name + ' · ' + r.text : name + ' · 报价不可用（' + r.reason + '）';
 }
@@ -4583,11 +5161,19 @@ function kfGenOpts(sh, extra) {
   const pl = kfImgPlan(sh);
   const p = Object.assign({}, pl.payload, { inputEntries: extra.inputEntries || null });
   const k = pl.kinds;
+  /* 三排「四档之外」的读回：params 交给 Api.createBody 按声明分顶层 / 嵌套，
+     shape 只当判据上下文（mode 永不进提交体）。越界的值当场拦 —— 让平台回一句 400
+     等于把已经排好的那一轮任务白费一次。 */
+  const ex = kfAdvExtras(sh);
+  if (ex.bad.length) throw new Error(ex.bad.join('、'));
+  p.params = ex.params;
+  p.shape = { mode: '', caps: kfAdvCtx(sh).caps };
   const meta = { 镜头: sh.name || '' };
   if (p.quality) meta.画质 = AdvParams.label('quality', p.quality, pl.model);
   meta.画幅 = p.ar || '平台默认';
   if (p.size) meta.尺寸 = p.size;
   if (p.format) meta.格式 = AdvParams.label('output_format', p.format, pl.model);
+  if (ex.summary) meta.顶层参数 = ex.summary;
   if (p.inputEntries) meta.参考图 = p.inputEntries.length + ' 张';
   if (extra.at != null) meta.秒点 = extra.at + 's';
   p.log = { type: '导演台-关键帧', meta: meta };
@@ -4613,7 +5199,13 @@ async function refreshKfEst() {
   const pick = kfModelOf();
   if (!pick.prov || !pick.model) { el.textContent = n + ' 张'; return; }
   try {
-    const r = await estimateCost(pick.prov, pick.model, { quality: kfQ, count: n });
+    /* 顶层那几项也进报价（与视频那一面的 getPriceEstimate 同一个口径）：
+       注册表在 `pricing.body` 里写了映射才带得过去，不递就是「界面勾了档、报价还是原来那个价」。 */
+    const ex = kfAdvExtras(sh);
+    const ctx = kfAdvCtx(sh);
+    const r = await estimateCost(pick.prov, pick.model, Object.assign(
+      { quality: kfQ, count: n, ar: kfAr || undefined, size: kfSize || undefined, format: kfFormat || undefined, topBools: ex.topBools, caps: ctx.caps },
+      ex.shapeFields));
     el.textContent = (sh.keyframes?.length ? '' : '约 3–8 张 · 按 ') + (r.ok ? `${n} 张 ${r.text}` : `${n} 张（报价不可用）`);
   } catch { el.textContent = n + ' 张'; }
 }
@@ -4949,6 +5541,10 @@ function addShotToScene(sc, idx) {
   sc.shots.splice(at, 0, sh);
   proj.curScene = proj.scenes.indexOf(sc);
   proj.curShot = at;
+  /* 场景图在 renderAll 之前就带上：右栏那排参考图格子画的就是「已经带上了」的那一份。
+     带不上（型号不收参考图 / 已选首尾帧 / 超上限）也要说 —— 界面写着「新镜头自带场景图」而提交是干净的，
+     是本项目反复拦的那一类。 */
+  reportScenePics(feedScenePics(sc, [sh]));
   renderAll(); scheduleSave();
   const ta = $('edPrompt');
   if (ta) ta.focus();
@@ -4985,6 +5581,7 @@ $('projName').oninput = e => { proj.name = e.target.value; scheduleSave(); };
 $('addScene').onclick = () => {
   const sc = { id: uid(), name: `场景 ${proj.scenes.length + 1}`, shots: [newShot()] };
   proj.scenes.push(sc); proj.curScene = proj.scenes.length - 1; proj.curShot = 0;
+  reportScenePics(feedScenePics(sc, sc.shots));   // 场景名恰好对得上素材库那条场景时，第一个镜头就带上它的图
   renderAll(); scheduleSave();
 };
 $('assetSearchBtn').onclick = () => openAssetSearchToShots();
@@ -5000,13 +5597,31 @@ $('scriptCancel').onclick = () => $('scriptDlg').close();
 $('scriptOk').onclick = () => {
   const text = $('scriptText').value.trim();
   if (!text) return $('scriptDlg').close();
-  const sc = { id: uid(), name: `剧本分镜`, shots: [] };
+  /* 一行 `#` 就是**换场**：以前每个 `#` 都只是给同一个场景改名（后面的盖掉前面的），
+     粘三段场景进去出来还是一整场，而界面那句话写的是「# 开头为场景名」——
+     说的话与做的事不是同一件。 */
+  const out = [];
+  let sc = { id: uid(), name: '剧本分镜', shots: [] };
+  out.push(sc);
   text.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
-    if (line.startsWith('#')) { sc.name = line.slice(1).trim() || sc.name; return; }
+    if (line.startsWith('#')) {
+      const nm = line.slice(1).trim();
+      /* 这一场还一个镜头都没有 → 给它改名，不再另起一场（粘贴内容第一行就是 `#` 时，
+         否则会留一个空的「剧本分镜」排在最前面）。 */
+      if (!sc.shots.length) { sc.name = nm || sc.name; return; }
+      sc = { id: uid(), name: nm || '剧本分镜', shots: [] }; out.push(sc); return;
+    }
     sc.shots.push(newShot(line));
   });
-  if (sc.shots.length) { proj.scenes.push(sc); proj.curScene = proj.scenes.length - 1; proj.curShot = 0; }
+  const filled = out.filter(x => x.shots.length);
+  /* 落点与「AI 分镜 → 追加」同一份判据（placeScenesInto）：同名（归一之后）的并进已有那一场，
+     对不上号的才新建 —— 手动粘两遍同一个场景名不该出现两个「河岸」。 */
+  const nShots = filled.reduce((a, x) => a + x.shots.length, 0);
+  const r0 = placeScenesInto(proj.scenes, filled);
+  if (filled.length) { proj.curScene = r0.at; proj.curShot = 0; }
   renderAll(); scheduleSave(); $('scriptDlg').close();
+  reportScenePics(r0.pics, '已写入 ' + filled.length + ' 个场景 / ' + nShots + ' 个镜头'
+    + (r0.merged ? '（其中 ' + r0.merged + ' 个并进了同名场景）' : ''));
 };
 /* 批量生成：所有「还没真正生成过」的镜头一起提交（并发，不再一镜一镜排队等）
    注意筛选条件是「没有非草稿候选」而不是「没有候选」——新建镜头默认带一条 draft 占位，
@@ -5174,6 +5789,12 @@ function sanitize() {
     if (!p.scenes.length) p.scenes.push({ id: uid(), name: '场景 1', shots: [newShot()] });
     p.scenes.forEach(sc => {
       sc.id = sc.id || uid(); sc.name = sc.name || '场景';
+      /* 场景图只认「记得住的」两种写法：本机 dataURL 与 `/asset/<id>`。
+         blob:（刷新即失效）与 /getv?url=<签名外链>（一天就 403）都算坏值，直接抹掉 ——
+         留着的话这一格画得出来，第二天变一张破图，而新镜头带进参考图的也是那条永远取不回的字串。 */
+      const im = typeof sc.img === 'string' ? sc.img : '';
+      sc.img = /^(data:|\/asset\/)/.test(im) ? im : '';
+      sc.noPic = !!sc.noPic;
       sc.shots = Array.isArray(sc.shots) ? sc.shots : [];
       if (!sc.shots.length) sc.shots.push(newShot());
       sc.shots.forEach(sh => {

@@ -1053,10 +1053,12 @@ function topBoolState(decl, ctx) {
           body[ti.to] = [item].concat(arr);
         }
       }
-      /* 页面显式指定 note 时才带（如导演台写镜头名）。
-         **不要**退回到 `spec.note` —— 那是注册表里给界面看的说明文字（如「视频生成」），
+      /* 页面显式指定 note 时才带（如导演台写镜头名），而且**只有声明了收这一项的平台才带**
+         （registry 的 `create.acceptsNote`）：VGENV 那一族「未知字段会被拒绝」，
+         不分声明就发等于给一个必然被拒的请求多塞一个字段 —— 报错还指着不相干的那一句。
+         **不要**退回到 `spec.note` 的**值** —— 那是注册表里给界面看的说明文字（如「视频生成」），
          发给上游既没有意义，又把本项目的内部措辞漏给了平台。 */
-      if (f.note) body.note = String(f.note).slice(0, 200);
+      if (f.note && spec.acceptsNote) body.note = String(f.note).slice(0, 200);
       if (Array.isArray(f.inputs) && f.inputs.length) body.inputs = f.inputs;
       if (f.extra && typeof f.extra === 'object') Object.assign(body, f.extra);   // 平台特有的输入字段（参考图/首尾帧等）
       return body;
@@ -1102,6 +1104,15 @@ function topBoolState(decl, ctx) {
     async create(prov, fields) {
       const spec = (prov && prov.create) || {};
       const body = spec.template ? this.renderTemplate(spec.template, fields) : this.createBody(prov, fields);
+      /* 模板那一族的提交体只认识模板里写过 `{{…}}` 的那些键，而 `create.topBools` 说的是
+         「这一项在**顶层**」—— 声明了却没写进模板，界面照样按声明把开关画出来（导演台那一块与
+         生成工作台那三排都读这一份声明），用户勾了、发出去却没有那一项，等于承诺了一件没做的事。
+         所以调用方真的递了值就按声明摆到顶层；body/nest 那一族不经过这里（createBody 已经放对位置）。 */
+      if (spec.template && body && typeof body === 'object' && !Array.isArray(body)) {
+        Object.keys(spec.topBools || {}).forEach(k => {
+          if (!(k in body) && fields && Object.prototype.hasOwnProperty.call(fields, k)) body[k] = !!fields[k];
+        });
+      }
       /* 归档交给 request 那一处统一做（以前这里又存一份：同一条任务落两个归档文件、
          还各自起一次 AI 标题）。这里只负责把「界面上真正输入的文字」传下去：
          语音那种请求体里没有 prompt 字段的，靠 fields.text 也能归档到。 */
@@ -4108,6 +4119,11 @@ window.AiGen = {
       /* 参考图条目（素材库的「三视图按预览图生成」用它）：形状由 registry 的 inputTemplates 决定，
          调用方给的是 AssetTransfer.entryFor 出来的 { role, assetId|url }。没传就不带这个字段。 */
       inputEntries: o.inputEntries,
+      /* 高级设置那三排「AdvParams 四档之外」的声明驱动项（型号布尔 / create.topBools / create.shapeFields）：
+         与生成工作台图像栏同一份读法（AdvExtras.read 的产物），原样转给 Api.createBody，
+         由它按 hide / need / from 声明决定哪些真的进提交体。不带 = 这一家声明的顶层开关一个都不发，
+         于是同一个平台在工作台能勾「平台提示词优化」，在导演台的画面生成里连控件都没有。 */
+      params: o.params, shape: o.shape,
       log: o.log || { type: '图片生成', meta: { 画质: o.quality || '', 画幅: o.ar || '' } },
     });
     const p0 = Api.parseItem(prov, gen);
@@ -4344,6 +4360,233 @@ window.AdvParams = {
     };
     head.addEventListener('click', fn);
     return () => head.removeEventListener('click', fn);
+  },
+};
+
+/* ============================================================================
+   AdvExtras —— 高级设置里「AdvParams 那几档之外」的三排声明驱动控件，判据与画法只有一份
+     对象：· options.bools        型号能力里的布尔参数（进嵌套 parameters）
+           · create.topBools      提交体**顶层**的布尔开关（SparkCine 的平台自动润色 / VGENV 的 Turbo）
+           · create.shapeFields   提交体**顶层**的非布尔字段（成片超分档 / 随机种子 / 换人的动作起点）
+     为什么要收成这一份：这三排的**判据**本来就在公共层（Capabilities.fieldState / shapeFieldState /
+     shapeState），可**画法与取值**只有生成工作台写过一份 —— 于是导演台整块没有这三排：
+     同一个平台在工作台上能勾「Turbo 加速档」，在导演台上一个字都不发（界面没画、提交体也没有，
+     用户以为两处走的是同一套参数）。页面各自再抄一份 innerHTML 迟早和工作台漂开，所以这里连**标记**
+     也一起给出（`html.*`），工作台与导演台都只把它塞进自己的容器，读回来走 `read()` 同一处。
+     「这一次的那一行能力」（caps）由调用方算好递进来：它需要「当前输入模式 + 画质档 + 手上这批素材的种类」，
+     那些是页面自己的状态，公共层不认识 DOM。
+   ========================================================================== */
+window.AdvExtras = {
+  /* 中文名表只在这里有一份（画在「开/关」那一排的标签上）。平台没给中文名时原样显示字段名，
+     而不是让页面自己编一个 —— 编出来的名字与平台文档对不上，用户去查接口时找不到这一项。 */
+  BOOL_ZH: { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频', mute_reference_video: '静音参考视频' },
+  boolDecls(model) {
+    return ((model && model.options && model.options.bools) || {});
+  },
+  topBoolDecls(prov) {
+    const t = (prov && prov.create && prov.create.topBools) || null;
+    return t && typeof t === 'object' ? Object.entries(t) : [];
+  },
+  shapeFieldDecls(prov) {
+    const t = (prov && prov.create && prov.create.shapeFields) || null;
+    return t && typeof t === 'object' ? Object.entries(t) : [];
+  },
+  /* 某个顶层开关在不在、默认开还是关 —— 判据 Capabilities.fieldState 一份（提交体问的是同一个）。 */
+  topBoolStateOf(d, ctx) {
+    if (window.Capabilities && Capabilities.fieldState) return Capabilities.fieldState(d, ctx);
+    return { hidden: false, def: !!(d && d.def), note: '' };
+  },
+  shapeFieldStateOf(d, caps, ctx) {
+    if (window.Capabilities && Capabilities.shapeFieldState) return Capabilities.shapeFieldState(d, caps, ctx);
+    return { shown: true, values: [], min: d && d.min, max: d && d.max, none: (d && d.none) || null };
+  },
+  /* 「这三排在这一家 / 这一个形状上到底画得出几项」。
+     给「高级设置整块要不要出现」用：被形状藏掉的那一项不占数（它们只在原位留一句说明），
+     所以必须按 topBoolStateOf / shapeFieldStateOf 现判，不能只数声明的长度。
+     页面不许自己数第二份 —— 数少了把真有开关的一家整块藏掉，数多了摆一个空盒子骗人。 */
+  visibleCount(prov, model, ctx) {
+    const Y = window.AdvExtras, c = ctx || {};
+    const caps = c.caps || null;
+    let n = Object.keys(Y.boolDecls(model || {})).length;
+    Y.topBoolDecls(prov).forEach(pair => { if (!Y.topBoolStateOf(pair[1], c).hidden) n++; });
+    Y.shapeFieldDecls(prov).forEach(pair => { if (Y.shapeFieldStateOf(pair[1], caps, c).shown) n++; });
+    return n;
+  },
+  /* 换平台/型号后把声明里没有的旧值清掉：留着会被带进提交体，
+     而那一族的判据是「没声明的字段进嵌套对象」= 往 parameters 里塞一个别家的键。 */
+  prune(state, decls) {
+    const names = decls.map(x => (Array.isArray(x) ? x[0] : x));
+    Object.keys(state || {}).forEach(f => { if (!names.includes(f)) delete state[f]; });
+  },
+  html: {
+    /* options.bools：开/关两个取值的小下拉，画在 .adv-grid 里与别的档并排。
+       `o.av` 是页面那份「用户点过没有」的账（工作台存 autoVals，导演台直接存这一镜），
+       没动过的项按声明默认、动过的项保住用户挑的那个；`o.forceDef` = 换了型号那一次，
+       声明的默认值直接赢过账上那份（新型号的参数是另一套，拿旧型号的手动选择去压住它才是错的）。 */
+    bools(model, o) {
+      const opt = o || {};
+      const bools = window.AdvExtras.boolDecls(model);
+      const store = opt.av || {};
+      const html = Object.keys(bools).map(k => {
+        const d = bools[k] || {};
+        const prev = store['bool_' + k];
+        const on = (opt.forceDef || prev === undefined) ? (d.def !== false) : (prev === '1');
+        return '<div><label>' + window.esc(window.AdvExtras.BOOL_ZH[k] || k)
+          + (d.bills === false ? '<span class="sel-hint">不影响计价</span>' : '')
+          + '</label><select data-bool="' + window.esc(k) + '">'
+          + '<option value="1"' + (on ? ' selected' : '') + '>开</option>'
+          + '<option value="0"' + (on ? '' : ' selected') + '>关</option></select></div>';
+      }).join('');
+      return { html: html, count: Object.keys(bools).length };
+    },
+    /* create.topBools：一颗磁贴（`.tool.on` 公共类），声明几项画几颗。
+       被形状藏掉的那一项不是「消失了」，是「这一档没有这个开关」—— 照声明把原因写在原位，
+       否则用户刚在别的模式下见过它，切一档就凭空不见，只能自己猜是不是坏了。 */
+    topBools(prov, model, ctx, st) {
+      const Y = window.AdvExtras;
+      const decl = Y.topBoolDecls(prov);
+      const shown = [], muted = [];
+      decl.forEach(([f, d]) => {
+        const s = Y.topBoolStateOf(d, ctx);
+        if (s.hidden) { if (s.note) muted.push(s.note); return; }
+        const on = st[f] === undefined ? s.def : !!st[f];
+        shown.push('<div><span class="ed-label">' + window.esc((d && d.label) || f) + '</span>'
+          + '<button type="button" class="tool' + (on ? ' on' : '') + '" data-tb="' + window.esc(f) + '"'
+          + ((d && d.hint) ? ' title="' + window.esc(d.hint) + '"' : '') + '>'
+          + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>');
+      });
+      return {
+        html: shown.join('')
+          + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
+        count: decl.length, model: model, decl: decl,
+      };
+    },
+    /* create.shapeFields：声明几项画几项，每一项再问一次「这一次的那一行能力给不给」。
+       不给的项不留一格点了没反应的空控件，原因写在原位（why 来自声明，页面不编）。 */
+    shapeFields(prov, caps, ctx, st) {
+      const Y = window.AdvExtras;
+      const decl = Y.shapeFieldDecls(prov);
+      const cells = [], muted = [];
+      decl.forEach(([f, d]) => {
+        const s = Y.shapeFieldStateOf(d, caps, ctx);
+        const name = (d && d.label) || f;
+        if (!s.shown) { if (s.why) muted.push(name + '：' + s.why); return; }
+        const label = '<label' + (d.hint ? ' title="' + window.esc(d.hint) + '"' : '') + '>' + window.esc(name) + '</label>';
+        const have = st[f] === undefined || st[f] === null ? '' : String(st[f]);
+        const vals = s.values || [];
+        if (vals.length) {
+          /* 取值清单来自**这一行的能力**（from:'caps.xxx'），一项不写死；
+             声明里的 `none` 是界面给的空值选项（「不超分」在上游不是档位，是「不发这个字段」）。 */
+          const keep = vals.some(x => String(x) === have) ? have
+            : (d.none && String(d.none.value) === have ? have : String(vals[0]));
+          st[f] = keep;
+          cells.push('<div>' + label + '<select data-sf="' + window.esc(f) + '">'
+            + (d.none ? '<option value="' + window.esc(String(d.none.value)) + '"'
+              + (String(d.none.value) === keep ? ' selected' : '') + '>' + window.esc(d.none.label || '不设') + '</option>' : '')
+            + vals.map(x => '<option value="' + window.esc(String(x)) + '"' + (String(x) === keep ? ' selected' : '') + '>'
+              + window.esc(String(x)) + '</option>').join('') + '</select></div>');
+        } else {
+          const num = d.kind === 'int' || d.kind === 'number';
+          cells.push('<div>' + label + '<input class="ui-inp" type="' + (num ? 'number' : 'text') + '"'
+            + (num && d.kind === 'int' ? ' step="1"' : '')
+            + (d.min !== undefined ? ' min="' + d.min + '"' : '')
+            + (d.max !== undefined ? ' max="' + d.max + '"' : '')
+            + ' data-sf="' + window.esc(f) + '" value="' + window.esc(have) + '" placeholder="'
+            + window.esc(d.placeholder || (num ? '留空 = 不发这一项' : '')) + '"></div>');
+        }
+      });
+      return {
+        html: cells.join('')
+          + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
+        count: decl.length, shownCount: cells.length, muted: muted,
+      };
+    },
+  },
+  /* 读回界面：顶层开关 + 顶层非布尔字段一次读完，返回
+       { params, bools, topBools, shapeFields, summary, bad }。
+     o = { root, prov, ctx, caps, topBoolState, shapeState, bools }
+       · root          装 `data-sf` 控件的容器（没有容器就退回 shapeState 里那份状态）
+       · ctx           「这一次的那一行能力」的上下文 { mode, intent, caps }
+       · caps          同一个 caps（判「这一行给不给」用它，不重复算）
+       · topBoolState  页面那份顶层**布尔**开关状态（工作台的 cur().topBools、导演台的 sh.topBools）
+       · shapeState    页面那份顶层**非布尔**字段状态 —— 与上面是两个口径，合成一个对象迟早互相踩
+                       （布尔按 `!!` 判、非布尔按取值与越界判，重名时更会直接盖）。
+       · bools         页面自己读完的 `options.bools`（**故意不在这里读**：那一排是型号能力里的布尔，
+         画不画由页面按类型决定 —— 生成工作台只在视频台画它，图像台没有这些控件；
+         公共层去 DOM 里扫 `data-bool` 会把上一个类型留下的旧控件当成这一条任务的参数发出去。）
+     · params  = 递进 Api.createBody 的 `params`（bools 与顶层开关/字段同名混在一起没关系：
+       createBody 按声明决定哪一项走顶层、哪一项进嵌套）。
+     · summary = 归档与折叠摘要里那句「这次真带了哪几项」，只报真发出去的（与提交体同一个判据）。
+     · bad     = 填了却明显越界的值（边界只读声明里的 min/max），当场拦住比让平台回一句 400 好。 */
+  read(o) {
+    const opt = o || {};
+    const Y = window.AdvExtras;
+    const bst = opt.topBoolState || {};
+    const sst = opt.shapeState || {};
+    const bools = opt.bools || {};
+    const topBools = Y.topBoolStateMap(opt.prov, opt.ctx, bst);
+    const shapeFields = {}, summary = [], bad = [];
+    /* 摘要要把「型号布尔 + 顶层开关 + 顶层非布尔字段」三排都写进去，而不是只写最后那一排：
+       这三项都是**真的进提交体**的（params 里就是它们三份合并），摘要只报其中一类，
+       折叠行就变成「勾了平台自动润色而那一行一个字不提」—— 与本项目反复拦的
+       「摘要写着 A、请求里没有 A」是同一个毛病的反方向。开与关都写：关也是发出去的一项。 */
+    Object.keys(bools).forEach(k => summary.push((Y.BOOL_ZH[k] || k) + (bools[k] ? ' 开' : ' 关')));
+    Y.topBoolDecls(opt.prov).forEach(([f, d]) => {
+      if (!(f in topBools)) return;   // 被形状藏掉的那一项根本没进 params，摘要也不提
+      summary.push(((d && d.label) || f) + (topBools[f] ? ' 已开启' : ' 未开启'));
+    });
+    const root = opt.root;
+    /* 找「这一档当前画出来的那个控件」：按属性值逐个比，不把字段名拼进选择器
+       （`CSS.escape` 是 CSSOM 草案里的东西，浏览器基本没有实现；而字段名来自注册表，
+       哪天带一个引号或点就会把选择器拆坏，并且静态语法检查一个字都不报）。 */
+    const findSf = f => {
+      if (!root || !root.querySelectorAll) return null;
+      for (const el of root.querySelectorAll('[data-sf]')) {
+        if (el.getAttribute('data-sf') === f) return el;
+      }
+      return null;
+    };
+    Y.shapeFieldDecls(opt.prov).forEach(([f, d]) => {
+      if (!Y.shapeFieldStateOf(d, opt.caps, opt.ctx).shown) return;
+      const el = findSf(f);
+      const raw = el ? el.value : sst[f];
+      if (raw === undefined || raw === null || String(raw) === '') return;
+      if (d.kind === 'int' || d.kind === 'number') {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) { bad.push(((d && d.label) || f) + '要填一个数'); return; }
+        if (d.min !== undefined && n < Number(d.min)) { bad.push(((d && d.label) || f) + '不能小于 ' + d.min); return; }
+        if (d.max !== undefined && n > Number(d.max)) { bad.push(((d && d.label) || f) + '不能大于 ' + d.max); return; }
+        if (d.kind === 'int' && !Number.isInteger(n)) { bad.push(((d && d.label) || f) + '要填整数'); return; }
+        shapeFields[f] = n;
+      } else shapeFields[f] = String(raw);
+      summary.push(((d && d.label) || f) + ' ' + shapeFields[f]);
+    });
+    return {
+      params: Object.assign({}, bools, topBools, shapeFields),
+      bools: bools, topBools: topBools, shapeFields: shapeFields,
+      summary: summary.join(' · '), bad: bad,
+    };
+  },
+  /* 界面上「现在开着哪些顶层开关」——摘要与估价都读这一份，别按 DOM 现找。 */
+  topBoolStateMap(prov, ctx, st) {
+    const Y = window.AdvExtras, out = {};
+    Y.topBoolDecls(prov).forEach(([f, d]) => {
+      const s = Y.topBoolStateOf(d, ctx);
+      if (!s.hidden) out[f] = st[f] === undefined ? s.def : !!st[f];
+    });
+    return out;
+  },
+  /* 把画出来的 `options.bools` 那一排读回来，并顺手记进 `store`（`bool_<字段>` = 控件里的 '1'/'0'）。
+     记这本账是为了「用户点过没有」：换型号重画时，点过的保住、没点过的跟新声明的默认值走
+     （见 `html.bools` 的 forceDef）。两个页面各写一遍 querySelectorAll 迟早漂，所以画法与读法都在这里。 */
+  boolsFromDom(root, store) {
+    const out = {};
+    if (!root || !root.querySelectorAll) return out;
+    root.querySelectorAll('[data-bool]').forEach(sel => {
+      out[sel.dataset.bool] = sel.value === '1';
+      if (store) store['bool_' + sel.dataset.bool] = sel.value;
+    });
+    return out;
   },
 };
 

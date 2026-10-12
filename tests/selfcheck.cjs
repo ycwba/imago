@@ -1516,6 +1516,48 @@ function sectionJ() {
     + ' —— 认不出平台要**停下并说清**（用户在设置页重新勾一下即可），不能默默发给另一家：'
     + '型号形状不同会让上游报一个与操作无关的格式错误');
 
+  /* ⑭ 「AdvParams 那四档之外」的三排声明驱动控件（型号布尔参数 / create.topBools / create.shapeFields）
+        的**判据 + 画法 + 读回**只有 `assetlib.js` 的 `AdvExtras` 一份。
+     为什么单独钉这一档：导演台以前整块没有这三排 —— 同一个平台在生成工作台能勾「平台自动润色」
+     「Turbo 档」「超分」「种子」，在这一镜上连控件都不画、提交体里一个字都不发（本轮补上）。
+     补完之后最容易复发的形状是「页面各自再写一份判据」：两份 hide/need 判断迟早漂开，
+     表现就是「界面已经把开关画出来了、提交体却把它漏掉」，而两边各判一半比都不判更难查。 */
+  let advDef = 0; const advDefSites = [], advCloneSites = [];
+  for (const it of items) {
+    const src = read(it.f);
+    if (!src) continue;
+    for (const m of src.matchAll(/window\.AdvExtras\s*=\s*\{/g)) {
+      advDef++; advDefSites.push(it.f + ':' + lineAt(src, m.index));
+    }
+    if (!it.html) continue;
+    /* 页面里再写一份同名的判据 = 第二份实现（这些名字都是公共层那一份的语义，页面不该再有定义） */
+    for (const m of src.matchAll(/function\s+(topBoolStateOf|shapeFieldStateOf|topBoolDecls|shapeFieldDecls|topBoolParams|shapeFieldParams|shapeFieldsSummary|shapeFieldBad)\s*\(/g)) {
+      /* 注释行里提到的不算（「以前这里叫 topBoolStateOf」这类说明句很常见）。
+         调公共层那一份 `window.AdvExtras.topBoolStateOf(` 也不算 —— 正则本来就要求 `function` 开头。 */
+      const lineStart = src.lastIndexOf('\n', m.index) + 1;
+      const lead = src.slice(lineStart, m.index).trim();
+      if (/^(\/\/|\*|\/\*)/.test(lead)) continue;
+      advCloneSites.push(it.f + ':' + lineAt(src, m.index) + ' ' + m[1]);
+    }
+  }
+  if (advDef !== 1) bad('§J', '`window.AdvExtras = {` 的定义有 ' + advDef + ' 处（应恰好 1 处）'
+    + (advDefSites.length ? '：' + advDefSites.join('、') : '')
+    + ' —— 三排声明驱动控件的判据、画法、读回只许公共层那一份');
+  else if (!advDefSites[0].startsWith('assetlib.js')) bad('§J',
+    'AdvExtras 的唯一定义在 ' + advDefSites[0] + '，不在 assetlib.js —— 判据和实现脱节了');
+  if (advCloneSites.length) bad('§J', '页面又自己写了一份三排控件的判据：' + advCloneSites.join('、')
+    + ' —— 公共层那份（AdvExtras.topBoolStateOf / shapeFieldStateOf / *Decls / read）就是为这个而存在的；'
+    + '两份判据迟早漂开，漂开的表现是「界面画出了开关、提交体里没有那一项」');
+  /* 两头都要真的在用：只查定义数的话，某一页整块退回私有实现也能全绿 */
+  const advReaders = items.filter(it => it.html && /AdvExtras\.read\(/.test(read(it.f) || '')).map(it => it.f);
+  const advDoms = items.filter(it => it.html && /AdvExtras\.boolsFromDom\(/.test(read(it.f) || '')).map(it => it.f);
+  ['director.html', 'studio.html'].forEach(f => {
+    if (!advReaders.some(x => x.endsWith(f))) bad('§J', f + ' 没有走 `AdvExtras.read(` 读那三排的提交参数 —— '
+      + '它要么退回了自己拼 params（顶层开关与形状字段就发不出去），要么整块没有这三排（导演台本轮修掉的就是这一种）');
+    if (!advDoms.some(x => x.endsWith(f))) bad('§J', f + ' 的型号布尔那一排没有走 `AdvExtras.boolsFromDom(` —— '
+      + '页面自己扫一遍 [data-bool] 就等于第二份读法，而它分不清「这一排属于当前类型」');
+  });
+
   if (red === red0) ok('§J', '扫了 ' + scanned + ' 段源码：b64Bytes 定义 ' + defs + ' 处（被调 ' + calls + ' 次）、落点选择器 '
     + pickers + ' 处、页面自建 toast ' + toastDefs + ' 处、页面自建续拉 ' + ioInPage + ' 处、字节单位数组 ' + unitSites.length
     + ' 处、页面自建芯片行 ' + chipRows + ' 处（Chips 定义 ' + chipsDefs + ' / 被调 ' + chipsCalls
@@ -1524,7 +1566,9 @@ function sectionJ() {
     + ' ⑨落盘链：pull ' + dlPull + ' 处、hideAsCloud 定义 ' + hideDef + ' / 调用 ' + hideCalls
     + ' 处、hasLocalAddr ' + addrCalls + ' 处、页面自拼 /local-assets ' + rawLocalInPage + ' 处'
     + ' ⑩就地确认：Confirm.arm 定义 ' + armDef + ' / 调用 ' + armCalls + ' / 页面手搓 ' + armInline
-    + ' 处、⑪资产合并：Object.assign 摊字典 ' + assetMerge + ' 处（mergeAssetLists 被调 ' + mergeCalls + ' 次）');
+    + ' 处、⑪资产合并：Object.assign 摊字典 ' + assetMerge + ' 处（mergeAssetLists 被调 ' + mergeCalls + ' 次）'
+    + '、⑭三排声明驱动控件：AdvExtras 定义 ' + advDef + ' 处 / 页面自写判据 ' + advCloneSites.length
+    + ' 处 / 走公共读回的页面 ' + advReaders.length + ' 个');
   return defs + calls;
 }
 /* ================= §K =================

@@ -3355,11 +3355,20 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:-10px 0 26px
     const n = el.note;
     if (!n) return;
     clearTimeout(noteT);
+    /* 这一行是 `.ac-in` 里的一格，它一出现就把 `.ac-body`（flex:1）的高度吃掉一截。
+       而「清空 / 新建 / 删会话」都是 paint(true) 贴完底**再**说一句 ——
+       滚动位是按note 还没出现时那个更高的视口算的，于是刚贴到底的视图停在底部上方一行多
+       （探针实测差 26px，150/450/1350ms 三个时刻读数一模一样，不是「内容还在长」）。
+       判据必须在改布局之前取，且只有「本来就贴着底」才重新贴一次：
+       用户正在往上翻的时候，一句回执不该把他拽回底部（与 paint() 那 40px 同一口径）。 */
+    const b = el.body;
+    const atBottom = !!b && b.scrollTop + b.clientHeight >= b.scrollHeight - 40;
     const s = String(t == null ? '' : t).trim();
     if (!s) { n.hidden = true; n.textContent = ''; return; }
     n.textContent = s;
     n.className = 'ac-note' + (kind === 'ok' || kind === 'warn' || kind === 'err' ? ' ' + kind : '');
     n.hidden = false;
+    if (atBottom) b.scrollTop = b.scrollHeight;
     noteT = setTimeout(() => { n.hidden = true; n.textContent = ''; }, 4200);
   }
 

@@ -19,7 +19,9 @@ node_modules/
 # ffmpeg 渲染输出（本地成片）
 .renders/
 # 隔离验证实例的渲染输出（RENDER_DIR 指过去，免得探针成片混进用户那一份）
-.renders-probe/
+# 带后缀的那几种（.renders-probe-fx/ …）是某一支探针自己挑的独立目录，同样是测试残留：
+# 写死一个名字，下一次换个后缀就冒进 git status 了。
+.renders-probe*/
 .renders-chars/
 # 2026-10 拍短剧页删除后留下的历史隔离目录名（当时那些探针用）。探针已不在，
 # 但目录可能还在用户机器上 —— 留着这几行是为了别让它们冒进 git status，不是还要用。
@@ -27,7 +29,7 @@ node_modules/
 # 本地生成的资产（语音等同步产物落盘处）
 .assets/
 # 隔离验证实例的资产目录（ASSETS_DIR 指过去，免得探针素材写进用户那份）
-.assets-probe/
+.assets-probe*/
 .assets-drama/
 # 另存那三条路由的隔离验证目录（.selftest 就是那一次的 LOCAL_DIR）
 .selftest/
@@ -41,7 +43,7 @@ node_modules/
 # 本地数据落盘（工作区 / 设置 / 历史；可能含密钥，绝不提交）
 .data/
 # 隔离测试实例的数据目录（自动化验证用，同属本地数据）
-.data-probe/
+.data-probe*/
 .data-drama/
 
 # 提示词归档（每个任务的提示词，属于个人内容，不进版本库）

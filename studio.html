@@ -1153,8 +1153,7 @@ const RATIO_HINT = {
   '2:3': ['竖版海报比例', 'port'], '21:9': ['超宽，电影宽银幕', 'land'], '4:5': ['竖版，社交平台常用', 'port'],
 };
 const RATIO_PX = { '1:1': '1024×1024', '16:9': '1024×576', '9:16': '576×1024', '4:3': '1024×768', '3:4': '768×1024', '3:2': '1024×683', '2:3': '683×1024', '21:9': '1024×439', '4:5': '819×1024' };
-const BOOL_ZH = { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频',
-  mute_reference_video: '静音参考视频' };
+/* 布尔参数那一排的中文名表只有一份，在公共层 `AdvExtras.BOOL_ZH`（画法则在 `AdvExtras.html.bools`） */
 const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
 
 /* 下拉填充：现在**只剩语音那一族**用它（音色 / 输出格式不是同一族档，AdvParams 管不着）。
@@ -1256,7 +1255,7 @@ function renderVideoParams() {
   const dc = plan.kinds.count;
   $('drawHint').textContent = dc.list.length > 1
     ? '单次最多 ' + dc.list.length + ' 条（按平台声明）· 视频一条一个任务提交' : '';
-  renderBoolRows(model, changed, plan.defaults);
+  renderBoolRows(model, changed);
   paintVideoHints(model);
 }
 /* 「随当前值变的那几行字」——重画与改值**共用同一份**（§J：同一件事只写一遍）。
@@ -1268,44 +1267,26 @@ function paintVideoHints(m) {
      以前这里自己按 val() 拼一遍（档位与条数都没列），改一处就和面板各说各的。 */
   $('advSum').textContent = advPlan(m || currentModel().model, 'video').summary;
 }
-function renderBoolRows(model, modelChanged, defs) {
+function renderBoolRows(model, modelChanged) {
   const box = $('boolRows');
   if (!box) return;
-  const bools = (model && model.options && model.options.bools) || {};
-  const keys = Object.keys(bools);
-  const av = cur().autoVals;
-  box.innerHTML = keys.map(k => {
-    const key = 'bool_' + k;
-    const d = bools[k] || {};
-    const prev = av[key];
-    const on = (modelChanged || prev === undefined) ? (d.def !== false) : (prev === '1');
-    return '<div><label>' + escA(BOOL_ZH[k] || k)
-      /* 平台自己声明 billingRelevant:false 的开关（SparkCine 的「静音参考视频」就是）——
-         拨它报价本来就不该变。与其让人以为开关没生效，不如把这句话写在标签上。 */
-      + ((d.bills === false) ? '<span class="sel-hint">不影响计价</span>' : '')
-      + '</label><select data-bool="' + escA(k) + '">'
-      + '<option value="1"' + (on ? ' selected' : '') + '>开</option>'
-      + '<option value="0"' + (on ? '' : ' selected') + '>关</option></select></div>';
-  }).join('');
-  box.hidden = !keys.length;
-  av._boolCount = keys.length;
+  /* 画法在公共层（`AdvExtras.html.bools`，导演台那一族用的是同一份）；
+     这一页只保留两件自己的事：换了型号就按声明默认（`forceDef`）、以及把「用户点过哪些」
+     记在 autoVals 那本账上（`readBoolParams` 写回来）。 */
+  const b = window.AdvExtras.html.bools(model, { av: cur().autoVals, forceDef: !!modelChanged });
+  box.innerHTML = b.html;
+  box.hidden = !b.count;
+  cur().autoVals._boolCount = b.count;
 }
 function readBoolParams() {
-  const o = {};
-  document.querySelectorAll('#boolRows [data-bool]').forEach(sel => {
-    o[sel.dataset.bool] = sel.value === '1';
-    cur().autoVals['bool_' + sel.dataset.bool] = sel.value;
-  });
-  return o;
+  return window.AdvExtras.boolsFromDom($('boolRows'), cur().autoVals);
 }
 /* 平台在 create.topBools 里声明的**顶层**开关：整块渲染在高级设置里（见 #topBools）。
    以前是一个按钮、只取声明里的**第一项**、而且只在视频台渲染 ——
    于是图像台/语音台永远看不见，平台声明了两项也只露第一项。
    现在：声明几项就画几颗，按当前 provider 显隐，值按类型各存一份。 */
 function platTopBools() {
-  const prov = currentModel().prov;
-  const t = (prov && prov.create && prov.create.topBools) || null;
-  return t && typeof t === 'object' ? Object.entries(t) : [];
+  return window.AdvExtras.topBoolDecls(currentModel().prov);
 }
 /* 这些开关「在不在、默认开还是关」由声明里的 when / hide / need 决定，判据只有 Capabilities.fieldState 一份
    （同一份判据还管着提交体与报价体 —— 页面自己比 intent 字符串就会出现「界面藏着、其实照样发出去了」）。
@@ -1333,9 +1314,10 @@ function topBoolCtx() {
   const cb = comboNow();
   return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
 }
-function topBoolStateOf(d) {
-  if (window.Capabilities && Capabilities.fieldState) return Capabilities.fieldState(d, topBoolCtx());
-  return { hidden: false, def: !!(d && d.def), note: '' };
+/* 这两个薄封装只把本页的上下文绑上去，判据在公共层那一份 —— 名字必须与 `AdvExtras.*` 错开，
+   同名会让「页面自己写了一份判据」这类检查看不见它（也让人误读成这里又算了一遍）。 */
+function topBoolNow(d) {
+  return window.AdvExtras.topBoolStateOf(d, topBoolCtx());
 }
 /* 某个顶层开关开启后另加多少钱由 estimateCost 按 priceKey 现取上游定价，
    算出来的明细会写进估价那一行（「平台自动润色 +5 积分」）。
@@ -1343,49 +1325,26 @@ function topBoolStateOf(d) {
    多写一处就多一处可能对不上的口径（§J）。 */
 /* `force`：点了磁贴那一路必须传（值存在 st 里、不在指纹里，不强制就重画不出来）。
    返回值 = 「这一次真的重画了吗」，素材变化那一路据此决定要不要重问一次估价。 */
-let BOOLS_FP = '';
+const BOOLS_FP = { v: '' };
 function renderTopBools(force) {
   const box = $('topBools');
   if (!box) return false;
-  const decl = platTopBools();
+  const prov = currentModel().prov;
   const st = cur().topBools || (cur().topBools = {});
+  const decl = platTopBools();
   /* 换平台/型号后，声明里没有的那些字段（上一家的开关）要清掉 —— 不然会被带进提交体 */
-  for (const f of Object.keys(st)) if (!decl.some(x => x[0] === f)) delete st[f];
+  window.AdvExtras.prune(st, decl);
   const fp = capRowKey() + '|' + decl.map(([f, d]) => {
-    const s = topBoolStateOf(d);
+    const s = topBoolNow(d);
     return f + ':' + (s.hidden ? '!' + s.note : (s.def ? 'd' : 'o'));
   }).join(';');
-  if (!force && fp === BOOLS_FP) return false;
-  BOOLS_FP = fp;
+  if (!force && fp === BOOLS_FP.v) return false;
+  BOOLS_FP.v = fp;
+  const h = window.AdvExtras.html.topBools(prov, currentModel().model, topBoolCtx(), st);
+  box.innerHTML = h.html;
   box.hidden = !decl.length;
-  if (!decl.length) { box.innerHTML = ''; return true; }
-  const shown = [], muted = [];
-  decl.forEach(([f, d]) => {
-    const s = topBoolStateOf(d);
-    if (s.hidden) { if (s.note) muted.push(s.note); return; }
-    const on = st[f] === undefined ? s.def : !!st[f];
-    shown.push('<div><span class="ed-label">' + escA((d && d.label) || f) + '</span>'
-      + '<button type="button" class="tool' + (on ? ' on' : '') + '" data-tb="' + escA(f) + '"'
-      + ((d && d.hint) ? ' title="' + escA(d.hint) + '"' : '') + '>'
-      + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>');
-  });
-  /* 被形状藏掉的那一项不是「消失了」，是「这一档没有这个开关」—— 照声明把原因说出来（hideNote），
-     否则用户刚在普通模式见过它，切到换人就凭空不见了，只能自己猜是不是坏了。 */
-  box.innerHTML = shown.join('')
-    + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(escA).join('<br>') + '</div>' : '');
   if (window.fillIcons) fillIcons(box);
   return true;
-}
-/* 提交时要带的那几项（createBody 会把它们放到请求体**顶层**，不混进 parameters）。
-   被形状藏掉的这里也不返回 —— 与 createBody 里那道 hide 过滤同一个判据，两边不会漂。 */
-function topBoolParams() {
-  const st = cur().topBools || {};
-  const out = {};
-  platTopBools().forEach(([f, d]) => {
-    const s = topBoolStateOf(d);
-    if (!s.hidden) out[f] = st[f] === undefined ? s.def : !!st[f];
-  });
-  return out;
 }
 
 /* ==================== 顶层非布尔字段（create.shapeFields：超分档 / 随机种子 / 动作起点） ====================
@@ -1394,22 +1353,17 @@ function topBoolParams() {
    不给的那一项不留一格空控件，而是照声明说出为什么（emptyNote / missingNote / only.why）。
    页面不写一句 if (平台 === 'vgenv')，也不写死「2x」或「种子最大是多少」。 */
 function platShapeFields() {
-  const prov = currentModel().prov;
-  const t = (prov && prov.create && prov.create.shapeFields) || null;
-  return t && typeof t === 'object' ? Object.entries(t) : [];
+  return window.AdvExtras.shapeFieldDecls(currentModel().prov);
 }
-function shapeFieldStateOf(d) {
-  if (window.Capabilities && Capabilities.shapeFieldState) {
-    return Capabilities.shapeFieldState(d, shapeCaps(), topBoolCtx());
-  }
-  return { shown: true, values: [], min: d && d.min, max: d && d.max, none: (d && d.none) || null };
+function shapeFieldNow(d) {
+  return window.AdvExtras.shapeFieldStateOf(d, shapeCaps(), topBoolCtx());
 }
 /* 重画只发生在「递给界面上的东西**真的**变了」的时候：这一格里有自由输入框（随机种子），
    每次动一下素材就重建 innerHTML 的话，正在打的字会没（boolRows 那一排为同一件事写过注释）。
    指纹 = 「这一次问的是哪一行能力」（capRowKey）+ 每一项在不在、给哪些值。 */
 function shapeFingerprint() {
   return capRowKey() + '|' + platShapeFields().map(([f, d]) => {
-    const s = shapeFieldStateOf(d);
+    const s = shapeFieldNow(d);
     return f + ':' + (s.shown ? ((s.values || []).join('|') || 'free') : '!' + (s.why || ''));
   }).join(';');
 }
@@ -1427,87 +1381,27 @@ function renderShapeFields(force) {
   const st = cur().shape || (cur().shape = {});
   /* 与上面那块同一件清理：换到没有这一项的一家时，留在 cur().shape 里的旧值会被带进提交体
      （而那一家的判据是「没声明的字段进嵌套对象」，等于往 parameters 里塞一个别家的键）。 */
-  for (const f of Object.keys(st)) if (!decl.some(x => x[0] === f)) delete st[f];
+  window.AdvExtras.prune(st, decl);
   if (!decl.length) { box.hidden = true; box.innerHTML = ''; return true; }
-  const cells = [], muted = [];
-  decl.forEach(([f, d]) => {
-    const s = shapeFieldStateOf(d);
-    const name = (d && d.label) || f;
-    if (!s.shown) { if (s.why) muted.push(name + '：' + s.why); return; }
-    const label = '<label' + (d.hint ? ' title="' + escA(d.hint) + '"' : '') + '>' + escA(name) + '</label>';
-    const have = st[f] === undefined || st[f] === null ? '' : String(st[f]);
-    const vals = s.values || [];
-    if (vals.length) {
-      /* 取值清单来自**这一行的能力**（`from:'caps.xxx'`），一项都不写死。
-         声明里的 `none` 是界面自己给的空值选项 —— 「不超分」在上游不是一个档位，是「不发这个字段」。 */
-      const keep = vals.some(x => String(x) === have) ? have
-        : (d.none && String(d.none.value) === have ? have : String(vals[0]));
-      st[f] = keep;
-      cells.push('<div>' + label + '<select data-sf="' + escA(f) + '">'
-        + (d.none ? '<option value="' + escA(String(d.none.value)) + '"'
-          + (String(d.none.value) === keep ? ' selected' : '') + '>' + escA(d.none.label || '不设') + '</option>' : '')
-        + vals.map(x => '<option value="' + escA(String(x)) + '"' + (String(x) === keep ? ' selected' : '') + '>'
-          + escA(String(x)) + '</option>').join('') + '</select></div>');
-    } else {
-      const num = d.kind === 'int' || d.kind === 'number';
-      cells.push('<div>' + label + '<input class="ui-inp" type="' + (num ? 'number' : 'text') + '"'
-        + (num && d.kind === 'int' ? ' step="1"' : '')
-        + (d.min !== undefined ? ' min="' + d.min + '"' : '')
-        + (d.max !== undefined ? ' max="' + d.max + '"' : '')
-        + ' data-sf="' + escA(f) + '" value="' + escA(have) + '" placeholder="'
-        + escA(d.placeholder || (num ? '留空 = 不发这一项' : '')) + '"></div>');
-    }
-  });
-  box.innerHTML = cells.join('')
-    + (muted.length ? '<div class="hint" style="font-size:11.5px;color:var(--sub)">' + muted.map(escA).join('<br>') + '</div>' : '');
-  box.hidden = !cells.length && !muted.length;
+  const h = window.AdvExtras.html.shapeFields(currentModel().prov, shapeCaps(), topBoolCtx(), st);
+  box.innerHTML = h.html;
+  box.hidden = !h.shownCount && !h.muted.length;
   /* build 而不是 sync：这一块的 select 是刚 innerHTML 出来的，还没被公共下拉包过
      （sync 只认 `_ddBuilt` 的那些，对新建出来的一律不动 —— 那就是「点开只剩一项」那一类毛病）。 */
   if (window.Dropdowns && box.querySelector('select[data-sf]')) Dropdowns.build(box);
   return true;
 }
-/* 提交体与报价体都只从这一份取值（与 createBody 里那道 shown 过滤问的是同一个判据，两边不会漂）：
-   这一档不给的字段一个字都不发，空值也不发 —— 这一家「未知字段会被拒绝」是实测过的。
-   数字类按声明的 kind 转成数，转不出数就当没填（发一个 NaN 上去是骗接口）。 */
-function shapeFieldParams() {
-  const out = {};
-  const st = cur().shape || {};
-  platShapeFields().forEach(([f, d]) => {
-    if (!shapeFieldStateOf(d).shown) return;
-    const raw = st[f];
-    if (raw === undefined || raw === null || String(raw) === '') return;
-    if (d.kind === 'int' || d.kind === 'number') {
-      const n = Number(raw);
-      if (Number.isFinite(n)) out[f] = n;
-      return;
-    }
-    out[f] = String(raw);
+/* 三排声明驱动控件**读一次**（顶层开关 + 顶层非布尔字段），报价体 / 提交体 / 归档摘要 / 越界拦截
+   四路都从这里拿 —— 各读各的就会出现「界面上带着超分档，报价里却没有」那一类。
+   `options.bools` 那一排由页面自己读完递进来（只有画了它的那一栏才带）：
+   控件在 #advBody 里跨类型常驻，公共层去扫 `data-bool` 会把上一个类型留下的旧控件当成本条任务的参数。 */
+function advExtras(bools) {
+  const { prov } = currentModel();
+  const ctx = topBoolCtx();
+  return window.AdvExtras.read({
+    root: $('advBody'), prov: prov, ctx: ctx, caps: ctx.caps,
+    topBoolState: cur().topBools || {}, shapeState: cur().shape || {}, bools: bools || {},
   });
-  return out;
-}
-/* 提示词归档里那句「这次到底带了哪几项」：只报真发出去的（与提交体同一个 shapeFieldParams），
-   标签用声明里的中文名 —— 自己拼一遍字段名就会出现「归档说带了、其实那一项被这一档滤掉了」。 */
-function shapeFieldsSummary() {
-  const sent = shapeFieldParams();
-  return platShapeFields().filter(([f]) => sent[f] !== undefined)
-    .map(([f, d]) => ((d && d.label) || f) + ' ' + sent[f]).join(' · ');
-}
-/* 填了却明显越界的值，当场拦住比让平台回一句 400 好（边界只读声明里的 min/max，页面不编一个数）。 */
-function shapeFieldBad() {
-  const st = cur().shape || {};
-  const bad = [];
-  platShapeFields().forEach(([f, d]) => {
-    if (!shapeFieldStateOf(d).shown) return;
-    const raw = st[f];
-    if (raw === undefined || raw === null || String(raw) === '') return;
-    if (d.kind !== 'int' && d.kind !== 'number') return;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) { bad.push(((d && d.label) || f) + '要填一个数'); return; }
-    if (d.min !== undefined && n < Number(d.min)) bad.push(((d && d.label) || f) + '不能小于 ' + d.min);
-    else if (d.max !== undefined && n > Number(d.max)) bad.push(((d && d.label) || f) + '不能大于 ' + d.max);
-    else if (d.kind === 'int' && !Number.isInteger(n)) bad.push(((d && d.label) || f) + '要填整数');
-  });
-  return bad;
 }
 /* 图像栏当前选中的型号（型号下拉是三家混排的，所以按 `prov::model` 找回去）。
    只有一份：重画参数与「随值变的那行摘要」都问它，否则一处按下拉那一项、一处按分组第一项，
@@ -1631,7 +1525,7 @@ $('advBody').addEventListener('click', e => {
   const decl = platTopBools().find(x => x[0] === f);
   /* 「还没被点过」时的起点是**这一档的默认值**（声明里 def 可以是 {when,then,else} 这种随形状变的东西），
      不是「非真即为开」—— 以前那句 `!(decl[1].def)` 遇到对象默认值会永远翻成 true。 */
-  st[f] = st[f] === undefined ? !topBoolStateOf(decl && decl[1]).def : !st[f];
+  st[f] = st[f] === undefined ? !topBoolNow(decl && decl[1]).def : !st[f];
   renderTopBools(true); refreshEst(); updateGoState();
 });
 /* 参数控件上的 change 一律走这一条：摘要 + 估价 + 就绪状态（值本身留在控件里，不另存一份）。
@@ -1757,6 +1651,9 @@ async function refreshEst() {
      而界面上先闪一句「报价不可用（…BAD_REQUEST）」，看着像报价接口坏了。
      （实测：启动那一次 400，型号取到之后紧接着那一轮同样的参数就正常回价。） */
   if (!model || !model.id) { put(prov.name + ' · <span class="note">型号还没取到，取到之后自动重算</span>'); return; }
+  /* 顶层那两排先读一次（报价体与提交体共用同一处读法，见 advExtras）：
+     图像栏没有画 `options.bools` 那一排，所以这一路不递 bools。 */
+  const ex = advExtras();
   const params = TYPE === 'image'
     ? { quality: val('quality'), count: Math.max(1, Number(val('count')) || 1), prompt: $('prompt').value }
     : { count: Math.max(1, Number(val('draw')) || 1), duration: Number(val('dur')) || 5, res: val('res'),
@@ -1768,14 +1665,14 @@ async function refreshEst() {
         creation_intent: (cb && cb.intent) || '', mode: (cb && cb.mode) || '',
         /* 顶层开关（平台自动润色等）是**单独计价**的：不递进来估价就当它免费，
            开关拨了报价不动，看着像开关没生效。加价由 estimateCost 按声明的 priceKey 现取。 */
-        topBools: topBoolParams(),
+        topBools: ex.topBools,
         /* 「这一次的那一行能力」一起递过去：声明了 `need:'caps.xxx'` 的开关（VGENV 的 Turbo）
            在**这一行**不给时连报价体都不该带它 —— 判据与提交体同一份，不递就等于永远判成「不给」。 */
         caps: shapeCaps() };
   /* 顶层非布尔字段（成片超分这一类）也进报价：注册表在 pricing.body 里写了映射才带得过去，
-     而「这一档给不给、留没留空」由 shapeFieldParams() 与提交体同一处决定 —— 报价与创建必须是同一个规格，
+     而「这一档给不给、留没留空」由这一次 advExtras() 与提交体同一处决定 —— 报价与创建必须是同一个规格，
      否则差价就落到生成那一刻才暴露。 */
-  Object.assign(params, shapeFieldParams());
+  Object.assign(params, ex.shapeFields);
 
   try {
     const r = await AssetLib.estimateCost(prov, model, params, {});
@@ -1831,7 +1728,7 @@ function submitBlockReason() {
   }
   /* 顶层非布尔字段（随机种子、动作起点）越界：平台回的是 400、消息里只点名那两个数，
      先在本机拦一句。上下限仍然只读声明里的 min / max，页面不编一个边界。 */
-  const sfbad = shapeFieldBad();
+  const sfbad = advExtras().bad;
   if (sfbad.length) return sfbad[0];
   return '';
 }
@@ -2224,17 +2121,19 @@ async function createVideoOnce(prov, model, prompt, entries) {
   const t = { model: modelId, prompt, tier: ap.tier || '', res: ap.res || '', ar: ap.ar || '',
     dur: Number(ap.duration) || 0, size: ap.size || '', entries };
   const bools = readBoolParams();
+  /* 顶层那两排 + 这一栏画出来的布尔，一次读齐（与报价、越界拦截同一个 advExtras） */
+  const ex = advExtras(bools);
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
     log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
       输入模式: cb ? comboLabel(cb) : '',
-      顶层参数: shapeFieldsSummary(),
+      顶层参数: ex.summary,
       参考素材: entries.length ? entries.length + ' 个' : '',
       生成音频: bools.generate_audio !== undefined ? (bools.generate_audio ? '是' : '否') : '',
-      平台润色: (function () { const t = topBoolParams(); const on = Object.keys(t).filter(k => t[k]); return on.length ? '是' : ''; })() } },
+      平台润色: (function () { const on = Object.keys(ex.topBools).filter(k => ex.topBools[k]); return on.length ? '是' : ''; })() } },
     body: Api.createBody(prov, { model: t.model, prompt: t.prompt, tier: t.tier, duration: t.dur, res: t.res, ar: t.ar,
       size: t.size, creation_intent: shape.intent, shape, inputEntries: t.entries,
-      params: Object.assign({}, bools, topBoolParams(), shapeFieldParams()) }),
+      params: ex.params }),
   });
 
   if (d.error) throw new Error(d.error.message || '创建失败');
@@ -2263,13 +2162,14 @@ async function createImageOnce(prov, model, prompt, assetIds, n) {
      今天生图这一族还没声明过顶层开关（带过去的是空对象），但判据与视频那一路同一份：
      声明一出现就到提交体，不用再改这里。
      `shape` 取 topBoolCtx()：图像台没有「输入模式」，mode / intent 就是空串，与画面那块同一个上下文。 */
-  std.params = Object.assign({}, topBoolParams(), shapeFieldParams());
+  const ex = advExtras();
+  std.params = ex.params;
   std.shape = topBoolCtx();
   const d = await Api.request(prov, 'create', {
     method: 'POST', headers: idemHeader(prov),
     log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
       本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '',
-      顶层参数: shapeFieldsSummary() } },
+      顶层参数: ex.summary } },
     body: Api.createBody(prov, std),
   });
   if (d.error) throw new Error(d.error.message || '创建失败');

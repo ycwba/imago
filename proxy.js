@@ -652,6 +652,11 @@ const REGISTRY = {
             priceKey: 'promptOptimizationCredits' },
         },
         note: '视频生成',
+        /* `note` 是这一家**真的收**的顶层字段（导演台把镜头名写进去，方便在平台任务列表里认）。
+           声明了这一条，`Api.createBody` 才会把页面递来的 `note` 放进提交体 ——
+           VGENV 那一族「未知字段会被拒绝」，不分声明就发等于给必然拒的请求多塞一个字段。
+           自定义中转整条克隆模板，所以这一项自动跟着继承。 */
+        acceptsNote: true,
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },
         /* 素材输入走 inputs 数组：[{ role, asset_id }]，且平台只认自己的资产 id
            （所以每个 role 都要先上传成资产，needsUpload=true）。

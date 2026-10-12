@@ -250,6 +250,25 @@ const MUT = [
   { sec: '§J', name: '反向对照：注释里提到 /local-assets 不该算页面自拼路由（应放行）', file: 'favorites.html', expectGreen: true,
     anchor: '  const pager = Wb.pager.create({',
     to: "  /* 这一页以前想直接 fetch('/local-assets') 落盘，现在只走 AssetLocal.pull */\r\n  const pager = Wb.pager.create({" },
+/* §J 的第 ⑭ 支（三排声明驱动控件只有 AdvExtras 一份）要四条：
+     A 页面再写一份同名判据 → 红（本轮导演台补这三排之前，最容易复发的就是这个形状）；
+     B 某一页整块退回自己拼 params（AdvExtras.read 的调用点少一家）→ 红
+       —— 只查定义数的话「两页都不再用公共层」反而全绿，那是空断言；
+     C 公共层长出第二份定义 → 红；
+     D 反向对照：注释里写一句 function topBoolStateOf(d) 不该算第二份实现（应放行），
+       外加页面**调用**公共层那一份也不该算。 */
+  { sec: '§J', name: '页面又自己写了一份三排控件的判据（应红）', file: 'director.html',
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function topBoolStateOf(d) { return { hidden: false, def: !!d }; }</script>' },
+  { sec: '§J', name: '某一页不再走公共读回（自己拼 params，顶层开关发不出去，应红）', file: 'studio.html',
+    anchor: '  return window.AdvExtras.read({',
+    to: '  return window.__legacyAdvRead({' },
+  { sec: '§J', name: 'AdvExtras 长出第二份定义（判据与实现脱节，应红）', file: 'assets.html',
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>window.AdvExtras = { __mut: 1 };</script>' },
+  { sec: '§J', name: '反向对照：注释里提到 function topBoolStateOf 与调用公共层那份都不该算自写判据（应放行）', file: 'favorites.html', expectGreen: true,
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>\n/* 以前这一页有 function topBoolStateOf(d)，现在只调公共层那一份 */\nwindow.__mutAdvCall = d => window.AdvExtras.topBoolStateOf(d, {});\n</script>' },
 /* §K 的三个变异：一条正向 + **两条反向对照**。
    反向对照是必须的：这一档判的是「重复」，最容易变成一把无脑报警的尺子 ——
    值差一位（那是分叉，要人拍板）、@media 上下文不同（作用范围不同，删掉会改小屏表现），

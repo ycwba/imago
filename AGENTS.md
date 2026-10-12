@@ -123,19 +123,36 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   参考图的上限读**生图型号**的 `reference_image` 声明（不是这一镜视频型号的 `ic.maxRef`），
   且三种情况都要当场说话：超上限少带了几张、这个型号压根没有该槽位、转存失败的那几张 ——
   「点了生成」配一句「已带上参考图」而实际什么都没发，是本项目反复拦的那一类。
-  常驻判据：`.tmp-kfadv.cjs`（把六个真函数抠进 vm 跑口径）+ `.tmp-mutkfadv.cjs`（14 个变异逐条证明会红）
-  + `.tmp-kfshot.cjs`（headless 真 DOM：整档显隐、每档恰好一个 `selected`、摘要覆盖画出来的每一档、换型号后旧值不留在 option 里、折叠态落盘）。
+  常驻判据：`.tmp-kfadv.cjs`（把真函数抠进 vm 跑口径）+ `.tmp-mutkfadv.cjs`（16 个变异逐条证明会红）
+  + `.tmp-kfshot.cjs`（headless 真 DOM：整档显隐、每档恰好一个 `selected`、摘要覆盖画出来的每一档、换型号后旧值不留在 option 里、折叠态落盘、三排在真 DOM 里画得出 / 接得上 / 读得回）。
   后一支要**先起隔离代理再开页**，且必须在开页前挂 `window.__SB_SHELL = 1`（`sidebar.js` 会把直接打开的内容页 replace 进外壳，
   evaluate 打到的是外壳那一份文档 —— 看着像「页面没画出来」，其实是尺子没对准）。
+  真 DOM 那一组的反向对照是 `.tmp-mutkfshot.cjs`（4 刀：磁贴不画 / `hidden` 不跟声明 / 整排不接线 / 读回来却不进提交体）——
+  **不要把它并进 `.tmp-mutkfadv.cjs`**：那一支跑 vm 沙箱，够不着「容器藏着 ⟺ 里面一颗控件都没有」这种只在真浏览器里成立的性质，
+  合一支的结果是两头的判据都变成含糊的「文件里有没有这个符号」。
+- **导演台的两条提交路径（这一镜的视频候选、时间切片用的那张画面）都必须带上「`AdvParams` 四档之外」那三排**（型号布尔 / `create.topBools` / `create.shapeFields`，2026-10 补齐导演台）：
+  判据、画法、读回全在公共层 `window.AdvExtras`（`visibleCount` / `html.*` / `read` / `boolsFromDom`），页面只摆 DOM 与接线 ——
+  以前导演台整块没有这三排，同一个平台在生成工作台能勾「平台自动润色」「Turbo 档」「超分」「随机种子」，在这一镜上连控件都不画、提交体一个字都不发。
+  三条不能破的性质：**① 出现与否按声明数**（被形状上下文藏掉的那一项不占数，四档全空但声明了顶层开关的型号那一块也要出现）；
+  **② 摘要与归档跟着提交体**（`advSumText` / `kfAdvSumText` 都是现问 `AdvExtras.read`，折叠状态下那句「现在按什么出」不许少一项）；
+  **③ 越界的值在提交之前拦**（种子声明 0–100 却填了 999 → 抛错并点名是哪一项，而不是发给平台等一句 400）。
+  「界面画出了开关、提交体里没有那一项」与反过来的「发了而摘要没写」在本项目算同一个缺陷的两半，常驻判据是 `tests/selfcheck.cjs` §J 第 ⑭ 支
+  （定义数恰好 1 + 页面不许自写同名判据 + 每个页面确实走了 `AdvExtras.read` / `boolsFromDom`），注释里的示例名有豁免。
 
 ## 3. 复用公共模块，别各写一套
 
 （**这一节的正文搬到了分册**：下面每条只留标题行当索引，红线照旧每次都要看到；全文、判据口径与探针在哪，看这一节末尾的指路。）
 （**另有几条在原文里是段落而不是列表项，拆分时不会被自动收进索引，手抄在这里** —— 它们是本节最常被引用的一批红线：）
 - **跨闭包调用只走 `window` 上的公开接口**：闭包内定义的函数只在闭包内用；页面内联脚本也不要顶层 `function esc()`（会盖掉 `window.esc` 造成无限递归，表现为整页静默空白）。同一个闭包里兄弟函数裸调局部的 `const` 同样是炸点（`drama.html` 踩过 `bind`）。
-- **同一个功能只应有一份实现**：下拉 `Dropdowns`、网络 `Net`、任务轮询 `Wb.poller`、历史 `Wb.History`、媒体地址 `Api.mediaSrc`、跨平台素材 `AssetTransfer`、IndexedDB 只走 `Kv.at(登记名)`、芯片行 `Chips.render`、缩略图 `Wb.thumbs`（外壳标记也只有一份 `mediaHTML`，画出来必须 `bind`）、详情 `Wb.detail`、卡片列表 `Wb.cards`、分页 `Wb.pager`（续拉的判据在公共层）、灯箱 `Wb.lightbox`、下载 `Wb.save` → `Net.save`、本机落盘 `AssetLocal`（含 `hideAsCloud` 那张闸）、就地二次确认 `Confirm.arm`、弹窗 `UiDialog`、提示 `Toast`。发现重复实现 → 收敛到公共模块，别复制。
+- **同一个功能只应有一份实现**：下拉 `Dropdowns`、网络 `Net`、任务轮询 `Wb.poller`、历史 `Wb.History`、媒体地址 `Api.mediaSrc`、跨平台素材 `AssetTransfer`、IndexedDB 只走 `Kv.at(登记名)`、芯片行 `Chips.render`、缩略图 `Wb.thumbs`（外壳标记也只有一份 `mediaHTML`，画出来必须 `bind`）、详情 `Wb.detail`、卡片列表 `Wb.cards`、分页 `Wb.pager`（续拉的判据在公共层）、灯箱 `Wb.lightbox`、下载 `Wb.save` → `Net.save`、本机落盘 `AssetLocal`（含 `hideAsCloud` 那张闸）、就地二次确认 `Confirm.arm`、弹窗 `UiDialog`、提示 `Toast`、**「四档之外」那三排声明驱动控件** `AdvExtras`（判据 / 画法 / 读回，见 §2 那两条）。发现重复实现 → 收敛到公共模块，别复制。
 - **素材身份判据只有一份，在 `ident.js`**（浏览器与 Node 双模式；引 `assetlib.js` 的页面必须先引它，§D 守着）；合卡规则同样只有一份（`collapseInto`）。
 - **导演台的短片轮询与外链回源也已接进公共实现**：节奏归 `Wb.poller`、回源归 `Api.healMedia`，页面只给适配器与文案；行为探针 `.tmp-dpoll.cjs`（九件事，含「每一轮拿到的壳对象是同一个」）。
+- **导演台左栏「场景图」那一层只回答「图从哪来、这句要不要说」**：能不能收参考图 / 第几张 / 是不是重复，一律走 `addLibPicToShot`，不在这里重写第二份（优先级：左栏挑的 → 素材库同名那条 → 没有；`sc.noPic` 是「连库里那张也不认领」，不是清空 `sc.img`）。
+- **「同一个场景」只有一把尺子（`nameKey`），落点只有一个（`placeScenesInto`）**：AI 分镜追加与「手动拆分（`#` 换场）」两条路共用它；同名**并进那一场**（push，不覆盖、不压平），场景图归属以**目标那一场**为准且只喂这次新建的镜头，返回 `at` 给调用方放光标。
+- **顶部那行结果只写一次（两句拼成一行），带不上的原因走 `Toast.warn`**：`Toast.ok` / `Toast.info` 默认被 `sk_quiet_ok` 静音，拿它当唯一出口等于一个字都没说出去；「本来就没图」不吭声，「型号没有槽位 / 互斥 / 超上限」必须吭。
+- **素材检索是两步且顺序不许倒**：AI 出条件 → 本机在**全库**过滤 → 只把命中那批交给 AI 分配。先 `slice(0,300)` 砍一批再过滤 = 「最近 3 天」永远挑不到（那份清单按 `ts` 升序）；类型与条数以用户表单为准，回来不许被 AI 改。
+- 这一层的四支探针：`.tmp-scene.cjs`（vm 口径）+ `.tmp-scenedom.cjs`（真 DOM 接线，含「改名时打字框节点不换」）+ `.tmp-mutscene.cjs`（28 刀反向对照），探针每次开跑**先复位**那几个场景的 `img` / `refImages`（工作区会落进 `.data-probe/`，脏底座会让第二轮假红）。
+- **模板那一族（`create.template`，MiMo 就是）的提交体只认识模板里写过的 `{{…}}` 键**，所以声明出来的 `create.topBools` 顶层开关会在 `Api.create` 里按声明补回顶层（公共层一处，页面不判平台）—— 少了这一段就是「开关照样画出来、勾了却一个字都不发」。
 - **主题变量（`:root` / `html[data-theme="dark"]`）只在 `ui.css` 顶部定义一份**：页面私有变量漏定义 = `var()` 静默取不到值（「变量存在但值为空」不会触发回退）。
 - **新增一个页面只改三处**：`app.js` 的 `PAGES`、`sidebar.js` 的 `items`、`ui.js` 的 `PAGE_TARGETS`，代理零改动；漏一处的表现各不相同。
 - **跑 headless / 自动化测试前先给 `.data/` 落基线**：`--user-data-dir` 不等于隔离数据，`Store.write` 会镜像进代理的 `.data/*.json`；没设过的键也会被写。
@@ -154,6 +171,7 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 - 设置项只有白名单（`ADJUST` 那几项 + `window.PAGE_TARGETS` 的行 + `sk_model_<kid>` + `chars.js` 的 `Chars.SET` 那几项）：`writableKeys()` 是现读这几张表拼出来的，不是手抄的键名清单 ——…
 - 助手自己在界面上挑的那一家 / 那一个型号只存 `ai_chat_pick`，绝不写 `sk_text_prov`（「作用文字 AI」是设置页「点保存才生效」的动作，替用户改就等于把他选的供应方换了）。
 - 流式进行中不许「清空」（`paint()` 会把正在往里写字的那条气泡一起清掉 —— 字丢了，请求还在跑、还在扣 tokens）；断开这一层（刷新 / 关掉外壳）时 `pagehide` 要把已经写出来的字落盘，并写明这次断了。
+- 抽屉里「贴到底」的账只有一份，而且要在布局落定之后算（`paint(jump)` 的三种贴底条件 + `note()` 在改布局之前取 `atBottom`、显示完再按新视口贴一次）：`#acNote` 那一行一显出来就把 `.ac-body` 吃掉 26px，「贴完底再补一句回执」的顺序于是停在底部上方一行多 —— 最后那句看不全。判据 `.tmp-acnote.cjs` + `.tmp-mutacnote.cjs` 第 ⑥ 刀…
 - 对话记录是会话表（`ai_chat` = `{v:2, cur, list:[{id,title,at,msgs,acts}]}`），不是一条扁平数组：`msgs` / `acts` 仍是模块级变量，切换会话时 `bind()` 整体重新指向当前那一份 —— 现有 `msgs.p…
 - `watchTick` 整轮包 try/catch，而且无论成败都要再排下一轮：以前 `startWatch()` 是最后一行，读清单 / 探状态 / 写结果里任何一处抛错，轮询链就静默断掉 —— 球上一直显示「在等 N 条」直到刷新，而任务其实早就好了。
 - 输入框：Enter 发送、Shift+Enter 换行。`e.isComposing || e.keyCode === 229` 要放行 ——中文选词上屏那一下还会再触发一次 keydown，挡不住就是「刚选完字直接发出去」。placeholder 与 AGENTS/README…
@@ -388,6 +406,13 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   而启动对账 `DataSync.boot()` 是异步的 —— 在全新上下文里跑真实实例，很容易把**加载前读到的旧快照**盖回用户数据上
   （2026-10-01 就是这样把收藏库从约 400 条写成 2 条，无法恢复）。
   只读检查（加载页面看有没有报错）可以在真实实例跑（端口问 `.env` / `.proxy-port` 要），但跑前先 `sha1sum .data/*.json`、跑后再比一次，确认没变动。
+  **自己 `spawn` 一份代理的探针，必须当场认领「答话的就是我刚起的那一份」**：`canBind` 在 Windows 上会说谎
+  （现成监听者绑在 `::` 双栈，探针只试 IPv4 → 报「空着」，真去 `listen` 才 EADDRINUSE），于是子进程当场退出，
+  而探针那句「等 `/registry` 答得上来」的轮询由**另一个还在跑的实例**答了 —— 变异那一轮改的是磁盘上的 `proxy.js`，
+  读数来自一份从没改过的进程，三个变异全被读成「没有变化」，前四档判据也只是在替别人打分。
+  认法：`DATA_DIR` 用探针独有的名字，起好后取 `/sys-status` 的「目录.数据.路径」点它的名（别的实例冒充不了），
+  同时判子进程 `exitCode !== null`（自己退了就把它的日志带出来，别继续等人家回话）。
+  常驻样板：`.tmp-outurl.cjs` 的 `startProxy()`。
   **`ASSETS_DIR` 与 `RENDER_DIR` 也必须指出去**：`POST /local-assets` 的落盘目录默认是共享的 `.assets/`（`proxy.js` 的 `LOCAL_DIR`），
   探针造的一张 PNG / 一段配音会直接进用户的资产库，而 `.data/` 那两层保护（`.bak.json`、对账）都盖不到它；
   `.renders/`（`RENDER_DIR`）同理 —— 探针导出的成片会混进用户的成片列表（那里还带「只留最近 N 个」的清理，等于顺手删了别人的片子）。
