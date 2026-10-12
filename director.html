@@ -295,15 +295,38 @@
   .mid-tools .ghost.active { color: var(--acc); border-color: var(--acc); }
   .trim-editor { padding: 4px 16px 10px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--sub); flex-wrap: wrap; }
   .trim-editor input { width: 70px; padding: 5px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; color: var(--txt); font-size: 12.5px; }
-  .timeline-wrap { padding: 2px 16px 16px; }
+  .timeline-wrap { padding: 12px 16px 20px; }
   .tl-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
   .tl-tabs button { font-size: 12px; padding: 4px 14px; border-radius: 4px; border: 1px solid var(--line); background: none; color: var(--sub); cursor: pointer; }
   .tl-tabs button.active { background: rgba(124,92,255,.2); color: var(--acc); border-color: rgba(124,92,255,.5); }
-  .tl-bar { display: flex; height: 34px; margin: 10px 0; border-radius: 4px; overflow: visible;
-    border: 1px solid var(--line); background: var(--input); }
-  .tl-seg { position: relative; background: rgba(124,92,255,.25); border-right: 1px solid var(--bg); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; font-size: 10.5px; color: var(--acc); min-width: 26px; border-radius: 4px; }
+  /* 剪辑模式的轨道：`.tl-bar` 从「一条横排」改成「几行竖排」——
+     画面行（本镜：按源视频秒定位的多段）/ 画面行（全片：按成片秒比例的格子）/ 声音行。
+     行与行共用同一根时间基，所以声音块能画在它所属那一段的正下方。 */
+  /* 行距 ≥ 18px：红色端点上下各超出格子 6px、定位插针各超出 8px（见下两段），
+     按「两行之间的常规间距」贴在一起时，上一行的剪子会插进下一行、插针的尾也会压住工具条 ——
+     这就是「预留上下空间」的落点，别随手把它收回去。 */
+  .tl-bar { display: flex; flex-direction: column; gap: 18px; margin: 18px 0 14px; }
+  .tl-vrow { position: relative; height: 46px; border: 1px solid var(--line); border-radius: 4px; background: var(--input); }
+  .tl-film { display: flex; height: 34px; border: 1px solid var(--line); border-radius: 4px; overflow: visible; background: var(--input); }
+  .tl-vrow .tl-seg { position: absolute; top: 0; bottom: 0; }
+  /* 全片那一排的格子是 flex 行里的正常流（`flex:…` 定宽），**必须自己带 position**：
+     少了它，格子里 `.frs { position:absolute; inset:0 }` 找不到定位祖先（.tl-film / .tl-bar 都没 position），
+     会一路逃到视口级容器 → 切片铺满整列、轨道上只剩一条空槽（本轮修掉的那个 bug）。 */
+  .tl-film .tl-seg { position: relative; }
+  .tl-bar .tl-seg { background: rgba(124,92,255,.25); border-right: 1px solid var(--bg); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 10.5px; color: var(--acc); min-width: 12px; border-radius: 4px; }
   .tl-seg.sel { background: rgba(124,92,255,.55); color: #fff; }
+  /* 悬停 / 选中时切片提到全不透明（平时 .9 是为了让紫底透一点，看得出这是「可点的一条」） */
+  .tl-bar .tl-seg:hover .frs, .tl-seg.sel .frs { opacity: 1; }
+  .tl-seg .lab { position: absolute; left: 3px; bottom: 1px; font-size: 9.5px; line-height: 1.1;
+    color: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.55); pointer-events: none; z-index: 5; white-space: nowrap; }
+  /* 轨道上的切片图：一格铺几帧（后台解码填充，见 fillSlices） */
+  .tl-seg .frs { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: 4px; opacity: .9; }
+  .tl-seg .frs .fr { flex: 1 1 0; min-width: 0; background-size: cover; background-position: center; }
+  /* 帧与帧之间一道细线：「一段铺了几帧」看得出边界，不然几张画面拼在一起像一整张图 */
+  .tl-seg .frs .fr + .fr { border-left: 1px solid rgba(0,0,0,.4); }
+  .tl-seg .frs .fr.gap { background: repeating-linear-gradient(45deg, rgba(255,255,255,.06) 0 4px, transparent 4px 8px); }
+  .tl-seg .frs.none::after { content: "取不到画面"; font-size: 9.5px; color: var(--sub); margin: auto; }
   /* 被裁掉的头 / 尾：灰色遮罩 */
   .tl-seg .mask { position: absolute; top: 0; bottom: 0; background: rgba(132,136,152,.55); pointer-events: none; z-index: 2; }
   .tl-seg .mask.l { left: 0; border-radius: 4px 0 0 4px; }
@@ -312,13 +335,33 @@
   .tl-seg .cut { position: absolute; top: -6px; bottom: -6px; width: 8px; background: #ef4444; border-radius: 3px; }
   .tl-seg .cut.drag { width: 12px; cursor: ew-resize; z-index: 4; }
   .tl-seg .cut.drag:hover { background: #ff6b6b; }
-  /* 剪辑定位插针：点击时间线任意位置跳转并暂停 */
-  .tl-seg .ph-line { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff;
-    box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 4; }
-  .tl-seg .ph-line::before { content: ""; position: absolute; top: -5px; left: -4px; width: 10px; height: 10px;
+  /* 剪辑定位插针：点轨道任意位置跳转并暂停，四把剪子剪的就是它指着的那一段
+     （挂在行上而不是格子里：段与段之间有缝，格子内的针会跟着段一起挪动） */
+  .tl-pin { position: absolute; top: -8px; bottom: -8px; width: 2px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 6; }
+  .tl-pin::before { content: ""; position: absolute; top: -5px; left: -4px; width: 10px; height: 10px;
     border-radius: 50% 50% 50% 0; background: #fff; transform: rotate(-45deg); }
   .tl-seg .cut.l { left: 0; } .tl-seg .cut.r { right: 0; }
-  .tl-time { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--sub); margin-top: 4px; }
+  /* 声音轨：块的位置 = 它锚定的那一段在时间基上的位置 */
+  .tl-lane { position: relative; height: 26px; border: 1px dashed var(--line); border-radius: 4px; background: rgba(124,92,255,.05); }
+  .tl-lane .tl-v { position: absolute; top: 2px; height: 20px; min-width: 22px; display: flex; align-items: center; gap: 3px;
+    padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1; cursor: pointer; overflow: hidden; white-space: nowrap;
+    background: rgba(34,197,94,.3); border: 1px solid rgba(34,197,94,.55); color: var(--txt); }
+  .tl-lane .tl-v.sel { background: rgba(34,197,94,.6); color: #fff; }
+  .tl-lane .tl-v .vt { overflow: hidden; text-overflow: ellipsis; }
+  .tl-lane .tl-v .x { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; display: flex; }
+  .tl-lane .lane-hint { position: absolute; left: 6px; top: 5px; font-size: 10.5px; color: var(--sub); }
+  .tl-empty { padding: 8px 10px; font-size: 11.5px; color: var(--sub); }
+  .tl-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 6px; }
+  .tl-tools .ghost { font-size: 12px; padding: 4px 10px; }
+  .tl-hint { font-size: 11.5px; color: var(--sub); margin-left: 4px; }
+  /* 剪辑右栏「这一条上的配音」那一小列（与轨道上的块是同一批数据，不是第二份账） */
+  .vc-list { display: flex; flex-direction: column; gap: 4px; }
+  .vc-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--input); }
+  .vc-row b { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
+  .vc-row span { color: var(--sub); font-size: 11px; margin-left: auto; white-space: nowrap; }
+  .tl-time { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--sub); margin-top: 10px; }
   /* 顺序模式的镜头缩略图条：每个镜头一张 */
   .shot-strip { display: flex; gap: 8px; padding: 4px 16px 14px; overflow-x: auto; }
   .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: 2px solid transparent; border-radius: 4px;
@@ -484,7 +527,6 @@
     <div class="left-head">
       <b>分镜 <span id="scCount">0</span></b>
       <button class="script-btn" id="scriptBtn" title="粘贴剧本 / 文案，AI 一键拆成场景与镜头"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
-      <button class="script-btn" id="assetSearchBtn" title="用一句话检索资产库，命中的素材由 AI 整理成场景 / 镜头追加到当前短片"><span data-icon="search" data-size="13"></span> 素材检索</button>
     </div>
     <div id="scenesBox" style="flex:1;overflow-y:auto"></div>
     <button class="add-scene" id="addScene">＋ 加一个场景</button>
@@ -585,6 +627,10 @@ function newShot(prompt = '') {
     keyframes: [],                            // { t, desc, status, assetId } 时间切片参考图
     candidates: [],                           // { vid, status, progress, url, priceMicros, error, selected, locked, trimS, trimE, duration }
     selId: null,                              // 选中的候选 vid
+    /* 「输入模式」= 这一镜这一次请求的形状（`Capabilities.combos` 里选中的那一条 id）。
+       平台不给形状声明时一直是空串，那一排芯片整块不画，行为与加它之前逐字相同。
+       挂在镜头上而不是模块变量：导演台一次编辑的是镜头，切镜头要跟着换。 */
+    combo: '',
   };
   sh.candidates.push(mkDraftCandidate(sh));   // 默认带一个候选占位（默认选中它）
   return sh;
@@ -597,9 +643,12 @@ const curShot = () => curScene()?.shots[proj.curShot];
 const fmtDur = s => (Math.round(s * 10) / 10) + ' 秒';
 const shotDur = sh => {
   const c = sh.candidates.find(c => c.vid === sh.selId) || sh.candidates.find(c => c.status === 'succeeded');
-  if (c && c.trimE != null) return Math.max(0, c.trimE - (c.trimS || 0));
-  if (c && c.duration) return c.duration;
-  if (c && c.url) return sh.duration || 5;
+  if (!c) return 0;
+  /* 多段：按段求和（切开之后这一镜在成片里就是这几段之和，不是「首段入点到末段出点」） */
+  if (Array.isArray(c.segs)) return round1(segsLen(c, candDur(c, sh)));
+  if (c.trimE != null) return Math.max(0, c.trimE - (c.trimS || 0));
+  if (c.duration) return c.duration;
+  if (c.url) return sh.duration || 5;
   return 0;   // 还没出画面：不显示假时长
 };
 /* 本镜时长文案：没生成就写「未生成」 */
@@ -610,7 +659,11 @@ const shotDurText = sh => { const d = shotDur(sh); return d ? fmtDur(d) : '未�
    两者不是同一条时，一句光秃秃的「✓ 已保留 3 秒」会让人以为成片短了 2 秒 ——
    去看成片却发现一点没变（还是第 1 条那 5 秒），于是以为这个功能坏了。 */
 function trimStatus(sh, c, extra) {
-  const sec = fmtDur(Math.max(0, (Number(c && c.trimE) || 0) - (Number(c && c.trimS) || 0)));
+  /* 秒数按「剪辑界面正指着的那一段」算，不按 trimS/trimE 的并集算：
+     切开之后一镜可能有几段，说「已保留 8 秒」而格子里明明是两段各 3 秒，等于说一句对不上画面的话。 */
+  const segN = curSegOf(sh, c);
+  const sec = segN ? fmtDur(segLen(segN)) : '0 秒';
+  const nSeg = (c && Array.isArray(c.segs)) ? c.segs.length : 1;
   const inFilm = !!(c && c.vid === sh.selId);
   const at = (sh.candidates || []).findIndex(x => x.vid === sh.selId);
   const tail = inFilm ? '（这一条正被选用，成片跟着变）'
@@ -619,8 +672,9 @@ function trimStatus(sh, c, extra) {
   /* 「截断」是真出了事（我们改了你输了的值），照旧走横幅；其余走工具栏那行小字 ——
      这里**不能用 warn 类**：那会把顶部横幅点亮，而拖动裁剪是每拖一下都会发生的高频动作，
      一个常驻横幅会变成噪音（用户上次特意说过「除非出 bug 不要弹东西」）。 */
-  if (extra) return '<span class="err">' + extra + '；已保留 ' + sec + (inFilm ? tail : '') + '</span>';
-  return inFilm ? '<span class="ok">✓ 已保留 ' + sec + tail + '</span>' : '已保留 ' + sec + tail;
+  const many = nSeg > 1 ? '（这一条现在有 ' + nSeg + ' 段）' : '';
+  if (extra) return '<span class="err">' + extra + '；已保留 ' + sec + many + (inFilm ? tail : '') + '</span>';
+  return inFilm ? '<span class="ok">✓ 已保留 ' + sec + many + tail + '</span>' : '已保留 ' + sec + many + tail;
 }
 const shotReady = sh => sh.selId && sh.candidates.some(c => c.vid === sh.selId && c.status === 'succeeded');
 const totalDur = () => allShots().filter(shotReady).reduce((a, sh) => a + shotDur(sh), 0);
@@ -719,7 +773,7 @@ document.addEventListener('keydown', e => {
    成片时间线（timeline）—— LLM 剪辑与 ffmpeg 离线导出的数据基础
    clip = { id, kind:'shot'|'asset'|'black', shotId?, candId?, assetId?, src?, name, in, out, speed, volume }
      · kind 'shot'  引用某个镜头的候选（可重排、可重复使用、可单独裁剪）
-     · kind 'asset' 直接引用资产库素材（检索式剪辑用）
+     · kind 'asset' 直接引用资产库素材（按 src 或资产号取用）
      · kind 'black' 黑场（片头/间隔）
    ========================================================================== */
 function tlEnsure() {
@@ -732,16 +786,235 @@ const tlDuration = () => tlEnsure().clips.reduce((a, c) => a + tlClipDur(c), 0);
 const tlCandidateOf = (sh, candId) =>
   (sh.candidates || []).find(c => c.vid === candId) || (sh.candidates || []).find(c => c.vid === sh.selId) || null;
 
-/* 从已选用镜头派生时间线（会覆盖现有 clips） */
+/* ============================================================================
+   多段剪辑（切开 / 向左切 / 向右切 / 删掉这一段）—— 段存在**候选自己身上**
+   ----------------------------------------------------------------------------
+   `c.segs = [{ in, out }, …]`：源视频里的秒，按播放顺序。
+   为什么不存时间线的 clip 上：clip 是每次 `tlFromShots()` 现派出来的（换候选、拖顺序都会重建），
+   段存在 clip 上就等于「本镜」与「全片」各存一份 —— 用户点名的正是这件事：在一处剪完，另一处照旧。
+   存在候选上，两处都只是它的读数：本镜切一刀，全片的段数、秒数、切片图和配音位置一起跟着变。
+   老数据只有 `trimS/trimE`（单段）：`segsOf` 认它；每次落地又把 `trimS/trimE` 回写成
+   「首段入点 / 末段出点」—— 候选卡与归档摘要还在读那两个字段，不能各说各话。 */
+const candDur = (c, sh) => Math.max(0.1, Number(c && c.duration) || Number(sh && sh.duration) || 5);
+const SEG_MIN = 0.2;          // 一刀下去两头至少各留这么多，否则下一次「再切」会切出零长段
+const segLen = s => Math.max(0.1, round1((Number(s && s.out) || 0) - (Number(s && s.in) || 0)));
+function segsOf(c, total) {
+  const T = Math.max(0.1, Number(total) || 0);
+  const raw = (c && Array.isArray(c.segs)) ? c.segs : null;
+  const src = raw || [{ in: (c && c.trimS) || 0, out: (c && c.trimE != null ? c.trimE : T) }];
+  const out = [];
+  src.forEach(s => {
+    let i = Math.max(0, Math.min(Number(s && s.in) || 0, T));
+    let o = Math.max(0, Math.min(s && s.out != null && isFinite(Number(s.out)) ? Number(s.out) : T, T));
+    if (o - i < SEG_MIN) { o = Math.min(T, i + SEG_MIN); if (o - i < SEG_MIN) i = Math.max(0, o - SEG_MIN); }
+    if (o > i) out.push({ in: round1(i), out: round1(o) });
+  });
+  return out;                        // 空数组是**有效状态**：这一条候选一段画面都不留
+}
+const segsLen = (c, total) => segsOf(c, total).reduce((a, s) => a + segLen(s), 0);
+function segsWrite(c, total, segs) {
+  const list = segsOf({ segs }, total);
+  c.segs = list;
+  c.trimS = list.length ? list[0].in : 0;
+  c.trimE = list.length ? list[list.length - 1].out : 0;
+  return list;
+}
+/* 剪辑界面正指着哪一段（切完之后指针要留在看得见的地方；老工程没这个字段 = 第 0 段） */
+const cutSegIdx = () => Math.max(0, Number(proj && proj.cutSeg) || 0);
+const curSegOf = (sh, c) => { const ss = segsOf(c, candDur(c, sh)); return ss.length ? ss[Math.min(ss.length - 1, cutSegIdx())] : null; };
+const candSelected = (sh, c) => !!(c && sh && sh.selId === c.vid);
+
+/* ---------------- 声音轨（剪辑模式新增）----------------
+   `proj.voices = [{ id, shotId, candId, seg, at, dur, vol, src, name, text, provider, model, voice }]`。
+   `at` 相对**这一段自己**的起点（不是整条候选，也不是整片）：段会被切开、会被裁短，
+   锚在段上才能在剪完之后仍然落在原来那句话的位置 —— 这是「本镜剪了、全片跟着变」在声音上的落点。
+   交给 `/render` 时按 `clips[].voices = [{ src, start, dur, vol }]`（start 相对该段起点，
+   代理那侧同一套约定：绝对偏移由那一段的 span 决定，客户端自己加会漂）。 */
+function voicesEnsure() { if (!Array.isArray(proj.voices)) proj.voices = []; return proj.voices; }
+const shotVoices = (shotId, candId) => voicesEnsure().filter(v => v.shotId === shotId && (!candId || v.candId === candId));
+const clipVoiceKey = (shotId, candId, seg) => [shotId, candId, seg == null ? 0 : seg].join('|');
+/* 这一段该带上哪几句配音，以及有几句被这一剪挤到了段外面（**不静默丢**：计数交给状态行说） */
+function clipVoices(c, durClip) {
+  const list = []; let skip = 0;
+  const seg = c.seg == null ? 0 : c.seg;
+  voicesEnsure().forEach(v => {
+    if (v.shotId !== c.shotId || v.candId !== c.candId || (v.seg == null ? 0 : v.seg) !== seg) return;
+    const start = Math.max(0, Number(v.at) || 0);
+    if (!v.src || start >= durClip) { skip++; return; }
+    list.push({ src: v.src, start, dur: Math.max(0.1, Number(v.dur) || 0), vol: v.vol == null ? 1 : Number(v.vol) });
+  });
+  return { list, skip };
+}
+let voiceSkip = 0;      // 最近一次组装成片时「没进画面」的配音句数（合并 / 导出那句状态读它）
+const voiceFp = c => clipVoices(c, tlClipDur(c)).list.map(v => Math.round(v.start * 10) / 10 + '~' + v.dur).join(',');
+
+/* 一次段编辑之后把配音重新落到段上：先把旧的相对秒还原成**源视频里的绝对秒**，
+   再看这个绝对时刻新落在哪一段。正好被切掉那一句不删 —— 挪到紧随其后的那段开头，
+   并把「挪了几句」照实说（这与「选了却没发」是同一类偏差）。 */
+function reanchorVoices(sh, c, oldSegs, newSegs) {
+  let moved = 0;
+  shotVoices(sh.id, c.vid).forEach(v => {
+    const os = oldSegs[Math.min(oldSegs.length - 1, Math.max(0, Number(v.seg) || 0))];
+    if (!os) return;
+    const abs = os.in + Math.max(0, Number(v.at) || 0);
+    if (!newSegs.length) { v.seg = 0; v.at = 0; moved++; return; }
+    let ni = newSegs.findIndex(s => abs >= s.in && abs < s.out);
+    if (ni < 0) {
+      ni = newSegs.findIndex(s => s.in > abs);
+      if (ni < 0) ni = newSegs.length - 1;
+      v.at = 0; moved++;
+    } else v.at = round1(Math.max(0, abs - newSegs[ni].in));
+    v.seg = ni;
+  });
+  return moved;
+}
+/* 四把剪子都只改「这一条候选的段列表」，不碰别的东西 —— 本镜与全片读的是同一份。
+   返回 `{ segs, at }`（at = 剪完之后指针该落在第几段）或 `{ err }`（当场把原因说清，不剪）。 */
+function cutSegs(c, total, at, way) {
+  const segs = segsOf(c, total);
+  if (!segs.length) return { err: '这一条候选现在一段画面都没有：先在「全片」里换一条候选，或点「不剪了」恢复整条' };
+  let i = segs.findIndex(s => at >= s.in && at < s.out);
+  if (i < 0) i = segs.reduce((b, s, k) => (Math.abs(s.in - at) < Math.abs(segs[b].in - at) ? k : b), 0);
+  const s = segs[i];
+  if (way === 'split') {
+    if (at - s.in < SEG_MIN || s.out - at < SEG_MIN) return { err: '插针离这一段的边界不到 0.2 秒，切不开（往中间挪一点再切）' };
+    segs.splice(i, 1, { in: s.in, out: at }, { in: at, out: s.out });
+    return { segs, at: Math.min(segs.length - 1, i + 1) };
+  }
+  if (way === 'left') {
+    if (s.out - at < SEG_MIN) return { err: '插针后面剩不到 0.2 秒 —— 整段不要就点「删掉这一段」' };
+    segs[i] = { in: at, out: s.out };
+    return { segs, at: i };
+  }
+  if (way === 'right') {
+    if (at - s.in < SEG_MIN) return { err: '插针前面不到 0.2 秒 —— 整段不要就点「删掉这一段」' };
+    segs[i] = { in: s.in, out: at };
+    return { segs, at: i };
+  }
+  if (way === 'drop') {
+    if (segs.length === 1) return { err: '只剩一段了，再删这一条候选就没有画面（整条不要请换候选或换一镜）' };
+    segs.splice(i, 1);
+    return { segs, at: Math.min(segs.length - 1, i) };
+  }
+  if (way === 'reset') return { segs: [{ in: 0, out: round1(total) }], at: 0 };
+  return { err: '不认识这种剪法' };
+}
+/* 插针在哪个秒：播放器一直在放**焦点那条候选**，所以本镜与全片两个页签指的是同一个位置
+   （不存在「全片里另有一根针」这第二份口径）。重画之后播放器还没就位时读上次记下的那一个。 */
+function cutPin(c, total) {
+  const pl = document.getElementById('player');
+  const t = (pl && isFinite(Number(pl.currentTime))) ? Number(pl.currentTime) : (Number(proj.cutAt) || 0);
+  return round1(Math.max(0, Math.min(total, t)));
+}
+/* 一次剪切的唯一出口：算新段 → 写候选 → 配音重新锚定 → 重画 → 一句话说清进不进成片。
+   两颗入口（本镜页签、全片页签）都调它，所以「在 A 处剪了 B 处也要变」不是同步逻辑，是根本没有第二份数据。 */
+function applyCut(way) {
+  const sh = curShot();
+  if (!sh) { setStatus('<span class="err">先挑一个镜头</span>'); return; }
+  const cands = sh.candidates || [];
+  const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId);
+  if (!c) { setStatus('<span class="err">这一镜还没有候选，先生成或导入一条视频再剪</span>'); return; }
+  const total = candDur(c, sh);
+  const oldSegs = segsOf(c, total);
+  const at = cutPin(c, total);
+  const r = cutSegs(c, total, at, way);
+  if (r.err) { setStatus('<span class="err">' + r.err + '</span>'); return; }
+  const newSegs = segsWrite(c, total, r.segs);
+  proj.cutSeg = Math.max(0, Math.min(newSegs.length - 1, Number(r.at) || 0));
+  proj.cutAt = at;
+  const moved = reanchorVoices(sh, c, oldSegs, newSegs);
+  const left = round1(segsLen(c, total));
+  const what = way === 'split' ? '已在 ' + fmtDur(at) + ' 处切开'
+    : way === 'left' ? '已把插针左边切掉'
+    : way === 'right' ? '已把插针右边切掉'
+    : way === 'drop' ? '已删掉插针那一段' : '已取消裁剪';
+  const inFilm = candSelected(sh, c);
+  setStatus((inFilm ? '<span class="ok">✓ ' : '')
+    + what + '：这一条现在 ' + newSegs.length + ' 段、共 ' + fmtDur(left)
+    + (inFilm ? '，左栏时长与全片跟着变' : '，但这一条还没被选用，成片仍按选用的那条算')
+    + (inFilm ? '' : '')
+    + (moved ? '；有 ' + moved + ' 句配音正好被切掉，已挪到紧随其后的那段开头' : '')
+    + (inFilm ? '</span>' : ''));
+  renderAll(); scheduleSave();
+}
+
+/* ---------------- 轨道上的切片图 ----------------
+   一段里按秒铺几帧（每帧取这一段的等分中点），用的还是公共层 `Wb.vframe` 的 meta/seek 原语；
+   只有「取多帧」改成**同一个 <video> 顺序 seek** —— 每帧新建一个 video 会把中栏卡成幻灯片。
+   采到的帧按「素材地址 → {时刻: 图片}」缓存在这一页的内存里：剪辑每拖一下都重画整条轨道，
+   命中就不再解码。取不到帧不算错（格子里留占位，画面照样能剪）。 */
+const frameCache = new Map();
+async function grabFrames(src, times) {
+  if (!frameCache.has(src)) {
+    if (frameCache.size > 24) frameCache.clear();      // 一个 dataURL 约几十 KB，别让长片把内存吃掉
+    frameCache.set(src, new Map());
+  }
+  const hit = frameCache.get(src);
+  const need = times.filter(t => !hit.has(t));
+  if (need.length) {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('playsinline', '');
+    v.src = Wb.vframe._same(src);
+    try {
+      await Wb.vframe.meta(v);
+      const c = document.createElement('canvas');
+      for (const t of need) {
+        try { await Wb.vframe.seek(v, t); } catch (e) { break; }
+        const w = v.videoWidth || 160, h = v.videoHeight || 90;
+        if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+        c.getContext('2d').drawImage(v, 0, 0, w, h);
+        hit.set(t, c.toDataURL('image/jpeg', 0.55));
+      }
+    } catch (e) { /* 元数据都拿不到（外链过期 / 格式不支持）：这一排留占位 */ }
+    try { v.removeAttribute('src'); v.load(); } catch (e) {}
+  }
+  return hit;
+}
+/* 铺好格子 → 后台把帧填进去（重画时先画占位，绝不为了缩略图把整栏卡住） */
+async function fillSlices(root) {
+  const tiles = Array.prototype.slice.call(root.querySelectorAll('[data-frs]'));
+  const bySrc = new Map();
+  tiles.forEach(t => {
+    const src = t.getAttribute('data-frs') || '';
+    if (!src) { t.innerHTML = '<i class="fr none"></i>'; return; }
+    if (!bySrc.has(src)) bySrc.set(src, []);
+    bySrc.get(src).push(t);
+  });
+  for (const [src, list] of bySrc) {
+    const marks = new Set();
+    const plans = list.map(t => {
+      const a = Number(t.getAttribute('data-in')) || 0;
+      const b = Number(t.getAttribute('data-out')) || Math.max(a + 0.5, a);
+      const n = Math.max(1, Math.min(8, Number(t.getAttribute('data-n')) || 3));
+      const ts = [];
+      for (let k = 0; k < n; k++) ts.push(round1(Math.max(0, Math.min(b - 0.05, a + (b - a) * (k + 0.5) / n))));
+      ts.forEach(x => marks.add(x));
+      return { t, ts };
+    });
+    const got = await grabFrames(src, Array.from(marks).sort((x, y) => x - y));
+    plans.forEach(({ t, ts }) => {
+      if (!t.isConnected) return;                      // 期间又重画过一次：别把帧填进孤立的格子
+      t.innerHTML = ts.map(x => {
+        const u = got.get(x);
+        return u ? '<i class="fr" style="background-image:url(' + u + ')"></i>' : '<i class="fr gap"></i>';
+      }).join('');
+    });
+  }
+}
+
+/* 从已选用镜头派生时间线（会覆盖现有 clips）：
+   **一条候选出 N 段**（N = 这一条剪出来的段数），段存 `seg` 下标给配音当锚点。 */
 function tlFromShots() {
   const clips = [];
   allShots().filter(shotReady).forEach(sh => {
     const c = tlCandidateOf(sh, sh.selId);
     if (!c) return;
-    const dur = c.duration || sh.duration || 5;
-    const inP = Number(c.trimS) || 0;
-    const outP = (c.trimE != null && Number(c.trimE) > inP) ? Number(c.trimE) : dur;
-    clips.push({ id: uid(), kind: 'shot', shotId: sh.id, candId: c.vid, name: sh.name || '镜头', in: inP, out: outP, speed: 1, volume: 1 });
+    const total = candDur(c, sh);
+    segsOf(c, total).forEach((s, i) => {
+      clips.push({ id: uid(), kind: 'shot', shotId: sh.id, candId: c.vid, seg: i,
+        name: sh.name || '镜头', in: s.in, out: s.out, speed: 1, volume: 1 });
+    });
   });
   return { clips };
 }
@@ -782,12 +1055,23 @@ async function tlClipSrc(c) {
 async function buildRenderClips(tl) {
   await healStaleUrls().catch(() => 0);      // 换不到新地址不是错：下面照旧拿旧地址试一次
   const clips = [];
+  voiceSkip = 0;
   for (let i = 0; i < tl.clips.length; i++) {
     const c = tl.clips[i];
     const src = await tlClipSrc(c);
     if (!src) throw new Error(`第 ${i + 1} 段「${c.name || ''}」没有可用素材（本地文件可能已被清理）`);
-    clips.push({ src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume });
+    /* 这一段带上它的配音（`at` 相对本段起点，代理那侧按 start 延迟后与原声 amix）。
+       放不进来的那些（这一剪把画面切短了、或整段被删）只计数不静默吞 —— 见 voiceSkip 的两句状态。 */
+    const dur = tlClipDur(c);
+    const vv = clipVoices(c, dur);
+    voiceSkip += vv.skip;
+    const one = { src, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume == null ? 1 : c.volume };
+    if (vv.list.length) one.voices = vv.list;
+    clips.push(one);
   }
+  const anchored = voicesEnsure().length;
+  const placed = clips.reduce((a, x) => a + ((x.voices || []).length), 0);
+  voiceSkip += Math.max(0, anchored - placed - voiceSkip);   // 锚在已不存在的段上的那些也算没进画面
   return clips;
 }
 
@@ -797,10 +1081,13 @@ async function buildRenderClips(tl) {
 function tlSyncFromShots() {
   const old = tlEnsure().clips;
   const fresh = tlFromShots().clips;
+  /* 键里必须带**段下标**：一条候选现在出好几段，只按「镜头|候选」归并会让第 2、3 段
+     都去认领第 1 段的旧值（倍速/音量倒无所谓，黑场锚点会认错位）。 */
+  const clipKey = c => [c.shotId, c.candId, c.seg == null ? 0 : c.seg].join('|');
   const oldByKey = new Map();
-  old.filter(c => c.kind === 'shot').forEach(c => oldByKey.set(c.shotId + '|' + c.candId, c));
+  old.filter(c => c.kind === 'shot').forEach(c => oldByKey.set(clipKey(c), c));
   const synced = fresh.map(c => {
-    const o = oldByKey.get(c.shotId + '|' + c.candId);
+    const o = oldByKey.get(clipKey(c));
     if (!o) return c;
     /* 入点/出点**不再沿用旧的**：它们是候选 trimS/trimE 派生的（tlFromShots:737-738），
        而裁剪那一步写的正是候选上的 trimS/trimE —— 把旧值按回来等于「刚裁的又白裁了」，
@@ -816,7 +1103,7 @@ function tlSyncFromShots() {
     for (let k = i - 1; k >= 0; k--) { if (old[k].kind !== 'black') { anchorShot = old[k]; break; } }
     let at = 0;
     if (anchorShot) {
-      const j = synced.findIndex(x => x.shotId === anchorShot.shotId && x.candId === anchorShot.candId);
+      const j = synced.findIndex(x => clipKey(x) === clipKey(anchorShot));
       at = j >= 0 ? j + 1 : Math.min(synced.length, i);
     } else at = Math.min(synced.length, i);
     synced.splice(at, 0, { ...c, id: uid() });
@@ -928,10 +1215,8 @@ async function exportFilmFFmpeg() {
 }
 
 /* ============================================================================
-   LLM 剪辑：目前落地的是「素材检索式剪辑」（左栏「素材检索建镜头」）。
-   约定：LLM 只输出 JSON → 本地校验夹取 → 人确认（PromptReview）→ 应用。
-   注：早前这里还写着「文字指令剪辑 / AI 自动粗剪」，但两者没有实现也没有入口，
-   已从注释里去掉，避免看代码的人去找不存在的功能。
+   LLM 辅助：「一键分镜」那一路要的两个助手（宽松 JSON 解析 + 共用约束）。
+   约定不变：LLM 只输出 JSON → 本地校验夹取 → 人确认（PromptReview）→ 应用。
    ========================================================================== */
 
 /* 宽松 JSON 解析：兼容 ```json 围栏、前后废话、单引号 */
@@ -962,205 +1247,6 @@ const splitSysOf = () => TextAI.prompt('split');
 
 /* 时间线 → 给 LLM 的上下文摘要（连同 tlContextForLLM 一起已移除：从未被调用） */
 
-/* ============================================================================
-   素材检索建镜头 —— 自然语言 → 检索资产库 → 组织成 场景 / 镜头
-   两步走：① AI 把需求翻成过滤条件，本机在**全库**上过滤；② 把过滤后的那一小批交给 AI 分配场景/镜头。
-   追加到当前短片（命中视频成为「已选用之外的候选」，命中图片成为镜头的参考图）
-   ========================================================================== */
-/* 投进来的那张图在提示词与芯片上叫什么：资产库的条目没有名字，就用它提示词开头那一段
-   （截 12 字），实在没有再退到资产号末 4 位 —— 三张都叫「素材」的话芯片就分不出谁是谁。 */
-const assetRefName = e => {
-  const t = String((e && e.prompt) || '').split('\n')[0].trim().slice(0, 12);
-  return t || ('素材' + String((e && e.assetId) || '').slice(-4));
-};
-/* 长期存进 `sh.refImages` 的地址只可能是这两种：本机资产号，或素材库那条自己的 dataURL。
-   `e.src` 往往是包着签名外链的 /getv（一天就 403），存进工作区就是「记得住一个记不住的地址」。 */
-const assetPicSrc = e => {
-  if (e && e.assetId) return '/asset/' + e.assetId;
-  const s = String((e && e.src) || '');
-  return /^(data:|\/asset\/)/.test(s) ? s : '';
-};
-async function openAssetSearchToShots() {
-  const scenes = (proj.scenes || []);
-  if (!scenes.length) { setStatus('<span class="err">当前短片还没有场景/镜头，先加场景再检索</span>'); return; }
-  const v = await PromptForm.open({
-    title: '素材检索 → 加入对应镜头',
-    sub: '描述要什么素材。AI 先把它翻译成检索条件，本机按条件在整个资产库里筛，再把筛出来的那批按「场景名 / 镜头名」投进对应镜头（不自动选用）',
-    okLabel: '检索并投递',
-    fields: [
-      { key: 'q', type: 'textarea', label: '想要什么素材', placeholder: '例：最近 3 天生成的雪景视频，每条 5 秒左右，按生成时间从早到晚' },
-      { key: 'want', type: 'select', label: '要找哪一类', value: '视频',
-        options: [{ v: '视频', t: '视频（投成这一镜的候选画面）' }, { v: '图片', t: '图片（投成这一镜的参考图）' },
-        { v: '都要', t: '都要（各投各的去处）' }] },
-      { key: 'target', type: 'text', label: '投递目标（留空 = AI 按内容自动匹配）', placeholder: '例：场景1 / 开场空镜 ｜ 也可以只写场景名把整场都加上' },
-      { key: 'max', type: 'number', label: '最多投递几条', value: 8 },
-    ],
-    validate: o => (o.q || '').length < 2 ? '请描述你要找的素材' : '',
-  });
-  if (!v) return;
-  let entries = [];
-  try {
-    setStatus('正在读取资产库索引…');
-    /* 视频与图片都留着：以前这里先 `e.type === '视频'` 砍一刀，
-       于是「投成参考图」那一路根本没有素材可投，界面上那句「命中图片作为参考图」是句空话。 */
-    entries = (await loadDirectoryAssets(4, null, { cacheFirst: true }))
-      .filter(e => e.kind === 'asset' && (e.type === '视频' || e.type === '图片'));
-  } catch (e) { setStatus('<span class="err">资产库读取失败：' + e.message + '</span>'); return; }
-  if (!entries.length) { setStatus('<span class="err">资产库里还没有可用的素材（视频或图片）</span>'); return; }
-
-  const maxN = Math.max(1, Math.min(20, parseInt(v.max, 10) || 8));
-  const want = scenes.map(sc => ({
-    场景: sc.name,
-    镜头: (sc.shots || []).map(sh2 => ({ 名称: sh2.name, 提示词: (sh2.prompt || '').slice(0, 70), 已有候选: (sh2.candidates || []).length }),
-    )
-  }));
-  const KIND_ZH_WANT = { '视频': '视频', '图片': '图片', '都要': '任意' };
-  const condSys = `${TL_SYS_COMMON}
-你是素材检索条件生成器。**这一步只把需求翻译成本机的过滤条件，不要挑具体素材**（本机拿条件在全库筛完之后才轮到下一步分配）。
-只返回 JSON：
-{"keywords":["关键词"],"type":"${KIND_ZH_WANT[v.want] || '视频'}","after":"YYYY-MM-DD 或 null","before":"YYYY-MM-DD 或 null","minDuration":0,"maxDuration":null,"order":"asc|desc","limit":${maxN}}
-要求：
-· 日期今天是多少由这里给：${new Date().toLocaleDateString('sv')}（你不看得到系统时间，别自己猜）；
-· 时间、时长、条数一律写进 after / before / minDuration / maxDuration / limit 这些字段，由本机真过滤，不要塞进 keywords 当模糊词；
-· 需求里没提时间就 after、before 都给 null；提了「最近 N 天」就把 after 写成今天往前 N 天，并把 order 写成 desc（新的在前）；
-· keywords 只放画面内容本身的词（雪景、街道、人物…），可以给多个；
-· type 只能是「${v.want === '都要' ? '视频、图片 或 任意' : v.want}」之一。`;
-  const assignSys = n => `${TL_SYS_COMMON}
-你是素材投递助手。下面给的是**已经按条件筛出来并排好序的 ${n} 条素材**，条件不用也不许再改，只做一件事：
-按内容判断每一条应该放进哪个场景的哪个镜头（必须使用给定的场景名与镜头名原文），同一镜头可以放多条，实在对不上的可以不给。
-只返回 JSON：
-{"assignments":[{"assetId":"素材 id","sceneName":"场景名","shotName":"镜头名","reason":"简短理由"}],"summary":"一句话"}${v.target ? `\n用户指定的投递目标：${v.target}（请优先投到该目标）` : ''}`;
-  let plan = null, summary = '';
-  const ask = async () => {
-    /* 第 ① 步：只出条件。以前这一步与分配合成一次调用，并把 `entries.slice(0, 300)` 一起喂进去 ——
-       那份清单是按生成时间**升序**的最旧 300 条，于是「最近 3 天的雪景」永远挑不到：
-       最近那批根本没进过 AI 的眼，条件写得再对也没用。 */
-    setStatus('AI 正在把需求翻成检索条件…');
-    const jc = parseJsonLoose(await TextAI.chat(REG, condSys, JSON.stringify({ 需求: v.q })));
-    if (!jc || !jc.keywords) throw new Error('AI 没有给出可用的检索条件');
-    plan = jc;
-    /* 「要找哪一类」是用户在表单里选死的，不是 AI 猜的：它漏写 type、或把「都要」写成「视频」都不该改变结果。
-       条数同理，以用户填的那一个为准，不让 AI 自己放大。 */
-    plan.type = KIND_ZH_WANT[v.want] || '视频';
-    plan.limit = maxN;
-    const hits = tlFilterAssets(entries, plan);
-    if (!hits.length) throw new Error('没有匹配的素材（可放宽关键词或时间范围）');
-    /* 第 ② 步：只分配，看得见的全是过滤后的那几条 */
-    setStatus('AI 正在把 ' + hits.length + ' 条素材对到镜头上…');
-    const idx = hits.map(e => ({
-      id: e.assetId, 类型: e.type, 提示词: (e.prompt || '').slice(0, 110), 时长: e.duration || null,
-      平台: e.providerName, 日期: AssetLib.tsMs(e.ts) ? new Date(AssetLib.tsMs(e.ts)).toISOString().slice(0, 10) : null,
-    }));
-    const ja = parseJsonLoose(await TextAI.chat(REG, assignSys(hits.length),
-      JSON.stringify({ 需求: v.q, 检索条件: plan, 可投递的场景与镜头: want, 本次候选素材: idx })));
-    const rows = ((ja && ja.assignments) || []).filter(a => idx.some(x => x.id === a.assetId));
-    if (!rows.length) throw new Error('AI 没能把素材对到具体镜头上，请把场景/镜头名字写清楚些');
-    summary = (ja && ja.summary) || '';
-    return rows.slice(0, maxN).map(a => {
-      const e = hits.find(h => h.assetId === a.assetId);
-      const to = e.type === '图片' ? '参考图' : '候选画面';
-      return {
-        label: `${a.sceneName} / ${a.shotName}`,
-        text: `${(e.prompt || '(无提示词)').slice(0, 200)}${a.reason ? '\n投递理由：' + a.reason : ''}`
-          + `\n[assetId:${a.assetId}]（${e.type}，投成${to}）`,
-      };
-    });
-  };
-  let items;
-  try { items = await ask(); }
-  catch (e) { setStatus('<span class="err">' + esc(e.message) + '</span>'); return; }
-  const reviewed = await PromptReview.openList({
-    title: '素材 → 对应镜头',
-    sub: (summary ? 'AI 的理解：' + summary + ' · ' : '') + '确认后投进这些镜头：视频进候选、图片进参考图（都不影响已选用的画面）',
-    items, applyLabel: '投递到对应镜头', hint: '每条会成为一个候选或一张参考图，可稍后在右栏挑选/选用',
-    retry: ask,
-  });
-  if (!reviewed) { setStatus('已取消'); return; }
-
-  const hits = tlFilterAssets(entries, plan);
-  const byId = new Map(hits.map(h => [h.assetId, h]));
-  /* 按**审核结果**投递（reviewed = 用户在确认弹窗里留下的条目，可能被删过几条、改过文字）。
-     以前是拿 AI 原始 assignments 重算、只按 reviewed.length 截断 ——
-     用户删掉的条目照样被投递，顺序也可能对不上。assetId 从条目文字里的 [assetId:xxx] 取
-     （弹窗只允许改正文，标签 场景/镜头 不会被改）。 */
-  const rows = (reviewed || []).map(r => {
-    const m = /\[assetId:([^\]\s]+)\]/.exec(r.text || '');
-    let assetId = m ? m[1].trim() : '';
-    if (!assetId) {                       // 用户把标记删了：按正文与素材提示词比对找回
-      const head = String(r.text || '').split('\n')[0].trim();
-      const hit = hits.find(h => String(h.prompt || '').slice(0, 200) === head);
-      assetId = (hit && hit.assetId) || '';
-    }
-    const parts = String(r.label || '').split('/').map(s => s.trim());
-    return { assetId, sceneName: parts[0] || '', shotName: parts.slice(1).join('/') || '' };
-  }).filter(a => byId.has(a.assetId));
-  let cands = 0, pics = 0, dup = 0, miss = 0, why = '';
-  /* 场景名 / 镜头名的「同名」判据与左栏认领素材库场景图用的是同一把尺子（nameKey） */
-  const inScene = (list, nm) => {
-    const k = nameKey(nm);
-    if (!k) return null;
-    return (list || []).find(x => nameKey(x.name) === k)
-      || (list || []).find(x => nameKey(x.name).includes(k) || k.includes(nameKey(x.name)));
-  };
-  rows.forEach(a => {
-    const e = byId.get(a.assetId);
-    if (!e) { miss++; return; }
-    const sc = inScene(scenes, a.sceneName);
-    if (!sc) { miss++; return; }
-    /* 只给了场景名：投到该场景第一个镜头 */
-    const sh2 = inScene(sc.shots, a.shotName) || (sc.shots || [])[0];
-    if (!sh2) { miss++; return; }
-    if (e.type === '图片') {
-      /* 判据与「@ 素材」那条链同一份（能力声明 + 素材互斥 + 上限 + 按图去重），这里不重写一遍。 */
-      const r = addLibPicToShot(sh2, { name: assetRefName(e) }, { src: assetPicSrc(e) });
-      if (r.ok) { r.dup ? dup++ : pics++; }
-      else { miss++; if (!why) why = r.why || ''; }
-      return;
-    }
-    const cand = mkImportedCandidate({
-      vid: 'asset_' + e.assetId, provider: e.provider || ASSET_STORE,
-      url: e.src || ('/asset/' + e.assetId + '?v=2'), duration: e.duration, fromAsset: true,
-    });
-    if ((sh2.candidates || []).some(c => c.vid === cand.vid)) { dup++; return; }   // 已有同素材候选
-    sh2.candidates.push(cand);
-    cands++;
-  });
-  renderAll(); scheduleSave();
-  /* 「重复」不能算进「未匹配」：同一素材投第二次是它本来就在，不是场景/镜头名对不上，
-     把两者说成一句会让人去找一个并不存在的错。 */
-  const bits = [];
-  if (cands) bits.push(cands + ' 条视频进了候选');
-  if (pics) bits.push(pics + ' 张图进了参考图');
-  const tail = [dup ? dup + ' 条本来就有了' : '', miss ? miss + ' 条没对上镜头' : ''].filter(Boolean).join('，');
-  if (bits.length) setStatus(`<span class="ok">✓ 已把 ${esc(bits.join('、'))}${tail ? '（' + esc(tail) + '）' : ''}</span>`);
-  else setStatus('<span class="err">没有素材成功加入' + (tail ? '（' + esc(tail) + '）' : '') + '——场景/镜头名可能对不上，可在上一步改投递目标</span>');
-  if (why) Toast.warn('有素材投不成参考图：' + why);
-}
-
-/* 本地按 AI 给出的条件过滤素材 */
-function tlFilterAssets(entries, plan) {
-  const kw = (plan.keywords || []).map(k => String(k).toLowerCase().trim()).filter(Boolean);
-  const type = plan.type && plan.type !== '任意' ? plan.type : null;
-  const after = plan.after ? Date.parse(plan.after) : null;
-  const before = plan.before ? Date.parse(plan.before) + 86400000 : null;
-  const minD = Number(plan.minDuration) || 0;
-  const maxD = plan.maxDuration ? Number(plan.maxDuration) : null;
-  let hits = entries.filter(e => {
-    const hay = ((e.prompt || '') + ' ' + (e.providerName || '')).toLowerCase();
-    if (type && e.type !== type) return false;
-    if (kw.length && !kw.some(k => hay.includes(k))) return false;
-    const ts = AssetLib.tsMs(e.ts) || null;
-    if (after && (!ts || ts < after)) return false;
-    if (before && (!ts || ts > before)) return false;
-    const d = Number(e.duration) || 0;
-    if ((minD || maxD) && !d) return false;   // 有时长条件但该素材没有时长信息 → 排除
-    if (minD && d < minD) return false;
-    if (maxD && d > maxD) return false;
-    return true;
-  });
-  hits.sort((a, b) => (plan.order === 'desc' ? (b.ts || 0) - (a.ts || 0) : (a.ts || 0) - (b.ts || 0)));
-  return hits.slice(0, Math.max(1, Math.min(60, Number(plan.limit) || 20)));
-}
 
 /* ---------------- ④ 剧本 / 文案一键分镜（AI 拆场景与镜头） ---------------- */
 /* 镜头时长的口径只有这两个数：给 AI 的那句约束、它回来的那个数的 clamp、
@@ -1281,12 +1367,17 @@ let mergeCancelled = false;
 let mergeJobId = null;      // 这一轮合并的任务号（取消时交给代理去杀进程）
 /* 合并按钮统一入口：合并中再点一次 = 取消 */
 function mergeFilmClick() { if (merging) { mergeCancelled = true; renderCancel(mergeJobId); return; } mergeWholeFilm(); }
-/* 这一份成片对应的是**哪一串内容**：每段的 [镜头 id, 选用的候选, 入点, 出点, 速度, 音量]，按顺序。
+/* 这一份成片对应的是**哪一串内容**：每段的 [镜头 id, 选用的候选, 第几段, 入点, 出点, 速度, 音量,
+   这一段带哪几句配音]，按顺序。
    取址与合成一致（顺序取 tlSyncFromShots 的结果 —— 拖动顺序就体现在这里），
-   所以「换候选 / 改入出点 / 拖顺序」三件事任何一件都会让指纹变。 */
+   所以「换候选 / 改入出点 / 切开或删段 / 拖顺序 / 加删配音」任何一件都会让指纹变。
+   切口必须是「逐段一项」，不能塌成「候选的首末入出点」：切开**不改**首段的入点、
+   也不改末段的出点（只是中间多了一个接缝），塌成那一对数的话「切成两段」会被读成没变，
+   于是播的/导出还是上一版画面（旧模型只有 trimS/trimE，那一版就是用这两个数当指纹的）。 */
 function filmFingerprint(clips) {
-  return (clips || []).map(c => [c.shotId || '', c.candId || c.vid || c.cand || '', c.in || 0, c.out || 0,
-    c.speed || 1, c.volume == null ? 1 : c.volume].join('~')).join('|');
+  return (clips || []).map(c => [c.shotId || '', c.candId || c.vid || c.cand || '',
+    c.seg == null ? 0 : c.seg, c.in || 0, c.out || 0,
+    c.speed || 1, c.volume == null ? 1 : c.volume, c.kind === 'black' ? 'b' : voiceFp(c)].join('~')).join('|');
 }
 /* 「盘上那一份成片是不是当前的」—— 三处判据（播放 / 自动合并 / 陈旧提示）只问这一句。
    旧数据（合并时还没存指纹的）没有 fp：那时候只按段数判，与原行为一致，不把它当陈旧。 */
@@ -1517,6 +1608,25 @@ function candStatusText(c) {
   return c.status === 'draft' ? '待写描述'
     : c.status === 'failed' ? '生成失败' : c.status === 'cancelled' ? '已取消'
     : c.status === 'queued' ? '排队中' : (c.status === 'creating' ? '创建中' : '生成中');
+}
+/* 这一镜「还没结束的那一条」（排队 / 创建中 / 正在跑都算）—— 进度条按它的 progress 走。 */
+const shotRunCand = sh => (sh.candidates || []).find(c => c.status === 'running' || c.status === 'queued' || c.status === 'creating') || null;
+/* 镜头状态只有一份措辞（右栏镜头清单与中栏「顺序」那条缩略图带共用）：
+   「生成中」只给**真在跑的那一条**（`candStatusText` 那一份），排队中就写排队中、创建中就写创建中；
+   而「有候选但没有任何在跑的」不再是生成中 —— 全部失败、全部取消、出片了却还没被选用，
+   这三种都是「停下来等人处理」，挂着生成中会让人一直等一个不会再动的任务。
+   （「顺序」带以前只按 `candidates.length` 判，于是全失败的那一镜永远显示生成中。） */
+function shotStatusOf(sh) {
+  const runC = shotRunCand(sh);
+  const cands = sh.candidates || [];
+  const allBad = cands.length > 0 && cands.every(c => c.status === 'failed' || c.status === 'cancelled');
+  const text = shotReady(sh) ? '已选用'
+    : runC ? candStatusText(runC)
+    : allBad ? '生成失败'
+    : cands.length ? '待选用'
+    : (String(sh.prompt || '').trim() ? '未生成' : '待写描述');
+  const cls = shotReady(sh) ? 'okc' : runC ? 'runc' : allBad ? 'errc' : '';
+  return { runC, text, html: cls ? '<span class="' + cls + '">● ' + text + '</span>' : text };
 }
 function candMediaHTML(c) {
   if (c.url) return Wb.thumbs.mediaHTML(c.url, { key: thumbKey(c) });
@@ -2025,11 +2135,11 @@ async function submitCandidate(sh, ph) {
   /* 提交这一下必须用 needProv：认不出平台就**停下并说清**，绝不默默发给另一家
      （见 provOf 那段注释 —— 那个兜底正是「model must match …/…」这个看不懂的报错的来源）。 */
   const prov = needProv(rm.provider, (rm.name || modelId));
-  /* 素材互斥兜底：一组输入（首尾帧 / 参考素材）一次请求只能选一组。
-     界面已把另一组置灰，走到这里说明是导入 / 历史数据 → 明确报错，不悄悄丢掉素材。
-     用 illegalPairs 判断「已经同时用上」（blockedRoles 按定义不含已用的 role，查不出非法状态）。 */
   const icSub = shotInputCaps(sh);
-  const badPairs = icSub.illegal || [];
+  /* 这一镜手上的素材与当前输入模式说不通的地方（缺料 / 超料 / 不收 / 互斥），提交前照界面同一份
+     判据兜一次：走到这里说明是导入 / 历史数据留下的状态，界面已经拦过一遍了。
+     ⚠ 绝不静默丢掉素材 —— 用户传进去的东西要么发出去，要么把原因说出来。 */
+  const gapLines = (icSub.gaps && icSub.gaps.lines) || [];
   /* 这一镜手上的素材（提交与归档文案都按同一份数）：画面切片只数真的有资产号的，
      生成失败或被删掉的不能算「已带上」。 */
   const kfs = shotKeyframes(sh);
@@ -2041,25 +2151,22 @@ async function submitCandidate(sh, ph) {
      先拼好文案才不会出现「归档写着平台润色、提交体里根本没有」这种自相矛盾的存档。 */
   const ex = shotAdvExtras(sh);
   const ctxAdv = shotAdvCtx(sh);
+  const cbAdv = shotCombo(sh);
   /* 归档到提示词文件夹时要写在文件头里的信息：存**原始**描述（含 @参考图N 的写法，
-     比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog */
+     比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog
+     「输入模式」也要记：同一句提示词在「智能参考」与「视频换人」下发出去的是两种请求、
+     两种价，隔一个月回看这个文件的人（往往就是用户自己）得知道当时按哪一种出的。 */
   const log2 = { type: '导演台-分镜', prompt: p, meta: {
     镜头: sh.name || '', 模型档位: sh.tier, 分辨率: sh.res, 画幅: sh.ar, 尺寸: sh.size || '',
     时长: sh.duration ? sh.duration + 's' : '',
+    输入模式: cbAdv ? comboLabel(cbAdv) : '',
     顶层参数: ex.summary,
     参考素材: [nFrame ? nFrame + ' 帧' : '', kfs.length ? kfs.length + ' 关键帧' : '',
       (sh.refImages || []).length ? sh.refImages.length + ' 参考图' : '',
       sh.refVideo ? '参考视频' : '', sh.refAudio ? '参考音频' : ''].filter(Boolean).join(' / ') } };
   try {
       // 放在 try 里：抛错时占位候选会被标成「失败」，不会留下一堆排队中的僵尸占位
-      if (badPairs.length) {
-        throw new Error(badPairs.map(([a, b]) => '「' + (ROLE_ZH[a] || a) + '」与「' + (ROLE_ZH[b] || b) + '」')
-          .join('、') + '不能同时使用（' + (rm.name || modelId) + ' 一次请求只能用一组），请先清空其中一组');
-      }
-      if ((icSub.unsupported || []).length) {
-        throw new Error('这一镜的「' + icSub.unsupported.map(r => ROLE_ZH[r] || r).join(' / ') + '」在 '
-          + (rm.name || modelId) + ' 上不支持（换模型后留下来的素材），请清空或换回支持的模型');
-      }
+      if (gapLines.length) throw new Error(gapLines.join('；') + '（' + (rm.name || modelId) + '）');
       /* 越界的形状字段（种子、超分档那种）当场拒掉，不发一个必然被上游驳回的请求：
          界面已经压暗并写了原因，走到这里说明是导入 / 历史数据留下的值。 */
       if (ex.bad.length) throw new Error(ex.bad.join('、'));
@@ -2082,7 +2189,12 @@ async function submitCandidate(sh, ph) {
           res: sh.res, ar: sh.ar, size: sh.size,
           note: sh.name || '',                       // 只有声明了 acceptsNote 的那一族会真的带上（见 Api.createBody）
           inputEntries: await shotInputEntries(sh, prov, icSub),
-          shape: { mode: ctxAdv.mode, caps: ctxAdv.caps }, params: ex.params,
+          /* `creation_intent` 是**上游真字段**（省略 = 普通生成，person_replacement = 动作换人）；
+             `mode` 不是字段 —— 平台按送上来的素材自己推断，多发一个 mode 必被拒（实测），
+             它只当声明里 when / hide 的上下文走 `shape` 递进 createBody，永远不进请求体。
+             以前这一路根本不带 intent：换了「视频换人」档，提交体发出的还是普通生成。 */
+          creation_intent: ctxAdv.intent,
+          shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps }, params: ex.params,
         }) });
       /* 三种「上游说没成」的形状都要认（`Api.request` 返回的是上游原始响应体）：
          `{error:{message}}`（SparkCine 那一族与照它克隆的中转）、
@@ -2114,7 +2226,45 @@ async function drawShot(sh, count) {
   const p = sh.prompt.trim();
   if (!p) throw new Error(NO_PROMPT_WHY);
   const phs = pushPlaceholders(sh, count);
-  for (let k = 0; k < count; k++) await submitCandidate(sh, phs[k]);
+  for (let k = 0; k < count; k++) {
+    try { await submitCandidate(sh, phs[k]); }
+    catch (e) {
+      /* 这一条失败就停手（不接着花后面的钱），但**把剩下的占位也结掉**：
+         它们从没提交出去，留成「创建中」永远不会动（轮询按 tmp_ 号跳过），卡片会一直挂着。 */
+      for (let j = k + 1; j < count; j++) {
+        phs[j].status = 'failed';
+        phs[j].error = '这一批在前一条失败后没有提交（删掉即可重试）';
+      }
+      renderAll(); scheduleSave();
+      throw e;
+    }
+  }
+}
+/* 「这一镜已经有视频（在跑或已成）」：再点一次生成 = 要又一版，不是在原镜里越攒越多候选。
+   失败 / 取消不算 —— 那种情况在原镜上再点一次就是「重试」，不该开新镜头。
+   （与 `hasRealCandidate` 不是一回事：那个连 failed 也算「真候选」，判的是批量生成要跳过谁。） */
+const shotHasVideo = sh => (sh.candidates || []).some(c => c && !['draft', 'failed', 'cancelled'].includes(c.status));
+/* 「生成」那颗按钮这一刻会做什么，文案与 #genOne 的分支同一判据（shotHasVideo）：
+   已经有视频时点它是「开一条新镜头再来一版」，不再说「生成这一镜」。 */
+const genBtnLabel = sh => shotHasVideo(sh)
+  ? '生成新候选镜头（' + (sh.draw || 1) + ' 条）'
+  : curDraftCand() ? '生成这条（1 条）' : '生成这一镜（' + (sh.draw || 1) + ' 条）';
+/* 在当前场景这一镜之后原地开一条新镜头（「选中了有视频的镜头再点生成」用它）：
+   整套配置照「复制镜头」那套深拷贝跟着走（提示词 / 画幅 / 模型 / 素材 / 画面切片，
+   日后新加的字段也不会漏），候选与选用清空 —— 它是一条全新的提交，
+   出来的片子就是这一镜的又一条候选。 */
+function spawnCandidateShot(sh) {
+  const sc = curScene();
+  const ns = JSON.parse(JSON.stringify(sh));
+  ns.id = uid();
+  ns.name = sh.name + ' · 新候选';
+  ns.candidates = [];
+  ns.selId = null;
+  const at = sc.shots.indexOf(sh);
+  sc.shots.splice(at < 0 ? sc.shots.length : at + 1, 0, ns);
+  proj.curShot = at < 0 ? sc.shots.length - 1 : at + 1;
+  proj.curCand = 0;
+  return ns;
 }
 /* 简易并发池：同时最多 limit 个在跑；单个任务失败只记录，不影响其它任务 */
 async function runPool(items, limit, worker) {
@@ -2187,7 +2337,7 @@ function ensureSceneLeft() {
    这里只回答两件事：**图从哪来**、**这句要不要跟用户说**。
    ========================================================================== */
 /* 场景名的归一化只有一份：判「同一个场景」与「素材库里同名那一条」用的是同一把尺子
-   （素材投递以前另有一个局部 norm，两处对「同名」的判法迟早分家）。 */
+   （对「同名」的判法以前散在两处，迟早分家）。 */
 function nameKey(t) { return String(t || '').replace(/\s+/g, '').toLowerCase(); }
 /* 素材库里那一族「场景」条目，按名字认领一张图。**只兜底**：用户在左栏亲手挑的那张永远优先，
    库里换了图也不必把工作区里那份覆盖掉。 */
@@ -2361,14 +2511,10 @@ function renderScenes() {
       const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
         : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
         : `<div class="sthumb empty"></div>`;
-      // 状态：已选用 / 生成中（带进度）/ 待选用 / 生成失败 / 待生成 / 待写描述
-      const runC = sh.candidates.find(c => c.status === 'running' || c.status === 'queued' || c.status === 'creating');
-      const allBad = sh.candidates.length && sh.candidates.every(c => c.status === 'failed' || c.status === 'cancelled');
-      const statusTxt = shotReady(sh) ? '<span class="okc">● 已选用</span>'
-        : runC ? '<span class="runc">● 生成中</span>'
-        : allBad ? '<span class="errc">● 生成失败</span>'
-        : sh.candidates.length ? '待选用'
-        : (sh.prompt.trim() ? '未生成' : '待写描述');
+      // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述
+      const st = shotStatusOf(sh);
+      const runC = st.runC;
+      const statusTxt = st.html;
       const prog = runC ? Math.max(0, Math.min(100, Number(runC.progress) || 0)) : 0;
       const durTxt = shotDur(sh) ? ' · ' + fmtDur(shotDur(sh)) : '';   // 还没出片就不写「未生成」，避免「生成中 · 未生成」
       it.innerHTML = `<span class="num">${String(n).padStart(2, '0')}</span>
@@ -2498,9 +2644,7 @@ function paintPromptBox(sh) {
   const txt = promptTextOf(sh);
   if (ta.value !== txt) ta.value = txt;
   const pc = $('pCnt'); if (pc) pc.textContent = ta.value.trim().length + ' 字';
-  const cg = !!ta.value.trim();
-  const g1 = $('genOne'); if (g1) g1.disabled = !cg;
-  const fc = $('edFooterCan'); if (fc) { fc.className = 'can ' + (cg ? '' : 'no'); fc.textContent = footerCanText(cg, NO_PROMPT_WHY); }
+  syncGenGate(sh);
   syncAtBack(sh);
 }
 function playerEmptyText(sh) {
@@ -2604,7 +2748,15 @@ function renderMid() {
         <button class="${(proj.tlTab || 'shot') === 'shot' ? 'active' : ''}" data-tab="shot">本镜</button>
         <button class="${proj.tlTab === 'film' ? 'active' : ''}" data-tab="film">全片</button>
         <span style="flex:1"></span>
-        <span style="font-size:11.5px;color:var(--sub)">${(proj.tlTab || 'shot') === 'shot' ? '剪辑当前候选的入点 / 出点' : '所有已选用镜头按序合成'}</span>
+        <span style="font-size:11.5px;color:var(--sub)">${(proj.tlTab || 'shot') === 'shot' ? '把这一条候选切成几段、逐段调入出点' : '点一格把焦点切到那一镜，四把剪子剪的都是焦点那一条'}</span>
+      </div>
+      <div class="tl-tools" id="tlTools">
+        <button class="ghost" data-cut="split" title="在插针处把这一段切成两段">${icon('scissors', 13)} 切开</button>
+        <button class="ghost" data-cut="left" title="丢掉插针左边的画面（这一段从插针开始）">${icon('arrowLeft', 13)} 向左切</button>
+        <button class="ghost" data-cut="right" title="丢掉插针右边的画面（这一段到插针为止）">${icon('scissors', 13)} 向右切</button>
+        <button class="ghost" data-cut="drop" title="删掉插针所在的那一段（配音会自动挪到后面那段，不会静默丢）">${icon('trash', 13)} 删掉这一段</button>
+        <button class="ghost" data-cut="reset" title="取消所有剪切，恢复整条候选">${icon('refresh', 13)} 不剪了</button>
+        <span class="tl-hint" id="tlHint"></span>
       </div>
       <div class="tl-bar" id="tlBar"></div>
       <div class="tl-time"><span>0:00.0</span><span>${(proj.tlTab || 'shot') === 'shot' ? curDurText(cur, sh) : fmtDur(totalDur())}</span></div>
@@ -2620,11 +2772,11 @@ function renderMid() {
       </div>` : ''}
       ${(proj.tlTab || 'shot') === 'shot' && cur ? `
       <div class="trim-editor">
-        <span>这条结果 ${cur.duration || '?'} 秒，保留片段：</span>
-        从 <input type="number" id="trimS" step="0.1" min="0" max="${cur.duration || 15}" value="${cur.trimS ?? 0}">
-        到 <input type="number" id="trimE" step="0.1" min="0" max="${cur.duration || 15}" value="${cur.trimE ?? (cur.duration || 5)}">
+        <span id="trimSegLab"></span>
+        从 <input type="number" id="trimS" step="0.1" min="0" max="${cur.duration || 15}">
+        到 <input type="number" id="trimE" step="0.1" min="0" max="${cur.duration || 15}">
         秒 <button class="ghost" id="trimApply">应用</button>
-        <span>也可以直接拖动上面时间线两端的黄色把手</span>
+        <span>这是源视频里的秒数；也可以直接拖动格子里的红色把手</span>
       </div>` : ''}
     </div>` : ''}
     ${midOrder ? '<div class="shot-strip" id="shotStrip"></div>' : ''}`;
@@ -2660,6 +2812,9 @@ function renderMid() {
     midOrder = on;
     if (on) midEditTrim = false;
     renderMid();
+    /* 右栏画什么由 midEditTrim 一处决定（renderEditor 里那一个分支）：
+       点「顺序」顺带关掉剪辑模式时右栏要换回镜头编辑器 —— 不重画就是「剪了、右栏还是声音栏」。 */
+    renderEditor();
     setStatus(on ? '拖动下面的镜头缩略图可调整顺序，点一下切到该镜头' : '已退出顺序模式');
   };
   col.querySelector('#trimBtn').onclick = () => {
@@ -2667,27 +2822,50 @@ function renderMid() {
     midEditTrim = on;
     if (on) midOrder = false;
     renderMid();
+    /* 右栏同一次点完就要变成声音栏（用户点名的形状）：只调 renderMid 只换中栏，
+       右栏还停在镜头编辑器上，看起来像「剪辑模式没打开」。 */
+    renderEditor();
     setStatus(on ? '剪辑模式：调本镜入出点，或切到「全片」合并整片' : '已退出剪辑模式');
   };
   const libMid = col.querySelector('#libImportMid');
   if (libMid) libMid.onclick = () => openLibDlg(sh);   // 中栏：只导入视频作为本镜候选
+  /* 四把剪子 + 「不剪了」：只改焦点候选的那一段（全在 applyCut 一处），
+     本镜与全片两个页签的按钮都走它 —— 「在一处剪了另一处跟着变」不是同步逻辑，是没有第二份数据。 */
+  col.querySelectorAll('#tlTools [data-cut]').forEach(b => {
+    b.onclick = () => {
+      if (b.dataset.cut === 'drop') {
+        /* 删段删的是用户看得见的一段画面：走就地二次确认（全站那一份 Confirm.arm） */
+        if (Confirm.arm(b, '确认删掉？', { note: '插针那一段会从这一镜里去掉，这一段上的配音挪到后面那段开头' })) return;
+      }
+      applyCut(b.dataset.cut);
+    };
+  });
   const ta = col.querySelector('#trimApply');
+  /* 两个输入框调的是「剪辑界面指着的那一段」，不是整条候选的并集：
+     切开之后一格就是一段，写并集等于界面画四格、数据改一整条。 */
+  paintTrimRow(col, sh, cur);
   const applyTrimFromInputs = () => {
     if (!cur) return;
-    const total = cur.duration || 0;
+    const total = candDur(cur, sh);
+    const segs = segsOf(cur, total);
+    if (!segs.length) { setStatus('<span class="err">这一段已经没有了：先点「不剪了」恢复整条，再调入出点</span>'); return; }
+    const i = Math.min(segs.length - 1, cutSegIdx());
     let s2 = parseFloat(col.querySelector('#trimS').value);
     let e2 = parseFloat(col.querySelector('#trimE').value);
-    if (!isFinite(s2)) s2 = 0;
-    if (!isFinite(e2)) e2 = total || 5;
-    const clamped = !!(total && (s2 > total || e2 > total));
-    // 不允许超过视频实际秒数
-    s2 = Math.max(0, total ? Math.min(s2, total) : s2);
-    e2 = Math.max(0, total ? Math.min(e2, total) : e2);
-    if (e2 <= s2) e2 = total ? Math.min(total, s2 + 0.2) : s2 + 0.2;
-    if (s2 >= e2) s2 = Math.max(0, e2 - 0.2);
-    cur.trimS = Math.round(s2 * 10) / 10;
-    cur.trimE = Math.round(e2 * 10) / 10;
-    setStatus(trimStatus(sh, cur, clamped ? `已按视频实际时长 ${fmtDur(total)} 截断` : ''));
+    if (!isFinite(s2)) s2 = segs[i].in;
+    if (!isFinite(e2)) e2 = segs[i].out;
+    const clamped = !!(s2 > total || e2 > total || s2 < 0 || e2 < 0);
+    s2 = Math.max(0, Math.min(s2, total));
+    e2 = Math.max(0, Math.min(e2, total));
+    if (e2 - s2 < SEG_MIN) {
+      e2 = Math.min(total, s2 + SEG_MIN);
+      if (e2 - s2 < SEG_MIN) s2 = Math.max(0, e2 - SEG_MIN);
+    }
+    segs[i] = { in: round1(s2), out: round1(e2) };
+    const moved = reanchorVoices(sh, cur, segsOf(cur, total), segs);
+    segsWrite(cur, total, segs);
+    setStatus(trimStatus(sh, cur, (clamped ? `已按视频实际时长 ${fmtDur(total)} 截断` : '')
+      + (moved ? '；有 ' + moved + ' 句配音被切到段外，已挪到下一段开头' : '')));
     renderAll(); scheduleSave();
   };
   if (ta) ta.onclick = applyTrimFromInputs;
@@ -2765,15 +2943,18 @@ function renderMid() {
       else pl.addEventListener('loadedmetadata', resume, { once: true });
     }
   }
-  // 播放裁剪约束 + 剪辑时间线上的插针跟随播放进度移动（全片模式下不适用：那是合成后的整段视频）
+  // 播放裁剪约束 + 插针跟随播放进度（全片模式下不适用：那是合成后的整段视频）
   if (pl && cur && !filmMode) {
     const lo = cur.trimS || 0, hi = cur.trimE;
+    /* 播放进度就是插针位置：所以「剪哪一段」= 「正在放哪一段」，
+       跟着播放自动挪 proj.cutSeg，四把剪子与入出点那一行、工具条那行小字一起跟上（都走 setPin）。
+       正在输入框里打秒数时只挪针、不改写那两个框，否则打着字数字就跳。 */
     const syncPlayhead = () => {
-      const line = col.querySelector('#tlBar .ph-line');
-      if (!line) return;
-      const total = (isFinite(pl.duration) && pl.duration > 0) ? pl.duration : (cur.duration || 5);
-      const r = Math.max(0, Math.min(1, pl.currentTime / total));
-      line.style.left = (r * 100) + '%';
+      if (!midEditTrim || (proj.tlTab || 'shot') !== 'shot') return;
+      const total = candDur(cur, sh);
+      const ae = document.activeElement;
+      if (ae && (ae.id === 'trimS' || ae.id === 'trimE')) paintPin(col, pl.currentTime, total);
+      else setPin(col, sh, cur, total, pl.currentTime);
     };
     pl.addEventListener('timeupdate', () => {
       if (hi != null && pl.currentTime > hi) { pl.currentTime = hi; pl.pause(); if (pb) pb.innerHTML = icon('play', 15); }
@@ -2801,7 +2982,7 @@ function renderShotStrip(col) {
       : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
       : `<div class="ph"></div>`;
     it.innerHTML = `${thumb}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
-      <span class="st">${shotReady(sh) ? shotDurText(sh) : (sh.candidates.length ? '生成中' : '未生成')}</span>`;
+      <span class="st">${shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text}</span>`;
     it.title = sh.name + '（点击切换，拖动排序）';
     Wb.thumbs.bind(it, it.querySelector('video, img'), stripRaw, 'mready');
     it.onclick = () => {
@@ -2830,127 +3011,575 @@ function renderShotStrip(col) {
     wrap.appendChild(it);
   });
 }
-/* 剪辑：拖动时间线两端的红色把手选择保留片段（左右拖动 = 入点 / 出点） */
-function bindTrimDrag(seg, c, total, sh) {
-  const l = seg.querySelector('.cut.l'), r = seg.querySelector('.cut.r');
-  const ml = seg.querySelector('.mask.l'), mr = seg.querySelector('.mask.r');
-  const label = seg.querySelector('span');
-  /* 拖动结束时给一句话：以前这里一个字都不说，用户不知道这次裁剪到底落没落地、
-     更不知道它有没有进成片（L57）。输入框那条路一直有提示，拖动这条路没有 —— 同一个动作两种反馈。 */
-  const commit = () => { if (sh) setStatus(trimStatus(sh, c)); renderMid(); scheduleSave(); };
-  // 拖动过程中只改 DOM，不整体重渲染（重渲染会销毁正在拖的元素，导致拖不动）
-  const paint = () => {
-    const s0 = c.trimS ?? 0, e0 = c.trimE ?? total;
-    if (l) l.style.left = (s0 / total) * 100 + '%';
-    if (r) r.style.right = ((total - e0) / total) * 100 + '%';
-    if (ml) ml.style.width = (s0 / total) * 100 + '%';          // 头部被裁掉的部分
-    if (mr) mr.style.width = ((total - e0) / total) * 100 + '%'; // 尾部被裁掉的部分
-    if (label) label.textContent = fmtDur(Math.max(0, e0 - s0));
+/* 时间线两端的红色把手：拖的是**这一段自己**的入点 / 出点（不再是整条候选的并集）。
+   拖动过程中只改样式，松手才写数据 —— 整块重画会把正在拖的那个节点销毁（原来就是这样，保持）。 */
+function bindSegDrag(row, sh, c, total) {
+  const segsPaint = () => {
+    const list = segsOf(c, total);
+    row.querySelectorAll('.tl-seg').forEach(el => {
+      const i = Number(el.dataset.seg);
+      const s = list[i];
+      if (!s) return;
+      el.style.left = pct(s.in, total) + '%';
+      el.style.width = pct(segLen(s), total) + '%';
+      const lab = el.querySelector('.lab');
+      if (lab) lab.textContent = '第 ' + (i + 1) + ' 段 · ' + round1(segLen(s)) + 's';
+    });
+    const pin = row.querySelector('.tl-pin');
+    if (pin) pin.style.left = pct(cutPin(c, total), total) + '%';
   };
-  const set = (which, ratio) => {
-    const t = Math.max(0, Math.min(total, ratio * total));
-    if (which === 'l') c.trimS = Math.round(Math.min(t, (c.trimE ?? total) - 0.2) * 10) / 10;
-    else c.trimE = Math.round(Math.max(t, (c.trimS ?? 0) + 0.2) * 10) / 10;
-    paint();
-    // 拖动时播放器跟着预览这一帧（静帧校对，不打乱起止点）
-    const pl = document.getElementById('player');
-    if (pl) {
-      const at = which === 'l' ? c.trimS : c.trimE;
-      try { pl.currentTime = Math.max(0, Math.min(at, (pl.duration || total) - 0.05)); } catch {}
-      pl.pause();
-      const pb = document.getElementById('pbBtn'); if (pb) pb.innerHTML = icon('play', 15);
-    }
-    // 同步右下角输入框
-    const is = document.getElementById('trimS'), ie = document.getElementById('trimE');
-    if (is) is.value = c.trimS ?? 0;
-    if (ie) ie.value = c.trimE ?? total;
+  const commit = (before) => {
+    /* `before` 必须是**拖动之前**那一份段列表：reanchorVoices 要把「旧的相对秒」还原成源里的绝对秒，
+       传拖动之后的那一份（那就是 segsOf 现在的返回值）等于新旧同一份 —— 配音看着挪了、账其实没动。 */
+    const now = segsOf(c, total);
+    const moved = reanchorVoices(sh, c, before, now);   // 端点还在自己段内，绝对时刻不变 → 只是重新落位
+    setStatus(trimStatus(sh, c, moved ? '有 ' + moved + ' 句配音被切到段外，已挪到下一段开头' : ''));
+    renderMid(); scheduleSave();
   };
-  [['l', l], ['r', r]].forEach(([which, el]) => {
-    if (!el) return;
+  row.querySelectorAll('.cut').forEach(el => {
+    const i = Number(el.dataset.seg);
+    const edge = el.dataset.edge;
     el.classList.add('drag');
-    el.title = which === 'l' ? '拖动设置开头' : '拖动设置结尾';
+    el.title = edge === 'l' ? '拖动设置这一段的开头' : '拖动设置这一段的结尾';
     el.addEventListener('pointerdown', e => {
       e.stopPropagation(); e.preventDefault();
-      // 用 window 监听（比 setPointerCapture 更稳，指针移出元素也不会断）
-      const rect = seg.getBoundingClientRect();
-      const move = ev => set(which, (ev.clientX - rect.left) / rect.width);
+      const rect = row.getBoundingClientRect();
+      const before = segsOf(c, total).map(s => ({ in: s.in, out: s.out }));   // 拖动之前的那一份
+      const move = ev => {
+        const t = round1(Math.max(0, Math.min(total, ((ev.clientX - rect.left) / Math.max(1, rect.width)) * total)));
+        const list = segsOf(c, total).map(s => ({ in: s.in, out: s.out }));
+        const s = list[i]; if (!s) return;
+        if (edge === 'l') {
+          s.in = Math.max(0, Math.min(t, s.out - SEG_MIN));
+        } else {
+          s.out = Math.min(total, Math.max(t, s.in + SEG_MIN));
+        }
+        c.segs = list;                       // 拖动期间只动 segs（trimS/trimE 在松手时统一回写）
+        const pl = document.getElementById('player');
+        if (pl) { try { pl.currentTime = Math.max(0, Math.min(edge === 'l' ? s.in : s.out, total - 0.05)); } catch {} pl.pause(); }
+        segsPaint();
+      };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
-        commit();
+        segsWrite(c, total, segsOf(c, total));
+        commit(before);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     });
   });
 }
+/* 秒 → 这条轨道宽度上的百分比（钳在 0–100，越界的值不该把针画出格子外面） */
+const pct = (v, total) => Math.max(0, Math.min(100, ((Number(v) || 0) / Math.max(0.1, Number(total) || 0.1)) * 100));
+/* 轨道取帧用的地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（§1 硬性） */
+const candTrackSrc = c => (c && (c.src || c.url)) ? Api.mediaSrc(c.src || c.url) : '';
+/* 一格铺几帧：按这一段的秒数现算（约 1.2 秒一帧），钳在 1–8。
+   写死帧数会出现「0.4 秒的小段挤八帧、20 秒的长段只有三帧」这种既慢又看不清的样子。 */
+const sliceN = d => Math.max(1, Math.min(8, Math.round((Number(d) || 0) / 1.2)));
+
+/* 插针跟着落点走（针挂在行上，不在段格子里：段被切开/拖短时针不该跟着段一起挪） */
+function paintPin(col, t, total) {
+  const pin = col.querySelector('#tlBar .tl-pin');
+  if (pin) pin.style.left = pct(t, total) + '%';
+}
+/* 「剪辑界面正指着哪一段」换了之后的五处联动：格子高亮、入出点那一行、工具条那句提示、右栏落点说明。
+   这五处在同一份数据上（proj.cutSeg / proj.cutAt），所以只需要一个出口，不存在「改了 A 忘了 B」。 */
+function paintSegFocus(col, sh, c, total) {
+  const segs = segsOf(c, total);
+  const i = segs.length ? Math.min(segs.length - 1, cutSegIdx()) : -1;
+  col.querySelectorAll('#tlBar .tl-vrow .tl-seg').forEach(el => el.classList.toggle('sel', Number(el.dataset.seg) === i));
+  paintTrimRow(col, sh, c);
+  paintTlHint(col, sh, c);
+  paintVoicePos();
+}
+/* 把插针放到指定秒：先记数据（proj.cutAt / proj.cutSeg），再把上面那四处一次跟上。
+   点轨道、拖动播放进度、从「全片」跳回来都走这里 —— 剪子读的就是这一份落点。 */
+function setPin(col, sh, c, total, t) {
+  proj.cutAt = round1(Math.max(0, Math.min(total, Number(t) || 0)));
+  const segs = segsOf(c, total);
+  let i = segs.findIndex(s => proj.cutAt >= s.in && proj.cutAt < s.out);
+  if (i < 0 && segs.length) i = segs.length - 1;
+  proj.cutSeg = Math.max(0, i);
+  paintPin(col, proj.cutAt, total);
+  paintSegFocus(col, sh, c, total);
+}
+/* 工具条右边那行小字：插针在哪、这一条留了几秒、配音几句、剪完进不进成片 ——
+   全片那一排格子与左栏时长读的都是同一份 c.segs，所以这里不需要再说第二遍。 */
+function paintTlHint(col, sh, c) {
+  const el = col && col.querySelector('#tlHint');
+  if (!el) return;
+  if (!sh) { el.textContent = '先挑一个镜头'; return; }
+  if (!c) { el.textContent = '这一镜还没有候选，剪不了'; return; }
+  const total = candDur(c, sh);
+  const segs = segsOf(c, total);
+  const i = segs.length ? Math.min(segs.length - 1, cutSegIdx()) : 0;
+  const s = segs[i];
+  const vs = shotVoices(sh.id, c.vid);
+  el.textContent = '插针 ' + round1(cutPin(c, total)) + ' 秒'
+    + (s ? ' · 指着第 ' + (i + 1) + '/' + segs.length + ' 段（源里 ' + round1(s.in) + '–' + round1(s.out) + ' 秒，这一段 ' + round1(segLen(s)) + ' 秒）'
+      : ' · 这一条一段画面都没留')
+    + ' · 这条留 ' + round1(segsLen(c, total)) + ' / ' + round1(total) + ' 秒'
+    + (vs.length ? ' · 配音 ' + vs.length + ' 句' : '')
+    + (candSelected(sh, c) ? ' —— 已选用，剪完左栏与全片跟着变' : ' —— 还没被选用，成片仍按选用的那条算');
+}
+/* 入出点那一行：画的是「剪辑界面指着的那一段」，不是整条候选的并集。
+   提到模块层（以前是 renderMid 闭包里的一份），因为插针移动、段拖动、切换焦点都要重画它 ——
+   闭包里的那一份外面调不到，就会出现「切了一刀，格子变了、入出点还写着旧秒数」。 */
+function paintTrimRow(col, sh, cur) {
+  const lab = col.querySelector('#trimSegLab');
+  if (!lab) return;
+  if (!cur) { lab.textContent = '这一镜还没有候选'; return; }
+  const total = candDur(cur, sh);
+  const segs = segsOf(cur, total);
+  const i = Math.min(segs.length - 1, cutSegIdx());
+  const s = segs[i];
+  lab.innerHTML = s
+    ? `这一条候选剪成 <b>${segs.length}</b> 段，正在调第 <b>${i + 1}</b> 段（这条结果 ${round1(total)} 秒）：保留片段`
+    : `这一条候选现在一段画面都没留（整条 ${round1(total)} 秒）：点「不剪了」恢复`;
+  const is = col.querySelector('#trimS'), ie = col.querySelector('#trimE');
+  if (is) is.value = s ? s.in : 0;
+  if (ie) ie.value = s ? s.out : 0;
+}
+
+/* 声音轨上的一句：块左沿 = 它锚定那一段的入点 + 段内偏移（与画面行同一根时间基）。
+   段被切掉时这句不会跟着消失 —— reanchorVoices 把它挪到后面那段的开头，所以这里永远画得出来。 */
+let voiceEl = null;
+function playVoicePreview(id) {
+  const v = voicesEnsure().find(x => x.id === id);
+  if (!v) return;
+  if (!v.src) { setStatus('<span class="err">这一句没有可用的音频地址（当时没落成本机文件），回语音台重新合成一句</span>'); return; }
+  if (!voiceEl) voiceEl = new Audio();
+  try { voiceEl.pause(); } catch (e) {}
+  voiceEl.src = Api.mediaSrc(v.src);
+  voiceEl.play().catch(() => setStatus('<span class="err">这句音频放不出来：' + (v.name || v.id) + '</span>'));
+}
+function voiceLaneHTML(sh, c, total) {
+  const segs = c ? segsOf(c, total) : [];
+  const vs = c ? shotVoices(sh.id, c.vid) : [];
+  const blocks = vs.map(v => {
+    const si = Math.min(segs.length - 1, Math.max(0, Number(v.seg) || 0));
+    const s = segs[si];
+    if (!s) return '';
+    const at = round1(s.in + Math.max(0, Number(v.at) || 0));
+    const dur = Math.max(0.3, Number(v.dur) || 0);
+    const label = String(v.name || v.text || '配音').slice(0, 10);
+    return `<span class="tl-v${proj.curVoice === v.id ? ' sel' : ''}" data-vid="${esc(v.id)}"
+      style="left:${pct(at, total)}%;width:${pct(dur, total)}%"
+      title="${esc(v.name || label)} · 第 ${si + 1} 段 + ${round1(v.at)} 秒起，长 ${round1(dur)} 秒（点一下试听）">
+      ${icon('speaker', 10)}<span class="vt">${esc(label)}</span><button class="x" data-vdel="${esc(v.id)}" title="删掉这一句配音">${icon('close', 9)}</button></span>`;
+  }).join('');
+  return `<div class="tl-lane">${blocks || '<span class="lane-hint">声音轨：在右栏合成一句配音，它会落在插针指着的那一段</span>'}</div>`;
+}
+function bindVoiceLane(row) {
+  row.querySelectorAll('.tl-v').forEach(el => {
+    el.onclick = e => {
+      if (e.target.closest('.x')) return;
+      proj.curVoice = el.dataset.vid;
+      row.querySelectorAll('.tl-v').forEach(x => x.classList.toggle('sel', x === el));
+      playVoicePreview(el.dataset.vid);
+    };
+  });
+  row.querySelectorAll('[data-vdel]').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      if (Confirm.arm(b, '确认删掉？', { note: '只删这一句配音，画面不动' })) return;
+      proj.voices = voicesEnsure().filter(v => v.id !== b.dataset.vdel);
+      if (proj.curVoice === b.dataset.vdel) proj.curVoice = '';
+      setStatus('<span class="ok">✓ 已删掉那一句配音（画面没动；这一镜的成片时长不变）</span>');
+      renderAll(); scheduleSave();
+    };
+  });
+}
+
+/* 时间线：剪辑模式打开时才画。两个页签是**同一份 c.segs 的两种读数** ——
+   「本镜」按源视频秒摆这一段剪出来的几格，「全片」按成片秒比例摆所有已选用镜头的格。 */
 function renderTimeline(col, sh, cur) {
   const bar = col.querySelector('#tlBar');
   if (!bar) return;
   bar.innerHTML = '';
   const tab = proj.tlTab || 'shot';
-  if (tab === 'shot') {
-    const c = cur || sh.candidates.find(c => c.vid === sh.selId) || sh.candidates.find(c => c.status === 'succeeded');
-    const pl0 = document.getElementById('player');
-    const realDur = (pl0 && isFinite(pl0.duration) && pl0.duration > 0) ? pl0.duration : 0;
-    const dur = curDurText(c, sh);
-    // 总时长：候选自带 > 播放器实际时长 > 设置时长（兼容没有 duration 字段的数据源）
-    const total = c?.duration || realDur || sh.duration || 5;
-    const s0 = c?.trimS ?? 0, e0 = c?.trimE ?? total;
-    const seg = document.createElement('div');
-    seg.className = 'tl-seg sel'; seg.style.flex = '1';
-    seg.innerHTML = `<span>${dur}</span>` +
-      `<span class="mask l" style="width:${(s0 / total) * 100}%"></span>` +
-      `<span class="mask r" style="width:${((total - e0) / total) * 100}%"></span>` +
-      `<span class="cut l" style="left:${(s0 / total) * 100}%"></span>` +
-      `<span class="cut r" style="right:${((total - e0) / total) * 100}%"></span>` +
-      `<span class="ph-line" style="left:${(s0 / total) * 100}%"></span>`;
-    // 点击时间线定位（插针）：不依赖 duration 是否已知
-    const seekTo = ratio => {
-      const t = Math.round(ratio * total * 10) / 10;
-      seekPlayerTo(t, { pause: true });
-      const line = seg.querySelector('.ph-line');
-      if (line) line.style.left = (ratio * 100) + '%';
-      setStatus('已定位到 ' + fmtDur(t));
-    };
-    seg.addEventListener('click', e => {
-      if (e.target.classList.contains('cut')) return;
-      const r = seg.getBoundingClientRect();
-      seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-    });
-    if (c) bindTrimDrag(seg, c, total, sh);   // 有候选才谈得上剪辑
-    bar.appendChild(seg);
-  } else {
-    const list = allShots().filter(shotReady);
-    const durs = list.map(x => Math.max(0.1, shotDur(x)));
-    let acc = 0;
-    list.forEach((shot, i) => {
-      const d = durs[i];
-      const start = acc; acc += d;
-      const seg = document.createElement('div');
-      seg.className = 'tl-seg' + (shot === curShot() ? ' sel' : '');
-      seg.style.flex = String(d);
-      seg.innerHTML = `<span>${esc(shot.name)} · ${fmtDur(d)}</span>`;
-      seg.title = `第 ${i + 1} 段：${shot.name} · ${fmtDur(d)}（点击跳到 ${round1(start)} 秒）`;
-      seg.onclick = e => {
-        const r = seg.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-        const t = start + ratio * d;
-        const seeked = seekPlayerTo(t);
-        const sc = proj.scenes.find(s2 => s2.shots.includes(shot));
-        proj.curScene = proj.scenes.indexOf(sc); proj.curShot = sc.shots.indexOf(shot);
-        bar.querySelectorAll('.tl-seg').forEach(x => x.classList.remove('sel'));
-        seg.classList.add('sel');
-        renderScenes(); renderEditor(); scheduleSave();
-        setStatus(seeked
-          ? `已跳到成片第 ${round1(t)} 秒（${esc(shot.name)}）`
-          : `已选中「${esc(shot.name)}」（切换到「本镜」可播放单镜）`);
-      };
-      bar.appendChild(seg);
-    });
-    if (!bar.children.length) bar.innerHTML = '<div class="empty" style="margin:auto;font-size:12px;color:var(--sub)">还没有已选用的镜头</div>';
-  }
+  if (tab === 'shot') renderShotTrack(bar, col, sh, cur);
+  else renderFilmTrack(bar, col, sh);
+  paintTlHint(col, sh, cur);
 }
+function renderShotTrack(bar, col, sh, cur) {
+  const c = cur || (sh.candidates || []).find(x => x.vid === sh.selId) || (sh.candidates || []).find(x => x.status === 'succeeded');
+  if (!c) {
+    bar.innerHTML = '<div class="tl-empty">这一镜还没有候选：先生成一条，或点「导入视频 / 素材」挑一条，才谈得上剪。</div>';
+    return;
+  }
+  const total = candDur(c, sh);
+  const segs = segsOf(c, total);
+  const src = candTrackSrc(c);
+  const iSel = segs.length ? Math.min(segs.length - 1, cutSegIdx()) : -1;
+  const row = document.createElement('div');
+  row.className = 'tl-vrow';
+  row.innerHTML = segs.map((s, i) => `
+    <div class="tl-seg${i === iSel ? ' sel' : ''}" data-seg="${i}"
+         style="left:${pct(s.in, total)}%;width:${pct(segLen(s), total)}%"
+         title="第 ${i + 1} 段：源视频 ${round1(s.in)}–${round1(s.out)} 秒（${round1(segLen(s))} 秒）—— 点空白处放插针，拖红色把手改这一段的头尾">
+      <span class="frs" data-frs="${esc(src)}" data-in="${s.in}" data-out="${s.out}" data-n="${sliceN(segLen(s))}"></span>
+      <span class="lab">第 ${i + 1} 段 · ${round1(segLen(s))}s</span>
+      <span class="cut l" data-seg="${i}" data-edge="l"></span>
+      <span class="cut r" data-seg="${i}" data-edge="r"></span>
+    </div>`).join('')
+    + (segs.length ? '' : '<div class="tl-empty">这一条候选一段画面都没留：点上面「不剪了」恢复整条。</div>')
+    + `<span class="tl-pin" style="left:${pct(cutPin(c, total), total)}%"></span>`;
+  bar.appendChild(row);
+  bar.insertAdjacentHTML('beforeend', voiceLaneHTML(sh, c, total));
+  bindSegDrag(row, sh, c, total);
+  bindVoiceLane(bar.querySelector('.tl-lane'));
+  /* 点轨道空白/格子里不带把手的地方 = 放插针（也就是定了四把剪子下一刀剪在哪）。
+     不依赖 duration 是否已知：钳在 0–total 之间，播放器能跳就跳。 */
+  row.addEventListener('click', e => {
+    if (e.target.closest('.cut') || e.target.closest('.tl-empty')) return;
+    const r = row.getBoundingClientRect();
+    const t = ((e.clientX - r.left) / Math.max(1, r.width)) * total;
+    seekPlayerTo(t, { pause: true });
+    setPin(col, sh, c, total, t);
+  });
+  fillSlices(row);
+}
+/* 全片那一排下面的声音行：块的左沿按**成片秒**算（它所在那一格在成片里的起点 + 段内偏移）。
+   于是在本镜切一刀之后，这一排的格子数与配音块位置一起跟着变 —— 两处仍是同一份数据的两种读数，
+   不是「同步」出来的（配音锚在段上，段在候选上，全片只是把它摊开画一遍）。 */
+function filmVoiceHTML(tl, filmTotal) {
+  const blocks = [];
+  let acc = 0;
+  tl.clips.forEach(cl => {
+    const d = tlClipDur(cl);
+    const start = acc;
+    acc += d;
+    if (cl.kind !== 'shot') return;
+    shotVoices(cl.shotId, cl.candId).forEach(v => {
+      if ((Number(v.seg) || 0) !== (Number(cl.seg) || 0)) return;
+      const at = round1(start + Math.max(0, Number(v.at) || 0));
+      const dur = Math.max(0.3, Number(v.dur) || 0);
+      const label = String(v.name || v.text || '配音').slice(0, 10);
+      blocks.push(`<span class="tl-v${proj.curVoice === v.id ? ' sel' : ''}" data-vid="${esc(v.id)}"
+        style="left:${pct(at, filmTotal)}%;width:${pct(dur, filmTotal)}%"
+        title="${esc(v.name || label)} · 成片 ${round1(at)} 秒起，长 ${round1(dur)} 秒（点一下试听）">
+        ${icon('speaker', 10)}<span class="vt">${esc(label)}</span><button class="x" data-vdel="${esc(v.id)}" title="删掉这一句配音">${icon('close', 9)}</button></span>`);
+    });
+  });
+  return `<div class="tl-lane">${blocks.join('') || '<span class="lane-hint">声音轨：切到「本镜」在右栏合成一句配音，它会出现在这里对应的那一格下面</span>'}</div>`;
+}
+/* 全片那一排：一格 = 一段画面（一条候选剪出几段就是几格）。
+   点一格把「焦点」落到那一镜那一段 —— 于是四把剪子剪的就是它，剪完这一排格子数当场跟着变。 */
+function renderFilmTrack(bar, col, sh) {
+  const tl = tlSyncFromShots();
+  const row = document.createElement('div');
+  row.className = 'tl-film';
+  if (!tl.clips.length) {
+    row.innerHTML = '<div class="tl-empty">还没有已选用的镜头：先在候选上点「用这条」，这里才会出现格子。</div>';
+    bar.appendChild(row);
+    return;
+  }
+  const curShotNow = curShot();
+  let acc = 0;
+  row.innerHTML = tl.clips.map((cl, k) => {
+    const d = tlClipDur(cl);
+    const start = acc; acc += d;
+    const isShot = cl.kind === 'shot';
+    const target = isShot ? allShots().find(x => x.id === cl.shotId) : null;
+    const cand = target ? tlCandidateOf(target, cl.candId) : null;
+    const focus = !!target && target === curShotNow && Number(cl.seg || 0) === cutSegIdx();
+    const nSeg = segsOf(cand, candDur(cand, target)).length;
+    const name = cl.kind === 'black' ? '黑场' : (target ? (target.name || '镜头') : (cl.name || '素材'));
+    const tip = cl.kind === 'black'
+      ? `黑场 ${round1(d)} 秒（点一下把插针放到这里）`
+      : `第 ${k + 1} 格：${name} 的第 ${(Number(cl.seg || 0) + 1)}${nSeg > 1 ? '/' + nSeg : ''} 段 · 成片 ${round1(start)}–${round1(start + d)} 秒`
+        + '（点一下把焦点切到这里，四把剪子剪的就是这一条）';
+    /* 格子背景：焦点那一镜用剪出来的切片图（现取帧），其余用镜头首帧（本机已有，不为一排缩略图解码整片）。
+       这样「切了三段」在全片那一排就是三格、各带自己的画面，而不是所有格共用一张图。 */
+    const pic = cl.kind === 'black' ? ''
+      : (target === curShotNow && cand && cand.url) ? ''
+      : (target && target.firstFrame) ? Api.mediaSrc(target.firstFrame) : '';
+    const slices = (target === curShotNow && cand && cand.url)
+      ? `<span class="frs" data-frs="${esc(candTrackSrc(cand))}" data-in="${cl.in}" data-out="${cl.out}" data-n="${sliceN(d)}"></span>`
+      : pic ? `<span class="frs"><i class="fr" style="background-image:url(&quot;${esc(pic)}&quot;)"></i></span>` : '';
+    return `<div class="tl-seg${focus ? ' sel' : ''}" data-k="${k}" style="flex:${Math.max(0.06, d).toFixed(3)}" title="${esc(tip)}">
+      ${slices}<span class="lab">${esc(name)}${nSeg > 1 ? ' ' + (Number(cl.seg || 0) + 1) : ''} · ${round1(d)}s</span></div>`;
+  }).join('');
+  bar.appendChild(row);
+  const voices = tl.clips.reduce((a, cl) => a + clipVoices(cl, tlClipDur(cl)).list.length, 0);
+  if (voices) {
+    bar.insertAdjacentHTML('beforeend', filmVoiceHTML(tl, acc));
+    bindVoiceLane(bar.querySelector('.tl-lane'));
+  }
+  fillSlices(row);
+  let acc2 = 0;
+  Array.prototype.forEach.call(row.querySelectorAll('.tl-seg'), (cell, k) => {
+    const cl = tl.clips[k];
+    const d = tlClipDur(cl);
+    const start = acc2; acc2 += d;
+    cell.onclick = e => {
+      const r = cell.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+      const t = start + ratio * d;
+      const seeked = seekPlayerTo(t);
+      let msg = `已跳到成片第 ${round1(t)} 秒`;
+      if (cl.kind === 'shot') {
+        const target = allShots().find(x => x.id === cl.shotId);
+        if (target) {
+          const sc2 = proj.scenes.find(s2 => s2.shots.includes(target));
+          if (sc2) { proj.curScene = proj.scenes.indexOf(sc2); proj.curShot = sc2.shots.indexOf(target); }
+          const cands = target.candidates || [];
+          const ci = cands.findIndex(x => x.vid === cl.candId);
+          if (ci >= 0) proj.curCand = ci;
+          const cand = ci >= 0 ? cands[ci] : tlCandidateOf(target, cl.candId);
+          if (cand) {
+            const total = candDur(cand, target);
+            const segs = segsOf(cand, total);
+            const s = segs[Math.min(segs.length - 1, Number(cl.seg || 0))];
+            proj.cutSeg = Math.min(segs.length - 1, Number(cl.seg || 0));
+            if (s) proj.cutAt = round1(Math.max(0, Math.min(total, s.in + ratio * segLen(s))));
+            msg += `，焦点切到「${target.name || '镜头'}」第 ${(proj.cutSeg + 1)}/${segs.length} 段`;
+          }
+        }
+      }
+      row.querySelectorAll('.tl-seg').forEach(x => x.classList.remove('sel'));
+      cell.classList.add('sel');
+      setStatus(msg + (seeked ? '' : '（播放器还没就位，位置已记下）'));
+      renderScenes(); renderEditor(); paintTlHint(col, curShot(), (curShot().candidates || [])[proj.curCand]);
+      scheduleSave();
+    };
+  });
+}
+
+/* ============================================================================
+   剪辑模式的右栏 = 声音栏（形状照着生成工作台的语音那一栏）
+   ----------------------------------------------------------------------------
+   用户点名的是「打开剪辑功能后右栏变成工作台的声音栏那样，并添加剪辑相应功能」：
+   平台与型号、音色、格式全部**现读能力声明**（判据在 Chars.Pipe 那一份，不在这里抄第二遍），
+   合成走公共层 `AiGen.synthTts`（与语音台同一条链：同步合成 → 字节落本机 → 记归档），
+   「剪辑相应功能」= 这一句锚在**插针指着的那一段**上，位置由轨道决定，不额外要用户填秒数。
+   草稿只活在内存（voiceDraft）：整栏重画不该丢掉正在打的字，换出剪辑模式自然清。 */
+let voiceDraft = { text: '', voice: '', format: '', design: '' };
+/* 量一句音频的真实时长（块宽与 /render 的 dur 都靠它）。量不出来不按 0 记 ——
+   0 会让这一句在轨上塌成一条线，等于「加了但看不见」。 */
+function audioDurOf(src) {
+  return new Promise(res => {
+    let done = false;
+    const a = new Audio();
+    const fin = () => { if (done) return; done = true; try { a.pause(); a.removeAttribute('src'); } catch (e) {} res(0.5); };
+    a.preload = 'metadata';
+    a.src = Api.mediaSrc(src);
+    a.addEventListener('loadedmetadata', () => {
+      if (done) return;
+      done = true;
+      const d = isFinite(a.duration) && a.duration > 0 ? a.duration : 0.5;
+      try { a.pause(); a.removeAttribute('src'); } catch (e) {}
+      res(Math.max(0.1, round1(d)));
+    });
+    a.addEventListener('error', fin);
+    setTimeout(fin, 8000);
+  });
+}
+/* 这一句落在哪：段号 + 段内偏移（都从插针现算，界面上那句「落在哪」读的是同一个函数，不各写一遍） */
+function voiceTarget(sh, c) {
+  if (!c) return null;
+  const total = candDur(c, sh);
+  const segs = segsOf(c, total);
+  if (!segs.length) return null;
+  const si = Math.min(segs.length - 1, cutSegIdx());
+  const s = segs[si];
+  const at = round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), (Number(proj.cutAt) || 0) - s.in)));
+  return { si, s, at, segs, total };
+}
+function voiceWayOf(REG, key) {
+  const chosen = Chars.Pipe.pickProvModel(REG, 'audio', key, 'text_to_speech');
+  if (!chosen) return { chosen: null, target: null, mode: 'none', why: '还没有可用的语音平台：到设置页「语音」那一档填一家并勾上' };
+  const ways = Chars.Pipe.ttsWays(REG, { ttsModel: chosen.key });
+  const mode = ways.preset.length ? 'preset' : ways.design ? 'design' : ways.clone ? 'clone' : 'none';
+  /* 真发出去的那一个型号只由 `ttsOf` 一处决定：同一平台的「预设 / 按描述 / 复刻」常常挂在
+     **不同型号**上（MiMo 就是三个型号）。跟着下拉那一个走的话，界面说「按描述定音色」而发的还是预设型号。 */
+  const target = (mode === 'preset' || mode === 'design')
+    ? (Chars.Pipe.ttsOf(REG, { ttsModel: chosen.key }, mode) || chosen) : chosen;
+  return { chosen, ways, target, mode, why: ways.why || '这个语音平台没有能直接合成的型号' };
+}
+/* 右栏那句「这一句会落在哪」：**只此一份**（整栏渲染与插针挪动后的就地刷新都读它）。
+   各写一遍就会出现「右栏写着 +1.5 秒，真发出去落在插针现在的 0 秒」——
+   而按钮上写着的就是「合成并加到这一轨」，落点说明是它唯一的依据。 */
+function voicePosLine(sh, c) {
+  const t = voiceTarget(sh, c);
+  if (t) return '插针指着的位置：第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒（源里 ' + round1(t.s.in + t.at) + ' 秒）'
+    + '。要换地方就点轨道把插针挪过去 —— 合成完这一句就铺在那里。';
+  return '插针指着的位置：' + (c ? '这一条候选一段画面都没留：点上面「不剪了」恢复整条'
+    : '这一镜还没有候选：先生成或导入一条视频');
+}
+/* 插针一动就只换这一行，不重画整栏 —— 整栏重画会把正在敲的配音文本换掉、焦点也跟着跳。
+   挂在 paintSegFocus 那一串联动里（点轨道 / 拖播放进度都走 setPin）。 */
+function paintVoicePos() {
+  const el = document.getElementById('voicePos');
+  if (!el) return;
+  const sh = curShot();
+  if (!sh) return;
+  const cands = sh.candidates || [];
+  const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId);
+  el.textContent = voicePosLine(sh, c);
+}
+function renderVoiceCol(col, sh) {
+  const idx = allShots().indexOf(sh) + 1;
+  const cands = sh.candidates || [];
+  const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId);
+  const t = voiceTarget(sh, c);
+  const way = voiceWayOf(REG, proj.voiceModel || '');
+  const preset = way.mode === 'preset' ? Chars.Pipe.voices(REG, { ttsModel: way.chosen.key }, 'preset') : [];
+  if (way.mode === 'preset' && !preset.some(v => v.id === voiceDraft.voice)) voiceDraft.voice = preset.length ? preset[0].id : '';
+  const tts = (way.chosen && way.chosen.prov && way.chosen.prov.tts) || {};
+  const fmts = Array.isArray(tts.formats) ? tts.formats : [];
+  if (fmts.length && !fmts.includes(voiceDraft.format)) voiceDraft.format = String(tts.defFormat || fmts[0] || '');
+  const n = shotVoices(sh.id, c && c.vid).length;
+  col.innerHTML = `
+    <div class="ed-head"><b>加一句配音</b><span class="no">第 ${idx} 镜 · 声音轨</span></div>
+    <div class="ed-body">
+      <div class="ed-label"><span>落在哪</span><span class="cnt">${n ? '这一条已有 ' + n + ' 句' : '这一条还没有配音'}</span></div>
+      <div class="hint" id="voicePos">${esc(voicePosLine(sh, c))}</div>
+      <div class="ed-label" style="margin-top:14px"><span>语音平台与型号</span><span class="cnt">${way.chosen ? esc(String((way.chosen.prov.displayName || way.chosen.prov.id || ''))) : ''}</span></div>
+      ${Chars.Pipe.modelSelectHTML(REG, { kind: 'audio', mode: 'text_to_speech', id: 'voiceModel', value: way.chosen ? way.chosen.key : '',
+        emptyText: '注册表里没有配好密钥的语音平台 —— 到设置页「语音」那一档填一家' })}
+      ${way.mode === 'preset' ? `
+        <div class="ed-label" style="margin-top:14px"><span>音色</span><span class="cnt">${preset.length} 个可选（现读这一家的声明）</span></div>
+        <select id="voicePick">${preset.map(v => `<option value="${esc(v.id)}"${v.id === voiceDraft.voice ? ' selected' : ''}>${esc(v.name)}${v.lang ? ' · ' + esc(v.lang) : ''}</option>`).join('')}</select>` : ''}
+      ${way.mode === 'design' ? `
+        <div class="ed-label" style="margin-top:14px"><span>声音描述</span><span class="cnt">这一家按描述定音色</span></div>
+        <textarea id="voiceDesign" rows="2" placeholder="例：年轻女声，语速偏慢，带一点沙哑">${esc(voiceDraft.design)}</textarea>` : ''}
+      ${way.mode === 'clone' ? `<div class="hint" style="margin-top:10px">这一家的语音型号只认**参考音频复刻**，这里没法凭空定音色。用下面「放一条本机音频」把已在语音台复刻好的那一句铺到这一轨上。</div>` : ''}
+      ${way.mode === 'none' ? `<div class="hint err" style="margin-top:10px">${esc(way.why)}</div>` : ''}
+      ${fmts.length ? `
+        <div class="ed-label" style="margin-top:14px"><span>格式</span></div>
+        <select id="voiceFmt">${fmts.map(f => `<option value="${esc(f)}"${String(f) === String(voiceDraft.format) ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select>` : ''}
+      <div class="ed-label" style="margin-top:14px"><span>要念的话</span><span class="cnt" id="voiceCnt">${String(voiceDraft.text || '').length} 字</span></div>
+      <textarea id="voiceText" rows="3" placeholder="这一句配音要念出来的内容">${esc(voiceDraft.text)}</textarea>
+      <div class="btn-row">
+        <button class="tool acc" id="voiceAdd" ${way.mode === 'preset' || way.mode === 'design' ? '' : 'disabled'}>${icon('sparkles', 14)} 合成并加到这一轨</button>
+        <button class="tool" id="voiceFile">${icon('upload', 14)} 放一条本机音频</button>
+        <input type="file" id="voiceFileIn" hidden>
+      </div>
+      <div class="hint">合成会真的发一次请求（按这一家的计费走），所以要点第二下确认。这一句之后就是轨道上的一个块：点它试听，点它右边的 × 删掉。</div>
+      ${n ? `
+      <div class="ed-label" style="margin-top:14px"><span>这一条上的配音</span><span class="cnt">${n} 句</span></div>
+      <div class="vc-list">${shotVoices(sh.id, c && c.vid).map(v => {
+        const s = t ? t.segs[Math.min(t.segs.length - 1, Math.max(0, Number(v.seg) || 0))] : null;
+        return `<div class="vc-row" data-vid="${esc(v.id)}">
+          <b>${esc(String(v.name || v.text || '配音').slice(0, 14))}</b>
+          <span>${s ? '第 ' + (t.segs.indexOf(s) + 1) + ' 段 +' + round1(v.at) + 's' : '段不在了'} · ${round1(Number(v.dur) || 0)}s</span>
+          <button class="ghost mini" data-vplay="${esc(v.id)}" title="试听这一句">${icon('play', 11)}</button>
+          <button class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音">${icon('trash', 11)}</button>
+        </div>`;
+      }).join('')}</div>` : ''}
+    </div>`;
+  const sync = el => { if (window.Dropdowns) Dropdowns.sync(el); };
+  const vm = col.querySelector('#voiceModel');
+  if (vm) vm.onchange = () => {
+    proj.voiceModel = vm.value;
+    voiceDraft.voice = ''; voiceDraft.format = '';
+    renderEditor(); scheduleSave();
+  };
+  const vp = col.querySelector('#voicePick');
+  if (vp) { vp.onchange = () => { voiceDraft.voice = vp.value; }; sync(vp); }
+  const vf = col.querySelector('#voiceFmt');
+  if (vf) { vf.onchange = () => { voiceDraft.format = vf.value; }; sync(vf); }
+  const vt = col.querySelector('#voiceText');
+  if (vt) vt.oninput = () => {
+    voiceDraft.text = vt.value;
+    const cnt = col.querySelector('#voiceCnt');
+    if (cnt) cnt.textContent = vt.value.length + ' 字';
+  };
+  const vd = col.querySelector('#voiceDesign');
+  if (vd) vd.oninput = () => { voiceDraft.design = vd.value; };
+  const add = col.querySelector('#voiceAdd');
+  if (add) add.onclick = () => {
+    if (Confirm.arm(add, '确认合成？', { note: '这一句会发一次真请求并计费' })) return;
+    addVoiceAtPin();
+  };
+  const fin = col.querySelector('#voiceFile');
+  const fi = col.querySelector('#voiceFileIn');
+  if (fin && fi) {
+    /* 通配值在代码里拼，不写进上面那段模板串：`audio/*` 里的 `/*` 会被读成模板串里的一段注释，
+       而那段「注释」里的反引号就是模板串真正的收尾 —— 词法器与人都分不清哪一种是要命的，§B 就一律拦。 */
+    fi.accept = 'audio/' + '*';
+    fin.onclick = () => fi.click();
+    fi.onchange = async () => {
+      const f = fi.files && fi.files[0];
+      fi.value = '';
+      if (!f) return;
+      await addVoiceEntry(await localAudioAsset(f), sh, c, { name: f.name, text: '', provider: '本机', model: '', voice: '' });
+    };
+  }
+  col.querySelectorAll('[data-vplay]').forEach(b => b.onclick = () => playVoicePreview(b.dataset.vplay));
+  col.querySelectorAll('.vc-row [data-vdel]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    if (Confirm.arm(b, '确认删掉？', { note: '只删这一句配音，画面不动' })) return;
+    proj.voices = voicesEnsure().filter(v => v.id !== b.dataset.vdel);
+    if (proj.curVoice === b.dataset.vdel) proj.curVoice = '';
+    setStatus('<span class="ok">✓ 已删掉那一句配音（画面没动，成片时长不变）</span>');
+    renderAll(); scheduleSave();
+  });
+  if (window.Dropdowns) Dropdowns.build(col);
+}
+/* 本机音频 → 一条长期可用的本机资产（与语音台产物同一个落点，/render 才取得到）。 */
+async function localAudioAsset(file) {
+  const b64 = await new Promise((res, rej) => {
+    const rd = new FileReader();
+    rd.onload = () => res(String(rd.result).split(',')[1] || '');
+    rd.onerror = () => rej(new Error('读这个文件失败'));
+    rd.readAsDataURL(file);
+  });
+  const fmt = String((String(file.name).split('.').pop() || 'mp3')).toLowerCase();
+  const saved = await Api.saveLocalAsset({ name: file.name, mime: file.type || ('audio/' + fmt), format: fmt, data: b64,
+    meta: { provider: '本机', prompt: '' } });
+  return saved.url || ('/asset/' + (saved.assetId || saved.id));
+}
+/* 合成一句 → 量时长 → 存进 proj.voices（锚在插针那一段）→ 重画。
+   三个入口（ preset 合成 / design 合成 / 本机音频）都从这里进，所以「加了但没进轨」不可能出现。 */
+async function addVoiceEntry(src, sh, c, extra) {
+  const t = voiceTarget(curShot(), c);
+  if (!t) { setStatus('<span class="err">现在没有可放的位置：这一镜还没有候选（或这一条一段画面都没留）</span>'); return; }
+  const dur = await audioDurOf(src);
+  const v = Object.assign({ id: uid(), shotId: sh.id, candId: c.vid, seg: t.si, at: t.at, dur, vol: 1, src }, extra || {});
+  v.name = v.name || String(v.text || '配音').replace(/\s+/g, ' ').trim().slice(0, 12);
+  voicesEnsure().push(v);
+  proj.curVoice = v.id;
+  setStatus('<span class="ok">✓ 已加到第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒处，长 ' + dur + ' 秒'
+    + (candSelected(sh, c) ? '；这一条已选用，合并成片会带上' : '；这一条还没被选用，换成它或点「用这条」才进成片') + '</span>');
+  renderAll(); scheduleSave();
+}
+async function addVoiceAtPin() {
+  const sh = curShot();
+  if (!sh) { setStatus('<span class="err">先挑一个镜头</span>'); return; }
+  const cands = sh.candidates || [];
+  const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId);
+  if (!voiceTarget(sh, c)) { setStatus('<span class="err">没有可放的位置：这一镜还没有候选（或这一条一段画面都没留，先点「不剪了」）</span>'); return; }
+  const text = String(voiceDraft.text || '').trim();
+  if (!text) { setStatus('<span class="err">先写上要念的话</span>'); return; }
+  const way = voiceWayOf(REG, proj.voiceModel || '');
+  if (way.mode === 'preset' || way.mode === 'design') {
+    const target = way.target;
+    setStatus('<span class="meta">正在合成这一句…</span>');
+    let r;
+    try {
+      r = await AiGen.synthTts(target.prov, {
+        model: target.model.id || target.model.name, text,
+        style: way.mode === 'design' ? String(voiceDraft.design || '').trim() : '',
+        voice: way.mode === 'preset' ? voiceDraft.voice : '', format: voiceDraft.format,
+      });
+    } catch (e) {
+      setStatus('<span class="err">合成失败：' + esc(String((e && e.message) || e)) + '</span>');
+      return;
+    }
+    await addVoiceEntry(r.url, sh, c, {
+      text, provider: target.prov.id, model: target.model.id || target.model.name,
+      voice: way.mode === 'preset' ? voiceDraft.voice : '按描述定音色',
+    });
+    return;
+  }
+  setStatus('<span class="err">' + esc(way.why) + '</span>');
+}
+
+
 /* 把中栏播放器跳到指定秒（单镜与成片通用；不做重渲染，避免打断播放） */
 function seekPlayerTo(t, opts) {
   const pl = document.getElementById('player');
@@ -3078,7 +3707,18 @@ function resolvedModel(sh) {
 
 /* 编辑器槽位名 → 模型声明的输入 role（互斥 / 提交都按 role 判断） */
 const SLOT_ROLE = { first: 'first_frame', last: 'last_frame', ref: 'reference_image', refVideo: 'reference_video', refAudio: 'reference_audio' };
-const ROLE_ZH = { first_frame: '首帧', last_frame: '尾帧', reference_image: '参考图', reference_video: '参考视频', reference_audio: '参考音频' };
+/* 输入素材的中文名只在公共层点一次名（`Capabilities.ROLE_ZH`），与生成工作台同一份：
+   这一页原来抄的是一份短名表（首帧 / 尾帧），而模式名那句现拼读的是长名（首帧图 / 尾帧图），
+   同一个 role 在两个页面上叫两个名字；清单和数值都是数据，抄一遍就会各自漂。 */
+const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
+/* 模式名（「智能参考」「视频换人」）也只有一份（`Capabilities.comboLabel`）：
+   归一化那边给的是整档语义名，页面按 role 现拼根本读不到它。 */
+const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';
+/* 「这一档收哪些」（说明行）与那一排芯片的画法同样只有一份（`comboScopeNote` / `comboChipsHTML`）：
+   这一页与生成工作台画的是同一排，措辞与 min/max 的写法抄两遍迟早和声明漂开。
+   指针名字故意避开公共层那两个（§J 把页面里同名的 `function` 定义当第二份实现）。 */
+const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
+const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
 /* 参考视频槽的缩略图地址：
    · 资产在 SparkCine 资产库里 → 走 /asset/<id>?v=2（代理每次都重新解析签名地址，长期有效）
    · 否则用条目里存的 src（资产库 / 收藏导入时留下的地址）—— 签名过期的地址取不回来时占位层会一直盖着，
@@ -3104,22 +3744,84 @@ function shotUsedRoles(sh) {
   return used;
 }
 
+/* ---- 「输入模式」= 这一镜这一次请求的形状 ----
+   判据全在公共层（`Capabilities.combos` / `comboRoles` / `comboGaps` / `fallbackCombo`），
+   与生成工作台同一套 —— 导演台原来整套模式判据都没接：同一个平台在工作台能选「视频换人」，
+   在这一镜上连入口都没有，而手上放了 9 张参考图去提交换人档时页面一片绿灯、平台回一句 422。
+   没有这种声明的家 `combos()` 是空数组：那一排芯片一个都不画，槽位回到原来的「互斥就置灰」，
+   行为与加它之前逐字相同。 */
+function shotCombos(sh) {
+  const rm = resolvedModel(sh) || {};
+  return (window.Capabilities && Capabilities.combos) ? Capabilities.combos(rm) : [];
+}
+function shotCombo(sh) {
+  if (!sh) return null;
+  return shotCombos(sh).find(c => c.id === sh.combo) || null;
+}
+/* 选中的那一档还成立吗（换型号、能力刷新之后 id 会变）：回落判据只在公共层那一份。
+   先退到**收得下当前这批素材**的那一档，再退到排在最前的那一档；退档不删素材。 */
+function ensureShotCombo(sh) {
+  if (!sh) return '';
+  if (!window.Capabilities || !Capabilities.fallbackCombo) { if (!shotCombos(sh).length) sh.combo = ''; return sh.combo; }
+  const want = Capabilities.fallbackCombo(resolvedModel(sh) || {}, sh.combo, shotUsedRoles(sh));
+  if (sh.combo !== want) sh.combo = want;
+  return sh.combo;
+}
+function setShotCombo(sh, id) {
+  if (!sh || !id || sh.combo === id) return;
+  if (!shotCombos(sh).some(c => c.id === id)) return;
+  sh.combo = id;
+  /* 换档要重画整块编辑器：槽位（哪些出现、各收几张）、高级设置那三排（Turbo / 超分在这一档给不给）、
+     摘要与报价都跟着这一档的声明变，只重画那一排芯片会留下半旧的状态。 */
+  renderEditor(); updateBanner(); scheduleSave();
+}
+/* 这一镜手上各 role 有几条 —— 双向判据 `comboGaps` 的输入。
+   ⚠ 画面切片（keyframes）与手动参考图同属 `reference_image`：提交时两者合并成一批，
+   计数也必须合起来数，只数 `refImages` 会让「切片 3 张 + 参考图 3 张」在限 1 张的那一档全绿。 */
+function shotRoleCounts(sh) {
+  if (!sh) return {};
+  return {
+    first_frame: sh.firstFrame ? 1 : 0,
+    last_frame: sh.lastFrame ? 1 : 0,
+    reference_image: (sh.refImages || []).filter(Boolean).length + shotKeyframes(sh).length,
+    reference_video: sh.refVideo ? 1 : 0,
+    reference_audio: sh.refAudio ? 1 : 0,
+  };
+}
+/* 「手上的这批素材，在当前这一档下哪里说不通」：缺料 / 超料 / 这一档不收 / 互斥两组同时用上，
+   四种一次判全，判据与那句人话都在公共层那一份（两个页面读同一个 `lines`）。
+   没有模式声明时 `missing`/`over` 一律空、`rejected` 退回型号总表 —— 与加这一档之前逐字相同。 */
+function shotGaps(sh) {
+  const rm = resolvedModel(sh) || {};
+  const empty = { missing: [], over: [], rejected: [], conflicts: [], lines: [], ok: true };
+  if (!sh || !rm.id || !window.Capabilities || !Capabilities.comboGaps) return empty;
+  return Capabilities.comboGaps(rm, sh.combo, shotRoleCounts(sh));
+}
+
 /* 这一镜所选模型支持哪些输入 role 与上限。
    唯一依据是 Capabilities.specs（registry 的 inputRoles 为准，能力接口补上限），
-   所以 registry 写全了 role，就不存在「上游 /models 少写一个 role 于是槽位消失」的问题。 */
+   所以 registry 写全了 role，就不存在「上游 /models 少写一个 role 于是槽位消失」的问题。
+   选了「输入模式」时再按那一档收窄一次（`Capabilities.comboRoles`），数量也读那一档的
+   （`Capabilities.rule(..., combo)`：同一张人物图在「智能参考」里能到 9 张，在「视频换人」里必须恰好 1 张）。 */
 function shotInputCaps(sh) {
   const rm = resolvedModel(sh) || {};
+  ensureShotCombo(sh);                      // 选中的档还可能来自上一个型号：先回落到这一型号成立的档
+  const inCombo = (window.Capabilities && Capabilities.comboRoles) ? Capabilities.comboRoles(rm, sh.combo) : null;
   const specs = (window.Capabilities && Capabilities.specs) ? Capabilities.specs(rm)
     : (rm.options && rm.options.inputSpecs) || [];
   const roles = new Map(specs.map(sp => [sp.role, sp]));
+  const has = r => roles.has(r) && (!inCombo || inCombo.has(r));
   const caps = { image: false, ref: false, first: false, last: false, refVideo: false, refAudio: false, none: false };
-  caps.ref = roles.has('reference_image');
-  caps.image = caps.ref || roles.has('first_frame') || roles.has('last_frame');
-  caps.first = roles.has('first_frame');
-  caps.last = roles.has('last_frame');
-  caps.refVideo = roles.has('reference_video');
-  caps.refAudio = roles.has('reference_audio');
-  caps.maxRef = caps.ref ? Math.max(1, (roles.get('reference_image') || {}).max) : 0;
+  caps.ref = has('reference_image');
+  caps.image = caps.ref || has('first_frame') || has('last_frame');
+  caps.first = has('first_frame');
+  caps.last = has('last_frame');
+  caps.refVideo = has('reference_video');
+  caps.refAudio = has('reference_audio');
+  /* 上限按**当前这一档**的声明现取（没有模式声明时 `rule` 自己退回型号总表）。 */
+  caps.maxRef = caps.ref && window.Capabilities && Capabilities.rule
+    ? (Capabilities.rule(rm, 'reference_image', sh.combo).max || 0)
+    : (caps.ref ? Math.max(1, (roles.get('reference_image') || {}).max) : 0);
   /* 「这个槽位收什么样的文件」这句话也现算（inputRoles 的 accept / maxBytes + 提交模板的 requiresAudio），
      以前是写在模板里的死文案「MP4 ≤ 200MB 含音频」——平台改了限制它不会跟着变。 */
   caps.slotNote = role => {
@@ -3137,11 +3839,15 @@ function shotInputCaps(sh) {
   caps.specs = specs;
   if (window.Capabilities) {
     caps.blockedRoles = Capabilities.blockedRoles(rm, caps.usedRoles);
-    caps.illegal = Capabilities.illegalPairs(rm, caps.usedRoles);      // 已经同时用上的互斥组合
-    caps.unsupported = Capabilities.unsupportedRoles(rm, caps.usedRoles); // 换模型后留下的、该模型不接受的素材
+    /* 「已经同时用上互斥的两组」与「这一档 / 这个型号不收已选的素材」不在这里各算一遍 ——
+       那两条连同缺料、超料都在下面 `gaps` 那一份双向判据里（`Capabilities.comboGaps`），
+       页面再算一次就是第二份实现，两句措辞迟早各说各的。 */
   } else {
-    caps.blockedRoles = new Set(); caps.illegal = []; caps.unsupported = [];
+    caps.blockedRoles = new Set();
   }
+  /* 双向形状判据（缺料 / 超料 / 这一档不收 / 互斥）也挂在这份 caps 上：
+     界面那句说明、按钮禁用、提交前的拦截读的都是同一个对象，不会出现三处各算一遍。 */
+  caps.gaps = shotGaps(sh);
   return caps;
 }
 
@@ -3157,15 +3863,19 @@ function shotAdvState(sh) {
   if (!sh.adv) sh.adv = { bools: {}, topBools: {}, shape: {} };
   return sh.adv;
 }
-/* 「这一次的那一行能力」：导演台没有「输入模式」那排芯片（形状由送上去的素材决定），
-   所以 combo 传 null、mode / intent 是空串，roles 用这一镜已经放进来的素材种类。 */
+/* 「这一次的那一行能力」：按这一镜选中的**输入模式 + 已放的素材 + 档位**问公共层那一份逐行判据
+   （ Turbo 给不给、超分有哪些档）。以前这里 combo 传 null、mode / intent 是空串 ——
+   于是换人档明明没有 2x 超分、带参考视频那一行明明不给 Turbo，界面照样把开关画出来、提交照样发出去。 */
 function shotShapeCaps(sh) {
   const rm = resolvedModel(sh) || {};
   if (!rm.id || !window.Capabilities || !Capabilities.shapeState) return null;
-  return Capabilities.shapeState(rm, null, shotUsedRoles(sh), sh.tier);
+  return Capabilities.shapeState(rm, sh.combo, shotUsedRoles(sh), sh.tier);
 }
 function shotAdvCtx(sh) {
-  return { mode: '', intent: '', caps: shotShapeCaps(sh) };
+  const cb = shotCombo(sh);
+  /* `mode` 不是提交字段（平台按素材自己推断），它只用来判声明里的 when / hide；
+     `intent`（creation_intent）才是真字段。两个都只当上下文递进去，页面不许自己比字符串。 */
+  return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shotShapeCaps(sh) };
 }
 /* 画那三排（整块随编辑器重绘，所以不需要工作台那套指纹守卫）。
    `forceDef` = 换型号的那一次：型号布尔那一排按**新声明**的默认值重画，用户点过的照样保住。 */
@@ -3277,10 +3987,14 @@ function shotAdvBools(sh) {
    ⚠ 现取 `resolvedModel(sh)`：改完 edModel 之后摘要要跟着新型号，不能拿渲染时那一份。 */
 function videoPlanOf(sh) {
   const mm = resolvedModel(sh) || {};
+  ensureShotCombo(sh);              // 档位清单要按**当前这一档**收窄，先保证 sh.combo 是这一型号成立的 id
   return AdvParams.plan(mm, {
     kinds: ['tier', 'resolution', 'aspect_ratio', 'size', 'duration', 'count'],
     ids: { tier: 'edTier', resolution: 'edRes', aspect_ratio: 'edAr', size: 'edSize', duration: 'durRange', count: 'edDraw' },
     cur: { tier: sh.tier, resolution: sh.res, aspect_ratio: sh.ar, size: sh.size, duration: sh.duration, count: sh.draw },
+    /* 取值范围与默认值跟着选中的输入模式（平台在「视频换人」那一档只给到 768p、没有 2x）：
+       不递 combo 就等于在页面里替平台编一份「换了模式少哪几个档」，那是第二份判据。 */
+    scoped: true, combo: sh.combo,
     prefix: mm.name || '',
     units: { count: '条' },
   });
@@ -3388,15 +4102,17 @@ async function shotInputEntries(sh, prov, ic) {
   return out;
 }
 
-/* 互斥提示文案：已选的一组在挡着另一组；两组都选了就是非法状态（生成会被拒） */
+/* 素材与模式说不通的那一句：人话由公共层拼好（`comboGaps().lines`，缺料 / 超料 / 这一档不收 / 互斥
+   四种一次列全），这一页与生成工作台读的是同一份 —— 两页各写一遍措辞就会各说各的。
+   这里只补「另一组还空着、但被已选的那一组挡住」那一句：它讲的是「这一格现在点不动」，
+   与「已经放好的素材有错」是两件事，合成一句反而把出路说没了。 */
 function conflictNote(ic) {
   const zh = r => ROLE_ZH[r] || r;
-  const used = [...new Set(ic.usedRoles)].map(zh);
-  const pairs = (ic.illegal || []).map(([a, b]) => zh(a) + ' + ' + zh(b));
-  if (pairs.length) return `当前同时选了「${pairs.join('、')}」—— 本模型一次请求只能用一组（首尾帧 与 参考素材 互斥），生成会被拒绝，请先清空其中一组`;
-  const blocked = [...new Set(ic.blockedRoles)];
-  if (blocked.length) return `「${used.join(' / ')}」已选 →「${blocked.map(zh).join(' / ')}」不可同时使用（模型声明互斥），清空已选即可切换`;
-  return '';
+  const lines = ((ic && ic.gaps && ic.gaps.lines) || []).slice();
+  const used = [...new Set((ic && ic.usedRoles) || [])].map(zh);
+  const blocked = [...new Set((ic && ic.blockedRoles) || [])];
+  if (used.length && blocked.length) lines.push(`「${used.join(' / ')}」已选 →「${blocked.map(zh).join(' / ')}」不可同时使用（模型声明互斥），清空已选即可切换`);
+  return lines.join('；');
 }
 /* 这一镜能不能生成：返回原因文案（空字符串 = 可以）。按钮禁用、批量生成筛选、提交校验共用一份判定。
    提示词只要求「非空」—— 注册表里没有给视频提示词声明长度上下限（只有语音台的 tts.minChars 是上游真会拒），
@@ -3408,14 +4124,20 @@ let edPromptTouched = false;      // 用户在这个镜的提示词框里动过�
 let edModelChanged = false;
 /* 画面生成（生图型号）那一路的同一个旗标：换生图型号那一次，型号布尔按新声明的默认值重画。 */
 let kfModelChanged = false;
+/* 「生成」提交窗口期（上传素材可能要好几秒）：按钮的禁用**按它现算**（模板与 syncGenGate 两处都读）。
+   光在 onclick 里 disable 那颗旧元素没用 —— pushPlaceholders 里那次 renderAll 会把按钮换掉，
+   新元素又是可点的；上传中再点一次就是第二条提交、第二笔钱（双击即重复扣费）。 */
+let genOneBusy = false;
 function shotBlockReason(sh, ic) {
   const p = String((sh && sh.prompt) || '').trim();
   if (!p) return NO_PROMPT_WHY;
   const caps = ic || shotInputCaps(sh);
-  if (caps.illegal && caps.illegal.length) return '首尾帧与参考素材不能同时使用，请先清空其中一组';
-  if (caps.unsupported && caps.unsupported.length) {
-    return '「' + caps.unsupported.map(r => ROLE_ZH[r] || r).join(' / ') + '」当前模型不支持，请清空或换模型';
-  }
+  /* 「这一档要求带却没带够 / 带超了 / 这一档不收 / 互斥两组都用了」四种说不通一次判全，
+     判据与文案都在公共层那一份（与生成工作台同一个读数）。
+     以前这里只查互斥与「型号不支持」两头，于是选了「视频换人」而手上只有 9 张参考图、
+     一条参考视频都没放，按钮是亮的，点下去才拿到平台那句 422。 */
+  const g = caps.gaps || shotGaps(sh);
+  if (g.lines && g.lines.length) return g.lines.join('；');
   if (!resolvedModel(sh)) return '没有支持这组素材的模型';
   /* 高级设置里越界或非数的那一项（种子、超分档那种）：与生成工作台同一个判据、同一处拦。
      不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
@@ -3430,6 +4152,23 @@ function footerCanText(canGen, why) {
   if (canGen) return '✓ 可以生成';
   if (why === NO_PROMPT_WHY && !edPromptTouched) return '';
   return esc(why);
+}
+/* 「这一镜能不能生成」在界面上有三个落点：整栏重画那一次（模板里的 `${canGen}`）、
+   切换候选刷提示词框那一次、逐字敲描述那一次。三处必须问同一个 `shotBlockReason`：
+   后两处以前自己写成 `!!ta.value.trim()`，于是在「视频换人」这一档只写了描述、
+   参考视频一张没放，按钮就亮了、底部还打勾 —— 点下去才拿到平台那句 422，
+   而这一档的要求明明就写在同一页刚画出来的那行说明里。 */
+function syncGenGate(sh) {
+  const why = shotBlockReason(sh);
+  /* busy 也要算进去：提交窗口期里敲字触发这一处时，不许把按钮重新点亮（同一判据见 genOneBusy）。 */
+  const g1 = $('genOne'); if (g1) g1.disabled = !!why || genOneBusy;
+  const fc = $('edFooterCan');
+  if (fc) {
+    fc.className = 'can ' + (why ? 'no' : '');
+    fc.innerHTML = footerCanText(!why, why);
+    fc.title = why;
+  }
+  return why;
 }
 
 /* 新增素材前的守卫：互斥的槽位直接拦下并提示（就地闪烁说明，不用顶部横幅） */
@@ -4022,6 +4761,27 @@ document.addEventListener('mousedown', e => {
   hideMention();
 }, true);
 
+/* 画「输入模式」那一排（与生成工作台同一份判据、同一套画法，样式在 ui.css 的 .mode-row / .ui-pill）：
+   · 没有模式声明的家整块不出现 —— 与「这一排存在但一个芯片都没有」是两件事，后者让人以为功能坏了；
+   · 只有一档时**不画芯片**（点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件），
+     但说明行照旧留着：它讲得清这一档收哪几类素材，用户知道自己被限定成了什么形状。 */
+function modeChipsHTML(sh) {
+  const list = shotCombos(sh);
+  if (!list.length) return '';
+  const cb = shotCombo(sh);
+  /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与生成工作台同一份）；
+     这一页只负责把它们包进自己的容器（整块编辑器每次重绘都重建这一段）。 */
+  const chips = comboChips(list, sh.combo);
+  return '<div class="ed-label" style="margin-top:12px"><span>输入模式</span><span class="cnt">'
+    + esc(comboNote(cb)) + '</span></div>' + (chips ? '<div class="mode-row" id="modeRow">' + chips + '</div>' : '');
+}
+/* 芯片的接线：整块编辑器每次重绘都重建这一段，所以每次重画后绑一次就够了。 */
+function bindModeChips(sh) {
+  const row = $('modeRow');
+  if (!row) return;
+  row.querySelectorAll('.ui-pill').forEach(b => { b.onclick = () => setShotCombo(sh, b.dataset.cid); });
+}
+
 function renderEditor() {
   const col = $('edCol');
   hideMention();                                  // 这一块要整片重画，@ 浮层先收掉（它挂在 body 上，不跟着换）
@@ -4043,6 +4803,10 @@ function renderEditor() {
   if (vk.size.list.length) sh.size = vk.size.value;
   if (vk.duration.list.length) sh.duration = Number(vk.duration.value);
   sh.draw = vk.count.list.length ? Number(vk.count.value) : 1;
+  /* 剪辑模式打开时右栏整片换成「声音栏」（用户点名的形状：像生成工作台那样合成一句配音，
+     加的是剪辑那一轨）。镜头编辑器不画：两套控件同屏只会互相抢同一颗按钮。
+     放在**参数回写之后**：那一串回写读的是中栏参数条的活控件，跳过它会让「改时长」在剪辑模式下静默失效。 */
+  if (midEditTrim) { renderVoiceCol(col, sh); return; }
   const hasDur = vk.duration.list.length > 0;
   const durMin = vk.duration.min, durMax = vk.duration.max;
   /* 能不能生成：提示词够长 + 有支持这些素材的模型 + 素材没有同时用互斥的两组 + 没有当前模型不支持的素材。
@@ -4075,6 +4839,14 @@ function renderEditor() {
      这里只写导演台自己的 DOM（整块随编辑器重绘，与工作台「控件常驻 DOM」是两种画法、同一份数）。 */
   const advSel = (k, o) => (!k || !k.on) ? ''
     : `<div><label>${esc(k.label)}</label><select id="${esc(k.id)}">${AdvParams.optionsHTML(k, o)}</select></div>`;
+  /* 素材磁贴的两件属性：能不能「点击添素材」（data-slot）与那句 title。
+     `ok=false` 而手上**有**素材 = 这一档不收这一类（选了「视频换人」而这一镜留着首帧图那种）：
+     格子照样画出来（`.stray` 那圈警示色），只是不给添素材的入口 ——
+     藏掉它等于黄条指着一条看不见、也删不掉的素材，唯一的出路变成重开工作区。 */
+  const strayNote = zh => zh + '：当前这一档不收这一类素材，点 × 删掉，或换回收它的档';
+  const slotAttrs = (key, ok, blocked, stray, zh) =>
+    (ok ? ` data-slot="${key}"` : '')
+    + (stray ? ` title="${esc(strayNote(zh))}"` : blocked ? ' title="与已选素材互斥，不能同时使用"' : '');
   col.innerHTML = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
@@ -4106,6 +4878,12 @@ function renderEditor() {
         <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic">${icon('sparkles', 14)}</span>AI 润色</button>
       </div>
       <div id="polishInline" hidden></div>
+      ${/* 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
+           这一排就按那份声明出现或消失。只有把素材分成互斥几档的平台才画它；没有这种声明的家
+           整块不出现，槽位沿用原来的互斥置灰（与生成工作台同一套判据、同一份画法）。
+           排在「画面素材」那一格标签**之前**：它管的是下面这些槽位一次收哪几类，
+           放在标签后面就读成了「画面素材的一种设置」（生成工作台也是这个顺序）。 */
+        modeChipsHTML(sh)}
       <div class="ed-label" style="margin-top:16px"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
       ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin:0 0 6px">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
       <button class="polish" id="kfGenBtn">${icon('sparkles', 13)} 按描述生成这一镜的画面</button>
@@ -4140,8 +4918,8 @@ function renderEditor() {
         </div>
       </div>` : ''}
       <div class="assets-grid">
-        ${ic.first ? `<div class="asset-slot${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}" data-slot="first"${bFirst ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
-        ${ic.last ? `<div class="asset-slot${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}" data-slot="last"${bLast ? ' title="与已选素材互斥，不能同时使用"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
+        ${(ic.first || sh.firstFrame) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
           <div class="asset-slot kf">
             ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML('/asset/' + kf.assetId + '?v=2', { type: 'image' })}<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
@@ -4154,7 +4932,7 @@ function renderEditor() {
               : `<span class="ic">${icon('image', 16)}</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
             <span class="cap">画面 ${i + 1} · 第 ${kf.t} 秒</span>
           </div>`).join('')}
-        ${ic.ref ? sh.refImages.map((d2, i) => {
+        ${(ic.ref || sh.refImages.length) ? sh.refImages.map((d2, i) => {
           /* 标签带上「这条参考图是哪来的」：用 @ 从素材库引来的会写 token（refMeta.label，
              挑角色资产时是 `小雅·三视图`），与提示词里那串一一对上；没有来源的（自己传的、
              切片生成的）只写序号。 */
@@ -4165,11 +4943,16 @@ function renderEditor() {
         ${ic.ref && sh.refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (sh.refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${sh.refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
       </div>
       ${cNote ? `<div class="hint conflict-hint" id="conflictHint">${cNote}</div>` : ''}
-      ${ic.none ? '<div class="hint">当前模型不支持参考素材</div>' : ''}
-      ${ic.refVideo ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}" data-slot="refvideo"${bRefVideo ? ' title="与已选素材互斥，不能同时使用"' : ''}>
+      ${/* 「没有素材槽」有两种原因，得说清是哪一个：这个型号压根不收参考素材，
+           还是这一镜选的这一档本来就不用素材（选了「视频换人」以外不带素材的那一档）。
+           把后者说成「模型不支持」是替型号编了一句它没说过的话。 */
+        ic.none ? (shotCombo(sh)
+          ? `<div class="hint">输入模式「${esc(comboLabel(shotCombo(sh)))}」不用参考素材</div>`
+          : '<div class="hint">当前模型不支持参考素材</div>') : ''}
+      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}>
         ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
-      ${ic.refAudio ? `<div class="slot-wide asset-slot${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}" data-slot="refaudio"${bRefAudio ? ' title="与已选素材互斥，不能同时使用"' : ''}>
+      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}>
         ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
       <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top:16px">
@@ -4206,12 +4989,14 @@ function renderEditor() {
       <div class="ed-footer">
         <span class="can ${canGen ? '' : 'no'}" id="edFooterCan"${blockWhy ? ` title="${esc(blockWhy)}"` : ''}>${footerCanText(canGen, blockWhy)}</span>
         <span class="est" id="estTxt">估价中…</span>
-        <button class="pri" id="genOne" ${canGen ? '' : 'disabled'}>${curDraftCand() ? '生成这条（1 条）' : '生成这一镜（' + (sh.draw || 1) + ' 条）'}</button>
+        <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : genBtnLabel(sh)}</button>
       </div>
     </div>`;
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
+  /* 「输入模式」那一排芯片接线（整块编辑器每次重绘都重建这一段，所以每次绑一次，不会越攒越多）。 */
+  bindModeChips(sh);
   /* 三排声明驱动的额外参数（型号布尔 / 顶层开关 / 顶层非布尔字段）在这里现画：
      整块编辑器每次重绘都重建 DOM，所以不需要工作台那套指纹守卫，但**画法与判据是同一份**（AdvExtras）。 */
   paintShotAdv(sh, edModelChanged);
@@ -4292,9 +5077,10 @@ function renderEditor() {
     sh.prompt = ta.value;
     $('pCnt').textContent = ta.value.trim().length + ' 字';
     edPromptTouched = true;                     // 用户开始动手，之后卡住的原因才实时显示在底部
-    const cg = !!ta.value.trim();
-    const g1 = $('genOne'); if (g1) g1.disabled = !cg;
-    const fc = $('edFooterCan'); if (fc) { fc.className = 'can ' + (cg ? '' : 'no'); fc.textContent = footerCanText(cg, NO_PROMPT_WHY); }
+    /* 按钮与底部那一行走公共判据（`syncGenGate` → `shotBlockReason`），不在这里只问「描述非空」：
+       以前这里写成 `!!ta.value.trim()`，于是「视频换人」那一档只要敲完描述，
+       「生成这一镜」就自己点亮、底部打勾，点下去才拿到平台那句 422。 */
+    syncGenGate(sh);
     // 左栏卡片只在「有/无描述」翻转时才需要重画，不必每敲一个字重建整列
     if (!d0 && hadText !== !!ta.value.trim()) renderScenes();
     scheduleSave();
@@ -4408,15 +5194,28 @@ function renderEditor() {
   refreshKfEst();
 
   $('genOne').onclick = async () => {
+    if (genOneBusy) return;                              // 提交窗口期再点直接忽略（见 genOneBusy 的注释）
+    genOneBusy = true;
     const draft0 = curDraftCand();
     try {
       $('genOne').disabled = true; $('genOne').textContent = '创建中…';
-      if (draft0) await generateCandidate(draft0);       // 空占位：按右栏写的描述生成这一条
-      else await drawShot(sh, sh.draw || 1);
+      /* 这一镜已经有视频（在跑 / 已成）时再点生成 = 「再来一版」：在当前场景这一镜之后
+         自动开一条新镜头，占位与任务都落在它上面（判据只有 shotHasVideo 一份，
+         按钮文案 genBtnLabel 读的也是它）。全新镜头两条路不变：草稿就地生成、没候选的直接画。 */
+      if (shotHasVideo(sh)) {
+        const ns = spawnCandidateShot(sh);
+        await drawShot(ns, ns.draw || 1);
+        setStatus('<span class="ok">✓ 这一镜已有视频：已在当前场景新建「' + esc(ns.name) + '」，这次生成挂在它上面（占位看它的候选条）</span>');
+      } else if (draft0) {
+        await generateCandidate(draft0);                 // 空草稿：按右栏写的描述生成这一条
+      } else {
+        await drawShot(sh, sh.draw || 1);
+      }
       renderAll(); loadCredits();
     } catch (e) {
       setStatus('<span class="err">创建失败：' + e.message + '</span>');
     } finally {
+      genOneBusy = false;
       renderEditor();
     }
   };
@@ -4489,27 +5288,6 @@ function renderEditor() {
   // 高参设置里的下拉：交给 ui.js 的自定义组件渲染（与图片工作台同一套外观）
   if (window.Dropdowns) { Dropdowns.build(col); Dropdowns.sync(col); }
 }
-/* ---------- 资产库读取：首屏缓存 + 游标增量 ----------
-   SparkCine 的列表接口本身要 6~14 秒，弹窗不能干等：
-     · 先拿 sessionStorage 里上次的列表秒出内容（与资产库页面共用同一份缓存）
-     · 接口每返回一页就回调一次，列表逐步补齐
-   onUpdate(list) 会被调用多次；cacheFirst=true 时立刻返回缓存、后台继续刷新。 */
-const LIST_CACHE = AssetLib.listCache('assets_cache_v1');   // 与资产库页面同一份缓存
-const mergeAssetEntries = (base, add) => AssetLib.mergeEntries(base, add);
-function loadDirectoryAssets(pages, onUpdate, opts) {
-  const cached = LIST_CACHE.read();
-  let acc = cached.slice();
-  if (acc.length && onUpdate) onUpdate(acc);                 // 缓存先画
-  const fresh = AssetLib.load({
-    pages, seen: new Set(), out: [],
-    onBatch: list => { acc = mergeAssetEntries(cached, list); if (onUpdate) onUpdate(acc); },
-  }).then(res => {
-    acc = mergeAssetEntries(cached, res.entries);
-    LIST_CACHE.write(acc);
-    return acc;
-  }).catch(() => acc);
-  return (opts && opts.cacheFirst && cached.length) ? Promise.resolve(acc) : fresh;
-}
 
 /* ---------- 从资产库 / 收藏导入（统一走 AssetPicker） ----------
    中栏「导入」= 只挑视频，作为这一镜的候选画面。
@@ -4577,7 +5355,8 @@ async function pickRefMedia(sh, kind) {
   /* 选择器收哪几类、能选几个、本地上传的 accept 全部现读这个槽位的能力声明；
      体积上限在上传那一步统一校验（AssetTransfer → Capabilities.providerLimit）。 */
   const cap = shotInputCaps(sh);
-  const rule = (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role) : { max: 1, accept: '' };
+  const rule = (window.Capabilities && Capabilities.rule)
+    ? Capabilities.rule(rm, role, sh.combo) : { max: 1, accept: '' };
   const types = (window.Capabilities && Capabilities.slotTypes) ? Capabilities.slotTypes(rm, role) : (isAudio ? ['音乐', '音频'] : ['视频']);
   const note = cap.slotNote(role);
   const list = await AssetPicker.open({
@@ -4837,8 +5616,10 @@ function openPickDlg(sh, kind) {
     types: isFirst ? ['图片', '视频'] : ['图片'],
     multiple: room > 1,
     limit: room,
-    /* 这个槽位收什么类型、单文件多大：现读模型的能力声明（首帧槽也收视频，声明里写了就照它显示） */
-    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role) : null,
+    /* 这个槽位收什么类型、单文件多大、**这一档收几张**：都现读能力声明（首帧槽也收视频，声明里写了就照它显示）。
+       combo 必须递进去 —— 「视频换人」里人物图必须恰好 1 张，递型号总表那份 ≤9 就会画出
+       「标题说还能加 1 张、弹窗里写着上限 9」的两张口（limit 与 rule 得同一个口径）。 */
+    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role, sh.combo) : null,
     title: isFirst ? '选一张开头画面' : kind === 'last' ? '选一张结尾画面' : '选参考图（还能加 ' + room + ' 张）',
     note: isFirst ? '图片直接用；选视频则取它的<b>最后一帧</b>当开头画面（全在本机取帧）' : '',
     aiSearch: true,
@@ -5091,9 +5872,18 @@ async function getPriceEstimate(sh) {
   const ctx = shotAdvCtx(sh);
   const r = await estimateCost(prov, rm, Object.assign({
     count: sh.draw || 1, duration: sh.duration, res: sh.res, tier: sh.tier, ar: sh.ar, size: sh.size,
+    /* 这一镜选的输入模式进报价：`creation_intent` 走 `pricing.body` 的映射（换人档的价与时长算法
+       都不一样），`mode` 只当声明里 hide / def 的上下文。不递就等于「界面上切了换人档，报价还是
+       普通生成那一档的钱」—— 差价要到生成那一刻才暴露。 */
+    creation_intent: ctx.intent, mode: ctx.mode,
     topBools: ex.topBools, caps: ctx.caps,
   }, ex.shapeFields));
   const name = prov?.name || rm.provider || '未知API';
+  /* `skip` 与「报价失败了」是两件事（与生成工作台同一句区分）：这一档根本没有询价这条路
+     （注册表声明的 `pricing.noQuote` —— VGENV 的动作换人在报价时要求带那段参考视频的字节，
+     而报价是纯参数查询，拿不到）。写成「报价不可用（…INVALID）」会让人以为接口坏了，
+     而切到「视频换人」之后这一条**每次都会**出现。 */
+  if (r.skip) return name + ' · ' + (r.reason || '这一档平台不提供询价') + '，以平台结算为准';
   return r.ok ? name + ' · ' + r.text : name + ' · 报价不可用（' + r.reason + '）';
 }
 let estSeq = 0;
@@ -5584,7 +6374,6 @@ $('addScene').onclick = () => {
   reportScenePics(feedScenePics(sc, sc.shots));   // 场景名恰好对得上素材库那条场景时，第一个镜头就带上它的图
   renderAll(); scheduleSave();
 };
-$('assetSearchBtn').onclick = () => openAssetSearchToShots();
 $('scriptBtn').onclick = async () => {
   // 升级：优先走 AI 拆分场景与镜头；没配文字 AI 时回退到原来的手动拆分
   try {

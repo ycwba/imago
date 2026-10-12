@@ -347,7 +347,7 @@ function topBoolState(decl, ctx) {
   /* 跑着的 proxy.js 比这份页面代码旧 → 一次说清，别让「某个选项没出现」变成猜谜。
      （旧代理的能力声明停在老样子：例如生图的输出格式还被 forceOptions 锁成 png，
        界面就整块不显示，看着像功能坏了，其实重启一次就好了。每个标签页只提醒一次。） */
-  const PROXY_VERSION_MIN = 16;
+  const PROXY_VERSION_MIN = 17;
   /* 文案单独做成纯函数：好单测（页面里那条提示本身没什么分支，值不值得测的是这句话写没写清楚）。
       newest 的那一条排在最前面 —— 用户撞上的永远是这一版新加的那些声明没生效，
      从最老的说起等于让他先去找一个和他无关的原因。 */
@@ -958,6 +958,28 @@ function topBoolState(decl, ctx) {
            写在 f.shape 里、不进提交体 —— 这一家「未知字段会被拒绝」，多塞一个 mode 就是 400。 */
         creation_intent: f.creation_intent };
       const shape = f.shape || {};
+      /* `create.modelSendMap`（VGENV）：清单与界面用简形 id（base/cinematic/origin），
+         但 create 端点只收「厂牌/型号」完整形 —— 提交这一刻按声明换形，其它一切（型号下拉、
+         任务匹配、历史、估价请求）仍用简形。值不在表里就原样发（用户自己填的完整形、
+         以及平台哪天把简形也收了的情形，都不需要改页面）。 */
+      if (spec.modelSendMap && typeof std.model === 'string' && spec.modelSendMap[std.model]) {
+        std.model = spec.modelSendMap[std.model];
+      }
+      /* `create.promptLimits`：提交前把 prompt 的长度问题拦在本地并说清原因。
+         上游这一族校验会把多条失败原因拼成一句英文（"model must match … ,prompt must be a string
+         of 5–30000 characters; person replacement accepts …"），用户既看不懂也不知道改哪里。
+         形状按 creation_intent 分档：动作换人允许省略（空串本来就不进提交体）或 0–2000 字。 */
+      if (spec.promptLimits) {
+        const PL = spec.promptLimits;
+        const iw = (PL.byIntent || {})[std.creation_intent] || null;
+        const p = std.prompt == null ? '' : String(std.prompt);
+        const min = iw && iw.min != null ? iw.min : PL.min;
+        const max = iw && iw.max != null ? iw.max : PL.max;
+        const who = (prov && (prov.displayName || prov.name)) || '该平台';
+        if (!p && !(iw && iw.omitted)) throw new Error(who + ' 要求提示词至少 ' + min + ' 个字（现在是空的）—— 写一句画面描述再提交，空提示词平台会直接拒');
+        if (p && min && p.length < min) throw new Error(who + ' 要求提示词至少 ' + min + ' 个字（现在 ' + p.length + ' 个字）—— 太短平台会拒，补一句画面/动作描述');
+        if (p && max && p.length > max) throw new Error(who + ' 的提示词最多 ' + max + ' 个字（现在 ' + p.length + ' 个字）—— 先精简再提交');
+      }
       const body = {};
       Object.entries(spec.body || {}).forEach(([k2, src]) => {
         const v = std[src];
@@ -3015,7 +3037,7 @@ const NORM_SHAPES = {
       });
       return o;
     };
-    const combos = [...buckets.values()].map(b => ({
+    let combos = [...buckets.values()].map(b => ({
       id: b.id, mode: b.mode, intent: b.intent,
       /* max 为 0 的 role 是「这一档根本不接受这种素材」，不是「能收 0 个」——
          上游在每一条 configuration 里把五个 role 全列出来，不收的写 max:0。 */
@@ -3030,9 +3052,83 @@ const NORM_SHAPES = {
       turbo: b.turbo, durations: (b._min != null && b._max != null && b._max >= b._min) ? [b._min, b._max] : undefined,
       defaults: b.defaults,
     }));
-    /* 「一次都不带素材」那一档排在最前：界面上的默认模式就该是它（用户没放素材时
-       提交的就是纯文字生成），放最后会让下拉一进来就选中一个他还没备齐素材的模式。 */
-    combos.sort((x, y) => (x.roles.length ? 1 : 0) - (y.roles.length ? 1 : 0));
+    /* 上游按 (mode, creation_intent) 一档一档列，而**不带意图的那几档不该变成几颗芯片**：
+       实测每个型号的 t2va / ref2va / fl2va 三档在 tiers、分辨率、比例、时长区间上完全一致
+       （2026-10-12 逐行核过 /v3/models：base 83 行、cinematic 73 行、origin 48 行，
+       三档之间只有 defaults.tier 因为「取这一组里第一条带值的」而不同），
+       差别只在「这一次送上来的是哪一批素材」—— 而这一族**不把 mode 当请求字段**
+       （见 `Api.createBody` 那一段：平台按送上来的素材自己推断，多发一个 mode 就是 400）。
+       所以给三颗芯片 = 让用户先替平台回答「我要送哪一批素材」，答错了再被「这一档收不下」拦一次；
+       而「纯文字」与「参考素材档一张都没放」发出去的 body 逐字相同 —— 两个按钮做的是同一件事。
+       于是把**不带意图的档并成一颗「智能参考」**：槽位全摆出来，互斥那几组按 group 判据当场置灰
+       （导演台一直就是这套画法），逐行能力仍按「这一批素材」的那一行查 ——
+       并的只是界面形状，`states[tier][素材组合键]` 一行没动、也没多造。
+       ⚠ 只把「纯文字」芯片藏掉、默认停在参考素材档是不够的（第一版就这么错过一次）：
+       cinematic 的 `ref2va` 里**没有空载那一行**（base / origin 有），什么都不放时 `shapeState`
+       查不到键、回 `known:false`，超分档与「平台自动润色」整块消失 —— 空载反而比原来少一批能用的字段。
+       带意图的档（视频换人）**不并**：那是另一种请求（素材恰好一条参考视频 + 一张人物图，
+       而且平台自己分析素材，提示词优化这一项在这一档根本不存在），必须在界面上单独选。
+       上游只列一档、或不带意图的档只有一档 → 不并：并否由接口列出的那几行决定，不替平台编形状。 */
+    const refRoleOf = r => /^reference/.test(String((r && r.role) || ''));
+    const smartSrc = combos.filter(c => !c.intent);
+    if (smartSrc.length > 1) {
+      const keep = smartSrc[0];
+      /* id 由并进来的那几档的 mode 排序拼出来（与上游行序无关，换机器/换 Key 都是同一个串）：
+         界面上选中的那一档要落进 localStorage，旧的那三个 id 不再存在 —— 页面的 `ensureCombo`
+         认不到就按「收得下当前素材的那一档」回落，这是有意的迁移，不是留着三个别名。 */
+      keep.id = 'smart:' + smartSrc.map(c => c.mode).sort().join('+');
+      keep.label = '智能参考';
+      /* 这颗芯片与别的不一样：它不是「一种请求形状」，而是「形状由送上来的那批素材决定」，
+         所以界面要在说明行把这句话讲出来（两个页面都读这一个字段，别在页面里按名字分支）。 */
+      keep.hint = '不放素材就是纯文字，放哪一批素材就是哪一种请求（平台自己按素材判断，这一颗不替你选）';
+      keep.mode = '';    // 并档后没有唯一 mode；它本来也不是请求字段，只是声明的上下文（`when` 只比 intent）
+      const roles = new Map();
+      smartSrc.forEach(c => {
+        c.roles.forEach(r => {
+          const hit = roles.get(r.role) || { role: r.role, min: Infinity, max: 0 };
+          hit.min = Math.min(hit.min, r.min); hit.max = Math.max(hit.max, r.max);
+          roles.set(r.role, hit);
+        });
+        ['tiers', 'resolutions', 'aspect_ratios', 'upscale'].forEach(k => {
+          (c[k] || []).forEach(v => { if (!keep[k].includes(v)) keep[k].push(v); });
+        });
+        /* defaults 与桶内那条同一口径：按源档顺序「第一个给了值的算」 */
+        Object.entries(c.defaults || {}).forEach(([k, v]) => { if (keep.defaults[k] === undefined) keep.defaults[k] = v; });
+        keep.turbo = keep.turbo || !!c.turbo;
+        if (c.durations) {
+          keep.durations = keep.durations
+            ? [Math.min(keep.durations[0], c.durations[0]), Math.max(keep.durations[1], c.durations[1])]
+            : c.durations.slice();
+        }
+        Object.keys(c.states || {}).forEach(t => {
+          const rows = (keep.states[t] = keep.states[t] || {});
+          Object.entries(c.states[t]).forEach(([k, v]) => {
+            const mine = rows[k];
+            /* 同一个 (tier × 素材组合) 两档都列过就取并（有 turbo 算有、超分档并起来）——
+               与桶内多行归并同一口径，这里并的是「同一种请求的两种写法」。 */
+            rows[k] = mine ? { turbo: !!mine.turbo || !!v.turbo,
+              upscale: [...new Set((mine.upscale || []).concat(v.upscale || []))].sort() } : v;
+          });
+        });
+      });
+      keep.roles = [...roles.values()].map(r => ({
+        role: r.role,
+        /* 并档后的 min 只能是「**每一个**被并进来的形状都要求它」时才成立：
+           上游把不收的 role 写成 max:0，而上面建 combo 时按 `max > 0` 过滤掉了 ——
+           于是「只有 fl2va 要求首帧图至少 1 张」会被并成「智能参考这一档要求首帧图」，
+           纯文字与只带参考图那两种请求（正是这颗芯片最主要的用法）当场被自己人拦住。
+           取 min 也要留着：某个源档写着 min 2、另一个写 min 0，并档后要求就是 0。 */
+        min: smartSrc.every(c => c.roles.some(x => x.role === r.role && (x.min || 0) > 0)) ? r.min : 0,
+        max: r.max,
+      }));
+      const gone = new Set(smartSrc.slice(1).map(c => c.id));
+      combos = combos.filter(c => !gone.has(c.id));
+    }
+    /* 排在最前的那一条就是界面上的默认档（页面 `ensureCombo` 的回落取 list[0]）：
+       「智能参考」优先，其次只给首尾帧的型号，带意图的（视频换人）排最后 ——
+       它要求恰好一条参考视频加一张人物图，素材没备齐时点它只会撞上「这一档收不下」那条拦截。 */
+    const rankOf = c => (c.intent ? 3 : (c.roles.some(refRoleOf) ? 0 : (c.roles.length ? 1 : 2)));
+    combos.sort((x, y) => rankOf(x) - rankOf(y));
     const cap = {
       tiers: uniq(cfgs.map(c => c.tier)),
       resolutions: uniq(cfgs.map(c => c.resolutions || []).flat()),
@@ -3424,6 +3520,128 @@ window.Capabilities = {
     const cb = this.comboOf(model, id);
     return cb ? new Set(cb.roles.map(r => r.role)) : null;
   },
+  /* ---- 素材名与模式名：全站只在这里点一次名 ----
+     以前 `ROLE_ZH` 与「这一档叫什么」在工作台里各有一份，导演台又抄了一份短名表
+     （同一个 role 一边写「首帧图」一边写「首帧」），而模式名是页面按 role 现拼的 ——
+     归一化那边已经能给「智能参考」这种整档名字（`combo.label`），页面那份拼接读不到它。
+     名字与档位清单都是数据，抄一遍就会各自漂，所以两处都收到这里。 */
+  ROLE_ZH: { first_frame: '开头画面', last_frame: '结尾画面', reference_image: '参考图',
+    reference_video: '参考视频', reference_audio: '参考音频' },
+  roleZh(role) { return this.ROLE_ZH[role] || String(role || ''); },
+  INTENT_ZH: { person_replacement: '视频换人' },
+  /* 模式名：归一化给了 `label` 的用那个（「智能参考」这一档的名字**不是**从 role 拼得出来的，
+     它是并档那一步的语义），没给的才从数据现拼 —— 先说这一档带哪一组素材，再补意图。
+     不写一张「t2va = 文生视频」的固定表：上游哪天加一个 mode，界面上顶多露出原始名，
+     不会像写死表那样直接少一档（与公共层那两张档位 / 比例中文名表同一套做法）。 */
+  comboLabel(cb) {
+    if (!cb) return '';
+    if (cb.label) return String(cb.label);
+    const roles = (cb.roles || []).map(r => r.role);
+    const g = [];
+    if (roles.some(r => r === 'first_frame' || r === 'last_frame')) g.push('首尾帧');
+    if (roles.some(r => String(r).indexOf('reference') === 0)) g.push('参考素材');
+    const intent = cb.intent ? (this.INTENT_ZH[cb.intent] || cb.intent) : '';
+    const base = g.length ? g.join(' + ') : '纯文字';
+    return intent ? base + ' · ' + intent : base;
+  },
+  /* 这一档收得下这批素材吗 —— **双向**判据只有一份。
+     `counts` 传 `{ role: 实际几条 }`（也接受 role 数组，按每个 role 一条算）。
+     为什么要强调双向：工作台原来只查「这一档要求带、却没带的」（min 那一头），
+     于是「已经放了 9 张参考图，再切到要求恰好 1 张的换人档」界面上四个绿灯、
+     提交体带着 9 张去撞平台一句 422；而导演台原来整套模式判据都没接。四种说不通一次判全：
+       · `missing`  = 这一档声明 min > 0、实际没带够      → `{ role, min, got }`
+       · `over`     = 带了、但超过这一档声明的 max        → `{ role, max, got }`
+       · `rejected` = 已经放进来的、这一档（或这个型号）根本不收 → `{ role, got, why:'combo'|'model' }`
+       · `conflicts`= 已经同时用上的互斥成对（group 判据，见 conflictMap）
+     `why` 要分开是因为「换个模式就能用」与「换个型号才能用」是两条出路，页面按它给不同的链接。
+     没有模式声明（comboId 空 / 这一族 combos 为空）时 `missing` 与 `over` 一律空、
+     `rejected` 退回型号总表 —— 没有声明就不替平台编一个上下限，行为与加这一档之前逐字相同。 */
+  comboGaps(model, comboId, counts) {
+    const have = {};
+    (Array.isArray(counts) ? counts.map(r => [r, 1]) : Object.entries(counts || {}))
+      .forEach(([r, n]) => { if (r) have[r] = Number(n) || 0; });
+    const roles = Object.keys(have).filter(r => have[r] > 0);
+    const out = { missing: [], over: [], rejected: [], conflicts: [], lines: [], ok: true };
+    const cb = this.comboOf(model, comboId);
+    if (cb) {
+      const declared = new Set();
+      (cb.roles || []).forEach(r => {
+        declared.add(r.role);
+        const got = have[r.role] || 0;
+        if ((r.min || 0) > 0 && got < r.min) out.missing.push({ role: r.role, min: r.min, got, max: r.max || 0 });
+        if (got > 0 && (r.max || 0) < got) out.over.push({ role: r.role, max: r.max || 0, got, min: r.min || 0 });
+      });
+      const specs = new Set(this.specs(model).map(s => s.role));
+      roles.filter(r => !declared.has(r)).forEach(r =>
+        out.rejected.push({ role: r, got: have[r], why: specs.has(r) ? 'combo' : 'model' }));
+    } else {
+      this.unsupportedRoles(model, roles).forEach(r =>
+        out.rejected.push({ role: r, got: have[r], why: 'model' }));
+    }
+    out.conflicts = this.illegalPairs(model, roles);
+    out.ok = !(out.missing.length || out.over.length || out.rejected.length || out.conflicts.length);
+    /* 那句人话也只在这里拼一次：两个页面的黄条与「提交前先拦住」都读 `lines`，
+       页面再各写一遍措辞就是第二份判据（数量、名字都得自己抄，抄一次漂一次）。 */
+    const at = cb ? '当前输入模式（「' + this.comboLabel(cb) + '」）' : '当前型号';
+    if (out.missing.length) out.lines.push(at + '必须带上：' + out.missing
+      .map(m => this.roleZh(m.role) + '（至少 ' + m.min + '，现在 ' + m.got + '）').join('、'));
+    if (out.over.length) out.lines.push(at + '最多收：' + out.over
+      .map(m => this.roleZh(m.role) + ' ' + m.max + ' 个，现在 ' + m.got + ' 个，多出来的发不出去').join('、'));
+    out.rejected.forEach(x => out.lines.push(
+      (x.why === 'combo' && cb ? at + '不收已选的' : '当前型号不支持已选的')
+      + this.roleZh(x.role) + '（已放 ' + x.got + ' 个）'));
+    if (out.conflicts.length) out.lines.push('已同时选了互斥的两组：' + out.conflicts
+      .map(([a, b]) => '「' + this.roleZh(a) + ' + ' + this.roleZh(b) + '」').join('、')
+      + '，一次请求只能用一组，请清空其中一组');
+    return out;
+  },
+  /* 「有没有哪一档收得下这批素材」全站只有这一份判据：换型号 / 能力刷新后的回落、
+     黄条上那句「切到『X』」、拖素材进来时的落点候选，三个地方都问它。
+     页面各比一遍 role 字符串就是第二份判据 —— 一定会和提交体那套过滤漂开。
+     ⚠ 只看 `max > 0`（收不收），不看 `min`（必须带）：这一问是「手上这批放不放得进去」，
+       要求多带几样不算放不下，缺的那部分由 `comboGaps.missing` 说。 */
+  comboCovering(model, roles) {
+    const need = (roles || []).filter(Boolean);
+    return this.combos(model).find(c => need.every(r => (c.roles || []).some(x => x.role === r && (x.max || 0) > 0))) || null;
+  },
+  /* 选中的那一档还成立吗（换型号、能力刷新之后 id 会变）：成立就原样返回；
+     不成立先退到**收得下当前这批素材**的那一档，再没有就退到归一化排在最前的那一档
+     （并档后的「智能参考」= 空载也能用，所以它排第一）。
+     退档**不删素材** —— 收不下的那一些交给 `comboGaps` 摆出来并拦住提交，
+     静默丢掉用户传进去的东西是本项目反复拦的那一类。
+     返回应该落到的 comboId；这个型号压根没有模式声明时返回空串（界面不画那一排，行为与加这一档之前相同）。 */
+  fallbackCombo(model, comboId, roles) {
+    const list = this.combos(model);
+    if (!list.length) return '';
+    if (comboId && list.some(c => c.id === comboId)) return comboId;
+    const fit = this.comboCovering(model, roles) || list[0];
+    return fit.id;
+  },
+  /* 「这一档收哪几类素材、各几个」那一行说明：数字（min / max）与名字全部现读那一档的声明，
+     页面抄一句就会漂 —— 工作台与导演台原来各写了一份逐字相同的字符串，
+     其中一份改了「空档那一档怎么说法」，另一份还挂着「这一档收：」的空尾巴。
+     `cb.hint` 是归一化并档时给的整档说明（「智能参考」= 送上来哪批素材就是哪一种请求），
+     有就补在后面：那一档的名字讲不清它和别档的区别，这句话才讲得清。 */
+  comboScopeNote(cb) {
+    if (!cb) return '';
+    const s = (cb.roles || []).length
+      ? '这一档收：' + cb.roles.map(r => this.roleZh(r.role)
+        + (r.min > 0 ? '（至少 ' + r.min + '）' : '') + ' ≤' + (r.max || 0)).join(' · ')
+      : '这一档只用文字提示词，不需要参考素材';
+    return cb.hint ? s + ' · ' + cb.hint : s;
+  },
+  /* 「输入模式」那一排芯片的画法（与上面 `AdvExtras.html.*` 同一立场：判据 + 画法一份，页面只接线）：
+     两个页面只剩「什么时候整块不出现」「id 挂在哪」「点下去调谁」这三件各自的事。
+     只有一档时返回空串 —— 点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件，
+     而说明行照旧留着（它讲得清用户被限定成了什么形状）。 */
+  comboChipsHTML(list, currentId) {
+    if (!list || list.length < 2) return '';
+    const E = window.esc;
+    return (list || []).map(c => '<button type="button" class="ui-pill' + (c.id === currentId ? ' on' : '')
+      + '" data-cid="' + E(c.id) + '">' + E(this.comboLabel(c)) + '</button>').join('')
+      + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已经放好的不清掉；'
+      + '当前模式收不下的那一类会标出来，并且提交前先拦住。</span>';
+  },
   /* 当前模式下这一组参数的**取值范围与默认值**：有模式声明就按那一档的，
      没有就退回型号总表。平台在换人档里只给 768p / 没有 2x，界面就只给 768p ——
      页面不许另写一句「选了换人就少几个档」（那是第二份判据）。 */
@@ -3587,9 +3805,19 @@ window.Capabilities = {
   async fetchCaps(prov, opts) {
     if (this.unavailable) return null;                 // 代理版本太旧（没有这条路由）：不再反复试
     const q = '/capabilities?provider=' + encodeURIComponent(prov.id) + ((opts && opts.force) ? '&noCache=1' : '');
-    let r;
-    try { r = await window.Net.fetch(q, { timeout: 25000, retry: 0 }); }
-    catch (e) { console.warn('[Capabilities] 能力接口不可用：', e.message); return null; }
+    /* 本机刚启动那阵，出站系统代理（7897）的 TLS 链常常还没热 —— 实测 12:25 一波
+       「Client network socket disconnected」把首屏的型号清单全打挂，用户看到的是
+       「获取型号失败」，手动刷新一下才好。/capabilities 是同源只读 GET，
+       重问一次没有任何副作用，所以这里自己带一次退避重试，不要等用户手动刷新。 */
+    let r = null, lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { r = await window.Net.fetch(q, { timeout: 25000, retry: 0 }); lastErr = null; break; }
+      catch (e) {
+        lastErr = e;
+        if (attempt === 0) await new Promise(res => setTimeout(res, 2500));
+      }
+    }
+    if (!r) { console.warn('[Capabilities] 能力接口不可用（重试一次仍失败）：', lastErr && lastErr.message); return null; }
     if (r.status === 404) { this.unavailable = true; console.warn('[Capabilities] 代理没有 /capabilities 路由（重启 proxy.js 即可）'); return null; }
     if (!r.ok) throw new Error('能力接口 HTTP ' + r.status);
     return await r.json();
@@ -4073,6 +4301,50 @@ window.AiGen = {
     flat(raw.outputs).forEach(push);
     flat(raw.output).forEach(push);
     return [...new Set(ids)];
+  },
+  /* 十六进制 → base64。MiniMax 的 t2a_v2 把音频放在 data.audio，官方文档写的是**十六进制**
+     （官方 WebSocket 指南明确写「用十六进制解码，别当 base64」），而 /local-assets 收的是 base64。
+     文档与第三方示例在这一点上不一致，所以认不出合法十六进制时**退回按 base64 试一次**，
+     两种都解不出才报错 —— 宁可多试一次，也不要让人对着一个能用的接口发愣。 */
+  hexToB64(hex) {
+    const h = String(hex || '').trim();
+    if (!h || h.length % 2 || !/^[0-9a-fA-F]+$/.test(h)) return '';
+    const bytes = new Uint8Array(h.length / 2);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(h.substr(i * 2, 2), 16);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  },
+  /* 语音合成这一整条链（提交 → 按 tts 声明解码 → pcm16 封 WAV → 存成能播能导的本机资产）。
+     全站只有这一份：生成工作台的语音栏与导演台剪辑的声音轨都要「合成一句话、拿回一个地址」，
+     各写一遍的结局是「声明 encoding=hex 却按 base64 处理」这类偏差只修好一边（AGENTS §3「同一个功能只应有一份实现」）。
+     「这一家怎么定音色」（预设 / 描述 / 参考音频）是页面自己的事，所以 `voice` 由调用方算好递进来。
+     o = { model, text, style, voice, format, bools, name, meta } → { assetId, url, format, bytes, usage } */
+  async synthTts(prov, o) {
+    const tts = (prov && prov.tts) || {};
+    const res = await Api.create(prov, {
+      model: o.model, text: o.text, style: o.style || '', voice: o.voice || '',
+      format: o.format || ((tts.formats || [])[0] || ''),
+      textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
+      ...(o.bools || {}),
+      log: false,                       // 同步合成没有平台任务号：归档由调用方按自己的本地号做
+    });
+    let b64 = Api.pickPath(res, tts.responsePath || 'choices.0.message.audio.data');
+    if (b64 && tts.encoding === 'hex') {
+      const hx = this.hexToB64(b64);
+      if (hx) b64 = hx;
+      else console.warn('[AiGen] 声明 tts.encoding=hex，但返回值不是合法十六进制，按 base64 处理');
+    }
+    if (!b64) throw new Error('接口没有返回音频数据（检查 registry 里 tts.responsePath 声明）');
+    let fmt = o.format || ((tts.formats || [])[0] || '');
+    if (fmt === 'pcm16') { b64 = this.b64FromBuf(this.pcm16ToWav(b64, tts.pcmSampleRate || 24000)); fmt = 'wav'; }
+    const mime = (tts.mime || {})[fmt] || 'audio/wav';
+    const name = o.name || ('语音-' + String(o.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt);
+    const saved = await Api.saveLocalAsset({ name, mime, format: fmt, data: b64,
+      meta: Object.assign({ prompt: o.text, model: o.model, voice: o.voice, provider: prov.id,
+        chars: String(o.text || '').length, usage: (res && res.usage) || null }, o.meta || {}) });
+    return { assetId: saved.assetId || saved.id, url: saved.url || ('/asset/' + (saved.assetId || saved.id)),
+      format: fmt, bytes: saved.bytes || 0, usage: (res && res.usage) || null };
   },
   /* PCM16 裸流封成 WAV（语音平台的同步产物要能直接播放/保存） */
   pcm16ToWav(b64, sampleRate) {
@@ -6436,20 +6708,38 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
       }
 
       if (opts.onStage) opts.onStage('intent', filename);
-      const intentRes = await netFetch(prov.relay + up, {
-        method: 'POST', headers, body: JSON.stringify(body), timeout: 30000, retry: 0,
-      });
-      if (!intentRes.ok) throw new Error('取上传地址失败 HTTP ' + intentRes.status + '（' + (prov.displayName || prov.name) + ' 的上传接口）');
-      const intent = await intentRes.json();
-      if (intent.error) throw new Error(intent.error.message || '上传意图获取失败');
-      const assetId = intent.asset_id || intent.assetId || (intent.asset && intent.asset.id);
-      if (!assetId || !intent.upload || !intent.upload.url) throw new Error('上传意图返回异常（缺少 asset_id 或 upload.url）');
+      /* 上传意图的解析要经得起「2xx 但形状不对」：出站系统代理（7897 那一条链）断 TLS / 劫持时
+         实测能把这一发 POST 回成一份缺字段的 2xx 响应，旧代码在这种日子直接报
+         「上传意图返回异常（缺少 asset_id 或 upload.url）」并把整条合并打断。
+         意图创建本身不扣费、无副作用（重问一次最多是一条新的 pending 资产），
+         所以形状不对就地重试一次；字段接受嵌套（upload.url）与平铺（upload_url）两种写法；
+         两次都拿不到才抛，并把原始响应体截一段带进错误（否则下一轮排查只能靠猜）。 */
+      let assetId = null, putUrl = '', putMethod = 'PUT', putHeaders = {};
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const intentRes = await netFetch(prov.relay + up, {
+          method: 'POST', headers, body: JSON.stringify(body), timeout: 30000, retry: 0,
+        });
+        if (!intentRes.ok) throw new Error('取上传地址失败 HTTP ' + intentRes.status + '（' + (prov.displayName || prov.name) + ' 的上传接口）');
+        const intent = await intentRes.json().catch(() => null);
+        if (intent && intent.error) throw new Error((intent.error.message || intent.error) + '（' + (prov.displayName || prov.name) + ' 的上传接口）');
+        assetId = intent && (intent.asset_id || intent.assetId || (intent.asset && (intent.asset.id || intent.asset.asset_id)));
+        const u = (intent && intent.upload) || intent || {};
+        putUrl = u.url || u.upload_url || u.uploadUrl || '';
+        if (assetId && putUrl) {
+          putMethod = u.method || 'PUT';
+          putHeaders = u.headers || {};
+          break;
+        }
+        if (attempt === 0) { await new Promise(r => setTimeout(r, 1500)); if (opts.onStage) opts.onStage('intent', filename + '（重问上传地址）'); }
+        else throw new Error('上传意图返回异常（缺少资产号或上传地址）：' + (prov.displayName || prov.name)
+          + ' 回了 2xx 但里面没有 asset_id / upload.url，重试一次仍拿不到。原始返回：'
+          + String(JSON.stringify(intent)).slice(0, 200));
+      }
 
       if (opts.onStage) opts.onStage('put', filename);
-      const putHeaders = intent.upload.headers || {};
       if (opts.onStage) opts.onStage('progress', { sent: 0, total: blob.size, pct: 0 });   // 先报 0%，状态行立刻切成进度显示
-      const put = await netFetch('/s3put?url=' + encodeURIComponent(intent.upload.url), {
-        method: intent.upload.method || 'PUT', headers: putHeaders, body: blob,
+      const put = await netFetch('/s3put?url=' + encodeURIComponent(putUrl), {
+        method: putMethod, headers: putHeaders, body: blob,
         timeout: 600000,        // 大素材（视频）本机 → 对象存储这一段可能要几分钟
         retry: 0,               // 上传不做自动重试：重试 = 再传一遍整份素材
       });

@@ -1969,6 +1969,10 @@ window.Chars = (function () {
     Lib,
     /* ---- 出图与配音两条流水线。拆剧本 / 拍摄 / 成片那一族 2026-10 随拍短剧页一并删除 ---- */
     Pipe: { drawPreview, drawCharAsset, modelSelectHTML, pickProvModel, runPool, fileSafe,
+      /* 语音那三档（哪家在用 / 有哪些可选音色 / 这一家能怎么定声音）的判据在这里，不在页面里：
+         导演台剪辑的声音轨要画同一套下拉，若它自己读 `model.options.voices`，
+         「型号声明 → 平台级兜底」那个顺序就会有两份、漂开只是时间问题。 */
+      provModels, voices, ttsWays, ttsOf,
       voiceMode, setVoiceWay, assignVoices, autoVoice, cloneFromCands, voiceCands,
       saveRefAudio, clearRefAudio },
     /* ---- 角色卡上「声音 / 资产」那几块。素材库页与导演台共用一份，

@@ -273,7 +273,7 @@ const REGISTRY = {
      旧页面（v15 及以下）读的是 `models`：它仍然认 modelDocs 吗？不认 → 那几个 id 的识图判定会退回「自动」，
      而型号清单本来就要靠页面点一次「获取型号列表」取回，取回的那份存在 `.data/sk_model_prefs.json` 里。
      改注册表结构时顺手 +1。 */
-  version: 16,
+  version: 17,
   /* 「接口形状」= **接口族**清单，每一族点名它照哪一家内置声明实现。
      为什么与「供应商」分开：厂商（SparkCine / 硅基流动 / MiniMax…）是「我照它那一家整套走」，
      而接口形状是「我跑的就是这一套协议，厂商是谁不重要」—— 市面上大量中转站都跑 OpenAI 兼容那一套，
@@ -475,6 +475,20 @@ const REGISTRY = {
            它只当声明的上下文用，永远不进提交体。 */
         body: { model: 'model', prompt: 'prompt', tier: 'tier', duration: 'duration', resolution: 'res',
           aspect_ratio: 'ar', creation_intent: 'creation_intent' },
+        /* create 的 model **只收「厂牌/型号」完整形**（2026-10-12 实测）：拿空 prompt 触发校验，
+           上游错误消息把合法值整串列了出来 —— base, cinematic, origin, minimax/h3, minimax/h3-human, minimax/h3-native。
+           而 GET /v3/models 与报价接口返回/接受的都是简形（简形里 base 连斜杠都没有，发去 create 必回
+           `model must match /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/`）；
+           报价响应会把带斜杠别名回显成简形（minimax/h3→base…），两边各说一种方言。
+           型号清单仍然实时从 /v3/models 现取（简形 id 是界面、历史、任务匹配的通用口径），
+           **只在提交那一刻**按这张表换成 create 收的形 —— 表由 `Api.createBody` 统一消费，页面不判平台。
+           简形↔别名 的对应是报价接口逐条实测出来的（回显字段），不是猜的。 */
+        modelSendMap: { base: 'minimax/h3', cinematic: 'minimax/h3-human', origin: 'minimax/h3-native' },
+        /* prompt 的长度闸（实测上游校验消息）：普通生成 5–30000 字；
+           动作换人形状允许省略（0 字不发）或 0–2000 字的附加指令。
+           客户端在提交前拦并说明原因，比让上游回一句用户看不懂的英文校验串好。 */
+        promptLimits: { min: 5, max: 30000,
+          byIntent: { person_replacement: { min: 0, max: 2000, omitted: true } } },
         /* 素材输入怎么进请求体 —— 按官方开发文档（vgenv.com/developers/docs）声明。
              未知字段会被拒绝，所以形状必须精确；tmpl 里 $url = DataURL/公网 https 地址，
              $assetId = 先上传成资产再引用。
@@ -3954,20 +3968,35 @@ async function capFetchPayload(prov, endpoint, apiKey) {
   }));
   const base = { provider: prov.id, name: prov.name, displayName: prov.displayName || prov.name, endpoint, registryModels };
   try {
-    const r = await new Promise((resolve, reject) => {
-      const up = upRequest(prov.base + endpoint, {
-        method: 'GET',
-        headers: { authorization: 'Bearer ' + apiKey, accept: 'application/json', 'accept-encoding': 'identity' },
-        keepAlive: true,              // 目标主机来自注册表声明（见 keepAliveAgent / agentFor）
-      }, ur => {
-        const bufs = [];
-        ur.on('data', c => bufs.push(c));
-        ur.on('end', () => resolve({ status: ur.statusCode, body: Buffer.concat(bufs) }));
-        ur.on('error', reject);
-      });
-      up.on('error', reject);
-      up.end();
-    });
+    /* 网络层失败重问一次（2.5 秒退避）：开机头几秒出站系统代理的 TLS 链常没热，
+       实测 12:25 一波「socket disconnected」正好打在工作台首屏取型号上 —— 冷启动又没有落盘旧副本时，
+       一次失败就把空清单答给了页面（「获取型号失败，刷新一下才好」）。GET 清单无副作用，重问安全；
+       4xx 不重问（密钥/路径问题再来一次也一样）。 */
+    let r = null, netErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        r = await new Promise((resolve, reject) => {
+          const up = upRequest(prov.base + endpoint, {
+            method: 'GET',
+            headers: { authorization: 'Bearer ' + apiKey, accept: 'application/json', 'accept-encoding': 'identity' },
+            keepAlive: true,              // 目标主机来自注册表声明（见 keepAliveAgent / agentFor）
+          }, ur => {
+            const bufs = [];
+            ur.on('data', c => bufs.push(c));
+            ur.on('end', () => resolve({ status: ur.statusCode, body: Buffer.concat(bufs) }));
+            ur.on('error', reject);
+          });
+          up.on('error', reject);
+          up.end();
+        });
+        netErr = null;
+        break;
+      } catch (e) {
+        netErr = e;
+        if (attempt === 0) await new Promise(res => setTimeout(res, 2500));
+      }
+    }
+    if (netErr) throw netErr;
     if (r.status >= 400) {
       return { ...base, source: 'registry', models: {}, note: '上游能力接口返回 ' + r.status + '（按平台声明兜底）' };
     }

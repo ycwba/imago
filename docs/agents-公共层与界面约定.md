@@ -311,6 +311,20 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
 另：内容页被直接打开会被 `sidebar.js` `location.replace` 到 `shell.html` 外壳、内容在 iframe 里，
 浏览器的 scroll 滚不到 iframe 内部、也不能执行 JS —— 要测就得走 CDP
 （Node 内置 `WebSocket` + `Target.attachToTarget`，本机 Chrome 加 `--headless=new --remote-debugging-port` 即可，不用装 puppeteer）。
+
+**真 DOM 行为探针的底座与等待（2026-10-12 补，常驻样板 `.tmp-gennew.cjs`，导演台生成闸 22 条）**：
+① 等页面「采纳完数据」不能靠固定 sleep —— `localStorage` 的每次改动都会经 DataSync 镜成 `PUT /data/<key>`，
+   而首启对账若判定服务器更新会 `location.reload()`，把探针 `evaluate` 正打着的那个文档整个换掉
+   （表现是读出来一片 null，看着像功能坏了，其实是尺子量到了旧文档）。`settle()` 的判据是三件一起：
+   `__synced_<page>` 旗标出现 + 文档里能读到种子值 + `performance.timeOrigin` 连续 1.6s 不变
+   （reload 会换时间原点，最后这条最抗骗）。
+② 造数不点 UI：`PUT /data/<key>` 直接写种子（`/data` 是 LOCAL_ONLY 路由，代理会镜像进隔离实例的 `.data-probe*/`），
+   页面首启 adopt 它；探针要用的平台 = 克隆一份内置声明、改 `id`/型号/`custom:true` 后 `Api.providers().unshift()`，
+   并把花钱口子焊死（`Api.request` 记台账 + create 假回执 + `pollTask` 永不 resolve + 其余 op 抛错）——
+   「点了一次却开了两条任务」这类账目要数得清，就必须一条真请求都不许出。
+③ 跑法：`PORT=… DATA_DIR=.data-probe-* ASSETS_DIR=.assets-probe-* RENDER_DIR=.renders-probe-* node proxy.js`
+   + `chrome --headless=new --remote-debugging-port=<CDP> --user-data-dir=<可丢弃的临时 profile> about:blank`
+   + `PROXY_PORT=… CDP_PORT=… node .tmp-gennew.cjs`（profile 目录用完即弃，别借用户的真实 profile）。
 发现重复实现（例如页面里自己写的下拉/灯箱/上传/详情/缩略图/分页）→ 收敛到公共模块，别复制。
 **素材身份判据只有一份，在 `ident.js`**（2026-10 从两份合成一份）：「两个地址是不是同一份素材」这件事
 同时被两个运行环境用 —— 浏览器算缩略图缓存键、跨页去重、签名过期；Node（`proxy.js` 的 `/local-assets`
@@ -984,7 +998,7 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
     收的是**它自己能取到的公网地址**，本机的 `/getv?url=…` 回环地址它根本访问不到 ——
     发过去的表现是「参考图被静默丢掉」。生成工作台是这么做的（`studio.html` 的 `srcToDataURL`），短剧跟着同一套。
 
-#### 导演台左栏：场景图、分镜落库与素材检索（2026-10-12 批 2）
+#### 导演台左栏：场景图与分镜落库（2026-10-12 批 2；同日的「素材检索建镜头」已整块删除）
 
 - **场景图那一层只回答两件事：图从哪来、这句话要不要跟用户说**。
   「这一镜能不能收参考图 / 收到第几张 / 这张是不是已经有了」**不在这里重写一遍**，
@@ -995,7 +1009,8 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
   不改写用户挑过的；`sc.noPic` 不是多余状态 —— 缩略图上显示的可能正是库里认来的那一张，
   只清 `sc.img` 的话按完 × 画面一个字没变，看着像按钮坏了。
 - **「同一个场景」与「素材库里同名那一条」只有一把尺子**：`nameKey`（去空白 + 小写）。
-  素材投递那段以前另有一个局部 `norm`，两处对「同名」的判法迟早分家（一个管空格、一个不管 = 同一个场景被拆成两场）。
+  对「同名」的判法以前散在两处（一处管空格、一处不管 = 同一个场景被拆成两场），
+  冗余的那一份随素材检索功能一起删掉了（2026-10-12）。
   落点只有 `placeScenesInto(scenes, newScenes)`：AI 分镜「追加」与「手动拆分（`#` 换场）」两条路都走它。
   三条性质，少一条就变成「说的话与做的事不是同一件」：
   ① 同名**并进那一场**（`push`，不是整场覆盖，也不压平成一整场）；
@@ -1011,37 +1026,83 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
   「本来就没有图」不进统计也不吭声（界面不该为不存在的东西报一句），但「型号没有参考图入口 /
   已选首尾帧互斥 / 超出上限」这三种**带不上的**必须说，否则用户以为新镜头带着场景图。
 - **写进工作区的图片地址必须是「记得住的」**：只认 `data:` 与 `/asset/<id>`。
-  选择器递回来的 `e.src` 往往是包着签名外链的 `/getv?url=…`（一天就 403），本地上传那一张是 `blob:`（刷新即失效）——
-  两种都算坏值。这道闸有**两处**、同一个立场：入口 `assetPicSrc()`（素材检索投递时）与自愈 `sanitize()`（存档读出来时），
-  只挡一头的话坏地址照样留在左栏，第二天是一张破图，而新镜头带进参考图的也是那条永远取不回的字串。
+  用户自己挑一张进来时（`setScenePic`）就当场把字节转成 dataURL 再存 ——
+  选择器递回来的 `e.src` 往往是包着签名外链的 `/getv?url=…`（一天就 403），本地上传那一张是 `blob:`（刷新即失效），
+  存这两种就是「记得住一个记不住的地址」。存档读出来时还有一道自愈 `sanitize()`：
+  工作区里混进来的坏值直接抹掉，留着的话那一格画得出来，第二天是一张破图，
+  而新镜头带进参考图的也是那条永远取不回的字串。
 - **拆分镜的秒数口径只有 `SB_SEC` + `sbSec` 两份数字之外的一份**：给 AI 的那句约束、它回来的那个数的 clamp、
   「用户没填时的默认值」三处同源。以前文案写「2–10 秒」、clamp 写 1–15 ——
   AI 交回 12 秒时界面上那句就成了假话。`x > 0` 那一判不能省：AI 回 0 / 负数是「没填」，不是「拍 0 秒」。
-- **素材检索是两步，顺序不许倒**：① AI 把需求翻成**检索条件**（明确写「这一步不要挑具体素材」，
-  日期 / 时间 / 时长 / 条数一律走 `after` / `before` / `minDuration` / `maxDuration` / `limit`，
-  「最近 N 天」翻成 after 往前推 + `order:'desc'`）→ ② 本机 `tlFilterAssets` 在**全库**上过滤 →
-  ③ 只把命中的那一小批交给 AI 分配场景 / 镜头。
-  以前是「先 `entries.slice(0, 300)` 砍一批再让 AI 挑」，而那份清单按 `ts` **升序**排 ——
-  于是「最近 3 天」永远挑不到（砍掉的是最旧的 300 条）。两条红线：
-  **类型与条数以用户表单为准**（结果回来后强制 `plan.type` / `plan.limit`，不让 AI 改回去），
-  **命中图片走 `addLibPicToShot`、命中视频走 `mkImportedCandidate`**，记账分开 `cands / pics / dup / miss`，
-  收尾一句说清「几条进了候选、几张进了参考图、几条本来就有、几条没对上镜头」——
-  候选池也不再先砍成只剩视频（那等于图片类检索结果整批消失）。
-- 改这一层要跑的四支：`node .tmp-scene.cjs`（vm 里的口径，55 条）+
+- 改这一层要跑的四支：`node .tmp-scene.cjs`（vm 里的口径，50 条）+
   `PROXY_PORT=… CDP_PORT=… node .tmp-scenedom.cjs`（真 DOM 的接线：格子画没画、× 点得动、
   打字时 input 节点不换（整片重画会顶走光标）、场景名里的标签不变成节点、`#` 真的换场）+
-  `.tmp-mutscene.cjs`（28 刀反向对照，两支探针各自打过）+ 回归 `.tmp-kfadv.cjs` / `.tmp-kfshot.cjs`。
+  `.tmp-mutscene.cjs`（26 刀反向对照，两支探针各自打过）+ 回归 `.tmp-kfadv.cjs` / `.tmp-kfshot.cjs`。
   探针**每次开跑先复位**那几个场景的 `img` / `refImages`：工作区会落进 `.data-probe/`，
   第二次跑就看到「已经有图」—— 那不是代码坏了，是尺子拿到了脏底座。
   复位管不到的那一半（镜头条数）就**按增量断言**，别写绝对值：`#` 换场遇到同名是**并进已有那一场**，
   而前面几节（加镜、改名）与上一轮留下的工作区都可能让「河岸 黄昏」开局就带着一串镜头 ——
   写死 `=== 3` 在干净底座上过、在脏底座上报红，红的还是尺子（`.tmp-scenedom.cjs` ⑧ 现在先记 `had`，再比净增）。
 
+#### 导演台剪辑（本镜 / 全片轨道）与型号清单首败重试（2026-10-12）
+
+- **切片的账只有一份 `c.segs = [{in,out},…]`（源视频里的秒）**：切开 / 向左切 / 向右切 / 删掉这一段 / 不剪了
+  全走 `segsOf` / `segsWrite` 那一套（`SEG_MIN` 之下不让切，越界当场给 `{err}` 说清）。
+  「本镜」与「全片」两处轨道读同一份 segs —— 剪一刀两处同时变；只调一处的写法在 `.tmp-cutdom.cjs`
+  （⑬⑭）里当场红。**别在渲染处各算一份切片**，那是「全屏铺开」那类旧 bug 的根。
+- **配音条目 `{shotId, candId, seg, at}` 跟着 segs 走**：切 / 删 / 恢复之后按新 segs 重算落点
+  （被切掉的那一段时点往段内夹，跨段时挪到那段开头，`moved` 记账）；右栏 `#voicePos` 那句
+  「第 N/M 段的 +X 秒」是现算的（`voicePosLine`），不是写死的。
+- **切片图铺在轨道格子里、轨道区上下留白**（剪刀与把手要占位置）：几何回归量在 `.tmp-tlrects.cjs` /
+  `.tmp-tlscroll.cjs`（.tl-clips 的 rect 必须落在轨道容器内，不是顶到全屏）。
+- 剪辑探针：口径 `.tmp-cut.cjs`（vm 抠真源码，24 条）+ 真 DOM `.tmp-cutdom.cjs`（25 条：右栏换声音栏、
+  五颗剪子逐字、轨道格子真铺出切片图、配音落点跟随、删段武装态点别处解除、零平台 POST）+
+  反向对照 `.tmp-mutcut.cjs` / `.tmp-mutcutdom.cjs`。底座：
+  `PORT=6451 DATA_DIR=.data-probe-cut ASSETS_DIR=.assets-probe-cut RENDER_DIR=.renders-probe-cut node proxy.js`
+  + `chrome --headless=new --remote-debugging-port=9451 --user-data-dir=<临时 profile> about:blank`
+  + `PROXY_PORT=6451 CDP_PORT=9451 node .tmp-cutdom.cjs`。
+- **「型号清单首败要刷新」的修法是同源只读 GET 自带的退避重试**（`assetlib.js` 的 fetchCaps 那一段）：
+  判据 `.tmp-capsretry.cjs` 用 CDP 的 Fetch 域把开页后**第一发** `/capabilities` 在网络层掐断
+  （vgenv 这一家 `source:"api"`、没有兜底声明 —— 不重试下拉就是空的，判据有牙齿），
+  红/绿按「页面自己重问了一发 + 清单与对照趟完全一致 + 全程零平台 POST」判；反向对照 `.tmp-mutcapsretry.cjs`。
+
 #### 提交体里那些「声明了却没写进模板」的顶层开关（2026-10-12 批 1）
 
 - **模板那一族的顶层开关要在公共层补回去**：`create.template` 那种注册表（MiMo 就是）只渲染模板里写过 `{{…}}` 的键，
   而 `create.topBools` 说的是「这一项在**顶层**」—— 声明了却没写进模板，界面照样按声明把开关画出来，
   用户勾了、发出去却没有那一项。`Api.create` 里按声明补回顶层（一处，页面不判平台 id）。
+
+#### 「输入模式」那一排在两页的落点与排版（2026-10-12）
+
+判据本身（并档、双向、`mode` 不发）写在 `AGENTS.md` §2 那一条里；这里只收**界面侧**那三件只在真浏览器里成立的事。
+
+- **「这一镜 / 这一次能不能生成」的落点有几处，判据就只有一份**：导演台中间栏那一排画出来之后，
+  禁用「生成这一镜」的地方有**三个** —— ① 整栏重画的模板（`renderEditor` 里的 `blockWhy`）、
+  ② 切换候选时刷提示词框（`paintPromptBox`）、③ 逐字敲描述（`ta.oninput`，它**不重画整栏**，
+  重画会把正在敲的字与光标一起顶走）。②③ 以前各自写成 `!!ta.value.trim()`，
+  于是选了「视频换人」而参考视频一张没放，只要描述里有字，按钮就亮、底部还打「✓ 可以生成」，
+  点下去才拿到平台那句 422 —— 而那句要求就写在同一页刚画出来的说明行里。
+  现在三处都走 `syncGenGate(sh)` → `shotBlockReason`（生成工作台那一条本来就是 `Wb.ready` 现问 `submitBlockReason`，没有第二份）。
+- **空提示词与缺料是两件事，各占一行，不许合成一句**：`shotBlockReason` / `submitBlockReason` 按「提示词 → 形状 → 越界参数」的顺序
+  只回**头一个**原因，所以提示词空着时那一行说的是提示词，缺料那句由黄条（`.conflict-hint`，公共层 `comboGaps().lines` 拼好）说。
+  探针因此不能断「空提示词时那一行写着必须带上」，要断的是**填上提示词之后那一行改口成缺料那句**（S11 / S11b、D4 / D4b）——
+  那才是「两处共用一份判据」在 DOM 里的样子。
+- **栏目标签那一格不许被压缩**：`.ed-label` 是 `justify-content: space-between` 的 flex，
+  右边那句说明现在是从能力声明现拼的（「这一档收：尾帧图 ≤1 · 首帧图 ≤1 · 参考图 ≤9 · …」可以很长），
+  标题那一格默认允许收缩，于是「输入模式」被压成一列一个字（截图拍到过）。
+  修法在 `ui.css` 一处：`.ed-label > span:first-child { flex: none; white-space: nowrap; }` —— 页面不要再各自补一份。
+- **那一排排在素材区那一格标签之前**（导演台「画面素材」、工作台「参考素材」）：它管的是「下面这些格子一次收哪几类」，
+  排在标签后面就读成了那一级素材自己的设置。判据别写成「排在槽位之前」—— 槽位本来就都在下面，
+  排错位置照样绿（变异档第一版就是这么漏过去的），要比的是**标签**那个节点。
+- 改这一层要跑的四支：口径层 `node .tmp-combo.cjs` + `.tmp-mutcombo.cjs`（10 刀，vm 沙箱问纯函数）；
+  真 DOM 层 `PROXY_PORT=… CDP_PORT=… node .tmp-combodom.cjs` + `.tmp-mutcombodom.cjs`（5 刀，
+  最后一刀**只许**红在 D1c 那一条 —— 那一档在变异脚本里点名了期望的红条编号，多红少红都算变异打歪）。
+  真 DOM 那两支要先起隔离实例与 headless Chrome，且 vgenv 的能力声明由 CDP 直接 fulfil `.tmp-caps.json`（2026-10-12 从真实实例拷的那一份，无密钥字段）：
+  隔离实例只有假密钥，代理第一次回源拿到 401 后 `capWarm` 会把「按注册表兜底、零型号」写进 60 秒内存缓存顶掉落盘的真清单，
+  页面下拉里压根没有这一家 —— 看着像「芯片没画出来」，其实是仪表没喂到料。
+  两支尺子各自踩过两次，都记在探针文件头：**`span.getClientRects()` 量不出「压成一列一个字」**（flex 子项被 blockify，
+  块级元素只给一个边框盒，怎么压都返回 1 → 假绿；要量就用 `Range.selectNodeContents(el).getClientRects()`，那才是逐行盒），
+  以及**页面两份源文件都是 CRLF**（变异锚点只能取单行，跨行的 `from` 永远匹配不上，于是「一刀没落进去」而探针全绿）。
 
 ### 3.1 生成工作台 `studio.html`（视频 / 图像 / 语音合并成一页）
 

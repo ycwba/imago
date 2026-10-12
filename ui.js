@@ -1456,7 +1456,7 @@ window.copyText = async function copyText(txt) {
 })();
 
 /* ============================================================================
-   PromptForm —— 通用表单弹窗（AI 剪辑指令 / 剧本分镜 / 素材检索 共用）
+   PromptForm —— 通用表单弹窗（剧本分镜 / 重命名短片 / 新建素材 共用）
    const v = await PromptForm.open({
      title, sub, okLabel,
      fields: [{ key, label, type:'textarea'|'text'|'number'|'select', value, placeholder, hint,

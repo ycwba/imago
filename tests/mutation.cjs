@@ -269,6 +269,29 @@ const MUT = [
   { sec: '§J', name: '反向对照：注释里提到 function topBoolStateOf 与调用公共层那份都不该算自写判据（应放行）', file: 'favorites.html', expectGreen: true,
     anchor: '<script src="assetlib.js"></script>',
     to: '<script src="assetlib.js"></script>\r\n<script>\n/* 以前这一页有 function topBoolStateOf(d)，现在只调公共层那一份 */\nwindow.__mutAdvCall = d => window.AdvExtras.topBoolStateOf(d, {});\n</script>' },
+/* §J 的第 ⑮ 支（输入模式那一族只有 Capabilities 一份）要五条：
+     A 页面抄一张同名的素材名表 → 红（本轮修掉的就是这个形状：工作台一份「首帧图」、导演台一份「首帧」）；
+     B 页面自己写一份双向判据 → 红；
+     C 某一页不再走公共的芯片画法（退回自己拼）→ 红 ——「页面不许出现」这一半必须有另一半「公共那份确实在被用」，
+       否则两页全断开时判据反而全绿（⑭ B 同一套路）；
+     D 公共层那一句措辞没了 → 红在「尺子没底座」，别让页面那半变成空断言；
+     E 反向对照：注释里提一句 function comboGaps、页面写**一行转发**（右边点的就是 Capabilities.同名）
+       都不该算第二份实现 —— 把转发也照红，改的人只能把公共层再抄一遍才算「没有副本」。 */
+  { sec: '§J', name: '页面又抄了一份素材名表（同一个 role 两个页面叫两个名字，应红）', file: 'favorites.html',
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>const ROLE_ZH = { first_frame: \'首帧\', reference_image: \'参考图\' };</script>' },
+  { sec: '§J', name: '页面又自己写了一份双向形状判据（应红）', file: 'favorites.html',
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>function comboGaps(m, id, counts) { return { ok: true, lines: [] }; }</script>' },
+  { sec: '§J', name: '工作台不再走公共的芯片画法（页面「不许出现」那半成了空断言，应红）', file: 'studio.html',
+    anchor: "  const chips = comboChips(list, cur().combo);",
+    to: "  const chips = list.map(c => '<button class=\"ui-pill\" data-cid=\"' + c.id + '\">' + comboLabel(c) + '</button>').join('');" },
+  { sec: '§J', name: '公共层那一句说明没了（尺子没底座，应红）', file: 'assetlib.js',
+    anchor: "      ? '这一档收：' + cb.roles.map(r => this.roleZh(r.role)",
+    to: "      ? '变异：措辞被改掉了 ' + cb.roles.map(r => this.roleZh(r.role)" },
+  { sec: '§J', name: '反向对照：注释里提 function comboGaps 与页面的一行转发都不该算副本（应放行）', file: 'favorites.html', expectGreen: true,
+    anchor: '<script src="assetlib.js"></script>',
+    to: '<script src="assetlib.js"></script>\r\n<script>\n/* 以前这一页有 function comboGaps(model, id, counts)，现在只调公共层那一份 */\nconst ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};\nconst comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : \'\';\nwindow.__mutComboRef = (m, id, c) => window.Capabilities.comboGaps(m, id, c);\n</script>' },
 /* §K 的三个变异：一条正向 + **两条反向对照**。
    反向对照是必须的：这一档判的是「重复」，最容易变成一把无脑报警的尺子 ——
    值差一位（那是分叉，要人拍板）、@media 上下文不同（作用范围不同，删掉会改小屏表现），

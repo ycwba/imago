@@ -138,6 +138,17 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   **③ 越界的值在提交之前拦**（种子声明 0–100 却填了 999 → 抛错并点名是哪一项，而不是发给平台等一句 400）。
   「界面画出了开关、提交体里没有那一项」与反过来的「发了而摘要没写」在本项目算同一个缺陷的两半，常驻判据是 `tests/selfcheck.cjs` §J 第 ⑭ 支
   （定义数恰好 1 + 页面不许自写同名判据 + 每个页面确实走了 `AdvExtras.read` / `boolsFromDom`），注释里的示例名有豁免。
+- **「一次请求能同时用哪几类素材」是平台声明的一族档位，全站只有一份读法**（2026-10 补：VGENV 的 `configurations[]` → 导演台与生成工作台都能选「输入模式」）：
+  归并、命名、说明行、芯片排的 HTML 全在 `assetlib.js` 的 `Capabilities`（`combos` / `comboOf` / `comboLabel` / `comboScopeNote` / `comboChipsHTML` /
+  `comboGaps` / `comboCovering` / `fallbackCombo` / `shapeState`），页面只摆容器与接线。四条不能破的性质：
+  **① 名字与数量现读**（「视频换人」要上游列过 `person_replacement` 才有那一颗；不带意图的几档并成一颗「智能参考」，它的 `min` 只数「每个源档都要求」——
+  fl2va 要求首帧而 ref2va 不收首帧，取 `max` 就把纯文字那一档被自己人拦住；这一条真抓取数据打不出，常驻合成形状 `.tmp-combo.cjs` 的 `checkMinMerge`）；
+  **② 判据双向**（缺料 `min` / 超料 `max` / 这一档不收 / 互斥成对，四种一次判全并把人话拼在 `comboGaps().lines`，两页读同一份 —— 只读缺料那一头就是用户点名的缺陷）；
+  **③ `mode` 不是提交字段**（并档那颗 `mode:''`，真字段只有 `creation_intent`，多发一个 `mode` 必被平台拒）；
+  **④ 查不到那一行就给 `known:false`**（`shapeState` 不猜字段：清单里没有的素材组合不该被界面拼出一份「看起来能用」的参数）。
+  「按钮禁用」在导演台有**三个落点**（整栏重画 / 切候选刷提示词框 / 逐字敲描述），三处必须问同一个 `shotBlockReason` ——
+  后两处以前自己写成「描述非空就点亮」，于是换人档敲完字按钮就绿了、点下去才拿到 422。全文（含排版那一排落在哪、四支探针怎么跑）在 `docs/agents-公共层与界面约定.md` 的「输入模式那一排在两页的落点与排版」。
+  常驻判据两对：口径层 `.tmp-combo.cjs` + `.tmp-mutcombo.cjs`（10 刀）、真 DOM 层 `.tmp-combodom.cjs` + `.tmp-mutcombodom.cjs`（5 刀，每刀点名期望的红条编号）。
 
 ## 3. 复用公共模块，别各写一套
 
@@ -145,13 +156,18 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 （**另有几条在原文里是段落而不是列表项，拆分时不会被自动收进索引，手抄在这里** —— 它们是本节最常被引用的一批红线：）
 - **跨闭包调用只走 `window` 上的公开接口**：闭包内定义的函数只在闭包内用；页面内联脚本也不要顶层 `function esc()`（会盖掉 `window.esc` 造成无限递归，表现为整页静默空白）。同一个闭包里兄弟函数裸调局部的 `const` 同样是炸点（`drama.html` 踩过 `bind`）。
 - **同一个功能只应有一份实现**：下拉 `Dropdowns`、网络 `Net`、任务轮询 `Wb.poller`、历史 `Wb.History`、媒体地址 `Api.mediaSrc`、跨平台素材 `AssetTransfer`、IndexedDB 只走 `Kv.at(登记名)`、芯片行 `Chips.render`、缩略图 `Wb.thumbs`（外壳标记也只有一份 `mediaHTML`，画出来必须 `bind`）、详情 `Wb.detail`、卡片列表 `Wb.cards`、分页 `Wb.pager`（续拉的判据在公共层）、灯箱 `Wb.lightbox`、下载 `Wb.save` → `Net.save`、本机落盘 `AssetLocal`（含 `hideAsCloud` 那张闸）、就地二次确认 `Confirm.arm`、弹窗 `UiDialog`、提示 `Toast`、**「四档之外」那三排声明驱动控件** `AdvExtras`（判据 / 画法 / 读回，见 §2 那两条）。发现重复实现 → 收敛到公共模块，别复制。
+- **「这一镜能不能生成」的落点有几处，判据就只有一份**：导演台那三个落点（整栏重画的模板 / 切候选刷提示词框 / 逐字敲描述）都走 `shotBlockReason`（公共入口 `syncGenGate`），页面不许留第二套「描述非空就点亮」。空提示词与缺料是两句话，各占一行不合成。
+- **栏目标签那一格不许被压缩**（`.ed-label > span:first-child { flex: none }` 只在 `ui.css` 一份）：右边那句说明现在是现读能力声明拼出来的，可以很长，压下去就把「输入模式」挤成一列一个字；「输入模式」那一排还排在素材区标签**之前**（判据比的是标签节点，不是槽位）。
+- **素材区那一排与两页的排版只在真 DOM 里成立**：常驻判据 `.tmp-combodom.cjs` + `.tmp-mutcombodom.cjs`（5 刀，每刀点名期望的红条编号；两页源码是 CRLF，变异锚点只能取单行）。全文见 `docs/agents-公共层与界面约定.md` 的「输入模式那一排在两页的落点与排版」。
 - **素材身份判据只有一份，在 `ident.js`**（浏览器与 Node 双模式；引 `assetlib.js` 的页面必须先引它，§D 守着）；合卡规则同样只有一份（`collapseInto`）。
 - **导演台的短片轮询与外链回源也已接进公共实现**：节奏归 `Wb.poller`、回源归 `Api.healMedia`，页面只给适配器与文案；行为探针 `.tmp-dpoll.cjs`（九件事，含「每一轮拿到的壳对象是同一个」）。
 - **导演台左栏「场景图」那一层只回答「图从哪来、这句要不要说」**：能不能收参考图 / 第几张 / 是不是重复，一律走 `addLibPicToShot`，不在这里重写第二份（优先级：左栏挑的 → 素材库同名那条 → 没有；`sc.noPic` 是「连库里那张也不认领」，不是清空 `sc.img`）。
 - **「同一个场景」只有一把尺子（`nameKey`），落点只有一个（`placeScenesInto`）**：AI 分镜追加与「手动拆分（`#` 换场）」两条路共用它；同名**并进那一场**（push，不覆盖、不压平），场景图归属以**目标那一场**为准且只喂这次新建的镜头，返回 `at` 给调用方放光标。
 - **顶部那行结果只写一次（两句拼成一行），带不上的原因走 `Toast.warn`**：`Toast.ok` / `Toast.info` 默认被 `sk_quiet_ok` 静音，拿它当唯一出口等于一个字都没说出去；「本来就没图」不吭声，「型号没有槽位 / 互斥 / 超上限」必须吭。
-- **素材检索是两步且顺序不许倒**：AI 出条件 → 本机在**全库**过滤 → 只把命中那批交给 AI 分配。先 `slice(0,300)` 砍一批再过滤 = 「最近 3 天」永远挑不到（那份清单按 `ts` 升序）；类型与条数以用户表单为准，回来不许被 AI 改。
-- 这一层的四支探针：`.tmp-scene.cjs`（vm 口径）+ `.tmp-scenedom.cjs`（真 DOM 接线，含「改名时打字框节点不换」）+ `.tmp-mutscene.cjs`（28 刀反向对照），探针每次开跑**先复位**那几个场景的 `img` / `refImages`（工作区会落进 `.data-probe/`，脏底座会让第二轮假红）。
+- 这一层的四支探针：`.tmp-scene.cjs`（vm 口径）+ `.tmp-scenedom.cjs`（真 DOM 接线，含「改名时打字框节点不换」）+ `.tmp-mutscene.cjs`（26 刀反向对照），探针每次开跑**先复位**那几个场景的 `img` / `refImages`（工作区会落进 `.data-probe/`，脏底座会让第二轮假红）。
+- **真 DOM 行为探针有两个坑：等页面「采纳完」不能靠 sleep（DataSync 对账会 `reload()` 把探针正打着的文档整个换掉 —— 等法要有判据：`__synced_*` 旗标 + 种子读数 + `performance.timeOrigin` 连续 1.6s 不变），造数用 `PUT /data/<key>` 种子 + 克隆平台声明注入 + 花钱口子焊死**。常驻样板 `.tmp-gennew.cjs`（导演台生成闸 22 条，含「重画后按钮仍禁用」「强行点亮再点只算一次」），跑法与全貌在分册「跑 headless…」那一段。
+- **导演台「生成这一镜」的防重复扣费是两道闸、判据只有一份**：① 模板 `#genOne` 按 `canGen && !genOneBusy` 渲染 disabled（`pushPlaceholders → renderAll` 换掉 DOM 后新按钮同样压暗）；② handler 入口 `if (genOneBusy) return;`（`genOneBusy=true` 在入口设、`finally` 复位）。「已有视频再点生成」的分支（`shotHasVideo → spawnCandidateShot` 新建候选镜头并挂占位）就走这两个闸后面 —— 往 `#genOne` 模板或 handler 里加任何新分支，先想清楚这道闸还盖不盖得住（`.tmp-gennew.cjs` 的 ④/④b/⑧/⑩ 就是钉这三条）。
+- **导演台剪辑（本镜 / 全片轨道）的账只有一份 `c.segs`**（切开 / 向左切 / 向右切 / 删段 / 不剪了五个入口同走 `segsOf`/`segsWrite`，本镜与全片两处读同一份 —— 剪一刀两处同时变；配音 `{seg, at}` 跟着重算）；常驻探针：口径 `.tmp-cut.cjs`（24 条）+ 真 DOM `.tmp-cutdom.cjs`（25 条，含右栏换声音栏、轨道铺切片图、删段武装态）+ 反向对照 `.tmp-mutcut.cjs` / `.tmp-mutcutdom.cjs`。**「型号清单首败要刷新」的同源 GET 退避重试**同层还有一支：`.tmp-capsretry.cjs`（CDP Fetch 域掐断开页第一发 `/capabilities`，判据 = 页面自问一次 + 清单与对照趟一致 + 零平台 POST）+ `.tmp-mutcapsretry.cjs`；底座与跑法在分册同节。
 - **模板那一族（`create.template`，MiMo 就是）的提交体只认识模板里写过的 `{{…}}` 键**，所以声明出来的 `create.topBools` 顶层开关会在 `Api.create` 里按声明补回顶层（公共层一处，页面不判平台）—— 少了这一段就是「开关照样画出来、勾了却一个字都不发」。
 - **主题变量（`:root` / `html[data-theme="dark"]`）只在 `ui.css` 顶部定义一份**：页面私有变量漏定义 = `var()` 静默取不到值（「变量存在但值为空」不会触发回退）。
 - **新增一个页面只改三处**：`app.js` 的 `PAGES`、`sidebar.js` 的 `items`、`ui.js` 的 `PAGE_TARGETS`，代理零改动；漏一处的表现各不相同。

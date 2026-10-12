@@ -139,11 +139,7 @@
   /* 网格里那些要占满整行的（空态、平台读取失败提示条） */
   body.wb2 .col-right #result > .list-note,
   body.wb2 .col-right #result > .empty { grid-column: 1 / -1; }
-  /* 「输入模式」那一排：单颗胶囊的样式在 ui.css 的 .ui-pill，这里只管怎么排。
-     换行放在最后一条 —— 说明句要占满一行，芯片挤在左边。 */
-  .mode-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 10px; }
-  .mode-row .ui-pill { font-size: 12px; padding: 4px 10px; }
-  .mode-row .why { flex-basis: 100%; font-size: 11.5px; color: var(--sub); }
+  /* 「输入模式」那一排的排布在 ui.css 的 .mode-row（导演台那一排芯片共用同一份），这里不再抄。 */
 
   @media (max-width: 720px) {
     textarea { min-height: 112px; font-size: 13.5px; }
@@ -583,17 +579,24 @@ function paintSubNote() {
    三条能力规则全部现算，页面不写死：
      · 能用哪些槽位 / 每个槽位几张 / 收什么文件 → Capabilities.specs(model)（registry inputRoles 为准）
      · 与已选素材互斥的槽位 → Capabilities.blockedRoles（点不动，就地闪烁说明原因）
-     · 换型号后不再接受的旧素材 → unsupportedKinds()，明说并拦住提交，不静默丢掉           */
-const ROLE_ZH = { first_frame: '首帧图', last_frame: '尾帧图', reference_image: '参考图', reference_video: '参考视频', reference_audio: '参考音频' };
+     · 换型号 / 换模式后与这一档说不通的素材 → shapeGaps()（缺料 / 超料 / 不收 / 互斥）双向现算，
+       明说并拦住提交，不静默丢掉                                    */
+/* 输入素材的中文名只在公共层点一次名（`Capabilities.ROLE_ZH`）：这一页与导演台原来各抄一份表，
+   同一个 role 一边叫「首帧图」一边叫「首帧」，而模式名那句现拼读的就是这一份表 —— 两处拼接的
+   字段清单迟早漂开，所以表收到一份，页面只留一个指针。 */
+const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
 const SLOT_DEF = {
   image: { label: '参考图', ic: 'image', accept: 'image/*', role: 'reference_image' },
   video: { label: '参考视频', ic: 'film', accept: 'video/*', role: 'reference_video' },
   audio: { label: '参考音频', ic: 'mic', accept: 'audio/*', role: 'reference_audio' },
   /* 首帧槽位也能直接选视频：自动取该视频的**最后一帧**当首帧图（「把已有视频接着往下生成」）。
-     videoFrame 声明选视频时取哪一帧；没声明的槽位只收图片。抓帧全在浏览器里做（Wb.vframe）。 */
-  frame_first: { label: '首帧图', ic: 'film', accept: 'image/*,video/*', role: 'first_frame', videoFrame: 'last',
+     videoFrame 声明选视频时取哪一帧；没声明的槽位只收图片。抓帧全在浏览器里做（Wb.vframe）。
+     图标与文案统一成导演台那一份（2026-10-12）：导演台首/尾帧都是 `image` 图标 +
+     「开头画面 / 结尾画面」，工作台原来首帧用 `film`、叫「首帧图 / 尾帧图」—— 同一个 role
+     在两个页上一个图标一个名字，用户从导演台切过来会以为是两个不同的东西。 */
+  frame_first: { label: '开头画面', ic: 'image', accept: 'image/*,video/*', role: 'first_frame', videoFrame: 'last',
     hint: '图片；选视频则取其最后一帧' },
-  frame_last: { label: '尾帧图', ic: 'image', accept: 'image/*', role: 'last_frame' },
+  frame_last: { label: '结尾画面', ic: 'image', accept: 'image/*', role: 'last_frame' },
 };
 const ROLE_KIND = { reference_image: 'image', reference_video: 'video', reference_audio: 'audio',
   first_frame: 'frame_first', last_frame: 'frame_last' };
@@ -619,20 +622,10 @@ function slotTakesType(kind, mtype) {
    有声明就画这一排芯片，槽位、每个槽位的数量、参数取值三样都跟着选中那一档收窄。
    没有这种声明的家 combos() 是空数组 —— 这一排一个芯片都不出现，槽位回到原来的「互斥就置灰」，
    行为与合并前逐字相同（所以这一排不是「新机制盖住旧页面」，是给真有互斥形状的平台少踩一次）。 */
-const INTENT_ZH = { person_replacement: '视频换人' };
-/* 模式名从数据现拼：先说这一档带哪一组素材，再补「换人」这一类意图。
-   不写一张「t2va = 文生视频」的固定表 —— 上游哪天加一个 mode，界面上顶多露出原始名，
-   不会像写死表那样直接少一档（与公共层那两张档位 / 比例中文名表同一套做法）。 */
-function comboLabel(cb) {
-  if (!cb) return '';
-  const roles = (cb.roles || []).map(r => r.role);
-  const g = [];
-  if (roles.some(r => r === 'first_frame' || r === 'last_frame')) g.push('首尾帧');
-  if (roles.some(r => String(r).indexOf('reference') === 0)) g.push('参考素材');
-  const intent = cb.intent ? (INTENT_ZH[cb.intent] || cb.intent) : '';
-  const base = g.length ? g.join(' + ') : '纯文字';
-  return intent ? base + ' · ' + intent : base;
-}
+/* 模式名（含「视频换人」这一类意图的中文名、以及归一化给的整档名「智能参考」）只在公共层那一份
+   （`Capabilities.comboLabel`）：导演台现在也要画这一排芯片，两页各拼一遍就会出现
+   「同一档在两个页面上叫两个名字」，而页面那份拼接根本读不到 `combo.label`。 */
+const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';
 function comboList() {
   const { model } = currentModel();
   return (window.Capabilities && Capabilities.combos) ? Capabilities.combos(model) : [];
@@ -640,20 +633,26 @@ function comboList() {
 function comboNow() { return comboList().find(c => c.id === cur().combo) || null; }
 /* 已经放进槽位的素材属于哪几个 role（找「收得下这批素材的那一档」用） */
 function heldRoles() { return Object.keys(SLOT_DEF).filter(k => slotItems(k).length).map(k => SLOT_DEF[k].role); }
-/* 「有没有哪一档收得下这些素材」全站只有这一份判据：换型号时回落、跨页复用、拖进来都问它。
-   在页面里各比一遍 role 字符串就是第二份判据 —— 一定会和提交体那套过滤漂开。 */
-function comboCovering(roles) {
-  const need = (roles || []).filter(Boolean);
-  return comboList().find(c => need.every(r => (c.roles || []).some(x => x.role === r && (x.max || 0) > 0))) || null;
+/* 「有没有哪一档收得下这些素材」「选中的那一档还成立吗」判据都在公共层
+   （`Capabilities.comboCovering` / `fallbackCombo`）：导演台现在也要选模式，两处各写一份
+   回落顺序（先退收得下的那档、再退排第一的那档）迟早和提交体那套过滤漂开，这里只留一个指针。
+   指针**故意不叫公共层那个名字**：页面里出现 `function comboCovering(` 与公共层那份同名，
+   读代码的人（和 §J 的重名判据）都分不清这是第二份实现还是一个转发。 */
+function fitComboFor(roles) {
+  return (window.Capabilities && Capabilities.comboCovering)
+    ? Capabilities.comboCovering(currentModel().model, roles) : null;
 }
-/* 选中的模式还成立吗（换型号、能力刷新之后 id 会变）：
-   先退到**收得下当前素材**的那一档，没有再退到「一次都不带素材」那一档（归一化时排在最前）。
+/* 说明行与芯片那一排的**内容与画法**都在公共层（`comboScopeNote` / `comboChipsHTML`）：
+   导演台要画同一排，两页各抄一句「这一档收：」迟早和声明漂开（数字是现读的，措辞不是）。 */
+const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
+const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
+/* 选中的模式还成立吗（换型号、能力刷新之后 id 会变）：公共层那份回落判据。
    退档不删素材 —— 收不下的那一些由下面那行黄色说明摆出来，并拦住提交。 */
 function ensureCombo() {
-  const s = cur(), list = comboList();
-  if (!list.length) { s.combo = ''; return; }
-  if (list.some(c => c.id === s.combo)) return;
-  s.combo = (comboCovering(heldRoles()) || list[0]).id;
+  const s = cur();
+  if (!window.Capabilities || !Capabilities.fallbackCombo) { if (!comboList().length) s.combo = ''; return; }
+  const want = Capabilities.fallbackCombo(currentModel().model, s.combo, heldRoles());
+  if (s.combo !== want) s.combo = want;
 }
 function setCombo(id) {
   const s = cur();
@@ -675,18 +674,19 @@ function renderModeChips() {
   if (head) {
     head.hidden = false;
     const note = $('modeHeadNote');
-    if (note) note.textContent = !cb ? '' : (cb.roles.length
-      ? '这一档收：' + cb.roles.map(r => (ROLE_ZH[r.role] || r.role) + (r.min > 0 ? '（至少 ' + r.min + '）' : '') + ' ≤' + r.max).join(' · ')
-      /* 纯文字那一档一个文件槽都不画，这句话就没人核对得上 —— 留着「这一档收：」挂个空尾巴，
-         看着像清单没加载出来。直接说清「这一档不需要素材」，与左栏一个槽位都没画这件事一致。 */
-      : '这一档只用文字提示词，不需要参考素材');
+    /* 「这一档收哪些、各几个」现读那一档的声明，连措辞一起（公共层 `comboScopeNote`，导演台用的是同一份）：
+       归一化那边给了整档说明（`combo.hint`，例如并成的那一颗「智能参考」= 送上来哪批素材就是哪一种请求）
+       就补在后面 —— 一句话说明这一档为什么和别的不一样，而不是在页面里按档位名字分支。 */
+    if (note) note.textContent = comboNote(cb);
   }
   if (!row) return;
+  /* 只有一档时**不画那一排芯片**：点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件
+     （AGENTS §7 那条）。说明行照旧留着 —— 它讲得清这一档收哪几类素材，用户知道自己被限定成什么形状。
+     芯片与那句「换模式只改…」的画法在公共层（`comboChipsHTML`），单档时它自己返回空串。 */
+  const chips = comboChips(list, cur().combo);
+  if (!chips) { row.hidden = true; row.innerHTML = ''; return; }
   row.hidden = false;
-  row.innerHTML = list.map(c => '<button type="button" class="ui-pill' + (c.id === cur().combo ? ' on' : '')
-    + '" data-cid="' + escA(c.id) + '">' + escA(comboLabel(c)) + '</button>').join('')
-    + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已经放好的不清掉；'
-    + '当前模式收不下的那一类会标出来，并且提交前先拦住。</span>';
+  row.innerHTML = chips;
   row.querySelectorAll('.ui-pill').forEach(b => { b.onclick = () => setCombo(b.dataset.cid); });
 }
 /* 可用槽位 = 这个型号声明接受的输入 role（Capabilities.specs：registry 的 inputRoles 为准，能力接口补上限）。
@@ -715,21 +715,27 @@ function modelSlots() {
     if (hit) hit.max = Math.max(hit.max, max);
     else merged.push({ kind, max, role: sp.role, group: sp.group, accept: sp.accept || '', maxBytes: sp.maxBytes || 0 });
   });
+  /* 按钮顺序按导演台那一排固定（开头画面在结尾画面前面），不跟上游 inputs 的键序：
+     VGENV 的 /v3/models 把 last_frame 列在 first_frame 之前，照键序画就是「尾帧在前」，
+     而导演台一直是首帧在前 —— 两页同一个角色排两个位置，拖素材时找错格子。 */
+  const ORDER = ['frame_first', 'frame_last', 'image', 'video', 'audio'];
+  const rank = k => { const i = ORDER.indexOf(k); return i < 0 ? ORDER.length : i; };
+  merged.sort((a, b) => rank(a.kind) - rank(b.kind));
   return merged;
 }
 
-/* 已经放进来、但当前型号不接受的素材（换型号后会遇到）：界面明说 + 拦住提交，不静默丢掉 */
-function unsupportedKinds() {
-  const have = new Set(slots.map(s => s.kind));
-  return Object.keys(SLOT_DEF).filter(k => !have.has(k) && slotItems(k).length);
-}
-/* 同一批素材说不通时有两种原因，别混成一句「当前型号不支持」：
-   有模式声明的那一家，是**这一档请求形状**不收它（换个模式就能用，型号没变）；
-   没有模式声明的，才是这个型号根本收不了这类素材。判据跟着 comboNow() 走，不在页面里比平台名。 */
-function strayWhy() {
-  const cb = comboNow();
-  return cb ? '当前输入模式（「' + comboLabel(cb) + '」）不收已选的'
-    : '当前型号不支持已选的';
+/* ---- 「手上的这批素材，在当前这一档下哪里说不通」：双向判据只在公共层那一份 ----
+   `Capabilities.comboGaps` 一次判四种：这一档要求带却没带够的（min）、带了但超过这一档上限的（max）、
+   这一档（或这个型号）根本不收的、以及互斥两组同时用上的。
+   工作台原来只查 min 那一头，于是「先放 9 张参考图，再切到要求恰好 1 张的换人档」界面上四个绿灯、
+   提交体带着 9 张去撞平台一句 422 —— 与导演台原来整套模式判据都没接是同一类缺陷的两半。
+   计数按 `SLOT_DEF` 的 role 现数，**不看画没画出来的那几格**（`slots`）：换档后被藏掉的槽位里
+   那些素材还在，正是必须被点出来的那一些。 */
+function shapeGaps() {
+  const counts = {};
+  Object.keys(SLOT_DEF).forEach(k => { const r = SLOT_DEF[k].role; if (r) counts[r] = slotItems(k).length; });
+  if (!window.Capabilities || !Capabilities.comboGaps) return { missing: [], over: [], rejected: [], conflicts: [], lines: [], ok: true };
+  return Capabilities.comboGaps(currentModel().model, cur().combo, counts);
 }
 
 function releaseItemUrl(it) {
@@ -747,11 +753,9 @@ function blockedSlotKinds() {
 }
 function conflictHint(blockedKinds) {
   const label = k => SLOT_DEF[k].label;
-  if (window.Capabilities) {
-    const bad = Capabilities.illegalPairs(currentModel().model, usedRoles());
-    if (bad.length) return '已同时选了互斥的两组：' + bad.map(([a, b]) => '「' + (ROLE_ZH[a] || a) + ' + ' + (ROLE_ZH[b] || b) + '」').join('、')
-      + '，本型号一次请求只能用一组，请清空其中一组';
-  }
+  /* 「已经同时选上互斥两组」不在这里说 —— 那是 `shapeGaps().conflicts` 的活，
+     黄条与提交前拦截都按那一份点名（这里再说一遍就是同一件事两句措辞，还会漂开）。
+     这一句只管另一种情况：另一组**还空着**、但已经被手上这批素材挡住了。 */
   const blockers = slots.filter(s => slotItems(s.kind).length).map(s => label(s.kind));
   const blocked = slots.filter(s => blockedKinds.has(s.kind)).map(s => label(s.kind));
   return blocked.length
@@ -1070,23 +1074,30 @@ function renderInputArea() {
   });
   const hint = conflictHint(blockedKinds);
   if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + escA(hint) + '</div>');
-  const stray = unsupportedKinds();
-  if (stray.length) {
+  /* 当前这一档与手上这批素材说不通的地方，四种一次列全（判据在公共层 `Capabilities.comboGaps`）：
+     缺料（这一档要求带）、超料（超过这一档的上限）、这一档 / 这个型号根本不收、互斥两组都用上了。
+     每一条都给出路：能切到「收得下这批素材的那一档」就切档，否则清掉惹事的那几格。 */
+  const gaps = shapeGaps();
+  const gLines = gaps.lines;
+  if (gLines.length) {
+    const badKinds = [...new Set(gaps.rejected.concat(gaps.over).map(x => ROLE_KIND[x.role]))].filter(Boolean);
+    const fit = fitComboFor(heldRoles());
+    const canSwitch = !!(fit && fit.id !== cur().combo);
     const box2 = document.createElement('div');
     box2.className = 'conflict-hint';
     box2.style.color = 'var(--warn)';
     /* 收得下这批素材的那一档就在声明里，找到了就给一条「切过去」的路，而不是只让人清空。
-       找不到（这个型号确实没有这一档）才只剩下「清空这些素材」或换型号。 */
-    const fit = comboCovering(stray.map(k => SLOT_DEF[k].role));
-    box2.innerHTML = strayWhy() + '「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，'
-      + (fit ? '<a href="#" class="lnk">切到「' + escA(comboLabel(fit)) + '」</a>'
-        : '<a href="#" class="lnk">清空这些素材</a>')
-      + (fit ? ' 或 <a href="#" class="lnk2">清空这些素材</a>' : ' 或换回支持的型号');
+       找不到（这个型号确实没有这一档）才只剩下「清空这些素材」或换型号；
+       两条出路都没有时（缺料那种）照实说下一步是什么，别留一句没有下文的断言。 */
+    box2.innerHTML = gLines.map(x => '<div>' + escA(x) + '</div>').join('')
+      + (canSwitch ? '<a href="#" class="lnk">切到「' + escA(comboLabel(fit)) + '」</a>' : '')
+      + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<a href="#" class="lnk2">清空这些素材</a>' : '')
+      + (!canSwitch && !badKinds.length ? (gaps.missing.length ? '：补上缺的那一类素材，或换一档 / 换型号'
+        : '：换一档或换回支持的型号') : '');
     const go = box2.querySelector('.lnk');
-    if (fit) go.onclick = e => { e.preventDefault(); setCombo(fit.id); };
-    else go.onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+    if (go) go.onclick = e => { e.preventDefault(); setCombo(fit.id); };
     const cl = box2.querySelector('.lnk2');
-    if (cl) cl.onclick = e => { e.preventDefault(); stray.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+    if (cl) cl.onclick = e => { e.preventDefault(); badKinds.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
     area.appendChild(box2);
   }
 
@@ -1706,26 +1717,11 @@ function submitBlockReason() {
     return '';
   }
   /* 视频侧的长度下限不写死：注册表里只有语音声明了 minChars，没有声明 = 非空即可 */
-  const stray = unsupportedKinds();
-  if (stray.length) return strayWhy() + '「' + stray.map(k => SLOT_DEF[k].label).join(' / ') + '」，换一档或清空它';
-  /* 这一档**必须**带哪几类素材按声明的 min 判（动作换人 = 一条参考视频 + 恰好一张人物图）：
-     当场拦住并说清缺哪一类，好过提交上去被平台拒成 422。取值只问 Capabilities.rule 那一份声明。 */
-  const cb = comboNow();
-  if (cb && window.Capabilities) {
-    const miss = cb.roles
-      .filter(r => r.min > 0 && ROLE_KIND[r.role] && slotItems(ROLE_KIND[r.role]).length < r.min)
-      .map(r => (ROLE_ZH[r.role] || r.role) + '（至少 ' + r.min + '）');
-    if (miss.length) return '当前输入模式（「' + comboLabel(cb) + '」）必须带上：' + miss.join('、');
-  }
-  if (window.Capabilities && usedRoles().length) {
-
-    const bad = Capabilities.illegalPairs(model, usedRoles());
-    if (bad.length) return '「' + bad.map(([a, b]) => (ROLE_ZH[a] || a) + ' + ' + (ROLE_ZH[b] || b)).join('、') + '」不能同时使用，请先清空其中一组';
-  }
-  if (TYPE === 'image' && slotItems('image').length) {
-    const okRef = !window.Capabilities || Capabilities.specs(model).some(sp => sp.role === 'reference_image');
-    if (!okRef) return '当前型号不支持参考图：换一个支持它的型号，或清空参考图';
-  }
+  /* 这一档**必须**带哪几类、最多带哪几类、收不收已经放进来的、互斥两组同时用上了 ——
+     四处「说不通」一次判全（`Capabilities.comboGaps` 那一份双向判据，与左栏黄条同一个读数）。
+     当场拦住并点名是哪一类差几个，好过提交上去被平台拒成 422。 */
+  const lines = shapeGaps().lines;
+  if (lines.length) return lines.join('；');
   /* 顶层非布尔字段（随机种子、动作起点）越界：平台回的是 400、消息里只点名那两个数，
      先在本机拦一句。上下限仍然只读声明里的 min / max，页面不编一个边界。 */
   const sfbad = advExtras().bad;
@@ -2207,21 +2203,8 @@ async function saveSyncImages(prov, model, prompt, items) {
   return out;
 }
 /* ---------- 语音：同步合成（上游没有任务号），本机记录就是唯一凭据 ---------- */
-const pcm16ToWav = (b64, sr) => AiGen.pcm16ToWav(b64, sr);
-const b64FromBuf = buf => AiGen.b64FromBuf(buf);
-/* 十六进制 → base64。MiniMax 的 t2a_v2 把音频放在 data.audio，官方文档写的是**十六进制**
-   （官方 WebSocket 指南明确写「用十六进制解码，别当 base64」），而 /local-assets 收的是 base64。
-   文档与第三方示例在这一点上不一致，所以认不出合法十六进制时**退回按 base64 试一次**，
-   两种都解不出才报错 —— 宁可多试一次，也不要让人对着一个能用的接口发愣。 */
-function hexToB64(hex) {
-  const h = String(hex || '').trim();
-  if (!h || h.length % 2 || !/^[0-9a-fA-F]+$/.test(h)) return '';
-  const bytes = new Uint8Array(h.length / 2);
-  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(h.substr(i * 2, 2), 16);
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
+/* 解码（hex / pcm16 封 WAV）与落盘那一整条链在公共层 `AiGen.synthTts` ——
+   导演台剪辑的声音轨走的是同一条，这里不再写第二份（AGENTS §3）。 */
 async function audioRefBase64() {
   const it = slotItems('audio')[0];
   if (!it) return '';
@@ -2232,32 +2215,16 @@ async function audioRefBase64() {
 }
 async function synthAudio(t) {
   const prov = currentModel().prov;
-  const tts = (prov && prov.tts) || {};
   const mode = t.voiceMode || 'preset';
   const useRef = mode === 'clone';
+  /* 这一页只决定「音色怎么给」：复刻递参考音频的 base64、设计递空串、预设递音色 id。
+     提交 / 解码 / 落盘交回公共层那一份（AiGen.synthTts）。 */
   const voiceValue = useRef ? (await audioRefBase64()) : (mode === 'design' ? '' : t.voice);
-  const res = await Api.create(prov, {
-    model: t.model, text: t.text, style: t.style || '', voice: voiceValue, format: t.format,
-    textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
-    ...(t.bools || {}),
-    log: false,                       // 同步合成没有平台任务号：归档在提交时按本地任务号做
-  });
-  let b64 = Api.pickPath(res, tts.responsePath || 'choices.0.message.audio.data');
-  if (b64 && tts.encoding === 'hex') {
-    const hx = hexToB64(b64);
-    if (hx) b64 = hx;
-    else console.warn('[studio] 声明 tts.encoding=hex，但返回值不是合法十六进制，按 base64 处理');
-  }
-  if (!b64) throw new Error('接口没有返回音频数据（检查 registry 里 tts.responsePath 声明）');
-  let outB64 = b64, fmt = t.format;
-  if (t.format === 'pcm16') { outB64 = b64FromBuf(pcm16ToWav(b64, tts.pcmSampleRate || 24000)); fmt = 'wav'; }
-  const mime = (tts.mime || {})[fmt] || 'audio/wav';
-  const name = '语音-' + (t.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt;
-  const saved = await Api.saveLocalAsset({ name, mime, format: fmt, data: outB64,
-    meta: { prompt: t.text, model: t.model, voice: useRef ? '参考音频复刻' : t.voice, provider: prov.id,
-      chars: (t.text || '').length, usage: (res && res.usage) || null } });
-  return { assetId: saved.assetId || saved.id, url: saved.url || ('/asset/' + (saved.assetId || saved.id)),
-    format: fmt, bytes: saved.bytes || 0, usageText: '', priceText: '', transcript: '' };
+  const r = await AiGen.synthTts(prov, { model: t.model, text: t.text, style: t.style || '',
+    voice: voiceValue, format: t.format, bools: t.bools || {},
+    meta: { voice: useRef ? '参考音频复刻' : t.voice } });
+  return { assetId: r.assetId, url: r.url, format: r.format, bytes: r.bytes,
+    usageText: '', priceText: '', transcript: '' };
 }
 
 /* ---------- 生成按钮 ---------- */
@@ -3171,7 +3138,7 @@ async function refIntoSlot(mtype, p, o) {
      切模式既不删素材也不花钱，所以三个入口都可以替用户做（这与「能不能替用户换型号」是两件事，
      后者仍归 o.autoSwitch 管 —— 拖拽时悄悄换掉他挑好的型号才是坏事）。 */
   if (!slots.some(x => x.kind === kind)) {
-    const fit = comboCovering([def.role]);
+    const fit = fitComboFor([def.role]);
     if (fit && fit.id !== cur().combo) setCombo(fit.id);   // setCombo 里会 paintLeft，slots 随之重算
   }
   const arr = slotItems(kind), sl = slots.find(x => x.kind === kind);

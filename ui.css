@@ -515,6 +515,11 @@ button.armed { min-width: 4.6em; }
 .ui-pill:hover:not(.on):not(:disabled) { border-color: var(--acc, #6957e8); color: var(--acc, #6957e8); }
 .ui-pill.on { background: var(--pri, #7c5cff); border-color: var(--pri, #7c5cff); color: #fff; font-weight: 600; }
 .ui-pill:disabled { opacity: .5; cursor: not-allowed; }
+/* .mode-row 「输入模式」那一排（生成工作台与导演台共用）：单颗胶囊的样式就是上面的 .ui-pill，
+   这里只管怎么排 —— 说明句要独占一行，所以最后那条 .why 占满整行宽。 */
+.mode-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 10px; }
+.mode-row .ui-pill { font-size: 12px; padding: 4px 10px; }
+.mode-row .why { flex-basis: 100%; font-size: 11.5px; color: var(--sub, #8a8fa3); }
 .ui-tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 2px 10px;
   font-size: 12px; background: var(--panel2, #f3f4f9); color: var(--sub, #8a8fa3); white-space: nowrap; }
 .ui-tag.ok { background: rgba(22,163,74,.12); color: var(--ok, #16a34a); }
@@ -612,6 +617,9 @@ button.armed { min-width: 4.6em; }
 /* 素材缩略图块：一个素材一块（视频工作台的参考图 / 首尾帧 / 参考视频 / 参考音频） */
 /* 素材区栏目标签行（导演台右栏 + 生成工作台左栏共用）：左标题、右说明 */
 .ed-label { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--sub); margin: 12px 0 6px; }
+/* 标题那一格不参与压缩：右边那句说明是现读能力声明拼出来的（「这一档收：尾帧图 ≤1 · 首帧图 ≤1 · …」
+   可以很长），flex 默认允许收缩就会把「输入模式」压成一列一个字（截图里真出现过）。 */
+.ed-label > span:first-child { flex: none; white-space: nowrap; }
 .ed-label .cnt { color: var(--sub); font-size: 11px; margin-right: 8px; }
 /* ---------- 素材槽位（导演台右栏 + 生成工作台左栏共用，全站一份）----------
    磁贴样式与交互统一：空槽 = 图标 + 名字 + 小字（收什么类型、已有几张，现算）；
@@ -634,6 +642,10 @@ button.armed { min-width: 4.6em; }
 .asset-slot.blocked:hover { border-color: var(--err, #dc2626); }
 /* 互斥但已经放了素材（换型号留下的）：标红提醒，提交前需清空一组 */
 .asset-slot.conflict { border-style: solid; border-color: var(--err, #dc2626); color: var(--err, #dc2626); }
+/* 当前这一档（或这个型号）**不收**、但已经放好了的素材：照样画出来，标一圈警示色、不给「点击添素材」的入口。
+   把它藏掉 = 黄条指着这条素材、界面上既看不见也删不掉，只能重开工作区（生成工作台用「清空这些素材」那条链接解决同一件事）。 */
+.asset-slot.stray { border-style: solid; border-color: var(--warn, #d97706); color: var(--warn, #d97706); cursor: default; }
+.asset-slot.stray:hover { border-color: var(--warn, #d97706); }
 /* 互斥说明就地高亮（不用顶部横幅）：点被禁用的槽位时闪一下这一行 */
 @keyframes conflictPulse { 0% { background: rgba(220,38,38,.20); } 100% { background: transparent; } }
 .conflict-hint { border-radius: 3px; padding: 2px 4px; color: var(--err, #dc2626); margin-top: 6px; font-size: 11px; line-height: 1.4; }

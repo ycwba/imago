@@ -1172,6 +1172,35 @@ function onWindow(tok) {
   return v === 'window' || v === 'globalThis' || v === 'self' || v === 'top' || v === 'parent';
 }
 
+/* 「这一个对象字面量有哪些成员名」—— §J 用它现取两张公共面：workbench.js 的 `const api = {`
+   （pager 的方法名）与 assetlib.js 的 `window.Capabilities = {`（输入模式那一族）。
+   为什么不手抄名单：抄一份名单就是第二份真相 —— 公共层加一个方法还得记得回来改判据，
+   忘了就红在产品上（⑦ 那一档踩过的是 studio.html 调 `pager.fill`，api 上从来没有这个名字）。
+   认 `<name> = {` 那一层花括号里处在**成员位置**的标识符：前驱是 { 或 ,（或 async/get/set 前缀），
+   后继是 ( 、: 或 , 、}（简写属性）。方法体里的东西都在更深层，靠深度自然挡掉。 */
+function objectMembers(T, name) {
+  const out = new Set();
+  for (let k = 0; k + 2 < T.length; k++) {
+    if (!(T[k].t === 'id' && T[k].v === name && T[k + 1].t === 'p' && T[k + 1].v === '='
+      && T[k + 2].t === 'p' && T[k + 2].v === '{')) continue;
+    let d = 0;
+    for (let j = k + 2; j < T.length; j++) {
+      const u = T[j];
+      if (u.t === 'p' && u.v === '{') { d++; continue; }
+      if (u.t === 'p' && u.v === '}') { d--; if (d === 0) break; continue; }
+      if (d !== 1 || u.t !== 'id') continue;
+      const pv = T[j - 1], nx = T[j + 1];
+      const isStart = pv && (pv.t === 'p' ? (pv.v === '{' || pv.v === ',')
+        : pv.t === 'id' && (pv.v === 'async' || pv.v === 'get' || pv.v === 'set'));
+      if (!isStart) continue;
+      if ((u.v === 'async' || u.v === 'get' || u.v === 'set') && nx && nx.t === 'id') { out.add(nx.v); continue; }
+      if (nx && nx.t === 'p' && (nx.v === '(' || nx.v === ':' || nx.v === ',' || nx.v === '}')) out.add(u.v);
+    }
+    break;
+  }
+  return out;
+}
+
 function sectionJ() {
   const red0 = red;
   const items = targets.js.map(f => ({ f, html: false })).concat(targets.html.map(f => ({ f, html: true })));
@@ -1219,30 +1248,48 @@ function sectionJ() {
     const rw = lex(read('workbench.js'), 1);
     if (rw.err) bad('§J', 'workbench.js 扫描器读不完：' + rw.err + '（pager 面的判据坏了）');
     else {
-      const W = rw.toks;
-      for (let k = 0; k + 2 < W.length; k++) {
-        if (!(W[k].t === 'id' && W[k].v === 'api' && W[k + 1].t === 'p' && W[k + 1].v === '='
-          && W[k + 2].t === 'p' && W[k + 2].v === '{')) continue;
-        let d = 0;
-        for (let j = k + 2; j < W.length; j++) {
-          const u = W[j];
-          if (u.t === 'p' && u.v === '{') { d++; continue; }
-          if (u.t === 'p' && u.v === '}') { d--; if (d === 0) break; continue; }
-          if (d !== 1 || u.t !== 'id') continue;
-          const pv = W[j - 1], nx = W[j + 1];
-          const isStart = pv && (pv.t === 'p' ? (pv.v === '{' || pv.v === ',')
-            : pv.t === 'id' && (pv.v === 'async' || pv.v === 'get' || pv.v === 'set'));
-          if (!isStart) continue;
-          if ((u.v === 'async' || u.v === 'get' || u.v === 'set') && nx && nx.t === 'id') { apiKeys.add(nx.v); continue; }
-          if (nx && nx.t === 'p' && (nx.v === '(' || nx.v === ':' || nx.v === ',' || nx.v === '}')) apiKeys.add(u.v);
-        }
-        break;
-      }
+      /* 提法从 objectMembers 现取（与「真把 workbench.js 装进 vm 跑一次、问 create() 的返回值要 keys」
+         逐字相等：11 个名字，两边都对过 —— 提法松或紧过一次就会报出差异，那是尺子红）。 */
+      objectMembers(rw.toks, 'api').forEach(v => apiKeys.add(v));
       if (apiKeys.size < 8)
         bad('§J', '从 workbench.js 只提出 ' + apiKeys.size + ' 个 pager 方法名（实测 11 个，少于 8 就是提法坏了）：'
           + [...apiKeys].join(','));
     }
   } else bad('§J', '读不到 workbench.js —— pager 面判据没底座');
+
+  /* ⑮ 「输入模式」那一族（素材名表、模式名、这一档收什么的说明、芯片画法、双向判据、退档判据）
+        只有一份，挂在 assetlib.js 的 `window.Capabilities` 上（本轮为了「导演台使用 vgenv 时也能选模式」收的）。
+     面从 assetlib.js **现取**（objectMembers，与 pager 那一面同一个提法），名单不手抄。
+     这一档防三种复法：① 页面再写一份同名的表 / 函数（两页各一份 ROLE_ZH 就是本轮修掉的 ——
+     同一个 role 一边叫「首帧图」一边叫「首帧」）；② 页面抄一句本该现算的措辞
+     （「这一档收：」那句在两个页面逐字相同：min/max 是现读的，措辞不是）；
+     ③ 只有一页在用（那等于公共层是死的，下一轮又会各写一份）。 */
+  const CAP_NAMES = ['ROLE_ZH', 'INTENT_ZH', 'roleZh', 'comboLabel', 'comboGaps',
+    'comboCovering', 'fallbackCombo', 'comboScopeNote', 'comboChipsHTML'];
+  const CAP_SET = new Set(CAP_NAMES);
+  /* 那几句「本该现算却被人抄成字面量」的说明，与芯片的 data-cid 标记 */
+  const COPY_PHRASES = ['这一档收：', '这一档只用文字提示词', '换模式只改', 'data-cid='];
+  const copyHits = {}, copyPageSites = {}, copyLibSites = {};
+  COPY_PHRASES.forEach(p => { copyHits[p] = { lib: 0, page: 0 }; copyPageSites[p] = []; copyLibSites[p] = []; });
+  const capFace = new Set();
+  const capRefs = {}, capRefSites = {};
+  let capClone = 0;
+  const capCloneSites = [];
+  if (exists('assetlib.js')) {
+    const ca = lex(read('assetlib.js'), 1);
+    if (ca.err) bad('§J', 'assetlib.js 扫描器读不完：' + ca.err + '（Capabilities 面的判据坏了）');
+    else {
+      objectMembers(ca.toks, 'Capabilities').forEach(v => capFace.add(v));
+      const miss = CAP_NAMES.filter(n => !capFace.has(n));
+      if (miss.length) bad('§J', 'window.Capabilities 的面上没有这些名字：' + miss.join('、')
+        + ' —— 输入模式那一族的唯一实现脱节了（页面在调一个公共层没有的方法，或者它被改了名）');
+      /* 面太小 = 提法坏了（与 apiKeys 那一条同样的两头纪律：只查「名字在不在」的话，
+         提法一旦返回空集，九条缺席会一起报出来 —— 那一句讲的是尺子，不是产品）。 */
+      if (capFace.size < 20)
+        bad('§J', '从 assetlib.js 只提出 ' + capFace.size + ' 个 Capabilities 成员名（实测 40 个上下，'
+          + '少于 20 就是提法坏了）：' + [...capFace].join(','));
+    }
+  } else bad('§J', '读不到 assetlib.js —— Capabilities 面判据没底座');
 
   for (const it of items) {
     if (!exists(it.f)) continue;
@@ -1404,6 +1451,49 @@ function sectionJ() {
             pagerOffSites.push(it.f + ':' + t.line + ' pager.' + T[k + 2].v);
           }
         }
+        /* ⑮ 页面**引用**公共层那一份（`Capabilities.<名字>`，也认 `window.Capabilities && Capabilities.<名字>`
+           这种守卫写法）与页面**又写了一份同名实现**要分开数：前者是这一档要的，后者即是分叉。 */
+        if (t.t === 'id' && t.v === 'Capabilities' && nx && nx.t === 'p' && nx.v === '.'
+          && T[k + 2] && T[k + 2].t === 'id' && CAP_SET.has(T[k + 2].v)) {
+          const nm = T[k + 2].v;
+          capRefs[nm] = (capRefs[nm] || 0) + 1;
+          (capRefSites[nm] = capRefSites[nm] || []).push(it.f + ':' + t.line);
+        }
+        /* 同名定义 = 第二份实现，三种写法都要抓：
+             function comboGaps(…)             —— 真重写一份判据
+             const ROLE_ZH = { first_frame: … } —— 抄一张表
+             const comboLabel = cb => cb.mode   —— 自己拼模式名
+           但「一行转发」（右边点的就是 Capabilities.同名）是故意留下的：两页都要在标记里用短名，
+           把长守卫表达式抄四遍只会让标记读不动。所以判据是**初始化里有没有点到 Capabilities.同名**，
+           不是「页面里出没出现过这个名字」—— 后者会把转发也照红，改的人只能把公共层再抄一遍。 */
+        if (it.html && t.t === 'id' && CAP_SET.has(t.v) && !(pv && pv.t === 'p' && pv.v === '.')) {
+          if (pv && pv.t === 'id' && pv.v === 'function') {
+            capClone++; capCloneSites.push(it.f + ':' + t.line + ' function ' + t.v);
+          } else if (nx && nx.t === 'p' && (nx.v === '=' || nx.v === ':')) {
+            let fwd = false;
+            for (let j = k + 2; j < Math.min(T.length, k + 60); j++) {
+              const u = T[j];
+              if (u.t === 'p' && (u.v === ';' || u.v === '}')) break;
+              if (u.t === 'id' && u.v === 'Capabilities' && T[j + 1] && T[j + 1].t === 'p' && T[j + 1].v === '.'
+                && T[j + 2] && T[j + 2].t === 'id' && T[j + 2].v === t.v) { fwd = true; break; }
+            }
+            if (!fwd) { capClone++; capCloneSites.push(it.f + ':' + t.line + ' ' + t.v + ' ='); }
+          }
+        }
+        /* 措辞与画法的指纹：这几句/标记只许在公共层出现，而且**逐句**点名 ——
+           合成一个总数时，公共层删掉其中一句（另有三句顶着）照样全绿，那一半就成了空断言
+           （第一版就是这么被变异 D 抓出来的）。
+           读**词法器取出的字符串内容**而不是整行正则 —— 两页的正文注释里正在讲「这一档收：」
+           那句原来怎么挂空尾巴，词法器剥注释，所以说明文字不会把自己照红（与 ②③ 同一套路）。 */
+        if (t.t === 'str' || t.t === 'tpl') {
+          const sc = String(t.s || '');
+          for (const p of COPY_PHRASES) {
+            if (sc.indexOf(p) < 0) continue;
+            const rec = copyHits[p];
+            if (it.html) { rec.page++; copyPageSites[p].push(it.f + ':' + t.line); }
+            else { rec.lib++; copyLibSites[p].push(it.f + ':' + t.line); }
+          }
+        }
       }
     }
   }
@@ -1558,6 +1648,37 @@ function sectionJ() {
       + '页面自己扫一遍 [data-bool] 就等于第二份读法，而它分不清「这一排属于当前类型」');
   });
 
+  /* ⑮ 三头都要在：公共层那一份在面上了、页面**没有**第二份同名实现、**且**两页都真的在引用它。
+     只有前两头的话，「页面全改成不选模式」与「判据坏了」长得一模一样（⑧⑩ 同一套路）。 */
+  if (capClone) bad('§J', '页面又自己写了一份输入模式的表 / 判据：' + capCloneSites.join('、')
+    + ' —— 素材名表、模式名、双向判据、退档判据只有 assetlib.js 的 Capabilities 一份；'
+    + '要短名就写一行转发（右边点 Capabilities.同名），抄第二份表就会出现「同一个 role 在两个页面叫两个名字」');
+  /* 逐句两头都查：页面里 0 处，**且**公共层里确实还有那一句。
+     只查前一头的删掉一句措辞（另几句顶着）也是全绿 —— 变异 D 第一版就是这么漏的。 */
+  COPY_PHRASES.forEach(p => {
+    const h = copyHits[p];
+    if (h.page) bad('§J', '页面里又出现「' + p + '」：' + copyPageSites[p].join('、')
+      + ' —— 这一句 / 这一个标记在 comboScopeNote 与 comboChipsHTML 里，页面抄一份就得自己维护 min/max 与画法');
+    if (!h.lib) bad('§J', 'assetlib.js 里没有「' + p + '」那一句（公共层 ' + h.lib + ' 处）'
+      + ' —— 尺子没底座：页面那头「不许出现」会变成永远的空断言');
+  });
+  const capBoth = ['ROLE_ZH', 'comboLabel', 'comboGaps', 'fallbackCombo', 'comboScopeNote', 'comboChipsHTML'];
+  ['director.html', 'studio.html'].forEach(f => {
+    const off = capBoth.filter(n => !(capRefSites[n] || []).some(s => s.startsWith(f)));
+    if (off.length) bad('§J', f + ' 没有走 Capabilities 的这几样：' + off.join('、')
+      + ' —— 它要么退回了自己拼名字 / 自己判收不收（两页各一份迟早对不上），要么整块没接输入模式');
+  });
+  /* 工作台还多一样：黄条上「切到『X』」那条出路要现找收得下这批素材的那一档。
+     导演台没有这一问（它只在退档时问），所以只点 studio 的名。 */
+  if (!(capRefSites.comboCovering || []).some(s => s.startsWith('studio.html')))
+    bad('§J', 'studio.html 没有走 Capabilities.comboCovering —— 「有没有哪一档收得下这批素材」又是页面自己比 role 字符串');
+  /* 引用总数下限（先量过再钉）：只查「这名字出现过一次」的话，
+     把其余调用点全改回内联写法照样全绿，而那一页恰好就是会漂开的那一页。 */
+  const capRefTotal = Object.values(capRefs).reduce((a, b) => a + b, 0);
+  if (capRefTotal < 24) bad('§J', 'Capabilities 那一族的引用只看到 ' + capRefTotal + ' 处（先量过的是 24 处：'
+    + '两页各引用 ROLE_ZH / comboLabel / comboGaps / fallbackCombo / comboScopeNote / comboChipsHTML，'
+    + '工作台再多一处 comboCovering 与守卫）—— 少一头就是判据或调用点坏了');
+
   if (red === red0) ok('§J', '扫了 ' + scanned + ' 段源码：b64Bytes 定义 ' + defs + ' 处（被调 ' + calls + ' 次）、落点选择器 '
     + pickers + ' 处、页面自建 toast ' + toastDefs + ' 处、页面自建续拉 ' + ioInPage + ' 处、字节单位数组 ' + unitSites.length
     + ' 处、页面自建芯片行 ' + chipRows + ' 处（Chips 定义 ' + chipsDefs + ' / 被调 ' + chipsCalls
@@ -1568,7 +1689,11 @@ function sectionJ() {
     + ' ⑩就地确认：Confirm.arm 定义 ' + armDef + ' / 调用 ' + armCalls + ' / 页面手搓 ' + armInline
     + ' 处、⑪资产合并：Object.assign 摊字典 ' + assetMerge + ' 处（mergeAssetLists 被调 ' + mergeCalls + ' 次）'
     + '、⑭三排声明驱动控件：AdvExtras 定义 ' + advDef + ' 处 / 页面自写判据 ' + advCloneSites.length
-    + ' 处 / 走公共读回的页面 ' + advReaders.length + ' 个');
+    + ' 处 / 走公共读回的页面 ' + advReaders.length + ' 个'
+    + ' ⑮输入模式那一族：面 ' + capFace.size + ' 个成员 / 引用 ' + capRefTotal + ' 处（'
+    + CAP_NAMES.map(n => n + ':' + (capRefs[n] || 0)).join(' ') + '）/ 页面同名实现 ' + capClone
+    + ' 处 / 逐句措辞：公共层 ' + COPY_PHRASES.map(p => copyHits[p].lib).join('/')
+    + '、页面 ' + COPY_PHRASES.map(p => copyHits[p].page).join('/'));
   return defs + calls;
 }
 /* ================= §K =================
