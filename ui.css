@@ -496,7 +496,8 @@ button.armed { min-width: 4.6em; }
    .ui-pill 可选胶囊：若干可点的圆角标签，选中态一眼能看出来（音色、档位）
    .ui-tag  状态芯片：只读的一个词（已选用 / 配音中 / 没通过）
    .ui-note 提示条（醒目，带底色）；.ui-hint 是弱提示（一行小字）
-   .ui-inp  一行高的小输入框（角色素材行里的「这张叫什么」「要画什么」） */
+   .ui-inp  一行高的小输入框（角色素材行里的「这张叫什么」「要画什么」）
+   .ui-ta   多行输入区（.ui-inp 的多行兄弟：同一套边框与圆角，只是不锁高度） */
 .ui-seg { display: inline-flex; border: 1px solid var(--line, #e4e6f0); border-radius: 8px; overflow: hidden; background: var(--panel, #fff); }
 .ui-seg > button { border: 0; background: none; color: var(--sub, #8a8fa3); padding: 5px 13px;
   cursor: pointer; font-size: 12.5px; font-family: inherit; white-space: nowrap; }
@@ -539,6 +540,14 @@ button.armed { min-width: 4.6em; }
    继承到的正是 body 的 --txt，视觉本来就是对的；这里继续不写，继承语义一模一样。 */
 .ui-inp { height: 26px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--line, #e4e6f0);
   border-radius: 6px; background: var(--bg, #f2f3f9); min-width: 0; }
+/* .ui-ta 多行输入区：与 .ui-inp 同一套边框/圆角/底色，只是**不锁高度**（锁了就写不下两三行）。
+   以前多行的地方（导演台「要念的话」、各页的长文本）各自写一份 textarea 规则，
+   于是同是多行输入框，四个页面上边框粗细、圆角、字号都不一样 —— 这里收成一份。
+   不写 color：与 .ui-inp 同理，继承 body 的 --txt 本来就是对的。 */
+.ui-ta { width: 100%; padding: 6px 9px; font-size: 12.5px; line-height: 1.6; resize: vertical;
+  border: 1px solid var(--line, #e4e6f0); border-radius: 6px; background: var(--bg, #f2f3f9);
+  font-family: inherit; min-width: 0; box-sizing: border-box; }
+.ui-ta:focus { outline: none; border-color: var(--acc, #6957e8); }
 /* ---------- .mlist 型号清单（全站一份，设置页两处共用）----------
    设置页有两处「一份平台接口给回来的型号清单」：供应商卡里那一张、添加自定义供应商时那一张。
    以前两边各写各的（`.mb-list` 与 `.cus-models`），结果是同一件事两种排版、两种勾选框、
@@ -714,6 +723,21 @@ button.armed { min-width: 4.6em; }
   border-radius: 6px; outline: none; }
 .pinl-own input:focus { border-color: var(--acc, #6957e8); }
 .pinl-own input.on { border-color: var(--acc, #6957e8); background: rgba(108,140,255,.07); }
+/* 结果面板上的「接着和 AI 说」那一行（InlinePolish.show 的 onFollow）：
+   只有一格输入 + 一颗按钮，跑着的时候那颗按钮换成「停止这一轮」（同一颗，不换节点）。
+   按钮不许 disabled 到点不动 —— 正在写的时候唯一出口就是它。 */
+.pinl-chat { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.pinl-chatin { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 9px; font-size: 12px; font-family: inherit;
+  background: var(--input, #f6f7fb); color: var(--txt, #23262f); border: 1px solid var(--line, #e4e6f0);
+  border-radius: 6px; outline: none; }
+.pinl-chatin:focus { border-color: var(--acc, #6957e8); }
+.pinl-chat .ghost { flex: none; padding: 6px 11px; border-radius: 6px; font-size: 12px; }
+/* 已经说过的每一句留在结果下面：不留着的话「改到第三版」回头看全是同一句「AI 润色结果」，
+   哪一版是按哪句话改的完全看不出来。 */
+.pinl-talk { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+.pinl-turn { font-size: 10.5px; line-height: 1.5; color: var(--sub, #8a8fa3);
+  padding: 3px 8px; border-left: 2px solid var(--line, #e4e6f0); background: var(--panel2, #f3f4f9);
+  border-radius: 0 5px 5px 0; }
 
 /* ---------- 资产库选择器（AssetPicker） ----------
    弹窗尺寸固定：资产多少、有没有加载完都不缩放（以前 fit-content，收藏里只有两条时整块缩成一条，

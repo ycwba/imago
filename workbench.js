@@ -49,16 +49,22 @@
     const c = cls(t); return c ? c === 'failed' : FAILED.includes(t); };
 
   /* ---------- 本地历史：统一 key / 上限，各台都走这一份 ---------- */
-  /* 上限统一 200，并且写不进去会提示。
+  /* 条数上限：2026-10 用户要求「各种功能都不要加限制」，从 200 提到 2000。
+     它仍然不是「随便定的一个数」：localStorage 总共只有 5MB，而列表是**整批重新序列化**
+     写回去的，一条不受限地堆下去，迟早撞配额 —— 那时的表现是所有历史一起写不进去。
+     所以这里留一个很宽的上限，同时保留下面的降级路径（写不下就砍半、再只留最近 20 条，
+     并且**返回真正存下来的那一段**，不让调用方以为全存上了）。
+     上限只对「本机历史」这一类**冗余记录**有意义：真正的产物在平台上、在 .assets 里，
+     这里丢的是索引不是东西。
      注意：视频/图像两类任务卡片全部来自平台接口，本地不留任务记录（只有首屏缓存），
      只有**同步合成的语音**例外 —— 上游没有任务号，本机记录就是它唯一的凭据。
      image 这一条是三个工作台合并成 studio.html 之前留下的键（sparkcine_gallery）：
      新页面不再写它，但用户的 localStorage 里还有，所以规格留着 —— 设置页「清缓存」那一节
      按这张表渲染，直接删掉这一条会让这份用户数据既没人写、也没人能清。 */
   const HISTORY = {
-    image: { key: 'sparkcine_gallery', cap: 200, label: '生图历史（合并前的旧工作台，已不再写入）',
+    image: { key: 'sparkcine_gallery', cap: 2000, label: '生图历史（合并前的旧工作台，已不再写入）',
       strip: it => { const o = { ...it }; delete o._blob; return o; } },
-    audio: { key: 'audio_tasks', cap: 200, label: '语音任务',
+    audio: { key: 'audio_tasks', cap: 2000, label: '语音任务',
       // 参考音频的 base64 有十几 MB，绝不能进 localStorage（以前就是它把整批历史写崩的）
       strip: t => { const o = { ...t }; delete o.voiceRef; return o; } },
   };
@@ -69,7 +75,7 @@
      以前靠每个台在 strip 里手工 delete 字段，新加一个字段漏了就再炸一次
      （历史上真发生过：语音台参考音频把整批历史写崩）。这里按**体积特征**兜底，
      与字段名无关 —— 以后新加的字段不会再踩同一个坑。 */
-  const SLIM_TEXT = 20000;      // 正常文本（提示词等）保留阈值：视频台最长 30000 字提示词不受影响
+  const SLIM_TEXT = 20000;      // 短于此的字符串直接当正常文本留下；再长还要看下一条那个「像不像内联二进制」的判据，所以一篇几万字、带空格与换行的提示词照样原样留着
   function looksInlineBinary(v) {
     if (typeof v !== 'string') return false;
     if (v.startsWith('data:') && v.length > 512) return true;             // dataURL：一律不落盘
@@ -186,6 +192,25 @@
        原来是第三份，ui.js 那份的注释写着「界面各处共用一份」，这里没跟上。
        走惰性查找而不是模块顶层引用：这样模块加载顺序不用动。 */
     fmtSize(bytes) { return window.fmtBytes(bytes); },
+
+    /* ---------- 时间文案（全站一份） ---------- */
+    /* 「跑了多久」那一行的写法。原来有三份逐字相同的式子：详情面板这一处、下面 1289 行那个每秒重画的
+       计时器、导演台的候选卡。三份会各自漂（比如「不足一分钟要不要写 0 分」这种口径），
+       而它恰好是最容易「改了一处、另外两处没人知道」的那类文案。 */
+    fmtSec(sec) {
+      const s = Math.max(0, Math.round(Number(sec) || 0));
+      return s >= 60 ? Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒' : s + ' 秒';
+    },
+    /* 播放器上那行 mm:ss。导演台三处各抄过一份同样的 padStart 式子（剪辑甲板 / 候选播放器 / 插针跳转后
+       的读数），一处改成就同时显示 1:05 与 01:05 两种写法。
+       函数体**不许用 `this`**：导演台把它当函数引用递给 `bindTlPlay(col, keepPlay, Wb.fmtClock, …)`，
+       脱离对象调用时 `this` 是 undefined（拿对象方法当裸函数调的那一类，§A 查的就是它）。 */
+    fmtClock(t) {
+      const v = (!isFinite(t) || t < 0) ? 0 : Number(t);
+      /* 这一行刻意保留 `padStart(2, '0') + ':' + padStart(2, '0')` 那个原始形状（不抽 `p2`）：
+         §J 那一档认的是**形状**（全站只许出现一次），抽掉之后形状就不成形状了。 */
+      return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(Math.floor(v % 60)).padStart(2, '0');
+    },
     /* 实测某个媒体文件的体积 —— 上游接口基本都不返回体积（实测 VGENV / SparkCine 都没有），
        而下载整个文件只为量一下大小显然不行。这里只发一个 Range: bytes=0-0 的探测请求：
        服务端会回 Content-Range: bytes 0-0/<总大小>，拿到头就立刻断开，不下载正文。
@@ -220,7 +245,7 @@
     },
 
     History: {
-      spec(kind) { return HISTORY[kind] || { key: kind, cap: 200, label: kind }; },
+      spec(kind) { return HISTORY[kind] || { key: kind, cap: 2000, label: kind }; },
       read(kind) {
         const s = this.spec(kind);
         const v = window.Store.read(s.key, []);
@@ -282,6 +307,18 @@
         const s = String(src || '');
         return /^https?:/i.test(s) ? '/fetch?url=' + encodeURIComponent(s) : s;
       },
+      /* 一只「只为解码而存在」的 <video>：静音 + playsInline + 那个给老浏览器看的 playsinline 属性
+         （少一行 muted，取帧时就把声音放了出来；少 playsInline，手机上会跳到全屏播放器）。
+         取帧的两处 —— 这一份 grab 与导演台的切片块 —— 都要这一套，以前各写一遍就会各漂一行。 */
+      el(src) {
+        const v = document.createElement('video');
+        v.muted = true; v.playsInline = true; v.preload = 'auto';
+        v.setAttribute('playsinline', '');
+        v.src = this._same(src);
+        return v;
+      },
+      /* 用完把解码器交出去：不摘 src 的话一路解码一直挂着，几十格就把整页拖慢 */
+      release(v) { try { v.removeAttribute('src'); v.load(); } catch (e) {} },
       meta(v) {
         return new Promise((res, rej) => {
           if (v.readyState >= 1) return res();
@@ -321,10 +358,7 @@
          返回 { blob, w, h } */
       async grab(src, which, atSeconds) {
         const first = which === 'first' || which === 'start';
-        const v = document.createElement('video');
-        v.muted = true; v.playsInline = true; v.preload = 'auto';
-        v.setAttribute('playsinline', '');
-        v.src = this._same(src);
+        const v = this.el(src);
         try {
           await this.meta(v);
           let dur = isFinite(v.duration) ? Number(v.duration) : 0;
@@ -350,7 +384,7 @@
           if (!blob || !blob.size) throw new Error('抓帧失败（画面为空）');
           return { blob, w, h };
         } finally {
-          try { v.removeAttribute('src'); v.load(); } catch (e) {}      // 释放解码器
+          this.release(v);
         }
       },
       _decode(blob) {
@@ -1155,12 +1189,11 @@
           'download_expires_at', 'uploaded_at', 'expires']);
         const isTypeName = v => typeof v === 'string' && /^(video|image|audio|list|asset|generation|job)./.test(v);
         const upParam = k => (pm[k] != null && !isTypeName(pm[k]) ? pm[k] : undefined);
-        const fmtT = t => (t ? new Date(t).toLocaleString() : '');
         const finished = g ? this._isFinished(g.status) : false;
         const rawStatus = g ? g.status : (c.status ? c.status(item) : it.status);
 
         push('状态', ST[rawStatus] || rawStatus);
-        push('模型', (g && g.model) || it.model);
+        push('型号', (g && g.model) || it.model);
         push('平台', it.providerName);
         push('类型', it.type);
         push('模式', g && (MODE_ZH[g.mode] || g.mode));
@@ -1181,15 +1214,15 @@
         if (g && g.credits) push('积分', (g.credits.charged ?? 0) + ' 已扣 / ' + (g.credits.held ?? 0) + ' 冻结');
         const micros = g ? ((g.price && g.price.amount_micros) ?? g.amount_micros) : null;
         if (micros != null) push('费用', '¥' + (Number(micros) / 1e6).toFixed(4));
-        push('创建时间', (g && g.created_at) ? fmtT(g.created_at) : (it.ts ? new Date(it.ts).toLocaleString() : ''));
+        push('创建时间', window.fmtWhen((g && g.created_at) || it.ts));
         if (g && g.created_at) {
           /* 是否跑完要看**状态**，不能只看 completed_at —— VGENV 完成的任务只给 updated_at */
           const endAt = g.completed_at || g.updated_at;
           const end = (finished && endAt) ? new Date(endAt) : new Date();
           const sec = Math.max(0, Math.round((end - new Date(g.created_at)) / 1000));
-          const txt = sec >= 60 ? Math.floor(sec / 60) + ' 分 ' + sec % 60 + ' 秒' : sec + ' 秒';
+          const txt = window.Wb.fmtSec(sec);
           push('耗时', txt + ((finished && endAt) ? '' : '（进行中）'));
-          push('完成时间', finished ? fmtT(endAt) : '');
+          push('完成时间', finished ? window.fmtWhen(endAt) : '');
         }
         if (c.rows) (c.rows(item, g) || []).forEach(r => push(r[0], r[1]));
         if (!g) { push('错误', it.error || it.failMsg); return rows; }
@@ -1280,7 +1313,7 @@
         host._detTimer = setInterval(() => {
           if (!host.isConnected || hidden(host)) { clearInterval(host._detTimer); host._detTimer = null; return; }
           const sec = Math.max(0, Math.round((Date.now() - new Date(g.created_at)) / 1000));
-          cell.textContent = (sec >= 60 ? Math.floor(sec / 60) + ' 分 ' + sec % 60 + ' 秒' : sec + ' 秒') + '（进行中）';
+          cell.textContent = window.Wb.fmtSec(sec) + '（进行中）';
         }, 1000);
       },
       async render(item, host) {
@@ -1441,13 +1474,26 @@
          · 只有状态真的变了才回调 onChange（避免整列表反复重绘） */
     poller(o) {
       /* 设置页的「任务刷新间隔」优先于页面写死的 interval：
-         以前是 interval || 设置值，而三个工作台与资产库都传了固定值，那项设置形同虚设。 */
-      const ivSec = Number(localStorage.getItem('sk_poll_sec'));
-      const interval = (Number.isFinite(ivSec) && ivSec >= 2) ? Math.min(60, ivSec) * 1000 : (o.interval || 4000);
+         以前是 interval || 设置值，而三个工作台与资产库都传了固定值，那项设置形同虚设。
+         区间与默认值不在这里写（那是 ui.js 的 Net.NUMS 一张表，§J ⑳）；
+         storedNum 返回 null = 本机没存过，才退回页面自己传的那一个。
+         **每次排下一次都现读**，所以设置页改完不必刷新页面 —— 至多再等一轮就换节奏。 */
+      const baseMs = () => {
+        const sec = window.Net && Net.storedNum ? Net.storedNum('poll') : null;
+        return sec == null ? (o.interval || 4000) : sec * 1000;
+      };
       const label = o.label || '任务';
       let timer = null, fails = 0, warned = false, stopped = false, ticking = false;
       const taskFails = new WeakMap();       // 单任务连续失败计数（只提示一次）
-      const delay = () => Math.min(interval * Math.pow(2, Math.max(0, fails - 2)), 30000);
+      /* 连续失败时退避到最长 30 秒，但**不能短于用户设的那一档**。
+         以前写的是 `Math.min(乘完的毫秒, 30000)`：30 秒这道封顶本来是给「连续失败」那一支的，
+         顺手压在产品上就把「把刷新间隔设成 60 秒」的人永远按 30 秒轮 ——
+         正是「设置页填得进去那个数、运行层按另一个上限走、界面上一个字都不说」。 */
+      const BACKOFF_CAP = 30000;
+      const delay = () => {
+        const b = baseMs();
+        return Math.max(b, Math.min(b * Math.pow(2, Math.max(0, fails - 2)), BACKOFF_CAP));
+      };
 
       const runningList = () => (o.tasks() || []).filter(t => o.isRunning(t) && (o.filter ? o.filter(t) : true));
 
@@ -1780,10 +1826,6 @@
        本机文件号（fileKey，收藏的本地文件只有这个）、名字、提示词。
        别把平台 / 时长 / 画幅塞进来充数 —— 工作台一个字都不读，递了就是「界面上说带过去了、其实没带」。 */
     reuse: {
-      kindOf(type) {
-        const t = String(type || '');
-        return t === '视频' ? 'video' : (t === '音频' || t === '音乐') ? 'audio' : 'image';
-      },
       go(o) {
         const raw = String(o.src || '');
         /* 地址本身就是本机资产时，号就写在地址里 —— 认出来，页面只递地址也能走「直接引用」那条快路，
@@ -1791,7 +1833,7 @@
         const m = /^\/asset\/([^/?#]+)/.exec(raw);
         const aid = String(o.assetId || (m ? decodeURIComponent(m[1]) : ''));
         const src = raw || (aid ? '/asset/' + aid + '?v=2' : '');
-        const kind = o.kind || this.kindOf(o.mtype || o.type);
+        const kind = o.kind || window.mediaKindOf(o.mtype || o.type);
         const payload = { from: o.from || '', kind, assetId: aid, src,
           dl: o.dl || (aid && /^\/asset\//.test(src) ? '/asset/' + aid + '?dl=1' : ''),
           fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '',
@@ -1844,38 +1886,62 @@
       return api;
     },
 
-    /* ---------- 展示样式切换（资产库 / 我的收藏共用） ----------
-       两处以前各写一份图标 + localStorage 读写 + 高亮逻辑，现在只留这一份。
-       用法：const vt = Wb.viewToggle.create({ el:'fView', key:'dir_asset_view',
-              views:[['card','卡片', Wb.viewToggle.ROWS], ['compact','紧凑', Wb.viewToggle.GRID]],
-              onPick: v => render() });
-       vt.value 取当前值；坏值/旧值一律回落到第一档。样式（.viewtoggle）在 ui.css。 */
+    /* ---------- 展示样式切换（资产库 / 素材库 / 收藏三页共用） ----------
+       三处以前各写一份图标 + localStorage 读写 + 高亮逻辑 + 「把 view-xxx 抹掉再贴当前那一档」，
+       现在只留这一份。清名单**由声明的档位现算**（`views` 里有几档就清几个类）：
+       页面自己抄 remove 清单会各抄一份不一样的 —— 资产库那份连早已全局删除的 `view-card` 还留着，
+       另外两页压根没那一行；将来谁再加一档而 remove 里没它，切回来就是两个类同时挂在一个容器上，
+       而 CSS 谁赢看的是源码顺序（表现就是「切了档位没反应」）。
+       用法：const vt = Wb.viewToggle.create({ el:'fView', key:'dir_asset_view', target:'grid' });
+       档位与名字不在这儿传（也不许页面各传一份）：默认读 ui.js 的 `window.VIEW_MODES` —— 那一处点一次名，
+       设置页那张表（UI_PREFS 的 opts）与这三页的开关读的是同一个数组，改名只改那一个地方。
+       图标按**档名**在这里配（iconOf），认不出名字的新档不画空按钮、退回写档位名两个字。
+       vt.value 取当前档；坏值 / 旧值一律回落到第一档；vt.apply() 把当前档贴到 target 容器上
+       （整块重画之后再问一次，容器节点被换掉时类不会丢）。样式（.viewtoggle）在 ui.css。 */
     viewToggle: {
       ROWS: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="1" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="5.4" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="9.8" width="12.8" height="3.2" rx="1.2"/></svg>',
       GRID: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="0.6" y="7.8" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="7.8" width="5.6" height="5.6" rx="1.4"/></svg>',
+      iconOf(v) { return v === 'compact' ? this.GRID : v === 'list' ? this.ROWS : ''; },
       create(o) {
         const el = typeof o.el === 'string' ? document.getElementById(o.el) : o.el;
         if (!el) return null;
-        const views = (o.views && o.views.length ? o.views : [['card', '卡片', this.ROWS], ['compact', '紧凑', this.GRID]]);
+        /* 调用期现读，不在模块求值期抓死：这一层加载时 ui.js 那份未必已经挂上。
+           拿不到就**不猜一份名字**（那正是这一条要消灭的第二份清单），宁可不画这颗开关 ——
+           三页的调用点都写成 `vt && vt.apply()`，返回 null 是它们已经认得的形状。 */
+        const modes = (window.VIEW_MODES || []).map(m => [m[0], m[1], this.iconOf(m[0])]);
+        const views = (o.views && o.views.length) ? o.views : modes;
+        if (!views.length) return null;
         const key = o.key || 'wb_view';
         let val = views[0][0];
         try { const s = localStorage.getItem(key); if (s && views.some(v => v[0] === s)) val = s; } catch (e) {}
+        const apply = () => {
+          if (!o.target) return;
+          /* 每次现查容器，不在 create 时抓死：整块重画可能把那个节点换掉，
+             抓住旧节点就等于「类贴在了一个已经不在文档里的盒子上」。 */
+          const g = typeof o.target === 'string'
+            ? (document.getElementById(o.target) || document.querySelector(o.target)) : o.target;
+          if (!g) return;
+          views.forEach(v => g.classList.remove('view-' + v[0]));
+          g.classList.add('view-' + val);
+        };
         const paint = () => {
           el.classList.add('viewtoggle');
           el.setAttribute('role', 'group');
           el.setAttribute('aria-label', o.label || '展示样式切换');
           el.innerHTML = views.map(([v, t, ic]) =>
-            `<button type="button" class="${val === v ? 'active' : ''}" data-v="${v}" title="展示样式：${t}" aria-label="${t}">${ic}</button>`).join('');
+            `<button type="button" class="${val === v ? 'active' : ''}" data-v="${v}" title="展示样式：${t}" aria-label="${t}">${ic || t}</button>`).join('');
           el.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
             if (val === b.dataset.v) return;
             val = b.dataset.v;
             try { localStorage.setItem(key, val); } catch (e) {}
             paint();
+            apply();
             if (o.onPick) o.onPick(val);
           });
         };
         paint();
-        return { get value() { return val; }, paint };
+        apply();
+        return { get value() { return val; }, paint, apply };
       },
     },
 
@@ -2211,14 +2277,14 @@
         const kind = (c.kindOf ? c.kindOf(it) : 'image') || 'image';
         const mk = tag => { const el = document.createElement(tag); el.src = src; el.controls = true; el.autoplay = true; return el; };
         /* 视频 / 音频也要有加载失败的兜底：图片那一支本来就有（下面 im.onerror），
-           媒体这两支漏了 —— 于是成片被清理掉之后（.renders 只保留最近 20 部）灯箱里是一片黑，
-           界面上什么都不说。判据：这一条是不是成片（标签写明「成片」，且有重新合并的路）。 */
+           媒体这两支漏了 —— 于是盘上那份成片没了之后灯箱里是一片黑，界面上什么都不说。
+           判据：地址是不是渲染目录那一条通道（/render/dl），是就把出路说出来。 */
         const mediaBad = el => {
           el.onerror = () => {
             const tip = document.createElement('div');
             tip.className = 'lb-hint';
-            tip.textContent = /\/(render|play)\b/.test(String(src))
-              ? '成片文件已被清理（只保留最近 20 部）—— 重新合并一次就好，素材都还在'
+            tip.textContent = /\/render\/dl\b/.test(String(src))
+              ? '这份成片文件本地已经没有了（可能被手动删过，或渲染目录换过地方）—— 回导演台再点一次「导出成片」就好，素材都还在'
               : '这条视频 / 音频现在读不出来（可能已过期或已被清理）';
             stage.innerHTML = '';
             stage.appendChild(tip);

@@ -8,7 +8,8 @@
 AssetTransfer / TextAI / PromptLog）、`workbench.js`（Wb：任务状态 / 轮询器 / 灯箱 / 历史 / 大文件）、`sidebar.js`、`app.js`、
 `ai-chat.js`（AiChat：外壳层那一份 AI 助手 —— 可拖动悬浮球 + 右侧抽屉，只读查询本机数据与平台能力，写入动作只在用户点「执行」的确认卡片后才做）。
 详细说明看 `README.md`，本文件只列**必须遵守的约定**；§3 / §3.1 / §6 / §7 四节的全文拆进了 `docs/agents-*.md` 三册，本文件那几节保留每一条约定的标题行当索引（各节末尾有指路）。
-**新增一条约定时写到哪**：§1 路由、§2 能力驱动、§4 密钥与用户数据、§5 自测纪律 → 直接写进本文件对应一节；
+**新增一条约定时写到哪**：§1 路由、§2 能力驱动、§4 密钥与用户数据、§5 自测纪律、
+§8 / §9 剪辑与轨道（导演台那一套判据的口径）→ 直接写进本文件对应一节；
 §3 / §3.1 公共层与界面（含 `tests/selfcheck.cjs` 那套判据的口径）→ `docs/agents-公共层与界面约定.md`；
 §6 平台事实 → `docs/agents-平台事实.md`；§7 第三轮起新加的约定 → `docs/agents-第三轮约定.md`。
 **搬进分册的那几节要同时在本文件补一行标题索引**（否则下一轮的人看不见那条红线），写完全册再回来这里点名。
@@ -155,7 +156,85 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 （**这一节的正文搬到了分册**：下面每条只留标题行当索引，红线照旧每次都要看到；全文、判据口径与探针在哪，看这一节末尾的指路。）
 （**另有几条在原文里是段落而不是列表项，拆分时不会被自动收进索引，手抄在这里** —— 它们是本节最常被引用的一批红线：）
 - **跨闭包调用只走 `window` 上的公开接口**：闭包内定义的函数只在闭包内用；页面内联脚本也不要顶层 `function esc()`（会盖掉 `window.esc` 造成无限递归，表现为整页静默空白）。同一个闭包里兄弟函数裸调局部的 `const` 同样是炸点（`drama.html` 踩过 `bind`）。
-- **同一个功能只应有一份实现**：下拉 `Dropdowns`、网络 `Net`、任务轮询 `Wb.poller`、历史 `Wb.History`、媒体地址 `Api.mediaSrc`、跨平台素材 `AssetTransfer`、IndexedDB 只走 `Kv.at(登记名)`、芯片行 `Chips.render`、缩略图 `Wb.thumbs`（外壳标记也只有一份 `mediaHTML`，画出来必须 `bind`）、详情 `Wb.detail`、卡片列表 `Wb.cards`、分页 `Wb.pager`（续拉的判据在公共层）、灯箱 `Wb.lightbox`、下载 `Wb.save` → `Net.save`、本机落盘 `AssetLocal`（含 `hideAsCloud` 那张闸）、就地二次确认 `Confirm.arm`、弹窗 `UiDialog`、提示 `Toast`、**「四档之外」那三排声明驱动控件** `AdvExtras`（判据 / 画法 / 读回，见 §2 那两条）。发现重复实现 → 收敛到公共模块，别复制。
+- **同一个功能只应有一份实现**：下拉 `Dropdowns`、网络 `Net`、任务轮询 `Wb.poller`、历史 `Wb.History`、媒体地址 `Api.mediaSrc`、跨平台素材 `AssetTransfer`、IndexedDB 只走 `Kv.at(登记名)`、芯片行 `Chips.render`、**「AI 挑了哪几条」那颗芯片** `AiChip.paint`、**「写一句话让 AI 挑几条」那整条链** `AiFind.run`、缩略图 `Wb.thumbs`（外壳标记也只有一份 `mediaHTML`，画出来必须 `bind`）、详情 `Wb.detail`、卡片列表 `Wb.cards`、分页 `Wb.pager`（续拉的判据在公共层）、灯箱 `Wb.lightbox`、下载 `Wb.save` → `Net.save`、本机落盘 `AssetLocal`（含 `hideAsCloud` 那张闸）、就地二次确认 `Confirm.arm`、弹窗 `UiDialog`、提示 `Toast`、**「四档之外」那三排声明驱动控件** `AdvExtras`（判据 / 画法 / 读回，见 §2 那两条）。发现重复实现 → 收敛到公共模块，别复制。
+- **「秒数 / 日期 / 文件名 / 那三个网络数字」四族各只有一张表或一份函数，页面不许再抄拼法与上下限**（`tests/selfcheck.cjs` §J ⑰–⑳ 四支）：
+  `Wb.fmtSec` / `Wb.fmtClock`（「X 分 Y 秒」与 `mm:ss`）、`Wb.fmtWhen` / `fmtWhenSec` / `fmtHM` / `fmtHMS` + `ui.js` 的 `dayKey`（并**禁用浏览器 locale API**）、
+  `fileSafe` / `fileStamp`（浏览器与 Node **各一份**，两边运行时不同，共 2 份定义是登记在案的例外），
+  「这一条素材是哪一类」三块读法 `isAudioType` / `mediaKindOf` / `fileExtOf`（各只在 `ui.js` 一份；收成之前四页的下载扩展名口径互不相同，一条没有 `format` 字段的音频从资产库下回来是 `.png`），
+  `Net.NUMS` 一张表 + `Net.num` / `storedNum` / `setNum` 三个出口（超时 / 重试 / 轮询间隔的默认值与上下限全站只那一张表，**页面里连那三个键都不许出现**）。
+  四支判据一律**两头都要在**：被禁形状 0 处 **且** 公共实现有定义、有调用、**落点点名到文件**（少了落点那一头 = 「把公共层删光、页面也不问了」照样全绿）。
+  行为层常驻五支：`.tmp-netnum.cjs`（25 条 vm 口径）+ `.tmp-mutnetnum.cjs`（九刀）+ `.tmp-netnumdom.cjs`（13 条真 DOM）
+  + `.tmp-fileext.cjs`（27 条，真 `ui.js` 装进 vm 直接问那三块读法）+ `.tmp-mutfileext.cjs`（11 刀）。
+  两支真 DOM / 行为档各抓到一个「读代码看不出来」的真缺陷：`.tmp-netnumdom.cjs` 抓到轮询退避那道 `Math.min(…, 30000)` 把用户设的 60 秒档也压成 30 秒（现在是 `Math.max(baseMs(), Math.min(…, BACKOFF_CAP))`），
+  以及 `clampNum('')` 把「删空那一格」当成「填了 0」而夹成下限（超时变 5 秒、重试变「不重试」；读的那侧 `storedNum` 认「空 = 没填」，写的那侧现在也认）；
+  `.tmp-fileext.cjs` 抓到 `fileExtOf` 只剥 `format` 的**前导**点与空格，`format: ' mp4 '` 被当成「认不出的 format」而退回按类型猜（尾缀于是是猜的，不是那份产物自己的）。
+  **镜像链两处仪表坑**（别照着改产品）：`el.min = sp.min` 会反射成 DOM 属性，运行时 `getAttribute` 分不出「填进去的」与「抄进去的」；
+  代理 `.data/<key>.json` 落的是**裸值**不是 `{data,ts}` 信封。全文在 `docs/agents-公共层与界面约定.md` 的「§J 后面那四条（⑰–⑳）」。
+- **「供应商类型」那一排叫什么、按什么顺序，全站只有 `ui.js` 的 `provKindZh` / `provKinds` 一份**（2026-10-15 从四份收成：设置页一张 `KIND_ZH` + 一份手抄 `['image','video','audio','text']`，助手同样两份）：
+  档名与顺序由那张表决定，**注册表将来加第五类时那一排 tab 要自己长出来** —— 抄一份键序就是「加一档要改四个地方」。
+  ⚠ **三族名字不许合并**（差的就是 `audio` 那一格）：素材那族叫「音频」（`ui.js` 的 `isAudioType` / `mediaKindOf` / `fileExtOf`，Node 侧那份故意叫 `MEDIA_KIND_ZH` —— 同名而不同值迟早被后来人合成一张表）、
+  供应方那一型叫「语音」（本条）、提示词归档里那一行任务叫「语音合成」（`assetlib.js` 的 `ARCHIVE_TYPE_ZH`）。
+  常驻判据 `tests/selfcheck.cjs` §J ㉓ 三头（被禁形状 0 处 / 「`audio: 语音`」恰好 1 处且落点点名 `ui.js`，**一处没有也红** / 两份读法各定义 1 + 调用达下限 + 落点点名 `settings.html` 与 `ai-chat.js`），
+  反向对照 `tests/mutation.cjs` ㉓A–㉓E（A 手抄键序、B 助手自己再写一张表、C 公共定义改名、D 页面退回旧符号名 `KIND_ZH`、E 放行注释与「值不同的那张表」）。
+  全文在 `docs/agents-公共层与界面约定.md` 的「㉓ 供应商类型那一排」。
+- **「AI 挑了哪几条 / 按什么筛」那一颗芯片全站只有 `ui.js` 的 `AiChip` 一份**（2026-10-15 从四份收成：素材库、收藏、资产库各拼一份 `innerHTML`，统一选择器 `assetlib.js` 的 `AssetPicker` 是第四份）：
+  四份当时**恰好都对**，漂开的是**措辞与尺寸** —— 清除按钮的 title 一份写「回到完整名单」、另一份「回到完整列表」，✕ 的图标一颗 10 一颗 11，两份给 `window.icon` 加了守卫、两份没加（守卫在不在只决定「图标那一格空着」还是当场抛错）。
+  各页真正不同的只有**芯片上写几段话**（它自己的数据）与**清掉之后各自重画什么**，所以公共层只收画法与出口；`AssetPicker` 那颗靠 `cls` / `clearId` / `iconSize` / `tip` 四个参数接进同一份实现，不是另写一颗。
+  常驻判据 `tests/selfcheck.cjs` §J ㉔ 四头（被禁形状 0 处 / `AiChip` 定义恰好 1 处且落点点名 `ui.js`，**一处没有也红** / `paint`·`text`·`picked` 调用达下限（4 / 2 / 2）且 `paint` 落点点名那四个文件 / 那句默认 title 与「AI 挑的」各恰好 1 处且在 `ui.js`、旧句「名单」0 处），
+  反向对照 `tests/mutation.cjs` ㉔A–㉔F；行为层另有常驻两支：`.tmp-aichip.cjs`（29 条，真 `ui.js` + 最小 DOM 桩）+ `.tmp-mutaichip.cjs`（14 刀，只临时改 `ui.js`）。
+  ⚠ `clearTitle` 那**两种说法是两件事**，做文案统一时别合一句：「清除 AI 结果，回到完整列表」= 退出「AI 挑的这批」，「清除 AI 条件」= 只收回这一条 AI 筛选。
+  ⚠ 那条「AI 挑的」判据只认**带尾空格**的字面量 `'AI 挑的 '`（`chars.html` 清 AI 结果时 Toast 那句「退出「AI 挑的那批」」不是副本 —— 留一条会误报的判据，下一轮就有人整档砍掉）。
+  全文在 `docs/agents-公共层与界面约定.md` 的「㉔ AI 条件芯片那一颗」。
+- **「写一句话让 AI 在本机这一堆里挑几条」整链全站只有 `assetlib.js` 的 `AiFind` 一份**（2026-10-16 从素材库 / 收藏两份逐字副本收成；字数与那句闸门话再收成它上面的 `shortWhy` 一个口子，三处读它：`run`、资产库 `runAiSearch`、统一选择器 `AssetPicker`）：
+  两份副本漂开的第一处**不是文案，是说出去的那一格** —— 素材库那两道闸走 `Toast.err`（一定弹），收藏走 `Toast.info`（默认被 `sk_quiet_ok` 静音），于是同一个动作在一页会说一句、在另一页按了什么都没发生。所以公共层内部**零 `Toast`**，话只交给页面自己的 `say` 出口，而且顺序永远是 `done` 在前、`say` 在后（重画会重写那一行读数）。
+  收的整链：两道闸（字数 / 空名单）+ 按钮忙态 + 裸 JSON 契约 +「集合 + 名次 + 理由」的记账 + 挑中后清原话。配置里那四格缺一不可：`apply`（**只写那三个字段**）/ `onPick`（放开类型档属于它，写进 `apply` 就等于点 ✕ 连用户挑的档一起改）/ `done` / `say`。
+  常驻判据 `tests/selfcheck.cjs` §J ㉕ 四头（闸门话恰好 1 处且在 `assetlib.js` / `MIN_Q` 在 `assetlib.js` 之外 0 处 / `AiFind` 定义恰好 1 处，**一处没有也红** / `run`·`clear`·`shortWhy`·`needMsg` 调用达下限（2 / 2 / 3 / 1）且落点点名到文件 / 两页配置的 `apply`·`onPick`·`done`·`say` 四格齐全且 `apply` 不写 `filter`），
+  反向对照 `tests/mutation.cjs` ㉕A–㉕H；行为层另有常驻两支：`.tmp-aifind.cjs`（63 条，真 `assetlib.js` + vm 沙箱）+ `.tmp-mutaifind.cjs`（20 刀，只临时改 `assetlib.js`）。
+  全文在 `docs/agents-公共层与界面约定.md` 的「㉕ AI 挑几条那一族整链」。
+- **「这一次刷新之后才说的那一句」全站只有 `ui.js` 的 `Toast.after` 一份**（2026-10-15 从 10 个出口收成：`settings.html` 9 处「导入设置 / 恢复默认 / 从数据文件恢复 / 用云端覆盖本机 / 还原备份 / 导入整包」+ `ui.js` 的 `DataSync.boot` 对账那一路）：
+  页面自己发起 `location.reload()` 时，当场弹的那一句**活不过它自己宣布的那次刷新**（右上角与卡内读数一起被销毁），而那句写的还是默认静音的 `Toast.ok` —— 两重没落地，于是「改掉了真数据」的动作做完，刷新后的界面上一个字都没说。
+  口径：单槽只留最后一句、默认走一定弹的那一档（`warn`）、**取用即清**（同一句话弹两次比不弹还招人烦）、键放 `sessionStorage` 不放 `localStorage`（界面留言不该被镜像进 `.data/` 与云同步）；`after` 只写话，**刷新永远是调用方的动作**。
+  常驻判据 `tests/selfcheck.cjs` §J ㉖ 四头（真代码里「正在刷新」0 处 / `Toast.after` 那一格定义恰好 1 处且落点点名 `ui.js`，**一处没有也红** / 调用达下限 10 且 `ui.js` 与 `settings.html` 两头各有落点 / 那把键 `__toast_after_reload` 的字面量恰好 1 处且在 `ui.js`），
+  反向对照 `tests/mutation.cjs` ㉖A–㉖E；行为层另有常驻两支：`.tmp-nextnote.cjs`（25 条 + 一条 ⓪：真 `ui.js` + 最小 DOM 桩，`sessionStorage` 底座**跨趟共用**才量得出「留给下一份文档」）+ `.tmp-mutnextnote.cjs`（9 刀，只临时改 `ui.js`）。
+  ⚠ **判据钉的是那句话，不是「刷新」这个形状**：改完数据要刷新是对的（`reloadAfter` 那份留着，它另有 `skLeaving` + `dropPending` 两半），错的只是「当面对着一堵将要被拆的墙喊话」。
+  ⚠ 探针的 `mkEnv` 必须**当场 catch 住 ui.js 求值期抛错**并打一条红（那条 ⓪）：变异档里「坏 JSON 不兜」这一刀会让整份 `ui.js` 在加载时抛，桩不接住就是「进程崩了、一行红都没有」，读起来像抓到了，其实一条判据都没跑。
+  全文在 `docs/agents-公共层与界面约定.md` 的「㉖ 刷新之后那一句」。
+- **「同一件事在两页两种叫法」那一族全站只有三个词**（2026-10-16 收：一份平台清单 = **注册表**、一家平台 = **供应商**、下拉里选中的那一条 = **型号**）：
+  「注册路由」是代理里那条路由的名字、不是清单本身，「提供商 / 供应方」是「供应商」的第三种写法，「模型」只留给 AI 这个概念（发给它的提示词正文、「本机没有看视频的模型」）——
+  同一屏上两种叫法并存，人会以为坏的是两个不同的东西。口径的**出处**是设置页那几处标签（卡名「供应商与密钥」/ 按钮「＋ 添加自定义供应商」/ 表单行「供应商」），不是哪一句提示里的词。
+  常驻判据 `tests/selfcheck.cjs` §J ㉗ 四头（旧句 0 处 / 禁词「提供商 · 供应方 · 注册路由 · 文字AI」各 0 处 / 新句达下限并点名落点 / 卡名与按钮仍长在 `settings.html` 的 `<h2` / `<button` 那一格里），
+  反向对照 `tests/mutation.cjs` ㉗A–㉗E（A/B 各打禁词里的**不同两个词**，C 只打新句那一头，D 只打卡名那一头，E 证明注释里的历史写法不算命中）。
+  ⚠ 第 ④ 头的第二头必须问**标记**：词法器只数 `<script>` 里的字符串，静态 HTML 里那两处一个都数不到（实测：`供应商与密钥` 的 7 处落点全在别页的提示句里），
+    所以「卡改了名、六处提示句还指着它」只有比一次标记形状才看得见 —— 只数总量的话 6 处照样 ≥ 下限，而那一屏指的是一张界面上不存在的卡。
+  ⚠ 注册表那四个显示名（`OpenRouter 文字 AI` 等）与 `usage.html` 的名称归一化是同一批：那里的正则写成 `文字\s*AI`（两种带法都认），
+    因为**代理没重启时注册表递回来的还是旧名** —— 只认一种，用量页就把同一家平台摆成两张卡、同一个余额出现两遍。改 `proxy.js` 这一族要连着改那条正则。
+  全文在 `docs/agents-公共层与界面约定.md` 的「㉗ 名词口径：注册表 / 供应商 / 型号」。
+- **「只为解码而存在的那一只 `<video>`」外壳只有 `workbench.js` 的 `Wb.vframe.el` / `release` 一份**（取帧两条路以前各建一只、各释放一次；
+  漂开的第一处永远是最低调的那一行 `muted` / `playsinline`，而**只 `pause()` 那一份解码器一直挂着、几十格之后整页拖慢** —— 缩略图速度优化优化的正是这一件事）：
+  常驻判据 `tests/selfcheck.cjs` §J ㉘ 四头（workbench.js 之外自建 video 0 处 / 孤立一格 `'playsinline'` 恰好 1 处且在公共层 /
+  `vframe.el(` 与 `vframe.release(` 点名 director.html **且**公共层内部 `this.el(` `this.release(` 各 ≥1 / `el(x) {` 那个形状全站恰好 1 处），
+  反向对照 `tests/mutation.cjs` ㉘A–㉘E（D 那刀**只**红「公共层内部没走这份」，因为 ① 对公共层天然豁免）；行为层由 `.tmp-dirdom.cjs` 的切片格子那一族在管。
+  ⚠ **④ 不按「名字全站唯一」判**：`release` 在本项目还管 Web Audio 节点、代理名额与 IndexedDB 连接让路 —— 按名字数唯一会全算成副本（第一版就是这么假红的）。
+  ⚠ §J 的 ㉘–㉛ 与 §8 / §9 里 `.tmp-dirdom.cjs` 的同号 ㉘㉙㉚㉛ 是**两套编号**，别互相引用。全文在同分册的「㉘ …」。
+- **「按判据清掉一批 localStorage 键」那趟扫描只有 `ui.js` 的 `Store.sweep` 一份**（清 AI 型号元数据与设置页「恢复默认」以前各抄一遍同一个循环；
+  **`removeItem` 会让后面的键整体往前挪一格，正着扫就跳过一半** —— 清完还剩一堆，而回执照「表跑过一遍」说「已恢复默认」）：
+  判据（哪些键归我管）**留在调用方**，两张表本来就不同。常驻判据 §J ㉙ 四头（`localStorage.length -` 恰好 1 处且在 ui.js /
+  `sweep` 定义恰好 1 处 / 调用达下限 2 且点名 assetlib.js 与 settings.html / `sweep` 在 `window.Store` 那张**现取**的面上），
+  反向对照 `tests/mutation.cjs` ㉙A–㉙D。⚠ ④ 是这一族最容易复犯的一头：函数写在闭包里而没挂上表，调用方拿到 undefined，清 0 把键照样报「已恢复」。
+  全文在同分册的「㉙ …」。
+- **「AI 回的那一串反问怎么读」那族别名只有 `assetlib.js` 的 `TextAI.qaOf` 一份**（抽屉以前自己抄了 `q / question / title` 与 `label / text`，
+  抄出来的不是一份代码而是**一份代码 + 一套上限**：6 个候选不限题数 vs 8 题 × 10 候选 —— 同一次反问在两处画得不一样）：
+  **每题候选上限**跟着调用方给（公共层 `QA_O_MAX`），**题数**那一档留在 ai-chat（`ASK_Q_MAX` / `ASK_O_MAX`，那是那一格的排版性质、不是反问契约），两份各圈在自己文件里。
+  常驻判据 §J ㉚ 四头（`.question` 的落点全在 assetlib.js / `qaOf` 定义恰好 1 处 / 调用达下限 2 且点名 ai-chat.js /
+  那三个上限名各只在自己文件里且 `qaOf` 在 `window.TextAI` 面上），反向对照 `tests/mutation.cjs` ㉚A–㉚D（B 那刀**刻意让 ③ 保持绿**）。
+  全文在同分册的「㉚ …」。
+- **四颗「存回本机」按钮的画法、在途守卫与回执只有 `assetlib.js` 的 `AssetLocal.pull*` 六个出口一份**（收之前四页各写一遍「图标 + 计数 + title」与各写 `dataset.busy`，回执四种说法）：
+  漂出来的两处真缺陷 —— 生成工作台只看旗标、没看成「在途时整颗不要重画」（右栏每 3 秒重建，「存回本机 7 / 20」被冲回 0）；
+  收藏那一档的红绿判据少算 `skip`（整屏全是「太大下不动」时 ok=0 仍报一句绿）。
+  常驻判据 §J ㉛ 四头（`dataset.busy` 在 assetlib.js 之外 0 处 / 六个 `function` 定义各恰好 1 处 / 调用达下限且**四个页面各自点名** /
+  title 那两句各恰好 1 处且在公共层，六个名字都在 `window.AssetLocal` 面上），反向对照 `tests/mutation.cjs` ㉛A–㉛E；
+  落盘链的行为层是 `.tmp-mirror.cjs` / `.tmp-mirrorbus.cjs` / `.tmp-btn.cjs` 那三支（**这一档只管按钮那一层**，`hasLocalAddr` 与 ⑨ / ⑨-b 各有各的档）。
+  全文在同分册的「㉛ …」。
 - **「这一镜能不能生成」的落点有几处，判据就只有一份**：导演台那三个落点（整栏重画的模板 / 切候选刷提示词框 / 逐字敲描述）都走 `shotBlockReason`（公共入口 `syncGenGate`），页面不许留第二套「描述非空就点亮」。空提示词与缺料是两句话，各占一行不合成。
 - **栏目标签那一格不许被压缩**（`.ed-label > span:first-child { flex: none }` 只在 `ui.css` 一份）：右边那句说明现在是现读能力声明拼出来的，可以很长，压下去就把「输入模式」挤成一列一个字；「输入模式」那一排还排在素材区标签**之前**（判据比的是标签节点，不是槽位）。
 - **素材区那一排与两页的排版只在真 DOM 里成立**：常驻判据 `.tmp-combodom.cjs` + `.tmp-mutcombodom.cjs`（5 刀，每刀点名期望的红条编号；两页源码是 CRLF，变异锚点只能取单行）。全文见 `docs/agents-公共层与界面约定.md` 的「输入模式那一排在两页的落点与排版」。
@@ -167,16 +246,73 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 - 这一层的四支探针：`.tmp-scene.cjs`（vm 口径）+ `.tmp-scenedom.cjs`（真 DOM 接线，含「改名时打字框节点不换」）+ `.tmp-mutscene.cjs`（26 刀反向对照），探针每次开跑**先复位**那几个场景的 `img` / `refImages`（工作区会落进 `.data-probe/`，脏底座会让第二轮假红）。
 - **真 DOM 行为探针有两个坑：等页面「采纳完」不能靠 sleep（DataSync 对账会 `reload()` 把探针正打着的文档整个换掉 —— 等法要有判据：`__synced_*` 旗标 + 种子读数 + `performance.timeOrigin` 连续 1.6s 不变），造数用 `PUT /data/<key>` 种子 + 克隆平台声明注入 + 花钱口子焊死**。常驻样板 `.tmp-gennew.cjs`（导演台生成闸 22 条，含「重画后按钮仍禁用」「强行点亮再点只算一次」），跑法与全貌在分册「跑 headless…」那一段。
 - **导演台「生成这一镜」的防重复扣费是两道闸、判据只有一份**：① 模板 `#genOne` 按 `canGen && !genOneBusy` 渲染 disabled（`pushPlaceholders → renderAll` 换掉 DOM 后新按钮同样压暗）；② handler 入口 `if (genOneBusy) return;`（`genOneBusy=true` 在入口设、`finally` 复位）。「已有视频再点生成」的分支（`shotHasVideo → spawnCandidateShot` 新建候选镜头并挂占位）就走这两个闸后面 —— 往 `#genOne` 模板或 handler 里加任何新分支，先想清楚这道闸还盖不盖得住（`.tmp-gennew.cjs` 的 ④/④b/⑧/⑩ 就是钉这三条）。
-- **导演台剪辑（本镜 / 全片轨道）的账只有一份 `c.segs`**（切开 / 向左切 / 向右切 / 删段 / 不剪了五个入口同走 `segsOf`/`segsWrite`，本镜与全片两处读同一份 —— 剪一刀两处同时变；配音 `{seg, at}` 跟着重算）；常驻探针：口径 `.tmp-cut.cjs`（24 条）+ 真 DOM `.tmp-cutdom.cjs`（25 条，含右栏换声音栏、轨道铺切片图、删段武装态）+ 反向对照 `.tmp-mutcut.cjs` / `.tmp-mutcutdom.cjs`。**「型号清单首败要刷新」的同源 GET 退避重试**同层还有一支：`.tmp-capsretry.cjs`（CDP Fetch 域掐断开页第一发 `/capabilities`，判据 = 页面自问一次 + 清单与对照趟一致 + 零平台 POST）+ `.tmp-mutcapsretry.cjs`；底座与跑法在分册同节。
+- **导演台剪辑（本镜 / 全片轨道）的账只有一份 `c.segs`**（切开 / 向左切 / 向右切 / 删段四个入口同走 `segsOf`/`segsWrite`（「不剪了」那颗已删，见 §8 那一节），本镜与全片两处读同一份 —— 剪一刀两处同时变；配音 `{seg, at}` 跟着重算）；常驻探针：口径 `.tmp-cut.cjs`（69 条）+ 真 DOM `.tmp-cutdom.cjs`（25 条，含右栏换声音栏、轨道铺切片图、删段武装态）+ 反向对照 `.tmp-mutcut.cjs`（现役 63 刀）/ `.tmp-mutcutdom.cjs`。**「型号清单首败要刷新」的同源 GET 退避重试**同层还有一支：`.tmp-capsretry.cjs`（CDP Fetch 域掐断开页第一发 `/capabilities`，判据 = 页面自问一次 + 清单与对照趟一致 + 零平台 POST）+ `.tmp-mutcapsretry.cjs`；底座与跑法在分册同节。
 - **模板那一族（`create.template`，MiMo 就是）的提交体只认识模板里写过的 `{{…}}` 键**，所以声明出来的 `create.topBools` 顶层开关会在 `Api.create` 里按声明补回顶层（公共层一处，页面不判平台）—— 少了这一段就是「开关照样画出来、勾了却一个字都不发」。
+- **去重素材的「复用」回包不是异常形状**：平台按 sha256 命中已有素材时只回 `{asset_id, state:READY, reused:true, upload:null}` —— 既没有上传地址，也不用发 complete。`AssetTransfer.uploadTo` 的判据是 `reused = !!assetId && !putUrl && (intent.reused===true || /ready/i.test(state))`，命中直接 `return assetId`；**绝不许**把「有资产号但没 upload.url」当成形状不对去重试（重试就会又走一遍意图、把整条合并打断 —— 用户看到的「合并失败：缺少资产号或上传地址」就是这么来的）。常驻判据 `.tmp-reuse.cjs`（11 条）+ `.tmp-mutreuse.cjs`（变异 `reused=false` → 5 条红）。
+- **合片轨道的两页签（本镜 / 全片）画的是同一套格子**：格子按 `left/width` 百分比绝对定位（全片不是 flex 流），都带 `.cut.l/.r` 红把手与 `.tl-pin` 插针，全片**每一镜**都铺自己的 `data-frs` 切片；成片秒 ↔ 源秒的换算只有 `filmToSrc`（含 `speed` 折算）一份，落点夹取只有 `filmSeek`。**插针的点击区是整条 `.tl-bar`**（`bindPinZone`，`padding:12px 0` 让上下空白也算），不是格子本身 —— 改样式时别把 padding 或 `cursor:pointer` 收掉。常驻判据：口径 `.tmp-filmtrack.cjs`（19 条）+ `.tmp-mutfilmtrack.cjs`（6 刀）；真 DOM 层**用 jsdom 那支 `.tmp-dirdom.cjs`（254 条判据）+ `.tmp-mutdirdom.cjs`（现役 143 刀）**—— 沙箱里 Chrome 起不来，`.tmp-cutdom.cjs` 那支跑不了，jsdom 这支配了假 IndexedDB（事务 `tx.oncomplete` 才兑现）、`crypto` 用 `defineProperty` 盖、`getBoundingClientRect` 要 `fakeRect`。
+- **合片的出口只有页头那两颗「导出」，播放那一颗已删**：剪辑下方「重新合并 / 播放合成的视频 / 下载成片」三个按钮已删（`#mfState` 改指页头入口）。
+  顶部那一排现在是「导出成片 / 导出素材 / 导入项目 / 导出项目」四颗并排（2026-10 用户点名把合片出口搬到页头）：
+  **绑定也只有页头这一处** —— 剪辑栏每 3 秒随整列重建，把出口绑在那里等于每次重建都要重绑，
+  而导出中写在按钮上的那句「取消渲染 45%」会被下一次重画冲掉。
+  **「播放成片」那一颗（`#playFilm` → `playWholeFilm()` / `playMergedFilm()`）整颗删除**：看整片走「剪辑 → 全片」
+  那一排播放器自己的 `#pbBtn` → `TlPlay.play()`，它按时间线**实时播**，**绝不为播放 `renderPost`**；
+  要一个文件才点页头的「导出成片」。ffmpeg 只在 `exportFilmFFmpeg`（导出成片）与 `exportFilmAssets`（导出素材）里发生，
+  所以合并中那套状态机（`merging` / `mergeProgress` / `mergeJobId` / `paintMergeBtn` / `#mfBar` 进度条 / 按钮变成「取消合并 X%」）整体删除，
+  播放也从此没有可取消的第二态 —— 留着就是「按钮说它会合成，而合成又不是它发起的」。
+  `exportFilmFFmpeg` 里 `if (proj.merged && filmIsCurrent(proj.merged)) { await downloadMergedFilm(); return; }` 那道快捷闸
+  是「盘上那份是当前的 → 不再跑一遍 ffmpeg」的唯一落点，删播放那一条路时最容易连带把它摘掉。
+  所有会改动成片内容的编辑出口仍统一走 `filmEdited()` → `renderAll(); scheduleSave();`（**不再自动重合并**：
+  剪辑是连续微调，每改一个入点就跑一遍 ffmpeg 等于一直在重复合成）。
+  **「盘上那份是旧的」那一格界面文案 2026-10-15 整块删除**（用户点名：镜头统计 + 陈旧说明那条）：
+  成片新旧现在只在**点导出那一刻**由 `exportFilmFFmpeg` 的快捷闸（`filmIsCurrent()`）自己判，界面上不再挂一句常驻的「内容已变动」。
+  **新增任何会改变成片内容的入口，仍要接 `filmEdited()`** —— 少了那一句，快捷闸会认那份旧的壳、把过期成片递出去。
+  常驻判据 `.tmp-dirdom.cjs` ⑩ / ⑳a–⑳e（源码级零残留 + 各只在页头画一次 / 播放器接的是时间线那份计划 /
+  点播放零次 `POST /render` / 当前那份直接落盘、过期那份真发一次合成），
+  反向对照 `.tmp-mutdirdom.cjs` M14（播放那颗换成发 /render）/ M15（导出不认指纹）/ M16（`setPlan` 收到空表 = 实时预览整个没了）。
+- **快捷闸递出去的那份文件可能已经没了：404 / 空文件必须把 `proj.merged` 当场作废**（`director.html` 的 `renderBlob` → `downloadMergedFilm`）：
+  成片文件**不按数量清理**（代理只清渲染中途崩溃留下的临时目录），但 `filmIsCurrent` 比的是**指纹**、不知道盘上还有没有这个文件 ——
+  所以「记着的那份」与「文件真的在不在」是两个口径（手动删过 `.renders`、设置页把渲染目录换走、上一次合成没写完都会 404），只问前者就会走进死循环：点导出 → 快捷路径 → 404 →
+  记着的那份仍然「是当前的」→ 下一次点还是同一条路、同一个 404。
+  `renderBlob` 对 404 挂上 `err.gone`，`downloadMergedFilm` 见 `gone`（或 `blob.size === 0`，上一次合成写崩剩个空壳）
+  就 `proj.merged = null; renderAll(); scheduleSave();` 并把出路写成「再点一次右上角『导出成片』会重新合成一份」。
+  **那句文案不许再指「重新合并」** —— 那三颗按钮在本项目是已删状态（见上一条），指着它们等于承诺一件页面上没有的事；
+  而「作废 + 再点一次真跑 ffmpeg」是同一个缺陷的两半：光改文案，用户点了还是拿到同一个 404。
+  常驻判据 `.tmp-dirdom.cjs` ⑳f / ⑳f2 / ⑳f3（404 与空文件两种坏法各一次：零次 `POST /render`、零次落盘、`proj.merged` 变 null、
+  那句话点名「导出成片」且不含「重新合并」；作废之后再点必须真发一次合成），
+  反向对照 `.tmp-mutdirdom.cjs` M61（调用点不走作废）/ M62（文案退回「请重新合并」）/ M63（`err.gone` 摘掉）/ M64（空文件不拦）。
+- **字数闸一律按供应商声明，页面不许自己编数字，而那份「编数字」的活全站只有 `assetlib.js` 的 `window.CharLimits` 一份**（`bounds / tts / prompt / has / count / range / note / cntLine / over / gap / why`，2026-10-16 收拢）：提示词走 `promptLimitOf`（`resolvedModel→provOf→create.promptLimits`；**现在注册表里没有任何一家声明** —— VGENV 那条 5–30000 来自一次实测到的上游校验串，而用户实测短提示词（「特写」这种两三个字的镜头描述）照收，于是那一栏旁边的「这一家 5–30000 字」是替平台编的限制、整块删了；**机制留着**，下一轮谁家真声明就照样生效），没声明的供应商一个字都不显示、也不拦；配音走 `tts.minChars/maxChars`（MiMo 5–5000、MiniMax 1–10000），显示在 `#voiceCnt`、越界写 `#voiceLenWhy` 并压暗 `#voiceAdd`。四个落点一律问公共层，不再各拼一句：工作台 `submitBlockReason` 的语音分支、导演台 `voiceLenWhy`、`#voiceCnt` 那行读数（**初次渲染与 `oninput` 就地刷新同一句 `cntLine`** —— 就地那一下只写「N 字」就等于把声明的区间抹掉，敲第一个字后界面上就没有那一家了）、`Api.createBody` 提交前那一道闸。收成一份之前正是**四套说法 + 两套计数**：提示行不 trim、就绪判定 trim，于是「界面上写着 5 个字」与「按钮说不达门槛」能同时成立。常驻判据 `tests/selfcheck.cjs` §J ㉑ 四头（唯一定义且在 assetlib.js / 页面不许再出现那六句老措辞（按**字符串 token** 数，注释里讲历史的照不到）/ 公共层那句 canonical 措辞还在（少了它「页面不许出现」就成了空断言）/ **落点按文件分头数次数**（`CL_MIN_FILE`：director.html `tts≥2 prompt≥1 why≥2 cntLine≥2`、studio.html `tts≥2 why≥1 cntLine≥1`、assetlib.js `prompt≥1 why≥1`）—— 原来只数**全局**次数，于是「导演台把提示词那一路整块删掉」照样全绿：配音那一路还剩两处 `.why`，总数 4→3 仍过 ≥2，㉑C 那一刀跑出来正是这个假绿），外加 `TtsAdv.wayWhy` 定义 1 处、两页各调一次），反向对照 `tests/mutation.cjs` ㉑A–㉑J 十刀（其中两刀专门钉「整块闸删掉、一个字新措辞都不写」与「尺子的底座被换掉」——只查老措辞的尺子在这两刀上照样全绿）；口径两头 `.tmp-createbody.cjs`（**自己 spawn 一份隔离代理**，按 `/sys-status` 的数据 / 资产 / 渲染三个目录认领「答话的就是我刚起的这一份」—— 原先写死打 6300，读到的是那份进程**启动时**的注册表：上一轮把 `promptLimits` 从磁盘删掉之后 6300 上还挂着删除之前起的实例，探针于是红在「注册表里明明有声明」，**红的是仪表不是产品**；真注册表无声明 → 三字**必须放行**；合成声明 → 该拦的照样拦）+ `.tmp-mutcb.cjs` 四刀（want 点名的那几条必须**全红**，缺一条就报「红在别处」；⑯「换人档恰好 2000 字放行」与 ⑨「没声明 → 三字照发」是**故意不红**的档，脚本头注点名各自归谁钉），真 DOM `.tmp-dirdom.cjs` ②c/③/④/④b/**④c（打字之后那行读数仍是整句）** + `.tmp-mutdirdom.cjs` M2a（读数那头）/ M2b（闸门那头）/ M2c（就地刷新自己拼）。
+- **导演台右栏「插入语音」与语音工作台共用同一份元件**：平台型号走 `voiceReg()`（registry 声明 + 各家 `/models` 现拉，套 `modelsFilter` 与 `ModelPrefs.isOff`，**能力必须从 `modelDocs` 回填 `modes`/`ttsMode`/`inputRoles`** —— v13 起 `p.models` 可能只剩一个带 id 的空壳，只读它就等于三档掉回预设那一档），音色走 `Chars.Pipe.voices`，「合成设置」块 `#voiceAdv` 由 `tts.formats` + `create.topBools` 声明驱动（开关状态键 `provId::field`，换供应商不串味），提交走 `AiGen.synthTts(…, bools)`。改这一栏前先看语音工作台那一份，别在这里长出第二套判据。
+- **「这一句按哪种方式定音色」跟着下拉选中的那一个型号走，判据只有 `Chars.Pipe.ttsWayOfChosen` 一份**（导演台 `voiceWayOf` 与工作台 `curTtsMode()` 都问它）：以前导演台按「这一家有没有预设音色」排优先级（preset > design > clone），于是**选了「音色设计」型号而画的还是预设音色下拉**，选了「音色复刻」时连「选参考音频」那张卡都不出现 —— 三个型号挂在同一家平台上，下拉里全都列得出来。三档控件（`#voicePick` / `#voiceDesign` / `#voiceRefPick`）各自只在对应型号下出现。
+  合成前那两道闸也**只有一份**（`voiceWayWhy` 定音色必填的那样东西 + `voiceLenWhy` 字数区间，两者都只是转发 —— 判据分别是 `TtsAdv.wayWhy` 与 `CharLimits.why`，见上面那条字数闸），右栏初次渲染、`paintVoiceGate()` 就地重画、`addVoiceAtPin` 花钱前问的是同三个函数；`design` 档描述空着、`clone` 档没参考音频 → 按钮禁用并把缺的那一格写进 `#voiceWayWhy`（工作台 `submitBlockReason` 的语音分支同一套，**两句的先后顺序也同一套**：先问定音色、再问字数）。常驻判据 `.tmp-dirdom.cjs` ②e–②l，反向对照 `.tmp-mutdirdom.cjs` 的 M5（`ttsWayOfChosen` 退回按平台排优先级）与 M6（`voiceReg` 不回填 `modelDocs`），两刀各钉红 ②g/②h/②i/②j/②k；`tests/selfcheck.cjs` §J ㉑ 还钉「两页都必须真的走 `TtsAdv.wayWhy`」（收成一份之前正是两页各一种说法：一边「要先写一段声音描述」、一边「必须填写风格 / 音色描述」）。
+  **夹具的 `create.template` 必须真的带 `{{style}}` 与 `audio.voice`**（`ttsModeUsable` 量的就是这个模板有没有位置放）—— 夹具少写就把 design 判成「这一家放不下」，那是夹具的错，不是页面的。
 - **主题变量（`:root` / `html[data-theme="dark"]`）只在 `ui.css` 顶部定义一份**：页面私有变量漏定义 = `var()` 静默取不到值（「变量存在但值为空」不会触发回退）。
 - **新增一个页面只改三处**：`app.js` 的 `PAGES`、`sidebar.js` 的 `items`、`ui.js` 的 `PAGE_TARGETS`，代理零改动；漏一处的表现各不相同。
+- **「这一页现在怎么翻 / 一页几条」的读法只有一份**（`ui.js` 的 `pageModeOf(key)` / `pageSizeOf(key)`，默认档现读 `PAGE_TARGETS`）：四个页面 + 设置页那张表 + `ai-chat.js` 的读数以前各抄一遍「取存储 || 兜底」，兜底数还各自写死 24 / 18 —— 新页面**不要再自己读那两个键**。常驻桩测 `.tmp-pagesize.cjs`，全文在分册「新增一个页面只改三处」那一段之后。
 - **跑 headless / 自动化测试前先给 `.data/` 落基线**：`--user-data-dir` 不等于隔离数据，`Store.write` 会镜像进代理的 `.data/*.json`；没设过的键也会被写。
-- **写判据与临时脚本时的几条纪律**：读数与预期相反**先怀疑仪表**（先证尺子再信读数）；每档写完都要把它破坏一次确认它真会红，**变异后仍全绿 = 这一档是假的**；一次性迁移脚本**第二次跑会把自己上一轮的产物当成原文覆盖掉真东西**（本轮就踩过：拆分脚本再跑一次，三册正文被索引重写了一遍）。`atob→Uint8Array` 那批「临时扫描脚本自己撞的坑」逐条在分册 §3 那一段里。
+- **写判据与临时脚本时的几条纪律**：读数与预期相反**先怀疑仪表**（先证尺子再信读数）；每档写完都要把它破坏一次确认它真会红，**变异后仍全绿 = 这一档是假的**；一次性迁移脚本**第二次跑会把自己上一轮的产物当成原文覆盖掉真东西**（本轮就踩过：拆分脚本再跑一次，三册正文被索引重写了一遍）。**跑「会临时改写源码」的变异脚本之前，先跑一次只读的锚点干跑** `node .tmp-anchordry.cjs .tmp-mutcut.cjs`（把脚本里的 `MUTS` 字面量抠出来，按现文件的行尾逐条查命中，一个字节都不写）—— 界面文案一缩短、或公共层把两处读数收成一份（`voiceVolOf` / `voiceAx` 那两次），锚点就命中 0 次：脚本照样报「全绿」，而那些刀**从没落下过**（2026-10-14 一次 dry run 就查出当时那份 `.tmp-mutcut.cjs` 44 刀、`.tmp-mutfilmtrack.cjs` 6 刀全命中，才敢真跑；同一轮 `.tmp-mutdirdom.cjs` 的 M8 正是这样被抓出来的）。`atob→Uint8Array` 那批「临时扫描脚本自己撞的坑」逐条在分册 §3 那一段里。
 - `/save`：镜像流程内部（`assetlib.js` 的 `runOne`）顺手多写一份，只挂在那一处（§F 守着）。
 - `/save-local`：补存。字节已经在 `.assets` 里，直接拷一份，不重新下载、不回源、`.assets` 那份一律不动（§G 守着）。它存在是因为上面那条链先被那道守卫挡在前面 ——开关打开之前下载的那批永远不会被补写，用户把开关打开、目录也填对了，目录里还是空的…
 - `/save-move`：搬。换下载位置时把旧目录里那些副本挪过去，会删源文件。与补存分成两条路由、两种返回，页面才能分别告诉用户「哪些是复制、哪些是搬走」。
+- 另存目录**留空**的落点 = 系统下载文件夹下的 `拾帧\<类型>`（2026-10-15 起）：留空不再等于「不另存」；`autosaveDir()` 的 `''` 只剩「这一类被关掉」一个来源（`/save` 的 409 文案跟着改）；老默认（项目内 `文件\<类型>`）由 `/save-move` 的 `@default` **两代一起认**（`autosaveDefaultDirs`）；探针口 `AUTOSAVE_DIR` / `AUTOSAVE_LEGACY_DIR`（老目录在开发机上就是真实成品，必须指走），常驻判据 `.tmp-savedir.cjs`。全文在分册「另存到用户指定文件夹」那一段。
 - 顺序永远是先搬后补：反过来会出问题 —— 补存把旧的又拷了一份到新目录，紧接着搬迁再搬一份，同一个视频在新目录里就是两份（撞名的那个还带 `-2`）。
+- **「旧目录里还剩多少没搬」只能由代理现扫磁盘**（`GET /save-stale`，2026-10-15 补）：只读、只认 GET、进 `LOCAL_ONLY`（跨站 403）、`no-store`，`saveStaleScan()` 的来源表与 `/save-move` **共用同一份**（`autosaveDefaultDirs` 两代默认 + `autosaveUsedRead()` 自己写出去过的目录），排除当前目标与 `insideLocalDir`（`.assets` 是资产本体，永远不算「还没搬」）。四条各自的理由：
+  ① **`on: false` 的那一类照样数得出**（关掉开关不等于那些副本不存在），但界面那一行两颗按钮必须 `disabled` 并把「先在上面打开开关」写进 title —— 目标是配置算出来的，这一类没开就没有目标，按下去只会拿 409；
+  ② **老代理回 404 = 「数不清」，绝不是「旧目录里是空的」**：`Api.saveStale` 走 `rawFetch`，非 2xx 抛错并带 `err.status`，页面按 status 分成 `old` / `io` / `none` 三句不同的话（`AS_STALE_TXT`），`io` 还要把代理回的真实原因带出来。那一句假话下面正好压着一颗会删源文件的按钮；
+  ③ **数字与体积一律现读，页内一个都不估**（`mbOf` 只格式化代理给的字节）；
+  ④ **失败态不许粘住**：`paintAsStale` 进来先 `el.hidden = false`，只有「真数不出货」那一支才收起 —— 上一趟数到 0 时那一排是收起的，这一趟代理挂了，那句「数不清」写进仍然 hidden 的壳子等于一个字没露（表现是「那一排整块消失」，比报红更糟；本轮真缺陷，变异 S20 钉着）。
+- **「界面上那个数字」与「真搬得动的东西」必须共用一份严格类型判据**：`productKindOfName()` 按文件名认出「这一处目录里的这个文件是哪一类的产物」，**数（`/save-stale`）与搬（`/save-move`）都只认它**。松一头的后果是实的：用户在旧目录里放着自己的 `notes.txt`，界面数出「还有 4 个」，点「搬过来」把这 4 个连别人的文件一起**移走并删源**。判据严 = 数出来的每一个都真搬得动；判据松 = 那个数字是一次删源的承诺。
+- **「本机资产库占多大地方」这一格只数不删**（`GET /assets-usage` → `proxy.js` 的 `localUsageScan()`，2026-10-16 补，plan 后端完善清单第 5 项）：只读、只认 GET、进 `LOCAL_ONLY`（跨站 403）、`no-store`，判重身份复用 `localUpKey`（与 `GET /local-assets` 那份**同一个**，剥掉签名参数）、类型复用 `productKindOfName`、时刻复用 `localAssetWhen`。这一格存在的理由只有一句「在盘涨到几十 GB 之前先看得见」，而它最容易坏掉的四种方式全是**说错话**：
+  ① **「数不到」与「本来就没有」是两个口径** —— 旧代理回 404 时 `Api.assetsUsage` 交回 `null`，页面说「这一项旧代理不支持，重启一下再点重新数一遍」，**绝不许报「0 B / 盘上是空的」**（那是一句会让用户以为自己的产物丢了的假话，而且他接下来会去找「回收站」）；其它状态（503 / 超时）继续抛、另起一句「数不出本机资产库：+ 代理给的原因」。
+  ② **「一键清理」永远不长在这一格上**：一次统计动不到用户的作品。而重复组只是「多出来的份数与字节」，`LOCAL_INDEX_MAX` 之外被挤掉索引却仍要留着的历史产物、以及 `索引有、文件没了` 那批**在磁盘扫描里长得一模一样** —— 统计分不出哪一些能删。所以这一格唯一的出路是 `USAGE_WHY.出路` 那一句：指着「资产库」那一次带二次确认的删除（页面只 `GoPage`，不写 DELETE）。
+  ③ **判重口径与 `GET /local-assets` 分家** = 界面出现「这里说没重复、列表里同一份卡三张」；`同来源` 与 `同内容` 是两族（后者 host 不同、字节相同，只按来源认就会漏），两族各认一半、并成一族算，「留下的那一份」按**哪一份新**而不是哪一份大。
+  ④ **内容级判重要有字节预算**（`USAGE_HASH_BUDGET` = 96 MB，只有 `size` 相同才去读；`usageShaCache` 上界 8000 条，长跑进程里缓存自己也要有界）：没有它整目录同步读会把事件循环按住几秒，期间轮询 / 取图 / 播放全停；用完预算必须说「还有 N 份同大小的没验」（`判完:false`），不许装作判完。
+  另外三条同一立场的：字节与时刻一律走公共层（`usageBytes` → `window.fmtBytes`、`usageWhen` → `window.fmtWhen`，页面与公共层都不许再拼一张单位表 / 用 locale 排日期，坏时间与 0 不冒充 1970）；上限那个数字**现读代理的**（页面不许抄 20000）；扫描一个字节都不写不删（崩溃残留的 `.tmp-` 与 `index.json.bad-*` 只是**不算产物**，不是顺手清掉 —— 那是另一格「清理缓存」的活）。常驻判据 `.tmp-usage.cjs`（四层：① assetlib 那一份说法进 vm、沙箱里的 `fmtBytes`/`fmtWhen` 桩故意长得不像，输出没带 `[[B…]]` 就是没走公共实现；② 代理侧两个纯函数进 vm，连依赖表一起抠 —— 表改了而这一档不红才是问题；③ 设置页那一栏源码级；④ 隔离实例真跑：造五份产物 + 手写索引，含「两次扫描之后目录逐字节没动」「跨站被 `LOCAL_ONLY` 拦在 403」「目录其实是个文件时 HTTP 照样答、档必须标红」；夹具的期望值由 `FIX` 现算，不留手抄数字。变异三族 MP1–MP6（打在 scratch 副本上，磁盘 `proxy.js` 一个字节不动）/ MA–MF / MS1–MS6（打在内存文本上）各点名期望变红的编号）。
+- **换目录那句问话不能只挂在「刚改完那一刻」**：那一刻只有一次机会，错过（或者压根没弹）几百份成品就永远躺在旧目录里。所以两条出口都要有，且**动文件的实现只有一份**（`settings.html` 的 `doFollow(c, pick)`：问话那条路径与下面那一排两颗按钮都走它，先搬后补、计数全部来自代理回执）：① 改完目录 / 勾开关 / 挑完目录那一刻问一次（`askFollowTarget`），② 卡内常驻那一排「旧目录里还没搬走的」（`[data-as-stale]`，一类一行，搬完自己重数、数空就整排收起不留两颗会失败的按钮）。三个容易各漂一处的细节：
+  **「恢复默认」必须 `force`**（三格清成空串而上一版**也是空串**，按配置比字符串永远读出「什么都没改」，那句问话在这台机器上一次都没弹过 —— 用户报的正是这件事）；`force` 那一趟改读**磁盘那份数**；
+  **同一页里答过「先不动」的那一类不再自动问第二次**（`AS_DISMISSED`），但**用户真的改了目录时必须照问**（`changed` 绕过它），否则下一次生成又往他刚拒绝的地方放；
+  **`Confirm.arm` 只管「搬」那颗**（它会删源，第一次点只武装），「只补存」不删东西、一次点击就发 —— 给它也套上武装态等于白挡用户一次。
+- **问话与回执里那句「搬到哪儿」只能读刚写进配置的那一个**（`askFollowTarget` 里 `c.to = chg[k.id].to || ''`，2026-10-15）：缓存那份扫描是**改之前**数出来的，它的 `to` 还停在旧位置（代理按它当时读到的配置算，而刚落盘那一次镜像还没跑到代理），拿它说话就是「问你要不要搬到 A，点完实际搬到 B」—— 真目标一直由代理从配置读、页面递不过去，所以这里错的**只有那一句显示的话，而那句话正是用户点「搬过去」唯一的依据**（变异 S16 钉这一条）。同理：回执那句必须按**原因码**说话（`asked` / `skip` / `nothing` / `nochange` / `busy` / `noapi` 各有一句，`asFollowMsg` 一处派）—— 以前只有「问过了」与「没得挪」两档，于是**明明数出 3 个、框也弹了、用户点了先不动**，回执却说「旧目录里此刻数不出还没搬的副本」，那是假话，还顺手把唯一的常驻入口否了（变异 S28 / S29 各钉一半）。
+- 上面这几条的常驻判据：代理侧 `.tmp-stale.cjs`（23 条，末尾自带 N1–N5 变异：临时改写 `proxy.js` 再按 SHA256 核对还原 —— 它会碰磁盘，**别和另一路会话同时跑**）；界面侧 `.tmp-setdom.cjs`（jsdom 真 DOM，⑥i 一族 + ⑬ 一族 40 条：数得到 → 看得见 → 按得动 → 自己重数，含 `/pick-dir` 三档桩「真挑中 / 用户取消 / 弹不出来」与「挑完路径落进输入框并当场落盘、还能在框里改」）+ 反向对照 `.tmp-mutsetdom.cjs` S16–S32（每刀 `want` 点名期望变红的编号；`SETDOM_ONLY=S16,S20` 分片跑，全量连跑会被系统收走内存）。
 - 四条硬约束（各有一条判据守着，别在调用点另写一遍）：① 目录只从配置读，请求体里带 `dir` 一律忽略（与 `/save` 同款立场，§G）；② `/save-move` 的来源必须过 `autosaveUsedHas`（`.data/sk_autosave_used.json…
 - 设置页的提醒只在勾开关 / 改完路径 / 挑完目录时触发，绝不在 `oninput`（逐字输入）时触发：打一个字弹一次框，而且那时的目录多半还是半个。
 - `.assets` 是资产库的本体，不是另存的源：`/save-local` 只拷不删、§G 守着；而且本机文件真没了还有三级回退（代理 `/asset/<id>` 本地优先 → 索引里的 `upstream` 重下 →问平台 `assetInfoOf()` 要地址），所以「搬走…
@@ -185,17 +321,20 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 - 动作必须先过确认卡片（误触一次就是真金白银的重复扣费，见 §4）：`RUN:` 解析出来的动作校验全部做完才画卡片（型号属于哪家、参数取值在不在声明里、槽位上限、素材从哪来），卡片画出来时用户点「执行」才真提交 ——卡片上写明「哪一家 / 哪个型号 / 什么参数 / 哪些素材从哪…
 - 附件的凭据只有本机地址：`CALL: files` / `read_file` 与动作里的 `inputs` 只认 `/asset/`、`/getv/`、`/local-assets/`，外部直链一律拒（递出去的是「这个文件在哪」，不是「随便替我访问一个网址」）。
 - 设置项只有白名单（`ADJUST` 那几项 + `window.PAGE_TARGETS` 的行 + `sk_model_<kid>` + `chars.js` 的 `Chars.SET` 那几项）：`writableKeys()` 是现读这几张表拼出来的，不是手抄的键名清单 ——…
-- 助手自己在界面上挑的那一家 / 那一个型号只存 `ai_chat_pick`，绝不写 `sk_text_prov`（「作用文字 AI」是设置页「点保存才生效」的动作，替用户改就等于把他选的供应方换了）。
+- 助手自己在界面上挑的那一家 / 那一个型号只存 `ai_chat_pick`，绝不写 `sk_text_prov`（「作用文字 AI」是设置页「文字」那一档每张卡上的单选，替他改就等于把他选的供应方换了）。
 - 流式进行中不许「清空」（`paint()` 会把正在往里写字的那条气泡一起清掉 —— 字丢了，请求还在跑、还在扣 tokens）；断开这一层（刷新 / 关掉外壳）时 `pagehide` 要把已经写出来的字落盘，并写明这次断了。
 - 抽屉里「贴到底」的账只有一份，而且要在布局落定之后算（`paint(jump)` 的三种贴底条件 + `note()` 在改布局之前取 `atBottom`、显示完再按新视口贴一次）：`#acNote` 那一行一显出来就把 `.ac-body` 吃掉 26px，「贴完底再补一句回执」的顺序于是停在底部上方一行多 —— 最后那句看不全。判据 `.tmp-acnote.cjs` + `.tmp-mutacnote.cjs` 第 ⑥ 刀…
 - 对话记录是会话表（`ai_chat` = `{v:2, cur, list:[{id,title,at,msgs,acts}]}`），不是一条扁平数组：`msgs` / `acts` 仍是模块级变量，切换会话时 `bind()` 整体重新指向当前那一份 —— 现有 `msgs.p…
 - `watchTick` 整轮包 try/catch，而且无论成败都要再排下一轮：以前 `startWatch()` 是最后一行，读清单 / 探状态 / 写结果里任何一处抛错，轮询链就静默断掉 —— 球上一直显示「在等 N 条」直到刷新，而任务其实早就好了。
 - 输入框：Enter 发送、Shift+Enter 换行。`e.isComposing || e.keyCode === 229` 要放行 ——中文选词上屏那一下还会再触发一次 keydown，挡不住就是「刚选完字直接发出去」。placeholder 与 AGENTS/README…
 - `/sys-status` 只有一份取法与一份说法（`assetlib.js` 的 `Api.sysStatus(fresh)` / `Api.sysTool(t)` / `Api.sysDir(d)` /`Api.sysStatusLines(s)` / `Api.SYS_WH…
+- **「带病还在跑」要看得见：代理自己记一份**有界**故障账**（`proxy.js` 的 `noteFault` / `noteWork` / `healthStatus` → `/sys-status` 顶层 `健康`，进设置页「本机环境」与助手 doctor）：四个顶层出口各记一笔（未捕获异常 / 没接住的 Promise / 请求处理里抛出、回了一句页面收不到的 500 / 连接错误）。两条立场别混：**只报不自杀**（出路只有「在启动器点重启」，重启后这份账清零）与 **`连接错误` 不算故障**（浏览器提前断开一天几十次，标红就是骗人重装）。条数封顶、同一句重复只抬计数；`/sys-status` 自己**不算**「最后一次干活」；体检命中缓存**也要重算健康**。三份读法（`Api.sysHealth` / `Api.sysFaultLines` + `sysStatusLines` / 设置页那一行 / 助手 doctor）**只读代理给的字段** —— 页面不许算 `cls`、不许拿中文猜档、**不许替旧代理说「正常」**。全文在分册 §3，常驻判据 `.tmp-health.cjs`（三层：口径进 vm、复制文本真拼一遍、隔离实例真打 + 掐 15 次连接；反向对照 MH1–MH19，变异只打在内存语料上）。
 - `.tool` 磁贴的显隐要用 `hidden`（`ui.css` 里有 `.tool[hidden] { display: none; }` 这条兜底）：`.tool` 自带 `display: inline-flex`，会和浏览器默认的 `[hidden]{display:n…
+- **设置页「资产库磁盘用量」那一栏与「本机环境」共用同一份芯片行形状（`chipRow` 一份）与同一份说法（行文只来自 `Api.usageLines`）**：上色只认代理给的 `档`、页面不拿中文猜，404 与真出错分两句话说且都不编数字，出路那颗只负责带去资产库（这一栏**没有清理出口**、不写盘、不进同步）。全文在分册 §3「本机资产库占多大地方」那一段，代理侧立场与安全在 §4，常驻判据 `.tmp-usage.cjs` 层 ③ + 变异 MS1–MS6。
 - AI 润色是两段式，就地问（`ui.js` 的 `InlinePolish.interactive`）：页面只提供两个回调 —— `ask(): Promise<{need, questions[]}>`（问要点）与 `run(answersText): Promise<{aft…
 - 润色要把用户的素材交给 AI（已实现，别再退回「只说一句」）：`TextAI.polishImages(REG, [{label,src}])` 把参考图压到最长边 1024 的 JPEG、按 OpenAI 多模态格式附在消息末尾，并写明「图1 = 参考图 1」；只有识图型号才带…
 - AI 指令的默认文本只有一份：`assetlib.js` 的 `TextAI.DEF`（video / img / audio / story / split）+`TextAI.prompt(kind)`（用户改过的优先）。
+- 润色「对模型的交代」六句只有一份，「出结果后接着对话」那一行也只有一份（2026-10）：`TextAI.polishUser / askUser / answersNote / polishExtra / polishSys / followPrompt` 是发出去那几句话的**唯一**落点，页面只传参数；对话行 `.pinl-chat` 只在 `ui.js` 的 `InlinePolish.show` 画，且**传了 `onFollow` 才画**、流式走 `ctl.push`、轮次 `o.talk` 由页面持有。常驻判据：`tests/selfcheck.cjs` §J ⑯ + `.tmp-polish.cjs`（19 条，真拼一遍发给模型的正文）…
 - 别把 A 的密钥发到 B 的地址：文字 AI 的自定义地址按供应方各存各的（`sk_base_<kid>`），但很容易在「供应方 = DeepSeek」时把 OpenRouter 的地址填进去 → 请求带着 DeepSeek 的密钥打到 OpenRouter，上游只回一句 `Yo…
 - 统一选择器把规则显示出来并强制（`assetlib.js` 的 `AssetPicker.open({ rule })`）：`rule` 就是 `Capabilities.rule(模型, role)` 的原样（`max` / `accept` / `maxBytes`），弹窗顶…
 - 单选也走同一条路：点选 → 底部「确定」（`build` 的 `d.onclick` 里单选分支只 `picked` + `syncSel()`）。
@@ -221,7 +360,7 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   - 语音台以前只服务一家（`provGroups()` 里 `slice(0,1)`），加第二家语音平台时下拉里根本选不到它 ——现在按平台分组渲染（与图片/视频台同一种形状），`liveModels` 改成按 provider 分桶 `{ 平台id: [型号] }`（以前是一份全局…
   - `refreshCaps()` 换到没声明能力接口的平台时必须把上一家的 `capHint` 清掉：不清的话面板上会同时挂着「能力来自上游接口（缓存）」和「该平台没有声明能力接口」，两行自相矛盾。
   - 本机资产库（`local:/local-assets`）是多家平台共用的一条列表来源，条目自己记着是谁生成的（保存时写进 `provider`）。
-- 设置页统一「点保存才生效」：任何控件的改动先只改表单 + `markDirty()`（保存按钮点亮成待保存色），落盘全在 `saveAll` 里一次做完。
+- 设置页改完就自动落盘（2026-10-15，旧的「点保存才生效」那一层整族删除）：唯一触发口是文档级 `change` 委托（逐字敲不算改完），`markChanged()` 只排一个 400ms 定时器，到点 `runSave()` → `saveAllNow()`；那颗「保存全部设置」按钮、那条「待保存」橙色层与 `markDirty()` 这个名字都不许长回来，导入导出与恢复默认排在最下方（不浮动）且先 `flushPending()` 存稳。
 - 设置页最上面那条栏目栏是从 `.page-main > .card` 现读的（标题取每栏自己的 `h2`，收起着的卡不占位）：新加一栏不用改那里 —— 手抄一份标题清单迟早和页面不一致（同一类的错还有「下拉写死 png/jpeg」「音色写死声音 1/2/3」）。
 - 内容页 → 外壳只有一条主动通道：`app.js` 的 `wb:close-sb-overlay`（窄窗浮层侧栏「点内容区关闭」）。
 - 别在页面里手搓弹窗：自定义内容的弹窗走 `ui.js` 的 `UiDialog.open({title, sub, body(el), actions})`，它复用 `Confirm` 那一套 `.pr-*` 外壳，全站只有一份弹窗外壳。
@@ -300,7 +439,7 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
 
 ↑ 这一节每一条约定的**全文（为什么、当年怎么漂开的、配套判据与探针在哪）**在 `docs/agents-公共层与界面约定.md`。
 只照上面这一行标题动手，会漏掉它点名的那些「不许」—— 改到这一节点名的任何一处之前先读那一条的全文。
-本节引言里那套 **`tests/selfcheck.cjs` 常驻判据（§A–§L 十二个字母；§A 另有 A-2 一支，所以它末行汇总报的是 13 条）**——
+本节引言里那套 **`tests/selfcheck.cjs` 常驻判据（§A–§L 十二个字母；§A / §C / §G / §J 各有两支，所以它末行汇总报的是 16 条）**——
 每档的口径、变异与反向对照也在同一册里；跑法是 `node tests/selfcheck.cjs`，改过任何「唯一实现」之后必须再跑一次 `node tests/mutation.cjs`（它临时改源文件，**别和另一路会话同时写这份目录**）。
 
 ## 4. 密钥与用户数据
@@ -431,12 +570,12 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   常驻样板：`.tmp-outurl.cjs` 的 `startProxy()`。
   **`ASSETS_DIR` 与 `RENDER_DIR` 也必须指出去**：`POST /local-assets` 的落盘目录默认是共享的 `.assets/`（`proxy.js` 的 `LOCAL_DIR`），
   探针造的一张 PNG / 一段配音会直接进用户的资产库，而 `.data/` 那两层保护（`.bak.json`、对账）都盖不到它；
-  `.renders/`（`RENDER_DIR`）同理 —— 探针导出的成片会混进用户的成片列表（那里还带「只留最近 N 个」的清理，等于顺手删了别人的片子）。
+  `.renders/`（`RENDER_DIR`）同理 —— 探针导出的成片会混进用户的成片列表，而且**那里不再按数量清理**，每一份都一直躺着，得自己按名字认领删掉（顺手删整目录等于删掉用户的片子）。
 - **代理侧覆盖 / 删除 `.data/<key>` 之前会留一份 `<key>.bak.json`**（`proxy.js` 的 `keepDataBackup`，最少保留 10 分钟，
   内容相同不留，`.bak` 自身不再备份）。它不出现在 `GET /data` 清单里，但设置页「数据与备份」能列出来也能一键还原
   （走 `GET /cloud/backups` + `POST /cloud/restore`，**不需要配置云**）。不要把 `*.bak.json` 加进同步或清单逻辑。
 - **只服务本工作台页面的路由集中在 `proxy.js` 的 `LOCAL_ONLY`**（`/data`、`/prompts`、`/cloud`、`/capabilities`、
-  `/local-assets`、`/save`、`/pick-dir`、`/env-status`、`/sys-status`、`/render*`，以及取回/转发类 `/getv`、`/fetch`、`/getfile`、`/s3put`）：
+  `/local-assets`、`/assets-usage`、`/save`（含 `-local` / `-move` / `-stale`）、`/clear-cache`、`/pick-dir`、`/env-status`、`/sys-status`、`/render*`，以及取回/转发类 `/getv`、`/fetch`、`/getfile`、`/s3put`）：
   跨站请求在 CORS 放行**之前**就被 403 拦掉，新增敏感路由记得加进这个正则。
   `/sys-status` 尤其要防：它会在本机**起子进程**（`ffmpeg -version`）并把三个落盘目录的绝对路径带回去。
   正则结尾的分隔符要同时认 `/`、`?` 和串尾（这几条路由都带查询串，只写 `(\/|$)` 会漏拦）。
@@ -466,6 +605,50 @@ relay 不设防 = 任意网页都能用你的密钥建任务、扣费、读余�
   各钉住对应的判据，改完按 SHA256 核对还原）。
   **已知照不到的一角**（别以为全覆盖）：`/asset` 那一支要真取到上游字节才走得到公共层，
   隔离实例没配 SparkCine 密钥时只进 `catch`，所以「只把 `/asset` 调用点的 `cacheOk` 写错」这类改动它报不出来。
+- **「往盘上写字节之前先问一眼余量」与「启动先扫自家垃圾」是两条各自一份的判据**（`proxy.js`，2026-10 按后端完善清单第 11、14 项加的）：
+  ① **`whyNoSpace(dir, need, what)` 只有六个落点**（`/save` 另存、`/save-local` 补存、`/save-move` 搬迁、
+  `/local-assets` 的两条写盘链、以及渲染开跑前的 `whyRenderSpace()`），**判据在写入点之前**：返回一句人话就当场 409 /
+  记进 `full[].why` / `failed[].why`，**一个字节都不落**；`ffmpeg` 还没起就退，`.renders` 里不留半个 mp4。
+  两个 helper 都必须**同时点名目录、要写多少、只剩多少、留多少余量**（`DISK_HEADROOM = 32MB` 那句「还要留…给改名与备份」），
+  渲染那一档只有下限（`RENDER_MIN_FREE = 256MB`），**不许猜一个成片大小**。
+  **量不到就一律放行**：老 Node 没有 `fs.statfsSync`、目录还不存在（它会抛错）→ `freeBytesOf` 给 `null` → `whyNoSpace` 给 `null`。
+  「这台机器测不出剩余空间」绝不能变成「这台机器什么都写不了」，所以**不许把 `null` 当成「不够」**。
+  ② **`sweepStaleTmp()` 在 `server.listen` 那一趟就调**（不递参数 = 只扫 `.data` 与 `.assets` 自家两个目录，**不碰 `.renders`**，
+  那里的老任务残留由 `pruneRenders` 同一趟回收）。三道闸缺一条就是删错东西：
+  **形状**（只认原子写自己写出来的 `.tmp-<pid>-<2~8 位小写字母数字>`，用户文件名再奇怪也不碰 —— 这条路由清的是自家垃圾）、
+  **年龄**（写完不满 15 分钟的一律不动：同机另一个实例正在写的那一个与残留形状**一模一样**；不用 pid 判活，Windows 会回收 pid，撞号的残留反而永远清不掉）、
+  **尽力而为**（读不到目录 / 被别的程序占着删不掉只记一行，**绝不影响启动**）。
+  ③ **渲染那三个数字全部走 `envInt`**：`RENDER_KEEP_MIN`（30 分钟，任务记录与崩溃残留同一个年龄）、`RENDER_CONCURRENCY`（1，ffmpeg 很吃 CPU）、
+  `RENDER_QUEUE_MAX`（20，超了当场 429），启动日志把**实际生效值与它来自哪里**（`.env` / 系统环境变量 / 兜底）一起说出来 ——
+  只报数不报来源，用户改了 `.env` 没重启就永远看不出来。
+  常驻判据 **`.tmp-diskhygiene.cjs`**（口径层：把那两个 helper 的真源码抠进 vm、桩 `fs` 造「不够 / 问不出来 / 年龄」；
+  真实例层：四个落盘基座全指进 `os.tmpdir()`，先种残留再起实例，再验「盘够时六个写入出口一个都不拦」；
+  六个变异 —— 余量闸抬到比任何盘都大 / 再加摘掉 `/save` 那一句、证明红定位到那一行 / 摘掉启动清扫 /
+  形状闸退回「名字里有 `.tmp-` 就删」/ 摘掉年龄闸 / 渲染下限抬到比任何盘都大，各钉一半，改完按 SHA256 核对还原）。
+  **两条这一轮学到的探针纪律**：**变异要让判据在「对的原因」上红** —— 把余量闸抬到最大时 `/local-assets` 先被拦，
+  索引里就没条目了，于是 `/save-local` 会进 `missing` 而不是 `full[].why`、`/save-move` 会进白名单 403，
+  看着像「拦住了」其实钉的是另一条链；探针必须**自己把索引与 `sk_autosave_used.json` 种好**、并给补存用**与另存不同 size** 的字节
+  （同 size 同 sha1 会被 `saveDirIndex` 判成 `dup` 直接跳过写盘）。
+  以及 **`/sys-status` 的 `ffmpeg` 在顶层**（`{代理, 出站代理, ffmpeg:{ok,版本}, ffprobe, 目录:{数据,资产,渲染}}`），
+  读成 `.工具.ffmpeg` 那一档会天天「跳过」，而报告看着全绿。
+- **编码器与档位也不再写死在渲染那一行**（`proxy.js` 的 `ENCODE_PROFILES` / `envOneOf` / `resolvePreset` / `listEncoders` / `pickEncode` /
+  `encodeVideoArgs` / `renderStatus` 一整族，2026-10 按后端完善清单第 3 项）：`.env` 的 `RENDER_VCODEC` / `RENDER_PRESET` 声明，
+  没配就还是原来那一档（libx264 + veryfast + 界面上那个 crf，分辨率 / fps / 单遍编码一个字节没动）。四条不能各漂一处的性质：
+  **① 档位名单跟着编码器走**（`-preset veryfast` 喂 h264_nvenc 是 ffmpeg 当场拒），所以 `resolvePreset` 故意不用「只能比一份固定名单」的
+  `envOneOf`，自己现取这一家的 `presets`；**② 质量数落到不同编码器换写法**（x264/x265 `-crf`、NVENC `-rc constqp -cq`、QSV `-global_quality`），
+  渲染调用点只走 `encodeVideoArgs` 一处，源码里再出现一份硬编码编码器名就是两个口径（给哑巴视频补静音轨那条 `-c:v copy` 不算）；
+  **③ 「填了但没用」有两种，都不能静默**：名字或档位不在表里 → 启动日志 `envWarns` 当场点名并退回；在表里但**这台 ffmpeg 没编进去**
+  （很常见：官方 Windows 版不带 QSV，没 N 卡就没有 NVENC）→ 第一次渲染前问一次 `ffmpeg -encoders`（进程内缓存一份 Promise，
+  问失败要能重问、不许把坏结果留在缓存里），退回 libx264 并把「配的是谁、为什么换、档位跟着换成什么」写进那一单的 `job.log`；
+  **④ 问不出清单当「不知道」，不当「没有」**（拿它退回 libx264 等于凭空换了用户的配置，还会让人去重装一个本来就装好的 ffmpeg）。
+  体检里那三档「默认档 / 还没问过 / 这台有 / 这台没有」由 `renderStatus()` **一处**拼话，`/sys-status` 顶层新增 `渲染`；
+  三份读法（`assetlib.js` 的 `sysStatusLines` 复制文本、设置页「本机环境」那一行、助手的 doctor）**只读代理给的字段** ——
+  页面不许拿正则猜中文来上色（`本机档` 就是颜色），旧代理没返回这一项就**整行不写**（写一句「没读到」反而像坏了）。
+  常驻判据 **`.tmp-encode.cjs`**（口径 21 条 + 反向对照 20 刀 ME1–ME20：档位名单收成一家 / 不抹大小写与空格 / 坏编码器静默退回 /
+  标志位列数错 / 「问不出」当「这台没有」/ 默认档白问一趟 / 退回时档位不重验 / 只扫出一行也算清单 / 不问就说没有 /
+  体检里数字写死 / 调用点退回硬编码 / 页面猜中文 / 复制文本缺一半 / 旧代理也硬拼一行 / doctor 不说用的是谁 /
+  坏 Promise 留在缓存 / 留空也吵 / 默认档说「还没问过」/ QSV 发 `-crf` / 本机有也给人退回）。
+  `ffmpeg -encoders` 的回包形状（6 位标志列、表头与分隔线）是本机实测抓下来的，不是照着文档猜的。
 
 ## 5. 改完必须自测
 
@@ -615,6 +798,7 @@ for (const f of ['director.html','studio.html','chars.html','assets.html','favor
 - 任务卡片一律来自平台接口（语音除外）：生成工作台的图像 / 视频栏不建本地任务卡，本地也不留任务记录（`video_tasks` 已废弃，`Wb.History` 的 `video` 规格与 DataSync 的同步键都删了；`HISTORY.image`（`sparkcine_…
 - 创建后的「取回/核对」不要挡住按钮：平台列表接口动辄 6~14 秒，`adoptTask()` 与「结果未知 → 核对列表」都必须放后台跑（只提示「正在取回/核对」），按钮的禁用窗口只覆盖 create 本身。
 - 平台的提示词编译失败可安全重试：VGENV 创建时会跑一步 `prompt_optimization`，子服务偶发失败返回`PROMPT_COMPILER_UPSTREAM_ERROR` —— 这表示任务没创建、没扣费，重试安全（不像超时/断连那样可能已受理）。
+- **平台转发闸按「一家平台」算，不按 relay 前缀算**（`proxy.js` 的 `RELAY_MAX_INFLIGHT` / `RELAY_QUEUE_MAX` / `RELAY_RETRY_MAX` / `RELAY_WAIT_MAX_MS`，四档写在 `.env`、启动定一次、改了要重启）：闸的键是 `keyId || id`（一家同时做图片与视频 = 共用一把钥匙，也共用同一份配额）；排满**当场回本地代理的 429 并写明「没有扣费」**（静默让人排在永远排不到头的队列上比拒了更坏）；**退避重试只给 GET**（§2 那条「没有幂等键的 POST 一律不自动重试」在这里照样成立）；**名额必须恰好归还一次**（`release` 幂等 + `RELAY_SLOT_MAX_MS` 看门狗，漏还一次等于这一家永远关在闸外，那比没有闸更坏）；列表/详情短缓存命中与「挂同一条在途请求」都排在闸**之前**返回，命中不占名额；被限过的计数进 `/sys-status` 的「转发」（与「渲染」「健康」同一立场每次现算），页面只读那一份说法、上色读 `档`，**不许拿正则猜中文**。判据三层与变异在 `.tmp-relay.cjs`。
 - 提示词归档：`POST /prompts` 写文件、`GET /prompts` 列清单 + 索引、`GET /prompts/find?id=&provider=` 取全文；目录在设置页可改（`prompt_dir`，只存本机）。
 - `/prompts/find` 一次返回按 id 匹配到的全部归档（`{matched, prompt, all[]}`）：`provider` 只用来决定「优先把哪一份当正文」，不影响是否命中。
 - 本机资产（`/local-assets`）的大类型由代理现算，不看调用方给没给：`proxy.js` 的 `localMediaType()` 按落盘扩展名 → mime → 调用方给的 `media_type` 依次判（`图片` / `视频` / `音频`），POST 与列表回…
@@ -632,12 +816,12 @@ for (const f of ['director.html','studio.html','chars.html','assets.html','favor
 - retrieve 是「产物只给文件号」那一族的通用环节，不是某一家平台的补丁：注册表用 endpoints.retrieve（{id} 在 query 里也照样替换）+ `retrieve: { idFrom, urlFrom } ` 两处声明表达；`Api.resolveIte…
 - 产物「自动存本机 + 地址三级回退」只有一份实现，在 `assetlib.js` 的 `AssetLocal`：① 平台地址过期 → 用本机副本（`AssetLib.normalize` 里 `decorate` 换 `src`，勾了「优先用本机」才换）；② 本机文件被删 → 代…
 - 「不显示云端任务」是一张闸，不是一套筛选（`AssetLocal.hideAsCloud(o)` 是全项目唯一判据，内部现问`localOnly()` = 三档开关都开着）：页面不许自己拼「三个开关都开着 + 本机没有这份字节」，也不许在列表里另加一条 `if (云端) return false`。
-- 两颗「自动下载」（`favorites.html` 的 `#pullBtn`、`chars.html` 的 `#btnLocal`）只走 `AssetLocal.pull` 这一条落盘链：与后台自动镜像同一个队列、同一份身份判据（`keyOf`）、同一道去重、同一份按类型另存；页…
+- 四颗「存回本机」（生成工作台 `#pullLocalBtn`、资产库 `#pullLocalBtn`、收藏 `#pullBtn`、素材库 `#btnLocal`）只走 `AssetLocal.pullMany` 这一条落盘链：与后台自动镜像同一个队列、同一份身份判据（`keyOf`）、同一道去重、同一份按类型另存；**页面里一次都不许出现 `AssetLocal.pull`**（循环、计数、回执措辞都在公共层那一份里）；页…
 - 下拉浮层挂到容器外面用 `fixed` 定位，不留在 `<select>` 原来的位置上（`ui.js` 的 `Dropdowns` + `ui.css` 的 `.dd-list`）：原地展开时任何祖先的 `overflow` 都会把它裁掉（生成工作台 `.adv` 是 hidd…
 - `.dd-list` 的坐标两分支都必须显式写 `'auto'`，不能靠 `= ''` 清空（`ui.js` 的 `place()`）：`= ''` 清掉的是内联样式，而 `ui.css:298` 的 `.dd-list` 自己带着 `top: 0`。
 - 浮层挂在哪一个容器由 `ui.js` 的 `hostFor(select)` 现判：普通页面挂 `body`，`<dialog>` 里的挂那一个 dialog。
 - 重画一块区域要回收孤立的浮层：`Dropdowns.build()` 开头自己调 `sweepPortals()`，别再往容器里塞一份。
-- 资产库 / 素材库 / 收藏三页的展示档位名统一成 `list` / `compact`（`Wb.viewToggle` 的 `views` 数组）。
+- 资产库 / 素材库 / 收藏三页的展示档位名统一成 `list` / `compact`（**2026-10-15 起档位名只在 `ui.js` 的 `VIEW_MODES` 点一次名**，页面不传 `views:` 也不自己写容器类名；`Wb.viewToggle` 只画法与读回，判据 §J ㉒）。
 - `/custom/models` 必须留在代理：它要把用户密钥递到用户自填的主机，同步的 `safeOutboundUrl` 只查字面量 IP、异步的 `guardOutboundUrl` 还查 DNS 解析结果（页面直连等于把这套判据抄第二份）；且图片 / 视频 / 语音那几家…
 - 自定义供应商的型号一律现取，不预填模板里那份硬编码清单（那份是「内置那一家」的声明，照抄给用户的中转站等于替它编型号）：表单只画「已保存 / 接口返回 / 手填」三类，接口返回的一律不勾（由用户自己挑），勾选态 = 已保存 ∪ 手填，重新拉一次不会把上次勾的冲掉。
 - 程序化填完 `<select>` 的 options 之后必须调 `Dropdowns.sync(那个 select 本身)`（`sync` 的 root 可以是select 自己，与 `build` 对称）。
@@ -667,7 +851,7 @@ for (const f of ['director.html','studio.html','chars.html','assets.html','favor
   - 界面上的提示必须指出路，不能只说「补好就行」：底栏那条红条原来只有「⚠ 第 N 段还缺: … —— 补好就能拍这一段」，而底栏「开始拍」只是加了 `.dr-dim` 变暗、并没有 disabled（点得动，会开 `showPrereq`，那里有「去设置」「去认角色」两颗按 `fix` 分类的按钮）。
 - 界面上的承诺要么实现、要么改文案（拍短剧「质检没过时：自动 / 手动」那一排的 title）：原来写着「自动：没通过就一直重拍到过为止」，而底栏「开始拍」是整集连拍，那条路每段只拍一条、失败就停 —— tooltip 承诺了一件页面上永远不会发生的事。
 - 成片这类「导出过一次」的东西不能变成终态：`renderSpec` 顺带算一个 `stamp`（每条用哪一次拍摄、什么开关、什么画幅、有没有配乐），导出成功时存进 `drama.finalStamp`；之后任何一次改动都会让它对不上，底栏据此说「这一份成片是旧的」并给一条重新导出。
-- 下载一律走 `Wb.save(url, name)` → `Net.save(blob, name)`，不许 `window.location.href`：成片文件在代理的 `.renders/` 里只留最近 20 部，直跳过去撞上 404 时浏览器静默失败，用户只看到「点了没反应」。
+- 下载一律走 `Wb.save(url, name)` → `Net.save(blob, name)`，不许 `window.location.href`：成片落在代理的 `.renders/` 里（**不按数量清理**，但用户手动删过、或设置页把渲染目录换走之后那一份就不在了），直跳过去撞上 404 时浏览器静默失败，用户只看到「点了没反应」。
 - 字幕轨与配音轨的时间基准只能有一份：`dubShot` 已经把每句真实的 `start`/`end` 存进 `take.lines[]`（它跳过空句、空句不占时间），`takeSubs` 就必须照那份画。
 - 页面要用数据层的内部函数，就把它加进 `Pipe` 的导出表：本轮页面要读 `renderSpec` 的 `stamp`，而它没导出 → 运行到那里就是 `undefined`（语法自测与控制台都不会报，只在那一条路径上炸）。
 - `Confirm.ask` 的正文走 `textContent`：`<br>` / `<b>` 会原样显示成标签。要排版就用 `UiDialog.open({ body(el) { el.innerHTML = … } })`。同样地 `Toast` 也是 `textConten…
@@ -700,3 +884,248 @@ for (const f of ['director.html','studio.html','chars.html','assets.html','favor
 
 ↑ 这一节每一条约定的**全文（为什么、当年怎么漂开的、配套判据与探针在哪）**在 `docs/agents-第三轮约定.md`。
 只照上面这一行标题动手，会漏掉它点名的那些「不许」—— 改到这一节点名的任何一处之前先读那一条的全文。
+
+## 8. 新增约定（2026-10 第四轮 · 合成 / 剪辑 / 轨道 / 语音栏 / 本地镜像）
+- **服务端合成只有一条路，而且是「单遍 filter_complex」**（`proxy.js` 的 `renderJob`）：一次 ffmpeg 里做
+  逐段裁剪归一（输入级 `-ss/-t`，不要在滤镜里 `trim`）+ `scale/pad/setsar/fps/setpts/format` + `concat`，
+  音轨各自 `adelay` 后一次 `amix=normalize=0` + `atrim`，BGM 混进同一个 amix（**concat 之后不再接任何画面滤镜**）。
+  **不许退回「每段编码成 norm_N.mp4 再 concat -c copy」**（N 段就是 N+1 次 ffmpeg 与 N 次完整重编码）。
+  素材下载与时长/音轨探测并发（`mapLimit` + `DL_CONCURRENCY`，全项目只此一份限流实现）。
+- **每段素材的 ffprobe 只问一次**（`proxy.js` 的 `probeFile`，2026-10-15 收成一条命令）：`-show_entries format=duration:stream=codec_type -of default=nw=1:nk=1`
+  同时拿回「有几秒」与「有没有原声」，调用点读的是 `{duration, hasAudio}` 这一对。以前是两条命令两个子进程，
+  同一个刚落地的文件问两遍 —— 三十段就是六十次子进程等待，而它排在下载之后、正在关键路径上。**不许再拆回两条**；
+  解析**不看行序**（本机实测：流类型排在前面、时长在最后，纯数字行才是秒数，`N/A` 不许当数），
+  `probe()` 在 ffprobe 非零退出 / 15 秒超时 / 起不动时一律 resolve `''`，所以探测坏掉是「当 0 秒 + 当没原声」而不是打断整单。
+  常驻判据 `.tmp-ffprobe.cjs`（十条口径 + 反向对照 M1–M6；变异打在**内存里那段函数文本**上，磁盘一个字节不动，
+  所以它能和别的探针同时跑）；调用点那两条分支（夹出点 / 混不混原声）要真发 `/render` 才量得到，归 `.tmp-voiceover.cjs`。
+  **同一批里删掉的还有 `/render/play` 那条路由**（页头「播放成片」那颗早就整颗摘掉，剪辑态走时间线实时播、绝不为播放渲染，
+  全站零调用）—— 成片出口只有 `/render/dl`，别为「在网页里直接播渲染好的那份」再开一条。
+- **「字幕烧录」那一族 2026-10-15 整族删除**（用户点名的废弃代码清理）：`clips[].subs` 与 `spec.subFont` 两个路由字段、
+  `SUB_FONTS` 字体白名单 / `SUB_MAX` / `assTime` / `assText` / `SUB_SPEAKER_COLORS` / `speakerStyleOf` / `buildAss` /
+  `collectSubEvents` / `hasSubs` / `job.stage='烧字幕'` 那一段滤镜共 75 行 helper 一起摘掉，源头是**已删除的拍短剧页 `Drama.Subs`**
+  —— 现在没有任何页面发 `subs`，代理里那一段永远走不到。**别再照着这些名字找渲染链**，也别为了「想要字幕」把它们加回来：
+  台词要进画面走的是另一条路（先把字做进素材本身），不是代理里的 ASS 滤镜。
+  常驻判据 `.tmp-voiceover.cjs` 现在钉的是合成侧六件事（① 跨段整句 / ② 只夹到片尾 / ③ 不越界不多放 / ④ `off` 输入级 seek /
+  ⑤ 画面 `speed` 乘回 `room` / **⑥ 句自己的 `spd` 真的乘进 tempo**），反向对照 M1–M5 各钉一半；
+  **⑥ 这一档是补上的**：客户端那四处（露出 / 写数据 / 进播放计划 / 进指纹）以前没有任何一支尺子问过成片里那一句到底念多快，
+  把 `vrate` 退回 `speed` 时全站判据照样全绿 —— 「界面能拖、成片里听不出」就是这一类假开关。
+- **剪辑态预览不渲染**（`director.html` 的 `TlPlay`）：按时间线调度现成素材，两个 `<video>` 甲板接力、
+  配音按成片绝对时间起播。`renderMid` 每 3 秒重画，**正在播时要把 `.player-box` 摘下来再塞回去**
+  （节点不动才不断播），且只在计划指纹 `TlPlay.fp` 变化时才 `seek`。
+  成片秒 ↔ 源秒的折算只有 `TlPlay.srcT()` 一份（本镜档的插针按源秒走）。
+- **轨道上的东西要「看得出来」**：声音块画真波形（`voicePeaks`：AudioContext 解码 → RMS+峰值包络 → 归一化，
+  按地址缓存），音量只有右栏那一枚 `#tlVol` 滑块（`input` 只改读数、`change` 才落盘）；
+  视频切片并发取帧（`SLICE_WORKERS`）+ 缩到 160px 宽 + `requestVideoFrameCallback` 等真帧。
+- **语音那一栏的「合成设置」只有一份**（`assetlib.js` 的 `TtsAdv` + `AdvExtras`）：输出格式、音色、
+  平台 `create.topBools`、`create.shapeFields` 的画法与读回，工作台语音栏与导演台「加一句配音」共用。
+  **同一批顶层开关不许画两遍** —— 以前工作台画了 `#topBools` 与私有 `#boolBoxA` 两排，提交读的是私有那排，
+  公共那排「勾了不算数」。
+- 多行输入框用 `ui.css` 的 `.ui-ta`（`.ui-inp` 的多行兄弟），页面不许再各写一条 `textarea` 规则。
+- 「跳到工作台另一页」用 `ui.js` 的 `GoPage`：页面在 iframe 里，换页要交外壳的 `parent.appShow`，
+  自己 `location.href` 只换掉 iframe 内部（侧栏高亮不动、地址栏不变）。
+- **时间轴只有两件东西：一个比例尺 + 一对「框 / 选区」**（`director.html` 的剪辑轨，2026-10 第四轮重做）：
+  ① 比例尺 `pxPerSec`（`tlCurrentPps`）—— 内容层 `.tl-inner` 宽度 = `总时长 × pxPerSec`，
+  `.tl-bar` 是横向滚动容器（纵向只留 padding：overflow 的裁剪边界是 padding box，
+  插针/剪子上下各超出 6–8px 靠它才不被切）；行内元素**继续用百分比**，所以「换比例尺」只有一处落点。
+  缩放 = 「−/＋」与 Ctrl/⌘+滚轮，**围绕视野中心那一秒**（`tlAnchorT`）；重画之间用 `tlScrollWant`
+  保住滚动位置（整列每 3 秒重建一次，不还原就会被弹回最左边）。
+  ② 一段 = **框 `[a,b]`**（切开时定下、拖把手不改；决定这一格的位置与宽度）+ **选区 `[in,out]`**
+  （真正进成片的部分）。拖左右把手只改框内那两块灰的宽度 —— 格子不缩、别的格与它们的切片一个字节不动。
+  **两条轨同一套**（本镜 = 候选的段；全片 = 各段按自己的框摊开，`filmFrames`）：改一处必须同时改另一处。
+  切片取帧区间也只能取**框**（取选区的话，剪一刀整排就要重新解码，而用户看到的就是「每次剪切都在重新加载」）。
+- **配音轨的那一句也是「框 + 选区」，与画面轨同一套几何；块上不许有删除键**（`director.html`，2026-10 第四轮补齐）：
+  配音除了 `at/dur/off`（= **选区**，三处消费者 `clipVoices` → `/render` 的 `clips[].voices` → `renderJob` 与预览 `TlPlay` 只读这三个，合成口径一个字都不动）还有一对
+  **`fa/fb`（= 框，与 `at` 同基准：相对锚定那一段的选区起点）**，只有一份读法 `voiceFrameOf(v)`（老数据没 `fa/fb` → 现算 `fa=at, fb=at+dur`，框等于选区、一块灰都不画）。
+  排版一律按框摆 `left/width`（`voiceBlockHTML(v, box, sel, …)` / `paintVoice`），选区只决定框内**两块**灰（`.vo-off` / `.vo-off.r`）有多宽。三条最容易各漂一处的地方：
+  ① 位置算式只有一份 `voiceBase(v)` + `voiceLeft(v)`，**首屏渲染与拖动中的就地重画必须同源**（以前一支用 `v.at`、另一支用 `s.in + v.at`，段被向左切过之后两者差一个 `s.in`，表现正是用户报的「不是覆盖左右，而是整体缩放」）；
+  ② **画面剪一刀要连框一起平移**（`reanchorVoices`：`at` 挪了多少，`fa/fb` 就挪多少）—— 画面改的是「这一段从源里第几秒开始算」，不是「用户盖掉了音频的哪一截」；只挪选区等于把用户在音轨上的剪辑痕迹无声抹平；
+  ③ 删除只在**点中之后那一排剪辑条**上（`#tlTools [data-cut="drop"]` + `Confirm.arm` 武装态）；块里那颗 × 已从标记 / CSS / 绑定三处一起摘掉（操作逻辑与画面轨一致，34px 高的行也放不下，而且「块上一个 ×、条上一个删掉」是两个出口）。
+  常驻判据 `.tmp-dirdom.cjs`：⑦e/⑦h/⑦i（拖动中：`left`/`width` 与**两块灰**四路一起量，整体缩放必红）、⑦e2（松手整栏重画仍按框摆 —— 与 ⑦e 是两条路，各钉一边）、⑦f（拖块体 = 整框平移、框宽不变）、⑦j（块内没有删除节点，量节点不是量文案）、⑦k（画面再剪一刀后块的绝对位置与两块灰一格不动，且 `at` 与 `fa` **同量位移**）；
+  反向对照 `.tmp-mutdirdom.cjs` M8（宽度退回 `dur` = 整体缩放）/ M9（拖动中不写左灰）/ M10（× 加回来）/ M11（`reanchorVoices` 不平移框）。
+- **两轨的功能只有「同一排按钮 + 一个目标」这一种形状**（`director.html`，2026-10 按参考图重构这一轮）：剪辑条 `#tlTools` 全站一根，`[data-cut]` 六颗（试听 + 切开 / 向左 / 向右 / 删掉 / 融合；
+  **「不剪了」那颗 2026-10-14 已删** —— 它把「一键抹掉这一条上所有剪切」放在最顺手的位置，而 `undo`（Ctrl+Z / 页头「撤销」）
+  本来就是干这件事的且还能退回去；文案里指着它的地方一起换成那条真出路，见 `cutSegs` 的拒绝语与 `paintTrimRow`。
+  **「空隙」那颗 2026-10-15 也整族删除**（用户点名），颗数只以标记为准 —— 判据 `.tmp-dirdom.cjs` ㉛a 当场数 DOM 键集合），
+  目标由 `tlCutTarget()` 一处决定（**= 最后点的那一轨**，记在 `proj.tlLane`；点了配音块 = 配音，点了画面格 = 画面段），入口只有 `runCut(way)` 一个，音量入口只有 `setCutVol()` 一个。
+  **目标只跟着用户的手换轨，不跟着播放头换轨**（用户点名的「不要优先删除语音」就是这个换轨时机）：
+  所有「改东西」的入口读 `tlVoiceHit()`（目标不是配音时一律 null），不要读 `tlVoiceSel()`（那只问选中着谁）；
+  `setPin` 的第 6 个参数 `lane` 与 `filmApplyAt` 的 `opts.lane` 是**唯一**把目标交出去的出口（`'pic'` / `'voice'` 两个方向都走它），
+  播放跟随 / 每 3 秒整栏重画 / `syncPlayhead` 都不许传 —— 传了就是「点了一句配音 → 一次重画 → 滑块调的是画面段」，
+  而这一条 vm.Script 与看代码都看不出来，只有 ⑰b3/⑰e2 那种「推一次针再问目标」的判据抓得住。
+  **音量只有一枚滑块**（`#tlVol`，0–200%、步进 0.1 = 无级；`input` 只改读数与正在响的声音，`change` 才写数据 + `filmEdited()`）——
+  块底那根 `.vgrip` 拖条与「音量 ±」两颗已从标记 / CSS / 绑定三处摘掉：留着就是用户点名的那两件事（鼠标扫过音轨变成「调整」光标、无级调退化成几档）。
+  **锁轨是三处落地，缺一处就是假锁**：把手不画（`voiceBlockHTML` 的 `vLocked` / `renderShotTrack` 的 `picLocked`）+ 剪子与滑块压暗（`syncTlTools`）+ **函数入口硬拒**（`runCut` 与 `setCutVol` 都问 `tlLockWhy()`）。
+  判据只有一份（`laneState/laneLocked/laneHidden/laneToggle` 写 `proj.lane = {pic,voice}` 两轨各记各的），按钮只是它的两个出口；锁一轨不许牵连另一轨。
+  形状照参考图：`.tl-grid` 两列（左列 `.tl-side` 轨名 = 眼睛 + 锁两颗，**不随横向滚动**；右列 `.tl-bar` 是滚动容器），**插针只有一根**且挂在内容层 `#tlInner` 上（穿刻度尺 + 画面行 + 声音行，切页签不换宿主）。
+  常驻判据 `.tmp-dirdom.cjs`：⑰a/⑰a2（芯片 + 只有一根工具条 + 旧出口零残留）、⑰b/⑰b2/⑰c/⑰c2（选中 → 值域 → 数据 / 读数 / 块上标色 / 成片指纹四处一起变）、⑰d/⑰e（一根针）、
+  ⑰f/⑰g/⑰g2/⑰g3（锁的三处落地 + 不牵连画面 + 解锁还原）、⑰h/⑰h2/⑰i（收一轨问的是**算出来的 display**，不是 class 加没加）、
+  ⑰b3/⑰e2（推一次针之后目标是交回画面轨 / 仍留在配音轨，两个方向各一条）；
+  反向对照 `.tmp-mutdirdom.cjs` M17（拖条加回来）/ M18（锁着仍画把手）/ M19（`runCut` 那道锁摘掉）/ M20（`setCutVol` 那道锁摘掉）/ M21（针退回画在某一行里）/ M22（只加 class、样式没跟上）/
+  M28（目标退回「只看选中着谁」）/ M29+M30（`setPin` 那个参数**两个方向**：照抢 / 永不交回）/ M31+M32（`filmApplyAt` 同样两个方向）。
+- **两条轨是同一份账的四件事，各自都只有一处落点**（`director.html`，2026-10-14 用户点名的剪辑八条）：
+  **① 本镜有配音 → 全片必须有配音**：同一句配音在两条轨上「画不画得出来」必须是同一个判据。
+  `voiceFilmSpan()` 找不到它锚着的那一格时**只能返回 null**（以前这里没闸：拿 0 当那一格的起点照样算出 `{from:0,to:dur}`，
+  于是「本镜」那一排把挂在**没选用的候选**上的一句当成「别的镜压过来的那一截」画了出来，而全片那一排按 `candId` 精确匹配什么也不画 ——
+  用户点名的第 1 条正是这两行的差）；画不出来交回调用方，由 `voiceFilmGap()` 说清为什么（`unsel/nocand/nogseg/shotout/noaudio/noshot`，
+  全站只这一份，两条轨共用），能当场替用户补的只有 `VOICE_GAP_FIX` 那三个，其余一律把原因写出来而不是闷掉。
+  **② 焦点只在用户手势或真播放时改**：整栏重画会重建播放器，而 `TlPlay.seek()` 开头**无条件** emit 一次
+  （新建那一只递来的是 0 秒），于是「我刚切一刀 / 只是改了个顺序，剪刀又指回第一段、本镜变成了另一条」。
+  `syncPlayhead` 本镜档与 `filmApplyAt` 全片档同一立场：`!TlPlay.playing` 时只按数据里的 `proj.cutAt` 就地重画针（`paintPin`），
+  **不走 `setPin`**（那一条会把目标轨与 `curCand` 一起交出去）；这一条 vm.Script 与看代码都看不出来，只有 ㉘a/㉕b 那种
+  「推一次针再问焦点」的判据抓得住。拖轨道**换顺序**与在轨道上**点一格**的分界只有 `trackDragged()`（350ms 窗口）一处：
+  浏览器在 drag 松手后照样补一次 click，那颗针必须被当成拖的一部分丢掉（㉕c），而判据要连 `trackDragT` 的年龄一起读 ——
+  探针自己等过 350ms 就等于合法过期，这一档会假绿（时序窗口本身是仪表的一部分）。
+  **③ 空白处也放针 + 加一条轨道 + 每一行都能单独删**：点击区是整条 `.tl-bar`（见上面那一节），落点不要求在格子上；
+  行数只有 `addLaneRow()` / `dropLaneRow()` 两个入口（**不是**一个「+/−」共用函数 —— 删行要按行号收，加行不看行号，两者的拒绝清单不一样），
+  五种情况各给一句拒绝的原因（这一轨是收起的 / 到 `TRACK_LANES_MAX` 上限 / 只剩一行 / 第 1 行是锚行 / 那一行此刻不存在），
+  `syncLaneSide` 的 `plus.disabled = full || hid` 与那些 title 只解释「为什么按不动」，不另判一份。
+  **删一行不许吞内容**：`shiftLaneRows` 把被删那行的块并到上面一行、再往下的行整体补一格，且**段/句的 `ln` 与每行基数音量 `proj.lane[k].vols[ln]` 一起挪**
+  （只挪块的话，删掉第 2 行后「第 3 行的 60%」还挂在 3 上，压到补上来的那一行）；画面轨要遍历**所有候选**，不只当前那条 —— 否则行会自己长回来。
+  **④ 右栏只摆「此刻指着那一轨」的功能**：判据只有 `tlPanel()` 一份，它与 `tlCutTarget()` 只差两条硬条件 ——
+  什么都没点过时照旧开配音那一侧，且**这条候选一句配音都没有时永远开配音那一侧**（否则第一句配音永远加不上）；
+  点画面轨时「插入语音 / 音色 / 合成设置」整块收掉，只留 speed 那一族。新加一排控件先问它属于哪一侧，别在页面里再判一次目标。
+  常驻判据 `.tmp-dirdom.cjs` ㉔（孤句两条轨同现）/ ㉕（拖顺序不换本镜，含 ㉕c 那个 click）/ ㉖（空白放针 + 加轨道到顶与 −）/
+  ㉗（右栏按目标收放，含 ㉗c「一条配音都没有」那一侧）/ ㉘（段数芯片与读数同一份口径 + 播放跟随）/ ㉙（那一行读数只报三个数 + 「不剪了」零残留）；
+  反向对照 `.tmp-mutdirdom.cjs` M46（`voiceFilmSpan` 编位置）/ M47（quiet 不拦 playing）/ M48（`trackDragged` 摘掉）/
+  M49（只认格子，空白不放针）/ M50–M53（行数不落地 / − 挂每一行 / − 不看空不空 / ＋ 永不压暗）/
+  M54–M56（右栏那一块永不收，三个方向各一刀）/ M57（芯片分母退回 `segs.length`）/ M58（读数说两遍）/ M59（「不剪了」加回来）/ M60（本镜档播放跟随不看 playing）。
+- **配音的尾巴不必留在起点那一格内：只夹起点，框与选区都可以跨到后面那一格 / 下一镜**（`director.html` + `proxy.js`，2026-10-14 用户点名的「修复音频不能跨越不同视频片段」）：
+  **① 三处夹取只夹「选区起点落在这一格里」，不许再带上句子的长度** —— 本镜那一排 `put` 的 `maxFa = Math.max(0, segLen(sg) - selOff)`、
+  全片那一排 `filmMove` 的 `Math.max(0, keep - selOff)`、右把手的上界 `lim = Math.max(fr.fb, at0 + content)`
+  （`content` 按音频尽头 `srcDur - off` 算，不是按格子）。旧的那三处都写成 `… - dur`（整条选区都得留在这一格内），
+  于是**一句比格子长的台词拖到段首就顶住，鼠标在走而数字不动**；而合成侧同样只夹到片尾
+  （`proxy.js` 的 `room = Math.max(0.1, Math.min(v.dur, (totalFilm - at) * speed))`，`total` 用 `totalFilm`）——
+  界面放开、合成还截断，与界面截断、合成放开，是同一个缺陷的两半。
+  **② 拖动中途既不量化、也不重建整栏**：`roundVoice` 只在松手那一次做（三路手势的 `up` 各一次），
+  中途只 `paintVoice` 就地重画这一块（含块上那行小字 `.vt` 的秒数 —— 位置在走而秒数不动就等于没说清「改了长度」）；
+  手里有拖动时 `renderMid()` 必须让路（判据只有 `dragBusy()` 一份），撞在拖动中途重建会把手指底下的节点换掉，
+  表现是「拖到一半画面不动，松手才跳到位」，而轮询每 3 秒就会撞一次。
+  **③ 越界的那一截两条轨都要画得出，只读的那一截必须给出路**：全片那一排按 `voiceFilmSpan` 摆，块可以画过自己那一格的右沿；
+  别的镜压进来的那一截画成 `.tl-v.spill`，**一颗把手都不给**（那一排的时间基是它自己那一镜的源秒，拖了会拿错段长），
+  但点它必须 `focusVoiceShot` 跳回它自己那一镜 —— 「画得出却点不动」与「点得动却摆错位置」在本项目算同一个缺陷的两半（承诺要么实现、要么改文案）。
+  **④ 递进预览与合成的那一份也必须是整句**：`clipVoices()` 是唯一的消费者口径（剪辑态播放计划 `tlPlayPlan` → `/render` 的 `clips[].voices` → 指纹三处都读它），
+  它只在「选区起点已经出了这一格」（孤儿）时丢句，**不许按这一格剩余长度截**；界面放开而这里还夹就等于「看得见、听着还是半句」。
+  常驻判据 `.tmp-dirdom.cjs` ㉚a/㉚b/㉚b2/㉚c/㉚d/㉚e/㉚f/㉚f2/㉚g/㉚h/㉚i（㉚g 是拖动中途**自己踢一次** `renderMid()` 再问节点身份，不等 3 秒定时器 —— 靠时序的判据会偶发假绿；㉚i 量的是播放计划那一份的 `at/dur`，不是样式），
+  合成侧 `.tmp-voiceover.cjs`（真发一次 `/render`、用 ffprobe 量产物里那一句还剩几秒）；
+  反向对照 `.tmp-mutdirdom.cjs` M65（`maxFa` 退回 `- dur`）/ M66（`filmMove` 同一道旧夹取）/ M67（右把手上界退回框右沿）/
+  M68（拖动中不更新那行小字）/ M69（`renderMid` 不让路）/ M70+M71（两路手势中途量化）/ M72（spill 仍画把手）/ M73（点那一截不跳回去）/ M74（`clipVoices` 按这一格剩余长度截断）。
+  **探针自己要守的两条**：每组手势前用 `seedW()` 重种底座**并把页签切回那一排**（上一族停在「全片」时，本镜那一排读到 0 个格子、把手按 0.02 秒/像素走 —— 看着像页面坏了，是尺子开在另一排上）；
+  越界基准只能按**块自己那一格的左沿**去认格子（`ownCellR`），拿最后一格当界永远量不出越界 —— 它的右沿就是 100%。
+- **播放器那一排控件是一份标记、四处同一件事**（`director.html` 的 `pbBarHTML()`，用户点名的第 9 条）：剪辑态甲板与候选播放器共用同一段标记（左下 = 播放 / 暂停 + 时长读数，右下 = 静音 + 全屏，`.sp` 那根撑开的把两边分开，全屏排在最后 = 视觉最右下角），
+  三颗圆按钮同一档尺寸、`display:flex` + 双向居中 + `padding:0` —— **svg 掉到圆心下方**的病根就是原来的 inline 基线排法；hover 不再 `scale()`（整排在抖）。
+  静音那颗有四件事，只做到两件就是假开关：**图标换口、title 换句、`dir_muted` 落盘、真的静音**（剪辑态走 `TlPlay.setMuted`，候选播放器走 `pl.muted`）。
+  常驻判据 `.tmp-dirdom.cjs` ㉑a/㉑b/㉑c/㉑d（㉑b 问 `getComputedStyle`，㉑d 点两下量四处一起换口再退回来）；
+  反向对照 M23（`.sp` 换名字 → 靠右那一头塌）/ M24（退回 inline 基线）/ M25（图标写死）/ M26（title 写死）/ M27（只改外观与旗标、不 `setMuted`）。
+  **两条比法上的坑**：svg 要按**同一把尺子序列化**再比（`icon()` 出的串没有 `xmlns`，节点 `outerHTML` 会补上，字符串永远对不上）；`dir_muted` 要按**布尔**比（从没写过的键读回来是 `null`，按字符串比「退回来」就把判据钉死在夹具上）。
+  **右下那颗全屏有四个落点，少一个就是「看着能点、其实什么都不做」**（2026-10-15 补齐：`pbBarHTML()` 把它画在两个播放器上，而接线函数 `bindPbFull` 一度**全站零调用**）：
+  ① 候选播放器（`renderMid` 那一支）② 剪辑态那两个甲板（`bindTlPlay` 那一支，同一段标记、**另一条接线**）③ `selectCandidate()` 里「播放区整块重画」那条分支（换到没有画面的那条再换回来 —— 新节点上是一颗全新的按钮，上一处的接线跟不过去）④ 已经在全屏里再点同一颗必须走 `exitFullscreen`，不是又进一次。
+  **宿主只能是整块 `.player-box`**（只让 `<video>` 进去 = 全屏里根本没有退出那颗，那一排控件留在屏幕外）。
+  常驻判据 `.tmp-dirdom.cjs` ㉑e/㉑f/㉑g/㉑h（jsdom 没有 Fullscreen API：`requestFullscreen` / `exitFullscreen` 换成记录调用的桩，`document.fullscreenElement` 由探针自己摆 —— 浏览器里那一只是系统写的）；
+  反向对照 `.tmp-mutdirdom.cjs` M136（甲板那条不接）/ M137（候选那支不接）/ M138（重画后不重接）/ M139（宿主退回 `<video>`）。
+  **两条夹具纪律**（这一组第一次跑就撞出来的「假红」）：模式要**显式摆**，不能盲点 `#trimBtn` —— 前面已有判据把剪辑态开着了，「点一下切换」会把要测的那一条切成另一条，两次点击各测一条路而标签对调，读数是巧对的（等于没测）；
+  换候选要挑**不是正在看**的那一条，`selectCandidate` 对 `at === proj.curCand` 直接 return，拿当前那条去点等于没调用 —— 只有一条候选有画面时就把账上的 `proj.curCand` 挪开再选回来，走的仍是同一条重画分支。
+- **「存回本机」的范围不许跟「不显示云端任务」走**：藏起来是「列表里先别显示它」，不是「这份东西我不需要」，
+  而三个开关全开时被藏掉的恰恰就是本机还没有字节的那批 —— 正是那颗按钮唯一的目标。
+  跟着藏走会当场筛出 0 条，按钮成了「点了只会说都已经有了」的假控件。
+  四页各自的范围函数（工作台 / 资产库的 `pullScope`、素材库的 `localPlan`）必须读**没带藏**的那一份
+  （工作台 `mergedItems()`、资产库 `applyFilters({includeHidden:true})`、收藏与素材库本来就不带藏）。
+  注意 `hideAsCloud` 的**调用点**判据对这类错误是瞎的（藏是在列表函数里统一做的，调用点一处都不多），
+  所以专门有 §J ⑨-b 一把尺子（取函数体、大括号配对）＋ 两条变异＋一条反向对照钉住它。
+- **余额 / 额度不够这类错误要给出口**：判据只有 `Api.isBalanceErr`（与 `ERROR_HINT` 共用一条正则），
+  十分钟内同一家再点先拦住（`Api.balOut`）并给「仍然再试一次」；
+  **可点的入口只能画在页面自己的 DOM 里** —— `setStatus` 过 `sanitizeHTML`，`button` 会被抹成纯文本。
+
+## 9. 新增约定（2026-10 第五轮 · 轨道八条：落点分档 / 跨行 / 缩略图卡 / 行级四件套；「空隙」那一条已删）
+
+- **右栏开哪一侧跟着「用户点在哪一轨」换档，三档只有一份判据**（`director.html` 的 `tlPanel()`，用户点名的第 ①②③④ 条）：
+  点一句配音 = 声音那一侧（倍速那一排见下面「配音那一侧的倍速」那条），点一格画面 = **画面那一侧（倍速 / 入出点），哪怕这一条候选一句配音都没有**，
+  点在没有块的轨道空白上 = 声音那一侧（那就是「加一句配音」的入口）。什么也没点过的初始态照旧开配音那一侧。
+  **旧口径把「这条候选有没有配音」排在落点之前** —— 于是第 ② 条在最常见的那一镜上必然落空（点了画面格却只见「生成配音」），
+  而它本来要保护的「第一句加不上」如今由落点给；两条性质别再用一道闸混判（`cutCand()`/`shotVoices()` 那一档已从 `tlPanel` 摘掉）。
+  剪辑针与声音行同样与「有没有块」无关：`filmVoiceHTML` 无条件画行、`.tl-pin` 挂在内容层 `#tlInner` 上（不属于任何一行）。
+  常驻判据 `.tmp-dirdom.cjs` ㉗a/㉗b/**㉗c（点画面格 → 倍速露出）/㉗c2（同一份数据点空白 → 加一句配音露出）/㉗c3（谁都没点过 → 配音那一侧）** + ㉛b/㉛c/㉛d/㉛d2/㉛e；
+  反向对照 `.tmp-mutdirdom.cjs` M54/M55（两块各自永不收）/ **M56（初始态与点空白也开画面那一侧 = 第一句配音没有入口）/ M91（把「有没有配音」那道闸排回落点之前 = 第 ② 条落空）**。
+- **「空隙」那一族整条已删（2026-10-15 用户点名），不要再照着旧名字找锚点**：`#tlTools` 上那颗 `data-cut="gap"`、
+  `tlGapClip()` / `tlGapHit()` / `applyGap()` / `proj.gapAt` / `GAP_MIN`/`GAP_MAX` / `.tl-seg.gap` 标记与判据 ㉛h0–㉛o、
+  反向对照原 M77–M82 六刀一并摘掉（`.tmp-mutdirdom.cjs` 里那条注释是删除记录的唯一落点）。
+  **段与段之间要留白**走的是另一条早已存在的路：「删掉」那一格变成**黑场**（`clip.gray` → 代理 `src:'black'` 走 lavfi，
+  时长还是那几秒），配音照样能压在黑场上（判据 ㉚j / M76 —— 撤掉「空隙」不等于撤掉「黑屏配旁白」这条出路）。
+  新加「剪完之后画面少了 X 秒」这类功能前先问一句：黑场那张牌是不是已经回答了同一个问题。
+- **画面轨那条「关键帧 + 速度曲线」整族已删（2026-10-15 用户点名），段的速度只剩滑块一个写点**：
+  `setCutSpd`（画面段 0.25–4）与 `setVoiceSpd`（配音句）两枚滑块留下，格子上那一排关键帧磁贴与「缓入 / 匀速 / 缓出」三颗按钮
+  连同 handler 一起摘掉 —— **「一段一个倍速」与「一条曲线」是两件事**，别把曲线当回「精细控制」再长出一份。
+  ⚠ 源码里 `sh.keyframes` 这个名字还在，但它是**时间切片的参考图**（画面生成那一路，见 §2「导演台画面生成」那条），
+  与已删的那排轨道磁贴不是一回事 —— 照着名字去找轨道功能会扑空。
+- **压在「被剪掉的头 / 尾」那两块灰上的配音要跟着拉长，且两条轨 + 预览 + 合成四处同一把尺子**（`director.html`，2026-10-15 用户拿截图点名的第 18 条）：
+  一份读法 `graySpans()` 同时报**整格黑场**与**格子里那两块 `.mask`**（入出点剪掉的头尾），第三个标记区分「成片里的真洞」与「只是被剪掉」：
+  ① 块上那一段画成 `.vo-skip`（像跳过的视频条那样变灰 = 那几秒听不到）；② 块**往后拉长**到灰场结束那一点，而拉长的长度只能与
+  「自己那一排没有灰场时」比（拿另一排的宽度当基线量到的是假红）；③ 拉长**不许**改 `at/dur/off` 那三个合成字段，只改排版与那行读数
+  （`filmSec`，不是 `end − 起点` —— 后者等于「轨道跨多长」，与听着的一句差一截）；④ 预览与合成那一份尺子只认整格黑场
+  （`filmLayGray` ≠ `filmGray`，`grayWall` 还得看 `s.off`），否则一句被劈成两条、听着是半句。
+  常驻判据 ㉞a–㉞g（含 ㉞g = 拖动中途就地重画那一半），反向对照 M106–M111 + M108。
+- **配音那一侧的倍速：露出 / 写数据 / 进播放计划 / 进指纹四处都要认**（第 ③ 条补齐的一半，`v.spd`）：
+  指着画面格时那一排整块收掉（与 ㉛b/㉛c 互为一对），写着「乘那一格画面 ×A → 成片 ×A+B」那句必须现算（不是拼一个看起来差不多的数）；
+  只改「念多快」，起点与时长一个字节不动；调回 ×1 时**键整个摘掉**、指纹逐字复原（默认值不许占位，否则旧工程一改就全变「陈旧」）。
+  判据 ㉜a–㉜i，反向对照 M94–M104。
+- **拖动示意那张卡两条轨、两路手势都得有**（第 ⑧ 条）：`dragGhostShow / dragGhostMove / dragGhostHide` 三个动作在同一趟手势里配齐（起手一次、每次位移跟一次、松手一定收），
+  画面格放它**已经解出来的切片**（`.frs > .fr` 的 background-image），配音块放**它自己那份波形**（`.wv-box > svg` 克隆节点）——
+  **拖动中途不重新解码、不重算包络**，取不到就降级成占位（宁可少一张图，也不让一次拖动等一趟解码）；
+  那行字取块 / 格子上本身的小字（`.lab` / `.vt`），不许另拼一句。卡片挂 `document.body` + `fixed`（轨道是横向滚动容器，画在里面会被 overflow 裁掉）。
+- **跨行与「每一行独立删」是同一份行号**（第 ⑤⑥ 条）：画面段写 `s.ln`（唯一出口 `setCellLane`）、配音句写 `v.ln`（唯一出口 `bindVoiceLane` 松手那一次），
+  两个页签读同一个数 —— 「在本镜挪到第 3 行、切到全片还在第 3 行」不是同步逻辑是没有第二份账；
+  每一行（第 2 行往上）的标签上各有一颗「×」，落地只有 `dropLaneRow` → `shiftLaneRows`（这一行的块并到上面一行、再往下的补格，**段 / 句的 `ln` 与每行基数音量 `proj.lane[k].vols[ln]` 一起挪**，画面轨要遍历**所有候选**否则行自己长回来）。
+  常驻判据 ㉖c/㉖d/㉛f/㉛f2/㉛f3/㉛g0/㉛g/㉛g2/㉛g3/㉛g4/㉛e2，反向对照 M50–M53 + M83–M88 + M92/M93。
+  **绕回原行的那一路不许打 ✓**（一个数都没改还说「挪到了」就是假回执，㉛g4 钉这一条）。
+- **加出来的每一行都有四件套：收起 / 锁定 / 添加 / 基数音量，而「行级」与「轨级」是两份判据不是两套按钮**（`director.html`，2026-10-15 用户点名的第 19 条）：
+  读侧只有 `rowFlag` / `rowHidden` / `rowLocked`（`ln <= 0` 回退到轨级，**整条轨永远压得住单行，反过来不成立**），
+  写侧只有 `rowFlagToggle`（ln 0 直接拒并指着轨名那两颗）与 `setLaneVol`（基数按行记在 `proj.lane[k].vols[ln]`，**只有 ≠1 才占键**）；
+  `laneRowCtlHTML` 画四件套、`syncLaneSide` 画完之后**逐行现量现写** `disabled` / `title` / 滑块值（拼模板那一刻量到的是上一次渲染的行数）。
+  四件不能各漂一处的老纪律在这里照样成立：
+  **① 锁三处落地按「这一行」**（`voiceBlockHTML` 的 `vLocked = rowLocked('voice', vLn)` 只管自己那一行 + 滑块 `disabled` + 函数入口硬拒），
+  **② 收起是「不画」不是「画出来再禁用」**，判据必须问 `getComputedStyle` 的 `display` 而不是 class ——
+  这一条当场抓出一个真缺陷：`.tl-lane.hid > *`（0,2,0）被几百行之后那句 `.tl-lane .tl-v{display:flex}`（同 0,2,0）盖掉，
+  行级收起只压扁了行高、块还全画着；整条轨那一档用的是 `.tl-grid.hid-voice .tl-lane > *`（0,3,0）所以从来没露馅。
+  **那条前缀是承重的，不是排版**（改 CSS 时删掉 `.tl-grid` 只是让选择器短一点，功能当场塌一半）；
+  **③ 眼睛与锁永不 `disabled`** —— 它们正是「让这一行重新能动、能看见」的那颗出口；
+  **④ 插一行 / 删一行时块上的 `ln` 与按行的三张表（`vols` / `hides` / `locks`）走同一个映射**（`mapLaneBlockRows` + `moveRowFlags` 过 `ROW_FLAG_COLS`，
+  `to > 0` 才占键 —— 并进第 0 行的那份没有地方记就随它消失，别留一份「看不见的加压」；塌空的表整个 `delete`）。
+  另两条落地：`bindPinZone` 的点击区排除名单必须同时排掉**滑块与右边那枚百分数读数**（`.tl-hvol-sl, .tl-hvol`）——
+  只排滑块会留下一个「点上去只该看数、却把剪针搬走了」的读数；`labOf('tlVolLab', …)` 与行标签 `prevLab` 一起把「这一段 / 这一句 / 这一行」写进标签，
+  段与句的音量是**乘在行基数之上**（`picVolOf` / `voiceVolOf` 各一处，光写不说等于承诺一件算不出来事）。
+  常驻判据 ㊱a–㊱z（四件套齐全 / 锚行只有轨级两颗 / 行级收起与锁定各量 `display` 与把手节点 / 三张表插删两趟 / 拖动中途只改读数 / 右栏四处同一个数 / 收尾指纹逐字复原），
+  反向对照 M112–M127 + M125b（CSS 前缀 / `vLocked` 退回轨级 / 入口闸退回轨级 / 滑块与眼睛各自假 disabled / 插删各砍一半映射 / `to > 0` 摘掉 /
+  input 就写数据 / change 不传行号 / 点击区只排滑块 / 标签退回「音量」/ 乘算退回覆盖 / 锚行也画 × / 「去哪儿解锁」两个方向各一刀
+  —— 那一句返回值本来就分两岔（整条轨锁着 / 只锁了这一行），一个变异只能打中一岔，所以成对写）。
+  **「这一行的基数音量为什么调不了」也只许有一份实现 = `laneVolWhy(k, ln)`**（2026-10-16 补，同一族的**措辞**那一半）：
+  函数入口那道硬拒（`setLaneVol` 的横幅）与右栏那枚滑块的 `title` 以前**各拼一遍** `rowNm + '已锁定：这一行的基数音量不调。'`，
+  于是整条轨锁着时界面说的是「配音轨第 1 行已锁定」，而行标签上那颗锁明明亮着、点它解不开 —— 同一句里既报错行号、又指着对的锁，两句半真半假。
+  它和 `rowLockWhy`（拖 / 剪那一句）是**两个口径**：后者只回答「为什么动不了」，音量这一句要带「基数音量不调」与自己的出路，
+  所以不是把两处并成一处，而是把重复的措辞收成一份、分岔照 `laneLocked` 走（整条 → 「整条配音轨已锁定（锁的是这条轨，不是单独这一行）」）。
+  常驻判据 ㊱d2b（整条轨锁着时横幅与 `#laneVoiceBox.title` **两处**都说「整条配音轨」且**都不说**「第 N 行」，那一盒同时压暗），
+  反向对照 M153（分岔永不会走到 → 两处一起报成第 N 行）/ M154（入口闸自己再拼一份）/ M155（右栏 title 自己再拼一份）——
+  后两刀各打一个消费者：只并一处，另一处迟早漂回去。
+- **右栏那张卡只有五个名词，口径表只写在 `paintTlAdjust` 的注释里一处**（2026-10-16 用户点名的「对画面和配音的声音配置里关于『段』『轨』『句』的描述前后统一」）：
+  `段` = 画面轨上被切出来的一段（`c.segs` 的一条）→「这一段」；`句` = 配音轨上的一句配音（`proj.voices` 的一条）→「这一句」；
+  `行` = 一条轨里的一条横带（`ln`，只决定画在哪，不决定时间）→「第 N 行」；`轨` = 画面轨 / 配音轨整一条（锁、收起、基数音量都有**轨级**与**行级**两档）；
+  `镜` = 一条候选镜头（`candidates` 的一条）→「这一镜」，**不用「这一条」**。
+  **`格` 只许指轨道上那个看得见的方块**（黑场与 ㉞ 那一族的性质靠它，不能一并抹掉），不再当「段」的别名；
+  `颗 / 枚` 的分工是按钮用颗、滑块用枚。
+  三条最容易各漂一处的地方：**① 标签与 title 跟着目标现写**（`labOf(id, t)` 是唯一落点，它顺手把同一句写进相邻滑块的 `aria-label` ——
+  只改看得见的字，读屏里还停在静态「音量」，M135 钉这一条）；
+  **② 指路句必须指着此刻看得见的那一排**（`spdWhy()` 在指着配音时说「用『这一句倍速』那一排」；
+  写成「上面那一排『倍速』」是错的 —— 画面那一排此刻整块 `hidden`，且它的名字已经不叫「倍速」，见 ㊲k）；
+  **③ 同一件事在两处列数不许两个名字**（「落在哪 → 这一镜已有 N 句」与「这一镜上的配音 → N 句」都叫「这一镜」，
+  以前一格写「这一镜」一格写「这一条」，同一张卡里两个名字看着像两个东西）。
+  常驻判据 `.tmp-dirdom.cjs` **㉝a–㉝d + ㉝z**（真 DOM 里两种落点各读一次：逐节点点名标签 / `aria-label` / 框上 `title` / 那行读数 / `^第 \d+ 行$` / `^这一镜…$`，
+  再把整张卡**看得见的**文本 + `title` + `aria-label` 拼起来扫一遍旧别名），反向对照 `.tmp-mutdirdom.cjs` **M150–M152**（标签退回「这一格音量」/ 列表退回「这一条上的配音」/ 行读数退回「第 N 格」）。
+  ⚠ 扫描只认 `closest('[hidden]')`、**不认 `getComputedStyle`**：`paintTlGroups` 只翻 `hidden` 属性（节点不销毁），
+  而 jsdom 的 UA 样式表对 `[hidden] → display:none` 的覆盖并不可靠 —— 用 display 当尺子会把收着的那一排也算进「看得见」，那一档就永远红。
+  ⚠ 粗比（「整张卡不许出现『句』字」）也不成立：换行那两颗按钮的 `title` 天生同时管段与句（「把芯片指着的这一段 / 这一句挪到上一行」），
+  所以 ① 这一半只能**逐节点点名**，只有 ③ 那一半（旧别名）可以整片扫。
+- **变异脚本的锚点有一类必须写两行**：`director.html` 是 CRLF，而同一句 `dragGhostHide();` 在三路手势里各出现一次 ——
+  单行锚点 `rep()` 会一次改坏三处、把不相干的档位一起拖红。带上**下一行**当身份证，换行写成 `\r\n`（见 M93）。
+  跑任何「会临时改写源码」的变异之前先 `node .tmp-anchordry.cjs .tmp-mutdirdom.cjs` 只读干跑一遍命中（现役 143 刀；最早一轮 94 刀时一次 dry 抓出 5 处失配）。
+
+↑ **§8 / §9 与 §3 / §3.1 / §6 / §7 的分家规则不同**：按开头那套写法，剪辑与轨道（§8 / §9）的正文
+**一直直接写在本文件对应一节里**，不另搬分册；上面各条点名的判据与探针口径就是全文，
+这里不再指向 `docs/`（那两册只承载 §3 / §3.1 / §6 / §7 的全文）。

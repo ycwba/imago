@@ -70,7 +70,7 @@
   <div class="toolbar2">
     <span class="sp"></span>
     <span class="viewtoggle" id="fView"></span>
-    <button class="ghost" id="pullBtn" title="把当前筛选结果里「本机还没有那份字节」的收藏，取回本机资产库存一份。本地上传的那一批不算（它的字节本来就在浏览器里）。存好之后生成工作台与资产库也认得这一份。"></button>
+    <button class="ghost" id="pullBtn" title="把当前筛选里「本机还没有那份字节」的收藏取回本机资产库；本地上传的那一批不算（字节本来就在浏览器里）"></button>
     <button class="ghost" id="uploadBtn"></button>
     <input type="file" id="uploadFile" multiple hidden>
   </div>
@@ -97,7 +97,7 @@
   $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
   /* 这颗按钮的字要就地改（进度写在 .tx 上），所以图标与文字分两个格子 ——
      整颗 `textContent = …` 会把图标一起抹掉（见 ui.js 的 btnText）。 */
-  $('pullBtn').innerHTML = `<span class="ic">${window.icon ? icon('download', 13) : ''}</span><span class="tx">自动下载</span>`;
+  paintPullBtn();
 
   let filter = 'all';
   let aiPick = null;            // AI 找出来的收藏（key 集合），非空时只显示这些
@@ -105,8 +105,10 @@
   let aiWhy = '';               // AI 自报的一句话理由，显示在条件芯片上
   let renderSeq = 0;            // 渲染令牌：异步画卡片时若又触发了一轮，旧的那轮立即放弃（否则卡片会重复）
   const TYPES = [['all', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频'], ['文件', '其它']];
-  const byType = (it, t) => t === 'all' || (t === '音频' ? (it.type === '音频' || it.type === '音乐') : it.type === t);
-  const fmtSize = b => (!b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+  const byType = (it, t) => t === 'all' || (t === '音频' ? window.isAudioType(it.type) : it.type === t);
+  /* 字节只有一种说法（ui.js 的 fmtBytes，全站共用）：以前这一页自己写了一份没有 GB 档的，
+     4 GB 的成片显示成 4096.0 MB；0 字节还显示成空串（「未知」与「空文件」看起来一样）。 */
+  const fmtSize = b => window.fmtBytes(b);
 
   /* ---------- 顺序只有两种，界面上一颗都挑不了 ----------
      AI 挑过 → 照 AI 给的名次排（最合适的在前）；没挑过 → 照存盘顺序（`Fav.add` 把新的 unshift 到最前）。
@@ -129,23 +131,18 @@
   /* ---------- 展示样式 + 分页 ----------
      开关与分页都走公共实现（Wb.viewToggle / Wb.pager），和资产库同一套行为：
      每页条数、翻页还是滚动续拉，都在「设置 → 列表分页 → 我的收藏」里配。 */
-  const PAGE_MODE = (function () { try { return localStorage.getItem('page_mode_favorites') === 'more' ? 'more' : 'page'; } catch (e) { return 'page'; } })();
-  const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_favorites') || 24) || 24);
+  /* 默认档与「取存储 || 退回默认」的读法只有一份（ui.js 的 pageModeOf / pageSizeOf，
+     默认档现读它上面那张 PAGE_TARGETS）：页面里抄一份 'page' / 24，设置页改了默认值这一页还是旧的。 */
+  const PAGE_MODE = window.pageModeOf('favorites');
+  const PAGE_SIZE = window.pageSizeOf('favorites');
   let morePages = 1;             // 动态加载模式：已经拉了几页
-  /* 两档，与资产库同档数、同图标语义：列表（横条）/ 紧凑（方块网格）。
+  /* 与资产库、素材库同一颗开关（workbench.js 的 Wb.viewToggle）：有几档、叫什么只由 ui.js 的
+     window.VIEW_MODES 点一次名，这里不抄第二份。
      旧的第三档「卡片」与紧凑长得一样（图标还撞成了两个「紧凑」），已并掉；
      存档里的旧值 card/compact 由 viewToggle 现算，认不出来时回落到第一档（列表）。 */
   const viewToggle = Wb.viewToggle.create({
-    el: 'fView', key: 'dir_fav_view',
-    views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
-    onPick: applyView,
+    el: 'fView', key: 'dir_fav_view', target: 'grid',
   });
-  function applyView() {
-    const g = $('grid');
-    if (!g) return;
-    g.classList.remove('view-list', 'view-compact');
-    g.classList.add('view-' + ((viewToggle && viewToggle.value) || 'list'));
-  }
   const shownCount = () => PAGE_MODE === 'more' ? Math.min(viewItems.length, morePages * PAGE_SIZE) : viewItems.length;
   /* 页码/信息文案算的是「整个视图有多少条」，所以 pager.items 给全量，具体显示哪几条由 pageItems 决定 */
   function pageItems() {
@@ -162,11 +159,18 @@
   /* 灯箱 + 详情：与资产库 / 三个工作台共用 Wb.lightbox / Wb.detail（workbench.js）。
      收藏以前点了没有任何反应（本地文件只是 blob 地址，直接打开会跳出页面）。 */
   const favFileName = it => {
+    /* 本地上传的文件保留它自己的名字（那是用户起的，不该被改写）。其余与资产库 / 工作台同一形状，
+       三块读法都在 ui.js（`fileStamp` 拼时间、`fileSafe` 洗名字、`fileExtOf` 推扩展名，§J ⑲ 守着）。
+       以前这一页有**两份**下载名：灯箱里这一份、卡片那颗「下载」按钮又自己拼了一份，
+       两份都没洗非法字符（提示词里的 `/ \ : * ? " < > |` 变成文件名的方式是各浏览器自己定），
+       而且没有扩展名兜底 —— 一条没带 format 的收藏下回来是个没有尾缀的文件，双击打不开。 */
     if (it.kind === 'local' && it.name) return it.name;
-    const base = String(it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').trim().slice(0, 30) || 'favorite';
-    return base + (it.format ? '.' + String(it.format).toLowerCase() : '');
+    return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.name || '素材', 24) + '.' + window.fileExtOf(it);
   };
-  const favKind = it => (it.type === '视频' ? 'video' : ((it.type === '音频' || it.type === '音乐') ? 'audio' : 'image'));
+  const favKind = it => window.mediaKindOf(it.type);
+  /* 「去工作台哪一栏」必须与 `studio.html` 分段开关上那三个名字逐字一致（视频 / 图像 / 音频）。
+     以前这一句里 audio 写成「语音」，而那一栏的按钮写着「音频」—— 提示指着页面上不存在的那一栏。 */
+  const reuseTabZh = t => ({ video: '视频', image: '图像', audio: '音频' })[window.mediaKindOf(t)];
   Wb.detail.init({
     prompt: it => it.prompt || it.name || '',
     status: it => (it.kind === 'local' ? '本地文件' : '已收藏'),
@@ -177,7 +181,7 @@
       ['大小', it.size ? fmtSize(it.size) : ''],
       ['时长', it.duration ? it.duration + 's' : ''],
       ['备注', it.note || ''],
-      ['收藏时间', it.ts ? new Date(it.ts).toLocaleString() : ''],
+      ['收藏时间', window.fmtWhen(it.ts)],
     ],
   });
   Wb.lightbox.init({
@@ -200,25 +204,26 @@
      所以本地用 fileKey 做稳定键（见 workbench.js 的 Wb.thumbs.keyOf / bind 的 identity 参数）；
      远程用 /getv 地址，keyOf 内部会归一化成 host+path，签名换了键也不变。 */
   function thumbFor(it, url) {
-    const isAudio = it.type === '音频' || it.type === '音乐';
+    const kind = window.mediaKindOf(it.type);
     if (!url) return { html: '<div class="thumb"></div>', tkey: '' };
     const tkey = it.kind === 'local' && it.fileKey ? 'fav-file:' + it.fileKey : url;
-    const html = isAudio
-      ? `<div class="thumb"><div class="audio">${window.icon ? icon('mic', 26) : ''}<span>${esc((it.format || '').toUpperCase() || '音频')}${it.duration ? ' · ' + it.duration + 's' : ''}</span></div></div>`
-      : it.type === '视频' ? `<div class="thumb">${Wb.thumbs.mediaHTML(url, { key: tkey })}</div>`
+    const html = kind === 'audio'
+      ? `<div class="thumb"><div class="audio">${window.icon ? icon('mic', 26) : ''}<span>${esc(window.fileExtOf(it).toUpperCase())}${it.duration ? ' · ' + it.duration + 's' : ''}</span></div></div>`
+      : kind === 'video' ? `<div class="thumb">${Wb.thumbs.mediaHTML(url, { key: tkey })}</div>`
       : `<div class="thumb">${Wb.thumbs.mediaHTML(url, { key: tkey, type: 'image', mediaAttrs: 'loading="lazy"' })}</div>`;
-    return { html, tkey, isAudio };
+    return { html, tkey };
   }
 
   async function render() {
     const seq = ++renderSeq;
     paintChips();
     paintAiChip();
-    applyView();
+    viewToggle && viewToggle.apply();
     const q = $('q').value.trim();
     const items = orderItems((q ? Fav.search(q) : Fav.list())
       .filter(x => byType(x, filter) && (!aiPick || aiPick.has(x.key))));   // 灯箱的翻页范围 = 当前视图（搜索/筛选后，不受分页影响）
     viewItems = items;
+    paintPullBtn();          // 「存回本机（N）」按这一屏现算：筛选/搜索/存完都要跟着换数
     $('cnt').textContent = items.length ? '共 ' + items.length + ' 项' : '';
     const grid = $('grid');
     if (!items.length) {
@@ -265,7 +270,7 @@
             ${/* 本地文件也给这一颗：它的字节在本机 IndexedDB 里，带过去的是文件号（fileKey），
                以前这一颗只画给资产类收藏，本地文件连入口都没有 —— 而它才是真能保证还在本机的那一批。 */
               (it.kind === 'asset' || it.fileKey)
-                ? `<button class="ghost reuse" title="带着这条素材去${Wb.reuse.kindOf(it.type) === 'video' ? '视频' : Wb.reuse.kindOf(it.type) === 'audio' ? '语音' : '图像'}那一栏">复用</button>` : ''}
+                ? `<button class="ghost reuse" title="带着这条素材去${reuseTabZh(it.type)}那一栏">复用</button>` : ''}
             <button class="ghost dl">下载</button>
             <button class="ghost danger rm">移出收藏</button>
           </div>
@@ -305,7 +310,7 @@
         try {
           const b = await Fav.blobOf(it);
           if (!b) throw new Error('取不到文件');
-          Net.save(b, (it.prompt || it.name || 'favorite').replace(/\s+/g, ' ').slice(0, 30) + (it.format ? '.' + it.format : ''));
+          Net.save(b, favFileName(it));
           dl.textContent = '已开始下载';
         } catch (err) { dl.textContent = '下载失败'; }
         setTimeout(() => { dl.disabled = false; dl.textContent = '下载'; }, 1800);
@@ -318,8 +323,8 @@
            工作台那头按号去 IndexedDB 取字节。以前这一条只把 assetId 递过去，
            而本地文件压根没有资产号，等于什么都没带。 */
         Wb.reuse.go(it.kind === 'local'
-          ? { from: 'favorites', kind: Wb.reuse.kindOf(it.type), fileKey: it.fileKey, name: it.name, prompt: it.prompt || '' }
-          : { from: 'favorites', kind: Wb.reuse.kindOf(it.type), assetId: it.assetId, src: url, prompt: it.prompt || '' });
+          ? { from: 'favorites', type: it.type, fileKey: it.fileKey, name: it.name, prompt: it.prompt || '' }
+          : { from: 'favorites', type: it.type, assetId: it.assetId, src: url, prompt: it.prompt || '' });
       };
       grid.appendChild(card);
     }
@@ -362,75 +367,63 @@
      以前这里弹一个独立输入窗口（两个框填的是同一件事，人要在两处来回跳），
      旁边还挂着一个「AI 从资产库找并收藏」—— 那是资产库的活，收藏页只管挑已有的。 */
   function paintAiChip() {
-    const el = $('aiChip');
-    if (!el) return;
-    el.innerHTML = aiPick
-      ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
-        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整列表">${icon('close', 10)}</button></span>`
-      : '';
-    const c = $('aiClear');
-    if (c) c.onclick = clearAiPick;
+    window.AiChip.paint('aiChip', { text: aiPick ? window.AiChip.picked(aiPick.size, aiWhy) : '', onClear: clearAiPick });
   }
-  function clearAiPick() {
-    aiPick = null; aiWhy = ''; aiRank = null;
-    /* AI 的名次一清，顺序就退回存盘那一种（新添加的在前）—— 不是「回到某个用户挑过的档位」，
-       这一页没有档位可挑了。 */
-    resetPaging(); render();
-  }
-  async function runAiFind() {
-    const box = $('q');
-    const q = (box.value || '').trim();
-    if (!Fav.list().length) { Toast.info('还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」'); return; }
-    if (q.length < 2) { Toast.info('先在搜索框里写要找什么（至少两个字），再点 AI 找素材'); box.focus(); return; }
-    const btn = $('aiFindBtn'), old = btn.innerHTML;
-    btn.disabled = true; btn.textContent = 'AI 正在挑…';
-    let msg = '';
-    try {
-      const reg = await Api.registry();
-      const sys = '你是素材管家：用户会用一句话描述需求，你要从他「我的收藏」清单里挑出最合适的若干条。\n'
-        + '规则：\n'
-        + '1. 只输出 JSON，不要任何解释、不要 markdown 代码块。格式：{"keys":["收藏ID"],"summary":"一句话说明挑了什么"}\n'
-        + '2. 优先级：备注（备注写的是用途）> 名称/描述 > 类型。\n'
-        + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
-        + '4. summary 说清你按什么理解的需求，界面会显示给用户看。';
-      const txt = await TextAI.chat(reg, sys, JSON.stringify({ 需求: q, 我的收藏: Fav.text(100) }));
-      const j = TextAI.parseJson(txt) || {};
-      const keys = (Array.isArray(j.keys) ? j.keys : []).filter(k => Fav.has(k));
-      aiPick = keys.length ? new Set(keys) : null;
-      aiRank = keys.length ? new Map(keys.map((k, i) => [k, i])) : null;
-      aiWhy = keys.length ? String(j.summary || '').slice(0, 40) : '';
-      /* 原话已经翻译成 key 集合：搜索框必须清掉，否则整句还会再 AND 过滤一遍，
-         而整句几乎不可能是某条备注的子串 —— 结果永远 0 条。 */
-      if (keys.length) {
-        box.value = '';
-        /* AI 返回的 keys 顺序本身就是「最合适在前」（提示词里写了优先级：备注 > 名称 > 类型），
-           aiRank 记下来就照着排 —— 以前这份顺序被整份丢掉，画出来还是存盘顺序。 */
-      }
-      filter = 'all';
-      msg = keys.length ? '' : 'AI 没找到合适的收藏（换个说法再试）';
-    } catch (e) {
-      msg = 'AI 找素材失败：' + e.message;
-    } finally {
-      btn.disabled = false; btn.innerHTML = old;
-    }
-    resetPaging();
-    render();
-    /* 挑中了就不另写一句：条件芯片上已经写了「AI 挑的 N 条 · 理由」，
-       #cnt 保留 render 算出来的条数就够（以前两处各说一遍，同一件事两句话）。
-       只有失败/没结果要顶上去说一句，而那必须在 render 之后（它会重写 #cnt）。 */
-    if (msg) $('cnt').textContent = msg;
-  }
+  /* 撤掉 AI 条件 = 把那一族的三个字段一起收回（公共层 `AiFind.clear` 只做这一件事）。
+     AI 的名次一清，顺序就退回存盘那一种（新添加的在前）—— 这一页没有可挑的档位，
+     所以不是「回到某个用户挑过的排序」。 */
+  function clearAiPick() { window.AiFind.clear(AI); }
+  /* 闸门、按钮忙态、JSON 契约、名次与理由的记账都在公共层那一份里（`assetlib.js` 的 `AiFind`），
+     这一页只交代「库里有什么可挑」「它该返回哪个字段」「挑完写回哪三个变量」。
+     以前这两道闸走 `Toast.info` —— 而 ok/info 默认是静音的（`sk_quiet_ok`），
+     于是「搜索框里没字就点 AI 找素材」在素材库会说一句、在这一页按了什么都没发生。
+     公共层把那句交回 `say`（写进按钮旁边那行读数，就地、不静音）。 */
+  const AI = {
+    label: 'AI 找素材',
+    btn: () => $('aiFindBtn'),
+    ask: () => $('q').value,
+    focus: () => $('q').focus(),
+    emptyMsg: '还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」',
+    noneMsg: 'AI 没找到合适的收藏（换个说法再试）',
+    roster: () => Fav.list(),
+    field: 'keys',
+    known: k => Fav.has(k),
+    payload: q => ({ 需求: q, 我的收藏: Fav.text(100) }),
+    sys: '你是素材管家：用户会用一句话描述需求，你要从他「我的收藏」清单里挑出最合适的若干条。\n'
+      + '规则：\n'
+      + '1. 只输出 JSON，不要任何解释、不要 markdown 代码块。格式：{"keys":["收藏ID"],"summary":"一句话说明挑了什么"}\n'
+      + '2. 优先级：备注（备注写的是用途）> 名称/描述 > 类型。\n'
+      + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
+      + '4. summary 说清你按什么理解的需求，界面会显示给用户看。',
+    /* apply 只写那三个字段：清芯片走的也是它，把「放开类型档」写进来就变成
+       「点 ✕ 连我挑过的 图片/视频/音频 那一档也给我改了」。
+       keys 的顺序本身就是「最合适在前」（提示词里写了优先级），aiRank 记下来照着排 ——
+       以前这份顺序被整份丢掉，画出来还是存盘顺序。 */
+    apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
+    onPick: () => { $('q').value = ''; filter = 'all'; },   // 原话已翻成 key；挑的是跨档的一批，档还锁着就看不见
+    done: () => { resetPaging(); render(); },
+    /* 挑中了不另写一句：芯片上已经写了「AI 挑的 N 条 · 理由」，#cnt 保留 render 算出来的条数就够
+       （以前两处各说一遍）。只有没挑中/失败才顶上去说一句，公共层把它排在 done 之后 —— 重画会重写这一行。 */
+    say: t => { $('cnt').textContent = t; },
+  };
+  const runAiFind = () => window.AiFind.run(AI);
   $('aiFindBtn').onclick = runAiFind;
   $('q').addEventListener('keydown', e => { if (e.key === 'Escape') { $('q').value = ''; clearAiPick(); } });
 
-  /* ---------- 「自动下载」：把这一屏里本机还没有那份字节的收藏取回本机 ----------
+  /* ---------- 「存回本机」：把这一屏里本机还没有那份字节的收藏取回本机 ----------
      为什么这一页不跟着「不显示云端任务」一起筛，却要单独有这么一颗按钮：
      收藏存的是人自己挑过的东西，按「本机有没有副本」把它们藏掉，用户看到的只是
      「我的收藏凭空少了一批」—— 判据的副作用不该糊在人的数据上。所以这一页照旧全画，
      只给一条把字节真正取回本机的路，存没存由人决定。
-     落盘走 `AssetLocal.pull`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
+     落盘走 `AssetLocal.pullMany`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
      同一份按类型另存），所以存回本机之后生成工作台与资产库立刻也认得这一份，
      不需要在那两页再存第二遍。 */
+  /* 按钮上的字与「还剩几条」按此刻这一屏现算，画法与措辞走公共层那一份
+     （AssetLocal.pullBtn，与生成工作台 / 资产库 / 素材库那三颗同一套说法）：
+     以前它在初始化时写死一次，筛完、搜完、存完都还挂着最初那个数 —— 看着像按钮没反应。 */
+  function paintPullBtn() {
+    AssetLocal.pullBtn($('pullBtn'), pullScope().length, { what: '收藏', more: '本地上传的那一批不算。' });
+  }
   function pullScope() {
     const seen = new Set();
     return viewItems.filter(it => {
@@ -451,48 +444,18 @@
         : '这一屏只有本地上传的文件，字节本来就在浏览器里，不用存');
       return;
     }
-    btn.disabled = true;
-    let ok = 0, kept = 0, busy = 0, big = 0, cant = 0, done = 0;
-    const fails = [];
-    const wait = [];
-    const mark = () => btnText(btn, '存回本机 ' + done + ' / ' + todo.length);
-    for (const it of todo) {
-      let out = null;
-      const st = AssetLocal.pull(it, {
-        force: true,                 // 「自动存本机」没开也照存：这是用户当下点下去的
-        cb: (err, r) => {
-          done++; mark();
-          if (err) { if (r && r.skip) big++; else fails.push(pullName(it) + '：' + err.message); }
-          else if (r && r.kept) kept++;                       // 索引里已有，不用重下一遍
-          else if (r && r.id) {
-            ok++;
-            const u = '/asset/' + encodeURIComponent(r.id) + '?v=2';
-            Fav.localize(it, u);                              // 换回来的本机地址落回收藏项
-            repaintThumb(it, u);                              // 只重画这一张，备注框不动
-          }
-          if (out) out();
-        },
-      });
-      /* pull 的返回值只说「这一条排上了没有」；排上了之后成没成要等 cb。
-         'saved' 那一路的 cb 是同步回来的，所以 done/kept 已经加过，这里不再补。 */
-      if (st === 'queued') wait.push(new Promise(rz => { out = rz; }));
-      else if (st === 'busy') { busy++; done++; }
-      else if (!st) { cant++; done++; }
-    }
-    await Promise.all(wait);
-    btn.disabled = false;
-    iconSet(btn, 'download', 13); btnText(btn, '自动下载');
-    const bits = [];
-    if (ok) bits.push('已存回本机 ' + ok + ' 条');
-    if (kept) bits.push('本机早就有 ' + kept + ' 条');
-    if (busy) bits.push('后台那一轮正在存 ' + busy + ' 条，没重复排');
-    if (big) bits.push('有 ' + big + ' 条比本机镜像的上限还大，没存');
-    if (cant) bits.push('有 ' + cant + ' 条手上只剩转发地址、取不到原始外链，没法存');
-    if (fails.length) bits.push('有 ' + fails.length + ' 条没成：' + fails.slice(0, 2).join('；') + (fails.length > 2 ? ' 等' : ''));
-    /* 一条都没落地就别报「已存好」：ok 为 0 时这一句换成红字或灰字，说清到底卡在哪。 */
-    if (fails.length || cant) Toast.err(bits.join(' · ') || '一条都没存进本机');
-    else if (ok) Toast.ok(bits.join(' · '));
-    else Toast.info(bits.join(' · ') || '这一屏没有需要存的收藏');
+    AssetLocal.pullStart(btn);
+    /* 循环、计数、回执措辞全部走公共层 `AssetLocal.pullMany / pullReceipt`
+       （收藏、素材库、资产库三颗「存回本机」共用那一份），这一页只留它自己那两笔：
+       存好了要把本机地址写回收藏项、并只重画那一张卡。 */
+    const s = await AssetLocal.pullMany(todo.map(it => ({
+      entry: it, name: pullName(it),
+      apply: u => { Fav.localize(it, u); repaintThumb(it, u); },
+    })), { onProgress: (done, total) => btnText(btn, '存回本机 ' + done + ' / ' + total) });
+    AssetLocal.pullEnd(btn);
+    /* 整颗按此刻这一屏重画：图标与「还剩几条」都回到当前状态（全失败时也不能停在没有图标那一版）。 */
+    paintPullBtn();
+    AssetLocal.pullReceipt(s, { nothing: '这一屏没有需要存的收藏' });
   }
   $('pullBtn').onclick = pullLocal;
 

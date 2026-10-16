@@ -64,7 +64,6 @@
       }); });
     }, Promise.resolve());
   }
-  window.__sbLoadAssistant = load;   // 万一有别的入口要提前拉起它（目前全项目没有调用者）
   if (window.requestIdleCallback) window.requestIdleCallback(load, { timeout: 1200 });
   else setTimeout(load, 400);
 })();

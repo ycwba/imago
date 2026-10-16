@@ -39,6 +39,11 @@ function mediaKey(u) {
   if (!inner) return '';
   try { return upKeyOf(new URL(inner, location.href)); } catch (e) { return inner; }
 }
+/* 列表接口一页多少条的兜底值（平台自己在 registry 的 `list.limit` 里声明过就用它声明的那一个）。
+   写在模块作用域：`Api` 与 `AssetLib` 两个闭包都要用它，而资产库页把「跳到第 N 页」换算成
+   「要拉几批」时问的也是这同一份 —— 以前那个 100 在六个调用点各抄一遍、页面再抄第七遍，
+   改了声明就只对一半的地方生效。 */
+const LIST_LIMIT_DEF = 100;
 /* 签名过期时刻（毫秒）：读不到过期参数就返回 0（本地 /asset/<id>、平台长期地址都不该反复回源）。 */
 function signedExpiry(u) {
   const inner = innerMedia(u);
@@ -181,13 +186,8 @@ function netFetch(url, opts) {
    （「没有返回内容」那种 200 空回复以前靠 'HTTP 200' 这句兜底才说得清，别把它换成一段正文）。
    原文交给 Api.errorMessage 兜底（见那里的 textMsg），两条路共用同一份「状态码 → 一句人话」。 */
 async function respBody(r) {
-  const txt = await r.text();
-  try {
-    const p = txt ? JSON.parse(txt) : null;
-    return { d: (p && typeof p === 'object') ? p : {}, plain: '' };
-  } catch (e) {
-    return { d: {}, plain: txt };
-  }
+  const x = await window.Net.readRes(r);
+  return { d: (x.d && typeof x.d === 'object') ? x.d : {}, plain: x.parseErr ? x.txt : '' };
 }
 
 /* 读 OpenAI 风格的 SSE 流（文字 AI 的 stream:true）：一帧 `data: {json}`，收尾一帧 `data: [DONE]`。
@@ -355,11 +355,11 @@ function topBoolState(decl, ctx) {
     const v = Number(version || 0);
     if (!v || v >= PROXY_VERSION_MIN) return '';
     return '本地代理是旧版（v' + v + '，这一版页面要 v' + PROXY_VERSION_MIN + '）：部分能力声明不会生效'
-      + '（v16 起注册表**不再下发任何一份写死的文字型号清单**（全部改名 modelDocs）：'
+      + '（v16 起注册表不再下发任何一份写死的文字型号清单（全部改名 modelDocs）：'
       + '型号清单一律来自平台自己的 /models，取回的落进 .data/sk_model_prefs.json。'
       + '旧代理还会把那份写死的清单当「型号有哪些」发过来，于是设置页那张清单列的是它、'
       + '型号下拉里没有它，点下去报「不在下拉的选项里」；'
-      + 'v15 起「这一档到底给不给」多了一层**逐行能力**：VGENV 的 Turbo 与成片 2x 超分写在'
+      + 'v15 起「这一档到底给不给」多了一层逐行能力：VGENV 的 Turbo 与成片 2x 超分写在'
       + '(画质档 × 手上这批素材种类) 上，旧代理没有那份逐行清单，界面上这两项不会出现；'
       + '同一版还把随机种子与「动作起点（秒）」做成声明式的顶层字段（`create.shapeFields`），'
       + '旧代理不认识就整块不画；「动作换人」那一档也不再声明成「根本不询价」，'
@@ -408,8 +408,9 @@ function topBoolState(decl, ctx) {
      各写一遍就会出现「设置页说能用、助手说不能用」，探测参数也会走样 ——
      它要在本机起子进程跑 ffmpeg -version，慢机器上几秒不够，而且**不许重试**（同一次体检打两遍）。 */
   const SYS_WHY = {
-    ffmpeg: '导演台「合并全片 / 导出成片」靠本机 ffmpeg 把时间线拼起来、把配音混进视频；没装时生成照常能走，到合并那一步才拦',
-    ffprobe: '量每段视频的真实秒数（字幕与配音按它排）；没有它成片时间会漂',
+    ffmpeg: '导演台「导出成片 / 导出素材」靠本机 ffmpeg 把时间线拼起来、把配音混进视频；没装时生成照常能走，到导出那一步才拦',
+    ffprobe: '量每一段素材的真实秒数（剪辑的出点与这一段有没有原声都按它判）；没有它成片时间会漂',
+    健康: '代理进程自己有没有出过错。它按设计不会为了一次异常退出（本地工具不该打断使用），所以这一格说「出过」的时候，出路只有一条：在启动器点「重启」',
   };
   function sysStatus(fresh) {
     return window.Net.json('/sys-status' + (fresh ? '?fresh=1' : ''), { timeout: 20000, retry: 0 });
@@ -432,12 +433,58 @@ function topBoolState(decl, ctx) {
       cls: s.indexOf('可写') >= 0 ? 'ok' : (s.indexOf('还没建') >= 0 ? 'warn' : 'err'),
       path: (d && d.路径) || '' };
   }
+  /* 代理进程自己那份账（/sys-status 顶层「健康」）：芯片与整句都来自代理，页面只挑颜色。
+     旧代理没返回这一项一律黄字「没读到」，**不写「正常」** —— 替一个从没记账的进程作保，
+     比标黄更糟：人会觉得「健康那一格绿着，那异常肯定在别处」。 */
+  function sysHealth(h) {
+    /* 「没读到」那句也只在这里说一次：复制文本、设置页、助手三边都要用它，各写一遍就会各自漂 */
+    if (!h) return { chip: '没读到', why: '这个代理还是加「健康」那一格之前启动的，重启后才有', cls: 'warn', 最近: [], 存活: '', 起于: '', 最后请求: '', 计数: null };
+    return { chip: h.芯片 || '?', why: h.说明 || '', cls: h.档 || 'warn',
+      最近: h.最近 || [], 存活: h.存活 || '?', 起于: h.起于 || '?', 最后请求: h.最后请求 || '?',
+      计数: { 未捕获异常: h.未捕获异常 || 0, 'Promise失败': h.Promise失败 || 0, '请求出错': h.请求出错 || 0, 连接错误: h.连接错误 || 0 } };
+  }
+  /* 「最近几条」那一行的拼法只在这里一份：复制文本与设置页那一行都读它，
+     各写一遍就会出现「复制出去有位置、页面上没有」这种两边都对不上的小事。
+     `limit` 不给或 0 = 全给（复制出去的份要完整），设置页只摆前几条并说清还有几条。 */
+  function sysFaultLines(list, limit) {
+    const all = list || [];
+    const n = limit > 0 ? Math.min(limit, all.length) : all.length;
+    const out = all.slice(0, n).map(f => '· ' + (f.时候 || '?') + ' ' + f.种类 + '：' + f.消息
+      + (f.重复 > 1 ? '（同一处已重复 ' + f.重复 + ' 次）' : '') + (f.位置 ? ' @ ' + f.位置 : ''));
+    if (all.length > n) out.push('· …另有 ' + (all.length - n) + ' 条（代理只留最近几条，重启后清零）');
+    return out;
+  }
+  /* 「哪家现在挤、最近被限过几回」那几行的拼法只在这里一份（复制文本与设置页那一行的 title 都读它），
+     各写一遍就会出现「复制出去有平台名、页面上没有」。`limit` 不给或 0 = 全给（复制的那份要完整），
+     设置页只摆最挤的几台并说清还有几台。 */
+  function relayLines(r, limit) {
+    const det = (r && r.明细) || [], ev = (r && r.最近) || [], out = [];
+    const n = limit > 0 ? Math.min(limit, det.length) : det.length;
+    det.slice(0, n).forEach(g => out.push('· ' + g.平台 + '：在途 ' + g.在途 + ' · 排队 ' + g.排队
+      + (g.退过 ? ' · 被限流后重问 ' + g.退过 + ' 次' : '') + (g.等过 ? ' · 等过名额 ' + g.等过 + ' 次' : '')
+      + (g.拒过 ? ' · 排满拒了 ' + g.拒过 + ' 条' : '')));
+    if (det.length > n) out.push('· …另有 ' + (det.length - n) + ' 家有账（只报最挤的几台）');
+    const m = limit > 0 ? Math.min(limit, ev.length) : ev.length;
+    ev.slice(0, m).forEach(x => out.push('· ' + (x.时候 || '?') + ' ' + x.平台 + ' ' + x.事
+      + (x.重复 > 1 ? '（同一件已重复 ' + x.重复 + ' 次）' : '')));
+    if (ev.length > m) out.push('· …另有 ' + (ev.length - m) + ' 件（只留最近几件，重启后清零）');
+    return out;
+  }
   /* 整份体检 → 给人看的几行（设置页复制出去、助手 doctor 念的都是这几行） */
   function sysStatusLines(s) {
     if (!s) return ['本机环境：没读到（代理没在运行，或者它是加 /sys-status 之前启动的旧版）'];
     const p = s.代理 || {}, dirs = s.目录 || {}, out = [];
     out.push('本地代理：注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?')
       + ' · Node ' + (p.进程 || '?') + ' · 目录 ' + (p.目录 || '?'));
+    /* 健康紧跟「本地代理」：它说的就是这个进程自己。以前顶层异常只往日志打一行就继续跑，
+       日志轮转 + 启动器一关就找不回来，界面上一切正常 —— 这一行是那份账唯一的出口。 */
+    const hh = sysHealth(s.健康);
+    if (!s.健康) out.push('代理健康：' + hh.chip + ' —— ' + hh.why + '；' + SYS_WHY.健康);
+    else {
+      out.push('代理健康：' + hh.chip + ' · 已运行 ' + hh.存活 + '（起于 ' + hh.起于 + '）· 最后一次干活 ' + hh.最后请求
+        + (hh.cls === 'ok' ? '（' + hh.why + '）' : '：' + hh.why) + ' —— ' + SYS_WHY.健康);
+      sysFaultLines(hh.最近).forEach(l => out.push('  ' + l));
+    }
     /* 出站代理那一行紧跟着「本地代理」：在必须走代理才能出网的环境里，
        「平台请求有没有从代理出去」是排查「所有平台都连不上」的第一个问题。 */
     const op = s.出站代理;
@@ -447,10 +494,100 @@ function topBoolState(decl, ctx) {
       out.push(k + '：' + t.chip + (t.why ? (t.cls === 'ok' ? '（' + t.why + '）' : '：' + t.why) : '')
         + ' —— ' + SYS_WHY[k]);
     });
+    /* 成片渲染那一行说的是「现在真的会怎么出片」，不是「.env 里写了什么」：
+       编码器、档位与那三个数字都是启动时定一次（改了要重启），所以来源跟着一起打出去。
+       旧代理没返回这一项就不写这一行 —— 缺它不影响导出，写一句「没读到」反而像坏了。 */
+    const rd = s.渲染;
+    if (rd) out.push('成片渲染：' + (rd.编码 || '?') + '（' + (rd.中文名 || '?') + '）· 档位 ' + (rd.档位 || '?')
+      + ' · 同时 ' + (rd.同时 || '?') + ' 条 · 队列上限 ' + (rd.队列上限 || '?') + ' · 任务记录留 ' + (rd.保留分钟 || '?') + ' 分钟'
+      + ' · 本机：' + (rd.本机说明 || '?') + ' —— ' + (rd.来源 || ''));
+    /* 平台转发闸那一行说的是「这一家现在挤不挤、刚才有没有被限过流」：429/503 透到页面上只是
+       一句「请求失败」，看不出是被人限了、也看不出等一会儿就会好 —— 这一行是那句废话的背面。
+       芯片、整句、四个数与来源都在代理那边拼好（与「成片渲染」同一立场），这里只照念。
+       旧代理没返回这一项就不写这一行：没有闸时代码照样跑得动，写一句「没读到」反而像坏了。 */
+    const rl = s.转发;
+    if (rl) {
+      out.push('平台转发闸：' + (rl.芯片 || '?') + ' —— ' + (rl.说明 || '?') + ' —— ' + (rl.来源 || ''));
+      relayLines(rl).forEach(l => out.push('  ' + l));
+    }
     [['数据', '数据目录（.data）'], ['资产', '本机资产目录'], ['渲染', '成片目录']].forEach(pair => {
       const d = sysDir(dirs[pair[0]]);
       out.push(pair[1] + '：' + d.chip + (d.why ? '（' + d.why + '）' : '') + ' —— ' + (d.path || '?'));
     });
+    return out;
+  }
+
+  /* ---------- 本机资产库占了多少地方（/assets-usage）：一份取法、一份说法 ----------
+     与上面 /sys-status 那一族同一个立场：设置页那一栏要念，将来助手也要念，
+     各写一遍就会出现「这里说压了 3 份、那里说没有重复」。
+     代理那侧**只数不删**（口径全文在 proxy.js 的 `localUsageScan` 上面那段注释），
+     所以这一族的「出路」只能指向资产库那一条有二次确认的删除路 —— 在这一格放一颗清理按钮，
+     等于让一次统计顺带动用户的作品，而统计**永远分不出**「多余的重复」与
+     「被挤出索引但还要留着的历史产物」（就是 `索引外` 那一句）。
+     字节与时间**只在调用时**取 window 上的公共实现：`assetlib.js` 在有的页面比 `ui.js` 先加载，
+     求值期去抓就等于抓到 undefined（全站同一族的毛病，踩过）。 */
+  const USAGE_WHY = {
+    重复: '同一件产物在这台机器上存了不止一次（来源外链相同，或字节完全相同）——这里只报份数，不动文件',
+    索引外: '盘上有、索引里没有：多半是索引顶到上限后被挤掉的历史产物，按资产号还能补建出来，不是垃圾',
+    没文件: '索引里有、盘上文件没了：这张卡在资产库点开会取不到字节（会先试着回平台重下一趟）',
+    上限: '顶到上限之后新产物照样落盘，但列表里不再出现',
+    没验完: '内容级判重一次有字节预算，用完就停 —— 剩下那些同大小的没读，不算「确认不重复」',
+    出路: '想腾地方：到「资产库」勾上不要的那些卡片点删除（有二次确认），被删掉的文件才会真从盘上带走 —— 这一格只数不删',
+  };
+  function usageBytes(n) {
+    const v = Number(n) || 0;
+    const t = (typeof window.fmtBytes === 'function') ? window.fmtBytes(v) : '';
+    return t || (v + ' B');
+  }
+  function usageWhen(t) {
+    return (typeof window.fmtWhen === 'function' && t) ? window.fmtWhen(t) : '';
+  }
+  /* 旧代理没有这一条 → 404 当「没读到」（返回 null），**不许当 0 字节**：
+     「数不到」与「盘上是空的」是两件事，说成后者会让人以为产物丢了。
+     `retry: 0`：这是一次真扫盘（可能读到几百 MB），重一次就把用户的盘再翻一遍。 */
+  async function assetsUsage() {
+    try {
+      return await rawFetch('/assets-usage', { method: 'GET', cache: 'no-store', retry: 0, timeout: 60000 });
+    } catch (e) {
+      if (e && e.status === 404) return null;
+      throw e;
+    }
+  }
+  /* 整份读数 → 给人看的几行（设置页摆出来、复制出去的都是这几行）。
+     `limit` 不给或 0 = 「最占地方 / 最旧的」全摆（代理本来也只回 USAGE_TOP 条），
+     设置页只摆前几条；条数不由页面写死。 */
+  function usageLines(u, limit) {
+    if (!u) return ['本机资产库：没读到（代理没在运行，或者它是加 /assets-usage 之前启动的旧版）'];
+    const d = u.目录 || {}, t = u.总 || {}, r = u.重复 || {}, gap = u.对不上 || {}, disk = u.盘 || {};
+    const out = [];
+    out.push('目录：' + (d.状态 || '?') + ' —— ' + (d.路径 || '?'));
+    out.push('产物 ' + (t.文件数 || 0) + ' 个 · 共 ' + usageBytes(t.字节)
+      + ' · 索引 ' + (t.索引条数 || 0) + ' 条'
+      + (t.顶到上限 ? '（已顶到上限 ' + (t.上限 || '?') + ' 条 —— ' + USAGE_WHY.上限 + '）'
+        : '（上限 ' + (t.上限 || '?') + ' 条）'));
+    const ks = (u.按类型 || []).filter(k => k && k.条数);
+    if (ks.length) out.push('按类型：' + ks.map(k => k.类型 + ' ' + usageBytes(k.字节) + '（' + k.条数 + ' 个）').join(' · '));
+    const dup = (r.多出份数 || 0) > 0;
+    out.push('重复：' + (dup ? '压了 ' + r.多出份数 + ' 份 · 多占 ' + usageBytes(r.多占字节)
+        : (t.文件数 ? '没有' : '还没有产物')) + ' —— ' + USAGE_WHY.重复);
+    if (r.组数) {
+      out.push('  同来源 ' + (r.同来源组 || 0) + ' 组 · 字节相同 ' + (r.同内容组 || 0) + ' 组 · 读过 '
+        + (r.验过文件 || 0) + ' 个文件（' + usageBytes(r.读了字节) + ' / 预算 ' + usageBytes(r.预算字节) + '）'
+        + (r.没验份数 ? ' · 还有 ' + r.没验份数 + ' 份同大小的没验 —— ' + USAGE_WHY.没验完 : ''));
+    }
+    if (gap.索引外文件数) out.push('  索引外 ' + gap.索引外文件数 + ' 个（' + usageBytes(gap.索引外字节) + '）—— ' + USAGE_WHY.索引外);
+    if (gap.没文件条数) out.push('  索引有、文件没了 ' + gap.没文件条数 + ' 条 —— ' + USAGE_WHY.没文件);
+    if (disk.剩余 != null) out.push('这块盘剩余：' + usageBytes(disk.剩余));
+    const top = n => (limit > 0 ? Math.min(limit, n.length) : n.length);
+    [['最占地方', u.最大], ['最旧的', u.最旧]].forEach(pair => {
+      const list = pair[1] || [], k = top(list);
+      if (!list.length) return;
+      list.slice(0, k).forEach(x => out.push('  · ' + x.名称 + '　' + usageBytes(x.字节) + ' · ' + x.类型
+        + (x.时候 ? ' · ' + (usageWhen(x.时候) || x.时候) : '') + (x.哪家 ? ' · ' + x.哪家 : '')
+        + (x.有索引 ? '' : ' · 没进索引')));
+      if (list.length > k) out.push('  · …另有 ' + (list.length - k) + ' 条');
+    });
+    out.push(USAGE_WHY.出路);
     return out;
   }
 
@@ -475,14 +612,18 @@ function topBoolState(decl, ctx) {
   }
   /* 上游有些错误只有一句泛化提示（没有字段级 details），这里补一句能落地的解释。
      顺序有意义：越具体的放前面。 */
+  /* 哪一句算「余额 / 额度不够」：只有这一份正则。
+     ERROR_HINT 用它补人话，Api.isBalanceErr 用它判「要不要给一个去充值/查余额的入口」——
+     两处各写一份的话，一边认得的错误另一边不认得，界面上就会「有时有按钮、有时只有一句红字」。 */
+  const BALANCE_RE = /余额不足|insufficient|quota|not enough/i;
   const ERROR_HINT = [
     [/PROMPT_COMPILER|PROMPT_OPTIMI|prompt compiler/i, '平台的「提示词编译/优化」服务这次出错了（VGENV 侧，间歇性）——「这条任务没有创建、没有扣费」，稍后重试即可（本页会自动重试一次）'],
     [/需要检查|需人工|under review/i, '平台这次把提交拦下来了（上游只回这一句，实测是间歇性的：同一句提示词过一会儿就能过）——隔几十秒再来一次通常就好'],
-    [/余额不足|insufficient|quota|not enough/i, '平台账户余额/额度不够，先到「用量与余额」页看看余额'],
+    [BALANCE_RE, '平台账户余额/额度不够，先到「用量与余额」页看看余额'],
     [/rate limit|too many|频繁|429/i, '请求太频繁，等几十秒再试'],
     [/unauthorized|invalid.*(api|token|key)|401/i, '密钥无效或过期：到「设置」重新填这个平台的密钥（或在 .env 里更新）'],
     [/forbidden|403|permission/i, '这个密钥没有调用该接口的权限（可能是账号未开通 / 权限范围不对）'],
-    [/not found|unknown model|does not exist|404/i, '接口或资源不存在：模型可能已被平台下线，任务可能已过期/被清理 —— 换一个模型，或刷新列表看看'],
+    [/not found|unknown model|does not exist|404/i, '接口或资源不存在：型号可能已被平台下线，任务可能已过期/被清理 —— 换一个型号，或刷新列表看看'],
     [/too large|payload|413|文件过大/i, '素材太大：压缩后再传（视频/音频建议压到几十 MB 以内）'],
     [/unsupported|not support|不支持/i, '平台不支持这次请求的参数组合：换一个参数（分辨率 / 时长 / 比例）再试'],
     [/timeout|ETIMEDOUT|ECONNRESET|socket hang up/i, '与平台的连接中断（网络抖动）：稍后重试；若是大素材上传，先确认网络稳定'],
@@ -521,29 +662,23 @@ function topBoolState(decl, ctx) {
      HTTP 状态先判、非 JSON 给可读提示；网络/5xx 重试 1 次（4xx 不重试）。 */
   async function rawFetch(url, opts = {}) {
     const method = String(opts.method || 'GET').toUpperCase();
-    // Net 在 ui.js 里定义（各页面都先加载 ui.js）；万一没有就退回原生 fetch，不让功能整体失效
-    const r = (window.Net && window.Net.fetch)
-      ? await window.Net.fetch(url, { ...opts, retry: opts.retry === undefined ? 1 : opts.retry })
-      : await fetch(url, opts);
-    const txt = await r.text();
-    let d = null, parseErr = null;
-    try { d = txt ? JSON.parse(txt) : null; } catch (e) { parseErr = e; }
-    if (!r.ok) {
-      const err = new Error(errorMessage(d, r.status, parseErr ? txt : ''));
-      err.status = r.status;
-      err.code = (d && d.error && d.error.code) || (d && d.code) || '';
-      err.issues = (d && d.error && d.error.details && d.error.details.issues) || (d && d.issues) || [];
+    const x = await window.Net.read(url, { ...opts, retry: opts.retry === undefined ? 1 : opts.retry });
+    if (!x.ok) {
+      const err = new Error(errorMessage(x.d, x.status, x.parseErr ? x.txt : ''));
+      err.status = x.status;
+      err.code = (x.d && x.d.error && x.d.error.code) || (x.d && x.d.code) || '';
+      err.issues = (x.d && x.d.error && x.d.error.details && x.d.error.details.issues) || (x.d && x.d.issues) || [];
       err.transient = isTransient(err);
       /* 提交类请求 + 5xx/超时：**不知道平台收没收到**。页面据此提示「可能已受理、先核对列表」，
          而不是让用户以为失败直接重试（那会在平台上留下两条重复任务）。 */
-      if (['POST', 'PUT', 'PATCH'].includes(method) && (r.status >= 500 || r.status === 408 || r.status === 429)) err.maybeSubmitted = true;
+      if (['POST', 'PUT', 'PATCH'].includes(method) && (x.status >= 500 || x.status === 408 || x.status === 429)) err.maybeSubmitted = true;
       throw err;
     }
-    if (d === null && parseErr) {
-      const t = textMsg(txt);
-      throw new Error('返回了非 JSON 内容（HTTP ' + r.status + '）' + (t ? '：' + t : ''));
+    if (x.d === null && x.parseErr) {
+      const t = textMsg(x.txt);
+      throw new Error('返回了非 JSON 内容（HTTP ' + x.status + '）' + (t ? '：' + t : ''));
     }
-    return d;
+    return x.d;
   }
 
   /* 平台的「提示词编译器」偶发失败（VGENV 的 PROMPT_COMPILER_UPSTREAM_ERROR）：
@@ -679,7 +814,9 @@ function topBoolState(decl, ctx) {
     warnProxyDown,
     /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、
        助手的 doctor 三边都要问，各写一遍就会出现「设置页说能用、助手说不能用」。 */
-    sysStatus, sysTool, sysDir, sysStatusLines, SYS_WHY,
+    sysStatus, sysTool, sysDir, sysHealth, sysFaultLines, relayLines, sysStatusLines, SYS_WHY,
+    /* 本机资产库用量（/assets-usage）同一族：设置页那一栏与复制文本读这同一份。 */
+    assetsUsage, usageLines, usageBytes, usageWhen, USAGE_WHY,
     providers() { return (_reg && _reg.providers) || []; },
     /* 按 id / keyId / kind / relay 找平台 */
     prov(ref) {
@@ -752,7 +889,7 @@ function topBoolState(decl, ctx) {
     customDrop(id) {
       this.customSet(this.customList().filter(e => e && e.id !== id));
       /* 清干净这一家名下的每一把钥匙。
-         `sk_model_` 是漏掉过的那一个（L41）：设置页「保存全部设置」按 `sk_model_<keyId>` 存
+         `sk_model_` 是漏掉过的那一个（L41）：设置页按 `sk_model_<keyId>` 存
          型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
       ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => localStorage.removeItem(p + id));
@@ -807,12 +944,22 @@ function topBoolState(decl, ctx) {
          其它请求保持默认（「设置 → 网络与刷新」可调）。代理侧对 create 也放宽到 120 秒（见 proxy.js）。 */
       const timeout = opts.timeout != null ? opts.timeout
         : (method === 'POST' && name === 'create' ? 150000 : undefined);
-      const d = await rawFetch(this.url(prov, name, opts.id) + q, {
-        method: opts.method || 'GET',
-        headers,
-        body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-        timeout,
-      });
+      let d;
+      try {
+        d = await rawFetch(this.url(prov, name, opts.id) + q, {
+          method: opts.method || 'GET',
+          headers,
+          body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+          timeout,
+        });
+      } catch (e) {
+        /* 余额类错误在这一层补「这一家的余额在哪儿看」：`errorMessage` 那一层不认识 provider，
+           而「去用量与余额页看看」这句话对没有余额接口的家（MiMo）是**指错路**的。
+           就地改 err.message 再抛同一个对象：status / code / issues / transient / maybeSubmitted
+           那几个字段一个都不能丢（丢了页面上的「可能已受理」判据就失效）。 */
+        if (this.isBalanceErr(e)) { try { e.message += this.balanceHint(prov); } catch (e2) {} }
+        throw e;
+      }
       /* 任何页面创建任务都归档一份提示词（存进归档文件夹，见 PromptLog）：
          平台不返回 prompt 时（如 VGENV），资产库要靠它把提示词补显示出来。
          归档只在这一处发生（Api.create 也走这里，它不再自己存第二份）。 */
@@ -876,10 +1023,11 @@ function topBoolState(decl, ctx) {
        不要再自己排一遍优先级（那是第二份判据，两边说法会慢慢走岔）。 */
     verifyTarget(prov) {
       const via = this.verifyEp(prov);
-      return { via, label: via === 'credits' ? '余额' : via === 'models' ? '模型清单' : via === 'list' ? '任务列表' : '' };
+      return { via, label: via === 'credits' ? '余额' : via === 'models' ? '型号清单' : via === 'list' ? '任务列表' : '' };
     },
-    /* 验证用的请求头：opts 里传了 key/base 就用**表单里刚填还没保存**的那对（设置页「验证」按钮要用它，
-       否则要先保存才能试，和这一页「点保存才生效」互相别扭）；没传就用磁盘上保存过的那对。 */
+    /* 验证用的请求头：opts 里传了 key/base 就用**表单里此刻的那一对**（设置页「验证」按钮要用它，
+       否则要先等它落盘才能试，而这一页落盘的凭据是「改完」= change，正在敲的那一半还没进盘）；
+       没传就用磁盘上保存过的那对。 */
     verifyHeaders(prov, opts = {}) {
       const h = {};
       const k = opts.key != null ? String(opts.key).trim() : this.key(prov);
@@ -890,7 +1038,7 @@ function topBoolState(decl, ctx) {
     },
     async verify(prov, opts = {}) {
       const t = this.verifyTarget(prov);
-      if (!t.via) return { ok: false, why: '这一家没有声明任何只读的接口（余额 / 模型清单 / 列表），本机没法验证密钥' };
+      if (!t.via) return { ok: false, why: '这一家没有声明任何只读的接口（余额 / 型号清单 / 列表），本机没法验证密钥' };
       const via = t.via, label = t.label;
       let d = null, err = null;
       try {
@@ -941,7 +1089,7 @@ function topBoolState(decl, ctx) {
           const got = f.model === undefined ? 'undefined（压根没传）'
             : f.model === null ? 'null'
               : (typeof f.model === 'object' ? '一个对象' + (f.model.id ? '（里面那个 id 是「' + f.model.id + '」，看起来该传的是它）' : '（它身上连 id 都没有）') : typeof f.model + '：' + String(f.model));
-          throw new Error('提交给「' + ((prov && (prov.displayName || prov.name)) || prov.id) + '」的 model 要是**型号 id 字符串**，'
+          throw new Error('提交给「' + ((prov && (prov.displayName || prov.name)) || prov.id) + '」的 model 要是「型号 id 字符串」，'
             + '现在拿到的是 ' + got + '。这一项由页面点明 —— 页面里「选中的模型」是对象，'
             + '传之前要取它的 `.id`（型号 id 长这样：' + ((prov && prov.models && prov.models[0] && prov.models[0].id) || 'xxx/yyy') + '）');
         }
@@ -968,17 +1116,15 @@ function topBoolState(decl, ctx) {
       /* `create.promptLimits`：提交前把 prompt 的长度问题拦在本地并说清原因。
          上游这一族校验会把多条失败原因拼成一句英文（"model must match … ,prompt must be a string
          of 5–30000 characters; person replacement accepts …"），用户既看不懂也不知道改哪里。
-         形状按 creation_intent 分档：动作换人允许省略（空串本来就不进提交体）或 0–2000 字。 */
+         形状按 creation_intent 分档：动作换人允许省略（空串本来就不进提交体）或 0–2000 字。
+         上下限与措辞都走 `window.CharLimits` 那一份 —— 页面闸门与这里必须是同一句话（以前这里
+         自己拼第四套，于是界面上没有的措辞会在提交那一刻冒出来）。 */
       if (spec.promptLimits) {
-        const PL = spec.promptLimits;
-        const iw = (PL.byIntent || {})[std.creation_intent] || null;
+        const b = window.CharLimits.prompt(spec.promptLimits, std.creation_intent);
         const p = std.prompt == null ? '' : String(std.prompt);
-        const min = iw && iw.min != null ? iw.min : PL.min;
-        const max = iw && iw.max != null ? iw.max : PL.max;
         const who = (prov && (prov.displayName || prov.name)) || '该平台';
-        if (!p && !(iw && iw.omitted)) throw new Error(who + ' 要求提示词至少 ' + min + ' 个字（现在是空的）—— 写一句画面描述再提交，空提示词平台会直接拒');
-        if (p && min && p.length < min) throw new Error(who + ' 要求提示词至少 ' + min + ' 个字（现在 ' + p.length + ' 个字）—— 太短平台会拒，补一句画面/动作描述');
-        if (p && max && p.length > max) throw new Error(who + ' 的提示词最多 ' + max + ' 个字（现在 ' + p.length + ' 个字）—— 先精简再提交');
+        const bad = (p || !b.omitted) ? window.CharLimits.why(p, b, { who, noun: '提示词' }) : '';
+        if (bad) throw new Error(bad);
       }
       const body = {};
       Object.entries(spec.body || {}).forEach(([k2, src]) => {
@@ -1177,6 +1323,16 @@ function topBoolState(decl, ctx) {
         body: JSON.stringify({ kind, from }),
       });
     },
+    /* 数一遍「旧目录里还剩多少份本工作台的副本没搬」（GET /save-stale，只读）。
+       为什么页面要单独问一次磁盘：换目录那句问话只挂在「刚改完的那一刻」，
+       而 2026-10-15 那次改**默认位置**（项目内 文件\<类型> → 下载\拾帧\<类型>）一个字节都没动
+       `sk_autosave` 里的 `dir`（两边都是空串）—— 按配置比字符串永远比不出变化，
+       于是那批成品躺在项目目录里、界面上一个入口都没有。
+       返回的是代理自己搬得动的那几处（两代默认 + 它写过的目录名单），路径不由页面递。
+       老代理没有这一条 → 404：调用方当「数不清」处理，不弹红字、也不假装数到 0。 */
+    async saveStale() {
+      return rawFetch('/save-stale', { method: 'GET', cache: 'no-store' });
+    },
     /* 弹系统自带的文件夹选择框，让用户点着挑一个目录回来。
        浏览器自己给不了真实路径（`<input webkitdirectory>` 只给文件夹名、File System Access
        给的是存不下来的句柄），所以这条路必须由**本机代理**去弹 —— 拿到的是一条真路径字符串，
@@ -1315,7 +1471,7 @@ function topBoolState(decl, ctx) {
         return { raw: null, p: null };
       }
       const query = new URLSearchParams();
-      query.set(spec.limitParam || 'limit', String(spec.limit || 100));
+      query.set(spec.limitParam || 'limit', String(spec.limit || LIST_LIMIT_DEF));
       let d = await this.request(prov, 'list', { query, noCache: true });
       const items = (spec.dataField ? d[spec.dataField] : d.data) || [];
       const idPath = (spec.map || {}).id || 'id';
@@ -1326,7 +1482,7 @@ function topBoolState(decl, ctx) {
       let cursor = this.listCursor(prov, d);
       for (let page = 0; !raw && cursor && page < 2; page++) {
         const q2 = new URLSearchParams();
-        q2.set(spec.limitParam || 'limit', String(spec.limit || 100));
+        q2.set(spec.limitParam || 'limit', String(spec.limit || LIST_LIMIT_DEF));
         q2.set(spec.cursorParam || 'cursor', String(cursor));
         d = await this.request(prov, 'list', { query: q2, noCache: true });
         const more = (spec.dataField ? d[spec.dataField] : d.data) || [];
@@ -1379,7 +1535,7 @@ function topBoolState(decl, ctx) {
         };
         const pid = prov.id || prov.relay || 'list';
         const q1 = new URLSearchParams();
-        q1.set(spec.limitParam || 'limit', String(spec.limit || 100));
+        q1.set(spec.limitParam || 'limit', String(spec.limit || LIST_LIMIT_DEF));
         /* 状态刷新用代理的短缓存（列表端点的 cacheTtl）就够：视频生成以分钟计，
            为「快 2 秒」把上游那份 100 条列表每 4 秒重拉一遍不值当。 */
         const page1 = await snap(pid + '|p1', () => A.request(prov, 'list', { query: q1 }));
@@ -1394,7 +1550,7 @@ function topBoolState(decl, ctx) {
             let cursor = cursor0;
             for (let i = 0; i < 2 && cursor; i++) {
               const q = new URLSearchParams();
-              q.set(spec.limitParam || 'limit', String(spec.limit || 100));
+              q.set(spec.limitParam || 'limit', String(spec.limit || LIST_LIMIT_DEF));
               q.set(spec.cursorParam || 'cursor', String(cursor));
               const d = await A.request(prov, 'list', { query: q });
               acc.push(d);
@@ -1425,6 +1581,25 @@ function topBoolState(decl, ctx) {
        每种 style 自己从 raw 取数，**不要都挤在 entry 上**：OpenRouter 回 { data:{…} }（对象）、
        DeepSeek 回 { balance_infos:[…] }（数组），两者都过不了下面那条「数组取第一项 / data[0]」的
        通用入口，硬套进去只会读出一个空对象，然后侧栏显示「获取失败」。 */
+    /* 这一次是不是「余额 / 额度不够」（判据 BALANCE_RE，全站一份）。
+       页面据此把「去用量与余额」那个入口也画出来 —— 只给一句「先到用量与余额页看看」
+       而那页还得自己找，等于没说。 */
+    isBalanceErr(e) { return BALANCE_RE.test(String((e && e.message) || e || '')); },
+    /* 同一家刚报过余额不足：记一次。
+       十分钟内再点合成，按钮上先把这句话说在前面 —— 让用户再发一次请求去换同一句拒
+       虽然不扣费，但要白等一整轮，而这一条是刚刚才确认过的。合成成功就清掉。 */
+    balOut: {
+      KEY: 'sk_bal_out_',
+      MIN: 10 * 60 * 1000,
+      mark(provId) { try { localStorage.setItem('sk_bal_out_' + String(provId || ''), String(Date.now())); } catch (e) {} },
+      clear(provId) { try { localStorage.removeItem('sk_bal_out_' + String(provId || '')); } catch (e) {} },
+      recent(provId) {
+        try {
+          const t = Number(localStorage.getItem('sk_bal_out_' + String(provId || '')) || 0);
+          return !!t && (Date.now() - t) < 10 * 60 * 1000;
+        } catch (e) { return false; }
+      },
+    },
     balance(prov, raw) {
       const style = (prov && prov.balance && prov.balance.style) || 'micros';
       if (style === 'wallet-credits') {
@@ -1649,7 +1824,13 @@ function topBoolState(decl, ctx) {
   const sbBalOn = () => on(K_SB_BAL, '1') !== '0';
   const sbMirrorOn = () => on(K_SB_MIRROR, '1') !== '0';
   const IDX_MAX = 20000;                 // 与代理的 LOCAL_INDEX_MAX 对齐：两边都截一半就会出现「存过却取不回」
-  const MIRROR_MAX = 200 * 1024 * 1024;  // 单个文件超过 200MB 不镜像（存它要占几百兆，值不值由用户自己定）
+  /* 单个文件的大小闸。**不是随便定的一个数**：本机镜像走的是 base64 上传
+     （`POST /local-assets`），代理那侧的请求体上限是 288 MiB，而 base64 会把字节放大 4/3 ——
+     288 × 3/4 = 216 MiB 才是这条链真正传得动的最大值。
+     以前这里写 200 MiB，于是「200–216 MiB 这一档本来能存」也被挡在门外，且理由是编的。
+     再往上不是改一个数字的事：base64 链路本身有 5× 内存放大（raw / utf8 串 / data / 解码结果），
+     真要传 GB 级的文件得把这条链改成代理自己去取字节（流式），风险与改动面都大得多。 */
+  const MIRROR_MAX = 216 * 1024 * 1024;
   const CONCURRENCY = 2;                 // 同时最多镜像几个：一次性下十几个视频会把上行和磁盘都占满
   const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
     'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3',
@@ -1669,18 +1850,20 @@ function topBoolState(decl, ctx) {
      所以第一次打开这一项，行为一个字都没变，只是多了「按类型分开」和「另存到指定目录」两件事。
      判据只有这一份：设置页渲染、这里分流、代理读盘，三边各写一份就一定对不上。 */
   const K_AUTOSAVE = 'sk_autosave';
-  /* 「上一次另存的结果」：只在**有目录**的那几档上有意义（没目录就是默认行为，没什么可失败）。
+  /* 「这一类上一次另存**没成**的原因」：只在写失败时记一笔，写成功就把这一档清掉。
+     （成功不再记整条路径 —— 设置页那一格「上次存成：D:\…」早就没人看了，
+     而失败必须留着，否则「用户以为存上了、其实一次都没落盘」又会回来。）
      不进同步白名单 —— 那是「刚才发生了什么」，不是「我想要什么」，跟着云同步会把
      另一台机器上的旧路径带过来，而那台机器上那个盘符多半不存在。 */
   const K_AUTOSAVE_LOG = 'sk_autosave_log';
-  function setLastSave(kind, row) {
+  function noteSaveFail(kind, why) {
     try {
       const d = JSON.parse(localStorage.getItem(K_AUTOSAVE_LOG) || '{}') || {};
-      d[kind] = row;
+      if (why) d[kind] = { why: String(why), at: Date.now() }; else delete d[kind];
       localStorage.setItem(K_AUTOSAVE_LOG, JSON.stringify(d));
     } catch (e) {}
   }
-  function lastSave() { try { return JSON.parse(localStorage.getItem(K_AUTOSAVE_LOG) || '{}') || {}; } catch (e) { return {}; } }
+  function saveFails() { try { return JSON.parse(localStorage.getItem(K_AUTOSAVE_LOG) || '{}') || {}; } catch (e) { return {}; } }
   const SAVE_KINDS = [
     { id: 'image', zh: '图片', exts: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] },
     { id: 'video', zh: '视频', exts: ['mp4', 'webm', 'mov', 'mkv'] },
@@ -1893,10 +2076,10 @@ function topBoolState(decl, ctx) {
   }
   const extOf = (blob, e) => String(e || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
     || EXT_BY_MIME[String((blob && blob.type) || '').toLowerCase()] || 'bin';
-  const nameOf = (e, ext) => {
-    const p = String((e && e.prompt) || '').trim().slice(0, 20).replace(/[\\/:*?"<>|]/g, '') || 'file';
-    return p + '.' + ext;
-  };
+  /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`，§J ⑲ 守着）。这一处以前自己写了第二份非法字符正则，
+     而且是**直接删掉**那些字符（别的页换成 -），于是同一条素材从本机另存与从资产库下载，名字对不上；
+     截断也各是一份（这里 20、页面那两处 24）。本函数只管「提示词当前缀 + 扩展名」。 */
+  const nameOf = (e, ext) => window.fileSafe((e && e.prompt) || '素材', 24) + '.' + ext;
 
   const queue = [];
   let pumping = false;
@@ -2049,11 +2232,11 @@ function info() {
          想在「D:\AI图」里看到成品就不存 —— 那是两件事。所以这里是**额外再写一份**。
          三种情况都会发生，所以每一种都要有说法：
            · 这一类关了        → 什么都不做（不打扰）
-           · 目录留空          → **照样存**，落到代理那边的默认目录（项目下 文件/<类型>），
+           · 目录留空          → **照样存**，落到代理那边的默认目录（系统下载下的 拾帧\<类型>），
                                  见 proxy.js 的 autosaveDefaultDir。以前这里是直接跳过的，
                                  那就是「用户没填目录 = 成品永远只落在 .assets 这个看不见的目录里」。
-           · 写成功            → 记一笔，设置页能回看「上次存到哪、存了什么」
-           · 写不进去 / 没配   → **不打断界面**（产物该显示还是显示），但记进 lastSave 供设置页显示
+           · 写成功            → 把这一档的失败记录清掉（存到哪、存了什么不再回显：文件本身在目录里）
+           · 写不进去 / 没配   → **不打断界面**（产物该显示还是显示），但记下原因，设置页那一行照实说
          静默吞掉是这里最坏的一种：用户以为存上了，文件其实一次都没落盘。
          所以这一段**不再自己判目录** —— 目录只由代理那一层读配置决定（见 /save 那一段），
          页面猜一遍就会出现「界面以为存了、代理其实没写」这种对不上的组合。 */
@@ -2063,10 +2246,9 @@ function info() {
         try {
           const s = await Api.saveToDir({ type: kind, name: r && r.name ? r.name : nameOf(ent, ext),
             mime: blob.type || '', format: r && r.format ? r.format : ext, data: b64 });
-          setLastSave(kind, s && s.ok ? { ok: true, file: s.file, dir: s.dir, at: Date.now() }
-            : { ok: false, why: (s && s.error && s.error.message) || '代理没有确认写入', at: Date.now() });
+          noteSaveFail(kind, s && s.ok ? '' : (s && s.error && s.error.message) || '代理没有确认写入');
         } catch (e) {
-          setLastSave(kind, { ok: false, why: (e && e.message) || String(e), at: Date.now() });
+          noteSaveFail(kind, (e && e.message) || String(e));
         }
       }
     } catch (e) {
@@ -2167,6 +2349,120 @@ function info() {
     if (!o) return '';
     const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || byteSrcOf(o) || o.src || o.dl || '');
     return offer(String(o.provider || ''), o, up, opts);
+  }
+
+  /* ---------- 「把一批取回本机」只有这一份 ----------
+     收藏、素材库、资产库三处都要「把云端那份字节取回本机」，循环与计数以前各写一遍
+     （收藏那一份还多一个 skip 分支、素材库那一份要顺手把地址写回库里那一格），
+     改一处就漏两处 —— 比如「太大下不动」这一档，只有收藏会照实报，别处是静默。
+     jobs: [{ entry（交给 pull 的那一条，通常是那条条目自己）,
+              name（回执里怎么称呼它）,
+              apply(url)（存好了把本机地址写回去；不需要写回就省略） }]
+     opts.onProgress(done, total)：逐条进度（三处都要在按钮上写「第几条 / 共几条」）。
+     返回 { ok, kept, busy, cant, skip, fails, total }；回执文案交给 pullSummaryText。 */
+  async function pullMany(jobs, opts) {
+    const o = opts || {};
+    const list = Array.isArray(jobs) ? jobs : [];
+    const total = list.length;
+    let ok = 0, kept = 0, busy = 0, cant = 0, skip = 0, done = 0;
+    const fails = [];
+    const wait = [];
+    if (!total) return { ok, kept, busy, cant, skip, fails, total: 0 };
+    for (const j of list) {
+      let out = null;
+      const st = pull(j.entry || j, {
+        force: true,                 // 「自动存本机」没开也照存：这是用户当下点下去的
+        cb: (err, r) => {
+          done++;
+          /* r.skip = 试过、超出本机镜像上限（连字节都没取回来），与真失败分开报 ——
+             混成一堆「没成」的话，用户会以为该重试，而重来一次还是超大。 */
+          if (err) { if (r && r.skip) skip++; else fails.push(String(j.name || '这一条') + '：' + err.message); }
+          else if (r && r.kept) kept++;
+          else if (r && r.id) {
+            ok++;
+            if (typeof j.apply === 'function') {
+              try { j.apply('/asset/' + encodeURIComponent(r.id) + '?v=2'); } catch (e) {}
+            }
+          }
+          if (o.onProgress) o.onProgress(done, total);
+          if (out) out();
+        },
+      });
+      /* pull 的返回值只说「这一条排上了没有」；排上了之后成没成要等 cb。
+         'saved' 那一路的 cb 是同步回来的，所以 done/kept 已经加过，这里不再补。 */
+      if (st === 'queued') wait.push(new Promise(rz => { out = rz; }));
+      else if (st === 'busy') { busy++; done++; if (o.onProgress) o.onProgress(done, total); }
+      else if (!st) { cant++; done++; if (o.onProgress) o.onProgress(done, total); }
+    }
+    await Promise.all(wait);
+    return { ok, kept, busy, cant, skip, fails, total };
+  }
+  /* 那一句回执也只有一份：三处以前各拼一遍，措辞与顺序都不一样
+     （收藏写「已存回本机 N 条」、素材库写「N 个已存回本机」），
+     而它们说的是同一件事。 */
+  function pullSummaryText(s) {
+    const r = s || {};
+    const bits = [];
+    if (r.ok) bits.push('已存回本机 ' + r.ok + ' 条');
+    if (r.kept) bits.push('本机早就有 ' + r.kept + ' 条');
+    if (r.busy) bits.push('后台那一轮正在存 ' + r.busy + ' 条，没重复排');
+    if (r.skip) bits.push('有 ' + r.skip + ' 条比本机镜像的上限还大，没存');
+    if (r.cant) bits.push('有 ' + r.cant + ' 条手上只剩转发地址、取不到原始外链，没法存');
+    if (r.fails && r.fails.length) bits.push('有 ' + r.fails.length + ' 条没成：' + r.fails.slice(0, 2).join('；') + (r.fails.length > 2 ? ' 等' : ''));
+    return bits.join(' · ');
+  }
+  /* ---------- 那颗「存回本机」按钮：在途旗标、画法、回执各只有一份 ----------
+     四页（生成工作台 / 资产库 / 收藏 / 素材库）以前各抄一遍这三件事，抄出两处真缺陷：
+       · 生成工作台的守卫只看了 dataset.busy、没看成「在途时整颗不要重画」，
+         而右栏每 3 秒随整列重建一次 —— 按钮上「存回本机 7 / 20」会被冲回没有进度那一版，看着像没在动；
+       · 收藏那一句回执少判 `s.skip` —— 全是「比本机镜像上限还大」时 ok 为 0 也照样走绿档。
+     在途旗标只记在按钮自己身上：素材库那颗以前另立一个局部变量记同一件事，
+     于是重画守卫与「再点一次」的闸门读的不是同一个数。 */
+  function pullBusy(b) { return !!b && b.dataset.busy === '1'; }
+  function pullStart(b) { if (b) { b.disabled = true; b.dataset.busy = '1'; } }
+  function pullEnd(b) { if (b) { b.disabled = false; b.dataset.busy = ''; } }
+  /* 按「此刻这一屏还差几条」现画。数字与图标都是现算的 —— 初始化时写死一次的版本
+     筛完、搜完、存完都还挂着最初那个数（表现正是「按钮没反应」）。
+     `o.icon === false` 给素材库那种纯文字磁贴；`o.busyText` 给「进度写到底栏」的那一页。 */
+  function pullBtn(b, n, o) {
+    if (!b) return;
+    const opts = o || {};
+    const cnt = Math.max(0, Number(n) || 0);
+    if (pullBusy(b)) {
+      b.disabled = true;
+      if (opts.busyText) b.textContent = opts.busyText;
+      return;
+    }
+    const txt = (opts.label || '存回本机') + (cnt ? '（' + cnt + '）' : '');
+    if (opts.icon === false) b.textContent = txt;
+    else b.innerHTML = '<span class="ic">' + (window.icon ? window.icon('box', 13) : '')
+      + '</span> <span class="tx">' + txt + '</span>';
+    if (opts.disableEmpty) b.disabled = !cnt;
+    b.title = pullBtnTitle(cnt, opts);
+  }
+  /* title 那两句也只有一份说法：范围（这一屏 / 这一档）、名词（产物 / 成品 / 收藏 / 素材）、
+     量词由页面给，其余不改 —— 四页以前把「外链一过期就是破图」写成了四种。 */
+  function pullBtnTitle(n, o) {
+    const opts = o || {};
+    const zone = opts.zone || '这一屏';
+    const what = opts.what || '成品';
+    if (!n) return opts.empty || (zone + '的' + what + '本机都已经有了，不用再存');
+    return zone + '有 ' + n + ' ' + (opts.unit || '条') + what
+      + '的字节还不在本机（外链一过期就是破图，预览也取不到帧）：逐条取回本机资产库，'
+      + '过了这一趟「优先用本机文件」就有东西可用。已经在本机的一条都不会重下。'
+      + (opts.more || '');
+  }
+  /* 三档回执（红 / 绿 / 灰）同一把尺子：一条都没落地就不能报绿。
+     `o.extra` 是页面自己那一笔（素材库「有 N 条没写进库」），`o.failed` 是它对应的计数。 */
+  function pullReceipt(s, o) {
+    const opts = o || {};
+    const text = [pullSummaryText(s)].concat(opts.extra || []).filter(Boolean).join(' · ');
+    if (window.Toast) {
+      if (s.fails.length || s.cant || s.skip || opts.failed) Toast.err(text || (opts.none || '一条都没存进本机'));
+      else if (s.ok) Toast.ok(text);
+      else Toast.info(text || (opts.nothing || '这一屏没有需要存的'));
+    }
+    return text;
   }
   /* 扫一批条目（列表加载、增量加载都走它） */
   /* 「这一条能从哪儿取到字节」—— **地址来源只有这一份**。
@@ -2372,7 +2668,8 @@ function info() {
   }
 
   window.AssetLocal = {
-    saveOn, preferLocal, offer, scan, decorate, watch,
+    saveOn, preferLocal, offer, scan, decorate, watch, pullMany, pullSummaryText,
+    pullBusy, pullStart, pullEnd, pullBtn, pullBtnTitle, pullReceipt,
     /* 「补不补历史产物」那一档 + 判据：页面与设置页都读它，不要自己按时间戳判一遍。 */
     saveScope, markSaveOn, wantSave, saveSince,
     /* 侧栏那两块各自显示与否（设置页勾）。判据各一份，sidebar.js 直接调。 */
@@ -2395,7 +2692,7 @@ function info() {
     pull,
     /* 「自动保存：按类型分别存到哪」这一项的公共接口（设置页渲染与本页分流共用一份判据）。
        设置页只负责画与存，不自己再读一遍 localStorage、更不自己判断哪一档开没开。 */
-    SAVE_KINDS, autosaveConf, setAutosaveConf, kindOf, lastSave,
+    SAVE_KINDS, autosaveConf, setAutosaveConf, kindOf, saveFails,
     /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单。
        ⚠ 这一份读的是**本地指针表**，换端口 / 清浏览器数据 / 无痕窗口都会是空的 ——
        所以下面那个 syncStats() 得先把代理那份索引拉回来认一遍，数字才等于事实。 */
@@ -2480,7 +2777,12 @@ function info() {
        以前这里只认 'queued' / 'running' 是活的，creating / pending / processing 全被算成失败卡。 */
     const gstatus = (spec.statusMap || {})[g('status')] || g('status') || 'running';
     const st = classifyStatus(spec, g('status'));
-    const fmt = media === '视频' ? 'mp4' : String(g('format') || 'png').toLowerCase();
+    /* 扩展名走全站那一份读法（ui.js 的 `fileExtOf`，§J ⑲ 守着）：先认平台声明的 format，
+       认不出才按类型兜底。以前这一句是 `media === '视频' ? 'mp4' : (g('format') || 'png')` ——
+       「png」兜到了**音频**头上：一条没声明 format 的语音任务在数据层就带着 `format:'png'`，
+       于是资产库 / 收藏 / 助手卡片上的下载名（含这里拼的 `?dl=1&name=`）全是 .png，
+       页面那一层再怎么改也只是在替它猜。 */
+    const fmt = window.fileExtOf({ mtype: media, format: g('format') });
     const credits = (() => {
       const c = g('credits');
       if (c == null) return null;
@@ -2516,7 +2818,7 @@ function info() {
       currency: g('currency') || null,
       created: g('created'), completed: g('completed'),
       quality: g('quality'), ar: g('ar'), count: g('count'),
-      duration: (media === '视频' || media === '音乐' || media === '音频') ? (g('duration') ?? null) : null,
+      duration: (media === '视频' || window.isAudioType(media)) ? (g('duration') ?? null) : null,
       tier: g('tier'), res: g('res'),
     };
     // 声明里多出来的字段（chars / tokens / byteLength 等）原样带到条目上，页面按需使用
@@ -2618,7 +2920,7 @@ function info() {
     for (let page = 0; page < st.pages; page++) {
       if (st.more[key] === false) break;            // 上一页已到底：不再请求（否则会重复拉第一页）
       const query = new URLSearchParams();
-      query.set(limitParam, String(spec.limit || 100));
+      query.set(limitParam, String(spec.limit || LIST_LIMIT_DEF));
       if (cursor) query.set(cursorParam, cursor);
       let d = null;
       try {
@@ -2666,6 +2968,9 @@ function info() {
   }
 
   window.AssetLib = {
+    /* 一页多少条的兜底值（与 `Api` 那六个列表调用点同一份）：页面要把「跳到第 N 页」换算成
+       「拉几批」时问这里，不许在自己文件里再写一个 100。 */
+    LIST_LIMIT_DEF,
     /* 上游条目 → 媒体类型（'图片' / '视频' / …）：判定规则完全来自 registry 的 list.media 声明
        （fixed / by + 前缀 / fallback），页面不要再自己写模型名前缀正则。
        同一 relay 的图/视频共用一个列表接口时，页面要靠它分辨哪条属于自己。 */
@@ -2788,7 +3093,7 @@ function info() {
       const spec = (prov && prov.list) || null;
       if (!spec) return null;
       const query = new URLSearchParams();
-      query.set(spec.limitParam || 'limit', String(spec.limit || 100));
+      query.set(spec.limitParam || 'limit', String(spec.limit || LIST_LIMIT_DEF));
       const d = await Api.request(prov, 'list', { query });
       const items = (spec.dataField ? d[spec.dataField] : d.data) || [];
       const keys = new Set();
@@ -3080,7 +3385,7 @@ const NORM_SHAPES = {
       keep.label = '智能参考';
       /* 这颗芯片与别的不一样：它不是「一种请求形状」，而是「形状由送上来的那批素材决定」，
          所以界面要在说明行把这句话讲出来（两个页面都读这一个字段，别在页面里按名字分支）。 */
-      keep.hint = '不放素材就是纯文字，放哪一批素材就是哪一种请求（平台自己按素材判断，这一颗不替你选）';
+      keep.hint = '不放素材就是纯文字，放哪一批就是哪一种请求';
       keep.mode = '';    // 并档后没有唯一 mode；它本来也不是请求字段，只是声明的上下文（`when` 只比 intent）
       const roles = new Map();
       smartSrc.forEach(c => {
@@ -3639,8 +3944,8 @@ window.Capabilities = {
     const E = window.esc;
     return (list || []).map(c => '<button type="button" class="ui-pill' + (c.id === currentId ? ' on' : '')
       + '" data-cid="' + E(c.id) + '">' + E(this.comboLabel(c)) + '</button>').join('')
-      + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已经放好的不清掉；'
-      + '当前模式收不下的那一类会标出来，并且提交前先拦住。</span>';
+      + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已放好的不清掉；'
+      + '收不下的那一类会标出来，并在提交前拦住。</span>';
   },
   /* 当前模式下这一组参数的**取值范围与默认值**：有模式声明就按那一档的，
      没有就退回型号总表。平台在换人档里只给 768p / 没有 2x，界面就只给 768p ——
@@ -3857,23 +4162,38 @@ window.Capabilities = {
        不在下面第二个循环筛一次的话，「隐藏」过的型号会被能力刷新重新塞回 `prov.models`，
        表现就是「在设置里藏掉了，过一会儿又出现在工作台下拉里」。 */
     const hidden = id => !!(window.ModelPrefs && window.ModelPrefs.isOff(prov, id));
-    (prov.models || []).forEach(m => {
-      if (skip(m.id)) return;
-      const cap = capsById[m.id];
-      const base = Object.assign({}, m.options || {});
-      if (!cap) { m.options = base; return; }          // 接口没给这个模型 → 保留声明
-      const merged = Object.assign(base, {});
+    /* cap → 型号：两条路共用这一份合并（清单里已有的型号就地合并 / 接口新出的型号先长出来再合并）。
+       以前只有第一支有这一段，长出来的那一支只读 `cap.options` 那一层 —— 而 `norm()` 交的是一份
+       **扁平** cap（inputSpecs / combos / durations / bools / defaults / source 全铺在顶层，
+       压根没有 options 这一层）。v13 起注册表不再下发型号清单，于是**每一个型号都是第一次刷新时
+       长出来的**，那份扁平 cap 就在第一次刷新里整个丢掉：options 是空的 → 参考素材槽位、参数档位、
+       价格表全都不出现，要等第二次刷新（走「已有型号 → 合并」那一支，它读全部键）才补回来。
+       用户看到的形状正是「导演台右栏参考文件框要切换一下模型才加载出来」。 */
+    const mergeCap = (m, cap) => {
       /* forceOptions：registry 里声明「这一项不许被能力接口覆盖」。
          用在平台声明与实测不符的地方 —— 例如 SparkCine 生图声明了 jpeg/webp，
          实测（产物字节头 / mime_type / 文件名）却永远是 png，那就以实测为准，不给假选项。 */
       const forced = new Set(m.forceOptions || []);
-      Object.keys(cap).forEach(k => { if (cap[k] !== undefined && !forced.has(k)) merged[k] = cap[k]; });
+      /* `options` 深合一次：能力那一侧可能只有 source 之类的几个键，浅盖会把声明里的 formats 抹掉 */
+      const merged = Object.assign({}, m.options || {}, (cap && cap.options) || {});
+      Object.keys(cap || {}).forEach(k => {
+        if (k === 'options') return;                    // 那一层上面已经合过了，别在这儿再套一层
+        if (cap[k] !== undefined && !forced.has(k)) merged[k] = cap[k];
+      });
+      /* 每次都赋一个**新对象**：`specs()` 的记忆化挂在 options 的引用上，能力一刷新就该失效 */
       m.options = merged;
       /* 下面几个字段以前无条件被能力接口覆盖：forceOptions 保护不到它们，
          「平台声明与实测不符」时（例如 SparkCine 只出 PNG、价格表要锁死）会出现假信息。 */
       if (cap.price && !forced.has('price')) m.price = Object.assign({}, m.price || {}, cap.price);
       if (cap.perSecond && !forced.has('perSecond')) m.perSecond = cap.perSecond;
       if (cap.max_ref_images && !forced.has('max_ref_images')) m.maxRefImages = cap.max_ref_images;
+    };
+    (prov.models || []).forEach(m => {
+      if (skip(m.id)) return;
+      const cap = capsById[m.id];
+      /* 接口没给这个模型 → 保留声明（仍然换新 options，让上面那条记忆化判据成立） */
+      if (!cap) { m.options = Object.assign({}, m.options || {}); return; }
+      mergeCap(m, cap);
       n++;
     });
     /* 接口给了、声明里没有的型号 → **照样长出来**。
@@ -3884,8 +4204,25 @@ window.Capabilities = {
       if ((prov.models || []).some(m => m.id === id)) continue;
       if (skip(id) || hidden(id)) continue;            // 不是这一类媒体的型号（见上面 modelMedia）/ 本机已经藏起来的那一个
       prov.models = prov.models || [];
-      prov.models.push({ id, name: (cap && cap.name) || id, modes: (cap && cap.modes) || [],
-        options: Object.assign({}, cap || {}) });
+      /* 长出来的这一条要**先铺上注册表声明的那一层**（`models` 与 `modelDocs` 都算）。
+         以前这里只写 id/name/modes/options，于是「上游只回 id」的家在第一次能力刷新之后
+         就把 per-id 声明整块丢了：MiMo 语音正是这种家（`prov.models` 本来就是空的，
+         全部事实都写在 `modelDocs` 里）—— 丢掉的恰好是 modes（能不能做**音色复刻 / 音色设计**）、
+         inputRoles（**参考音频槽**在不在）与 options.formats（格式清单）。
+         界面表现就是用户报的那两条：「模仿音色没有参考素材的卡片了」「音色设计/复刻的入口不见了」。
+         能力接口给的**优先**（它是实测到的现状），只是它没给的键要保住声明那一份。 */
+      const d = (prov.models || []).concat(prov.modelDocs || []).find(x => x && x.id === id) || null;
+      const grown = Object.assign({}, d || {}, { id: id, name: (cap && cap.name) || (d && d.name) || id });
+      /* 先铺声明那一层，再走上面同一份 `mergeCap`（两条路只有一份合并，别在这里再拼一遍 cap） */
+      grown.options = Object.assign({}, (d && d.options) || {});
+      mergeCap(grown, cap);
+      /* 归一化没认出这一家的形状时（`modelsShape` 为空），cap 里还留着上游原样那串
+         （id / object / owned_by）—— 那几个键不是生成参数，别混进 options。 */
+      if (!(prov && prov.modelsShape)) {
+        delete grown.options.id; delete grown.options.object; delete grown.options.owned_by;
+      }
+      if (cap && Array.isArray(cap.modes) && cap.modes.length) grown.modes = cap.modes;
+      prov.models.push(grown);
       n++;
     }
     return n;
@@ -4863,6 +5200,170 @@ window.AdvExtras = {
 };
 
 /* ============================================================================
+   TtsAdv —— 语音那一栏「合成设置」的取值口径与画法，只有一份
+     生成工作台的语音栏与导演台「加一句配音」以前各画一套：
+       · 输出格式：工作台读 `model.options.formats` 再回落到 `tts.formats`，导演台只读 `tts.formats`
+         —— 于是「这一家某个型号多给一种格式」在工作台上能选、在导演台上一个字都不提。
+       · 音色：工作台带 `lang` / `gender` 两个后缀，导演台只带 `lang`。
+       · 顶层开关（create.topBools）：工作台画了**两遍**（`#topBools` 那一排公共磁贴 +
+         语音格里一个私有的 `#boolBoxA`），提交时读的是后者，于是前一排「勾了不算数」；
+         导演台又自己拼了第三套 `<select data-vbool>`。
+     这里收成一份：清单 / 选项文案 / 顶层开关的画法与读回，两个页面都问它 ——
+     声明一出现就在两处同时出现，不用再改两遍。
+     「音色怎么给（预设 / 描述 / 复刻）」仍是页面自己的事：那要看这一家声明的型号与模式，
+     两个页面拿到的型号清单来源本就不同（工作台用注册表，导演台会现拉 /models）。
+   ========================================================================== */
+window.TtsAdv = {
+  /* 输出格式：型号自己声明的优先（同一家不同型号能收的格式不一样），没有再看平台级声明。 */
+  formats(prov, model) {
+    const tts = (prov && prov.tts) || {};
+    const list = (((model && model.options) || {}).formats) || tts.formats || [];
+    return (Array.isArray(list) ? list : []).map(String);
+  },
+  voices(prov, model) {
+    const tts = (prov && prov.tts) || {};
+    const list = (((model && model.options) || {}).voices) || tts.voices || [];
+    return Array.isArray(list) ? list : [];
+  },
+  /* pcm16 要写明会自动封装成 WAV：平台真的返回裸 PCM，不封就播不出来。
+     这句话以前只写在工作台的选项里，导演台同一档只有干巴巴一个 “pcm16”。 */
+  formatOptionsHTML(list, cur) {
+    return list.map(f => '<option value="' + window.esc(f) + '"' + (String(f) === String(cur) ? ' selected' : '') + '>'
+      + window.esc(String(f).toUpperCase() + (f === 'pcm16' ? '（会自动封装成 WAV）' : '')) + '</option>').join('');
+  },
+  voiceOptionsHTML(list, cur) {
+    return list.map(v => '<option value="' + window.esc(v.id) + '"' + (String(v.id) === String(cur) ? ' selected' : '') + '>'
+      + window.esc(v.name) + (v.lang ? ' · ' + window.esc(v.lang) : '') + (v.gender ? ' · ' + window.esc(v.gender) : '')
+      + '</option>').join('');
+  },
+  /* 顶层开关那一排（create.topBools）：画法用公共层 AdvExtras 那一套磁贴 ——
+     工作台高级设置里那一排、导演台「合成设置」里那一排，因此是**同一颗磁贴**。 */
+  topBoolsHTML(prov, model, ctx, st) {
+    const h = window.AdvExtras.html.topBools(prov, model, ctx, st || {});
+    return { html: h.html, count: h.count };
+  },
+  /* 磁贴的点法也只有一份：点一下翻状态、换文案。
+     两个页面各写一遍就会出现「一边点了有反应、另一边点了不动」—— 而它们看起来一模一样。 */
+  bindTopBools(root, st, onChange) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-tb]').forEach(b => {
+      b.onclick = () => {
+        const f = b.getAttribute('data-tb');
+        st[f] = !st[f];
+        b.classList.toggle('on', !!st[f]);
+        b.innerHTML = '<span class="ic" data-icon="wand" data-size="13"></span>' + (st[f] ? '已开启' : '未开启');
+        if (window.fillIcons) window.fillIcons(b);
+        if (onChange) onChange(f, !!st[f]);
+      };
+    });
+  },
+  /* 读回这一次真正要发出去的顶层开关（+ 顶层非布尔字段）。
+     `st` 是页面那一份状态（工作台 cur().topBools、导演台 voiceDraft.tb）——
+     **不扫 DOM**：磁贴的状态就在那份对象里，扫 DOM 会把「声明里有、但这一档被藏掉」的项也读进来。 */
+  read(prov, ctx, st) {
+    const o = st || {};
+    const ex = window.AdvExtras.read({
+      root: null, prov: prov, ctx: ctx || {}, caps: (ctx && ctx.caps) || null,
+      topBoolState: o, shapeState: {}, bools: {},
+    });
+    return { topBools: ex.topBools, summary: ex.summary, bad: ex.bad };
+  },
+  /* 「这一档定音色必填的那样东西缺了没有」那句 —— 两页一份措辞。
+     AGENTS 早就写着「工作台 submitBlockReason 的语音分支同一套」，可以前两边各写一句：
+     导演台说「「音色设计」型号要先写一段声音描述（上面那个声音描述框）」，
+     工作台说「「音色设计」型号必须填写风格 / 音色描述」—— 同一个缺陷两种说法，
+     而括号里那句指的路径在两页也不同名，所以换成不指着某一栏的说法。
+     `o.ref` 由调用方折算成「有没有一条真拿得到字节的参考音频」（两页的存法本来就不同：
+     导演台是一句 `{src, file, assetId}`，工作台是槽位里的条目数组）。 */
+  wayWhy(way, o) {
+    const d = o || {};
+    if (!way || way.mode === 'none') return (way && way.why) || '这一家没有能直接合成的型号';
+    if (way.mode === 'design' && !String(d.design || '').trim()) return '「音色设计」型号要先写一段声音描述（这一档靠描述定音色）';
+    if (way.mode === 'clone' && !d.ref) return '「音色复刻」型号要先选一条参考音频（平台照它复刻音色）';
+    return '';
+  },
+};
+/* ============================================================================
+   CharLimits —— 「这段文本的字数在不在这一家声明的区间里」全站只有这一份
+     上下限怎么读（tts / prompt）、区间怎么写（range / note）、现在几个字与差几个字
+     （count / gap）、拦住那一句怎么说（why）全在这里。页面只递自己的上下文：
+     这一栏旁边指的名字是谁（`who`，默认「这一家」）、说的是哪一种文本（`noun`，如「提示词」）。
+   为什么要收成一份：同一个判据原来有四个落点、四套措辞 ——
+     · 工作台就绪判定「文本至少 5 个字」/「文本超长（最多 5000 字）」，
+     · 工作台提示行「平台要 5–5000 字」/「还差 3 字」，
+     · 导演台配音栏「这一家要求至少 5 个字（现在 2 个字）」，
+     · `Api.createBody` 提交前再拼第四套（「VGENV 的提示词最多 30000 个字…」）。
+     于是同一句 2 个字的台词在三处是三种话，「差几个字」只有工作台说，
+     「5000 字」与「5000 个字」两种写法各漂各的。
+   字数一律按 trim 之后算（与真的发出去那一份一致）—— 导演台以前初值用不 trim 的长度、
+   判据用 trim 的长度，「0 字」配一句「现在是空的」就是这么对不上的。
+   提示词那一路（`create.promptLimits`）**目前没有任何一家声明**（VGENV 那条 2026-10 实测之后
+   整块删了：它其实没有字数限制，见 proxy.js 的 vgenv.create）。机制留着是给哪天真声明的那一家 ——
+   没有声明 = 不画区间、不拦，页面一个字都不编。
+   ========================================================================== */
+window.CharLimits = {
+  bounds(min, max) {
+    return { min: Math.max(0, Number(min) || 0), max: Math.max(0, Number(max) || 0) };
+  },
+  /* 语音：`tts.minChars` / `tts.maxChars`（MiMo 5–5000、MiniMax 1–10000）。 */
+  tts(tts) {
+    const t = tts || {};
+    return window.CharLimits.bounds(t.minChars, t.maxChars);
+  },
+  /* 提示词：`create.promptLimits`，`byIntent` 那一档（动作换人允许省略、上限另算）只在这里合一次。
+     `omitted` 只有提交那一路用得上：界面上「空」本来就走「先写提示词」那一句，不归长度闸管。 */
+  prompt(pl, intent) {
+    const P = pl || {}, iw = (P.byIntent || {})[intent || ''] || null;
+    const b = window.CharLimits.bounds(
+      iw && iw.min != null ? iw.min : P.min,
+      iw && iw.max != null ? iw.max : P.max);
+    b.omitted = !!(iw && iw.omitted);
+    return b;
+  },
+  has(b) { return !!(b && (b.min || b.max)); },
+  count(text) { return String(text == null ? '' : text).trim().length; },
+  /* 区间的写法只有一种：`5–30000`、只给上限的是 `0–5000`、只给下限的是 `5–∞`。
+     工作台以前用 `[min, max].filter(Boolean).join('–')`，只有下限时写成「（5 字）」——
+     看着像「正好 5 个字」，而那一家的意思是最少 5 个。 */
+  range(b) { return (b.min || 0) + '–' + (b.max || '∞'); },
+  note(b, who) {
+    return window.CharLimits.has(b)
+      ? (who || '这一家') + ' ' + window.CharLimits.range(b) + ' 字' : '';
+  },
+  /* 计数那一行整句（`12 字 · 这一家 5–5000 字`）：初次渲染与就地刷新都写这一句。
+     导演台以前就地那一下只写「12 字」，敲一个字声明的区间就从界面上消失了。 */
+  cntLine(text, b, who) {
+    const n = window.CharLimits.count(text) + ' 字';
+    const nt = window.CharLimits.note(b, who);
+    return nt ? n + ' · ' + nt : n;
+  },
+  over(text, b) { return !!(b && b.max && window.CharLimits.count(text) > b.max); },
+  /* 差多少字（只在写得出来的时候说：没声明的什么都不说）。 */
+  gap(text, b) {
+    if (!window.CharLimits.has(b)) return '';
+    const n = window.CharLimits.count(text);
+    if (b.max && n > b.max) return '超了 ' + (n - b.max) + ' 字，提交会被平台拒收';
+    if (b.min && n && n < b.min) return '还差 ' + (b.min - n) + ' 字';
+    return '';
+  },
+  /* 拦住的那一句。`{ now }` 那半是判据的一部分（用户点名的：要说清现在几个字），
+     出路那半按 `noun` 给 —— 只有提示词那一栏需要教人补什么，配音栏缺的是「念的话」本身。 */
+  why(text, b, o) {
+    const oo = o || {}, noun = oo.noun || '', who = oo.who || '这一家';
+    if (!window.CharLimits.has(b)) return '';
+    const req = noun ? who + ' 要求' + noun : who + '要求';
+    const n = window.CharLimits.count(text), adv = noun === '提示词';
+    if (b.min && n < b.min) {
+      return req + '至少 ' + b.min + ' 个字（' + (n ? '现在 ' + n + ' 个字' : '现在是空的') + '）'
+        + (adv ? (n ? ' —— 太短平台会拒，补一句画面/动作描述' : ' —— 写一句画面描述再提交，空提示词平台会直接拒') : '');
+    }
+    if (b.max && n > b.max) {
+      return req + '最多 ' + b.max + ' 个字（现在 ' + n + ' 个字）' + (adv ? ' —— 先精简再提交' : '');
+    }
+    return '';
+  },
+};
+/* ============================================================================
    AssetPicker —— 全站唯一的「选择参考素材」弹窗（导演台 / 生图台 / 视频台 / 语音台共用）
      const list = await AssetPicker.open({ types: ['图片'], multiple: true, limit: 9, title: '选择参考图' });
      返回 AssetLib 同构条目数组（含 assetId / src / dl / type / prompt / duration …）。
@@ -4887,8 +5388,8 @@ window.AssetPicker = {
     const ruleText = (window.Capabilities && Capabilities.ruleLineOf) ? Capabilities.ruleLineOf(rule) : '';
     const maxBytes = Math.max(0, Number(rule.maxBytes) || 0);
     // 只选音频时不必等图片/视频平台（kinds 交给统一加载器过滤来源）
-    if (!o.kinds && o.types.length && o.types.every(t => t === '音乐' || t === '音频')) o.kinds = ['audio'];
-    const wantAudio = o.types.some(t => t === '音乐' || t === '音频');
+    if (!o.kinds && o.types.length && o.types.every(t => window.isAudioType(t))) o.kinds = ['audio'];
+    const wantAudio = o.types.some(t => window.isAudioType(t));
     const wantImage = o.types.includes('图片');
     const wantVideo = o.types.includes('视频');
     const upAccept = (o.upload && o.upload.accept) || [
@@ -4994,7 +5495,7 @@ window.AssetPicker = {
         });
       };
 
-      const isAudio = t => t === '音频' || t === '音乐';
+      const isAudio = window.isAudioType;
       const okType = t => o.types.includes(t) || (isAudio(t) && o.types.some(isAudio));
       /* 类型筛选只在真的要选两类以上时出现（音乐/音频算同一类） */
       const typeTabs = (() => {
@@ -5433,23 +5934,26 @@ window.AssetPicker = {
 
       /* ---------- AI 检索：把一句自然语言变成筛选条件（只筛现有条目，不生成） ---------- */
       const paintAiChip = () => {
-        const c = $('apAiChip');
-        if (!c) return;
         /* AI 检索出来的那句话要写在 chip 上而不是计数条上：paint() 每次重画都会覆盖 #apCnt，
            放那里的话「检索成功」这条信息一闪就没了（看起来像点了没反应）。 */
-        c.innerHTML = aiCond
-          ? `<span class="ap-aitag" title="${escAttr(aiCond.summary || '')}">${window.icon ? window.icon('sparkles', 11) : ''} AI 检索${aiCond.summary ? ' · ' + escAttr(String(aiCond.summary).slice(0, 18)) : ''}<button id="apAiClear" title="清除 AI 条件">${window.icon ? window.icon('close', 10) : '✕'}</button></span>`
-          : '';
-        const b = $('apAiClear');
-        if (b) b.onclick = () => { aiCond = null; paintAiChip(); paint(); };
+        const sum = aiCond ? String(aiCond.summary || '') : '';
+        window.AiChip.paint('apAiChip', aiCond ? {
+          cls: 'ap-aitag', clearId: 'apAiClear', iconSize: 11, tip: sum,
+          text: window.AiChip.text(['AI 检索', sum.slice(0, 18)]),
+          clearTitle: '清除 AI 条件',
+          onClear: () => { aiCond = null; paintAiChip(); paint(); },
+        } : { text: '' });
       };
       const runAiSearch = async () => {
-        if (!window.TextAI) { cnt.textContent = 'AI 检索要配一个文字模型（设置页里填）'; return; }
+        if (!window.TextAI) { cnt.textContent = '文字 AI 没加载出来：刷新页面再试'; return; }
         /* 检索词就是上面搜索框里的文字：不再另外弹一个「输入需求」的窗口（两个框填同一件事，
            用户要在两处来回切换）。框里没写东西就当场说清楚并把光标送回去。 */
         const q = search.value.trim();
-        if (q.length < 2) {
-          cnt.textContent = '先在上面搜索框里写要找什么（至少两个字），再点 AI 检索';
+        /* 这一句与素材库 / 收藏 / 资产库那三处同一个字、同一个字数（公共层 `AiFind.shortWhy`），
+           写在这里的副本以前还带一个「上面」—— 弹窗里本来就只有一个搜索框，指不着别的。 */
+        const why = AiFind.shortWhy(q, 'AI 检索');
+        if (why) {
+          cnt.textContent = why;
           search.focus();
           return;
         }
@@ -5632,6 +6136,21 @@ window.TextAI = {
       + '4. 保留原意与信息量：不加内容、不删条件、不加标题、不加序号。\n'
       + '5. 人名、地名、品牌按常见读法处理；读不出来的地方保留原文即可。\n\n'
       + '输出：只输出改写后的稿件本身，不要任何解释。',
+    /* 「润色出结果之后接着对话」那一条（`TextAI.followPrompt`）：与上面三条同一个身份，
+       但任务不同 —— 上面三条是「把这一稿改好」，这一条是「按用户这一句话，在**当前这一版**上改」。
+       必须写清「只改用户点名的那一处」：不写的话模型会把上一轮的润色思路再来一遍，
+       用户说「短一点」它却顺手换了风格，等于每说一句都重做一遍。
+       `{what}` 由程序换成这一版是什么稿子（视频提示词 / 图片提示词 / 配音稿…）。
+       这一条在 NO_ASK 名单里：再反问一次就成了套娃，这一轮要的是照着那句话改。 */
+    follow: '你刚才已经把这一稿改写过一轮了，现在用户看着**屏幕上这一版**又提了一句要求。'
+      + '你的任务是**按这一句话改**，不是重新发挥。\n\n'
+      + '这一版是：{what}\n\n'
+      + '硬性要求：\n'
+      + '1. 只改用户点名那一处，其余原样保留（措辞、顺序、`@参考图1` 这类素材引用标记都不要动）。\n'
+      + '2. 用户的话与上一稿冲突时以用户这句为准；他没说的那些不要顺手改，也不要把自己上一轮的想法再补一遍。\n'
+      + '3. 这句话里读不出来的细节按最常见的做法补，不要反问。\n'
+      + '4. 不要编造品牌、人名、台词或数字；用户给的数字与信息量不要丢。\n\n'
+      + '输出：只输出改完之后的整稿本身。不要引号、不要解释、不要说明你改了什么、不要 markdown 代码块、不要给多个方案。',
     story: '你是分镜师。根据一个镜头的描述与时长，决定需要几张关键画面，并按时间顺序给出每一张的文生图提示词。\n\n要求：\n'
       + '1. 只返回 JSON，不要任何解释、不要 markdown 代码块。格式：{"frames":[{"t":0,"prompt":"画面提示词"}]}\n'
       + '2. 3–6 张；t 从 0 开始递增、不超过镜头时长、间隔尽量均匀。\n'
@@ -5724,6 +6243,11 @@ window.TextAI = {
             + '改它时建议保留这三条最常见的坑：一次只选一种视觉语言（同时写「超写实」和「卡通」模型只会取折中）、'
             + '光线不能省（影响最大的单项）、构图不能省（不写只会给居中中景的安全构图）。' },
         { key: 'audio', label: '配音稿润色', used: '生成工作台「语音」那一栏的「AI 润色」' },
+        { key: 'follow', label: '再改一版（润色结果出来之后接着对话）',
+          used: '三个工作台与导演台：润色结果面板下面那一行「还要怎么改」，写完按回车就按这句话在当前那一版上再改',
+          ref: '这一条不改写整稿的思路，只按用户那一句改，所以「其余原样保留」与「不要反问」两条请留着 —— '
+            + '少了第一条，用户说一句「短一点」模型会把风格也一起换掉；少了第二条，这一轮又会开始追问，'
+            + '而面板上根本没有再答题的地方（它不在会反问的那三条里）。占位符：`{what}` 这一版是什么稿子。' },
         { key: 'story', label: '分镜切片规划（决定张数 + 每张提示词）', used: '导演台右栏「按描述生成这一镜的画面」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"t":0,"prompt":"…"}]}`），由它决定生成几张、每张在第几秒、每张画什么。改这条时请保留 JSON 格式要求，否则会退化成按 2.5 秒硬切片。' },
         { key: 'split', label: '剧本拆分镜', used: '导演台「贴剧本，一键拆分镜」',
@@ -5752,8 +6276,9 @@ window.TextAI = {
      页面拿 `parseJsonLoose` / `parseFrames` 去解 —— 模型一旦先反问，解出来就是空，
      界面报「AI 没有给出可用的分镜结构」。而设置页把 `prompt('story')` 的结果**整段写回**
      `sk_polish_story`（那是用户在设置页里能改的那一栏），只要 ASK_NOTE 被拼上去，
-     下一次打开设置页再点保存，导演台读到的就是带着「你可以追问」的指令。 */
-  NO_ASK: ['char_image', 'char_voice', 'story', 'split', 'img_split'],
+     下一次进设置页改动任何一项，那趟自动保存的整页 DOM 扫描会把它连 ASK_NOTE 一起写回盘上，
+     导演台读到的就是带着「你可以追问」的指令。 */
+  NO_ASK: ['char_image', 'char_voice', 'story', 'split', 'img_split', 'follow'],
   /* 「没有存盘时这条指令应该长什么样」——**只算默认，绝不碰存盘**。
      两处共用这一份，免得各算一遍：
        · prompt()：没有存盘就返回它（用户改过的优先）
@@ -5849,10 +6374,10 @@ window.TextAI = {
     } catch { return this._envCache ? this._envCache.data : {}; }
   },
   keyId(prov) { return (prov && (prov.keyId || prov.id)) || 'deepseek'; },
-  /* 内存覆盖表（按 keyId）：设置页「获取型号列表 / 验证密钥 / 测试」这三个按钮要用**刚填还没保存**
+  /* 内存覆盖表（按 keyId）：设置页「获取型号列表 / 验证密钥 / 测试」这三个按钮要用**刚填还没落盘**
      的密钥与地址发一次请求。以前它们为了这件事直接写 localStorage（`sk_key_*` / `sk_base_*`），
-     等于绕过了这一页「点保存才生效」的约定 —— 用户填一半切走，保存的却是半成品。
-     现在只把值放进这份表里，发完请求（或离开设置页）就清掉，磁盘上始终是保存过的那份。 */
+     等于把用户填到一半的一把钥匙当成一次有效配置存进盘里 —— 用户填一半切走，盘上留下的是半成品。
+     现在只把值放进这份表里，发完请求（或离开设置页）就清掉，磁盘上始终是改完（change）之后自动存的那份。 */
   formOverride: {},
   setFormOverride(prov, vals) {
     const k = this.keyId(prov);
@@ -6025,12 +6550,7 @@ window.TextAI = {
   clearMeta() {
     this._meta = null;
     this._metaFor = '';
-    let n = 0;
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('sk_model_meta_')) { localStorage.removeItem(k); n++; }
-    }
-    return n;
+    return window.Store.sweep(k => k.startsWith('sk_model_meta_'));
   },
   /* 素材清单 → 一段写给 AI 的话。
      问题：参考图能随消息附上（识图模型），**视频 / 音频附不了**。以前只在提示词里塞一句
@@ -6077,11 +6597,27 @@ window.TextAI = {
     if (!/^40[13]$/.test(String(status == null ? '' : status)) && !/auth|api key|密钥|unauthorized|invalid key/i.test(s)) return '';
     return '　用的是：' + this.who(prov);
   },
+  /* 余额 / 额度不够时补一句「这一家的余额在哪儿看」。
+     为什么必须按家分说法：`ERROR_HINT` 那句提示是「先到「用量与余额」页看看余额」——
+     可**有的家压根没有余额查询接口**（MiMo 的 /v1/user/balance、/v1/dashboard/billing/* 全是 404，
+     注册表里 `balance` 只能是 null），那一页上根本不会出现它。用户去看了，看到的是别家的余额，
+     于是得出「我明明有余额」——然后同一个错再报一遍，来回好几轮。
+     所以：声明了 balance 的家照旧指去那一页；没声明的**照实说看不见**，并给出它自己的控制台地址。
+     判据是 registry 的 `balance` 声明，不在这里写死任何一家的名字。 */
+  balanceHint(prov) {
+    const who = this.who(prov);
+    if (!prov) return '';
+    return prov.balance
+      ? '　（用的是 ' + who + '：这一家的余额就在「用量与余额」页上，去核一下）'
+      : '　（用的是 ' + who + '：这一家没有余额查询接口，本地看不到它的余额 —— 到 '
+        + (prov.site || prov.base || '它的控制台') + ' 的账户页确认这一把密钥所属账号的额度）';
+  },
+
   /* prov 可以显式指定：设置页按下拉里**选中的那家**取型号，而不是已保存的那家
      （以前只有 prov(REG) 一条路，下拉选了没保存时会打到别家去）。 */
   async rawModels(REG, provIn) {
     const prov = provIn || this.prov(REG);
-    if (!prov) throw new Error('注册路由里没有文字 AI 提供商');
+    if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
     const r = await netFetch(prov.relay + '/models', { headers: this._headers(prov), timeout: 20000 });
     /* 文字 AI 的失败也要过 ERROR_HINT：上游只回一句「Insufficient Balance」时，
        界面得说清是余额/额度不够、去哪儿处理，而不是把英文原样甩在计数条上。
@@ -6201,7 +6737,7 @@ window.TextAI = {
     const items = (list || []).filter(x => x && x.src);
     if (!items.length) return { images: [], note: '' };
     const vis = await this.visionAsync(REG, opts && opts.prov, opts && opts.model);
-    if (!vis.ok) return { images: [], note: `当前文字模型（${vis.model}）未启用识图（${vis.why}），本次只按文字润色；可在设置页把「识图能力」设为支持` };
+    if (!vis.ok) return { images: [], note: `当前文字型号（${vis.model}）未启用识图（${vis.why}），本次只按文字润色；可在设置页把「识图能力」设为支持` };
     const max = (opts && opts.max) || 6;
     const images = await this.prepImages(items, opts);
     if (!images.length) return { images: [], note: '素材图没能读出来（可能已过期或不是图片），本次只按文字润色' };
@@ -6221,7 +6757,7 @@ window.TextAI = {
      顺带把「模型 → 能否识图」的接口声明记进缓存（vision 判定优先用它） */
   async models(REG, provIn) {
     const prov = provIn || this.prov(REG);
-    if (!prov) throw new Error('注册路由里没有文字 AI 提供商');
+    if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
     const raw = await this.rawModels(REG, prov);
     // 同一次请求里顺手更新识图能力缓存，避免为了判定再拉一次 /models
     try {
@@ -6277,7 +6813,7 @@ window.TextAI = {
      识图编号、型号来源这两条迟早分叉）。 */
   async _body(REG, prov, sys, user, opts) {
     const o = Object.assign({}, opts || {});
-    /* o.model = 页面当下选中的那个型号（设置页可能还没点保存）；不给就用本机保存的。
+    /* o.model = 页面当下选中的那个型号（设置页那一栏可能还没落盘）；不给就用本机保存的。
        「测试」按钮必须走它，否则会出现「下拉选了 A、实际发的是 B」。 */
     const model = o.model || this.model(prov);
     /* 没型号就别发出去（model() 不再拿写死的清单兜底，见它的注释）。
@@ -6313,7 +6849,7 @@ window.TextAI = {
      并在正文末尾附「图N = 哪张素材」的编号说明（模型据此在提示词里指代素材）。 */
   async chat(REG, sys, user, opts, provIn) {
     const prov = provIn || this.prov(REG);
-    if (!prov) throw new Error('注册路由里没有文字 AI 提供商');
+    if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
     const { model, body } = await this._body(REG, prov, sys, user, opts);
     const r = await netFetch(prov.relay + (prov.endpoints?.chat || '/chat/completions'), {
       method: 'POST',
@@ -6347,7 +6883,7 @@ window.TextAI = {
      非 2xx 的错误文案与非流式同一条路（Api.errorMessage + authHint），别让人只看得到英文原文。 */
   async chatStream(REG, sys, user, opts, onDelta, provIn) {
     const prov = provIn || this.prov(REG);
-    if (!prov) throw new Error('注册路由里没有文字 AI 提供商');
+    if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
     const o = Object.assign({}, opts || {});
     if (o.stream === false) return await this.chat(REG, sys, user, o, prov);
     const { model, body } = await this._body(REG, prov, sys, user, o);
@@ -6430,20 +6966,28 @@ window.TextAI = {
      润色之前先问几个最影响成片的要点，让用户点选或自己写；拿到回答再润色第二段。
      约定只回 JSON {"questions":[{"q":"…","options":["…"]}]}；模型不听话就按纯文本兜底解析，
      再不行返回 [] —— 调用方据此跳过问答直接润色，绝不因为「模型没按格式回」把功能卡死。 */
-  parseQuestions(txt) {
-    const j = this.parseJson(txt);
-    const arr = Array.isArray(j) ? j : (j && Array.isArray(j.questions) ? j.questions : null);
+  QA_O_MAX: 6,
+  /* 「一道问答」长什么样只在这一处归一：问题认 q / question / title 三个别名，候选认
+     options / choices 两键、每项再认 label / text，剥掉空串并按 oMax 夹；
+     cut 告诉调用方「这里夹掉了」，要不要说由它决定（AI 助手那一屏要写明裁掉多少，润色这一头不吭声）。
+     以前 ai-chat 的 askOf 自己抄了一遍这四个别名，抄出两份不同的上限（一份 6 个候选不限题数、
+     另一份 8 题 ×10 候选）—— 同一个模型回同一段 JSON，两处解析出的题数与候选数可以不一样。 */
+  qaOf(arg, oMax) {
+    const max = Math.max(1, Number(oMax) || this.QA_O_MAX);
+    const arr = Array.isArray(arg) ? arg : (arg && Array.isArray(arg.questions) ? arg.questions : []);
     const out = [];
-    if (arr) {
-      arr.forEach(x => {
-        const q = String((x && (x.q || x.question || x.title)) || '').trim();
-        if (!q) return;
-        const os = (Array.isArray(x.options) ? x.options : (Array.isArray(x.choices) ? x.choices : []))
-          .map(o => String((o && (o.label || o.text)) || o || '').trim()).filter(Boolean).slice(0, 6);
-        out.push({ q, options: os });
-      });
-      if (out.length) return out;
-    }
+    arr.forEach(x => {
+      const q = String((x && (x.q || x.question || x.title)) || '').trim();
+      if (!q) return;
+      const os = (Array.isArray(x.options) ? x.options : (Array.isArray(x.choices) ? x.choices : []))
+        .map(o => String((o && (o.label || o.text)) || o || '').trim()).filter(Boolean);
+      out.push({ q, options: os.slice(0, max), cut: os.length > max });
+    });
+    return out;
+  },
+  parseQuestions(txt) {
+    const out = this.qaOf(this.parseJson(txt), this.QA_O_MAX);
+    if (out.length) return out;
     /* 兜底：回的是「1. 问题」+「- 选项」这种纯文本 */
     let cur = null;
     String(txt || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).forEach(l => {
@@ -6452,7 +6996,7 @@ window.TextAI = {
       const body = m[1].trim();
       if (!body) return;
       if (/[?？]$/.test(body)) { cur = { q: body, options: [] }; out.push(cur); return; }
-      if (cur && cur.options.length < 6) cur.options.push(body);
+      if (cur && cur.options.length < this.QA_O_MAX) cur.options.push(body);
     });
     return out.filter(x => x.q);
   },
@@ -6485,11 +7029,241 @@ window.TextAI = {
     const need = j && j.need === false ? false : questions.length > 0;
     return { need, questions };
   },
+  /* ---- 润色那几处「同一句话」收成一份（2026-10）----
+     以前这几句在三个地方逐字抄过：`请润色以下X，直接返回润色结果：`、
+     `用户已经回答了你先前的追问，请严格按这些回答来写…`、`消息末尾的「随附图片」列出了…`。
+     抄三遍的后果不是难看，是**同一句回答在不同页面对模型的意思不一样** ——
+     改契约的人只会改自己刚碰的那一处。数量、措辞都是数据，数据只应有一份。 */
+  /* 第二段（真的去润色）发给模型的那句话 */
+  polishUser(what, text) {
+    return '请润色以下' + String(what || '内容') + '，直接返回润色结果：\n' + String(text || '');
+  },
+  /* 第一段（反问要点）发给模型的那句话：`o.count` 说清问几个（配音那处一句台词，问 2–3 个就够），
+     `o.tail` 是给括号里那句补的说明（有没有附素材图、素材清单在哪）。 */
+  askUser(what, text, o) {
+    const opt = o || {};
+    return '这是一段' + String(what || '内容') + '：\n' + String(text || '')
+      + '\n\n请针对它提出 ' + (opt.count || '2–4') + ' 个最影响成片的追问'
+      + (opt.tail ? '（' + opt.tail + '）。' : '（素材清单见系统提示）。');
+  },
+  /* 用户对先前那几题的回答怎么交代：空回答就不说（不说比「按空回答写」好）。 */
+  answersNote(answers) {
+    const t = String(answers || '').trim();
+    return t ? '用户已经回答了你先前的追问，请严格按这些回答来写，不要再自行改动用户已定的选择：\n' + t : '';
+  },
+  /* 一次润色（或一次反问）要额外交代的那几句（随附图片 / 素材标记 / 素材清单 / 用户的回答）
+     ——**顺序也只有一份**：清单在回答之前，模型先看清手上有什么素材，再看用户定了什么。
+     `o.stage === 'ask'` 时那一句改成「结合图片提问」（反问那一轮还没有结果可润）；
+     `o.text` 里有 `@参考图1` / `@角色名` 这类素材引用标记才追加「原样保留」那一句。 */
+  polishExtra(o) {
+    const opt = o || {};
+    const out = [];
+    if ((opt.images || []).length) {
+      out.push(opt.stage === 'ask'
+        ? '消息末尾附了参考图，请结合图片内容提问。'
+        : '消息末尾的「随附图片」列出了每张图对应哪张素材，请结合图片内容润色。');
+    }
+    if (opt.text && /@参考图\s*\d+|@[^\s，。；、]+/.test(String(opt.text))) {
+      out.push('提示词里的 @参考图1、@角色名 这类标记是素材引用，必须原样保留，不要改写或删除。');
+    }
+    const mn = this.materialNote(opt.materials || []);
+    if (mn) out.push(mn);
+    const an = this.answersNote(opt.answers);
+    if (an) out.push(an);
+    return out;
+  },
+  /* 把上面那几句拼到这一族的系统提示词后面（`prompt('video'|'img'|'audio')` 那份）。 */
+  polishSys(sysBase, extras) {
+    const list = (extras || []).filter(Boolean);
+    return String(sysBase || '') + (list.length ? ' ' + list.join('') : '');
+  },
+  /* 「按用户这一句话，在当前这一版上再改」：返回 { sys, user }，页面只管发。
+     `what` 同时写进系统提示词的 `{what}` 与正文那一行 —— 用户在设置里把占位符删掉也不至于没说清。 */
+  followPrompt(o) {
+    const opt = o || {};
+    const what = String(opt.what || '这一稿');
+    const sys = this.polishSys(this.prompt('follow').replace(/\{what\}/g, what), opt.extra);
+    const user = '这一版是' + what + '。\n\n'
+      + '用户这一轮的要求：\n' + String(opt.ask || '') + '\n\n'
+      + '当前这一版：\n' + String(opt.current || '');
+    return { sys, user };
+  },
 };
 /* 模块一装好就收拾一次「存盘副本其实就是默认」的键（见 pruneStoredDefaults 的注释）。
    放在这里而不是各页面 boot 里：这一份是**所有**页面共用的，漏一个页面就等于没修。
    判据是逐字节相同，删掉它不可能碰到用户真写的内容；重复跑也是幂等的。 */
 try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可用（隐私模式）就跳过 */ }
+
+/* ============================================================================
+   AiFind —— 「写一句话，让文字 AI 在本机这一堆里挑几条」只有这一份
+   ---------------------------------------------------------------------------
+   收成之前素材库与收藏各写一份：同样两道闸、同一个按钮 busy 态、同一份 JSON 契约、
+   同一套「集合 + 名次 + 理由」记账。两份漂开的第一处**不是文案，是说出去的那一格** ——
+   素材库那两道闸走 `Toast.err`（一定弹），收藏走 `Toast.info`（默认被 `sk_quiet_ok` 静音）：
+   「搜索框里没写字就点 AI 找素材」在一页会说一句，在另一页**按了什么都没发生**（按钮转完圈自己复位，
+   列表也没动，而那句解释一个字都没显示）。这与 §3「拿静音档当唯一出口等于一个字都没说出去」是同一条。
+   公共层因此**不再让页面自选提示通道**：闸门那句由 `needMsg` 拼一次，交回 `o.say`（两页都写进按钮旁边那行读数，
+   就地、不静音），并且排在 `o.done()` 之后 —— 那一趟重画会重写同一行，先写的被顶掉。
+   各页真正不同的只有四件事，全由参数给：名单从哪来（`roster` / `payload`）、AI 那一轮该返回哪个字段（`field`）、
+   怎么认一个本机还认识的号（`known`）、挑完之后那三个变量写回哪里（`apply`）。
+   ========================================================================== */
+window.AiFind = {
+  MIN_Q: 2,          // 少于这个字数，模型拿到的是一句没法理解的「需求」
+  WHY_MAX: 40,       // 芯片那一行只放得下这么长一句理由（`AiChip.picked` 的前半截是「AI 挑的 N 条」）
+  /** 闸门上那句「先写字再点」—— 三页（素材库 / 收藏 / 资产库的 AI 检索）共用这一句，只换入口名 */
+  needMsg(label) { return '先在搜索框里写要找什么（至少两个字），再点「' + String(label || 'AI 找素材') + '」'; },
+  /** 闸门现算：字不够就返回那句话，够就返回空串（调用方 `if (why) { 就地写出去; return; }`）。
+   *  为什么单独露出来：`run` 之外还有两处「产出的是筛选条件、不是挑选集合」的 AI 检索
+   *  （资产库与统一选择器），它们不走 `run`，可那个 2 与那句话必须还是同一份 ——
+   *  页面写一遍 `q.length < 2` 就是把字数与话各存了一份，改公共层的字数时它不会跟着改口。 */
+  shortWhy(q, label) {
+    return String(q || '').trim().length < AiFind.MIN_Q ? AiFind.needMsg(label) : '';
+  },
+  /** AI 报回来的那一串号：先丢掉重复的，再丢掉本机不认识的。
+   *  重复必须在这儿丢：`rank` 是 `Map`，同一个号出现两次会**取最后一次**的名次，
+   *  而芯片按 `Set` 数出「N 条」—— 排序与读数于是各说一遍。 */
+  idsOf(raw, known) {
+    const out = [], seen = new Set();
+    (Array.isArray(raw) ? raw : []).forEach(x => {
+      if (seen.has(x)) return;
+      seen.add(x);
+      if (!known || known(x)) out.push(x);
+    });
+    return out;
+  },
+  /** 那三个字段一次给全：挑中了才有集合与名次，没挑中就是三个空值（清空 = 调它，别再手写一遍 `= null`）。
+   *  以前「清掉 AI 条件」那处只清了两个、名次还挂着 —— 集合没了而整列仍按 AI 那句已作废的话排序。 */
+  state(ids, why) {
+    const list = Array.isArray(ids) ? ids : [];
+    return list.length
+      ? { pick: new Set(list), rank: new Map(list.map((k, i) => [k, i])), why: String(why || '').slice(0, AiFind.WHY_MAX) }
+      : { pick: null, rank: null, why: '' };
+  },
+  /** 清掉这一页的 AI 条件：三个字段一起收回，再让页面重画一次（名次不收，顺序还挂在废话上）。 */
+  clear(o) {
+    const oo = o || {}, st = AiFind.state([]);
+    if (oo.apply) oo.apply(st);
+    if (oo.done) oo.done();
+    return st;
+  },
+  /** o = { label, btn, ask, focus, roster, payload, field, known, sys, reg,
+   *        emptyMsg, noneMsg, busyText, apply, onPick, done, say } → `{ picked, state, msg }`
+   *  `apply` 只写那三个字段（`clear` 也走它，所以把「放开类型档」这类页面副作用放这儿，
+   *  清一下芯片就会顺手把人挑过的档位改掉）；挑中之后要改的那些走 `onPick`。 */
+  async run(o) {
+    const oo = o || {};
+    const lab = oo.label || 'AI 找素材';
+    let msg = '', st = AiFind.state([]);
+    const q = String((oo.ask ? oo.ask() : '') || '').trim();
+    const roster = (oo.roster ? oo.roster() : []) || [];
+    const btn = typeof oo.btn === 'function' ? oo.btn() : oo.btn;
+    const was = btn ? btn.innerHTML : '';
+    const gate = AiFind.shortWhy(q, lab);
+    if (gate) {
+      msg = gate;
+      if (oo.focus) oo.focus();
+    } else if (!roster.length) {
+      msg = oo.emptyMsg || ('这里还没有可挑的素材，先放几条进来再点「' + lab + '」');
+    } else {
+      if (btn) { btn.disabled = true; btn.textContent = oo.busyText || 'AI 正在挑…'; }
+      try {
+        const reg = oo.reg || await Api.registry();
+        const txt = await TextAI.chat(reg, oo.sys, JSON.stringify(oo.payload(q, roster)));
+        const j = TextAI.parseJson(txt) || {};
+        const ids = AiFind.idsOf(j[oo.field], oo.known);
+        st = AiFind.state(ids, j.summary);
+        /* 挑没挑中都交回页面：没挑中时上一次的「AI 挑的那批」必须收回 ——
+           挂着的话，芯片还在说 AI 的话而这一轮它其实什么都没选。 */
+        if (oo.apply) oo.apply(st);
+        /* 搜索框里的原话已经翻译成号了：必须清掉，否则整句还会再 AND 过滤一遍（整句几乎不可能是
+           某条备注的子串 —— 结果永远 0 条）。类型档同理：AI 挑的是跨档的一批，档还锁着就看不见。 */
+        if (ids.length) { if (oo.onPick) oo.onPick(); }
+        else msg = oo.noneMsg || ('AI 没挑到合适的（换个说法再试）');
+      } catch (e) {
+        /* 失败**不**交回 `apply`：这一页上一次的挑选还有效，别因为这一次问坏了就替人清掉。 */
+        msg = 'AI 找素材失败：' + (e && e.message ? e.message : String(e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = was; }
+      }
+    }
+    if (oo.done) oo.done();
+    if (msg && oo.say) oo.say(msg);
+    return { picked: !!st.pick, state: st, msg };
+  },
+};
+
+/* ============================================================================
+   AiStream —— 「让文字 AI 边写边显示」只有这一份
+   ---------------------------------------------------------------------------
+   以前各处的文字 AI 调用都是「转圈等十几秒 → 一次性蹦出结果」：规划分镜动辄十几秒，
+   用户看不出它是在想、还是卡死了、还是早就断了（那三种在界面上长得一模一样）。
+   这里把「流式 + 就地面板」收成一个口子：
+     · `o.host` —— 把面板画在哪个容器里（公共 `InlinePolish.live`，与润色面板同一套样式）；
+     · 返回**完整文本** —— 调用方拿它去 `parseFrames` / `parseJson`，与以前用
+       `TextAI.chat()` 一模一样，所以「改成流式」对上层逻辑是零改动的替换；
+     · 平台不支持流式时 `chatStream` 自己会退回整包 JSON，面板只在最后一个片段到达时才出现
+       （`onDelta` 会带着完整正文回调一次），所以这一层不用再判一次平台；
+     · `o.onChunk(text)` —— 想自己显示（比如往一个 textarea 里灌）就传它，不传就用面板。
+   ========================================================================== */
+window.AiStream = {
+  /* 就地面板：把「边收边显」那一套收成一份 —— 宿主 + **被别处重画就重建并补回已收到的字**
+     + 收尾收起 / 出错留着。
+     为什么单独露出来：有些调用方手里是**自己发起的** chatStream（比如素材库定音色那条链，
+     它要顺带处理 JSON），只要一个面板，不该为了它再抄一遍这套逻辑。 */
+  panel(host, o) {
+    const opt = o || {};
+    if (!host || !window.InlinePolish) {
+      return { push() {}, done() {}, fail() {}, text: () => '' };
+    }
+    let p = null, el = null, all = '';
+    const ensure = () => {
+      if (p && el && host.contains(el)) return p;
+      p = window.InlinePolish.live(host, { title: opt.title || 'AI 正在写…', onStop: opt.onStop });
+      el = host.firstElementChild;
+      if (all) p.push(all, 'content');          // 面板被重画掉了：把已经收到的补回去
+      return p;
+    };
+    return {
+      push(piece, kind) {
+        if (!piece) return;
+        if (kind === 'reasoning') { if (p) p.push(piece, 'reasoning'); return; }
+        all += piece;
+        if (typeof opt.onChunk === 'function') opt.onChunk(piece, all);
+        ensure().push(piece, kind);
+      },
+      done() { if (window.InlinePolish) window.InlinePolish.clear(host); },
+      fail(msg) { if (p) { try { p.fail(msg); } catch (e) {} } },
+      text: () => all,
+    };
+  },
+  /* 一次性文字 AI 调用 + 边收边显示。REG 是注册表；`provIn` 可指定某一家（默认用当前选中那家）。 */
+  async text(REG, sys, user, o) {
+    const opt = o || {};
+    if (!window.TextAI) throw new Error('文字 AI 模块没加载');
+    const host = opt.host || null;
+    /* 没有容器、也没人要 onChunk：退回普通 chat（行为与以前一致，不摆一个看不见的面板） */
+    if (!host && typeof opt.onChunk !== 'function') {
+      return await window.TextAI.chat(REG, sys, user, { images: opt.images });
+    }
+    const ctl = new AbortController();
+    const live = this.panel(host, {
+      title: opt.title, onStop: () => ctl.abort(), onChunk: opt.onChunk,
+    });
+    try {
+      const txt = await window.TextAI.chatStream(REG, sys, user,
+        { images: opt.images, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
+      live.done();
+      /* 面板在最后会把「正在接收…」收掉；返回值优先用 chatStream 的正规返回，
+         它为空（某家只吐片段不给收尾包）时用我们攒的那一份兜底。 */
+      return (txt == null || txt === '') ? live.text() : txt;
+    } catch (e) {
+      /* 中断 / 报错：面板**留着**（已经写出来的字就是用户唯一拿到的结果），
+         只把底部那行状态换成原因 —— 直接 clear 等于把证据一起抹掉。 */
+      live.fail(e && e.message ? e.message : String(e));
+      throw e;
+    }
+  },
+};
 
 /* ============================================================================
    AssetTransfer —— 跨平台素材转存通用通道
@@ -6714,7 +7488,7 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
          意图创建本身不扣费、无副作用（重问一次最多是一条新的 pending 资产），
          所以形状不对就地重试一次；字段接受嵌套（upload.url）与平铺（upload_url）两种写法；
          两次都拿不到才抛，并把原始响应体截一段带进错误（否则下一轮排查只能靠猜）。 */
-      let assetId = null, putUrl = '', putMethod = 'PUT', putHeaders = {};
+      let assetId = null, putUrl = '', putMethod = 'PUT', putHeaders = {}, reused = false;
       for (let attempt = 0; attempt < 2; attempt++) {
         const intentRes = await netFetch(prov.relay + up, {
           method: 'POST', headers, body: JSON.stringify(body), timeout: 30000, retry: 0,
@@ -6725,9 +7499,17 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
         assetId = intent && (intent.asset_id || intent.assetId || (intent.asset && (intent.asset.id || intent.asset.asset_id)));
         const u = (intent && intent.upload) || intent || {};
         putUrl = u.url || u.upload_url || u.uploadUrl || '';
-        if (assetId && putUrl) {
-          putMethod = u.method || 'PUT';
-          putHeaders = u.headers || {};
+        /* 「这一份平台上已经有了」—— 上传意图按内容（sha256）去重：同一段素材第二次上传时
+           平台**只回资产号**（upload 是 null、reused:true、state 已是 READY），不会给上传地址。
+           本地导入同一个视频第二次、或两个镜头用同一段素材，走的都是这一支
+           （导演台「导入视频 / 素材」与导出成片时的本机转存都会到这里）。
+           认不出它就会把整条合并打断在「上传意图返回异常」上，而素材其实早就传好了 ——
+           重试一次也只是同一句回答。所以：有资产号 + 没有上传地址 + （reused 或已 READY）
+           = 直接用这个资产号，不 PUT、不 complete（那一份本来就是完整的）。 */
+        const ready = /^ready$/i.test(String((intent && intent.state) || ''));
+        reused = !!assetId && !putUrl && (intent.reused === true || ready);
+        if (assetId && (putUrl || reused)) {
+          if (putUrl) { putMethod = u.method || 'PUT'; putHeaders = u.headers || {}; }
           break;
         }
         if (attempt === 0) { await new Promise(r => setTimeout(r, 1500)); if (opts.onStage) opts.onStage('intent', filename + '（重问上传地址）'); }
@@ -6735,6 +7517,8 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
           + ' 回了 2xx 但里面没有 asset_id / upload.url，重试一次仍拿不到。原始返回：'
           + String(JSON.stringify(intent)).slice(0, 200));
       }
+      /* 复用平台上已有的那一份：没有字节要传，也没有「确认上传」要发（它早就 READY）。 */
+      if (reused) return assetId;
 
       if (opts.onStage) opts.onStage('put', filename);
       if (opts.onStage) opts.onStage('progress', { sent: 0, total: blob.size, pct: 0 });   // 先报 0%，状态行立刻切成进度显示
@@ -6858,7 +7642,9 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
       const b64 = String(await this.toDataURL(blob)).split(',')[1] || '';
       if (!b64) throw new Error('读不出这条素材的字节');
       const ext = String(fmt).toLowerCase();
-      const safe = nm.replace(/[\\/:*?"<>|]/g, '_');
+      /* 洗字符走公共那一份（`ui.js` 的 `fileSafe`）—— 这一处以前自己写成换 `_`，
+         而「另存到指定文件夹」那条链（上面 `nameOf`）换成 `-`，同一份字节在本机记录里与在用户目录里就不同名。 */
+      const safe = window.fileSafe(nm, 60);
       const r = await Api.saveLocalAsset({
         name: safe.slice(-(ext.length + 1)).toLowerCase() === '.' + ext ? safe : safe + '.' + ext,
         mime: blob.type || '', format: ext, data: b64,
@@ -6907,18 +7693,16 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
 
   async function req(path, opts) {
     const o = opts || {};
-    const r = (window.Net && window.Net.fetch)
-      ? await window.Net.fetch('/prompts' + path, { ...o, retry: o.retry === undefined ? 1 : o.retry })
-      : await fetch('/prompts' + path, o);
-    const txt = await r.text();
-    let d = null;
-    try { d = txt ? JSON.parse(txt) : null; } catch (e) {}
-    if (!r.ok) {
-      const err = new Error((d && d.error && d.error.message) || ('HTTP ' + r.status));
-      err.status = r.status;
+    const x = await window.Net.read('/prompts' + path, { ...o, retry: o.retry === undefined ? 1 : o.retry });
+    if (!x.ok) {
+      const err = new Error((x.d && x.d.error && x.d.error.message) || ('HTTP ' + x.status));
+      err.status = x.status;
       throw err;
     }
-    return d;
+    /* 解析失败这一步不能再吞：以前写的是 `catch (e) {}`，于是 200 + 半截 JSON 读回来是 null，
+       调用方只会说「没有这一条归档」，把「代理返回的东西读不出来」这个真原因藏掉了。 */
+    if (x.d === null && x.parseErr) throw new Error('提示词接口返回了非 JSON 内容（HTTP ' + x.status + '）');
+    return x.d;
   }
   /* 归档失败只提示一次：创作流程不该因为存不了提示词被打断 */
   function warnOnce(e) {
@@ -7131,9 +7915,12 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
   /* 归档目录信息（设置页展示） */
   const list = () => req('?dir=' + encodeURIComponent(dir()));
   const open = () => req('/open?dir=' + encodeURIComponent(dir()), { method: 'POST' });
-  /* 平台默认类型：页面没指定时按平台种类给一个（图片 / 视频 / 语音 / 文字） */
-  const KIND_ZH = { image: '图片生成', video: '视频生成', audio: '语音合成', text: '文字' };
-  const ctxType = prov => KIND_ZH[(prov && prov.kind) || ''] || '任务';
+  /* 平台默认类型：页面没指定时按平台种类给一个（图片 / 视频 / 语音 / 文字）。
+     名字带「归档」是因为这是**提示词归档里那一行任务是什么**的说法（图片生成 / 语音合成），
+     与设置页那一排档名（`ui.js` 的 `provKindZh`：图片 / 语音）不是一张表 —— 2026-10-15 把它从
+     同名 `KIND_ZH` 改名，两份同名表摆在一起迟早被后来人当成重复实现合并掉。 */
+  const ARCHIVE_TYPE_ZH = { image: '图片生成', video: '视频生成', audio: '语音合成', text: '文字' };
+  const ctxType = prov => ARCHIVE_TYPE_ZH[(prov && prov.kind) || ''] || '任务';
 
   /* 启动后拉一次索引（资产库给不返回提示词的任务补显示要用），之后每 5 分钟对一次；
      代理没在跑就静默失败 —— 归档是锦上添花，不能挡住页面本身。
@@ -7211,7 +7998,7 @@ window.TextAI.fetchBalance = async function (REG, prov) {
    返回 { state, text }，settings.html 直接显示。 */
 window.TextAI.verifyKey = async function (REG, prov) {
   const p = prov || this.prov(REG);
-  if (!p) return { state: 'unknown', text: '注册路由里没有文字 AI 供应方' };
+  if (!p) return { state: 'unknown', text: '注册表里没有可用的文字 AI 供应商' };
   const r = await this.fetchBalance(REG, p);
   if (r.ok) return { state: 'ok', text: '✓ 密钥可用（余额 ' + (r.currency || '') + (Number(r.amount) || 0).toFixed(2) + (r.extra ? ' · ' + r.extra : '') + '）' };
   if (r.status === 401) return { state: 'invalid', text: '✗ 密钥无效：上游 401 拒绝了这把钥匙（' + this.who(p) + '）' };
@@ -7329,7 +8116,7 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       if (row && row.credits != null) { unit = Number(row.credits); src = '实时价'; }
       if (unit == null) {
         const q = opts.qualityLabel ? (opts.qualityLabel[p.quality] || p.quality) : p.quality;
-        return { ok: false, reason: '该模型没有「' + (q || '?') + '」档定价' };
+        return { ok: false, reason: '该型号没有「' + (q || '?') + '」档定价' };
       }
       return { ok: true, text: '约 ' + (unit * n) + ' ' + cur, detail: unit + ' ' + cur + '/张 × ' + n + ' 张 · ' + src };
     }
@@ -7362,7 +8149,7 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         const total = Math.round(dps.credits * sec * n * 100) / 100;
         return { ok: true, text: '约 ' + total + ' ' + cur, detail: dps.credits + ' ' + cur + '/秒 × ' + sec + '秒 × ' + n + ' 条 · 平台声明价' };
       }
-      return { ok: false, reason: '模型表中没有 ' + (p.res || '?') + ' 的单价' + (liveWhy ? '（实时取价失败：' + liveWhy + '）' : '') };
+      return { ok: false, reason: '型号清单里没有 ' + (p.res || '?') + ' 的单价' + (liveWhy ? '（实时取价失败：' + liveWhy + '）' : '') };
     }
     if (pr.type === 'quote') {
       const ep = pr.endpoint || 'price';

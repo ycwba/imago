@@ -37,6 +37,16 @@
   html:not(.sb-open) .sidebar .sb-brand, html:not(.sb-open) .sidebar nav a,
   html:not(.sb-open) .sidebar .sb-set { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
   html:not(.sb-open) .sidebar .sb-brand { padding-top: 14px; padding-bottom: 14px; }
+  /* 收起态悬停时弹出来的名字浮标。**position:fixed 挂 body**，不写进侧栏里：
+     .sidebar nav 那一条带子是 overflow-x:hidden（那一行注释讲了为什么），写在里面的提示会被裁掉。
+     与下拉浮层同一套理由 —— 要脱离祖先的裁剪，只有离开文档流这一条路。
+     ⚠ 这一段在模板串里，注释里不许出现反引号（会当场把模板串收尾，§B 拦的就是这个）。 */
+  .sb-tip { position: fixed; z-index: 120; pointer-events: none; padding: 4px 9px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.16);
+    color: var(--txt); font-size: 12px; line-height: 1.4; white-space: nowrap; }
+  /* 收起态：手指够得着的目标不放大就点不准（66px 的带子里留白很多，图标只有 20px） */
+  html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set { min-height: 38px; }
+  html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: 17px; }
   .sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; flex: 1 1 auto;
     min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
   .sidebar nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 4px;
@@ -143,7 +153,60 @@
 
   /* 点导航：不跳转整页，只让 app.js 换 iframe 内容（侧栏保持不动）；
      窄窗口里侧栏是浮层，选完就自动收回，否则内容一直被盖着一块。 */
+  /* ---------- 收起态：鼠标停上去把名字弹出来 ----------
+     66px 的带子里 .lb 是 display:none，六个页面只剩图标（影片 / 人物 / 星芒 / 星标 / 方块 / 图表），
+     光看形状分不出哪个是哪个 —— 用户只能挨个点一遍试。「左栏收起后好多功能用不了」说的就是这个：
+     功能还在，但**认不出来**。
+     所以这里补一块浮标：只在收起态出现（展开态文字本来就在旁边），跟鼠标进出显示 / 隐藏，
+     位置在目标右边、出屏就翻到左边并按视口夹一次（窄窗口里侧栏是浮层，弹到屏幕外等于没有）。
+     用 **fixed 挂 body** 而不是写进侧栏：`.sidebar nav` 是 overflow-x:hidden，写在里面的提示会被裁掉
+     —— 与下拉浮层（Dropdowns 挂 body + fixed）同一条理由。
+     同时给每个目标写上 aria-label：浮标是给眼睛的，读屏那条路得另有名字。 */
+  const sbTip = (() => {
+    let el = null;
+    const box = () => {
+      if (el && el.isConnected) return el;
+      el = document.createElement('div');
+      el.className = 'sb-tip';
+      el.hidden = true;
+      document.body.appendChild(el);
+      return el;
+    };
+    return {
+      show(target, text) {
+        if (wantOpen() || !text) return;
+        const t = box();
+        t.textContent = text;
+        t.hidden = false;
+        const r = target.getBoundingClientRect();
+        const w = t.offsetWidth || 0, h = t.offsetHeight || 0;
+        let x = r.right + 8;
+        if (x + w > window.innerWidth - 6) x = Math.max(6, r.left - w - 8);
+        const y = Math.max(6, Math.min(r.top + (r.height - h) / 2, window.innerHeight - h - 6));
+        t.style.left = x + 'px';
+        t.style.top = y + 'px';
+      },
+      hide() { if (el) el.hidden = true; },
+      on(target, text) {
+        if (!target) return;
+        target.setAttribute('aria-label', text);
+        target.addEventListener('mouseenter', () => this.show(target, text));
+        target.addEventListener('mouseleave', () => this.hide());
+        target.addEventListener('focus', () => this.show(target, text));       // 键盘 Tab 也认得出
+        target.addEventListener('blur', () => this.hide());
+        target.addEventListener('click', () => this.hide());
+      },
+    };
+  })();
+  /* 侧栏里滚一下、窗口尺寸一变，浮标的位置就不对了：宁可收掉，也别让它飘在错的格子上 */
+  window.addEventListener('scroll', () => sbTip.hide(), true);
+  window.addEventListener('resize', () => sbTip.hide());
+
   sb.querySelectorAll('a[data-page]').forEach(a => {
+    /* 名字从**可见的那个 span** 里取，不另存一份文案：那份 `.lb` 就是展开态显示的那一句，
+       两处各写一个字符串迟早一处改了另一处没改（浮标写着「资产库」、侧栏里写着「素材库」）。 */
+    const lb = a.querySelector('.lb');
+    sbTip.on(a, (lb && lb.textContent) || a.dataset.page || '');
     a.onclick = e => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;   // 允许新标签打开
       e.preventDefault();
@@ -156,7 +219,9 @@
     sb.querySelectorAll('a[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === file));
     if (setLink) setLink.classList.toggle('active', file === 'settings.html');
   };
+  sbTip.on(sb.querySelector('#sbTheme'), '换背景（亮 / 暗）');
   const setLink = sb.querySelector('a.sb-set[data-page="settings.html"]');
+  sbTip.on(setLink, '设置');
   if (setLink) setLink.dataset.page = 'settings.html';
   /* 「账户余额」那个分组标题：余额关掉时要跟着藏（那一格里只剩产物进度那一行，
      挂着一句说「账户余额」的标题就是在说错话）。标题本身仍由这段 HTML 出，不另写一份。 */
@@ -175,12 +240,14 @@
   const OPEN_W = 200;
   const narrow = () => window.innerWidth <= NARROW_W;
   const wantOpen = () => localStorage.getItem('sb_open') === '1';
+
   function apply() {
     const o = wantOpen();
     const n = narrow();
     const r = document.documentElement.classList;
     r.toggle('sb-narrow', n);
     r.toggle('sb-open', o);
+    sbTip.hide();          // 展开 ↔ 收起的瞬间把浮标收掉：留着会停在刚变过宽度的位置上
     document.documentElement.style.setProperty('--sbw', (o && !n) ? OPEN_W + 'px' : '66px');
     /* 收起 ↔ 展开改的是左边那一条带的宽度，而悬浮球只有 z=56、侧栏 90 —— 球停在被让出/占掉的那一条里
        就点不到了（等于把助手弄丢）。发一个通知，ai-chat.js 监听后按新的 --sbw 重新摆一次。
@@ -328,25 +395,28 @@
        界面上必须有一行字说明「它在动」，不能是一整块空白。 */
     const body = shown.length ? shown.map(balCardHTML).join('')
       : '<div class="sb-bal-card"><div class="l1"><span class="ic">' + svgIc('coin', 13) + '</span><span class="nm">余额</span></div>'
-        + '<div class="l2">' + escA(note || (balRows.length ? '要显示哪些接口在「设置 → 平台密钥与余额」里勾' : '正在读取…')) + '</div></div>';
+        + '<div class="l2">' + escA(note || (balRows.length ? '要显示哪几家在设置页「供应商与密钥」那张卡上勾「侧栏余额」' : '正在读取…')) + '</div></div>';
     box.innerHTML = '<div class="sb-bal">' + body
       + '<div class="sb-bal-refresh" title="刷新余额"><span class="ic">' + svgIc('refresh', 13) + '</span><span>刷新余额</span></div></div>'
       + mirror;
     box.querySelector('.sb-bal-refresh').onclick = () => refreshBalance();
     mountMirrorBar(box);
   }
-  /* ---------- 「产物正在存进本机」这一行 ----------
+  /* ---------- 「产物正在存进本机 / 本机已存多少」这一行 ----------
      读数一律来自 AssetLocal.info（assetlib.js 那一份判据），侧栏不自己数。
-     关闭时**不画** —— 开关关着就没有在途，挂着一条「已存 N 个」只是占地方；
-     有在途 / 失败过 / 开着开关时才画，用户随时看得到「它到底在不在干活」。 */
-  function mirrorBarHTML(st) {
+     显隐只看设置页那颗「左栏显示本机产物」（sbMirrorOn）——**不许连坐「产物自动存本机」**：
+     以前自动存一关这一行整个消失，而勾着「显示本机产物」的人想看的恰恰是「存了多少、它在不在干活」；
+     关掉只是不再新增，已存的本机文件一个没少，把整行藏掉等于把唯一的实况入口也关了。
+     所以关着时照常报存量，并在 l2 里明说「自动存已关」（界面说的话要等于事实）。 */
+  function mirrorBarHTML() {
     /* 这一块要能单独关掉（设置页勾）：侧栏是**全局**的，一个不需要看它的人
-       （比如只用生成工作台、从不进资产库）不该被它占掉三行。 */
+       （比如只用生成工作台、从不进资产库）不该被它占掉三行。这是**唯一**的显隐闸。 */
     if (window.AssetLocal && AssetLocal.sbMirrorOn && !AssetLocal.sbMirrorOn()) return '';
-    const s2 = st || (window.AssetLocal && AssetLocal.info ? AssetLocal.info() : null);
-    if (!s2 || !s2.on) return '';
+    const s2 = window.AssetLocal && AssetLocal.info ? AssetLocal.info() : null;
+    if (!s2) return '';
     const busy = s2.inFlight > 0;
-    const bad = !busy && s2.lastErr;
+    /* 报红只属于「开着自动存却失败了」——关着的时候那条老错误不会再重试，摆红只会误导 */
+    const bad = !busy && s2.on && s2.lastErr;
     const sizeOf = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
       : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
     /* 在途时把「正在下这一份」摆出来：只有「正在存 N 份」的话，
@@ -365,13 +435,16 @@
       dl = '<div class="l2" style="margin-top:3px">正在下这一份…（' + escA(String(s2.dlName).slice(0, 18)) + '）</div>';
     }
     const l2 = busy
-      ? '正在存 <b>' + s2.inFlight + '</b> 份（产物完成后自动开始）'
-      : (bad ? escA(s2.lastErr)
-        : '本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
-          + (s2.fail ? ' · 累计没存成 ' + s2.fail + ' 份' : ''));
+      ? '正在存 <b>' + s2.inFlight + '</b> 份' + (s2.on ? '（产物完成后自动开始）' : '')
+      : (!s2.on
+        ? '产物自动存本机已关；本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+        : (bad ? escA(s2.lastErr)
+          : '本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+            + (s2.fail ? ' · 累计没存成 ' + s2.fail + ' 份' : '')));
     return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
       + (busy ? ' title="产物自动存本机正在跑，字节落盘之后这里会变成本机已存 N 份"' : '')
       + (bad ? ' title="最后一次没存成：' + escA(s2.lastErr) + '（下一轮列表刷新时会再试一次）"' : '')
+      + (busy || s2.on ? '' : ' title="「产物自动存本机」关着：新生成的产物只留平台地址，地址过期后卡片会变成裂图（已存的本机文件不会被删，只是不再新增）"')
       + '><div class="l1"><span class="ic">'
       + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
       + '</span><span class="nm">产物存本机</span></div>'
@@ -383,17 +456,15 @@
      （paintBal 里拼了 mirrorBarHTML()），所以订阅回调里找不到旧节点就insert 一个；
      回调本身不用管「节点被换掉了」—— 那是 paintBal 的事。
      ⚠ 回调**不要用 onInfo 递过来的那个参数**：那是 assetlib.js 内部的 INFOS，
-     它没有 `on` 字段（`on: saveOn()` 只在 info() 的返回值里补），
-     而 mirrorBarHTML 第一句就是 `if (!s2.on) return ''` ——
-     以前这里传的是 `st`，于是**每一条落盘事件都算成「没有这一行」把它删掉**：
-     界面上表现为「开了显示本机产物，一有东西要存那一行就没了」，
-     下载中更是全程不显示（paintBal 画出来的那一份被第一个事件抹掉）。
-     要读数就现问 AssetLocal.info()（同一份判据，且带 on）。 */
+     它没有 `on` 字段（`on: saveOn()` 只在 info() 的返回值里补）——
+     早年 mirrorBarHTML 的 `st` 形参收过它，于是每一条落盘事件都算成「没有这一行」把它删掉
+     （开了显示本机产物、一有东西要存那一行就没了，下载中更是全程不显示）；
+     如今形参整个收掉（连误传的入口都不留），读数一律现问 AssetLocal.info()（同一份判据，且带 on）。 */
   let mirrorUnsub = null;
   function mountMirrorBar(box) {
     const A = window.AssetLocal;
     if (!A || !A.onInfo || mirrorUnsub) return;
-    mirrorUnsub = A.onInfo(() => {
+    const repaint = () => {
       const b2 = sb.querySelector('#sbBalance');
       if (!b2) return;
       const old = b2.querySelector('.sb-mirror');
@@ -403,7 +474,13 @@
       /* 「往哪儿插」要找 `.sb-bal`；两块都关着时盒子里是空的（那种情况 want 必然也是空，
          上面已经 return 了）—— 但仍判一下，别让一个 null 抛在订阅回调里被静默吞掉。 */
       else { const host = b2.querySelector('.sb-bal'); if (host) host.insertAdjacentHTML('beforeend', want); }
-    });
+    };
+    mirrorUnsub = A.onInfo(repaint);
+    /* 本地那张指针表只是缓存，盘上那份索引才是本体 —— 挂上之后异步认一遍再重画这一行。
+       没这一步，换端口 / 清过浏览器数据 / 无痕窗口里这一行会写「本机已存 0 份」，
+       而 .assets 里明明躺着一摞（设置页那一行同款理由、走的也是同一份 syncStats，
+       侧栏不许自己再数一种）。认回来顺带把索引补全，别处的「优先用本机文件」也跟着受益。 */
+    if (A.syncStats) A.syncStats().then(repaint).catch(() => {});
   }
   /* 单取一家：请求头与余额解析都不在这份里写第二遍 ——
      Api.headers 带密钥**和自定义中转地址**（少了 x-up-base，设置页换了中转地址就只有侧栏还在打官方地址，
@@ -484,7 +561,7 @@
        全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
     const wanted = window.SbBal ? SbBal.filter(usable) : usable;
     if (!wanted.length) {
-      paintBal(box, '这几家都被你在「设置 → 平台密钥与余额」里藏起来了');
+      paintBal(box, '这几家都被你在设置页「供应商与密钥」那张卡上取消了「侧栏余额」');
       return;
     }
     /* 算出要问哪几家之后**先画占位卡**，再发请求；哪一家先回来就换掉它那一张。

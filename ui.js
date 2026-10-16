@@ -219,6 +219,37 @@
     },
   };
 
+  /* ---------- AI 芯片：那一颗写着「AI 挑了哪几条 / 按什么筛」并带 ✕ 的东西 ----------
+     原先四处各拼一份 innerHTML（资产库 / 素材库 / 收藏 / 统一选择器），文案与尺寸各漂各的：
+     清除按钮的 title 分「回到完整名单」与「回到完整列表」两句话，✕ 的图标一颗 10 另一颗 11。
+     各页真正不同的只有**芯片上写几段话**（那是它自己的数据）与**清掉之后各自重画什么**，
+     所以公共层只收两件事：拼一颗带 ✕ 的芯片、把 ✕ 绑回调用方给的函数。 */
+  const AiChip = {
+    CLEAR_TITLE: '清除 AI 结果，回到完整列表',
+    /* 若干段话用「 · 」连起来；空串 / null / undefined 丢掉，不留下悬空的分隔符。 */
+    text(bits) { return (bits || []).filter(Boolean).join(' · '); },
+    /* 「AI 挑的 N 条（+ 它说的那句话）」—— 素材库与收藏这两页以前逐字抄过同一段。 */
+    picked(n, why) { return AiChip.text(['AI 挑的 ' + (Number(n) || 0) + ' 条', why]); },
+    /* o: { text 空串=整颗收掉, clearTitle, clearId(默认 aiClear), cls(默认 ai-chip), tip, onClear }
+       text / tip / clearTitle 都传**纯文本**，转义只在这一处做。 */
+    paint(el, o) {
+      const box = typeof el === 'string' ? document.getElementById(el) : el;
+      if (!box) return;
+      const oo = o || {};
+      const t = String(oo.text || '');
+      if (!t) { box.innerHTML = ''; return; }
+      const cid = oo.clearId || 'aiClear';
+      box.innerHTML = '<span class="' + (oo.cls || 'ai-chip') + '"'
+        + (oo.tip ? ' title="' + window.esc(oo.tip) + '"' : '') + '>'
+        + window.icon('sparkles', oo.iconSize || 12) + ' ' + window.esc(t)
+        + '<button id="' + window.esc(cid) + '" title="' + window.esc(oo.clearTitle || AiChip.CLEAR_TITLE) + '>'
+        + window.icon('close', 10) + '</button></span>';
+      const c = document.getElementById(cid);
+      if (c) c.onclick = oo.onClear;
+    },
+  };
+  window.AiChip = AiChip;
+
   window.Dropdowns = {
     build(root) {
       sweepPortals();
@@ -631,17 +662,29 @@ window.ICONS = {
   lock: '<rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4"/><path d="M5.7 7V5.4a2.3 2.3 0 0 1 4.6 0V7"/>',
   scissors: '<circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="12" r="1.8"/><path d="M5.7 10.7L12 2.6M10.3 10.7L4 2.6"/>',
   list: '<path d="M5.6 4h8M5.6 8h8M5.6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01"/>',
-  play: '<path d="M4.8 3.4l7.6 4.6-7.6 4.6z"/>',
-  pause: '<rect x="5.1" y="3.4" width="2.3" height="9.2" rx="0.7"/><rect x="8.6" y="3.4" width="2.3" height="9.2" rx="0.7"/>',
+  /* 播放 / 暂停 / 声音这三个**必须实心**（用户点名要重画的就是它们）。
+     icon() 给的默认是 fill="none" + stroke，所以按描边画出来的是：播放三角一个空心框、
+     暂停两条空心竖条、喇叭一个空心壳 —— 在 14–15px 上几乎只剩几根线，看着像图标坏了。
+     这几个是**实心符号**（三角/两块条/喇叭本体），所以各自显式 fill="currentColor"；
+     只有声波那两道弧继续用描边 —— 弧本来就是线。 */
+  play: '<path d="M5.1 3.5 12.5 8l-7.4 4.5z" fill="currentColor" stroke-linejoin="round"/>',
+  pause: '<rect x="4.4" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/><rect x="8.9" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/>',
+  /* 喇叭本体实心（梯形 + 前面的方块），右边两道声波弧仍走描边 —— 一实一虚，一眼分得出「在响」 */
+  speaker: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.4 6.2a2.9 2.9 0 0 1 0 3.6"/><path d="M12.2 4.5a5.3 5.3 0 0 1 0 7"/>',
+  speakerOff: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.6 6.6l3.4 2.8M14 6.6l-3.4 2.8"/>',
+  /* 全屏：四个角各一撇，中间留空 —— 与「展开/放大画面」的通识形状一致（描边，不是实心符号） */
+  expand: '<path d="M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10"/>',
   eye: '<path d="M1.8 8S4.1 4.3 8 4.3 14.2 8 14.2 8 11.9 11.7 8 11.7 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.8"/>',
   eyeOff: '<path d="M3.3 5.5C2.3 6.4 1.8 8 1.8 8s2.3 3.7 6.2 3.7c.9 0 1.7-.2 2.4-.6M6.7 4.6c.4-.1.9-.2 1.3-.2 3.9 0 6.2 3.6 6.2 3.6s-.5 1-1.5 1.9"/><path d="M2.8 2.8l10.4 10.4"/>',
   key: '<circle cx="5.4" cy="10.6" r="2.6"/><path d="M7.5 8.5l4.9-4.9M10 5.9l1.6 1.6 1.7-1.7-1.6-1.6"/>',
   brain: '<path d="M8 2.6v10.8"/><path d="M5.4 3.9A2.6 2.6 0 0 0 3.9 8.4 2.6 2.6 0 0 0 5.4 13M10.6 3.9a2.6 2.6 0 0 1 1.5 4.5A2.6 2.6 0 0 1 10.6 13"/>',
-  speaker: '<path d="M3 6.4h2.2L8.3 3.6v8.8L5.2 9.6H3z"/><path d="M10.6 6.1a2.8 2.8 0 0 1 0 3.8M12.2 4.5a5 5 0 0 1 0 7"/>',
-  speakerOff: '<path d="M3 6.4h2.2L8.3 3.6v8.8L5.2 9.6H3z"/><path d="M11 6.5l3 3M14 6.5l-3 3"/>',
+  /* speaker / speakerOff 已挪到上面 play / pause 那一组（跟着「实心那一批」放在一起）。
+     原来这里还各留着一份描边版，后面那份会静默覆盖前面刚写的 —— 同一个 key 写两遍，
+     改新的那一处根本看不出改动没生效（这一轮就踩了）。图标几何只允许有一份。 */
   pencil: '<path d="M11.4 2.7l1.9 1.9L6 12l-2.6.6L4 10z"/>',
   reuse: '<path d="M12.8 6.6A5.1 5.1 0 0 0 4 4.8"/><path d="M12.8 2.8v3.8H9"/><rect x="4.4" y="9" width="5.6" height="4.4" rx="1.1"/>',
   plus: '<path d="M8 3.4v9.2M3.4 8h9.2"/>',
+  minus: '<path d="M3.4 8h9.2"/>',
   star: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z"/>',
   starFill: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z" fill="currentColor"/>',
   /* 以下 11 个是页面里已经在用、但这里原先漏掉的几何：写不出来的格子会渲染成空方块 */
@@ -675,6 +718,9 @@ window.ICONS = {
   /* 上一段 / 下一段：左边一根竖条 + 三角形，和 play 区分得开（用户要看得出是「切段」不是「播」） */
   stepBack: '<path d="M3.4 3.6v8.8"/><path d="M12.8 4 6.4 8l6.4 4z"/>',
   stepNext: '<path d="M12.6 3.6v8.8"/><path d="M3.2 4 9.6 8l-6.4 4z"/>',
+  /* 融合相邻段：两个盒子中间只留一道缝 —— 那道缝就是「一刀切开」的位置，融合就是把它去掉。
+     别拿 link（链环）代替：链环说的是「绑在一起」，不是「合成一段」（两件事在剪辑里差别很大）。 */
+  merge: '<rect x="2.4" y="4.6" width="5.6" height="6.8" rx="1.2"/><rect x="8" y="4.6" width="5.6" height="6.8" rx="1.2"/>',
 };
 window.icon = function icon(name, size) {
   const b = window.ICONS[name];
@@ -716,6 +762,41 @@ window.btnText = function btnText(el, txt) {
   const tx = el.querySelector ? el.querySelector('.tx') : null;
   if (tx) { tx.textContent = txt; return; }
   el.textContent = txt;
+};
+
+/* ============================================================================
+   GoPage —— 「跳到工作台另一页」只有这一份
+   内容页住在 shell.html 的 iframe 里，所以换页要交给外壳的 appShow（侧栏不重建、不闪）；
+   页面自己 `location.href = 'usage.html'` 只会把 iframe 内部换掉 —— 侧栏高亮不动、
+   地址栏也不变，看着像「跳了但其实没跳」。直接打开的旧页面没有外壳，那条路才回退到 href。
+   用法：GoPage.btn('usage.html', '用量与余额') 出标记 → GoPage.bind(root) 接点击。
+   ========================================================================== */
+window.GoPage = {
+  go(file) {
+    const f = String(file || '');
+    if (!f) return;
+    try {
+      if (window.parent && window.parent !== window && typeof window.parent.appShow === 'function') {
+        window.parent.appShow(f, true);
+        return;
+      }
+    } catch (e) { /* 跨域 / 没有外壳：走下面那条 */ }
+    location.href = f;
+  },
+  btn(file, label) {
+    return '<button class="tool mini" data-go="' + String(file || '').replace(/"/g, '') + '">'
+      + String(label || '去看看') + '</button>';
+  },
+  /* 用一个委托接住整个容器里的所有入口：`setStatus` 写进去的按钮是后来才出现的，
+     逐个找 id 绑定会在重画之后漏掉。 */
+  bind(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-go]').forEach(b => {
+      if (b._goBound) return;
+      b._goBound = 1;
+      b.onclick = e => { e.stopPropagation(); this.go(b.getAttribute('data-go')); };
+    });
+  },
 };
 
 /* ============================================================================
@@ -762,6 +843,124 @@ window.copyText = async function copyText(txt) {
     return (i ? v.toFixed(1) : v) + ' ' + u[i];
   }
   window.fmtBytes = fmtBytes;      // 界面各处「≤ 10 MB」这类文案共用一份
+  /* ---------- 日期与时刻文案（全站一份，§J ⑱ 守着） ----------
+     改这一族之前全站有六种抄法：裸 `toLocaleString()`、`'zh-CN' + hour12:false`、
+     `toLocaleDateString()` 拼 `toLocaleTimeString([], {2-digit})`、手拼 padStart……
+     差别都落在「带不带秒」「显不显示年份」「跟不跟着浏览器 locale 漂」上 ——
+     同一条记录在详情面板写「2026/10/15 下午10:59:07」，在资产库写「10/15/2026, 10:59 PM」，
+     在用量页写「10/15 22:59」，在收藏页又不带秒。裸调那几个 locale API 更是换台机器就换一种写法。
+     统一成手拼的 ASCII 数字：dayKey `2026-10-15` / fmtHM `22:59` / fmtHMS `22:59:07` / fmtWhen `2026-10-15 22:59`
+     / fmtWhenSec `2026-10-15 22:59:07`。
+     **放在 ui.js 而不是 workbench.js**：用量页与外壳不加载 workbench.js，而每一页都加载 ui.js
+     （与上面 fmtBytes 同一层的理由一模一样）。
+     ⚠ 这一族不许写成 `String(…).padStart(2, '0') + ':' + String(…).padStart(2, '0')` 那个形状 ——
+       §J ⑰ 认的正是它（全站只许播放器读数那一份，在 workbench.js 的 Wb.fmtClock 里）。所以这里走 pad2。
+     「没值显示什么」（空串 / '—' / 「还没同步过」）是各个界面自己的事，这一族只管有值时怎么拼。 */
+  const pad2 = n => String(n).padStart(2, '0');
+  /* null / 空串 / 0 一律当「没有这个时间」，不当 1970 年 —— 调用点普遍写 `ts ? fmtWhen(ts) : '—'`，
+     但 `new Date(null)` 是 1970-01-01，漏一层判空就会把「没有时间」显示成一个日期。 */
+  const asDate = t => (t instanceof Date ? t : (t == null || t === '' || t === 0 ? new Date(NaN) : new Date(t)));
+  function dayKey(t) {
+    const d = asDate(t);
+    if (!isFinite(d.getTime())) return '';
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function fmtHM(t) {
+    const d = asDate(t);
+    return isFinite(d.getTime()) ? pad2(d.getHours()) + ':' + pad2(d.getMinutes()) : '';
+  }
+  function fmtHMS(t) {
+    const d = asDate(t);
+    return isFinite(d.getTime()) ? fmtHM(d) + ':' + pad2(d.getSeconds()) : '';
+  }
+  function fmtWhen(t) {
+    const k = dayKey(t);
+    return k ? k + ' ' + fmtHM(t) : '';
+  }
+  /* 带秒那两种是给「同一分钟里会有好几条」的地方：账单 CSV 导出、设置页那两张清单（云同步结果 /
+     备份 / 提示词归档）用 fmtWhenSec（导出与清单要能对得上是哪一次），只到时分的那一列旁边另有
+     「已耗时」的用 fmtHMS（导演台任务卡片的提交时间、用量页「更新于」）。
+     界面上一行一个时间默认一律 fmtWhen —— 别为了「看着更精确」到处换成带秒的那两支。 */
+  function fmtWhenSec(t) {
+    const k = dayKey(t);
+    return k ? k + ' ' + fmtHMS(t) : '';
+  }
+  window.dayKey = dayKey; window.fmtHM = fmtHM; window.fmtHMS = fmtHMS;
+  window.fmtWhen = fmtWhen; window.fmtWhenSec = fmtWhenSec;
+  /* ---------- 下载文件名（全站一份，§J ⑲ 守着） ----------
+     收拢前有八处各写一遍，而且**四种口径各不相同**：
+       · 非法字符名单：有的带控制字符（页面那三处写 \x00-\x1f）、有的不带（assetlib 那两处、代理那份带）；
+       · 换法：换成 -（资产库 / 工作台 / 导演台成片）、换成 _（素材库 / 转存本机）、直接删掉（assetlib 的 nameOf）；
+       · 截断：20 / 24 / 60 / 80 各一份；兜底名：file / asset / 素材 / merged / 未命名 各一份。
+     于是同一张图从资产库下载与从生成工作台下载出来的文件名不一样，而「结尾的点与空格会被 Windows
+     悄悄去掉」「名字里有换行会被截断成两半」这两条只有素材库那一份处理过。
+     收成两块**读法**：`fileSafe` 洗一个字、`fileStamp` 拼一个「年月日-时分秒」。
+     **各页那个 `fileNameOf` 留着** —— 它决定「这一页的文件名长什么样」（前缀、标签、扩展名从哪个字段取），
+     那是页面自己的事；但它只能用这两块拼，不许再自己写一遍字符名单或 padStart 那一串。
+     ⚠ 代理（Node 进程）够不着这里，`proxy.js` 另留一份同名 `fileSafe`，与上面 dayKey / dayPart 同一安排：
+       浏览器一份、Node 一份，各自是那一侧的唯一落点。 */
+  function fileSafe(s, max) {
+    const t = String(s == null ? '' : s)
+      .replace(/[\r\n\t]+/g, ' ')        // 换行与制表留着会被文件系统截断成两半
+      .replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-')
+      .replace(/\s+/g, ' ')
+      .replace(/[. ]+$/, '')            // 结尾的点与空格：Windows 保存时悄悄去掉，名字就对不上账
+      .trim();
+    return (t || '素材').slice(0, max || 24);
+  }
+  /* 没给时间 = 「现在」；给了但读不出 = 也当现在（`new Date(坏值)` 是 Invalid Date，
+     直接拼会出来一串 NaN —— 文件名里出现 NaN 是本项目见过的那种「看着像代码坏」的产物）。 */
+  function fileStamp(ts) {
+    const raw = (ts == null || ts === '' || ts === 0) ? new Date() : new Date(ts);
+    const d = isFinite(raw.getTime()) ? raw : new Date();
+    return '' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate())
+      + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+  window.fileSafe = fileSafe; window.fileStamp = fileStamp;
+  /* 「这一条素材是不是声音」全站只在这里点一次名：同一类有两种写法 —— 本机产物按字节判出来是
+     「音频」，平台声明里写的是「音乐」（`assetlib.js` 的 `slotTypes` 两种都给），所以任何判据都得两个名字一起认。
+     收拢前它抄了十几遍，其中资产库那份下载名**只认「视频」**，于是一条没有 format 字段的音频
+     下载回来叫 `.png`（存进下载文件夹的是一张打不开的图）。
+     ⚠ 数组形状不算这一条判据：`types: ['音频', '音乐']`（素材选择器的槽位过滤）是一张给人看的数据表，
+        不是「是不是声音」的判断。 */
+  function isAudioType(t) { return t === '音频' || t === '音乐'; }
+  window.isAudioType = isAudioType;
+  /* 「这一条素材按哪种媒体来放」只有三个取值（video / audio / image），而它也是按类型名推的：
+     四处各写了一遍（资产库与收藏的灯箱 kindOf 适配器、工作台的 kindOf、`Wb.reuse.kindOf`）。
+     这四份**今天恰好还一致**（都认「音频」与「音乐」两个名字），所以这一条不是修 bug，
+     是修「平台再多一种类型名时要改四个地方」—— 与上面 isAudioType 同一件事，只留一份读法。 */
+  function mediaKindOf(t) {
+    const s = String(t || '');
+    return s === '视频' ? 'video' : isAudioType(s) ? 'audio' : 'image';
+  }
+  window.mediaKindOf = mediaKindOf;
+  /* 一条素材的下载扩展名（§J ⑲ 那一族的第三块读法，2026-10 从四处收成一份）。
+     收成之前四份口径互不相同，同一个条目从哪一页下载决定它叫什么：
+       · 资产库 `format || (视频?mp4:png)` —— 音频漏了，落到 png；
+       · 工作台 `视频?mp4:图片?png:(format||wav)` —— 图片/视频**不看 format**，一张 jpeg 下回来是 .png；
+       · AI 助手 `format || (音频?mp3:…)` —— 音频兜底 mp3，与语音台的默认档 wav 不同；
+       · 收藏 `format ? '.'+format : ''` —— 没有 format 就没有扩展名，双击打不开。
+     口径只有一条：**先认条目自己带的 `format`**（平台列表与本机资产都会填，它就是产物真正的尾缀），
+     认不出来（空、带空格、带斜杠）才按类型猜 —— 图片 png / 视频 mp4 / 音频 wav（无损兜底，与语音台默认档一致）。
+     类型字段两页不同名（资产库与收藏写 `type`、工作台写 `mtype`），这里两个都认。 */
+  function fileExtOf(it) {
+    const t = String((it && (it.mtype || it.type)) || '');
+    const fmt = String((it && it.format) || '').toLowerCase().replace(/^[.\s]+|[.\s]+$/g, '');
+    if (/^[a-z0-9]+$/.test(fmt)) return fmt === 'jpeg' ? 'jpg' : fmt;
+    return t === '视频' ? 'mp4' : isAudioType(t) ? 'wav' : 'png';
+  }
+  window.fileExtOf = fileExtOf;
+  /* 「供应商类型」那一族的名字与顺序全站只有一份（2026-10-15 从 settings.html 与 ai-chat.js 两份逐字相同的表、
+     外加两处手抄的键序收成一份）。
+     ⚠ 这一族说的是**一型供应方**，与上面 `isAudioType` / `mediaKindOf` 那一族（**一条素材**）不是同一张表：
+       `audio` 在这里叫「语音」（设置页那一排档名、助手报告里的类型），在素材那一族叫「音频」。
+       合成一张表会让设置页的档名变成「音频类」、资产库的筛选项变成「语音」—— 差的就是这两句话。
+     `PROV_KINDS` 以前页面写一份、助手再抄一份：注册表加了第五类时那一排 tab 不会跟着长。 */
+  const PROV_KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
+  function provKindZh(k) { return PROV_KIND_ZH[k] || String(k || ''); }
+  /* 四档的顺序 = 设置页那一排 tab 的顺序 = 助手报告里分档的顺序 */
+  function provKinds() { return Object.keys(PROV_KIND_ZH); }
+  window.provKindZh = provKindZh; window.provKinds = provKinds;
   /* base64 → Uint8Array → Blob 的那段循环以前在 4 个地方各抄一份（导演台导出、拍短剧音色试听、
      资产库字节转存、ui.js 自己的 DataSync 还原 Blob 行）。放在 ui.js 是因为它是唯一
      每个页面都先加载的那一层 —— 放 assetlib.js 的话 ui.js 内部要用它就多一个加载顺序前提。 */
@@ -810,6 +1009,15 @@ window.copyText = async function copyText(txt) {
          o.onRetry()  点「重新润色」时回调 → Promise<{after, note}|string>
          o.onReask()  点「改回答」时回调（两段式润色才给这个按钮，见下）
          o.onClose()  点「放弃」时回调
+         o.onFollow(你那句话, 屏幕上这一版, ctl, ctx)
+                    传了这一项才画「还要怎么改」那一行（没实现就不摆一颗点了没反应的按钮）。
+                    结果面板上可以直接和 AI 对话：写一句要求 → 按回车或点「按这句再改」→
+                    新那一版就地换进 textarea，你打过的每一句留在面板下面当对话记录。
+                    `ctl.push(片段, 种类)` 接流式（边写边灌）、`ctl.signal` 接中止；跑着的时候
+                    那颗按钮变成「停止这一轮」，停下后屏幕上回到改之前那一版（不会留半截）。
+                    `ctx.answers` = 这一段先前那几题的回答（`interactive` 转发时给，页面不用自己记）。
+         o.talk       先前那几轮「你说」的记录（**页面持有的数组**：整栏重画后还能画回来）。
+         o.followPlaceholder 那一行输入框的提示语（按这一处润的是什么写，别用通用的一句）
      · InlinePolish.ask(host, o)                 问答面板（就地反问，每题 = 候选 + 最后一个自由输入框）
      · InlinePolish.live(host, o)                流式面板（边收边画；返回 { push, note, fail, text }）
      · InlinePolish.interactive(host, o)         两段式润色：先反问 → 按回答润色 → 结果面板（同一块面板内换内容）
@@ -900,6 +1108,11 @@ window.copyText = async function copyText(txt) {
           <span class="pinl-note">${esc(o.note || '')}</span>
         </div>
         <textarea class="pinl-ta" spellcheck="false" placeholder="润色结果（可直接改）"></textarea>
+        <div class="pinl-talk" hidden></div>
+        ${o.onFollow ? `<div class="pinl-chat">
+          <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？写完按回车')}">
+          <button class="ghost" data-act="follow">${icon('sparkles', 13)} 按这句再改</button>
+        </div>` : ''}
         <div class="pinl-ft">
           <button class="pri" data-act="apply">${esc(o.applyLabel || '替换原提示词')}</button>
           ${o.onReask ? '<button class="ghost" data-act="reask">' + icon('sparkles', 13) + ' 改回答</button>' : ''}
@@ -911,6 +1124,7 @@ window.copyText = async function copyText(txt) {
       const el = host.firstElementChild;
       const ta = el.querySelector('.pinl-ta');
       const lenEl = el.querySelector('.pinl-len');
+      const noteEl = el.querySelector('.pinl-note');
       const before = String(o.before == null ? '' : o.before);
       const paintLen = () => {
         lenEl.textContent = (before ? '原文 ' + before.trim().length + ' 字 → ' : '') + '润色后 ' + ta.value.trim().length + ' 字';
@@ -921,6 +1135,32 @@ window.copyText = async function copyText(txt) {
       ta.oninput = () => { paintLen(); grow(); if (o.onEdit) o.onEdit(ta.value); };
       ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); apply(); } };
       const applyBtn = el.querySelector('[data-act="apply"]');
+      const retry = el.querySelector('[data-act="retry"]');
+      const fbtn = el.querySelector('[data-act="follow"]');
+      const finp = el.querySelector('.pinl-chatin');
+      /* 一轮在跑（重新润色或按这句再改）就不许再开第二轮：两个 handler 都会往同一个 textarea 写字，
+         叠起来后界面上那一版是谁写的都说不清。 */
+      let busy = false;
+      const setBusy = on => {
+        busy = on;
+        applyBtn.disabled = on; retry.disabled = on;
+        if (fbtn) {
+          fbtn.disabled = false;                     // 「停止」在跑的时候必须能点
+          fbtn.innerHTML = on ? icon('stop', 13) + ' 停止这一轮'
+            : icon('sparkles', 13) + ' 按这句再改';
+        }
+        ta.readOnly = on;
+      };
+      /* 对话记录：`o.talk` 是页面自己存的那一份数组（导演台的编辑器每 3 秒整栏重画一次，
+         只存在面板闭包里就会被抹掉）。页面没传就在本地记，本轮会话里照样看得见。 */
+      const rounds = Array.isArray(o.talk) ? o.talk : [];
+      const talk = el.querySelector('.pinl-talk');
+      const paintTalk = () => {
+        if (!talk) return;
+        talk.hidden = !rounds.length;
+        talk.innerHTML = rounds.map((t, i) => `<div class="pinl-turn">第 ${i + 1} 轮 · 你说：${esc(t)}</div>`).join('');
+      };
+      paintTalk();
       function apply() {
         const v = ta.value.trim();
         if (!v) return;
@@ -931,26 +1171,94 @@ window.copyText = async function copyText(txt) {
       el.querySelector('[data-act="close"]').onclick = () => { if (o.onClose) o.onClose(); window.InlinePolish.clear(host); };
       const reask = el.querySelector('[data-act="reask"]');
       if (reask) reask.onclick = () => { if (o.onReask) o.onReask(); };
-      const retry = el.querySelector('[data-act="retry"]');
       retry.onclick = async () => {
-        if (!o.onRetry) return;
-        const keep = ta.value;
-        retry.disabled = true; applyBtn.disabled = true;
-        el.querySelector('.pinl-note').textContent = '正在重新润色…';
+        if (!o.onRetry || busy) return;
+        const keep = ta.value, keepNote = noteEl.textContent;
+        let acc = '';
+        setBusy(true);
+        noteEl.textContent = '正在重新润色…';
+        /* 与「按这句再改」同一套：字直接灌进这一块结果面板，页面愿意流式就接 ctl.push。
+           ⚠ 页面**不许**在这一轮里把宿主换成 `live` 流式面板 —— 那会把这一块连同
+           「替换 / 放弃 / 再问一句」那一排按钮一起销毁，跑完只剩一个只读的正文框。 */
+        const ctl = {
+          push(piece, kind) {
+            if (kind === 'reasoning' || !piece) return;
+            acc += piece;
+            ta.value = acc; paintLen(); grow();
+          },
+          signal: null,                          // 这一颗没有「停止」，所以没有可中止的信号
+        };
         try {
-          const r = await o.onRetry();
+          const r = await o.onRetry(ctl);
           const next = (r && typeof r === 'object') ? r : { after: r };
           ta.value = next.after || '';
-          el.querySelector('.pinl-note').textContent = next.note || '';
+          noteEl.textContent = next.note || keepNote;
           paintLen(); grow();
           if (o.onEdit) o.onEdit(ta.value);
         } catch (e) {
           ta.value = keep;
           el.insertAdjacentHTML('afterbegin', `<div class="pinl-err">重新润色失败：${esc(e.message || e)}</div>`);
-          el.querySelector('.pinl-note').textContent = o.note || '';
+          noteEl.textContent = keepNote;
         }
-        retry.disabled = false; applyBtn.disabled = false;
+        setBusy(false);
       };
+      /* ---------- 「按这句再改」：结果出来之后接着和 AI 说 ----------
+         传了 onFollow 才画这一行（没实现就不摆一颗点了没反应的按钮）。
+         `o.onFollow(你那句话, 屏幕上这一版, ctl)`：ctl.push 接流式（边写边往 textarea 里灌），
+         ctl.signal 接中止（跑着的时候那颗按钮就是「停止这一轮」）。 */
+      if (fbtn) {
+        let ab = null;
+        const stop = () => { if (ab) { try { ab.abort(); } catch (e) {} } };
+        fbtn.onclick = async () => {
+          if (busy) { stop(); return; }              // 正在跑：这一颗现在是「停止」
+          const askTxt = String(finp.value || '').trim();
+          if (!askTxt) {
+            noteEl.textContent = '先在上面那一格写一句要怎么改（写完按回车，或点右边那颗按钮）';
+            finp.focus();
+            return;
+          }
+          if (typeof AbortController === 'function') ab = new AbortController();
+          const keep = ta.value, keepNote = noteEl.textContent;
+          let acc = '';
+          setBusy(true);
+          noteEl.textContent = '正在按这句再改一版…';
+          const ctl = {
+            push(piece, kind) {
+              if (kind === 'reasoning' || !piece) return;   // 模型草稿不进正文
+              acc += piece;
+              ta.value = acc; paintLen(); grow();
+            },
+            get signal() { return ab && ab.signal; },
+          };
+          let r;
+          try { r = await o.onFollow(askTxt, keep, ctl); }
+          catch (e) {
+            ta.value = keep; paintLen(); grow();
+            const gone = ab && ab.signal && ab.signal.aborted;
+            noteEl.textContent = keepNote;
+            el.insertAdjacentHTML('afterbegin', `<div class="pinl-err">${gone
+              ? '这一轮已经停下（屏幕上还是你改之前那一版）'
+              : '这一轮没改成：' + esc(e.message || e)}</div>`);
+            ab = null; setBusy(false);
+            return;
+          }
+          const next = (r && typeof r === 'object') ? r : { after: r };
+          if (next.after) { ta.value = next.after; if (o.onEdit) o.onEdit(ta.value); }
+          rounds.push(askTxt); paintTalk();
+          noteEl.textContent = [next.note, '已按你这句话再改过一版（不满意就接着说，或直接改上面那一段）']
+            .filter(Boolean).join(' · ');
+          finp.value = '';
+          paintLen(); grow();
+          ab = null; setBusy(false);
+        };
+        /* Enter 发送、Shift+Enter 不换行（这一格本来就是单行输入）。
+           中文输入法选词上屏那一下也会触发一次 keydown，不放过它就是把半句话发出去。 */
+        finp.onkeydown = e => {
+          if (e.key !== 'Enter') return;
+          if (e.isComposing || e.keyCode === 229) return;
+          e.preventDefault(); fbtn.onclick();
+        };
+      }
       return el;
     },
     /* ---------- 问答面板（两段式润色的第一段，就地问，不弹窗）----------
@@ -1095,11 +1403,17 @@ window.copyText = async function copyText(txt) {
         const el = self.show(host, {
           after: next.after, note, before: o.before, applyLabel: o.applyLabel,
           onEdit: o.onEdit, onApply: o.onApply,
-          /* 「重新润色」用同一份回答重跑；问答在前面（「改回答」按钮），所以不会把回答问丢 */
-          onRetry: async () => o.run(answers || ''),
+          /* 「重新润色」用同一份回答重跑；问答在前面（「改回答」按钮），所以不会把回答问丢。
+             ctl 也一并递给页面：它拿 ctl.push 就能把这一轮边收边灌进结果框，
+             不递的话页面只能退回一次性 chat（等十几秒再整块蹦出来）。 */
+          onRetry: async ctl => o.run(answers || '', ctl),
           /* 「改回答」重画**同一批问题**（已选的答案带回去），不重新问一遍模型 ——
              再问一次模型多半会直接回润色结果，问题就丢了。 */
           onReask: questions.length ? () => renderAsk() : null,
+          /* 「按这句再改」：把这一轮的**回答**一并交给页面（第 4 个参数），
+             否则页面只能自己记住用户点过哪些候选 —— 那一笔账在这里现成。 */
+          onFollow: o.onFollow ? (askText, current, ctl) => o.onFollow(askText, current, ctl, { answers: answers || '' }) : null,
+          talk: o.talk, followPlaceholder: o.followPlaceholder,
         });
         if (o.onStatus) o.onStatus('', false);
         return el;
@@ -1601,21 +1915,57 @@ window.copyText = async function copyText(txt) {
    ========================================================================== */
 (function () {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const DEFAULT_TIMEOUT = 30000;
   const RETRY_DELAY = 600;
-  /* 超时 / 重试次数可在「设置 → 网络与刷新」里改（存 localStorage，改完立即生效） */
-  const cfg = { timeout: DEFAULT_TIMEOUT, retry: 1 };
-  /* 读数字配置：没存过（null）不能当成 0 —— 那会把「重试 1 次」的默认值悄悄变成「不重试」，
-     网络一抖动就不重试了，很难查。 */
-  function readNum(key, def, min, max) {
-    const raw = localStorage.getItem(key);
-    if (raw == null || raw === '') return def;
+  /* 「网络与刷新」那三个数字：默认值与上下限**只有这一张表**（§J ⑳ 守着）。
+     收成一份之前有四把各写各的夹取：
+       · 这里写 30 秒 / 5..300、重试 1 / 0..5；
+       · 设置页显示时一份下限（5 / 0 / 2），保存时上限又另写一遍（300 / 5 / 60）；
+       · 设置页标记里 `min` / `max` 属性第四份；
+       · `workbench.js` 的轮询器第三份 `>= 2` 与 `Math.min(60, …)`。
+     四份迟早漂开，而漂开的表现是「设置页填进去的数，运行层按另一个上限截」——
+     界面上看不出被截过，用户以为自己设成了 300 秒。 */
+  const NUMS = {
+    timeout: { key: 'sk_net_timeout', def: 30, min: 5, max: 300 },
+    retry: { key: 'sk_net_retry', def: 1, min: 0, max: 5 },
+    poll: { key: 'sk_poll_sec', def: 4, min: 2, max: 60 },
+  };
+  /* 没存过（null / 空串）不能当成 0 —— 那会把「重试 1 次」的默认值悄悄变成「不重试」，
+     网络一抖动就不重试了，很难查。存进来的值读不出数（NaN）同样退回默认，不是退回 0。
+     返回 null = 「本机没存过」，调用方据此决定退回什么（轮询器退回页面自己传的 interval）。 */
+  function storedNum(name) {
+    const sp = NUMS[name];
+    const raw = localStorage.getItem(sp.key);
+    if (raw == null || raw === '') return null;
     const n = Number(raw);
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+    return Number.isFinite(n) ? Math.min(sp.max, Math.max(sp.min, n)) : null;
   }
+  function num(name) {
+    const v = storedNum(name);
+    return v == null ? NUMS[name].def : v;
+  }
+  /* 取整 + 夹到声明的区间：给设置页回填用。填 999 要当场把输入框改成 300，
+     而不是存 999、让运行层自己截 —— 那正是「看着设成了 999，实际是 300」。
+     **但「清空这一格」不等于「填了 0」**：`Number('')` 是 0，直接夹就成了下限，
+     于是把超时那一格删空会得到 5 秒、把重试那一格删空得到 0（＝不重试）——
+     正是上面 `storedNum` 那段注释点名要防的那件事，读的那一侧守住了、写的这一侧漏了。
+     空格串同样算没填（`<input type=number>` 收到非数字只剩空串，人眼看到的是「空的」）。 */
+  function clampNum(name, v) {
+    const sp = NUMS[name];
+    if (v == null || String(v).trim() === '') return sp.def;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.min(sp.max, Math.max(sp.min, n)) : sp.def;
+  }
+  function setNum(name, v) {
+    const val = clampNum(name, v);
+    /* 配额满了也要回夹后的值：界面显示的是「运行层真正在用的数」，不能显示一个没存住的数 */
+    try { localStorage.setItem(NUMS[name].key, String(val)); } catch {}
+    reloadConfig();
+    return val;
+  }
+  const cfg = { timeout: NUMS.timeout.def * 1000, retry: NUMS.retry.def };
   function reloadConfig() {
-    cfg.timeout = readNum('sk_net_timeout', DEFAULT_TIMEOUT / 1000, 5, 300) * 1000;
-    cfg.retry = readNum('sk_net_retry', 1, 0, 5);
+    cfg.timeout = num('timeout') * 1000;
+    cfg.retry = num('retry');
   }
   try { reloadConfig(); } catch {}
   window.addEventListener('storage', e => { if (!e.key || String(e.key).startsWith('sk_net_')) reloadConfig(); });
@@ -1655,6 +2005,14 @@ window.copyText = async function copyText(txt) {
 
   window.Net = {
     reloadConfig,        // 设置页改完超时/重试后调用
+    /* 「网络与刷新」那三个数字的唯一读法（名字是 timeout / retry / poll，不是键名 ——
+       键名只在这张表里出现一次，页面与设置页都不许再写 `'sk_net_timeout'` 这种字面量）：
+         num(name)         存过的值（夹过），没存过退回默认 —— 运行层用这个
+         storedNum(name)   没存过 = null —— 轮询器用它区分「用户设过」与「页面传的 interval」
+         setNum(name, v)   夹 + 落盘 + reloadConfig，返回真正存进去的那个数（夹这件事不单独对外，
+                           单独暴露一份 clamp 只会让人拿来「先夹再自己存」，那就绕过了落盘这一半）
+       界面上的 min / max 也从这张表现读（见 settings.html 那一栏），不要再抄进标记。 */
+    NUMS, num, storedNum, setNum,
     /* 返回原始 Response（已判超时与重试；状态码交给调用方处理） */
     async fetch(url, opts = {}) {
       const method = String(opts.method || 'GET').toUpperCase();
@@ -1714,20 +2072,31 @@ window.copyText = async function copyText(txt) {
       }
       throw lastErr || new Error('请求失败');
     },
-    /* 取 JSON：非 2xx 抛带 status 的错误（错误文案优先用上游给的 message） */
-    async json(url, opts = {}) {
-      const r = await this.fetch(url, opts);
+    /* 一次响应读成「原文 + 试解析出来的 JSON」这一步，全站只此一份。
+       json() / assetlib 的 rawFetch 与 respBody / PromptLog 的 req / 导演台的 readJsonSafe 五处
+       都要先做这两步再各判各的错误，以前各抄一遍：其中 PromptLog 那一份把解析失败吞进
+       `catch (e) {}`，代理回了半截 JSON 时它拿到 null，报出来的是「HTTP 200」而不是「没读出来」。
+       只读一次 text()：不能先 r.json() 再 r.text() —— 响应体只能读一遍，
+       先试 JSON 的那一路一旦失败就没有正文了，真原因（代理写在 text/plain 里那句）会被扔掉。 */
+    async readRes(r) {
       const txt = await r.text();
       let d = null, parseErr = null;
       try { d = txt ? JSON.parse(txt) : null; } catch (e) { parseErr = e; }
-      if (!r.ok) {
-        const e = new Error(upstreamMsg(d) || ('HTTP ' + r.status));
-        e.status = r.status;
-        e.data = d;
+      return { res: r, status: r.status, ok: r.ok, txt, d, parseErr };
+    },
+    /* 发一次请求并把响应读成上面那份结构（超时、退避重试、可读错误都由 fetch 那一层给） */
+    async read(url, opts = {}) { return this.readRes(await this.fetch(url, opts)); },
+    /* 取 JSON：非 2xx 抛带 status 的错误（错误文案优先用上游给的 message） */
+    async json(url, opts = {}) {
+      const x = await this.read(url, opts);
+      if (!x.ok) {
+        const e = new Error(upstreamMsg(x.d) || ('HTTP ' + x.status));
+        e.status = x.status;
+        e.data = x.d;
         throw e;
       }
-      if (d === null && parseErr) throw new Error('返回了非 JSON 内容（HTTP ' + r.status + '）');
-      return d;
+      if (x.d === null && x.parseErr) throw new Error('返回了非 JSON 内容（HTTP ' + x.status + '）');
+      return x.d;
     },
     /* 取二进制：**先判 HTTP 状态**再转 blob，避免把错误页当成品存盘 */
     async blob(url, opts = {}) {
@@ -1797,6 +2166,7 @@ window.copyText = async function copyText(txt) {
      开关在「设置 → 界面」里（「操作成功也给一声提示」），默认关。 */
   const K_QUIET_OK = 'sk_quiet_ok';   // 键名是历史包袱：它现在存的是「要不要也弹一声」，不是「安静」
   const sayOk = () => { try { return localStorage.getItem(K_QUIET_OK) === '1'; } catch (e) { return false; } };
+  const K_AFTER = '__toast_after_reload';   // 「这一次刷新之后要说的那一句」（sessionStorage，见 Toast.after）
   window.Toast = {
     show(text, type, ms) {
       const msg = String(text == null ? '' : text).trim();
@@ -1827,7 +2197,33 @@ window.copyText = async function copyText(txt) {
     err(t, ms) { this.show(typeof t === 'object' ? Net.errorText(t) : t, 'err', ms); },
     warn(t, ms) { this.show(t, 'warn', ms); },
     info(t, ms) { this.show(t, 'info', ms); },
+    /* 「这一次刷新**之后**才说的那一句」—— 页面自己发起的 reload 会把右上角挂着的一切
+       连同卡内那行读数一起销毁，所以「刚做完什么」必须交给下一份文档去说。
+       为什么非要有这一件（2026-10-15 普查查出来的那一类）：设置页里 6 处、`DataSync.boot` 里 1 处
+       写的是 `Toast.ok('…正在刷新…')`，而 800~900 毫秒之后真的 `location.reload()` ——
+       那句话有两重没落地：① ok 档默认被 `sk_quiet_ok` 静音，多数用户当场一个字都看不见；
+       ② 就算设成了「操作成功也给一声提示」，它也只活 0.8 秒就被它自己宣布的那次刷新杀掉。
+       于是「导入设置 / 恢复默认 / 从数据文件恢复 / 用云端覆盖本机 / 还原备份」这些**改掉了真数据**
+       的动作，刷新完之后界面上没有任何一处说明过刚才发生了什么（页面看起来只是自己重开了一次）。
+       口径：只留最后一句（一次刷新只会有一次说明）、默认走一定弹的那一档、取用即清（不重复弹）。
+       键放 sessionStorage 不放 localStorage：它是「这一趟浏览」的留言，换标签页/重开浏览器就不该再提，
+       而且 localStorage 会被镜像进 `.data/` 与云同步 —— 那两处都不该出现一条界面留言。 */
+    after(t, kind) {
+      const msg = String(t == null ? '' : t).trim();
+      if (!msg) return;
+      try { sessionStorage.setItem(K_AFTER, JSON.stringify({ t: msg, k: ICON[kind] ? kind : 'warn' })); } catch (e) {}
+    },
   };
+  const flushAfter = () => {
+    let raw = null;
+    try { raw = sessionStorage.getItem(K_AFTER); if (raw) sessionStorage.removeItem(K_AFTER); } catch (e) { return; }
+    if (!raw) return;
+    let o = null;
+    try { o = JSON.parse(raw); } catch (e) { return; }        // 写坏的那一份直接丢掉，别让它卡住下一次加载
+    if (o && typeof o.t === 'string' && o.t) window.Toast.show(o.t, o.k, 6000);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', flushAfter);
+  else flushAfter();
   window.toast = (t, type, ms) => window.Toast.show(t, type, ms);
 })();
 
@@ -1956,6 +2352,20 @@ window.copyText = async function copyText(txt) {
         const p = JSON.parse(localStorage.getItem(key) || 'null');
         return (p && typeof p === 'object' && !Array.isArray(p) && p.ts) ? Number(p.ts) : 0;
       } catch { return 0; }
+    },
+    /* 按判据清掉一批键，回个数。「倒着扫 + 就地删」这一步全站只此一份：
+       以前 TextAI.clearMeta 与设置页「恢复默认」各抄一遍同样的循环，抄错的方向是正着扫 ——
+       removeItem 会让后面的键整体往前挪一格，正着扫就跳过一半，「恢复默认」清完还剩一堆。
+       判据（哪些键归我管）留在调用方：一张表是 `sk_model_meta_` 前缀，另一张是
+       EXPORTABLE 前缀减 RESET_KEEP，两边本来就不同，只有那趟扫描是同一件事。 */
+    sweep(pred) {
+      let n = 0;
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (pred(k)) { localStorage.removeItem(k); n++; }
+      }
+      return n;
     },
   };
 })();
@@ -2095,7 +2505,7 @@ window.copyText = async function copyText(txt) {
     KEY,
     off() { return (window.Store && Store.read(KEY, {}, { label: LABEL }) || {}).off || []; },
     isOff(kid) { return this.off().indexOf(kid) >= 0; },
-    /* 一次写整份名单（设置页「保存全部设置」用：勾选攒起来一起落盘）
+    /* 一次写整份名单（设置页那一排「侧栏余额」勾选走这里：勾一次就把整份名单落盘）
        —— 没有「单个切一下」的入口，勾选一律走这份名单，避免两条写入路径打架。 */
     setList(list) {
       const off = [...new Set((list || []).map(String).filter(Boolean))];
@@ -2134,6 +2544,26 @@ window.PAGE_TARGETS = {
   modes: ['page', 'more'],
 };
 
+/* 「这一页现在到底怎么翻 / 一页几条」的读法只在这一处。
+   以前四个工作台页面各抄一遍「取存储 || 退回默认档」，兜底那个数还各自写死（24 / 18 / 12），
+   设置页那张表与 AI 助手的读数又各抄一遍 —— 于是「素材库默认 18 条」这件事在六个地方有六种说法，
+   改哪一页的默认档都得挨个文件找。默认档一律现读上面那张表；存储里是坏值就退回默认档。 */
+function pageRowOf(k) {
+  const t = window.PAGE_TARGETS || { rows: [] };
+  return (t.rows || []).find(r => r.key === k) || {};
+}
+function pageLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+window.pageModeOf = k => {
+  const t = window.PAGE_TARGETS || {};
+  const md = t.modes || ['page', 'more'], v = pageLS('page_mode_' + k);
+  return md.indexOf(v) >= 0 ? v : (pageRowOf(k).defMode || md[0]);
+};
+window.pageSizeOf = k => {
+  const sz = (window.PAGE_TARGETS || {}).size || { min: 1 };
+  const n = Number(pageLS('page_size_' + k));
+  return Math.max(sz.min || 1, n || pageRowOf(k).defSize || sz.min || 1);
+};
+
 /* 「界面偏好有哪几项」只这一份：设置页按它渲染那两张卡，AI 助手按它列可改白名单，
    侧栏 / 资产库 / 收藏页读写的是同一批键。
    为什么要把这张表挪到公共层：主题以前只能点左下角那颗太阳、视图档位只能进那一页右上角换，
@@ -2145,6 +2575,15 @@ window.PAGE_TARGETS = {
    于是「产物自动存本机」「优先用本机文件」也混在里面 —— 它们管的是**产物文件放哪、读哪**，跟界面无关，
    放在「外观」底下读起来就是错的。助手那边同样：它给每一项取名时一律冠「界面 · 」，
    于是助手会说「界面 · 产物自动存本机」—— 同一个错在第二个地方又长了一遍。 */
+/* 展示样式的档位名只在这里点一次名（2026-10 从 7 处收成 1 处）。
+   以前这一对名字散在五个地方各抄一遍：资产库 / 素材库 / 收藏三页各自的 `views:`、这里三行 `opts:`、
+   还有 workbench.js 里那份兜底默认档。于是「把「紧凑」改成「大图」」这一件事要同时改七个字面量，
+   而漏掉哪一处都不会报错 —— 设置页写着「大图」、点进去开关上还是「紧凑」，
+   更坏的是 `opts` 与页面认的取值不一致时，助手按设置页那张表写进去的值那一页根本不认
+   （界面偏好这张表的引言里说的是同一个病的另一半边）。
+   图标几何不进这里（那是 workbench.js 那一层的事），这里只管「有几档、每档叫什么」。 */
+window.VIEW_MODES = [['list', '列表'], ['compact', '紧凑']];
+
 window.UI_PREFS = {
   /* 卡内的小节。设置页按它分小节渲染，助手那边拿同一个词当前缀。 */
   groups: [
@@ -2157,22 +2596,20 @@ window.UI_PREFS = {
       opts: [['light', '浅色'], ['dark', '深色']],
       hint: '左下角那颗太阳 / 月亮是同一个开关的快捷入口。' },
     { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool',
-      hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展，两边写的是同一个键。' },
+      hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展。' },
     { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool',
       hint: '默认关（安静）：右上角只在出错与警告时弹。「已经做完了」「这里没有东西可做」这类不弹 —— ' +
-        '做完的事界面上本来就看得见，而一排绿色对勾会把真正该看的那条错误淹掉。' },
+        '做完的事界面上看得见，一排绿色对勾会把真正该看的错误淹掉。' },
     { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list',
-      opts: [['list', '列表'], ['compact', '紧凑']],
-      hint: '只是默认摆法：进了那一页还能用右上角的图标随时换。' },
+      opts: window.VIEW_MODES,
+      hint: '这三行只管各页进去时的默认摆法，进了那一页右上角随时还能换。' },
     { key: 'dir_char_view', group: 'list', name: '素材库', kind: 'seg', def: 'list',
-      opts: [['list', '列表'], ['compact', '紧凑']],
-      hint: '与资产库、收藏同一套档位名。这一项以前漏在这一张表外（页面自己能换、设置页里看不见，助手也改不了）。' },
+      opts: window.VIEW_MODES },
     { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list',
-      opts: [['list', '列表'], ['compact', '紧凑']],
-      hint: '同上（三页的档位名现在完全一致）。' },
+      opts: window.VIEW_MODES },
     { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on',
       opts: [['on', '开'], ['off', '关']],
-      hint: '生成完的图像 / 视频 / 语音当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
+      hint: '生成完的视频 / 图像 / 音频当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
         + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增。' },
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on',
       opts: [['on', '开'], ['off', '关']],
@@ -2628,7 +3065,10 @@ window.UI_PREFS = {
         if (pending.size) { try { await this.flush(); } catch (e) {} }
         sessionStorage.setItem(flag, '1');
         if (changed) {
-          if (window.Toast) window.Toast.info('已从本机数据文件同步 ' + changed + ' 项，正在刷新…');
+          /* 这句交给**刷新之后**那份文档去说（`Toast.after`）：600 毫秒之后整页 `location.reload()`，
+             当场弹的那一句 —— 无论哪一档 —— 都会被它自己宣布的那次刷新杀掉，
+             而这次刷新是页面自己动的，用户没点任何东西，界面上必须留下一句「刚才发生了什么」。 */
+          window.Toast.after('刚从本机数据文件同步了 ' + changed + ' 项（页面为此刷新了一次）', 'warn');
           setTimeout(() => location.reload(), 600);
         } else if (repaired) {
           console.log('[DataSync] 补传 ' + repaired + ' 项没落盘的本地修改到 .data/');
@@ -2900,8 +3340,9 @@ async function sweepLegacyKeys() {
    ========================================================================== */
 (function () {
   let openPop = null;
-  const pad = n => String(n).padStart(2, '0');
-  const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  /* 日历格子的键就是上面那一份 dayKey（同一个文件里两份手拼「年-月-日」，改补零时只会改到一半，
+     表现是选了 2026-1-5 而输入框写着 2026-01-05）。dayKey 挂在 window 上，本 IIFE 排在它后面。 */
+  const iso = window.dayKey;
   const WEEK = ['一', '二', '三', '四', '五', '六', '日'];
 
   function close() {

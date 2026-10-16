@@ -129,7 +129,7 @@
   <div class="toolbar2">
     <span class="grp">分组<span id="grpPick"></span></span>
     <button class="tool" id="btnFill" title="把当前这一档里还没有预览图、角色还缺三视图的素材一次交给生图平台"></button>
-    <button class="tool" id="btnLocal" title="把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库存一份：换机器、外链过期、关掉网页都不影响它们。存好的那一份同时记进本机镜像索引，生成工作台与资产库也认得。"></button>
+    <button class="tool" id="btnLocal" title="把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库：换机器、外链过期、关掉网页都不影响它们"></button>
     <span class="sp"></span>
     <span class="busy" id="busy"></span>
     <button class="ghost" id="btnStop" hidden>停下</button>
@@ -141,6 +141,11 @@
     <span class="pick">出图张数<span id="candPick"></span></span>
     <span class="pick">语音型号<span id="ttsPick"></span></span>
   </div>
+  <!-- 文字 AI 的流式面板宿主（公共 InlinePolish.live 画在里面）。
+       这一页问 AI 的地方（按人设定音色、写这张图的提示词）都是「点完等十几秒才出结果」，
+       以前只有左下角一行「正在…」，看不出它在想还是卡住。单独一格而不是塞进工具栏：
+       `paintBusy` 会不停重写 #busy 的文本，两者共用一个元素会互相盖。 -->
+  <div id="aiLive" hidden style="margin:0 0 10px"></div>
 
   <div class="grid" id="grid"></div>
   <div id="gridEnd" style="height:1px"></div>
@@ -187,8 +192,6 @@
      声明在这一排而不是批量那一段里 —— paintBusy 每次记账都要读它们，
      而 boot 之前若有别处调 paintBusy，`let` 还没执行到就会撞 TDZ。 */
   let stopFlag = false, fillStoppable = false;
-  /* 「存回本机」那颗按钮也在读这份状态（paintBusy 每次记账都要重画它），同理提前声明。 */
-  let localBusy = false;
   let renderSeq = 0;
   const viewItems = [];            // 当前视图的素材（灯箱翻页范围）
   const media = [];                // 当前视图能点开看的图（预览图 + 各资产）
@@ -203,6 +206,8 @@
   const fakeDrama = () => ({ opts: opts, characters: [], scenes: [], shots: [] });
   function saveOpts() { try { localStorage.setItem('char_opts', JSON.stringify(opts)); } catch (e) {} }
   function setBusy(m) { busyMsg = m; paintBusy(); }
+  /* 文字 AI 边写边显的那块面板（判据与画法都走公共层 `AiStream.panel`，这一页只给宿主）。 */
+  const aiPanel = () => AiStream.panel($('aiLive'), { title: 'AI 正在写…' });
   /* 底栏一句话 + 「停下」那颗按钮 + 批量那颗按钮的可用性，都跟着这份记账走：
      三处读同一张表，就不会出现「圈还在转、按钮已经能点」或反过来。 */
   function paintBusy() {
@@ -514,20 +519,12 @@
       { count: v => all.filter(c => c && match(c, v)).length });
   }
   function paintAiChip() {
-    const el = $('aiChip'); if (!el) return;
-    el.innerHTML = aiPick
-      ? `<span class="ai-chip">${window.icon ? icon('sparkles', 12) : ''} AI 挑的 ${aiPick.size} 条`
-        + `${aiWhy ? ' · ' + esc(aiWhy) : ''}<button id="aiClear" title="清除 AI 结果，回到完整名单">${window.icon('close', 11)}</button></span>`
-      : '';
-    const c = $('aiClear'); if (c) c.onclick = clearAiPick;
+    window.AiChip.paint('aiChip', { text: aiPick ? window.AiChip.picked(aiPick.size, aiWhy) : '', onClear: clearAiPick });
   }
-  /* 撤掉 AI 条件：三个字段一起清（以前 Escape 那条只清 aiPick / aiWhy，
-     留下 aiRank 会让顺序那一趟把每一条都算成没名次，整列却还挂在 AI 的话上）。
-     清完退回按名称 A→Z —— 这一页没有可挑的档位了。 */
-  function clearAiPick() {
-    aiPick = null; aiWhy = ''; aiRank = null;
-    resetPaging(); render();
-  }
+  /* 撤掉 AI 条件 = 把那一族的三个字段一起收回（公共层 `AiFind.clear` 只做这一件事）。
+     以前 Escape 那条只清 aiPick / aiWhy，留下 aiRank 会让顺序那一趟把每一条都算成没名次，
+     整列却还挂在 AI 的话上。清完退回按名称 A→Z —— 这一页没有可挑的档位了。 */
+  function clearAiPick() { window.AiFind.clear(AI); }
 
   /* ---------- 分组：这一页只负责「看哪一组」 ----------
      以前这里有两个按钮（工具条上的「整组加入这一集」与每张卡上的「加入当前这一集」），
@@ -552,19 +549,12 @@
   }
 
   /* ---------- 展示样式与分页（与收藏页同一套公共实现） ---------- */
-  const PAGE_MODE = (function () { try { return localStorage.getItem('page_mode_chars') === 'more' ? 'more' : 'page'; } catch (e) { return 'page'; } })();
-  const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_chars') || 18) || 18);
+  const PAGE_MODE = window.pageModeOf('chars');
+  const PAGE_SIZE = window.pageSizeOf('chars');
   let morePages = 1;
   const viewToggle = Wb.viewToggle.create({
-    el: 'fView', key: 'dir_char_view',
-    views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
-    onPick: applyView,
+    el: 'fView', key: 'dir_char_view', target: 'grid',
   });
-  function applyView() {
-    const g = $('grid'); if (!g) return;
-    g.classList.remove('view-list', 'view-compact');
-    g.classList.add('view-' + ((viewToggle && viewToggle.value) || 'list'));
-  }
   const shownCount = () => PAGE_MODE === 'more' ? Math.min(viewItems.length, morePages * PAGE_SIZE) : viewItems.length;
   function pageItems() { return PAGE_MODE === 'more' ? viewItems.slice(0, shownCount()) : pager.slice(viewItems); }
   function resetPaging() { morePages = 1; pager.setPage(0); }
@@ -598,7 +588,7 @@
     list: () => media,
     keyOf: it => it.key,
     srcOf: it => src(it.s),
-    nameOf: it => D.Pipe.fileSafe(it.name || '素材图', 60),
+    nameOf: it => window.fileSafe(it.name || '素材图', 60),
     kindOf: () => 'image',
     info: it => [it.name, it.item ? D.Cast.assetNames(it.item) : ''],
   });
@@ -829,7 +819,7 @@
       <label>${kf.bio.lab}<input data-f="bio" value="${esc(c.bio || '')}"></label>
       ${voiced(c) ? `<label class="ck"><input type="checkbox" data-f="voiceOnly"${D.voiceOnlyOf(c) ? ' checked' : ''}>`
         + ' 只出声（不出镜）—— 这一位不需要' + pw + '与角色资产，拉进某一集时按旁白处理</label>' : ''}
-      ${vo ? '<div class="ui-hint">这一位勾了「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就把上面那个勾去掉）。老库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
+      ${vo ? '<div class="ui-hint">这一位勾了「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就取消那个勾）。库里已存着的图还在下面，能看也能去掉。</div>' : ''}
       ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。拍摄时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
 
       ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>`}
@@ -1001,11 +991,12 @@
       /* 「没定成声音」那一行上的重试：清掉上一轮原因再问 AI 一次，判据同走 Pipe.autoVoice */
       revoice: async () => {
         await genRun('voicecands', c.id, c, '正在按人设定「' + c.name + '」的声音…', async () => {
+          const live = aiPanel();
           const r = await D.Pipe.autoVoice(REG, fakeDrama(), c, {
-            cands: true,
+            cands: true, onDelta: live.push,
             onStage: m => genSet('voicecands', c.id, m),
             onCands: (i, tot) => genSet('voicecands', c.id, '正在给「' + c.name + '」合成第 ' + i + ' / ' + tot + ' 条试听…'),
-          });
+          }).finally(() => live.done());
           if (!r.ok) { c.voiceErr = r.why || '没定成'; c.voiceAuto = ''; }
         });
       },
@@ -1277,7 +1268,7 @@
      素材库存的是人自己攒的角色与场景，按「本机有没有副本」把它们藏掉，用户看到的只是
      「我的库空了一半」—— 判据的副作用不该糊在人的数据上。所以这一页照旧全画，
      只给一条把字节真正取回本机的路，存不存由人决定。
-     落盘走 `AssetLocal.pull`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
+     落盘走 `AssetLocal.pullMany`（与后台自动镜像同一条链：同一份身份判据、同一道去重、
      同一份按类型另存），所以存好之后生成工作台与资产库立刻也认得这一份，不用在那两页再存一遍。
      ⚠ 它与 `durablePic` 不是同一件事：那一颗服务「当场挑来的那一张」（本地文件 / 刚生成的，
         没有来源身份可记，只要一个记得住的地址）；这一颗服务「库里已经存着的一个外链地址」
@@ -1303,67 +1294,45 @@
     viewItems.forEach(c => { if (c) localSlots(c).forEach(s => jobs.push({ c, lab: s.lab, src: s.src, set: s.set })); });
     return jobs;
   }
-  /* `localBusy` 声明在上面（paintBusy 会读它）。 */
+  /* 画法、在途守卫、那一串措辞都走公共层那一份（AssetLocal.pullBtn / pullReceipt，
+     与生成工作台 / 资产库 / 收藏那三颗同一套）。这一页不一样的只有三处：
+     这张磁贴没有图标（纯文字）、一条都没有时按钮压暗、进度写底栏而不是按钮上。 */
   function paintLocalBtn() {
-    const b = $('btnLocal'); if (!b) return;
-    if (localBusy) { b.disabled = true; b.textContent = '正在存回本机…'; return; }
-    const n = localPlan().length;
-    b.disabled = !n;
-    b.textContent = n ? '存回本机（' + n + '）' : '存回本机';
-    b.title = n
-      ? '这一档里有 ' + n + ' 个格子的字节还不在本机（外链一过期就是破图）：逐张取回本机资产库，'
-        + '存好就换成本机地址。已经在本机的一条都不会重下。'
-      : (viewItems.length ? '这一档筛出来的图与参考音频，本机都已经有了，不用再存'
-        : '这一档里还没有素材');
+    AssetLocal.pullBtn($('btnLocal'), localPlan().length, {
+      icon: false, disableEmpty: true, busyText: '正在存回本机…',
+      zone: '这一档', what: '素材', unit: '个',
+      empty: viewItems.length ? '这一档筛出来的素材，本机都已经有了，不用再存' : '这一档里还没有素材',
+    });
   }
   async function pullLocal() {
-    if (localBusy) return;
+    const btn = $('btnLocal');
+    if (AssetLocal.pullBusy(btn)) return;
     const jobs = localPlan();
     if (!jobs.length) { Toast.info(viewItems.length ? '这一档要存的本机都已经有了' : '这一档里还没有素材'); return; }
-    localBusy = true;
-    paintLocalBtn();
-    let ok = 0, kept = 0, busy = 0, cant = 0, done = 0;
-    const fails = [], dirty = new Set();
-    const wait = [];
-    const mark = () => setBusy('存回本机：' + done + ' / ' + jobs.length + ' 个…');
-    for (const j of jobs) {
-      let out = null;
-      const st = AssetLocal.pull({ url: j.src, rawSrc: j.src, prompt: (j.c.name || '素材') + '-' + j.lab }, {
-        force: true,                     // 「自动存本机」没开也照存：这是用户当下点下去的
-        cb: (err, r) => {
-          done++; mark();
-          if (err) { if (r && r.skip) cant++; else fails.push((j.c.name || '这条素材') + ' 的' + j.lab + '：' + err.message); }
-          else if (r && r.kept) kept++;
-          else if (r && r.id) {
-            ok++;
-            j.set('/asset/' + encodeURIComponent(r.id) + '?v=2');   // 库里那格换成能记住的本机地址
-            dirty.add(j.c);
-          }
-          if (out) out();
-        },
-      });
-      if (st === 'queued') wait.push(new Promise(rz => { out = rz; }));
-      else if (st === 'busy') { busy++; done++; }
-      else if (!st) { cant++; done++; }
-    }
-    await Promise.all(wait);
+    AssetLocal.pullStart(btn);
+    paintLocalBtn();                       // 底栏那句要等第一次进度才来，先把按钮改成「正在存回本机…」
+    const dirty = new Set();
+    /* 循环、计数、回执措辞全部走公共层 `AssetLocal.pullMany / pullReceipt`
+       （收藏、素材库、资产库三颗「存回本机」共用那一份），这一页只留它自己那一笔：
+       存好了要把本机地址写回库里那一格，并记下哪几条要落盘。 */
+    const st2 = await AssetLocal.pullMany(jobs.map(j => ({
+      entry: { url: j.src, rawSrc: j.src, prompt: (j.c.name || '素材') + '-' + j.lab },
+      name: (j.c.name || '这条素材') + ' 的' + j.lab,
+      apply: u => { j.set(u); dirty.add(j.c); },
+    })), { onProgress: (done, total) => setBusy('存回本机：' + done + ' / ' + total + ' 个…') });
     /* 存进去的地址一定要落盘：上面那些 `set` 只改了内存里的对象，
        不 libSave 的话界面看着已经换成本机地址、刷新又退回那条外链（而那条多半已经过期）。 */
     let lost = 0;
     dirty.forEach(c => { if (!libSave(c)) lost++; });
-    localBusy = false;
+    AssetLocal.pullEnd(btn);
     setBusy('');
     render();
-    const bits = [];
-    if (ok) bits.push('已存回本机 ' + ok + ' 个');
-    if (kept) bits.push('本机早就有 ' + kept + ' 个');
-    if (busy) bits.push('后台那一轮正在存 ' + busy + ' 个，没重复排');
-    if (cant) bits.push('有 ' + cant + ' 个存不了（比本机镜像的上限还大，或手上只剩一个转发地址、取不到原始外链）');
-    if (fails.length) bits.push('有 ' + fails.length + ' 个没成：' + fails.slice(0, 2).join('；') + (fails.length > 2 ? ' 等' : ''));
-    if (lost) bits.push('有 ' + lost + ' 条没写进库，那几格刷新会退回外链（保存为什么失败见上面那条提示）');
-    if (fails.length || cant || lost) Toast.err(bits.join(' · ') || '一个都没存进本机');
-    else if (ok) Toast.ok(bits.join(' · '));
-    else Toast.info(bits.join(' · ') || '这一档没有需要存的');
+    AssetLocal.pullReceipt(st2, {
+      extra: [lost ? '有 ' + lost + ' 条没写进库，那几格刷新会退回外链（保存为什么失败见上面那条提示）' : ''],
+      failed: lost,
+      none: '一个都没存进本机',
+      nothing: '这一档没有需要存的',
+    });
   }
 
   /* 挑来的图先落成本机资产再记进库。两种「当场能用、过后就没了」的地址不能直接存：
@@ -1425,7 +1394,7 @@
     if (rr.rule.maxBytes && b.size > rr.rule.maxBytes) { setBusy(''); return Toast.err('参考音频太大：上限 ' + Math.round(rr.rule.maxBytes / 1048576) + ' MB'); }
     await D.Pipe.saveRefAudio(c, b, (it.prompt || it.name || '参考音频').slice(0, 20));
     keep(c, true);
-    Toast.ok('参考音频挂上了，可以试听；视频模型有「参考音频」槽位时也会一起发过去');
+    Toast.ok('参考音频挂上了，可以试听；视频型号有「参考音频」槽位时也会一起发过去');
   }
 
   /* ⚠ 「把这一条加进某一集」随拍短剧页一起删除了（合并规则原本在 Chars.Lib.pullInto，
@@ -1504,8 +1473,10 @@
         /* assignVoices 要的是「一集的角色」，所以现搭一个只装这一位的壳
            （D.toEpisodeChar 是库→剧侧那一份字段映射，只有它一份）。 */
         const shell = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar(Object.assign({}, tmp, { kind: 'actor' }))] });
+        /* 边收边显：这一轮要读完整个人设再写音色方案，十几秒很正常。
+           `onDelta` 就是 assignVoices 里喂给 chatStream 的那个回调（判据在公共层 AiStream.panel）。 */
         await genRun('voice', tmp.id, tmp, '正在按人设定「' + f.name + '」的声音…',
-          () => D.Pipe.assignVoices(REG, shell, { only: [f.name] }));
+          () => { const live = aiPanel(); return D.Pipe.assignVoices(REG, shell, { only: [f.name], onDelta: live.push }).finally(() => live.done()); });
         const one = shell.characters[0] || {};
         if (one.voice || one.refAudio || String(one.voiceNote || '').trim()) {
           state.voice = { voice: one.voice, voiceName: one.voiceName, voiceNote: one.voiceNote,
@@ -1563,7 +1534,7 @@
           + '<button class="ghost" id="pdAgain">再出几张</button></div>'
         : '<div class="ui-sec">' + D.esc(pw) + '</div><div class="ui-hint">'
           + (why.length && why[0].indexOf('图') >= 0 ? why[0] + '。' : '这次没出图（已经有图或描述还没写）。')
-          + '你可以只用文字创建，之后在编辑区里点「AI 出' + D.esc(pw) + '」再出。</div>';
+          + '可以只用文字创建，之后在编辑区点「AI 出' + D.esc(pw) + '」。</div>';
       const secVoice = kind === 'actor'
         ? '<div class="ui-sec">声音</div>' + (state.voice
           ? '<div class="ui-box" id="pdVoice"><div class="ui-hint">'
@@ -1628,7 +1599,7 @@
       if (!D.aiVoiceOn()) return Toast.warn('设置里「让 AI 给角色定音色」没开');
       const shell2 = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar({ id: 'd', kind: 'actor', name: f.name, look: f.look, bio: f.bio })] });
       await genRun('voice', 'draft_voice', { id: 'draft_voice' }, '正在换一个音色…',
-        () => D.Pipe.assignVoices(REG, shell2, { only: [f.name] }));
+        () => { const live = aiPanel(); return D.Pipe.assignVoices(REG, shell2, { only: [f.name], onDelta: live.push }).finally(() => live.done()); });
       const one2 = shell2.characters[0] || {};
       if (one2.voice || one2.refAudio || String(one2.voiceNote || '').trim()) {
         state.voice = { voice: one2.voice, voiceName: one2.voiceName, voiceNote: one2.voiceNote,
@@ -1757,42 +1728,39 @@
     host.title = sel.title;
   }
 
-  async function runAiFind() {
-    const box = $('q');
-    const q = (box.value || '').trim();
-    const all = D.Lib.list();
-    if (!all.length) { Toast.err('素材库还是空的，先点右边「新建素材」'); return; }
-    if (q.length < 2) { Toast.err('先在搜索框写要什么样的素材（至少两个字），再点 AI 找'); box.focus(); return; }
-    const btn = $('aiFindBtn'), old = btn.innerHTML;
-    btn.disabled = true; btn.textContent = 'AI 正在挑…';
-    let msg = '';
-    try {
-      /* 三种类型都在这一份名单里（2026-10 加了道具），所以这段提示词不能再说「挑几位角色」——
-         需求写「一把伞」时，它要能挑出道具那一档。类型也照实告诉它：场景是地方不是人、道具是物件。 */
-      const sys = '你是选角导演：用户会用一句话描述需求，你要从他收藏的素材里挑最合适的几条。\n'
-        + '规则：\n1. 只输出 JSON，不要解释、不要 markdown：{"ids":["素材ID"],"summary":"一句话说明按什么挑的"}\n'
-        + '2 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
-        + '3. 宁缺毋滥：没有合适的就返回空数组。\n4. summary 说清你的理解，界面会显示给用户。';
-      const txt = await TextAI.chat(REG, sys, JSON.stringify({ 需求: q, 素材库: all.map(c => ({
+  /* AI 找素材：闸门、按钮忙态、JSON 契约、名次与理由的记账都在公共层那一份里（`assetlib.js` 的 `AiFind`），
+     这一页只交代「库里有什么可挑」「它该返回哪个字段」「挑完写回哪三个变量」。
+     三种类型都在这一份名单里（2026-10 加了道具），所以那段提示词不能再说「挑几位角色」——
+     需求写「一把伞」时，它要能挑出道具那一档。类型也照实告诉它：场景是地方不是人、道具是物件。 */
+  const AI = {
+    label: 'AI 找素材',
+    btn: () => $('aiFindBtn'),
+    ask: () => $('q').value,
+    focus: () => $('q').focus(),
+    emptyMsg: '素材库还是空的，先点右边「新建素材」',
+    noneMsg: 'AI 没挑到合适的（换个说法再试）',
+    roster: () => D.Lib.list(),
+    field: 'ids',
+    known: x => !!D.Lib.get(x),
+    payload: (q, all) => ({
+      需求: q,
+      素材库: all.map(c => ({
         id: c.id, 名字: c.name, 类型: D.LIB_KINDS[D.libKindOf(c)], 分组: c.group || '', 人设: c.bio || '', 描述: c.look || '',
-      })) }));
-      const j = TextAI.parseJson(txt) || {};
-      const ids = (Array.isArray(j.ids) ? j.ids : []).filter(x => D.Lib.get(x));
-      aiPick = ids.length ? new Set(ids) : null;
-      aiRank = ids.length ? new Map(ids.map((k, i) => [k, i])) : null;
-      aiWhy = ids.length ? String(j.summary || '').slice(0, 40) : '';
-      if (ids.length) {
-        box.value = '';        // 原话已翻成 id，留着会再 AND 一遍（几乎必然 0 位）
-        /* AI 返回的 ids 顺序本身就是「最合适在前」，aiRank 记下来就照着排 ——
-           以前这份顺序被整份丢掉，aiPick 只当集合用。 */
-      }
-      filter = 'all';
-      msg = ids.length ? '' : 'AI 没挑到合适的（换个说法再试）';
-    } catch (e) { msg = 'AI 找素材失败：' + e.message; }
-    finally { btn.disabled = false; btn.innerHTML = old; }
-    resetPaging(); render();
-    if (msg) $('cnt').textContent = msg;
-  }
+      })),
+    }),
+    sys: '你是选角导演：用户会用一句话描述需求，你要从他收藏的素材里挑最合适的几条。\n'
+      + '规则：\n1. 只输出 JSON，不要解释、不要 markdown：{"ids":["素材ID"],"summary":"一句话说明按什么挑的"}\n'
+      + '2. 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
+      + '3. 宁缺毋滥：没有合适的就返回空数组。\n4. summary 说清你的理解，界面会显示给用户。',
+    /* AI 返回的顺序本身就是「最合适在前」，aiRank 记下来就照着排 —— 以前这份顺序被整份丢掉，aiPick 只当集合用。
+       apply 只写那三个字段：清芯片（`AiFind.clear`）走的也是它，把「放开类型档」写进来会变成
+       「点 ✕ 连我挑过的 角色/场景/道具 都给我改了」。 */
+    apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
+    onPick: () => { $('q').value = ''; filter = 'all'; },   // 原话已翻成 id；挑的是跨档的一批，档还锁着就看不见
+    done: () => { resetPaging(); render(); },
+    say: t => { $('cnt').textContent = t; },
+  };
+  const runAiFind = () => window.AiFind.run(AI);
 
   /* ---------- 「这一条被导演台几个镜头引用了」 ----------
      导演台的提示词里可以打 `@名字` 引用素材库（见 director.html 的 mention 那一段），
@@ -1837,7 +1805,7 @@
   async function render() {
     await loadRefUse();          // 卡片上的「被 N 镜引用」要用它（5 秒缓存，不会每轮都读盘）
     const seq = ++renderSeq;
-    paintChips(); paintAiChip(); paintGroups(); paintModelPicks(); applyView();
+    paintChips(); paintAiChip(); paintGroups(); paintModelPicks(); viewToggle && viewToggle.apply();
     const q = $('q').value.trim();
     const all = D.Lib.list();
     const items = orderItems(all.filter(c => c && match(c, filter)

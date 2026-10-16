@@ -156,11 +156,8 @@
   <!-- 左栏：① 类型 + 模型 → ② 提示词与素材槽 → ③ 高级设置 → ④ 生成 -->
   <div class="col-left">
     <div class="st-top">
-      <div class="ui-seg" id="typeSeg" role="tablist" aria-label="生成类型">
-        <button type="button" class="on" data-t="video">视频</button>
-        <button type="button" data-t="image">图像</button>
-        <button type="button" data-t="audio">音频</button>
-      </div>
+      <!-- 三个档位与那三个名字由脚本按 `TYPES` / `TYPE_LIST` 现画（见 ① 类型 那一段），HTML 里不手抄 -->
+      <div class="ui-seg" id="typeSeg" role="tablist" aria-label="生成类型"></div>
       <div class="st-model"><select id="model"></select></div>
     </div>
     <div class="st-sub" id="stSub"></div>
@@ -170,7 +167,7 @@
       <!-- 语音的字数提示：型号声明的上下限就摆在这儿，别等点生成才被拦下（L16） -->
       <div class="prompt-hint" id="promptHint" hidden></div>
       <div class="btn-row">
-        <button class="tool acc" id="polishBtn" title="调用文字AI改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
+        <button class="tool acc" id="polishBtn" title="调用文字 AI 改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
         <!-- 拆分片段批量生成：只有图像栏有（视频 / 语音没有「一段描述拆几张」这种用法） -->
         <button class="tool" id="splitBtn" hidden title="把这段描述拆成几张图的提示词，确认后逐条提交（每条都是一条真任务）"><span class="ic" data-icon="sparkles" data-size="14"></span>拆分片段生成</button>
         <span class="sp"></span>
@@ -205,7 +202,7 @@
       </div>
       <!-- 语音台的「音色设计」必填项：只有那一种模型才出现 -->
       <div class="style-row" id="styleRow" hidden>
-        <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计模型必填）</label>
+        <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计型号必填）</label>
         <input id="style" class="ui-inp" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
       </div>
       <!-- 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
@@ -232,6 +229,9 @@
     <button class="go" id="go">生成视频</button>
     <div class="hint" id="goWhy"></div>
     <div id="status"></div>
+    <!-- 余额 / 额度不够时的出口牌：状态行那一句经过 sanitizeHTML（按钮会被抹成纯文本），
+         所以「去用量与余额」这种**要点的东西**只能放在页面自己的 DOM 里。 -->
+    <div id="balTip" hidden></div>
     <!-- 提交还在等平台响应时的提示（含秒数与「仍然再提交」）。**不用遮罩弹窗**：
          状态行 #status 谁都可能写，这块只由 renderPendingHint 写，互不抢 -->
     <div class="hint" id="pendingHint" style="display:none;font-size:11.5px;margin-top:6px"></div>
@@ -252,6 +252,7 @@
         <input type="number" id="gotoPage" min="1" placeholder="跳页">
         <button class="ghost" id="gotoBtn">跳转</button>
         <button class="ghost" id="sync" title="重新从各平台取回这一屏列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+        <button class="ghost" id="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"><span data-icon="box" data-size="13"></span> 存回本机</button>
       </span>
     </div>
     <div class="hist-filters">
@@ -290,13 +291,16 @@ const $ = id => document.getElementById(id);
 let REG = { providers: [] };
 
 /* ============================ ① 类型 ============================ */
+/* 每一档只点一次名：`zh` 既画在分段开关上，也拼进提交按钮那一句（`生成` + `zh`）。
+   以前这里另有一格 `go: '生成图片' / '生成语音'`，而开关上写的是「图像 / 音频」——
+   同一列上下隔两百像素的两个名字对不上（2026-10-15 统一）。 */
 const TYPES = {
-  video: { zh: '视频', provKind: 'video', go: '生成视频', adv: '高级设置' },
-  image: { zh: '图像', provKind: 'image', go: '生成图片', adv: '生成设置' },
-  audio: { zh: '音频', provKind: 'audio', go: '生成语音', adv: '合成设置' },
+  video: { zh: '视频', provKind: 'video', adv: '高级设置' },
+  image: { zh: '图像', provKind: 'image', adv: '生成设置' },
+  audio: { zh: '音频', provKind: 'audio', adv: '合成设置' },
 };
 const TYPE_LIST = ['video', 'image', 'audio'];
-const isAudioType = t => t === '音频' || t === '音乐';
+/* 「哪些类型名算音频」全站只有 ui.js 那一份判据（window.isAudioType），这一页以前自己写过同名的一份。 */
 
 function newState() {
   return {
@@ -346,7 +350,7 @@ function setType(t, fromUser) {
   } catch (e) {}
   document.querySelectorAll('#typeSeg button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
   document.querySelectorAll('#advBody .adv-type').forEach(b => { b.hidden = b.dataset.t !== t; });
-  $('go').textContent = TYPES[t].go;
+  $('go').textContent = '生成' + TYPES[t].zh;
   $('advTitle').textContent = TYPES[t].adv;
   if (fromUser) paintLeft();
 }
@@ -357,6 +361,11 @@ $('typeSeg').addEventListener('click', e => {
   setType(b.dataset.t, true);
   setStatus('');
 });
+/* 分段开关上的名字与档位顺序只有 `TYPES` / `TYPE_LIST` 一份（与设置页那四档同一个做法）：
+   HTML 里原来手抄了一遍「视频 / 图像 / 音频」，而提交按钮那一句另抄了一遍「生成图片 / 生成语音」，
+   三处谁改了另外两处不知道。指针绑在容器上（委托），换掉里面的节点不用重绑。 */
+$('typeSeg').innerHTML = TYPE_LIST.map(k => '<button type="button" data-t="' + k + '"'
+  + (k === (TYPE || 'video') ? ' class="on"' : '') + '>' + TYPES[k].zh + '</button>').join('');
 
 /* ============================ ② 小工具 ============================ */
 /* 已选素材的显示地址：外链（平台签名地址）走本地 /getv 路由，本地资产 / DataURL 原样 */
@@ -399,8 +408,8 @@ function provLabelOf(id) {
    一段本机视频会被挂成「MiMo 语音合成」，那是假的。类型对不上就说「本机」，别拿读它的那家顶名。 */
 function provLabelFor(it) {
   const p = provById(it.provider);
-  const want = it.mtype === '图片' ? 'image' : it.mtype === '视频' ? 'video'
-    : isAudioType(it.mtype) ? 'audio' : '';
+  const known = it.mtype === '图片' || it.mtype === '视频' || window.isAudioType(it.mtype);
+  const want = known ? window.mediaKindOf(it.mtype) : '';
   if (it.localAsset && p && want && p.kind !== want) return '本机';
   return provLabelOf(it.provider);
 }
@@ -414,7 +423,25 @@ const provGroups = () => groups();
 function currentModel() {
   const val = $('model').value;
   const g = provGroups();
-  for (const p of g) for (const m of (p.models || [])) if (p.id + '::' + m.id === val) return { prov: p, model: m };
+  /* ⚠ `modelDocs` 也要查 —— 而且查到的**那一份要和 p.models 里同 id 的那份合起来**。
+     v13 起 `p.models` 只装「接口给的 + 用户自己手填的」，官方文档那张 per-id 的表
+     （`modes` / `inputRoles` / `ttsMode`）在 `modelDocs` 里，只有用户手填过某个 id 时代理才并进 models。
+     以前这里只查 `p.models`：纯声明驱动的那几家（MiMo 全家）在能力刷新之后 `p.models` 里
+     只有个空壳壳，**参考音频槽（inputRoles）与三档模式（modes）整个不在当前型号上** ——
+     `modelSlots()` 问的是 `currentModel().model`，于是槽位判据读到的是空壳，
+     界面上就只剩「当前型号只支持纯文字生成」这一句。用户报的两条：
+     「模仿音色没有添加参考素材的卡片」「音色描述输入框不出现」，根因都在这里。
+     合并口径与 audioModels() 那份**逐字同源**（声明兜底、能力优先、options 深合），
+     两处各写一份就会有一处漏 —— 那正是现在的样子。 */
+  for (const p of g) {
+    const base = (p.models || []).concat((p.modelDocs) || []);
+    for (const m of base) if (p.id + '::' + m.id === val) {
+      const d = (p.models || []).find(x => x.id === m.id) || {};
+      const out = Object.assign({}, m, d);
+      out.options = Object.assign({}, m.options || {}, d.options || {});
+      return { prov: p, model: out };
+    }
+  }
   const g0 = g[0];
   return g0 ? { prov: g0, model: (g0.models || [])[0] || {} } : { prov: null, model: {} };
 }
@@ -425,11 +452,24 @@ function currentModel() {
 function audioModels(prov) {
   const p = prov || null;
   const base = (p && p.models) || [];
-  const declared = new Map(base.map(m => [m.id, m]));
+  /* 按 id 查声明时 **modelDocs 也要查**：语音这一家（MiMo）的 per-id 事实全在那张表里
+     —— modes 决定能不能做「音色复刻 / 音色设计」，inputRoles 决定**参考音频槽在不在**。
+     以前这里只查 `prov.models`，而那一列在能力刷新之后可能只剩空壳（见 assetlib.js 的
+     Capabilities.apply 里那一段说明），于是兜底这一路会把复刻/设计整个丢掉
+     —— 表现就是「模仿音色没有添加参考素材的卡片了」。与 loadLiveModels 那一处的查法一致。 */
+  const declared = new Map((base.concat((p && p.modelDocs) || [])).map(m => [m.id, m]));
   const live = ((cur().liveModels || {})[p && p.id] || null);
   const off = m => !!(window.ModelPrefs && window.ModelPrefs.isOff(p, (m && m.id) || m));
   const list = (live && live.length) ? live.filter(m => !off(m)) : base;
-  return list.map(m => Object.assign({}, m, declared.get(m.id) || {}));
+  return list.map(m => {
+    const d = declared.get(m.id) || {};
+    /* 声明兜底、能力优先：`m` 上有的键盖在声明之上，**但 options 要深合一次** ——
+       能力刷新给的那份 options 可能只有 source 那几个键，浅盖会把 formats 整块抹掉
+       （界面表现是「格式下拉只剩一个兜底的 wav」）。 */
+    const out = Object.assign({}, d, m);
+    out.options = Object.assign({}, d.options || {}, m.options || {});
+    return out;
+  });
 }
 function renderModelOptions() {
   const sel = $('model');
@@ -446,7 +486,7 @@ function renderModelOptions() {
       '<optgroup label="' + escA(p.displayName || p.name) + '">'
       + ms.map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
       + '</optgroup>').join('')
-      : '<option value="">注册路由里没有语音平台</option>';
+      : '<option value="">注册表里没有语音平台</option>';
   } else {
     html = g.map(p =>
       '<optgroup label="' + escA(p.displayName || p.name) + '">'
@@ -613,7 +653,7 @@ function slotTakesType(kind, mtype) {
   const def = SLOT_DEF[kind] || {};
   const acc = String(def.accept || '');
   if (mtype === '视频') return !!def.videoFrame || acc.includes('video');
-  if (isAudioType(mtype)) return acc.includes('audio');
+  if (window.isAudioType(mtype)) return acc.includes('audio');
   return acc.includes('image');
 }
 /* ---- 「输入模式」= 这一次请求的形状 ----
@@ -899,9 +939,9 @@ function slotTileHTML(sl, it, i, blocked) {
   const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
   const fromVid = it.fromVideo ? '（取自视频《' + it.fromVideo + '》的' + (def.videoFrame === 'first' ? '第一帧' : '最后一帧') + '）' : '';
   /* 音频没有可预览的封面，给一个图标 + 名字（其余走公共缩略图缓存，地址一律 Api.mediaSrc） */
-  const body = it.type === '音频'
+  const body = window.isAudioType(it.type)
     ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + escA(name) + '</span>'
-    : Wb.thumbs.mediaHTML(mediaOf(it), { type: it.type === '视频' ? undefined : 'image',
+    : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image',
       mediaAttrs: 'onerror="this.parentElement.classList.add(\'broken\')"' });
   return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
     + ' title="' + escA(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
@@ -927,7 +967,7 @@ function wideSlotHTML(sl, it, i, blocked) {
   if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
   if (note) sub.push(note);
   return '<div class="slot-wide asset-slot' + (blocked ? ' blocked' : '') + '" data-slot="' + sl.kind + '"'
-    + ' title="' + escA(blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
+    + ' title="' + escA(blocked ? def.label + '：与已选素材互斥（一次请求只能选一组），清空已选后可添加'
       : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传）') + '">'
     + '<span class="ic">' + icon(def.ic, 18) + '</span><span>' + (items.length ? '再加一个' : def.label) + '</span>'
     + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '') + '</div>';
@@ -947,34 +987,29 @@ function bindSlotTile(t, sl, it, i, blocked) {
   if (it) { const med = t.querySelector('video, img'); if (med) Wb.thumbs.bind(t, med, mediaOf(it)); }
   return t;
 }
-/* 提示框的 placeholder 与「还差多少字」那一行 —— **全站只有这一份**。
+/* 提示框的 placeholder 与「还差多少字」那一行 —— 措辞与数值的判据在公共层 `CharLimits` 一份。
    为什么要收成一份：placeholder 原来被两处各写一遍（renderInputArea 写通用那句、
    applyAudioCaps 写带字数的音频那句），而 paintLeft 里 renderParams 先跑、renderInputArea 后跑，
    于是音频那句**每次都被覆盖掉**：型号声明「最多 500 字」，输入框里一个字都不提，
    用户写 800 字界面毫无反应，只有点生成才被拦下（L16）。
    现在两处入口都只调这一个函数，谁后跑都不会把对方的信息抹掉。
-   字数行只在语音台、且型号声明了 minChars/maxChars 时出现 —— 别的类型没有「字数」这回事，
-   摆一行空提示就是报一件界面上没有的事。 */
+   字数行只在语音台、且这一家声明了 minChars/maxChars 时出现 —— 别的类型没有「字数」这回事，
+   摆一行空提示就是报一件界面上没有的事。区间那句导演台配音栏也写同一句（`这一家 5–5000 字`）。 */
 function paintPromptHint() {
   const ta = $('prompt'), hint = $('promptHint');
   if (!ta) return;
-  const tts = ((currentModel().prov || {}).tts) || {};
-  const min = Number(tts.minChars) || 0, max = Number(tts.maxChars) || 0;
-  const range = [min, max].filter(Boolean).join('–');
+  const b = window.CharLimits.tts(((currentModel().prov || {}).tts) || {});
   ta.placeholder = TYPE === 'audio'
-    ? '要合成的文本' + (range ? '（' + range + ' 字）' : '') + '（数字、英文缩写建议写成读法）'
+    ? '要合成的文本' + (window.CharLimits.has(b) ? '（' + window.CharLimits.range(b) + ' 字）' : '')
+      + '（数字、英文缩写建议写成读法）'
     : TYPE === 'image' ? '描述人物、动作、场景或感觉…'
       : '描述这一段视频的画面、镜头运动与氛围…';
   if (!hint) return;
-  if (TYPE !== 'audio' || (!min && !max)) { hint.hidden = true; hint.textContent = ''; return; }
-  const n = (ta.value || '').trim().length;
-  const bits = ['已写 ' + n + ' 字'];
-  if (min && max) bits.push('平台要 ' + min + '–' + max + ' 字');
-  else if (max) bits.push('平台最多 ' + max + ' 字');
-  else bits.push('平台至少要 ' + min + ' 字');
-  let bad = false;
-  if (max && n > max) { bits.push('超了 ' + (n - max) + ' 字，提交会被平台拒收'); bad = true; }
-  else if (min && n && n < min) bits.push('还差 ' + (min - n) + ' 字');
+  if (TYPE !== 'audio' || !window.CharLimits.has(b)) { hint.hidden = true; hint.textContent = ''; return; }
+  const bits = [window.CharLimits.cntLine(ta.value, b)];
+  const g = window.CharLimits.gap(ta.value, b);
+  if (g) bits.push(g);
+  const bad = window.CharLimits.over(ta.value, b);
   hint.hidden = false;
   hint.className = 'prompt-hint' + (bad ? ' bad' : '');
   hint.textContent = bits.join(' · ');
@@ -1143,7 +1178,6 @@ $('advBody').innerHTML =
   + '<div class="adv-grid">'
   + '<div id="voiceCol"><label>音色</label><select id="voice"></select></div>'
   + '<div><label>输出格式</label><select id="formatA"></select></div>'
-  + '<div id="boolBoxA" hidden></div>'
   + '</div></div>'
   /* 平台在 create.topBools 里声明的**顶层**开关（SparkCine 的「平台自动润色」）。
      它属于「生成参数」而不是提示词 —— 提示词附近已经有「AI 润色」（我们自己那一份），
@@ -1163,7 +1197,15 @@ const RATIO_HINT = {
   '4:3': ['横版，构图更稳', 'land'], '3:4': ['竖版，人物更显高', 'port'], '3:2': ['横版，接近相机比例', 'land'],
   '2:3': ['竖版海报比例', 'port'], '21:9': ['超宽，电影宽银幕', 'land'], '4:5': ['竖版，社交平台常用', 'port'],
 };
-const RATIO_PX = { '1:1': '1024×1024', '16:9': '1024×576', '9:16': '576×1024', '4:3': '1024×768', '3:4': '768×1024', '3:2': '1024×683', '2:3': '683×1024', '21:9': '1024×439', '4:5': '819×1024' };
+/* 输出像素不在这里写表：只报平台自己声明、这一发提交真的会带上那一格（`#size`）。
+   以前这里抄过一张 `RATIO_PX`（「16:9 大概是 1024×576」）显示成「输出 1024×576」，
+   而 `ar` 与 `size` 是两种参数（§3.1）—— 声明了 1536×1024 的那一家照样选 16:9，
+   界面上就报了一个平台根本不会给的尺寸；没有 `size` 那一列时像素由平台自己定，更不该替它编一个。 */
+function sizePxText(s) {
+  const v = String(s == null ? '' : s).trim();
+  if (!v) return '';
+  return /^\d+\s*[x×*]\s*\d+$/.test(v) ? v.replace(/\s*[x*]\s*/g, '×') : v;
+}
 /* 布尔参数那一排的中文名表只有一份，在公共层 `AdvExtras.BOOL_ZH`（画法则在 `AdvExtras.html.bools`） */
 const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
 
@@ -1443,7 +1485,9 @@ function renderImageParams() {
 function paintImageHints() {
   const r = val('ratio');
   const hint = RATIO_HINT[r];
-  $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0] + (RATIO_PX[r] ? ' · 输出 ' + RATIO_PX[r] : '') + '</span>' : '';
+  const px = sizePxText(val('size'));
+  $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0]
+    + (px ? ' · 按声明输出 ' + px : '') + '</span>' : '';
   $('advSum').textContent = advPlan(curImageModel(), 'image').summary;
 }
 function curAudioModel() {
@@ -1460,30 +1504,24 @@ function curTtsMode() {
   if (modes.includes('text_to_speech')) return 'preset';
   return m.ttsMode || 'preset';
 }
-function audioBoolDecls() {
-  const prov = currentModel().prov;
-  return Object.entries((((prov || {}).create) || {}).topBools || {});
-}
+/* 语音那一栏的「合成设置」：清单与选项文案全部问公共层 `TtsAdv`（与导演台「加一句配音」同一份）。
+   顶层开关**不在这里画**：它属于 create.topBools，全站只有 `#topBools` 那一排公共磁贴
+   （renderTopBools，三种类型共用）—— 以前这里还另画了一套 `#boolBoxA`，
+   界面上于是有两排一模一样的开关，而提交读的是私有那排，公共那排「勾了不算数」。 */
 function renderAudioParams() {
   const prov = currentModel().prov;
   const tts = (prov && prov.tts) || {};
   const models = audioModels(prov);
   const m = models.find(x => $('model').value.split('::').pop() === x.id) || models[0] || {};
-  const fmts = ((m.options || {}).formats || tts.formats || ['wav']).slice();
+  const fmts = window.TtsAdv.formats(prov, m);
+  if (!fmts.length) fmts.push('wav');            // 一家都没声明：至少给一个能选的，别留空下拉
   fillSel($('formatA'), fmts, f => f.toUpperCase() + (f === 'pcm16' ? '（会自动封装成 WAV）' : ''), null, 'formatA');
-  const voices = (m.options || {}).voices || tts.voices || [];
+  const voices = window.TtsAdv.voices(prov, m);
   const vs = $('voice');
   const prevVoice = vs.value;
-  vs.innerHTML = voices.map(v => '<option value="' + escA(v.id) + '">' + escA(v.name) + (v.lang ? ' · ' + escA(v.lang) : '') + (v.gender ? ' · ' + escA(v.gender) : '') + '</option>').join('');
+  vs.innerHTML = window.TtsAdv.voiceOptionsHTML(voices, prevVoice);
   if (prevVoice && [...vs.options].some(o => o.value === prevVoice)) vs.value = prevVoice;
   if (vs._ddRebuild) vs._ddRebuild();
-  const decls = audioBoolDecls();
-  const box = $('boolBoxA');
-  box.hidden = !decls.length;
-  box.innerHTML = decls.map(([k, d]) => '<div><label>' + escA(d.label || k) + '</label>'
-    + '<select data-abool="' + escA(k) + '" title="' + escA(d.hint || '') + '">'
-    + '<option value="0">关闭</option><option value="1">开启</option></select></div>').join('');
-  decls.forEach(([k, d]) => { const s = box.querySelector('[data-abool="' + k + '"]'); if (s) s.value = d.def ? '1' : '0'; });
   applyAudioCaps();
 }
 /* 「风格 / 音色描述」那一行的显隐**只有这一份判据**：它只在「语音台 + 音色设计型号」下出现。
@@ -1505,10 +1543,11 @@ function applyAudioCaps() {
   paintPromptHint();
   $('advSum').textContent = [($('model').value.split('::').pop()), mode === 'preset' ? val('voice') : MODE_ZH[mode], val('formatA')].filter(Boolean).join(' · ');
 }
+/* 这一次的顶层开关：**只读 `cur().topBools` 那一份状态**（#topBools 那一排磁贴写的就是它）。
+   以前读的是语音格里那套私有下拉，于是公共那一排勾了不进请求体 ——
+   而两排在界面上长得一模一样，用户没法知道哪一排才算数。 */
 function readAudioBools() {
-  const o = {};
-  document.querySelectorAll('#boolBoxA [data-abool]').forEach(sel => { o[sel.dataset.abool] = sel.value === '1'; });
-  return o;
+  return window.TtsAdv.read(currentModel().prov, topBoolCtx(), cur().topBools || {}).topBools;
 }
 function renderParams() {
   if (TYPE === 'video') renderVideoParams();
@@ -1637,7 +1676,7 @@ async function refreshEst() {
   const { prov, model } = currentModel();
   const gen = ++estGen;
   const alive = () => gen === estGen;              // 已经不是最新一轮就什么都别写
-  if (!prov) { box.textContent = '注册路由未加载'; return; }
+  if (!prov) { box.textContent = '注册表未加载'; return; }
   /* 屏上已经是同一个答案就别先写「估价中…」——参数没变却让估价闪一下，
      用户看着像「报价老是自己在跳」（实测：导演台每次重渲染都调，同一个数被写了两遍）。 */
   if (!estShown || box.textContent !== estShown) box.textContent = '估价中…';
@@ -1703,17 +1742,18 @@ async function refreshEst() {
 function submitBlockReason() {
   const { prov, model } = currentModel();
   const text = ($('prompt').value || '').trim();
-  if (!prov || !model || !model.id) return '注册路由里没有可用的' + TYPES[TYPE].zh + '模型';
+  if (!prov || !model || !model.id) return '注册表里没有可用的' + TYPES[TYPE].zh + '型号';
   if (!text) return TYPE === 'audio' ? '请输入要合成的文本' : '请输入提示词';
   if (TYPE === 'audio') {
-    const tts = (prov.tts) || {};
-    const minChars = Math.max(0, Number(tts.minChars) || 0);
-    if (text.length < minChars) return '文本至少 ' + minChars + ' 个字';
-    const max = tts.maxChars || 0;
-    if (max && text.length > max) return '文本超长（最多 ' + max + ' 字）';
-    const mode = curTtsMode();
-    if (mode === 'design' && !($('style').value || '').trim()) return '「音色设计」型号必须填写风格 / 音色描述';
-    if (mode === 'clone' && !slotItems('audio').length) return '「音色复刻」必须先在输入框下方选一段参考音频';
+    /* 两道闸的**句序与措辞**都问公共层，与导演台配音栏一字不差（以前这一页自己拼两句
+       「文本至少 5 个字」/「文本超长（最多 5000 字）」，导演台同一状态说的是
+       「这一家要求至少 5 个字（现在 2 个字）」—— 同一个缺陷两种说法，还有一头不报差几个字）。
+       先问「这一档定音色必填的那样东西缺了没有」再问字数，与导演台 `voiceSynthWhy` 同一个顺序。 */
+    const ww = window.TtsAdv.wayWhy({ mode: curTtsMode() },
+      { design: ($('style').value || ''), ref: slotItems('audio').length });
+    if (ww) return ww;
+    const lw = window.CharLimits.why(text, window.CharLimits.tts(prov.tts));
+    if (lw) return lw;
     return '';
   }
   /* 视频侧的长度下限不写死：注册表里只有语音声明了 minChars，没有声明 = 非空即可 */
@@ -1776,7 +1816,7 @@ $('polishBtn').onclick = async () => {
   const ta = $('prompt');
   const original = ta.value.trim();
   if (original.length < 2) { setStatus('<span class="err">先写几个字再润色</span>'); return; }
-  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
   const sysBase = TextAI.prompt(POLISH_SYS[TYPE]);
   const btn = $('polishBtn');
@@ -1790,28 +1830,36 @@ $('polishBtn').onclick = async () => {
     : TextAI.chat(REG, sys, user, { images });
   const prep = async () => { const p = await TextAI.polishImages(REG, imgList(), { max: 6 }); images = p.images; return p; };
   const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
+  /* 那几句「对模型的交代」（随附图片怎么用、素材清单、用户对先前追问的回答）只在 `TextAI.polishExtra`
+     里写一份，三个页面共用 —— 以前这里、导演台的镜头提示词与配音那一句各抄一遍，
+     改契约的人只会改自己刚碰的那一处，于是同一段回答在不同页面发给模型的意思不一样。 */
   const run = async (answers, ctl) => {
     const picked = await prep();
-    const extra = [];
-    if (images.length) extra.push('消息末尾的「随附图片」列出了每张图对应哪张素材，请结合图片内容润色。');
-    const mn = TextAI.materialNote(materials());
-    if (mn) extra.push(mn);
-    if (answers) extra.push('用户已经回答了你先前的追问，请严格按这些回答来写，不要再自行改动用户已定的选择：\n' + answers);
-    const sys = sysBase + (extra.length ? ' ' + extra.join('') : '');
-    const user = '请润色以下' + taskWord + '，直接返回润色结果：\n' + original;
-    return { after: await call(sys, user, ctl), note: picked.note };
+    const sys = TextAI.polishSys(sysBase, TextAI.polishExtra({ images, materials: materials(), answers, text: original }));
+    return { after: await call(sys, TextAI.polishUser(taskWord, original), ctl), note: picked.note };
   };
   const ask = async () => {
     const picked = await prep();
-    const mn = TextAI.materialNote(materials());
-    const sys = sysBase + (picked.images.length ? ' 消息末尾附了参考图，请结合图片内容提问。' : '') + (mn ? ' ' + mn : '');
-    return await TextAI.askPolish(REG, sys, '这是一段' + taskWord + '：\n' + original + '\n\n请针对它提出 2–4 个最影响成片的追问（素材清单见系统提示）。', { images });
+    const sys = TextAI.polishSys(sysBase, TextAI.polishExtra({ images, materials: materials(), stage: 'ask' }));
+    return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }), { images });
+  };
+  /* 结果出来之后接着对话：拿**屏幕上这一版**（用户可能刚在面板里手改过）按这一句话再改。
+     素材图与素材清单照旧重算 —— 换的只是那句话，不是这次带了哪些素材。 */
+  const follow = async (askText, current, ctl, ctx) => {
+    const picked = await prep();
+    const extra = TextAI.polishExtra({ images, materials: materials(), answers: (ctx && ctx.answers) || '' });
+    const p = TextAI.followPrompt({ what: taskWord, ask: askText, current, extra });
+    return { after: await call(p.sys, p.user, ctl), note: picked.note };
   };
   btn.disabled = true; btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>润色中…';
   try {
     await InlinePolish.interactive(host, {
       ask: TextAI.shouldAsk() ? ask : null, run, before: original,
       askTitle: 'AI 想先问几个问题', askIntro: '点一个候选；都不合适就点最后一个「其他」自己写（会原样发给 AI）；没答的按默认理解走',
+      onFollow: follow,
+      followPlaceholder: TYPE === 'audio'
+        ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法（写完按回车）'
+        : '还要怎么改？例：运镜写具体动作 / 光线改成正午 / 只留一句（写完按回车）',
       onApply: v => { ta.value = v; setStatus('<span class="ok">✓ 已替换' + (TYPE === 'audio' ? '文本' : '提示词') + '</span>'); },
       onStatus: t => setStatus(t),
     });
@@ -1888,7 +1936,10 @@ async function planImageSegments() {
   let images = [];
   try { images = (await TextAI.polishImages(REG, polishImageList(), { max: 6 })).images; }
   catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
-  const txt = await TextAI.chat(REG, TextAI.prompt('img_split'), user, { images });
+  /* 边收边显：拆分这一轮也是十几秒起步。面板挂在左栏提示词块下面（`#polishInline`）——
+     「AI 润色」也用那一块，但两者都是用户手点的，不会同时开着。 */
+  const txt = await AiStream.text(REG, TextAI.prompt('img_split'), user,
+    { images: images, host: $('polishInline'), title: 'AI 正在拆分片段…' });
   const segs = parseSegs(txt);
   if (!segs.length) throw new Error('文字 AI 没有给出可用的拆分方案，换一条描述或再试一次');
   return segs;
@@ -1898,7 +1949,7 @@ let splitBusy = false;
 $('splitGo').onclick = async () => {
   if (splitBusy) return;
   if (($('prompt').value || '').trim().length < 2) { setStatus('<span class="err">先写一段描述再拆分</span>'); return; }
-  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册路由里没有文字AI提供商</span>'); return; }
+  if (!TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（拆分方案靠它出）</span>'); return; }
   /* 与主生成按钮同一道闸（型号不可用 / 素材互斥 / 参考图超限都在里面）；
      提示词非空上面已查，这里返回的只会是别的原因 */
@@ -2079,7 +2130,7 @@ async function buildInputEntries(prov, model) {
         const onStage = (st, info) => { const t = uploadStageText(st, info, label); if (t) setStatus(t); };
         const blob = await AssetTransfer.blobOf(x.file || x.src || x.url, onStage);
         const mime = (x.file && x.file.type) || blob.type
-          || (x.type === '视频' ? 'video/mp4' : x.type === '音频' ? 'audio/mpeg' : 'image/png');
+          || (({ video: 'video/mp4', audio: 'audio/mpeg' })[window.mediaKindOf(x.type)] || 'image/png');
         const aid = await uploadToPlatform(prov, blob, x.name || (label + (mime.includes('video') ? '.mp4' : '')), mime, onStage, role);
         if (aid) entries.push({ role, assetId: aid });
       } else {
@@ -2379,6 +2430,10 @@ async function submitAudio(rec) {
   saveAudioTasks();
   renderAll();
   const p = trackSubmit(rec, () => synthAudio(t).then(r => {
+    /* 这一次成了：把「这一家刚报过余额不足」那笔账清掉（否则接下来十分钟一直挂着那张牌），
+       同时收起出口牌。 */
+    if (t.provider && window.Api) Api.balOut.clear(t.provider);
+    if ($('balTip')) { $('balTip').hidden = true; $('balTip').innerHTML = ''; }
     Object.assign(t, { status: 'done', assetId: r.assetId, url: r.url, dl: r.url + '?dl=1&name=' + encodeURIComponent((t.text || 'voice').slice(0, 16) + '.' + r.format),
       format: r.format, bytes: r.bytes, localAsset: true, usageText: r.usageText || '', priceText: r.priceText || '', transcript: r.transcript || '' });
     setStatus('<span class="ok">✓ 合成完成，已存入资产库（大类型：音频）</span>');
@@ -2386,8 +2441,27 @@ async function submitAudio(rec) {
     return r;
   }));
   try { await p; }
-  catch (e) { t.status = 'failed'; t.error = String((e && e.message) || e); setStatus('<span class="err">合成失败：' + escA(t.error) + '</span>'); }
+  catch (e) {
+    t.status = 'failed'; t.error = String((e && e.message) || e);
+    setStatus('<span class="err">合成失败：' + escA(t.error) + '</span>');
+    showBalTip(e, t.provider);
+  }
   finally { saveAudioTasks(); renderAll(); }
+}
+/* 余额 / 额度不够：状态行只有一句话，而「下一步去哪」得能点 ——
+   sanitizeHTML 会把 button 抹成纯文本（标签白名单里没有它），所以这一块自己画。
+   判据（哪一句算余额问题）在 Api.isBalanceErr 那一份，这里不写第二个正则。 */
+function showBalTip(e, provId) {
+  const box = $('balTip');
+  if (!box) return;
+  if (!window.Api || !Api.isBalanceErr(e)) { box.hidden = true; box.innerHTML = ''; return; }
+  if (provId) Api.balOut.mark(provId);
+  box.hidden = false;
+  box.innerHTML = '<div class="ui-note err" style="margin-top:8px">这一家的余额 / 额度不够（先充上再合成，'
+    + '不然再点一次还是同一句拒）。'
+    + '<button class="tool mini" id="balGoUsage" style="margin-left:6px">去「用量与余额」</button></div>';
+  const b = $('balGoUsage');
+  if (b) b.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.href = 'usage.html'));
 }
 /* ============================================================================
    ⑩ 右栏：历史资产库（三种类型合在一起）
@@ -2399,12 +2473,10 @@ async function submitAudio(rec) {
 /* 右栏默认**动态加载**（滚到底自动续拉，不翻页）。
    合并前三个台各有一份分页设置（page_mode_video / _image / _audio）：不再沿用其中任何一份 ——
    那种迁移会把「翻页」这个旧默认值带进来，正是要改掉的默认行为。用户自己在设置页改成
-   「翻页」过（page_mode_studio = 'page'）的话仍然尊重。 */
-const PAGE_MODE = (() => {
-  const v = readLS('page_mode_studio', '');
-  return (v === 'page') ? 'page' : 'more';
-})();
-const PAGE_SIZE = Math.max(1, Number(readLS('page_size_studio', '') || 24));
+   「翻页」过（page_mode_studio = 'page'）的话仍然尊重。
+   默认档与回落读法走公共层那一份（ui.js 的 pageModeOf / pageSizeOf），不在页面里抄 24。 */
+const PAGE_MODE = window.pageModeOf('studio');
+const PAGE_SIZE = window.pageSizeOf('studio');
 const LIST_CACHE = AssetLib.listCache('studio_tasks_cache_v1');
 const MERGE_SERVER = (base, add) => AssetLib.mergeEntries(base, add);
 let serverEntries = [], serverCursors = {}, serverHasMore = true, serverGen = 0;
@@ -2784,11 +2856,6 @@ const KIND_TAG = { 图片: 'image', 视频: 'video', 音频: 'mic' };
 const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.model,
   it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts].join('|');
 const openDetail = new Set();
-function dateText(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 function mediaBox(it) {
   const run = Wb.isRunning(it), bad = Wb.isFailed(it);
   if (run) return '<div class="timg"><span class="spin-dot"></span>' + escA(Wb.stText(it.status) || '生成中') + '</div>';
@@ -2803,7 +2870,7 @@ function mediaBox(it) {
       mediaAttrs: 'title="就地播放；要看大图点下面的「放大」"' })
       + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
   }
-  if (isAudioType(it.mtype) && it.media) {
+  if (window.isAudioType(it.mtype) && it.media) {
     return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + escA(Api.mediaSrc(it.media)) + '"></audio>'
       + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
   }
@@ -2845,7 +2912,7 @@ function cardHTML(it) {
   return '<div class="card-top"><span class="card-badge">'
     + (it.mtype ? '<span class="ui-tag">' + escA(it.mtype) + '</span>' : '')
     + '<span class="ui-tag ' + (Wb.isRunning(it) ? 'run' : bad ? 'err' : 'ok') + '">' + escA(Wb.stText(it.status) || '') + '</span>'
-    + '</span><span class="date">' + escA(dateText(it.ts)) + '</span></div>'
+    + '</span><span class="date">' + escA(window.fmtWhen(it.ts)) + '</span></div>'
     + mediaBox(it)
     + '<div class="tmain">'
     + '<div class="tprompt" title="' + escA(it.prompt) + '">' + (escA(it.prompt) || '(无提示词)') + '</div>'
@@ -2860,11 +2927,9 @@ function cardHTML(it) {
     + '</div>';
 }
 function fileNameOf(it) {
-  const d = new Date(it.ts || Date.now()), pad = n => String(n).padStart(2, '0');
-  const base = (it.prompt || it.mtype || 'asset').replace(/\s+/g, ' ').trim().slice(0, 24);
-  const ext = it.mtype === '视频' ? 'mp4' : it.mtype === '图片' ? 'png' : (it.format || 'wav');
-  const raw = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + ' ' + (base || 'asset') + '.' + ext;
-  return raw.replace(/[\\/:*?"<>|\x00-\x1f]/g, '-');
+  /* 三块读法都在 ui.js（`fileStamp` 拼时间、`fileSafe` 洗名字、`fileExtOf` 推扩展名），§J ⑲ 守着。
+     这一页以前那份**不看 format**（`图片?png`），于是一张 jpeg 下回来叫 .png —— 字节是 jpeg 而名字是 png。 */
+  return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.mtype || '素材') + '.' + window.fileExtOf(it);
 }
 function bindCard(d, it) {
   const det = d.querySelector('.tdetail');
@@ -2952,7 +3017,7 @@ async function retryItem(it) {
     return;
   }
   const prov = provById(it.provider);
-  if (!prov) { Toast.err('这个平台已经不在注册路由里了'); return; }
+  if (!prov) { Toast.err('这家已经不在注册表里了'); return; }
   const m = { prompt: it.prompt, model: it.model || (prov.models || [])[0].id, tier: it.tier, res: it.res, ar: it.ar, dur: it.dur, quality: it.quality };
   const t = it.mtype === '视频' ? '视频生成' : '图片生成';
   const r = await Api.request(prov, 'create', {
@@ -3009,6 +3074,7 @@ function renderAll() {
        屏上写的是「还没有历史素材」。 */
     paintCounts();
     list.paint(items);
+    paintPullBtn();          // 按钮上那个「（N）」是这一屏真正还差多少条没存本机
     const el = $('histNote');
     if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
   } finally { mergedBatch = null; }
@@ -3093,7 +3159,7 @@ Wb.lightbox.init({
   keyOf: it => itemKey(it),
   srcOf: it => it.media || '',
   nameOf: it => fileNameOf(it),
-  kindOf: it => (it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image'),
+  kindOf: it => window.mediaKindOf(it.mtype),
   info: (it, el) => [
     provLabelFor(it), it.model,
     it.dur ? it.dur + 's' : '', it.ar, it.voice ? '音色 ' + it.voice : '',
@@ -3107,7 +3173,7 @@ Wb.lightbox.init({
    `slotKindFor` 只在「当前型号真的收」的那些里挑第一个，而跨页复用还得能说出
    「换个型号就收得下」—— 所以整份候选列在这儿，而不是藏在筛选之后。 */
 const SLOT_CANDS = { 视频: ['video', 'frame_first'], 音频: ['audio'], 图片: ['image', 'frame_first', 'frame_last'] };
-const slotCands = mtype => SLOT_CANDS[mtype === '视频' ? '视频' : (isAudioType(mtype) ? '音频' : '图片')] || SLOT_CANDS['图片'];
+const slotCands = mtype => SLOT_CANDS[mtype === '视频' ? '视频' : (window.isAudioType(mtype) ? '音频' : '图片')] || SLOT_CANDS['图片'];
 function slotKindFor(mtype) { return slotCands(mtype).find(k => slots.some(x => x.kind === k)) || null; }
 function findModelWithSlot(kinds) {
   const arr = (Array.isArray(kinds) ? kinds : [kinds]).map(k => (SLOT_DEF[k] || {}).role).filter(Boolean);
@@ -3174,7 +3240,7 @@ async function refIntoSlot(mtype, p, o) {
     return { ok: false, code: 'nobytes', why: '取回素材失败：' + ((err && err.message) || err) };
   }
   if (!blob || !blob.size) return { ok: false, code: 'nobytes', why: '这条素材的字节取不到了（本机文件可能已经不在了）' };
-  const f = new File([blob], name + (mtype === '视频' ? '.mp4' : isAudioType(mtype) ? '.mp3' : '.png'),
+  const f = new File([blob], name + (mtype === '视频' ? '.mp4' : window.isAudioType(mtype) ? '.mp3' : '.png'),
     { type: blob.type || 'application/octet-stream' });
   const n = await addSlotFiles(kind, [f]);
   if (!n) return { ok: false, code: 'rejected', why: def.label + '没收这条素材（类型或体积不在这一栏的声明里）' };
@@ -3194,7 +3260,7 @@ async function refIntoSlot(mtype, p, o) {
    根本不经过这里），所以这个开关不需要第二个真值 —— **别再加一条「有时候要填」的入口**，
    那会立刻长成第二个实现。 */
 async function reuseInto(it) {
-  const wantType = it.mtype === '视频' ? 'video' : isAudioType(it.mtype) ? 'audio' : 'image';
+  const wantType = window.mediaKindOf(it.mtype);
   if (TYPE !== wantType) setType(wantType, true);
   if (it.prompt) $('prompt').value = it.prompt;
   /* 型号先定下来：参数下拉是**按型号声明**画出来的，型号没定就设值等于设在一个
@@ -3275,6 +3341,55 @@ async function applyReuseFromAssets() {
 /* ---------- 右栏控件 ---------- */
 $('searchBtn').onclick = () => { searchQ = $('searchBox').value.trim().toLowerCase(); pager.setPage(0); renderAll(); };
 $('searchBox').addEventListener('keydown', e => { if (e.key === 'Enter') $('searchBtn').click(); });
+/* ---------- 「存回本机」：把这一屏里还没有本机那份字节的产物取回来 ----------
+   与资产库 / 收藏 / 素材库那三颗是**同一条链**（AssetLocal.pullMany，见 assetlib.js）：
+   「自动存本机」开着时这里是兜底（漏掉的那几条、或开关打开之前就生成了的），
+   关着时这里是**唯一的手动入口** —— 而这一页正是产物最多的地方。
+   范围用 `mergedItems()` 而不是 `filteredItems()`：后者带着 `hideAsCloud` 那一道闸，
+   勾了「不显示云端任务」时它会把**恰恰需要存回来的那批**筛掉，按钮就成了一条「点了没反应」的假控件。
+   判据其实同一件事的两面：藏起来 ≠ 不该存。 */
+function pullScope() {
+  const seen = new Set();
+  /* 整页重画期间那一份已经物化好了（renderAll 开头的 mergedBatch），直接借来用，
+     别在每一次重画里再合成一遍三类来源。 */
+  return (mergedBatch || mergedItems()).filter(e => {
+    if (!e || e.kind !== 'asset') return false;          // 任务行还没有产物，没有字节可下
+    if (!matched(e) || (filterKind !== 'all' && e.mtype !== filterKind)) return false;
+    const u = e.src || e.dl || e.rawSrc || '';
+    if (!u) return false;
+    const k = [e.provider, e.assetId || e.id || e.genId].join('|');
+    if (seen.has(k)) return false;
+    seen.add(k);
+    /* 「本机有没有这份字节」只有 AssetLocal.hasLocalAddr 一份判据，已经在本机的一条都不重下。 */
+    return !AssetLocal.hasLocalAddr(u);
+  });
+}
+function paintPullBtn() {
+  /* 画法与措辞走公共层那一份（AssetLocal.pullBtn，四页同一套）：在途时整颗不重画，
+     否则右栏每 3 秒随整列重建一次，会把「存回本机 7 / 20」冲回没有进度那一版。 */
+  AssetLocal.pullBtn($('pullLocalBtn'), pullScope().length, { what: '产物' });
+}
+$('pullLocalBtn').onclick = async () => {
+  const b = $('pullLocalBtn');
+  const todo = pullScope();
+  if (!todo.length) {
+    Toast.info(mergedBatch && mergedBatch.length ? '这一屏要存的本机都已经有了' : '这一屏还没有可存的产物');
+    return;
+  }
+  AssetLocal.pullStart(b);
+  const r = await AssetLocal.pullMany(todo.map(e => ({
+    entry: e,
+    name: String(e.prompt || e.name || '这一条').slice(0, 12),
+    /* 存好了把这一条的显示地址换成本机那一份：不然缩略图还挂着那条快过期的外链，
+       用户看着「存了但没变」。dl 不动 —— 那是「下载到浏览器」那一路，语义不一样。 */
+    apply: u => { e.src = u; },
+  })), { onProgress: (done, total) => btnText(b, '存回本机 ' + done + ' / ' + total) });
+  AssetLocal.pullEnd(b);
+  paintPullBtn();          // 图标与「还剩几条」按此刻的屏重画：全失败时也不能停在没有图标那一版
+  AssetLocal.pullReceipt(r);
+  if (r.ok) renderAll();          // 缩略图要跟着换成刚存好的本机那一份
+};
+
 $('sync').onclick = async () => {
   const b = $('sync');
   b.disabled = true; b.innerHTML = '<span class="spin-dot"></span> 刷新中';

@@ -23,7 +23,6 @@ window.Chars = (function () {
   /* ---------- 存储键（都在 ui.js 的 SYNCABLE 白名单里，跟着云同步走）----------
      本模块只认新名；旧名的兼容与搬运全在 ui.js 那一站，别在这里再加一层回退。 */
   const K_CHARS = 'char_lib';           // 素材库
-  const CAP_CHARS = 300;
   /* 一份素材身上最多留几张候选图（预览图与各类设定图共用这一条上限）：
      这是**本机留着挑的张数**，不是平台一次能出几张 —— 一次出几张看设置里的「候选张数」与
      `max_outputs` 声明（previewCap）。上限取 8：设置页那一档最大就是 8，
@@ -63,7 +62,7 @@ window.Chars = (function () {
        换一家只有预设型号的语音平台时，auto 落到预设上并照实说明，
        而不是把一排固定音色摆出来让人猜哪个像。 */
     ttsMode: { key: 'char_tts_mode', kind: 'opt', def: 'auto', label: '音色怎么定',
-      hint: '默认「自动」：优先用生成音色的模型（按角色外貌与性格写一段描述，那把嗓子由模型现造）。只有这一家没有这类型号时才退回预设音色。',
+      hint: '默认「自动」：优先让 AI 按角色的外貌与性格现造嗓子，这一家没有这类型号时才退回预设音色。',
       options: [{ id: 'auto', label: '自动（优先生成音色）' }, { id: 'design', label: '按描述生成音色' },
         { id: 'clone', label: '复刻参考音频' }, { id: 'preset', label: '从固定音色里挑' }] },
     /* 候选张数：角色、场景、道具**一次出几张**让你挑。
@@ -75,7 +74,7 @@ window.Chars = (function () {
        想要更省就改 1（等于回到只出一张、挑不了）。 */
     candN: { key: 'char_cand_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '8',
       label: '角色 / 场景 / 道具 一次出几张候选',
-      hint: '调大就是多画几张：这几张各用一条不同的提示词（背景、光线、表情各换一个方向），所以是几个可挑的路子而不是同一张的抖动。实际张数还要看生图平台一次能让出几张' },
+      hint: '调大就是多画几张：每张换一条提示词（背景 / 光线 / 表情），是几个可挑的路子；上限看生图平台一次能让几张' },
   };
   /* 「这一次要出几张候选」：**判据只有这一处**（页面按钮文案、生图提交、界面上标的上限都读它）。
      夹到 `previewCap`（上游声明的上限）—— 请求一个上游只让出 1 张的模型出 3 张，
@@ -313,7 +312,12 @@ window.Chars = (function () {
      ② 库里那份读不出来（`libBroken`）—— 这时**根本不写**，写下去就是把整库洗成一条。 */
   let libWriteErr = '';
   function writeLib(xs) {
-    const r = write(K_CHARS, xs, CAP_CHARS);
+    /* 不传 cap：素材库**不再有 300 条的截断**（2026-10 用户要求：各种功能都不要加限制）。
+       以前这里传 300，而 `Store.write` 的 cap 是**静默丢弃**（只 console.warn 一句）——
+       用户看到的只是「我最老的素材凭空没了」。现在条数不限：
+       真到浏览器 5MB 额度满时，Store.write 会**报出来**（带一句「到资产库清理或先下载再清」），
+       那时候是响的失败，不是悄悄删人的东西。 */
+    const r = write(K_CHARS, xs);
     libWriteErr = (r && r.ok === false) ? String(r.error || '本机存储写不进去') : '';
     return r;
   }
@@ -673,7 +677,7 @@ window.Chars = (function () {
   function modelSelectHTML(REG, o) {
     o = o || {};
     const groups = modelGroups(REG, o.kind, o.mode);
-    if (!groups.length) return '<span class="ui-hint">' + esc(o.emptyText || '注册路由里没有这一类平台') + '</span>';
+    if (!groups.length) return '<span class="ui-hint">' + esc(o.emptyText || '注册表里没有这一类平台') + '</span>';
     const cur = String(o.value || '');
     return '<select id="' + esc(o.id || '') + '">' + groups.map(g =>
       '<optgroup label="' + esc(g.label) + '">' + g.items.map(it =>
@@ -957,7 +961,7 @@ window.Chars = (function () {
     return { src: first.src, n: list.length, notes: notes, name: name };
   }
 
-  /* ---------- 6.3 配音：逐句合成，按真实时长排字幕 ----------
+  /* ---------- 6.3 配音：按用户选的那个语音型号逐句合成 ----------
      语音型号也和视频一样按用户选的那个取（`opts.ttsModel` = provId/modelId），
      并且**按声明认「这个型号怎么定音色」**（registry 的 models[].ttsMode）：
        preset 预设音色 → 发 char.voice 那个音色 id
@@ -1062,6 +1066,27 @@ window.Chars = (function () {
     const preset = by.preset ? voices(REG, opts, 'preset') : [];
     return { ok: !!(by.design || by.clone || preset.length), why: '这个语音平台既没有可选的预设音色，也没有音色设计 / 复刻的型号',
       preset: preset, design: by.design || null, clone: by.clone || null, prov: v.prov, model: v.model };
+  }
+  /* 「下拉里选中的那一个型号，这一句就照它的方式定音色」—— 工作台语音栏一直是这么做的
+     （`studio.html` 的 `curTtsMode()` 直接读选中型号的 `modes`），而导演台声音栏以前按
+     「这一家有没有预设音色」排优先级（preset > design > clone）：三家挂在不同型号上的时候，
+     用户在下拉里选了「音色设计」那个型号，界面画的却还是预设音色下拉 —— 描述框整块不出现；
+     选「音色复刻」时连「选参考音频」那张卡都没有（用户报的「模仿音色没有卡片、生成音色没有描述框」）。
+     这一份把两件事一起判完：方式由**选中的型号**决定，并且这一家的请求体**放得下它**才算 ok。
+     放不下时不能画一个输入框再让那句话被上游静默丢掉（那是 `ttsModeUsable` 存在的原因），
+     要当场写明原因、让调用方把合成按钮压暗。 */
+  function ttsWayOfChosen(REG, opts) {
+    const v = pickProvModel(REG, 'audio', opts && opts.ttsModel, 'text_to_speech');
+    if (!v) return { ok: false, chosen: null, target: null, model: null, prov: null, mode: 'none',
+      why: '还没有可用的语音平台：到设置页「语音」那一档填一家并勾上' };
+    const mode = ttsModeOf(v.model);
+    if (!ttsModeUsable(v.prov, v.model, mode)) {
+      return { ok: false, chosen: v, target: v, model: v.model, prov: v.prov, mode: 'none',
+        why: (mode === 'design'
+          ? '这个型号的声音描述在这一家的请求体里没有位置放（发出去会被上游静默丢掉）'
+          : '这个型号在请求体里没有位置放参考音频') + ' —— 换一家声明了它的型号，或改用预设音色那一个' };
+    }
+    return { ok: true, chosen: v, target: v, model: v.model, prov: v.prov, mode: mode, why: '' };
   }
   /* 当前语音型号用哪种方式定音色（界面据此决定「选预设音色 / 写一段声音描述 / 上传参考音频」）。
      传 mode 就是问「这个方式落在哪一个型号上」。
@@ -1246,7 +1271,13 @@ window.Chars = (function () {
     });
     stage('正在按人设定「' + c.name + '」的声音…');
     let txt = '';
-    try { txt = await TextAI.chat(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', o); }
+    /* 与 `assignVoices` 同一份写法：调用方给了 `onDelta` 就边收边显（那里是页面上的流式面板），
+       没给就还是普通一次性调用 —— 判据不在这里拍，看调用方要不要过程。 */
+    try {
+      txt = o.onDelta
+        ? await TextAI.chatStream(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', o, o.onDelta)
+        : await TextAI.chat(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', o);
+    }
     catch (e) { return { ok: false, why: '定音色没成：' + ((e && e.message) || e) }; }
     const j = TextAI.parseJson(txt);
     const rows = (j && (j.roles || j.characters)) || [];
@@ -1818,7 +1849,7 @@ window.Chars = (function () {
           + '" data-vname="' + esc(nm) + '"' + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一条') + '</button>' : '')
         + (canClone ? '<button class="ui-linkbtn" data-act="vclone" data-src="' + esc(x.src) + '"'
           + ' data-name="' + esc(nm) + '"' + (cloned ? ' disabled' : '')
-          + ' title="把这一条存下来的音频挂成这一位的参考音频、方式切到复刻 —— 以后（包括下一集）都按这个声音念">' + (cloned ? '正在用它' : '拿这条去克隆') + '</button>' : '')
+          + ' title="把这条音频挂成这一位的参考音频、方式切到复刻 —— 以后都按这个声音念">' + (cloned ? '正在用它' : '拿这条去克隆') + '</button>' : '')
         + '</span>';
     }).join('');
     const gen = cap.n > 1 ? '<button class="ghost mini" data-act="vgen" data-n="' + cap.n + '">一次出 ' + cap.n + ' 条试听</button>' : '';
@@ -1942,19 +1973,9 @@ window.Chars = (function () {
     return { ok: true };
   }
 
-  /* 下载的文件名。剧名是用户自己起的，可能带 \ / : * ? " < > | 这些文件系统不许用的字符 ——
-     浏览器会各自换成一个下划线或直接截断，出来的名字就散了（一个「第1段_第2次」看不出是哪一集）。
-     所以**统一在这一处洗**，页面不许自己拼名字：
-     产物每一次单独下载都走它，名字长得一模一样。 */
-  function fileSafe(s, max) {
-    const t = String(s == null ? '' : s)
-      .replace(/[\\/:*?"<>|]+/g, '_')       // 文件系统保留字符
-      .replace(/[\r\n\t]+/g, ' ')           // 换行/制表（会截断成两半）
-      .replace(/\s+/g, ' ')
-      .replace(/[. ]+$/, '')                // 结尾的点与空格：Windows 上会被悄悄去掉
-      .trim();
-    return (t || '素材').slice(0, max || 24);
-  }
+  /* 下载的文件名不在这里洗：判据全站只有 `ui.js` 的 `fileSafe` 一份（§J ⑲ 守着）。
+     这一族以前有三份换法（这里换下划线、页面那两处换连字符、assetlib 那份直接删字符），
+     而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
   return {
     /* ---- 设置项：设置页照 SET 这张表渲染控件，页面读 setting / aiVoiceOn / candCount ---- */
     SET, setting, aiVoiceOn, candN, candCount, previewCap,
@@ -1968,11 +1989,14 @@ window.Chars = (function () {
     newChar, newScene, newProp,
     Lib,
     /* ---- 出图与配音两条流水线。拆剧本 / 拍摄 / 成片那一族 2026-10 随拍短剧页一并删除 ---- */
-    Pipe: { drawPreview, drawCharAsset, modelSelectHTML, pickProvModel, runPool, fileSafe,
+    Pipe: { drawPreview, drawCharAsset, modelSelectHTML, pickProvModel, runPool,
       /* 语音那三档（哪家在用 / 有哪些可选音色 / 这一家能怎么定声音）的判据在这里，不在页面里：
          导演台剪辑的声音轨要画同一套下拉，若它自己读 `model.options.voices`，
          「型号声明 → 平台级兜底」那个顺序就会有两份、漂开只是时间问题。 */
       provModels, voices, ttsWays, ttsOf,
+      /* 「选中型号 → 这一句按哪种方式定音色」的判据（含「请求体放得不下」那句原因），
+         导出去给导演台声音栏用 —— 页面自己按平台排优先级就会和工作台两套说法。 */
+      ttsWayOfChosen,
       voiceMode, setVoiceWay, assignVoices, autoVoice, cloneFromCands, voiceCands,
       saveRefAudio, clearRefAudio },
     /* ---- 角色卡上「声音 / 资产」那几块。素材库页与导演台共用一份，

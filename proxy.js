@@ -9,6 +9,7 @@ const os = require('os');
 const dns = require('dns');
 const zlib = require('zlib');
 const tls = require('tls');
+const net = require('net');   // 只用来验 .env 里那个 BIND_HOST 是不是一个真的 IP 字面量
 /* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.js 顶部）。
    这里 require 而不是抄一份：落盘闸要判断「这份产物本机有没有存过」，
    而浏览器要算缓存键与跨页去重 —— 同一件事，两处各写一份就一定会漂。 */
@@ -484,11 +485,14 @@ const REGISTRY = {
            **只在提交那一刻**按这张表换成 create 收的形 —— 表由 `Api.createBody` 统一消费，页面不判平台。
            简形↔别名 的对应是报价接口逐条实测出来的（回显字段），不是猜的。 */
         modelSendMap: { base: 'minimax/h3', cinematic: 'minimax/h3-human', origin: 'minimax/h3-native' },
-        /* prompt 的长度闸（实测上游校验消息）：普通生成 5–30000 字；
-           动作换人形状允许省略（0 字不发）或 0–2000 字的附加指令。
-           客户端在提交前拦并说明原因，比让上游回一句用户看不懂的英文校验串好。 */
-        promptLimits: { min: 5, max: 30000,
-          byIntent: { person_replacement: { min: 0, max: 2000, omitted: true } } },
+        /* **没有 prompt 长度闸**（2026-10 用户实测后要求：VGENV 没有字数限制）。
+           这里以前声明 `{ min: 5, max: 30000, byIntent: { person_replacement: … } }`，来源是
+           一次实测到的上游校验串，于是导演台与 `Api.createBody` 都会在 5 字以下直接拦住
+           —— 而实际上 VGENV 收短提示词没问题（「特写」「回头」这种两三个字的镜头描述是常态），
+           那一栏旁边还写着「这一家 5–30000 字」，用户按它改提示词，改的其实是我们的想象。
+           现在整块删掉：没有声明 = `promptLimitOf` 返回 null（界面不再画那截小字）、
+           `createBody` 也不再拦。真正该拦的仍然拦着 —— 导演台那一条「先写这一镜的提示词」
+           是**空的才拦**，跟「至少几个字」不是一回事。 */
         /* 素材输入怎么进请求体 —— 按官方开发文档（vgenv.com/developers/docs）声明。
              未知字段会被拒绝，所以形状必须精确；tmpl 里 $url = DataURL/公网 https 地址，
              $assetId = 先上传成资产再引用。
@@ -788,7 +792,7 @@ const REGISTRY = {
          现在每家都是一条正常的 provider：relay / base / keyEnv / models 各自独立，
          新增一家只要在这里加一条，页面、设置页、余额、用量全都不用改。
          default: true = 没显式选过时的首选（客户端还会看它有没有密钥，没有就退到下一家）。 */
-      id: 'openrouter', name: 'OpenRouter 文字AI', kind: 'text', relay: '/openrouter', default: true,
+      id: 'openrouter', name: 'OpenRouter 文字 AI', kind: 'text', relay: '/openrouter', default: true,
       base: 'https://openrouter.ai/api/v1', keyEnv: 'OPENROUTER_API_KEY', baseEditable: true,
       site: 'https://openrouter.ai',
       endpoints: {
@@ -821,7 +825,7 @@ const REGISTRY = {
       ],
     },
     {
-      id: 'deepseek', name: 'DeepSeek 文字AI', kind: 'text', relay: '/textai',
+      id: 'deepseek', name: 'DeepSeek 文字 AI', kind: 'text', relay: '/textai',
       base: 'https://api.deepseek.com', keyEnv: 'DEEPSEEK_API_KEY', baseEditable: true,
       site: 'https://platform.deepseek.com',
       endpoints: {
@@ -846,7 +850,7 @@ const REGISTRY = {
        下面那一行 `modelDocs` 是**「文档里写过这个 id 支持什么」**，不是清单：
        用户自己填了这个 id 才用得上（识图判定照它查）。它不参与任何「型号有哪些」的判断。 */
     {
-      id: 'openai', name: 'OpenAI 文字AI', kind: 'text', relay: '/textai',
+      id: 'openai', name: 'OpenAI 文字 AI', kind: 'text', relay: '/textai',
       base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
       site: 'https://platform.openai.com',
       endpoints: { chat: '/chat/completions' },
@@ -898,7 +902,7 @@ const REGISTRY = {
       modelDocs: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
     },
     {
-      id: 'minimax-text', name: 'MiniMax 文字AI', kind: 'text', relay: '/textai', keyId: 'minimax',
+      id: 'minimax-text', name: 'MiniMax 文字 AI', kind: 'text', relay: '/textai', keyId: 'minimax',
       base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', baseEditable: true,
       site: 'https://platform.minimax.io',
       endpoints: { chat: '/chat/completions' },
@@ -1971,13 +1975,129 @@ function log(line) {
   writeLog(out);
 }
 
+/* ---------- 「带病还在跑」要看得见：一处有界的故障账（进 /sys-status 顶层「健康」） ----------
+   顶层那三个兜底以前各只留一行日志：`uncaughtException` 记完继续跑、socket 错误整个吞掉。
+   日志每 200 行轮转一次、启动器窗口一关就翻不回去，而界面上看着一切正常 —— 于是第二天有人
+   对着一个状态可能已经坏掉的代理排查「为什么列表刷新不出来」。
+   现在这四个出口各往这一份账里记一笔：一个计数 + 最近几条（消息与栈首行各截一次）——
+   三种顶层兜底（未捕获异常 / 没接住的 Promise / 连接错误）加上「请求处理里抛出、回了一句 500」那一种
+   （响应头已经发出去时那句 500 页面根本收不到，以前等于什么都没说过）。
+   两条立场别混：
+   ① **只报不自杀**：本地工具里「一次异常把服务打断」比「带着一次异常继续用」更糟，
+      所以这里绝不退出；出路只有一条，写在 `说明` 里 —— 在启动器点「重启」（重启后这份账清零）。
+   ② **`连接错误` 不算故障**：浏览器提前断开、上游掐掉隧道都归它，一天几十次是正常现象，
+      所以它单独计数、不参与上色。拿它标红等于骗人去重装一个本来好好的东西。
+   「有界」是硬要求：条数封顶、每条两个字段截断、同一句重复只把计数抬上去 ——
+   一个正在每秒刷一次的异常不许把它变成第二份无界日志。 */
+const FAULT_KEEP = 8;
+const FAULT_KINDS = ['未捕获异常', 'Promise失败', '请求出错', '连接错误'];
+const faultCount = {}; FAULT_KINDS.forEach(k => { faultCount[k] = 0; });
+const faultList = [];                     // 最近几条，新的在前
+let lastFaultAt = 0, lastWorkAt = 0, lastWorkPath = '';
+const cut1 = (s, n) => { const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
+function faultMsg(e) {
+  if (!e) return '（没给原因）';
+  if (typeof e === 'string') return e;
+  return e.message || String((e && (e.code || e.errno)) || '');
+}
+/* 栈里第一处「at …」才是出事的函数；消息本身已经在 `消息` 那一格里了，别重复占地方 */
+function faultAt(e) {
+  const lines = String((e && e.stack) || '').split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (/^at\s/.test(l)) return cut1(l.replace(/^at\s+/, ''), 160);
+  }
+  return '';
+}
+function noteFault(kind, e, extra) {
+  faultCount[kind] = (faultCount[kind] || 0) + 1;   // 兜住「种类名拼错」：计数照样要长，不能悄悄丢
+  lastFaultAt = Date.now();
+  const msg = cut1(faultMsg(e) || (extra || ''), 200) || '（没给原因）';
+  const at = cut1(faultAt(e), 160);
+  const head = faultList[0];
+  // 同一处反复炸：只把「重复」抬上去，不再往前插一条（否则刷屏的那一种正好把账撑爆）
+  if (head && head.种类 === kind && head.消息 === msg && head.位置 === at) { head.重复++; head.at = lastFaultAt; return; }
+  faultList.unshift({ at: lastFaultAt, 种类: kind, 消息: msg, 位置: at, 重复: 1 });
+  if (faultList.length > FAULT_KEEP) faultList.length = FAULT_KEEP;
+}
+/* 「最后一次真正在干活」：体检这一条不算 —— 设置页每开一次就刷一次，
+   拿它当活动读数会让人以为「代理一直在被用」，而实际页面早就关了。 */
+function noteWork(p) {
+  if (p === '/sys-status') return;
+  lastWorkAt = Date.now(); lastWorkPath = cut1(p || '', 60);
+}
+function agoShort(ts) {
+  if (!ts) return '没有';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return s + ' 秒前';
+  if (s < 3600) return Math.round(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.round(s / 3600) + ' 小时前';
+  return Math.round(s / 86400) + ' 天前';
+}
+function durShort(sec) {
+  let s = Math.max(0, Math.round(sec));
+  const parts = [[86400, '天'], [3600, '小时'], [60, '分']];
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const n = Math.floor(s / parts[i][0]);
+    if (n) { out.push(n + ' ' + parts[i][1]); s -= n * parts[i][0]; }
+  }
+  if (!out.length) return s + ' 秒';
+  return out.slice(0, 2).join(' ');
+}
+/* 三份读法（复制文本 / 设置页那一行 / 助手 doctor）都只读这里的字段，页面一个字都不重拼。
+   `档` 决定上色，`说明` 是能贴出去的那一句 —— 与 `渲染.本机档` / `本机说明` 同一立场。 */
+function healthStatus() {
+  const nErr = faultCount['未捕获异常'] || 0, nRej = faultCount['Promise失败'] || 0;
+  const nReq = faultCount['请求出错'] || 0, nSock = faultCount['连接错误'] || 0;
+  let chip, cls, say;
+  if (nErr) {
+    const h = faultList.filter(x => x.种类 === '未捕获异常')[0];
+    chip = '出过 ' + nErr + ' 次'; cls = 'err';
+    say = '这个代理起过 ' + nErr + ' 次未捕获异常，按设计没有退出（本地工具不该因为一次异常打断使用），'
+      + '但状态可能已经不完整' + (h ? '：最近一次 ' + agoShort(h.at) + '，' + h.消息 + (h.位置 ? '（' + h.位置 + '）' : '') : '')
+      + '。要清掉这份账、把状态换回干净的一份，只有一条路：在启动器点「重启」。';
+  } else if (nRej || nReq) {
+    const bits = [];
+    if (nRej) bits.push(nRej + ' 次没被 catch 的 Promise 失败');
+    if (nReq) bits.push(nReq + ' 次请求处理里抛出的错');
+    const h = faultList.filter(x => x.种类 === 'Promise失败' || x.种类 === '请求出错')[0];
+    chip = (nRej ? 'Promise 失败 ' + nRej + ' 次' : '') + (nRej && nReq ? ' · ' : '') + (nReq ? '请求抛错 ' + nReq + ' 次' : '');
+    cls = 'warn';
+    say = '没有未捕获异常，但有 ' + bits.join('、')
+      + (h ? '：最近一次 ' + agoShort(h.at) + '，' + h.消息 + (h.位置 ? '（' + h.位置 + '）' : '') : '') + '。'
+      + '前者多半是一次外部请求或读盘没接住，后者那一句页面通常已经当场报过；不影响继续用，'
+      + '但反复出现同一句就在启动器点「重启」，并把那一句抄给助手。';
+  } else {
+    chip = '正常'; cls = 'ok';
+    say = nSock ? ('没有异常记录。另有 ' + nSock + ' 次连接错误 —— 浏览器提前断开或上游掐掉连接，正常现象，不算故障。')
+      : '没有异常记录。';
+  }
+  return {
+    档: cls, 芯片: chip, 说明: say,
+    存活: durShort(process.uptime()),
+    /* 时刻的写法走代理那一份 `timeText`（与提示词归档正文里那句「时间：」同一个格式），
+       不用 toLocaleString —— 换台机器就换一种写法，而这三份读法拼出去的必须是同一句 */
+    起于: timeText(new Date(Date.now() - process.uptime() * 1000)),
+    未捕获异常: nErr, 'Promise失败': nRej, '请求出错': nReq, 连接错误: nSock,
+    最近: faultList.map(x => ({ at: x.at,
+      时候: timeText(new Date(x.at)),
+      种类: x.种类, 消息: x.消息, 位置: x.位置, 重复: x.重复 })),
+    最后请求: lastWorkAt ? (agoShort(lastWorkAt) + (lastWorkPath ? ' · ' + lastWorkPath : '')) : '还没有过（除体检外）',
+    保留: '最近 ' + FAULT_KEEP + ' 条，重启后清零',
+  };
+}
+
 /* ---------- ffmpeg 离线渲染服务 ----------
    POST /render          提交 EDL（clips: src/in/out/speed/volume）→ 返回 { id }
    GET  /render/status   查询进度 { state, progress, stage, out, err, log }
-   GET  /render/dl       下载成片 ?name=xxx
+   GET  /render/dl       取回成片 ?name=xxx（带 Range：拖进度条与 moov 在尾部的 mp4 都要）
    POST /render/cancel   取消渲染（杀 ffmpeg 子进程 + 从队列摘掉）?id=xxx
-   流程：下载每段素材 → 逐段标准化（尺寸/帧率/编码一致）→ concat 拼接 → 输出 mp4
-   src 支持：/asset/<id>（用密钥解析最新签名链接）｜ http(s):// ｜ /local-path（经本机 http 取回） */
+   流程：**一次 ffmpeg 的单遍 filter_complex**（逐段输入级 -ss/-t 裁剪 → scale/pad/fps/setpts → concat
+         → 配音各自 adelay 后一次 amix）；不逐段编码成 norm_N.mp4 再 concat（见 AGENTS.md §8）
+   src 支持：/asset/<id>（用密钥解析最新签名链接）｜ http(s):// ｜ /local-path（经本机 http 取回）
+   「/render/play」（内联播放那一条）2026-10-15 删除：页头「播放成片」那颗按钮早就整颗摘掉，
+   剪辑态预览走时间线实时播、绝不为播放渲染，所以这一条路由全站零调用，是那条路留下的最后一段。 */
 const { spawn, spawnSync } = require('child_process');
 const RENDER_DIR = path.resolve(__dirname, process.env.RENDER_DIR || '.renders');   // 同 ASSETS_DIR：绝对路径要能直接用
 
@@ -1996,6 +2116,74 @@ const RENDER_DIR = path.resolve(__dirname, process.env.RENDER_DIR || '.renders')
    目录会静默落到一个不存在的拼接路径上 —— 现象是「隔离实例照样 422 / 找不到文件」，
    很容易被误判成探针写错了。DATA_DIR / PROMPTS_DIR 本来就是 resolve，只有这两个是 join。 */
 const LOCAL_DIR = path.resolve(__dirname, process.env.ASSETS_DIR || '.assets');
+/* ---------- 写媒体之前先问一句「这块盘还剩多少」 ----------
+   以前是等 ENOSPC 抛出来才报错，而那一句多半落在 handler 的 catch 里只进日志：
+   界面上看到的是卡片当场换图、toast 说「已保存」，刷新后资产库里没有它 ——
+   「说成功了而其实没落盘」是本项目反复拦的那一类（见 §4「存盘失败必须看得见」）。
+   三条口径：
+   ① **只在本机问、不起子进程**：`fs.statfsSync` 拿 `bsize × bavail`（Node 19.6+）。
+      老 Node 上没有这个 API 就当「问不出来」，**照原样继续写** —— 量不到空间不是拒绝服务的理由；
+   ② 留一份**余量**再比（不是「装得下就写」）：写到刚好把盘填满，下一步失败的会是
+      rename / `.bak.json` 备份 / 索引写入，那些失败比这一条难解释得多；
+   ③ 说的是人话并且点名是哪一个目录、还差多少 —— 「磁盘错误」四个字没人知道该清哪一块。 */
+const DISK_HEADROOM = 32 * 1024 * 1024;
+const mbOf = b => (b / 1048576).toFixed(b >= 1048576 ? 1 : 2) + ' MB';
+function freeBytesOf(dir) {
+  if (typeof fs.statfsSync !== 'function') return null;
+  try { const s = fs.statfsSync(dir); return s.bsize * s.bavail; } catch { return null; }
+}
+/* 够 → 返回 null；不够 → 返回那句要回给调用方的话（**不抛**：各条路由的失败出口不一样，
+   /save 回 JSON、/render 写进 job.err，让调用方自己决定怎么说）。 */
+function whyNoSpace(dir, need, what) {
+  const free = freeBytesOf(dir);
+  if (free === null || free >= need + DISK_HEADROOM) return null;
+  return (what ? what + ' ' : '') + '要写 ' + mbOf(need) + '，而「' + dir + '」所在的盘只剩 ' + mbOf(free)
+    + '（还要留 ' + mbOf(DISK_HEADROOM) + ' 余量给改名与备份）—— 腾点空间或换一个盘再试';
+}
+/* 渲染只能问一个「最低下限」：成片要多少字节取决于段数、时长、码率与配音，
+   猜一个具体数会写出假承诺（说「要 200MB」而实际写出 1.2GB）。所以这一档只兜
+   「盘明显快满」那种必然失败的情况 —— **在下载素材之前就拦**，而不是等 ffmpeg 跑到
+   最后写文件时崩在半个 mp4 上（那时用户已经等了几分钟，而盘上留了一个坏文件）。 */
+const RENDER_MIN_FREE = 256 * 1024 * 1024;
+function whyRenderSpace() {
+  const free = freeBytesOf(RENDER_DIR);
+  if (free === null || free >= RENDER_MIN_FREE) return null;
+  return '导出成片的落盘目录只剩 ' + mbOf(free) + '，而一遍渲染要边解码边写临时文件（至少要留出 '
+    + mbOf(RENDER_MIN_FREE) + '）—— 清一清这块盘，或在 .env 里把 RENDER_DIR 指到别的盘（改完要重启）';
+}
+/* ---------- 启动时清掉崩溃残留的临时写入文件 ----------
+   两处原子写（`.data/<key>.json` 与 `.assets/index.json`）都是「写 <目标名>.tmp-<pid>-<随机串> → rename」，
+   正常路径要么 rename 走、要么 catch 里 unlink 掉，**只有进程被硬杀 / 断电才会留下**。
+   留下的害处不是占地方（一份 JSON 几十 KB）：`GET /data` 的清单与设置页「数据与备份」会把它们
+   列成来路不明的条目，而资产索引重建时也会扫到多出来的名字。
+   三条口径：
+   ① **只认自己写出来的那一个形状**（`.tmp-<数字>-<2~8 位小写字母数字>` 结尾），
+      用户放进这两个目录的文件名再奇怪都不碰 —— 这条路由删的是我们自己的垃圾，不是用户的东西；
+   ② **认年龄**（写完不满 15 分钟的一律不动）：同一台机器上可能同时跑着另一个实例，
+      它正在写的那个临时文件与残留形状一模一样，只看形状就会删掉别人在途的那一次。
+      不用名字里的 pid 判活（Windows 会回收 pid，撞号的残留反而永远清不掉）；
+   ③ 尽力而为：读不到目录 / 删不掉只记一行，**绝不影响启动**。 */
+const TMP_STALE_RE = /\.tmp-\d+-[a-z0-9]{2,8}$/;
+const TMP_STALE_MS = 15 * 60 * 1000;
+function sweepStaleTmp(dirs) {
+  let n = 0;
+  (dirs || [dataDirPath(), LOCAL_DIR]).forEach(dir => {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return; }        // 目录还没建 = 没有残留可言
+    names.forEach(name => {
+      if (!TMP_STALE_RE.test(name)) return;
+      const f = path.join(dir, name);
+      try {
+        const st = fs.statSync(f);
+        if (!st.isFile()) return;
+        if (Date.now() - st.mtimeMs < TMP_STALE_MS) return;
+        fs.unlinkSync(f);
+        n++;
+      } catch (e) { log('[清理] 临时文件没删掉（原样留着）：' + f + ' ' + (e.code || e.message)); }
+    });
+  });
+  return n;
+}
 /* ---------- 按类型另存到用户指定的文件夹（POST /save 用） ----------
    配置在 `.data/sk_autosave.json`（设置页存进 localStorage 的 `sk_autosave`，由 DataSync 镜像过来，
    所以换机器 / 云同步都跟着走 —— 里面只有目录路径，没有任何密钥）。
@@ -2004,16 +2192,77 @@ const LOCAL_DIR = path.resolve(__dirname, process.env.ASSETS_DIR || '.assets');
    建不出来就照实报错，不静默跳过 —— 静默跳过的话界面上什么痕迹都没有，
    用户会以为「保存了」而文件其实没落盘。 */
 const SAVE_KINDS = ['image', 'video', 'audio'];
-const saveKindZh = { image: '图片', video: '视频', audio: '音频' };
-const typeLabel = t => saveKindZh[t] || t;
-/* 没指定目录时的默认落盘地：项目下的「文件」文件夹，按类型分子目录。
-   为什么是这个：设置项留空原本的意思是「只存 .assets 资产库、不另存一份」，
+/* 「英文媒体类别 → 中文类型名」在本机代理只这一张表（2026-10-15 从两份逐字相同的表收成一份：
+   另存目录那一头叫 `saveKindZh`、本机资产那一头叫 `LOCAL_KIND_ALIAS`，谁改了其中一份另一份不知道，
+   表现是「磁盘上的文件夹叫图片、资产库列表里却按另一套名字筛」）。
+   ⚠ 这一族的名字是**素材**的名字（音频），与浏览器侧那张「供应商类型」的表（`ui.js` 的 `provKindZh`，
+     audio 那一格叫「语音」—— 一型供应方，不是一条素材）差一格，两边不许合并；
+     表名也故意不叫 `KIND_ZH`：同名而不同值，迟早被人当成重复实现合并掉。
+   与浏览器侧的关系：中文类型名 → `video / audio / image` 那份反查在 `ui.js` 的 `mediaKindOf`，
+   Node 里没有 window，所以这张小表必须在本机各留一份（与 `fileSafe` / `dayKey` 同一类登记在案的例外）。 */
+const MEDIA_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
+const typeLabel = t => MEDIA_KIND_ZH[t] || t;
+/* 系统默认的「下载」文件夹。**不要**直接用 %USERPROFILE%\Downloads 猜 ——
+   用户可以把它搬到别的盘（D:\下载），那件事记在注册表里：
+   HKCU\...\Explorer\Shell Folders 的
+   {374DE290-123F-4565-9164-39C4925E467B}（Downloads 的 KNOWNFOLDERID 固定 GUID）。
+   问一次就缓存：另存这三条路由每个文件都会问一次目录，reg.exe 一次上百毫秒，
+   不能每存一份就问一遍。问不到（不是 Windows / 注册表没这一项 / reg 被拦）就退到
+   homedir\Downloads —— 那是绝大多数机器上的真实位置。 */
+let systemDownloadsCache = null;
+function systemDownloadsDir() {
+  if (systemDownloadsCache) return systemDownloadsCache;
+  /* 探针（隔离实例）用 AUTOSAVE_DIR 把整个「下载」基座指走 —— 与 DATA_DIR / ASSETS_DIR /
+     RENDER_DIR 同一个理由：默认落盘地现在在用户真实的下载文件夹里，探针不该往那儿写。
+     指了就一口价，不再问注册表（否则「隔离」只隔了一半）。 */
+  const forced = String(process.env.AUTOSAVE_DIR || '').trim();
+  if (forced) { systemDownloadsCache = path.resolve(forced); return systemDownloadsCache; }
+  let dir = '';
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('reg', ['query',
+        'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders',
+        '/v', '{374DE290-123F-4565-9164-39C4925E467B}'],
+        { encoding: 'utf8', windowsHide: true });
+      const m = r && r.stdout && r.stdout.match(/REG_SZ\s+(\S.*)/);
+      if (m && m[1].trim()) dir = m[1].trim();
+    }
+  } catch {}
+  if (!dir) dir = path.join(os.homedir(), 'Downloads');
+  /* 注册表里可能是 REG_EXPAND_SZ（值里带 %USERPROFILE% 之类）—— reg query 不给展开，自己展开一层 */
+  dir = dir.replace(/%([^%]+)%/g, (s, n) => process.env[n] || s);
+  systemDownloadsCache = path.resolve(dir);
+  return systemDownloadsCache;
+}
+/* 没指定目录时的默认落盘地：**系统下载文件夹**下的 拾帧\<类型>，按类型分子目录。
+   为什么是下载文件夹：设置项留空原本的意思是「只存 .assets 资产库、不另存一份」，
    于是用户永远看不到自己生成的成品，得自己去一个点号开头的隐藏目录里翻。
    留空 = 用这个默认，是把「什么都不做」换成「存到看得见的地方」，
    仍然随时能改 —— 逐类型的自定义路径优先级更高（见 autosaveDir）。
-   放项目目录下的理由：跟着项目走、跟着 DataSync 的仓库走，
-   且不写死绝对路径（换机器、云同步之后仍然对）。 */
-const autosaveDefaultDir = kind => path.join(__dirname, '文件', typeLabel(kind));
+   **2026-10-15 之前这里落的是项目下的 文件\ 文件夹**（跟着 DataSync 的仓库走），
+   用户点名改成下载文件夹：成品是用户自己的东西，不该长在工具的目录里
+   （项目目录还要进版本库，几百 MB 的成片混在里面迟早出事）。
+   老目录没有丢：/save-move 的 @default 两支都认（见 autosaveDefaultDirs）。 */
+const AUTOSAVE_TOP_DIR = '拾帧';
+const autosaveDefaultDir = kind => path.join(systemDownloadsDir(), AUTOSAVE_TOP_DIR, typeLabel(kind));
+/* 改默认位置之前的那一版：项目下 文件\<类型>。只为 /save-move 的「旧的也是默认目录」
+   这一支留着 —— 这台机器实测里面有 800 多份成品，换默认之后它们还躺在那儿，
+   用户下一次把另存目录改到别处时，那一批也得能跟着搬（不然永远留在项目里）。
+   探针口 AUTOSAVE_LEGACY_DIR 与 AUTOSAVE_DIR 同一纪律：这台开发机上老默认目录里
+   就是真实成品，探针验 @default 搬迁不能真去动它们。指了就一口价（当基座，再拼类型子目录）。 */
+const autosaveLegacyDefaultDir = kind => {
+  const forced = String(process.env.AUTOSAVE_LEGACY_DIR || '').trim();
+  return forced ? path.join(path.resolve(forced), typeLabel(kind))
+                : path.join(__dirname, '文件', typeLabel(kind));
+};
+/* 「旧的也是默认目录」时的候选源（按序尝试）：新默认、老默认，各自只认真实存在的那些。
+   一个都不存在时保留新默认当报错点（ENOENT 那句话里点名的就是新位置）。
+   为什么不直接返回单个：过渡期两处都可能还有东西，只搬一处等于另一半永远搬不走。 */
+function autosaveDefaultDirs(kind) {
+  const all = [autosaveDefaultDir(kind), autosaveLegacyDefaultDir(kind)];
+  const hit = all.filter(d => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+  return hit.length ? hit : [all[0]];
+}
 function autosaveConf() {
   /* 与下面 `dataDirPath()` 同一份表达式：这里**不能**去调它 —— 它是 2339 行的 const，
      本函数在 1400 行，调用它就依赖「模块加载完之前不会被调用」这件事（能跑，但脆）。 */
@@ -2025,7 +2274,7 @@ function autosaveConf() {
 }
 /** 这一类该存到哪个目录（'' = 这一类关了，不另存）。
     留空不再等于「不另存」：那是 2026-10 之前的默认，代价是成品只落在 .assets 这个
-    点号开头的目录里，用户看不见。留空 = 用 autosaveDefaultDir（项目下 文件/<类型>）。 */
+    点号开头的目录里，用户看不见。留空 = 用 autosaveDefaultDir（下载\拾帧\<类型>）。 */
 function autosaveDir(kind) {
   const c = (autosaveConf()[kind] || {});
   if (c.on === 'off') return '';
@@ -2035,7 +2284,7 @@ function autosaveDir(kind) {
 }
 /* 「图片/视频/音频」反回 image/video/audio。类型判据只有 localMediaType 一处，
    这里只做中英互转，不另写一份扩展名名单（LOCAL_KIND_BY_EXT 已经有一份了）。 */
-const saveKindOf = zh => Object.keys(LOCAL_KIND_ALIAS).find(k => LOCAL_KIND_ALIAS[k] === zh) || '';
+const saveKindOf = zh => Object.keys(MEDIA_KIND_ZH).find(k => MEDIA_KIND_ZH[k] === zh) || '';
 /* 文件名：只留 basename 与安全字符（防 ../ 穿越）。三条另存路由共用这一份。 */
 function saveBaseName(name, fallback) {
   return path.basename(String(name == null ? '' : name) || fallback || 'file.bin')
@@ -2158,6 +2407,56 @@ function autosaveUsedHas(dir) {
   const key = path.resolve(dir);
   return autosaveUsedRead().some(x => { try { return path.resolve(x) === key; } catch { return false; } });
 }
+/* ---------- 旧目录里还剩多少份没搬（GET /save-stale 用，只读） ----------
+   为什么必须有这一条：搬迁那句问话以前**只挂在「刚改完目录的那一刻」**，而实测这一台机器
+   一次都没弹出来过 —— 2026-10-15 把默认位置从项目内的 文件\<类型> 换成了 下载\拾帧\<类型>，
+   而 `dir` 这个字段一个字都没变（还是空串）。「换没换目录」按字符串比根本比不出来，
+   界面上又没有第二个入口：错过了那一句，几百份成品就一直躺在项目目录里
+   （还跟着仓库一起被 git 扫，而它们恰恰是最不该进版本库的大文件）。
+   所以这一条**不问配置问了磁盘**：把「代理搬得动的地方」逐个点数。
+   来源表与 /save-move 能搬的那几处严格同一份（两代默认 + 自己写过的目录名单），
+   否则界面上会出现一颗按下去必然失败的按钮。
+   安全：不接受任何客户端递进来的路径，也不接查询串 —— 报出去的位置全部来自代理自己的名单。 */
+function saveStaleScan() {
+  const out = {};
+  const used = autosaveUsedRead();
+  for (const kind of SAVE_KINDS) {
+    const to = autosaveDir(kind);                 // '' = 这一类现在是关着的
+    const toKey = to ? path.resolve(to) : '';
+    const label = typeLabel(kind);
+    /* 候选来源连「它是第几代默认」一起记：页面搬的时候要递 `@default`
+       （那两个默认目录是一起搬的，代理那条分支不需要白名单），
+       而自己挑过的旧目录只能逐个点名、并且要过白名单。
+       不标这一位的话，页面要么把默认目录当普通路径递过来被白名单拒（搬不动），
+       要么统一递 @default（等于把用户自己挑过的目录也当默认的搬 —— 那是越权）。
+       默认目录是**按类型**分的（下载\拾帧\图片 vs 文件\图片），所以这一份必须在
+        kinds 循环**里面**现取 —— 提到外面拼一份全局名单，类型就对不上了。 */
+    const cands = [];
+    for (const d of autosaveDefaultDirs(kind)) cands.push({ dir: d, isDefault: true });
+    for (const d of used) cands.push({ dir: d, isDefault: false });
+    const seen = new Set(), dirs = [];
+    for (const cd of cands) {
+      let key = '';
+      try { key = path.resolve(cd.dir); } catch { continue; }
+      if (!key || key === toKey || seen.has(key) || insideLocalDir(key)) continue;
+      seen.add(key);
+      let names;
+      try { names = fs.readdirSync(key); } catch { continue; }   // 目录不存在 = 里面什么都没有
+      let count = 0, bytes = 0;
+      for (const n of names) {
+        if (productKindOfName(n) !== kind) continue;           // 严格判据：与 /save-move 同一份
+        let st; try { st = fs.statSync(path.join(key, n)); } catch { continue; }
+        if (!st.isFile()) continue;
+        count++; bytes += st.size;
+      }
+      if (count) dirs.push({ dir: key, count, bytes, isDefault: cd.isDefault });
+    }
+    dirs.sort((a, b) => b.bytes - a.bytes);       // 占盘最多的排最前（用户先搬谁一目了然）
+    out[kind] = { on: !!to, to, label, dirs, count: dirs.reduce((s, x) => s + x.count, 0),
+      bytes: dirs.reduce((s, x) => s + x.bytes, 0) };
+  }
+  return out;
+}
 const localIndexPath = () => path.join(LOCAL_DIR, 'index.json');
 function localIndexRead() {
   const f = localIndexPath();
@@ -2216,7 +2515,6 @@ function localAssetEntry(id) {
 /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（落盘文件名就是 <id>.<格式>，最可靠），
    再按 mime，最后按调用方给的 media_type（英文写法认成中文）。缺省过去写死 audio，
    「短剧末帧」这种没传类型的 PNG 就被记成音频，资产库按图片筛永远挑不到它。 */
-const LOCAL_KIND_ALIAS = { image: '图片', video: '视频', audio: '音频' };
 const LOCAL_KIND_BY_EXT = {
   png: '图片', jpg: '图片', jpeg: '图片', webp: '图片', gif: '图片', bmp: '图片', avif: '图片',
   mp4: '视频', mov: '视频', webm: '视频', mkv: '视频', m4v: '视频',
@@ -2232,7 +2530,20 @@ function localMediaType(x) {
   if (m.startsWith('video/')) return '视频';
   if (m.startsWith('audio/')) return '音频';
   const given = String((x && x.media_type) || '').trim();
-  return given ? (LOCAL_KIND_ALIAS[given.toLowerCase()] || given) : '音频';
+  return given ? (MEDIA_KIND_ZH[given.toLowerCase()] || given) : '音频';
+}
+/* 「磁盘上这一个文件名属不属于某一类产物」——**只看扩展名表，不吃 localMediaType 那句音频兜底**。
+   索引里那条记录有 mime、有调用方给的 media_type，兜底audio 顶多让资产库筛错档（已经修过一轮）；
+   而对着一个目录里的文件名，能证明类型的只有扩展名，兜底就是**替用户编一个类型**。
+   踩出来的形状：待搬迁那一排把用户自己目录里的 `notes.txt`（105 KB）数成「音频」，
+   而 /save-move 用同一句判据于是**真的把它搬进 拾帧\音频 并删掉源文件** ——
+   一个「按类型搬成品」的功能把人家文件夹里的非成品扫走了。
+   数与搬必须共用这一份严格判据：**数得到的才是搬得动的**，否则界面上那个数字是一次删源的承诺。
+   （`LOCAL_KIND_BY_EXT` / `saveKindOf` 都定义在本函数之后，这里只**引用**不**求值** ——
+   两个调用点都收到请求之后才跑，那时模块早已加载完；与 `buildDirIndex` 引 `sha1Of` 同一道理。） */
+function productKindOfName(name) {
+  const fmt = String(path.extname(String(name || ''))).toLowerCase().replace(/^\./, '');
+  return saveKindOf(LOCAL_KIND_BY_EXT[fmt] || '');
 }
 /* 这一条产物「是什么时候有的」——**必须是生成时间，不是落盘时间**。
    镜像只是把平台上的产物搬到本机这一步：一次回源能把几百条老产物在同一天写进来，
@@ -2317,6 +2628,192 @@ function localFileFromEntry(ent) {
 function localAssetFile(id) {
   return localFileFromEntry(localAssetEntry(id));
 }
+/* ---------- 本机资产库占了多少地方（GET /assets-usage 用，只读） ----------
+   为什么必须有这一条：`.assets` 是这一台机器上唯一**只增不减**的那一堆 ——
+   索引封顶 `LOCAL_INDEX_MAX` 条，文件却永远不清（删条目时文件删不掉只报错、不裁索引），
+   而「同一份产物被镜像了几次」以前只在 `GET /local-assets` 末尾报一个 `duplicates` 数字，
+   界面上没有任何地方把它摊开。于是盘涨到几十 GB 之后，人只知道「C 盘满了」，
+   不知道是哪些片子、重复了几份、哪一份最占地方 —— 更没有一条安全的路把它降下来。
+   三条口径，缺一条这一格就变成假控件：
+   ① **只数、只说，一个字节都不写不删**。删本机产物只有资产库那一页那一条路
+     （勾卡片 → 删除 → 二次确认 → `DELETE /local-assets/<id>`，删掉文件才裁索引）。
+     在这里放一颗「一键清理」等于让一次统计顺带删掉用户的作品 —— 而统计**永远分不出**
+     「多余的重复」与「被挤出索引但还要留着的历史产物」（就是下面 `索引外` 那一段），
+     所以这份读数只负责把话说清、把出路指对。
+   ② 判重的身份只有 `localUpKey` 一份（host + path，签名参数一律不参与），
+     与 `GET /local-assets` 收敛列表、`POST /local-assets` 挡重复镜像用的是同一个键。
+     在这一格另写一份「按文件名去重」，界面上就会出现「这里说没重复、列表里同一份卡三张」。
+   ③ 内容级判重（来源外链不同、字节却完全相同）先按 size 分桶、只有**同大小**才去读，
+     并且一次扫描有**字节预算**：整目录 readFileSync 会把事件循环按住几秒
+     （`buildDirIndex` 上面那段注释量的就是这笔账：512 个文件 / 788 MB ≈ 1,848 ms 同步阻塞，
+     期间轮询、`/asset` 取图、播放全部停摆）。所以这里 `await fs.promises.readFile`、
+     按预算读、读不完的那一些**照实说**「还有 N 份同大小的没验」而不是当它们不存在。
+   类型那一档走 `productKindOfName`（只看扩展名表，不吃 `localMediaType` 那句音频兜底）——
+   与 `/save-stale`、`/save-move` 同一份严格判据：对着一堆文件名猜不出类型的就归「其它」，
+   不替用户编一个类型。 */
+const USAGE_TOP = 6;                         // 「最占地方 / 最旧的」各列几条
+const USAGE_HASH_BUDGET = 96 * 1024 * 1024;  // 一次扫描最多验这么多字节的内容
+const USAGE_LOW_FREE = 1024 * 1024 * 1024;   // 这块盘剩不到这么多就把这一格标黄
+const usageShaCache = new Map();             // 文件名 → { mtimeMs, size, sha }（同大小同修改时间就免再读）
+const usageKindOf = name => { const k = productKindOfName(name); return k ? typeLabel(k) : '其它'; };
+/* 「这一份是什么时候有的」→ 毫秒：优先生成时间（localAssetWhen，见它的注释），
+   索引里那条没有 / 补建出来的那条才退到落盘 mtime。取不出时间就回 0（只用于排序，不参与上色）。 */
+function usageWhenMs(ent, mtimeMs) {
+  const raw = localAssetWhen(ent);
+  if (raw == null || raw === '') return mtimeMs || 0;
+  let t = typeof raw === 'number' ? (raw < 1e12 ? raw * 1000 : raw) : Date.parse(String(raw));
+  if (!Number.isFinite(t) || t <= 0) return mtimeMs || 0;
+  return t;
+}
+async function localUsageScan() {
+  const dir = LOCAL_DIR;
+  let 目录 = { 路径: dir, 状态: '可写' };
+  try {
+    const st = fs.statSync(dir);
+    if (!st.isDirectory()) 目录 = { 路径: dir, 状态: '路径上有个同名的文件，不是目录 —— 资产库现在读不到任何产物' };
+  } catch (e) {
+    目录 = { 路径: dir, 状态: (e && e.code === 'ENOENT')
+      ? '还没有这个目录（第一次存产物时代理自己会建）'
+      : '读不了这个目录：' + ((e && e.code) || (e && e.message) || e) };
+  }
+
+  /* 索引读不出来时 localIndexRead 已经把坏文件改名留档、返回空表 —— 那一条本函数不重复处理，
+     也不写盘（这里只读）；顶到上限那一档据此照实说。 */
+  const idxList = localIndexRead();
+  const byFile = new Map();
+  for (const x of idxList) { if (x && x.file && !byFile.has(x.file)) byFile.set(x.file, x); }
+
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { names = []; }
+  const files = [];
+  for (const n of names) {
+    /* 产物文件名是 `<id>.<格式>`；索引本体与两类崩溃 / 损坏残留不是（启动清扫已经收过 .tmp-，
+       数到这里还剩 .bad- 那份坏索引留档 —— 把它算成一份产物就是把用户的备份说成作品）。 */
+    if (!n || n === 'index.json' || n.indexOf('.tmp-') >= 0 || n.indexOf('.bad-') >= 0 || n.indexOf('.bak.') >= 0) continue;
+    let st; try { st = fs.statSync(path.join(dir, n)); } catch { continue; }
+    if (!st.isFile()) continue;
+    files.push({ name: n, size: st.size, mtimeMs: st.mtimeMs, ent: byFile.get(n) || null });
+    files[files.length - 1].when = usageWhenMs(files[files.length - 1].ent, st.mtimeMs);
+    files[files.length - 1].类型 = usageKindOf(n);
+  }
+  const 总字节 = files.reduce((s, f) => s + f.size, 0);
+
+  /* ---- 按类型 ---- */
+  const kindMap = new Map();
+  for (const f of files) {
+    const g = kindMap.get(f.类型) || { 类型: f.类型, 条数: 0, 字节: 0 };
+    g.条数++; g.字节 += f.size; kindMap.set(f.类型, g);
+  }
+  const 按类型 = [...kindMap.values()].sort((a, b) => b.字节 - a.字节);
+
+  /* ---- 判重：先并成「同一份产物」的组，再按组算多占 ----
+     两种身份并成一族（并查集），因为「同一来源的两次镜像」与「字节完全相同但来源不同」
+     说的是同一件事的两半：只按来源认会漏掉换过中转地址重下的那批，只按内容认又说不清
+     「是不是同一件作品」。合完之后每组只留最晚那一份，其余记成多占 —— 这样两个口径
+     不会把同一份重复算两次。 */
+  const nameIdx = new Map();
+  files.forEach((f, i) => nameIdx.set(f.name, i));
+  const parent = files.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+  const upMap = new Map();
+  for (const f of files) {
+    const up = f.ent ? localUpKey(f.ent.upstream) : '';
+    if (!up) continue;
+    const a = upMap.get(up) || []; a.push(f); upMap.set(up, a);
+  }
+  let 同来源组 = 0;
+  for (const a of upMap.values()) {
+    if (a.length < 2) continue;
+    同来源组++;
+    for (let i = 1; i < a.length; i++) join(nameIdx.get(a[0].name), nameIdx.get(a[i].name));
+  }
+  /* 内容级：只有 size 在目录里出现过 ≥2 次才可能同内容（不同内容的视频 size 几乎必然不同） */
+  const sizeMap = new Map();
+  for (const f of files) {
+    if (f.size <= 0) continue;                       // 空文件不用读也认不出什么，跳过
+    const a = sizeMap.get(f.size) || []; a.push(f); sizeMap.set(f.size, a);
+  }
+  let 读了字节 = 0, 验过文件 = 0, 没验的 = 0, 同内容组 = 0;
+  for (const a of sizeMap.values()) {
+    if (a.length < 2) continue;
+    for (const f of a) {
+      if (f.sha) continue;
+      const hit = usageShaCache.get(f.name);
+      if (hit && hit.mtimeMs === f.mtimeMs && hit.size === f.size) { f.sha = hit.sha; 验过文件++; continue; }
+      if (读了字节 + f.size > USAGE_HASH_BUDGET) { f.unchecked = true; 没验的++; continue; }
+      try { f.sha = sha1Of(await fs.promises.readFile(path.join(dir, f.name))); }
+      catch { f.unchecked = true; 没验的++; continue; }
+      读了字节 += f.size; 验过文件++;
+      usageShaCache.set(f.name, { mtimeMs: f.mtimeMs, size: f.size, sha: f.sha });
+      if (usageShaCache.size > 8000) usageShaCache.clear();   // 缓存本身也要有界（这是长跑进程）
+    }
+    const shaMap = new Map();
+    for (const f of a) {
+      if (!f.sha) continue;
+      const g = shaMap.get(f.sha) || []; g.push(f); shaMap.set(f.sha, g);
+    }
+    for (const g of shaMap.values()) {
+      if (g.length < 2) continue;
+      同内容组++;
+      for (let i = 1; i < g.length; i++) join(nameIdx.get(g[0].name), nameIdx.get(g[i].name));
+    }
+  }
+  const groups = new Map();
+  files.forEach(f => { const r = find(nameIdx.get(f.name)); const g = groups.get(r) || []; g.push(f); groups.set(r, g); });
+  let 重复组 = 0, 多出份 = 0, 多占字节 = 0;
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    重复组++;
+    /* 留下的那一份 = 最晚生成的那份（不是最大的）：按「哪一份新」留符合直觉，
+       而「留最大的」会让人发现留在列表里的那张卡是很久以前那一次。 */
+    let keep = g[0];
+    for (const f of g) if (f.when > keep.when) keep = f;
+    多出份 += g.length - 1;
+    for (const f of g) if (f !== keep) 多占字节 += f.size;
+  }
+
+  /* ---- 索引与磁盘对不上的那两批 ---- */
+  const diskNames = new Set(files.map(f => f.name));
+  const 索引外 = files.filter(f => !f.ent);
+  const 索引外字节 = 索引外.reduce((s, f) => s + f.size, 0);
+  const 没了 = idxList.filter(x => x && x.file && !diskNames.has(x.file));
+  const 没了字节 = 没了.reduce((s, x) => s + (Number(x.byte_length) || 0), 0);
+
+  const 顶到上限 = idxList.length >= LOCAL_INDEX_MAX;
+  const 剩 = freeBytesOf(dir);
+
+  const pick = f => ({ 名称: f.name, 字节: f.size, 类型: f.类型, 时候: f.when,
+    哪家: (f.ent && f.ent.provider) || '', 有索引: !!f.ent });
+  const 最大 = [...files].sort((a, b) => b.size - a.size).slice(0, USAGE_TOP).map(pick);
+  const 最旧 = [...files].sort((a, b) => (a.when - b.when) || (a.mtimeMs - b.mtimeMs)).slice(0, USAGE_TOP).map(pick);
+
+  /* ---- 上色：只在「说不清 / 会丢东西」的那几种情况标黄标红，重复本身不是故障 ----
+     页面只读 `档` 上色，不许拿中文猜（与「成片渲染」那一行同一立场）。 */
+  let cls = 'ok';
+  const 因由 = [];
+  if (目录.状态 !== '可写' && 目录.状态.indexOf('还没有这个目录') < 0) { cls = 'err'; 因由.push('目录读不了'); }
+  if (顶到上限) { if (cls === 'ok') cls = 'warn'; 因由.push('索引条数已顶到上限'); }
+  if (没了.length) { if (cls === 'ok') cls = 'warn'; 因由.push('有索引没文件的条目'); }
+  if (剩 !== null && 剩 < USAGE_LOW_FREE) { if (cls === 'ok') cls = 'warn'; 因由.push('这块盘剩余空间不多'); }
+  const chip = files.length
+    ? 多出份 ? '压了 ' + 多出份 + ' 份重复' : '没有重复'
+    : '还没有产物';
+
+  return {
+    at: Date.now(),
+    目录, 档: cls, 芯片: chip, 因由,
+    总: { 字节: 总字节, 文件数: files.length, 索引条数: idxList.length, 上限: LOCAL_INDEX_MAX, 顶到上限 },
+    按类型,
+    重复: { 组数: 重复组, 多出份数: 多出份, 多占字节, 同来源组, 同内容组,
+      验过文件, 读了字节, 预算字节: USAGE_HASH_BUDGET, 没验份数: 没验的,
+      判完: 没验的 === 0 },
+    对不上: { 索引外文件数: 索引外.length, 索引外字节, 没文件条数: 没了.length, 没文件字节: 没了字节 },
+    盘: { 剩余: 剩 },
+    最大, 最旧,
+    几条: USAGE_TOP,
+  };
+}
 /* 本地文件读取：支持 Range（播放器可拖动进度），带长缓存（同一 id 内容恒定） */
 /* 文件流 → 响应：读流出错（文件被删、被别的进程占用、磁盘读失败）时 pipe 只会抛一个没人接的 error，
    响应停在「200 头已发、正文永远不来」，页面只能干等到超时。这里把连接掐掉，让客户端立刻拿到网络错误。 */
@@ -2324,7 +2821,7 @@ function pipeFile(src, res) {
   src.on('error', () => { try { res.destroy(); } catch {} });
   src.pipe(res);
 }
-/* 带 Range 的本地文件响应（三个落盘目录 /asset、/render/play、/render/dl 共用一份）。
+/* 带 Range 的本地文件响应（两处落盘目录出口 /asset 与 /render/dl 共用一份）。
    headers 由调用方给（Content-Type / 缓存 / 附件名）。 */
 function sendFileWithRange(req, res, file, headers) {
   const st = fs.statSync(file);
@@ -2372,9 +2869,151 @@ function serveLocalFile(req, res, file, q, entry) {
 
 
 const renders = new Map();          // id → job
-const RENDER_KEEP = 30 * 60 * 1000;      // 任务记录保留 30 分钟（进度查询用），之后回收
-const RENDER_CONCURRENCY = 1;            // 同时跑的渲染任务数：ffmpeg 很吃 CPU，串行最稳（可改大）
-const OUT_KEEP = 20;                     // .renders 里最多保留最近 20 个成片，更早的自动删除
+/* 渲染这一族的几个数以前**写死在源码里**（同时跑几条、队列最多排几条、任务记录留多久），
+   而本机 ffmpeg 快慢差异很大、想调只能改代码 —— 改代码又要重启，等于没人调。
+   现在按 PORT 那套优先级读：同名环境变量 > .env > 这里的默认值（同样是启动时定一次，改了要重启）。
+   ⚠ **非法值退回默认、并把原因留在启动日志里**，不抛错也不静默：
+   「填了没生效」最容易被当成代理坏了（PORT 那一档当年就是这个口径，见上面 `PORT_FROM`）。
+   生效值与来源也要一起打出来 —— 并发有没有真的按 2 跑，盯着界面上那条进度条是猜不出来的。 */
+const envWarns = [];
+function envInt(name, def, min, max) {
+  const raw = String(process.env[name] === undefined ? '' : process.env[name]).trim();
+  if (!raw) return def;
+  if (!/^\d+$/.test(raw) || Number(raw) < min || Number(raw) > max) {
+    envWarns.push(`${name}="${raw}" 不是 ${min}–${max} 之间的整数，已退回默认 ${def}`);
+    return def;
+  }
+  return Number(raw);
+}
+const envFrom = name => process.env['__fromEnvFile_' + name] ? '.env' : (/^\d+$/.test(String(process.env[name] || '').trim()) ? '环境变量' : '默认');
+const RENDER_KEEP = envInt('RENDER_KEEP_MIN', 30, 1, 1440) * 60 * 1000;   // 任务记录保留（进度查询用）与崩溃残留临时目录的回收，同一个分钟数
+const RENDER_CONCURRENCY = envInt('RENDER_CONCURRENCY', 1, 1, 4);         // 同时跑的渲染任务数：ffmpeg 很吃 CPU，串行最稳
+const RENDER_QUEUE_MAX = envInt('RENDER_QUEUE_MAX', 20, 1, 200);          // 在跑 + 排队的上限，超了当场 429
+const RENDER_CLIPS_MAX = 500;   // 一单最多几段：写死，拼出来的 filter_complex 太长 ffmpeg 自己会拒
+/* 编码那一族以前整条写死在源码里（libx264 + veryfast + `-crf`），而本机差别很大：
+   有 N 卡的人想走 NVENC（快几倍）、只想留档的人想要 H.265（同画质体积约一半）、嫌画质差的人想要 medium ——
+   三个都只能改代码，改代码又要重启，等于没人调。现在按 RENDER_* 那一族同一套优先级读 `.env`
+   （启动定一次，改完要重启），但**只认这张表点名的组合**：
+   · 表里没有的编码器一律不接（不「猜它也能跑」）；
+   · 每个编码器带**自己的** preset 词汇表 —— libx264/x265 认 veryfast，NVENC 认 fast/medium/slow/veryslow，
+     同一档位喂给另一家 ffmpeg 当场拒（`-preset veryfast` 喂 h264_nvenc 就是这么炸的），所以档位清单不许共用一份；
+   · 质量数还是界面那个 crf（路由里 14–32 夹紧那一份，不改它），落到不同编码器换一个写法：
+     x264/x265 用 `-crf`，NVENC 用 `-rc constqp -cq`，QSV 用 `-global_quality`（这三家都收 14–32 这个数）。
+   ⚠ 两种「填了但没用」必须分开说、都不能静默：
+   ① 名字或档位不在表里 → 启动日志当场点名并退回默认（`envWarns` 那一族，与 RENDER_CONCURRENCY 同口径）；
+   ② 名字在表里、但这台机器的 ffmpeg 构建**没编进去**（很常见：官方 Windows 版不带 QSV，没 N 卡就没有 NVENC）→
+     第一次渲染前问一次 `ffmpeg -encoders`（结果缓存在进程里，只问一趟），退回 libx264，
+     并把「配的是谁、为什么换」写进这一单的任务日志。成片照样出得来，但用户以为自己在用硬件编码 —— 那句必须看得见。 */
+const ENCODE_PROFILES = {
+  libx264: { zh: 'H.264（CPU，到哪都能放）', dPreset: 'veryfast',
+    presets: ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'],
+    quality: v => ['-crf', String(v)] },
+  libx265: { zh: 'H.265（CPU，同画质体积约一半、编码慢）', dPreset: 'medium',
+    presets: ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'],
+    quality: v => ['-crf', String(v)] },
+  h264_nvenc: { zh: 'H.264（N 卡 NVENC，快）', dPreset: 'medium',
+    presets: ['fast', 'medium', 'slow', 'veryslow', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'],
+    quality: v => ['-rc', 'constqp', '-cq', String(v)] },
+  hevc_nvenc: { zh: 'H.265（N 卡 NVENC，快且体积小）', dPreset: 'medium',
+    presets: ['fast', 'medium', 'slow', 'veryslow', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'],
+    quality: v => ['-rc', 'constqp', '-cq', String(v)] },
+  h264_qsv: { zh: 'H.264（Intel 核显 Quick Sync）', dPreset: 'medium',
+    presets: ['veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'],
+    quality: v => ['-global_quality', String(v)] },
+  hevc_qsv: { zh: 'H.265（Intel 核显 Quick Sync）', dPreset: 'medium',
+    presets: ['veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'],
+    quality: v => ['-global_quality', String(v)] },
+};
+const VCODEC_DEFAULT = 'libx264';
+/* 与 envInt 同一立场：空 = 用默认（不吭声）；填了但不认 = 退回默认并把原因留在启动日志里。
+   大小写与空格由这里统一抹掉，用户写 `LibX264` 或 ` libx264 ` 不该被当成「没配」。 */
+function envOneOf(name, def, allow) {
+  const raw = String(process.env[name] === undefined ? '' : process.env[name]).trim().toLowerCase();
+  if (!raw) return def;
+  if (allow.indexOf(raw) < 0) {
+    envWarns.push(`${name}="${raw}" 不在本工作台认的名单里（可选：${allow.join(' / ')}），已退回默认 ${def}`);
+    return def;
+  }
+  return raw;
+}
+const RENDER_VCODEC = envOneOf('RENDER_VCODEC', VCODEC_DEFAULT, Object.keys(ENCODE_PROFILES));
+/* 档位要按**那一家**的名单验，不能拿默认家那份清单去量：配了 h264_nvenc 却填 veryfast
+   （libx264 认、NVENC 不认）喂出去是「ffmpeg 当场拒」，而界面只会显示一句合成失败。
+   所以这里不用 envOneOf（它只能拿一份固定名单比），自己现取这一家的名单。 */
+function resolvePreset() {
+  const prof = ENCODE_PROFILES[RENDER_VCODEC];
+  const raw = String(process.env.RENDER_PRESET === undefined ? '' : process.env.RENDER_PRESET).trim().toLowerCase();
+  if (!raw) return prof.dPreset;
+  if (prof.presets.indexOf(raw) >= 0) return raw;
+  envWarns.push(`RENDER_PRESET="${raw}" 不是 ${RENDER_VCODEC} 认的档位（这一家只认 ${prof.presets.join(' / ')}），已退回 ${prof.dPreset}`);
+  return prof.dPreset;
+}
+const RENDER_PRESET = resolvePreset();
+const envFromStr = name => {
+  const raw = String(process.env[name] === undefined ? '' : process.env[name]).trim();
+  if (!raw) return '默认';
+  return process.env['__fromEnvFile_' + name] ? '.env' : '环境变量';
+};
+
+/* 监听地址：默认**只绑回环**（那份「后端可完善清单」里与安全有关的两条之一，难度低、影响面全网）。
+   以前是 `server.listen(PORT)` —— 不写 host 时 Node 绑 `::`，等于这台机器**每一块网卡**都在听；
+   而 `sameOriginOnly` 为了「用手机在房间里打开工作台」把本机各网卡的 IP 一律算「自己人」
+   （它只认回环名与 `os.networkInterfaces()` 里那些地址，不认任何域名）。
+   两条叠在一起的实际后果不是「多一个人能看页面」：同一 WiFi 下任意设备直接打
+   `http://192.168.x.x:5175/data`、`/save`、`/<relay>/*` 都算同源 —— 读业务数据、
+   用服务端 `.env` 里那把密钥建任务扣费，连「骗过浏览器」这一步都不需要。
+   现在默认绑两只回环 socket：`127.0.0.1` 与 `::1` 各一只。**为什么两只都要** ——
+   Windows 上 `localhost` 常先解析到 `::1`，只绑 v4 那一侧时第一次连接吃一次 ECONNREFUSED
+   （浏览器与 .NET 会退到 v4 重试，但那正是「启动器等监听」那一档里看不懂的半秒）。
+   `.env` 里写 `BIND_HOST=all` 恢复旧的「所有网卡 + 双栈」，或写具体网卡 IP 只放行那几块
+   （回环那两只永远在听，见下面 resolveBind 里那一段）—— 两种都是主动放行，
+   启动日志会把它写成「局域网可达」而不是悄悄绑上。
+   与 PORT / 渲染 / 编码那三族同一档：启动时定一次，**改完要重启**。 */
+const BIND_ALIAS = { loopback: ['127.0.0.1', '::1'], all: ['::'] };
+const isLoopbackAddr = h => h === '::1' || h === 'localhost' || /^127\./.test(h);
+const isAnyAddr = h => h === '::' || h === '0.0.0.0';
+const bindAddrText = h => (isAnyAddr(h) ? h + '（所有网卡）' : h);
+function resolveBind() {
+  const raw = String(process.env.BIND_HOST === undefined ? '' : process.env.BIND_HOST).trim().toLowerCase();
+  const hosts = [];
+  const add = h => { if (h && hosts.indexOf(h) < 0) hosts.push(h); };
+  /* 逗号分开能列好几块（`BIND_HOST=127.0.0.1,::1` 与 `all` 等价但只收指定的那两张），
+     所以这里按一段一段解析，而不是「整串只能是一个名字」。 */
+  const toks = raw ? raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean) : [];
+  toks.forEach(t => {
+    /* 按名字数**必须问那份表真的是数组**：`BIND_HOST=constructor` 会撞上原型键、读回来是个函数，
+       下一句 `.forEach` 当场 TypeError —— 与 selfcheck 的 `namedSites` 同一类「尺子自己坏」。 */
+    if (Array.isArray(BIND_ALIAS[t])) { BIND_ALIAS[t].forEach(add); return; }
+    const h = t.replace(/^\[|\]$/g, '');     // IPv6 字面量常带方括号写（[::1]）
+    if (net.isIP(h)) { add(h); return; }
+    envWarns.push(`BIND_HOST 里的「${t}」既不是 loopback / all，也不是一个 IP 字面量，这一段已忽略`);
+  });
+  let why = 'BIND_HOST=' + raw;
+  if (!hosts.length) {
+    BIND_ALIAS.loopback.forEach(add);
+    why = toks.length ? '默认 只绑回环（BIND_HOST 填的都不认）' : '默认 只绑回环';
+  }
+  /* 通配那一只把本机所有地址（连回环一起）全收了，再列具体 IP 会让第二只监听撞 EADDRINUSE，
+     所以先归并成一只并当场说明那几段是多余的 —— 而不是让警告变成「代理起不来」。 */
+  if (hosts.some(isAnyAddr)) {
+    const extra = hosts.filter(h => !isAnyAddr(h));
+    hosts.length = 0;
+    add('::');
+    if (extra.length) envWarns.push(`BIND_HOST 里列了「所有网卡」，${extra.join(' / ')} 它本来就包含，`
+      + '一起填还会让第二只监听撞 EADDRINUSE（已归并成 :: 一只）');
+  } else {
+    /* 回环那两只**永远在清单里**（通配那一档本来就包含它们）：启动器的 `/whoami` 探活
+       与页面默认开的 http://localhost 都走回环，少听这一只就变成「页面打不开、
+       启动器以为代理没起来」。回环不属于「局域网暴露」，带上它不放松任何东西 ——
+       所以「只列了一块网卡 IP」的那一档也补上，并在日志里写明补过。 */
+    if (!hosts.some(isLoopbackAddr)) why += ' + 回环';
+    BIND_ALIAS.loopback.forEach(add);
+  }
+  return { hosts, why };
+}
+const BIND = resolveBind();
+const BIND_LAN = BIND.hosts.some(h => !isLoopbackAddr(h));
+
 let renderRunning = 0;
 const renderQueue = [];
 
@@ -2410,29 +3049,35 @@ function untrackProc(jobId, p) {
 }
 function runFfmpeg(args, onLine, jobId) {
   return new Promise((resolve, reject) => {
-    /* 固定 cwd = 代理所在目录：字幕滤镜用的是相对路径（.renders/<id>/subs.ass），
-       进程从别的目录启动时也能找到文件。 */
+    /* 固定 cwd = 代理所在目录：双击启动器时 process.cwd() 可能是 System32，
+       子进程不该跟着人家的目录走（所有输入输出本来都是绝对路径，这里要的只是确定性）。
+       以前这一句的理由是「字幕滤镜用的相对路径」，那条死路已删。 */
     const p = spawn('ffmpeg', args, { windowsHide: true, cwd: __dirname });
     trackProc(jobId, p);
     let err = '';
     p.stderr.on('data', d => {
       const s = d.toString();
       err += s;
-      if (onLine) s.split(/\r?\n/).filter(Boolean).slice(-1).forEach(onLine);
+      /* ffmpeg 的进度行（`frame=… time=…`）行尾在不同构建里不一样：类 Unix 用一个 `\r` 覆盖同一行，
+         Windows 的构建常见 `\r\n`。以前只按 `\n` 切再取**最后一条**，于是一个 chunk 里挤了三条进度时
+         交出去的是「三条粘成一条」的那一串，回调的正则取到的是**最旧**那一个 `time=` ——
+         进度条原地不动，甚至倒退。现在 `\r` 与 `\n` 都算分隔符，这一 chunk 里所有非空行都交出去，
+         由回调自己挑最新的（`time=` 的解析只在渲染那一处用，另一个调用点不传回调）。 */
+      if (onLine) s.split(/[\r\n]+/).filter(Boolean).forEach(onLine);
       if (err.length > 20000) err = err.slice(-20000);
     });
     p.on('error', e => { untrackProc(jobId, p); reject(new Error('无法启动 ffmpeg：' + e.message + '（请确认已安装并加入 PATH）')); });
     p.on('close', code => {
       untrackProc(jobId, p);
       if (code === 0) resolve(err);
-      else reject(new Error('ffmpeg 失败（退出码 ' + code + '）：' + err.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ')));
+      else reject(new Error('ffmpeg 失败（退出码 ' + code + '）：' + err.split(/[\r\n]+/).filter(Boolean).slice(-3).join(' | ')));
     });
   });
 }
 /* ffprobe 也要能杀：给个 15 秒上限，坏文件不会把渲染卡死 */
-function probe(args, jobId) {
+function capture(cmd, args, jobId) {
   return new Promise(resolve => {
-    const p = spawn('ffprobe', args, { windowsHide: true });
+    const p = spawn(cmd, args, { windowsHide: true });
     trackProc(jobId, p);
     let out = '';
     const done = v => { untrackProc(jobId, p); resolve(v); };
@@ -2442,11 +3087,71 @@ function probe(args, jobId) {
     p.on('error', () => { clearTimeout(timer); done(''); });
   });
 }
-async function ffprobeDuration(file, jobId) {
-  return parseFloat(await probe(['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', file], jobId)) || 0;
+function probe(args, jobId) { return capture('ffprobe', args, jobId); }
+/* 这台 ffmpeg 到底编进了哪些编码器 —— 只有问它自己才知道。
+   `.env` 里写 h264_qsv 而装的是官方 Windows 版（不带 QSV）是很常见的一次配错，
+   表现是「导出失败：Unknown encoder」一句，看不出是自己配的还是机器没有。
+   结果缓存在进程里（`ffmpeg -encoders` 一次几百毫秒，且这份清单进程活着就不会变），
+   Promise 而不是值：并发渲染时两条任务问一次（以前 ffprobe 那一族踩过「两条同时探、各起一个子进程」）。
+   问不出来（ffmpeg 不在 PATH / 超时）返回 null，**当「不知道」而不是「没有」**：
+   照用户配的走，让 ffmpeg 自己报错 —— 拿「问不到清单」去退回 libx264 等于凭空换了用户的配置。 */
+let encodersPromise = null;
+/* 已经问到的那份清单（null = 还没问过，或问不出来）。`/sys-status` 是同步的，
+   不能为了报「本机有没有 H.265」在那里 await 一趟 ffmpeg —— 它只读这一份现成的结果。 */
+let encodersKnown = null;
+function listEncoders(jobId) {
+  if (!encodersPromise) encodersPromise = (async () => {
+    const out = await capture('ffmpeg', ['-hide_banner', '-encoders'], jobId);
+    const names = new Set();
+    String(out || '').split(/\r?\n/).forEach(line => {
+      const parts = line.trim().split(/\s+/);
+      /* 形状：6 个标志位（第一位 V/A/S = 这一条是哪一类，后面五位是 `.FSXBD` 那几种能力）→ 编码器名 → 说明。
+         表头与分隔线（` V..... = Video`、` ..S... = Slice-level…`、` ------`）都在这一步被挡掉：
+         前缀那一列的名字位是 `=`，而 `=` 不以字母开头。 */
+      if (!/^[VAS][.FSXBD]{5}$/.test(parts[0] || '')) return;
+      if (!/^[A-Za-z][A-Za-z0-9_.+-]*$/.test(parts[1] || '')) return;
+      names.add(parts[1]);
+    });
+    encodersKnown = names.size >= 3 ? names : null;   // 只扫出两三行 = 不像是这份输出的形状，当问不出来
+    return encodersKnown;
+  })().catch(() => { encodersPromise = null; encodersKnown = null; return null; });
+  return encodersPromise;
 }
-async function hasAudioStream(file, jobId) {
-  return (await probe(['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file], jobId)).includes('audio');
+/* 这一单真用哪个编码器/档位（配置值 + 这台机器真有的），以及要不要把「退回」写给用户看。
+   codec 名字在表里但 ffmpeg 没编进去 → 退回 libx264 并给出原因；档位跟着退回那一家的默认档
+   （很关键：配 nvenc + p5 而机器没有 nvenc 时，把 p5 喂给 libx264 又是一次当场拒）。 */
+async function pickEncode(jobId) {
+  const prof = ENCODE_PROFILES[RENDER_VCODEC];
+  const want = { codec: RENDER_VCODEC, preset: RENDER_PRESET, zh: prof.zh, why: '' };
+  if (RENDER_VCODEC === VCODEC_DEFAULT) return want;      // 默认那一档必然在（libx264 是兜底，退它等于不退）
+  const have = await listEncoders(jobId);
+  if (have === null || have.has(RENDER_VCODEC)) return want;
+  const fb = ENCODE_PROFILES[VCODEC_DEFAULT];
+  const preset = fb.presets.indexOf(RENDER_PRESET) >= 0 ? RENDER_PRESET : fb.dPreset;
+  return { codec: VCODEC_DEFAULT, preset, zh: fb.zh,
+    why: `这台机器的 ffmpeg 没有 ${RENDER_VCODEC}（.env 里配的），已用 ${VCODEC_DEFAULT} 出片`
+      + (preset !== RENDER_PRESET ? `，档位也从 ${RENDER_PRESET} 换成 ${preset}` : '') + '。想要它就换一个编进了它的 ffmpeg 构建。' };
+}
+function encodeVideoArgs(codec, preset, crf) {
+  return ['-c:v', codec, '-preset', String(preset), ...ENCODE_PROFILES[codec].quality(crf), '-pix_fmt', 'yuv420p'];
+}
+
+/* 一个文件只问 ffprobe 一次：以前「有几秒」与「有没有原声」是两条命令、两个子进程，
+   同一个刚落地的文件问两遍 —— 三十段就是六十次子进程等待（每段都在下载完之后干等两回）。
+   `nw=1:nk=1` 打出来的是裸值：每个流一行 codec_type，最后一行是 format=duration（实测流排在前面）。
+   解析不看顺序，只分两类：纯数字那一行当秒数，等于 audio 的那一行当「有原声」。
+   认不出数字就当 0（与从前 `parseFloat(...) || 0` 一模一样），认不出 audio 就当没有声。 */
+async function probeFile(file, jobId) {
+  const out = await probe(['-v', 'error', '-show_entries', 'format=duration:stream=codec_type',
+    '-of', 'default=nw=1:nk=1', file], jobId);
+  let duration = 0, hasAudio = false;
+  for (const line of String(out || '').split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s) continue;
+    if (/^[\d.]+$/.test(s)) { if (!duration) duration = parseFloat(s) || 0; continue; }
+    if (s === 'audio') hasAudio = true;
+  }
+  return { duration, hasAudio };
 }
 let mediaPreparing = 0;
 async function prepareReferenceVideo(req, res) {
@@ -2680,154 +3385,77 @@ async function downloadTo(url, dest, hops) {
 }
 
 /* ============================================================================
-   字幕烧录（/render 的 clip.subs）
+   配音合成（/render 的 clip.voices）
    ---------------------------------------------------------------------------
-   字幕**不是**视频平台生成的（那边出的片子没有字幕），而是由页面上的字幕组件按台词
-   生成一条字幕轨，再交给本机的 ffmpeg 烧进画面（ffmpeg 带 libass + freetype + fontconfig，
-   中文字幕直接可用）。
+   每一句的 `start` 是**相对该段自己的起点**的秒数，绝对偏移由代理按每一段在成片里的
+   真实时长（`span / speed`）累加得出 —— 客户端自己累加会和实际差出零点几秒，整句就跟着漂。
 
-   时间轴一律**每段自带、相对该段自己的起点**（clips[i].subs[].start/end），
-   偏移量由代理用 ffprobe 量每一段标准化后的**真实时长**累加得出 ——
-   客户端自己累加会和实际时长差出零点几秒，字幕就会整体漂。
+   「字幕烧录」那一族（`clips[].subs` + ASS 生成 + 字体白名单）2026-10-15 整族删除：
+   它是已删的拍短剧页留下的死路，现在没有任何页面发 `subs`，代理里那一段永远走不到。
    ========================================================================== */
-const SUB_MAX = 2000;                       // 单次渲染的字幕条数上限（防超大请求）
 const VOICE_MAX = 40;                       // 单段配音条数上限（同一段台词条数；防超大请求）
 const clampVol = (v, def) => Math.min(4, Math.max(0, v == null || Number.isNaN(Number(v)) ? (def == null ? 1 : def) : Number(v)));
-const SUB_FONTS = ['Microsoft YaHei', '微软雅黑', 'SimHei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Arial Unicode MS'];
-/* ASS 时间格式 H:MM:SS.cc */
-function assTime(sec) {
-  const s = Math.max(0, Number(sec) || 0);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  return h + ':' + String(m).padStart(2, '0') + ':' + (ss < 10 ? '0' : '') + ss.toFixed(2);
-}
-/* ASS 正文里 { } 是样式块、\ 是转义、换行要写成 \N */
-function assText(s) {
-  return String(s == null ? '' : s)
-    .replace(/\\/g, '\\\\')
-    .replace(/\{/g, '(').replace(/\}/g, ')')
-    .replace(/\r?\n/g, '\\N')
-    .trim();
-}
-/* 说话人配色：每个角色一种颜色，旁白用暖色（和参考产品一致：旁白一眼能认出来） */
-const SUB_SPEAKER_COLORS = ['&H00FFFFFF', '&H0060E0FF', '&H00E0A0FF', '&H0080FF80', '&H00FFC060', '&H00E07070', '&H00C0C0FF', '&H00FFD0F0'];
-function speakerStyleOf(name, idx) {
-  const isNarr = /旁白|narrat/i.test(String(name || ''));
-  return isNarr ? '&H00E8A0C8' : SUB_SPEAKER_COLORS[(idx || 0) % SUB_SPEAKER_COLORS.length];
-}
-/* 生成 ASS 文件内容：PlayRes 用成片尺寸，字号按高度缩放（竖屏 9:16 与横屏看起来一样大） */
-function buildAss(events, width, height, fontName) {
-  const fs_ = Math.max(18, Math.round(height * 0.055));
-  const marginV = Math.max(24, Math.round(height * 0.09));
-  const outline = Math.max(2, Math.round(fs_ * 0.09));
-  /* 每个说话人一种颜色（按首次出现顺序分配 —— 同一集里同一个角色颜色稳定） */
-  const styleOf = new Map();
-  for (const ev of events) {
-    const key = String(ev.speaker || '').trim() || '（画外）';
-    if (!styleOf.has(key)) styleOf.set(key, { idx: styleOf.size, col: speakerStyleOf(key, styleOf.size) });
-  }
-  const nameOf = key => 'c' + styleOf.get(key).idx;
-  const fmtLine = 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding';
-  const lines = [
-    '[Script Info]', 'ScriptType: v4.00+',
-    'PlayResX: ' + width, 'PlayResY: ' + height,
-    'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
-    '[V4+ Styles]', fmtLine,
-  ];
-  for (const [key, v] of styleOf) {
-    lines.push('Style: ' + nameOf(key) + ',' + fontName + ',' + fs_ + ',' + v.col
-      + ',&H000000FF,&H00202020,&H90000000,-1,0,0,0,100,100,0,0,1,' + outline + ',1,2,40,40,' + marginV + ',1');
-  }
-  lines.push('', '[Events]',
-    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
-  for (const ev of events) {
-    const who = String(ev.speaker || '').trim();
-    const txt = assText(ev.text);
-    if (!txt) continue;
-    const key = who || '（画外）';
-    lines.push('Dialogue: 0,' + assTime(ev.start) + ',' + assTime(Math.max(ev.start + 0.2, ev.end)) + ',' + nameOf(key)
-      + ',' + who.replace(/,/g, ' ') + ',0,0,0,,' + (who ? who + '：' : '') + txt);
-  }
-  return lines.join('\n') + '\n';
-}
-/* 把每段自带的字幕（相对该段起点）按**真实时长**累加成一条整片字幕轨。
-   偏移量用 ffprobe 量标准化后的实际时长 —— 客户端自己加会差零点几秒，字幕就整体漂。 */
-async function collectSubEvents(clips, parts, jid) {
-  const events = [];
-  let base = 0;
-  for (let i = 0; i < clips.length && events.length < SUB_MAX; i++) {
-    const list = Array.isArray(clips[i] && clips[i].subs) ? clips[i].subs : [];
-    for (const s of list) {
-      const t0 = base + Math.max(0, Number(s.start) || 0);
-      const t1 = base + Math.max(0, Number(s.end) || 0);
-      if (t1 > t0 + 0.05) events.push({ start: t0, end: t1, text: s.text, speaker: s.speaker });
-    }
-    if (i < parts.length) {
-      const d = await ffprobeDuration(parts[i], jid);
-      if (d > 0) base += d;
-    }
-  }
-  return events.slice(0, SUB_MAX);
+/* 把任意倍速拆成 ffmpeg 允许的 `atempo` 串（单级只吃 0.5–2，超出就拆成多级相乘：4× = 2,2）。
+   以前这里是 `Math.min(2, Math.max(0.5, speed))` —— 4 倍速那一格被压成 2 倍，画面对音轨快了一倍，
+   而客户端的预览用的是 `playbackRate`（浏览器支持到 16）：屏幕上听着对、成片里拖沓，正是本项目拦的那一类。
+   一句配音现在还能带自己那一档（乘在这一格的倍速之上，最远 4×4=16），所以这一处必须能拆。 */
+function tempoChain(rate) {
+  let r = Number(rate) || 1;
+  if (!isFinite(r) || Math.abs(r - 1) < 0.001) return '';
+  const parts = [];
+  while (r > 2.001) { parts.push('atempo=2'); r /= 2; }
+  while (r < 0.499) { parts.push('atempo=0.5'); r *= 2; }
+  if (Math.abs(r - 1) >= 0.001) parts.push('atempo=' + r.toFixed(4));
+  return parts.length ? ',' + parts.join(',') : '';
 }
 
-/* 逐句配音 → 这一段自己的音轨文件（统一 aac/48k/双声道，concat 才能直拼）。
-   底噪永远是 anullsrc 静音轨，平台自带的人声按 clip.volume 混进来（短剧一般传 0：
-   台词是逐句合成的，平台自己生成的那路声音会和它打架）。每条配音按自己的 start 延迟后混，
-   normalize=0 很重要 —— 默认 amix 会按输入数把每路音量除下去，配音会越加越小。
-   末尾 apad + atrim：混出来的长度要么比画面长（最后一句拖出段外）要么短（句子之间的空隙），
-   都按这一段的 span 补齐/截断，音画才对得齐。 */
-async function buildClipAudio(dir, i, f, span, speed, jid) {
-  const out = path.join(dir, `aud_${i}.m4a`);
-  const S = Math.max(0.1, span).toFixed(3);
-  const voices = f.voices || [];
-  const hasNative = !f.black && f.file && (await hasAudioStream(f.file, jid));
-  const args = ['-y', '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=stereo:d=${S}`];
-  if (hasNative) args.push('-ss', String(Math.max(0, Number(f.in) || 0)), '-t', String(span), '-i', f.file);
-  for (const v of voices) args.push('-i', v.file);
-  const chain = ['[0:a]volume=0[sil]'];
-  const ins = ['[sil]'];
-  let n = 1;
-  if (hasNative) {
-    chain.push(`[${n}:a]volume=${clampVol(f.volume, 1)}[o]`);
-    ins.push('[o]'); n++;
-  }
-  for (const v of voices) {
-    const ms = Math.max(0, Math.round(v.start * 1000));
-    /* 新版 adelay 的第二个值是布尔 all（不是「两端各自的毫秒」）：adelay=delays=300:all=1 */
-    chain.push(`[${n}:a]adelay=delays=${ms}:all=1,volume=${v.vol}[v${n}]`);
-    ins.push(`[v${n}]`); n++;
-  }
-  chain.push(`${ins.join('')}amix=inputs=${ins.length}:duration=longest:normalize=0[m]`);
-  /* 变速时画面用 setpts 拉长/压短，音轨要同样变速才音画对得上 */
-  const sp = Math.min(4, Math.max(0.25, Number(speed) || 1));
-  chain.push(`[m]apad=whole_dur=${S},atrim=end=${S}${sp !== 1 ? `,atempo=${Math.min(2, Math.max(0.5, sp))}` : ''}[aout]`);
-  await runFfmpeg([...args, '-filter_complex', chain.join(';'), '-map', '[aout]',
-    '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', out], null, jid);
+/* 并发跑一批异步任务，**按原顺序**返回结果。
+   `mapLimit` 只有这一份：下载素材、探测时长都要它 —— 一处写 Promise.all（完全不限流）、
+   一处写串行 for，同一个「并发上限」就有两个口径，调参的人改一处漏一处。 */
+const DL_CONCURRENCY = 4;               // 同时下载几个片段的素材（见 renderJob 阶段一）
+async function mapLimit(list, n, fn) {
+  const out = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(n, list.length)) }, async () => {
+    while (cursor < list.length) {
+      const i = cursor++;
+      out[i] = await fn(list[i], i);
+    }
+  });
+  await Promise.all(workers);
   return out;
 }
-
 async function renderJob(job) {
   const dir = path.join(RENDER_DIR, job.id);
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { job.state = 'failed'; job.err = '无法创建渲染目录：' + e.message; return; }
+  const noSpace = whyRenderSpace();
+  if (noSpace) { job.state = 'failed'; job.err = noSpace; job.log.push(noSpace); return; }
   const jid = job.id;                    // 本任务的子进程都挂到这个号上（取消时按号杀，见 killJobProcs）
-  const { clips, width, height, fps, crf, bgm } = job.spec;
-  const hasSubs = clips.some(c => c && Array.isArray(c.subs) && c.subs.some(s => s && String(s.text || '').trim()));
+  const { clips, width, height, fps, crf, bgm, audioOnly } = job.spec;
+  /* audioOnly = 只出音频（导演台「导出素材」里每句配音一个文件的那一路）。
+     不新开一条导出通道 —— 复用同一套下载/解码/amix，只是最后 `-vn` 掉画面、容器换 m4a。
+     为什么需要它：逐句配音提交成「一条黑场 + 一句 voices」的话，出来的是一个**有画面的 mp4**
+     （黑屏 + 声音），用户要的是音频文件。 */
+  const wantAudio = !!audioOnly;
   // 渲染途中被取消：每一步之间检查一次，及时退出（而不是跑完整个片子）
   const abortIfCancelled = () => {
     if (job.state === 'cancelled') throw new Error('已取消');
   };
   try {
+    /* ---------- 阶段一：素材与配音**并发**下载，顺手把时长 / 有无音轨量出来 ----------
+       以前是一个串行 `for`：每段「下载完 → 干等本机 ffprobe 探一次」再轮到下一段，
+       三十段就是三十次完整的网络往返加三十次子进程等待。下载是网络等待、ffprobe 是本机子进程，
+       两者都能并发，所以这里按 `mapLimit` 一起跑 —— 上限 4：一次开三十个下载会把带宽和磁盘
+       都占满，整体反而更慢，而且远端限流会把后面的几条一起打回。 */
     job.stage = '下载素材'; job.progress = 2;
-    const files = [];
-    for (let i = 0; i < clips.length; i++) {
+    let dlDone = 0;
+    const files = await mapLimit(clips.map((c, i) => ({ c, i })), DL_CONCURRENCY, async ({ c, i }) => {
       abortIfCancelled();
-      const c = clips[i];
       /* 逐句配音先取回来（黑场段也可能有旁白，所以放在 black 判断之前）。
-         每条 = { src, start, dur, vol }，start 相对**该段起点**（与 subs 同一套约定，
-         绝对偏移由这一段的 span 决定，客户端自己加会漂）。 */
+         每条 = { src, start, dur, vol }，start 相对**该段起点**（绝对偏移由这一段的 span 决定，
+         客户端自己加会漂）。 */
+      const voices = Array.isArray(c.voices) ? c.voices.slice(0, VOICE_MAX) : [];
       const vFiles = [];
-      const voices = Array.isArray(c.voices) ? c.voices : [];
       for (let k = 0; k < voices.length; k++) {
         abortIfCancelled();
         const v = voices[k];
@@ -2835,147 +3463,193 @@ async function renderJob(job) {
         const vext = (/\.([a-z0-9]{3,4})(\?|$)/i.exec(vurl) || [])[1] || 'mp3';
         const vdest = path.join(dir, `voice_${i}_${k}.${vext}`);
         await downloadTo(vurl, vdest);
-        vFiles.push({ file: vdest, start: Math.max(0, Number(v.start) || 0), dur: Math.max(0.1, Number(v.dur) || 0), vol: clampVol(v.vol, 1) });
+        /* `off` = 这一句在音频文件内的起点（客户端拖左边缘切掉开头时写的，默认 0）。
+           它和 start 不是一回事：start 是「在画面第几秒开始响」。
+           `spd` = 这一句**自己**的倍速（默认 1），乘在这一格的 `speed` 之上 —— 与客户端 `clipVoices`
+           那一处同一份读法；这里漏掉它，成片就是原速而预览与回执都说是倍速（半截承诺）。 */
+        vFiles.push({ file: vdest, start: Math.max(0, Number(v.start) || 0), dur: Math.max(0.1, Number(v.dur) || 0),
+          vol: clampVol(v.vol, 1), off: Math.max(0, Number(v.off) || 0),
+          spd: Math.max(0.25, Math.min(4, Number(v.spd) || 1)) });
       }
       if (vFiles.length) job.log.push(`[${i + 1}/${clips.length}] 配音 ${vFiles.length} 句`);
+      const speed = Math.min(4, Math.max(0.25, Number(c.speed) || 1));
+      const volume = clampVol(c.volume, 1);
       if (String(c.src) === 'black') {   // 黑场：不下载，用 lavfi 生成
-        files.push({ ...c, file: null, black: true, size: 0, voices: vFiles });
-        job.log.push(`[${i + 1}/${clips.length}] 黑场 ${((Number(c.out) - Number(c.in)) || 1).toFixed(1)}s`);
-        continue;
+        const span = Math.max(0.1, (Number(c.out) || 1) - Math.max(0, Number(c.in) || 0));
+        job.log.push(`[${i + 1}/${clips.length}] 黑场 ${span.toFixed(1)}s`);
+        dlDone++; job.progress = 2 + Math.round((dlDone / clips.length) * 33);
+        return { i, black: true, file: null, inP: 0, span, speed, volume, voices: vFiles, native: false };
       }
       const url = await resolveSrc(c.src, job.key);
       const ext = (/\.([a-z0-9]{3,4})(\?|$)/i.exec(url) || [])[1] || 'mp4';
       const dest = path.join(dir, `src_${i}.${ext}`);
       const size = await downloadTo(url, dest);
-      files.push({ ...c, file: dest, size, voices: vFiles });
-      job.progress = 2 + Math.round(((i + 1) / clips.length) * 33);
+      /* 这一段在成片里占多长：用 ffprobe 出来的真实时长把 out 夹紧
+         （平台给的 duration 常常比实际文件长，不夹会在片尾多出一段黑）。 */
+      const inP = Math.max(0, Number(c.in) || 0);
+      const meta = await probeFile(dest, jid);
+      const dur = meta.duration;
+      let outP = c.out != null && Number(c.out) > inP ? Number(c.out) : dur;
+      if (dur && outP > dur + 0.05) outP = dur;
+      const span = Math.max(0.1, outP - inP);
+      const native = meta.hasAudio;
+      dlDone++; job.progress = 2 + Math.round((dlDone / clips.length) * 33);
       job.log.push(`[${i + 1}/${clips.length}] 已下载 ${(size / 1048576).toFixed(2)} MB`);
-    }
+      return { i, black: false, file: dest, inP, span, speed, volume, voices: vFiles, native };
+    });
+    if (!files.length) throw new Error('没有可渲染的片段');
+    // 成片名带上任务号后缀：同名任务并发时不再互相覆盖
+    const outName = (job.name || '成片') + '-' + job.id.slice(-4) + (wantAudio ? '.m4a' : '.mp4');
+    const outPath = path.join(RENDER_DIR, outName);
+
     /* 音频策略分两种：
-       · 没有逐句配音 → 沿用老规矩「所有片段都有音轨才保留，否则整片静音」（避免 concat 混流失败）
-       · 有逐句配音   → **每一段都单独铺一条统一规格的音轨**（没原声就垫静音底），
-         否则「一段有声、一段无声」会让 concat 整片静音，配音跟着整段消失。 */
+       · 没有逐句配音 → 沿用老规矩「所有片段都有音轨才保留，否则整片静音」（避免混流失败）
+       · 有逐句配音   → 有原声 / 有配音的那几段各自成一路，最后统一 amix，
+         否则「一段有声、一段无声」会让整片静音，配音跟着整段消失。 */
     const hasVoice = files.some(f => (f.voices || []).length);
     let keepAudio = true;
-    for (const f of files) { if (f.black || !(await hasAudioStream(f.file, jid))) { keepAudio = false; break; } }
+    for (const f of files) { if (f.black || !f.native) { keepAudio = false; break; } }
     if (hasVoice) keepAudio = true;
     job.keepAudio = keepAudio;
-    job.stage = keepAudio ? '逐段标准化（保留音频）' : '逐段标准化（静音）';
 
-    const parts = [];
-    for (let i = 0; i < files.length; i++) {
-      abortIfCancelled();
-      const f = files[i];
-      const out = path.join(dir, `norm_${i}.mp4`);
-      const vfBase = [
-        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
-        'setsar=1', `fps=${fps}`, 'format=yuv420p',
-      ].join(',');
-      /* 这一段在成片里占多长：黑场按声明的 out-in，其余用 ffprobe 出来的真实时长把 out 夹紧
-         （平台给的 duration 常常比实际文件长，不夹会在片尾多出一段黑）。 */
-      const inP = Math.max(0, Number(f.in) || 0);
-      let span = Math.max(0.1, (Number(f.out) || 1) - inP);
-      if (!f.black) {
-        const dur = await ffprobeDuration(f.file, jid);
-        let outP = f.out != null && Number(f.out) > inP ? Number(f.out) : dur;
-        if (dur && outP > dur + 0.05) outP = dur;
-        span = Math.max(0.1, outP - inP);
-      }
-      const speed = Math.min(4, Math.max(0.25, Number(f.speed) || 1));
-      /* 有逐句配音 → 这一段单独铺一条统一规格的音轨（黑场段也铺：旁白本来就配在黑场上） */
-      const audFile = hasVoice ? await buildClipAudio(dir, i, f, span, speed, jid) : null;
-      if (f.black) {
-        /* 输入必须全排在输出选项之前：'-i' 推在 '-vf'/'-c:v' 后面会被 ffmpeg 当成
-           「给已声明完输出的文件再开一个输入」，直接报 Invalid argument。 */
-        const a = ['-y', '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:d=${span}:r=${fps}`];
-        if (audFile) a.push('-i', audFile);
-        a.push('-vf', vfBase, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf));
-        if (audFile) a.push('-map', '0:v', '-map', '1:a', '-c:a', 'copy');
-        else a.push('-an');
-        a.push(out);
-        await runFfmpeg(a, null, jid);
-        parts.push(out);
-        job.progress = 35 + Math.round(((i + 1) / files.length) * 45);
-        job.log.push(`[${i + 1}/${files.length}] 黑场已生成 ${fmtTime(span)}${audFile ? '（含配音）' : ''}`);
-        continue;
-      }
-      const vf = [
-        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
-        'setsar=1',
-        `fps=${fps}`,
-        speed !== 1 ? `setpts=PTS/${speed}` : null,
-        'format=yuv420p',
-      ].filter(Boolean).join(',');
-      const args = ['-y', '-ss', String(inP), '-t', String(span), '-i', f.file];
-      if (audFile) args.push('-i', audFile);
-      args.push('-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf));
-      if (audFile) args.push('-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-ar', '48000', '-ac', '2');
-      else if (keepAudio) {
-        const vol = clampVol(f.volume, 1);
-        args.push('-af', `volume=${vol}${speed !== 1 ? ',atempo=' + Math.min(2, Math.max(0.5, speed)) : ''}`, '-c:a', 'aac', '-ar', '48000', '-ac', '2');
-      } else args.push('-an');
-      args.push(out);
-      await runFfmpeg(args, line => { if (line.includes('time=')) job.log.push('  ' + line.trim().slice(-60)); }, jid);
-      parts.push(out);
-      job.progress = 35 + Math.round(((i + 1) / files.length) * 45);
-      job.log.push(`[${i + 1}/${files.length}] 已标准化 ${fmtTime(span)}${speed !== 1 ? '（' + speed + '×）' : ''}`);
-      if (job.log.length > 120) job.log.splice(0, job.log.length - 120);
-    }
-    // 拼接（已统一编码参数，可直接 copy）
-    abortIfCancelled();
-    job.stage = '拼接成片';
-    const listFile = path.join(dir, 'concat.txt');
-    fs.writeFileSync(listFile, parts.map(p => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
-    // 成片名带上任务号后缀：同名任务并发时不再互相覆盖
-    const outName = (job.name || '成片') + '-' + job.id.slice(-4) + '.mp4';
-    const outPath = path.join(RENDER_DIR, outName);
-    /* 字幕轨：clips[i].subs 各自相对本段起点，这里按真实时长累加成整片时间轴。
-       有字幕就得**重新编码画面**（叠加滤镜与 -c copy 互斥），没有字幕仍是原来的直拼，速度不受影响。 */
-    let subFilter = '';
-    if (hasSubs) {
-      job.stage = '烧字幕';
-      const events = await collectSubEvents(clips, parts, jid);
-      if (events.length) {
-        const font = SUB_FONTS.indexOf(job.spec.subFont) >= 0 ? job.spec.subFont : SUB_FONTS[0];
-        const assFile = path.join(dir, 'subs.ass');
-        fs.writeFileSync(assFile, buildAss(events, width, height, font), 'utf8');
-        /* 字幕文件走**相对代理目录**的路径：Windows 的绝对路径带盘符，ffmpeg 的滤镜参数里
-           冒号要转义成 C\:，实测那条路读不到文件（报 original_size 非法）；
-           相对路径没有冒号，干净得多。为此 runFfmpeg 固定以 __dirname 为 cwd。 */
-        const rel = path.relative(__dirname, assFile).replace(/\\/g, '/');
-        subFilter = 'ass=' + rel;
-        job.log.push('字幕 ' + events.length + ' 条，字号按 ' + height + 'p 自适应（' + font + '）');
-        job.progress = Math.max(job.progress, 85);
-      }
-    }
-    const concatArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy'];
-    if (subFilter) {
-      // 叠字幕：画面重新编码，音频仍然直拷
-      const vArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-vf', subFilter,
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf)];
-      if (keepAudio) vArgs.push('-c:a', 'copy'); else vArgs.push('-an');
-      vArgs.push(outPath);
-      if (bgm) {
-        const bgmFile = path.join(dir, 'bgm' + (path.extname(bgm) || '.mp3'));
-        await downloadTo(await resolveSrc(bgm, job.key), bgmFile);
-        await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-stream_loop', '-1', '-i', bgmFile,
-          '-filter_complex', '[0:v]' + subFilter + '[v];[1:a]volume=0.35[bg];[0:a][bg]amix=inputs=2:duration=first[a]',
-          '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), '-c:a', 'aac', '-shortest', outPath], null, jid);
+    /* ---------- 阶段二：**一次** ffmpeg 出片 ----------
+       以前是「每段单独编码成 norm_N.mp4 → concat 直拼」：N 段就是 N+1 次 ffmpeg 启动、
+       N 次完整重编码（每段都要为 libx264 重开一遍 GOP、重写一遍封装），片头片尾还各多一次
+       无谓的封装开销。这里改成**单遍 filter_complex**（与参考项目的 projectRenderPlan 同一条路）：
+       每段只做 trim / scale / pad / fps 归一后 concat，音轨各自 adelay 后一次 amix，
+       全程只有一次编码、一次封装。分辨率、fps、48k/双声道 AAC 与「单遍」这两件事没变；
+       变的是**编码器与档位不再写死** —— 由 `.env` 的 RENDER_VCODEC / RENDER_PRESET 声明，
+       没配就还是原来那一档（libx264 + veryfast + 界面那个 crf）。 */
+    /* 编码档位走到这一步才现定：`.env` 里配的那个名字，在这台机器的 ffmpeg 上到底编没编进去，
+       只有问一次 `ffmpeg -encoders` 才知道（结果进程内缓存，一整轮渲染只问一回）。
+       本机没有 → 退回 libx264 并把原因写进这一单的日志：静默换成别的编码器，用户看到的是
+       「我配了 H.265，出来的还是 H.264」，而整单报错更糟 —— 片子明明出得来。
+       只出音频那一支根本没有视频流，不去问它（enc 留 null，日志里那句「编码 …」跟着不报）。 */
+    const enc = wantAudio ? null : await pickEncode(jid);
+    job.stage = keepAudio ? '合成（单遍编码 · 保留音频）' : '合成（单遍编码 · 静音）';
+    job.progress = 40;
+    const args = ['-y'];
+    const vFilters = [], aFilters = [];
+    const vLabels = [], aLabels = [];
+    let inputCount = 0;
+    const addInput = parts => { args.push(...parts); return inputCount++; };
+
+    /* 配音的尾巴能越过自己锚着的那一段（一句长台词跨两个镜头是正常需求），所以「这一句还能响多久」
+       的上界不再是「本段剩余」，而是「本句时长、并且不超出片尾」。片尾这个数必须在循环之前就拿到：
+       它和循环末尾那个 `total` 必须是同一条算式（Σ span/speed），差一点就会把尾巴提前切掉。 */
+    const totalFilm = Math.max(0.1, files.reduce((a, f) =>
+      a + Math.max(0.1, Number(f.span) || 0) / (f.speed || 1), 0));
+    let offset = 0;                     // 这一段在成片时间轴上的起点（秒）
+    for (const f of files) {
+      const span = Math.max(0.1, Number(f.span) || 0);
+      const speed = f.speed;
+      const outDur = span / speed;      // 画面 setpts 除以 speed → 成片里占这么长
+      const tempo = tempoChain(speed);
+      if (f.black && !wantAudio) {
+        const vi = addInput(['-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:d=${span.toFixed(3)}:r=${fps}`]);
+        vFilters.push(`[${vi}:v]scale=${width}:${height},setsar=1,fps=${fps},setpts=(PTS-STARTPTS)/${speed},format=yuv420p[v${f.i}]`);
+        vLabels.push(`[v${f.i}]`);
+      } else if (f.black && wantAudio) {
+        /* audioOnly：黑场段只要一个「占位输入」，画面一律不要（连黑场都不生成 ——
+           逐句导出时那句配音通常就挂在一个黑场 clip 上，生成一段纯黑视频纯属白烧 CPU）。 */
       } else {
-        await runFfmpeg(vArgs, null, jid);
+        /* 入点与长度用**输入级** -ss / -t：它走解码器 seek，比「整段解码进滤镜再 trim 掉」快得多
+           —— 后者正是老实现慢的另一半（在滤镜里 trim 要把这一段完整解一遍）。 */
+        const vi = addInput(['-ss', String(f.inP), '-t', String(span), '-i', f.file]);
+        vFilters.push(`[${vi}:v]` + [
+          `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+          'setsar=1', `fps=${fps}`,
+          `setpts=(PTS-STARTPTS)/${speed}`,
+          'format=yuv420p',
+        ].join(',') + `[v${f.i}]`);
+        vLabels.push(`[v${f.i}]`);
+        if (keepAudio && f.native) {
+          /* 原声：输入级 -ss/-t 已经裁好，这里只补音量 / 变速，再按成片时间轴 delay。
+             normalize=0 很重要 —— 默认 amix 会按输入数把每路音量除下去，配音会越加越小。 */
+          aFilters.push(`[${vi}:a]asetpts=PTS-STARTPTS,volume=${f.volume}${tempo},`
+            + `adelay=delays=${Math.round(offset * 1000)}:all=1[a${f.i}]`);
+          aLabels.push(`[a${f.i}]`);
+        }
       }
-    } else if (bgm) {
-      // 可选背景音乐：与成片混音（原声压低）
+      /* 逐句配音：延迟到「这一段起点 + 句内偏移」，**尾巴放到这一句自己的长度**（只夹到片尾）。
+         以前上界是「这一段还剩多少」—— 一句比锚着的那一格长的台词，导出后只剩前半句，
+         而剪辑态预览（`TlPlay.startVoices` 按绝对成片秒起播、整句放完）是全的：
+         同一句话，屏幕上听得到、成片里听不到。所有音频路最后进的是同一条全局 amix，
+         `adelay` 给的又是绝对秒，所以放开这一刀天然就跨得过去（盖到后面那一段的画面上），
+         不需要新开一条通道；片尾那一刀由下面 `atrim=end=total` 兜住。
+         `room` 在 atempo **之前**，单位是音频文件秒，所以「还能响多久」要乘回这一句的实际倍速。
+         这一句的实际倍速 = 那一格画面的 `speed` × 这一句自己的 `spd`（缺省 1，与从前一模一样）：
+         起点 `at` 只除画面倍速（倍速不动「从画面的第几秒开始响」），与客户端 `tlPlayPlan` 两条算式一字不差。 */
+      for (let k = 0; k < f.voices.length; k++) {
+        const v = f.voices[k];
+        /* 切过开头的那一句从音频中间取：`-ss` 放在 `-i` 之前是**输入级 seek**（快、且不用先解一遍） */
+        const ai = addInput(v.off > 0.02 ? ['-ss', String(v.off), '-i', v.file] : ['-i', v.file]);
+        const at = offset + v.start / speed;
+        const vrate = speed * (v.spd || 1);
+        const room = Math.max(0.1, Math.min(v.dur, (totalFilm - at) * vrate));
+        aFilters.push(`[${ai}:a]atrim=start=0:duration=${room.toFixed(3)},asetpts=PTS-STARTPTS,volume=${v.vol}${tempoChain(vrate)},`
+          + `adelay=delays=${Math.round(at * 1000)}:all=1[av${f.i}_${k}]`);
+        aLabels.push(`[av${f.i}_${k}]`);
+      }
+      offset += outDur;
+    }
+    /* 与上面 `totalFilm` 是同一个数（同一条算式、同一个累加序），所以这里直接取它：
+       配音的上界与 amix 后面那道 `atrim=end=` 必须用同一把尺子，两处各算一次就会差出半句。 */
+    const total = totalFilm;
+    /* audioOnly 时**不搭画面链**：vLabels 是空的，concat 那一段整段跳过（见上面那段说明）。
+       画面那一整支（vFilters / vMap）只在要出视频时才生成。 */
+    if (vLabels.length) vFilters.push(vLabels.join('') + `concat=n=${vLabels.length}:v=1:a=0[vcat]`);
+
+    const vMap = '[vcat]';              // concat 之后不再接任何滤镜（字幕烧录那一支已随死代码整族删除）
+
+    /* 可选背景音乐：与成片混音（原声压低）。-stream_loop -1 是无限长，下面 atrim 到成片长度。 */
+    let bgmIdx = -1;
+    if (bgm) {
       const bgmFile = path.join(dir, 'bgm' + (path.extname(bgm) || '.mp3'));
       await downloadTo(await resolveSrc(bgm, job.key), bgmFile);
-      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-stream_loop', '-1', '-i', bgmFile,
-        '-filter_complex', '[1:a]volume=0.35[bg];[0:a][bg]amix=inputs=2:duration=first[a]',
-        '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outPath], null, jid);
-    } else {
-      await runFfmpeg([...concatArgs, outPath], null, jid);
+      bgmIdx = addInput(['-stream_loop', '-1', '-i', bgmFile]);
     }
+    if (aLabels.length) {
+      const ins = aLabels.slice();
+      if (bgmIdx >= 0) {
+        aFilters.push(`[${bgmIdx}:a]atrim=start=0:duration=${total.toFixed(3)},asetpts=PTS-STARTPTS,volume=0.35[abg]`);
+        ins.push('[abg]');
+      }
+      aFilters.push(ins.join('')
+        + `amix=inputs=${ins.length}:duration=longest:normalize=0,atrim=end=${total.toFixed(3)}`
+        + ',aformat=sample_rates=48000:channel_layouts=stereo[aout]');
+    }
+
+    args.push('-filter_complex', vFilters.concat(aFilters).join(';'));
+    if (wantAudio) {
+      /* 只出音频：`-vn` 掉画面，容器换 m4a（aac 本来就在 m4a 里）。
+         没有音轨就直接说清 —— 静默出一个 0 字节文件，用户看到的是「导了个空文件」。 */
+      if (!aLabels.length) throw new Error('这一单没有音频可出（配音句已不存在，或都落在剪不到画面的位置上）');
+      args.push('-vn', '-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outPath);
+    } else {
+      args.push('-map', vMap, ...encodeVideoArgs(enc.codec, enc.preset, crf));
+      if (aLabels.length) args.push('-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2');
+      else args.push('-an');
+      args.push('-movflags', '+faststart', outPath);
+    }
+    job.log.push((wantAudio ? '只出音频' : '单遍合成') + '：' + files.length + ' 段 · ' + total.toFixed(1) + ' 秒 · '
+      + aLabels.length + ' 路音轨' + (enc ? ' · 编码 ' + enc.codec + ' · 档位 ' + enc.preset + ' · 质量档 ' + crf : ''));
+    if (enc && enc.why) job.log.push(enc.why);
+    await runFfmpeg(args, line => {
+      /* 只往前走：`time=` 是已经写出去的输出秒数，同一次编码不会变小，但一行里挤了几条进度时
+         旧值会先出现。倒退的进度条看着像「卡住了又开始跑」，比原地不动更招人烦。
+         `total` 为 0 时不算（0/0 = NaN，序列化出去会变成 null，界面上那句「合成中 45%」就没了数）。 */
+      let t = 0;
+      for (const m of String(line).matchAll(/time=(\d+):(\d+):([\d.]+)/g)) {
+        const v = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        if (v > t) t = v;
+      }
+      if (t > 0 && total > 0) {
+        const pct = Math.min(96, 45 + Math.round((t / total) * 50));
+        if (pct > job.progress) job.progress = pct;
+      }
+    }, jid);
     rmrf(dir);
     const size = fs.statSync(outPath).size;
     job.progress = 100; job.state = 'done'; job.stage = '完成';
@@ -3015,7 +3689,7 @@ function enqueueRender(job) {
   refreshQueuePos();
   pumpRenderQueue();
 }
-/* 每 5 分钟回收：过期的任务记录、以及 .renders 里超出保留数的老成片 */
+/* 每 5 分钟回收：过期的任务记录，以及渲染中途崩溃留下的临时目录（成片文件不按数量清，见 pruneRenders 里那段） */
 function pruneRenders() {
   const now = Date.now();
   renders.forEach((job, id) => {
@@ -3023,10 +3697,11 @@ function pruneRenders() {
     if (done && job.ts && now - job.ts > RENDER_KEEP) renders.delete(id);
   });
   try {
-    const files = fs.readdirSync(RENDER_DIR).filter(f => f.endsWith('.mp4'))
-      .map(f => ({ f, ts: fs.statSync(path.join(RENDER_DIR, f)).mtimeMs }))
-      .sort((a, b) => b.ts - a.ts);
-    files.slice(OUT_KEEP).forEach(x => { rmrf(path.join(RENDER_DIR, x.f)); log('[render] 清理旧成片 ' + x.f); });
+    /* 成片**不再按数量清理**（2026-10 用户要求：成片文件的保存不要有数量限制）。
+       以前这里保留最近 20 个、更早的连文件带记录一起删 —— 而 `.renders` 是「导出成片」唯一的落点，
+       删掉就是用户自己的成品凭空不见了（数据没丢，
+       但要重跑一遍 ffmpeg 才拿得回来，几十秒起步）。磁盘是用户自己的，留多少由他决定。
+       仍然清理的是**渲染途中崩溃留下的临时目录**（下面那一段），那是我们自己的垃圾。 */
     // 渲染中途崩溃留下的临时目录（非 30 位任务号形态的目录）
     fs.readdirSync(RENDER_DIR).forEach(d => {
       const p = path.join(RENDER_DIR, d);
@@ -3066,20 +3741,16 @@ function handleRender(req, res, pathname, urlObj) {
     res.end(JSON.stringify({ ok: true, id, killed }));
     return true;
   }
-  if (req.url.startsWith('/render/play')) {
-    const name = path.basename(urlObj.searchParams.get('name') || '');
-    const f = path.join(RENDER_DIR, name);
-    if (!name || !fs.existsSync(f)) { res.writeHead(404); res.end('not found'); return true; }
-    /* 要支持 Range：<video> 拖动进度、以及 ffmpeg 产出「moov 在尾部」的 mp4 都会发 Range 请求。
-       以前这里写死 Accept-Ranges: none 并整文件推出去，播放器只能从头缓冲，拖进度条就卡住。 */
-    sendFileWithRange(req, res, f, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' });
-    return true;
-  }
   if (req.url.startsWith('/render/dl')) {
     const name = path.basename(urlObj.searchParams.get('name') || '');
     const f = path.join(RENDER_DIR, name);
     if (!name || !fs.existsSync(f)) { res.writeHead(404); res.end('not found'); return true; }
-    sendFileWithRange(req, res, f, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+    /* Content-Type 按扩展名给：这一目录现在不只放 mp4（「导出素材」的每句配音是 m4a）。
+       一律当 video/mp4 的话，浏览器会把 .m4a 也按视频处理，个别环境直接拒下载。 */
+    const ct = /\.m4a$/i.test(name) ? 'audio/mp4'
+      : /\.wav$/i.test(name) ? 'audio/wav'
+      : /\.mp3$/i.test(name) ? 'audio/mpeg' : 'video/mp4';
+    sendFileWithRange(req, res, f, { 'Content-Type': ct, 'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-store', 'Content-Disposition': 'attachment; filename="' + encodeURIComponent(name) + '"' });
     return true;
   }
@@ -3091,39 +3762,47 @@ function handleRender(req, res, pathname, urlObj) {
       if (!spec || !Array.isArray(spec.clips) || !spec.clips.length) {
         res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"缺少 clips"}'); return;
       }
-      if (spec.clips.length > 500) {
-        res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"片段过多（上限 500 段）"}'); return;
+      if (spec.clips.length > RENDER_CLIPS_MAX) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"片段过多（上限 ' + RENDER_CLIPS_MAX + ' 段）"}'); return;
       }
       // 队列上限：避免一次性提交几百个渲染任务把 CPU 与磁盘占满
-      if (renderQueue.length + renderRunning >= 20) {
-        res.writeHead(429, { 'Content-Type': 'application/json' }); res.end('{"error":"渲染任务排队过多，稍后再试"}'); return;
+      if (renderQueue.length + renderRunning >= RENDER_QUEUE_MAX) {
+        res.writeHead(429, { 'Content-Type': 'application/json' }); res.end('{"error":"渲染任务排队过多（在跑与排队最多 ' + RENDER_QUEUE_MAX + ' 条），稍后再试"}'); return;
       }
       const id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       const job = {
         id, state: 'queued', progress: 1, stage: '排队', log: [], out: null, err: null, size: 0, ts: Date.now(),
         key: (req.headers.authorization || '').replace(/^Bearer\s*/, '') || keyOf('SPARKCINE_API_KEY'),
-        name: (spec.name || '成片').replace(/[\\/:*?"<>|]/g, '-'),
+        name: fileSafe(spec.name || '成片', 60),
         spec: {
-          /* clips 里额外放行 subs（该段自带的字幕轨，时间相对本段起点）与 volume；
-             voices 是这一段的**逐句配音**（同样相对本段起点，合成时按各自的 start 延迟混进去）。
-             三者都只做形状校验，取值范围在 renderJob 里夹紧 —— 不要在这里直接信任客户端 */
+          /* clips 里额外放行 volume 与 voices；
+             voices 是这一段的**逐句配音**（时间相对本段起点，合成时按各自的 start 延迟混进去）。
+             两者都只做形状校验，取值范围在 renderJob 里夹紧 —— 不要在这里直接信任客户端 */
           clips: spec.clips.map(c => ({
             src: c && c.src, in: c && c.in, out: c && c.out, speed: c && c.speed, volume: c && c.volume,
+            /* `off` = 这一句在**音频文件内部**的起点（客户端拖左把手剪掉开头时写的）。
+               ⚠ 它以前在这里被漏掉 —— 路由的这段是**逐字段重写**的，不是原样透传，
+               所以 renderJob 里读得到 v.off，客户端也发了，这中间这一层却没放行：
+               结果是「剪切过开头的那一句」合成时又从音频第 0 秒整句放出来
+               （试听/预览听得到剪掉的那一截，成片里也在）。三处口径：clipVoices / 这里 / renderJob。 */
+            /* `spd` = 这一句自己的倍速（乘在本段 speed 之上）。它与 `off` 是同一类字段：
+               这一段是**逐字段重写**的，不是原样透传 —— 这里漏放行，客户端发了、renderJob 里也读得到，
+               中间这一层把它当成没有，成片就永远是原速（预览与回执却说变了速）。 */
             voices: (c && Array.isArray(c.voices) ? c.voices.slice(0, VOICE_MAX) : []).map(v => ({
               src: String(v && v.src || '').slice(0, 2000), start: Math.max(0, Number(v && v.start) || 0),
               dur: Math.max(0, Number(v && v.dur) || 0), vol: Number.isFinite(Number(v && v.vol)) ? Number(v.vol) : 1,
+              off: Math.max(0, Number(v && v.off) || 0),
+              spd: Math.max(0.25, Math.min(4, Number(v && v.spd) || 1)),
             })).filter(v => v.src),
-            subs: (c && Array.isArray(c.subs) ? c.subs.slice(0, SUB_MAX) : []).map(s => ({
-              start: Math.max(0, Number(s.start) || 0), end: Math.max(0, Number(s.end) || 0),
-              text: String(s.text == null ? '' : s.text).slice(0, 200), speaker: String(s.speaker == null ? '' : s.speaker).slice(0, 40),
-            })),
           })),
           width: Math.max(64, Math.min(4096, parseInt(spec.width) || 1280)),
           height: Math.max(64, Math.min(4096, parseInt(spec.height) || 720)),
           fps: Math.max(12, Math.min(60, parseInt(spec.fps) || 30)),
           crf: Math.max(14, Math.min(32, parseInt(spec.crf) || 20)),
           bgm: spec.bgm || null,
-          subFont: String(spec.subFont || '').slice(0, 60),
+          /* 只出音频（导演台「导出素材」里每句配音一个文件那一条路）。只做布尔化，
+             客户端传什么类型都只当 true/false —— 这里是要不要走 `-vn` 的开关，不是用户输入。 */
+          audioOnly: !!spec.audioOnly,
         },
       };
       renders.set(id, job);
@@ -3168,7 +3847,7 @@ const DATA_KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const dataDirPath = () => path.resolve(__dirname, process.env.DATA_DIR || '.data');
 const dataFileOf = key => path.join(dataDirPath(), key + '.json');
 /* ---------- 本机依赖体检（GET /sys-status，只同源） ----------
-   短剧导出成片要 ffmpeg。没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，
+   导演台导出成片要 ffmpeg。没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，
    三种在界面上都只剩「无法启动 ffmpeg」一句 —— 现在导出前就能看见是哪一种。
    探测要起子进程，所以进程期内只探一次并缓存；?fresh=1 强制重探
    （刚改完 PATH 的人不该被迫重启代理才能看到变化）。 */
@@ -3200,6 +3879,31 @@ function dirState(dir) {
   try { fs.accessSync(dir, fs.constants.W_OK); } catch (e) { return { 路径: dir, 状态: '存在但写不进去（只读、权限，或被别的进程占着）' }; }
   return { 路径: dir, 状态: '可写' };
 }
+/* 「本机现在到底会怎么出片」——渲染那几个数都是**启动时定一次**的（改了要重启），
+   所以体检里必须把「生效值 + 它是从哪儿来的」一起报出来：`.env` 里写了并发 2 而实际还在串行，
+   界面上没有任何地方看得出来（与上面启动日志同一口径）。
+   编码器在这台机器上到底有没有，只能问 ffmpeg 自己，而那是异步的（`listEncoders`）；体检是同步的，
+   所以这里只读已经缓存下来的那份清单。三档分开给，**且一句都不在页面里重拼**：
+   · `芯片` 短给设置页那一行上色用（ok / warn 也在这里定，页面不拿正则猜中文）；
+   · `说明` 整句给复制文本与助手的 doctor —— 它们要的是能贴出去排查的那一句。
+   没问过就照实说没问过：**不拿「不知道」冒充「没有」**，那会让人去重装一个本来就装好的 ffmpeg。 */
+function renderStatus() {
+  const prof = ENCODE_PROFILES[RENDER_VCODEC];
+  let chip = '还没问过', cls = 'warn', say;
+  if (RENDER_VCODEC === VCODEC_DEFAULT) { chip = '默认档'; cls = 'ok'; say = '默认这一档，哪台 ffmpeg 都有'; }
+  else if (encodersKnown === null) say = '还没问过这台 ffmpeg（第一次导出时自动问；没有它就退回 ' + VCODEC_DEFAULT + '，并在那一单的日志里写明原因）';
+  else if (encodersKnown.has(RENDER_VCODEC)) { chip = '这台有'; cls = 'ok'; say = '这台 ffmpeg 编进了 ' + RENDER_VCODEC; }
+  else { chip = '这台没有'; say = '这台 ffmpeg 没编进 ' + RENDER_VCODEC + ' → 导出时自动退回 ' + VCODEC_DEFAULT + '（想用它要换一个编进了它的构建）'; }
+  return {
+    编码: RENDER_VCODEC, 中文名: prof.zh, 档位: RENDER_PRESET,
+    本机: chip, 本机档: cls, 本机说明: say,
+    质量: '每单在界面上选的那个 crf（14–32）',
+    同时: RENDER_CONCURRENCY, 队列上限: RENDER_QUEUE_MAX, 保留分钟: Math.round(RENDER_KEEP / 60000),
+    来源: 'RENDER_VCODEC ' + envFromStr('RENDER_VCODEC') + ' · RENDER_PRESET ' + envFromStr('RENDER_PRESET')
+      + ' · 并发 ' + envFrom('RENDER_CONCURRENCY') + ' · 队列 ' + envFrom('RENDER_QUEUE_MAX')
+      + ' · 保留 ' + envFrom('RENDER_KEEP_MIN') + '（都写在 .env 里，改完要重启）',
+  };
+}
 function sysStatus(fresh) {
   /* 出站代理那一段每次现算（它 30 秒一份缓存、跟着代理软件开关变），不跟着整份体检结果一起缓存 */
   const px = outboundProxy();
@@ -3208,13 +3912,26 @@ function sysStatus(fresh) {
     来源: px.src || '没检测到（环境变量 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY 与 Windows 系统代理都没有）',
     绕过: '回环 / 内网 / 链路本地地址与 NO_PROXY 里列的一律直连；.env 里写 PROXY_OFF=1 可整体关掉',
   };
-  if (_sysStatus && !fresh) { _sysStatus.出站代理 = proxyField; return _sysStatus; }
+  /* 「本机现在到底会怎么出片」每次现拼（都是同步读几个常量），因为它缓存期间 `本机` 那一格会变 ——
+     第一次导出问过 `ffmpeg -encoders` 之后，体检才说得出「这台有没有配的那个编码器」。 */
+  const renderField = renderStatus();
+  /* 健康那一份也每次现算：它说的就是「现在这一刻」—— 存活多久、最后一次干活是什么时候、
+     异常有没有新长出来。跟着整份体检缓存走的话，缓存期间出的异常会在界面上「晚 5 秒～下一次重探」才露出来，
+     而这一格存在的意义正是「刚坏的那一下也要看得见」。 */
+  const healthField = healthStatus();
+  /* 转发闸那一份也每次现算：它报的就是「这一家有几条正在打、排了几条」，
+     跟着整份体检缓存走的话，刚被限流那一下界面上看不见（与「健康」同一立场）。 */
+  const relayField = relayStatus();
+  if (_sysStatus && !fresh) { _sysStatus.出站代理 = proxyField; _sysStatus.渲染 = renderField; _sysStatus.健康 = healthField; _sysStatus.转发 = relayField; return _sysStatus; }
   _sysStatus = {
     at: Date.now(),
     代理: { 版本: REGISTRY.version, 端口: PORT, 目录: __dirname, 进程: process.version },
     出站代理: proxyField,
     ffmpeg: probeTool('ffmpeg'),
     ffprobe: probeTool('ffprobe'),
+    渲染: renderField,
+    转发: relayField,
+    健康: healthField,
     目录: { 数据: dirState(dataDirPath()), 资产: dirState(path.resolve(LOCAL_DIR)), 渲染: dirState(path.resolve(RENDER_DIR)) },
   };
   return _sysStatus;
@@ -3351,7 +4068,7 @@ function sameOriginOnly(req) {
    另存那三条（`/save`、**`/save-local`**、**`/save-move`**）同源检查的理由更重：
    后两条会**写文件、还会删源文件**。注意 `save` 后面那截 `(?:-(?:local|move))?` ——
    写成裸 `save` 时结尾的 `(?:[/?]|$)` 匹配不上 `-`，于是这两条会**整条漏出同源检查**。 */
-const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|save(?:-(?:local|move))?|pick-dir|env-status|sys-status|clear-cache|render|media|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
+const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|prompts|local-assets|assets-usage|save(?:-(?:local|move|stale))?|pick-dir|env-status|sys-status|clear-cache|render|media|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
 /* relay 转发前缀（/sparkcine、/vgenv、/textai…）与 /asset/ 同样只服务本工作台页面。
    以前它们不在同源检查里：代理在客户端没带 Authorization 时会**自动注入 .env 里的密钥**，
    于是任意恶意网页只要 fetch('http://localhost:5175/sparkcine/...') 就能用你的密钥建任务、扣费、读余额
@@ -3366,6 +4083,131 @@ function isWorkbenchOnlyUrl(raw) {
   const pathname = String(raw || '').split('?')[0];
   if (pathname === '/asset' || pathname.startsWith('/asset/')) return true;
   return RELAY_PREFIXES.some(r => pathname === r || pathname.startsWith(r + '/'));
+}
+/* ---------- 按平台的在途闸 + 只读请求的退避重试（plan 后端完善清单第 7 项，2026-10-16）----------
+   以前所有出站只靠 `keepAliveAgent` 的 `maxSockets: 32` 兜着，那限的是「这个进程一共多少条 socket」，
+   不是「同一家平台同时在打几条」：一次批量生成、或几个标签页同时刷列表，就能把同一家打到 429；
+   而 429/503 过去原样透给页面 —— 界面上是一句「请求失败」，看不出是被人限了流、也看不出等一下就会好。
+   四条立场：
+   ① **闸按平台算，不按 relay 前缀算**（键取 `keyId`，一家同时做图片与视频时共用一把钥匙）。
+      九家文字 AI 里八家共用 `/textai`：按前缀就把八家算成一家，最快的家会被最慢的家拖住，
+      而「哪家被限了」恰恰是这一格要说清的那件事。
+   ② **只数同时在途，不做假令牌桶**：本机是单人工具，速率该由上游判，我们要的只是「别把一家打爆」。
+      排满就等，等不到上限就**当场 429 并把原因写清**（静默让人排队等到天荒地老，比拒了更坏）。
+   ③ **名额必须恰好归还一次**：归还挂在响应的 `close`（缓冲读完 / pipe 结束 / 半路掐断三种出口都会走到）
+      与请求的 `error` 上，再加一道看门狗。漏还一次 = 这一家永远关在闸外，**那比没有闸更坏**。
+   ④ **退避重试只给 GET**：AGENTS.md §2 那条「没有幂等键的 POST 一律不自动重试」在这里照样成立 ——
+      「请求已到、响应被限」与「响应超时」同样分不清任务到底建没建，重发就是重复建任务、重复扣费。
+      被限过这件事要看得见：计数进 `/sys-status` 的「转发」，界面上那一行与复制文本都只读那一份说法。 */
+const RELAY_MAX_INFLIGHT = envInt('RELAY_MAX_INFLIGHT', 8, 1, 64);       // 同一家平台同时在打几条
+const RELAY_QUEUE_MAX = envInt('RELAY_QUEUE_MAX', 32, 0, 512);           // 同一家最多允许排几条，排满当场 429
+const RELAY_RETRY_MAX = envInt('RELAY_RETRY_MAX', 2, 0, 5);              // 被限流后最多再问几次（0 = 只问一次）
+const RELAY_WAIT_MAX_MS = envInt('RELAY_WAIT_MAX_MS', 15000, 500, 120000);   // Retry-After 的上限：等满那么久不如让页面自己决定
+const RELAY_SLOT_MAX_MS = 300000;               // 看门狗：一条转发最多占住一个名额这么久
+const RELAY_EVENTS_MAX = 6;                     // 最近几件（与故障账同一立场：有界，正在刷屏的那种不许把它变成第二份日志）
+const relayGates = new Map();                   // 平台钥匙 → { name, inflight, queue, 退过, 等过, 拒过 }
+const relayEvents = [];                         // 最近几件「被限过」的事，新的在前
+function relayGateOf(p) {
+  const key = String(p.keyId || p.id || '?');
+  let g = relayGates.get(key);
+  if (!g) { g = { key, name: String(p.name || p.id || key), inflight: 0, queue: [], 退过: 0, 等过: 0, 拒过: 0 }; relayGates.set(key, g); }
+  return g;
+}
+function noteRelayEvent(g, 事, 码) {
+  const head = relayEvents[0];
+  if (head && head.平台 === g.name && head.事 === 事 && head.码 === 码) { head.重复++; head.at = Date.now(); return; }
+  relayEvents.unshift({ at: Date.now(), 平台: g.name, 事, 码: 码 || '', 重复: 1 });
+  if (relayEvents.length > RELAY_EVENTS_MAX) relayEvents.length = RELAY_EVENTS_MAX;
+}
+/* 取一个名额再打。`onSlot(release)` 只在拿到名额那一刻调一次；`release` 幂等，重复调只算第一次。
+   返回 false = 这一家此刻已经排满了，调用方必须**当场回一句拒绝**，不许把请求挂在一条永远发不出去的队列上。 */
+function relayTake(g, onSlot) {
+  if (g.inflight >= RELAY_MAX_INFLIGHT && g.queue.length >= RELAY_QUEUE_MAX) {
+    g.拒过++; noteRelayEvent(g, '排满拒了', '429');
+    return false;
+  }
+  let timer = null, released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    g.inflight--;
+    const nxt = g.queue.shift();
+    if (nxt) nxt();
+  };
+  const start = () => {
+    g.inflight++;
+    timer = setTimeout(() => {
+      log(`[relay] ${g.name} 一个名额占满 ${Math.round(RELAY_SLOT_MAX_MS / 1000)} 秒还没归还，强制收回（这一条响应可能半路断了）`);
+      release();
+    }, RELAY_SLOT_MAX_MS);
+    onSlot(release);
+  };
+  if (g.inflight < RELAY_MAX_INFLIGHT) { start(); return true; }
+  g.等过++; noteRelayEvent(g, '排队等名额', '');
+  g.queue.push(start);
+  return true;
+}
+/* 「这一份响应要不要等一会儿再问一次」：只认 GET、只认 429/503、只认还没试过上限。
+   `Retry-After` 认秒数也认 HTTP-date（两家网关都给过），超过 RELAY_WAIT_MAX_MS 就不等 ——
+   等五分钟与现在就告诉用户「这一家正在限流」，后者更有用。没给就按次数退避 1s / 2s / 4s。 */
+function relayRetryWait(method, ur, tries) {
+  if (method !== 'GET' || tries >= RELAY_RETRY_MAX) return null;
+  if (ur.statusCode !== 429 && ur.statusCode !== 503) return null;
+  const raw = String((ur.headers && ur.headers['retry-after']) || '').trim();
+  let ms = null;
+  if (/^\d+$/.test(raw)) ms = Number(raw) * 1000;
+  else if (raw) { const t = Date.parse(raw); if (!Number.isNaN(t)) ms = t - Date.now(); }
+  if (ms == null) ms = 1000 * Math.pow(2, tries);
+  if (ms > RELAY_WAIT_MAX_MS) return null;
+  return Math.max(200, Math.round(ms));
+}
+/* 「转发这一族现在到底在怎么打」每次现算（与「渲染」「健康」同一立场：缓存期间名额会被占掉又还回来）。
+   芯片与整句都在这儿拼，页面只按 `档` 上色 —— 三处说法（复制文本 / 设置页那一行 / 助手 doctor）读同一份。 */
+function relayStatus() {
+  const hot = [];
+  relayGates.forEach(g => { if (g.inflight || g.queue.length || g.退过 || g.等过 || g.拒过) hot.push(g); });
+  hot.sort((a, b) => (b.拒过 * 1000 + b.退过 * 10 + b.inflight) - (a.拒过 * 1000 + a.退过 * 10 + a.inflight));
+  let nBack = 0, nWait = 0, nRef = 0;
+  relayGates.forEach(g => { nBack += g.退过; nWait += g.等过; nRef += g.拒过; });
+  let chip, cls;
+  if (nRef) { cls = 'err'; chip = '拒过 ' + nRef + ' 条'; }
+  else if (nBack || nWait) { cls = 'warn'; chip = '退避 ' + nBack + ' 次 · 排队 ' + nWait + ' 次'; }
+  else { cls = 'ok'; chip = '没被限过'; }
+  const 明细 = hot.slice(0, 6).map(g => ({
+    平台: g.name, 在途: g.inflight, 排队: g.queue.length, 退过: g.退过, 等过: g.等过, 拒过: g.拒过,
+  }));
+  const 最近 = relayEvents.map(x => ({
+    时候: timeText(new Date(x.at)), 平台: x.平台, 事: x.事 + (x.码 ? '（' + x.码 + '）' : ''), 重复: x.重复,
+  }));
+  const say = (cls === 'ok'
+    ? '没有一家平台被打到限流过。同时在途每家最多 ' + RELAY_MAX_INFLIGHT + ' 条、排队上限 ' + RELAY_QUEUE_MAX + ' 条；'
+      + '被限流时读请求会按 Retry-After 等一会儿再问一次，写请求一次都不重发（重发就是重复建任务、重复扣费）。'
+    : '有平台被限流过：退避重试 ' + nBack + ' 次、排队等名额 ' + nWait + ' 次'
+      + (nRef ? '、排满之后直接拒了 ' + nRef + ' 条' : '') + '。'
+      + '拒掉那几条是这个代理自己回的 429（不是平台说的），原因是同一家同时在打的请求已经排满；'
+      + '要放宽就在 .env 里改那四个数并重启。')
+    + '（同时在途 ' + RELAY_MAX_INFLIGHT + ' · 排队上限 ' + RELAY_QUEUE_MAX + ' · 重试 ' + RELAY_RETRY_MAX
+    + ' 次 · 最多等 ' + Math.round(RELAY_WAIT_MAX_MS / 1000) + ' 秒）';
+  return {
+    档: cls, 芯片: chip, 说明: say,
+    同时在途: RELAY_MAX_INFLIGHT, 排队上限: RELAY_QUEUE_MAX, 重试上限: RELAY_RETRY_MAX,
+    最多等秒: Math.round(RELAY_WAIT_MAX_MS / 1000),
+    明细, 最近,
+    来源: 'RELAY_MAX_INFLIGHT ' + envFrom('RELAY_MAX_INFLIGHT') + ' · RELAY_QUEUE_MAX ' + envFrom('RELAY_QUEUE_MAX')
+      + ' · RELAY_RETRY_MAX ' + envFrom('RELAY_RETRY_MAX') + ' · RELAY_WAIT_MAX_MS ' + envFrom('RELAY_WAIT_MAX_MS')
+      + '（都写在 .env 里，改完要重启）',
+  };
+}
+/* 队列排满时回给页面的那一句：形状与上游的 OpenAI 式错误一致（`error.message`），
+   页面那套读数不用为这一种 429 特判；`Retry-After: 1` 与「稍后再点一次」是同一句话。 */
+function relayRefused(res, g) {
+  if (res.headersSent) return;
+  res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '1' });
+  res.end(JSON.stringify({ error: { message: '本地转发闸：' + g.name + ' 同时在途 ' + RELAY_MAX_INFLIGHT
+    + ' 条、排队 ' + RELAY_QUEUE_MAX + ' 条已经排满，这一条没有发出去（没有扣费）。'
+    + '稍等几秒再点一次就会轮到它；想放宽就在 .env 里改 RELAY_MAX_INFLIGHT / RELAY_QUEUE_MAX 并重启。',
+    code: 'relay_queue_full' } }));
 }
 /* 会改状态的路由只接受 POST（GET 一律 405）。
    以前 /cloud/sync、/render/cancel 连 GET 都执行：
@@ -3420,10 +4262,12 @@ function fileSafe(s, max) {
   return out.replace(/^[.\s-]+|[.\s-]+$/g, '');
 }
 const pad2 = n => String(n).padStart(2, '0');
-const dirStamp = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-  + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
-const timeText = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-  + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+/* 日期那半只拼一次：归档目录名与归档正文里的「时间：」以前各抄一遍「年-月-日」，
+   改补零时只会改到其中一行 —— 于是同一条记录在文件名里是 2026-10-15、在正文里是 2026-1-15。
+   （浏览器那一份在 ui.js 的 dayKey；代理是 Node 进程，够不着它，所以这一侧自己留一份。） */
+const dayPart = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+const dirStamp = d => dayPart(d) + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
+const timeText = d => dayPart(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
 function parseFrontMatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return null;
@@ -4622,22 +5466,37 @@ function serveStatic(req, res, full, ext) {
   });
 }
 
-const server = http.createServer((req, res) => {
-  // handleRequest 是 async（出站地址护栏要解析域名），所以这里用 Promise 链兜异常：
-  // 同步抛与异步拒绝都走同一个 500 分支，单个请求出错不拖垮整个代理进程。
-  Promise.resolve().then(() => handleRequest(req, res)).catch(e => {
-    try { log('[error] 请求处理异常 ' + req.url + '：' + (e && e.message)); } catch {}
-    try { if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: e.message } })); } } catch {}
+/* 一只服务器对象只绑一个地址（默认 `127.0.0.1` 与 `::1` 两只，见上面的 BIND），
+   所以两个钩子必须挂在**造**的那一刻，不能像以前那样只往 `server` 上挂一次 ——
+   那样第二只回环 socket 既没有 clientError 兜底（畸形 HTTP 帧会变成 uncaughtException），
+   连接错误也不进「健康」那本账。 */
+const SERVERS = [];
+function makeServer() {
+  const s = http.createServer((req, res) => {
+    // handleRequest 是 async（出站地址护栏要解析域名），所以这里用 Promise 链兜异常：
+    // 同步抛与异步拒绝都走同一个 500 分支，单个请求出错不拖垮整个代理进程。
+    Promise.resolve().then(() => handleRequest(req, res)).catch(e => {
+      noteFault('请求出错', e, req && req.url);
+      try { log('[error] 请求处理异常 ' + req.url + '：' + (e && e.message)); } catch {}
+      try { if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: e.message } })); } } catch {}
+    });
   });
-});
-/* 畸形请求（错误的 HTTP 帧）：回 400，不让它变成 uncaughtException */
-server.on('clientError', (err, socket) => { try { socket.destroy(); } catch {} });
+  /* 畸形请求（错误的 HTTP 帧）： destroy 掉，不让它变成 uncaughtException */
+  s.on('clientError', (err, socket) => { try { socket.destroy(); } catch {} });
+  /* 兜底：顶层 try/catch 没接住的 http 层错误（如上游 socket 异常）不再刷屏，但要计数 ——
+     浏览器提前断开是常态，所以它只进「连接错误」那一格，不把健康标红。 */
+  s.on('connection', c => { c.on('error', e => { try { noteFault('连接错误', e); } catch {} }); });
+  SERVERS.push(s);
+  return s;
+}
+const server = makeServer();
 
 async function handleRequest(req, res) {
   loadEnvFile(false);   // 热加载 .env：改完密钥不用重启
   /* 路由比较统一用去掉查询串的路径：用原始 req.url 的话 /registry?v=1、/env-status?t=1
      这类带查询串的写法会匹配不上、掉到静态服务回 404。 */
   const dataPath = req.url.split('?')[0];
+  noteWork(dataPath);   // 「这个端口上的进程还在不被用」—— 健康那一格要说的是干活，不是体检
   /* 同源判定必须在 cors() 之前：跨站请求连预检都拿不到放行，也读不到任何响应内容。
      （CORS 是全站放开的，先放行再拒绝的话，跨站页面虽然拿不到数据，但连 403 都能读到；
        而且 /render 这类会吃 CPU / 落盘的路由也不该让外部页面碰到。） */
@@ -4664,7 +5523,7 @@ async function handleRequest(req, res) {
     return;
   }
   if (handleData(req, res, new URL(req.url, 'http://127.0.0.1'))) return;
-  /* 本机依赖体检：短剧导出成片要 ffmpeg，设置页与助手的「一键体检」都读这一份。
+  /* 本机依赖体检：导演台导出成片要 ffmpeg，设置页与助手的「一键体检」都读这一份。
      以前只有点导出才收到一句「无法启动 ffmpeg：…（请确认已安装并加入 PATH）」——
      没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，三种在界面上长得一模一样。 */
   if (dataPath === '/sys-status') {
@@ -4826,18 +5685,48 @@ async function handleRequest(req, res) {
   if (dataPath === '/pick-dir' && req.method === 'POST') {
     const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
     if (process.platform !== 'win32') return fail(501, '弹系统文件夹选择框目前只做了 Windows（这台机器是 ' + process.platform + '），还是手填路径吧');
+    /* —— 前台锚定（2026-10 修复「选择框弹在窗口后面」）——
+       病根是 Windows 前台锁：用户在设置页点「选择」时前台是浏览器，代理是后台进程，
+       没人为它抢前台时对话框会被系统压在浏览器后面（框弹了，用户看不见、也敲不进去）。
+       工序三步：① 一个 1x1 近乎全透明的隐形 owner 窗体（TopMost、不进任务栏）——
+       ShowDialog 挂上它，owned 窗口的 z 序就永远在 owner 之上；② 一个 100ms 的 WinForms
+       定时器，前 2 秒里把 owner 往前台拽（AttachThreadInput 借前台线程的输入队列 +
+       SetForegroundWindow，这是前台锁的标准解法），一旦前台已经是本进程就收手；③ 对话框
+       关闭时在 finally 里把定时器与 owner 一并收掉。
+       整段跑不了一律降级成「不抢前台」（catch 吞掉、退回无 owner 的 ShowDialog()）——
+       抢不了前台是小事，把本来能弹的框弄坏才是大事。 */
+    const FG_CS =
+      'using System;using System.Runtime.InteropServices;public class AiiFg{' +
+      '[DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();' +
+      '[DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);' +
+      '[DllImport("user32.dll")]static extern bool AttachThreadInput(uint a,uint b,bool f);' +
+      '[DllImport("kernel32.dll")]static extern uint GetCurrentThreadId();' +
+      '[DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);' +
+      /* 只用 C# 3 的语法（PS 5.1 的 Add-Type 编译器老，`out var` 这类新写法当场编不过） */
+      'public static bool FgIs(IntPtr h,int pid){IntPtr fg=GetForegroundWindow();if(fg==IntPtr.Zero)return false;uint p;GetWindowThreadProcessId(fg,out p);return fg==h||(int)p==pid;}' +
+      'public static bool Pull(IntPtr h){IntPtr fg=GetForegroundWindow();uint dummy;uint tid=0;if(fg!=IntPtr.Zero)tid=GetWindowThreadProcessId(fg,out dummy);uint cur=GetCurrentThreadId();if(tid!=0&&tid!=cur)AttachThreadInput(cur,tid,true);bool ok=SetForegroundWindow(h);if(tid!=0&&tid!=cur)AttachThreadInput(cur,tid,false);return ok;}}';
     const SCRIPT = [
       "$ErrorActionPreference = 'Stop'",
+      /* 5.1 会把「Preparing modules for first use.」这类进度流经 CLIXML 写进 stderr——
+         干净的成功不该带一坨垃圾，而要报错时 firstLine(err) 也别拿到 '#< CLIXML' 当错误原文。 */
+      "$ProgressPreference = 'SilentlyContinue'",
       "try { Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop } catch { Write-Output 'NOFORMS'; exit 9 }",
+      "try { Add-Type -TypeDefinition '" + FG_CS + "' -ErrorAction Stop } catch { }",
       "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
       /* AutoUpgradeEnabled = 现代 IFileDialog（.NET Core 3.0+ 上 FolderBrowserDialog 的默认实现）。
-         显式写出来是为了「这个框是哪个」不靠默认值：默认值哪天变了，这里弹出来的框就悄悄换了样子。 */
-      "$d.AutoUpgradeEnabled = $true",
+         显式写出来是为了「这个框是哪个」不靠默认值：默认值哪天变了，这里弹出来的框就悄悄换了样子。
+         ⚠ 这个属性 **.NET Framework（5.1 那条路）里根本没有** —— 直接赋值抛
+         PropertyAssignmentException，被 $ErrorActionPreference='Stop' 拦成终止错误，
+         整条 5.1 兜底路径（没装 pwsh 7 的机器）会连框都弹不出来。所以「有才设」。 */
+      "if ($d.PSObject.Properties['AutoUpgradeEnabled']) { $d.AutoUpgradeEnabled = $true }",
       "$d.ShowNewFolderButton = $true",
       "$t = $env:AII_PICK_TITLE; if ($t) { $d.Description = $t }",
       "$s = $env:AII_PICK_START",
       "if ($s -and (Test-Path -LiteralPath $s -PathType Container)) { $d.SelectedPath = $s }",
-      "$r = $null; try { $r = $d.ShowDialog() } catch { Write-Output ('SHOWFAIL: ' + $_.Exception.Message); exit 4 }",
+      "$owner = $null",
+      "try { $owner = New-Object System.Windows.Forms.Form; $owner.FormBorderStyle = 'None'; $owner.ShowInTaskbar = $false; $owner.TopMost = $true; $owner.Width = 1; $owner.Height = 1; $owner.Opacity = 0.01; $owner.Show(); $global:aiiFgN = 0; $tm = New-Object System.Windows.Forms.Timer; $tm.Interval = 100; $tm.Add_Tick({ $global:aiiFgN = $global:aiiFgN + 1; if ($global:aiiFgN -gt 20) { $tm.Stop(); return }; try { if ([AiiFg]::FgIs($owner.Handle, $PID)) { $tm.Stop() } else { [void][AiiFg]::Pull($owner.Handle) } } catch { $tm.Stop() } }); $tm.Start() } catch { $owner = $null }",
+      "$r = $null",
+      "try { if ($owner) { $r = $d.ShowDialog($owner) } else { $r = $d.ShowDialog() } } catch { Write-Output ('SHOWFAIL: ' + $_.Exception.Message); exit 4 } finally { try { if ($tm) { $tm.Stop() }; if ($owner) { $owner.Close() } } catch { } }",
       "if ($r -ne [System.Windows.Forms.DialogResult]::OK) { exit 3 }",
       "$p = $d.SelectedPath; if (-not $p) { Write-Output 'NOPATH'; exit 5 }",
       /* base64(UTF-8) 传路径：绕开「管道输出用重定向编码」这个坑（中文目录名会变乱码） */
@@ -4941,7 +5830,9 @@ async function handleRequest(req, res) {
       /* ⚠ 目录**只从配置读**。请求体里就算递了 dir 也一视同仁地丢掉：
          一旦认客户端递的目录，这条路由就等于「任意本机网页往任意路径写文件」。 */
       const dir = autosaveDir(type);
-      if (!dir) return bad3(409, '设置里没有给' + typeLabel(type) + '指定文件夹（先到设置页填一个）');
+      /* '' 现在只有一个来源：这一类的开关被关掉了（留空 = 用默认目录，不再是「不存」）——
+         这句话照旧写「没指定文件夹」的话，用户翻遍设置页也找不到那个该填的格子。 */
+      if (!dir) return bad3(409, typeLabel(type) + '这一类现在是关着的（设置页里打开「自动保存」才会另存）');
       if (insideLocalDir(dir)) return bad3(409, '另存目录不能设成本机资产库本体（.assets）—— 产物本来就存在那儿了，请换一个普通文件夹');
       const fmt = String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
       const base = saveBaseName(spec.name, 'file.' + (fmt || 'bin'));
@@ -4951,6 +5842,11 @@ async function handleRequest(req, res) {
         const file = saveUniqueName(dir, base, () => null);
         if (!file) return bad3(409, '那个目录里已经有一千个同名文件了');
         const full = path.join(dir, file);
+        /* 写之前先问一句：ENOSPC 抛出来的是「no space left on device」，而用户需要知道的是
+           「哪一个盘、要多少、还剩多少」。回 409 不回 5xx —— 这条路由上没成就是没成，
+           而页面把 5xx 的 POST 记成「可能已经受理」，那是给平台任务用的，这里只会误导。 */
+        const whySpace = whyNoSpace(dir, buf.length, '另存这一个文件');
+        if (whySpace) { log('[save] ' + whySpace); return bad3(409, whySpace); }
         fs.writeFileSync(full, buf);
         autosaveUsedAdd(dir);          // 这个目录从此可以当「旧目录」被搬走（见 /save-move）
         log(`[save] ${type} → ${dir}${path.sep}${file}（${(buf.length / 1024).toFixed(0)} KB）`);
@@ -4966,11 +5862,49 @@ async function handleRequest(req, res) {
     return;
   }
   /* ============================================================================
+     旧目录里还剩多少份没搬（GET /save-stale，只读）
+     ---------------------------------------------------------------------------
+     设置页「另存到指定文件夹」那张卡下面的「待搬迁」那一排读它。
+     只报代理自己搬得动的那几处（两代默认 + 写过的目录名单），不接任何客户端递的路径，
+     也不写盘、不删文件 —— 搬与补仍然只有 /save-move 与 /save-local 两个出口。
+     ========================================================================== */
+  if (dataPath === '/save-stale' && req.method === 'GET') {
+    try {
+      const kinds = saveStaleScan();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, kinds, at: Date.now() }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: { message: '数不出旧目录：' + ((e && e.message) || e) } }));
+    }
+    return;
+  }
+  /* ============================================================================
+     本机资产库占了多少地方（GET /assets-usage，只读）
+     ---------------------------------------------------------------------------
+     设置页「资产库磁盘用量」那一栏读它（口径与安全立场的全文在 `localUsageScan` 上面那段）。
+     只数盘上的字节与索引里的条目，**不写、不删、不搬家** —— 删产物仍然只有资产库那一条路，
+     补存与搬迁仍然只有 /save-local 与 /save-move 两个出口。
+     不接受任何客户端递进来的路径或查询串：要数的那个目录只能是代理自己的 LOCAL_DIR，
+     认了客户端地址就等于「任意本机网页可以让代理去数任意一个目录里有什么」。
+     ========================================================================== */
+  if (dataPath === '/assets-usage' && req.method === 'GET') {
+    try {
+      const u = await localUsageScan();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(u));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: { message: '数不出本机资产库：' + ((e && e.message) || e) } }));
+    }
+    return;
+  }
+  /* ============================================================================
      把**已经存在本机资产库里的成品**补一份到用户指定的文件夹（POST /save-local）
      ---------------------------------------------------------------------------
      为什么需要这一条：`/save` 只挂在**镜像流程内部**（assetlib.js 的 runOne），
      而镜像那一步先被 `offer()` 的「这份产物已经存过了就跳过」挡在前面。
-     于是功能加上之前下载的那批（实测这台机器是 83 个 / 86.4 MB）永远不会被补写 ——
+     于是功能加上之前下载的那批永远不会被补写 ——
      用户打开开关、目录也填对了，`文件\` 里还是空的，而界面上看不出任何异常。
      这里补的就是那条缺口：**字节已经在 .assets 里，不重新下载、不重新回源，直接拷一份。**
      `.assets` 里那份**一律不动** —— 它是资产库的本体（离线能看、删了能回源、
@@ -5018,6 +5952,10 @@ async function handleRequest(req, res) {
             id + '.' + (ent.format || 'bin'));
           const file = saveUniqueName(dir, base, () => null);
           if (!file) { full.push({ id, kind, why: '那个目录里已经有一千个同名文件了' }); continue; }
+          /* 盘不够 → 这一条记进「没存成」并把差多少说出来，而不是抛出去让整单补存中断：
+             一次补存几百条，第一条撞满盘就把后面全部丢掉，界面只会说「失败」。 */
+          const whySpace = whyNoSpace(dir, buf.length, '补存这一个文件');
+          if (whySpace) { full.push({ id, kind, why: whySpace }); continue; }
           fs.writeFileSync(path.join(dir, file), buf);
           autosaveUsedAdd(dir);
           sums.add(buf.length, hash, file);   // 本次刚写的也要进表，后面那个同内容的 id 就不会再拷一遍
@@ -5055,13 +5993,15 @@ async function handleRequest(req, res) {
       const fromRaw = String((spec && spec.from) || '').trim();
       if (!fromRaw) return fail(400, '没有要搬的旧目录');
       /* from 传空串 / '@default' = 「旧的也是默认目录」。这一支**不需要**白名单：
-         路径是代理自己算的（autosaveDefaultDir），不是客户端递进来的 ——
-         白名单是拿来挡「客户端指定源目录」的，这一支压根没有客户端指定的路径。 */
+         路径是代理自己算的，不是客户端递进来的 ——
+         白名单是拿来挡「客户端指定源目录」的，这一支压根没有客户端指定的路径。
+         默认目录有**两代**（2026-10-15 起 = 下载\拾帧\<类型>，之前 = 项目下 文件\<类型>）：
+         过渡期两处都可能还有东西，所以这一支拿到的是候选表，只搬真实存在的那些。 */
       const srcIsDefault = (fromRaw === '@default' || fromRaw === '');
       const to = autosaveDir(kind);                       // 目标只由配置决定，请求体里的 dir 一律忽略
       if (!to) return fail(409, typeLabel(kind) + '这一类现在是关着的');
-      let srcDir;
-      try { srcDir = srcIsDefault ? autosaveDefaultDir(kind) : path.resolve(fromRaw); }
+      let srcDirs;
+      try { srcDirs = srcIsDefault ? autosaveDefaultDirs(kind) : [path.resolve(fromRaw)]; }
       catch { return fail(400, '旧目录不是一个有效路径'); }
       /* 白名单挡不住一种情况：用户把「另存目录」**填成 .assets 或它的某个子目录**。
          那样 /save 写进去的副本会让那个目录进白名单（autosaveUsedAdd），
@@ -5069,60 +6009,76 @@ async function handleRequest(req, res) {
          离线能看、删了能回源、缩略图全靠它，搬空了资产库就空了。
          白名单证明的是「这个目录是本工作台写的」，证明不了「搬走它是安全的」，
          所以资产库本体要单独拦 —— 判据是 insideLocalDir 那一份，三条路由共用。 */
-      if (insideLocalDir(srcDir)) return fail(403, '那个目录是本机资产库本体（.assets），不从那里搬 —— 资产库一空，工作台就看不到东西了');
+      for (const d of srcDirs) if (insideLocalDir(d)) return fail(403, '那个目录是本机资产库本体（.assets），不从那里搬 —— 资产库一空，工作台就看不到东西了');
       if (insideLocalDir(to)) return fail(403, '另存目录不能设成本机资产库本体（.assets）—— 请换一个普通文件夹');
-      if (srcDir === to) return res.writeHead(200, { 'Content-Type': 'application/json' }),
+      /* 「新旧目录是同一个」要**每一个来源都等于目标**才算整单没事可做：
+         候选表里只有其中一个是目标时，另一个还有东西要搬，不能一起跳过。 */
+      if (srcDirs.every(d => d === to)) return res.writeHead(200, { 'Content-Type': 'application/json' }),
         res.end(JSON.stringify({ ok: true, moved: [], bytes: 0, note: '新旧目录是同一个，没什么可搬' }));
-      if (!srcIsDefault && !autosaveUsedHas(srcDir)) return fail(403, '那个目录不是本工作台写出去的，不搬（只搬自动存到过的目录）');
-      let names = [];
-      try { names = fs.readdirSync(srcDir); } catch (e) { return fail(404, '读不出旧目录：' + e.message); }
+      if (!srcIsDefault && !autosaveUsedHas(srcDirs[0])) return fail(403, '那个目录不是本工作台写出去的，不搬（只搬自动存到过的目录）');
       const moved = [], skipped = [], failed = [], dup = [];
       let bytes = 0;
       try { fs.mkdirSync(to, { recursive: true }); } catch (e) { return fail(500, '建不出 ' + to + '：' + e.message); }
       const sums = saveDirIndex(to);     // 目标里已有的内容，搬之前先看一眼，避免搬出 xxx-2 这种重复
-      for (const name of names) {
-        const src = path.join(srcDir, name);
-        let st; try { st = fs.statSync(src); } catch { continue; }
-        if (!st.isFile()) continue;
-        /* 属不属于这一类：复用 localMediaType（扩展名那一份名单），不另判 */
-        if (localMediaType({ file: name }) !== typeLabel(kind)) { skipped.push(name); continue; }
-        try {
-          const buf = fs.readFileSync(src);
-          const hash = sha1Of(buf);
-          /* 目标里已经有同一份内容：**不重写**，只把源文件删掉 —— 这仍然是「搬」，
-             内容在新目录里好好的一份；不这么做的话，用户补存过的那批会被搬成第二份。
-             删源之前已经确认过内容一致，所以这一步不会丢东西。 */
-          const hit = sums.get(buf.length, hash);
-          if (hit) { fs.unlinkSync(src); autosaveUsedAdd(to); dup.push({ from: name, to: hit }); continue; }
-          const base = saveBaseName(name, name);
-          const file = saveUniqueName(to, base, () => null);
-          if (!file) { failed.push({ name, why: '新目录里已经有一千个同名文件了' }); continue; }
-          fs.writeFileSync(path.join(to, file), buf);
-          fs.unlinkSync(src);                            // 写成功了才删源
-          autosaveUsedAdd(to);
-          /* 记账**先于**任何可能抛异常的缓存写入** —— 这一段早先写成 sums.set(sig, file)，
-             sig 从未声明，于是每搬一个文件都在记账那一行抛 ReferenceError：
-             文件已经搬成功了，界面却报「没搬成」，还顺手造出 a.mp4 与 a-2.mp4 两份。
-             位置刻意放在 fs.unlinkSync 之后 —— 字节已经落地才算搬成。 */
-          bytes += buf.length;
-          moved.push({ from: name, to: file });
-          /* 本次刚写进去的文件要能立刻被后面同内容的请求命中 —— 与 /save-local 同一句 */
-          sums.add(buf.length, hash, file);
-        } catch (e) {
-          /* 内部标识符不原样甩给用户：ReferenceError 是我们的错，不是他目录的错 */
-          const why = (e instanceof ReferenceError)
-            ? '内部错误（记账那一步出错），文件其实已经搬好了 —— 请把这份日志给作者'
-            : ((e && e.code ? e.code + ' ' : '') + (e && e.message));
-          failed.push({ name, why });
+      const attempted = srcDirs.filter(d => d !== to);
+      let readErr = null, readOk = 0;
+      for (const srcDir of attempted) {
+        let names = [];
+        try { names = fs.readdirSync(srcDir); readOk++; } catch (e) { readErr = readErr || e; continue; }
+        for (const name of names) {
+          const src = path.join(srcDir, name);
+          let st; try { st = fs.statSync(src); } catch { continue; }
+          if (!st.isFile()) continue;
+          /* 属不属于这一类：**只按扩展名表判**（productKindOfName），与 GET /save-stale 同一份。
+             以前这里用 localMediaType，而那句对「只剩一个文件名」的情况兜底成音频 ——
+             于是界面上数出来的「音频 N 个」里混着用户自己的 notes.txt，而这一行**真的把它搬走并删源**。 */
+          if (productKindOfName(name) !== kind) { skipped.push(name); continue; }
+          try {
+            const buf = fs.readFileSync(src);
+            const hash = sha1Of(buf);
+            /* 目标里已经有同一份内容：**不重写**，只把源文件删掉 —— 这仍然是「搬」，
+               内容在新目录里好好的一份；不这么做的话，用户补存过的那批会被搬成第二份。
+               删源之前已经确认过内容一致，所以这一步不会丢东西。 */
+            const hit = sums.get(buf.length, hash);
+            if (hit) { fs.unlinkSync(src); autosaveUsedAdd(to); dup.push({ from: name, to: hit }); continue; }
+            const base = saveBaseName(name, name);
+            const file = saveUniqueName(to, base, () => null);
+            if (!file) { failed.push({ name, why: '新目录里已经有一千个同名文件了' }); continue; }
+            /* 搬是「先写新副本、写成才删源」，所以**源和目标在同一个盘时也需要这一份空间** ——
+               不许因为「反正要删源」就跳过预检：真满了 writeFileSync 会崩在半个文件上，
+               而那半个文件已经不算「源还在原地」了。 */
+            const whySpace = whyNoSpace(to, buf.length, '搬这一个文件');
+            if (whySpace) { failed.push({ name, why: whySpace }); continue; }
+            fs.writeFileSync(path.join(to, file), buf);
+            fs.unlinkSync(src);                            // 写成功了才删源
+            autosaveUsedAdd(to);
+            /* 记账**先于**任何可能抛异常的缓存写入** —— 这一段早先写成 sums.set(sig, file)，
+               sig 从未声明，于是每搬一个文件都在记账那一行抛 ReferenceError：
+               文件已经搬成功了，界面却报「没搬成」，还顺手造出 a.mp4 与 a-2.mp4 两份。
+               位置刻意放在 fs.unlinkSync 之后 —— 字节已经落地才算搬成。 */
+            bytes += buf.length;
+            moved.push({ from: name, to: file });
+            /* 本次刚写进去的文件要能立刻被后面同内容的请求命中 —— 与 /save-local 同一句 */
+            sums.add(buf.length, hash, file);
+          } catch (e) {
+            /* 内部标识符不原样甩给用户：ReferenceError 是我们的错，不是他目录的错 */
+            const why = (e instanceof ReferenceError)
+              ? '内部错误（记账那一步出错），文件其实已经搬好了 —— 请把这份日志给作者'
+              : ((e && e.code ? e.code + ' ' : '') + (e && e.message));
+            failed.push({ name, why });
+          }
         }
       }
-      log('[save-move] ' + kind + ' ' + srcDir + ' → ' + to + '：搬走 ' + moved.length
+      /* 一个来源都读不出来才算「读不出旧目录」：多来源时只要有一处能读就照常搬，
+         读不出的那一处照实留在日志里，不把整单拦掉。 */
+      if (!readOk && readErr) return fail(404, '读不出旧目录：' + readErr.message);
+      log('[save-move] ' + kind + ' ' + attempted.join(' + ') + ' → ' + to + '：搬走 ' + moved.length
         + ' 个（' + (bytes / 1048576).toFixed(1) + ' MB）'
         + (dup.length ? '，那边已有同样内容、只删了源 ' + dup.length + ' 个' : '')
         + '，不是这一类 ' + skipped.length + ' 个'
         + (failed.length ? '，没搬成 ' + failed.length + ' 个' : ''));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ ok: true, from: srcDir, to, moved, dup, skipped, failed, bytes }));
+      res.end(JSON.stringify({ ok: true, from: srcDirs.length === 1 ? srcDirs[0] : srcDirs, to, moved, dup, skipped, failed, bytes }));
     });
     return;
   }
@@ -5164,6 +6120,10 @@ async function handleRequest(req, res) {
           try { size = fs.statSync(fp).size; } catch {}
           if (size !== buf.length) {
             fs.mkdirSync(LOCAL_DIR, { recursive: true });
+            /* 补回来也是一次真写入 —— 盘满了这一句要说得出差多少（抛出走外面那道 catch，
+               它已经把「字节 vs 索引」两种失败分开说了，这里只补第三种）。 */
+            const whySpace = whyNoSpace(LOCAL_DIR, buf.length, '把本机副本补回来');
+            if (whySpace) throw new Error(whySpace);
             fs.writeFileSync(fp, buf);                     // 文件被删过 / 字节数不符：按原 id 补回来
             twin.byte_length = buf.length;
             if (twin.format !== fmt) { twin.format = fmt; twin.mime = mime; twin.file = path.basename(fp); }
@@ -5181,6 +6141,11 @@ async function handleRequest(req, res) {
         const id = 'la_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const file = id + '.' + fmt;
         fs.mkdirSync(LOCAL_DIR, { recursive: true });
+        /* 落字节之前先问一次余量：这条路由是「产物自动镜像本机」的唯一出口，
+           盘满时以前是 ENOSPC 抛出来再被外面那道 catch 转成一句 500，
+           而那句只说「no space left on device」，用户不知道该清哪一块。 */
+        const whySpace = whyNoSpace(LOCAL_DIR, buf.length, '把这一份产物存进本机资产库');
+        if (whySpace) throw new Error(whySpace);
         fs.writeFileSync(path.join(LOCAL_DIR, file), buf);
         const item = {
           id, file, name: spec.name || file, mime,
@@ -5389,12 +6354,15 @@ async function handleRequest(req, res) {
       const upHost = String(base).replace(/^https?:\/\//, '').split('/')[0];
       const relayTag = (baseOverridden ? '转发失败' : (relayHit.name || relayHit.id) + ' 转发失败')
         + '（打到 ' + upHost + '）';
-      const up = upRequest(base + pathAndQuery, {
+      const relayOpts = {
         method: req.method,
         headers: { ...fwd, authorization: 'Bearer ' + apiKey, 'content-length': body.length, 'accept-encoding': 'identity' },
         timeoutMs: isCreatePost ? 120000 : 0,
         keepAlive: true,              // relay 的目标主机来自注册表声明（见 keepAliveAgent / agentFor）
-      }, ur => {
+      };
+      /* 回话那一大段（列表缓冲 / 详情缓冲 / 直接 pipe）收成这一个函数：它现在既可能被第一次尝试调到，
+         也可能被退避重试那一次调到 —— 写两遍迟早和这一遍不一致（「重试那份不写缓存」就是其中一种）。 */
+      const relayRespond = ur => {
         if (isList && listTtl && ur.statusCode === 200) {
           const bufs = [];
           ur.on('data', c => bufs.push(c));
@@ -5439,16 +6407,52 @@ async function handleRequest(req, res) {
         /* 上游没回 200（例如列表端点 5xx）：这一支不会进缓存，等着的那些别干等，
            给一个明确的失败让它们自己重试（挂死在这里是最坏的结果）。 */
         flushInflight(w => failUpstream(w, '上游返回 ' + ur.statusCode, relayTag));
-      });
-      // 创建任务：回完就把列表短缓存清掉，这样刚提交的任务立刻能在资产库（列表接口）里看到
-      if (isCreatePost) {
-        up.on('response', ur => ur.on('end', () => { listCache.clear(); log('[cache] 创建任务 → 清空列表缓存'); }));
+      };
+      const gate = relayGateOf(relayHit);
+      /* 拿到名额才真打，`release` 就是这一个名额的归还钥匙（幂等，重复调只算第一次）。
+         名额跟着**整串尝试**（一次原始请求 + 至多 RELAY_RETRY_MAX 次退避重问），只在最后一次那份
+         响应读完 / 请求出错 / 客户端已经走了 时才还 —— 中途还掉等于「一边说在给人限流、
+         一边把名额交给下一条」，闸形同没有。看门狗（RELAY_SLOT_MAX_MS）兜住所有没还上的那条路。 */
+      const relayIssue = release => {
+        let tries = 0;
+        const once = () => {
+          const up = upRequest(base + pathAndQuery, relayOpts, ur => {
+            const wait = relayRetryWait(req.method, ur, tries);
+            if (wait != null) {
+              tries++;
+              gate.退过++; noteRelayEvent(gate, '退避重试', String(ur.statusCode));
+              log(`  → (${upHost}) 被限流 ${ur.statusCode}，${wait}ms 后重问（第 ${tries} 次，只有读请求会重问）`);
+              ur.resume();          // 这一份响应要丢掉，socket 还得回池子里
+              setTimeout(() => {
+                /* 等名额这段时间里页面可能已经走了（切页 / 刷新 / 关掉标签）：再发就是一条没人认领的
+                   请求，还白占着这一家的名额。 */
+                if (res.destroyed || res.writableEnded) { release(); return; }
+                once();
+              }, wait);
+              return;
+            }
+            ur.once('close', release);
+            relayRespond(ur);
+          });
+          // 创建任务：回完就把列表短缓存清掉，这样刚提交的任务立刻能在资产库（列表接口）里看到
+          if (isCreatePost) {
+            up.on('response', ur => ur.on('end', () => { listCache.clear(); log('[cache] 创建任务 → 清空列表缓存'); }));
+          }
+          /* 回给页面的那句要带**真正打出去的地址**：转发失败的原因（超时 / DNS / 拒绝连接）都只说现象，
+             而「是不是打到我了那个网关」恰恰是用户此刻最想确认的 —— 尤其是自定义供应商（地址是用户自己填的）、
+             以及内置平台被 x-up-base 换过地址的那几种情况。（主机名与这句文案都在上面的 relayTag 里点一次名） */
+          up.on('error', e => { release(); log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); flushInflight(w => failUpstream(w, e.message, relayTag)); });
+          up.end(body);
+        };
+        once();
+      };
+      /* 排满就**当场回一句拒绝**，不挂在这条永远排不到头的队列上（静默等人排队，比拒了更坏）。
+         等着同一份缓存的其它响应也要拿到同一句 429 —— 别让其中一条干等。 */
+      if (!relayTake(gate, relayIssue)) {
+        relayRefused(res, gate);
+        flushInflight(w => relayRefused(w, gate));
+        return;
       }
-      /* 回给页面的那句要带**真正打出去的地址**：转发失败的原因（超时 / DNS / 拒绝连接）都只说现象，
-         而「是不是打到我了那个网关」恰恰是用户此刻最想确认的 —— 尤其是自定义供应商（地址是用户自己填的）、
-         以及内置平台被 x-up-base 换过地址的那几种情况。（主机名与这句文案都在上面的 relayTag 里点一次名） */
-      up.on('error', e => { log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); flushInflight(w => failUpstream(w, e.message, relayTag)); });
-      up.end(body);
     }).catch(e => { flushInflight(w => failUpstream(w, (e && e.message) || String(e), '上游')); });
     return;
   }
@@ -5631,10 +6635,52 @@ if (cloudState.lastAt) {
     + (cloudState.conflicts.length ? '，其中 ' + cloudState.conflicts.length + ' 份冲突待选择' : ''));
 }
 
-server.listen(PORT, () => {
+/* 第二个参数（地址）才是「只绑回环」这一档的实质落点：`listen(PORT)` 不写 host 时
+   Node 绑的是 `::`，等于所有网卡都在听，上面那份默认就整条失效。 */
+server.listen(PORT, BIND.hosts[0], () => {
   const kids = REGISTRY.providers.map(p => p.keyEnv).filter((v, i, a) => v && a.indexOf(v) === i);
   const missing = kids.filter(k => !keyOf(k));
   log(`proxy 已启动: http://localhost:${PORT}（端口来自 ${PORT_FROM}${envLoaded ? '；已加载 .env，改完自动热加载' : '；未找到 .env，可用环境变量'}）`);
+  /* 渲染那一族的三个数**启动时定一次**（改了要重启，与 PORT / ASSETS_DIR 同一档），
+     所以生效值与来源必须打在启动日志里：不然「.env 里写了 2、实际还在串行」这件事在界面上没有任何地方看得出来。 */
+  log(`渲染：同时 ${RENDER_CONCURRENCY} 条（${envFrom('RENDER_CONCURRENCY')}）· 在跑与排队最多 ${RENDER_QUEUE_MAX} 条`
+    + `（${envFrom('RENDER_QUEUE_MAX')}）· 任务记录与崩溃残留留 ${Math.round(RENDER_KEEP / 60000)} 分钟后回收`
+    + `（${envFrom('RENDER_KEEP_MIN')}）· 这三项写在 .env 里，改完要重启`);
+  /* 编码那两项与上面三个数字同一档（启动时定一次），所以同样要把「生效值 + 从哪来」打出来：
+     配了 H.265 而日志里还是 libx264，说明填的名字不在这张表里（下面 envWarns 会点名）；
+     日志说用 NVENC 而成片又是 H.264 的体积，那是本机 ffmpeg 没编进去（原因在每一单的渲染日志里）。 */
+  log(`编码：${RENDER_VCODEC}（${ENCODE_PROFILES[RENDER_VCODEC].zh}，来自 ${envFromStr('RENDER_VCODEC')}）· `
+    + `档位 ${RENDER_PRESET}（来自 ${envFromStr('RENDER_PRESET')}）· 质量档还是界面上那一个 crf · 改完要重启`);
+  /* 转发闸那四个数与上面两族同一档（启动时定一次、改了要重启），所以同样要把「生效值 + 从哪来」打出来：
+     .env 里写了 4 而排队还是按 8 走，只有这一行说得出是哪一项没生效（填法不对的由下面 envWarns 点名）。 */
+  log(`转发闸：同一家同时在途 ${RELAY_MAX_INFLIGHT} 条（${envFrom('RELAY_MAX_INFLIGHT')}）· 排队上限 ${RELAY_QUEUE_MAX} 条`
+    + `（${envFrom('RELAY_QUEUE_MAX')}）· 被限流后读请求最多重问 ${RELAY_RETRY_MAX} 次（${envFrom('RELAY_RETRY_MAX')}）`
+    + `· 一次最多等 ${Math.round(RELAY_WAIT_MAX_MS / 1000)} 秒（${envFrom('RELAY_WAIT_MAX_MS')}）· 都写在 .env 里，改完要重启`);
+  /* 监听地址与上面几族同一档（启动定一次、改了要重启），所以也要把「绑在哪、从哪来、别人连不连得到」打出来。
+     这一行不是装饰：默认只绑回环之后，「手机打不开工作台」与「局域网里谁能用这台机器的密钥」
+     是同一件事的两面，只有这一行说得出此刻是哪一面。 */
+  log(`监听：${BIND.hosts.map(bindAddrText).join(' + ')}（${BIND.why}）· `
+    + (BIND_LAN
+      ? '⚠ 局域网可达 —— 同一网络里的任何设备都能读这台机器的业务数据、并用服务端 .env 里的密钥建任务，只有确实要从别的设备用才这么配'
+      : '只有本机连得上（别的设备要访问就在 .env 写 BIND_HOST=all，然后重启）'));
+  /* 其余的绑定地址（默认那一档就是 `::1`）等第一只绑成之后再起：先绑成功的那一只已经证明
+     这个端口能用，后面那些绑不上时（机器关了 IPv6、或那一张网卡被临时拿走）只警告、不退出 ——
+     少了这一段，一台关了 IPv6 的机器会整个应用起不来，而它只是少一个回环别名。 */
+  BIND.hosts.slice(1).forEach(h => {
+    makeServer().listen(PORT, h).on('error', e => {
+      log(`[警告] ${bindAddrText(h)} 没绑上（${e.code || e.message}）—— 上面那些地址照常在听，`
+        + (isLoopbackAddr(h) ? '本机用这个别名（localhost 解析到它时）会连不上' : '这一张网卡上的设备连不上'));
+    });
+  });
+  envWarns.forEach(w => log('[警告] ' + w));
+  /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，
+     在开机这一刻就是纯垃圾（年龄闸只保护**别的实例正在写**的那一个）。
+     渲染那一族的残留目录同理 —— pruneRenders 本来就在跑，只是以前第一次要等 5 分钟。 */
+  try {
+    const swept = sweepStaleTmp();
+    if (swept) log(`[清理] 删掉 ${swept} 个崩溃残留的临时写入文件（.data / 资产库里那种 .tmp-<pid>-<串>）`);
+    pruneRenders();
+  } catch (e) { log('[清理] 启动清扫跳过：' + (e.code || e.message)); }
   /* 出站代理那一句放在启动信息里：在必须走代理才能出网的环境里，
      「有没有走代理」是第一个要确认的事，而页面上只看得到「转发失败（打到 xxx）」。 */
   const px0 = outboundProxy();
@@ -5652,7 +6698,7 @@ server.listen(PORT, () => {
   }
   if (renderQueue.length || renderRunning) log(`[render] 恢复队列：${renderQueue.length} 个待处理`);
 }).on('error', e => {
-  if (e.code === 'EADDRINUSE') console.error(`[错误] 端口 ${PORT} 已被占用：项目可能已在运行（直接访问 http://localhost:${PORT}），或先用「启动.bat」里的停止功能关闭旧进程`);
+  if (e.code === 'EADDRINUSE') console.error(`[错误] ${BIND.hosts[0]}:${PORT} 已被占用：项目可能已在运行（直接访问 http://localhost:${PORT}），或先用「启动.bat」里的停止功能关闭旧进程`);
   else if (e.code === 'EACCES') {
     /* EACCES 在 Windows 上几乎总是「这个端口被系统保留段占了」，不是权限不够：
        Hyper-V / WSL2 的 winnat 开机时按 100 端口一段地划走，报出来既不是 EADDRINUSE
@@ -5660,9 +6706,9 @@ server.listen(PORT, () => {
        还要先说清这个号是谁给的（环境变量 / .env / 默认）—— 不然窗口里残留一个
        set PORT=5175 时，人只会对着「.env 明明写了 6200 为什么还报 5175」干瞪眼。 */
     console.error([
-      `[错误] 端口 ${PORT} 绑不上（EACCES）。Windows 上这通常不是权限问题，而是这个端口落在系统保留段里`,
+      `[错误] ${BIND.hosts[0]} 上的 ${PORT} 号端口绑不上（EACCES）。Windows 上这通常不是权限问题，而是这个端口落在系统保留段里`,
       `       （Hyper-V / WSL2 的 winnat 开机时按段划走，一整个连续段几百个号，netstat 上看不见它们）。`,
-      `  这一次用的端口来自：${PORT_FROM}`,
+      `  这一次用的端口来自：${PORT_FROM}；绑的地址是：${BIND.hosts.map(bindAddrText).join(' + ')}（${BIND.why}）`,
       ...PORT_CLASH,
       `  查一下是不是这一类：netsh interface ipv4 show excludedportrange protocol=tcp   （看 ${PORT} 落在哪个区间里）`,
       `  出路 1（不动系统、不用管理员，最快）：换一个真能 bind 的号 —— 直接跑「启动.bat」选 1，它会现测一个并说清换成了哪个；`,
@@ -5687,7 +6733,9 @@ function shutdown(code) {
   shuttingDown = true;
   const n = allProcs().length;
   if (n) { log(`[退出] 结束 ${n} 个 ffmpeg/ffprobe 子进程`); allProcs().forEach(p => { try { p.kill('SIGKILL'); } catch {} }); }
-  try { server.close(); } catch {}
+  /* 回环那两只（可能还有网卡那一只）一起关；第二只没绑上时它还挂在 SERVERS 里，
+     对一只从没 listening 的 server 调 close() 会回 ERR_SERVER_NOT_RUNNING，所以先问 listening。 */
+  SERVERS.forEach(s => { try { if (s.listening) s.close(); } catch {} });
   try { keepAliveAgent.destroy(); } catch {}     // 复用池里的空闲 socket 也要关掉，别把进程吊在那儿
   try { if (_tunnelAgent) _tunnelAgent.destroy(); } catch {}   // 走代理时的隧道连接同理
   setTimeout(() => process.exit(code), 120);
@@ -5695,7 +6743,10 @@ function shutdown(code) {
 process.on('SIGINT', () => { log('[退出] 收到 Ctrl+C'); shutdown(0); });
 process.on('SIGTERM', () => shutdown(0));
 process.on('SIGHUP', () => shutdown(0));
-process.on('uncaughtException', e => { try { log('[致命] 未捕获异常：' + (e && e.stack || e)); } catch {} });   // 记录但不退出：本地工具，别让一次异常打断使用
-process.on('unhandledRejection', e => { try { log('[警告] 未处理的 Promise 失败：' + (e && e.message || e)); } catch {} });
-/* 兜底：顶层 try/catch 没接住的 http 层错误（如上游 socket 异常）不再刷屏 */
-server.on('connection', s => { s.on('error', () => {}); });
+/* 顶层这四个出口全都「记一笔 + 继续活」：本地工具里，一次异常打断使用比带病跑更糟。
+   但「继续活」不等于「什么都不说」—— 每一笔都进 `noteFault` 那份有界的账，
+   随 /sys-status 的「健康」递到设置页与助手那里（见上面的故障账一节）。 */
+process.on('uncaughtException', e => { try { noteFault('未捕获异常', e); log('[致命] 未捕获异常：' + (e && e.stack || e) + '（已记进「设置 → 本机环境 → 代理健康」；进程按设计继续跑，要清掉这份账请在启动器点「重启」）'); } catch {} });
+process.on('unhandledRejection', e => { try { noteFault('Promise失败', e); log('[警告] 未处理的 Promise 失败：' + (e && e.message || e)); } catch {} });
+/* 「客户端连接错误记一笔」那个钩子挂在 `makeServer` 里（见上面）：一只 server 只绑一个地址，
+   挂在这儿的旧写法只盖得住第一只，第二只回环 socket 就漏了 —— 别再加回来。 */

@@ -65,7 +65,8 @@
   const STD = { count: 'max_outputs', duration: 'durations', res: 'resolutions', ar: 'aspect_ratios',
     quality: 'qualities', tier: 'tiers', format: 'output_formats' };
   const VAL_ZH = { count: '张数/条数', duration: '时长（秒）', res: '分辨率', ar: '画幅', quality: '质量档', tier: '档位', format: '输出格式' };
-  const KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
+  /* 「供应商类型」的名字与顺序读 ui.js 的 provKindZh / provKinds 一份（2026-10-15）：
+     以前这一族有四处 —— 这里一张表 + 一份手抄的键序、设置页同样两份。 */
   /* 提示词里指代当前页：正文页文件名 → 界面上的名字。
      三个工作台合并成 studio.html 之后只有一条；`?t=` 只是落在同一页的不同类型上。 */
   const ACT_PAGE = { 'director.html': '导演台', 'chars.html': '素材库',
@@ -102,7 +103,7 @@
   const esc = s => window.esc(s);
   const cap = (v, n) => { const s = String(v == null ? '' : v); return s.length > n ? s.slice(0, n) + '…（共 ' + s.length + ' 字，截断了）' : s; };
   const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
-  const when = t => { const ms = Number(t) || 0; return ms ? new Date(ms).toLocaleString() : ''; };
+  const when = t => window.fmtWhen(Number(t) || 0);
   function jdump(o) { return cap(typeof o === 'string' ? o : JSON.stringify(o, null, 1), TOOL_OUT); }
   function $(id) { return document.getElementById(id); }
 
@@ -260,10 +261,10 @@
           data.归档目录 = pl && pl.dir;
         } catch (e) { data.提示词归档 = '取不到：' + cap((e && e.message) || e, 120); }
         const out = {
-          此刻: { 页面: page() + '（' + pageZh() + '）', 时间: new Date().toLocaleString() },
+          此刻: { 页面: page() + '（' + pageZh() + '）', 时间: window.fmtWhen(Date.now()) },
           界面上选中的: domPicks(),
           代理: { 注册表版本: r.version || 0, 平台数: (r.providers || []).length },
-          文字AI: tp ? { 供应方: tp.id, 名称: tp.name || tp.id, 型号: modelNow() || TextAI.model(tp), 本机密钥: !!TextAI.key(tp), 服务端密钥: await TextAI.envHas(tp) } : '注册表里没有 kind=text 的供应方（文字 AI 用不了）',
+          文字AI: tp ? { 供应方: tp.id, 名称: tp.name || tp.id, 型号: modelNow() || TextAI.model(tp), 本机密钥: !!TextAI.key(tp), 服务端密钥: await TextAI.envHas(tp) } : '注册表里没有 kind=text 的供应商（文字 AI 用不了）',
           平台: (r.providers || []).map(p => ({ id: p.id, 名称: p.name || p.displayName || p.id, 类型: p.kind,
             型号数: (p.models || []).length, 可用: !!ok[Api.keyId(p)],
             来源: pf.src(p), 停用: pf.off(p) ? '已停用（各页下拉里没有它，要问用户去设置页重新启用）' : '' })),
@@ -321,7 +322,7 @@
         const list = (r.providers || []).filter(p => !kind || p.kind === kind);
         if (!list.length) return '没有 kind=' + kind + ' 的平台。不带 kind 再查一次可以看全部。';
         return list.map(p => ({
-          平台: p.id, 名称: p.name || p.displayName, 类型: KIND_ZH[p.kind] || p.kind, 可用: !!ok[Api.keyId(p)],
+          平台: p.id, 名称: p.name || p.displayName, 类型: window.provKindZh(p.kind), 可用: !!ok[Api.keyId(p)],
           来源: pf.src(p), 停用: pf.off(p) ? '已停用（各页下拉里没有它，别替它提交任务）' : '',
           型号: (p.models || []).map(m => ({
             id: m.id, 名称: m.name || m.id,
@@ -469,7 +470,12 @@
           文字AI: { 已保存的供应方: localStorage.getItem('sk_text_prov') || '（没选过，按默认可用逻辑挑）',
             识图开关: TextAI.visionMode(), 润色前反问: TextAI.askMode() },
           各家: [],
-          界面: { 主题: localStorage.getItem('dir_theme') || 'light', 侧栏展开: localStorage.getItem('sb_open') || '', 侧栏余额: localStorage.getItem('sb_bal_show') || '' },
+          /* 「侧栏余额」有两个口径，以前这一行把它们混成一条报了：
+             `sb_bal_on` 是**整区开不开**，`sb_bal_show` 存的是**隐藏名单**（哪些家不显示，默认全显示）。
+             用户问「余额怎么不显示」时，拿隐藏名单当开关读出来的是一个列表，答不到真凶。 */
+          界面: { 主题: localStorage.getItem('dir_theme') || 'light', 侧栏展开: localStorage.getItem('sb_open') || '',
+            侧栏余额区: localStorage.getItem('sb_bal_on') === '0' ? '已关掉整区' : '开',
+            侧栏余额隐藏了哪几家: (window.SbBal && SbBal.off()) || [] },
           /* 助手自己这一层的开关也报出来：用户问「为什么它刚才自己就提交了」要能答得上。
              这几项故意不在 writableKeys 白名单里 —— 「不用确认」能被 AI 自己打开是不安全的，
              系统通知的授权还在浏览器那一层，AI 改了开关也弹不出来。 */
@@ -481,7 +487,7 @@
             系统通知: (localStorage.getItem(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
               + (window.Notification ? Notification.permission : '这个浏览器不支持'),
             在等的任务: wread().items.length },
-          列表分页: pageRows().map(x => ({ 页面: x.name, 模式: localStorage.getItem('page_mode_' + x.key) || x.defMode, 每页: localStorage.getItem('page_size_' + x.key) || x.defSize })),
+          列表分页: pageRows().map(x => ({ 页面: x.name, 模式: window.pageModeOf(x.key), 每页: window.pageSizeOf(x.key) })),
           能改的: Object.keys(await writableKeys()),
           改不了的: 'sk_key_*（密钥）与 sk_base_*（自定义地址）只能你自己在设置页填 —— 助手碰它们会把密钥写进对话记录、或把 A 家的密钥发到 B 家的地址',
         };
@@ -509,11 +515,11 @@
         const off = (r.providers || []).filter(p => pf.off(p)).map(p => p.id);
         const out = {
           代理: { 在线: true, 注册表版本: r.version || 0, 版本太旧: (Api.oldProxyNotice ? Api.oldProxyNotice(r.version) : '') || '不旧' },
-          平台: ['image', 'video', 'audio', 'text'].map(k => {
+          平台: window.provKinds().map(k => {
             const all = (r.providers || []).filter(p => p.kind === k);
             const on = all.filter(p => !pf.off(p));
             const usable = on.filter(p => ok[Api.keyId(p)]);
-            return { 类型: KIND_ZH[k] || k, 注册了几家: all.length, 停用几家: all.length - on.length,
+            return { 类型: window.provKindZh(k), 注册了几家: all.length, 停用几家: all.length - on.length,
               能用: usable.map(p => p.id + '（' + (Api.key(p) ? '本机密钥' : '服务端 .env') + '，' + (p.models || []).length + ' 个型号）').join(' / ')
                 || (all.length ? '一家都不能用：' + on.map(p => p.id).join(' / ') + ' 都没配密钥' : '注册表里这一类根本没有平台') };
           }),
@@ -541,12 +547,23 @@
           const sy = await Api.sysStatus();
           const tl = k => { const t = Api.sysTool(sy[k]); return t.chip + (t.why ? (t.cls === 'ok' ? '（' + cap(t.why, 60) + '）' : '：' + cap(t.why, 130)) : ''); };
           const dd = sy.目录 || {};
+          const rd = sy.渲染;
           out.成片环境 = {
             ffmpeg: tl('ffmpeg') + ' —— ' + Api.SYS_WHY.ffmpeg,
             ffprobe: tl('ffprobe') + ' —— ' + Api.SYS_WHY.ffprobe,
+            /* 渲染配置：助手替人排查「成片怎么这么大 / 怎么这么慢」时，先要说出这台现在用的是谁。
+               说法与设置页那一行同源（都是代理现算的那一份），旧代理没返回就照实说没有。 */
+            渲染: rd ? (rd.编码 + '（' + (rd.中文名 || '?') + '）· 档位 ' + rd.档位 + ' · 同时 ' + rd.同时
+              + ' 条 · ' + rd.本机说明) : '这个代理还没报渲染配置（重启 proxy.js 后才有）',
             目录: ['数据', '资产', '渲染'].map(n => n + '=' + Api.sysDir(dd[n]).chip).join(' · '),
             代理: '端口 ' + ((sy.代理 || {}).端口 || '?') + ' · 注册表 v' + ((sy.代理 || {}).版本 || '?'),
           };
+          /* 代理进程自己那份账：排查「什么都点不动 / 列表刷新不出来」时先要问一句
+             「这个进程是不是已经带病跑了一整天」—— 顶层异常以前只往日志打一行，日志轮转就找不回来了。
+             芯片与整句都由代理给（与设置页那一行同一份），旧代理没返回就说「没读到」，不替一个没记账的进程作保。 */
+          const hh = Api.sysHealth(sy.健康);
+          out.代理健康 = hh.chip + (sy.健康 ? ' · 已运行 ' + hh.存活 + ' · 最后一次干活 ' + hh.最后请求 + '：' + cap(hh.why, 260) : '：' + hh.why)
+            + ' —— ' + Api.SYS_WHY.健康;
         } catch (e) {
           out.成片环境 = e && e.status === 404
             ? '这个代理是加体检接口之前启动的旧进程（重启 proxy.js 后才有 ffmpeg 与目录那几项）'
@@ -567,7 +584,7 @@
         catch (e) { out.云同步 = '读不到状态：' + cap((e && e.message) || e, 120); }
         if (a && (a.verify === true || a.verify === 'true' || a.deep)) {
           const tp = TextAI.prov(r);
-          out.文字AI密钥 = tp ? (await TextAI.verifyKey(r, tp)).text : '没有文字 AI 供应方可验';
+          out.文字AI密钥 = tp ? (await TextAI.verifyKey(r, tp)).text : '没有文字 AI 供应商可验';
         } else out.文字AI密钥 = '没验（带 {"verify":true} 再问一次：只打余额接口、不建任务）';
         return out;
       },
@@ -807,7 +824,7 @@
     const p = Api.prov(String(a.provider || a.prov || '').trim());
     if (!p) {
       const can = (r.providers || []).filter(x => x.kind !== 'text');
-      return { err: '没有平台 id「' + (a.provider || '') + '」。能提交的是：' + can.map(x => x.id + '（' + (KIND_ZH[x.kind] || x.kind) + '）').join(' / ') };
+      return { err: '没有平台 id「' + (a.provider || '') + '」。能提交的是：' + can.map(x => x.id + '（' + window.provKindZh(x.kind) + '）').join(' / ') };
     }
     if (p.kind === 'text') return { err: '文字 AI 是助手自己对话用的，不是提交生成任务的地方' };
     if (p.kind === 'audio') return { err: '语音是同步合成、上游没有任务号可跟，合成与落盘那套管子在生成工作台的音频那一栏里（含音色复刻的参考音频处理），助手不另写一份。要合成请去生成工作台（go {"page":"studio.html?t=audio"}）' };
@@ -894,7 +911,7 @@
     const 页 = '生成工作台';
     return {
       说明: '提交到「' + (p.name || p.id) + '」（' + p.id + '）· 型号 ' + m.id + ' · ' + 参数行.length + ' 个参数 · ' + 素材行.length + ' 个素材',
-      人话: ['平台：' + (p.name || p.id) + '（' + p.id + '，' + (KIND_ZH[p.kind] || p.kind) + '）',
+      人话: ['平台：' + (p.name || p.id) + '（' + p.id + '，' + window.provKindZh(p.kind) + '）',
         '型号：' + m.id + (m.name && m.name !== m.id ? '（' + m.name + '）' : ''),
         '提示词：' + cap(prompt, 400),
         '参数：' + (参数行.length ? 参数行.join(' · ') : '（不额外指定，按型号默认）'),
@@ -946,7 +963,7 @@
   const ADJUST = {
     dir_theme: { 名: '界面主题', 取值: ['light', 'dark'], 说: '改完外壳和当前页立刻跟着换色' },
     sk_polish_ask: { 名: 'AI 润色前是否反问', 取值: ['ai', 'on', 'off'], 说: 'ai = 由文字 AI 自己判断要不要先问要点' },
-    sk_text_vision: { 名: '文字 AI 识图', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明；按模型名猜是禁止的' },
+    sk_text_vision: { 名: '文字 AI 识图', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明；按型号名猜是禁止的' },
   };
   function pageRows() {
     const t = window.PAGE_TARGETS;
@@ -1145,7 +1162,7 @@
     if (chk.键 === 'dir_theme') { try { window.__sbApplyTheme && window.__sbApplyTheme(chk.值); } catch (e) {} }
     if (chk.键 === 'sb_open') { try { window.__sbApplyOpen && window.__sbApplyOpen(); } catch (e) {} }
     return { ok: true, text: '已改「' + chk.名 + '」：' + (chk.旧 || '（原来没设过）') + ' → ' + chk.值 + '\n' + chk.说
-      + '\n这一项和设置页「点保存才生效」是同一份存储，别的页面切回去会读到新值。' };
+      + '\n这一项和设置页存的是同一份，设置页那边现在改完就自动落盘，切回去会读到新值。' };
   }
   /* ============================================================================
      UI 原语：填输入框 / 点按钮 / 读当前页状态
@@ -1634,11 +1651,11 @@
   /* ---------- 系统提示词：身份 → 任务 → 硬性要求 → 禁止 → 输出格式（全站同一条骨架） ---------- */
   const SYS = [
     '身份：你是「本地优先 AI 创作工作台」的内置助手。这项目是纯前端页面 + 一个本机 Node 代理（proxy.js，默认 http://localhost:5175），',
-    '页面有：导演台、素材库、生成工作台（视频 / 图像 / 语音）、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
+    '页面有：导演台、素材库、生成工作台（视频 / 图像 / 音频）、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
     '你挂在外壳那一层，切页面不会打断你；脚下那一页的当前下拉值与它自己的状态，都在 overview 里。',
     '',
     '任务：回答关于这台机器与这个项目的问题 —— 哪家平台能用、某型号支持哪些参数取值、',
-    '素材库里有哪些角色/场景/道具、有哪些收藏/产物/提示词归档、这次该选哪个模型、某一步卡住了该怎么补；',
+    '素材库里有哪些角色/场景/道具、有哪些收藏/产物/提示词归档、这次该选哪个型号、某一步卡住了该怎么补；',
     '并且按用户明确要求，替他提交一次生成任务或改一项设置，'
       + '以及**替他把这一页上的控件用起来**（填输入框、点按钮、切页面 —— 见硬性要求 3b/3c）。',
     '',
@@ -2258,7 +2275,6 @@
      缩略图/抽帧/占位层/接线全交给 Wb.thumbs：标记、data-thumb-key、.tph 都是它生成的，
      接线放在**所有渲染路径的汇合处**（node() 每次重画都从这里走），所以不会再出现
      「新建的那几张永远不抽帧」那类只在某一条路径上接线的问题。 */
-  const AUDIO_T = ['音频', '音乐'];
   const STUDIO_TAB = { 图片: 'image', 视频: 'video', 音频: 'audio', 音乐: 'audio' };
   /* ---------- history 的两条路：本地缓存 / 真去平台接口 ---------- */
   const HIST_NOTE = '这几张卡片和上面那份列表是同一批条目，用户已经能直接看图、播视频、听语音了 —— 照着说，别再让他去某一页自己找。';
@@ -2315,7 +2331,7 @@
       来源: '本机列表缓存（这个浏览器上次拉到过什么）',
       卡片标题: '本机历史任务',
       本机共: all.length,
-      tag: scope === 'all' ? '' : (KIND_ZH[scope] || ''),
+      tag: scope === 'all' ? '' : window.provKindZh(scope),
       没命中: '本机缓存里没有命中的条目。这**只反映这个浏览器上次拉到过什么**，不代表平台上真的没有 —— '
         + '别把空结果说成「你没做过」。要平台账号里的全部任务，改用 history {"remote": true} 去问接口。',
     });
@@ -2364,7 +2380,7 @@
       卡片标题: '平台历史任务（刚拉的）',
       问了哪些平台: srcs.length ? srcs.map(s => (s.prov && s.prov.name) || s.key) : ['（一家都没有）'],
       拉到: all.length,
-      tag: scope === 'all' ? '' : (KIND_ZH[scope] || ''),
+      tag: scope === 'all' ? '' : window.provKindZh(scope),
       没命中: all.length
         ? '这次拉到 ' + all.length + ' 条，但按条件没命中。要看全部就去掉 q / status。'
         : '这次一家都没拉到条目。注意：**没有列表接口的平台根本查不了**（见下面「查不了的平台」），'
@@ -2394,22 +2410,23 @@
     const d = document.createElement('div');
     d.className = 'ac-card';
     const type = String(e.type || '');
+    const kind = window.mediaKindOf(type);
     const th = (window.Wb && Wb.thumbs) ? Wb.thumbs : null;
     let src = '';
     try { src = e.src ? Api.mediaSrc(e.src) : ''; } catch (err) { src = ''; }
     if (src) {
       const box = document.createElement('div');
       box.className = 'ac-card-media';
-      if (AUDIO_T.indexOf(type) >= 0) {
+      if (window.isAudioType(type)) {
         box.innerHTML = '<audio class="ac-aud" controls preload="none" src="' + esc(src) + '"></audio>';
       } else if (th) {
         /* inline：即使抽帧缓存里已有首帧也仍然出 <video>，把那一帧当 poster ——
            对话里要看的就是「能播」，不是一张点不动的静帧海报。 */
-        box.innerHTML = type === '视频'
+        box.innerHTML = kind === 'video'
           ? th.mediaHTML(src, { inline: true, mediaAttrs: 'class="ac-vid" controls preload="metadata" playsinline' })
           : th.mediaHTML(src, { type: 'image', mediaAttrs: 'class="ac-img" loading="lazy" alt=""' });
       } else {
-        box.innerHTML = type === '视频'
+        box.innerHTML = kind === 'video'
           ? '<video class="ac-vid" controls preload="metadata" playsinline src="' + esc(src) + '"></video>'
           : '<img class="ac-img" loading="lazy" alt="" src="' + esc(src) + '">';
       }
@@ -2447,10 +2464,10 @@
       const dl = document.createElement('button');
       dl.className = 'ac-card-go';
       dl.textContent = '下载';
-      /* 扩展名按条目的 format 推 —— 平台列表拉回来的条目都带这个字段；
-         推不出才退回按类型猜（本机缓存那批没有 format）。 */
-      const ext = (e.format && String(e.format).replace(/^\./, ''))
-        || (AUDIO_T.indexOf(type) >= 0 ? 'mp3' : type === '视频' ? 'mp4' : 'png');
+      /* 扩展名与资产库 / 工作台 / 收藏同一个口径（ui.js 的 `fileExtOf`，§J ⑲ 守着）：
+         先认条目自带的 format，推不出才按类型兜底。以前这一份兜底猜的是 mp3，
+         而语音台的默认产物档是 wav —— 同一条没带 format 的配音从助手卡片下回来是 .mp3。 */
+      const ext = window.fileExtOf(e);
       /* 优先用条目自带的下载路由（/asset/…?dl=1 或 /fetch?url=…&dl=1）：
          那条路由已经把「取哪个字节」准备好了，直接拿显示用的 src 去取有时会命中签名地址的缩略档。 */
       const url = e.dl || src;
@@ -2474,17 +2491,11 @@
   /* 上限只为界面装得下（八题十候选就够一屏了），不是「不许问这么多」——
      真的超了就在面板里写明裁掉多少，用户自己在自由输入框里补。 */
   const ASK_Q_MAX = 8, ASK_O_MAX = 10;
+  /* 每题的别名与候选夹取走公共层那一份（TextAI.qaOf），这里只留「一屏装得下几题」——
+     以前这两处各抄一遍四个别名，抄出两份不一样的上限（润色 6 个候选不限题数、这里 8 题 ×10），
+     同一段模型回包在两处解析出的题数与候选数能不同。 */
   function askOf(arg) {
-    const arr = Array.isArray(arg) ? arg : (arg && Array.isArray(arg.questions) ? arg.questions : []);
-    const out = [];
-    arr.forEach(x => {
-      const q = String((x && (x.q || x.question || x.title)) || '').trim();
-      if (!q) return;
-      const raw = (Array.isArray(x.options) ? x.options : (Array.isArray(x.choices) ? x.choices : []))
-        .map(o => String((o && (o.label || o.text)) || o || '').trim()).filter(Boolean);
-      out.push({ q: q, options: raw.slice(0, ASK_O_MAX), cut: raw.length > ASK_O_MAX });
-    });
-    return out.slice(0, ASK_Q_MAX);
+    return TextAI.qaOf(arg, ASK_O_MAX).slice(0, ASK_Q_MAX);
   }
   function askNode(m) {
     const d = document.createElement('div');
@@ -2721,7 +2732,7 @@
        人就会以为组件坏了（其实是没有 /models 接口，或清单里没你要的那个）。
        抽屉里**不再有「取型号 / ＋型号」**（2026-10 删：管文字 AI 的型号是设置页那一档的事，
        助手只是个问答抽屉），所以这里只指路。 */
-    el.hint.textContent = !cur ? '注册表里没有文字 AI 供应方，去设置页配一家'
+    el.hint.textContent = !cur ? '注册表里没有文字 AI 供应商，去设置页配一家'
       : (!mg.groups.length ? '这家还没有型号：去设置页「文字 AI」那一档填一个调用名'
         : (can ? '查询只读；' + (autoRun() ? '设置里勾了「执行前不用确认」，动作卡片会自己提交' : '提交任务与改设置都要你在卡片上点执行')
           : '这家还没配密钥，问了会直接报错'));
@@ -2816,7 +2827,7 @@
     return '这一轮上游的安全过滤把请求挡住了，它没有作答'
       + (cats ? '（它自己标的类别：' + cap(cats.trim(), 80) + '）' : '')
       + '。这不是本机出问题，也不是你的操作有错 —— 换个说法、把那张图撤掉再试，'
-      + '或者到设置页换一个型号（不同模型的尺度不一样，你现在是「每次随机换一个免费模型」）。';
+      + '或者到设置页换一个型号（不同型号的尺度不一样，你现在是「每次随机换一个免费型号」）。';
   }
 
   async function runTool(name, arg) {
@@ -2839,7 +2850,7 @@
     try { r = await reg(); } catch (e) { push('err', (e && e.message) || e); return; }
     const prov = await provNow();
     const model = modelNow();
-    if (!prov) { push('err', '注册表里没有文字 AI 供应方，先去设置页配一家'); return; }
+    if (!prov) { push('err', '注册表里没有文字 AI 供应商，先去设置页配一家'); return; }
     if (!model) { push('err', '这一家还没有可选型号：到设置页「文字 AI」那一档里填一个调用名'); return; }
     openPanel();
     el.ta.value = '';

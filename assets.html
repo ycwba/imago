@@ -115,7 +115,6 @@
   /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
   .det-refs img { width: 100%; height: 84px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
   .det-refs img:hover { border-color: var(--acc); }
-  /* 灯箱等公共组件样式统一来自 ui.css */
 </style>
 </head>
 <body>
@@ -148,7 +147,7 @@
       <span class="sp"></span>
       <span class="toolbar">
         <button class="ghost" id="multiBtn" title="进入多选：点卡片勾选，可批量下载"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-        <button class="ghost" id="reloadBtn" title="重新从各平台取回列表"><span data-icon="refresh" data-size="13"></span> 重新加载</button><button class="ghost" id="cancelAllBtn" title="取消所有排队/生成中的任务"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
+        <button class="ghost" id="reloadBtn" title="重新从各平台取回列表"><span data-icon="refresh" data-size="13"></span> 重新加载</button><button class="ghost" id="pullLocalBtn" title="把这一屏里本机还没有那份字节的成品取回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）"><span data-icon="box" data-size="13"></span> 存回本机</button><button class="ghost" id="cancelAllBtn" title="取消所有排队/生成中的任务"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
         <button class="ghost" id="pgPrev" style="display:none">‹ 上一页</button><span class="pginfo" id="pgInfo" style="display:none"></span><button class="ghost" id="pgNext" style="display:none">下一页 ›</button>
         <input type="number" id="gotoPage" min="1" placeholder="跳页">
         <button class="ghost" id="gotoBtn">跳转</button>
@@ -178,7 +177,8 @@
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
-const fmtSize = b => { if (b == null || isNaN(Number(b))) return ''; const n = Number(b), u = ['B','KB','MB','GB']; let i = 0, v = n; while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return (i ? v.toFixed(1) : v) + ' ' + u[i]; };
+/* 与 ui.js 的 fmtBytes 同一份（这一页原来抄了一份几乎一样的，只差 0 字节显示成 0 B 还是空串） */
+const fmtSize = b => window.fmtBytes(b);
 function ratioText(w, h) { if (!w || !h) return ''; const g2 = (a, b) => b ? g2(b, a % b) : a; const g = g2(w, h) || 1, r1 = w / g, r2 = h / g; return (r1 <= 40 && r2 <= 40) ? r1 + ':' + r2 : (w / h).toFixed(2) + ':1'; }
 
 /* ---------- 数据拉取与归一化 ----------
@@ -260,6 +260,60 @@ function toggleSelect(a, on) {
   renderGrid();
 }
 function selectedItems() { return applyFilters().filter(a => selected.has(selKeyOf(a))); }
+/* ---------- 「存回本机」：把这一屏里本机还没有那份字节的成品取回本机 ----------
+   资产库是这些成品**唯一成规模出现的地方**，而它以前只有「批量下载」（另存到浏览器下载目录）。
+   两者不是一回事：批量下载那份文件给用户看，存回本机是进 `.assets` 这个应用自己的库 ——
+   离线能预览、删了能回源，「优先用本机文件」这个开关管的就是后者。
+   所以「自动存本机」开着的时候这里是兜底、关着的时候这里是**唯一的手动入口**。
+   落盘走 `AssetLocal.pullMany`（与后台自动镜像、收藏、素材库同一条链）——
+   循环与回执走公共层 pullMany / pullSummaryText，这一页不再写第二份。 */
+function pullScope() {
+  const seen = new Set();
+  /* `includeHidden: true` —— 这一颗按钮**不跟**「不显示云端任务」走。
+     判据与工作台右栏那颗同一条：藏起来是「列表里先别显示」，不是「这份东西我不需要」；
+     而三个开关全开时被藏掉的，恰恰就是本机还没有字节的那批 —— 正是这颗按钮唯一的目标。
+     跟着藏走的话，`pullScope()` 会当场筛出 0 条，按钮显示「存回本机」不带数字、
+     点下去弹「这一屏要存的本机都已经有了」，**用户以为自己存过了，其实一次都没存**（假控件）。 */
+  return applyFilters({ includeHidden: true }).filter(a => {
+    if (a.kind !== 'asset') return false;              // 任务行还没有产物，没有字节可下
+    const u = a.src || a.dl || '';
+    if (!u) return false;
+    const k = selKeyOf(a);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    /* 「本机有没有这份字节」只有 hasLocalAddr 一处判据（收藏 / 素材库那两颗读的也是它），
+       已经在本机的一条都不重下。 */
+    return !AssetLocal.hasLocalAddr(u);
+  });
+}
+function paintPullBtn() {
+  /* 画法与 title 的措辞走公共层那一份（四页共用，见 assetlib.js 的 AssetLocal.pullBtn）：
+     图标与字分两格（`.ic` / `.tx`），进度只写在 `.tx` 上，整颗 `textContent = …` 会把图标一起抹掉。 */
+  AssetLocal.pullBtn($('pullLocalBtn'), pullScope().length, { what: '成品' });
+}
+async function pullLocalPage() {
+  const btn = $('pullLocalBtn');
+  const todo = pullScope();
+  if (!todo.length) {
+    Toast.info(assets.some(a => a.kind === 'asset')
+      ? '这一屏要存的本机都已经有了'
+      : '这一屏还没有可存的成品（排队 / 生成中的任务没有字节可下）');
+    return;
+  }
+  AssetLocal.pullStart(btn);
+  const s2 = await AssetLocal.pullMany(todo.map(a => ({
+    entry: a,
+    name: String(a.prompt || a.name || '这一条').slice(0, 12),
+    /* 存好了把这一条的显示地址换成本机那一份：不然缩略图还挂着那条快过期的外链，
+       用户看着「存了但没变」。dl 不动 —— 那是「下载到浏览器」那一路，语义不一样。 */
+    apply: u => { a.src = u; },
+  })), { onProgress: (done, total) => btnText(btn, '存回本机 ' + done + ' / ' + total) });
+  AssetLocal.pullEnd(btn);
+  paintPullBtn();          // 图标与「还剩几条」都按此刻的屏重画：全失败时也不能停在没有图标那一版
+  AssetLocal.pullReceipt(s2);
+  if (s2.ok) { try { LIST_CACHE.write(assets); } catch (e) {} renderGrid(); }
+}
+if ($('pullLocalBtn')) $('pullLocalBtn').onclick = pullLocalPage;
 function paintBulkBar() {
   const bar = $('bulkBar');
   if (!bar) return;
@@ -401,9 +455,8 @@ function fetchMore(pages) {
 const F = { type: '全部', provider: '全部', status: '全部', q: '', from: '', to: '' };
 let FAI = null;   // AI 检索条件：{ desc, cond:{keywords,type,after,before,minDuration,maxDuration,order,limit} }
 /* 音频与音乐是同一类：本机产物按字节判出来是「音频」，平台声明里写的是「音乐」，
-   筛这一类时两个词都要收（收藏页、生成工作台语音栏的选择器也是同一口径）。 */
-const isAudioType = t => t === '音频' || t === '音乐';
-const typeKey = t => (isAudioType(t) ? '音频' : t);
+   筛这一类时两个词都要收 —— 判据全站只有 `ui.js` 的 `isAudioType` 一份（§J ⑲ 守着）。 */
+const typeKey = t => (window.isAudioType(t) ? '音频' : t);
 /* 芯片行走 ui.js 的 Chips（角色库 / 收藏 / 用量同一份），页面只给档位与选中后的动作。 */
 const uniq = k => ['全部', ...[...new Set(assets.map(a => a[k]))]];
 /* ---------- 顺序：只有「最新的在前」这一种 ----------
@@ -437,8 +490,7 @@ function paintDateChips() {
     else {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
-      const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      F.from = iso(start); F.to = iso(now); F.presetDays = days;
+      F.from = window.dayKey(start); F.to = window.dayKey(now); F.presetDays = days;
       $('dFrom').value = F.from; $('dTo').value = F.to;
     }
     paintDateFaces();
@@ -475,26 +527,21 @@ function renderFilters() {
   window.Chips.render($('fProv'), uniq('providerName'), F.provider, v => { F.provider = v; renderFilters(); renderGrid(); });
   window.Chips.render($('fStatus'), ['全部', '已完成', '生成中', '排队中', '失败'], F.status, v => { F.status = v; renderFilters(); renderGrid(); });
 }
-/* 展示样式：list 横条列表 / compact 方块网格（右上角图标开关）——开关本体与本地记忆都在
-   workbench.js 的 Wb.viewToggle（素材库、收藏页用同一份），这里只提供页面自己的容器类名。
-   **档位名从 card 改成 list**：素材库与收藏页一直叫「列表」，这一页叫「卡片」，
-   于是设置页那张偏好表里同一个概念要写两种词（还漏了素材库那一项），
-   用户在设置里选了「列表」、进来看到的是另一种摆法。三个页面现在共用一套档位名。 */
-let VIEW = 'list';
+/* 展示样式：list 横条列表 / compact 方块网格（右上角图标开关）——开关本体、本地记忆、
+   把当前档贴到容器上的那一步，全在 workbench.js 的 Wb.viewToggle（素材库、收藏页同一份）。
+   这一页只点名容器是谁（target: 'grid'）：**有几档、每档叫什么也不在这儿抄**，
+   那份清单全站只有 ui.js 的 window.VIEW_MODES 一处，设置页偏好表与这颗开关读的是同一个数组
+   （从前这里、设置页、兜底默认档各抄一份，改一个名字要同时改七个字面量，漏一处就是「设置里写着列表、
+   进来看到的是另一种摆法」）。
+   **档位名从前叫 card**：素材库与收藏页一直叫「列表」而这一页叫「卡片」，设置页那张偏好表里
+   同一个概念于是有两种词，用户在设置里选「列表」、进来看到的是另一种摆法 —— 三页统一成 list。 */
 const viewToggle = Wb.viewToggle.create({
-  el: 'fView', key: 'dir_asset_view',
-  views: [['list', '列表', Wb.viewToggle.ROWS], ['compact', '紧凑', Wb.viewToggle.GRID]],
-  onPick: () => applyView(),
+  el: 'fView', key: 'dir_asset_view', target: 'grid',
 });
-function applyView() {
-  const g = $('grid');
-  if (!g) return;
-  VIEW = (viewToggle && viewToggle.value) || 'list';
-  g.classList.remove('view-card', 'view-list', 'view-compact');   // view-card 是旧档位名，留在 DOM 上会盖掉新样式
-  g.classList.add('view-' + VIEW);
-}
-const PAGE_MODE = localStorage.getItem('page_mode_assets') || 'more';   // more | page（设置页可改，默认动态加载）
-const PAGE_SIZE = Math.max(1, Number(localStorage.getItem('page_size_assets') || 24));
+/* 默认档与回落读法只有一份（ui.js 的 pageModeOf / pageSizeOf，默认档现读 PAGE_TARGETS）：
+   这里以前抄死 'more' / 24，设置页改了默认档这一页还是旧的。 */
+const PAGE_MODE = window.pageModeOf('assets');
+const PAGE_SIZE = window.pageSizeOf('assets');
 let assetsPage = 0;
 const ST_MAP = { '已完成': 'done', '生成中': 'running', '排队中': 'queued', '失败': 'failed' };
 /* 这一条属于哪一档（done / queued / running / failed）：列表给的是标准词、轮询写回的是平台原话
@@ -504,12 +551,17 @@ const stBucket = a => a.kind !== 'task' ? 'done' : Api.classifyStatus(null, a.st
 /* 筛选核心：类型 / 平台 / 状态 / 关键词 / 日期区间 / AI 检索条件 —— 全部条件都在这里。
    filtered() 在它之后做分页，filteredAll() 复用它（两者必须同口径，否则「共 N 项」和
    翻页禁用判断会在日期或 AI 筛选下算错）。 */
-function applyFilters() {
+/* `opts.includeHidden`：这一趟**不丢**被「不显示云端任务」藏起来的那些（下面那些筛选条件照旧生效），
+   给「存回本机」的范围用 —— 藏起来只是「列表里先别显示它」，而那颗按钮干的正是把它们的字节取回本机，
+   取回来它们自己就不再符合藏的条件（闭环）。**这一趟不重置 `hiddenCloud`**：那一格是给
+   「已藏起 N 条…」那句话用的，由不带参数的那一趟算；顺带清成 0 的话，那句话会在同一轮重画里凭空消失。 */
+function applyFilters(opts) {
   /* 「不显示云端任务」排在最前面：藏掉的条数要连着下面所有条件一起攒（日期、AI 那两批都算），
      否则「共 N 项」与翻页禁用判断拿到的是含云端的那一份。判据只有 AssetLocal.hideAsCloud 一处。 */
-  hiddenCloud = 0;
+  const keepHidden = !!(opts && opts.includeHidden);
+  if (!keepHidden) hiddenCloud = 0;
   let all = assets.filter(a => {
-    if (AssetLocal.hideAsCloud(a)) { hiddenCloud++; return false; }
+    if (AssetLocal.hideAsCloud(a)) { if (!keepHidden) { hiddenCloud++; return false; } }
     return (F.type === '全部' || typeKey(a.type) === typeKey(F.type)) &&
       (F.provider === '全部' || a.providerName === F.provider) &&
       (F.status === '全部' || stBucket(a) === ST_MAP[F.status]) &&
@@ -621,15 +673,15 @@ function assetCardHTML(a) {
       : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + Wb.stText(a.status) + '</span>' : Wb.stText(a.status) + '…') + '</div>';
   } else if (a.type === '视频') {
     media = '<div class="timg">' + Wb.thumbs.mediaHTML(a.src) + '</div>';
-  } else if (a.type === '音乐' || a.type === '音频') {
-    media = '<div class="timg audio"><span class="note-ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto"><rect x="6.2" y="2.3" width="3.6" height="6.6" rx="1.8"/><path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0M8 11.8V14M5.9 14h4.2"/></svg></span><span class="dur">' + ((a.format || 'wav') + '').toUpperCase() + (a.duration ? ' · ' + a.duration + 's' : '') + '</span></div>';
+  } else if (window.isAudioType(a.type)) {
+    media = '<div class="timg audio"><span class="note-ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto"><rect x="6.2" y="2.3" width="3.6" height="6.6" rx="1.8"/><path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0M8 11.8V14M5.9 14h4.2"/></svg></span><span class="dur">' + window.fileExtOf(a).toUpperCase() + (a.duration ? ' · ' + a.duration + 's' : '') + '</span></div>';
   } else {
     media = '<div class="timg">' + Wb.thumbs.mediaHTML(Api.mediaSrc(a.src), {
       type: 'image',
       mediaAttrs: 'loading="lazy" decoding="async" onerror="this.parentElement.innerHTML=\'<span>图片不可用</span>\'\"',
     }) + '</div>';
   }
-  const date = a.ts ? new Date(a.ts).toLocaleDateString() + ' ' + new Date(a.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const date = window.fmtWhen(a.ts);
   return media + `
       <div class="tmain">
         <div class="meta1"><span class="dot${run ? ' run' : bad ? ' fail' : ''}"></span><span>${a.kind === 'task' ? (lateDone ? '已完成' : Wb.stText(a.status)) : '已完成'}</span><span class="date">${date}</span></div>
@@ -643,8 +695,8 @@ function assetCardHTML(a) {
           ${a.kind === 'asset' ? '<button class="ghost dlbtn" title="用浏览器默认方式下载">下载</button>' : ''}
           ${a.kind === 'asset' ? `<button class="ghost favbtn${window.Fav && Fav.has(Fav.assetKey(a)) ? ' on' : ''}" title="加入 / 移出我的收藏">${favLabel(a)}</button>` : ''}
           ${a.kind === 'asset' && a.localAsset ? (a.mirror
-            ? '<button class="ghost danger delbtn" title="本机存了一份这个产物的副本（.assets 目录）。删掉只释放磁盘空间：平台那边的那份不动，这张卡片也会留着，只是以后从平台回源取">删除本机副本</button>'
-            : '<button class="ghost danger delbtn" title="这个产物存在本机（.assets 目录），删除后会释放磁盘空间；平台侧的素材不受影响">删除本机文件</button>') : ''}
+            ? '<button class="ghost danger delbtn" title="本机这份是副本（.assets 目录）：删掉只腾磁盘，平台那份与卡片都在，以后能回源">删除本机副本</button>'
+            : '<button class="ghost danger delbtn" title="它存在本机 .assets 目录：删掉释放磁盘，平台侧素材不受影响">删除本机文件</button>') : ''}
           ${a.kind === 'asset' ? '<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>' : ''}
         </div>
         <div class="cdet"></div>
@@ -777,10 +829,9 @@ function bindCardThumb(d, a) {
 }
 paintDateChips();
 paintDateFaces();
-applyView();
 function renderGrid() {
   const list = filtered();
-  applyView();
+  viewToggle && viewToggle.apply();
   updatePager();
   const sel = [...selected].length;
   /* 这里刻意**不显示「加载中…」「已全部加载」这类状态后缀**：工具栏是右对齐的，
@@ -791,6 +842,7 @@ function renderGrid() {
   const rb = $('reloadBtn');
   if (rb) { rb.disabled = loadingNow > 0; rb.title = loadingNow > 0 ? '正在加载…' : '重新加载（跳过服务端短缓存）'; }
   paintBulkBar();
+  paintPullBtn();
   const grid = $('grid');
   if (!list.length) {
     assetCardEls.clear();
@@ -862,7 +914,10 @@ async function removeEntry(a) {
 async function deleteLocalAsset(a, btn) {
   const key = assetKeyOf(a);
   if (deletingIds.has(key)) return;
-  if (!assets.some(x => assetKeyOf(x) === key)) { Toast.info('这条素材已经不在列表里了'); return; }   // 已经删过了
+  /* 这一条已经被删过了（别的标签页、或上一趟批量删先动的手）：当场 return，界面上一个字都不变，
+     而这句话是这条路径**唯一的出口** —— 走 ok/info 那两档（默认被 `sk_quiet_ok` 静音）等于
+     「按了删除什么都没发生」。不是「本来就没东西可做」那一类，所以必须走一定弹的那一档。 */
+  if (!assets.some(x => assetKeyOf(x) === key)) { Toast.warn('这条素材已经不在列表里了'); return; }
   deletingIds.add(key);
   const label = btn.dataset.old || btn.textContent;
   btn.disabled = true; btn.textContent = '删除中…';
@@ -921,7 +976,7 @@ Wb.lightbox.init({
   keyOf: a => assetKeyOf(a),
   srcOf: a => a.src || '',
   nameOf: a => fileNameOf(a),
-  kindOf: a => (a.kind === 'task' ? 'task' : (a.type === '视频' ? 'video' : ((a.type === '音乐' || a.type === '音频') ? 'audio' : 'image'))),
+  kindOf: a => (a.kind === 'task' ? 'task' : window.mediaKindOf(a.type)),
   info: (a, el) => {
     const w = (el && (el.videoWidth || el.naturalWidth)) || 0;
     const h = (el && (el.videoHeight || el.naturalHeight)) || 0;
@@ -947,12 +1002,13 @@ async function retryEntry(a) {
 /* ---------- 下载：默认文件夹统一由「设置」页配置（IndexedDB sk_lib/dir） ---------- */
 /* 取字节统一走 Net.blob（带超时、先判 HTTP 状态），不再裸 fetch */
 const fetchBlob = a => Net.blob(a.dl || a.src, { timeout: 180000 });
+/* 时间戳、非法字符、扩展名三块读法都在 `ui.js`（`fileStamp` / `fileSafe` / `fileExtOf`，§J ⑲ 守着）；
+   这一页只管「文件名长什么样」：时间在前、提示词当标签。
+   以前这里自己 `pad = n => String(n).padStart(2,'0')` 又自己洗字符，
+   与生成工作台那一份写法差在「控制字符洗不洗」「空值兜底叫什么」上 —— 同一张图两页下出来的名字不一样；
+   扩展名那一份更直接：只认「视频」，一条没带 format 的音频下载回来是 **.png**。 */
 function fileNameOf(a) {
-  const p = (a.prompt || 'file').replace(/\s+/g, ' ').trim().slice(0, 24);
-  const d = new Date(a.ts || Date.now()), pad = n => String(n).padStart(2, '0');
-  const ext = (a.format || (a.type === '视频' ? 'mp4' : 'png')).toLowerCase();
-  const raw = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())} ${p || 'file'}.${ext}`;
-  return raw.replace(/[\\/:*?"<>|\x00-\x1f]/g, '-');
+  return window.fileStamp(a.ts) + ' ' + window.fileSafe(a.prompt || '素材', 24) + '.' + window.fileExtOf(a);
 }
 
 /* ---------- 事件与启动 ---------- */
@@ -962,8 +1018,9 @@ $('searchBtn').onclick = () => { F.q = $('search').value.trim().toLowerCase(); r
 /* ---------- 复用：按素材类型跳到对应工作台，带提示词 + 素材 ---------- */
 function reuseAsset(a) {
   if (a.kind !== 'asset') { Toast.warn('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
-  /* 载荷与跳转归公共那一份（`Wb.reuse`）：地址、资产号、本机文件号三条带法只在那里点一次名 */
-  Wb.reuse.go({ from: 'assets', kind: Wb.reuse.kindOf(a.type),
+  /* 载荷与跳转归公共那一份（`Wb.reuse`）：地址、资产号、本机文件号三条带法只在那里点一次名，
+     「这一类素材进工作台哪一栏」也只在那里按 `type` 现推（ui.js 的 mediaKindOf）。 */
+  Wb.reuse.go({ from: 'assets', type: a.type,
     assetId: a.assetId || a.id, src: a.src, dl: a.dl, prompt: a.prompt || '' });
 }
 
@@ -974,9 +1031,13 @@ async function runAiSearch() {
      人要在两处来回跳（和统一选择器里改掉的毛病是同一个）。 */
   const box = $('search');
   const q = ((box && box.value) || '').trim();
-  if (q.length < 2) { Toast.info('先在搜索框里写要找什么（至少两个字），再点 AI 检索'); if (box) box.focus(); return; }
+  /* 这句话与那个字数都由公共层给（`AiFind.shortWhy`，与素材库 / 收藏 / 统一选择器同一份），
+     而且**不写进 Toast**：ok/info 默认静音（`sk_quiet_ok`），拿它当唯一出口等于一个字都没说出去 ——
+     按了按钮什么都没发生。就地写进那一行读数；这一条路径当场 return，不会有一次 render 把它顶掉。 */
+  const gateWhy = window.AiFind.shortWhy(q, 'AI 检索');
+  if (gateWhy) { $('cnt').textContent = gateWhy; if (box) box.focus(); return; }
   const v = { q };
-  if (!window.TextAI) { Toast.err('文字 AI 未加载'); return; }
+  if (!window.TextAI) { Toast.err('文字 AI 没加载出来：刷新页面再试'); return; }
   const idx = assets.slice(0, 300).map(a => ({
     类型: a.type, 提示词: (a.prompt || '').slice(0, 90), 时长: a.duration || null, 平台: a.providerName,
     模型: a.model || '', 资产ID: a.assetId || '', 任务ID: a.genId || '',
@@ -1023,18 +1084,16 @@ $('aiSearchBtn').onclick = () => runAiSearch();
 
 /* ---------- AI 检索：自然语言 → 筛选条件 → 就地过滤 ---------- */
 function paintAiChip() {
-  const el = $('aiChip');
-  if (!el) return;
-  el.innerHTML = FAI
-    ? `<span class="ai-chip">${icon('sparkles', 12)} ${esc(String(FAI.desc).slice(0, 22))}${FAI.cond.summary ? ' · ' + esc(FAI.cond.summary) : ''}${aiAsc === 1 ? ' · 最早的在前' : ''}<button id="aiClear" title="清除 AI 条件">${icon('close', 10)}</button></span>`
-    : '';
-  const c = $('aiClear');
-  /* 清掉 AI 条件时把它临时定的「最早的在前」也收回去 —— 不收的话条件没了、
-     列表却还按 AI 那一次的顺序排着，芯片上那一行也还在说 AI 的话。 */
-  if (c) c.onclick = () => {
-    FAI = null; aiAsc = 0;
-    paintAiChip(); renderFilters(); renderGrid();
-  };
+  window.AiChip.paint('aiChip', {
+    text: FAI ? window.AiChip.text([String(FAI.desc).slice(0, 22), FAI.cond.summary, aiAsc === 1 ? '最早的在前' : '']) : '',
+    clearTitle: '清除 AI 条件',
+    /* 清掉 AI 条件时把它临时定的「最早的在前」也收回去 —— 不收的话条件没了、
+       列表却还按 AI 那一次的顺序排着，芯片上那一行也还在说 AI 的话。 */
+    onClear: () => {
+      FAI = null; aiAsc = 0;
+      paintAiChip(); renderFilters(); renderGrid();
+    },
+  });
 }
 
 async function reload() {
@@ -1068,8 +1127,8 @@ async function gotoPageInput() {
       while (filteredAll().length < (n + 1) * PAGE_SIZE && hasMore() && !loadFailed() && loadedPages < 40) await fetchMore(2);
       assetsPage = Math.min(n, Math.max(0, Math.ceil(filteredAll().length / PAGE_SIZE) - 1));
     } else {
-      // 动态加载：跳页按加载批次推进（每批 2 页，每页 100 条）
-      const want = Math.ceil(((n + 1) * PAGE_SIZE) / 100);
+      // 动态加载：跳页按加载批次推进（每批 2 页，每页条数问公共层那份兜底声明）
+      const want = Math.ceil(((n + 1) * PAGE_SIZE) / AssetLib.LIST_LIMIT_DEF);
       while (loadedPages < want && hasMore() && !loadFailed() && loadedPages < 40) await fetchMore(2);
     }
   } catch {}
