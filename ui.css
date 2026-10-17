@@ -881,7 +881,11 @@ dialog.ui-dlg .pr-foot .ghost { padding: 6px 14px; border-radius: 6px; }
 #prDlg textarea:focus { border-color: var(--acc, #6957e8); }
 #prDlg .pr-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line, #e4e6f0); }
 #prDlg .pr-row:last-child { border-bottom: 0; }
-#prDlg .pr-row .tt { flex: 0 0 92px; font-size: 12px; color: var(--acc, #6957e8); }
+/* `.tt` 里除主标签还可能有 `.psub` 一行小字（「原：… · 时长 5→8 秒」）：
+   两行一起摆成一列，整块从行顶对齐 —— 单行标签那份观感不变，多行时也不会被 textarea 的高度顶到中间。 */
+#prDlg .pr-row .tt { flex: 0 0 132px; font-size: 12px; color: var(--acc, #6957e8);
+  display: flex; flex-direction: column; gap: 3px; align-self: flex-start; margin-top: 1px; }
+#prDlg .pr-row .tt .psub { color: var(--sub, #8a8fa3); font-size: 11px; line-height: 1.5; word-break: break-word; }
 #prDlg .pr-row textarea { min-height: 62px; font-size: 12.5px; }
 /* 这一行的删除钮外观走公共件 .iconbtn，这里只留它在行内的位置 */
 #prDlg .pr-row .x { flex: 0 0 auto; }

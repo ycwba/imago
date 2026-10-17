@@ -96,8 +96,10 @@
   $('tic').innerHTML = window.icon ? icon('star', 20) : '';
   $('uploadBtn').innerHTML = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';
   /* 这颗按钮的字要就地改（进度写在 .tx 上），所以图标与文字分两个格子 ——
-     整颗 `textContent = …` 会把图标一起抹掉（见 ui.js 的 btnText）。 */
-  paintPullBtn();
+     整颗 `textContent = …` 会把图标一起抹掉（见 ui.js 的 btnText）。
+     ⚠ 这里**不调** paintPullBtn：它按这一屏现算、要读 viewItems（下面才 `let` 声明），
+     在这里调会撞 TDZ（`Cannot access 'viewItems' before initialization`）把整份脚本当场打断。
+     初始绘制在 render() 那一趟（viewItems 就绪之后；boot 里 render() 是同步跑到的）。 */
 
   let filter = 'all';
   let aiPick = null;            // AI 找出来的收藏（key 集合），非空时只显示这些

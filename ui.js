@@ -1495,19 +1495,28 @@ window.copyText = async function copyText(txt) {
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用并开始生成';
         dlg.querySelector('#prHint').textContent = o.hint || '可以逐条修改或删掉不想生成的画面';
-        let items = (o.items || []).map(x => ({ label: x.label, text: x.text }));
+        /* 条目上**多带的字段原样带着走**（`...x`）：导演台「修改现有分镜」拿它记 op / 目标镜头
+           / 改哪几段（label 与 text 只是给人的两栏）。以前这里只挑 label / text 重拼 ——
+           调用方拿回条目时附加字段全丢了，只能靠标签正则回查，场景名一改就对不上号。
+           重拼 label / text 两个键是为了保住老形状（调用方都读这两项）。 */
+        let items = (o.items || []).map(x => ({ ...x, label: x.label, text: x.text }));
         const paint = () => {
+          /* `it.sub` 是可选的一行小字（只给人看「这一条会改什么」，如「原：… · 时长 5→8 秒」），
+             不参与编辑 —— 要改的正文在右边的 textarea 里。 */
           body.innerHTML = items.length ? items.map((it, i) => `<div class="pr-row" data-i="${i}">
-              <span class="tt">${esc(it.label)}</span>
+              <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
               <textarea data-i="${i}">${esc(it.text || '')}</textarea>
-              <button class="x iconbtn" data-del="${i}" title="删掉这一张">${window.icon('close', 11)}</button>
-            </div>`).join('') : '<div class="pr-loading">没有可用的画面，请点「重新润色」或取消</div>';
+              <button class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
+            </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面，请点「重新润色」或取消')}</div>`;
           okBtn.disabled = !items.length;
           body.querySelectorAll('textarea').forEach(ta => ta.oninput = () => { items[+ta.dataset.i].text = ta.value; });
           body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { items.splice(+b.dataset.del, 1); paint(); });
         };
         paint();
-        okBtn.onclick = () => close(dlg, items.filter(x => (x.text || '').trim()), resolve);
+        /* 空正文的条目默认丢掉（「这一张没写出任何东西」= 不生成它）；`keep` 是给
+           「只改名字 / 时长，没有正文可展示」那一类留的例外 —— 正文那一格本来就是空的，
+           照默认丢它等于用户点了「写入」而改动一条都没落下去。 */
+        okBtn.onclick = () => close(dlg, items.filter(x => x.keep || (x.text || '').trim()), resolve);
         dlg.querySelector('#prCancel').onclick = () => close(dlg, null, resolve);
         dlg.addEventListener('cancel', e => { e.preventDefault(); close(dlg, null, resolve); });
         const retry = dlg.querySelector('#prRetry');
@@ -1516,7 +1525,7 @@ window.copyText = async function copyText(txt) {
           retry.onclick = async () => {
             retry.disabled = true; retry.textContent = '规划中…';
             body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>';
-            try { items = (await o.retry()).map(x => ({ label: x.label, text: x.text })); }
+            try { items = (await o.retry()).map(x => ({ ...x, label: x.label, text: x.text })); }
             catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div style="color:var(--err,#dc2626);font-size:12px;margin-bottom:8px">重新规划失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新规划';
             paint();

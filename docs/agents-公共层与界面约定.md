@@ -6,6 +6,10 @@
 改成按字母点名并说明末行为什么报 13 条；② 给 §L 补了一句它是什么、为什么加它；
 ③ 「临时扫描/修改脚本」那条把写死的「三个坑」改成不写死数量，并补了第 ⑨ 条。
 除此之外逐字与拆分前一致 —— 用「分册正文 vs 拆分前那一节」的多重集差核对过，差集恰好是上面这三处。）
+**2026-10-16 清理**：根目录那批 `.tmp-*` 探针与变异脚本已删除 —— 本文里点名的 `node .tmp-…` 一律当**历史记录**读
+（当年是哪支尺子量出来的、怎么漂开的），要复验就现写一支临时探针、用完删掉。常驻入口只剩
+`node tests/selfcheck.cjs`（常驻判据）与按需的 `node tests/mutation.cjs`（反向对照；
+跑前先 `node tests/anchordry.cjs tests/mutation.cjs` 只读干跑查锚点是否命中）。
 这里是 §3（复用公共模块，别各写一套）与 §3.1（生成工作台 studio.html）的全文，含 §J–§L 那些常驻判据的来龙去脉。
 AGENTS.md 里那一节保留每一条约定的标题行（红线与「唯一实现在哪」都在），改到对应的任何一处之前先来这里读全文。
 §1 统一路由、§2 能力驱动、§4 密钥与用户数据、§5 改完必须自测**仍在 `AGENTS.md`**；这一册里那些「见 §5」「见 §2」指的就是那边。
@@ -177,7 +181,7 @@ AGENTS.md 里那一节保留每一条约定的标题行（红线与「唯一实�
   ⚠ **`ui.js` 里 `Chips.render` 与 `AiChip.paint` 开头两行逐字相同**（`const box = typeof el === 'string' …` + `if (!box) return;`），
   所以那两刀的锚点**必须写成带第三行的多行锚点**（`\r\n` 显式写出来 —— `ui.js` 是 CRLF，锚点里换行不写对就命中 0 次）；
   而「只认 id 字符串」那一刀改用 `AiChip` 独有的单行 `    paint(el, o) {`。跑任何会改写源码的变异之前先
-  `node .tmp-anchordry.cjs <脚本>` 只读干跑一遍命中，这是 §3 那条纪律在本族里的第二次用处。
+  `node tests/anchordry.cjs <脚本>` 只读干跑一遍命中，这是 §3 那条纪律在本族里的第二次用处。
 - **㉕ 「写一句话让 AI 在本机这一堆里挑几条」整链全站只有 `assetlib.js` 的 `AiFind` 一份**（`assetlib.js:6925` 挂上 window；
   面是 `MIN_Q` / `WHY_MAX` / `needMsg` / `shortWhy` / `idsOf` / `state` / `clear` / `run`）：
   **收成之前是两份逐字副本**（素材库 `chars.html`、收藏 `favorites.html` 各一份：同样两道闸、同一个按钮 busy 态、
@@ -442,13 +446,13 @@ base64→字节的指纹**不成立**（全项目 5 处：两种哈希算法 + �
 所以它**不能**当「下载只有 Net.save 一份」的判据）。宁可少守一条，也不留一条会误报的。
 §J 特意靠**词法器剥注释**才分得开 `showSaveFilePicker` 的「注释里提到」与「真调用」——
 `workbench.js` 与 `director.html` 各有一句注释正在说明它被删了，正则去查会被那两句照红。
-**改完判据本身要跑 `node tests/mutation.cjs`** —— 全部变异（2026-10-16 量过 161 刀；真实数一律以 `node .tmp-anchordry.cjs tests/mutation.cjs` 报的那一句为准，
+**改完判据本身（按需）跑一遍 `node tests/mutation.cjs` 核对** —— 全部变异（2026-10-16 量过 161 刀；真实数一律以 `node tests/anchordry.cjs tests/mutation.cjs` 报的那一句为准，
 它只读不写、会把「锚点共 N 处 / 命不中 M 处」打出来）逐一改坏源文件、
 确认对应那档如期变红、最后按 SHA256 核对还原干净。**只想验某一档时用分片口**
 `MUT_ONLY=㉑ node tests/mutation.cjs`（按「档名 + 刀名」子串匹配；切片切空会当场判红，
 不会把「0 刀要跑」打成一句全绿）。这一支会**临时改写那 14 个源文件**、每刀都以启动时读到的字节为底座、
 跑完照原样还原 —— 而同一份目录里可能正有另一路会话在改页面，那一次还原会把人家的在途改动一起抹掉，
-所以全量跑过一遍之后，改一条判据只需重跑被点名的那一档（与 `.tmp-mutdirdom.cjs` 的 `DIRDOM_ONLY` 同一套）。判据自己也会「悄悄变成一把不坏的假尺子」：
+所以全量跑过一遍之后，改一条判据只需重跑被点名的那一档（与已删的 `.tmp-mutdirdom.cjs` 的 `DIRDOM_ONLY` 同一套）。判据自己也会「悄悄变成一把不坏的假尺子」：
 第一版 §A 用正则扫，被正则字面量里的花括号和字符串里的反引号带跑，一口气报了 3643 条假红；
 §G 第一版查「块里出现过 `insideLocalDir(` 就算过」，被人 `if (false && insideLocalDir(...))`
 短路掉之后照样全绿 —— 是变异脚本抓出来的（**变异后仍全绿 = 这档判据是假的**，不是产品没问题），
@@ -1515,6 +1519,15 @@ Node 侧 `require('./ident.js')`。**引 assetlib.js 的 9 个页面都必须在
 - **拆分镜的秒数口径只有 `SB_SEC` + `sbSec` 两份数字之外的一份**：给 AI 的那句约束、它回来的那个数的 clamp、
   「用户没填时的默认值」三处同源。以前文案写「2–10 秒」、clamp 写 1–15 ——
   AI 交回 12 秒时界面上那句就成了假话。`x > 0` 那一判不能省：AI 回 0 / 负数是「没填」，不是「拍 0 秒」。
+- **「对着现有分镜说一句话让 AI 改 / 加」只走 `aiBoardEdit` 一条链，落盘按 id 不按序号**（2026-10-16）：
+  `snapBoard`（现拍照）→ `boardListText`（给 AI 的带序号清单；长提示词按 `BOARD_CTX_PROMPT` 截断、空提示词写「（还没写）」）
+  → `boardPlanOf`（把 AI 回的 `scene/shot/after` 序号当场翻成目标；对不上 → `skipped`、与现状相同 → `noop`、超上限 → `over`）
+  → `PromptReview.openList`（附加字段 `op` / `shotId` / `patch` / `keep` 原样递回 —— 用户在弹窗里删了几条之后序号就漂了，所以落盘只认 id）
+  → `applyBoardPlan`（插入按「场 + 锚」分组保序、锚丢了并进那一场末尾不丢、同名新场景走 `nameKey` 并进已有那一场；
+  场景图只喂这一次新插的镜头；`at` 指向第一处落笔给光标）。指令 `TextAI.DEF.board_edit` 要求返回 JSON（在 `NO_ASK` 里）。
+  「优化原有提示词」是同一条链上「指令留空」的那一档，不是第二条路；三档任务的另两档（拆一份新的 / 接着往下拆）
+  只是入口的两种贴法，「接着往下拆」把现有清单当上下文喂给 `split`、落库仍走 `placeScenesInto`。
+  判据 `.tmp-aiboard.cjs`（口径，真源码进 vm / jsdom）+ `.tmp-mutaiboard.cjs`（25 刀反向对照）。
 - 改这一层要跑的四支：`node .tmp-scene.cjs`（vm 里的口径，50 条）+
   `PROXY_PORT=… CDP_PORT=… node .tmp-scenedom.cjs`（真 DOM 的接线：格子画没画、× 点得动、
   打字时 input 节点不换（整片重画会顶走光标）、场景名里的标签不变成节点、`#` 真的换场）+
