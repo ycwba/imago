@@ -4,6 +4,10 @@ import { parseJsonLoose, ctxClip } from './util.js';
 
 export function createSplitAssets(ctx) {
   const { BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL, libIdx, libPicChoices, addLibPicToShot, nameKey, TextAI } = ctx;
+  /* 占位符 `@待建:名字` 的前缀（与 board-assets.js 的 PREFIX 同一个）——
+     前缀由 engine 注入，两边不会各写一份而对不上。 */
+  const PREFIX = ctx.PLACEHOLDER_PREFIX || '待建';
+  const PLACEHOLDER_RE = new RegExp('^' + String(PREFIX).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':');
 
 const SplitAssets = {
   /* 库里所有**有名**条目 —— `@名字` 认的是名字，没名字的条目喂过去 AI 也指不回来。 */
@@ -24,8 +28,10 @@ const SplitAssets = {
       entries: SplitAssets.named().filter(x => D.Lib.groupMatch(x, g)) };
   },
   /* 表单里那一排选项（条数这一刻现数）。库为空返回空表 —— 调用方整块不画这一行，
-     「这一排存在但只有『不导入』一项可点」与「这台机器还没攒素材」是两件事。 */
-  scopes() {
+     「这一排存在但只有『不导入』一项可点」与「这台机器还没攒素材」是两件事。
+     `prefer` 是 Skill 声明的「本项目引用哪些素材组」—— **排前面**（不排除其它组）：
+     用户写的那几组是他这个项目真正要用的，理应一眼看见。 */
+  scopes(prefer) {
     const D = window.Chars;
     const cnt = v => SplitAssets.resolve(v).entries.length;
     if (!D || !D.Lib || !cnt('all')) return [];
@@ -33,11 +39,16 @@ const SplitAssets = {
       { v: 'all', t: '整个素材库（' + cnt('all') + ' 条）' }];
     const n = cnt('g:__none');
     if (n) out.push({ v: 'g:__none', t: '未分组（' + n + ' 条）' });
-    (D.Lib.groups() || []).forEach(x => {
-      const c = cnt('g:' + x.name);
-      if (c) out.push({ v: 'g:' + x.name, t: x.name + '（' + c + ' 条）' });
+    const gs = (D.Lib.groups() || []);
+    const pref = new Set((prefer || []).map(x => nameKey(x)).filter(Boolean));
+    /* 声明里点名的组先列（按声明的顺序），其余按原顺序跟着。 */
+    const first = [], rest = [];
+    gs.forEach(x => {
+      const row = { v: 'g:' + x.name, t: x.name + '（' + cnt('g:' + x.name) + ' 条）' };
+      if (!cnt('g:' + x.name)) return;
+      if (pref.has(nameKey(x.name))) first.push(row); else rest.push(row);
     });
-    return out;
+    return out.concat(first, rest);
   },
   scopeText(v) {
     const s = SplitAssets.resolve(v);
@@ -103,9 +114,12 @@ const SplitAssets = {
   },
   /* 一次拆分镜 / 改分镜只问这一趟（审查弹窗里点「重新规划」复用同一份挑中名单，不重复扣 tokens）。
      三条规矩落在这里：范围要显示出来（`sub`）、挑不出就不喂第二段（`full` 空）、
-     问失败按「不导入」继续并吭声（`warn`）—— 界面不能把「没问成」演成「AI 选了不导入」。 */
-  async stage(reg, text, scopeVal) {
-    const v = SplitAssets.scopes().some(o => o.v === scopeVal) ? scopeVal : 'none';
+     问失败按「不导入」继续并吭声（`warn`）—— 界面不能把「没问成」演成「AI 选了不导入」。
+     `ref` 是 Skill 声明的「项目引用规则」（{ assetGroups, refStyle }）：
+     assetGroups 决定下拉怎么排、refStyle 决定喂给 AI 的引用写法那句话。 */
+  async stage(reg, text, scopeVal, ref) {
+    const r = ref || {};
+    const v = SplitAssets.scopes(r.assetGroups).some(o => o.v === scopeVal) ? scopeVal : 'none';
     const out = { scopeVal: v, picked: [], full: '', unknown: 0, sub: '', rule: RULE_WITHOUT, warn: '' };
     const cat = SplitAssets.resolve(v);
     /* 「不导入」是默认档，也是这一趟真的什么都没做：那一条什么都不报 ——
@@ -137,9 +151,13 @@ const SplitAssets = {
      提交前由 `refTokenize` 现换成 `@参考图N`；在这里替换等于把同一份引用记到两个地方，
      用户之后在芯片上删一张，提示词里那句 `@小雅` 就变成一个不存在的东西。
      带不上的几种（型号没有槽位 / 这一镜已选首尾帧 / 超出上限 / 那条还没图）由
-     `addLibPicToShot` 给出原因，这里只收集第一句并报出去。 */
+     `addLibPicToShot` 给出原因，这里只收集第一句并报出去。
+
+     **占位符**（`@待建:名字`）：那是「这一条素材刚建档、还没出图」的意思 ——
+     现在没有图可挂，所以**跳过它**（不去库里找那个名字），并把「还有几个待建的没出图」
+     报出来。出图之后占位符会换成真名（`BoardAssets.resolve`），那时才挂得上。 */
   bind(shots, picked) {
-    const r = { n: 0, shots: 0, dup: 0, why: '' };
+    const r = { n: 0, shots: 0, dup: 0, why: '', pending: 0 };
     const list = picked || [];
     if (!list.length) return r;
     const byKey = libIdx(list);
@@ -153,6 +171,9 @@ const SplitAssets = {
         const cut = tok.slice(1).split('·');
         const nm = cut[0].replace(AT_TAIL, '');
         const note = (cut[1] || '').replace(AT_TAIL, '').trim();
+        /* 占位符（`待建:名字`）：还没有图可挂 —— 跳过，但数出来报给调用方
+           （界面上要让人知道「这几条还得先出图」）。 */
+        if (PLACEHOLDER_RE.test(nm)) { r.pending++; return; }
         const x = byKey.get(nameKey(nm));
         if (!x) return;
         const id = nameKey(nm) + '·' + nameKey(note);

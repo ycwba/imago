@@ -131,7 +131,14 @@ const G8_HOOK = [
 const ON_EVENTS = 'click|load|error|input|change|submit|focus|blur|keydown|keyup|scroll|toggle|abort|mouseover|mouseout|mousemove|dblclick|contextmenu|paste|copy|cut|wheel|touchstart|touchend|touchmove|pointerdown|pointerup|select|drag|dragstart|dragover|drop|animationend|animationstart|animationiteration|transitionend';
 const ON_INLINE_ATTR = new RegExp('\\son(?:' + ON_EVENTS + ')\\s*=\\s*["\'`]', 'i');
 const HEX_COLOR = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
-const CREATE_CALL = /Api\.(?:create[A-Za-z]*\s*\(|request\s*\([^;]{0,200}?['"`]create['"`])/g;
+/* G2 认的是「**真的会发出去**的创建调用」：
+     · `Api.create(` / `Api.createBody(` 里的 createBody 是**纯算**（拼体，不发网络请求）——
+       它算出来的那份是「将要发的请求体」，还没有发出去，所以**没有**「结果未知」可言。
+       真正发出去的是 `Api.create(` 与 `Api.request(..., 'create', ...)`。
+     · `Api.preview(` 同样是纯算（dry-run），不在这条判据里。
+   以前用 `create[A-Za-z]*` 一网打尽，把纯算的那几个也算了进来 ——
+   于是「算一份请求体」被当成了「发一次请求」，逼着人在纯算的地方硬写一句判据。 */
+const CREATE_CALL = /Api\.(?:create\s*\(|request\s*\([^;]{0,200}?['"`]create['"`])/g;
 const EMPTY_CATCH = /catch\s*(?:\([^)]*\))?\s*\{\s*\}/g;
 
 /* 模板串里的 ${…} 是 JS 代码不是 HTML：`el.onclick = f` 写在插值里不算内联事件。

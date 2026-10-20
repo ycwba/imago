@@ -776,7 +776,11 @@ function createRenderJobs(deps) {
          但要重跑一遍 ffmpeg 才拿得回来，几十秒起步）。磁盘是用户自己的，留多少由他决定。
          仍然清理的是**渲染途中崩溃留下的临时目录**（下面那一段），那是我们自己的垃圾。 */
       // 渲染中途崩溃留下的临时目录（非 30 位任务号形态的目录）
+      /* `fcpxml-import` 是一键送到剪映 / 达芬奇的工程目录：它在不在、留几个由
+         routes/fcpxml.js 自己按「最近 20 个」管，这里不许整棵删掉 ——
+         用户可能正开着那台机器的 NLE 从这个目录导入。 */
       fs.readdirSync(RENDER_DIR).forEach(d => {
+        if (d === 'fcpxml-import') return;
         const p = path.join(RENDER_DIR, d);
         try {
           if (!fs.statSync(p).isDirectory()) return;

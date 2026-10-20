@@ -1,12 +1,18 @@
 #!/usr/bin/env node
-/* FCPXML 媒体包：POST /fcpxml/bundle 必须回 zip，含 project.fcpxml；缺素材写 missing.txt；
-   带字幕时按固定名字写 subtitles.srt（包内与盘上都要在、字节要一模一样），
-   体量/条数超上限当场拒并一个目录都不建（方案 §11 服务端那一行）。 */
+/* FCPXML 媒体包与「送到剪映 / 达芬奇」：
+   ① POST /fcpxml/bundle 必须回 zip，含 project.fcpxml；缺素材写 missing.txt；
+      带字幕时按固定名字写 subtitles.srt（包内与盘上都要在、字节要一模一样），
+      体量 / 条数超上限当场拒并一个目录都不建（方案 §11 服务端那一行）。
+   ② 素材重名在建目录之前 400（静默改名会让 XML 与盘上文件对不上）。
+   ③ POST /fcpxml/import 留持久目录：project.fcpxml + media/ + subtitles.srt + missing.txt + bundle.zip。
+   ④ /fcpxml/reveal 只认导入目录里的 id；/fcpxml/launch 只认两家枚举，非法值 400。
+   ⑤ pruneRenders 不删顶层 fcpxml-import（里面的 20 个由导入路由自己管）。
+   探针实例带 WB_FCPXML_DRY=1：reveal / launch 不真的拉起用户的软件。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
 const h = require('./harness.cjs');
+const { createRenderJobs } = require('../../server/render-jobs.js');
 
 function names(zip) {
   const out = [];
@@ -24,14 +30,15 @@ function names(zip) {
 (async () => {
   let proxy;
   try {
-    proxy = await h.startProxy();
-    const r = await fetch(proxy.base + '/fcpxml/bundle', {
+    proxy = await h.startProxy({ env: { WB_FCPXML_DRY: '1' } });
+    const post = (p, body) => fetch(proxy.base + p, {
       method: 'POST',
       headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        fcpxml: '<fcpxml><project/></fcpxml>',
-        assets: [{ src: 'https://127.0.0.1/nope.mp4', name: 'missing.mp4' }],
-      }),
+      body: JSON.stringify(body),
+    });
+    const r = await post('/fcpxml/bundle', {
+      fcpxml: '<fcpxml><project/></fcpxml>',
+      assets: [{ src: 'https://127.0.0.1/nope.mp4', name: 'missing.mp4' }],
     });
     const buf = Buffer.from(await r.arrayBuffer());
     if (r.status !== 200) throw new Error('HTTP ' + r.status + '：' + buf.toString('utf8'));
@@ -49,13 +56,9 @@ function names(zip) {
       body: JSON.stringify({ name: 'tone.wav', data: wav.toString('base64'), format: 'wav', mime: 'audio/wav', meta: {} }),
     }).then(r => r.json());
     if (!la || !la.id) throw new Error('造本机资产失败：' + JSON.stringify(la));
-    const r2 = await fetch(proxy.base + '/fcpxml/bundle', {
-      method: 'POST',
-      headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        fcpxml: '<fcpxml><project/></fcpxml>',
-        assets: [{ src: '/asset/' + la.id, name: 'tone.wav' }],
-      }),
+    const r2 = await post('/fcpxml/bundle', {
+      fcpxml: '<fcpxml><project/></fcpxml>',
+      assets: [{ src: '/asset/' + la.id, name: 'tone.wav' }],
     });
     const buf2 = Buffer.from(await r2.arrayBuffer());
     if (r2.status !== 200) throw new Error('媒体包 HTTP ' + r2.status + '：' + buf2.toString('utf8'));
@@ -68,11 +71,7 @@ function names(zip) {
        FCP / 达芬奇那边是靠这个文件名兜底的，改名或吞字节都等于用户以为带了字幕而包里却没有。 */
     const srt = '1\r\n00:00:01,000 --> 00:00:03,000\r\n第一句\r\n\r\n2\r\n00:00:04,000 --> 00:00:06,000\r\n第二句\r\n';
     const bundles = () => fs.readdirSync(proxy.renderDir).filter(d => /^fcpxml-/.test(d));
-    const r3 = await fetch(proxy.base + '/fcpxml/bundle', {
-      method: 'POST',
-      headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ fcpxml: '<fcpxml><project/></fcpxml>', srt: srt, assets: [] }),
-    });
+    const r3 = await post('/fcpxml/bundle', { fcpxml: '<fcpxml><project/></fcpxml>', srt: srt, assets: [] });
     const buf3 = Buffer.from(await r3.arrayBuffer());
     if (r3.status !== 200) throw new Error('带字幕的媒体包 HTTP ' + r3.status + '：' + buf3.toString('utf8'));
     const ns3 = names(buf3);
@@ -92,10 +91,7 @@ function names(zip) {
       try { return fs.readFileSync(path.join(proxy.renderDir, d, 'subtitles.srt'), 'utf8'); } catch (e) { return ''; }
     }).filter(Boolean);
     const reject = async (body, want, marker, label) => {
-      const rr = await fetch(proxy.base + '/fcpxml/bundle', {
-        method: 'POST', headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const rr = await post('/fcpxml/bundle', body);
       const txt = (await rr.text()).toString();
       if (rr.status !== 400) throw new Error(label + '应 400，实际 ' + rr.status + '：' + txt.slice(0, 160));
       if (txt.indexOf(want) < 0) throw new Error(label + '要说清撞了哪条上限，实际回：' + txt.slice(0, 160));
@@ -109,10 +105,107 @@ function names(zip) {
     await reject({ fcpxml: '<fcpxml><project/></fcpxml>', srt: many.join('\r\n\r\n'), assets: [] },
       '5000 条', '第 5001 条', '字幕条数超上限');
 
+    /* ---------- 一键导入：持久目录 + 中文场景镜头名 ---------- */
+    const importRoot = path.join(proxy.renderDir, 'fcpxml-import');
+    const importIds = () => {
+      try { return fs.readdirSync(importRoot, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); }
+      catch (e) { return []; }
+    };
+    const chineseWav = Buffer.alloc(2048);
+    chineseWav.write('RIFF', 0); chineseWav.write('WAVE', 8);
+    const cn = await fetch(proxy.base + '/local-assets', {
+      method: 'POST',
+      headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '场景01-雨夜街头_镜头03-推门_候选2.wav',
+        data: chineseWav.toString('base64'), format: 'wav', mime: 'audio/wav', meta: {} }),
+    }).then(r => r.json());
+    if (!cn || !cn.id) throw new Error('造中文名本机资产失败：' + JSON.stringify(cn));
+    const cnName = '场景01-雨夜街头_镜头03-推门_候选2.wav';
+    const missName = '场景02-清晨_镜头01-回头_配音1.wav';
+    const impBody = {
+      fcpxml: '<fcpxml><project name="中文名测试"/></fcpxml>',
+      srt,
+      assets: [
+        { src: '/asset/' + cn.id, name: cnName },
+        { src: 'https://127.0.0.1/nope.wav', name: missName },
+      ],
+    };
+    const ir = await post('/fcpxml/import', impBody);
+    const imp = await ir.json();
+    if (ir.status !== 200 || !imp.ok || !imp.id) throw new Error('导入工程失败：HTTP ' + ir.status + ' ' + JSON.stringify(imp));
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(imp.id)) throw new Error('导入 id 形状不对：' + imp.id);
+    if (path.resolve(imp.dir) !== path.resolve(importRoot, imp.id)) throw new Error('导入目录与 id 不同源：' + imp.dir);
+    for (const f of ['project.fcpxml', 'media/' + cnName, 'subtitles.srt', 'missing.txt', 'bundle.zip']) {
+      if (!fs.existsSync(path.join(imp.dir, f))) throw new Error('导入目录缺 ' + f);
+    }
+    if (fs.readFileSync(path.join(imp.dir, 'project.fcpxml'), 'utf8') !== impBody.fcpxml) throw new Error('project.fcpxml 内容被改了');
+    if (fs.readFileSync(path.join(imp.dir, 'media', cnName)).length !== chineseWav.length) throw new Error('中文名素材字节不对');
+    if (fs.readFileSync(path.join(imp.dir, 'subtitles.srt'), 'utf8') !== srt) throw new Error('导入目录的字幕字节不对');
+    const missingTxt = fs.readFileSync(path.join(imp.dir, 'missing.txt'), 'utf8');
+    if (missingTxt.indexOf(missName) < 0) throw new Error('missing.txt 没点名缺失素材：' + missingTxt.slice(0, 200));
+    if (imp.missingCount !== 1) throw new Error('missingCount 应为 1，实际 ' + imp.missingCount);
+    if (imp.assets !== 1) throw new Error('进入包里的素材应为 1，实际 ' + imp.assets);
+
+    /* 重名：建目录之前就要 400，盘上不许留下半截目录。 */
+    const beforeDup = importIds().length;
+    const dupBody = { fcpxml: '<fcpxml><project/></fcpxml>', assets: [
+      { src: '/asset/' + cn.id, name: 'a/b.wav' },
+      { src: '/asset/' + cn.id, name: 'a:b.wav' },
+    ] };
+    const dr = await post('/fcpxml/import', dupBody);
+    const dtxt = await dr.text();
+    if (dr.status !== 400) throw new Error('重名应 400，实际 ' + dr.status + '：' + dtxt.slice(0, 200));
+    if (dtxt.indexOf('素材名重复') < 0 || dtxt.indexOf('a-b.wav') < 0) throw new Error('重名要说清撞了哪个名字：' + dtxt.slice(0, 200));
+    if (importIds().length !== beforeDup) throw new Error('重名被拒之后却留下了导入目录');
+
+    /* ---------- reveal / launch：只认合法 id 与两家枚举（dry-run，不拉起真软件） ---------- */
+    const rv = await post('/fcpxml/reveal', { id: imp.id });
+    const rj = await rv.json();
+    if (rv.status !== 200 || !rj.ok || path.resolve(rj.dir) !== path.resolve(imp.dir)) {
+      throw new Error('reveal 合法 id 失败：HTTP ' + rv.status + ' ' + JSON.stringify(rj));
+    }
+    for (const bad of ['../x', 'a/b', '', 'x'.repeat(65)]) {
+      const br = await post('/fcpxml/reveal', { id: bad });
+      if (br.status !== 400) throw new Error('reveal 非法 id 应 400（' + bad + '），实际 ' + br.status);
+    }
+    const nr = await post('/fcpxml/reveal', { id: 'missing-id-123' });
+    if (nr.status !== 404) throw new Error('reveal 不存在的目录应 404，实际 ' + nr.status);
+    const lr = await post('/fcpxml/launch', { app: 'premiere' });
+    if (lr.status !== 400) throw new Error('launch 非法 app 应 400，实际 ' + lr.status);
+    for (const app of ['jianying', 'resolve']) {
+      const rr = await post('/fcpxml/launch', { app });
+      const j = await rr.json();
+      if (rr.status !== 200 || typeof j.ok !== 'boolean') throw new Error('launch ' + app + ' 返回形状不对：' + JSON.stringify(j));
+      if (!j.ok && !j.reason) throw new Error('launch 没启动时要说清原因：' + JSON.stringify(j));
+    }
+
+    /* ---------- pruneRenders：不删顶层 fcpxml-import，但会收崩溃留下的临时目录 ---------- */
+    const old = new Date(Date.now() - 24 * 3600 * 1000);
+    const keepDir = path.join(importRoot, '20000101-000000-keepme');
+    const crashDir = path.join(proxy.renderDir, '20000101-000000-crashme');
+    fs.mkdirSync(keepDir, { recursive: true });
+    fs.mkdirSync(crashDir, { recursive: true });
+    fs.utimesSync(keepDir, old, old);
+    fs.utimesSync(crashDir, old, old);
+    const rjMod = createRenderJobs({
+      ROOT: h.root, PORT: 0, RENDER_DIR: proxy.renderDir, assetStore: null,
+      SESSION_COOKIE: 'x', SESSION_TOKEN: 'x', log: () => {}, keyOf: () => '', safeDecode: s => s,
+      envInt: (k, d) => d, spawn: () => {}, ENCODE_PROFILES: {}, VCODEC_DEFAULT: 'libx264',
+      RENDER_VCODEC: 'libx264', RENDER_PRESET: 'medium', RENDER_KEEP: 1000,
+      RENDER_CONCURRENCY: 1, RENDER_QUEUE_MAX: 1, envFrom: () => '', envFromStr: () => '',
+      guardOutboundUrl: async u => u, upRequest: () => {}, renderJobs: { record() {} },
+      localAssetFile: () => null, whyRenderSpace: () => '',
+    });
+    rjMod.pruneRenders();
+    if (!fs.existsSync(keepDir)) throw new Error('pruneRenders 删了 fcpxml-import 里的工程目录');
+    if (fs.existsSync(crashDir)) throw new Error('pruneRenders 没有清理渲染崩溃留下的临时目录');
+
     console.log('✓ FCPXML 媒体包通过（' + ns.join(' / ') + '；本机素材已打包；字幕按固定名 subtitles.srt 落包与落盘；' +
-      '超 5MB / 超 5000 条当场拒，被拒那份一个字都没落盘）');
+      '超 5MB / 超 5000 条当场拒，被拒那份一个字都没落盘）；' +
+      '一键导入目录（中文场景镜头名 + missing.txt + bundle.zip）、重名 400、reveal/launch 校验与剪映/达芬奇工程保留均通过');
   } catch (e) {
-    console.error('✗ ' + (e && e.stack || e));
+    const f = proxy ? h.logFaults(proxy.log) : [];
+    console.error('✗ ' + (e && e.stack || e) + (f.length ? '\n代理日志异常：\n  ' + f.join('\n  ') : ''));
     process.exitCode = 1;
   } finally { if (proxy) await proxy.stop(); }
 })();

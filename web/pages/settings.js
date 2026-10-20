@@ -3038,6 +3038,9 @@ const SettingsView = {
       skillFiles.value = f.files || [];
       skillHash = f.hash || '';
       if (!s.contentHash) s.contentHash = skillHash;
+      /* 「项目引用规则」那两格跟着这一份走（选中另一份 Skill 时要换掉）。
+         变量名单要扫**正文** —— 正文在 `s.body` 里（服务端已经给了）。 */
+      fillSkillRefRule(s, s.body || '');
       const main = skillFiles.value.find(x => x.path === 'SKILL.md') || skillFiles.value[0];
       await openSkillFile(main ? main.path : '');
       if (!quiet) await nextTick();
@@ -3108,6 +3111,68 @@ const SettingsView = {
         else if (/^name\s*:/.test(line)) lines[i] = 'name: ' + String(oldName || newId).replace(/[\r\n]/g, ' ') + '（我的）';
       }
       return lines.join('\n');
+    }
+
+    /* ---- 项目引用规则 ----
+       「项目引用规则」指的是**这份 Skill 正文里的变量占位符**（`{cast}` `{what}` `{board}` …）——
+       程序在发请求前按**当前项目**把实际内容填进去。
+       与提示词正文里的 @素材 引用是两件事：
+         · @名字 —— 给**生成模型**的引用（挂参考图，提交前换成 @参考图N）；
+         · {变量} —— 给**写稿的 AI** 的项目资料（这一份角色名单长什么样）。
+       读法：扫正文里写了哪些变量（`window.TplVars.names`，那一份只有一处）；
+       写法：改 frontmatter 再走 `WbSkills.update`（frontmatter 的解析规则只有服务端一份）。 */
+    const skillRefGroups = ref('');
+    const skillVarNames = ref([]);
+    /* 选中一份 Skill 时把它的引用规则填进那两格（不是 built-in 的话才可改）。 */
+    function fillSkillRefRule(d, bodyText) {
+      const groups = (d && Array.isArray(d.assetGroups)) ? d.assetGroups : [];
+      skillRefGroups.value = groups.join(', ');
+      /* 正文里写了哪些变量（填料的那一份是程序的事，这里只列出来给用户看）。 */
+      const names = (window.TplVars && TplVars.names) ? TplVars.names(bodyText || (d && d.body) || '') : [];
+      skillVarNames.value = names;
+    }
+    /* 改 frontmatter 里的那几行（没有就加在 frontmatter 末尾）。 */
+    function setRefRuleText(text, groups) {
+      const lines = String(text || '').split('\n');
+      const g = groups.map(x => String(x || '').trim()).filter(Boolean);
+      const gLine = 'assetGroups: [' + g.map(x => '"' + x.replace(/"/g, '') + '"').join(', ') + ']';
+      let inFm = false, hasG = false, end = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (i === 0 && line.trim() === '---') { inFm = true; continue; }
+        if (inFm && line.trim() === '---') { end = i; break; }
+        if (!inFm) continue;
+        if (/^assetGroups\s*:/.test(line)) { lines[i] = gLine; hasG = true; }
+      }
+      if (end < 0) return String(text || '');          // 没有 frontmatter：不动（不该发生）
+      if (!hasG) lines.splice(end, 0, gLine);
+      return lines.join('\n');
+    }
+    async function saveSkillRefRule() {
+      if (!skillDetail.value) return;
+      if (skillDetail.value.source === 'builtin') {
+        Toast.warn('内置 Skill 是只读的：先「复制为我的 Skill」再改');
+        return;
+      }
+      skillBusy.value = true;
+      try {
+        const id = skillDetail.value.id;
+        const bundle = await window.WbSkills.exportOne(id);
+        const list = (bundle.files || []).map(f => ({ path: f.path, text: f.text }));
+        const main = list.find(f => /(^|\/)SKILL\.md$/.test(f.path));
+        if (!main) throw new Error('这份 Skill 没有 SKILL.md（内置目录不完整？）');
+        const groups = skillRefGroups.value.split(/[,，]/).map(x => x.trim()).filter(Boolean);
+        main.text = setRefRuleText(main.text, groups);
+        await window.WbSkills.update(id, list, skillDetail.value.contentHash || skillHash);
+        skillMsg.value = '✓ 已保存素材范围（' + (groups.length ? groups.join(' / ') : '全部') + '）';
+        Toast.receipt('已保存素材范围');
+        await reloadSkills(true);
+        await selectSkill(id);
+      } catch (e) {
+        Toast.err('保存素材范围失败：' + errText(e));
+      } finally {
+        skillBusy.value = false;
+      }
     }
 
     async function copySkillToMine() {
@@ -3649,6 +3714,7 @@ const SettingsView = {
       skillQ, skillFilter, skillSelId, skillDetail, skillFiles, skillFilePath, skillFileNote,
       skillFiltered, skillCntText, paintSkillChips, onSkillSearch, reloadSkills, selectSkill, openSkillFile,
       toggleSkillEnabled, copySkillToMine, pickSkillFile, onImportSkillFile, exportSkill, removeSkill, fmtSkillSize,
+      skillRefGroups, skillVarNames, saveSkillRefRule,
       asr, asrKey, asrLocal, asrLocalText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,

@@ -14,6 +14,9 @@ function snapBoard(scenes) {
       line: String(sh.line || '').trim(),
       who: String(sh.lineWho || '').trim(),
       dur: Number(sh.duration) > 0 ? Number(sh.duration) : 0,
+      /* 接上一镜：AI 改稿时要看得见「这镜的首帧来自上一镜结尾」，否则它会把这条接续当成
+         普通镜头改提示词，或者把已经接好的两镜拆开。 */
+      chain: sh.linkPrev === 'tail' ? 'tail' : '',
     })),
   }));
 }
@@ -31,7 +34,8 @@ function boardListText(snap) {
       /* 台词只在这一镜真挂着那句时才写：AI 看不见它就改不了它（`update` 带 `line` 那一路），
          而给没台词的镜头写一行空的「台词：」，等于请它编一句。 */
       const ln = t.line ? '（台词' + (t.who ? '（' + t.who + '）' : '') + '：' + ctxClip(t.line, BOARD_CTX_PROMPT) + '）' : '';
-      out.push(`  镜头 ${t.n}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}）${ln}：${body}`);
+      const chain = t.chain === 'tail' ? ' · 接上一镜' : '';
+      out.push(`  镜头 ${t.n}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}${chain}）${ln}：${body}`);
     });
   });
   return out.join('\n');
@@ -104,7 +108,11 @@ function boardPlanOf(changes, snap, opt) {
         : String(ch.speaker != null ? ch.speaker : ch.who).trim();
       const whoChg = lineChg === '' ? ''
         : (whoRaw != null && whoRaw !== t.who ? whoRaw : null);
-      if (!pChg && !nameChg && durChg == null && lineChg == null && whoChg == null) { noop++; return; }
+      /* 接续：`null` = 没带这一项、保持原样；`'tail'` = 改成接上一镜；空串 = 取消接续。 */
+      const chainRaw = ch.chain == null && ch.linkPrev == null ? null
+        : (String(ch.chain != null ? ch.chain : ch.linkPrev) === 'tail' ? 'tail' : '');
+      const chainChg = chainRaw != null && chainRaw !== (t.chain === 'tail' ? 'tail' : '') ? chainRaw : null;
+      if (!pChg && !nameChg && durChg == null && lineChg == null && whoChg == null && chainChg == null) { noop++; return; }
       const bits = [];
       if (pChg) bits.push('原：' + (t.prompt ? (t.prompt.length > 60 ? t.prompt.slice(0, 60) + '…' : t.prompt) : '（还没写）'));
       if (durChg != null) bits.push(t.dur ? ('时长 ' + t.dur + ' → ' + durChg + ' 秒') : ('时长设为 ' + durChg + ' 秒'));
@@ -113,9 +121,10 @@ function boardPlanOf(changes, snap, opt) {
         ? ('台词改成「' + (lineChg.length > 30 ? lineChg.slice(0, 30) + '…' : lineChg) + '」')
         : '这一镜的台词清掉');
       if (whoChg) bits.push('说话人改成「' + whoChg + '」');
+      if (chainChg != null) bits.push(chainChg === 'tail' ? '改为接上一镜尾帧' : '取消接上一镜');
       put({
         op: 'update', shotId: t.sh.id, sceneId: S.sc.id,
-        patch: { name: nameChg, duration: durChg, line: lineChg, who: whoChg },   // 空串 / null = 这一项没改，落盘时跳过
+        patch: { name: nameChg, duration: durChg, line: lineChg, who: whoChg, chain: chainChg },   // 空串 / null = 这一项没改，落盘时跳过
         label: '改 · ' + S.name + ' · 镜头 ' + t.n,
         sub: bits.join(' · '),
         text: pChg ? withStyle(raw) : t.prompt,
@@ -129,7 +138,9 @@ function boardPlanOf(changes, snap, opt) {
       const dur = rawSec(ch.duration);
       const patch = { name: String(ch.name == null ? '' : ch.name).trim().slice(0, 12), duration: dur,
         line: ch.line == null ? '' : String(ch.line).trim(),
-        who: (ch.line == null ? '' : String(ch.speaker != null ? ch.speaker : (ch.who == null ? '' : ch.who)).trim()) };
+        who: (ch.line == null ? '' : String(ch.speaker != null ? ch.speaker : (ch.who == null ? '' : ch.who)).trim()),
+        chain: ch.chain === 'tail' ? 'tail' : '',
+        chainModel: String(ch.chainModel || '') };
       const nsc = String(ch.newScene == null ? '' : ch.newScene).trim().slice(0, 12);
       if (nsc) {
         put({ op: 'insert', newScene: nsc, patch, label: '新增 · 新场景「' + nsc + '」',
@@ -209,7 +220,7 @@ function applyBoardPlan(items, scenes) {
     for (const sc of list) { const sh = (sc.shots || []).find(x => x.id === id); if (sh) return { sc, sh }; }
     return null;
   };
-  const r = { upd: 0, add: 0, newScenes: 0, skipped: 0, del: 0, mov: 0, busy: 0, lined: 0 };
+  const r = { upd: 0, add: 0, newScenes: 0, skipped: 0, del: 0, mov: 0, busy: 0, lined: 0, chained: 0, unchained: 0 };
   /* 这一次真的动过的镜头（改到的 + 新插的）：落盘后的时长兜底只夹这些。
      拿整部短片的镜头去夹会顺手改到没参与这次写入的镜头，而报数那句「其中 X 镜」就成了假话。
      被挪位置的那一条不进来 —— 它一个秒数都没改。 */
@@ -222,6 +233,10 @@ function applyBoardPlan(items, scenes) {
     if (it.patch && it.patch.line) { sh.line = it.patch.line; r.lined++; }
     if (it.patch && it.patch.who != null) sh.lineWho = it.patch.who;
     if (it.patch && it.patch.duration != null) setShotDur(sh, it.patch.duration);
+    /* 拆分长镜头时程序已经按接续型号算过每段时长：把它记成程序选的，并写明来源。
+       手写 insert 带 `chain` 但没有型号时，落盘后由 engine 的 ensureChainModel 现挑。 */
+    if (it.patch && it.patch.chain === 'tail') { sh.linkPrev = 'tail'; r.chained++; }
+    if (it.patch && it.patch.chainModel) { sh.model = it.patch.chainModel; sh.modelAuto = 'chain'; }
     return sh;
   };
   const groups = new Map();          // sceneId → { head: [], after: Map<shotId, items> }
@@ -239,6 +254,13 @@ function applyBoardPlan(items, scenes) {
       if (it.patch && it.patch.line != null) { h.sh.line = it.patch.line; if (it.patch.line) r.lined++; }
       /* 说话人与台词成对落：台词被清掉那一路 `boardPlanOf` 已经把 `who` 一起写成空串。 */
       if (it.patch && it.patch.who != null) h.sh.lineWho = it.patch.who;
+      /* 接续只改这一个字段；关掉时顺手清掉「程序选的型号」标记，留着会让下次自动切到别处。 */
+      if (it.patch && it.patch.chain != null) {
+        const on = it.patch.chain === 'tail';
+        if ((h.sh.linkPrev === 'tail') !== on) { if (on) r.chained++; else r.unchained++; }
+        h.sh.linkPrev = on ? 'tail' : '';
+        if (!on) h.sh.modelAuto = '';
+      }
       r.upd++;
       touched.push(h.sh);
       if (!atRef) atRef = h.sh;
@@ -350,7 +372,7 @@ function applyBoardPlan(items, scenes) {
   /* `touched` = 这一次新建与被改过的那些镜头对象（活引用）：调用方拿它夹时长与「按 @名字 挂素材图」，
      交出去是为了让页面不要再按 id 回查一遍 —— 回查就是第二份账，而这两件事都必须落在同一批人身上。 */
   return { upd: r.upd, add: r.add, newScenes: r.newScenes, skipped: r.skipped, del: r.del, mov: r.mov, busy: r.busy,
-    lined: r.lined, pics: pics, at: at, touched: touched,
+    lined: r.lined, chained: r.chained, unchained: r.unchained, pics: pics, at: at, touched: touched,
     /* 写入期兜底（批次①）：批量生成发的是 `sh.duration` 原值，而按型号回写那一句只在打开这一镜右栏时跑。
        两条落盘路径各夹一次、夹完报数，这里（改现有分镜）与 aiBoardSplit 用的是同一份实现。 */
     clamped: clampShotDurations(touched) };

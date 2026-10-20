@@ -99,6 +99,7 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 .chars-page .card .edit .ed-sec { margin: 6px 0 -2px; font-size: 11px; font-weight: 600; color: var(--sub); letter-spacing: .05em; }
 /* 一节里并排的几颗按钮（画面那两颗、声音那两颗） */
 .chars-page .card .edit .ed-acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chars-page .card .edit .chars-raw { margin-top: var(--sp-1-5); }
 .chars-page .empty { line-height: 1.9; }   /* 其余交给 ui.css 的 .empty（字号跟公共的 13px） */
 .chars-page .busy { font-size: var(--fs-1); color: var(--acc); }
 /* 列表档：横条一行一位，缩略图在左、信息在右 */

@@ -220,10 +220,36 @@
     return out;
   }
 
+  /* 「素材范围优先」：一份 Skill 声明「这个项目优先用哪几个素材组」。
+     读法只有这一处：取**已启用的**那些 Skill 里声明的（停用的不参与 ——
+     停用一份 Skill 就是不想用它那套写法）。
+     返回 { assetGroups: [...] }：合并所有声明的组名（去重、按名排）。
+     ⚠ 这**不是**「项目引用规则」：项目引用规则指的是**正文里的变量占位符**
+     （`{cast}` `{what}` `{board}` …），由 `window.TplVars` 那一族填料 ——
+     变量名在 Skill 正文里，不在 frontmatter 里。 */
+  async function refRule() {
+    let items = [];
+    try { items = await list(); } catch (e) { return { assetGroups: [] }; }
+    const on = (items || []).filter(s => s && s.enabled !== false && !s.conflict);
+    const groups = [];
+    const seen = new Set();
+    on.forEach(s => {
+      (Array.isArray(s.assetGroups) ? s.assetGroups : []).forEach(g => {
+        const t = String(g || '').trim();
+        if (!t) return;
+        const k = t.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        groups.push(t);
+      });
+    });
+    return { assetGroups: groups };
+  }
+
   window.WbSkills = { list: list, full: full, readRef: readRef, readFile: readFile, files: files,
     install: install, importBundle: importBundle, update: update, setEnabled: setEnabled,
     remove: remove, exportOne: exportOne, migrateLegacyPrompts: migrateLegacyPrompts,
-    match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, TTL: TTL };
+    match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL };
   window.__skillBodies = window.__skillBodies || {};
   /* shell 里紧跟 ui.js 加载；不抢首屏，但要在第一次润色之前把正文备好。 */
   setTimeout(function () { prime(); }, 700);

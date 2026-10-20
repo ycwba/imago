@@ -91,6 +91,40 @@ export function whyReady(doc, node) {
   return '';
 }
 
+/* 发送前的 dry-run：这个节点**将要发出**的请求体（**一个网络请求都不发**）。
+   与 `submit` 同一份字段组装（同一个 `resolve` + 同一个 `base`）——
+   预览与实发走岔的话，用户看到的就不是真发出去的那份。
+   输入素材在预览里是占位：真发时那一路交的是资产号（画布的输入已经是平台资产号，
+   所以这里照原样交，但形状仍按声明裁到上限 —— 多的那几路在真发时也会被丢掉）。 */
+export function preview(doc, node) {
+  const kind = kindOf(node.type);
+  if (!kind) return null;
+  const r = resolve(doc, node);
+  const prov = provOf(r.prov);
+  if (!prov) return null;
+  const model = (prov.models || []).find(m => m.id === r.model) || {};
+  const spec = inputSpec(model, kind);
+  const role = spec ? spec.role : '';
+  const cap = spec && Number(spec.max) > 0 ? Number(spec.max) : 0;
+  const room = role ? Math.min(r.inputs.length, cap || r.inputs.length) : 0;
+  const entries = [];
+  for (let i = 0; i < room; i++) {
+    entries.push({ role, assetId: r.inputs[i].assetId || '<待上传：输入 ' + (i + 1) + '>' });
+  }
+  if (kind === 'audio') {
+    return window.AiGen && AiGen.previewTts ? AiGen.previewTts(prov, {
+      model: model.id, text: String(r.prompt || ''),
+      voice: (r.params && r.params.voice) || '',
+    }) : null;
+  }
+  return window.Api.preview(prov, 'create', {
+    model: model.id, prompt: String(r.prompt || ''),
+    ar: r.params.ar, duration: r.params.duration, count: r.params.count,
+    quality: r.params.quality, res: r.params.res, tier: r.params.tier,
+    format: r.params.format, size: r.params.size, inputEntries: entries, note: '画布提交',
+  });
+}
+
 /* 提交：拿到任务号的那一刻回调 onTask（页面立刻落盘），然后交给调用方继续等。
    音频是同步合成，没有任务号 —— 这条照实说明，界面上不画「取消」。 */
 export async function submit(doc, node, o = {}) {
@@ -110,8 +144,10 @@ export async function submit(doc, node, o = {}) {
   const entries = [];
   for (let i = 0; i < room; i++) entries.push({ role, assetId: r.inputs[i].assetId });
   const droppedInputs = r.inputs.length - room;
+  const snapTag = 'canvas:' + node.id, snapLabel = node.title || '';
   if (kind === 'audio') {
     const res = await window.AiGen.synthTts(prov, { model: model.id, text: String(r.prompt || ''),
+      snapTag, snapLabel,
       voice: (r.params && r.params.voice) || '', name: (node.title || '画布语音') + '', meta: { canvasNodeId: node.id } });
     return { kind, sync: true, assetId: res.assetId, src: res.url, format: res.format, bytes: res.bytes, droppedInputs };
   }
@@ -123,13 +159,14 @@ export async function submit(doc, node, o = {}) {
     quality: r.params.quality, res: r.params.res, tier: r.params.tier,
     format: r.params.format, size: r.params.size, duration: r.params.duration, inputEntries: entries };
   if (kind === 'image') {
-    const t = await window.AiGen.create({ ...base,
+    const t = await window.AiGen.create({ ...base, snapTag, snapLabel,
       onTask: x => { if (o.onTask) o.onTask(String(x.id)); }, log: { type: '画布生成', meta: { 节点: node.id } } });
     return { kind, taskId: String(t.id), t, want: t.want, fmt: t.fmt, droppedInputs };
   }
   const raw = await window.Api.create(prov, { model: model.id, prompt: base.prompt,
     ar: base.ar, duration: base.duration, count: base.count, tier: base.tier, res: base.res,
-    inputEntries: entries, note: '画布提交', log: { type: '画布生成', meta: { 节点: node.id } } });
+    inputEntries: entries, note: '画布提交', snapTag, snapLabel,
+    log: { type: '画布生成', meta: { 节点: node.id } } });
   const p = window.Api.parseItem(prov, raw) || {};
   const id = String(p.genId || (raw && (raw.id || raw.task_id || raw.job_id)) || '');
   if (!id) throw new Error((raw && (raw.message || raw.code)) || '接口没有返回任务号');

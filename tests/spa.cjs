@@ -81,8 +81,43 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        净字节反而少了；枚数是结构拆分付的价（三份都必须同步常在，否则页面在首次取数时炸）。
      ·  +1 枚 / 净字节 +1.4KB：报告 §6.1-2 把 ui.js 的弹窗与表单族（InlinePolish / PromptReview /
        Confirm / UiDialog / PromptForm / DatePicker）切去 forms.js。这些面在任何页面第一次弹确认框 /
-       润色 / 选日期时就要用，不能按需；ui.js 因此降到 1500 行以下，字节只多了文件头。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 31, FIRST_SCREEN_MAX_BYTES = 1002267;
+       润色 / 选日期时就要用，不能按需；ui.js 因此降到 1500 行以下，字节只多了文件头。
+     ·  +1 枚 / +8.5KB：原始请求折叠条 `web/ui/raw-request.js`（4.5KB）加 `Api.snapOf` 的脱敏 /
+       截断 / dataURL 摘要（约 4KB）。它监听的是 Api.request 投出的 `wb:raw-request` 事件：事件在请求
+       发出的那一刻就投，晚一步补载脚本就会漏掉页面打开后的第一次生成（用户最先想看的恰好是那一次），
+       所以不能按需；脱敏逻辑也只能在唯一请求出口里，页面侧再抄一份就多一套口径。
+     ·  2026-10-20 原始请求改成「**发送前**就能看」之后，上面那条「不能按需」的理由**不再成立**：
+       新的预览是**页面主动算**的（`RawRequest.schedule` → `Api.preview` 的纯算，不发网络请求），
+       不再依赖「事件在请求发出的那一刻就投」；「已发送」那一份仍然收 `wb:raw-request` 事件，
+       但那件事发生在用户点生成之后 —— 那时页面早就加载完了，不会漏。
+       所以 `raw-request.js` 改成**按需补载**（导演台 / 生成工作台 / 画布三页各自 `__spaLoadScript`），
+       首屏少一枚 11.6KB 的脚本。
+     ·  +4.7KB：同一天补的三样东西都落在**必须常驻**的那几份里，按需加载反而更贵：
+       `api.js` 的 `buildBody` / `preview`（请求体拼装的唯一出口 —— 预览与实发共用它才保证
+       「预览的体 = 真发的体」，拆出去就要在两份之间同步，迟早走岔）；
+       `chars.js` 的 `renameGroup`（写素材库的唯一出口，页面侧再抄一份就是第二份写库口径）
+       与 `setPic` 投的那枚 `wb:char-pic`（素材出图 → 导演台自动补参考图的那条链）；
+       `forms.js` 的「待建素材」块（弹窗的唯一实现，拆出去就成第二套弹窗）。
+     ·  +2.0KB：素材库的音色收口（用户要求「使用素材进行描述或克隆」）：
+       `chars.js` 的 `cloneFromLibEntry`（拿另一位素材的参考音频来克隆，与 `cloneFromCands`
+       同一落点）+ `voiceBoxHTML` 里那两颗按钮（用素材的音色描述 / 用素材的声音克隆），
+       以及 `asset-picker.js` 的「只要素材库」那两档（音色描述与参考音频只存在于素材身上）。
+       `chars.js` 与 `asset-picker.js` 都是**按需补载**的（只有素材库页与导演台要），
+       所以这一笔**不进首屏**；进首屏的是 `gen-forms.js` 的 `VoiceNote.runClone`
+       （约 1.1KB，与 `VoiceNote.run` 同一族：拿素材库里的料填进面前那一格）。
+     ·  +0.6KB：`skills.js` 的 `WbSkills.refRule` —— 「素材范围优先」的读法只有这一处
+       （取已启用的那些 Skill 声明的素材组）。它住在 Skill 的唯一客户端里，
+       拆到导演台去就得在页面侧再抄一份读法。
+     ·  +1.6KB：`gen-forms.js` 的 `window.TplVars` —— **Skill 正文里的变量占位符**
+       （`{cast}` `{what}` `{board}` …）的**唯一一份填法**（「项目引用规则」就是它）。
+       素材库的音色 / 生图、导演台的拆分镜 / 改分镜 / 新素材判定都走它 ——
+       各写一份正则，规则迟早对不上（有一处认 `{x}` 另一处只认 `{{x}}`）。
+     ·  +5.2KB：`text-ai.js` 的 `TextAI.DEF` 多了三份正文（拆分镜 / 改分镜 / 新素材判定），
+       都改成**带变量占位符**的那一份，并把 `board_assets` 那一族补上。
+       ⚠ `DEF` 与 `skills/` 里那份 SKILL.md **必须逐字相同**（判据 tests/e2e/smoke.cjs 守着
+       「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
+       所以这一笔省不掉：变量机制要进正文，正文要进 `DEF`，`DEF` 在首屏。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 32, FIRST_SCREEN_MAX_BYTES = 1028086;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

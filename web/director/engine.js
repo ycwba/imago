@@ -1,7 +1,7 @@
 /* 导演台引擎：原 fragment.html 的内联脚本整体搬进模块，document / window 是页面作用域岛的两份代理。
    这样它可以被 node --check 静态检查；模板在开发期预编译（tools/precompile-vue.cjs），
    运行时没有 new Function，严格 CSP 不需要 unsafe-eval。 */
-import { exportFCPXML as runFcpExport } from './fcpxml.js';
+import { exportFCPXML as runFcpExport, sendToNle as runSendNle } from './fcpxml.js';
 import { parseFCPXML } from './fcpxml-import.js';
 import { parseJsonLoose, round1, round2, pct, spdTxt, ctxClip, BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from './util.js';
 
@@ -11,7 +11,19 @@ import { scriptTextOf, parseScript, applyScript } from './script.js';
 
 import { createBoardTools } from './board.js';
 
+import { shotPlacement, chainDeps, splitLongShots, pickChainModel, quoteKeyOf, sumQuotes, runWithDeps, hasTailFrame, isRunning } from './chain.js';
+
 import { createSplitAssets } from './split-assets.js';
+
+import { createBoardPreview } from './board-preview.js';
+
+import { createGroups } from './groups.js';
+
+import { createBoardAssets } from './board-assets.js';
+
+import { createBoardVars } from './board-vars.js';
+
+import { candidateBase, voiceBase, shotCtxOf, candidateIndex, voiceIndex } from './naming.js';
 
 import { SLICE_TILE_PX, SLICE_N_MAX, sliceGeom, sliceBoxHTML, sliceTimes } from './slice.js';
 
@@ -68,12 +80,41 @@ const canStatus = s => {
   return String(s || '');      // 判据不在（assetlib 没加载）时原样留着，别把状态改没
 };
 
-/* ---------- 工作区（多个短片）---------- */
-let WS = { projects: [], curId: null };
+/* ---------- 工作区（多个短片 + 项目组）---------- */
+/* `groups` 是项目组：[{ id, name }]。组名**就是素材组名**（用户已定）——
+   同一个组名下的短片，拆分镜建出来的新素材自动落进素材库的那个同名组里。
+   老工程读回来时 `groups` 缺失 → 补 `[]`、项目没有 `groupId` → 未分组，
+   **零迁移**：现有工程全部落在未分组，行为与今天完全一样。 */
+let WS = { projects: [], curId: null, groups: [] };
 let proj = null;        // 当前短片
 let REG = null;         // /registry：API 注册路由（提供商/模型/能力）
 let saveTimer = null;
 const uid = () => crypto.randomUUID().slice(0, 8);
+
+/* 项目组（分组 / 改名 / 删组 / 归组 / 树）—— 判据全在 web/director/groups.js，
+   engine 只调用。组名即素材组名（见那个模块开头的说明）。 */
+const Groups = createGroups({ nameKey: window.nameKey, uid });
+
+/* 拆分镜的「新素材」（判哪些角色/场景/物品要建档出图、占位符怎么写）——
+   判据全在 web/director/board-assets.js，engine 只调用。 */
+const PENDING_PREFIX = '待建';
+const BoardAssets = createBoardAssets({
+  nameKey: window.nameKey, MIN_REPEAT: 2, PREFIX: PENDING_PREFIX,
+});
+
+/* 「项目引用规则」：**Skill 正文里的变量占位符**该填什么（`{what}` `{cast}` `{board}` …）。
+   判据全在 web/director/board-vars.js；engine 只调用。
+   变量填料用公共层 `window.TplVars.fill`（那一份填法只有一处）。 */
+const BoardVars = createBoardVars({
+  nameKey: window.nameKey,
+  kindZhOf: x => (window.Chars && Chars.LIB_KINDS) ? (Chars.LIB_KINDS[Chars.libKindOf(x)] || '') : '',
+});
+/* 把一份 Skill 正文里的变量按这一次的料填上。
+   **填不上的原样留着**（`TplVars.fill` 的规矩）—— AI 看到 `{cast}` 三个字也知道那是要它自己补的位子，
+   比留一段空强。 */
+function fillSkillVars(tpl, vals) {
+  return (window.TplVars && TplVars.fill) ? TplVars.fill(tpl, vals) : String(tpl || '');
+}
 
 /* 「一条候选占位有哪些字段」全站只在这一个函数里点一次名。
    以前命名了三份：mkDraftCandidate 一份、addCandidateDraft 抄了一份逐字相同的十行、
@@ -137,6 +178,13 @@ function newShot(prompt = '') {
        不进配音轨、也不是 `proj.voices` 的字段，与 `line` 一样是「还没合成的那句话」的附属信息。 */
     lineWho: '',
     note: '',
+    /* 接续：`linkPrev === 'tail'` 表示这一镜生成时自动取上一镜的尾帧当首帧。
+       用户显式选过首帧时以那一张为准（`firstFrame` 优先），这里的标记只是「还挂着接续」；
+       占位、能力判定与提交时解析尾帧都读它。
+       `modelAuto === 'chain'` = 当前型号是程序为了接续自动挑的，不是用户手选 ——
+       用户改型号时清掉，界面据此显示「已自动切到 X」。 */
+    linkPrev: '',
+    modelAuto: '',
   };
   sh.candidates.push(mkDraftCandidate(sh));   // 默认带一个候选占位（默认选中它）
   return sh;
@@ -255,7 +303,9 @@ function snapOf() {
      每 500ms / 每一刀都 stringify 全部项目是主线程卡顿的主要来源；
      撤销只需要恢复正在改的那一个项目（切项目会换 curId，恢复时跟着切回去）。 */
   if (!proj) return '';
-  return JSON.stringify({ curId: WS.curId, project: proj, roles: WS.roles },
+  /* `groups` 一起进快照：项目组是一次编辑（建组 / 归组 / 删组），
+     不进快照的话 Ctrl+Z 撤不回去 —— 那条组关系就再也回不来了。 */
+  return JSON.stringify({ curId: WS.curId, project: proj, roles: WS.roles, groups: WS.groups },
     (k, v) => (k === 'progress' || k === 'queue_position'
       || k === 'curScene' || k === 'curShot' || k === 'curCand') ? undefined : v);
 }
@@ -267,6 +317,7 @@ function restoreSnap(json) {
       if (at >= 0) WS.projects[at] = ws.project; else WS.projects.unshift(ws.project);
       WS.curId = ws.curId || ws.project.id;
       if (Array.isArray(ws.roles)) WS.roles = ws.roles;
+      if (Array.isArray(ws.groups)) WS.groups = ws.groups;
     } else if (ws && Array.isArray(ws.projects)) {
       /* 老快照（只在内存里，不会持久化；保留这条兼容分支不至于让升级瞬间的 undo 抛错） */
       WS.projects = ws.projects; WS.curId = ws.curId;
@@ -2612,14 +2663,85 @@ async function exportFilmFFmpeg(opts) {
    本机没有落盘的那几条仍然建一个离线 asset（名字 + 原地址写进文件开头的注释），
    FCP 导入后会显示离线，用户按名单补文件 / 重新链接即可 —— 不静默丢段。
    **不改变任何工程数据**：只读 tlSyncFromShots() 的结果与 proj.voices。 */
-async function exportFCPXML(opts) {
-  return runFcpExport({
+/* FCPXML 的上下文：单文件 / 媒体包 / 送到 NLE 三条出口传的是同一份。
+   只读 tlSyncFromShots() 的结果与 proj.voices，不改变任何工程数据。 */
+function fcpCtx() {
+  return {
     proj,
     tlSyncFromShots, healStaleUrls, filmSize, setStatus,
     el: id => $(id),
     tlClipDur, tlClipSrc, allShots, tlCandidateOf, candDur, voicesEnsure, voiceVolOf, styleOf,
     AssetLocal: window.AssetLocal, Api: window.Api, Net: window.Net,
-  }, opts || {});
+  };
+}
+async function exportFCPXML(opts) {
+  return runFcpExport(fcpCtx(), opts || {});
+}
+
+/* 送到剪映 / 达芬奇：确认目标 → 生成持久工程 → 尽力启动软件 → 弹窗给目录与导入路径。
+   「一键」到启动软件为止；最后那一步导入只能由用户在软件里点
+   （两家都没有可靠的命令行「打开并导入这个文件」协议，不假装能替他点）。 */
+async function exportNle(opts) {
+  opts = opts || {};
+  let app = opts.app === 'jianying' || opts.app === 'resolve' ? opts.app : '';
+  if (!app) {
+    app = await Confirm.choose({
+      title: '送到剪映 / 达芬奇',
+      sub: '生成一份持久工程（project.fcpxml + media/ + subtitles.srt），并尽量启动软件；最后在软件里点一次导入。',
+      options: [
+        { value: 'jianying', label: '剪映专业版', hint: '工程目录会打开在资源管理器里；若菜单里没有 FCPXML 导入，到 全局设置 打开这一项' },
+        { value: 'resolve', label: 'DaVinci Resolve', hint: '启动后到 文件 → 导入 → 时间线（FCPXML）选目录里的 project.fcpxml' },
+      ],
+      cancelLabel: '取消',
+    });
+  }
+  if (!app) return { ok: false, cancelled: true };
+  let r;
+  try { r = await runSendNle(fcpCtx(), { app }); }
+  catch (e) {
+    const msg = errText(e);
+    setStatus('<span class="err">送到 ' + (app === 'jianying' ? '剪映' : '达芬奇') + ' 失败：' + esc(msg) + '</span>');
+    return { ok: false, err: msg };
+  }
+  if (r && r.ok && !opts.silent) nleDialog(r);
+  return r;
+}
+/* 工程已经生成好了才有这一步：目录、缺失数与导入路径一次说清；
+   「打开文件夹」与「复制路径」都是可用的退路（软件没装 / 装在别处也不影响导入）。 */
+function nleDialog(r) {
+  const isJY = r.app === 'jianying';
+  UiDialog.open({
+    title: '已生成' + r.appName + '导入工程',
+    sub: r.launch && r.launch.ok ? '软件已启动；最后一步在软件里点一次导入' : '工程已生成；软件没启动也不影响导入',
+    body(el) {
+      el.innerHTML = '<div class="dlg-line">工程目录：<b>' + esc(r.dir) + '</b></div>'
+        + '<div class="dlg-line">时间线：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音'
+        + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条' : '') + '</div>'
+        + (r.missingCount ? '<div class="dlg-warn">有 ' + r.missingCount + ' 份素材没取到：名单在同目录的 missing.txt（导入后显示离线，补齐文件再重新链接）</div>' : '')
+        + '<div class="dlg-hint">' + (isJY
+          ? '剪映：菜单 → 导入 → 时间线 / FCPXML，选目录里的 project.fcpxml。若找不到这一项，先到 全局设置 打开 FCPXML 导入；素材在 media/ 里。'
+          : '达芬奇：文件 → 导入 → 时间线（FCPXML），选目录里的 project.fcpxml；素材会自动从 media/ 链接。') + '</div>'
+        + (r.launch && !r.launch.ok ? '<div class="dlg-warn">没有自动启动软件：' + esc(r.launch.reason || '') + ' 请手动打开。</div>' : '');
+    },
+    actions: [
+      { label: '打开文件夹', value: 'open', primary: true,
+        onClick: () => { revealNle(r.id); return false; } },
+      { label: '复制路径', value: 'copy',
+        onClick: async () => {
+          const ok = window.copyText ? await window.copyText(r.dir) : false;
+          if (ok) Toast.ok('路径已复制'); else Toast.warn('复制失败：请手动选中上面的路径');
+          return false;
+        } },
+      { label: '关闭', value: null },
+    ],
+  });
+}
+async function revealNle(id) {
+  try {
+    await window.Net.json('/fcpxml/reveal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+    });
+  } catch (e) { Toast.warn('打不开文件夹：' + errText(e)); }
 }
 
 /* ============================================================================
@@ -2698,15 +2820,20 @@ function boardDurNote() {
   const s = videoDurSpan();
   if (!s.n) return '';
   return '每一镜的 duration 必须是 ' + s.min + ' 到 ' + s.max + ' 秒之间的整数；'
-    + '按信息量分配（建立环境的镜头可以长，纯反应镜头要短），不要所有镜头一样长。';
+    + '按信息量分配（建立环境的镜头可以长，纯反应镜头要短），不要所有镜头一样长。'
+    + '真正需要更长时间的长镜头照常给足秒数：超过所有可用型号上限时，程序会按接续型号把它拆成几段，'
+    + '第二段起自动接上一段的尾帧，你不用自己拆成多条。';
 }
 /* 区间从哪来，那句说明就得写从哪来 —— 表单 hint 与审查弹窗 sub 共用这一句，
    否则「5–10 秒」在两处各拼一遍，其中一处迟早漏掉「按什么算的」。
    「一家都没声明」与「声明了但互相没有交集」分两句话说：后者的镜头照样按自己那一档夹得住。 */
 function boardDurSub() {
   const s = videoDurSpan();
-  if (s.n) return '时长 ' + s.min + '–' + s.max + ' 秒（按本机当前可用的 ' + s.n + ' 个视频型号共同支持范围）';
-  if (s.any) return '这 ' + s.any + ' 个可用型号的时长区间彼此没有交集，AI 不给区间、落盘时逐镜按各自型号夹回';
+  /* 超出所有型号上限的长镜头会被程序拆成接续段（`splitLongShots`）：这是落盘前就会发生的事，
+     弹窗里只看得到「5–10 秒」会让人以为长镜头被截短了。 */
+  const splitNote = '；超过所有可用型号上限的长镜头会自动拆成接续段（第二段起接上一镜尾帧）';
+  if (s.n) return '时长 ' + s.min + '–' + s.max + ' 秒（按本机当前可用的 ' + s.n + ' 个视频型号共同支持范围）' + splitNote;
+  if (s.any) return '这 ' + s.any + ' 个可用型号的时长区间彼此没有交集，AI 不给区间、落盘时逐镜按各自型号夹回' + splitNote;
   return '本机现在没有声明时长区间的可用视频型号，镜头的 duration 交给平台默认';
 }
 /* 镜数的软上限：按剧本字数现算。写死一个数会跟「上限只从声明来算」的口径打架。
@@ -2747,6 +2874,97 @@ function clampShotDurations(shots) {
 const clampNote = c => (!c || !c.fixed ? '' : '（其中 ' + c.fixed
   + ' 镜的时长超出各自型号支持范围，已收进区间：' + c.detail
   + (c.more ? '；另有 ' + c.more + ' 镜' : '') + '）');
+
+/* ---------------- 接续生成：上一镜尾帧当首帧 ----------------
+   两个判据各只有一处：
+     chainModelList()  把可用视频型号摊平成「能不能接首帧 / 能不能接尾帧 / 时长区间」，
+                       拆分镜（chain.js 的 pickChainModel）与 ensureChainModel 都读这一份；
+     ensureChainModel()  接续挂着、又没显式首帧时，确保这一镜落在一个支持首帧的型号上。
+   `modelAuto` 只为界面那句「已自动切到 X」服务，不是第二种模型来源。 */
+function chainModelList() {
+  const out = [];
+  (shotModels(null) || []).forEach(g => (g.models || []).forEach(m => {
+    const op = (m && m.options) || g.options || {};
+    const roles = new Set((window.Capabilities ? Capabilities.specs(m) : (op.inputSpecs || [])).map(x => x.role));
+    const d = op.durations;
+    const span = Array.isArray(d) && d.length === 2 && Number(d[0]) > 0 && Number(d[1]) >= Number(d[0])
+      ? [Number(d[0]), Number(d[1])] : null;
+    out.push({ id: m.id, provider: g.id, name: m.name || m.id,
+      min: span ? span[0] : 0, max: span ? span[1] : 0,
+      first: roles.has('first_frame'), last: roles.has('last_frame') });
+  }));
+  return out;
+}
+function ensureChainModel(sh) {
+  if (!sh) return null;
+  if (sh.linkPrev !== 'tail' || sh.firstFrame) return resolvedModel(sh);
+  const list = chainModelList();
+  const cur = sh.model && sh.model !== 'auto' ? list.find(m => m.id === sh.model) : null;
+  /* 当前型号能接首帧就留着 —— 用户挑过的那一型不因为接续被换掉。 */
+  if (cur && cur.first) return resolvedModel(sh);
+  /* 型号不认识（下架 / 换平台）或本来就是程序为接续挑的：按接续能力重挑一个。 */
+  /* 手选的具体型号明确不支持首帧：不偷偷换回去，由 `chainModelWhy` 把那句话说出来。 */
+  if (cur && !cur.first && sh.modelAuto !== 'chain') return resolvedModel(sh);
+  const pick = pickChainModel(list, '', 0, null);
+  if (!pick) return resolvedModel(sh);
+  if (pick.id !== sh.model) { sh.model = pick.id; sh.modelAuto = 'chain'; }
+  return resolvedModel(sh);
+}
+/* 手选型号接不了首帧时那一句（空串 = 没有这回事）。
+   与 `ensureChainModel` 配对：程序只替「没得选」的镜头挑型号，用户明确挑过的那一型只拦不改。 */
+function chainModelWhy(sh) {
+  if (!sh || sh.linkPrev !== 'tail' || sh.firstFrame) return '';
+  if (!sh.model || sh.model === 'auto' || sh.modelAuto === 'chain') return '';
+  const m = chainModelList().find(x => x.id === sh.model);
+  return m && !m.first
+    ? '「' + (m.name || m.id) + '」不支持首帧，接不了上一镜的尾帧；换一个支持首帧的型号，或取消「接上一镜」'
+    : '';
+}
+/* 这一镜为什么还不能生成里「等上一镜」那一句。能接就是空串。
+   与 chain.js 的 chainDeps 返回同一套原因码，只是这里说给人听。 */
+function chainWaitWhy(sh) {
+  if (!sh || sh.linkPrev !== 'tail' || sh.firstFrame) return '';
+  const all = allShots();
+  const i = all.indexOf(sh);
+  if (i <= 0) return '这是第一个镜头，没有上一镜可接';
+  const prev = all[i - 1];
+  if (hasTailFrame(prev)) return '';
+  return isRunning(prev) ? '等上一镜出画面后才能接它的尾帧' : '上一镜还没有可用画面，先单独生成它';
+}
+/* 上一镜的尾帧（dataURL）+ 它从哪来。顺序固定：
+   静态尾帧 → 最后一个画面切片 → 选用的候选（没有就第一条成功候选）的视频末帧。
+   缓存只在内存里、键跟着候选与裁剪点走：候选换了 / 重新生成过，缓存自然命不中。
+   ⚠ 不把 dataURL 写进工程、不落盘 —— 它可能是一张几 MB 的图，而完整提示词已有 PromptLog 归档。 */
+const chainFrameCache = new Map();
+const CHAIN_FRAME_CACHE_MAX = 8;
+async function resolveChainFrame(sh) {
+  const all = allShots();
+  const i = all.indexOf(sh);
+  if (i <= 0) throw new Error('这是第一个镜头，没有上一镜可接');
+  const prev = all[i - 1];
+  if (prev.lastFrame) return { src: prev.lastFrame, from: '上一镜的结尾画面' };
+  const kf = (prev.keyframes || []).filter(k => k && k.assetId).pop();
+  if (kf) return { src: await assetToDataURL(kf.assetId), from: '上一镜的画面切片' };
+  const cand = (prev.candidates || []).find(c => c && c.vid === prev.selId && c.status === 'succeeded' && c.url)
+    || (prev.candidates || []).find(c => c && c.status === 'succeeded' && c.url);
+  if (!cand) {
+    throw new Error(isRunning(prev) ? '上一镜还在生成，等它出画面后才能接它的尾帧'
+      : '上一镜还没有可用画面，先单独生成它');
+  }
+  const key = prev.id + '|' + (cand.vid || cand.url) + '|' + (cand.trimE != null ? cand.trimE : '');
+  if (!chainFrameCache.has(key)) {
+    const p = (async () => {
+      const u = await freshUrl(cand);
+      return await Wb.vframe.dataURL(u, 'end', cand.trimE != null ? cand.trimE : null);
+    })();
+    chainFrameCache.set(key, p);
+    if (chainFrameCache.size > CHAIN_FRAME_CACHE_MAX) {
+      chainFrameCache.delete(chainFrameCache.keys().next().value);
+    }
+  }
+  try { return { src: await chainFrameCache.get(key), from: '上一镜视频的尾帧' }; }
+  catch (e) { chainFrameCache.delete(key); throw e; }
+}
 /* 当前分镜的清单快照：场景与镜头都按**从 1 开始**的序号编，时长没填就是 0。
    单独留 `sh` / `sc` 两个引用 —— 账（boardPlanOf）要靠它把序号当场翻成 id；
    只编数字的话，等用户对着弹窗删了几条，序号就指错人了。 */
@@ -2771,6 +2989,11 @@ const { snapBoard, boardListText, boardPlanOf, applyBoardPlan } = BoardTools;
    选中的范围记在 `dir_asset_scope`（只存本机、不进项目文件）：分组下一次可能就被删掉，
    所以读回来先验一遍它还在不在名单里，认不出落回「不导入」。 */
 const PICK_SOFT_MAX = 12;     // 只写在给 AI 的那句话里当软引导，不是硬闸：超了由参考图上限按型号夹并报数
+/* 喂给 AI 的「引用写法」那句话（兜底那一份）。
+   引用写法**不**由 Skill 声明 —— 那是程序的事：`@名字` 是给**生成模型**的引用
+   （挂参考图，提交前换成 `@参考图N`），而 Skill 正文里的 `{变量}` 是给**写稿的 AI** 的
+   项目资料（这一份角色名单长什么样）。两件事各走各的，别混成一件。
+   Skill 想自己决定这些料摆哪儿 —— 写 `{assets}` 变量就行（见 board-vars.js）。 */
 const RULE_WITH = '\n\n可以把下面这些素材用进镜头：在某一条的 prompt 里**原样写 @名字**'
   + '（例如「@小雅 撑伞走过河岸」），程序按名字把它的图挂成参考图。只引用下面这份清单里的名字，'
   + '不要自己编名字，也不要写成 @参考图1。\n';
@@ -2789,16 +3012,80 @@ const AT_TAIL = /[，,。.、；;：:！!？?()（）\[\]【】"'“””《》
 const SplitAssets = createSplitAssets({
   BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL,
   libIdx, libPicChoices, addLibPicToShot, nameKey: window.nameKey, TextAI: window.TextAI,
+  PLACEHOLDER_PREFIX: PENDING_PREFIX,
 });
 window.SplitAssets = SplitAssets;
+
+/* ---- 拆分镜的「新素材」落盘：建档 + 占位符 ----
+   ① 建档：写进素材库，组名 = 当前短片所在的项目组名（组名即素材组名，见 groups.js）。
+      判据复用 `Chars.Lib.save`（同类型 + 同名 = 同一条），不另写一份写库。
+   ② 占位符：素材刚建档时**还没有图**，所以提示词里先写 `@待建:小雅`（占位），
+      出图之后再换成 `@小雅`（真名）并把图挂成参考图。
+      这样「这一镜该引用谁」在出图前就是看得见的，出图后自动补上。
+   返回 { saved, failed, group, why }：saved 是建成的那些（带库里的那条），
+   failed 是没建成的与原因（照实报，不静默丢）。 */
+function landNewAssets(list, groupName) {
+  const D = window.Chars;
+  const out = { saved: [], failed: [], group: String(groupName || '').trim(), why: '' };
+  if (!list || !list.length) return out;
+  if (!D || !D.Lib || !D.Lib.save) { out.why = '素材库没有加载，新素材没有建档'; return out; }
+  (list || []).forEach(a => {
+    const name = String((a && a.name) || '').trim();
+    if (!name) { out.failed.push({ name: '', why: '没有名字' }); return; }
+    const spec = BoardAssets.libSpec({ name, kind: a.kind, look: a.look, voice: a.voice, why: a.why }, out.group);
+    let item = null;
+    try {
+      if (spec.kind === 'scene') item = D.newScene(spec);
+      else if (spec.kind === 'prop') item = D.newProp(spec);
+      else item = D.newChar(spec);
+    } catch (e) {
+      out.failed.push({ name, why: errText(e) });
+      return;
+    }
+    try {
+      const saved = D.Lib.save(item, { exact: true });
+      const e = D.Lib.writeError && D.Lib.writeError();
+      if (e) { out.failed.push({ name, why: e }); return; }
+      out.saved.push(saved || item);
+    } catch (e) {
+      out.failed.push({ name, why: errText(e) });
+    }
+  });
+  return out;
+}
+/* 把提示词里「待建素材」的名字换成占位符 `@待建:名字`。
+   判据只认**这一批真要建的** —— 别处出现的同名字（本来就有的素材）不动。 */
+function markPendingTokens(shots, list) {
+  const names = (list || []).map(a => String((a && a.name) || '').trim()).filter(Boolean);
+  if (!names.length) return 0;
+  let n = 0;
+  (shots || []).forEach(sh => {
+    let p = String((sh && sh.prompt) || '');
+    if (!p) return;
+    names.forEach(nm => {
+      /* 已经写成占位符的别再套一层；已经是真引用（@名字）的也不动 ——
+         那一镜引用的就是库里已有的那一条，不是这一批待建的。 */
+      const ph = '@' + PENDING_PREFIX + ':' + nm;
+      if (p.indexOf(ph) >= 0) return;
+      const re = new RegExp('(?<!@待建:)(?<!@)' + nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      p = p.replace(re, () => { n++; return ph; });
+    });
+    sh.prompt = p;
+  });
+  return n;
+}
 
 /* 页头「拆分镜」那一颗的入口：三档任务共用一个表单（选哪一档，下面几行的称呼跟着换）。
    写入是两段式：先给用户看一遍（可逐条改 / 删），确认才落盘 —— 三档一致。 */
 async function aiStoryboard() {
   const hasBoard = snapBoard(proj.scenes).length > 0;
+  /* 「项目引用规则」：已启用的 Skill 声明了哪些素材组 / 引用写成什么样子（设置页可改）。
+     读不到就当没有声明（默认写法、全部组都在下拉里）—— 读不到不是错，按默认走。 */
+  const refRule = (window.WbSkills && WbSkills.refRule) ? await WbSkills.refRule() : { assetGroups: [] };
   /* 「素材范围」那一排的名单这一刻现数（新加了素材不必重开页面）；
-     库还是空的就整项不画 —— 只有一项可选的下拉等于一颗点下去什么都不会变的按钮。 */
-  const scopes = SplitAssets.scopes();
+     库还是空的就整项不画 —— 只有一项可选的下拉等于一颗点下去什么都不会变的按钮。
+     Skill 声明的组**排在前面**（不排除其它组）。 */
+  const scopes = SplitAssets.scopes(refRule.assetGroups);
   const fields = [
     { key: 'task', type: 'select', label: '要做什么', value: 'new', options: [
       { v: 'new', t: '拆一份新的（贴剧本 → 新建短片）' },
@@ -2845,9 +3132,34 @@ async function aiStoryboard() {
   });
   if (!v) return;
   if (v.assetSrc) SplitAssets.remember(v.assetSrc);
+  /* 「素材范围优先」跟着这一趟走（Skill 声明了哪些组排在前面）。 */
+  v.refRule = refRule;
   if (v.task === 'edit') { await aiBoardEdit(v); return; }
   await aiBoardSplit(v);
 }
+/* 第 4 段喂给 AI 的那份清单：`items` 是**扁平**的镜头数组（场名在每一项上），
+   而 `boardListText` 认的是 `snapBoard` 那一份按场分组的样子。
+   这里把扁平的按场名并成组 —— 判据是「在几个镜头里反复出现」，
+   AI 要看得见「第几镜、第几镜」才知道那是反复出现。 */
+function boardListOfItems(items) {
+  const byScene = new Map();
+  (items || []).forEach(it => {
+    const k = String((it && it.scene) || '');
+    if (!byScene.has(k)) byScene.set(k, []);
+    byScene.get(k).push(it);
+  });
+  const scenes = [];
+  byScene.forEach((list, name) => {
+    scenes.push({ n: scenes.length + 1, sc: { id: name, name: name }, name: name,
+      shots: list.map((t, i) => ({ n: i + 1, sh: { id: t.key || (name + '·' + (i + 1)) },
+        name: t.name || '', prompt: String(t.text || '').trim(),
+        line: String(t.line || '').trim(), who: String(t.who || '').trim(),
+        dur: Number(t.dur) > 0 ? Number(t.dur) : 0,
+        chain: t.chain === 'tail' ? 'tail' : '' })) });
+  });
+  return boardListText(scenes);
+}
+
 /* 「拆新 / 往下拆」这一档（老路 + 给 AI 附一份现有分镜）：
    往下拆时把现有分镜的清单一起喂过去 —— 它才能沿用场景名与画风、也不重复已有的镜头，
    这正是「拿原有分镜上的提示词来加新镜头」那条要求的落点。 */
@@ -2857,14 +3169,38 @@ async function aiBoardSplit(v) {
   /* 素材只问一次：审查弹窗里点「重新规划」重跑这一趟时复用同一份挑中名单，
      不然每次重试都多问一遍文字 AI（多扣一次 tokens，而挑出来的还是那几条）。 */
   let staged = null;
+  /* 新素材（要建档的那些角色/场景/物品）也只问一次：同样在「重新规划」时复用。
+     问的是「哪些主体该新建」，判据在 board-assets.js，指令正文来自 Skill。 */
+  let newAssets = null;
+  /* 用户在审查弹窗里**最终认下的**那几条（可逐条改 / 可删）—— 落盘按这一份建档。 */
+  let chosenAssets = null;
+  /* 长镜头拆分的报数（note / impossible）：弹窗 sub 与落盘报告都读这一份，重跑时跟着换。 */
+  let splitInfo = null;
   const ask = async () => {
     if (!staged) {
-      staged = await SplitAssets.stage(REG, v.script, v.assetSrc);
+      staged = await SplitAssets.stage(REG, v.script, v.assetSrc, v.refRule);
       if (staged.warn) Toast.warn(staged.warn);
     }
-    /* 指令可在「设置 → 润色指令 → 剧本拆分镜」里改；末尾的约束与素材那一段由程序按本次输入追加 */
+    /* 指令可在「设置 → 润色指令 → 剧本拆分镜」里改。
+       **Skill 正文里的变量按这一次的料填上**（项目引用规则）：
+         · `{what}`   —— 这一次要拆的正文
+         · `{cast}`   —— 本项目素材库里的角色 / 场景 / 物品名单（含外貌与音色）
+         · `{assets}` —— 这一次选中的那批素材（完整描述）
+         · `{board}`  —— 现有分镜清单（往下拆 / 改分镜那一路才有）
+         · `{dur}`    —— 时长区间那句
+         · `{style}`  —— 风格后缀
+       末尾那两句（约束 + 素材规则）**保留**：Skill 没写变量时（内置那份就没写）行为与从前一样；
+       写了变量的 Skill 则由 Skill 自己决定这些料摆在哪儿 —— 程序不再替它硬塞。 */
+    const boardVars = BoardVars.vars({
+      what: v.script || '',
+      cast: BoardVars.castOf(SplitAssets.named()),
+      assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+      board: append ? boardListText(snapBoard(proj.scenes)) : '',
+      dur: boardDurNote(),
+      style: v.style || '',
+    });
     const sys = `${TL_SYS_COMMON}
-${splitSysOf()}
+${fillSkillVars(splitSysOf(), boardVars)}
 约束：由你决定拆几个镜头、每一镜多长。${boardDurNote()}${staged.rule}`;
     const ctx = append ? ('\n\n当前已有分镜（接着往下拆：沿用合适的场景名与画风、别重复已有的镜头）:\n' + boardListText(snapBoard(proj.scenes))) : '';
     /* 长剧本动辄十几二十秒：这里同样边收边显（面板挂在右栏提示词块下面，
@@ -2902,13 +3238,59 @@ ${splitSysOf()}
           who: String(s.speaker != null ? s.speaker : (s.who == null ? '' : s.who)).trim(),
           note: String(s.note || '').trim(),
           text: s.prompt || s.note || '',
+          /* AI 只在「必须紧接着上一镜落幅」时标 tail（见 split 的指令）；长镜头的第 2 段起
+             由下面的 splitLongShots 自动补上。落盘写 `sh.linkPrev`，生成时取上一镜尾帧当首帧。 */
+          chain: String(s.chain || '').trim() === 'tail' ? 'tail' : '',
           label: scName + ' · 镜头 ' + no + (dur ? '（' + dur + 's）' : '')
             + (String(s.line || '').trim() ? ' · 有台词' : ''),
         });
       });
     });
     if (!items.length) throw new Error('AI 输出里没有镜头');
-    return items;
+    /* 长镜头在**打开审查弹窗之前**按接续型号拆成几段：整段没有任何型号吃得下时才拆，
+       总秒数守恒、第 2 段起标 `chain:'tail'`，台词只在第 1 段。拆完的每一段都进同一个弹窗，
+       用户能看到「2/3」与「接上一镜」，也能在写入前删掉不想生成的段。 */
+    splitInfo = splitLongShots(items, {
+      models: chainModelList(), canDur: durWritable(), maxName: 12,
+    });
+    const out = splitInfo.items;
+    /* 全新短片的第一镜没有上一镜可接：AI 标了也接不上，抹掉，不留一条永远在等的标记。 */
+    if (!append && out.length && out[0].chain === 'tail') {
+      out[0] = Object.assign({}, out[0], { chain: '', chainModel: '' });
+    }
+    /* ---- 第 4 段：这份方案里有没有「该新建一条素材」的主体 ----
+       问的是**这一份方案本身**（不是原剧本）—— 判据是「在几个镜头里反复出现」，
+       那要看拆出来的镜头才知道。指令正文来自 Skill（contract `board_assets.json`），
+       判据（重复出现才算、名字要对得上、库里已有的不建）在 board-assets.js。
+       同样支持 Skill 正文里的变量（项目引用规则）：
+         · `{board}` —— 这一份分镜方案（要判「谁反复出现」就看它）
+         · `{cast}` —— 素材库里已经有的那些（已有的不建，要告诉 AI）
+         · `{assets}` —— 这一次选中的素材
+       问失败**不拦**这一趟拆分：照实报一句，按「不建新素材」继续 ——
+       与 SplitAssets.stage 现有的语义一致（没问成 ≠ AI 说不要）。 */
+    if (!newAssets) {
+      try {
+        setStatus('<span class="meta">正在看这份方案里有哪些要新建的素材…</span>');
+        const av = BoardVars.vars({
+          what: v.script || '',
+          cast: BoardVars.castOf(SplitAssets.named()),
+          assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+          board: boardListOfItems(out),
+          dur: boardDurNote(),
+          style: v.style || '',
+        });
+        newAssets = await BoardAssets.stage({
+          reg: REG, shots: out, existing: SplitAssets.named(),
+          sys: fillSkillVars(TextAI.prompt('board_assets'), av),
+          text: boardListOfItems(out),
+          TextAI: window.TextAI, parseJsonLoose,
+        });
+      } catch (e) {
+        newAssets = { raw: [], plan: [], skipped: [], warn: '没问成新素材（' + errText(e) + '），这一次不建新素材' };
+        Toast.warn(newAssets.warn);
+      }
+    }
+    return out;
   };
   let items;
   try { setStatus(append ? 'AI 正在往下拆分镜…（先读一遍现有分镜）' : 'AI 正在拆解分镜…（长剧本可能需要十几秒）'); items = await ask(); }
@@ -2920,6 +3302,10 @@ ${splitSysOf()}
        区间来源不写明，「时长 5–10 秒」看着就像替某一家编的。 */
     sub: ((draft && draft.title ? ['短片名：' + draft.title] : [])
       .concat([softShotsNote(v.script, items.length), boardDurSub(),
+        splitInfo && splitInfo.note ? splitInfo.note : '',
+        splitInfo && splitInfo.impossible.length
+          ? '其中 ' + splitInfo.impossible.length + ' 个长镜头没有能拆成合法接续片段的型号，已原样保留（写入后按各自型号上限夹回）'
+          : '',
         staged.sub, '按场景分组，可逐条改名字、秒数、提示词与台词'])).filter(Boolean).join(' · '),
     items, applyLabel: append ? '追加到当前短片' : '新建短片',
     /* 这句不是把 sub 里那句「可逐条改」再说一遍：sub 说的是**这个弹窗里**能做什么，
@@ -2932,6 +3318,17 @@ ${splitSysOf()}
     /* 台词与说话人一起列出来：AI 已经按剧本填了 `line` / `speaker`，
        先看得见、能改，再点「新建短片」；点写入后才落到 `sh.line` / `sh.lineWho`。 */
     lineEditable: true,
+    /* 「待建素材」那块（可逐条改 / 可删）：确认后建档到项目组同名素材组 + 出图 + 绑音色描述。
+       这一块的内容是**第 4 段**问出来的（哪些角色/场景/物品会重复出现）。 */
+    assetEditable: true,
+    assets: (newAssets && newAssets.plan) || [],
+    onAssets: (list) => { chosenAssets = list || []; },
+    retryAssets: async () => {
+      /* 「重新规划」时重问一遍新素材（与镜头那一次同一个 ask()）。 */
+      newAssets = null;
+      await ask();
+      return (newAssets && newAssets.plan) || [];
+    },
   });
   /* 空数组也要当「没采纳」接住：openList 的确认会把正文为空的条目滤掉，
      全部被滤掉时它给的是一份空表而不是 null（只看 !reviewed 会带着空表往下走）。 */
@@ -2956,6 +3353,14 @@ ${splitSysOf()}
     sh3.line = String(row.line || '').trim();
     sh3.lineWho = String(row.who || '').trim();
     sh3.note = String(row.note || '').trim();
+    /* 接上一镜（拆分长镜头的第 2 段起 / AI 明确标了的镜头）：拆的时候挑好的接续型号一起落下，
+       没带型号的（AI 手写 `chain`）由 `ensureChainModel` 现挑一个能接首帧的。
+       显式首帧永远优先 —— 这一路还没有首帧，等生成时解析上一镜尾帧。 */
+    sh3.linkPrev = row.chain === 'tail' ? 'tail' : '';
+    /* 拆分长镜头的每一段（包括第 1 段）都按拆的时候挑的型号落：那几段的秒数就是照它的区间分的，
+       第 1 段若退回别的型号，落盘后的夹取会把「总秒数守恒」拆掉。 */
+    if (row.chainModel) { sh3.model = String(row.chainModel); sh3.modelAuto = 'chain'; }
+    if (sh3.linkPrev) ensureChainModel(sh3);
     if (v.style) sh3.prompt = (sh3.prompt + '，' + v.style).trim();
     sc.shots.push(sh3);
   });
@@ -2968,8 +3373,28 @@ ${splitSysOf()}
      等于让用户以为台词已经进配音轨了（它没有，也永远不该由拆分镜自己发请求）。 */
   const linedN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => (x.line || '').trim()).length, 0);
   const lineNote = linedN ? lineLandedNote(linedN) : '';
+  /* 接续镜的报数与「首帧从哪来」写在同一句里：用户看见「接上一镜」这四个字，
+     但真正要告诉他的下一句是「你不用手动填首帧，生成时自动取」。 */
+  const chainN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => x.linkPrev === 'tail').length, 0);
+  const chainNote = chainN ? '，其中 ' + chainN + ' 镜接上一镜尾帧（生成时自动取首帧）' : '';
   /* 素材图挂在场景图**之后**：两者抢的是同一批参考图名额，先让「这一场的图」占位，
      素材那几张带不上时会照实报「参考图最多 N 张」，而不是静默少带几张。 */
+  /* ---- 新素材（用户认下的那几条）：建档 + 占位符 ----
+     建档落在**当前短片所在的项目组**同名素材组里（组名即素材组名）。
+     出图**不在这里自动发**：出图要花钱，按 §6.2「任务号一落盘就等于一次已付的钱」，
+     留给用户在素材库里点「生成素材图」—— 这里只把档建好、把提示词里的占位符写上。 */
+  const allShots = newScenes.flatMap(sc => sc.shots || []);
+  const assetGroup = Groups.assetGroupName(WS, proj);
+  const landed = landNewAssets(chosenAssets || [], assetGroup);
+  const pendingMarked = markPendingTokens(allShots, landed.saved);
+  const assetNote = landed.saved.length
+    ? '，新建素材 ' + landed.saved.length + ' 条（'
+      + (landed.group ? '组「' + landed.group + '」' : '未分组') + '，出图后自动补进参考图）'
+    : (landed.failed.length ? '，有 ' + landed.failed.length + ' 条素材没建出来' : '');
+  if (landed.failed.length) {
+    Toast.warn('有素材没建出来：' + landed.failed.map(f => f.name + '（' + f.why + '）').join('、'));
+  }
+  if (landed.why) Toast.warn(landed.why);
   if (append) {
     /* 追加要保住场景划分（判据在 placeScenesInto 那一份，探针问的就是它）：
        以前是 `newScenes.forEach(sc => cur.shots.push(...sc.shots))` —— AI 拆出来的几个场景
@@ -2978,8 +3403,8 @@ ${splitSysOf()}
     proj.curScene = r0.at; proj.curShot = 0;
     reportScenePics(r0.pics,
       `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : '')
-      + lineNote + clampNote(clamped),
-      SplitAssets.bind(newScenes.flatMap(sc => sc.shots || []), staged.picked));
+      + chainNote + lineNote + assetNote + clampNote(clamped),
+      SplitAssets.bind(allShots, staged.picked));
   } else {
     let added = 0, why = '';
     newScenes.forEach(sc => {                        // 新短片：场景本身还没有图，于是认素材库里同名那条
@@ -2990,8 +3415,8 @@ ${splitSysOf()}
     WS.projects.push(np);
     switchProject(np.id);
     reportScenePics({ added: added, why: why },
-      `已新建短片「${np.name}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头` + lineNote + clampNote(clamped),
-      SplitAssets.bind(newScenes.flatMap(sc => sc.shots || []), staged.picked));
+      `已新建短片「${np.name}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头` + chainNote + lineNote + assetNote + clampNote(clamped),
+      SplitAssets.bind(allShots, staged.picked));
   }
   renderAll(); scheduleSave();
 }
@@ -3005,11 +3430,23 @@ async function aiBoardEdit(v) {
     /* 这一档没有剧本，用来挑素材的那句话就是上面那一格填的「修改要求」；
        没填时 stage 会说「没给出用来挑素材的话，这一次没问」，而不是假装挑了 0 条。 */
     if (!staged) {
-      staged = await SplitAssets.stage(REG, want, v.assetSrc);
+      staged = await SplitAssets.stage(REG, want, v.assetSrc, v.refRule);
       if (staged.warn) Toast.warn(staged.warn);
     }
+    /* 同样支持 Skill 正文里的变量（项目引用规则）：
+       `{what}` = 这一次的修改要求、`{board}` = 现有分镜清单、
+       `{cast}` = 本项目素材库里的角色 / 场景 / 物品、`{assets}` = 这次选中的素材、
+       `{dur}` = 时长区间那句、`{style}` = 风格后缀。 */
+    const boardVars = BoardVars.vars({
+      what: want || '',
+      cast: BoardVars.castOf(SplitAssets.named()),
+      assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+      board: boardListText(snap),
+      dur: boardDurNote(),
+      style: v.style || '',
+    });
     const sys = `${TL_SYS_COMMON}
-${boardEditSysOf()}
+${fillSkillVars(boardEditSysOf(), boardVars)}
 约束：改几处、加几镜由你决定，不必凑数。${boardDurNote()}${staged.rule}`;
     const msg = '当前分镜清单（下面的序号就是改动要用的序号）:\n' + boardListText(snap)
       + '\n\n修改要求：' + (want || '（没有具体说改哪里）把写得不够好的提示词整体优化一遍');
@@ -3040,6 +3477,9 @@ ${boardEditSysOf()}
   });
   if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
   const r = applyBoardPlan(reviewed, proj.scenes);
+  /* 「接上一镜」写入后落到一个支持首帧的型号上：`applyBoardPlan` 只管数据，
+     型号是对着能力声明挑的（`chainModelList`），属于页面这一层。 */
+  r.touched.forEach(sh => ensureChainModel(sh));
   if (r.at) { proj.curScene = r.at.scene; proj.curShot = r.at.shot; }
   renderAll(); scheduleSave();
   reportScenePics(r.pics, '已改 ' + r.upd + ' 个镜头'
@@ -3047,6 +3487,8 @@ ${boardEditSysOf()}
     + (r.del ? '、删掉 ' + r.del + ' 个镜头' : '')
     + (r.mov ? '、挪动 ' + r.mov + ' 个镜头' : '')
     + (r.newScenes ? '、新开 ' + r.newScenes + ' 个场景' : '')
+    + (r.chained ? '、' + r.chained + ' 镜改为接上一镜尾帧' : '')
+    + (r.unchained ? '、' + r.unchained + ' 镜取消接续' : '')
     /* 「带上了台词」这句必须跟着指出落点：用户不知道点哪儿就等于没给。
        话里不写「已合成」—— 这一次一个字都没合成（计费只在用户点「合成并加到这一轨」那一下）。 */
     + (r.lined ? lineLandedNote(r.lined) : '')
@@ -3556,7 +3998,7 @@ window.__spaFlush = () => {
   saveTimer = null;
   try {
     if (!WS || !Array.isArray(WS.projects)) return;
-    const rec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, ts: Date.now() };
+    const rec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, groups: WS.groups, ts: Date.now() };
     try {
       localStorage.setItem(K_WS_UNLOAD, JSON.stringify({ ts: rec.ts, data: rec }));
       wsFlushOk = true;
@@ -3584,7 +4026,7 @@ function scheduleSave() {
     }
     undoPushed = false;
     try {
-      const wsRec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, ts: Date.now() };
+      const wsRec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, groups: WS.groups, ts: Date.now() };
       await wsKv.put('workspace', wsRec);
       lastSavedJson = snap;
       $('saveState').textContent = '已保存到本地';
@@ -4224,6 +4666,20 @@ function pollLive(t) {
    这一处只管两件事：同一个候选不投第二遍、把候选形状翻成公共字段。
    地址有没有、是不是本地导入的候选（la_ 号 / /asset/la_）由 `AssetLocal.announce` 判
    —— 那一道闸四个生产点共用一份（见 local.js 的 announce 说明）。 */
+/* 这一条候选的素材名（不带扩展名）：`场景01-雨夜街头_镜头03-推门_候选2`。
+   本机索引名、另存文件名、FCPXML 媒体包名都用它 —— 三处同源才不会出现
+   「素材库里叫一个名、包里的 media/ 又叫另一个名」。找不到所属镜头时交空串，
+   `AssetLocal.nameOf` 会回落到提示词前缀（导入 / 历史条目的原行为）。 */
+function candidateAssetBase(c) {
+  const sh = allShots().find(x => (x.candidates || []).indexOf(c) >= 0);
+  const ctx = sh ? shotCtxOf(proj, sh) : null;
+  return ctx ? candidateBase(ctx, candidateIndex(sh, c)) : '';
+}
+function voiceAssetBase(v, shRef) {
+  const sh = shRef || allShots().find(x => x.id === (v && v.shotId));
+  const ctx = sh ? shotCtxOf(proj, sh) : null;
+  return ctx ? voiceBase(ctx, voiceIndex(proj, v)) : '';
+}
 function announceAssetDone(c) {
   if (!c || c._mirrorAnnounced) return;
   const src = String(c.url || (c.assetId ? Api.assetSrc(c.assetId) : ''));
@@ -4232,6 +4688,7 @@ function announceAssetDone(c) {
   window.AssetLocal.announce([{
     kind: 'asset', provider: c.provider || '', assetId: c.assetId || '', genId: c.vid || '',
     type: '视频', format: c.format || 'mp4', status: 'done', src,
+    name: candidateAssetBase(c),                // base，不带扩展名（见 local.js 的 nameOf）
     prompt: c.prompt || '', model: c.model || '', tier: c.tier || '', res: c.res || '', ar: c.ar || '',
     duration: c.duration ?? null, credits: c.credits ?? null, priceMicros: c.priceMicros ?? null,
     currency: c.currency || '', priceText: c.priceText || '', gstatus: c.gstatus || c.status || '',
@@ -4319,6 +4776,9 @@ function pollOne(t) {
     throw e;
   }).finally(() => {
     sortCandidates(sh);                                  // 生成的往前排、排队的往后排
+    /* 这一条刚落定（出画面 / 失败）就叫醒等它尾帧的接续镜：批量执行器挂在 `waitShotDone`
+       上，晚一轮就是一个轮询间隔的白等；重复调用无副作用（`settleShot` 只认落定状态）。 */
+    settleShot(sh);
     saveScheduleSoft();
     /* 左栏只在真的变了时才重画（见上面 dStatus 那段）：一次 tick 里 K 条候选最多合并成
        一次渲染（renderScenesSoon 的 350 ms 防抖），而「什么都没变」时一次都不画。 */
@@ -4365,6 +4825,7 @@ function pushPlaceholders(sh, count) {
 async function submitCandidate(sh, ph) {
   const p = String((ph && ph.prompt != null && String(ph.prompt).trim()) ? ph.prompt : sh.prompt).trim();
   ph.prompt = p;                                 // 记下这条用的描述（方便回看/复用）
+  ensureChainModel(sh);                          // 接续镜头先落到支持首帧的型号上，再问能力与报价
   const rm = resolvedModel(sh);
   if (!rm) throw new Error('没有支持这一镜素材的型号（当前输入：' +
     (shotUsedRoles(sh).map(r => ROLE_ZH[r] || r).join(' / ') || '纯文字') + '）：换一个支持它的型号，或清空这组素材');
@@ -4380,7 +4841,6 @@ async function submitCandidate(sh, ph) {
   /* 这一镜手上的素材（提交与归档文案都按同一份数）：画面切片只数真的有资产号的，
      生成失败或被删掉的不能算「已带上」。 */
   const kfs = shotKeyframes(sh);
-  const nFrame = (sh.firstFrame ? 1 : 0) + (sh.lastFrame ? 1 : 0);
   /* @名字 → @参考图N → 平台声明的引用语法。归档那一份存的是**原始**描述（还是 @名字，
      人看得懂、复用也方便），只有真正发出去的 body 用转换后的。 */
   const pApi = applyRefSyntax(refTokenize(sh, p), prov);
@@ -4389,18 +4849,6 @@ async function submitCandidate(sh, ph) {
   const ex = shotAdvExtras(sh);
   const ctxAdv = shotAdvCtx(sh);
   const cbAdv = shotCombo(sh);
-  /* 归档到提示词文件夹时要写在文件头里的信息：存**原始**描述（含 @参考图N 的写法，
-     比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog
-     「输入模式」也要记：同一句提示词在「智能参考」与「视频换人」下发出去的是两种请求、
-     两种价，隔一个月回看这个文件的人（往往就是用户自己）得知道当时按哪一种出的。 */
-  const log2 = { type: '导演台-分镜', prompt: p, meta: {
-    镜头: sh.name || '', 模型档位: sh.tier, 分辨率: sh.res, 画幅: sh.ar, 尺寸: sh.size || '',
-    时长: sh.duration ? sh.duration + 's' : '',
-    输入模式: cbAdv ? comboLabel(cbAdv) : '',
-    顶层参数: ex.summary,
-    参考素材: [nFrame ? nFrame + ' 帧' : '', kfs.length ? kfs.length + ' 关键帧' : '',
-      (sh.refImages || []).length ? sh.refImages.length + ' 参考图' : '',
-      sh.refVideo ? '参考视频' : '', sh.refAudio ? '参考音频' : ''].filter(Boolean).join(' / ') } };
   try {
       // 放在 try 里：抛错时占位候选会被标成「失败」，不会留下一堆排队中的僵尸占位
       if (gapLines.length) throw new Error(gapLines.join('；') + '（' + (rm.name || modelId) + '）');
@@ -4417,15 +4865,33 @@ async function submitCandidate(sh, ph) {
         ref.preparedFor = prov.id;
         scheduleSave();
       }
+      /* 接上一镜尾帧：只在这一刻解析（上一镜可能刚刚跑完），显式首帧优先。
+         解析结果只做内存缓存，不写工程、不落盘。失败会落进下面的 catch，把这条占位标成失败。 */
+      const chainFrame = (sh.linkPrev === 'tail' && !sh.firstFrame) ? await resolveChainFrame(sh) : null;
+      const nFrame = (sh.firstFrame ? 1 : 0) + (sh.lastFrame ? 1 : 0) + (chainFrame ? 1 : 0);
+      /* 归档到提示词文件夹时要写在文件头里的信息：存**原始**描述（含 @参考图N 的写法，
+         比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog
+         「输入模式」也要记：同一句提示词在「智能参考」与「视频换人」下发出去的是两种请求、
+         两种价，隔一个月回看这个文件的人（往往就是用户自己）得知道当时按哪一种出的。 */
+      const log2 = { type: '导演台-分镜', prompt: p, meta: {
+        镜头: sh.name || '', 模型档位: sh.tier, 分辨率: sh.res, 画幅: sh.ar, 尺寸: sh.size || '',
+        时长: sh.duration ? sh.duration + 's' : '',
+        输入模式: cbAdv ? comboLabel(cbAdv) : '',
+        顶层参数: ex.summary,
+        参考素材: [nFrame ? nFrame + ' 帧' : '', chainFrame ? '接上一镜尾帧' : '',
+          kfs.length ? kfs.length + ' 关键帧' : '',
+          (sh.refImages || []).length ? sh.refImages.length + ' 参考图' : '',
+          sh.refVideo ? '参考视频' : '', sh.refAudio ? '参考音频' : ''].filter(Boolean).join(' / ') } };
       /* 提交体完全交给 `Api.createBody` + registry 声明（与生成工作台同一条路）：
          标准字段往哪个上游字段名映射、哪些要嵌进 parameters、顶层开关与形状字段怎么过滤、
          素材按什么形状进请求体，全是声明里的事，页面不抄第二份。 */
       const v = await Api.request(prov, 'create', { method: 'POST', log: log2,
+        snapTag: 'dir:shot:' + sh.id, snapLabel: sh.name || '',
         body: Api.createBody(prov, {
           model: modelId, prompt: pApi, tier: sh.tier, duration: sh.duration || undefined,
           res: sh.res, ar: sh.ar, size: sh.size,
           note: sh.name || '',                       // 只有声明了 acceptsNote 的那一族会真的带上（见 Api.createBody）
-          inputEntries: await shotInputEntries(sh, prov, icSub),
+          inputEntries: await shotInputEntries(sh, prov, icSub, chainFrame),
           /* `creation_intent` 是**上游真字段**（省略 = 普通生成，person_replacement = 动作换人）；
              `mode` 不是字段 —— 平台按送上来的素材自己推断，多发一个 mode 必被拒（实测），
              它只当声明里 when / hide 的上下文走 `shape` 递进 createBody，永远不进请求体。
@@ -4454,6 +4920,9 @@ async function submitCandidate(sh, ph) {
     ph.status = 'failed';
     ph.error = (e && e.maybeSubmitted ? '提交结果未知（平台可能已受理，重拍会再扣一次费）：' : '') + errText(e);
     if (e && e.maybeSubmitted) Toast.warn('这条提交结果未知：平台可能已经建好任务，先刷新候选，别急着重拍');
+    /* 这一镜可能已经没有任何在跑的候选了：等它尾帧的接续镜不能干等到轮询下一轮
+       （提交阶段就失败的那一条根本不会被轮询碰到）。 */
+    settleShot(sh);
     renderAll(); scheduleSave();
     throw e;
   }
@@ -4503,21 +4972,6 @@ function spawnCandidateShot(sh) {
   proj.curCand = 0;
   return ns;
 }
-/* 简易并发池：同时最多 limit 个在跑；单个任务失败只记录，不影响其它任务 */
-async function runPool(items, limit, worker) {
-  const out = new Array(items.length);
-  let cursor = 0;
-  const n = Math.max(1, Math.min(limit || 1, items.length));
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      try { out[i] = { ok: true, value: await worker(items[i]) }; }
-      catch (e) { out[i] = { ok: false, error: e }; }
-    }
-  }));
-  return out;
-}
-
 /* ---------- 渲染：左栏 ---------- */
 /* 缩略图与首帧缓存：统一走 workbench.js 的 Wb.thumbs（全站一份实现）
    —— 以前这四个页面各写一份，连缓存用的 IndexedDB 库都不一样。
@@ -7195,6 +7649,9 @@ function openPendingVoice(sh) {
      上一句的参考音频要是留在这一格里，合成出来会是另一个人的声音，而且真扣费。 */
   if (voiceDraft.text !== p.text) { voiceDraft.design = ''; voiceDraft.ref = null; }
   voiceDraft.text = p.text;
+  /* 说话人跟着这一句（换一句就换一个人）——
+     「把这一格的声音描述存回素材库」靠它找素材库里那一位。 */
+  voiceDraft.who = p.who || '';
   renderAll();
   prefillVoiceWho(p.who).then(note => {
     if (curShot() !== sh) return;
@@ -7647,7 +8104,10 @@ function bindFilmReorder(scope, col, tl, total, g) {
 /* `ref` = 复刻（clone）用的那条参考音频（资产库 / 收藏 / 本机文件挑来的那一条）。
    它和 `voiceFile`（「放一条本机音频」）不是一回事：那一个把**成品音频**铺到轨上当配音，
    这一个把音色**素材**发给平台，让平台按它现造一把嗓子。 */
-let voiceDraft = { text: '', voice: '', format: '', design: '', ref: null, bools: {}, tb: {} };
+/* `who` = 这一句的说话人（从台词那一份拿的）——
+   「把这一格的声音描述存回素材库」靠它找人（素材库那一位与说话人同名）。
+   没有说话人时那颗按钮是禁用的（存回去也存不到谁身上）。 */
+let voiceDraft = { text: '', voice: '', format: '', design: '', ref: null, bools: {}, tb: {}, who: '' };
 /* 右栏配音区那四个小选项（用户点名的第 ③ 条）：一次只露一格内容，节点不销毁。
    默认「这一镜上的配音」；点中轨上一句换成「音量与倍速」，点台词那一档换成「台词」，
    点空白 / 待生成占位换成「生成配音」（三个落点各写一次，见 selectVoice / bindPinZone / bindPendingLane）。 */
@@ -8038,11 +8498,17 @@ function renderVoiceCol(col, sh) {
              同一个人的声音在两页各写一句，迟早两种说法。 -->
         <div class="btn-row" style="margin-top:4px">
           <button class="ghost" id="voiceDesignPick" title="从素材库挑一位，把它身上写的那段音色描述填到这里">${icon('users', 14)} 取一位素材的音色描述</button>
+          <!-- 写回素材库：这一格填的描述只在这一次配音里，下一集还要再写一遍 ——
+               写回去之后，素材库那一位就有了它（下一集/下一镜自动能取到）。
+               判据与落点都在 Chars.Pipe.saveVoiceNote（按名字找人；已有描述不覆盖）。
+               ⚠ 这段注释里不要用反引号：它在一个模板字符串里面，加反引号就是把字符串当场截断。 -->
+          <button class="ghost" id="voiceDesignSave" title="把这一格的声音描述写回素材库里同名的那一位（以后这一位都用它）"${voiceDraft.who ? '' : ' disabled'}>${icon('check', 14)} 存回素材库</button>
         </div>` : ''}
       ${way.mode === 'clone' ? `
         <div class="ed-label" style="margin-top:14px"><span>音色素材（参考音频）</span><span class="cnt">这一家按参考音频复刻音色</span></div>
         <div class="btn-row">
           <button class="tool" id="voiceRefPick">${icon('mic', 14)} ${voiceDraft.ref ? '换一条参考音频' : '选参考音频'}</button>
+          <button class="tool" id="voiceRefFromLib" title="拿素材库里另一位挂着的参考音频当这一句的嗓子（走公共层 VoiceNote.runClone，与素材库页那一条同一条链）">${icon('users', 14)} 用素材的声音克隆</button>
           ${voiceDraft.ref ? `<button class="ghost" id="voiceRefDel">去掉这一条</button>` : ''}
         </div>
         <div class="hint" id="voiceRefName" style="margin-top:4px">${voiceDraft.ref
@@ -8072,6 +8538,7 @@ function renderVoiceCol(col, sh) {
       <div class="ui-note err" style="margin-top:8px">上一次合成这一家回了「余额 / 额度不够」（这只是上一轮的回执，<b>不会拦你</b> —— 再点一次照样真发请求）
         <button class="tool mini" id="voiceBalGo" style="margin-left:6px">去「用量与余额」</button></div>` : ''}
       <div class="hint">合成会真的发一次请求（按这一家的计费走），所以点第二下才确认。合成后它是轨道上的块：点它选中，切头尾与删掉都在那根剪辑条上，音量在那张卡的滑块上。</div>
+      ${window.RawRequest ? RawRequest.liveHTML('dir:voice:' + sh.id) : ''}
       </div>
       <div class="grp" id="grpSub">
       <!-- 「字幕」：entries 是候选源秒，显示与导出都走 mapToFilm。
@@ -8250,9 +8717,11 @@ function renderVoiceCol(col, sh) {
        于是敲第一个字就把声明的区间从界面上抹掉了 —— 初像里有、打一个字就没有的读数等于没说。 */
     if (cnt) cnt.textContent = window.CharLimits.cntLine(vt.value, vB);
     paintVoiceGate();
+    /* 「将要发出的请求」跟着改：这句话是要真发出去的那段文字。 */
+    refreshVoicePreview(sh);
   };
   const vd = col.querySelector('#voiceDesign');
-  if (vd) vd.oninput = () => { voiceDraft.design = vd.value; paintVoiceGate(); };
+  if (vd) vd.oninput = () => { voiceDraft.design = vd.value; paintVoiceGate(); refreshVoicePreview(sh); };
   /* 取一位素材身上写好的音色描述填进这一格。整链（开哪一档、空描述怎么说、覆盖前先问一句）
      在公共层 `VoiceNote.run` —— 生成工作台那一格走的是同一条链，两处各拼一份迟早有一种说法在骗人。 */
   const vdp = col.querySelector('#voiceDesignPick');
@@ -8261,6 +8730,16 @@ function renderVoiceCol(col, sh) {
     write: t => { vd.value = t; voiceDraft.design = t; paintVoiceGate(); },
     say: setStatus,
   });
+  /* 「存回素材库」：把这一格的声音描述写回素材库里同名的那一位 ——
+     以后这一位（以及下一集、下一镜）都用它，不用每处重写一遍。
+     判据与落点都在 `Chars.Pipe.saveVoiceNote`（按名字找人；已有描述不覆盖 —— 说得清为什么没写）。 */
+  const vds = col.querySelector('#voiceDesignSave');
+  if (vds) vds.onclick = () => {
+    const r = Chars.Pipe.saveVoiceNote(voiceDraft.who, voiceDraft.design);
+    if (!r.ok) { setStatus('<span class="err">' + esc(r.why) + '</span>'); return; }
+    setStatus('<span class="ok">✓ 已把这段声音描述存回素材库「' + esc(r.name) + '」（以后这一位都用它）</span>');
+    renderEditor();
+  };
   const vpb = col.querySelector('#voicePolishBtn');
   if (vpb) vpb.onclick = () => polishVoiceText(col);
   const vrp = col.querySelector('#voiceRefPick');
@@ -8292,6 +8771,23 @@ function renderVoiceCol(col, sh) {
   };
   const vrd = col.querySelector('#voiceRefDel');
   if (vrd) vrd.onclick = () => { voiceDraft.ref = null; renderEditor(); };
+  /* 「用素材的声音克隆」：拿素材库里**另一位**挂着的参考音频当这一句的嗓子。
+     走公共层 `window.VoiceNote.runClone`（与素材库页那一条同一条链：选择器、措辞、名单都一份）。
+     落点仍是 `voiceDraft.ref` —— 与上面「选参考音频」同一个槽位，所以下游（合成那一下）
+     一行都不用改。 */
+  const vrl = col.querySelector('#voiceRefFromLib');
+  if (vrl) vrl.onclick = async () => {
+    await window.VoiceNote.runClone({
+      apply: (entry) => {
+        const src = String((entry && entry.refAudio) || '').trim();
+        if (!src) { setStatus('<span class="err">那一位没有挂参考音频 —— 先到素材库给她挂一段</span>'); return; }
+        voiceDraft.ref = { assetId: src, src: src, name: (entry.name || '那一位') + ' · ' + (entry.refAudioName || '参考音频'), file: null };
+        setStatus('<span class="ok">✓ 已用「' + esc(voiceDraft.ref.name) + '」当这一句的嗓子（点「合成并加到这一轨」才会真发请求）</span>');
+        renderEditor(); scheduleSave();
+      },
+      say: html => setStatus(html),
+    });
+  };
   const vbg = col.querySelector('#voiceBalGo');
   if (vbg) vbg.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.href = 'usage.html'));
   /* 孤句搬回选用的那一条：只换锚点，不动音频文件本身，所以不重复计费、也不新建任务。
@@ -8390,6 +8886,9 @@ function renderVoiceCol(col, sh) {
   if (sMc) sMc.onchange = () => subStyleWrite(sh, { maxCharsPerEntry: Number(sMc.value) || 24 }, '改字幕每行字数');
   const sHl = col.querySelector('#subHl');
   if (sHl) sHl.onchange = () => subStyleWrite(sh, { highlight: !!sHl.checked }, '改字幕高亮');
+  if (window.RawRequest) RawRequest.bind(col);
+  /* 声音栏画完算一次「这一句将要发出什么」：用户还没点合成就能看到实际会发什么。 */
+  refreshVoicePreview(sh);
   if (window.Dropdowns) Dropdowns.build(col);
 }
 /* 复刻用的参考音频 → base64 data URL（接口收的就是它，不是地址）。
@@ -8427,9 +8926,10 @@ async function addVoiceEntry(src, sh, c, extra) {
   /* 这一条音频若还是第三方外链（导入的 FCPXML / 平台返回的临时地址），顺手存一份到本机：
      配音导出与 waveform 解码都读得到字节，不靠会过期的链接。 */
   if (needsLocal(v.src)) {
+    const nm = voiceAssetBase(v) || v.name || '配音';
     autoLocalize([{
-      entry: { kind: 'asset', provider: v.provider || 'remote', src: v.src, name: v.name },
-      name: v.name || '配音',
+      entry: { kind: 'asset', provider: v.provider || 'remote', src: v.src, name: nm },
+      name: nm,
       apply: url => { v.src = url; scheduleSave(); },
     }]);
   }
@@ -8478,6 +8978,13 @@ async function addVoiceAtPin() {
       }
       r = await AiGen.synthTts(target.prov, {
         model: target.model.id || target.model.name, text,
+        snapTag: 'dir:voice:' + sh.id, snapLabel: sh.name || '',
+        /* 落盘名与画面素材同一套（场景 + 镜头），`synthTts` 只补扩展名：
+           FCPXML 媒体包里的配音文件因此与本机素材库里的是同一个名字。 */
+        name: (() => {
+          const vctx = shotCtxOf(proj, sh);
+          return vctx ? voiceBase(vctx, ((proj.voices || []).length + 1)) : '';
+        })(),
         style: way.mode === 'design' ? String(voiceDraft.design || '').trim() : '',
         voice: voiceValue, format: voiceDraft.format,
         /* 合成设置里的顶层开关（create.topBools）：与工作台语音栏同一个读法（TtsAdv.read），
@@ -8514,6 +9021,41 @@ async function addVoiceAtPin() {
   setStatus('<span class="err">' + esc(way.why) + '</span>');
 }
 
+
+/* 这一句配音**将要发出**的请求体（dry-run：一个网络请求都不发）。
+   字段与 `addVoiceAtPin` 里那一句**同一份**（同一个 `voiceDraft` + 同一个 `way`），
+   参考音频那一档用占位说明（真发时才会把那段 base64 交给平台）。
+   算不出来就抛 —— 原因照实说，不显示空 JSON。 */
+function voicePreviewBody() {
+  const way = voiceWayOf(voiceReg(), proj.voiceModel || '');
+  if (!way || !way.target || !way.target.prov) return null;
+  const target = way.target;
+  const text = String(voiceDraft.text || '').trim();
+  if (!text) return null;
+  /* 复刻那一档的参考音频是 base64（几百 KB）：预览里换一句占位说明，
+     否则整段塞进 DOM 会把页面拖死（`Api.snapOf` 也会压，但先压一次更省）。 */
+  const voiceValue = way.mode === 'preset' ? (voiceDraft.voice || '')
+    : (way.mode === 'clone' ? '<参考音频（发送时才交给平台）>' : '');
+  const pv = AiGen.previewTts(target.prov, {
+    model: target.model.id || target.model.name, text,
+    style: way.mode === 'design' ? String(voiceDraft.design || '').trim() : '',
+    voice: voiceValue, format: voiceDraft.format,
+    bools: window.TtsAdv.read(target.prov, { mode: '', intent: '', caps: null }, voiceDraft.tb).topBools,
+  });
+  return { label: '', provider: target.prov.id || '',
+    providerName: target.prov.displayName || target.prov.name || '',
+    endpoint: 'create', method: pv.method, path: pv.path, body: pv.body };
+}
+/* 刷新声音栏的预览（去抖 + 防乱序由 RawRequest.schedule 管）。
+   算不出来（还没写要念的话 / 还没选型号）就保持上一份，**不显示空 JSON**。 */
+function refreshVoicePreview(sh) {
+  if (!sh || !window.RawRequest || !RawRequest.schedule) return;
+  const tag = 'dir:voice:' + sh.id;
+  RawRequest.schedule(tag, () => {
+    const v = voicePreviewBody();
+    return v || null;
+  });
+}
 
 /* 润色「要念的话」：走公共 InlinePolish 面板 + 全站同一套朗读稿提示词（TextAI.prompt('audio')）。
    与生成工作台语音栏那颗「AI 润色」是同一个面板、同一句系统提示词 ——
@@ -8739,11 +9281,14 @@ function refVideoThumbSrc(ref) {
   if (id && sameAssetSpace(ref.provider, assetStoreId())) return Api.assetSrc(id);
   return ref.src ? Api.mediaSrc(ref.src) : '';
 }
-/* 这一镜已经用到的输入 role（keyframes 与参考图同属 reference_image：提交时二选一） */
+/* 这一镜已经用到的输入 role（keyframes 与参考图同属 reference_image：提交时二选一）。
+   接上一镜尾帧（`linkPrev === 'tail'`）且用户没显式放首帧时，提交一定会带一张隐式首帧 ——
+   这里要算进去：型号筛选按同一份 role 走，漏了就会挑出「不收首帧」的型号，
+   提交时才在 `shotInputEntries` 里报错，而界面上从头到尾看不出为什么。 */
 function shotUsedRoles(sh) {
   if (!sh) return [];
   const used = [];
-  if (sh.firstFrame) used.push('first_frame');
+  if (sh.firstFrame || sh.linkPrev === 'tail') used.push('first_frame');
   if (sh.lastFrame) used.push('last_frame');
   if ((sh.refImages || []).length || (sh.keyframes || []).some(k => k.assetId)) used.push('reference_image');
   if (sh.refVideo) used.push('reference_video');
@@ -8788,7 +9333,9 @@ function setShotCombo(sh, id) {
 function shotRoleCounts(sh) {
   if (!sh) return {};
   return {
-    first_frame: sh.firstFrame ? 1 : 0,
+    /* 隐式首帧（接上一镜尾帧）计 1：模式判据与提交体必须读同一份数，
+       否则「视频换人」这类要求首帧的档会被判成缺料，按钮怎么点都不亮。 */
+    first_frame: (sh.firstFrame || sh.linkPrev === 'tail') ? 1 : 0,
     last_frame: sh.lastFrame ? 1 : 0,
     reference_image: (sh.refImages || []).filter(Boolean).length + shotKeyframes(sh).length,
     reference_video: sh.refVideo ? 1 : 0,
@@ -8856,6 +9403,55 @@ function shotInputCaps(sh) {
      界面那句说明、按钮禁用、提交前的拦截读的都是同一个对象，不会出现三处各算一遍。 */
   caps.gaps = shotGaps(sh);
   return caps;
+}
+
+/* ==================== 发送前的请求预览（dry-run） ====================
+   「这一镜按生成会发出什么」—— 用户要的是**发送前**就能看到实际发出的提示词与配置。
+   拼体完全交给 `Api.preview`（与 `Api.create` 同一段 `buildBody`，不会走岔）；
+   素材槽位用**占位符**（真发时才把图传到平台，预览不能触发那次上传），
+   那一段判据在 `board-preview.js`。
+   刷新时机：右栏重画（改了提示词 / 型号 / 参数 / 素材）与输入框改动都走这里。 */
+const BoardPreview = createBoardPreview({
+  nameKey: window.nameKey, shotKeyframes, Api, ROLE_ZH,
+});
+/* 这一镜将要发出的请求体（压成可展示形状）。算不出来就抛 —— 原因照实说，
+   不返回空 JSON（空 JSON 会被读成「这次没有请求体」）。 */
+function shotPreviewBody(sh) {
+  const rm = resolvedModel(sh);
+  if (!rm) throw new Error('这一镜还没有能用的型号');
+  const prov = needProv(rm.provider, (rm.name || rm.id));
+  const p = String((sh && sh.prompt) || '').trim();
+  const ctxAdv = shotAdvCtx(sh);
+  const ex = shotAdvExtras(sh);
+  const cbAdv = shotCombo(sh);
+  const ic = shotInputCaps(sh);
+  /* 参考语法转换（`@小雅` → 平台认的写法）与真发那条链**同一份**：
+     预览里显示的必须是转换之后的样子，否则用户看到的是一份平台压根不认的正文。 */
+  const pApi = applyRefSyntax(p, prov);
+  return BoardPreview.shotPreview(sh, prov, {
+    model: rm.id, prompt: pApi, tier: sh.tier, duration: sh.duration || undefined,
+    res: sh.res, ar: sh.ar, size: sh.size,
+    note: sh.name || '',
+    creation_intent: ctxAdv.intent,
+    shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps }, params: ex.params,
+  }, ic);
+}
+/* 刷新这一镜的预览（去抖 + 防乱序由 RawRequest.schedule 管）。
+   `catch` 里什么都不做：预览算不出来时**保持上一份**，
+   面板上那句「算不出来」由 RawRequest 那边显示（空 JSON 会骗人）。 */
+function refreshShotPreview(sh) {
+  if (!sh || !window.RawRequest || !RawRequest.schedule) return;
+  const tag = 'dir:shot:' + sh.id;
+  RawRequest.schedule(tag, () => {
+    const rm = resolvedModel(sh);
+    if (!rm) return null;
+    const prov = needProv(rm.provider, (rm.name || rm.id));
+    const body = shotPreviewBody(sh);
+    return { label: sh.name || '', provider: rm.provider || '', providerName: rm.name || '',
+      endpoint: 'create', method: 'POST',
+      path: (prov.relay || '') + ((prov.endpoints && prov.endpoints.create) || '/create'),
+      body };
+  });
 }
 
 /* ==================== 三排「AdvParams 那几档之外」的声明驱动参数 ====================
@@ -9040,7 +9636,7 @@ async function shotPlatformUrl(src) {
      · 参考视频 / 参考音频 = 槽位上的那份素材（上面那段 `requiresAudio` 的重传逻辑已经把资产号备好）
    以前切片与手动参考图是 `else if` 二选一：有切片时用户手动加的参考图被整体丢弃、一个字都不说。
    首尾帧与参考素材互斥由 `illegalPairs` 在提交前拦住，所以这里不再用「有帧就不发参考图」代替它。 */
-async function shotInputEntries(sh, prov, ic) {
+async function shotInputEntries(sh, prov, ic, chainFrame) {
   const out = [];
   const tplOf = r => (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, r) : null;
   /* 「这一家收不收这个槽位」的判据只有注册表那一份。界面早就按能力声明把素材画出来了，
@@ -9068,8 +9664,10 @@ async function shotInputEntries(sh, prov, ic) {
   };
   const kfs = shotKeyframes(sh);
   const refs = sh.refImages || [];
-  const frames = [['first_frame', sh.firstFrame, '首帧'], ['last_frame', sh.lastFrame, '尾帧']].filter(x => x[1]);
-  needSlot('first_frame', '首帧', sh.firstFrame ? 1 : 0);
+  /* 显式首帧优先；没有时用接续帧（上一镜尾帧，由 submitCandidate 在提交那一刻解析好递进来）。 */
+  const firstSrc = sh.firstFrame || (chainFrame && chainFrame.src) || '';
+  const frames = [['first_frame', firstSrc, '首帧'], ['last_frame', sh.lastFrame, '尾帧']].filter(x => x[1]);
+  needSlot('first_frame', '首帧', firstSrc ? 1 : 0);
   needSlot('last_frame', '尾帧', sh.lastFrame ? 1 : 0);
   needSlot('reference_image', '参考图', (kfs.length + refs.length) ? 1 : 0);
   for (const [role, src, name] of frames) await add(role, src, name, null);
@@ -9167,6 +9765,9 @@ function shotBlockReason(sh, ic) {
   /* 长度闸在这一句之后：空提示词是初始态（标题栏那句就够），写过字才按这一家的区间判 */
   const limWhy = promptLimitWhy(sh);
   if (limWhy) return limWhy;
+  /* 接续型号接不了首帧：比「素材说不通」更靠前，因为这一条是明确的手选冲突。 */
+  const chainModel = chainModelWhy(sh);
+  if (chainModel) return chainModel;
   const caps = ic || shotInputCaps(sh);
   /* 「这一档要求带却没带够 / 带超了 / 这一档不收 / 互斥两组都用了」四种说不通一次判全，
      判据与文案都在公共层那一份（与生成工作台同一个读数）。
@@ -9179,6 +9780,10 @@ function shotBlockReason(sh, ic) {
      不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
   const bad = shotAdvExtras(sh).bad;
   if (bad.length) return bad.join('、');
+  /* 接续的最后一道闸：上一镜还没出画面时这一镜不是「不能生成」，只是「还没轮到」。
+     genAll 靠这句话单独归类成等待，不把它算成永久不可生成。 */
+  const chainWhy = chainWaitWhy(sh);
+  if (chainWhy) return chainWhy;
   return '';
 }
 /* 底部那行「为什么还不能生成」跟三个工作台同一套规矩（见 workbench.js 的 Wb.ready）：
@@ -9757,6 +10362,38 @@ function addLibPicToShot(sh, entry, pick) {
   addRefImage(sh, pic, label);
   return { ok: true, label: label };
 }
+
+/* ---- 「素材出图了 → 自动补进引用它的镜头」 ----
+   拆分镜建出来的新素材在出图前，提示词里写的是占位符 `@待建:小雅`（那时还没有图可挂）。
+   素材库那边把图出出来（`Chars.setPic` 投 `wb:char-pic`）之后，这里做两件事：
+     ① 占位符换成真名 `@小雅` —— 于是它与库里已有的那一条**写法一致**，
+        芯片、归档、`refTokenize` 那一族都认得；
+     ② 把那张图挂成引用它的镜头的参考图（判据全走 `addLibPicToShot`：
+        能力声明 / 互斥 / 上限 / 去重 一处都不重写）。
+   挂不上就**照实说**（型号没有参考图入口、这一镜已选首尾帧、超上限…），
+   不静默丢 —— 占位符**留在提示词里**，下一次还能补上。 */
+window.addEventListener('wb:char-pic', e => {
+  const d = e && e.detail;
+  const item = d && d.item;
+  if (!item || !item.name) return;
+  const name = String(item.name);
+  let touched = 0, pics = 0, why = '';
+  /* 找出引用了这条待建素材的镜头（占位符还在的那些）。 */
+  const shots = BoardAssets.shotsPending(allShots(), name);
+  shots.forEach(sh => {
+    sh.prompt = BoardAssets.resolve(String(sh.prompt || ''), name, name);
+    touched++;
+    const one = addLibPicToShot(sh, item, null);
+    if (one.ok) { if (!one.dup) pics++; }
+    else if (!why) why = one.why || '';
+  });
+  if (!touched) return;
+  renderAll(); scheduleSave();
+  setStatus('<span class="ok">✓ 素材「' + esc(name) + '」出图了：'
+    + (pics ? '已补进 ' + pics + ' 个镜头的参考图' : '占位符已换成真名')
+    + '（' + touched + ' 镜引用了它）</span>');
+  if (why) Toast.warn('那张图没挂进参考图：' + why);
+});
 /* 选中一条候选：① 把 token 写进提示词 ② 素材库那一条顺手把图加进参考图
    （`pick` 给了就是二级菜单里挑中的那一张，没给就是预览图）。
    **token 就是 `refMeta.label`、也就是芯片上显示的那串**：挑角色资产时写 `@小雅·三视图`，
@@ -10002,7 +10639,15 @@ function renderEditor() {
   hideAtPeek();                                   // 悬停小卡同理
   const sh = curShot();
   if (!sh) { col.innerHTML = ''; return; }        // 没有镜头先退出，别去解析模型
+  /* 接续镜头先确保型号能收首帧：能力槽位、素材判据与报价都读 `resolvedModel`，
+     晚一步换型号就会画出「没有首帧槽、按钮却要带首帧」的一屏。 */
+  const modelBefore = sh.model;
+  ensureChainModel(sh);
+  if (modelBefore !== sh.model) scheduleSave();
   const idx = allShots().indexOf(sh) + 1;
+  const chainOn = sh.linkPrev === 'tail';
+  const chainSlot = chainOn && !sh.firstFrame;
+  const hasPrevShot = allShots().indexOf(sh) > 0;
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
   const mats = mentionedMats(sh);                    // 「提到素材」那排芯片（= 带来源标签的参考图）
   const vp = videoPlanOf(sh);
@@ -10136,8 +10781,15 @@ function renderEditor() {
           <div class="hint" id="kfRefHint" style="margin-top:8px">${esc(kfRefLine)}</div>
         </div>
       </div>` : ''}
+      ${/* 接上一镜：开着且没有显式首帧时，提交那一刻自动取上一镜的结尾当首帧。
+           这颗勾不但是入口，也是「为什么这一镜在等上一镜」的唯一解释。 */ ''}
+      <label class="chain-row${chainOn ? ' on' : ''}"${hasPrevShot ? '' : ' title="这是第一个镜头，没有上一镜可接"'}>
+        <input type="checkbox" id="chainPrev" ${chainOn ? 'checked' : ''} ${hasPrevShot ? '' : 'disabled'}>
+        <span>接上一镜尾帧当首帧</span>
+        <em>${chainOn ? (sh.firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
+      </label>
       <div class="assets-grid">
-        ${(ic.first || sh.firstFrame) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? ' title="生成时自动截取上一镜的结尾当首帧"' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
         ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
           <div class="asset-slot kf">
@@ -10188,6 +10840,8 @@ function renderEditor() {
             ${advSel(vk.size)}
             ${advSel(vk.count)}
           </div>
+          ${/* 程序为接续换的那一型要写明「不是用户挑的」：不写的话，换镜头回来看到型号变了会以为是页面乱跳。 */ ''}
+          ${sh.modelAuto === 'chain' && !chainModelWhy(sh) ? `<div class="hint">已自动切到 ${esc((resolvedModel(sh) || {}).name || sh.model)}（${sh.linkPrev === 'tail' ? '接上一镜尾帧' : '按接续型号拆分长镜头'}）</div>` : ''}
           ${hasDur ? `<label>${esc(vk.duration.label)}（${durMin}–${durMax} 秒，按型号支持范围限制）</label>
           <div class="row">
             <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
@@ -10210,10 +10864,15 @@ function renderEditor() {
         <span class="est" id="estTxt">估价中…</span>
         <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : genBtnLabel(sh)}</button>
       </div>
+      ${window.RawRequest ? RawRequest.liveHTML('dir:shot:' + sh.id) : ''}
     </div>`;
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
+  if (window.RawRequest) RawRequest.bind(col);
+  /* 右栏画完立刻算一次「将要发出的请求体」：用户还没点生成就能看到实际会发什么。
+     算不出来时 RawRequest 那边保持上一份（不显示空 JSON）。 */
+  refreshShotPreview(sh);
   /* 「输入模式」那一排芯片接线（整块编辑器每次重绘都重建这一段，所以每次绑一次，不会越攒越多）。 */
   bindModeChips(sh);
   /* 三排声明驱动的额外参数（型号布尔 / 顶层开关 / 顶层非布尔字段）在这里现画：
@@ -10269,6 +10928,9 @@ function renderEditor() {
   }
   $('edModel').onchange = async e => {
     sh.model = e.target.value;
+    /* 用户手选 = 这一型从今往后由用户负责：接续的自动切换不再覆盖它；
+       它不支持首帧时由 `chainModelWhy` 明确拦住，不偷偷换回去。 */
+    sh.modelAuto = '';
     edModelChanged = true;                // 换型号那一次，型号布尔那一排按**新声明**的默认值重画
     /* 每次换模型都回源一次能力接口，再按拿到的最新能力纠正参数 —— 上层把模型
        的分辨率 / 时长 / 张数改了、或加了新的输入槽位，界面跟着变，不用改代码。 */
@@ -10305,6 +10967,9 @@ function renderEditor() {
     scheduleSave();
     syncMention(sh);                            // @ 引用素材库的候选浮层（见上面那一段）
     syncAtBack(sh);                             // @片段 的高亮镜像层（见 atBackHTML）
+    /* 「将要发出的请求」跟着改：提示词是请求体里最重要的一项，
+       用户改一个字就该看见要发出去的正文也变了（去抖在 RawRequest.schedule 里）。 */
+    refreshShotPreview(sh);
   };
   /* @ 候选浮层：方向键 / 回车 / Esc 都在它里面消化；左右移动光标也要重算一次（可能刚好走进/走出 @ 片段） */
   ta.onkeydown = e => mentionKey(sh, e);
@@ -10438,8 +11103,44 @@ function renderEditor() {
       renderEditor();
     }
   };
+  /* 接上一镜：勾上时若当前型号接不了首帧，这一下就替用户换成能接的（用户要的就是「自动切过去」）；
+     关掉时只清接续，不动型号与已放的显式首帧。 */
+  const chainEl = $('chainPrev');
+  if (chainEl) chainEl.onchange = () => {
+    sh.linkPrev = chainEl.checked ? 'tail' : '';
+    if (sh.linkPrev) {
+      const cur = chainModelList().find(m => m.id === sh.model);
+      if (cur && !cur.first) sh.model = '';      // 明确接不了 → 允许 ensureChainModel 重挑
+      ensureChainModel(sh);
+    } else {
+      sh.modelAuto = '';
+    }
+    renderEditor(); scheduleSave(); updateBanner();
+  };
   // 只给「当前模型支持且已渲染」的槽位绑事件
   col.querySelectorAll('.asset-slot').forEach(slot => {
+    /* 接续占位上的两颗按钮（只有 chainSlot 时才会画出来）：
+       「现在取帧」把上一镜结尾当场取成显式首帧；「取消接续」只关接续，不碰别的。 */
+    slot.querySelectorAll('[data-chain]').forEach(btn => btn.onclick = async e => {
+      e.stopPropagation();
+      if (btn.dataset.chain === 'off') {
+        sh.linkPrev = '';
+        sh.modelAuto = '';
+        renderEditor(); scheduleSave(); updateBanner();
+        return;
+      }
+      btn.disabled = true;
+      try {
+        setStatus('正在截取上一镜尾帧…');
+        const f = await resolveChainFrame(sh);
+        sh.firstFrame = f.src;
+        renderEditor(); scheduleSave();
+        setStatus('<span class="ok">✓ 已把' + f.from + '作为开头画面</span>');
+      } catch (err) {
+        btn.disabled = false;
+        setStatus('<span class="err">' + err.message + '</span>');
+      }
+    });
     const k = slot.dataset.slot;
     // 单张画面重试（失败的画面直接再生成一次）
     slot.querySelectorAll('[data-retry]').forEach(btn => btn.onclick = async e => {
@@ -11182,22 +11883,21 @@ function prevShotTail(sh) {
   if (!prev) return null;
   const lastKf = prev.lastFrame || ((prev.keyframes || []).filter(k => k.assetId).pop() || {}).assetId;
   if (lastKf) return { prev, lastKf, label: '接上一镜结尾（「' + prev.name + '」）' };
-  const cand = prev.candidates.find(c => c.vid === prev.selId && c.status === 'succeeded' && c.url);
+  /* 选用的那条不在 / 没成时退到第一条成功候选：与 `hasTailFrame` 同一判据，
+     否则「接上一镜」的入口时有时无，用户只能自己去找视频截帧。 */
+  const cand = prev.candidates.find(c => c.vid === prev.selId && c.status === 'succeeded' && c.url)
+    || prev.candidates.find(c => c.status === 'succeeded' && c.url);
   if (!cand) return null;
   return { prev, cand, label: '截取上一镜视频尾帧（「' + prev.name + '」）' };
 }
-async function usePrevTail(sh, ref) {
+async function usePrevTail(sh) {
   try {
-    if (ref.lastKf) {
-      sh.firstFrame = ref.prev.lastFrame || await assetToDataURL(ref.lastKf);
-    } else {
-      setStatus('正在截取视频尾帧…');
-      const u = await freshUrl(ref.cand);
-      // 上一镜应用过剪辑就按剪辑后的结束点取帧，否则取视频最后一帧
-      sh.firstFrame = await Wb.vframe.dataURL(u, 'end', ref.cand.trimE != null ? ref.cand.trimE : null);
-    }
+    setStatus('正在截取上一镜尾帧…');
+    /* 与自动接续走同一个解析（静态尾帧 → 画面切片 → 视频末帧），不在这里再写一份顺序。 */
+    const f = await resolveChainFrame(sh);
+    sh.firstFrame = f.src;
     renderEditor(); scheduleSave();
-    setStatus('<span class="ok">✓ 已接上一镜结尾作为开头画面</span>');
+    setStatus('<span class="ok">✓ 已把' + f.from + '作为开头画面</span>');
   } catch (e) { setStatus('<span class="err">' + e.message + '</span>'); }
 }
 /* 选中的条目落到槽位：图片转成 dataURL 存着；开头画面这档选中视频时，在本机取它的最后一帧 */
@@ -11409,6 +12109,9 @@ async function estimateCost(prov, model, p) {
    右栏那一格与审查弹窗的整批估价都问 `shotQuote` —— 两处各拼一遍，弹窗报的价
    和这一镜真生成时的价迟早对不上（那正是「界面说三块五、扣的是五块」这一类）。 */
 async function shotQuote(sh, over) {
+  /* 报价前先把接续型号落到这一镜上：按「不收首帧的旧型号」问出来的价，
+     与提交时真用的型号对不上（差价要到扣费那一刻才暴露）。 */
+  ensureChainModel(sh);
   const rm = resolvedModel(sh) || {};
   const prov = provOf(rm.provider);
   /* 时长就按这一镜现在记的值估：模型没声明时长时上面那段归一化不会去填它，
@@ -11820,21 +12523,78 @@ function updateProjUI() {
   $('projName').value = proj.name;
   applyComposition();
   refreshEst();
+  /* 按钮下那行「可生成 N 镜 / 预计 X」跟镜头增删、型号、条数一起变：去抖与缓存都在它自己那一份里，
+     重复调用只是排一次定时器。 */
+  refreshGenAllEst();
+}
+/* 项目菜单：按**项目组**分树（组 → 组内的短片 → 未分组）。
+   组名即素材组名（见 web/director/groups.js）。组的判据全在那个模块里，这里只画。 */
+/* 项目组改名 → 素材库那一组要不要一起改？
+   **不自动改**：素材库是用户数据，那一组可能还有别的来源（同名的组在别的短片里也在用）。
+   界面上问一次，点了才动。改组名的落点只有 `Chars.Lib.renameGroup` 一处。 */
+async function renameAssetGroup(oldName, newName) {
+  const D = window.Chars;
+  if (!D || !D.Lib || !D.Lib.renameGroup) return;
+  const n = (D.Lib.list() || []).filter(c => c && D.Lib.groupMatch(c, oldName)).length;
+  if (!n) return;
+  if (!window.Confirm) { setStatus('<span class="err">确认组件未加载，素材库那一组没有改（还叫「' + esc(oldName) + '」）</span>'); return; }
+  const ok = await Confirm.ask({ title: '素材库那一组要一起改名吗',
+    body: `素材库里有 ${n} 条素材在「${oldName}」这一组里。\n要把它们一起改成「${newName}」吗？\n（不选则它们还留在「${oldName}」下 —— 导演台的项目组与素材库的分组名就不一样了）`,
+    okLabel: '一起改成新名字', cancelLabel: '素材库不动' });
+  if (!ok) { setStatus('<span class="ok">✓ 项目组已改名为「' + esc(newName) + '」；素材库那一组还叫「' + esc(oldName) + '」</span>'); return; }
+  const r = D.Lib.renameGroup(oldName, newName);
+  if (r && r.why) { Toast.warn(r.why); return; }
+  if (r && r.n) setStatus('<span class="ok">✓ 项目组已改名为「' + esc(newName) + '」，素材库那一组 ' + r.n + ' 条也改了</span>');
 }
 function renderProjMenu() {
   const menu = $('projMenu');
-  menu.innerHTML = '<div class="pm-head">共 ' + WS.projects.length + ' 个短片</div>';
-  WS.projects.forEach(p => {
+  const tree = Groups.tree(WS);
+  const gCount = Groups.list(WS).length;
+  menu.innerHTML = '<div class="pm-head">共 ' + WS.projects.length + ' 个短片'
+    + (gCount ? ' · ' + gCount + ' 个项目组' : '') + '</div>';
+  const projRow = (p, inGroup) => {
     const row = document.createElement('div');
-    row.className = 'pm-row' + (p.id === WS.curId ? ' sel' : '');
-    const n = p.scenes.reduce((a, s) => a + s.shots.length, 0);
+    row.className = 'pm-row' + (p.id === WS.curId ? ' sel' : '') + (inGroup ? ' pm-in-group' : '');
+    const n = (p.scenes || []).reduce((a, s) => a + (s.shots || []).length, 0);
     row.innerHTML = `<span class="pm-name">${esc(p.name)} <span class="pm-cnt">· ${n} 镜</span></span>
       <span class="pm-ops">
+        <button class="pm-btn" data-move="${p.id}" title="移到别的项目组">${icon('folder', 13)}</button>
         <button class="pm-btn" data-rename="${p.id}" title="重命名这个短片">${icon('pencil', 13)}</button>
         <button class="pm-btn danger" data-del="${p.id}" title="删除这个短片">${icon('trash', 13)}</button>
       </span>`;
     row.onclick = e => { if (e.target.closest('.pm-btn')) return; switchProject(p.id); menu.hidden = true; };
-    menu.appendChild(row);
+    return row;
+  };
+  tree.forEach(g => {
+    /* 组头：组名 + 几部短片 + 改名 / 删组。
+       删组只把组内的短片退回未分组，**不删短片** —— 删组是整理，不是删作品。 */
+    const head = document.createElement('div');
+    head.className = 'pm-group' + (g.kind === 'none' ? ' none' : '');
+    head.innerHTML = `<span class="pm-gname">${esc(g.name)}</span>
+      <span class="pm-cnt">· ${g.items.length} 部</span>
+      <span class="pm-ops">
+        ${g.kind === 'none' ? '' : `<button class="pm-btn" data-grename="${g.id}" title="重命名这个项目组">${icon('pencil', 13)}</button>
+        <button class="pm-btn danger" data-gdel="${g.id}" title="删掉这个项目组（组里的短片退回未分组，不会被删）">${icon('trash', 13)}</button>`}
+      </span>`;
+    menu.appendChild(head);
+    g.items.forEach(it => menu.appendChild(projRow(it.p, g.kind !== 'none')));
+  });
+  /* 移到组：短片那一行的「文件夹」按钮。 */
+  menu.querySelectorAll('[data-move]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const p = WS.projects.find(x => x.id === b.dataset.move);
+    if (!p) return;
+    const groups = Groups.list(WS);
+    if (!window.PromptForm) { setStatus('<span class="err">表单组件未加载，已取消移动</span>'); return; }
+    const opts = [{ v: '', t: '未分组' }].concat(groups.map(g => ({ v: g.id, t: g.name })));
+    const v = await PromptForm.open({
+      title: '移到项目组', okLabel: '移动',
+      fields: [{ key: 'gid', label: '这个短片放进哪个组', type: 'select', value: p.groupId || '', options: opts }],
+    });
+    if (!v || v.gid == null) return;
+    Groups.assign(WS, p.id, v.gid);
+    renderProjMenu(); renderAll(); scheduleSave();
+    setStatus('<span class="ok">✓ 已把「' + esc(p.name) + '」移到「' + (v.gid ? esc((Groups.find(WS, v.gid) || {}).name || '') : '未分组') + '」</span>');
   });
   // 重命名
   menu.querySelectorAll('[data-rename]').forEach(b => b.onclick = async e => {
@@ -11848,7 +12608,39 @@ function renderProjMenu() {
     if (pp.id === WS.curId) $('projName').value = pp.name;
     renderProjMenu(); renderAll(); scheduleSave();
   });
-  // 删除（二次确认；删掉当前短片会自动切到另一个，最后一个则新建空白短片）
+  /* 改组名：组名就是素材组名，所以改组名会牵动素材库里的那些素材。
+     **不自动改**素材库（那是用户数据，可能还有别的来源）—— 只提示，问了才动。 */
+  menu.querySelectorAll('[data-grename]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const g = Groups.list(WS).find(x => x.id === b.dataset.grename);
+    if (!g) return;
+    if (!window.PromptForm) { setStatus('<span class="err">表单组件未加载，已取消重命名</span>'); return; }
+    const v = await PromptForm.open({ title: '重命名项目组', okLabel: '保存', fields: [{ key: 'name', label: '项目组名称（也是素材库里的分组名）', type: 'text', value: g.name }] });
+    if (!v || v.name == null) return;
+    const nm = String(v.name).trim();
+    if (!nm) return;
+    const r = Groups.rename(WS, g.id, nm);
+    if (!r) { renderProjMenu(); return; }
+    /* 素材库那边同名的一组：问一次要不要一起改。 */
+    await renameAssetGroup(r.old, r.name);
+    renderProjMenu(); renderAll(); scheduleSave();
+  });
+  /* 删组：组内的短片退回未分组，一条都不删。 */
+  menu.querySelectorAll('[data-gdel]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const g = Groups.list(WS).find(x => x.id === b.dataset.gdel);
+    if (!g) return;
+    const n = (WS.projects || []).filter(p => p && p.groupId === g.id).length;
+    if (!window.Confirm) { setStatus('<span class="err">确认组件未加载，已取消删除</span>'); return; }
+    const ok = await Confirm.ask({ title: '删掉项目组',
+      body: `确定删掉项目组「${g.name}」？\n组里的 ${n} 部短片会退回「未分组」，**不会被删掉**。\n素材库里那一组素材也不受影响。`,
+      okLabel: '删掉这个组', danger: true });
+    if (!ok) return;
+    Groups.remove(WS, g.id);
+    renderProjMenu(); renderAll(); scheduleSave();
+    setStatus('<span class="ok">✓ 已删掉项目组「' + esc(g.name) + '」（' + n + ' 部短片退回未分组）</span>');
+  });
+  /* 删除（二次确认；删掉当前短片会自动切到另一个，最后一个则新建空白短片） */
   menu.querySelectorAll('[data-del]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
     const id = b.dataset.del;
@@ -11874,11 +12666,35 @@ function renderProjMenu() {
     renderProjMenu();
     setStatus('<span class="ok">✓ 已删除短片「' + pp.name + '」</span>');
   });
+  /* 底部两行：新建组 / 新建短片。 */
+  const gAdd = document.createElement('div');
+  gAdd.className = 'pm-add';
+  gAdd.textContent = '＋ 新建项目组';
+  gAdd.onclick = async () => {
+    if (!window.PromptForm) { setStatus('<span class="err">表单组件未加载，已取消新建</span>'); return; }
+    const v = await PromptForm.open({
+      title: '新建项目组', okLabel: '建这个组',
+      sub: '组名同时是素材库里的分组名：在这个组下的短片里拆分镜，新建的素材会落进同名的那一组。',
+      fields: [{ key: 'name', label: '项目组名称', type: 'text', placeholder: '例：校园篇' }],
+    });
+    if (!v || !v.name) return;
+    const nm = String(v.name).trim();
+    if (!nm) return;
+    const g = Groups.ensure(WS, nm);
+    if (!g) return;
+    /* 新组默认把当前短片放进去 —— 用户「建一个组」多半就是为了归这一部。 */
+    if (proj && proj.id) Groups.assign(WS, proj.id, g.id);
+    renderProjMenu(); renderAll(); scheduleSave();
+    setStatus('<span class="ok">✓ 已建项目组「' + esc(g.name) + '」' + (proj ? '，当前短片已放进去' : '') + '</span>');
+  };
+  menu.appendChild(gAdd);
   const addRow = document.createElement('div');
   addRow.className = 'pm-add';
   addRow.textContent = '＋ 新建短片';
   addRow.onclick = () => {
     const p = { id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] };
+    /* 新短片默认落在**当前短片所在的组**里 —— 同一组的短片才共享素材。 */
+    if (proj && proj.groupId) p.groupId = proj.groupId;
     WS.projects.push(p);
     switchProject(p.id);
     menu.hidden = true;
@@ -11886,6 +12702,9 @@ function renderProjMenu() {
   menu.appendChild(addRow);
 }
 function switchProject(id) {
+  /* 切走短片 = 这一批不该再往下投：还没开始的镜头直接停，正在提交的那一条按它自己的回包落定。
+     `runGenAll` 里还会比对 `proj` 与 `WS.curId` 兜一次（双保险，不靠调用顺序）。 */
+  if (genAllRun) abortGenAll('切换了短片');
   WS.curId = id;
   proj = WS.projects.find(p => p.id === id) || WS.projects[0];   // id 失效（导入/删除后）时回落到第一个，别直接抛错
   if (!proj) { WS.projects.push({ id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] }); proj = WS.projects[0]; WS.curId = proj.id; }
@@ -12066,45 +12885,360 @@ const hasRealCandidate = sh => (sh.candidates || []).some(c => c && c.status !==
    （有 succeeded 的镜头**不**算「试过没成」—— 想重跑是另一回事，那是「再生成一条」，不是补失败。） */
 const shotAllFailed = sh => (sh.candidates || []).length > 0
   && (sh.candidates || []).every(c => c && ['failed', 'cancelled'].includes(c.status));
-const GEN_CONCUR = 3;            // 同时在飞的创建请求数（想更激进/更保守改这里）
-$('genAll').onclick = async () => {
-  const todo = allShots().filter(sh => !hasRealCandidate(sh) || shotAllFailed(sh));
-  if (!todo.length) {
-    setStatus('<span class="err">所有镜头都已有生成结果，无需重复生成（想重跑先删掉那一镜的候选）</span>');
+const GEN_CONCUR = 3;            // 同时在飞的提交窗口数（等待上一镜的时间不占名额）
+
+/* ---------------- 生成全部镜头：依赖 + 生成前报价 ----------------
+   两件事共用同一份 `genAllPlan()`：按钮下那行估价与点下去之后真正提交的必须是同一批镜头，
+   否则「可生成 12 镜 / 预计 30 元」与真提交的 9 镜是两本账。
+   接续镜（`linkPrev === 'tail'`）先等上一镜出画面再提交；等待不占并发名额（`runWithDeps` 的
+   `limit` 只包住提交窗口）。 */
+
+/* 一个镜头此刻在链条上的状态：done = 已有能当尾帧的画面 / failed = 试过但一条都没成 /
+   running = 还有任务在跑 / todo = 还没提交过。等待与报价都读这一份。 */
+function chainStateOf(sh) {
+  if (hasTailFrame(sh)) return 'done';
+  if (shotAllFailed(sh)) return 'failed';
+  return ((sh && sh.candidates) || []).some(c => c && ['creating', 'queued', 'running'].includes(c.status))
+    ? 'running' : 'todo';
+}
+/* 等一个镜头出画面 / 失败的 deferred：同一条只开一枚。
+   ⚠ 只有「正在跑」或「排进了这一批、马上要提交」的镜头才许等：等一个 todo 且不在批的镜头
+   永远不会醒（`genAllPlan` 已经把它判进 bad，不会走到这里）。 */
+const chainWaits = new Map();
+function armChainWait(sh) {
+  let w = chainWaits.get(sh);
+  if (!w) {
+    w = {};
+    w.p = new Promise(res => { w.resolve = res; });
+    chainWaits.set(sh, w);
+  }
+  return w.p;
+}
+function waitShotDone(sh) {
+  const st = chainStateOf(sh);
+  if (st === 'done' || st === 'failed') return Promise.resolve(st === 'done');
+  if (st === 'todo' && !chainWaits.has(sh)) return Promise.resolve(false);
+  return armChainWait(sh);
+}
+/* 状态落定（成功 / 全部失败 / 根本没提交）时唤醒所有在等它的镜头。
+   `pollOne` 的 finally、`submitCandidate` 的 catch、批量执行器都会调；重复调用无副作用。 */
+function settleShot(sh) {
+  if (!sh) return '';
+  const st = chainStateOf(sh);
+  if (st !== 'done' && st !== 'failed' && st !== 'todo') return st;
+  const w = chainWaits.get(sh);
+  if (w) { chainWaits.delete(sh); w.resolve(st === 'done'); }
+  return st;
+}
+
+/* 这一批到底要提交哪些镜头、谁在等谁、哪些现在就不能生成。纯读（只顺带把接续型号落到镜头上）。 */
+function genAllPlan() {
+  const all = allShots();
+  all.forEach(sh => ensureChainModel(sh));
+  const todo = all.filter(sh => !hasRealCandidate(sh) || shotAllFailed(sh));
+  const inBatch = new Set(todo);
+  const prevOf = sh => { const i = all.indexOf(sh); return i > 0 ? all[i - 1] : null; };
+  const ok = [], wait = [], bad = [];
+  const deps = new Map(), badWhy = new Map();
+  /* 计划时的上一镜：执行到某一镜时拿它和「现在的顺序」再比一次（用户中途改顺序 / 删镜头）。 */
+  const prevMap = new Map();
+  todo.forEach(sh => {
+    prevMap.set(sh, prevOf(sh));
+    const why = shotBlockReason(sh);
+    if (!why) { ok.push(sh); return; }
+    /* 只有「纯等待」能进 wait：上一镜在本批、或正在跑。别的都是现在真的不能生成
+       （提示词空 / 素材冲突 / 型号接不了首帧 / 上一镜失败…）。 */
+    const cw = chainWaitWhy(sh);
+    const prev = prevOf(sh);
+    if (cw && why === cw && prev && (inBatch.has(prev) || chainStateOf(prev) === 'running')) {
+      wait.push(sh); deps.set(sh, prev); return;
+    }
+    bad.push(sh); badWhy.set(sh, why);
+  });
+  /* 上一镜不能生成 → 等它的那些也一样不能：先级联完，别让用户点下去之后才看见一片「等待失败」。 */
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = wait.length - 1; i >= 0; i--) {
+      const sh = wait[i], p = deps.get(sh);
+      if (!bad.includes(p)) continue;
+      wait.splice(i, 1); deps.delete(sh);
+      bad.push(sh);
+      badWhy.set(sh, '上一镜不能生成（' + (p.name || '未命名镜头') + '：' + badWhy.get(p) + '）');
+      changed = true;
+    }
+  }
+  /* `ok` 里接续镜的上一镜按定义已经有尾帧（否则 `shotBlockReason` 会拦），这里再按现状态兜一次：
+     刚好在这一刻被删掉 / 候选被清空的，执行时仍要等它。 */
+  ok.forEach(sh => {
+    if (sh.linkPrev !== 'tail' || sh.firstFrame) return;
+    const prev = prevOf(sh);
+    if (prev && chainStateOf(prev) !== 'done') deps.set(sh, prev);
+  });
+  return { todo, ok, wait, bad, badWhy, deps, prevMap };
+}
+
+/* 整批报价：同一份「影响价钱的输入」合并成一次询价（`quoteKeyOf` 不含 count，
+   条数当 `count` 递进去）。缺金额 / 只报最低消费 / 询价失败 → 计入 unpriced，**绝不当 0**；
+   币种不同不合计（`sumQuotes` 那一份判据）。 */
+const gaQuoteCache = new Map();
+async function genAllQuote(plan, opts) {
+  const fresh = !!(opts && opts.fresh);
+  const groups = new Map();
+  plan.ok.concat(plan.wait).forEach(sh => {
+    ensureChainModel(sh);
+    const rm = resolvedModel(sh) || {};
+    const prov = provOf(rm.provider);
+    const ex = shotAdvExtras(sh);
+    const ctx = shotAdvCtx(sh);
+    const key = quoteKeyOf(sh, { provider: prov && prov.id, model: rm.id,
+      intent: ctx.intent, mode: ctx.mode, topBools: ex.topBools, shapeFields: ex.shapeFields,
+      caps: ctx.caps, combo: sh.combo });
+    let g = groups.get(key);
+    if (!g) { g = { sh, n: 0, key }; groups.set(key, g); }
+    g.n += Math.max(1, Number(sh.draw) || 1);
+  });
+  const rows = [];
+  for (const g of groups.values()) {
+    const ck = g.key + '|' + g.n;
+    const hit = gaQuoteCache.get(ck);
+    if (!fresh && hit && Date.now() - hit.at < 60000) { rows.push(Object.assign({ n: g.n }, hit.r)); continue; }
+    let r;
+    try {
+      const q = await shotQuote(g.sh, { count: g.n });
+      const raw = q.r || {};
+      r = { ok: !!(raw.ok && typeof raw.amount === 'number'),
+        reason: String(raw.reason || (raw.ok ? '平台没有给出可相加的金额' : '平台没有报出这一档的价')),
+        amount: raw.amount,
+        currency: (q.prov && q.prov.pricing && q.prov.pricing.currency) || '' };
+    } catch (e) { r = { ok: false, reason: errText(e, '询价失败') }; }
+    gaQuoteCache.set(ck, { at: Date.now(), r });
+    rows.push(Object.assign({ n: g.n }, r));
+  }
+  const sum = sumQuotes(rows.map(r => ({ ok: r.ok, amount: r.amount, currency: r.currency })));
+  return {
+    sum,
+    unpriced: rows.filter(r => !r.ok).reduce((n, r) => n + r.n, 0),
+    firstWhy: (rows.find(r => !r.ok) || {}).reason || '',
+    groups: groups.size,
+  };
+}
+/* 按钮下那一行估价文案：没有金额时**绝不说「预计 0」**；多币种不合计。 */
+function genAllEstLine(plan, q) {
+  const n = plan.ok.length + plan.wait.length;
+  const cands = plan.ok.concat(plan.wait).reduce((a, sh) => a + Math.max(1, Number(sh.draw) || 1), 0);
+  const bits = ['可生成 ' + n + ' 镜' + (cands > n ? '（' + cands + ' 条）' : '')];
+  if (!q) bits.push('报价中…');
+  else if (q.sum.mixed) bits.push('多币种不合计：' + q.sum.byCurrency.map(x => (x.currency || '?') + ' ' + x.amount).join(' / '));
+  else if (q.sum.priced) bits.push('预计 ' + q.sum.total + (q.sum.currencies[0] ? ' ' + q.sum.currencies[0] : ''));
+  else bits.push('<span class="warn">报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '</span>');
+  if (q && q.unpriced) bits.push('<span class="warn">另有 ' + q.unpriced + ' 镜报价不可用</span>');
+  if (plan.wait.length) bits.push('等待上一镜 ' + plan.wait.length + ' 镜');
+  if (plan.bad.length) bits.push('<span class="warn">不能生成 ' + plan.bad.length + ' 镜</span>');
+  return bits.join(' · ');
+}
+/* 常驻那一行：600ms 去抖、只在前台问、旧答案按序号作废；批量跑着时让位给实时进度。 */
+let gaEstTimer = null, gaEstSeq = 0;
+function dirForeground() {
+  try { return window.__spaActivity.visible('director.html'); } catch (e) { return true; }
+}
+function refreshGenAllEst() {
+  if (genAllRun) return;
+  clearTimeout(gaEstTimer);
+  gaEstTimer = setTimeout(async () => {
+    gaEstTimer = null;
+    const my = ++gaEstSeq;
+    const el = $('genAllEst');
+    if (!el || !dirForeground()) return;
+    const plan = genAllPlan();
+    if (!plan.ok.length && !plan.wait.length) {
+      if (!plan.bad.length) { el.hidden = true; el.innerHTML = ''; return; }
+      el.hidden = false;
+      el.innerHTML = '<span class="warn">' + plan.bad.length + ' 镜现在不能生成：'
+        + esc((plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0])) + '</span>';
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = genAllEstLine(plan, null);
+    const q = await genAllQuote(plan);
+    if (my !== gaEstSeq || genAllRun) return;
+    el.innerHTML = genAllEstLine(plan, q);
+  }, 600);
+}
+let genAllRun = null;            // 正在跑的那一批（切换短片 / 收尾时读它）
+function abortGenAll(why) {
+  if (!genAllRun) return;
+  genAllRun.abort = why;
+  /* 唤醒所有等待：执行器会按「上一镜没成」把等它的那些标成 blocked，然后收尾。 */
+  /* w.resolve 是 Promise 的 resolve：已结算再唤醒不会抛；这里只是防止一枚坏掉的等待
+     拖住「停止」这一步，它后面的收尾仍要继续。 */
+  chainWaits.forEach(w => { try { w.resolve(false); } catch (e) { /* resolve 本身不会失败，见上 */ } });
+  chainWaits.clear();
+}
+function updateGenAllLive() {
+  const run = genAllRun, el = $('genAllEst');
+  if (!run || !el) return;
+  const waited = run.waitSince.size;
+  const secs = waited ? Math.max(...[...run.waitSince.values()].map(t => Math.round((Date.now() - t) / 1000))) : 0;
+  el.hidden = false;
+  el.innerHTML = '提交中… 已完成 ' + run.doneShots + '/' + run.targets.length + ' 镜'
+    + (waited ? ' · <span class="warn">等待上一镜 ' + waited + ' 镜（已等 ' + secs + ' 秒）</span>' : '');
+}
+async function runGenAll(plan) {
+  const runProj = proj;
+  const run = { runProj, abort: '', startedAt: Date.now(), waitSince: new Map(),
+    doneShots: 0, submittedCands: 0, targets: plan.ok.concat(plan.wait), timer: 0 };
+  genAllRun = run;
+  const alive = () => !run.abort && proj === runProj && WS.curId === runProj.id;
+  const submitted = new Set();
+  const failedCands = [];
+  /* 本批里的依赖目标先挂好 deferred：依赖方开始等的时候，它可能还没轮到提交（状态是 todo）。 */
+  plan.deps.forEach(prev => armChainWait(prev));
+  updateGenAllLive();
+  run.timer = setInterval(updateGenAllLive, 1000);
+  let outs = [];
+  try {
+    outs = await runWithDeps({
+      items: run.targets,
+      deps: plan.deps,
+      limit: GEN_CONCUR,
+      stateOf: sh => chainStateOf(sh),
+      wait: dep => {
+        if (!alive()) return Promise.resolve(false);
+        if (!run.waitSince.has(dep)) run.waitSince.set(dep, Date.now());
+        return waitShotDone(dep).finally(() => run.waitSince.delete(dep));
+      },
+      onBlocked: sh => { settleShot(sh); },
+      run: async sh => {
+        if (!alive()) throw new Error('已停止（切换了短片）');
+        /* 计划是一分钟前算的：真轮到这一镜时按**现在**的顺序再认一次上一镜。
+           用户改了顺序 / 删了镜头就宁可不生成，也不能把 A 的尾帧接到 B 上。 */
+        if (sh.linkPrev === 'tail' && !sh.firstFrame) {
+          const live = allShots();
+          const li = live.indexOf(sh);
+          const livePrev = li > 0 ? live[li - 1] : null;
+          if (livePrev !== (plan.prevMap.get(sh) || null)) {
+            throw new Error('镜头顺序在生成期间变了，这一镜没有提交；请重新点「生成全部分镜」');
+          }
+        }
+        /* 占位只在真正轮到这一镜时才建：等待中的镜头提前冒出「创建中」，用户会以为已经在花钱了。 */
+        const n = Math.max(1, Number(sh.draw) || 1);
+        const phs = pushPlaceholders(sh, n);
+        const stopErr = new Error('已停止（切换了短片）');
+        let okN = 0, firstErr = null;
+        try {
+          for (let i = 0; i < phs.length; i++) {
+            if (!alive()) {
+              /* 没提交的那几条不能留着「创建中」：它们永远拿不到任务号。 */
+              for (let j = i; j < phs.length; j++) {
+                phs[j].status = 'cancelled';
+                phs[j].error = '已停止（切换了短片），这一条没有提交';
+              }
+              throw stopErr;
+            }
+            try { await submitCandidate(sh, phs[i]); okN++; run.submittedCands++; submitted.add(sh); }
+            catch (e) { firstErr = firstErr || e; failedCands.push({ sh, e }); }
+          }
+          if (!okN) throw firstErr || new Error('没有提交成功任何一条');
+          return okN;
+        } finally {
+          run.doneShots++;
+          settleShot(sh);           // 提交失败 / 全部失败的那一镜立刻唤醒等它的镜头
+        }
+      },
+    });
+  } finally {
+    clearInterval(run.timer);
+    chainWaits.clear();
+    genAllRun = null;
+  }
+  const aborted = !!run.abort || proj !== runProj;
+  if (aborted) {
+    Toast.warn('生成全部分镜已停止：' + (run.abort || '切换了短片'));
     return;
   }
-  // 先挑出不能生成的镜头（提示词不合格 / 素材互斥 / 有当前模型不支持的素材）：不阻塞其他镜头，也不白建占位
-  const blockWhy = new Map();
-  const bad = todo.filter(sh => { const w = shotBlockReason(sh); if (w) { blockWhy.set(sh, w); return true; } return false; });
-  const ok = todo.filter(sh => bad.indexOf(sh) < 0);
-  if (!ok.length) {
-    const first = bad[0] ? (bad[0].name || '未命名镜头') + '：' + blockWhy.get(bad[0]) : '';
-    setStatus('<span class="err">这些镜头还不能生成（' + first + '）</span>');
+  const blocked = outs.filter(r => r && r.blocked).length;
+  const failedShots = outs.filter(r => r && !r.ok && !r.blocked).length;
+  const doneNow = run.targets.filter(sh => chainStateOf(sh) === 'done').length;
+  const parts = [];
+  if (submitted.size) parts.push('✓ 已提交 ' + submitted.size + ' 镜（' + run.submittedCands + ' 条）'
+    + (doneNow ? '，其中 ' + doneNow + ' 镜已出画面' : ''));
+  if (blocked) parts.push('<span class="warn">' + blocked + ' 镜因为上一镜没出画面没有提交</span>');
+  if (failedShots) parts.push('提交失败 ' + failedShots + ' 镜（' + failedCands.length + ' 条）'
+    + (failedCands[0] ? '：' + (failedCands[0].sh.name || '未命名') + '：' + ((failedCands[0].e && failedCands[0].e.message) || '未知错误') : ''));
+  if (plan.bad.length) parts.push('跳过 ' + plan.bad.length + ' 镜：'
+    + plan.bad.slice(0, 3).map(sh => (sh.name || '未命名') + '（' + plan.badWhy.get(sh) + '）').join('、')
+    + (plan.bad.length > 3 ? ' 等' : ''));
+  setGenAllMsg(parts.join('；') || '这一批没有提交任何一条');
+  loadCredits();
+  /* 这一批真发出去的请求体：按镜头逐条折叠列在结果下面（RawRequest 那一条会话内存快照）。 */
+  const raw = $('genAllRaw');
+  if (raw) {
+    const tags = [...submitted].map(sh => 'dir:shot:' + sh.id);
+    raw.hidden = !(window.RawRequest && tags.length);
+    raw.innerHTML = raw.hidden ? '' : RawRequest.htmlList(tags, { className: 'gen-all-raw' });
+    if (!raw.hidden) RawRequest.bind(raw);
+  }
+  renderAll();
+  if (failedShots) {
+    setStatus('<span class="err">有 ' + failedShots + ' 镜提交失败：它们现在算「一条都没成」，'
+      + '再点「生成全部分镜」只会补它们（已成功的镜头不会重投）</span>');
+  }
+}
+/* 点「生成全部分镜」：先按**眼下**的镜头重算计划、现问一次价，再让用户确认。
+   取消时一个占位都不建、一个请求都不发。 */
+async function genAllConfirm(plan, q) {
+  const n = plan.ok.length + plan.wait.length;
+  const cands = plan.ok.concat(plan.wait).reduce((a, sh) => a + Math.max(1, Number(sh.draw) || 1), 0);
+  const price = q.sum.mixed
+    ? '<span class="dlg-warn">多币种，无法合计：' + q.sum.byCurrency.map(x => esc((x.currency || '?') + ' ' + x.amount)).join(' / ') + '</span>'
+    : q.sum.priced
+      ? '预计 <b>' + q.sum.total + '</b> ' + esc(q.sum.currencies[0] || '')
+      : '<span class="dlg-warn">报价不可用' + (q.firstWhy ? '：' + esc(q.firstWhy) : '') + '</span>';
+  const badHTML = plan.bad.length
+    ? '<div class="dlg-warn">不能生成 ' + plan.bad.length + ' 镜：'
+      + plan.bad.slice(0, 5).map(sh => esc((sh.name || '未命名') + '（' + plan.badWhy.get(sh) + '）')).join('；')
+      + (plan.bad.length > 5 ? '；等共 ' + plan.bad.length + ' 镜' : '') + '</div>'
+    : '';
+  const v = await UiDialog.open({
+    title: '生成全部分镜',
+    sub: '先看清这一次要提交多少、花多少；取消不会建占位、也不会发请求。',
+    body(el) {
+      el.innerHTML = '<div class="dlg-line">将生成 <b>' + n + '</b> 镜'
+        + (cands > n ? '（共 ' + cands + ' 条）' : '') + '。' + price + '</div>'
+        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交（等待不占并发名额）。</div>' : '')
+        + (q.unpriced ? '<div class="dlg-warn">另有 ' + q.unpriced + ' 镜报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '；它们照常生成，按平台实际结算。</div>' : '')
+        + badHTML
+        + '<div class="dlg-hint">报价为平台参数询价，不等于最终结算。</div>';
+    },
+    actions: [{ label: '取消', value: null }, { label: '开始生成', value: 'go', primary: true }],
+  });
+  return v === 'go';
+}
+$('genAll').onclick = async () => {
+  const runProj = proj;
+  const plan = genAllPlan();
+  if (!plan.ok.length && !plan.wait.length) {
+    if (!plan.todo.length) {
+      setStatus('<span class="err">所有镜头都已有生成结果，无需重复生成（想重跑先删掉那一镜的候选）</span>');
+    } else {
+      const first = plan.bad[0] ? (plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0]) : '';
+      setStatus('<span class="err">这些镜头还不能生成' + (first ? '（' + first + '）' : '') + '</span>');
+    }
     return;
   }
   $('genAll').disabled = true;
-  const jobs = [];
-  for (const sh of ok) pushPlaceholders(sh, sh.draw || 1).forEach(ph => jobs.push({ sh, ph }));
-  setGenAllMsg('提交中… 0/' + jobs.length + ' 条');
-  let done = 0;
-  const res = await runPool(jobs, GEN_CONCUR, async j => {
-    await submitCandidate(j.sh, j.ph);
-    done++;
-    setGenAllMsg('提交中… ' + done + '/' + jobs.length + ' 条');
-  });
-  const failed = [];
-  res.forEach((r, i) => { if (!r || !r.ok) failed.push({ j: jobs[i], e: (r && r.error) || null }); });
-  $('genAll').disabled = false;
-  loadCredits();
-  const parts = [];
-  if (jobs.length - failed.length) parts.push('✓ 已提交 ' + (jobs.length - failed.length) + '/' + jobs.length + ' 条 · ' + ok.length + ' 镜 · 并发 ' + Math.min(GEN_CONCUR, jobs.length) + ' 路');
-  if (bad.length) parts.push('跳过 ' + bad.length + ' 个：' + bad.map(sh => (sh.name || '未命名') + '（' + blockWhy.get(sh) + '）').join('、'));
-  if (failed.length) parts.push('失败 ' + failed.length + ' 条（' + failed[0].j.sh.name + '：' + ((failed[0].e && failed[0].e.message) || '未知错误') + '，其余看候选上的红字）');
-  // 成功/部分成功走按钮下方小字（横幅只留给出错），失败另外弹横幅提醒
-  setGenAllMsg(parts.join('；'));
-  if (failed.length) {
-    setStatus('<span class="err">有 ' + failed.length + ' 条提交失败：这些镜头现在算「一条都没成」，'
-      + '点「生成全部分镜」会只补它们（已成功的那几镜不会再重投）</span>');
+  try {
+    const q = await genAllQuote(plan, { fresh: true });
+    if (proj !== runProj || WS.curId !== runProj.id) return;
+    if (!(await genAllConfirm(plan, q))) return;
+    if (proj !== runProj || WS.curId !== runProj.id) { Toast.warn('短片切走了，这一批没有开始'); return; }
+    await runGenAll(plan);
+  } catch (e) {
+    setStatus('<span class="err">批量生成没能开始：' + esc(errText(e)) + '</span>');
+  } finally {
+    $('genAll').disabled = false;
+    refreshGenAllEst();
   }
 };
 /* 页头那一排导出按钮由格式表现画现绑（web/domain/export-formats.js）：加一种导出不再动模板与这一排。
@@ -12117,7 +13251,7 @@ $('genAll').onclick = async () => {
 const EXPORT_RUN = {
   film: () => exportFilmClick,
   files: () => clickExportAssets,
-  xml: f => () => exportFCPXML({ bundle: !!f.bundle }),
+  xml: f => f.nle ? () => exportNle() : () => exportFCPXML({ bundle: !!f.bundle }),
 };
 $('exportBtns').innerHTML = ExportFormats.list().map(f =>
   '<button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
@@ -12158,6 +13292,12 @@ function sanitize() {
   if (!WS.projects.length) {
     WS.projects.push({ id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] });
   }
+  /* 项目组：老工作区没有这一项 → 空表；组 id 重复 / 项目指向不存在的组 → 归未分组。
+     归未分组而不是删项目：组没了不该连作品一起没。 */
+  if (!Array.isArray(WS.groups)) WS.groups = [];
+  WS.groups = WS.groups.filter(g => g && g.id && String(g.name || '').trim());
+  const gids = new Set(WS.groups.map(g => g.id));
+  WS.projects.forEach(p => { if (p.groupId && !gids.has(p.groupId)) p.groupId = ''; });
   WS.projects.forEach(p => {
     p.id = p.id || uid();
     p.name = p.name || '未命名短片';
@@ -12199,6 +13339,11 @@ function sanitize() {
           }
         });
         if (sh.model === 'auto') delete sh.model;   // 「自动」模型已下线，回落到默认模型
+        /* 接续两个字段只认这两种值：旧工程没有就现算成空串，不迁移、也不留第三种状态。
+           `modelAuto` 只在接续还挂着时才有意义（用户取消接续后那一枚自动选的型号照旧留着，
+           只是不再需要标「这是程序挑的」）。 */
+        sh.linkPrev = sh.linkPrev === 'tail' ? 'tail' : '';
+        sh.modelAuto = sh.linkPrev === 'tail' && sh.modelAuto === 'chain' ? 'chain' : '';
       });
     });
   });
@@ -12254,11 +13399,14 @@ Wb.split.enable({
       }
     } catch (e) { console.warn('[workspace] 数据文件对账失败：', e.message); }
   }
-  if (!ws || !Array.isArray(ws.projects)) ws = { projects: [], curId: null, roles: [] };
+  if (!ws || !Array.isArray(ws.projects)) ws = { projects: [], curId: null, roles: [], groups: [] };
   if (!ws.projects.length) {
     ws.projects.push({ id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] });
   }
-  WS = { projects: ws.projects, curId: ws.curId && ws.projects.some(p => p.id === ws.curId) ? ws.curId : ws.projects[0].id, roles: ws.roles || [] };
+  /* 项目组：老工作区没有这一项 → 补空表（**零迁移**：现有工程全落未分组）。 */
+  if (!Array.isArray(ws.groups)) ws.groups = [];
+  WS = { projects: ws.projects, curId: ws.curId && ws.projects.some(p => p.id === ws.curId) ? ws.curId : ws.projects[0].id,
+    roles: ws.roles || [], groups: ws.groups };
   proj = WS.projects.find(p => p.id === WS.curId);
   sanitize();
   revFloor = Math.max(revFloor, Number(proj.rev) || 0);
@@ -12903,6 +14051,16 @@ Wb.split.enable({
       } }).then(r => {
         settle(r);
         if (r && r.ok) rec.counts = { 画面: r.nV, 配音: r.nA, 已存: r.okN };
+      }).catch(e => settle({ ok: false, err: errText(e)}));
+      return { ok: true, jobId: rec.id, format: fmt, state: 'running', 说明: f.startNote };
+    }
+    /* 送到 NLE 要指定是哪一家：助手不弹选择框（那是用户界面），由动作参数给。 */
+    if (f.nle) {
+      const app = (a && (a.app === 'jianying' || a.app === 'resolve')) ? a.app : '';
+      if (!app) return loose('送到剪映 / 达芬奇要在 format 之外给 app：jianying 或 resolve');
+      exportNle({ app, silent: true }).then(r => {
+        settle(r);
+        if (r && r.ok) rec.counts = { 画面段: r.rows, 配音句: r.voices, 字幕条: r.subtitles };
       }).catch(e => settle({ ok: false, err: errText(e)}));
       return { ok: true, jobId: rec.id, format: fmt, state: 'running', 说明: f.startNote };
     }

@@ -34,6 +34,8 @@
 <!-- 表单族（报告 §6.1-2）：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
      仍排在 ui.js 之后、其余脚本之前，与原 ui.js 里的求值顺序一致。 -->
 <script src="web/ui/forms.js"></script>
+<!-- 原始请求面板（web/ui/raw-request.js）：**不常驻** —— 只有导演台 / 生成工作台 / 画布这三页
+     用得上（别处打开这一份就是白下一次），那三页各自 __spaLoadScript 补载。 -->
 <script src="web/ui/store.js"></script>
 <script src="web/ui/kv.js"></script>
 <script src="web/ui/toast.js"></script>

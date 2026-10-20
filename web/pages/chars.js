@@ -375,6 +375,8 @@ export default {
             extra: ' data-k="' + kind + '"', tail: tail });
     }
 
+    /* 原始请求折叠块：生成按钮旁边一处（画面）与声音那一处各一枚，内容由 RawRequest 自己更新。 */
+    const rawHostHTML = tag => (window.RawRequest ? '<div class="chars-raw">' + RawRequest.html(tag) + '</div>' : '');
     function cardHTML(c) {
       const sc = isScene(c), pr = isProp(c);
       const pw = picWord(c);
@@ -507,13 +509,13 @@ export default {
         ${vo ? '<div class="ui-hint">这一位是「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就取消上面那个勾）。库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
         ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。生成某一镜时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
 
-        ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>`}
+        ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>${rawHostHTML('chars:' + (sc ? 'scene' : pr ? 'prop' : 'char') + ':' + c.id)}`}
         ${assetListHTML}${waitRows}${assetGenHTML}
 
         ${anchorHTML(c)}
         ${usageHTML(c)}
 
-        ${voiced(c) ? `<div class="ed-sec">声音</div>${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}` : ''}
+        ${voiced(c) ? `<div class="ed-sec">声音</div>${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}${rawHostHTML('chars:voice:' + c.id)}` : ''}
       </div>`;
     }
 
@@ -560,6 +562,7 @@ export default {
       /* 卡片里的图片由 Wb.thumbs 接线（缓存命中直接用小图、失败换占位）：整块重画之后一次 bindAll，
          页面不必每张卡各调一次 bind（重复 bind 同一元素是安全的）。 */
       if (window.Wb) window.Wb.thumbs.bindAll(gridEl.value);
+      if (window.RawRequest) window.RawRequest.bind(gridEl.value);
       if (openId.value) { const el = cardEl(openId.value); if (el) syncWhat(el); }
     }
     function syncDraft(card, c) {
@@ -1272,6 +1275,30 @@ export default {
         if (w.fellback) Toast.err('这个平台没有「' + D.Cast.wayLabel(el.dataset.way) + '」的型号，这一位现在按「' + D.Cast.wayLabel(w.mode) + '」出声');
       },
       refaudio: async (c) => { await pickRefAudio(c); },
+      /* 「用素材库里的另一位」那两条（用户要求：「使用素材进行描述或克隆」）：
+         · vnotepick —— 拿别人写好的**音色描述**填进这一格（描述档）；
+         · vaudiopick —— 拿别人挂着的**参考音频**当这一位的嗓子（复刻档）。
+         两条都走公共层 `window.VoiceNote`（导演台与生成工作台那两格走的是同一条链）——
+         这里再写一份选择器与措辞，迟早有一种说法在骗人。 */
+      vnotepick: async (c) => {
+        await window.VoiceNote.run({
+          value: () => c.voiceNote || '',
+          write: t => { c.voiceNote = t; c.voiceMode = 'design'; keep(c, true); render(); },
+          say: () => {},
+        });
+      },
+      vaudiopick: async (c) => {
+        await window.VoiceNote.runClone({
+          apply: (entry) => {
+            const r = D.Pipe.cloneFromLibEntry(REG, opts, c, entry);
+            if (!r.ok) { Toast.err(r.why); return; }
+            keep(c, true);
+            Toast.receipt('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 'ok', 6000);
+            render();
+          },
+          say: () => {},
+        });
+      },
       revoice: async (c) => {
         await genRun('voicecands', c.id, c, '正在按人设定「' + c.name + '」的声音…', async () => {
           const live = aiPanel();

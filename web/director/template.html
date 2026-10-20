@@ -134,6 +134,19 @@
   .pm-add { margin-top: 5px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 12.5px;
     color: var(--acc); padding: 7px 9px 5px; border-radius: 4px; cursor: pointer; }
   .pm-add:hover { background: var(--panel2); }
+  /* 项目组头：组名 + 几部短片 + 改名 / 删组。组里的短片在下面缩进一格。
+     「未分组」那一档没有组操作（它不是组，只是没归组的那些）。 */
+  .pm-group { display: flex; align-items: center; gap: 7px; padding: 6px 9px 4px; margin-top: 4px;
+    font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); }
+  .pm-group:first-of-type { margin-top: 0; border-top: none; }
+  .pm-group.none { color: var(--sub); opacity: .85; }
+  .pm-gname { color: var(--txt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pm-group.none .pm-gname { font-weight: 400; }
+  .pm-group .pm-ops { visibility: hidden; }
+  .pm-group:hover .pm-ops { visibility: visible; }
+  /* 组里的短片缩进一格，让「谁属于哪一组」一眼看得出来。 */
+  .pm-group + .pm-row { margin-left: 10px; }
+  .pm-row.pm-in-group { border-left: 2px solid var(--line); }
 
   .left-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
   .left-head b { font-size: 14px; }
@@ -234,6 +247,10 @@
   .gen-all .note { text-align: center; font-size: 11px; color: var(--sub); margin-top: 7px; }
   .gen-all .note .ok { color: var(--ok); }
   .gen-all .note .err { color: var(--err); }
+  .gen-all .gen-all-est { margin-top: var(--sp-1-5); font-size: 11.5px; line-height: 1.5; text-align: center; color: var(--sub); }
+  .gen-all .gen-all-est .warn { color: var(--warn); }
+  .gen-all .gen-all-est .ok { color: var(--ok); }
+  .gen-all .gen-all-est .err { color: var(--err); }
 
   /* 中栏 */
   .mid-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -991,6 +1008,20 @@
   .ed-footer .can.no { color: var(--warn); }
   .ed-footer .pri { padding: 10px 20px; font-size: 14px; }
   .ed-footer .est { font-size: 11.5px; color: var(--sub); margin-right: auto; }
+  .ed-raw { margin-top: var(--sp-2); }
+  /* 接上一镜尾帧：勾选条与首帧槽里的占位。槽位本体仍用 ui.css 的 .asset-slot，
+     这里只加「接续」这一档的边色与两颗小按钮。 */
+  .chain-row { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0 var(--sp-2);
+    padding: var(--sp-1) var(--sp-2); border: 1px dashed var(--line); border-radius: var(--radius-1);
+    font-size: var(--fs-1); color: var(--sub); cursor: pointer; }
+  .chain-row.on { border-style: solid; border-color: var(--acc); color: var(--txt); background: rgba(108,140,255,.08); }
+  .chain-row input { margin: 0; }
+  .chain-row em { margin-left: auto; font-style: normal; font-size: var(--fs-11); color: var(--sub); }
+  .chain-row.on em { color: var(--acc); }
+  .chain-row input:disabled { cursor: not-allowed; }
+  .asset-slot.chain { border-style: solid; border-color: var(--acc); color: var(--acc); }
+  .asset-slot .chain-ops { display: flex; gap: var(--sp-1); margin-top: var(--sp-1); }
+  .asset-slot .chain-ops .mini { padding: 2px 6px; font-size: 10.5px; }
   .hint { font-size: 11px; color: var(--sub); margin-top: 8px; }
   /* #lbCount / #lbBar 的样式统一在 ui.css 的灯箱那一段 */
   dialog.script { background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 4px; padding: 20px; width: 520px; max-width: 92vw; margin: auto; }
@@ -1051,7 +1082,9 @@
     <button class="add-scene" id="addScene">＋ 加一个场景</button>
     <div class="gen-all">
       <button class="pri" id="genAll">生成全部分镜</button>
+      <div class="gen-all-est" id="genAllEst" hidden></div>
       <div class="note" id="genAllNote"></div>
+      <div id="genAllRaw" hidden></div>
     </div>
   </div>
 

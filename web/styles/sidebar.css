@@ -61,8 +61,8 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: 17px; }
 .sb-mirror .l2 { margin-top: 3px; font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
 .sb-mirror .l2 b { color: var(--txt); }
 /* 下载进度条：一条细轨，跟「正在存 N 份」那行连着读 —— 一眼看出「在下第几个、下到多少」。 */
-.sb-mirror .dlbar{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:5px}
-.sb-mirror .dlbar i{display:block;height:100%;background:var(--acc);border-radius:2px;transition:width var(--dur-2)}
+.sb-mirror .dlbar{height: 3px;border-radius:2px;background: var(--line);overflow:hidden;margin-top:5px}
+.sb-mirror .dlbar i{display: block;height:100%;background: var(--acc);border-radius:2px;transition:width var(--dur-2)}
 .sb-mirror.bad { border-color: var(--warn); }
 .sb-mirror.bad .l2 { color: var(--warn); }
 /* 侧栏折叠时只留一颗小圆点，别把整段文字挤成竖条 */
@@ -86,7 +86,7 @@ html:not(.sb-open) .sb-bal-refresh span:last-child { display: none; }
   cursor: pointer; display: flex; align-items: center; }
 .sidebar .sb-set .ic { width: 20px; text-align: center; font-size: 15px; flex: 0 0 20px; }
 /* 收起态：余额卡片压成一张小卡，只留图标与可用数值缩写，悬停看完整信息。 */
-html:not(.sb-open) .sb-bal-card { padding: 5px 4px; text-align: center; }
+html:not(.sb-open) .sb-bal-card { padding: 5px var(--sp-1); text-align: center; }
 html:not(.sb-open) .sb-bal-card .l1 { justify-content: center; }
 html:not(.sb-open) .sb-bal-card .l1 .nm { display: none; }
 html:not(.sb-open) .sb-bal-card .l2 { display: none; }

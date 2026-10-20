@@ -182,6 +182,17 @@ const StudioView = {
         return m ? m[1] : '';
       }
       let TYPE = '';
+      /* 原始请求折叠块：跟着当前类型换标签。
+         **并排两份**：左边「将要发出」（还没发，随表单实时变），右边「已发送」（真发出去的那一次）。
+         用户要确认的就是「实际发出的提示词和配置是怎样的」—— 两份并排，
+         不一致时一眼看得见。 */
+      function paintRawHost() {
+        const host = pageEl.value && pageEl.value.querySelector('[data-raw-host]');
+        if (!host || !window.RawRequest || !TYPE) return;
+        host.innerHTML = RawRequest.liveHTML('studio:' + TYPE);
+        RawRequest.bind(host);
+        refreshPreview();
+      }
       function setType(t, fromUser) {
         if (!TYPES[t]) t = 'video';
         /* 清空快照是「一栏一份」的：切了类型，那一栏的东西与按钮上「撤销清空」指的就不是同一样东西。 */
@@ -202,6 +213,7 @@ const StudioView = {
         if (adv) adv.querySelectorAll('.adv-type').forEach(b => { b.hidden = b.dataset.t !== t; });
         $('go').textContent = '生成' + TYPES[t].zh;
         $('advTitle').textContent = TYPES[t].adv;
+        paintRawHost();
         /* 每种类型各记一份提示词与音色描述：切回来接着写（旧页面只存不读，与它自己那句
            「切类型再切回来，写到一半的东西不该丢」对不上）。三份都在启动时从盘上读一次，
            之后只在输入时写盘 —— 切换时不再回读，免得「清空过又切回来」把旧稿捞出来。 */
@@ -1138,17 +1150,20 @@ const StudioView = {
         if (tid && cur().touched) cur().touched[tid] = 1;
         const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
         if (sf) (cur().shape || (cur().shape = {}))[sf] = e.target.value;
-        if (e.target.id === 'model') { paintSubNote(); refreshEst(); updateGoState(); return; }
+        if (e.target.id === 'model') { paintSubNote(); refreshEst(); updateGoState(); refreshPreview(); return; }
         if (TYPE === 'audio') applyAudioCaps();
         else if (TYPE === 'image') paintImageHints();
         else { readBoolParams(); paintVideoHints(); }
         renderShapeFields(); renderTopBools();
         refreshEst(); updateGoState();
+        /* 「将要发出的请求」跟着变：型号、档位、画幅、顶层开关都在请求体里。 */
+        refreshPreview();
       });
       $('advBody').addEventListener('input', e => {
-        if (e.target.id === 'style') { updateGoState(); return; }
+        if (e.target.id === 'style') { updateGoState(); refreshPreview(); return; }
         const sf = e.target && e.target.dataset ? e.target.dataset.sf : '';
         if (sf) (cur().shape || (cur().shape = {}))[sf] = e.target.value;
+        refreshPreview();
       });
       const unfold = AdvParams.fold($('advHead'), $('adv'), 'studio_adv_closed');
       disposers.push(unfold);
@@ -1282,7 +1297,7 @@ const StudioView = {
         Wb.ready({ btn: $('go'), tip: $('goWhy'), scope: $('leftCol'),
           reason: () => (submitting ? '正在提交这一轮生成（等平台响应），先等它落定' : submitBlockReason()) });
       }
-      $('prompt').addEventListener('input', () => { updateGoState(); paintPromptHint(); if (TYPE === 'audio') refreshEst(); });
+      $('prompt').addEventListener('input', () => { updateGoState(); paintPromptHint(); if (TYPE === 'audio') refreshEst(); refreshPreview(); });
       $('prompt').addEventListener('change', updateGoState);
       $('clearAll').onclick = async () => {
         /* 按钮此刻是「撤销清空」→ 这一击就是撤销，不再问第二遍。 */
@@ -1675,6 +1690,92 @@ const StudioView = {
         }
         return entries;
       }
+      /* 素材槽位的**预览版**（不上传）：真发时 `buildInputEntries` 会把要上传的素材
+         传到平台拿资产号，预览绝不能触发那次上传（占平台配额、真花时间）——
+         所以这里用一句占位说明交出**同一个形状**。
+         与真发那份的差别只有那一个值（资产号 → 占位说明），别的（role、落点、many 与否）完全一样。 */
+      function buildInputEntriesPlan(prov, model) {
+        const entries = [];
+        const m = inputs();
+        for (const k of Object.keys(SLOT_DEF)) {
+          if (k === 'audio' && TYPE === 'audio') continue;
+          for (const x of (m[k] || [])) {
+            const role = SLOT_DEF[k].role;
+            const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, role) : null;
+            if (!tpl) continue;
+            if (tpl.needsUpload) {
+              entries.push({ role, placeholder: '<待上传：' + (SLOT_DEF[k].label || role) + '>' });
+            } else {
+              const src = String(x.src || x.url || '');
+              if (!src) continue;
+              entries.push({ role, url: src.indexOf('/asset/') === 0 ? ('<本机资产，发送时先转存：' + src + '>') : src });
+            }
+          }
+        }
+        return entries;
+      }
+      /* 这一栏**将要发出**的请求体（dry-run：一个网络请求都不发）。
+         三型各拼各的，但每一型都复用**提交时那一份字段组装**（createVideoOnce / createImageOnce /
+         合成那一路）—— 两边各拼一次的话，预览与实发迟早不一样。
+         型号与平台都走 `currentModel()`（下拉里选中的那一个），与提交那条链同一份。 */
+      function previewBody() {
+        if (!window.Api || !TYPE) return null;
+        const cm = currentModel();
+        const prov = cm && cm.prov;
+        if (!prov) return null;
+        const model = cm.model || {};
+        const prompt = ($('prompt') && $('prompt').value) || '';
+        if (TYPE === 'video') {
+          if (!model.id) return null;
+          const cb = comboNow();
+          const shape = { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
+          const ap = advPlan(model, 'video').payload;
+          const bools = readBoolParams();
+          const ex = advExtras(bools);
+          return Api.preview(prov, 'create', {
+            model: model.id, prompt,
+            tier: ap.tier || '', duration: Number(ap.duration) || 0, res: ap.res || '', ar: ap.ar || '',
+            size: ap.size || '', creation_intent: shape.intent, shape,
+            inputEntries: buildInputEntriesPlan(prov, model), params: ex.params,
+          });
+        }
+        if (TYPE === 'image') {
+          if (!model.id) return null;
+          const ap = advPlan(model, 'image').payload;
+          const std = { model: model.id, prompt };
+          ['quality', 'ar', 'size', 'format'].forEach(k => { if (ap[k] !== undefined) std[k] = ap[k]; });
+          const n = Math.max(1, Number(val('count')) || 1);
+          if (ap.count !== undefined) std.count = n;
+          const assetIds = (cur().assets || []);
+          if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
+          const ex = advExtras();
+          std.params = ex.params;
+          std.shape = topBoolCtx();
+          return Api.preview(prov, 'create', std);
+        }
+        /* 语音：走公共层 `AiGen.previewTts`（与语音台同一份字段组装）。 */
+        const m = curAudioModel();
+        if (!m || !m.id) return null;
+        const ex = advExtras();
+        return window.AiGen && AiGen.previewTts ? AiGen.previewTts(prov, {
+          model: m.id, text: prompt, style: (val('style') || ''), voice: (val('voice') || ''),
+          format: val('formatA') || '', bools: ex.topBools || {},
+        }) : null;
+      }
+      /* 刷新预览（去抖 + 防乱序在 RawRequest.schedule 里）。
+         算不出来就保持上一份 —— **不显示空 JSON**（那会被读成「这次没有请求体」）。 */
+      function refreshPreview() {
+        if (!window.RawRequest || !RawRequest.schedule || !TYPE) return;
+        const tag = 'studio:' + TYPE;
+        RawRequest.schedule(tag, () => {
+          const pv = previewBody();
+          if (!pv) return null;
+          const cm = currentModel();
+          const prov = cm && cm.prov;
+          return { label: '', provider: (prov && prov.id) || '', providerName: (prov && (prov.displayName || prov.name)) || '',
+            endpoint: 'create', method: pv.method, path: pv.path, body: pv.body };
+        });
+      }
       async function createVideoOnce(prov, model, prompt, entries) {
         const modelId = (model && model.id) || String(model || '');
         if (!modelId) throw new Error('没选出要用的视频型号 —— 在左栏「型号」里挑一个再点生成');
@@ -1687,6 +1788,7 @@ const StudioView = {
         const ex = advExtras(bools);
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
+          snapTag: 'studio:video', snapLabel: modelId,
           log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
             输入模式: cb ? comboLabel(cb) : '',
             顶层参数: ex.summary,
@@ -1714,6 +1816,7 @@ const StudioView = {
         std.shape = topBoolCtx();
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
+          snapTag: 'studio:image', snapLabel: model.id || '',
           log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
             本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '',
             顶层参数: ex.summary } },
@@ -1775,6 +1878,7 @@ const StudioView = {
         const useRef = mode === 'clone';
         const voiceValue = useRef ? (await audioRefBase64()) : (mode === 'design' ? '' : t.voice);
         const r = await AiGen.synthTts(prov, { model: t.model, text: t.text, style: t.style || '',
+          snapTag: 'studio:audio', snapLabel: t.model || '',
           voice: voiceValue, format: t.format, bools: t.bools || {},
           meta: { voice: useRef ? '参考音频复刻' : t.voice } });
         return { assetId: r.assetId, url: r.url, format: r.format, bytes: r.bytes,
@@ -3077,6 +3181,8 @@ const StudioView = {
       try {
         await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
         await window.__spaLoadScript('web/domain/chars.js', () => window.Chars);
+        /* 原始请求面板（不常驻在 shell.html）。 */
+        await window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest);
       } catch (e) {
         const st = pageEl.value.querySelector('[data-r="status"]');
         if (st) st.innerHTML = '<span class="err">公共模块没有加载起来：' + window.escerrText(e) + '</span>';

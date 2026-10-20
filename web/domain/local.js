@@ -475,7 +475,10 @@
   /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`，§J ⑲ 守着）。这一处以前自己写了第二份非法字符正则，
      而且是**直接删掉**那些字符（别的页换成 -），于是同一条素材从本机另存与从资产库下载，名字对不上；
      截断也各是一份（这里 20、页面那两处 24）。本函数只管「提示词当前缀 + 扩展名」。 */
-  const nameOf = (e, ext) => window.fileSafe((e && e.prompt) || '素材', 24) + '.' + ext;
+  /* `e.name` 是调用方给的人类可读名（导演台：场景 + 镜头 + 候选号），**不带扩展名**；
+     没有就退回提示词前缀。截断从 24 放宽到 80：场景镜头名要留得下「场景01-…_镜头03-…_候选2」，
+     而旧素材不重命名，只有新镜像才走这一条。 */
+  const nameOf = (e, ext) => window.fileSafe((e && e.name) || (e && e.prompt) || '素材', 80) + '.' + ext;
 
   const queue = [];
   let pumping = false;
@@ -1079,7 +1082,9 @@ function info() {
   const ANNOUNCE_SHAPE = {
     kind: '', provider: '', providerName: '', assetId: '', genId: '', id: '',
     type: '', format: '', status: '', src: '', rawSrc: '', url: '', dl: '',
-    prompt: '', model: '', tier: '', res: '', ar: '',
+    /* `name` 是**不带扩展名**的显示名（导演台给「场景01-…_镜头03-…_候选2」）。
+       索引名、另存文件名与 FCPXML 媒体包名都读它；空着就回落到提示词前缀（历史行为）。 */
+    name: '', prompt: '', model: '', tier: '', res: '', ar: '',
     duration: null, credits: null, priceMicros: null, currency: '', priceText: '',
     gstatus: '', created: '', completed: '', ts: '', localAsset: '',
   };

@@ -76,7 +76,7 @@
 /* 语音识别 / 联网搜索：与四类供应商同一层级的两个分段。表单本身照旧，只换容器。 */
 .settings-page .prov-sec { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .settings-page .prov-sec-h { display: flex; align-items: center; gap: 7px; margin: 0 0 6px;
-  font-size: 13px; font-weight: 600; color: var(--txt); }
+  font-size: var(--fs-2); font-weight: 600; color: var(--txt); }
 .settings-page .prov-sec-h .card-ic { flex: 0 0 auto; }
 .settings-page .sm { font-size: 11.5px; color: var(--sub); }
 .settings-page .dir-name { font-size: 12.5px; color: var(--sub); flex: 1; }
@@ -290,6 +290,24 @@
 .settings-page .sk-desc2 { font-size: var(--fs-2); line-height: 1.55; color: var(--txt); white-space: pre-wrap; }
 .settings-page .sk-flags { font-size: var(--fs-1); color: var(--sub); line-height: 1.55; }
 .settings-page .sk-flags b { color: var(--txt); font-weight: 600; margin-right: 8px; }
+
+/* 「项目引用规则」那一块：这份 Skill 正文里写了哪些**变量占位符**（{cast} {what} {board} …），
+   程序在发请求前按当前项目把实际内容填进去。 */
+.settings-page .sk-refrule { margin-top: var(--sp-3); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel2); }
+.settings-page .sk-refrule .sk-flags { margin-bottom: var(--sp-2); }
+.settings-page .sk-refrule .sk-flags .hint { margin-left: var(--sp-2); }
+.settings-page .sk-refrule code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: var(--input); border-radius: 3px; padding: 0 3px; }
+.settings-page .sk-varlist { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;
+  margin-bottom: var(--sp-2); }
+.settings-page .sk-var { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--fs-1); color: var(--acc); border: 1px solid var(--line);
+  border-radius: 3px; padding: 0 5px; }
+.settings-page .sk-varlist .hint { margin-left: var(--sp-1); }
+.settings-page .sk-rl { display: flex; flex-direction: column; gap: var(--sp-1);
+  font-size: var(--fs-1); color: var(--sub); margin-bottom: var(--sp-2); }
+.settings-page .sk-rl input { font-size: var(--fs-2); }
 
 .settings-page .sk-body { flex: 1 1 auto; min-height: 260px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-3); }
 .settings-page .sk-files {

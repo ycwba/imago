@@ -547,6 +547,29 @@ window.Chars = (function () {
       const hit = Lib.groups().find(g => Lib.groupMatch(x, g.name));
       return hit ? hit.name : '';
     },
+    /* **把一整组素材改到另一个组名**（导演台「项目组改名」那一路）。
+       组名是自由文本，所以「同一组」的判据是 `groupMatch`（按 nameKey 合并近名）——
+       组里可能存着「校园篇」「校园篇 」两种写法，改组时**全部**改成新写法，
+       只改其中一种写法的话，改完那组就裂成两半（名单与筛组的尺子各认一种）。
+       返回 { n, why }：n = 改了几条；why = 没改成的原因（读坏了 / 库里没有那一组）。
+       ⚠ 这是**改用户数据**：调用方必须先问过用户（导演台那一路只提示、问过才调）。 */
+    renameGroup(oldName, newName) {
+      const o = String(oldName || '').trim();
+      const nw = String(newName || '').trim();
+      if (!o || !nw) return { n: 0, why: '组名不能是空的' };
+      if (window.nameKey(o) === window.nameKey(nw)) return { n: 0, why: '' };
+      const lb = libBroken();
+      if (lb) return { n: 0, why: '这一组没改：' + lb + '。已停手，磁盘上原来的数据一个字没动。' };
+      const list = Lib.list();
+      /* 按 `groupMatch` 认这一组（含近名变体），不是按字面比。 */
+      const hit = list.filter(c => c && Lib.groupMatch(c, o));
+      if (!hit.length) return { n: 0, why: '' };
+      const next = list.map(c => (c && Lib.groupMatch(c, o)) ? Object.assign({}, c, { group: nw }) : c);
+      writeLib(next);
+      const e = Lib.writeError();
+      if (e) return { n: 0, why: '这一组没改掉：' + e };
+      return { n: hit.length, why: '' };
+    },
     remove(id) {
       /* 删之前先问一次「这一份读得出来吗」：下面拿的正是 `Lib.list()` 的结果当写入底座，
          读坏了还照旧写回去，磁盘上完好的那一整批就没了（与 `save` 同一立场，见 `brokenOf`）。 */
@@ -702,9 +725,12 @@ window.Chars = (function () {
     },
   };
   const round2 = n => Math.round(n * 100) / 100;
-  /* 占位符填充：{xxx} → 值。用户在设置页里把某条挪走或删掉都不会炸（对不上就不替换）。 */
+  /* 占位符填充：{xxx} → 值。用户在设置页里把某条挪走或删掉都不会炸（对不上就不替换）。
+     **实现在公共层 `window.TplVars.fill`**（Skill 正文里的变量占位符只有那一份填法）——
+     这里只留一个薄壳，免得这一处与公共层各写一份正则、规则迟早对不上。 */
   function fillTpl(tpl, vals) {
-    return String(tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vals[k] == null ? m : String(vals[k])));
+    return (window.TplVars && TplVars.fill) ? TplVars.fill(tpl, vals)
+      : String(tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vals[k] == null ? m : String(vals[k])));
   }
 
   /* ---------- 6.2 画脸 / 画角色资产 / 画场景图 ----------
@@ -802,7 +828,18 @@ window.Chars = (function () {
      出图、出角色资产、导演台取参考图**只许**读这一处 —— 与显示用的 `picOf` 分开：
      卡片上可以摆一张更好看的，而送去当参考的必须是用户指定的那张正脸。 */
   function refPicOf(x) { return (x && (x.anchor || x.face || x.img)) || ''; }
-  function setPic(x, src) { if (x && 'face' in x) x.face = src; else x.img = src; return src; }
+  /* 写预览图。**只有一个入口**（素材库页与导演台都走它），所以这里顺手投一个事件：
+     「这条素材现在有图了」—— 导演台靠它把拆分镜写下的 `@待建:名字` 占位符换成真名，
+     并把那张图补进引用它的镜头（=「生成完自动显示图片」那一条）。
+     用普通事件而不是 `window.__*` 钩子：后者是跨脚本层的私有通道，
+     AGENTS §8 的 G8 判据数着它们，新增一枚要登记理由 —— 这里不需要那种特权。 */
+  function setPic(x, src) {
+    if (x && 'face' in x) x.face = src; else x.img = src;
+    try {
+      window.dispatchEvent(new CustomEvent('wb:char-pic', { detail: { item: x, src: src } }));
+    } catch (e) { /* 投不出去不影响写图 */ }
+    return src;
+  }
   function descOf(x) { return (x && (x.look || x.desc || x.bio)) || ''; }
   function isSceneItem(x) { return libKindOf(x) === 'scene' || episodeKindOf(x) === 'scene'; }
   /* 这个型号有没有「参考图」槽位、能收几张 —— 只问能力声明，不按平台名猜 */
@@ -925,9 +962,11 @@ window.Chars = (function () {
       ? prompts.map(p => p + '。严格沿用参考图里的同一个人：脸型、五官、发型都不要变')
       : prompts;
     const type = prop ? '素材-道具' : scene ? '素材-场景' : '素材-角色定妆';
+    const snapTag = 'chars:' + (prop ? 'prop' : scene ? 'scene' : 'char') + ':' + item.id;
     const meta0 = prop ? { 道具: item.name, 画幅: ar } : scene ? { 场景: item.name } : { 角色: item.name, 画幅: ar };
     const settled = await Promise.allSettled(usePrompts.map((prompt, i) =>
       AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: ar, count: 1,
+        snapTag, snapLabel: item.name,
         inputEntries: inputEntries,
         /* 任务号回传给调用方落盘：切页之后这一轮 JS 就没了，但任务还在平台上跑 ——
            存下号来，下次打开这一页能把它认领回来（见 assetlib 的 AiGen.adopt）。 */
@@ -1034,6 +1073,7 @@ window.Chars = (function () {
       name: item.name, look: descOf(item), style: episodeStyle(drama), ar: '16:9',
     });
     const e = await AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: '16:9', count: want,
+      snapTag: 'chars:' + (isSceneItem(item) ? 'scene' : 'char') + ':' + item.id, snapLabel: item.name + ' · ' + name,
       inputEntries: inputEntries,
       onTask: o && o.onTask,        // 同上：任务号回传给页面落盘，切页回来能认领
       log: { type: '素材-角色资产', meta: { 角色: item.name, 资产: name, 模板: tpl } } });
@@ -1245,6 +1285,35 @@ window.Chars = (function () {
     return u;
   }
   const refAudioCache = new Map();
+  /* 把一段**音色描述**写回素材库那一位（导演台声音栏「存回素材库」那一颗）。
+     为什么需要它：导演台声音栏的「声音描述」原本只活在这一次配音里 ——
+     同一个角色下一集、下一条镜头又要再写一遍，而两遍写法迟早不一样。
+     写回 `voiceNote` 之后，素材库那一位就有了这份描述，`voicePrefillOf` 那一族自然能取到它。
+     判据只有一份：按**名字**找（`nameKey` 合并近名），找得到就写并存库。
+     返回 { ok, name, why }：why 照实说（找不到那一位 / 库里读不出来 / 写失败）。 */
+  function saveVoiceNote(name, note) {
+    const nm = String(name || '').trim();
+    const t = String(note || '').trim();
+    if (!nm) return { ok: false, why: '这一句没有说话人：写回素材库要靠名字找人' };
+    if (!t) return { ok: false, why: '没有音色描述可写' };
+    const lb = libBroken();
+    if (lb) return { ok: false, why: '没写回去：' + lb + '。已停手，磁盘上原来的数据一个字没动。' };
+    const k = window.nameKey ? window.nameKey(nm) : nm.toLowerCase();
+    const hit = Lib.list().find(x => x && window.nameKey
+      ? window.nameKey(String(x.name || '').trim()) === k
+      : String(x.name || '').trim().toLowerCase() === k);
+    if (!hit) return { ok: false, why: '素材库里没有叫「' + nm + '」的那一位（先到素材库建一位，或改这一句的说话人）' };
+    /* 已经有描述且与新写的不同 → 不覆盖（用户自己写的那段更该留着）。 */
+    const old = String(hit.voiceNote || '').trim();
+    if (old && old !== t) {
+      return { ok: false, why: '「' + hit.name + '」已经有一段音色描述了，没有覆盖（要改就到素材库页改那一位）' };
+    }
+    const next = Object.assign({}, hit, { voiceNote: t, voiceMode: hit.voiceMode || 'design' });
+    Lib.save(next, { exact: true });
+    const e = Lib.writeError && Lib.writeError();
+    if (e) return { ok: false, why: '没写回去：' + e };
+    return { ok: true, name: hit.name };
+  }
   async function saveRefAudio(char, blob, name) {
     const key = await Wb.Blobs.save(blob);
     if (char.refAudio && char.refAudio !== key) {
@@ -1533,7 +1602,8 @@ window.Chars = (function () {
       voice = 'data:' + (ref.mime || 'audio/mpeg') + ';base64,' + ref.base64;
     }
     const body = { model: model.id, text: o.text, style: o.style || '', voice: voice, format: fmt,
-      textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user', log: false };
+      textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user', log: false,
+      snapTag: o.snapTag || ('chars:voice:' + ((o.char && o.char.id) || '')), snapLabel: (o.char && o.char.name) || '' };
     let res;
     try {
       res = await Api.create(prov, body);
@@ -1708,6 +1778,36 @@ window.Chars = (function () {
     char.voiceMode = 'clone';
     /* 预设音色 id 要清掉：留着的话「方式那一排」切到预设时仍会命中它，
        而这一位现在是复刻 —— 两份配置同时成立，下一次配音取哪份就成了看运气。 */
+    char.voice = '';
+    char.voiceName = '';
+    char.voiceBy = '';
+    return { ok: true, refAudio: char.refAudio, name: char.refAudioName };
+  }
+  /* 拿**素材库里另一位**的参考音频来克隆（用户要求：「使用素材进行描述或克隆」——
+     即用另一个素材的声音当这一位的嗓子）。
+     与 `cloneFromCands` 的差别只在于**源**：那一条取的是「这一位自己合成过的候选」，
+     这一条取的是「库里另一位挂着的参考音频」。
+     走的是同一条落点（`char.refAudio` + `voiceMode='clone'` + 清掉预设音色 id），
+     所以之后的配音、下一集、保存都按同一份口径 —— 不另写一条克隆路径。
+     体积判据仍走 `refAudioRule`（与界面上传参考音频同一把尺子）。 */
+  function cloneFromLibEntry(REG, opts, char, entry) {
+    const w = ttsWays(REG, opts);
+    if (!w.ok) return { ok: false, why: w.why };
+    if (!w.clone) return { ok: false, why: '这个平台没有「音色复刻」型号 —— 拿别人的参考音频来克隆要它有那一档' };
+    const src = String((entry && entry.refAudio) || '').trim();
+    if (!src) return { ok: false, why: '素材库里的「' + String((entry && entry.name) || '那一位') + '」没有挂参考音频 —— 先给它传一段或用它合成一条' };
+    if (char && entry && char.id && entry.id && char.id === entry.id) {
+      return { ok: false, why: '这一位就是它自己' };
+    }
+    const rule = (refAudioRule(REG, opts) || {}).rule || {};
+    const bytes = Number((entry && entry.refAudioBytes) || 0);
+    if (rule.maxBytes && bytes && bytes > rule.maxBytes) {
+      return { ok: false, why: '那一位的参考音频 ' + window.fmtBytes(bytes) + '，超过这一家参考音频的上限 '
+        + window.fmtBytes(rule.maxBytes) };
+    }
+    char.refAudio = src;
+    char.refAudioName = String((entry && entry.name) || '参考音频').slice(0, 40) + ' 的声音';
+    char.voiceMode = 'clone';
     char.voice = '';
     char.voiceName = '';
     char.voiceBy = '';
@@ -1937,17 +2037,30 @@ window.Chars = (function () {
     const mn = esc((w.model || {}).name || '这个型号');
     /* 要的方式这一家没有型号：界面必须说「其实这次按 X 念」，不能继续显示复刻上传框 */
     const fb = w.fellback ? `<span class="ui-tag warn">这位想要「${esc(WAY_LABEL[w.want] || w.want)}」，这个平台没有对应型号 —— 现在按「${esc(WAY_LABEL[vm])}」的型号出声</span>` : '';
+    /* 「用素材库里的另一位」这两条（用户要求：「使用素材进行描述或克隆」）：
+       · description 档 —— 拿别人写好的**音色描述**填进这一格（不另造一段）；
+       · clone 档 —— 拿别人挂着的**参考音频**当这一位的嗓子。
+       候选名单只有 `libVoiceEntries` 那一份（页面与选择器都读它），这里不另列。
+       库里没有可拿的就不摆那颗按钮（摆一颗点了没反应的更糟）。 */
+    const libNotes = vm === 'design' ? libVoiceEntries('note') : [];
+    const libAudios = vm === 'clone' ? libVoiceEntries('audio') : [];
+    const takeNote = libNotes.length
+      ? `<button class="ghost mini" data-act="vnotepick" title="从素材库里挑一位，把他写的那段音色描述填进这一格">${ic('users', 12)} 用素材的音色描述</button>` : '';
+    const takeAudio = libAudios.length
+      ? `<button class="ghost mini" data-act="vaudiopick" title="从素材库里挑一位，用他挂着的参考音频克隆这一位的声音">${ic('users', 12)} 用素材的声音克隆</button>` : '';
     if (vm === 'design') return fb + '<input class="ui-in" data-act="voicenote" placeholder="描述这个人的声音：男/女、年纪、清亮还是沙哑、语速快慢、情绪底子" '
       + 'value="' + esc(c.voiceNote || '') + '">'
       + `<span class="ui-hint">「${mn}」按这段描述出声，写完就能试听${(c.voiceBy === 'ai' && String(c.voiceNote || '').trim()) ? '（这段是 AI 按人设写的，可以直接改）' : ''}`
       /* 说清它会跟着这一位走（用户要求「同一个角色下次用之前的音色提示词」）：
          描述随角色进素材库、拉进下一集时一起带过去，所以同一个人不用每集重写一遍。 */
-      + '。这段描述随这一位进素材库，拉进下一集也带过去</span>';
+      + '。这段描述随这一位进素材库，拉进下一集也带过去</span>'
+      + takeNote;
     if (vm === 'clone') return fb + (c.refAudio
         ? `<span class="ui-tag ok">参考音频：${esc(String(c.refAudioName || '已挂的那一段').slice(0, 18))}</span>`
         : '<span class="ui-hint">还没有参考音频 —— 这个型号靠参考音频克隆音色（3~10 秒干净的人声即可）</span>')
       + `<button class="ghost mini" data-act="refaudio">${c.refAudio ? '换一段' : ic('upload', 12) + ' 上传参考音频'}</button>`
-      + (c.refAudio ? '<button class="ui-linkbtn" data-act="refclear">去掉</button>' : '');
+      + (c.refAudio ? '<button class="ui-linkbtn" data-act="refclear">去掉</button>' : '')
+      + takeAudio;
     return fb + '<span class="ui-voice-list">' + voiceChips(REG, opts, c) + '</span>';
   }
   const WAY_LABEL = { preset: '预设音色', design: '声音描述', clone: '参考音频复刻' };
@@ -2213,9 +2326,13 @@ window.Chars = (function () {
          导出去给导演台声音栏用 —— 页面自己按平台排优先级就会和工作台两套说法。 */
       ttsWayOfChosen,
       voiceMode, setVoiceWay, assignVoices, autoVoice, cloneFromCands, voiceCands,
+      /* 「拿素材库里另一位的参考音频来克隆」：与 cloneFromCands 同一落点，只是源换了。 */
+      cloneFromLibEntry,
       /* 「素材库里有哪几位能拿来定声音」那份名单（统一选择器第四个来源读它）：
          库里那一列叫什么只有这一层知道，页面与选择器都不认字段名。 */
       libVoiceEntries, refAudioMiss, voicePrefillOf,
+      /* 把一段音色描述写回素材库那一位（导演台声音栏「存回素材库」）。 */
+      saveVoiceNote,
       saveRefAudio, clearRefAudio },
     /* ---- 角色卡上「声音 / 资产」那几块。素材库页与导演台共用一份，
        这一层**只产字符串**：点击动作仍由页面自己绑（data-act 的名字两边一致），

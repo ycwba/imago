@@ -74,7 +74,10 @@ async function handleSkills(req, res, ctx) {
       const dir = path.join(x.dir, 'references');
       if (fs.existsSync(dir)) for (const ent of fs.readdirSync(dir, { withFileTypes: true })) if (ent.isFile()) refs.push(ent.name);
       const hash = store.skillHash(id);
-      sendJson(res, 200, { skill: { id: x.id, name: x.name, description: x.description, triggers: x.triggers || [], pages: x.pages || [], tools: x.tools || [], contract: x.contract, version: x.version || 1, source: x.source, enabled: !!x.enabled, body: x.body, contentHash: hash }, refs, files: store.listFiles(id), hash });
+      sendJson(res, 200, { skill: { id: x.id, name: x.name, description: x.description, triggers: x.triggers || [], pages: x.pages || [], tools: x.tools || [], contract: x.contract, version: x.version || 1, source: x.source, enabled: !!x.enabled, body: x.body, contentHash: hash,
+        /* 「素材范围优先」：与 list() 同一份（设置页的详情面板要显示并编辑它们）。
+           ⚠ 「项目引用规则」不在这里 —— 那是**正文里的变量占位符**，页面自己扫正文。 */
+        assetGroups: Array.isArray(x.assetGroups) ? x.assetGroups : [] }, refs, files: store.listFiles(id), hash });
       return true;
     }
     if (!part[1] && method === 'PUT') {

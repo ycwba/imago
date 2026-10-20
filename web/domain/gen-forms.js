@@ -1,8 +1,50 @@
 /* 生成表单族：型号偏好 / 生成参数 / 配音与字数闸 / 口播说明 / 流式面板。
-   八个 window 面（ModelPrefs / AiGen / AdvParams / AdvExtras / TtsAdv / CharLimits /
-   VoiceNote / AiStream）从 assetlib.js 拆出（报告 §6.1-2：按已有的 window 面切文件）。
+   九个 window 面（ModelPrefs / AiGen / AdvParams / AdvExtras / TtsAdv / CharLimits /
+   VoiceNote / AiStream / TplVars）从 assetlib.js 拆出（报告 §6.1-2：按已有的 window 面切文件）。
    加载顺序见 shell.html：api.js → assetlib.js → gen-forms.js；方法体只读
    Api / AssetLib / Capabilities / TextAI / InlinePolish 这些公开面与 api.js 的顶层函数。 */
+
+/* ============================================================================
+   TplVars —— **Skill 正文里的变量占位符**（`{cast}` `{what}` `{look}` …）的唯一一份填法
+   ----------------------------------------------------------------------------
+   一份 Skill 的正文里可以写占位符（例：`本集角色：{cast}`），程序在发请求前把**项目里的
+   实际内容**填进去 —— 这就是「项目引用规则」：**Skill 写变量，程序按项目填料**。
+
+   为什么是「声明」而不是「硬规则」：变量名由 Skill 作者定（`{cast}` 还是 `{roster}` 都行），
+   程序只负责「填得上的填、填不上的原样留着」——
+   填不上时那一段变量原样发给 AI，AI 看到 `{cast}` 三个字也知道那是要它自己补的地方，
+   不会因为程序少给了一份名单就整条崩掉。
+
+   替换只有这一份：素材库的音色/生图（`{cast}` `{ways}` `{preset}` `{what}` `{look}` …）、
+   导演台的拆分镜 / 改分镜 / 新素材判定（`{what}` `{cast}` `{board}` `{assets}` `{dur}` …）
+   全走它 —— 各写一份正则，规则迟早对不上（有一处认 `{x}` 另一处只认 `{{x}}`）。 */
+window.TplVars = {
+  /* 填变量：`{名字}` → 值。**填不上的原样留着**（不删、不留空）——
+     「填不上」有两种：**没有这一项**（`undefined` / `null`）与**这一项这次是空的**（`''`）。
+     两种都原样留着：留空会让 AI 以为「这一段没有内容」，
+     而原样留着它至少知道那是个待补的位子（这一项这次没有料）。 */
+  fill(tpl, vals) {
+    const v = vals || {};
+    return String(tpl == null ? '' : tpl).replace(/\{(\w+)\}/g, (m, k) => {
+      const val = v[k];
+      return (val == null || val === '') ? m : String(val);
+    });
+  },
+  /* 这一份正文里写了哪些变量（设置页「项目引用规则」那一栏要列出来给用户看）。 */
+  names(tpl) {
+    const out = [];
+    const seen = new Set();
+    const re = /\{(\w+)\}/g;
+    let m;
+    const s = String(tpl == null ? '' : tpl);
+    while ((m = re.exec(s)) !== null) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      out.push(m[1]);
+    }
+    return out;
+  },
+};
 
 /* ============================================================================
    ModelPrefs —— 「这一家有哪些型号、哪一个被藏起来」的唯一一份本机记录
@@ -241,6 +283,23 @@ window.AiGen = {
      各写一遍的结局是「声明 encoding=hex 却按 base64 处理」这类偏差只修好一边（AGENTS §3「同一个功能只应有一份实现」）。
      「这一家怎么定音色」（预设 / 描述 / 参考音频）是页面自己的事，所以 `voice` 由调用方算好递进来。
      o = { model, text, style, voice, format, bools, name, meta } → { assetId, url, format, bytes, usage } */
+  /* 语音合成的**发送前预览**：算出「这一次将要发给平台的请求体」，**一个网络请求都不发**。
+     字段组装与 `synthTts` 那一段**逐字同源**（同一个 o 的同一批键）——
+     两边各写一份的话，预览里显示的体与真发出去的体迟早不一样，
+     而那正是这个功能唯一的价值所在。
+     预览里参考音频（音色复刻那一档）用占位说明：那段 base64 有几百 KB，
+     整段塞进 DOM 会把页面拖死（`Api.snapOf` 也会把它压成摘要 —— 这里先压一次）。 */
+  previewTts(prov, o) {
+    const tts = (prov && prov.tts) || {};
+    const clone = o && o.refAudioB64 ? Object.assign({}, o, { refAudioB64: '<参考音频（发送时才上传）>' }) : o;
+    const fields = {
+      model: clone.model, text: clone.text, style: clone.style || '', voice: clone.voice || '',
+      format: clone.format || ((tts.formats || [])[0] || ''),
+      textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
+      ...(clone.bools || {}),
+    };
+    return Api.preview(prov, (prov && prov.create && prov.create.endpoint) || 'create', fields);
+  },
   async synthTts(prov, o) {
     const tts = (prov && prov.tts) || {};
     const res = await Api.create(prov, {
@@ -248,6 +307,7 @@ window.AiGen = {
       format: o.format || ((tts.formats || [])[0] || ''),
       textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
       ...(o.bools || {}),
+      snapTag: o.snapTag || '', snapLabel: o.snapLabel || '',
       log: false,                       // 同步合成没有平台任务号：归档由调用方按自己的本地号做
     });
     let b64 = Api.pickPath(res, tts.responsePath || 'choices.0.message.audio.data');
@@ -260,7 +320,12 @@ window.AiGen = {
     let fmt = o.format || ((tts.formats || [])[0] || '');
     if (fmt === 'pcm16') { b64 = this.b64FromBuf(this.pcm16ToWav(b64, tts.pcmSampleRate || 24000)); fmt = 'wav'; }
     const mime = (tts.mime || {})[fmt] || 'audio/wav';
-    const name = o.name || ('语音-' + String(o.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt);
+    /* `o.name` 约定是**不带扩展名**的 base（导演台给场景镜头名、画布给节点标题）：
+       这里补上唯一的扩展名；已经带了就不重复拼（旧调用方传过带 `.wav` 的名字）。 */
+    const wantName = String(o.name == null ? '' : o.name).trim();
+    const name = wantName
+      ? (fmt && !/\.[A-Za-z0-9]{1,8}$/.test(wantName) ? wantName + '.' + fmt : wantName)
+      : ('语音-' + String(o.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt);
     const meta = Object.assign({ prompt: o.text, model: o.model, voice: o.voice, provider: prov.id,
       chars: String(o.text || '').length, usage: (res && res.usage) || null }, o.meta || {});
     let saved = null;
@@ -329,6 +394,7 @@ window.AiGen = {
          由它按 hide / need / from 声明决定哪些真的进提交体。不带 = 这一家声明的顶层开关一个都不发，
          于是同一个平台在工作台能勾「平台提示词优化」，在导演台的画面生成里连控件都没有。 */
       params: o.params, shape: o.shape,
+      snapTag: o.snapTag || '', snapLabel: o.snapLabel || '',
       log: o.log || { type: '图片生成', meta: { 画质: o.quality || '', 画幅: o.ar || '' } },
     });
     const p0 = Api.parseItem(prov, gen);
@@ -994,6 +1060,24 @@ window.CharLimits = {
      ========================================================================== */
 window.VoiceNote = {
   TITLE: '取一位素材的音色描述',
+  /* 「拿素材库里另一位的**参考音频**来克隆」—— 与上面那一条同族（都是「从素材库取料」），
+     但取的是**字节**而不是文字，所以是另一条链：走 `chars:'audio'` 那一档（只列挂了参考音频的那些），
+     落点仍是 `char.refAudio` + `voiceMode='clone'`（判据在 `Chars.Pipe.cloneFromLibEntry`）。
+     页面只给两个口子：pick() 挑一位、apply() 把挑中的那一位接到当前这一位身上。 */
+  async runClone(o) {
+    const opt = o || {};
+    const got = await window.AssetPicker.open({
+      types: ['音频'], multiple: false, limit: 1, upload: false, chars: 'audio',
+      title: '拿哪一位的声音来克隆',
+      note: '这里列的是素材库里挂着参考音频的那些位；挑一位，用他挂着的这段当这一位的嗓子。',
+    });
+    if (!got || !got.length) return null;
+    const entry = (window.Chars && Chars.Lib && Chars.Lib.list() || [])
+      .find(x => x && x.id === got[0].charId);
+    if (!entry) { if (opt.say) opt.say('<span class="err">素材库里找不到那一位了</span>'); return null; }
+    if (opt.apply) opt.apply(entry);
+    return entry;
+  },
   async run(o) {
     const say = (o && o.say) || (() => {});
     const got = await window.AssetPicker.open({

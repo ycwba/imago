@@ -1625,7 +1625,12 @@
     const fmt = String((a && a.format) || EF.ids()[0]);
     const f = EF.of(fmt);
     if (!f) return { err: 'format 只能是 ' + EF.hint() + '，现在写的是「' + fmt + '」' };
-    return { 说明: '导出：' + f.assistant, 人话: [f.assistant, '写的是本机渲染目录里的文件；不动工程数据'], 钉: null };
+    if (f.nle && !(a && (a.app === 'jianying' || a.app === 'resolve'))) {
+      return { err: 'format=nle 要另给 app：jianying 或 resolve' };
+    }
+    return { 说明: '导出：' + f.assistant,
+      人话: [f.assistant, f.nle ? '目标：' + (a.app === 'jianying' ? '剪映专业版' : 'DaVinci Resolve') : '写的是本机渲染目录里的文件；不动工程数据'],
+      钉: null };
   }
   async function exportStartRun(a) {
     const r = await dirRead('exportNow', a || {});
@@ -2111,10 +2116,12 @@
       check: mediaTranscribeCheck, run: mediaTranscribeRun,
     },
     export_start: {
-      arg: '{ "format": "' + EF.ids().join('|') + '" }',
+      arg: '{ "format": "' + EF.ids().join('|') + '", "app": "仅 nle 需要：jianying|resolve" }',
       title: '开始一次导出（导演台）',
       doc: '按当前时间线导出：' + EF.list().map(f => f.id + '=' + f.doc).join('；')
-        + '。只回记录号，进度用 export_status 查。导出始终本机优先：已有当前成片不会重联合成。',
+        + '。只回记录号，进度用 export_status 查。导出始终本机优先：已有当前成片不会重联合成。'
+        + 'format=nle 时另给 app（jianying 或 resolve）—— 会生成可导入工程并尽量启动该软件，'
+        + '最后一步导入仍由用户在软件里点。',
       check: exportStartCheck, run: exportStartRun,
     },
     export_save_to_assets: {
@@ -2438,7 +2445,9 @@
     subtitle_import_srt: { type: 'object', properties: Object.assign({ text: { type: 'string' }, assetId: { type: 'string' } }, SHOTREF) },
     media_transcribe: { type: 'object', properties: Object.assign({ language: { type: 'string' },
       route: { type: 'string', enum: ['auto', 'local', 'service'] }, assetId: { type: 'string' }, src: { type: 'string' } }, SHOTREF) },
-    export_start: { type: 'object', properties: { format: { type: 'string', enum: EF.ids() } } },
+    export_start: { type: 'object', properties: {
+      format: { type: 'string', enum: EF.ids() },
+      app: { type: 'string', enum: ['jianying', 'resolve'] } } },
     export_save_to_assets: { type: 'object', properties: { name: { type: 'string' }, title: { type: 'string' } }, required: ['name'] },
     canvas_nodes_create: { type: 'object', required: ['nodes'],
       properties: { nodes: { type: 'array', items: CVNODE, minItems: 1, maxItems: APPLY_MAX } } },

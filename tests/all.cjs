@@ -34,6 +34,20 @@ run('tests/fcpxml-client.mjs', process.execPath, ['tests/fcpxml-client.mjs']);
 run('tests/director-util.mjs', process.execPath, ['tests/director-util.mjs']);
 run('tests/director-board.mjs', process.execPath, ['tests/director-board.mjs']);
 run('tests/director-split-assets.mjs', process.execPath, ['tests/director-split-assets.mjs']);
+/* 拆分镜的「新素材」：重复出现才建 / 名字对不上不建 / 占位符词法 / 建档落点。 */
+run('tests/director-board-assets.mjs', process.execPath, ['tests/director-board-assets.mjs']);
+/* 项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 组名即素材组名。 */
+run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']);
+/* 发送前预览（dry-run）：预览与实发同源 / 不发网络请求 / 占位符 / 展示形状。 */
+run('tests/raw-preview.mjs', process.execPath, ['tests/raw-preview.mjs']);
+/* 项目引用规则：Skill 正文里的变量占位符（{cast} {what} …）按项目填料。 */
+run('tests/skill-refvars.mjs', process.execPath, ['tests/skill-refvars.mjs']);
+/* 接续拆分镜的纯算法：顺序 / 依赖原因码 / 选型 / 拆分守恒 / 报价键与合计。 */
+run('tests/director-chain.mjs', process.execPath, ['tests/director-chain.mjs']);
+/* 依赖式批量调度：等上一镜、失败级联、等待不占提交名额。 */
+run('tests/director-genall.mjs', process.execPath, ['tests/director-genall.mjs']);
+/* 场景镜头命名：本机素材名与 FCPXML 包内名同源（补零 / 截断 / 单扩展名 / 去重）。 */
+run('tests/director-naming.mjs', process.execPath, ['tests/director-naming.mjs']);
 run('tests/director-slice.mjs', process.execPath, ['tests/director-slice.mjs']);
 run('tests/director-playback.mjs', process.execPath, ['tests/director-playback.mjs']);
 run('tests/director-segments.mjs', process.execPath, ['tests/director-segments.mjs']);
@@ -104,6 +118,12 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1') {
   run('tests/e2e/editing-assets.cjs', process.execPath, ['tests/e2e/editing-assets.cjs']);
   run('tests/e2e/director-slice.cjs', process.execPath, ['tests/e2e/director-slice.cjs']);
   run('tests/e2e/director-lines.cjs', process.execPath, ['tests/e2e/director-lines.cjs']);
+  /* 原始请求折叠条：脱敏 / 默认收起 / 导演台重画后仍展开 / 工作台三型标签。 */
+  run('tests/e2e/raw-request.cjs', process.execPath, ['tests/e2e/raw-request.cjs']);
+  /* 发送前预览：不用点生成就能看到将要发出的请求体 / 改提示词跟着变 / 预览不发请求。 */
+  run('tests/e2e/raw-preview.cjs', process.execPath, ['tests/e2e/raw-preview.cjs']);
+  /* 导演台项目组：分树 / 新建 / 老工程零迁移 / 删组不删短片。 */
+  run('tests/e2e/director-groups.cjs', process.execPath, ['tests/e2e/director-groups.cjs']);
   run('tests/e2e/editing-assistant.cjs', process.execPath, ['tests/e2e/editing-assistant.cjs']);
   run('tests/e2e/render-jobs.cjs', process.execPath, ['tests/e2e/render-jobs.cjs']);
   run('tests/e2e/canvas.cjs', process.execPath, ['tests/e2e/canvas.cjs']);

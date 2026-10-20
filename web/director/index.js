@@ -93,6 +93,8 @@ export default {
           window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
           window.__spaLoadScript('web/domain/chars.js', () => window.Chars),
           window.__spaLoadScript('web/domain/export-formats.js', () => window.ExportFormats),
+          /* 原始请求面板（不常驻在 shell.html —— 别处打开它就是白下一次）。 */
+          window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest),
         ]);
         const templateP = fetch('web/director/template.html', { cache: 'no-cache' }).then(r => r.text());
         const engineP = import('./engine.js');

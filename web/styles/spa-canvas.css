@@ -128,7 +128,7 @@
 /* ---------- 悬浮工具条 ---------- */
 .canvas-page .cv-zoom {
   position: absolute; left: var(--sp-3); bottom: var(--sp-3); display: flex; align-items: center; gap: 4px;
-  padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-2); box-shadow: var(--shadow-1);
+  padding: var(--sp-1); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-2); box-shadow: var(--shadow-1);
 }
 .canvas-page .cv-zoom .ghost.mini { height: 26px; }
 .canvas-page .cv-zt { min-width: 48px; text-align: center; font-size: var(--fs-1); color: var(--sub); font-variant-numeric: tabular-nums; }
@@ -139,7 +139,7 @@
 }
 .canvas-page .cv-dock {
   position: absolute; left: var(--sp-3); top: var(--sp-3); display: flex; flex-wrap: wrap; gap: 4px;
-  padding: 4px; max-width: calc(100% - var(--sp-6));
+  padding: var(--sp-1); max-width: calc(100% - var(--sp-6));
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-2); box-shadow: var(--shadow-1);
 }
 .canvas-page .cv-dock .tool { height: 34px; padding: 0 9px; font-size: var(--fs-1); border-radius: var(--radius-1); }
@@ -171,6 +171,7 @@
 .canvas-page .cv-ist .bad { color: var(--err); }
 .canvas-page .cv-ist .run { color: var(--warn); }
 .canvas-page .cv-ist .sub { color: var(--sub); }
+.canvas-page .cv-ist-raw { margin-bottom: var(--sp-2); }
 
 /* ---------- 弹层里的列表（节点菜单 / 加节点 / 快捷键） ---------- */
 .canvas-page .cv-menu, dialog .cv-menu { display: flex; flex-direction: column; gap: 6px; }

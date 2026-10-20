@@ -551,7 +551,23 @@ export default {
           + '<button class="ghost" data-a="fit">看到它</button></div>'
           : '<div class="cv-iact"><button class="ghost" data-a="fit">看到它</button></div>')
         + '<div class="cv-ist">' + statusLine(n) + '</div>'
+        + (kind && window.RawRequest ? '<div class="cv-ist-raw">' + RawRequest.liveHTML('canvas:' + n.id) + '</div>' : '')
         + '<div class="cv-iact"><button class="ghost danger" data-a="del">删除节点</button></div>';
+      if (window.RawRequest) RawRequest.bind(el);
+      /* 「将要发出的请求」：用户还没点生成就能看到实际会发什么（dry-run，不发网络请求）。
+         参数一改 `paintInspector` 就重跑一遍，所以这里跟着走。 */
+      if (kind && window.RawRequest && RawRequest.schedule) {
+        const node2 = n;
+        RawRequest.schedule('canvas:' + n.id, () => {
+          const pv = gen.preview(S.doc, node2);
+          if (!pv) return null;
+          const mm = (node2.metadata || {});
+          const pr = (window.Api && Api.providers ? Api.providers() : []).find(x => x.id === mm.prov);
+          return { label: node2.title || '',
+            provider: mm.prov || '', providerName: (pr && (pr.displayName || pr.name)) || '',
+            endpoint: 'create', method: pv.method, path: pv.path, body: pv.body };
+        });
+      }
       if (window.Dropdowns) Dropdowns.build(el);
       el.querySelectorAll('[data-f]').forEach(ctl => {
         const f = ctl.dataset.f;
@@ -1084,6 +1100,8 @@ export default {
         if (!window.Kv) throw new Error('存储层没装载');
         /* Api / AiGen / Capabilities / AssetPicker 都是 shell.html 里的常驻脚本，只有工作台（Wb.poller、Wb.cards）要现补。 */
         await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
+        /* 原始请求面板（不常驻在 shell.html）。 */
+        await window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest);
         const REG = (window.Api && Api.registry) ? await Api.registry().catch(() => ({ providers: [] })) : null;
         /* 画布的平台/型号读的是注册表里的 `prov.models`；vgenv / sparkcine 这类家的型号清单
            只从能力接口来，不在注册表里写死。不在这里拉一次，选完平台型号下拉就永远是空的。 */

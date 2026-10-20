@@ -4,7 +4,8 @@
    + engine 里接一个 builder；模板按钮、接线、校验、文案不再各改一处。
    放在 domain 而不是 director：助手（web/features/chat.js）也要读同一份，而它是经典脚本，
    按需加载时只能拿 window 面（加载点见 web/boot-assistant.js 与 web/director/index.js）。
-   kind：film=整片合成；files=画面/配音分开出文件；xml=交换文件（bundle 再带媒体包）。 */
+   kind：film=整片合成；files=画面/配音分开出文件；xml=交换文件（bundle 再带媒体包，
+   nle 生成持久工程并送到剪映 / 达芬奇）。 */
 (function () {
   'use strict';
   const FORMATS = [
@@ -31,6 +32,11 @@
       assistant: '导出 FCPXML 媒体包（含字幕 subtitles.srt）',
       doc: 'FCPXML 媒体包（另带 subtitles.srt）',
       startNote: '正在导出 FCPXML 媒体包（字幕随导出一起写入）' },
+    { id: 'nle', button: 'exportNle', kind: 'xml', nle: true, label: '送到剪映 / 达芬奇', icon: 'film',
+      title: '生成一份持久工程（project.fcpxml + media/ + subtitles.srt），尽量启动剪映 / 达芬奇并打开工程目录；最后一步在软件里点一次导入',
+      assistant: '生成剪映 / 达芬奇的导入工程（启动软件 + 打开目录，不替你在软件里点导入）',
+      doc: '送到剪映 / 达芬奇（生成可导入工程；助手调用时另给 app=jianying 或 resolve）',
+      startNote: '正在生成剪映 / 达芬奇的导入工程' },
   ];
   const byId = {};
   FORMATS.forEach(f => { byId[f.id] = f; });

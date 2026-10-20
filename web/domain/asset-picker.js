@@ -34,7 +34,10 @@ window.AssetPicker = {
       /* 视图档只有这三个取值：'lib' 资产库 / 'fav' 我的收藏 / 'char' 素材库。
          以前它是一个 `favOnly` 布尔 —— 加第三个来源时布尔就不够用了（两档开关拼不出三档）。
          本地上传那一批不归任何一档（`inView` 里它恒为真），因为那是这次弹窗里的临时条目。 */
-      const charsOnly = o.chars === 'note';
+      /* 「只要素材库」的两档：音色描述（note）与参考音频（audio）。
+         这两样东西**只存在于素材身上**（资产库 / 收藏 / 本机上传里根本没有这一类），
+         所以这两档只显示「素材库」那一档 —— 摆着空档只会让人以为是自己找错了地方。 */
+      const charsOnly = o.chars === 'note' || o.chars === 'audio';
       let view = charsOnly ? 'char' : 'lib';
       let typeTab = '全部';
       let aiCond = null;                         // AI 检索条件（{keywords, after, order, limit}）

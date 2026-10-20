@@ -466,34 +466,46 @@ const _hoisted_305 = {
   key: 2,
   class: "sk-flags"
 }
-const _hoisted_306 = { class: "sk-body" }
-const _hoisted_307 = { class: "sk-files" }
-const _hoisted_308 = ["data-file", "onClick"]
-const _hoisted_309 = { class: "sk-fpath" }
-const _hoisted_310 = { class: "sk-sz" }
-const _hoisted_311 = { class: "sk-prev" }
-const _hoisted_312 = { class: "sk-prev-bar" }
-const _hoisted_313 = { class: "sk-fname" }
-const _hoisted_314 = { class: "hint" }
-const _hoisted_315 = {
+const _hoisted_306 = { class: "sk-refrule" }
+const _hoisted_307 = {
+  key: 0,
+  class: "sk-varlist"
+}
+const _hoisted_308 = {
+  key: 1,
+  class: "hint"
+}
+const _hoisted_309 = { class: "sk-rl" }
+const _hoisted_310 = ["onUpdate:modelValue", "disabled"]
+const _hoisted_311 = ["disabled", "onClick"]
+const _hoisted_312 = { class: "sk-body" }
+const _hoisted_313 = { class: "sk-files" }
+const _hoisted_314 = ["data-file", "onClick"]
+const _hoisted_315 = { class: "sk-fpath" }
+const _hoisted_316 = { class: "sk-sz" }
+const _hoisted_317 = { class: "sk-prev" }
+const _hoisted_318 = { class: "sk-prev-bar" }
+const _hoisted_319 = { class: "sk-fname" }
+const _hoisted_320 = { class: "hint" }
+const _hoisted_321 = {
   ref: "skillPreEl",
   class: "sk-pre"
 }
-const _hoisted_316 = {
+const _hoisted_322 = {
   key: 0,
   class: "hint sm sk-msg"
 }
-const _hoisted_317 = {
+const _hoisted_323 = {
   class: "card",
   id: "ioCard"
 }
-const _hoisted_318 = { class: "card-h" }
-const _hoisted_319 = ["innerHTML"]
-const _hoisted_320 = { class: "krow tight" }
-const _hoisted_321 = ["onClick"]
-const _hoisted_322 = ["onClick"]
-const _hoisted_323 = ["onClick"]
-const _hoisted_324 = ["onChange"]
+const _hoisted_324 = { class: "card-h" }
+const _hoisted_325 = ["innerHTML"]
+const _hoisted_326 = { class: "krow tight" }
+const _hoisted_327 = ["onClick"]
+const _hoisted_328 = ["onClick"]
+const _hoisted_329 = ["onClick"]
+const _hoisted_330 = ["onChange"]
 
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
@@ -501,7 +513,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("span", { innerHTML: _ctx.icGear }, null, 8 /* PROPS */, _hoisted_2),
       _cache[0] || (_cache[0] = _createTextVNode(" 设置", -1 /* CACHED */))
     ]),
-    _cache[123] || (_cache[123] = _createElementVNode("div", { class: "desc" }, [
+    _cache[126] || (_cache[126] = _createElementVNode("div", { class: "desc" }, [
       _createTextVNode("平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 "),
       _createElementVNode("code", null, ".env"),
       _createTextVNode(" / 环境变量里的密钥（代理程序本身不带任何密钥）。")
@@ -1760,7 +1772,7 @@ export function render(_ctx, _cache) {
         }, null, 8 /* PROPS */, _hoisted_266),
         _cache[106] || (_cache[106] = _createTextVNode("Skill", -1 /* CACHED */))
       ]),
-      _cache[117] || (_cache[117] = _createElementVNode("div", { class: "sub" }, [
+      _cache[120] || (_cache[120] = _createElementVNode("div", { class: "sub" }, [
         _createTextVNode("Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。 助手会在命中触发词时自动带上最多两份；其余只在清单里列出，需要时由它按需加载全文。 Skill 只补充写法，"),
         _createElementVNode("b", null, "输出格式与禁止项由机器契约管，Skill 改不了它"),
         _createTextVNode("。")
@@ -1911,8 +1923,48 @@ export function render(_ctx, _cache) {
                       _createTextVNode(_toDisplayString(_ctx.skillDetail.contract), 1 /* TEXT */)
                     ]))
                   : _createCommentVNode("v-if", true),
+                _createCommentVNode(" 项目引用规则：这份 Skill 正文里写了哪些**变量占位符**（{cast} {what} {board} …），\n                   程序在发请求前按**当前项目**把实际内容填进去 —— 这就是「项目引用规则」。\n                   与提示词正文里的 @素材 引用是两件事：@名字是给生成模型的引用（挂参考图），\n                   {变量} 是给写稿的 AI 看的项目资料（这一份角色名单长什么样）。\n                   内置 Skill 只读（要改先「复制为我的 Skill」）；用户 Skill 可直接改。 "),
                 _createElementVNode("div", _hoisted_306, [
-                  _createElementVNode("div", _hoisted_307, [
+                  _cache[118] || (_cache[118] = _createElementVNode("div", { class: "sk-flags" }, [
+                    _createElementVNode("b", null, "项目引用规则"),
+                    _createElementVNode("span", { class: "hint" }, [
+                      _createTextVNode("正文里的 "),
+                      _createElementVNode("code", null, "{变量}"),
+                      _createTextVNode(" 由程序按当前项目填料：填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。")
+                    ])
+                  ], -1 /* CACHED */)),
+                  (_ctx.skillVarNames.length)
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_307, [
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillVarNames, (v) => {
+                          return (_openBlock(), _createElementBlock("span", {
+                            key: v,
+                            class: "sk-var"
+                          }, _toDisplayString('{' + v + '}'), 1 /* TEXT */))
+                        }), 128 /* KEYED_FRAGMENT */)),
+                        _cache[116] || (_cache[116] = _createElementVNode("span", { class: "hint" }, "这一份用到的变量", -1 /* CACHED */))
+                      ]))
+                    : (_openBlock(), _createElementBlock("div", _hoisted_308, "这一份正文里没有写变量（程序会照原样发出去）。")),
+                  _createElementVNode("label", _hoisted_309, [
+                    _cache[117] || (_cache[117] = _createTextVNode("引用哪些素材组（逗号分隔，留空 = 全部；只影响「素材范围」下拉的排序） ", -1 /* CACHED */)),
+                    _withDirectives(_createElementVNode("input", {
+                      "onUpdate:modelValue": $event => ((_ctx.skillRefGroups) = $event),
+                      disabled: _ctx.skillDetail.source === 'builtin',
+                      placeholder: "例：校园篇, 主要角色"
+                    }, null, 8 /* PROPS */, _hoisted_310), [
+                      [_vModelText, _ctx.skillRefGroups]
+                    ])
+                  ]),
+                  (_ctx.skillDetail.source !== 'builtin')
+                    ? (_openBlock(), _createElementBlock("button", {
+                        key: 2,
+                        class: "ghost mini",
+                        disabled: _ctx.skillBusy,
+                        onClick: _ctx.saveSkillRefRule
+                      }, "保存素材范围", 8 /* PROPS */, _hoisted_311))
+                    : _createCommentVNode("v-if", true)
+                ]),
+                _createElementVNode("div", _hoisted_312, [
+                  _createElementVNode("div", _hoisted_313, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillFiles, (f) => {
                       return (_openBlock(), _createElementBlock("button", {
                         key: f.path,
@@ -1920,81 +1972,81 @@ export function render(_ctx, _cache) {
                         "data-file": f.path,
                         onClick: $event => (_ctx.openSkillFile(f.path))
                       }, [
-                        _createElementVNode("span", _hoisted_309, _toDisplayString(f.path), 1 /* TEXT */),
-                        _createElementVNode("span", _hoisted_310, _toDisplayString(_ctx.fmtSkillSize(f.size)), 1 /* TEXT */)
-                      ], 10 /* CLASS, PROPS */, _hoisted_308))
+                        _createElementVNode("span", _hoisted_315, _toDisplayString(f.path), 1 /* TEXT */),
+                        _createElementVNode("span", _hoisted_316, _toDisplayString(_ctx.fmtSkillSize(f.size)), 1 /* TEXT */)
+                      ], 10 /* CLASS, PROPS */, _hoisted_314))
                     }), 128 /* KEYED_FRAGMENT */))
                   ]),
-                  _createElementVNode("div", _hoisted_311, [
-                    _createElementVNode("div", _hoisted_312, [
-                      _createElementVNode("span", _hoisted_313, _toDisplayString(_ctx.skillFilePath || '（选左边文件）'), 1 /* TEXT */),
-                      _cache[116] || (_cache[116] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
-                      _createElementVNode("span", _hoisted_314, _toDisplayString(_ctx.skillFileNote), 1 /* TEXT */)
+                  _createElementVNode("div", _hoisted_317, [
+                    _createElementVNode("div", _hoisted_318, [
+                      _createElementVNode("span", _hoisted_319, _toDisplayString(_ctx.skillFilePath || '（选左边文件）'), 1 /* TEXT */),
+                      _cache[119] || (_cache[119] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+                      _createElementVNode("span", _hoisted_320, _toDisplayString(_ctx.skillFileNote), 1 /* TEXT */)
                     ]),
-                    _createElementVNode("pre", _hoisted_315, null, 512 /* NEED_PATCH */)
+                    _createElementVNode("pre", _hoisted_321, null, 512 /* NEED_PATCH */)
                   ])
                 ])
               ], 64 /* STABLE_FRAGMENT */))
         ])
       ]),
-      _cache[118] || (_cache[118] = _createElementVNode("div", { class: "sk-hint" }, "启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 不能删，但可以装一份同 id 的替换它，或复制成「我的」再改。", -1 /* CACHED */)),
+      _cache[121] || (_cache[121] = _createElementVNode("div", { class: "sk-hint" }, "启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 不能删，但可以装一份同 id 的替换它，或复制成「我的」再改。", -1 /* CACHED */)),
       (_ctx.skillMsg)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_316, _toDisplayString(_ctx.skillMsg), 1 /* TEXT */))
+        ? (_openBlock(), _createElementBlock("div", _hoisted_322, _toDisplayString(_ctx.skillMsg), 1 /* TEXT */))
         : _createCommentVNode("v-if", true)
     ]),
     _createCommentVNode(" 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 "),
-    _createElementVNode("div", _hoisted_317, [
-      _createElementVNode("h2", _hoisted_318, [
+    _createElementVNode("div", _hoisted_323, [
+      _createElementVNode("h2", _hoisted_324, [
         _createElementVNode("span", {
           class: "card-ic",
           innerHTML: _ctx.icFolderDoc
-        }, null, 8 /* PROPS */, _hoisted_319),
-        _cache[119] || (_cache[119] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
+        }, null, 8 /* PROPS */, _hoisted_325),
+        _cache[122] || (_cache[122] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
       ]),
-      _cache[122] || (_cache[122] = _createElementVNode("div", { class: "sub" }, [
+      _cache[125] || (_cache[125] = _createElementVNode("div", { class: "sub" }, [
         _createTextVNode("上面每一栏改完就自动存进本机，这里三项管的都是"),
         _createElementVNode("b", null, "整份设置"),
         _createTextVNode("：导出成一个 JSON（可换电脑导入）、从 JSON 恢复、清回出厂状态。 导出默认不含密钥，选了含密钥那份文件里就是明文，别外传。 "),
         _createElementVNode("b", null, "这份文件只含设置"),
         _createTextVNode("：素材库（角色 / 场景 / 道具）、生成历史、收藏与导演台工作区都是数据， 不在这里面 —— 要整份带走请用上面「数据与同步」那一栏的「导出整包备份」。")
       ], -1 /* CACHED */)),
-      _createElementVNode("div", _hoisted_320, [
+      _createElementVNode("div", _hoisted_326, [
         _createElementVNode("button", {
           class: "ghost",
           onClick: _ctx.exportSetup,
           title: "把当前设置导出成 JSON（可换电脑导入）"
-        }, [...(_cache[120] || (_cache[120] = [
+        }, [...(_cache[123] || (_cache[123] = [
           _createElementVNode("span", {
             class: "ic",
             "data-icon": "download",
             "data-size": "13"
           }, null, -1 /* CACHED */),
           _createTextVNode(" 导出设置", -1 /* CACHED */)
-        ]))], 8 /* PROPS */, _hoisted_321),
+        ]))], 8 /* PROPS */, _hoisted_327),
         _createElementVNode("button", {
           class: "ghost",
           onClick: _ctx.pickImportSetup,
           title: "从导出的 JSON 恢复设置"
-        }, [...(_cache[121] || (_cache[121] = [
+        }, [...(_cache[124] || (_cache[124] = [
           _createElementVNode("span", {
             class: "ic",
             "data-icon": "upload",
             "data-size": "13"
           }, null, -1 /* CACHED */),
           _createTextVNode(" 导入设置", -1 /* CACHED */)
-        ]))], 8 /* PROPS */, _hoisted_322),
+        ]))], 8 /* PROPS */, _hoisted_328),
         _createElementVNode("button", {
           class: "ghost danger",
           onClick: _ctx.resetSetup,
           title: "清空密钥、接口地址、目录、分页与润色指令"
-        }, "恢复默认", 8 /* PROPS */, _hoisted_323),
+        }, "恢复默认", 8 /* PROPS */, _hoisted_329),
         _createElementVNode("input", {
           type: "file",
           ref: "impSetFileEl",
           accept: ".json,application/json",
           style: {"display":"none"},
           onChange: _ctx.onImportSetupFile
-        }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_324)
+        }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_330)
       ])
     ])
   ], 512 /* NEED_PATCH */))

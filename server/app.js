@@ -1037,10 +1037,11 @@ const ROUTE_TABLE = [
     match: a => a.path === '/media/info' && a.method === 'POST',
     stop: 'always', run: a => mediaRoutes.handleMediaInfo(a.req, a.res),
   },
-  /* FCPXML 媒体包：只走本机路由，输出到 RENDER_DIR；取不到的素材写 missing.txt */
+  /* FCPXML：媒体包 / 一键导入工程 / 打开目录 / 启动软件，四条都在 routes/fcpxml.js 里分派；
+     只走本机路由，输出到 RENDER_DIR；取不到的素材写 missing.txt */
   {
-    name: 'fcpxml/bundle',
-    match: a => a.path === '/fcpxml/bundle' && a.method === 'POST',
+    name: 'fcpxml',
+    match: a => a.method === 'POST' && (a.path === '/fcpxml' || a.path.startsWith('/fcpxml/')),
     stop: 'always', run: a => handleFcpxml(a.req, a.res, {
       renderDir: RENDER_DIR,
       maxAssetBytes: FCPXML_MAX_ASSET_MB * 1024 * 1024,

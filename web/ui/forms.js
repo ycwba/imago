@@ -500,6 +500,11 @@
         const d = Number(raw);
         return { u: ++uid, key, scene, name: String(src.name == null ? '' : src.name),
           dur: Number.isFinite(d) && d > 0 ? d : null,
+          /* 接上一镜（`chain:'tail'`）由程序拆长镜头时标上，人也能在导演台里改；
+             这里只读不改 —— 它决定这一镜提交时的首帧从哪儿来，弹窗里至少得让人看见。
+             `chainModel` 是拆的时候挑好的接续型号，落盘时一起带走。 */
+          chain: src.chain === 'tail' ? 'tail' : '',
+          chainModel: String(src.chainModel == null ? '' : src.chainModel),
           /* 台词与说话人是分镜拆分那一路才会用到的一组字段（`lineEditable`）：
              平铺审阅不看它们，但原样存在这里，重新规划时「改过的那几条」才不会被新方案冲掉。 */
           line: String(src.line == null ? '' : src.line),
@@ -548,23 +553,29 @@
             <textarea class="pb-line" data-u="${r.u}" placeholder="这一镜的台词（没有就留空）">${esc(r.line)}</textarea>
           </div></div>`
         : textCell;
+      const chain = r.chain === 'tail'
+        ? '<span class="bchain" title="生成时自动截上一镜的尾帧当这一镜的首帧">接上一镜</span>' : '';
       return `<div class="pr-row brow${r.edited ? ' pin' : ''}" data-u="${r.u}" data-scene="${esc(r.scene)}">
         <span class="grip" draggable="true" title="按住这里在本场景内上下拖动排序">${icon('list', 12)}</span>
         <span class="no">${r.no}</span>
         <input class="pb-name" data-u="${r.u}" value="${esc(r.name)}" placeholder="镜头名" aria-label="这一镜的名字">
         ${dur}
+        ${chain}
         ${bodyCell}
         <button class="x iconbtn" data-del="${r.u}" title="删掉这一条">${icon('close', 11)}</button>
       </div>`;
     }
     function paint() {
-      body.innerHTML = rows.length
+      /* 「待建素材」那块在镜头清单**上面** —— 它决定的是「这一镜引用谁」，
+         放在下面会被镜头那一大堆挤到看不见。 */
+      body.innerHTML = assetRowsHTML() + (rows.length
         ? sceneGroups().map(g => `<div class="pr-grp" data-scene="${esc(g.scene)}">
             <div class="gh"><b>${esc(g.scene)}</b><span class="gn">${g.items.length} 镜</span></div>
             ${g.items.map(rowHTML).join('')}</div>`).join('')
-        : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头，请点「重新规划」或取消')}</div>`;
+        : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头，请点「重新规划」或取消')}</div>`);
       okBtn.disabled = !rows.length;
       bindRows();
+      bindAssets();
       paintSum();
     }
     /* 就地改一格 = 只写数据 + 改读数，**不重画清单**：整表重画会把正在敲的那格换掉、光标跳走
@@ -711,6 +722,53 @@
       qPin.hidden = !t;
       qPin.classList.toggle('bad', !!bad);
     }
+    /* 「待建素材」那块（`o.assetEditable`）：拆分镜那一条要建档的角色/场景/物品。
+       它**不是镜头** —— 所以单独一块，画在镜头清单上面：可逐条改名字 / 外貌 / 音色描述、可删。
+       确认时把编辑后的那一份交给调用方（`o.onAssets(assets)`）——
+       用回调而不是改返回值形状，是为了不破坏现有那些「返回数组」的调用方。 */
+    let assets = Array.isArray(o.assets) ? o.assets.map(a => Object.assign({}, a)) : [];
+    const canAssets = !!o.assetEditable;
+    /* 素材名字的归一：跟全站那把尺子（window.nameKey）一样 —— 「小雅」与「小雅 」算同一条。
+       没有 window.nameKey 时退回 trim + 小写（判据不会更严，只是近名可能不合并）。 */
+    const nameKeyOf = s => {
+      const t = String(s == null ? '' : s).trim();
+      if (!t) return '';
+      return (window.nameKey ? window.nameKey(t) : t.toLowerCase());
+    };
+    function assetRowsHTML() {
+      if (!canAssets) return '';
+      if (!assets.length) return '<div class="pr-assets"><div class="gh"><b>待建素材</b>'
+        + '<span class="gn">0 条</span></div><div class="pr-note">这一份方案里没有要新建的素材</div></div>';
+      return '<div class="pr-assets"><div class="gh"><b>待建素材</b>'
+        + '<span class="gn">' + assets.length + ' 条 · 确认后建档并出图</span></div>'
+        + assets.map((a, i) => `<div class="pr-arow" data-a="${i}">
+            <input class="pa-name" data-a="${i}" value="${esc(a.name || '')}" placeholder="名字" aria-label="这一条素材的名字">
+            <span class="pa-kind">${esc(kindZh(a.kind))}</span>
+            <input class="pa-look" data-a="${i}" value="${esc(a.look || '')}" placeholder="外貌 / 场景 / 物品描述" aria-label="外貌描述">
+            ${a.kind === 'actor' ? `<input class="pa-voice" data-a="${i}" value="${esc(a.voice || '')}" placeholder="音色描述（30~80 字）" aria-label="音色描述">` : ''}
+            <button class="x iconbtn" data-adel="${i}" title="不建这一条">${icon('close', 11)}</button>
+          </div>`).join('')
+        + '</div>';
+    }
+    const kindZh = k => (k === 'scene' ? '场景' : (k === 'prop' ? '物品' : '角色'));
+    function bindAssets() {
+      if (!canAssets) return;
+      /* 改过的打一个 `edited` 标记 —— 「重新规划」那一轮据此把改过的那几条原样留着
+         （与镜头清单的 mergeFresh 同一立场）。 */
+      const mark = a => { if (a) a.edited = true; };
+      body.querySelectorAll('.pa-name').forEach(el => {
+        el.oninput = () => { const a = assets[+el.dataset.a]; if (a) { a.name = el.value; mark(a); } };
+      });
+      body.querySelectorAll('.pa-look').forEach(el => {
+        el.oninput = () => { const a = assets[+el.dataset.a]; if (a) { a.look = el.value; mark(a); } };
+      });
+      body.querySelectorAll('.pa-voice').forEach(el => {
+        el.oninput = () => { const a = assets[+el.dataset.a]; if (a) { a.voice = el.value; mark(a); } };
+      });
+      body.querySelectorAll('[data-adel]').forEach(b => {
+        b.onclick = () => { assets.splice(+b.dataset.adel, 1); paint(); };
+      });
+    }
     okBtn.onclick = () => {
       const per = new Map(), out = [];
       rows.forEach(r => {
@@ -722,6 +780,10 @@
           key: r.key, scene: r.scene, name: r.name, dur: r.dur, text: r.text,
           shotNo: n,                       // 该场第几镜：只给报告用，落盘认的是数组顺序
           label: r.scene + ' · 镜头 ' + n,
+          /* 接续标记与拆的时候挑好的型号（空串 = 这一镜不接）：落盘要写 `linkPrev` / `model`，
+             没这两项，弹窗里看得见的「接上一镜」写进去就没了。 */
+          chain: r.chain === 'tail' ? 'tail' : '',
+          chainModel: r.chainModel,
         };
         /* 只在真的露出台词那一档才覆盖这两项：没露出的调用方连一个字都没看见，
            交给它一份现推的空台词等于把原数据擦掉。 */
@@ -731,6 +793,11 @@
         }
         out.push(Object.assign({}, r.raw, row));
       });
+      /* 「待建素材」那一份交给调用方（拆分镜那一条要拿去建档出图）。
+         用回调而不是改返回值形状 —— 返回值是数组，改形状会破坏现有那些调用方。 */
+      if (canAssets && typeof o.onAssets === 'function') {
+        try { o.onAssets(assets.filter(a => String(a.name || '').trim())); } catch (e) { /* 交不回去也不拦采用 */ }
+      }
       close(dlg, out, resolve);
     };
     dlg.querySelector('#prCancel').onclick = () => close(dlg, null, resolve);
@@ -742,6 +809,7 @@
         retry.disabled = true; retry.textContent = '规划中…';
         note('');
         const mine = rows;                 // 问失败时要原样退回的这一版：一个字都不动
+        const mineAssets = assets.slice(); // 同上：待建素材那一份也一个字都不动
         rows = []; paint();
         let fresh = null, why = '';
         try { fresh = normAll(await o.retry()); } catch (e) { why = errText(e); }
@@ -750,7 +818,22 @@
           note('重新规划失败：' + why + '（下面还是这一版，一条没丢）', true);
         } else {
           const m = mergeFresh(fresh);
-          rows = m.out; paint();
+          rows = m.out;
+          /* 待建素材：新一轮的清单也换掉，但**用户改过的那几条原样留着**
+             （与镜头的 mergeFresh 同一立场：改过的不被新一轮冲掉）。 */
+          if (canAssets && typeof o.retryAssets === 'function') {
+            const editedNames = new Set(mineAssets.filter(a => a.edited).map(a => nameKeyOf(a.name)));
+            let fa = null;
+            try { fa = await o.retryAssets(); } catch (e) { fa = null; }
+            if (Array.isArray(fa)) {
+              const keep = mineAssets.filter(a => editedNames.has(nameKeyOf(a.name)));
+              const seen = new Set(keep.map(a => nameKeyOf(a.name)));
+              assets = keep.concat(fa.filter(a => a && !seen.has(nameKeyOf(a.name))).map(a => Object.assign({}, a)));
+            } else {
+              assets = mineAssets;    // 没问成 / 没提供这一路 → 保持原样，不清空
+            }
+          }
+          paint();
           note(m.pinned ? '已留着改过的 ' + m.pinned + ' 条'
             + (m.orphan ? '，其中 ' + m.orphan + ' 条在新方案里没有对应、原样保留' : '') : '', false);
         }

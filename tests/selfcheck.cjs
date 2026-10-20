@@ -203,8 +203,12 @@ ok('页头导出入口由格式表生成并接线', /id="exportBtns"/.test(read(
   && /b\.onclick = EXPORT_RUN\[f\.kind\]/.test(frag));
 ok('FCPXML 两档：裸 XML 与带素材的媒体包', /button: 'exportFcpBundle'/.test(expFmt) && /bundle: true/.test(expFmt)
   && /exportFCPXML\(\{ bundle: !!f\.bundle \}\)/.test(frag) && /\/fcpxml\/bundle/.test(fcp) && /bundleAssets/.test(fcp));
-ok('导出只读当前时间线', /async function exportFCPXML/.test(fcp) && /tlSyncFromShots\(\)/.test(fcp.split('async function exportFCPXML')[1] || ''));
-ok('本机素材走真实文件、缺失素材保留离线引用', /localFileOf/.test(fcp) && /'media\/' \+ encodeURI\(nm\)/.test(fcp));
+ok('导出只读当前时间线', /export async function buildFCPXML/.test(fcp)
+  && /tlSyncFromShots\(\)/.test(fcp.split('export async function buildFCPXML')[1] || '')
+  && /export async function exportFCPXML/.test(fcp)
+  && /buildFCPXML\(/.test(fcp.split('export async function exportFCPXML')[1] || ''));
+ok('本机素材走真实文件、缺失素材保留离线引用', /localFileOf/.test(fcp)
+  && /'media\/' \+ encodeURI\(name\)/.test(fcp) && /missing\.push/.test(fcp));
 ok('倍速写成 timeMap / 配音带偏移', /<timeMap>/.test(fcp) && /lane="-/.test(fcp));
 ok('黑场与缺素材不会静默丢段', /<gap /.test(fcp) && /本机没有可用文件的素材/.test(fcp));
 

@@ -874,6 +874,48 @@ function topBoolValue(decl, on) {
       if (b) h['x-up-base'] = b;
       return h;
     },
+    /* 实际发出去的请求体 → 折叠面板能安全展示的一份。
+       只做展示，不改请求：dataURL / base64 压成摘要（首帧图整段塞进 DOM 会把页面拖死），
+       提示词过长按 20000 字截断（完整原文本来就在 PromptLog 归档里），数组 50 项、深度 6 层封顶。
+       **绝不收 headers / cookie / Authorization / 幂等键** —— 这些不是「发给供应商的内容」，
+       而是本机的凭据；展示请求体不需要它们。 */
+    snapOf(body) {
+      const LIMIT = 20000;
+      const sizeText = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+        : n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+      const text = s => {
+        if (/^data:/i.test(s)) {
+          const comma = s.indexOf(',');
+          const mime = /^data:([^;,]+)/i.exec(s);
+          const bytes = Math.max(0, Math.round((s.length - comma - 1) * 0.75));
+          return '<dataURL ' + ((mime && mime[1]) || '未知类型') + ' · ' + sizeText(bytes) + '>';
+        }
+        if (/^blob:/i.test(s)) return '<blob 地址（会话内有效，不展示）>';
+        if (s.length > 2048 && /^[A-Za-z0-9+/=\r\n]+$/.test(s)) return '<base64 ' + sizeText(Math.round(s.length * 0.75)) + '>';
+        return s.length > LIMIT ? s.slice(0, LIMIT) + '…（已截断，完整原文见提示词归档）' : s;
+      };
+      const walk = (v, depth) => {
+        if (v == null) return v;
+        if (typeof v === 'string') return text(v);
+        if (typeof v === 'number' || typeof v === 'boolean') return v;
+        if (depth >= 6) return '…（层级更深，已省略）';
+        if (Array.isArray(v)) {
+          const out = v.slice(0, 50).map(x => walk(x, depth + 1));
+          if (v.length > 50) out.push('… 共 ' + v.length + ' 项');
+          return out;
+        }
+        if (typeof v === 'object') {
+          const out = {};
+          Object.keys(v).forEach(k => {
+            if (/^(?:headers?|cookies?|authorization|api[-_]?key|idempotency[-_]?key)$/i.test(k)) return;
+            out[k] = walk(v[k], depth + 1);
+          });
+          return out;
+        }
+        return String(v);
+      };
+      try { return walk(body, 0); } catch (e) { return '<请求体无法展示：' + errText(e) + '>'; }
+    },
     async request(prov, name, opts = {}) {
       const method = (opts.method || 'GET').toUpperCase();
       const q = opts.query ? ('?' + (opts.query instanceof URLSearchParams ? opts.query.toString() : String(opts.query))) : '';
@@ -901,6 +943,20 @@ function topBoolValue(decl, on) {
          其它请求保持默认（「设置 → 网络与刷新」可调）。代理侧对 create 也放宽到 120 秒（见 proxy.js）。 */
       const timeout = opts.timeout != null ? opts.timeout
         : (method === 'POST' && name === 'create' ? 150000 : undefined);
+      /* 发出去之前先留一份「实际请求」给页面上的折叠面板（`window.RawRequest`）：
+         这是全站唯一出口，所以导演台 / 工作台 / 画布 / 素材库不用各自再拼一份。
+         只投带请求体的（创建 / 检索）；路径去掉查询串（有些家的签名参数在 query 里）。 */
+      if (opts.body != null) {
+        try {
+          const p = this.url(prov, name, opts.id);
+          window.dispatchEvent(new CustomEvent('wb:raw-request', { detail: {
+            tag: opts.snapTag || '', label: opts.snapLabel || '',
+            provider: (prov && prov.id) || '', providerName: (prov && (prov.displayName || prov.name)) || '',
+            endpoint: name, method, path: String(p).replace(/^https?:\/\/[^/]+/i, ''),
+            body: this.snapOf(opts.body), at: Date.now(),
+          } }));
+        } catch (e) { /* 展示快照失败不能影响真正要发的那一次请求 */ }
+      }
       let d;
       try {
         d = await rawFetch(this.url(prov, name, opts.id) + q, {
@@ -1153,8 +1209,15 @@ function topBoolValue(decl, on) {
         f.inputEntries.forEach(en => {
           const t = (tpls && (tpls[en.role] || tpls.__default)) || null;
           if (!t) return;
+          /* **占位项**（`en.placeholder`）：发送前的预览用。
+             真正发送时需要上传的槽位（`needsUpload`）在提交那一刻才把字节传到平台 ——
+             预览绝不能触发那次上传（那会占平台配额、真花时间），所以预览里这一项
+             交的是一句占位说明（`en.placeholder` 里的文字），形状与真发时完全一致。
+             两处都必须走同一份 `fill` —— 预览与实发的请求体形状要一样，
+             只有那一个值从资产号换成了占位说明。 */
+          const ph = en.placeholder ? String(en.placeholder) : '';
           const fill = v => {
-            if (typeof v === 'string') return v.replace(/\$url/g, en.url || '').replace(/\$assetId/g, en.assetId || '').replace(/\$role/g, en.role || '');
+            if (typeof v === 'string') return v.replace(/\$url/g, en.url || '').replace(/\$assetId/g, en.assetId || ph).replace(/\$role/g, en.role || '');
             if (Array.isArray(v)) return v.map(fill);
             if (v && typeof v === 'object') { const o = {}; Object.entries(v).forEach(([k2, v2]) => o[k2] = fill(v2)); return o; }
             return v;
@@ -1225,18 +1288,51 @@ function topBoolValue(decl, on) {
       };
       return walk(tpl);
     },
-    async create(prov, fields) {
+    /* **提交体的唯一拼装处**：模板那一族走 `renderTemplate`，其余走 `createBody`，
+       模板族的 `topBools` 补顶层也在这一段里。
+       抽出来是为了让「发送前的预览」与「真的发出去」**走同一段代码** ——
+       两边各拼一次的话，预览里显示的体与真发的体迟早会不一样，
+       而那正是这个功能唯一的价值所在（用户靠它确认「实际发出的提示词和配置是怎样的」）。
+       所以：**任何新增的拼体分支都写在这里，不要在 preview() 里另抄一份。 */
+    buildBody(prov, fields) {
+      const f = fields || {};
       const spec = (prov && prov.create) || {};
-      const body = spec.template ? this.renderTemplate(spec.template, fields) : this.createBody(prov, fields);
+      const body = spec.template ? this.renderTemplate(spec.template, f) : this.createBody(prov, f);
       /* 模板那一族的提交体只认识模板里写过 `{{…}}` 的那些键，而 `create.topBools` 说的是
          「这一项在**顶层**」—— 声明了却没写进模板，界面照样按声明把开关画出来（导演台那一块与
          生成工作台那三排都读这一份声明），用户勾了、发出去却没有那一项，等于承诺了一件没做的事。
          所以调用方真的递了值就按声明摆到顶层；body/nest 那一族不经过这里（createBody 已经放对位置）。 */
       if (spec.template && body && typeof body === 'object' && !Array.isArray(body)) {
         Object.keys(spec.topBools || {}).forEach(k => {
-          if (!(k in body) && fields && Object.prototype.hasOwnProperty.call(fields, k)) body[k] = !!fields[k];
+          if (!(k in body) && f && Object.prototype.hasOwnProperty.call(f, k)) body[k] = !!f[k];
         });
       }
+      return body;
+    },
+    /* **发送前的 dry-run**：算出「这一次将要发出去的请求体」，**一个网络请求都不发**。
+       这是「原始请求」从「发出去之后回看」改成「发送前就能看」的那一处实现。
+       三条生成路径（导演台 `Api.request` + `Api.createBody`、工作台三型、画布 `Api.create`）
+       本来就都走 `buildBody` 的同源逻辑，所以预览与实发不会走岔。
+
+       素材槽位在预览里用**占位符**：`fields.inputEntries` 里带 `placeholder` 的项
+       （`createBody` 那一段会把 `$assetId` 换成占位说明）——
+       真正需要上传的槽位在提交那一刻才把字节传到平台，预览绝不能触发那次上传。
+
+       返回 { method, path, body }：`body` 已经过 `snapOf` 压成可展示形状
+       （dataURL → 摘要、不含 headers / 密钥）。算不出来时抛错（原因照实说，
+       不返回一个空 JSON 让人以为「这次没有请求体」）。 */
+    preview(prov, endpoint, fields) {
+      const spec = (prov && prov.create) || {};
+      const body = this.buildBody(prov, fields);
+      const ep = endpoint || spec.endpoint || 'create';
+      let path = '';
+      try { path = String(this.url(prov, ep)).replace(/^https?:\/\/[^/]+/i, ''); }
+      catch (e) { path = String((prov && prov.relay) || '') + (spec.endpoints && spec.endpoints[ep] || ''); }
+      return { method: 'POST', path: path, body: this.snapOf(body), at: Date.now() };
+    },
+    async create(prov, fields) {
+      const spec = (prov && prov.create) || {};
+      const body = this.buildBody(prov, fields);
       /* 归档交给 request 那一处统一做（以前这里又存一份：同一条任务落两个归档文件、
          还各自起一次 AI 标题）。这里只负责把「界面上真正输入的文字」传下去：
          语音那种请求体里没有 prompt 字段的，靠 fields.text 也能归档到。 */
@@ -1244,7 +1340,8 @@ function topBoolValue(decl, on) {
         ...(fields.log && typeof fields.log === 'object' ? fields.log : {}),
         prompt: (fields.log && fields.log.prompt) || fields.prompt || fields.text || body.prompt || '',
       };
-      return await this.request(prov, spec.endpoint || 'create', { method: 'POST', body, log });
+      return await this.request(prov, spec.endpoint || 'create', { method: 'POST', body, log,
+        snapTag: fields.snapTag || '', snapLabel: fields.snapLabel || '' });
     },
     /* 按类型另存到用户指定的文件夹（设置页「自动保存」那一卡配的）。
        **目录不在这里传** —— 代理只认它自己读到的配置，请求体里带目录会被丢掉：

@@ -524,6 +524,26 @@
               <div class="sk-flags" v-if="skillDetail.pages && skillDetail.pages.length"><b>页面</b>{{ skillDetail.pages.join(' / ') }}</div>
               <div class="sk-flags" v-if="skillDetail.contract"><b>机器契约</b>{{ skillDetail.contract }}</div>
 
+              <!-- 项目引用规则：这份 Skill 正文里写了哪些**变量占位符**（{cast} {what} {board} …），
+                   程序在发请求前按**当前项目**把实际内容填进去 —— 这就是「项目引用规则」。
+                   与提示词正文里的 @素材 引用是两件事：@名字是给生成模型的引用（挂参考图），
+                   {变量} 是给写稿的 AI 看的项目资料（这一份角色名单长什么样）。
+                   内置 Skill 只读（要改先「复制为我的 Skill」）；用户 Skill 可直接改。 -->
+              <div class="sk-refrule">
+                <div class="sk-flags"><b>项目引用规则</b>
+                  <span class="hint">正文里的 <code>{变量}</code> 由程序按当前项目填料：填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。</span>
+                </div>
+                <div class="sk-varlist" v-if="skillVarNames.length">
+                  <span v-for="v in skillVarNames" :key="v" class="sk-var">{{ '{' + v + '}' }}</span>
+                  <span class="hint">这一份用到的变量</span>
+                </div>
+                <div class="hint" v-else>这一份正文里没有写变量（程序会照原样发出去）。</div>
+                <label class="sk-rl">引用哪些素材组（逗号分隔，留空 = 全部；只影响「素材范围」下拉的排序）
+                  <input v-model="skillRefGroups" :disabled="skillDetail.source === 'builtin'" placeholder="例：校园篇, 主要角色">
+                </label>
+                <button class="ghost mini" v-if="skillDetail.source !== 'builtin'" :disabled="skillBusy" @click="saveSkillRefRule">保存素材范围</button>
+              </div>
+
               <div class="sk-body">
                 <div class="sk-files">
                   <button v-for="f in skillFiles" :key="f.path" class="sk-file" :class="{ on: f.path === skillFilePath }"

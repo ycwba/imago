@@ -332,11 +332,21 @@ frame-ancestors 'none'
 | 导演台台词面板 | `web/director/lines.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档两段共用；镜头编辑右栏没有第二份） |
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
 | 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
-| Skill | `web/ui/skills.js` 的 `WbSkills` |
+| 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
+| 场景镜头命名 | `web/director/naming.js` 的 `sceneShotBase` / `candidateBase` / `voiceBase` / `clipLabel` / `stripExt` / `withExt` / `uniqueName`（本机素材名与 FCPXML 包内名同源） |
+| 导演台项目组 | `web/director/groups.js` 的 `list` / `groupOf` / `assetGroupName` / `ensure` / `rename` / `remove` / `assign` / `tree`（**组名即素材组名**；老工程零迁移） |
+| 拆分镜的新素材 | `web/director/board-assets.js` 的 `plan` / `stage` / `repeatCounts` / `pendingIn` / `resolve` / `shotsPending` / `libSpec`（重复出现才建、占位符词法、建档落点） |
+| 发送前的请求预览 | `web/domain/api.js` 的 `buildBody` / `preview`（**与 `create` 同源**，预览 = 纯算，不发网络请求） |
+| 原始请求面板 | `window.RawRequest`（`web/ui/raw-request.js`；**按需补载**；预览与已发送并排；不含 headers / 密钥，只在页面会话内存） |
+| Skill 正文里的变量占位符 | `web/domain/gen-forms.js` 的 `window.TplVars`（`fill` / `names`；**「项目引用规则」就是它**） |
+| 导演台的变量填料 | `web/director/board-vars.js` 的 `castOf` / `assetsOf` / `vars`（角色表 / 选中素材 / 现有分镜 / 时长区间） |
+| Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf` |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
-| 音色说明 | `window.VoiceNote.run` |
+| 音色说明 | `window.VoiceNote.run`（取音色描述）/ `window.VoiceNote.runClone`（拿另一位素材的声音克隆） |
+| 音色写回素材库 | `web/domain/chars.js` 的 `Chars.Pipe.saveVoiceNote`（按名字找人；已有描述不覆盖） |
+| 音色克隆（两种源） | `Chars.Pipe.cloneFromCands`（这一位自己合成过的候选）/ `Chars.Pipe.cloneFromLibEntry`（素材库里另一位挂着的参考音频）—— 同一落点（`refAudio` + `voiceMode='clone'`） |
 | 格式化 | `Wb.fmtSec` / `fmtClock` / `fmtWhen` / `fmtWhenSec` / `fmtHM` / `fmtHMS`；`ui.js` 的 `dayKey` |
 | 文件名 | `fileSafe` / `fileStamp`（浏览器与 Node 各一份，是登记在案的例外） |
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单，判据 `tests/settings-schema.cjs`） |
@@ -408,6 +418,12 @@ frame-ancestors 'none'
   - `projection.js`：镜头顺序与 clips 派生
   - `slice.js`：切片几何与采样
   - `board.js` / `split-assets.js`：拆分镜
+  - `board-assets.js`：拆分镜的「新素材」（AI 判哪些角色/场景/物品要建档出图、占位符词法、建档落点）
+  - `board-vars.js`：Skill 正文里那些**变量占位符**该填什么（角色表 / 选中素材 / 现有分镜 / 时长区间）
+  - `board-preview.js`：这一镜**将要发出**的请求体（纯算，素材槽位用占位符，不触发上传）
+  - `groups.js`：项目组（分组 / 改名 / 删组 / 归组 / 树；**组名即素材组名**）
+  - `chain.js`：接续拆分镜与依赖式批量生成（顺序 / 依赖原因码 / 长镜头拆分 / 型号选型 / 报价键与合计 / 调度器）
+  - `naming.js`：场景镜头命名（本机素材名、候选 / 配音后缀、FCPXML 片段名与去重）
   - `media.js`：候选身份 → 预览 / 导出地址（本机号只走 `AssetLocal.localAssetIdOf`，画面段、配音、切片、FCPXML 都只问这一份）
   - `subtitles.js`：字幕轨（台词/配音派生、SRT 导入导出、烧录与 FCPXML 都读 `currentOf`）
   - `fcpxml.js` / `fcpxml-import.js`：导出与读回（读回落进同一份工程数据）
@@ -434,6 +450,37 @@ frame-ancestors 'none'
 - 本地优先：预览遵守 `sk_media_prefer`，**导出始终本机优先**；有本机副本不碰上游。
 - FCPXML 只读当前时间线：素材优先真实本机文件，缺失仍建离线 asset，不许静默丢段；
   配音按 `at / 画面倍速` 挂到对应段，黑场写 `<gap>`。
+- 接续镜（`linkPrev === 'tail'`）的「上一镜是谁」只在 `chain.shotPlacement` 按全片顺序算，跨场景连续；
+  用户显式给了 `firstFrame` 就优先，不再自动取尾帧。上一镜没画面时 `ensureChainModel` 只从支持首帧的
+  型号里选；用户手改型号后 `modelAuto` 清空，接不了首帧就由 `shotBlockReason` 拦住，不偷偷换回去。
+- 长镜头只在**没有任何型号能覆盖整段时长**时才由 `splitLongShots` 拆；拆完总秒数守恒、每段整数且落在
+  型号区间内，第二段起 `chain:'tail'`，台词 / 说话人只留第一段；拆不成合法片段照实报 `impossible`，
+  不许悄悄截短。拆不了而超上限的，落盘后仍由 `clampShotDurations` 收短。
+- 「生成全部分镜」的依赖与报价共用 `genAllPlan()`：等待只等上一镜（本批或在跑），依赖失败级联标
+  `blocked`，并发名额只包住提交窗口、等待不占名额；切走短片立即停止并唤醒等待。报价缺金额 / 只报最低
+  消费 / 多币种都照实标注，**绝不当 0**；没有金额时不许显示「预计 0」。
+- 本机素材名与 FCPXML 媒体包名同源：`naming.sceneShotBase` 带场景与镜头序号，`stripExt` / `withExt`
+  只留恰好一个扩展名；`/<save-local>` 与 FCPXML 都读索引里的 `name`。服务端遇到重名直接 400，
+  不静默追加 `-2` 让 XML 引用对不上。旧素材不重命名。
+- FCPXML「送到剪映 / 达芬奇」= 持久工程目录 + 启动软件（找得到才启动）+ 打开目录 + 导入说明；
+  没有可靠的命令行导入协议，不许写成「全自动导入」。`pruneRenders` 不清 `fcpxml-import` 顶层目录，
+  导入路由自己只留最近 20 个。
+- **项目组**（`groups.js`）：一个组下挂多个短片；`WS.groups` 与 `project.groupId` 存在工作区那一份里。
+  组名**就是素材组名** —— 同一个组下的短片，拆分镜建出来的新素材自动落进素材库的那个同名组。
+  删组只把组内短片退回未分组（**不删短片**）；组改名**不自动改**素材库那一组（那是用户数据，要问过才动）。
+  老工程没有 `groups` / `groupId` 时全部落未分组，**零迁移**。
+- **拆分镜的新素材**（`board-assets.js`）：AI 判「谁会重复出现」→ 程序数一遍（**按镜头数**、
+  最长优先）→ 重复出现的才建。素材刚建档时还没有图，提示词里先写占位符 `@待建:名字`；
+  素材出图后（`Chars.setPic` 投 `wb:char-pic`）占位符换成真名并把图补进引用它的镜头。
+  出图**不自动发**（要花钱，按 §6.2），建档与占位是同一段落盘里的事。
+- **发送前的请求预览**（`board-preview.js` + `Api.preview`）：预览 = **纯算**，一个网络请求都不发；
+  要上传的素材槽位用**占位符**代替（真发时才上传，预览不能触发）。
+  预览与实发共用 `Api.buildBody` —— 两边各拼一次的话，预览里显示的体与真发的体迟早不一样，
+  而那正是这个功能唯一的价值所在。
+- **Skill 正文里的变量**（项目引用规则）：拆分镜 / 改分镜 / 新素材判定三处发请求前，
+  都把 Skill 正文里的 `{变量}` 按这一次的料填上（`TplVars.fill` + `board-vars.js`）。
+  ⚠ **内置 Skill 正文与 `TextAI.DEF[kind]` 必须逐字相同**（判据：tests/e2e/smoke.cjs 的
+  「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
 
 ### 9.3 助手写入桥
 
@@ -458,6 +505,19 @@ frame-ancestors 'none'
 - 内容写动作必须有 `undo` 或显式 `irreversible`；花钱动作声明 `cancel`。
 - Skill：`skills/<id>/SKILL.md`；按页面 + 触发词自动加载（最多 2 个），未命中的由 `skill`
   工具按需加载。内置 Skill 正文由 `TextAI.DEF` 同源生成；用户手改的 `sk_polish_*` 仍最优先。
+- **项目引用规则 = Skill 正文里的**变量占位符**（`{cast}` `{what}` `{board}` `{assets}` `{dur}` `{style}` …）：
+  程序在发请求前按**当前项目**把实际内容填进去（`window.TplVars.fill`，唯一一份填法）。
+  填不上的**原样留着**（AI 看到 `{cast}` 三个字也知道那是要它自己补的位子；留空会让它以为「这一段没有内容」）。
+  填料在 `web/director/board-vars.js`（角色表 / 选中素材 / 现有分镜 / 时长区间），三处共用一张表。
+  ⚠ 这与提示词正文里的 `@素材` 引用**是两件事**：
+    · `@名字` —— 给**生成模型**的引用（挂参考图，提交前换成 `@参考图N`）；
+    · `{变量}` —— 给**写稿的 AI** 的项目资料（这一份角色名单长什么样）。
+- **「素材范围优先」**（frontmatter 的 `assetGroups`）：一份 Skill 声明「这个项目优先用哪几个素材组」，
+  拆分镜那一路的「素材范围」下拉把它们**排在前面**（不排除其它组）。读法只有 `WbSkills.refRule` 一处。
+  ⚠ 它**不是**「项目引用规则」—— 那个指的是上面的**变量占位符**（在正文里，不在 frontmatter 里）。
+- **contract 白名单**在 `server/skills-store.js` 的 `CONTRACTS`：加一种新任务就在那里加一条，
+  同时 `TextAI.SKILL_CONTRACT` 加一条（页面侧同一张表的另一半）。
+  `board_assets.json` = 拆分镜「判断哪些新角色/场景/物品要建档并出图」那一条。
 - 查询结果按 `estimateTokens` 预算；发出前 `redactSecrets` 抹密钥形状。
 - 设置项只有白名单（`ADJUST` + `PAGE_TARGETS` + `sk_model_<kid>` + `Chars.SET`）；
   助手的供应方/型号只在设置页选（`sk_text_prov` + `sk_model_<kid>`），抽屉里没有第二份选择。
@@ -595,6 +655,8 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - 导演台的**导出格式**只有一张表 `web/domain/export-formats.js`：页头按钮、`export_start` 的校验/分派/文案、
   助手 `export_start` 的 enum 都从它派生。加一种导出 = 表里一行（`kind` 是 `film` / `files` / `xml` 之一）
   + engine 里一个 builder；判据 `tests/export-formats.cjs`。
+- 直接送到剪映 / 达芬奇是表里的 `nle` 行（`kind:'xml'` + `nle:true`），走 `fcpxml.js` 的 `sendToNle`
+  → `POST /fcpxml/import` + `/fcpxml/launch`；不是第二种导出格式，也不在页面里另写一套。
 - 纯拼装在 `web/director/*`（如 `fcpxml.js`）或 `web/domain/*`，不在页面里拼字符串。
 - 导出素材的文件名带成片时间点（`clipTimeLabel` / `voiceFilmRange`），不要只给哈希名。
 - 缺失素材/段落一律报数（清单/状态行），不许静默丢。
@@ -628,6 +690,17 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 | 新导出/导入格式 | `web/director/*` 或 `web/domain/*` 的纯拼装模块 | 缺失素材报数；补 golden/parity |
 | 新测试 | 单元 `tests/<name>.mjs|cjs`；浏览器 `tests/e2e/<name>.cjs` | 加到 `tests/all.cjs`；断言失败要能指出落点 |
 | 新视觉基线 | `tests/fixtures/visual/` | 只允许 `UI_VISUAL_WRITE=1` 更新；实际截图走 gitignore |
+
+本轮新增能力的落位：原始请求面板 `web/ui/raw-request.js`（经典脚本；**按需补载** —— 导演台 /
+生成工作台 / 画布三页各自 `__spaLoadScript`，其余页不白下这一份；脚本数 / 字节预算在
+`tests/spa.cjs`）；接续与批量调度 `web/director/chain.js`；场景镜头命名 `web/director/naming.js`；
+发送前预览 `web/domain/api.js` 的 `buildBody` / `preview` + `web/director/board-preview.js`；
+导演台项目组 `web/director/groups.js`；拆分镜的新素材 `web/director/board-assets.js`
+（+ 内置 Skill `skills/board-assets/SKILL.md`，contract `board_assets.json`）；
+**「项目引用规则」**（Skill 正文里的变量占位符 `{cast}` `{what}` `{board}` …）=
+`web/domain/gen-forms.js` 的 `window.TplVars`（唯一一份填法）+ `web/director/board-vars.js`（填什么）；
+NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`，持久目录
+`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）。
 
 命名与导入边界：
 

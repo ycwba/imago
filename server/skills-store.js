@@ -10,7 +10,9 @@ const crypto = require('crypto');
 const { atomicWrite, renameWithRetry } = require('./fs-atomic.js');
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
-const CONTRACTS = new Set(['polish.video', 'polish.image', 'polish.voice', 'polish.follow', 'story.json', 'split.json', 'board_edit.json', 'img_split.json', 'char.image.json', 'char.voice.json']);
+/* contract 白名单：一份 Skill 的正文由 contract 唯一标识（TextAI.SKILL_CONTRACT 是同一张表的页面侧）。
+   `board_assets.json` = 拆分镜那一条「判断哪些新角色/场景/物品要建档并出图」的指令。 */
+const CONTRACTS = new Set(['polish.video', 'polish.image', 'polish.voice', 'polish.follow', 'story.json', 'split.json', 'board_edit.json', 'img_split.json', 'char.image.json', 'char.voice.json', 'board_assets.json']);
 const ALLOWED_EXT = new Set(['.md', '.txt', '.json']);
 
 function parseFrontmatter(text) {
@@ -97,6 +99,11 @@ function createSkillsStore(opts) {
       pages: x.pages || [], tools: x.tools || [], contract: x.contract || '', version: x.version || 1,
       source: x.source, enabled: !!x.enabled, replaces: x.replaces || '',
       conflict: !!(x.contract && byContract.get(x.contract) && byContract.get(x.contract).id !== x.id),
+      /* 「素材范围优先」：一份 Skill 可以声明「这个项目优先用哪几个素材组」。
+         拆分镜那一路的「素材范围」下拉会把这些组**排在前面**（不排除其它组）。
+         ⚠ 这**不是**「项目引用规则」：项目引用规则指的是**正文里的变量占位符**
+         （`{cast}` `{what}` `{board}` …），由程序按项目填料 —— 变量名在正文里，不在这里。 */
+      assetGroups: Array.isArray(x.assetGroups) ? x.assetGroups : [],
     }));
   };
   const enabled = () => all().filter(x => x.enabled);

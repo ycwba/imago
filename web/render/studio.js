@@ -239,6 +239,7 @@ export function render(_ctx, _cache) {
           "data-r": "goWhy"
         }),
         _createElementVNode("div", { "data-r": "status" }),
+        _createElementVNode("div", { "data-raw-host": "" }),
         _createElementVNode("div", {
           "data-r": "balTip",
           hidden: ""
