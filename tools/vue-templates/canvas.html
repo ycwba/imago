@@ -1,0 +1,68 @@
+<!-- 画布页模板源：项目库与工程页在同一路由组件内切换（?id=）。 -->
+<div class="page-main canvas-page" ref="pageEl" :class="{ 'cv-doc': !!docId }">
+  <header class="cv-bar">
+    <button class="ghost cv-back" v-if="docId" @click="back" title="返回项目库"><span class="ic" data-icon="arrowLeft" data-size="13"></span>项目库</button>
+    <input class="cv-name" v-if="docId" :value="title" @change="renameDoc" aria-label="画布标题">
+    <b v-else>画布</b>
+    <span class="cv-state" :class="saveKind">{{ saveText }}</span>
+    <span class="cv-rev" v-if="docId">修订 {{ revision }}</span>
+    <span class="sp"></span>
+    <button class="ghost" @click="doExport" :disabled="!docId || !ready"><span class="ic" data-icon="download" data-size="13"></span>导出</button>
+    <button class="ghost" @click="doImport" :disabled="!ready"><span class="ic" data-icon="importInto" data-size="13"></span>导入</button>
+    <button class="ghost" @click="openAssistant" :disabled="!ready"><span class="ic" data-icon="robot" data-size="13"></span>助手</button>
+  </header>
+
+  <section class="cv-lib" v-if="!docId">
+    <div class="cv-lib-bar">
+      <input class="cv-q" :value="q" @input="filterLib" placeholder="搜索画布标题或正文" aria-label="搜索画布">
+      <select class="cv-sort" @change="sortLib" aria-label="排序方式">
+        <option value="up">最近修改</option>
+        <option value="new">最近创建</option>
+        <option value="title">按标题</option>
+      </select>
+      <span class="cv-count">{{ libCount }}</span>
+      <span class="sp"></span>
+      <button class="pri" @click="newDoc" :disabled="!ready"><span class="ic" data-icon="plus" data-size="13"></span>新建画布</button>
+    </div>
+    <div class="cv-grid" ref="libBox"></div>
+  </section>
+
+  <section class="cv-work" v-else>
+    <div class="cv-stage" ref="stage" tabindex="0" aria-label="画布，可拖动与缩放">
+      <div class="cv-layer" ref="layer"></div>
+      <svg class="cv-svg" ref="edges" aria-hidden="true"></svg>
+    </div>
+    <div class="cv-mini" ref="mini" @click="miniJump" title="小地图：点一下就跳过去"></div>
+    <div class="cv-zoom">
+      <button class="ghost mini" @click="zoomOut" title="缩小" aria-label="缩小" v-html="iconMinus"></button>
+      <span class="cv-zt">{{ zoomText }}</span>
+      <button class="ghost mini" @click="zoomIn" title="放大" aria-label="放大" v-html="iconPlus"></button>
+      <button class="ghost mini" @click="zoom100" title="回到 100%">100%</button>
+      <button class="ghost mini" @click="fit" title="全部装进屏幕">全部</button>
+    </div>
+    <div class="cv-selbar" v-if="selCount">
+      已选 {{ selCount }} 个
+      <button class="ghost mini" @click="alignSel">对齐排开</button>
+      <button class="ghost mini" @click="deleteSel">删除</button>
+    </div>
+    <nav class="cv-dock" role="toolbar" aria-label="画布工具">
+      <button class="tool" :class="{ on: tool === 'select' }" @click="setTool('select')" title="选择（V）"><span class="ic" data-icon="checkBox" data-size="14"></span>选择</button>
+      <button class="tool" :class="{ on: tool === 'hand' }" @click="setTool('hand')" title="抓手平移（H，或按住空格）"><span class="ic" data-icon="expand" data-size="14"></span>抓手</button>
+      <button class="tool" @click="openAdd" title="添加节点（N）"><span class="ic" data-icon="plus" data-size="14"></span>加节点</button>
+      <button class="tool" @click="pickAsset" title="从资产库放一个进来"><span class="ic" data-icon="box" data-size="14"></span>放素材</button>
+      <button class="tool" @click="undoStep" :disabled="!canUndo" :title="undoTitle"><span class="ic" data-icon="stepBack" data-size="14"></span>撤销</button>
+      <button class="tool" @click="redoStep" :disabled="!canRedo" :title="redoTitle"><span class="ic" data-icon="stepNext" data-size="14"></span>重做</button>
+      <button class="tool" :class="{ on: grid }" @click="toggleGrid" title="移动时贴 8px 网格"><span class="ic" data-icon="layers" data-size="14"></span>网格</button>
+      <button class="tool" :class="{ on: showEdges }" @click="toggleEdges" title="显示连线"><span class="ic" data-icon="link" data-size="14"></span>连线</button>
+      <button class="tool" @click="keysHelp" title="快捷键（?）"><span class="ic" data-icon="key" data-size="14"></span>快捷键</button>
+    </nav>
+    <aside class="cv-insp" v-if="inspOpen">
+      <div class="cv-insp-h"><b>检查器</b><span class="sp"></span>
+        <button class="ghost mini" @click="closeInsp" title="关闭（Esc）" aria-label="关闭检查器"><span class="ic" data-icon="close" data-size="13"></span></button></div>
+      <div class="cv-insp-b" ref="inspBody"></div>
+    </aside>
+  </section>
+
+  <div class="cv-wait" v-if="!ready && !failed"><span class="ui-wait"></span>正在读本机的画布…</div>
+  <div class="empty cv-wait" v-else-if="failed">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+</div>

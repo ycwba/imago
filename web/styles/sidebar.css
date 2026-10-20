@@ -1,0 +1,103 @@
+/* 全局侧边栏样式：从 web/ui/sidebar.js 的运行时注入抽出来（唯一一份）。
+   颜色 / 间距 / 字号 / 圆角 / 阴影只从 tokens.css 取；结构性尺寸（栏宽 66/200、logo 36px、
+   图标 20px）留字面值 —— 那是布局盒，不是排版节奏，令牌表里没有对应档。
+   由 shell.html 以 <link> 引入，加载顺序在 ui.css 之后。 */
+.sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--sbw, 66px); z-index: 90;
+  background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  overflow: hidden; transition: width var(--dur-2) var(--ease); }
+html.sb-open .sidebar { width: 200px; }
+/* 窄窗口（≤1100px）里展开 = 浮层盖在内容上，内容区不让位（--sbw 仍是 66px），
+   所以加个投影，一眼看出这一档是临时浮出来的。 */
+html.sb-narrow.sb-open .sidebar { box-shadow: var(--shadow-2); }
+.sidebar .sb-brand { display: flex; align-items: center; gap: var(--sp-2-5); padding: var(--sp-3) var(--sp-2); white-space: nowrap; position: relative; width: 100%; cursor: pointer; }
+.sidebar .sb-logo { width: 36px; height: 36px; border-radius: var(--radius-1); background: var(--pri); color: var(--on-acc);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; flex: 0 0 36px;
+  cursor: pointer; border: 0; user-select: none; transition: filter var(--dur-1), transform var(--dur-1); }
+.sidebar .sb-logo:hover { filter: brightness(1.12); transform: scale(1.05); }
+.sidebar .sb-logo:active { transform: scale(.96); }
+.sidebar .sb-name { font-weight: 700; font-size: var(--fs-3); color: var(--txt); }
+.sidebar .sb-group { font-size: var(--fs-10); color: var(--sub); padding: var(--sp-2-5) 20px var(--sp-1); white-space: nowrap; }
+/* 收起态一律 display:none（以前是 opacity:0）：opacity 藏得住文字却藏不住它占的宽度，
+   66px 里图标被 gap + 隐形文字顶得偏左，分组标题也白占两行高度。 */
+html:not(.sb-open) .sidebar .sb-name, html:not(.sb-open) .sidebar .sb-group,
+html:not(.sb-open) .sidebar nav a .lb, html:not(.sb-open) .sidebar .sb-set .lb { display: none; }
+html:not(.sb-open) .sidebar .sb-brand, html:not(.sb-open) .sidebar nav a,
+html:not(.sb-open) .sidebar .sb-set { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
+html:not(.sb-open) .sidebar .sb-brand { padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
+/* 收起态悬停时弹出来的名字浮标。**position:fixed 挂 body**，不写进侧栏里：
+   .sidebar nav 那一条带子是 overflow-x:hidden（那一行注释讲了为什么），写在里面的提示会被裁掉。
+   与下拉浮层同一套理由 —— 要脱离祖先的裁剪，只有离开文档流这一条路。 */
+.sb-tip { position: fixed; z-index: 120; pointer-events: none; padding: var(--sp-1) 9px; border-radius: var(--radius-1);
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-2);
+  color: var(--txt); font-size: var(--fs-1); line-height: 1.4; white-space: nowrap; }
+/* 收起态：手指够得着的目标不放大就点不准（66px 的带子里留白很多，图标只有 20px） */
+html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set { min-height: 38px; }
+html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: 17px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-1) var(--sp-2); flex: 1 1 auto;
+  min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.sidebar nav a { display: flex; align-items: center; gap: var(--sp-2-5); padding: 9px var(--sp-2); border-radius: var(--radius-1);
+  color: var(--txt); text-decoration: none; font-size: var(--fs-2); white-space: nowrap; transition: background var(--dur-1); }
+.sidebar nav a:hover { background: var(--panel2); }
+.sidebar nav a.active { background: var(--acc-tint); color: var(--acc); font-weight: 600; }
+.sidebar nav a .ic { width: 20px; text-align: center; font-size: 15px; flex: 0 0 20px; }
+/* 底部两块（账户余额 / 设置·换背景）不参与滚动、也不许被无声裁掉（flex:0 0 auto）。
+   真正会超长的只有余额列表，给它自己的高度上限内滚动：overflow-x 显式写 hidden，
+   否则一轴 auto 会把另一轴也算成 auto，收起态（66px）里冒出横向条。
+   上限用 vh：窗口越矮让得越多，导航区始终留得住。 */
+.sidebar .sb-bottom { padding: var(--sp-2-5) var(--sp-2); border-top: 1px solid var(--line); flex: 0 0 auto; }
+.sidebar .sb-bottom#sbBalance { max-height: min(34vh, 260px); overflow-y: auto; overflow-x: hidden; }
+.sb-bal { display: flex; flex-direction: column; gap: var(--sp-1-5); }
+.sb-bal-card { border: 1px solid var(--line); border-radius: var(--radius-1); padding: var(--sp-1-5) var(--sp-2); background: var(--panel2); cursor: default; }
+.sb-bal-card .l1 { display: flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-11-5); color: var(--txt); font-weight: 600; white-space: nowrap; }
+.sb-bal-card .l1 .ic { font-size: var(--fs-1); }
+/* 正在取数的那张卡：图标位换成一颗小转点（公共 .spin-dot 是 18px，塞进 12px 的图标位会溢出卡面） */
+.sb-bal-card .l1 .ic .spin-dot { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; }
+.sb-bal-card .l2 { margin-top: 3px; font-size: var(--fs-11); color: var(--sub); white-space: normal; line-height: 1.5; word-break: break-all; }
+.sb-bal-card .l2 .sb-bal-go { color: var(--acc); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+/* 「产物正在存进本机」那一行：侧栏唯一的本机落盘实况。 */
+.sb-mirror { margin-top: var(--sp-1-5); border: 1px solid var(--line); border-radius: var(--radius-1); padding: var(--sp-1-5) var(--sp-2); background: var(--panel2); }
+.sb-mirror .l1 { display: flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-11-5); color: var(--txt); font-weight: 600; }
+.sb-mirror .l1 .spin-dot { width: 9px; height: 9px; }
+.sb-mirror .l2 { margin-top: 3px; font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
+.sb-mirror .l2 b { color: var(--txt); }
+/* 下载进度条：一条细轨，跟「正在存 N 份」那行连着读 —— 一眼看出「在下第几个、下到多少」。 */
+.sb-mirror .dlbar{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:5px}
+.sb-mirror .dlbar i{display:block;height:100%;background:var(--acc);border-radius:2px;transition:width var(--dur-2)}
+.sb-mirror.bad { border-color: var(--warn); }
+.sb-mirror.bad .l2 { color: var(--warn); }
+/* 侧栏折叠时只留一颗小圆点，别把整段文字挤成竖条 */
+html:not(.sb-open) .sb-mirror .l1 .nm, html:not(.sb-open) .sb-mirror .l2 { display: none; }
+html:not(.sb-open) .sb-mirror { padding: 5px 0; text-align: center; }
+.sb-bal-card .l2 b { color: var(--txt); font-weight: 600; }
+/* 余额取不到时那一行：要说得出「这是失败」，不能和正常的数字长一个样 */
+.sb-bal-card .l2 .balerr { color: var(--err); }
+.sb-bal-refresh { display: flex; align-items: center; gap: var(--sp-2); padding: 5px var(--sp-2); border-radius: var(--radius-1);
+  font-size: var(--fs-11); color: var(--sub); cursor: pointer; }
+.sb-bal-refresh:hover { color: var(--acc); background: var(--panel2); }
+/* 收起态：刷新余额只留图标（四个字太占地方，会把按钮撑成两行） */
+html:not(.sb-open) .sb-bal-refresh { justify-content: center; padding: var(--sp-1-5) 0; gap: 0; }
+html:not(.sb-open) .sb-bal-refresh span:last-child { display: none; }
+/* 设置入口固定在左下角 */
+.sidebar .sb-set { display: flex; align-items: center; gap: var(--sp-2-5); padding: 7px var(--sp-2); border-radius: var(--radius-1);
+  color: var(--txt); text-decoration: none; font-size: var(--fs-2); white-space: nowrap; transition: background var(--dur-1); }
+.sidebar .sb-set:hover { background: var(--panel2); color: var(--acc); }
+.sidebar .sb-set.active { background: var(--acc-tint); color: var(--acc); font-weight: 600; }
+.sidebar button.sb-set { width: 100%; border: 0; background: none; font-family: inherit; text-align: left;
+  cursor: pointer; display: flex; align-items: center; }
+.sidebar .sb-set .ic { width: 20px; text-align: center; font-size: 15px; flex: 0 0 20px; }
+/* 收起态：余额卡片压成一张小卡，只留图标与可用数值缩写，悬停看完整信息。 */
+html:not(.sb-open) .sb-bal-card { padding: 5px 4px; text-align: center; }
+html:not(.sb-open) .sb-bal-card .l1 { justify-content: center; }
+html:not(.sb-open) .sb-bal-card .l1 .nm { display: none; }
+html:not(.sb-open) .sb-bal-card .l2 { display: none; }
+html:not(.sb-open) .sb-bal-card::after { content: attr(data-short); display: block; font-size: var(--fs-10); color: var(--sub); margin-top: 2px; }
+/* 矮窗口再压一档行高，让导航至少露出三四条 */
+@media (max-height: 780px) {
+  .sidebar .sb-brand { padding-top: var(--sp-2-5); padding-bottom: var(--sp-2-5); }
+  .sidebar .sb-group { padding: 7px 20px 3px; }
+  .sidebar nav { padding: var(--sp-1) var(--sp-2); }
+  .sidebar nav a { padding: 7px var(--sp-2); }
+  .sidebar .sb-bottom { padding: var(--sp-1-5) var(--sp-2); }
+  .sb-bal { gap: var(--sp-1); }
+  .sb-bal-card { padding: var(--sp-1) var(--sp-1-5); }
+}

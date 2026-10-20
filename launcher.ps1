@@ -1,19 +1,15 @@
 ﻿# ============================================================================
-# launcher.ps1 —— AI 创作工作台的本机服务启动器（图形界面）
+# launcher.ps1 —— 拾帧 · AI 创作工作台的本机服务启动器（图形界面）
 #
 # 它是同目录「启动.bat」唯一拉起的东西；也可以右键「使用 PowerShell 运行」。
-# 它顶掉了原来那个纯文本菜单（1 启动 / 2 停止 / 3 重启 / 4 退出）。原方案有两件一直
-# 没法同时做好的事：① 服务被丢进另一个 cmd 窗口，起不来时脚本只能让你「切到标题为
-# SparkCine-proxy 的窗口看那句报错」—— 报错的去处是另一个窗口；② 菜单一关，node 到底
-# 还留没留在后台占着端口，界面上一个字都不说。这里把日志搬进同一个窗口，并把
-# **「关掉这个窗口 = 停掉端口上的服务」**做成一条路径（「退出」按钮走的也是它）。
+# 界面把服务状态、端口来源、启动进度与 proxy.js 的日志放在同一个窗口里，
+# 并把 **「关掉这个窗口 = 停掉端口上的服务」** 做成一条路径（「退出」按钮走的也是它）。
 #
 # 编码：本文件必须是 UTF-8 **带 BOM**，行尾 CRLF。PowerShell 5.1 在没有 BOM 时按 ANSI
-# （这台机器是 GBK）解码 .ps1，界面上每一句中文都会成乱码 —— 与「旧 启动.bat 是 GBK 而
-# .env 是 UTF-8」是同一类坑，只是这次方向相反。反过来，正文里读的那份 .env 必须
-# **显式按 UTF-8 解**（见 Get-EnvText）。
+# 解码 .ps1，界面上每一句中文都会成乱码。正文里读的 .env 必须**显式按 UTF-8 解**
+# （见 Get-EnvText）；启动.bat 则是 UTF-8 无 BOM + chcp 65001。
 #
-# 三条判据是从旧 启动.bat 逐条搬来的，改之前先看清它们各自在防什么：
+# 三条判据改之前先看清它们各自在防什么：
 #   · 端口优先级（环境变量 PORT > .env 的 PORT > 5175）要和 proxy.js 一致，而且**说得出口来源**；
 #   · 「这个号能不能用」只能真 bind 一次问系统 —— 系统保留段里的号根本没在监听，netstat 看不见它；
 #   · 只杀 node 的进程 —— 这个号的监听者要是别的程序，顺手 kill 等于删了别人正在跑的东西。
@@ -70,6 +66,8 @@ $script:NetRunning = $false
 $script:Bad = 0
 $script:PortProbeCache = @{}   # 同一个 tick 里的直连探测结果（见 Test-PortListening）
 $script:NetFailNoted = $false  # netstat 读不到时只提醒一次（见 Get-NetRows）
+$script:JsonCookies = $null    # 读本机路由时复用同一份会话 Cookie（见 Get-JsonUtf8）
+$script:JsonCookieOrigin = ''
 
 function Get-NetRows([switch]$Fresh) {
   # 一次 netstat 要一两百毫秒，所以一个判断周期里只问一次、后面各条判据共用这一份快照。
@@ -207,6 +205,20 @@ function Get-PortOwnerPids([int]$Port) {
     if ($c[1] -match (':' + $Port + '$')) { $n = 0; if ([int]::TryParse($c[4], [ref]$n)) { [void]$out.Add($n) } }
   }
   # 同一个进程常在 IPv4 与 IPv6 各占一行，不去重就会把「已停止」同一句话打印两遍
+  $uniq = @($out | Select-Object -Unique)
+  if ($uniq.Count -gt 0) { return $uniq }
+  # 有些 Windows 会话里 netstat 看不到本进程刚 bind 的号（自检就抓过：直连能通、
+  # Get-NetTCPConnection 看得到，netstat 一行都没有）。这时用系统 API 再问一次；
+  # 两条路都问不到就返回空 —— 调用方据此判定「不知道是谁」，绝不猜一个 PID 去杀。
+  try {
+    for ($try = 0; $try -lt 3 -and $out.Count -eq 0; $try++) {
+      foreach ($c in @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)) {
+        $n = [int]$c.OwningProcess
+        if ($n -gt 0) { [void]$out.Add($n) }
+      }
+      if ($out.Count -eq 0) { Start-Sleep -Milliseconds 80 }
+    }
+  } catch {}
   return @($out | Select-Object -Unique)
 }
 
@@ -240,6 +252,24 @@ function Test-PortListening([int]$Port) {
   return $ok
 }
 
+function Get-ProxyWhoami([int]$Port) {
+  # /whoami 同时给出 app 与 pid：身份和“这个进程什么时候起的”都从这一份答话里取，
+  # 不再依赖 netstat/CIM 能不能报出监听者（有的 Windows 会话就是报不出）。
+  if ($Port -lt 1) { return $null }
+  return (Get-JsonUtf8 "http://127.0.0.1:$Port/whoami")
+}
+
+function Get-ProxyPids([int]$Port) {
+  # 停进程要 PID。netstat/CIM 在少数 Windows 会话里看不到本机刚 bind 的监听，
+  # 这时用 /whoami 自报的 pid 兜底；调用方已先用 Test-OurProxy 验过身份。
+  $pids = @(Get-PortOwnerPids $Port)
+  if ($pids.Count -gt 0) { return $pids }
+  $who = Get-ProxyWhoami $Port
+  $whoPid = 0
+  if ($who -and [int]::TryParse([string]$who.pid, [ref] $whoPid) -and $whoPid -gt 0) { return @($whoPid) }
+  return @()
+}
+
 function Test-OurProxy([int]$Port) {
   # 「这个号上是不是本项目」—— 判据只此一份，问的是 proxy.js 自己的 /whoami。
   # 为什么必须有它：以前「有没有服务」只看「端口上有人在听」，而那个号上可能是**别的 node 程序**
@@ -248,10 +278,79 @@ function Test-OurProxy([int]$Port) {
   #   ② Stop-PortListener 的闸只问「监听者是不是 node」，于是点「停止」会**杀掉别人机器上的 node**。
   # 判据要能被证伪，所以这里必须真的发一次请求并读 JSON，不靠端口号或进程名猜。
   # 读不出来 / 不是本项目 / 请求失败，一律当作「不是本项目的」—— 宁可多问一次启动器，也不要误杀。
-  if ($Port -lt 1) { return $false }
-  $j = Get-JsonUtf8 "http://127.0.0.1:$Port/whoami"
+  $j = Get-ProxyWhoami $Port
   if (-not $j) { return $false }
   return ("$($j.app)" -eq 'shiji-workbench')
+}
+
+function Get-NewestSourceTime {
+  # 运行期源码的最新修改时间。只扫真正影响这一份服务的文件：
+  # shell.html / proxy.js / web/ / server/。tests、docs、用户数据不参与，
+  # 改测试或改文档不该逼着服务重启。
+  $newest = [DateTime]::MinValue
+  $paths = @(
+    (Join-Path $Root 'shell.html'),
+    (Join-Path $Root 'proxy.js'),
+    (Join-Path $Root 'web'),
+    (Join-Path $Root 'server')
+  )
+  foreach ($p in $paths) {
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    if (Test-Path -LiteralPath $p -PathType Leaf) {
+      $t = (Get-Item -LiteralPath $p).LastWriteTime
+      if ($t -gt $newest) { $newest = $t }
+      continue
+    }
+    try {
+      $f = Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction Stop |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      if ($f -and $f.LastWriteTime -gt $newest) { $newest = $f.LastWriteTime }
+    } catch {}
+  }
+  return $newest
+}
+
+function Get-ProxyStartedAt([int]$Port) {
+  # 先信 /whoami 自己报的 pid（不依赖 netstat 能否看到 owner）；读不到再用 owner 兜底。
+  # 变量不能叫 $pid：那是 PowerShell 的只读自动变量。
+  $who = Get-ProxyWhoami $Port
+  $whoPid = 0
+  if ($who -and [int]::TryParse([string]$who.pid, [ref] $whoPid) -and $whoPid -gt 0) {
+    try {
+      $proc = Get-Process -Id $whoPid -ErrorAction Stop
+      if ($proc -and $proc.StartTime) { return $proc.StartTime }
+    } catch {}
+  }
+  foreach ($p in @(Get-PortOwnerPids $Port)) {
+    try {
+      $proc = Get-Process -Id $p -ErrorAction Stop
+      if ($proc -and $proc.StartTime) { return $proc.StartTime }
+    } catch {}
+  }
+  return $null
+}
+
+function Test-StaleByTimes([DateTime]$Started, [DateTime]$Newest) {
+  # 2 秒容差：进程启动与文件时间在同一秒附近会有取整差。
+  # 单独拆出来是为了自检能直接喂两组时间，不必真去制造一个旧进程。
+  if ($Newest -eq [DateTime]::MinValue) { return $false }
+  return ($Newest -gt $Started.AddSeconds(2))
+}
+
+function Test-ProxyStale([int]$Port) {
+  # 旧服务不是“坏了”，是**它加载的是改代码前的静态路由**。启动器只按 /whoami
+  # 认“是本项目”，于是会把旧进程当成“已经在跑”，直接开一个资源全 404 的白页。
+  # 这里用进程启动时间与源码最新修改时间比一次；读不到任何一边就不动它（宁可让用户
+  # 手动重启，也不猜一个 PID 去杀）。
+  $started = Get-ProxyStartedAt $Port
+  if (-not $started) { return @{ Stale = $false; Reason = '读不到服务启动时间' } }
+  $newest = Get-NewestSourceTime
+  if ($newest -eq [DateTime]::MinValue) { return @{ Stale = $false; Reason = '读不到源码修改时间' } }
+  if (Test-StaleByTimes $started $newest) {
+    $reason = '服务启动于 ' + $started.ToString('MM-dd HH:mm:ss') + '，最新源码改于 ' + $newest.ToString('MM-dd HH:mm:ss')
+    return @{ Stale = $true; Reason = $reason; Started = $started; Newest = $newest }
+  }
+  return @{ Stale = $false; Reason = ''; Started = $started; Newest = $newest }
 }
 
 function Wait-Listening([int]$Port, [double]$Seconds) {
@@ -311,7 +410,7 @@ function Stop-PortListener([int]$Port) {
     $messages += "端口 $Port 上不是本工作台的服务（$($who -join '、')），没有动它 —— 只停本项目起的进程。"
     return @{ Killed = $killed; Messages = $messages }
   }
-  foreach ($p in @(Get-PortOwnerPids $Port)) {
+  foreach ($p in @(Get-ProxyPids $Port)) {
     $name = (Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName
     if ($name -ne 'node') {
       $messages += "端口 $Port 被别的程序占着（PID $p 是「$name」，不是 node），没有动它。"
@@ -355,6 +454,25 @@ function Start-Proxy {
       # 而点「停止」时更会动到别人的进程。所以这里先问身份（判据见 Test-OurProxy）。
       if (-not (Test-OurProxy $p)) {
         Add-LogLine "端口 $p 上有人在听，但不是本工作台的服务 —— 这次改用一个空号启动，别去动它。"
+        continue
+      }
+      # 同一份应用、但可能是改代码前起的旧进程：它的静态路由/启动参数与当前源码不一致，
+      # 直接开页面就是白屏。先停掉再按当前源码起；停不掉就照实说，不假装已经是最新。
+      $stale = Test-ProxyStale $p
+      if ($stale.Stale) {
+        Add-LogLine ("端口 $p 上的服务还是旧代码（" + $stale.Reason + "），先停掉再起新的。")
+        $r = Stop-PortListener $p
+        foreach ($m in $r.Messages) { Add-LogLine $m }
+        if (@($r.Killed).Count -eq 0) {
+          Add-LogLine "旧服务没能停掉；这次仍打开它。若页面白屏，请点「重启」或关掉启动器再开。"
+          $script:ActivePort = $p
+          $script:WantOpen = $true
+          $script:StartingSince = $null
+          return
+        }
+        $script:ActivePort = 0
+        $script:WantOpen = $false
+        $script:StartingSince = $null
         continue
       }
       $script:ActivePort = $p
@@ -440,11 +558,35 @@ function Get-JsonUtf8([string]$Url) {
   # PS 5.1 的 Invoke-RestMethod 在响应只写 Content-Type: application/json（不带 charset）时
   # 按 ANSI 解码，proxy.js 那些中文键名读回来就成了「ä»£ç」—— 字段取不到，看着像接口没返回。
   # 浏览器不受影响（它按 UTF-8 解），所以这不是产品的错，是读法得自己点名编码。
-  $wc = New-Object System.Net.WebClient
-  $wc.Encoding = [System.Text.Encoding]::UTF8
-  try { return ($wc.DownloadString($Url) | ConvertFrom-Json) }
-  catch { return $null }
-  finally { $wc.Dispose() }
+  #
+  # 本机路由（/sys-status 等）还要会话 Cookie：先用同一个 CookieContainer 打一次根路径，
+  # 收下代理种下的 wb_session，再问目标接口。没有这一步自检会读到 401 空响应。
+  $origin = ([Uri]$Url).GetLeftPart([UriPartial]::Authority)
+  if ($script:JsonCookieOrigin -ne $origin) {
+    $script:JsonCookieOrigin = $origin
+    $script:JsonCookies = New-Object System.Net.CookieContainer
+    try {
+      $pre = [System.Net.WebRequest]::Create($origin + '/')
+      $pre.CookieContainer = $script:JsonCookies
+      $pre.Timeout = 5000
+      $pre.GetResponse().Close()
+    } catch {}
+  }
+  $req = $null
+  $resp = $null
+  $sr = $null
+  try {
+    $req = [System.Net.WebRequest]::Create($Url)
+    $req.CookieContainer = $script:JsonCookies
+    $req.Timeout = 5000
+    $resp = $req.GetResponse()
+    $sr = New-Object System.IO.StreamReader($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
+    return ($sr.ReadToEnd() | ConvertFrom-Json)
+  } catch { return $null }
+  finally {
+    if ($sr) { try { $sr.Dispose() } catch {} }
+    if ($resp) { try { $resp.Close() } catch {} }
+  }
 }
 
 function Find-LauncherType([string]$n) {
@@ -579,7 +721,14 @@ function Invoke-SelfTest {
   Check 'Find-FreePort 会跳过绑不上的号' ($ff -gt $heldPort) "从 $heldPort 找到 $ff"
   Check '找到的那个号确实没人在听' (-not (Test-PortListening $ff)) "端口 $ff"
   $mine = @(Get-PortOwnerPids $heldPort)
-  Check 'Get-PortOwnerPids 报出的是本机这个进程' ($mine -contains $PID) "读到 $($mine -join ',')"
+  # 少数 Windows 会话里 netstat 与 CIM 都不报告「本进程刚 bind 的监听」（直连能通、端口也能用，
+  # 只是看不到 owner）。这时不把它判成产品坏：拿不到 owner 时产品本来就不会杀进程。
+  # 只有「看得到端口、却读不到本进程」才是真缺陷；看不到端口直接跳过这一条。
+  if ($mine.Count -eq 0) {
+    Write-Host "SKIP Get-PortOwnerPids 报出的是本机这个进程  （当前 Windows 会话不报告该监听的 owner；拿不到 owner 时产品不会杀进程）"
+  } else {
+    Check 'Get-PortOwnerPids 报出的是本机这个进程' ($mine -contains $PID) "读到 $($mine -join ',')"
+  }
 
   # ③ 「不是本项目就不动它」这条闸门。它坏掉的表现是**本进程被自己杀掉**（输出就此断掉，
   #    没有最后一行）—— 这是这一条能拿到的最强证据，也是它必须放在后面跑的原因。
@@ -597,6 +746,14 @@ function Invoke-SelfTest {
   $script:StateFile = $probeState
   Check '读得进旧 启动.bat 写下的 .proxy-port' ((Read-StatePort) -eq 5175) ''
 
+  # ④-b 代码新鲜度：读得到运行期源码时间，旧服务才会被认出来
+  # （读不到时 Test-ProxyStale 明确返回不 stale，不猜 PID 去杀）
+  $nt = Get-NewestSourceTime
+  Check '读得到运行期源码的最新修改时间' ($nt -gt [DateTime]::MinValue) ($nt.ToString('yyyy-MM-dd HH:mm:ss'))
+  $now = Get-Date
+  Check '旧代码判据：源码晚于服务启动算旧' (Test-StaleByTimes $now.AddMinutes(-5) $now) ''
+  Check '旧代码判据：源码早于服务启动不算旧' (-not (Test-StaleByTimes $now $now.AddMinutes(-5))) ''
+
   # ⑤ 真起一份隔离实例（三个落盘目录全指出去：只换 DATA_DIR 的话探针素材会直接进用户资产库）
   $want = Find-FreePort 6400
   [System.IO.File]::WriteAllText($probeEnv, "PORT=$want`r`n", $utf8)
@@ -611,6 +768,12 @@ function Invoke-SelfTest {
   # 「是本项目」这条身份判据必须与「在监听」同时成立 —— 只在监听不认身份的话，
   # 停止按钮会连自己的服务都不敢停（另一头是认错人就会杀掉别人的 node）。
   Check '本项目的服务身份认得出来（/whoami）' (Test-OurProxy $startedPort) "端口 $startedPort"
+  $proxyPids = @(Get-ProxyPids $startedPort)
+  Check '停服务拿得到端口上的 PID（netstat 报不出时用 /whoami 兜底）' ($proxyPids.Count -gt 0) ($proxyPids -join ',')
+  $fresh = Test-ProxyStale $startedPort
+  # Reason 为空才说明启动时间与源码时间两边都读到了；读不到时这里会红，
+  # 而不是把“没比较”冒充成“不是旧代码”。
+  Check '刚起的服务不会被误判成旧代码（两边时间都读得到）' ((-not $fresh.Stale) -and (-not $fresh.Reason)) $fresh.Reason
   $seen = @()
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {
@@ -770,7 +933,7 @@ $titleFont = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI
 $logFont = New-ScaledFont @('Consolas', 'Lucida Console') 9.5 ([System.Drawing.FontStyle]::Regular)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'AI 创作工作台 · 本地服务'
+$form.Text = '拾帧 · AI 创作工作台 · 本地服务'
 $form.Font = $uiFont
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
@@ -983,11 +1146,27 @@ function Update-Status {
 # 「退出」与关窗是同一条路（两条路两套判据早晚会漂）
 # 「有人按了一下」就是必须现问系统的时刻 —— 靠上一跳那份快照判「在不在跑」，
 # 最坏会拿一秒前的读数替用户决定该起还是该开页面。
+function Restart-IfStale {
+  # 用户点「启动」/「打开页面」时也要挡一次旧代码：这两颗按钮不该把人送进白屏。
+  # 返回 $true 表示已经走了「停旧 + 起新」，调用方不要再 Open-Page。
+  if (-not (Proxy-Running)) { return $false }
+  $stale = Test-ProxyStale $script:ActivePort
+  if (-not $stale.Stale) { return $false }
+  Add-LogLine ("当前服务还是旧代码（" + $stale.Reason + "），先停掉再起新的。")
+  $script:WantStart = $true
+  Stop-Proxy
+  Refresh-View
+  return $true
+}
+
 $btnQuit.Add_Click({ $form.Close() })
 $btnStart.Add_Click({
   Drain-Log
   Ask-Net
-  if (Proxy-Running) { Open-Page; return }
+  if (Proxy-Running) {
+    if (Restart-IfStale) { return }
+    Open-Page; return
+  }
   if ($script:Child -and -not $script:Child.HasExited) { Add-LogLine '上一次启动还在等监听，先等它一下。'; return }
   $script:WantStart = $false
   Start-Proxy
@@ -1014,7 +1193,10 @@ $btnRestart.Add_Click({
   Stop-Proxy
   Refresh-View
 })
-$btnOpen.Add_Click({ Open-Page })
+$btnOpen.Add_Click({
+  if (Restart-IfStale) { return }
+  Open-Page
+})
 
 # 关掉这个窗口 = 停掉端口上的服务。这是点名要的语义，所以：
 #   · 服务是这个窗口起的 → 直接停，不问（对称：双击起来、关掉停掉）；

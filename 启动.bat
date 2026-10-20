@@ -1,51 +1,75 @@
 @echo off
-chcp 936 >nul
-setlocal
+chcp 65001 >nul
+setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
-title AI ´´×÷¹¤×÷Ì¨
+title æ‹¾å¸§ Â· AI åˆ›ä½œå·¥ä½œå°
 
-rem ============================================================
-rem ÕâÒ»²ãÖ»ÊÇ¡¸Ë«»÷¾ÍÓĞ½çÃæ¡¹µÄÈë¿Ú£¬ÕæÕı×öÊÂµÄÊÇÍ¬Ä¿Â¼µÄ launcher.ps1¡£
-rem ¶Ë¿ÚÓÅÏÈ¼¶¡¢ÏÖÕÒÒ»¸öÕæÄÜ bind µÄºÅ¡¢Ö»¹Ø node µÄ½ø³Ì¡¢¹Ø´°×Ô¶¯Í£·şÎñ¡¢
-rem ·şÎñÈÕÖ¾ ¡ª¡ª È«ÔÚÄÇÒ»¸öÎÄ¼şÀï£¬Òª¸ÄĞĞÎª¾Í¸ÄËü£¬±ğÔÚÕâÀïÔÙĞ´Ò»Ì×¡£
-rem ±¾ÎÄ¼şÊÇ GBK£¨chcp 936£©£¬ÏîÄ¿ÀïÆäËüÎÄ¼ş¶¼ÊÇ UTF-8£ºÖ±½ÓÓÃ±à¼­Æ÷Ğ´»Ø±¾ÎÄ¼ş
-rem »á°ÑÃ¿Ò»ĞĞÖĞÎÄĞ´»µ£¬¸ÄËüÒªÏÈĞ´³É UTF-8 ÔÙ iconv -f utf-8 -t gbk Âä»ØÀ´¡£
-rem ============================================================
+rem ============================================================================
+rem å¯åŠ¨å…¥å£ï¼šåŒå‡»åªåšã€Œæ£€æŸ¥ç¯å¢ƒ -> æ‹‰èµ· launcher.ps1 çš„å›¾å½¢ç•Œé¢ã€ã€‚
+rem èµ·åœ / ç«¯å£ / æ—¥å¿— / å…³çª—åœæœåŠ¡éƒ½åœ¨ launcher.ps1 é‡Œï¼Œè¿™é‡Œä¸å†å†™ç¬¬äºŒå¥—ã€‚
+rem ç¼–ç ï¼šæœ¬æ–‡ä»¶æ˜¯ UTF-8ï¼ˆæ—  BOMï¼‰+ chcp 65001ï¼›æ”¹å®Œè¯·ä¿æŒ UTF-8 ä¸ CRLFã€‚
+rem è‡ªæ£€ï¼šset WB_LAUNCHER_DRYRUN=1 å†è¿è¡Œï¼Œåªæ‰“å°æ£€æŸ¥ç»“æœã€ä¸å¯åŠ¨ç•Œé¢ã€‚
+rem ============================================================================
 
-if not exist "%~dp0launcher.ps1" (
-  echo [´íÎó] ÕÒ²»µ½ launcher.ps1 ¡ª¡ª Ëü±ØĞëºÍÕâ¸ö Æô¶¯.bat ÔÚÍ¬Ò»¸öÄ¿Â¼Àï¡£
-  echo        ÁÙÊ±°ì·¨£ºÔÚ±¾Ä¿Â¼Ö±½ÓÔËĞĞ   node proxy.js
-  echo.
-  pause
-  exit /b 1
+set "LAUNCHER=%~dp0launcher.ps1"
+set "PROXY=%~dp0proxy.js"
+set "NODE_VER="
+set "FAIL="
+
+echo.
+echo  æ‹¾å¸§ Â· AI åˆ›ä½œå·¥ä½œå°
+echo  ----------------------------------------
+echo  æœ¬æœºæœåŠ¡å¯åŠ¨å™¨
+echo.
+
+if not exist "%LAUNCHER%" (
+  set "FAIL=æ‰¾ä¸åˆ° launcher.ps1ï¼ˆå®ƒå¿…é¡»å’Œ å¯åŠ¨.bat åœ¨åŒä¸€ä¸ªç›®å½•ï¼‰"
+  goto :check_failed
 )
-
+if not exist "%PROXY%" (
+  set "FAIL=æ‰¾ä¸åˆ° proxy.jsï¼ˆé¡¹ç›®ç›®å½•ä¸å®Œæ•´ï¼Œæˆ–è¿™ä¸ª bat è¢«å•ç‹¬æ‹·èµ°äº†ï¼‰"
+  goto :check_failed
+)
+where node.exe >nul 2>nul
+if errorlevel 1 (
+  set "FAIL=æ²¡æœ‰æ‰¾åˆ° node.exeï¼šå…ˆå®‰è£… Node.jsï¼Œå†åŒå‡»æœ¬æ–‡ä»¶"
+  goto :check_failed
+)
+for /f "delims=" %%v in ('node --version 2^>nul') do set "NODE_VER=%%v"
 where powershell.exe >nul 2>nul
 if errorlevel 1 (
-  echo [´íÎó] ÕâÌ¨»úÆ÷ÉÏÃ»ÓĞ powershell.exe£¬Æğ²»ÁË½çÃæ¡£
-  echo        ÁÙÊ±°ì·¨£ºÔÚ±¾Ä¿Â¼Ö±½ÓÔËĞĞ   node proxy.js
-  echo.
-  pause
-  exit /b 1
+  set "FAIL=æ²¡æœ‰æ‰¾åˆ° powershell.exeï¼šè¿™å°æœºå™¨èµ·ä¸äº†å›¾å½¢ç•Œé¢"
+  goto :check_failed
 )
 
-rem ÏÈ°Ñ launcher.ps1 ½âÎöÒ»±é£¬ÔÙ¾ö¶¨Òª²»Òª°Ñ¿ØÖÆÌ¨²Øµô£º
-rem ÏÂÃæÄÇ¾ä -WindowStyle Hidden Ò»²Ø£¬launcher.ps1 ½âÎö²»¹ı¾ÍÊÇ¡¸Ë«»÷ÍêÈ«Ã»·´Ó¦¡¹¡ª¡ª
-rem ÄÇÊÇ×îÄÑ²éµÄÒ»ÖÖ»µ·¨£¨´°¿Ú²»³öÏÖ¡¢ÈÕÖ¾Ò²Ã»ÓĞ£©£¬ËùÒÔÕâÒ»¾ä°ÑÔ­ÒòÁôÔÚÄÜ¿´¼ûµÄÕâÀï¡£
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('%~dp0launcher.ps1', [ref] $null, [ref] $e); if ($e.Count -gt 0) { $e | ForEach-Object { Write-Output $_.Message }; exit 1 }"
+echo  [1/3] Node.js  %NODE_VER%
+echo  [2/3] å¯åŠ¨å™¨   launcher.ps1
+echo  [3/3] æœåŠ¡å…¥å£ proxy.js
+echo.
+
+rem å…ˆè§£æä¸€é launcher.ps1ï¼šä¸‹é¢é‚£å¥ -WindowStyle Hidden ä¸€è—ï¼Œè§£æä¸è¿‡å°±æ˜¯
+rem ã€ŒåŒå‡»å®Œå…¨æ²¡ååº”ã€ï¼ˆçª—å£ä¸å‡ºç°ã€æ—¥å¿—ä¹Ÿæ²¡æœ‰ï¼‰ï¼Œæ‰€ä»¥åŸå› è¦ç•™åœ¨çœ‹å¾—è§çš„è¿™é‡Œã€‚
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('%LAUNCHER%', [ref] $null, [ref] $e); if ($e.Count -gt 0) { $e | ForEach-Object { Write-Output $_.Message }; exit 1 }"
 if errorlevel 1 (
-  echo [´íÎó] launcher.ps1 ½âÎö²»¹ı ¡ª¡ª ÉÏÃæÄÇÒ»¾ä¾ÍÊÇÔ­Òò¡£
-  echo        ÁÙÊ±°ì·¨£ºÔÚ±¾Ä¿Â¼Ö±½ÓÔËĞĞ   node proxy.js
-  echo        ¸Ä»Ø¿É¼ûµÄ¿ØÖÆÌ¨£º°ÑÏÂÃæÄÇĞĞÄ©Î²µÄ -WindowStyle Hidden È¥µôÔÙË«»÷¡£
-  echo.
-  pause
-  exit /b 1
+  set "FAIL=launcher.ps1 è§£æä¸è¿‡ï¼ˆä¸Šé¢ä¸€å¥å°±æ˜¯åŸå› ï¼‰"
+  goto :check_failed
 )
 
-rem start ºóÃæµÚÒ»¸öÒıºÅ´®ÊÇ¡¸´°¿Ú±êÌâ¡¹£¬ËùÒÔÄÇ¾ä¿ÕµÄ "" ²»ÄÜÊ¡ ¡ª¡ª
-rem Ê¡ÁËËü powershell »á°Ñ "%~dp0launcher.ps1" µ±³É±êÌâ£¬½çÃæ¸ù±¾²»³öÏÖ¡£
-rem -WindowStyle Hidden ÊÇÒòÎª²»²ØµÄ»°×ÀÃæÉÏ»áÁôÒ»¸ö¿ÕµÄ¡¸Windows PowerShell¡¹¿ØÖÆÌ¨£¬
-rem ¶ø**¹ØµôÄÇ¸ö¿ØÖÆÌ¨ÊÇÓ²É±½ø³Ì**£¨FormClosing ¸ù±¾²»×ß£©£¬¶Ë¿ÚÉÏµÄ·şÎñ¾Í³ÉÁËÃ»ÈËÈÏÁìµÄ¹Â¶ù£¬
-rem ¡¸¹ØµôÕâ¸ö´°¿Ú»áÍ£µô·şÎñ¡¹Õâ¾ä»°Ö»Ê£ GUI ÄÇÒ»¸ö³ö¿Ú ¡ª¡ª ÁôÒ»¸ö¸üºÃ°´µÄ³ö¿ÚÔÚÄÇ¶ù¾ÍÊÇ¿Ó¡£
-start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0launcher.ps1"
+if defined WB_LAUNCHER_DRYRUN (
+  echo  [è‡ªæ£€] ç¯å¢ƒæ£€æŸ¥é€šè¿‡ï¼›æœªå¯åŠ¨ç•Œé¢ã€‚
+  exit /b 0
+)
+
+echo  æ­£åœ¨æ‰“å¼€å¯åŠ¨å™¨çª—å£â€¦
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%LAUNCHER%"
 exit /b 0
+
+:check_failed
+echo  [é”™è¯¯] %FAIL%
+echo.
+echo  ä¸´æ—¶åŠæ³•ï¼šåœ¨æœ¬ç›®å½•ç›´æ¥è¿è¡Œ   node proxy.js
+echo  å®Œæ•´æ—¥å¿—ï¼šåŒç›®å½•çš„ proxy.log
+echo.
+if defined WB_LAUNCHER_DRYRUN exit /b 1
+pause
+exit /b 1

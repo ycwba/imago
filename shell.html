@@ -2,71 +2,71 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:">
 <title>AI 创作工作台</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>try{document.documentElement.dataset.theme=localStorage.getItem('dir_theme')||'light'}catch(e){}</script>
-<link rel="stylesheet" href="ui.css">
+<script src="web/shell-boot.js"></script>
+<link rel="stylesheet" href="web/styles/tokens.css">
+<link rel="stylesheet" href="web/styles/ui.css">
+<link rel="stylesheet" href="web/styles/sidebar.css">
+<link rel="stylesheet" href="web/styles/spa-director.css">
 <style>
   /* 主题变量在 ui.css 的 :root / html[data-theme="dark"] 里（全站一份，上面已引） */
-
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
-  /* 内容区在 iframe 里：切页只换 iframe，侧栏不动。
-     用类名而不是 id 来定位尺寸：**加载中的那一份还没有 id**（id 是它加载好、换上位之后才拿到的），
-     而它必须和当前那一份尺寸一模一样 —— 否则换页期间侧栏展开态会让新页面先贴在左边再跳过来。
-     id 全程只有一个，外壳别处（主题同步等）按 id 找的仍是当前可见的那一个。 */
-  .appframe { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
-    border: 0; display: block; background: var(--bg); z-index: 1; transition: left .18s ease, width .18s ease; }
-  /* 正在加载的那一份压在**下面**：上面那份旧内容就一直显示着，换页过程中屏幕上不会空出一片底色。 */
-  .appframe.staging { z-index: 0; }
-  /* 刚换上位、但旧的那份还没退场的那一两帧：新的一层**透明**，底下旧内容继续顶着。
-     没有这一层的话，换位那一刻新文档可能一两个子元素都还没有，露出来的是底色 ——
-     也就是把「等 load 才换」省下来的时间，又在换位的那一瞬还回去了。 */
-  .appframe.behind { background: transparent; }
-  /* 窄窗口（≤1100px）里侧栏展开是浮层：sidebar.js 此时不把 --sbw 改成 200px，
-     内容区也不让位 —— 小窗本来就窄，再被侧栏吃掉 200px 就更没法用了。 */
-  html.sb-narrow.sb-open .appframe { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
-  html.sb-open:not(.sb-narrow) .appframe { left: 200px; width: calc(100% - 200px); }
+
+  /* Vue 外壳只占内容区，侧栏由 web/ui/sidebar.js 画在左边。
+     尺寸用 --sbw（侧栏收起 66 / 展开 200），与旧 iframe 外壳同一套变量。 */
+  #app { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
+    z-index: 1; background: var(--bg); transition: left .18s ease, width .18s ease; }
+  html.sb-narrow.sb-open #app { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
+  html.sb-open:not(.sb-narrow) #app { left: 200px; width: calc(100% - 200px); }
+
+  .spa-shell, .spa-frame-wrap, .spa-page-host { position: absolute; inset: 0; }
+  .spa-frame-wrap { overflow: hidden; }
+  .spa-frame-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    gap: 10px; color: var(--sub); font-size: 13px; background: var(--bg); z-index: 2; }
 </style>
 </head>
 <body>
-<iframe id="appFrame" class="appframe" name="appFrame" title="工作区"></iframe>
-<script>window.__SB_SHELL = true;</script>
-<script src="ui.js"></script>
-<!-- AI 助手那一层（workbench / chars / ai-chat，约 480 KB）**按需加载**（L2）：
-     助手挂在**外壳**这一层，切页只换 #appFrame 的内容，抽屉与对话记录都不重建。
-     内容页一律不再引这三份（2026-10）：它们挂在 iframe 里第一件事就是检测到
-     window.top.__SB_SHELL 然后 return，每一次切页都白付 608 KB 的下载与执行，
-     而这恰好又把内容页的 DOMContentLoaded 往后推 —— 那正是外壳换页的时机。
-     页面要交出自己的只读快照，直接设 window.__acPageCtx（见 director.html）。
-     真正立刻要用的只有下面这几份：ui.js（公共组件）、ident.js + assetlib.js（侧栏余额与
-     注册表都要它）、sidebar.js、app.js。助手那三份在浏览器空闲时再插进来（见下面那段），
-     顺序不能变 —— ai-chat.js 要用 Wb / Chars，且它自己会做「公共层没齐就不装」的守卫。 -->
-<script src="ident.js"></script>
-<script src="assetlib.js"></script>
-<script src="sidebar.js"></script>
-<script src="app.js"></script>
-<script>
-/* 空闲时补上 AI 助手那一层。用 requestIdleCallback（带超时兜底）而不是立刻 <script src>：
-   首屏的关键路径只剩上面那几份，悬浮球晚几百毫秒出现 —— 而「切页不重建的抽屉、
-   球上的未读小圆点、出结果的通知」全都不变（它们本来也要等这几个脚本到位才开始跑，
-   而这几百毫秒里既没有任务可看护、也没人点得到球）。不引占位球，就不会多出一套
-   和真球不一样的位置/拖动/角标行为。 */
-(function () {
-  var files = ['workbench.js', 'chars.js', 'ai-chat.js'];
-  var started = false;
-  function load() {
-    if (started) return; started = true;
-    files.reduce(function (p, f) {
-      return p.then(function () { return new Promise(function (res) {
-        var s = document.createElement('script'); s.src = f; s.onload = res; s.onerror = res;
-        document.head.appendChild(s);
-      }); });
-    }, Promise.resolve());
-  }
-  if (window.requestIdleCallback) window.requestIdleCallback(load, { timeout: 1200 });
-  else setTimeout(load, 400);
-})();
-</script>
+<div id="app"></div>
+<script src="web/ui/ui.js"></script>
+<!-- 表单族（报告 §6.1-2）：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
+     仍排在 ui.js 之后、其余脚本之前，与原 ui.js 里的求值顺序一致。 -->
+<script src="web/ui/forms.js"></script>
+<script src="web/ui/store.js"></script>
+<script src="web/ui/kv.js"></script>
+<script src="web/ui/toast.js"></script>
+<script src="web/ui/net.js"></script>
+<script src="web/ui/datasync.js"></script>
+<script src="web/ui/skills.js"></script>
+<!-- 错误通道要在其余公共模块之前装上：它们求值时抛错也得有人接（web/core/report.js）。 -->
+<script src="web/core/report.js"></script>
+<script src="web/core/routes.js"></script>
+<script src="web/core/bridges.js"></script>
+<script src="web/core/page-context.js"></script>
+<script src="web/domain/semantic.js"></script>
+<!-- 公共模块：侧栏余额与注册表要用 Api；页面常驻之后它们只在外壳加载一次。
+     顺序是硬约束（报告 §6.1-2 的三份拆分）：api.js（顶层取数函数 + Api）→ assetlib.js
+     （AssetLib + 费用）→ gen-forms.js（型号 / 参数 / 配音 / 字数 / 流式八个面）。 -->
+<script src="web/domain/ident.js"></script>
+<script src="web/domain/api.js"></script>
+<script src="web/domain/assetlib.js"></script>
+<script src="web/domain/gen-forms.js"></script>
+<script src="web/domain/asset-transfer.js"></script>
+<script src="web/domain/local.js"></script>
+<script src="web/domain/capabilities.js"></script>
+<script src="web/domain/gen-rules.js"></script>
+<script src="web/domain/text-ai.js"></script>
+<script src="web/domain/fav.js"></script>
+<script src="web/domain/prompt-log.js"></script>
+<script src="web/domain/asset-picker.js"></script>
+<script src="web/domain/ai-find.js"></script>
+<script src="web/ui/sidebar.js"></script>
+<!-- 徽标判据与徽标标记（本机 / 云端 / 两者都有）只有一份：这里以 module 方式带进来，
+     它顺带把 badgeOf / badgeHTML 挂成全局，供那几个只能拼字符串的经典脚本用（asset-picker）。 -->
+<script type="module" src="web/ui/badge-state.js"></script>
+<script type="module" src="web/app.js"></script>
+<script src="web/boot-assistant.js"></script>
 </body>
 </html>

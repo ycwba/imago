@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "at": "2026-10-19T07:13:42.554Z",
+  "dirs": {
+    ".data": {
+      "dir": ".data",
+      "files": 128,
+      "bytes": 769629,
+      "sha256": "a4dfa7807fe0f415b4a9c039f841682f839fff8312777267e8b639a0864ee2ec"
+    },
+    ".assets": {
+      "dir": ".assets",
+      "files": 355,
+      "bytes": 666150306,
+      "sha256": "83a5f4cd65dec3579b6c117b847cc7b7a9dc162c4789524eb11afc415b25445a"
+    },
+    ".renders": {
+      "dir": ".renders",
+      "files": 34,
+      "bytes": 141337427,
+      "sha256": "c755aace036d7e1b2cb5f8583f607a2e938aaa5a6698414d5db12c2ef8bae744"
+    }
+  }
+}

@@ -1,0 +1,103 @@
+
+    <div class="page-main studio-page wb2" ref="pageEl">
+      <div class="layout">
+        <div class="col-left" data-r="leftCol">
+          <div class="st-top">
+            <div class="ui-seg" data-r="typeSeg" role="tablist" aria-label="生成类型"></div>
+            <div class="st-model"><select data-r="model"></select></div>
+          </div>
+          <div class="st-sub" data-r="stSub"></div>
+
+          <div class="prompt-box" data-r="promptBox">
+            <textarea data-r="prompt" spellcheck="false"></textarea>
+            <div class="prompt-hint" data-r="promptHint" hidden></div>
+            <div class="btn-row">
+              <button class="tool acc" data-r="polishBtn" title="调用文字 AI 改写提示词（密钥在「设置」配置）"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
+              <button class="tool" data-r="splitBtn" hidden title="把这段描述拆成几张图的提示词，确认后逐条提交（每条都是一条真任务）"><span class="ic" data-icon="sparkles" data-size="14"></span>拆分片段生成</button>
+              <span class="sp"></span>
+              <button class="tool danger" data-r="clearAll" title="清空提示词、素材与参数（会先问你一次）"><span class="ic" data-icon="trash" data-size="14"></span><span class="tx">一键清空</span></button>
+            </div>
+            <div data-r="polishInline" hidden></div>
+            <div class="pinl" data-r="splitInline" hidden>
+              <div class="pinl-hd">
+                <span class="pinl-tt">拆分片段批量生成</span>
+                <span class="pinl-note">每张是一条独立任务（逐条提交、各自计费）；下方槽里的参考图会一起带去</span>
+              </div>
+              <div class="split-opts">
+                <label>张数 <select data-r="splitCount">
+                  <option value="">自动（AI 按内容定 2–6 张）</option>
+                  <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+                </select></label>
+                <label>拆分维度 <select data-r="splitDim">
+                  <option value="">自动（AI 选最自然的）</option>
+                  <option>按时间顺序</option>
+                  <option>按场景变化</option>
+                  <option>按动作或状态阶段</option>
+                  <option value="__custom">自定义…</option>
+                </select></label>
+                <label data-r="splitDimCustomWrap" hidden><input data-r="splitDimCustom" maxlength="60"
+                  placeholder="例：按主角情绪变化 / 按道具出现的先后顺序"></label>
+                <span class="sp"></span>
+                <button class="tool acc" data-r="splitGo">开始规划</button>
+                <button class="tool" data-r="splitCancel">取消</button>
+              </div>
+            </div>
+            <div class="style-row" data-r="styleRow" hidden>
+              <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计型号必填）</label>
+              <input data-r="style" class="ui-inp" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
+              <div style="margin-top:6px">
+                <button class="ghost" data-r="stylePick" title="从素材库挑一位，把它身上写的那段音色描述填到这里">取一位素材的音色描述</button>
+              </div>
+            </div>
+            <div class="ed-label" data-r="modeHead" hidden><span>输入模式</span><span class="cnt" data-r="modeHeadNote"></span></div>
+            <div class="mode-row" data-r="modeRow" hidden></div>
+            <div class="ed-label" data-r="slotHead" hidden><span>参考素材</span><span class="cnt" data-r="slotHeadNote"></span></div>
+            <div class="slot-wrap" data-r="inputArea"></div>
+          </div>
+
+          <div class="adv" data-r="adv">
+            <div class="adv-head" data-r="advHead">
+              <h2><span data-icon="gear" data-size="14"></span> <span data-r="advTitle">高级设置</span></h2>
+              <span class="sum"><span data-r="advSum"></span><span class="chev">▼</span></span>
+            </div>
+            <div class="adv-body" data-r="advBody"></div>
+            <div class="hint" data-r="capHint" style="font-size:11.5px;color:var(--sub);margin-top:10px"></div>
+          </div>
+
+          <div class="costbar"><span data-r="costTxt">估价中…</span><span class="note" data-r="mode">文生视频</span></div>
+          <button class="go" data-r="go">生成视频</button>
+          <div class="hint" data-r="goWhy"></div>
+          <div data-r="status"></div>
+          <div data-r="balTip" hidden></div>
+          <div class="hint" data-r="pendingHint" style="display:none;font-size:11.5px;margin-top:6px"></div>
+        </div>
+
+        <div class="col-right">
+          <div class="tasks-head">
+            <span class="tab">这一台的生成历史</span>
+            <span class="sp"></span>
+            <span class="pgroup">
+              <input type="search" data-r="searchBox" placeholder="搜索提示词 / ID" autocomplete="off" spellcheck="false">
+              <button class="ghost" data-r="searchBtn">搜索</button>
+              <span class="pgsep"></span>
+              <button class="ghost" id="stPgPrev" style="display:none">‹ 上一页</button>
+              <span class="pginfo" id="stPgInfo">第 1 页</span>
+              <button class="ghost" id="stPgNext" style="display:none">下一页 ›</button>
+              <input type="number" id="stGotoPage" data-r="stGotoPage" min="1" placeholder="跳页">
+              <button class="ghost" data-r="gotoBtn">跳转</button>
+              <button class="ghost" data-r="sync" title="重新从各平台取回这一屏列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+              <button class="ghost" data-r="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"><span data-icon="box" data-size="13"></span> 存回本机</button>
+            </span>
+          </div>
+          <div class="hist-filters">
+            <div class="ui-seg" data-r="histFilter" role="tablist" aria-label="按类型筛选"></div>
+            <span class="sp"></span>
+            <span class="hint" data-r="histNote"></span>
+            <button class="ghost" data-r="winAll" title="默认只看最近 30 天；点这里看全部">查看全部</button>
+          </div>
+          <div id="result" data-r="result"></div>
+        </div>
+      </div>
+      <div class="ver">生成工作台 · 视频 / 图像 / 音频 · 右栏卡片可拖到左栏当参考素材</div>
+    </div>
+  

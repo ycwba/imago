@@ -1,0 +1,1443 @@
+/* ============================================================================
+   ui.js —— 公共面：下拉 / 芯片 / 多选 / 格式 / 视图档 / 界面偏好 / 侧栏余额
+   弹窗与表单族（InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker）
+   在 forms.js（报告 §6.1-2），加载顺序 ui.js → forms.js，调用点不变。
+   ----------------------------------------------------------------------------
+   其中 Dropdowns 是自定义下拉组件（与图片工作台完全同一套）
+   用法：
+     1) 页面 <script src="ui.js"></script>
+     2) 静态下拉：DOM 就绪后 Dropdowns.build(document)；
+        动态重建的下拉：重建 HTML 之后再 Dropdowns.build(容器)
+     3) 页面代码改完 <select> 的 <option> 后调用 Dropdowns.sync(sel)
+        （`sel._ddRebuild` 是组件内部的事，页面不碰：AGENTS.md §7 只认 Dropdowns 这一个面）
+   说明：原生 <select> 仍作为唯一数据源（保留 value / change 事件 / 表单行为），
+        只是被隐藏，改用 .dd 组件渲染，观感与图片工作台一致。
+   ========================================================================== */
+(function () {
+  const ARW = '<svg class="arw" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
+  /* 下拉浮层**挂到容器外面用 fixed 定位**（挂在哪一个容器见下面的 `hostFor`），不留在 <select> 原来的位置上。
+     以前是原地展开（.dd-list 是 .dd 的子节点），于是任何祖先的 overflow 都会把它裁掉：
+     生成工作台的高级设置面板 .adv 是 overflow:hidden、左右两栏是 overflow-y:auto、外层
+     .layout 还是 overflow:hidden —— 一个下拉要穿过三层裁剪，表现就是「点开了但只露出一条边」。
+     逐个容器去改 overflow 等于把同一个毛病抄 N 份（而且 `overflow:visible` 常常会让布局更难看），
+     浮层脱离文档流之后裁剪与层叠都不再受祖先影响。 */
+  const DD_LIST_MAXH = 264;      // 与 .dd-list 的 max-height 一致（这里还要用来算「往哪边开」）
+  const DD_GAP = 6;              // 浮层与按钮的间距
+  const DD_EDGE = 10;            // 离视口边缘留一点，贴着边会被裁
+
+  /* 已挂出去的浮层（收起时留着节点，只是不显示 —— 省得每次展开重画一遍） */
+  const portals = [];
+  let openDd = null;
+
+  /* 浮层挂在**哪一个**容器里：默认 body，但 select 在 `<dialog>` 里时必须挂进那一个 dialog。
+     `showModal()` 的弹窗在 top layer 上，那一层盖过任何 z-index —— 浮层挂 body 就被整块压在弹窗底下，
+     看不见也点不着，表现是「下拉里只有当前这一项、换不了」，而界面上一处报错都没有
+     （新建素材那个「类型」下拉就是这么只剩「角色」的：三个选项一直在，列表开在弹窗背面）。
+     挂进 dialog 自己里面就跟着进 top layer；fixed 定位仍按视口摆（dialog 没有 transform，不成为固定元素的包含块）。 */
+  function hostFor(dd) {
+    const dlg = dd.closest && dd.closest('dialog');
+    return dlg && dlg.isConnected ? dlg : document.body;
+  }
+
+  /* 把已经不连在文档里的浮层回收掉。为什么排在 `build` 的最前面：页面每次重画一块区域都会再调一次
+     build，那正是「上一批 .dd 刚被 innerHTML 换掉」的时刻 —— 那些浮层节点还在 host 上挂着
+     （每个都带着自己的一份选项副本），不收就是每重画一次攒一串。
+     弹窗里的那一类更明显：`.dd` 跟着 dialog 一起 remove 了，`portals` 数组里那条引用却留着，
+     开一次收一次就攒一条，永远不清。 */
+  function sweepPortals() {
+    for (let i = portals.length - 1; i >= 0; i--) {
+      const dd = portals[i];
+      if (dd.isConnected) continue;
+      if (dd._ddList && dd._ddList.isConnected) dd._ddList.remove();
+      portals.splice(i, 1);
+      if (openDd === dd) openDd = null;
+    }
+  }
+
+  function place(dd) {
+    const btn = dd._ddBtn, list = dd._ddList;
+    if (!btn || !list || !btn.isConnected) return;
+    const r = btn.getBoundingClientRect();
+    if (!r.width && !r.height) return;              // 还在隐藏的容器里（切页/折叠中）：不乱摆
+    const vh = window.innerHeight || 800;
+    const below = vh - r.bottom - DD_EDGE;
+    const above = r.top - DD_EDGE;
+    /* 下方够就用下方（视觉上更符合直觉）；下方不够而上方更宽裕才往上开。
+       两者都不够时取较大的一边，并按可用高度压低 max-height（仍然内部滚动）。 */
+    const up = below < 160 && above > below;
+    const room = Math.max(80, up ? above : below);
+    const h = Math.min(DD_LIST_MAXH, room);
+    list.style.maxHeight = h + 'px';
+    list.style.minWidth = Math.round(r.width) + 'px';
+    list.style.maxWidth = Math.min(window.innerWidth - DD_EDGE * 2, Math.max(r.width, 340)) + 'px';
+    if (up) {
+      list.classList.add('up');
+      /* 必须显式写 `auto`，不能只 `= ''`：清空的是**内联**的 top，而 `ui.css` 的 `.dd-list` 自己带着 `top: 0`。
+         固定定位 + 高度确定（内容撑到 max-height 就是确定的）时，`top` 与 `bottom` 同时有值属于「过约束」，
+         按 CSS 2.1 规矩**丢弃 bottom** —— 于是往上开的面板整块钉在视口顶上，离按钮差几百 px。
+         这就是「时段那一栏点开，选项跑到屏幕最上面」的根因：时段行在表单底部，下方不够才走这一支。
+         往下开那支看不出问题，只是因为内联的 top 正好把样式表的 0 盖掉了。 */
+      list.style.top = 'auto'; list.style.bottom = Math.round(vh - r.top + DD_GAP) + 'px';
+    } else {
+      list.classList.remove('up');
+      list.style.top = Math.round(r.bottom + DD_GAP) + 'px'; list.style.bottom = 'auto';
+    }
+    /* 横向也别顶出视口 */
+    const lw = list.offsetWidth || r.width;
+    const left = Math.max(DD_EDGE, Math.min(r.left, window.innerWidth - lw - DD_EDGE));
+    list.style.left = Math.round(left) + 'px';
+  }
+
+  function openDd_(dd) {
+    if (openDd && openDd !== dd) closeDd(openDd);
+    if (!dd._ddList.isConnected) hostFor(dd).appendChild(dd._ddList);
+    dd.classList.add('open');
+    dd._ddList.classList.add('on');
+    openDd = dd;
+    place(dd);
+    /* 选项多的时候把当前选中项滚到可见处（浮层是独立滚动容器了，这一行走的是它自己的 scrollTop） */
+    const cur = dd._ddList.querySelector('.dd-opt.sel');
+    if (cur && cur.scrollIntoView) { try { cur.scrollIntoView({ block: 'nearest' }); } catch (e) { dd._ddList.scrollTop = Math.max(0, cur.offsetTop - 40); } }
+  }
+  function closeDd(dd) {
+    dd.classList.remove('open');
+    if (dd._ddList) dd._ddList.classList.remove('on');
+    if (openDd === dd) openDd = null;
+  }
+
+  /* 页面滚动 / 窗口变化时重新定位：浮层是 fixed，不跟着按钮走，
+     不重新摆就会停在原地对着空气（原来靠「在祖先里」才碰巧跟着滚）。 */
+  let rafPending = false;
+  function onViewportChange() {
+    if (!openDd) return;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; if (openDd) place(openDd); });
+  }
+  window.addEventListener('scroll', onViewportChange, true);
+  window.addEventListener('resize', onViewportChange);
+
+  function buildOne(sel) {
+    if (!sel || sel._ddBuilt) return;
+    if (sel.closest('.dd')) return;
+    const dd = document.createElement('div');
+    dd.className = 'dd';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dd-btn';
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    btn.append(lbl, fromHTML(ARW));
+    const list = document.createElement('div');
+    list.className = 'dd-list';
+
+    const sync = () => {
+      const o = sel.options[sel.selectedIndex];
+      lbl.textContent = (o && (o.dataset.ddLabel || o.textContent)) || '请选择';
+      [...list.children].forEach(it => it.classList.toggle('sel', it.dataset.val === sel.value));
+    };
+    const buildList = () => {
+      list.innerHTML = '';
+      const addOpt = o => {
+        if (!o || o.tagName !== 'OPTION' || o.hidden) return;
+        const item = document.createElement('div');
+        item.className = 'dd-opt';
+        item.dataset.val = o.value;
+        item.innerHTML = `<span class="chk">✓</span><span class="tx"></span>`;
+        item.querySelector('.tx').textContent = o.dataset.ddLabel || o.textContent;
+        if (o.title) item.title = o.title;
+        item.onclick = e => {
+          e.stopPropagation();
+          if (sel.value !== o.value) {
+            sel.value = o.value;
+            sel.dispatchEvent(new Event('input', { bubbles: true }));
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          sync();
+          closeDd(dd);
+        };
+        list.appendChild(item);
+      };
+      /* optgroup 也要渲染出来（模型列表按 API 来源分组：同一个平台的模型在同一组下）。
+         原生 select 仍是数据源，这里只是照着它的结构重画一遍。 */
+      [...sel.children].forEach(node => {
+        if (node.tagName === 'OPTGROUP') {
+          const g = document.createElement('div');
+          g.className = 'dd-grp';
+          g.textContent = node.label || '';
+          list.appendChild(g);
+          [...node.children].forEach(addOpt);
+        } else addOpt(node);
+      });
+      sync();
+      /* 开着的时候重画了内容（页面改完 option 调 _ddRebuild）→ 重新摆一次，高度可能变了 */
+      if (dd.classList.contains('open')) place(dd);
+    };
+    sel._ddRebuild = () => { buildList(); sync(); };
+    buildList();
+
+    btn.onclick = e => {
+      e.stopPropagation();
+      if (openDd === dd) closeDd(dd);
+      else openDd_(dd);
+    };
+    dd._ddBtn = btn;
+    dd._ddList = list;
+    dd.append(btn);            // 浮层不进 .dd：它挂到 hostFor 选出的容器上（弹窗里就进那一个 dialog）
+    sel.before(dd);
+    dd.appendChild(sel);   // 原生 select 留在里面并隐藏，作为数据源
+    sel._ddBuilt = true;
+    portals.push(dd);
+  }
+
+  function fromHTML(html) {
+    const t = document.createElement('template');
+    t.innerHTML = html.trim();
+    return t.content.firstElementChild;
+  }
+
+  /* ---------- 筛选芯片行（与 Dropdowns 同一类：一排可点的档位按钮） ----------
+     四个页面（资产库 / 角色库 / 收藏 / 用量）原先各写一份「拼 innerHTML + querySelectorAll 绑 onclick」，
+     连选中态的 class 字符串都是各拼各的（一度还分 ' active' 与 ' on' 两派）。
+     真正不同的只有两点，收成参数：标签后面跟不跟一个条数（count）、点完之后各自做什么（onPick）。 */
+  window.Chips = {
+    /* items: ['值'] 或 ['值', '显示文字']；cur 是当前值（相等就标上 .on）。 */
+    render(el, items, cur, onPick, opt) {
+      const box = typeof el === 'string' ? document.getElementById(el) : el;
+      if (!box) return;
+      const o = opt || {};
+      /* 选中判据默认是「值 === 当前值」。有一行的判据不一样：资产库的日期预设里，
+         手动填了起止日期时 presetDays 还停在 0，但「全部」那颗不该再亮着 ——
+         所以那一行自己给 isOn，别为了迁就它把公共那份改松。 */
+      const on = v => (o.isOn ? !!o.isOn(v) : v === cur);
+      box.innerHTML = items.map(it => {
+        const pair = Array.isArray(it);
+        const v = pair ? it[0] : it, label = pair ? it[1] : it;
+        const n = o.count ? Number(o.count(v)) || 0 : 0;
+        /* 值与标签都过一遍 esc：标签里有平台名 / 计量单位这种外来词，
+           原先五份里 assets 用 textContent（天然安全）、另几份直接拼进 innerHTML。统一到安全的那一侧。 */
+        const ti = o.title ? ' title="' + window.esc(o.title(v)) + '"' : '';
+        return '<button class="chip' + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
+          + window.esc(label) + (n ? ' ' + n : '') + '</button>';
+      }).join('');
+      box.querySelectorAll('.chip').forEach(b => { b.onclick = () => onPick(b.dataset.v); });
+    },
+  };
+
+  /* ---------- AI 芯片：那一颗写着「AI 挑了哪几条 / 按什么筛」并带 ✕ 的东西 ----------
+     原先四处各拼一份 innerHTML（资产库 / 素材库 / 收藏 / 统一选择器），文案与尺寸各漂各的：
+     清除按钮的 title 分「回到完整名单」与「回到完整列表」两句话，✕ 的图标一颗 10 另一颗 11。
+     各页真正不同的只有**芯片上写几段话**（那是它自己的数据）与**清掉之后各自重画什么**，
+     所以公共层只收两件事：拼一颗带 ✕ 的芯片、把 ✕ 绑回调用方给的函数。 */
+  const AiChip = {
+    CLEAR_TITLE: '清除 AI 结果，回到完整列表',
+    /* 若干段话用「 · 」连起来；空串 / null / undefined 丢掉，不留下悬空的分隔符。 */
+    text(bits) { return (bits || []).filter(Boolean).join(' · '); },
+    /* 「AI 挑的 N 条（+ 它说的那句话）」—— 素材库与收藏这两页以前逐字抄过同一段。 */
+    picked(n, why) { return AiChip.text(['AI 挑的 ' + (Number(n) || 0) + ' 条', why]); },
+    /* o: { text 空串=整颗收掉, clearTitle, clearId(默认 aiClear), cls(默认 ai-chip), tip, onClear }
+       text / tip / clearTitle 都传**纯文本**，转义只在这一处做。 */
+    paint(el, o) {
+      const box = typeof el === 'string' ? document.getElementById(el) : el;
+      if (!box) return;
+      const oo = o || {};
+      const t = String(oo.text || '');
+      if (!t) { box.innerHTML = ''; return; }
+      const cid = oo.clearId || 'aiClear';
+      box.innerHTML = '<span class="' + (oo.cls || 'ai-chip') + '"'
+        + (oo.tip ? ' title="' + window.esc(oo.tip) + '"' : '') + '>'
+        + window.icon('sparkles', oo.iconSize || 12) + ' ' + window.esc(t)
+        + '<button id="' + window.esc(cid) + '" title="' + window.esc(oo.clearTitle || AiChip.CLEAR_TITLE) + '>'
+        + window.icon('close', 10) + '</button></span>';
+      const c = document.getElementById(cid);
+      if (c) c.onclick = oo.onClear;
+    },
+  };
+  window.AiChip = AiChip;
+
+  window.Dropdowns = {
+    build(root) {
+      sweepPortals();
+      const scope = root && root.querySelectorAll ? root : document;
+      if (scope.matches && scope.matches('select')) buildOne(scope);
+      scope.querySelectorAll('select').forEach(buildOne);
+    },
+    /* 页面代码直接改了 select.value / 换了整份 options 之后，同步显示文字并**重画选项列表**。
+       root 可以是容器，也可以**直接是那个 select 本身**（与 build 对称）——
+       少了这一条就会出现「下拉里空空的」：select 明明已经有选项，浮层那份列表还是页面加载时的快照
+       （那时 options 还没填），点开什么都没有。填完 options 一定要调它。 */
+    sync(root) {
+      const scope = root && root.querySelectorAll ? root : document;
+      if (scope.matches && scope.matches('select')) { if (scope._ddBuilt) scope._ddRebuild(); }
+      scope.querySelectorAll('select').forEach(sel => { if (sel._ddBuilt) sel._ddRebuild(); });
+      if (openDd) place(openDd);
+    },
+    /* 没有对外的 `sweep()`：回收浮层是 `build` 自己开头做的一件事（见 `sweepPortals`）。
+       以前它是一个导出的方法而**全站零调用** —— 于是「重画一块区域就攒一串孤立 .dd-list」
+       这件事从来没被解决过，只是没人看见。接在唯一那个自然的时机上，比留一颗等人记得按的按钮可靠。 */
+  };
+
+  document.addEventListener('click', e => {
+    /* 浮层已经不在 .dd 里面了，命中判断要同时看按钮与浮层本身 */
+    const hit = e.target && e.target.closest && e.target.closest('.dd, .dd-list');
+    if (openDd && hit && (hit === openDd || hit === openDd._ddBtn || (openDd._ddList && openDd._ddList.contains(hit)))) return;
+    if (openDd) closeDd(openDd);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && openDd) closeDd(openDd);
+  });
+  /* 页面池切走这一页时，浮层挂在 body 上、不属于任何会被藏起来的容器 ——
+     不主动收掉就会飘在下一页上（旧架构里整份文档销毁，没有这一态）。 */
+  window.addEventListener('spa:page', e => {
+    if (openDd && e && e.detail && e.detail.visible === false) closeDd(openDd);
+  });
+  window.Dropdowns.closeAll = () => { if (openDd) closeDd(openDd); };
+
+  /* DOM 就绪时自动包一遍全页的 <select>（不等到异步数据回来）。
+     以前只有各页在自己的渲染链路里调 Dropdowns.build —— 而那条链要等 /registry、
+     能力声明回来才跑（生成工作台首屏几百毫秒到几秒），于是每次切页都先画出
+     一排**原生控件**、等数据回来才整批换成公共样式（「基础组件闪一下再变样」）。
+     build 本身幂等（_ddBuilt），页面后来的 build/sync 只剩「补增量新节点」一件事。
+     包早了不怕选项没填：lbl 退回「请选择」，页面填完 options 照旧要调 sync。 */
+  const autoBuild = () => { try { window.Dropdowns.build(document); } catch (e) {} };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', autoBuild);
+  else autoBuild();
+})();
+
+/* ============================================================================
+   PickSel —— 「在一堆卡片里点选多个」那一份判据（只此一份）
+   统一选择器（assetlib.js 的 AssetPicker）与素材库挑选（拍短剧「认角色」）共用同一套语义：
+     · 普通点 = 选中 / 取消这一张（**不要求按 Ctrl**）
+     · Shift 点 = 从上一次点过的那张连选一整段
+     · 到上限当场拦下并说明原因（「已选满，先取消一个再选」），不是点下去没反应
+     · 可见顺序变了（筛选 / 切档 / 翻页）→ 连选锚点作废，否则 Shift 会选到不相邻的一段
+   条目身份用引用（Set），所以调用方要**复用同一批对象**；池子换了就 prune 一次。
+   只管「选了哪些」，卡片长什么样、缩略图怎么加载都还是页面 / AssetPicker 自己的事。
+   用法：
+     const ps = PickSel({ limit: 8, onSync: paintSel, onNote: t => cnt.textContent = t });
+     card.onclick = e => ps.click(visibleList, item, e.shiftKey);
+     cnt.textContent = ps.countText();
+   ========================================================================== */
+window.PickSel = function PickSel(o) {
+  const opt = o || {};
+  const cap = Math.max(0, Number(opt.limit) || 0);        // 本次还能加几个（0 = 不限）
+  const total = Math.max(0, Number(opt.total) || 0);      // 这个槽位一共收几个（只为把话说清楚）
+  const multiple = opt.multiple !== false;
+  const picked = new Set();
+  let anchor = -1, sig = '';
+  /* 锚点的「那一段顺序」签名：从列表开头一直签到锚点那一张为止。
+     keyOf 可选：条目没有稳定 id 时用引用拼串没意义，交给调用方给键。 */
+  const keysUpTo = (arr, i) => arr.slice(0, i >= 0 ? i + 1 : arr.length)
+    .map((e, j) => (opt.keyOf ? opt.keyOf(e) : j)).join('|');
+  const setAnchor = (arr, i) => { anchor = i; sig = keysUpTo(arr, i); };
+  const sync = () => { if (opt.onSync) { try { opt.onSync(); } catch {} } };
+  const note = t => { if (opt.onNote) { try { opt.onNote(t); } catch {} } };
+  /* 外部（本地上传）把条目塞进**同一个** picked：点卡片与传文件必须是同一份选中，
+     否则计数只数点过的那一边，「确定」交出去的也只有点过的那一批
+     （症状就是「传了本地文件却加不进参考槽」）。上限判据仍只在这里一份。 */
+  const addOne = e => {
+    if (!e || picked.has(e)) return false;
+    if (cap && picked.size >= cap) return false;
+    picked.add(e);
+    return true;
+  };
+
+  return {
+    get size() { return picked.size; },
+    has: e => picked.has(e),
+    list: () => [...picked],
+    clear() { picked.clear(); sync(); },
+    /* 返回真正加进去的个数，差值就是被上限挡掉的（调用方照实说，别自己再编一套上限） */
+    add: addOne,
+    addMany(list) { let n = 0; for (const e of list || []) if (addOne(e)) n++; if (n) sync(); return n; },
+    /* 列表重画：锚点之前那一段没变就留着，变了才作废。
+       「一次画 200 条、滚到底再追加 200 条」时前面顺序一个字没动 —— 作废的表现是
+       Shift 连选忽然退成单选，用户以为连选坏了；而真换了筛选 / 档位、或者锚点那一张
+       已经不在列表里时，这一串键必然跟着变，照样作废（AGENTS 里那条「顺序变了锚点作废」守的就是这个）。 */
+    reflow(order) {
+      const arr = order || [];
+      if (anchor >= 0 && keysUpTo(arr, anchor) === sig) return;
+      setAnchor(arr, -1);
+    },
+    click(order, e, shift) {
+      const arr = order || [];
+      const idx = arr.indexOf(e);
+      if (!multiple) { picked.clear(); picked.add(e); setAnchor(arr, idx); sync(); return; }
+      if (shift && anchor >= 0 && idx >= 0) {
+        const a = Math.min(anchor, idx), b = Math.max(anchor, idx);
+        let overflow = 0;
+        for (let i = a; i <= b; i++) {
+          const it = arr[i];
+          if (!it || picked.has(it)) continue;
+          if (cap && picked.size >= cap) { overflow++; continue; }
+          picked.add(it);
+        }
+        setAnchor(arr, idx);
+        sync();
+        if (overflow) note('这一段有 ' + (b - a + 1) + ' 个，已选满 ' + cap + ' 个，多的没选中');
+        return;
+      }
+      setAnchor(arr, idx);
+      if (picked.has(e)) picked.delete(e);
+      else {
+        if (cap && picked.size >= cap) { note('最多选 ' + cap + ' 个（已选满，先取消一个再选）'); return; }
+        picked.add(e);
+      }
+      sync();                       // 只改选中态，不重建卡片（否则缩略图又闪一次）
+    },
+    /* 池子变了（新到的一批把这一条并掉了）→ 选中跟着挪到留任的那一条上。
+       没有这一步，「同一份文件换了个来路」就等于把用户已经点中的东西无声丢掉
+       （选择器里收藏那一批先画、平台列表几秒后才到，正好撞上）。 */
+    replace(oldE, newE) {
+      if (!oldE || !picked.has(oldE)) return false;
+      picked.delete(oldE);
+      if (newE) picked.add(newE);
+      sync();
+      return true;
+    },
+    /* 池子变了（换筛选条件、刷新列表）→ 已经不在池里的选择要作废，别把幽灵条目交出去 */
+    prune(keep) { [...picked].forEach(e => { if (!keep.has(e)) picked.delete(e); }); },
+    countText() {
+      const room = total && cap && total > cap ? (' / 还能加 ' + cap) : (cap ? ' / ' + cap : '');
+      return cap ? ('已选 ' + picked.size + room + (picked.size >= cap ? '（已选满）' : ''))
+        : (picked.size ? '已选 ' + picked.size + ' 个' : '');
+    },
+  };
+};
+
+/* ============================================================================
+   esc —— HTML 转义（拼 innerHTML 时统一用它包住用户/接口文本）
+   场景名、镜头名、提示词、AI 摘要、平台名这些都可能带 < & " ，直接拼进模板会显示错乱甚至注入。
+   用法：`<div>${esc(name)}</div>`
+   导演台那几个「node 判据也要跑」的纯模块（subtitles / fcpxml）拿不到 window，用
+   `web/director/util.js` 的 `escHTML` —— 那是登记在案的浏览器/Node 两份例外（同 `fileSafe`），
+   字符表必须与这里逐字一致，改一边就改另一边。
+   ========================================================================== */
+window.esc = function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+};
+
+/* ============================================================================
+   sanitizeHTML —— 「拼好的 HTML 片段」进 innerHTML 前的统一清洗
+   状态行/信息行到处是这种写法：setStatus('<span class="err">失败：' + e.message + '</span>')，
+   而 e.message、文件名、平台名、AI 文本都来自上游或用户 —— 里面带一个 <img src=x onerror=…>
+   就在工作台本源里执行了（那一页有密钥与设置）。字数阈值、逐点转义都堵不住几十处调用点，
+   所以在**进 innerHTML 之前**清洗一次：
+     · 只保留白名单标签（排版用的那几个），属性也只留 class/title/href
+     · href 只留 http/https/站内相对路径，javascript: 一律丢掉
+     · 其它标签整棵子树换成它的纯文本 —— 注入串不会再被解析成元素
+   DOMParser 不执行脚本、也不加载资源，解析这一步本身是安全的。
+   ========================================================================== */
+(function () {
+  const OK = {
+    SPAN: ['class'], DIV: ['class'], P: ['class'], B: [], STRONG: [], I: [], EM: [], SMALL: [],
+    CODE: [], PRE: [], BR: [], UL: [], OL: [], LI: [], DEL: [], S: [],
+    /* 下面这批是 Md（markdown 渲染，见下）要用的排版标签：标题、引用、分隔线、表格。
+       仍然只放行标签本身、一个属性都不给 —— 表格能显示就够，
+       对齐、宽度、背景色那些属性带来的风险不值得。 */
+    H1: [], H2: [], H3: [], H4: [], H5: [], H6: [], BLOCKQUOTE: [], HR: [],
+    TABLE: [], THEAD: [], TBODY: [], TR: [], TH: [], TD: [],
+    A: ['href', 'title', 'class'],
+  };
+  const safeHref = v => {
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (s.startsWith('/') || s.startsWith('#')) return s;                  // 站内相对路径
+    if (/^https?:\/\//i.test(s)) return s;
+    return '';                                                            // javascript:/data:/… 丢掉
+  };
+  const attrsOf = (el, names) => names.map(n => {
+    let v = el.getAttribute(n);
+    if (!v) return '';
+    if (n === 'href') v = safeHref(v);
+    if (!v) return '';
+    return ' ' + n + '="' + window.esc(v) + '"';
+  }).join('');
+  function walk(node, out) {
+    node.childNodes.forEach(child => {
+      if (child.nodeType === 3) { out.push(window.esc(child.nodeValue)); return; }
+      if (child.nodeType !== 1) return;
+      const allow = OK[child.tagName];
+      if (!allow) { out.push(window.esc(child.textContent)); return; }     // 非白名单 → 纯文本
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'br' || tag === 'hr') { out.push('<' + tag + '>'); return; }   // 这两个没有内容，也没有结束标签
+      out.push('<' + tag + attrsOf(child, allow) + '>');
+      walk(child, out);
+      out.push('</' + tag + '>');
+    });
+  }
+  window.sanitizeHTML = function sanitizeHTML(html) {
+    const s = String(html == null ? '' : html);
+    if (s.indexOf('<') < 0) return window.esc(s);                          // 纯文本：直接转义
+    const doc = new DOMParser().parseFromString(s, 'text/html');
+    const out = [];
+    walk(doc.body, out);
+    return out.join('');
+  };
+})();
+
+/* ============================================================================
+   Md —— markdown → HTML（模型写给人看的正文；全站只此一份实现）
+   ============================================================================
+   给「一整段散文」用：AI 助手的回答、任务结果通知。以后别处要显示 AI 输出也从这儿走，
+   别再各写一个正则渲染器。
+
+   为什么不引第三方库：这是个纯本地工具，AI 正文里会带提示词、JSON、代码与外链，
+   而项目已经有一套成型的安全口径（sanitizeHTML 的标签白名单 + href 协议过滤，
+   以及「页面不直连外部域名」那条硬性路由约定）。换成一个黑箱库等于把这套口径退回去。
+   所以这里照着那套口径手写，产出**再过一遍 sanitizeHTML**：
+   解析器只可能漏、不会「多放行」，这一遍就是最后一道闸。
+
+   三条硬约定：
+     ① 转义只发生在 inline() 一处、且发生在最前面，所以不存在「某个分支忘了转义」。
+        块级判定跑在**原文**上，所以 `>` / `-` 这些标记在代码里照写，不用变成转义后的样子。
+        本模块不认原始 HTML —— 用户要贴一段 HTML，出来就是字面量，本地工具该是这个行为。
+     ② 图片降级成一行文字、不出 <img>：本项目的字节一律走本机代理，
+        一个外链 <img> 就是页面自己在直连外部域名（见 AGENTS.md「统一路由」）。
+     ③ 单换行当换行。聊天里另起一行通常是作者刻意的（列步骤、列参数），折成一段就丢了。
+   用法：Md.html(text) → HTML 字符串；Md.mount(el, text) → 写进元素（流式时用这个）。
+   ========================================================================== */
+(function () {
+  const E = s => window.esc(s);
+  /* 解析过程用两个私用区字符占位：围栏代码块与行内代码。
+     先占位、解析完再还原 —— 代码内容就不会在解析阶段被当成强调、链接或标题。
+     用私用区是因为正常正文里见不到这两个字符。占位符在下面各处都写成字面量，
+     改的时候要一起改（isBlk、blocks、inline、html 四处）。 */
+  const BUL = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const isBlk = l => /^\s*(?:\u0000\d+\u0000|```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s|\||-{3,}\s*$)/.test(String(l));
+  const isSep = l => {                       // 表格的表头分隔行：|---|---| 或 --- | ---
+    const s = String(l == null ? '' : l).trim();
+    if (s.indexOf('-') < 0) return false;
+    return s.replace(/^\||\|$/g, '').split('|').every(c => /^:?-+:?$/.test(c.trim()));
+  };
+  const cells = l => {
+    let s = String(l == null ? '' : l).trim();
+    if (s.charAt(0) === '|') s = s.slice(1);
+    if (s.charAt(s.length - 1) === '|') s = s.slice(0, -1);
+    return s.split('|').map(x => x.trim());
+  };
+  /* 行内：代码 → 图片 → 链接 → 强调 → 删除线 → 换行。顺序不能换 ——
+     行内代码摘出来之后，里面那些 * _ [ ] 才不会被当成别的标记。 */
+  function inline(t) {
+    const codes = [];
+    let s = E(t);
+        /* 行内代码最多认两个反引号：三个及以上的是围栏，已经在上面摘走了；
+       没摘走的说明围栏没闭合（模型忘了写结尾、或流式正写到一半）——
+       那串反引号就该照字面显示，而不是被当成一段空代码（内容用 +? 而不是 *?：
+       内容还要求**不以反引号开头**（上面那个 [^`]）：否则「```」会被配成
+       「一个反引号 + 内容是另一个反引号」，界面上就出现一个莫名其妙的空代码块）。 */
+    s = s.replace(/(`{1,2})([^`][\s\S]*?)\1/g, (m, f, c) => { codes.push(c); return '\u0001' + (codes.length - 1) + '\u0001'; });
+    /* 图片降级成文字（约定②）。alt 与地址都随整段一起转义过了，这里直接拼 ——
+       再 E() 一次会把 & 变成 &amp;amp;，点开链接就带着一串转义符。 */
+    s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]*)\)/g, (m, alt, u) => '［图：' + (alt || u) + '］');
+    s = s.replace(/\[([^\]\n]*)\]\(([^)\s]*)\)/g, (m, txt, u) =>
+      '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + (txt || u) + '</a>');
+    s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[\s(（*])_([^_\n]+)_(?=$|[\s)）。,，!！?？:：])/g, '$1<em>$2</em>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+    s = s.replace(/\n/g, '<br>');                                       // 约定③
+    return s.replace(/\u0001(\d+)\u0001/g, (m, i) => '<code>' + codes[+i] + '</code>');
+  }
+  function table(ls, i) {
+    const h = ['<table><thead><tr>' + cells(ls[i]).map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>'];
+    i += 2;
+    while (i < ls.length && ls[i].trim() && ls[i].indexOf('|') >= 0) {
+      h.push('<tr>' + cells(ls[i]).map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>');
+      i++;
+    }
+    h.push('</tbody></table>');
+    return { h: h.join(''), i: i };
+  }
+  /* 列表按缩进递归。一层最常见，两层（子项）也认；再深就当一层 ——
+     聊天里的回答用不到更深，认不出来反而会把缩进当正文显示出来。 */
+  function list(ls, i, base, ord) {
+    let h = ord ? '<ol>' : '<ul>', any = false;
+    while (i < ls.length) {
+      const m = BUL.exec(ls[i]);
+      if (!m) {
+        if (any && ls[i].trim() && !isBlk(ls[i])) { h += '<br>' + inline(ls[i]); i++; continue; }   // 列表项的续行
+        break;
+      }
+      const ind = m[1].length;
+      if (ind > base) { const c = list(ls, i, ind, /\d/.test(m[2])); h += '<li>' + c.h + '</li>'; i = c.i; continue; }
+      if (ind < base) break;
+      h += '<li>' + inline(m[3]);
+      i++;
+      while (i < ls.length && ls[i].trim() && !BUL.test(ls[i]) && !isBlk(ls[i])) { h += '<br>' + inline(ls[i]); i++; }
+      h += '</li>';
+      any = true;
+    }
+    return { h: h + (ord ? '</ol>' : '</ul>'), i: i };
+  }
+  function blocks(raw) {
+    const ls = String(raw == null ? '' : raw).split('\n');
+    const out = [];
+    let i = 0;
+    while (i < ls.length) {
+      const L = ls[i];
+      if (!L.trim()) { i++; continue; }
+      /* 整行就是一个围栏代码块占位：留给最后一步还原，别裹进 <p>（<p> 里不能放 <pre>） */
+      if (/^\u0000\d+\u0000$/.test(L.trim())) { out.push(L.trim()); i++; continue; }
+      const hd = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(L);
+      if (hd) { const n = hd[1].length; out.push('<h' + n + '>' + inline(hd[2]) + '</h' + n + '>'); i++; continue; }
+      if (/^\s{0,3}(?:[-*_]\s*){3,}$/.test(L)) { out.push('<hr>'); i++; continue; }
+      if (/^\s{0,3}>/.test(L)) {
+        const buf = [];
+        while (i < ls.length && /^\s{0,3}>/.test(ls[i])) { buf.push(ls[i].replace(/^\s{0,3}>\s?/, '')); i++; }
+        out.push('<blockquote>' + blocks(buf.join('\n')) + '</blockquote>');
+        continue;
+      }
+      if (L.indexOf('|') >= 0 && i + 1 < ls.length && isSep(ls[i + 1])) { const t = table(ls, i); out.push(t.h); i = t.i; continue; }
+      const b = BUL.exec(L);
+      if (b) { const l = list(ls, i, b[1].length, /\d/.test(b[2])); out.push(l.h); i = l.i; continue; }
+      const buf = [];
+      while (i < ls.length && ls[i].trim() && !isBlk(ls[i]) && !BUL.test(ls[i])) { buf.push(ls[i]); i++; }
+      /* 兜底：这一行既不构成块、也不是段落起点（以 | 开头而下一行不是表分隔线那种）。
+         必须自己吃掉它 —— 不吃的话上面那个 while 一次都不进，就是原地打转。 */
+      if (buf.length) out.push('<p>' + inline(buf.join('\n')) + '</p>');
+      else { out.push('<p>' + inline(L) + '</p>'); i++; }
+    }
+    return out.join('');
+  }
+  function html(text) {
+    const fences = [];
+    /* 围栏代码块先摘出来：里面的 * _ # | 都只是代码，不能当 markdown 标记 */
+    const src = String(text == null ? '' : text)
+      .replace(/```[\w+#.-]*[ \t]*\r?\n?([\s\S]*?)```/g, (m, code) => {
+        fences.push(String(code).replace(/[\s\n]+$/, ''));
+        return '\u0000' + (fences.length - 1) + '\u0000';
+      });
+    const out = blocks(src).replace(/\u0000(\d+)\u0000/g, (m, i) =>
+      fences[+i] == null ? m : '<pre><code>' + E(fences[+i]) + '</code></pre>');
+    return window.sanitizeHTML(out);
+  }
+  /* 代码块上的「复制」按钮。复制的是 code 的 textContent —— 不是 pre 的：
+     按钮自己就挂在 pre 里，取 pre 会把「复制」两个字一起复制走。 */
+  function wire(root) {
+    if (!root || !root.querySelectorAll) return;
+    const ps = root.querySelectorAll('pre');
+    for (let i = 0; i < ps.length; i++) {
+      const pre = ps[i], code = pre.querySelector('code');
+      if (!code || pre.querySelector('.md-copy')) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'md-copy';
+      btn.textContent = '复制';
+      btn.addEventListener('click', async () => {
+        /* 走 window.copyText 这一个出口：它带 textarea + execCommand 降级，
+           而 http 本机环境下 navigator.clipboard 本身就是 undefined（只判它等于「复制不了」）。 */
+        if (await window.copyText(code.textContent)) {
+          btn.textContent = '已复制'; setTimeout(() => { btn.textContent = '复制'; }, 1400);
+        } else Toast.show('浏览器不让直接复制，选中代码手动复制吧', 'warn');
+      });
+      pre.appendChild(btn);
+    }
+  }
+  window.Md = {
+    html: html,
+    /* 流式时用这个：一次流里要重画几十次，代码块按钮每次重挂一遍
+       （wire 里有幂等判断，不会堆出第二个「复制」）。 */
+    mount(el, text) {
+      if (!el) return;
+      el.innerHTML = html(text);
+      wire(el);
+    },
+  };
+})();
+
+/* ============================================================================
+   ICONS —— 线性 SVG 图标集（统一 1.5 描边、跟随文字颜色，替代 emoji）
+   icon('trash')            → 默认 14px
+   icon('film', 18)         → 指定尺寸
+   <span class="ic">${icon('coin')}</span>
+   ========================================================================== */
+window.ICONS = {
+  film: '<rect x="1.9" y="3" width="12.2" height="10" rx="1.5"/><path d="M4.7 3v10M11.3 3v10M1.9 8h12.2"/>',
+  image: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="6.6" r="1.1"/><path d="M3 11.6l3.2-3 2.6 2.4 2.2-2 2 1.9"/>',
+  video: '<rect x="1.9" y="3.4" width="8.7" height="9.2" rx="1.5"/><path d="M10.6 8l3.5-2.2v4.4L10.6 8z"/>',
+  mic: '<rect x="6.2" y="2.3" width="3.6" height="6.6" rx="1.8"/><path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0M8 11.8V14M5.9 14h4.2"/>',
+  box: '<path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"/><path d="M2.5 5L8 8l5.5-3M8 8v6"/>',
+  chart: '<path d="M2.6 13.4V2.6M2.6 13.4h10.8"/><path d="M5.6 11V7.4M8.2 11V4.8M10.8 11V8.8"/>',
+  gear: '<circle cx="8" cy="8" r="2.1"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1 1M11.1 11.1l1 1M12.1 3.9l-1 1M4.9 11.1l-1 1"/>',
+  sun: '<circle cx="8" cy="8" r="3"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/>',
+  moon: '<path d="M13 9.6A5.2 5.2 0 0 1 6.4 3 5.4 5.4 0 1 0 13 9.6z"/>',
+  coin: '<circle cx="8" cy="8" r="5.4"/><path d="M10 6.2c-.4-.7-1.1-1-2-1-1.1 0-1.9.5-1.9 1.3 0 .9.8 1.2 1.9 1.4 1.2.2 2 .6 2 1.5s-.9 1.4-2 1.4c-1 0-1.7-.4-2.1-1.1M8 3.8v8.4"/>',
+  sparkles: '<path d="M6.3 2.2l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z"/><path d="M11.8 8.6l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z"/>',
+  upload: '<path d="M8 10.6V3.2M5.2 6L8 3.2 10.8 6M3.4 12.4h9.2"/>',
+  download: '<path d="M8 2.6v7.4M5.2 7.2L8 10l2.8-2.8M3.4 12.6h9.2"/>',
+  refresh: '<path d="M13 8a5 5 0 1 1-1.7-3.8"/><path d="M13 2.6V6h-3.4"/>',
+  /* 垃圾桶：三条线就够 —— 盖沿（比桶身宽，这一截才让人一眼认出是垃圾桶）、
+     提手（圆角 U 形）、微微收口的桶身（底部圆角）。
+     **里面那两条竖线删掉了**：这个图标实际只画 12~14px，两条竖线在这个尺寸上会糊成一片，
+     整只桶看上去就是一团脏点（就是它「丑」的来源）。细节留给大尺寸，小尺寸只要轮廓清楚。 */
+  trash: '<path d="M2.6 4.4h10.8"/><path d="M6.3 4.4V3.3a.9.9 0 0 1 .9-.9h1.6a.9.9 0 0 1 .9.9v1.1"/><path d="M4.4 4.4l.5 8.2a1.1 1.1 0 0 0 1.1 1.1h4a1.1 1.1 0 0 0 1.1-1.1l.5-8.2"/>',
+  lock: '<rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4"/><path d="M5.7 7V5.4a2.3 2.3 0 0 1 4.6 0V7"/>',
+  scissors: '<circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="12" r="1.8"/><path d="M5.7 10.7L12 2.6M10.3 10.7L4 2.6"/>',
+  list: '<path d="M5.6 4h8M5.6 8h8M5.6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01"/>',
+  /* 播放 / 暂停 / 声音这三个**必须实心**（用户点名要重画的就是它们）。
+     icon() 给的默认是 fill="none" + stroke，所以按描边画出来的是：播放三角一个空心框、
+     暂停两条空心竖条、喇叭一个空心壳 —— 在 14–15px 上几乎只剩几根线，看着像图标坏了。
+     这几个是**实心符号**（三角/两块条/喇叭本体），所以各自显式 fill="currentColor"；
+     只有声波那两道弧继续用描边 —— 弧本来就是线。 */
+  play: '<path d="M5.1 3.5 12.5 8l-7.4 4.5z" fill="currentColor" stroke-linejoin="round"/>',
+  pause: '<rect x="4.4" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/><rect x="8.9" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/>',
+  /* 喇叭本体实心（梯形 + 前面的方块），右边两道声波弧仍走描边 —— 一实一虚，一眼分得出「在响」 */
+  speaker: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.4 6.2a2.9 2.9 0 0 1 0 3.6"/><path d="M12.2 4.5a5.3 5.3 0 0 1 0 7"/>',
+  speakerOff: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.6 6.6l3.4 2.8M14 6.6l-3.4 2.8"/>',
+  /* 全屏：四个角各一撇，中间留空 —— 与「展开/放大画面」的通识形状一致（描边，不是实心符号） */
+  expand: '<path d="M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10"/>',
+  eye: '<path d="M1.8 8S4.1 4.3 8 4.3 14.2 8 14.2 8 11.9 11.7 8 11.7 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.8"/>',
+  eyeOff: '<path d="M3.3 5.5C2.3 6.4 1.8 8 1.8 8s2.3 3.7 6.2 3.7c.9 0 1.7-.2 2.4-.6M6.7 4.6c.4-.1.9-.2 1.3-.2 3.9 0 6.2 3.6 6.2 3.6s-.5 1-1.5 1.9"/><path d="M2.8 2.8l10.4 10.4"/>',
+  key: '<circle cx="5.4" cy="10.6" r="2.6"/><path d="M7.5 8.5l4.9-4.9M10 5.9l1.6 1.6 1.7-1.7-1.6-1.6"/>',
+  brain: '<path d="M8 2.6v10.8"/><path d="M5.4 3.9A2.6 2.6 0 0 0 3.9 8.4 2.6 2.6 0 0 0 5.4 13M10.6 3.9a2.6 2.6 0 0 1 1.5 4.5A2.6 2.6 0 0 1 10.6 13"/>',
+  /* speaker / speakerOff 已挪到上面 play / pause 那一组（跟着「实心那一批」放在一起）。
+     原来这里还各留着一份描边版，后面那份会静默覆盖前面刚写的 —— 同一个 key 写两遍，
+     改新的那一处根本看不出改动没生效（这一轮就踩了）。图标几何只允许有一份。 */
+  pencil: '<path d="M11.4 2.7l1.9 1.9L6 12l-2.6.6L4 10z"/>',
+  reuse: '<path d="M12.8 6.6A5.1 5.1 0 0 0 4 4.8"/><path d="M12.8 2.8v3.8H9"/><rect x="4.4" y="9" width="5.6" height="4.4" rx="1.1"/>',
+  plus: '<path d="M8 3.4v9.2M3.4 8h9.2"/>',
+  minus: '<path d="M3.4 8h9.2"/>',
+  star: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z"/>',
+  starFill: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z" fill="currentColor"/>',
+  /* 以下 11 个是页面里已经在用、但这里原先漏掉的几何：写不出来的格子会渲染成空方块 */
+  search: '<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 14 14"/>',
+  link: '<path d="M6.6 9.4a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-1 1"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l1-1"/>',
+  clock: '<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2V8l2 1.4"/>',
+  folder: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
+  folderDoc: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M6 8.6h4M6 10.6h3"/>',
+  robot: '<rect x="3.2" y="5.6" width="9.6" height="7.2" rx="1.8"/><path d="M8 2.4v3.2M1.8 9.2v1.6M14.2 9.2v1.6M5.6 9.2h1.2M9.2 9.2h1.2M6.4 11.4h3.2"/>',
+  layers: '<path d="M8 2.4 14 5.6 8 8.8 2 5.6z"/><path d="M2 8.6 8 11.8l6-3.2"/><path d="M2 11.4 8 14.6l6-3.2"/>',
+  docTab: '<path d="M3.4 2.6h6l3.2 3.2v7.6a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1V3.6a1 1 0 0 1 1-1z"/><path d="M9.4 2.6v3.2h3.2M5.4 9.4h5.2M5.4 11.6h3.4"/>',
+  /* 固定到右侧：一个窗口 + 右边那条分栏 —— 一眼看出「面板占右边、内容让到左边」 */
+  panelRight: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.4"/><path d="M9.6 3v10"/>',
+  checkBox: '<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="2"/><path d="M5.6 8.2 7.2 9.8l3.2-3.4"/>',
+  stop: '<rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/>',
+  wand: '<path d="M3 13 10.6 5.4"/><path d="M12 2.2l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z"/><path d="M4.6 2.4l.3 1 1 .3-1 .3-.3 1-.3-1-1-.3 1-.3z"/>',
+  users: '<circle cx="6.1" cy="5.5" r="2.4"/><path d="M2.2 13.1c0-2.2 1.8-3.7 3.9-3.7s3.9 1.5 3.9 3.7"/><path d="M10.6 3.4a2.3 2.3 0 0 1 0 4.3"/><path d="M11.7 9.8c1.6.5 2.7 1.8 2.7 3.3"/>',
+  /* ---- 以下是「把 emoji 换成 SVG」那轮补的（原来各页手打 🗑 ▶ ⏮ ⬇ ✧ ⧉ 📷 ♪ ━ 这些字符）----
+     方向、chevron、关闭、复制、上下箭头这些「操作类」符号以前没有几何可复用，
+     写不出来的格子会渲染成空方块（比 emoji 更糟 —— 看着像图标坏了）。 */
+  close: '<path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>',
+  check: '<path d="M3.4 8.4 6.4 11.4l6.2-6.6"/>',
+  chevronDown: '<path d="M4.2 6.4 8 10.2l3.8-3.8"/>',
+  chevronUp: '<path d="M4.2 9.6 8 5.8l3.8 3.8"/>',
+  arrowLeft: '<path d="M12.8 8H3.4"/><path d="M7 3.8 3.2 8 7 12.2"/>',
+  /* 撤销：向左的回勾箭头 + 一段回折的弧。全站「退回去」的都读这一颗（清空之后的撤销窗口也是）。 */
+  undo: '<path d="M6.2 3.4 2.8 6.6l3.4 3.2"/><path d="M2.8 6.6h7a4 4 0 0 1 0 8H6.6"/>',
+  arrowUp: '<path d="M8 12.8V3.6"/><path d="M4.4 7.2 8 3.6l3.6 3.6"/>',
+  arrowDown: '<path d="M8 3.2v9.2"/><path d="M11.6 8.8 8 12.4 4.4 8.8"/>',
+  copy: '<rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.4"/><path d="M10.6 5.4V4a1.4 1.4 0 0 0-1.4-1.4H4a1.4 1.4 0 0 0-1.4 1.4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>',
+  camera: '<path d="M2.2 5.4h2.3l1-1.6h5l1 1.6h2.3v7.4H2.2z"/><circle cx="8" cy="9.1" r="2.4"/>',
+  music: '<path d="M6.2 12.3V3.7l7.4-1.2v8.4"/><circle cx="4.4" cy="12.4" r="1.7"/><circle cx="11.8" cy="11" r="1.7"/>',
+  /* 「整组加入这一集」：箭头落进一个托盘里，与 upload（出）/ download（入文件）分得开 */
+  importInto: '<path d="M8 2.6v5.8M5.4 5.8 8 8.4l2.6-2.6"/><path d="M2.8 11.2v2.4h10.4v-2.4"/>',
+  /* 上一段 / 下一段：左边一根竖条 + 三角形，和 play 区分得开（用户要看得出是「切段」不是「播」） */
+  stepBack: '<path d="M3.4 3.6v8.8"/><path d="M12.8 4 6.4 8l6.4 4z"/>',
+  stepNext: '<path d="M12.6 3.6v8.8"/><path d="M3.2 4 9.6 8l-6.4 4z"/>',
+  /* 融合相邻段：两个盒子中间只留一道缝 —— 那道缝就是「一刀切开」的位置，融合就是把它去掉。
+     别拿 link（链环）代替：链环说的是「绑在一起」，不是「合成一段」（两件事在剪辑里差别很大）。 */
+  merge: '<rect x="2.4" y="4.6" width="5.6" height="6.8" rx="1.2"/><rect x="8" y="4.6" width="5.6" height="6.8" rx="1.2"/>',
+  /* 拖动抓手：两列点（镜头的拖动把手）。以前这里是文本 `⠿`，字体换一个就变形。 */
+  grip: '<path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01"/>',
+  /* 「详情 / 说明」这一档以前是字符 ⓘ：不同字体里有的空心有的实心、宽度还不一样，
+     按钮里的字跟着左右跳。只用这一个几何。 */
+  info: '<circle cx="8" cy="8" r="5.4"/><path d="M8 7.2v3.4M8 5.1h.01"/>',
+};
+window.icon = function icon(name, size) {
+  const b = window.ICONS[name];
+  if (!b) return '';
+  const s = size || 14;
+  return '<svg viewBox="0 0 16 16" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor"'
+    + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto">' + b + '</svg>';
+};
+
+/* HTML 静态标记里的图标：写 <span class="ic" data-icon="sparkles" data-size="17"></span>，
+   由这里一次性填成 SVG。图标几何只允许有 ICONS 一份 —— 之前三台各自手抄 sparkles/trash
+   的 path，改一套漏两套。
+   页面挂载后各调一次（外壳只在启动时填过一次全表）。这一层自己兜住两种「没什么可填」：
+   传进来的根节点还没挂上（ref 是 null）、或某一颗图标画不出来 —— 调用点因此不需要
+   再包一层 `try { fillIcons(...) } catch {}`（全站原来有七处那么写，把真错误一起吞了）。 */
+window.fillIcons = function fillIcons(root) {
+  const box = (root === null || root === undefined) ? document : root;
+  if (!box || typeof box.querySelectorAll !== 'function') return;
+  box.querySelectorAll('[data-icon]').forEach(el => {
+    try {
+      el.innerHTML = window.icon(el.getAttribute('data-icon'), +el.getAttribute('data-size') || 14);
+      el.removeAttribute('data-icon');
+    } catch (e) { /* 一颗图标画不出来不许拖垮整页：宁可空着，下面的内容照常出来 */ }
+  });
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => window.fillIcons());
+else window.fillIcons();
+
+/* ---------------------------------------------------------------------------
+   带图标的按钮有两个改法，别用 textContent：
+   iconSet(btn, 'play') —— 就地换**那一颗图标**，按钮上的字一个字不动
+   btnText(btn, '下载中…') —— 只改**那行字**，图标原样留着
+   以前这些按钮是纯文本（'⬇ 下载成片' / '▶'），textContent 还原没问题；
+   换成 SVG 之后 `btn.textContent = '⬇ 下载成片'` 会把图标一起抹掉 ——
+   不报错，只是「图标忽然不见了」，按钮从此变成一个没图标的口袋按钮。
+   写成 `<span class="ic">…</span><span class="tx">…</span>` 后两个入口各管一头。
+   iconSet 找不到 .ic 时整个换掉（那种按钮本来就只有一颗图标，比如舞台上的 ⏸）。
+   --------------------------------------------------------------------------- */
+window.iconSet = function iconSet(el, name, size) {
+  if (!el) return;
+  const box = (el.querySelector ? el.querySelector('.ic') : null) || el;
+  box.innerHTML = window.icon(name, size || 14);
+};
+window.btnText = function btnText(el, txt) {
+  if (!el) return;
+  const tx = el.querySelector ? el.querySelector('.tx') : null;
+  if (tx) { tx.textContent = txt; return; }
+  el.textContent = txt;
+};
+
+/* ============================================================================
+   GoPage —— 「跳到另一页」只有这一份
+   页面都住在同一份文档里（web/app.js 的 hash 路由 + KeepAlive 页面池），所以换页必须
+   交给外壳的 appShow：侧栏高亮跟着动、地址栏跟着变、已建过的页面只切可见性不重建。
+   页面自己 `location.href = 'usage.html'` 会把整份 SPA 重新加载一遍。
+   只有「这一份页面是独立打开的、没有外壳」时才回退到 href（旧地址别名也走这条）。
+   带查询串的写法由路由解析：GoPage.go('assets.html?q=…') / ('studio.html?t=video')。
+   用法：GoPage.btn('usage.html', '用量与余额') 出标记 → GoPage.bind(root) 接点击。
+   ========================================================================== */
+window.GoPage = {
+  go(file) {
+    const f = String(file || '');
+    if (!f) return;
+    try {
+      /* 外壳里（iframe）交给 parent；已经迁到 Vue、与路由同文档的页面交给 window.appShow。
+         少了后面那一半，Vue 页面点「去用量」会走 location.href —— 整份 SPA 重新加载。 */
+      const host = (window.parent && window.parent !== window) ? window.parent : window;
+      if (typeof host.appShow === 'function') { host.appShow(f, true); return; }
+    } catch (e) { /* 跨域 / 没有外壳：走下面那条 */ }
+    location.href = f;
+  },
+  btn(file, label) {
+    return '<button class="tool mini" data-go="' + String(file || '').replace(/"/g, '') + '">'
+      + String(label || '去看看') + '</button>';
+  },
+  /* 用一个委托接住整个容器里的所有入口：`setStatus` 写进去的按钮是后来才出现的，
+     逐个找 id 绑定会在重画之后漏掉。 */
+  bind(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-go]').forEach(b => {
+      if (b._goBound) return;
+      b._goBound = 1;
+      b.onclick = e => { e.stopPropagation(); this.go(b.getAttribute('data-go')); };
+    });
+  },
+};
+
+/* 只有「从窗口外拖进来的文件」才算上传。在页面里拖一张图，浏览器也会把它塞进
+   dataTransfer.files，但它同时带 text/html / text/uri-list —— 拿它当上传，
+   收藏页拖一下卡片就多出一条收藏，画布上拖一下节点就多出一个节点。 */
+window.isExternalFileDrag = function isExternalFileDrag(e) {
+  const dt = e && e.dataTransfer;
+  if (!dt) return false;
+  const types = Array.from(dt.types || []);
+  if (!types.includes('Files')) return false;
+  return !types.includes('text/html') && !types.includes('text/uri-list');
+};
+
+/* ============================================================================
+   copyText —— 复制文本到剪贴板（统一入口）
+   优先用 Clipboard API；被浏览器策略拒绝时回退到临时 textarea + execCommand，
+   保证在 http 本地环境 / 各种内嵌浏览器里也能复制成功。
+   用法：const ok = await copyText('要复制的文本')
+   ========================================================================== */
+window.copyText = async function copyText(txt) {
+  const s = String(txt == null ? '' : txt);
+  if (!s) return false;
+  try { await navigator.clipboard.writeText(s); return true; } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, s.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
+};
+
+/* ============================================================================
+   uploadStageText —— 素材上传的阶段文案（AssetTransfer 的 onStage 回调 → 页面状态行）
+   阶段由 assetlib.js 的 AssetTransfer 报出：
+     fetch     正在取回素材（外部链接经代理 /getfile 取回；同源地址直接读）
+     intent    正在向平台申请上传地址（POST uploads）
+     put       拿到地址，开始上传字节
+     progress  真实进度（{sent,total,pct}）—— 由本地代理按「本机 → 对象存储」那一段回传，
+               不是浏览器 → 本机的回环那一段（后者通常一两秒就完了，量它没有意义）
+   用法：onStage: (st, info) => { const t = uploadStageText(st, info, '参考图'); if (t) setStatus(t); }
+   ========================================================================== */
+(function () {
+  function fmtBytes(b) {
+    const n = Number(b);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    const u = ['B', 'KB', 'MB', 'GB'];
+    let i = 0, v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (i ? v.toFixed(1) : v) + ' ' + u[i];
+  }
+  window.fmtBytes = fmtBytes;      // 界面各处「≤ 10 MB」这类文案共用一份
+  /* ---------- 日期与时刻文案（全站一份，§J ⑱ 守着） ----------
+     改这一族之前全站有六种抄法：裸 `toLocaleString()`、`'zh-CN' + hour12:false`、
+     `toLocaleDateString()` 拼 `toLocaleTimeString([], {2-digit})`、手拼 padStart……
+     差别都落在「带不带秒」「显不显示年份」「跟不跟着浏览器 locale 漂」上 ——
+     同一条记录在详情面板写「2026/10/15 下午10:59:07」，在资产库写「10/15/2026, 10:59 PM」，
+     在用量页写「10/15 22:59」，在收藏页又不带秒。裸调那几个 locale API 更是换台机器就换一种写法。
+     统一成手拼的 ASCII 数字：dayKey `2026-10-15` / fmtHM `22:59` / fmtHMS `22:59:07` / fmtWhen `2026-10-15 22:59`
+     / fmtWhenSec `2026-10-15 22:59:07`。
+     **放在 ui.js 而不是 workbench.js**：用量页与外壳不加载 workbench.js，而每一页都加载 ui.js
+     （与上面 fmtBytes 同一层的理由一模一样）。
+     ⚠ 这一族不许写成 `String(…).padStart(2, '0') + ':' + String(…).padStart(2, '0')` 那个形状 ——
+       §J ⑰ 认的正是它（全站只许播放器读数那一份，在 workbench.js 的 Wb.fmtClock 里）。所以这里走 pad2。
+     「没值显示什么」（空串 / '—' / 「还没同步过」）是各个界面自己的事，这一族只管有值时怎么拼。 */
+  const pad2 = n => String(n).padStart(2, '0');
+  /* null / 空串 / 0 一律当「没有这个时间」，不当 1970 年 —— 调用点普遍写 `ts ? fmtWhen(ts) : '—'`，
+     但 `new Date(null)` 是 1970-01-01，漏一层判空就会把「没有时间」显示成一个日期。 */
+  const asDate = t => (t instanceof Date ? t : (t == null || t === '' || t === 0 ? new Date(NaN) : new Date(t)));
+  function dayKey(t) {
+    const d = asDate(t);
+    if (!isFinite(d.getTime())) return '';
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function fmtHM(t) {
+    const d = asDate(t);
+    return isFinite(d.getTime()) ? pad2(d.getHours()) + ':' + pad2(d.getMinutes()) : '';
+  }
+  function fmtHMS(t) {
+    const d = asDate(t);
+    return isFinite(d.getTime()) ? fmtHM(d) + ':' + pad2(d.getSeconds()) : '';
+  }
+  function fmtWhen(t) {
+    const k = dayKey(t);
+    return k ? k + ' ' + fmtHM(t) : '';
+  }
+  /* 带秒那两种是给「同一分钟里会有好几条」的地方：账单 CSV 导出、设置页那两张清单（云同步结果 /
+     备份 / 提示词归档）用 fmtWhenSec（导出与清单要能对得上是哪一次），只到时分的那一列旁边另有
+     「已耗时」的用 fmtHMS（导演台任务卡片的提交时间、用量页「更新于」）。
+     界面上一行一个时间默认一律 fmtWhen —— 别为了「看着更精确」到处换成带秒的那两支。 */
+  function fmtWhenSec(t) {
+    const k = dayKey(t);
+    return k ? k + ' ' + fmtHMS(t) : '';
+  }
+  window.dayKey = dayKey; window.fmtHM = fmtHM; window.fmtHMS = fmtHMS;
+  window.fmtWhen = fmtWhen; window.fmtWhenSec = fmtWhenSec;
+  /* ---------- 下载文件名（全站一份，§J ⑲ 守着） ----------
+     收拢前有八处各写一遍，而且**四种口径各不相同**：
+       · 非法字符名单：有的带控制字符（页面那三处写 \x00-\x1f）、有的不带（assetlib 那两处、代理那份带）；
+       · 换法：换成 -（资产库 / 工作台 / 导演台成片）、换成 _（素材库 / 转存本机）、直接删掉（assetlib 的 nameOf）；
+       · 截断：20 / 24 / 60 / 80 各一份；兜底名：file / asset / 素材 / merged / 未命名 各一份。
+     于是同一张图从资产库下载与从生成工作台下载出来的文件名不一样，而「结尾的点与空格会被 Windows
+     悄悄去掉」「名字里有换行会被截断成两半」这两条只有素材库那一份处理过。
+     收成两块**读法**：`fileSafe` 洗一个字、`fileStamp` 拼一个「年月日-时分秒」。
+     **各页那个 `fileNameOf` 留着** —— 它决定「这一页的文件名长什么样」（前缀、标签、扩展名从哪个字段取），
+     那是页面自己的事；但它只能用这两块拼，不许再自己写一遍字符名单或 padStart 那一串。
+     ⚠ 代理（Node 进程）够不着这里，`proxy.js` 另留一份同名 `fileSafe`，与上面 dayKey / dayPart 同一安排：
+       浏览器一份、Node 一份，各自是那一侧的唯一落点。 */
+  function fileSafe(s, max) {
+    const t = String(s == null ? '' : s)
+      .replace(/[\r\n\t]+/g, ' ')        // 换行与制表留着会被文件系统截断成两半
+      .replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-')
+      .replace(/\s+/g, ' ')
+      .replace(/[. ]+$/, '')            // 结尾的点与空格：Windows 保存时悄悄去掉，名字就对不上账
+      .trim();
+    return (t || '素材').slice(0, max || 24);
+  }
+  /* 没给时间 = 「现在」；给了但读不出 = 也当现在（`new Date(坏值)` 是 Invalid Date，
+     直接拼会出来一串 NaN —— 文件名里出现 NaN 是本项目见过的那种「看着像代码坏」的产物）。 */
+  function fileStamp(ts) {
+    const raw = (ts == null || ts === '' || ts === 0) ? new Date() : new Date(ts);
+    const d = isFinite(raw.getTime()) ? raw : new Date();
+    return '' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate())
+      + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+  window.fileSafe = fileSafe; window.fileStamp = fileStamp;
+  /* 「这一条素材是不是声音」全站只在这里点一次名：同一类有两种写法 —— 本机产物按字节判出来是
+     「音频」，平台声明里写的是「音乐」（`assetlib.js` 的 `slotTypes` 两种都给），所以任何判据都得两个名字一起认。
+     收拢前它抄了十几遍，其中资产库那份下载名**只认「视频」**，于是一条没有 format 字段的音频
+     下载回来叫 `.png`（存进下载文件夹的是一张打不开的图）。
+     ⚠ 数组形状不算这一条判据：`types: ['音频', '音乐']`（素材选择器的槽位过滤）是一张给人看的数据表，
+        不是「是不是声音」的判断。 */
+  function isAudioType(t) { return t === '音频' || t === '音乐'; }
+  window.isAudioType = isAudioType;
+  /* 「这一条素材按哪种媒体来放」只有三个取值（video / audio / image），而它也是按类型名推的：
+     四处各写了一遍（资产库与收藏的灯箱 kindOf 适配器、工作台的 kindOf、`Wb.reuse.kindOf`）。
+     这四份**今天恰好还一致**（都认「音频」与「音乐」两个名字），所以这一条不是修 bug，
+     是修「平台再多一种类型名时要改四个地方」—— 与上面 isAudioType 同一件事，只留一份读法。 */
+  function mediaKindOf(t) {
+    const s = String(t || '');
+    return s === '视频' ? 'video' : isAudioType(s) ? 'audio' : 'image';
+  }
+  window.mediaKindOf = mediaKindOf;
+  /* 一条素材的下载扩展名（§J ⑲ 那一族的第三块读法，2026-10 从四处收成一份）。
+     收成之前四份口径互不相同，同一个条目从哪一页下载决定它叫什么：
+       · 资产库 `format || (视频?mp4:png)` —— 音频漏了，落到 png；
+       · 工作台 `视频?mp4:图片?png:(format||wav)` —— 图片/视频**不看 format**，一张 jpeg 下回来是 .png；
+       · AI 助手 `format || (音频?mp3:…)` —— 音频兜底 mp3，与语音台的默认档 wav 不同；
+       · 收藏 `format ? '.'+format : ''` —— 没有 format 就没有扩展名，双击打不开。
+     口径只有一条：**先认条目自己带的 `format`**（平台列表与本机资产都会填，它就是产物真正的尾缀），
+     认不出来（空、带空格、带斜杠）才按类型猜 —— 图片 png / 视频 mp4 / 音频 wav（无损兜底，与语音台默认档一致）。
+     类型字段两页不同名（资产库与收藏写 `type`、工作台写 `mtype`），这里两个都认。 */
+  function fileExtOf(it) {
+    const t = String((it && (it.mtype || it.type)) || '');
+    const fmt = String((it && it.format) || '').toLowerCase().replace(/^[.\s]+|[.\s]+$/g, '');
+    if (/^[a-z0-9]+$/.test(fmt)) return fmt === 'jpeg' ? 'jpg' : fmt;
+    return t === '视频' ? 'mp4' : isAudioType(t) ? 'wav' : 'png';
+  }
+  window.fileExtOf = fileExtOf;
+  /* 「这两个名字算不算同一个」全站只有一把尺子（2026-10-17 从 director.html 的场景名归一收成公共层）。
+     它管三件事：导演台判「同一个场景」（AI 分镜追加时并场、手动 `#` 换场、素材库里同名那条认领场景图）、
+     素材库判「同一个分组」（`Chars.Lib.groups()` 把「校园篇」与「校园篇 」与「校园 篇」算成一组）、
+     以及拆分镜落盘时把 AI 写的 `@名字` 对回库里那一条。
+     以前它是 director.html 里一个页面私有函数，于是素材库那三份组名判据各按字面 trim ——
+     下拉写着「校园篇（12）」而筛出来只有 10 条，正是「界面上的数字与真筛得动的东西分家」。
+     ⚠ 它只抹空白与大小写，**不做近似匹配**（「小雅」与「小雅雅」仍是两个名字）：
+       归一判据一旦开始"顺手猜"，并场与筛组就会把不该合的东西合掉，而合掉的东西拿不回来。 */
+  function nameKey(t) { return String(t == null ? '' : t).replace(/\s+/g, '').toLowerCase(); }
+  window.nameKey = nameKey;
+  /* 「供应商类型」那一族的名字与顺序全站只有一份（2026-10-15 从 settings.html 与 ai-chat.js 两份逐字相同的表、
+     外加两处手抄的键序收成一份）。
+     ⚠ 这一族说的是**一型供应方**，与上面 `isAudioType` / `mediaKindOf` 那一族（**一条素材**）不是同一张表：
+       `audio` 在这里叫「语音」（设置页那一排档名、助手报告里的类型），在素材那一族叫「音频」。
+       合成一张表会让设置页的档名变成「音频类」、资产库的筛选项变成「语音」—— 差的就是这两句话。
+     `PROV_KINDS` 以前页面写一份、助手再抄一份：注册表加了第五类时那一排 tab 不会跟着长。 */
+  const PROV_KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
+  function provKindZh(k) { return PROV_KIND_ZH[k] || String(k || ''); }
+  /* 四档的顺序 = 设置页那一排 tab 的顺序 = 助手报告里分档的顺序 */
+  function provKinds() { return Object.keys(PROV_KIND_ZH); }
+  window.provKindZh = provKindZh; window.provKinds = provKinds;
+  /* base64 → Uint8Array → Blob 的那段循环以前在 4 个地方各抄一份（导演台导出、拍短剧音色试听、
+     资产库字节转存、ui.js 自己的 DataSync 还原 Blob 行）。放在 ui.js 是因为它是唯一
+     每个页面都先加载的那一层 —— 放 assetlib.js 的话 ui.js 内部要用它就多一个加载顺序前提。 */
+  function b64Bytes(b64) {
+    const bin = atob(String(b64 || ''));
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  }
+  window.b64Bytes = b64Bytes;
+  window.uploadStageText = function uploadStageText(stage, info, label) {
+    const who = label || '素材';
+    if (stage === 'fetch') return '正在取回' + who + '…';
+    if (stage === 'prepare') return '正在检查' + who + '音轨；无音轨时自动补静音，不改变画面…';
+    if (stage === 'prepared') return info ? who + '已补静音音轨，准备上传…' : who + '已有音轨，保持原文件上传…';
+    if (stage === 'intent') return '正在申请' + who + '上传地址…';
+    if (stage === 'put') return '正在上传' + who + '…';
+  if (stage === 'transfer') return '正在转存' + who + '…';
+    if (stage === 'progress') {
+      const i = info || {};
+      const fmt = (window.Wb && window.Wb.fmtSize) ? window.Wb.fmtSize : fmtBytes;
+      const sent = i.sent ? fmt(i.sent) : '';
+      const total = i.total ? fmt(i.total) : '';
+      const size = (sent && total) ? sent + ' / ' + total : (sent || total || '');
+      /* 100% 只说明「字节发完了」：对象存储还要处理一会儿才回结果（大文件可能要等几秒），
+         所以这里换成「等待确认」，别让界面看着像卡住了。 */
+      if (i.pct != null && i.pct >= 100) return '正在上传' + who + '… 已发完' + (size ? ' ' + size : '') + '，等待服务器确认';
+      const pct = (i.pct != null && i.pct >= 0) ? i.pct + '%' : '';
+      const tail = [pct, size].filter(Boolean).join(' ');
+      return '正在上传' + who + '…' + (tail ? ' ' + tail : '');
+    }
+    return '';
+  };
+})();
+
+
+/* ============================================================================
+   Net —— 统一网络层（全站唯一的 fetch 出口）
+     · 默认带超时（AbortController）：不会再有「按钮永久禁用、请求还挂着」的状态
+     · 网络错误 / 5xx / 429 自动重试（退避）；4xx 不重试（参数错，重试也没用）
+     · 非 JSON 响应给可读错误，而不是把 HTML 错误页当数据用
+     · blob() 先判 r.ok —— 下载/取素材统一走它，不再把 404 页面存成 .mp4
+   用法：
+     await Net.json(url, { timeout: 8000, retry: 2 })
+     const b = await Net.blob(url, { timeout: 120000 })
+     await Net.save(b, 'xxx.mp4')          // 触发浏览器下载（自动回收 blob URL）
+   ========================================================================== */
+
+
+/* ============================================================================
+   Toast —— 全站统一的轻提示（实现只在 web/ui/toast.js 那一份）
+     Toast.receipt('已删掉 3 条')  数据真的变了：必定显示（安静档不能吞）
+     Toast.ok('已保存') / Toast.err(e) / Toast.warn('…') / Toast.info('…')
+     ok / info 归安静档（默认只复述状态的那种不弹），warn / err 与回执一律显示。
+   ========================================================================== */
+
+
+/* ============================================================================
+   ErrBanner —— 顶部那条「出错了」横幅，全站只有一份（样式在 ui.css 的 #banner）
+     ErrBanner.show(那句话的 html, 'err' | 'warn')
+   为什么要收成公共这一份：以前只有导演台接了（<head> 里内联的 window.onerror +
+   unhandledrejection 两段），生成工作台另写一份（把错误打进 #status 那一行小字），
+   **其余八页什么都没接** —— 页面初始化是一条长链（注册表 → 能力 → 列表 → 渲染），
+   任何一步抛错后面全都不跑，而界面上只剩「空白」；这一页又装在 iframe 里、
+   浏览器控制台只看得到外壳（AGENTS.md §5 同一条），于是「打开就是空的」根本查不动。
+   干净 profile 第一次进导演台就是撞上这一类（加载期竞态抛 TypeError），
+   当时能看出来正是因为导演台有这条横幅。现在引了 ui.js 的页面自动都有，
+   全局那两个错误监听器在 web/core/report.js（全站只装一次，页面里不要再写第二份），
+   这一层只留 show()：谁都可以调它，横幅本身仍然只有这一处。
+   资源加载失败（图片 / 视频 404）故意**不**报：那多半是过期签名外链，
+   公共层为它准备了回退与「已丢失」角标（assetlib.js 的 AssetLocal），
+   混进这条横幅只会把真错误淹掉。
+   ========================================================================== */
+(function () {
+  const pending = [];
+  function hostEl() {
+    const old = document.getElementById('banner');
+    if (old) return old;                     // 页面自己写了标记就用那一个（导演台）
+    const d = document.createElement('div');
+    d.id = 'banner';
+    d.hidden = true;
+    document.body.insertBefore(d, document.body.firstChild);
+    return d;
+  }
+  window.ErrBanner = {
+    show(html, kind) {
+      const msg = String(html == null ? '' : html).trim();
+      if (!msg) return;                       // 空调用不许顺手收起已经在亮着的错误
+      const put = () => {
+        const b = hostEl();
+        b.hidden = false;
+        b.className = kind === 'warn' ? 'warn' : 'err';
+        b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">' + window.icon('close', 11) + '</button>';
+        b.querySelector('.msg').innerHTML = window.sanitizeHTML(msg);
+        b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
+      };
+      if (document.body) put(); else pending.push(put);   // body 还没开始排时就先攒着
+    },
+  };
+  if (document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', () => { while (pending.length) pending.shift()(); }, { once: true });
+  }
+  /* window.error / unhandledrejection 这两个监听器不在这里了（§6.1-5）：
+     横幅只负责「显示」，「显示 + 进代理那本账」由 web/core/report.js 那一份统一装。
+     这一层只留 show()，谁都可以调，但它自己不再听全局错误。 */
+})();
+
+/* ============================================================================
+   Store —— 带上限的本地存储（各页面历史记录统一走它）
+     · 唯一格式：信封 { data: 值, ts: 写入时间 }（ts 给数据文件对账比新旧用）
+     · 写入失败（配额满 / 隐私模式）会**返回错误并提示**，不再静默丢数据
+   用法：
+     const list = Store.read('img_hist', []);
+     Store.write('img_hist', list, { cap: 200, label: '图片历史' });
+   ========================================================================== */
+
+
+/* ============================================================================
+   Kv —— IndexedDB 的唯一一份「开库 + 事务」实现
+   ---------------------------------------------------------------------------
+   以前每个用 IndexedDB 的地方各写一份：导演台一份（最完整，带缺仓库补建与版本让路）、
+   设置页、资产库页、收藏与缩略图缓存各各写了一份。
+   重复的代价不只是长：
+     · 连接不共用 —— 导演台每 3 秒存一次工作区，自己那份连接池一路堆积；
+     · 「库存在但没有仓库」的补建只有导演台那份有，别的库一旦被不带版本的
+       open 凭空建成 v1 空壳，任何 transaction 都抛 "object stores was not found"；
+     · 失败缓存不一致 —— 有的把失败的 Promise 缓存住，隐私模式下永远写不进去。
+   所以：连接按库名缓存在这里，读写只有这一套。
+   用法：页面与模块都走登记表 —— Kv.at('ws').get(key)、Kv.at('blobs').put(key, val)，
+   名字见下面的 TARGETS（ws / fav / blobs / thumbs）；一次事务里混着写多条用
+   Kv.at(名字).tx(mode, fn)，整表键值对（备份/恢复）用 Kv.at(名字).entries()。
+   底层的 Kv.get/put/del/entries(db, store, …) 只留给登记表自己与 DataSync 遍历用，
+   别在页面里抄库/表字符串。
+   ========================================================================== */
+
+
+/* ============================================================================
+   SbBal —— 侧栏「账户余额」显示哪几个接口的余额（设置页勾选，侧栏现读）
+   ---------------------------------------------------------------------------
+   存的是**隐藏**名单而不是显示名单：这样新接入的平台默认就会出现在侧栏，
+   不用回到设置页再勾一次。读写只有这一份实现（设置页跑在 iframe 里、侧栏在外壳里，
+   两边靠 storage 事件联动，所以必须共用键名与结构）。
+   ========================================================================== */
+(function () {
+  const KEY = 'sb_bal_show';
+  const LABEL = '侧栏余额显示设置';
+  window.SbBal = {
+    KEY,
+    off() { return (window.Store && Store.read(KEY, {}, { label: LABEL }) || {}).off || []; },
+    isOff(kid) { return this.off().indexOf(kid) >= 0; },
+    /* 一次写整份名单（设置页那一排「侧栏余额」勾选走这里：勾一次就把整份名单落盘）
+       —— 没有「单个切一下」的入口，勾选一律走这份名单，避免两条写入路径打架。 */
+    setList(list) {
+      const off = [...new Set((list || []).map(String).filter(Boolean))];
+      Store.write(KEY, { off }, { label: LABEL });
+      return off;
+    },
+    /* 名单里会攒下**已经不存在**的 kid：平台下架、registry 改名、keyId 改了，
+       或者当初手动改过 localStorage。清掉它们，名单才不会越滚越长、也免得以后
+       「同 id 复现」时莫名其妙被藏起来。只有真有陈旧项时才写盘（避免每次刷新都动 .data/）。 */
+    prune(kids) {
+      const keep = new Set((kids || []).map(String));
+      const cur = this.off().map(String);
+      const next = cur.filter(k => keep.has(k));
+      if (next.length === cur.length) return 0;
+      Store.write(KEY, { off: next }, { label: LABEL });
+      return cur.length - next.length;
+    },
+    /* 按勾选过滤余额行（rows 里每条要带 kid = registry 的 keyId） */
+    filter(rows) { const s = new Set(this.off()); return (rows || []).filter(r => !s.has(r.kid)); },
+  };
+})();
+
+/* 「哪几个页面有列表分页设置」只这一份：设置页渲染那张表，AI 助手校验 page_mode_ / page_size_ 的页面名
+   都从这里现取。以前它在 settings.html 的闭包里，助手那一侧要拦一个错键名就只能再抄一份键名表。
+   新增页面时把它加进来（和 web/core/routes.js 的 pages 一起改）。 */
+window.PAGE_TARGETS = {
+  rows: [
+    /* 三个工作台合并成 studio.html 之后只有一行：类型在页面里切，分页是整个右栏一起翻 */
+    { key: 'studio', name: '生成工作台', defMode: 'more', defSize: 24 },
+    { key: 'assets', name: '资产库', defMode: 'more', defSize: 24 },
+    { key: 'favorites', name: '我的收藏', defMode: 'page', defSize: 24 },
+    { key: 'chars', name: '素材库', defMode: 'page', defSize: 18 },
+  ],
+  /* 每页条数的可填区间与「显示方式」的取值：设置页的输入框与助手的校验共用这一组数 */
+  size: { min: 1, max: 100 },
+  modes: ['page', 'more'],
+};
+
+/* 「这一页现在到底怎么翻 / 一页几条」的读法只在这一处。
+   以前四个工作台页面各抄一遍「取存储 || 退回默认档」，兜底那个数还各自写死（24 / 18 / 12），
+   设置页那张表与 AI 助手的读数又各抄一遍 —— 于是「素材库默认 18 条」这件事在六个地方有六种说法，
+   改哪一页的默认档都得挨个文件找。默认档一律现读上面那张表；存储里是坏值就退回默认档。 */
+function pageRowOf(k) {
+  const t = window.PAGE_TARGETS || { rows: [] };
+  return (t.rows || []).find(r => r.key === k) || {};
+}
+function pageLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+window.pageModeOf = k => {
+  const t = window.PAGE_TARGETS || {};
+  const md = t.modes || ['page', 'more'], v = pageLS('page_mode_' + k);
+  return md.indexOf(v) >= 0 ? v : (pageRowOf(k).defMode || md[0]);
+};
+window.pageSizeOf = k => {
+  const sz = (window.PAGE_TARGETS || {}).size || { min: 1 };
+  const n = Number(pageLS('page_size_' + k));
+  return Math.max(sz.min || 1, n || pageRowOf(k).defSize || sz.min || 1);
+};
+
+/* 「界面偏好有哪几项」只这一份：设置页按它渲染那两张卡，AI 助手按它列可改白名单，
+   侧栏 / 资产库 / 收藏页读写的是同一批键。取值也写在这里 —— 每一页的档位名不一样
+   （资产库 card/compact，收藏 list/compact），让页面自己猜就会写进那一页根本不认的值。
+   `group` 点名一项归哪张卡（以前全画进「外观与界面」，「产物自动存本机」也混在里面）；
+   `keep:1` = 「恢复默认」不清这一项。这张表同时是「跟着 .data 走」与「进设置导出」两份名单的出处
+   （见 datasync.js 与设置页），以前那两份各抄一遍，抄漏的是 sb_open 与 sk_media_badge 不同步。 */
+/* 展示样式的档位名只在这里点一次名（2026-10 从 7 处收成 1 处）：这一对名字以前散在
+   三页各自的 `views:`、这里三行 `opts:` 与 workbench.js 的兜底默认档里，漏改哪一处都不报错，
+   而 `opts` 与页面认的取值不一致时，助手按设置页写进去的值那一页根本不认。
+   图标几何不进这里（那是 workbench.js 那一层的事），这里只管「有几档、每档叫什么」。 */
+window.VIEW_MODES = [['list', '列表'], ['compact', '紧凑']];
+
+window.UI_PREFS = {
+  /* 卡内的小节。设置页按它分小节渲染，助手那边拿同一个词当前缀。 */
+  groups: [
+    { id: 'look', name: '界面本身' },
+    { id: 'list', name: '列表默认摆法' },
+    { id: 'store', name: '产物存哪、读哪' },
+  ],
+  rows: [
+    { key: 'dir_theme', group: 'look', name: '界面主题', kind: 'seg', def: 'light', keep: 1,
+      opts: [['light', '浅色'], ['dark', '深色']],
+      hint: '左下角那颗太阳 / 月亮是同一个开关的快捷入口。' },
+    { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool', keep: 1,
+      hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展。' },
+    { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool',
+      hint: '默认关（安静）：右上角只在出错与警告时弹。「已经做完了」「这里没有东西可做」这类不弹 —— ' +
+        '做完的事界面上看得见，一排绿色对勾会把真正该看的错误淹掉。' },
+    { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list', keep: 1,
+      opts: window.VIEW_MODES,
+      hint: '这三行只管各页进去时的默认摆法，进了那一页右上角随时还能换。' },
+    { key: 'dir_char_view', group: 'list', name: '素材库', kind: 'seg', def: 'list', keep: 1,
+      opts: window.VIEW_MODES },
+    { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list', keep: 1,
+      opts: window.VIEW_MODES },
+    { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
+      opts: [['on', '开'], ['off', '关']],
+      hint: '生成完的视频 / 图像 / 音频当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
+        + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增；'
+        + '关掉时排队中的不再发，已经发出去的几份会跑完。' },
+    { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
+      opts: [['on', '开'], ['off', '关']],
+      hint: '开 = 卡片直接读本机副本（平台挂了也照样能看、用、传给别人）；'
+        + '关 = 仍然直连平台地址（平台 CDN 更快，代价是地址一过期就什么都没有）。'
+        + '本机文件被删了会自动回源平台，平台那边也没了会明写「已丢失」。' },
+    /* 第三档依附前两档：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」，
+       所以它只在两者都开着时才画出来（`needs` 由 settings.html 的渲染处现判），
+       而**真生效**的判据在 assetlib.js 的 AssetLocal.localOnly —— 页面不许自己再拼一次「三个开关都开着」。
+       键名刻意不叫 sk_media_local_only：SYNCABLE / EXPORTABLE 里有 'sk_media_local' 这一条**前缀**，
+       那样起名会被它顺带命中（同一类的坑在下面的 NOT_SYNC 注释里点名过）。 */
+    { key: 'sk_media_badge', group: 'store', name: '卡片显示「本机 / 云端」标识', kind: 'seg', def: 'on', keep: 1,
+      opts: [['on', '显示'], ['off', '不显示']],
+      hint: '开 = 资产卡上标出这一份是「本机」「云端」还是两边都有；只影响显示，不改变取哪一份字节，也不影响列表筛选。' },
+    { key: 'sk_media_cloud_hide', group: 'store', name: '不显示云端任务', kind: 'bool', keep: 1,
+      needs: ['sk_media_local', 'sk_media_prefer'],
+      hint: '勾上 = 生成工作台与资产库的列表里只留本机有这份字节的产物，还没落到本机的那一条条不再出现。'
+        + '在跑的、排队中的、失败的不藏（藏了就等于把「点了生成没反应」和失败原因一起弄丢）。'
+        + '我的收藏与素材库不受这一项影响 —— 那两页各有一颗「自动下载」，由人自己决定把哪几张存回本机。'
+        + '这一项要上面两项都开着才生效：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」。' },
+  ],
+  /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
+     只有这一份读法，设置页判「该不该画」与别处判「生效没」都走它，别各自 getItem 一遍。 */
+  isOn(k) {
+    const r = (this.rows || []).find(x => x.key === k);
+    if (!r) return false;
+    let v = null;
+    try { v = localStorage.getItem(k); } catch (e) { return r.kind === 'bool' ? !!r.def : r.def !== 'off'; }
+    if (r.kind === 'bool') return v == null ? (r.def === true || r.def === '1') : (v !== '' && v !== '0');
+    return (v == null ? (r.def != null ? r.def : '') : v) !== 'off';
+  },
+  /* 这一行现在画不画（needs 点名的那几项全开着才画）。 */
+  visible(r) {
+    const need = (r && r.needs) || [];
+    return !need.length || need.every(k => this.isOn(k));
+  },
+  /* 某一组的显示名（助手取名时用）。认不出 group 的一律算「界面」，与旧口径一致。 */
+  groupName(id) {
+    const g = (this.groups || []).find(x => x.id === id);
+    return (g && g.name) || '界面';
+  },
+  /* 这一张表在「跟着 .data 同步」与「进设置导出」两份名单里的键名出处；keepKeys() 是「恢复默认不清」那份。 */
+  keys() { return (this.rows || []).map(r => r.key); },
+  keepKeys() { return (this.rows || []).filter(r => r.keep).map(r => r.key); },
+};
+
+/* ============================================================================
+   DataSync —— 与本地代理的数据文件同步（方案 A：把浏览器私有数据变成磁盘上的普通文件）
+   ---------------------------------------------------------------------------
+   为什么要有它：localStorage / IndexedDB 是「浏览器私有且随时可能被清掉」的 —— 清一次浏览器数据、
+   换浏览器、开无痕，工作区和设置就没了。这里把业务数据同时写一份到项目目录 .data/ 下的 JSON 文件，
+   于是它看得见、能备份、也能被云盘或 /cloud 同步。
+     · mirror(key, body)  写完 localStorage 后顺带写一份到服务器（提前 800ms 合并突发写）
+     · boot()             启动时和服务器比时间戳：谁新用谁（服务器新 → 覆盖本地并刷新一次）；
+                          本地有而服务器没有（首次启用）也会补传上去
+     · pushAll()/pullAll()  手动全量推/拉（设置页按钮与云同步前用）
+   ========================================================================== */
+
+
+/* ============================================================================
+   键改名 —— 一次性，把「功能改了、键名还留着旧前缀」的那批搬过去
+   ---------------------------------------------------------------------------
+   2026-10 拍短剧页删除之后，素材库那一族键名里的 drama_ / dr_ 已经名不副实：
+   短剧没了，键还在（而且是**用户本机已有的数据** —— 几百条素材、改过的提示词）。
+   这里把它们搬成 char_ 前缀。
+
+   三条纪律（每一条都对应踩过或预判过的坑）：
+     ① **按原始字符串搬，不重新序列化**。这一族键的形状**不统一**：
+        char_lib / char_* 走 `Store`，存的是 `{data, ts}` 信封；
+        `sk_polish_*` 是设置页直接 setItem 的**裸值**。
+        getItem → setItem(同一个串) 两种都原样过去；重新 JSON.stringify 一遍，
+        裸值那份必被包成信封，于是 `prompt()` 读出来是 `{"data":"……"}` 这种源码。
+     ② **新键已经有值就不搬**（以新键为准）。万一是另一台机器同步回来的陈旧值，
+        拿它覆盖本机刚填的那份就是倒退 —— 与 `ModelPrefs.migrate()` 同一立场。
+     ③ **`.data/` 里那份镜像要显式删**，不能只 removeItem：旧键已经不在 SYNCABLE 里了，
+        存储钩子不认它，服务器上那份会留下来；下一次 boot 看见「服务器有、本地没有」
+        就把它拉回 localStorage，于是每次开页面重复一遍「拉回来 / 删掉」。
+        这就是下面 DELETE 用 `?nobak=1` 的原因（同 sweepLegacyKeys）：
+        这几个键是「已经换过名、宣告作废」的，留 .bak 只会让备份清单里永远挂着旧键名。
+
+   排在 `DataSync.boot()` **之后** —— 理由见上面 afterSynced 那段注释。
+   ========================================================================== */
+const KEY_RENAME = {
+  /* 素材库本体（几百条角色 / 场景 / 道具）—— 唯一一份不能丢的 */
+  'drama_chars': 'char_lib',
+  /* 素材库那一页的设置项 */
+  'dr_ai_voice': 'char_ai_voice',
+  'dr_tts_mode': 'char_tts_mode',
+  'dr_cand_n': 'char_cand_n',
+  /* 用户在设置页改过的提示词（Def 的 drama_image / drama_voice 一并改了名，
+     promptKey() 是 'sk_polish_' + kind，所以这两条跟着换名） */
+  'sk_polish_drama_image': 'sk_polish_char_image',
+  'sk_polish_drama_voice': 'sk_polish_char_voice',
+};
+async function migrateRenamedKeys() {
+  if (!window.Store || !Store.available) return [];
+  const moved = [];
+  for (const [from, to] of Object.entries(KEY_RENAME)) {
+    let raw = null;
+    try { raw = localStorage.getItem(from); } catch { continue; }
+    if (raw == null) continue;
+    /* ② 新键已有值 → 以新键为准，不搬 */
+    let cur = null;
+    try { cur = localStorage.getItem(to); } catch (e) {}
+    if (cur == null) {
+      try { localStorage.setItem(to, raw); } catch (e) { console.warn('[Store] 键改名失败 ' + from + ' → ' + to, e); continue; }
+    }
+    /* ① 搬的是原始字符串，形状原样过去；搬过就删旧键（搬失败上面已经 continue 了） */
+    try { localStorage.removeItem(from); } catch (e) {}
+    /* ③ 服务器上那份也要删（见上面那段注释：旧键已不在 SYNCABLE，钩子不会替你发） */
+    try { await Net.fetch('/data/' + encodeURIComponent(from) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) {}
+    moved.push(from + ' → ' + to);
+  }
+  if (moved.length) console.info('[Store] 改了几个键名：' + moved.join('、'));
+  return moved;
+}
+
+/* ============================================================================
+   旧键清理 —— 一次性，删掉「功能已经改了、键却还留着」的那批
+   ---------------------------------------------------------------------------
+   这些键**现在没有任何一处代码在读**了。留着不只是占地方：① 每次同步都要带着它们跑一趟；
+   ② 整包备份 / 云同步会把它们一起带走，换台机器又是一份死数据；③ 让人以为
+   「这些设置还在管用」，去改一个改了也没人看的地方。
+   每一项为什么作废都写在后面 —— 以后再删掉一个功能，照着加一行，别让它再攒起来：
+     · page_mode_image / page_mode_video / page_mode_audio 与 page_size_ 同名三项 ——
+       2026-10 三个工作台合并进 studio.html，分页只剩 page_mode_studio / page_size_studio
+       （一张表在 window.PAGE_TARGETS，studio.html 那句注释写的就是「不再沿用其中任何一份」）。
+     · sk_text_provider —— 2026-10 独立的「文字 AI 模型与识图」那张卡删了，
+       供应方 / 型号 / 识图并进了「文字」那一档的每一家卡里。
+     · video_tasks —— 视频台的卡片改成从接口取，本机不再留任务副本。
+       **audio_tasks 还在用**（workbench.js 的历史仓），别顺手一起删。
+     · dir_studio_sort / dir_asset_sort / dir_fav_sort / dir_char_sort —— 2026-10 把四页
+       （生成工作台右栏 / 资产库 / 收藏 / 素材库）那一排排序芯片全去掉了，公共的 window.SortBy
+       也整块删除：那是个纯显示偏好，换台机器要重配，而「找最早的那一张」在资产库有日期筛选、
+       在收藏与素材库有「AI 找素材」（AI 给的名次照样生效，只是不再是可挑的档位）。
+       那份「档位:方向」从此再没有读者。
+     · drama_ 那一族（2026-10 拍短剧页删除）——
+       `dramas` / `drama_active` 是短剧本体（剧本、每一段的每一次拍摄）；
+       `dr_adv_open` / `dr_story_open` 是那个页两个折叠面板的开合偏好。
+       素材库那一侧（drama_chars / dr_* / sk_polish_drama_*）**不在这里** ——
+       它们要留着数据，`migrateRenamedKeys()` 搬过去。
+     · sk_polish_drama_story / _split / _prop / _video / _open / _subshot / _retouch /
+       _camera / _look / _scenedesc / _propdesc —— 那 11 条是拍短剧页的 AI 指令，
+       页面删了之后指令本身也从 TextAI.DEF 里删了，设置页那一张卡不再列它们。
+       用户改过的文案留着也没人读，跟着云同步整包带走还是一份死数据。
+   两处都要清：localStorage 里的本体，和 `.data/` 里那份镜像。
+   镜像走 `DELETE /data/<键>?nobak=1`（代理删东西默认留一份 .bak，这条路**特意绕开**）：
+   这几个键是「已经宣告作废」的，为它们留后悔药只会让设置页的「备份清单」里永远挂着
+   几行用户认不出、也永远不会去恢复的键名。
+   本机一个都没有就什么都不做 —— 不为了「可能有」去打扰代理。
+   ========================================================================== */
+const LEGACY_KEYS = [
+  'page_mode_image', 'page_size_image', 'page_mode_video', 'page_size_video',
+  'page_mode_audio', 'page_size_audio', 'sk_text_provider', 'video_tasks',
+  'dir_studio_sort', 'dir_asset_sort', 'dir_fav_sort', 'dir_char_sort',
+  /* 拍短剧页删除（2026-10）：短剧本体与那个页的界面偏好。素材库那一侧另有搬运用，见上。 */
+  'dramas', 'drama_active', 'dr_adv_open', 'dr_story_open',
+  /* 拍短剧页的 11 条 AI 指令 —— 指令条目已随页面从 TextAI.DEF 删除，设置页也不再列它们。 */
+  'sk_polish_drama_story', 'sk_polish_drama_split', 'sk_polish_drama_prop', 'sk_polish_drama_video',
+  'sk_polish_drama_open', 'sk_polish_drama_subshot', 'sk_polish_drama_retouch', 'sk_polish_drama_camera',
+  'sk_polish_drama_look', 'sk_polish_drama_scenedesc', 'sk_polish_drama_propdesc',
+  /* 任意脚本注入整族删除（2026-10）：权限模型只留 ActionRegistry，不再给模型执行代码的入口。 */
+  'ai_chat_inject', 'ai_chat_inject_auto',
+  /* 提示词编辑器整块删除（2026-10）：折叠状态已经没有对应的卡。 */
+  'set_fold_polish',
+];
+async function sweepLegacyKeys() {
+  if (!window.Store || !Store.available) return;
+  const hit = LEGACY_KEYS.filter(k => { try { return localStorage.getItem(k) != null; } catch { return false; } });
+  if (!hit.length) return;
+  for (const k of hit) { try { localStorage.removeItem(k); } catch (e) {} }
+  /* 镜像那份也删：留着的话下次 boot 会把它当「服务器上有更新的数据」恢复回 localStorage。 */
+  for (const k of hit) {
+    try { await Net.fetch('/data/' + encodeURIComponent(k) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) {}
+  }
+  console.info('[Store] 清掉了几个不再使用的旧键：' + hit.join('、'));
+}

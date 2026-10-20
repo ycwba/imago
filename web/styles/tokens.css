@@ -1,0 +1,39 @@
+/* 设计令牌：颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效。
+   组件只读变量；页面不写死颜色。与现有 ui.css 的 --bg/--panel… 同名，迁移期可并存。 */
+:root {
+  --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
+  --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6;
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
+  --thumbbg:#e2e5ee; --thumbfg:#9aa1b4;
+  --local:#0f766e; --cloud:#5b6b8c; --both:#6957e8;
+  --atbg: rgba(35, 38, 47, .13);
+  --on-acc:#fff; --media-bg:#000; --scroll:#c4c9dc;
+
+  --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --fs-1:12px; --fs-2:13px; --fs-3:14px; --fs-4:16px; --fs-5:20px; --fs-6:24px;
+  /* 补档：全站高频裸值归到这几枚小字号（名字即像素值，避免「一半 var 一半裸值」）。 */
+  --fs-10:10px; --fs-11:11px; --fs-11-5:11.5px; --fs-12-5:12.5px; --fs-13-5:13.5px;
+  --radius-1:6px; --radius-2:10px; --radius-3:14px; --radius-4:8px;
+  --shadow-1:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
+  --shadow-2:0 8px 24px rgba(16,24,40,.12);
+  --dur-1:120ms; --dur-2:180ms; --ease:cubic-bezier(.2,.8,.2,1);
+  /* 选中/激活底色唯一写法：由 --acc 现算淡底，浅色/深色主题都跟着强调色走，
+     不再各写一份 rgba(108,140,255) / rgba(124,92,255)（那是两套会漂移的固定紫）。 */
+  --acc-tint:color-mix(in srgb, var(--acc) 10%, transparent);
+  --acc-tint-2:color-mix(in srgb, var(--acc) 18%, transparent);
+  --acc-line:color-mix(in srgb, var(--acc) 32%, transparent);
+  --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+html[data-theme="dark"] {
+  --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
+  --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff;
+  --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
+  --thumbbg:#39415a; --thumbfg:#aab2c6;
+  --local:#2dd4bf; --cloud:#93a4c4; --both:#8b9dff;
+  --atbg: rgba(255, 255, 255, .13);
+  --scroll:#2a3046;
+  --shadow-1:0 1px 2px rgba(0,0,0,.35); --shadow-2:0 8px 24px rgba(0,0,0,.45);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1:0ms; --dur-2:0ms; }
+}

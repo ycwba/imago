@@ -1,0 +1,19 @@
+/* 导演台迁移岛的宿主样式。
+   导演台原页面把 body 当成了布局根（font / background / overflow:hidden），
+   这里把那几条搬到 .director-page 上；其余规则由 web/director/index.js 用 @scope 注入。 */
+.director-page {
+  position: absolute; inset: 0;
+  overflow: auto;
+  background: var(--bg); color: var(--txt);
+  font-family: var(--font-ui);
+  margin: 0; padding: 0;
+  box-sizing: border-box;
+}
+.director-page .page-main { height: 100%; }
+.director-page * { box-sizing: border-box; }
+@media (max-width: 1100px) {
+  /* 原页面在窄窗口下让 body 滚；宿主已经是滚动容器 */
+  .director-page .page-main { height: auto; min-height: 100%; overflow: visible; }
+}
+.director-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; gap: var(--sp-2); padding: 12px; }
+.director-fallback iframe { flex: 1 1 auto; width: 100%; border: 0; background: var(--bg); }

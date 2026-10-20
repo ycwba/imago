@@ -20,10 +20,10 @@
 'use strict';
 const fs = require('fs');
 const probe = process.argv[2];
-const srcFile = process.argv[3] || 'director.html';
+const srcFile = process.argv[3] || 'web/director/engine.js';
 const FILE_RE = /\.(js|html|css|cjs)$/;
 const files = new Map();
-/* 每份文件自己的行尾：`director.html` / `studio.html` / `ui.js` 是 CRLF，`assets.html` / `workbench.js` 是 LF，
+/* 每份文件自己的行尾：`web/director/engine.js` / `ui.js` 是 CRLF，`assets.html` / `workbench.js` 是 LF，
    多行锚点只有按「那一份文件的行尾」join 才查得到命中。 */
 const ofFile = f => {
   if (!files.has(f)) {

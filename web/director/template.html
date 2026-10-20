@@ -1,0 +1,1076 @@
+<!-- 导演台的 DOM 模板与样式；行为全在 engine.js（index.js 把 mount(document, window) 跑起来）。 -->
+<style>
+
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--txt); overflow: hidden;
+  }
+  /* 页面骨架：头部 + 三栏，默认占满一屏、由各栏自己滚；
+     窄窗口下会被下面的 @media 放开成「内容多高就多高」，交给页面整体滚动。 */
+  .page-main { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 20px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex: 0 0 auto; flex-wrap: wrap; }
+  /* 导出按钮容器：按钮由 web/domain/export-formats.js 表现画，display:contents 让它们
+     仍按 header 的 flex + gap 排，不因为多包一层而改变间距。 */
+  #exportBtns { display: contents; }
+  header .brand { font-weight: 700; font-size: 15px; color: var(--acc); white-space: nowrap; flex: 0 0 auto; }
+  header .tab { font-size: 13px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 5px 12px; white-space: nowrap; }
+  header .tab b { color: var(--acc); }
+  header input.pname { width: 260px; padding: 6px 10px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; color: var(--txt); font-size: 13px; }
+  header .saved { color: var(--ok); font-size: 12px; white-space: nowrap; }
+  /* 顶部那行操作提示：低调的小字，出现几秒后自己淡出，不打断操作 */
+  header .opstate { font-size: 12px; color: var(--sub); opacity: 0; transition: opacity .25s;
+    max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .opstate.show { opacity: 1; }
+  header .opstate.ok { color: var(--ok); }
+  header .sp { flex: 1; }
+  header .bal { font-size: 12px; color: var(--sub); }
+  header .bal b { color: var(--txt); }
+  /* 页头那颗比例下拉：外面是 Dropdowns 包出来的 .dd，按页头按钮的高度压扁一档，
+     不然 36px 的默认高度会把整行顶高、和旁边的 .ghost 对不齐。 */
+  .head-dd { display: inline-flex; width: 106px; flex: 0 0 auto; }
+  .head-dd .dd { width: 100%; }
+  .head-dd .dd-btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 4px; }
+  /* 最近导出弹窗：一条一行，左边文件名与状态，右边两颗操作 */
+  .rx-list { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow-y: auto; margin-top: 10px; }
+  .rx-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel2); }
+  .rx-row .rx-main { flex: 1 1 auto; min-width: 0; }
+  .rx-row .rx-name { font-size: 12.5px; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rx-row .rx-meta { font-size: 11.5px; color: var(--sub); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rx-row .rx-meta .err { color: var(--err); }
+  .rx-row .rx-ops { display: flex; gap: 6px; flex: 0 0 auto; }
+  .rx-empty { font-size: 12.5px; color: var(--sub); padding: 18px 4px; text-align: center; }
+  /* 顶部横幅 #banner 的样式在 ui.css（全站那一份），这里不再抄。 */
+  .layout { display: flex; gap: 16px; padding: 14px 20px; flex: 1 1 auto; min-height: 0; position: relative; }
+  .col { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow-y: auto; }
+  .col::-webkit-scrollbar { width: 8px; } .col::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
+  /* 三栏占比可拖：拖过之后宽度写死成 --sp0 / --sp1（存在 localStorage 的 dir_split），
+     没拖过就用下面这组 clamp 的弹性默认值。min-width 仍然兜着，别拖到内容摆不下。 */
+  /* 左栏是**一整块**：表头 / 列表 / 加场景 / 生成全部四段固定在同一张卡里，
+     纵向滚动只发生在中间那份列表上。以前 #scenesBox 少了 min-height:0，
+     flex 子项的 min-height:auto 让列表按内容撑高，整栏于是既滚列表又滚整列（表头与按钮会被滚走）。 */
+  .col-left { flex: 0 1 var(--sp0, clamp(198px, 19%, 270px)); min-width: 198px; display: flex; flex-direction: column;
+    overflow: hidden; }
+  .col-left > .left-head, .col-left > .add-scene, .col-left > .gen-all { flex: 0 0 auto; }
+  /* 左栏滚动条：跟 .col 一样细，别用系统粗条压住分镜行 */
+  #scenesBox { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  #scenesBox::-webkit-scrollbar { width: 8px; }
+  #scenesBox::-webkit-scrollbar-track { background: transparent; }
+  #scenesBox::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+  #scenesBox::-webkit-scrollbar-thumb:hover { background: var(--sub); }
+  /* 中栏：flex-basis 写 0（不是 auto）——auto 会让基准尺寸跟着内容走，候选条一变多/变宽，
+     三栏占比就跟着飘；basis:0 之后中栏宽度只由容器与两侧栏决定，候选多少都不影响占比。 */
+  .col-mid { flex: 1 1 0%; min-width: 0; }
+  .col-right { flex: 0 1 var(--sp1, clamp(298px, 28%, 400px)); min-width: 298px; }
+  /* ---------- 窗口尺寸自适应 ----------
+     栏宽用 clamp 跟着窗口平滑缩放（不再固定像素），中间播放区吃掉剩下的空间；
+     窄到三栏摆不下时整体堆叠成单列、页面本身滚动；再窄/再矮就收紧留白。 */
+  @media (max-width: 1200px) {
+    .layout { gap: 12px; padding: 12px 14px; }
+    header { gap: 10px; padding: 9px 14px; }
+    header input.pname { width: 180px; }
+    header .opstate { display: none; }
+  }
+  @media (max-width: 1100px) {
+    /* 窄窗口下顶部六个按钮换到第二行，别把「导演台 / 我的短片」挤成竖排。 */
+    header .sp { flex: 1 1 100%; height: 0; }
+  }
+  @media (max-width: 900px) {
+    html, body { height: auto; }
+    body { overflow: auto; }
+    /* 关键：把「一屏高 + 裁掉溢出」的骨架放开，否则堆叠出来的内容被裁掉、页面滚不动 */
+    .page-main { height: auto; min-height: 100vh; overflow: visible; }
+    /* 三栏摆不下：分镜 + 播放/时间线 并排一行（保留「边看边挑」），编辑区整行放到下面 */
+    .layout { flex-wrap: wrap; padding: 10px; gap: 10px; }
+    .col { overflow: visible; flex: 0 0 auto; min-width: 0; }
+    .col-left { flex: 0 0 clamp(168px, 22%, 226px); max-height: 44vh; overflow-y: auto; }
+    .col-mid { flex: 1 1 360px; min-width: 300px; }
+    .col-right { flex: 1 1 100%; }
+    .player-box video, .player-empty { max-height: min(420px, 40vh); }
+  }
+  @media (max-width: 620px) {
+    /* 很窄：彻底单列，每块整行 */
+    .col-left, .col-mid, .col-right { flex: 1 1 100%; max-height: none; }
+    .col-left { max-height: 44vh; }
+  }
+  @media (max-width: 700px) {
+    header { flex-wrap: wrap; }
+    header input.pname { width: 100%; order: 9; }
+    header { padding: 8px 10px; gap: 8px; }
+    .layout { padding: 8px; }
+  }
+  /* 矮窗口（横向拉长、纵向不够）：先把头部和留白压扁，播放区别把整屏占满 */
+  @media (max-height: 620px) {
+    header { padding: 6px 12px; gap: 10px; }
+    .layout { padding: 10px 12px; }
+    .player-box video, .player-empty { max-height: 260px; }
+    .col-left { max-height: 38vh; }
+  }
+  button { font-family: inherit; }
+  /* 本页按钮统一方正一点：共享的 .ghost/.dd 圆角在导演台收小 */
+  .ghost, .ghost.mini, .dd-btn, .dd-opt { border-radius: 4px; }
+  /* .ghost / .pri / .lb-btn / #lightbox 等公共组件样式统一来自 ui.css */
+
+  /* 左栏 */
+  /* 我的短片下拉：与左栏分镜列表同一套样式 */
+  #projMenu { padding: 6px; }
+  .pm-head { font-size: 11px; color: var(--sub); padding: 6px 9px 4px; }
+  .pm-row { display: flex; align-items: center; gap: 9px; padding: 5px 9px; border-radius: 4px; cursor: pointer;
+    margin-bottom: 3px; font-size: 12.5px; border: 1px solid transparent; border-left: 3px solid transparent; }
+  .pm-row:hover { background: var(--panel2); }
+  .pm-row.sel { background: rgba(124,92,255,.08); border-color: var(--line); border-left: 3px solid var(--pri); }
+  .pm-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pm-cnt { color: var(--sub); font-size: 10.5px; }
+  .pm-ops { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; visibility: hidden; }
+  .pm-row:hover .pm-ops, .pm-row.sel .pm-ops { visibility: visible; }
+  .pm-btn { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px;
+    padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--sub);
+    font-size: 11px; line-height: 1; cursor: pointer; transition: all .15s; }
+  .pm-btn:hover { border-color: var(--acc); color: var(--acc); }
+  .pm-btn.danger:hover { border-color: var(--err); color: var(--err); }
+  .pm-add { margin-top: 5px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 12.5px;
+    color: var(--acc); padding: 7px 9px 5px; border-radius: 4px; cursor: pointer; }
+  .pm-add:hover { background: var(--panel2); }
+
+  .left-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+  .left-head b { font-size: 14px; }
+  .left-head { flex-wrap: wrap; }
+  .left-head > b { flex: 0 0 auto; font-size: 12.5px; white-space: nowrap; }
+  .left-head .script-btn { flex: 1 1 0; min-width: 0; height: 28px; box-sizing: border-box;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11.5px; line-height: 1; color: var(--acc); background: rgba(108,140,255,.14);
+    border: 0; border-radius: 4px; padding: 0 8px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .15s; }
+  .left-head .script-btn:hover { background: rgba(108,140,255,.24); }
+  /* 「剧本」是次级入口：与「拆分镜」并排，但只占自己那份宽度（左栏最窄时两枚会换行，不挤没字） */
+  .left-head .script-btn.sec { flex: 0 0 auto; color: var(--sub); background: transparent;
+    border: 1px solid var(--line); }
+  .left-head .script-btn.sec:hover { color: var(--acc); border-color: var(--acc); background: rgba(108,140,255,.1); }
+  .scene-block { padding: 8px 10px 4px; }
+  /* 场景之间靠留白分区（照参考图，不画分隔线） */
+  .scene-block + .scene-block { margin-top: 6px; padding-top: 10px; }
+  .scene-head { display: flex; align-items: center; gap: 4px; margin-bottom: 7px; }
+  /* min-width:0 是关键：input 默认宽度会把整列顶出横向滚动条 */
+  .scene-head input { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 3px;
+    color: var(--txt); font-size: 13px; font-weight: 600; padding: 4px 6px; }
+  .scene-head input:hover, .scene-head input:focus { border-color: var(--line); background: var(--input); outline: none; }
+  .scene-head .sc-cnt { flex: 0 0 auto; font-size: 10.5px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  /* 场景头按钮：纯图标，无边框无底色（悬停才浮出淡底），删除用垃圾桶 */
+  .scene-head .icon-btn { flex: 0 0 auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 4px; background: none; color: var(--sub); cursor: pointer; font-size: 14px; line-height: 1;
+    transition: background .15s, color .15s; }
+  .scene-head .icon-btn:hover { background: var(--panel2); color: var(--acc); }
+  .scene-head .icon-btn.del:hover { background: rgba(220,38,38,.08); color: var(--err); }
+  .scene-head .icon-btn.armed { width: auto; padding: 0 7px; background: rgba(220,38,38,.08); color: var(--err); font-size: 11px; }
+  /* 场景图那一格：与旁边的图标按钮同宽同高，有图时是一张 24×24 的方图。
+     position:relative 是给右上角那颗 × 用的（它绝对定位在这一格里面，不另占布局）。 */
+  .scene-head .sc-thumb { position: relative; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; border: 1px dashed var(--line); border-radius: 4px;
+    background: none; color: var(--sub); cursor: pointer; transition: border-color .15s, background .15s; }
+  .scene-head .sc-thumb:hover { border-color: var(--acc); color: var(--acc); background: var(--panel2); }
+  .scene-head .sc-thumb:not(.none) { border-style: solid; }
+  .scene-head .sc-thumb .sp { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* × 平时不占视觉（只有悬停才浮出来）—— 常驻的话每一行右上角都挂一个红叉，左栏会变成一片叉 */
+  .scene-head .sc-thumb .sp-x { position: absolute; right: 1px; top: 1px; width: 14px; height: 14px; border-radius: 3px;
+    display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.62); color: #fff; cursor: pointer; }
+  .scene-head .sc-thumb:hover .sp-x { display: inline-flex; }
+  .scene-head .sc-thumb .sp-x .ic { line-height: 0; }
+  .shot-item { display: flex; align-items: center; gap: 10px; padding: 4px 8px 4px 16px; height: 54px; box-sizing: border-box;
+    border-radius: 4px; cursor: pointer; margin-bottom: 3px; position: relative; }
+  .shot-item:hover { background: var(--panel2); }
+  /* 选中：淡紫底从左侧竖条之后才开始铺，圆角不裹住竖条 */
+  .shot-item.sel { background: linear-gradient(to right, rgba(124,92,255,0) 0 12px, rgba(124,92,255,.10) 12px); }
+  .shot-item.sel:hover { background: linear-gradient(to right, rgba(124,92,255,0) 0 12px, rgba(124,92,255,.16) 12px); }
+  /* 独立的选中竖条（自己的圆角，不与行背景连成一体） */
+  .shot-item.sel::before { content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 4px;
+    border-radius: 3px; background: var(--pri); }
+  .shot-item .num { font-size: 12px; font-weight: 600; color: var(--txt); opacity: .62; width: 17px; flex: 0 0 17px; text-align: center;
+    font-variant-numeric: tabular-nums; }
+  /* 方形缩略图：46×46；内容按原比例完整放进框里（不裁切）；出画后才用黑底留白 */
+  .shot-item .sthumb-wrap { position: relative; flex: 0 0 46px; width: 46px; height: 46px; border-radius: 4px; overflow: hidden; }
+  .shot-item .sthumb { width: 46px; height: 46px; min-height: 46px; max-height: 46px; border-radius: 4px;
+    background: transparent; object-fit: contain; display: block; overflow: hidden; }
+  /* 出画前 / 没有画面：一块纯灰底（不放图标）；出画后（.ready）才露黑底做留白 */
+  .shot-item .tph { position: absolute; inset: 0; background: var(--thumbbg); }
+  .shot-item .sthumb-wrap.ready .tph { display: none; }
+  .shot-item .sthumb-wrap.ready .sthumb:not(.empty) { background: #000; }
+  /* 没有画面的镜头：一块纯灰底（不显示图标）
+     注意：ui.css 里有个全局 .empty{padding:60px 0}，这里必须 padding:0 覆盖掉 */
+  .shot-item .sthumb.empty { display: block; padding: 0; background: var(--thumbbg) !important; }
+  .shot-item .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,.35); }
+  .shot-item .pbar i { display: block; height: 100%; background: var(--acc); transition: width .4s; }
+  .shot-item .sinfo { flex: 1; min-width: 0; }
+  .shot-item .sname { font-size: 13px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shot-item .smeta { font-size: 11px; line-height: 1.35; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shot-item .smeta .okc { color: var(--ok); }
+  .shot-item .smeta .runc { color: var(--warn); }
+  .shot-item .smeta .errc { color: var(--err); }
+  /* 操作按钮：悬停时浮在行尾的淡紫小托盘里（不占布局、不是白底） */
+  .shot-item .ops { display: flex; gap: 1px; position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    padding: 3px; border-radius: 4px; visibility: hidden; background: #eae7fb; }
+  html[data-theme="dark"] .shot-item .ops { background: #2a2550; }
+  .shot-item:hover .ops { visibility: visible; }
+  .shot-item .ops .op-btn { width: 23px; height: 23px; min-width: 23px; padding: 0; border: 0; background: none;
+    border-radius: 3px; color: #5b5f72; font-size: 12px; line-height: 1; }
+  html[data-theme="dark"] .shot-item .ops .op-btn { color: #b9bdd0; }
+  .shot-item .ops .op-btn:hover { color: var(--acc); background: rgba(108,140,255,.18); }
+  .shot-item .ops .op-btn.danger:hover { color: var(--err); background: rgba(220,38,38,.14); }
+  /* 拖动：只有被拖动的那一行有阴影/高亮；投放位置只画一条细插入线 */
+  /* 助手写完 / 点「定位」时闪两下：告诉用户「就是这一格」，不改变选中与视图。 */
+  @keyframes shotFlash { 0%, 100% { box-shadow: inset 0 0 0 0 transparent; } 30% { box-shadow: inset 0 0 0 2px var(--acc); } }
+  .shot-item.flash { animation: shotFlash 1.2s ease-out 2; }
+  .shot-item.dragging { opacity: .92; background: var(--panel);
+    box-shadow: 0 0 0 1px var(--acc), 0 10px 26px rgba(0,0,0,.18); position: relative; z-index: 5; }
+  .shot-item.drag-over { box-shadow: inset 0 2px 0 0 var(--acc); }
+  .shot-item[draggable="true"] { cursor: grab; }
+  .add-scene { margin: 8px 12px; width: calc(100% - 24px); padding: 9px; text-align: center; border: 1px dashed var(--line);
+    border-radius: 4px; color: var(--sub); font-size: 12.5px; cursor: pointer; background: none; }
+  .add-scene:hover { color: var(--acc); border-color: var(--acc); }
+  .gen-all { margin-top: auto; padding: 12px; border-top: 1px solid var(--line); }
+  .gen-all button { width: 100%; padding: 11px; font-size: 14px; }
+  .gen-all .note { text-align: center; font-size: 11px; color: var(--sub); margin-top: 7px; }
+  .gen-all .note .ok { color: var(--ok); }
+  .gen-all .note .err { color: var(--err); }
+
+  /* 中栏 */
+  .mid-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .mid-head .no { font-size: 18px; font-weight: 700; color: var(--acc); flex: 0 0 auto; }
+  .mid-head input.sname { background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--txt); font-size: 15px; font-weight: 600; padding: 3px 8px; flex: 0 1 150px; min-width: 90px; }
+  .mid-head input.sname:hover, .mid-head input.sname:focus { border-color: var(--line); background: var(--input); outline: none; }
+  /* 一行放不下就整体换行：meta 保持可读宽度（早前被挤成竖排单字），按钮不换行不压缩 */
+  .mid-head .meta { color: var(--sub); font-size: 12px; flex: 1 1 150px; min-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mid-head .sp { flex: 0 0 2px; }
+  .mid-head button { flex: 0 0 auto; white-space: nowrap; }
+  .player-wrap { padding: 14px 16px 6px; position: relative; }
+  .player-box { position: relative; }
+  /* 自制播放控件：只保留播放 / 暂停，时间跳转请在「剪辑」里插针 */
+  /* 画幅跟着全片比例走（`--film-ar` 由 engine 的 applyComposition 写在 .page-main 上）；
+     还没有项目时退回 16:9，和加比例设置之前逐字一致。 */
+  .player-box video { width: 100%; aspect-ratio: var(--film-ar, 16 / 9); max-height: 420px; border-radius: 4px;
+    background: #000; display: block; object-fit: contain; cursor: pointer; }
+  /* 剪辑态「无感播放」的两个甲板叠在一起（见 TlPlay）：
+     前面那个（不带 .back）撑着整个盒子的高度并可见，后面那个叠在它上面、透明、不接点击，
+     用来提前把下一段加载并定到入点 —— 换段时只是把 .back 换个人戴，接缝上看不出换了素材。 */
+  .player-box video.back { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; }
+  /* 黑场（画面被删掉的那一格）在预览里走的那几秒：甲板没有素材，就把当前那一帧压成纯黑。
+     不用 `visibility:hidden` —— 那会把 16:9 的盒子一起收掉，画面当场塌一下再弹回来。 */
+  .player-box video.blackout { filter: brightness(0); }
+  /* 播放器那一排：按钮的尺寸与「svg 在不在圆心」只在这里定一份。
+     原来是 `line-height: 40px; text-align: center` —— 那套**只对文字有效**：
+     按钮里塞的是 `<svg>`（`icon()` 出的一层 `.ic`），基线一掉就把图标拽到圆心下方，
+     用户点名的「播放 / 暂停 / 声音那颗按钮的 svg 没在中心」就是这个。
+     改成 flex 居中并把 padding 归零；`flex: none` 别让时间在窄屏时把圆按钮压扁。
+     hover 不再 `scale(1.06)`：鼠标划过就弹大一下，一整排在抖（用户点名）。
+     尺寸 32px：播放/暂停、声音、全屏三颗**同一个大小**，比原来的 40px 小一档。 */
+  .pb-btn { width: 32px; height: 32px; flex: none; border: 0; border-radius: 50%; padding: 0;
+    background: rgba(0,0,0,.55); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background .15s; }
+  .pb-btn:hover { background: rgba(0,0,0,.75); }
+  /* 播放器浮层（横贯画面下方的一条）：
+     左下 = 播放/暂停 + 时长读数；右下 = 声音 + 全屏（**两颗挨着，全屏在最右下角**，用户点名）。
+     中间那根 `.sp` 把两边撑开，所以两种播放器共用同一条、同一份标记（`pbBarHTML`）。 */
+  .pb-bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .pb-bar .sp { flex: 1 1 auto; }
+  .pb-time { background: rgba(0,0,0,.55); color: #fff; font-size: 11.5px; padding: 5px 10px; border-radius: 8px;
+    font-variant-numeric: tabular-nums; letter-spacing: .3px; white-space: nowrap; }
+  /* 右上角那一格只写**画面尺寸**（剪辑时与不剪辑时同一个样子，见 updateArBadge） */
+  .player-wrap .arbadge { position: absolute; right: 28px; top: 26px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+  /* 全屏：进 `:fullscreen` 的是整块 `.player-box`（见 bindPbFull 那四个落点）。
+     UA 只把**这一个盒子**撑满视口并铺黑底，它管不到盒子里的子元素 —— 而上面那条 `.player-box video`
+     带着 `aspect-ratio: 16 / 9` 与 `max-height: 420px`（矮窗 / 窄窗那两档还压到 260px / 40vh），
+     于是全屏里看到的是「一整块黑屏，顶上挂着一条几百像素高的画面，剩下全是黑的」，
+     比例尺那 4px 圆角也贴在屏幕角上。
+     这一档把画幅交回 `object-fit: contain`（本来就是它 —— 黑边居中），尺寸闸整条放开；
+     剪辑态那两个甲板叠在左上角（`video.back` 绝对定位），铺满之后仍然严丝合缝。
+     特异度 (0,2,1) 高于两条媒体查询里的 `.player-box video` (0,1,1)，所以那一档的 `max-height`
+     在全屏下不会反过来压制这一条。 */
+  .player-box:fullscreen { background: #000; }
+  .player-box:fullscreen video { width: 100%; height: 100%; max-height: none; border-radius: 0; }
+  .player-empty { aspect-ratio: var(--film-ar, 16 / 9); max-height: 420px; width: 100%; background: var(--input);
+    border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .player-empty .pe-ic { font-size: 42px; opacity: .5; }
+  .player-empty .pe-t { font-size: 16px; font-weight: 700; color: var(--txt); }
+  .player-empty .pe-d { font-size: 12.5px; color: var(--sub); }
+  .player-empty .pe-task { margin-top: 16px; width: min(460px, 86%); display: flex; flex-direction: column; gap: 6px; }
+  .player-empty .pe-row { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--txt);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; text-align: left; }
+  .player-empty .pe-row .k { color: var(--sub); }
+  .player-empty .pe-row .v { margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .cand-thumb.addcand { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    height: 74px; border: 1.5px dashed var(--line); color: var(--sub); background: none; }
+  .cand-thumb.addcand:hover { border-color: var(--acc); color: var(--acc); }
+  .cand-thumb.addcand.big { width: 168px; height: 84px; }
+  .cand-thumb.addcand .plusic { display: flex; }
+  .cand-thumb.addcand .pt { font-size: 12px; }
+  .cand-thumb.addcand .pd { font-size: 10.5px; opacity: .8; }
+  .cand-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+  .cand-strip .thumbs { display: flex; gap: 8px; flex: 1; min-width: 0;
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
+  /* 展开：换行铺开、瓦片变大，一屏看完所有候选 */
+  .cand-strip.expanded { align-items: flex-start; }
+  .cand-strip.expanded .thumbs { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
+  .cand-strip.expanded .cand-thumb { width: 148px; }
+  .cand-strip.expanded .cand-thumb img, .cand-strip.expanded .cand-thumb video { height: 92px; }
+  .cand-strip.expanded .cand-thumb .tph,
+  .cand-strip.expanded .cand-thumb .pending { height: 92px; }
+  .cand-strip.expanded .cand-thumb.addcand { height: 94px; }
+  .cand-strip.expanded .cand-thumb.addcand.big { width: 148px; height: 94px; }
+  .cand-strip .thumbs::-webkit-scrollbar { height: 8px; }
+  .cand-strip .thumbs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+  .cand-strip .thumbs > * { flex: 0 0 auto; }
+  .cand-thumb .candno { position: absolute; left: 4px; top: 4px; z-index: 2; min-width: 18px; height: 18px; padding: 0 4px;
+    display: flex; align-items: center; justify-content: center; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff;
+    font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cand-pager { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
+  .cand-thumb { position: relative; width: 118px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color .12s; }
+  .cand-thumb:hover { border-color: var(--acc); }
+  .cand-thumb.cur { border-color: var(--pri); }
+  .cand-thumb.sel::after { content: "✓ 用这条"; position: absolute; bottom: 4px; left: 4px; background: rgba(74,222,128,.9); color: #063; font-size: 10.5px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+  .cand-thumb .lockbadge { position: absolute; top: 4px; right: 4px; z-index: 2; display: flex; align-items: center;
+    padding: 2px; border-radius: 3px; background: rgba(0,0,0,.45); color: #fff; }
+  .cand-thumb img, .cand-thumb video { width: 100%; height: 72px; object-fit: contain; display: block; background: transparent; }
+  .cand-thumb .tph { position: absolute; left: 0; right: 0; top: 0; height: 72px; background: var(--thumbbg); }
+  .cand-thumb.ready .tph { display: none; }
+  .cand-thumb.ready img, .cand-thumb.ready video { background: #000; }
+  .cand-thumb .pending { width: 100%; height: 72px; display: flex; align-items: center; justify-content: center;
+    background: var(--input); color: var(--sub); font-size: 11.5px; line-height: 1; text-align: center; }
+  .cand-thumb .pending.fail { color: var(--err); }
+  .cand-thumb .pending.draft { color: var(--acc); border: 1px dashed var(--line); background: none; }
+  /* 草稿候选：这条候选自己的描述 */
+  .cand-acts { margin-left: auto; display: flex; gap: 7px; }
+  .mid-tools { display: flex; align-items: center; gap: 8px; padding: 4px 16px 8px; flex-wrap: wrap; }
+  .mid-tools .ghost { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .mid-tools .total { margin-left: auto; color: var(--sub); font-size: 12.5px; }
+  .mid-tools .ghost.active { color: var(--acc); border-color: var(--acc); }
+  .trim-editor { padding: 4px 16px 10px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--sub); flex-wrap: wrap; }
+  .trim-editor input { width: 70px; padding: 5px 8px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; color: var(--txt); font-size: 12.5px; }
+  .timeline-wrap { padding: 12px 16px 20px; }
+  /* 本镜 / 全片那一排：开关本体就是公共 `.ui-seg`，这里只排这一行里的先后。 */
+  .tl-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .tl-tabs .ui-seg { border-radius: 4px; }
+  .tl-tabs .ui-seg > button { font-size: 12px; padding: 4px 14px; }
+  /* ============================================================================
+     轨道区的形状（照参考图）：**左边一列轨名 + 右边一条会滚的轨道**
+     ----------------------------------------------------------------------------
+     两列一张网格。左列不参与横向滚动 —— 轨名、显隐、锁定一直在手边，滚到片尾也看得见；
+     右列才是滚动容器。两边的**行高由同一批变量决定**（下面那五个 `--tlh-*`）：
+     分开写数字的话，收一行、滚一下就会错开一格，而「轨名指着哪一轨」这件事就假了。
+     收起一行 = 行高换成 18px 并把内容不画（`.hid-*` 那两条），不是把整行删掉：
+     删掉之后插针与刻度尺的换算要跟着改，而它们与行高无关。
+     ========================================================================== */
+  /* 行高一档比从前高（52→64 / 38→52）：第 2 行往上的标签格里现在要装下
+     名 + 眼睛 + 锁 + ＋ + × + 那一行的音量滑块，116px 宽装不下就按 `flex-wrap` 换行，
+     换了两三行必须给得出高度 —— 否则滑块被裁掉一半，而「这一行压到 60%」这件事又变成看不见的状态。
+     `--tlh-min` 是**收起一行**之后那一窄条的高度：整条轨收起用的是 `--tlh-*` 换成 18px，
+     而单行收起要留得住眼睛与锁两颗（20px + 边框），所以比它高一点、各自一个落点。 */
+  .tl-grid { display: grid; grid-template-columns: 116px 1fr; align-items: start; margin: 6px 0 12px;
+    --tlh-ruler: 19px; --tlh-pic: 64px; --tlh-voice: 52px; --tlh-gap: 20px; --tlh-pad: 12px; --tlh-min: 22px; }
+  .tl-grid.hid-pic { --tlh-pic: 18px; }
+  .tl-grid.hid-voice { --tlh-voice: 18px; }
+  .tl-side { display: flex; flex-direction: column; gap: var(--tlh-gap, 20px); padding: var(--tlh-pad, 12px) 0; }
+  /* 轨名格里现在有三颗按钮（眼睛 / 锁 / ＋）+ 名字 + 行数与音量那颗基数标签，
+     116px 装不下时**换行而不是裁掉**（`flex-wrap`）：基数与「这一行压到 60%」是轨道上的状态，
+     看不见就等于状态丢了。行高仍由那五个 `--tlh-*` 决定，所以换行不会把右边那一列错开一格。 */
+  .tl-hrow { display: flex; align-items: center; gap: 3px; padding-left: 5px; flex-wrap: wrap; row-gap: 1px; min-width: 0; }
+  .tl-hrow.ruler { height: var(--tlh-ruler, 19px); padding-left: 0; }
+  .tl-hrow.pic { height: var(--tlh-pic, 52px); border: 1px solid var(--line); border-radius: 6px; background: var(--input); }
+  .tl-hrow.voice { height: var(--tlh-voice, 38px); border: 1px solid var(--line); border-radius: 6px;
+    background: var(--input); border-style: dashed; min-width: 0; overflow: hidden; }
+  /* 第 2 行往上的标签行：形状与第一行一模一样（同一批 `--tlh-*` 变量），只是没有那两颗按钮
+     —— 显 / 锁管的是**这一轨**，不是某一行，重复画三颗会把「按下去管谁」说糊。
+     唯一的例外是最后那一行空着时的「−」：它标的就是自己那一行，收的是自己。 */
+  .tl-hrow.voice.extra { padding-left: 5px; }
+  .tl-hname { font-size: 11.5px; font-weight: 600; color: var(--txt); margin-left: 2px;
+    white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 某一行的基数 ≠100% 时才占位（=100% 时轨名旁边什么都不加，与没调过一模一样）：
+     轨道上看不到，用户就会以为那枚滑块只管当前这一格 —— 与「轨道上的东西要看得出来」同一条。 */
+  /* 第 1 行（整条轨）那一枚现在是**静音按钮**（用户点名的第 ② 条）：点它切这一整轨静音，
+     图标与颜色跟着状态换，读数仍写整轨音量。extra 那几行仍是只读读数（行基数由滑块调）。 */
+  .tl-hvol { display: inline-flex; align-items: center; gap: 2px; font-style: normal; font-size: 10.5px;
+    color: var(--sub); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 1px 6px; margin-left: 4px; white-space: nowrap; vertical-align: middle; flex: none;
+    font-family: inherit; cursor: default; }
+  .tl-hvol:hover { color: var(--txt); border-color: var(--sub); }
+  button.tl-hvol { cursor: pointer; }
+  .tl-hvol.mut { color: #ef4444; border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); }
+  .tl-hvol.mut:hover { color: #ef4444; border-color: #ef4444; }
+  .tl-hvol .ic { display: inline-flex; align-items: center; }
+  /* 小图标按钮：状态**只靠图标与颜色**说不算说清，所以 title 里写明按下去会发生什么。
+     disabled 的那一颗不是「点了没反应」—— title 写着缺的那一样（上限 / 收起着 / 这一行不空）。 */
+  .tl-hbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+    padding: 0; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--sub); cursor: pointer; flex: none; }
+  .tl-hbtn:hover { color: var(--txt); background: var(--panel2); }
+  .tl-hbtn.on { color: var(--warn, #d97706); border-color: rgba(217,119,6,.5); background: rgba(217,119,6,.12); }
+  .tl-hbtn[disabled] { opacity: .38; cursor: not-allowed; }
+  .tl-hbtn[disabled]:hover { color: var(--sub); background: none; }
+  /* 收起的那一轨：内容一个都不画（把手、格子、波形、块全没了），只剩一条写着轨名的窄行。
+     插针不藏 —— 它挂在 `.tl-inner` 上、不属于任何一行，所以收一轨时它还在、还穿两轨。 */
+  .tl-grid.hid-pic .tl-vrow > *, .tl-grid.hid-pic .tl-film > * { display: none; }
+  .tl-grid.hid-voice .tl-lane > * { display: none; }
+  /* 只收起**其中一行**（用户点名的「添加出来的轨道也要有收起」）：窄条只留名与眼睛、锁两颗，
+     内容一个都不画 —— 与整条轨收起同一立场（是「不画」，不是「画出来再禁用」）。
+     两边都吃 `--tlh-min`：左列那一格与右列那一行必须同高，差 1px 就会与刻度尺错开一格。 */
+  .tl-hrow.hid { height: var(--tlh-min, 22px); overflow: hidden; flex-wrap: nowrap; }
+  .tl-vrow.hid, .tl-film.hid, .tl-lane.hid { height: var(--tlh-min, 22px); }
+  /* ⚠ 前面那一条 `.tl-grid` 是**承重**的，不是排版：`.tl-lane .tl-v` 自己写着 `display:flex`（下面几百行），
+     与 `.tl-lane.hid > *` 的特异性一模一样（0,2,0）—— 谁在后面谁赢，于是收起一行时那一行上的配音块
+     照样画出来（整条轨那一档用的是 `.tl-grid.hid-voice .tl-lane > *`，0,3,0，所以从来没露馅）。 */
+  .tl-grid .tl-vrow.hid > *, .tl-grid .tl-film.hid > *, .tl-grid .tl-lane.hid > * { display: none; }
+  .tl-hrow.hid > .tl-hvol-sl, .tl-hrow.hid > .tl-hvol, .tl-hrow.hid > [data-lane-act="row-"],
+  .tl-hrow.hid > [data-lane-act="row+"] { display: none; }
+  /* 每一行标签上那枚基数音量滑块：管的是**这一行**（不是整条轨），与右边那个百分数读数配成一对。
+     宽度压到 42px —— 116px 那一列里还有名、眼睛、锁、＋、×，再宽就得把按钮挤到看不见。 */
+  .tl-hvol-sl { -webkit-appearance: none; appearance: none; flex: none; width: 42px; height: 3px;
+    margin: 0 0 0 3px; background: var(--line); border-radius: 2px; cursor: pointer; }
+  .tl-hvol-sl[disabled] { opacity: .38; cursor: not-allowed; }
+  .tl-hvol-sl::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--acc, #7c5cff); border: none; }
+  /* 剪辑模式的轨道：`.tl-bar` 从「一条横排」改成「几行竖排」——
+     画面行（本镜：按源视频秒定位的多段）/ 画面行（全片：按成片秒比例的格子）/ 声音行。
+     行与行共用同一根时间基，所以声音块能画在它所属那一段的正下方。 */
+  /* 行距 ≥ 18px：红色端点上下各超出格子 6px、定位插针各超出 8px（见下两段），
+     按「两行之间的常规间距」贴在一起时，上一行的剪子会插进下一行、插针的尾也会压住工具条 ——
+     这就是「预留上下空间」的落点，别随手把它收回去。
+     `.tl-bar` 自己收放插针的点击（见 bindPinZone）：格子之间的缝、行上下的空白、
+     甚至声音行以外的区域，点下去都是「把针挪到这儿」—— 用户点名「轨道上下留空余方便点击位置」。 */
+  /* `.tl-bar` 是**横向滚动容器**（剪映那样：时间长了就左右拖，不把整条压进屏幕里）。
+     上下那 12px padding 不能省：插针上下各超出格子 8px、剪子各超出 6px，
+     而 overflow 的裁剪边界是 padding box —— 留出这一段，针与剪子才不会被切掉
+     （其它任何一轴设成 auto/hidden 都会连带把纵向也裁，所以纵向只给 padding，不给 hidden）。
+     内容一律装在 `.tl-inner` 里，它的宽度由**像素/秒 × 总时长**现算（见 tlInnerWidth）。 */
+  /* 整条滚动容器铺一层「主档淡尺」。**空白处也要有时间段**（用户点名）：某一行此刻一个块都没有、
+     行与行之间那 20px 缝、轨道比整条短时右边那一大片 —— 从前那些地方一根线都不画，
+     因为淡尺只画在每一行自己的 `::before` 上（见下面 `.tl-vrow::before`），而那一行了无痕迹时
+     它画的那几条线也被格子盖掉、或者整行压根没几个像素。这一层是**打底**：
+     `.tl-lane` 的底是半透明紫（线直接透过它），行间缝与右边空白也靠它才连续。
+     `background-attachment: local` 是这一条的承重部分：背景跟着内容滚，线才和按百分比排的
+     格子／刻度尺同一个落点；默认的 `scroll` 会把线钉在窗口上，一横向滚动就和格子错开。
+     步长 `--tl-step-px` 由 `tlApplyScale` 一处写（与行内那一份同一个数），
+     画不开（一道不到 8 像素）时写成 100000px = 整条只有一道边线，不画成一团脏灰。 */
+  .tl-bar { margin: 0; padding: var(--tlh-pad, 12px) 0; cursor: pointer;
+    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    background-attachment: local;
+    background-image: repeating-linear-gradient(90deg, rgba(127,127,127,.18) 0 1px,
+      transparent 1px var(--tl-step-px, 100000px)); }
+  .tl-bar::-webkit-scrollbar { height: 9px; }
+  .tl-bar::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  .tl-bar::-webkit-scrollbar-track { background: transparent; }
+  /* 行与行之间的距离从 `.tl-bar` 挪到这一层：`.tl-bar` 现在是滚动容器，flex 列要挂在内容层上。
+     这里**原来还有一条 `min-width: 100%`** —— 它把「比例尺」那句话否了：宽度是
+     `总时长 × 像素/秒` 算出来的，可 CSS 又保底撑满整条，于是缩到多小都占满整条轨道、
+     右边那点空白永远出不来（用户点名的「轨道缩放可以缩放到不占据整个轨道」）。
+     现在这一层的宽度只由 JS 那一处决定（`tlInnerWidth`），缩到多短就画多短。 */
+  .tl-inner { display: flex; flex-direction: column; gap: var(--tlh-gap, 20px); position: relative; }
+  /* 缩放那一小撮（贴在「本镜 / 全片」那一条的右边） */
+  .tl-zoom { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--sub); }
+  /* 中间那个读数 = 「点我回到自适应」那一颗出口，但**只在真的是手动档时**才长得像出口：
+     写着「自适应」时点它什么都不会发生，看着能点却不做事是本项目反复清的那一类。
+     它不用 `<button>` 是因为上面那条 `.tl-zoom button` 会把每一颗撑成 22px 方块。 */
+  .tl-zoom .tl-zval { min-width: 54px; text-align: center; font-variant-numeric: tabular-nums; }
+  .tl-zoom .tl-zval.man { cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted;
+    text-decoration-color: rgba(148,163,184,.75); }
+  .tl-zoom .tl-zval.man:hover { color: var(--txt); }
+  .tl-zoom button { display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 20px; line-height: 1; padding: 0; border-radius: 4px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--txt); cursor: pointer; }
+  .tl-zoom button:hover { background: var(--panel2); }
+  .tl-zoom #tlZoomVal { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+  /* 两行轨道**同一套形状**：本镜按源视频秒、全片按成片秒，都是一排绝对定位的段格 + 一根针。
+     以前全片那一排是 flex 流（格子靠 flex 定宽），于是它没有针、没有把手、样式也与本镜不一致。 */
+  .tl-vrow, .tl-film { position: relative; height: var(--tlh-pic, 52px); border: 1px solid var(--line); border-radius: 6px;
+    background: var(--input); transition: border-color .12s; }
+  .tl-bar:hover .tl-vrow, .tl-bar:hover .tl-film { border-color: rgba(124,92,255,.45); }
+  .tl-vrow .tl-seg, .tl-film .tl-seg { position: absolute; top: 0; bottom: 0; }
+  /* 淡尺：每**一个主档**一道竖线，看得出「这一段占几秒」而不只是「占整条的几成」。
+     那个宽度由 `tlApplyScale` 写成行上的 `--tl-step-px`（刻度尺算出来的同一个主档），
+     所以尺上的线与轨道里的线是同一条落点 —— 纯装饰，不接点击。
+     画面行**自己还得再画一遍**（不是只靠上面 `.tl-bar` 那一层打底）：这两行底是实色的，
+     把打底那几条线盖得一根不剩。配音行不画 —— 它的底是半透明紫，打底那层直接透出来，
+     再叠一份就成了「有块的那几行线更黑」，两处各一档深浅比没有更难看。
+     `background-position: -1px` 是把线挪回**边框外沿**：绝对定位的伪元素量的是父级的 padding box，
+     而这一行的左边有 1px 边框 —— 不补偿的话行里的线比打底那批（和尺上的刻度）整体右偏 1px，
+     一格之内看不出，线从缝里穿过格子时就是两条并排的影子。 */
+  .tl-vrow::before, .tl-film::before { content: ""; position: absolute; inset: 0; border-radius: 6px; pointer-events: none;
+    background: repeating-linear-gradient(90deg, rgba(127,127,127,.18) 0 1px, transparent 1px var(--tl-step-px, 100000px));
+    background-position: -1px 0; }
+  .tl-bar .tl-seg { background: linear-gradient(180deg, rgba(124,92,255,.36), rgba(124,92,255,.2));
+    border: 1px solid rgba(124,92,255,.4); border-radius: 4px; cursor: pointer;
+    /* 与块体 / 把手同一道规矩：格子上按下去是「换行」或「放插针」，不能被横向滚动容器抢走
+       （抢走只来 pointercancel、pointerup 永远不来，真机上就是「按下去拖不动」）。 */
+    touch-action: none;
+    display: flex; align-items: center; justify-content: center; font-size: 10.5px; color: var(--acc); min-width: 12px;
+    transition: filter .12s, box-shadow .12s, border-color .12s; }
+  .tl-bar .tl-seg:hover { filter: brightness(1.18); }
+  /* 点中的那一格：**内侧一圈 2px 亮环 + 外面一道实心同色环 + 提亮**。
+     三条都是「选中」独有的形状，与 `:hover` 那条 `filter: brightness(1.18)` 不撞：
+     从前选中只写 1.07 的亮度，比悬停那一档**还暗**，于是鼠标一移开那点强调直接掉档，
+     用户看到的「高亮」其实是悬停，而不是选中（这就是「移开鼠标就不明显」的机制）。
+     `outline` + `outline-offset:-2px` 压在边框**内侧**，格子不会被撑大、也不会把相邻那格顶走；
+     `box-shadow` 外面那圈用同色实心环（不是紫色阴影）—— 一排挨着的紫格子里，
+     只有「多出来一圈白边」才分得出点的是哪一格。
+     外面那层 14px 紫色泛光已删：上下相邻的就是配音行，一圈光糊过去，界面上变成
+     「点了一格，画面格和它下面那句配音都在亮」，而那一句话根本不是选中对象。
+     z-index 抬到灰遮罩(2)/小字(5)之上、针(8)之下；把手另有一档（见下面 `.cut`）。 */
+  .tl-bar .tl-seg.sel { z-index: 6; color: #fff; border-color: rgba(240,236,255,.96);
+    outline: 2px solid rgba(240,236,255,.96); outline-offset: -2px;
+    filter: brightness(1.34) saturate(1.18);
+    box-shadow: 0 0 0 2px rgba(240,236,255,.92); }
+  /* 删掉的那一格 = **黑场占位**：格子还在原位、宽度和位置一个字没动，只是里面没有画面。
+     它与「框内那两块灰」是两件事，长得也必须不一样：那两块是「这一格里被剪掉的头/尾」，
+     整格是灰纹 = 「这一整格在成片里是黑的」。斜纹 + 虚线边 + 灰字，一眼分得出来。 */
+  .tl-seg.gone { background: repeating-linear-gradient(45deg, rgba(18,20,26,.9) 0 6px, rgba(52,56,66,.82) 6px 12px);
+    border: 1px dashed rgba(148,163,184,.8); color: #cbd5e1; }
+  /* 黑场那几格被悬停时不提亮（斜纹底提亮只会变成一片脏灰），但**选中那一下照样要亮** ——
+     所以这一条排除 `.sel`，而不是再补一条「gone.sel:hover 也亮」把亮度数字写两遍。 */
+  .tl-bar .tl-seg.gone:not(.sel):hover { filter: none; }
+  .tl-seg.gone .mask { opacity: .45; }
+  /* 悬停 / 选中时切片提到全不透明（平时 .9 是为了让紫底透一点，看得出这是「可点的一条」） */
+  .tl-bar .tl-seg:hover .frs, .tl-seg.sel .frs { opacity: 1; }
+  .tl-seg .lab { position: absolute; left: 3px; bottom: 1px; font-size: 9.5px; line-height: 1.1;
+    color: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.55); pointer-events: none; z-index: 5; white-space: nowrap; }
+  /* 轨道上的切片图：磁贴**定宽**（`--frs-w`，由 JS 的 `sliceGeom` 一处算出）——
+     缩放改的是「这一格摊得下几张」，每张在屏上始终那么宽。从前是 `repeat(n, minmax(0,1fr))`
+     把每帧铺成 1/n 格宽，推大比例尺时同一批帧跟着拉宽、推小时压窄，
+     用户看到的「切片大小跟着缩放变」就是这一件事（照参考项目 image clip 那一套：固定 px 列 + 裁剪）。
+     格子放不下整张时最后一张被 `overflow:hidden` **裁掉一截** —— 就是用户点名的「像被遮住那样」，
+     宁可裁半张，也不为了铺满整格去改变每张的宽度。
+     `.whole` 是例外：给那些「整格只铺一张」的占位（取不到画面 / 非 shots 的首帧兜底），跨满整格。 */
+  .tl-seg .frs { position: absolute; inset: 0; display: flex; overflow: hidden;
+    border-radius: 4px; opacity: .9; background: #05070a; }
+  .tl-seg .frs .fr { flex: 0 0 var(--frs-w, 64px); min-width: 0; background-size: cover; background-position: center;
+    /* 帧与帧之间那道缝画在磁贴**自己身上**（不用 flex gap）：gap 额外占宽，
+       「n 张定宽 + n-1 道缝」会排得比格子宽出一整张，于是被裁掉的是整排的位置而不是最后一张的右沿 ——
+       磁贴与它代表的那几秒就错位了。底色透出来 = 边界，看得出「这一段铺了几帧」，
+       不然几张画面拼在一起像一整张图。 */
+    box-shadow: inset -1px 0 0 #05070a; }
+  .tl-seg .frs .fr.whole, .tl-seg .frs .fr.none { flex: 1 1 100%; }
+  .tl-seg .frs .fr.gap { background: repeating-linear-gradient(45deg, rgba(255,255,255,.06) 0 4px, transparent 4px 8px); }
+  /* 「取不到画面」那句挂在 `.fr.none` 上（先前写的 `.frs.none` 那个类名压根没人挂过）：
+     宁可看得出「没有图」，也不要一格空着让人以为还在转圈。 */
+  .tl-seg .frs .fr.none::after { content: "取不到画面"; display: flex; align-items: center; justify-content: center;
+    height: 100%; font-size: 9.5px; color: var(--sub); }
+  /* 被切掉的头 / 尾：压暗 + 45° 斜纹。
+     斜纹这一笔是必要的：只有一层灰时，它和「切片还没取到」的占位长得一样，
+     而这两件事的意思正好相反（一个是「我不要这段」，一个是「马上就来」）。
+     这两个遮罩是「拉左边/拉右边」的可视化本体：拖把手时只改它们的宽度，
+     格子的左右边界与宽度不动 —— 所以看起来是「左边/右边那块消失」，不是整条缩小。 */
+  /* 被剪掉的头 / 尾：压暗 + 密斜纹 + 一条亮虚线边界。
+     以前是「半透明灰」——在缩略图上看几乎和正常画面一样（尤其暗画面），用户报「看不出哪块被剪了」。
+     现在三层叠加：底色压到 .74、斜纹间距 4px、靠选区那一侧画一道白色虚线，
+     一眼能分清「哪一截还在成片里」。 */
+  .tl-seg .mask { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 2;
+    background: repeating-linear-gradient(45deg, rgba(12,14,20,.74) 0 4px, rgba(12,14,20,.52) 4px 8px);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); }
+  /* 紧贴保留区的那一条边：告诉眼睛「界线在这里」 */
+  .tl-seg .mask.l { border-right: 2px dashed rgba(255,255,255,.75); }
+  .tl-seg .mask.r { border-left: 2px dashed rgba(255,255,255,.75); }
+  .tl-seg .mask.l { left: 0; border-radius: 4px 0 0 4px; }
+  .tl-seg .mask.r { right: 0; border-radius: 0 4px 4px 0; }
+  /* 左右把手 = 参考项目 `.image-resize-handle` 那一套，尺寸与配色逐条照搬：
+     13px 宽、贴着格子的整高（不上下出挑）、深色玻璃底 + 一层青绿渐光、朝外那一道 1px 亮边、
+     靠内那一侧画两条 1×18px 的抓手线（左把手在 4/7px、右把手在 7/4px），hover 整条变青绿 .34。
+     抓手线的**竖直位置**用居中（`top:50%` + `margin-top:-9px`）而不是抄来的 `top:9px`：
+     参考项目那一格 36px 高，9/9 正好上下对称；这一排 64px（收起时还会压到 18px），
+     照抄 9px 就把抓手线钉在格子顶上，比例反而不一样了。
+     `touch-action: none` 是**必须**的：轨道现在是横向滚动容器，触屏/触控板上的横向拖动
+     会被浏览器抢走当滚动 —— 那样只会收到一个 pointercancel，`pointerup` 永远不来，
+     表现就是「拖不动 / 拖到一半卡住」。z-index 要高过框内的灰遮罩（2）与那行小字（5），
+     否则把手会被它们盖住（看着在那儿、按下去没反应）；仍低于插针（8）。 */
+  .tl-seg .cut { position: absolute; top: 0; bottom: 0; width: 13px; padding: 0; border: 0;
+    border-left: 1px solid rgba(255,255,255,.26); border-radius: 0;
+    touch-action: none; cursor: ew-resize; z-index: 6;
+    background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(53,234,217,.2)), rgba(4,11,15,.34); }
+  .tl-seg .cut.l { left: 0; border-right: 1px solid rgba(255,255,255,.26); border-left: 0;
+    background: linear-gradient(270deg, rgba(255,255,255,.04), rgba(53,234,217,.2)), rgba(4,11,15,.34); }
+  .tl-seg .cut.r { right: 0; }
+  .tl-seg .cut::before, .tl-seg .cut::after { content: ""; position: absolute; top: 50%; margin-top: -9px;
+    width: 1px; height: 18px; border-radius: 999px; background: rgba(235,255,253,.72); }
+  .tl-seg .cut::before { right: 7px; } .tl-seg .cut::after { right: 4px; }
+  .tl-seg .cut.l::before { right: auto; left: 4px; } .tl-seg .cut.l::after { right: auto; left: 7px; }
+  .tl-seg .cut:hover { background: rgba(53,234,217,.34); }
+  /* 手里正拖着的那一枚 = 参考项目 `has-selected-edit-point` 那一档（加宽到 17px、实心青绿、
+     两侧外发光、抬到别的把手之上）：拖的时候要知道自己攥的是左右哪一根。
+     只在真拖起来那一刻出现（`.drag` 那颗绑定时的标记已撤 —— 它曾经永久挂着，
+     等于每一枚把手都一直是加粗的那一档）。 */
+  .tl-seg .cut.act { z-index: 7; width: 17px; border-color: rgba(225,255,252,.9);
+    background: linear-gradient(90deg, rgba(53,234,217,.82), rgba(53,234,217,.28));
+    box-shadow: -3px 0 10px rgba(53,234,217,.28), 3px 0 10px rgba(53,234,217,.28); }
+  /* 剪辑定位插针：点轨道任意位置（含行上下的空白）跳转并暂停，四把剪子剪的就是它指着的那一段。
+     **挂在内容层 `.tl-inner` 上，不挂在行里**（照参考图：一根白线从刻度尺一直穿到最下面那轨）。
+     挂在行里时它只有一行高，而「现在指着哪一秒」是整块轨道共用的一件事 —— 刻度尺上看不出针在哪、
+     声音轨上又要再画一根，两处还会各自漂。行与 `.tl-inner` 同宽，所以百分比换算一个字都不用改。 */
+  .tl-pin { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 8; }
+  .tl-pin::before { content: ""; position: absolute; top: -5px; left: -4px; width: 10px; height: 10px;
+    border-radius: 50% 50% 50% 0; background: #fff; transform: rotate(-45deg); }
+  /* 拖动某一格换顺序时那根「插到这儿」的竖线：只在这一趟拖动里存在，松手就撤。
+     画它而不是把格子拖着走 —— 整排在拖动中途重排会把正在拖的那个节点销毁（旧病）。 */
+  .tl-drop { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--acc, #7c5cff);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5); pointer-events: none; z-index: 9; }
+  .tl-drop::before { content: ""; position: absolute; top: -6px; left: -4px; width: 11px; height: 11px;
+    border-radius: 50%; background: var(--acc, #7c5cff); }
+  /* 跟着指针走的那张「这一格是什么」小卡（拖动片段时的缩略图示意）。
+     fixed 挂 body：轨道 `.tl-bar` 是横向滚动容器，画在它里面的卡会被 overflow 裁掉，
+     而这一张要跟着鼠标出得去轨道（见 dragGhostShow）。 */
+  .tl-ghost { position: fixed; z-index: 60; display: flex; align-items: center; gap: 6px;
+    max-width: 220px; padding: 4px 8px 4px 4px; border-radius: 7px; pointer-events: none;
+    background: rgba(18,18,24,.92); border: 1px solid rgba(255,255,255,.18);
+    box-shadow: 0 6px 18px rgba(0,0,0,.42); color: #fff; font-size: 11px; }
+  .tl-ghost > i { flex: none; width: 44px; height: 26px; border-radius: 4px;
+    background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,.14); }
+  /* 这一格还没解出切片（刚画出来 / 外链过期）时留一块虚线：宁可看得出「没有图」，
+     也不在拖动中途去解码 —— 那一下会把手势卡住。 */
+  .tl-ghost > i.no { background: repeating-linear-gradient(135deg, rgba(255,255,255,.16) 0 4px, transparent 4px 8px); }
+  /* 拖的是一句配音时这一块放的不是切片而是**波形**（`voiceBlockHTML` 的 `.wv-box` 里那份 svg）。
+     原来那条 `polygon { fill: currentColor }` 写在 `.tl-lane .tl-v` 底下，卡片挂在 body 上够不着，
+     所以要在这里补一份填充 —— 不补就是一条空壳（看着像「波形丢了」）。 */
+  .tl-ghost > i svg { display: block; width: 100%; height: 100%; color: #7fd0ff; }
+  .tl-ghost > i polygon { fill: currentColor; }
+  .tl-ghost > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 时间刻度尺（参考项目的轨道顶上就有这一条）：光看两端两个秒数，估算不了
+     「这一段占几秒」「刚才切的那刀在哪儿」——每档画一道**竖线**，主档还带秒数。
+     档位按总时长现算（见 rulerHTML）：写死「每 5 秒一道」在 3 秒的短镜头上会一道都没有，
+     在 60 秒的长片上又密成一片。 */
+  .tl-ruler { position: relative; height: calc(var(--tlh-ruler, 19px) - 3px); margin: 0 0 3px;
+    border-bottom: 1px solid var(--line); }
+  /* 次档 = 底部一道短细线（不写字）；主档 = 通高 1.5px 的亮线 + 秒数。
+     通高那根线是「尺」与「轨」的接缝：眼睛顺着它往下走就能落到轨道里那一格上。
+     线本身不接点击（整条 `.tl-bar` 才是放针的点击区，见 bindPinZone）。 */
+  .tl-ruler .tk { position: absolute; bottom: 0; width: 1px; height: 7px; background: var(--line); }
+  .tl-ruler .tk.mj { width: 1.5px; height: 100%; background: rgba(148,163,184,.5); }
+  /* 「轨道右边那片空白也要有时间段」的第二半：整条内容比视口短时，尺子往右**延长**几道刻度。
+     延长那几道只画线、不写秒（那个位置在成片里根本不存在时间），并且比尺内那几条暗一档 ——
+     画得一样亮会让人以为能把格子往那儿拖。落点最多到视口右沿（`rulerHTML` 里夹），
+     绝不扩大内容层宽度，否则滚到最右边会看见一片什么都没有的「多余时间」。 */
+  .tl-ruler .tk.xt { opacity: .45; }
+  /* 秒数写在主档线的**右侧**（不是居中骑在线上）：居中时最左那一档会被推出格子外，
+     从前为此单开一个 `.tk0` 例外；写右边那一头两个落点都自然贴边，那条例外与那个类名一起删了
+     （点名它的探针在 2026-10-16 那批清理里已不在，留着只是一条没人读的规则）。 */
+  .tl-ruler .tkl { position: absolute; top: 0; left: 4px; font-size: 9.5px; line-height: 1; color: var(--sub);
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tl-ruler .tk.te .tkl { left: auto; right: 4px; }   /* 写在最右那根线的左边：否则标签伸出内容层，多出一条几像素的横向滚动 */
+  /* 声音轨：块的位置 = 它锚定的那一段在时间基上的位置。
+     行高 34 而不是 26：块里要画波形，20px 高的块画出来只剩一根线，看不出起伏。 */
+  .tl-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px dashed var(--line); border-radius: 4px; background: rgba(124,92,255,.05); }
+  .tl-lane .tl-v { position: absolute; top: 3px; height: 32px; min-width: 22px; display: flex; align-items: center; gap: 3px;
+    padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1; cursor: pointer; overflow: hidden; white-space: nowrap;
+    background: rgba(34,197,94,.3); border: 1px solid rgba(34,197,94,.55); color: var(--txt);
+    touch-action: none; }        /* 同上：块体是拖动目标，手势不能被滚动容器抢走 */
+  /* 正在响的那一句：外圈亮环 + 走动的虚线边框（一片绿块里一眼分出在放哪一句） */
+  .tl-lane .tl-v.playing { box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 0 10px rgba(34,197,94,.6); }
+  /* 别的镜上溢出进来、在这里**只读**的那一截：半透明 + 虚线边。
+     可编辑的块是实心边 + 可拖动，这块一眼能看出「只能看，改要去它自己那一镜」
+     —— 界面上不给它把手、不给删除键，光靠颜色不够，用户会一直试着拖。 */
+  .tl-lane .tl-v.spill { background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.4);
+    border-style: dashed; cursor: pointer; }
+  .tl-lane .tl-v.spill .vt { opacity: .8; }
+  /* 音量不是 100% 时给块一点颜色：绿 = 正常、偏黄 = 压低、偏橙 = 提高。
+     只有拖过之后才上色，全部默认那一档时不该满屏都是颜色。 */
+  .tl-lane .tl-v.quiet { background: rgba(217,119,6,.34); border-color: rgba(217,119,6,.6); }
+  .tl-lane .tl-v.loud { background: rgba(249,115,22,.42); border-color: rgba(249,115,22,.68); }
+  /* 选中的那一句：一圈 2px 内亮环 + 提亮（**没有外发光**）。
+     声音块本来就没有 `:hover` 那一档，所以这里只有「选中 / 没选中」两种状态，不存在移开鼠标掉档；
+     `outline` 与 `filter` 是这一族别的状态（playing / quiet / loud / spill）一个都没占的两个属性，
+     所以选中能和它们同时看得见 —— 尤其**不写 `background`**：
+     压低 / 提高音量那两档的颜色说的是音量，选中把它盖掉就等于把「这一句调过 60%」这条信息抹了。
+     外发光原来那一条已删：块与块、行与行只隔几个像素，一圈绿光会糊到上下相邻的块上，
+     界面上就变成「点了一句、这一行连同上面那排都在亮」（用户点名的「不应有绿光」）。
+     没选中时块上只剩绿底与波形，一个亮环都不画 —— 亮环的判据是 `voiceSelId()`，目标不在配音轨时它是空串。 */
+  .tl-lane .tl-v.sel { z-index: 6; color: #fff;
+    outline: 2px solid rgba(240,236,255,.96); outline-offset: -2px;
+    filter: brightness(1.28) saturate(1.15); }
+  /* 正在响的那一句**又被选中**：不必再写一条复合规则 —— 选中这一档已经不碰 `box-shadow`，
+     上面 `.playing` 那一条单独成立就够了（从前它两圈都要写全，是因为两边都占同一个属性）。 */
+  .tl-lane .tl-v .vt { overflow: hidden; text-overflow: ellipsis; }
+  /* 删除按钮不在块里、音量也不在块上（都在这条轨道**上面**那根统一剪辑条里）：块只留波形与两条剪切把手。
+     以前那两条把手是「选中才显形的 9px 半透明白条」—— 一片绿块里几乎看不出来，
+     用户报的「音轨不能剪辑」有一半就是「找不到把手」；块底另有一条 `cursor: ns-resize` 的音量横条，
+     鼠标扫过音轨就变成「调整」箭头，而那块地方本来是「挪位置 / 试听」。两条一起收掉。
+     现在常显，并且与画面轨那两条 `.cut` 是**同一份设计**（参考项目的青绿玻璃条：13px 宽、贴满块高、
+     朝外一道亮边、靠内两条 1×18px 抓手线、hover 变青绿、拖起来那一刻加宽到 17px 并发光）。
+     块只有 32px 高且 `overflow:hidden`，所以发光的那一圈外阴影会被块沿裁掉一截 ——
+     宽度与配色照旧一样，不为了露出阴影把块高改了。 */
+  .tl-lane .tl-v .vo-cut { position: absolute; top: 0; bottom: 0; width: 13px; z-index: 4;
+    border: 0; border-left: 1px solid rgba(255,255,255,.26); border-radius: 0;
+    cursor: ew-resize; touch-action: none;
+    background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(53,234,217,.2)), rgba(4,11,15,.34); }
+  .tl-lane .tl-v .vo-cut.l { left: 0; border-right: 1px solid rgba(255,255,255,.26); border-left: 0;
+    background: linear-gradient(270deg, rgba(255,255,255,.04), rgba(53,234,217,.2)), rgba(4,11,15,.34); }
+  .tl-lane .tl-v .vo-cut.r { right: 0; }
+  /* 抓手线竖直居中（与画面轨那两条同一个写法，理由见那里） */
+  .tl-lane .tl-v .vo-cut::before, .tl-lane .tl-v .vo-cut::after { content: ""; position: absolute;
+    top: 50%; margin-top: -9px; width: 1px; height: 18px; border-radius: 999px; background: rgba(235,255,253,.72); }
+  .tl-lane .tl-v .vo-cut::before { right: 7px; } .tl-lane .tl-v .vo-cut::after { right: 4px; }
+  .tl-lane .tl-v .vo-cut.l::before { right: auto; left: 4px; } .tl-lane .tl-v .vo-cut.l::after { right: auto; left: 7px; }
+  .tl-lane .tl-v .vo-cut:hover { background: rgba(53,234,217,.34); }
+  .tl-lane .tl-v .vo-cut.act { z-index: 5; width: 17px; border-color: rgba(225,255,252,.9);
+    background: linear-gradient(90deg, rgba(53,234,217,.82), rgba(53,234,217,.28));
+    box-shadow: -3px 0 10px rgba(53,234,217,.28), 3px 0 10px rgba(53,234,217,.28); }
+  /* 波形铺在块底（纯装饰，不接点击）：块的宽高就是它，所以 viewBox 用 100×20 + preserveAspectRatio=none，
+     一条配音多宽都能铺满，不用按像素重算点。 */
+  .tl-lane .tl-v .wv-box { position: absolute; inset: 0; pointer-events: none; opacity: .72; }
+  .tl-lane .tl-v .wv-box svg { display: block; width: 100%; height: 100%; }
+  .tl-lane .tl-v .wv-box polygon { fill: currentColor; }
+  .tl-lane .tl-v .vt, .tl-lane .tl-v .vn { position: relative; z-index: 2; }
+  .tl-lane .tl-v .vn { font-size: 9px; opacity: .85; font-variant-numeric: tabular-nums; }
+  /* 块底那条 6px 的音量横条已删（它带来两件事：`cursor: ns-resize` 让鼠标扫过音轨就变成
+     「调整」箭头，而它是音量第二个出口 —— 与全站那一枚统一的音量滑块重复）。 */
+  /* 被切掉开头/结尾的那一块（与画面轨一致：压暗 + 斜纹 = 我不要这段，不是「还没加载」）。
+     两条挂在**框**内的左右两头：左边那块 = 音频开头被切掉的，右边那块 = 结尾被切掉的。
+     块本身（框）不缩不挪，所以拖把手看到的是「盖掉一截」而不是「整块缩放」。 */
+  .tl-lane .tl-v .vo-off { position: absolute; top: 0; bottom: 0; left: 0; pointer-events: none; z-index: 2;
+    background: repeating-linear-gradient(45deg, rgba(10,12,18,.8) 0 4px, rgba(10,12,18,.55) 4px 8px);
+    border-right: 2px dashed rgba(255,255,255,.75); }
+  .tl-lane .tl-v .vo-off.r { left: auto; right: 0; border-right: 0; border-left: 2px dashed rgba(255,255,255,.75); }
+  /* 压在**灰场**（画面被删掉的那一格）上的那几截：音频在那几秒**跳过**（停住、越过之后接着放），
+     所以画成与跳过的画面格同一种灰（`.tl-seg.gone` 那一族），块本身顺延拉长。
+     与 `.vo-off` 是两件事（那两块 = 这一句被切掉的头尾，不进成片），所以颜色与纹路各不相同。 */
+  .tl-lane .tl-v .vo-skip { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 3;
+    background: repeating-linear-gradient(45deg, rgba(18,20,26,.9) 0 6px, rgba(52,56,66,.82) 6px 12px);
+    border-left: 1px dashed rgba(148,163,184,.8); border-right: 1px dashed rgba(148,163,184,.8); }
+  .tl-lane .lane-hint { position: absolute; left: 6px; top: 9px; font-size: 10.5px; color: var(--sub); }
+  .tl-empty { padding: 8px 10px; font-size: 11.5px; color: var(--sub); }
+  /* **统一剪辑条**：画面段与配音句共用这一排（五把剪子 + 试听；音量与倍速在右栏那张卡上。
+     颗数以标记为准 —— `#tlTools [data-cut]` 画几颗就是几颗，判据 `.tmp-dirdom.cjs` ㉛a 会当场数）。
+     以前声音那一份是另一根条（`.tl-vtools`，挂在音轨行下面、点中一句才出现），于是
+     同一件事在两处两种做法、那一排剪子只对画面齐、音量有三个出口（±10% 两颗、块底拖动一条、
+     条上读数一个）。用户点名的「两者功能一致使用统一的剪辑按钮」就是收在这里。
+     条在轨道**上面**：切页签、换镜头、选句子都不用移动它，只是它指的对象跟着变
+     （选中哪一格画面 / 哪一句配音看轨道上的亮环，右栏卡片顶上那句也写着）。 */
+  .tl-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 6px; }
+  /* 读数单独一行（「全片 1 秒 · 第 1/2 格 · 这条留 …」）：从前它是 flex-wrap 里的最后一颗，
+     按钮排满之前一直吊在右端 —— 配音文字那行一露出来，顺序就变成「读数在上、配音在下」。 */
+  .tl-hint { display: block; font-size: 11.5px; color: var(--sub); margin: 0 4px 6px; }
+  /* 试听 / 切开那一排的下一行：**只读**这一句配音的文字（用户点名的「配音 + 配音文字应该单独一行」）。
+     只有选中配音块时才出现（paintVoiceLine 一处翻 hidden），换段 / 换候选就跟着换。
+     文字不截断：这一行存在的意义就是看全这一句要念什么，截成一行省略号等于没写。 */
+  .tl-vline { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 6px; padding: 6px 9px;
+    border: 1px solid rgba(34,197,94,.35); border-radius: 6px; background: rgba(34,197,94,.08);
+    font-size: 12px; line-height: 1.5; }
+  .tl-vline[hidden] { display: none; }
+  .tl-vline .vl-chip { flex: none; font-size: 10.5px; padding: 1px 6px; border-radius: 999px;
+    background: rgba(34,197,94,.2); color: #22c55e; }
+  .tl-vline .vl-who { flex: none; font-weight: 600; }
+  .tl-vline .vl-text { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+  .tl-vline .vl-time { flex: none; font-size: 10.5px; color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* 右栏「这一镜上的配音」那三个小选项（用户点名的第 ③ 条）：一排分段按钮，一次只露一格内容。
+     开关本体是公共 `.ui-seg`（选中态 `.on` 由 paintTlGroups 一处翻），这里只收满宽、四等分与小一号字。 */
+  .vc-tabs { display: flex; width: 100%; margin: 10px 0 2px; border-radius: 6px; }
+  .vc-tabs[hidden] { display: none; }
+  .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: 11.5px; padding: 4px 6px;
+    overflow: hidden; text-overflow: ellipsis; }
+  /* 待生成配音那一轨：与真配音轨**同一把尺子**（轴秒），但骨子里是另一行 —— 它是「台词还没有声音」的占位，
+     不参与选中 / 拖动 / 剪切（那三件事只对真块），所以自成一类 `.tl-vp-lane`，不叫 `.tl-lane`。 */
+  .tl-vp-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px dashed rgba(34,197,94,.28);
+    border-radius: 4px; }
+  .tl-grid.hid-voice .tl-vp-lane { display: none; }
+  .tl-vp { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; gap: 5px;
+    padding: 0 8px; border: 1px dashed rgba(34,197,94,.65); border-radius: 4px;
+    background: repeating-linear-gradient(45deg, rgba(34,197,94,.07) 0 6px, rgba(34,197,94,.13) 6px 12px);
+    color: var(--sub); font-size: 10.5px; cursor: pointer; overflow: hidden; }
+  .tl-vp:hover { background: rgba(34,197,94,.16); color: var(--text); }
+  .tl-vp b { flex: none; font-size: 9.5px; padding: 0 5px; border-radius: 3px; background: rgba(34,197,94,.2); color: #22c55e; }
+  .tl-vp span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-vp .vpm { flex: none; font-size: 9.5px; opacity: .8; }
+  /* 行标签那一列多出来的「待生成配音」一行（由 syncLaneSide 补在**配音轨所有行之后**）：
+     高度与右边 `.tl-vp-lane` 逐像素相同（同一个 `--tlh-voice`），否则两列的插针与刻度尺会错开一格。 */
+  .tl-hrow.pend { height: var(--tlh-voice, 52px); font-size: 10px; color: var(--sub); gap: 5px;
+    border: 1px dashed rgba(34,197,94,.28); border-radius: 6px; background: rgba(34,197,94,.03); }
+  .tl-hrow.pend .tl-hname { color: rgba(34,197,94,.85); }
+  .tl-grid.hid-voice .tl-hrow.pend { display: none; }
+  /* 字幕行：与配音轨同高的只读一排（首期不做拖动 / 裁切）。左列标签与右列逐像素同高。 */
+  .tl-sub-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px solid rgba(124,92,255,.3);
+    border-radius: 4px; background: rgba(124,92,255,.04); }
+  .tl-sub { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; padding: 0 7px;
+    border: 1px solid rgba(124,92,255,.55); border-radius: 4px; background: rgba(124,92,255,.2);
+    color: var(--text); font-size: 10.5px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tl-sub:hover { background: rgba(124,92,255,.34); border-color: rgba(124,92,255,.8); }
+  .tl-hrow.sub { height: var(--tlh-voice, 52px); font-size: 10px; color: var(--sub); gap: 5px;
+    border: 1px solid rgba(124,92,255,.3); border-radius: 6px; background: rgba(124,92,255,.04); }
+  .tl-hrow.sub .tl-hname { color: rgba(124,92,255,.9); }
+  /* 预览字幕叠层：`100cqh` 要一个尺寸容器（.sub-wrap），字号才跟着画面高度走。 */
+  .sub-wrap { position: absolute; inset: 0; pointer-events: none; container-type: size; overflow: hidden; border-radius: 4px; }
+  .sub-ov { position: absolute; left: 6%; right: 6%; text-align: center; line-height: 1.28; font-weight: 600;
+    text-shadow: 0 2px 6px rgba(0,0,0,.9), 0 0 2px #000; white-space: pre-wrap; }
+  .sub-ov-bottom { bottom: 9%; }
+  .sub-ov-middle { top: 50%; transform: translateY(-50%); }
+  .sub-ov-top { top: 8%; }
+  .sub-ov.hl { background: rgba(0,0,0,.55); border-radius: 6px; padding: .18em .45em; }
+  /* 右栏「字幕」那一列 */
+  .sub-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-height: 300px; overflow-y: auto; }
+  .sub-row { border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 5px 6px; }
+  .sub-meta { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--sub); }
+  .sub-tag { flex: none; padding: 0 5px; border-radius: 3px; background: rgba(124,92,255,.18); color: var(--pri); }
+  .sub-time { font-variant-numeric: tabular-nums; }
+  .sub-row [data-subdel] { margin-left: auto; }
+  .sub-ta { width: 100%; margin-top: 4px; font-size: 12px; line-height: 1.35; resize: vertical; min-height: 30px; }
+  .player-box:fullscreen .sub-wrap { border-radius: 0; }
+  /* 音量：**只此一枚滑块**（0–200%，步进 0.1% = 无级）。上限 200% 与配音同一把尺子，
+     超过 100% 的部分只在合并成片时生效（浏览器给 <video>/<audio> 的音量封顶 1）。 */
+  .tl-vol { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px 0 2px;
+    border-left: 1px solid var(--line); }
+  .tl-vol input[type=range] { width: 116px; height: 14px; accent-color: var(--pri); cursor: pointer; }
+  .tl-vol .vv { font-size: 11.5px; min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; color: var(--sub); }
+  .tl-vol.off { opacity: .45; }
+  .tl-vol.off input[type=range] { pointer-events: none; cursor: default; }
+  /* 右栏那张「这一段 / 这一句」卡：音量 + 倍速两枚无级滑块。
+     滑块以前挂在轨道上面那一排（`.tl-tools`）里，和那一排剪子挤一行 —— 再加一枚倍速就放不下，
+     而「指着谁就改谁的参数」这两件事本来就该和右栏那句落点说明在一起（落点 + 参数 = 一件事的两半）。 */
+  .tl-adj { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2); display: flex; flex-direction: column; gap: 8px; }
+  .tl-adj .adj-row { display: flex; align-items: center; gap: 8px; }
+  .tl-adj .adj-row > .lab { flex: none; font-size: 11.5px; color: var(--sub); min-width: 30px; }
+  /* 卡片里不复用条上那道左分隔线（`.tl-vol` 自带的 border-left 是给横排那一行分栏用的） */
+  .tl-adj .tl-vol { border-left: none; padding: 0; flex: 1; min-width: 0; }
+  .tl-adj input[type=range] { flex: 1 1 auto; min-width: 0; max-width: 160px; }
+  /* 右栏那张卡按「此刻指着哪一轨」分成的几组（paintTlGroups 只翻 hidden，节点不销毁）。
+     组里沿用的是整张卡那 8px 间隔 —— 不设这一条，倍速与画面轨两行会贴成一格。
+     `[hidden]` 必须显式压掉：这一条自己写了 display:flex，浏览器默认的「hidden 就藏起来」会被它盖掉
+     （与 ui.css 的 `.tool[hidden]` 同一个坑）。 */
+  .tl-adj .grp { display: flex; flex-direction: column; gap: 8px; }
+  .tl-adj .grp[hidden], .ed-body .grp[hidden] { display: none; }
+  /* 剪辑右栏「这一条上的配音」那一小列（与轨道上的块是同一批数据，不是第二份账） */
+  .vc-list { display: flex; flex-direction: column; gap: 4px; }
+  .vc-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--input); }
+  .vc-row b { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
+  .vc-row span { color: var(--sub); font-size: 11px; margin-left: auto; white-space: nowrap; }
+  /* 剪辑右栏「台词」那一档的两段清单：一行 = 一镜的一句台词（说话人缩略图 / 名字 + 镜号 + 两个时间读数）。
+     待生成 / 已生成按 `pendingLineOf` 现判（不是另记一份状态）。
+     `.one` 那一格只装当前这一镜的一行：那是写作入口，不该留一条会滚动的空匣子。 */
+  .line-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; padding-right: 2px; }
+  .line-list.one { max-height: none; overflow: visible; }
+  .line-row { display: flex; align-items: flex-start; gap: 7px; padding: 5px 7px; border: 1px solid var(--line);
+    border-radius: 5px; background: var(--input); cursor: pointer; min-width: 0; }
+  .line-row:hover { border-color: var(--acc); }
+  .line-row.on { border-color: rgba(34,197,94,.55); background: rgba(34,197,94,.07); }
+  /* 说话人那一格：素材库里对上就画缩略图，对不上画占位图（名字仍照写，见 lines.js 的 speakerOf） */
+  .line-row .lr-thumb { flex: none; width: 34px; height: 34px; border-radius: 4px; overflow: hidden;
+    background: var(--thumbbg); display: flex; align-items: center; justify-content: center; }
+  .line-row .lr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .line-row .lr-ph { display: flex; align-items: center; justify-content: center; color: var(--sub); opacity: .65; }
+  .line-row .lr-body { flex: 1 1 auto; min-width: 0; }
+  .line-row .lr-top { display: flex; align-items: center; gap: 6px; font-size: 11px; min-width: 0; cursor: pointer; }
+  /* 三个读数一行摆齐：镜号 + 本镜那一排的区间 + 全片那一排的区间（同一把尺子 lineSpanAt 算出来的两个数）。
+     数字用等宽字形：拖倍速时那两位一直在变，比例字体会把这一格抖成一跳一跳。 */
+  .line-row .lr-when { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; font-size: 10.5px;
+    color: var(--sub); font-variant-numeric: tabular-nums; }
+  .line-row .lr-thumb { cursor: pointer; }
+  .line-row .lr-ta { width: 100%; margin-top: 4px; min-height: 26px; resize: vertical;
+    font-size: 12px; line-height: 1.45; }
+  /* 说话的人：名字本身就是输入框（不再另挂一条「谁说的」）。
+     平时看起来就是那行名字；悬停 / 聚焦才浮出边框，避免每行都像表单。 */
+  .line-row .lr-name { flex: 0 1 34%; min-width: 72px; max-width: 150px; height: 22px; margin: 0;
+    padding: 0 4px; font-size: 11.5px; font-weight: 600; color: var(--txt);
+    background: transparent; border-color: transparent; }
+  .line-row .lr-name:hover { border-color: var(--line); background: var(--input); }
+  .line-row .lr-name:focus { border-color: var(--acc); background: var(--input); }
+  .line-row .lr-name::placeholder { color: var(--sub); font-weight: 400; }
+  .line-row .lr-top em { margin-left: auto; font-style: normal; font-size: 10px; padding: 0 5px;
+    border-radius: 3px; flex: none; }
+  .line-row .lr-top em.pend { color: #22c55e; background: rgba(34,197,94,.14); }
+  .line-row .lr-top em.done { color: var(--sub); background: rgba(127,127,127,.12); }
+  .line-row .lr-top em.none { color: var(--sub); background: transparent; border: 1px dashed var(--line); }
+  /* 时间尺：左边那截是**插针此刻的秒数**（跟着针走，见 paintPin / 全片的 filmPinT），右边是总长 */
+  .tl-time { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--sub); margin-top: 10px; }
+  .tl-time #tlT0 { color: var(--acc); font-variant-numeric: tabular-nums; }
+  /* 剪辑 → 全片 那一格状态说明整块已删（2026-10 用户点名撤掉的那两句：镜头统计 + 陈旧提示）；
+     合并进度条更早那一轮就删了 —— 合成的进度只写在「导出成片」那颗按钮上 */
+  /* 顺序模式的镜头缩略图条：每个镜头一张 */
+  .shot-strip { display: flex; gap: 8px; padding: 4px 16px 14px; overflow-x: auto; }
+  .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: 2px solid transparent; border-radius: 4px;
+    overflow: hidden; cursor: pointer; background: var(--input); transition: border-color .12s, transform .12s; }
+  .strip-item:hover { transform: translateY(-2px); }
+  .strip-item.sel { border-color: var(--pri); }
+  .strip-item.ready { box-shadow: 0 0 0 1px rgba(74,222,128,.5) inset; }
+  .strip-item video, .strip-item img { width: 100%; height: 54px; object-fit: contain; display: block; background: transparent; }
+  .strip-item .tph { position: absolute; left: 0; right: 0; top: 0; height: 54px; background: var(--thumbbg); }
+  .strip-item .ph { background: var(--thumbbg); }
+  .strip-item.mready .tph { display: none; }
+  .strip-item.mready video, .strip-item.mready img { background: #000; }
+  .strip-item .ph { width: 100%; height: 54px; display: flex; align-items: center; justify-content: center;
+    background: transparent; font-size: 16px; color: var(--sub); line-height: 1; opacity: .6; }
+  .strip-item .sn { position: absolute; left: 3px; top: 3px; font-size: 10px; padding: 0 5px; border-radius: 3px;
+    background: rgba(0,0,0,.65); color: #fff; }
+  .strip-item .st { display: block; font-size: 10.5px; color: var(--sub); text-align: center; padding: 3px 0; background: var(--panel); }
+
+  /* 右栏 */
+  .ed-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  .ed-head b { font-size: 14px; } .ed-head .no { color: var(--sub); font-size: 12px; }
+  .ed-body { padding: 12px 16px 20px; }
+  /* 生成参数：整块套用图片工作台「高级设置」卡片（结构与样式见 ui.css 的 .adv / .row） */
+  #advBox { margin: 0 0 14px; }
+  #advBox .dur-range { width: 100%; accent-color: var(--pri); cursor: pointer; }
+  #advBox .dur-num { display: flex; align-items: center; gap: 6px; min-width: 96px; }
+  #advBox .dur-num input[type="number"] { width: 100%; padding: 8px 10px; background: var(--input);
+    border: 1px solid var(--line); border-radius: 4px; color: var(--txt); text-align: center; font-size: 13px;
+    outline: none; transition: border-color .15s; }
+  #advBox .dur-num input[type="number"]:focus { border-color: var(--acc); }
+  #advBox .dur-num input[type="number"]::-webkit-outer-spin-button,
+  #advBox .dur-num input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
+  #advBox .dur-num span { font-size: 12px; color: var(--sub); white-space: nowrap; }
+  /* .ed-label 本体与 .cnt 已提到 ui.css（生成工作台素材区共用同一份），这里只留本页独有的 .mini */
+  .ed-label .mini { font-size: 11px; padding: 2px 9px; border-radius: 3px; }
+  #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 13px; line-height: 1.6; padding: 10px 12px; resize: vertical; font-family: inherit; outline: none; }
+  #edPrompt:focus { border-color: var(--acc); }
+  /* 提示词框里的 @素材高亮：镜像层铺在 textarea 底下，只给 @片段 画底。
+     字号 / 行高 / 内边距 / 边框宽度必须与 #edPrompt **逐项一致**，否则高亮会错位。 */
+  .ta-wrap { position: relative; }
+  .ta-back { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none;
+    white-space: pre-wrap; word-wrap: break-word; color: transparent;
+    font-family: inherit; font-size: 13px; line-height: 1.6; padding: 10px 12px; border: 1px solid transparent; }
+  /* 灰底就够了 —— 底下那条 `inset 0 -2px` 的深色描边在正文里像一条下划线，
+     和「@ 是引用」这件事没关系，看着只是脏。底色跟着主题走（见 :root 的 --atbg）。 */
+  .ta-back .ta-at { background: var(--atbg, rgba(35, 38, 47, .13)); border-radius: 3px; }
+  /* 鼠标滑过 @片段 时那张小卡（挂在 body 上、position:fixed，见 hoverAt） */
+  #atPeek { position: fixed; z-index: 61; display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 24px rgba(20,24,40,.18); pointer-events: none; }
+  #atPeek .pk-t { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 4px; overflow: hidden;
+    background: var(--thumbbg, #e2e5ee); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+  #atPeek .pk-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #atPeek .pk-n { font-size: 12.5px; color: var(--txt); font-weight: 600; }
+  #atPeek .pk-k { font-size: 10.5px; color: var(--sub); }
+  /* 提示词里 @ 引用的候选浮层。挂在 body 上、position:fixed —— 右栏编辑器每次重画都换节点，
+     挂在编辑器里面会跟着丢；位置按光标（或 `@素材` 那颗按钮）现算，见 mentionPlace / caretXY。 */
+  #mentionBox { position: fixed; z-index: 60; width: 328px; max-height: 268px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 28px rgba(20,24,40,.16); padding: 4px; }
+  /* 一行 = 缩略图 · @名字 · 右边一列「类型 · 来源」 */
+  #mentionBox .mt-i { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+  #mentionBox .mt-i.on { background: var(--panel2); }
+  #mentionBox .mt-i.off { opacity: .55; }          /* 没有预览图：引用不了，压暗并写明原因 */
+  #mentionBox .mt-t { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 4px; overflow: hidden;
+    background: var(--thumbbg, #e2e5ee); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+  #mentionBox .mt-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #mentionBox .mt-n { flex: 1; min-width: 0; font-size: 12.5px; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mentionBox .mt-k { flex: 0 0 auto; max-width: 52%; font-size: 10.5px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 行尾那个 › 是「这一条还有别的图可挑」的提示（悬停会滑出二级菜单） */
+  #mentionBox .mt-i.has-sub::after { content: '›'; margin-left: 1px; font-size: 14px; line-height: 1; color: var(--sub); }
+  #mentionBox .mt-empty { padding: 10px; font-size: 12px; color: var(--sub); line-height: 1.7; }
+  /* @ 浮层的二级菜单：鼠标停在某个角色上时，从右边滑出一列「这一位有哪些图」。
+     挂在 body 上、position:fixed —— 浮层自己是 overflow-y:auto，放里面会被裁掉。 */
+  #mentionSub { position: fixed; z-index: 62; width: 272px; max-height: 300px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 28px rgba(20,24,40,.16); padding: 4px; }
+  #mentionSub .ms-h { padding: 5px 8px 4px; font-size: 11px; color: var(--sub); }
+  #mentionSub .ms-i { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+  #mentionSub .ms-i:hover { background: var(--panel2); }
+  #mentionSub .ms-t { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 4px; overflow: hidden;
+    background: var(--thumbbg, #e2e5ee); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+  #mentionSub .ms-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #mentionSub .ms-n { flex: 1; min-width: 0; font-size: 12.5px; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mentionSub .ms-k { flex: 0 0 auto; font-size: 10.5px; color: var(--sub); }
+
+  /* 输入框右上角那颗 `@素材`：底色加深，一眼看得出是个入口 */
+  .ed-label .at-btn { font-size: 12px; padding: 3px 10px; margin-right: 8px; border-radius: 12px; cursor: pointer;
+    color: var(--acc); background: rgba(108,140,255,.16); border: 1px solid rgba(108,140,255,.35); }
+  .ed-label .at-btn:hover { background: rgba(108,140,255,.28); }
+
+  /* 「提到素材」那排芯片：底色加深；鼠标移上去弹一张预览（名字 + 图片）。
+     预览朝**下**弹：编辑器那一列是 `overflow-y: auto`，朝上会被列的上边缘裁掉。 */
+  .mchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .mchip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px;
+    border-radius: 12px; cursor: pointer; color: var(--acc);
+    background: rgba(108,140,255,.16); border: 1px solid rgba(108,140,255,.34); }
+  .mchip:hover { background: rgba(108,140,255,.3); }
+  .mchip > img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; display: block; background: var(--thumbbg, #e2e5ee); }
+  .mchip .mn { font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mchip .peek { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 62; padding: 6px;
+    border-radius: 6px; background: var(--panel); border: 1px solid var(--line);
+    box-shadow: 0 10px 24px rgba(20,24,40,.18); text-align: center; }
+  .mchip:hover .peek { display: block; }
+  .mchip .peek img { width: 132px; height: 132px; object-fit: cover; border-radius: 4px; display: block; background: var(--thumbbg, #e2e5ee); }
+  .mchip .peek b { display: block; margin-top: 5px; font-size: 12px; color: var(--txt); font-weight: 600; }
+  .mchip .peek i { display: block; font-style: normal; font-size: 10.5px; color: var(--sub); }
+  .polish { font-size: 12px; color: var(--acc); background: rgba(108,140,255,.08); border: 1px solid rgba(108,140,255,.3); border-radius: 4px; padding: 6px 12px; cursor: pointer; margin-bottom: 12px; }
+  /* 提示词下方那行动作按钮用 ui.css 的 .btn-row / .tool（与三个工作台同一套），这里不再另立一套 */
+  /* 素材槽位的样式（.assets-grid / .asset-slot / .rvthumb / 互斥禁用）已收进 ui.css，生成工作台同用 */
+  .ed-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .ed-footer .can { font-size: 12px; color: var(--ok); }
+  .ed-footer .can.no { color: var(--warn); }
+  .ed-footer .pri { padding: 10px 20px; font-size: 14px; }
+  .ed-footer .est { font-size: 11.5px; color: var(--sub); margin-right: auto; }
+  .hint { font-size: 11px; color: var(--sub); margin-top: 8px; }
+  /* #lbCount / #lbBar 的样式统一在 ui.css 的灯箱那一段 */
+  dialog.script { background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 4px; padding: 20px; width: 520px; max-width: 92vw; margin: auto; }
+  dialog.script::backdrop { background: rgba(0,0,0,.6); }
+  dialog.script textarea { width: 100%; height: 200px; background: var(--input); border: 1px solid var(--line); border-radius: 3px; color: var(--txt); font-size: 13px; padding: 10px; font-family: inherit; resize: vertical; }
+  dialog.script .tip { font-size: 11.5px; color: var(--sub); margin: 8px 0 12px; }
+  .script-row { display: flex; gap: 8px; justify-content: flex-end; }
+  /* 小图标按钮：与图片工作台的 .ghost 同一套观感（透明底 + 细描边 + 悬停主题色） */
+  .op-btn { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 6px;
+    border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--sub);
+    font-size: 12px; line-height: 1; cursor: pointer; user-select: none; transition: all .15s; }
+  .op-btn:hover { border-color: var(--acc); color: var(--acc); }
+  .op-btn.danger:hover { border-color: var(--err); color: var(--err); }
+  .op-btn.armed { border-color: var(--err); color: var(--err); background: rgba(220,38,38,.08); width: auto; }
+  .op-btn.grip { cursor: grab; }
+  .op-btn.grip:active { cursor: grabbing; }
+  .op-btn.addshot { height: 26px; padding: 0 12px; font-size: 12px; flex: 0 0 auto; white-space: nowrap; }
+  .op-btn.addshot:hover { border-color: var(--ok); color: var(--ok); }
+
+</style>
+<body>
+
+<div class="page-main">
+<header>
+  <span class="brand">导演台</span>
+  <div style="position:relative">
+    <span class="tab" id="projSwitch" style="cursor:pointer"><span data-icon="film" data-size="13"></span> 我的短片 <b id="projCount">1</b> <span data-icon="chevronDown" data-size="11"></span></span>
+    <div id="projMenu" hidden style="position:absolute;top:calc(100% + 8px);left:0;background:var(--panel);border:1px solid var(--line);border-radius:4px;min-width:250px;z-index:80;box-shadow:0 12px 32px rgba(0,0,0,.25);padding:6px"></div>
+  </div>
+  <input class="pname" id="projName" value="新项目">
+  <span class="saved" id="saveState">已保存</span>
+  <!-- 普通提示就写在这行小字里，几秒后淡出：不再每点一下都弹浮层 -->
+  <span class="opstate" id="opState"></span>
+  <span class="sp"></span>
+  <!-- 导入侧两块：FCPXML 项目 / 最近导出里找回那一份。
+       本机视频与资产库素材都走中栏的「导入视频 / 素材」（同一份 AssetPicker），页头不再并排。
+       旧「导入项目 / 导出项目」（JSON 引用清单）已按 2026-10 用户要求删掉：
+       项目进出统一走 FCPXML，换机时素材用「导出媒体包」。 -->
+  <button class="ghost" id="importFcpBtn" title="导入 Final Cut Pro / 达芬奇导出的 FCPXML：保留镜头顺序、入出点、倍速、配音位置与字幕；本机资产库认得出的素材直接接上，第三方外链导入后自动存一份到本机"><span data-icon="upload" data-size="13"></span> 导入 FCPXML</button>
+  <input type="file" id="importFcpFile" accept=".fcpxml,.xml,application/xml,text/xml" hidden>
+  <button class="ghost" id="recentExportsBtn" title="最近 50 次导出：下载，或复制一份到本机资产库"><span data-icon="clock" data-size="13"></span> 最近导出</button>
+  <!-- 导出出口（成片 / 素材 / FCPXML / 媒体包）由 web/domain/export-formats.js 那张表现画现绑：
+       按钮文字、图标、title、顺序全在表里，加一种导出不再动这里。
+       这里只有**导出**，没有任何「播放」：看效果走剪辑 → 全片那一排的实时预览。 -->
+  <span id="exportBtns"></span>
+  <input type="file" id="importMediaFile" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" hidden>
+</header>
+<div id="banner" hidden></div>   <!-- 出错 / 异常时才出现；内容由 web/ui/ui.js 的 ErrBanner 写，样式在 ui.css -->
+
+<div class="layout">
+  <div class="col col-left">
+    <div class="left-head">
+      <b>分镜 <span id="scCount">0</span></b>
+      <button class="script-btn sec" id="scriptEditBtn" title="剧本：每一镜的画面写成一份可编辑的稿子；台词不在这里，在剪辑右栏「台词」那一档改"><span data-icon="docTab" data-size="13"></span> 剧本</button>
+      <button class="script-btn" id="scriptBtn" title="AI 分镜：贴剧本拆一份新的 / 对着现有分镜说一句话让它改 / 接着往下拆"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
+    </div>
+    <div id="scenesBox"></div>
+    <button class="add-scene" id="addScene">＋ 加一个场景</button>
+    <div class="gen-all">
+      <button class="pri" id="genAll">生成全部分镜</button>
+      <div class="note" id="genAllNote"></div>
+    </div>
+  </div>
+
+  <div class="col col-mid" id="midCol"></div>
+
+  <div class="col col-right" id="edCol"></div>
+</div>
+
+<dialog class="script" id="scriptDlg">
+  <b style="font-size:14px">粘贴剧本，一键拆分镜</b>
+  <div class="tip">每行会变成一个分镜；以「#」开头的行作为场景名。</div>
+  <textarea id="scriptText" placeholder="第一镜的描述…
+第二镜的描述…
+…"></textarea>
+  <div class="script-row">
+    <button class="ghost" id="scriptCancel">取消</button>
+    <button class="pri" id="scriptOk" style="padding:8px 18px">拆分</button>
+  </div>
+</dialog>
+
+
+</body>
