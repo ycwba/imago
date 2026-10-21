@@ -1,5 +1,5 @@
 /* 本机落盘的存储层：磁盘余量口径 + 按类型另存（/save*）+ 本机资产库那一份索引与读文件。
-   2026-10-20 从 server/app.js 原样搬出（审查报告 §6.1-1）：这里只有业务助手与落盘口径，
+   2026-10-20 从 server/app.js 原样搬出：这里只有业务助手与落盘口径，
    请求解析与响应在 server/routes/save.js、server/routes/local-assets.js、server/routes/usage.js。
    目录（LOCAL_DIR / RENDER_DIR）、dataDirPath、log、MIME、spawnSync 由 app 组合根注入 ——
    路径口径全站只有那一处（path.resolve，绝对路径要能直接用），这里不重复算。 */
@@ -16,7 +16,7 @@ function createLocalAssetsStore(deps) {
   /* ---------- 写媒体之前先问一句「这块盘还剩多少」 ----------
      以前是等 ENOSPC 抛出来才报错，而那一句多半落在 handler 的 catch 里只进日志：
      界面上看到的是卡片当场换图、toast 说「已保存」，刷新后资产库里没有它 ——
-     「说成功了而其实没落盘」是本项目反复拦的那一类（见 §4「存盘失败必须看得见」）。
+     「说成功了而其实没落盘」是本项目反复拦的那一类（「存盘失败必须看得见」）。
      三条口径：
      ① **只在本机问、不起子进程**：`fs.statfsSync` 拿 `bsize × bavail`（Node 19.6+）。
         老 Node 上没有这个 API 就当「问不出来」，**照原样继续写** —— 量不到空间不是拒绝服务的理由；
@@ -230,7 +230,7 @@ function createLocalAssetsStore(deps) {
       return s === base || s.startsWith(base + path.sep);
     } catch { return false; }
   }
-  /* 目录内容指纹表（判重按**内容 sha1 不按文件名**，见 §G）。
+  /* 目录内容指纹表（判重按**内容 sha1 不按文件名**）。
      以前对目录里**每一个**文件都 readFileSync + sha1 —— `文件\视频` 512 个文件 / 788 MB，
      实测外推约 1,848 ms 的**同步**阻塞（全在请求回调里），期间轮询、/asset 取图、/getv 播放
      全部停摆。而判重本来就是「同 size 才可能同内容」，所以改成**按 size 建桶、懒算 sha1**：

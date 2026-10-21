@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 冷启动探针（批次 0.1 / 0.3）：一次全新 profile 的 headless 导航，量首屏的六个头号数字：
+/* 冷启动探针：一次全新 profile 的 headless 导航，量首屏的六个头号数字：
      FCP、DCL、load、TTI、首屏脚本字节、JS 解析时间（外加脚本数 / 长任务 / 堆用量做诊断）。
    数据来源只有两处：页面的 Navigation / Paint / Resource / Long Task 计时，以及 CDP
    `Performance.getMetrics`（V8 编译耗时、脚本执行耗时、JSHeapUsedSize）。

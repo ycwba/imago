@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /* 静态纪律判据（常驻）—— 跑法：`node tests/static-guards.cjs`
-   报告 §7.3② 那几条「纪律」，以前只写在文档里，所以谁都能破：
-     G1  HTML 串里不许出现内联事件（`onclick="…"`）—— CSP `script-src 'self'` 会拦（P0-12）
-     G2  创建/提交调用点所在函数必须出现 `maybeSubmitted`（P0-3/4/6 那一整类）
-     G3  空 `catch {}` 必须写明原因（§4：396 处里混着真错误）
+   下面这组「纪律」，以前只写在文档里，所以谁都能破：
+     G1  HTML 串里不许出现内联事件（`onclick="…"`）—— CSP `script-src 'self'` 会拦
+     G2  创建/提交调用点所在函数必须出现 `maybeSubmitted`
+     G3  空 `catch {}` 必须写明原因（存量里混着真错误）
      G4  `#RRGGBB` 必须走令牌（`var(--x,#hex)` 的回退写法算走令牌）
      G5  页面侧不许出现 `_ddRebuild`（绕开 `Dropdowns.sync` 的私有物）
-     G6  错误文案只许走 `errText`（§4：145 处各写一遍，同一个错误每页一句话）
-     G7  助手每条动作都要在 ACTION_META 里登记 effect 与 route（§6.1-4 / §6.2：漏一条=把花钱的当只读、按页过滤悄悄失效）
-     G8  `window.__*` 后门：写了没人读的死钩子、页面挂的钩子卸载时不清（§6.2）
-     G9  localStorage 读写必须在 try 内或经 `window.LS`（C14：隐私模式一读就抛，页面不该各写一层）
-     G10 全库只许一处 `createElement('link')`（C2：页面 CSS 注入只剩 page-css.js 一份）
+     G6  错误文案只许走 `errText`（最早数的 145 处各写一遍，同一个错误每页一句话）
+     G7  助手每条动作都要在 ACTION_META 里登记 effect 与 route（漏一条=把花钱的当只读、按页过滤悄悄失效）
+     G8  `window.__*` 后门：写了没人读的死钩子、页面挂的钩子卸载时不清
+     G9  localStorage 读写必须在 try 内或经 `window.LS`（隐私模式一读就抛，页面不该各写一层）
+     G10 全库只许一处 `createElement('link')`（页面 CSS 注入只剩 page-css.js 一份）
      G11 同一条 CSS 规则只许定义一处（同一选择器 + 同一规则体；页面根类下的覆盖不算）
    存量违例一律**登记在案**（下面的表），基线只许减不许增：新出现一条身份就直接红。
    表是数据表，不是一堆 `|| true`；`GUARD_WRITE=1 node tests/static-guards.cjs` 会按现状重打表，
@@ -34,13 +34,13 @@ const G2_CREATE_NO_GUARD = [
   { id: 'web/pages/studio.js#createVideoOnce', max: 1, why: '同上：视频那一路也靠外层 submit 兜「结果未知」' },
   { id: 'web/domain/gen-forms.js#create', max: 1, why: 'AiGen.create 只把 Api.create 的错误往上透传；「结果未知」的判据在 Api.maybeSubmitted（api.js）与调用方，本层不重复判' },
   { id: 'web/domain/assetlib.js#retry', max: 1, why: '重试的调用方 pages/assets.js:583 在外面判 uncertain；本层只透传错误' },
-  { id: 'web/domain/gen-forms.js#synthTts', max: 1, why: '语音合成的调用方（pages/studio.js:1629 AiGen.synthTts）在上一层处理；本层只透传（§6.1-2 拆文件后随 AiGen 进 gen-forms.js）' },
+  { id: 'web/domain/gen-forms.js#synthTts', max: 1, why: '语音合成的调用方（pages/studio.js:1629 AiGen.synthTts）在上一层处理；本层只透传（拆文件后随 AiGen 进 gen-forms.js）' },
   { id: 'web/domain/canvas/gen.js#submit', max: 1, why: '画布提交由调用方 pages/canvas.js:643 判 maybeSubmitted；本层只发' },
   { id: 'web/domain/chars.js#ttsOnce', max: 1, why: '角色配音两条出口（chars.js:1564/1659）的调用方在外面收错误；本层只透传' },
-  { id: 'web/features/chat-tools.js#runGenerate', max: 1, why: '助手生成动作的另一个出口（会话里 3588 行那一路有 Api.maybeSubmitted 判据）；§6.1-2 拆文件后随动作表进 chat-tools.js，待并到同一收口' },
+  { id: 'web/features/chat-tools.js#runGenerate', max: 1, why: '助手生成动作的另一个出口（会话里 3588 行那一路有 Api.maybeSubmitted 判据）；拆文件后随动作表进 chat-tools.js，待并到同一收口' },
 ];
 
-/* G3 空 catch：现状 294 处 / 35 个文件（报告 §4 数的 396 处里含注释里举的反例，探测器只认代码）。
+/* G3 空 catch：现状 294 处 / 35 个文件（最早数的 396 处里含注释里举的反例，探测器只认代码）。
    ⚠ 2026-10-21 修探测器：`nonCodeMask` 以前不认正则字面量与模板串的 `${}` 嵌套，
    凡是有 `/["'“”《》]+$/` 这种带引号的字符类、或模板里再套模板的文件，从那一行起整份都算
    「注释里的例子」—— 同一份 engine.js 数出过 17 / 34 / 51 三个数，这张表谁也对不起谁。
@@ -48,43 +48,43 @@ const G2_CREATE_NO_GUARD = [
    逐位对过（全库 0 处把真代码当串、残余只差模板定界符）。计数第一次成为真数：
    逐处补原因后 engine.js / ui.js / pages/chars.js 归零（整行删掉），另四行按现状收紧。
    整类收敛，按文件计数；同一文件里新增一条就红。
-   原因同一句话（§4：「空 catch 里混着真错误」），只有例外原因不同的才单独写。 */
+   原因同一句话（「空 catch 里混着真错误」），只有例外原因不同的才单独写。 */
 const G3_EMPTY_CATCH = [
-  { file: 'web/features/chat.js', max: 39, why: '§4 存量：助手外壳（会话 / 渲染 / 发送）吞错的一批；§6.1-2 把工具循环与动作表拆去 chat-tools.js' },
-  { file: 'web/features/chat-tools.js', max: 7, why: '§4 存量：随工具循环与动作表搬过来的一批（拆文件不改行为，逐处补原因或显式处理）' },
-  { file: 'web/domain/assetlib.js', max: 7, why: '§4 存量：AssetLib 列表归一化吞错的一批（§6.1-2 拆出后只剩列表层与费用）' },
-  { file: 'web/pages/settings.js', max: 21, why: '§4 存量：设置页读盘/探测吞错的一批' },
-  { file: 'web/pages/studio.js', max: 23, why: '§4 存量：工作台吞错的一批' },
-  { file: 'web/director/playback.js', max: 24, why: '§4 存量：播放时间轴吞 DOM 异常的一批' },
-  { file: 'web/ui/workbench.js', max: 21, why: '§4 存量：灯箱/工作台吞错的一批' },
-  { file: 'web/ui/forms.js', max: 12, why: '§4 存量：随表单族从 ui.js 原样搬来的一批（拆文件不改行为，逐处补原因或显式处理）' },
-  { file: 'web/domain/local.js', max: 15, why: '§4 存量：本机资产读盘吞错的一批' },
-  { file: 'web/domain/api.js', max: 14, why: '§4 存量：取数/媒体地址层吞错的一批（§6.1-2 从 assetlib.js 拆出）' },
-  { file: 'web/app.js', max: 15, why: '§4 存量：前端入口吞错的一批' },
-  { file: 'web/ui/datasync.js', max: 12, why: '§4 存量：导入导出吞错的一批' },
-  { file: 'web/domain/asset-picker.js', max: 11, why: '§4 存量：选素材弹窗吞错的一批' },
-  { file: 'web/director/index.js', max: 10, why: '§4 存量：导演台装配吞错的一批' },
-  { file: 'web/domain/text-ai.js', max: 9, why: '§4 存量：文字 AI 吞错的一批' },
-  { file: 'web/ui/sidebar.js', max: 8, why: '§4 存量：侧栏吞错的一批' },
-  { file: 'web/pages/assets.js', max: 6, why: '§4 存量：资产库页吞错的一批' },
-  { file: 'web/domain/fav.js', max: 5, why: '§4 存量：收藏吞错的一批' },
-  { file: 'web/domain/gen-forms.js', max: 8, why: '§4 存量：型号/参数/配音表单族吞错的一批（§6.1-2 从 assetlib.js 拆出）' },
-  { file: 'web/core/page-context.js', max: 3, why: '§4 存量：页面上下文吞错的一批' },
-  { file: 'web/pages/canvas.js', max: 3, why: '§4 存量：画布页吞错的一批' },
-  { file: 'web/ui/kv.js', max: 3, why: '§4 存量：键值存储吞错的一批' },
-  { file: 'web/core/hooks.js', max: 2, why: '§4 存量：生命周期钩子吞错的一批' },
-  { file: 'web/domain/asset-transfer.js', max: 2, why: '§4 存量：搬运/转存吞错的一批' },
-  { file: 'web/ui/net.js', max: 2, why: '§4 存量：统一网络层吞错的一批' },
-  { file: 'web/ui/skills.js', max: 2, why: '§4 存量：Skill 面板吞错的一批' },
-  { file: 'web/boot-assistant.js', max: 1, why: '§4 存量：开机助手吞错的一批' },
-  { file: 'web/core/activity.js', max: 1, why: '§4 存量：活动记录吞错的一批' },
-  { file: 'web/director/fcpxml-import.js', max: 1, why: '§4 存量：FCPXML 导入吞错的一批' },
-  { file: 'web/director/fcpxml.js', max: 1, why: '§4 存量：FCPXML 导出吞错的一批' },
-  { file: 'web/director/split-assets.js', max: 1, why: '§4 存量：拆素材吞错的一批' },
-  { file: 'web/domain/asr.js', max: 1, why: '§4 存量：转写吞错的一批' },
-  { file: 'web/domain/canvas/view.js', max: 1, why: '§4 存量：画布视图吞错的一批' },
-  { file: 'web/shell-boot.js', max: 1, why: '§4 存量：外壳启动吞错的一批' },
-  { file: 'web/ui/toast.js', max: 1, why: '§4 存量：提示条吞错的一批' },
+  { file: 'web/features/chat.js', max: 39, why: '存量：助手外壳（会话 / 渲染 / 发送）吞错的一批；工具循环与动作表已拆去 chat-tools.js' },
+  { file: 'web/features/chat-tools.js', max: 7, why: '存量：随工具循环与动作表搬过来的一批（拆文件不改行为，逐处补原因或显式处理）' },
+  { file: 'web/domain/assetlib.js', max: 7, why: '存量：AssetLib 列表归一化吞错的一批（拆出后只剩列表层与费用）' },
+  { file: 'web/pages/settings.js', max: 21, why: '存量：设置页读盘/探测吞错的一批' },
+  { file: 'web/pages/studio.js', max: 23, why: '存量：工作台吞错的一批' },
+  { file: 'web/director/playback.js', max: 24, why: '存量：播放时间轴吞 DOM 异常的一批' },
+  { file: 'web/ui/workbench.js', max: 21, why: '存量：灯箱/工作台吞错的一批' },
+  { file: 'web/ui/forms.js', max: 12, why: '存量：随表单族从 ui.js 原样搬来的一批（拆文件不改行为，逐处补原因或显式处理）' },
+  { file: 'web/domain/local.js', max: 15, why: '存量：本机资产读盘吞错的一批' },
+  { file: 'web/domain/api.js', max: 14, why: '存量：取数/媒体地址层吞错的一批（从 assetlib.js 拆出）' },
+  { file: 'web/app.js', max: 15, why: '存量：前端入口吞错的一批' },
+  { file: 'web/ui/datasync.js', max: 12, why: '存量：导入导出吞错的一批' },
+  { file: 'web/domain/asset-picker.js', max: 11, why: '存量：选素材弹窗吞错的一批' },
+  { file: 'web/director/index.js', max: 10, why: '存量：导演台装配吞错的一批' },
+  { file: 'web/domain/text-ai.js', max: 9, why: '存量：文字 AI 吞错的一批' },
+  { file: 'web/ui/sidebar.js', max: 8, why: '存量：侧栏吞错的一批' },
+  { file: 'web/pages/assets.js', max: 6, why: '存量：资产库页吞错的一批' },
+  { file: 'web/domain/fav.js', max: 5, why: '存量：收藏吞错的一批' },
+  { file: 'web/domain/gen-forms.js', max: 8, why: '存量：型号/参数/配音表单族吞错的一批（从 assetlib.js 拆出）' },
+  { file: 'web/core/page-context.js', max: 3, why: '存量：页面上下文吞错的一批' },
+  { file: 'web/pages/canvas.js', max: 3, why: '存量：画布页吞错的一批' },
+  { file: 'web/ui/kv.js', max: 3, why: '存量：键值存储吞错的一批' },
+  { file: 'web/core/hooks.js', max: 2, why: '存量：生命周期钩子吞错的一批' },
+  { file: 'web/domain/asset-transfer.js', max: 2, why: '存量：搬运/转存吞错的一批' },
+  { file: 'web/ui/net.js', max: 2, why: '存量：统一网络层吞错的一批' },
+  { file: 'web/ui/skills.js', max: 2, why: '存量：Skill 面板吞错的一批' },
+  { file: 'web/boot-assistant.js', max: 1, why: '存量：开机助手吞错的一批' },
+  { file: 'web/core/activity.js', max: 1, why: '存量：活动记录吞错的一批' },
+  { file: 'web/director/fcpxml-import.js', max: 1, why: '存量：FCPXML 导入吞错的一批' },
+  { file: 'web/director/fcpxml.js', max: 1, why: '存量：FCPXML 导出吞错的一批' },
+  { file: 'web/director/split-assets.js', max: 1, why: '存量：拆素材吞错的一批' },
+  { file: 'web/domain/asr.js', max: 1, why: '存量：转写吞错的一批' },
+  { file: 'web/domain/canvas/view.js', max: 1, why: '存量：画布视图吞错的一批' },
+  { file: 'web/shell-boot.js', max: 1, why: '存量：外壳启动吞错的一批' },
+  { file: 'web/ui/toast.js', max: 1, why: '存量：提示条吞错的一批' },
 ];
 
 /* G4 裸色值：现状 3 处 / 3 个文件（走令牌的 `var(--x,#hex)` 回退写法不算违例）。
@@ -103,7 +103,7 @@ const G4_BARE_HEX = [
    出现任何一条都是「绕开 Dropdowns.sync 直接调私有重建」。 */
 const G5_DD_REBUILD = [];
 
-/* G6 手写错误文案：报告 §4 数的 145 处 `(e && e.message) || e` 已全部改调 `window.errText`
+/* G6 手写错误文案：最早数的 145 处 `(e && e.message) || e` 已全部改调 `window.errText`
    （唯一实现在 web/ui/net.js，那一层自己不算）。现状 3 处，留下的都必须是「拿不到公共件」或
    「根本不是在写文案」：只许减。 */
 const G6_HAND_ERROR_TEXT = [
@@ -112,7 +112,7 @@ const G6_HAND_ERROR_TEXT = [
   { file: 'web/domain/api.js', max: 1, why: '这一处读 message 是「给错误分类」（判 404 / 已取消），不是给人看的那句，换成文案层反而不对' },
 ];
 
-/* G7 助手动作与它的策略登记表（§6.1-4 + §6.2「新增动作要改 6 张表」）：一张表必须是**完整**的。
+/* G7 助手动作与它的策略登记表：一张表必须是**完整**的。
    动作面（ACTS）与策略面（ACTION_META：effect / route / undo）现在是两张表，而不是从前的四张
    （ACT_ROUTE + ACTION_EFFECT + ACTION_UNDO）—— 因为漏登记的坏法实测出现过：
    `ACTION_EFFECT[id] || 'read'` 把一条花钱的动作当只读（卡片不标 irreversible、不画撤销、
@@ -123,7 +123,7 @@ const G6_HAND_ERROR_TEXT = [
    现状 0 条 —— 表必须是空的。 */
 const G7_ACT_EFFECT = [];
 
-/* G8 `window.__*` 后门（§6.2：~20 个钩子里混着「写了没人读的死钩子」与「页面卸载没清的钩子」）。
+/* G8 `window.__*` 后门（~20 个钩子里混着「写了没人读的死钩子」与「页面卸载没清的钩子」）。
    两种坏法分开数，因为它们会各自漂向不同的事故：
      · 写了没人读 —— 上一代外壳读它、迁移后没人读，改一处另一处还指着旧语义（`__skFlush` 那一族就是）；
      · 页面挂的钩子卸载时不清 —— 页面被 KeepAlive 留在原地，钩子却还指着已经离开的那一页，
@@ -144,7 +144,7 @@ const G9_NAKED_LS = [];
    各页从前各写一份 ensureCss（收藏/用量还只判 href 后缀），现在统一走 `ensureCss(href,tag)`；
    这一条保证没人再开第二条注入口。 */
 const G10_LINK_CREATE = [
-  { file: 'web/core/page-css.js', max: 1, why: '页面样式表按需挂进 head 的唯一实现（C2）' },
+  { file: 'web/core/page-css.js', max: 1, why: '页面样式表按需挂进 head 的唯一实现' },
 ];
 
 /* G11 同一条 CSS 规则只许定义一处：同一**完整选择器 + 同一规则体**。
@@ -496,36 +496,36 @@ function detectHookBackdoor(file, src) {
 }
 
 const GUARDS = [
-  { key: 'G1', title: 'innerHTML 串里的内联事件（P0-12）', table: G1_INLINE_HANDLER, kind: 'entries', detect: detectInlineHandler,
+  { key: 'G1', title: 'innerHTML 串里的内联事件', table: G1_INLINE_HANDLER, kind: 'entries', detect: detectInlineHandler,
     sample: `const h = '<button onclick="doThing()">按</button>';`,
     ok: `const h = '<button>按</button>'; box.onclick = doThing;` },
-  { key: 'G2', title: '创建/提交调用点缺「结果未知」判据（P0-3/4/6）', table: G2_CREATE_NO_GUARD, kind: 'entries', detect: detectCreateNoGuard,
+  { key: 'G2', title: '创建/提交调用点缺「结果未知」判据', table: G2_CREATE_NO_GUARD, kind: 'entries', detect: detectCreateNoGuard,
     sample: `async function makeIt(prov) { const r = await Api.create(prov, { model: 'm' }); return r; }`,
     ok: `async function makeIt(prov) { const r = await Api.create(prov, { model: 'm' }); if (Api.maybeSubmitted(r)) return 'unknown'; return r; }` },
-  { key: 'G3', title: '空 catch 没写原因（§4）', table: G3_EMPTY_CATCH, kind: 'counts', detect: detectEmptyCatch,
+  { key: 'G3', title: '空 catch 没写原因', table: G3_EMPTY_CATCH, kind: 'counts', detect: detectEmptyCatch,
     sample: `try { x(); } catch { }`,
     ok: `try { x(); } catch { /* 收尾清理，失败也要往下走 */ }\n// 反例写法写在注释里：try { y(); } catch {}` },
-  { key: 'G4', title: '裸 #RRGGBB 没走令牌（§3）', table: G4_BARE_HEX, kind: 'counts', detect: detectBareHex,
+  { key: 'G4', title: '裸 #RRGGBB 没走令牌', table: G4_BARE_HEX, kind: 'counts', detect: detectBareHex,
     sample: `el.setAttribute('style', 'color:#ff0000');`,
     ok: `el.setAttribute('style', 'color:var(--pri,#6957e8)');` },
-  { key: 'G5', title: '页面侧用 Dropdowns 私有物 _ddRebuild（§6.1-7）', table: G5_DD_REBUILD, kind: 'entries', detect: detectDdRebuild,
+  { key: 'G5', title: '页面侧用 Dropdowns 私有物 _ddRebuild', table: G5_DD_REBUILD, kind: 'entries', detect: detectDdRebuild,
     sample: `host._ddRebuild();`,
     ok: `Dropdowns.sync(host);` },
-  { key: 'G6', title: '手写错误文案没走 errText（§4）', table: G6_HAND_ERROR_TEXT, kind: 'counts', detect: detectHandErrorText,
+  { key: 'G6', title: '手写错误文案没走 errText', table: G6_HAND_ERROR_TEXT, kind: 'counts', detect: detectHandErrorText,
     sample: `try { x(); } catch (e) { Toast.err((e && e.message) || String(e)); }`,
     ok: `try { x(); } catch (e) { Toast.err(errText(e)); }\n// 注释里举反例：(e && e.message) || e\nconst kind = String(e && e.message) === '已取消';` },
-  { key: 'G7', title: '助手动作缺策略登记（effect / route，§6.1-4 + §6.2）', table: G7_ACT_EFFECT, kind: 'entries', detect: detectActEffect,
+  { key: 'G7', title: '助手动作缺策略登记（effect / route）', table: G7_ACT_EFFECT, kind: 'entries', detect: detectActEffect,
     sample: "  const ACTS = {\n    generate: { title: 'a', run: f },\n    sneaky: { title: 'b', run: f },\n    half: { title: 'c', run: f },\n  };\n  const ACTION_META = {\n    generate: { effect: 'cost', route: '*' },\n    half: { effect: 'write' },\n  };",
     ok: "  const ACTS = {\n    generate: { title: 'a', run: f },\n    fill: { title: 'b', run: f },\n  };\n  const ACTION_META = {\n    generate: { effect: 'cost', route: '*' },\n    fill: { effect: 'ui', route: '*' },\n  };" },
-  { key: 'G8', title: 'window.__* 后门：没人读的死钩子 / 页面钩子卸载没清（§6.2）', table: G8_HOOK, kind: 'entries', detect: detectHookBackdoor,
+  { key: 'G8', title: 'window.__* 后门：没人读的死钩子 / 页面钩子卸载没清', table: G8_HOOK, kind: 'entries', detect: detectHookBackdoor,
     /* 合成文件名要落在 pages/ 下，否则「卸载没清」那一半永远走不到（判据按写入方在哪一层分）。 */
     sampleFile: 'web/pages/synthetic.js', okFile: 'web/pages/synthetic.js',
     sample: `window.__deadOnPurpose = () => 1;`,
     ok: `window.__aliveOnPurpose = () => 1;\nfunction paint() { const f = window.__aliveOnPurpose; if (f) f(); }\nfunction leave() { window.__aliveOnPurpose = null; }` },
-  { key: 'G9', title: '裸 localStorage 读写（C14）', table: G9_NAKED_LS, kind: 'counts', detect: detectNakedLocalStorage,
+  { key: 'G9', title: '裸 localStorage 读写', table: G9_NAKED_LS, kind: 'counts', detect: detectNakedLocalStorage,
     sample: `const v = localStorage.getItem('sk_k');`,
     ok: `try { const v = localStorage.getItem('sk_k'); } catch (e) { /* 隐私模式：没有就没有 */ }\nconst w = window.LS.get('sk_k');` },
-  { key: 'G10', title: "全库只许一处 createElement('link')（C2）", table: G10_LINK_CREATE, kind: 'counts', detect: detectLinkCreate,
+  { key: 'G10', title: "全库只许一处 createElement('link')", table: G10_LINK_CREATE, kind: 'counts', detect: detectLinkCreate,
     sample: `const l = document.createElement('link'); head.append(l);`,
     ok: `// 全站只有这一处 document.createElement('link')，注释里举例不算\nconst l = document.createElement('style');` },
   { key: 'G11', title: '同一条 CSS 规则定义两处（同一选择器 + 同一规则体）', table: G11_DUP_CSS, kind: 'entries', detect: detectDupCss,

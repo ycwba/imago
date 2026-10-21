@@ -136,7 +136,7 @@ async function aiStoryboard() {
     onChange: (key, api) => {
       const cur = api.values();
       /* 「这一档要哪几行、各行怎么说」现读，不在 fields 里写死两份（初值那份会被这一次调用盖掉）。
-         时长与镜数**不再是输入框**（批次①）：区间来自可用型号声明的交集，镜数只给一句软上限预估，
+         时长与镜数**不再是输入框**：区间来自可用型号声明的交集，镜数只给一句软上限预估，
          它既不截断也不禁用「开始」。 */
       const t = cur.task;
       api.set('script', {
@@ -243,20 +243,20 @@ ${fillSkillVars(splitSysOf(), boardVars)}
     (j.scenes || []).forEach((sc, si) => {
       const scName = String(sc.name || '').trim() || ('场景 ' + (si + 1));
       (sc.shots || []).forEach((s, shi) => {
-        /* AI 给多少镜就列多少镜（批次①删掉了这里的 slice）：以前超上限的那几条**默默不列出来**，
+        /* AI 给多少镜就列多少镜（这里的 slice 已删）：以前超上限的那几条**默默不列出来**，
            用户以为拆了 12 镜、剧本后面那半段就这样没了。秒数原样带着，越界由落盘后那一夹处理。
            标签里那个秒数与真正写进镜头的是同一判据（`durWritable`）—— 没有依据可校验时标签也不许显示，
            否则弹窗说「这一镜 7s」而镜头上压根没有 duration。
-           批次③把这一条变成**结构化的一份**（场名 / 镜头名 / 秒数 / 正文各一格，`mode:'board'`）：
+           后来把这一条变成**结构化的一份**（场名 / 镜头名 / 秒数 / 正文各一格，`mode:'board'`）：
            以前落盘要拿标签正则回查「场景名 + 镜头号」，用户改一个字就对不上号，而弹窗里拖过、删过几条
            之后序号本身就会漂。`key` = 「场名·该场第几镜」，点「重新规划」后靠它认出哪几条是用户改过的。 */
         const ds = Math.round(Number(s.duration));
         const dur = durWritable() && Number.isFinite(ds) && ds > 0 ? ds : null;
         const no = shi + 1;
-        /* 批次④（方案 §4.3）：镜头名与画面说明**分家**。以前这里写 `s.note.slice(0, 12)` ——
+        /* 镜头名与画面说明**分家**。以前这里写 `s.note.slice(0, 12)` ——
            长的那一句说明被砍成 12 字当标题，原文两头都没留（既不在名字里也不在别处）。
            现在 `name` 只取 AI 给的短名（没有就空着，落盘时退回「镜头 N」），`note` 整条原样存进 `sh.note`。
-           `line` 是这一镜要念的话（§4.1）：只有文字，不进配音轨，右栏那一格直接看得见。 */
+           `line` 是这一镜要念的话：只有文字，不进配音轨，右栏那一格直接看得见。 */
         items.push({
           key: scName + '·' + no,
           scene: scName,
@@ -362,7 +362,7 @@ ${fillSkillVars(splitSysOf(), boardVars)}
      全部被滤掉时它给的是一份空表而不是 null（只看 !reviewed 会带着空表往下走）。 */
   if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
   /* 按交回来的**场名**归组重建。条目在这一场里的先后就是用户在弹窗里拖出来的先后 ——
-     `shotNo` 只给报告与标签用，这里一律按数组顺序落盘（批次③之前是拿标签正则回查序号）。 */
+     `shotNo` 只给报告与标签用，这里一律按数组顺序落盘（更早是拿标签正则回查序号）。 */
   const newScenes = [];
   reviewed.forEach(row => {
     const scName = String(row.scene || '').trim() || ('场景 ' + (newScenes.length + 1));
@@ -371,12 +371,12 @@ ${fillSkillVars(splitSysOf(), boardVars)}
     const sh3 = newShot();
     sh3.name = String(row.name || '').trim().slice(0, 12) || ('镜头 ' + (sc.shots.length + 1));
     sh3.prompt = String(row.text || '');
-    /* 时长原样接 AI 那一个（或用户在弹窗里改的那一个）：批次①之后已经没有「用户填的目标时长」可兜底，
+    /* 时长原样接 AI 那一个（或用户在弹窗里改的那一个）：现在已经没有「用户填的目标时长」可兜底，
        也没有一份全站通用的秒数能洗。AI 没给、或本机没有能判合法的声明时**不写这一项** ——
        镜头上没有 duration 等于「交给平台默认」，与右栏那句「这一家没声明区间就不碰」同一个立场；
        给了但越界的由下面那一夹按型号收进区间并报数。 */
     setShotDur(sh3, row.dur);
-    /* 批次④两个字段各归各位：台词只写在 `sh.line`（不进 `sh.prompt`、不进配音轨），
+    /* 台词与画面说明两个字段各归各位：台词只写在 `sh.line`（不进 `sh.prompt`、不进配音轨），
        画面说明整条留在 `sh.note`（不再被压成名字）。两者都按用户可能在弹窗里改过的那一份落。 */
     sh3.line = String(row.line || '').trim();
     sh3.lineWho = String(row.who || '').trim();
@@ -392,7 +392,7 @@ ${fillSkillVars(splitSysOf(), boardVars)}
     if (v.style) sh3.prompt = (sh3.prompt + '，' + v.style).trim();
     sc.shots.push(sh3);
   });
-  /* 写入期兜底（批次①里最关键的一条）：批量生成走 genAll → submitCandidate，提交体发的是
+  /* 写入期兜底：批量生成走 genAll → submitCandidate，提交体发的是
      `sh.duration` 原值，而「按型号回写」那一句只在**打开这一镜右栏**时执行 —— 这条链一次都不跑。
      用户不逐镜点开、直接点「生成全部分镜」，平台收到的就是越界时长。
      镜头对象是活引用（追加那一支里 placeScenesInto 也只是把它们挪进已有场景），夹在这里就等于夹在账上。 */
@@ -409,7 +409,7 @@ ${fillSkillVars(splitSysOf(), boardVars)}
      素材那几张带不上时会照实报「参考图最多 N 张」，而不是静默少带几张。 */
   /* ---- 新素材（用户认下的那几条）：建档 + 占位符 ----
      建档落在**当前短片所在的项目组**同名素材组里（组名即素材组名）。
-     出图**不在这里自动发**：出图要花钱，按 §6.2「任务号一落盘就等于一次已付的钱」，
+     出图**不在这里自动发**：出图要花钱，按 AGENTS §6.2「任务号一落盘就等于一次已付的钱」，
      留给用户在素材库里点「生成素材图」—— 这里只把档建好、把提示词里的占位符写上。 */
   const allShots = newScenes.flatMap(sc => sc.shots || []);
   const assetGroup = Groups.assetGroupName(WSOf(), projOf());

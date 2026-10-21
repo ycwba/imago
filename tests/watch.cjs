@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-/* watch 模式（批次 8 V4）—— 跑法：`npm run test:watch`（或 `node tests/watch.cjs`）
+/* watch 模式 —— 跑法：`npm run test:watch`（或 `node tests/watch.cjs`）
    fs.watch 监听 web/ 与 server/，任何改动防抖 800ms 后触发 `map.cjs --changed --run`
-   （按改动挑常驻判据、用 V8 选出来的 node 起子进程；浏览器判据不在这一档，那是 --run --e2e 的事）。
+   （按改动挑常驻判据、用现选的 node 起子进程；浏览器判据不在这一档，那是 --run --e2e 的事）。
    两条硬要求：
      · 800ms 防抖 —— 一次保存常常是 rename+change 两枚事件，编辑器还会连击；
      · 在途合并 —— 一轮判据没跑完期间再改，不重复起第二个进程，只记「跑完还要再来一轮」，

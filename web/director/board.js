@@ -45,7 +45,7 @@ function boardListText(snap) {
    落盘只按这些 id 找，不会再拿序号回查一遍（那时序号已经会漂）。
    返回 {items, skipped, noop}：两个计数是「AI 交的东西没全采纳」的原因账，
    报告时要照实说 —— 静默吞掉 = 用户以为它改了，其实一个字没动。
-   ⚠ 这里**不再有任何镜数上限、也不 clamp 时长**（批次①改的）：以前 `cap` 会把超出的几条
+   ⚠ 这里**不再有任何镜数上限、也不 clamp 时长**：以前 `cap` 会把超出的几条
    默默压掉不列出来，以前 `sbSec` 拿一份全站都没有的 2–15 把 AI 的秒数「洗」成合法 ——
    洗过的值落进镜头、再进提交体，界面上那句「2–15」就成了假话。现在 AI 给多少条就列多少条，
    秒数原样带着，越界由落盘后的 `clampShotDurations` 按**这一镜自己的型号**夹回去并报数。 */
@@ -72,7 +72,7 @@ function boardPlanOf(changes, snap, opt) {
     const key = nameKey(ref);
     return key ? (snap.find(x => nameKey(x.name) === key) || null) : null;
   };
-  /* 「AI 说的第 N 镜」翻成那一条镜头，全站只有这一处（批次④ 加了「删镜头」「挪顺序」两条分支之后，
+  /* 「AI 说的第 N 镜」翻成那一条镜头，全站只有这一处（加了「删镜头」「挪顺序」两条分支之后，
      同一句 `S.shots[parseInt(ch.shot, 10) - 1]` 在三个分支里各抄了一遍 —— 只要有一支漏掉那个 `-1`
      或忘了往下翻 id，「AI 说第 2 镜」就动到第 3 镜，而审查弹窗里每一行都看着像对的。 */
   const shotAt = ch => {
@@ -159,7 +159,7 @@ function boardPlanOf(changes, snap, opt) {
         label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur), text: withStyle(raw) });
       return;
     }
-    /* 批次④ 4.4：删镜头与挪顺序。序号在这里就翻成 id（与 update / insert 同一立场）——
+    /* 删镜头与挪顺序。序号在这里就翻成 id（与 update / insert 同一立场）——
        审查弹窗里用户还能删条目、在一场内拖动，落盘只认 id 才不会挪错地方。 */
     if (action === 'delete') {
       const h = shotAt(ch);
@@ -210,7 +210,7 @@ function boardPlanOf(changes, snap, opt) {
    delete 走左栏那颗「×」摘出来的同一份 `removeShot`；move 先把那一条从数组里摘出来（**不**回收地址、
    **不**删空场景，它马上要被放回去），再交给同一套 head / after 分组放回去 —— 落点算式只有一份。
    还在生成的那一条不许删（`Wb.stLive`），单独计 `busy` 照实报数：这一路没有按钮上的就地二次确认，
-   而任务号一落盘就等于一次已付的钱（§4）。
+   而任务号一落盘就等于一次已付的钱（AGENTS §6.2）。
    返回 {upd, add, newScenes, skipped, del, mov, busy, lined, pics, at, clamped}：pics 是新镜头认领场景图的结果，
    at 指回第一个被落笔的镜头（调用方把光标放过去），clamped 是这一次夹回的时长有几镜（报数用），
    lined 是这一次真的写上台词的有几镜（报数用 —— 「带上了台词」与「点哪儿去合成」是同一句话的两半）。 */
@@ -321,9 +321,9 @@ function applyBoardPlan(items, scenes) {
       /* `it.moveShot` 在 = 被挪位置的那一条：**原样放回**，不新建（新建会把它的候选、配音、
          已定下的时长全丢掉，而用户只是让它换个顺序）。它也不进 `made`（场景图不喂它）
          与 `touched`（一个秒数都没改，落盘后的时长兜底不该顺手夹它）。
-         ⚠ 这个名字**刻意不叫 `shot`**：§J2 J② 按「`it.` + `shot`」认的是 AI 回的那个序号，
+         ⚠ 这个名字**刻意不叫 `shot`**：`it.shot` 这个名字留给 AI 回的那个序号，
          而序号只许在 `boardPlanOf` 里翻成 id 一次 —— 这一条装的是镜头对象本身，叫 `shot` 会被
-         判成「落盘那一步又按序号找镜头」，那是尺子的红线，不是这里的语义。 */
+         当成序号、落盘那一步又按序号找镜头，那是尺子的红线，不是这里的语义。 */
       const s = it.moveShot || mk(it, out.length + 1);
       out.push(s);
       if (it.moveShot) r.mov++;
@@ -373,7 +373,7 @@ function applyBoardPlan(items, scenes) {
      交出去是为了让页面不要再按 id 回查一遍 —— 回查就是第二份账，而这两件事都必须落在同一批人身上。 */
   return { upd: r.upd, add: r.add, newScenes: r.newScenes, skipped: r.skipped, del: r.del, mov: r.mov, busy: r.busy,
     lined: r.lined, chained: r.chained, unchained: r.unchained, pics: pics, at: at, touched: touched,
-    /* 写入期兜底（批次①）：批量生成发的是 `sh.duration` 原值，而按型号回写那一句只在打开这一镜右栏时跑。
+    /* 写入期兜底：批量生成发的是 `sh.duration` 原值，而按型号回写那一句只在打开这一镜右栏时跑。
        两条落盘路径各夹一次、夹完报数，这里（改现有分镜）与 aiBoardSplit 用的是同一份实现。 */
     clamped: clampShotDurations(touched) };
 }

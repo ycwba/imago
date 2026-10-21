@@ -16,8 +16,8 @@ export function createGen(E) {
     shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
     updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid,
   } = E;
-let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变（S1）
-/* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部，L55）。
+let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变
+/* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部）。
    以前只看 allShots()（= 当前短片）：在短片 A 上点了「生成全部分镜」，随手切到 B ——
    A 的镜头就永远停在「● 生成中」加一条不动的进度条，再也不会更新；
    批量收尾的消息还会写进 B 的左栏，看着像是在说 B。
@@ -141,7 +141,7 @@ function pollOne(t) {
         p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
       }
     } else if (r) {
-      /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片（旧 M21 的成因）。
+      /* 列表接口通了、但里面已经没有这条任务：多半被清理或过期了，结掉卡片。
          但要**连续几轮**都没有才认 —— 刚提交的任务可能还没同步进列表，游标翻页也可能这一轮没翻到，
          单次落空就把卡片结掉，正是「任务明明在做完的那一刻变成失败」的成因之一。 */
       c.miss = (c.miss || 0) + 1;
@@ -366,7 +366,7 @@ function spawnCandidateShot(sh) {
   return ns;
 }
 
-/* 「这一镜试过、但一条都没成」—— failed / cancelled 也算「没出画面」（L54）。
+/* 「这一镜试过、但一条都没成」—— failed / cancelled 也算「没出画面」。
    为什么必须单独判一次：批量提交失败（余额不足、上游 5xx、提示词被安全策略拦下）之后，
    那一镜留下的是一条 failed 候选；只按「有没有非草稿候选」筛的话，这些镜头**永远**进不了 todo ——
    补好额度再点「生成全部分镜」，得到的还是「所有镜头都已有生成结果，无需重复生成」，

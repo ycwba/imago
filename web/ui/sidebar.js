@@ -226,7 +226,7 @@
   let balPending = null; // 这一轮正在取的那几家（[{kid,name}]）。null = 还没算到要问谁
   /* 余额行的 name/available 来自上游接口，进 innerHTML 与 title 属性前必须转义
      （这一页是外壳顶层文档，注入等于拿到 localStorage 里的密钥配置）。
-     A3：一张卡固定三行 —— 名字一行、金额一行、状态一行，每行单行不换行、超长省略号、全文在 title。
+     一张卡固定三行 —— 名字一行、金额一行、状态一行，每行单行不换行、超长省略号、全文在 title。
      以前「可用 X · 冻结 Y」挤在一行还写 `word-break: break-all`，长数字把同一排的卡撑成三种高度。 */
   const balCardHTML = r => {
     /* 正在取的那几家：先画一张占位卡。名字已经知道了，钱还没到。
@@ -240,7 +240,7 @@
         <div class="l3">正在读取…</div></div>`;
     }
     const avail = window.esc(r.avail), frozen = window.esc(r.frozen), unit = window.esc(r.unit);
-    /* 失败那一行把原因摆到卡面上（L42）：以前只留「获取失败」四个字、原因藏进 title，
+    /* 失败那一行把原因摆到卡面上：以前只留「获取失败」四个字、原因藏进 title，
        而「为什么失败」正是这张卡唯一有用的信息 —— 现在状态那一行直接写原因（放不下才省略，
        title 里仍是全文）。正常行：金额一行、冻结一行。 */
     const tip = r.failed
@@ -256,7 +256,7 @@
   /* 这一轮要显示的那几张卡：**已有数的用旧值，还在路上的一律给占位卡**。
      顺序按「要问哪几家」来（balKids / balPending），所以某一家先回来时它就地变成数字，
      不会把后面的卡挤来挤去；缓存里有、这一轮没问的（刚被取消勾选之类）按原顺序补在后面。
-     过滤仍走 SbBal.filter —— 勾选名单只有那一份实现（§J），这里不自己判。 */
+     过滤仍走 SbBal.filter —— 勾选名单只有那一份实现，这里不自己判。 */
   function balList() {
     const byKid = new Map(balRows.map(r => [String(r.kid), r]));
     const names = new Map();
@@ -269,7 +269,7 @@
       || { kid: k, name: names.get(k) || k, pending: true });
     return window.SbBal ? SbBal.filter(list) : list;
   }
-  /* ---------- 区域摆几张卡（A1② + A2「导航优先，余额区定高」）----------
+  /* ---------- 区域摆几张卡（「导航优先，余额区定高」）----------
      默认态容器不再有 max-height 与内滚动，所以「定高」只能靠**内容条数**：本机产物一行
      + 最多 3 张卡 + 一行按钮（展开/收起与刷新同一行）。档位的分界线全按 .tmp 探针实测出来的
      高度算的（不是拍的数）：
@@ -278,8 +278,8 @@
      都得先留着 —— 437 + 204 + 298 = 939，所以三张卡要 966 的高才不挤导航（第一档）。
      ≤780 那一档 CSS 把行高整列压过一轮（固定块 188、导航 270、一张卡 74、不摆卡 190），
      所以 720..780 之间还能摆一张；再往下 661..719 一张都塞不进 —— 不摆卡，
-     只留「本机行 + 一行按钮」，传输状态照旧摆最上面（A1①）。
-     ≤660（文档点名的 640 那一档，实测要到 660 才真放得下摘要行）：整区退成一行摘要（A1③），
+     只留「本机行 + 一行按钮」，传输状态照旧摆最上面。
+     ≤660（文档点名的 640 那一档，实测要到 660 才真放得下摘要行）：整区退成一行摘要，
      点开弹层看全量，不堆卡。
      ⚠ 这一批数是**两排按钮**那时代测的；按钮收成一行后每档多出约一行的高度，
        所以这几条线由 `tests/e2e/sidebar-balance.cjs` 的高度扫描现管（摆出来的卡数与导航是否
@@ -331,7 +331,7 @@
         : ('本机已存 ' + s.count + ' 份 · ' + (window.fmtBytes(s.bytes) || '0 KB')),
     };
   }
-  /* A1③：一行摘要 ——「余额 3 家 · 存 2/5」。展开但窗口矮时还能带单位与「点开」，
+  /* 一行摘要 ——「余额 3 家 · 存 2/5」。展开但窗口矮时还能带单位与「点开」，
      收起态（66px）只留「图标 + 数字」，单位与说明文字由 CSS 藏掉。 */
   function balSumHTML() {
     const sto = balCap0 ? null : balSto();
@@ -352,9 +352,9 @@
     if (balShown !== null) t.push('点击看全部');
     return '<div class="sb-bal-sum" title="' + window.esc(t.join(' · ')) + '">' + segs.join('') + '</div>';
   }
-  /* ---------- 按钮族（A4）：公共件 .ghost mini + icon() ----------
+  /* ---------- 按钮族：公共件 .ghost mini + icon() ----------
      以前「刷新余额」是一行自拼的 div（`asButton` 补 role 才能点），「去设置」是 `.l2` 里一个
-     自拼的 `<a>` —— 两处都不是 §3.4 组件表里的东西。现在 `data-bal` 是这一族按钮的唯一出口：
+     自拼的 `<a>` —— 两处都不是 AGENTS §3.4 组件表里的东西。现在 `data-bal` 是这一族按钮的唯一出口：
      区域里、详情弹层里都靠它接点击（重画一次就重绑一次）。
      ⚠ 这一族里**不再有跳转钮**：「还有 N 家，去用量页」换成就地展开（`expand`），
        「去设置」撤掉（左下角那颗「设置」入口本来就在，同一件事不另给一条捷径）。 */
@@ -429,7 +429,7 @@
   /* 区域 = 摘要行 + 详情块（两块都画出来，哪一块可见**只由 CSS 判**：收起态与 ≤660px 矮窗看摘要，
      其余看详情 —— 窗口尺寸只有一套判据，JS 不重复判一遍）。
      balCap0 那一带是例外：详情块照旧在，摘要行只是补一个「点开看全量」的把手，
-     所以这一档把它排到**区域末尾**，A1①「传输状态摆最上面」才不被它顶下去。 */
+     所以这一档把它排到**区域末尾**，「传输状态摆最上面」才不被它顶下去。 */
   function balWrap(mirror, body) { return '<div class="sb-bal-body">' + mirror + body + '</div>'; }
   function balRegionHTML(mirror, body) {
     const sum = balSumHTML();
@@ -471,7 +471,7 @@
        而那一行以前就塞在余额区里，于是「关掉余额」会顺手把「显示本机产物」也一起关掉
        （两个开关共用一个容器，这一句 return 之后 mirrorBarHTML 根本没机会跑）。
        它自带标题（产物存本机），所以余额关掉时连分组标题也一起藏掉，不留一句说错的「账户余额」。
-       A1①：这一行现在固定在**区域顶部**（详情块的第一块），不再跟余额卡挤在同一个内滚动容器里。 */
+       这一行现在固定在**区域顶部**（详情块的第一块），不再跟余额卡挤在同一个内滚动容器里。 */
     const on = balOn();
     if (balGroup && !full) balGroup.hidden = !on;
     if (!on) {
@@ -596,7 +596,7 @@
       if (!b2) return;
       const old = b2.querySelector('.sb-bal-body > .sb-mirror');
       const want = mirrorBarHTML();
-      /* A1①：这一行固定在**区域顶部**（`.sb-bal-body` 的第一块），不再是塞在 `.sb-bal` 末尾。
+      /* 这一行固定在**区域顶部**（`.sb-bal-body` 的第一块），不再是塞在 `.sb-bal` 末尾。
          两块都关着时 want 必然是空（上面已经 return），但仍判一下 host，
          别让一个 null 抛在订阅回调里被静默吞掉。 */
       const host = b2.querySelector('.sb-bal-body');
@@ -631,7 +631,7 @@
       const avail = fmt(b.available), frozen = fmt(b.frozen), unit = b.unit ? ' ' + b.unit : '';
       return { kid: m.kid, name: m.name, avail, frozen, unit };
     } catch (e) {
-      /* 失败原因要跟着行一起走（L42）。以前整个 throw 被吞掉，只剩「获取失败」四个字 ——
+      /* 失败原因要跟着行一起走。以前整个 throw 被吞掉，只剩「获取失败」四个字 ——
          密钥过期 / 代理没起来 / 平台限流在这张卡上长得一模一样，而同一个错在用量页
          能读到「查询失败：HTTP 401：密钥无效或过期」。侧栏把原因挂到 title 上，
          卡面只留一句短的（不然一行小字塞不下）。 */
@@ -692,9 +692,9 @@
       paintBal(box, '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
       return;
     }
-    /* 用户把这几家**全取消勾选**了 → 取数阶段就短路（U2）：以前 `SbBal.filter` 只在
+    /* 用户把这几家**全取消勾选**了 → 取数阶段就短路：以前 `SbBal.filter` 只在
        paintBal 里过滤**渲染**，取数照跑，于是「设置里全不勾」照样每分钟去取它们的钱。
-       这里复用同一份 filter（§J「同一功能只有一份实现」），不新写一份判据。
+       这里复用同一份 filter（AGENTS §7「同一个功能只应有一份实现」），不新写一份判据。
        全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
     const wanted = window.SbBal ? SbBal.filter(usable) : usable;
     if (!wanted.length) {
@@ -732,7 +732,7 @@
      所以这个口只是「重新读一次键、画一次」，不含任何规则。 */
   window.__sbApplyBalance = () => {
     try {
-      /* A1 之后不用「再补插一次本机那一行」：paintBal 每画一次都现算 mirrorBarHTML()，
+      /* 现在不用「再补插一次本机那一行」：paintBal 每画一次都现算 mirrorBarHTML()，
          开关从关到开时那一块本来就跟着回来了。 */
       const box = sb.querySelector('#sbBalance');
       if (box) paintBal(box, balRows.length ? '' : '正在读取…');
@@ -794,7 +794,7 @@
   refreshBalance();
   /* 定时器跑在外壳顶层文档，是全会话里活得最久的一个（web/app.js 切页只切 display、外壳不重建），
      所以它必须自己会「停」：
-       · 后台标签页里一轮都不发（U2）—— 不看 document.hidden 的话，切走一小时就是 60 轮 × (1+N) 个请求；
+       · 后台标签页里一轮都不发 —— 不看 document.hidden 的话，切走一小时就是 60 轮 × (1+N) 个请求；
        · 间隔从 60 s 提到 120 s（= REG_TTL 的两倍）：以前两者都正好是 60,000 ms，而判据用的是
          **严格大于**（`now - _regTs > REG_TTL`），上一轮取数到下一轮 tick 之间必然多出一点抖动，
          于是注册表缓存的命中率恒为 0 —— 每分钟稳定发一次 /registry + /env-status + N × credits。

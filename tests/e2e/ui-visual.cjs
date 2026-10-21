@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 视觉回归：九条路由（工作台按视频/图像/语音分三档）× 1024/1440 × 浅/深主题，
-   另加方案 §11 视觉行点名的两处「只有状态才画」的界面：字幕编辑区、助手来源卡片。
+   另加两处「只有状态才画」的界面：字幕编辑区、助手来源卡片。
    不存整张截图：把画面缩成 24×14 的 RGB 指纹，和 tests/fixtures/visual/fingerprints.json 比。
    首次生成基线：UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs
    只补某一页：UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=canvas node tests/e2e/ui-visual.cjs（其余画面的基线原样留着）
@@ -56,7 +56,7 @@ const SIZES = [[1024, 768], [1440, 900]];
 const THEMES = ['light', 'dark'];
 const GW = 24, GH = 14;
 
-/* 状态喂出来才有画面可拍的两处（方案 §11 视觉行点名）：
+/* 状态喂出来才有画面可拍的两处：
    prep 只在**这一档**的画面里跑；喂完必须证明界面真画出来了，否则这一档只是把上一页重拍一遍。 */
 
 /* 字幕：先导入一段真视频（draft 占位那条没有可播地址，选用与字幕都进不去），

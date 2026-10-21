@@ -33,6 +33,7 @@
 │  ├─ skills-store.js           .skills 清单 / 安装 / 启停
 │  ├─ asr-store.js              .data/asr.json（密钥只留盘上，读接口只回 hasKey）
 │  ├─ search-store.js           .data/search.json（同上）
+│  ├─ channel-cred.js           设置页两条「通道」（识别 / 搜索）共用的取数小件（回环判定只有这一份）
 │  ├─ static.js                 静态文件：ETag / 预压缩（br→gzip→原文）/ HTML 的 CSP 头
 │  ├─ security.js               同源、Cookie、出站 URL 护栏
 │  ├─ outbound.js               出站 HTTP（超时 / 重试 / 代理）
@@ -42,7 +43,8 @@
 │  ├─ providers/validate.js     registry 供应商声明校验
 │  └─ routes/                   system（含 /client-error）/ static / capabilities / registry /
 │                               relay / outbound / local-assets / media / save / usage /
-│                               render / skills / fcpxml / pick-dir / asr / search
+│                               render / skills / fcpxml / pick-dir / asr / search /
+│                               http（路由层唯一的 JSON 回包口径：sendJson / fail，默认 no-store）
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
 ├─ web/
 │  ├─ app.js                    Vue 外壳：hash 路由 + KeepAlive 页面池 + 生命周期
@@ -70,7 +72,6 @@
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
-├─ docs/代码审查报告-2026-10-19.md  本轮完善与审查的输入清单
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
 ├─ package.json                 只有开发依赖 @vue/compiler-dom
@@ -325,6 +326,7 @@ frame-ancestors 'none'
 | 媒体 | `web/domain/api.js` 的 `Api.mediaSrc` / `Api.mediaKey` / `Api.mediaExpired` / `Api.healMedia` |
 | 接口 / 统一取数 | `web/domain/api.js` 的 `Api`（`request` / `create` / `createBody` / `pollTask` / `list` / 余额）+ 顶层 `netFetch` / `respBody` / `classifyStatus` |
 | 资产 | `AssetLib` / `AssetLocal` / `AssetTransfer` / `AssetPicker`（`AssetLib` 列表与费用口径在 `assetlib.js`） |
+| 素材身份（两个地址是不是同一份产物） | `web/domain/ident.cjs` 的 `upKeyOf` / `innerMedia`（UMD 双模式：浏览器挂 `window.MediaId`、Node `require` 同一份；**必须 .cjs** —— `web/package.json` 的 type:module 会把 .js 当 ESM，UMD 的 `module.exports` 分支不会走，Node 侧拿到空 namespace） |
 | 任务 | `Wb.poller` / `Wb.History` / `Wb.thumbs` / `Wb.detail` / `Wb.cards` / `Wb.pager` / `Wb.viewToggle` + `VIEW_MODES` |
 | 灯箱 | `Wb.lightbox` |
 | 下载 | `Wb.save` → `Net.save` |
@@ -419,7 +421,9 @@ frame-ancestors 'none'
 - `web/director/template.html`：导演台真实 DOM 模板（不是 Vue 模板，不参与预编译）。
 - `web/director/engine.js`：命令式热路径的状态与接线；**这一层里的代码按域机械搬进 `web/director/engine/*.js`**，
   每一枚 `createX(E, document, window)` 只收 engine 递进来的访问器与函数（`document` / `window` 用参数名遮蔽，
-  作用域岛递进来的两份代理继续生效）。engine.js 继续持有工程数据与可变状态，模块里不留第二份：
+  作用域岛递进来的两份代理继续生效）。engine.js 继续持有工程数据与可变状态，模块里不留第二份
+  （**E 装配漏名字是运行到才炸的错**：模块解构出 `undefined`，语法档与 vm 自检都看不见 ——
+  新增域模块时，engine 里那份 E 名单要与模块顶部解构逐名对着改，director-sublane 判据抓过一回）：
   - `gen.js`：分镜提交、平台任务轮询、自动镜像投递与「生成全部分镜」的依赖式批量调度
   - `track.js`：画面轨/全片轨的时长与候选折算、拖动把手的三处共用一套手势
   - `lanes.js`：时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染
@@ -470,6 +474,11 @@ frame-ancestors 'none'
 - 台词与提示词互不带动：`sh.line` / `sh.lineWho` 与 `sh.prompt` 各写各的，剧本视图只写 `prompt`；
   AI 拆分镜仍按画面生成台词并落进同一份字段（那是生成，不是同步）。
 - 切片按框取帧；缓存键走稳定身份；缩放只重排、不整列重画。
+- 字幕行三个画点（右栏清单 / 本镜轨 / 全片轨）与两排拖动只有 `sub-lane.js` 一份：块体拖 = 挪出现
+  （长度不变）、把手 = 改起止（0.1s 最短）、写盘只有 engine 的 `subWrite`。**两排两把尺子**：
+  本镜块带 `data-src`（源秒，按框轴摆位）、全片块带 `data-axis`（框轴秒）；右栏起止输入按右栏自己的尺子
+  （进成片的镜走 `mapFromFilm` 零长探针折算成片秒 → 源秒，探针条目必须带非空 text ——
+  normalizeEntries 会丢没字的条目）；点全片块跳转喂的是轴秒（`filmApplyAt`），成片秒进错量纲就是三处一起歪。
 - 取帧失败按**退避**记账并自己重试：轨道没有定时重画，一次解码超时若只压进一张长 TTL 表，
   界面就是一直斜纹（用户不动一下好不了）；8 秒起、逐次翻倍、最久 5 分钟，到点由 `sliceRetryIn`
   那条定时器照着还活着的栏目再排一遍活。
@@ -595,6 +604,11 @@ frame-ancestors 'none'
 
 - `server/app.js` 是组合根；每个路由只在自己的 `server/routes/*.js` 里实现，
   app 只负责构造依赖与分发（处理器返回 `false`/`undefined` 的约定别混）。
+- 路由层的 JSON 回包口径只有 `server/routes/http.js` 的 `sendJson` / `fail` / `noStore`
+  （默认 no-store，4xx/5xx 不许被缓存）；各路由不再自写 Content-Type 与缓存头。
+- 设置页「语音识别 / 联网搜索」两条通道共用的取数小件在 `server/channel-cred.js`
+  （providerOf / mirrored / channelKey / loopback 只这一份 —— 以前 routes/asr.js 与 routes/search.js
+  各抄一份，两份回环判定漂开时 `http://127.evil.tld` 会被当成本机放行）。
 - 静态资源：只放行根级单文件与 `web/` 子树；HTML 带 CSP、nosniff、Referrer-Policy。
   文本响应按 `Accept-Encoding` 选 brotli、退 gzip、再退原文（压不动或压完不更短就发原文，不报错），
   三档共用同一套缓存与 ETag —— 验证器末位带表示名（`-br` / `-gz` / `-id`），缺了它 304 会把
@@ -620,7 +634,7 @@ frame-ancestors 'none'
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 | ~3s |
 | 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2 分钟 |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 41 条 e2e 串行（浏览器档共 43 条，另含 boot 与 static-encoding --live），十几分钟级 |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 42 条 e2e 串行（浏览器档共 44 条，另含 boot 与 static-encoding --live），十几分钟级 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -639,7 +653,7 @@ ui-shared / director-perf / lock / canvas，4 路并发，每条自起隔离 pro
 chat-receipt / chat-context / chat-search-cite / actions / actions-feedback / assistant-dock /
 drag-guard / raw-request / raw-preview / director-perf / boot（perf）/ parity / skills / skill-hub /
 fcpxml / director-fcpxml-import / editing-assets / director-slice / director-slice-perf /
-director-lines / director-boot-flush / director-groups / editing-assistant / render-jobs / canvas / canvas-model /
+director-lines / director-sublane / director-boot-flush / director-groups / editing-assistant / render-jobs / canvas / canvas-model /
 canvas-assistant / canvas-port / ui-contract / ui-shared / favorites-pager / asset-requests /
 settings-nav / sidebar-balance / lock；同一档还跑 `tests/perf/boot.cjs` 与
 `tests/static-encoding.cjs --live`（后者是同一份判据的「线上那一半」，要起隔离实例）。
@@ -685,6 +699,12 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - 页面样式只用 `tokens.css` 的令牌；不要在页面里写第二份主题变量或裸色值。
 - 不要写裸控制字符；不可见分隔符写 `\u0001`。
 - 源码里不出现真实密钥；日志不打印密钥 / Cookie / 用户路径之外的本机隐私。
+- **注释自含（硬约束）**：注释不许引用报告、方案 / 执行文档、任务号或缺陷号
+  （「批次 N」「R18」「A1③」「W2」「L1-L4」这类编号）—— 那些文档与任务清单删掉之后
+  它们就是死指针。注释只能指向仓库里现读得到的东西：现行章节写显式（`AGENTS §7`）、
+  判据写文件（`tests/e2e/sidebar-balance.cjs`）、判据文件**自己定义并使用**的组名照常
+  （static-guards 的 G1–G8、architecture 的 A1–A5、ui-catalog 的 U1–U7）；两边都对不上的，
+  把事实直接写全。「批次」作普通名词（生成批次、批次对象）不算引用。
 
 ### 14.2 新增页面的落点
 
@@ -818,7 +838,7 @@ npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s�
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
 npm run test                # 合并档：常驻判据全量（并发池，~3s）
 npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2 分钟）
-npm run test:e2e            # 浏览器档：41 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:e2e            # 浏览器档：42 条 e2e 全量串行（含视觉回归、性能、parity）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
 node tests/data-snapshot.cjs  # 写入型：对真实 .data/.assets/.renders 比基线（§13.3）
 powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest
@@ -834,7 +854,7 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
   playback / plan / projection / slice / board / split-assets / media / subtitles / fcpxml）。
   原因：这些 DOM 节点被缓存、拖拽、切片帧、插针与撤销逻辑大量引用；改成 Vue 组件会改变
   节点身份与更新时机，直接破坏“切页不丢状态 / 不重解码 / 拖动中途不重建”这些既有判据。
-  方案 §9 也明确不重写剪辑交互与预览引擎。因此 `engine.js` 仍是全站最大的文件（工程数据 + 可变状态 + 接线），
+  剪辑交互与预览引擎同样明确不重写。因此 `engine.js` 仍是全站最大的文件（工程数据 + 可变状态 + 接线），
   “单文件 < 3k”不适用于它；但它的热路径已按域机械搬进 `web/director/engine/<域>.js`（§9.1 那张清单），
   新增能力继续往纯模块与这些域文件里放，不再往 engine.js 加界面代码。
 - **DOM 代理保留**：`web/director/index.js` 的 document / window 代理是作用域岛边界，

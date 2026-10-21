@@ -35,11 +35,11 @@ const KIND_MNEW = {
   audio: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
 };
 
-/* ---------- 声明式清单（B1 分组 + B5「一处声明」） ----------
-   五组导航（B1）：id、顺序、显示名**只写在模板那一节 DOM 上**（`<section data-group>` 里的
+/* ---------- 声明式清单（分组 + 「一处声明」） ----------
+   五组导航：id、顺序、显示名**只写在模板那一节 DOM 上**（`<section data-group>` 里的
    `<h2 class="set-group-h">`，折叠那一组在 `.fold-title` 里）—— 新增一组 = 模板里加一节，
    这里没有第二份名单要抄。
-   普通设置行（B5）：kind 只有 num / check / sel 三种；渲染、自动保存写盘、导出名单
+   普通设置行：kind 只有 num / check / sel 三种；渲染、自动保存写盘、导出名单
    （EXPORTABLE 末尾的展开）都从这一份现取。**新增一项普通设置 = 这里加一行**，
    模板里只留对应的容器 `<div class="kcols" ref="…BoxEl">`。
    特殊控件（供应商卡 / ASR / 联网搜索 / Skill / 云同步 / 体检 / 用量 / 清理缓存）
@@ -501,7 +501,7 @@ const SettingsView = {
       /* 型号块先画骨架、后填内容（取型号列表要等 TextAI 就绪）。 */
       initFolds(box);
       if (textForm) textForm.paint();
-      /* 清除本机密钥：不在这里 removeItem，跟着自动保存排队落盘（L37）。 */
+      /* 清除本机密钥：不在这里 removeItem，跟着自动保存排队落盘。 */
       box.querySelectorAll('[data-clr]').forEach(b => {
         b.onclick = () => {
           const kid = b.dataset.clr;
@@ -1932,7 +1932,7 @@ const SettingsView = {
         if (nowSaveOn && !__wasSaveOn && window.AssetLocal && AssetLocal.markSaveOn) AssetLocal.markSaveOn();
       } catch (e) {}
       /* 「另存档位 / 左栏两块开关」以前在这里手抄三份 LS.set —— 现在它们是 SET_ROWS 里的行，
-         由自动保存那一趟的 saveManifestRows 统一落盘（B5：一处声明，写盘只有一条路）。 */
+         由自动保存那一趟的 saveManifestRows 统一落盘（一处声明，写盘只有一条路）。 */
       syncUiNeeds();
       try {
         const top = window.top || window;
@@ -2077,7 +2077,7 @@ const SettingsView = {
       qa('[data-hint-of="saveScope"]').forEach(el => { el.textContent = saveScopeText(); });
     }
 
-    /* ---------- SET_ROWS 的渲染与写盘（B5：一处声明，两处现取） ---------- */
+    /* ---------- SET_ROWS 的渲染与写盘（一处声明，两处现取） ---------- */
     const MANIFEST_HOSTS = () => ({
       net: netBoxEl.value, store: storeRowsEl.value, assistant: assistantBoxEl.value, polish: polishBoxEl.value,
     });
@@ -2271,7 +2271,7 @@ const SettingsView = {
     /* 界面偏好那一批（主题 / 侧栏开合 / 视图档位 / 产物开关）不在这里手抄：整批由 ui.js 的
        UI_PREFS 带出来，「恢复默认不清」那一份同表（`keep` 那一列）。这一张表以前是第三份手抄的清单，
        抄漏的是 sb_open 与 sk_media_badge 不进云同步、助手那几项不进导出。
-       普通设置行那一批（B5）改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
+       普通设置行那一批改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
        只有助手那五颗开关**保留字面量**：tests/settings-schema.cjs 判据⑤点名要在这张数组里看到它们
        （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
     const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
@@ -3559,7 +3559,7 @@ const SettingsView = {
       } catch (e) { searchMsg.value = '✗ ' + errText(e); }
     }
 
-    /* ---------- 栏目导航与关键词筛选（B1 组锚点 + B2 命中到行；从 DOM 现读，不手抄标题清单） ---------- */
+    /* ---------- 栏目导航与关键词筛选（组锚点 + 命中到行；从 DOM 现读，不手抄标题清单） ---------- */
     let navSig = '';
     let navSubSig = '';
     let navQueued = 0;
@@ -3636,12 +3636,12 @@ const SettingsView = {
       }
     }
     /* 折叠那一段（本机维护那一组）：命中落在里面时得先展开，否则「命中 3 处」点在收着的组里看不见。
-       只借这一页已有的 fold-key 机制，展开这一动作**不写盘**（下次打开照旧是收着的，B4 那句才算数）。 */
+       只借这一页已有的 fold-key 机制，展开这一动作**不写盘**（下次打开照旧是收着的）。 */
     function openFold(sec) {
       if (!sec || !sec.classList.contains('foldable')) return;
       if (sec._foldSet) sec._foldSet(true); else sec.classList.add('open');
     }
-    /* 组锚点：一共 5 颗（B1）。筛选时芯片后面的数字是这一组命中几行。 */
+    /* 组锚点：一共 5 颗。筛选时芯片后面的数字是这一组命中几行。 */
     function paintChips(secs, groupHits, filtering) {
       if (!setChipsEl.value) return;
       const sig = secs.map(s => s.dataset.group + ':' + (groupHits[s.dataset.group] || 0)).join('|');
@@ -3690,7 +3690,7 @@ const SettingsView = {
     /* 搜的是这一行里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容。 */
     const hayOf = c => ((c.textContent || '') + ' '
       + [...c.querySelectorAll('input,textarea,select,button')].map(x => x.placeholder || x.title || '').join(' ')).toLowerCase();
-    /* B2：命中落到**行**上。一行 = 一个 krow / 一张供应商卡 / 一段说明 …
+    /* 命中落到**行**上。一行 = 一个 krow / 一张供应商卡 / 一段说明 …
        大盒里套小盒的（供应商卡里面有 krow）只标最里面那一条，免得两层底色叠在一起。
        几个词凑不齐在同一行时退回「含任一个词的行」—— 搜「密钥 同步」这种，别一个命中都不给。 */
     const ROW_SEL = '.krow, .sub, .pb-tip, .prov, .polish-block, .cloud-box, .cloud-row, .sk-item,'
@@ -3762,7 +3762,7 @@ const SettingsView = {
       syncNav();
       if (setQEl.value) setQEl.value.focus();
     }
-    /* B2：回车滚到第一处命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
+    /* 回车滚到第一处命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
     function gotoFirstHit() {
       const first = q('.set-hit');
       if (!first) {

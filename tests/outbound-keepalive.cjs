@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* P7 的前置判据：「复用 socket 必须同 host」，且复用路径不能绕过内网闸。
+/* 出站 keep-alive 的前置判据：「复用 socket 必须同 host」，且复用路径不能绕过内网闸。
    两件事分开验：
      ① Node 的连接池按 host:port 分组 —— A 家的 socket 不会被拿去发 B 家的请求；
      ② 新连接仍走 guardedLookup —— 解析到内网的域名在建连前就被拒（复用只发生在

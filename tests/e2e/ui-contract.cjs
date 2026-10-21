@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 公共件契约测试（报告 §7.3④）—— 跑法：node tests/e2e/ui-contract.cjs
+/* 公共件契约测试—— 跑法：node tests/e2e/ui-contract.cjs
    这三则都是「光看代码看不出来、只有连着跑两次才露馅」的契约：
 
    ① 灯箱 / 详情全站只有一副 DOM、一份配置。五个页面各写一份的旧账收敛到 `Wb.lightbox` 之后，
@@ -9,15 +9,14 @@
       所以两条都要判：`use(A)` → `use(B)` 之后 cfg 必须是 B；反复 init 之后
       **按一次键只翻一格**（列表给 5 条：绑了几份就前进几格，1 份才等于 1）。
 
-   ② 图片取不到字节时不许撞 CSP（P0-12 那一类）。旧写法是页面往 `<img>` 上塞内联
+   ② 图片取不到字节时不许撞 CSP。旧写法是页面往 `<img>` 上塞内联
       `onerror="…"`，严格 CSP 把它整条拦掉 —— 兜底一次都没生效，画面上只有碎图标，
       而控制台里那句「violates Content Security Policy」没人看。
       现在兜底在 `AssetLocal.watch` 那一个全局捕获监听里。判据：喂一个必定 404 的图源，
       监听 `securitypolicyviolation` 要 0 次，同时裂图必须被「已丢失」角标替掉
       —— 只判「没违规」会漏掉另一半：监听没跑、图还是裂的，也算坏。
 
-   ③ 「生成完成」这条事件（`wb:asset-done`）曾经有四个生产者各写一份 payload（见报告 §6.2
-      「事件契约靠字符串」）。收成 `AssetLocal.announce()` 之后，纯 Node 那半边只能判「委托给了谁」，
+   ③ 「生成完成」这条事件（`wb:asset-done`）曾经有四个生产者各写一份 payload（事件契约靠字符串）。收成 `AssetLocal.announce()` 之后，纯 Node 那半边只能判「委托给了谁」，
       归一化本身对不对只有真 AssetLocal 在场才验得到，所以这一节判六件事：
         · 三种生产者形状（工作台全字段 / 导演台带价目 / 画布只给地址）折完之后 own key 集合一模一样，
           别名（`taskId` / `raw`）折进正名之后要从条目里删掉 —— 一份事实只留一个出处；

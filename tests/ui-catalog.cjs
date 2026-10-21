@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 公共 UI 目录判据：页面只从 web/ui/index.js 取组件；已迁组件带 meta。
-   U1..U4（报告 §7.4「永远绿 → 会红」）：AGENTS.md §3.4 的组件复用硬约束 + §7 的唯一实现清单
+   U1..U4：AGENTS.md §3.4 的组件复用硬约束 + §7 的唯一实现清单
    点名的那些**公共面**（`window.Dropdowns` / `window.Toast` / `window.Confirm` / `window.Wb` …）
    以前一条都没被验过 —— 文档写「必须走公共件」，代码里连「这个面存不存在、挂在哪个文件、
    有没有人真的在用」都没人查，所以页面里抄第二份卡片/下拉从来不会红。
@@ -19,7 +19,7 @@ const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 let bad = 0, n = 0;
 function ok(name, cond, detail) { n++; if (cond) return console.log('  ✓ ' + name); bad++; console.log('  ✗ ' + name + (detail ? ' —— ' + detail : '')); }
 
-/* V7（批次 8）：这一份以前 3.9s，慢点全在「重复求值」——
+/* 这一份以前 3.9s，慢点全在「重复求值」——
    usageOf 对 34 个面 × 全部 web 源码逐遍 stripComments(read(f))（三十多遍全文扫描），
    globalFaces / layerViolations 又各自重新读盘再扫。现在每个文件只读一次、只剥一次注释，
    剥过的文本喂回 support.cjs 的注入点（globalFaces / layerViolations 都收 read 注入），
@@ -137,7 +137,7 @@ ok('U6 自检：合成 `ui → domain` 读点必须被报出来、页面读 ui �
   && !Object.keys(S.layerViolations({ faces, files: ['web/pages/__synthetic_ok.js'], read: () => `window.__SyntheticOk = { go() { return Dropdowns.sync(el); } };` })).length,
   '合成违例 ' + Object.keys(hit).join(' ; ') + '（或正确写法被误报）');
 
-/* U7（S3）分页行的 id 必须与 `Wb.pager.rowHTML(前缀)` 对上。
+/* U7 分页行的 id 必须与 `Wb.pager.rowHTML(前缀)` 对上。
    七页同在 KeepAlive 里，同一个文档里同时存在七套分页行 —— 写死 `pgPrev` 就是撞号。
    更隐蔽的坏法是前缀传成 `charsPg`（生成 `charsPgPgPrev`）而 create 找 `charsPgPrev`：
    按钮绑定不上、翻页文案永远停在第一页，页面上没有任何报错。 */
@@ -151,7 +151,7 @@ for (const p of webFiles) {
     if (miss.length) pagerBad.push(p + ' rowHTML(\'' + pre + '\') 缺 ' + miss.map(([k, id]) => k + ": '" + id + "'").join(' / '));
   }
 }
-ok('U7 分页行 id 与 rowHTML 前缀一致（S3 统一 id）', pagerBad.length === 0, pagerBad.join(' ; '));
+ok('U7 分页行 id 与 rowHTML 前缀一致（统一 id）', pagerBad.length === 0, pagerBad.join(' ; '));
 
 console.log(`\n${n} 项，${bad} 项未通过`);
 process.exit(bad ? 1 : 0);

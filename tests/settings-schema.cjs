@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-/* 设置键一张账（报告 §6.2「设置键有 5 份清单，已出现漂移」）—— 跑法：node tests/settings-schema.cjs
-   报告点名的漂移是真的：设置页 `saveAllNow` 存了 `ai_chat_off/auto/snap/notice`，而导出的那份
+/* 设置键一张账—— 跑法：node tests/settings-schema.cjs
+   那次清点发现的漂移是真的：设置页 `saveAllNow` 存了 `ai_chat_off/auto/snap/notice`，而导出的那份
    `EXPORTABLE` 里没有 notice/snap —— 换机器导一次设置，助手卡片上那几颗开关全回到默认档；
    同一类漏在同步那一侧是 `sb_open` 与 `sk_media_badge`（界面偏好表里有，SYNCABLE 手抄的那份没有）。
 
@@ -90,7 +90,7 @@ const notExported = [...written].filter(k => !covers(literals(exportArr).concat(
 ok('设置页写的每一项都在导出名单里（新加一项必须登记）', notExported.length === 0, '漏：' + notExported.join(', '));
 const ASSIST = ['ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock'];
 const EX = literals(exportArr);
-ok('助手那五颗开关进导出（报告点名的 notice/snap 漂移）', ASSIST.every(k => EX.includes(k)),
+ok('助手那五颗开关进导出（notice/snap 漂移的收口）', ASSIST.every(k => EX.includes(k)),
   ASSIST.filter(k => !EX.includes(k)).join(','));
 ok('对话记录与附件/坐标/进度不跟着导出走（不写 ai_chat_ 前缀）',
   !EX.includes('ai_chat_') && !EX.includes('ai_chat') && !EX.includes('ai_chat_files') && !EX.includes('ai_chat_xy'),
@@ -108,7 +108,7 @@ ok('「关掉助手」这一条恢复默认也不清', literals(keepArr).include
   'RESET_KEEP 里没有 ai_chat_off：一次「恢复默认」会把那颗悬浮球重新装回来');
 
 /* ---------- ⑥ 加载顺序：datasync.js 取 PREF_KEYS 时 ui.js 必须已经求值完 ----------
-   2026-10-21 G2 之后 datasync.js 不在 shell.html 里常驻了：它由路由表的 `needs` 在页面组件
+   2026-10-21 拆分之后 datasync.js 不在 shell.html 里常驻了：它由路由表的 `needs` 在页面组件
    `import()` 之前补载（web/core/routes.js 声明、web/app.js 发）。挂法变了，要守的东西没变 ——
    UI_PREFS 是 ui.js 求值时才挂上 window 的，datasync.js 在求值期现取那张表，早一步就取到空表，
    那一批界面偏好会静默不同步。两种挂法都验同一件事。 */

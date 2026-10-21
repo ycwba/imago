@@ -21,7 +21,7 @@ assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'video', relay: '/x'
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'text', relay: '/x' }]).ok, false, '文字缺 chat 要报错');
 console.log('✓ provider 声明校验通过');
 
-/* 真实注册表也要过同一套（报告 §7.3：这张判据以前只测 fixture，
+/* 真实注册表也要过同一套（这张判据以前只测 fixture，
    新加一家平台写坏了、`/capabilities` 少一档、设置页下拉空着，这里都不会红）。
    registry 从 app.js 搬进 registry-config.js 之后，测试才拿得到它 —— 搬之前那 3000 行
    组合根 require 一次就把整个代理连 .env 带监听都起起来了，所以只能测假的。 */

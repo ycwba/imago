@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 资产库取数这一路的四个门槛数字（批次 2 的 L1 / L2 / L3-L4，AGENTS §7「列表首屏缓存只有一份」）：
+/* 资产库取数这一路的四个门槛数字（AGENTS §7「列表首屏缓存只有一份」）：
      ① 首屏（画到第一张卡片为止）「取列表」的请求数：以前 assets.js 连发两次 fetchMore(1) +
         tally.run(true)（每个来源最多翻 10 页）+ 每批之后逐来源 liveKeys，实测 40+；
         现在两次合成一次 fetchMore(2)、计数延到空闲，门槛 12 以内。
@@ -7,8 +7,8 @@
         且从首屏到数完，整页最多三轮 load（首屏一轮 + 哨兵续拉 + 计数续翻）。
         这一条是结构性判据，不随上游有没有数据变化 —— 少这一条，「首屏 12 笔」迟早又被
         「计数从第 1 页重走一遍」吃回去，而那时首屏那一档还是绿的。
-     ③ 同参数第二次 `AssetLib.load`：命中结果级短缓存，一条上游列表请求都不许再发（L1）。
-     ④ 有缓存时选择器打开到「首屏可选」：先用 listCache 画底，不等联网那三页（L2，300ms 以内）。
+     ③ 同参数第二次 `AssetLib.load`：命中结果级短缓存，一条上游列表请求都不许再发。
+     ④ 有缓存时选择器打开到「首屏可选」：先用 listCache 画底，不等联网那三页（300ms 以内）。
    ①② 只数「把卡片取回来」的那几笔（各来源声明的 list 端点 / 本机资产清单 / 提示词索引），
    余额与外壳启动的请求不计；端点清单从 `server/registry-config.js` 现取，不写死平台名。
    探针实例两处特意固定环境，否则数出来的不是「页面自己要几轮」：
@@ -16,7 +16,8 @@
        也不带密钥出门（这一家能不能连通与这一档要测的东西无关）；
      · 包一层 `Net.fetch/read/json` 把 `retry` 压成 0。**光把设置页那一格（`sk_net_retry`）归零不够**：
        `Api` 的 `rawFetch`（api.js:620）自己写了「没传就重试 1 次」，页面上每一个 5xx/429 都会多一笔，
-       数出来的是「重试了几轮」而不是「页面取了几轮」。这一条已经记进执行文档 §13 的风险登记。
+       数出来的是「重试了几轮」而不是「页面取了几轮」。rawFetch 必须原样把 opts 递给 Net.read ——
+       全站默认值只留 Net.NUMS 一份，设置页那一格（`sk_net_retry`）才真正管住页面取数。
    实测数字用 `PERF_WRITE=1 node tests/e2e/asset-requests.cjs` 写进 `tests/fixtures/perf-baseline.json`
    的 `assets` 一节（与切片基线同一份文件、同一个开关）；判据本身只按门槛红，不看基线。
    写入型验证只碰 .data-probe-* 等隔离目录（harness 负责创建与清理），不写用户数据。 */
@@ -142,7 +143,7 @@ async function seedLocalAssets(proxy, count) {
     /* 数到「首屏自己的取数走完」为止，切点取「卡片画出来」与「后台数总数开始」里更早的那个。
        不这么切的话，这一档量的是快还是慢：tally 走 requestIdleCallback(timeout 3000)，
        机器忙就先跑计数、空闲就先画卡片，同一份代码能数出 9 笔也能数出 12 笔。
-       后台计数本来就不算首屏（那正是 L4 要延后的东西），把它排除在切点之后。 */
+       后台计数本来就不算首屏（那正是要延后的东西），把它排除在切点之后。 */
     const tallyAt = (atPaint.calls.filter(c => c.f === 'countAll')[0] || {}).at;
     const cutoff = tallyAt == null ? Infinity : Math.min(tallyAt, atPaint.ms);
     const firstScreen = atPaint.log.filter(x => isListReq(x.u) && x.at <= cutoff);
@@ -162,7 +163,7 @@ async function seedLocalAssets(proxy, count) {
     const after = await page.eval(() => ({ log: (window.__reqLog || []).slice(), calls: (window.__calls || []).slice() }));
     const loads = after.calls.filter(c => c.f === 'load');
     const counted = after.calls.filter(c => c.f === 'countAll');
-    must(counted.length > 0, '后台数总数一趟都没跑过（scheduleTally 没触发？L4 的「延到空闲」就没了依据）');
+    must(counted.length > 0, '后台数总数一趟都没跑过（scheduleTally 没触发？「延到空闲」就没了依据）');
     must(loads.length <= LOAD_ROUNDS_MAX, '从首屏到数完一共走了 ' + loads.length + ' 轮 load（门槛 '
       + LOAD_ROUNDS_MAX + '：首屏一轮 + 哨兵续拉 + 计数续翻）：'
       + loads.map(x => 'pages=' + x.pages + '/out=' + x.out + '/cursors=' + x.cursors).join(' | '));
@@ -217,7 +218,7 @@ async function seedLocalAssets(proxy, count) {
       if (cancel) cancel.click();
       return { ms, cards };
     });
-    must(openMs.ms >= 0, '选择器打开后 4 秒内 #apGrid 里一张卡都没有（缓存底稿没画上，L2 失效）');
+    must(openMs.ms >= 0, '选择器打开后 4 秒内 #apGrid 里一张卡都没有（缓存底稿没画上）');
     must(openMs.ms <= PICKER_MS_MAX, '有缓存时选择器打开到首屏可选用了 ' + openMs.ms + 'ms（门槛 ' + PICKER_MS_MAX + 'ms）');
 
     const listAfter = after.log.filter(x => isListReq(x.u)).length;
@@ -240,7 +241,7 @@ async function seedLocalAssets(proxy, count) {
         secondLoadRequests: twice.secondReq,
         pickerOpenWithCacheMs: openMs.ms,
         budgets: { listRequests: LIST_REQ_MAX, loadRounds: LOAD_ROUNDS_MAX, pickerMs: PICKER_MS_MAX,
-          why: '批次 2 的 L1-L4 验收口径（首屏 12 笔以内 / 计数不许重回第 1 页 / 有缓存时 300ms 以内）；'
+          why: '四条门槛的验收口径（首屏 12 笔以内 / 计数不许重回第 1 页 / 有缓存时 300ms 以内）；'
             + '首屏那一档的切点取「卡片画出来」与「后台计数开始」里更早的那个，两边同用 performance.now()；'
             + '探针把上游指到一个没人听的端口并归零重试档位，所以这里数的是页面自己的取数轮次，'
             + '不是重试轮次 —— 收紧前先对照 listRequestsToQuiet 与 sameOriginRequestsToQuiet' },

@@ -1,5 +1,5 @@
 'use strict';
-/* 按平台的在途转发闸与退避重试：2026-10-20 从 server/app.js 原样搬出（审查报告 §6.1-1）。
+/* 按平台的在途转发闸与退避重试：2026-10-20 从 server/app.js 原样搬出。
    五个 RELAY_* 数字仍由组合根的 envInt / envFrom 现读（.env 那一档口径不变），log 与 timeText 也从组合根注入；
    闸的账本只活在这一层，/sys-status 的「转发」那一格读的就是这里的 relayStatus()。 */
 function createRelayGate(deps) {

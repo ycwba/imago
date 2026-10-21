@@ -19,7 +19,7 @@ const S = require('./support.cjs');            // 数「代码里真有几条」
 
 const root = path.resolve(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
-/* 导演台 engine 层 = engine.js（状态与接线）+ engine/<域>.js（G1 按域搬出去的函数）。
+/* 导演台 engine 层 = engine.js（状态与接线）+ engine/<域>.js（按域搬出去的函数）。
    钉「这一层只有一份实现」的判据读这一份：函数搬进域模块还是同一层代码，判据跟着代码走。 */
 const EL = S.engineLayer();
 let bad = 0, checks = 0;
@@ -32,7 +32,7 @@ function ok(name, cond, detail) {
 }
 function group(t) { console.log('\n' + t); }
 
-/* ---------- 1. SPA 架构判据的落点（批次 8 V7 改过） ----------
+/* ---------- 1. SPA 架构判据的落点 ----------
    旧版这里同步 spawnSync 跑 tests/spa.cjs（外加 §6b 再跑一遍 local-first.cjs）：
    两条子进程启动 + 与 all.cjs 里独立判据的**重复求值**，正是 selfcheck 3.8s 的慢点本体。
    现在 spa.cjs / local-first.cjs 都只作为 all.cjs 并发池里的独立判据各跑一次，
@@ -144,7 +144,7 @@ ok('镜像落盘带平台产物号（多图逐份认回）', /asset:\s*\(ent && 
 ok('整表合并按产物数决定能否按任务号认', /outCount/.test(al) && /allowGen/.test(al));
 group('§6b 本机优先判据的接线（local-first 由 all.cjs 独立跑，这里验接线不重跑）');
 {
-  /* V7：这里以前同步 spawnSync 再跑一遍 local-first.cjs（all.cjs 里已有一条同样的，纯重复求值）。
+  /* 这里以前同步 spawnSync 再跑一遍 local-first.cjs（all.cjs 里已有一条同样的，纯重复求值）。
      换成静态接线判据：独立判据必须还登记在 all.cjs 的常驻段里 —— 谁把代跑删了又把登记也弄丢，
      这条会红；「跑不跑得过」由池子里那一条 local-first.cjs 自己回答。 */
   const allSrc = read('tests/all.cjs');
@@ -156,7 +156,7 @@ group('§6b 本机优先判据的接线（local-first 由 all.cjs 独立跑，�
 /* ---------- 7. 助手改时间线：唯一写入桥 ---------- */
 group('§7 导演台时间线写入桥');
 const frag = EL;
-/* §6.1-2：动作表与查询表在 chat-tools.js，外壳/会话仍在 chat.js；这一组判据两半合看 */
+/* 动作表与查询表在 chat-tools.js，外壳/会话仍在 chat.js；这一组判据两半合看 */
 const chat = read('web/features/chat.js') + '\n' + read('web/features/chat-tools.js');
 ok('时间线写入桥只有一份', (frag.match(/WBBridge\.install\('director'/g) || []).length === 1
   && !/__directorActions/.test(frag));
@@ -236,10 +236,10 @@ ok('镜像写入浏览器侧走 from-url、另存走 save-local', /saveLocalFrom
   && /Api\.saveLocal\(\{ ids: \[r\.id\] \}\)/.test(al));
 ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey = d\.a\[r\.id\]/.test(al)
   && /const key = oldKey \|\| k/.test(al));
-/* 「生成完成 → 自动镜像」这条链（报告 §6.2「事件契约靠字符串」）：以前四个生产者各自
+/* 「生成完成 → 自动镜像」这条链：以前四个生产者各自
    `dispatchEvent(new CustomEvent(...))`，字段集合各不相同，消费方只能逐字段容错。
    判据钉的是反面：**事件名只许出现在 local.js 那一处生产点**，四个原来的生产点必须都改调
-   `AssetLocal.announce`。数之前先剥注释 —— 说明文字里引用旧写法不算一条违例（§7.3② 同一条规矩）。
+   `AssetLocal.announce`。数之前先剥注释 —— 说明文字里引用旧写法不算一条违例（同一条规矩）。
    留着「旧写法也算过」的 or 分支 = 这条链可以慢慢长回四份。 */
 {
   const code = f => S.stripComments(read(f));
@@ -317,7 +317,7 @@ ok('只读画布不交写工具（页面一张闸，助手与快照都读它）'
 const cvStampList = chat.slice(chat.indexOf('const CANVAS_WRITE = ['), chat.indexOf('function stampWrite('));
 ok('视图动作不占 CAS（只动视图、不涨修订）', !/canvas_viewport_set/.test(cvStampList)
   && /S\.surface\.setViewport\(vp\)/.test(cvPage) && /不涨修订/.test(chat));
-/* 策略登记从三张侧面表收进 ACTION_META 一张（§6.2「新增动作要改 6 张表」），
+/* 策略登记从三张侧面表收进 ACTION_META 一张，
    所以这一条读的是 `{ effect: 'cost', … }` 那一行，不再是 `ACTION_EFFECT` 里的 `'…': 'cost'`。 */
 ok('提案与扣费分开（画卡片不建任务）', /没有建任务也没扣费/.test(cvPage) && /不建任务也不扣费/.test(chat)
   && /canvas_generation_propose: *\{[^}]*effect: *'cost'/.test(chat));

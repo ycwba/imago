@@ -241,7 +241,7 @@
 
           <div class="card">
             <h2 class="card-h"><span class="card-ic" v-html="icRefresh"></span>网络与刷新</h2>
-            <!-- 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明（B5）。 -->
+            <!-- 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 -->
             <div class="kcols" ref="netBoxEl"></div>
           </div>
 
@@ -268,7 +268,7 @@
               新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
               前两项没开着时这一行<b>整个收起来</b>（画着却不生效等于骗人去勾）。</div>
             <div id="storePrefs" class="kcols" ref="storePrefsBoxEl"></div>
-            <!-- 另存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明（B5）。 -->
+            <!-- 另存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明。 -->
             <div class="kcols" ref="storeRowsEl"></div>
           </div>
 
@@ -282,7 +282,7 @@
             <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>AI 助手</h2>
             <div class="sub">右下角那个悬浮球 / 右侧抽屉（<code>Ctrl + /</code> 开合）。它<b>读</b>本机数据不用问；
               <b>动手</b>（提交一次生成、改一项设置）默认要你在卡片上点「执行」。</div>
-            <!-- 四颗开关的行由 SET_ROWS 声明（B5）：勾法与写盘的三态都在那一行声明里。 -->
+            <!-- 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 -->
             <div class="kcols" ref="assistantBoxEl"></div>
             <div class="pb-tip">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着，
               重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div>
@@ -301,7 +301,7 @@
               旧版设置里手改过的提示词仍然优先，要回到 Skill 正文就点旁边那颗。</div>
             <div class="polish-block">
               <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）</span></div>
-              <!-- 那一格下拉的行由 SET_ROWS 声明（B5）。 -->
+              <!-- 那一格下拉的行由 SET_ROWS 声明。 -->
               <div class="kcols" ref="polishBoxEl"></div>
               <div class="krow tight">
                 <button class="ghost mini" type="button" :disabled="skillBusy" @click="migrateLegacyPrompts">迁移旧版手改为 Skill</button>
@@ -499,7 +499,7 @@
           </div>
         </section>
 
-        <!-- 低频那一组默认收着（B4）：折叠状态走的是这一页已有的 fold-key 机制，
+        <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，
              键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 -->
         <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint">
           <h2 class="set-group-h">

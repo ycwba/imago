@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="web/styles/ui.css">
 <link rel="stylesheet" href="web/styles/sidebar.css">
 <link rel="stylesheet" href="web/styles/spa-director.css">
-<!-- 外壳自己的 ESM 图（web/app.js → 本地 Vue runtime → render/*、core/*）现在就取（执行文档 §8 G3）。
+<!-- 外壳自己的 ESM 图（web/app.js → 本地 Vue runtime → render/*、core/*）现在就取。
      下面 body 里那 27 枚经典脚本是一段段解析阻塞的，模块脚本排在它们末尾 = 首屏最深的三条腿串行；
      modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。 -->
 <link rel="modulepreload" href="web/app.js">
@@ -35,7 +35,7 @@
 <body>
 <div id="app"></div>
 <script src="web/ui/ui.js"></script>
-<!-- 表单族（报告 §6.1-2）：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
+<!-- 表单族：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
      仍排在 ui.js 之后、其余脚本之前，与原 ui.js 里的求值顺序一致。 -->
 <script src="web/ui/forms.js"></script>
 <!-- 原始请求面板（web/ui/raw-request.js）：**不常驻** —— 只有导演台 / 生成工作台 / 画布这三页
@@ -54,7 +54,7 @@
 <!-- 这一层之下的四份**不常驻**：capabilities / text-ai / asset-picker / datasync 改由路由表的
      `needs` 按页在挂载前并发补载（web/core/routes.js），用不到的那几页整份不下。
      常驻的这一层只留「每一页都要、且求值期就有顺序约束」的那些。
-     顺序是硬约束（报告 §6.1-2 的三份拆分）：api.js（顶层取数函数 + Api）→ assetlib.js
+     顺序是硬约束（三份拆分）：api.js（顶层取数函数 + Api）→ assetlib.js
      （AssetLib + 费用）→ gen-forms.js（型号 / 参数 / 配音 / 字数 / 流式八个面）。 -->
 <script src="web/domain/ident.cjs"></script>
 <script src="web/domain/api.js"></script>

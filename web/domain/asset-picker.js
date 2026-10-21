@@ -89,7 +89,7 @@ window.AssetPicker = {
       const typesBox = $('apTypes');
 
       /* 关窗的唯一出口。取消 / 额外动作这两条路**没有把条目交出去**，所以上传时造的、
-         以及从素材库现取字节换来的那些 blob 地址要在这里收掉（A6）—— 以前它们随条目一起被丢掉，
+         以及从素材库现取字节换来的那些 blob 地址要在这里收掉 —— 以前它们随条目一起被丢掉，
          blob URL 无人 revoke，每次「上传 → 又取消」就漏一份（视频一条可达几十 MB）。
          确定那条路（entries 非空）**绝不能 revoke**：页面会把 src 拿去真取字节（转存/引用），
          revoke 早了就是静默破图。所以判据是「这一次有没有把条目交出去」。 */
@@ -237,7 +237,7 @@ window.AssetPicker = {
         : view === 'char' ? e._grp === 'char' : e._grp === 'lib';
       const matchesType = e => !typeTabs.length || typeTab === '全部'
         || e.type === typeTab || (typeTab === '音频' && isAudio(e.type));
-      /* hay 每条只拼一次（A5）：搜索框每敲一键，`matched()` 就要对**每一条**重拼一遍
+      /* hay 每条只拼一次：搜索框每敲一键，`matched()` 就要对**每一条**重拼一遍
          （join + toLowerCase），一屏 200 条就是 200 次。按条目缓存，键里带上唯一会变的那一项
          （收藏备注 `_favRec.note`），所以备注改了照样立刻生效。 */
       const hayCache = new WeakMap();
@@ -249,7 +249,7 @@ window.AssetPicker = {
         hayCache.set(e, { note, s });
         return s;
       };
-      /* 筛选指纹（A5）：以前是 `JSON.stringify(aiCond)` —— 每次 paint 都把整份条件序列化一遍。
+      /* 筛选指纹：以前是 `JSON.stringify(aiCond)` —— 每次 paint 都把整份条件序列化一遍。
          改成只取真正参与判定的那几个字段（aiMatch 用 keywords/after，visible 用 order/limit）。 */
       const aiFp = () => aiCond
         ? [aiCond.order || '', aiCond.limit || '', aiCond.after || '', (aiCond.keywords || []).join('|')].join('~')
@@ -745,7 +745,7 @@ window.AssetPicker = {
           /* 「音色描述」只可能写在素材身上，资产库 / 收藏 / 本机上传里根本没有这一类：
              那一档不必等注册表、也不必取资产库，取回来一个都用不上。 */
           if (charsOnly) { try { search.focus(); } catch {} return; }
-          /* 先用资产库页写下的列表缓存画一版底（L2）：列表在几十秒内几乎不变，
+          /* 先用资产库页写下的列表缓存画一版底：列表在几十秒内几乎不变，
              而联网那 3 页要等一两秒 —— 以前这段时间弹窗里只有转圈，用户以为没打开。
              缓存只当底稿，真数据到了 take() 会整份覆盖（onBatch 每批都给全量）。 */
           try {

@@ -352,11 +352,11 @@
     /* 播放器上那行 mm:ss。导演台三处各抄过一份同样的 padStart 式子（剪辑甲板 / 候选播放器 / 插针跳转后
        的读数），一处改成就同时显示 1:05 与 01:05 两种写法。
        函数体**不许用 `this`**：导演台把它当函数引用递给 `bindTlPlay(col, keepPlay, Wb.fmtClock, …)`，
-       脱离对象调用时 `this` 是 undefined（拿对象方法当裸函数调的那一类，§A 查的就是它）。 */
+       脱离对象调用时 `this` 是 undefined（拿对象方法当裸函数调的那一类坑）。 */
     fmtClock(t) {
       const v = (!isFinite(t) || t < 0) ? 0 : Number(t);
       /* 这一行刻意保留 `padStart(2, '0') + ':' + padStart(2, '0')` 那个原始形状（不抽 `p2`）：
-         §J 那一档认的是**形状**（全站只许出现一次），抽掉之后形状就不成形状了。 */
+         播放器读数是全站唯一一份手拼 mm:ss（AGENTS §7「格式化」），形状保持一眼认得出。 */
       return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(Math.floor(v % 60)).padStart(2, '0');
     },
     /* 实测某个媒体文件的体积 —— 上游接口基本都不返回体积（实测 VGENV / SparkCine 都没有），
@@ -768,7 +768,7 @@
           if (ok && this._dirty.size) return this._flush();
           if (ok) {
             clearTimeout(this._pruneT);
-            /* 节流闸（U6）：`_save` 是不 debounce 的，抽帧并发最高 6 路，首屏抽几十帧
+            /* 节流闸：`_save` 是不 debounce 的，抽帧并发最高 6 路，首屏抽几十帧
                就是几十次 `_flush` → 几十次 `_prune`，而每次 `_prune` 都在一个 readwrite
                事务里 `getAll()` 把**整张缩略图表**读进内存排序（上限 3000 条 / 64 MB）。
                淘汰语义（`_touched` / `_dirty` 保护、两趟顺序）一个字都不动，只加一道闸：
@@ -1732,7 +1732,7 @@
     poller(o) {
       /* 设置页的「任务刷新间隔」优先于页面写死的 interval：
          以前是 interval || 设置值，而三个工作台与资产库都传了固定值，那项设置形同虚设。
-         区间与默认值不在这里写（那是 ui.js 的 Net.NUMS 一张表，§J ⑳）；
+         区间与默认值不在这里写（那是 net.js 的 Net.NUMS 一张表）；
          storedNum 返回 null = 本机没存过，才退回页面自己传的那一个。
          **每次排下一次都现读**，所以设置页改完不必刷新页面 —— 至多再等一轮就换节奏。 */
       const baseMs = () => {
@@ -2194,7 +2194,7 @@
         const payload = { from: o.from || '', kind, assetId: aid, src,
           dl: o.dl || (aid && /^\/asset\//.test(src) ? Api.assetDl(aid) : ''),
           fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '',
-          /* 参数也带上（E7）：满意某张图的画幅与质量想照着再来一版，复用后全跳回默认、
+          /* 参数也带上：满意某张图的画幅与质量想照着再来一版，复用后全跳回默认、
              得逐个重选 —— 这些值本来就随条目存在，直接取，不另记一份。
              只带**页面上真有那个下拉**的那几项（缺的那几个接收端会自己跳过）。 */
           tier: o.tier || '', res: o.res || '', ar: o.ar || '',
@@ -2326,7 +2326,7 @@
         const key = o.key || 'wb_split';
         const st = this._read(key);
         const clamp = (h, w) => Math.round(Math.min(h.max || 1200, Math.max(h.min || 160, w)));
-        /* 落盘加 trailing debounce（U1）：拖拽期间 `move` 按屏幕刷新率触发（60~120 Hz），
+        /* 落盘加 trailing debounce：拖拽期间 `move` 按屏幕刷新率触发（60~120 Hz），
            以前每一个 pointermove 都同步写一次 localStorage（还连带 Storage 钩子的 queue）。
            wb_split 在 SYNCABLE 名单里，queue 的 800 ms 合并窗口只压得住 PUT，压不住 setItem 本身。
            拖拽中最多每 250 ms 写一次，松手时 flush 一次落定 —— 观感与「实时保存」无异。 */

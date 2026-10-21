@@ -2,7 +2,7 @@
 /* FCPXML 媒体包与「送到剪映 / 达芬奇」：
    ① POST /fcpxml/bundle 必须回 zip，含 project.fcpxml；缺素材写 missing.txt；
       带字幕时按固定名字写 subtitles.srt（包内与盘上都要在、字节要一模一样），
-      体量 / 条数超上限当场拒并一个目录都不建（方案 §11 服务端那一行）。
+      体量 / 条数超上限当场拒并一个目录都不建（服务端那一行）。
    ② 素材重名在建目录之前 400（静默改名会让 XML 与盘上文件对不上）。
    ③ POST /fcpxml/import 留持久目录：project.fcpxml + media/ + subtitles.srt + missing.txt + bundle.zip。
    ④ /fcpxml/reveal 只认导入目录里的 id；/fcpxml/launch 只认两家枚举，非法值 400。

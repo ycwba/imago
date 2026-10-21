@@ -166,7 +166,7 @@ export async function submit(doc, node, o = {}) {
   }
   const raw = await window.Api.create(prov, (() => {
     /* 与图片那条共用 base 再覆盖：以前这里逐字重拼，漏掉 quality / format / size ——
-       画布上选好的画质、格式、尺寸在视频提交里被静默丢掉（B28）。 */
+       画布上选好的画质、格式、尺寸在视频提交里被静默丢掉。 */
     const body = Object.assign({}, base, { model: model.id, inputEntries: entries,
       note: '画布提交', snapTag, snapLabel,
       log: { type: '画布生成', meta: { 节点: node.id } } });

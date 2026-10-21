@@ -1,5 +1,5 @@
 /* 网络 / 接口层：媒体地址、状态归类、统一取数与 Api（全站唯一出口）。
-   从 assetlib.js 拆出（报告 §6.1-2：按已有的 window 面切文件，不改调用点）。
+   从 assetlib.js 拆出（按已有的 window 面切文件，不改调用点）。
    这里仍是浏览器经典脚本：顶层函数就是全站共享的那一份 —— AssetLib / TextAI /
    asset-transfer / local 都裸调 mediaKey / netFetch / respBody / readSseStream。
    加载顺序见 shell.html：api.js → assetlib.js → gen-forms.js。 */
@@ -715,7 +715,7 @@ function topBoolValue(decl, on) {
        /registry 是整份答复，没有按平台分段取的口子，所以注册表快照仍要丢一次；
        但别的平台的能力来源、全站的列表快照与在飞报价都不该跟着重来 ——
        以前这些地方直接 clearCaches()，设置页点一次「获取型号列表」，
-       别的页面上正在轮询的任务与在飞的报价全被清空、下一轮全部重打上游（B20）。 */
+       别的页面上正在轮询的任务与在飞的报价全被清空、下一轮全部重打上游。 */
     invalidateModels(providerId) {
       _reg = null; _regTs = 0;
       const pid = String(providerId || '');
@@ -879,7 +879,7 @@ function topBoolValue(decl, on) {
     customDrop(id) {
       this.customSet(this.customList().filter(e => e && e.id !== id));
       /* 清干净这一家名下的每一把钥匙。
-         `sk_model_` 是漏掉过的那一个（L41）：设置页按 `sk_model_<keyId>` 存
+         `sk_model_` 是漏掉过的那一个：设置页按 `sk_model_<keyId>` 存
          型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
       ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => window.LS.del(p + id));
@@ -1853,7 +1853,7 @@ function topBoolValue(decl, on) {
       if (isNaN(n)) return String(v == null ? '' : v);
       return u ? n.toLocaleString('zh-CN') : '¥' + n.toFixed(2);
     },
-    /* 一整个余额句子（数字 + 单位 + 可选冻结）。报告 §4：三处各写一套，
+    /* 一整个余额句子（数字 + 单位 + 可选冻结）。三处各写一套，
        「积分要不要千分位」「单位放前还是放后」三个页面三个答案 —— 口径只从这里出。 */
     balText(b, opts) {
       if (!b || b.available == null || b.available === '') return '';

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-/* 切片性能（批次 4 / P1-P6）：真实浏览器里把一条 20 秒素材摆成二十格，量四件事 ——
+/* 切片性能：真实浏览器里把一条 20 秒素材摆成二十格，量四件事 ——
      首格 ≤ 600ms、整排 20 格 ≤ 2.5s、缩放后重填 ≤ 1.5s、一次重画解码次数不超期望值；
-   顺带把 P1（一素材一只 video）、P4（worker 编码真的在跑）、P2（缩放命中 ≥70%）、
-   P5（同一工程二次打开 0 次解码）数出来。
+   顺带把「一素材一只 video」「worker 编码真的在跑」「缩放命中 ≥70%」「同一工程二次打开 0 次解码」也数出来。
    需要 ffmpeg 造 20 秒素材；没有就跳过并报明。 */
 'use strict';
 const fs = require('fs');
@@ -13,7 +12,7 @@ const h = require('./harness.cjs');
 const FIRST_MS = 600;       // 首格
 const ROW_MS = 2500;        // 整排 20 格
 const REFILL_MS = 1500;     // 缩放后重填
-const HIT = 0.7;            // 缩放命中率下限（P2）
+const HIT = 0.7;            // 缩放命中率下限
 
 (async () => {
   if (!h.hasFfmpeg()) { console.log('- 跳过切片性能（本机没有 ffmpeg，造不出 20 秒素材）'); return; }
@@ -29,7 +28,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
     await page.addInitScript(() => {
       try { localStorage.setItem('dir_tl_pps', '64'); } catch (e) {}
     });
-    /* P4 的观测点：worker 什么时候建、真的收发了多少条。必须在页面脚本之前装。 */
+    /* worker 的观测点：什么时候建、真的收发了多少条。必须在页面脚本之前装。 */
     await page.addInitScript(() => {
       window.__spWorkers = []; window.__spPosts = 0; window.__spReplies = 0;
       const W = window.Worker;
@@ -61,7 +60,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
       const T = k => { if (o.trace.length < 90) o.trace.push(k + '=' + Math.round(performance.now())); };
       const om = V.meta.bind(V), os = V.seek.bind(V), oe = V.el.bind(V), orl = V.release.bind(V);
       /* 每块解码都会问一次 meta，但只有 readyState 还没到 1 的那次才真的在读元数据：
-         P1 数的是「解析了几次」，不是「问了几次」。 */
+         这里数的是「解析了几次」，不是「问了几次」。 */
       V.meta = function (v) { if (v.readyState < 1) { o.meta++; T('meta0'); const p = om(v); p.then(() => T('meta1'), () => T('metaX')); return p; } return om(v); };
       V.seek = function (v, t) { o.seek++; o.seekTimes.push(Number(t)); T('seek' + t); return os(v, t); };
       V.el = function (src) { o.els++; T('el'); return oe(src); };
@@ -154,13 +153,13 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
         + first.trace.map(x => { const [k, t] = x.split('='); return k + '@' + (Number(t) - first.t0).toFixed(0); }).join(' '));
     }
     if (!(first.full <= ROW_MS)) throw new Error('整排 ' + first.total + ' 格用了 ' + first.full.toFixed(0) + 'ms，超过 ' + ROW_MS + 'ms');
-    /* P1：一条素材只该有一只 <video>、一次元数据解析。 */
-    if (first.els > 1) throw new Error('一条素材开了 ' + first.els + ' 只 <video>（P1 要求一素材一只）');
-    if (first.meta > 1) throw new Error('一条素材解析了 ' + first.meta + ' 次元数据（P1 要求一次）');
+    /* 一条素材只该有一只 <video>、一次元数据解析。 */
+    if (first.els > 1) throw new Error('一条素材开了 ' + first.els + ' 只 <video>（要求一素材一只）');
+    if (first.meta > 1) throw new Error('一条素材解析了 ' + first.meta + ' 次元数据（要求一次）');
     /* 解码次数不超期望：每格一个时刻，同一时刻不重解（栅格去重后 ≤ 格数）。 */
     if (!(first.seek <= first.total)) throw new Error('首排解码 ' + first.seek + ' 次，超过期望的 ' + first.total + ' 次');
     if (first.uniq !== first.seek) throw new Error('同一批时刻里有重复解码：seek ' + first.seek + ' 次，去重后 ' + first.uniq + ' 个时刻');
-    /* P4：浏览器支持 ImageBitmap/OffscreenCanvas 时，切片编码必须真的交给 worker 且收到回执。 */
+    /* 浏览器支持 ImageBitmap/OffscreenCanvas 时，切片编码必须真的交给 worker 且收到回执。 */
     const supportsWorker = await page.eval(() => typeof Worker !== 'undefined'
       && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function');
     if (supportsWorker) {
@@ -208,7 +207,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
         + '；seek=' + first.seek + ' done=' + first.done + ' ' + JSON.stringify(fps));
     }
 
-    /* 缩放（P2）：64 → 51.2px/秒，采样仍吸附在整数秒栅格上 → 一次解码都不该发生。 */
+    /* 缩放：64 → 51.2px/秒，采样仍吸附在整数秒栅格上 → 一次解码都不该发生。 */
     const zoomOut = await page.eval(() => {
       const P = window.__sp;
       P.seek = 0; P.seekTimes = [];
@@ -276,7 +275,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
     if (!(z2.full <= REFILL_MS)) throw new Error('缩回去后重填 ' + z2.full.toFixed(0) + 'ms，超过 ' + REFILL_MS + 'ms');
     if (z2.seek !== 0) throw new Error('整排都在缓存里，缩回去还解码了 ' + z2.seek + ' 次（单次重画解码次数应为 0）');
 
-    /* P5：等这批帧真的落进 IndexedDB（写入是后台事，不等它），再刷新同一工程看二次打开。 */
+    /* 等这批帧真的落进 IndexedDB（写入是后台事，不等它），再刷新同一工程看二次打开。 */
     await page.waitFor(async () => {
       const row = document.querySelector('.tl-vrow');
       const frs = row && row.querySelector('[data-frs]');
@@ -322,7 +321,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
       const T = k => { if (o.trace.length < 60) o.trace.push(k + '=' + Math.round(performance.now())); };
       const om = V.meta.bind(V), os = V.seek.bind(V), oe = V.el.bind(V), orl = V.release.bind(V);
       /* 每块解码都会问一次 meta，但只有 readyState 还没到 1 的那次才真的在读元数据：
-         P1 数的是「解析了几次」，不是「问了几次」。 */
+         这里数的是「解析了几次」，不是「问了几次」。 */
       V.meta = function (v) { if (v.readyState < 1) { o.meta++; T('meta0'); const p = om(v); p.then(() => T('meta1'), () => T('metaX')); return p; } return om(v); };
       V.seek = function (v, t) { o.seek++; o.seekTimes.push(Number(t)); T('seek' + t); return os(v, t); };
       V.el = function (src) { o.els++; T('el'); return oe(src); };
@@ -363,14 +362,14 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
     if (!(second.first > 0 && second.first <= FIRST_MS)) throw new Error('二次打开首格 ' + second.first.toFixed(0) + 'ms，超过 ' + FIRST_MS + 'ms');
     if (!(second.full <= ROW_MS)) throw new Error('二次打开整排 ' + second.total + ' 格用了 ' + second.full.toFixed(0) + 'ms，超过 ' + ROW_MS + 'ms');
     if (second.seek !== 0 || second.meta !== 0 || second.els !== 0) {
-      throw new Error('二次打开仍在解码（P5 要求 0 次）：seek=' + second.seek + ' meta=' + second.meta + ' video=' + second.els
+      throw new Error('二次打开仍在解码（要求 0 次）：seek=' + second.seek + ' meta=' + second.meta + ' video=' + second.els
         + '（IndexedDB 里有 ' + cached.n + ' 张，key=' + cached.key + '）');
     }
 
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
     const faults = h.logFaults(proxy.log);
     if (faults.length) throw new Error('代理日志异常：' + faults.join(' | '));
-    /* 批次 0 的切片基线：三个预算就是「P1 之前的实测 × 0.6」，这里把落地后的实测量回去，
+    /* 切片基线：三个预算就是「收紧前的实测 × 0.6」，这里把落地后的实测量回去，
        后面要收紧阈值时先看这份数字，不凭印象调。跑法：PERF_WRITE=1 node tests/e2e/director-slice-perf.cjs */
     if (process.env.PERF_WRITE) {
       const FIX = path.join(__dirname, '../fixtures/perf-baseline.json');
@@ -390,7 +389,7 @@ const HIT = 0.7;            // 缩放命中率下限（P2）
         workerPosts: first.posts,
         workerReplies: first.replies,
         budgets: { firstMs: FIRST_MS, rowMs: ROW_MS, refillMs: REFILL_MS, hitRate: HIT,
-          why: 'P1 之前的实测 × 0.6（批次 0），收紧前先看这里的实测值' },
+          why: '收紧前的实测 × 0.6，先看这里的实测值' },
         measuredAt: new Date().toISOString(),
       };
       fs.writeFileSync(FIX, JSON.stringify(cur, null, 2) + '\n');

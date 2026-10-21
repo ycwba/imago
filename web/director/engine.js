@@ -103,7 +103,7 @@ let proj = null;        // 当前短片
 /* 工作区装配完成旗标：boot() 里 `await wsKv.get` → `await DataSync.workspaceFromServer` 之间
    有一整个网络往返的窗口，此时 WS 还是上面那份**空默认值**。关标签/刷新的 flush 与任何顺手
    排上的 scheduleSave 都可能在窗口里跑，写下去的就是「一个工程都没有」——把用户真工作区从
-   IndexedDB 与 .data/workspace.json 一起盖掉（§6.2「读不出来绝不等于本来就没有」的同一类）。
+   IndexedDB 与 .data/workspace.json 一起盖掉（AGENTS §6.2「读不出来绝不等于本来就没有」的同一类）。
    所以两份落盘都必须先问这一枚：没装配完就一个字节都不写。 */
 let wsLoaded = false;
 let REG = null;         // /registry：API 注册路由（提供商/模型/能力）
@@ -142,8 +142,7 @@ function fillSkillVars(tpl, vals) {
    provider 在这里只是「这一条将来要发给谁」的一个记号：draft 阶段既不会提交也不会被轮询
    （pollLive 按 tmp_ 号跳过）。以前这里写的是 `provOf(...).id` —— 页面刚打开、/registry 还没回来的
    那一瞬间 provOf 给的是 null，于是「建第一个镜头」当场抛 TypeError，
-   干净 profile 一进去就是「未处理错误」横幅 + 右栏一直空着（加载期竞态，与 §7
-   「能力声明回来之前不许说你没配 X 接口」是同一类）。
+   干净 profile 一进去就是「未处理错误」横幅 + 右栏一直空着（加载期竞态，与「能力声明回来之前不许说你没配 X 接口」是同一类）。
    现在直接取型号自己记着的那一家，认不出就留空 —— 真要点「生成这条」时那一路有 needProv，
    会给一句能照做的话，而不是在建立占位的时候崩掉整页。 */
 function mkCandidateBase(sh, vid) {
@@ -184,7 +183,7 @@ function newShot(prompt = '') {
        平台不给形状声明时一直是空串，那一排芯片整块不画，行为与加它之前逐字相同。
        挂在镜头上而不是模块变量：导演台一次编辑的是镜头，切镜头要跟着换。 */
     combo: '',
-    /* 批次④（方案 §4.1 / §4.3）两个结构化字段，都只挂在镜头上：
+    /* 拆分镜落进工程数据的两个结构化字段，都只挂在镜头上：
        `line` = 这一镜要念的话（只有文字，**不进配音轨**）。配音轨只放已经有音频的条目：
        `addVoiceEntry` 第一件事是问 `voiceTarget`，draft 占位候选不算落点；往里塞一条「有字没声音」的
        会被 `clipVoices` 数进 skip，状态行于是把「还没合成」说成「N 句配音没进成片」。
@@ -228,7 +227,7 @@ const shotDur = sh => {
 };
 /* 本镜时长文案：没生成就写「未生成」 */
 const shotDurText = sh => { const d = shotDur(sh); return d ? fmtDur(d) : '未生成'; };
-/* 裁剪落地之后那一句（两个入口共用）—— **必须说清这一条在不在成片里**（L57）。
+/* 裁剪落地之后那一句（两个入口共用）—— **必须说清这一条在不在成片里**。
    剪辑这段改的是「我现在正在看的那条候选」（curCand），
    而左栏镜头时长、工具条「全片 X 秒」算的是「已选用的那条」（selId）。
    两者不是同一条时，一句光秃秃的「✓ 已保留 3 秒」会让人以为成片短了 2 秒 ——
@@ -322,7 +321,7 @@ function snapOf() {
   /* 游标不进快照。`curScene` / `curShot` / `curCand` 是「我现在在看哪一个」，
      不是「作品是什么」—— 以前它们被一起序列化，于是点6 次候选缩略图比较效果，
      再按 Ctrl+Z，第一下退回去的是「我刚才在看第 2 条候选」，真正的编辑还排在后面。
-     而撤销上限只有 30 步（L10），翻看几次就能把真正的改动挤出栈。
+     而撤销上限只有 30 步，翻看几次就能把真正的改动挤出栈。
      剔掉它们之后，「翻看」不再消耗撤销次数，而撤销回去时视口停在当前这一镜
      （restoreSnap 之后 renderAll 会照 proj.curCand 重画，指向的那一条仍然是它，
      因为那一镜的候选列表没变）。
@@ -621,7 +620,7 @@ const boardEditSysOf = () => TextAI.prompt('board_edit');
      boardPlanOf     把 AI 回的 changes 翻成「对哪一条镜头做什么」的账（**序号在这里就翻成镜头 id**）
      applyBoardPlan  唯一的落盘点：按 id 找到那一条就地改 / 按位置插进去
    序号只对 AI 那一句有效：审查弹窗里用户删掉几条之后序号就漂了，所以账上必须已经是 id。 */
-/* 镜头时长的口径**只有「型号自己声明的区间」这一份**（批次①）。
+/* 镜头时长的口径**只有「型号自己声明的区间」这一份**。
    以前这里是一份写死的 2–15 秒加一个默认 5 秒：全站根本没有统一值，各家各自声明自己的 min/max
    （注册表里实测过的是「4 到 15」与「5 到 10」两种），而界面把 AI 回的 duration clamp 到那份 2–15
    就当「合法」—— 用户不逐镜点开右栏、直接点「生成全部分镜」时，提交体发的是 AI 那个越界原值
@@ -821,7 +820,7 @@ const BoardTools = createBoardTools({
 const { snapBoard, boardListText, boardPlanOf, applyBoardPlan } = BoardTools;
 
 /* ============================ 拆分镜之前：这一次带哪些素材进来 ============================
-   批次②（方案文档 §2.3–§2.5）三件事各只有一处落点，页面不另写第二份：
+   三件事各只有一处落点，页面不另写第二份：
    ① 范围（`scopes` / `resolve` / `scopeText`）—— 表单「素材范围」那一项的名单。
       选项上的条数与 `resolve` 用同一个过滤器现算，否则下拉写「角色（12 条）」而实际喂过去 11 条。
       「算不算这一组」的判据在 web/domain/chars.js 的 `Lib.groupMatch`（按 `window.nameKey` 合并近名），这里不重写。
@@ -950,7 +949,7 @@ function filmEdited() {
 }
 
 /* ============================================================================
-   字幕（W5）：右栏「字幕」、轨道字幕行、预览叠层、SRT / 烧录 / FCPXML
+   字幕：右栏「字幕」、轨道字幕行、预览叠层、SRT / 烧录 / FCPXML
    ----------------------------------------------------------------------------
    数据层只有一份：`sh.subtitle.entries` 是**候选源秒**（AGENTS §9.2），
    显示与导出全部经 `currentOf → mapToFilm`；导入 SRT 用 `mapFromFilm` 折回源秒。
@@ -2572,7 +2571,7 @@ function bindSegDrag(row, sh, c, total, G) {  /* 拖动中只重画**框内的�
     });
   });
 }
-/* 轨道取帧用的地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（§1 硬性） */
+/* 轨道取帧用的地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（AGENTS §4.1） */
 const candTrackSrc = c => {
   const src = c && (c.src || c.url);
   if (!src) return '';
@@ -4974,7 +4973,7 @@ function updateBanner() {
     ? `✓ ${ready} 个分镜已完成，可以剪辑与导出了`
     : `已完成 ${ready}/${all.length} 个分镜`;
 }
-/* 「就地二次确认」全站**只有web/ui/ui.js 的 Confirm.arm 一份**（AGENTS.md §J）。
+/* 「就地二次确认」全站**只有 web/ui/ui.js 的 Confirm.arm 一份**（AGENTS §7）。
    这一页以前自建了一个 armConfirm：没有后果说明、Esc 不取消、点别处不取消、窗口只有 2.5 秒，
    而且没有「整页同时只有一个确认中」—— 可以同时点亮两颗删除按钮，
    用户点下第一颗之后才点第二颗，**两颗一起执行**。

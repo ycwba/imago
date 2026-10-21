@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-/* 左栏余额与本机传输那一条验收（执行文档 §11.1 A1–A4、§12「左栏余额区滚动条 = 0（任意窗口尺寸）」）：
+/* 左栏余额与本机传输那一条验收（指标：任意窗口尺寸滚动条 = 0）：
    六家全开 + 正在传输时，#sbBalance 与导航在任何一档窗口尺寸下都不许长出内滚动条；
    矮窗（≤660px 高）与 66px 收起态整区收成**一行摘要**，展开态卡片限 cap 张且等高。
    ⚠ 这一版改了两件事，判据跟着改：
      · 多的那几家不再「跳去用量页」，改成就地展开（`sb_bal_exp`）：整份名单摆在同一条列里，
        **只有卡列表那一格滚**，导航与本机产物行钉在原位；收起后回到 cap 张。展开是偏好，要跨重载。
      · 余额区里**不再有跳转钮**（去用量页 / 去设置）：侧栏里只许出现 expand / collapse / refresh 三枚。
-   「展开」这一位撞的就是 A2 那条硬约束（导航优先），所以每档都同时判：卡全摆出来时导航仍 7 条不被裁、
+   「展开」这一位撞的就是「导航优先」那条硬约束，所以每档都同时判：卡全摆出来时导航仍 7 条不被裁、
    自己不长滚动条，而「收起」钮永远点得到（点不回就是死锁）。
    ≤660 与 66px 那两档卡片块本来不画，展开位对它们必须等于不存在（sidebar.css 里那两条 revert）。
    本机产物那一行的明细照同一句话走：要看更多就点开标题行，不跳转 —— 顺带判「重画一次就重绑一次」。
@@ -166,7 +166,7 @@ const check = (name, cond, detail) => {
     check('1024x600：导航 7 条全露出（无被裁）', s.navCount === 7 && s.navClipped === 0, s);
     check('整栏：余额区里没有「去用量页 / 去设置」跳转钮', s.jumps === 0, { jumps: s.jumps });
 
-    /* ---------- 档二：1024x500（A2 验收：窗口高 500px 时导航全部可见）---------- */
+    /* ---------- 档二：1024x500（验收：窗口高 500px 时导航全部可见）---------- */
     await open(1024, 500, true);
     bal = await page.eval(BARS, '#sbBalance');
     nv = await page.eval(BARS, '.sidebar nav');
@@ -203,25 +203,25 @@ const check = (name, cond, detail) => {
     console.log('  #sbBalance ' + JSON.stringify(bal) + '\n  nav ' + JSON.stringify(nv));
     check('默认态：#sbBalance 无内滚动条', !bal.barY && !bal.barX && !bal.miss, bal);
     check('默认态：导航无内滚动条', !nv.barY && !nv.barX, nv);
-    check('A1① 传输状态固定在区域顶部（.sb-bal-body 第一块，不跟卡一起滚）', s.mirrorFirst && /正在存/.test(s.mirrorText), { mirrorFirst: s.mirrorFirst, mirrorText: s.mirrorText });
-    /* A1②「限 3 张」是**上限**，不是每张窗口都摆满三张：能摆几张由 sidebar.js 的 BAL_CAPS
-       按实测高度算（900px 高这一档只摆得下 2 张，摆第 3 张就要挤导航 —— A2 说导航优先）。
+    check('传输状态固定在区域顶部（.sb-bal-body 第一块，不跟卡一起滚）', s.mirrorFirst && /正在存/.test(s.mirrorText), { mirrorFirst: s.mirrorFirst, mirrorText: s.mirrorText });
+    /* 「限 3 张」是**上限**，不是每张窗口都摆满三张：能摆几张由 sidebar.js 的 BAL_CAPS
+       按实测高度算（900px 高这一档只摆得下 2 张，摆第 3 张就要挤导航 —— 导航优先）。
        判据不复制那张表，改判两件真话：摆出来的不超过 3 张，且没摆出来的那几家**就地给得出** ——
        「展开全部 N 家」的 N 等于总家数（差一家就是假话），点一下就看全，不跳转。 */
-    check('A1② 默认摆出来的卡落在 1..3 之间（容器没有 max-height 与内滚动，靠条数定高）',
+    check('默认摆出来的卡落在 1..3 之间（容器没有 max-height 与内滚动，靠条数定高）',
       s.cards.length >= 1 && s.cards.length <= 3 && s.cardTotal === s.cards.length,
       { cards: s.cards.length, cardTotal: s.cardTotal });
     const expLbl = /^展开全部 (\d+) 家$/.exec((s.actTexts.find(t => /展开全部/.test(t)) || ''));
-    check('A1②「展开全部 N 家」报的数 = 总家数（多的那几家就地给得出）',
+    check('「展开全部 N 家」报的数 = 总家数（多的那几家就地给得出）',
       s.sumTotal > s.cards.length && !!expLbl && Number(expLbl[1]) === s.sumTotal,
       { total: s.sumTotal, cards: s.cards.length, actTexts: s.actTexts });
-    check('A4 按钮族只有就地动作（expand / refresh），且都是公共件 .ghost mini',
+    check('按钮族只有就地动作（expand / refresh），且都是公共件 .ghost mini',
       JSON.stringify([...s.acts].sort()) === JSON.stringify(['expand', 'refresh']), { acts: s.acts });
-    check('A3 卡等高', s.cards.length > 1 && Math.max(...s.cards) - Math.min(...s.cards) <= 1, { cards: s.cards });
-    check('A3 三行都是单行（nowrap + 放不下才省略号），全文在 title 里',
+    check('卡等高', s.cards.length > 1 && Math.max(...s.cards) - Math.min(...s.cards) <= 1, { cards: s.cards });
+    check('三行都是单行（nowrap + 放不下才省略号），全文在 title 里',
       s.lines.length === s.cards.length && s.lines.every(l => l.every(x => x[1] === 'nowrap' && x[2] === 'ellipsis')),
       { lines: s.lines });
-    check('A3 每张卡都带全文 title', s.cardTitles.length === s.cards.length && s.cardTitles.every(t => t.length > 0), { cardTitles: s.cardTitles });
+    check('每张卡都带全文 title', s.cardTitles.length === s.cards.length && s.cardTitles.every(t => t.length > 0), { cardTitles: s.cardTitles });
 
     /* ---------- 档五：就地展开 → 全量卡就在侧栏里，只有卡格滚；导航一条不被挤 ---------- */
     const EXP = '就地展开 @1440x900';
@@ -237,7 +237,7 @@ const check = (name, cond, detail) => {
     check(EXP + '：整份名单都摆出来了（卡数 = 摘要报的家数）', s.cardTotal === s.sumTotal && s.cards.length === s.sumTotal,
       { cards: s.cards.length, total: s.sumTotal });
     check(EXP + '：.bal-exp 挂上，卡包在唯一滚动位 .sb-bal-cards 里', s.balExp && s.wrapVis, { balExp: s.balExp, wrapVis: s.wrapVis });
-    check(EXP + '：导航仍 7 条全可见、自己不长滚动条（A2 优先于「看全」）',
+    check(EXP + '：导航仍 7 条全可见、自己不长滚动条（导航优先于「看全」）',
       !nv.barY && !nv.barX && s.navCount === 7 && s.navClipped === 0, { nav: nv, navClipped: s.navClipped });
     check(EXP + '：整个区域自己不长第二条滚动条（滚的只有卡格）', !bal.barY && !bal.barX, bal);
     check(EXP + '：确实只有卡格超出（900px 高摆 6 张必然要滚 —— 这就是就地展开的代价，摆在明面上）', s.wrapBar,
@@ -276,7 +276,7 @@ const check = (name, cond, detail) => {
 
     /* ---------- 档六：展开偏好开着 × 卡片块不画的那两档 —— 展开位必须等于不存在 ----------
        收起态（66px）与 ≤660 矮窗里 `.sb-bal-body` 整块不画，此时若还钉着导航（`.bal-exp` 那半），
-       A2 的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来。这两档判的就是那两条 CSS revert。 */
+       「导航优先」的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来。这两档判的就是那两条 CSS revert。 */
     for (const [w, ht, expanded, tag] of [[1440, 600, true, '矮窗摘要档'], [1440, 500, true, '更矮摘要档'], [1440, 900, false, '66px 收起档']]) {
       await open(w, ht, expanded);
       await setPref('1');
@@ -371,10 +371,10 @@ const check = (name, cond, detail) => {
     check('弹窗打开时侧栏区里没有第二摞卡', pop.sideCards === 0, { sideCards: pop.sideCards });
     await page.eval(() => { const d = document.querySelector('dialog'); if (d && d.close) d.close(); return true; });
 
-    /* ---------- 档十：只改窗口高度（不重加载）扫一遍 —— §12「左栏余额区滚动条 = 0（任意窗口尺寸）」 ----------
+    /* ---------- 档十：只改窗口高度（不重加载）扫一遍 ——「左栏余额区滚动条 = 0（任意窗口尺寸）」 ----------
        六家全开 + 传输中：余额区从 480 到 1100 的每一档都不许长出内滚动条（收起态与展开态都扫）。
        默认态与「就地展开」态各扫一遍：展开态新增的唯一滚动位是 .sb-bal-cards，它不是「挤掉导航」的那条坏路。
-       导航那一条按 A2 的验收线判：窗口高 **500px 起** 7 条全可见且不内滚（再矮下去 7 枚图标加
+       导航那一条按验收线判：窗口高 **500px 起** 7 条全可见且不内滚（再矮下去 7 枚图标加
        brand、分组标题、底部两块在 66px 这一列里真的放不下，导航保留它自己的 overflow-y:auto 兜底 ——
        那不是「挤掉余额区」的那条坏路：余额区在这带已经收成一行摘要，不跟导航抢高度）。
        resize 之后能摆几张卡变了，所以补一次 sb-balance-refresh 让它按新档重画（balCheckCap 那条路）。 */

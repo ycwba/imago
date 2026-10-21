@@ -221,7 +221,7 @@ async function exportFilmAssets(opts) {
     : '<span class="ok">✓ 素材导完了：' + okN + ' 个文件已存到本机（画面 ' + nV + ' · 配音 ' + nA + '）</span>');
   return { ok: true, okN, nV, nA, failed, jobs: jobs.length };
 }
-/* 导出素材的文件名只洗一次字符：`web/ui/ui.js` 的 `fileSafe`（§J ⑲ 守着）。
+/* 导出素材的文件名只洗一次字符：`web/ui/ui.js` 的 `fileSafe`。
    片段名来自镜头名，用户什么都可能打 —— 这一页以前自己写了第二份非法字符正则与截断长度，
    与资产库 / 生成工作台那两处的口径各不相同（同一部片子的素材从不同页导出，名字规则就不一样）。 */
 async function exportFilmFFmpeg(opts) {
@@ -537,7 +537,7 @@ async function downloadMergedFilm() {
 }
 
 function stampName(ext) {
-  /* 时间戳与非法字符各归公共一份（`web/ui/ui.js` 的 `fileStamp` / `fileSafe`，§J ⑲ 守着）；
+  /* 时间戳与非法字符各归公共一份（`web/ui/ui.js` 的 `fileStamp` / `fileSafe`）；
      这一页只管形状：「项目名-成片-年月日-时分秒.扩展名」。
      项目名以前不截断，而 Windows 的整条路径有上限 —— 现在跟着 fileSafe 收到 60 个字。 */
   return window.fileSafe((projOf() && projOf().name) || '成片', 60) + '-成片-' + window.fileStamp() + '.' + ext;

@@ -34,7 +34,7 @@ function webSources() {
     .sort();
 }
 /* 导演台 engine 层的文件清单：engine.js（状态与接线）+ engine/<域>.js（按域搬出去的函数，
-   AGENTS.md §17 / 执行文档 G1）。备份文件 `.pre-<域>` 不是源码，不进这一份。 */
+   AGENTS.md §17）。备份文件 `.pre-<域>` 不是源码，不进这一份。 */
 function engineFiles() {
   const dir = abs('web/director/engine');
   const mods = fs.existsSync(dir)
@@ -186,7 +186,7 @@ function objectKeys(src, openIdx) {
 }
 
 /* REGISTRY 落点适配层。
-   ⚠ 注册表正在从 server/app.js 搬去 server/registry-config.js（审查报告 §6.1-1）。
+   ⚠ 注册表的数据在 server/registry-config.js（2026-10-20 从 app.js 搬出）。
    本适配层先试「独立文件（module.exports 里的 REGISTRY / registry / providers）」，
    没有再退回从 app.js 源码里取那段对象字面量。
    搬完之后这条判据不用改；但如果两边都没有，测试会直接红（那才是真事故）。 */
@@ -293,7 +293,7 @@ const UI_INFRA_FACES = new Set(['Net', 'Store', 'Kv', 'Toast', 'DataSync', 'GoPa
 function isInfra(name, layer) { return layer === 'ui' && UI_INFRA_FACES.has(name); }
 
 /* 公共面 = `window.<首字母大写> = …`（AGENTS.md §14.7：浏览器经典脚本挂一个 window.<Name> 面）。
-   `__*` 那些后门不算：它们是外壳与页面之间的钩子（报告 §6.2 已单列「window.__* 后门 ~20 个」），
+   `__*` 那些后门不算：它们是外壳与页面之间的钩子，
    不是某一层的实现；小写的（esc / icon / toast / fmtBytes）是别名，也不是一层对另一层的依赖。 */
 /* 默认扫真实仓库；architecture.cjs 的自检要拿一段**内存里的**合成源码验证「这条判据真会红」，
    所以 files/read/faces 都能注入（注入的是判据的输入，不是判据本身）。 */
@@ -324,26 +324,26 @@ function faceReads(src, name) {
    挂成 window 的（运行时零构建、没有打包器可以做 import），存量跨层引用是历史事实，
    不是「判据没跑」。所以按「文件 → 面 → 层」逐条登记 + 条数上限，新增一条就直接红。
    每条都要写原因；原因写不出来就该改代码，而不是往表里加一行。
-   下面这些条目对应的就是要收敛的那两个方向（报告 §6.1-7 的两个反例都在里面）。 */
+   下面这些条目对应的就是要收敛的那两个方向（两个反例都在里面）。 */
 const LAYER_EXCEPTIONS = [
   /* ---- domain 读 ui 的组件面：domain 不该开弹窗、不该自己画卡片 ---- */
-  { id: 'web/domain/api.js → Wb [ui]', max: 3, why: '与 workbench 互相引用（同一份任务账两边都碰）：§6.1-2 拆开 api.js 后这一层只剩取数' },
-  { id: 'web/domain/gen-forms.js → Confirm [ui]', max: 1, why: '报告 §6.1-7 点名的反例：表单族弹「要不要覆盖」（gen-forms.js 的 window.Confirm.ask）。改法是只返回错误码，问话交给页面/助手' },
-  { id: 'web/domain/gen-forms.js → InlinePolish [ui]', max: 4, why: '就地润色组件住在 ui.js/forms.js，AiStream 直接驱动它（§6.1-2 拆开后这一层只剩面板接线）' },
-  { id: 'web/domain/asset-picker.js → Wb [ui]', max: 5, why: '选素材弹窗自己拼工作台卡片：应换成 Wb.cards 的调用点由页面给（§4 公共件复用）' },
+  { id: 'web/domain/api.js → Wb [ui]', max: 3, why: '与 workbench 互相引用（同一份任务账两边都碰）：api.js 拆分后这一层只剩取数' },
+  { id: 'web/domain/gen-forms.js → Confirm [ui]', max: 1, why: '反例：表单族弹「要不要覆盖」（gen-forms.js 的 window.Confirm.ask）。改法是只返回错误码，问话交给页面/助手' },
+  { id: 'web/domain/gen-forms.js → InlinePolish [ui]', max: 4, why: '就地润色组件住在 ui.js/forms.js，AiStream 直接驱动它（拆开后这一层只剩面板接线）' },
+  { id: 'web/domain/asset-picker.js → Wb [ui]', max: 5, why: '选素材弹窗自己拼工作台卡片：应换成 Wb.cards 的调用点由页面给（公共件复用）' },
   { id: 'web/domain/asset-picker.js → AiChip [ui]', max: 2, why: 'AI 条件芯片画在弹窗里：芯片是 ui 组件，弹窗本身不该在 domain' },
   { id: 'web/domain/asset-picker.js → PickSel [ui]', max: 1, why: '多选态由 ui.js 的 PickSel 持有，选择器又去读它 —— 两边都是「选择」这一件事的两份' },
-  { id: 'web/domain/chars.js → Wb [ui]', max: 5, why: '素材库列表借工作台的卡片/分页标记：§6.1-2 拆 Chars 时把界面挪回页面' },
-  { id: 'web/domain/chars.js → PromptForm [ui]', max: 1, why: '配音表单直接驱动 ui 的提示词表单：同 §6.1-2' },
+  { id: 'web/domain/chars.js → Wb [ui]', max: 5, why: '素材库列表借工作台的卡片/分页标记：拆 Chars 时把界面挪回页面' },
+  { id: 'web/domain/chars.js → PromptForm [ui]', max: 1, why: '配音表单直接驱动 ui 的提示词表单' },
   { id: 'web/domain/local.js → Wb [ui]', max: 3, why: '本机资产层读工作台（徽标/格式化）：徽标判据的唯一实现应是 AssetLocal.stateOf，反过来的引用要断' },
   /* ---- ui 读 domain：公共组件层反过来依赖数据层 ---- */
-  { id: 'web/ui/workbench.js → Api [domain]', max: 14, why: '工作台是任务层，取数全走 Api.mediaSrc/mediaKey/request：§6.1-2 点名的三个巨型闭包之二，拆「媒体地址」这一小块才收得动' },
+  { id: 'web/ui/workbench.js → Api [domain]', max: 14, why: '工作台是任务层，取数全走 Api.mediaSrc/mediaKey/request：曾经的三个巨型闭包之二，拆「媒体地址」这一小块才收得动' },
   { id: 'web/ui/workbench.js → AssetLib [domain]', max: 3, why: '历史/详情面板读资产库缓存：与 Api 同批收敛' },
-  { id: 'web/ui/workbench.js → AssetLocal [domain]', max: 1, why: '报告 §6.1-7 点名的另一个反例：卡片自己拼本机身份。改法是只读 stateOf 的订阅，别在 ui 层算' },
+  { id: 'web/ui/workbench.js → AssetLocal [domain]', max: 1, why: '另一个反例：卡片自己拼本机身份。改法是只读 stateOf 的订阅，别在 ui 层算' },
   { id: 'web/ui/workbench.js → PromptLog [domain]', max: 2, why: '卡片详情显示归档提示词，走的是 domain 的读接口：等 workbench 拆薄' },
   { id: 'web/ui/sidebar.js → Api [domain]', max: 6, why: '侧栏余额与注册表都从 Api 取（AGENTS.md §2 把侧栏算 ui 层）：改成外壳注入一份 store' },
   { id: 'web/ui/sidebar.js → AssetLocal [domain]', max: 10, why: '侧栏徽标数字读本机身份：与上一条同一处装配问题' },
-  { id: 'web/ui/forms.js → Api [domain]', max: 3, why: '表单族里有几处直接问 Api（润色面板的供应方/型号文案）：§6.1-2 把表单族切去 forms.js 时原样搬过来，待抽成注入' },
+  { id: 'web/ui/forms.js → Api [domain]', max: 3, why: '表单族里有几处直接问 Api（润色面板的供应方/型号文案）：把表单族切去 forms.js 时原样搬过来，待抽成注入' },
   { id: 'web/ui/datasync.js → PromptLog [domain]', max: 4, why: '导入导出要带提示词归档，于是读了 domain 的 store：等 prompts 层自己导出一个片段' },
   { id: 'web/ui/datasync.js → ModelPrefs [domain]', max: 2, why: '导设置时带上型号偏好：同上，属跨层读数据' },
   { id: 'web/ui/skills.js → TextAI [domain]', max: 1, why: '内置 Skill 正文与 TextAI.DEF 同源（AGENTS.md §10），读的是同一份文案定义' },

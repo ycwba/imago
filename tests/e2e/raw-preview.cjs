@@ -16,7 +16,7 @@ const h = require('./harness.cjs');
   const ok = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg); if (!cond) bad++; };
   let skipped = '';
   try {
-    /* ⓪ 按家增量（执行文档 X15）：**一家**能力落定就广播 `wb:cap-ready`、右栏就补画，
+    /* ⓪ 按家增量：**一家**能力落定就广播 `wb:cap-ready`、右栏就补画，
        不等所有在用的平台都回来 —— 以前只认 `Capabilities.load().then` 那一次，
        上游慢的那一家把「将要发出」那栏拖到分钟级且不自愈。
        用受控的假 /capabilities 把「第一家 vs 其余」的落定时间拉开 2 秒多，

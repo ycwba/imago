@@ -912,7 +912,7 @@ export function createBridge(E, document, window) {
   if (window.WBBridge && typeof window.WBBridge.install === 'function') window.WBBridge.install('director', {
     version: 2,
     ready: () => ACTIVE() && READY(),
-    /* 只读历史摘要（方案 §6.5 首期）：条数 + 最近一次编辑的标签。
+    /* 只读历史摘要（首期）：条数 + 最近一次编辑的标签。
        不给「撤销到第 N 步」这类入口 —— 快照栈没有条目 id，按位置回退会在中间插入新编辑后错位。 */
     history: () => ({
       可撤销: undoStack.length,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 列表结果级短缓存（L1）：同参数 30 秒内第二次 load 必须 0 次上游请求（探针计数）。
+/* 列表结果级短缓存：同参数 30 秒内第二次 load 必须 0 次上游请求（探针计数）。
    跑法：`node tests/assetlib-cache.cjs`。
 
    装的是真源码（api.js + assetlib.js），只把最外层两件事换成探针：

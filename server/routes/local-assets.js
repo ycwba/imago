@@ -212,7 +212,7 @@ function createLocalAssets(ctx) {
           sendJson(res, 200, { ...item, status: 'succeeded', url: '/asset/' + id });
         } catch (e) {
           log('[local-assets] 保存失败：' + e.message);
-          /* 索引写不成时把话说到位（L50）：字节确实已经写进 .assets 了，缺的只是索引那一行。
+          /* 索引写不成时把话说到位：字节确实已经写进 .assets 了，缺的只是索引那一行。
              不这么说的话，调用方看到 500 会当「整件事都没成」而丢掉已经存好的那份，
              或者反过来（以前）看到 200 而当「成了」—— 两种说法都和盘上的实情对不上。 */
           const msg = e && e.indexWrite
@@ -230,7 +230,7 @@ function createLocalAssets(ctx) {
       const id = safeDecode(req.url.slice('/local-assets/'.length).split('?')[0]);
       const hit = localIndexRead().find(x => x && x.id === id);
       if (!hit) return failMsg(res, 404, '本地资产不存在：' + id);
-      /* **文件删不掉就不许裁索引**（L49）。为什么这条最要紧：索引是这些文件唯一的查找途径 ——
+      /* **文件删不掉就不许裁索引**。为什么这条最要紧：索引是这些文件唯一的查找途径 ——
          条目一没，那个 mp4 在资产库里看不见、/asset/<id> 也 404，而它明明还躺在 .assets 里，
          只是再也没人能按名字找回来（文件名是 la_xxx.mp4，人认不出来）。
          什么情况下删不掉：文件正被播放器 / 预览器打开、被同步盘（OneDrive 之类）占着、

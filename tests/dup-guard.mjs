@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 重复实现零新增（执行文档 §12 判据 8 / §5.3）。
+/* 重复实现零新增（AGENTS §7：同一个功能只应有一份实现）。
    跑法：`node tests/dup-guard.mjs`；收口之后重打基线：`node tests/dup-guard.mjs --write`。
 
    数的是「同一个名字在几个文件里定义」：函数声明、顶格 const 箭头 / function、`window.X = fn`。

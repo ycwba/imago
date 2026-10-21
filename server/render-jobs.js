@@ -8,7 +8,7 @@
    src 支持：/asset/<id>（用密钥解析最新签名链接）｜ http(s):// ｜ /local-path（经本机 http 取回）
    「/render/play」（内联播放那一条）2026-10-15 删除：页头「播放成片」那颗按钮早就整颗摘掉，
    剪辑态预览走时间线实时播、绝不为播放渲染，所以这一条路由全站零调用，是那条路留下的最后一段。
-   2026-10-20 从 server/app.js 原样搬出（审查报告 §6.1-1）：任务表、队列、素材解析与 ffmpeg 子进程
+   2026-10-20 从 server/app.js 原样搬出：任务表、队列、素材解析与 ffmpeg 子进程
    都住在这一层。RENDER_* / ENCODE_PROFILES 这些「启动时定一次」的配置与 HTTP 分发仍在组合根，
    由 app 注入进来（ROOT / PORT / RENDER_DIR / assetStore / 会话令牌 / log / keyOf / envInt …）。 */
 'use strict';
@@ -206,7 +206,7 @@ function createRenderJobs(deps) {
   const mediaState = { preparing: 0 };
   /* 缓存回收（列表 / 详情 / 资产签名地址都用它）：过期即删；仍超上限时按「最早写入」淘汰
      （Map 保持插入顺序）。以前是「超了就整个 clear()」，一次大批量请求会把还有用的缓存全清掉。 */
-  /* 缓存淘汰：先按 TTL 过期，再按条数封顶；给了 maxBytes 时**再按字节**封顶（P5）。
+  /* 缓存淘汰：先按 TTL 过期，再按条数封顶；给了 maxBytes 时**再按字节**封顶。
      以前只按条数封顶，而 listCache 每条最大 8 MiB、detailCache 每条最大 2 MiB ——
      算术上限 60×8 + 300×2 = **1.08 GB 常驻 Buffer**，还在 V8 堆外，`--max-old-space-size` 拦不住。
      今天 listCache 约 9.6 MB，不是问题，是**没有闸**。 */

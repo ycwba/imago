@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 生成前校验一致性判据（常驻）—— 跑法：`node tests/gen-rules.mjs`
-   治的是报告 §6.1-3：同一件「能不能提交」的事，工作台（`web/pages/studio.js` 的
+   治的毛病：同一件「能不能提交」的事，工作台（`web/pages/studio.js` 的
    `submitBlockReason`）与助手（`web/features/chat-tools.js` 的 `genCheck`）各写一套，
    于是同一组参数一边拦一边放。现在判据只有 `web/domain/gen-rules.js` 一份，
    两侧各自把 code 翻成自己那句中文。

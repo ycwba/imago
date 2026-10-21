@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 渲染任务台账（方案 §5.6 / §6.7）：POST /render → /render/status → /render/jobs（落盘最近 50 单）
+/* 渲染任务台账：POST /render → /render/status → /render/jobs（落盘最近 50 单）
    → /render/dl → /render/save-to-assets，取消与越界路径的拒绝。只写探针目录。 */
 'use strict';
 const fs = require('fs');

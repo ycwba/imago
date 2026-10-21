@@ -1103,7 +1103,7 @@ export function render(_ctx, _cache) {
             }, null, 8 /* PROPS */, _hoisted_122),
             _cache[44] || (_cache[44] = _createTextVNode("网络与刷新", -1 /* CACHED */))
           ]),
-          _createCommentVNode(" 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明（B5）。 "),
+          _createCommentVNode(" 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 "),
           _createElementVNode("div", _hoisted_123, null, 512 /* NEED_PATCH */)
         ]),
         _createElementVNode("div", _hoisted_124, [
@@ -1147,7 +1147,7 @@ export function render(_ctx, _cache) {
             _createTextVNode("（画着却不生效等于骗人去勾）。")
           ], -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_136, null, 512 /* NEED_PATCH */),
-          _createCommentVNode(" 另存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明（B5）。 "),
+          _createCommentVNode(" 另存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明。 "),
           _createElementVNode("div", _hoisted_137, null, 512 /* NEED_PATCH */)
         ]),
         _createElementVNode("div", _hoisted_138, [
@@ -1178,7 +1178,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("b", null, "动手"),
             _createTextVNode("（提交一次生成、改一项设置）默认要你在卡片上点「执行」。")
           ], -1 /* CACHED */)),
-          _createCommentVNode(" 四颗开关的行由 SET_ROWS 声明（B5）：勾法与写盘的三态都在那一行声明里。 "),
+          _createCommentVNode(" 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 "),
           _createElementVNode("div", _hoisted_145, null, 512 /* NEED_PATCH */),
           _cache[56] || (_cache[56] = _createStaticVNode("<div class=\"pb-tip\">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着， 重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div><div class=\"pb-tip\">勾上之后助手<b>校验完就立刻执行</b>，不等你点确认。一次生成在平台那边就是一条真任务， <b>没把握就别勾</b>。改素材库那一步仍会单独再问一次（它会直接落盘）；改设置则照这条总开关走。</div><div class=\"pb-tip\">「吸住」与「任务提醒」还有这个总开关都是<b>本机窗口</b>的事，<b>不跟着云同步</b>、不参与整包备份。</div><details class=\"ref\"><summary>系统通知的授权怎么做</summary><div class=\"ref-body\"> 球上的数字不需要授权；<b>系统通知</b>要浏览器点头，所以有上面那颗「现在授权」。 拒过一次浏览器就不再问，得去地址栏左边的「网站设置」里手动放开。 它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>", 4))
         ]),
@@ -1196,7 +1196,7 @@ export function render(_ctx, _cache) {
               _createElementVNode("b", null, "润色前要不要先反问"),
               _createElementVNode("span", { class: "used" }, "用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）")
             ], -1 /* CACHED */)),
-            _createCommentVNode(" 那一格下拉的行由 SET_ROWS 声明（B5）。 "),
+            _createCommentVNode(" 那一格下拉的行由 SET_ROWS 声明。 "),
             _createElementVNode("div", _hoisted_150, null, 512 /* NEED_PATCH */),
             _createElementVNode("div", _hoisted_151, [
               _createElementVNode("button", {
@@ -1727,7 +1727,7 @@ export function render(_ctx, _cache) {
           ])
         ])
       ]),
-      _createCommentVNode(" 低频那一组默认收着（B4）：折叠状态走的是这一页已有的 fold-key 机制，\n             键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 "),
+      _createCommentVNode(" 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，\n             键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 "),
       _createElementVNode("section", _hoisted_275, [
         _cache[113] || (_cache[113] = _createElementVNode("h2", { class: "set-group-h" }, [
           _createElementVNode("button", {

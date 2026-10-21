@@ -625,7 +625,7 @@ function handleCloud(req, res, urlObj) {
               prompts = Object.assign({ dir: pdir }, await cloudSyncPrompts(cfg, pdir, cmd));
             } catch (e) { prompts = { error: e.message, failed: [e.message] }; }
           }
-          /* 状态接口据此让设置页显示「待选择」清单；一起落盘，重启代理也还在（L51） */
+          /* 状态接口据此让设置页显示「待选择」清单；一起落盘，重启代理也还在 */
           cloudStateSet({ lastAt: Date.now(), conflicts, lastUp: nUp, lastDown: nDown });
           const parts = [];
           if (nUp) parts.push('已上传 ' + nUp + ' 份');

@@ -1,7 +1,7 @@
 /* ============================================================================
    ui.js —— 公共面：下拉 / 芯片 / 多选 / 格式 / 视图档 / 界面偏好 / 侧栏余额
    弹窗与表单族（InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker）
-   在 forms.js（报告 §6.1-2），加载顺序 ui.js → forms.js，调用点不变。
+   在 forms.js，加载顺序 ui.js → forms.js，调用点不变。
    ----------------------------------------------------------------------------
    其中 Dropdowns 是自定义下拉组件（与图片工作台完全同一套）
    用法：
@@ -901,7 +901,7 @@ window.copyText = async function copyText(txt) {
     return (i ? v.toFixed(1) : v) + ' ' + u[i];
   }
   window.fmtBytes = fmtBytes;      // 界面各处「≤ 10 MB」这类文案共用一份
-  /* ---------- 日期与时刻文案（全站一份，§J ⑱ 守着） ----------
+  /* ---------- 日期与时刻文案（全站一份） ----------
      改这一族之前全站有六种抄法：裸 `toLocaleString()`、`'zh-CN' + hour12:false`、
      `toLocaleDateString()` 拼 `toLocaleTimeString([], {2-digit})`、手拼 padStart……
      差别都落在「带不带秒」「显不显示年份」「跟不跟着浏览器 locale 漂」上 ——
@@ -912,7 +912,8 @@ window.copyText = async function copyText(txt) {
      **放在 ui.js 而不是 workbench.js**：用量页与外壳不加载 workbench.js，而每一页都加载 ui.js
      （与上面 fmtBytes 同一层的理由一模一样）。
      ⚠ 这一族不许写成 `String(…).padStart(2, '0') + ':' + String(…).padStart(2, '0')` 那个形状 ——
-       §J ⑰ 认的正是它（全站只许播放器读数那一份，在 workbench.js 的 Wb.fmtClock 里）。所以这里走 pad2。
+       播放器读数那一份（workbench.js 的 Wb.fmtClock）是全站唯一的手拼 mm:ss（AGENTS §7「格式化」），
+       所以这里走 pad2。
      「没值显示什么」（空串 / '—' / 「还没同步过」）是各个界面自己的事，这一族只管有值时怎么拼。 */
   const pad2 = n => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0');
   window.pad2 = pad2;               // 导演台命名（naming.js）与全站日期读数共用这一份
@@ -946,7 +947,7 @@ window.copyText = async function copyText(txt) {
   }
   window.dayKey = dayKey; window.fmtHM = fmtHM; window.fmtHMS = fmtHMS;
   window.fmtWhen = fmtWhen; window.fmtWhenSec = fmtWhenSec;
-  /* ---------- 下载文件名（全站一份，§J ⑲ 守着） ----------
+  /* ---------- 下载文件名（全站一份） ----------
      收拢前有八处各写一遍，而且**四种口径各不相同**：
        · 非法字符名单：有的带控制字符（页面那三处写 \x00-\x1f）、有的不带（assetlib 那两处、代理那份带）；
        · 换法：换成 -（资产库 / 工作台 / 导演台成片）、换成 _（素材库 / 转存本机）、直接删掉（assetlib 的 nameOf）；
@@ -1038,7 +1039,7 @@ window.copyText = async function copyText(txt) {
     return m ? kindOfExt(m[1]) : '';
   }
   window.mediaKindFrom = mediaKindFrom;
-  /* 一条素材的下载扩展名（§J ⑲ 那一族的第三块读法，2026-10 从四处收成一份）。
+  /* 一条素材的下载扩展名（`fileSafe` 那一族的一块读法，2026-10 从四处收成一份）。
      收成之前四份口径互不相同，同一个条目从哪一页下载决定它叫什么：
        · 资产库 `format || (视频?mp4:png)` —— 音频漏了，落到 png；
        · 工作台 `视频?mp4:图片?png:(format||wav)` —— 图片/视频**不看 format**，一张 jpeg 下回来是 .png；
@@ -1194,7 +1195,7 @@ window.copyText = async function copyText(txt) {
   if (document.addEventListener) {
     document.addEventListener('DOMContentLoaded', () => { while (pending.length) pending.shift()(); }, { once: true });
   }
-  /* window.error / unhandledrejection 这两个监听器不在这里了（§6.1-5）：
+  /* window.error / unhandledrejection 这两个监听器不在这里了：
      横幅只负责「显示」，「显示 + 进代理那本账」由 web/core/report.js 那一份统一装。
      这一层只留 show()，谁都可以调，但它自己不再听全局错误。 */
 })();

@@ -1508,7 +1508,7 @@
       const dl = document.createElement('button');
       dl.className = 'ac-card-go';
       dl.textContent = '下载';
-      /* 扩展名与资产库 / 工作台 / 收藏同一个口径（ui.js 的 `fileExtOf`，§J ⑲ 守着）：
+      /* 扩展名与资产库 / 工作台 / 收藏同一个口径（ui.js 的 `fileExtOf`）：
          先认条目自带的 format，推不出才按类型兜底。以前这一份兜底猜的是 mp3，
          而语音台的默认产物档是 wav —— 同一条没带 format 的配音从助手卡片下回来是 .mp3。 */
       const ext = window.fileExtOf(e);
@@ -2041,9 +2041,7 @@
     if (!lines.every(L => NOTICE.test(L))) return '';           // 只要有一行不是「通知」，就当它是正文
     const cats = (/safety\s*categor(?:y|ies)\s*[:=]\s*([^\n]+)/i.exec(b) || [])[1] || '';
     /* 这一句会走 push('err', …) —— 错误气泡是**纯 textContent**，不渲染 markdown，
-       所以正文里写 ** 会把两个星号原样露在界面上（AGENTS.md §H）。
-       §H 的判据只认同一行出现 textContent/title/hint 这类属性名，这里是 return '…'，
-       属于那一档的盲区；所以这一句本身就是判据 —— 别往里加标记。 */
+       正文里写 ** 会把两个星号原样露在界面上 —— 别往里加标记。 */
     return '这一轮上游的安全过滤把请求挡住了，它没有作答'
       + (cats ? '（它自己标的类别：' + cap(cats.trim(), 80) + '）' : '')
       + '。这不是本机出问题，也不是你的操作有错 —— 换个说法、把那张图撤掉再试，'
@@ -3265,7 +3263,7 @@ html.ac-dock #acPanel{box-shadow:none}
     if (isOpen()) closePanel(); else openPanel();
   });
 
-  /* 工具循环与动作目录住在 chat-tools.js（报告 §6.1-2）：这一层只留外壳、会话、渲染与发送。
+  /* 工具循环与动作目录住在 chat-tools.js：这一层只留外壳、会话、渲染与发送。
      共享的那一份从这里递过去（函数声明已提升、const 已初始化，所以放在文件末尾取）。
      写动作注册表仍由那一份自己持有，这里只读它的状态。 */
   const CHAT_TOOLS = window.AiChatTools.build({

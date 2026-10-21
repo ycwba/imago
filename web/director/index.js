@@ -82,7 +82,7 @@ export default {
       if (installed) return;
       installed = true;
       try {
-        /* 四件事一起要（报告 §6.2「依赖链串行」）：三份公共经典脚本、模板 HTML、engine 那条模块链。
+        /* 四件事一起要：三份公共经典脚本、模板 HTML、engine 那条模块链。
            以前一份一份 await，进这一页要串行等四次往返。并起来的前提都查过：
              · workbench.js / chars.js / export-formats.js 在求值期都不读对方（chars.js 只在函数里用
                `Wb.Blobs`，export-formats 只挂 window.ExportFormats），互不依赖才敢同时插；

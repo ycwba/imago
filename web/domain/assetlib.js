@@ -1,5 +1,5 @@
 /* 资产库列表层：AssetLib（读 /registry 的 list 声明，平台无关）+ 费用口径
-   （AssetLib.costOf / estimateCost）。从 assetlib.js 原文件拆出（报告 §6.1-2）；
+   （AssetLib.costOf / estimateCost）。从 assetlib.js 原文件拆出；
    依赖 api.js 的 Api 与顶层函数（mediaSrc / classifyStatus / assetSrc / topBoolValue），
    加载顺序见 shell.html（api.js → assetlib.js → gen-forms.js）。
    条目：{ kind:'asset'|'task', id, genId?, type('图片'|'视频'), providerName, provider,
@@ -42,7 +42,7 @@
        以前这里只认 'queued' / 'running' 是活的，creating / pending / processing 全被算成失败卡。 */
     const gstatus = (spec.statusMap || {})[g('status')] || g('status') || 'running';
     const st = classifyStatus(spec, g('status'));
-    /* 扩展名走全站那一份读法（ui.js 的 `fileExtOf`，§J ⑲ 守着）：先认平台声明的 format，
+    /* 扩展名走全站那一份读法（ui.js 的 `fileExtOf`）：先认平台声明的 format，
        认不出才按类型兜底。以前这一句是 `media === '视频' ? 'mp4' : (g('format') || 'png')` ——
        「png」兜到了**音频**头上：一条没声明 format 的语音任务在数据层就带着 `format:'png'`，
        于是资产库 / 收藏 / 助手卡片上的下载名（含这里拼的 `?dl=1&name=`）全是 .png，
@@ -141,7 +141,7 @@
      而镜像时把提交那一刻的提示词留在了本机索引里 —— 于是以前空白的那张卡其实有话可说。 */
   const AL_TWIN = e => (window.AssetLocal && AssetLocal.twinOf ? AssetLocal.twinOf(e) : '');
   const platSide = e => !!(e && e.mirrorKey);      // decorate 认出来的那条来自平台列表
-  /* ---------- 结果级短缓存（L1）----------
+  /* ---------- 结果级短缓存----------
      同一组参数（来源 / 类型 / 页数 / accept）在 30 秒内重复 load，直接用上一份结果：
      首屏两次 fetchMore、选择器每次打开都 3 页、资产库与工作台前后脚打开，都会各拉一遍全量，
      而上游列表在几十秒内几乎不会变。只缓存**第一次取**（带 out / cursors / more 的续拉不进缓存），
@@ -292,7 +292,7 @@
       if (!target) return { items, unknown };
       /* 只认**身份字段上的精确相等**，不再把整条记录 stringify 后做子串匹配：
          `la_12` 会命中 `la_123`（用户点删除时被一条根本没引用它的镜头拦住），
-         也会命中提示词/文件名里碰巧出现的那几个字（B25）。
+         也会命中提示词/文件名里碰巧出现的那几个字。
          地址字段允许「从中取出 /asset/<号>」再比 —— 本机产物在记录里常常只以地址形态存在。 */
       const eq = v => v != null && String(v) === target;
       const inUrl = v => {
@@ -409,7 +409,7 @@
         seen: (opts.seen instanceof Set) ? opts.seen : new Set(),
         twins: new Map(),        // 镜像身份 → 结果里那一条（见 pushEntry）
         out: Array.isArray(opts.out) ? opts.out : [],
-        /* 已经交给 `AssetLocal.scan` 过的条目（A1）。按**对象身份**记而不是按下标：
+        /* 已经交给 `AssetLocal.scan` 过的条目。按**对象身份**记而不是按下标：
            `collapseTwins` 会把 out 就地缩短，下标会错位。scan 本身是幂等的
            （已镜像的条目在 `read().m[k]` 处就 return 'saved'），所以只喂这一批新到的即可 ——
            以前每次 emit 都对**整份不断变长的 out** 扫一遍，emit 次数 ≈ 16~24 次，是 O(n²)。
@@ -435,7 +435,7 @@
           }
           /* 每批到达就顺手把这批产物排去存本机（而不是等整个 load 结束）：
              列表动辄十几秒才拉完，等它结束再开始镜像，用户看到的头几分钟全是没本机副本的。
-             只喂**这一批新到的**条目（A1）：scan 幂等，重复扫已经镜像过的只是白跑一次
+             只喂**这一批新到的**条目：scan 幂等，重复扫已经镜像过的只是白跑一次
              `offer` → 一次同步 `localStorage.getItem`。 */
           try {
             if (A && A.scan) {
@@ -667,7 +667,7 @@
       const prov = Api.prov(entry.provider);
       if (!prov) throw new Error('找不到平台：' + entry.provider);
       /* 没有型号就**不猜**：以前静默退回 `prov.models[0]`，用户按的明明是「重试这一条」，
-         发出去的却是另一个型号 —— 单价可能完全不同，而界面上看不出换过（B26）。 */
+         发出去的却是另一个型号 —— 单价可能完全不同，而界面上看不出换过。 */
       const model = entry.model;
       if (!model) throw new Error('这一条没有记录型号，重试前请先重选型号（不同型号的单价与参数都不一样）');
       return Api.create(prov, {
@@ -753,7 +753,7 @@ function clearQuoteMarks() {
 const QUOTE_CACHE = new Map();
 const QUOTE_TTL = 45 * 1000, QUOTE_FAIL_TTL = 10 * 1000;
 /* 只增不删的 Map 会跟着「每组不同参数」一直长（导演台每改一次时长就是一个新键）。
-   读的时候顺手删这条过期项，写的时候清一遍过期项、再按插入序把最老的清到上限内（B22）。 */
+   读的时候顺手删这条过期项，写的时候清一遍过期项、再按插入序把最老的清到上限内。 */
 const QUOTE_CACHE_MAX = 200;
 function sweepQuoteCache() {
   const now = Date.now();

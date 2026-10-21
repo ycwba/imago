@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-/* 改动 → 必跑 映射（报告 §7.2 的第二档）—— 跑法：
+/* 改动 → 必跑 映射（三档流程的第二档）—— 跑法：
      node tests/map.cjs --changed              按 git 改动列出该跑哪些判据
      node tests/map.cjs --changed --run        列出来并且跑快的那批（≈20 秒）
      node tests/map.cjs --changed --run --e2e  连浏览器判据一起跑（慢，合并前）
      node tests/map.cjs --files web/ui/ui.js   手工点名文件
      node tests/map.cjs --list                 只看映射表与登记表
    两条来源合起来给必跑清单：
-     ① 文档表（§7.2 那七行，写在这里就是「文档即代码」，改表要改这里）；
+     ① 文档表（写在这里就是「文档即代码」，改表要改这里）；
      ② 反查（扫每个判据脚本的源码里提到了哪些 web/… server/… 路径、开的是哪条路由），
         「该 domain 的单测 / 该页的 e2e」由它给出 —— 新增测试不需要回来改这张表。
    浏览器判据默认只列不跑：`test:fast` 的预算是 20 秒，一个 e2e 脚本就要 10~60 秒。
    自己也要被判据管：磁盘上的判据文件必须登记在 all.cjs 里跑过一遍
-   —— `routes-smoke` / `static-guards` 就是这么「写好了但从来没跑过」的（报告 §7.1）。 */
+   —— `routes-smoke` / `static-guards` 就是这么「写好了但从来没跑过」的。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -31,19 +31,19 @@ function registry() {
 }
 
 /* 不是「一条判据」的文件：入口、共用件、以及要手工带参数跑的探针。
-   每一条都要有原因 —— 没有原因的缺席就是报告 §7.1 那一类。 */
+   每一条都要有原因 —— 没有原因的缺席就是「写好了但从来没跑过」那一类。 */
 const HELPERS = {
   all: '汇总入口本身，不是一条判据',
   map: '本文件：改动→必跑的映射',
   support: '判据脚本共用的件（层表 / 例外登记比对），由别的判据 require',
-  /* syntax 从批次 8 V1 起是 all.cjs 池里的普通一条（run 登记行在），不再是「require 进程内跑」的helper。 */
+  /* syntax 现在是 all.cjs 池里的普通一条（run 登记行在），不再是「require 进程内跑」的helper。 */
   harness: '浏览器判据唯一的启动 / 取 Cookie / 打开页面入口（AGENTS.md §13.4），自己不是一条判据',
-  watch: 'watch 模式入口（批次 8 V4）：常驻前台跑，触发本文件的 --changed --run，自己不是一条判据',
+  watch: 'watch 模式入口：常驻前台跑，触发本文件的 --changed --run，自己不是一条判据',
   anchordry: '素材库锚点的一次性体检，要带参数，不常驻',
   'data-snapshot': '写入型基线：要对真实 .data/.assets 比，只手工跑（AGENTS.md §13.3）',
 };
 /* 是真判据，但由别处代跑（代跑关系写死在这一份里，不再靠人记）。
-   2026-10-21（批次 8 V7）：spa 不再是「由 selfcheck 代跑」—— selfcheck 里那条同步
+   2026-10-21：spa 不再是「由 selfcheck 代跑」—— selfcheck 里那条同步
    spawnSync 正是它 3.8s 慢点的本体（起服务/读盘/重复求值 里的「重复求值」）。
    spa.cjs 现在自己就是 all.cjs 并发池里的独立判据，selfcheck 不再为它垫一句「全绿」。 */
 const DELEGATED = {};
@@ -92,7 +92,7 @@ function testTouches() {
   return map;
 }
 
-/* ---------- 文档表（报告 §7.2 那七行，外加几条把话说全的行） ---------- */
+/* ---------- 文档表（外加几条把话说全的行） ---------- */
 const ROWS = [
   { key: 'web/domain/**', match: p => p.startsWith('web/domain/'),
     resident: ['core', 'architecture', 'static-guards', 'local-first'], browser: [],
@@ -103,7 +103,7 @@ const ROWS = [
   { key: 'web/ui/**', match: p => p.startsWith('web/ui/'),
     resident: ['ui-catalog', 'selfcheck', 'static-guards'],
     browser: ['ui-shared', 'actions', 'assistant-dock', 'drag-guard'],
-    why: '公共件：目录判据 + 列表页/浮层的浏览器判据（报告说的「三个列表页」= 收藏 / 素材库 / 资产库那一类）' },
+    why: '公共件：目录判据 + 列表页/浮层的浏览器判据（「三个列表页」= 收藏 / 素材库 / 资产库那一类）' },
   { key: 'web/director/**', match: p => p.startsWith('web/director/'),
     resident: ['editing', 'local-edit', 'editor-media', 'fcpxml-client'], browser: ['director-perf'],
     why: '导演台：全部 director-* 单测由反查补齐，这一行保底放四件 + perf' },
@@ -160,7 +160,7 @@ function plan(files) {
     }
     byFile.push({ file: f, rows: rows.map(r => r.key), derived });
   }
-  /* selfcheck 不再代跑 spa（批次 8 V7：那条同步 spawnSync 是 selfcheck 的慢点本体）：
+  /* selfcheck 不再代跑 spa（那条同步 spawnSync 是 selfcheck 的慢点本体）：
      凡是挑中 selfcheck 的改动，spa.cjs 必须一起进清单，否则外壳判据漏跑。 */
   if (picked.has('selfcheck')) picked.add('spa');
   return { byFile, picked: [...picked], browserPicked: [...browserPicked], rowsPicked: [...rowsPicked] };
@@ -184,8 +184,8 @@ function gitChanged() {
 function split(s) { return String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean); }
 
 /* ---------- 跑 ---------- */
-/* V8（批次 8）：判据子进程优先用「系统 node」跑，不再默认跟着当前 execPath。
-   实测（执行文档 2026-10-20 §10.1）：全量常驻 managed 54.3s / 系统 45.9s —— 一文件一进程时
+/* 判据子进程优先用「系统 node」跑，不再默认跟着当前 execPath。
+   实测（2026-10-21）：全量常驻 managed 54.3s / 系统 45.9s —— 一文件一进程时
    启动开销差被 49 次 spawn 放大。选型优先级：
      ① 环境变量 NODE 显式指定；
      ② PATH 里第一个「不是当前 execPath」且能跑的 node（which/where 现查）；
@@ -206,7 +206,7 @@ function resolveNode() {
     let real = c;
     try { real = fs.realpathSync(c); } catch (e) {}
     if (real === cur) return process.execPath;    // PATH 里排第一的就是当前进程：没什么可换的
-    if (runnable(c)) return c;                    // 找到另一个能跑的 node：按 V8 用它
+    if (runnable(c)) return c;                    // 找到另一个能跑的 node：按上面的规则用它
   }
   return process.execPath;
 }
@@ -225,7 +225,7 @@ function command(id) {
   if (!file) return null;
   return { name: file, cmd: testNode(), args: [file] };
 }
-/* V5（批次 8）：--run 逐条记耗时，跑完给一张按耗时降序的清单与总计；
+/* --run 逐条记耗时，跑完给一张按耗时降序的清单与总计；
    总计超预算（默认 20s，MAP_BUDGET_MS 可改）就把「最慢的那几条」单独点出来，
    并提示：切 `--run --e2e` 之前先看这份清单（e2e 只加不减时间）。 */
 const BUDGET_MS = Number(process.env.MAP_BUDGET_MS || 20000);
@@ -286,7 +286,7 @@ function main() {
   const has = f => argv.includes(f);
   const reg = registry();
   if (has('--list')) {
-    console.log('映射表（报告 §7.2）');
+    console.log('映射表');
     for (const r of ROWS) {
       console.log('  ' + r.key);
       console.log('    常驻 ' + (r.resident.join(', ') || '（无）') + ' ｜ 浏览器 ' + (r.browser.join(', ') || '（无）'));
@@ -334,7 +334,7 @@ function main() {
     if (row.rows.length) console.log('    表：' + row.rows.join(' ｜ '));
     if (row.derived.length) console.log('    反查：' + row.derived.join(', '));
   }
-  if (unmapped.length) console.log('  （以下文件没有命中映射表，按 §7.2 补一行）\n    ' + unmapped.join('\n    '));
+  if (unmapped.length) console.log('  （以下文件没有命中映射表，按文档表补一行）\n    ' + unmapped.join('\n    '));
   console.log('\n快（常驻判据，无需浏览器）：' + (p.picked.length ? p.picked.join(', ') : '（无）'));
   console.log('慢（浏览器 e2e）：' + (p.browserPicked.length ? p.browserPicked.join(', ') : '（无）'));
   /* 样式改动要把页名带到 ui-visual 上：改一个页面的 CSS 不必把 12 档 × 2 尺寸 × 2 主题全拍一遍。 */

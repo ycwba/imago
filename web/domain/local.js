@@ -175,7 +175,7 @@
     idxBoot = (async () => {
       let stored = null, readOk = true;
       /* 读失败 ≠ 库里本来没有：读不出来时**不回写** —— 暖缓存最多 2000 条，
-         一次瞬时读失败就把 IDB 里那 2 万条整表盖掉（B16）。 */
+         一次瞬时读失败就把 IDB 里那 2 万条整表盖掉。 */
       try { stored = await K.at('mirror').get('idx'); } catch (e) { readOk = false; }
       const mem = idx || rawIndex();
       if (stored && stored.m && typeof stored.m === 'object') {
@@ -194,7 +194,7 @@
   }
   let idxQueued = false;
   let idxWriteChain = Promise.resolve();
-  /* 跨标签页整表覆盖（B17）：写前在**同一个读写事务**里重读一次、与内存合并再写回。
+  /* 跨标签页整表覆盖：写前在**同一个读写事务**里重读一次、与内存合并再写回。
      每个标签页都持有一份自己的索引，谁后写谁赢的话，另一个标签页这期间新存的产物
      会被整表抹掉。读失败就**不写**（读不出来 ≠ 本来就没有：宁可这一次不落盘，
      也不能拿半张表盖掉整张）。同一页的多次写也串行（后一次读到的必须包含前一次刚写的）。 */
@@ -244,7 +244,7 @@
     writeLocalCache(d);
     queueIdxWrite(d);
   }
-  /* 微任务合并落盘（A2）。learn() 一直是这么做的，而 runOne / offer 这两条**更频繁**的路径
+  /* 微任务合并落盘。learn() 一直是这么做的，而 runOne / offer 这两条**更频繁**的路径
      以前每成功一条就独立 write() 一次：批量镜像 N 条新产物 = N 次整表 JSON.stringify + N 次整表
      写盘，全同步在主线程上（镜像队列并发是 2，一次批量操作很容易攒出几十条）。
      合并窗口只有一个微任务，所以「合并期内进程被关」的丢数据风险并不存在 —— 同一个任务里就跑完了。 */
@@ -492,7 +492,7 @@
     });
   }
   /* 扩展名口径在公共层（`ui.js` 的 `blobExtOf`）：先认条目声明的 format，再认文件名 / MIME。 */
-  /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`，§J ⑲ 守着）。这一处以前自己写了第二份非法字符正则，
+  /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`）。这一处以前自己写了第二份非法字符正则，
      而且是**直接删掉**那些字符（别的页换成 -），于是同一条素材从本机另存与从资产库下载，名字对不上；
      截断也各是一份（这里 20、页面那两处 24）。本函数只管「提示词当前缀 + 扩展名」。 */
   /* `e.name` 是调用方给的人类可读名（导演台：场景 + 镜头 + 候选号），**不带扩展名**；
@@ -552,7 +552,7 @@ function onInfo(fn) {
 function info() {
   const s = read();
   /* `queued` 里**含正在跑的那几项**（runOne 结束才 delete），`INFOS.inFlight` 也是它们 ——
-     两数相加等于把每一份在途都数了两遍（B18）。取较大者：等待中的只在 queued 里，
+     两数相加等于把每一份在途都数了两遍。取较大者：等待中的只在 queued 里，
      跑着的两处都有；哪个口径完整取决于「刚 offer 还没 pump」这一瞬，取 max 两边都不漏。 */
   return { inFlight: Math.max(INFOS.inFlight, queued.size), ok: INFOS.ok, fail: INFOS.fail,
     lastErr: INFOS.lastErr, lastAt: INFOS.lastAt,
@@ -1121,7 +1121,7 @@ function info() {
     });
   }
 
-  /* ---------- 「生成完成」这条事件的唯一生产处（报告 §6.2「事件契约靠字符串」） ----------
+  /* ---------- 「生成完成」这条事件的唯一生产处 ----------
      以前 engine.js / studio.js / assetlib._announce / canvas/gen.announce 四处各自 dispatch，四份
      字段集合互不相同（导演台带 priceMicros、工作台不带；一家写 `src`、一家写 `url`），消费方只能
      逐字段可选容错，加一个字段就要改四个地方。现在四个生产点都只调 announce()，四条归一化规则

@@ -33,7 +33,7 @@ html:not(.sb-open) .sidebar .sb-brand { padding-top: var(--sp-3); padding-bottom
   background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-2);
   color: var(--txt); font-size: var(--fs-1); line-height: 1.4; white-space: nowrap; }
 /* 收起态：手指够得着的目标不放大就点不准（66px 的带子里留白很多，图标只有 20px）。
-   A2 那一档验收（窗口高 500px 时 7 条导航全可见不滚动）在收起态本来差 44px：
+   那一条验收（窗口高 500px 时 7 条导航全可见不滚动）在收起态本来差 44px：
    这一列没走全局的 border-box 重置，`min-height: 38` 量的只是内容盒，上下留白全叠在它外面，
    每条实际 46px —— 7 条加间距就把导航那条带子顶出去了。
    现在按 border-box 把这两条钉死在 38（点靶本身一寸没缩），条与条之间的缝也退一档：
@@ -43,7 +43,7 @@ html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set {
   box-sizing: border-box; min-height: 38px; height: 38px; padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
 html:not(.sb-open) .sidebar nav { gap: var(--sp-0-5); }
 html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17); }
-/* 导航是这一列里**唯一吃剩余高度**的一条（A2「导航优先」）：余额区改成定高不滚之后，
+/* 导航是这一列里**唯一吃剩余高度**的一条（「导航优先」）：余额区改成定高不滚之后，
    窗口矮下来只有这一条会被挤，而它自己带 overflow —— 摘要行那一档（≤660px）就是为了让它全露出来。 */
 .sidebar nav { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); flex: 1 1 auto;
   min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
@@ -54,7 +54,7 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17);
 /* 图标位那一列的盒子（导航 + 设置入口共用一份，别再写两条一模一样的） */
 .sidebar nav a .ic, .sidebar .sb-set .ic { width: 20px; text-align: center; font-size: var(--fs-15); flex: 0 0 20px; }
 /* 底部两块（账户余额 / 设置·换背景）不参与滚动、也不许被无声裁掉（flex:0 0 auto）。
-   A1/A2：余额区**默认不再内滚动** —— 以前这一格写 `max-height: min(34vh, 260px); overflow-y: auto`，
+   余额区**默认不再内滚动** —— 以前这一格写 `max-height: min(34vh, 260px); overflow-y: auto`，
    六家有余额端点的平台加上本机产物行、刷新行最多 8 块，每块 50-70px，必然超过 260px，
    于是「余额」和「本机产物」挤在同一个内滚动容器里互相看不见。现在容器只有 overflow:hidden
    （长文案一律省略号），高度由内容自己定：卡片限几张在 sidebar.js 的 BAL_CAPS（按窗口高 3 / 2 / 1 / 0 张），
@@ -67,7 +67,7 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17);
    展开态才由下面 `.bal-exp` 那一段让它滚 —— 这样本机产物行与按钮行永远钉在原位。 */
 .sb-bal-cards { display: flex; flex-direction: column; gap: var(--sp-1-5); min-width: 0; }
 /* ---------- 展开态（sidebar.js 的 sb_bal_exp）：这一列的高度分配改由卡列表吸收 ----------
-   判据是「导航优先」（§11.1 A2）：展开是为了看全部供应商，不是为了把第 7 条导航挤掉，
+   判据是「导航优先」（AGENTS §11.1）：展开是为了看全部供应商，不是为了把第 7 条导航挤掉，
    所以导航退回自然高（不再 shrink、也不需要自己滚），余额区允许 shrink，
    shrink 只落在 `.sb-bal-cards` 这一格上 —— 本机产物行与按钮行钉在原位不跟着滚。
    全摆得下时 JS 不挂这一位，一切照旧（没有多余的滚动条，也没有空出来的下半截）。 */
@@ -79,11 +79,11 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17);
   padding-right: var(--sp-1); }
 /* ⚠ `.bal-exp` 里「导航不再 shrink、也不再自己滚」这一半，只在**卡片块真的画出来**的那一档成立。
    收起态（66px）与 ≤660px 矮窗里 `.sb-bal-body` 整块不画（CSS 收成摘要行），卡再多也不占高度 ——
-   这时候还钉着导航，A2 的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来（摘要是唯一入口，
+   这时候还钉着导航，「导航优先」的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来（摘要是唯一入口，
    而它不带滚）。所以这两档把高度分配与 overflow 原样还回去，展开位对它们等于不存在。 */
 html:not(.sb-open) .sidebar.bal-exp nav { flex: 1 1 auto; overflow-y: auto; }
 html:not(.sb-open) .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: auto; display: block; }
-/* ---------- 余额卡（A3：名字一行、金额一行、状态一行，三行都是单行）----------
+/* ---------- 余额卡（名字一行、金额一行、状态一行，三行都是单行）----------
    以前 `.l2` 写 `white-space: normal` + `word-break: break-all`，「可用 1234.56 credits · 冻结 …」
    在同一排里折成两行或三行，六张卡高低参差；现在两行都 nowrap + 省略号，卡高由行高定死，
    全文在 title 里（弹层那一份把 nowrap 放开，见文件末尾）。 */
@@ -101,7 +101,7 @@ html:not(.sb-open) .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: aut
 /* 一张卡都画不出来时的那句说明（正在读取 / 平台没有余额接口 / 全被勾掉）：
    只有这一行，不参与「卡等高」，所以允许它自己折行。 */
 .sb-bal-note { font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
-/* ---------- 摘要行（A1③：收起态与矮窗用这一行代替整区）----------
+/* ---------- 摘要行（收起态与矮窗用这一行代替整区）----------
    66px 里只放「图标 + 数字」，单位（「家余额」「存本机」）由 CSS 藏掉，全文在 title；
    点开看详情走公共弹窗（UiDialog），不在侧栏里堆卡。 */
 .sb-bal-sum { display: none; align-items: center; justify-content: center; gap: var(--sp-2);
@@ -117,14 +117,14 @@ html:not(.sb-open) .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: aut
 html:not(.sb-open) #sbBalance .sb-bal-sum { display: flex; gap: var(--sp-1-5); }
 html:not(.sb-open) #sbBalance .sb-bal-sum .u { display: none; }
 html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
-/* ---------- 按钮族（A4：公共件 .ghost mini + icon()，不再自拼 HTML 行）----------
+/* ---------- 按钮族（公共件 .ghost mini + icon()，不再自拼 HTML 行）----------
    「刷新余额」过去是一行自拼的 div（`asButton` 补 role 才能点）；现在都换成 .ghost.mini，
    尺寸与交互全部由 ui.css 那一份兜着，这里只排「一行摆几颗、怎么对齐」。
    ⚠ 这一族里只剩「展开 / 收起」与「刷新余额」，且**排在同一行**：省下来的那一行高度留给卡。
      「还有 N 家，去用量页」「去设置」两颗跳转钮已撤 —— 要看全部就就地展开。 */
 .sb-bal-acts { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 #sbBalance .sb-bal-acts .ghost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-/* ---------- 「产物正在存进本机」那一行（A1①：固定在区域顶部，不参与任何滚动）----------
+/* ---------- 「产物正在存进本机」那一行（固定在区域顶部，不参与任何滚动）----------
    侧栏唯一的本机落盘实况：传输中时它是整区里最显眼的一块，所以排第一、也不跟着卡一起滚。 */
 .sb-bal-body { display: flex; flex-direction: column; gap: var(--sp-1-5); min-width: 0; }
 .sb-mirror { border: 1px solid var(--line); border-radius: var(--radius-1); padding: var(--sp-1-5) var(--sp-2); background: var(--panel2); }
@@ -155,7 +155,7 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
 .sidebar button.sb-set { width: 100%; border: 0; background: none; font-family: inherit; text-align: left;
   cursor: pointer; display: flex; align-items: center; }
 /* 矮窗口再压一档行高，让导航整列露出来（余额区里的卡片张数由 balCap() 跟着这一档降）。
-   A2 的口径是「导航优先」：这里每一行减的都是**行距**，减出来的高度全部让给 nav。 */
+   这一档的口径是「导航优先」：这里每一行减的都是**行距**，减出来的高度全部让给 nav。 */
 @media (max-height: 780px) {
   .sidebar .sb-brand { padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
   .sidebar .sb-group { padding: var(--sp-1-5) var(--sp-5) var(--sp-1); }
@@ -167,21 +167,21 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
   .sb-bal-card { padding: var(--sp-1) var(--sp-1-5); }
   .sb-mirror { padding: var(--sp-1) var(--sp-1-5); }
 }
-/* A1③ + A2：窗口高 ≤660px 时余额区整块退成摘要行 —— 摘要只占一行，导航反而全露得出来。
+/* 窗口高 ≤660px 时余额区整块退成摘要行 —— 摘要只占一行，导航反而全露得出来。
    用 #sbBalance 限定：详情弹层里的 `.sb-bal-body` 在这一档必须照常画（它不在侧栏盒子里）。
-   文档（§11.1 A2）说的是「低于 640px」，实测这一条要画到 660：641..648 那一小带里
+   文档（AGENTS §11.1）说的是「低于 640px」，实测这一条要画到 660：641..648 那一小带里
    「不摆卡的本机行 + 两排按钮」（压缩后 190）+ 固定块 188 + 导航 270 = 648 已经把窗口高吃满，
    再等到 640 才收，中间那几像素就是导航的第 7 条被顶出去滚。收得更早一档不影响验收
    （「低于 640px 自动收成摘要行」在这一档里仍然成立，只是它的上界挪到了 660）。
    「账户余额」那个分组标题也一起让掉：这一档里摘要行自己写着「N 家余额 · M 存本机」，
-   标题腾出来的那一行正是第 7 条导航差的那点高度（A2 验收：500px 高要 7 条全可见不滚）。
+   标题腾出来的那一行正是第 7 条导航差的那点高度（验收：500px 高要 7 条全可见不滚）。
    ⚠ 这一条与 sidebar.js 的 BAL_CAPS 是同一批数，两处要一起改。 */
 @media (max-height: 660px) {
   #sbBalance .sb-bal-body { display: none; }
   #sbBalance .sb-bal-sum { display: flex; }
   #sbBalance .sb-bal-sum .u { display: none; }
   #sbBalGroup { display: none; }
-  /* 展开位在这一档同样等于不存在（卡片块不画，钉导航只会把 A2 的兜底拆掉）——见上面那段 ⚠。 */
+  /* 展开位在这一档同样等于不存在（卡片块不画，钉导航只会把「导航优先」的兜底拆掉）——见上面那段 ⚠。 */
   .sidebar.bal-exp nav { flex: 1 1 auto; overflow-y: auto; }
   .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: auto; display: block; }
   .sidebar nav a { padding: var(--sp-1) var(--sp-2); }

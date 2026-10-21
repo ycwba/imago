@@ -34,16 +34,16 @@ const slicePending = new Map();       // 稳定键 → 已排进队列、还没�
 const sliceFailed = new Map();        // 稳定键 → Map(时刻 → { 失败时间, 连着失败几次 })：退避一阵后要自己再试
 const sliceJobs = [];                 // 全页共用的一条解码流水线上的活：{ key, src, times, hit, res, prio, q }
 let sliceBusy = 0;
-/* P6：并发与出图宽度别写死。4 核机器上开 4 路解码会把中栏播放一起拖住，
+/* 并发与出图宽度别写死。4 核机器上开 4 路解码会把中栏播放一起拖住，
    8 核以上又用不满；出图宽度按 dpr —— 1x 屏上 160 宽是白给，2x 屏上 120 又糊。 */
 const SLICE_DPR = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 const SLICE_W = SLICE_DPR >= 1.5 ? 160 : 120;
 const SLICE_CPUS = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
 const SLICE_GLOBAL = Math.max(2, Math.min(6, SLICE_CPUS - 2));
-/* 旧并发行为保留一个版本：P1 把「并发单位」从块改成素材，出问题可以用 ?slice=v1 退回。
+/* 旧并发行为保留一个版本：「并发单位」已从块改成素材，出问题可以用 ?slice=v1 退回。
    这一档只影响调度（块并行 / 一素材一解码器），采样与缓存仍是同一份。 */
 const SLICE_V1 = /(?:[?&])slice=v1(?:&|$)/.test(typeof location !== 'undefined' ? location.search : '');
-/* P1：一个素材只开一只 <video>。以前一块一只，同一素材四块就解析四遍元数据、四份缓冲，
+/* 一个素材只开一只 <video>。以前一块一只，同一素材四块就解析四遍元数据、四份缓冲，
    `release` 时还要 `load()` 主动丢弃。现在按素材键池化，块在素材内部排队，闲置 5 秒释放。 */
 const SLICE_IDLE = 5000;
 const sliceVideos = new Map();        // 素材键 → { v, src, busy, timer }
@@ -98,7 +98,7 @@ function noteSliceFail(key, times) {
   times.forEach(t => { const w = sliceFail(key, t); if (w < wait) wait = w; });
   sliceRetryIn(wait);
 }
-/* P8：退避只拦「没人动」的自动轮询。用户 seek / 缩放 / 切段就是明确的重试信号 --
+/* 退避只拦「没人动」的自动轮询。用户 seek / 缩放 / 切段就是明确的重试信号 --
    把当前几栏上那几条素材的失败记录放行一次；不清空整表，别的素材照旧退避。 */
 function sliceForgetFail() {
   const keys = new Set();
@@ -140,7 +140,7 @@ function sliceNextFrame(v) {
 }
 /* 一块时刻：一个 <video> 从头到尾顺序取完。返回值是**没能出图**的那些时刻 —— 调用方把它们记进
    sliceFailed，别让下一次重画再把同一批取不到的帧重解一遍（外链过期时原本是每 3 秒白跑一趟解码器）。 */
-/* P4：JPEG 编码搬到 worker。主线程只把这一帧取成 ImageBitmap（可转移），缩放/编码都在 worker。
+/* JPEG 编码搬到 worker。主线程只把这一帧取成 ImageBitmap（可转移），缩放/编码都在 worker。
    ⚠ 不能直接 `new VideoFrame(video)`：游离且暂停的 <video> 在 GPU 被关掉的环境（headless / 省电模式）
    里拿到的是一张**黑帧**（2026-10-21 实测：每个时刻编码出来的 JPEG 字节完全相同），
    而 `createImageBitmap(video)` 拿到的是 seek 后的真实画面（同一份探针里三个时刻的指纹互不相同）。
@@ -285,7 +285,7 @@ function sliceFail(key, t) {
   m.set(t, { at: Date.now(), n });
   return ttl;
 }
-/* P5：持久缓存只在一张素材第一次出现在这一页时问一次 IndexedDB。
+/* 持久缓存只在一张素材第一次出现在这一页时问一次 IndexedDB。
    命中的帧直接变成本页的 blob URL 塞进 frameCache —— 后面重画走的仍是同一条同步贴帧路径，
    不给「从磁盘来的帧」另开一套画法。 */
 const sliceHydrated = new Set();
@@ -320,7 +320,7 @@ function sliceNextJob() {
   if (!sliceJobs.length) return null;
   let best = -1;
   for (let i = 0; i < sliceJobs.length; i++) {
-    if (sliceActive.has(sliceJobs[i].key)) continue;    // P1：同一素材的块串行，不抢同一只解码器
+    if (sliceActive.has(sliceJobs[i].key)) continue;    // 同一素材的块串行，不抢同一只解码器
     if (best < 0 || (sliceJobs[i].prio || 0) < (sliceJobs[best].prio || 0)) best = i;
   }
   return best < 0 ? null : sliceJobs.splice(best, 1)[0];
@@ -517,7 +517,7 @@ async function fillSlices(root) {
      只是把「有格子在视野附近」的素材提到前面，其余的照旧排队跟着补，不丢一格。 */
   const barEl = document.getElementById('tlBar');
   const barRect = barEl ? barEl.getBoundingClientRect() : null;
-  /* P3：可见性按**行**算 —— 一栏最多三条行轨（本镜 / 全片 / 配音），每行取一次矩形，
+  /* 可见性按**行**算 —— 一栏最多三条行轨（本镜 / 全片 / 配音），每行取一次矩形，
      别对每格各来一次 getBoundingClientRect（一次重画 40-200 次强制布局）。 */
   const rowRects = new Map();
   if (barRect) {
@@ -552,7 +552,7 @@ async function fillSlices(root) {
       if (root.isConnected) draw(collect());
     }, painted ? 80 : 0);      // 第一块回来立刻上屏：首格不该再等一次防抖
   };
-  /* P5：看得见的那几条、加上文档顺序最前面两条（打开工程第一眼就是轨道开头那两段，
+  /* 看得见的那几条、加上文档顺序最前面两条（打开工程第一眼就是轨道开头那两段，
      哪怕这一屏没露出来）先问一次持久缓存（命中就当场贴；没命中只是一次 IndexedDB 查询）。
      屏幕外的边解边补 —— 不让十几条候选各等一次磁盘读。 */
   const warmItems = items.filter((x, i) => x.vis || i < 2);

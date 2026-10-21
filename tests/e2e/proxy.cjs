@@ -28,7 +28,7 @@ const h = require('./harness.cjs');
     const csp = shell.headers.get('content-security-policy') || '';
     if (!/script-src 'self'/.test(csp) || /unsafe-eval/.test(csp)) throw new Error('首屏 CSP 不是严格 script-src \'self\'：' + csp);
     if (!/frame-ancestors 'none'/.test(csp)) throw new Error('首屏 CSP 缺 frame-ancestors：' + csp);
-    /* 切片编码走 blob worker（P4）：响应头与 shell.html 的 meta 取交集，头里少这一条 worker 就建不起来。 */
+    /* 切片编码走 blob worker：响应头与 shell.html 的 meta 取交集，头里少这一条 worker 就建不起来。 */
     if (!/worker-src 'self' blob:/.test(csp)) throw new Error('首屏响应头缺 worker-src blob：切片 worker 会被 CSP 拦掉 —— ' + csp);
     if (shell.headers.get('x-content-type-options') !== 'nosniff') throw new Error('首屏缺 nosniff');
 

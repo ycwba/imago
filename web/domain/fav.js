@@ -38,11 +38,11 @@
   }
   // 页面卸载时统一回收
   window.addEventListener('beforeunload', () => { urlCache.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); urlCache.clear(); });
-  /* 别的标签页改了收藏 → 本页那份缓存作废（A3 的失效判据之一；另一处是 write 自己） */
+  /* 别的标签页改了收藏 → 本页那份缓存作废（失效判据之一；另一处是 write 自己） */
   window.addEventListener('storage', e => { if (e && e.key === KEY) { _fav = null; _favKeys = null; } });
   /* 收藏项变了：只更新本地缓存，不主动重画（页面自己决定怎么刷新，避免打字时被重绘打断） */
   /* 读写都走 ui.js 的 Store：信封里的 ts 让「浏览器 ↔ .data/」能判出谁新（裸数组那份做不到） */
-  /* 缓存（A3）：`list()` 每次都是 `getItem` + `JSON.parse` **整份**收藏，而 `has(key)` 是
+  /* 缓存：`list()` 每次都是 `getItem` + `JSON.parse` **整份**收藏，而 `has(key)` 是
      **每张卡片**调一次（结构是 O(卡片数 × 收藏数 × 单条大小)）。今天实测只有 582 B，
      绝对开销接近 0，但结构会随收藏数长大 —— 这里缓存一份，写盘与 storage 事件（别的标签页
      改过）时失效，`has` 走键集合变 O(1)。

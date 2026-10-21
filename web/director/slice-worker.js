@@ -1,4 +1,4 @@
-/* 切片帧的 JPEG 编码（P4）：主线程把 seek 后的 ImageBitmap 传进来，
+/* 切片帧的 JPEG 编码：主线程把 seek 后的 ImageBitmap 传进来，
    缩放 + convertToBlob 都在这里做，主线程只等一个 Blob。
    ⚠ 仅做编码：解码仍由主线程的 <video> 完成（worker 里没有 HTMLVideoElement），
    所以这里不碰播放器、也不做 seek —— 传进来的就是已经定位好的那一帧。

@@ -17,7 +17,7 @@ g = sliceGeom(700, 10);
 assert.equal(g.n, Math.ceil(700 / 64));
 assert.equal(sliceTimes(0, 10, 2, 5).join(','), '0,5');
 assert.deepEqual(sliceTimes(0, 0.01, 1, 0.01), [0]);
-/* P2 绝对时间栅格：step 吸到最近档案，采样点落在 q 的整数倍上 —— 缩放前后同一段共享采样点。 */
+/* 绝对时间栅格：step 吸到最近档案，采样点落在 q 的整数倍上 —— 缩放前后同一段共享采样点。 */
 assert.equal(snapSliceStep(0.13), 0.1);
 assert.equal(snapSliceStep(0.3), 0.25);
 assert.equal(snapSliceStep(3), 2);

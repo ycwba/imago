@@ -183,7 +183,7 @@ const IDX = {
   ok('在跑的不藏', AL.hideAsCloud(run) === false);
 }
 
-/* ⑩ 镜像索引满上限时裁的是最老那一头（R3）：插入序是旧 → 新，
+/* ⑩ 镜像索引满上限时裁的是最老那一头：插入序是旧 → 新，
    以前 `keys.slice(IDX_MAX)` 删尾部，等于新产物刚写进去就被裁掉。 */
 (async () => {
   const { AL } = boot({ index: { v: 1, m: {}, a: {} } });

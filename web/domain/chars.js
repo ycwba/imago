@@ -69,7 +69,7 @@ window.Chars = (function () {
   window.addEventListener('storage', e => { if (!e.key || e.key === K_CHARS) { _libCache = null; _libAt = 0; } });
   /* ---------- 素材库的设置项：默认值与取值只在这里点一次名 ----------
      界面上的文案与**真的发给 AI 的那份参数**必须同一份判据 —— 各写一份就会出现「提示说会、其实没发」。
-     设置页也照这张表渲染控件（§2 能力/声明驱动）。
+     设置页也照这张表渲染控件（AGENTS §5 能力驱动）。
      键名一律带 char_ 前缀（2026-10 由 dr_ 改过来）。搬运见 ui.js 的 migrateRenamedKeys()。 */
   const SET = {
     aiVoice: { key: 'char_ai_voice', kind: 'bool', def: '1', label: '让 AI 给角色定音色（性格 → 音色描述 / 复刻）' },
@@ -313,7 +313,7 @@ window.Chars = (function () {
          否则拉进这一集就变成一位既没声音、界面也不说原因的角色）；`voiceAuto` 是定成的那句摘要。 */
       voiceErr: src.voiceErr || '', voiceAuto: src.voiceAuto || '',
       /* 声音候选也在拷贝清单里：漏了它，库里那几条试听拉进这一集就全没了，
-         界面上一眼看得出「出过候选」，格子却是空的（§5 那类字段拷贝漏字段）。 */
+         界面上一眼看得出「出过候选」，格子却是空的（字段拷贝漏字段那一类）。 */
       voiceCands: (src.voiceCands || []).slice(0, VOICE_CAND_CAP),
       refAudio: src.refAudio || '', refAudioName: src.refAudioName || '' };
   }
@@ -476,7 +476,7 @@ window.Chars = (function () {
            老字典会在 assetsOf 里现算成列表，两边形状不同也能合。 */
         assets: mergeAssetLists(assetsOf({ assets: base.assets || {} }), assetsOf({ assets: char.assets || {} })),
         /* 设定图的其余候选也必须进拷贝清单：不在拷贝清单里就等于「一次出 4 张」只有一张落进库，
-           刷新后那几备选全消失（§5 里那类字段拷贝漏字段的坑）。按 kind 各并一组、按 src 去重。 */
+           刷新后那几备选全消失（字段拷贝漏字段那一类的坑）。按 kind 各并一组、按 src 去重。 */
         assetCands: (() => {
           const out = Object.assign({}, base.assetCands || {});
           const src = char.assetCands || {};
@@ -1591,7 +1591,7 @@ window.Chars = (function () {
     /* 输出格式也按声明取（优先 wav，方便抽时长与试听）；pcm16 裸流在本地封成 WAV。
        判据统一问 `TtsAdv.formats`（型号 options.formats 优先、平台 tts.formats 回退）：
        这里以前只读型号那一层，平台只在 tts.formats 里声明格式时整份清单是空的，
-       于是永远按 wav 发 —— 而那一家的 wav 可能根本没人认（B27）。 */
+       于是永远按 wav 发 —— 而那一家的 wav 可能根本没人认。 */
     const fmts = window.TtsAdv ? window.TtsAdv.formats(prov, model)
       : ((model.options || {}).formats || tts.formats || []);
     const fmt = fmts.length ? (fmts.includes('wav') ? 'wav' : fmts[0]) : 'wav';
@@ -2259,7 +2259,7 @@ window.Chars = (function () {
      不传就退回「注册表里第一个语音型号」，于是试听的是 A、拍出来是 B。
      返回值而不是抛错：{ why } 缺条件、{ cancelled } 用户自己关掉、{ label } 真放出来了。 */
   let previewAud = null;
-  /* 当前试听那个 blob 地址（D9）。`b64ToAudioBlobUrl` 是全项目**唯一**一处 createObjectURL，
+  /* 当前试听那个 blob 地址。`b64ToAudioBlobUrl` 是全项目**唯一**一处 createObjectURL，
      而以前零处 revoke —— 每点一次试听就漏一个 URL（旧 previewAud 置空后可被 GC，
      但 blob URL 本身要显式 revoke 才回收，是「依赖 GC 的软泄漏」）。换一条时把上一条收掉。
      注意顺序：先 revoke **旧**的，再 new Audio(新 url) —— 反了会让刚拿到的地址变死链。 */
@@ -2308,7 +2308,7 @@ window.Chars = (function () {
     return { ok: true };
   }
 
-  /* 下载的文件名不在这里洗：判据全站只有 `ui.js` 的 `fileSafe` 一份（§J ⑲ 守着）。
+  /* 下载的文件名不在这里洗：判据全站只有 `ui.js` 的 `fileSafe` 一份。
      这一族以前有三份换法（这里换下划线、页面那两处换连字符、assetlib 那份直接删字符），
      而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
   return {

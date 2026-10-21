@@ -81,7 +81,7 @@ function createSystemRoutes(ctx) {
       res.end(JSON.stringify({ ok: true, cleared: n }));
       return true;
     }
-    /* /client-error —— 页面侧报错唯一的落点（报告 §6.1-5：Toast、ErrBanner、健康账三份互不通）。
+    /* /client-error —— 页面侧报错唯一的落点（Toast、ErrBanner、健康账三份互不通）。
        web/core/report.js 把「致命 / 警告」两类都送到这里，进同一本账，用户在
        「设置 → 本机环境 → 代理健康」里看得见；页面空着而代理一无所知那种事从此有地方查。
        限流两道：同一条消息 30 秒内只记一次、每分钟最多 20 条 —— 页面里有个死循环报错时，

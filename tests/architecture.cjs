@@ -5,14 +5,14 @@
    A3 分层依赖方向（core / ui / domain / features / pages / director）—— **ESM 的 import**
    A4 页面不深引 web/ui/**，只从 web/ui/index.js 取组件
    A5 分层依赖方向 —— 浏览器**经典脚本**那半边：扫 `window.<Global> =` 定义出面 → 层，
-      再扫每个文件读了哪个面（报告 §6.1-7：A3 只看得到 ESM，全站 74 个文件是 IIFE 挂 window，
+      再扫每个文件读了哪个面（A3 只看得到 ESM，全站 74 个文件是 IIFE 挂 window，
       以前这条「永远绿」是因为探测器根本看不见它们）
    层表与例外登记表只有一份，住在 tests/support.cjs，ui-catalog.cjs 读的是同一份。
    A5 存量按「文件 → 面 [层]」逐条登记上限，新增一条或条数超过登记就红；
    `GUARD_WRITE=1 node tests/architecture.cjs` 按现状重打表（收敛之后照抄粘回 support.cjs）。
    判据不能是「永远绿」：本文件自带自检，用一段内存里的合成 `ui → domain` 源码验证
    A3/A5 两个探测器真的会报，报不出来就红。
-   当前还没有 web/ 时只输出基线，不判红（W0 阶段）。 */
+   当前还没有 web/ 时只输出基线，不判红。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -155,7 +155,7 @@ if (WRITE) {
    存量清零之后没人发现。这里用**内存里的**合成源码喂探测器，不落盘、不碰工作区。 */
 function selfCheck() {
   const line = [];
-  /* 合成源：ui 层的一个文件读了 domain 层的 Api（报告 §6.1-7 要拦的就是这个方向） */
+  /* 合成源：ui 层的一个文件读了 domain 层的 Api（要拦的就是这个方向） */
   const SYNTH_FILE = 'web/ui/__synthetic_probe.js';
   const SYNTH_SRC = `window.__SyntheticProbe = { go() { return Api.request('x'); } };\n`;
   if (S.layerOf(SYNTH_FILE) !== 'ui') line.push('合成文件的层算错了：' + S.layerOf(SYNTH_FILE) + '（应是 ui）');
@@ -166,7 +166,7 @@ function selfCheck() {
   else if (!keys.some(k => /__synthetic_probe\.js → Api \[domain\]$/.test(k))) {
     line.push('A5 探测器报了，但报的不是那一条：' + keys.join(' ; '));
   }
-  /* 反向：正确的写法不该被报（domain 读全站基础设施面 Net 是 §7 唯一实现的正确用法） */
+  /* 反向：正确的写法不该被报（domain 读全站基础设施面 Net 是 AGENTS §7 唯一实现的正确用法） */
   const OK_FILE = 'web/domain/__synthetic_ok.js';
   const OK_SRC = `window.__SyntheticOk = { go() { return Net.get('/x'); } };\n`;
   const okHit = S.layerViolations({ faces, files: [OK_FILE], read: () => OK_SRC });

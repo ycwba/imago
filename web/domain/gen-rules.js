@@ -1,4 +1,4 @@
-/* GenRules —— 「这一单能不能提交」全站只有这一份判据（报告 §6.1-3）。
+/* GenRules —— 「这一单能不能提交」全站只有这一份判据。
    修的是哪一件事：同一句「现在能不能按生成」有两套写法 ——
      · 工作台 `web/pages/studio.js` 的 `submitBlockReason`（+ shapeGaps / blockedSlotKinds / advExtras），
      · 助手 `web/features/chat.js` 的 `genCheck`（+ checkParam，一百多行）。

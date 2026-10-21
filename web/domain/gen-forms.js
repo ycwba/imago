@@ -1,6 +1,6 @@
 /* 生成表单族：型号偏好 / 生成参数 / 配音与字数闸 / 口播说明 / 流式面板。
    九个 window 面（ModelPrefs / AiGen / AdvParams / AdvExtras / TtsAdv / CharLimits /
-   VoiceNote / AiStream / TplVars）从 assetlib.js 拆出（报告 §6.1-2：按已有的 window 面切文件）。
+   VoiceNote / AiStream / TplVars）从 assetlib.js 拆出（按已有的 window 面切文件）。
    加载顺序见 shell.html：api.js → assetlib.js → gen-forms.js；方法体只读
    Api / AssetLib / Capabilities / TextAI / InlinePolish 这些公开面与 api.js 的顶层函数。 */
 
@@ -172,7 +172,7 @@ window.ModelPrefs = {
   },
   /* 型号偏好改了 → 只让**这一家**的型号清单重取（见 Api.invalidateModels）。
      以前四处都调 Api.clearCaches()：全站的列表快照、在飞报价与 env 探测一起被清，
-     设置页点一次「获取型号列表」就能让别的页面下一轮全部重打上游（B20）。 */
+     设置页点一次「获取型号列表」就能让别的页面下一轮全部重打上游。 */
   _bust(prov) {
     const kid = this.kid(prov);
     if (!kid || !window.Api || !Api.invalidateModels) return;
@@ -435,7 +435,7 @@ window.AiGen = {
       } catch (e) {
         /* 以前这里一律 continue：鉴权掉了 / 任务被平台删了也照样每 2.5 秒问一次，
            问满 5 分钟才回一句「超时」—— 人只能看着转圈，错误本身一个字都看不到。
-           4xx 是「再问也不会变」，连续同一类错误（断网 / 代理没起）同理（B21）。 */
+           4xx 是「再问也不会变」，连续同一类错误（断网 / 代理没起）同理。 */
         const st = Number(e && e.status) || 0;
         if (st >= 400 && st < 500) throw e;
         const sig = String((e && (e.code || e.message)) || e);
@@ -1147,7 +1147,7 @@ window.VoiceNote = {
    同一套「集合 + 名次 + 理由」记账。两份漂开的第一处**不是文案，是说出去的那一格** ——
    素材库那两道闸走 `Toast.err`（一定弹），收藏走 `Toast.info`（默认被 `sk_quiet_ok` 静音）：
    「搜索框里没写字就点 AI 找素材」在一页会说一句，在另一页**按了什么都没发生**（按钮转完圈自己复位，
-   列表也没动，而那句解释一个字都没显示）。这与 §3「拿静音档当唯一出口等于一个字都没说出去」是同一条。
+   列表也没动，而那句解释一个字都没显示）。这与「拿静音档当唯一出口等于一个字都没说出去」是同一条。
    公共层因此**不再让页面自选提示通道**：闸门那句由 `needMsg` 拼一次，交回 `o.say`（两页都写进按钮旁边那行读数，
    就地、不静音），并且排在 `o.done()` 之后 —— 那一趟重画会重写同一行，先写的被顶掉。
    各页真正不同的只有四件事，全由参数给：名单从哪来（`roster` / `payload`）、AI 那一轮该返回哪个字段（`field`）、
@@ -1195,7 +1195,7 @@ window.AiStream = {
         const before = p;
         const panel = ensure(kind);
         /* 重建时 `ensure` 补回去的那一份**已经含这一片**（`all` 在上面就加了），
-           再推一次就是同一段字显示两遍（B24）。 */
+           再推一次就是同一段字显示两遍。 */
         if (p !== before) return;
         panel.push(piece, kind);
       },

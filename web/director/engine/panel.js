@@ -122,7 +122,7 @@ const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
 const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';
 /* 「这一档收哪些」（说明行）与那一排芯片的画法同样只有一份（`comboScopeNote` / `comboChipsHTML`）：
    这一页与生成工作台画的是同一排，措辞与 min/max 的写法抄两遍迟早和声明漂开。
-   指针名字故意避开公共层那两个（§J 把页面里同名的 `function` 定义当第二份实现）。 */
+   指针名字故意避开公共层那两个（dup-guard 判据把页面里同名的 `function` 定义当第二份实现）。 */
 const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
 const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
 /* 参考视频槽的缩略图地址：
@@ -1606,7 +1606,7 @@ function renderEditor() {
       <!-- 规划那一轮的流式面板（公共 InlinePolish.live）。它必须留在 DOM 里：
            整列每 3 秒重画一次，面板会被重新拼出来的这一块带走 —— AiStream 每次 push 前
            会确认面板还在宿主里、不在就重画一块并补回已收到的字（见那一块说明）。
-           注意：这一段在模板串里，注释里不许出现星号或反引号（§H / §B 都会当场拦下）。 -->
+           注意：这一段在模板串里，注释里不许出现星号或反引号。 -->
       <div id="kfPlanInline" hidden></div>
       <div style="display:flex;align-items:center;gap:8px;margin:-4px 0 4px">
         <select id="kfModel" style="flex:1;min-width:120px;padding:5px 8px;background:var(--input);border:1px solid var(--line);border-radius:3px;color:var(--txt);font-size:12px">${kfModelOptions()}</select>

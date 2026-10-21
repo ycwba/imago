@@ -1,7 +1,7 @@
 /* 页面样式表按需挂进 head —— 全站只有这一处 createElement('link')。
    href 是相对外壳文档的路径；tag 是 data-* 键（`spa-assets` → `data-spa-assets="1"`），
    同一份表按 data 键或 href 文件名已经挂过就不再插第二张（两页共用一份表是正常情况）。
-   modulepreload（执行文档 §8 G3）走的是同一个出口：同一件事（往 head 挂一枚 <link>）
+   modulepreload 走的是同一个出口：同一件事（往 head 挂一枚 <link>）
    只留一处创建点，加一种 rel 只是在下面多一个包装，不是第二条注入口。 */
 function mountLink(rel, href, key) {
   const l = document.createElement('link');

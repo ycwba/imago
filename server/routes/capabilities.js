@@ -27,7 +27,7 @@ function createCapabilities(opts) {
    ========================================================================== */
 const capCache = new Map();          // base|endpoint → { ts, payload }
 const CAP_TTL = 60 * 1000;
-/* 在途合并（P3）。⚠️ `noCache=1`（设置页「重新读取」）必须走旁路：它既**不读**缓存，
+/* 在途合并。⚠️ `noCache=1`（设置页「重新读取」）必须走旁路：它既**不读**缓存，
    也**不加入**在途合并 —— 否则「强制刷新」会拿到别人那一次的结果，看着像刷新没生效。
    所以注册与加入都以 `!noCache` 为前提。 */
 const capInflight = new Map();       // cacheKey → { p, resolve }

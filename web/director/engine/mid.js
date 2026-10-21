@@ -153,7 +153,7 @@ function updateArBadge(media) {
   el.textContent = ratioLabel(w, h);
   el.title = w + '×' + h;
 }
-/* 撤销 / 重做那两颗按钮（E28）：原来只有快捷键，不知道有这功能的人一直找不到，
+/* 撤销 / 重做那两颗按钮：原来只有快捷键，不知道有这功能的人一直找不到，
    而笔记本 / 外接键盘没有 Ctrl 的场景**完全无法撤销**。
    disabled 按栈长现算 —— 判据就是 undoStack / redoStack 那两处，与按键走同一份，
    所以按钮与快捷键永远不会出现「一个能点一个不能」。 */
@@ -344,7 +344,7 @@ function renderMid() {
   /* 「导出成片 / 导出素材」两颗搬到页头，接线也跟着搬到那里一次绑好（2026-10）：
      这一排每 3 秒随整列重建，把出口绑在这里等于每次重建都要重绑，
      而导出中的按钮文案（「取消渲染 45%」）会被下一次重画冲掉。 */
-  /* 撤销 / 重做两颗按钮（E28）：与 Ctrl+Z / Ctrl+Y 走**同一个函数**，
+  /* 撤销 / 重做两颗按钮：与 Ctrl+Z / Ctrl+Y 走**同一个函数**，
      所以两处的判据与上限永远一致（自己写一份接线就会出现「按钮能点但没反应」）。 */
   const bu = col.querySelector('#btnUndo'); if (bu) bu.onclick = undo;
   const br = col.querySelector('#btnRedo'); if (br) br.onclick = redo;

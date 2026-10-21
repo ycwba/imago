@@ -404,7 +404,7 @@ export default {
     function onStorage() { render(); }
 
     function initWb() {
-      /* 分页行结构只从 Wb.pager 取（S3）：模板里只留一个空的 `.pager-row` 宿主，
+      /* 分页行结构只从 Wb.pager 取：模板里只留一个空的 `.pager-row` 宿主，
          id 带页面前缀 —— 七页同在 KeepAlive 里，写死 pgNext 会在同一份文档里撞号。 */
       if (pagerRow.value) pagerRow.value.innerHTML = Wb.pager.rowHTML('fav', { info: '第 1 页' });
       pager = Wb.pager.create({

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 路由冒烟判据（常驻）—— 跑法：`node tests/routes-smoke.cjs`
    治的是 `pick-dir` 那一类 bug：路由工厂的 ctx 少注入一个 key、或函数体里用了一个没解构
-   出来的变量，功能就是坏的，而全绿的单测一条都不会红（报告 §7.1 / §7.3①）。
+   出来的变量，功能就是坏的，而全绿的单测一条都不会红。
    做法：
      1. 对 server/routes/*.js 的每个工厂（外加 data / prompts / cloud 三条 store 路由），
         从 server/ 顶层的**真实注入点**读出「app 给了哪些 key」（tests/support.cjs 的 findWiring，
@@ -9,9 +9,9 @@
      2. 用这份 key 清单造 ctx，外面套一层 Proxy：路由读到一个注入点没给的 key → 当场抛
         「路由要的 ctx.xxx 没注入」；
      3. 假 req/res 走一遍表里的每个端点，断言：不抛 ReferenceError / TypeError、有响应、状态码合理；
-     4. 每个模块都得在 server/app.js 的 ROUTE_TABLE 里有一行（报告 §6.1-1 把分发从 if 链改成表，
+     4. 每个模块都得在 server/app.js 的 ROUTE_TABLE 里有一行（把分发从 if 链改成表，
         「新写一条路由忘了挂表」就是这一条判据治的：注入点找得到、单跑也通，只有从表上查才红）；
-     5. 静态对账整棵依赖树的两个方向（报告 §6.1-1 搬域时真踩出来的那一类）：
+     5. 静态对账整棵依赖树的两个方向（搬域时真踩出来的那一类）：
         「工厂解构了、调用点没给」→ 拿到的是 undefined，界面一格空数；
         「工厂用了 app.js 的配置名、本文件既没声明也没解构」→ 自由变量，跑到那一行才 ReferenceError。
         两条都只在源码上比名单，不发一次请求；`/sys-status` 曾经因为少注入一个 RENDER_QUEUE_MAX
@@ -503,7 +503,7 @@ const HITS = {
   'server/routes/system.js': [
     { url: '/sys-status' }, { url: '/whoami' }, { url: '/env-status' },
     { url: '/clear-cache', method: 'POST', body: '{}' },
-    /* /client-error 是页面侧报错唯一的落点（报告 §6.1-5）：光验状态码不够，
+    /* /client-error 是页面侧报错唯一的落点：光验状态码不够，
        要验它真把这一笔记进「页面报错」那一类，否则代理健康账上永远是干净的。 */
     {
       url: '/client-error', method: 'POST',
@@ -567,7 +567,7 @@ const HITS = {
     { url: '/fetch?url=' + encodeURIComponent('https://example.com/a.png') },
     { url: '/getv?url=' + encodeURIComponent('https://example.com/a.mp4') },
     { url: '/asset/la_probe' },
-    /* R1：dl=1 走 disposition 分支。以前那行拿同一句里还没赋值的 st 作判据（TDZ），必抛 → 502。 */
+    /* dl=1 走 disposition 分支。以前那行拿同一句里还没赋值的 st 作判据（TDZ），必抛 → 502。 */
     { url: '/asset/la_probe?dl=1', check: res => {
       if (res.statusCode !== 200) return '带 dl=1 应当 200，实际 ' + res.statusCode;
       return /attachment/i.test(String(res.headers['content-disposition'] || ''))
@@ -664,7 +664,7 @@ function ok(name, cond, detail) {
 }
 const errKind = e => (e && e.name) || 'Error';
 /* 等响应落地：路由里不少是 readBody(...).then(...)，同步返回不代表答完了。
-   V7（批次 8）：这里以前是 3ms 一轮的定长轮询，两条「不该接的 URL」用例（relay /nope、
+   这里以前是 3ms 一轮的定长轮询，两条「不该接的 URL」用例（relay /nope、
    local-assets /nope）本来就被路由**同步返回 false**，却仍要空等满 300ms —— 占掉本判据约
    1/3 的墙钟（1269ms idle 里 620ms 是这两条）。现在：
      · 处理器已经明确返回 false 且用例是 expect:false 的，不再等（断言读的就是这个返回值，没等头）；
@@ -683,7 +683,7 @@ async function settle(res, ms = 800) {
 async function runHit(mod, wiring, handlerName, handler, hit) {
   return (await _runHit(mod, wiring, handlerName, handler, hit)) === true;
 }
-/* ---------- 分发表覆盖（报告 §6.1-1：if 链改成一张表之后才有的这一种坏法） ---------- */
+/* ---------- 分发表覆盖（if 链改成一张表之后才有的这一种坏法） ---------- */
 /* 注入点找得到、工厂构造得出、端点单独跑也通 —— 唯独「新写的路由忘了挂进 app.js 的
    ROUTE_TABLE」只有从表上查才看得出来：那条路由整条不可见，页面点它就是 404，
    而上面每一条判据都不会红。表里的行按「调的是不是这个模块的那个处理器」认，
@@ -783,7 +783,7 @@ async function selfTest() {
   return allCaught;
 }
 
-/* ---------- 依赖注入对账（报告 §6.1-1「把域搬出 app.js」的配套判据）----------
+/* ---------- 依赖注入对账（「把域搬出 app.js」的配套判据）----------
    搬域最容易留的一种雷：函数搬走了，它读的那些配置没跟着搬。这种代码**语法通、require 得动、
    面也挂得上**，静态与运行期各判据都看不见 —— 2026-10-20 实测：`render-jobs.js` 的
    `renderStatus()` 里用了 `RENDER_QUEUE_MAX`，注入点却没给，于是 `/sys-status` 整条 500、
@@ -937,7 +937,7 @@ function freeConfigAudit() {
     }
   }
   await selfTest();
-  /* R4：::ffff: 形式的 IPv4 映射地址。以前 zero 判前 6 组、映射位读 g[6]，
+  /* ::ffff: 形式的 IPv4 映射地址。以前 zero 判前 6 组、映射位读 g[6]，
      0xffff 实际在下标 5 —— 分支永不进入，映射内网被判公网放行。 */
   const { isPrivateHost } = require(S.abs('server/security.js'));
   ok("isPrivateHost('[::ffff:127.0.0.1]') 为真", isPrivateHost('[::ffff:127.0.0.1]') === true);
@@ -945,7 +945,7 @@ function freeConfigAudit() {
   ok("isPrivateHost('[::ffff:8.8.8.8]') 为假", isPrivateHost('[::ffff:8.8.8.8]') === false);
   const ms = Date.now() - t0;
   console.log('\n' + (bad ? '✗ ' : '✓ ') + checks + ' 项判据 / ' + hits + ' 条端点，' + bad + ' 项未通过（' + ms + ' ms）');
-  if (ms > 2000) console.log('  ⚠ 超过 2 秒预算（报告 §7.3① 要求 < 2 s）');
+  if (ms > 2000) console.log('  ⚠ 超过 2 秒预算（要求 < 2 s）');
   if (spawned.length) console.log('  ℹ 假 spawn 被调用 ' + spawned.length + ' 次（真子进程一个都没起）：' + [...new Set(spawned)].join(', '));
   const unusedTol = CTX_TOLERATED.filter(r => !toleratedHit.has(r.id));
   if (unusedTol.length) console.log('  ℹ ctx 例外登记里 ' + unusedTol.length + ' 条这次没被读到，核对后可删：' + unusedTol.map(r => r.id).join(', '));

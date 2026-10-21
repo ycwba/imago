@@ -1036,7 +1036,7 @@ export default {
       if (aiSearchBtn.value) aiSearchBtn.value.onclick = runAiSearch;
       aiChipEl.value = searchFb.el.querySelector('[data-fb="aiChip"]');
       paintAiChip();
-      /* 分页只算一份：这一页的按钮也由 Wb.pager 生成（S3「结构只此一份」），
+      /* 分页只算一份：这一页的按钮也由 Wb.pager 生成（结构只此一份），
          页面只给 host 与 id 前缀；条目是服务端一批批取的，'more' 档交给哨兵续拉（不是本地全量）。 */
       if (pagerBtnsEl.value) pagerBtnsEl.value.innerHTML = window.Wb.pager.rowHTML('as', { info: '第 1 页' });
       pager = window.Wb.pager.create({
@@ -1075,7 +1075,7 @@ export default {
 
     /* 数总数**接着页面已经翻到的游标往后走**，不重回第 1 页。
        为什么要这一处：countAll 原来自己起一趟 `load({pages:10})`，游标从空开始 ——
-       首屏 fetchMore 已经拿回来的那几页等于每个来源又取了一遍（执行文档批次 2 背景里点名的
+       首屏 fetchMore 已经拿回来的那几页等于每个来源又取了一遍（分镜列表缓存的同一类问题，
        「tally 最多每来源翻 10 页」那笔重复，真实环境 9 个来源 = 首屏白多 9 笔）。
        entries 传一份**浅拷贝**：load 会就地塌表（把镜像并成一条），不能改到页面正在画的那一份。
        loadedPages 已超过上限时仍至少再翻一页（`pages:1`），数不完就照实 exact:false。 */
@@ -1084,7 +1084,7 @@ export default {
     }
 
     /* 数总数要按来源一路翻到底（每来源最多 10 页），是首屏最贵的一笔；
-       分页文案先按「共 M+ 页」显示，浏览器空闲了再数（L4），数完由 onDone 换成精确值。
+       分页文案先按「共 M+ 页」显示，浏览器空闲了再数，数完由 onDone 换成精确值。
        空闲回调本身有 3 秒兜底：被长任务占满时也不会一直不数。 */
     let tallyTimer = 0;
     function scheduleTally() {
@@ -1103,7 +1103,7 @@ export default {
         const cached = LIST_CACHE.read();
         if (cached.length) { assets = cached; refreshProviderChips(); renderGrid(); }
       }
-      /* 首屏要的两页一次取回（L3）：以前连发两次 `fetchMore(1)`，等于让每个来源
+      /* 首屏要的两页一次取回：以前连发两次 `fetchMore(1)`，等于让每个来源
          分两轮各走一遍列表 + liveKeys，首屏请求数因此翻倍。 */
       await fetchMore(2);
       scheduleTally();

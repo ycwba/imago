@@ -29,7 +29,7 @@
       "rowMs": 2500,
       "refillMs": 1500,
       "hitRate": 0.7,
-      "why": "P1 之前的实测 × 0.6（批次 0），收紧前先看这里的实测值"
+      "why": "收紧前的实测 × 0.6，先看这里的实测值"
     },
     "measuredAt": "2026-10-21T04:48:29.068Z"
   },
@@ -52,7 +52,7 @@
       "listRequests": 12,
       "loadRounds": 4,
       "pickerMs": 300,
-      "why": "批次 2 的 L1-L4 验收口径（首屏 12 笔以内 / 计数不许重回第 1 页 / 有缓存时 300ms 以内）；首屏那一档的切点取「卡片画出来」与「后台计数开始」里更早的那个，两边同用 performance.now()；探针把上游指到一个没人听的端口并归零重试档位，所以这里数的是页面自己的取数轮次，不是重试轮次 —— 收紧前先对照 listRequestsToQuiet 与 sameOriginRequestsToQuiet"
+      "why": "四条门槛的验收口径（首屏 12 笔以内 / 计数不许重回第 1 页 / 有缓存时 300ms 以内）；首屏那一档的切点取「卡片画出来」与「后台计数开始」里更早的那个，两边同用 performance.now()；探针把上游指到一个没人听的端口并归零重试档位，所以这里数的是页面自己的取数轮次，不是重试轮次 —— 收紧前先对照 listRequestsToQuiet 与 sameOriginRequestsToQuiet"
     },
     "measuredAt": "2026-10-21T04:35:50.181Z"
   }

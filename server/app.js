@@ -45,7 +45,7 @@ const { createSaveRoutes } = require('./routes/save.js');
 const { createUsageRoutes } = require('./routes/usage.js');
 const { validateProviders, validateAssetStore } = require('./providers/validate.js');
 const { handleStatic } = require('./routes/static.js');
-/* 四个域从组合根搬出去（审查报告 §6.1-1）：注册表、本机存储层、渲染任务、转发闸。
+/* 四个域从组合根搬出去：注册表、本机存储层、渲染任务、转发闸。
    这里只留组合根本该做的事：构造配置与依赖、接线、分发。 */
 const { REGISTRY, createRegistryConfig, resolveAssetStore } = require('./registry-config.js');
 const { createLocalAssetsStore } = require('./local-assets-store.js');
@@ -171,7 +171,7 @@ try { rotateLog(); } catch {}
 const DEFAULTS = {};
 
 /* ---------- API 注册路由 / 自定义接口 / 型号清单偏好 ----------
-   这三族（REGISTRY 那份数据 + 两份本机覆盖）搬到 server/registry-config.js 了（审查报告 §6.1-1），
+   这三族（REGISTRY 那份数据 + 两份本机覆盖）搬到 server/registry-config.js 了，
    字段含义与接入新平台那一段文档注释都在那里。REGISTRY 是纯数据，模块级直接 require；
    两份本机覆盖要读 .data 里的文件，所以依赖装配在下面的 dataStore 之后。 */
 
@@ -208,7 +208,7 @@ function readBody(req, res, limit) {
       }
       chunks.push(c);
     });
-    /* 只有一个分片时**直接返回它**，不做整份复制（P8）：`Buffer.concat([c])` 会把整个请求体
+    /* 只有一个分片时**直接返回它**，不做整份复制：`Buffer.concat([c])` 会把整个请求体
        再拷一遍，而 288 MiB 上限下这一段就是几百 MB 的峰值内存。
        （真正的大头是 base64 链路本身的 5× 放大 —— raw / utf8 串 / spec.data / 解码结果，
        那要改成流式解析 JSON 才动得了，风险与改动面都大得多，本轮只做这一步。） */
@@ -230,7 +230,7 @@ function readBody(req, res, limit) {
   });
 }
 /* 统一的出站请求：自动带超时（超时即 destroy 并回调 error），避免上游挂起时无人收场 */
-/* ⚠ 连接复用（keep-alive，P4）**只给这两条通道**：
+/* ⚠ 连接复用（keep-alive）**只给这两条通道**：
      · relay —— 转发平台接口（列表 / 详情 / 余额 / 建任务），
      · /capabilities —— 拉平台的能力声明。
    它们的**目标主机来自注册表声明**（prov.base / endpoints.models），不是浏览器递来的 URL，
@@ -350,7 +350,7 @@ function s3putStream(req, res, target) {
 }
 
 let logLines = 0;
-/* 连续同一句话只记「重复了几次」（P6）。实测 proxy.log 17,239 行里，
+/* 连续同一句话只记「重复了几次」。实测 proxy.log 17,239 行里，
    openrouter.ai 7322 + hi.hi.run 1262 + api.vgenv.com 1225 = 9,809 / **57%** 是三类同形
    DNS 失败的重复（根因在客户端重试 ui.js 的 Net.fetch，代理侧只放大了一半）。
    这里只是**收拢**，不是把日志静音：**计数必须留着**，它是用户排障的主要依据。
@@ -424,7 +424,7 @@ function ensureSession(req, res) {
    很容易被误判成探针写错了。DATA_DIR / PROMPTS_DIR 本来就是 resolve，只有这两个是 join。 */
 const LOCAL_DIR = path.resolve(ROOT, process.env.ASSETS_DIR || '.assets');
 /* ---------- 本机落盘：磁盘余量口径、按类型另存、本机资产库 ----------
-   搬到 server/local-assets-store.js（审查报告 §6.1-1）：那一大段「写媒体之前先问一句这块盘还剩多少」
+   搬到 server/local-assets-store.js：那一大段「写媒体之前先问一句这块盘还剩多少」
    的口径、/save* 的目录索引、/local-assets 的索引与读文件都在那里，实例化在下面的依赖装配处。 */
 
 
@@ -580,7 +580,7 @@ const BIND = resolveBind();
 const BIND_LAN = BIND.hosts.some(h => !isLoopbackAddr(h));
 
 /* ---------- ffmpeg 离线渲染：任务表 / 队列 / 素材解析 / 子进程 ----------
-   搬到 server/render-jobs.js（审查报告 §6.1-1）；上面那一族 RENDER_* 与 ENCODE_PROFILES 是配置，
+   搬到 server/render-jobs.js；上面那一族 RENDER_* 与 ENCODE_PROFILES 是配置，
    留在这里由组合根注入。实例化在下面的依赖装配处。 */
 
 /* 在请求分发里调用：处理 /render* 相关请求，返回 true 表示已处理 */
@@ -594,7 +594,7 @@ const DETAIL_TTL = 5 * 60 * 1000;
    拆路由时这里留了三行没人用的定义，而 relay 里那三处引用既没搬走也没注入 ctx，
    于是每次列表回源都在 `ur.on('end')` 里抛 ReferenceError（不在 Promise 链上，catch 接不住）。
    缓存表本体仍然在这里 —— 它是跨请求复用的模块级状态。 */
-/* 在途请求合并表（single-flight，P3）。四份缓存以前都只在「已完成时命中」，miss 就直接回源：
+/* 在途请求合并表（single-flight）。四份缓存以前都只在「已完成时命中」，miss 就直接回源：
    多个页面同时打开、各自拉同一平台的列表端点时，N 个**完全相同**的请求全部 miss、全部打上游，
    而 SparkCine 的列表端点要 6~14 s。这里配一张「在途表」：同一 key 的第二个请求不再发出去，
    而是挂到第一个的回调上，一起拿同一份响应；settle 后**立即 delete** —— 它只活在这一次在途里，
@@ -621,7 +621,7 @@ const registryConfig = createRegistryConfig({ dataFileOf, safeOutboundUrl });
 const {
   CUSTOM_RELAY, customNotice, MODEL_PREFS_KEY, modelPrefsNotice, allProviders,
 } = registryConfig;
-/* 本机存储层：目录与 log / MIME / dataDirPath / spawnSync 都在这一行交给它（§6.1-1）。 */
+/* 本机存储层：目录与 log / MIME / dataDirPath / spawnSync 都在这一行交给它。 */
 const localStore = createLocalAssetsStore({
   ROOT, LOCAL_DIR, RENDER_DIR, MIME, dataDirPath, log, spawnSync,
 });
@@ -639,7 +639,7 @@ const renderJobs = createRenderJobsStore({ dataFileOf, dataWriteRaw, log });
    `https://hi.hi.run` + `SPARKCINE_API_KEY`，换一家平台就要在四个文件里各改一遍。
    没声明 / 点名的那家不存在 → null：调用方照实回「这家没有资产接口」，不猜一家兜底。 */
 const assetStore = resolveAssetStore(REGISTRY);
-/* 渲染那一域的任务表 / 队列 / 素材解析 / 子进程：配置与依赖在这一行交给它（§6.1-1）。 */
+/* 渲染那一域的任务表 / 队列 / 素材解析 / 子进程：配置与依赖在这一行交给它。 */
 const renderDomain = createRenderJobs({
   ROOT, PORT, RENDER_DIR, assetStore, SESSION_COOKIE, SESSION_TOKEN, log, keyOf, safeDecode, envInt,
   spawn, ENCODE_PROFILES, VCODEC_DEFAULT, RENDER_VCODEC, RENDER_PRESET, RENDER_KEEP, RENDER_CONCURRENCY,
@@ -863,7 +863,7 @@ function isWorkbenchOnlyUrl(raw) {
   return RELAY_PREFIXES.some(r => pathname === r || pathname.startsWith(r + '/'));
 }
 /* ---------- 按平台的在途闸 + 只读请求的退避重试 ----------
-   搬到 server/relay-gate.js（审查报告 §6.1-1）：那四条立场的注释、闸的账本与 429 的说法都在那里，
+   搬到 server/relay-gate.js：那四条立场的注释、闸的账本与 429 的说法都在那里，
    五个 RELAY_* 数字仍由这里的 envInt 现读，实例化在下面（要等 timeText 定好）。 */
 /* 会改状态的路由只接受 POST（GET 一律 405）。
    以前 /cloud/sync、/render/cancel 连 GET 都执行：
@@ -975,7 +975,7 @@ const extInUrl = u => {
 /* 会话令牌（SESSION_COOKIE / SESSION_TOKEN 与那两道 Cookie 闸）整块上移到上面的配置区：
    渲染层取本机素材要带着它拼内部请求头，而装配在下面的依赖层里 —— 令牌本身还是「进程启动时生成一次」。 */
 
-/* 转发闸要 envInt（配置）与 timeText（时钟），所以在这两者都定好之后装配（§6.1-1）。 */
+/* 转发闸要 envInt（配置）与 timeText（时钟），所以在这两者都定好之后装配。 */
 const relayGate = createRelayGate({ envInt, envFrom, log, timeText });
 const {
   RELAY_MAX_INFLIGHT, RELAY_QUEUE_MAX, RELAY_RETRY_MAX, RELAY_WAIT_MAX_MS, RELAY_QUEUE_TIMEOUT_MS,
@@ -1027,7 +1027,7 @@ const renderRoutes = createRenderRoutes({
 });
 
 /* ============================================================================
-   分发表（报告 §6.1-1：`handleRequest` 的 if 链 → `[match, handler]` 表）
+   分发表（`handleRequest` 的 if 链 → `[match, handler]` 表）
    ----------------------------------------------------------------------------
    一行一条路由。`match(a)` 只判地址与方法，`run(a)` 只管交给那个路由模块，
    `stop` 说清「这一条回了没有」：
@@ -1177,7 +1177,7 @@ async function handleRequest(req, res) {
   }
 }
 
-/* 把上一次的云同步结果读回来（L51）。
+/* 把上一次的云同步结果读回来。
    以前这块只在进程内存里，重启代理就归零 —— 设置页从「3 份冲突待选择」变回「还没同步过」，
    用户以为冲突没了，按一下又跑出同样的冲突，整个过程在界面上无法解释。
    结果状态单独一份文件（.data/.cloud-state.json），同步基线另存一份（.cloud-baseline.json），

@@ -1,27 +1,27 @@
 #!/usr/bin/env node
 /* 一键测试 —— 跑法：`node tests/all.cjs`（浏览器档：加 `--e2e` 全量 / `--e2e:fast` 冒烟档 / ALL_E2E=1 同 --e2e）
    顺序：常驻测试（并发池，含语法）→（按需）浏览器 e2e（全量串行 / 冒烟档 4 路并发）。
-   W0 起作为重构的固定入口。日常不必整包跑这一份：`npm run check`（<3 秒）与 `npm run test:fast`
-   （按改动挑判据）才是提交前的常手，这一份是合并前的全量（报告 §7.2 的三档流程）。
-   语法判据不在这里重写：与 `npm run check` 共用 `tests/syntax.cjs` 那一份。批次 8 V1 起它进池跑
+   作为重构与回归的固定入口。日常不必整包跑这一份：`npm run check`（<3 秒）与 `npm run test:fast`
+   （按改动挑判据）才是提交前的常手，这一份是合并前的全量（三档流程的第三档）。
+   语法判据不在这里重写：与 `npm run check` 共用 `tests/syntax.cjs` 那一份。它进池跑
    （子进程里 syntax.cjs 会自带给 --experimental-vm-modules 的快路）；旧写法在 all.cjs 进程内
    require 直跑，父进程没有模块 API，退成 248 次 `node --check`（约 10.4s，比整个池还慢）。
 
-   批次 8（执行文档 §10，2026-10-21）本轮落地：
-     V1 常驻判据并发执行：run() 从串行 spawnSync 改为「排队 + 并发池」，默认并发 min(8, CPU 核数)。
+   2026-10-21 本轮落地：
+     常驻判据并发执行：run() 从串行 spawnSync 改为「排队 + 并发池」，默认并发 min(8, CPU 核数)。
         每条判据的输出**整块缓冲、按完成顺序一次性打**（不交错、看得出谁红的）；池里任一条红，
         退出码就非 0；子进程挂住有 per-task 超时（ALL_TIMEOUT_MS / ALL_E2E_TIMEOUT_MS 可改）直接杀掉。
         **写入型判据只跑隔离实例（AGENTS §13.2）**：凡写共享 .data/.assets/.renders/.skills 的
-        一律进 SERIAL_WRITE 串行白名单、不进并发池（data-snapshot 本就不在这里跑，见 §13.3 手工档；
+        一律进 SERIAL_WRITE 串行白名单、不进并发池（data-snapshot 本就不在这里跑，见 AGENTS §13.3 手工档；
         常驻判据实测全部只写 os.tmpdir 的 mkdtemp 探针目录，白名单先登记 data-snapshot 防今后误加）。
-     V8 测试用 Node 选型：判据子进程优先用系统 node（NODE 环境变量可指定，拿不到回落 execPath），
+     测试用 Node 选型：判据子进程优先用系统 node（NODE 环境变量可指定，拿不到回落 execPath），
         与 map.cjs / watch.cjs 共用同一份 resolveNode（不另存第二张选型表）。
-     V6 e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
+     e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
         冒烟档走**限 4 路的并发**（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
         带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）；
-        全量档保持串行（41 条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口属 V3，本轮不动。
-   本轮按文档 §10.3 只做 V1/V4/V5/V6/V7/V8；**V2（判据进程内打包）与 V3（harness 共享 batch 入口）
-   待主线导演台 e2e 拆分收口后再接**，这里不留半截实现。
+        全量档保持串行（41 条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口这轮没动。
+   判据进程内打包与 harness 共享 batch 入口这两件没做，待主线导演台 e2e 拆分收口后再接，
+   这里不留半截实现。
    注意：tests/map.cjs 的 registry() 按源码文本现读本文件的登记行（run 首参 'tests/<名字>.cjs'）与
    e2e 段的分段标记（下面那句 if 的字面量）—— 本文件任何注释里都不许再出现那句字面量，
    否则分段会被注释里的那一处截走；改这两处的写法要把 map.cjs 一起改。 */
@@ -33,7 +33,7 @@ const cp = require('child_process');
 const M = require('./map.cjs');
 
 const root = path.resolve(__dirname, '..');
-/* V8：判据子进程用的 node（系统 node 优先；见 map.cjs 的 resolveNode 注释）。 */
+/* 判据子进程用的 node（系统 node 优先；见 map.cjs 的 resolveNode 注释）。 */
 const NODE = M.resolveNode();
 
 /* 并发度：min(8, CPU 核数)；ALL_CONCURRENCY 可临时压小（调试 / 低配机）。 */
@@ -45,7 +45,7 @@ const E2E_TIMEOUT_MS = Number(process.env.ALL_E2E_TIMEOUT_MS || 600000);
    每条都要有原因；常驻判据目前没有一个写共享目录（都落 os.tmpdir 的 mkdtemp），这一档是给
    data-snapshot 一类「要对着真实目录比」的判据留的闸 —— 谁把它们加进 all.cjs，就在这里登记。 */
 const SERIAL_WRITE = [
-  'tests/data-snapshot.cjs',   // 对真实 .data/.assets/.renders 比基线（§13.3），并发跑会读到别的判据的中间态
+  'tests/data-snapshot.cjs',   // 对真实 .data/.assets/.renders 比基线（AGENTS §13.3），并发跑会读到别的判据的中间态
 ];
 
 const residentQueue = [];
@@ -60,10 +60,10 @@ const run = (name, cmd, args, opts = {}) => {
   if (isBrowser && FAST_ONLY && !fastPick(name)) return;
   (isBrowser ? browserQueue : residentQueue).push({ name, cmd, args, opts });
 };
-/* 浏览器判据的挑选：--e2e 全量，--e2e:fast 只跑冒烟档（V6）。 */
+/* 浏览器判据的挑选：--e2e 全量，--e2e:fast 只跑冒烟档。 */
 const FULL_E2E = process.argv.includes('--e2e') || process.env.ALL_E2E === '1';
 const FAST_ONLY = process.argv.includes('--e2e:fast') && !FULL_E2E;
-/* 冒烟档 6 个（V6 验收：3 分钟以内）：smoke 兜「八页都能加载、控制台无错」，
+/* 冒烟档 6 个（验收：3 分钟以内）：smoke 兜「八页都能加载、控制台无错」，
    ui-contract / ui-shared 兜公共件契约与列表页，director-perf 兜导演台热路径预算，
    lock 兜单实例锁（最便宜的一条代理判据），canvas 兜画布写出口与撤销栈（页面级唯一红得住的）。 */
 const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'lock', 'canvas'];
@@ -91,7 +91,7 @@ function spawnBuffered(task) {
     const limit = task.opts.timeout || (/e2e/.test(task.name) ? E2E_TIMEOUT_MS : TIMEOUT_MS);
     const timer = setTimeout(() => {
       killed = '超时 ' + limit + 'ms，已杀掉子进程（pid ' + child.pid + '）';
-      /* Windows：SIGKILL 只杀直接子进程，e2e 自己拉起的 proxy/Chrome 孙进程会成孤儿（§13.2 的清理闸）。
+      /* Windows：SIGKILL 只杀直接子进程，e2e 自己拉起的 proxy/Chrome 孙进程会成孤儿（AGENTS §13.2 的清理闸）。
          有 taskkill 就整树端掉；没有（*nix / 端不掉）回落 SIGKILL，名额照样归还。 */
       let treeKilled = false;
       if (process.platform === 'win32' && child.pid) {
@@ -122,7 +122,7 @@ function report(r) {
   if (r.status !== 0) { console.log('✗ ' + r.task.name + '（退出码 ' + r.status + '）'); bad++; }
 }
 
-/* V1 并发池：并发档先进池（min(8, cores)），串行白名单等池排空后一条条跑；
+/* 并发池：并发档先进池（min(8, cores)），串行白名单等池排空后一条条跑；
    输出按**完成顺序**整块打印（含各判据耗时），不会交错。 */
 async function flushResident() {
   const par = residentQueue.filter(t => !SERIAL_WRITE.includes(t.name));
@@ -143,7 +143,7 @@ async function flushResident() {
     + ' 条），墙钟 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
 }
 
-/* e2e 一律串行（每条自起隔离 proxy + headless Chrome；共享 batch 是 V3，本轮不动），
+/* e2e 一律串行（每条自起隔离 proxy + headless Chrome；共享 batch 入口这轮没动），
    输出直接继承父 stdio（本来就没有并发交错问题）。 */
 function flushBrowser() {
   const t0 = Date.now();
@@ -168,7 +168,7 @@ function flushBrowser() {
   if (rows.length) console.log('  逐条耗时：' + rows.join(' ｜ '));
 }
 
-/* V6 冒烟档：限 4 路并发（6 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
+/* 冒烟档：限 4 路并发（6 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
    输出与常驻池一样按完成顺序整块打印、带每条耗时；每条自起隔离 proxy + 独立探针目录，互不写脏。 */
 async function flushBrowserFast() {
   const lanes = Math.min(4, CONCURRENCY, browserQueue.length);
@@ -185,21 +185,21 @@ async function flushBrowserFast() {
 }
 
 /* ---------- 常驻测试（进并发池；写入型见 SERIAL_WRITE） ---------- */
-/* 语法判据（批次 8 V1）：作为普通一条进池，子进程走 syntax.cjs 自己的快路
+/* 语法判据：作为普通一条进池，子进程走 syntax.cjs 自己的快路
    （--experimental-vm-modules 重拉 → 进程内 vm 解析，约 0.4s）。
    判据本体不变，仍与 npm run check 同一份文件。 */
 run('tests/syntax.cjs', process.execPath, ['tests/syntax.cjs']);
-/* V7（批次 8）：selfcheck 不再同步代跑 spa.cjs —— 那条 spawnSync 是它的慢点本体。
+/* selfcheck 不再同步代跑 spa.cjs —— 那条 spawnSync 是它的慢点本体。
    spa.cjs 由此成为下面这条独立判据，登记不变、判据项一条不减（map.cjs 的 DELEGATED 同步清空）。 */
 run('tests/selfcheck.cjs', process.execPath, ['tests/selfcheck.cjs']);
 run('tests/spa.cjs', process.execPath, ['tests/spa.cjs']);
 run('tests/editing.cjs', process.execPath, ['tests/editing.cjs']);
 run('tests/local-first.cjs', process.execPath, ['tests/local-first.cjs']);
-/* 列表结果级短缓存（L1）：同参数 30 秒内第二次调用 0 次上游请求；续拉 / 数总数 / noCache 不吃缓存。 */
+/* 列表结果级短缓存：同参数 30 秒内第二次调用 0 次上游请求；续拉 / 数总数 / noCache 不吃缓存。 */
 run('tests/assetlib-cache.cjs', process.execPath, ['tests/assetlib-cache.cjs']);
 run('tests/pull-scope.mjs', process.execPath, ['tests/pull-scope.mjs']);
 run('tests/relay-retry.cjs', process.execPath, ['tests/relay-retry.cjs']);
-/* 出站 keep-alive（P7）：复用只发生在同 host:port 的池里，建连仍过内网闸 —— 不通过就放弃 P7。 */
+/* 出站 keep-alive：复用只发生在同 host:port 的池里，建连仍过内网闸 —— 不通过就不启用。 */
 run('tests/outbound-keepalive.cjs', process.execPath, ['tests/outbound-keepalive.cjs']);
 run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
@@ -238,7 +238,7 @@ run('tests/director-voice-block.mjs', process.execPath, ['tests/director-voice-b
 run('tests/director-lines.mjs', process.execPath, ['tests/director-lines.mjs']);
 /* 剧本视图：分镜现算成稿、改稿只写回镜头上的画面（台词不在稿子里，也不跟着画面动）。 */
 run('tests/director-script.mjs', process.execPath, ['tests/director-script.mjs']);
-/* 导出格式只有一张表：页头按钮 / engine 分派 / 助手枚举都从它派生（报告 §6.2）。 */
+/* 导出格式只有一张表：页头按钮 / engine 分派 / 助手枚举都从它派生。 */
 run('tests/export-formats.cjs', process.execPath, ['tests/export-formats.cjs']);
 /* 自由画布的六份纯模块：注册表 / 文档 / 操作 / 历史 / 空间索引 / 生成桥。
    画布页只有一个 commit() 写出口，规则全压在这几件里 —— 它们红了，页面上点什么都白点。 */
@@ -250,36 +250,36 @@ run('tests/canvas-spatial.mjs', process.execPath, ['tests/canvas-spatial.mjs']);
 run('tests/canvas-gen.mjs', process.execPath, ['tests/canvas-gen.mjs']);
 run('tests/providers-validate.cjs', process.execPath, ['tests/providers-validate.cjs']);
 run('tests/asr-settings.mjs', process.execPath, ['tests/asr-settings.mjs']);
-/* 设置键一张账（报告 §6.2「5 份清单已出现漂移」）：界面偏好只由 ui.js 的 UI_PREFS 决定，
+/* 设置键一张账：界面偏好只由 ui.js 的 UI_PREFS 决定，
    同步 / 导出 / 恢复默认三份名单从它现取；新加一项设置没登记就在这里红。 */
 run('tests/settings-schema.cjs', process.execPath, ['tests/settings-schema.cjs']);
 run('tests/skill-hub.mjs', process.execPath, ['tests/skill-hub.mjs']);
 run('tests/zip.cjs', process.execPath, ['tests/zip.cjs']);
-/* 生成前校验一致性（报告 §7.3③）：页面与助手对同一组 fixture 必须给同一个结论。
-   写好了没登记就等于没跑过 —— 这一条与下面两条同批登记（§7.1 说的「孤儿判据」）。 */
+/* 生成前校验一致性：页面与助手对同一组 fixture 必须给同一个结论。
+   写好了没登记就等于没跑过 —— 这一条与下面两条同批登记（「孤儿判据」那一类）。 */
 run('tests/gen-rules.mjs', process.execPath, ['tests/gen-rules.mjs']);
-/* 路由工厂的 ctx 注入 + 每条端点走一遍假 req/res（报告 §7.3①）：
+/* 路由工厂的 ctx 注入 + 每条端点走一遍假 req/res：
    pick-dir 那一类「函数体用了没解构的变量 / 少注入一个 key」的坏法，只有真调一次才会红。 */
 run('tests/routes-smoke.cjs', process.execPath, ['tests/routes-smoke.cjs']);
-/* 静态纪律（报告 §7.3② + 执行文档 §12）：内联事件、创建点缺「结果未知」判据、空 catch 没写原因、
+/* 静态纪律：内联事件、创建点缺「结果未知」判据、空 catch 没写原因、
    裸 #RRGGBB、页面侧碰 Dropdowns 私有物、裸 localStorage、第二处 createElement('link')、
    同一条 CSS 规则写两遍。存量违例登记在案，只许减不许增。 */
 run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
-/* 静态预压缩（执行文档 §8 G4）：br→gzip→原文 退档、ETag 带表示名、缓存命中不再压。
+/* 静态预压缩：br→gzip→原文 退档、ETag 带表示名、缓存命中不再压。
    常驻这一档不起实例（进程内驱动 serveStatic）；线上响应头与体积比对在同一条文件的 `--live` 档，
    登记在下面 e2e 段。 */
 run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs']);
 /* 作用域判据：引用了解析不到的裸名字（`node --check` 看不见，跑到那一行才 ReferenceError）。
    搬函数与「helper 只留一份」这两条路最容易留这种疤，本轮抓到过四处。 */
 run('tests/scope-guards.cjs', process.execPath, ['tests/scope-guards.cjs']);
-/* 同一实现别写第二份（§7 唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
+/* 同一实现别写第二份（AGENTS §7 唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
-/* metrics：本地只打印差值，CI 用 --strict 让「膨胀 / 单文件超长」真的能红（报告 §7.4）。 */
+/* metrics：本地只打印差值，CI 用 --strict 让「膨胀 / 单文件超长」真的能红。 */
 run('tests/metrics.cjs', process.execPath,
   ['tests/metrics.cjs'].concat(process.env.CI ? ['--strict'] : []));
 
-/* ---------- 浏览器（按需；V6 分档。这行 if 的文本是 map.cjs 登记表的分段标记，别改写法） ---------- */
+/* ---------- 浏览器（按需；分档。这行 if 的文本是 map.cjs 登记表的分段标记，别改写法） ---------- */
 if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.argv.includes('--e2e:fast')) {
   run('tests/e2e/smoke.cjs', process.execPath, ['tests/e2e/smoke.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-visual.cjs', process.execPath, ['tests/e2e/ui-visual.cjs'], { tier: 'browser' });
@@ -298,7 +298,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/chat-context.cjs', process.execPath, ['tests/e2e/chat-context.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-search-cite.cjs', process.execPath, ['tests/e2e/chat-search-cite.cjs'], { tier: 'browser' });
   run('tests/e2e/director-perf.cjs', process.execPath, ['tests/e2e/director-perf.cjs'], { tier: 'browser' });
-  /* 冷启动基线（批次 0）：FCP/TTI/首屏脚本字节/JS 解析时间 + 堆用量；--soak 另做驻留对比。 */
+  /* 冷启动基线：FCP/TTI/首屏脚本字节/JS 解析时间 + 堆用量；--soak 另做驻留对比。 */
   run('tests/perf/boot.cjs', process.execPath, ['tests/perf/boot.cjs'], { tier: 'browser' });
   run('tests/e2e/parity.cjs', process.execPath, ['tests/e2e/parity.cjs'], { tier: 'browser' });
   run('tests/e2e/skills.cjs', process.execPath, ['tests/e2e/skills.cjs'], { tier: 'browser' });
@@ -328,13 +328,13 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/ui-contract.cjs', process.execPath, ['tests/e2e/ui-contract.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-shared.cjs', process.execPath, ['tests/e2e/ui-shared.cjs'], { tier: 'browser' });
   run('tests/e2e/favorites-pager.cjs', process.execPath, ['tests/e2e/favorites-pager.cjs'], { tier: 'browser' });
-  /* 资产库取数四档（批次 2 L1-L4）：首屏「取列表」请求数、后台计数不许重回第 1 页、
+  /* 资产库取数四档：首屏「取列表」请求数、后台计数不许重回第 1 页、
      同参数第二次 load 命中结果级短缓存、有缓存时选择器打开 ≤300ms。
      上游指到一个没人听的端口（判的是页面自己的取数轮次，不是平台通不通），并归零传输层重试。 */
   run('tests/e2e/asset-requests.cjs', process.execPath, ['tests/e2e/asset-requests.cjs'], { tier: 'browser' });
-  /* 设置页找项这条路（批次 9 B1/B2/B4/B5 + 滚动唯一出口）：组锚点、行级命中、回车落点、Esc 清空、1024 溢出。 */
+  /* 设置页找项这条路（含滚动唯一出口）：组锚点、行级命中、回车落点、Esc 清空、1024 溢出。 */
   run('tests/e2e/settings-nav.cjs', process.execPath, ['tests/e2e/settings-nav.cjs'], { tier: 'browser' });
-  /* 左栏余额与导航这一列（批次 9 A1–A4 + §12「余额区滚动条 = 0」）：六家全开 + 传输中，
+  /* 左栏余额与导航这一列（含「余额区滚动条 = 0」）：六家全开 + 传输中，
      480–1100 共 8 档 × 展开/收起都不许出现内滚动条，收起态点开走公共弹窗。 */
   run('tests/e2e/sidebar-balance.cjs', process.execPath, ['tests/e2e/sidebar-balance.cjs'], { tier: 'browser' });
   run('tests/e2e/lock.cjs', process.execPath, ['tests/e2e/lock.cjs'], { tier: 'browser' });
@@ -343,7 +343,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
 }
 
 (async () => {
-  console.log('判据子进程 node（V8）：' + NODE + (NODE === process.execPath ? '（= 当前进程，PATH 里没找到别的可跑的 node）' : '（系统 node，与 managed 分开）'));
+  console.log('判据子进程 node：' + NODE + (NODE === process.execPath ? '（= 当前进程，PATH 里没找到别的可跑的 node）' : '（系统 node，与 managed 分开）'));
   console.log('常驻并发池：min(8, ' + os.cpus().length + ' 核) = ' + CONCURRENCY + ' ｜ 常驻 ' + residentQueue.length
     + ' 项（串行白名单 ' + residentQueue.filter(t => SERIAL_WRITE.includes(t.name)).length + ' 项不进池）'
     + (FAST_ONLY ? ' ｜ e2e 冒烟档 ' + browserQueue.length + ' 项' : FULL_E2E ? ' ｜ e2e 全量 ' + browserQueue.length + ' 项' : ' ｜ e2e 跳过'));

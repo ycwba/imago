@@ -478,7 +478,7 @@ function renderVoiceCol(col, sh) {
       ${way.mode === 'design' ? `
         <div class="ed-label" style="margin-top:14px"><span>声音描述</span><span class="cnt">这一家按描述定音色</span></div>
         <!-- 与下面「要念的话」同一只公共类（ui.css 的 .ui-ta）：裸 textarea 吃的是本页那条
-             dialog.script textarea 的边框，四个页面四种边框就是这么来的（§3 复用公共模块）。 -->
+             dialog.script textarea 的边框，四个页面四种边框就是这么来的（复用公共件）。 -->
         <textarea id="voiceDesign" class="ui-ta" rows="2" placeholder="例：年轻女声，语速偏慢，带一点沙哑">${esc(voiceDraftOf().design)}</textarea>
         <!-- 素材库里那些位写过音色描述，这里是「取过来」而不是「再抄一遍」：
              同一个人的声音在两页各写一句，迟早两种说法。 -->

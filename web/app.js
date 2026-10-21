@@ -54,7 +54,7 @@ const lazy = loader => defineAsyncComponent({ loader, loadingComponent: ViewLoad
 /* 页面组件映射由路由表现搭：`src` 相对本文件解析，不在这里另抄一份。
    `needs` 里那几份公共件（capabilities / text-ai / asset-picker / datasync）不再常驻 shell.html，
    改成挂载前并发补载 —— 既不给别的页面白下，也让这一页的取数与 ESM 图并行。
-   补载之前先把这一页自己的 ESM 图发出去（`src` + 路由表点名的 `chunk`，G3）：
+   补载之前先把这一页自己的 ESM 图发出去（`src` + 路由表点名的 `chunk`）：
    否则三段是串的 —— 等 needs → 取页面 → 页面再取引擎。modulepreload 只取字节不执行，
    执行时机仍由下面那一次 import() 定，顺序约束一点没动。 */
 const VIEWS = {};
@@ -199,7 +199,7 @@ window.__spaReload = () => { try { hooks.runAll(); } catch (e) {} location.reloa
 window.addEventListener('beforeunload', e => {
   const dirty = hooks.runAll();
   /* 旧单函数钩子只给「没进注册表」的那几页兜底（裸页面 / 探针）；同一枚函数已经注册过
-     就不再补跑 —— 不然导演台与设置页的 flush 每次关标签各跑两遍（X14）。 */
+     就不再补跑 —— 不然导演台与设置页的 flush 每次关标签各跑两遍。 */
   let legacy = '';
   try { if (typeof window.__spaFlush === 'function' && !hooks.has(window.__spaFlush)) window.__spaFlush(); } catch (err) {}
   try { if (typeof window.__spaDirty === 'function' && !hooks.has(window.__spaDirty) && window.__spaDirty()) legacy = '1'; } catch (err) {}
@@ -210,7 +210,7 @@ const app = createApp(App);
 app.config.errorHandler = (err, instance, info) => {
   console.error('[spa]', info, err);
   try { if (window.Toast) Toast.err('页面出错：' + String(errText(err))); } catch (e) {}
-  /* 以前这一句只进 Toast 与控制台，代理那本健康账里一点痕迹都没有（§6.1-5）：
+  /* 以前这一句只进 Toast 与控制台，代理那本健康账里一点痕迹都没有：
      用户过一会儿就忘了、复述不准，而「设置 → 本机环境 → 代理健康」翻不出这一条。
      横幅这里不再重复弹（Toast 已经念过那一句了），只补一条进账。 */
   try { if (window.PageReport) PageReport.pageFail('外壳', 'Vue 出错（' + String(info || '') + '）：' + errText(err), err); } catch (e) { /* 上报层自己坏了不许再抛：横幅与 Toast 上面已经念过 */ }

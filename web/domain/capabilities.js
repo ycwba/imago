@@ -416,7 +416,7 @@ window.Capabilities = {
              > registry 的 modes 推导（老兜底）。 */
   specs(model) {
     const o = (model && model.options) || {};
-    /* 记忆化（A4）。以前每次调用都 new Map + 为每个 role new 对象 + 建新数组，而
+    /* 记忆化。以前每次调用都 new Map + 为每个 role new 对象 + 建新数组，而
        `rule()` = 整表 specs + find，`providerLimit()` = 遍历 prov.models 逐个 rule() ——
        N 个模型就是 N 次全量重建，而它在每次上传前都调（studio 的 findModelWithSlot 一次最多 45 次）。
        失效判据挂在 `model.options` 的**引用**上，是免费且正确的：Capabilities.apply() 每次刷新
@@ -831,7 +831,7 @@ window.Capabilities = {
   },
   /* 每家型号**注册表声明**那一份的底稿（第一次合并前原样记下）。
      为什么要留底：接口答复是「当前状态」，撤销回去的档位不能靠单向合并永远留在下拉里，
-     所以每次合并都从声明那一份重新长（B23）。WeakMap：注册表重取后对象换了自然释放。 */
+     所以每次合并都从声明那一份重新长。WeakMap：注册表重取后对象换了自然释放。 */
   _decl: typeof WeakMap === 'function' ? new WeakMap() : null,
   /* 把能力合并进 REG 里对应平台的模型声明：接口优先，registry 声明兜底 */
   apply(REG, providerId, capsById) {    const list = (REG && REG.providers) || [];        // 注册表还没就绪时不要抛错
@@ -859,7 +859,7 @@ window.Capabilities = {
          用在平台声明与实测不符的地方 —— 例如 SparkCine 生图声明了 jpeg/webp，
          实测（产物字节头 / mime_type / 文件名）却永远是 png，那就以实测为准，不给假选项。 */
       const forced = new Set(m.forceOptions || []);
-      /* 起点是**注册表声明**那一份，不是上一次合并的结果（B23）：
+      /* 起点是**注册表声明**那一份，不是上一次合并的结果：
          上一轮接口声明过、这一轮撤掉的档位，不能靠单向合并永远留在下拉里。 */
       let decl = this._decl.get(m);
       if (!decl) {
