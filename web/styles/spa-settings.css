@@ -1,0 +1,406 @@
+/* 设置（Vue 迁移版）页面样式。
+   全部规则挂在 .settings-page 下 —— 外壳文档里的类名是全站共享的，别的 Vue 页面
+   与未迁移的 iframe 页面都不受影响。颜色 / 按钮 / 下拉 / 芯片 / 型号清单仍走 ui.css 那一份。
+
+   与原 settings.html 的 <style> 一一对应，做了这几件事：
+   ① 页面根变成 SPA 的内容区（绝对定位 + 自己滚），原来的 body / .page-main 留白搬到这里；
+   ② 每条选择器前面挂 `.settings-page`（原来那份 `*` 复位改用 :where(...) 包一层 ——
+      `*` 在原来那份文档里特异性是 0，改成 `.settings-page *` 会（同特异性、后出现）压掉
+      ui.css 的 .ghost / .krow 那些 padding，按钮与行距会整页走样）；
+   ③ 裸值收进令牌：字号 / 间距 / 圆角 / 描边宽度一律 var(--*)，
+      `node tools/tokenize-css.cjs web/styles/spa-settings.css` 这一份必须是 0 处；
+   ④ 布局：内容限宽居中、宽屏两列、五组锚点导航、命中落到行。 */
+
+/* 页面本体：外壳给的是 fixed 的内容区，这一页自己滚（与 .fav-page / .usage-page 同一种形状）。
+   --setnavh 由下面的 ResizeObserver 实时写进来（顶栏真实高度），这里只给一个初始值 ——
+   不用 var(--setnavh, 96px) 那种内联兜底：兜底值本身就是第二份会漂移的数（判据也把它算作裸值）。 */
+.settings-page {
+  position: absolute; inset: 0; overflow: auto;
+  background: var(--bg); color: var(--txt);
+  font-family: var(--font-ui);
+  box-sizing: border-box;
+  --setnavh: 96px;
+  --card-h-pad: 92px;          /* 卡标题右侧留给动作按钮的那一段：是个几何量，不是间距档位 */
+}
+/* ⚠ sticky 的吸附边是滚动容器的**内容边**：容器自己带 padding-top 时，顶栏会停在那条带子
+   下面 —— 下滑之后顶栏上面永远空着一截，卡片从那截底下滚过去（就是「没有顶在上面」）。
+   所以这一页只把**顶部**留白搬进内容层，左右与底部仍由 ui.css 的 `.page-shell` 管。 */
+.settings-page.page-shell { padding-top: 0; }
+/* 原页面的 `* { box-sizing: border-box; margin: 0; padding: 0; }`：
+   用 :where() 把它压回 0 特异性，ui.css 里那些带 class 的组件（.ghost / .krow / .tool …）
+   照样按自己的规则排 —— 这一点与原来那份文档里的行为一致。 */
+:where(.settings-page), :where(.settings-page) * { box-sizing: border-box; }
+:where(.settings-page) * { margin: 0; padding: 0; }
+
+/* 宽屏下这一页不再整幅拉满 —— 内容限宽居中，右侧那一大片空白就是原来「krow 限宽 + 全幅卡」造成的。
+   `padding-top` 是从滚动容器搬进来的那一条（见上面 `.page-shell { padding-top: 0 }`）。 */
+.settings-page .set-wrap { max-width: 1120px; margin: 0 auto; padding-top: var(--sp-5); }
+
+/* 窄窗口：收紧留白，键值行允许折行（这一档断点是原来就有的，要保留） */
+@media (max-width: 820px) {
+  .settings-page .krow input, .settings-page .krow select { min-width: 0; }
+}
+/* ≤760 那一档 ui.css 的 `.page-shell` 把上留白收到 --sp-4，这一页跟着同一档 */
+@media (max-width: 760px) {
+  .settings-page .set-wrap { padding-top: var(--sp-4); }
+}
+/* 视口不低于 1280px 时，一行的清单摆成两列（窄窗照旧一列）。
+   .kcols 是模板里那一层容器：里面是 .krow 的行两列铺开，里面混的整段说明占满一行。 */
+@media (min-width: 1280px) {
+  .settings-page .kcols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--sp-5); row-gap: var(--sp-1); align-items: start; }
+  .settings-page .kcols > :not(.krow) { grid-column: 1 / -1; }
+}
+.settings-page .desc { font-size: var(--fs-2); color: var(--sub); margin-bottom: var(--sp-5); }
+.settings-page .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-4); padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-4); box-shadow: var(--shadow-1); }
+.settings-page .card h2 { font-size: var(--fs-15); margin-bottom: var(--sp-1); }
+.settings-page .card .sub { font-size: var(--fs-1); color: var(--sub); margin-bottom: var(--sp-3); }
+/* 清理缓存那一节：每行「名称 + 说明 + 清空」，说明占满剩余宽度 */
+.settings-page .krow .sub-line { flex: 1; min-width: 180px; font-size: var(--fs-12-5); color: var(--sub); }
+.settings-page .krow input { flex: 1; min-width: 240px; padding: var(--sp-2) var(--sp-3); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-1); color: var(--txt); font-size: var(--fs-12-5); font-family: monospace; outline: none; }
+.settings-page .krow input:focus { border-color: var(--acc); }
+/* .krow input 那条规则会把「输入框」撑成 240px 宽；复选框与单选框（侧栏余额勾选、
+   供应商卡里的「作用文字 AI」）也写在 .krow 里，会被同一条撑成一条 240px 的横杠 ——
+   表现是单选框孤零零杵在行中间，文字被甩到另一头。两种一起压回原形。 */
+.settings-page .krow input[type=checkbox], .settings-page .krow input[type=radio] {
+  flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; margin: 0; accent-color: var(--acc); }
+.settings-page .krow .sbshow { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-11-5);
+  color: var(--sub); cursor: pointer; white-space: nowrap; }
+.settings-page .krow .sbshow:hover { color: var(--acc); }
+/* 这家没声明余额端点：入口照样给，但压暗一档，让「为什么勾了没反应」在界面上先看出来一点。 */
+.settings-page .krow .sbshow.dim { opacity: .62; }
+.settings-page .krow .sbshow.dim:hover { opacity: 1; }
+.settings-page .krow .eye { flex: 0 0 auto; padding: var(--sp-2) var(--sp-2-5); line-height: 1; }
+.settings-page .krow .clr { flex: 0 0 auto; padding: var(--sp-2) var(--sp-2-5); line-height: 1; }
+/* 重复出现的小样式档位（以前是几十处行内 style）：按钮一档、说明一行、勾选一行 */
+.settings-page .ghost.wide { flex: 0 0 auto; padding: var(--sp-2) var(--sp-3-5); }
+.settings-page .ghost.xs { padding: var(--sp-1) var(--sp-2-5); font-size: var(--fs-11-5); }
+.settings-page .krow.tight { gap: var(--sp-2); flex-wrap: wrap; }
+/* 自定义下拉（ui.js 的 Dropdowns 会在 select 外面包一层 .dd）也要参与伸缩 ——
+   不然它在 flex 行里会缩成一小条（供应方 / 识图能力那两行就是这个毛病）。 */
+.settings-page .krow .dd { flex: 1 1 240px; min-width: 200px; max-width: 460px; }
+.settings-page .krow .dd-btn { height: 34px; }
+.settings-page .krow input { height: 34px; }
+/* 一行里的动作按钮：顶到行尾、同一基线，不再跟着输入框排下去 */
+.settings-page .krow .acts { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+.settings-page .krow .acts button { height: 34px; white-space: nowrap; }
+.settings-page .plabel { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; }
+/* 「文字 AI 型号」块：不再是一张单独的卡，而是**每一家**供应商卡里的那一段
+   （供应方、密钥、地址、型号、识图现在都在同一张卡上，改哪一项不用来回对照两处）。 */
+.settings-page .tai { margin-top: var(--sp-2-5); padding-top: var(--sp-2); border-top: var(--hair) dashed var(--line); }
+.settings-page .tai .pb-tip { margin: var(--sp-1-5) 0 var(--sp-0-5); }
+.settings-page .tai .krow { margin-bottom: var(--sp-0-5); }
+.settings-page .tai .tai-h { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-1-5);
+  font-size: var(--fs-12-5); font-weight: 600; color: var(--sub); }
+.settings-page .tai .tai-h:not(:first-child) { margin-top: var(--sp-2-5); }
+.settings-page .tai .tai-h .card-ic { flex: 0 0 auto; }
+.settings-page .tai [data-tchips]:empty { display: none; }
+.settings-page .tai .hint.sm { font-weight: 400; }
+/* 语音识别 / 联网搜索：与四类供应商同一层级的两个分段。表单本身照旧，只换容器。 */
+.settings-page .prov-sec { margin-top: var(--sp-3-5); padding-top: var(--sp-3); border-top: var(--hair) dashed var(--line); }
+.settings-page .prov-sec-h { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-1-5);
+  font-size: var(--fs-2); font-weight: 600; color: var(--txt); }
+.settings-page .prov-sec-h .card-ic { flex: 0 0 auto; }
+.settings-page .sm { font-size: var(--fs-11-5); color: var(--sub); }
+.settings-page .dir-name { font-size: var(--fs-12-5); color: var(--sub); flex: 1; }
+.settings-page .crow { display: flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-12-5); }
+/* 平台名下面那行「能力 kinds」小字 */
+.settings-page .kn .kinds { font-size: var(--fs-11); color: var(--sub); }
+/* 生成平台一张卡：密钥一行、下面那句验证结果 / 转发到哪个地址。
+   勾掉「暂时不用」时整张压暗 + 虚线框，一眼看出这一家现在不参与新任务。 */
+.settings-page .prov { border: 1px solid var(--line); border-radius: var(--radius-4); padding: var(--sp-2-5) var(--sp-3); margin-bottom: var(--sp-2-5); background: var(--panel2); }
+.settings-page .prov .krow { margin-bottom: var(--sp-1-5); }
+.settings-page .prov input[type="password"] { background: var(--panel); }
+.settings-page .prov .lab { flex: 0 0 auto; font-size: var(--fs-11-5); color: var(--sub); white-space: nowrap; }
+.settings-page .prov .msg { font-size: var(--fs-11-5); color: var(--sub); line-height: 1.6; }
+.settings-page .prov .msg.ok { color: var(--ok); }
+.settings-page .prov .msg.err { color: var(--err); }
+.settings-page .prov.warned .msg { color: var(--err); }
+.settings-page .prov.off { border-style: dashed; }
+.settings-page .prov.off .kn, .settings-page .prov.off input[data-key] { opacity: .5; }
+/* 自定义那几家虚线左边加一道竖条：和内置那几家一眼分得开（出问题时先找自己加的那条） */
+.settings-page .prov.cus { border-left: var(--accent-bar) solid var(--acc); }
+/* 一次只展开一家：这一行写明「地址从哪来、这把密钥还管哪些类型、型号清单一共几个」，
+   省得切来切去还得自己回忆上面那家配过什么。 */
+.settings-page .prov .meta { font-size: var(--fs-11-5); color: var(--sub); line-height: 1.7; margin: var(--sp-0-5) 0 var(--sp-1-5); }
+.settings-page .prov .meta code { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-0);
+  padding: var(--sp-0-5) var(--sp-1-5); font-size: var(--fs-11); }
+.settings-page #provTabs { margin-bottom: var(--sp-2-5); }
+/* 「添加自定义供应商」那一格：这一列只管「占多宽」，里面的清单是公共的 .mlist（ui.css）。
+   以前这里是另一份 `.cus-m`：同样是「接口给回来的型号清单」，只有勾选、没有滚动 ——
+   一家几十个型号就把整页撑开，而隔壁同一件事的清单是限高滚动的。同一件事两种排版就是漂移的开始。 */
+.settings-page .cus-models { flex: 1 1 240px; min-width: 0; }
+.settings-page .cus-acts { display: flex; align-items: center; gap: var(--sp-2-5); margin-top: var(--sp-2-5); flex-wrap: wrap; }
+/* 「已添加的几家」清单：一行一个条目，编辑 / 删除跟名字并排。
+   正在改的那一条高亮 —— 否则编辑态和新增态长得一样，用户不知道点「保存这一家」会覆盖谁。 */
+.settings-page .cus-mine { display: flex; flex-direction: column; gap: var(--sp-1-5); flex: 1 1 320px; min-width: 0; }
+.settings-page .cus-mine-g { display: flex; align-items: center; gap: var(--sp-1-5); flex-wrap: wrap; }
+.settings-page .cus-mine-g > .hint.sm { flex: 0 0 auto; margin-right: var(--sp-0-5); }
+.settings-page .cus-mine-i { display: inline-flex; align-items: center; gap: var(--sp-1-5); padding: var(--sp-0-5) var(--sp-1-5);
+  border: 1px solid var(--line); border-radius: var(--radius-1); font-size: var(--fs-12-5); background: var(--panel2); }
+.settings-page .cus-mine-i .t { font-weight: 600; }
+.settings-page .cus-mine-i.on { border-color: var(--acc); background: var(--acc-tint); }
+/* 平台名可点击跳官网：不改字体颜色，仅悬停加下划线 */
+.settings-page .kn a.site { color: inherit; text-decoration: none; }
+.settings-page .kn a.site:hover { text-decoration: underline; }
+.settings-page label.plabel { display: block; font-size: var(--fs-12-5); color: var(--sub); margin: var(--sp-2-5) 0 var(--sp-1); }
+/* ---------- 每栏的标题行：图标位 + 标题（右侧留给动作按钮） ----------
+   图标位固定宽度：有图标的栏显图标，没有对应图标的显一个**空**位（不留白）——
+   否则十二栏的标题会随着有没有图标左右跳。不需要图标的地方（如页面大标题）不加这个位。
+   （`.card` 的 `position: relative` 在上面那一条一份就够，这里不再重复定义同一个类。） */
+.settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-2); padding-right: var(--card-h-pad); }
+.settings-page .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: 16px; height: 16px; color: var(--sub); }
+.settings-page .card > h2.card-h .card-ic svg { width: 15px; height: 15px; fill: none; stroke: currentColor;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.settings-page .card > h2.card-h .card-ic.empty { /* 没对应图标的栏：占位对齐，里面不留白 */ visibility: hidden; }
+/* ---------- 五个组 ---------- 
+   组标题是这一组的入口（上面那排 5 颗组锚点滚到哪儿，就跟着亮哪儿）。 */
+.settings-page .set-group { margin-bottom: var(--sp-5); }
+.settings-page .set-group > .set-group-h { display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-3); font-weight: 600; color: var(--sub);
+  margin-bottom: var(--sp-2); padding-bottom: var(--sp-1); border-bottom: var(--hair) solid var(--line); }
+.settings-page .set-group > .card:last-child, .settings-page .set-group > .fold-body > .card:last-child { margin-bottom: 0; }
+/* 筛选时整组都不含命中的，连组标题一起收起来（组里有命中的才留着）。 */
+.settings-page .set-group.set-off { display: none; }
+/* 低频那一组（本机维护）默认收着 —— 收法走这一页已有的 fold-key 机制，
+   组标题本身就那颗折叠钮，展开/收起的文字与 aria 状态由 settings.js 的 initFolds 管。 */
+.settings-page .set-group.foldable > .set-group-h { margin-bottom: var(--sp-2); border-bottom: 0; padding-bottom: 0; }
+.settings-page .set-group.foldable > .set-group-h .fold-toggle { font-size: var(--fs-3); color: var(--sub); }
+.settings-page .set-group.foldable > .set-group-h .fold-title { font-weight: 600; }
+.settings-page .set-group.foldable:not(.open) > .set-group-h { border-bottom: var(--hair) solid var(--line); padding-bottom: var(--sp-1); }
+/* 可折叠的一块：按钮用公共的 .tool 胶囊样式（与页面里所有动作按钮同一套）。
+   选择器**不再限定 `.card`** —— 供应商卡里那一段「型号清单」也要折叠，
+   同一套折叠只留一份规则，不要在下面另写 `.mblk:not(.open)` 那种第二份。 */
+.settings-page .foldable > .fold-body { margin-top: var(--sp-2); }
+.settings-page .foldable:not(.open) > .fold-body { display: none; }
+/* 折叠箭头：与下面 .ref > summary 的箭头同一个字形（原来这里是四条 border 拼的三角形，
+   两套箭头就是两份会漂的画法，而且那几个 px 只能算布局事实、收不进档位）。 */
+.settings-page .fold-toggle::before { content: '▸'; display: inline-block; margin-right: var(--sp-0-5);
+  font-size: var(--fs-10); transition: transform var(--dur-2); }
+.settings-page .foldable.open .fold-toggle::before, .settings-page .fold-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+/* 「型号清单」那一段的骨架：折叠头 + 折叠体。**清单本身是公共的 .mlist（ui.css）**，
+   这里只管这一段的排布 —— 限高自滚、勾选框配色、隐藏态与选中态都在那边，两处共用一份。 */
+.settings-page .mblk { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-1); }
+.settings-page .mblk > .mb-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.settings-page .polish-block { border: 1px solid var(--line); border-radius: var(--radius-4); padding: var(--sp-3) var(--sp-3-5); margin-bottom: var(--sp-3);
+  background: var(--panel2); transition: border-color var(--dur-2); }
+.settings-page .polish-block:hover { border-color: var(--acc); }
+.settings-page .polish-block .pb-head { display: flex; align-items: center; gap: var(--sp-2-5); flex-wrap: wrap; margin-bottom: var(--sp-2); }
+.settings-page .polish-block .pb-head b { font-size: var(--fs-2); }
+.settings-page .polish-block .pb-head .used { font-size: var(--fs-11-5); color: var(--sub); }
+.settings-page .polish-block .pb-head .ghost.mini { margin-left: auto; font-size: var(--fs-11-5); padding: var(--sp-1) var(--sp-2-5); border-radius: var(--radius-1); }
+.settings-page .polish-block textarea { min-height: 92px; background: var(--panel); }
+/* .pb-tip 是「一段小灰说明」的通用类，八处都在用：字号/行高写在顶层，不要挂在 .polish-block 下面，
+   否则出了润色卡就继承 body 的 --fs-15，看着像一段放大的正文。 */
+.settings-page .pb-tip { font-size: var(--fs-11-5); color: var(--sub); line-height: 1.6; margin-top: var(--sp-2); }
+.settings-page .pb-tip.err { color: var(--err); }
+.settings-page .pb-tip code { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-0);
+  padding: var(--sp-0-5) var(--sp-1-5); font-size: var(--fs-11); }
+.settings-page textarea { width: 100%; min-height: 110px; background: var(--input); border: 1px solid var(--line); border-radius: var(--radius-0); color: var(--txt); font-size: var(--fs-12-5); line-height: 1.6; padding: var(--sp-2-5) var(--sp-3); font-family: inherit; resize: vertical; outline: none; }
+.settings-page textarea:focus { border-color: var(--acc); }
+/* ---------- 顶部的栏目导航 + 关键词筛选 ----------
+   吸附在最上面：这一页比屏幕高好几屏，没有它就只能滚回顶端才能换栏。
+   ⚠ 因为它 sticky，滚动定位必须**给它让出高度** —— `--setnavh` 由下面的 ResizeObserver
+   实时写进来（这一页的根上有个初始值），不是写死的数：`.set-nav-chips` 是 flex-wrap，
+   窗口变窄 / 外壳侧栏展开收起（--sbw 66↔200px）/ 用户放大字号时芯片会换行，栏高是会变的。
+   用 CSS 的 `scroll-margin-top` 而不是 JS 手算偏移：滚动容器是这一页自己（.settings-page）。 */
+.settings-page .set-nav { position: sticky; top: 0; z-index: 6; background: var(--bg); padding: var(--sp-2) 0; margin: 0 0 var(--sp-3-5);
+  border-bottom: var(--hair) solid var(--line); }
+/* 组、卡都能当滚动锚点：点组名滚到组标题，点二级行滚到那张卡。 */
+.settings-page .card, .settings-page .set-group { scroll-margin-top: calc(var(--setnavh) + var(--sp-3-5)); }
+.settings-page .set-nav-top { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.settings-page .set-nav input[type=search] { flex: 1 1 220px; max-width: 380px; height: 32px; padding: var(--sp-1-5) var(--sp-3);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-1); color: var(--txt);
+  font-size: var(--fs-12-5); outline: none; }
+.settings-page .set-nav input[type=search]:focus { border-color: var(--acc); }
+.settings-page .set-nav .ghost { padding: var(--sp-1-5) var(--sp-3); font-size: var(--fs-1); }
+.settings-page .set-nav-sum { font-size: var(--fs-11-5); color: var(--sub); flex: 1 1 100%; }
+.settings-page .set-nav-sum.err { color: var(--err); }
+/* 自动保存的那一句状态话站在顶栏：这一条本来就 sticky，所以改动落在页面任何一栏，
+   都不必滚回最下面去找「存了没有」。平时这一格写的是这一页的约定本身（改完就存本机）——
+   留空会让人以为这一页不存盘，而它现在确实没有一个「保存」按钮可以按了。 */
+.settings-page .set-nav-sum.ok { color: var(--ok); }
+.settings-page .set-nav-sum.wait { color: var(--warn); }
+.settings-page .set-nav-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1-5); margin-top: var(--sp-2); }
+/* 一级只有 5 颗组锚点，二级那一排是当前组的栏目标题（一组最多 5 栏，一行放得下）。
+   只有一级时二级行是空的，整排收掉，别留一条空灰带。 */
+.settings-page .set-nav-chips[hidden] { display: none; }
+.settings-page .set-nav-sub { margin-top: var(--sp-1); }
+/* 导航芯片：几何仍取 ui.css 里 `.chip` 那一份（描边 / hover / 焦点都不再重定义），
+   这里只补这一排自己的差异：药丸形、更小的字号、单行省略（它是「滚到那一组 / 那张卡」，不是筛选档）。 */
+.settings-page .set-chip { font-size: var(--fs-11-5); line-height: 1.4; padding: var(--sp-1) var(--sp-2-5);
+  border-radius: var(--radius-pill); background: var(--panel); max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; }
+.settings-page .set-chip:hover { color: var(--acc); }
+.settings-page .set-chip.dim { opacity: .45; }
+.settings-page .set-chip-sub { font-size: var(--fs-11); }
+/* 命中落到**行**。整卡的显隐还留着（0 命中的卡先收起来），但底色只给命中的那一行。 */
+.settings-page .set-hit { background: var(--acc-tint); border-radius: var(--radius-0); }
+.settings-page .set-flash { animation: set-flash var(--dur-2) ease-out 3 alternate; }
+@keyframes set-flash {
+  from { background: var(--acc-tint-2); outline: var(--hair) solid var(--acc); }
+  to { background: var(--acc-tint); outline: var(--hair) solid transparent; }
+}
+/* 卡标题上那枚「N 处命中」（读数时 settings.js 会先把它摘掉，不会混进标题） */
+.settings-page .set-hcnt { flex: 0 0 auto; margin-left: var(--sp-2); padding: 0 var(--sp-2);
+  font-size: var(--fs-11); font-weight: 400; color: var(--acc); background: var(--acc-tint);
+  border-radius: var(--radius-pill); white-space: nowrap; }
+/* 筛选期间只藏这一栏（用类而不是 hidden：#cusCard 自己拿 hidden 表示「还没打开那张卡」，别抢同一个开关） */
+.settings-page .card.set-off { display: none; }
+
+.settings-page .okmsg { color: var(--ok); font-size: var(--fs-12-5); align-self: center; }
+/* 空提示不占位（否则会留下一条空灰条，看着像坏掉的组件） */
+.settings-page .hint:empty, .settings-page .sub:empty, .settings-page .pb-tip:empty { display: none; }
+/* 注册表读不到时那一行要看得出来是「出错了」而不是普通说明 */
+.settings-page .hint.kerr { color: var(--err); }
+/* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
+   用原生 <details>（不引任何依赖），summary 做成一行小字。 */
+.settings-page .ref { margin: var(--sp-1-5) 0 var(--sp-0-5); font-size: var(--fs-11-5); color: var(--sub); line-height: 1.6; }
+.settings-page .ref > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-0-5) var(--sp-2); border: 1px solid var(--line); border-radius: var(--radius-pill); user-select: none; }
+.settings-page .ref > summary::-webkit-details-marker { display: none; }
+.settings-page .ref > summary::before { content: '▸'; font-size: var(--fs-10); transition: transform var(--dur-1); }
+.settings-page .ref[open] > summary::before { transform: rotate(90deg); }
+.settings-page .ref > summary:hover { border-color: var(--sub); }
+.settings-page .ref .ref-body { margin-top: var(--sp-1-5); }
+.settings-page .ref code { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-0); padding: 0 var(--sp-1); }
+
+/* 云同步面板里那两排（冲突 / 备份）：原来是用行内 style 拼的，原样搬成类 */
+.settings-page .cloud-box { margin-top: var(--sp-2-5); border: 1px solid var(--line); border-radius: var(--radius-4); padding: var(--sp-2-5) var(--sp-3); background: var(--panel2); }
+.settings-page .cloud-box .cb-title { font-size: var(--fs-12-5); font-weight: 600; margin-bottom: var(--sp-1); }
+.settings-page .cloud-box .cb-hint { font-size: var(--fs-11-5); color: var(--sub); margin-bottom: var(--sp-1-5); }
+.settings-page .cloud-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; }
+.settings-page .cloud-row .cloud-key { flex: 0 0 auto; font-family: monospace; font-size: var(--fs-1); }
+.settings-page .cloud-row .cloud-meta { font-size: var(--fs-11-5); color: var(--sub); flex: 1; }
+.settings-page .cloud-more { font-size: var(--fs-11-5); color: var(--sub); }
+
+/* 语音识别 / 联网搜索：结果列表与只读正文 */
+.settings-page .search-hits { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+.settings-page .search-hit { border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel); padding: var(--sp-2) var(--sp-3); }
+.settings-page .search-hit a { font-size: var(--fs-12-5); font-weight: 600; color: var(--acc); text-decoration: none; overflow-wrap: anywhere; }
+.settings-page .search-hit a:hover { text-decoration: underline; }
+.settings-page .search-dom { margin-left: var(--sp-2); font-size: var(--fs-11); color: var(--sub); }
+.settings-page .search-snip { margin-top: var(--sp-0-5); font-size: var(--fs-1); line-height: 1.6; color: var(--txt); overflow-wrap: anywhere; }
+.settings-page .search-read { margin-top: var(--sp-2); max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius-1); padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-11-5); line-height: 1.6; color: var(--sub); font-family: inherit; }
+
+/* 提示词归档的最近清单与缓存那一节的两行说明（原来是两段行内 style） */
+.settings-page .prompt-recent { font-size: var(--fs-12-5); color: var(--sub); line-height: 1.9; margin-top: var(--sp-1-5); }
+.settings-page .cache-line { margin-top: var(--sp-2); }
+.settings-page #cacheMsg { min-height: var(--sp-3-5); }
+
+/* Skill 管理：原来独立的 Skill Hub 页面整块搬进设置，控件形态与间距沿用公共件。
+   卡片里给固定高度，列表与详情各自滚动，不把整页撑长。 */
+.settings-page .sk-filters { padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel2); }
+.settings-page .sk-filters .frow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.settings-page .sk-filters .flabel { font-size: var(--fs-1); color: var(--sub); flex: 0 0 auto; }
+.settings-page .sk-filters input[type="search"] {
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-1);
+  background: var(--panel); color: var(--txt); font-size: var(--fs-2); outline: none; width: 240px;
+}
+.settings-page .sk-filters input[type="search"]:focus { border-color: var(--acc); }
+.settings-page .sk-filters .sp { flex: 1; }
+.settings-page .sk-filters .cnt { font-size: var(--fs-1); color: var(--sub); }
+
+.settings-page .sk-layout {
+  height: 560px; display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: var(--sp-4);
+}
+.settings-page .sk-list, .settings-page .sk-detail {
+  min-height: 0; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel);
+}
+.settings-page .sk-list { padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1-5); }
+.settings-page .sk-item {
+  display: flex; flex-direction: column; gap: var(--sp-1-5); text-align: left; font-family: inherit;
+  padding: var(--sp-2-5) var(--sp-3); border: 1px solid transparent; border-radius: var(--radius-1);
+  background: var(--panel2); color: var(--txt); cursor: pointer;
+  transition: border-color var(--dur-2), background var(--dur-2);
+}
+.settings-page .sk-item:hover { border-color: var(--acc); }
+.settings-page .sk-item.on { border-color: var(--acc); background: var(--acc-tint); }
+.settings-page .sk-item:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.settings-page .sk-line1 { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.settings-page .sk-name { font-size: var(--fs-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-page .sk-id { font-size: var(--fs-11); color: var(--sub); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.settings-page .sk-tags { display: flex; gap: var(--sp-1-5); flex-wrap: wrap; }
+.settings-page .sk-tags .ui-tag { padding: 0 var(--sp-2); font-size: var(--fs-10); }
+.settings-page .sk-desc {
+  font-size: var(--fs-1); color: var(--sub); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.settings-page .sk-detail { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+.settings-page .sk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.settings-page .sk-head h2 { font-size: var(--fs-4); margin: 0 0 var(--sp-1); }
+.settings-page .sk-meta { font-size: var(--fs-1); color: var(--sub); word-break: break-all; }
+.settings-page .sk-acts { display: flex; gap: var(--sp-1-5); flex-wrap: wrap; justify-content: flex-end; }
+.settings-page .sk-desc2 { font-size: var(--fs-2); line-height: 1.55; color: var(--txt); white-space: pre-wrap; }
+.settings-page .sk-flags { font-size: var(--fs-1); color: var(--sub); line-height: 1.55; }
+.settings-page .sk-flags b { color: var(--txt); font-weight: 600; margin-right: var(--sp-2); }
+
+/* 「项目引用规则」那一块：这份 Skill 正文里写了哪些**变量占位符**（{cast} {what} {board} …），
+   程序在发请求前按当前项目把实际内容填进去。 */
+.settings-page .sk-refrule { margin-top: var(--sp-3); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel2); }
+.settings-page .sk-refrule .sk-flags { margin-bottom: var(--sp-2); }
+.settings-page .sk-refrule .sk-flags .hint { margin-left: var(--sp-2); }
+.settings-page .sk-refrule code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: var(--input); border-radius: var(--radius-0); padding: 0 var(--sp-1); }
+.settings-page .sk-varlist { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;
+  margin-bottom: var(--sp-2); }
+.settings-page .sk-var { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--fs-1); color: var(--acc); border: 1px solid var(--line);
+  border-radius: var(--radius-0); padding: 0 var(--sp-1-5); }
+.settings-page .sk-varlist .hint { margin-left: var(--sp-1); }
+
+.settings-page .sk-body { flex: 1 1 auto; min-height: 260px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-3); }
+.settings-page .sk-files {
+  overflow: auto; padding-right: var(--sp-2); border-right: var(--hair) solid var(--line);
+  display: flex; flex-direction: column; gap: var(--sp-0-5);
+}
+.settings-page .sk-file {
+  display: flex; align-items: center; gap: var(--sp-2); text-align: left; font-family: inherit;
+  padding: var(--sp-1) var(--sp-2); border: 1px solid transparent; border-radius: var(--radius-1);
+  background: none; color: var(--txt); font-size: var(--fs-1); cursor: pointer;
+}
+.settings-page .sk-file:hover { background: var(--panel2); }
+.settings-page .sk-file.on { background: var(--panel2); border-color: var(--acc); color: var(--acc); }
+.settings-page .sk-fpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-page .sk-sz { color: var(--sub); font-size: var(--fs-10); flex: 0 0 auto; }
+.settings-page .sk-prev {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--line); border-radius: var(--radius-1); overflow: hidden; background: var(--panel2);
+}
+.settings-page .sk-prev-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1-5) var(--sp-2-5); border-bottom: var(--hair) solid var(--line); font-size: var(--fs-1);
+}
+.settings-page .sk-fname { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--txt); }
+.settings-page .sk-prev-bar .sp { flex: 1; }
+.settings-page .sk-prev-bar .hint { color: var(--sub); }
+.settings-page .sk-pre {
+  flex: 1 1 auto; margin: 0; overflow: auto; padding: var(--sp-3);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--fs-1); line-height: 1.6; color: var(--txt);
+  white-space: pre-wrap; word-break: break-word; tab-size: 2;
+}
+.settings-page .sk-hint { margin-top: var(--sp-2); font-size: var(--fs-11-5); line-height: 1.5; color: var(--sub); }
+.settings-page .sk-msg { margin-top: var(--sp-1); }
+
+@media (max-width: 900px) {
+  .settings-page .sk-layout { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .settings-page .sk-list { max-height: 340px; }
+  .settings-page .sk-detail { overflow: visible; }
+  .settings-page .sk-body { grid-template-columns: minmax(0, 1fr); }
+  .settings-page .sk-files { max-height: 160px; border-right: 0; border-bottom: var(--hair) solid var(--line); padding: 0 0 var(--sp-2); }
+  .settings-page .sk-prev { min-height: 320px; }
+}
+
+/* 减弱动效那一档：命中行的闪烁也一起停（底色还在，定位靠的是滚动不是动画）。 */
+@media (prefers-reduced-motion: reduce) {
+  .settings-page .set-flash { animation: none; }
+}

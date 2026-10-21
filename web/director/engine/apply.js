@@ -1,0 +1,531 @@
+/* 导演台Apply域：由 engine.js 按域机械搬出（AGENTS.md §17：内部保持命令式、按域拆模块，
+   engine.js 只留状态与接线）。区间内的代码逐字保留，只有点名的几处引擎可变状态改经访问器读，
+   区间外的名字一律由 createApply(E) 递进来 —— 这一份里不留第二套工程数据。
+   document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
+   弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
+import { parseJsonLoose, reEscape } from '../util.js';
+import { splitLongShots } from '../chain.js';
+
+export function createApply(E, document, window) {
+  const {
+    $,
+    WSOf,
+    projOf,
+    REGOf,
+    uid,
+    Groups,
+    PENDING_PREFIX,
+    BoardAssets,
+    BoardVars,
+    fillSkillVars,
+    newShot,
+    allShots,
+    TL_SYS_COMMON,
+    splitSysOf,
+    boardEditSysOf,
+    durWritable,
+    setShotDur,
+    boardDurNote,
+    boardDurSub,
+    softShotsNote,
+    clampShotDurations,
+    clampNote,
+    chainModelList,
+    ensureChainModel,
+    snapBoard,
+    boardListText,
+    boardPlanOf,
+    applyBoardPlan,
+    SplitAssets,
+    scheduleSave,
+    feedScenePics,
+    placeScenesInto,
+    reportScenePics,
+    lineLandedNote,
+    boardEstimate,
+    renderAll,
+    switchProject,
+    setStatus,
+  } = E;
+
+function landNewAssets(list, groupName) {
+  const D = window.Chars;
+  const out = { saved: [], failed: [], group: String(groupName || '').trim(), why: '' };
+  if (!list || !list.length) return out;
+  if (!D || !D.Lib || !D.Lib.save) { out.why = '素材库没有加载，新素材没有建档'; return out; }
+  (list || []).forEach(a => {
+    const name = String((a && a.name) || '').trim();
+    if (!name) { out.failed.push({ name: '', why: '没有名字' }); return; }
+    const spec = BoardAssets.libSpec({ name, kind: a.kind, look: a.look, voice: a.voice, why: a.why }, out.group);
+    let item = null;
+    try {
+      if (spec.kind === 'scene') item = D.newScene(spec);
+      else if (spec.kind === 'prop') item = D.newProp(spec);
+      else item = D.newChar(spec);
+    } catch (e) {
+      out.failed.push({ name, why: errText(e) });
+      return;
+    }
+    try {
+      const saved = D.Lib.save(item, { exact: true });
+      const e = D.Lib.writeError && D.Lib.writeError();
+      if (e) { out.failed.push({ name, why: e }); return; }
+      out.saved.push(saved || item);
+    } catch (e) {
+      out.failed.push({ name, why: errText(e) });
+    }
+  });
+  return out;
+}
+/* 把提示词里「待建素材」的名字换成占位符 `@待建:名字`。
+   判据只认**这一批真要建的** —— 别处出现的同名字（本来就有的素材）不动。 */
+function markPendingTokens(shots, list) {
+  const names = (list || []).map(a => String((a && a.name) || '').trim()).filter(Boolean);
+  if (!names.length) return 0;
+  /* 一次扫描、长名优先：以前逐名 replace，短名先把长名的前缀换掉
+     （小雅 先跑，「小雅妈妈」就成了「@待建:小雅妈妈」—— 指向了另一条素材），
+     而且换出来的占位符还会被下一条名字重新扫到。
+     整 token 化的正则同时认「@待建:名字」「@名字」与裸名字三种：
+     前两种原样留着（已经是引用 / 已经是占位符），只有裸名字补成占位符。 */
+  const CH = '[^\\s@，,。.、；;：:！!？?()（）\\[\\]【】"\'“”《》]';
+  const alt = names.slice().sort((a, b) => b.length - a.length).map(reEscape).join('|');
+  const re = new RegExp('@' + PENDING_PREFIX + ':' + CH + '+|@' + CH + '+|(?:' + alt + ')', 'g');
+  let n = 0;
+  (shots || []).forEach(sh => {
+    const p = String((sh && sh.prompt) || '');
+    if (!p) return;
+    sh.prompt = p.replace(re, m => {
+      if (m.charAt(0) === '@') return m;
+      n++;
+      return '@' + PENDING_PREFIX + ':' + m;
+    });
+  });
+  return n;
+}
+
+/* 页头「拆分镜」那一颗的入口：三档任务共用一个表单（选哪一档，下面几行的称呼跟着换）。
+   写入是两段式：先给用户看一遍（可逐条改 / 删），确认才落盘 —— 三档一致。 */
+async function aiStoryboard() {
+  const hasBoard = snapBoard(projOf().scenes).length > 0;
+  /* 「项目引用规则」：已启用的 Skill 声明了哪些素材组 / 引用写成什么样子（设置页可改）。
+     读不到就当没有声明（默认写法、全部组都在下拉里）—— 读不到不是错，按默认走。 */
+  const refRule = (window.WbSkills && WbSkills.refRule) ? await WbSkills.refRule() : { assetGroups: [] };
+  /* 「素材范围」那一排的名单这一刻现数（新加了素材不必重开页面）；
+     库还是空的就整项不画 —— 只有一项可选的下拉等于一颗点下去什么都不会变的按钮。
+     Skill 声明的组**排在前面**（不排除其它组）。 */
+  const scopes = SplitAssets.scopes(refRule.assetGroups);
+  const fields = [
+    { key: 'task', type: 'select', label: '要做什么', value: 'new', options: [
+      { v: 'new', t: '拆一份新的（贴剧本 → 新建短片）' },
+      { v: 'edit', t: '修改现有分镜（改提示词 / 名字 / 时长、加镜头）' },
+      { v: 'append', t: '接着往下拆（在现有分镜后面继续加）' },
+    ] },
+    { key: 'script', type: 'textarea', label: '剧本 / 文案', placeholder: '把故事、旁白或分镜草稿粘进来…', hint: '' },
+    { key: 'instruct', type: 'textarea', label: '修改要求（说给 AI 的一句话）', placeholder: '例：把河岸那两镜的提示词写得更具体、光偏黄昏；第 3 镜后面加一个特写', hint: '不填就是整体优化一遍现有提示词', hidden: true },
+  ];
+  if (scopes.length) fields.push({ key: 'assetSrc', type: 'select', label: '素材范围',
+    value: SplitAssets.last(), options: scopes,
+    hint: '先让 AI 从这份清单里挑相关的那几条，再把挑中那几条的完整描述喂给分镜；'
+      + '写进提示词的 @名字 在确认写入时挂成参考图（选「不导入素材」就一个字也不喂）' });
+  fields.push({ key: 'style', type: 'text', label: '风格提示词后缀（可选）', placeholder: '例：电影感，35mm，柔和自然光' });
+  const v = await PromptForm.open({
+    title: 'AI 分镜（拆新 / 改现有 / 加镜头）',
+    sub: '贴一段剧本拆一份新的；或者对着现有分镜说一句话让它改 / 接着往下拆',
+    okLabel: '开始',
+    fields: fields,
+    onChange: (key, api) => {
+      const cur = api.values();
+      /* 「这一档要哪几行、各行怎么说」现读，不在 fields 里写死两份（初值那份会被这一次调用盖掉）。
+         时长与镜数**不再是输入框**：区间来自可用型号声明的交集，镜数只给一句软上限预估，
+         它既不截断也不禁用「开始」。 */
+      const t = cur.task;
+      api.set('script', {
+        label: t === 'append' ? '接着往下拆的文案' : '剧本 / 文案',
+        hint: (t === 'append'
+          ? '会连着上面已有分镜往下拆：沿用合适的场景名与画风、不重复已有的镜头。'
+          : '越长越好用；会优先保持你的原意，只补足画面细节。') + softShotsNote(cur.script),
+        hidden: t === 'edit',
+      });
+      /* 「改现有分镜」这一档同样能带素材（改提示词时把库里的角色名认回来），所以整块不收；
+         但用来挑素材的那句话换成上面那一格填了什么 —— 这一档没有剧本，只有那句要求。 */
+      if (key !== 'task') return;
+      api.set('instruct', { hidden: t !== 'edit' });
+    },
+    validate: o => {
+      if (o.task !== 'new' && !hasBoard) return '当前短片还没有分镜，这一档用不了；先选「拆一份新的」';
+      if (o.task === 'edit') return '';
+      if ((o.script || '').length < 20) return o.task === 'append' ? '要接着拆的文案太短了（至少 20 个字）' : '剧本太短了（至少 20 个字）';
+      return '';
+    },
+  });
+  if (!v) return;
+  if (v.assetSrc) SplitAssets.remember(v.assetSrc);
+  /* 「素材范围优先」跟着这一趟走（Skill 声明了哪些组排在前面）。 */
+  v.refRule = refRule;
+  if (v.task === 'edit') { await aiBoardEdit(v); return; }
+  await aiBoardSplit(v);
+}
+/* 第 4 段喂给 AI 的那份清单：`items` 是**扁平**的镜头数组（场名在每一项上），
+   而 `boardListText` 认的是 `snapBoard` 那一份按场分组的样子。
+   这里把扁平的按场名并成组 —— 判据是「在几个镜头里反复出现」，
+   AI 要看得见「第几镜、第几镜」才知道那是反复出现。 */
+function boardListOfItems(items) {
+  const byScene = new Map();
+  (items || []).forEach(it => {
+    const k = String((it && it.scene) || '');
+    if (!byScene.has(k)) byScene.set(k, []);
+    byScene.get(k).push(it);
+  });
+  const scenes = [];
+  byScene.forEach((list, name) => {
+    scenes.push({ n: scenes.length + 1, sc: { id: name, name: name }, name: name,
+      shots: list.map((t, i) => ({ n: i + 1, sh: { id: t.key || (name + '·' + (i + 1)) },
+        name: t.name || '', prompt: String(t.text || '').trim(),
+        line: String(t.line || '').trim(), who: String(t.who || '').trim(),
+        dur: Number(t.dur) > 0 ? Number(t.dur) : 0,
+        chain: t.chain === 'tail' ? 'tail' : '' })) });
+  });
+  return boardListText(scenes);
+}
+
+/* 「拆新 / 往下拆」这一档（老路 + 给 AI 附一份现有分镜）：
+   往下拆时把现有分镜的清单一起喂过去 —— 它才能沿用场景名与画风、也不重复已有的镜头，
+   这正是「拿原有分镜上的提示词来加新镜头」那条要求的落点。 */
+async function aiBoardSplit(v) {
+  const append = v.task === 'append';
+  let draft = null;
+  /* 素材只问一次：审查弹窗里点「重新规划」重跑这一趟时复用同一份挑中名单，
+     不然每次重试都多问一遍文字 AI（多扣一次 tokens，而挑出来的还是那几条）。 */
+  let staged = null;
+  /* 新素材（要建档的那些角色/场景/物品）也只问一次：同样在「重新规划」时复用。
+     问的是「哪些主体该新建」，判据在 board-assets.js，指令正文来自 Skill。 */
+  let newAssets = null;
+  /* 用户在审查弹窗里**最终认下的**那几条（可逐条改 / 可删）—— 落盘按这一份建档。 */
+  let chosenAssets = null;
+  /* 长镜头拆分的报数（note / impossible）：弹窗 sub 与落盘报告都读这一份，重跑时跟着换。 */
+  let splitInfo = null;
+  const ask = async () => {
+    if (!staged) {
+      staged = await SplitAssets.stage(REGOf(), v.script, v.assetSrc, v.refRule);
+      if (staged.warn) Toast.warn(staged.warn);
+    }
+    /* 指令可在「设置 → 润色指令 → 剧本拆分镜」里改。
+       **Skill 正文里的变量按这一次的料填上**（项目引用规则）：
+         · `{what}`   —— 这一次要拆的正文
+         · `{cast}`   —— 本项目素材库里的角色 / 场景 / 物品名单（含外貌与音色）
+         · `{assets}` —— 这一次选中的那批素材（完整描述）
+         · `{board}`  —— 现有分镜清单（往下拆 / 改分镜那一路才有）
+         · `{dur}`    —— 时长区间那句
+         · `{style}`  —— 风格后缀
+       末尾那两句（约束 + 素材规则）**保留**：Skill 没写变量时（内置那份就没写）行为与从前一样；
+       写了变量的 Skill 则由 Skill 自己决定这些料摆在哪儿 —— 程序不再替它硬塞。 */
+    const boardVars = BoardVars.vars({
+      what: v.script || '',
+      cast: BoardVars.castOf(SplitAssets.named()),
+      assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+      board: append ? boardListText(snapBoard(projOf().scenes)) : '',
+      dur: boardDurNote(),
+      style: v.style || '',
+    });
+    const sys = `${TL_SYS_COMMON}
+${fillSkillVars(splitSysOf(), boardVars)}
+约束：由你决定拆几个镜头、每一镜多长。${boardDurNote()}${staged.rule}`;
+    const ctx = append ? ('\n\n当前已有分镜（接着往下拆：沿用合适的场景名与画风、别重复已有的镜头）:\n' + boardListText(snapBoard(projOf().scenes))) : '';
+    /* 长剧本动辄十几二十秒：这里同样边收边显（面板挂在右栏提示词块下面，
+       与「AI 润色」共用那一块地方；两边都是用户手点的，不会同时开着）。 */
+    const txt = await AiStream.text(REGOf(), sys, `剧本/文案：\n${v.script}` + (v.style ? `\n风格要求：${v.style}` : '') + ctx,
+      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…' });
+    const j = parseJsonLoose(txt);
+    const scenes = (j && (j.scenes || j.shots)) || null;
+    if (!scenes) throw new Error('AI 没有给出可用的分镜结构');
+    draft = j;
+    const items = [];
+    (j.scenes || []).forEach((sc, si) => {
+      const scName = String(sc.name || '').trim() || ('场景 ' + (si + 1));
+      (sc.shots || []).forEach((s, shi) => {
+        /* AI 给多少镜就列多少镜（这里的 slice 已删）：以前超上限的那几条**默默不列出来**，
+           用户以为拆了 12 镜、剧本后面那半段就这样没了。秒数原样带着，越界由落盘后那一夹处理。
+           标签里那个秒数与真正写进镜头的是同一判据（`durWritable`）—— 没有依据可校验时标签也不许显示，
+           否则弹窗说「这一镜 7s」而镜头上压根没有 duration。
+           后来把这一条变成**结构化的一份**（场名 / 镜头名 / 秒数 / 正文各一格，`mode:'board'`）：
+           以前落盘要拿标签正则回查「场景名 + 镜头号」，用户改一个字就对不上号，而弹窗里拖过、删过几条
+           之后序号本身就会漂。`key` = 「场名·该场第几镜」，点「重新规划」后靠它认出哪几条是用户改过的。 */
+        const ds = Math.round(Number(s.duration));
+        const dur = durWritable() && Number.isFinite(ds) && ds > 0 ? ds : null;
+        const no = shi + 1;
+        /* 镜头名与画面说明**分家**。以前这里写 `s.note.slice(0, 12)` ——
+           长的那一句说明被砍成 12 字当标题，原文两头都没留（既不在名字里也不在别处）。
+           现在 `name` 只取 AI 给的短名（没有就空着，落盘时退回「镜头 N」），`note` 整条原样存进 `sh.note`。
+           `line` 是这一镜要念的话：只有文字，不进配音轨，右栏那一格直接看得见。 */
+        items.push({
+          key: scName + '·' + no,
+          scene: scName,
+          name: String(s.name || '').trim().slice(0, 12),
+          dur,
+          line: String(s.line || '').trim(),
+          who: String(s.speaker != null ? s.speaker : (s.who == null ? '' : s.who)).trim(),
+          note: String(s.note || '').trim(),
+          text: s.prompt || s.note || '',
+          /* AI 只在「必须紧接着上一镜落幅」时标 tail（见 split 的指令）；长镜头的第 2 段起
+             由下面的 splitLongShots 自动补上。落盘写 `sh.linkPrev`，生成时取上一镜尾帧当首帧。 */
+          chain: String(s.chain || '').trim() === 'tail' ? 'tail' : '',
+          label: scName + ' · 镜头 ' + no + (dur ? '（' + dur + 's）' : '')
+            + (String(s.line || '').trim() ? ' · 有台词' : ''),
+        });
+      });
+    });
+    if (!items.length) throw new Error('AI 输出里没有镜头');
+    /* 长镜头在**打开审查弹窗之前**按接续型号拆成几段：整段没有任何型号吃得下时才拆，
+       总秒数守恒、第 2 段起标 `chain:'tail'`，台词只在第 1 段。拆完的每一段都进同一个弹窗，
+       用户能看到「2/3」与「接上一镜」，也能在写入前删掉不想生成的段。 */
+    splitInfo = splitLongShots(items, {
+      models: chainModelList(), canDur: durWritable(), maxName: 12,
+    });
+    const out = splitInfo.items;
+    /* 全新短片的第一镜没有上一镜可接：AI 标了也接不上，抹掉，不留一条永远在等的标记。 */
+    if (!append && out.length && out[0].chain === 'tail') {
+      out[0] = Object.assign({}, out[0], { chain: '', chainModel: '' });
+    }
+    /* ---- 第 4 段：这份方案里有没有「该新建一条素材」的主体 ----
+       问的是**这一份方案本身**（不是原剧本）—— 判据是「在几个镜头里反复出现」，
+       那要看拆出来的镜头才知道。指令正文来自 Skill（contract `board_assets.json`），
+       判据（重复出现才算、名字要对得上、库里已有的不建）在 board-assets.js。
+       同样支持 Skill 正文里的变量（项目引用规则）：
+         · `{board}` —— 这一份分镜方案（要判「谁反复出现」就看它）
+         · `{cast}` —— 素材库里已经有的那些（已有的不建，要告诉 AI）
+         · `{assets}` —— 这一次选中的素材
+       问失败**不拦**这一趟拆分：照实报一句，按「不建新素材」继续 ——
+       与 SplitAssets.stage 现有的语义一致（没问成 ≠ AI 说不要）。 */
+    if (!newAssets) {
+      try {
+        setStatus('<span class="meta">正在看这份方案里有哪些要新建的素材…</span>');
+        const av = BoardVars.vars({
+          what: v.script || '',
+          cast: BoardVars.castOf(SplitAssets.named()),
+          assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+          board: boardListOfItems(out),
+          dur: boardDurNote(),
+          style: v.style || '',
+        });
+        newAssets = await BoardAssets.stage({
+          reg: REGOf(), shots: out, existing: SplitAssets.named(),
+          sys: fillSkillVars(TextAI.prompt('board_assets'), av),
+          text: boardListOfItems(out),
+          TextAI: window.TextAI, parseJsonLoose,
+        });
+      } catch (e) {
+        newAssets = { raw: [], plan: [], skipped: [], warn: '没问成新素材（' + errText(e) + '），这一次不建新素材' };
+        Toast.warn(newAssets.warn);
+      }
+    }
+    return out;
+  };
+  let items;
+  try { setStatus(append ? 'AI 正在往下拆分镜…（先读一遍现有分镜）' : 'AI 正在拆解分镜…（长剧本可能需要十几秒）'); items = await ask(); }
+  catch (e) { setStatus('<span class="err">' + e.message + '</span>'); return; }
+  const reviewed = await PromptReview.openList({
+    title: 'AI 分镜方案（确认后写入项目）',
+    /* 三句都写在这里：短片名、镜数与软上限那一档（和表单 hint 同一算式同一句）、
+       时长区间以及它「按本机当前可用的几个型号共同支持范围」是怎么来的。
+       区间来源不写明，「时长 5–10 秒」看着就像替某一家编的。 */
+    sub: ((draft && draft.title ? ['短片名：' + draft.title] : [])
+      .concat([softShotsNote(v.script, items.length), boardDurSub(),
+        splitInfo && splitInfo.note ? splitInfo.note : '',
+        splitInfo && splitInfo.impossible.length
+          ? '其中 ' + splitInfo.impossible.length + ' 个长镜头没有能拆成合法接续片段的型号，已原样保留（写入后按各自型号上限夹回）'
+          : '',
+        staged.sub, '按场景分组，可逐条改名字、秒数、提示词与台词'])).filter(Boolean).join(' · '),
+    items, applyLabel: append ? '追加到当前短片' : '新建短片',
+    /* 这句不是把 sub 里那句「可逐条改」再说一遍：sub 说的是**这个弹窗里**能做什么，
+       hint 说的是**写入之后**能做什么。删掉它会退回 web/ui/ui.js 里那句通用兜底
+       （「可以逐条修改或删掉不想生成的画面」）—— 那才是和 sub 重复的一句。 */
+    hint: '写入后每个镜头都能单独生成、多条生成、剪辑', retry: ask,
+    /* 分镜这一族才走分组审阅；秒数那一格、总时长与估价三处一起听 `durWritable()` ——
+       本机写不进秒数时，界面上不该求一个发不出去的数的和，更不该按它问价。 */
+    mode: 'board', durEditable: durWritable(), estimate: boardEstimate,
+    /* 台词与说话人一起列出来：AI 已经按剧本填了 `line` / `speaker`，
+       先看得见、能改，再点「新建短片」；点写入后才落到 `sh.line` / `sh.lineWho`。 */
+    lineEditable: true,
+    /* 「待建素材」那块（可逐条改 / 可删）：确认后建档到项目组同名素材组 + 出图 + 绑音色描述。
+       这一块的内容是**第 4 段**问出来的（哪些角色/场景/物品会重复出现）。 */
+    assetEditable: true,
+    assets: (newAssets && newAssets.plan) || [],
+    onAssets: (list) => { chosenAssets = list || []; },
+    retryAssets: async () => {
+      /* 「重新规划」时重问一遍新素材（与镜头那一次同一个 ask()）。 */
+      newAssets = null;
+      await ask();
+      return (newAssets && newAssets.plan) || [];
+    },
+  });
+  /* 空数组也要当「没采纳」接住：openList 的确认会把正文为空的条目滤掉，
+     全部被滤掉时它给的是一份空表而不是 null（只看 !reviewed 会带着空表往下走）。 */
+  if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
+  /* 按交回来的**场名**归组重建。条目在这一场里的先后就是用户在弹窗里拖出来的先后 ——
+     `shotNo` 只给报告与标签用，这里一律按数组顺序落盘（更早是拿标签正则回查序号）。 */
+  const newScenes = [];
+  reviewed.forEach(row => {
+    const scName = String(row.scene || '').trim() || ('场景 ' + (newScenes.length + 1));
+    let sc = newScenes.find(s => s.name === scName);
+    if (!sc) { sc = { id: uid(), name: scName, shots: [] }; newScenes.push(sc); }
+    const sh3 = newShot();
+    sh3.name = String(row.name || '').trim().slice(0, 12) || ('镜头 ' + (sc.shots.length + 1));
+    sh3.prompt = String(row.text || '');
+    /* 时长原样接 AI 那一个（或用户在弹窗里改的那一个）：现在已经没有「用户填的目标时长」可兜底，
+       也没有一份全站通用的秒数能洗。AI 没给、或本机没有能判合法的声明时**不写这一项** ——
+       镜头上没有 duration 等于「交给平台默认」，与右栏那句「这一家没声明区间就不碰」同一个立场；
+       给了但越界的由下面那一夹按型号收进区间并报数。 */
+    setShotDur(sh3, row.dur);
+    /* 台词与画面说明两个字段各归各位：台词只写在 `sh.line`（不进 `sh.prompt`、不进配音轨），
+       画面说明整条留在 `sh.note`（不再被压成名字）。两者都按用户可能在弹窗里改过的那一份落。 */
+    sh3.line = String(row.line || '').trim();
+    sh3.lineWho = String(row.who || '').trim();
+    sh3.note = String(row.note || '').trim();
+    /* 接上一镜（拆分长镜头的第 2 段起 / AI 明确标了的镜头）：拆的时候挑好的接续型号一起落下，
+       没带型号的（AI 手写 `chain`）由 `ensureChainModel` 现挑一个能接首帧的。
+       显式首帧永远优先 —— 这一路还没有首帧，等生成时解析上一镜尾帧。 */
+    sh3.linkPrev = row.chain === 'tail' ? 'tail' : '';
+    /* 拆分长镜头的每一段（包括第 1 段）都按拆的时候挑的型号落：那几段的秒数就是照它的区间分的，
+       第 1 段若退回别的型号，落盘后的夹取会把「总秒数守恒」拆掉。 */
+    if (row.chainModel) { sh3.model = String(row.chainModel); sh3.modelAuto = 'chain'; }
+    if (sh3.linkPrev) ensureChainModel(sh3);
+    if (v.style) sh3.prompt = (sh3.prompt + '，' + v.style).trim();
+    sc.shots.push(sh3);
+  });
+  /* 写入期兜底：批量生成走 genAll → submitCandidate，提交体发的是
+     `sh.duration` 原值，而「按型号回写」那一句只在**打开这一镜右栏**时执行 —— 这条链一次都不跑。
+     用户不逐镜点开、直接点「生成全部分镜」，平台收到的就是越界时长。
+     镜头对象是活引用（追加那一支里 placeScenesInto 也只是把它们挪进已有场景），夹在这里就等于夹在账上。 */
+  const clamped = clampShotDurations(newScenes.flatMap(sc => sc.shots || []));
+  /* 带台词那一档的报数与出路写在同一句里：只说「N 镜有台词」而不指着落点，
+     等于让用户以为台词已经进配音轨了（它没有，也永远不该由拆分镜自己发请求）。 */
+  const linedN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => (x.line || '').trim()).length, 0);
+  const lineNote = linedN ? lineLandedNote(linedN) : '';
+  /* 接续镜的报数与「首帧从哪来」写在同一句里：用户看见「接上一镜」这四个字，
+     但真正要告诉他的下一句是「你不用手动填首帧，生成时自动取」。 */
+  const chainN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => x.linkPrev === 'tail').length, 0);
+  const chainNote = chainN ? '，其中 ' + chainN + ' 镜接上一镜尾帧（生成时自动取首帧）' : '';
+  /* 素材图挂在场景图**之后**：两者抢的是同一批参考图名额，先让「这一场的图」占位，
+     素材那几张带不上时会照实报「参考图最多 N 张」，而不是静默少带几张。 */
+  /* ---- 新素材（用户认下的那几条）：建档 + 占位符 ----
+     建档落在**当前短片所在的项目组**同名素材组里（组名即素材组名）。
+     出图**不在这里自动发**：出图要花钱，按 AGENTS §6.2「任务号一落盘就等于一次已付的钱」，
+     留给用户在素材库里点「生成素材图」—— 这里只把档建好、把提示词里的占位符写上。 */
+  const allShots = newScenes.flatMap(sc => sc.shots || []);
+  const assetGroup = Groups.assetGroupName(WSOf(), projOf());
+  const landed = landNewAssets(chosenAssets || [], assetGroup);
+  const pendingMarked = markPendingTokens(allShots, landed.saved);
+  const assetNote = landed.saved.length
+    ? '，新建素材 ' + landed.saved.length + ' 条（'
+      + (landed.group ? '组「' + landed.group + '」' : '未分组') + '，出图后自动补进参考图）'
+    : (landed.failed.length ? '，有 ' + landed.failed.length + ' 条素材没建出来' : '');
+  if (landed.failed.length) {
+    Toast.warn('有素材没建出来：' + landed.failed.map(f => f.name + '（' + f.why + '）').join('、'));
+  }
+  if (landed.why) Toast.warn(landed.why);
+  if (append) {
+    /* 追加要保住场景划分（判据在 placeScenesInto 那一份，探针问的就是它）：
+       以前是 `newScenes.forEach(sc => cur.shots.push(...sc.shots))` —— AI 拆出来的几个场景
+       全被压进「当前那一场」，左栏既看不出分过场，场景图也失去了归属。 */
+    const r0 = placeScenesInto(projOf().scenes, newScenes);
+    projOf().curScene = r0.at; projOf().curShot = 0;
+    reportScenePics(r0.pics,
+      `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : '')
+      + chainNote + lineNote + assetNote + clampNote(clamped),
+      SplitAssets.bind(allShots, staged.picked));
+  } else {
+    let added = 0, why = '';
+    newScenes.forEach(sc => {                        // 新短片：场景本身还没有图，于是认素材库里同名那条
+      const r = feedScenePics(sc, sc.shots);
+      added += r.added; if (r.why && !why) why = r.why;
+    });
+    const np = { id: uid(), name: (draft && draft.title) || ('AI 短片 ' + window.dayKey(Date.now())), scenes: newScenes };
+    WSOf().projects.push(np);
+    switchProject(np.id);
+    reportScenePics({ added: added, why: why },
+      `已新建短片「${np.name}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头` + chainNote + lineNote + assetNote + clampNote(clamped),
+      SplitAssets.bind(allShots, staged.picked));
+  }
+  renderAll(); scheduleSave();
+}
+/* 「修改现有分镜」这一档：现有清单 + 用户那一句话 → changes → 账 → 审查弹窗 → 落盘。
+   没有任何「AI 看一眼就自动写入」：改的是用户已经生成过的分镜，确认那一下是唯一入口。 */
+async function aiBoardEdit(v) {
+  const snap = snapBoard(projOf().scenes);
+  let staged = null;
+  const ask = async () => {
+    const want = String(v.instruct || '').trim();
+    /* 这一档没有剧本，用来挑素材的那句话就是上面那一格填的「修改要求」；
+       没填时 stage 会说「没给出用来挑素材的话，这一次没问」，而不是假装挑了 0 条。 */
+    if (!staged) {
+      staged = await SplitAssets.stage(REGOf(), want, v.assetSrc, v.refRule);
+      if (staged.warn) Toast.warn(staged.warn);
+    }
+    /* 同样支持 Skill 正文里的变量（项目引用规则）：
+       `{what}` = 这一次的修改要求、`{board}` = 现有分镜清单、
+       `{cast}` = 本项目素材库里的角色 / 场景 / 物品、`{assets}` = 这次选中的素材、
+       `{dur}` = 时长区间那句、`{style}` = 风格后缀。 */
+    const boardVars = BoardVars.vars({
+      what: want || '',
+      cast: BoardVars.castOf(SplitAssets.named()),
+      assets: BoardVars.assetsOf(staged.picked, x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
+      board: boardListText(snap),
+      dur: boardDurNote(),
+      style: v.style || '',
+    });
+    const sys = `${TL_SYS_COMMON}
+${fillSkillVars(boardEditSysOf(), boardVars)}
+约束：改几处、加几镜由你决定，不必凑数。${boardDurNote()}${staged.rule}`;
+    const msg = '当前分镜清单（下面的序号就是改动要用的序号）:\n' + boardListText(snap)
+      + '\n\n修改要求：' + (want || '（没有具体说改哪里）把写得不够好的提示词整体优化一遍');
+    const txt = await AiStream.text(REGOf(), sys, msg, { host: $('polishInline'), title: 'AI 正在修改分镜…' });
+    const j = parseJsonLoose(txt);
+    const changes = (j && (j.changes || j.edits)) || null;
+    if (!changes || !changes.length) throw new Error('AI 没有给出可用的修改');
+    const plan = boardPlanOf(changes, snap, { style: v.style });
+    if (!plan.items.length) throw new Error(plan.skipped
+      ? 'AI 给的修改对不上现有镜头（对不上的有 ' + plan.skipped + ' 条）'
+      : 'AI 给的修改和现状一样，没有可改的');
+    return plan;
+  };
+  let plan;
+  try { setStatus('AI 正在读现有分镜并改…（改好先给你看一遍）'); plan = await ask(); }
+  catch (e) { setStatus('<span class="err">' + e.message + '</span>'); return; }
+  const bits = ['共 ' + plan.items.length + ' 处改动'];
+  if (plan.noop) bits.push(plan.noop + ' 条与现状相同已忽略');
+  if (plan.skipped) bits.push(plan.skipped + ' 条对不上已丢掉');
+  if (staged.sub) bits.push(staged.sub);
+  const reviewed = await PromptReview.openList({
+    title: 'AI 分镜修改（确认后写入项目）',
+    sub: bits.join(' · ') + '；' + boardDurSub() + '；可逐条改提示词或删掉不想要的',
+    items: plan.items, applyLabel: '写入这些改动',
+    hint: '写入后每个镜头都能单独生成、多条生成、剪辑',
+    retry: async () => (await ask()).items,
+    empty: 'AI 没有给出能对得上的修改，请点「重新规划」或取消',
+  });
+  if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
+  const r = applyBoardPlan(reviewed, projOf().scenes);
+  /* 「接上一镜」写入后落到一个支持首帧的型号上：`applyBoardPlan` 只管数据，
+     型号是对着能力声明挑的（`chainModelList`），属于页面这一层。 */
+  r.touched.forEach(sh => ensureChainModel(sh));
+  if (r.at) { projOf().curScene = r.at.scene; projOf().curShot = r.at.shot; }
+  renderAll(); scheduleSave();
+  reportScenePics(r.pics, '已改 ' + r.upd + ' 个镜头'
+    + (r.add ? '、新增 ' + r.add + ' 个镜头' : '')
+    + (r.del ? '、删掉 ' + r.del + ' 个镜头' : '')
+    + (r.mov ? '、挪动 ' + r.mov + ' 个镜头' : '')
+    + (r.newScenes ? '、新开 ' + r.newScenes + ' 个场景' : '')
+    + (r.chained ? '、' + r.chained + ' 镜改为接上一镜尾帧' : '')
+    + (r.unchained ? '、' + r.unchained + ' 镜取消接续' : '')
+    /* 「带上了台词」这句必须跟着指出落点：用户不知道点哪儿就等于没给。
+       话里不写「已合成」—— 这一次一个字都没合成（计费只在用户点「合成并加到这一轨」那一下）。 */
+    + (r.lined ? lineLandedNote(r.lined) : '')
+    + (r.busy ? '；' + r.busy + ' 镜还在生成，没删（等它跑完再删）' : '')
+    + (r.skipped ? '（' + r.skipped + ' 条在写入时没找到目标，已跳过）' : '')
+    + clampNote(r.clamped), SplitAssets.bind(r.touched, staged.picked));
+}
+
+  return {
+    aiStoryboard,
+  };
+}

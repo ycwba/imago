@@ -1,0 +1,59 @@
+{
+  "boot": {
+    "firstScreenScriptBytes": 523196,
+    "initialScriptBytes": 1093192,
+    "fcpMs": 280,
+    "dclMs": 231,
+    "loadMs": 358,
+    "ttiMs": 4300,
+    "jsParseMs": 152,
+    "scriptMs": 48,
+    "jsHeapUsedBytes": 4220224
+  },
+  "generatedAt": "2026-10-20T17:57:28.537Z",
+  "slice": {
+    "firstMs": 155,
+    "rowMs": 373,
+    "refillMs": 18,
+    "refillBackMs": 18,
+    "firstRowDecodes": 20,
+    "decodesAfterRefill": 0,
+    "zoomHitRate": 1,
+    "secondOpenDecodes": 0,
+    "firstRowTiles": 20,
+    "videos": 1,
+    "workerPosts": 20,
+    "workerReplies": 20,
+    "budgets": {
+      "firstMs": 600,
+      "rowMs": 2500,
+      "refillMs": 1500,
+      "hitRate": 0.7,
+      "why": "收紧前的实测 × 0.6，先看这里的实测值"
+    },
+    "measuredAt": "2026-10-21T04:48:29.068Z"
+  },
+  "memory": {
+    "soakSeconds": 1800,
+    "heapStartBytes": 3244516,
+    "heapEndBytes": 3448172,
+    "growthBytes": 203656
+  },
+  "assets": {
+    "firstScreenListRequests": 10,
+    "firstScreenPaintMs": 672,
+    "firstScreenCutoffMs": 662,
+    "loadRounds": 3,
+    "listRequestsToQuiet": 12,
+    "sameOriginRequestsToQuiet": 31,
+    "secondLoadRequests": 0,
+    "pickerOpenWithCacheMs": 23,
+    "budgets": {
+      "listRequests": 12,
+      "loadRounds": 4,
+      "pickerMs": 300,
+      "why": "四条门槛的验收口径（首屏 12 笔以内 / 计数不许重回第 1 页 / 有缓存时 300ms 以内）；首屏那一档的切点取「卡片画出来」与「后台计数开始」里更早的那个，两边同用 performance.now()；探针把上游指到一个没人听的端口并归零重试档位，所以这里数的是页面自己的取数轮次，不是重试轮次 —— 收紧前先对照 listRequestsToQuiet 与 sameOriginRequestsToQuiet"
+    },
+    "measuredAt": "2026-10-21T04:35:50.181Z"
+  }
+}

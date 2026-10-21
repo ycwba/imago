@@ -1,0 +1,9 @@
+
+    <div class="spa-shell">
+      <div class="spa-frame-wrap" v-show="!!activeView">
+        <keep-alive>
+          <page-frame v-if="activeView" :key="state.route.file" :view="activeView" />
+        </keep-alive>
+      </div>
+    </div>
+  

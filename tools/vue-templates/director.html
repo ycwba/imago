@@ -1,0 +1,8 @@
+
+    <div v-if="loading" class="spa-frame-loading"><span class="spin-dot"></span><span>正在打开导演台…</span></div>
+    <div class="director-page" ref="host"></div>
+    <div v-if="failed" class="director-fallback">
+      <div class="hint">导演台没有启动：{{ failed }}。如果一直失败，看控制台里那一条 [director] 报错。
+        <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+    </div>
+  

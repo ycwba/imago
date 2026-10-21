@@ -1,0 +1,162 @@
+
+    <div class="page-main usage-page page-shell" ref="rootEl">
+      <h1 class="page-h1"><span v-html="chartIcon"></span> 用量与余额</h1>
+      <div class="desc">只统计<b>已配置密钥</b>的平台。生成平台的花费取自接口返回的真实积分/价格；文字 AI 不折算金额，只统计消耗的 tokens。</div>
+
+      <div class="bar">
+        <button class="ghost" id="reload" style="padding:8px 15px" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
+        <span class="sp"></span>
+        <span class="upd" id="upd">{{ upd }}</span>
+      </div>
+
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+
+      <div class="ub-layout">
+        <div class="ub-left">
+          <div class="cards" id="balances">
+            <div v-if="balanceLoading" class="empty">加载中…</div>
+            <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn,#d97706)' : ''">
+              <template v-if="balanceTip.kind === 'proxy'">读不到本机代理{{ balanceTip.why ? '（' + balanceTip.why + '）' : '' }}：这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。<br>先跑一次项目目录里的「启动.bat」（或 <code>node proxy.js</code>），再点右上「刷新」。</template>
+              <template v-else-if="balanceTip.kind === 'warn'">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点右上角「刷新」。</template>
+              <template v-else>还没有配置任何平台的密钥，请先到「设置」里填写</template>
+            </div>
+            <div v-for="b in balanceCards" :key="b.kid || b.name" class="bal">
+              <div class="hd"><span class="ic" v-html="b.ic"></span><span>{{ b.name }}</span></div>
+              <div class="v">{{ b.val }}<small v-if="b.unit">{{ b.unit }}</small></div>
+              <div v-if="b.model && b.val !== '—'" class="md">{{ b.model }}</div>
+              <div class="ex">{{ b.ex || '' }}</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>近 14 天每日消费</h2>
+            <div class="chart-units" id="chartUnits" ref="chartUnitsEl"></div>
+            <div id="chart" v-html="chartHtml"></div>
+          </div>
+
+          <div class="panel" id="voicePanel">
+            <h2>语音用量</h2>
+            <div class="stat" id="voiceStat">
+              <template v-if="voiceStat">
+                <div>调用次数<b>{{ voiceStat.count }}</b></div>
+                <div>累计字数<b>{{ voiceStat.chars.toLocaleString() }}</b></div>
+                <div>累计 tokens<b>{{ voiceStat.tokens ? voiceStat.tokens.toLocaleString() : '—' }}</b></div>
+                <div>累计时长<b>{{ voiceStat.secs ? voiceStat.secs.toFixed(1) + 's' : '—' }}</b></div>
+                <div>平均时长<b>{{ voiceStat.secs && voiceStat.count ? (voiceStat.secs / voiceStat.count).toFixed(1) + 's' : '—' }}</b></div>
+                <div>费用<b>{{ voiceStat.hasCost ? '见账单明细' : '平台未提供价格' }}</b></div>
+              </template>
+              <div v-else-if="voiceEmpty" class="empty">{{ voiceEmpty }}</div>
+            </div>
+            <div id="voiceByModel">
+              <table v-if="voiceModelRows.length">
+                <thead><tr><th>型号 / 音色</th><th>次数</th><th>字数</th><th>tokens</th><th class="num">时长</th></tr></thead>
+                <tbody>
+                  <tr v-for="(v, i) in voiceModelRows" :key="i">
+                    <td>{{ v.name }}</td><td>{{ v.cnt }}</td><td>{{ v.chars.toLocaleString() }}</td>
+                    <td>{{ v.tokens ? v.tokens.toLocaleString() : '—' }}</td>
+                    <td class="num">{{ v.secs ? v.secs.toFixed(1) + 's' : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h2 class="sect-mini">最近生成</h2>
+            <div id="voiceRecent">
+              <table v-if="voiceRecentRows.length">
+                <thead><tr><th>时间</th><th class="w">内容</th><th>时长</th><th class="num">tokens</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, i) in voiceRecentRows" :key="i" :title="r.desc || ''">
+                    <td class="t">{{ fmtWhen(r.ts) || '—' }}</td>
+                    <td class="w" style="color:var(--sub)">{{ r.platform || '' }} · {{ (r.desc || '').slice(0, 70) }}</td>
+                    <td>{{ r.duration ? r.duration + 's' : '—' }}</td>
+                    <td class="num">{{ r.tokens ? Number(r.tokens).toLocaleString() : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>文字 AI 用量</h2>
+            <div class="stat" id="aiStat">
+              <template v-if="aiStat">
+                <div>今日调用<b>{{ aiStat.todayCalls }}</b></div>
+                <div>今日 tokens<b>{{ aiStat.todayTokens.toLocaleString() }}</b></div>
+                <div>累计调用<b>{{ aiStat.totalCalls }}</b></div>
+                <div>累计 tokens<b>{{ aiStat.totalTokens.toLocaleString() }}</b></div>
+                <div>累计输入 / 输出<b>{{ aiStat.pt.toLocaleString() }} / {{ aiStat.ct.toLocaleString() }}</b></div>
+              </template>
+            </div>
+            <div class="hint" id="aiPriceNote" style="margin:2px 0 12px">{{ aiPriceNote }}</div>
+            <div id="aiByModel">
+              <table v-if="aiModelRows.length">
+                <thead><tr><th>型号</th><th>次数</th><th>输入 tokens</th><th>输出 tokens</th><th class="num">合计 tokens</th></tr></thead>
+                <tbody>
+                  <tr v-for="(v, i) in aiModelRows" :key="i">
+                    <td>{{ v.model }}</td>
+                    <td>{{ v.calls }}</td><td>{{ v.pt.toLocaleString() }}</td><td>{{ v.ct.toLocaleString() }}</td>
+                    <td class="num">{{ (v.pt + v.ct).toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-else-if="aiLoaded" class="empty">暂无数据</div>
+            </div>
+            <h2 class="sect-mini">按日用量</h2>
+            <div id="aiDaily">
+              <table v-if="aiDailyRows.length">
+                <thead><tr><th>日期</th><th>调用次数</th><th class="num">tokens</th></tr></thead>
+                <tbody>
+                  <tr v-for="(d, i) in aiDailyRows" :key="i">
+                    <td class="t">{{ d.day }}</td><td>{{ d.calls }}</td><td class="num">{{ d.tokens.toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-else-if="aiLoaded" class="empty">暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="ub-right">
+          <div class="panel bills-panel">
+            <h2>账单明细</h2>
+            <div class="filters">
+              <div class="ddwrap"><select id="fPlatform" ref="fPlatformEl" v-model="fPlatform" @change="onPlatformChange">
+                <option value="">全部平台</option>
+                <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
+              </select></div>
+              <div class="ddwrap"><select id="fRange" v-model="fRange" @change="onRangeChange">
+                <option value="1">今天</option>
+                <option value="7">近 7 天</option>
+                <option value="30">近 30 天</option>
+                <option value="0">全部时间</option>
+              </select></div>
+              <input id="fQ" v-model="fQ" @input="onQInput" placeholder="搜索提示词 / 型号 / ID…">
+            </div>
+            <button class="ghost" id="expBills" title="把当前筛选出的账单导出成 CSV（Excel 可直接打开）" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
+            <div id="billNote" @click="onBillNoteClick" v-html="billNoteHtml"></div>
+            <div class="upd" id="billCnt" style="margin-bottom:8px">{{ billCntText }}</div>
+            <div id="bills">
+              <div v-if="billDownHtml" v-html="billDownHtml"></div>
+              <div v-else-if="billLoading" class="empty">加载中…</div>
+              <div v-else-if="!billRows.length" class="empty">没有符合条件的账单</div>
+              <table v-else>
+                <thead><tr><th>时间</th><th>平台</th><th class="w">明细</th><th class="num">花费 / 用量</th></tr></thead>
+                <tbody>
+                  <tr v-for="(b, i) in billRows" :key="i" :title="billRowTitle(b)">
+                    <td class="t">{{ fmtWhen(b.ts) || '—' }}</td>
+                    <td class="p">{{ b.platform || '' }}</td>
+                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:10px">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
+                    <td class="num">
+                      <template v-if="b.tokens != null">{{ b.tokens.toLocaleString() }} tokens</template>
+                      <template v-else-if="b.cost == null"><span title="平台这次没返回价格，不是 0">平台未提供价格</span></template>
+                      <template v-else-if="b.unit === '元'">¥{{ Number(b.cost).toFixed(4) }}</template>
+                      <template v-else>{{ b.cost }} {{ b.unit }}</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  

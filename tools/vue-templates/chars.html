@@ -1,0 +1,71 @@
+
+    <div class="page-main chars-page page-shell" ref="rootEl">
+      <h1 class="page-h1"><span v-html="ticHtml"></span>素材库</h1>
+      <div class="desc">可复用的<b>角色</b>、<b>场景</b>与<b>道具</b>：预览图、描述、声音与角色资产都在这里改一次，
+        导演台选参考图、生成工作台出图出配音都直接用这一份，不必每处重画。</div>
+
+      <div class="toolbar" ref="toolbarEl"></div>
+      <div class="toolbar2">
+        <span class="grp">分组<span ref="grpPickEl"></span></span>
+        <button class="tool" ref="btnFillEl" :disabled="fillDisabled" :title="fillTitle" @click="fillRest">{{ fillText }}</button>
+        <button class="tool" ref="btnLocalEl" title="把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库：换机器、外链过期、关掉网页都不影响它们" @click="pullLocal"></button>
+        <span class="sp"></span>
+        <span class="busy">{{ busyText }}</span>
+        <button class="ghost" v-show="stopVisible" ref="btnStopEl" :disabled="stopDisabled" @click="onStop">停下</button>
+        <button class="ghost" :class="{ on: multi }" title="勾选多条，批量补预览图 / 资产 / 声音、设置分组或删除" @click="toggleMulti">{{ multi ? '退出多选' : '多选' }}</button>
+        <span class="viewtoggle" ref="viewEl"></span>
+        <button class="tool" ref="btnNewEl" v-html="newBtnHtml" @click="newChar"></button>
+      </div>
+      <div class="toolbar3">
+        <span class="pick">出图型号<span ref="imgPickEl"></span></span>
+        <span class="pick">出图张数<span ref="candPickEl"></span></span>
+        <span class="pick">语音型号<span ref="ttsPickEl"></span></span>
+      </div>
+      <div ref="aiLiveEl" hidden style="margin:0 0 10px"></div>
+
+      <div class="char-health" v-if="ready && health.total">
+        <div class="hh"><b>素材体检</b>
+          <span>共 {{ health.total }} 条 · 分组 {{ health.groups }} 个 · 被导演台 {{ health.used }} 条用到</span>
+          <span class="sp"></span>
+          <span class="hint" v-if="health.note">{{ health.note }}</span>
+        </div>
+        <div class="hgrid">
+          <button class="hrow" v-for="r in health.rows" :key="r.key" :title="r.why + '；点一下筛出缺的那几条'" @click="jumpFilter(r.filter)">
+            <span class="lb">{{ r.label }}</span>
+            <span class="bar"><i :style="{ width: r.pct + '%' }"></i></span>
+            <span class="n">{{ r.ok }} / {{ r.need }}</span>
+            <span class="gap" v-if="r.need > r.ok">缺 {{ r.need - r.ok }}</span>
+            <span class="gap ok" v-else>齐</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="batchbar" v-if="multi">
+        <b>已选 {{ batchCount }} 条</b>
+        <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillPics">补预览图</button>
+        <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillAssets">补角色资产</button>
+        <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillVoices">AI 定声音</button>
+        <input class="ui-inp batch-grp" v-model="batchGroup" maxlength="20" placeholder="批量分组（留空 = 清空）">
+        <button class="ghost" :disabled="!batchCount || batchBusy" @click="batchSetGroup">应用分组</button>
+        <span class="sp"></span>
+        <span class="batch-text">{{ batchText }}</span>
+        <button class="ghost danger" :disabled="!batchCount || batchBusy" @click="batchRemove">删掉所选</button>
+      </div>
+
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+      <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 正在读取素材库…</div>
+
+      <div class="grid" ref="gridEl" v-show="ready && !failed"
+        @click="onGridClick" @input="onGridInput" @change="onGridChange"
+        @focusin="onGridFocusIn" @focusout="onGridFocusOut">
+        <div v-if="ready && !cards.length" class="empty" v-html="emptyHtml"></div>
+        <div v-for="card in cards" :key="card.id" class="card card-surface"
+          :class="{ open: openId === card.id, multi: multi, picked: isPicked(card.id) }"
+          :data-id="card.id" v-html="card.html"></div>
+      </div>
+      <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
+      <div class="pager-row" ref="pagerRowEl" :style="{ display: pagerVisible ? '' : 'none' }"></div>
+
+      <datalist id="grpList" ref="grpListEl"></datalist>
+    </div>
+  

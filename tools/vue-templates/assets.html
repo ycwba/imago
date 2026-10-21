@@ -1,0 +1,56 @@
+
+    <div class="page-main assets-page page-shell" ref="pageEl">
+      <h1 class="page-h1">资产库</h1>
+
+      <div class="filters">
+        <!-- 大类型 + 搜索这一行由公共 Wb.filterBar 生成（见 pages/assets.js 的 initWb）；
+             芯片、输入框、两颗按钮与 AI 芯片的插入顺序都由它那一份实现决定。 -->
+        <div class="frow" ref="typeRowEl"></div>
+        <div class="frow"><span class="flabel">日期</span><span class="chips" ref="fDateEl"></span>
+          <span class="daterange">
+            <span class="datepick" @click="openDatePicker('from', $event)">
+              <input type="date" id="dFrom" ref="dFromEl" title="起始日期" :value="F.from" @change="onDateChange('from')">
+              <span class="dp-face" :class="{ ph: !F.from }" id="dpFromFace">{{ faceFrom }}</span>
+            </span>
+            <span class="dsep">→</span>
+            <span class="datepick" @click="openDatePicker('to', $event)">
+              <input type="date" id="dTo" ref="dToEl" title="结束日期" :value="F.to" @change="onDateChange('to')">
+              <span class="dp-face" :class="{ ph: !F.to }" id="dpToFace">{{ faceTo }}</span>
+            </span>
+          </span>
+          <button class="ghost" id="dClear" @click="clearDates">清除日期</button>
+        </div>
+        <div class="frow"><span class="flabel">API 平台</span><span class="chips" ref="fProvEl"></span></div>
+        <div class="frow"><span class="flabel">状态</span><span class="chips" ref="fStatusEl"></span>
+          <span class="sp"></span>
+          <span class="toolbar">
+            <button class="ghost" id="multiBtn" :class="{ active: multiMode }" title="进入多选：点卡片勾选，可批量下载" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
+            <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 重新加载</button>
+            <button class="ghost" id="pullLocalBtn" ref="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
+            <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" title="取消所有排队/生成中的任务" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
+            <span ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
+            <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
+            <button class="ghost" id="gotoBtn" :disabled="gotoBusy" @click="gotoPageInput">{{ gotoBtnText }}</button>
+            <span id="cnt" class="info">{{ cntText }}</span>
+            <span class="viewtoggle" id="fView" ref="viewEl" role="group" aria-label="展示样式切换"></span>
+          </span>
+        </div>
+      </div>
+
+      <div ref="loadErrEl" id="loadErr"></div>
+
+      <div class="bulkbar" id="bulkBar" v-show="multiMode">
+        <span class="bk-cnt" id="bulkCnt">{{ bulkCountText }}</span>
+        <button class="ghost" id="bulkAll" :disabled="bulkAllDisabled" @click="bulkAll">{{ bulkAllText }}</button>
+        <button class="ghost" id="bulkClear" @click="bulkClear">取消选择</button>
+        <button class="ghost" id="bulkDown" :disabled="bulkDownDisabled" @click="bulkDownload"><span data-icon="download" data-size="13"></span> 批量下载</button>
+        <span class="bk-tip" id="bulkTip">{{ bulkTipText }}</span>
+        <span class="sp" style="flex:1"></span>
+        <button class="ghost" id="multiExit" @click="exitMulti">退出多选</button>
+      </div>
+
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+      <div class="grid" id="grid" ref="gridEl" v-show="!failed"><div class="empty">加载中…</div></div>
+      <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
+    </div>
+  

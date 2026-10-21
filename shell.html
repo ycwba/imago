@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:">
+<title>AI 创作工作台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d5cf5'/%3E%3Ctext x='16' y='22' font-family='system-ui,-apple-system,Segoe UI,sans-serif' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EAI%3C/text%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="web/shell-boot.js"></script>
+<link rel="stylesheet" href="web/styles/tokens.css">
+<link rel="stylesheet" href="web/styles/ui.css">
+<link rel="stylesheet" href="web/styles/sidebar.css">
+<link rel="stylesheet" href="web/styles/spa-director.css">
+<!-- 外壳自己的 ESM 图（web/app.js → 本地 Vue runtime → render/*、core/*）现在就取。
+     下面 body 里那 27 枚经典脚本是一段段解析阻塞的，模块脚本排在它们末尾 = 首屏最深的三条腿串行；
+     modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。 -->
+<link rel="modulepreload" href="web/app.js">
+<style>
+  /* 主题变量在 ui.css 的 :root / html[data-theme="dark"] 里（全站一份，上面已引） */
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
+
+  /* Vue 外壳只占内容区，侧栏由 web/ui/sidebar.js 画在左边。
+     尺寸用 --sbw（侧栏收起 66 / 展开 200），与旧 iframe 外壳同一套变量。 */
+  #app { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
+    z-index: 1; background: var(--bg); transition: left .18s ease, width .18s ease; }
+  html.sb-narrow.sb-open #app { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
+  html.sb-open:not(.sb-narrow) #app { left: 200px; width: calc(100% - 200px); }
+
+  .spa-shell, .spa-frame-wrap, .spa-page-host { position: absolute; inset: 0; }
+  .spa-frame-wrap { overflow: hidden; }
+  .spa-frame-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    gap: 10px; color: var(--sub); font-size: 13px; background: var(--bg); z-index: 2; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="web/ui/ui.js"></script>
+<!-- 表单族：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
+     仍排在 ui.js 之后、其余脚本之前，与原 ui.js 里的求值顺序一致。 -->
+<script src="web/ui/forms.js"></script>
+<!-- 原始请求面板（web/ui/raw-request.js）：**不常驻** —— 只有导演台 / 生成工作台 / 画布这三页
+     用得上（别处打开这一份就是白下一次），那三页各自 __spaLoadScript 补载。 -->
+<script src="web/ui/store.js"></script>
+<script src="web/ui/kv.js"></script>
+<script src="web/ui/toast.js"></script>
+<script src="web/ui/net.js"></script>
+<script src="web/ui/skills.js"></script>
+<!-- 错误通道要在其余公共模块之前装上：它们求值时抛错也得有人接（web/core/report.js）。 -->
+<script src="web/core/report.js"></script>
+<script src="web/core/routes.js"></script>
+<script src="web/core/bridges.js"></script>
+<script src="web/core/page-context.js"></script>
+<script src="web/domain/semantic.js"></script>
+<!-- 这一层之下的四份**不常驻**：capabilities / text-ai / asset-picker / datasync 改由路由表的
+     `needs` 按页在挂载前并发补载（web/core/routes.js），用不到的那几页整份不下。
+     常驻的这一层只留「每一页都要、且求值期就有顺序约束」的那些。
+     顺序是硬约束（三份拆分）：api.js（顶层取数函数 + Api）→ assetlib.js
+     （AssetLib + 费用）→ gen-forms.js（型号 / 参数 / 配音 / 字数 / 流式八个面）。 -->
+<script src="web/domain/ident.cjs"></script>
+<script src="web/domain/api.js"></script>
+<script src="web/domain/assetlib.js"></script>
+<script src="web/domain/gen-forms.js"></script>
+<script src="web/domain/asset-transfer.js"></script>
+<script src="web/domain/local.js"></script>
+<script src="web/domain/gen-rules.js"></script>
+<script src="web/domain/fav.js"></script>
+<script src="web/domain/prompt-log.js"></script>
+<script src="web/domain/ai-find.js"></script>
+<script src="web/ui/sidebar.js"></script>
+<!-- 徽标判据与徽标标记（本机 / 云端 / 两者都有）只有一份：这里以 module 方式带进来，
+     它顺带把 badgeOf / badgeHTML 挂成全局，供那几个只能拼字符串的经典脚本用（asset-picker）。 -->
+<script type="module" src="web/ui/badge-state.js"></script>
+<script type="module" src="web/app.js"></script>
+<script src="web/boot-assistant.js"></script>
+</body>
+</html>

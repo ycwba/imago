@@ -1,0 +1,38 @@
+# 运行时日志与缓存
+*.log
+.asset-cache/
+node_modules/
+
+# 密钥与本地配置（绝不提交；只放行不含真实密钥的模板）
+.env
+.env.*
+!.env.example
+
+# 本机状态 / 助手记忆
+.workbuddy/
+.workbuddy-ai/
+.proxy-port
+
+# 本地数据
+.data/
+.data-probe*/
+.assets/
+.assets-probe*/
+.renders/
+.renders-probe*/
+prompts/
+prompts-probe*/
+.skills/
+.skills-probe*/
+
+# 用户自己的成品目录（历史默认位置，现在默认在系统下载文件夹下的 拾帧\）
+文件/
+
+# 一次性备份 / 自动化探针残留
+.backup-*/
+_backup/
+.chrome-probe*/
+.selftest/
+.selftest-tmp/
+.tmp-*
+tests/fixtures/visual/actual/
