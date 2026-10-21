@@ -10,6 +10,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { localAsrState } = require('../asr-store.js');
+const { sendJson, readJsonBody } = require('./http');
+const { channelKey, channelBase, loopback, collect } = require('../channel-cred.js');
 
 const MAX_BYTES = 200 * 1024 * 1024;
 const MAX_ONLINE_RESPONSE = 8 * 1024 * 1024;
@@ -17,11 +19,6 @@ const MAX_SEGMENTS = 20000;
 const RUN_MAX = 2;
 const STDOUT_TAIL = 4000;
 
-function sendJson(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
-}
 const clean = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 function tail(s) { const t = String(s || ''); return t.length > STDOUT_TAIL ? t.slice(-STDOUT_TAIL) : t; }
 function parseTs(s) {
@@ -60,25 +57,6 @@ function joinEndpoint(base, tailPath) {
   if (/\/audio\/transcriptions$/i.test(b)) return b;
   return b + tailPath;
 }
-function isLoopback(u) {
-  try {
-    const h = new URL(u).hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    return h === 'localhost' || h === '::1' || /^127\./.test(h);
-  } catch { return false; }
-}
-function collect(res, max) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    res.on('data', c => {
-      size += c.length;
-      if (size > max) { res.destroy(new Error('上游响应超过 ' + Math.round(max / 1048576) + 'MB')); return; }
-      chunks.push(c);
-    });
-    res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    res.on('error', reject);
-  });
-}
 function spawnTool(bin, args, opts) {
   return new Promise((resolve, reject) => {
     const p = spawn(bin, args, { windowsHide: true, cwd: opts.cwd || undefined });
@@ -109,37 +87,10 @@ function spawnTool(bin, args, opts) {
 function createAsrRoutes(ctx) {
   const running = new Map();     // jobId → { child, req, canceled, dir }
   const pending = new Map();     // jobId → 提交时的 { assetId, src }（任务跑起来前只留在内存）
-  const readJson = async (req, res, limit) => {
-    const b = await ctx.readBody(req, res, limit);
-    if (b == null) throw new Error('请求体读取失败');
-    return JSON.parse(b.toString('utf8'));
-  };
-
-  function providerOf(id) {
-    if (!id) return null;
-    try { return (ctx.providers() || []).find(p => p.id === id || p.keyId === id) || null; }
-    catch { return null; }
-  }
-  function mirrored(kind, kid) {
-    if (!kid) return '';
-    try {
-      const env = JSON.parse(fs.readFileSync(ctx.dataFileOf(kind + kid), 'utf8'));
-      const v = env && env.data;
-      return typeof v === 'string' ? v.trim() : '';
-    } catch { return ''; }
-  }
-  function channelKey(kid) {
-    const p = providerOf(kid);
-    return mirrored('sk_key_', kid) || (p && p.keyEnv ? ctx.keyOf(p.keyEnv) : '');
-  }
-  function channelBase(kid) {
-    const p = providerOf(kid);
-    return mirrored('sk_base_', kid) || (p && p.base) || '';
-  }
   function resolveService() {
     const s = ctx.store.rawSettings();
-    const key = s.service.key || channelKey(s.service.providerId) || '';
-    const base = s.service.baseUrl || channelBase(s.service.providerId) || '';
+    const key = s.service.key || channelKey(ctx, s.service.providerId) || '';
+    const base = s.service.baseUrl || channelBase(ctx, s.service.providerId) || '';
     return { key, base, model: s.service.model || 'whisper-1', providerId: s.service.providerId };
   }
   function routeNow(bodyRoute) {
@@ -222,7 +173,7 @@ function createAsrRoutes(ctx) {
     if (/^https:/i.test(url)) {
       try { await ctx.guardOutboundUrl(url); }
       catch (e) { throw new Error('在线转写地址没进出站护栏：' + ((e && e.message) || e)); }
-    } else if (!(/^http:/i.test(url) && isLoopback(url))) {
+    } else if (!(/^http:/i.test(url) && loopback(url))) {
       throw new Error('在线转写只允许 https（本机回环地址可以用 http）');
     }
     const size = fs.statSync(media).size;
@@ -238,14 +189,14 @@ function createAsrRoutes(ctx) {
     const tailBuf = Buffer.from('\r\n--' + boundary + '--\r\n');
     ctx.store.patchJob(job.id, { state: 'running', progress: 0.2, engine: 'openai-asr' });
     const text = await new Promise((resolve, reject) => {
-      const u = new URL(url);
-      const mod = u.protocol === 'https:' ? require('https') : require('http');
       const headers = {
         'Authorization': 'Bearer ' + svc.key,
         'Content-Type': 'multipart/form-data; boundary=' + boundary,
         'Content-Length': head.length + fileHead.length + size + tailBuf.length,
       };
-      const req = mod.request(url, { method: 'POST', headers }, res => {
+      /* 走出站层（本机回环的 http 也走同一份）：以前这里自己 http/https.request，
+         既不带 DNS 闸，也就多了一套会忘记加护栏的出站实现。 */
+      const req = ctx.anyRequest(url, { method: 'POST', headers }, res => {
         collect(res, MAX_ONLINE_RESPONSE).then(resolve, reject);
       });
       rt.req = req;
@@ -334,7 +285,7 @@ function createAsrRoutes(ctx) {
         return true;
       }
       if (part[0] === 'settings' && method === 'PUT') {
-        const body = await readJson(req, res, 64 * 1024);
+        const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
         const s = ctx.store.patchSettings(body && body.settings ? body.settings : body);
         sendJson(res, 200, { ok: true, settings: s, local: localAsrState(ctx.root), revision: s.revision });
         return true;
@@ -344,7 +295,7 @@ function createAsrRoutes(ctx) {
           sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
           return true;
         }
-        const body = await readJson(req, res, 256 * 1024);
+        const body = await readJsonBody(ctx.readBody, req, res, 256 * 1024);
         const route = routeNow(body && body.route);
         if (route === 'local' && !localAsrState(ctx.root).available) {
           sendJson(res, 400, { error: '本地转写不可用：' + localAsrState(ctx.root).why + '；可以改用在线服务' });

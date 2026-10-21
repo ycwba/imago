@@ -14,14 +14,14 @@
   window.AiChatTools = {
     build(C) {
       const {
-        AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, RESULT_MAX,
+        AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, READ_MAX, RESULT_MAX,
         CACHES, SCOPE_TYPE, pageZh, STUDIO_T, VAL_ZH, STD,
         EF, ctxFiles, cap, num, when, $,
         frameWin, page, hostCtx, hostDoc, navItems, reg,
         caps, usableMap, provFlags, DRA, needDRA, charRows,
         usageStat, domPicks, ensureSearchMod, noteSource, searchFail, uiInventory,
         labelOf, notForAi, findUI, zoneOf, riskyOf, save,
-        kindOf, LOCAL_SRC, fileBytes, wread, addWatch, probeWatch,
+        LOCAL_SRC, fileBytes, wread, addWatch, probeWatch,
         localHistory, remoteHistory, showCards, provNow, modelNow, toolResultRead,
         snapOn, note,
         getREG,
@@ -214,7 +214,7 @@
            这一份查询在没有它的极端情况下（模块没加载上）退回裸字段，不能拿裸标识去猜。 */
         /* 道具（2026-10 加的第三种类型）在兜底分支里以前会被说成「角色」——
            助手于是会建议用户「把这位角色拉进这一集」，而拉进去的是一件物件。 */
-        const kindOf = c => D ? D.LIB_KINDS[D.libKindOf(c)]
+        const castKindZh = c => D ? D.LIB_KINDS[D.libKindOf(c)]
           : (c.kind === 'scene' ? '场景' : c.kind === 'prop' ? '道具' : '角色');
         const onlyVoice = c => !!D && D.voiceOnlyOf(c);
         const descOf = c => D ? D.descOf(c) : (c.look || c.desc || c.bio || '');
@@ -224,7 +224,7 @@
              只报名字时两位同名素材就分不开了（素材库允许同名不同人，合并判据是「同名 + 同类型」）。 */
           编号: c.id,
           名称: c.name,
-          类型: kindOf(c) + (onlyVoice(c) ? '（只出声）' : ''),
+          类型: castKindZh(c) + (onlyVoice(c) ? '（只出声）' : ''),
           分组: c.group || '',
           时段: c.time || '',
           人设: cap(c.bio, 160), 描述: cap(descOf(c), 240),
@@ -358,21 +358,21 @@
       async run() {
         const r = await reg();
         const out = {
-          文字AI: { 已保存的供应方: localStorage.getItem('sk_text_prov') || '（没选过，按默认可用逻辑挑）',
+          文字AI: { 已保存的供应方: window.LS.get('sk_text_prov') || '（没选过，按默认可用逻辑挑）',
             识图开关: TextAI.visionMode(), 润色前反问: TextAI.askMode() },
           各家: [],
           /* 「侧栏余额」有两个口径，以前这一行把它们混成一条报了：
              `sb_bal_on` 是**整区开不开**，`sb_bal_show` 存的是**隐藏名单**（哪些家不显示，默认全显示）。
              用户问「余额怎么不显示」时，拿隐藏名单当开关读出来的是一个列表，答不到真凶。 */
-          界面: { 主题: localStorage.getItem('dir_theme') || 'light', 侧栏展开: localStorage.getItem('sb_open') || '',
-            侧栏余额区: localStorage.getItem('sb_bal_on') === '0' ? '已关掉整区' : '开',
+          界面: { 主题: window.LS.get('dir_theme') || 'light', 侧栏展开: window.LS.get('sb_open') || '',
+            侧栏余额区: window.LS.get('sb_bal_on') === '0' ? '已关掉整区' : '开',
             侧栏余额隐藏了哪几家: (window.SbBal && SbBal.off()) || [] },
           /* 助手自己这一层的开关也报出来：用户问「为什么它刚才自己就提交了」要能答得上。
              这几项故意不在 writableKeys 白名单里 —— 「不用确认」能被 AI 自己打开是不安全的，
              系统通知的授权还在浏览器那一层，AI 改了开关也弹不出来。 */
           助手: { 执行前不用确认: autoRun() ? '已开启（卡片照画，校验做完就自动提交）' : '关闭（要点「执行」）',
             球吸附边缘: snapOn() ? '开' : '关',
-            系统通知: (localStorage.getItem(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
+            系统通知: (window.LS.get(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
               + (window.Notification ? Notification.permission : '这个浏览器不支持'),
             在等的任务: wread().items.length },
           列表分页: pageRows().map(x => ({ 页面: x.name, 模式: window.pageModeOf(x.key), 每页: window.pageSizeOf(x.key) })),
@@ -381,9 +381,9 @@
         };
         for (const p of TextAI.all(r)) {
           const kid = TextAI.keyId(p);
-          out.各家.push({ 供应方: p.id, 本机密钥: !!localStorage.getItem('sk_key_' + kid), 服务端密钥: await TextAI.envHas(p),
-            自定义地址: localStorage.getItem('sk_base_' + kid) || '（用官方地址 ' + (p.base || '?') + '）',
-            保存的型号: localStorage.getItem('sk_model_' + kid) || '', 自己添的型号: TextAI.custom(p) });
+          out.各家.push({ 供应方: p.id, 本机密钥: !!window.LS.get('sk_key_' + kid), 服务端密钥: await TextAI.envHas(p),
+            自定义地址: window.LS.get('sk_base_' + kid) || '（用官方地址 ' + (p.base || '?') + '）',
+            保存的型号: window.LS.get('sk_model_' + kid) || '', 自己添的型号: TextAI.custom(p) });
         }
         try { const pl = window.PromptLog ? await PromptLog.list() : null; out.归档目录 = pl && pl.dir; } catch (e) { out.归档目录 = '取不到'; }
         return out;
@@ -420,7 +420,7 @@
               ? ('注册表 ' + actionReg.list().length + ' 条 · 动作面 ' + Object.keys(ACTS).length
                 + ' 条 · 这一页可用 ' + visibleActs(page()).length + ' 条')
               : (actionRegErr ? '没装齐：' + actionRegErr + '（写动作已拒绝执行，只读查询照旧）' : '还没装载完'),
-            系统通知: (localStorage.getItem(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
+            系统通知: (window.LS.get(K_NOTICE) === '1' ? '设置里勾了' : '没勾') + '；浏览器授权：'
               + (window.Notification ? Notification.permission : '这个浏览器不支持'),
             在等的任务: wread().items.length, 没看的: wread().unread },
           本轮附件: ctxFiles().length ? ctxFiles().map((f, i) => i + ' = ' + f.name + '（' + f.kind + '）').join(' / ') : '没带附件',
@@ -1025,7 +1025,7 @@
     if (taskId && !p.failed) {
       addWatch({ id: String(taskId), prov: chk.prov.id, kind: chk.prov.kind, model: chk.model.id, prompt: cap(chk.prompt, 80) });
       lines.push('提醒：出结果（或一等超时没结果）我会在这层说一声，抽屉关着时球上也会点个数字'
-        + (localStorage.getItem(K_NOTICE) === '1' && window.Notification && Notification.permission === 'granted'
+        + (window.LS.get(K_NOTICE) === '1' && window.Notification && Notification.permission === 'granted'
           ? '，并按你在设置页勾的那样弹一次系统通知' : ''));
     }
     return { ok: !!p.genId || !p.failed, text: lines.join('\n'), id: taskId };
@@ -1232,20 +1232,20 @@
     if (spec.数值) {
       const n = Number(val);
       if (!Number.isFinite(n) || n <= 0) return { err: key + ' 要一个大于 0 的数字，给的是「' + val + '」' };
-      return { 键: key, 名: spec.名, 值: String(n), 旧: localStorage.getItem(key) || '', 说: spec.说 };
+      return { 键: key, 名: spec.名, 值: String(n), 旧: window.LS.get(key) || '', 说: spec.说 };
     }
     if (spec.范围) {
       const n = Number(val);
       if (!Number.isFinite(n)) return { err: key + ' 要整数，给的是「' + val + '」' };
       if (n < spec.范围.min || n > spec.范围.max) return { err: key + ' 要在 ' + spec.范围.min + '–' + spec.范围.max + ' 之间' };
-      return { 键: key, 名: spec.名, 值: String(Math.round(n)), 旧: localStorage.getItem(key) || '', 说: spec.说 };
+      return { 键: key, 名: spec.名, 值: String(Math.round(n)), 旧: window.LS.get(key) || '', 说: spec.说 };
     }
-    return { 键: key, 名: spec.名, 值: val, 旧: localStorage.getItem(key) || '', 说: spec.说 };
+    return { 键: key, 名: spec.名, 值: val, 旧: window.LS.get(key) || '', 说: spec.说 };
   }
   async function runAdjust(a) {
     const chk = await adjustCheck(a);
     if (chk.err) throw new Error(chk.err);
-    localStorage.setItem(chk.键, chk.值);
+    window.LS.set(chk.键, chk.值);
     /* 这两项改的是**当前窗口**的样子，只写键要等下次进页面才看不出来：
        换色与左栏重排各只有一份实现（sidebar.js 挂出来的这两个钩子），别在这里自己算。 */
     if (chk.键 === 'dir_theme') { try { window.__sbApplyTheme && window.__sbApplyTheme(chk.值); } catch (e) {} }
@@ -1257,12 +1257,22 @@
   /* ---------- UI 原语的校验与执行 ----------
      `check` 返回的东西会**原样画在确认卡片上**（与 generate / set_setting 同一张卡），
      所以字段名是给人看的（「在哪一块 / 现在是什么 / 要改成什么」），不是给机器解析的。 */
+  /* 参数别名只在这里归一一次：check 与 run 以前各读各的（check 认 within/在哪/块，
+     run 只认 within），模型照着报错换成「在哪」再提交，执行侧就拿到空块名 ——
+     同名控件一多就可能点错那一颗。 */
+  function uiArgs(a, kind) {
+    a = a && typeof a === 'object' ? a : {};
+    const zhName = kind === 'button' ? a.按钮 : a.控件;
+    return {
+      name: String(a.name || zhName || a.label || '').trim(),
+      within: String(a.within || a.在哪 || a.块 || '').trim(),
+      value: a.value === undefined || a.value === null ? '' : String(a.value),
+    };
+  }
   function fillCheck(a) {
     if (!a || typeof a !== 'object') return { err: 'fill 的参数要是一个 JSON 对象：{"name":"控件名","value":"要填的内容"}' };
-    const name = String(a.name || a.控件 || a.label || '').trim();
+    const { name, value, within } = uiArgs(a, 'input');
     if (!name) return { err: '要给 name（控件上看得见的文字）。先 page_state 看清单，别凭印象猜。' };
-    const value = a.value === undefined || a.value === null ? '' : String(a.value);
-    const within = String(a.within || a.在哪 || a.块 || '').trim();
     const r = findUI(name, 'input', within);
     if (!r.hit) {
       const near = uiInventory('input', 40).列出.filter(x => String(x.名字).indexOf(name.slice(0, 2)) >= 0).slice(0, 8);
@@ -1290,9 +1300,10 @@
       说: '只填不点：填完不会自动提交（提交/生成那一类按钮一律要用户自己按）' };
   }
   async function runFill(a, pin) {
-    const r = findUI(String(a.name || a.控件 || ''), 'input', String(a.within || ''));
+    const { name, within, value } = uiArgs(a, 'input');
+    const r = findUI(name, 'input', within);
     if (!r.hit) return { ok: false, text: '那个输入框已经不在页面上了（可能重画过）—— 再查一次 page_state' };
-    const el = r.hit, value = a.value === undefined || a.value === null ? '' : String(a.value);
+    const el = r.hit;
     /* 页面大多靠 input/change 事件把值落盘（bindText 那一路），所以两个都要发。
        只发 input 会让「存盘」那条路拿不到值 —— 填了字一刷新就没。 */
     try {
@@ -1317,9 +1328,8 @@
   }
   function clickCheck(a) {
     if (!a || typeof a !== 'object') return { err: 'click 的参数要是一个 JSON 对象：{"name":"按钮上的文字"}' };
-    const name = String(a.name || a.按钮 || a.label || '').trim();
+    const { name, within } = uiArgs(a, 'button');
     if (!name) return { err: '要给 name（按钮上看得见的文字）。先 page_state 看清单。' };
-    const within = String(a.within || a.在哪 || a.块 || '').trim();
     const r = findUI(name, 'button', within);
     if (!r.hit) {
       const near = uiInventory('button', 40).列出.filter(x => String(x.名字).indexOf(name.slice(0, 2)) >= 0).slice(0, 8);
@@ -1353,7 +1363,8 @@
         : '点下去之后界面会自己重画；助手不会替你再点别的' };
   }
   async function runClick(a, pin) {
-    const r = findUI(String(a.name || a.按钮 || ''), 'button', String(a.within || ''));
+    const { name, within } = uiArgs(a, 'button');
+    const r = findUI(name, 'button', within);
     if (!r.hit) return { ok: false, text: '那个按钮已经不在页面上了（可能重画过）—— 再查一次 page_state' };
     const el = r.hit, nm = labelOf(el);
     /* 危险动作要**第二次**确认：用户点的是「执行」这一下，

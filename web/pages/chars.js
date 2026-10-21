@@ -15,20 +15,14 @@ import { render } from '../render/chars.js';
 const PAGE_MODE = window.pageModeOf('chars');
 const PAGE_SIZE = window.pageSizeOf('chars');
 /* 三种类型各一档（与库里那三种平级，道具是 2026-10 加的），后面三个是「还缺什么」的缺口档。 */
+import { ensureCss } from '../core/page-css.js';
+
 const FILTERS = [['all', '全部'], ['actor', '角色'], ['scene', '场景'], ['prop', '道具'],
   ['nopic', '还没有预览图'], ['noasset', '还没有角色资产'], ['novoice', '还没有声音'], ['nodesc', '还没有描述']];
 
-/* 这一份样式单独放在 spa-chars.css（外壳只引 ui.css 与 spa-pages.css）。
-   组件挂载前把那张表挂进 head；已经由别处引过时不再插第二张（与 spa-assets 同一套）。 */
-(function ensureCss() {
-  if (typeof document === 'undefined') return;
-  if (document.querySelector('link[data-spa-chars], link[href$="spa-chars.css"]')) return;
-  const l = document.createElement('link');
-  l.rel = 'stylesheet';
-  l.href = 'web/styles/spa-chars.css';
-  l.setAttribute('data-spa-chars', '1');
-  document.head.appendChild(l);
-})();
+/* 这一份样式单独放在 spa-chars.css，打开这一页时由 `ensureCss` 按需挂上
+   （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
+ensureCss('web/styles/spa-chars.css', 'spa-chars');
 
 export default {
   name: 'CharsView',
@@ -37,7 +31,7 @@ export default {
     /* 前台判据只有公共层那一份：core/activity.js（外壳挂在 window.__spaActivity）。
        这里原来自己读 `spaActiveFile`：那只说明「路由选中的是这一页」，整个标签页切到后台时
        它照样为真，于是隐藏着的素材库还在收指针、还在处理快捷键。 */
-    const isActive = () => window.__spaActivity.visible(PAGE_FILE);
+    const isActive = window.__spaActivity.forPage(PAGE_FILE);
     let offActivity = null;
     /* 页面常驻（v-show）：切回来时重数一次「被 N 镜引用」。订阅在 setup 里登记，卸载时退掉。
        灯箱与详情的配置不再跟着切页换 —— 公共层按前台页装回各自那一份（见 registerAdapters）。 */
@@ -45,8 +39,7 @@ export default {
 
     /* ---------- DOM 宿主（页面自己的元素一律走 ref） ---------- */
     const rootEl = ref(null);
-    const chipsEl = ref(null);
-    const qEl = ref(null);
+    const toolbarEl = ref(null);
     const aiFindBtn = ref(null);
     const aiChipEl = ref(null);
     const grpPickEl = ref(null);
@@ -97,6 +90,9 @@ export default {
     let D = window.Chars || null;
     let REG = null;
     let alive = true;
+    /* 顶部主工具条（芯片 / 搜索 / AI 按钮 / AI 条件芯片 / 计数）由 Wb.filterBar 生成，
+       这一页只留点完之后做什么；aiFindBtn / aiChipEl 在 bind 之后指回那一份里的节点。 */
+    let toolbarFb = null;
     const filter = ref('all');
     const group = ref('');            // '' = 全部组；'__none' = 未分组
     let aiPick = null, aiWhy = '', aiRank = null;
@@ -108,6 +104,7 @@ export default {
     const media = [];                 // 当前视图能点开看的图（预览图 + 各资产）
     let refUse = new Map(), refUseAt = 0;
     let pager = null;
+    let offStorage = null;
     let viewToggle = null;
     let sentinelIO = null;
     let candSelBuilt = false;
@@ -412,12 +409,14 @@ export default {
           }).join('')}</div>` : ''}
           ${errsHTML(c)}
           ${vo ? '' : mainCandsHTML(c, pw, faceBusy, editOpen)}
-          <div class="acts">
-            <button class="ghost" data-a="edit">${editOpen ? '收起' : '编辑'}</button>
-            ${pic ? `<button class="ghost" data-a="reuse" data-src="${esc(pic)}" data-name="${esc(c.name || '')}" title="带着这张${esc(pw)}去生成工作台，放进参考图那一栏">拿去生成</button>` : ''}
-            ${pic ? '<button class="ghost" data-a="similar" title="在本机素材库里按画面指纹找相似的图（不上传、不调模型）">找相似</button>' : ''}
-            <button class="ghost danger" data-a="del">从库里删掉</button>
-          </div>
+          <div class="acts">${window.Wb.actsHTML(c, {
+            items: [
+              { act: 'edit', label: editOpen ? '收起' : '编辑' },
+              pic ? { act: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去生成工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
+              pic ? { act: 'similar', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
+              { act: 'del', label: '从库里删掉', danger: true },
+            ].filter(Boolean),
+          })}</div>
         </div>
         ${editOpen ? editHTML(c) : ''}
         </div>`;
@@ -609,21 +608,24 @@ export default {
       return voiced(c) && !c.refAudio && !c.voice && !String(c.voiceNote || '').trim();
     }
     function paintChips() {
-      if (!chipsEl.value || !D) return;
+      if (!toolbarFb || !D) return;
       const all = D.Lib.list();
-      window.Chips.render(chipsEl.value, FILTERS, filter.value,
+      toolbarFb.setChips(FILTERS, filter.value,
         v => { filter.value = v; resetPaging(); render(); },
         { count: v => all.filter(c => c && match(c, v)).length });
     }
     function paintAiChip() {
       if (!aiChipEl.value) return;
-      window.AiChip.paint(aiChipEl.value, {
-        text: aiPick ? window.AiChip.picked(aiPick.size, aiWhy) : '',
-        clearId: 'charsAiClear',
-        onClear: clearAiPick,
+      window.AiChip.show(aiChipEl.value, {
+        on: !!aiPick, picked: aiPick && aiPick.size, why: aiWhy,
+        clearId: 'charsAiClear', onClear: clearAiPick,
       });
     }
     function clearAiPick() { window.AiFind.clear(AI); }
+    function setCnt(text) {
+      cntText.value = text;
+      if (toolbarFb) toolbarFb.setCount(text);
+    }
 
     function paintGroups() {
       const gs = D.Lib.groups();
@@ -740,7 +742,7 @@ export default {
       const assetOk = needAsset.filter(c => D.Cast.assetsOf(c).length).length;
       const needVoice = all.filter(c => voiced(c));
       let voiceOk = 0;
-      if (REG) needVoice.forEach(c => { try { if (D.Cast.voiceReady(REG, opts, c).ok) voiceOk++; } catch (e) {} });
+      if (REG) needVoice.forEach(c => { try { if (D.Cast.voiceReady(REG, opts, c).ok) voiceOk++; } catch (e) { /* 这一位的声音就绪状态问不动就不计进「已有声音」 */ } });
       const descOk = all.filter(c => String(D.descOf(c) || '').trim()).length;
       const used = all.filter(c => (refUse.get(String(c.name || '')) || []).length).length;
       let ttsNote = '';
@@ -749,7 +751,7 @@ export default {
         try {
           const ways = D.Pipe.ttsWays(REG, opts);
           if (!ways.ok) ttsNote = '还没配可用的语音平台，声音那一行会显示全缺（到设置页「语音」那一档配一个）。';
-        } catch (e) {}
+        } catch (e) { /* 语音平台判据抛错就不写那句提示，体检照旧出 */ }
       }
       const rows = [
         { key: 'pic', label: '预览图', ok: picOk, need: needPic.length, filter: 'nopic', why: '没有预览图就不会出现在导演台的参考图候选里' },
@@ -901,7 +903,7 @@ export default {
       })) return;
       let ok = 0;
       for (const c of items) {
-        try { if (c.refAudio) await D.Pipe.clearRefAudio(c); } catch (e) {}
+        try { if (c.refAudio) await D.Pipe.clearRefAudio(c); } catch (e) { /* 参考音频清不掉不拦这一条素材的其余删除动作 */ }
         if (D.Lib.remove(c.id)) ok++;
       }
       const e = D.Lib.writeError();
@@ -1479,7 +1481,7 @@ export default {
       label: 'AI 找素材',
       btn: () => aiFindBtn.value,
       ask: () => q.value,
-      focus: () => qEl.value && qEl.value.focus(),
+      focus: () => { if (toolbarFb) toolbarFb.focus(); },
       emptyMsg: '素材库还是空的，先点右边「新建素材」',
       noneMsg: 'AI 没挑到合适的（换个说法再试）',
       roster: () => D.Lib.list(),
@@ -1496,9 +1498,13 @@ export default {
         + '2. 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
         + '3. 宁缺毋滥：没有合适的就返回空数组。\n4. summary 说清你的理解，界面会显示给用户。',
       apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
-      onPick: () => { q.value = ''; filter.value = 'all'; },
+      onPick: () => {
+        q.value = '';
+        filter.value = 'all';
+        if (toolbarFb) toolbarFb.setQuery('');
+      },
       done: () => { resetPaging(); render(); },
-      say: t => { cntText.value = t; },
+      say: t => { setCnt(t); },
     };
     const runAiFind = () => window.AiFind.run(AI);
 
@@ -1768,7 +1774,7 @@ export default {
           + '</select>';
         const s = host.querySelector('select');
         if (s) s.onchange = () => {
-          try { localStorage.setItem(it.key, String(Number(s.value) || Number(it.def))); } catch (e) {}
+          window.LS.set(it.key, String(Number(s.value) || Number(it.def)));   // 存不下（隐私模式）就只生效这一次
           render();
         };
         if (window.Dropdowns) window.Dropdowns.build(host);
@@ -1830,7 +1836,7 @@ export default {
           media.push({ key: 'char:' + c.id + ':a:' + a.id, s: a.src, name: c.name + ' · ' + lab, label: lab, item: c });
         });
       });
-      cntText.value = items.length ? '共 ' + items.length + ' 条' : '';
+      setCnt(items.length ? '共 ' + items.length + ' 条' : '');
       paintFillBtn();
       paintLocalBtn();
       pagerVisible.value = items.length > 0;
@@ -1923,6 +1929,7 @@ export default {
 
     /* ---------- 模块初始化 ---------- */
     function initModules() {
+      if (pagerRowEl.value) pagerRowEl.value.innerHTML = window.Wb.pager.rowHTML('chars');
       pager = window.Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE, localMore: true,
         items: () => viewItems,
@@ -1934,9 +1941,36 @@ export default {
       registerAdapters();
     }
 
+    /* 顶部主工具条只在这里建一次：结构与接线归 Wb.filterBar（搜索防抖、芯片渲染、计数都在那一份），
+       这一页只把「AI 找素材」按钮与它的条件芯片作为 extraHTML 传进去，再捎回节点接自己的行为。 */
+    function bindToolbar() {
+      if (!toolbarEl.value) return;
+      toolbarFb = window.Wb.filterBar.bind(toolbarEl.value, {
+        chips: FILTERS,
+        value: filter.value,
+        q: q.value,
+        placeholder: searchPh.value,
+        onFilter: v => { filter.value = v; resetPaging(); render(); },
+        onSearch: v => { q.value = v; resetPaging(); render(); },
+        /* Esc 清掉搜索框与 AI 条件（与旧页同一个出口：清完由 AI 的 done 重画一次）。 */
+        onEscape: () => {
+          q.value = '';
+          resetPaging();
+          clearAiPick();
+        },
+        extraHTML: '<button class="tool acc" title="' + esc('把搜索框那句话交给文字 AI，由它从整个库里挑最合适的几条') + '">'
+          + aiBtnHtml + '</button><span data-fb="aiChip"></span>',
+      });
+      if (!toolbarFb) return;
+      aiFindBtn.value = toolbarFb.el.querySelector('.tool.acc');
+      aiChipEl.value = toolbarFb.el.querySelector('[data-fb="aiChip"]');
+      if (aiFindBtn.value) aiFindBtn.value.onclick = runAiFind;
+    }
+
     async function boot() {
-      if (opts.style) { delete opts.style; try { saveOpts(); } catch (e) {} }
+      if (opts.style) { delete opts.style; try { saveOpts(); } catch (e) { /* 退回默认档时存不下（隐私模式）就只生效这一次 */ } }
       searchPh.value = '搜' + D.Lib.SEARCH_FIELDS.map(f => f[0]).join(' / ');
+      bindToolbar();
       try { REG = await window.Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }
       ready.value = true;
       await render();
@@ -1947,29 +1981,18 @@ export default {
       });
     }
 
-    function onSearchInput(e) {
-      q.value = e.target.value;
-      resetPaging();
-      render();
-    }
-    function onSearchKey(e) {
-      if (e.key !== 'Escape') return;
-      q.value = '';
-      e.target.value = '';
-      clearAiPick();
-    }
     function onStop() {
       if (!genHas('fill', null)) return;
       stopFlag = true;
       genSet('fill', null, '正在停下：已经发出去的那 ' + Math.max(0, GEN.size - 1) + ' 条收不回来，等它们跑完这一批就不再发新的');
       stopDisabled.value = true;
     }
-    function onStorage(e) { if (e.key && e.key !== 'char_lib') return; if (ready.value) render(); }
+    function onStorage() { if (ready.value) render(); }
     function onPointerUp() { if (!isActive()) return; setTimeout(flushHeads, 0); }
     function onDocKey(e) {
       if (!isActive()) return;
       if (e.key !== 'Escape' || !openId.value) return;
-      if (e.target && e.target === qEl.value) return;
+      if (e.target && toolbarFb && e.target === toolbarFb.input) return;
       if (document.querySelector('dialog[open]')) return;
       if (window.Wb && window.Wb.lightbox && window.Wb.lightbox.isOpen && window.Wb.lightbox.isOpen()) return;
       toggleEdit(openId.value, false);
@@ -2005,10 +2028,10 @@ export default {
         console.error('[chars] 初始化失败：', e);
         return;
       }
-      window.addEventListener('storage', onStorage);
+      offStorage = window.StorageBus.on(['char_lib'], onStorage);
       document.addEventListener('pointerup', onPointerUp, true);
       document.addEventListener('keydown', onDocKey);
-      window.__charsChanged = () => { try { render(); } catch (e) {} };
+      window.__charsChanged = () => { try { render(); } catch (e) { /* 重画抛错不能把喊它的别的页面带崩 */ } };
       try { await boot(); } catch (e) {
         console.warn('[chars] 启动失败：', e);
         if (!failed.value) failed.value = '素材库启动失败：' + errText(e);
@@ -2018,28 +2041,29 @@ export default {
 
     onBeforeUnmount(() => {
       alive = false;
-      window.removeEventListener('storage', onStorage);
+      if (toolbarFb) { toolbarFb.destroy(); toolbarFb = null; }
+      if (offStorage) { offStorage(); offStorage = null; }
       document.removeEventListener('pointerup', onPointerUp, true);
       document.removeEventListener('keydown', onDocKey);
       clearTimeout(fieldTimer);
       clearTimeout(headTimer);
-      if (sentinelIO && sentinelIO.disconnect) { try { sentinelIO.disconnect(); } catch (e) {} }
+      if (sentinelIO && sentinelIO.disconnect) { try { sentinelIO.disconnect(); } catch (e) { /* 观察器已经断开就没有可断开的 */ } }
       if (offActivity) offActivity();
       unregisterAdapters();
       /* 助手那一侧按 `window.__charsChanged` 喊这一页重画：页面已经不在了，钩子不能继续指着它。 */
-      try { window.__charsChanged = null; } catch (e) {}
+      window.__charsChanged = null;
     });
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      rootEl, chipsEl, qEl, aiFindBtn, aiChipEl, grpPickEl, grpListEl, viewEl,
+      rootEl, toolbarEl, grpPickEl, grpListEl, viewEl,
       btnFillEl, btnLocalEl, btnStopEl, btnNewEl, imgPickEl, ttsPickEl, candPickEl, aiLiveEl,
       gridEl, gridEndEl, pagerRowEl,
-      ready, failed, cards, openId, q, searchPh, cntText, busyText, stopVisible, stopDisabled,
+      ready, failed, cards, openId, q, cntText, busyText, stopVisible, stopDisabled,
       pagerVisible, emptyHtml, fillText, fillDisabled, fillTitle,
       ticHtml, newBtnHtml, aiBtnHtml,
       multi, batchCount, batchText, batchGroup, health, isPicked,
-      onSearchInput, onSearchKey, runAiFind, fillRest, pullLocal, onStop, newChar,
+      runAiFind, fillRest, pullLocal, onStop, newChar,
       onGridClick, onGridInput, onGridChange, onGridFocusIn, onGridFocusOut,
       toggleMulti, jumpFilter,
       batchFillPics, batchFillAssets, batchFillVoices, batchSetGroup, batchRemove,

@@ -3,23 +3,28 @@
    页面与助手都只读这一份缓存（30 秒），改动后调 invalidate()。 */
 (function () {
   'use strict';
-  var cache = null, cacheAt = 0, pending = null;
+  var cache = null, cacheAt = 0, pending = null, gen = 0;
   var TTL = 30000;
 
-  function invalidate() { cache = null; cacheAt = 0; pending = null; }
+  /* gen 是「缓存代次」：invalidate() 之后，改前发出、改后才回来的那次请求不许再写缓存
+     （update → invalidate → prime 会立刻发一次，旧响应若晚到就把改前的清单盖回去）。
+     force 也不复用 pending —— 要的就是重新问一次服务器。 */
+  function invalidate() { cache = null; cacheAt = 0; pending = null; gen++; }
 
   async function list(force) {
     if (!force && cache && Date.now() - cacheAt < TTL) return cache;
-    if (pending) return pending;
-    pending = (async function () {
+    if (pending && !force) return pending;
+    var g = gen;
+    var p = (async function () {
       try {
         var d = await window.Net.json('/skills', { timeout: 15000, retry: 1 });
-        cache = Array.isArray(d && d.items) ? d.items : [];
-        cacheAt = Date.now();
-        return cache;
-      } finally { pending = null; }
+        var items = Array.isArray(d && d.items) ? d.items : [];
+        if (g === gen) { cache = items; cacheAt = Date.now(); }
+        return items;
+      } finally { if (pending === p) pending = null; }
     })();
-    return pending;
+    if (g === gen) pending = p;
+    return p;
   }
 
   async function full(id) {
@@ -28,10 +33,6 @@
     if (!d || !d.skill) throw new Error('没有这个 Skill：' + id);
     d.skill.contentHash = String(d.hash || '');
     return d.skill;
-  }
-
-  async function readRef(id, file) {
-    return readFile(id, file);
   }
 
   async function readFile(id, file) {
@@ -246,7 +247,7 @@
     return { assetGroups: groups };
   }
 
-  window.WbSkills = { list: list, full: full, readRef: readRef, readFile: readFile, files: files,
+  window.WbSkills = { list: list, full: full, readFile: readFile, files: files,
     install: install, importBundle: importBundle, update: update, setEnabled: setEnabled,
     remove: remove, exportOne: exportOne, migrateLegacyPrompts: migrateLegacyPrompts,
     match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL };

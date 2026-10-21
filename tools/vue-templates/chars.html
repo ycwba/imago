@@ -1,16 +1,10 @@
 
-    <div class="page-main chars-page" ref="rootEl">
-      <h1><span v-html="ticHtml"></span>素材库</h1>
+    <div class="page-main chars-page page-shell" ref="rootEl">
+      <h1 class="page-h1"><span v-html="ticHtml"></span>素材库</h1>
       <div class="desc">可复用的<b>角色</b>、<b>场景</b>与<b>道具</b>：预览图、描述、声音与角色资产都在这里改一次，
         导演台选参考图、生成工作台出图出配音都直接用这一份，不必每处重画。</div>
 
-      <div class="toolbar">
-        <div class="chips" ref="chipsEl"></div>
-        <input ref="qEl" type="search" :value="q" :placeholder="searchPh" @input="onSearchInput" @keydown="onSearchKey">
-        <button class="tool acc" ref="aiFindBtn" title="把搜索框那句话交给文字 AI，由它从整个库里挑最合适的几条" v-html="aiBtnHtml" @click="runAiFind"></button>
-        <span ref="aiChipEl"></span>
-        <span class="cnt">{{ cntText }}</span>
-      </div>
+      <div class="toolbar" ref="toolbarEl"></div>
       <div class="toolbar2">
         <span class="grp">分组<span ref="grpPickEl"></span></span>
         <button class="tool" ref="btnFillEl" :disabled="fillDisabled" :title="fillTitle" @click="fillRest">{{ fillText }}</button>
@@ -65,16 +59,12 @@
         @click="onGridClick" @input="onGridInput" @change="onGridChange"
         @focusin="onGridFocusIn" @focusout="onGridFocusOut">
         <div v-if="ready && !cards.length" class="empty" v-html="emptyHtml"></div>
-        <div v-for="card in cards" :key="card.id" class="card"
+        <div v-for="card in cards" :key="card.id" class="card card-surface"
           :class="{ open: openId === card.id, multi: multi, picked: isPicked(card.id) }"
           :data-id="card.id" v-html="card.html"></div>
       </div>
       <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
-      <div class="pager-row" ref="pagerRowEl" :style="{ display: pagerVisible ? '' : 'none' }">
-        <button class="ghost" id="charsPgPrev">‹ 上一页</button>
-        <span class="pginfo" id="charsPgInfo"></span>
-        <button class="ghost" id="charsPgNext">下一页 ›</button>
-      </div>
+      <div class="pager-row" ref="pagerRowEl" :style="{ display: pagerVisible ? '' : 'none' }"></div>
 
       <datalist id="grpList" ref="grpListEl"></datalist>
     </div>

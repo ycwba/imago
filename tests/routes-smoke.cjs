@@ -132,8 +132,16 @@ function fakeUpRequest(url, opts, cb) {
   r.abort = r.destroy = () => { r.destroyed = true; return r; };
   r.end = () => {
     if (r.destroyed) return r;
-    const up = fakeUp(upState.status || 200, upBodyFor(url, o.method || 'GET'));
-    setImmediate(() => { if (typeof cb === 'function') cb(up); r.emit('response', up); });
+    /* `up` 必须在这个 macrotask **里面**造。fakeUp 一造好就把 data/end 排进定时器；调用点的监听
+       要到 cb / response 回调里才同步挂上。在外面造就等于把两件事的先后交给
+       「setImmediate 与 setTimeout(0) 谁先跑」—— 那是 Node 明确不保证的顺序，
+       详情缓存那一条支因此红过（同一份判据连跑四次红两次，产品代码一个字没错）。 */
+    setImmediate(() => {
+      if (r.destroyed) return;
+      const up = fakeUp(upState.status || 200, upBodyFor(url, o.method || 'GET'));
+      if (typeof cb === 'function') cb(up);
+      r.emit('response', up);
+    });
     /* 真实 Node 在响应走完后会补一个 close；调用点（registry 那条 25 秒墙钟）靠它清表。
        这里 delay 一点、只发一次，免得那条 25 秒的 timer 挂着让判据本身跑不完。 */
     setTimeout(() => { if (!r.destroyed && !r.closed) { r.closed = true; r.emit('close'); } }, 5);
@@ -559,6 +567,12 @@ const HITS = {
     { url: '/fetch?url=' + encodeURIComponent('https://example.com/a.png') },
     { url: '/getv?url=' + encodeURIComponent('https://example.com/a.mp4') },
     { url: '/asset/la_probe' },
+    /* R1：dl=1 走 disposition 分支。以前那行拿同一句里还没赋值的 st 作判据（TDZ），必抛 → 502。 */
+    { url: '/asset/la_probe?dl=1', check: res => {
+      if (res.statusCode !== 200) return '带 dl=1 应当 200，实际 ' + res.statusCode;
+      return /attachment/i.test(String(res.headers['content-disposition'] || ''))
+        ? '' : '带 dl=1 应当回 Content-Disposition，实际没有';
+    } },
     { url: '/s3put?url=' + encodeURIComponent('https://example.com/put'), method: 'POST', body: '{}' },
   ],
   'server/routes/local-assets.js': [
@@ -649,13 +663,20 @@ function ok(name, cond, detail) {
   return false;
 }
 const errKind = e => (e && e.name) || 'Error';
-/* 等响应落地：路由里不少是 readBody(...).then(...)，同步返回不代表答完了。 */
-async function settle(res, ms = 300) {
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    if (res.writableEnded || res.destroyed) return true;
-    await new Promise(r => setTimeout(r, 3));
-  }
+/* 等响应落地：路由里不少是 readBody(...).then(...)，同步返回不代表答完了。
+   V7（批次 8）：这里以前是 3ms 一轮的定长轮询，两条「不该接的 URL」用例（relay /nope、
+   local-assets /nope）本来就被路由**同步返回 false**，却仍要空等满 300ms —— 占掉本判据约
+   1/3 的墙钟（1269ms idle 里 620ms 是这两条）。现在：
+     · 处理器已经明确返回 false 且用例是 expect:false 的，不再等（断言读的就是这个返回值，没等头）；
+     · 其余改成事件驱动（finish/close 一到就走），失败上限从 300ms 放宽到 800ms —— 只影响
+       「确实没响应」的红速度，不影响断言本身；并发池下机器被压满时也不再拿 300ms 抖出假红。 */
+async function settle(res, ms = 800) {
+  if (res.writableEnded || res.destroyed) return true;
+  await new Promise(resolve => {
+    const done = () => { clearTimeout(timer); res.off('finish', done); res.off('close', done); resolve(); };
+    const timer = setTimeout(done, ms);
+    res.once('finish', done); res.once('close', done);
+  });
   return res.writableEnded || res.destroyed;
 }
 
@@ -714,7 +735,9 @@ async function _runHit(mod, wiring, handlerName, handler, hit) {
       ? 'ReferenceError（函数体用了没声明的变量，正是 pick-dir 那一类）：' + m : kind + '：' + m));
     return;
   }
-  const settled = await settle(res);
+  /* 「不该接的 URL」且处理器已明确返回 false：契约上不会再有响应，只留 20ms 抓「迟到的回写」
+     这一类坏法（判据不松，只是不再为必然不发生的事空等 300ms —— V7）。 */
+  const settled = await settle(res, hit.expect === false && ret === false ? 20 : undefined);
   const violations = res.violations.join('；');
   if (hit.expect === false) {
     ok(label + '（不该接的 URL）', (ret === false || !res.headersSent) && !violations,
@@ -914,6 +937,12 @@ function freeConfigAudit() {
     }
   }
   await selfTest();
+  /* R4：::ffff: 形式的 IPv4 映射地址。以前 zero 判前 6 组、映射位读 g[6]，
+     0xffff 实际在下标 5 —— 分支永不进入，映射内网被判公网放行。 */
+  const { isPrivateHost } = require(S.abs('server/security.js'));
+  ok("isPrivateHost('[::ffff:127.0.0.1]') 为真", isPrivateHost('[::ffff:127.0.0.1]') === true);
+  ok("isPrivateHost('[::ffff:192.168.1.5]') 为真", isPrivateHost('[::ffff:192.168.1.5]') === true);
+  ok("isPrivateHost('[::ffff:8.8.8.8]') 为假", isPrivateHost('[::ffff:8.8.8.8]') === false);
   const ms = Date.now() - t0;
   console.log('\n' + (bad ? '✗ ' : '✓ ') + checks + ' 项判据 / ' + hits + ' 条端点，' + bad + ' 项未通过（' + ms + ' ms）');
   if (ms > 2000) console.log('  ⚠ 超过 2 秒预算（报告 §7.3① 要求 < 2 s）');

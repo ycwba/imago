@@ -37,9 +37,14 @@ function createSystemRoutes(ctx) {
   function handleSystem(req, res, urlObj) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
     if (dataPath === '/sys-status') {
-      const body = JSON.stringify(sysStatus(req.url.includes('fresh=1')));
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(body);
+      /* 探测（ffmpeg / ffprobe）走异步 execFile，结果可能是 Promise —— 这里等它回来再回包，
+         期间事件循环照常服务其它请求；失败也照实回一份 JSON，不让这条路由挂住。 */
+      Promise.resolve(sysStatus(req.url.includes('fresh=1'))).then(body => {
+        try {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(body));
+        } catch { /* 连接已经断了 */ }
+      }, e => send(res, 500, { error: { message: '本机体检失败：' + ((e && e.message) || e) } }));
       return true;
     }
     if (dataPath === '/whoami') {

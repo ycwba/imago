@@ -97,7 +97,7 @@
      就算当时没丢、后来进了死信，boot 里的补传（:2551 那个 flush）也会用同样的理由再丢一次 ——
      「上次没送出去的任务这里补一次」对 workspace 永远补不上。 */
   const diverged = (key, body) => {
-    const cur = localStorage.getItem(key);
+    const cur = window.LS.get(key);
     const stale = body == null ? (cur != null && cur !== '') : cur !== body;
     return stale && !NO_LOCAL.has(key);
   };
@@ -168,9 +168,13 @@
     for (const [k, body] of jobs) queue(k, body);
   }
   function queue(key, body, tries) {
+    /* 队列按**落盘文件名**（sanitize 后）合并，但「本机当前值」必须用**原始键**比：
+       含点的键（page_size_*.<x> 之类）sanitize 成下划线之后 localStorage 里根本没有，
+       diverged 永远判「不一致」，那一份修改就被静默丢掉。 */
     const k = sanitize(key);
+    const raw = String(key);
     const payload = body == null ? null : String(body);
-    if (booting && !tries) { held.set(k, payload); return; }
+    if (booting && !tries) { held.set(raw, payload); return; }
     const prev = pending.get(k);
     if (prev) clearTimeout(prev.t);
     const n = tries || 0;
@@ -178,19 +182,19 @@
       pending.delete(k);
       /* 发之前再看一眼本机当前值：合并窗口里如果值被别处改写（例如 boot 刚从服务器拉回更新的一份），
          这条任务就已经过期，发出去会把旧的盖给新的。判据在 diverged 一处（NO_LOCAL 那些键本机没有值，不比）。 */
-      if (diverged(k, payload)) return;
+      if (diverged(raw, payload)) return;
       try {
         if (payload == null) await delData(k);
         else await putData(k, payload);
       } catch (e) {
         if (n < RETRY_MAX) {
-          queue(k, payload, n + 1);
+          queue(raw, payload, n + 1);
         } else {
           /* 重试也用完：把任务**留在队列里**（没有定时器的死信），
              下次开页面（boot 里的 flush）或去设置页点同步时还会再试一次。
              以前这里是直接丢弃 + 一句 Toast，删除类任务一丢就永远丢了 ——
              服务器那份还在，之后每次启动都被它把已删的数据拉回浏览器。 */
-          pending.set(k, { t: 0, body: payload, tries: n, failed: e.message });
+          pending.set(k, { t: 0, body: payload, tries: n, failed: e.message, key: raw });
           if (!mirrorBroken) {
             mirrorBroken = true;
             if (window.Toast) window.Toast.warn('本机已保存，但数据文件（.data/）没写成功：' + e.message + '（不影响使用，可稍后到「设置 → 数据与同步」重试）');
@@ -198,7 +202,7 @@
         }
       }
     }, n ? Math.min(20000, 800 * Math.pow(3, n)) : 800);
-    pending.set(k, { t, body: payload, tries: n });
+    pending.set(k, { t, body: payload, tries: n, key: raw });
   }
   /* 关页面 / 切到后台时把还没发出去的写送出去：
      800ms 合并窗口 + 网络往返经常来不及，「改完就关标签页」那一次修改会丢。
@@ -212,7 +216,7 @@
       /* 和 queue 的定时器、flush 一样先过 diverged：boot 对账期间暂存的写补发之后，
          页面经常马上被刷新一次（changed→reload），这条任务很可能已经被服务器那份覆盖，
          不做这一步就会把「拉回真实数据之前那份误写」用 keepalive 送出去，用户数据又被顶掉。 */
-      if (diverged(key, job.body)) continue;
+      if (diverged(job.key || key, job.body)) continue;
       const url = '/data/' + encodeURIComponent(key);
       const keep = job.body == null || job.body.length < 60000;
       try {
@@ -294,7 +298,7 @@
         /* 队列里的内容已经不是本机当前值了（期间用户又写过，或者 boot 刚从服务器拉回更新的一份）
            → 这条任务过期，直接丢掉：再发会把较旧的内容盖到较新的上面（云端那份还会被顶掉）。
            判据同样走 diverged（workspace 那类本机没有值的键要放行，见那里的说明）。 */
-        if (diverged(key, job.body)) continue;
+        if (diverged(job.key || key, job.body)) continue;
         try {
           /* 待删除的键走删除接口：以前只对有值的键 put，删除任务被静默丢弃，
              服务器上的文件还在，下次 boot 会把已经删掉的数据拉回来。 */
@@ -326,7 +330,7 @@
       const files = (await r.json()).files || [];
       let n = 0;
       for (const key of this.localKeys()) {
-        const body = localStorage.getItem(key);
+        const body = window.LS.get(key);
         if (!body) continue;
         const srv = files.find(f => f.key === sanitize(key));
         const localTs = window.Store.tsOf(key);
@@ -509,7 +513,7 @@
     async exportAll(includeBlobs, includePrompts) {
       const ls = {};
       for (const k of this.localKeys()) {
-        const v = localStorage.getItem(k);
+        const v = window.LS.get(k);
         if (v != null) ls[k] = v;
       }
       const idb = {};

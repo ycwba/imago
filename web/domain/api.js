@@ -591,16 +591,22 @@ function topBoolValue(decl, on) {
     if (!s) return '';
     return s.length > 200 ? s.slice(0, 200) + '…' : s;
   }
+  /* 给一句上游原话补上「下一步」：映射表只有 ERROR_HINT 一份，列表 / 卡片的兜底文案也从这里过。
+     已经带着那句话的不再拼第二遍（上游原话有时就是这条映射补过的那一句）。 */
+  function withHint(base) {
+    const hint = (ERROR_HINT.find(([re]) => re.test(base)) || [])[1] || '';
+    if (!hint || base.includes(hint)) return base;
+    return base.replace(/[。.]+$/, '') + '：' + hint;
+  }
   function errorMessage(d, status, rawText) {
     const e = (d && d.error) || {};
     const issues = (e.details && Array.isArray(e.details.issues)) ? e.details.issues
       : (Array.isArray(e.issues) ? e.issues : []);
     const base = e.message || e.code || (d && (d.message || d.code)) || textMsg(rawText) || ('HTTP ' + status);
     const detail = issues.map(describeIssue).filter(Boolean).join('；');
-    const hint = (ERROR_HINT.find(([re]) => re.test(base)) || [])[1] || '';
     // 有字段级明细就用明细；没有明细（上游只给了一句泛化提示）就补人能看懂的下一步
-    if (detail) return base + '（' + detail + '）';
-    return hint ? base.replace(/[。.]+$/, '') + '：' + hint : base;
+    if (detail) return withHint(base + '（' + detail + '）');
+    return withHint(base);
   }
   /* 外链媒体（上游签名地址、对象存储地址）一律改走本地代理：
      页面里的 <img>/<video>/fetch 只碰本地地址，字节由代理取回（/getv 支持 Range，
@@ -608,10 +614,12 @@ function topBoolValue(decl, on) {
      也不会因为上游没给 CORS 头而抽不出帧。
      已经是本地路由的（/asset/、/getv?、/fetch?、/local-assets/）与 data:/blob: 原样返回。 */
   /* 请求：统一走 Net（带超时 + 退避重试 + 可读错误）。
-     HTTP 状态先判、非 JSON 给可读提示；网络/5xx 重试 1 次（4xx 不重试）。 */
+     HTTP 状态先判、非 JSON 给可读提示；重试次数就是设置页「网络重试」那一格
+     （Net 的 NUMS.retry，默认 1）—— 这里不再自设第二份默认值，设置页改 0 立刻生效。
+     4xx 永远不重试；POST/PUT/PATCH 没有幂等键时 Net 自己也会把重试压成 0。 */
   async function rawFetch(url, opts = {}) {
     const method = String(opts.method || 'GET').toUpperCase();
-    const x = await window.Net.read(url, { ...opts, retry: opts.retry === undefined ? 1 : opts.retry });
+    const x = await window.Net.read(url, opts);
     if (!x.ok) {
       const err = new Error(errorMessage(x.d, x.status, x.parseErr ? x.txt : ''));
       err.status = x.status;
@@ -619,13 +627,19 @@ function topBoolValue(decl, on) {
       err.issues = (x.d && x.d.error && x.d.error.details && x.d.error.details.issues) || (x.d && x.d.issues) || [];
       err.transient = isTransient(err);
       /* 提交类请求 + 5xx/超时：**不知道平台收没收到**。页面据此提示「可能已受理、先核对列表」，
-         而不是让用户以为失败直接重试（那会在平台上留下两条重复任务）。 */
-      if (['POST', 'PUT', 'PATCH'].includes(method) && (x.status >= 500 || x.status === 408 || x.status === 429)) err.maybeSubmitted = true;
+         而不是让用户以为失败直接重试（那会在平台上留下两条重复任务）。
+         429 是限流、平台没建单，不属于这一类：标成「可能已受理」只会把用户引去核对列表。 */
+      if (['POST', 'PUT', 'PATCH'].includes(method) && (x.status >= 500 || x.status === 408)) err.maybeSubmitted = true;
       throw err;
     }
     if (x.d === null && x.parseErr) {
       const t = textMsg(x.txt);
-      throw new Error('返回了非 JSON 内容（HTTP ' + x.status + '）' + (t ? '：' + t : ''));
+      const err = new Error('返回了非 JSON 内容（HTTP ' + x.status + '）' + (t ? '：' + t : ''));
+      err.status = x.status;
+      /* 200 但读不出 JSON 的 POST 同样是「不知道平台收没收到」：没有状态就没有 maybeSubmitted，
+         用户会当成失败直接重发，第二次扣费。 */
+      if (['POST', 'PUT', 'PATCH'].includes(method)) err.maybeSubmitted = true;
+      throw err;
     }
     return x.d;
   }
@@ -640,7 +654,7 @@ function topBoolValue(decl, on) {
 
   /* 「这次提交**不知道平台收没收到**」—— 全站只此一份判据（就在它产生的地方旁边）。
      两个来源合起来：
-       ① err.maybeSubmitted —— 上面那条对 5xx / 408 / 429 的标记；
+       ① err.maybeSubmitted —— 上面那条对 5xx / 408 与「200 但读不出 JSON」的标记；
        ② 传输层就断了（Net 超时、断连）—— 那时连HTTP 状态码都没拿到，平台那边可能早已受理。
      **必须把它当成「未知的成功」而不是「失败」**：用户看到「失败」最自然的反应是再点一次，
      而视频平台建任务经常超过 30 秒 —— 那不是边缘情况，是常态，那一下就是第二次扣费。
@@ -693,8 +707,19 @@ function topBoolValue(decl, on) {
       _env = null; _envTs = 0; _envOk = false;
       LIST_SNAP.clear();
       clearQuoteMarks();              // 内存 + 本机记录一起清（否则下次开机又被标「不可用」）
+      if (typeof clearQuoteCache === 'function') clearQuoteCache();   // 报价结果缓存（assetlib.js）
       Object.keys(QUOTE_INFLIGHT).forEach(k => delete QUOTE_INFLIGHT[k]);
       if (window.Capabilities) { Capabilities.unavailable = false; Capabilities.sources = {}; }
+    },
+    /* 只失效**一家**平台的「型号清单」派生结果（手填 / 隐藏 / 取回列表都走它）。
+       /registry 是整份答复，没有按平台分段取的口子，所以注册表快照仍要丢一次；
+       但别的平台的能力来源、全站的列表快照与在飞报价都不该跟着重来 ——
+       以前这些地方直接 clearCaches()，设置页点一次「获取型号列表」，
+       别的页面上正在轮询的任务与在飞的报价全被清空、下一轮全部重打上游（B20）。 */
+    invalidateModels(providerId) {
+      _reg = null; _regTs = 0;
+      const pid = String(providerId || '');
+      if (pid && window.Capabilities && Capabilities.sources) delete Capabilities.sources[pid];
     },
     async registry() {
       // 带 TTL：代理改了注册表（接入新平台）后，页面刷新即可看到，不用清缓存
@@ -783,11 +808,19 @@ function topBoolValue(decl, on) {
         || list.find(p => p.kind === ref)
         || list.find(p => p.relay === ref) || null;
     },
+    /* 「这一条记录属于哪一家」：只按平台 id 查，查不到就是 null。
+       与 prov() 的区别是**不兜底**——空号不能落到第一家去（那会把 A 的任务撤到 B 上）；
+       页面以前各自包一层 try/catch 写同一段，收在这里。 */
+    provOf(id) {
+      if (!id) return null;
+      try { return (this.providers() || []).find(p => p.id === id || p.keyId === id) || null; }
+      catch (e) { return null; }
+    },
     keyId(prov) { return (prov && (prov.keyId || prov.id)) || ''; },
     /* 按 keyId 读的 localStorage 开关（sk_key_ / sk_base_ / sk_off_ 都是这一套键名口径）。 */
     _ls(prov, prefix) {
       const id = this.keyId(prov);
-      return id ? (localStorage.getItem(prefix + id) || '') : '';
+      return id ? (window.LS.get(prefix + id) || '') : '';
     },
     /* 密钥：只认这一家自己的 keyId（registry 里 sparkcine-video 的 keyId 就是 sparkcine，共用一把）。
        绝不跨平台兜底 —— 把 A 平台的密钥发给 B 平台会直接 401（B 原本靠代理注入环境密钥可用） */
@@ -837,7 +870,7 @@ function topBoolValue(decl, on) {
         return Array.isArray(a) ? a : [];
       } catch { return []; }        // 写坏过一次就不再猜：界面按「没有自定义平台」渲染，代理那边会说明读失败
     },
-    customSet(list) { localStorage.setItem('sk_custom', JSON.stringify(list || [])); },
+    customSet(list) { window.LS.set('sk_custom', JSON.stringify(list || [])); },
     customId() { return 'cus-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); },
     /* 删掉一家：清单里那条 + 它名下的密钥 / 停用勾选 / 万一存过的地址 / 型号偏好一起清。
        只删清单会留下 `sk_key_cus-xxx` 这种没人认领的死数据，而且它跟着云同步出网。
@@ -849,7 +882,7 @@ function topBoolValue(decl, on) {
          `sk_model_` 是漏掉过的那一个（L41）：设置页按 `sk_model_<keyId>` 存
          型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
-      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => localStorage.removeItem(p + id));
+      ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => window.LS.del(p + id));
       /* 「自己填的型号」与「隐藏了哪几个」现在住在同一份 `sk_model_prefs` 里、按 keyId 分格，
          所以这里按格子摘，而不是再往 `sk_text_models_<id>` 上删一次 —— 那个键已经并进新键了，
          留着一条删除路径等于承认还有两处记录。 */
@@ -1650,12 +1683,21 @@ function topBoolValue(decl, on) {
        页面据此把「去用量与余额」那个入口也画出来 —— 只给一句「先到用量与余额页看看」
        而那页还得自己找，等于没说。 */
     isBalanceErr(e) { return BALANCE_RE.test(String(errText(e)|| '')); },
+    /* 错误文本 / 错误对象：全站一处（settings / studio / asr / search / actions 都只读这里）。
+       `Net.errorText` 负责解析代理回包的形状；这一层只补两个域级约定：
+       ① 没给一句话时给出这一路请求的兜底；② 平台回的错误码与 HTTP 状态原样带上（搜索页要分档）。 */
+    errText(e, fallback) { return withHint(errText(e, fallback)); },
+    errOf(e, fallback) {
+      const x = new Error(errText(e, fallback || '请求失败'));
+      if (e && e.data && e.data.kind) x.kind = e.data.kind;
+      if (e && e.status) x.status = e.status;
+      return x;
+    },
     /* 同一家刚报过余额不足：记一次。
        十分钟内再点合成，按钮上先把这句话说在前面 —— 让用户再发一次请求去换同一句拒
        虽然不扣费，但要白等一整轮，而这一条是刚刚才确认过的。合成成功就清掉。 */
     balOut: {
       KEY: 'sk_bal_out_',
-      MIN: 10 * 60 * 1000,
       mark(provId) { try { localStorage.setItem('sk_bal_out_' + String(provId || ''), String(Date.now())); } catch (e) {} },
       clear(provId) { try { localStorage.removeItem('sk_bal_out_' + String(provId || '')); } catch (e) {} },
       recent(provId) {

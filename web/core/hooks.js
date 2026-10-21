@@ -16,6 +16,9 @@ export function createHooks() {
       return dirty;
     },
     size: () => entries.size,
+    /* 同一枚函数既挂全局 `__spaFlush`/`__spaDirty` 又注册进来时，外壳只跑注册表那一遍 ——
+       否则关标签就是两次 IndexedDB put（X14）。按函数身份判，不按页面判。 */
+    has: fn => { for (const e of entries) { if (e.flush === fn || e.dirty === fn) return true; } return false; },
     clear: () => entries.clear(),
   };
 }

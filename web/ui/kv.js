@@ -91,6 +91,8 @@ const conns = new Map();                     // 库名 -> Promise<IDBDatabase>�
     chatResults: { db: 'chat_db', store: 'results', label: '助手长结果（随会话）', backup: true },
     /* 画布工程：整份文档按项目 id 存；项目索引仍走 Store（canvas_index）。 */
     canvasDocs: { db: 'canvas_db', store: 'docs', label: '画布工程', backup: true },
+    /* 导演台切片帧（导演台/slice-cache.js）：丢了能重建，不进整包备份。 */
+    slices: { db: 'wb_slices', store: 'slices', label: '导演台切片缓存（丢了能重建）', backup: false },
   };
   const bound = new Map();
   function at(name) {

@@ -179,14 +179,17 @@ function names(zip) {
       if (!j.ok && !j.reason) throw new Error('launch 没启动时要说清原因：' + JSON.stringify(j));
     }
 
-    /* ---------- pruneRenders：不删顶层 fcpxml-import，但会收崩溃留下的临时目录 ---------- */
+    /* ---------- pruneRenders：只扫渲染任务自己那种目录名 ---------- */
     const old = new Date(Date.now() - 24 * 3600 * 1000);
     const keepDir = path.join(importRoot, '20000101-000000-keepme');
-    const crashDir = path.join(proxy.renderDir, '20000101-000000-crashme');
+    const crashDir = path.join(proxy.renderDir, 'r' + (1234567).toString(36) + 'ab');   // routes/render.js 的形状
+    const userDir = path.join(proxy.renderDir, '我的样片');                                 // 用户自己放的文件夹
     fs.mkdirSync(keepDir, { recursive: true });
     fs.mkdirSync(crashDir, { recursive: true });
+    fs.mkdirSync(userDir, { recursive: true });
     fs.utimesSync(keepDir, old, old);
     fs.utimesSync(crashDir, old, old);
+    fs.utimesSync(userDir, old, old);
     const rjMod = createRenderJobs({
       ROOT: h.root, PORT: 0, RENDER_DIR: proxy.renderDir, assetStore: null,
       SESSION_COOKIE: 'x', SESSION_TOKEN: 'x', log: () => {}, keyOf: () => '', safeDecode: s => s,
@@ -199,10 +202,12 @@ function names(zip) {
     rjMod.pruneRenders();
     if (!fs.existsSync(keepDir)) throw new Error('pruneRenders 删了 fcpxml-import 里的工程目录');
     if (fs.existsSync(crashDir)) throw new Error('pruneRenders 没有清理渲染崩溃留下的临时目录');
+    if (!fs.existsSync(userDir)) throw new Error('pruneRenders 把用户在 .renders 里自己的文件夹当垃圾删了');
 
     console.log('✓ FCPXML 媒体包通过（' + ns.join(' / ') + '；本机素材已打包；字幕按固定名 subtitles.srt 落包与落盘；' +
       '超 5MB / 超 5000 条当场拒，被拒那份一个字都没落盘）；' +
-      '一键导入目录（中文场景镜头名 + missing.txt + bundle.zip）、重名 400、reveal/launch 校验与剪映/达芬奇工程保留均通过');
+      '一键导入目录（中文场景镜头名 + missing.txt + bundle.zip）、重名 400、reveal/launch 校验与剪映/达芬奇工程保留均通过；'
+      + '清扫只认任务目录名，用户自己放的文件夹不动');
   } catch (e) {
     const f = proxy ? h.logFaults(proxy.log) : [];
     console.error('✗ ' + (e && e.stack || e) + (f.length ? '\n代理日志异常：\n  ' + f.join('\n  ') : ''));

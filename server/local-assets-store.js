@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const MediaId = require('../web/domain/ident.js');
+const MediaId = require('../web/domain/ident.cjs');
 const { createIndexStore } = require('./index-store.js');
 
 function createLocalAssetsStore(deps) {
@@ -366,13 +366,11 @@ function createLocalAssetsStore(deps) {
   const localIndexUpsert = item => indexStore.upsert(item);
   const localIndexRemove = id => indexStore.remove(id);
 
+  /* 读路径只查索引，**不在这里补建**：`/asset/<id>` 每张缩略图都要走它，
+     一个不存在的 id 被轮询时（页面 3 秒一问）每次都会 readdirSync 整个 .assets 目录。
+     要补建的入口单独一个 localAssetRepair（见下），由真正要拿文件的操作显式调用。 */
   function localAssetEntry(id) {
-    const hit = localIndexEntry(id);
-    if (hit) return hit;
-    /* 索引只留最近 500 条（写入时截断），文件本身还在盘上。
-       不在这里按目录补建，被挤出索引的那条就永久取不回来：/asset/<id> 404、
-       DELETE /local-assets/<id> 也 404（文件删不掉，成孤儿）。逐句配音每句存一条，很快就到 500。 */
-    return localAssetRebuild(id);
+    return localIndexEntry(id);
   }
   /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（落盘文件名就是 <id>.<格式>，最可靠），
      再按 mime，最后按调用方给的 media_type（英文写法认成中文）。缺省过去写死 audio，
@@ -455,17 +453,24 @@ function createLocalAssetsStore(deps) {
     if (!old.detail && inc.detail) { old.detail = inc.detail; changed = true; }   // 生成时间在这里，缺了就只能回落盘时间
     return changed;
   }
-  /* 按文件名补一条索引（文件名就是 <id>.<格式>），并写回索引 */
+  /* 按文件名补一条索引（文件名就是 <id>.<格式>），并写回索引。
+     **明确补建入口**：只有真正要拿文件、而索引里没有时才调（localAssetFile / `/asset/<id>`）。
+     盘上确实没有的 id 记 60 秒负缓存 —— 轮询同一个不存在的号时不再每次扫全目录。 */
+  const repairMiss = new Map();
+  const REPAIR_MISS_TTL = 60 * 1000;
   function localAssetRebuild(id) {
     const clean = String(id || '').replace(/[^A-Za-z0-9_-]/g, '');
     if (!clean) return null;
+    const missAt = repairMiss.get(clean);
+    if (missAt && Date.now() - missAt < REPAIR_MISS_TTL) return null;
     let files = [];
     try { files = fs.readdirSync(LOCAL_DIR); } catch { return null; }
     const f = files.find(x => x.startsWith(clean + '.'));
-    if (!f) return null;
+    if (!f) { repairMiss.set(clean, Date.now()); return null; }
     let st = null;
-    try { st = fs.statSync(path.join(LOCAL_DIR, f)); } catch { return null; }
-    if (!st.isFile()) return null;
+    try { st = fs.statSync(path.join(LOCAL_DIR, f)); } catch { repairMiss.set(clean, Date.now()); return null; }
+    if (!st.isFile()) { repairMiss.set(clean, Date.now()); return null; }
+    repairMiss.delete(clean);
     const fmt = (path.extname(f).slice(1) || 'wav').toLowerCase();
     const mime = MIME['.' + fmt] || 'application/octet-stream';
     const item = {
@@ -485,8 +490,14 @@ function createLocalAssetsStore(deps) {
     const f = path.join(LOCAL_DIR, path.basename(ent.file));
     return fs.existsSync(f) ? f : null;
   }
+  /* 明确补建入口：索引里没有（被挤出 20000 条上限）但文件还在盘上时，按文件名补一条。 */
+  function localAssetRepair(id) {
+    return localAssetRebuild(id);
+  }
   function localAssetFile(id) {
-    return localFileFromEntry(localAssetEntry(id));
+    const ent = localFileFromEntry(localAssetEntry(id));
+    if (ent) return ent;
+    return localFileFromEntry(localAssetRepair(id));
   }
   /* ---------- 本机资产库占了多少地方（GET /assets-usage 用，只读） ----------
      为什么必须有这一条：`.assets` 是这一台机器上唯一**只增不减**的那一堆 ——
@@ -742,7 +753,7 @@ function createLocalAssetsStore(deps) {
     sweepStaleTmp, LOCAL_INDEX_MAX, indexStore, localIndexRead,
     localIndexEntry, localIndexUpsert, localIndexRemove,
     localIndexUpdate, localIndexPut, localIndexDrop,
-    localAssetEntry, localMediaType, productKindOfName, localAssetWhen,
+    localAssetEntry, localAssetRepair, localMediaType, productKindOfName, localAssetWhen,
     localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
     localUsageScan, sendFileWithRange, serveLocalFile,
   };

@@ -52,9 +52,9 @@ function boot() {
   ctx.dispatchEvent = (e) => { events.push(e); };
   ctx.URL.revokeObjectURL = () => {}; ctx.URL.createObjectURL = () => 'blob:x';
   vm.createContext(ctx);
-  /* api.js 依赖 window.MediaId（ident.js 是 UMD，浏览器挂 window.MediaId）——
+  /* api.js 依赖 window.MediaId（ident.cjs 是 UMD，浏览器挂 window.MediaId）——
      与 tests/local-first.cjs 同一份加载顺序。 */
-  vm.runInContext(read('web/domain/ident.js'), ctx, { filename: 'web/domain/ident.js' });
+  vm.runInContext(read('web/domain/ident.cjs'), ctx, { filename: 'web/domain/ident.cjs' });
   /* Capabilities（capabilities.js 是 ESM，浏览器里由别的脚本先挂上）：
      判据只用得到「顶层开关/形状字段看得见」这一小面，给一份最小实现即可 ——
      真实的可见性判据由 tests/providers-validate.cjs 那一族守着。 */

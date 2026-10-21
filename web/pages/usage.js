@@ -4,14 +4,9 @@
    组件只负责「这一屏长什么样」，Dropdowns / Chips / Wb.loadNote / Net.save 仍是全站那一份实现。 */
 import { ref, reactive, computed, onMounted, nextTick } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/usage.js';
+import { ensureCss } from '../core/page-css.js';
 
-(function ensureCss() {
-  if (document.querySelector('link[href$="spa-usage.css"]')) return;
-  const l = document.createElement('link');
-  l.rel = 'stylesheet';
-  l.href = 'web/styles/spa-usage.css';
-  document.head.appendChild(l);
-})();
+ensureCss('web/styles/spa-usage.css');
 
 const ROUND = v => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -41,8 +36,24 @@ async function getJson(url) {
   }
 }
 
-/* 自动配色：按平台名稳定分配（同一平台永远同色） */
-const CHART_COLORS = ['#6957e8', '#19b394', '#f59e0b', '#ef4444', '#3b82f6', '#a855f7', '#14b8a6', '#f97316', '#22c55e', '#eab308', '#ec4899', '#06b6d4'];
+/* 自动配色：按平台名稳定分配（同一平台永远同色）。
+   色值只在 `tokens.css` 的 `--chart-*`（唯一一份），这里现读 CSS 变量；
+   读不到（没有 document / 变量被删）就退回当前文字色，绝不写死第二套十六进制。 */
+const CHART_VARS = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5', '--chart-6',
+  '--chart-7', '--chart-8', '--chart-9', '--chart-10', '--chart-11', '--chart-12'];
+let chartPalette = null, chartPaletteTheme = '';
+function chartColors() {
+  const theme = (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')) || 'light';
+  if (chartPalette && chartPaletteTheme === theme) return chartPalette;
+  let list = [];
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    list = CHART_VARS.map(v => cs.getPropertyValue(v).trim()).filter(Boolean);
+  } catch { /* 读不到就退回文字色 */ }
+  chartPalette = list.length ? list : ['currentColor'];
+  chartPaletteTheme = theme;
+  return chartPalette;
+}
 /* 图例上那一行只放得下十六个字：名字已经由 `provLabel` 归一，不再在这里按平台写正则 */
 const shortName = p => String(p || '').slice(0, 16);
 
@@ -111,11 +122,10 @@ export default {
     }
 
     function colorOf(name) {
-      let h = 0;
-      for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 100003;
       const hit = colorCache.get(name);
       if (hit) return hit;
-      const c = CHART_COLORS[colorIdx++ % CHART_COLORS.length];
+      const colors = chartColors();
+      const c = colors[colorIdx++ % colors.length];
       colorCache.set(name, c);
       return c;
     }
@@ -129,7 +139,7 @@ export default {
         if (!window.Api.provUsable(prov, env)) continue;
         const kid = prov.keyId || prov.id;
         /* 只补「密钥从哪来」那一句：custom 而两把都没有的也在用（刚添加完总得看得见） */
-        const local = String(localStorage.getItem('sk_key_' + kid) || '').trim() !== '';
+        const local = String(window.LS.get('sk_key_' + kid) || '').trim() !== '';
         const hasEnv = !!((env || {})[kid] && (env || {})[kid].hasEnv);
         list.push({ prov, kid, source: local ? '页面密钥' : hasEnv ? '服务端环境密钥' : '自己添加的' });
       }
@@ -368,7 +378,7 @@ export default {
           chartUnit, v => { chartUnit = v; renderChart(); });
       }
       if (!series.length) {
-        return `<div class="empty">该单位下近 ${days} 天没有消费记录</div>`;
+        return window.Wb.emptyHTML('该单位下近 ' + days + ' 天没有消费记录');
       }
       const max = Math.max(1, ...buckets.map((_, i) => Math.max(0, ...series.map(sv => sv.vals[i]))));
       const W = 760, H = 160, bw = W / buckets.length;
@@ -389,7 +399,7 @@ export default {
           return `<rect x="${x.toFixed(1)}" y="${H - 24 - h}" width="${Math.max(2, barW - 1).toFixed(1)}" height="${h}" rx="2" fill="${colorOf(sv.name)}">
         <title>${tip}</title></rect>`;
         }).join('');
-        return `<g>${inner}<text x="${x0 + (bw - 6) / 2}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--sub, #8a8fa3)">${b.label}</text></g>`;
+        return `<g>${inner}<text x="${x0 + (bw - 6) / 2}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--sub)">${b.label}</text></g>`;
       }).join('');
       const legend = series.map(sv => {
         const subs = [...sv.subs.keys()].map(x => x.replace(/^SparkCine\s*/, '').replace(/^VGENV\s*/, '')).filter(Boolean);
@@ -478,9 +488,9 @@ export default {
     /* ---------- 代理没起来时的这一页该长什么样 ----------
        读不到注册表就当场把三块面板换成一句能照做的话，状态行也照实说。 */
     function showProxyDown(why) {
-      const tip = '<div class="empty">读不到本机代理' + (why ? '（' + why + '）' : '') + '：'
-        + '这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。<br>'
-        + '先跑一次项目目录里的「启动.bat」（或 <code>node proxy.js</code>），再点右上「刷新」。</div>';
+      const tip = window.Wb.emptyHTML(['读不到本机代理' + (why ? '（' + why + '）' : '') + '：'
+        + '这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。',
+        '先跑一次项目目录里的「启动.bat」（或 node proxy.js），再点右上「刷新」。']);
       balanceLoading.value = false;
       balanceCards.value = [];
       balanceTip.value = { kind: 'proxy', why: why || '' };
@@ -554,7 +564,6 @@ export default {
 
     const chartIcon = window.icon ? window.icon('chart', 18) : '';
     const refreshIcon = window.icon ? window.icon('refresh', 13) : '';
-    const fmtWhen = t => window.fmtWhen(t);
 
     onMounted(async () => {
       try {
@@ -594,7 +603,7 @@ export default {
       bills, billMore, billErrs, billErr, billLoading, billDownHtml, billNoteHtml, billCntText, billRows, curBillRows,
       platformOptions, fPlatform, fRange, fQ,
       reloadAll, renderBills, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
-      fmtWhen, chartIcon, refreshIcon,
+      fmtWhen: window.fmtWhen, chartIcon, refreshIcon,
     };
   },
   render,

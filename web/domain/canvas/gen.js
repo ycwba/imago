@@ -2,10 +2,11 @@
    图片 = AiGen.create + AiGen.wait（两段是为了切页后能按任务号认领回来，不重发不重复扣费）；
    音频 = AiGen.synthTts（同步合成，没有平台任务号）；
    视频 = Api.create + Api.pollTask（状态判定交给 Api.parseItem，页面不自己认状态词）。 */
-import { labelOf, MEDIA_KINDS } from './registry.js';
+import { labelOf } from './registry.js';
 
-/* 产物类型直接读注册表那三档：这里再列一遍字面量，注册表加一档就又多一份「过时名单」。 */
-const kindOf = t => (MEDIA_KINDS.includes(t) ? t : '');
+/* 节点类型算不算一类可生成的媒体：判据在公共层（ui.js 的 mediaKindFrom），
+   注册表加一档就跟着认一档，这里不再列第二份字面量名单。 */
+const nodeKindOf = t => window.mediaKindFrom(t);
 
 /* 平台与型号都从注册表现取：这一页没有添加过供应商时列表是空的，界面要照实说。 */
 export function provsFor(kind) {
@@ -75,7 +76,7 @@ export function resolve(doc, node) {
 }
 
 export function whyReady(doc, node) {
-  const kind = kindOf(node.type);
+  const kind = nodeKindOf(node.type);
   if (!kind) return '这种节点不生成东西';
   const r = resolve(doc, node);
   if (r.missing.length) {
@@ -97,7 +98,7 @@ export function whyReady(doc, node) {
    输入素材在预览里是占位：真发时那一路交的是资产号（画布的输入已经是平台资产号，
    所以这里照原样交，但形状仍按声明裁到上限 —— 多的那几路在真发时也会被丢掉）。 */
 export function preview(doc, node) {
-  const kind = kindOf(node.type);
+  const kind = nodeKindOf(node.type);
   if (!kind) return null;
   const r = resolve(doc, node);
   const prov = provOf(r.prov);
@@ -128,7 +129,7 @@ export function preview(doc, node) {
 /* 提交：拿到任务号的那一刻回调 onTask（页面立刻落盘），然后交给调用方继续等。
    音频是同步合成，没有任务号 —— 这条照实说明，界面上不画「取消」。 */
 export async function submit(doc, node, o = {}) {
-  const kind = kindOf(node.type);
+  const kind = nodeKindOf(node.type);
   if (!kind) throw new Error('这种节点不生成东西');
   const r = resolve(doc, node);
   const why = whyReady(doc, node);
@@ -163,10 +164,15 @@ export async function submit(doc, node, o = {}) {
       onTask: x => { if (o.onTask) o.onTask(String(x.id)); }, log: { type: '画布生成', meta: { 节点: node.id } } });
     return { kind, taskId: String(t.id), t, want: t.want, fmt: t.fmt, droppedInputs };
   }
-  const raw = await window.Api.create(prov, { model: model.id, prompt: base.prompt,
-    ar: base.ar, duration: base.duration, count: base.count, tier: base.tier, res: base.res,
-    inputEntries: entries, note: '画布提交', snapTag, snapLabel,
-    log: { type: '画布生成', meta: { 节点: node.id } } });
+  const raw = await window.Api.create(prov, (() => {
+    /* 与图片那条共用 base 再覆盖：以前这里逐字重拼，漏掉 quality / format / size ——
+       画布上选好的画质、格式、尺寸在视频提交里被静默丢掉（B28）。 */
+    const body = Object.assign({}, base, { model: model.id, inputEntries: entries,
+      note: '画布提交', snapTag, snapLabel,
+      log: { type: '画布生成', meta: { 节点: node.id } } });
+    delete body.prov;                       // create 的第一参已经是平台，请求体里不再带一份对象
+    return body;
+  })());
   const p = window.Api.parseItem(prov, raw) || {};
   const id = String(p.genId || (raw && (raw.id || raw.task_id || raw.job_id)) || '');
   if (!id) throw new Error((raw && (raw.message || raw.code)) || '接口没有返回任务号');
@@ -209,4 +215,4 @@ export function announce(entry) {
   window.AssetLocal.announce([entry]);
 }
 
-export { kindOf };
+export { nodeKindOf };

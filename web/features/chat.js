@@ -36,7 +36,7 @@
      这一项是本机窗口的事，不跟着云同步（见 ui.js 的 NOT_SYNC）：
      在一台机器上关掉它，不该顺手把另一台也关了。 */
   const K_OFF = 'ai_chat_off';
-  if (localStorage.getItem(K_OFF) === '1') return;
+  if (window.LS.get(K_OFF) === '1') return;
 
   const KEY = 'ai_chat';                 // 对话记录（Store 信封，跟着云同步走）
   const K_XY = 'ai_chat_xy';             // 悬浮球位置（{x,y}，拖动结束才落盘）
@@ -47,7 +47,7 @@
   const K_W = 'ai_chat_w';               // 抽屉宽度（本机窗口的事，不跟着云同步）
   const K_DOCK = 'ai_chat_dock';         // 固定到右侧（把页面挤到左边）；本机窗口的事，不跟云同步
   const K_NOTICE = 'ai_chat_notice';     // 「出结果弹系统通知」：要浏览器授权，授权按钮在设置页那一卡
-  const autoRun = () => localStorage.getItem(K_AUTO) === '1';
+  const autoRun = () => window.LS.get(K_AUTO) === '1';
   const CAP = 60;                        // 单个会话的记录条数上限
   const SESS_CAP = 40;                   // 会话数上限（超了丢最久没用的那个，当前这条永远不丢）
   const TOOL_OUT = 7000;                 // 单条查询结果喂回模型的字数上限
@@ -685,6 +685,35 @@
     bind();
     loadFiles();
   }
+  /* 单条正文落盘的字节上限：粘贴一大段日志 / 一条超长工具回执就能顶过 localStorage 的 5MB，
+     而 Store.write 是**整键**写 —— 一条超长消息会让整份会话记录被拒写（这一轮之后的对话全部不落盘）。
+     内存里保留全文，只裁落盘那一份，截断处留下说明。 */
+  const PERSIST_TEXT_MAX = 20000;
+  function slimText(t) {
+    const str = String(t == null ? '' : t);
+    return str.length > PERSIST_TEXT_MAX
+      ? str.slice(0, PERSIST_TEXT_MAX) + '\n…（这一条太长，历史里只留前 ' + PERSIST_TEXT_MAX + ' 字；本次会话里仍能看全）'
+      : str;
+  }
+  function slimMsg(m) {
+    if (!m || typeof m !== 'object') return m;
+    const o = Object.assign({}, m);
+    if (typeof o.t === 'string') o.t = slimText(o.t);
+    if (Array.isArray(o.fs)) o.fs = o.fs.map(f => (f && typeof f.txt === 'string' && f.txt.length > PERSIST_TEXT_MAX)
+      ? Object.assign({}, f, { txt: slimText(f.txt) }) : f);
+    return o;
+  }
+  function slimSession(x) {
+    const o = Object.assign({}, x, { msgs: (x.msgs || []).map(slimMsg) });
+    o.turns = (x.turns || []).map(t => {
+      if (!t || typeof t !== 'object') return t;
+      const c = Object.assign({}, t);
+      if (c.user && typeof c.user.text === 'string') c.user = Object.assign({}, c.user, { text: slimText(c.user.text) });
+      if (c.assistant && typeof c.assistant.text === 'string') c.assistant = Object.assign({}, c.assistant, { text: slimText(c.assistant.text) });
+      return c;
+    });
+    return o;
+  }
   function save() {
     const s = sess();
     if (!s) return;
@@ -703,7 +732,7 @@
         .sort((a, b) => (a.at || 0) - (b.at || 0)).slice(0, cut).map(x => x.id);
       SESS.list = SESS.list.filter(x => drop.indexOf(x.id) < 0);
     }
-    Store.write(KEY, SESS, { label: 'AI 助手对话' });
+    Store.write(KEY, { v: SESS.v, cur: SESS.cur, list: SESS.list.map(slimSession) }, { label: 'AI 助手对话' });
   }
   function push(kind, text, extra, more) {
     /* more 是给气泡挂的「行为按钮」（如失败后的「重发」），与消息本体分开走：
@@ -719,21 +748,16 @@
   const pendingRun = () => msgs.filter(m => m.r === 'run' && !m.st).length;
 
   /* ---------- 附件 ---------- */
+  /* 附件的类型：媒体三档读公共层（ui.js 的 mediaKindFrom），文本是助手特有的一档。 */
   function kindOf(f) {
-    const t = String(f.type || '').toLowerCase();
-    if (t.startsWith('image/')) return '图片';
-    if (t.startsWith('video/')) return '视频';
-    if (t.startsWith('audio/')) return '音频';
-    if (t.startsWith('text/')) return '文本';
-    if (TEXT_EXT.test(String(f.name || ''))) return '文本';
+    const k = window.mediaKindFrom(f);
+    if (k === 'image') return '图片';
+    if (k === 'video') return '视频';
+    if (k === 'audio') return '音频';
+    if (String(f.type || '').startsWith('text/') || TEXT_EXT.test(String(f.name || ''))) return '文本';
     return '其他';
   }
-  function extOf(f) {
-    const m = /\.([a-z0-9]{2,5})$/i.exec(String(f.name || ''));
-    if (m) return m[1].toLowerCase();
-    const s = String(f.type || '').split('/')[1] || 'bin';
-    return s.replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'bin';
-  }
+
   async function addFiles(list) {
     const arr = Array.from(list || []).filter(Boolean);
     if (!arr.length) return { added: 0, want: 0 };
@@ -752,7 +776,7 @@
           const b64 = window.AiGen ? AiGen.b64FromBuf(await f.arrayBuffer()) : '';
           if (b64) {
             const saved = await Api.saveLocalAsset({ name: rec.name, mime: rec.mime || 'application/octet-stream',
-              format: extOf(f), data: b64, media_type: rec.kind, meta: { provider: 'local', prompt: 'AI 助手附件' } });
+              format: window.blobExtOf(f), data: b64, media_type: rec.kind, meta: { provider: 'local', prompt: 'AI 助手附件' } });
             if (saved && saved.id) {
               rec.la = saved.id;
               /* 拿到本机地址之后，这个 blob: 就此失去引用 —— 当场收回。
@@ -2467,7 +2491,7 @@
   const DOCK_MIN = 900;
   let dockW = 420;
   const dockOn = () => {
-    const v = localStorage.getItem(K_DOCK);
+    const v = window.LS.get(K_DOCK);
     return v == null ? window.innerWidth >= DOCK_MIN : v === '1';
   };
   function applyDock() {
@@ -2566,7 +2590,7 @@
      左边那条界让开 sbW()：吸附不能把球塞进侧栏（z=90）盖住的那一带，否则等于把助手弄丢。
      分界线用**可用区**（扣掉侧栏之后）的中点，不是窗口中点 —— 侧栏展开时可用区整体偏右，
      拿窗口中点判会把明显偏右的位置也吸到左边。 */
-  const snapOn = () => localStorage.getItem(K_SNAP) !== '0';
+  const snapOn = () => window.LS.get(K_SNAP) !== '0';
   function snapXY(x, y) {
     if (!snapOn()) return { x, y };
     const minX = 8 + sbW(), maxX = window.innerWidth - BALL - 6;
@@ -2978,7 +3002,7 @@ html.ac-dock #acPanel{box-shadow:none}
       applyDock();
       return w;
     };
-    let acW = applyW(localStorage.getItem(K_W));
+    let acW = applyW(window.LS.get(K_W));
     if (el.grip) el.grip.addEventListener('pointerdown', e => {
       e.preventDefault();
       const startX = e.clientX, startW = p.getBoundingClientRect().width;
@@ -3245,14 +3269,14 @@ html.ac-dock #acPanel{box-shadow:none}
      共享的那一份从这里递过去（函数声明已提升、const 已初始化，所以放在文件末尾取）。
      写动作注册表仍由那一份自己持有，这里只读它的状态。 */
   const CHAT_TOOLS = window.AiChatTools.build({
-    AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, RESULT_MAX,
+    AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, READ_MAX, RESULT_MAX,
     CACHES, SCOPE_TYPE, pageZh, STUDIO_T, VAL_ZH, STD,
     EF, ctxFiles, cap, num, when, $,
     frameWin, page, hostCtx, hostDoc, navItems, reg,
     caps, usableMap, provFlags, DRA, needDRA, charRows,
     usageStat, domPicks, ensureSearchMod, noteSource, searchFail, uiInventory,
     labelOf, notForAi, findUI, zoneOf, riskyOf, save,
-    kindOf, LOCAL_SRC, fileBytes, wread, addWatch, probeWatch,
+    LOCAL_SRC, fileBytes, wread, addWatch, probeWatch,
     localHistory, remoteHistory, showCards, provNow, modelNow, toolResultRead,
     snapOn, note,
     getREG: () => REG,

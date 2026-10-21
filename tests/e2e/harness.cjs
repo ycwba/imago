@@ -108,12 +108,17 @@ async function startProxy(opts = {}) {
 function hasFfmpeg() {
   try { cp.execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch (e) { return false; }
 }
-/* 造一段 2 秒可播放的测试视频（同一份 lavfi 参数每次一样，画面判据才稳）。 */
-function makeClip(dir) {
+/* 造一段可播放的测试视频（同一份 lavfi 参数每次一样，画面判据才稳）。
+   `seconds` 默认 2 秒；切片性能那条要 20 秒才摆得出二十格。
+   `-g 12` 让每秒都有个关键帧：切片是逐时刻 seek，全挤在一个 GOP 里时量出来的是
+   解码器从头解一遍的耗时，不是切片流水线的耗时（两种都该快，但后者才是被测的东西）。 */
+function makeClip(dir, seconds = 2) {
+  const sec = Math.max(1, Math.min(120, Math.round(Number(seconds) || 2)));
   const f = path.join(dir, 'probe-clip.mp4');
   cp.execFileSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', 'testsrc=size=128x72:rate=12:duration=2',
-    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart', f], { stdio: 'pipe' });
+    '-f', 'lavfi', '-i', 'testsrc=size=128x72:rate=12:duration=' + sec,
+    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '12',
+    '-movflags', '+faststart', f], { stdio: 'pipe' });
   if (!fs.existsSync(f) || fs.statSync(f).size < 1024) throw new Error('ffmpeg 没造出测试视频');
   return f;
 }
@@ -216,7 +221,11 @@ class Page {
   constructor(cdp) {
     this.cdp = cdp;
     this.errors = [];
-    cdp.on('Runtime.exceptionThrown', p => this.errors.push((p.exceptionDetails && p.exceptionDetails.text) || 'exception'));
+    /* 只记 text 会得到一句「Uncaught」，真错在 exception.description（含调用栈首行）。 */
+    cdp.on('Runtime.exceptionThrown', p => {
+      const d = (p && p.exceptionDetails) || {};
+      this.errors.push((d.exception && (d.exception.description || d.exception.value)) || d.text || 'exception');
+    });
     cdp.on('Runtime.consoleAPICalled', p => {
       if (p.type === 'error') this.errors.push((p.args || []).map(a => a.value || a.description || '').join(' '));
     });

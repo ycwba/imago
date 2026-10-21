@@ -1,6 +1,7 @@
 /* 注册表 / 自定义供应商取型号：/registry 的合并清单与 /custom/models 的现场查询。 */
 'use strict';
 const { modelRowsOf } = require('../registry-config.js');
+const { sendJson } = require('./http');
 
 function createRegistryRoutes(ctx) {
   const { REGISTRY, allProviders, customNotice, modelPrefsNotice, MODEL_PREFS_KEY, readBody, guardOutboundUrl, upRequest } = ctx;
@@ -9,7 +10,7 @@ function createRegistryRoutes(ctx) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
     if (dataPath === '/registry') {
       // 供客户端按能力过滤模型；设置页添加的自定义平台合并在这里（清单来自 .data/sk_custom.json）
-      const body = JSON.stringify({
+      sendJson(res, 200, {
         ...REGISTRY,
         providers: allProviders(),
         /* 有哪些条目被丢掉、为什么：界面据此说清「我明明添加了，下拉里没有」，
@@ -18,9 +19,7 @@ function createRegistryRoutes(ctx) {
         /* 型号清单偏好读不动时要说出来（与上面 custom.notice 同一立场）：
            不然「我把这个型号藏了，下拉里怎么还在」只能靠猜。 */
         modelPrefs: { reason: modelPrefsNotice.reason, key: MODEL_PREFS_KEY },
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
-      res.end(body);
+      }, { 'Access-Control-Allow-Origin': '*' });
       return;
     }
     /* 添加自定义供应商时的「获取型号列表」：拿**表单里现填的**形状 + 地址 + 密钥，问一次它自己的型号表。
@@ -36,10 +35,9 @@ function createRegistryRoutes(ctx) {
         let q = {};
         try { q = JSON.parse(raw.toString('utf8')) || {}; } catch {}
         const tpl = REGISTRY.providers.find(p => p.id === String(q.shape || ''));
-        const bad2 = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ ok: false, error: msg })); };
-        if (!tpl) { bad2(400, '找不到当模板的内置平台：' + (q.shape || '(空)')); return; }
+        if (!tpl) { sendJson(res, 400, { ok: false, error: '找不到当模板的内置平台：' + (q.shape || '(空)') }); return; }
         const key = String(q.key || '').replace(/^\s*Bearer\s+/i, '').trim();
-        if (!key) { bad2(400, '没有密钥 —— 型号列表是要鉴权的接口'); return; }
+        if (!key) { sendJson(res, 400, { ok: false, error: '没有密钥 —— 型号列表是要鉴权的接口' }); return; }
         /* 地址校验用**异步那份** guardOutboundUrl（除了字面量 IP 还会解析域名、拦住 *.nip.io
            这类「看着是公网、实际指向 127.0.0.1」的写法），与取外链字节那条路同一套判据。
            buildCustom 落盘时用的是同步那份 —— 那是「先存下来、真正发请求时再判」；
@@ -57,14 +55,27 @@ function createRegistryRoutes(ctx) {
              报出来的是「连不上本地代理（proxy.js 没启动？）」—— 而代理活得好好的。 */
           const out = o => {
             if (res.headersSent) { try { res.destroy(); } catch {} return; }
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify(o));
+            sendJson(res, 200, o);
           };
           const fail = e => out({ ok: false, from: url, error: '连不通（打到 ' + url + '）：' + String((e && e.message) || e || '') });
           const rq = upRequest(url, { method: 'GET', headers: { authorization: 'Bearer ' + key, accept: 'application/json' }, timeoutMs: 20000 }, ur => {
             const bufs = [];
-            ur.on('data', c => bufs.push(c));
+            let total = 0, dead = false;
+            /* 边收边累计：型号表正常只有几十 KB，8MiB 还收不完多半是打到了别的东西。
+               以前是全收下来再解析，一个超大响应会先把代理内存吃掉。 */
+            ur.on('data', c => {
+              if (dead) return;
+              total += c.length;
+              if (total > 8 * 1024 * 1024) {
+                dead = true;
+                try { ur.destroy(); } catch (e) {}
+                out({ ok: false, from: url, error: '型号列表响应超过 8MB，已中止（这个地址回的不是型号列表）' });
+                return;
+              }
+              bufs.push(c);
+            });
             ur.on('end', () => {
+              if (dead) return;
               const buf = Buffer.concat(bufs);
               if (ur.statusCode !== 200) {
                 const txt = buf.toString('utf8', 0, 400).replace(/\s+/g, ' ').trim();
@@ -83,7 +94,7 @@ function createRegistryRoutes(ctx) {
               out({ ok: models.length > 0, from: url, count: models.length, models,
                 error: models.length ? '' : '它回了 200，但响应里没有型号列表（不是 id 数组）' });
             });
-            ur.on('error', fail);
+            ur.on('error', e => { if (!dead) fail(e); });
           });
           /* upRequest 的 timeoutMs 是**空闲**超时：域名解析那一步还没有 socket，不受它管。
              不加这道墙钟的话，一个解析不出来的地址会让设置页的「获取型号列表」一直转圈。 */
@@ -95,7 +106,7 @@ function createRegistryRoutes(ctx) {
              要等满 25 秒墙钟才拿到一句「连不通（打到 …）」—— 设置页点「获取型号列表」看起来
              就是卡住。`routes-smoke` 那条假 upRequest 故意不替调用点补 end，专门盯这一句。 */
           rq.end();
-        }).catch(e => bad2(400, '地址不可用：' + e.message));
+        }).catch(e => sendJson(res, 400, { ok: false, error: '地址不可用：' + e.message }));
       });
       return;
     }

@@ -148,9 +148,13 @@ function createDataStore(opts) {
           return;
         }
         dataWriteRaw(key, buf);
-        const st = fs.statSync(f);
+        /* 写成功之后的 stat 只是回执里的两个数：杀软 / 同步盘占着刚写完的文件时
+           statSync 会抛（EPERM/EBUSY），以前被下面那个 catch 当成「写入失败」回 500 ——
+           数据其实已经在盘上了，客户端却会把这次保存当失败重试。 */
+        let size = buf.length, mtime = Date.now();
+        try { const st = fs.statSync(f); size = st.size; mtime = st.mtimeMs; } catch (e) {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, key, size: st.size, mtime: st.mtimeMs }));
+        res.end(JSON.stringify({ ok: true, key, size, mtime }));
       }).catch(e => {
         /* 落盘失败（磁盘满 / 文件被占用 / 键名不合法）一定要回错误：
            以前没有 catch，响应永远不发，页面只能等到超时。 */

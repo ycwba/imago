@@ -116,8 +116,49 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        都改成**带变量占位符**的那一份，并把 `board_assets` 那一族补上。
        ⚠ `DEF` 与 `skills/` 里那份 SKILL.md **必须逐字相同**（判据 tests/e2e/smoke.cjs 守着
        「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
-       所以这一笔省不掉：变量机制要进正文，正文要进 `DEF`，`DEF` 在首屏。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 32, FIRST_SCREEN_MAX_BYTES = 1028086;
+       所以这一笔省不掉：变量机制要进正文，正文要进 `DEF`，`DEF` 在首屏。
+     ·  +2.1KB（2026-10-21）：R2 导出素材的取消态（rendering / assetsExporting / cancelled 收尾一行不落）、
+       R14 关键帧入口重入锁与按钮按运行态渲染、R16 清空三处提示词、R17 失败镜过滤 draft 占位 ——
+       都是「错一次就双倍扣费 / 清不掉 / 永远进不了 todo」的判据，不能为了字节留着不修。
+     ·  +9.3KB（2026-10-21，批 2–3 收口）：涨的每一份都落在首屏取数路径上，没有一份能按需：
+       `ui.js` 的 mediaKindFrom / fileExtOf / blobExtOf（类型与扩展名判断的唯一实现）、LS 信封读取与
+       错误文案；`assetlib.js` + `asset-picker.js` 的列表结果短缓存（L1/L2，资产库首屏请求 40+ → 12）；
+       `local.js` 的镜像身份 mirrorIdOf / pullPlan（本机号与任务号只此一处）；`api.js` 的非 JSON 响应 /
+       错误提示；`text-ai.js` 的余额解析与 LS 读取。拆出去只会让每页各补载一次，净字节反而更多。
+     ·  +10.3KB（2026-10-21，批 4–5 收口）：同上，全在「页面第一次取数 / 第一次弹确认框」就要用的那份里：
+       `assetlib.js` 的报价缓存 TTL + 上限与使用关系精确比对（B22 / B25）、`capabilities.js` 的声明键
+       以本次为准（B23，撤掉的档位不能留）、`local.js` 的 IDB 读失败与真为空分开 / 多标签合并（B16–B19）、
+       `asset-picker.js` 的 blob 差集回收（B32 / B33）、`datasync.js` 的原始键（B41）、
+       `forms.js` 开窗前清残留模态（B43）、`skills.js` 的 force 不复用在途清单（B46）、
+       `ui.js` 的 pageSizeOf 上限（B42）。把其中任何一份拆成按需，都会让每页各补载一次。
+     ·  −250KB（2026-10-21，G2）：`capabilities` / `text-ai` / `asset-picker` / `datasync` 这四份移出常驻，
+       改由路由表的 `needs` 按页声明（web/core/routes.js）—— 上面那句「每页各补载一次」在这里不成立，
+       因为补载走的是同一个 `__spaLoadScript` 的在途清单：一页一次、全站一份，用到的页照旧并发取，
+       收藏 / 用量 / 资产库用不到的那几份整份不下。省下的是常驻那一层的串行阻塞：
+       27 枚 / 794509 字节，四份都改在页面组件 `import()` 之前并发补载。
+     ·  +0.8KB（2026-10-21，G3）：路由表多管两件事，都在常驻那一层的 `routes.js` 里 ——
+       `chunk`（导演台的 engine.js 由 index.js 挂载时才 `import()`，modulepreload 只走静态图，看不见这一层）
+       与 `needAll`（全站 `needs` 的并集，从上面那张表现算；空闲兜底改读它，boot-assistant 不再抄一份
+       src→全局 的名单，那张对照表只剩 routes.js 的 NEED_GLOBAL 一处）。涨的这 775 字节买的是把
+       「等 needs → 取页面 → 页面再取引擎」三段串并成一段。实跑 27 枚 / 795298 字节。
+     ·  +0.9KB（2026-10-21，G1–G4 收口）：枚数不变，涨的只有 `sidebar.js` 一处 ——
+       弹层（余额详情）里手抄的那一整套余额外壳收拢回公共件：新增 `balWrap`（区域容器一份）与
+       `balCardsHTML`（卡列表 + 「一家都没有 / 一张摆不下」那两种空态说法一份），侧栏与弹层各调同一份；
+       `paintBal` 多一个 `full` 档（全量摆、不截断、不写摘要行那三个读数、不挂本机行订阅）。
+       这是 dup-guard 判据 ③「表外新增重复」当场报出来的那一处（`paint` 在两个文件各一份），
+       收口的代价就是这份公共件；把它拆成按需反而要让每个开弹层的页面补载侧栏。
+       实跑 27 枚 / 796228 字节。
+     ·  +0.65KB（2026-10-21，L3/L4 收尾）：枚数不变，涨的只有 `assetlib.js` 的 `countAll(opts.from)`
+       —— 后台数总数**接着页面已经翻到的游标往后走**，不重回第 1 页。这一处省的是上游请求
+       （首屏 fetchMore 拿回来的那几页，以前每个来源都被计数那一趟再取一遍），代码本身落在
+       首屏常驻的取数那一份里，拆走等于每页各抄一份计数底座。常驻化判据在
+       `tests/e2e/asset-requests.cjs`（首屏「取列表」≤12 笔 / load 轮数 ≤4 / 计数不许从空游标起 /
+       同参数第二次 load 0 笔 / 有缓存时选择器 ≤300ms）。实跑 27 枚 / 796884 字节。
+     ·  +4.4KB（2026-10-21 下午，用户复验 A5/B7）：枚数不变，涨的是 `sidebar.js` —— 余额区
+       「展开全部 N 家」就地展开（`.bal-exp`）与本机产物明细行，按用户的原话做成**不跳页**；
+       侧栏本来就是外壳顶层文档里的经典脚本（AGENTS §11.1），这份交互逻辑没有第二个落点。
+       另有 api.js / capabilities.js / engine.js 几十行注释与 X15 的按家补画监听。实跑 27 枚 / 801362 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 27, FIRST_SCREEN_MAX_BYTES = 801362;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

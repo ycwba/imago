@@ -9,10 +9,11 @@
  * 磁盘 0.45GB 里真正在用的只有 0.08GB），资产库里同一张卡重复出现 N 次。
  *
  * 没有构建步骤（页面是纯前端 + 一个 Node 代理，两边没有 bundler），
- * 所以写成双模式：浏览器当普通 <script> 引（挂 window.MediaId），Node 侧 require('./ident.js')。
+ * 所以写成双模式：浏览器当普通 <script> 引（挂 window.MediaId），Node 侧 require('./ident.cjs')。
+ * 必须是 .cjs：type:module 下 .js 会被当 ESM，require(esm) 把 UMD 的 module.exports 赋值悄悄吞掉；.cjs 强制 CJS。
  *
  * 硬约定：**不要在这里再加第二份，也不要在调用方就地兜底一份**。
- * ident.js 没加载就让 api.js 在解构那一行当场炸 —— 早崩比悄悄退回第二份判据好得多。
+ * ident.cjs 没加载就让 api.js 在解构那一行当场炸 —— 早崩比悄悄退回第二份判据好得多。
  */
 (function (root, factory) {
   const api = factory();

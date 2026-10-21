@@ -3,6 +3,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { atomicWrite } = require('./fs-atomic');
 
 function createPromptsStore(opts) {
   const root = opts.root;
@@ -36,8 +37,21 @@ function createPromptsStore(opts) {
       return Array.isArray(a) ? a : null;
     } catch { return null; }
   }
+  /* 索引写盘：整份覆盖，必须原子写 —— 直接 writeFileSync 写一半断电 / 被占用，
+     下次读到的就是半截 JSON；而读不出来时 promptRows 会整目录重建，
+     在归档很多时是一次明显卡顿，还会把「本次刚追加的那一行」暂时丢掉。
+     读改写的串行队列见 updateIndex（同一目录同一时刻只有一份在跑）。 */
+  const indexQueues = new Map();
+  function updateIndex(dir, fn) {
+    const key = path.resolve(dir);
+    const run = (indexQueues.get(key) || Promise.resolve()).catch(() => {}).then(() => fn());
+    const tail = run.catch(() => {});
+    indexQueues.set(key, tail);
+    tail.then(() => { if (indexQueues.get(key) === tail) indexQueues.delete(key); });
+    return run;
+  }
   function writePromptIndex(dir, rows) {
-    try { fs.writeFileSync(promptIndexPath(dir), JSON.stringify(rows.slice(0, 2000))); }
+    try { atomicWrite(promptIndexPath(dir), JSON.stringify(rows.slice(0, 2000))); }
     catch (e) { log('[prompts] 索引写入失败：' + e.message); }
   }
   function parseFrontMatter(text) {
@@ -201,8 +215,9 @@ function createPromptsStore(opts) {
         if (!wrote) return json(500, { error: { message: '同一个名字的归档太多（' + base + '），换一个标题再存' } });
         const row = { f: file, t: rawTitle, k: rawType, ts: now.getTime(), p: provider, m: model,
           i: task, pr: oneLine(prompt).slice(0, 300) };
-        writePromptIndex(dir, [row].concat(promptRows(dir).filter(r => r.f !== file)));
-        json(200, { ok: true, dir, file, path: path.join(dir, file), title, type });
+        updateIndex(dir, () => writePromptIndex(dir, [row].concat(promptRows(dir).filter(r => r.f !== file))))
+          .catch(e => log('[prompts] 索引更新失败：' + e.message))
+          .finally(() => json(200, { ok: true, dir, file, path: path.join(dir, file), title, type }));
       });
       return true;
     }
@@ -233,7 +248,7 @@ function createPromptsStore(opts) {
           try { fs.writeFileSync(path.join(dir, name), String(it.text == null ? '' : it.text), { flag: 'wx' }); ok++; }
           catch (e) { if (e && e.code === 'EEXIST') { dup++; continue; } bad++; if (errs.length < 5) errs.push(name + '（' + e.message + '）'); }
         }
-        try { writePromptIndex(dir, rebuildPromptIndex(dir)); } catch (e) {}
+        await updateIndex(dir, () => rebuildPromptIndex(dir)).catch(e => log('[prompts] 索引重建失败：' + e.message));
         json(200, { ok: true, dir, restored: ok, dup, bad, errors: errs,
           message: '恢复归档 ' + ok + ' 份' + (dup ? '，' + dup + ' 份本机已有同名（没覆盖）' : '') + (bad ? '，' + bad + ' 份没恢复' : '') });
       });

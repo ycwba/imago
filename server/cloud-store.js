@@ -11,7 +11,7 @@ const { atomicWrite } = require('./fs-atomic.js');
 function createCloudStore(opts) {
   const log = opts.log || (() => {});
   const anyRequest = opts.anyRequest;
-  const safeOutboundUrl = opts.safeOutboundUrl;
+  const guardOutboundUrl = opts.guardOutboundUrl;
   const readBody = opts.readBody;
   const dataDirPath = opts.dataDirPath;
   const dataFileOf = opts.dataFileOf;
@@ -21,7 +21,7 @@ function createCloudStore(opts) {
   const promptCloudDir = opts.promptCloudDir;
   const promptFileList = opts.promptFileList;
 
-function cloudCfg(req) {
+async function cloudCfg(req) {
   const h = req.headers;
   const pick = (hdr, env) => String(h[hdr] || process.env[env] || '').trim();
   const url = pick('x-cloud-url', 'CLOUD_WEBDAV_URL').replace(/\/+$/, '');
@@ -29,12 +29,19 @@ function cloudCfg(req) {
   const pass = String(h['x-cloud-pass'] || process.env.CLOUD_WEBDAV_PASS || '');
   if (!url) throw new Error('还没配置云端地址：到「设置 → 数据与同步」里填，或写进 .env 的 CLOUD_WEBDAV_URL');
   // 必须 https（明文 http 会把账号密码暴露在网上）；只有本机回环地址例外，方便自建 WebDAV 调试
-  const loopback = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//i.test(url + '/');
-  if (!/^https:\/\//i.test(url) && !loopback) {
+  const loopback = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i.test(url);
+  if (!loopback && !/^https:\/\//i.test(url)) {
     throw new Error('云端地址必须是 https://（用明文 http 传 WebDAV 会把账号密码暴露在网上）');
   }
   if (!user || !pass) throw new Error('云同步需要账号与应用密码（坚果云请在「安全选项」里生成应用密码）');
-  return { url, user, pass };
+  let checked = url;
+  if (!loopback) {
+    /* 光看协议不够：一个解析到内网 / 回环的公网域名照样能拿到 WebDAV 账号密码。
+       出站前过与其它通道同一份护栏（含 DNS）。 */
+    try { checked = String(await guardOutboundUrl(url)).replace(/\/+$/, ''); }
+    catch (e) { throw new Error('云端地址不可用：' + e.message); }
+  }
+  return { url: checked, user, pass };
 }
 const cloudAuth = cfg => 'Basic ' + Buffer.from(cfg.user + ':' + cfg.pass, 'utf8').toString('base64');
 /* sub 为空 = 操作基地址本身；asCollection=true 时给目标补上结尾的 / ——
@@ -400,7 +407,14 @@ function handleCloud(req, res, urlObj) {
   const replyErr = e => {
     const m = (e && e.message) || String(e);
     if (res.headersSent || res.writableEnded) { log('[cloud] 响应已经发出，错误只记日志：' + m); try { res.end(); } catch {} return; }
-    res.writeHead(400, { 'Content-Type': 'application/json' });
+    /* 分档：本地参数 / 配置问题才是 400；云端连不上是 502；等不到是 504。
+       以前一律 400，设置页与外部调用方都会把「云端超时」当成「你填错了」。 */
+    const code = String((e && (e.code || e.name)) || '');
+    const timeout = /ETIMEDOUT|ESOCKETTIMEDOUT|ABORT_ERR/i.test(code) || /超时|timed?\s*out/i.test(m);
+    const net = /ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE/i.test(code + ' ' + m)
+      || /连不上云端|云同步读取失败|\bHTTP 5\d\d\b/i.test(m);
+    const status = timeout ? 504 : (net ? 502 : 400);
+    res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: { message: m } }));
   };
   /* 基线读不出来时统一的一句话：三份 handler 都要用，别说成三种口径。 */
@@ -480,7 +494,7 @@ function handleCloud(req, res, urlObj) {
     if (cmd === 'resolve' && req.method === 'POST') {
       cloudExclusive(async () => {
         try {
-          const cfg = cloudCfg(req);
+          const cfg = await cloudCfg(req);
           const raw = await readBody(req, res, 1 * 1024 * 1024);
           if (raw == null) return;
           const body = JSON.parse(raw.toString('utf8') || '{}');
@@ -517,7 +531,7 @@ function handleCloud(req, res, urlObj) {
     if (cmd === 'test' || cmd === 'push' || cmd === 'pull' || cmd === 'sync') {
       cloudExclusive(async () => {
         try {
-          const cfg = cloudCfg(req);
+          const cfg = await cloudCfg(req);
           /* 提示词归档默认不传（body 里带 prompts:1 才走）。归档里是创作正文，
              比设置更不该默认出网；但它又恰恰是**丢了就没了**的那类东西（本地 .md 不进整包备份），
              所以给一个明确的开关，而不是替用户决定。

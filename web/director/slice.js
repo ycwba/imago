@@ -1,6 +1,5 @@
 /* 时间切片几何：定宽磁贴、每格张数、采样时刻与切片盒标记。
-   从 web/director/engine.js 拆出；round2 来自 util.js。 */
-import { round2 } from './util.js';
+   从 web/director/engine.js 拆出。 */
 
 /* 一张磁贴在屏上占多少像素 —— 与比例尺无关的一个常数（下面 `sliceGeom` 那一族的设计口径） */
 export const SLICE_TILE_PX = 64;
@@ -32,18 +31,31 @@ export const sliceBoxHTML = (src, a, b, px, pin) => {
   return `<span class="frs" data-frs="${window.esc(src)}" data-in="${a}" data-out="${b}" data-pin="${pin}"`
     + ` data-n="${g.n}" data-step="${Math.round(g.step * 1e6) / 1e6}" style="--frs-w:${Math.round(g.tile * 10) / 10}px"></span>`;
 };
-/* 这一格里采哪几个时刻（**源秒**，按 0.01 秒量化后相邻去重）：
-   采磁贴**左沿**（`a + i·step`）—— 与从前采格左沿同一个理由：剪一刀只动右半边，
-   左边那几张的时刻原地不动，缓存照旧命中。量化格子 0.01 秒比任何一张磁贴跨的源秒都细
-   （顶档 600px/秒时一张才跨 0.107 秒），正常路径一张不少；末尾那点去重只是防 `b-a` 极小这种脏数据。 */
+/* 采样时刻吸附到**绝对时间栅格**：量化步长只取这几档里离 `step` 最近的一档。
+   定宽磁贴让每一格在缩放后仍落在同一个屏幕位置，但左沿对应的源秒会跟着比例尺整体平移；
+   若按 `a + i·step` 取，缩放一次所有时刻都变、缓存全不命中（用户看到的正是「缩放就重解」）。
+   吸附之后 `t = k·q` 与框的位置无关，只要比例尺没跨档，同一批时刻原样复用。 */
+export const SLICE_STEPS = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5];
+export function snapSliceStep(step) {
+  const s = Math.max(0.01, Number(step) || 0);
+  let best = SLICE_STEPS[0];
+  for (const q of SLICE_STEPS) if (Math.abs(q - s) < Math.abs(best - s)) best = q;
+  return best;
+}
+/* 这一格里采哪几个时刻（**源秒**）：每张磁贴按左沿位置取离它最近的绝对栅格点，
+   夹回框内、按 0.001 秒量化后相邻去重。第一张是例外 —— 它必须是这一段自己的第一帧，
+   所以钉在 `lo` 上；其余全部落在 `q` 的整数倍上，缩放时整批原样复用。
+   `sliceBoxHTML` 写下的 step 仍是屏上比例尺，这里只把它折算成栅格档 ——
+   两处读的是同一个函数，不会各算一档。 */
 export function sliceTimes(a, b, n, step) {
   const lo = Math.max(0, Number(a) || 0);
   const hi = Math.max(lo + 0.01, Number(b) || 0);
   const k = Math.max(1, Math.min(SLICE_N_MAX, Math.round(Number(n) || 1)));
   const st = Math.max(0.01, Number(step) || (hi - lo) / k);
+  const q = snapSliceStep(st);
   const out = [];
   for (let i = 0; i < k; i++) {
-    const x = round2(Math.max(lo, Math.min(hi - 0.02, lo + st * i)));
+    const x = Math.round(Math.max(lo, Math.min(hi - 0.02, Math.round((lo + st * i) / q) * q)) * 1000) / 1000;
     if (!out.length || out[out.length - 1] !== x) out.push(x);
   }
   return out;

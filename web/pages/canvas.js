@@ -10,23 +10,15 @@ import { createMenu, labelOf, NODE_TYPES, MEDIA_KINDS } from '../domain/canvas/r
 import { fitViewport } from '../domain/canvas/spatial.js';
 import { createSurface } from '../domain/canvas/view.js';
 import * as gen from '../domain/canvas/gen.js';
+import { ensureCss } from '../core/page-css.js';
 
-(function ensureCss() {
-  if (typeof document === 'undefined') return;
-  if (document.querySelector('link[data-spa-canvas], link[href$="spa-canvas.css"]')) return;
-  const l = document.createElement('link');
-  l.rel = 'stylesheet';
-  l.href = 'web/styles/spa-canvas.css';
-  l.setAttribute('data-spa-canvas', '1');
-  document.head.appendChild(l);
-})();
+ensureCss('web/styles/spa-canvas.css', 'spa-canvas');
 
 const INDEX = 'canvas_index';
 const SAVE_MS = 900;
 const DROP_MAX = 40 * 1024 * 1024;
 const ic = (n, s) => (typeof window !== 'undefined' && window.icon ? window.icon(n, s || 16) : '');
 const E = s => (typeof window !== 'undefined' && window.esc ? window.esc(s) : String(s == null ? '' : s));
-const fmtWhen = ts => (window.fmtWhen ? window.fmtWhen(ts) : new Date(ts).toLocaleString());
 
 export default {
   name: 'CanvasView',
@@ -36,10 +28,10 @@ export default {
        这里原来自己读 `spaActiveFile`：那只说明「路由选中的是这一页」，整个标签页切到后台时
        它照样为真，于是隐藏着的画布还在轮询任务、还在处理快捷键。 */
     const PAGE_FILE = 'canvas.html';
-    const isActive = () => window.__spaActivity.visible(PAGE_FILE);
+    const isActive = window.__spaActivity.forPage(PAGE_FILE);
 
     const stage = ref(null), layer = ref(null), edges = ref(null), mini = ref(null);
-    const libBox = ref(null), inspBody = ref(null), pageEl = ref(null);
+    const libBox = ref(null), libFilterEl = ref(null), inspBody = ref(null), pageEl = ref(null);
 
     const ready = ref(false), failed = ref('');
     const docId = ref(''), title = ref(''), revision = ref(0);
@@ -103,7 +95,7 @@ export default {
       clearTimeout(S.saveTimer);
       S.saveTimer = setTimeout(() => saveNow(), SAVE_MS);
     }
-    function savedAt(at) { saveText.value = '已存本机 · ' + fmtWhen(at); saveKind.value = 'ok'; }
+    function savedAt(at) { saveText.value = '已存本机 · ' + window.fmtWhen(at); saveKind.value = 'ok'; }
     async function saveNow() {
       clearTimeout(S.saveTimer);
       /* 开头就把要存的那一份抓住：这条是 await 一路走到 IndexedDB 的，期间用户完全可以
@@ -169,16 +161,46 @@ export default {
         .map(([t, n]) => labelOf(t) + ' ' + n).slice(0, 3).join(' · ') : '';
       return '<div class="cv-card-t">' + E(r.title || '未命名画布') + '</div>'
         + '<div class="cv-card-m">' + (r.nodeCount || 0) + ' 个节点' + (types ? ' · ' + E(types) : '') + '</div>'
-        + '<div class="cv-card-m">改了 ' + E(fmtWhen(r.updatedAt || Date.now())) + '</div>'
-        + '<div class="cv-card-a"><button class="ghost mini" data-x="open">打开</button>'
-        + '<button class="ghost mini" data-x="ren">改名</button>'
-        + '<button class="ghost mini" data-x="exp">导出</button>'
-        + '<button class="ghost mini danger" data-x="del">删除</button></div>';
+        + '<div class="cv-card-m">改了 ' + E(window.fmtWhen(r.updatedAt || Date.now())) + '</div>'
+        + '<div class="acts">' + window.Wb.actsHTML(r, {
+          attr: 'data-x',
+          items: [
+            { act: 'open', label: '打开', mini: true }, { act: 'ren', label: '改名', mini: true },
+            { act: 'exp', label: '导出', mini: true }, { act: 'del', label: '删除', mini: true, danger: true },
+          ],
+        }) + '</div>';
+    }
+    /* 库头的搜索 / 排序 / 计数由公共 Wb.filterBar 生成（只此一份）。
+       它挂在 `v-if="!docId"` 里：从工程页返回时宿主是新建的另一只节点，得重接一份。
+       搜索要同步回调（searchDelay: 0）：库是本地索引，输入一个字符就该立刻变，没有等待的理由。 */
+    let libFb = null;
+    function ensureLibFilter() {
+      const host = libFilterEl.value;
+      if (!host) return;
+      if (libFb && libFb.el === host && host.firstChild) return;
+      if (libFb) libFb.destroy();
+      libFb = window.Wb.filterBar.bind(host, {
+        cls: '', chips: null,
+        inputClass: 'cv-q', placeholder: '搜索画布标题或正文', ariaLabel: '搜索画布',
+        q: q.value, searchDelay: 0,
+        onSearch: v => { q.value = v; paintLib(); },
+        extraHTML: '<select class="cv-sort" aria-label="排序方式">'
+          + '<option value="up">最近修改</option><option value="new">最近创建</option><option value="title">按标题</option></select>',
+        cntClass: 'cv-count', cntText: libCount.value,
+      });
+      const sel = libFb.el.querySelector('.cv-sort');
+      if (sel) {
+        sel.value = sort.value;
+        sel.addEventListener('change', () => { sort.value = sel.value; paintLib(); });
+      }
+      try { if (window.Dropdowns) Dropdowns.build(host); } catch (e) { /* 包装失败只少一层下拉外观，搜索与排序本身不依赖它 */ }
     }
     function paintLib() {
       if (!libBox.value) return;
       const items = libItems();
       libCount.value = items.length + ' 份' + (q.value.trim() ? '（搜「' + q.value.trim() + '」）' : '（本机）');
+      ensureLibFilter();
+      if (libFb) libFb.setCount(libCount.value);
       /* 库这一片挂在 v-if 上：从工程页回来时 `.cv-grid` 是重新建出来的另一只节点，而 Wb.cards
          认的还是它第一次拿到的那只（此时已从文档里摘走）。继续往旧盒子里画，屏幕上的库就永远是空的
          —— 盒子换了要重接一份，别把旧的那份留着。 */
@@ -189,7 +211,7 @@ export default {
           keyOf: r => r.id,
           sigOf: r => (r.title || '') + '|' + (r.nodeCount || 0) + '|' + (r.updatedAt || 0),
           htmlOf: cardHTML,
-          emptyHTML: () => '<div class="empty">' + (q.value.trim() ? '没有对得上的画布' : '还没有画布 —— 右上「新建画布」，或「导入」一份别人给的 JSON') + '</div>',
+          emptyHTML: () => window.Wb.emptyHTML(q.value.trim() ? '没有对得上的画布' : '还没有画布 —— 右上「新建画布」，或「导入」一份别人给的 JSON'),
         });
         libBox.value.addEventListener('click', async ev => {
           const btn = ev.target.closest('[data-x]'); const el = ev.target.closest('.task');
@@ -433,10 +455,9 @@ export default {
       }
     }
     function kindOfMedia(mime) {
-      const t = String(mime || '').toLowerCase();
-      if (t.indexOf('video') >= 0) return 'video';
-      if (window.isAudioType && isAudioType(t)) return 'audio';
-      return 'image';
+      /* 判据走公共层；认不出（不是媒体）按图片放，与拖进来的默认档一致。
+         以前这里拿 isAudioType 去比 MIME，永远为假 —— 音频附件会被当图片插进画布。 */
+      return window.mediaKindFrom(mime) || 'image';
     }
     function readB64(f) {
       return new Promise((res, rej) => {
@@ -748,11 +769,7 @@ export default {
     }
     /* 资产库条目的类型档：中文档名是资产库的口径，画布只认 image / video / audio / asset-ref。 */
     function kindOfEntry(e) {
-      const t = String((e && e.type) || '');
-      if (t === '视频') return 'video';
-      if (window.isAudioType && isAudioType(t)) return 'audio';
-      if (t === '图片') return 'image';
-      return '';
+      return window.mediaKindFrom((e && e.type) || '');
     }
     function keysHelp() {
       window.UiDialog.open({ title: '画布快捷键',
@@ -1088,7 +1105,7 @@ export default {
             提示词字数: String(res.prompt || '').length, 参数: res.params,
             输入: res.inputs.length + ' 路' + (spec ? '（这一型号声明最多 ' + (Number(spec.max) || '不限') + ' 路）' : '（这一型号不收输入）'),
             缺料: res.missing, 就绪: !why, 缺什么: why,
-            能生成: gen.kindOf(n.type) !== '', 说明: '这是提案：没有建任务也没扣费，画布一个字节都没动' };
+            能生成: gen.nodeKindOf(n.type) !== '', 说明: '这是提案：没有建任务也没扣费，画布一个字节都没动' };
         },
       };
     }
@@ -1098,7 +1115,8 @@ export default {
     onMounted(async () => {
       try {
         if (!window.Kv) throw new Error('存储层没装载');
-        /* Api / AiGen / Capabilities / AssetPicker 都是 shell.html 里的常驻脚本，只有工作台（Wb.poller、Wb.cards）要现补。 */
+        /* Api / gen-forms 这些还在 shell.html 常驻；Capabilities / AssetPicker / DataSync 改由路由表的
+           `needs` 在这一页挂载前并发补载（routes.js），这里只剩工作台（Wb.poller、Wb.cards）要现补。 */
         await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
         /* 原始请求面板（不常驻在 shell.html）。 */
         await window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest);
@@ -1145,13 +1163,11 @@ export default {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      stage, layer, edges, mini, libBox, inspBody, pageEl,
+      stage, layer, edges, mini, libBox, libFilterEl, inspBody, pageEl,
       iconMinus: window.icon('minus', 13), iconPlus: window.icon('plus', 13),
       ready, failed, docId, title, revision, saveText, saveKind,
       q, sort, libCount, tool, grid, showEdges, inspOpen, selCount, canUndo, canRedo, zoomText, undoTitle, redoTitle,
       back, renameDoc, doExport, doImport, openAssistant, newDoc: newDocNow,
-      filterLib: ev => { q.value = ev.target.value; paintLib(); },
-      sortLib: ev => { sort.value = ev.target.value; paintLib(); },
       setTool, zoomIn, zoomOut, zoom100, fit, toggleGrid, toggleEdges, undoStep, redoStep,
       openAdd, pickAsset, keysHelp, deleteSel, alignSel, closeInsp: () => { inspOpen.value = false; }, miniJump,
     };

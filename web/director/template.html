@@ -780,14 +780,15 @@
   .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: 11.5px; padding: 4px 6px;
     overflow: hidden; text-overflow: ellipsis; }
   /* 待生成配音那一轨：与真配音轨**同一把尺子**（轴秒），但骨子里是另一行 —— 它是「台词还没有声音」的占位，
-     不参与选中 / 拖动 / 剪切（那三件事只对真块），所以自成一类 `.tl-vp-lane`，不叫 `.tl-lane`。 */
+     不参与选中 / 剪切（那两件事只对真块）；点 = 填进右栏，按住左右拖 = 把插针（合成落点）带走。 */
   .tl-vp-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px dashed rgba(34,197,94,.28);
     border-radius: 4px; }
   .tl-grid.hid-voice .tl-vp-lane { display: none; }
   .tl-vp { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; gap: 5px;
     padding: 0 8px; border: 1px dashed rgba(34,197,94,.65); border-radius: 4px;
     background: repeating-linear-gradient(45deg, rgba(34,197,94,.07) 0 6px, rgba(34,197,94,.13) 6px 12px);
-    color: var(--sub); font-size: 10.5px; cursor: pointer; overflow: hidden; }
+    color: var(--sub); font-size: 10.5px; cursor: grab; overflow: hidden; touch-action: none; }
+  .tl-vp:active { cursor: grabbing; }
   .tl-vp:hover { background: rgba(34,197,94,.16); color: var(--text); }
   .tl-vp b { flex: none; font-size: 9.5px; padding: 0 5px; border-radius: 3px; background: rgba(34,197,94,.2); color: #22c55e; }
   .tl-vp span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -798,13 +799,29 @@
     border: 1px dashed rgba(34,197,94,.28); border-radius: 6px; background: rgba(34,197,94,.03); }
   .tl-hrow.pend .tl-hname { color: rgba(34,197,94,.85); }
   .tl-grid.hid-voice .tl-hrow.pend { display: none; }
-  /* 字幕行：与配音轨同高的只读一排（首期不做拖动 / 裁切）。左列标签与右列逐像素同高。 */
+  /* 字幕行：与配音轨同高的一排。块体按住拖 = 挪出现时间，两端把手直接改起止（字幕没有「灰场」——
+     改的就是它的实际长度）；点一下跳到那里，改字在右栏。左列标签与右列逐像素同高。 */
   .tl-sub-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px solid rgba(124,92,255,.3);
     border-radius: 4px; background: rgba(124,92,255,.04); }
   .tl-sub { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; padding: 0 7px;
     border: 1px solid rgba(124,92,255,.55); border-radius: 4px; background: rgba(124,92,255,.2);
-    color: var(--text); font-size: 10.5px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    color: var(--text); font-size: 10.5px; cursor: move; overflow: hidden; white-space: nowrap; touch-action: none; }
   .tl-sub:hover { background: rgba(124,92,255,.34); border-color: rgba(124,92,255,.8); }
+  .tl-sub .sub-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  /* 字幕的两端把手：形状与配音块那两根同一套（宽度 / 抓手线 / .act 加粗发光），
+     颜色换成字幕自己的紫 —— 手指底下的那一根是「改起止」不是「挪块」，一眼分得清。 */
+  .tl-lane .tl-sub .sub-cut, .tl-sub-lane .tl-sub .sub-cut { position: absolute; top: 0; bottom: 0; width: 11px; z-index: 4;
+    background: rgba(124,92,255,.25); border: 1px solid rgba(124,92,255,.55); cursor: ew-resize; }
+  .tl-sub-lane .tl-sub .sub-cut.l { left: 0; border-right: 1px solid rgba(255,255,255,.26); border-left: 0;
+    border-radius: 4px 0 0 4px; }
+  .tl-sub-lane .tl-sub .sub-cut.r { right: 0; border-radius: 0 4px 4px 0; }
+  .tl-sub-lane .tl-sub .sub-cut::before, .tl-sub-lane .tl-sub .sub-cut::after { content: ""; position: absolute;
+    top: 50%; width: 1px; height: 12px; margin-top: -6px; background: rgba(255,255,255,.5); }
+  .tl-sub-lane .tl-sub .sub-cut::before { right: 6px; } .tl-sub-lane .tl-sub .sub-cut::after { right: 4px; }
+  .tl-sub-lane .tl-sub .sub-cut.l::before { right: auto; left: 4px; } .tl-sub-lane .tl-sub .sub-cut.l::after { right: auto; left: 6px; }
+  .tl-sub-lane .tl-sub .sub-cut:hover { background: rgba(124,92,255,.5); }
+  .tl-sub-lane .tl-sub .sub-cut.act { z-index: 5; width: 15px; border-color: rgba(236,230,255,.9);
+    background: rgba(124,92,255,.62); }
   .tl-hrow.sub { height: var(--tlh-voice, 52px); font-size: 10px; color: var(--sub); gap: 5px;
     border: 1px solid rgba(124,92,255,.3); border-radius: 6px; background: rgba(124,92,255,.04); }
   .tl-hrow.sub .tl-hname { color: rgba(124,92,255,.9); }
@@ -821,7 +838,9 @@
   .sub-row { border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 5px 6px; }
   .sub-meta { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--sub); }
   .sub-tag { flex: none; padding: 0 5px; border-radius: 3px; background: rgba(124,92,255,.18); color: var(--pri); }
-  .sub-time { font-variant-numeric: tabular-nums; }
+  /* 起止两框：能直接输数的读数（与轨道把手同一份账，subSetTime 一个出口落回源秒）。 */
+  .sub-t { width: 58px; font-variant-numeric: tabular-nums; font-size: 11.5px; padding: 1px 4px; }
+  .sub-unit { color: var(--sub); font-size: 10.5px; }
   .sub-row [data-subdel] { margin-left: auto; }
   .sub-ta { width: 100%; margin-top: 4px; font-size: 12px; line-height: 1.35; resize: vertical; min-height: 30px; }
   .player-box:fullscreen .sub-wrap { border-radius: 0; }

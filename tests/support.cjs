@@ -33,6 +33,18 @@ function webSources() {
     .filter(p => !/[\\/]render[\\/]/.test(p) && !/vue\.runtime/.test(p))
     .sort();
 }
+/* 导演台 engine 层的文件清单：engine.js（状态与接线）+ engine/<域>.js（按域搬出去的函数，
+   AGENTS.md §17 / 执行文档 G1）。备份文件 `.pre-<域>` 不是源码，不进这一份。 */
+function engineFiles() {
+  const dir = abs('web/director/engine');
+  const mods = fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter(f => /^[a-z0-9-]+\.js$/.test(f)).sort().map(f => 'web/director/engine/' + f)
+    : [];
+  return ['web/director/engine.js'].concat(mods);
+}
+/* 钉「engine 这一层只有一份实现」的文本判据读这一份，不读裸 engine.js —— 函数搬进域模块之后
+   还是同一层的代码，判据不跟着走，每搬一块就凭空红一片（那是判据的位置错了，不是实现错了）。 */
+function engineLayer() { return engineFiles().map(read).join('\n'); }
 /* 传给判据的既可能是绝对路径（webSources 给的），也可能是**内存里合成的**相对路径
    （architecture.cjs 的自检造的假文件）。假的不能拿去 cwd 拼绝对路径 —— 直接当仓库相对路径用。 */
 function asRel(p) {
@@ -274,7 +286,10 @@ function stripComments(src) {
    「assetlib 里所有 fetch 都走 Net」这种正确写法报成违例，判据就没人当真了。
    组件面（Dropdowns / Confirm / UiDialog / Chips / Wb / AssetPicker …）不在这里：
    domain 去点组件仍然是违反分层，要红。 */
-const UI_INFRA_FACES = new Set(['Net', 'Store', 'Kv', 'Toast', 'DataSync', 'GoPage', 'ErrBanner']);
+/* `LS` 与 Store 同属「全站基础设施面」：它是 localStorage 的唯一同步信封读法（G9 判据要求
+   任何一层都不许裸碰 localStorage）。domain 层读自己的偏好/提示词正需要它，与 import ui 组件不同
+   —— 不把它算成跨层依赖；G9 那条判据本身就守着「除了 ui.js 外面没有第二份实现」。 */
+const UI_INFRA_FACES = new Set(['Net', 'Store', 'Kv', 'Toast', 'DataSync', 'GoPage', 'ErrBanner', 'LS']);
 function isInfra(name, layer) { return layer === 'ui' && UI_INFRA_FACES.has(name); }
 
 /* 公共面 = `window.<首字母大写> = …`（AGENTS.md §14.7：浏览器经典脚本挂一个 window.<Name> 面）。
@@ -396,6 +411,7 @@ function printTable(current, note, opts = {}) {
 }
 
 module.exports = { root, rel, asRel, abs, read, exists, walk, webSources, serverSources, serverTopLevel,
+  engineFiles, engineLayer,
   matchBrace, objectKeys, loadRegistry, findWiring, ratchet, printTable,
   literals, functionsIn, enclosingFunction,
   LAYER_FORBIDDEN, LAYER_EXCEPTIONS, UI_INFRA_FACES, isInfra, layerOf, stripComments, globalFaces, faceReads, layerViolations };

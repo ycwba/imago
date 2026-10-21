@@ -14,6 +14,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { createZip } = require('../zip.js');
 const { renameWithRetry } = require('../fs-atomic.js');
+const { sendJson, noStore } = require('./http');
 
 /* 媒体名怎么洗只有 app.js 注入的那一份 `fileSafe`（与 /save、/render、提示词归档同一条规则）：
    这里不再写第二份非法字符表。长度档取 120：与导演台把素材存回本机那一份齐平。 */
@@ -28,12 +29,11 @@ const fmtMb = b => (b / MB).toFixed(0) + ' MB';
    只免掉 spawn，路径校验、目录检查、返回形状都照旧，所以「打开目录」这条链仍是被测的。 */
 const noSpawn = () => String(process.env.WB_FCPXML_DRY || '') === '1';
 
+/* 非 JSON 的写出（zip）也走同一份缓存头口径：no-store 由 ./http 补。 */
 function send(res, code, type, body, extra = {}) {
-  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', ...extra });
+  noStore(res);
+  res.writeHead(code, { 'Content-Type': type, ...extra });
   res.end(body);
-}
-function sendJson(res, code, obj) {
-  send(res, code, 'application/json; charset=utf-8', JSON.stringify(obj));
 }
 function httpError(status, message) {
   const e = new Error(message);

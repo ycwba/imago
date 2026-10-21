@@ -32,11 +32,11 @@
     const arr = window.b64Bytes(String(dataUrl).split(',')[1] || '');
     return new Blob([arr], { type: mime || 'application/octet-stream' });
   }
-  function extOf(blob, name) {
+  /* 上传用的文件名：调用方给了带尾缀的名就照用；否则现造一个。
+     尾缀口径在公共层（ui.js 的 blobExtOf），这里只管名字前缀。 */
+  function fileNameOf(blob, name) {
     if (name && /\.[a-z0-9]{2,5}$/i.test(name)) return name;
-    const m = (blob.type || '').split('/')[1] || 'bin';
-    const map = { quicktime: 'mov', mpeg: 'mp3', 'x-wav': 'wav', jpeg: 'jpg' };
-    return 'asset-' + Date.now() + '.' + (map[m] || m);
+    return 'asset-' + Date.now() + '.' + window.blobExtOf(blob);
   }
   /* 读代理的 NDJSON 进度流（见 proxy.js 的 s3putStream）：
      progress 帧回调 onProgress(sent, total, pct)，返回最后一帧（done / error）。
@@ -176,7 +176,7 @@
         if (blob.size > MAX_BYTES) throw new Error('补全音轨后的视频超过上传大小上限');
       }
       const mime = blob.type || opts.contentType || 'application/octet-stream';
-      const filename = opts.name || extOf(blob, name);
+      const filename = opts.name || fileNameOf(blob, name);
       const headers = Api.headers(prov, { 'Content-Type': 'application/json' });
 
       /* 上传意图的字段命名由 registry 声明（SparkCine 是 filename/content_type/byte_length，

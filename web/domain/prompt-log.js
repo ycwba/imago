@@ -8,7 +8,7 @@
   const remember = (provId, id, prompt) => {
     if (!id) return;
     const p = String(prompt || '');
-    cache.set(keyOf(provId, id), p);
+    cache.set(promptKeyOf(provId, id), p);
     if (!byTask.has(String(id))) byTask.set(String(id), p);
     /* 两张表都要各自封顶：以前淘汰 byTask 时用**当前这次调用的 provId** 去拼 cache 键，
        被淘汰那条的键根本删不掉，于是 cache 一整个会话只增不减。 */
@@ -28,7 +28,7 @@
       return true;
     } catch (e) { return false; }
   };
-  const keyOf = (provId, id) => (provId || '') + '|' + id;
+  const promptKeyOf = (provId, id) => (provId || '') + '|' + id;
 
   async function req(path, opts) {
     const o = opts || {};
@@ -136,7 +136,7 @@
     })();
     return loading;
   }
-  const cached = (provId, id) => (id ? cache.get(keyOf(provId, id)) || '' : '');
+  const cached = (provId, id) => (id ? cache.get(promptKeyOf(provId, id)) || '' : '');
   /* 只按任务号查（归档里的平台名和列表来源对不上时用得上，见 byTask 注释） */
   const cachedById = id => (id ? byTask.get(String(id)) || '' : '');
   /* 回源查过、确认本机没有归档（'平台|任务号'）：不再重复问，界面也敢说「本机没归档」。
@@ -148,12 +148,12 @@
   try {
     const raw = sessionStorage.getItem(MISSED_KEY);
     if (raw) for (const x of JSON.parse(raw)) if (typeof x === 'string') missed.add(x);
-  } catch (e) {}
+  } catch (e) { /* sessionStorage 读不到（隐私模式 / 被禁）就当失败清单是空的 */ }
   let missedTimer = 0;
   const saveMissed = () => {
     clearTimeout(missedTimer);
     missedTimer = setTimeout(() => {
-      try { sessionStorage.setItem(MISSED_KEY, JSON.stringify([...missed].slice(-3000))); } catch (e) {}
+      try { sessionStorage.setItem(MISSED_KEY, JSON.stringify([...missed].slice(-3000))); } catch (e) { /* 写不进去只少一次「下次提醒重试」，不拦这次的归档 */ }
     }, 300);
   };
   const fulls = new Map();            // 任务号 → 归档里的**全文**（索引只带前 300 字，够卡片用，详情面板要整份）
@@ -167,7 +167,7 @@
     if (!id) return '';
     const k = String(id);
     if (fulls.has(k)) return fulls.get(k);
-    if (missed.has(keyOf(provId, id)) || missed.has(keyOf('', id))) return '';
+    if (missed.has(promptKeyOf(provId, id)) || missed.has(promptKeyOf('', id))) return '';
     if (finding.has(k)) return finding.get(k);
     const job = (async () => {
       const enc = encodeURIComponent;
@@ -187,12 +187,12 @@
         /* 同一任务号的其它归档（换过平台 id 重复提交的那些）也记下来：
            换 provider 再查时直接命中缓存，省一次请求。 */
         (d.all || []).forEach(a => { if (a && a.provider && a.pr) remember(a.provider, id, String(a.pr)); });
-        missed.delete(keyOf(provId, id)); missed.delete(keyOf('', id));
+        missed.delete(promptKeyOf(provId, id)); missed.delete(promptKeyOf('', id));
         saveMissed();
         return p;
       }
       if (missed.size > 4000) { missed.clear(); }
-      missed.add(keyOf(provId, id)); missed.add(keyOf('', id));
+      missed.add(promptKeyOf(provId, id)); missed.add(promptKeyOf('', id));
       saveMissed();
       return '';
     })();
@@ -201,7 +201,7 @@
   }
   /* 这条任务是不是「本机确实没有归档」（回源查过才算，没查过返回 false）：
      界面据此区分「平台不返回提示词，但本机归档里能找到」和「两边都没有」。 */
-  const missedFor = (provId, id) => !!id && (missed.has(keyOf(provId, id)) || missed.has(keyOf('', id)));
+  const missedFor = (provId, id) => !!id && (missed.has(promptKeyOf(provId, id)) || missed.has(promptKeyOf('', id)));
   /* 「这一条该按什么号去归档里问」只有一份判据：任务号 → 产物号，逐个字节的本机资产号（la_）不算 ——
      本机生成的那几条压根没有平台记录，拿 la_xxx 去问每一条固定一个 404、还永远问不出东西。
      为什么也要看 assetId / id：**收藏与工作区里存的那条经常只有产物号**（VGENV 的任务号就是产物号，

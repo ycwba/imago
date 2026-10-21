@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { renameWithRetry, fsyncPath, atomicWrite } = require('../fs-atomic.js');
+const { sendJson, fail } = require('./http');
 
 function createLocalAssets(ctx) {
   const readBody = ctx.readBody;
@@ -32,6 +33,10 @@ function createLocalAssets(ctx) {
   const LOCAL_DIR = ctx.LOCAL_DIR;
   const MIME = ctx.MIME;
 
+  /* 本文件的错误体是 `{error:{message}}`（设置页与 domain/local.js 读的是 error.message），
+     与公共 fail 的扁平 `{error}` 不同：这里只做形状适配，头字段仍交给 ./http。 */
+  const failMsg = (res, code, msg) => sendJson(res, code, { error: { message: msg } });
+
   function handleLocalAssets(req, res, urlObj) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
     if (dataPath === '/local-assets/from-url' && req.method === 'POST') {
@@ -39,12 +44,11 @@ function createLocalAssets(ctx) {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
-        const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
-        if (!spec || !spec.url) return fail(400, '缺少 url');
+        if (!spec || !spec.url) return failMsg(res, 400, '缺少 url');
         const meta = (spec.meta && typeof spec.meta === 'object') ? spec.meta : {};
         let target = '';
         try { target = await resolveSrc(String(spec.url), assetStore ? keyOf(assetStore.keyEnv) : ''); }
-        catch (e) { return fail(400, e.message); }
+        catch (e) { return failMsg(res, 400, e.message); }
         const localPath = /^http:\/\/127\.0\.0\.1:\d+\/asset\/([A-Za-z0-9_-]+)$/.exec(target);
         const localId = localPath ? localPath[1] : '';
         const up = safeOutboundUrl(String(meta.upstream || '')) || (/^https:\/\//i.test(target) ? target : '');
@@ -108,14 +112,13 @@ function createLocalAssets(ctx) {
             log('[local-assets] 新增 ' + id + '（' + fmt + '，' + (size / 1024).toFixed(0) + ' KB，from-url）');
             return { ...item, status: 'succeeded', url: '/asset/' + id };
           });
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify(out));
+          sendJson(res, 200, out);
         } catch (e) {
           log('[local-assets/from-url] 保存失败：' + e.message);
           const msg = e && e.indexWrite
             ? ('字节已经写进本机资产库（.assets）了，但索引没写成：' + e.message + '。腾出磁盘空间后再试')
             : e.message;
-          fail(500, msg);
+          failMsg(res, 500, msg);
         }
       });
       return;
@@ -129,7 +132,7 @@ function createLocalAssets(ctx) {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
-        if (!spec || !spec.data) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"缺少 data(base64)"}'); return; }
+        if (!spec || !spec.data) return fail(res, 400, '缺少 data(base64)');
         try {
           const buf = Buffer.from(String(spec.data), 'base64');
           const fmt = String(spec.format || 'wav').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'wav';
@@ -172,8 +175,7 @@ function createLocalAssets(ctx) {
               usage: meta.usage || null, detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
             if (filled) localIndexUpsert(twin);              // 一个字段都没补上就不动盘（只改这一条）
             log(`[local-assets] 已有本机副本 ${twin.id}（同一份产物，第 ${list0.filter(x => localUpKey(x && x.upstream) === upKey).length} 次镜像被挡下）`);
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ ...twin, status: 'succeeded', url: '/asset/' + twin.id, reused: true }));
+            sendJson(res, 200, { ...twin, status: 'succeeded', url: '/asset/' + twin.id, reused: true });
             return;
           }
           const id = 'la_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -207,8 +209,7 @@ function createLocalAssets(ctx) {
           };
           localIndexUpsert(item);
           log(`[local-assets] 新增 ${id}（${item.format}，${(buf.length / 1024).toFixed(0)} KB）`);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify({ ...item, status: 'succeeded', url: '/asset/' + id }));
+          sendJson(res, 200, { ...item, status: 'succeeded', url: '/asset/' + id });
         } catch (e) {
           log('[local-assets] 保存失败：' + e.message);
           /* 索引写不成时把话说到位（L50）：字节确实已经写进 .assets 了，缺的只是索引那一行。
@@ -219,7 +220,7 @@ function createLocalAssets(ctx) {
               + '。库里面现在看不到它。腾出磁盘空间后再保存一次；'
               + '索引缺失的那一条会在下次读取时按文件名自动补回来。')
             : e.message;
-          res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: msg } }));
+          failMsg(res, 500, msg);
         }
       });
       return;
@@ -228,7 +229,7 @@ function createLocalAssets(ctx) {
       // 删除本地生成资产（上游没有资产存储、文件只在本机的，比如语音合成产物）
       const id = safeDecode(req.url.slice('/local-assets/'.length).split('?')[0]);
       const hit = localIndexRead().find(x => x && x.id === id);
-      if (!hit) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: '本地资产不存在：' + id } })); return; }
+      if (!hit) return failMsg(res, 404, '本地资产不存在：' + id);
       /* **文件删不掉就不许裁索引**（L49）。为什么这条最要紧：索引是这些文件唯一的查找途径 ——
          条目一没，那个 mp4 在资产库里看不见、/asset/<id> 也 404，而它明明还躺在 .assets 里，
          只是再也没人能按名字找回来（文件名是 la_xxx.mp4，人认不出来）。
@@ -242,10 +243,9 @@ function createLocalAssets(ctx) {
           try { fs.unlinkSync(f); }
           catch (e) {
             log('[local-assets] 删除文件失败，索引没有动：' + e.message);
-            res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ error: { message: '文件删不掉（' + (e.code || e.message)
+            failMsg(res, 500, '文件删不掉（' + (e.code || e.message)
               + '）：它可能正被播放器 / 同步盘 / 杀毒软件占着。这一条原样留着（资产库里还在，还能打开）——'
-              + '关掉占着它的程序再删一次。' } }));
+              + '关掉占着它的程序再删一次。');
             return;
           }
         }
@@ -255,14 +255,12 @@ function createLocalAssets(ctx) {
         /* 文件已经删掉了，但索引没写回去：这一条会「复活」成一条指向不存在文件的记录，
            下次打开会显示成「已丢失」。如实说，别回「已删除」——那会让用户以为干净了。 */
         log('[local-assets] 文件已删、索引未更新：' + e.message);
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: { message: '文件已经删掉了，但索引没能更新（' + e.message
-          + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。' } }));
+        failMsg(res, 500, '文件已经删掉了，但索引没能更新（' + e.message
+          + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。');
         return;
       }
       log(`[local-assets] 已删除 ${id}`);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ ok: true, id }));
+      sendJson(res, 200, { ok: true, id });
       return;
     }
     if (dataPath === '/local-assets' && req.method === 'GET') {
@@ -283,8 +281,7 @@ function createLocalAssets(ctx) {
         if (k) { if (seen.has(k)) { dups++; continue; } seen.add(k); }
         items.push(x);
       }
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ object: 'list', data: items, has_more: false, next_cursor: null, duplicates: dups }));
+      sendJson(res, 200, { object: 'list', data: items, has_more: false, next_cursor: null, duplicates: dups });
       return;
     }
     return false;

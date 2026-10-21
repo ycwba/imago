@@ -43,3 +43,7 @@ export const spdTxt = x => '×' + (Math.round((Number(x) || 1) * 100) / 100);
 const ESC_CHARS = /[&<>"']/g;
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escHTML = s => String(s == null ? '' : s).replace(ESC_CHARS, c => ESC_MAP[c]);
+
+/* 把一段文字当成正则字面量（素材名 / 占位符前缀里可能有 `.` `(` 这类字符）。
+   拼 token 正则的两处（engine 的待建占位符、board-assets 的重复出现统计）共用这一份。 */
+export const reEscape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

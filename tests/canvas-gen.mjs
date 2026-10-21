@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 画布生成桥：参数解析、能不能生成的判据、输入素材按声明收、状态判定都借公共层。 */
 import assert from 'node:assert/strict';
-import { kindOf, provsFor, provOf, modelsOf, inputSpec, resolve, whyReady, submit, waitImage, pollOnce, announce }
+import { nodeKindOf, provsFor, provOf, modelsOf, inputSpec, resolve, whyReady, submit, waitImage, pollOnce, announce }
   from '../web/domain/canvas/gen.js';
 
 /* ---------- 公共层桩：只桩到「声明了什么就答什么」 ---------- */
@@ -13,6 +13,8 @@ const modelOnly = { id: 'm-only', __specs: [{ role: 'prompt', max: 1 }] };
 const prov = { id: 'P1', displayName: '平台一', models: [model, modelFF, modelNone, modelOnly, { id: 'm-aud', __specs: [{ role: 'audio', max: 1 }] }, { id: 'm-vid', __specs: [{ role: 'image', max: 3 }] }] };
 const off = { id: 'P2', models: [] };
 globalThis.window = {
+  /* ui.js 的公共媒体判据：这里只桩「认得三档、别的算空」。 */
+  mediaKindFrom: t => (['image', 'video', 'audio'].indexOf(t) >= 0 ? t : ''),
   Api: {
     forKind: k => { calls.push(['forKind', k]); return [prov, off]; },
     prov: id => (id === 'P1' ? prov : null),
@@ -39,9 +41,9 @@ const N = (id, type, meta) => ({ id, type, title: type + ' ' + id, metadata: met
 const C = (from, to) => ({ id: 'cn_' + from + to, fromNodeId: from, toNodeId: to });
 
 /* ---------- 类型档 / 供应商列表 ---------- */
-assert.equal(kindOf('image'), 'image');
-assert.equal(kindOf('text'), '');
-assert.equal(kindOf('config'), '');
+assert.equal(nodeKindOf('image'), 'image');
+assert.equal(nodeKindOf('text'), '');
+assert.equal(nodeKindOf('config'), '');
 assert.deepEqual(provsFor('image').map(p => p.id), ['P1'], '没添加密钥的那一家不排进来');
 assert.deepEqual(modelsOf(prov).slice(0, 2).map(m => m.name), ['出图的', 'm-ff'], '没起名就用 id');
 assert.equal(provOf('不存在'), null);

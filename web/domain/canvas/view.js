@@ -51,10 +51,25 @@ export function createSurface(o) {
     low = scale < 0.45;
     layer.classList.toggle('cv-far', low);
   }
+  /* 滚轮一秒能来几十个事件：每个都 commit 就是几十次写盘。240ms 内的连续滚动只落最后一帧。 */
+  let vpTimer = 0;
   function writeViewport(commitIt) {
     applyTransform();
-    if (commitIt) commit([{ op: 'set_viewport', viewport: { x: ox, y: oy, scale } }], { view: true });
+    if (commitIt) {
+      if (vpTimer) { clearTimeout(vpTimer); vpTimer = 0; }
+      commit([{ op: 'set_viewport', viewport: { x: ox, y: oy, scale } }], { view: true });
+    }
     schedule();
+  }
+  function writeViewportSoon() {
+    applyTransform();
+    schedule();
+    if (vpTimer) clearTimeout(vpTimer);
+    vpTimer = setTimeout(() => {
+      vpTimer = 0;
+      /* 到点现读：滚动期间 ox/oy/scale 一直在变，闭包里抓旧值会落一帧过期视口 */
+      commit([{ op: 'set_viewport', viewport: { x: ox, y: oy, scale } }], { view: true });
+    }, 240);
   }
   function setViewport(v, c) { const n = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Number(v.scale) || 1)); ox = Number(v.x) || 0; oy = Number(v.y) || 0; scale = n; writeViewport(c !== false); }
   function zoomAt(cx, cy, factor) {
@@ -351,8 +366,10 @@ export function createSurface(o) {
     return inside;
   }
   function startMove(e, n) {
-    const list = sel().includes(n.id) ? sel().slice() : [n.id];
-    if (e.shiftKey && !list.includes(n.id)) list.push(n.id);
+    /* 选择集里可能留着已经不存在的节点号（助手或另一个标签页删过）：不过滤的话
+       下面 nodeOf(id).x 当场 TypeError，整个画布拖不动。 */
+    const list = (sel().includes(n.id) ? sel() : [n.id]).filter(id => !!nodeOf(id));
+    if (!list.includes(n.id)) list.push(n.id);
     commit([{ op: 'select_nodes', ids: list }], { view: true });
     onSelect(list); applySelection();
     drag = { kind: 'move', ids: list, sx: e.clientX, sy: e.clientY, now: new Map(),
@@ -459,9 +476,12 @@ export function createSurface(o) {
 
   function onWheel(e) {
     e.preventDefault();
-    if (e.shiftKey || space) { ox -= e.deltaX + e.deltaY; oy -= e.deltaY; writeViewport(true); return; }
+    /* Shift 是横向档：只改 ox（按住 Shift 的滚轮常常只报 deltaY，所以取两者先有的那个）。
+       以前两个轴一起改，横向滚一点画布就斜着跑；空格/手型才是两轴平移。 */
+    if (e.shiftKey) { ox -= (e.deltaX || e.deltaY); writeViewportSoon(); return; }
+    if (space) { ox -= e.deltaX; oy -= e.deltaY; writeViewportSoon(); return; }
     zoomAt(e.clientX, e.clientY, Math.pow(1.0015, -e.deltaY));
-    if (Math.abs(e.deltaY) > 0) writeViewport(true);
+    if (Math.abs(e.deltaY) > 0) writeViewportSoon();
   }
   function onDbl(e) {
     const h = hit(e); if (!h) return;
@@ -539,6 +559,7 @@ export function createSurface(o) {
       const kk = nk / cur; ox = s.w / 2 - (s.w / 2 - ox) * kk; oy = s.h / 2 - (s.h / 2 - oy) * kk; scale = nk; writeViewport(true); },
     nodeEl: id => els.get(id) || null,
     toDocPt, destroy() {
+      if (vpTimer) { clearTimeout(vpTimer); vpTimer = 0; }
       listeners.forEach(([el, ev, fn, opt]) => { try { el.removeEventListener(ev, fn, opt); } catch (e) {} }); listeners.length = 0;
       els.forEach(el => el.remove()); els.clear();
       paths.forEach(p => p.remove()); paths.clear();

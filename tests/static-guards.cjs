@@ -9,12 +9,16 @@
      G6  错误文案只许走 `errText`（§4：145 处各写一遍，同一个错误每页一句话）
      G7  助手每条动作都要在 ACTION_META 里登记 effect 与 route（§6.1-4 / §6.2：漏一条=把花钱的当只读、按页过滤悄悄失效）
      G8  `window.__*` 后门：写了没人读的死钩子、页面挂的钩子卸载时不清（§6.2）
+     G9  localStorage 读写必须在 try 内或经 `window.LS`（C14：隐私模式一读就抛，页面不该各写一层）
+     G10 全库只许一处 `createElement('link')`（C2：页面 CSS 注入只剩 page-css.js 一份）
+     G11 同一条 CSS 规则只许定义一处（同一选择器 + 同一规则体；页面根类下的覆盖不算）
    存量违例一律**登记在案**（下面的表），基线只许减不许增：新出现一条身份就直接红。
    表是数据表，不是一堆 `|| true`；`GUARD_WRITE=1 node tests/static-guards.cjs` 会按现状重打表，
    收敛之后照抄粘回来即可。
    判据不能是「永远绿」：本文件自带自检（--selftest 或每次运行末尾），用合成源码验证
    每个探测器**真的会报**，报不出来就红。 */
 'use strict';
+const fs = require('fs');
 const S = require('./support.cjs');
 const WRITE = process.env.GUARD_WRITE === '1';
 
@@ -26,8 +30,8 @@ const G1_INLINE_HANDLER = [];
 
 /* G2 创建调用点没有「结果未知」判据：现状 8 处。每条都要说清「判据在哪儿」。 */
 const G2_CREATE_NO_GUARD = [
-  { id: 'web/pages/studio.js#createImageOnce', max: 2, why: '创建的错误出口在外层 submit（studio.js 顶层闭包里的 maybeSubmitErr），这一层只发不判；要补的是并到同一个出口' },
-  { id: 'web/pages/studio.js#createVideoOnce', max: 2, why: '同上：视频那一路也靠外层 submit 兜「结果未知」' },
+  { id: 'web/pages/studio.js#createImageOnce', max: 1, why: '创建的错误出口在外层 submit（studio.js 顶层闭包里的 maybeSubmitErr），这一层只发不判；要补的是并到同一个出口' },
+  { id: 'web/pages/studio.js#createVideoOnce', max: 1, why: '同上：视频那一路也靠外层 submit 兜「结果未知」' },
   { id: 'web/domain/gen-forms.js#create', max: 1, why: 'AiGen.create 只把 Api.create 的错误往上透传；「结果未知」的判据在 Api.maybeSubmitted（api.js）与调用方，本层不重复判' },
   { id: 'web/domain/assetlib.js#retry', max: 1, why: '重试的调用方 pages/assets.js:583 在外面判 uncertain；本层只透传错误' },
   { id: 'web/domain/gen-forms.js#synthTts', max: 1, why: '语音合成的调用方（pages/studio.js:1629 AiGen.synthTts）在上一层处理；本层只透传（§6.1-2 拆文件后随 AiGen 进 gen-forms.js）' },
@@ -36,21 +40,25 @@ const G2_CREATE_NO_GUARD = [
   { id: 'web/features/chat-tools.js#runGenerate', max: 1, why: '助手生成动作的另一个出口（会话里 3588 行那一路有 Api.maybeSubmitted 判据）；§6.1-2 拆文件后随动作表进 chat-tools.js，待并到同一收口' },
 ];
 
-/* G3 空 catch：现状 338 处 / 38 个文件（报告 §4 数的 396 处里含注释里举的反例，探测器只认代码）。
+/* G3 空 catch：现状 294 处 / 35 个文件（报告 §4 数的 396 处里含注释里举的反例，探测器只认代码）。
+   ⚠ 2026-10-21 修探测器：`nonCodeMask` 以前不认正则字面量与模板串的 `${}` 嵌套，
+   凡是有 `/["'“”《》]+$/` 这种带引号的字符类、或模板里再套模板的文件，从那一行起整份都算
+   「注释里的例子」—— 同一份 engine.js 数出过 17 / 34 / 51 三个数，这张表谁也对不起谁。
+   现在按「上一个真代码 token」判除法/正则、`${}` 按花括号深度配对，并与 @babel/parser 的真词法
+   逐位对过（全库 0 处把真代码当串、残余只差模板定界符）。计数第一次成为真数：
+   逐处补原因后 engine.js / ui.js / pages/chars.js 归零（整行删掉），另四行按现状收紧。
    整类收敛，按文件计数；同一文件里新增一条就红。
    原因同一句话（§4：「空 catch 里混着真错误」），只有例外原因不同的才单独写。 */
 const G3_EMPTY_CATCH = [
   { file: 'web/features/chat.js', max: 39, why: '§4 存量：助手外壳（会话 / 渲染 / 发送）吞错的一批；§6.1-2 把工具循环与动作表拆去 chat-tools.js' },
   { file: 'web/features/chat-tools.js', max: 7, why: '§4 存量：随工具循环与动作表搬过来的一批（拆文件不改行为，逐处补原因或显式处理）' },
   { file: 'web/domain/assetlib.js', max: 7, why: '§4 存量：AssetLib 列表归一化吞错的一批（§6.1-2 拆出后只剩列表层与费用）' },
-  { file: 'web/pages/settings.js', max: 25, why: '§4 存量：设置页读盘/探测吞错的一批' },
-  { file: 'web/pages/studio.js', max: 24, why: '§4 存量：工作台吞错的一批' },
+  { file: 'web/pages/settings.js', max: 21, why: '§4 存量：设置页读盘/探测吞错的一批' },
+  { file: 'web/pages/studio.js', max: 23, why: '§4 存量：工作台吞错的一批' },
   { file: 'web/director/playback.js', max: 24, why: '§4 存量：播放时间轴吞 DOM 异常的一批' },
-  { file: 'web/director/engine.js', max: 22, why: '§4 存量：导演台吞掉的一批，逐处补注释或改成显式处理' },
   { file: 'web/ui/workbench.js', max: 21, why: '§4 存量：灯箱/工作台吞错的一批' },
-  { file: 'web/ui/ui.js', max: 8, why: '§4 存量：ui.js 剩下的公共面吞错的一批（§6.1-2 拆出 forms.js 后收紧）' },
   { file: 'web/ui/forms.js', max: 12, why: '§4 存量：随表单族从 ui.js 原样搬来的一批（拆文件不改行为，逐处补原因或显式处理）' },
-  { file: 'web/domain/local.js', max: 18, why: '§4 存量：本机资产读盘吞错的一批' },
+  { file: 'web/domain/local.js', max: 15, why: '§4 存量：本机资产读盘吞错的一批' },
   { file: 'web/domain/api.js', max: 14, why: '§4 存量：取数/媒体地址层吞错的一批（§6.1-2 从 assetlib.js 拆出）' },
   { file: 'web/app.js', max: 15, why: '§4 存量：前端入口吞错的一批' },
   { file: 'web/ui/datasync.js', max: 12, why: '§4 存量：导入导出吞错的一批' },
@@ -58,12 +66,11 @@ const G3_EMPTY_CATCH = [
   { file: 'web/director/index.js', max: 10, why: '§4 存量：导演台装配吞错的一批' },
   { file: 'web/domain/text-ai.js', max: 9, why: '§4 存量：文字 AI 吞错的一批' },
   { file: 'web/ui/sidebar.js', max: 8, why: '§4 存量：侧栏吞错的一批' },
-  { file: 'web/pages/assets.js', max: 7, why: '§4 存量：资产库页吞错的一批' },
+  { file: 'web/pages/assets.js', max: 6, why: '§4 存量：资产库页吞错的一批' },
   { file: 'web/domain/fav.js', max: 5, why: '§4 存量：收藏吞错的一批' },
-  { file: 'web/domain/gen-forms.js', max: 11, why: '§4 存量：型号/参数/配音表单族吞错的一批（§6.1-2 从 assetlib.js 拆出）' },
+  { file: 'web/domain/gen-forms.js', max: 8, why: '§4 存量：型号/参数/配音表单族吞错的一批（§6.1-2 从 assetlib.js 拆出）' },
   { file: 'web/core/page-context.js', max: 3, why: '§4 存量：页面上下文吞错的一批' },
   { file: 'web/pages/canvas.js', max: 3, why: '§4 存量：画布页吞错的一批' },
-  { file: 'web/pages/chars.js', max: 3, why: '§4 存量：角色库吞错的一批' },
   { file: 'web/ui/kv.js', max: 3, why: '§4 存量：键值存储吞错的一批' },
   { file: 'web/core/hooks.js', max: 2, why: '§4 存量：生命周期钩子吞错的一批' },
   { file: 'web/domain/asset-transfer.js', max: 2, why: '§4 存量：搬运/转存吞错的一批' },
@@ -80,13 +87,13 @@ const G3_EMPTY_CATCH = [
   { file: 'web/ui/toast.js', max: 1, why: '§4 存量：提示条吞错的一批' },
 ];
 
-/* G4 裸色值：现状 15 处 / 4 个文件（走令牌的 `var(--x,#hex)` 回退写法不算违例）。
-   四类各有各的客观理由：图表调色板是「数据色」不是「主题色」；ASS 字幕色是字幕文件格式
-   的字段（不是 CSS）；canvas 2D 的 fillStyle 读不到 CSS 变量。内联 SVG 走 `stroke="currentColor"`
+/* G4 裸色值：现状 3 处 / 3 个文件（走令牌的 `var(--x,#hex)` 回退写法不算违例）。
+   图表调色板已搬进 `tokens.css` 的 `--chart-*`（页面现读 CSS 变量），不再有例外；
+   剩下的两类各有各的客观理由：ASS 字幕色是字幕文件格式的字段（不是 CSS）；
+   canvas 2D 的 fillStyle 读不到 CSS 变量。内联 SVG 走 `stroke="currentColor"`
    + CSS 上 `color: var(--…)`（箭头已经这么改了），所以那一类不再有例外。
    只许减：把它们换成令牌 / 传色函数之后逐条删表。 */
 const G4_BARE_HEX = [
-  { file: 'web/pages/usage.js', max: 12, why: 'CHART_COLORS（usage.js:45）：图表数据色板，报告 §3 点名的白名单，与主题令牌不是一回事' },
   { file: 'web/domain/asset-transfer.js', max: 1, why: 'canvas 导出前置底色 fillStyle="#fff"（asset-transfer.js:21）：2D 上下文拿不到 var()，要的是「导出必须白底」这个事实' },
   { file: 'web/ui/workbench.js', max: 1, why: '缩略图铺底 fillStyle="#000"（workbench.js:1055）：同上，canvas 不认 CSS 变量' },
   { file: 'web/director/subtitles.js', max: 1, why: "ASS 字幕默认色 '#FFFFFF'（subtitles.js:17）：那是字幕文件的字段格式（&H…/RGB），不是页面样式" },
@@ -126,6 +133,25 @@ const G7_ACT_EFFECT = [];
 const G8_HOOK = [
   { id: 'window.__directorSlicePaused', max: 1, why: '产品代码不读，只有两条探针拿它观测切片取帧有没有暂停（tests/e2e/director-slice.cjs、tests/e2e/ui-visual.cjs）：留着是为了「暂停了却没停」这类回归看得见；页面改成正式钩子（core/hooks.js 的登记表）之后这一条就该删' },
 ];
+
+/* G9 裸 localStorage：现状 0 处 —— 表必须是空的。
+   判据只认「属性读写」：`getItem/setItem/removeItem/key/clear/length`。走 `window.LS` 的调用
+   没有这个属性访问，天然不命中；唯一包装 `web/ui/ui.js` 的 `LS` 每个方法自己包了 try，
+   所以连 owner 都不用开例外。 */
+const G9_NAKED_LS = [];
+
+/* G10 页面 CSS 注入：`createElement('link')` 全库只许 page-css.js 那一处。
+   各页从前各写一份 ensureCss（收藏/用量还只判 href 后缀），现在统一走 `ensureCss(href,tag)`；
+   这一条保证没人再开第二条注入口。 */
+const G10_LINK_CREATE = [
+  { file: 'web/core/page-css.js', max: 1, why: '页面样式表按需挂进 head 的唯一实现（C2）' },
+];
+
+/* G11 同一条 CSS 规则只许定义一处：同一**完整选择器 + 同一规则体**。
+   只按类名数会把 `.chars-page .card` 与 `.fav-page .card` 也当成重复 —— 那是各页在
+   自己根类下的覆盖，AGENTS §3.4 允许；真正的坏法是整块规则被复制到第二个文件
+   （改一处另一处不变），或同一文件里一字不差写两遍。@keyframes 的 from/to/% 不算选择器。 */
+const G11_DUP_CSS = [];
 
 /* ============================ 探测器 ============================ */
 const ON_EVENTS = 'click|load|error|input|change|submit|focus|blur|keydown|keyup|scroll|toggle|abort|mouseover|mouseout|mousemove|dblclick|contextmenu|paste|copy|cut|wheel|touchstart|touchend|touchmove|pointerdown|pointerup|select|drag|dragstart|dragover|drop|animationend|animationstart|animationiteration|transitionend';
@@ -188,21 +214,74 @@ function detectCreateNoGuard(file, src) {
 }
 /* 注释 / 字符串覆盖的位置：判据只数**代码里**的空 catch。
    文档注释里举的反例（`再包一层 try { … } catch {}`）不是违例，把它算进去会让
-   「数一下现状」这件事永远对不上，谁也不信这张表了。 */
+   「数一下现状」这件事永远对不上，谁也不信这张表了。
+   ⚠ 必须跳过**正则字面量**：`/["'“”《》]+$/` 这种字符类里带引号的写法，早先的版本把
+   那个 `"` 当成字符串开头，一路吃到下一个引号 —— 从这一行起整份文件都算「注释里的例子」，
+   于是 engine.js 的计数随附近代码怎么动而乱跳（实测同一份代码 17 / 34 两个数），
+   「登记 22」这种数字永远和代码对不上。数不对的判据等于没有判据。
+   `/` 是除法还是正则，按「上一个真代码 token」判：标点后与 return 这类关键字后才是正则。 */
+const BEFORE_REGEX_KW = /^(?:return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/;
+const BEFORE_REGEX_PUNCT = '(,=:[!&|?{};+-*%~^<>';
+/* `@str` / `@re` 是「上一个 token 是字符串或正则」的记号：紧跟它们的 `/` 一定是除法。 */
+function mayBeRegex(last) {
+  if (!last) return true;
+  if (last[0] === '@') return false;
+  if (/^[A-Za-z_$]/.test(last)) return BEFORE_REGEX_KW.test(last);
+  return BEFORE_REGEX_PUNCT.includes(last);
+}
+/* 模板串要按**嵌套**扫：`` `…${x.join(',') && `内层 ${y}`}…` `` 里那枚内层反引号，
+   早先的写法当成外层串的结尾，于是后半份文件在「串里 / 串外」之间来回错 ——
+   真实代码里的 `catch {}` 与裸 `localStorage` 会被当成「注释里的例子」跳过，
+   注释里的反例又会被当真违例数进来。同一份代码数出两个数，判据就没人信了。
+   规则：模板正文整段遮掉；遇到 `${` 进代码态并压一层花括号深度，花括号配平的那个 `}` 回到模板态。 */
 function nonCodeMask(src) {
   const mask = new Uint8Array(src.length);
-  const mark = (a, b) => { for (let i = a; i < b && i < src.length; i++) mask[i] = 1; };
-  let i = 0;
+  const set = (a, b) => { for (let k = a; k < b && k < src.length; k++) mask[k] = 1; };
+  const isWord = c => /[A-Za-z0-9_$]/.test(c);
+  const tpl = [];                       // 每一层 `${` 所在的花括号深度
+  let i = 0, last = '', depth = 0, inTpl = false;
   while (i < src.length) {
     const c = src[i];
-    if (c === '/' && src[i + 1] === '/') { const s = i; while (i < src.length && src[i] !== '\n') i++; mark(s, i); continue; }
-    if (c === '/' && src[i + 1] === '*') { const s = i; i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; mark(s, i); continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      const s = i, q = c; i++;
-      while (i < src.length) { if (src[i] === '\\') { i += 2; continue; } if (src[i] === q) break; i++; }
-      mark(s, i + 1); i++; continue;
+    if (inTpl) {
+      if (c === '\\') { set(i, i + 2); i += 2; continue; }
+      if (c === '`') { set(i, i + 1); i++; inTpl = false; last = '@str'; continue; }
+      if (c === '$' && src[i + 1] === '{') { set(i, i + 2); i += 2; inTpl = false; tpl.push(depth); depth++; last = '{'; continue; }
+      set(i, i + 1); i++; continue;
     }
-    i++;
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { const s = i; while (i < src.length && src[i] !== '\n') i++; set(s, i); continue; }
+    if (c === '/' && src[i + 1] === '*') { const s = i; i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; set(s, i); continue; }
+    if (c === '"' || c === "'") {
+      const s = i; i++;
+      while (i < src.length) { if (src[i] === '\\') { i += 2; continue; } if (src[i] === c) break; i++; }
+      set(s, i + 1); i++; last = '@str'; continue;
+    }
+    if (c === '`') { set(i, i + 1); i++; inTpl = true; continue; }
+    if (c === '/' && mayBeRegex(last)) {
+      const s = i; i++; let cls = false;
+      while (i < src.length) {
+        const d = src[i];
+        if (d === '\\') { i += 2; continue; }
+        if (d === '\n') break;                                          // 正则不跨行：当它不是正则，退回逐字扫
+        if (d === '[') cls = true;
+        else if (d === ']') cls = false;
+        else if (d === '/' && !cls) break;
+        i++;
+      }
+      if (src[i] === '/') {
+        i++; while (i < src.length && /[gimsuyd]/.test(src[i])) i++;     // 吃掉 flags
+        set(s, i); last = '@re'; continue;
+      }
+      i = s + 1; last = '/'; continue;                                  // 没闭合：那一枚 `/` 按除法算
+    }
+    if (c === '{') { depth++; i++; last = '{'; continue; }
+    if (c === '}') {
+      if (depth > 0) depth--;
+      if (tpl.length && depth === tpl[tpl.length - 1]) { tpl.pop(); set(i, i + 1); i++; inTpl = true; continue; }
+      i++; last = '}'; continue;
+    }
+    if (isWord(c)) { const s = i; while (i < src.length && isWord(src[i])) i++; last = src.slice(s, i); continue; }
+    i++; last = c;
   }
   return mask;
 }
@@ -306,6 +385,94 @@ function hookCorpusCode() {
   return hookCorpus;
 }
 const HOST_OBJ = '(?:window|globalThis|self)';
+/* `try { … }` 体的字符区间（注释/字符串里的花括号已被抹成空格，配对只认真代码）。
+   catch 体不算：try 里抛出的读盘错误由 catch 接住才叫「读坏了有退路」。 */
+function tryRanges(src, mask) {
+  const out = [];
+  const re = /\btry\s*\{/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (mask[m.index]) continue;
+    const start = m.index + m[0].length - 1;
+    let d = 0, i = start;
+    for (; i < src.length; i++) {
+      if (mask[i]) continue;
+      if (src[i] === '{') d++;
+      else if (src[i] === '}' && --d === 0) break;
+    }
+    out.push([start, i]);
+  }
+  return out;
+}
+const NAKED_LS = /\blocalStorage\s*\.\s*(?:getItem|setItem|removeItem|key|clear|length)\b/g;
+function detectNakedLocalStorage(file, src) {
+  const out = {};
+  const mask = nonCodeMask(src);
+  const ranges = tryRanges(src, mask);
+  let m;
+  NAKED_LS.lastIndex = 0;
+  while ((m = NAKED_LS.exec(src))) {
+    if (mask[m.index]) continue;
+    if (ranges.some(([a, b]) => m.index > a && m.index < b)) continue;
+    out[file] = (out[file] || 0) + 1;
+  }
+  return out;
+}
+/* 连注释里那句「只有这一处」也不能算：按代码层过滤，注释里的举例天然不命中。 */
+const LINK_CREATE = /document\.createElement\(\s*['"]link['"]\s*\)/g;
+function detectLinkCreate(file, src) {
+  const out = {};
+  const mask = nonCodeMask(src);
+  let m;
+  LINK_CREATE.lastIndex = 0;
+  while ((m = LINK_CREATE.exec(src))) {
+    if (mask[m.index]) continue;
+    out[file] = (out[file] || 0) + 1;
+  }
+  return out;
+}
+/* 样式表全量只在第一次问的时候读一遍：跨文件重复天生要整份语料。 */
+let cssRuleIndex = null;
+function cssFiles() {
+  return fs.readdirSync(S.abs('web/styles'))
+    .filter(f => /\.css$/.test(f)).sort()
+    .map(f => 'web/styles/' + f);
+}
+function cssRulesOf(src) {
+  const text = String(src).replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = [];
+  for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim().replace(/\s+/g, ' ');
+    if (!sel || sel.startsWith('@')) continue;
+    if (/^(?:from|to|\d+(?:\.\d+)?%)$/.test(sel)) continue;   // @keyframes 的关键帧不是选择器
+    out.push({ sel, body: m[2].trim().replace(/\s+/g, ' ') });
+  }
+  return out;
+}
+function detectDupCss(file, src) {
+  const out = {};
+  const seen = new Map();
+  for (const r of cssRulesOf(src)) {
+    const key = r.sel + '{' + r.body + '}';
+    seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  if (cssRuleIndex == null) {
+    cssRuleIndex = new Map();
+    for (const f of cssFiles()) {
+      for (const r of cssRulesOf(S.read(f))) {
+        const key = r.sel + '{' + r.body + '}';
+        if (!cssRuleIndex.has(key)) cssRuleIndex.set(key, new Set());
+        cssRuleIndex.get(key).add(f);
+      }
+    }
+  }
+  for (const [key, n] of seen) {
+    if (n > 1) { out[file + '#同一规则写了 ' + n + ' 遍：' + key.slice(0, 60)] = n - 1; continue; }
+    const owners = cssRuleIndex.get(key);
+    if (owners && [...owners].some(f => f !== file)) out[file + '#与另一份样式表重复：' + key.slice(0, 60)] = 1;
+  }
+  return out;
+}
 function detectHookBackdoor(file, src) {
   const out = {};
   const code = codeOnly(src);
@@ -355,6 +522,16 @@ const GUARDS = [
     sampleFile: 'web/pages/synthetic.js', okFile: 'web/pages/synthetic.js',
     sample: `window.__deadOnPurpose = () => 1;`,
     ok: `window.__aliveOnPurpose = () => 1;\nfunction paint() { const f = window.__aliveOnPurpose; if (f) f(); }\nfunction leave() { window.__aliveOnPurpose = null; }` },
+  { key: 'G9', title: '裸 localStorage 读写（C14）', table: G9_NAKED_LS, kind: 'counts', detect: detectNakedLocalStorage,
+    sample: `const v = localStorage.getItem('sk_k');`,
+    ok: `try { const v = localStorage.getItem('sk_k'); } catch (e) { /* 隐私模式：没有就没有 */ }\nconst w = window.LS.get('sk_k');` },
+  { key: 'G10', title: "全库只许一处 createElement('link')（C2）", table: G10_LINK_CREATE, kind: 'counts', detect: detectLinkCreate,
+    sample: `const l = document.createElement('link'); head.append(l);`,
+    ok: `// 全站只有这一处 document.createElement('link')，注释里举例不算\nconst l = document.createElement('style');` },
+  { key: 'G11', title: '同一条 CSS 规则定义两处（同一选择器 + 同一规则体）', table: G11_DUP_CSS, kind: 'entries', detect: detectDupCss,
+    sources: cssFiles, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
+    sample: `.demo-x { color: var(--pri); }\n.demo-y { color: var(--pri); }\n.demo-x { color: var(--pri); }`,
+    ok: `.demo-x { color: var(--pri); }\n.chars-page .demo-x { color: var(--sec); }\n@keyframes demo-spin { from { opacity: 0; } to { opacity: 1; } }` },
 ];
 
 /* ============================ 跑 ============================ */
@@ -381,7 +558,8 @@ function selfCheck() {
 console.log('静态纪律判据（' + files.length + ' 个 web 源码文件 · ' + GUARDS.length + ' 条判据）');
 for (const g of GUARDS) {
   const current = {};
-  for (const p of files) merge(current, g.detect(S.rel(p), S.read(S.rel(p))));
+  const list = g.sources ? g.sources() : files;
+  for (const p of list) { const id = S.asRel(p); merge(current, g.detect(id, S.read(id))); }
   const res = S.ratchet(current, g.table, { kind: g.kind });
   total += res.total;
   const registered = g.table.reduce((a, r) => a + r.max, 0);

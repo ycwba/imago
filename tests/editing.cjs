@@ -5,7 +5,15 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const frag = fs.readFileSync(path.join(root, 'web/director/engine.js'), 'utf8');
+/* 剪辑与导出的纯函数现在分在 engine 那一层的两份以上：engine.js 自己（热区）与
+   engine/frames.js（切片几何）、engine/export.js（成片秒命名 / 配音区间），往后还会继续按域搬。
+   判据按名字找函数体，所以语料是**整层**而不是点名的几份文件 —— 搬家不需要同步改这里，
+   也不会出现「函数搬走了、判据还在老地方找、找不到就当没这回事」那种静默失效。 */
+const engineDir = path.join(root, 'web/director/engine');
+const frags = ['web/director/engine.js',
+  ...fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')).map(f => 'web/director/engine/' + f) : []]
+  .map(f => fs.readFileSync(path.join(root, f), 'utf8'));
+const frag = frags.join('\n');
 let bad = 0, n = 0;
 function ok(name, cond, detail) { n++; if (cond) { console.log('  ✓ ' + name); return; } bad++; console.log('  ✗ ' + name + (detail ? ' —— ' + detail : '')); }
 function fn(name) {

@@ -80,4 +80,17 @@ function atomicWrite(file, data, opts) {
   }
 }
 
-module.exports = { atomicWrite, fsyncPath, sleepSync, renameWithRetry };
+/* 覆盖写一个 JSON 文件：覆盖前把旧内容留在同名 `.bak.json`（内容相同不留）。
+   备份只是回滚线索 —— 备份写不成不阻挡主写；主写失败照原样抛出。 */
+function writeJsonWithBak(file, obj, opts) {
+  const body = JSON.stringify(obj, null, 2);
+  try {
+    if (fs.existsSync(file)) {
+      const old = fs.readFileSync(file, 'utf8');
+      if (old !== body) fs.writeFileSync(file.replace(/\.json$/, '.bak.json'), old);
+    }
+  } catch (e) { /* 备份写不成不阻挡主写；下面那一次才是这一单的正事 */ }
+  return atomicWrite(file, body, opts);
+}
+
+module.exports = { atomicWrite, writeJsonWithBak, fsyncPath, sleepSync, renameWithRetry };

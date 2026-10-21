@@ -52,10 +52,6 @@
      真要传 GB 级的文件得把这条链改成代理自己去取字节（流式），风险与改动面都大得多。 */
   const MIRROR_MAX = 216 * 1024 * 1024;
   const CONCURRENCY = 2;                 // 同时最多镜像几个：一次性下十几个视频会把上行和磁盘都占满
-  const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
-    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3',
-    'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/flac': 'flac', 'audio/ogg': 'ogg', 'audio/aac': 'aac' };
-
   const on = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch (e) { return def; } };
   const saveOn = () => on(K_SAVE, 'on') !== 'off';
   const preferLocal = () => on(K_PREFER, 'on') !== 'off';
@@ -102,17 +98,9 @@
     return out;
   }
   function setAutosaveConf(c) { try { localStorage.setItem(K_AUTOSAVE, JSON.stringify(c || {})); } catch (e) {} }
-  /* 这一份产物属于哪一类：先看扩展名（落盘名就是 <id>.<格式>，最可靠），再按 mime。 */
-  const kindOf = (ext, mime) => {
-    const e = String(ext || '').toLowerCase();
-    const hit = SAVE_KINDS.find(k => k.exts.indexOf(e) >= 0);
-    if (hit) return hit.id;
-    const m = String(mime || '').toLowerCase();
-    if (m.indexOf('image/') === 0) return 'image';
-    if (m.indexOf('video/') === 0) return 'video';
-    if (m.indexOf('audio/') === 0) return 'audio';
-    return '';
-  };
+  /* 这一份产物属于哪一类：扩展名 / MIME 的判据在公共层（ui.js 的 `mediaKindFrom`），
+     这里只决定「存到哪一档」，不再自己列一份扩展名表。 */
+  const kindOf = (ext, mime) => window.mediaKindFrom({ ext, mime });
 
   let idx = null;
   let idxMaps = null;   // 镜像索引的反查表（{ up, la, aid, gid }）；write() 时作废
@@ -185,14 +173,18 @@
     const K = window.Kv;
     if (!K || typeof K.at !== 'function') { idxBoot = Promise.resolve(); return idxBoot; }
     idxBoot = (async () => {
-      let stored = null;
-      try { stored = await K.at('mirror').get('idx'); } catch (e) {}
+      let stored = null, readOk = true;
+      /* 读失败 ≠ 库里本来没有：读不出来时**不回写** —— 暖缓存最多 2000 条，
+         一次瞬时读失败就把 IDB 里那 2 万条整表盖掉（B16）。 */
+      try { stored = await K.at('mirror').get('idx'); } catch (e) { readOk = false; }
       const mem = idx || rawIndex();
       if (stored && stored.m && typeof stored.m === 'object') {
         idx = mergeIndex(stored, mem);
+      } else if (readOk) {
+        idx = mem;
+        await mergeIdxIntoDb(mem);
       } else {
         idx = mem;
-        try { await K.at('mirror').put('idx', mem); } catch (e) {}
       }
       idxMaps = null;
       writeLocalCache(idx);
@@ -201,13 +193,36 @@
     return idxBoot;
   }
   let idxQueued = false;
+  let idxWriteChain = Promise.resolve();
+  /* 跨标签页整表覆盖（B17）：写前在**同一个读写事务**里重读一次、与内存合并再写回。
+     每个标签页都持有一份自己的索引，谁后写谁赢的话，另一个标签页这期间新存的产物
+     会被整表抹掉。读失败就**不写**（读不出来 ≠ 本来就没有：宁可这一次不落盘，
+     也不能拿半张表盖掉整张）。同一页的多次写也串行（后一次读到的必须包含前一次刚写的）。 */
+  function mergeIdxIntoDb(d) {
+    const K = window.Kv;
+    if (!K || typeof K.at !== 'function') return Promise.resolve();
+    return K.at('mirror').tx('readwrite', st => {
+      const req = st.get('idx');
+      req.onsuccess = () => {
+        const stored = req.result;
+        if (stored && stored.m && typeof stored.m === 'object') {
+          mergeIndex(d, stored);
+          idx = d;
+          idxMaps = null;
+          writeLocalCache(d);
+        }
+        st.put(d, 'idx');
+      };
+      return req;
+    });
+  }
   function queueIdxWrite(d) {
     const K = window.Kv;
     if (!K || typeof K.at !== 'function' || idxQueued) return;
     idxQueued = true;
-    Promise.resolve().then(async () => {
+    Promise.resolve().then(() => {
       idxQueued = false;
-      try { await K.at('mirror').put('idx', d); } catch (e) {}
+      idxWriteChain = idxWriteChain.then(() => mergeIdxIntoDb(d)).catch(() => {});
     });
   }
   function read() {
@@ -218,7 +233,13 @@
   function write() {
     const d = read();
     const keys = Object.keys(d.m);
-    if (keys.length > IDX_MAX) for (const k of keys.slice(IDX_MAX)) { delete d.a[d.m[k].a]; delete d.m[k]; }
+    /* 插入序是旧 → 新：超上限时删**最老的那一头**。
+       以前取 keys.slice(IDX_MAX) 删的是尾部（最新写入的），索引满 2 万条后新产物刚记下就被裁掉。 */
+    if (keys.length > IDX_MAX) for (const k of keys.slice(0, keys.length - IDX_MAX)) {
+      const a = d.m[k] && d.m[k].a;
+      if (a != null && d.a[a] === k) delete d.a[a];   // 反查表里只删真指向这一条的那个键
+      delete d.m[k];
+    }
     idxMaps = null;                    // 反查表跟着索引作废（下一次用再一次建）
     writeLocalCache(d);
     queueIdxWrite(d);
@@ -235,7 +256,7 @@
 
   /* 一条产物的稳定身份。**优先用平台给的 id（assetId / 任务号），最后才退到地址** ——
      签名地址每次列表刷新都换一串，keyed by 地址等于每次都重新镜像一遍。 */
-  function keyOf(provId, o) {
+  function mirrorIdOf(provId, o) {
     const p = provId || (o && o.provider) || '';
     if (o && o.assetId) return p + '|a:' + o.assetId;
     if (o && o.genId) return p + '|g:' + o.genId;
@@ -293,7 +314,7 @@
     const d = read();
     const p = String(e.provider || '');
     const up0 = e.rawSrc || e.upstreamSrc || e.raw || e.url;
-    const k0 = keyOf(p, { assetId: e.assetId, genId: e.genId, upstream: up0 });
+    const k0 = mirrorIdOf(p, { assetId: e.assetId, genId: e.genId, upstream: up0 });
     if (k0 && d.m[k0]) return { k: k0, rec: d.m[k0] };
     const mp = maps();
     const aid = String(e.assetId || '');
@@ -394,7 +415,7 @@
      卡片还多一个 `raw`）。与 offer / decorate / learn 那三处同一个表达式 —— 换一套就会出现
      「卡片说在队列里、索引说没存过」，藏与不藏就全凭运气。 */
   function keyFor(o) {
-    return keyOf(o.provider, {
+    return mirrorIdOf(o.provider, {
       assetId: o.assetId,
       genId: o.genId || o.taskId || '',
       upstream: o.rawSrc || o.upstreamSrc || o.raw || o.url,
@@ -470,8 +491,7 @@
       r.readAsDataURL(blob);
     });
   }
-  const extOf = (blob, e) => String(e || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
-    || EXT_BY_MIME[String((blob && blob.type) || '').toLowerCase()] || 'bin';
+  /* 扩展名口径在公共层（`ui.js` 的 `blobExtOf`）：先认条目声明的 format，再认文件名 / MIME。 */
   /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`，§J ⑲ 守着）。这一处以前自己写了第二份非法字符正则，
      而且是**直接删掉**那些字符（别的页换成 -），于是同一条素材从本机另存与从资产库下载，名字对不上；
      截断也各是一份（这里 20、页面那两处 24）。本函数只管「提示词当前缀 + 扩展名」。 */
@@ -531,7 +551,10 @@ function onInfo(fn) {
 }
 function info() {
   const s = read();
-  return { inFlight: INFOS.inFlight + queued.size, ok: INFOS.ok, fail: INFOS.fail,
+  /* `queued` 里**含正在跑的那几项**（runOne 结束才 delete），`INFOS.inFlight` 也是它们 ——
+     两数相加等于把每一份在途都数了两遍（B18）。取较大者：等待中的只在 queued 里，
+     跑着的两处都有；哪个口径完整取决于「刚 offer 还没 pump」这一瞬，取 max 两边都不漏。 */
+  return { inFlight: Math.max(INFOS.inFlight, queued.size), ok: INFOS.ok, fail: INFOS.fail,
     lastErr: INFOS.lastErr, lastAt: INFOS.lastAt,
       dlName: INFOS.dlName, dlTotal: INFOS.dlTotal, dlSent: INFOS.dlSent,
     count: Object.keys(s.m || {}).length, bytes: Object.values(s.m || {}).reduce((a, r) => a + (Number(r && r.b) || 0), 0),
@@ -643,7 +666,7 @@ function info() {
           tell(tooBig, { skip: true });
           return;
         }
-        ext = extOf(blob, ent && ent.format);
+        ext = window.blobExtOf(blob, ent && ent.format);
         b64 = await blobToB64(blob);
         r = await Api.saveLocalAsset({
           name: nameOf(ent, ext), mime: blob.type || '', format: ext,
@@ -863,7 +886,7 @@ function info() {
     if (!isHttp && !isSameOrigin) return '';
     const url = isHttp ? raw0 : String(window.MediaId.innerMedia(raw0) || raw0);
     if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch|local-assets)\b/.test(url)) return '';
-    const k = keyOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
+    const k = mirrorIdOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
     if (!k) return '';
     const platAsset = String((ent && ent.assetId) || '');
     const taskId = String((ent && (ent.genId || ent.taskId)) || '');
@@ -919,6 +942,34 @@ function info() {
     if (!o) return '';
     const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || byteSrcOf(o) || o.src || o.dl || '');
     return offer(String(o.provider || ''), o, up, opts);
+  }
+
+  /* ---------- 「这一屏还要存回本机哪几条」只有这一份 ----------
+     资产库 / 收藏 / 生成工作台三处以前各筛一遍（一处看 kind、一处看 hasLocal、一处看 stateOf），
+     判据漂了就会出现「卡片写着本机、按钮却还算它一条」。entries 由页面先按自己的筛选 / 分页筛好，
+     这里只做四件事：本地上传的不算、没有地址的不算、本机已有字节的不算、按 keyOf 去重。
+     返回**新数组**（沿用原顺序），不丢也补不进页面那一屏之外的东西。 */
+  function pullPlan(entries, o) {
+    const opts = o || {};
+    const keyOf = typeof opts.keyOf === 'function' ? opts.keyOf : keyFor;
+    const seen = new Set();
+    const out = [];
+    for (const e of (Array.isArray(entries) ? entries : [])) {
+      if (!e || e.kind === 'local' || e.fromLocal) continue;
+      if (!(e.src || e.dl || e.rawSrc || e.media || e.url)) continue;
+      const k = keyOf(e);
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      if (stateOf(e).local) continue;
+      out.push(e);
+    }
+    return out;
+  }
+  /* 范围算完之后按钮上那个数也只有这一份；返回的就是点下去要存的那一批。 */
+  function pullBar(b, plan, o) {
+    const list = Array.isArray(plan) ? plan : [];
+    pullBtn(b, list.length, o);
+    return list;
   }
 
   /* ---------- 「把一批取回本机」只有这一份 ----------
@@ -1119,7 +1170,7 @@ function info() {
     for (const raw of list) {
       const n = announceOne(raw);
       if (!n) continue;
-      const k = keyOf(n.provider, { assetId: n.assetId, genId: n.genId, upstream: n.rawSrc || n.url });
+      const k = mirrorIdOf(n.provider, { assetId: n.assetId, genId: n.genId, upstream: n.rawSrc || n.url });
       const dedupe = k || (n.provider + '|' + n.src);
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
@@ -1154,7 +1205,7 @@ function info() {
        但**绝不**把「任务号」直接当成多图任务的身份 —— 那会把四张图并成一张。 */
     const platAsset = String((det && det.asset) || '');
     const task = String((det && det.task) || '');
-    const k = keyOf(String(raw.provider || ''), { assetId: platAsset, genId: task, upstream: up });
+    const k = mirrorIdOf(String(raw.provider || ''), { assetId: platAsset, genId: task, upstream: up });
     const patch = rec => {
       let ch = false;
       if (platAsset && String(rec.p || '') !== platAsset) { rec.p = platAsset; ch = true; }
@@ -1370,6 +1421,7 @@ function info() {
 
   window.AssetLocal = {
     saveOn, preferLocal, showBadge, offer, scan, announce, decorate, watch, pullMany, pullSummaryText,
+    pullPlan, pullBar,
     /* 等镜像指针从 IndexedDB 读回来（列表加载前等一小会儿，避免首屏用暖启动缓存判漏）。 */
     ready: () => { read(); return bootMirrorIndex(); },
     pullBusy, pullStart, pullEnd, pullBtn, pullBtnTitle, pullReceipt,

@@ -3,6 +3,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { sendJson, fail } = require('./http');
 
 function createRenderRoutes(ctx) {
   const readBody = ctx.readBody;
@@ -29,26 +30,24 @@ function createRenderRoutes(ctx) {
       if (req.url.startsWith('/render/status')) {
         const id = urlObj.searchParams.get('id');
         const job = renders.get(id);
-        if (!job) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"任务不存在"}'); return true; }
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ id: job.id, state: job.state, progress: job.progress, stage: job.stage,
+        if (!job) { fail(res, 404, '任务不存在'); return true; }
+        sendJson(res, 200, { id: job.id, state: job.state, progress: job.progress, stage: job.stage,
           out: job.out, size: job.size, err: job.err, keepAudio: job.keepAudio, queuePos: job.queuePos,
-          log: (job.log || []).slice(-14) }));
+          log: (job.log || []).slice(-14) });
         return true;
       }
       if (req.url.startsWith('/render/cancel')) {
         // 取消渲染：杀掉正在跑的 ffmpeg 子进程，并从队列里摘掉
         const id = urlObj.searchParams.get('id');
         const job = renders.get(id);
-        if (!job) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"任务不存在"}'); return true; }
+        if (!job) { fail(res, 404, '任务不存在'); return true; }
         job.state = 'cancelled';
         const qi = renderQueue.indexOf(job);
         if (qi >= 0) renderQueue.splice(qi, 1);
         const killed = killJobProcs(id);
         log(`[render] 取消 ${id}（杀掉 ${killed} 个 ffmpeg 进程）`);
         try { renderJobs.record(job); } catch {}
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ok: true, id, killed }));
+        sendJson(res, 200, { ok: true, id, killed });
         return true;
       }
       if (req.url.startsWith('/render/dl')) {
@@ -79,8 +78,7 @@ function createRenderRoutes(ctx) {
             progress: lj ? lj.progress : (state === 'done' ? 100 : 0),
             url: exists ? '/render/dl?name=' + encodeURIComponent(j.out) : null };
         });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ jobs, limit: renderJobs.LIMIT }));
+        sendJson(res, 200, { jobs, limit: renderJobs.LIMIT });
         return true;
       }
       /* 把渲染目录里的成品复制一份进本机资产库（素材库 / 素材选择器马上就能用）。
@@ -92,24 +90,21 @@ function createRenderRoutes(ctx) {
           try { spec = JSON.parse(buf.toString('utf8')) || {}; } catch {}
           const name = path.basename(String(spec.name || ''));
           const ext = path.extname(name).toLowerCase();
-          const fail = (code, msg) => {
-            res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ error: { message: msg } }));
-          };
-          if (!name || !/^\.(mp4|m4a|wav|mp3|mov|webm)$/i.test(ext)) return fail(400, '这不是一份可保存的成片文件');
+          /* 这一条的错误体是 `{error:{message}}`（导演台按 error.message 读）；头字段交给 ./http。 */
+          const failMsg = (code, msg) => sendJson(res, code, { error: { message: msg } });
+          if (!name || !/^\.(mp4|m4a|wav|mp3|mov|webm)$/i.test(ext)) return failMsg(400, '这不是一份可保存的成片文件');
           const f = path.join(RENDER_DIR, name);
-          if (!fs.existsSync(f)) return fail(404, '这份成片已经不在了（可能被手动删过）：' + name);
+          if (!fs.existsSync(f)) return failMsg(404, '这份成片已经不在了（可能被手动删过）：' + name);
           try {
             const item = saveLocalCopy(f, { marker: name, title: String(spec.title || '').slice(0, 200) });
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ ok: true, id: item.id, url: item.url, name: item.name,
-              bytes: item.byte_length, reused: !!item.reused }));
+            sendJson(res, 200, { ok: true, id: item.id, url: item.url, name: item.name,
+              bytes: item.byte_length, reused: !!item.reused });
           } catch (e) {
             const msg = e && e.indexWrite
               ? ('字节已经复制进 .assets 了，但索引没写成：' + e.message + '。腾出磁盘空间后再点一次')
               : e.message;
             log('[render] 成品存资产库失败：' + e.message);
-            fail(500, msg);
+            failMsg(500, msg);
           }
         });
         return true;
@@ -120,17 +115,17 @@ function createRenderRoutes(ctx) {
           let spec = null;
           try { spec = JSON.parse(buf.toString('utf8')); } catch {}
           if (!spec || !Array.isArray(spec.clips) || !spec.clips.length) {
-            res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"缺少 clips"}'); return;
+            fail(res, 400, '缺少 clips'); return;
           }
           if (spec.clips.length > RENDER_CLIPS_MAX) {
-            res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"片段过多（上限 ' + RENDER_CLIPS_MAX + ' 段）"}'); return;
+            fail(res, 400, '片段过多（上限 ' + RENDER_CLIPS_MAX + ' 段）'); return;
           }
           /* 字幕：客户端已经把每一条烧成一张与成片同尺寸的透明 PNG。
              这里只做形状与条数校验；start/end 是**成片秒**（与 clips 的同一条轴）。
              超过上限当场 400 —— 截断等于静默丢字幕，比整单不生成更糟。 */
           const subsIn = Array.isArray(spec.subtitles) ? spec.subtitles : [];
           if (subsIn.length > SUBTITLE_MAX) {
-            res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"字幕条数过多（上限 ' + SUBTITLE_MAX + ' 条）"}'); return;
+            fail(res, 400, '字幕条数过多（上限 ' + SUBTITLE_MAX + ' 条）'); return;
           }
           const subtitles = subsIn.map(s => ({
             src: String((s && s.src) || '').slice(0, 2000),
@@ -139,7 +134,7 @@ function createRenderRoutes(ctx) {
           })).filter(s => s.src && s.end > s.start);
           // 队列上限：避免一次性提交几百个渲染任务把 CPU 与磁盘占满
           if (renderQueue.length + (running() || 0) >= RENDER_QUEUE_MAX) {
-            res.writeHead(429, { 'Content-Type': 'application/json' }); res.end('{"error":"渲染任务排队过多（在跑与排队最多 ' + RENDER_QUEUE_MAX + ' 条），稍后再试"}'); return;
+            fail(res, 429, '渲染任务排队过多（在跑与排队最多 ' + RENDER_QUEUE_MAX + ' 条），稍后再试'); return;
           }
           const id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
           const job = {
@@ -185,7 +180,7 @@ function createRenderRoutes(ctx) {
           pruneRenders();
           try { renderJobs.record(job); } catch {}
           log(`[render] 新任务 ${id}：${job.spec.clips.length} 段 → ${job.spec.width}×${job.spec.height}@${job.spec.fps}`);
-          res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id }));
+          sendJson(res, 200, { id });
           enqueueRender(job);
         });
         return true;

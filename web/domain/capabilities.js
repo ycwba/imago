@@ -829,9 +829,12 @@ window.Capabilities = {
     const got = this.mediaOf(prov, id);
     return !!(got && got !== want);
   },
+  /* 每家型号**注册表声明**那一份的底稿（第一次合并前原样记下）。
+     为什么要留底：接口答复是「当前状态」，撤销回去的档位不能靠单向合并永远留在下拉里，
+     所以每次合并都从声明那一份重新长（B23）。WeakMap：注册表重取后对象换了自然释放。 */
+  _decl: typeof WeakMap === 'function' ? new WeakMap() : null,
   /* 把能力合并进 REG 里对应平台的模型声明：接口优先，registry 声明兜底 */
-  apply(REG, providerId, capsById) {
-    const list = (REG && REG.providers) || [];        // 注册表还没就绪时不要抛错
+  apply(REG, providerId, capsById) {    const list = (REG && REG.providers) || [];        // 注册表还没就绪时不要抛错
     const prov = list.find(p => p.id === providerId || (p.keyId || p.id) === providerId);
     if (!prov) return 0;
     let n = 0;
@@ -856,8 +859,17 @@ window.Capabilities = {
          用在平台声明与实测不符的地方 —— 例如 SparkCine 生图声明了 jpeg/webp，
          实测（产物字节头 / mime_type / 文件名）却永远是 png，那就以实测为准，不给假选项。 */
       const forced = new Set(m.forceOptions || []);
+      /* 起点是**注册表声明**那一份，不是上一次合并的结果（B23）：
+         上一轮接口声明过、这一轮撤掉的档位，不能靠单向合并永远留在下拉里。 */
+      let decl = this._decl.get(m);
+      if (!decl) {
+        decl = { options: Object.assign({}, m.options || {}), price: m.price,
+          perSecond: m.perSecond, maxRefImages: m.maxRefImages };
+        this._decl.set(m, decl);
+      }
       /* `options` 深合一次：能力那一侧可能只有 source 之类的几个键，浅盖会把声明里的 formats 抹掉 */
-      const merged = Object.assign({}, m.options || {}, (cap && cap.options) || {});
+      const merged = Object.assign({}, decl.options);
+      Object.keys((cap && cap.options) || {}).forEach(k => { if (!forced.has(k)) merged[k] = cap.options[k]; });
       Object.keys(cap || {}).forEach(k => {
         if (k === 'options') return;                    // 那一层上面已经合过了，别在这儿再套一层
         if (cap[k] !== undefined && !forced.has(k)) merged[k] = cap[k];
@@ -866,15 +878,22 @@ window.Capabilities = {
       m.options = merged;
       /* 下面几个字段以前无条件被能力接口覆盖：forceOptions 保护不到它们，
          「平台声明与实测不符」时（例如 SparkCine 只出 PNG、价格表要锁死）会出现假信息。 */
-      if (cap.price && !forced.has('price')) m.price = Object.assign({}, m.price || {}, cap.price);
-      if (cap.perSecond && !forced.has('perSecond')) m.perSecond = cap.perSecond;
-      if (cap.max_ref_images && !forced.has('max_ref_images')) m.maxRefImages = cap.max_ref_images;
+      if (cap.price && !forced.has('price')) m.price = Object.assign({}, decl.price || {}, cap.price);
+      m.perSecond = (cap.perSecond !== undefined && !forced.has('perSecond')) ? cap.perSecond : decl.perSecond;
+      m.maxRefImages = (cap.max_ref_images !== undefined && !forced.has('max_ref_images'))
+        ? cap.max_ref_images : decl.maxRefImages;
     };
     (prov.models || []).forEach(m => {
       if (skip(m.id)) return;
       const cap = capsById[m.id];
-      /* 接口没给这个模型 → 保留声明（仍然换新 options，让上面那条记忆化判据成立） */
-      if (!cap) { m.options = Object.assign({}, m.options || {}); return; }
+      /* 接口没给这个模型 → 回到声明那一份（仍然换新 options，让上面那条记忆化判据成立）。
+         不回退的话，上一轮从接口长出来的档位会一直挂在一条已经撤掉的型号上。 */
+      if (!cap) {
+        const decl = this._decl.get(m);
+        m.options = Object.assign({}, (decl ? decl.options : m.options) || {});
+        if (decl) { m.price = decl.price; m.perSecond = decl.perSecond; m.maxRefImages = decl.maxRefImages; }
+        return;
+      }
       mergeCap(m, cap);
       n++;
     });
@@ -980,10 +999,17 @@ window.Capabilities = {
         : '（/env-status 没取到，退回全量：不知道哪几家在用）')
       + '｜跳过：' + (canJudge ? all.filter(p => !usable(p)).map(p => p.id).join(', ') : '无'));
     const one = async (p) => {
+      let ok = false;
       try {
         const d = await this.refreshProvider(REG, p, { force: opts && opts.force });
         if (d && d.models) Object.assign(byId, d.models);
+        ok = true;
       } catch (e) { console.warn('[Capabilities] ' + p.id + ' 能力读取失败：', e.message); }
+      /* 一家落定就广播一次（`wb:cap-ready`）：模型数据其实每家落地时就已经并进
+         `prov.models`（apply() 在 refreshProvider 里），缺的只是「可以补画了」的通知 ——
+         以前界面只认 `.then` 那一次，上游慢的那一家就把右栏拖到分钟级。
+         失败的那一家也投：等着的界面照常补一次，算不出来的照样保持上一份。 */
+      try { window.dispatchEvent(new CustomEvent('wb:cap-ready', { detail: { id: p.id, ok } })); } catch (e) { /* 广播只是通知不是数据通道，投不出去也不许拖垮 load */ }
     };
     const CAP_CONC = 4;
     let i = 0;

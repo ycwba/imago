@@ -16,7 +16,7 @@
       add(o, '筛选', onChips(root, '.fav-page .toolbar .chip.on').join(' / '));
       add(o, '搜索', val(root, '.fav-page input[type=search]'));
       add(o, '条数', txt(root, '.fav-page .toolbar .cnt'));
-      add(o, '当前页', txt(root, '.fav-page #pgInfo'));
+      add(o, '当前页', txt(root, '.fav-page #favPgInfo'));
       return o;
     },
     'usage.html': root => {

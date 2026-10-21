@@ -4,9 +4,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { sendJson, noStore } = require('./http');
 
 function createMediaRoutes(ctx) {
   const { readBody, killJobProcs, probe, runFfmpeg, state, resolveSrc, downloadTo, localAssetFile, log } = ctx;
+
+  /* 本文件的错误体是 `{error:{message}}`（asset-transfer.js 读的是 error.message）；
+     写之前先看连接还在不在 —— 探针断开后写头会抛。头字段交给 ./http。 */
+  const fail = (res, code, msg) => {
+    if (res.headersSent || res.destroyed) return;
+    sendJson(res, code, { error: { message: msg } });
+  };
 
   /* POST /media/info {assetId? | src?} → {duration,width,height,hasAudio,hasVideo,format,bytes,...}
      为什么要它：导入一段素材以后，时间线需要真实时长 / 画幅 / 有没有原声；以前这些全靠前端
@@ -14,8 +22,7 @@ function createMediaRoutes(ctx) {
      素材来源三档：本机资产号（la_xxx）、/asset/<id>、已过护栏的外链 —— 后两档先落到临时文件再探。 */
   async function handleMediaInfo(req, res) {
     if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
-      res.end(JSON.stringify({ error: { message: '媒体检查只接受 POST' } }));
+      sendJson(res, 405, { error: { message: '媒体检查只接受 POST' } }, { Allow: 'POST' });
       return;
     }
     const raw = await readBody(req, res, 64 * 1024);
@@ -26,19 +33,14 @@ function createMediaRoutes(ctx) {
     const cancel = () => { if (!res.writableFinished) killJobProcs(jid); };
     res.on('close', cancel);
     let tmpDir = '';
-    const fail = (code, msg) => {
-      if (res.headersSent || res.destroyed) return;
-      res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ error: { message: msg } }));
-    };
     try {
       const assetId = String(spec.assetId || '').trim();
       const src = String(spec.src || '').trim();
       let file = '', bytes = 0;
       if (assetId) {
-        if (!/^[A-Za-z0-9_-]{1,80}$/.test(assetId)) return fail(400, '资产号不合法');
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(assetId)) return fail(res, 400, '资产号不合法');
         file = localAssetFile(assetId) || '';
-        if (!file) return fail(404, '本机资产库里没有这一条（或文件已经不在了）：' + assetId);
+        if (!file) return fail(res, 404, '本机资产库里没有这一条（或文件已经不在了）：' + assetId);
         bytes = fs.statSync(file).size;
       } else if (src) {
         const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(src);
@@ -54,7 +56,7 @@ function createMediaRoutes(ctx) {
           bytes = await downloadTo(url, file);
         }
       } else {
-        return fail(400, '需要 assetId 或 src 之一');
+        return fail(res, 400, '需要 assetId 或 src 之一');
       }
       const out = await probe(['-v', 'error', '-show_entries',
         'format=format_name,duration,size:stream=codec_type,codec_name,width,height,avg_frame_rate',
@@ -62,7 +64,7 @@ function createMediaRoutes(ctx) {
       if (res.destroyed) return;
       let j = null;
       try { j = JSON.parse(out); } catch {}
-      if (!j) return fail(422, 'ffprobe 没有给出可读的结果（文件可能损坏，或本机没装 ffprobe）');
+      if (!j) return fail(res, 422, 'ffprobe 没有给出可读的结果（文件可能损坏，或本机没装 ffprobe）');
       const streams = Array.isArray(j.streams) ? j.streams : [];
       const v = streams.find(s => s && s.codec_type === 'video') || null;
       const a = streams.find(s => s && s.codec_type === 'audio') || null;
@@ -73,8 +75,7 @@ function createMediaRoutes(ctx) {
         : 0;
       log(`[media] 检查 ${assetId || src.slice(0, 80)}：${duration.toFixed(2)}s ${v ? (v.width + '×' + v.height) : '无画面'}`
         + `${a ? ' 有声音' : ' 无声音'}`);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({
+      sendJson(res, 200, {
         duration, width: v ? Number(v.width) || 0 : 0, height: v ? Number(v.height) || 0 : 0,
         hasVideo: !!v, hasAudio: !!a,
         /* 图片也会被 ffprobe 当成 video 流报出来，但没有时长 —— 单独标出来，
@@ -82,9 +83,9 @@ function createMediaRoutes(ctx) {
         still: !!v && !duration,
         fps, vcodec: v ? String(v.codec_name || '') : '', acodec: a ? String(a.codec_name || '') : '',
         format: fmt, bytes: Number(j.format && j.format.size) || bytes,
-      }));
+      });
     } catch (e) {
-      fail(422, '媒体检查失败：' + e.message);
+      fail(res, 422, '媒体检查失败：' + e.message);
     } finally {
       res.removeListener('close', cancel);
       killJobProcs(jid);
@@ -94,13 +95,11 @@ function createMediaRoutes(ctx) {
 
   async function handlePrepareReferenceVideo(req, res) {
     if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
-      res.end(JSON.stringify({ error: { message: '视频预处理只接受 POST' } }));
+      sendJson(res, 405, { error: { message: '视频预处理只接受 POST' } }, { Allow: 'POST' });
       return;
     }
     if (state.preparing >= 2) {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: '正在处理其他参考视频，请稍后重试' } }));
+      sendJson(res, 429, { error: { message: '正在处理其他参考视频，请稍后重试' } });
       return;
     }
     state.preparing++;
@@ -127,7 +126,8 @@ function createMediaRoutes(ctx) {
       }
       if (streams.some(s => s.codec_type === 'audio')) {
         const mime = /^video\/[a-z0-9.+-]+$/i.test(req.headers['content-type'] || '') ? req.headers['content-type'] : 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': mime, 'Content-Length': raw.length, 'Cache-Control': 'no-store', 'X-Audio-Added': '0' });
+        noStore(res);
+        res.writeHead(200, { 'Content-Type': mime, 'Content-Length': raw.length, 'X-Audio-Added': '0' });
         res.end(raw);
         return;
       }
@@ -138,7 +138,8 @@ function createMediaRoutes(ctx) {
         '-shortest', '-movflags', '+faststart', output], null, jid);
       if (res.destroyed) return;
       const st = await fs.promises.stat(output);
-      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': st.size, 'Cache-Control': 'no-store', 'X-Audio-Added': '1' });
+      noStore(res);
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': st.size, 'X-Audio-Added': '1' });
       await new Promise((resolve, reject) => {
         const stream = fs.createReadStream(output);
         const finish = () => { stream.destroy(); resolve(); };
@@ -148,10 +149,8 @@ function createMediaRoutes(ctx) {
         stream.pipe(res);
       });
     } catch (e) {
-      if (!res.headersSent && !res.destroyed) {
-        res.writeHead(422, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: { message: '参考视频预处理失败：' + e.message } }));
-      } else if (!res.destroyed) res.destroy();
+      if (!res.headersSent && !res.destroyed) fail(res, 422, '参考视频预处理失败：' + e.message);
+      else if (!res.destroyed) res.destroy();
     } finally {
       clearTimeout(timer);
       res.removeListener('close', cancel);

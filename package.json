@@ -9,7 +9,9 @@
     "check": "node tools/precompile-vue.cjs --check && node tests/syntax.cjs",
     "test": "node tests/all.cjs",
     "test:fast": "npm run check && node tests/map.cjs --changed --run",
-    "test:all": "node tests/all.cjs --e2e"
+    "test:all": "node tests/all.cjs --e2e:fast",
+    "test:e2e": "node tests/all.cjs --e2e",
+    "test:watch": "node tests/watch.cjs"
   },
   "devDependencies": {
     "@vue/compiler-dom": "3.5.44",

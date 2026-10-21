@@ -255,32 +255,15 @@ export function render(_ctx, _cache) {
           _createElementVNode("span", { class: "tab" }, "这一台的生成历史"),
           _createElementVNode("span", { class: "sp" }),
           _createElementVNode("span", { class: "pgroup" }, [
-            _createElementVNode("input", {
-              type: "search",
-              "data-r": "searchBox",
-              placeholder: "搜索提示词 / ID",
-              autocomplete: "off",
-              spellcheck: "false"
-            }),
-            _createElementVNode("button", {
-              class: "ghost",
-              "data-r": "searchBtn"
-            }, "搜索"),
-            _createElementVNode("span", { class: "pgsep" }),
-            _createElementVNode("button", {
-              class: "ghost",
-              id: "stPgPrev",
-              style: {"display":"none"}
-            }, "‹ 上一页"),
             _createElementVNode("span", {
-              class: "pginfo",
-              id: "stPgInfo"
-            }, "第 1 页"),
-            _createElementVNode("button", {
-              class: "ghost",
-              id: "stPgNext",
-              style: {"display":"none"}
-            }, "下一页 ›"),
+              class: "fb-host",
+              "data-r": "searchHost"
+            }),
+            _createElementVNode("span", { class: "pgsep" }),
+            _createElementVNode("span", {
+              class: "pgrow",
+              id: "stPgRow"
+            }),
             _createElementVNode("input", {
               type: "number",
               id: "stGotoPage",

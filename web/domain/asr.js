@@ -4,9 +4,7 @@
   let cached = null;
   let localState = null;
 
-  function errOf(e, fallback) {
-    return new Error(errText(e, fallback || '语音识别请求失败'));
-  }
+  const errOf = (e, fallback) => window.Api.errOf(e, fallback || '语音识别请求失败');
   async function settings() {
     try {
       const d = await window.Net.json('/asr/settings', { retry: 0 });

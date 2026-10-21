@@ -247,7 +247,11 @@ function diff(a, b) {
 (async () => {
   let proxy, browser, page;
   try {
-    proxy = await h.startProxy();
+    /* 视觉档的测试实例一律**直连**（PROXY_OFF=1）：以前这一条继承用户环境，于是「本机代理软件
+       此刻开没开」会改变画面 —— 代理软件关着时工作台三型画出一整屏「上游能力接口请求失败：连不上代理
+       127.0.0.1:7897」，指纹跟着红，而那既不是改版也不是缺陷。视觉档不发消息、不花钱，
+       取型号只是读一次清单，直连拿不到就照实回落，红只代表「画面真的变了」。 */
+    proxy = await h.startProxy({ env: { PROXY_OFF: '1' } });
     browser = await h.launchBrowser();
     page = await browser.newPage();
     const baseline = fs.existsSync(BASE_FILE) ? JSON.parse(fs.readFileSync(BASE_FILE, 'utf8')) : { version: 1, screens: {} };

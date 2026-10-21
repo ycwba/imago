@@ -15,20 +15,12 @@ import { render } from '../render/settings.js';
 
 const SAVE_DEBOUNCE_MS = 400;
 
-/* 外壳只引了 ui.css / spa-pages.css / spa-usage.css（那两份不归本页改）；
+import { ensureCss } from '../core/page-css.js';
+
+/* 外壳只引了 tokens / ui / sidebar / spa-director，不引任何页面样式；
    这一页的样式自己挂一次 —— 无构建步骤，也不要求别人记得在 shell.html 里补一行。
    与 spa-chars / spa-studio / spa-assets 同一套：已经由别处引过时不再插第二张。 */
-(function ensureSettingsCss() {
-  if (typeof document === 'undefined') return;
-  try {
-    if (document.querySelector('link[data-spa-settings], link[href$="spa-settings.css"]')) return;
-    const l = document.createElement('link');
-    l.rel = 'stylesheet';
-    l.href = 'web/styles/spa-settings.css';
-    l.setAttribute('data-spa-settings', '1');
-    document.head.appendChild(l);
-  } catch (e) {}
-})();
+ensureCss('web/styles/spa-settings.css', 'spa-settings');
 
 const CUS_KINDS = [['image', '图片'], ['video', '视频'], ['audio', '语音'], ['text', '文字']];
 /* 供应商卡里那两档不是「一类平台」，而是同一层级的两种接法：语音识别与联网搜索。
@@ -43,6 +35,39 @@ const KIND_MNEW = {
   audio: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
 };
 
+/* ---------- 声明式清单（B1 分组 + B5「一处声明」） ----------
+   五组导航（B1）：id、顺序、显示名**只写在模板那一节 DOM 上**（`<section data-group>` 里的
+   `<h2 class="set-group-h">`，折叠那一组在 `.fold-title` 里）—— 新增一组 = 模板里加一节，
+   这里没有第二份名单要抄。
+   普通设置行（B5）：kind 只有 num / check / sel 三种；渲染、自动保存写盘、导出名单
+   （EXPORTABLE 末尾的展开）都从这一份现取。**新增一项普通设置 = 这里加一行**，
+   模板里只留对应的容器 `<div class="kcols" ref="…BoxEl">`。
+   特殊控件（供应商卡 / ASR / 联网搜索 / Skill / 云同步 / 体检 / 用量 / 清理缓存）
+   不是「一行一个键」的形状，仍由各自的 renderXxx 画，只在分组里占一个栏位。
+   界面偏好那一批（主题 / 视图档位 / 产物三开关）的真相仍在 ui.js 的 UI_PREFS
+   （同步名单与助手白名单从那里派生，见 tests/settings-schema.cjs 判据①）。 */
+/* 组名单不在这里：id 与显示名都现读 DOM（`<section data-group>` + `<h2 class="set-group-h">`）。 */
+/* check 行的三态写盘规则：on/off 各存什么值，null = 删键；def = 键不存在时算不算勾上。 */
+const SET_ROWS = [
+  /* 网络与刷新（取值区间仍由 Net.NUMS 现取，这里只声明行本身） */
+  { card: 'net', kind: 'num', name: 'timeout', label: '请求超时', unit: '秒' },
+  { card: 'net', kind: 'num', name: 'retry', label: '失败重试', unit: '次', hint: '填 0 = 不重试' },
+  { card: 'net', kind: 'num', name: 'poll', label: '任务刷新间隔', unit: '秒' },
+  /* 产物存放：三行（另存档位 + 左栏两块） */
+  { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '自动存本机要存哪一档', def: 'all', keep: 1,
+    opts: [['all', '连历史产物一起补齐（推荐默认）'], ['new', '只存开启之后新生成的']], hintDyn: 'saveScope' },
+  { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
+  { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物（正在存几份 / 已存多少）', on: '1', off: '0', def: true, keep: 1 },
+  /* AI 助手：四颗开关（after: 'notice' 在通知那一行追加「现在授权」与授权状态说明） */
+  { card: 'assistant', kind: 'check', key: 'ai_chat_off', label: '启用 AI 助手（默认开；关掉后右下角不再有悬浮球，Ctrl + / 也不生效）', on: null, off: '1', def: true, keep: 1 },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不用我点确认（卡片照画，动作自动提交）', on: '1', off: null, def: false },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到窗口边上时吸住（默认开）', on: null, off: '0', def: true },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '助手提交的任务出结果时弹一次系统通知', on: '1', off: null, def: false, after: 'notice' },
+  /* 润色行为 */
+  { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: '润色前要不要先反问', def: 'ai',
+    opts: [['ai', '交给 AI 判断（推荐）：它读完觉得缺什么才问'], ['on', '强制先问'], ['off', '从不问，直接润色']] },
+];
+
 const SettingsView = {
   name: 'SettingsView',
   setup() {
@@ -51,6 +76,7 @@ const SettingsView = {
     const setNavEl = ref(null);
     const setQEl = ref(null);
     const setChipsEl = ref(null);
+    const setSubEl = ref(null);
     const provTabsEl = ref(null);
     const provListEl = ref(null);
     const cusCardEl = ref(null);
@@ -64,8 +90,10 @@ const SettingsView = {
     const uiPrefsBoxEl = ref(null);
     const storePrefsBoxEl = ref(null);
     const charsBoxEl = ref(null);
-    const polishAskEl = ref(null);
-    const saveScopeEl = ref(null);
+    const netBoxEl = ref(null);
+    const storeRowsEl = ref(null);
+    const assistantBoxEl = ref(null);
+    const polishBoxEl = ref(null);
     const sysRowsEl = ref(null);
     const usageRowsEl = ref(null);
     const usageGoSlotEl = ref(null);
@@ -79,7 +107,6 @@ const SettingsView = {
 
     /* ---------- 公共层（求值期不抓，用到时现取） ---------- */
     const win = window;
-    const escA = s => window.esc ? window.esc(s) : String(s == null ? '' : s);
     const ic = (n, s) => (window.icon ? window.icon(n, s) : '');
     const q = sel => (rootEl.value ? rootEl.value.querySelector(sel) : null);
     const qa = sel => (rootEl.value ? [...rootEl.value.querySelectorAll(sel)] : []);
@@ -108,14 +135,14 @@ const SettingsView = {
     const provSumErr = ref(false);
 
     /* ---------- 供应商：类型档 / 草稿 / 归并 ---------- */
-    let provTab = localStorage.getItem('sk_prov_tab');
+    let provTab = window.LS.get('sk_prov_tab');
     if (!window.provKinds || (!isVirtualTab(provTab) && window.provKinds().indexOf(provTab) < 0)) provTab = 'image';
     /* 模板里的 v-show 认这个镜像：provTab 是命令式重画用的局部量，两个入口都走 setProvTab。 */
     const provTabView = ref(provTab);
     function setProvTab(k) {
       provTab = k;
       provTabView.value = k;
-      try { localStorage.setItem('sk_prov_tab', k); } catch (e) {}
+      window.LS.set('sk_prov_tab', k);
     }
     const provSel = new Map();          // kind → 这一类里最后看过的 keyId（只用于默认展开哪张卡）
     /* 「作用文字 AI」点过、还没落盘的那一个。为什么需要它：换一家会整块重画（识图那一段只画在
@@ -129,10 +156,10 @@ const SettingsView = {
     const provRows = new Map();         // keyId → 归并后的那一条（验证 / 地址归属要用）
     let provSumPainter = null;
 
-    const keyFor = id => localStorage.getItem('sk_key_' + id) || '';
+    const keyFor = id => window.LS.get('sk_key_' + id) || '';
     const draftKey = kid => (keyCleared.has(kid) ? ''
       : (keyDraft.has(kid) ? keyDraft.get(kid) : keyFor(kid)));
-    const draftBase = kid => (baseDraft.has(kid) ? baseDraft.get(kid) : (localStorage.getItem('sk_base_' + kid) || ''));
+    const draftBase = kid => (baseDraft.has(kid) ? baseDraft.get(kid) : (window.LS.get('sk_base_' + kid) || ''));
 
     function setREG(d) {
       REG = d && d.providers ? d : { providers: [] };
@@ -185,14 +212,14 @@ const SettingsView = {
     }
     /* 这一把密钥**现在是从哪来的** —— 写在卡上（三种来源：设置页 / .env / 刚清除还没落盘）。 */
     function keySourceNote(kid) {
-      if (keyCleared.has(kid) && localStorage.getItem('sk_key_' + kid)) {
+      if (keyCleared.has(kid) && window.LS.get('sk_key_' + kid)) {
         return '密钥来源：刚刚点了「清除」，这一项正在自动存进本机 —— 存好之前磁盘上那把还在，'
           + '别的地方现在用的仍是它。（顶栏一直写着「没存进本机」时，说明这一趟没成。）';
       }
       const local = !!draftKey(kid);
       const env = !!(envInfo[kid] && envInfo[kid].hasEnv);
       if (local && env) return '密钥来源：设置页里存着一把（与 .env 无关；留空即改回用 .env 那把）';
-      if (local) return '密钥来源：<b>设置页里存着的</b>（存在 <code>.data/sk_key_' + escA(kid) + '.json</code>，与 .env 无关）—— 点「清除」才会真的没有';
+      if (local) return '密钥来源：<b>设置页里存着的</b>（存在 <code>.data/sk_key_' + window.esc(kid) + '.json</code>，与 .env 无关）—— 点「清除」才会真的没有';
       if (env) return '密钥来源：服务端环境密钥（.env 或系统环境变量）';
       return '密钥来源：还没有（在上面填一把，或在 <code>.env</code> 里配同名变量）';
     }
@@ -207,7 +234,7 @@ const SettingsView = {
     /* 「型号清单」这一段：四类供应方都画，长在**自己那张供应商卡**里，默认折叠。
        只画骨架：认家、取型号列表、画每一行都在 textForm 里（paint 时填）。 */
     function modelsBlock(m) {
-      const kid = escA(m.keyId);
+      const kid = window.esc(m.keyId);
       const text = provTab === 'text';
       const p = m.prov || {};
       const canFetch = text || !!(p.endpoints && p.endpoints.models);
@@ -227,7 +254,7 @@ const SettingsView = {
         + '</div>'
         + '<div class="fold-body">'
         + '<div class="krow tight">'
-        + '<input data-tmnew="' + kid + '" placeholder="' + escA(KIND_MNEW[provTab] || KIND_MNEW.text) + '">'
+        + '<input data-tmnew="' + kid + '" placeholder="' + window.esc(KIND_MNEW[provTab] || KIND_MNEW.text) + '">'
         + '<button class="ghost wide" data-tadd="' + kid + '">添加型号</button>'
         + (canFetch ? '<button class="ghost xs" data-tfetch="' + kid + '"'
           + ' title="用这一栏里现在的密钥与接口地址问一次它的型号清单（不花钱、不建任务）">获取型号列表</button>' : '')
@@ -237,7 +264,7 @@ const SettingsView = {
         + '</div>';
     }
     function visionBlock(m) {
-      const kid = escA(m.keyId);
+      const kid = window.esc(m.keyId);
       return '<div class="tai-h">' + ic('eye', 13) + '识图能力'
         + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应商生效）</span></div>'
         + '<div class="krow"><span class="kn">参考图</span>'
@@ -263,9 +290,9 @@ const SettingsView = {
          语音识别 / 联网搜索排在最后两档：它们与四类平台同一层级，但不按「家」计数。 */
       const tabs = provTabsEl.value;
       tabs.innerHTML = window.provKinds().map(k => '<button data-tab="' + k + '"' + (k === provTab ? ' class="on"' : '') + '>'
-        + escA(window.provKindZh(k)) + '<b class="seg-n">' + listed(k) + '</b></button>').join('')
+        + window.esc(window.provKindZh(k)) + '<b class="seg-n">' + listed(k) + '</b></button>').join('')
         + VIRTUAL_TABS.map(([k, zh]) => '<button data-tab="' + k + '"' + (k === provTab ? ' class="on"' : '') + '>'
-          + escA(zh) + '</button>').join('');
+          + window.esc(zh) + '</button>').join('');
       tabs.querySelectorAll('[data-tab]').forEach(b => {
         b.onclick = () => {
           if (b.dataset.tab === provTab) return;
@@ -318,51 +345,51 @@ const SettingsView = {
         const wrap = document.createElement('div');
         wrap.className = 'prov' + (off ? ' off' : '') + (m.custom ? ' cus' : '');
         const nameHtml = m.site
-          ? '<a class="site" href="' + escA(m.site) + '" target="_blank" rel="noopener" title="打开官网 ' + escA(m.site) + '">' + escA(m.name) + '</a>'
-          : escA(m.name);
+          ? '<a class="site" href="' + window.esc(m.site) + '" target="_blank" rel="noopener" title="打开官网 ' + window.esc(m.site) + '">' + window.esc(m.name) + '</a>'
+          : window.esc(m.name);
         const others = m.kindSet.filter(k => k !== provTab).map(k => window.provKindZh(k));
         const meta = m.custom
-          ? ('转发到 <code>' + escA(m.prov.base) + '</code> · 接口形状取自「' + escA(m.shapeName) + '」 · 型号 '
+          ? ('转发到 <code>' + window.esc(m.prov.base) + '</code> · 接口形状取自「' + window.esc(m.shapeName) + '」 · 型号 '
             + ((m.prov.models || []).length) + ' 个 —— 名字 / 地址 / 型号清单点下面那颗「编辑」改')
           : (m.prov.baseEditable
-            ? '官方地址 <code>' + escA(m.base) + '</code>（可改成任意 OpenAI 兼容地址，按供应商各存各的）'
-            : '官方地址 <code>' + escA(m.base) + '</code>（不收地址：中转站请添加成自定义供应商）');
+            ? '官方地址 <code>' + window.esc(m.base) + '</code>（可改成任意 OpenAI 兼容地址，按供应商各存各的）'
+            : '官方地址 <code>' + window.esc(m.base) + '</code>（不收地址：中转站请添加成自定义供应商）');
         wrap.innerHTML =
           '<div class="krow">' +
             '<span class="kicon">' + ic('key', 15) + '</span><span class="kn">' + nameHtml
-              + '<div class="kinds">' + escA(m.kindLabel) + (m.custom ? ' · 自定义' : '') + '</div></span>' +
-            '<input type="password" data-key="' + escA(kid) + '" value="' + escA(draftKey(kid)) + '" placeholder="'
+              + '<div class="kinds">' + window.esc(m.kindLabel) + (m.custom ? ' · 自定义' : '') + '</div></span>' +
+            '<input type="password" data-key="' + window.esc(kid) + '" value="' + window.esc(draftKey(kid)) + '" placeholder="'
               + (m.custom ? '填写这一家自己的密钥（不会用内置平台的密钥）'
                 : envInfo[kid] && envInfo[kid].hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写密钥，或使用默认') + '">' +
             '<span class="acts">' +
-              '<button class="ghost eye" data-eye="' + escA(kid) + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>' +
-              '<button class="ghost clr" data-clr="' + escA(kid) + '">清除</button>' +
-              '<button class="ghost xs" data-vfy="' + escA(kid) + '"'
+              '<button class="ghost eye" data-eye="' + window.esc(kid) + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>' +
+              '<button class="ghost clr" data-clr="' + window.esc(kid) + '">清除</button>' +
+              '<button class="ghost xs" data-vfy="' + window.esc(kid) + '"'
                 + ' title="拿这一栏现在填的密钥问一次只读接口（余额 / 型号清单 / 列表）：不建任务、不扣费，还没自动存进本机也能问">验证</button>' +
               '<label class="sbshow' + (m.credits ? '' : ' dim') + '" title="'
               + (m.credits
                 ? '勾选后在左侧栏「账户余额」里显示这个接口的余额（改完自动存进本机）'
                 : '这家平台没有提供余额查询接口，勾了也不会显示余额')
-              + '"><input type="checkbox" data-bal="' + escA(kid) + '"' + (window.SbBal && SbBal.isOff(kid) ? '' : ' checked') + '>侧栏余额</label>' +
+              + '"><input type="checkbox" data-bal="' + window.esc(kid) + '"' + (window.SbBal && SbBal.isOff(kid) ? '' : ' checked') + '>侧栏余额</label>' +
               '<label class="sbshow" title="勾上 = 这一家不进该工作台的型号下拉（历史任务照常能看）。改完自动存进本机">'
-                + '<input type="checkbox" data-off="' + escA(kid) + '"' + (off ? ' checked' : '') + '>暂时不用</label>' +
-              (m.custom ? '<button class="ghost xs" data-cedit="' + escA(kid) + '">编辑</button>'
-                + '<button class="ghost xs danger" data-cdel="' + escA(kid) + '">删除</button>' : '') +
+                + '<input type="checkbox" data-off="' + window.esc(kid) + '"' + (off ? ' checked' : '') + '>暂时不用</label>' +
+              (m.custom ? '<button class="ghost xs" data-cedit="' + window.esc(kid) + '">编辑</button>'
+                + '<button class="ghost xs danger" data-cdel="' + window.esc(kid) + '">删除</button>' : '') +
               (provTab === 'text' ? '<label class="sbshow" title="润色、识图、发送消息都发给这一家（改完自动存进本机）">'
-                + '<input type="radio" name="textProvPick" data-tpick="' + escA(m.prov.id) + '"'
+                + '<input type="radio" name="textProvPick" data-tpick="' + window.esc(m.prov.id) + '"'
                 + (curTextId() === m.prov.id ? ' checked' : '') + '>作用文字 AI</label>' : '') +
             '</span>' +
           '</div>' +
           (m.prov.baseEditable
             ? '<div class="krow thin"><span class="kn">接口地址</span>'
-              + '<input data-base="' + escA(kid) + '" value="' + escA(draftBase(kid)) + '" placeholder="留空则用：' + escA(m.base) + '">'
-              + '<span class="hint sm" data-basehint="' + escA(kid) + '"></span></div>'
+              + '<input data-base="' + window.esc(kid) + '" value="' + window.esc(draftBase(kid)) + '" placeholder="留空则用：' + window.esc(m.base) + '">'
+              + '<span class="hint sm" data-basehint="' + window.esc(kid) + '"></span></div>'
             : '') +
           '<div class="meta">' + meta
-          + (others.length ? '<br>同一把密钥也用于：' + escA(others.join(' / ')) + '（切上面那一档，看到的还是这一把）' : '')
-          + '<br><span data-ksrc="' + escA(kid) + '">' + keySourceNote(kid) + '</span>'
+          + (others.length ? '<br>同一把密钥也用于：' + window.esc(others.join(' / ')) + '（切上面那一档，看到的还是这一把）' : '')
+          + '<br><span data-ksrc="' + window.esc(kid) + '">' + keySourceNote(kid) + '</span>'
           + '</div>' +
-          '<div class="msg" data-msg="' + escA(kid) + '"></div>' +
+          '<div class="msg" data-msg="' + window.esc(kid) + '"></div>' +
           modelsBlock(m)
           + (provTab === 'text' && curTextId() === m.prov.id ? visionBlock(m) : '');
         box.appendChild(wrap);
@@ -370,7 +397,7 @@ const SettingsView = {
         if (!m.custom && envInfo[kid] && envInfo[kid].hasEnv) {
           const lk = keyFor(kid);
           if (lk && lk.slice(-4) === envInfo[kid].tail) {
-            localStorage.removeItem('sk_key_' + kid);
+            window.LS.del('sk_key_' + kid);
             keyDraft.delete(kid);
             const inp = wrap.querySelector('[data-key]');
             if (inp) inp.value = '';
@@ -596,7 +623,7 @@ const SettingsView = {
       cusShapeSel.value = '';
       renderCus();
       nextTick(() => {
-        if (cusCardEl.value) cusCardEl.value.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        if (cusCardEl.value) scrollToEl(cusCardEl.value);
         const focus = String(cusName.value || '').trim() ? cusBaseEl.value : cusNameEl.value;
         if (focus) focus.focus();
       });
@@ -748,7 +775,7 @@ const SettingsView = {
       nextTick(() => {
         syncCusDropdowns();
         /* 卡片刚从 hidden 里放出来时量位置才算数：同步那一行代码还在隐藏态里，滚不动。 */
-        if (cusProvEl.value) cusProvEl.value.scrollIntoView({ block: 'center' });
+        if (cusProvEl.value) scrollToEl(cusProvEl.value, 'center');
       });
     }
     async function removeCus(kid) {
@@ -800,12 +827,12 @@ const SettingsView = {
       });
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
       /* 先落密钥、再落那份清单：密钥这一格写不进去（配额满 / 隐私模式）时当场收工，
-         不会出现「卡片说已添加、下一次调用才发现根本没有密钥」。以前这两步都是裸 setItem，
-         抛出来只留一条控制台红字，界面照样报成功。 */
-      try {
-        if (key) localStorage.setItem('sk_key_' + id, key);
-        else if (cusEditing.value) localStorage.removeItem('sk_key_' + id);
-      } catch (e) {
+         不会出现「卡片说已添加、下一次调用才发现根本没有密钥」。写盘走 `window.LS`
+         （本机存储的唯一包装），它把「写不进去」变成 false 而不是一条控制台红字。 */
+      let keySaved = true;
+      if (key) keySaved = window.LS.set('sk_key_' + id, key);
+      else if (cusEditing.value) keySaved = window.LS.del('sk_key_' + id);
+      if (!keySaved) {
         cusSetMsg('「' + name + '」没有保存：本机存储写不进密钥这一格（配额满或浏览器在隐私模式）。'
           + '先到本页「清理缓存」那一栏删掉不用的历史，再重填一次。', 'err');
         return;
@@ -877,13 +904,17 @@ const SettingsView = {
           const txt = btn.querySelector('.fold-txt') || btn;
           txt.textContent = open ? '收起' : '展开';
         };
-        c.classList.toggle('open', !once && localStorage.getItem(c.dataset.foldKey) === '1');
+        /* 程序也要能开这一处（搜到「本机维护」那一组里的行时得先展开才看得见命中）：
+           留一个不写盘的口，免得外面靠 classList 手改之后按钮上的「展开/收起」文字与 aria 留在旧状态。 */
+        c._foldPaint = paint;
+        c._foldSet = v => { if (c.classList.contains('open') === !!v) return; c.classList.toggle('open', !!v); paint(); };
+        c.classList.toggle('open', !once && window.LS.get(c.dataset.foldKey) === '1');
         paint();
         btn.onclick = () => {
           c.classList.toggle('open');
           paint();
           if (once) return;
-          try { localStorage.setItem(c.dataset.foldKey, c.classList.contains('open') ? '1' : '0'); } catch (e) {}
+          window.LS.set(c.dataset.foldKey, c.classList.contains('open') ? '1' : '0');
         };
       });
     }
@@ -1042,11 +1073,11 @@ const SettingsView = {
         sel.value = '';
         return;
       }
-      const prev = keep || (modelDraft.has(kid) ? modelDraft.get(kid) : (localStorage.getItem('sk_model_' + kid) || ''));
+      const prev = keep || (modelDraft.has(kid) ? modelDraft.get(kid) : (window.LS.get('sk_model_' + kid) || ''));
       const g = TextAI.modelGroups(p, fetchedOf(p));
       const groups = g.groups, ids = g.ids;
       sel.innerHTML = groups.length
-        ? groups.map(gr => '<optgroup label="' + escA(gr.label) + '">' + gr.ids.map(id2 => '<option value="' + escA(id2) + '">' + escA(id2) + '</option>').join('') + '</optgroup>').join('')
+        ? groups.map(gr => '<optgroup label="' + window.esc(gr.label) + '">' + gr.ids.map(id2 => '<option value="' + window.esc(id2) + '">' + window.esc(id2) + '</option>').join('') + '</optgroup>').join('')
         : '<option value="">（还没有这家接口的型号）</option>';
       const list = ids.length ? ids : [];
       sel.value = list.includes(prev) ? prev : (list[0] || '');
@@ -1076,19 +1107,19 @@ const SettingsView = {
       }
       const text = p.kind === 'text';
       box.innerHTML = list.map(x => {
-        const id2 = escA(x.id);
+        const id2 = window.esc(x.id);
         const src = x.typed ? '自己填的' : (x.api ? '接口给的' : '本机记的');
         const del = x.typed
           ? '<button class="ghost xs" title="移除这个型号（只清本机记录，平台那边不受影响）"'
-            + ' data-tdel="' + id2 + '" data-tkid="' + escA(kid) + '">' + ic('close', 10) + '</button>' : '';
+            + ' data-tdel="' + id2 + '" data-tkid="' + window.esc(kid) + '">' + ic('close', 10) + '</button>' : '';
         if (text) {
           const on = x.id === cur;
           return '<div class="mlist-row' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
-            + ' data-tpick-model="' + id2 + '" data-tkid="' + escA(kid) + '"'
+            + ' data-tpick-model="' + id2 + '" data-tkid="' + window.esc(kid) + '"'
             + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
             + ' title="' + (on ? '正在用：全站润色（导演台、素材库里的 AI 文字）都用这一个'
               : '点这一行 = 全站润色改用这个型号') + '">'
-            + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + escA(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
+            + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + window.esc(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
             + '<span class="mlist-src">' + (on ? '正在用' : src) + '</span>' + del
             + '</div>';
         }
@@ -1096,8 +1127,8 @@ const SettingsView = {
         return '<div class="mlist-row' + (off ? ' off' : '') + '">'
           + '<label title="' + (off ? '勾上 = 让它重新出现在工作台的型号下拉里'
             : '勾掉 = 在工作台的型号下拉里藏掉这一条（不是删掉，随时能勾回来）') + '">'
-          + '<input type="checkbox" data-mshow="' + id2 + '" data-tkid="' + escA(kid) + '"' + (off ? '' : ' checked') + '>'
-          + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + escA(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
+          + '<input type="checkbox" data-mshow="' + id2 + '" data-tkid="' + window.esc(kid) + '"' + (off ? '' : ' checked') + '>'
+          + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + window.esc(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
           + '</label>'
           + '<span class="mlist-src">' + src + '</span>' + del
           + '</div>';
@@ -1140,7 +1171,7 @@ const SettingsView = {
       scheduleAutofetch();
       const tv = q('[data-tvision]');
       if (tv) {
-        tv.value = visionDraft.v != null ? visionDraft.v : (localStorage.getItem('sk_text_vision') || 'auto');
+        tv.value = visionDraft.v != null ? visionDraft.v : (window.LS.get('sk_text_vision') || 'auto');
         const tvRow = tv.closest('.krow');
         if (window.Dropdowns && tvRow) { Dropdowns.build(tvRow); Dropdowns.sync(tvRow); }
         refreshVisionTip(tv.dataset.tvision);
@@ -1379,13 +1410,13 @@ const SettingsView = {
       rows.forEach(t => {
         const row = document.createElement('div');
         row.className = 'krow thin';
-        row.innerHTML = '<span class="kn">' + escA(t.name) + '</span>'
-          + '<select data-mode="' + escA(t.key) + '" style="flex:0 0 140px">'
+        row.innerHTML = '<span class="kn">' + window.esc(t.name) + '</span>'
+          + '<select data-mode="' + window.esc(t.key) + '" style="flex:0 0 140px">'
           + MD.map(m => '<option value="' + m + '" ' + (window.pageModeOf(t.key) === m ? 'selected' : '') + '>'
             + (m === 'page' ? '翻页' : '动态加载（滚动自动加载）') + '</option>').join('')
           + '</select>'
           + '<span style="font-size:12.5px;color:var(--sub)">每页</span>'
-          + '<input type="number" min="' + SZ.min + '" max="' + SZ.max + '" data-size="' + escA(t.key) + '" value="' + window.pageSizeOf(t.key) + '" style="flex:0 0 90px">'
+          + '<input type="number" min="' + SZ.min + '" max="' + SZ.max + '" data-size="' + window.esc(t.key) + '" value="' + window.pageSizeOf(t.key) + '" style="flex:0 0 90px">'
           + '<span style="font-size:12.5px;color:var(--sub)">条</span>';
         box.appendChild(row);
       });
@@ -1398,7 +1429,7 @@ const SettingsView = {
       const rows = window.PAGE_TARGETS.rows, SZ = window.PAGE_TARGETS.size;
       const defSize = k => (rows.find(r => r.key === k) || {}).defSize || SZ.min;
       let changed = false;
-      const W = (k, v) => { if (localStorage.getItem(k) !== v) changed = true; localStorage.setItem(k, v); };
+      const W = (k, v) => { if (window.LS.get(k) !== v) changed = true; window.LS.set(k, v); };
       box.querySelectorAll('[data-mode]').forEach(s => W('page_mode_' + s.dataset.mode, s.value));
       box.querySelectorAll('[data-size]').forEach(i =>
         W('page_size_' + i.dataset.size, String(Math.max(SZ.min, Math.min(SZ.max, Number(i.value) || defSize(i.dataset.size))))));
@@ -1434,7 +1465,7 @@ const SettingsView = {
       const seg = document.createElement('div');
       seg.className = 'ui-seg';
       seg.dataset.ui = r.key;
-      seg.innerHTML = r.opts.map(o => '<button type="button" data-v="' + escA(o[0]) + '">' + escA(o[1]) + '</button>').join('');
+      seg.innerHTML = r.opts.map(o => '<button type="button" data-v="' + window.esc(o[0]) + '">' + window.esc(o[1]) + '</button>').join('');
       row.appendChild(kn);
       row.appendChild(seg);
       if (r.hint) { const h = document.createElement('span'); h.className = 'hint sm'; h.textContent = r.hint; row.appendChild(h); }
@@ -1449,8 +1480,7 @@ const SettingsView = {
         const box = card.box();
         if (!box) return;
         uiRow(r, box);
-        let cur = '';
-        try { cur = localStorage.getItem(r.key) || ''; } catch (e) {}
+        let cur = window.LS.get(r.key) || '';
         if (r.kind === 'bool') {
           const cb = box.querySelector('[data-ui="' + r.key + '"]');
           if (cb) cb.checked = cur === '1';
@@ -1554,7 +1584,7 @@ const SettingsView = {
         const why = document.createElement('span');
         why.className = 'hint sm'; why.dataset.aswhy = k.id;
         const r = fails[k.id];
-        if (r && r.why) why.innerHTML = '<b style="color:var(--err)">上次没存成：</b>' + escA(r.why);
+        if (r && r.why) why.innerHTML = '<b style="color:var(--err)">上次没存成：</b>' + window.esc(r.why);
         const pick = document.createElement('button');
         pick.type = 'button';
         pick.className = 'tool';
@@ -1605,14 +1635,14 @@ const SettingsView = {
       try {
         const r = await Api.pickDir({ title: '选择「' + k.zh + '」要保存到的文件夹', start: String(inp.value || '').trim() });
         if (r && r.cancelled) { if (why) why.textContent = '你取消了，目录没改。'; return; }
-        if (!r || !r.ok || !r.dir) { if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + escA((r && r.error && r.error.message) || '代理没有回路径'); return; }
+        if (!r || !r.ok || !r.dir) { if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + window.esc((r && r.error && r.error.message) || '代理没有回路径'); return; }
         inp.value = r.dir;
         const code = await saveAutosave(true);
         markChanged();
         if (why) why.textContent = '已选好 · 路径写在上边那一格，可以直接改 · 已经存好了，下次生成就往这儿放'
           + (code === 'asked' ? '' : ' · ' + asFollowMsg(code));
       } catch (e) {
-        if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + escA(errText(e));
+        if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + window.esc(errText(e));
       } finally {
         btn.disabled = false;
         btn.textContent = old;
@@ -1880,34 +1910,29 @@ const SettingsView = {
       el.style.color = isErr ? 'var(--err)' : '';
     }
     function saveUiPrefs() {
-      const __wasSaveOn = (function () { try { return localStorage.getItem('sk_media_local') !== 'off'; } catch (e) { return true; } })();
+      const __wasSaveOn = window.LS.get('sk_media_local') !== 'off';
       for (const r of ((window.UI_PREFS && UI_PREFS.rows) || [])) {
         const el = q('[data-ui="' + r.key + '"]');
         if (!el) continue;
         if (r.kind === 'bool') {
-          if (el.checked) localStorage.setItem(r.key, '1'); else localStorage.removeItem(r.key);
+          if (el.checked) window.LS.set(r.key, '1'); else window.LS.del(r.key);
         } else {
           const b = el.querySelector('.on');
-          if (b) localStorage.setItem(r.key, b.dataset.v);
+          if (b) window.LS.set(r.key, b.dataset.v);
         }
       }
       const top = window.top || window;
       try {
-        const th = localStorage.getItem('dir_theme') || 'light';
+        const th = window.LS.get('dir_theme') || 'light';
         if (top.__sbApplyTheme) top.__sbApplyTheme(th); else document.documentElement.dataset.theme = th;
       } catch (e) {}
       try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
       try {
-        const nowSaveOn = localStorage.getItem('sk_media_local') !== 'off';
+        const nowSaveOn = window.LS.get('sk_media_local') !== 'off';
         if (nowSaveOn && !__wasSaveOn && window.AssetLocal && AssetLocal.markSaveOn) AssetLocal.markSaveOn();
       } catch (e) {}
-      (() => {
-        const A = window.AssetLocal;
-        if (!A) return;
-        localStorage.setItem('sk_media_local_scope', saveScope.value === 'new' ? 'new' : 'all');
-        localStorage.setItem('sb_bal_on', sbBalOn.value ? '1' : '0');
-        localStorage.setItem('sb_mirror_on', sbMirrorOn.value ? '1' : '0');
-      })();
+      /* 「另存档位 / 左栏两块开关」以前在这里手抄三份 LS.set —— 现在它们是 SET_ROWS 里的行，
+         由自动保存那一趟的 saveManifestRows 统一落盘（B5：一处声明，写盘只有一条路）。 */
       syncUiNeeds();
       try {
         const top = window.top || window;
@@ -1931,17 +1956,17 @@ const SettingsView = {
         if (it.kind === 'bool') {
           ctl = '<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="' + id + '"' + (val === '0' ? '' : ' checked') + '> 开启</label>';
         } else if (it.kind === 'num') {
-          ctl = '<input type="number" min="0" step="' + escA(it.step || '0.5') + '" data-set="' + id + '" value="' + escA(val) + '" style="flex:0 0 110px">'
-            + (it.unit ? '<span style="font-size:12.5px;color:var(--sub)">' + escA(it.unit) + '</span>' : '');
+          ctl = '<input type="number" min="0" step="' + window.esc(it.step || '0.5') + '" data-set="' + id + '" value="' + window.esc(val) + '" style="flex:0 0 110px">'
+            + (it.unit ? '<span style="font-size:12.5px;color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
         } else {
           ctl = '<select data-set="' + id + '" style="flex:0 0 210px">'
-            + (it.options || []).map(o => '<option value="' + escA(o.id) + '"' + (o.id === val ? ' selected' : '') + '>' + escA(o.label) + '</option>').join('')
+            + (it.options || []).map(o => '<option value="' + window.esc(o.id) + '"' + (o.id === val ? ' selected' : '') + '>' + window.esc(o.label) + '</option>').join('')
             + '</select>';
         }
         const row = document.createElement('div');
         row.className = 'krow thin';
-        row.innerHTML = '<span class="kn">' + escA(it.label) + '</span>' + ctl
-          + (it.hint ? '<span class="sub-line">' + escA(it.hint) + '</span>' : '');
+        row.innerHTML = '<span class="kn">' + window.esc(it.label) + '</span>' + ctl
+          + (it.hint ? '<span class="sub-line">' + window.esc(it.hint) + '</span>' : '');
         box.appendChild(row);
       });
       if (window.Dropdowns) Dropdowns.build(box);
@@ -1952,16 +1977,15 @@ const SettingsView = {
       if (!box || !SET) return;
       box.querySelectorAll('[data-set]').forEach(el => {
         const it = SET[el.dataset.set]; if (!it) return;
-        if (it.kind === 'bool') localStorage.setItem(it.key, el.checked ? '1' : '0');
+        if (it.kind === 'bool') window.LS.set(it.key, el.checked ? '1' : '0');
         else if (it.kind === 'num') {
           const n = Number(el.value);
-          localStorage.setItem(it.key, String(Number.isFinite(n) && n > 0 ? n : Number(it.def)));
-        } else if (el.value) localStorage.setItem(it.key, el.value);
+          window.LS.set(it.key, String(Number.isFinite(n) && n > 0 ? n : Number(it.def)));
+        } else if (el.value) window.LS.set(it.key, el.value);
       });
     }
 
-    /* ---------- 润色行为（提示词正文在 Skill 里，这里只剩「要不要先反问」） ---------- */
-    const polishAsk = ref(localStorage.getItem('sk_polish_ask') || 'ai');
+    /* ---------- 润色行为（提示词正文在 Skill 里，这里只剩「要不要先反问」；行本身在 SET_ROWS 声明） ---------- */
     async function clearManualPrompts() {
       const ok = await Confirm.ask({
         title: '清掉旧版手改的提示词？',
@@ -1992,13 +2016,7 @@ const SettingsView = {
       finally { skillBusy.value = false; }
     }
 
-    /* ---------- AI 助手 ---------- */
-    const acOff = ref(true);
-    const acAuto = ref(false);
-    const acSnap = ref(true);
-    const acNotice = ref(false);
-    const acNoticeState = ref('');
-    const acNoticeAskDisabled = ref(false);
+    /* ---------- AI 助手（四颗开关的行在 SET_ROWS 声明；这里只剩通知授权的说明行） ---------- */
     function noticeState() {
       if (!window.Notification) return '这个浏览器不给网页弹通知（球上的数字照旧会亮，点开就能看到结果）';
       const p = Notification.permission;
@@ -2007,26 +2025,22 @@ const SettingsView = {
       return '还没授权：勾上这一项之后，点一下「现在授权」，浏览器才会问你要不要弹';
     }
     function paintNoticeState() {
-      acNoticeState.value = noticeState();
-      acNoticeAskDisabled.value = !window.Notification || (window.Notification && Notification.permission === 'granted');
+      const txt = noticeState();
+      qa('[data-notice-state]').forEach(el => { el.textContent = txt; });
+      const btn = q('[data-notice-btn]');
+      if (btn) btn.disabled = !window.Notification || (window.Notification && Notification.permission === 'granted');
     }
     async function askNotice() {
       try { await Notification.requestPermission(); } catch (e) { Toast.err('授权失败：' + errText(e)); }
       paintNoticeState();
       if (window.Notification && Notification.permission === 'granted') {
         Toast.receipt('已授权');
-        if (!acNotice.value) { acNotice.value = true; markChanged(); }
+        const cb = q('[data-mkey="ai_chat_notice"]');
+        if (cb && !cb.checked) { cb.checked = true; markChanged(); }
       }
     }
-    function initAiPrefs() {
-      acOff.value = localStorage.getItem('ai_chat_off') !== '1';
-      acAuto.value = localStorage.getItem('ai_chat_auto') === '1';
-      acSnap.value = localStorage.getItem('ai_chat_snap') !== '0';
-      acNotice.value = localStorage.getItem('ai_chat_notice') === '1';
-      paintNoticeState();
-    }
 
-    /* ---------- 网络与刷新（默认值与上下限只在 ui.js 的 Net.NUMS 一张表） ---------- */
+    /* ---------- 网络与刷新（默认值与上下限只在 ui.js 的 Net.NUMS 一张表；行本身在 SET_ROWS 声明） ---------- */
     const NET_SP = (window.Net && window.Net.NUMS) || {
       timeout: { key: 'sk_net_timeout', def: 30, min: 5, max: 300 },
       retry: { key: 'sk_net_retry', def: 1, min: 0, max: 5 },
@@ -2041,37 +2055,98 @@ const SettingsView = {
       const v = ev && ev.target ? ev.target.value : net[name];
       /* 回填 setNum 返回的那一个：用户填 999、真正在用的是 300，输入框就该显示 300。 */
       net[name] = Net.setNum(name, v);
+      if (ev && ev.target) ev.target.value = net[name];
       markChanged();
     }
 
-    /* ---------- 自动存本机要存哪一档 / 侧栏两块 ---------- */
-    const saveScope = ref('all');
-    const saveScopeHint = ref('');
-    const sbBalOn = ref(true);
-    const sbMirrorOn = ref(true);
-    function paintSaveScopeHint() {
-      const A = window.AssetLocal;
-      if (!A) { saveScopeHint.value = ''; return; }
-      saveScopeHint.value = (A.saveScope && A.saveScope() === 'new')
-        ? '只存开启之后新生成的。已经生成的那些永远不会再存 —— 想补回来就切回上面那一档。'
+    /* ---------- 产物存放的第三档说明（文案随档位现算；行本身在 SET_ROWS 声明） ---------- */
+    function saveScopeText() {
+      return (currentScope() === 'new')
+        ? '只存开启之后新生成的。已经生成的那些永远不会再补 —— 想补回来就切回上面那一档。'
         : '连历史产物一起补齐：第一次打开这一档会把列表里已有的产物逐个下载存进本机。'
           + '产物多的时候这会占不少带宽与磁盘（左栏会显示「正在存几份」）。';
     }
-    function initStorePrefs() {
+    /* 读「这一刻该按哪一档说」：优先看屏幕上刚选的值（自动保存还没落盘的那半秒）。 */
+    function currentScope() {
+      const el = q('[data-mkey="sk_media_local_scope"]');
+      if (el && el.value) return el.value;
       const A = window.AssetLocal;
-      if (!A) return;
-      saveScope.value = A.saveScope ? A.saveScope() : 'all';
-      sbBalOn.value = A.sbBalOn ? A.sbBalOn() : true;
-      sbMirrorOn.value = A.sbMirrorOn ? A.sbMirrorOn() : true;
-      paintSaveScopeHint();
-      nextTick(() => {
-        if (window.Dropdowns && saveScopeEl.value) { Dropdowns.build(saveScopeEl.value.parentElement || saveScopeEl.value); Dropdowns.sync(saveScopeEl.value); }
-      });
+      return (A && A.saveScope) ? A.saveScope() : 'all';
     }
-    function onSaveScopeChange(ev) {
-      if (ev && ev.target) saveScope.value = ev.target.value === 'new' ? 'new' : 'all';
+    function paintSaveScopeHint() {
+      qa('[data-hint-of="saveScope"]').forEach(el => { el.textContent = saveScopeText(); });
+    }
+
+    /* ---------- SET_ROWS 的渲染与写盘（B5：一处声明，两处现取） ---------- */
+    const MANIFEST_HOSTS = () => ({
+      net: netBoxEl.value, store: storeRowsEl.value, assistant: assistantBoxEl.value, polish: polishBoxEl.value,
+    });
+    function checkedOf(r) {
+      const v = window.LS.get(r.key);
+      if (v == null) return !!r.def;
+      if (r.on != null && v === r.on) return true;
+      if (r.off != null && v === r.off) return false;
+      return !!r.def;
+    }
+    function renderManifestRows() {
+      const hosts = MANIFEST_HOSTS();
+      Object.keys(hosts).forEach(k => { const b = hosts[k]; if (b) b.innerHTML = ''; });
+      SET_ROWS.forEach(r => {
+        const box = hosts[r.card];
+        if (!box) return;
+        const row = document.createElement('div');
+        row.className = r.kind === 'check' ? 'krow tight' : 'krow thin';
+        if (r.kind === 'num') {
+          const sp = (window.Net && window.Net.NUMS && window.Net.NUMS[r.name]) || NET_SP[r.name] || {};
+          row.innerHTML = '<span class="kn">' + window.esc(r.label) + '</span>'
+            + '<input type="number" data-mkey="' + window.esc(r.name) + '" min="' + (sp.min || 0)
+            + '" max="' + (sp.max || 999) + '" step="' + (sp.step || 1) + '" value="' + window.esc(String(net[r.name])) + '" style="width:84px">'
+            + '<span class="hint sm">' + window.esc((r.unit || '') + (r.hint ? ' · ' + r.hint : '')) + '</span>';
+          row.querySelector('input').addEventListener('change', ev => onNetChange(r.name, ev));
+        } else if (r.kind === 'check') {
+          row.innerHTML = '<label class="crow" style="flex:1 1 240px"><input type="checkbox" data-mkey="'
+            + window.esc(r.key) + '"' + (checkedOf(r) ? ' checked' : '') + '> ' + window.esc(r.label) + '</label>'
+            + (r.hint ? '<span class="hint sm">' + window.esc(r.hint) + '</span>' : '');
+          if (r.after === 'notice') {
+            row.insertAdjacentHTML('beforeend',
+              '<span class="acts"><button class="ghost mini" type="button" data-notice-btn>现在授权</button></span>'
+              + '<span class="sub-line" data-notice-state></span>');
+            row.querySelector('[data-notice-btn]').onclick = () => askNotice();
+            row.querySelector('input').addEventListener('change', () => paintNoticeState());
+          }
+        } else {
+          const cur = window.LS.get(r.key) || '';
+          const val = r.opts.some(o => o[0] === cur) ? cur : r.def;
+          row.innerHTML = '<span class="kn">' + window.esc(r.label) + '</span>'
+            + '<select data-mkey="' + window.esc(r.key) + '" style="flex:1 1 260px;max-width:460px">'
+            + r.opts.map(o => '<option value="' + window.esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>'
+              + window.esc(o[1]) + '</option>').join('')
+            + '</select>'
+            + (r.hintDyn ? '<span class="hint sm" data-hint-of="' + window.esc(r.hintDyn) + '"></span>'
+              : (r.hint ? '<span class="hint sm">' + window.esc(r.hint) + '</span>' : ''));
+          if (r.hintDyn === 'saveScope') row.querySelector('select').addEventListener('change', () => paintSaveScopeHint());
+        }
+        box.appendChild(row);
+      });
+      if (window.Dropdowns) Object.keys(hosts).forEach(k => { const b = hosts[k]; if (b) Dropdowns.build(b); });
       paintSaveScopeHint();
-      markChanged();
+      paintNoticeState();
+    }
+    /* 自动保存写盘的那一段：屏幕上每一项按声明的三态落盘。
+       新增行没进导出名单时当场说出来（isSettingKey 由 EXPORTABLE 现算），不静默丢。 */
+    function saveManifestRows(W, Wdel) {
+      qa('[data-mkey]').forEach(el => {
+        const k = el.dataset.mkey;
+        if (el.type === 'number') { if (window.Net) Net.setNum(k, el.value); return; }
+        const r = SET_ROWS.find(x => x.key === k);
+        if (!r) return;
+        if (r.kind === 'check') {
+          const out = el.checked ? r.on : r.off;
+          if (out == null) Wdel(r.key); else W(r.key, String(out));
+        } else {
+          W(r.key, el.value || String(r.def || ''));
+        }
+      });
     }
 
     /* ---------- 自动保存**写盘的那一份实现**：屏幕上这一份表单整个扫进 localStorage ----------
@@ -2081,12 +2156,12 @@ const SettingsView = {
       saveFailed = ''; saveSkipped = '';
       const tpBefore = textForm ? textForm.prov() : null;
       const failedKeys = [];
-      const W = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; } };
-      const Wdel = k => { try { localStorage.removeItem(k); return true; } catch (e) { if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; } };
-      /* 开写之前先探一下配额：已经满时下面几十项会逐项失败，报一长串键名不如当场说清。 */
-      let quotaDead = false;
-      try { localStorage.setItem('_probe_write', '1'); localStorage.removeItem('_probe_write'); }
-      catch (e) { quotaDead = true; }
+      const W = (k, v) => { if (window.LS.set(k, v)) return true; if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; };
+      const Wdel = k => { if (window.LS.del(k)) return true; if (failedKeys.indexOf(k) < 0) failedKeys.push(k); return false; };
+      /* 开写之前先探一下配额：已经满时下面几十项会逐项失败，报一长串键名不如当场说清。
+         `LS.set` 把「写不进去」变成 false，探针按返回值判，不再靠异常。 */
+      let quotaDead = !window.LS.set('_probe_write', '1');
+      if (!quotaDead) window.LS.del('_probe_write');
       if (quotaDead) {
         saveFailed = '本机存储写不进去了，刚才那一项没有保存。先到本页「清理缓存」那一栏的「本地任务记录」'
           + '删掉不用的历史（那一步真的会腾出 localStorage），或删掉素材库里不要的条目；'
@@ -2146,7 +2221,7 @@ const SettingsView = {
       if (tp) {
         const pickedEl = q('[data-tpick]:checked');
         if (pickedEl && pickedEl.dataset.tpick) W(TextAI.provKey(), pickedEl.dataset.tpick);
-        else if (!localStorage.getItem(TextAI.provKey())) W(TextAI.provKey(), tp.id);
+        else if (!window.LS.get(TextAI.provKey())) W(TextAI.provKey(), tp.id);
         textPickDraft = '';
         TextAI.setFormOverride(tp, null);
       }
@@ -2163,24 +2238,21 @@ const SettingsView = {
       });
       const tvEl = q('[data-tvision]');
       if (tvEl) W('sk_text_vision', tvEl.value);
-      W('sk_polish_ask', polishAsk.value);
-      /* AI 助手：总开关默认开（键不在 = 开着）；「吸住」默认开；通知默认关。 */
-      if (acOff.value) Wdel('ai_chat_off'); else W('ai_chat_off', '1');
-      if (acAuto.value) W('ai_chat_auto', '1'); else Wdel('ai_chat_auto');
-      if (acSnap.value) Wdel('ai_chat_snap'); else W('ai_chat_snap', '0');
-      if (acNotice.value) W('ai_chat_notice', '1'); else Wdel('ai_chat_notice');
+      /* 清单声明的那几行（润色反问 + AI 助手四颗开关 + 产物档位 + 左栏两块 + 网络三档数值）：
+         值按 SET_ROWS 声明的三态现写，新增一行不用再回到这里补一句 W()。 */
+      saveManifestRows(W, Wdel);
       const pgChanged = savePageSettings();
       saveUiPrefs();
       saveCharsSet();
       /* 语音识别 / 联网搜索：这两组不落 localStorage，改完也要跟着这一趟自动保存走
-         （值真变过才发请求，没改不空跑）。存不进去就并进 skipped —— 页脚那句回执必须说实话。 */
-      if (asrSig() !== asrSavedSig) {
-        if (await saveAsr()) asrSavedSig = asrSig();
-        else skipped.push('语音识别那一张卡（见卡片上那一行）');
+         （值真变过才发请求，没改不空跑）。存不进去就并进 skipped —— 页脚那句回执必须说实话。
+         签名推进在 saveAsr / saveSearch 内部（手动那颗按钮走的是同一条），这里只留「变没变」这一道闸，
+         不再在外层抄第二份账：手动存完之后外层还留着旧签名，下一次自动保存就把同一组值原样再发一遍。 */
+      if (asrSig() !== asrSavedSig && !(await saveAsr())) {
+        skipped.push('语音识别那一张卡（见卡片上那一行）');
       }
-      if (searchSig() !== searchSavedSig) {
-        if (await saveSearch()) searchSavedSig = searchSig();
-        else skipped.push('联网搜索那一张卡（见卡片上那一行）');
+      if (searchSig() !== searchSavedSig && !(await saveSearch())) {
+        skipped.push('联网搜索那一张卡（见卡片上那一行）');
       }
       const bad2 = skipped.concat(failedKeys.map(k => k + '（本机存不下）'));
       saveSkipped = bad2.length
@@ -2196,35 +2268,36 @@ const SettingsView = {
     }
 
     /* ---------- 设置导入 / 导出 / 恢复默认 ---------- */
-    /* 界面偏好那一批（主题 / 侧栏开合 / 视图档位 / 产物三开关）不在这里手抄：整批由 ui.js 的
+    /* 界面偏好那一批（主题 / 侧栏开合 / 视图档位 / 产物开关）不在这里手抄：整批由 ui.js 的
        UI_PREFS 带出来，「恢复默认不清」那一份同表（`keep` 那一列）。这一张表以前是第三份手抄的清单，
-       抄漏的是 sb_open 与 sk_media_badge 不进云同步、助手那几项不进导出。 */
+       抄漏的是 sb_open 与 sk_media_badge 不进云同步、助手那几项不进导出。
+       普通设置行那一批（B5）改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
+       只有助手那五颗开关**保留字面量**：tests/settings-schema.cjs 判据⑤点名要在这张数组里看到它们
+       （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
     const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
       'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
       'sk_custom', 'sk_prov_tab', 'sk_autosave',
       /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
          刻意不写 'ai_chat_' 前缀：ai_chat（对话记录）与 ai_chat_files / _xy / _watch 是数据与本机窗口的事。 */
       'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock',
-      'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock',
-      'sb_bal_on', 'sb_mirror_on',
+      ...SET_ROWS.filter(r => r.key).map(r => r.key),
       ...((window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [])
     ];
     const DATA_KEYS = ['char_lib'];
     const isSettingKey = k => !DATA_KEYS.includes(k) && EXPORTABLE.some(p => k === p || k.startsWith(p));
-    const RESET_KEEP = ['sk_prov_tab', 'sk_media_local_scope',
-      'sb_bal_on', 'sb_mirror_on', 'sk_autosave',
+    const RESET_KEEP = ['sk_prov_tab', 'sk_autosave',
       /* 在这台机器上关掉助手是一次有意图的选择：「恢复默认」不该顺手把那颗悬浮球装回来。 */
       'ai_chat_off',
+      ...SET_ROWS.filter(r => r.keep).map(r => r.key),
       ...((window.UI_PREFS && window.UI_PREFS.keepKeys) ? window.UI_PREFS.keepKeys() : [])
     ];
     function exportSettings(includeKeys) {
       const out = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
+      for (const k of window.LS.keys()) {
         if (!k) continue;
         if (!isSettingKey(k)) continue;
         if (!includeKeys && k.startsWith('sk_key_')) continue;
-        out[k] = localStorage.getItem(k);
+        out[k] = window.LS.get(k);
       }
       return { type: 'ai-workbench-settings', version: 1, ts: new Date().toISOString(), includeKeys: !!includeKeys, data: out };
     }
@@ -2285,7 +2358,7 @@ const SettingsView = {
           const bad = [];
           Object.entries(d.data).forEach(([k, v]) => {
             if (extra.includes(k)) return;
-            try { localStorage.setItem(k, v); } catch (err) { bad.push(k); }
+            if (!window.LS.set(k, v)) bad.push(k);
           });
           const wrote = n - bad.length - extra.length;
           if (bad.length) {
@@ -2418,7 +2491,7 @@ const SettingsView = {
               + (pack.prompts.skipped ? '（另有 ' + pack.prompts.skipped + ' 份超出上限没带上）' : '')
             : '，但提示词归档没带上：' + (pack.promptsError || '未知原因');
         }
-        dataMsg.value = '✓ 已导出（' + mbOf(blob.size) + escA(extra) + '）';
+        dataMsg.value = '✓ 已导出（' + mbOf(blob.size) + window.esc(extra) + '）';
       } catch (e) { dataMsg.value = '导出失败：' + errText(e); }
       finally { dataBusy.exp = false; }
     }
@@ -2466,29 +2539,29 @@ const SettingsView = {
     const cloudState = ref('读取同步状态…');
     const cloudBusy = reactive({ test: false, push: false, pull: false, sync: false });
     function initCloud() {
-      const g = k => localStorage.getItem(CK[k]);
+      const g = k => window.LS.get(CK[k]);
       cloudUrl.value = (g('url') != null && g('url') !== '') ? g('url') : CLOUD_DEFAULT_URL;
       cloudUser.value = g('user') || '';
       cloudPass.value = g('pass') || '';
       cloudKeys.value = g('keys') === '1';
       cloudPrompts.value = g('prompts') === '1';
     }
-    /* 这五格里存的是云端地址、账号与应用密码：裸 setItem 抛出来只会留一条控制台红字，
-       界面照样显示「已保存」，下次同步又读回空配置 —— 写不进去必须当场说清。 */
+    /* 这五格里存的是云端地址、账号与应用密码：写盘走 `window.LS`（本机存储唯一包装），
+       写不进去时必须当场说清 —— 否则界面显示「已保存」，下次同步又读回空配置。 */
     function saveCloud() {
-      try {
-        localStorage.setItem(CK.url, String(cloudUrl.value || '').trim());
-        localStorage.setItem(CK.user, String(cloudUser.value || '').trim());
-        localStorage.setItem(CK.pass, String(cloudPass.value || ''));
-        localStorage.setItem(CK.keys, cloudKeys.value ? '1' : '0');
-        localStorage.setItem(CK.prompts, cloudPrompts.value ? '1' : '0');
-        return true;
-      } catch (e) {
-        cloudMsg.value = '✗ 云端设置没存进本机：本机存储写不进去（配额已满，或浏览器在隐私模式）。'
-          + '这一次仍按当前填的走，但刷新后会回到旧配置。';
-        Toast.warn('云端设置没存进本机（本机存储写不进去）—— 刷新后会回到旧配置');
-        return false;
-      }
+      let okAll = true;
+      for (const [k, v] of [
+        [CK.url, String(cloudUrl.value || '').trim()],
+        [CK.user, String(cloudUser.value || '').trim()],
+        [CK.pass, String(cloudPass.value || '')],
+        [CK.keys, cloudKeys.value ? '1' : '0'],
+        [CK.prompts, cloudPrompts.value ? '1' : '0'],
+      ]) if (!window.LS.set(k, v)) okAll = false;
+      if (okAll) return true;
+      cloudMsg.value = '✗ 云端设置没存进本机：本机存储写不进去（配额已满，或浏览器在隐私模式）。'
+        + '这一次仍按当前填的走，但刷新后会回到旧配置。';
+      Toast.warn('云端设置没存进本机（本机存储写不进去）—— 刷新后会回到旧配置');
+      return false;
     }
     function cloudHeaders() {
       saveCloud();
@@ -2592,7 +2665,7 @@ const SettingsView = {
       catch (e) { cloudState.value = '读不到同步状态（代理没在运行？）'; return; }
       cloudState.value = (d.lastAt ? '上次同步 ' + fmtTime(d.lastAt) + '：' + (d.lastResult || '') : '还没有同步过')
         + (d.envConfigured ? '（凭据来自 .env）' : '')
-        + (d.prompts ? (d.prompts.error ? '；提示词归档：' + escA(d.prompts.error)
+        + (d.prompts ? (d.prompts.error ? '；提示词归档：' + window.esc(d.prompts.error)
           : '；提示词归档本机 ' + d.prompts.count + ' 份' + (cloudPrompts.value ? '（已勾选跟着同步）' : '（未勾选跟着同步，勾上才会备份）'))
           : '');
       /* 冲突：每条两个按钮，选完立即执行（选云端会先在本机留 .bak.json 备份） */
@@ -2713,7 +2786,7 @@ const SettingsView = {
           sysRowsEl.value.innerHTML = e && e.status === 404
             ? '<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
               + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新体检」。</div>'
-            : '<div class="ui-note err">读不到本机环境：' + escA(errText(e)) + '</div>';
+            : '<div class="ui-note err">读不到本机环境：' + window.esc(errText(e)) + '</div>';
         }
         return;
       }
@@ -2757,7 +2830,7 @@ const SettingsView = {
       html += dirRow('数据目录（.data）', dirs.数据);
       html += dirRow('本机资产目录', dirs.资产);
       html += dirRow('成片目录', dirs.渲染);
-      if (old) html += '<div class="ui-note err">' + escA(old) + '</div>';
+      if (old) html += '<div class="ui-note err">' + window.esc(old) + '</div>';
       if (sysRowsEl.value) sysRowsEl.value.innerHTML = html;
       sysMsg.value = '上次体检：' + window.fmtHMS(s.at || Date.now())
         + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（改过 PATH 请点「重新体检」）');
@@ -2791,7 +2864,7 @@ const SettingsView = {
       try { u = await Api.assetsUsage(); }
       catch (e) {
         lastUsage = null; syncUsageCopyBtn();
-        if (usageRowsEl.value) usageRowsEl.value.innerHTML = '<div class="ui-note err">数不出本机资产库：' + escA(errText(e)) + '</div>';
+        if (usageRowsEl.value) usageRowsEl.value.innerHTML = '<div class="ui-note err">数不出本机资产库：' + window.esc(errText(e)) + '</div>';
         return;
       }
       lastUsage = u; syncUsageCopyBtn();
@@ -2807,7 +2880,7 @@ const SettingsView = {
       let html = chipRow('本机资产库', u.档 || 'warn', u.芯片 || '?',
         (u.因由 || []).join(' · ') || '没有要提醒的 —— 这一格只数不删', d.路径 || '');
       html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top:4px">'
-        + escA(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
+        + window.esc(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
       if (usageRowsEl.value) usageRowsEl.value.innerHTML = html;
       usageMsg.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
     }
@@ -2830,14 +2903,10 @@ const SettingsView = {
     const cacheBusy = reactive({ api: false, meta: false, thumb: false, missed: false });
     function paintCacheUsage() {
       let total = 0; const rows = [];
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (!k) continue;
-          const b = (k.length + String(localStorage.getItem(k) || '').length) * 2;
-          total += b; rows.push([k, b]);
-        }
-      } catch (e) { cacheUsage.value = '读不出本机存储用量：' + errText(e); return; }
+      for (const k of window.LS.keys()) {
+        const b = (k.length + String(window.LS.get(k) || '').length) * 2;
+        total += b; rows.push([k, b]);
+      }
       rows.sort((a, b) => b[1] - a[1]);
       const top = rows.slice(0, 3).map(([k, b]) => k + ' ' + mbOf(b)).join('、');
       cacheUsage.value = '本机 localStorage 现在约 ' + mbOf(total)
@@ -2887,11 +2956,11 @@ const SettingsView = {
         const n = Wb.History.read(k.kind).length;
         return '<div class="krow" style="gap:8px;flex-wrap:wrap;margin-top:10px">'
           + '<span class="kn">本地任务记录</span>'
-          + '<span class="sub-line">' + escA(k.label) + '：本机 ' + n + ' 条。'
+          + '<span class="sub-line">' + window.esc(k.label) + '：本机 ' + n + ' 条。'
           + (n ? '这不是缓存：清掉后本机存的任务号与提示词就没了（平台上的任务与已生成的文件不受影响），删除还会同步进数据文件与云端。'
                : '本机没有记录。')
           + '</span>'
-          + '<button class="ghost mini danger wide" data-hist="' + escA(k.kind) + '"'
+          + '<button class="ghost mini danger wide" data-hist="' + window.esc(k.kind) + '"'
           + (n ? '' : ' disabled') + '>清空</button></div>';
       }).join('');
       host.querySelectorAll('[data-hist]').forEach(b => { b.onclick = () => clearHist(b.dataset.hist); });
@@ -2926,7 +2995,7 @@ const SettingsView = {
       if (!rows.length) { promptRecentEl.value.textContent = '创建任务后，提示词会自动归档到这里。'; return; }
       promptRecentEl.value.innerHTML = rows.slice(0, 8).map(r => {
         const t = window.fmtWhenSec(r.ts);
-        return '<div>· <b>' + escA(r.t || r.f) + '</b> <span style="color:var(--sub)">' + escA(r.k || '') + ' · ' + escA(t) + '</span></div>';
+        return '<div>· <b>' + window.esc(r.t || r.f) + '</b> <span style="color:var(--sub)">' + window.esc(r.k || '') + ' · ' + window.esc(t) + '</span></div>';
       }).join('') + (rows.length > 8 ? '<div>…共 ' + d.count + ' 份，仅列最近 8 份</div>' : '');
     }
     async function refreshPrompt() {
@@ -3038,9 +3107,9 @@ const SettingsView = {
       skillFiles.value = f.files || [];
       skillHash = f.hash || '';
       if (!s.contentHash) s.contentHash = skillHash;
-      /* 「项目引用规则」那两格跟着这一份走（选中另一份 Skill 时要换掉）。
+      /* 「项目引用规则」那一格跟着这一份走（选中另一份 Skill 时要换掉）。
          变量名单要扫**正文** —— 正文在 `s.body` 里（服务端已经给了）。 */
-      fillSkillRefRule(s, s.body || '');
+      fillSkillVarNames(s, s.body || '');
       const main = skillFiles.value.find(x => x.path === 'SKILL.md') || skillFiles.value[0];
       await openSkillFile(main ? main.path : '');
       if (!quiet) await nextTick();
@@ -3116,63 +3185,13 @@ const SettingsView = {
     /* ---- 项目引用规则 ----
        「项目引用规则」指的是**这份 Skill 正文里的变量占位符**（`{cast}` `{what}` `{board}` …）——
        程序在发请求前按**当前项目**把实际内容填进去。
-       与提示词正文里的 @素材 引用是两件事：
-         · @名字 —— 给**生成模型**的引用（挂参考图，提交前换成 @参考图N）；
-         · {变量} —— 给**写稿的 AI** 的项目资料（这一份角色名单长什么样）。
-       读法：扫正文里写了哪些变量（`window.TplVars.names`，那一份只有一处）；
-       写法：改 frontmatter 再走 `WbSkills.update`（frontmatter 的解析规则只有服务端一份）。 */
-    const skillRefGroups = ref('');
+       读法：扫正文里写了哪些变量（`window.TplVars.names`，那一份只有一处）。 */
     const skillVarNames = ref([]);
-    /* 选中一份 Skill 时把它的引用规则填进那两格（不是 built-in 的话才可改）。 */
-    function fillSkillRefRule(d, bodyText) {
-      const groups = (d && Array.isArray(d.assetGroups)) ? d.assetGroups : [];
-      skillRefGroups.value = groups.join(', ');
+    /* 选中一份 Skill 时把它正文里用到的变量列出来（填料是程序的事，这里只给用户看）。 */
+    function fillSkillVarNames(d, bodyText) {
       /* 正文里写了哪些变量（填料的那一份是程序的事，这里只列出来给用户看）。 */
       const names = (window.TplVars && TplVars.names) ? TplVars.names(bodyText || (d && d.body) || '') : [];
       skillVarNames.value = names;
-    }
-    /* 改 frontmatter 里的那几行（没有就加在 frontmatter 末尾）。 */
-    function setRefRuleText(text, groups) {
-      const lines = String(text || '').split('\n');
-      const g = groups.map(x => String(x || '').trim()).filter(Boolean);
-      const gLine = 'assetGroups: [' + g.map(x => '"' + x.replace(/"/g, '') + '"').join(', ') + ']';
-      let inFm = false, hasG = false, end = -1;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (i === 0 && line.trim() === '---') { inFm = true; continue; }
-        if (inFm && line.trim() === '---') { end = i; break; }
-        if (!inFm) continue;
-        if (/^assetGroups\s*:/.test(line)) { lines[i] = gLine; hasG = true; }
-      }
-      if (end < 0) return String(text || '');          // 没有 frontmatter：不动（不该发生）
-      if (!hasG) lines.splice(end, 0, gLine);
-      return lines.join('\n');
-    }
-    async function saveSkillRefRule() {
-      if (!skillDetail.value) return;
-      if (skillDetail.value.source === 'builtin') {
-        Toast.warn('内置 Skill 是只读的：先「复制为我的 Skill」再改');
-        return;
-      }
-      skillBusy.value = true;
-      try {
-        const id = skillDetail.value.id;
-        const bundle = await window.WbSkills.exportOne(id);
-        const list = (bundle.files || []).map(f => ({ path: f.path, text: f.text }));
-        const main = list.find(f => /(^|\/)SKILL\.md$/.test(f.path));
-        if (!main) throw new Error('这份 Skill 没有 SKILL.md（内置目录不完整？）');
-        const groups = skillRefGroups.value.split(/[,，]/).map(x => x.trim()).filter(Boolean);
-        main.text = setRefRuleText(main.text, groups);
-        await window.WbSkills.update(id, list, skillDetail.value.contentHash || skillHash);
-        skillMsg.value = '✓ 已保存素材范围（' + (groups.length ? groups.join(' / ') : '全部') + '）';
-        Toast.receipt('已保存素材范围');
-        await reloadSkills(true);
-        await selectSkill(id);
-      } catch (e) {
-        Toast.err('保存素材范围失败：' + errText(e));
-      } finally {
-        skillBusy.value = false;
-      }
     }
 
     async function copySkillToMine() {
@@ -3369,6 +3388,9 @@ const SettingsView = {
       search.credentialSource, search.channelId, search.model, search.baseUrl, String(searchKey.value || '').trim()]);
     let asrSavedSig = '';
     let searchSavedSig = '';
+    /* 两组各自那一条在途 POST：手动按钮与页脚自动保存撞在一起时第二条等第一条（见 saveAsr / saveSearch）。 */
+    let asrSaving = null;
+    let searchSaving = null;
 
     async function loadAsr() {
       try {
@@ -3388,23 +3410,32 @@ const SettingsView = {
       } catch (e) { asrMsg.value = '读不到语音识别设置：' + errText(e); }
     }
     async function saveAsr() {
-      if (asrBusy.value) return false;
+      /* 撞车只发一条：卡片那颗「保存」与页脚自动保存那一趟同一下撞上来时，第二条**等**第一条的结果。
+         以前这里是 `if (asrBusy.value) return false` —— 手动那次明明写成功了，自动那一趟却拿到
+         一个 false，回执成了「语音识别那一张卡没存进去」；同时 asrSavedSig 只在自动那一趟里推进，
+         手动存完之后签名还停在旧值，下一次自动保存又把同一组值原样再 POST 一遍（多一个 .bak、
+         多一次版本号）。签名现在在这一个函数里推进，两个入口共用同一份账。 */
+      if (asrSaving) return asrSaving;
       if (!window.Asr) { asrMsg.value = '这一组还没加载起来：等它出来再存'; return false; }
       asrBusy.value = true; asrMsg.value = '保存中…';
-      try {
-        const svc = {
-          providerId: asr.service.providerId, model: asr.service.model, baseUrl: asr.service.baseUrl,
-        };
-        if (String(asrKey.value || '').trim()) svc.key = asrKey.value.trim();
-        const d = await window.Asr.save({ route: asr.route, language: asr.language, service: svc });
-        const s = d.settings || {};
-        asr.service.hasKey = !!(s.service && s.service.hasKey);
-        asrLocal.value = d.local || asrLocal.value;
-        asrKey.value = '';
-        asrMsg.value = '✓ 已保存（密钥只留在代理那一边，不回显）';
-        return true;
-      } catch (e) { asrMsg.value = '✗ ' + errText(e); return false; }
-      finally { asrBusy.value = false; }
+      asrSaving = (async () => {
+        try {
+          const svc = {
+            providerId: asr.service.providerId, model: asr.service.model, baseUrl: asr.service.baseUrl,
+          };
+          if (String(asrKey.value || '').trim()) svc.key = asrKey.value.trim();
+          const d = await window.Asr.save({ route: asr.route, language: asr.language, service: svc });
+          const s = d.settings || {};
+          asr.service.hasKey = !!(s.service && s.service.hasKey);
+          asrLocal.value = d.local || asrLocal.value;
+          asrKey.value = '';
+          asrSavedSig = asrSig();          // 密钥清空之后再取签名：那才是「已经落盘的那一组」的样子
+          asrMsg.value = '✓ 已保存（密钥只留在代理那一边，不回显）';
+          return true;
+        } catch (e) { asrMsg.value = '✗ ' + errText(e); return false; }
+        finally { asrBusy.value = false; asrSaving = null; }
+      })();
+      return asrSaving;
     }
     async function clearAsrKey(ev) {
       if (asrBusy.value || !window.Asr) return;
@@ -3466,23 +3497,28 @@ const SettingsView = {
       } catch (e) { searchMsg.value = '读不到联网搜索设置：' + errText(e); }
     }
     async function saveSearch() {
-      if (searchBusy.value) return false;
+      /* 与 saveAsr 同一shape：撞车只发一条，签名在这一个函数里推进（理由见那里的注释）。 */
+      if (searchSaving) return searchSaving;
       if (!window.Search) { searchMsg.value = '这一组还没加载起来：等它出来再存'; return false; }
       searchBusy.value = true; searchMsg.value = '保存中…';
-      try {
-        const p = {
-          enabled: search.enabled, provider: search.provider, maxResults: search.maxResults,
-          credentialSource: search.credentialSource, channelId: search.channelId,
-          model: search.model, baseUrl: search.baseUrl,
-        };
-        if (String(searchKey.value || '').trim()) p.key = searchKey.value.trim();
-        const d = await window.Search.save(p);
-        search.hasKey = !!(d.settings && d.settings.hasKey);
-        searchKey.value = '';
-        searchMsg.value = '✓ 已保存（密钥只留在代理那一边，不回显）';
-        return true;
-      } catch (e) { searchMsg.value = '✗ ' + errText(e); return false; }
-      finally { searchBusy.value = false; }
+      searchSaving = (async () => {
+        try {
+          const p = {
+            enabled: search.enabled, provider: search.provider, maxResults: search.maxResults,
+            credentialSource: search.credentialSource, channelId: search.channelId,
+            model: search.model, baseUrl: search.baseUrl,
+          };
+          if (String(searchKey.value || '').trim()) p.key = searchKey.value.trim();
+          const d = await window.Search.save(p);
+          search.hasKey = !!(d.settings && d.settings.hasKey);
+          searchKey.value = '';
+          searchSavedSig = searchSig();            // 同样：清掉密钥输入之后再取签名
+          searchMsg.value = '✓ 已保存（密钥只留在代理那一边，不回显）';
+          return true;
+        } catch (e) { searchMsg.value = '✗ ' + errText(e); return false; }
+        finally { searchBusy.value = false; searchSaving = null; }
+      })();
+      return searchSaving;
     }
     async function clearSearchKey(ev) {
       if (searchBusy.value || !window.Search) return;
@@ -3523,86 +3559,286 @@ const SettingsView = {
       } catch (e) { searchMsg.value = '✗ ' + errText(e); }
     }
 
-    /* ---------- 栏目导航与关键词筛选（从 .card 现读，不手抄标题清单） ---------- */
+    /* ---------- 栏目导航与关键词筛选（B1 组锚点 + B2 命中到行；从 DOM 现读，不手抄标题清单） ---------- */
     let navSig = '';
+    let navSubSig = '';
     let navQueued = 0;
     let navRO = null;
     let navMO = null;
-    function navCards() {
-      if (!rootEl.value) return [];
-      return [...rootEl.value.children].filter(c => c && c.classList && c.classList.contains('card') && !c.hidden);
+    let navScrollQueued = 0;
+    let flashTimer = null;
+    let settleTimer = 0;
+    let curGroup = '';
+    let scrollHolding = false;
+    /* 这一轮每张卡里命中的行（syncNav 现算一次，卡标题那枚「N 处命中」与二级行都读它）。 */
+    const cardHits = new Map();
+    /* 组名读 DOM 里那一行标题；折叠那一组的标题在按钮里（后面还跟着「展开」两个字，只取 .fold-title）。 */
+    const groupNameOf = sec => {
+      const h = sec && sec.querySelector ? sec.querySelector('.set-group-h') : null;
+      const t = h ? ((h.querySelector('.fold-title') || h).textContent || '') : '';
+      return t.trim() || (sec && sec.dataset ? sec.dataset.group : '') || '';
+    };
+    const groupEls = () => (rootEl.value ? [...rootEl.value.querySelectorAll('.set-group[data-group]')] : []);
+    /* 卡 = 组下面那一层的 .card（折叠那一组的卡在 .fold-body 里）；hidden 的卡（自定义那张还没展开）不算一栏。 */
+    function cardsOf(sec) {
+      if (!sec) return [];
+      return [...sec.querySelectorAll(':scope > .card, :scope > .fold-body > .card')].filter(c => c && !c.hidden);
     }
-    const navTitleOf = c => { const h = c.querySelector('h2'); return (h && h.textContent.trim()) || '（这一栏没有标题）'; };
+    function navCards() { return groupEls().flatMap(cardsOf); }
+    /* 卡标题里只认文字：命中数那枚 .set-hcnt 是自己塞进去的，读数前先摘掉。 */
+    function navTitleOf(c) {
+      const h = c.querySelector('h2');
+      if (!h) return '（这一栏没有标题）';
+      const clone = h.cloneNode(true);
+      clone.querySelectorAll('.set-hcnt').forEach(x => x.remove());
+      return clone.textContent.trim() || '（这一栏没有标题）';
+    }
     function setNavH() {
       if (!setNavEl.value || !rootEl.value) return;
       const h = Math.round(setNavEl.value.getBoundingClientRect().height);
       if (h > 0) rootEl.value.style.setProperty('--setnavh', h + 'px');
     }
-    function paintChips(list) {
-      if (!setChipsEl.value) return;
-      const now = list.map(navTitleOf).join(' | ');
-      if (now === navSig) return;
-      navSig = now;
-      setChipsEl.value.innerHTML = list.map((c, i) => {
-        const t = navTitleOf(c);
-        return '<button class="chip set-chip" data-i="' + i + '" title="' + escA(t) + '">' + escA(t) + '</button>';
-      }).join('');
-      setChipsEl.value.querySelectorAll('[data-i]').forEach(b => {
-        b.onclick = () => {
-          const el = navCards()[+b.dataset.i];
-          if (!el) { Toast.err('这一栏刚被移走了，点一下别的标题重画后再试'); return; }
-          if (el.classList.contains('set-off')) { setQ.value = ''; syncNav(); }
-          el.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        };
-      });
+    /* 这一页**唯一**的滚动出口（自定义供应商卡、组锚点、二级行、搜索命中行五处都走它）：
+       导航是 sticky 的，卡顶要停在导航下面，靠的是 CSS 里那条 scroll-margin-top = --setnavh + 一档间距。
+       可是那条只覆盖 `.card / .set-group`，二级行（组内标题那一排）正好在**点下锚点这一刻**
+       才冒出来、命中行（.krow / .sub …）根本不带那条 margin —— 按旧高度算出来的位置就差那一截
+       （实测停在 263px，导航已经 158px 高）。所以先重测高度再滚，并在滚动落定后补一次校正：
+       折叠里那几栏的行是异步补出来的（体检 / 用量 / 清单行），高度会在滚动途中变。
+       跳转途中 scrollHolding 挂起滚动跟随（onScrollNav），落定才交还 —— 不然平滑滚动路过
+       上一组时，事件会把点完的 curGroup 与二级行改回去，一闪再闪。
+       ⚠ 别再在这一页写第二处裸 `scrollIntoView`：那一种滚法不给 sticky 导航让位，也不会补校正。 */
+    function scrollToEl(el, block) {
+      const root = rootEl.value;
+      if (!root || !el) return;
+      scrollHolding = true;
+      setNavH();
+      el.scrollIntoView({ block: block || 'start', behavior: 'smooth' });
+      let tries = 0;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(settleJump, 520);
+      function settleJump() {
+        settleTimer = 0;
+        if (!rootEl.value) { scrollHolding = false; return; }
+        if (!el.isConnected) { scrollHolding = false; navFollow(); return; }
+        setNavH();
+        const r = el.getBoundingClientRect(), rr = root.getBoundingClientRect();
+        const navH = setNavEl.value ? setNavEl.value.getBoundingClientRect().height : 0;
+        const want = block === 'center' ? Math.round(rr.height / 2) : Math.round(navH + 14);
+        if (Math.abs((r.top - rr.top) - want) > 10) {
+          /* 补校正也是平滑滚，落定再验一遍；最多补三回，用户中途抢滚就不拉扯了。 */
+          if (++tries > 3) { scrollHolding = false; navFollow(); return; }
+          root.scrollTo({ top: root.scrollTop + (r.top - rr.top) - want, behavior: 'smooth' });
+          settleTimer = setTimeout(settleJump, 520);
+          return;
+        }
+        scrollHolding = false;
+        navFollow();
+      }
     }
-    /* 搜的是这一栏里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容。 */
+    /* 折叠那一段（本机维护那一组）：命中落在里面时得先展开，否则「命中 3 处」点在收着的组里看不见。
+       只借这一页已有的 fold-key 机制，展开这一动作**不写盘**（下次打开照旧是收着的，B4 那句才算数）。 */
+    function openFold(sec) {
+      if (!sec || !sec.classList.contains('foldable')) return;
+      if (sec._foldSet) sec._foldSet(true); else sec.classList.add('open');
+    }
+    /* 组锚点：一共 5 颗（B1）。筛选时芯片后面的数字是这一组命中几行。 */
+    function paintChips(secs, groupHits, filtering) {
+      if (!setChipsEl.value) return;
+      const sig = secs.map(s => s.dataset.group + ':' + (groupHits[s.dataset.group] || 0)).join('|');
+      if (sig === navSig) return;
+      navSig = sig;
+      window.Chips.render(setChipsEl.value, secs.map(s => [s.dataset.group, groupNameOf(s)]), curGroup,
+        gid => {
+          const sec = secs.find(s => s.dataset.group === gid);
+          if (!sec) { Toast.err('这一组刚被移走了，滚一下重画后再试'); return; }
+          openFold(sec);
+          curGroup = gid;
+          paintSubChips(sec);
+          paintChipOn();
+          scrollToEl(sec);
+        },
+        {
+          cls: 'set-chip',
+          count: filtering ? (gid => groupHits[gid] || 0) : null,
+          title: gid => {
+            const sec = secs.find(s => s.dataset.group === gid);
+            return groupNameOf(sec) + '：' + (sec ? cardsOf(sec).map(navTitleOf).join('、') : '');
+          },
+        });
+    }
+    /* 二级行：当前这一组的栏目标题（点它滚到那张卡）。 */
+    function paintSubChips(sec) {
+      const box = setSubEl.value;
+      if (!box) return;
+      const cards = sec ? cardsOf(sec) : [];
+      const filtering = !!(setQ.value || '').trim();
+      const sig = (sec ? sec.dataset.group : '-') + '|'
+        + cards.map(c => navTitleOf(c) + ':' + (filtering ? (cardHits.get(c) || []).length : 0)).join('|');
+      if (sig === navSubSig) return;
+      navSubSig = sig;
+      if (!cards.length) { box.innerHTML = ''; box.hidden = true; return; }
+      box.hidden = false;
+      window.Chips.render(box, cards.map((c, i) => [String(i), navTitleOf(c)]), '',
+        i => {
+          const el = cards[+i];
+          if (!el) return;
+          if (el.classList.contains('set-off')) { setQ.value = ''; syncNav(); }
+          scrollToEl(el);
+        },
+        { cls: 'set-chip set-chip-sub', count: filtering ? (i => (cardHits.get(cards[+i]) || []).length) : null });
+    }
+    /* 搜的是这一行里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容。 */
     const hayOf = c => ((c.textContent || '') + ' '
       + [...c.querySelectorAll('input,textarea,select,button')].map(x => x.placeholder || x.title || '').join(' ')).toLowerCase();
+    /* B2：命中落到**行**上。一行 = 一个 krow / 一张供应商卡 / 一段说明 …
+       大盒里套小盒的（供应商卡里面有 krow）只标最里面那一条，免得两层底色叠在一起。
+       几个词凑不齐在同一行时退回「含任一个词的行」—— 搜「密钥 同步」这种，别一个命中都不给。 */
+    const ROW_SEL = '.krow, .sub, .pb-tip, .prov, .polish-block, .cloud-box, .cloud-row, .sk-item,'
+      + ' .ui-note, .cus-acts, .search-hit, .ref, .sk-hint, .mlist-row';
+    function rowHits(card, terms) {
+      if (!terms.length) return [];
+      const cand = [...card.querySelectorAll(ROW_SEL)];
+      const hay = cand.map(hayOf);
+      const filterRows = mode => cand.filter((r, i) => (mode === 'all'
+        ? terms.every(t => hay[i].indexOf(t) >= 0)
+        : terms.some(t => hay[i].indexOf(t) >= 0)));
+      const hits = filterRows('all');
+      const list = hits.length ? hits : filterRows('any');
+      return list.filter(r => !list.some(o => o !== r && r.contains(o)));
+    }
+    /* 卡标题后面那一枚「N 处命中」：没有命中就整枚摘掉，读数时才不会被它带进去（见 navTitleOf）。 */
+    function paintCardMark(c, n) {
+      const h = c.querySelector('h2');
+      if (!h) return;
+      const b = h.querySelector(':scope > .set-hcnt');
+      if (!n) { if (b) b.remove(); return; }
+      if (b) b.textContent = n + ' 处命中';
+      else {
+        const el = document.createElement('span');
+        el.className = 'set-hcnt';
+        el.textContent = n + ' 处命中';
+        h.appendChild(el);
+      }
+    }
     function syncNav() {
-      const list = navCards();
-      paintChips(list);
+      const secs = groupEls();
       const terms = (setQ.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
-      let hit = 0;
-      list.forEach((c, i) => {
-        const on = !terms.length || terms.every(t => hayOf(c).indexOf(t) >= 0);
-        c.classList.toggle('set-off', terms.length > 0 && !on);
-        if (on) hit++;
-        const chip = setChipsEl.value && setChipsEl.value.children[i];
-        if (chip) chip.classList.toggle('dim', !on);
+      const filtering = !!terms.length;
+      qa('.set-hit').forEach(el => el.classList.remove('set-hit'));
+      const groupHits = {};
+      let hitCards = 0, hitRows = 0;
+      secs.forEach(sec => {
+        let gRows = 0;
+        cardsOf(sec).forEach(c => {
+          const hits = rowHits(c, terms);
+          cardHits.set(c, hits);
+          c.classList.toggle('set-off', filtering && !hits.length);
+          paintCardMark(c, hits.length);
+          hits.forEach(r => r.classList.add('set-hit'));
+          gRows += hits.length;
+          if (!filtering || hits.length) hitCards++;
+        });
+        groupHits[sec.dataset.group] = gRows;
+        /* 整组都没有命中的，连组标题一起收起来（不然筛选完只剩几栏还挂着五个组名）。 */
+        sec.classList.toggle('set-off', filtering && !gRows);
+        if (gRows) openFold(sec);
+        hitRows += gRows;
       });
-      navHasFilter.value = !!terms.length;
-      navSumErr.value = !!(terms.length && !hit);
-      navSum.value = !terms.length
-        ? '共 ' + list.length + ' 栏 · 点标题直达，或输入关键词只看含它的栏目（这一栏的说明文字也算）'
-        : ('「' + terms.join(' ') + '」命中 ' + hit + ' / ' + list.length + ' 栏'
-          + (hit ? '，其余的先收起来，点「清除筛选」就都回来'
-                 : ' —— 这一页没有含这些词的栏目。换个说法试试（密钥 / 地址 /  ffmpeg / 分页 / 润色 / 备份 / 缓存），'
-                   + '或者问右下角的 AI 助手这一项在哪一栏'));
+      if (!curGroup || !secs.some(s => s.dataset.group === curGroup)) curGroup = secs.length ? secs[0].dataset.group : '';
+      paintChips(secs, groupHits, filtering);
+      paintSubChips(secs.find(s => s.dataset.group === curGroup));
+      navHasFilter.value = filtering;
+      navSumErr.value = filtering && !hitRows;
+      const total = navCards().length;
+      navSum.value = !filtering
+        ? ('共 ' + secs.length + ' 组 / ' + total + ' 栏 · 点组名跳到那一组，下面那一排是这一组里的栏目；也可以输入关键词直接命中到行')
+        : ('「' + terms.join(' ') + '」命中 ' + hitRows + ' 行（在 ' + hitCards + ' / ' + total + ' 栏里）'
+          + (hitRows ? '，按回车跳到第一处；组名后面的数字是这一组命中几行，其余栏目先收起来'
+                     : ' —— 这一页没有含这些词的行。换个说法试试（密钥 / 地址 / ffmpeg / 分页 / 润色 / 备份 / 缓存），'
+                       + '或者问右下角的 AI 助手这一项在哪一栏'));
     }
     function clearNav() {
       setQ.value = '';
       syncNav();
       if (setQEl.value) setQEl.value.focus();
     }
+    /* B2：回车滚到第一处命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
+    function gotoFirstHit() {
+      const first = q('.set-hit');
+      if (!first) {
+        if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
+        return;
+      }
+      scrollToEl(first, 'center');
+      qa('.set-flash').forEach(el => el.classList.remove('set-flash'));
+      first.classList.add('set-flash');
+      if (flashTimer) clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => {
+        qa('.set-flash').forEach(el => el.classList.remove('set-flash'));
+        flashTimer = null;
+      }, 1400);
+    }
     function onNavKey(e) {
-      if (e.key === 'Escape') { setQ.value = ''; syncNav(); }
+      if (e.key === 'Escape') { setQ.value = ''; syncNav(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); gotoFirstHit(); }
+    }
+    /* 滚到哪儿，二级行就跟着换成哪一组的标题（上面那排组锚点也跟着挪亮）。
+       判定线要落在「跳转落点」下面：点锚点滚完，组顶正好停在 scroll-margin 那条线
+       （spa-settings.css：--setnavh + --sp-3-5），也就是导航底下 14px。线只加 8px 时
+       刚跳到的那组顶永远比线低 6px —— 落定的滚动事件把它判回上一组，二级行与锚点
+       高亮要再往下滚一点才翻过来（2026-10-21 报告）。margin 里含导航高，减回去才是
+       导航底下的空档；再放宽 12px，兜住 scrollToEl 落定补校正的 ±10 容差。 */
+    function activeGroup() {
+      const secs = groupEls();
+      if (!secs.length) return null;
+      const nav = setNavEl.value;
+      const navB = nav ? nav.getBoundingClientRect().bottom : 0;
+      const navH = nav ? nav.getBoundingClientRect().height : 0;
+      const margin = parseFloat(getComputedStyle(secs[0]).scrollMarginTop) || 0;
+      const line = navB + Math.max(8, margin - navH + 12);
+      let best = secs[0];
+      secs.forEach(s => { if (s.getBoundingClientRect().top <= line) best = s; });
+      return best;
+    }
+    function paintChipOn() {
+      if (!setChipsEl.value) return;
+      [...setChipsEl.value.querySelectorAll('.chip')].forEach(b => b.classList.toggle('on', b.dataset.v === curGroup));
+    }
+    /* 按当前滚动位置改判一次活动组（滚动事件与程序化跳转落定共用这一份）。 */
+    function navFollow() {
+      const sec = activeGroup();
+      if (!sec || sec.dataset.group === curGroup) return;
+      curGroup = sec.dataset.group;
+      paintSubChips(sec);
+      paintChipOn();
+    }
+    function onScrollNav() {
+      if (navScrollQueued || scrollHolding) return;
+      navScrollQueued = requestAnimationFrame(() => {
+        navScrollQueued = 0;
+        navFollow();
+      });
     }
     function setupNav() {
       setNavH();
       if (setNavEl.value && window.ResizeObserver) { navRO = new ResizeObserver(setNavH); navRO.observe(setNavEl.value); }
       window.addEventListener('resize', setNavH);
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(setNavH).catch(() => {});
-      /* 有些栏会被页面自己临时打开 / 收起（hidden 一变，芯片位就该跟着变）。 */
+      if (rootEl.value) rootEl.value.addEventListener('scroll', onScrollNav, { passive: true });
+      /* 两类变化都要跟着重算：① 某一栏被页面自己临时打开 / 收起（hidden 一变，芯片就该变）；
+         ② 栏里的行是异步补出来的（体检、用量、供应商卡、清单行）—— 命中数与底色得跟上。
+         自己刚写进去的那几处（.set-nav 里的芯片、卡标题上那枚命中数）不算「页面变了」，否则就是自己勾自己。 */
       try {
         const main = rootEl.value;
-        const isCard = t => !!t && t.parentElement === main && t.classList && t.classList.contains('card');
         navMO = new MutationObserver(ms => {
-          if (!ms.some(x => isCard(x.target))) return;
+          if (!ms.some(x => {
+            const t = x.target;
+            return !!t && t.nodeType === 1 && !(t.closest && (t.closest('.set-nav') || t.closest('.set-hcnt')));
+          })) return;
           clearTimeout(navQueued);
           navQueued = setTimeout(syncNav, 120);
         });
-        navMO.observe(main, { attributes: true, attributeFilter: ['hidden'], subtree: true });
+        navMO.observe(main, { attributes: true, attributeFilter: ['hidden'], childList: true, subtree: true });
       } catch (e) {}
       syncNav();
     }
@@ -3640,8 +3876,10 @@ const SettingsView = {
       }
       if (window.Dropdowns) Dropdowns.build(rootEl.value);
       initNet();
-      initStorePrefs();
-      initAiPrefs();
+      /* SET_ROWS 声明的那几行（网络 / 产物档位 / 左栏两块 / 助手四颗 / 润色反问）在这里现画，
+         再把这一页已有的折叠绑上（本机维护那一组默认收着 —— 键没存过就是收起，见 initFolds）。 */
+      renderManifestRows();
+      initFolds(rootEl.value);
       initCloud();
       renderPageSettings();
       renderUiPrefs();
@@ -3675,6 +3913,8 @@ const SettingsView = {
       if (navRO) { try { navRO.disconnect(); } catch (e) {} navRO = null; }
       if (navMO) { try { navMO.disconnect(); } catch (e) {} navMO = null; }
       clearTimeout(navQueued);
+      if (navScrollQueued) cancelAnimationFrame(navScrollQueued);
+      if (flashTimer) clearTimeout(flashTimer);
       if (saveTimer) clearTimeout(saveTimer);
       if (saveOkTimer) clearTimeout(saveOkTimer);
       if (storeStatsOff) { try { storeStatsOff(); } catch (e) {} storeStatsOff = null; }
@@ -3685,7 +3925,7 @@ const SettingsView = {
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
       rootEl, failed, ready,
-      setNavEl, setQEl, setChipsEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
+      setNavEl, setQEl, setChipsEl, setSubEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
       saveText, saveKind,
       provTabsEl, provTabView, provSumText, provSumErr, provListEl, openCus,
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,
@@ -3694,12 +3934,11 @@ const SettingsView = {
       cusNameEl, cusName, cusBaseEl, cusBase, cusKeyEl, cusKey, cusKeyShown,
       cusExtraEl, cusExtra, rebuildCusModels, cusModelRows, cusOff, onCusModelToggle, cusModelsEmpty,
       cusFetchBusy, fetchCusModels, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,
-      net, netSp: NET_SP, onNetChange,
+      net,
       pageBoxEl, uiPrefsBoxEl, storePrefsBoxEl, charsBoxEl,
-      saveScopeEl, saveScope, onSaveScopeChange, saveScopeHint, sbBalOn, sbMirrorOn, markChanged,
-      acOff, acAuto, acSnap, acNotice, acNoticeState,
-      acNoticeAskDisabled, askNotice, paintNoticeState,
-      polishAsk, polishAskEl, clearManualPrompts, migrateLegacyPrompts,
+      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl, markChanged,
+      askNotice, paintNoticeState,
+      clearManualPrompts, migrateLegacyPrompts,
       dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
       impAllFileEl,
@@ -3714,7 +3953,7 @@ const SettingsView = {
       skillQ, skillFilter, skillSelId, skillDetail, skillFiles, skillFilePath, skillFileNote,
       skillFiltered, skillCntText, paintSkillChips, onSkillSearch, reloadSkills, selectSkill, openSkillFile,
       toggleSkillEnabled, copySkillToMine, pickSkillFile, onImportSkillFile, exportSkill, removeSkill, fmtSkillSize,
-      skillRefGroups, skillVarNames, saveSkillRefRule,
+      skillVarNames,
       asr, asrKey, asrLocal, asrLocalText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,

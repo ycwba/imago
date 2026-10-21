@@ -10,6 +10,7 @@
      Wb.ST              状态文案（三台统一）
      Wb.isRunning(t) / Wb.isFailed(t) / Wb.stText(s)
      Wb.actsHTML(t, o)  卡片底部那排按钮的 HTML（顺序/文案/危险色三台一致）
+     Wb.actsHTML(t, { items })  非任务卡的私有动作条也走这一份（结构 / 危险色 / 转义一致）
      Wb.bindActs(el, t, o)  给上面那排按钮接线（取消/重试/删除都带确认与报错）
      Wb.History.read(kind) / Wb.History.write(kind, list)   带版本与上限的本地历史
      Wb.Blobs.put(k, blob) / get(k) / del(k)               大文件（参考音频等）存 IndexedDB
@@ -188,8 +189,125 @@
     };
   }
 
+  /* 空态（全站一份）：`why` 是给人看的几行字（逐行转义），`action` 是页面给的一小段按钮 HTML。
+     以前各页各拼 `<div class="empty">…</div>`，间距与「为什么空 / 下一步做什么」的写法都不同。 */
+  const emptyHTML = (why, action) => {
+    const lines = Array.isArray(why) ? why : [why];
+    return '<div class="empty">' + lines.map(x => esc(String(x == null ? '' : x))).join('<br>')
+      + (action ? ' ' + action : '') + '</div>';
+  };
+
+  /* 筛选工具条（全站一份）：芯片行 + 搜索框 +（可选）调用方按钮 + 计数。
+     以前收藏 / 素材库 / 资产库 / 工作台 / 画布各自拼这一段（连搜索防抖都有的页有、有的页没有），
+     改一处宽度或焦点样式要挨个页面追。这里只收「结构 + 接线」：
+       · 芯片仍由 ui.js 的 Chips.render 画，本模块不另写一份芯片渲染；
+       · 各页自己的 AI 按钮等通过 extraHTML / betweenHTML / headHTML / tailHTML 传入，
+         它们与动态值一样由调用方负责转义（本模块只把 input / cnt 里的文本 esc 一遍）。
+     html(o)  纯拼字符串：<span class="chips"> + <input type="search"> + extraHTML + <span class="cnt">；
+              外层默认 .toolbar，资产库那种 .frow 由 o.cls 指定，o.cls:'' 表示不要外层（页面自己给）。
+              o.chips === null 时整格芯片不画（画布库那种只有搜索框的档）。
+     bind(host, o) 把 html 生成物灌进 host 并接线，返回把手：
+              setChips(list, value, onPick, opt) / setCount(text) / setQuery(text, run) /
+              setPlaceholder(text) / value() / focus() / destroy()
+     o 的搜索项：q（初始文字）、placeholder、inputId / inputClass / inputAttrs、
+              onSearch(q)、searchDelay（默认 250ms，0 = 同步回调；画布本地筛选要同步）、
+              onEscape、onKey。
+     计数不算芯片：o.cnt:false 表示这一行没有计数（studio 搜索框那一组）。 */
+  const filterBar = {
+    html(o = {}) {
+      const oo = o || {};
+      const attrText = obj => Object.keys(obj || {}).map(k => {
+        if (!/^[A-Za-z_:][-A-Za-z0-9_:.]*$/.test(k)) return '';    // 属性名只认合法形状，别让调用方拼出事件处理器
+        const v = obj[k];
+        if (v === false || v == null) return '';
+        return v === true ? ' ' + k : ' ' + k + '="' + esc(String(v)) + '"';
+      }).join('');
+      const cls = oo.cls == null ? 'toolbar' : String(oo.cls);
+      const bits = [];
+      bits.push(oo.headHTML || '');
+      if (oo.chips !== null) bits.push('<span class="chips"></span>');
+      bits.push(oo.betweenHTML || '');
+      bits.push('<input type="search"' + (oo.inputClass ? ' class="' + esc(String(oo.inputClass)) + '"' : '')
+        + attrText({ id: oo.inputId, placeholder: oo.placeholder, value: oo.value, 'aria-label': oo.ariaLabel })
+        + attrText(oo.inputAttrs) + '>');
+      bits.push(oo.extraHTML || '');
+      if (oo.cnt !== false) {
+        bits.push('<span class="cnt' + (oo.cntClass ? ' ' + esc(String(oo.cntClass)) : '') + '">'
+          + esc(oo.cntText == null ? '' : oo.cntText) + '</span>');
+      }
+      bits.push(oo.tailHTML || '');
+      const body = bits.join('');
+      return cls ? '<div class="' + esc(cls) + '">' + body + '</div>' : body;
+    },
+    bind(host, o = {}) {
+      const el = typeof host === 'string' ? document.getElementById(host) : host;
+      if (!el) return null;
+      const oo = o || {};
+      el.innerHTML = filterBar.html({ ...oo, cls: '' });   // host 自己就是这一行的外层（.toolbar / .frow / .pgroup 里的 .fb-host）
+      const chipsEl = el.querySelector('.chips');
+      const input = el.querySelector('input[type="search"]');
+      const cntEl = el.querySelector('.cnt');
+      let onFilter = oo.onFilter || null;
+      let delay = Number(oo.searchDelay);
+      if (!isFinite(delay) || delay < 0) delay = 250;
+      let timer = 0;
+      const fireSearch = () => {
+        clearTimeout(timer); timer = 0;
+        if (input && oo.onSearch) oo.onSearch(input.value);
+      };
+      const later = () => {
+        clearTimeout(timer);
+        if (!oo.onSearch) return;
+        if (delay > 0) timer = setTimeout(fireSearch, delay);
+        else fireSearch();
+      };
+      const onSearchKey = e => {
+        if (e.key === 'Enter' && oo.onSearch) { e.preventDefault(); fireSearch(); }
+        else if (e.key === 'Escape' && oo.onEscape) {
+          e.preventDefault(); clearTimeout(timer); timer = 0;
+          if (input) input.value = '';
+          oo.onEscape(e);
+        }
+        if (oo.onKey) oo.onKey(e);
+      };
+      if (input) {
+        input.addEventListener('input', later);
+        input.addEventListener('keydown', onSearchKey);
+        if (oo.q != null) input.value = String(oo.q);
+      }
+      const api = {
+        el, input, chipsEl, cntEl,
+        setCount(text) { if (cntEl) cntEl.textContent = text == null ? '' : String(text); return api; },
+        setChips(list, value, onPick, opt) {
+          if (onPick) onFilter = onPick;
+          if (chipsEl && window.Chips) {
+            window.Chips.render(chipsEl, list || [], value, v => { if (onFilter) onFilter(v); }, opt || oo.chipOpt);
+          }
+          return api;
+        },
+        setQuery(text, run) {
+          if (input) input.value = text == null ? '' : String(text);
+          if (run) fireSearch();
+          return api;
+        },
+        setPlaceholder(text) { if (input) input.placeholder = text == null ? '' : String(text); return api; },
+        value() { return input ? input.value : ''; },
+        focus() { if (input) input.focus(); return api; },
+        destroy() {
+          clearTimeout(timer); timer = 0;
+          if (input) { input.removeEventListener('input', later); input.removeEventListener('keydown', onSearchKey); }
+        },
+      };
+      if (chipsEl && oo.chips) api.setChips(oo.chips, oo.value, oo.onFilter);
+      if (cntEl && oo.cntText != null) cntEl.textContent = String(oo.cntText);
+      return api;
+    },
+  };
+
   window.Wb = {
     ST,
+    emptyHTML,
+    filterBar,
     stText(s) { const t = norm(s); return ST[t] || s || ''; },
     /* 活 / 失败的判定只看状态串，页面别再自己列 ['failed','cancelled'] 这种词表
        （少一个同义词就会把已完成的任务画成失败，或者把在跑的任务从轮询集合里漏掉）。 */
@@ -1444,8 +1562,22 @@
        只有一份，而页面不必为了两颗私有按钮整排重写。
        「详情」那一颗的文字会在展开/收起时变（详情 → 收起），而它带着一颗 chevron：
        页面用 ui.js 的 iconSet / btnText 各管一头（textContent = … 会把图标一起抹掉），
-       所以这个按钮的文字必须装在 .tx 里、图标装在 .ic 里 —— 结构就固定成下面这样。 */
+       所以这个按钮的文字必须装在 .tx 里、图标装在 .ic 里 —— 结构就固定成下面这样。
+       `o.items` 是「这一排不是任务卡、但仍然是卡片动作条」的那一档（画布库、素材库）：
+       传 [{ act, label, danger, mini, title, disabled }]，结构、danger 色与转义都还是这一份，
+       页面只给自己的私有动作起名字（`o.attr` 选 data-a / data-x 供页面事件委托），
+       不再各自手拼 `<div class="acts"><button class="ghost …">`。 */
     actsHTML(t, o = {}) {
+      if (o.items) {
+        const attr = o.attr || 'data-a';
+        const extraAttrs = d => Object.keys(d || {})
+          .map(k => ' data-' + k + '="' + esc(d[k]) + '"').join('');
+        return o.items.map(it => '<button class="ghost'
+          + (it.danger ? ' danger' : '') + (it.mini ? ' mini' : '') + (it.cls ? ' ' + it.cls : '') + '" '
+          + attr + '="' + esc(it.act) + '"' + extraAttrs(it.data)
+          + (it.title ? ' title="' + esc(it.title) + '"' : '')
+          + (it.disabled ? ' disabled' : '') + '>' + it.label + '</button>').join('') + (o.extraHTML || '');
+      }
       const run = this.isRunning(t), failed = this.isFailed(t), unc = this.isUncertain(t);
       /* 有产物才画下载。`preview` 是「有预览那颗按钮」，`hasMedia` 是「这条已经有真字节了」：
          资产库的产物格不画预览（点缩略图就是灯箱），但必须有下载。 */
@@ -1761,7 +1893,7 @@
             const list = items || [];
             if (!list.length) {
               els.clear();
-              box.innerHTML = (o.emptyHTML ? o.emptyHTML() : '<div class="empty">暂无内容</div>') + (o.notesHTML ? o.notesHTML() : '');
+              box.innerHTML = (o.emptyHTML ? o.emptyHTML() : emptyHTML('暂无内容')) + (o.notesHTML ? o.notesHTML() : '');
               return;
             }
             box.querySelectorAll('.empty').forEach(e => e.remove());
@@ -1855,6 +1987,18 @@
           box._sentinelBound = { disconnect: () => window.removeEventListener('scroll', off) };
         }
         return box._sentinelBound;
+      },
+      /* 分页行（上一页 / 第几页 / 下一页）：结构只此一份。
+         三处以前各写一遍同样的三颗节点，`id` 也各起一套。**id 必须带页面前缀**：
+         外壳把七页都留在 KeepAlive 里，同一份文档里同时存在七套分页行，写死 `pgPrev`
+         就是重复 id（`getElementById` 永远拿到第一页那颗，点谁的翻页都只动首页）。
+         统一成「前缀 + PgPrev/PgInfo/PgNext」，前缀由页面按自己那一页给。 */
+      rowHTML(prefix, o = {}) {
+        const p = prefix || '';
+        const hide = o.hidden ? ' style="display:none"' : '';
+        return '<button class="ghost" id="' + p + 'PgPrev"' + hide + '>‹ 上一页</button>'
+          + '<span class="pginfo" id="' + p + 'PgInfo"' + hide + '>' + esc(o.info || '') + '</span>'
+          + '<button class="ghost" id="' + p + 'PgNext"' + hide + '>下一页 ›</button>';
       },
       /* 分页信息文案（唯一一份）：图片台自己的游标分页也用它，三个台的文字不会各写各的。
          平台的列表接口只有游标和 has_more，**根本没有任务总数**（SparkCine / VGENV 实测都一样），
@@ -2242,17 +2386,34 @@
           });
         }
         layout();
+        let ro = null;
         if (window.ResizeObserver) {
-          const ro = new ResizeObserver(layout);
+          ro = new ResizeObserver(layout);
           ro.observe(box);
           cols.forEach(c => ro.observe(c));        // 左栏自己变高/变矮时条子要跟着
         }
+        const onSplitVisible = () => { if (!document.hidden) layout(); };
         window.addEventListener('resize', layout);
         // 文档在后台时 ResizeObserver 不出帧（比如 iframe 刚切走又切回），回到前台要补算一次
         window.addEventListener('load', layout);
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) layout(); });
+        document.addEventListener('visibilitychange', onSplitVisible);
         box._wbSplitLayout = layout;
-        return { layout, cols, handles: made };
+        /* 这一套东西（观察器 + 三个全局监听 + 拖拽条 DOM）必须能整套摘掉：
+           页面重建时 enable 会换一个新 box（_wbSplit 在新 box 上还是 undefined），
+           旧监听留在 window 上就会越叠越多，每个 resize 都去算已经不存在的 DOM。 */
+        const destroy = () => {
+          if (saveT) { clearTimeout(saveT); saveT = 0; }
+          try { if (ro) ro.disconnect(); } catch (e) { /* 观察器已经断开：继续摘监听 */ }
+          window.removeEventListener('resize', layout);
+          window.removeEventListener('load', layout);
+          document.removeEventListener('visibilitychange', onSplitVisible);
+          made.forEach(({ el }) => { try { el.remove(); } catch (e) { /* 条子可能已被页面重建移走 */ } });
+          try { box._wbSplit = false; } catch (e) { /* 只做标记，失败也不影响销毁 */ }
+          box._wbSplitOff = null;
+          delete box._wbSplitLayout;
+        };
+        box._wbSplitOff = destroy;
+        return { layout, cols, handles: made, destroy };
       },
     },
 

@@ -6,7 +6,7 @@ function createOutboundRoutes(ctx) {
   const {
     takeOutboundUrl, log, upRequest, failUpstream, pipeUpstream, passthroughHeaders,
     guardOutboundUrl, safeOutboundUrl, keyOf, assetInfoOf, assetStore,
-    localAssetEntry, localFileFromEntry, serveLocalFile, s3putStream,
+    localAssetEntry, localAssetRepair, localFileFromEntry, serveLocalFile, s3putStream,
   } = ctx;
 
   async function handleOutbound(req, res) {
@@ -49,7 +49,7 @@ function createOutboundRoutes(ctx) {
           };
           if (len) hd['Content-Length'] = String(len);
           res.writeHead(ur.statusCode, hd);
-          pipeUpstream(ur, res, 'getfile', len);
+          pipeUpstream(ur, res, 'getfile');
         });
         up.on('error', e => { log(`  → getfile error: ${e.message}`); failUpstream(res, e.message, 'getfile'); });
         up.end();
@@ -70,14 +70,20 @@ function createOutboundRoutes(ctx) {
       const m = req.url.match(/^\/asset\/([A-Za-z0-9_-]+)(\?|$)/);
       if (!m) { res.writeHead(400); res.end('bad id'); return; }
       const q = new URL(req.url, 'http://x').searchParams;
-      const localEnt = localAssetEntry(m[1]);
-      const localF = localFileFromEntry(localEnt);
+      let localEnt = localAssetEntry(m[1]);
+      let localF = localFileFromEntry(localEnt);
+      /* 索引里没有（被挤出上限）或文件被删：这是「真要取这一份」的入口，才做一次补建。
+         普通读路径不补建 —— 那会让每个不存在的 id 都扫一遍 .assets（轮询会放大）。 */
+      if (!localF) {
+        const repaired = localAssetRepair(m[1]);
+        if (repaired) { localEnt = repaired; localF = localFileFromEntry(repaired); }
+      }
       if (localF) { serveLocalFile(req, res, localF, q, localEnt); return; }
       /* 本地文件没了，但索引里记着这一份是从哪个外链取回来的（自动镜像时写下的）→ 回源。
          这是「API/本地三级回退」的中间一级：没有它，本地文件一被删就只剩 404，
          界面据此判成「已删除」，而上游那份其实可能还取得到（地址过期了也能重新从列表换一份新的）。
          绕一跳 /getv 而不是直接 302 到外链：页面因此始终同源，签名地址、Range、跨域那些问题一个都不会冒出来。 */
-      const up0 = safeOutboundUrl(String((localAssetEntry(m[1]) || {}).upstream || ''));
+      const up0 = safeOutboundUrl(String((localEnt || {}).upstream || ''));
       if (up0) {
         res.writeHead(302, { 'Location': '/getv?url=' + encodeURIComponent(up0), 'Cache-Control': 'no-store' });
         res.end();
@@ -86,9 +92,12 @@ function createOutboundRoutes(ctx) {
       const key = (req.headers.authorization || '').replace(/^Bearer\s*/, '') || (assetStore ? keyOf(assetStore.keyEnv) : '');
       assetInfoOf(m[1], key).then(info => {
         // Range 透传给 CDN：视频缩略图只取元数据、播放器可拖动进度，不再整段回源
-        const upHeaders = { 'user-agent': 'local-workbench', connection: 'close' };
+        /* 视频拖进度是几十条 Range：每条都 `connection: close` 就要重建一次 TLS。
+           改走按 host 复用的 keep-alive 池 —— Node 的 Agent 键里含 host:port，不会把 A 的
+           socket 发给 B；guardedLookup 仍在**建连**时跑（复用的是已经过闸的那条连接）。 */
+        const upHeaders = { 'user-agent': 'local-workbench' };
         if (req.headers.range) upHeaders.range = req.headers.range;
-        upRequest(info.url, { headers: upHeaders }, ir => {
+        upRequest(info.url, { keepAlive: true, headers: upHeaders }, ir => {
           /* 状态码原样透传、失败响应绝不缓存 —— 判据在 passthroughHeaders（与 /getv 同一份）。
              这一份的特别处只在：成功时用索引里记的 mime，并且同一 URL 内容恒定 → 盖一年 immutable，
              未命中才回源（失败仍然 no-store，见公共层那段注释）。 */
@@ -96,7 +105,8 @@ function createOutboundRoutes(ctx) {
             status: ir.statusCode,
             okType: info.mime || ir.headers['content-type'] || 'application/octet-stream',
             cacheOk: 'public, max-age=31536000, immutable',
-            disposition: (!q.get('dl') || st >= 400) ? '' : `attachment; filename*=UTF-8''${encodeURIComponent(q.get('name') || 'image.png')}`,
+            /* 用 ir.statusCode 现判，别读同一句里的 st（它还没赋值，TDZ 一抛就整条 502） */
+            disposition: (!q.get('dl') || ir.statusCode >= 400) ? '' : `attachment; filename*=UTF-8''${encodeURIComponent(q.get('name') || 'image.png')}`,
           });
           res.writeHead(st, h);
           pipeUpstream(ir, res, '资产取回');
@@ -133,9 +143,10 @@ function createOutboundRoutes(ctx) {
       // 所以上游签名地址不会出现在任何 src 里。
       const target = await takeOutboundUrl(req, res, '/getv?url=', 'getv');
       if (!target) return;
-      const upHeaders = { 'user-agent': 'local-workbench', connection: 'close' };
+      /* 与 /asset 同一条理由：切片/播放会连发许多 Range，别每条都重建 TLS（同 host 才复用）。 */
+      const upHeaders = { 'user-agent': 'local-workbench' };
       if (req.headers.range) upHeaders.range = req.headers.range;
-      const up = upRequest(target, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers: upHeaders }, ur => {
+      const up = upRequest(target, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', keepAlive: true, headers: upHeaders }, ur => {
         /* 失败响应绝不缓存、Range 要原样透出、状态码不许压成 200 —— 判据在 passthroughHeaders（与 /asset 同一份）。 */
         const { st, h } = passthroughHeaders(ur.headers, {
           status: ur.statusCode,

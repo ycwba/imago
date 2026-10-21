@@ -39,7 +39,7 @@
 .canvas-page .cv-grid .task { display: block; gap: 0; padding: var(--sp-3); }
 .canvas-page .cv-card-t { font-size: var(--fs-3); font-weight: 600; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-page .cv-card-m { font-size: var(--fs-1); color: var(--sub); margin-bottom: 4px; }
-.canvas-page .cv-card-a { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--sp-2); }
+.canvas-page .task .acts { justify-content: flex-start; margin-top: var(--sp-2); }
 
 /* ---------- 工程区 ---------- */
 .canvas-page .cv-work { position: relative; flex: 1 1 auto; min-height: 0; }

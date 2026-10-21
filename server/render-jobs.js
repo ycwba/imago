@@ -19,7 +19,7 @@ function createRenderJobs(deps) {
   const {
     ROOT, PORT, RENDER_DIR, assetStore, SESSION_COOKIE, SESSION_TOKEN, log, keyOf, safeDecode, envInt,
     spawn, ENCODE_PROFILES, VCODEC_DEFAULT, RENDER_VCODEC, RENDER_PRESET, RENDER_KEEP,
-    RENDER_CONCURRENCY, RENDER_QUEUE_MAX, envFrom, envFromStr, guardOutboundUrl, upRequest, renderJobs,
+    RENDER_CONCURRENCY, RENDER_QUEUE_MAX, envFrom, envFromStr, guardOutboundUrl, upRequest, anyRequest, renderJobs,
     localAssetFile, whyRenderSpace,
   } = deps;
 
@@ -259,7 +259,13 @@ function createRenderJobs(deps) {
       const url = assetStore.base + String(assetStore.retrieve).replace('{id}', encodeURIComponent(id));
       const up = upRequest(url, { headers: { authorization: 'Bearer ' + key } }, ur => {
         let b = '';
-        ur.on('data', c => b += c);
+        /* 上游半路 RST 时 'end' 永远不来：不接 'error' 这个 Promise 就永不 settle，
+           调用方（取图 / 渲染素材解析）一起卡死。缓冲也必须封顶，资产信息只有几百字节。 */
+        ur.on('error', reject);
+        ur.on('data', c => {
+          b += c;
+          if (b.length > 1048576) { ur.destroy(); reject(new Error('资产信息响应超过 1 MiB，已中止')); }
+        });
         ur.on('end', () => {
           let d = null;
           try { d = JSON.parse(b); } catch {}
@@ -353,14 +359,21 @@ function createRenderJobs(deps) {
        （代理自己的请求不带 Origin，同源拦截把本机调用当工具放行）。 */
     const depth = hops || 0;
     if (depth > 4) throw new Error('素材下载重定向次数过多（已中止）');
+    /* 走统一的出站层（anyRequest）：以前用全局 fetch，既不过 DNS 闸（解析到内网的域名照连），
+       也没有空闲超时 —— 对端接了不回就是永远挂着的渲染任务。anyRequest 带 guardedLookup + 60s 空闲超时。 */
     let r;
     try {
-      r = await fetch(url, { redirect: 'manual', headers: internalFetchHeaders(url) });
+      r = await new Promise((resolve, reject) => {
+        const up = anyRequest(url, { method: 'GET', headers: internalFetchHeaders(url) }, resolve);
+        up.on('error', reject);
+        up.end();
+      });
     } catch (e) {
       throw new Error('素材下载失败：' + (e && e.message ? e.message : '无法连接'));
     }
-    if ([301, 302, 303, 307, 308].includes(r.status)) {
-      const loc = r.headers.get('location');
+    if ([301, 302, 303, 307, 308].includes(r.statusCode)) {
+      try { r.resume(); } catch {}
+      const loc = r.headers.location;
       if (!loc) throw new Error('素材下载失败：重定向没有给出地址');
       let next = '';
       try { next = new URL(loc, url).toString(); } catch { throw new Error('素材下载失败：重定向地址非法'); }
@@ -370,12 +383,13 @@ function createRenderJobs(deps) {
       }
       return downloadTo(next, dest, depth + 1);
     }
-    if (!r.ok) throw new Error('素材下载失败 HTTP ' + r.status);
-    const len = Number(r.headers.get('content-length') || 0);
-    if (len && len > DOWNLOAD_MAX) throw new Error('素材超过 ' + Math.round(DOWNLOAD_MAX / 1073741824) + ' GiB，已拒绝下载');
-    if (!r.body) throw new Error('素材下载失败（上游没有返回内容）');
-    const { Readable } = require('stream');
-    const src = Readable.fromWeb(r.body);
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      try { r.resume(); } catch {}
+      throw new Error('素材下载失败 HTTP ' + r.statusCode);
+    }
+    const len = Number(r.headers['content-length'] || 0);
+    if (len && len > DOWNLOAD_MAX) { try { r.destroy(); } catch {} ; throw new Error('素材超过 ' + Math.round(DOWNLOAD_MAX / 1073741824) + ' GiB，已拒绝下载'); }
+    const src = r;
     let size = 0;
     await new Promise((resolve, reject) => {
       let done = false;
@@ -676,6 +690,10 @@ function createRenderJobs(deps) {
         await downloadTo(await resolveSrc(bgm, job.key), bgmFile);
         bgmIdx = addInput(['-stream_loop', '-1', '-i', bgmFile]);
       }
+      /* 有配音就混配音，只有 BGM 也要单独成一条 [aout] ——
+         以前整段包在 `if (aLabels.length)` 里，纯画面 + BGM 时输入加了却不进 filter_complex，
+         成片静默没有声音。 */
+      const hasAudio = aLabels.length > 0 || bgmIdx >= 0;
       if (aLabels.length) {
         const ins = aLabels.slice();
         if (bgmIdx >= 0) {
@@ -685,22 +703,25 @@ function createRenderJobs(deps) {
         aFilters.push(ins.join('')
           + `amix=inputs=${ins.length}:duration=longest:normalize=0,atrim=end=${total.toFixed(3)}`
           + ',aformat=sample_rates=48000:channel_layouts=stereo[aout]');
+      } else if (bgmIdx >= 0) {
+        aFilters.push(`[${bgmIdx}:a]atrim=start=0:duration=${total.toFixed(3)},asetpts=PTS-STARTPTS,volume=0.35`
+          + ',aformat=sample_rates=48000:channel_layouts=stereo[aout]');
       }
 
       args.push('-filter_complex', vFilters.concat(aFilters).join(';'));
       if (wantAudio) {
         /* 只出音频：`-vn` 掉画面，容器换 m4a（aac 本来就在 m4a 里）。
            没有音轨就直接说清 —— 静默出一个 0 字节文件，用户看到的是「导了个空文件」。 */
-        if (!aLabels.length) throw new Error('这一单没有音频可出（配音句已不存在，或都落在剪不到画面的位置上）');
+        if (!hasAudio) throw new Error('这一单没有音频可出（配音句已不存在，或都落在剪不到画面的位置上）');
         args.push('-vn', '-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outPath);
       } else {
         args.push('-map', vMap, ...encodeVideoArgs(enc.codec, enc.preset, crf));
-        if (aLabels.length) args.push('-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2');
+        if (hasAudio) args.push('-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2');
         else args.push('-an');
         args.push('-movflags', '+faststart', outPath);
       }
       job.log.push((wantAudio ? '只出音频' : '单遍合成') + '：' + files.length + ' 段 · ' + total.toFixed(1) + ' 秒 · '
-        + aLabels.length + ' 路音轨' + (enc ? ' · 编码 ' + enc.codec + ' · 档位 ' + enc.preset + ' · 质量档 ' + crf : ''));
+        + (aLabels.length + (bgmIdx >= 0 ? 1 : 0)) + ' 路音轨' + (enc ? ' · 编码 ' + enc.codec + ' · 档位 ' + enc.preset + ' · 质量档 ' + crf : ''));
       if (enc && enc.why) job.log.push(enc.why);
       /* 按时长给这一单一个上限：以前 runFfmpeg 完全没有时限，一个坏输入（无限长的播放列表 / 循环滤镜 /
          卡住的源）能把渲染位子和队列一起挂死，界面上永远「合成中 45%」，只有重启代理能解。 */
@@ -781,6 +802,10 @@ function createRenderJobs(deps) {
          用户可能正开着那台机器的 NLE 从这个目录导入。 */
       fs.readdirSync(RENDER_DIR).forEach(d => {
         if (d === 'fcpxml-import') return;
+        /* 只认渲染任务目录自己的形状（routes/render.js 的 `r` + base36 时间戳 + 随机串）。
+           以前是「任何超期目录都整棵删」：用户在 `.renders` 里放了自己的文件夹，
+           或者别的导入目录将来换了名字，都会被这条清扫当垃圾删掉。 */
+        if (!/^r[0-9a-z]+$/.test(d)) return;
         const p = path.join(RENDER_DIR, d);
         try {
           if (!fs.statSync(p).isDirectory()) return;

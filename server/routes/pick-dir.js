@@ -1,5 +1,6 @@
 /* /pick-dir：弹系统文件夹选择框（异步 spawn，客户端断开时收掉子进程）。 */
 'use strict';
+const { sendJson } = require('./http');
 
 function createPickDirRoute(ctx) {
   const { spawn, log, cap120, firstLine, readBody, root } = ctx;
@@ -7,7 +8,8 @@ function createPickDirRoute(ctx) {
 
   function handlePickDir(req, res, dataPath) {
     if (dataPath === '/pick-dir' && req.method === 'POST') {
-      const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
+      /* 错误体沿用 `{error:{message}}`（设置页读的是 error.message）；头字段交给 ./http。 */
+      const fail = (code, msg) => sendJson(res, code, { error: { message: msg } });
       if (process.platform !== 'win32') return fail(501, '弹系统文件夹选择框目前只做了 Windows（这台机器是 ' + process.platform + '），还是手填路径吧');
       /* —— 前台锚定（2026-10 修复「选择框弹在窗口后面」）——
          病根是 Windows 前台锁：用户在设置页点「选择」时前台是浏览器，代理是后台进程，
@@ -101,7 +103,7 @@ function createPickDirRoute(ctx) {
           p.on('error', e => done(() => fail(500, '弹不出文件夹选择框：' + (e.message || e.code))));
           p.on('close', code => done(() => {
             /* 取消**不是失败**：回 200 + cancelled，页面据此安静收手，不弹红字 */
-            if (code === 3) { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ ok: false, cancelled: true })); }
+            if (code === 3) { sendJson(res, 200, { ok: false, cancelled: true }); return; }
             if (code !== 0) {
               const say = firstLine(out) || firstLine(err);
               if (say === 'NOFORMS') return fail(500, '这台机器的 PowerShell 装不上窗体组件（System.Windows.Forms），弹不出选择框 —— 还是手填路径吧');
@@ -114,10 +116,9 @@ function createPickDirRoute(ctx) {
             try { dir = Buffer.from(rawLine, 'base64').toString('utf8'); } catch (e) { dir = ''; }
             if (!path.isAbsolute(dir)) dir = rawLine;
             if (!dir || !path.isAbsolute(dir)) return fail(500, '文件夹选择框没回路径（这是本机 PowerShell 的问题，不是设置的问题）');
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
             /* modern=false 意味着弹出来的是 5.1 的老式树形框（没有地址栏、不能搜索）——
                页面据此把这件事说清楚，而不是让用户以为「系统就是这个样」。 */
-            res.end(JSON.stringify({ ok: true, dir, modern: !!ps.modern }));
+            sendJson(res, 200, { ok: true, dir, modern: !!ps.modern });
           }));
           /* 客户端自己走了（关了页面/切走）就把子进程收掉，别让一个没人要的框留在屏幕上 */
           res.on('close', () => { if (!over) { over = true; if (timer) clearTimeout(timer); try { p.kill(); } catch (e) {} } });

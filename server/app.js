@@ -11,10 +11,10 @@ const dns = require('dns');
 const zlib = require('zlib');
 const tls = require('tls');
 const net = require('net');   // 只用来验 .env 里那个 BIND_HOST 是不是一个真的 IP 字面量
-/* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.js 顶部）。
+/* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.cjs 顶部）。
    这里 require 而不是抄一份：落盘闸要判断「这份产物本机有没有存过」，
    而浏览器要算缓存键与跨页去重 —— 同一件事，两处各写一份就一定会漂。 */
-const MediaId = require('../web/domain/ident.js');
+const MediaId = require('../web/domain/ident.cjs');
 /* 出站地址护栏（SSRF / DNS rebinding）已拆到 server/security.js；这里保持原有调用名。 */
 const { isPrivateHost, safeOutboundUrl, baseKeyOf, guardOutboundUrl } = require('./security.js');
 const { UP_TIMEOUT, outboundProxy, upRequest, failUpstream, anyRequest, destroyAgents, startProxyWatcher } = require('./outbound.js');
@@ -148,7 +148,7 @@ const keyOf = name => (name && process.env[name]) || '';
 /* 静态文件的 Content-Type。音频与字幕要一并列上：少了音频类型，本地 mp3 / wav 经静态路由
    取回来是 404（表现是「配乐选了却下载失败」，而且报错在代理下载那一步，看着像素材坏了），
    少了 .srt 则下载到的字幕没有类型、浏览器当纯文本乱码。 */
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.mp4': 'video/mp4', '.webm': 'video/webm', '.woff2': 'font/woff2',
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.cjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.mp4': 'video/mp4', '.webm': 'video/webm', '.woff2': 'font/woff2',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
   '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.ass': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const LOG = path.join(ROOT, 'proxy.log');
@@ -387,7 +387,7 @@ function log(line) {
 const health = createHealth({ timeText: d => timeText(d) });
 const { noteFault, noteWork, healthStatus } = health;
 
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execFile } = require('child_process');
 const RENDER_DIR = path.resolve(ROOT, process.env.RENDER_DIR || '.renders');   // 同 ASSETS_DIR：绝对路径要能直接用
 /* 会话令牌：代理启动时生成一次，随首个页面响应种进 HttpOnly Cookie。
    LOCAL_ONLY 路由除同源检查外还要求这枚 Cookie —— 同源检查认「没有 Origin 的非浏览器调用」，
@@ -629,7 +629,7 @@ const {
   MEDIA_KIND_ZH, typeLabel, sha1Of, SAVE_KINDS, saveKindOf, saveBaseName, saveUniqueName, insideLocalDir,
   saveDirIndex, autosaveDir, autosaveDefaultDirs, autosaveUsedAdd, autosaveUsedHas, saveStaleScan,
   whyNoSpace, whyRenderSpace, sweepStaleTmp, LOCAL_INDEX_MAX, indexStore, localIndexRead, localIndexEntry,
-  localIndexUpsert, localIndexRemove, localIndexUpdate, localIndexPut, localAssetEntry, localMediaType,
+  localIndexUpsert, localIndexRemove, localIndexUpdate, localIndexPut, localAssetEntry, localAssetRepair, localMediaType,
   productKindOfName, localAssetWhen, localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
   localUsageScan, sendFileWithRange, serveLocalFile,
 } = localStore;
@@ -648,7 +648,7 @@ const renderDomain = createRenderJobs({
      设置页健康那一格与所有 e2e 的「等代理就绪」一起死（搬域时漏注入，静态判据看不见，
      只有真起一次进程才露出来）。 */
   RENDER_QUEUE_MAX,
-  envFrom, envFromStr, guardOutboundUrl, upRequest, renderJobs,
+  envFrom, envFromStr, guardOutboundUrl, upRequest, anyRequest, renderJobs,
   localAssetFile: localStore.localAssetFile, whyRenderSpace: localStore.whyRenderSpace,
 });
 const {
@@ -663,38 +663,52 @@ const searchStore = createSearchStore({ dataDir: dataDirPath(), log });
 const asrRoutes = createAsrRoutes({
   store: asrStore, root: ROOT, log, readBody,
   providers: () => REGISTRY.providers, keyOf, dataFileOf,
-  resolveSrc, localAssetFile, downloadTo, guardOutboundUrl,
+  resolveSrc, localAssetFile, downloadTo, guardOutboundUrl, anyRequest,
 });
 const searchRoutes = createSearchRoutes({
   store: searchStore, log, readBody,
   providers: () => REGISTRY.providers, keyOf, dataFileOf,
-  guardOutboundUrl, upRequest,
+  guardOutboundUrl, upRequest, anyRequest,
 });
 /* ---------- 本机依赖体检（GET /sys-status，只同源） ----------
    导演台导出成片要 ffmpeg。没装 / 装了不在 PATH / 装的是 Windows 商店那个占位壳，
    三种在界面上都只剩「无法启动 ffmpeg」一句 —— 现在导出前就能看见是哪一种。
-   探测要起子进程，所以进程期内只探一次并缓存；?fresh=1 强制重探
-   （刚改完 PATH 的人不该被迫重启代理才能看到变化）。 */
+   探测要起子进程，**不能拿 spawnSync 卡事件循环**（两次探测最长 12 秒，期间轮询、
+   /asset 取图、/getv 播放全部停摆）：改异步 execFile，结果按命令缓存在进程内；
+   ?fresh=1 强制重探（刚改完 PATH 的人不该被迫重启代理才能看到变化），
+   同一条命令已经在跑时无论 fresh 与否都复用那一次。 */
 let _sysStatus = null;
 function firstLine(s) { return String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean)[0] || ''; }
 const cap120 = s => (s.length > 120 ? s.slice(0, 120) + '…' : s);
-function probeTool(cmd) {
-  let r = null;
-  try { r = spawnSync(cmd, ['-version'], { windowsHide: true, cwd: ROOT, timeout: 6000, encoding: 'utf8' }); }
-  catch (e) { return { ok: false, why: '探测本身出错：' + ((e && e.message) || e) }; }
-  if (!r) return { ok: false, why: '探测没返回' };
-  if (r.error) return { ok: false, why: r.error.code === 'ENOENT' ? '没装，或者不在 PATH 里' : ('起不动：' + (r.error.message || r.error.code || r.error)) };
-  if (r.signal) return { ok: false, why: '6 秒没回话被停掉（装了，但一跑就卡住）' };
-  /* Windows 的「应用执行别名」会放一个占位 ffmpeg.exe：它确实能启动，只是退出来并留一句
-     「还没安装」。这一句比「退出码 9009」有用得多，所以把工具自己说的话带回去。 */
-  if (r.status !== 0) {
-    const say = firstLine(r.stderr) || firstLine(r.stdout);
-    return { ok: false, why: '退出码 ' + r.status + '：' + (say ? cap120(say) : '装了，但它跑不起来（PATH 里可能指向的不是真二进制）') };
-  }
-  const line = firstLine(r.stdout) || firstLine(r.stderr);
-  /* -version 的横幅走 stdout；少数构建（以及那个占位壳）走 stderr，两个都试才拿得到版本行 */
-  if (!/^ffmpeg|^ffprobe/i.test(line)) return { ok: false, why: '它没报出 ffmpeg 的版本行，八成不是同一个东西：' + cap120(line) };
-  return { ok: true, 版本: line.slice(0, 90) };
+const toolProbes = new Map();
+function probeTool(cmd, fresh) {
+  const hit = toolProbes.get(cmd);
+  if (hit && (!fresh || !hit.done)) return hit.p;
+  const rec = { done: false, p: null };
+  rec.p = new Promise(resolve => {
+    execFile(cmd, ['-version'], { windowsHide: true, cwd: ROOT, timeout: 6000, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      rec.done = true;
+      if (!err) {
+        const line = firstLine(stdout) || firstLine(stderr);
+        /* -version 的横幅走 stdout；少数构建（以及那个占位壳）走 stderr，两个都试才拿得到版本行 */
+        if (!/^ffmpeg|^ffprobe/i.test(line)) { resolve({ ok: false, why: '它没报出 ffmpeg 的版本行，八成不是同一个东西：' + cap120(line) }); return; }
+        resolve({ ok: true, 版本: line.slice(0, 90) });
+        return;
+      }
+      if (err.code === 'ENOENT') { resolve({ ok: false, why: '没装，或者不在 PATH 里' }); return; }
+      if (err.killed || err.signal) { resolve({ ok: false, why: '6 秒没回话被停掉（装了，但一跑就卡住）' }); return; }
+      /* Windows 的「应用执行别名」会放一个占位 ffmpeg.exe：它确实能启动，只是退出来并留一句
+         「还没安装」。这一句比「退出码 9009」有用得多，所以把工具自己说的话带回去。 */
+      if (typeof err.code === 'number') {
+        const say = firstLine(stderr) || firstLine(stdout);
+        resolve({ ok: false, why: '退出码 ' + err.code + '：' + (say ? cap120(say) : '装了，但它跑不起来（PATH 里可能指向的不是真二进制）') });
+        return;
+      }
+      resolve({ ok: false, why: '起不动：' + (err.message || err.code || err) });
+    });
+  });
+  toolProbes.set(cmd, rec);
+  return rec.p;
 }
 function dirState(dir) {
   let st = null;
@@ -723,19 +737,20 @@ function sysStatus(fresh) {
   /* 转发闸那一份也每次现算：它报的就是「这一家有几条正在打、排了几条」，
      跟着整份体检缓存走的话，刚被限流那一下界面上看不见（与「健康」同一立场）。 */
   const relayField = relayStatus();
-  if (_sysStatus && !fresh) { _sysStatus.出站代理 = proxyField; _sysStatus.渲染 = renderField; _sysStatus.健康 = healthField; _sysStatus.转发 = relayField; return _sysStatus; }
-  _sysStatus = {
-    at: Date.now(),
-    代理: { 版本: REGISTRY.version, 端口: PORT, 目录: ROOT, 进程: process.version },
-    出站代理: proxyField,
-    ffmpeg: probeTool('ffmpeg'),
-    ffprobe: probeTool('ffprobe'),
-    渲染: renderField,
-    转发: relayField,
-    健康: healthField,
-    目录: { 数据: dirState(dataDirPath()), 资产: dirState(path.resolve(LOCAL_DIR)), 渲染: dirState(path.resolve(RENDER_DIR)) },
-  };
-  return _sysStatus;
+  const live = { 出站代理: proxyField, 渲染: renderField, 健康: healthField, 转发: relayField };
+  if (_sysStatus && !fresh) { Object.assign(_sysStatus, live); return Promise.resolve(_sysStatus); }
+  /* 两条探测并行跑，一条最多 6 秒；已经探过的直接命中进程内缓存（fresh 也一样复用还在跑的那一次） */
+  return Promise.all([probeTool('ffmpeg', !!fresh), probeTool('ffprobe', !!fresh)]).then(([ffmpeg, ffprobe]) => {
+    _sysStatus = {
+      ...live,
+      at: Date.now(),
+      代理: { 版本: REGISTRY.version, 端口: PORT, 目录: ROOT, 进程: process.version },
+      ffmpeg,
+      ffprobe,
+      目录: { 数据: dirState(dataDirPath()), 资产: dirState(path.resolve(LOCAL_DIR)), 渲染: dirState(path.resolve(RENDER_DIR)) },
+    };
+    return _sysStatus;
+  });
 }
 /* ---------- 同源保护 ----------
    /data 里存着设置（含 API 密钥）与工作区，/env-status 暴露密钥尾号，
@@ -883,7 +898,7 @@ const promptsStore = createPromptsStore({
   root: ROOT, log, readBody, localAssetEntry, fileSafe, dirStamp, timeText,
 });
 const cloudStore = createCloudStore({
-  log, anyRequest, safeOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw, keepDataBackup,
+  log, anyRequest, guardOutboundUrl, safeOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw, keepDataBackup,
   promptCloudDir: promptsStore.promptCloudDir, promptFileList: promptsStore.promptFileList,
 });
 const { cloudState, cloudStateLoad } = cloudStore;
@@ -986,7 +1001,7 @@ const registryRoutes = createRegistryRoutes({
 const outboundRoutes = createOutboundRoutes({
   takeOutboundUrl, log, upRequest, failUpstream, pipeUpstream, passthroughHeaders,
   guardOutboundUrl, safeOutboundUrl, keyOf, assetInfoOf, assetStore,
-  localAssetEntry, localFileFromEntry, serveLocalFile, s3putStream,
+  localAssetEntry, localAssetRepair, localFileFromEntry, serveLocalFile, s3putStream,
 });
 
 const relayRoutes = createRelayRoutes({

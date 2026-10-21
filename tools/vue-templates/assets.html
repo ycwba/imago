@@ -1,14 +1,11 @@
 
-    <div class="page-main assets-page" ref="pageEl">
-      <h1>资产库</h1>
+    <div class="page-main assets-page page-shell" ref="pageEl">
+      <h1 class="page-h1">资产库</h1>
 
       <div class="filters">
-        <div class="frow"><span class="flabel">大类型</span><span class="chips" ref="fTypeEl"></span>
-          <span class="flabel" style="margin-left:14px">搜索</span><input ref="searchEl" id="search" placeholder="提示词 / 资产ID / 任务ID…" @input="onSearchInput">
-          <button class="ghost" id="searchBtn" title="立即按当前关键词筛选（输入时也会自动筛）" style="flex:0 0 auto" @click="onSearchClick">搜索</button>
-          <button class="ghost" id="aiSearchBtn" ref="aiSearchBtn" title="按左边搜索框里写的描述做 AI 检索（翻译成筛选条件就地过滤）" style="flex:0 0 auto" @click="runAiSearch">AI 检索</button>
-          <span ref="aiChipEl"></span>
-        </div>
+        <!-- 大类型 + 搜索这一行由公共 Wb.filterBar 生成（见 pages/assets.js 的 initWb）；
+             芯片、输入框、两颗按钮与 AI 芯片的插入顺序都由它那一份实现决定。 -->
+        <div class="frow" ref="typeRowEl"></div>
         <div class="frow"><span class="flabel">日期</span><span class="chips" ref="fDateEl"></span>
           <span class="daterange">
             <span class="datepick" @click="openDatePicker('from', $event)">
@@ -31,7 +28,7 @@
             <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 重新加载</button>
             <button class="ghost" id="pullLocalBtn" ref="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
             <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" title="取消所有排队/生成中的任务" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
-            <button class="ghost" id="pgPrev" v-show="isPageMode && pagerReady" :disabled="pgPrevDisabled" @click="prevPage">‹ 上一页</button><span class="pginfo" id="pgInfo" v-show="isPageMode && pagerReady">{{ pgInfoText }}</span><button class="ghost" id="pgNext" v-show="isPageMode && pagerReady" :disabled="pgNextDisabled" @click="nextPage">{{ pgNextText }}</button>
+            <span ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
             <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
             <button class="ghost" id="gotoBtn" :disabled="gotoBusy" @click="gotoPageInput">{{ gotoBtnText }}</button>
             <span id="cnt" class="info">{{ cntText }}</span>

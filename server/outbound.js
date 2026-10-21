@@ -119,6 +119,12 @@ class ProxyTunnelAgent extends HttpsAgent {
       tlsSock.once('error', e => finish(e));
     });
     preq.once('error', e => finish(new Error('连不上代理 ' + cfg.label + '：' + e.message)));
+    /* 假死代理（accept 了却永远不回 2xx）不能把请求挂到天荒地老：15 秒兜底。 */
+    preq.setTimeout(15000, () => {
+      try { preq.destroy(); } catch (e) {}
+      finish(new Error('连不上代理 ' + cfg.label + '：CONNECT 超过 15 秒没有应答'));
+    });
+    preq.once('close', () => { if (!done) finish(new Error('连不上代理 ' + cfg.label + '：CONNECT 连接提前关闭')); });
     preq.end();
   }
 }
@@ -179,6 +185,15 @@ function failUpstream(res, msg, tag) {
 }
 function anyRequest(url, opts, cb) {
   const o = { ...(opts || {}) };
+  /* 与 upRequest 同一条 DNS 闸：以前 anyRequest 不传 lookup，云同步的 https 地址
+     解析到内网也照样带着凭据去连。本机回环（自建 WebDAV 调试、渲染取自己的 /asset）
+     按字面量放行 —— 那是明确的本机目标，不是「公网域名解析到内网」那类绕过。 */
+  if (!o.lookup) {
+    let host = '';
+    try { host = new URL(url).hostname; } catch (e) {}
+    const literalLocal = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)$/i.test(host);
+    if (!literalLocal) o.lookup = guardedLookup;
+  }
   if (!o.agent && /^https:\/\//i.test(url)) o.agent = agentFor(url, false);
   const mod = /^http:\/\//i.test(url) ? http.request : httpsRequest;
   const r = mod(url, o, cb);

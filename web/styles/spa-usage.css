@@ -7,12 +7,9 @@
 .usage-page {
   position: absolute; inset: 0; overflow: auto;
   background: var(--bg); color: var(--txt);
-  padding: 30px 44px 60px;
   box-sizing: border-box;
 }
 .usage-page, .usage-page * { box-sizing: border-box; }
-
-.usage-page h1 { font-size: var(--fs-6); margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
 .usage-page .desc { font-size: 13.5px; color: var(--sub); line-height: 1.7; max-width: 860px; }
 .usage-page .bar { display: flex; align-items: center; gap: 10px; margin: 20px 0 16px; flex-wrap: wrap; }
 .usage-page .bar .sp { flex: 1; }
@@ -56,7 +53,6 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
   .usage-page .ub-right .filters input { width: auto; flex: 1 1 200px; }
 }
 /* 窄窗口：收紧留白 */
-@media (max-width: 760px) { .usage-page { padding: var(--sp-4) var(--sp-3) 40px; } }
 
 .usage-page .bal { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 15px 16px; }
 .usage-page .bal .hd { display: flex; align-items: center; gap: var(--sp-2); font-size: 13px; color: var(--sub); }

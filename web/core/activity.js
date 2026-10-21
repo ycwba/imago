@@ -18,6 +18,9 @@ export function createActivity({ getRoute, doc = globalThis.document, win = glob
   if (doc && doc.addEventListener) doc.addEventListener('visibilitychange', onVisibility);
   return {
     visible,
+    /* 页面在自己 setup 里取一次：`const isActive = __spaActivity.forPage(PAGE_FILE)`。
+       判据只有上面的 visible 一份；页面不再各写一个同形闭包。 */
+    forPage(pageFile) { return () => visible(pageFile); },
     /* 当前前台页的文件名（公共件按页登记配置时用它当键，例如灯箱那一份）。
        页面自己不该再去读 location.hash 猜——判据只有这一份。 */
     file: () => {

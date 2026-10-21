@@ -11,7 +11,7 @@
   try { chatOff = localStorage.getItem('ai_chat_off') === '1'; } catch (e) { /* 无痕 / 禁存储时读不到偏好：当作没关，照常加载助手 */ }
   var files = ['web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/export-formats.js'];
   /* 工具循环与动作目录单独一份（报告 §6.1-2）：chat.js 求值时就要用它组装 window.AiChat，
-     所以排前面。两份都只在助手开着时下载。 */
+     所以排最后，保证它起跑时前面几份已在。两份都只在助手开着时下载。 */
   if (!chatOff) files.push('web/features/chat-tools.js', 'web/features/chat.js');
   var tests = { 'web/ui/workbench.js': 'Wb', 'web/domain/chars.js': 'Chars',
     'web/domain/export-formats.js': 'ExportFormats', 'web/features/chat-tools.js': 'AiChatTools',
@@ -20,6 +20,11 @@
   function load() {
     if (started) return;
     started = true;
+    /* 路由级按需的那几份（capabilities / text-ai / asset-picker / datasync）在这一趟一并补齐：
+       助手在任何一页都可能用到它们，而这一页未必声明了欠哪几份。名单**从路由表现取**
+       （WB_ROUTES.needAll），不在这里抄第二份；认全局那一步也只有 routes.js 的 NEED_GLOBAL 一处。
+       并发取（__spaNeeds 内部 Promise.all），与下面那条串行链互不排队。 */
+    window.__spaNeeds(window.WB_ROUTES && window.WB_ROUTES.needAll);
     /* 一份一份装是既有行为：这层在空闲时段，不在首屏；chat.js 求值时要读 Wb / Chars /
        ExportFormats，排最后保证它起跑时前三份已在。 */
     files.reduce(function (p, f) {

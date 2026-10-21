@@ -78,12 +78,9 @@
             <span class="tab">这一台的生成历史</span>
             <span class="sp"></span>
             <span class="pgroup">
-              <input type="search" data-r="searchBox" placeholder="搜索提示词 / ID" autocomplete="off" spellcheck="false">
-              <button class="ghost" data-r="searchBtn">搜索</button>
+              <span class="fb-host" data-r="searchHost"></span>
               <span class="pgsep"></span>
-              <button class="ghost" id="stPgPrev" style="display:none">‹ 上一页</button>
-              <span class="pginfo" id="stPgInfo">第 1 页</span>
-              <button class="ghost" id="stPgNext" style="display:none">下一页 ›</button>
+              <span class="pgrow" id="stPgRow"></span>
               <input type="number" id="stGotoPage" data-r="stGotoPage" min="1" placeholder="跳页">
               <button class="ghost" data-r="gotoBtn">跳转</button>
               <button class="ghost" data-r="sync" title="重新从各平台取回这一屏列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>

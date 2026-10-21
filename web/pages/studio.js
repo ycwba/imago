@@ -16,17 +16,11 @@
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
 import { ref, inject, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/studio.js';
+import { ensureCss } from '../core/page-css.js';
 
-/* 页面样式单独一份（外壳只引 ui.css 与 spa-pages.css）。已经由别处引过就不再插第二张。 */
-(function ensureCss() {
-  if (typeof document === 'undefined') return;
-  if (document.querySelector('link[data-spa-studio], link[href$="spa-studio.css"]')) return;
-  const l = document.createElement('link');
-  l.rel = 'stylesheet';
-  l.href = 'web/styles/spa-studio.css';
-  l.setAttribute('data-spa-studio', '1');
-  document.head.appendChild(l);
-})();
+/* 页面样式单独一份，打开这一页时由 `ensureCss` 按需挂上
+   （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
+ensureCss('web/styles/spa-studio.css', 'spa-studio');
 
 /* 每一档只点一次名：`zh` 既画在分段开关上，也拼进提交按钮那一句（`生成` + `zh`）。 */
 const TYPES = {
@@ -88,7 +82,7 @@ const StudioView = {
     /* 前台判据只有公共层那一份：core/activity.js（外壳挂在 window.__spaActivity）。
        这里原来自己读 `spaActiveFile`：那只说明「路由选中的是这一页」，标签页整页切到后台时
        它照样为真，于是看不见的工作台还在按秒重画「还有几条没落定」那一行。 */
-    const isActive = () => window.__spaActivity.visible('studio.html');
+    const isActive = window.__spaActivity.forPage('studio.html');
     let cleanup = null;
     let disposed = false;
 
@@ -241,7 +235,6 @@ const StudioView = {
       };
       const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
       function setStatus(html) { const el = $('status'); if (el) el.innerHTML = window.sanitizeHTML(html || ''); }
-      const escA = s => window.esc(s);
       function syncDropdowns() {
         if (window.Dropdowns && pageEl.value) { Dropdowns.build(pageEl.value); Dropdowns.sync(pageEl.value); }
       }
@@ -327,14 +320,14 @@ const StudioView = {
         if (TYPE === 'audio') {
           const opts = g.map(p => ({ p, ms: audioModels(p) })).filter(x => x.ms.length);
           html = opts.length ? opts.map(({ p, ms }) =>
-            '<optgroup label="' + escA(p.displayName || p.name) + '">'
-            + ms.map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA(m.name || '') + '">' + escA(m.id) + '</option>').join('')
+            '<optgroup label="' + window.esc(p.displayName || p.name) + '">'
+            + ms.map(m => '<option value="' + window.esc(p.id + '::' + m.id) + '" title="' + window.esc(m.name || '') + '">' + window.esc(m.id) + '</option>').join('')
             + '</optgroup>').join('')
             : '<option value="">注册表里没有语音平台</option>';
         } else {
           html = g.map(p =>
-            '<optgroup label="' + escA(p.displayName || p.name) + '">'
-            + (p.models || []).map(m => '<option value="' + escA(p.id + '::' + m.id) + '" title="' + escA((m.name || '').replace(/"/g, '&quot;')) + '">' + escA(m.id) + '</option>').join('')
+            '<optgroup label="' + window.esc(p.displayName || p.name) + '">'
+            + (p.models || []).map(m => '<option value="' + window.esc(p.id + '::' + m.id) + '" title="' + window.esc((m.name || '').replace(/"/g, '&quot;')) + '">' + window.esc(m.id) + '</option>').join('')
             + '</optgroup>').join('');
         }
         /* 选项没变就别碰 DOM：型号下拉是公共 Dropdowns 画的浮层，重画一次就换掉节点。 */
@@ -680,7 +673,7 @@ const StudioView = {
         renderInputArea(); updateMode();
         const skipTxt = skipped.length ? '；另有 ' + skipped.length + ' 个没加：'
           + skipped.slice(0, 3).join('、') + (skipped.length > 3 ? ' 等' : '') : '';
-        if (missed) setStatus('<span class="err">' + escA(window.Chars.Pipe.refAudioMiss())
+        if (missed) setStatus('<span class="err">' + window.esc(window.Chars.Pipe.refAudioMiss())
           + '（没加入 ' + missed + ' 个）</span>' + (added ? '　·　其余 ' + added + ' 个已加入' : '') + skipTxt);
         else if (added) setStatus('<span class="ok">✓ 已加入 ' + added + ' 个素材</span>' + skipTxt);
         else if (skipped.length) setStatus('<span class="err">一个都没加进去：' + skipped.join('；') + '</span>');
@@ -692,11 +685,11 @@ const StudioView = {
         const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
         const fromVid = it.fromVideo ? '（取自视频《' + it.fromVideo + '》的' + (def.videoFrame === 'first' ? '第一帧' : '最后一帧') + '）' : '';
         const body = window.isAudioType(it.type)
-          ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + escA(name) + '</span>'
+          ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + window.esc(name) + '</span>'
           : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image' });
         return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
-          + ' title="' + escA(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
-          + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + escA(cap) + '</span></div>';
+          + ' title="' + window.esc(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
+          + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
       }
       function wideSlotHTML(sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];
@@ -707,8 +700,8 @@ const StudioView = {
             ? '<span class="rvthumb">' + Wb.thumbs.mediaHTML(mediaOf(it)) + '</span>'
             : '<span class="ic">' + icon(def.ic, 18) + '</span>';
           return '<div class="slot-wide asset-slot has-media' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
-            + ' title="' + escA(def.label + '：' + name + '（点 × 移除）') + '">'
-            + thumb + '<span class="rvmeta"><b>' + escA(name) + '</b><span>' + def.label + (note ? ' · ' + escA(note) : '') + '</span></span>'
+            + ' title="' + window.esc(def.label + '：' + name + '（点 × 移除）') + '">'
+            + thumb + '<span class="rvmeta"><b>' + window.esc(name) + '</b><span>' + def.label + (note ? ' · ' + window.esc(note) : '') + '</span></span>'
             + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button></div>';
         }
         const items = slotItems(sl.kind);
@@ -716,10 +709,10 @@ const StudioView = {
         if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
         if (note) sub.push(note);
         return '<div class="slot-wide asset-slot' + (blocked ? ' blocked' : '') + '" data-slot="' + sl.kind + '"'
-          + ' title="' + escA(blocked ? def.label + '：与已选素材互斥（一次请求只能选一组），清空已选后可添加'
+          + ' title="' + window.esc(blocked ? def.label + '：与已选素材互斥（一次请求只能选一组），清空已选后可添加'
             : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传）') + '">'
           + '<span class="ic">' + icon(def.ic, 18) + '</span><span>' + (items.length ? '再加一个' : def.label) + '</span>'
-          + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '') + '</div>';
+          + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '') + '</div>';
       }
       const GRID_KINDS = ['image', 'frame_first', 'frame_last'];
       function bindSlotTile(t, sl, it, i, blocked) {
@@ -804,8 +797,8 @@ const StudioView = {
               if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
               if (note) sub.push(note);
               a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
-                + (items.length ? '<span>再加一个</span>' : '<span>' + escA(def.label) + '</span>')
-                + (sub.length ? '<span class="sub">' + escA(sub.join(' · ')) + '</span>' : '');
+                + (items.length ? '<span>再加一个</span>' : '<span>' + window.esc(def.label) + '</span>')
+                + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '');
               a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
                 : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
                   + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
@@ -839,7 +832,7 @@ const StudioView = {
           }
         });
         const hint = conflictHint(blockedKinds);
-        if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + escA(hint) + '</div>');
+        if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + window.esc(hint) + '</div>');
         const gaps = shapeGaps();
         const gLines = gaps.lines;
         if (gLines.length) {
@@ -849,8 +842,8 @@ const StudioView = {
           const box2 = document.createElement('div');
           box2.className = 'conflict-hint';
           box2.style.color = 'var(--warn)';
-          box2.innerHTML = gLines.map(x => '<div>' + escA(x) + '</div>').join('')
-            + (canSwitch ? '<a href="#" class="lnk">切到「' + escA(comboLabel(fit)) + '」</a>' : '')
+          box2.innerHTML = gLines.map(x => '<div>' + window.esc(x) + '</div>').join('')
+            + (canSwitch ? '<a href="#" class="lnk">切到「' + window.esc(comboLabel(fit)) + '」</a>' : '')
             + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<a href="#" class="lnk2">清空这些素材</a>' : '')
             + (!canSwitch && !badKinds.length ? (gaps.missing.length ? '：补上缺的那一类素材，或换一档 / 换型号'
               : '：换一档或换回支持的型号') : '');
@@ -896,7 +889,7 @@ const StudioView = {
         const prev = sel.value;
         const untouched = !(cur().touched || {})[id];
         const defs = o.defaults || {};
-        sel.innerHTML = values.map(v => '<option value="' + escA(String(v)) + '">' + escA(fmt ? fmt(v) : String(v)) + '</option>').join('');
+        sel.innerHTML = values.map(v => '<option value="' + window.esc(String(v)) + '">' + window.esc(fmt ? fmt(v) : String(v)) + '</option>').join('');
         const has = v => v !== undefined && v !== null && values.some(x => String(x) === String(v));
         const dflt = defKey ? defs[defKey] : undefined;
         let next;
@@ -1226,10 +1219,10 @@ const StudioView = {
           put(r && r.ok
             ? prov.name + ' · <b>' + r.text + '</b> <span class="note">' + (r.detail || '') + '</span>'
             : (r && r.skip
-              ? prov.name + ' · <span class="note">' + escA((r && r.reason) || '这一档平台不提供询价') + '，以平台结算为准</span>'
+              ? prov.name + ' · <span class="note">' + window.esc((r && r.reason) || '这一档平台不提供询价') + '，以平台结算为准</span>'
               : prov.name + ' · <span class="note">报价不可用（' + ((r && r.reason) || '平台未返回价格') + '），仍可生成</span>'));
         } catch (e) {
-          put('<span class="note">估价失败：' + escAerrText(e) + '</span>');
+          put('<span class="note">估价失败：' + window.esc(window.errText(e)) + '</span>');
         }
       }
 
@@ -1493,7 +1486,7 @@ const StudioView = {
         if (!TextAI.prov(REG)) { refused('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
         if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先到「设置」填写文字 AI 密钥（拆分方案靠它出）</span>'); return; }
         const blk = submitBlockReason();
-        if (blk) { refused('<span class="err">' + escA(blk) + '</span>'); return; }
+        if (blk) { refused('<span class="err">' + window.esc(blk) + '</span>'); return; }
         try {
           btn.textContent = '规划片段…'; setStatus('正在请文字 AI 拆分片段…');
           const planned = await planImageSegments();
@@ -1527,8 +1520,8 @@ const StudioView = {
           for (let i = 0; i < segs.length; i++) {
             const sg = segs[i];
             try {
-              setStatus('批量生成 ' + segs.length + ' 张（' + (i + 1) + '/' + segs.length + '）：' + escA(sg.label));
-              const out = await withCreateRetry(() => createImageOnce(prov, model, sg.prompt, assetIds, 1), '第 ' + (i + 1) + ' 张「' + escA(sg.label) + '」创建失败，');
+              setStatus('批量生成 ' + segs.length + ' 张（' + (i + 1) + '/' + segs.length + '）：' + window.esc(sg.label));
+              const out = await withCreateRetry(() => createImageOnce(prov, model, sg.prompt, assetIds, 1), '第 ' + (i + 1) + ' 张「' + window.esc(sg.label) + '」创建失败，');
               if (out.taskId) created.push({ provider: prov.id, id: out.taskId, prompt: sg.prompt,
                 extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, model: (model && model.id) || '' } });
               else if (out.sync) {
@@ -1613,7 +1606,7 @@ const StudioView = {
             });
           } else {
             rec.state = 'settled';
-            setStatus('<span class="err">创建失败：' + escAerrText(e) + '</span>');
+            setStatus('<span class="err">创建失败：' + window.esc(window.errText(e)) + '</span>');
             prunePending();
             renderPendingHint();
           }
@@ -1638,7 +1631,7 @@ const StudioView = {
         box.style.display = '';
         box.innerHTML = '<span class="warn">上一条提交还在等平台响应（已 ' + secs + ' 秒）：'
           + (un.state === 'inflight' ? '请求已经发出去了，平台受理后会自己出现在右边列表里。'
-            : '平台可能已受理（' + escA(un.note || '响应丢了') + '），正在核对列表。')
+            : '平台可能已受理（' + window.esc(un.note || '响应丢了') + '），正在核对列表。')
           + '</span> 再点生成会再提交一份（可能重复扣费）：<a href="#" data-force>仍然再提交</a>';
         const b = box.querySelector('[data-force]');
         if (b) b.onclick = e => { e.preventDefault(); armedAt = Date.now(); $('go').click(); };
@@ -2041,13 +2034,13 @@ const StudioView = {
           t.error = errText(e);
           if (e && e.savedFailed) {
             t.status = 'uncertain'; t.keepKey = e.keepKey || ''; t.noResend = true;
-            setStatus('<span class="warn">' + escA(t.error) + ' —— 用卡片上的「再存一次本机」补存，别重发（重发会再扣一次费）</span>');
+            setStatus('<span class="warn">' + window.esc(t.error) + ' —— 用卡片上的「再存一次本机」补存，别重发（重发会再扣一次费）</span>');
           } else if (maybeSubmitErr(e)) {
             t.status = 'uncertain';
-            setStatus('<span class="warn">合成结果未知：' + escA(t.error) + '（平台可能已经合成并扣费，先刷新核对，别急着重发）</span>');
+            setStatus('<span class="warn">合成结果未知：' + window.esc(t.error) + '（平台可能已经合成并扣费，先刷新核对，别急着重发）</span>');
           } else {
             t.status = 'failed';
-            setStatus('<span class="err">合成失败：' + escA(t.error) + '</span>');
+            setStatus('<span class="err">合成失败：' + window.esc(t.error) + '</span>');
           }
           showBalTip(e, t.provider);
         }
@@ -2203,7 +2196,7 @@ const StudioView = {
         if (box.dataset.kinds !== want) {
           box.dataset.kinds = want;
           box.innerHTML = ['all'].concat(kinds)
-            .map(k => '<button type="button" data-k="' + escA(k) + '">' + escA(k === 'all' ? '全部' : k)
+            .map(k => '<button type="button" data-k="' + window.esc(k) + '">' + window.esc(k === 'all' ? '全部' : k)
               + '<span class="seg-n">0</span></button>').join('');
         }
         box.querySelectorAll('button[data-k]').forEach(b => {
@@ -2271,8 +2264,8 @@ const StudioView = {
             return { ok: !Object.keys(errors).length, stale: false, errors };
           } catch (e) {
             console.warn('[studio] 历史列表加载失败：', e);
-            const msg = errText(e);
-            if (gen === serverGen) setStatus('<span class="warn">历史列表这次没取回来（' + escA(msg) + '）—— 点右上角「刷新」重试</span>');
+            const msg = window.Api.errText(e);
+            if (gen === serverGen) setStatus('<span class="warn">历史列表这次没取回来（' + window.esc(msg) + '）—— 点右上角「刷新」重试</span>');
             return { ok: false, stale: gen !== serverGen, errors: { load: msg } };
           } finally {
             serverLoading = Math.max(0, serverLoading - 1);
@@ -2304,30 +2297,9 @@ const StudioView = {
       }, 8000);
       const busOff = Wb.busOn(busSync);
       disposers.push(() => busOff());
-      async function adoptTask(prov, taskId, seed) {
-        if (!taskId) return false;
-        const ph = Object.assign({
-          mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, {}) : '',
-          provider: prov.id, status: 'queued', prompt: '', raw: '', media: '', dl: '',
-          assetId: '', taskId, ts: Date.now(), local: false, localAsset: false,
-        }, seed || {});
-        ph.prompt = ph.prompt || Api.promptFor(prov.id, taskId) || '';
-        upsertItem(ph);
-        renderAll(); poller.kick();
-        let p = null;
-        try {
-          const got = await Api.pollMany(prov, [taskId]);
-          const hit = got.get(String(taskId));
-          p = hit && hit.p;
-        }
-        catch (e) { console.warn('[studio] 取新任务状态失败，交给轮询器接着刷：', e && e.message); }
-        if (p && p.status) {
-          upgradeItem(prov, p, ph.prompt);
-          renderAll(); poller.kick();
-          return true;
-        }
-        return false;
-      }
+      /* 认领新任务只有 adoptTasks 这一份：它按供应商把一批任务号合并成一次 pollMany，
+         占位条目与状态升级的构造法在同一处。以前旁边还挂着一条单任务版 adoptTask（逐条各发一次
+         轮询请求，占位字段整段抄了一份），三个调用点全都只调批量的那一条 —— 已删。 */
       async function adoptTasks(list2) {
         if (!list2 || !list2.length) return;
         for (const one of list2) {
@@ -2445,8 +2417,8 @@ const StudioView = {
       const openDetail = new Set();
       function mediaBox(it) {
         const run = Wb.isRunning(it), bad = Wb.isFailed(it);
-        if (run) return '<div class="timg"><span class="spin-dot"></span>' + escA(Wb.stText(it.status) || '生成中') + '</div>';
-        if (bad) return '<div class="timg" style="color:var(--err)">' + escA(Wb.stText(it.status) || '生成失败') + '</div>';
+        if (run) return '<div class="timg"><span class="spin-dot"></span>' + window.esc(Wb.stText(it.status) || '生成中') + '</div>';
+        if (bad) return '<div class="timg" style="color:var(--err)">' + window.esc(Wb.stText(it.status) || '生成失败') + '</div>';
         if (it.mtype === '视频' && it.media) {
           return '<div class="timg playable">' + Wb.thumbs.mediaHTML(it.media, {
             inline: true, videoAttrs: 'playsinline preload=metadata',
@@ -2454,7 +2426,7 @@ const StudioView = {
             + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
         }
         if (window.isAudioType(it.mtype) && it.media) {
-          return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + escA(Api.mediaSrc(it.media)) + '"></audio>'
+          return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
             + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
         }
         if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" title="点一下看大图"' }) + '</div>';
@@ -2492,15 +2464,15 @@ const StudioView = {
           it.size ? Wb.fmtSize(it.size) : '',
           it.priceText ? '费用 ' + it.priceText : '', it.usageText || ''].filter(Boolean).join(' · ');
         return '<div class="card-top"><span class="card-badge">'
-          + (it.mtype ? '<span class="ui-tag">' + escA(it.mtype) + '</span>' : '')
-          + '<span class="ui-tag ' + (Wb.isRunning(it) ? 'run' : bad ? 'err' : unc ? 'warn' : 'ok') + '">' + escA(Wb.stText(it.status) || '') + '</span>'
+          + (it.mtype ? '<span class="ui-tag">' + window.esc(it.mtype) + '</span>' : '')
+          + '<span class="ui-tag ' + (Wb.isRunning(it) ? 'run' : bad ? 'err' : unc ? 'warn' : 'ok') + '">' + window.esc(Wb.stText(it.status) || '') + '</span>'
           + srcBadgeOf(it)
-          + '</span><span class="date">' + escA(window.fmtWhen(it.ts)) + '</span></div>'
+          + '</span><span class="date">' + window.esc(window.fmtWhen(it.ts)) + '</span></div>'
           + mediaBox(it)
           + '<div class="tmain">'
-          + '<div class="tprompt" title="' + escA(it.prompt) + '">' + (escA(it.prompt) || '(无提示词)') + '</div>'
-          + ((bad || unc) && it.error ? '<div class="terr" title="' + escA(String(it.error)) + '">' + escA(String(it.error)) + '</div>' : '')
-          + '<div class="meta2">' + escA(meta) + '</div>'
+          + '<div class="tprompt" title="' + window.esc(it.prompt) + '">' + (window.esc(it.prompt) || '(无提示词)') + '</div>'
+          + ((bad || unc) && it.error ? '<div class="terr" title="' + window.esc(String(it.error)) + '">' + window.esc(String(it.error)) + '</div>' : '')
+          + '<div class="meta2">' + window.esc(meta) + '</div>'
           + '<div class="acts">' + Wb.actsHTML(it, {
             preview: !!it.media, previewLabel: '放大', cancel: canCx,
             cancelWhy: (run && cxProv && !canCx) ? Wb.cancelWhyNot(cxProv) : '',
@@ -2650,9 +2622,9 @@ const StudioView = {
         sigOf: it => cardSig(it),
         paint: (d, it) => paintCard(d, it),
         emptyHTML: () => (hiddenCloud
-          ? '<div class="empty">这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，按「不显示云端任务」藏起来了。'
-            + '要看它们就在设置页关掉这一项（它们还在平台那边，收藏与素材库也不受这一项影响）。</div>'
-          : '<div class="empty">还没有历史素材。左栏写好提示词点「生成」，出来的产物会自动出现在这里；也可以把素材拖到左栏当参考。</div>'),
+          ? Wb.emptyHTML('这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，按「不显示云端任务」藏起来了。'
+            + '要看它们就在设置页关掉这一项（它们还在平台那边，收藏与素材库也不受这一项影响）。')
+          : Wb.emptyHTML('还没有历史素材。左栏写好提示词点「生成」，出来的产物会自动出现在这里；也可以把素材拖到左栏当参考。')),
         notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
         onNew: el => { try { el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 280, easing: 'ease-out' }); } catch (e) {} },
       });
@@ -2672,6 +2644,8 @@ const StudioView = {
       }
       const tally = Wb.tally(() => AssetLib.countAll({ reg: REG, accept: e => !!e.type, maxPages: 3 }));
       tally.onDone.push(() => { try { renderAll(); } catch (e) {} });
+      const pgRow = $('stPgRow');
+      if (pgRow) pgRow.innerHTML = Wb.pager.rowHTML('st', { hidden: true, info: '第 1 页' });
       const pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE,
         pgPrevId: 'stPgPrev', pgNextId: 'stPgNext', pgInfoId: 'stPgInfo', gotoPage: 'stGotoPage',
@@ -2858,7 +2832,7 @@ const StudioView = {
           : null;
         renderInputArea(); updateMode(); updateGoState();
         if (r && !r.ok) { setStatus('<span class="' + (r.code === 'dup' ? 'warn' : 'err') + '">'
-          + escA(r.why + (it.prompt ? '（提示词已经填上）' : '')) + '</span>'); return; }
+          + window.esc(r.why + (it.prompt ? '（提示词已经填上）' : '')) + '</span>'); return; }
         const bits = [];
         if (it.prompt) bits.push('提示词');
         if (it.model) bits.push('型号');
@@ -2876,7 +2850,7 @@ const StudioView = {
         let p2 = null;
         try { p2 = JSON.parse(readLS('sk_reuse', '') || 'null'); } catch (e) {}
         if (!p2) return;
-        try { localStorage.removeItem('sk_reuse'); } catch (e) {}
+        window.LS.del('sk_reuse');
         const mtype = p2.kind === 'video' ? '视频' : p2.kind === 'audio' ? '音频' : '图片';
         const src = p2.src || (p2.assetId ? Api.assetSrc(p2.assetId) : '');
         if (!src && !p2.fileKey && !p2.prompt) return;
@@ -2886,28 +2860,28 @@ const StudioView = {
       }
 
       /* ---------- 右栏控件 ---------- */
-      $('searchBtn').onclick = () => { searchQ = $('searchBox').value.trim().toLowerCase(); pager.setPage(0); renderAll(); };
-      $('searchBox').addEventListener('keydown', e => { if (e.key === 'Enter') $('searchBtn').click(); });
+      /* 搜索框与「搜索」按钮由公共 Wb.filterBar 生成（.pgroup 里的那一格由它填）。
+         onSearch 是输入防抖与回车/按钮共用的唯一出口；按钮只是把当前词立刻跑一遍。 */
+      const searchHost = $('searchHost');
+      const searchFb = searchHost ? Wb.filterBar.bind(searchHost, {
+        cls: '', chips: null, cnt: false, q: searchQ,
+        placeholder: '搜索提示词 / ID',
+        inputAttrs: { autocomplete: 'off', spellcheck: 'false' },
+        onSearch: v => { searchQ = String(v == null ? '' : v).trim().toLowerCase(); pager.setPage(0); renderAll(); },
+        extraHTML: '<button class="ghost" data-fb="go">搜索</button>',
+      }) : null;
+      const searchGo = searchFb && searchFb.el.querySelector('[data-fb="go"]');
+      if (searchGo) searchGo.onclick = () => searchFb.setQuery(searchFb.value(), true);
       function pullScope() {
-        const seen = new Set();
-        return (mergedBatch || mergedItems()).filter(e => {
-          if (!e) return false;
-          if (!matched(e) || (filterKind !== 'all' && e.mtype !== filterKind)) return false;
-          const u = e.src || e.dl || e.rawSrc || e.media || '';
-          if (!u) return false;
-          /* 范围与卡片徽标读同一份判据（local.js 的 stateOf）：以前这里自己按 kind/地址拼，
-             于是同一张卡上写着「本机」、按钮却把它算进「还没存」，或者反过来一颗都不算。 */
-          const st = AssetLocal.stateOf(e);
-          if (!st.cloud || st.local) return false;
-          const k = [e.provider, e.assetId || e.id || e.genId || e.taskId].join('|');
-          if (seen.has(k)) return false;
-          seen.add(k);
-          return true;
-        });
+        /* 范围与卡片徽标读同一份判据（AssetLocal.pullPlan → stateOf）。 */
+        return AssetLocal.pullPlan(
+          (mergedBatch || mergedItems()).filter(e => e && matched(e)
+            && (filterKind === 'all' || e.mtype === filterKind)),
+          { keyOf: e => [e.provider, e.assetId || e.id || e.genId || e.taskId].join('|') });
       }
       function paintPullBtn() {
         if (!$('pullLocalBtn')) return;
-        AssetLocal.pullBtn($('pullLocalBtn'), pullScope().length, { what: '产物' });
+        AssetLocal.pullBar($('pullLocalBtn'), pullScope(), { what: '产物' });
       }
       $('pullLocalBtn').onclick = async () => {
         const b = $('pullLocalBtn');
@@ -2977,9 +2951,9 @@ const StudioView = {
         const mtype = p.mtype || '图片';
         if (!slotTakesType(kind, mtype)) { setStatus('<span class="err">' + def.label + '不收' + mtype + '素材</span>'); return; }
         const r = await refIntoSlot(mtype, p, { forceKind: kind });
-        if (r.ok) { setStatus('<span class="ok">✓ 已把《' + escA(r.name || mtype) + '》加入' + def.label + '</span>'); return; }
+        if (r.ok) { setStatus('<span class="ok">✓ 已把《' + window.esc(r.name || mtype) + '》加入' + def.label + '</span>'); return; }
         if (r.code === 'blocked') { flashSlotHint(r.why); return; }
-        setStatus('<span class="err">' + escA(r.why) + '</span>');
+        setStatus('<span class="err">' + window.esc(r.why) + '</span>');
       }
       async function dropOntoSlot(kind, dt) {
         const def = SLOT_DEF[kind];
@@ -3060,8 +3034,8 @@ const StudioView = {
         const r = await refIntoSlot(mtype, p);
         if (r.ok) { setStatus('<span class="ok">✓ 已把《' + (r.name || mtype) + '》加入' + SLOT_DEF[r.kind].label + '</span>'); return; }
         if (r.code === 'blocked') { flashSlotHint(r.why); return; }
-        if (r.code === 'dup') { setStatus(escA(r.why)); return; }
-        setStatus('<span class="err">' + escA(r.why) + (r.code === 'noslot' ? '（换型号或清空已选素材再试）' : '') + '</span>');
+        if (r.code === 'dup') { setStatus(window.esc(r.why)); return; }
+        setStatus('<span class="err">' + window.esc(r.why) + (r.code === 'noslot' ? '（换型号或清空已选素材再试）' : '') + '</span>');
       }
 
       /* ---------- 左栏整块重画（切类型 / 换型号之后） ---------- */
@@ -3115,11 +3089,11 @@ const StudioView = {
         paintLeft();
         refreshCaps();
         if (/[?&]reuse=1/.test(pageQuery() || '')) {
-          try { await applyReuseFromAssets(); } catch (e) { setStatus('<span class="err">复用失败：' + escAerrText(e) + '</span>'); }
+          try { await applyReuseFromAssets(); } catch (e) { setStatus('<span class="err">复用失败：' + window.esc(window.errText(e)) + '</span>'); }
         }
       }
       boot().catch(e => {
-        setStatus('<span class="err">启动失败：' + escAerrText(e) + '</span>');
+        setStatus('<span class="err">启动失败：' + window.esc(window.errText(e)) + '</span>');
         console.error('[studio] 启动失败', e);
       });
 
@@ -3159,7 +3133,7 @@ const StudioView = {
       /* 外壳那条通道：类型切换与跨页复用（Vue 组件不在 iframe 里，web/app.js 的 iframe 钩子够不着）。 */
       window.setType = (t, fromUser) => setType(t, fromUser);
       window.__studioRepaint = () => { paintLeft(); renderAll(); };
-      window.__studioReuse = () => applyReuseFromAssets().catch(e => setStatus('<span class="err">复用失败：' + escAerrText(e) + '</span>'));
+      window.__studioReuse = () => applyReuseFromAssets().catch(e => setStatus('<span class="err">复用失败：' + window.esc(window.errText(e)) + '</span>'));
 
       return () => {
         bootStopped = true;
@@ -3167,6 +3141,7 @@ const StudioView = {
         clearTimeout(slotHintTimer);
         dropClearShot();
         stopPendingTick();
+        if (searchFb) searchFb.destroy();
         try { poller.stop(); } catch (e) {}
         disposers.forEach(fn => { try { fn(); } catch (e) {} });
         if (window.setType) delete window.setType;
@@ -3185,7 +3160,7 @@ const StudioView = {
         await window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest);
       } catch (e) {
         const st = pageEl.value.querySelector('[data-r="status"]');
-        if (st) st.innerHTML = '<span class="err">公共模块没有加载起来：' + window.escerrText(e) + '</span>';
+        if (st) st.innerHTML = '<span class="err">公共模块没有加载起来：' + window.esc(window.errText(e)) + '</span>';
         return;
       }
       if (!window.Wb || !window.Api || !window.AssetLocal || !window.AssetLib) {

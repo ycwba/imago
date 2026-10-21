@@ -91,11 +91,11 @@ const shots = [
 
 /* ⑦ 类型认不出来的当角色（角色那一类最常见，且道具没有音色）。 */
 {
-  assert.equal(BA.kindOf('actor'), 'actor');
-  assert.equal(BA.kindOf('场景'), 'scene');
-  assert.equal(BA.kindOf('道具'), 'prop');
-  assert.equal(BA.kindOf('说不清'), 'actor');
-  assert.equal(BA.kindOf(undefined), 'actor');
+  assert.equal(BA.castKind('actor'), 'actor');
+  assert.equal(BA.castKind('场景'), 'scene');
+  assert.equal(BA.castKind('道具'), 'prop');
+  assert.equal(BA.castKind('说不清'), 'actor');
+  assert.equal(BA.castKind(undefined), 'actor');
 }
 
 console.log('✓ 导演台新素材：重复出现才建 / 名字对不上不建 / 占位符 / 建档落点');

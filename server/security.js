@@ -43,11 +43,13 @@ function ipv6Groups(h) {
 function isPrivateIpv6(h) {
   const g = ipv6Groups(h);
   if (!g) return false;
-  const zero = g.slice(0, 6).every(x => x === 0);
-  if (zero && g[6] === 0xffff) return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
+  /* ::ffff:127.0.0.1 的 0xffff 落在第 6 组（下标 5），映射地址的 IPv4 字节在 g[6]/g[7]。
+     以前判的是 g.slice(0,6) 全 0 + g[6] === 0xffff —— 那个分支永远不成立，映射内网被当公网放行。 */
+  const zero = g.slice(0, 5).every(x => x === 0);
+  if (zero && g[5] === 0xffff) return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
   if (g.every(x => x === 0)) return true;
-  if (zero && g[6] === 0 && g[7] === 1) return true;
-  if (zero && (g[6] | g[7])) return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
+  if (zero && g[5] === 0 && g[6] === 0 && g[7] === 1) return true;
+  if (zero && g[5] === 0 && (g[6] | g[7])) return isPrivateHost([(g[6] >> 8) & 255, g[6] & 255, (g[7] >> 8) & 255, g[7] & 255].join('.'));
   if ((g[0] & 0xfe00) === 0xfc00) return true;
   if ((g[0] & 0xffc0) === 0xfe80) return true;
   if (g[0] === 0x2001 && g[1] === 0xdb8) return true;

@@ -141,6 +141,22 @@
      而镜像时把提交那一刻的提示词留在了本机索引里 —— 于是以前空白的那张卡其实有话可说。 */
   const AL_TWIN = e => (window.AssetLocal && AssetLocal.twinOf ? AssetLocal.twinOf(e) : '');
   const platSide = e => !!(e && e.mirrorKey);      // decorate 认出来的那条来自平台列表
+  /* ---------- 结果级短缓存（L1）----------
+     同一组参数（来源 / 类型 / 页数 / accept）在 30 秒内重复 load，直接用上一份结果：
+     首屏两次 fetchMore、选择器每次打开都 3 页、资产库与工作台前后脚打开，都会各拉一遍全量，
+     而上游列表在几十秒内几乎不会变。只缓存**第一次取**（带 out / cursors / more 的续拉不进缓存），
+     数总数那种 `prompts:false` 也不进；`opts.noCache` 跳过命中并重写。
+     条目按浅拷贝存/取：调用方会往上挂 `_grp` / 本机地址等展示态字段，不能让它改到缓存本体。 */
+  const LOAD_RESULT_CACHE = new Map();
+  const LOAD_RESULT_TTL = 30000;
+  const loadResultKey = opts => JSON.stringify({
+    pages: opts.pages ?? 2,
+    kinds: opts.kinds || null,
+    ids: opts.ids || null,
+    accept: typeof opts.accept === 'function' ? String(opts.accept) : '',
+  });
+  const loadCacheable = opts => !opts.out && !opts.cursors && !opts.more && opts.prompts !== false;
+  const cloneEntries = arr => (Array.isArray(arr) ? arr : []).map(e => Object.assign({}, e));
   function fillTwin(keep, drop) {
     if (!drop) return keep;
     if (!keep.prompt && drop.prompt) { keep.prompt = drop.prompt; keep.promptLocal = !!drop.promptLocal; }
@@ -274,24 +290,58 @@
       const items = [];
       const unknown = [];
       if (!target) return { items, unknown };
-      const hit = o => { try { return JSON.stringify(o == null ? null : o).includes(target); } catch (e) { return false; } };
+      /* 只认**身份字段上的精确相等**，不再把整条记录 stringify 后做子串匹配：
+         `la_12` 会命中 `la_123`（用户点删除时被一条根本没引用它的镜头拦住），
+         也会命中提示词/文件名里碰巧出现的那几个字（B25）。
+         地址字段允许「从中取出 /asset/<号>」再比 —— 本机产物在记录里常常只以地址形态存在。 */
+      const eq = v => v != null && String(v) === target;
+      const inUrl = v => {
+        if (v == null) return false;
+        const s = String(v);
+        if (s === target) return true;
+        const m = /\/asset\/([A-Za-z0-9_-]+)/.exec(s);
+        return !!(m && m[1] === target);
+      };
+      const hitShot = sh => {
+        if (!sh || typeof sh !== 'object') return false;
+        if (sh.refVideo && eq(sh.refVideo.asset_id)) return true;
+        if (sh.refAudio && eq(sh.refAudio.asset_id)) return true;
+        if ((sh.keyframes || []).some(k => k && (eq(k.assetId) || inUrl(k.src)))) return true;
+        return (sh.candidates || []).some(c => c && (eq(c.assetId) || inUrl(c.url) || inUrl(c.src)));
+      };
+      const hitVoice = v => !!v && typeof v === 'object'
+        && (eq(v.assetId) || inUrl(v.src) || inUrl(v.refAudio) || eq(v.refAssetId));
+      const hitFav = f => {
+        if (!f || typeof f !== 'object') return false;
+        if (eq(f.assetId) || eq(f.genId) || eq(f.localAsset) || eq(f.localAssetId)) return true;
+        if (inUrl(f.src) || inUrl(f.dl) || inUrl(f.rawSrc) || inUrl(f.upstream)) return true;
+        /* 收藏键是 `a:<平台>:<资产号>`：只比最后一段（整串永远不等于一个资产号） */
+        const tail = String(f.key || '').split(':').pop();
+        return !!tail && tail === target;
+      };
+      const hitCanvas = doc => {
+        if (!doc || typeof doc !== 'object') return false;
+        return (doc.nodes || []).some(n => {
+          const m = (n && n.metadata) || {};
+          return eq(m.assetId) || eq(m.sourceAssetId) || inUrl(m.storageKey);
+        });
+      };
       try {
         if (window.Kv && window.Kv.at) {
           const ws = await window.Kv.at('ws').get('workspace');
           if (ws) {
             for (const p of (Array.isArray(ws.projects) ? ws.projects : [])) {
               const pname = p && (p.name || p.title) ? (p.name || p.title) : '未命名';
-              let n = 0, pAny = false;
+              let n = 0;
               for (const sc of (Array.isArray(p && p.scenes) ? p.scenes : [])) {
                 for (const sh of (Array.isArray(sc && sc.shots) ? sc.shots : [])) {
                   n++;
-                  if (hit(sh)) { items.push({ kind: 'workspace', label: '导演台 · ' + pname + ' · 第 ' + n + ' 镜', at: '' }); pAny = true; }
+                  if (hitShot(sh)) items.push({ kind: 'workspace', label: '导演台 · ' + pname + ' · 第 ' + n + ' 镜', at: '' });
                 }
               }
               for (const v of (Array.isArray(p && p.voices) ? p.voices : [])) {
-                if (hit(v)) { items.push({ kind: 'workspace', label: '导演台 · ' + pname + ' · 配音', at: '' }); pAny = true; }
+                if (hitVoice(v)) items.push({ kind: 'workspace', label: '导演台 · ' + pname + ' · 配音', at: '' });
               }
-              if (!pAny && hit(p)) items.push({ kind: 'workspace', label: '导演台 · ' + pname, at: '' });
             }
           }
         } else unknown.push('导演台工作区');
@@ -299,7 +349,7 @@
       try {
         if (window.Fav) {
           for (const f of window.Fav.list()) {
-            if (hit(f)) items.push({ kind: 'favorite', label: '我的收藏 · ' + String(f.prompt || f.name || '一条').slice(0, 24), at: '' });
+            if (hitFav(f)) items.push({ kind: 'favorite', label: '我的收藏 · ' + String(f.prompt || f.name || '一条').slice(0, 24), at: '' });
           }
         }
       } catch (e) { unknown.push('我的收藏'); }
@@ -307,7 +357,7 @@
         if (window.Kv && window.Kv.at) {
           const rows = await window.Kv.at('canvasDocs').entries();
           for (const [k, doc] of rows) {
-            if (hit(doc)) items.push({ kind: 'canvas', label: '画布 · ' + String((doc && doc.name) || k), at: '' });
+            if (hitCanvas(doc)) items.push({ kind: 'canvas', label: '画布 · ' + String((doc && doc.name) || k), at: '' });
           }
         }
       } catch (e) { unknown.push('画布'); }
@@ -325,6 +375,18 @@
        返回 { entries, cursors, more, hasMore } */
     async load(opts = {}) {
       if (opts.reg) Api.setRegistry(opts.reg);
+      const cacheKey = loadCacheable(opts) ? loadResultKey(opts) : '';
+      if (cacheKey && !opts.noCache) {
+        const hit = LOAD_RESULT_CACHE.get(cacheKey);
+        if (hit && Date.now() - hit.at < LOAD_RESULT_TTL) {
+          const entries = cloneEntries(hit.entries);
+          if (typeof opts.onBatch === 'function') {
+            try { opts.onBatch(entries); } catch (e) { console.warn('[AssetLib] onBatch 回调出错：', e); }
+          }
+          return { entries, cursors: { ...hit.cursors }, more: { ...hit.more }, hasMore: hit.hasMore,
+            errors: { ...hit.errors }, failed: { ...hit.failed }, cached: true };
+        }
+      }
       await Api.registry();
       /* 镜像指针从 IndexedDB 读回来再开始解析：否则首屏用 localStorage 的暖启动缓存
          （最近 2000 条）判本机副本，老产物会先显示成「云端」再跳回「本机」。
@@ -395,6 +457,14 @@
       await Promise.allSettled(srcs.map(src => listOne(src, st)));
       if (opts.prompts !== false) refillPrompts(st);
       const hasMore = srcs.some(src => st.more[src.key] !== false);
+      if (cacheKey) {
+        LOAD_RESULT_CACHE.set(cacheKey, {
+          at: Date.now(), entries: cloneEntries(st.out),
+          cursors: { ...st.cursors }, more: { ...st.more }, hasMore,
+          errors: { ...st.errors }, failed: { ...st.failed },
+        });
+        while (LOAD_RESULT_CACHE.size > 24) LOAD_RESULT_CACHE.delete(LOAD_RESULT_CACHE.keys().next().value);
+      }
       return { entries: st.out, cursors: st.cursors, more: st.more, hasMore, errors: st.errors, failed: st.failed };
     },
     /* 后台数总数（分页文案要显示精确的「共 N 页」用；界面见 Wb.tally）。
@@ -409,11 +479,19 @@
        页面要把它和本地任务记录混排时用来去重（语音台：还没落成资产的本地记录另算）。 */
     async countAll(opts = {}) {
       const maxPages = Math.max(1, Number(opts.maxPages) || 10);
+      /* opts.from = { pages, cursors, more, entries }：调用方已经翻到的位置，从那儿接着数
+         （pages 是已翻页数，所以这一趟只补剩下的预算；entries 复制一份，load 会就地塌表）。
+         没有它，后台计数会把首屏已经拿回来的页每个来源再取一遍。 */
+      const from = (opts.from && typeof opts.from === 'object') ? opts.from : null;
+      const done = from ? Math.max(0, Number(from.pages) || 0) : 0;
       const res = await this.load({
-        pages: maxPages, kinds: opts.kinds, ids: opts.ids, reg: opts.reg,
+        pages: Math.max(1, maxPages - done), kinds: opts.kinds, ids: opts.ids, reg: opts.reg,
         accept: opts.accept,            // 逐条过滤：不关心的条目根本不进结果（少占内存）
         prompts: false,                 // 只数条数，不补提示词（别为数个数去翻归档）
-        out: [], seen: new Set(),
+        out: from && Array.isArray(from.entries) ? from.entries.slice() : [],
+        seen: new Set(),
+        cursors: from ? from.cursors : null,
+        more: from ? from.more : null,
       });
       const keys = new Set(), assetIds = new Set();
       (res.entries || []).forEach(e => {
@@ -588,8 +666,12 @@
     async retry(entry) {
       const prov = Api.prov(entry.provider);
       if (!prov) throw new Error('找不到平台：' + entry.provider);
+      /* 没有型号就**不猜**：以前静默退回 `prov.models[0]`，用户按的明明是「重试这一条」，
+         发出去的却是另一个型号 —— 单价可能完全不同，而界面上看不出换过（B26）。 */
+      const model = entry.model;
+      if (!model) throw new Error('这一条没有记录型号，重试前请先重选型号（不同型号的单价与参数都不一样）');
       return Api.create(prov, {
-        model: entry.model || (prov.models && prov.models[0] && prov.models[0].id),
+        model: model,
         prompt: entry.prompt, tier: entry.tier, duration: entry.duration, res: entry.res,
         ar: entry.ar, quality: entry.quality, count: entry.count, format: entry.format,
       });
@@ -670,6 +752,17 @@ function clearQuoteMarks() {
    换个键就自然过期（键里有平台/端点/请求体），所以参数一变立刻重新问。 */
 const QUOTE_CACHE = new Map();
 const QUOTE_TTL = 45 * 1000, QUOTE_FAIL_TTL = 10 * 1000;
+/* 只增不删的 Map 会跟着「每组不同参数」一直长（导演台每改一次时长就是一个新键）。
+   读的时候顺手删这条过期项，写的时候清一遍过期项、再按插入序把最老的清到上限内（B22）。 */
+const QUOTE_CACHE_MAX = 200;
+function sweepQuoteCache() {
+  const now = Date.now();
+  for (const [k, v] of QUOTE_CACHE) {
+    if (now - v.at >= (v.r && v.r.ok ? QUOTE_TTL : QUOTE_FAIL_TTL)) QUOTE_CACHE.delete(k);
+  }
+  while (QUOTE_CACHE.size > QUOTE_CACHE_MAX) QUOTE_CACHE.delete(QUOTE_CACHE.keys().next().value);
+}
+function clearQuoteCache() { QUOTE_CACHE.clear(); }
 /* 平台的**实时定价表**：按 provider 现拉一次 /models，带 60 秒 TTL。
    为什么不用页面上那份：图片那一档以前读的是能力表归一化出来的 `price[quality]`（客户端缓存
    12 小时），视频那一档虽然是自己拉的、却一次都不重取（页面开着就是老价）——
@@ -824,6 +917,7 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
          钉成一分半钟的「报不出来」。 */
       const hit = QUOTE_CACHE.get(ukey);
       if (hit && Date.now() - hit.at < (hit.r && hit.r.ok ? QUOTE_TTL : QUOTE_FAIL_TTL)) return hit.r;
+      if (hit) QUOTE_CACHE.delete(ukey);
       if (QUOTE_INFLIGHT[ukey]) return await QUOTE_INFLIGHT[ukey];
       const one = (async () => {
         const opt = { headers: Api.headers(prov), timeout: 15000, retry: 0 };
@@ -853,6 +947,7 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       QUOTE_INFLIGHT[ukey] = one;
       try {
         const r = await one;
+        if (QUOTE_CACHE.size >= QUOTE_CACHE_MAX) sweepQuoteCache();
         QUOTE_CACHE.set(ukey, { at: Date.now(), r });
         return r;
       } finally { delete QUOTE_INFLIGHT[ukey]; }

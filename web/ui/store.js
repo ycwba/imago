@@ -68,10 +68,9 @@ const ok = () => { try { localStorage.setItem('__t', '1'); localStorage.removeIt
        EXPORTABLE 前缀减 RESET_KEEP，两边本来就不同，只有那趟扫描是同一件事。 */
     sweep(pred) {
       let n = 0;
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
+      for (const k of window.LS.keys()) {
         if (!k) continue;
-        if (pred(k)) { localStorage.removeItem(k); n++; }
+        if (pred(k)) { window.LS.del(k); n++; }
       }
       return n;
     },

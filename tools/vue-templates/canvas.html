@@ -14,13 +14,7 @@
 
   <section class="cv-lib" v-if="!docId">
     <div class="cv-lib-bar">
-      <input class="cv-q" :value="q" @input="filterLib" placeholder="搜索画布标题或正文" aria-label="搜索画布">
-      <select class="cv-sort" @change="sortLib" aria-label="排序方式">
-        <option value="up">最近修改</option>
-        <option value="new">最近创建</option>
-        <option value="title">按标题</option>
-      </select>
-      <span class="cv-count">{{ libCount }}</span>
+      <span class="fb-host" ref="libFilterEl"></span>
       <span class="sp"></span>
       <button class="pri" @click="newDoc" :disabled="!ready"><span class="ic" data-icon="plus" data-size="13"></span>新建画布</button>
     </div>

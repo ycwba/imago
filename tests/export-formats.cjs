@@ -39,16 +39,27 @@ ok('只有走 /render 的档给了取消文案', list.every(f => !f.renders || !
 ok('表查询与写法一致（of / hint 不另算一遍）',
   list.every(f => EF.of(f.id) === f) && !EF.of('nope') && EF.hint() === ids.join(' / '));
 
-/* 唯一来源：这三处只要再抄一份格式清单，就说明「加一种导出」又变成多处改。 */
-const engine = read('web/director/engine.js');
+/* 唯一来源：这三处只要再抄一份格式清单，就说明「加一种导出」又变成多处改。
+   G1 之后 engine.js 只留状态与接线，实现按域住在 engine/<域>.js —— 判据认的是「这一层的哪几个文件」，
+   不是某一个文件名：读法（表驱动那几处）看整层，实现（导出流程）看它只住在一个文件里。 */
+const S = require('./support.cjs');
+const engine = S.engineLayer();
+const layerFiles = S.engineFiles();
+const declIn = re => layerFiles.filter(f => re.test(read(f)));
+const exp = read('web/director/engine/export.js');
 /* §6.1-2 把动作表拆去 chat-tools.js：两半合起来才是「助手这一侧」 */
 const chat = read('web/features/chat.js') + read('web/features/chat-tools.js');
 const template = read('web/director/template.html');
 ok('engine 不再写死格式数组', !/\[\s*'film',\s*'assets',\s*'fcpxml',\s*'bundle'\s*\]/.test(engine)
   && /ExportFormats\.of\(fmt\)/.test(engine) && /ExportFormats\.ids\(\)\[0\]/.test(engine));
-ok('engine 的页头按钮与取消状态都表驱动',
+ok('页头按钮与取消状态都表驱动',
   /ExportFormats\.list\(\)\.forEach/.test(engine) && /ExportFormats\.of\(r\.format\)/.test(engine)
-  && /ExportFormats\.of\('assets'\)/.test(engine) && /ExportFormats\.of\('film'\)/.test(engine));
+  && /ExportFormats\.of\('assets'\)/.test(exp) && /ExportFormats\.of\('film'\)/.test(exp));
+ok('导出流程只在 engine/export.js 一处（engine 只接线）',
+  declIn(/function exportFilmFFmpeg/).join() === 'web/director/engine/export.js'
+  && declIn(/async function exportFCPXML/).join() === 'web/director/engine/export.js'
+  && /function exportFilmFFmpeg/.test(exp) && /function createExport/.test(exp)
+  && /createExport\(\{/.test(engine));
 ok('助手不再另抄 enum 与标题表', !/enum:\s*\[\s*'film'/.test(chat)
   && /enum:\s*EF\.ids\(\)/.test(chat) && /EF\.of\(fmt\)/.test(chat) && /EF\.list\(\)\.map/.test(chat));
 ok('模板不再手写导出按钮', /id="exportBtns"/.test(template) && !/id="exportFilm"/.test(template)

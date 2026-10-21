@@ -7,7 +7,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { atomicWrite } = require('./fs-atomic.js');
+const { writeJsonWithBak } = require('./fs-atomic.js');
 
 const ROUTES = new Set(['auto', 'local', 'service']);
 const JOB_KEEP = 60;
@@ -79,21 +79,9 @@ function createAsrStore(opts) {
       return null;
     }
   };
-  const atomic = (p, obj) => {
-    const body = JSON.stringify(obj, null, 2);
-    try {
-      if (fs.existsSync(p)) {
-        const old = fs.readFileSync(p, 'utf8');
-        /* 内容相同不留备份；备份写不成不阻挡主写 —— 下面那一次才是这一单的正事。
-           备份本身用普通写：它只是回滚用的线索，不需要也参与 fsync/rename 的赌注。 */
-        if (old !== body) fs.writeFileSync(p.replace(/\.json$/, '.bak.json'), old);
-      }
-    } catch (e) { /* 见上 */ }
-    /* 写盘纪律只有 fs-atomic 一处：tmp → fsync → rename（被杀软/同步盘占住时退避重试）。
-       这里以前自己写 .tmp + renameSync，Windows 上 EPERM 一冒出来就是「设置没保存」，
-       而重试一次就好 —— 同一份坑不该在六个 store 里各踩一遍。 */
-    atomicWrite(p, body);
-  };
+  /* 覆盖写 + `.bak` 备份和写盘纪律都在 fs-atomic（writeJsonWithBak）：
+     tmp → fsync → rename，被杀软/同步盘占住时退避重试。这里不再自己拼一份。 */
+  const atomic = (p, obj) => writeJsonWithBak(p, obj);
 
   const loadSettings = () => {
     if (settings) return settings;

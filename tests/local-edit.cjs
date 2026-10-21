@@ -13,7 +13,7 @@ let bad = 0, n = 0;
 function ok(name, cond, detail) { n++; if (cond) return console.log('  ✓ ' + name); bad++; console.log('  ✗ ' + name + (detail ? ' —— ' + detail : '')); }
 
 const sd = read('web/director/index.js');
-const frag = read('web/director/engine.js');
+const frag = require('./support.cjs').engineLayer();
 ok('spa-director 注入 EditorMedia', /EditorMedia\s*=\s*createEditorMedia/.test(sd));
 ok('候选轨道地址走 EditorMedia.previewSrc', /EditorMedia[\s\S]{0,80}previewSrc/.test(frag));
 ok('导出地址走 EditorMedia.exportSrc', /exportSrc\(cand|exportSrc\(c\)/.test(frag));
@@ -21,7 +21,8 @@ ok('配音导出地址走 EditorMedia.exportSrc', /EditorMedia\.exportSrc\(\{ sr
 const tl = frag.slice(frag.indexOf('async function tlClipSrc'), frag.indexOf('async function buildRenderClips'));
 ok('tlClipSrc 不再裸返回 cand.url', !/return\s+cand\.url\b/.test(tl));
 ok('本机优先解析器唯一', fs.existsSync(path.join(root, 'web/director/media.js')));
-ok('徽标组件已建立（页面迁移到 W7 再统一替换）', fs.existsSync(path.join(root, 'web/ui/local-badge.js')));
+ok('徽标渲染只有 badge-state.js 一份（Vue 组件已删）', fs.existsSync(path.join(root, 'web/ui/badge-state.js'))
+  && !fs.existsSync(path.join(root, 'web/ui/local-badge.js')));
 ok('导演台候选卡有本机/云端徽标', /candBadgeHTML/.test(frag) && /window\.badgeHTML/.test(frag));
 console.log(`\n${n} 项，${bad} 项未通过`);
 process.exit(bad ? 1 : 0);

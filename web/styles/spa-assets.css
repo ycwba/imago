@@ -8,7 +8,6 @@
   position: absolute;
   inset: 0;
   overflow: auto;
-  padding: 24px 32px;
   margin: 0;
   box-sizing: border-box;
   color: var(--txt);
@@ -17,12 +16,10 @@
 .assets-page, .assets-page * { box-sizing: border-box; }
 /* 窄窗口：收紧留白，日期区间等筛选控件允许折行 */
 @media (max-width: 760px) {
-  .assets-page { padding: var(--sp-4) 14px; }
   .assets-page .filters { gap: var(--sp-2); }
   .assets-page .daterange { flex-wrap: wrap; }
   .assets-page .datepick { width: 108px; }
 }
-.assets-page h1 { font-size: var(--fs-6); margin: 0 0 6px; }
 .assets-page .desc { font-size: var(--fs-2); color: var(--sub); margin: 0 0 18px; }
 .assets-page .filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .assets-page .frow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
@@ -101,7 +98,6 @@
 .assets-page .task .meta2 { font-size: var(--fs-1); color: var(--sub); }
 /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
 .assets-page .asset .meta .cancel { color: var(--err); cursor: pointer; }
-.assets-page .badges { display: flex; gap: 5px; flex-wrap: wrap; }
 .assets-page .badge { font-size: 10.5px; padding: 1px 7px; border-radius: 3px; background: var(--panel2); color: var(--sub); }
 .assets-page .badge.acc { color: var(--acc); background: rgba(105,87,232,.1); }
 .assets-page .badge.run { color: var(--warn); background: rgba(217,119,6,.1); }

@@ -17,6 +17,7 @@ const AssetLocal = {
 };
 globalThis.window = {
   fileSafe: (s, n) => String(s || '').replace(/[\\/:*?"<>|]/g, '-').slice(0, n || 60),
+  pad2: n => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0'),
   fileStamp: () => '20261018-120000',
   Api: {
     sysStatus: async () => ({ 目录: { 资产: { 路径: 'C:/work/assets' } } }),

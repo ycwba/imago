@@ -217,7 +217,7 @@
         /* 值与标签都过一遍 esc：标签里有平台名 / 计量单位这种外来词，
            原先五份里 assets 用 textContent（天然安全）、另几份直接拼进 innerHTML。统一到安全的那一侧。 */
         const ti = o.title ? ' title="' + window.esc(o.title(v)) + '"' : '';
-        return '<button class="chip' + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
+        return '<button class="chip' + (o.cls ? ' ' + o.cls : '') + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
           + window.esc(label) + (n ? ' ' + n : '') + '</button>';
       }).join('');
       box.querySelectorAll('.chip').forEach(b => { b.onclick = () => onPick(b.dataset.v); });
@@ -235,6 +235,19 @@
     text(bits) { return (bits || []).filter(Boolean).join(' · '); },
     /* 「AI 挑的 N 条（+ 它说的那句话）」—— 素材库与收藏这两页以前逐字抄过同一段。 */
     picked(n, why) { return AiChip.text(['AI 挑的 ' + (Number(n) || 0) + ' 条', why]); },
+    /* 页面那一层「把这一屏的 AI 结果画成一颗芯片」也只有这一份：
+       o: { on, picked, why, text, desc, summary, asc, scope[], tip, cls, iconSize, clearId, clearTitle, onClear }
+       给了 text 就用它；否则按 picked / why / desc / summary / asc / scope 拼。
+       on === false 或最终文本为空 → 收掉（与 paint 的空串一致）。 */
+    show(el, o) {
+      const oo = o || {};
+      const text = oo.text != null ? String(oo.text)
+        : (oo.on === false ? '' : AiChip.text([oo.picked != null ? AiChip.picked(oo.picked, oo.why) : oo.why,
+          oo.desc, oo.summary, oo.asc].concat(oo.scope || [])));
+      AiChip.paint(el, { text, clearId: oo.clearId, clearTitle: oo.clearTitle, cls: oo.cls,
+        iconSize: oo.iconSize, tip: oo.tip, onClear: oo.onClear });
+      return text;
+    },
     /* o: { text 空串=整颗收掉, clearTitle, clearId(默认 aiClear), cls(默认 ai-chip), tip, onClear }
        text / tip / clearTitle 都传**纯文本**，转义只在这一处做。 */
     paint(el, o) {
@@ -299,7 +312,7 @@
      一排**原生控件**、等数据回来才整批换成公共样式（「基础组件闪一下再变样」）。
      build 本身幂等（_ddBuilt），页面后来的 build/sync 只剩「补增量新节点」一件事。
      包早了不怕选项没填：lbl 退回「请选择」，页面填完 options 照旧要调 sync。 */
-  const autoBuild = () => { try { window.Dropdowns.build(document); } catch (e) {} };
+  const autoBuild = () => { try { window.Dropdowns.build(document); } catch (e) { /* Dropdowns 那一层还没加载就跳过这一次自动包装 */ } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', autoBuild);
   else autoBuild();
 })();
@@ -330,8 +343,8 @@ window.PickSel = function PickSel(o) {
   const keysUpTo = (arr, i) => arr.slice(0, i >= 0 ? i + 1 : arr.length)
     .map((e, j) => (opt.keyOf ? opt.keyOf(e) : j)).join('|');
   const setAnchor = (arr, i) => { anchor = i; sig = keysUpTo(arr, i); };
-  const sync = () => { if (opt.onSync) { try { opt.onSync(); } catch {} } };
-  const note = t => { if (opt.onNote) { try { opt.onNote(t); } catch {} } };
+  const sync = () => { if (opt.onSync) { try { opt.onSync(); } catch { /* 回调是调用方给的，抛错不该把下拉的交互带崩 */ } } };
+  const note = t => { if (opt.onNote) { try { opt.onNote(t); } catch { /* 同上：提示回调抛错不影响浮层本身 */ } } };
   /* 外部（本地上传）把条目塞进**同一个** picked：点卡片与传文件必须是同一份选中，
      否则计数只数点过的那一边，「确定」交出去的也只有点过的那一批
      （症状就是「传了本地文件却加不进参考槽」）。上限判据仍只在这里一份。 */
@@ -853,7 +866,7 @@ window.isExternalFileDrag = function isExternalFileDrag(e) {
 window.copyText = async function copyText(txt) {
   const s = String(txt == null ? '' : txt);
   if (!s) return false;
-  try { await navigator.clipboard.writeText(s); return true; } catch {}
+  try { await navigator.clipboard.writeText(s); return true; } catch { /* Clipboard API 被拒就退回下面那份临时 textarea 兜底 */ }
   try {
     const ta = document.createElement('textarea');
     ta.value = s;
@@ -901,7 +914,8 @@ window.copyText = async function copyText(txt) {
      ⚠ 这一族不许写成 `String(…).padStart(2, '0') + ':' + String(…).padStart(2, '0')` 那个形状 ——
        §J ⑰ 认的正是它（全站只许播放器读数那一份，在 workbench.js 的 Wb.fmtClock 里）。所以这里走 pad2。
      「没值显示什么」（空串 / '—' / 「还没同步过」）是各个界面自己的事，这一族只管有值时怎么拼。 */
-  const pad2 = n => String(n).padStart(2, '0');
+  const pad2 = n => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0');
+  window.pad2 = pad2;               // 导演台命名（naming.js）与全站日期读数共用这一份
   /* null / 空串 / 0 一律当「没有这个时间」，不当 1970 年 —— 调用点普遍写 `ts ? fmtWhen(ts) : '—'`，
      但 `new Date(null)` 是 1970-01-01，漏一层判空就会把「没有时间」显示成一个日期。 */
   const asDate = t => (t instanceof Date ? t : (t == null || t === '' || t === 0 ? new Date(NaN) : new Date(t)));
@@ -979,6 +993,51 @@ window.copyText = async function copyText(txt) {
     return s === '视频' ? 'video' : isAudioType(s) ? 'audio' : 'image';
   }
   window.mediaKindOf = mediaKindOf;
+  /* 一份「东西」属于哪一类媒体（image / video / audio），认不出给空串。
+     与 mediaKindOf 的分工：那个按**素材条目的类型名**决定画哪种播放器，认不出按图片；
+     这个按**来源**判（扩展名 / MIME / 类型名 / 上传的 File），认不出就是认不出 ——
+     不能把一份 txt 当图片去存、也不能把一条任务当图片去画。
+     以前本机镜像、助手附件、画布生成各写一份 kindOf，扩展名与 MIME 的优先级还不同。 */
+  const MEDIA_KIND_EXTS = {
+    image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'],
+    video: ['mp4', 'webm', 'mov', 'mkv'],
+    audio: ['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'opus'],
+  };
+  function mediaKindFrom(v) {
+    const kindOfName = s => {
+      const t = String(s || '').trim().toLowerCase();
+      if (t === 'image' || t === '图片' || t === '图像') return 'image';
+      if (t === 'video' || t === '视频') return 'video';
+      if (t === 'audio' || t === '音频' || t === '音乐') return 'audio';
+      return '';
+    };
+    const kindOfExt = e => {
+      const x = String(e || '').toLowerCase().replace(/^\./, '');
+      if (!x) return '';
+      return Object.keys(MEDIA_KIND_EXTS).find(k => MEDIA_KIND_EXTS[k].indexOf(x) >= 0) || '';
+    };
+    if (typeof v === 'string') {
+      const byName = kindOfName(v);
+      if (byName) return byName;
+      const byExt = kindOfExt(v.replace(/^.*[\\/]/, '').replace(/^.*\./, ''));
+      if (byExt) return byExt;
+      return String(v).indexOf('image/') === 0 ? 'image'
+        : String(v).indexOf('video/') === 0 ? 'video'
+          : String(v).indexOf('audio/') === 0 ? 'audio' : '';
+    }
+    if (!v || typeof v !== 'object') return '';
+    const byExt = kindOfExt(v.ext || v.format);
+    if (byExt) return byExt;
+    const byName = kindOfName(v.type || v.kind);
+    if (byName) return byName;
+    const mime = String(v.mime || v.type || '').toLowerCase();
+    if (mime.indexOf('image/') === 0) return 'image';
+    if (mime.indexOf('video/') === 0) return 'video';
+    if (mime.indexOf('audio/') === 0) return 'audio';
+    const m = /\.([a-z0-9]{2,5})$/i.exec(String(v.name || ''));
+    return m ? kindOfExt(m[1]) : '';
+  }
+  window.mediaKindFrom = mediaKindFrom;
   /* 一条素材的下载扩展名（§J ⑲ 那一族的第三块读法，2026-10 从四处收成一份）。
      收成之前四份口径互不相同，同一个条目从哪一页下载决定它叫什么：
        · 资产库 `format || (视频?mp4:png)` —— 音频漏了，落到 png；
@@ -995,6 +1054,23 @@ window.copyText = async function copyText(txt) {
     return t === '视频' ? 'mp4' : isAudioType(t) ? 'wav' : 'png';
   }
   window.fileExtOf = fileExtOf;
+  /* 一个**上传文件 / Blob** 的扩展名（不带点）。与上面 fileExtOf 的区别是输入不是素材条目：
+     先认调用方给的 format（导演台镜像：条目上声明的产物尾缀），再认文件名里的尾缀，
+     最后按 MIME 查表；都没有给 bin（素材转存与助手附件以前各写一份，口径还不一样）。 */
+  const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3',
+    'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/flac': 'flac', 'audio/ogg': 'ogg', 'audio/aac': 'aac' };
+  function blobExtOf(blob, format) {
+    const fmt = String(format || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    if (fmt) return fmt;
+    const m = /\.([a-z0-9]{2,5})$/i.exec(String((blob && blob.name) || ''));
+    if (m) return m[1].toLowerCase();
+    const full = String((blob && blob.type) || '').toLowerCase();
+    if (MIME_EXT[full]) return MIME_EXT[full];
+    const sub = (full.split('/')[1] || '').replace(/[^a-z0-9]/g, '');
+    return sub ? sub.slice(0, 5) : 'bin';
+  }
+  window.blobExtOf = blobExtOf;
   /* 「这两个名字算不算同一个」全站只有一把尺子（2026-10-17 从 director.html 的场景名归一收成公共层）。
      它管三件事：导演台判「同一个场景」（AI 分镜追加时并场、手动 `#` 换场、素材库里同名那条认领场景图）、
      素材库判「同一个分组」（`Chars.Lib.groups()` 把「校园篇」与「校园篇 」与「校园 篇」算成一组）、
@@ -1220,9 +1296,12 @@ window.pageModeOf = k => {
   return md.indexOf(v) >= 0 ? v : (pageRowOf(k).defMode || md[0]);
 };
 window.pageSizeOf = k => {
-  const sz = (window.PAGE_TARGETS || {}).size || { min: 1 };
+  const sz = (window.PAGE_TARGETS || {}).size || { min: 1, max: 100 };
   const n = Number(pageLS('page_size_' + k));
-  return Math.max(sz.min || 1, n || pageRowOf(k).defSize || sz.min || 1);
+  /* 上下都要夹：以前只夹下限，localStorage 里一个 9999（手改 / 旧版本写坏）
+     会让一页画几千张卡片；设置页的输入框本来也只许填到 max。 */
+  const v = Math.floor(Math.max(sz.min || 1, n || pageRowOf(k).defSize || sz.min || 1));
+  return sz.max ? Math.min(sz.max, v) : v;
 };
 
 /* 「界面偏好有哪几项」只这一份：设置页按它渲染那两张卡，AI 助手按它列可改白名单，
@@ -1367,14 +1446,14 @@ async function migrateRenamedKeys() {
     if (raw == null) continue;
     /* ② 新键已有值 → 以新键为准，不搬 */
     let cur = null;
-    try { cur = localStorage.getItem(to); } catch (e) {}
+    cur = window.LS.get(to);   // LS 把「读不到」统一变成 null，这一层不需要 try
     if (cur == null) {
       try { localStorage.setItem(to, raw); } catch (e) { console.warn('[Store] 键改名失败 ' + from + ' → ' + to, e); continue; }
     }
     /* ① 搬的是原始字符串，形状原样过去；搬过就删旧键（搬失败上面已经 continue 了） */
-    try { localStorage.removeItem(from); } catch (e) {}
+    window.LS.del(from);
     /* ③ 服务器上那份也要删（见上面那段注释：旧键已不在 SYNCABLE，钩子不会替你发） */
-    try { await Net.fetch('/data/' + encodeURIComponent(from) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) {}
+    try { await Net.fetch('/data/' + encodeURIComponent(from) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) { /* 服务器上那份删不掉只留一份旧数据，本机改名照旧生效 */ }
     moved.push(from + ' → ' + to);
   }
   if (moved.length) console.info('[Store] 改了几个键名：' + moved.join('、'));
@@ -1434,10 +1513,40 @@ async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
   const hit = LEGACY_KEYS.filter(k => { try { return localStorage.getItem(k) != null; } catch { return false; } });
   if (!hit.length) return;
-  for (const k of hit) { try { localStorage.removeItem(k); } catch (e) {} }
+  for (const k of hit) window.LS.del(k);
   /* 镜像那份也删：留着的话下次 boot 会把它当「服务器上有更新的数据」恢复回 localStorage。 */
   for (const k of hit) {
-    try { await Net.fetch('/data/' + encodeURIComponent(k) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) {}
+    try { await Net.fetch('/data/' + encodeURIComponent(k) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) { /* 镜像删不掉下次 boot 顶多再清一遍，不拦本机这次的清理 */ }
   }
   console.info('[Store] 清掉了几个不再使用的旧键：' + hit.join('、'));
 }
+
+/* ---------- 本机存储：裸 localStorage 的唯一包装 ----------
+   `Store` 管的是「带信封、有上限、会同步」的那一份；这里只收字符串 / JSON 的读写，
+   并把「隐私模式 / 配额满 / 读坏了」统一变成返回值，页面不再各写一层 try。
+   静态判据（tests/static-guards.cjs）要求 web/ 里的 localStorage 读写都在 try 里或经这一份。 */
+window.LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? (d === undefined ? null : d) : v; } catch (e) { return d === undefined ? null : d; } },
+  set(k, v) { try { localStorage.setItem(k, String(v)); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem(k); return true; } catch (e) { return false; } },
+  json(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  setJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  /* 键清单也走这一份：隐私模式下 `localStorage` 一读就抛，遍历要能退化成空表。
+     拿到的是一次快照，边遍历边删不受影响（遍历 `localStorage.key(i)` 会因下标前移漏键）。 */
+  keys() { try { return Object.keys(localStorage); } catch (e) { return []; } },
+};
+
+/* ---------- 跨标签页广播：storage 事件的唯一入口 ----------
+   keys 为 null = 任意键；fn 抛错不影响别的订阅者。返回退订函数（页面卸载时调用）。 */
+window.StorageBus = {
+  on(keys, fn) {
+    const set = keys ? new Set(keys) : null;
+    const h = e => {
+      if (!e || !e.key) return;
+      if (set && !set.has(e.key)) return;
+      try { fn(e); } catch (err) { console.warn('[StorageBus]', err); }
+    };
+    window.addEventListener('storage', h);
+    return () => window.removeEventListener('storage', h);
+  },
+};

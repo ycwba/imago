@@ -2,12 +2,7 @@
    shell 不常驻加载；设置页与助手首次使用时 __spaLoadScript('web/domain/search.js', () => window.Search)。 */
 (function () {
   let cached = null;
-  function errOf(e, fallback) {
-    const x = new Error(errText(e, fallback || '搜索请求失败'));
-    if (e && e.data && e.data.kind) x.kind = e.data.kind;
-    if (e && e.status) x.status = e.status;
-    return x;
-  }
+  const errOf = (e, fallback) => window.Api.errOf(e, fallback || '搜索请求失败');
   async function settings() {
     try {
       const d = await window.Net.json('/search/settings', { retry: 0 });

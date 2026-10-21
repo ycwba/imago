@@ -16,9 +16,6 @@ export const CONTRACTS = {
 export function contractFor(key) {
   return CONTRACTS[key] || '';
 }
-export function hasContract(key) {
-  return Object.prototype.hasOwnProperty.call(CONTRACTS, key);
-}
 export function contractKeys() {
   return Object.keys(CONTRACTS);
 }

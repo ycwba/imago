@@ -5,7 +5,8 @@
      15 秒超时、≤2MB、不带 Cookie、不执行 JS，HTML 转纯文本后返回。 */
 'use strict';
 const fs = require('fs');
-const http = require('http');
+const { sendJson, readJsonBody } = require('./http');
+const { channelKey, channelBase, loopback, collect } = require('../channel-cred.js');
 
 const CACHE_TTL = 10 * 60 * 1000;
 const CACHE_MAX = 50;
@@ -15,21 +16,10 @@ const READ_TEXT_MAX = 40000;
 const JSON_MAX = 2 * 1024 * 1024;
 
 const clean = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
-function sendJson(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
-}
 function httpError(kind, message) {
   const e = new Error(message);
   e.kind = kind;
   return e;
-}
-function loopback(u) {
-  try {
-    const h = new URL(u).hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    return h === 'localhost' || h === '::1' || /^127\./.test(h);
-  } catch { return false; }
 }
 function domainOf(u) {
   try { return new URL(u).hostname.toLowerCase(); } catch { return ''; }
@@ -48,19 +38,6 @@ function normResults(list, limit) {
     if (out.length >= limit) break;
   }
   return out;
-}
-function collect(res, max) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    res.on('data', c => {
-      size += c.length;
-      if (size > max) { res.destroy(new Error('上游响应超过上限')); return; }
-      chunks.push(c);
-    });
-    res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    res.on('error', reject);
-  });
 }
 function decodeEntities(s) {
   const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', hellip: '…', middot: '·', copy: '©', reg: '®' };
@@ -88,36 +65,9 @@ function htmlToText(html) {
 
 function createSearchRoutes(ctx) {
   const cache = new Map();
-  const readJson = async (req, res, limit) => {
-    const b = await ctx.readBody(req, res, limit);
-    if (b == null) throw new Error('请求体读取失败');
-    return JSON.parse(b.toString('utf8'));
-  };
-
-  function providerOf(id) {
-    if (!id) return null;
-    try { return (ctx.providers() || []).find(p => p.id === id || p.keyId === id) || null; }
-    catch { return null; }
-  }
-  function mirrored(kind, kid) {
-    if (!kid) return '';
-    try {
-      const env = JSON.parse(fs.readFileSync(ctx.dataFileOf(kind + kid), 'utf8'));
-      const v = env && env.data;
-      return typeof v === 'string' ? v.trim() : '';
-    } catch { return ''; }
-  }
-  function channelKey(kid) {
-    const p = providerOf(kid);
-    return mirrored('sk_key_', kid) || (p && p.keyEnv ? ctx.keyOf(p.keyEnv) : '');
-  }
-  function channelBase(kid) {
-    const p = providerOf(kid);
-    return mirrored('sk_base_', kid) || (p && p.base) || '';
-  }
   function resolveCred() {
     const s = ctx.store.raw();
-    const key = s.credentialSource === 'manual' ? s.key : (channelKey(s.channelId) || s.key);
+    const key = s.credentialSource === 'manual' ? s.key : (channelKey(ctx, s.channelId) || s.key);
     return { s, key };
   }
   function cacheGet(k) {
@@ -145,7 +95,6 @@ function createSearchRoutes(ctx) {
       ...(headers || {}),
     };
     return await new Promise((resolve, reject) => {
-      const isHttps = /^https:/i.test(url);
       const cb = res => collect(res, JSON_MAX).then(text => resolve({ status: res.statusCode || 0, text }), reject);
       /* 连接层失败要归到 network / timeout（502 / 504），不能落到默认的 bad-request（400）：
          「上游连不上」与「你参数填错了」是两件事，前端与用户看到的下一句话完全不同。 */
@@ -156,11 +105,10 @@ function createSearchRoutes(ctx) {
       };
       let req;
       try {
-        if (isHttps) req = ctx.upRequest(url, { method: 'POST', headers: h, timeoutMs }, cb);
-        else {
-          req = http.request(url, { method: 'POST', headers: h }, cb);
-          req.setTimeout(timeoutMs, () => req.destroy(httpError('timeout', '搜索请求超时（' + Math.round(timeoutMs / 1000) + ' 秒）')));
-        }
+        /* 两条分支都走出站层：以前 http（本机回环）那条直接 http.request，
+           不带 DNS 闸也不带统一的连接处理；多一套出站实现就多一处会忘了加护栏。 */
+        req = ctx.anyRequest(url, { method: 'POST', headers: h }, cb);
+        req.setTimeout(timeoutMs, () => req.destroy(httpError('timeout', '搜索请求超时（' + Math.round(timeoutMs / 1000) + ' 秒）')));
       } catch (e) { fail(e); return; }
       req.on('error', fail);
       req.write(body);
@@ -191,7 +139,7 @@ function createSearchRoutes(ctx) {
   }
 
   async function deepseekSearch(s, key, q, limit, site, freshness) {
-    const base = (s.baseUrl || channelBase(s.channelId) || 'https://api.deepseek.com').replace(/\/+$/, '');
+    const base = (s.baseUrl || channelBase(ctx, s.channelId) || 'https://api.deepseek.com').replace(/\/+$/, '');
     const url = /\/chat\/completions$/i.test(base) ? base : base + '/chat/completions';
     const model = s.model || 'deepseek-chat';
     const scope = (site ? ' 只找站点 ' + site + ' 上的内容。' : '')
@@ -290,13 +238,13 @@ function createSearchRoutes(ctx) {
         return true;
       }
       if (part[0] === 'settings' && method === 'PUT') {
-        const body = await readJson(req, res, 64 * 1024);
+        const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
         const s = ctx.store.patch(body && body.settings ? body.settings : body);
         sendJson(res, 200, { ok: true, settings: s, revision: s.revision });
         return true;
       }
       if (part[0] === 'query' && method === 'POST') {
-        const body = await readJson(req, res, 64 * 1024);
+        const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
         const s = ctx.store.raw();
         if (!s.enabled) throw httpError('disabled', '联网搜索没有启用（设置 → 联网搜索）');
         const q = clean(body && body.query, 200);
@@ -322,7 +270,7 @@ function createSearchRoutes(ctx) {
         return true;
       }
       if (part[0] === 'read' && method === 'POST') {
-        const body = await readJson(req, res, 64 * 1024);
+        const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
         const u = clean(body && body.url, 2000);
         if (!u) throw httpError('bad-request', '没有给 url');
         const page = await readPage(u);

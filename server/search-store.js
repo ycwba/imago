@@ -4,7 +4,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { atomicWrite } = require('./fs-atomic.js');
+const { writeJsonWithBak } = require('./fs-atomic.js');
 
 const PROVIDERS = new Set(['tavily', 'deepseek']);
 const SOURCES = new Set(['channel', 'manual']);
@@ -56,18 +56,8 @@ function createSearchStore(opts) {
     };
     return cur;
   };
-  const atomic = obj => {
-    const body = JSON.stringify(obj, null, 2);
-    try {
-      if (fs.existsSync(file)) {
-        const old = fs.readFileSync(file, 'utf8');
-        /* 内容相同不留备份；备份写不成不阻挡主写（普通写，不参与 fsync/rename） */
-        if (old !== body) fs.writeFileSync(file.replace(/\.json$/, '.bak.json'), old);
-      }
-    } catch (e) {}
-    /* 写盘纪律只有 fs-atomic 一处（与 asr-store 同一份）：tmp → fsync → 占用时退避重试的 rename */
-    atomicWrite(file, body);
-  };
+  /* 覆盖写 + `.bak` 备份与写盘纪律都在 fs-atomic（writeJsonWithBak），与 asr-store 同一份。 */
+  const atomic = obj => writeJsonWithBak(file, obj);
   const persist = () => {
     const s = load();
     s.revision = (Number(s.revision) || 0) + 1;

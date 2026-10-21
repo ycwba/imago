@@ -6,10 +6,8 @@
    场景名与镜头名各自先截 24 字，扩展名由 withExt 拼回**恰好一个**。
    纯函数、不碰 DOM；字符清洗仍归 ui.js 的 `fileSafe`（浏览器里直接用），Node 单测没有它就按原样。 */
 
-const pad2 = n => {
-  const v = Math.max(0, Math.floor(Number(n) || 0));
-  return v < 10 ? '0' + v : String(v);
-};
+/* 补零取公共层那一份（ui.js 的 `window.pad2`）；Node 单测里由测试补同规则桩。 */
+const pad2 = n => window.pad2(n);
 /* 按字符截断（不用 slice 拆开代理对）：中文名超过 24 字时只影响文件名，不影响工程里的名字。 */
 const clipText = (s, max) => Array.from(String(s == null ? '' : s).replace(/[\r\n\t]+/g, ' ').trim())
   .slice(0, max || 24).join('');

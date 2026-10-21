@@ -361,7 +361,7 @@ window.TextAI = {
     return raw + '\n\n' + note;
   },
   prompt(kind, askNote) {
-    const stored = localStorage.getItem(this.promptKey(kind));
+    const stored = window.LS.get(this.promptKey(kind));
     /* NO_ASK 那几条还要**摘掉尾部那段追问说明**：story / split 以前不在名单里，
        设置页一保存就把 ASK_NOTE 整段写进了 sk_polish_story / sk_polish_split ——
        加进 NO_ASK 只管得住「以后不再拼」，已经被污染的那一份还在用户机器上，
@@ -380,8 +380,8 @@ window.TextAI = {
     for (const g of (this.PROMPTS || [])) {
       for (const it of ((g.items || []))) {
         const key = this.promptKey(it.key);
-        const v = localStorage.getItem(key);
-        if (v && v === this.defaultPrompt(it.key)) { localStorage.removeItem(key); n++; }
+        const v = window.LS.get(key);
+        if (v && v === this.defaultPrompt(it.key)) { window.LS.del(key); n++; }
       }
     }
     return n;
@@ -414,7 +414,7 @@ window.TextAI = {
   all(REG) { return ((REG && REG.providers) || []).filter(p => p.kind === 'text'); },
   provKey() { return 'sk_text_prov'; },
   savedProv(REG) {
-    const want = localStorage.getItem(this.provKey());
+    const want = window.LS.get(this.provKey());
     if (!want) return null;
     const list = this.all(REG);
     return list.find(p => p.id === want) || list.find(p => (p.keyId || p.id) === want) || null;
@@ -464,7 +464,7 @@ window.TextAI = {
   key(prov) {
     const o = this.formOverride[this.keyId(prov)];
     if (o && o.key) return o.key;
-    return localStorage.getItem('sk_key_' + this.keyId(prov)) || '';
+    return window.LS.get('sk_key_' + this.keyId(prov)) || '';
   },
   /* 自定义基址：按供应方各存各的（sk_base_<keyId>）；没填就用 registry 里的地址。
      有值时以 x-up-base 头临时换基址，所以「常用接口预设」对任何一家都照样能用。
@@ -476,7 +476,7 @@ window.TextAI = {
     if (prov && prov.custom) return '';
     const o = this.formOverride[this.keyId(prov)];
     if (o && o.base) return o.base;
-    return localStorage.getItem('sk_base_' + this.keyId(prov)) || '';
+    return window.LS.get('sk_base_' + this.keyId(prov)) || '';
   },
   /* 这个自定义地址是不是**另一家**的？
      地址是按供应方各存各的（`sk_base_<keyId>`），但用户很容易在「供应方 = DeepSeek」时
@@ -565,7 +565,7 @@ window.TextAI = {
      （同一个坑，第二个入口）。 */
   model(prov) {
     if (!this.hasProv(prov)) return '';
-    const saved = localStorage.getItem('sk_model_' + this.keyId(prov));
+    const saved = window.LS.get('sk_model_' + this.keyId(prov));
     if (saved) return saved;
     return this.custom(prov)[0] || '';
   },
@@ -581,7 +581,7 @@ window.TextAI = {
      为什么以接口为准：同一家的模型名会变、多家共用一套命名，名字猜错会白带图（浪费 tokens） */
   META_TTL: 12 * 60 * 60 * 1000,      // 模型能力缓存 12 小时（能力很少变，不必每次都拉）
   _meta: null,                        // { [modelId]: { vision, why } }
-  visionMode() { return localStorage.getItem('sk_text_vision') || 'auto'; },   // auto | on | off
+  visionMode() { return window.LS.get('sk_text_vision') || 'auto'; },   // auto | on | off
   /* 润色前要不要先反问（sk_polish_ask）：
        ai（默认）= **交给 AI 判断** —— 把「描述够不够写」交给模型：它读完内容自己决定
                     是先问几个问题，还是直接进润色。程序不按字数拍板（一句 30 字可能很清楚，
@@ -589,7 +589,7 @@ window.TextAI = {
        on  = 强制先问；off = 从不问。
      「为什么可以问」这件事也写进了 AI 提示词（askPolish 的契约段与 TextAI.DEF 的「补充信息」段），
      模型才知道自己有两段可选、问到的东西会怎么被用。 */
-  askMode() { return localStorage.getItem('sk_polish_ask') || 'ai'; },
+  askMode() { return window.LS.get('sk_polish_ask') || 'ai'; },
   shouldAsk() {
     const m = this.askMode();
     return m !== 'off';                       // ai / on 都要先问模型，由它决定问不问
@@ -1027,7 +1027,11 @@ window.TextAI = {
     } catch (e) {
       if (e && e.name === 'AbortError') throw new Error('已经取消这次生成');
       if (got) throw new Error('这次生成中途断了（已经收到 ' + got + ' 字，界面里能看到）：' + e.message);
-      if (sentStreamOpts && /stream_options|unknown|unsupported|extra/i.test(e.message)) {
+      /* 只有「还没收到任何内容 + 明确 4xx 拒收」才能改走非流式重发。
+         流已经建起来之后（got === 0 也可能是上游已经受理、只是没吐字）重发等于说两遍话、
+         花两次钱；读流的错误没有状态码，一律如实抛。 */
+      const st = Number(e && e.status) || 0;
+      if (sentStreamOpts && st >= 400 && st < 500 && /stream_options|unknown|unsupported|extra/i.test(e.message)) {
         return await this.chat(REG, sys, user, o, prov);
       }
       throw e;
@@ -1177,24 +1181,31 @@ try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可�
 /* 各平台余额接口规格（只有声明了 url 的能精确查询） */
 window.TextAI.BALANCE = {
   deepseek: { url: '/user/balance', parse: d => {
-    const b = (d.balance_infos || [])[0] || {};
+    const b = (Array.isArray(d && d.balance_infos) ? d.balance_infos[0] : null) || null;
+    /* 读不到余额字段就是「没验成」，不是「余额 0 且密钥可用」—— 空对象折成 ok:true 会让
+       设置页把一把只能查余额却查不出数的钥匙报成可用。 */
+    if (!b || b.total_balance == null) return { ok: false };
     return { ok: true, currency: b.currency || 'CNY', amount: Number(b.total_balance || 0),
       extra: `充值 ${b.topped_up_balance ?? '—'} · 赠送 ${b.granted_balance ?? '—'}`, available: d.is_available !== false };
   } },
   moonshot: { url: '/users/me/balance', parse: d => {
-    const b = (d.data || {});
+    const b = (d && d.data) || null;
+    if (!b || b.available_balance == null) return { ok: false };
     const amount = Number(b.available_balance ?? 0);
     return { ok: true, currency: 'CNY', amount, extra: `现金 ${b.cash_balance ?? '—'} · 代金券 ${b.voucher_balance ?? '—'}`, available: true };
   } },
   siliconflow: { url: '/user/info', parse: d => {
-    const b = (d.data || {});
-    const amount = Number(b.totalBalance ?? b.balance ?? 0);
+    const b = (d && d.data) || null;
+    const raw = b ? (b.totalBalance ?? b.balance) : null;
+    if (raw == null) return { ok: false };
+    const amount = Number(raw || 0);
     return { ok: true, currency: 'CNY', amount, extra: b.chargeBalance != null ? `充值余额 ${b.chargeBalance}` : '', available: true };
   } },
   /* OpenRouter 的 /credits 只认**管理密钥**，普通 API key 会回 403 —— 那是正常的，
      页面会照实显示原因。侧栏余额卡不画它（那边只有 micros / 积分两种解析形状，硬套会显示成 ¥0.00）。 */
   openrouter: { url: '/credits', parse: d => {
-    const b = (d && d.data) || {};
+    const b = (d && d.data) || null;
+    if (!b || b.total_credits == null) return { ok: false };
     const total = Number(b.total_credits ?? 0), used = Number(b.total_usage ?? 0);
     return { ok: true, currency: 'USD', amount: Math.max(0, total - used),
       extra: `充值 $${total.toFixed(2)} · 已用 $${used.toFixed(2)}`, available: true };

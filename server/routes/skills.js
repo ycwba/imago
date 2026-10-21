@@ -3,12 +3,8 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { sendJson } = require('./http');
 
-function sendJson(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
-}
 async function handleSkills(req, res, ctx) {
   const store = ctx.store;
   const url = new URL(req.url, 'http://local');

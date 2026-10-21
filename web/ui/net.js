@@ -21,7 +21,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
      返回 null = 「本机没存过」，调用方据此决定退回什么（轮询器退回页面自己传的 interval）。 */
   function storedNum(name) {
     const sp = NUMS[name];
-    const raw = localStorage.getItem(sp.key);
+    const raw = window.LS.get(sp.key);
     if (raw == null || raw === '') return null;
     const n = Number(raw);
     return Number.isFinite(n) ? Math.min(sp.max, Math.max(sp.min, n)) : null;

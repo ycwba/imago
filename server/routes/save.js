@@ -3,6 +3,11 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { sendJson } = require('./http');
+
+/* 本文件的错误体是 `{error:{message}}`（domain/local.js 与设置页读的是 error.message），
+   与公共 fail 的扁平 `{error}` 不同：这里只做形状适配，头字段仍交给 ./http。 */
+const failJson = (res, code, msg) => sendJson(res, code, { error: { message: msg } });
 
 function createSaveRoutes(ctx) {
   const {
@@ -42,17 +47,16 @@ function createSaveRoutes(ctx) {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
-        const bad3 = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: msg } })); };
-        if (!spec || !spec.data) return bad3(400, '缺少 data(base64)');
+        if (!spec || !spec.data) return failJson(res, 400, '缺少 data(base64)');
         const type = String(spec.type || '').toLowerCase();
-        if (!SAVE_KINDS.includes(type)) return bad3(400, 'type 只能是 ' + SAVE_KINDS.join(' / '));
+        if (!SAVE_KINDS.includes(type)) return failJson(res, 400, 'type 只能是 ' + SAVE_KINDS.join(' / '));
         /* ⚠ 目录**只从配置读**。请求体里就算递了 dir 也一视同仁地丢掉：
            一旦认客户端递的目录，这条路由就等于「任意本机网页往任意路径写文件」。 */
         const dir = autosaveDir(type);
         /* '' 现在只有一个来源：这一类的开关被关掉了（留空 = 用默认目录，不再是「不存」）——
            这句话照旧写「没指定文件夹」的话，用户翻遍设置页也找不到那个该填的格子。 */
-        if (!dir) return bad3(409, typeLabel(type) + '这一类现在是关着的（设置页里打开「自动保存」才会另存）');
-        if (insideLocalDir(dir)) return bad3(409, '另存目录不能设成本机资产库本体（.assets）—— 产物本来就存在那儿了，请换一个普通文件夹');
+        if (!dir) return failJson(res, 409, typeLabel(type) + '这一类现在是关着的（设置页里打开「自动保存」才会另存）');
+        if (insideLocalDir(dir)) return failJson(res, 409, '另存目录不能设成本机资产库本体（.assets）—— 产物本来就存在那儿了，请换一个普通文件夹');
         const fmt = String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
         const base = saveBaseName(spec.name, 'file.' + (fmt || 'bin'));
         try {
@@ -62,20 +66,19 @@ function createSaveRoutes(ctx) {
              「哪一个盘、要多少、还剩多少」。回 409 不回 5xx —— 这条路由上没成就是没成，
              而页面把 5xx 的 POST 记成「可能已经受理」，那是给平台任务用的，这里只会误导。 */
           const whySpace = whyNoSpace(dir, buf.length, '另存这一个文件');
-          if (whySpace) { log('[save] ' + whySpace); return bad3(409, whySpace); }
+          if (whySpace) { log('[save] ' + whySpace); return failJson(res, 409, whySpace); }
           const w = writeFresh(dir, base, buf);
-          if (w.tooMany) return bad3(409, '那个目录里已经有一千个同名文件了');
-          if (w.busy) return bad3(409, '那个目录里同名文件正被同时写入，抢了 ' + SAVE_WX_MAX + ' 次都没到位 —— 稍后再存一次');
+          if (w.tooMany) return failJson(res, 409, '那个目录里已经有一千个同名文件了');
+          if (w.busy) return failJson(res, 409, '那个目录里同名文件正被同时写入，抢了 ' + SAVE_WX_MAX + ' 次都没到位 —— 稍后再存一次');
           const file = w.file, full = w.target;
           autosaveUsedAdd(dir);          // 这个目录从此可以当「旧目录」被搬走（见 /save-move）
           log(`[save] ${type} → ${dir}${path.sep}${file}（${(buf.length / 1024).toFixed(0)} KB）`);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify({ ok: true, type, dir, file, bytes: buf.length, path: full }));
+          sendJson(res, 200, { ok: true, type, dir, file, bytes: buf.length, path: full });
         } catch (e) {
           /* 目录写不进去**照实说**：路径不存在 / 没权限 / 盘满 / 别的程序占着。
              页面照原样显示这一句，用户才知道要去改设置，而不是看到「保存失败」然后猜。 */
           log('[save] 写入失败：' + e.message);
-          bad3(500, '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message);
+          failJson(res, 500, '写不进 ' + dir + '：' + (e && e.code ? e.code + ' ' : '') + e.message);
         }
       });
       return;
@@ -90,11 +93,9 @@ function createSaveRoutes(ctx) {
     if (dataPath === '/save-stale' && req.method === 'GET') {
       try {
         const kinds = saveStaleScan();
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ok: true, kinds, at: Date.now() }));
+        sendJson(res, 200, { ok: true, kinds, at: Date.now() });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: { message: '数不出旧目录：' + ((e && e.message) || e) } }));
+        failJson(res, 500, '数不出旧目录：' + ((e && e.message) || e));
       }
       return;
     }
@@ -127,10 +128,9 @@ function createSaveRoutes(ctx) {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
-        const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
         const ids = Array.isArray(spec && spec.ids) ? spec.ids.filter(x => typeof x === 'string') : [];
-        if (!ids.length) return fail(400, '没有要补存的产物');
-        if (ids.length > 2000) return fail(400, '一次最多补存 2000 个');
+        if (!ids.length) return failJson(res, 400, '没有要补存的产物');
+        if (ids.length > 2000) return failJson(res, 400, '一次最多补存 2000 个');
         const index = localIndexRead();
         const saved = [], missing = [], noKind = [], full = [], dup = [];
         let bytes = 0;
@@ -177,8 +177,7 @@ function createSaveRoutes(ctx) {
           + (missing.length ? '，索引/文件已不在 ' + missing.length + ' 个' : '')
           + (noKind.length ? '，不归任何一类 ' + noKind.length + ' 个' : '')
           + (full.length ? '，没存成 ' + full.length + ' 个' : ''));
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ok: true, saved, dup, missing, noKind, full, bytes }));
+        sendJson(res, 200, { ok: true, saved, dup, missing, noKind, full, bytes });
       });
       return;
     }
@@ -196,11 +195,10 @@ function createSaveRoutes(ctx) {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
-        const fail = (code, msg) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: { message: msg } })); };
         const kind = String((spec && spec.kind) || '').toLowerCase();
-        if (!SAVE_KINDS.includes(kind)) return fail(400, 'kind 只能是 ' + SAVE_KINDS.join(' / '));
+        if (!SAVE_KINDS.includes(kind)) return failJson(res, 400, 'kind 只能是 ' + SAVE_KINDS.join(' / '));
         const fromRaw = String((spec && spec.from) || '').trim();
-        if (!fromRaw) return fail(400, '没有要搬的旧目录');
+        if (!fromRaw) return failJson(res, 400, '没有要搬的旧目录');
         /* from 传空串 / '@default' = 「旧的也是默认目录」。这一支**不需要**白名单：
            路径是代理自己算的，不是客户端递进来的 ——
            白名单是拿来挡「客户端指定源目录」的，这一支压根没有客户端指定的路径。
@@ -208,26 +206,26 @@ function createSaveRoutes(ctx) {
            过渡期两处都可能还有东西，所以这一支拿到的是候选表，只搬真实存在的那些。 */
         const srcIsDefault = (fromRaw === '@default' || fromRaw === '');
         const to = autosaveDir(kind);                       // 目标只由配置决定，请求体里的 dir 一律忽略
-        if (!to) return fail(409, typeLabel(kind) + '这一类现在是关着的');
+        if (!to) return failJson(res, 409, typeLabel(kind) + '这一类现在是关着的');
         let srcDirs;
         try { srcDirs = srcIsDefault ? autosaveDefaultDirs(kind) : [path.resolve(fromRaw)]; }
-        catch { return fail(400, '旧目录不是一个有效路径'); }
+        catch { return failJson(res, 400, '旧目录不是一个有效路径'); }
         /* 白名单挡不住一种情况：用户把「另存目录」**填成 .assets 或它的某个子目录**。
            那样 /save 写进去的副本会让那个目录进白名单（autosaveUsedAdd），
            之后这条路由就会**真的从资产库里把文件搬走** —— 而 .assets 是整个工作台的本体：
            离线能看、删了能回源、缩略图全靠它，搬空了资产库就空了。
            白名单证明的是「这个目录是本工作台写的」，证明不了「搬走它是安全的」，
            所以资产库本体要单独拦 —— 判据是 insideLocalDir 那一份，三条路由共用。 */
-        for (const d of srcDirs) if (insideLocalDir(d)) return fail(403, '那个目录是本机资产库本体（.assets），不从那里搬 —— 资产库一空，工作台就看不到东西了');
-        if (insideLocalDir(to)) return fail(403, '另存目录不能设成本机资产库本体（.assets）—— 请换一个普通文件夹');
+        for (const d of srcDirs) if (insideLocalDir(d)) return failJson(res, 403, '那个目录是本机资产库本体（.assets），不从那里搬 —— 资产库一空，工作台就看不到东西了');
+        if (insideLocalDir(to)) return failJson(res, 403, '另存目录不能设成本机资产库本体（.assets）—— 请换一个普通文件夹');
         /* 「新旧目录是同一个」要**每一个来源都等于目标**才算整单没事可做：
            候选表里只有其中一个是目标时，另一个还有东西要搬，不能一起跳过。 */
-        if (srcDirs.every(d => d === to)) return res.writeHead(200, { 'Content-Type': 'application/json' }),
-          res.end(JSON.stringify({ ok: true, moved: [], bytes: 0, note: '新旧目录是同一个，没什么可搬' }));
-        if (!srcIsDefault && !autosaveUsedHas(srcDirs[0])) return fail(403, '那个目录不是本工作台写出去的，不搬（只搬自动存到过的目录）');
+        if (srcDirs.every(d => d === to)) return sendJson(res, 200,
+          { ok: true, moved: [], bytes: 0, note: '新旧目录是同一个，没什么可搬' });
+        if (!srcIsDefault && !autosaveUsedHas(srcDirs[0])) return failJson(res, 403, '那个目录不是本工作台写出去的，不搬（只搬自动存到过的目录）');
         const moved = [], skipped = [], failed = [], dup = [];
         let bytes = 0;
-        try { fs.mkdirSync(to, { recursive: true }); } catch (e) { return fail(500, '建不出 ' + to + '：' + e.message); }
+        try { fs.mkdirSync(to, { recursive: true }); } catch (e) { return failJson(res, 500, '建不出 ' + to + '：' + e.message); }
         const sums = saveDirIndex(to);     // 目标里已有的内容，搬之前先看一眼，避免搬出 xxx-2 这种重复
         const attempted = srcDirs.filter(d => d !== to);
         let readErr = null, readOk = 0;
@@ -280,14 +278,13 @@ function createSaveRoutes(ctx) {
         }
         /* 一个来源都读不出来才算「读不出旧目录」：多来源时只要有一处能读就照常搬，
            读不出的那一处照实留在日志里，不把整单拦掉。 */
-        if (!readOk && readErr) return fail(404, '读不出旧目录：' + readErr.message);
+        if (!readOk && readErr) return failJson(res, 404, '读不出旧目录：' + readErr.message);
         log('[save-move] ' + kind + ' ' + attempted.join(' + ') + ' → ' + to + '：搬走 ' + moved.length
           + ' 个（' + (bytes / 1048576).toFixed(1) + ' MB）'
           + (dup.length ? '，那边已有同样内容、只删了源 ' + dup.length + ' 个' : '')
           + '，不是这一类 ' + skipped.length + ' 个'
           + (failed.length ? '，没搬成 ' + failed.length + ' 个' : ''));
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ok: true, from: srcDirs.length === 1 ? srcDirs[0] : srcDirs, to, moved, dup, skipped, failed, bytes }));
+        sendJson(res, 200, { ok: true, from: srcDirs.length === 1 ? srcDirs[0] : srcDirs, to, moved, dup, skipped, failed, bytes });
       });
       return;
     }

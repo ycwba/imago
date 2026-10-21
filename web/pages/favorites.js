@@ -2,17 +2,12 @@
    数据与副作用全部走已有的公共层（Fav / Wb / AssetLocal / AiFind / Chips / AiChip），
    组件只负责「这一屏长什么样」；分页、灯箱、详情、缩略图缓存仍是全站那一份实现。 */
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, inject, watch } from '../../vue.runtime.esm-browser.prod.js';
-import { LocalBadge } from '../ui/index.js';
+import { badgeHTML } from '../ui/index.js';
 import { render } from '../render/favorites.js';
+import { ensureCss } from '../core/page-css.js';
 
 /* 页面样式跟着页面组件走：第一次打开这一页才挂，切页不重复插。 */
-(function ensureCss() {
-  if (document.querySelector('link[href$="spa-pages.css"]')) return;
-  const l = document.createElement('link');
-  l.rel = 'stylesheet';
-  l.href = 'web/styles/spa-pages.css';
-  document.head.appendChild(l);
-})();
+ensureCss('web/styles/spa-pages.css');
 
 const PAGE_MODE = window.pageModeOf('favorites');
 const PAGE_SIZE = window.pageSizeOf('favorites');
@@ -20,13 +15,12 @@ const TYPES = [['all', '全部'], ['图片', '图片'], ['视频', '视频'], ['
 
 export default {
   name: 'FavoritesView',
-  components: { LocalBadge },
   setup() {
     const activeFile = inject('spaActiveFile', null);
     /* 前台判据只有公共层那一份：core/activity.js（外壳挂在 window.__spaActivity）。
        这里原来自己读 `spaActiveFile`：那只说明「路由选中的是这一页」，整个标签页切到后台时
        它照样为真，于是看不见的收藏页还在接拖拽、还在处理快捷键。 */
-    const isActive = () => window.__spaActivity.visible('favorites.html');
+    const isActive = window.__spaActivity.forPage('favorites.html');
     /* 下面这一支不是「前台判据」的第二份：它只在**路由切到本页**那一刻再画一遍
        （从设置页改了「卡片标识」再切回来时，卡片 HTML 要按新开关重画）。 */
     if (activeFile && typeof activeFile === 'object') {
@@ -42,7 +36,6 @@ export default {
     const viewItems = ref([]);
     const urls = ref({});
     const cntText = ref('');
-    const healNote = ref('');
     const pagerTick = ref(0);
     const pagerVisible = ref(false);
     const aiText = ref('');
@@ -50,25 +43,29 @@ export default {
     const uploading = ref(false);
     const pullBtn = ref(null);
     const grids = ref(null);
-    const chipsEl = ref(null);
-    const aiBtn = ref(null);
-    const aiChipEl = ref(null);
+    const toolbarEl = ref(null);
     const viewEl = ref(null);
     const fileEl = ref(null);
     const gridEnd = ref(null);
     const pagerRow = ref(null);
-    const qEl = ref(null);
     const dlBusy = reactive({});
     const dlMsg = reactive({});
     const noteTimers = new Map();
 
     const urlMap = new Map();
     let pager = null;
+    let offStorage = null;
     let viewToggle = null;
     let renderSeq = 0;
     let aiPick = null;
     let aiRank = null;
     let aiWhy = '';
+    /* 工具条结构（chips / 搜索框 / AI 按钮 / AI 条件芯片 / 计数）全部由 Wb.filterBar 生成，
+       这一页只留「点完之后做什么」。以下是在 bind 之后取回的几颗节点，页面自己接线。 */
+    let toolbarFb = null;
+    let aiBtnEl = null;
+    let aiChipHost = null;
+    let healEl = null;
 
     const byType = (it, t) => t === 'all' || (t === '音频' ? window.isAudioType(it.type) : it.type === t);
     const fmtSize = b => window.fmtBytes(b);
@@ -96,9 +93,9 @@ export default {
     }
 
     function paintChips() {
-      if (!chipsEl.value) return;
+      if (!toolbarFb) return;
       const items = Fav.list();
-      window.Chips.render(chipsEl.value, TYPES, filter.value, v => {
+      toolbarFb.setChips(TYPES, filter.value, v => {
         filter.value = v;
         resetPaging();
         render();
@@ -106,12 +103,45 @@ export default {
     }
 
     function paintAiChip() {
-      if (!aiChipEl.value) return;
-      window.AiChip.paint(aiChipEl.value, {
-        text: aiPick ? window.AiChip.picked(aiPick.size, aiWhy) : '',
-        clearId: 'favAiClear',
-        onClear: clearAiPick,
+      if (!aiChipHost) return;
+      window.AiChip.show(aiChipHost, {
+        on: !!aiPick, picked: aiPick && aiPick.size, why: aiWhy,
+        clearId: 'favAiClear', onClear: clearAiPick,
       });
+    }
+
+    function setFavCnt(text) {
+      cntText.value = text;
+      if (toolbarFb) toolbarFb.setCount(text);
+    }
+
+    function setHeal(text) {
+      if (!healEl) return;
+      healEl.textContent = text || '';
+    }
+
+    /* 整条工具条只在这里建一次：芯片行、搜索框、计数由公共件画；AI 按钮与 AI 条件芯片是
+       这一页的额外件，以 extraHTML 传入，bind 之后再捎回节点接自己的行为。 */
+    function bindFavToolbar() {
+      if (!toolbarEl.value) return;
+      toolbarFb = Wb.filterBar.bind(toolbarEl.value, {
+        chips: TYPES,
+        value: filter.value,
+        q: q.value,
+        placeholder: '搜索名称 / 提示词 / 备注',
+        onFilter: v => { filter.value = v; resetPaging(); render(); },
+        onSearch: v => { q.value = v; resetPaging(); render(); },
+        extraHTML: '<button class="tool acc" title="' + window.esc('在收藏里找：把搜索框里那句话交给文字 AI，按名称 / 类型 / 备注挑出收藏') + '">'
+          + ((window.icon ? icon('sparkles', 14) : '') + ' AI 找素材') + '</button>'
+          + '<span data-fb="aiChip"></span>',
+        /* 过期图回源那一句是提醒，不是计数：留在计数右边，别混进 setCount 里。 */
+        tailHTML: '<span class="cnt" data-fb="heal" style="color:var(--warn)"></span>',
+      });
+      if (!toolbarFb) return;
+      aiBtnEl = toolbarFb.el.querySelector('.tool.acc');
+      if (aiBtnEl) aiBtnEl.onclick = runAiFind;
+      aiChipHost = toolbarFb.el.querySelector('[data-fb="aiChip"]');
+      healEl = toolbarFb.el.querySelector('[data-fb="heal"]');
     }
 
     function clearAiPick() { window.AiFind.clear(AI); }
@@ -151,7 +181,7 @@ export default {
       it.size ? fmtSize(it.size) : '',
       it.duration ? it.duration + 's' : '',
     ].filter(Boolean).join(' · ');
-    /* 与资产库同一颗开关、同一套说法：本机 / 云端 / 两者都有。徽标本身只有 ui/LocalBadge 一份。 */
+    /* 与资产库同一颗开关、同一套说法：本机 / 云端 / 两者都有。徽标只有 badge-state.js 一份。 */
     const badgeShow = () => {
       const AL = window.AssetLocal;
       return !!(AL && AL.showBadge && AL.showBadge());
@@ -161,21 +191,15 @@ export default {
       if (!AL || !AL.stateOf) return {};
       try { return AL.stateOf(it); } catch (e) { return {}; }
     };
+    const badgeHtml = it => badgeHTML(badgeState(it), badgeShow());
 
     function paintPullBtn() {
       if (!pullBtn.value) return;
-      AssetLocal.pullBtn(pullBtn.value, pullScope().length, { what: '收藏', more: '本地上传的那一批不算。' });
+      AssetLocal.pullBar(pullBtn.value, pullScope(), { what: '收藏', more: '本地上传的那一批不算。' });
     }
 
     function pullScope() {
-      const seen = new Set();
-      const AL = window.AssetLocal;
-      return viewItems.value.filter(it => {
-        if (it.kind === 'local') return false;
-        if (!it.key || seen.has(it.key)) return false;
-        seen.add(it.key);
-        return !(AL && AL.hasLocal ? AL.hasLocal(it) : AL.hasLocalAddr(it.src || it.dl || ''));
-      });
+      return AssetLocal.pullPlan(viewItems.value.filter(it => it.key), { keyOf: it => it.key });
     }
 
     async function pullLocal() {
@@ -217,7 +241,7 @@ export default {
       else if (filter.value !== 'all') emptyWhy.value = '这个筛选条件下没有收藏：把芯片切回「全部」就能看到。';
       else emptyWhy.value = '还没有收藏。去「资产库」点卡片上的 ☆，或点右上角「上传本地文件」。';
       paintPullBtn();
-      cntText.value = items.length ? '共 ' + items.length + ' 项' : '';
+      setFavCnt(items.length ? '共 ' + items.length + ' 项' : '');
       pagerVisible.value = items.length > 0;
       if (items.length) pager.update();
 
@@ -243,7 +267,7 @@ export default {
 
     async function resignSome(items, seq) {
       const staleN = items.filter(it => Fav.expired(it.src || it.dl || '')).length;
-      if (!staleN) { healNote.value = ''; return; }
+      if (!staleN) { setHeal(''); return; }
       const done = await Fav.resignSome(items, (it, nextUrl) => {
         if (seq !== renderSeq) return;
         urls.value = { ...urls.value, [it.key]: nextUrl };
@@ -252,16 +276,10 @@ export default {
       });
       if (seq !== renderSeq) return;
       const left = Math.max(0, staleN - (Number(done) || 0));
-      healNote.value = left ? '还有 ' + left + ' 条过期的图这次没换回来（下次打开会再试）' : '';
+      setHeal(left ? '还有 ' + left + ' 条过期的图这次没换回来（下次打开会再试）' : '');
     }
 
     function openLb(it) { Wb.lightbox.open(it); }
-
-    function onSearch() {
-      clearTimeout(onSearch.t);
-      onSearch.t = setTimeout(() => { resetPaging(); render(); }, 250);
-    }
-    onSearch.t = 0;
 
     function onNote(it, e) {
       it.note = e.target.value;
@@ -352,9 +370,9 @@ export default {
     const aiScope = () => Fav.list().slice(0, 100);
     const AI = {
       label: 'AI 找素材',
-      btn: () => aiBtn.value,
+      btn: () => aiBtnEl,
       ask: () => q.value,
-      focus: () => qEl.value && qEl.value.focus(),
+      focus: () => { if (toolbarFb) toolbarFb.focus(); },
       emptyMsg: '还没有收藏：在各工作台产物上点 ☆，或用右边的「上传本地文件」',
       get noneMsg() {
         const n = Fav.list().length;
@@ -371,21 +389,31 @@ export default {
         + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
         + '4. summary 说清你按什么理解的需求，界面会显示给用户看。',
       apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
-      onPick: () => { q.value = ''; filter.value = 'all'; },
+      onPick: () => {
+        q.value = '';
+        filter.value = 'all';
+        if (toolbarFb) toolbarFb.setQuery('');
+      },
       done: () => { resetPaging(); render(); },
-      say: t => { cntText.value = t; },
+      say: t => { setFavCnt(t); },
     };
 
     function runAiFind() { window.AiFind.run(AI); }
 
     function onFavChange() { render(); }
-    function onStorage(e) { if (!e.key || e.key === 'fav_items') render(); }
+    function onStorage() { render(); }
 
     function initWb() {
+      /* 分页行结构只从 Wb.pager 取（S3）：模板里只留一个空的 `.pager-row` 宿主，
+         id 带页面前缀 —— 七页同在 KeepAlive 里，写死 pgNext 会在同一份文档里撞号。 */
+      if (pagerRow.value) pagerRow.value.innerHTML = Wb.pager.rowHTML('fav', { info: '第 1 页' });
       pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE, localMore: true,
+        pgPrevId: 'favPgPrev', pgInfoId: 'favPgInfo', pgNextId: 'favPgNext',
         items: () => viewItems.value,
-        render: () => { pagerTick.value++; },
+        /* 翻页要重新取那一页的缩略图地址：只推 pagerTick 会换掉列表条目，
+           而 urls 还是上一页的键 → 第 2 页每格都空。render() 自己按当前页重取。 */
+        render: () => { render(); },
       });
       pager.bindButtons();
       viewToggle = Wb.viewToggle.create({ el: viewEl.value, key: 'dir_fav_view', target: grids.value });
@@ -445,9 +473,10 @@ export default {
       /* 网格 / 分页行是 v-else 分支，要等这一帧渲染完才存在；
          在这里 initWb 拿到的是 null，视图开关会静默不创建。 */
       await nextTick();
+      bindFavToolbar();
       initWb();
       window.addEventListener('fav-change', onFavChange);
-      window.addEventListener('storage', onStorage);
+      offStorage = window.StorageBus.on(['fav_items'], onStorage);
       document.addEventListener('dragover', onDragOver);
       document.addEventListener('dragleave', onDragLeave);
       document.addEventListener('drop', onDrop);
@@ -467,19 +496,20 @@ export default {
 
     onBeforeUnmount(() => {
       window.removeEventListener('fav-change', onFavChange);
-      window.removeEventListener('storage', onStorage);
+      if (offStorage) { offStorage(); offStorage = null; }
       document.removeEventListener('dragover', onDragOver);
       document.removeEventListener('dragleave', onDragLeave);
       document.removeEventListener('drop', onDrop);
+      if (toolbarFb) { toolbarFb.destroy(); toolbarFb = null; }
       for (const t of noteTimers.values()) clearTimeout(t);
       noteTimers.clear();
     });
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      ready, failed, q, filter, viewItems, cntText, healNote, pagerVisible, aiText, emptyWhy,
-      uploadHtml, uploading, pullBtn, grids, chipsEl, aiBtn, aiChipEl, viewEl, fileEl, gridEnd, pagerRow, qEl,
-      dlBusy, dlMsg, pageItems, titleOf, metaOf, badgeState, badgeShow, thumbHtml, openLb, onSearch, onNote, flushNote,
+      ready, failed, q, filter, viewItems, cntText, pagerVisible, aiText, emptyWhy,
+      uploadHtml, uploading, pullBtn, grids, toolbarEl, viewEl, fileEl, gridEnd, pagerRow,
+      dlBusy, dlMsg, pageItems, titleOf, metaOf, badgeState, badgeShow, badgeHtml, thumbHtml, openLb, onNote, flushNote,
       dropItem, download, reuse, canReuse, reuseTabZh, pickFiles, onFiles, pullLocal,
       runAiFind, clearAiPick, starIcon: window.icon ? icon('star', 20) : '',
       aiBtnHtml: (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材',

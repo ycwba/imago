@@ -12,6 +12,7 @@
                     以及每个要建到什么程度（出图？绑音色描述？）。
      · token    —— 占位符词法：`@待建:小雅` 怎么认、怎么换成 `@小雅`。
      · libSpec  —— 建档时要写进素材库的那一份（类型、组名、外貌、音色描述）。 */
+import { reEscape } from './util.js';
 
 export function createBoardAssets(ctx) {
   const { nameKey, MIN_REPEAT, PREFIX } = ctx;
@@ -44,14 +45,14 @@ export function createBoardAssets(ctx) {
       uniq.forEach(nm => {
         const k = nameKey(nm);
         if (out.get(k) === undefined) return;
-        const re = new RegExp(escapeRe(nm), 'g');
+        const re = new RegExp(reEscape(nm), 'g');
         /* **按镜头数**，不是按文本里的出现次数：
            同一镜里正文出现一次、说话人又写一次，那是**一镜**（出现 2 次 ≠ 2 镜）。
            「会重复出现」说的是「在几个地方出现」—— 一镜里反复提同一个名字不算。 */
         if (re.test(hay)) out.set(k, out.get(k) + 1);
         re.lastIndex = 0;
         /* 长的先吃掉：把这一处从文本里抹掉，短的就不会再数到它。 */
-        hay = hay.replace(new RegExp(escapeRe(nm), 'g'), ' ');
+        hay = hay.replace(new RegExp(reEscape(nm), 'g'), ' ');
       });
     });
     return out;
@@ -61,11 +62,9 @@ export function createBoardAssets(ctx) {
     const m = repeatCounts(shots, [name]);
     return m.get(nameKey(name)) || 0;
   }
-  const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
   /* 名字归一：AI 可能写「小雅」「小雅 」「Xiaoya」——按 nameKey 合并。
      返回 { name, key }；空名返回 null。 */
-  function keyOf(name) {
+  function nameRefOf(name) {
     const nm = String(name || '').trim();
     if (!nm) return null;
     const k = nameKey(nm);
@@ -85,7 +84,7 @@ export function createBoardAssets(ctx) {
     const skipped = [];
     const exIdx = new Map();
     (existing || []).forEach(x => {
-      const k = keyOf(x && x.name);
+      const k = nameRefOf(x && x.name);
       if (k && !exIdx.has(k.key)) exIdx.set(k.key, x);
     });
     /* 出现次数**一次算完**（最长优先那一层需要看到全部候选名），
@@ -95,7 +94,7 @@ export function createBoardAssets(ctx) {
     const seen = new Set();
     (aiList || []).forEach(a => {
       if (!a || typeof a !== 'object') { skipped.push({ name: '', why: '这一条不是对象' }); return; }
-      const kk = keyOf(a.name);
+      const kk = nameRefOf(a.name);
       if (!kk) { skipped.push({ name: '', why: '没有名字' }); return; }
       if (seen.has(kk.key)) { skipped.push({ name: kk.name, why: '清单里重复了' }); return; }
       seen.add(kk.key);
@@ -110,7 +109,7 @@ export function createBoardAssets(ctx) {
       }
       out.push({
         name: kk.name, key: kk.key,
-        kind: kindOf(a.kind),
+        kind: castKind(a.kind),
         why: String(a.why || '').trim(),
         look: String(a.look || a.desc || '').trim(),
         voice: String(a.voice || a.voiceNote || '').trim(),
@@ -122,7 +121,7 @@ export function createBoardAssets(ctx) {
 
   /* 类型：只认三种（角色 / 场景 / 物品）。认不出来的当角色 ——
      角色是那一类里最常见的，而「当成道具」会让它没有音色。 */
-  function kindOf(k) {
+  function castKind(k) {
     const s = String(k == null ? '' : k).trim().toLowerCase();
     if (s === 'scene' || s === '场景' || s === 'location') return 'scene';
     if (s === 'prop' || s === '物品' || s === '道具' || s === 'thing' || s === 'object') return 'prop';
@@ -134,7 +133,7 @@ export function createBoardAssets(ctx) {
        素材还没出图，引用它没有可挂的图，占位符让「这里本该有个小雅」在正文里看得见；
        素材出图后换成 `@小雅`（真名），于是那一条的参考图能挂上。
      `isToken` 认一个 token 是不是占位符；`parse` 把它拆成名字。 */
-  const tokenRe = new RegExp('@' + escapeRe(PREFIX) + ':([^\\s@，,。.、；;：:！!？?()（）\\[\\]【】"\'“”《》]+)', 'g');
+  const tokenRe = new RegExp('@' + reEscape(PREFIX) + ':([^\\s@，,。.、；;：:！!？?()（）\\[\\]【】"\'“”《》]+)', 'g');
   function isToken(text) {
     const s = String(text || '');
     tokenRe.lastIndex = 0;
@@ -155,7 +154,7 @@ export function createBoardAssets(ctx) {
   function resolve(text, name, realName) {
     const nm = String(name || '').trim();
     if (!nm) return String(text || '');
-    const re = new RegExp('@' + escapeRe(PREFIX) + ':' + escapeRe(nm) + '(?![\\u3400-\\u9fffA-Za-z0-9])', 'g');
+    const re = new RegExp('@' + reEscape(PREFIX) + ':' + reEscape(nm) + '(?![\\u3400-\\u9fffA-Za-z0-9])', 'g');
     return String(text || '').replace(re, '@' + String(realName || nm));
   }
   /* 这个镜头里有哪些待建素材（按出现顺序，去重）。 */
@@ -223,5 +222,5 @@ export function createBoardAssets(ctx) {
     return { raw: Array.isArray(raw) ? raw : [], plan: r.plan, skipped: r.skipped };
   }
 
-  return { plan, stage, repeatCount, repeatCounts, keyOf, kindOf, isToken, parse, resolve, pendingIn, shotsPending, libSpec };
+  return { plan, stage, repeatCount, repeatCounts, nameRefOf, castKind, isToken, parse, resolve, pendingIn, shotsPending, libSpec };
 }

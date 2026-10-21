@@ -111,6 +111,9 @@ function createRelayRoutes(ctx) {
         inflightMap.delete(cacheKey);
         for (const w of ws) { try { respond(w); } catch {} }
       };
+      /* 溢出之后转流式：等着的那些请求也一起边收边写，不再把整段攒在内存里 */
+      const waitersOf = () => (inflightMap ? (inflightMap.get(cacheKey) || []) : []);
+      const dropInflight = () => { if (inflightMap) inflightMap.delete(cacheKey); };
       readBody(req, res).then(body => {
         if (body == null) { flushInflight(w => failUpstream(w, '请求体读取失败', '上游')); return; }   // 超过上限已回 413
         const fwd = { ...req.headers };
@@ -138,8 +141,41 @@ function createRelayRoutes(ctx) {
         const relayRespond = ur => {
           if (isList && listTtl && ur.statusCode === 200) {
             const bufs = [];
-            ur.on('data', c => bufs.push(c));
+            let total = 0, stream = null;
+            /* 缓存上限不是「先全收下来再判断」：超了 8MiB 就当场改成边收边转发，
+               既不再囤内存，也不会把这条正常请求变成错误。等着的那些一并转流式。 */
+            const streamHead = tag => ({ ...ur.headers, 'Cache-Control': 'no-store', 'X-List-Cache': tag });
+            ur.on('data', c => {
+              if (stream) {
+                try { res.write(c); } catch {}
+                stream.ws.forEach(w => { try { w.write(c); } catch {} });
+                return;
+              }
+              total += c.length;
+              if (total > LIST_CACHE_ITEM) {
+                stream = { ws: waitersOf() };
+                dropInflight();
+                try { res.writeHead(ur.statusCode, streamHead('miss')); } catch {}
+                bufs.forEach(b => { try { res.write(b); } catch {} });
+                try { res.write(c); } catch {}
+                stream.ws.forEach(w => {
+                  try {
+                    w.writeHead(ur.statusCode, streamHead('shared'));
+                    bufs.forEach(b => w.write(b));
+                    w.write(c);
+                  } catch {}
+                });
+                bufs.length = 0;
+                return;
+              }
+              bufs.push(c);
+            });
             ur.on('end', () => {
+              if (stream) {
+                try { res.end(); } catch {}
+                stream.ws.forEach(w => { try { w.end(); } catch {} });
+                return;
+              }
               const buf = Buffer.concat(bufs);
               if (buf.length <= LIST_CACHE_ITEM) {
                 cacheSweep(listCache, LIST_CACHE_MAX, LIST_CACHE_BYTES);
@@ -149,13 +185,51 @@ function createRelayRoutes(ctx) {
               res.end(buf);
               flushInflight(w => { w.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store', 'X-List-Cache': 'shared' }); w.end(buf); });
             });
-            ur.on('error', e => { failUpstream(res, e.message, '列表上游中断'); flushInflight(w => failUpstream(w, e.message, '列表上游中断')); });
+            ur.on('error', e => {
+              if (stream) {
+                try { res.destroy(); } catch {}
+                stream.ws.forEach(w => { try { w.destroy(); } catch {} });
+                return;
+              }
+              failUpstream(res, e.message, '列表上游中断'); flushInflight(w => failUpstream(w, e.message, '列表上游中断'));
+            });
             return;
           }
           if (isTaskDetail) {
             const bufs = [];
-            ur.on('data', c => bufs.push(c));
+            let total = 0, stream = null;
+            const streamHead = () => ({ ...ur.headers, 'Cache-Control': 'no-store' });
+            ur.on('data', c => {
+              if (stream) {
+                try { res.write(c); } catch {}
+                stream.ws.forEach(w => { try { w.write(c); } catch {} });
+                return;
+              }
+              total += c.length;
+              if (total > DETAIL_CACHE_ITEM) {
+                stream = { ws: waitersOf() };
+                dropInflight();
+                try { res.writeHead(ur.statusCode, streamHead()); } catch {}
+                bufs.forEach(b => { try { res.write(b); } catch {} });
+                try { res.write(c); } catch {}
+                stream.ws.forEach(w => {
+                  try {
+                    w.writeHead(ur.statusCode, streamHead());
+                    bufs.forEach(b => w.write(b));
+                    w.write(c);
+                  } catch {}
+                });
+                bufs.length = 0;
+                return;
+              }
+              bufs.push(c);
+            });
             ur.on('end', () => {
+              if (stream) {
+                try { res.end(); } catch {}
+                stream.ws.forEach(w => { try { w.end(); } catch {} });
+                return;
+              }
               const buf = Buffer.concat(bufs);
               // 只在「已完成 + 已经有产出」时缓存：状态刚变 done 但产出还没写入的那种绝不能缓存，
               // 否则页面的「补轮询取产出」会一直拿到空产出。
@@ -172,7 +246,14 @@ function createRelayRoutes(ctx) {
               res.end(buf);
               flushInflight(w => { w.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' }); w.end(buf); });
             });
-            ur.on('error', e => { failUpstream(res, e.message, '详情上游中断'); flushInflight(w => failUpstream(w, e.message, '详情上游中断')); });
+            ur.on('error', e => {
+              if (stream) {
+                try { res.destroy(); } catch {}
+                stream.ws.forEach(w => { try { w.destroy(); } catch {} });
+                return;
+              }
+              failUpstream(res, e.message, '详情上游中断'); flushInflight(w => failUpstream(w, e.message, '详情上游中断'));
+            });
             return;
           }
           res.writeHead(ur.statusCode, { ...ur.headers, 'Cache-Control': 'no-store' });

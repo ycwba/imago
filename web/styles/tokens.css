@@ -6,6 +6,10 @@
   --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
   --thumbbg:#e2e5ee; --thumbfg:#9aa1b4;
   --local:#0f766e; --cloud:#5b6b8c; --both:#6957e8;
+  /* 图表调色板：用量页按平台名稳定取色（唯一一份；深浅主题共用这 12 枚）。 */
+  --chart-1:#6957e8; --chart-2:#19b394; --chart-3:#f59e0b; --chart-4:#ef4444;
+  --chart-5:#3b82f6; --chart-6:#a855f7; --chart-7:#14b8a6; --chart-8:#f97316;
+  --chart-9:#22c55e; --chart-10:#eab308; --chart-11:#ec4899; --chart-12:#06b6d4;
   --atbg: rgba(35, 38, 47, .13);
   --on-acc:#fff; --media-bg:#000; --scroll:#c4c9dc;
 
@@ -13,7 +17,16 @@
   --fs-1:12px; --fs-2:13px; --fs-3:14px; --fs-4:16px; --fs-5:20px; --fs-6:24px;
   /* 补档：全站高频裸值归到这几枚小字号（名字即像素值，避免「一半 var 一半裸值」）。 */
   --fs-10:10px; --fs-11:11px; --fs-11-5:11.5px; --fs-12-5:12.5px; --fs-13-5:13.5px;
+  /* 侧栏图标那一列的字阶：图标按 1em 画，字号就是它的尺寸，收起态要更大一档好点中。 */
+  --fs-15:15px; --fs-17:17px;
   --radius-1:6px; --radius-2:10px; --radius-3:14px; --radius-4:8px;
+  /* 补档（批次 9 §11.2 B6）：把设置页剩下的裸 px 收进令牌 —— 这四枚不是新设计的档位，
+     只是「那些值本来就在那里、只是没名字」的收容位；新写样式仍优先用上面那几档。
+     --hair / --accent-bar 是给 `border-top: 1px …` 这类**描边宽度**用的：工具的判据把
+     `-top/-left/-right/-bottom` 一律当间距看，不收成令牌就永远清不干净。 */
+  --sp-0-5:2px; --sp-3-5:14px;
+  --radius-0:4px; --radius-pill:999px;
+  --hair:1px; --accent-bar:3px;
   --shadow-1:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
   --shadow-2:0 8px 24px rgba(16,24,40,.12);
   --dur-1:120ms; --dur-2:180ms; --ease:cubic-bezier(.2,.8,.2,1);
@@ -23,6 +36,9 @@
   --acc-tint-2:color-mix(in srgb, var(--acc) 18%, transparent);
   --acc-line:color-mix(in srgb, var(--acc) 32%, transparent);
   --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* 侧栏轨道默认宽（收起态与窄窗口）。展开时 sidebar.js 把同名变量写在 documentElement 的行内
+     样式上覆盖它，#app / 悬浮球 / lightbox 都读这一枚 —— 所以它必须是令牌，不能只活在 CSS 的兜底值里。 */
+  --sbw:66px;
 }
 html[data-theme="dark"] {
   --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;

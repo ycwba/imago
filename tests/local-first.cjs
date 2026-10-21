@@ -48,7 +48,7 @@ function boot(opts) {
   ctx.addEventListener = () => {}; ctx.removeEventListener = () => {}; ctx.dispatchEvent = () => {};
   ctx.URL.revokeObjectURL = () => {}; ctx.URL.createObjectURL = () => 'blob:x';
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(root, 'web/domain/ident.js'), 'utf8'), ctx, { filename: 'web/domain/ident.js' });
+  vm.runInContext(fs.readFileSync(path.join(root, 'web/domain/ident.cjs'), 'utf8'), ctx, { filename: 'web/domain/ident.cjs' });
   vm.runInContext(fs.readFileSync(path.join(root, 'web/domain/api.js'), 'utf8'), ctx, { filename: 'web/domain/api.js' });
   vm.runInContext(fs.readFileSync(path.join(root, 'web/domain/assetlib.js'), 'utf8'), ctx, { filename: 'web/domain/assetlib.js' });
   vm.runInContext(fs.readFileSync(path.join(root, 'web/domain/local.js'), 'utf8'), ctx, { filename: 'web/domain/local.js' });
@@ -183,5 +183,27 @@ const IDX = {
   ok('在跑的不藏', AL.hideAsCloud(run) === false);
 }
 
-console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
-process.exit(bad ? 1 : 0);
+/* ⑩ 镜像索引满上限时裁的是最老那一头（R3）：插入序是旧 → 新，
+   以前 `keys.slice(IDX_MAX)` 删尾部，等于新产物刚写进去就被裁掉。 */
+(async () => {
+  const { AL } = boot({ index: { v: 1, m: {}, a: {} } });
+  const N = 20010;                       // IDX_MAX = 20000：多塞 10 条，看被裁的是哪一头
+  for (let i = 0; i < N; i++) {
+    AL.learn({ id: 'la_t' + i, provider: 'probe', format: 'png', byte_length: 10,
+      upstream: '', detail: { asset: 'asset_t' + i } });
+  }
+  await new Promise(r => setTimeout(r, 30));      // 落盘在微任务里合并执行
+  const kOld = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', assetId: 'asset_t0' });
+  const kEdge = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', assetId: 'asset_t9' });
+  const kKeep = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', assetId: 'asset_t10' });
+  const kNew = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', assetId: 'asset_t' + (N - 1) });
+  ok('超上限裁掉最老的 10 条', kOld === '' && kEdge === '', kOld + ' / ' + kEdge);
+  ok('上限边上那条仍在', kKeep === 'probe|a:asset_t10', String(kKeep));
+  ok('刚写入的最新一条仍在', kNew === 'probe|a:asset_t' + (N - 1), String(kNew));
+  const localOld = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', id: 'la_t0', assetId: 'la_t0', src: '/asset/la_t0?v=2' });
+  const localNew = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', id: 'la_t' + (N - 1), assetId: 'la_t' + (N - 1), src: '/asset/la_t' + (N - 1) + '?v=2' });
+  ok('裁掉的那些本机号也从反查表里消失', localOld === '' && localNew === 'probe|a:asset_t' + (N - 1), localOld + ' / ' + localNew);
+
+  console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
+  process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

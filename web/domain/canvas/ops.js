@@ -85,7 +85,9 @@ export function applyOperation(doc, op) {
     changed.nodes = ids.slice();
     changed.connections = [...new Set(casc)];
     if (!keptNodes.length && nodes.length) bad('不能把最后一个节点删掉：要清空就新建一份画布');
-    return { doc: { ...doc, nodes: keptNodes, connections: keptConns }, changed, 连带连线数: casc.length };
+    /* 选择集里不能留着刚删掉的号：拖动按选择集算起点，读到不存在的节点会当场抛。 */
+    const selection = (doc.selection || []).filter(id => !drop.has(id));
+    return { doc: { ...doc, nodes: keptNodes, connections: keptConns, selection }, changed, 连带连线数: casc.length };
   }
 
   if (kind === 'connect_nodes') {

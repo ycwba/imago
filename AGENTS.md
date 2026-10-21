@@ -33,7 +33,7 @@
 │  ├─ skills-store.js           .skills 清单 / 安装 / 启停
 │  ├─ asr-store.js              .data/asr.json（密钥只留盘上，读接口只回 hasKey）
 │  ├─ search-store.js           .data/search.json（同上）
-│  ├─ static.js                 静态文件：ETag / gzip / HTML 的 CSP 头
+│  ├─ static.js                 静态文件：ETag / 预压缩（br→gzip→原文）/ HTML 的 CSP 头
 │  ├─ security.js               同源、Cookie、出站 URL 护栏
 │  ├─ outbound.js               出站 HTTP（超时 / 重试 / 代理）
 │  ├─ health.js                 代理故障账（只报不自杀，也收客户端上报）
@@ -51,10 +51,10 @@
 │  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio /
 │  │                            canvas（导演台在 web/director/index.js）
-│  ├─ director/                 导演台：index + template.html + engine.js + 纯算法模块
+│  ├─ director/                 导演台：index + template.html + engine.js + engine/<域>.js（按域搬出的热路径）+ 纯算法模块
 │  ├─ render/                   预编译生成的 render 函数（不要手改）
 │  ├─ ui/                       ui.js / forms（弹窗与表单族）/ net / store / kv / toast / datasync /
-│  │                            skills / workbench / sidebar / index / local-badge / badge-state
+│  │                            skills / workbench / sidebar / index / badge-state
 │  ├─ domain/                   api / assetlib / gen-forms / asset-transfer / local / capabilities /
 │  │                            text-ai / gen-rules / fav / prompt-log / asset-picker / ai-find / chars /
 │  │                            ident / identity / semantic / asr / search / zip-read /
@@ -125,6 +125,14 @@ frame-ancestors 'none'
 - 颜色只从令牌取；页面确有品牌差异（如素材库的深色强调色）时，只在该页根类下覆盖一个变量，并写明理由。
 - 所有可交互元素至少覆盖 `hover` / `focus-visible` / `active` / `disabled` / busy；
   `ui.css` 末尾有一份全站兜底，页面不要重复写同一份焦点样式。
+- **吸顶栏的吸附边 = 滚动容器的内容边**：滚动容器（`.page-shell`）自己带 `padding-top` 时，
+  `position: sticky` 的顶栏会停在那条留白下面，就是「下滑后顶上没有贴住、上面空一截」。
+  要做吸顶栏就把页面根的 `padding-top` 归 0、那份留白挪进内容层（设置页放 `.set-wrap`），
+  首屏留白照旧要有。判据 `tests/e2e/settings-nav.cjs` 直接量下滑后顶栏与容器顶的缝，
+  并用 `elementFromPoint` 摸那一行是不是顶栏本身。
+- 同一条 flex 列里两块抢高度（侧栏导航 vs 余额区），**只许有一处** `flex-shrink` + `overflow-y:auto`
+  当兜底；把「可缩可滚」的那份额度换给另一块时，另一处的兜底要显式 revert 回来，而且 revert
+  必须跟着「这一档到底画不画这一块」走。落到侧栏那两档的写法见 §11.1。
 - 视觉回归：`node tests/e2e/ui-visual.cjs`（八条路由、工作台按三型分档，再加两档要先喂状态才画得出来的
   「字幕编辑区 / 助手来源卡片」共 12 档 × 1024/1440 × 浅/深主题 = 48 个画面，24×14 RGB 指纹；
   字幕那一档要本机 ffmpeg 造可选用的视频，没有就整档跳过并报明）。
@@ -149,7 +157,7 @@ frame-ancestors 'none'
 | 分段开关 / 工具磁贴 / 次要按钮 | `.ui-seg` / `.tool` / `.ghost` |
 | 图标 / 加载 / 空态 | `icon()` / `.ui-wait` / `.empty`（按钮里带图标时不许用 `textContent` 改字） |
 | 跳页 | `GoPage.go`（站内不再 `location.href`） |
-| 本机 / 云端标识 | `LocalBadge` / `AssetLocal.stateOf` |
+| 本机 / 云端标识 | `badgeOf` / `badgeHTML`（`web/ui/badge-state.js`）+ `AssetLocal.stateOf` |
 
 页面只允许写“这一页自己的排版与布局”；卡片、弹层、下拉、芯片、分页、缩略图、提示、确认这些**不许**
 在页面里出现第二份。发现重复实现，先把公共件补齐再把页面改过去，不要在旧副本上继续加功能。
@@ -273,6 +281,11 @@ frame-ancestors 'none'
 - 异步长任务抓住它自己那一集/那一条（`const mine = …`），收尾不要摸“当前”，否则用户切走就白等。
 - 关标签前注册 flush/dirty：`window.__spaRegister(flush, dirty)`；导演台另写同步救生包
   `dir_ws_unload`（IndexedDB 异步，beforeunload 等不到）。
+- **装配没完成之前一个字节都不许落盘**：导演台 `boot()` 读回工作区与把它挂上界面之间有一个网络往返的
+  窗口，那段时间里的模块级 `WS` 还是**空的默认值**。关标签的 flush 与任何顺手排上的 `scheduleSave`
+  都可能落在窗口里，把「一个工程都没有」同时盖进 IndexedDB 与 `.data/workspace.json`。
+  两份落盘都先问 `web/director/engine.js` 的 `wsLoaded`（装配完成点置真）；判据
+  `tests/e2e/director-boot-flush.cjs` 用拖慢 `/data` 的办法把窗口拉宽，复现那一次 flush。
 
 ### 6.3 本机资产身份
 
@@ -404,7 +417,23 @@ frame-ancestors 'none'
 
 - `web/director/index.js`：Vue 页面组件 + 作用域岛（模板 HTML、样式、生命周期、`WBBridge` 安装）。
 - `web/director/template.html`：导演台真实 DOM 模板（不是 Vue 模板，不参与预编译）。
-- `web/director/engine.js`：命令式热路径与 DOM 接线；状态、轨道、剪辑、右栏 UI 在这里。
+- `web/director/engine.js`：命令式热路径的状态与接线；**这一层里的代码按域机械搬进 `web/director/engine/*.js`**，
+  每一枚 `createX(E, document, window)` 只收 engine 递进来的访问器与函数（`document` / `window` 用参数名遮蔽，
+  作用域岛递进来的两份代理继续生效）。engine.js 继续持有工程数据与可变状态，模块里不留第二份：
+  - `gen.js`：分镜提交、平台任务轮询、自动镜像投递与「生成全部分镜」的依赖式批量调度
+  - `track.js`：画面轨/全片轨的时长与候选折算、拖动把手的三处共用一套手势
+  - `lanes.js`：时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染
+  - `frames.js`：切片取帧、帧缓存与退避重试（`fillSlices` / `sliceForgetFail` / `sliceUserTouch`）
+  - `mid.js`：中间栏整列渲染（预览甲板 + 候选条 + 时间轴容器）与三秒重建时的滚动还原
+  - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）
+  - `voice.js`：配音的数据侧（时长、音色方式、位置、登记与右栏配音列渲染）
+  - `voice-lane.js`：声音轨行 HTML、轨道侧栏同步、孤儿配音认领、试听与块拖动绑定
+  - `sub-lane.js`：字幕的三个画点（右栏清单 / 本镜轨 / 全片轨）与两排字幕拖动（块体 + 左右把手）、
+    右栏起止精确输入 `subSetTime`（成片秒 ↔ 源秒唯一折算口）；本镜块带 `data-src`（源秒）、
+    全片块带 `data-axis`（框轴秒），写盘只有一个出口 engine 的 `subWrite`
+  - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）
+  - `export.js`：成片指纹、导出成片、素材导出、FCPXML 与送到剪映 / 达芬奇
+  - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，见 §9.3）
 - 纯算法按域拆开，engine 只调用：
   - `segments.js`：段模型 / `segsOf` / `segsWrite` / 四件搬运
   - `timeline.js`：框、轴秒、灰场、`filmFrames`
@@ -534,16 +563,42 @@ frame-ancestors 'none'
   （缺料 / 超料 / 不收 / 互斥），`mode` 不是提交字段。
 - 四颗“存回本机”只走 `AssetLocal.pullMany`；页面里一次都不许出现 `AssetLocal.pull`。
 - “不显示云端任务”是 `AssetLocal.hideAsCloud` 一张闸，不是一套筛选。
-- 卡片徽标只有 `web/ui/local-badge.js` 一份，五页同读 `AssetLocal.stateOf`。
+- 卡片徽标只有 `web/ui/badge-state.js` 一份（`badgeOf` / `badgeHTML`），五页同读 `AssetLocal.stateOf`。
 - 选择器来源档位只有 `AssetPicker` 的 `inView` 一处；音频条目按 `noMedia` 走自己的调度，
   不许把 `<img>` 塞一段音频。
 - 下载文件名、类型判断、数字格式化一律走 §7 的公共实现，不许页面各拼一份。
+
+### 11.1 左栏（`web/ui/sidebar.js`：余额区与本机产物）
+
+- 侧栏是**外壳顶层文档里的经典脚本**（`shell.html` 在 `ui.js` 之后、`app.js` 之前加载），不是 Vue 页面；
+  取数仍走公共层（`Api` 余额 / `AssetLocal.info()`），探针不许另写一份余额卡。
+- 高度分配只有一套：`.sidebar` 是 fixed flex column，`nav` 拿 `flex:1 1 auto; min-height:0` 与它自己的
+  `overflow-y:auto`，`.sb-bottom` / `#sbBalance` 钉死 `flex:0 0 auto`。余额卡能摆几张由 `sidebar.js`
+  的 `BAL_CAPS` 按实测窗口高度现算 —— **导航优先于卡片**；矮窗（`max-height: 660px`）与 66px 收起态
+  整区收成一行摘要，卡片块根本不画。
+- **看全部供应商 = 就地展开**，不是跳页：`[data-bal="expand"]` 给 `.sidebar` 挂 `bal-exp`，
+  把「唯一可缩可滚」那份额度只落在 `.sb-bal-cards` 上，导航退回自然高；偏好写本机 `sb_bal_exp`，
+  跨刷新保留。这一位在「卡片块不画的两档」必须 revert 成原样（`sidebar.css` 里那两段
+  `html:not(.sb-open) .sidebar.bal-exp nav` / `@media (max-height: 660px)`），否则等于拆掉 A2 的兜底。
+- 余额区**不放跳转钮**：「还有 N 家，去用量页」与「去设置」两枚已撤（左下角本来就有「设置」入口，
+  同一件事不给第二条捷径）。区里只许 `expand` / `collapse` / `refresh` 三枚 `.ghost mini`；
+  点开摘要走公共弹窗（`UiDialog`）看全量卡，侧栏里不堆第二摞**可见**卡。
+- 「还有 N 家」的 N 必须等于总家数减摆出来的家数，差一家就是假话。
+- 本机产物那一行就地展开明细（「本次会话存成 N 份 · 上次存成 <fmtWhen>」），只用 `AssetLocal.info()`
+  的现有读数与 §7 的公共时间格式化，不为这一行写第二份；落盘重画（`wb:mirror-ready`）与整块重画
+  （`sb-balance-refresh`）之后都要重新绑上点击 —— 那两条路都是 `innerHTML` 重来。
+- 判据 `tests/e2e/sidebar-balance.cjs` 十档：摘要档 / 500px 高导航完整 / 66px 收起 / 默认限卡 /
+  就地展开（只有卡片块在滚、「收起」钮永不被挤出容器）/ 展开偏好跨重载 / 明细行 / 传输中 /
+  详情弹窗 / 480–1100 高度扫描。
 
 ## 12. 服务端与路由
 
 - `server/app.js` 是组合根；每个路由只在自己的 `server/routes/*.js` 里实现，
   app 只负责构造依赖与分发（处理器返回 `false`/`undefined` 的约定别混）。
 - 静态资源：只放行根级单文件与 `web/` 子树；HTML 带 CSP、nosniff、Referrer-Policy。
+  文本响应按 `Accept-Encoding` 选 brotli、退 gzip、再退原文（压不动或压完不更短就发原文，不报错），
+  三档共用同一套缓存与 ETag —— 验证器末位带表示名（`-br` / `-gz` / `-id`），缺了它 304 会把
+  上一轮别的编码那份字节接着用；`Vary: Accept-Encoding` 因此恒写。
 - `/data` 写入是原子写 + `.bak`；`/data` 清单不包含 `.bak`。
 - `/prompts`：写文件 + 索引；`/prompts/find` 按 id 返回全部归档，客户端每个任务只问一次。
 - `/render`：本地长任务，客户端用 `Net.fetch(..., { timeout: 0, retry: 0 })`；POST 不自动重试。
@@ -557,22 +612,38 @@ frame-ancestors 'none'
 
 ## 13. 测试与验证
 
-### 13.1 必跑
+### 13.1 必跑（分档口径）
 
-```bash
-npm run build:check                 # 模板与 render 一致
-node tests/all.cjs --e2e            # 语法 + 常驻判据 + 单元 + 架构 + 指标 + 浏览器 e2e
-```
+| 档 | 命令 | 场景 | 耗时（本机实测） |
+| --- | --- | --- | --- |
+| 秒级 | `npm run check` | 每次保存后 | ~0.5s |
+| 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
+| 合并 | `npm run test` | 批末回归 | ~3s |
+| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2 分钟 |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 41 条 e2e 串行（浏览器档共 43 条，另含 boot 与 static-encoding --live），十几分钟级 |
+| 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
+| 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
-`tests/all.cjs` 覆盖：`selfcheck`（内含 `tests/spa.cjs` 的架构判据）/ `editing` /
-`local-first` / `index-store` / `core` / `ui-catalog` / `editor-media` / `local-edit` /
-`fcpxml-client` / 导演台各纯函数 / 画布各纯函数（`canvas-registry` / `-doc` / `-ops` /
-`-history` / `-spatial` / `-gen`）/ `providers-validate` / `asr-settings` / `asset-text` /
-`skill-hub` / `zip` / `architecture` / `metrics`；`--e2e` 另跑 smoke / ui-visual / proxy /
-cloud-sync / asr / search / assets-text / chat-actions / actions / actions-feedback / chat-context /
-chat-search-cite / assistant-dock / drag-guard / director-perf / parity / skills / skill-hub / fcpxml /
-editing-assets / director-slice / director-lines / editing-assistant /
-render-jobs / canvas / canvas-assistant / canvas-port / ui-contract / ui-shared / lock。
+`node tests/all.cjs` 的常驻判据走并发池（并发 min(8, CPU 核数)，输出按完成顺序整块打印、带每条耗时；
+超时 SIGKILL 不死锁）；会写共享 `.data/.assets/.renders/.skills` 的判据一律进串行白名单（§13.2）。
+判据子进程优先用系统 node（`NODE` 环境变量可指定，拿不到回落 `process.execPath`）。
+
+覆盖：`syntax`（进池，子进程自带 --experimental-vm-modules 快路）/ `selfcheck` / `spa`（独立判据，
+不再由 selfcheck 代跑）/ `editing` / `local-first` / `index-store` / `core` / `ui-catalog` /
+`editor-media` / `local-edit` / `fcpxml-client` / 导演台各纯函数 / 画布各纯函数（`canvas-registry` /
+`-doc` / `-ops` / `-history` / `-spatial` / `-gen`）/ `providers-validate` / `asr-settings` /
+`skill-hub` / `zip` / `routes-smoke` / `static-guards` / `scope-guards` / `dup-guard` /
+`architecture` / `metrics`；浏览器档分两级——`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract /
+ui-shared / director-perf / lock / canvas，4 路并发，每条自起隔离 proxy + 独立 Chrome），
+`--e2e` 全量串行：smoke / ui-visual / proxy / cloud-sync / asr / search / chat-actions /
+chat-receipt / chat-context / chat-search-cite / actions / actions-feedback / assistant-dock /
+drag-guard / raw-request / raw-preview / director-perf / boot（perf）/ parity / skills / skill-hub /
+fcpxml / director-fcpxml-import / editing-assets / director-slice / director-slice-perf /
+director-lines / director-boot-flush / director-groups / editing-assistant / render-jobs / canvas / canvas-model /
+canvas-assistant / canvas-port / ui-contract / ui-shared / favorites-pager / asset-requests /
+settings-nav / sidebar-balance / lock；同一档还跑 `tests/perf/boot.cjs` 与
+`tests/static-encoding.cjs --live`（后者是同一份判据的「线上那一半」，要起隔离实例）。
+`tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
 
 视觉基线更新（只在有意改版后）：
 
@@ -743,8 +814,13 @@ NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`
 npm install                 # 开发依赖（仅模板编译器 + 视觉指纹）
 npm run build               # 模板 → web/render/*.js
 npm run build:check         # 校验模板与生成物一致
-node tests/all.cjs          # 常驻测试
-node tests/all.cjs --e2e    # 全量（含视觉回归、性能、parity 与浏览器）
+npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s）
+npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
+npm run test                # 合并档：常驻判据全量（并发池，~3s）
+npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2 分钟）
+npm run test:e2e            # 浏览器档：41 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
+node tests/data-snapshot.cjs  # 写入型：对真实 .data/.assets/.renders 比基线（§13.3）
 powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest
 set WB_LAUNCHER_DRYRUN=1 && 启动.bat
 ```
@@ -758,8 +834,9 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
   playback / plan / projection / slice / board / split-assets / media / subtitles / fcpxml）。
   原因：这些 DOM 节点被缓存、拖拽、切片帧、插针与撤销逻辑大量引用；改成 Vue 组件会改变
   节点身份与更新时机，直接破坏“切页不丢状态 / 不重解码 / 拖动中途不重建”这些既有判据。
-  方案 §9 也明确不重写剪辑交互与预览引擎。因此 `engine.js` 仍是大文件，
-  “单文件 < 3k”不适用于它；新增能力继续往纯模块里放。
+  方案 §9 也明确不重写剪辑交互与预览引擎。因此 `engine.js` 仍是全站最大的文件（工程数据 + 可变状态 + 接线），
+  “单文件 < 3k”不适用于它；但它的热路径已按域机械搬进 `web/director/engine/<域>.js`（§9.1 那张清单），
+  新增能力继续往纯模块与这些域文件里放，不再往 engine.js 加界面代码。
 - **DOM 代理保留**：`web/director/index.js` 的 document / window 代理是作用域岛边界，
   保证导演台的弹层、拖拽示意与键盘监听不挂到别的常驻页面；去掉它是行为回退。
 - **镜像队列仍在 AssetLocal 的现有队列**：不再引入第二套 `MirrorQueue`；同一份去重 / 退避 /

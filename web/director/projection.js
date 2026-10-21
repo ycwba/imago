@@ -55,11 +55,29 @@ export function createProjection({ getProj, allShots, shotReady, tlCandidateOf, 
   }
 
   /* 按当前镜头顺序（拖动后的顺序）同步成片时间线：
-     段落顺序 = 场景/镜头顺序；入点/出点、倍速、音量、灰块一律**现算**（全部从候选的 `c.segs` 派生）。 */
+     段落顺序 = 场景/镜头顺序；入点/出点、倍速、音量、灰块一律**现算**（全部从候选的 `c.segs` 派生）。
+     **内容没变就返回上一份对象**：播放跟随每帧都会调它，每次都造新 clips 会让 `timeline.js`
+     的 `filmFrames`（按 tl 对象引用缓存）每帧失效，一帧遍历所有镜头重算几何。
+     指纹只收会改变 clips 的字段（顺序 / 候选 / 段值与倍速 / 音量 / 行号 / 镜头名）。 */
+  let lastSync = { proj: null, sig: '', tl: null };
+  function syncSig(list) {
+    return list.map(sh => {
+      const c = tlCandidateOf(sh, sh.selId);
+      if (!c) return sh.id + '~';
+      const total = candDur(c, sh);
+      return sh.id + '~' + (sh.name || '') + '~' + (c.vid || '') + '~'
+        + segsOf(c, total).map(s => [s.in || 0, s.out || 0, s.a || 0, s.b || 0, s.off ? 1 : 0,
+          segSpd(s), picVolOf(s), s.ln == null ? 0 : s.ln].join(',')).join(';');
+    }).join('|');
+  }
   function tlSyncFromShots() {
+    const P = getProj();
+    const sig = syncSig(filmShotsOrdered(allShots().filter(shotReady)));
+    if (lastSync.tl && lastSync.proj === P && lastSync.sig === sig && P.timeline === lastSync.tl) return lastSync.tl;
     const synced = tlFromShots().clips;
-    getProj().timeline = { clips: synced };
-    return getProj().timeline;
+    P.timeline = { clips: synced };
+    lastSync = { proj: P, sig: sig, tl: P.timeline };
+    return P.timeline;
   }
 
   return { filmShotsOrdered, filmOrderNow, moveShotInFilmOrder, tlFromShots, tlSyncFromShots };

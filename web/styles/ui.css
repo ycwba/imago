@@ -108,6 +108,10 @@ body.wb-splitting * { user-select: none !important; }
 /* 列表上方的工具行（资产库 / 收藏共用一份基础形态）：页面只写自己不同的对齐与间距。
    控件高度与 .pgroup 一致（30px），页面不要再给输入框写行内 width/padding。 */
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 公共筛选工具条（Wb.filterBar）插在别人已有的 flex 行里时用这一格：
+   display:contents 让里头的 chips / input / 按钮直接当外层那一行的子项，
+   不额外多出一层盒子（工作台的 .pgroup、画布的 .cv-lib-bar 都靠它）。 */
+.fb-host { display: contents; }
 .toolbar input[type="number"] { width: 74px; height: 30px; padding: 0 var(--sp-2); font-size: 12.5px; }
 .toolbar .info { font-size: 12.5px; color: var(--sub); }
 .pgroup { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 3px 6px; border: 1px solid var(--line);
@@ -127,6 +131,9 @@ body.wb-splitting * { user-select: none !important; }
 .pgroup input:not([type="number"]) { flex: 0 1 150px; min-width: 96px; width: 150px; height: 30px; padding: 0 var(--sp-2); font-size: 12.5px; }
 .pgroup input[type="number"] { width: 50px; height: 30px; padding: 0 6px; font-size: 12.5px; text-align: center; }
 .pgroup > button, .pgroup > .ghost { height: 30px; padding: 0 8px; font-size: var(--fs-1); white-space: nowrap; }
+/* Wb.filterBar 生成的按钮在 .fb-host 里（DOM 父级是那一格，不是 .pgroup 本身），
+   尺寸仍按组内控件那一档走；不加这条，工作台搜索按钮会比旁边的翻页按钮高出一截。 */
+.pgroup .fb-host > button, .pgroup .fb-host > .ghost { height: 30px; padding: 0 8px; font-size: var(--fs-1); white-space: nowrap; }
 .pgroup .pginfo { white-space: nowrap; font-size: 12px; }
 .toolbar > button { white-space: nowrap; }
 /* 工具行里的零件（角色库 / 收藏两页原本各抄一份）：搜索胶囊、弹性间隔、计数。
@@ -238,7 +245,6 @@ body.wb-splitting * { user-select: none !important; }
   background: var(--panel2); border: 1px solid var(--line); cursor: pointer; }
 .did:hover { color: var(--acc); border-color: var(--acc); }
 .det-acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.det-note { font-size: 11.5px; color: var(--sub); }
 /* 灯箱舞台：图片 / 视频 / 音频都挂在这里（由 workbench.js 的 Wb.lightbox 创建与填充） */
 #lbStage { display: flex; align-items: center; justify-content: center; max-width: 84vw; max-height: 80vh; }
 #lbStage img, #lbStage video { max-width: 80vw; max-height: 84vh; border-radius: var(--radius-1); }
@@ -365,13 +371,6 @@ input[type="number"] { font-family: inherit; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .sel-hint { font-size: 11px; color: var(--sub); margin-top: 4px; min-height: 14px; }
 
-/* ---------- 模型输入：素材缩略图行（一排挨着输入栏，点素材块弹出小菜单） ---------- */
-.slot-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.slot-hint { font-size: 10.5px; line-height: 1.4; color: var(--err); max-width: 330px; border-radius: 3px; padding: 2px 4px; }
-/* 互斥说明就地高亮（不用顶部横幅）：点到被禁用的槽位时闪一下 */
-@keyframes slotHintPulse { 0% { background: rgba(220, 38, 38, .18); } 100% { background: transparent; } }
-.slot-hint.flash { animation: slotHintPulse 1.1s ease-out 2; }
-
 /* ---------- 左栏按钮行 / 素材缩略图（三个工作台 + 导演台统一外观） ---------- */
 /* 动作行（AI 润色 / 选素材 / 一键清空）一套定义、一种尺寸。
    从「76px 方块磁贴」改成「图标 + 文字」的小胶囊：高度与搜索/翻页那排控件（30px）对齐，
@@ -469,8 +468,7 @@ button.armed { min-width: 4.6em; }
   .armed { animation: none; }
   .armed.armed-badge { animation: none; box-shadow: 0 0 0 2px var(--err); }
 }
-/* 已选素材的芯片跟在主操作右边：比胶囊矮一档，行高仍由 .tool 决定 */
-.btn-row .ref-chip { height: 26px; }
+/* 已选素材的芯片跟在主操作右边：三者共用同一套高度 */
 .btn-row .sp { flex: 1; }        /* 把危险动作顶到行尾，三台一致 */
 /* AI 筛选条件芯片（资产库 / 收藏页共用）：挂在工具栏里，点 ✕ 回到完整列表 */
 .ai-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--acc);
@@ -773,12 +771,6 @@ button.armed { min-width: 4.6em; }
    这几条**不带 #apDlg**：别处（导演台的参考图挑选）复用同一套芯片与网格（同一件选择器只画一份样式），
    弹窗自己的左右边距由下面那两条 #apDlg 的补回去。 */
 .ap-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-/* 素材库挑选弹窗的搜索框。摆成分组芯片**上面**的一整行：
-   先按字找、再在命中的那些里按组收窄，是自然的顺序；反过来（先选组再搜）会让人以为搜不到就别的那几组。 */
-.ap-search { display: flex; align-items: center; gap: 6px; padding: 2px 0 8px; }
-.ap-search .ic { color: var(--sub); display: inline-flex; }
-.ap-search input { flex: 1 1 auto; min-width: 0; }
-#apDlg .ap-search { padding: var(--sp-3) var(--sp-4) 0; }
 .ap-chips .chip { flex: 0 0 auto; }
 #apDlg .ap-chips { padding: var(--sp-2) var(--sp-4) 0; }
 #apDlg .ap-types { padding: 6px var(--sp-4) 0; }   /* 类型档是 .ui-seg 分段开关，不是芯片行 */
@@ -1103,7 +1095,6 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-2); font-size: var(--fs-11); colo
 #lightbox #lbDetailBox .det-prompt-hd { color: #cbd5e1; }
 #lightbox #lbDetailBox .det-prompt-hd .ghost.mini { background: rgba(255, 255, 255, .12); border-color: transparent; color: #e5e7eb; }
 #lightbox #lbDetailBox .det-sep { background: rgba(255, 255, 255, .16); }
-#lightbox #lbDetailBox .lib-tip { color: #cbd5e1; }
 #lightbox #lbDetailBox .det-acts .ghost { background: rgba(255, 255, 255, .12); border-color: transparent; color: #e5e7eb; }
 #lightbox #lbDetailBtn.on { background: rgba(255, 255, 255, .26); }
 
@@ -1191,11 +1182,6 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-2); font-size: var(--fs-11); colo
 @media (max-width: 760px) { .page-shell { padding: var(--sp-4) 14px 40px; } }
 .page-h1 { font-family: var(--font-ui); font-size: var(--fs-6); margin: 0 0 var(--sp-2);
   display: flex; align-items: center; gap: var(--sp-2); }
-/* 加载：一个 .spinner，尺寸走 --sz（调用方 style="--sz:<px>"）。旧的 .spin-dot / .ap-spin
-   迁到这里的唯一规格要改 JS 调用点（workbench / asset-picker 等），见报告。 */
-.spinner { --sz: 16px; width: var(--sz); height: var(--sz); flex: 0 0 var(--sz);
-  border: 2px solid var(--line); border-top-color: var(--acc); border-radius: 50%;
-  animation: rot .8s linear infinite; display: inline-block; }
 /* 空态：一种字号两档密度 —— .empty 整块（13px/60px），.empty.sm 行内/局部。 */
 .empty.sm { font-size: var(--fs-12-5); padding: var(--sp-3) var(--sp-2); }
 /* 统一键盘焦点环：把散落的「只改边框、outline:none」补回可见 :focus-visible。 */

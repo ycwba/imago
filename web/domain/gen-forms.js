@@ -114,7 +114,7 @@ window.ModelPrefs = {
     });
     const all = [...map.values()];
     this._set(prov, { got: all });
-    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    this._bust(prov);
     return all;
   },
   isOff(prov, id) {
@@ -145,13 +145,13 @@ window.ModelPrefs = {
     this._set(prov, { typed: t, off: this.of(prov).off.filter(x => x !== s) });
     /* 手填一次就把代理那份注册表缓存抵掉：不抵的话「填了型号，下拉里没有」要等到 60 秒缓存过期，
        而这一页的用户刚做完添加动作，那句话看起来就像填错了地方。 */
-    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    this._bust(prov);
     return this.typed(prov);
   },
   removeTyped(prov, id) {
     const s = String(id || '');
     this._set(prov, { typed: this.typed(prov).filter(x => x !== s), off: this.of(prov).off.filter(x => x !== s) });
-    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    this._bust(prov);
     return this.typed(prov);
   },
   setOff(prov, id, off) {
@@ -168,7 +168,15 @@ window.ModelPrefs = {
     this._set(prov, { off: list });
     /* 与 addTyped 同一件事：藏/展示改的是「注册表里那一份 models」，而浏览器与代理都缓存着它。
        不抵掉的话「勾掉了，工作台下拉里它还挂着」要等到 60 秒，而这一页刚点完的人只会以为没生效。 */
-    if (window.Api && Api.clearCaches) { try { Api.clearCaches(); } catch {} }
+    this._bust(prov);
+  },
+  /* 型号偏好改了 → 只让**这一家**的型号清单重取（见 Api.invalidateModels）。
+     以前四处都调 Api.clearCaches()：全站的列表快照、在飞报价与 env 探测一起被清，
+     设置页点一次「获取型号列表」就能让别的页面下一轮全部重打上游（B20）。 */
+  _bust(prov) {
+    const kid = this.kid(prov);
+    if (!kid || !window.Api || !Api.invalidateModels) return;
+    try { Api.invalidateModels(kid); } catch (e) {}
   },
   /* 一家整个从本机消失时（设置页删掉自定义那一家）把它名下的记录摘掉，
      不然死数据跟着云同步出网，换台机器还多出一份没人认领的清单。 */
@@ -189,7 +197,9 @@ window.ModelPrefs = {
     const moved = [];
     let all = null;
     try {
-      for (let i = 0; i < localStorage.length; i++) {
+      /* 倒序遍历：循环里 removeItem 会让后面的键前移，正序 i++ 会跳过下一条，
+         三个旧键只搬走一个、另外两个永远留在盘上。 */
+      for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
         if (!key || !key.startsWith(this.LEGACY_PREFIX)) continue;
         const kid = key.slice(this.LEGACY_PREFIX.length);
@@ -412,13 +422,27 @@ window.AiGen = {
     const prompt = t.prompt || o.prompt || '';
     /* 轮询只看得到什么就取什么：产物号 / 外链先出现就立刻收（状态字段常常比产物字段晚一两个心跳）。
        失败以 Api.parseItem 的判定为准 —— 它已经把「认不出的中间态」归到进行中，不会一次就误报失败。 */
+    let lastPollErr = '', samePollErr = 0;
     for (let i = 0; i < 120; i++) {
       /* 先问一次再等：切页之前发出去的那一批多半早就在平台做完了，
          「睡 2.5 秒才问第一回」等于每条白等一轮 —— 而认领那一趟是逐条串着的，几条就是几轮。
          首问不多发请求：本来每一轮也要问一次。 */
       if (i) await new Promise(r => setTimeout(r, 2500));
       let raw = null;
-      try { raw = (await Api.pollTask(prov, id)).raw; } catch (e) { continue; }
+      try {
+        raw = (await Api.pollTask(prov, id)).raw;
+        lastPollErr = ''; samePollErr = 0;
+      } catch (e) {
+        /* 以前这里一律 continue：鉴权掉了 / 任务被平台删了也照样每 2.5 秒问一次，
+           问满 5 分钟才回一句「超时」—— 人只能看着转圈，错误本身一个字都看不到。
+           4xx 是「再问也不会变」，连续同一类错误（断网 / 代理没起）同理（B21）。 */
+        const st = Number(e && e.status) || 0;
+        if (st >= 400 && st < 500) throw e;
+        const sig = String((e && (e.code || e.message)) || e);
+        if (sig === lastPollErr) samePollErr++; else { lastPollErr = sig; samePollErr = 1; }
+        if (samePollErr >= 3) throw e;
+        continue;
+      }
       const p = raw ? Api.parseItem(prov, raw) : null;
       const ids = this.outputIds(prov, raw);
       /* 多张时要等到凑齐（或平台已经判完成）再收：只取 ids[0] 的话，
@@ -1155,11 +1179,11 @@ window.AiStream = {
       return { push() {}, done() {}, fail() {}, text: () => '' };
     }
     let p = null, el = null, all = '';
-    const ensure = () => {
+    const ensure = (kind) => {
       if (p && el && host.contains(el)) return p;
       p = window.InlinePolish.live(host, { title: opt.title || 'AI 正在写…', onStop: opt.onStop });
       el = host.firstElementChild;
-      if (all) p.push(all, 'content');          // 面板被重画掉了：把已经收到的补回去
+      if (all) p.push(all, kind || 'content');  // 面板被重画掉了：把已经收到的补回去
       return p;
     };
     return {
@@ -1168,7 +1192,12 @@ window.AiStream = {
         if (kind === 'reasoning') { if (p) p.push(piece, 'reasoning'); return; }
         all += piece;
         if (typeof opt.onChunk === 'function') opt.onChunk(piece, all);
-        ensure().push(piece, kind);
+        const before = p;
+        const panel = ensure(kind);
+        /* 重建时 `ensure` 补回去的那一份**已经含这一片**（`all` 在上面就加了），
+           再推一次就是同一段字显示两遍（B24）。 */
+        if (p !== before) return;
+        panel.push(piece, kind);
       },
       done() { if (window.InlinePolish) window.InlinePolish.clear(host); },
       fail(msg) { if (p) { try { p.fail(msg); } catch (e) {} } },

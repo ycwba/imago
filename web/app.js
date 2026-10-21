@@ -10,6 +10,7 @@ import { render as ViewErrorRender } from './render/app-error.js';
 import { render as AppShellRender } from './render/app-shell.js';
 import { createHooks } from './core/hooks.js';
 import { createActivity } from './core/activity.js';
+import { preloadModule } from './core/page-css.js';
 
 const R = window.WB_ROUTES;
 const LAST = 'sb_last_page';
@@ -33,7 +34,7 @@ function parse(input) {
 }
 
 const state = reactive({
-  route: parse(location.hash.slice(1)) || parse(localStorage.getItem(LAST)) || parse(R.defaultPage),
+  route: parse(location.hash.slice(1)) || parse(window.LS.get(LAST)) || parse(R.defaultPage),
 });
 
 /* 页面 / 标签页可见性与关标签前的 flush+dirty 注册表各只有一份（core/activity.js / core/hooks.js）。
@@ -50,11 +51,20 @@ const ViewError = {
   render: ViewErrorRender,
 };
 const lazy = loader => defineAsyncComponent({ loader, loadingComponent: ViewLoading, errorComponent: ViewError, delay: 0, timeout: 30000 });
-/* 页面组件映射由路由表现搭：`src` 相对本文件解析，不在这里另抄一份。 */
+/* 页面组件映射由路由表现搭：`src` 相对本文件解析，不在这里另抄一份。
+   `needs` 里那几份公共件（capabilities / text-ai / asset-picker / datasync）不再常驻 shell.html，
+   改成挂载前并发补载 —— 既不给别的页面白下，也让这一页的取数与 ESM 图并行。
+   补载之前先把这一页自己的 ESM 图发出去（`src` + 路由表点名的 `chunk`，G3）：
+   否则三段是串的 —— 等 needs → 取页面 → 页面再取引擎。modulepreload 只取字节不执行，
+   执行时机仍由下面那一次 import() 定，顺序约束一点没动。 */
 const VIEWS = {};
 for (const p of R.pages || []) {
   if (!p || !p.file || !p.src) continue;
-  VIEWS[p.file] = lazy(() => import(p.src));
+  VIEWS[p.file] = lazy(() => {
+    preloadModule(p.src);
+    for (const m of p.chunk || []) preloadModule(m);
+    return window.__spaNeeds(p.needs).then(() => import(p.src));
+  });
 }
 
 /* ---------- KeepAlive 里的页面宿主：记 / 还原滚动位置 ---------- */
@@ -180,7 +190,7 @@ document.addEventListener('click', e => {
 
 /* 关标签 / 刷新前：多个常驻页面都要能交保存与未落盘状态。
    注册表只有 core/hooks.js 一份；`__spaFlush`/`__spaDirty` 是旧页面留下的单函数钩子，
-   这里仍跑一遍（它们不在注册表里，删掉就等于让那一页的保存不再发生）。 */
+   只给「没注册进注册表」的那几页兜底（裸页面 / 探针）——同一枚函数两边都挂时只跑注册表那遍。 */
 window.__spaRegister = (flush, dirty) => hooks.register(flush, dirty);
 /* 「重新加载本页」的唯一出口：模块没起来 / 初始化失败的那几页，失败块里只写过一句
    「刷新页面重试」却没有可点的按钮 —— 键盘用户与移动端就此没有出路。
@@ -188,9 +198,11 @@ window.__spaRegister = (flush, dirty) => hooks.register(flush, dirty);
 window.__spaReload = () => { try { hooks.runAll(); } catch (e) {} location.reload(); };
 window.addEventListener('beforeunload', e => {
   const dirty = hooks.runAll();
+  /* 旧单函数钩子只给「没进注册表」的那几页兜底（裸页面 / 探针）；同一枚函数已经注册过
+     就不再补跑 —— 不然导演台与设置页的 flush 每次关标签各跑两遍（X14）。 */
   let legacy = '';
-  try { if (typeof window.__spaFlush === 'function') window.__spaFlush(); } catch (err) {}
-  try { if (typeof window.__spaDirty === 'function' && window.__spaDirty()) legacy = '1'; } catch (err) {}
+  try { if (typeof window.__spaFlush === 'function' && !hooks.has(window.__spaFlush)) window.__spaFlush(); } catch (err) {}
+  try { if (typeof window.__spaDirty === 'function' && !hooks.has(window.__spaDirty) && window.__spaDirty()) legacy = '1'; } catch (err) {}
   if (dirty || legacy) { e.preventDefault(); e.returnValue = ''; }
 });
 

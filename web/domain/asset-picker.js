@@ -94,11 +94,16 @@ window.AssetPicker = {
          确定那条路（entries 非空）**绝不能 revoke**：页面会把 src 拿去真取字节（转存/引用），
          revoke 早了就是静默破图。所以判据是「这一次有没有把条目交出去」。 */
       const close = out => {
-        if (!out || !out.length) {
-          upPool.concat(hydra).forEach(e => {
-            if (e && e.src && String(e.src).startsWith('blob:')) { try { URL.revokeObjectURL(e.src); } catch (err) {} }
-          });
-        }
+        /* 交出去的那几条**绝不能 revoke**（页面还要拿 src 真取字节）；没交出去的按差集收掉 ——
+           以前只在「一条都没交」时 revoke，传了三条只选一条，另外两条的 blob 就永远挂着。 */
+        const kept = new Set((out || []).map(e => e && e.src).filter(Boolean));
+        const seen = new Set();
+        upPool.concat(hydra).forEach(e => {
+          const u = e && e.src;
+          if (!u || !String(u).startsWith('blob:') || kept.has(u) || seen.has(u)) return;
+          seen.add(u);
+          try { URL.revokeObjectURL(u); } catch (err) {}
+        });
         try { io.disconnect(); } catch {} try { dlg.close(); } catch {} dlg.remove(); resolve(out);
       };
       $('apCancel').onclick = () => close([]);
@@ -333,6 +338,12 @@ window.AssetPicker = {
       const mediaWait = [];
       const mediaActive = { image: 0, video: 0 };
       const pendingMedia = new Map();          // 卡片 → true
+      /* 卡片被筛掉 / 换掉时连排队一起撤：pendingMedia 只写不删的话 Map 一直攥着已移除的 DOM，
+         队里那些活也会照样给看不见的卡片取图。 */
+      const dropMedia = d => {
+        pendingMedia.delete(d);
+        for (let i = mediaWait.length - 1; i >= 0; i--) if (mediaWait[i].el === d) mediaWait.splice(i, 1);
+      };
       /* 「这张卡现在就摆在滚动区可视带里」的判据只有一份（放 400px 余量，与观察器的 rootMargin 同一条）。
          上面那个观察器负责「什么时候把卡片交给调度器」，这里负责「先给谁」—— 两者必须是同一个 400px，
          否则会出现「观察器说在附近、调度器说不在」而每张都走第二轮。 */
@@ -512,6 +523,7 @@ window.AssetPicker = {
         for (const [e, d] of [...nodes]) {
           if (keep.has(e)) continue;
           if (io) { try { io.unobserve(d); } catch {} }     // 别让观察器攒着已删的节点
+          dropMedia(d);                                    // 同时撤掉媒体队列与 pendingMedia 里那一份
           d.remove(); nodes.delete(e);
         }
         let ref = grid.firstChild;
@@ -561,7 +573,7 @@ window.AssetPicker = {
         const old = nodes.get(e);
         if (!old) return;
         if (io) { try { io.unobserve(old); } catch {} }
-        pendingMedia.delete(old);
+        dropMedia(old);
         const d = build(e);
         nodes.set(e, d);
         old.replaceWith(d);
@@ -662,12 +674,12 @@ window.AssetPicker = {
         /* AI 检索出来的那句话要写在 chip 上而不是计数条上：paint() 每次重画都会覆盖 #apCnt，
            放那里的话「检索成功」这条信息一闪就没了（看起来像点了没反应）。 */
         const sum = aiCond ? String(aiCond.summary || '') : '';
-        window.AiChip.paint('apAiChip', aiCond ? {
+        window.AiChip.show('apAiChip', aiCond ? {
           cls: 'ap-aitag', clearId: 'apAiClear', iconSize: 11, tip: sum,
           text: window.AiChip.text(['AI 检索', sum.slice(0, 18)]),
           clearTitle: '清除 AI 条件',
           onClear: () => { aiCond = null; paintAiChip(); paint(); },
-        } : { text: '' });
+        } : { on: false });
       };
       const runAiSearch = async () => {
         if (!window.TextAI) { cnt.textContent = '文字 AI 没加载出来：刷新页面再试'; return; }
@@ -733,6 +745,14 @@ window.AssetPicker = {
           /* 「音色描述」只可能写在素材身上，资产库 / 收藏 / 本机上传里根本没有这一类：
              那一档不必等注册表、也不必取资产库，取回来一个都用不上。 */
           if (charsOnly) { try { search.focus(); } catch {} return; }
+          /* 先用资产库页写下的列表缓存画一版底（L2）：列表在几十秒内几乎不变，
+             而联网那 3 页要等一两秒 —— 以前这段时间弹窗里只有转圈，用户以为没打开。
+             缓存只当底稿，真数据到了 take() 会整份覆盖（onBatch 每批都给全量）。 */
+          try {
+            const warm = AssetLib.listCache('assets_cache_v1').read()
+              .filter(e => e && e.kind === 'asset' && okType(e.type));
+            if (warm.length) take(warm);
+          } catch (e) { /* 缓存只是一版底稿：读坏了就等真数据，弹窗照常往下走 */ }
           await Api.registry();                     // 收藏回源换地址要先有注册表
           const mine = window.Fav ? Fav.list().filter(x => okType(x.type)) : [];
           /* 收藏条目一次并发取地址（本地文件要读 IndexedDB）：

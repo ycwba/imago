@@ -36,13 +36,17 @@ const HELPERS = {
   all: '汇总入口本身，不是一条判据',
   map: '本文件：改动→必跑的映射',
   support: '判据脚本共用的件（层表 / 例外登记比对），由别的判据 require',
-  syntax: '语法判据，被 all.cjs 以 require 的方式在进程内跑（npm run check 用同一份）',
+  /* syntax 从批次 8 V1 起是 all.cjs 池里的普通一条（run 登记行在），不再是「require 进程内跑」的helper。 */
   harness: '浏览器判据唯一的启动 / 取 Cookie / 打开页面入口（AGENTS.md §13.4），自己不是一条判据',
+  watch: 'watch 模式入口（批次 8 V4）：常驻前台跑，触发本文件的 --changed --run，自己不是一条判据',
   anchordry: '素材库锚点的一次性体检，要带参数，不常驻',
   'data-snapshot': '写入型基线：要对真实 .data/.assets 比，只手工跑（AGENTS.md §13.3）',
 };
-/* 是真判据，但由 selfcheck 代跑（代跑关系写死在这一份里，不再靠人记）。 */
-const DELEGATED = { spa: '由 tests/selfcheck.cjs 代跑：外壳判据要真跑一次才能报「spa.cjs 全绿」' };
+/* 是真判据，但由别处代跑（代跑关系写死在这一份里，不再靠人记）。
+   2026-10-21（批次 8 V7）：spa 不再是「由 selfcheck 代跑」—— selfcheck 里那条同步
+   spawnSync 正是它 3.8s 慢点的本体（起服务/读盘/重复求值 里的「重复求值」）。
+   spa.cjs 现在自己就是 all.cjs 并发池里的独立判据，selfcheck 不再为它垫一句「全绿」。 */
+const DELEGATED = {};
 
 function diskTests() {
   /* 以点开头的文件不算判据：`.probe-tables.cjs` 那类是重打例外登记表的草稿工具，要带参数手工跑。 */
@@ -110,8 +114,9 @@ const ROWS = [
     resident: ['routes-smoke', 'local-first', 'index-store'], browser: ['cloud-sync'],
     why: '落盘：写入可靠性（原子写 / .bak / journal）+ 云同步' },
   { key: 'server/**', match: p => p.startsWith('server/'),
-    resident: ['routes-smoke', 'providers-validate', 'relay-retry', 'static-guards'], browser: ['proxy'],
-    why: '服务端其它：注册表校验 + 转发闸重试 + 代理行为' },
+    resident: ['routes-smoke', 'providers-validate', 'relay-retry', 'static-guards', 'static-encoding'],
+    browser: ['proxy', 'static-encoding'],
+    why: '服务端其它：注册表校验 + 转发闸重试 + 代理行为 + 静态预压缩（同一份判据，e2e 档跑 --live 那一半）' },
   { key: 'web/styles/**', match: p => p.startsWith('web/styles/'),
     resident: ['static-guards'], browser: ['ui-visual'],
     why: '样式：裸色值判据 + 视觉指纹（ui-visual 按改的那一页收，见 --pages 提示）' },
@@ -155,9 +160,9 @@ function plan(files) {
     }
     byFile.push({ file: f, rows: rows.map(r => r.key), derived });
   }
-  /* selfcheck 里第一条判据就是「spa.cjs 全绿」：两个都在时只跑 selfcheck，少一次重复 spawn。
-     点名 spa 的那两行（模板 / 生成物）例外 —— 它们要的就是这一条判据本身。 */
-  if (picked.has('selfcheck') && !files.some(f => f.startsWith('tools/vue-templates/') || f.startsWith('web/render/'))) picked.delete('spa');
+  /* selfcheck 不再代跑 spa（批次 8 V7：那条同步 spawnSync 是 selfcheck 的慢点本体）：
+     凡是挑中 selfcheck 的改动，spa.cjs 必须一起进清单，否则外壳判据漏跑。 */
+  if (picked.has('selfcheck')) picked.add('spa');
   return { byFile, picked: [...picked], browserPicked: [...browserPicked], rowsPicked: [...rowsPicked] };
 }
 
@@ -179,6 +184,35 @@ function gitChanged() {
 function split(s) { return String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean); }
 
 /* ---------- 跑 ---------- */
+/* V8（批次 8）：判据子进程优先用「系统 node」跑，不再默认跟着当前 execPath。
+   实测（执行文档 2026-10-20 §10.1）：全量常驻 managed 54.3s / 系统 45.9s —— 一文件一进程时
+   启动开销差被 49 次 spawn 放大。选型优先级：
+     ① 环境变量 NODE 显式指定；
+     ② PATH 里第一个「不是当前 execPath」且能跑的 node（which/where 现查）；
+     ③ 拿不到就回落到 process.execPath —— 绝不能因为找不到系统 node 就把测试跑挂。
+   构建与开发依赖（npm run build / check 里的 precompile）仍走 managed，不受这里影响。
+   all.cjs / watch.cjs 共用这一份（不另存第二张选型表）。 */
+function resolveNode() {
+  const runnable = c => { try { return cp.spawnSync(c, ['-e', '0'], { timeout: 10000 }).status === 0; } catch (e) { return false; } };
+  let cur = process.execPath;
+  try { cur = fs.realpathSync(process.execPath); } catch (e) {}
+  const cands = [];
+  if (process.env.NODE) cands.push(process.env.NODE);
+  else {
+    const probe = cp.spawnSync(process.platform === 'win32' ? 'where' : 'which', ['node'], { encoding: 'utf8' });
+    if (probe.status === 0) cands.push(...String(probe.stdout || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean));
+  }
+  for (const c of cands) {
+    let real = c;
+    try { real = fs.realpathSync(c); } catch (e) {}
+    if (real === cur) return process.execPath;    // PATH 里排第一的就是当前进程：没什么可换的
+    if (runnable(c)) return c;                    // 找到另一个能跑的 node：按 V8 用它
+  }
+  return process.execPath;
+}
+let testNodeCache = null;
+const testNode = () => (testNodeCache || (testNodeCache = resolveNode()));
+
 function fileOf(id) {
   if (fs.existsSync(abs('tests/' + id + '.mjs'))) return 'tests/' + id + '.mjs';
   if (fs.existsSync(abs('tests/' + id + '.cjs'))) return 'tests/' + id + '.cjs';
@@ -186,24 +220,40 @@ function fileOf(id) {
   return null;
 }
 function command(id) {
-  if (id === 'build-check') return { name: 'npm run build:check', cmd: process.execPath, args: ['tools/precompile-vue.cjs', '--check'] };
+  if (id === 'build-check') return { name: 'npm run build:check', cmd: testNode(), args: ['tools/precompile-vue.cjs', '--check'] };
   const file = fileOf(id);
   if (!file) return null;
-  return { name: file, cmd: process.execPath, args: [file] };
+  return { name: file, cmd: testNode(), args: [file] };
 }
+/* V5（批次 8）：--run 逐条记耗时，跑完给一张按耗时降序的清单与总计；
+   总计超预算（默认 20s，MAP_BUDGET_MS 可改）就把「最慢的那几条」单独点出来，
+   并提示：切 `--run --e2e` 之前先看这份清单（e2e 只加不减时间）。 */
+const BUDGET_MS = Number(process.env.MAP_BUDGET_MS || 20000);
 function runAll(ids, label) {
   const t0 = Date.now();
   let bad = 0;
+  const rows = [];
   console.log('\n=== ' + label + '（' + ids.length + ' 项）===');
   for (const id of ids) {
     const c = command(id);
     if (!c) { bad++; console.log('✗ ' + id + ' —— 找不到这个判据文件（映射表点名点名不存在的项）'); continue; }
     const t1 = Date.now();
     const r = cp.spawnSync(c.cmd, c.args, { cwd: root, stdio: 'inherit' });
-    if (r.status !== 0) { bad++; console.log('✗ ' + c.name + '（退出码 ' + r.status + ' · ' + (Date.now() - t1) + ' ms）'); }
-    else console.log('✓ ' + c.name + '（' + (Date.now() - t1) + ' ms）');
+    const ms = Date.now() - t1;
+    rows.push({ name: c.name, ms, ok: r.status === 0 });
+    if (r.status !== 0) { bad++; console.log('✗ ' + c.name + '（退出码 ' + r.status + ' · ' + ms + ' ms）'); }
+    else console.log('✓ ' + c.name + '（' + ms + ' ms）');
   }
-  console.log(label + '：' + ids.length + ' 项，' + bad + ' 项未通过（' + (Date.now() - t0) + ' ms）');
+  const total = Date.now() - t0;
+  console.log(label + '：' + ids.length + ' 项，' + bad + ' 项未通过（' + total + ' ms）');
+  console.log('  耗时清单（降序）：' + rows.slice().sort((a, b) => b.ms - a.ms)
+    .map(r => r.name.replace(/^tests\//, '') + ' ' + r.ms + 'ms' + (r.ok ? '' : '✗')).join(' ｜ '));
+  if (total > BUDGET_MS) {
+    const slowest = rows.slice().sort((a, b) => b.ms - a.ms).slice(0, 5);
+    console.log('  ⚠ 超过预算 ' + BUDGET_MS + 'ms（实跑 ' + total + 'ms）。最慢的几条：'
+      + slowest.map(r => r.name.replace(/^tests\//, '') + ' ' + r.ms + 'ms').join('、'));
+    console.log('  ⚠ 切 `--run --e2e` 之前先看这份清单：e2e 只加不减时间；先收敛上面最慢的几条再决定。');
+  }
   return bad;
 }
 
@@ -305,4 +355,4 @@ function main() {
 }
 
 if (require.main === module) process.exit(main());
-module.exports = { ROWS, registry, diskTests, plan, selfChecks, HELPERS, DELEGATED, fileOf };
+module.exports = { ROWS, registry, diskTests, plan, selfChecks, HELPERS, DELEGATED, fileOf, resolveNode, BUDGET_MS };

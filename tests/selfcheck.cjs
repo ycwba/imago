@@ -15,11 +15,13 @@
  */
 const fs = require('fs');
 const path = require('path');
-const cp = require('child_process');
 const S = require('./support.cjs');            // 数「代码里真有几条」时要先剥注释（§10 那条事件契约判据）
 
 const root = path.resolve(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+/* 导演台 engine 层 = engine.js（状态与接线）+ engine/<域>.js（G1 按域搬出去的函数）。
+   钉「这一层只有一份实现」的判据读这一份：函数搬进域模块还是同一层代码，判据跟着代码走。 */
+const EL = S.engineLayer();
 let bad = 0, checks = 0;
 function ok(name, cond, detail) {
   checks++;
@@ -30,12 +32,19 @@ function ok(name, cond, detail) {
 }
 function group(t) { console.log('\n' + t); }
 
-/* ---------- 1. 先跑架构判据（独立进程，输出原样透传） ---------- */
-group('§1 SPA 架构（tests/spa.cjs）');
-const spa = cp.spawnSync(process.execPath, [path.join(__dirname, 'spa.cjs')], { encoding: 'utf8' });
-process.stdout.write(spa.stdout || '');
-if (spa.stderr) process.stderr.write(spa.stderr);
-ok('tests/spa.cjs 全绿', spa.status === 0, '退出码 ' + spa.status);
+/* ---------- 1. SPA 架构判据的落点（批次 8 V7 改过） ----------
+   旧版这里同步 spawnSync 跑 tests/spa.cjs（外加 §6b 再跑一遍 local-first.cjs）：
+   两条子进程启动 + 与 all.cjs 里独立判据的**重复求值**，正是 selfcheck 3.8s 的慢点本体。
+   现在 spa.cjs / local-first.cjs 都只作为 all.cjs 并发池里的独立判据各跑一次，
+   本文件不再代跑、也不再垫「全绿」那句包装判据 —— 它们红，池子就红，退出码照样拦。
+   （map.cjs 的 DELEGATED 表同步清空；挑中 selfcheck 的改动会把 spa 一并拉进清单。） */
+group('§1 SPA 架构判据由 tests/spa.cjs 独立跑（本文件不代跑，见文件头注释）');
+{
+  /* 代跑删掉之后，「独立判据还在不在常驻段」就得有人盯 —— 谁把登记也顺手弄丢，这条会红。 */
+  const allSrc = read('tests/all.cjs');
+  const at = allSrc.search(/if\s*\(process\.argv\.includes\('--e2e'\)/);
+  ok('spa.cjs 仍登记在 all.cjs 常驻段（不再由 selfcheck 代跑）', /run\('tests\/spa\.cjs'/.test(allSrc.slice(0, at)));
+}
 
 /* ---------- 2. 旧页面已经删除，旧地址仍有出路 ---------- */
 group('§2 旧页面退场');
@@ -72,7 +81,7 @@ for (const f of comps) {
 
 /* ---------- 4. 共享层与外壳接线 ---------- */
 group('§4 共享层与外壳');
-for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.js', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/fcpxml-import.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/playback.js', 'web/director/segments.js', 'web/director/timeline.js', 'web/director/voice-layout.js', 'web/director/plan.js', 'web/director/waveform.js', 'web/director/projection.js', 'web/director/voice-block.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
+for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.cjs', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/fcpxml-import.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/playback.js', 'web/director/segments.js', 'web/director/timeline.js', 'web/director/voice-layout.js', 'web/director/plan.js', 'web/director/waveform.js', 'web/director/projection.js', 'web/director/voice-block.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
   ok(f + ' 仍在', fs.existsSync(path.join(root, f)));
 }
 const shell = read('shell.html');
@@ -104,10 +113,10 @@ ok('每个页面都有助手只读快照', ['director.html','canvas.html','studi
 ok('助手在 compose 里自动带当前界面', /【当前界面/.test(read('web/features/chat.js')) && /hostCtx\(\)/.test(read('web/features/chat.js')));
 ok('助手有本地语义检索工具', /find\s*:\s*\{/.test(read('web/features/chat-tools.js')) && /SemanticSearch/.test(read('web/features/chat-tools.js')));
 ok('语义检索模块有 rank', /SemanticSearch\s*=\s*\{\s*norm/.test(read('web/domain/semantic.js')) && /function\s+rank/.test(read('web/domain/semantic.js')));
-ok('切片缓存用稳定键 / 失败 TTL / 同图不重绘', /function\s+sliceKey/.test(read('web/director/engine.js'))
-  && /SLICE_FAIL_TTL/.test(read('web/director/engine.js')) && /__frsSig/.test(read('web/director/engine.js')));
-ok('导出素材名带成片时间点', /function\s+clipTimeLabel/.test(read('web/director/engine.js'))
-  && /voiceFilmRange/.test(read('web/director/engine.js')));
+ok('切片缓存用稳定键 / 失败 TTL / 同图不重绘', /function\s+sliceKey/.test(EL)
+  && /SLICE_FAIL_TTL/.test(EL) && /__frsSig/.test(EL));
+ok('导出素材名带成片时间点', /function\s+clipTimeLabel/.test(read('web/director/engine/export.js'))
+  && /voiceFilmRange/.test(read('web/director/engine/export.js')));
 ok('本机/云端标识有开关', /sk_media_badge/.test(read('web/ui/ui.js')) && /showBadge/.test(read('web/domain/local.js')));
 ok('Vue 页面可交未保存状态', /__spaFlush/.test(core) && /__spaDirty/.test(core));
 
@@ -133,15 +142,20 @@ ok('三个页面的卡片标识都读 stateOf', ['web/pages/assets.js', 'web/pag
   .every(f => read(f).includes('stateOf')));
 ok('镜像落盘带平台产物号（多图逐份认回）', /asset:\s*\(ent && ent\.assetId\)/.test(al));
 ok('整表合并按产物数决定能否按任务号认', /outCount/.test(al) && /allowGen/.test(al));
-group('§6b 本机优先行为（tests/local-first.cjs）');
-const lf = cp.spawnSync(process.execPath, [path.join(__dirname, 'local-first.cjs')], { encoding: 'utf8' });
-process.stdout.write(lf.stdout || '');
-if (lf.stderr) process.stderr.write(lf.stderr);
-ok('tests/local-first.cjs 全绿', lf.status === 0, '退出码 ' + lf.status);
+group('§6b 本机优先判据的接线（local-first 由 all.cjs 独立跑，这里验接线不重跑）');
+{
+  /* V7：这里以前同步 spawnSync 再跑一遍 local-first.cjs（all.cjs 里已有一条同样的，纯重复求值）。
+     换成静态接线判据：独立判据必须还登记在 all.cjs 的常驻段里 —— 谁把代跑删了又把登记也弄丢，
+     这条会红；「跑不跑得过」由池子里那一条 local-first.cjs 自己回答。 */
+  const allSrc = read('tests/all.cjs');
+  const at = allSrc.search(/if\s*\(process\.argv\.includes\('--e2e'\)/);
+  const resident = allSrc.slice(0, at);
+  ok('local-first.cjs 仍登记在 all.cjs 常驻段（不再由 selfcheck 代跑）', /run\('tests\/local-first\.cjs'/.test(resident));
+}
 
 /* ---------- 7. 助手改时间线：唯一写入桥 ---------- */
 group('§7 导演台时间线写入桥');
-const frag = read('web/director/engine.js');
+const frag = EL;
 /* §6.1-2：动作表与查询表在 chat-tools.js，外壳/会话仍在 chat.js；这一组判据两半合看 */
 const chat = read('web/features/chat.js') + '\n' + read('web/features/chat-tools.js');
 ok('时间线写入桥只有一份', (frag.match(/WBBridge\.install\('director'/g) || []).length === 1
@@ -202,7 +216,9 @@ ok('页头导出入口由格式表生成并接线', /id="exportBtns"/.test(read(
   && /button: 'exportFcp'/.test(expFmt) && /ExportFormats\.list\(\)\.forEach/.test(frag)
   && /b\.onclick = EXPORT_RUN\[f\.kind\]/.test(frag));
 ok('FCPXML 两档：裸 XML 与带素材的媒体包', /button: 'exportFcpBundle'/.test(expFmt) && /bundle: true/.test(expFmt)
-  && /exportFCPXML\(\{ bundle: !!f\.bundle \}\)/.test(frag) && /\/fcpxml\/bundle/.test(fcp) && /bundleAssets/.test(fcp));
+  && /Export\.fcp\(\{ bundle: !!f\.bundle \}\)/.test(frag)
+  && /runFcpExport\(fcpCtx\(\), opts/.test(read('web/director/engine/export.js'))
+  && /\/fcpxml\/bundle/.test(fcp) && /bundleAssets/.test(fcp));
 ok('导出只读当前时间线', /export async function buildFCPXML/.test(fcp)
   && /tlSyncFromShots\(\)/.test(fcp.split('export async function buildFCPXML')[1] || '')
   && /export async function exportFCPXML/.test(fcp)
@@ -228,10 +244,17 @@ ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey =
 {
   const code = f => S.stripComments(read(f));
   const localCode = code('web/domain/local.js');
-  const four = ['web/director/engine.js', 'web/pages/studio.js', 'web/domain/canvas/gen.js', 'web/domain/gen-forms.js'];
+  /* 四个生产点。导演台那一份自 G1 起按域住在 engine/<域>.js（生成 / 轮询那一条），
+     所以这里看的是整层拼起来的那一份 —— 认「名字在哪儿」不认「文件叫什么」。 */
+  const four = [
+    ['导演台 engine 层', S.engineFiles().map(code).join('\n')],
+    ['web/pages/studio.js', code('web/pages/studio.js')],
+    ['web/domain/canvas/gen.js', code('web/domain/canvas/gen.js')],
+    ['web/domain/gen-forms.js', code('web/domain/gen-forms.js')],
+  ];
   const dispatchN = (localCode.match(/new CustomEvent\('wb:asset-done'/g) || []).length;
-  const stillOwn = four.filter(f => /new CustomEvent\('wb:asset-done'/.test(code(f)));
-  const notWired = four.filter(f => !/AssetLocal\.announce\(/.test(code(f)));
+  const stillOwn = four.filter(x => /new CustomEvent\('wb:asset-done'/.test(x[1])).map(x => x[0]);
+  const notWired = four.filter(x => !/AssetLocal\.announce\(/.test(x[1])).map(x => x[0]);
   ok('生成完成事件驱动自动镜像，且只有一个生产出口',
     /function announce\(entries\)/.test(localCode) && dispatchN === 1 && !stillOwn.length && !notWired.length,
     'local.js 里投事件 ' + dispatchN + ' 处（要 1）；仍自己投的：' + (stillOwn.join(', ') || '无')
@@ -274,7 +297,10 @@ ok('画布节点检索只有页面那一份（助手不另排序）', /function 
    画布 Ctrl+F 与助手的 canvas_search 是同一条链路，一处坏两处死。 */
 ok('节点检索解开 rank 那层壳（壳里的 item 才是检索行）', /const node = r\.item\.node/.test(cvPage)
   && /pick\(\{ item: d, score: 1/.test(cvPage));
-ok('生成参数键名只认 createBody 那一份（画质不再被丢）', /res: base\.res/.test(cvGen) && !/resolution: r\.params/.test(cvGen)
+/* 图片与视频两条提交共用同一个 base（图片 spread，视频 Object.assign 再覆盖），
+   键名一律是 Api.createBody 认的那一份（res / ar / quality / tier / format / size / duration）。 */
+ok('生成参数键名只认 createBody 那一份（画质不再被丢）', /res: r\.params\.res/.test(cvGen)
+  && /\.\.\.base/.test(cvGen) && /Object\.assign\(\{\}, base/.test(cvGen) && !/resolution: r\.params/.test(cvGen)
   && /cvParamKeys/.test(chat) && /checkParam\(/.test(chat));
 ok('一条资产变节点只有页面那一份 assetOpOf', /function assetOpOf\(/.test(cvPage)
   && /assetNode: \(kind, assetId, pt, title\) => assetOpOf/.test(cvPage) && /A\.assetNode\(/.test(chat));

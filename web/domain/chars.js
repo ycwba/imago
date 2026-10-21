@@ -1270,7 +1270,7 @@ window.Chars = (function () {
     const u = refAudioUrls.get(String(v || '').trim());
     if (!u) return;
     refAudioUrls.delete(String(v || '').trim());
-    try { URL.revokeObjectURL(u); } catch (e) {}
+    try { URL.revokeObjectURL(u); } catch (e) { /* blob 忘了释放也会被浏览器回收，不影响功能 */ }
   }
   async function refAudioSrc(v) {
     const s = String(v == null ? '' : v).trim();
@@ -1317,7 +1317,7 @@ window.Chars = (function () {
   async function saveRefAudio(char, blob, name) {
     const key = await Wb.Blobs.save(blob);
     if (char.refAudio && char.refAudio !== key) {
-      try { await Wb.Blobs.del(char.refAudio); } catch {}
+      try { await Wb.Blobs.del(char.refAudio); } catch { /* 旧的本机参考音频删不掉只多留一份字节，不拦这次替换 */ }
       refAudioCache.delete(char.refAudio); dropRefUrl(char.refAudio);
     }
     char.refAudio = key;
@@ -1328,7 +1328,7 @@ window.Chars = (function () {
   /* 去掉参考音频：本机那块字节也要删掉，不然这一集不用了它还占着 IndexedDB */
   async function clearRefAudio(char) {
     if (!char || !char.refAudio) return;
-    try { await Wb.Blobs.del(char.refAudio); } catch {}
+    try { await Wb.Blobs.del(char.refAudio); } catch { /* 旧的本机参考音频删不掉只多留一份字节，不拦这次替换 */ }
     refAudioCache.delete(char.refAudio); dropRefUrl(char.refAudio);
     char.refAudio = ''; char.refAudioName = '';
   }
@@ -1588,8 +1588,12 @@ window.Chars = (function () {
     const v = ttsOf(REG, o.opts, mode || undefined);
     if (!v) throw new Error('没有可用的语音平台，先在设置页配好语音接口');
     const prov = v.prov, model = v.model, tts = prov.tts || {};
-    /* 输出格式也按声明取（优先 wav，方便抽时长与试听）；pcm16 裸流在本地封成 WAV */
-    const fmts = ((model.options || {}).formats || []);
+    /* 输出格式也按声明取（优先 wav，方便抽时长与试听）；pcm16 裸流在本地封成 WAV。
+       判据统一问 `TtsAdv.formats`（型号 options.formats 优先、平台 tts.formats 回退）：
+       这里以前只读型号那一层，平台只在 tts.formats 里声明格式时整份清单是空的，
+       于是永远按 wav 发 —— 而那一家的 wav 可能根本没人认（B27）。 */
+    const fmts = window.TtsAdv ? window.TtsAdv.formats(prov, model)
+      : ((model.options || {}).formats || tts.formats || []);
     const fmt = fmts.length ? (fmts.includes('wav') ? 'wav' : fmts[0]) : 'wav';
     const real = ttsModeOf(model);
     let voice = o.voice || '';
@@ -1641,7 +1645,7 @@ window.Chars = (function () {
     return new Promise(res => {
       const a = new Audio();
       let done = false;
-      const fin = v => { if (done) return; done = true; try { a.removeAttribute('src'); a.load(); } catch {} res(Number(v) || 0); };
+      const fin = v => { if (done) return; done = true; try { a.removeAttribute('src'); a.load(); } catch { /* 临时 audio 收尾：释放失败也不影响已经算出来的时长 */ } res(Number(v) || 0); };
       a.preload = 'metadata';
       a.onloadedmetadata = () => fin(a.duration);
       a.ondurationchange = () => { if (a.duration && isFinite(a.duration)) fin(a.duration); };
@@ -1889,7 +1893,10 @@ window.Chars = (function () {
     /* 老字典 → 列表。只在读的时候现算，不改原对象：
        一条只读的查询顺手把用户的数据结构改掉，是很难查的一类副作用
        （保存时机一变，那次改写就跟着丢了）。 */
-    return Object.keys(a).filter(k => a[k]).map(k => normAsset({ id: k + ':' + newAssetId(), kind: k, src: a[k] }));
+    /* id 必须稳定：以前拼了 newAssetId()，每次读都是新 id，setAssetName / removeAsset /
+       setAssetProps 按 id 定位全部失效（点改名改的是下一次读才出现的另一张）。
+       用字典键本身（对象键唯一且落盘前后不变）；落盘一次后就是列表里的同一枚 id。 */
+    return Object.keys(a).filter(k => a[k]).map(k => normAsset({ id: k, kind: k, src: a[k] }));
   }
   function assetsSave(item, list) {
     item.assets = (list || []).filter(x => x && x.src).map(x => normAsset(x));
@@ -2259,12 +2266,12 @@ window.Chars = (function () {
   let previewAudUrl = '';
   function dropPreviewUrl() {
     if (!previewAudUrl) return;
-    try { URL.revokeObjectURL(previewAudUrl); } catch (e) {}
+    try { URL.revokeObjectURL(previewAudUrl); } catch (e) { /* blob 忘了释放也会被浏览器回收，不影响试听 */ }
     previewAudUrl = '';
   }
   async function preview(REG, opts, c, o) {
     const stage = (o && o.onStage) || function () {};
-    if (previewAud) { try { previewAud.pause(); } catch (e) {} }
+    if (previewAud) { try { previewAud.pause(); } catch (e) { /* 本来就停着就没有需要停的 */ } }
     previewAud = null;
     dropPreviewUrl();
     const rdy = voiceReady(REG, opts, c);
@@ -2291,7 +2298,7 @@ window.Chars = (function () {
      于是 IndexedDB 那个短键被当相对路径去 fetch，素材库页点「试听她自己的那段」只回一句失败。 */
   async function playAsset(src) {
     if (!src) return { why: '这一段不在了，重新出一次候选' };
-    if (previewAud) { try { previewAud.pause(); } catch (e) {} previewAud = null; }
+    if (previewAud) { try { previewAud.pause(); } catch (e) { /* 本来就停着就没有需要停的 */ } previewAud = null; }
     dropPreviewUrl();                                  // 换成资产地址了，上一条试听的 blob 地址收掉
     const u = await refAudioSrc(src);
     if (!u) return { why: refAudioMiss() };

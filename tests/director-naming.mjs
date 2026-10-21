@@ -6,10 +6,13 @@ import assert from 'node:assert/strict';
 import { sceneShotBase, candidateBase, voiceBase, clipLabel,
   stripExt, withExt, uniqueName, shotCtxOf, candidateIndex, voiceIndex } from '../web/director/naming.js';
 
-/* 浏览器里 safe() 直接用 ui.js 的 fileSafe；Node 单测没有它，这里补一份同规则的桩，
-   让「非法字符被洗掉、后缀仍在」这条也能在这里判。 */
-globalThis.window = { fileSafe: (s, max) => String(s == null ? '' : s)
-  .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, max || 80) };
+/* 浏览器里 safe() / pad2() 直接用 ui.js 的 fileSafe / pad2；Node 单测没有它们，这里补同规则的桩，
+   让「非法字符被洗掉、后缀仍在」「序号补零」这两条也能在这里判。 */
+globalThis.window = {
+  fileSafe: (s, max) => String(s == null ? '' : s)
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, max || 80),
+  pad2: n => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0'),
+};
 
 const ctx = { sceneIndex: 0, sceneName: '雨夜街头', shotIndex: 2, shotName: '推门' };
 assert.equal(sceneShotBase(ctx), '场景01-雨夜街头_镜头03-推门');

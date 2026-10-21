@@ -358,7 +358,9 @@
       goBtn.onclick = () => { goBtn.disabled = true; const t = text(); if (o.onSubmit) o.onSubmit(t); };
       el.querySelector('[data-act="skip"]').onclick = () => { if (o.onSkip) o.onSkip(); };
       el.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); goBtn.onclick(); }
+        /* 走 click() 而不是直调 onclick：提交后按钮已 disabled，click() 不会再触发，
+           直调会让 onSubmit 跑两遍、两路流式并发写同一块面板。 */
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); goBtn.click(); }
       });
       count();
       return el;
@@ -458,6 +460,9 @@
    ========================================================================== */
 (function () {
   function mount(title, sub) {
+    /* 同一时刻只留一张（与 PromptForm 同一条）：连点两次会叠出两张模态，
+       底下那张 getElementById 拿不到、也关不掉。 */
+    document.querySelectorAll('dialog#prDlg').forEach(d => { try { d.close(); } catch (e) { /* 已经关掉了，接着摘节点 */ } d.remove(); });
     const dlg = document.createElement('dialog');
     dlg.id = 'prDlg';
     dlg.innerHTML = `<div class="pr-head"><b>${window.esc(title)}</b>${sub ? `<div class="sub">${window.esc(sub)}</div>` : ''}</div>

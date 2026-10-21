@@ -19,12 +19,33 @@ const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 let bad = 0, n = 0;
 function ok(name, cond, detail) { n++; if (cond) return console.log('  ✓ ' + name); bad++; console.log('  ✗ ' + name + (detail ? ' —— ' + detail : '')); }
 
+/* V7（批次 8）：这一份以前 3.9s，慢点全在「重复求值」——
+   usageOf 对 34 个面 × 全部 web 源码逐遍 stripComments(read(f))（三十多遍全文扫描），
+   globalFaces / layerViolations 又各自重新读盘再扫。现在每个文件只读一次、只剥一次注释，
+   剥过的文本喂回 support.cjs 的注入点（globalFaces / layerViolations 都收 read 注入），
+   判据语义一字不动，扫的遍数从 ~38 遍收到 3 遍（剥完再剥是幂等全文扫，仍比读盘便宜）。 */
+const rawCache = new Map();
+const readOnce = f => {
+  if (!rawCache.has(f)) rawCache.set(f, read(f));
+  return rawCache.get(f);
+};
+const strippedCache = new Map();
+const strippedOf = f => {
+  if (!strippedCache.has(f)) strippedCache.set(f, S.stripComments(readOnce(f)));
+  return strippedCache.get(f);
+};
+/* 合成文件（U6 自检）不在真实清单里：按注入 read 现剥一次就缓存。 */
+const injectRead = f => {
+  if (!strippedCache.has(f)) strippedCache.set(f, S.stripComments(rawCache.has(f) ? rawCache.get(f) : S.read(f)));
+  return strippedCache.get(f);
+};
+
 const index = read('web/ui/index.js');
-ok('目录导出 LocalBadge', /LocalBadge/.test(index));
-ok('目录导出 badgeOf', /badgeOf/.test(index));
-const badge = read('web/ui/local-badge.js');
-ok('LocalBadge 有 meta', /export const meta/.test(badge) && /name:\s*'LocalBadge'/.test(badge));
-ok('LocalBadge 用 h() 而不是模板', /\bh\(/.test(badge) && !/\btemplate\s*:/.test(badge));
+ok('目录导出徽标的唯一实现（badgeOf / badgeHTML）', /badgeOf/.test(index) && /badgeHTML/.test(index));
+ok('不再有第二份徽标组件', !fs.existsSync(path.join(root, 'web/ui/local-badge.js')));
+const badge = read('web/ui/badge-state.js');
+ok('badgeOf 与 badgeHTML 都在这一份', /export function badgeOf/.test(badge) && /export function badgeHTML/.test(badge));
+ok('徽标样式类只有 srcbadge 一处拼法', /class="srcbadge \$\{b\.cls\}"/.test(badge));
 
 const pages = fs.readdirSync(path.join(root, 'web/pages')).filter(f => f.endsWith('.js'));
 for (const f of pages) {
@@ -74,14 +95,14 @@ const FACES = [
   { face: 'CharLimits', layer: 'domain', owner: 'web/domain/gen-forms.js', why: '§7「字数闸」唯一实现' },
   { face: 'TtsAdv', layer: 'domain', owner: 'web/domain/gen-forms.js', why: '§7「配音合成设置」：TtsAdv + AdvExtras' },
 ];
-const faces = S.globalFaces();
+const faces = S.globalFaces({ read: injectRead });
 const webFiles = S.webSources().map(p => S.asRel(p));
 const usageOf = name => {
   const d = faces.get(name);
   let users = 0, sites = 0;
   for (const f of webFiles) {
     if (d && d.files.includes(f)) continue;                    // 定义方自己不算使用点
-    const c = S.faceReads(S.stripComments(read(f)), name);
+    const c = S.faceReads(strippedOf(f), name);
     if (c) { users++; sites += c; }
   }
   return { users, sites };
@@ -100,8 +121,9 @@ for (const r of FACES) {
     '没人用它 = 页面各自抄了一份，§3.4 的硬约束没落地');
 }
 
-/* U5：使用点的跨层方向 —— 与 architecture.cjs 读同一份矩阵与同一张例外表 */
-const layerCurrent = S.layerViolations({ faces });
+/* U5：使用点的跨层方向 —— 与 architecture.cjs 读同一份矩阵与同一张例外表
+   （read 注进剥好的一遍文本，判据本身不变）。 */
+const layerCurrent = S.layerViolations({ faces, read: injectRead });
 const r5 = S.ratchet(layerCurrent, S.LAYER_EXCEPTIONS);
 ok(`U5 公共面使用点的分层方向合规（现 ${r5.total} 处 / 登记 ${S.LAYER_EXCEPTIONS.reduce((a, x) => a + x.max, 0)} 处 · ${Object.keys(layerCurrent).length} 组）`,
   r5.grown.length === 0, r5.grown.map(x => x.id + ' = ' + x.n + (x.max != null ? '（上限 ' + x.max + '）' : '（没登记）')).join(' ; '));
@@ -114,6 +136,22 @@ ok('U6 自检：合成 `ui → domain` 读点必须被报出来、页面读 ui �
   Object.keys(hit).some(k => k === SYNTH + ' → Api [domain]')
   && !Object.keys(S.layerViolations({ faces, files: ['web/pages/__synthetic_ok.js'], read: () => `window.__SyntheticOk = { go() { return Dropdowns.sync(el); } };` })).length,
   '合成违例 ' + Object.keys(hit).join(' ; ') + '（或正确写法被误报）');
+
+/* U7（S3）分页行的 id 必须与 `Wb.pager.rowHTML(前缀)` 对上。
+   七页同在 KeepAlive 里，同一个文档里同时存在七套分页行 —— 写死 `pgPrev` 就是撞号。
+   更隐蔽的坏法是前缀传成 `charsPg`（生成 `charsPgPgPrev`）而 create 找 `charsPgPrev`：
+   按钮绑定不上、翻页文案永远停在第一页，页面上没有任何报错。 */
+const pagerBad = [];
+for (const p of webFiles) {
+  const s = readOnce(p);
+  for (const m of s.matchAll(/\.rowHTML\(\s*'([A-Za-z0-9_]+)'/g)) {
+    const pre = m[1];
+    const want = { pgPrevId: pre + 'PgPrev', pgInfoId: pre + 'PgInfo', pgNextId: pre + 'PgNext' };
+    const miss = Object.entries(want).filter(([k, id]) => !new RegExp(k + ":\\s*'" + id + "'").test(s));
+    if (miss.length) pagerBad.push(p + ' rowHTML(\'' + pre + '\') 缺 ' + miss.map(([k, id]) => k + ": '" + id + "'").join(' / '));
+  }
+}
+ok('U7 分页行 id 与 rowHTML 前缀一致（S3 统一 id）', pagerBad.length === 0, pagerBad.join(' ; '));
 
 console.log(`\n${n} 项，${bad} 项未通过`);
 process.exit(bad ? 1 : 0);

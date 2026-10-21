@@ -48,6 +48,17 @@ function createSkillsStore(opts) {
   const userDir = opts.userDir ? path.resolve(opts.userDir) : path.join(root, '.skills');
   const statePath = path.join(opts.dataDir || path.join(root, '.data'), 'skills.json');
   const log = opts.log || (() => {});
+  /* 启动清扫：上次安装中途崩溃留下的 `<id>.tmp-<pid>-<串>` 目录。
+     只认自己写出来的形状，且只收 10 分钟以前的 —— 另一个实例可能正在装同一份。 */
+  try {
+    if (fs.existsSync(userDir)) {
+      for (const ent of fs.readdirSync(userDir, { withFileTypes: true })) {
+        if (!ent.isDirectory() || !/\.tmp-\d+-[a-z0-9]{2,8}$/.test(ent.name)) continue;
+        const p = path.join(userDir, ent.name);
+        try { if (Date.now() - fs.statSync(p).mtimeMs > 10 * 60 * 1000) fs.rmSync(p, { recursive: true, force: true }); } catch (e) {}
+      }
+    }
+  } catch (e) { log('[skills] 启动清扫临时目录失败：' + e.message); }
   let state = null;
   const loadState = () => {
     if (state) return state;
@@ -159,41 +170,47 @@ function createSkillsStore(opts) {
     const tmp = dst + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
-    const prefix = main.rel.includes('/') ? main.rel.slice(0, main.rel.lastIndexOf('/') + 1) : '';
-    for (const f of listFiles) {
-      let rel = f.rel.startsWith(prefix) ? f.rel.slice(prefix.length) : f.rel;
-      if (!rel || rel.includes('..')) continue;
-      const dest = path.join(tmp, rel);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      atomicWrite(dest, f.text);        // 落盘（fsync）之后才允许那次目录 swap，否则掉电后 swap 过去的是半个文件
-    }
-    let bak = '';
-    if (cur) {
-      bak = dst + '.bak-' + Date.now();
-      /* 旧版本挪不动就别往下装：renameWithRetry 只重试「此刻被占着」那一类，
-         真让新目录盖上去，旧的那份就再也找不回来了（bak 是这次唯一后悔药）。 */
-      try { renameWithRetry(dst, bak); } catch (e) {
-        throw new Error('旧版本 Skill 挪不去备份 ' + path.basename(bak) + '（' + ((e && e.code) || '') + ' ' + ((e && e.message) || e) + '），安装已中止：' + id);
-      }
-    }
     try {
-      renameWithRetry(tmp, dst);
-    } catch (e) {
-      /* 新目录没能换上位：把刚挪走的旧版本放回原处 ——
-         「升级失败」不该变成「这个 Skill 凭空没了」，放回后再报错。 */
-      if (bak) { try { renameWithRetry(bak, dst); } catch {} }
-      throw new Error('Skill 目录换不到位（' + ((e && e.code) || '') + ' ' + ((e && e.message) || e) + '）：' + id + ' 已保持原样');
-    }
-    const st = loadState();
-    if (!opts2.keepState) {
-      if (opts2.enable !== false) {
-        const other = sameContract(String(meta.contract || ''), id);
-        if (other && other.source === 'builtin') st.enabled[other.id] = false;
-        st.enabled[id] = true;
+      const prefix = main.rel.includes('/') ? main.rel.slice(0, main.rel.lastIndexOf('/') + 1) : '';
+      for (const f of listFiles) {
+        let rel = f.rel.startsWith(prefix) ? f.rel.slice(prefix.length) : f.rel;
+        if (!rel || rel.includes('..')) continue;
+        const dest = path.join(tmp, rel);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        atomicWrite(dest, f.text);        // 落盘（fsync）之后才允许那次目录 swap，否则掉电后 swap 过去的是半个文件
       }
-      saveState();
+      let bak = '';
+      if (cur) {
+        bak = dst + '.bak-' + Date.now();
+        /* 旧版本挪不动就别往下装：renameWithRetry 只重试「此刻被占着」那一类，
+           真让新目录盖上去，旧的那份就再也找不回来了（bak 是这次唯一后悔药）。 */
+        try { renameWithRetry(dst, bak); } catch (e) {
+          throw new Error('旧版本 Skill 挪不去备份 ' + path.basename(bak) + '（' + ((e && e.code) || '') + ' ' + ((e && e.message) || e) + '），安装已中止：' + id);
+        }
+      }
+      try {
+        renameWithRetry(tmp, dst);
+      } catch (e) {
+        /* 新目录没能换上位：把刚挪走的旧版本放回原处 ——
+           「升级失败」不该变成「这个 Skill 凭空没了」，放回后再报错。 */
+        if (bak) { try { renameWithRetry(bak, dst); } catch {} }
+        throw new Error('Skill 目录换不到位（' + ((e && e.code) || '') + ' ' + ((e && e.message) || e) + '）：' + id + ' 已保持原样');
+      }
+      const st = loadState();
+      if (!opts2.keepState) {
+        if (opts2.enable !== false) {
+          const other = sameContract(String(meta.contract || ''), id);
+          if (other && other.source === 'builtin') st.enabled[other.id] = false;
+          st.enabled[id] = true;
+        }
+        saveState();
+      }
+      return get(id);
+    } finally {
+      /* 任何一步抛出（写文件失败 / 旧版挪不动 / 换位失败）都把本次临时目录收掉：
+         以前失败就留在 .skills/ 里，堆积的 .tmp-* 还会被当成坏 Skill 逐个读一遍。 */
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
     }
-    return get(id);
   };
   const remove = id => {
     const x = get(id);
