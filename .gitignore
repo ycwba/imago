@@ -31,6 +31,7 @@ prompts-probe*/
 # 一次性备份 / 自动化探针残留
 .backup-*/
 _backup/
+*.before
 .chrome-probe*/
 .selftest/
 .selftest-tmp/
