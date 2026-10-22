@@ -7,6 +7,7 @@ import { round1, pct, spdTxt } from '../util.js';
 import { sliceBoxHTML } from '../slice.js';
 import { SEG_MIN, segLen, segFilmLen, segsOf, segsCopy, segsWrite, laneClamp, tlClipDur } from '../segments.js';
 import { lineEstSec, lineSpanAt } from '../voice-layout.js';
+import { linePointOf, linePointClamp, linePointSet } from '../line-point.js';
 
 export function createLanes(E, document, window) {
   const {
@@ -36,6 +37,8 @@ export function createLanes(E, document, window) {
     dragOnWindow,
     reanchorVoices,
     cutPin,
+    beginEdit,
+    chosenCandOf,
     setPin,
     pinFilmTShot,
     sliceUserTouch,
@@ -191,18 +194,24 @@ function tlApplyScale(bar, total) {
   const Tsc = Math.max(0.1, Number(total) || 0.1);
   const mj = Number(rulerScale(Tsc, pps).major) || 0;
   bar.style.setProperty('--tl-step-px', (mj * pps >= 8 ? Math.round(mj * pps * 100) / 100 : 100000) + 'px');
+  /* 读数、滑块位置、「自适应」按钮的可用态**只在这一处**刷新（首画与每次缩放重排都经过这里）：
+     滑块反推走 tlSliderPos —— 与 input 正推 px/秒是同一对换算、同一对端点（tlZoomEnds），
+     两处各写一个 Math.log 迟早在两端差一格。 */
   const val = document.getElementById('tlZoomVal');
-  if (val) {
-    val.textContent = tlPpsOf() ? (tlPpsText(pps) + ' px/秒') : '自适应';
-    /* 手动档时这一点读数就是「回到自适应」那颗出口（见 tlZoomAuto）；
-       已经在自适应时不划虚线也不给手型 —— 点它什么都不会发生，那就不能看着像能点。
-       title 留空串 = 让浏览器退回外面那一层 `.tl-zoom` 的说明。 */
-    val.classList.toggle('man', !!tlPpsOf());
+  const zr = document.getElementById('tlZoomRange');
+  const zauto = document.getElementById('tlZoomAuto');
+  const man = !!tlPpsOf();
+  if (val) val.textContent = man ? (tlPpsText(pps) + ' px/秒') : '自适应';
+  if (zr) zr.value = String(tlSliderPos(pps, total));
+  if (zauto) {
+    zauto.disabled = !man;
     /* 「比轨道宽、要左右滚」与「只占轨道一段」是这一档最直观的两件事，写给用户看之前先确认量得出：
        容器还没排好时 `clientWidth` 是 0，那时两种都不说。 */
     const avail = bar.clientWidth || 0;
-    val.title = tlPpsOf() ? ('点一下回到「自适应」（现在按 ' + tlPpsText(pps) + ' 像素/秒'
-      + (avail ? (tlInnerWidth(total, pps) > avail ? '，整条比轨道宽、要左右滚' : '，整条只占轨道的一段') : '') + '）') : '';
+    zauto.title = man
+      ? ('点一下回到「自适应」（现在按 ' + tlPpsText(pps) + ' 像素/秒'
+        + (avail ? (tlInnerWidth(total, pps) > avail ? '，整条比轨道宽、要左右滚' : '，整条只占轨道的一段') : '') + '）')
+      : '现在就是自适应（整条正好铺满；长片铺到 12px/秒 就停，开始左右滚）';
   }
   if (tlAnchorT >= 0) {
     bar.scrollLeft = Math.max(0, tlAnchorT * pps - bar.clientWidth / 2);
@@ -224,26 +233,64 @@ function tlRescale() {
   const cands = sh.candidates || [];
   renderTimeline(col, sh, cands[projOf().curCand] || cands[0]);
 }
-/* 改比例尺要做的三件事（新值、锚点、落盘）只有这一处，按钮与滚轮都走它 ——
-   「按钮一步 1.6 倍」与「滚轮按 deltaY 连续折算」是同一份换算的两个入口，不是两套账。 */
-function tlZoomTo(mult) {
+/* 改比例尺要做的三件事（新值、锚点、落盘）只有这一处，按钮 / 滚轮 / 滑块都走它 ——
+   倍率入口（tlZoomTo）与绝对值入口（tlZoomSet）只算出 next 再调它，「缩放围绕视野中心那一秒」
+   的锚点因此只有一份，是结构上保证的，不靠记性。 */
+function tlZoomApply(next, opts) {
   const bar = document.getElementById('tlBar');
   if (!bar) return;
   const total = tlTotalNow(bar);
   const cur = tlCurrentPps(total, bar);
-  const next = Math.max(tlMinPps(total), Math.min(TL_MAX_ZOOMOf(), cur * mult));
+  next = Math.max(tlMinPps(total), Math.min(TL_MAX_ZOOMOf(), next));
   if (Math.abs(next - cur) < 1e-9) return;                 // 贴到上下限：一次无谓的重排都不做
   tlAnchorT = (bar.scrollLeft + bar.clientWidth / 2) / Math.max(0.01, cur);
   /* 三位小数而不是两位：滚轮那一档一步只有 1.5%，而两位量化在 1 px/秒 那一档的格宽正好是 1%，
      会把半步吃掉 —— 捏一下读数一动不动，看着像滚轮坏了。 */
   setTlPps(Math.round(next * 1000) / 1000);
-  window.LS.set('dir_tl_pps', String(tlPpsOf()));   // 存不下（隐私模式）就只生效这一次
+  /* 滑块拖动中（input）只改内存 —— 每帧写盘太密，与右栏那几枚滑块同一条纪律；
+     松手 / 键盘松开（change）由 tlZoomCommit 落盘。按钮与滚轮一次就是一档，当场落。 */
+  if (!opts || opts.persist !== false) window.LS.set('dir_tl_pps', String(tlPpsOf()));   // 存不下（隐私模式）就只生效这一次
   /* 缩放换了采样点，也换了用户盯着看的那一片：失败退避不再拦这一次重排。 */
   sliceForgetFail();
   if (midEditTrimOf()) tlRescale();
 }
-/* 按钮那两颗：一步 1.6 倍 */
-function tlZoomBy(dir) { tlZoomTo(dir > 0 ? 1.6 : 1 / 1.6); }
+function tlZoomTo(mult) {
+  const bar = document.getElementById('tlBar');
+  if (!bar) return;
+  tlZoomApply(tlCurrentPps(tlTotalNow(bar), bar) * mult);
+}
+/* 绝对值入口（px/秒）。persist=true 只用于滑块拖动中：input 只改内存，松手才由 tlZoomCommit 落盘。 */
+function tlZoomSet(pps, persist) {
+  tlZoomApply(Number(pps) || 0, persist ? { persist: false } : undefined);
+}
+/* 滑块的位置 ↔ px/秒：px/秒是倍率、滑块是线性的 → 位置必须取**对数**，线性摆位会把低档位
+   全挤在左端、拖起来像卡住（滚轮那条路本来就是对数折算，两条路同一手感）。
+   端点跟 tlMinPps(total) / TL_MAX_ZOOM 走：本镜 ⇄ 全片、换镜头，总长一变同一个位置对应的 px/秒
+   就不同 —— tlApplyScale 反推位置与 input 正推 px/秒读的都是这一对函数，别处各写一个 log 必然漂。 */
+const TL_SLIDER_MAX = 1000;
+function tlZoomEnds(total) {
+  const min = tlMinPps(total) || 0.02;
+  return { min, max: Math.max(min * 1.0001, TL_MAX_ZOOMOf()) };
+}
+function tlSliderPos(pps, total) {
+  const e = tlZoomEnds(total);
+  const p = Math.max(e.min, Math.min(e.max, Number(pps) > 0 ? Number(pps) : e.min));
+  return Math.round((Math.log(p) - Math.log(e.min)) / (Math.log(e.max) - Math.log(e.min)) * TL_SLIDER_MAX);
+}
+function tlSliderPps(pos, total) {
+  const e = tlZoomEnds(total);
+  const t = Math.max(0, Math.min(TL_SLIDER_MAX, Number(pos) || 0)) / TL_SLIDER_MAX;
+  return e.min * Math.pow(e.max / e.min, t);
+}
+function tlZoomSetPos(pos, persist) {
+  const bar = document.getElementById('tlBar');
+  if (!bar) return;
+  tlZoomSet(tlSliderPps(pos, tlTotalNow(bar)), persist === false);
+}
+/* 滑块松手（change）那一刻落盘。没动成（还是自适应档，pps = 0）就不写 —— 那一档本来走 LS.del。 */
+function tlZoomCommit() { if (tlPpsOf()) window.LS.set('dir_tl_pps', String(tlPpsOf())); }
+/* 按钮那两颗：一步约 1.15 倍 —— 与滚轮一格（≈1.16）同一档手感；以前是 1.6，一按跳太远。 */
+function tlZoomBy(dir) { tlZoomTo(dir > 0 ? 1.15 : 1 / 1.15); }
 /* 触摸板的一次捏合连发几十条 wheel（每条 deltaY 只有一二十像素，一秒能出 60 条以上），
    以前每条都乘按钮那一步的 1.6 —— 一次捏合翻几十倍，就是用户报的「幅度太大、没法用」。
    滚轮因此不当「一步」用，按 deltaY 的像素数**连续折算**：鼠标一格（Chrome 回 100）≈ 1.16 倍，
@@ -262,9 +309,9 @@ function tlZoomWheel(e) {
     tlZoomTo(m);
   });
 }
-/* 回到「自适应」那一档（点读数那一下）。这一档**以前没有出口**：手动缩过一次之后
-   `tlPpsOf()` 就永远是手动值，读数再也不会写「自适应」。旧下限 4px/秒 时缩到底看着还是铺满一整条，
-   「回不去」是含糊的；现在能缩到比这条轨道还短，回不去就成了看得见的一件事 —— 所以给它一颗真出口。 */
+/* 回到「自适应」那一档（「自适应」那颗按钮的出口；读数只显示数字，不再兼任出口）。这一档**以前没有出口**：
+   手动缩过一次之后 `tlPpsOf()` 就永远是手动值，读数再也不会写「自适应」。旧下限 4px/秒 时缩到底
+   看着还是铺满一整条，「回不去」是含糊的；现在能缩到比这条轨道还短，回不去就成了看得见的一件事 —— 所以给它一颗真出口。 */
 function tlZoomAuto() {
   if (!tlPpsOf()) return false;
   setTlPps(0);
@@ -310,6 +357,57 @@ function renderTimeline(col, sh, cur) {
 }
 /* 这一页签的像素/秒（要问**滚动容器**的宽度，不能问内容层 —— 内容层已经是 pxPerSec 撑出来的） */
 const tlPpsNow = total => tlCurrentPps(total, document.getElementById('tlBar'));
+/* 屏幕横坐标 → 这一排的落点：只量、不写。量尺子 / 折轴秒 / 折源秒只有这一份 ——
+   `bindPinZone`（点轨道空白 / 画面格 / 字幕块）与待生成占位的点击、拖动都调它。
+   两处各写一遍，迟早一处量 `#tlInner`、一处量 `#tlBar`：缩到比轨道还短时，
+   同一根手指会落出两个秒数。量的一律是**内容层**（画面行 / 声音行 / 刻度尺都是它的 100% 宽），
+   与格子、针同一把尺子。返回 `{ seg, at, box, ax }`（段号 / 段内源秒 / 这一排在轴上的秒 / 轴总长）；
+   量不出来时回 `{ why }`，由调用方决定说给谁听（拖动途中不说话，点击时才报）。 */
+function pinMeasure(scope, sh, clientX) {
+  const inner = (scope && (scope.querySelector('#tlInner') || scope.querySelector('#tlBar'))) || scope;
+  if (!inner) return { why: '' };
+  const r = inner.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (Number(clientX) - r.left) / Math.max(1, r.width)));
+  if ((projOf().tlTab || 'shot') === 'shot') {
+    const cands = (sh && sh.candidates) || [];
+    const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId) || cands[0];
+    /* 没有候选时这条时间轴压根还没有长度，针无处可放 —— 但**别说都不说**
+       （用户点了、屏幕上一个字都没动，看着像轨道坏了）。 */
+    if (!c) return { why: '这一镜还没有候选：先出一条或导入一条，轨道上才有「第几秒」可指。' };
+    const total = candDur(c, sh);
+    const G = shotFrames(segsOf(c, total));
+    const ax = shotAxTotal(G, total);
+    const tAx = ratio * ax;
+    const row = shotRowAt(G, tAx);
+    const t = row ? frameToSrc(row, tAx) : 0;
+    return { seg: row ? row.i : 0, at: t, box: shotPinT(G, t), ax: ax, c: c, total: total };
+  }
+  const tl = tlSyncFromShots();
+  if (!tl.clips.length) return { why: '全片轨还是空的：先在候选上点「用这条」，这里才会出现格子。' };
+  const G = filmFrames(tl);
+  const tAx = ratio * G.total;
+  const hit = filmSeek(tl, tAx, G);
+  return { seg: hit && hit.target ? hit.si : 0, at: hit && hit.target ? hit.at : 0, box: tAx, ax: G.total, tl: tl };
+}
+/* 按一个屏幕横坐标放针（量完就写）：针、播放器、剪刀指的段都从这里落。
+   `lane` 原样交给 `setPin` / `filmApplyAt`：`null` 是「别动目标轨」（点在配音块上那一档），
+   不能拿缺省的 `'voice'` 顶掉它。 */
+function pinAtX(scope, col, sh, clientX, opts) {
+  const lane = opts && 'lane' in opts ? opts.lane : 'voice';
+  const m = pinMeasure(scope, sh, clientX);
+  if (m.why) { Toast.warn(m.why); return false; }
+  if (!m.why && m.ax == null) return false;
+  if (m.c && m.total != null) {
+    sliceUserTouch();
+    TlPlayOf().pause();
+    TlPlayOf().seek(pinFilmTShot(m.c, sh, m.at), false);
+    setPin(col, sh, m.c, m.total, m.at, lane);
+  } else {
+    sliceUserTouch();
+    filmApplyAt(col, m.tl, m.box, { lane: lane });
+  }
+  return { seg: m.seg, at: m.at, box: m.box, ax: m.ax };
+}
 function renderShotTrack(bar, col, sh, cur) {
   const c = cur || (sh.candidates || []).find(x => x.vid === sh.selId) || (sh.candidates || []).find(x => x.status === 'succeeded');
   if (!c) {
@@ -400,7 +498,7 @@ function renderShotTrack(bar, col, sh, cur) {
      绑在**整张网格**上（轨名那一列也算），不绑在滚动容器里：画面轨一行都没画出来时，
      从前那个「取第一行的矩形」直接 bail，于是整块区域点了没有任何反应。
      不依赖 duration 是否已知：钳在 0–total 之间，播放器能跳就跳。 */
-  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh);
+  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
   paintPin(col, pinAx, ax);
 }
 /* 刻度尺右端那枚读数（#tlT1）= 上面那把尺子的终点，与格子的 `left/width` 同一份账。
@@ -449,28 +547,31 @@ function pendingBlockHTML(p, l, w, ax, where, shotId) {
   const who = p.who ? p.who + '：' : '';
   const est = lineEstSec(p.text);
   const tip = '待生成配音：' + who + p.text + ' · 约 ' + round1(est) + ' 秒（按' + where + '的位置摆，合成后时长以真实音频为准）'
-    + '。点一下把这一句填进右栏「生成配音」，并按说话人去素材库取音色描述 / 参考音频；按住左右拖动把插针（合成落点）挪到别处';
+    + '。点一下：这一句的落点搬到点击处（针也跟过去），并把这一句填进右栏「生成配音」，'
+    + '按说话人去素材库取音色描述 / 参考音频；按住左右拖 = 把这一句的落点（块、针与合成落点一起）挪到别处';
   return `<span class="tl-vp" data-shot="${esc(shotId || '')}" style="left:${pct(l, ax)}%;width:${pct(Math.max(0.2, Math.min(ax - l, Math.max(0.6, w))), ax)}%"
     title="${esc(tip)}"><b>待生成</b><span>${esc(who + p.text)}</span><i class="vpm">${p.text.length} 字</i></span>`;
 }
-/* 本镜那一排：一行台词摆在这一镜**第一段保留区的起点**（台词属于这一镜，不属于某一段）。
+/* 本镜那一排：一行台词摆在**这一句自己的落点**（`sh.lineAt` / `sh.lineSeg`；缺省 = 第一段起点）。
+   落点只是「第几段 + 段内源秒」，落到轨道上仍走 `lineSpanAt` 那一份换算 —— 这里不碰几何。
    宽度按语速估，再除以这一格的倍速 —— 倍速把这一格压窄时，占位符跟着窄，
    否则「2 倍速的一格里摆着 8 倍速宽度的一句话」本身就是假的。 */
 function shotPendingHTML(sh, G, ax) {
   const p = pendingLineOf(sh);
   if (!p) return '';
-  const r0 = (G && G.rows || [])[0];
+  const rows = (G && G.rows) || [];
   /* 一条画面段都没有（还没出候选 / 全被剪成黑场）：照样把这一句摆出来，从左沿铺到整条，
      不让「这一镜有台词」在剪辑界面里彻底看不见（点它仍然进得了「生成配音」，
      只是合成那一步会在 `voiceTarget` 那里说清「还没有可放的位置」）。 */
-  if (!r0) return '<div class="tl-vp-lane">' + pendingBlockHTML(p, 0, ax, ax, '整条（这一镜还没有画面段）', sh.id) + '</div>';
-  const s = r0.s || {};
-  const sp = lineSpanAt(r0, s.in, lineEstSec(p.text), false);
+  if (!rows.length) return '<div class="tl-vp-lane">' + pendingBlockHTML(p, 0, ax, ax, '整条（这一镜还没有画面段）', sh.id) + '</div>';
+  const pt = linePointOf(sh, rows.map(r => r.s));
+  const r = rows[Math.min(rows.length - 1, pt.seg)] || rows[0];
+  const sp = lineSpanAt(r, pt.at, lineEstSec(p.text), false);
   const l = Math.min(Math.max(0, ax - 0.05), sp.at);
   const w = Math.min(Math.max(0, ax - l), sp.len);
-  return '<div class="tl-vp-lane">' + pendingBlockHTML(p, l, w, ax, '第 1 段', sh.id) + '</div>';
+  return '<div class="tl-vp-lane">' + pendingBlockHTML(p, l, w, ax, '第 ' + (r.i + 1) + ' 段', sh.id) + '</div>';
 }
-/* 全片那一排：每一镜只摆一次（它可能被剪成好几格；台词跟着**第一格**走）。
+/* 全片那一排：每一镜只摆一次（它可能被剪成好几格；块挂在**落点那一段**对应的那一格下面）。
    同一条台词在这一镜已经配过音时 `pendingLineOf` 给 null，占位不画。 */
 function filmPendingHTML(tl, G) {
   const ax = Math.max(0.05, G.total);
@@ -483,88 +584,154 @@ function filmPendingHTML(tl, G) {
     const sh = allShots().find(x => x.id === cl.shotId);
     const p = sh ? pendingLineOf(sh) : null;
     if (!p) return;
-    const sp = lineSpanAt(r, r.cl.in, lineEstSec(p.text), false);
+    /* 落点按**段号**挑那一格，不是永远挑这一镜的第一格：落在第 2 段的那一句要画在第 2 段下面。 */
+    const cand = chosenCandOf(sh);
+    const segs = cand ? segsOf(cand, candDur(cand, sh)) : [];
+    const pt = linePointOf(sh, segs);
+    const rs = G.rows.filter(x => x.cl && x.cl.kind === 'shot' && x.cl.shotId === sh.id);
+    const row = rs.find(x => (Number(x.cl.seg) || 0) === pt.seg) || rs[0];
+    if (!row) return;
+    const sp = lineSpanAt(row, pt.at, lineEstSec(p.text), false);
     const l = Math.min(Math.max(0, ax - 0.05), sp.at);
     const w = Math.min(Math.max(0, ax - l), sp.len);
-    out += pendingBlockHTML(p, l, w, ax, '第 ' + (r.k + 1) + ' 格', sh.id);
+    out += pendingBlockHTML(p, l, w, ax, '第 ' + (row.k + 1) + ' 格', sh.id);
   });
   return out ? '<div class="tl-vp-lane">' + out + '</div>' : '';
 }
-/* 占位符的两条手势（两排各绑一次，节点每次重画都是新的）：
-   点 = 把这一句填进右栏「生成配音」（出口仍是 `openPendingVoice`，一个计费请求都不发）；
-   按住左右拖 = 把**插针**挪到指针那一秒 —— 合成落点就是插针（`voiceTarget` 现读 `proj.cutAt`），
-   所以「想合成到别处」不必再另去点一下轨道：拖着占位符本身就能把针带走。
-   拖动中只挪针（`paintPin`），不重画整列；松手才落数据。落点两条路各归各的既有出口：
-   本镜走 `setPin`（源秒口径 + 播放器跟一步），全片走 `filmApplyAt`（焦点、针、播放器、那句报数都归它），
-   在这里再写一份折算就是「同一件事两本账」。
-   `bindPinZone` 已把 `.tl-vp` 排除在「放插针」之外（见那一条），这里 stopPropagation 是第二道。 */
+/* 指针横坐标 → 待生成块的新落点（段号 + 段内源秒 + 它在轴上的位置）：只量，不写。
+   两排各问各的几何：本镜走 `shotRowAt`（行上的 `i` 就是段号），全片走 `filmSeek`（行上的
+   `cl.seg` 才是段号 —— 一行一格，不是一段）。指针落在轨道外（键盘 / 程序化 click 的
+   clientX = 0）时回 null：那一路只开面板、不动落点，拿 0 当点击处会把刚摆好的落点拽回第 0 秒。 */
+function pendingHitAt(el, ctx, clientX) {
+  const inner = (ctx.col && (ctx.col.querySelector('#tlInner') || ctx.col.querySelector('#tlBar')))
+    || (el.closest && el.closest('#tlInner'));
+  if (!inner) return null;
+  const r = inner.getBoundingClientRect();
+  if (!(clientX >= r.left - 0.5 && clientX <= r.right + 0.5)) return null;
+  const ratio = Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width)));
+  if (!ctx.film) {
+    if (!ctx.sh || !ctx.c) return null;
+    const ax = Math.max(0.05, Number(ctx.ax) || 0);
+    const tAx = ratio * ax;
+    const row = shotRowAt(ctx.G, tAx);
+    if (!row) return null;
+    return { seg: row.i, at: frameToSrc(row, tAx), box: tAx, ax: ax };
+  }
+  const rows = ((ctx.G && ctx.G.rows) || []).filter(x => x.cl && x.cl.kind === 'shot' && x.cl.shotId === (el.dataset.shot || ''));
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  /* 块拖不出自己那一镜：落点是一条候选上的源秒，越界等于挂到别的镜（与字幕块同一条边界）。 */
+  const tAx = Math.max(rows[0].start, Math.min(last.start + last.w - 0.001, ratio * (Number(ctx.ax) || 0)));
+  const hit = filmSeek(ctx.tl, tAx, ctx.G);
+  if (!hit || !hit.target) return null;
+  return { seg: hit.si, at: hit.at, box: tAx, ax: Number(ctx.ax) || 0 };
+}
+/* 占位符的三条手势（两排各绑一次，节点每次重画都是新的）：
+   点 / 按住左右拖 = 把这一句的**落点**搬到指针那一秒：
+     · 点击当场写 `sh.lineSeg` / `sh.lineAt`（`linePointSet` 唯一写口），针与合成落点跟着它；
+     · 拖动中只改这一块自己的 `left` 与针（不写数据、不重画整列），松手才落一次盘。
+   块的位置、针的位置、`voiceTarget` 将来铺在哪，三处读的是同一个数（`linePointOf`）——
+   拖动途中它们不会各说各的，拖完也不会「块没动、针走了」。
+   程序化 / 键盘触发的 click 没有坐标，只开面板、不动落点（见 `pendingHitAt`）。
+   落点两条路各归各的既有出口：本镜走 `setPin`（源秒口径 + 播放器跟一步），
+   全片走 `filmApplyAt`（焦点、针、播放器、那句报数都归它），在这里再写一份折算就是两本账。
+   `bindPinZone` 已把 `.tl-vp` 排除在「放插针」之外（见那一条），这里的 stopPropagation 是第二道。 */
+let pendDrag = null;
 function bindPendingLanes(bar, ctx) {
   bar.querySelectorAll('.tl-vp').forEach(el => {
+    /* 一块占位的身份：哪一排（本镜 / 全片）+ 哪一镜。拖完 A 块紧接着点 B 块是两次手势，
+       不能因为「刚刚有人拖过」就把那一下也吞掉（从前全局一个时间戳，全片拖完 600ms 内
+       点本镜那一块，右栏不翻、落点也不动）。 */
+    const dragKey = () => (ctx.film ? 'film:' : 'shot:') + (el.dataset.shot || '');
     el.addEventListener('pointerdown', e => {
       if (e.button != null && e.button !== 0) return;
       e.stopPropagation(); e.preventDefault();
-      const rect = bar.getBoundingClientRect();
-      const ax = Math.max(0.1, ctx.ax);
-      /* 全片：针只在这一块自己那一镜的框区间里走 —— 拖出那一镜的秒数与这一句无关。 */
-      let zone = [0, ax];
-      if (ctx.film) {
-        const rows = (ctx.G.rows || []).filter(r => r.cl && r.cl.kind === 'shot' && r.cl.shotId === el.dataset.shot);
-        if (rows.length) zone = [rows[0].start, rows[rows.length - 1].start + rows[rows.length - 1].w];
-      }
-      const atT = ev => Math.max(zone[0], Math.min(zone[1], (ev.clientX - rect.left) / Math.max(1, rect.width) * ax));
       const x0 = e.clientX;
-      let moved = false, t0 = atT(e);
+      let moved = false, last = null;
       const move = ev => {
-        const t = atT(ev);
+        const m = pendingHitAt(el, ctx, ev.clientX);
         if (!moved) {
-          if (Math.abs(ev.clientX - x0) < 3) return;   // 3px 阈值：单击不亮把手，真拖才起步
+          if (Math.abs(ev.clientX - x0) < 3) return;   // 3px 阈值：单击不起步，真拖才亮
           moved = true;
           el.classList.add('act');
           TlPlayOf().pause();                          // 播放头跟随与手里的针是两根轴，先停播再拖
-          dragGhostShow(ev, el, (ctx.film ? '成片 ' : '') + round1(t) + ' 秒');
-        } else dragGhostMove(ev);
-        t0 = t;
-        paintPin(ctx.col, t, ax);
+        }
+        if (!m) { dragGhostMove(ev); return; }
+        last = m;
+        dragGhostShow(ev, el, (ctx.film ? '成片 ' : '') + round1(m.box) + ' 秒');
+        /* 只改左沿、不改宽度：这是「挪落点」不是「改这一句多长」。 */
+        el.style.left = pct(m.box, m.ax) + '%';
+        paintPin(ctx.col, m.box, m.ax);
       };
       const up = () => {
         el.classList.remove('act');
         dragGhostHide();
         if (!moved) return;
-        el.__pendDrag = Date.now();                    // 松手那一下的 click 不算「点进生成配音」
-        if (ctx.film) { filmApplyAt(ctx.col, ctx.tl, t0, { lane: 'voice' }); return; }
-        const sh2 = ctx.sh, c = ctx.c;
-        if (!sh2 || !c) return;
-        /* 针落数据按**源秒**（setPin 的口径）；播放器按甲板轴跟一步（pinFilmTShot 折算）。 */
-        const pinRow = shotRowAt(ctx.G, t0);
-        const pinSrc = pinRow ? frameToSrc(pinRow, t0) : 0;
-        sliceUserTouch();
-        TlPlayOf().pause();
-        TlPlayOf().seek(pinFilmTShot(c, sh2, pinSrc), false);
-        setPin(ctx.col, sh2, c, ctx.total, pinSrc, 'voice');
+        /* 松手那一下的 click 不算「点进生成配音」。记在模块上而不是节点上：
+           落点一改就 `filmEdited()` 整列重画，这个节点会被换掉，挂在节点上的标记活不过重画。 */
+        pendDrag = { at: Date.now(), key: dragKey() };
+        const sh = ctx.film ? (allShots().find(x => x.id === el.dataset.shot) || ctx.fallen) : ctx.sh;
+        const cand = sh ? chosenCandOf(sh) : null;
+        const segs = cand ? segsOf(cand, candDur(cand, sh)) : [];
+        const m = last;
+        if (!sh || !cand || !m || !segs.length) return;
+        const cur = linePointOf(sh, segs);
+        const pt = linePointClamp({ seg: m.seg, at: m.at }, segs);
+        const changed = cur.seg !== pt.seg || cur.at !== pt.at;
+        if (changed) beginEdit();
+        /* 针与焦点先落数据，再落台词落点、整列重画：重画时块与针读的是同一份新数。 */
+        if (ctx.film) filmApplyAt(ctx.col, ctx.tl, m.box, { lane: 'voice' });
+        else {
+          TlPlayOf().pause();
+          TlPlayOf().seek(pinFilmTShot(cand, sh, pt.at), false);
+          setPin(ctx.col, sh, cand, candDur(cand, sh), pt.at, 'voice');
+        }
+        if (changed) { linePointSet(sh, pt.seg, pt.at, segs); filmEdited(); }
+        if (ctx.film) return;                 // 全片那句报数由 filmApplyAt 说（与点轨道空白同一份）
         /* 报的合成落点与右栏 `voiceTarget` 同一把夹法：段不够长时顶在段尾，别报一个合成不出来的数。 */
-        const segs = segsOf(c, ctx.total);
-        const si = cutSegIdx();
-        const s = segs[Math.min(segs.length - 1, si)];
-        const at = segs.length
-          ? '第 ' + (si + 1) + '/' + segs.length + ' 段的 +' + round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), pinSrc - (Number(s.in) || 0)))) + ' 秒'
+        const s = segs[pt.seg] || segs[0];
+        const at = s
+          ? '第 ' + (pt.seg + 1) + '/' + segs.length + ' 段的 +'
+            + round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), pt.at - (Number(s.in) || 0)))) + ' 秒'
           : '整条开头（这一镜还没有画面段）';
-        setStatus('下一句配音会合成在「' + esc(sh2.name || '镜头') + '」' + at + ' —— 点这个占位符把台词填进右栏「生成配音」');
+        setStatus('下一句配音会合成在「' + esc(sh.name || '镜头') + '」' + at + ' —— 点这个占位符把台词填进右栏「生成配音」');
       };
       dragOnWindow(move, up);
     });
     el.onclick = e => {
       e.stopPropagation();
-      if (Date.now() - (el.__pendDrag || 0) < 600) return;   // 刚拖完的那一下 click 不算
+      /* 只吞「这一块刚拖完补发的那一下」：标记消费一次就清空 —— 留着不消费会把它后面
+         第一次真点击也一起吞掉（刚拖完隔一会儿再点，右栏不开）。 */
+      if (pendDrag && pendDrag.key === dragKey()) {
+        const since = Date.now() - pendDrag.at;
+        pendDrag = null;
+        if (since < 600) return;
+      }
       const id = el.dataset.shot || '';
       const target = allShots().find(x => x.id === id) || ctx.fallen;
-      if (target) openPendingVoice(target);
+      if (!target) return;
+      const hit = pendingHitAt(el, ctx, e.clientX);
+      if (hit) {
+        const cand = chosenCandOf(target);
+        const segs = cand ? segsOf(cand, candDur(cand, target)) : [];
+        const cur = linePointOf(target, segs);
+        const pt = linePointClamp({ seg: hit.seg, at: hit.at }, segs);
+        if (segs.length && (cur.seg !== pt.seg || cur.at !== pt.at)) {
+          beginEdit();
+          linePointSet(target, pt.seg, pt.at, segs);
+          filmEdited();
+        }
+      }
+      openPendingVoice(target, ctx.col);
     };
   });
 }
 /* 点「待生成」占位 / 台词清单里的一行：把焦点切到那一镜，台词填进合成框，翻到「生成配音」。
+   `col` = 这一下是从哪条轨道点的（缺省 = 中栏）：针要画在**那一条**轨道上；
+   落点仍只有一个（`linePointOf`），从台词清单点进来也走同一条。
    先画一版（字已经在了），素材库那边取字节回来再补画一次那两格 —— 一条人声可能几 MB，
    为了等它把整个点击拖住不动，用户会以为没点中。 */
-function openPendingVoice(sh) {
+function openPendingVoice(sh, col) {
   if (!sh) return;
   const sc = projOf().scenes.find(s2 => s2.shots.includes(sh));
   if (sc) { projOf().curScene = projOf().scenes.indexOf(sc); projOf().curShot = sc.shots.indexOf(sh); }
@@ -580,7 +747,13 @@ function openPendingVoice(sh) {
   projOf().tlTab = 'shot';
   const total = c ? candDur(c, sh) : 0;
   const segs = c ? segsOf(c, total) : [];
-  if (segs.length) { projOf().cutSeg = 0; projOf().cutAt = Number(segs[0].in) || 0; }
+  /* 针落在这一句自己的落点上（不是无条件回第一段起点）：块画在哪、针就落在哪、合成也在哪。
+     写 `cutSeg/cutAt` 与画针都走 `setPin` 一处 —— 它按源秒认段，点在灰区里也不会指错段。 */
+  const host = col || document.getElementById('midCol');
+  if (c && segs.length) {
+    const pt = linePointOf(sh, segs);
+    setPin(host, sh, c, total, pt.at, 'voice');
+  }
   setVcTab('gen');
   const p = lineDraftOf(sh);
   /* 换了一句台词就把上一句的音色草稿清掉（同一句重复点则留着用户手改过的那一份）：
@@ -758,7 +931,7 @@ function renderFilmTrack(bar, col, sh) {
   fillSlices(bar);
   bindFilmDrag(bar, tl, total, G);
   bindFilmReorder(bar, col, tl, total, G);
-  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh);
+  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
   paintPin(col, filmPinT(tl, G), total);
 }
 /* 全片轨的插针落在哪（成片秒）：焦点那一格的起点 + 插针在源里的偏移（按这一格的速度折算）。
@@ -1047,6 +1220,8 @@ function bindFilmReorder(scope, col, tl, total, g) {
     tlZoomBy,
     tlZoomWheel,
     tlZoomAuto,
+    tlZoomSetPos,
+    tlZoomCommit,
     renderTimeline,
     shotAxText,
     lineLandedNote,

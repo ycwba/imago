@@ -57,9 +57,10 @@
 
       <div class="grid" ref="gridEl" v-show="ready && !failed"
         @click="onGridClick" @input="onGridInput" @change="onGridChange"
-        @focusin="onGridFocusIn" @focusout="onGridFocusOut">
+        @focusin="onGridFocusIn" @focusout="onGridFocusOut"
+        @dragstart="onGridDragStart" @dragend="onGridDragEnd">
         <div v-if="ready && !cards.length" class="empty" v-html="emptyHtml"></div>
-        <div v-for="card in cards" :key="card.id" class="card card-surface"
+        <div v-for="card in cards" :key="card.id" class="card card-surface" draggable="true"
           :class="{ open: openId === card.id, multi: multi, picked: isPicked(card.id) }"
           :data-id="card.id" v-html="card.html"></div>
       </div>

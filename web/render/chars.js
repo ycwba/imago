@@ -78,7 +78,7 @@ const _hoisted_43 = {
   key: 3,
   class: "empty"
 }
-const _hoisted_44 = ["onClick", "onInput", "onChange", "onFocusin", "onFocusout"]
+const _hoisted_44 = ["onClick", "onInput", "onChange", "onFocusin", "onFocusout", "onDragstart", "onDragend"]
 const _hoisted_45 = ["innerHTML"]
 const _hoisted_46 = ["data-id", "innerHTML"]
 const _hoisted_47 = {
@@ -257,7 +257,9 @@ export function render(_ctx, _cache) {
       onInput: _ctx.onGridInput,
       onChange: _ctx.onGridChange,
       onFocusin: _ctx.onGridFocusIn,
-      onFocusout: _ctx.onGridFocusOut
+      onFocusout: _ctx.onGridFocusOut,
+      onDragstart: _ctx.onGridDragStart,
+      onDragend: _ctx.onGridDragEnd
     }, [
       (_ctx.ready && !_ctx.cards.length)
         ? (_openBlock(), _createElementBlock("div", {
@@ -270,6 +272,7 @@ export function render(_ctx, _cache) {
         return (_openBlock(), _createElementBlock("div", {
           key: card.id,
           class: _normalizeClass(["card card-surface", { open: _ctx.openId === card.id, multi: _ctx.multi, picked: _ctx.isPicked(card.id) }]),
+          draggable: "true",
           "data-id": card.id,
           innerHTML: card.html
         }, null, 10 /* CLASS, PROPS */, _hoisted_46))

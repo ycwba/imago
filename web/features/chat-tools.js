@@ -16,7 +16,7 @@
       const {
         AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, READ_MAX, RESULT_MAX,
         CACHES, SCOPE_TYPE, pageZh, STUDIO_T, VAL_ZH, STD,
-        EF, ctxFiles, cap, num, when, $,
+        EF, ctxFiles, ctxRefs, cap, num, when, $,
         frameWin, page, hostCtx, hostDoc, navItems, reg,
         caps, usableMap, provFlags, DRA, needDRA, charRows,
         usageStat, domPicks, ensureSearchMod, noteSource, searchFail, uiInventory,
@@ -31,6 +31,175 @@
      只读查询表：arg / doc / run 三份只写一次，系统提示词里的清单由这张表现拼。
      这一张表里全是 GET 与本机读，没有任何写入 —— 写入一律走下面的 ACTS（要确认）。
      ========================================================================== */
+  /* 看图只有这一份：read_file 的图片分支与 asset_open 都调它。
+     成功回 { text, model }，失败回 { err }；调用方只负责把 err 原样说给模型。 */
+  async function lookAtImage(label, src, ask) {
+    if (!window.TextAI) return { err: '文字 AI 客户端没有加载（web/domain/text-ai.js）' };
+    const r = await reg();
+    const prov = await provNow();
+    const model = modelNow(prov);
+    if (!prov || !model) return { err: '没法看图：文字 AI 还没在设置里选好供应方与型号（设置页「供应商与密钥 → 文字」那一档）。' };
+    const vis = await TextAI.visionAsync(r, prov, model);
+    if (!vis.ok) return { err: '型号「' + vis.model + '」不能识图（' + vis.why + '）。要真看图就去设置页换成支持图片的型号，或把「识图能力」设为支持。' };
+    const imgs = await TextAI.prepImages([{ label: label || '素材', src }], { max: 1 });
+    if (!imgs.length) return { err: '这张图读不出像素（可能损坏、不是图片，或链接已经取不到字节）。' };
+    const q = String(ask || '说清画面里真实可见的内容：主体、场景、光线、色调、构图，以及能用于生图的描述要点。');
+    try {
+      const txt = await TextAI.chat(r, '你是看图助手。只说这张图里真实可见的内容，不要编造、不要替它补没画出来的东西。用中文，短句。',
+        q, { images: imgs, model }, prov);
+      return { text: txt, model };
+    } catch (e) { return { err: '看图这一步失败了：' + cap(errText(e), 220) }; }
+  }
+  /* --------------------------------------------------------------------------
+     任务详情：本机先认人（哪一家 / 产物号 / 提示词），平台再问一次现状。
+     一次查多条只发一轮请求：`Api.pollMany` 是「一批问回一次」的唯一入口
+     （列表型平台在同一轮里共用一份列表快照，见 api.js 的 LIST_SNAP）。
+     查不到按原因分档说清楚 —— 「本机没有记录」不许说成「平台没有这条」。
+     -------------------------------------------------------------------------- */
+  const taskProv = id => (id && window.Api && Api.provOf) ? Api.provOf(id) : null;
+  const taskName = prov => (prov && (prov.displayName || prov.name || prov.id)) || '';
+  const taskTs = v => {
+    const ms = (window.AssetLib && AssetLib.tsMs) ? AssetLib.tsMs(v) : 0;
+    return ms ? when(ms) : '';
+  };
+  function taskStatusZh(p) {
+    if (!p) return '';
+    const raw = String(p.status || '');
+    const zh = (window.Wb && Wb.stText) ? Wb.stText(raw) : raw;
+    return zh || (p.failed ? '生成失败' : p.done ? '已完成' : '生成中');
+  }
+  /* 查不到的那一条：结论一句 + 本机缓存里最后一次看到的样子（不能替代平台现状，但能说明它曾是什么）。 */
+  function taskMiss(r, why) {
+    const e = r.entry;
+    const o = { 任务号: r.genId || r.taskId || r.assetId, 结论: why };
+    if (r.provId) o.平台 = taskName(taskProv(r.provId)) || r.provId;
+    if (e) {
+      const bits = [];
+      if (e.status) bits.push('最后一次看到：' + (taskStatusZh({ status: e.status }) || e.status));
+      if (e.assetId) bits.push('产物号 ' + e.assetId);
+      if (e.ts) bits.push(taskTs(e.ts));
+      if (bits.length) o.本机记录 = bits.join(' · ');
+    }
+    return o;
+  }
+  function taskRowOf(r, prov, p) {
+    const e = r.entry || {};
+    const o = {
+      任务号: p.genId || r.genId || r.taskId || '',
+      平台: taskName(prov) || r.provId,
+      状态: taskStatusZh(p) + (p.running ? '（还在跑，过一会儿再看）' : ''),
+    };
+    if (p.error) o.错误 = cap(p.error, 300);
+    if (p.assetId) o.产物号 = p.assetId;
+    if (p.url) o.产物地址 = cap(p.url, 200);
+    if (p.model) o.型号 = p.model;
+    const spec = [p.tier, p.res, p.ar, p.quality, p.format,
+      p.count ? p.count + ' 份' : '', p.duration ? p.duration + ' 秒' : ''].filter(Boolean);
+    if (spec.length) o.规格 = spec.join(' · ');
+    const cost = (window.Api && Api.priceText) ? Api.priceText(prov, p) : '';
+    if (cost) o.消耗 = cost;
+    /* 平台不给提示词时 parseItem 已从本机归档补上（promptLocal 标明来源）。 */
+    const prompt = p.prompt || e.prompt || '';
+    if (prompt) { o.提示词 = cap(prompt, 400); o.提示词来源 = p.promptLocal || (!p.prompt && e.prompt) ? '本机归档' : '平台'; }
+    if (window.AssetLocal && AssetLocal.stateOf) {
+      const st = AssetLocal.stateOf({ provider: (prov && prov.id) || r.provId,
+        assetId: p.assetId || e.assetId, genId: p.genId || r.genId, url: p.url });
+      const lid = AssetLocal.localAssetIdOf
+        ? (AssetLocal.localAssetIdOf(p.url || '') || AssetLocal.localAssetIdOf(e.src || '')) : '';
+      o.在本机 = st.local ? (lid || '有') : '没有（要留一份就去资产库把这一条存回本机）';
+    }
+    const t = [p.created ? '提交 ' + taskTs(p.created) : '', p.completed ? '完成 ' + taskTs(p.completed) : '']
+      .filter(x => x && !/ 0?$/.test(x));
+    if (t.length) o.时间 = t.join(' · ');
+    o.查到 = when(Date.now());
+    return o;
+  }
+  async function taskDetailRows(items, providerId) {
+    const L = window.AssetLib || null;
+    const rows = (items || []).map(it => {
+      const taskId = String((it && it.taskId) || '').trim();
+      const assetId = String((it && it.assetId) || '').trim();
+      let entry = null;
+      try {
+        if (L && taskId) entry = L.findByTaskId(taskId, providerId) || L.findByAssetId(taskId, providerId);
+        if (!entry && L && assetId) entry = L.findByAssetId(assetId, providerId) || L.findByTaskId(assetId, providerId);
+      } catch (e) { entry = null; }
+      const provId = String(providerId || (entry && entry.provider) || '').trim();
+      const genId = String(taskId || (entry && (entry.genId || entry.taskId || entry.id)) || assetId || '').trim();
+      return { given: taskId || assetId, taskId, assetId, entry, provId, genId };
+    });
+    const res = new Map();
+    const todo = [];
+    for (const r of rows) {
+      if (!r.given) { res.set(r, taskMiss(r, '没给任务号（taskId / ids）或产物号（assetId）。')); continue; }
+      if (/^la_/.test(r.taskId || r.assetId)) {
+        res.set(r, taskMiss(r, '这是本机资产号（la_ 开头），不是平台任务号；要看这份文件用 asset_open，'
+          + '要查它从哪一次生成来，就把对应的任务号或平台产物号拿来查。'));
+        continue;
+      }
+      if (!r.provId) {
+        res.set(r, taskMiss(r, '本机缓存里没有这个号，也不知道它属于哪一家平台 —— 给 provider（平台 id）再查一次；'
+          + '本机添加了哪些平台见 overview。'));
+        continue;
+      }
+      const prov = taskProv(r.provId);
+      if (!prov) { res.set(r, taskMiss(r, '注册表里没有平台 id「' + r.provId + '」。')); continue; }
+      const ep = prov.endpoints || {};
+      if (!ep.detail && !ep.poll && !ep.list) {
+        res.set(r, taskMiss(r, '「' + taskName(prov) + '」没有声明可查任务的接口（注册表 endpoints 里没有 detail / poll / list），查不了它上面的任务。'));
+        continue;
+      }
+      if (!r.genId || (!r.taskId && !r.entry)) {
+        res.set(r, taskMiss(r, '只给了产物号，本机缓存里没找到它对应的任务号；平台是按任务号查的，这一条查不了。'));
+        continue;
+      }
+      todo.push(r);
+    }
+    const groups = new Map();
+    for (const r of todo) {
+      if (!groups.has(r.provId)) groups.set(r.provId, []);
+      groups.get(r.provId).push(r);
+    }
+    for (const [provId, list] of groups) {
+      const prov = taskProv(provId);
+      const got = new Map();
+      try {
+        const m = await Api.pollMany(prov, list.map(r => r.genId));
+        m.forEach((v, k) => got.set(String(k), v));
+      } catch (e) {
+        list.forEach(r => res.set(r, taskMiss(r, '查这一批任务失败了：' + cap(errText(e), 220))));
+        continue;
+      }
+      const onlyList = String(prov.pollVia || '') === 'list' || (!prov.endpoints.detail && !prov.endpoints.poll);
+      for (const r of list) {
+        const hit = got.get(r.genId);
+        if (!hit) {
+          res.set(r, taskMiss(r, onlyList
+            ? '在「' + taskName(prov) + '」的任务列表里没有找到这个号（可能已被平台清理，或不在最近这几页里）。'
+            : '平台上没有回这一条（按这个任务号查不到）。'));
+          continue;
+        }
+        if (hit.error) {
+          res.set(r, taskMiss(r, '查这条任务失败了：' + cap(errText(hit.error), 220)));
+          continue;
+        }
+        if (!hit.p) {
+          res.set(r, taskMiss(r, '本机没有记录，平台上也没查到这一条。'));
+          continue;
+        }
+        res.set(r, taskRowOf(r, prov, hit.p));
+      }
+    }
+    return rows.map(r => res.get(r) || taskMiss(r, '这一条没有查成。'));
+  }
+  async function taskDetailOne(taskId, assetId, providerId) {
+    const rows = await taskDetailRows([{ taskId, assetId }], providerId);
+    return rows[0];
+  }
+  async function taskDetailMany(ids, providerId) {
+    const rows = await taskDetailRows(ids.map(id => ({ taskId: id })), providerId);
+    return { 条数: rows.length, 条目: rows };
+  }
   const TOOLS = {
     skill: {
       arg: '{ "id": "Skill 的 id" }',
@@ -234,7 +403,7 @@
              助手会说「这个角色没有资产」而界面上明明摆了四张；
              后来改成读 `a.kind`（类别），资产有了自己的名字之后又会与界面对不上。
              走 `Cast.assetsOf` 一份（老字典它会现算），报的是**用户自己起的名字**。 */
-          资产: (DRA() && Chars.Cast && Chars.Cast.assetsOf(c) || []).map(a => (Chars.Cast.assetName(a) || '?') + '=' + cap(a.src, 40)),
+          资产: (DRA() && Chars.Cast && Chars.Cast.assetsOf(c) || []).map(a => (Chars.Cast.assetName(a) || '?') + '=' + cap(a.src, 500)),
           音色: c.voice || '', 音色描述: cap(c.voiceNote, 120), 参考音频: !!c.refAudio,
         })) };
       },
@@ -597,20 +766,9 @@
           return { 名称: rec.name, 字数: txt.length, 来源: from, 内容: cap(txt, n) };
         }
         if (rec.kind === '图片') {
-          const r = await reg();
-          const prov = await provNow();
-          const model = modelNow(prov);
-          if (!prov || !model) return '没法看图：文字 AI 还没在设置里选好供应方与型号（设置页「供应商与密钥 → 文字」那一档）。';
-          const vis = await TextAI.visionAsync(r, prov, model);
-          if (!vis.ok) return '型号「' + vis.model + '」不能识图（' + vis.why + '）。要真看图就去设置页换成支持图片的型号，或把「识图能力」设为支持。';
-          const imgs = await TextAI.prepImages([{ label: rec.name, src: rec.file || rec.src }], { max: 1 });
-          if (!imgs.length) return '这张图读不出像素（可能损坏或不是图片）。';
-          const ask = String(a.ask || '说清画面里真实可见的内容：主体、场景、光线、色调、构图，以及能用于生图的描述要点。');
-          try {
-            const txt = await TextAI.chat(r, '你是看图助手。只说这张图里真实可见的内容，不要编造、不要替它补没画出来的东西。用中文，短句。',
-              ask, { images: imgs, model }, prov);
-            return { 名称: rec.name, 型号: model, 看到的: cap(txt, TOOL_OUT) };
-          } catch (e) { return '看图这一步失败了：' + cap(errText(e), 220); }
+          const r = await lookAtImage(rec.name, rec.file || rec.src, a.ask);
+          if (r.err) return r.err;
+          return { 名称: rec.name, 型号: r.model, 看到的: cap(r.text, TOOL_OUT) };
         }
         /* 走到这一支的是「视频 / 音频 / 其它」三种。以前一律回一句「本机没有听视频 / 音频的模型」，
            而用户递来的是一张 PDF、一个 zip 或一份 Word —— 那句话把原因说错了，
@@ -817,6 +975,92 @@
         + '还在跑时顺带现问一次平台（「仍在跑 / 已经出片 / 失败原因」）。只报事实：'
         + '平台说完了不等于画布已经落库，产物号与字节仍由页面那台轮询器写。',
       async run(a) { return canvasRead('genStatus', { nodeId: String((a && a.nodeId) || '') }); },
+    },
+    asset_open: {
+      arg: '{ "index": 0 } 或 { "id": "la_xxx / 平台产物号", "url": "本机地址", "ask": "想从图里看出什么" }',
+      doc: '取一条素材的字节并真的看它。**用户提到某张图、要你看图、或要照着某张图做事时，先用这个工具把图取出来看**，'
+        + '不要凭名字或提示词编图里的内容。index 指【这次引用的素材】清单里的序号（用户拖过来的那几条）；'
+        + '也可以给 id（本机资产号 / 平台产物号）或本机地址。取不到字节就照实说取不到，别猜。',
+      async run(a) {
+        const opts = a || {};
+        const list = ctxRefs();
+        const idx = Number(opts.index);
+        let rec = Number.isFinite(idx) ? list[idx] : null;
+        if (!rec && opts.id) {
+          const id = String(opts.id).trim();
+          rec = list.find(x => x.assetId === id || x.id === id || x.fileKey === id || x.taskId === id) || null;
+          if (!rec && /^la_/.test(id)) rec = { assetId: id, id, name: id, type: '图片' };
+          if (!rec && /^https?:/i.test(id)) rec = { src: id, name: id, type: '图片' };
+        }
+        if (!rec && opts.url) {
+          const u = String(opts.url).trim();
+          if (!u) return 'url 是空的';
+          rec = { src: u, name: '这一条地址', type: '图片' };
+        }
+        if (!rec) return Number.isFinite(idx)
+          ? '这次引用清单里没有序号 ' + idx + '（当前 ' + list.length + ' 条，从 0 数）。'
+          : '要指名一条素材：给 index（引用清单的序号）、id 或 url。';
+        const label = rec.name || rec.prompt || rec.assetId || rec.id || '素材';
+        let src = '';
+        let err = '';
+        if (rec.fileKey && !rec.src) {
+          /* 收藏里的本机文件只有 fileKey 一个号：字节从 Fav 那一份取（与工作台 refIntoSlot 同一条路） */
+          try {
+            const b = window.Fav && Fav.blobOf ? await Fav.blobOf({ kind: 'local', fileKey: rec.fileKey }) : null;
+            if (b) src = b;
+            else err = '这个是本机收藏里的文件，但取不出字节（可能已被移走）。';
+          } catch (e) { err = '取本机文件失败：' + cap(errText(e), 160); }
+        } else {
+          src = rec.src || rec.dl || '';
+          if (!src && rec.assetId && /^la_/.test(String(rec.assetId))) src = Api.assetSrc(rec.assetId);
+          if (src && /^https?:/i.test(String(src)) && window.Api && Api.mediaExpired && Api.mediaExpired(src)) {
+            /* 签名会过期：先续签一次（同一条地址过期后 403 的经典表现） */
+            let fresh = '';
+            try {
+              await Api.healMedia([{ provider: rec.provider, id: rec.taskId || rec.assetId, url: src }],
+                { onFresh: (x, nu) => { fresh = nu; } });
+            } catch (e) { /* 续签失败就走下面那句照实报错：这里再抛只会把整条查详情打断 */ }
+            if (fresh) src = fresh;
+            else if (Api.mediaExpired(src)) err = '这个地址的文件签名已经过期，续签也没拿到新地址；让用户从资产库重新拖一次，或先把这一条存回本机。';
+          }
+          if (!src && !err) {
+            err = rec.assetId
+              ? '这一条只有平台产物号（' + rec.assetId + '），本机没有它的字节。要看看它，先在资产库把这一条存回本机，或从平台上重新取一份。'
+              : '这条引用没有可取字节的地址（只有号）。';
+          }
+        }
+        if (err) return { 引用: label, 类型: rec.type || rec.kind || '', 资产号: rec.assetId || '', 结论: err };
+        /* 类型名有两套写法（'图片' / 'image'），判据只在 `window.mediaKindFrom` 一份；
+           认不出就不拦，交给取字节那一步照实回「读不出像素」。 */
+        const mk = window.mediaKindFrom
+          ? mediaKindFrom({ type: rec.type || rec.mtype, format: rec.format, src: rec.src || rec.dl || '' }) : '';
+        if (mk && mk !== 'image') {
+          return { 引用: label, 类型: rec.type || mk, 结论: '这一类不是图片，本机没有读它的模型；要它参与生成就直接当素材用。' };
+        }
+        const r = await lookAtImage(label, src, opts.ask);
+        if (r.err) return { 引用: label, 资产号: rec.assetId || '', 结论: r.err };
+        return { 引用: label, 类型: rec.type || '图片', 资产号: rec.assetId || '',
+          任务号: rec.taskId || '', 型号: r.model, 看到的: cap(r.text, TOOL_OUT) };
+      },
+    },
+    task_detail: {
+      arg: '{ "taskId": "任务号", "assetId": "产物号（可选）", "provider": "平台 id（可选）", "ids": ["多条任务号（可选，最多 8）"] }',
+      doc: '问「**某一条**任务现在怎样」：状态、错误、产物号、型号、消耗、提示词（平台不给时从本机归档补）。'
+        + '任务是上游生成的（用户说「这条视频/这张图后来怎么样了」、或要查某个产物背后那次生成时用它）。'
+        + '分工：「这个账号下有哪些任务」用 history；「本机缓存里有哪些产物」用 assets；「我提交的那几条」用 tasks。'
+        + '查一条会真的去平台问一次；要查多条就一次放进 ids（最多 8 条，同轮共用一次列表请求，不要循环调本工具）。'
+        + '查询会在产物完成时把它排进本机镜像队列（与资产库轮询同一条路），所以不是完全无副作用。',
+      async run(a) {
+        const o = a || {};
+        const list = Array.isArray(o.ids) ? o.ids.map(x => String(x || '').trim()).filter(Boolean).slice(0, 8) : [];
+        if (list.length) return taskDetailMany(list, String(o.provider || '').trim());
+        const taskId = String(o.taskId || o.genId || '').trim();
+        const assetId = String(o.assetId || '').trim();
+        if (!taskId && !assetId) {
+          return { 错误: '要给任务号（taskId）或产物号（assetId）；一次查多条就放进 ids' };
+        }
+        return taskDetailOne(taskId, assetId, String(o.provider || '').trim());
+      },
     },
   };
 
@@ -2420,6 +2664,12 @@
     canvas_search: { type: 'object', required: ['q'], properties: { q: { type: 'string' }, limit: { type: 'integer', min: 1, max: 50 } } },
     canvas_assets_list: { type: 'object', properties: { limit: { type: 'integer', min: 1, max: 200 } } },
     canvas_generation_status: { type: 'object', properties: { nodeId: { type: 'string' } } },
+    asset_open: { type: 'object', properties: {
+      index: { type: 'integer', min: 0, max: 19 }, id: { type: 'string' },
+      url: { type: 'string' }, ask: { type: 'string' } } },
+    task_detail: { type: 'object', properties: {
+      taskId: { type: 'string' }, assetId: { type: 'string' }, provider: { type: 'string' },
+      ids: { type: 'array', items: { type: 'string' }, maxItems: 8 } } },
   };
   /* 工具清单按页面过滤：'*' 全站，其余只在那一页出现。 */
   function toolVisible(id, route) {

@@ -467,13 +467,13 @@ export default {
             ? '<div class="timg"><span style="color:var(--warn,#d97706)">结果未知</span></div>'
             : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + window.Wb.stText(a.status) + '</span>' : window.Wb.stText(a.status) + '…') + '</div>';
       } else if (a.type === '视频') {
-        media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src) + '</div>';
+        media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' }) + '</div>';
       } else if (window.isAudioType(a.type)) {
         media = '<div class="timg audio"><span class="note-ic">' + window.icon('mic', 14) + '</span><span class="dur">' + window.fileExtOf(a).toUpperCase() + (a.duration ? ' · ' + a.duration + 's' : '') + '</span></div>';
       } else {
         media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(window.Api.mediaSrc(a.src), {
           type: 'image',
-          mediaAttrs: 'loading="lazy" decoding="async"',
+          mediaAttrs: 'loading="lazy" decoding="async" draggable="false"',
         }) + '</div>';
       }
       const date = window.fmtWhen(a.ts);
@@ -497,6 +497,25 @@ export default {
 
     function bindAssetCard(d, a) {
       bindCardThumb(d, a);
+      /* 整张卡可拖 = 引用这一条（载荷形状在 web/domain/asset-ref.cjs）。卡里的图与视频显式
+         draggable="false"：不然浏览器先按「拖一份文件」起势，拿到的是地址而不是引用。 */
+      d.draggable = true;
+      d.ondragstart = e => {
+        if (!window.AssetRef || e.target.closest('input,textarea,select,button,a,[contenteditable]')) { e.preventDefault(); return; }
+        const p = window.AssetRef.set(e.dataTransfer, {
+          kind: a.kind || 'asset', id: a.assetId || a.id || '',
+          name: (a.prompt || a.type || '').slice(0, 40),
+          type: a.type, mtype: a.type, assetId: a.assetId || '', src: a.src, dl: a.dl,
+          prompt: a.prompt || '', from: 'assets',
+          taskId: a.genId || '', status: a.status, model: a.model,
+          provider: a.provider, providerName: a.providerName, ts: a.ts, localAsset: a.localAsset,
+          size: a.byteLength, error: a.failMsg, credits: a.credits,
+          tier: a.tier, res: a.res, ar: a.ar, dur: a.duration, quality: a.quality,
+        });
+        if (!p) { e.preventDefault(); return; }
+        d.classList.add('dragging');
+      };
+      d.ondragend = () => d.classList.remove('dragging');
       d.dataset.akey = assetKeyOf(a);
       const picked = multiMode.value && selected.has(selKeyOf(a));
       d.classList.toggle('picked', picked);

@@ -1,5 +1,5 @@
 {
-  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。",
+  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。\n2026-10-22 三笔：`set`/`read`/`label`/`isRef` 是 asset-ref.cjs 的公开 API 面（AGENTS §7 点名的「拖素材的引用载荷」唯一实现，UMD 出口就叫这些名字）；`clean`/`grab` 是它内部的白名单过滤与 dataTransfer 取串，两三个局部短名，收进基线与上面存量同一口径。`hit`（voice-lanes 的行命中测试）、`labelOf`（chat 的引用标签）同口径登记。",
   "names": {
     "__spaDirty": 2,
     "__spaFlush": 2,
@@ -31,7 +31,7 @@
     "cardHTML": 3,
     "clamp": 4,
     "clampVol": 2,
-    "clean": 3,
+    "clean": 4,
     "clear": 2,
     "clearAiPick": 2,
     "close": 3,
@@ -76,7 +76,7 @@
     "hay": 3,
     "hayOf": 2,
     "hidden": 3,
-    "hit": 3,
+    "hit": 4,
     "html": 2,
     "httpError": 2,
     "ic": 3,
@@ -87,7 +87,7 @@
     "keyFor": 2,
     "kindF": 2,
     "kindOf": 2,
-    "labelOf": 2,
+    "labelOf": 3,
     "list": 10,
     "load": 5,
     "mark": 2,
@@ -146,7 +146,7 @@
     "q": 4,
     "qa": 2,
     "rank": 3,
-    "read": 3,
+    "read": 4,
     "readable": 2,
     "redo": 2,
     "refillPrompts": 2,
@@ -207,7 +207,10 @@
     "walk": 4,
     "withExt": 2,
     "write": 6,
-    "zh": 2
+    "zh": 2,
+    "grab": 2,
+    "label": 2,
+    "set": 2
   },
   "single": {
     "fmtWhen": 1,

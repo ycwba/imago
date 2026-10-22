@@ -367,7 +367,7 @@
     if (!full) {
       t = balExpOn()
         ? balBtnHTML('collapse', 'chevronUp', '收起', '只摆这一档放得下的前几张')
-        : (extra > 0 ? balBtnHTML('expand', 'chevronDown', '展开全部 ' + total + ' 家',
+        : (extra > 0 ? balBtnHTML('expand', 'chevronDown', '展开',
           balCapNote(balCap()) + '：就地摆出全部 ' + total + ' 家（只有卡这一格滚，导航与本机产物行不动）') : '');
     }
     return '<div class="sb-bal-acts">' + t
@@ -744,7 +744,7 @@
     } catch (e) {}
   };
   /* 跨过 balCap() 那几条线时区域能摆的卡数变了，照实重画一次：
-     「还有 N 家」那句必须等于真的没摆出来的家数，差一家就是假话。
+     展开钮的 title 里那个总家数要一直对得上（差一家就是假话）。
      尺寸判据只有 CSS 与这一处，读的是同一批 media query。 */
   let balCapLast = -1, balCapTimer = 0;
   const balCheckCap = () => {

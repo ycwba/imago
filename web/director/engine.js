@@ -415,6 +415,7 @@ const Track = createTrack({
   curShot: (...a) => curShot(...a),
   fmtDur: (...a) => fmtDur(...a),
   shotReady: (...a) => shotReady(...a),
+  beginEdit: (...a) => beginEdit(...a),
   filmEdited: (...a) => filmEdited(...a),
   scheduleSave: (...a) => scheduleSave(...a),
   isFilmMode: (...a) => isFilmMode(...a),
@@ -481,7 +482,10 @@ const {
   laneRowsFor,
   LANE_ROW_SEL,
   addLaneRow,
+  voiceLanePlan,
   dropLaneRow,
+  voiceSplitByMaterial,
+  voiceMergeAll,
   setCellLane,
   laneMute,
   trackOwnVol,
@@ -2374,6 +2378,8 @@ const Mid = createMid({
   tlZoomBy: (...a) => tlZoomBy(...a),
   tlZoomWheel: (...a) => tlZoomWheel(...a),
   tlZoomAuto: (...a) => tlZoomAuto(...a),
+  tlZoomSetPos: (...a) => tlZoomSetPos(...a),
+  tlZoomCommit: (...a) => tlZoomCommit(...a),
   renderTimeline: (...a) => renderTimeline(...a),
   shotAxText: (...a) => shotAxText(...a),
   filmApplyAt: (...a) => filmApplyAt(...a),
@@ -2417,7 +2423,32 @@ function picLaneStep(row) {
    取不到就只写名字与秒数（宁可少一张图，也不让一次拖动等一趟解码），名字用的是格子上那行小字本身，
    不另拼一句（否则拖起来看到的名秒与松手后格子上的对不上）。
    松手一定要 `dragGhostHide()`：漏一次就等于屏幕上留一张跟在手上的孤儿卡。 */
-let dragGhostEl = null;
+let dragGhostEl = null, dragGhostCell = null;
+/* 跟手卡上的那张图：被拖的这一块自己有切片就用自己的；字幕块 / 待生成占位没有图，
+   就借**横向与它重叠最多**的那一格画面已经解出来的帧（全片那一排里自动落在这一镜那几格上，
+   不会借到别的镜的图）。只读现成的 `background-image`，拖动中途不发起解码。
+   同一块拖动中只量一次（缓存挂在节点上）：待生成占位的秒数每帧都在变，图不必每帧重找。 */
+function ghostSliceOf(cell) {
+  if (cell && cell.__ghostBg !== undefined) return cell.__ghostBg;
+  const own = cell && cell.querySelector ? cell.querySelector('.frs > .fr') : null;
+  let bg = (own && own.style && own.style.backgroundImage) || '';
+  if (!bg && cell && cell.closest) {
+    const inner = cell.closest('#tlInner');
+    if (inner) {
+      const r = cell.getBoundingClientRect();
+      let best = null;
+      inner.querySelectorAll('.tl-seg .frs > .fr').forEach(fr => {
+        if (fr.classList.contains('none')) return;
+        const q = fr.getBoundingClientRect();
+        const ov = Math.min(r.right, q.right) - Math.max(r.left, q.left);
+        if (ov > 0 && (!best || ov > best.ov)) best = { ov: ov, fr: fr };
+      });
+      bg = (best && best.fr.style && best.fr.style.backgroundImage) || '';
+    }
+  }
+  if (cell) cell.__ghostBg = bg;
+  return bg;
+}
 function dragGhostShow(ev, cell, label) {
   if (!dragGhostEl) {
     dragGhostEl = document.createElement('div');
@@ -2427,19 +2458,24 @@ function dragGhostShow(ev, cell, label) {
     document.body.appendChild(dragGhostEl);
   }
   const im = dragGhostEl.firstChild;
-  /* 拖的是一句配音：卡片上放它自己那份波形（克隆节点，不重解码也不重算包络 ——
-     波形还没后台填出来时 `.wv-box` 是空的，跟着下面那一支走虚线占位）。 */
-  const wv = cell && cell.querySelector ? cell.querySelector('.wv-box > svg') : null;
-  if (wv) {
-    im.textContent = '';
-    im.appendChild(wv.cloneNode(true));
-    im.classList.remove('no');
-  } else {
-    im.textContent = '';
-    const fr = cell ? cell.querySelector('.frs > .fr') : null;
-    const bg = (fr && fr.style && fr.style.backgroundImage) || '';
-    im.style.backgroundImage = bg;
-    im.classList.toggle('no', !/^url\(/.test(bg));
+  /* 图只在这一趟拖动第一次进来时取（`dragGhostCell` 记住它是哪一块）：
+     待生成块拖动中每帧都调这里更新秒数，重新找图会把一次手势拖成上百次布局查询。 */
+  if (dragGhostCell !== cell) {
+    dragGhostCell = cell;
+    /* 拖的是一句配音：卡片上放它自己那份波形（克隆节点，不重解码也不重算包络 ——
+       波形还没后台填出来时 `.wv-box` 是空的，跟着下面那一支走虚线占位）。 */
+    const wv = cell && cell.querySelector ? cell.querySelector('.wv-box > svg') : null;
+    im.style.backgroundImage = '';
+    if (wv) {
+      im.textContent = '';
+      im.appendChild(wv.cloneNode(true));
+      im.classList.remove('no');
+    } else {
+      im.textContent = '';
+      const bg = ghostSliceOf(cell);
+      im.style.backgroundImage = bg;
+      im.classList.toggle('no', !/^url\(/.test(bg));
+    }
   }
   dragGhostEl.lastChild.textContent = String(label || '');
   dragGhostMove(ev);
@@ -2453,6 +2489,7 @@ function dragGhostHide() {
   if (!dragGhostEl) return;
   dragGhostEl.remove();
   dragGhostEl = null;
+  dragGhostCell = null;
 }
 /* 时间线两端的把手：拖的是**这一段自己**的入点 / 出点（不再是整条候选的并集）。
    拖动过程中只改样式，松手才写数据 —— 整块重画会把正在拖的那个节点销毁（原来就是这样，保持）。
@@ -2634,7 +2671,7 @@ function pinFilmTShot(c, sh, src) {
    从前声音整行被当成「不归我管」直接 bail，于是点声音轨的空白什么反应都没有；
    点在一句配音上也放针，但**不把剪辑目标交回画面轨**（那一句的 selectVoice 已经把目标交给配音了，
    针只是走过去给剪刀指位置 —— 与「目标只跟着手走」不冲突，手点的就是这一句）。 */
-function bindPinZone(grid, col, sh) {
+function bindPinZone(grid, col, sh, pin) {
   /* 先摘掉上一份再绑。整列重建时 `#tlGrid` 是新节点，这一句什么都不做；
      而**缩放只重排 `#tlBar`**（见 tlRescale），这张网格是一直活着的那个节点 ——
      不摘就是每缩一次多叠一层，点一下轨道放 N 次针（与「保住播放器节点要先摘EventListener」同一条规矩）。 */
@@ -2644,17 +2681,19 @@ function bindPinZone(grid, col, sh) {
        （点数字不等于想把剪针搬过去），所以两个都在排除名单里 —— 只排滑块会留下一个「点上去会跳针」的读数。 */
     if (e.target.closest('.tl-hbtn') || e.target.closest('.tl-hvol-sl, .tl-hvol')) return;
     if (e.target.closest('.cut') || e.target.closest('.vo-cut')) return;    // 把手：拖拽，不挪针
+    if (e.target.closest('.sub-cut')) return;                               // 字幕两端的把手：同上
     if (trackDragged()) return;      // 刚把某一格拖去换行 / 换顺序：那不是「在这里放插针」
     /* 别的镜上溢出进来的那一截：它自己的 handler 会把焦点跳到它那一镜（整栏重画），
        这里再按旧几何放一次针就是在跟那次跳转抢方向。 */
     if (e.target.closest('.tl-v.spill')) return;
-    /* 待生成占位有自己的点击（选中那一句台词 + 换到「生成配音」那一格），
+    /* 待生成占位有自己的点击（写落点 + 换到「生成配音」那一格），
        这里再按旧几何放一次针就是在跟它抢方向。 */
     if (e.target.closest('.tl-vp')) return;
-    /* 用户亲手放的这一针 =「我现在就要看这儿」：退避期内也不再跳过这一批格子。 */
-    sliceUserTouch();
     const onVoice = !!e.target.closest('.tl-v');
     const onPic = !!e.target.closest('.tl-seg');
+    /* 点字幕块 = 把针放到点击处，但右栏留在「字幕」那一档（它自己的 click 先一步翻好了）——
+       这里再翻回「生成配音」就是「点字幕、右栏却换成写台词」。 */
+    const onSub = !!e.target.closest('.tl-sub');
     /* 落点三档，各开各的右栏（用户点名的第 ②③④ 条）：
          · 点中一句配音 → 目标交给声音轨（右栏 = 那一句的音量 / 试听 / 删掉）；
          · 点中一格画面 → 目标交给画面轨（右栏 = 这一段的倍速 / 入出点 / 原声音量）；
@@ -2669,41 +2708,10 @@ function bindPinZone(grid, col, sh) {
        **顺手取消选中那一句**（用户点名的第 ④ 条）：配音文字那一行只在选中某一句时才出现，
        而 `tlVoiceHit` 还认着 `proj.curVoice` —— 不清的话点完空白它仍挂在上一句上。
        目标轨仍是声音（`tlPanel` 只看 `proj.tlLane`），所以那张「加一句配音」的卡照旧打开。 */
-    if (lane === 'voice') { vcTab = 'gen'; proj.curVoice = ''; }
-    /* 尺子只有一把：内容层 `.tl-inner`（画面行 / 声音行 / 刻度尺都是它的 100% 宽）。
-       兜底给的是 `bar` 本身时，传进来的就已经是 `.tl-inner`。 */
-    const inner = grid.querySelector('#tlInner') || grid.querySelector('#tlBar') || grid;
-    const r = inner.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
-    if ((proj.tlTab || 'shot') === 'shot') {
-      const cands = (sh && sh.candidates) || [];
-      const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId) || cands[0];
-      /* 没有候选时这条时间轴压根还没有长度，针无处可放 —— 但**别说都不说**（用户点了、屏幕上一个字都没动，
-         看着像轨道坏了）。这一镜有没有候选是页面上看得见的，所以只说一句、不改顶部那行结果。 */
-      if (!c) { Toast.warn('这一镜还没有候选：先出一条或导入一条，轨道上才有「第几秒」可指。'); return; }
-      const total = candDur(c, sh);
-      /* 鼠标点的是**这一排的尺子**（轴秒）：先落回它指着的那一格、折算成源秒，
-         再交给 seek 与剪子（它们要的都是源秒）；`setPin` 画针时会再折回轴秒。 */
-      const G = shotFrames(segsOf(c, total));
-      const tAx = ratio * shotAxTotal(G, total);
-      const row = shotRowAt(G, tAx);
-      const t = row ? frameToSrc(row, tAx) : 0;
-      /* 放针 = 「停下来看这一帧」：暂停与定位都交给 `TlPlay`（甲板 A/B 谁在前它自己认，
-         落定之后按钮图标 / 配音 / 播放状态才是同一份账）。
-         以前这里是 `seekPlayerTo(t, {pause:true})` —— 只碰甲板 A、也只停甲板：
-         真在播时前甲板可能是 B（打在后甲板上等于没动），而 `TlPlay.playing` 没被改，
-         于是「按钮写着暂停、画面其实已冻住，再点按钮什么都不发生」。
-         `t` 是源秒，而计划量的是剪剩的那几秒 —— 折算只有 `pinFilmTShot` 一份口径。 */
-      TlPlay.pause();
-      TlPlay.seek(pinFilmTShot(c, sh, t), false);
-      setPin(col, sh, c, total, t, lane);
-      return;
-    }
-    /* 全片：点击处换算成轨道那一排的轴秒 → 焦点切到那一镜那一段 + 插针放到那儿 */
-    const tl = tlSyncFromShots();
-    if (!tl.clips.length) { Toast.warn('全片轨还是空的：先在候选上点「用这条」，这里才会出现格子。'); return; }
-    const G = filmFrames(tl);
-    filmApplyAt(col, tl, ratio * G.total, { lane: lane });
+    if (lane === 'voice' && !onSub) { vcTab = 'gen'; proj.curVoice = ''; }
+    /* 量尺子、折轴秒 / 源秒、写针只有一份（lanes 的 `pinAtX`）：点空白、点画面格、点字幕块、
+       点声音行都从这里过。自己在这里再折一遍，必然与待生成占位那一套漂开。 */
+    pin(grid, col, sh, e.clientX, { lane: lane });
   };
   grid.addEventListener('click', on);
   grid.__pinOff = () => { grid.removeEventListener('click', on); grid.__pinOff = null; };
@@ -3003,6 +3011,7 @@ const Lanes = createLanes({
   dragOnWindow: (...a) => dragOnWindow(...a),
   reanchorVoices: (...a) => reanchorVoices(...a),
   cutPin: (...a) => cutPin(...a),
+  beginEdit: (...a) => beginEdit(...a),
   picSelOn: (...a) => picSelOn(...a),
   picSelAt: (...a) => picSelAt(...a),
   laneHidden: (...a) => laneHidden(...a),
@@ -3072,6 +3081,8 @@ const {
   tlZoomBy,
   tlZoomWheel,
   tlZoomAuto,
+  tlZoomSetPos,
+  tlZoomCommit,
   renderTimeline,
   shotAxText,
   lineLandedNote,
@@ -3100,11 +3111,16 @@ const Voice = createVoice({
   candSelected: (...a) => candSelected(...a),
   voicesEnsure: (...a) => voicesEnsure(...a),
   shotVoices: (...a) => shotVoices(...a),
+  voiceLn: (...a) => voiceLn(...a),
+  voiceLanePlan: (...a) => voiceLanePlan(...a),
+  addLaneRow: (...a) => addLaneRow(...a),
   tlVoiceHit: (...a) => tlVoiceHit(...a),
   voiceVolOf: (...a) => voiceVolOf(...a),
   setLaneVol: (...a) => setLaneVol(...a),
   setCutVol: (...a) => setCutVol(...a),
   setCutLane: (...a) => setCutLane(...a),
+  voiceSplitByMaterial: (...a) => voiceSplitByMaterial(...a),
+  voiceMergeAll: (...a) => voiceMergeAll(...a),
   cutSpdSeg: (...a) => cutSpdSeg(...a),
   setCutSpd: (...a) => setCutSpd(...a),
   segLenText: (...a) => segLenText(...a),

@@ -41,11 +41,14 @@
   const KEY = 'ai_chat';                 // 对话记录（Store 信封，跟着云同步走）
   const K_XY = 'ai_chat_xy';             // 悬浮球位置（{x,y}，拖动结束才落盘）
   const K_FILES = 'ai_chat_files';       // 附件的「身份」：名字 / 类型 / 本机资产地址（字节要么在本机资产里，要么是文本快照）
+  const K_REFS = 'ai_chat_refs';         // 拖进来的素材引用：号 / 地址 / 类型（字节不预取，助手要看时自己取）
   const K_AUTO = 'ai_chat_auto';         // 「执行前不用我点确认」：只跳过那一下点击，校验与卡片照旧
   const K_SNAP = 'ai_chat_snap';         // 「拖到边上就吸住」（默认开；设置页那一项关掉 = 存 '0'）
   const K_WATCH = 'ai_chat_watch';       // 助手提交、还在等结果的任务 + 球上没看的条数（本机的事，不出网）
   const K_W = 'ai_chat_w';               // 抽屉宽度（本机窗口的事，不跟着云同步）
+  const K_H = 'ai_chat_h';               // 浮窗高度（同上；固定档撑满，不用它）
   const K_DOCK = 'ai_chat_dock';         // 固定到右侧（把页面挤到左边）；本机窗口的事，不跟云同步
+  const K_FXY = 'ai_chat_fxy';           // 浮窗被拖走后的位置；有它 = 已脱离球，删掉 = 回到跟球
   const K_NOTICE = 'ai_chat_notice';     // 「出结果弹系统通知」：要浏览器授权，授权按钮在设置页那一卡
   const autoRun = () => window.LS.get(K_AUTO) === '1';
   const CAP = 60;                        // 单个会话的记录条数上限
@@ -98,6 +101,12 @@
      分成两个是因为它们是两件事：files 是「草稿」，这个是「这条消息带了什么」。
      这里带的是活的 File / blob: 引用（只在 send() 期间存在，绝不落盘）。 */
   let roundFiles = null;
+  /* 拖进来、还没发出去的素材引用（与 files 同族）。拖动时同时做两件事：
+     进这个队列 + 往输入框追加一行 [引用素材：…]；**真相是队列** —— 用户把那一行改掉/删掉，
+     模型这一轮仍按队列拿到它（回执会明说），因为队列才是「用户指的是哪一条」。 */
+  let refs = [];
+  let roundRefs = null;                   // 这一轮真正发出去的那一份（清草稿之后 refBlock 还要用它）
+  const ctxRefs = () => (roundRefs && roundRefs.length) ? roundRefs : refs;
   /* 助手这一头能看到的附件 = **这一轮真正发出去的那份**，没有就退回输入框上的草稿。
      所有读附件的地方（files 查询 / read_file / 生成卡片的 inputs 解析 / overview / doctor）
      一律走它 —— 直接读 files 的话，发完清空草稿就会让下一轮的 read_file 和
@@ -684,6 +693,7 @@
     if (!SESS.list.some(s => s.id === SESS.cur)) SESS.cur = SESS.list[0].id;
     bind();
     loadFiles();
+    loadRefs();
   }
   /* 单条正文落盘的字节上限：粘贴一大段日志 / 一条超长工具回执就能顶过 localStorage 的 5MB，
      而 Store.write 是**整键**写 —— 一条超长消息会让整份会话记录被拒写（这一轮之后的对话全部不落盘）。
@@ -935,6 +945,264 @@
       + '<button data-i="' + i + '" title="从这一轮移开（不删本机资产库里的文件）">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
     el.files.hidden = !files.length;
+  }
+
+  /* ---------- 素材引用（拖到球/抽屉上，与附件同族的队列） ---------- */
+  const REFS_MAX = 20;                   // 存与取共用这一个数：只在读侧截会让序号整体漂移
+  const REF_FROM_PAGE = { chars: '素材库', favorites: '收藏', assets: '资产库', studio: '生成工作台' };
+  const refLabel = r => {
+    try { if (window.AssetRef && r) return window.AssetRef.label(r); } catch (e) { /* 读不出标签就落到下面那行通用兜底，不该让引用行画不出来 */ }
+    return cap(String((r && (r.prompt || r.name || r.assetId || r.id)) || '未命名素材'), 48);
+  };
+  /* 队列里只留能定位一条素材的字段（别的 UI 状态过不了刷新，也不该进提示词） */
+  function normRef(r) {
+    if (!r || typeof r !== 'object') return null;
+    const o = {
+      kind: String(r.kind || ''), id: String(r.id || ''), name: String(r.name || ''),
+      type: String(r.type || r.mtype || ''), assetId: String(r.assetId || ''),
+      src: String(r.src || ''), dl: String(r.dl || ''), fileKey: String(r.fileKey || ''),
+      prompt: String(r.prompt || ''), from: String(r.from || ''),
+      taskId: String(r.taskId || r.genId || ''), provider: String(r.provider || ''),
+      ts: Number(r.ts) || 0,
+    };
+    if (!o.assetId && !o.src && !o.dl && !o.fileKey && !o.id && !o.taskId) return null;
+    return o;
+  }
+  let refsSaveWarned = false;
+  function saveRefs() {
+    try {
+      const r = Store.write(K_REFS, refs, { label: 'AI 助手的素材引用清单' });
+      if (r && r.ok === false && !refsSaveWarned) {
+        refsSaveWarned = true;
+        note('素材引用清单没能存下来：' + (r.error || '存储写不进去') + '。刷新之后这几条引用会丢。', 'warn');
+      } else if (r && r.ok !== false) refsSaveWarned = false;
+    } catch (e) {
+      if (!refsSaveWarned) { refsSaveWarned = true; note('素材引用清单没能存下来：' + cap(errText(e), 120), 'warn'); }
+    }
+  }
+  function loadRefs() {
+    let arr = [];
+    try {
+      const v = (window.Store && Store.read) ? Store.read(K_REFS, []) : JSON.parse(localStorage.getItem(K_REFS) || '[]');
+      arr = v || [];
+    } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    refs = arr.map(normRef).filter(Boolean).slice(-REFS_MAX);
+  }
+  /* 入队（含上限）。返回 { rec, dropped }：挤掉了谁要说清，不然用户不知道最早的引用已经不在清单里。 */
+  function addRef(r) {
+    const rec = normRef(r);
+    if (!rec) return { rec: null, dropped: [] };
+    refs.push(rec);
+    const dropped = [];
+    while (refs.length > REFS_MAX) { const x = refs.shift(); if (x) dropped.push(refLabel(x)); }
+    saveRefs();
+    return { rec, dropped };
+  }
+  /* 追加那一行引用标记。用 setRangeText（保留 textarea 的原生撤销栈），不要 el.ta.value = …：
+     后者会让用户按 Ctrl+Z 退不回刚打的字。 */
+  function addRefText(r) {
+    const { rec, dropped } = addRef(r);
+    if (!rec) { note('这条素材没带可用的号或地址，没能引用', 'warn'); return null; }
+    const mark = '[引用素材：' + refLabel(rec) + ']';
+    if (el.ta) {
+      const v = el.ta.value || '';
+      const a = el.ta.selectionStart == null ? v.length : el.ta.selectionStart;
+      const b = el.ta.selectionEnd == null ? v.length : el.ta.selectionEnd;
+      const pre = a > 0 && v.charAt(a - 1) !== '\n' ? '\n' : '';
+      el.ta.setRangeText(pre + mark, a, b, 'end');
+      el.ta.focus();
+    }
+    paintRefMarks();
+    if (dropped.length) note('引用最多留 ' + REFS_MAX + ' 条，挤掉了最早的：' + dropped.join('、') + '。要留它们就先发一轮。', 'warn');
+    else note('已把这个素材引用写进输入框');
+    return rec;
+  }
+  /* 发出去那一刻拍快照（与 shotFiles 同理）：清掉草稿之后，这一轮的 refBlock 与工具里的「第几条」都读它 */
+  function shotRefs() {
+    roundRefs = refs.map(r => Object.assign({}, r));
+    return roundRefs.map(r => ({
+      kind: r.kind || '素材', name: refLabel(r), type: r.type || '',
+      assetId: r.assetId || '', taskId: r.taskId || '',
+      ok: !!(r.assetId || r.src || r.dl || r.fileKey || r.taskId || r.id),
+    }));
+  }
+  /* 只清队列，不删资产库/收藏里的任何东西（与 clearFiles 同一条纪律） */
+  function clearRefs() {
+    if (!refs.length) return;
+    refs = [];
+    saveRefs();
+    paintRefMarks();
+  }
+  /* 这一轮的引用清单。序号必须与 shotRefs() 拍下的那一份同一个下标 ——
+     模型说的「第 1 条」与 asset_open 取的得是同一条。 */
+  function refBlock() {
+    const list = roundRefs || [];
+    if (!list.length) return '';
+    return '【这次引用的素材】\n' + list.map((r, i) => {
+      const bits = [refLabel(r), r.type || r.kind || '素材'];
+      if (r.assetId) bits.push('资产 ' + r.assetId);
+      if (r.src) bits.push('地址 ' + r.src);
+      else if (r.dl) bits.push('下载地址 ' + r.dl);
+      if (r.taskId) bits.push('任务号 ' + r.taskId);
+      if (r.fileKey) bits.push('本机文件（收藏）' + r.fileKey);
+      if (!r.assetId && !r.src && !r.dl && !r.fileKey) bits.push('只有号 ' + (r.id || r.taskId || ''));
+      return i + ' = ' + bits.join(' · ');
+    }).join('\n')
+      + '\n（这些是用户拖进来的引用。要真的看其中某一条，用 asset_open 按序号取；不要凭这段文字猜图里有什么。）\n\n';
+  }
+  /* 标记 ↔ 队列的对应：同一段标签按出现顺序依次吃掉队列里同标签的那几条（重复拖动也各归各的）。
+     文本里被改过/删掉的标记在队列里仍然算数（真相是队列），但不画高亮。 */
+  const REF_MARK = /\[引用素材：([^\]\n]*)\]/g;
+  function markerRanges(text) {
+    const out = [];
+    const byLabel = new Map();
+    refs.forEach((r, i) => {
+      const l = refLabel(r);
+      if (!byLabel.has(l)) byLabel.set(l, []);
+      byLabel.get(l).push(i);
+    });
+    REF_MARK.lastIndex = 0;
+    let m;
+    while ((m = REF_MARK.exec(text))) {
+      const q = byLabel.get(m[1]);
+      out.push({ start: m.index, end: m.index + m[0].length, label: m[1], idx: q && q.length ? q.shift() : -1 });
+    }
+    return out;
+  }
+  let refRects = [];                     // 每个标记矩形的层内坐标（现算，不缓存）
+  let matchedRefs = new Set();           // 输入框里还画着高亮的队列下标（用来报「文字被改掉了」）
+  function paintRefMarks() {
+    const layer = el.refLayer, ta = el.ta, mirror = el.refMirror;
+    if (!layer || !ta || !mirror) return;
+    const text = ta.value || '';
+    const ranges = markerRanges(text);
+    mirror.textContent = text;
+    mirror.style.left = ta.offsetLeft + 'px';
+    mirror.style.top = ta.offsetTop + 'px';
+    mirror.style.width = ta.clientWidth + 'px';
+    layer.innerHTML = '';
+    refRects = [];
+    if (text && layer.clientWidth) {
+      const node = mirror.firstChild;
+      const lr = layer.getBoundingClientRect();
+      ranges.forEach(rg => {
+        if (!node) return;
+        let rects = [];
+        try {
+          const range = document.createRange();
+          range.setStart(node, rg.start);
+          range.setEnd(node, rg.end);
+          rects = Array.from(range.getClientRects());
+        } catch (e) { rects = []; }
+        rects.forEach((rc, k) => {
+          if (!rc.width || !rc.height) return;
+          const box = {
+            left: rc.left - lr.left - ta.scrollLeft, top: rc.top - lr.top - ta.scrollTop,
+            width: rc.width, height: rc.height, idx: rg.idx, start: rg.start, end: rg.end,
+          };
+          refRects.push(box);
+          const hl = document.createElement('span');
+          hl.className = 'ac-ref-hl';
+          hl.style.left = box.left + 'px';
+          hl.style.top = box.top + 'px';
+          hl.style.width = box.width + 'px';
+          hl.style.height = box.height + 'px';
+          layer.appendChild(hl);
+          /* 叉号只落在**最后一行**的右端（多行标记每行一块灰底，但只需要一个删除入口） */
+          if (k === rects.length - 1 && rg.idx >= 0) {
+            const x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'ac-ref-x';
+            x.tabIndex = -1;
+            x.title = '从这一轮移开这条引用（只移引用，不删资产库里的东西）';
+            x.textContent = '×';
+            x.dataset.ref = String(rg.idx);
+            x.dataset.start = String(rg.start);
+            x.dataset.end = String(rg.end);
+            x.style.left = Math.max(0, box.left + box.width - 12) + 'px';
+            x.style.top = (box.top + Math.max(0, (box.height - 16) / 2)) + 'px';
+            layer.appendChild(x);
+          }
+        });
+      });
+    }
+    matchedRefs = new Set(ranges.filter(x => x.idx >= 0).map(x => x.idx));
+  }
+  /* 输入框里的文字变了：重画高亮；如果之前还画着的某条引用现在找不到对应标记了，照实说一句
+     （队列里还在，所以这一轮模型仍会拿到它 —— 不说明的话用户以为删掉那行字就等于不带它了）。 */
+  function refTextChanged() {
+    const now = new Set(markerRanges(el.ta ? el.ta.value || '' : '').filter(x => x.idx >= 0).map(x => x.idx));
+    const lost = [];
+    matchedRefs.forEach(i => { if (!now.has(i) && refs[i]) lost.push(refLabel(refs[i])); });
+    paintRefMarks();
+    if (lost.length) {
+      note('输入框里那段引用文字被改过或删掉了，但这条引用还在清单里（这一轮助手仍会拿到它）：'
+        + lost.join('、') + '。不想带它，用引用上的 × 移开。', 'warn');
+    }
+  }
+  let refTip = null;
+  function hideRefTip() { if (refTip) refTip.hidden = true; }
+  function refAtPoint(clientX, clientY) {
+    if (!refRects.length || !el.refLayer) return null;
+    const lr = el.refLayer.getBoundingClientRect();
+    const x = clientX - lr.left, y = clientY - lr.top;
+    return refRects.find(b => x >= b.left && x <= b.left + b.width && y >= b.top && y <= b.top + b.height) || null;
+  }
+  function showRefTip(idx, x, y) {
+    const r = refs[idx];
+    if (!r) return;
+    if (!refTip) {
+      refTip = document.createElement('div');
+      refTip.className = 'ac-ref-tip';
+      refTip.hidden = true;
+      document.body.appendChild(refTip);
+    }
+    const meta = [r.type || r.kind, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '',
+      r.fileKey ? '本机文件' : ''].filter(Boolean).join(' · ');
+    refTip.innerHTML = (r.src ? '<img draggable="false" loading="lazy" alt="">' : '')
+      + '<div class="ac-ref-tip-b"><b>' + esc(cap(refLabel(r), 60)) + '</b><span>' + esc(meta || '没有更多信息') + '</span></div>';
+    const img = refTip.querySelector('img');
+    if (img) {
+      img.src = r.src;
+      img.addEventListener('error', () => { try { img.remove(); } catch (e) { /* 缩略图坏了悄悄摘掉，坏图不值得一条报错 */ } });
+    }
+    refTip.hidden = false;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    refTip.style.left = Math.max(8, Math.min(vw - refTip.offsetWidth - 8, x + 12)) + 'px';
+    refTip.style.top = Math.max(8, Math.min(vh - refTip.offsetHeight - 8, y + 14)) + 'px';
+  }
+  /* 点击一条引用 → 现开一个弹窗看这一条（助手这一层不是「一页」，灯箱那七个钩子按前台页登记，存不住） */
+  function openRefDialog(idx) {
+    const r = refs[idx];
+    if (!r) return;
+    hideRefTip();
+    if (!window.UiDialog || !UiDialog.open) { note('引用的是：' + refLabel(r)); return; }
+    const meta = [r.type || r.kind, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '',
+      r.fileKey ? '本机文件 ' + r.fileKey : '', r.from ? '来自 ' + (REF_FROM_PAGE[r.from] || r.from) : '']
+      .filter(Boolean).map(esc).join(' · ');
+    UiDialog.open({
+      title: '引用的素材',
+      sub: refLabel(r),
+      body: box => {
+        box.innerHTML = '<div class="ac-refdl">'
+          + (r.src ? '<img draggable="false" alt="">' : '<div class="ac-refdl-none">这一条没有可直接显示的地址（只有号）。要看它，发出去后让助手用 asset_open 按序号取。</div>')
+          + '<div class="ac-refdl-meta"><b>' + esc(refLabel(r)) + '</b><div>' + meta + '</div>'
+          + (r.src ? '<div class="ac-refdl-src">' + esc(r.src) + '</div>' : '')
+          + (r.dl ? '<div class="ac-refdl-src">下载地址：' + esc(r.dl) + '</div>' : '') + '</div></div>';
+        const img = box.querySelector('img');
+        if (img) {
+          img.src = r.src;
+          img.addEventListener('error', () => {
+            const n = document.createElement('div');
+            n.className = 'ac-refdl-none';
+            n.textContent = '这个地址读不出图（可能已过期）。发出去后让助手用 asset_open 再取一次。';
+            img.replaceWith(n);
+          });
+        }
+      },
+      actions: [{ label: '关闭', value: true }],
+    });
   }
 
   /* ---------- 画 ---------- */
@@ -1777,15 +2045,22 @@
     /* 用户那条下面挂一排附件芯片：输入框上那排**发完就清掉了**（不清就是「东西还挂在
        输入框里」，看着像没发出去）。这里是这一条消息唯一留下的凭据，
        摘要随消息落盘 —— 刷新之后仍然看得见这条带了什么。 */
-    if (m.r === 'me' && (m.fs || []).length) {
+    if (m.r === 'me' && ((m.fs || []).length || (m.refs || []).length)) {
       const fw = document.createElement('div');
       fw.className = 'ac-mfs';
       fw.textContent = '随这条发出：';
-      m.fs.forEach(f => {
+      (m.fs || []).forEach(f => {
         const s = document.createElement('span');
         s.className = 'ac-fi' + (f.ok ? '' : ' warn');
         s.title = (f.ok ? '' : '字节已不在 ') + (f.note || '') + '｜' + (f.name || '');
         s.textContent = (f.kind || '文件') + '·' + cap(f.name || '', 18);
+        fw.appendChild(s);
+      });
+      (m.refs || []).forEach(r => {
+        const s = document.createElement('span');
+        s.className = 'ac-fi';
+        s.title = [r.type, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : ''].filter(Boolean).join(' · ');
+        s.textContent = '引用·' + cap(r.name || r.assetId || '素材', 18);
         fw.appendChild(s);
       });
       d.appendChild(fw);
@@ -1963,6 +2238,8 @@
       + cards.map(m => m.t).join('\n') + '\n\n';
     const f = fileBlock();
     if (f) out += f + '\n';
+    const rf = refBlock();
+    if (rf) out += rf;
     if (ctx && ctx.list.length) out += '【已完成的查询】\n' + ctx.list.map(e => e.t).join('\n') + '\n';
     /* 当前界面：每次提问都带，不要求模型先 CALL overview。
        页面在 DOM 上的只读快照（web/core/page-context.js）；它变了的下一轮自动跟着变。 */
@@ -2157,7 +2434,7 @@
        以前这里直接 return，于是「拖了图 → 按 Enter」毫无反应，
        看起来就是「文件发不出去」。占位文字要写明是用户没打字，
        别让助手以为用户真的只说了这一句。 */
-    const onlyFiles = !q && files.length > 0;
+    const onlyFiles = !q && (files.length > 0 || refs.length > 0);
     if (!q && !onlyFiles) return;
     if (live || sending) { note('上一条还在写，先按「停止」', 'warn'); return; }
     let r;
@@ -2172,11 +2449,16 @@
     if (textUtilReady) { try { await textUtilReady; } catch (e) {} }
     el.ta.value = '';
     const shot = shotFiles();
+    const refShot = shotRefs();
     /* 气泡上挂上这一条带了什么，**然后立刻把输入框上那排芯片清掉**：
        「发出去的东西还挂在输入框里」会被当成没发出去，于是再发一次（等于白花一轮 tokens）。
        摘要跟着消息落盘，刷新后也还在。 */
-    push('me', q || '（只带了文件，没打字）', shot.length ? { fs: shot } : null);
+    const carry = {};
+    if (shot.length) carry.fs = shot;
+    if (refShot.length) carry.refs = refShot;
+    push('me', q || (files.length ? '（只带了文件，没打字）' : '（只带了引用，没打字）'), Object.keys(carry).length ? carry : null);
     clearFiles();
+    clearRefs();
     aborter = new AbortController();
     busy(true);
     /* 这一轮的账：查了什么、提了什么动作（判据在这一处记一次，收据只读它）。
@@ -2186,7 +2468,8 @@
     const scope = turnScope();
     const turn = {
       id: uid('t_'), at: Date.now(), scope,
-      user: { text: q, attachments: shot.map(f => ({ id: f.la || '', name: f.name || '', kind: f.kind || '' })), refs: [], skillIds: [] },
+      user: { text: q, attachments: shot.map(f => ({ id: f.la || '', name: f.name || '', kind: f.kind || '' })),
+        refs: refShot.map(r => ({ name: r.name || '', type: r.type || '', assetId: r.assetId || '', taskId: r.taskId || '' })), skillIds: [] },
       skills: [], assistant: { text: '' }, tools: [], actions: [],
       changed: { nodes: [], edges: [], clips: [], subtitles: [], revision: 0 },
       sources: [], status: 'ok', error: '',
@@ -2488,16 +2771,21 @@
      窄窗口不挤（DOCK_MIN）：挤完只剩一条缝，操作页面反而更难受，这时退回浮层。 */
   const DOCK_MIN = 900;
   let dockW = 420;
-  const dockOn = () => {
-    const v = window.LS.get(K_DOCK);
-    return v == null ? window.innerWidth >= DOCK_MIN : v === '1';
-  };
+  /* 偏好没设过 = **浮层（球旁小浮窗）**：点球开出来的就是贴着球那一块，不是右侧一整条。
+     用户自己点过「固定」之后才按固定开 —— 尊重他的选择，不每次点球都掰回浮窗。
+     窄于 DOCK_MIN 时固定档仍退回浮层，偏好本身不改（见 applyDock）。 */
+  const dockOn = () => window.LS.get(K_DOCK) === '1';
+  /* 实际摆成哪一档：偏好是固定、但窗口窄于 DOCK_MIN 时仍退回浮层（与 applyDock 的 `on` 同一判据）。 */
+  const floatNow = () => !(dockOn() && window.innerWidth >= DOCK_MIN);
   function applyDock() {
     const app = document.getElementById('app');
     const on = dockOn() && isOpen() && window.innerWidth >= DOCK_MIN && !!el.panel;
+    const wasDock = document.documentElement.classList.contains('ac-dock');
     document.documentElement.classList.toggle('ac-dock', on);
     if (app) app.style.width = on
       ? 'calc(100% - var(--sbw, 66px) - ' + Math.round(dockW) + 'px)' : '';
+    /* 从固定退回悬浮（窄窗 / 点按钮）时浮窗还没摆过：先贴到球旁边，别让它停在 0,0。 */
+    if (wasDock && !on && isOpen()) placeFloat();
   }
   function paintDockBtn() {
     if (!el.dock) return;
@@ -2510,6 +2798,8 @@
       : '固定到右侧（页面缩到左边，操作不被盖住）';
   }
   function setOpen(v) {
+    /* 浮窗先摆好再亮：位置由球现算，晚一步会看到它从静态位置滑到锚点旁边。 */
+    if (v && floatNow()) placeFloat();
     document.documentElement.classList.toggle('ac-open', !!v);
     /* 关闭态必须**移出焦点顺序**，光有 pointer-events:none 是不够的 ——
        那只挡鼠标，不挡焦点：收起之后按 Tab，焦点会依次落进屏幕外的
@@ -2528,6 +2818,8 @@
       return;
     }
     if (el.ta) el.ta.focus();
+    /* 面板收起时量不到矩形（宽高为 0），展开后补画一次引用高亮 */
+    try { requestAnimationFrame(() => paintRefMarks()); } catch (e) { /* 收起态量不到矩形，这一次画不了就等下一次展开再补 */ }
     if (el.body) el.body.scrollTop = el.body.scrollHeight;
     /* 抽屉一开就算「看过了」：球上的点清掉，但等待清单不动 ——
        它记的是「有没有提醒过你」，不是「任务还没完」。 */
@@ -2616,6 +2908,90 @@
       try { localStorage.setItem(K_XY, JSON.stringify({ x: p.x, y: p.y })); } catch (e) {}
     }
   }
+  /* ---------- 浮窗（悬浮档）：贴着球的小窗，宽高可调、可拖走 ----------
+     与固定档是同一个 `#acPanel`，只是摆法不同：
+       · 固定档 —— `top:0;right:0;bottom:0`，页面让出宽度（CSS 里 `html.ac-dock`）；
+       · 悬浮档 —— 位置按球的矩形现算（`--ac-left/top`），宽 `--ac-w`、高 `--ac-h`。
+     落点默认在球的左上方（浮窗右下角贴着球左上角，留 8px）；球在左半边就翻到右侧、
+     在上边就翻到下边，最后 clamp 进视口并让开侧栏（与 `clampXY` 同一把 `sbW` 尺子）。
+     拖过浮窗就记 `ai_chat_fxy`，此后不再跟球（有键 = 已脱离，删键 = 回到跟球）。 */
+  const FLOAT_GAP = 8;
+  let floatX = 0, floatY = 0;
+  function fxyGet() {
+    try {
+      const o = JSON.parse(localStorage.getItem(K_FXY) || 'null');
+      if (o && Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.y))) return { x: Number(o.x), y: Number(o.y) };
+    } catch (e) { /* 无痕 / 禁存储读不到：当作没拖过，浮窗继续跟球 */ }
+    return null;
+  }
+  const fxySet = (x, y) => {
+    try { localStorage.setItem(K_FXY, JSON.stringify({ x: Math.round(x), y: Math.round(y) })); } catch (e) { /* 写不进就这次不记（无痕 / 禁存储）：位置偏好丢得起，回跟球 */ }
+  };
+  /* 用 offsetWidth/offsetHeight 而不是 getBoundingClientRect：收起态的浮窗带 scale(.96)，
+     而 setOpen 是「先摆位置再挂 ac-open」，那一刻量 rect 会得到缩过的 405×540 ——
+     按它算出的间距就比实际小一截（浮窗贴不到球边上）。offset 尺寸不受 transform 影响。 */
+  const panelSize = () => {
+    const w = el.panel ? el.panel.offsetWidth : 0;
+    const h = el.panel ? el.panel.offsetHeight : 0;
+    return { w: Math.round(w || dockW), h: Math.round(h || 560) };
+  };
+  /* 浮窗的夹取用自己的宽高（不是球那 46×46 的算法）：四边都不越界，左边界让开侧栏。 */
+  function clampPanelXY(x, y, w, h) {
+    const minX = 8 + sbW(), minY = 6;
+    const maxX = Math.max(minX, window.innerWidth - w - 6);
+    const maxY = Math.max(minY, window.innerHeight - h - 6);
+    return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) };
+  }
+  function paintFloatPos() {
+    if (!el.panel) return;
+    el.panel.style.setProperty('--ac-left', Math.round(floatX) + 'px');
+    el.panel.style.setProperty('--ac-top', Math.round(floatY) + 'px');
+    /* 放大 / 淡入的原点在球那一侧：浮窗在球的左边就从右沿长出来，在上边就从下沿长出来。 */
+    const b = el.ball ? el.ball.getBoundingClientRect() : null;
+    if (b) {
+      const { w, h } = panelSize();
+      const ox = b.left + b.width / 2 < floatX + w / 2 ? '0%' : '100%';
+      const oy = b.top + b.height / 2 < floatY + h / 2 ? '0%' : '100%';
+      el.panel.style.setProperty('--ac-to', ox + ' ' + oy);
+    }
+  }
+  /* 跟球摆：有 `ai_chat_fxy` 就不动（用户把浮窗拖走了）；否则贴着球现算。 */
+  function placeFloat() {
+    if (!el.panel || !floatNow()) return;
+    const { w, h } = panelSize();
+    const saved = fxyGet();
+    if (saved) {
+      const c = clampPanelXY(saved.x, saved.y, w, h);
+      floatX = c.x; floatY = c.y;
+      paintFloatPos();
+      return;
+    }
+    const b = el.ball ? el.ball.getBoundingClientRect() : null;
+    let x = 8 + sbW(), y = 6;
+    if (b) {
+      x = b.left - FLOAT_GAP - w;
+      if (x < 8 + sbW()) x = b.right + FLOAT_GAP;
+      y = b.top - FLOAT_GAP - h;
+      if (y < 6) y = b.bottom + FLOAT_GAP;
+    }
+    const c = clampPanelXY(x, y, w, h);
+    floatX = c.x; floatY = c.y;
+    paintFloatPos();
+  }
+  /* 尺寸变了（拖宽 / 拖高 / 窗口 resize）之后只把当前位置 clamp 回来，不重新跟球 ——
+     否则调一次宽就可能整块跳到球的另一侧。 */
+  function clampFloat() {
+    if (!el.panel || !floatNow()) return;
+    const { w, h } = panelSize();
+    const c = clampPanelXY(floatX, floatY, w, h);
+    floatX = c.x; floatY = c.y;
+    paintFloatPos();
+  }
+  /* 球动了 → 浮窗跟着；拖走过就不跟。 */
+  function followBall() {
+    if (!el.panel || !floatNow() || fxyGet()) return;
+    placeFloat();
+  }
   function bindBallDrag() {
     const b = el.ball;
     let start = null, moved = false;
@@ -2635,6 +3011,7 @@
       const c = clampXY(start.x + dx, start.y + dy);
       b.style.left = c.x + 'px';
       b.style.top = c.y + 'px';
+      followBall();
     });
     const end = e => {
       if (!start) return;
@@ -2645,6 +3022,7 @@
         const c = clampXY(s.x, s.y);
         try { localStorage.setItem(K_XY, JSON.stringify({ x: c.x, y: c.y })); } catch (err) {}
         b.style.left = c.x + 'px'; b.style.top = c.y + 'px';
+        followBall();
       }
       start = null;
     };
@@ -2655,10 +3033,43 @@
       if (moved) { moved = false; return; }
       if (isOpen()) closePanel(); else openPanel();
     });
+    /* 球也是 drop 落点（面板收起时这是**唯一**看得见的地方）：
+       ① 素材引用 → 写进输入框并打开面板；② 外部文件 → 上传；③ 别的（例如拖一段文字）一概不拦。
+       dragover 必须 preventDefault，否则 drop 根本不触发 —— 两条要落的分支都要放行。 */
+    const ballOver = e => {
+      const dt = e.dataTransfer;
+      const isRef = !!(window.AssetRef && window.AssetRef.isRef(dt));
+      if (!isRef && !window.isExternalFileDrag(e)) return;
+      e.preventDefault();
+      try { dt.dropEffect = 'copy'; } catch (err) { /* 个别引擎对 dragover 里的只读 DataTransfer 赋值抛错：提示光标丢得起，拖放照常 */ }
+      b.classList.toggle('ac-drop', isRef);   // 只有引用才点亮：拖文件是上传，不是引用
+    };
+    b.addEventListener('dragenter', ballOver);
+    b.addEventListener('dragover', ballOver);
+    b.addEventListener('dragleave', e => { if (!b.contains(e.relatedTarget)) b.classList.remove('ac-drop'); });
+    b.addEventListener('dragend', () => b.classList.remove('ac-drop'));
+    b.addEventListener('drop', async e => {
+      b.classList.remove('ac-drop');
+      const dt = e.dataTransfer;
+      if (window.AssetRef && window.AssetRef.isRef(dt)) {
+        e.preventDefault(); e.stopPropagation();
+        const ref = window.AssetRef.read(dt);
+        if (!ref) { note('拖过来的这条素材没带可用的号或地址，没能引用', 'warn'); return; }
+        addRefText(ref);
+        openPanel();
+        return;
+      }
+      if (!window.isExternalFileDrag(e)) return;
+      const list = dt && dt.files;
+      if (!list || !list.length) return;
+      e.preventDefault(); e.stopPropagation();
+      openPanel();
+      await addFiles(list);
+    });
     window.addEventListener('resize', placeBall);
     /* 侧栏收起 ↔ 展开改的是 --sbw（66 / 200），而球不会自己动：球原先贴在左边 74px 处，
        一展开就被侧栏（z=90）盖住，点不到 = 助手看着像没了。sidebar.js 每次 apply() 末尾发这一条。 */
-    window.addEventListener('sb:toggle', placeBall);
+    window.addEventListener('sb:toggle', () => { placeBall(); followBall(); });
   }
 
   /* ---------- 装到页面上 ---------- */
@@ -2674,7 +3085,8 @@
 #acBall:hover{filter:brightness(1.08)}
 #acBall.drag{cursor:grabbing;transition:none}
 #acBall:focus-visible{outline:2px solid var(--acc,#6957e8);outline-offset:2px}
-html.ac-open #acBall{display:none}
+/* 固定档面板占住右边一条时球才让位；悬浮档的浮窗就贴着球，球是它的锚点，也是「还有几条没看」的入口。 */
+html.ac-dock.ac-open #acBall{display:none}
 /* 收起态除了 translateX 还要 visibility:hidden（配 transition 延迟）——
    pointer-events:none 只挡鼠标、不挡焦点：不加这一条，收起之后按 Tab 焦点会落进屏幕外那排控件
    （输入框回车即发送、「清空」回车即删掉这段对话）。setOpen 里另有一个 inert，那份是双保险，
@@ -2683,6 +3095,15 @@ html.ac-open #acBall{display:none}
   border-left:1px solid var(--line,#e4e6f0);display:flex;flex-direction:column;
   transform:translateX(101%);transition:transform var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease);pointer-events:none;visibility:hidden}
 html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:var(--shadow-2);visibility:visible}
+/* 悬浮档：不占右边一整条，而是贴着球的浮窗。位置由 chat.js 按球的矩形现算，宽高都是可调的。
+   收起动画也换掉：translateX(101%) 在这一档看着像「从屏幕右边飞过来」，改成在锚点那儿放大 / 淡入。 */
+html:not(.ac-dock) #acPanel{top:var(--ac-top,0px);left:var(--ac-left,auto);right:auto;bottom:auto;
+  box-sizing:border-box;
+  height:var(--ac-h,560px);max-height:calc(100vh - 24px);
+  border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-4);
+  transform:scale(.96);transform-origin:var(--ac-to,100% 100%);opacity:0;
+  transition:transform var(--dur-2) var(--ease),opacity var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease)}
+html:not(.ac-dock).ac-open #acPanel{transform:none;opacity:1}
 /* 固定模式：面板照旧占右边这一条，但页面（#app）的宽度由 chat.js 用内联 calc 收窄 ——
    它与侧栏一起读 --sbw，侧栏展开/收起时宽度跟着变。窄窗口不挤（见 DOCK_MIN）。 */
 html.ac-dock #acPanel{box-shadow:none}
@@ -2693,7 +3114,13 @@ html.ac-dock #acPanel{box-shadow:none}
 .ac-hd .ac-here{font-size:var(--fs-10);color:var(--sub,#8a8fa3);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .ac-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:5;touch-action:none}
 .ac-grip:hover{background:var(--acc-tint-2)}
-@media (max-width:520px){#acPanel{width:100vw!important}.ac-grip{display:none}}
+/* 下沿把手只在悬浮档出现：固定档 top:0 / bottom:0 是「撑满一列」，没有高度可调。
+   输入框自己也有 resize:vertical —— 浮窗档把它关掉，高度只留面板这一根把手，免得拉到错的那个。 */
+.ac-grip-b{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:row-resize;z-index:5;touch-action:none}
+.ac-grip-b:hover{background:var(--acc-tint-2)}
+html.ac-dock .ac-grip-b{display:none}
+html:not(.ac-dock) .ac-ta{resize:none}
+@media (max-width:520px){html.ac-dock #acPanel{width:100vw!important}.ac-grip{display:none}}
 .ac-ctx{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:7px 12px;border-bottom:1px solid var(--line,#e4e6f0);background:var(--panel,#fff)}
 .ac-ctx[hidden]{display:none}
 .ac-ctx .ac-chip{max-width:100%;border:1px solid var(--line,#e4e6f0);background:var(--panel2,#f3f4f9);color:var(--sub,#8a8fa3);
@@ -2822,10 +3249,40 @@ html.ac-dock #acPanel{box-shadow:none}
   max-width:92%;font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
 .ac-mfs .ac-fi{padding:2px 8px}
 .ac-in{flex:0 0 auto;border-top:1px solid var(--line,#e4e6f0);padding:9px 10px;display:flex;flex-direction:column;gap:7px}
-.ac-ta{width:100%;min-height:56px;max-height:34vh;resize:vertical;padding:8px 9px;font-family:inherit;
-  font-size:var(--fs-12-5);line-height:1.5;color:var(--txt,#23262f);background:var(--input,#f6f7fb);
-  border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-1)}
-.ac-ta:focus{border-color:var(--acc,#6957e8);outline:none}
+/* 输入框是「底 + 层 + 字」三层：背景与边框在 wrap（引用高亮画在文字**下面**，
+   所以 textarea 自己必须透明）；字体/行高只在这里定义一份，textarea 与量矩形的镜像一起继承。 */
+.ac-ta-wrap{position:relative;width:100%;padding:8px 9px;font-family:inherit;font-size:var(--fs-12-5);line-height:1.5;
+  color:var(--txt,#23262f);background:var(--input,#f6f7fb);border:1px solid var(--line,#e4e6f0);
+  border-radius:var(--radius-1);display:flex}
+.ac-ta-wrap:focus-within{border-color:var(--acc,#6957e8)}
+.ac-ta{position:relative;z-index:1;flex:1 1 auto;width:100%;min-height:56px;max-height:34vh;resize:vertical;
+  padding:0;border:0;background:transparent;font-family:inherit;font-size:inherit;line-height:inherit;
+  color:var(--txt,#23262f);outline:none}
+.ac-ref-layer{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit}
+.ac-ta-mirror{position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;z-index:-1;
+  white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;padding:0;border:0}
+.ac-ref-hl{position:absolute;background:rgba(105,87,232,.14);border-radius:3px;pointer-events:none}
+.ac-ref-x{position:absolute;z-index:2;width:16px;height:16px;padding:0;border:0;border-radius:50%;cursor:pointer;
+  background:var(--panel,#fff);color:var(--sub,#8a8fa3);font-size:var(--fs-2);line-height:1;
+  box-shadow:0 0 0 1px var(--line,#e4e6f0)}
+.ac-ref-x:hover{color:var(--err,#dc2626);box-shadow:0 0 0 1px var(--err,#dc2626)}
+/* 悬停浮层：position:fixed 且挂 body，父级的 overflow 裁不到它（与导演台拖动示意同一手） */
+.ac-ref-tip{position:fixed;z-index:210;max-width:260px;display:flex;align-items:center;gap:7px;padding:6px;
+  background:var(--panel,#fff);border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-2);box-shadow:var(--shadow-2);
+  pointer-events:none;font-size:var(--fs-10);color:var(--txt,#23262f)}
+.ac-ref-tip[hidden]{display:none}
+.ac-ref-tip img{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-1);flex:0 0 auto}
+.ac-ref-tip-b{min-width:0;display:flex;flex-direction:column;gap:2px}
+.ac-ref-tip-b b{font-weight:600;overflow-wrap:anywhere}
+.ac-ref-tip-b span{color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
+.ac-refdl{display:flex;gap:var(--sp-3);align-items:flex-start}
+.ac-refdl img{max-width:min(260px,40vw);max-height:min(260px,40vh);object-fit:contain;border-radius:var(--radius-1);
+  border:1px solid var(--line,#e4e6f0);background:var(--panel2,#f3f4f9)}
+.ac-refdl-none{font-size:var(--fs-11);line-height:1.6;color:var(--sub,#8a8fa3);max-width:280px}
+.ac-refdl-meta{min-width:0;display:flex;flex-direction:column;gap:4px;font-size:var(--fs-11);line-height:1.6}
+.ac-refdl-meta b{font-weight:600;overflow-wrap:anywhere}
+.ac-refdl-meta>div{color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
+.ac-refdl-src{font-size:var(--fs-10);color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
 .ac-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .ac-row .sp{flex:1 1 auto}
 /* 清空与发送之间拉开一档（危险动作不贴着主操作）；撤销那颗是清空后临时出现的。 */
@@ -2866,6 +3323,7 @@ html.ac-dock #acPanel{box-shadow:none}
 .ac-x.ic:hover{background:var(--input,#f6f7fb)}
 .ac-x.on{color:var(--acc,#6957e8);background:var(--input,#f6f7fb)}
 #acPanel.ac-drop{outline:2px dashed var(--acc,#6957e8);outline-offset:-6px}
+#acBall.ac-drop{outline:2px dashed var(--acc,#6957e8);outline-offset:3px}
 `;
 
   /* ---------- 抽屉里的就地提示 ----------
@@ -2927,7 +3385,7 @@ html.ac-dock #acPanel{box-shadow:none}
 
     const ball = document.createElement('button');
     ball.id = 'acBall';
-    ball.title = 'AI 助手（可以拖动' + (snapOn() ? '；拖到边上会吸住，设置页「AI 助手」那一卡可关' : '') + '）';
+    ball.title = 'AI 助手（可以拖动' + (snapOn() ? '；拖到边上会吸住，设置页「AI 助手」那一卡可关' : '') + '；把素材拖到这里 = 引用这一条）';
     ball.setAttribute('aria-label', '打开 AI 助手');
     ball.innerHTML = window.icon('sparkles', 20);
     /* 球上的小圆点：在等几条任务 / 有几条结果还没看。抽屉收起时它是唯一的提醒入口，
@@ -2953,6 +3411,7 @@ html.ac-dock #acPanel{box-shadow:none}
     p.setAttribute('aria-label', 'AI 助手');
     p.innerHTML = `
       <div class="ac-grip" id="acGrip" title="拖动调宽（记在本机）"></div>
+      <div class="ac-grip-b" id="acGripB" title="拖动调高（记在本机）"></div>
       <div class="ac-hd">
         <span class="ac-tt">${window.icon('sparkles', 15)}AI 助手</span>
         <span class="ac-here" id="acHere"></span>
@@ -2970,7 +3429,11 @@ html.ac-dock #acPanel{box-shadow:none}
       <div class="ac-body" id="acBody"></div>
       <div class="ac-in">
         <div class="ac-files" id="acFiles" hidden></div>
-        <textarea class="ac-ta" id="acTa" placeholder="问点什么，或把文件拖进来（Enter 发送 · Shift+Enter 换行）"></textarea>
+        <div class="ac-ta-wrap" id="acTaWrap">
+          <div class="ac-ref-layer" id="acRefLayer" aria-hidden="true"></div>
+          <div class="ac-ta-mirror" id="acRefMirror" aria-hidden="true"></div>
+          <textarea class="ac-ta" id="acTa" placeholder="问点什么；也可以把素材卡拖到悬浮球或这里（Enter 发送 · Shift+Enter 换行）"></textarea>
+        </div>
         <div class="ac-row">
           <button class="ghost" id="acFile" title="添加文件（图片会被当前型号真去看；也能直接当生成素材）">＋文件</button>
           <input type="file" id="acFileIn" multiple hidden>
@@ -2989,8 +3452,9 @@ html.ac-dock #acPanel{box-shadow:none}
     el.wipe = $('acWipe'); el.here = $('acHere'); el.hint = $('acHint'); el.note = $('acNote');
     el.ctx = $('acCtx');
     el.close = $('acClose'); el.attach = $('acFile'); el.fileIn = $('acFileIn'); el.files = $('acFiles');
+    el.taWrap = $('acTaWrap'); el.refLayer = $('acRefLayer'); el.refMirror = $('acRefMirror');
     el.newS = $('acNew'); el.hist = $('acHist'); el.histBox = $('acHistBox'); el.histList = $('acHistList');
-    el.grip = $('acGrip'); el.histQ = $('acHistQ'); el.dock = $('acDock');
+    el.grip = $('acGrip'); el.gripB = $('acGripB'); el.histQ = $('acHistQ'); el.dock = $('acDock');
     /* 抽屉宽度：拖左沿调，记在本机（换台机器不带走）。窄窗口由 CSS 强制全屏。
        固定模式下这一条同时也是页面让出来的宽度 —— 拖动时页面跟着收放。 */
     const applyW = v => {
@@ -2998,8 +3462,19 @@ html.ac-dock #acPanel{box-shadow:none}
       p.style.setProperty('--ac-w', w + 'px');
       dockW = w;
       applyDock();
+      clampFloat();
       return w;
     };
+    /* 浮窗高度：拖下沿调，同样记在本机。固定档 `--ac-h` 不生效（CSS 只在 `html:not(.ac-dock)` 里读它），
+       所以这里写了也不会把「撑满一列」变成「上边空一截」。 */
+    const applyH = v => {
+      const maxH = Math.max(240, window.innerHeight - 24);
+      const h = Math.max(240, Math.min(maxH, Math.round(Number(v) || 560)));
+      p.style.setProperty('--ac-h', h + 'px');
+      clampFloat();
+      return h;
+    };
+    let acH = applyH(window.LS.get(K_H));
     let acW = applyW(window.LS.get(K_W));
     if (el.grip) el.grip.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -3016,7 +3491,64 @@ html.ac-dock #acPanel{box-shadow:none}
       el.grip.addEventListener('pointerup', up);
       el.grip.addEventListener('pointercancel', up);
     });
-    window.addEventListener('resize', () => { acW = applyW(acW); paintDockBtn(); });
+    if (el.gripB) el.gripB.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const startY = e.clientY, startH = p.getBoundingClientRect().height;
+      try { el.gripB.setPointerCapture(e.pointerId); } catch (err) { /* 指针已被别处抓走 / 已抬起：move 监听挂在把手上照常收得到，抓不抓只影响出窗跟随 */ }
+      const move = ev => { acH = applyH(startH + (ev.clientY - startY)); };
+      const up = () => {
+        el.gripB.removeEventListener('pointermove', move);
+        el.gripB.removeEventListener('pointerup', up);
+        el.gripB.removeEventListener('pointercancel', up);
+        try { localStorage.setItem(K_H, String(Math.round(acH))); } catch (err) { /* 写不进就这次不记高度（无痕 / 禁存储） */ }
+      };
+      el.gripB.addEventListener('pointermove', move);
+      el.gripB.addEventListener('pointerup', up);
+      el.gripB.addEventListener('pointercancel', up);
+    });
+    /* 浮窗拖动：只有标题栏的空白处能起拖（按钮上按下不算，否则「点固定」会先变成一次拖动）。
+       位移过 4px 才起拖，松手记 `ai_chat_fxy`（此后不再跟球）；拖完吃掉补发的 click。 */
+    {
+      const hd = p.querySelector('.ac-hd');
+      let drag = null, pmoved = false;
+      hd.addEventListener('pointerdown', e => {
+        if (!floatNow() || (e.button !== 0 && e.pointerType === 'mouse')) return;
+        if (e.target.closest('button')) return;
+        const r = p.getBoundingClientRect();
+        drag = { px: e.clientX, py: e.clientY, x: r.left, y: r.top, w: r.width, h: r.height };
+        pmoved = false;
+        try { hd.setPointerCapture(e.pointerId); } catch (err) { /* 抓不到也照拖：move/up 监听都挂在标题栏上，capture 只管拖出元素外还能跟上 */ }
+      });
+      hd.addEventListener('pointermove', e => {
+        if (!drag) return;
+        const dx = e.clientX - drag.px, dy = e.clientY - drag.py;
+        if (!pmoved && Math.abs(dx) + Math.abs(dy) < 4) return;
+        pmoved = true;
+        p.classList.add('ac-move');
+        const c = clampPanelXY(drag.x + dx, drag.y + dy, drag.w, drag.h);
+        floatX = c.x; floatY = c.y;
+        paintFloatPos();
+      });
+      const pend = e => {
+        if (!drag) return;
+        try { hd.releasePointerCapture(e.pointerId); } catch (err) { /* 之前没抓到过（或指针已没）：没有可释放的，直接收尾 */ }
+        p.classList.remove('ac-move');
+        if (pmoved) fxySet(floatX, floatY);
+        /* pointercancel 之后浏览器不会补发 click：旗标得在这里清，否则下一次真点击会被吞掉。 */
+        if (e.type === 'pointercancel') pmoved = false;
+        drag = null;
+      };
+      hd.addEventListener('pointerup', pend);
+      hd.addEventListener('pointercancel', pend);
+      /* 拖完补发的那一下 click 不许落到标题栏按钮上（照球那颗的 moved 旗标）。 */
+      p.addEventListener('click', e => {
+        if (!pmoved) return;
+        pmoved = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }, true);
+    }
+    window.addEventListener('resize', () => { acW = applyW(acW); acH = applyH(acH); paintDockBtn(); });
     if (el.histQ) el.histQ.oninput = () => paintHist();
     /* 图标只有 ICONS 一份几何：这里写 data-icon，由 ui.js 的 fillIcons 填成 SVG */
     try { window.fillIcons(p); } catch (e) {}
@@ -3026,6 +3558,7 @@ html.ac-dock #acPanel{box-shadow:none}
       try { localStorage.setItem(K_DOCK, next ? '1' : '0'); } catch (e) {}
       paintDockBtn();
       applyDock();
+      if (!next) placeFloat();     // 切回悬浮档：摆到球旁边（拖走过的仍按 ai_chat_fxy）
       note(next
         ? (window.innerWidth >= DOCK_MIN
           ? '已固定到右侧：页面让到左边，可以一边操作一边问（再点一下改回浮层）'
@@ -3095,10 +3628,7 @@ html.ac-dock #acPanel{box-shadow:none}
        但它同时带 text/html / text/uri-list —— 判据走公共的 isExternalFileDrag，不自己看 Files。
        素材引用（application/x-studio-ref）仍要放行 preventDefault，否则 drop 事件不触发、引用写不进输入框；
        只是它不该点亮上传高亮（那不是往本机落文件）。 */
-    const isRefDrag = e => {
-      const dt = e.dataTransfer;
-      return !!(dt && Array.from(dt.types || []).some(t => t === 'application/x-studio-ref' || t === 'application/x-asset-id'));
-    };
+    const isRefDrag = e => !!(window.AssetRef && window.AssetRef.isRef(e.dataTransfer));
     ['dragenter', 'dragover'].forEach(t => p.addEventListener(t, e => {
       if (window.isExternalFileDrag(e)) { e.preventDefault(); p.classList.add('ac-drop'); }
       else if (isRefDrag(e)) { e.preventDefault(); }
@@ -3107,21 +3637,13 @@ html.ac-dock #acPanel{box-shadow:none}
     p.addEventListener('drop', async e => {
       p.classList.remove('ac-drop');
       const dt = e.dataTransfer;
-      /* 从资产库 / 生成工作台拖进来的卡片：把「引用的是哪一条」写进输入框。
-         它不是文件，不能走 addFiles；但模型下一句需要知道用户指的那条素材。 */
-      const ref = dt && (dt.getData('application/x-studio-ref') || dt.getData('application/x-asset-id') || '');
-      if (ref) {
+      /* 从资产库 / 生成工作台 / 素材库 / 收藏拖进来的卡片：把「引用的是哪一条」写进输入框。
+         它不是文件，不能走 addFiles；模型下一轮靠 refBlock 的清单拿到它的号与地址。 */
+      if (window.AssetRef && window.AssetRef.isRef(dt)) {
         e.preventDefault();
-        let label = ref;
-        try {
-          const o = JSON.parse(ref);
-          label = [o.prompt || o.name || o.assetId || o.id, o.type || o.kind].filter(Boolean).join(' · ');
-          if (o.assetId) label += '（资产 ' + o.assetId + '）';
-        } catch (err) {}
-        el.ta.value = (el.ta.value ? el.ta.value.replace(/\s*$/, '') + '\n' : '') + '[引用素材：' + label + ']';
-        el.ta.focus();
-        try { el.ta.setSelectionRange(el.ta.value.length, el.ta.value.length); } catch (err) {}
-        note('已把这个素材引用写进输入框');
+        const ref = window.AssetRef.read(dt);
+        if (!ref) { note('拖过来的这条素材没带可用的号或地址，没能引用', 'warn'); return; }
+        addRefText(ref);
         return;
       }
       /* 只有确属「外部文件拖入」才当上传：页内拖卡片带 Files 也不落 addFiles（收藏页曾因此多一条）。 */
@@ -3154,9 +3676,46 @@ html.ac-dock #acPanel{box-shadow:none}
       e.preventDefault();
       send(el.ta.value);
     };
+    /* 引用高亮的重算全在 paintRefMarks 里现量（不缓存尺寸）：
+       打字/粘贴/删除、textarea 自己滚动、拉高输入框、窗口缩放、字体加载完成 —— 六处都要重画。 */
+    el.ta.addEventListener('input', refTextChanged);
+    el.ta.addEventListener('scroll', paintRefMarks);
+    el.ta.addEventListener('mouseleave', hideRefTip);
+    el.ta.addEventListener('mousemove', e => {
+      const hit = refAtPoint(e.clientX, e.clientY);
+      if (hit && hit.idx >= 0) showRefTip(hit.idx, e.clientX, e.clientY);
+      else hideRefTip();
+    });
+    el.ta.addEventListener('click', e => {
+      const hit = refAtPoint(e.clientX, e.clientY);
+      if (!hit || hit.idx < 0) return;
+      e.preventDefault();
+      openRefDialog(hit.idx);
+    });
+    if (el.refLayer) el.refLayer.addEventListener('click', e => {
+      const x = e.target && e.target.closest ? e.target.closest('.ac-ref-x') : null;
+      if (!x) return;
+      e.preventDefault(); e.stopPropagation();
+      const a = Number(x.dataset.start), b = Number(x.dataset.end), idx = Number(x.dataset.ref);
+      if (!(a >= 0 && b > a)) return;
+      el.ta.setRangeText('', a, b, 'end');
+      el.ta.focus();
+      if (idx >= 0 && refs[idx]) {
+        refs.splice(idx, 1);
+        saveRefs();
+        note('已把这条引用从清单里移开（只移引用，不删资产库/收藏里的东西）');
+      } else note('已删掉这段引用文字');
+      paintRefMarks();
+    });
+    window.addEventListener('resize', paintRefMarks);
+    if (window.ResizeObserver) {
+      try { new ResizeObserver(() => paintRefMarks()).observe(el.ta); } catch (e) { /* 挂不上就退到上面那行 resize 事件那一档，高亮晚一点刷新 */ }
+    }
+    try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => paintRefMarks()).catch(() => {}); } catch (e) { /* 字体晚到只影响高亮的贴合度：拿不到就按当前字体画 */ }
     load();
     paint(true);   // 首次装配 = 落在最新那一条（面板那时还收起，量不到高度；展开时 setOpen 会再滚一次）
     paintFiles();
+    paintRefMarks();
     paintHint().catch(e => { el.hint.textContent = '读不到当前文字 AI 设置：' + errText(e); });
 
     /* 换页之后：左栏高亮、当前页名与「这一页的状态」都跟着刷新 */
@@ -3269,7 +3828,7 @@ html.ac-dock #acPanel{box-shadow:none}
   const CHAT_TOOLS = window.AiChatTools.build({
     AS_SHELL, K_NOTICE, autoRun, TOOL_OUT, READ_DEF, READ_MAX, RESULT_MAX,
     CACHES, SCOPE_TYPE, pageZh, STUDIO_T, VAL_ZH, STD,
-    EF, ctxFiles, cap, num, when, $,
+    EF, ctxFiles, ctxRefs, cap, num, when, $,
     frameWin, page, hostCtx, hostDoc, navItems, reg,
     caps, usableMap, provFlags, DRA, needDRA, charRows,
     usageStat, domPicks, ensureSearchMod, noteSource, searchFail, uiInventory,

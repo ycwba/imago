@@ -236,6 +236,14 @@ run('tests/director-projection.mjs', process.execPath, ['tests/director-projecti
 run('tests/director-voice-block.mjs', process.execPath, ['tests/director-voice-block.mjs']);
 /* 台词清单：剪辑右栏「台词」那一档的一份渲染（说话人缩略图 / 本镜与全片两个时间 / 三种状态）。 */
 run('tests/director-lines.mjs', process.execPath, ['tests/director-lines.mjs']);
+/* 台词落点：第几段 + 段内源秒，缺省 = 第一段起点；读到脏数据要夹回来。 */
+run('tests/director-line-point.mjs', process.execPath, ['tests/director-line-point.mjs']);
+/* 配音分轨 / 合轨：分组稳定、只写 ln、超上限点名；时间 / 音量 / 选区一个字节不动。 */
+run('tests/director-voice-lanes.mjs', process.execPath, ['tests/director-voice-lanes.mjs']);
+/* 拖素材的引用载荷：字段白名单、两个 MIME、标签拼装；老载荷与本机号都只按号走。 */
+run('tests/asset-ref.mjs', process.execPath, ['tests/asset-ref.mjs']);
+/* 任务详情：号反查 / 六种原因码 / 批量共用一轮；平台用桩替，不发一个真请求。 */
+run('tests/task-detail.mjs', process.execPath, ['tests/task-detail.mjs']);
 /* 剧本视图：分镜现算成稿、改稿只写回镜头上的画面（台词不在稿子里，也不跟着画面动）。 */
 run('tests/director-script.mjs', process.execPath, ['tests/director-script.mjs']);
 /* 导出格式只有一张表：页头按钮 / engine 分派 / 助手枚举都从它派生。 */
@@ -292,6 +300,10 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/chat-actions.cjs', process.execPath, ['tests/e2e/chat-actions.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-receipt.cjs', process.execPath, ['tests/e2e/chat-receipt.cjs'], { tier: 'browser' });
   run('tests/e2e/assistant-dock.cjs', process.execPath, ['tests/e2e/assistant-dock.cjs'], { tier: 'browser' });
+  /* 拖素材卡到球 = 引用（真实拖放：载荷有号、输入框高亮、外部文件仍走上传、球不动）。 */
+  run('tests/e2e/assistant-ref-drop.cjs', process.execPath, ['tests/e2e/assistant-ref-drop.cjs'], { tier: 'browser' });
+  /* 凭号取图：正文清单同下标、asset_open 真的取到本机字节、取不到照实说、悬停/弹层/×。 */
+  run('tests/e2e/assistant-ref-open.cjs', process.execPath, ['tests/e2e/assistant-ref-open.cjs'], { tier: 'browser' });
   run('tests/e2e/drag-guard.cjs', process.execPath, ['tests/e2e/drag-guard.cjs'], { tier: 'browser' });
   run('tests/e2e/actions.cjs', process.execPath, ['tests/e2e/actions.cjs'], { tier: 'browser' });
   run('tests/e2e/actions-feedback.cjs', process.execPath, ['tests/e2e/actions-feedback.cjs'], { tier: 'browser' });
@@ -309,8 +321,12 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/director-slice.cjs', process.execPath, ['tests/e2e/director-slice.cjs'], { tier: 'browser' });
   run('tests/e2e/director-slice-perf.cjs', process.execPath, ['tests/e2e/director-slice-perf.cjs'], { tier: 'browser' });
   run('tests/e2e/director-lines.cjs', process.execPath, ['tests/e2e/director-lines.cjs'], { tier: 'browser' });
+  /* 新加配音落在目标时间窗没被占的那一行 / 全占就新开一行 / 12 行满时合成前拒绝（不发请求）。 */
+  run('tests/e2e/director-voice-lane.cjs', process.execPath, ['tests/e2e/director-voice-lane.cjs'], { tier: 'browser' });
   /* 字幕与待生成的拖动（把手 / 挪插针）+ 右栏起止两把尺子 + 配音 / 画面入出行可输。 */
   run('tests/e2e/director-sublane.cjs', process.execPath, ['tests/e2e/director-sublane.cjs'], { tier: 'browser' });
+  /* 时间轴缩放：加减 1.15 / 滑块对数无极 / 自适应独立钮 / 围绕视野中心 / 只重排时间轴 / 1024 不溢出。 */
+  run('tests/e2e/director-zoom.cjs', process.execPath, ['tests/e2e/director-zoom.cjs'], { tier: 'browser' });
   /* 导演台装配窗口里的关标签保存：没装配完不许把工作区写成空的（IndexedDB 与 .data/workspace.json 两份）。 */
   run('tests/e2e/director-boot-flush.cjs', process.execPath, ['tests/e2e/director-boot-flush.cjs'], { tier: 'browser' });
   /* 原始请求折叠条：脱敏 / 默认收起 / 导演台重画后仍展开 / 工作台三型标签。 */

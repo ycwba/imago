@@ -34,7 +34,7 @@ const _hoisted_14 = {
   key: 0,
   class: "empty"
 }
-const _hoisted_15 = ["data-key"]
+const _hoisted_15 = ["data-key", "onDragstart", "onDragend"]
 const _hoisted_16 = ["onClick", "innerHTML"]
 const _hoisted_17 = { class: "body" }
 const _hoisted_18 = ["onClick"]
@@ -103,7 +103,10 @@ export function render(_ctx, _cache) {
               return (_openBlock(), _createElementBlock("div", {
                 key: it.key,
                 class: "card card-surface",
-                "data-key": it.key
+                draggable: "true",
+                "data-key": it.key,
+                onDragstart: $event => (_ctx.onCardDragStart($event, it)),
+                onDragend: $event => (_ctx.onCardDragEnd($event))
               }, [
                 _createElementVNode("div", {
                   class: "thumb",
@@ -151,7 +154,7 @@ export function render(_ctx, _cache) {
                     }, "移出收藏", 8 /* PROPS */, _hoisted_26)
                   ])
                 ])
-              ], 8 /* PROPS */, _hoisted_15))
+              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_15))
             }), 128 /* KEYED_FRAGMENT */))
           ], 512 /* NEED_PATCH */)),
     _createElementVNode("div", _hoisted_27, null, 512 /* NEED_PATCH */),

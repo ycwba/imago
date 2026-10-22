@@ -76,6 +76,9 @@
      对话记录 ai_chat 照旧同步；助手的供应方/型号只在设置页那一档（sk_text_prov / sk_model_*），
      抽屉里不再有第二份选择。 */
   const NOT_SYNC = ['_cache_v1', 'sk_reuse', 'sk_model_meta_', 'ai_chat_files', 'ai_chat_auto', 'ai_chat_xy', 'ai_chat_snap', 'ai_chat_watch', 'ai_chat_notice', 'ai_chat_off',
+    /* 浮窗几何（ai_chat_h / ai_chat_fxy）与 ai_chat_xy 同一类：各台机器的窗宽窗高不一样，
+       同步过去只会把浮窗摆到另一台看不见的地方。 */
+    'ai_chat_h', 'ai_chat_fxy',
     /* sk_local_mirror —— 「哪条产物存在本机、对应哪个本机资产号」的指针表。
        本体是 .assets/ 下的文件（另一台机器上没有），而 la_xxx 这种号在那边也取不到东西：
        同步过去的结果是界面上以为有本机副本、点开全挂（比没有更坏）。 */

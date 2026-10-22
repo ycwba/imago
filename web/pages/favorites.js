@@ -156,8 +156,8 @@ export default {
       if (!url) return '';
       const tkey = it.kind === 'local' && it.fileKey ? 'fav-file:' + it.fileKey : url;
       return kind === 'video'
-        ? Wb.thumbs.mediaHTML(url, { key: tkey })
-        : Wb.thumbs.mediaHTML(url, { key: tkey, type: 'image', mediaAttrs: 'loading="lazy"' });
+        ? Wb.thumbs.mediaHTML(url, { key: tkey, mediaAttrs: 'draggable="false"' })
+        : Wb.thumbs.mediaHTML(url, { key: tkey, type: 'image', mediaAttrs: 'loading="lazy" draggable="false"' });
     }
 
     function bindThumbs() {
@@ -325,6 +325,27 @@ export default {
       Wb.reuse.go(it.kind === 'local'
         ? { from: 'favorites', type: it.type, fileKey: it.fileKey, name: it.name, prompt: it.prompt || '' }
         : { from: 'favorites', type: it.type, assetId: it.assetId, src: urls.value[it.key] || '', prompt: it.prompt || '' });
+    }
+
+    /* 拖动一张收藏卡 = 引用这一条（载荷形状在 web/domain/asset-ref.cjs）。备注框与按钮上的
+       拖动不归卡片管：那里起势的是选字 / 点按，不是「把这条带给助手」。 */
+    function onCardDragStart(e, it) {
+      if (!window.AssetRef || e.target.closest('input,textarea,select,button,a,[contenteditable]')) { e.preventDefault(); return; }
+      const p = window.AssetRef.set(e.dataTransfer, {
+        kind: 'fav', id: it.key, name: it.name || it.prompt || '',
+        type: it.type, mtype: it.type, format: it.format,
+        src: urls.value[it.key] || '', dl: it.dl || '',
+        assetId: it.assetId || '', fileKey: it.fileKey || '', prompt: it.prompt || '', from: 'favorites',
+        taskId: it.genId || it.taskId || '', provider: it.provider, providerName: it.providerName,
+        ts: it.ts, localAsset: it.kind === 'local', size: it.size, dur: it.duration,
+      });
+      if (!p) { e.preventDefault(); return; }
+      const card = e.currentTarget || e.target.closest('.card');
+      if (card) card.classList.add('dragging');
+    }
+    function onCardDragEnd(e) {
+      const card = e.currentTarget || (e.target && e.target.closest ? e.target.closest('.card') : null);
+      if (card) card.classList.remove('dragging');
     }
 
     function pickFiles() { if (!uploading.value) fileEl.value && fileEl.value.click(); }
@@ -511,6 +532,7 @@ export default {
       uploadHtml, uploading, pullBtn, grids, toolbarEl, viewEl, fileEl, gridEnd, pagerRow,
       dlBusy, dlMsg, pageItems, titleOf, metaOf, badgeState, badgeShow, badgeHtml, thumbHtml, openLb, onNote, flushNote,
       dropItem, download, reuse, canReuse, reuseTabZh, pickFiles, onFiles, pullLocal,
+      onCardDragStart, onCardDragEnd,
       runAiFind, clearAiPick, starIcon: window.icon ? icon('star', 20) : '',
       aiBtnHtml: (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材',
     };

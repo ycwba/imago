@@ -59,7 +59,7 @@
 │  │                            skills / workbench / sidebar / index / badge-state
 │  ├─ domain/                   api / assetlib / gen-forms / asset-transfer / local / capabilities /
 │  │                            text-ai / gen-rules / fav / prompt-log / asset-picker / ai-find / chars /
-│  │                            ident / identity / semantic / asr / search / zip-read /
+│  │                            ident / asset-ref / identity / semantic / asr / search / zip-read /
 │  │                            chat/text-util / text-ai/contracts
 │  │  └─ canvas/                自由画布：registry / doc / ops / spatial / history / gen / view
 │  ├─ features/chat.js          AI 助手外壳：悬浮球 / 抽屉 / 会话 / 发送循环
@@ -342,6 +342,7 @@ frame-ancestors 'none'
 | 接口 / 统一取数 | `web/domain/api.js` 的 `Api`（`request` / `create` / `createBody` / `pollTask` / `list` / 余额）+ 顶层 `netFetch` / `respBody` / `classifyStatus` |
 | 资产 | `AssetLib` / `AssetLocal` / `AssetTransfer` / `AssetPicker`（`AssetLib` 列表与费用口径在 `assetlib.js`） |
 | 素材身份（两个地址是不是同一份产物） | `web/domain/ident.cjs` 的 `upKeyOf` / `innerMedia`（UMD 双模式：浏览器挂 `window.MediaId`、Node `require` 同一份；**必须 .cjs** —— `web/package.json` 的 type:module 会把 .js 当 ESM，UMD 的 `module.exports` 分支不会走，Node 侧拿到空 namespace） |
+| 拖素材的引用载荷 | `web/domain/asset-ref.cjs` 的 `set` / `read` / `isRef` / `label`（UMD + **必须 .cjs**，理由同上；浏览器挂 `window.AssetRef`，Node 默认导入）。四个拖动源与球 / 抽屉两个落点都只经这一份，字段白名单也只有这里 |
 | 任务 | `Wb.poller` / `Wb.History` / `Wb.thumbs` / `Wb.detail` / `Wb.cards` / `Wb.pager` / `Wb.viewToggle` + `VIEW_MODES` |
 | 灯箱 | `Wb.lightbox` |
 | 下载 | `Wb.save` → `Net.save` |
@@ -458,6 +459,9 @@ frame-ancestors 'none'
   - `timeline.js`：框、轴秒、灰场、`filmFrames`
   - `voice-layout.js`：配音框/选区、灰场跳过、全片轴与原因码
   - `voice-block.js`：配音块标记
+  - `voice-lanes.js`：配音分轨 / 合轨的行规划（按谁在说 → 音色 → 素材分组、超出 12 行报数、只写 `ln`）
+  - `line-point.js`：台词落点（第几段 + 段内源秒）的唯一读写口 `linePointOf` / `linePointSet` / `linePointClamp`；
+    缺省 = 第一段起点且不占键，读到剪过一刀之后的旧落点要夹回来
   - `lines.js`：台词行渲染（说话人 → 素材库缩略图 / 占位、本镜与全片两个时间读数）
   - `script.js`：剧本视图（分镜现算成稿；改稿只写回 `prompt`，台词不在那份稿子里）
   - `waveform.js`：解码 / 包络 / SVG
@@ -550,9 +554,21 @@ frame-ancestors 'none'
   工具循环与动作目录在 `web/features/chat-tools.js`（`TOOLS` / `ACTS` / `TOOL_INPUT` /
   `ACTION_META`），由 `window.AiChatTools.build(C)` 取共享函数，加载顺序 chat-tools → chat。
   会话记录、Skill 自动加载、上下文预算、密钥脱敏都在 chat.js。
-- 抽屉有两种停靠：浮层（盖在页面上）/ 固定右栏（`html.ac-dock`，`#app` 用内联宽度让出
-  `--sbw + 面板宽`，页面可继续操作）。偏好只存本机 `ai_chat_dock`，打开状态本身不持久；
+- 抽屉缺省是**球旁的浮窗**：贴着悬浮球摆（左上方，放不下就翻到另一侧，最后夹进视口并让开侧栏），
+  宽 `--ac-w` / 高 `--ac-h` 由左沿与下沿两根把手拖，记本机 `ai_chat_w` / `ai_chat_h`；
+  拖标题栏能把浮窗拖走，位置记 `ai_chat_fxy`，此后不再跟球（删键即恢复跟球）。
+  另一档是固定右栏（`html.ac-dock`，`#app` 用内联宽度让出 `--sbw + 面板宽`，页面可继续操作，
+  球让位）。偏好只存本机 `ai_chat_dock`，打开状态本身不持久；
   窗口窄于 `DOCK_MIN` 自动回浮层，放宽后按偏好恢复。
+- **拖素材到球 = 引用**（面板收起也能拖）：载荷由 `AssetRef`（`web/domain/asset-ref.cjs`）写，
+  落进 `refs` 队列（落盘 `ai_chat_refs`，上限 20，超出挤掉最早的并点名）并在输入框追加一行
+  `[引用素材：…]`；这一轮正文里有 `【这次引用的素材】` 清单，序号与队列同下标。字节**不预取**，
+  模型要看时用只读工具 `asset_open` 按序号 / 号 / 地址取（`la_` → `/asset/…`、外链过期先续签、
+  只有 `fileKey` 走 `Fav.blobOf`）；取不到就照实说。输入框里的标记有灰底高亮，悬停弹这一条、
+  点击开 `UiDialog` 看图、× 只移引用不删资产库；**真相是队列**，标记被改掉只影响高亮。
+  拖外部文件到球仍是上传；窗口空白处不接引用（球是唯一落点）。
+- 只读工具 `task_detail` 查单条任务：先按本机缓存反查平台 / 产物号 / 提示词，再向平台问一次现状；
+  多条一次问（最多 8 条，同轮共用一次列表请求），查不到按原因码说清。
 - 写动作只经 `web/core/actions.js` 的 `ActionRegistry`；任意脚本 `inject` 整族禁止。
 - 动作默认直接执行、不强制过程可见：结果回执 + 撤销必须可见；跨页给“去看看”，定位按需。
 - 内容写动作必须有 `undo` 或显式 `irreversible`；花钱动作声明 `cancel`。
@@ -607,7 +623,10 @@ frame-ancestors 'none'
 - 余额区**不放跳转钮**：「还有 N 家，去用量页」与「去设置」两枚已撤（左下角本来就有「设置」入口，
   同一件事不给第二条捷径）。区里只许 `expand` / `collapse` / `refresh` 三枚 `.ghost mini`；
   点开摘要走公共弹窗（`UiDialog`）看全量卡，侧栏里不堆第二摞**可见**卡。
-- 「还有 N 家」的 N 必须等于总家数减摆出来的家数，差一家就是假话。
+- 展开钮的文案是「展开」（展开后是「收起」），总家数在 `title` 里 —— **N = 总家数**，差一家就是假话；
+  「展开」与「刷新余额」永远同一行（`.sb-bal-acts` 不换行、按钮 `white-space:nowrap`）。
+  窗口高到卡全摆得下时这一行只有「刷新余额」（`extra === 0` 的条件不许动：没有多余卡还给一颗「展开」，
+  点下去什么都不会多出来）。
 - 本机产物那一行就地展开明细（「本次会话存成 N 份 · 上次存成 <fmtWhen>」），只用 `AssetLocal.info()`
   的现有读数与 §7 的公共时间格式化，不为这一行写第二份；落盘重画（`wb:mirror-ready`）与整块重画
   （`sb-balance-refresh`）之后都要重新绑上点击 —— 那两条路都是 `innerHTML` 重来。
@@ -806,7 +825,10 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 **「项目引用规则」**（Skill 正文里的变量占位符 `{cast}` `{what}` `{board}` …）=
 `web/domain/gen-forms.js` 的 `window.TplVars`（唯一一份填法）+ `web/director/board-vars.js`（填什么）；
 NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`，持久目录
-`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）。
+`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）；台词落点 `web/director/line-point.js`；
+配音分轨 / 合轨的行规划 `web/director/voice-lanes.js`；拖素材的引用载荷 `web/domain/asset-ref.cjs`
+（**必须是 .cjs**：`web/package.json` 的 type:module 会把 .js 当 ESM，UMD 的 `module.exports` 分支不会走，
+经典脚本与 Node 判据两头都读同一份）。
 
 命名与导入边界：
 

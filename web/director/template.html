@@ -369,6 +369,10 @@
   .tl-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .tl-tabs .ui-seg { border-radius: 4px; }
   .tl-tabs .ui-seg > button { font-size: 12px; padding: 4px 14px; }
+  /* 说明文字那格允许被压（min-width:0 + 省略号）：这一行没有 flex-wrap，加宽只会把右边挤出去。
+     1024 宽是视觉基线的最小档，缩放控件整撮加进来后那一行更挤 —— 窄窗整句藏掉。 */
+  .tl-tabs .tl-tip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 1100px) { .tl-tabs .tl-tip { display: none; } }
   /* ============================================================================
      轨道区的形状（照参考图）：**左边一列轨名 + 右边一条会滚的轨道**
      ----------------------------------------------------------------------------
@@ -481,20 +485,30 @@
      右边那点空白永远出不来（用户点名的「轨道缩放可以缩放到不占据整个轨道」）。
      现在这一层的宽度只由 JS 那一处决定（`tlInnerWidth`），缩到多短就画多短。 */
   .tl-inner { display: flex; flex-direction: column; gap: var(--tlh-gap, 20px); position: relative; }
-  /* 缩放那一小撮（贴在「本镜 / 全片」那一条的右边） */
+  /* 缩放那一小撮（贴在「本镜 / 全片」那一条的右边）= [−] [滑块] [+] [读数] [自适应] */
   .tl-zoom { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--sub); }
-  /* 中间那个读数 = 「点我回到自适应」那一颗出口，但**只在真的是手动档时**才长得像出口：
-     写着「自适应」时点它什么都不会发生，看着能点却不做事是本项目反复清的那一类。
-     它不用 `<button>` 是因为上面那条 `.tl-zoom button` 会把每一颗撑成 22px 方块。 */
+  /* 中间那个读数只显示当前多少 px/秒（自适应档写「自适应」）：它**不再是出口**，
+     「回到自适应」由右边那颗按钮承担 —— 读数不给手型也不划虚线，不长成可点的样子。
+     它不用 `<button>` 是因为下面那条 `.tl-zoom button` 会把每一颗撑成 22px 方块。 */
   .tl-zoom .tl-zval { min-width: 54px; text-align: center; font-variant-numeric: tabular-nums; }
-  .tl-zoom .tl-zval.man { cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted;
-    text-decoration-color: rgba(148,163,184,.75); }
-  .tl-zoom .tl-zval.man:hover { color: var(--txt); }
   .tl-zoom button { display: inline-flex; align-items: center; justify-content: center;
     width: 22px; height: 20px; line-height: 1; padding: 0; border-radius: 4px;
     border: 1px solid var(--line); background: var(--panel); color: var(--txt); cursor: pointer; }
   .tl-zoom button:hover { background: var(--panel2); }
+  /* 「自适应」三个字塞不进 22px 方块：这一颗单独放宽（其余照旧 22×20）。 */
+  .tl-zoom #tlZoomAuto { width: auto; padding: 0 8px; }
+  .tl-zoom #tlZoomAuto[disabled] { opacity: .45; cursor: not-allowed; }
+  .tl-zoom #tlZoomAuto[disabled]:hover { background: var(--panel); }
   .tl-zoom #tlZoomVal { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+  /* 缩放滑块：0–1000 档 ↔ log(px/秒)（对数映射在 lanes.js 一处，位置与 px/秒 互推共用同一对端点）。
+     配色走令牌，画法与轨名那几枚基数滑块（.tl-hvol-sl）同一套。 */
+  .tl-zoom #tlZoomRange { -webkit-appearance: none; appearance: none; width: 104px; height: 3px;
+    margin: 0 2px; padding: 0; border: none; background: var(--line); border-radius: 2px; cursor: pointer; }
+  .tl-zoom #tlZoomRange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+    width: 11px; height: 11px; border-radius: 50%; background: var(--acc, #7c5cff); border: none; cursor: pointer; }
+  .tl-zoom #tlZoomRange::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%;
+    background: var(--acc, #7c5cff); border: none; cursor: pointer; }
+  .tl-zoom #tlZoomRange:focus-visible { outline: 2px solid var(--acc, #7c5cff); outline-offset: 2px; }
   /* 两行轨道**同一套形状**：本镜按源视频秒、全片按成片秒，都是一排绝对定位的段格 + 一根针。
      以前全片那一排是 flex 流（格子靠 flex 定宽），于是它没有针、没有把手、样式也与本镜不一致。 */
   .tl-vrow, .tl-film { position: relative; height: var(--tlh-pic, 52px); border: 1px solid var(--line); border-radius: 6px;

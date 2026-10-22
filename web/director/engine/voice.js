@@ -8,6 +8,7 @@ import { voiceBase, shotCtxOf } from '../naming.js';
 import { SEG_MIN, segLen, segFilmLen, segsOf } from '../segments.js';
 import { VOICE_SPD_MIN, VOICE_SPD_MAX } from '../voice-layout.js';
 import { styleOf } from '../subtitles.js';
+import { linePointOf } from '../line-point.js';
 
 export function createVoice(E, document, window) {
   const {
@@ -23,11 +24,16 @@ export function createVoice(E, document, window) {
     candSelected,
     voicesEnsure,
     shotVoices,
+    voiceLn,
+    voiceLanePlan,
+    addLaneRow,
     tlVoiceHit,
     voiceVolOf,
     setLaneVol,
     setCutVol,
     setCutLane,
+    voiceSplitByMaterial,
+    voiceMergeAll,
     cutSpdSeg,
     setCutSpd,
     segLenText,
@@ -122,15 +128,21 @@ function audioDurOf(src) {
     setTimeout(fin, 8000);
   });
 }
-/* 这一句落在哪：段号 + 段内偏移（都从插针现算，界面上那句「落在哪」读的是同一个函数，不各写一遍） */
+/* 这一句落在哪：段号 + 段内偏移。**先读这一句自己的落点**（点 / 拖轨道上那个「待生成」占位
+   写下的 `sh.lineAt` / `sh.lineSeg`），没有落点的镜头才按插针现算 —— 老工程（从没点过占位符）
+   「点空白轨道、在针处合成」那一条工作流逐字不变。
+   两条都是源秒口径；`v.at` 记的是**相对段起点**的偏移，所以落点要减掉 `s.in`。 */
 function voiceTarget(sh, c) {
   if (!c) return null;
   const total = candDur(c, sh);
   const segs = segsOf(c, total);
   if (!segs.length) return null;
-  const si = Math.min(segs.length - 1, cutSegIdx());
+  const hasPt = !!sh && sh.lineAt != null && sh.lineAt !== '' && isFinite(Number(sh.lineAt));
+  const pt = hasPt ? linePointOf(sh, segs) : null;
+  const si = pt ? pt.seg : Math.min(segs.length - 1, cutSegIdx());
   const s = segs[si];
-  const at = round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), (Number(projOf().cutAt) || 0) - s.in)));
+  const src = pt ? pt.at : (Number(projOf().cutAt) || 0);
+  const at = round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), src - s.in)));
   return { si, s, at, segs, total };
 }
 function voiceWayOf(REG, key) {
@@ -173,9 +185,9 @@ function voiceSynthWhy(way, draft, tts) { return voiceWayWhy(way, draft) || voic
    而按钮上写着的就是「合成并加到这一轨」，落点说明是它唯一的依据。 */
 function voicePosLine(sh, c) {
   const t = voiceTarget(sh, c);
-  if (t) return '插针指着的位置：第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒（源里 ' + round1(t.s.in + t.at) + ' 秒）'
-    + '。要换地方就点轨道把插针挪过去 —— 合成完这一句就铺在那里。';
-  return '插针指着的位置：' + (c ? '这一镜一段画面都没留：按 Ctrl+Z 退回剪切之前'
+  if (t) return '这一句的落点：第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒（源里 ' + round1(t.s.in + t.at) + ' 秒）'
+    + '。要换地方就点 / 拖轨道上那个「待生成」占位 —— 它的位置、插针与合成落点读的是同一个数。';
+  return '落点：' + (c ? '这一镜一段画面都没留：按 Ctrl+Z 退回剪切之前'
     : '这一镜还没有候选：先生成或导入一条视频');
 }
 /* 插针一动就只换这一行，不重画整栏 —— 整栏重画会把正在敲的配音文本换掉、焦点也跟着跳。
@@ -291,6 +303,8 @@ function renderVoiceCol(col, sh) {
   if (way.mode === 'preset' && !preset.some(v => v.id === voiceDraftOf().voice)) voiceDraftOf().voice = preset.length ? preset[0].id : '';
   const tts = (way.chosen && way.chosen.prov && way.chosen.prov.tts) || {};
   const n = shotVoices(sh.id, c && c.vid).length;
+  /* 分轨 / 合轨是**全片**动作：句数按整条配音轨数，不是这一镜的 n（那一镜空着也要能合轨）。 */
+  const nAll = voicesEnsure().length;
   /* 字幕那一格：数据从 currentOf 来（唯一出口），显示时间经 mapToFilm；
      这一镜没进成片时退回源秒并把原因写在时间旁边（不拿 0 冒充成片起点）。 */
   const subCur = subCurrent(sh);
@@ -563,6 +577,13 @@ function renderVoiceCol(col, sh) {
       <div class="hint">导出成片时会自动烧录字幕（每条栅格化成与成片同宽高的 PNG）；FCPXML 里写成标题，媒体包另带 subtitles.srt。这些样式在 FCP 标题里只能表达字号 / 颜色 / 位置，背景与高亮只在预览和烧录里生效。</div>
       </div>
       <div class="grp" id="grpVoiceList">
+      <!-- 分轨 / 合轨是**全片**动作，所以按钮放在 n ? … : … 三元之外：
+           这一镜一句配音都没有时，两颗按钮照样看得见（禁用并写明原因，而不是整块消失）。
+           nAll 是整条配音轨的句数，不是这一镜的 n。 -->
+      <div class="btn-row" style="margin-top:14px">
+        <button class="tool mini" id="voiceSplit"${nAll ? '' : ' disabled'} title="按声音来源（谁在说、音色、素材）把全片的配音分到各自的轨道上（只改排版，时间、时长、音量一个字不动；成片里的声音完全一样）${nAll ? '' : ' —— 全片还没有配音，先合成一句'}">${icon('layers', 14)} 分轨${nAll ? ' ' + nAll + ' 句' : ''}</button>
+        <button class="tool mini" id="voiceMerge"${nAll ? '' : ' disabled'} title="把全片所有配音合到第 1 条轨道（只改排版，不改成片；同一轨里可能有重叠，成片里会一起响）${nAll ? '' : ' —— 全片还没有配音，先合成一句'}">${icon('merge', 14)} 合轨</button>
+      </div>
       ${n ? `
       <div class="ed-label" style="margin-top:14px"><span>这一镜上的配音</span><span class="cnt">${n} 句</span></div>
       <div class="vc-list">${shotVoices(sh.id, c && c.vid).map(v => {
@@ -818,6 +839,18 @@ function renderVoiceCol(col, sh) {
     if (!src || /^blob:/.test(src)) { setStatus('<span class="err">这一条没有能长期记住的地址：换一条，或先把它「存回本机」</span>'); return; }
     await addVoiceEntry(src, sh, c, { name: it.name || it.prompt || '', text: '', provider: '本机', model: '', voice: '' });
   };
+  /* 分轨 / 合轨：批量改几十行，误点一次不轻，所以两枚都要二次确认。
+     真正的判据、回执与「一步可撤销」在 track.js 的同名函数里（这里只转发）。 */
+  const vsp = col.querySelector('#voiceSplit');
+  if (vsp) vsp.onclick = () => {
+    if (Confirm.arm(vsp, '确认把全片配音分轨？', { note: '只改画在第几行，时间、时长、音量一个字不动；一步可撤销' })) return;
+    voiceSplitByMaterial();
+  };
+  const vmg = col.querySelector('#voiceMerge');
+  if (vmg) vmg.onclick = () => {
+    if (Confirm.arm(vmg, '确认把全片配音合到一条轨？', { note: '只改排版，不改成片；同一行里重叠的几句会一起响；一步可撤销' })) return;
+    voiceMergeAll();
+  };
   col.querySelectorAll('[data-vplay]').forEach(b => b.onclick = () => playVoicePreview(b.dataset.vplay));
   /* 三档小选项：只翻 hidden（paintTlGroups 一处），不重建这一栏 —— 重建会把正在敲的那格换掉、光标跳走。 */
   col.querySelectorAll('#vcTabs [data-vctab]').forEach(b => {
@@ -920,6 +953,28 @@ async function addVoiceEntry(src, sh, c, extra) {
   const dur = await audioDurOf(src);
   const v = Object.assign({ id: uid(), shotId: sh.id, candId: c.vid, seg: t.si, at: t.at, dur, vol: 1, src }, extra || {});
   v.name = v.name || String(v.text || '配音').replace(/\s+/g, ' ').trim().slice(0, 12);
+  /* 说话人跟着这一镜的台词走（`sh.lineWho`）：分轨时「同一角色归一行」靠它。
+     空串不占键 —— 老工程没有这个字段，读的一侧照样落到音色 / 素材那一级。 */
+  const who = String((sh && sh.lineWho) || v.who || '').trim();
+  if (who) v.who = who;
+  /* 落哪一行：目标时间窗内没被占的行里取行号最小的；全被占就新开一行。
+     行满 12 / 轨收着时 `addLaneRow` 自己给出拒绝的那一句 —— 拿到 -1 就一个字节都不落，
+     但声音已经生成出来了，落不下必须说清音频在哪（不静默吞）。 */
+  const plan = voiceLanePlan(v);
+  let newRow = false;
+  if (plan.ln < 0) {
+    setStatus('<span class="err">配音轨的 ' + plan.rows + ' 行在这个位置都被占了（已到上限），这一句放不下：'
+      + '先收掉一行、或把这一句换个落点再合成。音频已经生成：' + esc(src) + '</span>');
+    return;
+  }
+  if (plan.needNewRow) {
+    const got = addLaneRow('voice', document.getElementById('midCol') || document);
+    if (got < 0) return;
+    v.ln = got;
+    newRow = true;
+  } else if (plan.ln > 0) {
+    v.ln = plan.ln;
+  }
   voicesEnsure().push(v);
   /* 这一条音频若还是第三方外链（导入的 FCPXML / 平台返回的临时地址），顺手存一份到本机：
      配音导出与 waveform 解码都读得到字节，不靠会过期的链接。 */
@@ -935,6 +990,8 @@ async function addVoiceEntry(src, sh, c, extra) {
      （目标是「最后点的那一轨」，而「刚加了一句」正是最后碰的是声音轨）。 */
   selectVoice(v.id);
   setStatus('<span class="ok">✓ 已加到第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒处，长 ' + dur + ' 秒'
+    + '；落在' + (newRow ? '新开的' : '') + '第 ' + (voiceLn(v) + 1) + ' 条配音轨（'
+    + (newRow ? '原来那些行在这个时间窗里已经有别的语音' : '这一行在这个时间窗里是空的') + '）'
     + (candSelected(sh, c) ? '；这一条已选用，合并成片会带上' : '；这一条还没被选用，换成它或点「用这条」才进成片') + '</span>');
   filmEdited();
 }
@@ -943,7 +1000,17 @@ async function addVoiceAtPin() {
   if (!sh) { setStatus('<span class="err">先挑一个镜头</span>'); return; }
   const cands = sh.candidates || [];
   const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
-  if (!voiceTarget(sh, c)) { setStatus('<span class="err">没有可放的位置：这一镜还没有候选（或这一条一段画面都没留，按 Ctrl+Z 退回剪切之前）</span>'); return; }
+  const t = voiceTarget(sh, c);
+  if (!t) { setStatus('<span class="err">没有可放的位置：这一镜还没有候选（或这一条一段画面都没留，按 Ctrl+Z 退回剪切之前）</span>'); return; }
+  /* 花钱之前先问一句「放得下吗」：还不知道这一句多长，所以只问目标左沿那一秒 ——
+     12 行都占着这一秒就当场拒绝，一个请求都不发。长度已知之后 `addVoiceEntry` 会再判一次
+     （同一份 `voiceLanePlan`），那次更准，两次不冲突。 */
+  const plan0 = voiceLanePlan({ shotId: sh.id, candId: c.vid, seg: t.si, at: t.at, dur: 0 }, true);
+  if (plan0.ln < 0) {
+    setStatus('<span class="err">配音轨 ' + plan0.rows + ' 行都占着这个位置了：先收掉一行（或把这句换个落点）再合成'
+      + ' —— 这一次没有发请求、没有计费</span>');
+    return;
+  }
   const text = String(voiceDraftOf().text || '').trim();
   if (!text) { setStatus('<span class="err">先写上要念的话</span>'); return; }
   const way = voiceWayOf(voiceReg(), projOf().voiceModel || '');

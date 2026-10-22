@@ -1178,6 +1178,8 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-2); font-size: var(--fs-11); colo
 .card-surface { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-2);
   transition: border-color var(--dur-2), box-shadow var(--dur-2), transform var(--dur-1); }
 .card-surface:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+/* 拖起来的那张卡压暗：三页（素材库 / 资产库 / 收藏）的拖动源共用这一档反馈。 */
+.card-surface.dragging { opacity: .45; }
 .page-shell { padding: var(--sp-5) var(--sp-6) 60px; box-sizing: border-box; }
 @media (max-width: 760px) { .page-shell { padding: var(--sp-4) 14px 40px; } }
 .page-h1 { font-family: var(--font-ui); font-size: var(--fs-6); margin: 0 0 var(--sp-2);

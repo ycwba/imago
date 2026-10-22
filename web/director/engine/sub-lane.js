@@ -11,7 +11,6 @@ export function createSubLane(E, document, window) {
   const {
     projOf,
     allShots,
-    curShot,
     candDur,
     chosenCandOf,
     fmtDur,
@@ -27,10 +26,6 @@ export function createSubLane(E, document, window) {
     filmFrames,
     tlSyncFromShots,
     shotFilmAt,
-    setPin,
-    TlPlayOf,
-    filmApplyAt,
-    renderEditor,
     setStatus,
     dragOnWindow,
     dragGhostShow,
@@ -280,25 +275,15 @@ export function createSubLane(E, document, window) {
     bar.querySelectorAll('.tl-sub-lane .tl-sub').forEach(el => {
       bindSubDrag(el, col, filmMode);
       el.addEventListener('click', e => {
-        if (subWasDragged((el.dataset.shot || '') + '#' + (el.dataset.subi || ''))) return;
-        if (e.target.closest && e.target.closest('.sub-cut')) return;
-        e.stopPropagation();
+        const key = (el.dataset.shot || '') + '#' + (el.dataset.subi || '');
+        /* 拖完浏览器补发的那一下、以及两端把手：都不放针、也不翻右栏 ——
+           拦住冒泡，免得整张网格的放针点击接着跑。 */
+        if (subWasDragged(key)) { e.stopPropagation(); return; }
+        if (e.target.closest && e.target.closest('.sub-cut')) { e.stopPropagation(); return; }
+        /* 正常点一下：右栏翻到「字幕」，针交给整张网格那一份落点（按**点击处**放针）——
+           这里不 stopPropagation，拦住的话针只会停在上一次的位置。 */
         projOf().tlLane = 'voice';
         setVcTab('sub');
-        if (filmMode) {
-          /* data-axis 是这一排在**框轴**上的位置：filmApplyAt 收的正是轴秒（bindPinZone 同一份口径）
-             —— 以前递的是成片秒，割过 / 倍速 ≠ 1 时点一下跳到别处。 */
-          filmApplyAt(col, tlSyncFromShots(), Number(el.dataset.axis) || 0, {});
-          return;
-        }
-        const sh = curShot();
-        if (!sh) return;
-        const c = chosenCandOf(sh);
-        const total = c ? candDur(c, sh) : 0;
-        setPin(col, sh, c, total, Number(el.dataset.src) || 0, null);
-        TlPlayOf().pause();
-        TlPlayOf().seek(Number(el.dataset.axis) || 0, false);
-        renderEditor();
       });
     });
   }

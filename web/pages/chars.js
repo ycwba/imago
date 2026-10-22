@@ -133,7 +133,7 @@ export default {
        页面不再自己拼 `<img>`；一屏几十张，所以带 loading=lazy 让浏览器管着取字节。
        渲染完之后由 bindCardDom 统一 bindAll 接线（重复 bind 是安全的）。 */
     const thumbImg = (s, attrs) => window.Wb.thumbs.mediaHTML(s,
-      { type: 'image', mediaAttrs: 'loading="lazy"' + (attrs ? ' ' + attrs : '') });
+      { type: 'image', mediaAttrs: 'loading="lazy" draggable="false"' + (attrs ? ' ' + attrs : '') });
     const isScene = x => D.isSceneItem(x);
     const isProp = x => D.isPropItem(x);
     const voiced = x => D.Cast.isVoiced(x);
@@ -1384,6 +1384,26 @@ export default {
       if (!act || act === 'voicenote') return;
       invoke(ACTS[act], c, t, card);
     }
+    /* 拖动一张卡 = 引用这一条（载荷唯一出口在 web/domain/asset-ref.cjs）。
+       卡片整块可拖，卡里的图因此要显式 draggable="false"：否则浏览器先按「拖一张图」起势，
+       拿到的是一份图片地址，而不是这一条的引用。 */
+    function onGridDragStart(e) {
+      const card = e.target && e.target.closest ? e.target.closest('.card') : null;
+      if (!card || !gridEl.value || !gridEl.value.contains(card)) return;
+      if (e.target.closest('input,textarea,select,button,a,[contenteditable]')) { e.preventDefault(); return; }
+      const c = itemOf(card.dataset.id);
+      if (!c || !window.AssetRef) { e.preventDefault(); return; }
+      const p = window.AssetRef.set(e.dataTransfer, {
+        kind: 'char', id: c.id, name: c.name, type: '图片', mtype: '图片',
+        src: D.picOf(c), prompt: c.look || c.bio || '', from: 'chars',
+      });
+      if (!p) { e.preventDefault(); return; }
+      card.classList.add('dragging');
+    }
+    function onGridDragEnd(e) {
+      const card = e.target && e.target.closest ? e.target.closest('.card') : null;
+      if (card) card.classList.remove('dragging');
+    }
     function onGridInput(e) {
       const t = e.target;
       if (!t || !gridEl.value) return;
@@ -2065,6 +2085,7 @@ export default {
       multi, batchCount, batchText, batchGroup, health, isPicked,
       runAiFind, fillRest, pullLocal, onStop, newChar,
       onGridClick, onGridInput, onGridChange, onGridFocusIn, onGridFocusOut,
+      onGridDragStart, onGridDragEnd,
       toggleMulti, jumpFilter,
       batchFillPics, batchFillAssets, batchFillVoices, batchSetGroup, batchRemove,
     };

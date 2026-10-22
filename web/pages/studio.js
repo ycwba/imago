@@ -2511,11 +2511,20 @@ const StudioView = {
         if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
         d.draggable = true;
         d.addEventListener('dragstart', e => {
-          const p = { mtype: it.mtype, assetId: it.assetId, src: it.raw || it.media, dl: it.dl, name: (it.prompt || '').slice(0, 40) };
-          e.dataTransfer.setData('application/x-studio-ref', JSON.stringify(p));
-          if (it.assetId) e.dataTransfer.setData('application/x-asset-id', String(it.assetId));
-          e.dataTransfer.setData('text/plain', it.assetId ? Api.assetSrc(it.assetId) : (it.raw || ''));
-          e.dataTransfer.effectAllowed = 'copy';
+          /* 载荷的唯一出口在 web/domain/asset-ref.cjs：工作台槽位与助手认的是同一份字段。
+             提示词带完整的（以前只塞了前 40 字在 name 里），任务号 / 状态 / 平台 / 时间/
+             在不在本机这些条目上现成就有 —— 助手要凭它们回答「这条后来怎么样了」。 */
+          const p = window.AssetRef.set(e.dataTransfer, {
+            kind: 'studio', id: it.assetId || it.taskId || '',
+            name: (it.prompt || it.mtype || '').slice(0, 40),
+            mtype: it.mtype, type: it.mtype, assetId: it.assetId, src: it.raw || it.media, dl: it.dl,
+            prompt: it.prompt, from: 'studio',
+            taskId: it.taskId, genId: it.taskId, status: it.status, model: it.model,
+            provider: it.provider, providerName: it.providerName, ts: it.ts, localAsset: it.localAsset,
+            size: it.size, error: it.error, credits: it.credits,
+            tier: it.tier, res: it.res, ar: it.ar, dur: it.dur, quality: it.quality,
+          });
+          if (!p) { e.preventDefault(); return; }
           d.classList.add('dragging');
         });
         d.addEventListener('dragend', () => d.classList.remove('dragging'));

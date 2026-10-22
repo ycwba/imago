@@ -15,7 +15,8 @@
       <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 正在读取收藏…</div>
       <div v-else class="grid" ref="grids">
         <div v-if="!viewItems.length" class="empty">{{ emptyWhy }}</div>
-        <div v-for="it in pageItems" :key="it.key" class="card card-surface" :data-key="it.key">
+        <div v-for="it in pageItems" :key="it.key" class="card card-surface" draggable="true" :data-key="it.key"
+          @dragstart="onCardDragStart($event, it)" @dragend="onCardDragEnd($event)">
           <div class="thumb" @click="openLb(it)" v-html="thumbHtml(it)"></div>
           <div class="body">
             <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>

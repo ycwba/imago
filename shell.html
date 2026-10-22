@@ -57,6 +57,9 @@
      顺序是硬约束（三份拆分）：api.js（顶层取数函数 + Api）→ assetlib.js
      （AssetLib + 费用）→ gen-forms.js（型号 / 参数 / 配音 / 字数 / 流式八个面）。 -->
 <script src="web/domain/ident.cjs"></script>
+<!-- 素材引用的拖动载荷（写/读/标签各一处）：dragstart 是同步的，等到拖起来再补载已经晚了，
+     所以这一份常驻（几十行）；与 ident.cjs 同一套 .cjs + UMD 写法。 -->
+<script src="web/domain/asset-ref.cjs"></script>
 <script src="web/domain/api.js"></script>
 <script src="web/domain/assetlib.js"></script>
 <script src="web/domain/gen-forms.js"></script>

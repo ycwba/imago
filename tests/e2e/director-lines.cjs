@@ -29,6 +29,16 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
       shot('sh1', '镜头 A', 'A 的画面', '第一句台词', '林夏', 6),
       shot('sh2', '镜头 B', 'B 的画面', '', '', 4),
     ] }],
+    /* 三句配音：两句同一角色、一句另一个角色。分轨按声音来源归行、合轨全部回第 1 行；
+       三句都带着 who / voice / src，验证「谁在说」这一级在真实数据上成立（而不是永远落到音色 / 素材）。 */
+    voices: [
+      { id: 'vo1', shotId: 'sh2', candId: 'v-sh2', seg: 0, at: 0.5, dur: 1, vol: 1, src: '/asset/voice-1',
+        name: '小美一', text: '一句配音', who: '小美', voice: 'qing', provider: '本机', model: '' },
+      { id: 'vo2', shotId: 'sh2', candId: 'v-sh2', seg: 0, at: 2, dur: 1, vol: 0.8, src: '/asset/voice-2',
+        name: '小美二', text: '再来一句', who: '小美', voice: 'qing', provider: '本机', model: '' },
+      { id: 'vo3', shotId: 'sh2', candId: 'v-sh2', seg: 0, at: 3, dur: 1, vol: 1, src: '/asset/voice-3',
+        name: '阿强一', text: '阿强的配音', who: '阿强', voice: 'shen', provider: '本机', model: '' },
+    ],
   };
   let proxy, browser, page;
   try {
@@ -331,9 +341,174 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
       throw new Error('审阅弹窗交回的不是改过的台词 / 画面：' + JSON.stringify(prOut[0]));
     }
 
+    /* ⑥ 分轨 / 合轨：全片配音按声音来源归行；只改 ln，时间 / 音量 / 选区一个字节不动；
+       两颗按钮放在「这一镜有没有配音」之外，指画面轨时整块收起。 */
+    await page.eval(() => {
+      const tab = document.querySelector('.tl-tabs [data-tab="shot"]');
+      if (tab) tab.click();
+      const list = document.querySelector('#vcTabs [data-vctab="list"]');
+      if (list) list.click();
+    });
+    const laneBtns = await readWhen(() => {
+      const g = document.getElementById('grpVoiceList');
+      const sp = document.getElementById('voiceSplit');
+      const mg = document.getElementById('voiceMerge');
+      if (!g || g.hidden || !sp || !mg) return null;
+      return { split: sp.textContent.trim(), merge: mg.textContent.trim(),
+        splitTitle: sp.title, mergeTitle: mg.title, disabled: sp.disabled || mg.disabled };
+    }, 8000);
+    if (!/分轨 3 句/.test(laneBtns.split)) throw new Error('「分轨」按钮该带全片句数：' + laneBtns.split);
+    if (laneBtns.disabled) throw new Error('全片已有 3 句配音，两颗按钮不该禁用');
+    if (!/全片/.test(laneBtns.splitTitle) || !/只改排版/.test(laneBtns.splitTitle)) {
+      throw new Error('分轨的 title 没说清「全片 / 只改排版」：' + laneBtns.splitTitle);
+    }
+    if (!/全片/.test(laneBtns.mergeTitle) || !/不改成片/.test(laneBtns.mergeTitle)) {
+      throw new Error('合轨的 title 没说清「全片 / 不改成片」：' + laneBtns.mergeTitle);
+    }
+
+    const readVoiceRows = () => {
+      const out = {};
+      document.querySelectorAll('#tlBar .tl-lane').forEach(l => {
+        l.querySelectorAll('.tl-v[data-vid]').forEach(b => { out[b.dataset.vid] = Number(l.dataset.ln); });
+      });
+      return out;
+    };
+    const readSavedVoices = async () => {
+      const rec = await window.Kv.at('ws').get('workspace');
+      const p = rec && (rec.projects || []).find(x => x.id === 'p-lines');
+      if (!p || !Array.isArray(p.voices) || p.voices.length !== 3) return null;
+      return { rows: (p.lane && p.lane.voice && p.lane.voice.rows) || 1, voices: p.voices };
+    };
+    const doubleClick = sel => page.eval(s => {
+      const b = document.querySelector(s);
+      if (!b) throw new Error('找不到按钮 ' + s);
+      b.click(); b.click();
+      return true;
+    }, sel);
+    const startRows = await page.eval(readVoiceRows);
+    if (Object.keys(startRows).length !== 3) throw new Error('三句配音没画出块：' + JSON.stringify(startRows));
+    if (Object.values(startRows).some(n => n !== 0)) throw new Error('种子配音该都在第 1 行：' + JSON.stringify(startRows));
+    const startSaved = await page.eval(readSavedVoices);
+    if (!startSaved || startSaved.rows !== 1) throw new Error('种子配音的持久化状态不对：' + JSON.stringify(startSaved));
+
+    /* 分轨（两颗按钮都要二次确认：第一下武装、第二下执行） */
+    await doubleClick('#voiceSplit');
+    const splitRows = await readWhen(() => {
+      const lanes = document.querySelectorAll('#tlBar .tl-lane').length;
+      const out = {};
+      document.querySelectorAll('#tlBar .tl-lane').forEach(l => {
+        l.querySelectorAll('.tl-v[data-vid]').forEach(b => { out[b.dataset.vid] = Number(l.dataset.ln); });
+      });
+      return lanes >= 2 && Object.keys(out).length === 3 ? { lanes, ln: out } : null;
+    }, 8000);
+    if (splitRows.ln.vo1 !== splitRows.ln.vo2) throw new Error('同一角色（小美）的两句该落在同一行：' + JSON.stringify(splitRows.ln));
+    if (splitRows.ln.vo3 === splitRows.ln.vo1) throw new Error('不同角色（阿强）该落到另一行：' + JSON.stringify(splitRows.ln));
+    const splitSaved = await readWhen(async () => {
+      const rec = await window.Kv.at('ws').get('workspace');
+      const p = rec && (rec.projects || []).find(x => x.id === 'p-lines');
+      if (!p || !Array.isArray(p.voices)) return null;
+      const rows = (p.lane && p.lane.voice && p.lane.voice.rows) || 1;
+      const byId = {};
+      p.voices.forEach(v => { byId[v.id] = Number(v.ln) || 0; });
+      return rows === 2 ? { rows, byId, voices: p.voices } : null;
+    }, 10000);
+    if (splitSaved.byId.vo1 !== splitSaved.byId.vo2 || splitSaved.byId.vo3 === splitSaved.byId.vo1) {
+      throw new Error('存盘的 ln 没按声音来源分组：' + JSON.stringify(splitSaved.byId));
+    }
+    splitSaved.voices.forEach((v, i) => {
+      const strip = o => { const { ln, ...rest } = o; return JSON.stringify(rest); };
+      if (strip(v) !== strip(startSaved.voices[i])) {
+        throw new Error('分轨动了 ln 以外的字段：' + JSON.stringify(v) + ' vs ' + JSON.stringify(startSaved.voices[i]));
+      }
+    });
+
+    /* Ctrl+Z 一步退回分轨前（不是退到「分到一半」），Ctrl+Y 再回来。
+       撤销/重做会把视口带回第一镜（`curShot` 不进快照），所以每次回到第二镜再读画面上的块。 */
+    await page.eval(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })); });
+    await readWhen(() => document.querySelectorAll('#tlBar .tl-lane').length === 1 ? { ok: true } : null, 8000);
+    const undoneSaved = await readWhen(async () => {
+      const rec = await window.Kv.at('ws').get('workspace');
+      const p = rec && (rec.projects || []).find(x => x.id === 'p-lines');
+      if (!p || !Array.isArray(p.voices)) return null;
+      const rows = (p.lane && p.lane.voice && p.lane.voice.rows) || 1;
+      return rows === 1 && p.voices.every(v => !v.ln || Number(v.ln) === 0) ? { ok: true } : null;
+    }, 10000);
+    if (!undoneSaved) throw new Error('Ctrl+Z 没把 ln 与行数退回分轨前');
+    await page.eval(async () => {
+      document.querySelector('.shot-item[data-sid="sh2"]').click();
+      await new Promise(r => setTimeout(r, 300));
+    });
+    const undone = await readWhen(() => {
+      const out = {};
+      document.querySelectorAll('#tlBar .tl-lane').forEach(l => {
+        l.querySelectorAll('.tl-v[data-vid]').forEach(b => { out[b.dataset.vid] = Number(l.dataset.ln); });
+      });
+      return Object.keys(out).length === 3 ? out : null;
+    }, 8000);
+    if (Object.values(undone).some(n => n !== 0)) throw new Error('Ctrl+Z 没退回分轨前：' + JSON.stringify(undone));
+    await page.eval(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true })); });
+    await readWhen(() => document.querySelectorAll('#tlBar .tl-lane').length >= 2 ? { ok: true } : null, 8000);
+    await page.eval(async () => {
+      const item = document.querySelector('.shot-item[data-sid="sh2"]');
+      if (!item.classList.contains('sel')) item.click();
+      await new Promise(r => setTimeout(r, 300));
+    });
+    const redone = await readWhen(() => {
+      const lanes = document.querySelectorAll('#tlBar .tl-lane').length;
+      const out = {};
+      document.querySelectorAll('#tlBar .tl-lane').forEach(l => {
+        l.querySelectorAll('.tl-v[data-vid]').forEach(b => { out[b.dataset.vid] = Number(l.dataset.ln); });
+      });
+      return lanes >= 2 && Object.keys(out).length === 3 ? { lanes, ln: out } : null;
+    }, 8000);
+    if (redone.ln.vo1 !== redone.ln.vo2 || redone.ln.vo3 === redone.ln.vo1) {
+      throw new Error('Ctrl+Y 没回到分轨之后：' + JSON.stringify(redone.ln));
+    }
+
+    /* 合轨：全部回第 1 行，行数回到 1（工程里的 rows 键随之删掉） */
+    await doubleClick('#voiceMerge');
+    await readWhen(() => {
+      const lanes = document.querySelectorAll('#tlBar .tl-lane').length;
+      if (lanes !== 1) return null;
+      const lns = [...document.querySelectorAll('#tlBar .tl-lane .tl-v[data-vid]')]
+        .map(b => Number(b.closest('.tl-lane').dataset.ln));
+      return lns.length >= 3 && lns.every(n => n === 0) ? { ok: true } : null;
+    }, 8000);
+    await readWhen(async () => {
+      const rec = await window.Kv.at('ws').get('workspace');
+      const p = rec && (rec.projects || []).find(x => x.id === 'p-lines');
+      if (!p || !Array.isArray(p.voices)) return null;
+      const allZero = p.voices.every(v => !v.ln || Number(v.ln) === 0);
+      const hasRows = !!(p.lane && p.lane.voice && ('rows' in p.lane.voice));
+      return allZero && !hasRows ? { ok: true } : null;
+    }, 10000);
+
+    /* 这一镜一句配音都没有：两颗按钮仍在（放在 n ? … : … 之外），且因为全片还有配音而可用 */
+    await page.eval(() => document.querySelector('.shot-item[data-sid="sh1"]').click());
+    const emptyShot = await readWhen(() => {
+      const g = document.getElementById('grpVoiceList');
+      const sp = document.getElementById('voiceSplit');
+      const mg = document.getElementById('voiceMerge');
+      if (!g || g.hidden || !sp || !mg) return null;
+      return { rows: document.querySelectorAll('#grpVoiceList .vc-row').length, disabled: sp.disabled || mg.disabled };
+    }, 8000);
+    if (emptyShot.rows !== 0) throw new Error('这一镜本该没有配音：' + JSON.stringify(emptyShot));
+    if (emptyShot.disabled) throw new Error('全片还有 3 句配音，分轨 / 合轨不该因为这一镜没有而禁用');
+
+    /* 点一格画面 → 目标轨换成画面那一侧 → 整块配音清单收起，两颗按钮跟着看不见 */
+    await page.eval(() => {
+      const seg = document.querySelector('#tlBar .tl-seg[data-seg="0"]');
+      if (seg) seg.click();
+    });
+    await readWhen(() => {
+      const g = document.getElementById('grpVoiceList');
+      return g && g.hidden ? { hidden: true } : null;
+    }, 8000);
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
-    console.log('✓ 台词只剩剪辑右栏那一档（本镜 / 全片两段 · 双时间读数 · 写完自动上待生成轨 · 与提示词互不带动 · 说话人认素材库）');
+    console.log('✓ 台词只剩剪辑右栏那一档（本镜 / 全片两段 · 双时间读数 · 写完自动上待生成轨 · 与提示词互不带动 · 说话人认素材库）'
+      + ' · 配音分轨 / 合轨（按声音来源归行 · 只改 ln · 一步撤销 · 空镜仍可见 · 画面轨收起）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

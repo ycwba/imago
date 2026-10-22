@@ -85,6 +85,8 @@ export function createMid(E, document, window) {
     tlZoomBy,
     tlZoomWheel,
     tlZoomAuto,
+    tlZoomSetPos,
+    tlZoomCommit,
     renderTimeline,
     shotAxText,
     filmApplyAt,
@@ -265,14 +267,19 @@ function renderMid() {
           <button type="button" class="${projOf().tlTab === 'film' ? 'on' : ''}" data-tab="film" role="tab" aria-selected="${projOf().tlTab === 'film' ? 'true' : 'false'}">全片</button>
         </span>
         <span style="flex:1"></span>
-        <span style="font-size:11.5px;color:var(--sub)">${(projOf().tlTab || 'shot') === 'shot' ? '把这一条候选切成几段、逐段调入出点' : '点一格把焦点切到那一镜，四把剪子剪的都是焦点那一条；左右拖一格 = 把那一镜挪到别一镜前面'}</span>
+        <span class="tl-tip" style="font-size:11.5px;color:var(--sub)">${(projOf().tlTab || 'shot') === 'shot' ? '把这一条候选切成几段、逐段调入出点' : '点一格把焦点切到那一镜，四把剪子剪的都是焦点那一条；左右拖一格 = 把那一镜挪到别一镜前面'}</span>
         <!-- 时间轴缩放（与剪映一致：时间长了整条比屏幕宽，左右拖；Ctrl+滚轮也行）。
              「自适应」= 短片子正好铺满、长片子铺到 12px/秒 就停并开始左右滚动（见 tlCurrentPps）。
-             手动缩小**没有那条下限**：可以一直缩到比这条轨道还短，右边留出空白（见 tlMinPps）。 -->
+             手动缩小**没有那条下限**：可以一直缩到比这条轨道还短，右边留出空白（见 tlMinPps）。
+             排布 = [−] [滑块] [+] [读数] [自适应]：滑块是对数位置（px/秒是倍率），一动就切到手动档；
+             「自适应」是独立按钮（已在自适应档时 disabled），读数只显示数字、不再兼任出口。
+             ⚠ 这几件都别加 data-tab：页签绑定只认 .tl-tabs 里带 data-tab 的按钮（见下面绑定那段）。 -->
         <span class="tl-zoom" title="时间轴缩放：放大看细节，缩小看全局（Ctrl + 滚轮也行；缩小可以缩到比整条轨道还短）">
           <button type="button" id="tlZoomOut" title="缩小（看全局，能缩到比这条轨道还短）">${icon('minus', 13)}</button>
-          <span class="tl-zval" id="tlZoomVal">自适应</span>
+          <input type="range" id="tlZoomRange" min="0" max="1000" step="1" value="0" aria-label="时间轴缩放（像素/秒，对数）" title="拖动无极调节像素/秒（对数刻度）">
           <button type="button" id="tlZoomIn" title="放大（看细节）">${icon('plus', 13)}</button>
+          <span class="tl-zval" id="tlZoomVal">自适应</span>
+          <button type="button" id="tlZoomAuto" title="回到自适应" disabled>自适应</button>
         </span>
       </div>
       <div class="tl-tools" id="tlTools">
@@ -515,15 +522,20 @@ function renderMid() {
     if (el2) el2.addEventListener('change', applyTrimFromInputs);
   });
   {
-    /* 缩放：按钮一步 1.6 倍，Ctrl/⌘ + 滚轮按 deltaY 连续折算（一次捏合几十条，一条只 1.5% 上下），
-       普通滚轮交给浏览器做左右滚动 */
+    /* 缩放：按钮一步约 1.15 倍，Ctrl/⌘ + 滚轮按 deltaY 连续折算（一次捏合几十条，一条只 1.5% 上下），
+       滑块无极调（input 只改内存、松手 change 才落盘），普通滚轮交给浏览器做左右滚动 */
     const zin = col.querySelector('#tlZoomIn'), zout = col.querySelector('#tlZoomOut');
     if (zin) zin.onclick = e => { e.stopPropagation(); tlZoomBy(1); };
     if (zout) zout.onclick = e => { e.stopPropagation(); tlZoomBy(-1); };
-    /* 那个读数在手动档时是「回到自适应」那颗出口（`tlApplyScale` 现量现写 `.man` 与 title，
-       写着「自适应」时它不亮、点了也不做事 —— 不是一条假承诺）。 */
-    const zval = col.querySelector('#tlZoomVal');
-    if (zval) zval.onclick = e => { e.stopPropagation(); tlZoomAuto(); };
+    /* 滑块的绝对值入口。「自适应」是独立一颗按钮（读数只显示数字 —— 它不再兼任出口，
+       已在自适应档时按钮 disabled，不是看着能点、点了不做事）。 */
+    const zr = col.querySelector('#tlZoomRange');
+    if (zr) {
+      zr.oninput = e => { tlZoomSetPos(parseFloat(e.target.value), false); };
+      zr.onchange = () => { tlZoomCommit(); };
+    }
+    const zauto = col.querySelector('#tlZoomAuto');
+    if (zauto) zauto.onclick = e => { e.stopPropagation(); tlZoomAuto(); };
     const tbar = col.querySelector('#tlBar');
     if (tbar) tbar.addEventListener('wheel', e => {
       if (!e.ctrlKey && !e.metaKey) return;

@@ -1,14 +1,19 @@
 #!/usr/bin/env node
-/* 字幕与待生成本轮的可拖动 + 右栏精确起止。真实界面走一遍，盯住四条判据：
+/* 字幕与待生成轨的真实界面走一遍，盯住这几条判据：
    ① 字幕块 .tl-sub 带左右把手 .sub-cut：拖把手直接改起止（字幕没有「黑场」），
       拖块体 = 出现时间整体挪；本镜与全片两排同一套手势，写盘只落 subWrite 一处；
-   ② 待生成占位 .tl-vp：按住左右拖 = 挪插针（合成落点：本镜按源秒走 setPin、全片走 filmApplyAt），
-      点一下仍是「填进右栏生成配音」，刚拖完 600ms 内补的那一下 click 不算；
+      点块体 = 把针放到**点击处**（右栏留在「字幕」那一档）；
+   ② 待生成占位 .tl-vp：点一下 = 把这一句的落点搬到点击处（块、针与右栏那行读数三者恒等）
+      并填进右栏「生成配音」；按住左右拖 = 块自己跟手走（宽度不变），松手才落盘；
+      刚拖完 600ms 内补的那一下 click 不算，过了这一阵再点必须开面板；
    ③ 右栏「字幕」的 x 秒到 x 秒两个输入框：已进成片收**成片秒**（mapFromFilm 折回源秒）、
       没进成片收源秒 —— 第二镜那一条是两把尺子分开的地方（成片 6.5 秒 = 源 0.5 秒）；
    ④ 入出点那一行（#trimS/#trimE）：指着一句配音时调它的保留片段（夹取与块上把手同一套，
       退不出框左沿 / 音频第 0 秒之前，越到音频尽头把框撑到那儿），指着画面段时调这一段的
-      入出 —— 输入的范围 = 不变黑的范围，灰场只长在输入区间之外。 */
+      入出 —— 输入的范围 = 不变黑的范围，灰场只长在输入区间之外；
+   ⑤ 拖字幕块 / 待生成块时跟手卡要借到一张切片图（本探针的候选没有真视频，
+      所以把可借的那张 .fr 直接写上 background-image —— 与真解码走同一个取图函数）；
+      拖完字幕块 / 拉完把手补发的那一下 click 不放针、也不翻右栏。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -64,7 +69,14 @@ const h = require('./harness.cjs');
       window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
       const pin = document.querySelector('.tl-pin');
       const g = document.querySelector('.tl-ghost');
-      return { pinLeft: pin ? pin.style.left : '', ghost: !!g, ghostText: g ? g.lastChild.textContent : '' };
+      const gi = g ? g.querySelector('i') : null;
+      const vp = document.querySelector('#tlBar .tl-vp');
+      return {
+        pinLeft: pin ? pin.style.left : '',
+        ghost: !!g, ghostText: g ? g.lastChild.textContent : '',
+        ghostBg: gi ? gi.style.backgroundImage : '', ghostNo: gi ? gi.classList.contains('no') : null,
+        vpLeft: vp ? vp.style.left : '', vpWidth: vp ? vp.style.width : '',
+      };
     }, x, y);
     const up = (x, y) => page.eval((x, y) => {
       window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y }));
@@ -307,11 +319,223 @@ const h = require('./harness.cjs');
       throw new Error('输入区间之外该长出灰场（不变黑的范围 = 输入的区间）：' + JSON.stringify(masks));
     }
 
+    /* ⑤ 点字幕块中部：针落在点击处（不是字幕起点），右栏留在「字幕」那一档 */
+    const innerRect = () => page.eval(() => {
+      const r = document.getElementById('tlInner').getBoundingClientRect();
+      return { left: r.left, width: r.width };
+    });
+    const clickAt = (sel, fx) => page.eval((sel, fx) => {
+      const el = document.querySelector(sel);
+      if (!el) throw new Error('找不到 ' + sel);
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width * fx, y = r.top + r.height / 2;
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+      return { x: x, y: y, left: r.left, width: r.width };
+    }, sel, fx);
+    const pinState = () => page.eval(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      return p ? { left: parseFloat(p.style.left) } : null;
+    });
+    /* 本镜这一条候选 6 秒、没切没倍速：轴秒 = 源秒，百分比 ÷ 100 × 6 就是秒。 */
+    const ax6 = 6;
+    const ir0 = await innerRect();
+    const subHit = await clickAt('#tlBar .tl-sub[data-shot="sh1"]', 0.5);
+    const wantSub = (subHit.x - ir0.left) / Math.max(1, ir0.width) * ax6;
+    if (Math.abs(wantSub - 0.4) < 0.2) throw new Error('点击处贴着字幕起点，判不出「落在点击处」：' + wantSub);
+    const pinAfterSub = await readWhen(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      return p ? { left: parseFloat(p.style.left) } : null;
+    }, 8000);
+    if (Math.abs(pinAfterSub.left / 100 * ax6 - wantSub) > 0.2) {
+      throw new Error('点字幕块中部，针该落在点击处 ' + wantSub + ' 秒：' + pinAfterSub.left + '%');
+    }
+    const subPanel = await page.eval(() => ({
+      sub: !(document.getElementById('grpSub') || {}).hidden,
+      title: (document.getElementById('edTitle') || {}).textContent || '',
+    }));
+    if (!subPanel.sub || subPanel.title !== '字幕') throw new Error('点字幕块右栏该留在「字幕」：' + JSON.stringify(subPanel));
+
+    /* ⑥ 点待生成块：块、针、右栏那行读数三者恒等，且右栏翻到「生成配音」 */
+    await page.eval(() => {
+      window.__errs = [];
+      window.addEventListener('error', e => window.__errs.push(String(e.message)));
+      window.addEventListener('unhandledrejection', e => window.__errs.push('rej:' + String((e.reason && e.reason.message) || e.reason)));
+    });
+    const ir1 = await innerRect();
+    const vpHit = await clickAt('#tlBar .tl-vp[data-shot="sh1"]', 0.5);
+    const wantVp = (vpHit.x - ir1.left) / Math.max(1, ir1.width) * ax6;
+    const inv = await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
+      const p = document.querySelector('#tlBar .tl-pin');
+      const gen = document.getElementById('grpVoiceAdd');
+      const pos = document.getElementById('voicePos');
+      if (!el || !p || !gen || gen.hidden) return null;
+      return { left: parseFloat(el.style.left), width: parseFloat(el.style.width), pin: parseFloat(p.style.left),
+        pos: pos ? pos.textContent : '', title: (document.getElementById('edTitle') || {}).textContent || '' };
+    }, 8000).catch(async () => {
+      const d = await page.eval(() => {
+        const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
+        return {
+          vp: [...document.querySelectorAll('#tlBar .tl-vp')].map(e => (e.dataset.shot || '') + '@' + e.style.left),
+          vpOn: el ? typeof el.onclick : '(none)', vpConn: el ? el.isConnected : null,
+          pin: !!document.querySelector('#tlBar .tl-pin'),
+          gen: (document.getElementById('grpVoiceAdd') || {}).hidden,
+          ed: (document.getElementById('edTitle') || {}).textContent,
+          on: [...document.querySelectorAll('#vcTabs [data-vctab].on')].map(e => e.dataset.vctab),
+          op: (document.getElementById('opState') || {}).textContent,
+          text: (document.getElementById('voiceText') || {}).value,
+          errs: (window.__errs || []).slice(0, 8),
+        };
+      });
+      throw new Error('点待生成之后右栏没翻到「生成配音」：' + JSON.stringify(d));
+    });
+    if (Math.abs(inv.left / 100 * ax6 - wantVp) > 0.2) {
+      throw new Error('点待生成块，块该跳到点击处 ' + wantVp + ' 秒：' + inv.left + '%');
+    }
+    if (Math.abs(inv.pin / 100 * ax6 - wantVp) > 0.2) {
+      throw new Error('点待生成块，针该在点击处 ' + wantVp + ' 秒：' + inv.pin + '%');
+    }
+    if (inv.title !== '加一句配音') throw new Error('点待生成块右栏该翻到「生成配音」：' + inv.title);
+    const posSrc = /源里 ([\d.]+) 秒/.exec(inv.pos);
+    if (!posSrc || Math.abs(Number(posSrc[1]) - wantVp) > 0.2) {
+      throw new Error('右栏说的落点该与块左沿是同一个数（期望源里 ' + wantVp + ' 秒）：' + inv.pos);
+    }
+
+    /* ⑦ 拖待生成块：块自己跟手走、宽度不变、针同步；跟手卡借到一张切片图；
+       松手落盘，台词本身一个字都不动 */
+    const vpLeft0 = inv.left, vpWidth0 = inv.width;
+    const injectSlice = () => page.eval(() => {
+      const fr = document.querySelector('#tlBar .tl-seg .frs > .fr');
+      if (!fr) return false;
+      fr.classList.remove('none');
+      fr.style.backgroundImage = 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%278%27%3E%3Crect width=%278%27 height=%278%27 fill=%27%23c33%27/%3E%3C/svg%3E")';
+      return true;
+    });
+    if (!(await injectSlice())) throw new Error('画面格里没有可借的切片节点');
+    const pd = await down('#tlBar .tl-vp[data-shot="sh1"]');
+    const ir2 = await innerRect();
+    const tx45 = ir2.left + ir2.width * (4.5 / ax6);
+    const pdm = await moveTo(tx45, 320);
+    if (!pdm.ghost) throw new Error('拖待生成块时该有跟手卡');
+    if (pdm.ghostNo || !/^url\(/.test(pdm.ghostBg)) throw new Error('跟手卡该借到切片图：' + pdm.ghostBg + '（no=' + pdm.ghostNo + '）');
+    if (!(parseFloat(pdm.vpLeft) > parseFloat(vpLeft0) + 5)) {
+      throw new Error('拖动中块自己该跟着走：' + vpLeft0 + '% → ' + pdm.vpLeft + '%');
+    }
+    if (Math.abs(parseFloat(pdm.vpWidth) - vpWidth0) > 0.01) {
+      throw new Error('挪落点不该改块宽：' + vpWidth0 + '% → ' + pdm.vpWidth + '%');
+    }
+    if (Math.abs(parseFloat(pdm.pinLeft) / 100 * ax6 - 4.5) > 0.2) {
+      throw new Error('拖待生成块时针该跟到 4.5 秒：' + pdm.pinLeft);
+    }
+    const vpUp = await up(tx45, 320);
+    /* 报的是合成落点 = 段内偏移：这一段 ④b 把入点改到了 0.5 秒，轴上 4.5 秒就是段内 +4 秒。 */
+    if (!/下一句配音会合成在「镜头 A」第 1\/1 段的 \+4 秒/.test(vpUp)) throw new Error('拖完该报新的合成落点：' + vpUp);
+    const vpAfter = await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
+      const p = document.querySelector('#tlBar .tl-pin');
+      if (!el || !p || Math.abs(parseFloat(el.style.left) / 100 * 6 - 4.5) > 0.2) return null;
+      return { left: parseFloat(el.style.left), pin: parseFloat(p.style.left) };
+    }, 8000);
+    if (Math.abs(vpAfter.pin / 100 * ax6 - 4.5) > 0.2) throw new Error('松手后针该停在 4.5 秒：' + vpAfter.pin);
+    const saved = await readWhen(async () => {
+      const rec = await window.Kv.at('ws').get('workspace');
+      const p = (rec && rec.projects || []).find(x => x.id === 'p-sublane');
+      const sh = p && p.scenes && p.scenes[0] && p.scenes[0].shots[0];
+      return sh && sh.lineAt != null && Math.abs(Number(sh.lineAt) - 4.5) < 0.2
+        ? { line: sh.line, who: sh.lineWho, at: sh.lineAt, seg: sh.lineSeg } : null;
+    }, 8000);
+    if (saved.line !== '第一句台词' || saved.who !== '林夏') {
+      throw new Error('挪落点不该动台词本身：' + JSON.stringify(saved));
+    }
+    if (Number(saved.seg) !== 0) throw new Error('落点该在第 1 段：' + JSON.stringify(saved));
+
+    /* ⑧ 点回字幕块取一个已知的针位，再拖块体 / 拖把手：两下拖动都不该把针带走，
+       松手补发的那一下 click 也不该放针（真浏览器在拖完松手会补一次 click） */
+    await clickAt('#tlBar .tl-sub[data-shot="sh1"]', 0.5);
+    const pinBase = await readWhen(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      return p && Math.abs(parseFloat(p.style.left) / 100 * 6 - 1.4) < 0.25
+        ? { left: parseFloat(p.style.left) } : null;
+    }, 8000);
+    if (!(await injectSlice())) throw new Error('字幕块拖动前没有可借的切片节点');
+    const sd = await down('#tlBar .tl-sub[data-shot="sh1"]');
+    const irS = await innerRect();
+    const txS = sd.x + irS.width * (0.5 / ax6);
+    const sm = await moveTo(txS, sd.y);
+    if (!sm.ghost) throw new Error('拖字幕块时该有跟手卡');
+    if (sm.ghostNo || !/^url\(/.test(sm.ghostBg)) throw new Error('拖字幕块的跟手卡该借到切片图：' + sm.ghostBg);
+    await up(txS, sd.y);
+    /* ④b 把这一段的入点改到了源 0.5 秒：源 0.9–2.9 在成片尺子上是 0.4–2.4（成片秒 = 源秒 − 入点）。 */
+    const bodyAfter = await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-sub[data-shot="sh1"]');
+      return el && /0\.4–2\.4 秒（成片秒）/.test(el.title) ? { title: el.title } : null;
+    }, 8000);
+    /* 拖动补发的 click：目标就是松手处那一个节点（重画之后按坐标重新取） */
+    await page.eval((x, y) => {
+      const el = document.elementFromPoint(x, y) || document.querySelector('#tlBar .tl-sub[data-shot="sh1"]');
+      if (el) el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    }, txS, sd.y);
+    const pinAfterBody = await pinState();
+    if (Math.abs(pinAfterBody.left / 100 * ax6 - pinBase.left / 100 * ax6) > 0.2) {
+      throw new Error('拖完字幕块补发的那一下 click 不该放针：' + JSON.stringify({ before: pinBase, after: pinAfterBody, title: bodyAfter.title }));
+    }
+    const hd = await down('#tlBar .tl-sub[data-shot="sh1"] .sub-cut.r');
+    const irH = await innerRect();
+    const txH = hd.x + irH.width * (0.3 / ax6);
+    await moveTo(txH, hd.y);
+    await up(txH, hd.y);
+    await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-sub[data-shot="sh1"]');
+      return el && /0\.4–2\.7 秒（成片秒）/.test(el.title) ? { title: el.title } : null;
+    }, 8000);
+    await page.eval((x, y) => {
+      const el = document.elementFromPoint(x, y) || document.querySelector('#tlBar .tl-sub[data-shot="sh1"]');
+      if (el) el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    }, txH, hd.y);
+    const pinAfterCut = await pinState();
+    if (Math.abs(pinAfterCut.left - pinBase.left) > 0.3) {
+      throw new Error('拉字幕把手松手后的 click 不该放针：' + JSON.stringify({ before: pinBase, after: pinAfterCut }));
+    }
+    const stillSub = await page.eval(() => !(document.getElementById('grpSub') || {}).hidden);
+    if (!stillSub) throw new Error('拖字幕把手不该把右栏翻走');
+
+    /* ⑨ 刷新之后：块仍停在新落点（落盘的是 sh.lineAt/lineSeg）；针停在**最后一次手点**的
+       1.4 秒（⑧ 点字幕块那一下把 cutAt 一起落了盘）—— 两份状态各落各的。 */
+    await page.goto(proxy.base + '/shell.html#director.html');
+    await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
+    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('active')) t.click(); });
+    const reloaded = await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
+      const p = document.querySelector('#tlBar .tl-pin');
+      if (!el || !p || Math.abs(parseFloat(el.style.left) / 100 * 6 - 4.5) > 0.25) return null;
+      return { left: parseFloat(el.style.left), pin: parseFloat(p.style.left),
+        line: (document.querySelector('#lineListMine [data-line-text]') || {}).textContent || '' };
+    }, 15000);
+    if (Math.abs(reloaded.pin / 100 * ax6 - 1.4) > 0.25) throw new Error('刷新后针该还在最后一次点下的 1.4 秒：' + reloaded.pin);
+    if (!/第一句台词/.test(reloaded.line)) throw new Error('刷新后台词该原样还在：' + reloaded.line);
+
+    /* ⑩ 拖到别处之后再点：落点按点击处重写，不被拽回第一段起点 */
+    const ir3 = await innerRect();
+    const vp2 = await clickAt('#tlBar .tl-vp[data-shot="sh1"]', 0.5);
+    const want2 = (vp2.x - ir3.left) / Math.max(1, ir3.width) * ax6;
+    if (want2 < 4) throw new Error('这一次点击该落在拖过去之后的位置：' + want2);
+    const moved2 = await readWhen(() => {
+      const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
+      const p = document.querySelector('#tlBar .tl-pin');
+      const gen = document.getElementById('grpVoiceAdd');
+      if (!el || !p || !gen || gen.hidden || Math.abs(parseFloat(el.style.left) / 100 * 6 - 5.1) > 0.3) return null;
+      return { left: parseFloat(el.style.left), pin: parseFloat(p.style.left) };
+    }, 8000);
+    if (moved2.left / 100 * ax6 < 4) throw new Error('再点一次不该把块拽回第一段起点：' + moved2.left);
+    if (Math.abs(moved2.pin / 100 * ax6 - want2) > 0.25) {
+      throw new Error('再点一次针该落在新的点击处 ' + want2 + ' 秒：' + moved2.pin);
+    }
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
     const fl = h.logFaults(proxy.log);
     if (fl.length) throw new Error('代理日志有未声明异常：\n' + fl.join('\n'));
-    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输');
+    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输 · 点块 = 针落在点击处 · 跟手卡借切片图 · 落点刷新后还在');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     const errs = (page && page.errors || []).filter(Boolean).slice(0, 5);

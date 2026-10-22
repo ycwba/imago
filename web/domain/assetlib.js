@@ -70,12 +70,15 @@
        本机条目那是索引里留下的 detail.task。这一层还认不出产物号（assetId 在下面按产物拆行时才定），
        所以只递任务号与条目 id 两个。 */
     const askId = (window.PromptLog && window.PromptLog.askId({ taskId: g('taskId'), id: g('id') })) || '';
-    const localPrompt = rawPrompt ? '' : (window.Api
-      ? (Api.promptFor(prov.id, askId) || Api.promptFor(providerId, askId)) : '');
+    /* 提示词折算只有 AssetLib.promptOf 一份（工具查任务详情时也调它），这里只把本次的原料递进去 */
+    const pz = (window.AssetLib && AssetLib.promptOf)
+      ? AssetLib.promptOf({ prompt: rawPrompt, taskId: askId, provider: prov.id }, providerId)
+      : { prompt: rawPrompt, local: false };
+    const localPrompt = pz.prompt;
     const base = {
       type: media, provider: providerId, providerName, format: fmt,
       prompt: rawPrompt || localPrompt || '',
-      promptLocal: !rawPrompt && !!localPrompt,
+      promptLocal: !rawPrompt && !!pz.local,
       ts: g('completed') || g('created') || '',
       genId: g('id'), taskId: askId, gstatus, model: g('model'), mode: g('mode'),
       credits, creditsRaw: g('credits'),
@@ -249,6 +252,39 @@
     const P = window.PromptLog;
     if (!P || !P.refill) return;
     P.refill(st.out, { limit, onDone: () => st.emit() });
+  }
+
+  /* 按任务号 / 产物号反查本机缓存里的那一条。两份缓存都要扫
+     （`assets_cache_v1` 资产库 / `studio_tasks_cache_v1` 生成工作台），同一份产物出现两次时取 ts 较新的。
+     找不到返回 null（**不抛**）：调用方要把它翻成一句照实说的话。 */
+  function findCached(kind, id, providerId) {
+    const want = String(id == null ? '' : id).trim();
+    if (!want) return null;
+    const prov = String(providerId || '').trim();
+    const keys = ['assets_cache_v1', 'studio_tasks_cache_v1'];
+    const hits = [];
+    let exact = [], loose = [];
+    const score = e => {
+      const t = e && e.ts;
+      if (typeof t === 'number') return t > 1e12 ? t : t * 1000;
+      const n = Date.parse(String(t || ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+    for (const k of keys) {
+      let arr = [];
+      try { arr = window.AssetLib.listCache(k).read(); } catch (e) { arr = []; }
+      for (const e of (arr || [])) {
+        if (!e || (prov && String(e.provider || '') !== prov)) continue;
+        const ids = [e.assetId, e.genId, e.taskId, e.id].map(x => String(x == null ? '' : x));
+        if (kind === 'asset' && ids[0] === want) exact.push(e);
+        else if (kind === 'task' && (ids[1] === want || ids[2] === want)) exact.push(e);
+        else if (ids.indexOf(want) >= 0) loose.push(e);
+      }
+    }
+    hits.push(...exact, ...loose);
+    if (!hits.length) return null;
+    hits.sort((a, b) => score(b) - score(a));
+    return hits[0];
   }
 
   window.AssetLib = {
@@ -675,6 +711,30 @@
         prompt: entry.prompt, tier: entry.tier, duration: entry.duration, res: entry.res,
         ar: entry.ar, quality: entry.quality, count: entry.count, format: entry.format,
       });
+    },
+    /* 按任务号 / 产物号在本机缓存里找那一条（tool 查任务详情前用来补平台 id 与提示词） */
+    findByTaskId(id, providerId) { return findCached('task', id, providerId); },
+    findByAssetId(id, providerId) { return findCached('asset', id, providerId); },
+    /* 一条记录的提示词：平台给了就直接用；没给就从本机归档（PromptLog → Api.promptFor）补。
+       返回 { prompt, local } —— local=true 表示这一句来自本机归档，调用方要把这件事说出来。
+       `providerId` 是调用方另知的那一家（列表归一化时 prov 与真正产出方可能不是同一个）。 */
+    promptOf(entry, providerId) {
+      const e = entry || {};
+      const raw = String(e.prompt || '');
+      if (raw) return { prompt: raw, local: false };
+      const askId = String(e.taskId || (window.PromptLog && window.PromptLog.askId
+        ? (PromptLog.askId({ taskId: e.genId, id: e.id }) || '') : '') || '');
+      if (!askId || !window.Api || !Api.promptFor) return { prompt: '', local: false };
+      const ids = [];
+      [e.provider, providerId].forEach(x => {
+        const s = String(x || '');
+        if (s && ids.indexOf(s) < 0) ids.push(s);
+      });
+      for (const id of ids) {
+        const p = Api.promptFor(id, askId);
+        if (p) return { prompt: String(p), local: true };
+      }
+      return { prompt: '', local: false };
     },
     /* 任务详情：走 Api.pollTask（统一入口，认 registry 的 pollVia:'list'，详情页不可用时退回列表按 id 找）。
        以前这里直打 Api.detail —— VGENV 的详情端点是 404 空壳，资产库的轮询每轮都 reject，

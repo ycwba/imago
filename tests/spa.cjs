@@ -157,8 +157,12 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      ·  +4.4KB（2026-10-21 下午，用户复验左栏两处）：枚数不变，涨的是 `sidebar.js` —— 余额区
        「展开全部 N 家」就地展开（`.bal-exp`）与本机产物明细行，按用户的原话做成**不跳页**；
        侧栏本来就是外壳顶层文档里的经典脚本（AGENTS §11.1），这份交互逻辑没有第二个落点。
-       另有 api.js / capabilities.js / engine.js 几十行注释与 X15 的按家补画监听。实跑 27 枚 / 801362 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 27, FIRST_SCREEN_MAX_BYTES = 801362;
+       另有 api.js / capabilities.js / engine.js 几十行注释与 X15 的按家补画监听。实跑 27 枚 / 801362 字节。
+     ·  +7.7KB（2026-10-22，拖素材到球的引用载荷）：+1 枚 `web/domain/asset-ref.cjs`（UMD .cjs，
+       与 ident.cjs 同一套写法）—— 四个拖动源（素材库 / 收藏 / 资产库 / 工作台）与球 / 抽屉两个落点
+       都要在 dragstart 那一刻写同一份载荷，而 dragstart 是同步事件，等到拖起来再补载已经晚了；
+       字段白名单与引用标签只有这一份（AGENTS §7 的「拖素材的引用载荷」）。实跑 28 枚 / 809273 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 28, FIRST_SCREEN_MAX_BYTES = 809273;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

@@ -3,13 +3,14 @@
    区间外的名字一律由 createTrack(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { round1, pct, spdTxt } from '../util.js';
+import { round1, pct, spdTxt, escHTML } from '../util.js';
 import { SEG_MIN, segLen, segVol, segSpd, segFilmLen, segCarry, segsOf, segsFilmLen, segsCopy, segsWrite, TRACK_LANES_MAX, laneClamp, picLnOf, tlClipDur } from '../segments.js';
 import { createTimeline } from '../timeline.js';
 import { voiceRateOf, voiceFrameOf, voiceRuns, makeVoiceAxBox, createVoiceFilm, VOICE_SPD_MIN, VOICE_SPD_MAX } from '../voice-layout.js';
 import { createWaveform } from '../waveform.js';
 import { createProjection } from '../projection.js';
 import { createVoiceBlockRenderer } from '../voice-block.js';
+import { defaultKeyOf, groupByMaterial, planLaneRows, applyLanePlan, pickVoiceLane } from '../voice-lanes.js';
 
 export function createTrack(E, document, window) {
   const {
@@ -19,6 +20,7 @@ export function createTrack(E, document, window) {
     curShot,
     fmtDur,
     shotReady,
+    beginEdit,
     filmEdited,
     scheduleSave,
     isFilmMode,
@@ -558,6 +560,32 @@ const laneMinRows = k => {
   return Math.max(1, Math.min(TRACK_LANES_MAX, Number(o && o.rows) || 0));
 };
 const laneRowsFor = (k, n) => Math.max(laneMinRows(k), Math.max(1, Number(n) || 0));
+/* 一句配音压在哪一格画面段上（按 `shotId / candId / seg` 找那一排的行；找不到 = 画不出来）。 */
+const voiceBoxRowOf = v => {
+  const sh = allShots().find(s => s && s.id === v.shotId);
+  const c = sh && (sh.candidates || []).find(x => x && x.vid === v.candId);
+  if (!sh || !c) return null;
+  const rows = shotFrames(segsOf(c, candDur(c, sh))).rows || [];
+  return rows[Math.min(rows.length - 1, Math.max(0, Number(v.seg) || 0))] || null;
+};
+/* 新加一句配音落在哪一行（本镜那一排的轴秒口径，与轨道画块同一把尺子）。
+   `vLike` 只要有落点与长度（shotId / candId / seg / at / dur）—— 配好 `fa/fb` 的老句同样照收。
+   `narrow` 只问「目标左沿这一秒被没被占」（合成发请求前的预检：还不知道音频多长，
+   用一个极窄窗问，不会误伤「长度不确定但位置空着」的正常情况）。 */
+function voiceLanePlan(vLike, narrow) {
+  const rows = Math.max(laneMinRows('voice'), laneRowsOf(voicesEnsure()));
+  const items = voicesEnsure().map(v => {
+    const r = voiceBoxRowOf(v);
+    if (!r) return null;
+    const bx = voiceAxBox(r, v);
+    return { ln: voiceLn(v), l: bx.box.l, w: bx.box.w };
+  }).filter(Boolean);
+  const r = voiceBoxRowOf(vLike);
+  const bx = r ? voiceAxBox(r, { at: Number(vLike && vLike.at) || 0, dur: Math.max(0.05, Number(vLike && vLike.dur) || 0) }) : null;
+  const target = bx ? { l: bx.box.l, w: narrow ? 0.01 : bx.box.w } : null;
+  const plan = pickVoiceLane(items, target, rows, TRACK_LANES_MAX);
+  return { ln: plan.ln, needNewRow: plan.needNewRow, why: plan.why, rows: rows };
+}
 /* 现在画了几行：数**已经画出来的行**（与 `syncLaneSide` 同一口径），不重算一遍数据 ——
    收起的那一轨仍然占着一行窄条，行数照旧。 */
 const LANE_ROW_SEL = { pic: '.tl-vrow, .tl-film', voice: '.tl-lane' };
@@ -576,13 +604,14 @@ function toolRefuse(t) { setStatus('<span class="info">' + t + '</span>'); }
 function addLaneRow(k, col, atLn) {
   if (atLn != null && atLn > 0) return insertLaneRow(k, atLn, col);
   const nm = laneNm(k);
-  if (laneHidden(k)) { toolRefuse(nm + '此刻是收起的（行高只有 18px，加了也看不见）：先点轨名旁那颗眼睛展开。'); return; }
+  if (laneHidden(k)) { toolRefuse(nm + '此刻是收起的（行高只有 18px，加了也看不见）：先点轨名旁那颗眼睛展开。'); return -1; }
   const n = drawnRows(k, col);
-  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return; }
+  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return -1; }
   setLaneRows(k, n + 1);
   setStatus('<span class="ok">✓ ' + nm + '加到第 ' + (n + 1) + ' 行：把块上下拖就能挪到新行（行距、锁与音量都按行算；'
     + '每一行的标签上都有一颗「×」，能单独把它删掉）</span>');
   filmEdited();
+  return n;
 }
 /* 在**第 at 行下面**插一行（第 2 行往上那些标签上的「＋」）。新行是空的，但它占一个行号 ——
    原来挂在 at 以下的那些行整体往下挪一格，块上的 `ln` 与按行的三张表（基数音量 / 收起 / 锁定）
@@ -594,11 +623,11 @@ function insertLaneRow(k, at, col) {
   if (rowHidden(k, want)) {
     toolRefuse((want <= 0 ? nm : rowNm(k, want)) + '此刻是收起的（行高只有 18px，在它下面加了也看不见）：'
       + (want <= 0 ? '先点轨名旁那颗眼睛展开。' : '先点这一行上那颗眼睛展开。'));
-    return;
+    return -1;
   }
   const n = drawnRows(k, col);
-  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return; }
-  if (want >= n) { toolRefuse(nm + '第 ' + (want + 1) + ' 行此刻并不存在（现在 ' + n + ' 行）：整栏重画之后行号跟着变，重新点一次。'); return; }
+  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return -1; }
+  if (want >= n) { toolRefuse(nm + '第 ' + (want + 1) + ' 行此刻并不存在（现在 ' + n + ' 行）：整栏重画之后行号跟着变，重新点一次。'); return -1; }
   mapLaneBlockRows(k, cur => rowAfterInsert(cur, want));
   moveRowFlags(k, cur => rowAfterInsert(cur, want));
   const nextRows = n + 1;
@@ -693,6 +722,61 @@ function setLaneRows(k, n) {
   const o = projOf().lane[k] = projOf().lane[k] || {};
   const v = Math.max(1, Math.min(TRACK_LANES_MAX, Math.round(Number(n) || 1)));
   if (v <= 1) delete o.rows; else o.rows = v;
+}
+/* 全片配音按「声音来源」分到各自的轨道上（右栏「分轨」那颗按钮的唯一落点）。
+   分组键三级兜底在 `voice-lanes.js`；第三级在这里把 `src` 换成剥掉签名参数的身份 ——
+   同一段音频换了签名仍是同一个 key，两段不同的音频不会被合并。
+   只写 `v.ln`：时间、时长、选区、音量、倍速与台词一个字节都不动，成片里的声音完全一样。 */
+const voiceSrcKeyOf = u => {
+  const api = window.Api;
+  return api && api.mediaKey ? api.mediaKey(u) : String(u || '');
+};
+function voiceSplitByMaterial(keyOf) {
+  const why = tlLockWhy();
+  if (why) { setStatus('<span class="err">' + why + '：分轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
+  const voices = voicesEnsure();
+  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再按声音来源分轨。'); return; }
+  const groups = groupByMaterial(voices, typeof keyOf === 'function' ? keyOf : (v => defaultKeyOf(v, voiceSrcKeyOf)));
+  const { rows, overflow } = planLaneRows(groups, TRACK_LANES_MAX);
+  const dirty = rows.some(r => r.voices.some(v => voiceLn(v) !== r.ln)) || laneMinRows('voice') < rows.length;
+  if (dirty) beginEdit('配音分轨');
+  const moved = applyLanePlan(rows);
+  const need = Math.max(laneMinRows('voice'), rows.length);
+  if (need !== laneMinRows('voice')) setLaneRows('voice', need);
+  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句分到 ' + rows.length + ' 条轨道'
+    + (moved ? '（挪了 ' + moved + ' 句）' : '（本来就在这些行上）')
+    + '（时间、时长与音量一个字不动；只改画在第几行，成片里的声音完全一样）</span>'
+    + (overflow.length ? '；另有 ' + overflow.length + ' 组没排上：'
+      + overflow.map(g => escHTML(g.label)).join('、') + '（配音轨最多 ' + TRACK_LANES_MAX + ' 行）' : ''));
+  if (dirty) filmEdited();
+}
+/* 全片配音合并到第 1 条轨道（右栏「合轨」那颗按钮的唯一落点）。只改排版：
+   同一行里可能有好几句在时间上重叠，成片里会一起响 —— 回执里写清楚。 */
+function voiceMergeAll() {
+  const why = tlLockWhy();
+  if (why) { setStatus('<span class="err">' + why + '：合轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
+  const voices = voicesEnsure();
+  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再点合轨。'); return; }
+  if (!voices.some(v => voiceLn(v) !== 0) && laneMinRows('voice') === 1) { toolRefuse('全片配音已经都在第 1 条轨道上了。'); return; }
+  beginEdit('配音合轨');
+  mapLaneBlockRows('voice', () => 0);
+  keepRowFlagsFirst('voice');
+  setLaneRows('voice', 1);
+  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句合并到第 1 条轨道（只改排版，不改成片；同一行里可能有重叠，成片里会一起响）</span>');
+  filmEdited();
+}
+/* 合轨之后只剩第 1 行：按行记的三张表（基数音量 / 收起 / 锁定）里那些已经不存在的行不能留着，
+   否则下次加到那一行会「凭空」被压暗 / 收起 / 锁住。第 1 行自己的设置保留。 */
+function keepRowFlagsFirst(k) {
+  const o = projOf() && projOf().lane && projOf().lane[k];
+  if (!o) return;
+  ROW_FLAG_COLS.forEach(what => {
+    const src = o[what];
+    if (!src) return;
+    const out = {};
+    if (src[0] != null) out[0] = src[0];
+    if (Object.keys(out).length) o[what] = out; else delete o[what];
+  });
 }
 /* 把「某一格画面」挪到画面轨第几行的落地只有一份：本镜那一排（`bindSegDrag` 上下拖）与
    全片那一排（`bindFilmReorder` 上下拖）两只手都只是它的出口。行号写在候选那一段的 `s.ln` 上，
@@ -1626,7 +1710,10 @@ function syncTlTools() {
     laneRowsFor,
     LANE_ROW_SEL,
     addLaneRow,
+    voiceLanePlan,
     dropLaneRow,
+    voiceSplitByMaterial,
+    voiceMergeAll,
     setCellLane,
     laneMute,
     trackOwnVol,

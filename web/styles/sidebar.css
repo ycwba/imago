@@ -122,8 +122,11 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
    尺寸与交互全部由 ui.css 那一份兜着，这里只排「一行摆几颗、怎么对齐」。
    ⚠ 这一族里只剩「展开 / 收起」与「刷新余额」，且**排在同一行**：省下来的那一行高度留给卡。
      「还有 N 家，去用量页」「去设置」两颗跳转钮已撤 —— 要看全部就就地展开。 */
-.sb-bal-acts { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
-#sbBalance .sb-bal-acts .ghost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* 按钮行固定一行：栏宽 184px 是定死的，两枚按钮都不能折行（中文会按字断开，
+   断在按钮内部就成了「两行字挤在一颗按钮里」）。超宽走省略号（下一行）。
+   ⚠ 展开钮的文案是「展开」，总家数在 title 里 —— 文案缩短后正常不会触发省略。 */
+.sb-bal-acts { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: nowrap; }
+#sbBalance .sb-bal-acts .ghost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ---------- 「产物正在存进本机」那一行（固定在区域顶部，不参与任何滚动）----------
    侧栏唯一的本机落盘实况：传输中时它是整区里最显眼的一块，所以排第一、也不跟着卡一起滚。 */
 .sb-bal-body { display: flex; flex-direction: column; gap: var(--sp-1-5); min-width: 0; }

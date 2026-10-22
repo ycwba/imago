@@ -96,6 +96,12 @@ const SNAP = () => {
     mirL3: l3 ? l3.textContent.replace(/\s+/g, ' ').trim() : '',
     acts: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.getAttribute('data-bal')),
     actTexts: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.textContent.replace(/\s+/g, ' ').trim()),
+    actTitles: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.getAttribute('title') || ''),
+    actRects: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => {
+      const r = b.getBoundingClientRect();
+      return { act: b.getAttribute('data-bal'), top: Math.round(r.top), sw: b.scrollWidth, cw: b.clientWidth };
+    }),
+    actsRow: acts ? { sw: acts.scrollWidth, cw: acts.clientWidth } : null,
     /* 「去用量页 / 去设置」两枚已撤：整条侧栏里都不许再出现这两个动作名。 */
     jumps: document.querySelectorAll('.sidebar [data-bal="usage"], .sidebar [data-bal="settings"]').length,
     cardTitles: [...box.querySelectorAll('.sb-bal-card')].map(c => c.getAttribute('title') || ''),
@@ -207,14 +213,20 @@ const check = (name, cond, detail) => {
     /* 「限 3 张」是**上限**，不是每张窗口都摆满三张：能摆几张由 sidebar.js 的 BAL_CAPS
        按实测高度算（900px 高这一档只摆得下 2 张，摆第 3 张就要挤导航 —— 导航优先）。
        判据不复制那张表，改判两件真话：摆出来的不超过 3 张，且没摆出来的那几家**就地给得出** ——
-       「展开全部 N 家」的 N 等于总家数（差一家就是假话），点一下就看全，不跳转。 */
+       展开钮的 title 里那个总家数等于总家数（文案里不写 N，差一家就是假话），点一下就看全，不跳转。 */
     check('默认摆出来的卡落在 1..3 之间（容器没有 max-height 与内滚动，靠条数定高）',
       s.cards.length >= 1 && s.cards.length <= 3 && s.cardTotal === s.cards.length,
       { cards: s.cards.length, cardTotal: s.cardTotal });
-    const expLbl = /^展开全部 (\d+) 家$/.exec((s.actTexts.find(t => /展开全部/.test(t)) || ''));
-    check('「展开全部 N 家」报的数 = 总家数（多的那几家就地给得出）',
-      s.sumTotal > s.cards.length && !!expLbl && Number(expLbl[1]) === s.sumTotal,
-      { total: s.sumTotal, cards: s.cards.length, actTexts: s.actTexts });
+    const expIdx = s.acts.indexOf('expand');
+    const expTitle = expIdx >= 0 ? s.actTitles[expIdx] : '';
+    const expN = /全部 (\d+) 家/.exec(expTitle);
+    check('「展开」按钮的 title 报的数 = 总家数（多的那几家就地给得出）',
+      s.sumTotal > s.cards.length && expIdx >= 0 && !!expN && Number(expN[1]) === s.sumTotal,
+      { total: s.sumTotal, cards: s.cards.length, acts: s.acts, actTitles: s.actTitles });
+    check('「展开」与「刷新余额」在同一行（top 差 ≤ 2px），按钮自身不被省略号裁',
+      s.actRects.length === 2 && Math.abs(s.actRects[0].top - s.actRects[1].top) <= 2
+        && s.actRects.every(r => r.sw <= r.cw) && s.actsRow && s.actsRow.sw <= s.actsRow.cw,
+      { actRects: s.actRects, actsRow: s.actsRow });
     check('按钮族只有就地动作（expand / refresh），且都是公共件 .ghost mini',
       JSON.stringify([...s.acts].sort()) === JSON.stringify(['expand', 'refresh']), { acts: s.acts });
     check('卡等高', s.cards.length > 1 && Math.max(...s.cards) - Math.min(...s.cards) <= 1, { cards: s.cards });
@@ -225,7 +237,7 @@ const check = (name, cond, detail) => {
 
     /* ---------- 档五：就地展开 → 全量卡就在侧栏里，只有卡格滚；导航一条不被挤 ---------- */
     const EXP = '就地展开 @1440x900';
-    check(EXP + '：点得动「展开全部 6 家」', (await clickBal('expand')) === 1, {});
+    check(EXP + '：点得动「展开」', (await clickBal('expand')) === 1, {});
     await h.sleep(350);
     bal = await page.eval(BARS, '#sbBalance');
     nv = await page.eval(BARS, '.sidebar nav');
@@ -271,7 +283,10 @@ const check = (name, cond, detail) => {
     check('收起后回到这一档的 cap 张（不多摆一张）', !s.balExp && s.cards.length >= 1 && s.cards.length <= 3 && s.cards.length < s.sumTotal,
       { balExp: s.balExp, cards: s.cards.length, total: s.sumTotal });
     check('收起后不再有多余滚动位', !s.wrapBar && !bal.barY && !bal.barX, { wrapBar: s.wrapBar, bal });
-    check('收起后按钮回到「展开全部 N 家」', JSON.stringify([...s.acts].sort()) === JSON.stringify(['expand', 'refresh']), { acts: s.acts });
+    check('收起后按钮回到「展开」+「刷新余额」（同一族、同一行）',
+      JSON.stringify([...s.acts].sort()) === JSON.stringify(['expand', 'refresh'])
+        && s.actRects.length === 2 && Math.abs(s.actRects[0].top - s.actRects[1].top) <= 2,
+      { acts: s.acts, actRects: s.actRects });
     check('收起也写盘（下次打开照旧是收着的）', (await expPref()) === '0', { pref: await expPref() });
 
     /* ---------- 档六：展开偏好开着 × 卡片块不画的那两档 —— 展开位必须等于不存在 ----------
