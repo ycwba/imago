@@ -307,6 +307,21 @@ frame-ancestors 'none'
 - 远端存在但读不下来 → 判 `error` 跳过，绝不 push；本地删除必须真正执行到底。
 - 浏览器对账体积相同不能直接跳过（等长修改）；对账期间本地写入先进 held 暂存表。
 
+### 6.5 Git 远端与推送
+
+- 远端只有 `github` 一个（`https://github.com/ycwba/shizhen-workbench.git`），**不叫 `origin`**。
+  `main` 跟踪 `github/main`，所以裸 `git push` / `git pull` 就够，不必再写远端名。
+- 远端 `main` 是 2026-10-22 用 `--force-with-lease` 推上去的**真实历史**（46 提交）。
+  此前远端只有一个与本地无共同祖先的孤儿快照提交 `3d3f5ad`，该快照保留在远端
+  `archive/snapshot-gh` 分支（本地分支 `snapshot-gh` 同它）。
+- 看到「有共同祖先为零的另一个根提交」不是历史断了，**不要**去 `--allow-unrelated-histories`
+  合并它：那是同一份代码的旧快照，合并只会把旧状态搅回新历史。
+- 其它分支（`feat/drama-cast-assets-and-voice` / `fix-audio-model-dropdown-loop` /
+  `workbuddy/main-ac3e0e9b`）都已在远端同名分支，且都是 `main` 的祖先，只作历史备份用。
+- `.git` 里有约 2100 个悬空对象（约 390MB）来自旧状态与探针；`git gc --prune=now` 能回收，
+  但**另一个 agent 会话正挂在 `C:\Users\ycwb\WorkBuddy\Worktrees\aii\main-ac3e0e9b` 这个
+  linked worktree 上**，在那个会话结束前不要 prune。
+
 ## 7. 公共层：唯一实现清单
 
 “同一个功能只应有一份实现”。页面要用下列能力，只能走公共层；发现重复实现先收敛。
