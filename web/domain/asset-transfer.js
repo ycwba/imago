@@ -3,6 +3,22 @@
 (function () {
   const CACHE = new Map();          // `${provId}|${srcKey}` → asset_id
   const MAX_BYTES = 200 * 1024 * 1024;
+  /* web/media-export.js（window.MediaExport，经典脚本）按需补载 —— 只有「参考视频要求带音轨」
+     那一步才用（ensureAudioTrack），别为一次普通转存把整份导出模块拉下来。 */
+  let meLoader = null;
+  function loadMediaExportModule() {
+    if (window.MediaExport) return Promise.resolve(window.MediaExport);
+    if (!meLoader) {
+      meLoader = new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = '/web/media-export.js';
+        s.onload = () => window.MediaExport ? res(window.MediaExport) : rej(new Error('导出模块没有挂上'));
+        s.onerror = () => rej(new Error('导出模块没加载成（web/media-export.js）'));
+        document.head.appendChild(s);
+      });
+    }
+    return meLoader;
+  }
 
   const pickProv = (reg, provId) => ((reg && reg.providers) || []).find(p => p.id === provId || (p.keyId || p.id) === provId) || null;
 
@@ -158,21 +174,16 @@
       const template = Api.inputTemplate(prov, opts.role);
       if (template && template.requiresAudio) {
         if (opts.onStage) opts.onStage('prepare');
-        const prepared = await netFetch('/media/prepare-reference-video', {
-          method: 'POST', headers: { 'Content-Type': blob.type || opts.contentType || 'application/octet-stream' },
-          body: blob, timeout: 180000, retry: 0,
-        });
-        if (!prepared.ok) {
-          const error = await prepared.json().catch(() => null);
-          throw new Error((error && error.error && error.error.message) || ('参考视频预处理失败 HTTP ' + prepared.status));
-        }
-        const added = prepared.headers.get('X-Audio-Added') === '1';
-        blob = await prepared.blob();
-        if (added) {
+        /* 参考视频要求带音轨：没有就补一条静音的（在浏览器内做）。
+           走 MediaExport.ensureAudioTrack —— 流拷贝优先、逐帧重编码兜底。 */
+        const ME = await loadMediaExportModule();
+        const r0 = await ME.ensureAudioTrack(blob);
+        blob = r0.blob;
+        if (r0.added) {
           name = (opts.name || name || 'reference').replace(/\.[^.]+$/, '') + '.mp4';
           opts = { ...opts, name, contentType: 'video/mp4' };
         }
-        if (opts.onStage) opts.onStage('prepared', added);
+        if (opts.onStage) opts.onStage('prepared', r0.added);
         if (blob.size > MAX_BYTES) throw new Error('补全音轨后的视频超过上传大小上限');
       }
       const mime = blob.type || opts.contentType || 'application/octet-stream';
@@ -355,8 +366,8 @@
       const b64 = String(await this.toDataURL(blob)).split(',')[1] || '';
       if (!b64) throw new Error('读不出这条素材的字节');
       const ext = String(fmt).toLowerCase();
-      /* 洗字符走公共那一份（`ui.js` 的 `fileSafe`）—— 这一处以前自己写成换 `_`，
-         而「另存到指定文件夹」那条链（上面 `nameOf`）换成 `-`，同一份字节在本机记录里与在用户目录里就不同名。 */
+      /* 洗字符走公共那一份（`ui.js` 的 `fileSafe`）：以前这一处自己换成 `_`、另一条链换成 `-`，
+         同一份字节在本机记录里与在文件名里就对不上号。 */
       const safe = window.fileSafe(nm, 60);
       const r = await Api.saveLocalAsset({
         name: safe.slice(-(ext.length + 1)).toLowerCase() === '.' + ext ? safe : safe + '.' + ext,

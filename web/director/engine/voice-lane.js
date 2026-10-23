@@ -7,6 +7,7 @@ import { round1, pct } from '../util.js';
 import { segLen, segsOf, TRACK_LANES_MAX, laneClamp } from '../segments.js';
 import { voiceRateOf, voiceFrameOf, roundVoice, voiceRuns, rowSelIn, rowSelOut } from '../voice-layout.js';
 import { voiceBlockText } from '../voice-block.js';
+import { linksOf } from '../links.js';
 
 export function createVoiceLane(E, document, window) {
   const {
@@ -196,13 +197,22 @@ function laneRowCtlHTML(k, ln) {
   const vol = laneVol(k, ln);
   const who = ln > 0 ? nm + '轨第 ' + (ln + 1) + ' 行' : nm + '轨第 1 行（整条轨）';
   const one = k === 'voice' ? '句' : '段';
+  /* 「联动」只给画面轨第 0 行（主轨 = 锚行，不新增 master 字段）：
+     勾上的类型在主轨段变黑场时会挪到下一段还有画面的段。它**不是** ROW_FLAG_COLS
+     那张按行表（vols/hides/locks），搬行时不跟着走 —— 走独立的 data-lane-act="links"。 */
+  const lk = (k === 'pic' && ln === 0) ? linksOf(projOf()) : [];
+  const linksBtn = (k === 'pic' && ln === 0)
+    ? `<button type="button" class="tool ghost mini${lk.length ? ' on' : ''}" data-lane="pic" data-ln="0" data-lane-act="links"`
+      + ` title="联动设置：勾上的类型在主轨段变黑场时会挪到下一段还有画面的段；没勾的留在原地（成片里被跳过）">`
+      + `${icon('link', 11)} 联动${lk.length ? ' · ' + lk.length : ''}</button>`
+    : '';
   /* 第 1 行那枚滑块 = **整轨音量**（用户点名的第 ② 条）：与右栏「整轨音量」同一批字段
      （段 / 句自己的 vol），不是行基数 —— 初值取这一排此刻都同一档时的那一个数，
      不一致时由 syncLaneSide 写「不一」并把拇指停在第一个数上。 */
   const tv = ln > 0 ? null : trackOne(trackOwnVol(k));
   const shown = ln > 0 ? vol : (tv.one != null ? tv.one : (tv.first != null ? tv.first : 1));
   const rdTxt = ln > 0 ? Math.round(vol * 100) + '%' : (tv.one != null ? Math.round(tv.one * 100) + '%' : '不一');
-  return `<button type="button" class="tl-hbtn" data-lane="${k}" data-ln="${ln}" data-lane-act="${ln > 0 ? 'rhide' : 'hide'}"`
+  return linksBtn + `<button type="button" class="tl-hbtn" data-lane="${k}" data-ln="${ln}" data-lane-act="${ln > 0 ? 'rhide' : 'hide'}"`
     + ` title="${hid ? '展开' : '收起'}${who}（${hid ? '这一行重新长出来，块还挂在原来的行号上' : '只收这一行：块与把手都不画，别的行与另一轨不受影响'}）">${icon(hid ? 'eyeOff' : 'eye', 12)}</button>`
     + `<button type="button" class="tl-hbtn${lock ? ' on' : ''}" data-lane="${k}" data-ln="${ln}" data-lane-act="${ln > 0 ? 'rlock' : 'lock'}"`
     + ` title="${lock ? who + '已锁定：这一行上的块拖不动、剪不了，音量也不调（点一下解锁）' : '锁定' + who + '：锁上之后拖不动、剪不了，免得调隔壁时误改这一行'}">${icon('lock', 12)}</button>`
@@ -371,9 +381,9 @@ function voiceLaneHTML(sh, c, total, g) {
     if (!s || !r) return;
     /* 与 `filmVoiceHTML` 走同一份折算（`voiceAxBox`）：这一排的格子来自这条候选自己的段。 */
     const bx = voiceAxBox(r, v);
-    lanePut(per, v, voiceBlockHTML(v, bx.box, bx.sel, ax,
-      '第 ' + (si + 1) + ' 段 +' + round1(bx.fr.fa / bx.spd) + ' 秒起，长 ' + round1(bx.dur) + ' 秒'
-        + (bx.fr.fb - bx.fr.fa > bx.dur * bx.spd + 0.02 ? '（这一句共 ' + round1((bx.fr.fb - bx.fr.fa) / bx.spd) + ' 秒，灰掉的不进成片）' : ''),
+    lanePut(per, v, voiceBlockHTML(v, bx.sel, ax,
+      '第 ' + (si + 1) + ' 段 +' + round1(bx.sel.l - r.start) + ' 秒起，长 ' + round1(bx.dur) + ' 秒'
+        + (bx.fr.fb - bx.fr.fa > bx.dur * bx.spd + 0.02 ? '（这一句整条有 ' + round1((bx.fr.fb - bx.fr.fa) / bx.spd) + ' 秒，往外拖把手能放回来）' : ''),
       { gray }));
   });
   /* 别的镜上锚的、但压进本镜这一段时间里的那些：换算成本镜**轴秒**后画成半透明的只读块。
@@ -408,10 +418,10 @@ function voiceLaneHTML(sh, c, total, g) {
         const axLo = shotPinT(G, srcLo), axHi = shotPinT(G, srcHi);
         if (axHi - axLo <= 0.03) return;
         const other = allShots().find(x => x.id === v.shotId);
-        /* 只读的那一截：框与选区都取「压进本镜的这一片」—— 它在自己那一镜才有真正的框，
-           在这里凭空画出一个更宽的框会让人以为能拖。 */
+        /* 只读的那一截：宽就取「压进本镜的这一片」—— 它在自己那一镜才有真正的框与选区，
+           在这里凭空画出一块更长的会让人以为能拖。 */
         const w = round1(axHi - axLo);
-        lanePut(per, v, voiceBlockHTML(v, { l: round1(axLo), w: w }, { l: round1(axLo), w: w }, ax,
+        lanePut(per, v, voiceBlockHTML(v, { l: round1(axLo), w: w }, ax,
           '这一句锚在「' + ((other && other.name) || '别的镜头') + '」，压到本镜这一排的第 '
           + round1(axLo) + '–' + round1(axHi) + ' 秒 —— 在这里只能试听，要改它请切到它自己那一镜', { spill: true, gray }));
       });
@@ -516,52 +526,41 @@ function bindVoiceLane(row, o) {
     v.at = v.fa + selOff;
     return true;
   };
-  /* 就地重画一块：框的 left/width + 框内两块灰的宽度 + 灰带 + 顺延后的标签。
+  /* 就地重画一块：块（= 选区，被黑场顺延的那一截也算进来）的 left/width + 灰带 + 标签上的秒数。
      `put` 只在「这一截有宽度」时才补节点，没有就把已有的压成 0%（摘掉节点会让下一次
-     又要插入，而插入位置靠 afterbegin —— 两块灰的先后顺序会翻）。 */
+     又要插入，而插入位置靠 afterbegin —— 灰带的先后顺序会翻）。 */
   const paintVoice = v => {
     const el = row.querySelector('.tl-v[data-vid="' + v.id + '"]');
     const r = voiceRowOf(v);
     if (!el || !r) return;
-    /* 与首屏（`voiceLaneHTML` / `filmVoiceHTML`）同一个 `voiceAxBox`：块、选区、灰场
+    /* 与首屏（`voiceLaneHTML` / `filmVoiceHTML`）同一个 `voiceAxBox`：选区、灰场
        全在这一排的轴秒上量 —— 拖动中若退回源秒，倍速那一格里松手会跳位。 */
     const bx = voiceAxBox(r, v);
     /* 灰场按**这一排自己的尺子**取（与首屏 voiceBlockHTML 的 `opt.gray` 同源）：
-       拖块 / 拖把手改的正是「它压不压在灰场上」，拉长与灰带要跟着手指当场重画 ——
+       拖块 / 拖把手改的正是「它压不压在黑场上」，拉长与灰带要跟着手指当场重画 ——
        少了这一段，拖动中块不加长、不画带，松手一整栏重画才跳到位。 */
     const gray = axisGray(frames());
     const lay = voiceRuns(bx.sel.l, bx.sel.w, gray);
-    const boxL = bx.box.l;
-    const right = Math.max(boxL + bx.box.w, lay.end);
-    const w = Math.max(0.05, right - boxL);
-    el.style.left = pct(boxL, total) + '%';
-    /* 左沿与宽度都摆到这一排的尺子上（`bx` 已经除过倍速），而框内两块灰 / 灰带算的是**块内比例**
+    const w = Math.max(0.05, lay.end - bx.sel.l);
+    el.style.left = pct(bx.sel.l, total) + '%';
+    /* 左沿与宽度都摆到这一排的尺子上（`bx` 已经除过倍速），而灰带算的是**块内比例**
        （分子分母同为这一排的秒，倍速约掉了）—— 两处不同尺子，漏一处就是
        「首屏按轴、拖动中按源」，2 倍速那一格上拖一下块会跳。 */
     el.style.width = pct(w, total) + '%';
-    /* 两块灰与灰带共用这一个 `put`，分母是**拉长后**的块宽 `w`（与 voiceBlockHTML 同一算式）——
-       用拉长前的框宽当分母会把它们画错宽度（块越长错得越多）。 */
-    const put = (sel, sec, cls) => {
-      const wp = pct(sec, w) + '%';
-      const n = el.querySelector(sel);
-      if (n) n.style.width = wp;
-      else if (sec > 0.02) el.insertAdjacentHTML('afterbegin', '<span class="' + cls + '" style="width:' + wp + '"></span>');
-    };
-    put('.vo-off:not(.r)', bx.sel.l - boxL, 'vo-off');
-    put('.vo-off.r', Math.max(0, right - Math.max(bx.sel.l + bx.sel.w, lay.end)), 'vo-off r');
-    /* 灰带整批重建：拖动中压上的灰场条数会变（挪一下可能就压上了、再挪又不压），
-       逐条对号入座不如推倒重来；`pointer-events:none`，不碍下面那两颗把手。 */
+    /* 灰带整批重建：拖动中压上的黑场条数会变（挪一下可能就压上了、再挪又不压），
+       逐条对号入座不如推倒重来；分母是**拉长后**的块宽 `w`（与 voiceBlockHTML 同一算式），
+       用拉长前的选区宽会把它们画错宽度（块越长错得越多）。
+       `pointer-events:none`，不碍下面那两颗把手。 */
     el.querySelectorAll('.vo-skip').forEach(n => n.remove());
     (lay.skips || []).forEach(b => {
       if (b[1] - b[0] <= 0.02) return;
-      el.insertAdjacentHTML('afterbegin', '<span class="vo-skip" style="left:' + pct(b[0] - boxL, w)
+      el.insertAdjacentHTML('afterbegin', '<span class="vo-skip" style="left:' + pct(b[0] - bx.sel.l, w)
         + '%;width:' + pct(b[1] - b[0], w) + '%"></span>');
     });
     el.classList.toggle('over', (lay.skips || []).length > 0);
     /* 块上那行小字的秒数也跟着走：以前拖动中只改位置与两块灰，那句「· 3.2s」还是加进来时的数 ——
        剪完长度那行字不认，看着像「改了个样子，其实什么都没改」。
-       数的是「这一句在**成片里**念几秒」（`voiceRuns` 的 `filmSec`，与 voiceBlockHTML 的 `shownSec` 同源）：
-       块在轨道上拉长的是占位，压到剪掉的头 / 尾那几秒并不进成片，读数不能跟着涨。 */
+       数的是「这一句在**成片里**念几秒」（`voiceRuns` 的 `filmSec`，与 voiceBlockHTML 的 `shownSec` 同源）。 */
     const lab = el.querySelector('.vt');
     if (lab) lab.textContent = voiceBlockText(v, lay.filmSec);
   };
@@ -630,9 +629,11 @@ function bindVoiceLane(row, o) {
       const r0 = v && voiceRowOf(v);
       if (!v || !r0) return;
       const x0 = e.clientX;
-      /* 框左沿在**这一排的轴**上的位置（拖动前）：位移按像素×秒/px 直接加在它上面，
-         落点再由 `moveVoiceTo` 折回源秒 —— 倍速在两处各折算一次，中途不碰数据以外的尺子。 */
-      const tAx0 = voiceAxBox(r0, v).box.l;
+      /* 块左沿在**这一排的轴**上的位置（拖动前）：位移按像素×秒/px 直接加在它上面，
+         落点再由 `moveVoiceTo` 折回源秒 —— 倍速在两处各折算一次，中途不碰数据以外的尺子。
+         读的是选区那一条（与画出来的左沿同一个数）：按框算的话，剪过头的块视觉上已经挪走了，
+         按下时却从老位置起步，第一帧就会跳一下。 */
+      const tAx0 = voiceAxBox(r0, v).sel.l;
       let moved = 0;
       /* 上下拖 = 换行（`v.ln`）。行距不能写死 38：轨道收起时那一行是 18px，
          写死的话在收起的状态下拖一下会跳两行。量的是**这一行自己的高度 + 行间距**。 */
@@ -701,13 +702,11 @@ function bindVoiceLane(row, o) {
       dragOnWindow(move, up);
     }, true);
   });
-  /* ③ 拖左边缘 = 把这一句的**开头**盖掉，④ 拖右边缘 = 盖掉**结尾**。
-     与画面轨同一套几何：**框 [fa,fb] 不动**（块在轨道上不缩不挪），拖的是框内那两块灰 ——
-     左边那块变宽就是「这一段音频不进成片」，右边那块同理。
-     以前这两个把手直接把块缩窄/平移（`v.at` 与 `v.dur` 一起改、框不存在），
-     于是看起来是「整块被压扁」而不是「左边/右边被盖掉」（用户点名的那一条）。
+  /* ③ 拖左边缘 = 切掉这一句的**开头**（块左沿当场跟手走，切掉的那一截不进成片），
+     ④ 拖右边缘 = 切掉**结尾**（块右沿当场缩）。块按选区排版，所以画出来的宽就是它在成片里占的宽；
+     框 `[fa,fb]` 只剩一个用处：**把手往外拖最多恢复到这儿**。
      ⚠ `off`（音频文件内部的起点）跟着选区起点走：合成时它是配音输入的 -ss，
-       播放时它是 Audio.currentTime 的起点 —— 三处口径必须一致，见 clipVoices / renderJob / TlPlay。 */
+       播放时它是 Audio.currentTime 的起点 —— 三处口径必须一致，见 clipVoices / MediaExport / TlPlay。 */
   row.querySelectorAll('[data-vcut]').forEach(g => {
     bindDrag(g, (e, secPerPx) => {
       const v = voicesEnsure().find(x => x.id === g.getAttribute('data-vcut'));
@@ -742,14 +741,14 @@ function bindVoiceLane(row, o) {
           /* 选区起点 = 框左沿 + 已切掉的秒数，两头夹住：
              · 往左退不出框（`fa`），也退不到音频第 0 秒之前（`off` 不能变负）；
              · 往右不能把选区压到 VOICE_MIN 以下。
-             框、块的左右沿、别的块 —— 一个字节都不动。 */
+             块当场跟着手变窄（`paintVoice` 只改这一块自己的 left/width 与小字），别的句一个字节都不动。 */
           const na = Math.max(Math.max(fr.fa, at0 - off0 / own), Math.min(at0 + raw, at0 + (dur0 - VOICE_MIN) / own));
           const d = (na - at0) * own;
           v.at = na;
           v.dur = dur0 - d;
           v.off = off0 + d;
         } else {
-          /* 选区终点：往左拖 = 把结尾盖掉（框不动，右边那块灰变宽）；往右拖 = 放回来。
+          /* 选区终点：往左拖 = 结尾切掉（块当场变窄）；往右拖 = 放回来。
              上界取「框右沿」与「音频尽头」里更宽的那一头 —— 正常一句配音在加进来时
              框就等于整条音频，两者相同；只有老数据 / 导入时按更短的长度截过，
              才允许把框向右推一推（音频块不像画面格，它没有邻居要避让）。
@@ -769,7 +768,7 @@ function bindVoiceLane(row, o) {
         roundVoice(v);
         const cut = Math.max(0, (Number(v.at) || 0) - fr.fa) + Math.max(0, fr.fb - ((Number(v.at) || 0) + Number(v.dur || 0) / own));
         setStatus('<span class="ok">✓ 这一句现在从音频第 ' + round1(v.off || 0) + ' 秒起、长 ' + round1(v.dur || 0) + ' 秒'
-          + (cut > 0.05 ? '（这一段里有 ' + round1(cut) + ' 秒被盖掉，不进成片）' : '') + '</span>');
+          + (cut > 0.05 ? '（这一句两头一共切掉 ' + round1(cut) + ' 秒，不进成片）' : '') + '</span>');
         filmEdited();
       };
       dragOnWindow(move, up);

@@ -44,11 +44,19 @@ export function createProjection({ getProj, allShots, shotReady, tlCandidateOf, 
       if (!c) return;
       const total = candDur(c, sh);
       segsOf(c, total).forEach((s, i) => {
-        clips.push({ id: uid(), kind: 'shot', shotId: sh.id, candId: c.vid, seg: i,
+        const cl = { id: uid(), kind: 'shot', shotId: sh.id, candId: c.vid, seg: i,
           name: sh.name || '镜头', in: s.in, out: s.out, speed: segSpd(s), volume: picVolOf(s),
           /* 灰掉的那一段**仍然占这一段的时间**（kind 还是 shot、in/out 没动），只是画面换成黑场：
              于是「删一段」不改总时长，后面每段与每句配音落在原来那一秒上（时间统一）。 */
-          gray: s.off ? 1 : 0 });
+          gray: s.off ? 1 : 0 };
+        /* 图片段 / 图片区空段：`in/out` 是虚拟坐标（不是源里的秒），下游只读 `out-in` 当时长，
+           取画面走 `img`、出黑场走 `gray`。没这两个键时 clip 与从前逐字节相同（老工程零迁移）。 */
+        if (s.img) { cl.img = s.img; if (s.imgName) cl.imgName = s.imgName; }
+        if (s.vc) cl.vc = 1;
+        /* 空段（视频区里的与图片区里的同一件事）：全片那一排只有这一格是「插进来的空」，
+           名称行要写「空段」而不是镜头名，挑段时也要能认出来 —— `gray` 只说明它出黑场。 */
+        if (s.gap) cl.gap = 1;
+        clips.push(cl);
       });
     });
     return { clips };
@@ -67,7 +75,9 @@ export function createProjection({ getProj, allShots, shotReady, tlCandidateOf, 
       const total = candDur(c, sh);
       return sh.id + '~' + (sh.name || '') + '~' + (c.vid || '') + '~'
         + segsOf(c, total).map(s => [s.in || 0, s.out || 0, s.a || 0, s.b || 0, s.off ? 1 : 0,
-          segSpd(s), picVolOf(s), s.ln == null ? 0 : s.ln].join(',')).join(';');
+          segSpd(s), picVolOf(s), s.ln == null ? 0 : s.ln,
+          /* 图片段换图 / 改名、空段标记：它们不进上面那七个数，漏了就是「换了图，播放计划还说没变」 */
+          s.img || '', s.imgName || '', s.vc ? 1 : 0, s.gap ? 1 : 0].join(',')).join(';');
     }).join('|');
   }
   function tlSyncFromShots() {

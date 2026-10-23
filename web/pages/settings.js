@@ -1,13 +1,13 @@
 /* 设置 —— 从 settings.html 迁到 Vue 3 的页面组件（无构建步骤，Vue 由本地 vendored 的
    vue.runtime.esm-browser.prod.js 提供）。行为一律照旧：
    · 改完一项就自动存本机（400ms 合并），顶栏那一格是唯一的回执出口；没有「保存全部」按钮；
-   · 供应商 / 密钥 / 自定义供应商 / 文字 AI 型号与识图 / 另存目录与搬迁 / 数据与云同步 /
-     本机体检 / 磁盘用量 / 清理缓存 / 提示词归档 / 整份设置的导出导入与恢复默认；
+   · 供应商 / 密钥 / 自定义供应商 / 文字 AI 型号与识图 / 导出目录 / 本机资产库位置 /
+     数据与云同步 / 本机体检 / 磁盘用量 / 清理缓存 / 提示词归档 / 整份设置的导出导入与恢复默认；
    · 下拉、弹窗、提示、数据同步、注册表、素材库设置全部仍走公共层那一份实现
      （Dropdowns / UiDialog / Confirm / Toast / DataSync / Api / TextAI / ModelPrefs /
       AssetLocal / PromptLog / Chars.SET / Wb.History），页面不复制第二份判据。
    组件只负责「这一屏长什么样」；需要逐块重画的几处（供应商卡、型号清单、分页表、
-   外观偏好、另存目录、体检 / 用量行、云同步面板）沿用原来的 renderXxx 形状，
+   外观偏好、本机资产库、体检 / 用量行、云同步面板）沿用原来的 renderXxx 形状，
    容器由 Vue 的 ref 持有 —— 这样 Dropdowns 重包下拉、initFolds 绑折叠、
    Confirm.arm 的武装态都与原来完全一致。 */
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
@@ -53,7 +53,8 @@ const SET_ROWS = [
   { card: 'net', kind: 'num', name: 'timeout', label: '请求超时', unit: '秒' },
   { card: 'net', kind: 'num', name: 'retry', label: '失败重试', unit: '次', hint: '填 0 = 不重试' },
   { card: 'net', kind: 'num', name: 'poll', label: '任务刷新间隔', unit: '秒' },
-  /* 产物存放：三行（另存档位 + 左栏两块） */
+  /* 产物存放：三行（自动存档位 + 左栏两块开关）。库根位置不在这里 —— 那是代理读的配置，
+     由「本机资产库」那一卡直接写 `sk_local_dir`。 */
   { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '自动存本机要存哪一档', def: 'all', keep: 1,
     opts: [['all', '连历史产物一起补齐（推荐默认）'], ['new', '只存开启之后新生成的']], hintDyn: 'saveScope' },
   { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
@@ -1525,10 +1526,82 @@ const SettingsView = {
           storeBox.appendChild(line);
         }
       } catch (e) {}
-      renderAutosaveDirs(storeBox);
+      renderExportDir(storeBox);
+      renderLocalLib(storeBox);
       syncUiNeeds();
     }
     let storeStatsOff = null;
+    /* ---------- 导出目录（浏览器 File System Access 句柄）----------
+       成片与「导出素材」落到哪：showDirectoryPicker() 的句柄 → createWritable()；
+       没有句柄时走普通下载（Wb.save）。**与「本机资产库」不是一回事**：
+       那一格是服务端路径（代理写，/pick-dir），这一档是浏览器句柄（浏览器写）。 */
+    function renderExportDir(box) {
+      if (!box || !window.ExportDir) return;
+      const head = document.createElement('div');
+      head.className = 'sect-t';
+      head.textContent = '导出目录';
+      box.appendChild(head);
+      const tip = document.createElement('div');
+      tip.className = 'hint sm';
+      tip.style.margin = '-4px 0 8px';
+      tip.textContent = '浏览器渲染的成片与导出的素材落到这个文件夹（浏览器直接写进去）。'
+        + '没有选时产物会进系统下载文件夹。这一档用浏览器的目录句柄，与下面「本机资产库」（服务端路径，代理写）是两件事。';
+      box.appendChild(tip);
+      const row = document.createElement('div');
+      row.className = 'krow';
+      const lab = document.createElement('span');
+      lab.className = 'kn';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tool';
+      const clr = document.createElement('button');
+      clr.type = 'button';
+      clr.className = 'ghost xs';
+      clr.textContent = '清除';
+      const why = document.createElement('span');
+      why.className = 'hint sm';
+      if (!ExportDir.supported()) {
+        lab.textContent = '未选择';
+        btn.textContent = '选择文件夹';
+        btn.disabled = true;
+        btn.title = '这个浏览器不支持选目录（File System Access 只在 Chromium 系可用）';
+        why.textContent = '这个浏览器不支持选目录，产物会进系统下载文件夹';
+        clr.disabled = true;
+      } else {
+        const paint = name => {
+          if (name) {
+            lab.textContent = name;
+            btn.textContent = '重新选择';
+            clr.disabled = false;
+            why.textContent = '成片与导出素材会写进这个文件夹';
+          } else {
+            lab.textContent = '未选择（产物会进系统下载文件夹）';
+            btn.textContent = '选择文件夹';
+            clr.disabled = true;
+            why.textContent = '';
+          }
+        };
+        ExportDir.name().then(paint).catch(() => paint(''));
+        btn.onclick = async () => {
+          btn.disabled = true;
+          const old = btn.textContent;
+          btn.textContent = '等你在弹出的窗口里选…';
+          try {
+            const r = await ExportDir.pick();
+            if (r.cancelled) { why.textContent = '你取消了，目录没改。'; }
+            else if (!r.ok) { why.innerHTML = '<b style="color:var(--err)">没选到：</b>' + window.esc(r.why || ''); }
+            else { paint(r.name); why.textContent = '✓ 已选好：' + r.name; }
+          } finally { btn.disabled = false; btn.textContent = old; ExportDir.name().then(paint).catch(() => {}); }
+        };
+        clr.onclick = async () => {
+          await ExportDir.forget();
+          paint('');
+          why.textContent = '已清除：产物会进系统下载文件夹';
+        };
+      }
+      row.appendChild(lab); row.appendChild(btn); row.appendChild(clr); row.appendChild(why);
+      box.appendChild(row);
+    }
     /* 依附别的开关的那一项（needs）当场收起来 / 放出来。 */
     function syncUiNeeds() {
       const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
@@ -1539,108 +1612,111 @@ const SettingsView = {
       });
     }
 
-    /* ---------- 自动保存：按类型分别「存不存 / 另存到哪」 ----------
-       判据与分流只有一份（AssetLocal.autosaveConf / setAutosaveConf / saveFails），
-       这一页只负责画与存。目录两个办法都能用：点「📁 选择…」让本机代理弹系统文件夹选择框，
-       或在右边直接手打。 */
-    let AS_LAST_TARGET = null;          // 这一卡重画时那一版配置（换目录问话的基线）
-    let AS_ASKING = false;
-    let AS_STALE = null;                // { image:{on,to,label,dirs,count,bytes}, … }；数不清时为 null
-    let AS_STALE_ERR = '';              // '' 数到了 / 'old' 老代理没这条路由 / 'io' 读不出来 / 'none' 没接到接口
-    let AS_STALE_WHY = '';
-    let AS_DISMISSED = {};              // 本页里选过「先不动」的那几类
+    /* ---------- 本机资产库：产物住在哪儿 ----------
+       产物**只有一份**：库根\类型\<规范名>.<ext>，默认根就是用户翻得到的 下载\拾帧。
+       「按类型另存到指定文件夹」那一族（三档开关 + 三格目录 + 补存 + 上次没存成）整块撤掉 ——
+       实测一次生成写两遍同样的字节，两份都躺在用户自己的盘上。
+       这一卡只做一件事：把库根指到哪儿（只有**一个**目录）。
+       库根不是浏览器里的偏好：代理的 localRoot() 读的是 .data\sk_local_dir.json，
+       所以这里写 localStorage 的 sk_local_dir，由 DataSync 镜像过去（同步名单在 datasync.js）。
+       ⚠ 换根**不搬文件**，这一页也没有「把旧根搬进来」的入口：代理只扫当前根，
+          旧根里那些产物在库里读不到文件（回源外链与费用记录照样在）。
+          要接着用得自己在文件管理器里把旧根那一堆挪进新根 —— 挪进去就按 fid / 内容签名认回。 */
+    const NO_PROXY_TXT = '这一页没接到本机代理的接口，读不到现在生效的位置 —— 请确认代理在跑。';
+    const libRootDir = () => String(window.LS.get('sk_local_dir') || '').trim();
+    function libRootSet(dir) {
+      const v = String(dir || '').trim();
+      /* 空串是「用默认」，不是「没配过」：把键删掉，代理那侧就读回落下载\拾帧。
+         留一个空字符串在盘上，下次对账会把它当成一份有内容的配置拉回另一台机器。 */
+      if (v) window.LS.set('sk_local_dir', v); else window.LS.del('sk_local_dir');
+    }
 
-    function renderAutosaveDirs(box) {
-      if (!box || !window.AssetLocal) return;
+    function renderLocalLib(box) {
+      if (!box) return;
       const head = document.createElement('div');
       head.className = 'sect-t';
-      head.textContent = '另存到指定文件夹（按类型）';
+      head.textContent = '本机资产库';
       box.appendChild(head);
       const tip = document.createElement('div');
       tip.className = 'hint sm';
       tip.style.margin = '-4px 0 8px';
-      tip.textContent = '每类可以分开设：关掉就不再自动存这一类；填了目录就在那边「额外」存一份（同名自动加序号，不覆盖）。'
-        + '目录可以点「📁 选择…」让系统弹框挑，也可以直接手打；目录不存在会自动建，写不进去时下面那一行会照实说原因。'
-        + '留空 = 存到系统「下载」文件夹下的 拾帧\\类型（如 下载\\拾帧\\视频），那里你直接翻得到。';
+      tip.textContent = '每一次生成的产物只存这一份，落在下面这个位置里按类型分的 图片\\ / 视频\\ / 音频\\，'
+        + '文件名是可读的那一种（场景-镜头-候选），同名自动加 -2、不覆盖。'
+        + '自己在文件管理器里改名、挪进别的目录、整堆搬到另一块盘都还认得 —— 代理按「哪块盘上的哪个文件」'
+        + '和头尾采样内容签名两级认回；账记在 .data\\local-assets\\，那是应用自己的账，跟着应用走、不跟着作品走。';
       box.appendChild(tip);
-      const conf = AssetLocal.autosaveConf();
-      const fails = AssetLocal.saveFails();
-      AssetLocal.SAVE_KINDS.forEach(k => {
-        const row = document.createElement('div');
-        row.className = 'krow';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox'; cb.checked = !!conf[k.id].on; cb.dataset.as = k.id + ':on';
-        cb.onchange = () => { saveAutosave(true); };
-        const kn = document.createElement('span');
-        kn.className = 'kn'; kn.textContent = k.zh;
-        const inp = document.createElement('input');
-        inp.type = 'text';
-        inp.placeholder = '默认：下载\\拾帧\\' + k.zh + '（留空就用它）';
-        inp.value = conf[k.id].dir; inp.dataset.as = k.id + ':dir';
-        inp.style.minWidth = '260px';
-        /* 只有 change 才落盘，没有 oninput：半截路径一旦进盘，那几毫秒里正好存回的产物
-           会新建并写进一个谁都没挑过的目录。 */
-        inp.onchange = () => { saveAutosave(true); };
-        const why = document.createElement('span');
-        why.className = 'hint sm'; why.dataset.aswhy = k.id;
-        const r = fails[k.id];
-        if (r && r.why) why.innerHTML = '<b style="color:var(--err)">上次没存成：</b>' + window.esc(r.why);
-        const pick = document.createElement('button');
-        pick.type = 'button';
-        pick.className = 'tool';
-        pick.textContent = '📁 选择…';
-        pick.title = '弹出系统自带的文件夹选择框';
-        pick.dataset.asPick = k.id;
-        pick.onclick = () => pickDirFor(k, inp, pick, why);
-        row.appendChild(cb); row.appendChild(kn); row.appendChild(inp); row.appendChild(pick); row.appendChild(why);
-        box.appendChild(row);
-      });
-      /* 「恢复默认」只管这一张卡（整页那颗在最后一栏）。 */
-      const foot = document.createElement('div');
-      foot.className = 'krow tight';
+
+      const row = document.createElement('div');
+      row.className = 'krow';
+      const kn = document.createElement('span');
+      kn.className = 'kn'; kn.textContent = '位置';
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.dataset.libdir = '1';
+      inp.placeholder = '默认：下载\\拾帧（留空就用它）';
+      inp.value = libRootDir();
+      inp.style.minWidth = '260px';
+      /* 只有 change 才落盘，没有 oninput：半截路径一旦进盘，那几毫秒里正好存回的产物
+         会新建并写进一个谁都没挑过的目录。 */
+      inp.onchange = () => { saveLibDir(); };
+      const why = document.createElement('span');
+      why.className = 'hint sm'; why.dataset.libNote = '1';
+      const pick = document.createElement('button');
+      pick.type = 'button'; pick.className = 'tool'; pick.textContent = '📁 选择…';
+      pick.title = '弹出系统自带的文件夹选择框';
+      pick.onclick = () => pickLibDir(inp, pick, why);
       const rst = document.createElement('button');
       rst.type = 'button'; rst.className = 'ghost xs'; rst.textContent = '恢复默认';
-      rst.dataset.asrst = '1';
-      rst.title = '三类都重新打开、三格目录全部清空 → 以后存到系统「下载」下的 拾帧\\类型';
-      const fmsg = document.createElement('span');
-      fmsg.className = 'hint sm';
-      fmsg.dataset.asNote = '1';
+      rst.title = '清空这一格 → 产物回到系统「下载」下的 拾帧\\';
       rst.onclick = async () => {
-        if (Confirm.arm(rst, '确认恢复默认', { key: 'as-rst', hint: '再点一次就清空这三格目录 · 本机已经存下的文件一个都不动' })) return;
-        qa('[data-as]').forEach(el => {
-          const fld = String(el.dataset.as || '').split(':')[1];
-          if (fld === 'on') el.checked = true; else if (fld === 'dir') el.value = '';
-        });
-        /* force：恢复默认把三格清成空串，而上一版多半也是空串 —— 按配置比字符串永远
-           读出「什么都没改」，那句问话就一次都不会弹。force 让这一趟改读磁盘那份数。 */
-        const code = await saveAutosave(true, { force: true });
-        markChanged();
-        setAsNote('已恢复默认：三类都开着、目录留空 → 存到系统「下载」下的 拾帧\\类型。' + asFollowMsg(code));
+        if (Confirm.arm(rst, '确认恢复默认', { key: 'lib-rst', hint: '再点一次就清空这一格目录 · 已经存下的文件一个都不动' })) return;
+        inp.value = '';
+        await saveLibDir();
+        setLibNote('已恢复默认：下一次生成起存到系统「下载」下的 拾帧\\。已经在别的目录里的文件一个都不动。');
       };
-      foot.appendChild(rst); foot.appendChild(fmsg);
-      box.appendChild(foot);
-      const stale = document.createElement('div');
-      stale.dataset.asStale = '1';
-      box.appendChild(stale);
-      paintAsStale(stale);
-      refreshAsStale();
-      AS_LAST_TARGET = asSnapshot();
+      row.appendChild(kn); row.appendChild(inp); row.appendChild(pick); row.appendChild(rst); row.appendChild(why);
+      box.appendChild(row);
+
+      /* 生效位置那一行读代理的读数，不读这一格：改了目录要重启才生效、或者那一格压根没被认，
+         都只有「代理现在用的到底是哪儿」说得出真相。 */
+      const where = document.createElement('div');
+      where.className = 'hint sm'; where.dataset.libWhere = '1';
+      where.textContent = '正在问代理现在用的是哪个位置…';
+      box.appendChild(where);
+      refreshLibRoot();
     }
-    async function pickDirFor(k, inp, btn, why) {
+
+    async function refreshLibRoot() {
+      const el = q('[data-lib-where]');
+      if (!el) return;
+      if (!window.Api || !Api.sysStatus) { el.textContent = NO_PROXY_TXT; return; }
+      try {
+        const s = await Api.sysStatus(true);
+        const d = (s && s.目录 && s.目录.资产) || {};
+        const state = String(d.状态 || '');
+        el.innerHTML = '代理现在用的位置：<b>' + window.esc(d.路径 || '（没读到）') + '</b>'
+          + (state && state !== '可写' ? ' · ' + window.esc(state) : '')
+          + '　·　账在 .data\\local-assets\\';
+      } catch (e) {
+        el.innerHTML = '<b style="color:var(--err)">读不到现在生效的位置：</b>' + window.esc(errText(e));
+      }
+    }
+
+    async function pickLibDir(inp, btn, why) {
       if (!window.Api || !Api.pickDir) { if (why) why.innerHTML = '<b style="color:var(--err)">这页没加载到代理接口</b>'; return; }
       const old = btn.textContent;
       btn.disabled = true;
       btn.textContent = '等你在弹出的窗口里选…';
       if (why) why.textContent = '系统文件夹选择框已经弹出来了（可能在窗口后面），选完点「选择」或直接关掉它。';
       try {
-        const r = await Api.pickDir({ title: '选择「' + k.zh + '」要保存到的文件夹', start: String(inp.value || '').trim() });
-        if (r && r.cancelled) { if (why) why.textContent = '你取消了，目录没改。'; return; }
-        if (!r || !r.ok || !r.dir) { if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + window.esc((r && r.error && r.error.message) || '代理没有回路径'); return; }
+        const r = await Api.pickDir({ title: '选择本机资产库放在哪里', start: String(inp.value || '').trim() });
+        if (r && r.cancelled) { if (why) why.textContent = '你取消了，位置没改。'; return; }
+        if (!r || !r.ok || !r.dir) {
+          if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + window.esc((r && r.error && r.error.message) || '代理没有回路径');
+          return;
+        }
         inp.value = r.dir;
-        const code = await saveAutosave(true);
-        markChanged();
-        if (why) why.textContent = '已选好 · 路径写在上边那一格，可以直接改 · 已经存好了，下次生成就往这儿放'
-          + (code === 'asked' ? '' : ' · ' + asFollowMsg(code));
+        await saveLibDir();
+        if (why) why.textContent = '已选好 · 路径写在上边那一格，可以直接改 · 下一次生成才落到这里';
       } catch (e) {
         if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + window.esc(errText(e));
       } finally {
@@ -1648,263 +1724,24 @@ const SettingsView = {
         btn.textContent = old;
       }
     }
-    function saveAutosave(maybeAsk, opts) {
-      if (!window.AssetLocal) return Promise.resolve('noapi');
-      const c = AssetLocal.autosaveConf();
-      qa('[data-as]').forEach(el => {
-        const pair = String(el.dataset.as || '').split(':');
-        const kind = pair[0], fld = pair[1];
-        if (!c[kind]) return;
-        if (fld === 'on') c[kind].on = !!el.checked;
-        else c[kind].dir = String(el.value || '').trim();
-      });
-      AssetLocal.setAutosaveConf(c);
-      return maybeAsk ? askFollowTarget(opts || {}) : Promise.resolve('noask');
-    }
-    function asSnapshot() {
-      const c = AssetLocal.autosaveConf();
-      const out = {};
-      for (const k of AssetLocal.SAVE_KINDS) {
-        const r = c[k.id] || {};
-        out[k.id] = { on: !!r.on, dir: String(r.dir || '') };
+
+    /* 改位置**不搬文件**：新产物落新根，旧根里的字节留在原处，这一页不代用户动它。
+       这里也不弹二次确认框 —— 那一格就是给用户改的，改完把「代理现在用的是哪儿」摊在眼前比弹窗有用。 */
+    async function saveLibDir() {
+      const el = q('[data-libdir]');
+      const want = String((el && el.value) || '').trim();
+      const prev = libRootDir();
+      libRootSet(want);
+      markChanged();
+      await refreshLibRoot();
+      if (prev !== want) {
+        setLibNote(want ? ('位置已改成这一格（下一次生成才落到这里，已经在库里的文件不动）。')
+          : '位置已留空 → 用默认的 下载\\拾帧（下一次生成才落到这里，已经在库里的文件不动）。');
       }
-      return out;
     }
-    function asChanges() {
-      if (!AS_LAST_TARGET) return [];
-      const now = asSnapshot();
-      const out = [];
-      for (const k of AssetLocal.SAVE_KINDS) {
-        const a = AS_LAST_TARGET[k.id] || { on: false, dir: '' }, b = now[k.id];
-        if (!b.on) continue;
-        if (a.on && a.dir === b.dir) continue;
-        out.push({ id: k.id, zh: k.zh, from: a.dir, to: b.dir, fromOn: a.on });
-      }
-      return out;
-    }
-    function asCanMove(c) { return !!(c.fromOn && c.from !== c.to); }
-    const AS_STALE_TXT = {
-      old: '本地代理还没有「数一遍旧目录」这一条只读接口：重启一次本机代理（启动器里点「重启」）就能看见还剩多少没搬。',
-      io: '数旧目录这一步没成功。',
-      none: '这一页没接到本机代理的存盘接口，数不了旧目录 —— 请确认代理在跑。',
-    };
-    async function readStale() {
-      if (!window.Api || !Api.saveStale) { AS_STALE = null; AS_STALE_ERR = 'none'; AS_STALE_WHY = ''; return null; }
-      try {
-        const r = await Api.saveStale();
-        AS_STALE = (r && r.kinds) || {}; AS_STALE_ERR = ''; AS_STALE_WHY = '';
-      } catch (e) {
-        AS_STALE = null;
-        AS_STALE_ERR = (e && e.status === 404) ? 'old' : 'io';
-        AS_STALE_WHY = String(errText(e));
-      }
-      return AS_STALE;
-    }
-    /* 数到的目录 → /save-move 认的来源表：两代默认合成 '@default'，其余每一处单独递。 */
-    function asFroms(info) {
-      const dirs = (info && info.dirs) || [];
-      const out = [];
-      if (dirs.some(d => d && d.isDefault)) out.push('@default');
-      for (const d of dirs) if (d && !d.isDefault && d.dir) out.push(d.dir);
-      return out;
-    }
-    function asFillIds(kind) {
-      const A = window.AssetLocal;
-      if (!A || !A.mirrorIds) return [];
-      return (A.mirrorIds() || []).filter(x => x && x.kind === kind).map(x => x.id);
-    }
-    function stalePlan(k, info) {
-      return { id: k.id, zh: k.zh, to: (info && info.to) || '', froms: asFroms(info), ids: asFillIds(k.id) };
-    }
-    async function askFollowTarget(opts) {
-      opts = opts || {};
-      if (AS_ASKING) return 'busy';
-      if (!window.Api || !Api.saveLocal || !window.AssetLocal) return 'noapi';
-      const chs = asChanges(), chg = {};
-      chs.forEach(c => { chg[c.id] = c; });
-      if (!AS_STALE && !AS_STALE_ERR) await readStale();
-      const K = AS_STALE || {};
-      const list = [];
-      for (const k of AssetLocal.SAVE_KINDS) {
-        const info = K[k.id];
-        const changed = !!chg[k.id];
-        const leftovers = !!(info && info.count > 0);
-        if (!changed && !(leftovers && opts.force)) continue;
-        if (!changed && AS_DISMISSED[k.id]) continue;
-        const c = stalePlan(k, info);
-        if (changed) {
-          const f = chg[k.id].from || '@default';
-          if (asCanMove(chg[k.id]) && c.froms.indexOf(f) < 0) c.froms.push(f);
-          /* 目标只读刚写进配置的那一个（缓存那份扫描是改之前数出来的）。 */
-          c.to = chg[k.id].to || '';
-        }
-        if (!c.froms.length && !c.ids.length) continue;
-        list.push(c);
-      }
-      if (!list.length) return chs.length ? 'nothing' : 'nochange';
-      AS_ASKING = true;
-      let asked = 0, declined = 0;
-      try {
-        for (const c of list) {
-          const r = await runFollow(c);
-          if (r === 'asked') asked++; else if (r === 'skip') declined++;
-        }
-      } finally { AS_ASKING = false; AS_LAST_TARGET = asSnapshot(); }
-      return asked ? 'asked' : (declined ? 'skip' : 'nothing');
-    }
-    function asFollowMsg(code) {
-      if (code === 'asked') return '刚才问过一句搬 / 补；改主意可以在下面那一排再搬。';
-      if (code === 'skip') return '刚才问过一句，你点了「先不动」—— 改主意随时能在下面那一排搬。';
-      if (code === 'nothing') return '旧目录里此刻数不出还没搬的副本（都搬完了，或者那一格本来就没存过）。';
-      if (code === 'nochange') return '这一趟改的不是目录，所以没问搬 —— 旧目录里还剩多少看下面那一排。';
-      if (code === 'busy') return '这一页已经有一句在问了，这次没重复弹；下面那一排随时能搬。';
-      if (code === 'noapi') return '这一页没接到本机代理的存盘接口，这次没问搬。';
-      return '';
-    }
-    async function runFollow(c) {
-      const fromsDisp = c.froms.map(x => (x === '@default'
-        ? '默认位置（下载\\拾帧\\' + c.zh + '，更早的还在项目内的 文件\\' + c.zh + '）' : x));
-      const toFull = c.to || ('默认位置（下载\\拾帧\\' + c.zh + '）');
-      const opts = [];
-      if (c.froms.length) opts.push({
-        value: 'both', label: '搬过去，并把没存过的补上',
-        hint: fromsDisp.join('　·　') + ' 里的 ' + c.zh + ' 移到 ' + toFull + '（搬完删掉旧的那份），再从本机资产库补齐没另存过的。',
-      });
-      opts.push({
-        value: 'fill', label: c.ids.length ? ('只补存（' + c.ids.length + ' 个）') : '只补存',
-        hint: '从本机资产库拷一份到 ' + toFull + '；旧目录里那份原样留着。',
-      });
-      const pick = await Confirm.choose({
-        title: c.zh + '：要把之前存的挪到新地方吗？',
-        sub: (c.froms.length ? '旧目录：' + fromsDisp.join('　·　') + '　·　' : '') + '新目录：' + toFull,
-        body: '字节都已经在本机资产库里了，这里只是拷/挪一份 —— 不重新下载、不回源，本机资产库那份一律不动。',
-        options: opts, cancelLabel: '先不动',
-      });
-      if (!pick) { AS_DISMISSED[c.id] = 1; return 'skip'; }
-      const s = await doFollow(c, pick);
-      paintFollow(c.zh, s);
-      await refreshAsStale();
-      return 'asked';
-    }
-    /* 真动文件只有这一份：顺序永远是**先搬后补**（反过来同一个视频在新目录里就是两份）。 */
-    async function doFollow(c, pick) {
-      const s = { moved: 0, dup: 0, failed: 0, filled: 0, fillDup: 0, bytes: 0, bad: 0, badWhy: '', err: '' };
-      if (pick === 'both') for (const from of c.froms) {
-        try {
-          const mv = await Api.saveMove({ kind: c.id, from });
-          s.moved += ((mv && mv.moved) || []).length;
-          s.dup += ((mv && mv.dup) || []).length;
-          s.failed += ((mv && mv.failed) || []).length;
-        } catch (e) {
-          s.err = s.err || String(errText(e));
-        }
-      }
-      const ids = asFillIds(c.id);
-      if (ids.length) {
-        try {
-          const r = await Api.saveLocal({ ids });
-          s.filled = ((r && r.saved) || []).length;
-          s.fillDup = ((r && r.dup) || []).length;
-          s.bytes = (r && r.bytes) || 0;
-          s.bad = ((r && r.full) || []).length;
-          s.badWhy = s.bad ? (((r.full[0] && r.full[0].why) || '原因不明')) : '';
-        } catch (e) { s.err = s.err || String(errText(e)); }
-      }
-      return s;
-    }
-    function followNote(zh, s) {
-      const parts = [];
-      if (s.moved || s.dup) parts.push('搬走 ' + s.moved + ' 个'
-        + (s.dup ? '（那边已有同样内容、只清掉旧的那份 ' + s.dup + ' 个）' : ''));
-      if (s.failed) parts.push(s.failed + ' 个没搬成');
-      if (s.filled || s.fillDup) parts.push('补存 ' + s.filled + ' 个（' + mbOf(s.bytes) + '）'
-        + (s.fillDup ? '，那边已经有了 ' + s.fillDup + ' 个没重复拷' : ''));
-      if (s.bad) parts.push(s.bad + ' 个没存成（' + s.badWhy + '）');
-      if (s.err) parts.push('有一步失败了：' + s.err);
-      if (!parts.length) parts.push('这一类没有要挪的：旧目录里数不出副本，本机库里也没有没存过的');
-      return zh + '：' + parts.join('，') + '。';
-    }
-    const paintFollow = (zh, s) => {
-      setAsNote(followNote(zh, s), !!(s.err || s.failed || s.bad));
-      if (s.err || s.failed || s.bad) Toast.err(followNote(zh, s));
-    };
-    /* 下面那一排「旧目录里还没搬走的」：常驻出口（不靠「刚改完那一刻」的那一次问话）。 */
-    async function refreshAsStale() {
-      await readStale();
-      const el = q('[data-as-stale]');
-      if (el && el.isConnected) paintAsStale(el);
-    }
-    function paintAsStale(el) {
-      if (!el || !window.AssetLocal) return;
-      el.innerHTML = '';
-      el.hidden = false;
-      const add = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; el.appendChild(d); return d; };
-      if (!AS_STALE && !AS_STALE_ERR) { add('hint sm', '正在数旧目录里还剩多少份没搬…'); return; }
-      if (AS_STALE_ERR) { add('hint sm', AS_STALE_TXT[AS_STALE_ERR] + (AS_STALE_ERR === 'io' && AS_STALE_WHY ? '（' + AS_STALE_WHY + '）' : '')); return; }
-      const rows = AssetLocal.SAVE_KINDS
-        .map(k => ({ k, info: (AS_STALE || {})[k.id] }))
-        .filter(x => x.info && x.info.count > 0);
-      if (!rows.length) { el.hidden = true; return; }
-      el.hidden = false;
-      add('hint sm', '旧目录里还有本工作台以前存出去的副本（这一排数的是磁盘，不是设置里那三格路径）：');
-      rows.forEach(x => el.appendChild(staleRow(x.k, x.info)));
-      const foot = document.createElement('div');
-      foot.className = 'krow tight';
-      const again = document.createElement('button');
-      again.type = 'button'; again.className = 'ghost xs'; again.dataset.asRefresh = '1';
-      again.textContent = '↻ 重新数一遍';
-      again.title = '再问一次代理数磁盘（搬完 / 补完之后这一排自己会更新）';
-      again.onclick = async () => { again.disabled = true; await refreshAsStale(); };
-      const busy = document.createElement('span');
-      busy.className = 'hint sm'; busy.dataset.asStaleBusy = '1';
-      foot.appendChild(again); foot.appendChild(busy);
-      el.appendChild(foot);
-    }
-    function staleRow(k, info) {
-      const row = document.createElement('div');
-      row.className = 'krow tight'; row.dataset.asStaleRow = k.id;
-      const dirs = info.dirs || [];
-      const ids = asFillIds(k.id);
-      const kn = document.createElement('span');
-      kn.className = 'kn'; kn.textContent = k.zh;
-      const txt = document.createElement('span');
-      txt.className = 'hint sm';
-      txt.textContent = '还有 ' + info.count + ' 个 / ' + mbOf(info.bytes)
-        + ' 在 ' + (dirs.length > 1 ? (dirs[0].dir + ' 等 ' + dirs.length + ' 处') : (dirs[0] ? dirs[0].dir : '（数不清）'))
-        + (info.on ? ' → ' + info.to : '（这一类现在是关着的）');
-      txt.title = dirs.map(d => d.dir + '：' + d.count + ' 个 / ' + mbOf(d.bytes) + (d.isDefault ? '（默认位置那一代）' : '')).join('\n');
-      const mv = document.createElement('button');
-      mv.type = 'button'; mv.className = 'tool'; mv.dataset.asAct = 'move';
-      mv.textContent = '搬过来' + (ids.length ? '（并把没存过的 ' + ids.length + ' 个补上）' : '');
-      const fl = document.createElement('button');
-      fl.type = 'button'; fl.className = 'ghost xs'; fl.dataset.asAct = 'fill';
-      fl.textContent = '只补存' + (ids.length ? '（' + ids.length + ' 个）' : '');
-      if (!ids.length) { fl.disabled = true; fl.title = '本机资产库里这一类一个都没有，没什么可补'; }
-      if (!info.on) {
-        mv.disabled = true; mv.title = '这一类现在是关着的，先在上面打开开关再搬';
-        fl.disabled = true; fl.title = mv.title;
-      }
-      const run = async (pick) => {
-        const c = stalePlan(k, info);
-        if (pick === 'both' && !c.froms.length) { setAsNote(k.zh + '：这一排的目录清单是空的，没什么可搬（点「↻ 重新数一遍」再看一次）。', true); return; }
-        mv.disabled = true; fl.disabled = true;
-        const busy = q('[data-as-stale-busy]');
-        if (busy) busy.textContent = '正在' + (pick === 'both' ? '搬并补' : '补') + '…';
-        const s = await doFollow(c, pick);
-        paintFollow(k.zh, s);
-        await refreshAsStale();
-      };
-      mv.onclick = () => {
-        if (Confirm.arm(mv, '确认搬过来', { key: 'as-move-' + k.id,
-          hint: '再点一次就搬走这 ' + info.count + ' 个并删掉旧目录里那一份 · 目标：' + (info.to || '') })) return;
-        run('both');
-      };
-      fl.onclick = () => run('fill');
-      row.appendChild(kn); row.appendChild(txt); row.appendChild(mv); row.appendChild(fl);
-      return row;
-    }
-    function setAsNote(text, isErr) {
-      const el = q('[data-as-note]');
+
+    function setLibNote(text, isErr) {
+      const el = q('[data-lib-note]');
       if (!el) return;
       el.textContent = text;
       el.style.color = isErr ? 'var(--err)' : '';
@@ -1931,7 +1768,7 @@ const SettingsView = {
         const nowSaveOn = window.LS.get('sk_media_local') !== 'off';
         if (nowSaveOn && !__wasSaveOn && window.AssetLocal && AssetLocal.markSaveOn) AssetLocal.markSaveOn();
       } catch (e) {}
-      /* 「另存档位 / 左栏两块开关」以前在这里手抄三份 LS.set —— 现在它们是 SET_ROWS 里的行，
+      /* 「自动存档位 / 左栏两块开关」以前在这里手抄三份 LS.set —— 现在它们是 SET_ROWS 里的行，
          由自动保存那一趟的 saveManifestRows 统一落盘（一处声明，写盘只有一条路）。 */
       syncUiNeeds();
       try {
@@ -1985,36 +1822,9 @@ const SettingsView = {
       });
     }
 
-    /* ---------- 润色行为（提示词正文在 Skill 里，这里只剩「要不要先反问」；行本身在 SET_ROWS 声明） ---------- */
-    async function clearManualPrompts() {
-      const ok = await Confirm.ask({
-        title: '清掉旧版手改的提示词？',
-        body: '只会删掉 sk_polish_* 那几条手改副本；Skill 与其它设置一个都不动。',
-        okLabel: '确认清掉', danger: true,
-      });
-      if (!ok) return;
-      const n = window.TextAI && TextAI.clearManualPrompts ? TextAI.clearManualPrompts() : 0;
-      markChanged();
-      if (n) Toast.receipt('已清掉 ' + n + ' 条，润色改用 Skill 正文');
-      else Toast.warn('没有手改过的提示词，不用清');
-    }
-    async function migrateLegacyPrompts() {
-      if (!window.WbSkills || !window.WbSkills.migrateLegacyPrompts) { Toast.err('Skill 客户端没有加载'); return; }
-      const ok = await Confirm.ask({
-        title: '把旧版手改的提示词迁移成 Skill？',
-        body: '每条 sk_polish_* 会装成一份 legacy-* 用户 Skill（同一份 contract 会盖过内置那一份），迁移成功后才删旧键。',
-        okLabel: '开始迁移',
-      });
-      if (!ok) return;
-      skillBusy.value = true;
-      try {
-        const r = await window.WbSkills.migrateLegacyPrompts();
-        skillMsg.value = '迁移 ' + (r.moved || 0) + ' 条'
-          + (r.skipped && r.skipped.length ? '；没迁：' + r.skipped.slice(0, 3).join('、') : '');
-        await reloadSkills(true);
-      } catch (e) { skillMsg.value = '迁移失败：' + errText(e); }
-      finally { skillBusy.value = false; }
-    }
+    /* ---------- 润色行为（提示词正文在 Skill 里，这里只剩「要不要先反问」；行本身在 SET_ROWS 声明） ----------
+       旧版手改残留（sk_polish_* 除 ask）已由 tools/migrate-skills.cjs 一次性备份并删除，
+       页面不再有「旧版清理」按钮 —— 代码也不再读那些键（优先级只剩 Skill 正文 → 内置默认）。 */
 
     /* ---------- AI 助手（四颗开关的行在 SET_ROWS 声明；这里只剩通知授权的说明行） ---------- */
     function noticeState() {
@@ -2276,7 +2086,7 @@ const SettingsView = {
        （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
     const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
       'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
-      'sk_custom', 'sk_prov_tab', 'sk_autosave',
+      'sk_custom', 'sk_prov_tab', 'sk_local_dir',
       /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
          刻意不写 'ai_chat_' 前缀：ai_chat（对话记录）与 ai_chat_files / _xy / _watch 是数据与本机窗口的事。 */
       'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock',
@@ -2285,7 +2095,7 @@ const SettingsView = {
     ];
     const DATA_KEYS = ['char_lib'];
     const isSettingKey = k => !DATA_KEYS.includes(k) && EXPORTABLE.some(p => k === p || k.startsWith(p));
-    const RESET_KEEP = ['sk_prov_tab', 'sk_autosave',
+    const RESET_KEEP = ['sk_prov_tab', 'sk_local_dir',
       /* 在这台机器上关掉助手是一次有意图的选择：「恢复默认」不该顺手把那颗悬浮球装回来。 */
       'ai_chat_off',
       ...SET_ROWS.filter(r => r.keep).map(r => r.key),
@@ -2757,12 +2567,16 @@ const SettingsView = {
         + '<span class="ui-tag ' + cls + '">' + e(chip) + '</span>'
         + '<span class="dir-name"' + (title ? ' title="' + e(title) + '"' : '') + '>' + e(detail) + '</span></div>';
     }
-    function toolRow(label, t, what) {
-      const r = Api.sysTool(t);
-      if (r.chip === '没读到') return chipRow(label, r.cls, r.chip, what);
-      return r.cls === 'ok'
-        ? chipRow(label, 'ok', r.chip, r.why, r.why)
-        : chipRow(label, 'err', r.chip, (r.why || '代理没说原因') + ' —— ' + what);
+    /* 成片导出问的是**这个浏览器**（成片在页面里合成）：
+       一行芯片 + 三个分项，分项说明进 title，与助手 doctor 读同一份 Api.exportCaps。 */
+    function capsRow(c) {
+      const items = c.items || [];
+      const detail = items.length
+        ? items.map(x => x.name + (x.ok ? ' 能用' : ' 不能用')).join(' · ')
+        : (c.why || '');
+      const title = [c.why || ''].concat(items.map(x => x.name + '：' + (x.ok ? '能用' : '不能用')
+        + (x.detail ? ' —— ' + x.detail : ''))).filter(Boolean).join('\n');
+      return chipRow('成片导出（本浏览器）', c.cls, c.chip, detail, title);
     }
     function dirRow(label, d) {
       if (!d) return chipRow(label, 'warn', '没读到', '代理没返回这一项');
@@ -2791,6 +2605,8 @@ const SettingsView = {
         return;
       }
       lastSys = s; syncSysCopyBtn();
+      /* 这一格不来自代理：导出能力只在浏览器里问得出来 */
+      const caps = await Api.exportCaps(fresh);
       const p = s.代理 || {};
       const old = Api.oldProxyNotice(p.版本);
       let html = '';
@@ -2810,15 +2626,7 @@ const SettingsView = {
         html += chipRow('出站代理', on ? 'ok' : 'warn', on ? '走代理' : '直连',
           (op.来源 || '没检测到代理') + (on ? '' : '（本机 / 内网地址始终直连）'), op.绕过 || '');
       }
-      html += toolRow('成片合成（ffmpeg）', s.ffmpeg, Api.SYS_WHY.ffmpeg);
-      html += toolRow('时长测量（ffprobe）', s.ffprobe, Api.SYS_WHY.ffprobe);
-      const rd = s.渲染;
-      if (rd) {
-        html += chipRow('成片渲染', rd.本机档 === 'ok' ? 'ok' : 'warn', rd.本机 || '?',
-          (rd.编码 || '?') + '（' + (rd.中文名 || '?') + '）· 档位 ' + (rd.档位 || '?')
-          + ' · 同时 ' + (rd.同时 || '?') + ' 条 · 记录留 ' + (rd.保留分钟 || '?') + ' 分钟',
-          (rd.本机说明 || '') + '\n质量档：' + (rd.质量 || '') + '\n' + (rd.来源 || ''));
-      }
+      html += capsRow(caps);
       const rl = s.转发;
       if (rl) {
         html += chipRow('平台转发闸', rl.档 || 'warn', rl.芯片 || '?',
@@ -2833,7 +2641,7 @@ const SettingsView = {
       if (old) html += '<div class="ui-note err">' + window.esc(old) + '</div>';
       if (sysRowsEl.value) sysRowsEl.value.innerHTML = html;
       sysMsg.value = '上次体检：' + window.fmtHMS(s.at || Date.now())
-        + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（改过 PATH 请点「重新体检」）');
+        + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（换过浏览器或改过目录权限请点「重新体检」）');
     }
     async function recheckSys() {
       if (sysBusy.value) return;
@@ -3015,7 +2823,7 @@ const SettingsView = {
         promptMsg.value = '✗ 归档目录没能存进本机（浏览器存储写满或不允许写入）—— 这一项没改';
         return;
       }
-      promptMsg.value = promptDir.value.trim() ? '✓ 归档目录已改为：' + promptDir.value.trim() : '✓ 已改回默认目录（项目下的 prompts/）';
+      promptMsg.value = promptDir.value.trim() ? '✓ 归档目录已改为：' + promptDir.value.trim() : '✓ 已改回默认目录（下载\\拾帧\\提示词）';
       refreshPrompt();
     }
     function promptRefresh() { promptMsg.value = ''; refreshPrompt(); }
@@ -3067,6 +2875,52 @@ const SettingsView = {
       });
     });
     const skillCntText = computed(() => skillFiltered.value.length + ' / ' + (skillItems.value || []).length + ' 份 Skill');
+
+    /* 一级菜单 = 「这个 Skill 用在哪」（§13.2）：11 个 contract 各一行 + 助手一行（唯一按需触发的）。
+       每行三件事：现在用的是哪一份（内置 / 我的）、有没有冲突、人话的用在哪。
+       点一行 = 选中「现在用的那一份」进下面的详情（清单 / 变量表 / 改 / 恢复都在那里）。 */
+    const skillSlots = computed(() => {
+      const TA = window.TextAI || {};
+      const contracts = TA.SKILL_CONTRACT || {};
+      const prompts = TA.PROMPTS || [];
+      const items = skillItems.value || [];
+      const labelOf = {}, usedOf = {};
+      prompts.forEach(g => (g.items || []).forEach(it => { labelOf[it.key] = it.label; usedOf[it.key] = it.used; }));
+      const FALLBACK = {
+        board_assets: ['拆分镜素材判定', '拆分镜时判定哪些新角色/场景/物品要建档并出图'],
+      };
+      const rows = Object.keys(contracts).map(kind => {
+        const contract = contracts[kind];
+        const mine = items.filter(x => x && x.contract === contract);
+        /* 「现在用的是哪一份」= 启用且没冲突的那份；一份都没启用就是空档（界面照实说「用内置默认」）。 */
+        const active = mine.find(x => x.enabled && !x.conflict) || mine.find(x => x.enabled) || null;
+        return {
+          id: kind, contract,
+          label: labelOf[kind] || (FALLBACK[kind] ? FALLBACK[kind][0] : kind),
+          used: usedOf[kind] || (FALLBACK[kind] ? FALLBACK[kind][1] : ''),
+          current: active ? { id: active.id, name: active.name || active.id, source: active.source } : null,
+          conflict: mine.some(x => x && x.conflict),
+          count: mine.length,
+          assistant: false,
+        };
+      });
+      rows.push({
+        id: 'assistant', contract: '', label: 'AI 助手（唯一按需触发，不按位置固定）',
+        used: '助手在回合里自己判断加载：预载最多 2 份进系统提示词 + 按需最多 2 份走工具结果；'
+          + '用户在问题里点名的优先钉住。这一项的语义与上面 11 个不同 —— 不是「一个位置一份正文」。',
+        current: null, conflict: false, count: items.filter(x => x && x.enabled).length, assistant: true,
+      });
+      return rows;
+    });
+    async function pickSkillSlot(row) {
+      if (!row || row.assistant) { skillMsg.value = '助手那项是按需触发的：没有「固定一份」可选 —— 清单里任意启用的 Skill 都可能被它按需读取。'; return; }
+      if (row.current) { await selectSkill(row.current.id); return; }
+      /* 这个位置没有启用的 Skill → 过滤清单到这个 contract，让用户挑一份或看内置默认 */
+      skillQ.value = row.contract;
+      skillFilter.value = 'all';
+      paintSkillChips();
+      skillMsg.value = '「' + row.label + '」现在用的是内置默认（没有启用的 Skill 声明这个 contract）—— 下面已筛出相关 Skill。';
+    }
 
     function paintSkillChips() {
       if (!window.Chips || !skillChipsEl.value) return;
@@ -3187,11 +3041,20 @@ const SettingsView = {
        程序在发请求前按**当前项目**把实际内容填进去。
        读法：扫正文里写了哪些变量（`window.TplVars.names`，那一份只有一处）。 */
     const skillVarNames = ref([]);
+    /* 变量参数表（从 SKILL_VARS 出）：占位符 / 程序从哪填 / 填什么 —— 三级说明。
+       扫出来的变量名与 SKILL_VARS 的说明对上；没说明的占位符也照实列出。 */
+    const skillVarInfo = ref([]);
     /* 选中一份 Skill 时把它正文里用到的变量列出来（填料是程序的事，这里只给用户看）。 */
     function fillSkillVarNames(d, bodyText) {
-      /* 正文里写了哪些变量（填料的那一份是程序的事，这里只列出来给用户看）。 */
       const names = (window.TplVars && TplVars.names) ? TplVars.names(bodyText || (d && d.body) || '') : [];
       skillVarNames.value = names;
+      /* 合上 SKILL_VARS 的说明（按 contract 查） */
+      const contract = d && d.contract;
+      const vars = (window.TextAI && TextAI.SKILL_VARS && contract) ? (TextAI.SKILL_VARS[contract] || []) : [];
+      skillVarInfo.value = names.map(n => {
+        const hit = vars.find(v => v.name === n);
+        return { name: n, from: hit ? hit.from : '（未登记）', desc: hit ? hit.desc : '正文里用到但没写说明' };
+      });
     }
 
     async function copySkillToMine() {
@@ -3330,6 +3193,7 @@ const SettingsView = {
     });
     const asrKey = ref('');
     const asrLocal = ref(null);
+    const asrBrowser = ref(null);
     const asrBusy = ref(false);
     const asrMsg = ref('');
     const asrTestText = ref('');
@@ -3352,6 +3216,13 @@ const SettingsView = {
       if (!l) return '读取中…';
       if (l.available) return '可用 · ' + (l.model || '（模型）') + (l.bytes ? ' · ' + mbOf(l.bytes) : '');
       return '不可用：' + (l.why || '缺少运行包');
+    });
+    const asrBrowserText = computed(() => {
+      const b = asrBrowser.value;
+      if (!b) return '读取中…';
+      if (b.complete) return '已就绪 · ' + mbOf(b.bytes || 0);
+      if (!b.files || !b.files.length) return '还没下载（选「只走浏览器内 Whisper」后首次转写时经代理下载，约 250–500MB）';
+      return '缺 ' + b.missing.length + ' 个文件（已有 ' + mbOf(b.bytes || 0) + '）：再跑一次浏览器内识别会接着补齐';
     });
     const searchCredText = computed(() => {
       if (search.hasKey) return '已单独存了一把搜索密钥（不会回显）';
@@ -3408,6 +3279,12 @@ const SettingsView = {
         asrMsg.value = '';
         asrSavedSig = asrSig();
       } catch (e) { asrMsg.value = '读不到语音识别设置：' + errText(e); }
+      /* 浏览器内模型的状态单独问（/models/status）：它不属于 asr.json，读不到也不影响上面那一组 */
+      if (window.Asr && window.Asr.browserStatus) {
+        window.Asr.browserStatus()
+          .then(st => { asrBrowser.value = st; })
+          .catch(() => { asrBrowser.value = null; });
+      }
     }
     async function saveAsr() {
       /* 撞车只发一条：卡片那颗「保存」与页脚自动保存那一趟同一下撞上来时，第二条**等**第一条的结果。
@@ -3450,8 +3327,20 @@ const SettingsView = {
       } catch (e) { asrMsg.value = '✗ ' + errText(e); }
       finally { asrBusy.value = false; }
     }
+    let asrTestCtl = null;
+    let asrTestJob = '';
+    /* 「测试识别」在浏览器内路线下可能是几分钟（首次还要经代理下几百 MB 模型）：
+       识别中再点同一颗就是不等了 —— 掐掉 worker，代理那已建出的任务补一次取消。 */
+    async function cancelAsrTest() {
+      const id = asrTestJob;
+      asrTestJob = '';
+      try { if (asrTestCtl) asrTestCtl.abort(); } catch (e) { /* 已经在收尾 */ }
+      if (id) { try { await window.Asr.cancel(id); } catch (e) { /* 跑完了 / 取消不掉：状态由那一单自己报 */ } }
+      asrMsg.value = '已取消识别';
+    }
     async function testAsr() {
-      if (asrBusy.value || !window.Asr) return;
+      if (asrBusy.value) { await cancelAsrTest(); return; }
+      if (!window.Asr) return;
       let got = [];
       try {
         got = await window.AssetPicker.open({ types: ['音频'], multiple: false, limit: 1, title: '选一段短音频试识别' });
@@ -3462,11 +3351,17 @@ const SettingsView = {
       const src = it.src || Api.assetSrc(aid);
       if (!src) { Toast.err('这条资产没有可读地址'); return; }
       asrBusy.value = true; asrTestText.value = ''; asrMsg.value = '已提交，识别中…';
+      const ctl = new AbortController();
+      asrTestCtl = ctl;
       try {
-        const r = await window.Asr.transcribe({ src, route: asr.route });
-        const j = await window.Asr.wait(r.jobId, t => {
-          asrMsg.value = '识别中… ' + Math.round((t.progress || 0) * 100) + '%';
+        const r = await window.Asr.transcribe({
+          src, route: asr.route, signal: ctl.signal,
+          onStage: s => { if (!ctl.signal.aborted) asrMsg.value = window.Asr.stageText(s); },
         });
+        asrTestJob = r.jobId || '';
+        const j = await window.Asr.wait(r.jobId, t => {
+          if (!ctl.signal.aborted) asrMsg.value = '识别中… ' + Math.round((t.progress || 0) * 100) + '%';
+        }, { signal: ctl.signal });
         if (j.state === 'done') {
           const segs = j.segments || [];
           asrMsg.value = '✓ 识别完成（' + segs.length + ' 段）';
@@ -3474,8 +3369,8 @@ const SettingsView = {
         } else {
           asrMsg.value = '✗ ' + (j.error || j.state);
         }
-      } catch (e) { asrMsg.value = '✗ ' + errText(e); }
-      finally { asrBusy.value = false; }
+      } catch (e) { asrMsg.value = ctl.signal.aborted ? '已取消识别' : '✗ ' + errText(e); }
+      finally { asrBusy.value = false; asrTestCtl = null; asrTestJob = ''; }
     }
 
     async function loadSearch() {
@@ -3720,6 +3615,22 @@ const SettingsView = {
         h.appendChild(el);
       }
     }
+    /* 命中也可能落在**没画出来的行**上：「供应商与密钥」那张卡里，语音识别 / 联网搜索两块靠
+       分段开关切显隐（v-show），字在 DOM 里、屏幕上没有。按回车滚到那样一行时落点被夹回页面顶，
+       用户看见的是「什么都没发生」。口径：计数照实算（那一段确实写着这些字），
+       跳转只滚到**画得出来的第一处**，并把另外几行所在的档点名说出去 ——
+       不替用户偷偷切档（`sk_prov_tab` 是要落盘的界面偏好，为了跳过去不该改它）。 */
+    const painted = el => !!el && el.offsetParent !== null;
+    function hitSecName(el) {
+      const sec = el.closest ? el.closest('.prov-sec') : null;
+      const h = sec && sec.querySelector('.prov-sec-h');
+      return h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
+    }
+    /* 命中的行都在这儿：画得出来的、藏在没打开的档里的，分开数。 */
+    function hitSplit() {
+      const all = qa('.set-hit');
+      return { all, shown: all.filter(painted), hidden: all.filter(el => !painted(el)) };
+    }
     function syncNav() {
       const secs = groupEls();
       const terms = (setQ.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -3750,23 +3661,35 @@ const SettingsView = {
       navHasFilter.value = filtering;
       navSumErr.value = filtering && !hitRows;
       const total = navCards().length;
+      const split = filtering ? hitSplit() : null;
+      const offNames = split ? [...new Set(split.hidden.map(hitSecName).filter(Boolean))] : [];
       navSum.value = !filtering
         ? ('共 ' + secs.length + ' 组 / ' + total + ' 栏 · 点组名跳到那一组，下面那一排是这一组里的栏目；也可以输入关键词直接命中到行')
         : ('「' + terms.join(' ') + '」命中 ' + hitRows + ' 行（在 ' + hitCards + ' / ' + total + ' 栏里）'
-          + (hitRows ? '，按回车跳到第一处；组名后面的数字是这一组命中几行，其余栏目先收起来'
-                     : ' —— 这一页没有含这些词的行。换个说法试试（密钥 / 地址 / ffmpeg / 分页 / 润色 / 备份 / 缓存），'
-                       + '或者问右下角的 AI 助手这一项在哪一栏'));
+          + (hitRows
+            ? (split.shown.length
+              ? '，按回车跳到第一处；组名后面的数字是这一组命中几行，其余栏目先收起来'
+                + (offNames.length ? '（其中 ' + split.hidden.length + ' 行在没打开的一档里：'
+                  + offNames.join(' / ') + ' —— 点上面那一档才看得见）' : '')
+              : ' —— 这些行都在没打开的一档里：' + offNames.join(' / ') + '，点上面那一档才看得见')
+            : ' —— 这一页没有含这些词的行。换个说法试试（密钥 / 地址 / 目录 / 分页 / 润色 / 备份 / 缓存），'
+              + '或者问右下角的 AI 助手这一项在哪一栏'));
     }
     function clearNav() {
       setQ.value = '';
       syncNav();
       if (setQEl.value) setQEl.value.focus();
     }
-    /* 回车滚到第一处命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
+    /* 回车滚到第一处**画得出来的**命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
     function gotoFirstHit() {
-      const first = q('.set-hit');
+      const split = hitSplit();
+      const first = split.shown[0];
       if (!first) {
-        if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
+        if (split.all.length) {
+          const names = [...new Set(split.all.map(hitSecName).filter(Boolean))];
+          Toast.warn('这一轮命中的 ' + split.all.length + ' 行都在没打开的一档里：'
+            + (names.join(' / ') || '收着的那一段') + '，点上面那一档再跳');
+        } else if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
         return;
       }
       scrollToEl(first, 'center');
@@ -3938,7 +3861,6 @@ const SettingsView = {
       pageBoxEl, uiPrefsBoxEl, storePrefsBoxEl, charsBoxEl,
       netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl, markChanged,
       askNotice, paintNoticeState,
-      clearManualPrompts, migrateLegacyPrompts,
       dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
       impAllFileEl,
@@ -3950,11 +3872,13 @@ const SettingsView = {
       promptDir, promptDirEl, onPromptDirChange, promptInfo, promptInfoTitle, promptMsg, promptRefresh,
       openPromptDir, promptOpenBusy, promptRecentEl,
       skillItems, skillReady, skillMsg, skillBusy, skillFileEl, skillChipsEl, skillQEl, skillPreEl,
+      skillSlots, pickSkillSlot,
       skillQ, skillFilter, skillSelId, skillDetail, skillFiles, skillFilePath, skillFileNote,
       skillFiltered, skillCntText, paintSkillChips, onSkillSearch, reloadSkills, selectSkill, openSkillFile,
       toggleSkillEnabled, copySkillToMine, pickSkillFile, onImportSkillFile, exportSkill, removeSkill, fmtSkillSize,
       skillVarNames,
-      asr, asrKey, asrLocal, asrLocalText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
+      skillVarInfo,
+      asr, asrKey, asrLocal, asrLocalText, asrBrowser, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,
       searchChannelOpts, searchChannelEl, searchCredText, saveSearch, clearSearchKey, testSearch, readFirstSearch,

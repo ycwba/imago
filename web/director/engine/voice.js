@@ -108,7 +108,7 @@ export function createVoice(E, document, window) {
    但**不禁用按钮**：用户可能已经充好了，所以给一句说明加一颗「仍然再试」。
    判据与那笔账都在 Api.balOut / Api.isBalanceErr（api.js），这里只记「这一栏要不要挂那张牌」。 */
 let voiceBalOut = '';
-/* 量一句音频的真实时长（块宽与 /render 的 dur 都靠它）。量不出来不按 0 记 ——
+/* 量一句音频的真实时长（块宽与导出合成的 dur 都靠它）。量不出来不按 0 记 ——
    0 会让这一句在轨上塌成一条线，等于「加了但看不见」。 */
 function audioDurOf(src) {
   return new Promise(res => {
@@ -555,7 +555,7 @@ function renderVoiceCol(col, sh) {
       <div class="btn-row">
         <button class="tool" id="subImport" title="导入 .srt：文件里的时间按成片秒解释，落在本镜的那几条会折回源秒">${icon('upload', 14)} 导入 SRT</button>
         <button class="tool" id="subExport" title="把全片字幕导出成 .srt（时间是成片秒；这一步不依赖渲染）">${icon('download', 14)} 导出 SRT</button>
-        <button class="tool" id="subAsr" ${subAsrBusyOf() ? 'disabled' : ''} title="用语音识别把这条素材里的话变成字幕（会真跑一次识别；结果不会反改台词与配音）">${icon('mic', 14)} ${subAsrBusyOf() ? '识别中…' : '自动识别'}</button>
+        <button class="tool" id="subAsr" title="${subAsrBusyOf() ? '再点一下就不等了：掐掉在途的这一次识别（浏览器里整只 worker 终止，代理那一单补一次取消），这一镜的字幕不会改动' : '用语音识别把这条素材里的话变成字幕（会真跑一次识别；结果不会反改台词与配音）。走浏览器内 Whisper 时首次要先经代理下载模型，可能等几分钟'}">${icon('mic', 14)} ${subAsrBusyOf() ? '取消识别' : '自动识别'}</button>
       </div>
       <div class="ed-label" style="margin-top:14px"><span>样式</span><span class="cnt">预览 / 烧录 / FCPXML 共用这一份</span></div>
       <div class="adv-grid" id="subStyle">
@@ -930,7 +930,8 @@ async function refAudioBase64(ref) {
   return await AssetTransfer.toDataURL(blob);
 }
 
-/* 本机音频 → 一条长期可用的本机资产（与语音台产物同一个落点，/render 才取得到）。 */
+/* 本机音频 → 一条长期可用的本机资产（与语音台产物同一个落点；预览、导出合成与 FCPXML
+   都按本机地址取它，不认临时 blob 地址）。 */
 async function localAudioAsset(file) {
   const b64 = await new Promise((res, rej) => {
     const rd = new FileReader();

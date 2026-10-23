@@ -28,14 +28,14 @@ if (!EF) process.exit(1);
 
 const list = EF.list(), ids = EF.ids();
 ok('五个导出格式都在（成片 / 素材 / FCPXML / 媒体包 / 送到 NLE）',
-  JSON.stringify(ids) === JSON.stringify(['film', 'assets', 'fcpxml', 'bundle', 'nle']));
+  JSON.stringify(ids) === JSON.stringify(['film', 'assets', 'fcpxml', 'bundle', 'resolve', 'jianying']));
 ok('id 与页头按钮号都不重复',
   new Set(ids).size === ids.length && new Set(list.map(f => f.button)).size === list.length);
 ok('每条都有 engine 认识的 kind', list.every(f => ['film', 'files', 'xml'].includes(f.kind)),
   list.filter(f => !['film', 'files', 'xml'].includes(f.kind)).map(f => f.id).join(', '));
 ok('每条都带页面与助手要的文案字段', list.every(f =>
   f.id && f.button && f.label && f.icon && f.title && f.assistant && f.doc && f.startNote));
-ok('只有走 /render 的档给了取消文案', list.every(f => !f.renders || !!f.cancelLabel));
+ok('占用合成名额的档都给了取消文案', list.every(f => !f.renders || !!f.cancelLabel));
 ok('表查询与写法一致（of / hint 不另算一遍）',
   list.every(f => EF.of(f.id) === f) && !EF.of('nope') && EF.hint() === ids.join(' / '));
 
@@ -56,9 +56,9 @@ ok('页头按钮与取消状态都表驱动',
   /ExportFormats\.list\(\)\.forEach/.test(engine) && /ExportFormats\.of\(r\.format\)/.test(engine)
   && /ExportFormats\.of\('assets'\)/.test(exp) && /ExportFormats\.of\('film'\)/.test(exp));
 ok('导出流程只在 engine/export.js 一处（engine 只接线）',
-  declIn(/function exportFilmFFmpeg/).join() === 'web/director/engine/export.js'
+  declIn(/async function exportFilm\(/).join() === 'web/director/engine/export.js'
   && declIn(/async function exportFCPXML/).join() === 'web/director/engine/export.js'
-  && /function exportFilmFFmpeg/.test(exp) && /function createExport/.test(exp)
+  && /async function exportFilm\(/.test(exp) && /function createExport/.test(exp)
   && /createExport\(\{/.test(engine));
 ok('助手不再另抄 enum 与标题表', !/enum:\s*\[\s*'film'/.test(chat)
   && /enum:\s*EF\.ids\(\)/.test(chat) && /EF\.of\(fmt\)/.test(chat) && /EF\.list\(\)\.map/.test(chat));

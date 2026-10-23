@@ -2,6 +2,8 @@
 
 > 本文件是当前项目的**唯一约定清单**（2026-10-18 版）。改任何一处之前先读对应章节；
 > 与代码冲突时以代码为准，并把本文件改到与代码一致，不要留“以前是那样”的说明。
+> **代码里不留旧实现的兼容层**（§14.6 的硬约束）：一项实现被替换或撤销，旧的那一份连着旧键、旧字段、
+> 旧端点一起删掉，调用点直接接管；只有用户机器上已存在的数据（旧目录里的本体、残留的旧存储键）才需要搬迁或清理。
 > 产品使用说明与功能索引见 `README.md`；本文件只写“必须遵守什么、唯一实现在哪、怎么验证”。
 
 ## 1. 项目定位
@@ -10,7 +12,16 @@
 
 - 纯前端 Vue 3 SPA + 一个本地 Node 代理（`proxy.js` → `server/app.js`，默认 `http://localhost:5175`）。
 - 所有生成平台都经本地代理转发；页面不接触平台密钥，不直连任何外部域名。
-- 数据默认留在本机：`.data/`（结构化数据）、`.assets/`（本机资产）、`.renders/`（成片）、`prompts/`（提示词归档）、`.skills/`（用户 Skill）。
+- 数据默认留在本机：`.data/`（结构化数据 —— 设置、任务记录、云同步基线，以及本机资产**账** `.data/local-assets/`；
+  其中 `.data/models/` 是浏览器内识别的模型缓存，几百 MB、可整目录删掉重下）、`.skills/`（用户 Skill）。
+  用户可见的产物与归档在 **`下载\拾帧\`** 下按类型分：`图片/` `视频/` `音频/` `其他/`（**产物本体就住在这里**，
+  一条产物一个文件）、`提示词/`（.md 归档）。
+  ⚠ **库根**只有一个算法（`server/local-root.js`）：`ASSETS_DIR` 环境变量 > `.data/sk_local_dir.json`（设置页那一格）> `下载\拾帧`。
+  账（`.data/local-assets/`）跟着 `.data/` 走，**与本体分家**：换库根只动指针，账不受影响。
+  ⚠ 一条产物**只有那一个本体**：同一份东西重复下载、重复补存在账上并成一张卡（§6.3），页面不往第二个目录拷一份。
+  ⚠ 换根之后旧根里的文件不会自己跟过去：代理只扫**当前**根，旧根那些产物在界面上照实显示「文件不在了」，
+  回源外链与费用记录照样在 —— 要接着用旧根那些字节，就把旧根整个搬进新根。
+  `.renders/` 只剩 FCPXML 媒体包（浏览器内合成成片，服务端没有 ffmpeg）。
 - 八个页面：导演台、素材库、生成工作台（视频/图像/语音）、画布、收藏、资产库、用量、设置（设置不进侧栏）。路由表只有 `web/core/routes.js` 一份。
 
 ## 2. 当前目录结构
@@ -22,10 +33,12 @@
 │  ├─ app.js                    组合根：配置、依赖装配、路由分发、上传/出站工具（约 1.3k 行）
 │  ├─ registry-config.js        供应商注册表 REGISTRY + 本机覆盖（型号清单偏好）
 │  ├─ relay-gate.js             按平台的在途转发闸与退避重试
-│  ├─ local-assets-store.js     本机资产：镜像/落盘/索引口径（HTTP 适配在 routes/local-assets.js）
-│  ├─ index-store.js            本机资产索引 journal（快照 + 追加日志 + `update(fn)` 串行队列）
-│  ├─ render-jobs.js            渲染队列（ffmpeg 任务、并发与保留）
-│  ├─ render-jobs-store.js      渲染任务账（跨重启可查的历史）
+│  ├─ local-assets-store.js     本机资产：落点/双身份（fid + 采样签名）/磁盘对账/账口径（HTTP 适配在 routes/local-assets.js）
+│  ├─ local-root.js             库根「本体住在哪」的唯一算法（ASSETS_DIR > .data/sk_local_dir.json > 下载\拾帧）
+│  ├─ file-safe.js              文件名片段的 Node 侧那一份（与 web/ui/ui.js 同算法，登记在案的例外）
+│  ├─ index-store.js            本机资产索引 journal（快照 + 追加日志 + `update(fn)` 串行队列），账在 .data/local-assets/
+│  ├─ media-src.js              素材地址解析与下载（resolveSrc / downloadTo / assetInfoOf，唯一一份）
+│  ├─ user-dirs.js              用户可见目录根（系统下载文件夹 → 下载\拾帧 / 提示词 / 顶层目录名，唯一一份）
 │  ├─ fs-atomic.js              原子写 / .bak / 余量与重试口径
 │  ├─ data-store.js             /data 读写、原子写、.bak 备份
 │  ├─ prompts-store.js          /prompts 提示词归档
@@ -42,8 +55,8 @@
 │  ├─ zip.js                    FCPXML 媒体包 zip
 │  ├─ providers/validate.js     registry 供应商声明校验
 │  └─ routes/                   system（含 /client-error）/ static / capabilities / registry /
-│                               relay / outbound / local-assets / media / save / usage /
-│                               render / skills / fcpxml / pick-dir / asr / search /
+│                               relay / outbound / local-assets / usage / cache /
+│                               skills / fcpxml / pick-dir / asr / models / search /
 │                               http（路由层唯一的 JSON 回包口径：sendJson / fail，默认 no-store）
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
 ├─ web/
@@ -53,11 +66,13 @@
 │  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio /
 │  │                            canvas（导演台在 web/director/index.js）
+│  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
+│  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output；成片与素材都走它）
 │  ├─ director/                 导演台：index + template.html + engine.js + engine/<域>.js（按域搬出的热路径）+ 纯算法模块
 │  ├─ render/                   预编译生成的 render 函数（不要手改）
 │  ├─ ui/                       ui.js / forms（弹窗与表单族）/ net / store / kv / toast / datasync /
 │  │                            skills / workbench / sidebar / index / badge-state
-│  ├─ domain/                   api / assetlib / gen-forms / asset-transfer / local / capabilities /
+│  ├─ domain/                   api / assetlib / gen-forms / asset-transfer / export-dir / local / capabilities /
 │  │                            text-ai / gen-rules / fav / prompt-log / asset-picker / ai-find / chars /
 │  │                            ident / asset-ref / identity / semantic / asr / search / zip-read /
 │  │                            chat/text-util / text-ai/contracts
@@ -69,6 +84,7 @@
 ├─ tools/
 │  ├─ precompile-vue.cjs        模板 → render 函数（开发期）
 │  ├─ tokenize-css.cjs          裸 px/色值统计（开发期，§3.4 收敛用）
+│  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
@@ -107,11 +123,13 @@ npm run build:check  # 只比对，不写盘；CI / 测试用
 `shell.html` 的 meta 与 `server/static.js` 的 HTML 响应头都下发：
 
 ```text
-default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline';
 img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self';
 font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';
-frame-ancestors 'none'
+frame-ancestors 'none'; worker-src 'self' blob:
 ```
+
+- `'wasm-unsafe-eval'` **只放开 WebAssembly 编译**（mediabunny 的解码/编码走 WebCodecs 与 wasm），不放开 `eval` / `new Function`；新增脚本仍必须是同源外部文件。
 
 - `script-src 'self'`：不许内联脚本、不许内联事件处理器、不许 eval。新增脚本必须是同源外部文件。
 - `style-src 'unsafe-inline'`：允许现有的 `style=` 与动态样式元素；不要新增内联 `<style>` 以外的脚本能力。
@@ -185,8 +203,8 @@ frame-ancestors 'none'
 
 ```text
 /registry /capabilities /<relay>/* /custom/<id>/* /getv /fetch /getfile /s3put
-/asset/<id> /local-assets /local-assets/from-url /media/* /save* /pick-dir
-/render* /fcpxml/* /data /prompts /cloud /skills /sys-status /env-status /clear-cache
+/asset/<id> /local-assets /local-assets/from-url /pick-dir /cache/*
+/models/<id>/<file> /fcpxml/* /data /prompts /cloud /skills /sys-status /env-status /clear-cache
 ```
 
 - 平台接口只走 `Api.request(prov, 'create'|'poll'|'list'|'cancel'|'credits'…)`、
@@ -198,8 +216,8 @@ frame-ancestors 'none'
 ### 4.2 本机路由与会话
 
 - `LOCAL_ONLY` 路由：`/data`、`/prompts`、`/cloud`、`/capabilities`、`/skills`、`/local-assets`、
-  `/assets-usage`、`/save*`、`/pick-dir`、`/env-status`、`/sys-status`、`/clear-cache`、`/render*`、
-  `/fcpxml`、`/media`、`/getv`、`/getfile`、`/fetch`、`/s3put`、`/custom`。
+  `/assets-usage`、`/pick-dir`、`/env-status`、`/sys-status`、`/clear-cache`、`/cache/*`、
+  `/fcpxml`、`/models`、`/getv`、`/getfile`、`/fetch`、`/s3put`、`/custom`。
 - 代理启动时生成会话 Cookie `wb_session`（HttpOnly + SameSite=Strict）。本机路由除同源检查外
   还要求这枚 Cookie；没有 Cookie 的 curl 读 `/data` 会拿到 401。
 - 新写探针先用 `GET /` 收下 `Set-Cookie` 再打本机路由（样板见 `tests/e2e/harness.cjs`）。
@@ -213,10 +231,12 @@ frame-ancestors 'none'
 - `/getfile`、`/s3put`、`/fetch`、`/getv` 四条通道只走 `takeOutboundUrl`，不要各自拼 400。
 - 状态码原样透传；4xx/5xx 一律 `no-store`（签名过期 403 不能被缓存一整天）。
 
-### 4.4 本机写盘两条路
+### 4.4 本机写盘的三条硬约束
 
-- `POST /save`（另存）/ `/save-local`（补存）/ `/save-move`（搬）：目录只从服务端配置读，
-  请求体里的 `dir` 一律忽略。
+- **产物本体的落点不由请求说了算**：`POST /local-assets` 与 `POST /local-assets/from-url` 只问
+  `server/local-assets-store.js` 的 `bodyDirOf` / `newBodyPlace` —— 库根按 §7 那一条现算，根下按类型分
+  `图片/` `视频/` `音频/` `其他/`，撞名加 `-2` / `-3`；请求体里带 `dir` 也没有哪一行去读它。
+  一条产物只有那一个本体，同一份东西重复下载、重复补存在账上并成一张卡（§6.3），不往第二个目录拷一份。
 - `POST /pick-dir`：必须异步 `spawn`，不许 `spawnSync`；返回路径是隐私，只在 `LOCAL_ONLY` 里。
 - 写盘前问余量：`whyNoSpace(dir, need, what)` 命中就 409 / 记进失败清单，一个字节都不落。
   量不到余量（没有 `statfsSync` / 目录不存在）一律放行，绝不把 `null` 当“不够”。
@@ -268,7 +288,9 @@ frame-ancestors 'none'
 
 ### 6.1 绝不提交、绝不擅自删
 
-- `.env`、`.data/`、`.assets/`、`.renders/`、`prompts/`、`.skills/`、`node_modules/` 都在 `.gitignore`。
+- `.env`、`.data/`、`.assets/`、`.renders/`、`.skills/`、`node_modules/` 都在 `.gitignore`。
+  `.assets/` 与 `文件/` 这两条忽略的是**库根被指回项目内**的那种情况（`ASSETS_DIR` 或设置页那一格填回老名字时，
+  里面装的是用户作品，一次 `git add -A` 就把几百 MB 媒体推进历史）—— 它们是数据，不是缓存。
 - 用户的工作区、历史、归档、素材是用户数据：清理前确认是测试残留，不要擅自删。
 - 源码里绝不出现真实密钥；密钥只从 `.env` / 系统环境变量 / 设置页取。
 
@@ -292,6 +314,22 @@ frame-ancestors 'none'
 
 - “同一份产物”只有 `local.js` 的 `mirrorOf` 一处：平台产物号优先，其次“任务号且只出一份”，
   再次来源地址（剥签名）与本机号。
+- **一条产物只有那一个本体**：落在 `<库根>\<类型>\<规范名>.<ext>`（`规范名` = 资产库里看到的那个名字，
+  撞名加 `-2` / `-3`）。账在 `.data\local-assets\`（快照 + journal），**与本体分家**：换库根不动账。
+- **双身份**（`server/local-assets-store.js`）：`fid` = `<dev>:<ino>`（必须按 bigint 取，普通 statSync
+  把 64 位 ino 塞进 double，超过 2^53 就丢精度）+ 采样签名 `sig` = `<字节数>:<头尾各 1MB 的 sha1 前 16 位>`
+  （imohash 那一族做法）。采样只用来**认回**，不用来证明「这两份是同一份东西所以可以删掉其中一份」。
+- **三级认回**：相对路径 → `fid`（同卷改名 / 挪目录）→ `sig`（跨盘、换机、被同步盘重写一遍）。
+  认回来把新的 `file` / `fid` / `sig` 一起写回账（认一次落一次，下一次又是常态路）；三级全落空才说“文件不在了”，
+  不假装还在，也不顺手删条目 —— 条目里还挂着回源外链与那笔费用。
+- **磁盘对账**：列表 / 认回 / 用量共用一份 `dirScan` 快照（30 秒 TTL，只 readdir + stat 不读内容；
+  真要比内容才按字节数分桶算签名）。盘上有、账里没有的成品由 `localAdopt` 补建，**只补一次**；
+  同内容的那几份并成一条账（`altPaths`），不新开卡。
+- **重复下载不许多张卡**：列表与用量按「同一上游产物号（剥签名）」或「同一内容签名」并成一张卡，
+  压着的份数由 `duplicates` 报出来；这份判据只有 `localUpKey` + `sig` 一处，页面不另算一套。
+- **删一张卡 = 收掉这一张卡背后的每一条账与每一份字节**（`localAssetSiblings` 与列表并卡同一把尺子）：
+  只删眼前那一条，同组那一条下一轮又自成一张卡或留下一个「文件已不在」的空条 —— 用户看见“删了又回来”。
+  文件删不掉就不许裁索引（回 500 照实说）。
 - “本机 / 云端”唯一读法是 `AssetLocal.stateOf(entry)`；页面不许自己拼
   `localAsset || hasLocalAddr(src)`。
 - 自动镜像由应用级事件触发：`wb:asset-done`；`AssetLocal.watch` 统一接住并 scan。
@@ -299,6 +337,9 @@ frame-ancestors 'none'
 - 镜像指针本体在 IndexedDB（`Kv.at('mirror')`），`sk_local_mirror` 只留暖启动缓存。
 - 过期签名外链由公共层负责：`Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc`；
   页面不许自己判过期，也不许拿 assetId 拼 `/asset/<id>`。
+- 读写链路的判据：`tests/e2e/local-chain.cjs`（新默认根下的落点 / 双身份 / 改名挪目录认回 /
+  重复下载并成一张卡 / 删一张卡带走 altPaths / 磁盘对账只补一次）。它不开 Chrome，只起隔离实例，
+  并且每一条都点名 `.*-probe` 假根，跑完自己清干净。
 
 ### 6.4 云同步
 
@@ -346,8 +387,19 @@ frame-ancestors 'none'
 | 任务 | `Wb.poller` / `Wb.History` / `Wb.thumbs` / `Wb.detail` / `Wb.cards` / `Wb.pager` / `Wb.viewToggle` + `VIEW_MODES` |
 | 灯箱 | `Wb.lightbox` |
 | 下载 | `Wb.save` → `Net.save` |
-| 视频取帧 | `Wb.vframe.el` / `release`（只为解码而建的 `<video>` 只有这一份） |
+| 视频取帧 / 媒体信息 | `web/media-backend.js` 的 `MediaBackend`（mediabunny 主档 + `<video>` 兜底；`info` / `frame` / `thumbs` / `probe`）。**`createElement('video')` 只许出现在这一份里**，`Wb.vframe` 只是转发壳 |
+| 浏览器内导出 | `web/media-export.js` 的 `MediaExport`（帧计划 / 合成 / 混音 / mediabunny `Output`；成片、素材、参考视频补音轨 `ensureAudioTrack` 都走它）。服务端没有 ffmpeg |
+| 导出目录 | `web/domain/export-dir.js` 的 `ExportDir`（File System Access 句柄管理） |
+| 主轨联动 | `web/director/links.js`（哪一轨跟哪一轨、变黑场才联动，判据只有这一份） |
+| 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `promptsRoot` / `AUTOSAVE_TOP_DIR`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
+| 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\拾帧`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— ⚠ **那份的正文就是 localStorage 原值**：字符串类的键走 `window.LS.set`，落盘是**裸文本**（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
+| 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，外面不许再 readdir 一遍） |
+| 一张「卡」背后那几条账 | `server/local-assets-store.js` 的 `localAssetSiblings`（与列表并卡同一把尺子：`localUpKey` 或 `sig`） |
+| 缩略图 / 切片缓存 | `/cache/{thumbs,slices}`（`server/routes/cache.js`；跨 origin 有效，浏览器 IndexedDB 不再是持久层） |
 | 能力声明 | `web/domain/capabilities.js` 的 `Capabilities` |
+| 语音识别走哪条路 / 进度与扣费文案 | `web/domain/asr.js` 的 `pickRoute` / `stageText` / `routeLabel`（设置页、导演台、助手回执都只翻译这三枚，不各写一套判据） |
+| 浏览器内 ASR 的算法（WAV 拆 PCM / 词级成段 / 转写清洗与可疑判定） | `web/director/asr-text.js`（worker 与 Node 判据共用同一份；换分段规则只动这里） |
+| ASR 模型代下载与模型状态 | `server/routes/models.js`（`/models/<id>/<file>` + `/models/status`；双镜像按序试、每一跳过出站护栏、`.part` 原子改名、同一文件单飞） |
 | 文字 AI | `web/domain/text-ai.js` 的 `TextAI`（含 `polishImages` / `qaOf` 契约） |
 | 提示词归档 | `web/domain/prompt-log.js` 的 `PromptLog` |
 | 收藏 | `web/domain/fav.js` 的 `Fav` |
@@ -389,6 +441,11 @@ frame-ancestors 'none'
 ## 8. Vue SPA 页面
 
 - 运行时没有构建步骤；Vue 3.5.44 runtime-only，本地 vendored。
+- **vendored 依赖（运行时零构建的唯一例外，`package.json` 不加运行时依赖）**：`vue.runtime.esm-browser.prod.js`、
+  `web/vendor/mediabunny.min.mjs`（媒体解码/编码）、`web/vendor/mediabunny-aac-encoder.min.js`（Chrome 没有 AAC 编码器，
+  注册软件编码器；IIFE 经典脚本，挂 `MediabunnyAacEncoder` 全局）、
+  `web/vendor/asr/`（`@huggingface/transformers` + ONNX Runtime 的胶水与 `.wasm`，浏览器内 Whisper 用）。
+  全部按需加载，首屏不带 —— 那枚 21MB 的 ORT `.wasm` 只有 worker 起起来才拉。
 - `web/app.js` 是唯一外壳：hash 路由 + `<KeepAlive>` 页面池；切页只离屏、不销毁。
   页面 DOM、滚动位置、筛选与多选状态都留在原地。
 - 路由表只有 `web/core/routes.js` 的 `WB_ROUTES`：页面文件 / id / 侧栏名 / 图标 / 标题 /
@@ -452,7 +509,8 @@ frame-ancestors 'none'
     右栏起止精确输入 `subSetTime`（成片秒 ↔ 源秒唯一折算口）；本镜块带 `data-src`（源秒）、
     全片块带 `data-axis`（框轴秒），写盘只有一个出口 engine 的 `subWrite`
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）
-  - `export.js`：成片指纹、导出成片、素材导出、FCPXML 与送到剪映 / 达芬奇
+  - `export.js`：成片指纹、导出成片（**浏览器内合成**，`MediaExport`）、素材导出、FCPXML 与送到剪映 / 达芬奇；「最近导出」读会话内账本（`Export.sessionExports`），服务端没有渲染任务账
+  - `lanes.js` 的三段式画面格（B）：上 = 名称行（名字+段号 · 成片时长 · 静音钮）、中 = 切片、下 = 原声波纹带（canvas 条形，`waveform.js` 的 `drawSegWave`；配音句卡仍是 `waveformSVG`，各管各的）
   - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，见 §9.3）
 - 纯算法按域拆开，engine 只调用：
   - `segments.js`：段模型 / `segsOf` / `segsWrite` / 四件搬运
@@ -479,6 +537,12 @@ frame-ancestors 'none'
   - `media.js`：候选身份 → 预览 / 导出地址（本机号只走 `AssetLocal.localAssetIdOf`，画面段、配音、切片、FCPXML 都只问这一份）
   - `subtitles.js`：字幕轨（台词/配音派生、SRT 导入导出、烧录与 FCPXML 都读 `currentOf`）
   - `fcpxml.js` / `fcpxml-import.js`：导出与读回（读回落进同一份工程数据）
+  - `asr-text.js`：浏览器内 ASR 的纯算法面（`wavToPcm` / `groupWords` / `normalizeAsrWhitespace` /
+    `applyChineseReplacements` / `isSuspiciousChineseTranscript`）—— `asr-worker.js` 与 `tests/director-asr-text.mjs`
+    读同一份（**要换分段规则只动这里**）
+  - `asr-worker.js`：module worker，transformers.js（Whisper q8）只在 worker 里跑；模型走同源 `/models/`、
+    `allowRemoteModels` 关死、ORT 的 wasm 路径覆写到同源 `web/vendor/asr/`（默认指 CDN，CSP 下必死）；
+    取消 = 整只 `terminate()`，绝不回落主线程再转一遍
   - `util.js`：导演台内部的小纯函数（`round1` / `pct` / `spdTxt` / `escHTML` / `parseJsonLoose`）
 - 改算法先改模块，engine 只留调用与状态；不要在 engine 里再抄一份。
 
@@ -501,7 +565,7 @@ frame-ancestors 'none'
 - 取帧失败按**退避**记账并自己重试：轨道没有定时重画，一次解码超时若只压进一张长 TTL 表，
   界面就是一直斜纹（用户不动一下好不了）；8 秒起、逐次翻倍、最久 5 分钟，到点由 `sliceRetryIn`
   那条定时器照着还活着的栏目再排一遍活。
-- 播放不渲染：剪辑态实时播，导出才跑 ffmpeg；播放器控制条只有 `pbBarHTML` 一份。
+- 播放不渲染：剪辑态实时播，导出才逐帧合成（`MediaExport`，整条在浏览器里跑）。播放器控制条只有 `pbBarHTML` 一份。
 - 合并/导出只从页头入口触发；任何会改变成片内容的编辑必须先 `filmEdited()`。
 - 导出成片前先判 `filmIsCurrent()`；404/空文件要作废 `proj.merged` 并让用户再点一次导出。
 - 本地优先：预览遵守 `sk_media_prefer`，**导出始终本机优先**；有本机副本不碰上游。
@@ -517,8 +581,8 @@ frame-ancestors 'none'
   `blocked`，并发名额只包住提交窗口、等待不占名额；切走短片立即停止并唤醒等待。报价缺金额 / 只报最低
   消费 / 多币种都照实标注，**绝不当 0**；没有金额时不许显示「预计 0」。
 - 本机素材名与 FCPXML 媒体包名同源：`naming.sceneShotBase` 带场景与镜头序号，`stripExt` / `withExt`
-  只留恰好一个扩展名；`/<save-local>` 与 FCPXML 都读索引里的 `name`。服务端遇到重名直接 400，
-  不静默追加 `-2` 让 XML 引用对不上。旧素材不重命名。
+  只留恰好一个扩展名；本体落进库根时用的就是索引里那个 `name`（`newBodyPlace`），FCPXML 的片段名同源。
+  服务端遇到重名直接 400，不静默追加 `-2` 让 XML 引用对不上。旧素材不重命名。
 - FCPXML「送到剪映 / 达芬奇」= 持久工程目录 + 启动软件（找得到才启动）+ 打开目录 + 导入说明；
   没有可靠的命令行导入协议，不许写成「全自动导入」。`pruneRenders` 不清 `fcpxml-import` 顶层目录，
   导入路由自己只留最近 20 个。
@@ -538,6 +602,13 @@ frame-ancestors 'none'
   都把 Skill 正文里的 `{变量}` 按这一次的料填上（`TplVars.fill` + `board-vars.js`）。
   ⚠ **内置 Skill 正文与 `TextAI.DEF[kind]` 必须逐字相同**（判据：tests/e2e/smoke.cjs 的
   「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
+
+### 9.2.1 本轮的语义补充（A / B / C）
+
+- **空段（`gap`）**：视频段之间插空余 = 黑场且**不吃源**；与 `off`（删掉画面出黑场）是两件事，
+  名称行分别写「空段」/「黑场」。
+- **主轨联动只覆盖「变黑场」**：剪短 / 删画面 / 插空才联动，改音量与倍速不联动（判据在 `links.js`）。
+- **静音 ≠ 删画面**：段级静音只把 `segVol` 切到 0（记住 `mutePrev`），画面照样进成片。
 
 ### 9.3 助手写入桥
 
@@ -649,13 +720,19 @@ frame-ancestors 'none'
   上一轮别的编码那份字节接着用；`Vary: Accept-Encoding` 因此恒写。
 - `/data` 写入是原子写 + `.bak`；`/data` 清单不包含 `.bak`。
 - `/prompts`：写文件 + 索引；`/prompts/find` 按 id 返回全部归档，客户端每个任务只问一次。
-- `/render`：本地长任务，客户端用 `Net.fetch(..., { timeout: 0, retry: 0 })`；POST 不自动重试。
 - `/fcpxml/bundle`：只写 `RENDER_DIR/fcpxml-<stamp>/`，素材只按资产号 / 已过护栏的 URL 取，
   取不到写 `missing.txt`。
-- 渲染编码器与档位走 `.env` 的 `RENDER_VCODEC` / `RENDER_PRESET`：
-  档位名单跟着编码器走，质量数按编码器换写法，问不出 `ffmpeg -encoders` 当“不知道”不当“没有”。
-- 渲染队列上限 `RENDER_QUEUE_MAX`、并发 `RENDER_CONCURRENCY`、保留 `RENDER_KEEP_MIN`；
-  超了当场 429。启动日志把实际生效值与来源一起打印。
+- **代理不转码、不合成**：取帧 / 抽音轨 / 混音 / 编码全在浏览器（`MediaBackend` / `MediaExport`），
+  代理只做取数与落盘，没有渲染队列、没有编码器档位可配。成片能不能导由 `Api.exportCaps()`
+  现探（WebCodecs + H.264 编码器），设置页与助手「成片环境」读的是同一份探测结果。
+- **浏览器内识别的模型只由代理「代下载」**（`server/routes/models.js`）：`/models/<id>/<file>` 把
+  ModelScope / HuggingFace 的字节流进 `.data/models/`，这是**唯一一份模型缓存**（worker 里
+  `useBrowserCache=false`、`allowRemoteModels=false`、只认 `/models/` 这一个本地路径）。
+  LOCAL_ONLY、id 只认登记表里那一个型号、每一跳都过 `guardOutboundUrl`（重定向最多 4 跳）、
+  `.part` 下完才原子改名、同一文件单飞、客户端断开就掐上游并删 `.part`；`/models/status` 报「齐不齐 / 多少字节」。
+- **`route:'browser'` 不许发到代理**：浏览器内那一路在页面 worker 里跑，`/asr/transcribe` 收到 browser
+  当场 400。放行不会报错，但任务照建、`work()` 的「local 才本地」三元判据会**默默扣一次在线转写的钱**，
+  而账上写着 browser —— 路线的真相只有 `Asr.pickRoute` 一份（§7），代理这一层只负责把不该来的挡掉。
 - 代理健康账：未捕获异常 / 未接住的 Promise / 500 / 连接错误四类；只报不自杀，连接错误不算故障。
 
 ## 13. 测试与验证
@@ -668,29 +745,32 @@ frame-ancestors 'none'
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 | ~3s |
 | 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2 分钟 |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 42 条 e2e 串行（浏览器档共 44 条，另含 boot 与 static-encoding --live），十几分钟级 |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 47 条 e2e 串行（浏览器档共 49 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
 `node tests/all.cjs` 的常驻判据走并发池（并发 min(8, CPU 核数)，输出按完成顺序整块打印、带每条耗时；
-超时 SIGKILL 不死锁）；会写共享 `.data/.assets/.renders/.skills` 的判据一律进串行白名单（§13.2）。
+超时 SIGKILL 不死锁）；会写共享 `.data` / `.renders` / `.skills` 或**库根本体**的判据一律进串行白名单（§13.2）。
 判据子进程优先用系统 node（`NODE` 环境变量可指定，拿不到回落 `process.execPath`）。
 
-覆盖：`syntax`（进池，子进程自带 --experimental-vm-modules 快路）/ `selfcheck` / `spa`（独立判据，
-不再由 selfcheck 代跑）/ `editing` / `local-first` / `index-store` / `core` / `ui-catalog` /
-`editor-media` / `local-edit` / `fcpxml-client` / 导演台各纯函数 / 画布各纯函数（`canvas-registry` /
-`-doc` / `-ops` / `-history` / `-spatial` / `-gen`）/ `providers-validate` / `asr-settings` /
-`skill-hub` / `zip` / `routes-smoke` / `static-guards` / `scope-guards` / `dup-guard` /
-`architecture` / `metrics`；浏览器档分两级——`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract /
-ui-shared / director-perf / lock / canvas，4 路并发，每条自起隔离 proxy + 独立 Chrome），
-`--e2e` 全量串行：smoke / ui-visual / proxy / cloud-sync / asr / search / chat-actions /
-chat-receipt / chat-context / chat-search-cite / actions / actions-feedback / assistant-dock /
-drag-guard / raw-request / raw-preview / director-perf / boot（perf）/ parity / skills / skill-hub /
-fcpxml / director-fcpxml-import / editing-assets / director-slice / director-slice-perf /
-director-lines / director-sublane / director-boot-flush / director-groups / editing-assistant / render-jobs / canvas / canvas-model /
-canvas-assistant / canvas-port / ui-contract / ui-shared / favorites-pager / asset-requests /
-settings-nav / sidebar-balance / lock；同一档还跑 `tests/perf/boot.cjs` 与
-`tests/static-encoding.cjs --live`（后者是同一份判据的「线上那一半」，要起隔离实例）。
+**清单只有一份：`tests/all.cjs` 里的 `run()` 登记行**（`tests/map.cjs` 的 registry 按源码文本现读这些行，
+两边不一致当场红）。这里不再抄一遍全表，只说各档是哪一路：
+
+- 静态纪律一路：`syntax` / `selfcheck` / `spa`（独立判据，不再由 selfcheck 代跑）/ `static-guards` /
+  `scope-guards` / `dup-guard` / `architecture` / `metrics` / `ui-catalog` / `settings-schema`。
+- 服务端与数据一路：`routes-smoke`（ctx 注入 + 每条端点走一遍假 req/res）/ `index-store` / `local-first` /
+  `relay-retry` / `outbound-keepalive` / `assetlib-cache` / `pull-scope` / `providers-validate` / `asr-settings` /
+  `zip` / `skill-hub` / `fcpxml-client` / `static-encoding`（不起实例的那一半）。
+- 本机资产一路：服务端档的 `local-root`（库根那一条算法 —— 盘上那一格必须真被读出来，
+  以及 `ASSETS_DIR` 压过它、默认跟系统下载文件夹走）；浏览器档的 `local-chain`（落点、双身份 fid + 采样签名、
+  改名挪目录认回、重复下载并成一张卡、**删一张卡带走整组**、磁盘对账只补一次；只起隔离实例，不开 Chrome）。
+- 纯算法一路：`core` / `editing` / `editor-media` / `local-edit` / `gen-rules` / `task-detail` / `asset-ref` /
+  `export-formats` / `raw-preview` / `skill-refvars` / `canvas-*` / `director-*`（含 `director-asr-text`：
+  浏览器内识别的分段算法 + 「worker 只认同源 `/models/`、vendored 四件在位」那两条静态判据）。
+- 浏览器档分两级：`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / lock / canvas，
+  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 条，
+  同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
+  （后者是同一份判据的「线上那一半」，要起隔离实例）。
 `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
 
 视觉基线更新（只在有意改版后）：
@@ -708,15 +788,20 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   SKILLS_DIR=.skills-probe node proxy.js
 ```
 
-- 不给 `ASSETS_DIR` / `RENDER_DIR` 就会写进用户真实资产库与成片目录。
+- 不给 `ASSETS_DIR` / `RENDER_DIR` 就会写进用户真实库根（默认在 `下载\拾帧`，**仓库外**）与成片目录。
+- **另一枚探针口**：`AUTOSAVE_DIR` 把整个「下载」基座指走（`server/user-dirs.js` 读它，
+  库根与提示词归档的默认目录都跟着它）；打这两条链路的判据必须一起给，否则探针真的往用户成品目录里写。
 - 自己 spawn 的探针要认领“答话的就是我刚起的那一份”：`/sys-status` 的三个目录都要点名，
   并判子进程没有提前退出。
 - 测试结束清理 `.data-probe*` 等目录与孤儿进程；不要留在仓库里。
 
 ### 13.3 数据基线
 
-- `node tests/data-snapshot.cjs` 比对 `.data / .assets / .renders` 与 `tests/data-baseline.json`。
+- `node tests/data-snapshot.cjs` 比对三块与 `tests/data-baseline.json`：真实 `.data`、真实 `.renders`、
+  以及**库根本体**（落点由 `server/local-root.js` 现算，不在项目里就照现在这一份盯）。
+- 基线文件里只记**标签**（`.data` / `.renders` / `库根`）与计数、聚合哈希，不记用户绝对路径 —— 这份要提交。
 - 写入型测试前后都要核对；真实实例上只做只读加载。
+- 迁移类改动做完后要手工 `node tests/data-snapshot.cjs --write` 重打一次基线，别用 `--write` 把日常写入掩盖过去。
 
 ### 13.4 浏览器
 
@@ -792,7 +877,20 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - 不做任意脚本注入 / 执行任意 URL 的动作；助手动作只经 `ActionRegistry` 注册。
 - 不恢复 iframe 页面池、换页 reload、上一代旧页面文件或旧路径 wrapper；旧地址只保留路由别名。
 - 不在运行时做模板编译、打包或 `new Function`；模板预编译是开发期步骤。
-- 不为了“兼容”保留两套实现：新实现直接接管调用点，旧实现删除；用户数据迁移是唯一例外。
+- **不留旧代码的兼容层（硬约束）**：一项实现被替换或撤销，调用点直接接管新实现，旧实现连同它的
+  旧键、旧字段、旧端点、旧路径、旧默认值一起删干净。具体禁止的写法：
+  「先读旧的、读不到再读新的」这类双读双写；`legacy` / `compat` / `old` / `deprecated` / `v1` 的别名壳；
+  给已删除的功能留占位注释、空函数、`return 已撤`式的桩、或者留着没人调用的定义「以防别处还在用」；
+  改了数据形状却照旧形状渲染（新写一份、旧的也认）；把已撤销的开关从设置表里抹掉但仍读它的值。
+  **判定只有一条：把这段代码删掉，当前这份产品的行为会不会变？** 不会变，它就是兼容层，不留。
+  两个例外都只作用于**用户机器上已经存在的那些数据**，不作用于代码：
+  ① 用户数据的落盘搬迁（本体从一个目录搬进另一个目录那种一次性工具，搬完即删，见 §6.3）；
+  ② 清掉用户机上残留的旧存储键（`web/ui/ui.js` 的 `LEGACY_KEYS` + `sweepLegacyKeys()`）——
+  读旧键**只为了删掉它**（连 `.data` 里那枚镜像一起 `DELETE /data/<键>?nobak=1`，不留 .bak），
+  绝不照它渲染任何东西；这一族留着是因为「不清掉的话下次 boot 会从服务器镜像恢复回来」。
+  文档与注释的同一件事：文件里不许写「以前是那样、现在不是了」的说明（本文件开头那条），
+  注释不许指向已删的文档或任务号（§14.1）；但**为什么这一枚键/这一条落点已作废**要写全 ——
+  那是防止有人把它接回去的唯一线索，属于「这一条为什么存在」，不是兼容层。
 - 不新增第二套动作目录、页面路由表、供应商类型表、格式化函数或网络层。
 
 ### 14.7 新功能文件落点（按类型）
@@ -875,9 +973,9 @@ npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s�
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
 npm run test                # 合并档：常驻判据全量（并发池，~3s）
 npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2 分钟）
-npm run test:e2e            # 浏览器档：42 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:e2e            # 浏览器档：47 条 e2e 全量串行（含视觉回归、性能、parity）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
-node tests/data-snapshot.cjs  # 写入型：对真实 .data/.assets/.renders 比基线（§13.3）
+node tests/data-snapshot.cjs  # 写入型：对真实 .data / .renders 与库根本体比基线（§13.3）
 powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest
 set WB_LAUNCHER_DRYRUN=1 && 启动.bat
 ```

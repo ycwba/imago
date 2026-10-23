@@ -1,25 +1,45 @@
 #!/usr/bin/env node
 /* 剪辑闭环：导入本机视频 → 入轨 → 剪 → 改倍速 → 写字幕 → 导出成片 →
    存进资产库，全程在同一个页面里跑完，不换页、不刷新。
-   需要 ffmpeg（导出那一步）；没有就跳过并报明。 */
+   成片在页面里逐帧合成（MediaExport / WebCodecs），产品侧不需要 ffmpeg；
+   ffmpeg 只用来造这一段 2 秒的输入视频 —— 本机没有就跳过并报明，
+   浏览器没有 H.264 编码器时同样跳过（成片导不出来，不是这一页坏了）。 */
 'use strict';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const h = require('./harness.cjs');
 
+/* 下载目录里的成片：Chrome 先落 .crdownload，跳过半成品。 */
+function pickFilm(dir) {
+  let list = [];
+  try { list = fs.readdirSync(dir).filter(f => /\.mp4$/i.test(f) && !/\.crdownload$/i.test(f)); } catch (e) { return ''; }
+  if (!list.length) return '';
+  const f = path.join(dir, list[list.length - 1]);
+  return fs.existsSync(f) && fs.statSync(f).size > 0 ? f : '';
+}
+
 (async () => {
-  if (!h.hasFfmpeg()) { console.log('- 跳过剪辑闭环（本机没有 ffmpeg，导出那一步跑不了）'); return; }
+  if (!h.hasFfmpeg()) { console.log('- 跳过剪辑闭环（本机没有 ffmpeg，造不出这颗 2 秒的输入视频；产品导出本身不用它）'); return; }
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-edit-'));
   const clip = h.makeClip(work);
+  const dlDir = path.join(work, 'dl');
+  fs.mkdirSync(dlDir);
   let proxy, browser, page;
   try {
     proxy = await h.startProxy();
     browser = await h.launchBrowser();
     page = await browser.newPage();
-    await page.cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: path.join(work, 'dl') });
+    await page.cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir });
     await page.goto(proxy.base + '/shell.html#director.html');
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
+
+    /* 这个浏览器能不能出片，问的是页面自己那一份探测（设置页「成片环境」读同一处）。 */
+    const caps = await page.eval(() => window.Api.exportCaps());
+    if (!caps || !caps.ok) {
+      console.log('- 跳过剪辑闭环（' + ((caps && caps.chip) || '没读到') + '）：这个浏览器导不了成片 —— ' + ((caps && caps.why) || '没给原因'));
+      return;
+    }
 
     /* 导入：把一段真视频塞进「导入本地视频」那颗文件选择器（与用户点同一颗）。 */
     await page.setFile('#importMediaFile', clip);
@@ -84,23 +104,30 @@ const h = require('./harness.cjs');
     }
     if (!fin || fin.state !== 'done') throw new Error('导出没跑完：' + JSON.stringify(fin));
     if (!fin.条数 || !(fin.条数.字幕 >= 1)) throw new Error('导出回执里字幕条数缺失：' + JSON.stringify(fin.条数));
+    if (fin.条数.段 !== 2) throw new Error('导出回执里段数不对：' + JSON.stringify(fin.条数));
+    if (!fin.文件) throw new Error('导出回执里没有文件名：' + JSON.stringify(fin));
 
-    /* 盘上那一份 + 下载 + 存进资产库 */
-    const jobs = await fetch(proxy.base + '/render/jobs', { headers: { cookie: proxy.cookie } }).then(r => r.json());
-    const done = (jobs.jobs || []).filter(j => j.state === 'done' && j.exists);
-    if (!done.length) throw new Error('最近导出里没有已完成的成片：' + JSON.stringify((jobs.jobs || []).map(j => j.state)));
-    const name = done[0].out;
-    if (!fs.existsSync(path.join(proxy.renderDir, name))) throw new Error('成片不在探针的 RENDER_DIR 里：' + name);
-    const dl = await fetch(proxy.base + done[0].url, { headers: { cookie: proxy.cookie } });
-    const bytes = Buffer.from(await dl.arrayBuffer());
-    if (bytes.length < 1024) throw new Error('下载到的成片是空的（' + bytes.length + ' 字节）');
-    const saved = await page.eval(n => window.WBBridge.get('director').saveToAssets({ name: n, title: '探针成片' }), name);
+    /* 盘上那份就是用户拿到的东西：成片走 Net.save 交给浏览器下载，没有服务端渲染目录。 */
+    let filmPath = '';
+    const dlUntil = Date.now() + 20000;
+    while (Date.now() < dlUntil) {
+      filmPath = pickFilm(dlDir);
+      if (filmPath) break;
+      await h.sleep(250);
+    }
+    if (!filmPath) throw new Error('浏览器下载目录里没有成片（等 20 秒）：' + dlDir);
+    if (path.basename(filmPath) !== fin.文件) throw new Error('下载文件名与导出回执对不上：' + path.basename(filmPath) + ' vs ' + fin.文件);
+    const filmBytes = fs.readFileSync(filmPath);
+    if (filmBytes.length < 1024) throw new Error('下载到的成片是空的（' + filmBytes.length + ' 字节）');
+
+    /* 同一份字节存进资产库：取回来要一模一样 —— 这一路只走会话缓存 + /local-assets，不经渲染目录。 */
+    const saved = await page.eval(n => window.WBBridge.get('director').saveToAssets({ name: n, title: '探针成片' }), fin.文件);
     if (!saved.ok || !saved.id) throw new Error('存进资产库失败：' + JSON.stringify(saved));
     const la = await fetch(proxy.base + '/asset/' + encodeURIComponent(saved.id), { headers: { cookie: proxy.cookie } });
     if (la.status !== 200) throw new Error('刚存进资产库的那一份取不回来（HTTP ' + la.status + '）：' + saved.id);
     const laBytes = Buffer.from(await la.arrayBuffer());
-    if (Math.abs(laBytes.length - bytes.length) > 512) {
-      throw new Error('资产库里那份与成片字节数对不上：' + laBytes.length + ' vs ' + bytes.length);
+    if (!laBytes.equals(filmBytes)) {
+      throw new Error('资产库里那份与成片字节对不上：' + laBytes.length + ' vs ' + filmBytes.length + ' 字节');
     }
 
     const after = await page.eval(() => ({ mark: window.__noReloadMark || 0, hash: location.hash,
@@ -111,7 +138,8 @@ const h = require('./harness.cjs');
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
 
     console.log('✓ 剪辑闭环通过（导入 2 秒本机视频 → 剪两段 → 第二段 2 倍速（成片 ' + steps.成片秒.toFixed(2) +
-      ' 秒）→ 1 条字幕 → 导出烧字幕 → ' + Math.round(bytes.length / 1024) + 'KB 成片 → 存进资产库，全程同一页）');
+      ' 秒）→ 1 条字幕 → 页面内合成并烧字幕 → ' + Math.round(filmBytes.length / 1024) +
+      'KB 成片（浏览器下载）→ 存进资产库，全程同一页）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

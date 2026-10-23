@@ -378,11 +378,12 @@ export default {
       const sc = isScene(c), pr = isProp(c);
       const pw = picWord(c);
       const pic = D.picOf(c);
-      const assetList = D.Cast.assetsOf(c);
-      const libProps = D.Lib.list().filter(x => x && isProp(x));
       const editOpen = openId.value === c.id;
       const faceBusy = genHas('face', c.id);
       const vo = voiced(c) && D.voiceOnlyOf(c);
+      /* 报错盖在图上（与「正在出」同一个位置）：卡面只剩图 + 名字 + 徽标 + 组名，
+         错误原因不另开一栏 —— 它就是这张图为什么没出来，看图的地方就要看得到。 */
+      const errHTML = errsHTML(c);
       const thumb = vo
         ? `<div class="thumb" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
         : `<div class="thumb"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'pickface'}"`} title="${faceBusy
@@ -391,27 +392,16 @@ export default {
             : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + nSuffix() + pw + '」'}">
           ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
             : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="身份锚点：出图、出资产与导演台参考图优先用它">锚点</span>' : '')
-              : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`}</div>`;
+              : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`}
+          ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}</div>`;
       const pickedNow = sel.value.has(c.id);
       return `${multi.value ? `<div class="pickbox${pickedNow ? ' on' : ''}" title="勾选后批量补缺 / 分组 / 删除">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
         <div class="main"><div class="body">
           <div class="nm">${nmInner(c)}</div>
-          <div class="tags">
-            ${D.Cast.voiceTag(c)}
-            ${refTag(c)}
-            ${c.anchor && c.anchor !== pic ? '<span class="ui-tag" title="身份锚点：出图 / 出资产 / 导演台参考图优先用它">锚点</span>' : ''}
-          </div>
-          <div class="bio">${bioInner(c)}</div>
-          ${assetList.length ? `<div class="assets">${assetList.map(a => {
-            const lab = D.Cast.assetName(a);
-            const ps = (a.propIds || []).map(pid => libProps.find(p => p && p.id === pid)).filter(Boolean).map(p => p.name);
-            return `<div class="th" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}" title="${esc(lab)}${ps.length ? '（连带 ' + esc(ps.join('、')) + '）' : ''}：点开看大图">${thumbImg(a.src)}<i>${esc(lab)}</i>${c.anchor === a.src ? '<span class="anchorbadge" title="身份锚点">锚点</span>' : ''}</div>`;
-          }).join('')}</div>` : ''}
-          ${errsHTML(c)}
-          ${vo ? '' : mainCandsHTML(c, pw, faceBusy, editOpen)}
           <div class="acts">${window.Wb.actsHTML(c, {
             items: [
               { act: 'edit', label: editOpen ? '收起' : '编辑' },
+              { act: 'rename', label: '改名', title: '给这一条换名字：全片按 id 自动回填引用，改名不断' },
               pic ? { act: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去生成工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
               pic ? { act: 'similar', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
               { act: 'del', label: '从库里删掉', danger: true },
@@ -491,6 +481,7 @@ export default {
         + `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`;
       return `<div class="edit" data-edit="${esc(c.id)}">
         <div class="eh"><span class="t">编辑「${esc(c.name || '这条素材')}」· 改完就地存</span>
+          ${D.Cast.voiceTag(c)}
           ${refTag(c)}
           <button class="ui-linkbtn" data-a="closeedit" title="收起这一块的编辑区（按 Esc 也一样）">收起</button></div>
 
@@ -509,6 +500,7 @@ export default {
         ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。生成某一镜时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
 
         ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>${rawHostHTML('chars:' + (sc ? 'scene' : pr ? 'prop' : 'char') + ':' + c.id)}`}
+        ${vo ? '' : mainCandsHTML(c, pw, genHas('face', c.id), true)}
         ${assetListHTML}${waitRows}${assetGenHTML}
 
         ${anchorHTML(c)}
@@ -562,6 +554,14 @@ export default {
          页面不必每张卡各调一次 bind（重复 bind 同一元素是安全的）。 */
       if (window.Wb) window.Wb.thumbs.bindAll(gridEl.value);
       if (window.RawRequest) window.RawRequest.bind(gridEl.value);
+      /* 自动补存：开关开着时把这一屏「本机还没有」的素材排进镜像队列。 */
+      try {
+        if (window.AssetLocal && AssetLocal.offerAll) {
+          const jobs = [];
+          viewItems.forEach(c => { if (c) localSlots(c).forEach(s => jobs.push(s)); });
+          AssetLocal.offerAll(jobs);
+        }
+      } catch (e) { /* 补存失败不影响列表 */ }
       if (openId.value) { const el = cardEl(openId.value); if (el) syncWhat(el); }
     }
     function syncDraft(card, c) {
@@ -1156,6 +1156,14 @@ export default {
     const ACTS = {
       edit: async (c) => { toggleEdit(c.id); },
       closeedit: async (c) => { toggleEdit(c.id, false); },
+      /* 卡上直接改名：打开编辑区并把光标放进名字那一格（改名确认与全片回填走
+         onFieldSave 的 name 分支 —— 那条链已有「将回填 N 处」提示，不另写一套）。 */
+      rename: async (c) => {
+        await toggleEdit(c.id, true);
+        const el = cardEl(c.id);
+        const inp = el && el.querySelector('[data-f="name"]');
+        if (inp) { inp.focus(); inp.select(); }
+      },
       face: async (c) => {
         const pw = picWord(c);
         await genRun('face', c.id, c, '正在出「' + c.name + '」的' + pw + '（' + candCount() + ' 张）…',
@@ -1475,16 +1483,50 @@ export default {
         if (n) {
           const ok = await window.Confirm.ask({
             title: '这个名字有 ' + n + ' 处引用',
-            body: '导演台里有 ' + n + ' 个镜头的提示词写着 @' + nameBefore + '，引用是按名字对上的 —— '
-              + '改成新名字之后，那些 @' + nameBefore + ' 就指不到这一条了。仍然改吗？',
-            okLabel: '改名',
+            body: '导演台里有 ' + n + ' 个镜头的提示词写着 @' + nameBefore + '。改名后会按 id 自动把那 ' + n + ' 处刷成 @' + String(c.name || '').trim() + '（refMeta.id 不动，引用不断）。仍然改吗？',
+            okLabel: '改名并回填',
           });
           if (!ok) { c.name = nameBefore; el.value = nameBefore; queueHeads(c); return k; }
         }
       }
       const saved = libSave(c);
-      if (k === 'name' && saved) { c.name = saved.name; el.value = saved.name; nameBefore = saved.name; }
+      if (k === 'name' && saved) {
+        c.name = saved.name; el.value = saved.name;
+        /* 改名回填（14.1-3）：按 id 找全片 refMeta 条目 → 刷 label；正文 @旧名 刷成 @新名。
+           refMeta.id 一个字不动 —— 身份与名字分开。 */
+        if (nameBefore && saved.name !== nameBefore) {
+          try { backfillRename(c, nameBefore, saved.name); } catch (e) { /* 回填失败不影响改名本身 */ }
+        }
+        nameBefore = saved.name;
+      }
       return k;
+    }
+    /* 改名回填：扫全片，把 refMeta.id === c.id 的 label 刷成新名、正文 @旧名 刷成 @新名。
+       回执报「N 处引用已改名」。老工程 refMeta 没 id 的按 label 兜底匹配一次（只读不写 id）。 */
+    function backfillRename(c, oldName, newName) {
+      let n = 0;
+      try {
+        const ws = window.Kv && Kv.at ? null : null;   // 同步路径走 D.* 的工程数据
+        const D2 = window.D;
+        if (!D2 || !D2.Lib) return 0;
+        const projects = (window.projAll && window.projAll()) || [];
+        projects.forEach(p => ((p && p.scenes) || []).forEach(sc => ((sc && sc.shots) || []).forEach(sh => {
+          if (!sh) return;
+          /* ① refMeta 按 id 找到这条 → 刷 label */
+          (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
+            if (rm && rm.id === c.id) { rm.label = (rm.label || '').replace(oldName, newName); n++; }
+            else if (!rm && rm.label && rm.label.indexOf(oldName) >= 0) { rm.label = rm.label.replace(oldName, newName); n++; }
+          });
+          /* ② 正文 @旧名 刷成 @新名 */
+          const txt = String(sh.prompt || '');
+          if (txt.indexOf('@' + oldName) >= 0) {
+            sh.prompt = txt.split('@' + oldName).join('@' + newName);
+            n++;
+          }
+        })));
+      } catch (e) { /* 工程数据不可达时回填跳过 */ }
+      if (n) Toast.receipt('改名完成：' + n + ' 处引用已跟着改');
+      return n;
     }
     function renameAsset(c, inp) {
       const nm = String(inp.value || '').trim();
@@ -1502,7 +1544,7 @@ export default {
       btn: () => aiFindBtn.value,
       ask: () => q.value,
       focus: () => { if (toolbarFb) toolbarFb.focus(); },
-      emptyMsg: '素材库还是空的，先点右边「新建素材」',
+      emptyMsg: '还没有素材 —— 点「新建素材」，或去导演台用「拆分镜」自动建档',
       noneMsg: 'AI 没挑到合适的（换个说法再试）',
       roster: () => D.Lib.list(),
       field: 'ids',
@@ -1862,8 +1904,8 @@ export default {
       pagerVisible.value = items.length > 0;
       if (!items.length) {
         cards.value = [];
-        emptyHtml.value = all.length ? '这一档下没有东西。换个筛选条件、换个组，或清空搜索框。'
-          : '素材库还是空的。<br>点右上「新建素材」把用顺的人和场景留下 —— 建好之后导演台选参考图、生成工作台出图出配音都会直接用它。';
+      emptyHtml.value = all.length ? '这一档下没有东西。换个筛选条件、换个组，或清空搜索框。'
+        : '还没有素材 —— 点「新建素材」自己建一条，或去导演台用「拆分镜」自动建档（拆出来的角色 / 场景 / 道具会自动进这里）。';
         return;
       }
       emptyHtml.value = '';
@@ -1979,12 +2021,83 @@ export default {
           clearAiPick();
         },
         extraHTML: '<button class="tool acc" title="' + esc('把搜索框那句话交给文字 AI，由它从整个库里挑最合适的几条') + '">'
-          + aiBtnHtml + '</button><span data-fb="aiChip"></span>',
+          + aiBtnHtml + '</button><span data-fb="aiChip"></span>'
+          + '<button class="tool" data-fb="libExport" title="把整个素材库导出成 JSON（备份 / 换机器带走）">'
+          + (window.icon ? icon('download', 13) : '') + ' 导出</button>'
+          + '<button class="tool" data-fb="libImport" title="从 JSON 导入素材（先报数，确认后才写）">'
+          + (window.icon ? icon('upload', 13) : '') + ' 导入</button>'
+          + '<input type="file" accept=".json,application/json" hidden data-fb="libImportFile">',
       });
       if (!toolbarFb) return;
       aiFindBtn.value = toolbarFb.el.querySelector('.tool.acc');
       aiChipEl.value = toolbarFb.el.querySelector('[data-fb="aiChip"]');
       if (aiFindBtn.value) aiFindBtn.value.onclick = runAiFind;
+      /* 导出 / 导入 JSON（14.3-2②）：库本体的备份两颗按钮。导入**先报数再写** ——
+         这是用户数据，「将新增 X 条 / 覆盖 Y 条」看过、点了确认才落盘。 */
+      const expBtn = toolbarFb.el.querySelector('[data-fb="libExport"]');
+      const impBtn = toolbarFb.el.querySelector('[data-fb="libImport"]');
+      const impFile = toolbarFb.el.querySelector('[data-fb="libImportFile"]');
+      if (expBtn) expBtn.onclick = exportLibJson;
+      if (impBtn && impFile) {
+        impBtn.onclick = () => impFile.click();
+        impFile.onchange = () => { const f = impFile.files && impFile.files[0]; impFile.value = ''; if (f) importLibJson(f); };
+      }
+    }
+
+    function exportLibJson() {
+      const list = (D && D.Lib && D.Lib.list()) || [];
+      if (!list.length) return Toast.warn('库里还没有素材，没什么可导出');
+      const payload = { kind: '拾帧素材库', version: 1, at: new Date().toISOString(), items: list };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '素材库-' + (window.dayKey ? dayKey(Date.now()) : new Date().toISOString().slice(0, 10)) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (e) { /* 浏览器自己会回收 */ } }, 5000);
+      Toast.receipt('已导出 ' + list.length + ' 条素材（JSON）');
+    }
+    async function importLibJson(file) {
+      let data = null;
+      try { data = JSON.parse(await file.text()); }
+      catch (e) { return Toast.err('这不是一份素材库 JSON：' + errText(e)); }
+      const items = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : null);
+      if (!items || !items.length) return Toast.err('这份 JSON 里没有素材条目');
+      /* 先报数不写（14.3-2②）：同类型 + 同名 = 覆盖合并进已有那条（保留原 id，与 Lib.save 同尺）；
+         对不上 = 新增。看过这句、点确认才落盘。 */
+      const cur = (D.Lib.list() || []);
+      let willNew = 0, willOver = 0;
+      items.forEach(x => {
+        const nm = String((x && x.name) || '').trim();
+        if (!nm) return;
+        const kind = D.libKindOf(x);
+        const hit = cur.find(y => y && y.name === nm && D.libKindOf(y) === kind);
+        if (hit) willOver++; else willNew++;
+      });
+      const ok = await window.Confirm.ask({
+        title: '从 JSON 导入 ' + items.length + ' 条素材？',
+        body: '将新增 ' + willNew + ' 条、覆盖合并 ' + willOver + ' 条（同类型同名的并进已有那条，保留原 id）。'
+          + '导入会写进素材库 —— 覆盖的那几条按导入文件里的字段刷新。',
+        okLabel: '确认导入', cancelLabel: '取消',
+      });
+      if (!ok) return;
+      let done = 0;
+      const failed = [];
+      for (const x of items) {
+        try {
+          const nm = String((x && x.name) || '').trim();
+          if (!nm) continue;
+          D.Lib.save(x, { exact: true });
+          const e = D.Lib.writeError && D.Lib.writeError();
+          if (e) failed.push(nm + '（' + e + '）');
+          else done++;
+        } catch (e) { failed.push(String((x && x.name) || '?') + '（' + errText(e) + '）'); }
+      }
+      render();
+      Toast[(failed.length ? 'warn' : 'ok')](
+        '导入完成：' + done + ' 条已写（新增 ' + willNew + ' / 覆盖 ' + willOver + '）'
+        + (failed.length ? '；没成：' + failed.slice(0, 3).join('、') : ''), 7000);
     }
 
     async function boot() {

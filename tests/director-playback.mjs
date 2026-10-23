@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 剪辑态播放计划：成片时长 / 段起点 / 源秒与框基秒折算 / 计划指纹 / 黑场串。 */
+/* 剪辑态播放计划：成片时长 / 段起点 / 源秒与框基秒折算 / 计划指纹 / 黑场与静态图串。 */
 import assert from 'node:assert/strict';
 import { createPlayback } from '../web/director/playback.js';
 
@@ -44,20 +44,28 @@ TlPlay.setPlan([{ src: 'b', in: 4, out: 8, spd: 2, fs: 10, fa: 1, vol: 0.3 }],
   [{ src: 'v', at: 0, dur: 1, vol: 1, spd: 1 }], { film: true });
 assert.notEqual(TlPlay.fp, fp1, '配音必须进指纹');
 
-/* 连续黑场整串一次走完 */
+/* 连续黑场 / 同一张静态图整串一次走完（holdRun）：不同的图不并串 —— 并了就只有第一张
+   会被打开，后面那张的时间过去了、画面却停在上一张；有视频素材的段不进串。 */
 TlPlay.setPlan([
   { src: 'a', in: 0, out: 1, spd: 1 },
   { src: '', in: 0, out: 2, spd: 1 },
   { src: '', in: 0, out: 2, spd: 1 },
+  { src: '', in: 0, out: 2, spd: 1, still: 'x' },
+  { src: '', in: 0, out: 2, spd: 1, still: 'x' },
+  { src: '', in: 0, out: 2, spd: 1, still: 'y' },
   { src: 'a', in: 1, out: 2, spd: 1 },
 ], [], { film: false });
 TlPlay.idx = 1;
-assert.equal(TlPlay.blackRun(), 2);
+assert.equal(TlPlay.holdRun(), 2);
 TlPlay.idx = 3;
-assert.equal(TlPlay.blackRun(), 3);
+assert.equal(TlPlay.holdRun(), 4);
+TlPlay.idx = 5;
+assert.equal(TlPlay.holdRun(), 5);
+TlPlay.idx = 6;
+assert.equal(TlPlay.holdRun(), 6);
 
 TlPlay.destroy();
 assert.equal(TlPlay.plan.length, 0);
 assert.equal(TlPlay.playing, false);
 
-console.log('✓ 剪辑态播放计划：时长 / 起点 / 源秒与框基秒 / 指纹 / 黑场串');
+console.log('✓ 剪辑态播放计划：时长 / 起点 / 源秒与框基秒 / 指纹 / 黑场与静态图串');

@@ -301,7 +301,7 @@ const sha1Of = buf => require('crypto').createHash('sha1').update(buf).digest('h
 /* 只在本机有意义的派生数据：换台机器拉回来要么没用、要么会把本机状态顶掉。
    · asr / asr-jobs：识别任务与结果属于这一台机器上的媒体文件；
    · search：联网搜索的短缓存，过期即丢；
-   · render-jobs：成片文件只在 .renders 里，任务记录跟着云走到另一台机器只会指向不存在的文件。 */
+   · render-jobs：老版本留下的本机导出账本（服务端已不再产生），别跟着云走到另一台机器。 */
 const CLOUD_SKIP_KEYS = new Set(['asr', 'asr-jobs', 'search', 'render-jobs']);
 /* 拉两边现状，给出每个键的动作：
    action: same | push | pull | delete-remote | conflict | push-auto | pull-auto | error

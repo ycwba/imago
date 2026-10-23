@@ -93,11 +93,11 @@ export function createPlayback({ mediaSrc }) {
     },
   };
   const TlPlay = {
-    A: null, B: null, front: null, back: null,
+    A: null, B: null, still: null, front: null, back: null,
     plan: [], voices: [], total: 0, t: 0, playing: false, idx: -1,
     warmIdx: -1, muted: false, raf: 0, onTime: null, audio: [],
-    /* 黑场（画面被删掉的那一格 / 一段纯黑）没有可播的素材，靠墙钟把成片时间推过去：
-       `blackEnd` = 这一串连续黑场走完的那一秒，`blackFrom`/`blackT0` = 进入时的成片秒与墙钟。 */
+    /* 黑场（画面被删掉的那一格 / 一段纯黑）与图片段都没有可 seek 的视频素材，靠墙钟把成片时间推过去：
+       `blackEnd` = 这一串「同样的静止画面 / 黑场」走完的那一秒，`blackFrom`/`blackT0` = 进入时的成片秒与墙钟。 */
     blackEnd: 0, blackFrom: 0, blackT0: 0, blackLast: -1,
     /* 每一次 play / seek / pause 都换一个「代号」。await（等甲板 loadedmetadata + seeked）
        醒来先核对代号 —— 不是自己的就直接收手，绝不再碰播放状态。
@@ -107,6 +107,8 @@ export function createPlayback({ mediaSrc }) {
     gen: 0,
     /* 装上两个甲板：A 是可见的那一个（`midEditTrim` 那一份播放器标记里就有它们） */
     mount(a, b, opt) {
+      /* 图片段那一层（静止画面）：与两个甲板同生同死，`seek` / `advance` 走到图片时把它打开。 */
+      this.still = (opt && opt.still) || null;
       /* 还是同一对节点（整列重画时把播放区整块保下来了）：**别重排前后**。
          正在播的那一个可能是 B，重排就会把它翻到后面去、把停在别处的 A 翻上来 ——
          画面当场静止，而声音还在放（那一句 Audio 没被这一下碰到），看着像坏了。 */
@@ -143,7 +145,7 @@ export function createPlayback({ mediaSrc }) {
            本镜档不传它们：这一档 `rate` 恒为 1（`srcT()` 直接就是源秒，不需要那根框基轴）。
            ⚠ 这与「本镜那一排的**格子**按轴秒摊」（`shotFrames`）是两件事 —— 轨道缩的是「这一格在
            成片里占多久」，甲板跟着缩就得重排时间线、还会让两种听法互相冒充，所以播放这一头刻意不动。 */
-        return { src: c.src || '', in: Math.max(0, Number(c.in) || 0), out: Math.max(0, Number(c.out) || 0),
+        return { src: c.src || '', still: c.still || '', in: Math.max(0, Number(c.in) || 0), out: Math.max(0, Number(c.out) || 0),
           dur: dur, spd: spd, rate: rate, fs: Number(c.fs) || 0, fa: Number(c.fa) || 0,
           vol: c.vol == null || !isFinite(Number(c.vol)) ? 1 : Math.max(0, Math.min(2, Number(c.vol))) };
       });
@@ -156,7 +158,7 @@ export function createPlayback({ mediaSrc }) {
          不改 fp 就永远拿到旧的那一只 —— 两种控件的差别在重建时机，不在音量本身。
          倍速与音量同理要进 fp：它是甲板 `playbackRate` 与配音时机的来源，
          改了却不 seek 就等于「界面上写了 2 倍速，播起来还是原速」。 */
-      this.fp = this.plan.map(c => c.src + ':' + c.in + '-' + c.out + '@' + c.spd).join('|')
+      this.fp = this.plan.map(c => (c.still ? 'img:' + c.still : c.src) + ':' + c.in + '-' + c.out + '@' + c.spd).join('|')
         + '#' + this.voices.map(v => v.src + '@' + v.at + '+' + v.dur + 'x' + v.vol + 'o' + (v.off || 0) + 's' + (v.spd || 1)).join('|');
       if (this.t > this.total) this.t = 0;
       this.applyVol();
@@ -223,19 +225,34 @@ export function createPlayback({ mediaSrc }) {
     dark(on) {
       [this.A, this.B].forEach(v => { if (v) v.classList.toggle('blackout', !!on); });
     },
-    /* 从当前这一段起，连续的黑场一共占到哪一秒（一次剪两刀会出现两格相邻的黑场）。
-       整串一次走完：中途不必接甲板，也就不会在每一格边界上各卡一下。 */
-    blackRun() {
+    /* 从当前这一段起，同一幅「没有视频素材」的画面（黑场 / 同一张图）一共占到哪一秒。
+       黑场之间可以整串一次走完（一次剪两刀会出现两格相邻的黑场）；两张不同的图不能并成一串 ——
+       并了就只有第一张会被打开，后面那张的时间过去了、画面却一直停在上一张。 */
+    holdRun() {
+      const same = (a, b) => !a.src && !b.src && (a.still || '') === (b.still || '');
       let last = this.idx;
-      while (last + 1 < this.plan.length && !this.plan[last + 1].src) last++;
+      while (last + 1 < this.plan.length && same(this.plan[last], this.plan[last + 1])) last++;
       return last;
     },
-    enterBlack() {
-      this.blackLast = this.blackRun();
+    stillOn(src) {
+      if (!this.still) return;
+      this.still.src = mediaSrc(src);
+      this.still.classList.add('on');
+    },
+    stillOff() {
+      if (!this.still) return;
+      this.still.classList.remove('on');
+      this.still.removeAttribute('src');
+    },
+    enterHold() {
+      this.blackLast = this.holdRun();
       this.blackEnd = this.starts[this.blackLast] + this.plan[this.blackLast].dur;
       this.blackFrom = this.t;
       this.blackT0 = performance.now();
+      /* 甲板照旧压黑：图片层盖在它上面；图片取不到时看到的是一块黑，而不是上一段的最后一帧。 */
       this.dark(true);
+      const c = this.plan[this.idx];
+      if (c && c.still) this.stillOn(c.still); else this.stillOff();
       try { if (this.front) this.front.pause(); } catch (e) {}
       try { if (this.back) this.back.pause(); } catch (e) {}
     },
@@ -295,16 +312,17 @@ export function createPlayback({ mediaSrc }) {
       const i = this.clipAt(this.t);
       if (i < 0) { this.pause(); return; }
       this.idx = i;
-      /* 落在黑场上：不去接甲板（没有素材可接），按墙钟把这几秒走完。
+      /* 落在黑场 / 图片段上：不去接甲板（没有视频素材可接），按墙钟把这几秒走完。
          少了这一支 `loadInto` 会返回 false → 当场 pause，用户看到的就是
          「删掉一段画面之后，播放到这里就停了」。 */
       if (!this.plan[i].src) {
-        this.enterBlack();
+        this.enterHold();
         if (play) { this.startVoices(this.t); this.warm(this.blackLast + 1); this.loop(); }
         this.emit();
         return;
       }
       this.dark(false);
+      this.stillOff();
       /* `idx` 与 `t` 上面都已经落定，所以甲板要定位的源秒就是 srcT() —— 不再另拼一遍算式（拼两遍就会有一遍忘乘倍速） */
       const ok = await this.loadInto(this.front, i, this.srcT());
       if (my !== this.gen) return;                       // 期间用户又点了播放/暂停：这一手作废
@@ -352,15 +370,16 @@ export function createPlayback({ mediaSrc }) {
       try { b.pause(); } catch (e) {}
       this.idx = next;
       this.t = this.starts[next];
-      /* 接下来是黑场：与 seek 里同一支处理（墙钟走完、声音照放），否则播到删除处就停住 */
+      /* 接下来是黑场 / 图片段：与 seek 里同一支处理（墙钟走完、声音照放），否则播到删除处就停住 */
       if (!this.plan[next].src) {
-        this.enterBlack();
+        this.enterHold();
         this.startVoices(this.t);
         this.warm(this.blackLast + 1);
         this.loop();
         return;
       }
       this.dark(false);
+      this.stillOff();
       const ok = await this.loadInto(f, next, this.plan[next].in);
       if (my !== this.gen) return;                       // 期间用户按了暂停：别把下一段又开起来
       if (!ok) { this.pause(); return; }
@@ -376,8 +395,8 @@ export function createPlayback({ mediaSrc }) {
         const c = this.plan[this.idx];
         if (!c) { this.pause(); return; }
         if (!c.src) {
-          /* 黑场：甲板没有素材可播，成片时间按墙钟走。走完这一串（可能连着好几格）
-             再把指针交回 advance —— 那里接的是黑场后面第一格真画面。 */
+          /* 黑场 / 图片段：甲板没有视频素材可播，成片时间按墙钟走。走完这一串（可能连着好几格）
+             再把指针交回 advance —— 那里接的是这一串后面第一格真画面。 */
           this.t = Math.min(this.blackEnd, this.blackFrom + (performance.now() - this.blackT0) / 1000);
           if (this.t >= this.blackEnd - 0.005) { this.idx = this.blackLast; this.advance(); return; }
           this.emit();
@@ -401,6 +420,7 @@ export function createPlayback({ mediaSrc }) {
       this.pause();
       this.plan = []; this.voices = [];
       this.A = this.B = this.front = this.back = null;
+      this.stillOff(); this.still = null;
       this.idx = -1; this.warmIdx = -1;
     },
   };

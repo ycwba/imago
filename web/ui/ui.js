@@ -1343,8 +1343,9 @@ window.UI_PREFS = {
     { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']],
       hint: '生成完的视频 / 图像 / 音频当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
-        + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增；'
-        + '关掉时排队中的不再发，已经发出去的几份会跑完。' },
+        + '开着这一项，收藏、素材库、资产库、生成工作台里的产物**也会自动存回本机**（新不新旧按「自动存本机要存哪一档」定）。'
+        + '那几页的「存回本机」是**立刻取回**用的 —— 想马上要就点它。'
+        + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增。' },
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']],
       hint: '开 = 卡片直接读本机副本（平台挂了也照样能看、用、传给别人）；'
@@ -1362,7 +1363,6 @@ window.UI_PREFS = {
       needs: ['sk_media_local', 'sk_media_prefer'],
       hint: '勾上 = 生成工作台与资产库的列表里只留本机有这份字节的产物，还没落到本机的那一条条不再出现。'
         + '在跑的、排队中的、失败的不藏（藏了就等于把「点了生成没反应」和失败原因一起弄丢）。'
-        + '我的收藏与素材库不受这一项影响 —— 那两页各有一颗「自动下载」，由人自己决定把哪几张存回本机。'
         + '这一项要上面两项都开着才生效：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」。' },
   ],
   /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
@@ -1433,10 +1433,6 @@ const KEY_RENAME = {
   'dr_ai_voice': 'char_ai_voice',
   'dr_tts_mode': 'char_tts_mode',
   'dr_cand_n': 'char_cand_n',
-  /* 用户在设置页改过的提示词（Def 的 drama_image / drama_voice 一并改了名，
-     promptKey() 是 'sk_polish_' + kind，所以这两条跟着换名） */
-  'sk_polish_drama_image': 'sk_polish_char_image',
-  'sk_polish_drama_voice': 'sk_polish_char_voice',
 };
 async function migrateRenamedKeys() {
   if (!window.Store || !Store.available) return [];
@@ -1509,6 +1505,11 @@ const LEGACY_KEYS = [
   'ai_chat_inject', 'ai_chat_inject_auto',
   /* 提示词编辑器整块删除（2026-10）：折叠状态已经没有对应的卡。 */
   'set_fold_polish',
+  /* 「按类型另存一份到指定文件夹」整族撤销（2026-10-23）：产物只有一份，就住在资产库根的类型子目录里，
+     而那个根默认就是用户翻得到的 下载\拾帧。`sk_autosave` 是那三档的开关与目录，`sk_autosave_log`
+     是「上一趟另存没成的原因」，两者都再没有读者。库根本身改由 `sk_local_dir` 那**一个**目录承担，
+     它是代理要读的那份（localStorage → .data/sk_local_dir.json），不在这里。 */
+  'sk_autosave', 'sk_autosave_log',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

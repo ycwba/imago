@@ -779,28 +779,12 @@
       }
       const rec = { name: f.name || '未命名', size: f.size || 0, mime: f.type || '', kind: kindOf(f), file: f, src: '', objUrl: '', la: '', txt: '', note: '' };
       try { rec.objUrl = URL.createObjectURL(f); rec.src = rec.objUrl; } catch (e) {}
-      /* 图片/视频/音频落一份本机资产（/asset/la_xxx）：别的页面从资产库也挑得到它，
-         提交时它就是个读得到的地址。文本落一份有上限的快照（内容就是它要的字节，不必占资产库）。 */
+      /* 附件**不落本机资产库**：模型读图用的是内存里的 File（`attachImages` 的 `f.file` 优先），
+         视频/音频模型根本不读（只列在附件栏）；文本早就有「只存快照不进资产库」的先例。
+         落盘只会多占磁盘、在资产库里多出几条「AI 助手附件」—— 刻意不落。
+         代价：刷新后字节不在了 → 卡片走「字节已不在，要让人重新拖」那条降级路（照实说，不假装还在）。 */
       if (rec.kind === '图片' || rec.kind === '视频' || rec.kind === '音频') {
-        try {
-          const b64 = window.AiGen ? AiGen.b64FromBuf(await f.arrayBuffer()) : '';
-          if (b64) {
-            const saved = await Api.saveLocalAsset({ name: rec.name, mime: rec.mime || 'application/octet-stream',
-              format: window.blobExtOf(f), data: b64, media_type: rec.kind, meta: { provider: 'local', prompt: 'AI 助手附件' } });
-            if (saved && saved.id) {
-              rec.la = saved.id;
-              /* 拿到本机地址之后，这个 blob: 就此失去引用 —— 当场收回。
-                 clearFiles 那句「不 revoke」防的是「这一轮还在拿它当唯一一份字节」，
-                 换成 /asset/ 之后用的已经是本机资产那一份，blob 只是继续白占着一整个文件的内存
-                 （一次会话拖进去的每条视频到关标签都不放）。
-                 没给地址（saved.url 空）时**不许**收回：那时候 blob 还是唯一的字节来源。 */
-              if (saved.url) {
-                rec.src = saved.url;
-                if (rec.objUrl) { try { URL.revokeObjectURL(rec.objUrl); } catch (e) {} rec.objUrl = ''; }
-              }
-            }
-          } else rec.note = '读不出字节，没存进本机资产';
-        } catch (e) { rec.note = '没存进本机资产：' + cap(errText(e), 90); }
+        /* 字节只活在内存（blob:）。会话期间 fileBytes / 识图都读得到。 */
       } else if (rec.kind === '文本') {
         try { rec.txt = cap(await f.text(), READ_MAX); }
         catch (e) { rec.note = '读不出文本：' + cap(errText(e), 90); }
@@ -833,8 +817,9 @@
   /* 附件个数上限 —— **存与取共用这一个数**（见 addFiles 末尾那段注释：
      只在读侧截会让序号整体漂移，卡片上的附件序号与实际递进去的对不上）。 */
   const FILES_MAX = 20;
-  /* 附件的「身份」落盘：File 句柄过不了 JSON，所以媒体记本机资产地址、文本记快照。
-     换页 / 刷新之后序号仍和气泡里对得上，read_file 也还能读 —— 不必让人重拖一次。 */
+  /* 附件的「身份」落盘：File 句柄过不了 JSON；附件不落本机资产库（没有 la），
+     所以只记 name/kind 让气泡序号与「带了什么」有据可查 —— 字节不记、地址不记（blob: 过不了 JSON）。
+     刷新后字节不在了 → 卡片照实标「字节已不在」，让人重新拖。 */
   let filesSaveWarned = false;    // 写盘失败只报一次，别一句接一句
   function saveFiles() {
     /* 走公共的 Store.write —— 前面那句 `try { localStorage.setItem } catch {}` 绕开了它，
@@ -843,8 +828,8 @@
        Store 自己有配额提示与节流，这里只把它返回的失败照实说一句（每轮最多一次，
        不然写盘失败会变成一句接一句的 toast）。 */
     try {
-      const r = Store.write(K_FILES, files.map(f => ({ name: f.name, size: f.size, mime: f.mime,
-        kind: f.kind, src: f.src || '', la: f.la || '', txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '' })),
+      const r = Store.write(K_FILES, files.map(f => ({ name: f.name,
+        kind: f.kind, txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '' })),
         { label: 'AI 助手的附件清单' });
       if (r && r.ok === false && !filesSaveWarned) {
         filesSaveWarned = true;
@@ -858,7 +843,8 @@
   function loadFiles() {
     /* 读也走 Store.read（与 saveFiles 那一次 write 同源）：裸 localStorage.getItem 在
        换端口/换源时读不到，而 Store 会按本项目的键规则处理 ——
-       两边各用一套就会出现「写进去了、读回来是空的」。 */
+       两边各用一套就会出现「写进去了、读回来是空的」。
+       附件只落 name/kind（字节不落盘）→ 读回来的 src 为空 = 字节已不在，照实标出来。 */
     let arr = [];
     try {
       const v = (window.Store && Store.read) ? Store.read(K_FILES, []) : JSON.parse(localStorage.getItem(K_FILES) || '[]');
@@ -867,14 +853,19 @@
     if (!Array.isArray(arr)) arr = [];
     files = arr.filter(x => x && typeof x === 'object' && x.name).slice(-FILES_MAX).map(x => ({
       name: String(x.name), size: Number(x.size) || 0, mime: String(x.mime || ''), kind: String(x.kind || '其他'),
-      src: String(x.src || ''), la: String(x.la || ''), txt: String(x.txt || ''), note: String(x.note || ''), file: null }));
+      src: String(x.src || ''), la: '', txt: String(x.txt || ''), note: String(x.note || ''), file: null }));
   }
   const LOCAL_SRC = /^\/asset\//;
-  /* 字节来源：内存里的 File 优先，否则按本机资产地址回源（换页之后走的就是这一条） */
+  /* 字节来源：内存里的 File 优先，其次 blob:（附件只活在内存，不落本机资产库），
+     最后才是本机资产地址（老会话记录里可能还有 /asset/ 的历史条目）。 */
   async function fileBytes(rec) {
     if (rec.file) return rec.file;
-    if (!LOCAL_SRC.test(rec.src || '') || !window.Net) return null;
-    try { return await Net.blob(rec.src); } catch (e) { return null; }
+    const s = rec.src || '';
+    if (s.startsWith('blob:') && window.Net) {
+      try { return await Net.blob(s); } catch (e) { return null; }
+    }
+    if (!LOCAL_SRC.test(s) || !window.Net) return null;
+    try { return await Net.blob(s); } catch (e) { return null; }
   }
   /* 发出去的那一刻拍一份快照，并顺手拼出能落盘的那份摘要（File 句柄与 blob: 地址过不了 JSON，
      气泡上画的就是这份摘要 —— 它也是清空输入框之后「这一条带了什么」的唯一凭据）。 */
@@ -882,7 +873,7 @@
     roundFiles = files.map(f => Object.assign({}, f));
     return roundFiles.map(f => ({
       kind: f.kind, name: f.name, size: f.size,
-      ok: !!f.file || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt),
+      ok: !!f.file || (f.src || '').startsWith('blob:') || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt),
       note: f.note || '',
     }));
   }
@@ -938,11 +929,11 @@
   }
   function paintFiles() {
     if (!el.files) return;
-    const readable = f => !!f.file || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt);
+    const readable = f => !!f.file || (f.src || '').startsWith('blob:') || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt);
     el.files.innerHTML = files.map((f, i) =>
-      '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '' : ' · 字节已不在')) + '">'
+      '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '' : ' · 字节已不在，要重新拖')) + '">'
       + esc(f.kind) + '·' + esc(cap(f.name, 18))
-      + '<button data-i="' + i + '" title="从这一轮移开（不删本机资产库里的文件）">×</button></span>').join('');
+      + '<button data-i="' + i + '" title="从这一轮移开（不落本机资产库，删的只是这个引用）">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
     el.files.hidden = !files.length;
   }
@@ -2130,7 +2121,7 @@
       w.appendChild(who);
       /* 空态的第一颗不是问句，是一颗**能立刻拿到答案**的按钮：
          新用户点开抽屉看到六颗问句，得自己猜「我该问什么」；
-         而 `doctor` 那份体检（代理在不在线、哪家真能用、ffmpeg 装没装、云同步配没配）
+         而 `doctor` 那份体检（代理在不在线、哪家真能用、这个浏览器能不能出片、云同步配没配）
          写得很全却只有模型能调 —— 用户没有界面入口。
          这颗走的是现成那条 send（照样经文字 AI 那条路，拿到的是一份**说人话**的体检结论），
          不另搭一套：另搭一套就会与 doctor 那份判据走样。 */
@@ -2254,7 +2245,7 @@
         + (s.truncated ? '\n（正文过长，本轮只带了前 ' + s.truncatedChars + ' 字，共 ' + s.chars + ' 字）' : '')
         + (s.contract ? '\n机器契约（' + s.contract + '）：' + (contractTexts[s.contract] || '') : '')).join('\n\n') + '\n\n';
     const si = (ctx && ctx.skillIndex) || [];
-    if (si.length) out += '【可用 Skill（本轮没加载；用户点名要某一份时才 CALL: skill {"id":"…"}）】\n'
+    if (si.length) out += '【可用 Skill（本轮没加载；需要时你自己判断要不要 CALL: skill {"id":"…"} —— 回合内最多再按需读 2 份、总额度约 1000 token，超了会回「预算用完了」）】\n'
       + si.map(s => s.id + ' — ' + s.description + (s.triggers && s.triggers.length ? '（触发：' + s.triggers.join(' / ') + '）' : '')).join('\n') + '\n\n';
     out += '【这次的问题】\n' + text;
     if (!mayCall) out += '\n\n（这一轮先不要再查了：要么查询结果已经把上下文占满，再查只会挤掉更早的结果；要么同一个查询已经问了两遍还没换内容。'
@@ -2468,7 +2459,7 @@
     const scope = turnScope();
     const turn = {
       id: uid('t_'), at: Date.now(), scope,
-      user: { text: q, attachments: shot.map(f => ({ id: f.la || '', name: f.name || '', kind: f.kind || '' })),
+      user: { text: q, attachments: shot.map(f => ({ name: f.name || '', kind: f.kind || '' })),
         refs: refShot.map(r => ({ name: r.name || '', type: r.type || '', assetId: r.assetId || '', taskId: r.taskId || '' })), skillIds: [] },
       skills: [], assistant: { text: '' }, tools: [], actions: [],
       changed: { nodes: [], edges: [], clips: [], subtitles: [], revision: 0 },
@@ -2485,7 +2476,11 @@
         const items = await window.WbSkills.list();
         ctx.skillIndex = items.filter(x => x.enabled && !x.conflict).slice(0, 24)
           .map(x => ({ id: x.id, description: x.description || '', triggers: x.triggers || [] }));
-        ctx.skills = await window.WbSkills.activeFor(page(), [q].concat(shot.map(f => f.name || '')).join(' '));
+        /* 用户点名（问题里写着 id / 名字）= 钉死指定优先（§13.4 的 opts.pinned）；
+           没点名的走触发词自动补位 —— 钉了就不再自动换，给「我不喜欢它自己选」留一档。 */
+        const pins = items.filter(x => x.enabled && (q.includes(x.id) || (x.name && q.includes(x.name))))
+          .map(x => x.id).slice(0, 2);
+        ctx.skills = await window.WbSkills.activeFor(page(), [q].concat(shot.map(f => f.name || '')).join(' '), { pinned: pins });
         turn.skills = (ctx.skills || []).map(s => ({
           id: s.id, name: s.name || s.id, version: s.version || 1,
           contentHash: String(s.contentHash || ''),

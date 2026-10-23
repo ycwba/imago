@@ -25,7 +25,9 @@ prompts-probe*/
 .skills/
 .skills-probe*/
 
-# 用户自己的成品目录（历史默认位置，现在默认在系统下载文件夹下的 拾帧\）
+# 历史默认落点（现在默认在系统下载文件夹下的 拾帧\）。
+# 仍然忽略：库根由 ASSETS_DIR / .data\sk_local_dir.json 说了算，指回项目内这些老名字时
+# 里面装的是用户的作品，一次 git add -A 就会把几百 MB 媒体推进历史。
 文件/
 
 # 一次性备份 / 自动化探针残留
@@ -33,7 +35,14 @@ prompts-probe*/
 _backup/
 *.before
 .chrome-probe*/
+.mig-*/
+.downloads-probe*/
+.legacy-probe*/
 .selftest/
 .selftest-tmp/
 .tmp-*
+.probe-inode/
 tests/fixtures/visual/actual/
+
+# Superdesign 设计上下文：正文（init/ 设计系统/ 报告/ 证据图）留仓，临时 HTML 不进历史
+.superdesign/tmp/

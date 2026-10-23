@@ -345,6 +345,48 @@ window.TextAI = {
     /* 拆分镜那一条「判断哪些新角色/场景/物品要建档并出图」的指令。 */
     board_assets: 'board_assets.json',
   },
+  /* 每个 contract 的占位符说明（设置页「变量参数」那一栏从这里出）。
+     变量的含义以前只散在正文里，界面上讲不清 —— 这份表是唯一说明来源。
+     没有占位符的 contract 也要写空数组（「无」也是说明）。 */
+  SKILL_VARS: {
+    'polish.video': [],
+    'polish.image': [],
+    'polish.voice': [],
+    'polish.follow': [{ name: 'what', from: '用户这一轮的修改要求', desc: '跟着改的具体指令' }],
+    'story.json': [],
+    'split.json': [
+      { name: 'what', from: '用户的创作意图', desc: '要做什么类型的短片' },
+      { name: 'cast', from: '素材库的角色清单', desc: '可选演员名单' },
+      { name: 'assets', from: '素材库的场景/道具清单', desc: '可用素材' },
+      { name: 'board', from: '现有分镜摘要', desc: '已有分镜（续写时）' },
+      { name: 'dur', from: '目标总时长', desc: '期望的成片时长' },
+    ],
+    'board_edit.json': [
+      { name: 'what', from: '用户的修改要求', desc: '要改什么' },
+      { name: 'cast', from: '素材库的角色清单', desc: '可选演员名单' },
+      { name: 'assets', from: '素材库的场景/道具清单', desc: '可用素材' },
+      { name: 'board', from: '现有分镜', desc: '当前分镜内容' },
+      { name: 'dur', from: '目标总时长', desc: '期望的成片时长' },
+    ],
+    'img_split.json': [],
+    'char.image.json': [
+      { name: 'what', from: '用户的描述', desc: '要画什么' },
+      { name: 'name', from: '角色/场景名', desc: '素材名称' },
+      { name: 'look', from: '外观描述', desc: '外形特征' },
+      { name: 'style', from: '画风偏好', desc: '美术风格' },
+      { name: 'ar', from: '画幅比', desc: '图片宽高比' },
+    ],
+    'char.voice.json': [
+      { name: 'ways', from: '音色候选列表', desc: '可选音色' },
+      { name: 'preset', from: '音色预设', desc: '用户选的音色档' },
+      { name: 'cast', from: '角色清单', desc: '现有角色' },
+    ],
+    'board_assets.json': [
+      { name: 'cast', from: '素材库的角色清单', desc: '现有角色' },
+      { name: 'assets', from: '素材库的场景/道具清单', desc: '现有素材' },
+      { name: 'board', from: '当前分镜', desc: '分镜内容' },
+    ],
+  },
   skillBody(kind) {
     const c = this.SKILL_CONTRACT[kind];
     const all = (typeof window !== 'undefined' && window.__skillBodies) || null;
@@ -361,49 +403,16 @@ window.TextAI = {
     return raw + '\n\n' + note;
   },
   prompt(kind, askNote) {
-    const stored = window.LS.get(this.promptKey(kind));
-    /* NO_ASK 那几条还要**摘掉尾部那段追问说明**：story / split 以前不在名单里，
-       设置页一保存就把 ASK_NOTE 整段写进了 sk_polish_story / sk_polish_split ——
-       加进 NO_ASK 只管得住「以后不再拼」，已经被污染的那一份还在用户机器上，
-       下一次读出来照样带着「你可以追问」，而这两条要的是 JSON（见上面那段注释）。 */
-    if (stored) return this.NO_ASK.indexOf(kind) >= 0 ? this.stripAskNote(stored) : stored;
+    /* 两级优先：Skill 正文 → 内置默认。旧版设置页手改的 `sk_polish_*` 残留**不再读** ——
+       设置页早就不能改提示词正文了（正文在 Skill 里），留着那条读法只会让「改了 Skill 不生效」
+       变成常态。NO_ASK 那几条仍要摘掉尾部追问说明（Skill 正文里可能也被污染过）。 */
     return this.defaultPrompt(kind, askNote);
-  },
-  /* 一次性收拾「存盘副本其实就是默认」的那些键。
-     判据只有一条：**与当前默认逐字节相同**。人手敲不出这样一份一模一样的东西 ——
-     它只可能是「打开设置页点一次保存」固化下来的，所以删掉它不可能碰到用户真写的内容。
-     用户改过一个字的（哪怕只多一个标点）一律原样保留，删默认等于替他改回去。
-     每次页面加载都跑一遍（只有 PROMPTS 那十几条、纯 localStorage 读，可忽略不计），
-     以后再有人改 DEF，这一段就自动把「与新默认相同」的旧副本清掉，不用再逐条打补丁。 */
-  pruneStoredDefaults() {
-    let n = 0;
-    for (const g of (this.PROMPTS || [])) {
-      for (const it of ((g.items || []))) {
-        const key = this.promptKey(it.key);
-        const v = window.LS.get(key);
-        if (v && v === this.defaultPrompt(it.key)) { window.LS.del(key); n++; }
-      }
-    }
-    return n;
   },
   /* 只摘**结尾**那一段（我们自动拼的位置）；用户在中间自己写的同样文字不动。 */
   stripAskNote(v) {
     const s = String(v || ''), note = String(this.DEF.ASK_NOTE || '');
     if (!note || !s.endsWith(note)) return s;
     return s.slice(0, -note.length).replace(/\s+$/, '');
-  },
-  promptKey(kind) { return 'sk_polish_' + kind; },
-  /* 旧版设置页手改过的那几条 `sk_polish_*` 现在没有编辑入口了（提示词以 Skill 为准），
-     但**不静默删**：用户改过的文字仍然是他的东西。要回到 Skill 正文，由设置页那颗按钮显式清。 */
-  clearManualPrompts() {
-    let n = 0;
-    for (const g of (this.PROMPTS || [])) {
-      for (const it of ((g.items || []))) {
-        const key = this.promptKey(it.key);
-        try { if (localStorage.getItem(key) != null) { localStorage.removeItem(key); n++; } } catch (e) {}
-      }
-    }
-    return n;
   },
   /* 供应方（多家并存，默认 OpenRouter）：
      文字 AI 以前只有 DeepSeek 一条，基址还写死在客户端（sk_base_deepseek）。现在每家都是
@@ -1170,10 +1179,6 @@ window.TextAI = {
     return { sys, user };
   },
 };
-/* 模块一装好就收拾一次「存盘副本其实就是默认」的键（见 pruneStoredDefaults 的注释）。
-   放在这里而不是各页面 boot 里：这一份是**所有**页面共用的，漏一个页面就等于没修。
-   判据是逐字节相同，删掉它不可能碰到用户真写的内容；重复跑也是幂等的。 */
-try { window.TextAI.pruneStoredDefaults(); } catch (e) { /* localStorage 不可用（隐私模式）就跳过 */ }
 
 /* ============================================================================
    TextAI 余额（不再折算金额：文字 AI 只记录 tokens 用量，展示见「用量与余额」页）

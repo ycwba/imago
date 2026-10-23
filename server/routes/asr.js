@@ -1,5 +1,5 @@
 /* ASR 路由：设置 / 提交转写 / 查任务 / 取消。
-   - 本地路线：ffmpeg 抽 16k mono WAV → whisper-cli（固定二进制，页面传不了命令行）；
+   - 本地路线：页面把音轨解成 16k mono WAV 走 POST /asr/pcm → whisper-cli（代理只跑识别，不转码）；
    - 在线路线：OpenAI 兼容 POST /audio/transcriptions（multipart，verbose_json）；
    - 源只认本机资产 / /asset/<id> / /getv|/fetch 包着的公网地址，走与渲染同一条 resolveSrc；
    - 任务回调抓住自己那一单（mine），用户切走 / 取消都不改写别的任务。 */
@@ -14,6 +14,7 @@ const { sendJson, readJsonBody } = require('./http');
 const { channelKey, channelBase, loopback, collect } = require('../channel-cred.js');
 
 const MAX_BYTES = 200 * 1024 * 1024;
+const MAX_PCM_BYTES = 320 * 1024 * 1024;   // 16k mono 16-bit ≈ 32KB/s → 约 2.8 小时
 const MAX_ONLINE_RESPONSE = 8 * 1024 * 1024;
 const MAX_SEGMENTS = 20000;
 const RUN_MAX = 2;
@@ -56,6 +57,59 @@ function joinEndpoint(base, tailPath) {
   if (!b) return '';
   if (/\/audio\/transcriptions$/i.test(b)) return b;
   return b + tailPath;
+}
+/* 页面在浏览器里把音轨解成 16k mono WAV 再传上来，代理只落盘与核对头。
+   文件按流写、边写边算 hash（去重口径与在线路线同一处 findByHash）。 */
+function readPcmTo(req, dest) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha1');
+    const out = fs.createWriteStream(dest);
+    let got = 0, done = false;
+    const fail = e => {
+      if (done) return;
+      done = true;
+      try { out.destroy(); } catch (err) {}
+      reject(e);
+    };
+    req.on('data', c => {
+      if (done) return;
+      got += c.length;
+      if (got > MAX_PCM_BYTES) {
+        const e = new Error('音频超过 320MB（16k 单声道约 2.8 小时），先切小再转写');
+        e.status = 413;
+        fail(e);
+        try { req.destroy(); } catch (err) {}
+        return;
+      }
+      h.update(c);
+    });
+    req.on('aborted', () => fail(new Error('上传中断')));
+    req.on('error', fail);
+    out.on('error', fail);
+    out.on('finish', () => {
+      if (done) return;
+      done = true;
+      resolve({ bytes: got, hash: h.digest('hex').slice(0, 16) });
+    });
+    req.pipe(out);
+  });
+}
+/* 只收浏览器抽出来的那一种：16k / 单声道 / 16-bit PCM。
+   别的采样率 whisper-cli 也能吃，但认下来就等于允许任何字节流伪装成音频 —— 头三个字段是它唯一能对上的凭据。 */
+function checkWav(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const b = Buffer.alloc(44);
+    if (fs.readSync(fd, b, 0, 44, 0) < 44
+      || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE'
+      || b.toString('ascii', 12, 16) !== 'fmt ') {
+      throw new Error('传上来的不是 WAV（浏览器抽音轨那一步要 POST /asr/pcm）');
+    }
+    const fmt = b.readUInt16LE(20), ch = b.readUInt16LE(22), rate = b.readUInt32LE(24), bits = b.readUInt16LE(34);
+    if (fmt !== 1 || ch !== 1 || rate !== 16000 || bits !== 16) {
+      throw new Error('只收 16k 单声道 16-bit PCM 的 WAV（收到 ' + rate + 'Hz / ' + ch + ' 声道 / ' + bits + '-bit）');
+    }
+  } finally { try { fs.closeSync(fd); } catch (e) {} }
 }
 function spawnTool(bin, args, opts) {
   return new Promise((resolve, reject) => {
@@ -130,20 +184,13 @@ function createAsrRoutes(ctx) {
     });
   }
 
-  async function runLocal(job, media, dir, rt) {
+  async function runLocal(job, wav, dir, rt) {
     const st = localAsrState(ctx.root);
     if (!st.available) throw new Error('本地转写不可用：' + (st.why || '缺少运行包'));
-    const wav = path.join(dir, 'audio.wav');
-    ctx.store.patchJob(job.id, { state: 'running', progress: 0.1, engine: 'whisper.cpp' });
-    await spawnTool('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-      '-i', media, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], {
-      what: '抽音轨（ffmpeg）', timeoutMs: 10 * 60 * 1000,
-      onChild: p => { rt.child = p; },
-    });
     let size = 0;
-    try { size = fs.statSync(wav).size; } catch (e) { throw new Error('ffmpeg 没产出音频'); }
+    try { size = fs.statSync(wav).size; } catch (e) { throw new Error('没拿到要识别的音频'); }
     if (size < 1000) throw new Error('这一份里没有可识别的音轨（抽出来的音频是空的）');
-    ctx.store.patchJob(job.id, { progress: 0.35 });
+    ctx.store.patchJob(job.id, { state: 'running', progress: 0.35, engine: 'whisper.cpp' });
     const out = path.join(dir, 'out');
     const args = ['-m', st.model, '-f', wav, '-oj', '-of', out, '-np'];
     const lang = ctx.store.rawSettings().language || job.language;
@@ -225,11 +272,20 @@ function createAsrRoutes(ctx) {
     let dir = '';
     let source = null;
     try {
-      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-asr-'));
-      rt.dir = dir;
-      ctx.store.patchJob(jobId, { state: 'running', progress: 0.02 });
-      source = await prepareSource(pending.get(jobId) || {}, dir);
-      const hash = await hashFile(source.file);
+      const p = pending.get(jobId) || {};
+      if (p.pcmFile) {
+        /* 页面已经把音频抽好了：临时目录与文件都是提交那一刻建的，不再 prepareSource */
+        dir = p.pcmDir;
+        rt.dir = dir;
+        ctx.store.patchJob(jobId, { state: 'running', progress: 0.1 });
+        source = { file: p.pcmFile, media: p.media || 'audio.wav', temporary: true };
+      } else {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-asr-'));
+        rt.dir = dir;
+        ctx.store.patchJob(jobId, { state: 'running', progress: 0.02 });
+        source = await prepareSource(p, dir);
+      }
+      const hash = p.pcmHash || await hashFile(source.file);
       const mine = ctx.store.job(jobId);
       if (!mine) return;
       const lang = ctx.store.rawSettings().language || mine.language || '';
@@ -290,6 +346,50 @@ function createAsrRoutes(ctx) {
         sendJson(res, 200, { ok: true, settings: s, local: localAsrState(ctx.root), revision: s.revision });
         return true;
       }
+      if (part[0] === 'pcm' && method === 'POST') {
+        if (running.size >= RUN_MAX) {
+          req.resume();
+          sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
+          return true;
+        }
+        const st = localAsrState(ctx.root);
+        if (!st.available) {
+          req.resume();
+          sendJson(res, 400, { error: '本地转写不可用：' + (st.why || '缺少运行包') + '；可以改用在线服务' });
+          return true;
+        }
+        const declared = Number(req.headers['content-length']) || 0;
+        if (declared > MAX_PCM_BYTES) {
+          req.resume();
+          sendJson(res, 413, { error: '音频超过 320MB（16k 单声道约 2.8 小时），先切小再转写' });
+          return true;
+        }
+        const language = clean(url.searchParams.get('language'), 32) || ctx.store.rawSettings().language || '';
+        const media = clean(url.searchParams.get('name'), 140) || 'audio.wav';
+        const id = 'asr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-asr-'));
+        const file = path.join(dir, 'audio.wav');
+        let got = null;
+        try {
+          got = await readPcmTo(req, file);
+          checkWav(file);
+          if (got.bytes < 1000) throw new Error('这一份里没有可识别的音轨（上传的音频是空的）');
+        } catch (e) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {}
+          sendJson(res, e.status || 400, { error: clean((e && e.message) || e, 800) });
+          return true;
+        }
+        const job = {
+          id, state: 'queued', progress: 0, segments: [], srt: '', error: '',
+          sourceHash: '', route: 'local', language, engine: '', media,
+          createdAt: Date.now(), updatedAt: Date.now(),
+        };
+        ctx.store.putJob(job);
+        pending.set(id, { pcmFile: file, pcmDir: dir, media, pcmHash: got.hash });
+        setImmediate(() => { work(id).catch(e => ctx.log('[asr] 任务异常 ' + id + '：' + ((e && e.message) || e))); });
+        sendJson(res, 200, { jobId: id, state: 'queued', route: 'local', language });
+        return true;
+      }
       if (part[0] === 'transcribe' && method === 'POST') {
         if (running.size >= RUN_MAX) {
           sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
@@ -297,8 +397,15 @@ function createAsrRoutes(ctx) {
         }
         const body = await readJsonBody(ctx.readBody, req, res, 256 * 1024);
         const route = routeNow(body && body.route);
-        if (route === 'local' && !localAsrState(ctx.root).available) {
-          sendJson(res, 400, { error: '本地转写不可用：' + localAsrState(ctx.root).why + '；可以改用在线服务' });
+        if (route === 'local') {
+          sendJson(res, 400, { error: '本地转写要由页面先在浏览器里抽出 16k WAV 再提交（POST /asr/pcm）：代理只认抽好的音频' });
+          return true;
+        }
+        if (route === 'browser') {
+          /* 这一路没有代理能跑的兑现方式：识别在页面 worker 里，结果由 POST /asr/browser-result 落账。
+             不拦的话任务照建，work() 的三元判据（local 才本地，否则在线）会**默默扣一次在线转写的钱**，
+             而账上还写着 browser。 */
+          sendJson(res, 400, { error: '浏览器内识别由页面在自己的 worker 里跑，代理不做这一路：要代理转写请选本地或在线' });
           return true;
         }
         if (route === 'service') {
@@ -323,6 +430,49 @@ function createAsrRoutes(ctx) {
         pending.set(id, { assetId: body && body.assetId, src: body && body.src });
         setImmediate(() => { work(id).catch(e => ctx.log('[asr] 任务异常 ' + id + '：' + ((e && e.message) || e))); });
         sendJson(res, 200, { jobId: id, state: 'queued', route, language });
+        return true;
+      }
+      if (part[0] === 'browser-result' && method === 'POST') {
+        /* 浏览器内 Whisper 跑完的那一单：转写本身在页面 worker 里完成，
+           代理只负责把结果落成一条与 whisper-cli / 在线同形的任务账（SRT 在这里按同一份 toSrt 出）。
+           同一份音频哈希同一种语言已有一单 done 的 → 直接回旧单（与本地 / 在线的去重同口径）。 */
+        if (running.size >= RUN_MAX) {
+          sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
+          return true;
+        }
+        const body = await readJsonBody(ctx.readBody, req, res, 8 * 1024 * 1024);
+        const segments = ctx.store.normSegments(body && body.segments);
+        if (!segments.length) {
+          sendJson(res, 400, { error: '转写结果里没有内容（可能是纯静音或模型没出字）' });
+          return true;
+        }
+        const language = clean(body && body.language, 32) || ctx.store.rawSettings().language || '';
+        const hash = clean(body && body.sourceHash, 40);
+        const hit = hash ? ctx.store.findByHash(hash, 'browser', language) : null;
+        if (hit) {
+          sendJson(res, 200, {
+            id: hit.id, jobId: hit.id, state: hit.state, progress: 1, segments: hit.segments, srt: hit.srt,
+            sourceHash: hit.sourceHash, route: hit.route, language: hit.language,
+            engine: hit.engine + '（同一份音频同一语言，复用旧结果）', media: hit.media,
+          });
+          return true;
+        }
+        const suspicious = !!(body && body.suspicious);
+        const base = clean(body && body.engine, 120) || '浏览器内 Whisper';
+        const engine = suspicious ? (base + '（文本可疑，建议人工复核）') : base;
+        const job = {
+          id: 'asr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+          state: 'done', progress: 1, segments, srt: ctx.store.toSrt(segments),
+          error: '', sourceHash: hash, route: 'browser', language, engine,
+          media: clean(body && body.media, 140) || 'audio.wav',
+          createdAt: Date.now(), updatedAt: Date.now(),
+        };
+        ctx.store.putJob(job);
+        sendJson(res, 200, {
+          id: job.id, jobId: job.id, state: 'done', progress: 1, segments: job.segments, srt: job.srt,
+          sourceHash: job.sourceHash, route: 'browser', language: job.language,
+          engine: job.engine, media: job.media,
+        });
         return true;
       }
       if (part[0] === 'jobs' && part[1]) {
@@ -355,12 +505,23 @@ function createAsrRoutes(ctx) {
       sendJson(res, 404, { error: '不认识的 ASR 路由' });
       return true;
     } catch (e) {
-      sendJson(res, 400, { error: clean((e && e.message) || e, 800) });
+      sendJson(res, e.status || 400, { error: clean((e && e.message) || e, 800) });
       return true;
     }
   }
 
-  return { handleAsr, running, pending };
+  /* 代理退出时收掉还在跑的 whisper-cli：以前没人管，Ctrl+C 之后它会继续吃满一个核；
+     任务照实标成「代理退出」，下次启动不会被当成还在跑。 */
+  function stopAll() {
+    for (const [id, rt] of running) {
+      rt.canceled = true;
+      try { if (rt.child) rt.child.kill('SIGKILL'); } catch (e) {}
+      try { if (rt.req) rt.req.destroy(new Error('代理退出')); } catch (e) {}
+      try { ctx.store.patchJob(id, { state: 'canceled', error: '代理退出时这一单还没跑完' }); } catch (e) {}
+    }
+  }
+
+  return { handleAsr, running, pending, stopAll };
 }
 
 module.exports = { createAsrRoutes };

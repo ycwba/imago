@@ -1,4 +1,4 @@
-/* 导演台导出域：成片指纹、导出成片（/render + ffmpeg）、导出素材、FCPXML / 媒体包、
+/* 导演台导出域：成片指纹、导出成片（浏览器内逐帧合成）、导出素材、FCPXML / 媒体包、
    送到剪映 / 达芬奇。engine.js 只留状态与接线（AGENTS.md §17：内部保持命令式、按域拆模块）。
    引擎状态一律经 createExport(E) 递进来的访问器读写；这里不放第二份工程数据。 */
 import { exportFCPXML as runFcpExport, sendToNle as runSendNle } from '../fcpxml.js';
@@ -10,10 +10,67 @@ export function createExport(E) {
     $, setStatus, projOf, allShots, tlSyncFromShots, tlClipDur, tlClipSrc, tlDuration, fmtDur,
     clipVoices, voicesEnsure, voiceVolOf, tlCandidateOf, candDur, healStaleUrls,
     filmFrames, filmLayGray, filmSize, saveBlob, scheduleSave, renderAll, filmRowsForSubtitles,
-    readJsonSafe, renderPost, renderStatus, pollRenderJob, renderCancel, renderBlob,
+    readJsonSafe,
+    BoardAssetsOf,
   } = E;
 
-/* 时间线 → 送给 /render 的 clips。导出与「合并全片」以前各抄了一份逐字相同的循环
+/* 导出前提醒「@待建:」还没出图的素材（拆分镜建的档还没出预览图）：这些镜头的提示词里
+   还是占位符，导出的成片 / 素材包里只带文字不带图。可继续导出，但必须吭声 ——
+   静默出一个「带占位符的成片」比导不出来还糟（用户会以为参考图都带上了）。
+   返回提醒句（没有待建就空串）；调用方写状态条并把它并进回执。 */
+function pendingAssetNote() {
+  const BA = (typeof BoardAssetsOf === 'function' && BoardAssetsOf()) || null;
+  if (!BA || !BA.pendingIn) return '';
+  const seen = new Set();
+  let shots = 0;
+  (allShots() || []).forEach(sh => {
+    const p = BA.pendingIn(String((sh && sh.prompt) || ''));
+    if (p.length) {
+      shots++;
+      p.forEach(n => seen.add(String(n).toLowerCase()));
+    }
+  });
+  if (!seen.size) return '';
+  return '还有 ' + seen.size + ' 个素材没出图（引用它们的 ' + shots + ' 镜只带文字不带图）';
+}
+function warnPendingAssets() {
+  const note = pendingAssetNote();
+  if (note) setStatus('<span class="warn">⚠ ' + note + ' —— 继续导出，出完图再导一次就能带上图</span>');
+  return note;
+}
+
+/* 浏览器内导出（web/media-export.js，经典脚本挂 window.MediaExport）按需补载：
+   只在点导出时用，但**补载在引擎装好时就预热**（createExport 进来先踢一脚），
+   等真点「导出」时它早就就绪 —— 否则那一下的等待会卡在用户手势的正中间。 */
+let mediaExportP = null;
+function ensureMediaExport() {
+  if (window.MediaExport) return Promise.resolve(window.MediaExport);
+  if (!mediaExportP) {
+    mediaExportP = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '/web/media-export.js';
+      s.onload = () => window.MediaExport ? res(window.MediaExport) : rej(new Error('浏览器内导出模块没有挂上'));
+      s.onerror = () => rej(new Error('浏览器内导出模块没加载成（web/media-export.js）'));
+      document.head.appendChild(s);
+    });
+  }
+  return mediaExportP;
+}
+try { ensureMediaExport().catch(() => {}); } catch (e) { /* 预热失败不挡引擎；真导出时会再试一次 */ }
+
+/* 成片的会话内字节缓存（指纹 → Blob）：刚导出过的那一份，同内容再点直接给，不再合成一遍。
+   只活在当前会话（刷新后没有）—— 浏览器里没有第二个持久去处（服务端渲染目录已删），
+   刷新后第一次导出会重新合成，这比在用户盘上悄悄多存一份要干净。 */
+const filmBlobCache = new Map();
+/* 会话内导出账本（「最近导出」弹窗读它）：浏览器内合成没有代理账本，这次会话导出过什么就在这里。
+   刷新即清空 —— 成片字节在 filmBlobCache 里还能直接下；素材那份当场就交给浏览器下载了。 */
+const sessionExports = [];
+function logSessionExport(name, bytes, kind) {
+  sessionExports.unshift({ name, bytes: bytes || 0, kind: kind || '导出', at: Date.now() });
+  if (sessionExports.length > 50) sessionExports.length = 50;
+}
+
+/* 时间线 → 送给 MediaExport 的 clips。导出与「合并全片」以前各抄了一份逐字相同的循环
    （连「第 N 段没有可用素材」那句一起），收成这一份。
    `tl` 由调用方递进来（就是它刚 `tlSyncFromShots()` 出来的那一份），
    因为这一页没有一个全局的「当前时间线」可变对象 —— 每次都是现同步。
@@ -34,6 +91,19 @@ async function buildRenderClips(tl) {
   let placed = 0;
   for (let i = 0; i < tl.clips.length; i++) {
     const c = tl.clips[i];
+    /* 图片段：画面是一张**静态图**，不是可解码的视频段 —— 不去问 tlClipSrc（那会拿回它底下的候选），
+       也不带原声。地址走与视频同一个「本机优先」口径，合成那一侧整段只画这一张。 */
+    if (c.img) {
+      const still = window.EditorMedia ? window.EditorMedia.exportSrc({ src: c.img }) : c.img;
+      if (!still) throw new Error(`第 ${i + 1} 段「${c.imgName || c.name || '图片'}」没有可用的图片（本地文件可能已被清理）`);
+      const vvImg = clipVoices(c, { start: G.rows[i].f0, gray: gray });
+      voiceSkip += vvImg.skip;
+      placed += vvImg.placed;
+      const oneImg = { src: 'black', still, in: c.in, out: c.out, speed: 1, volume: 0 };
+      if (vvImg.list.length) oneImg.voices = vvImg.list;
+      clips.push(oneImg);
+      continue;
+    }
     const src = await tlClipSrc(c);
     if (!src) throw new Error(`第 ${i + 1} 段「${c.name || ''}」没有可用素材（本地文件可能已被清理）`);
     /* 这一段带上它的配音（`at` 相对本段起点，代理那侧按 start 延迟后与原声 amix）。
@@ -50,13 +120,19 @@ async function buildRenderClips(tl) {
   return clips;
 }
 
-/* ---------------- ffmpeg 离线导出 ---------------- */
+/* ---------------- 浏览器内离线导出 ---------------- */
 let rendering = false;
 
 let renderCancelled = false;
-let renderJobId = null;      // 当前这一轮渲染的任务号（取消时交给代理去杀进程）
 /* 按钮统一走这个入口：渲染中再点一次 = 取消（长任务不再只能干等 15 分钟） */
-function exportFilmClick() { if (rendering) { renderCancelled = true; renderCancel(renderJobId); return; } exportFilmFFmpeg(); }
+/* 浏览器侧合成的取消闸：渲染循环每帧都看 signal.aborted（见 media-export.js 的 throwIfAbort）。
+   服务端渲染已删 —— 没有代理任务可杀，停就是这个 abort。 */
+let renderAbortCtl = null;
+function abortRender() {
+  renderCancelled = true;
+  if (renderAbortCtl) { try { renderAbortCtl.abort(); } catch (e) { /* 收尾清理，失败也要往下走 */ } }
+}
+function exportFilmClick() { if (rendering) { abortRender(); return; } exportFilm(); }
 
 /* ============================================================================
    导出素材：把选定成片里的**视频片段**与**音频片段**分别导出
@@ -65,19 +141,17 @@ function exportFilmClick() { if (rendering) { renderCancelled = true; renderCanc
    每一句配音一个文件。用途是把这批素材搬到别的工具里继续用（做字幕、换配音、
    二次剪辑），也方便只重新做其中一段而不用重跑整片。
 
-   走**同一套** `/render`（不新开一条导出通道）：
-     · 视频片段 = N 个单段任务，每段一个 mp4。分辨率/帧率沿用成片那一档（`filmSize`），
+   走**同一套**浏览器内导出（`MediaExport`，不新开一条导出通道）：
+     · 视频片段 = N 次单段导出，每段一个 mp4。分辨率/帧率沿用成片那一档（`filmSize`），
        所以导出来的片段直接接回去也是同一个规格。
-     · 音频片段 = 每句配音一个任务：一条 `voices` 的 clip（没有画面）+ 只放这一句。
-       代理那侧这会渲染成一条 mp4（画面是黑的、只有声音）—— 要真正的音频文件，
-       走 `spec.audioOnly`：代理只搭 amix → `-vn` 出 m4a（见 proxy.js 的 renderJob）。
+     · 音频片段 = 每句配音一条：只混这一句、不建画面轨，出 m4a（`MediaExport.exportClip` 的 `audioOnly`）。
    两类都**逐个**跑而不是一次全交：一次全交的话，一个片段失败整批都没了，
    而用户要的就是「单独再导某一段」。
    ========================================================================== */
 let assetsExporting = false;
 function clickExportAssets() {
   /* 导出素材期间这颗按钮就是「取消」：先判自己在跑，再去判别的导出占着位子。 */
-  if (assetsExporting) { renderCancelled = true; renderCancel(renderJobId); return; }
+  if (assetsExporting) { abortRender(); return; }
   if (rendering) { setStatus('已有导出任务在进行中…'); return; }
   exportFilmAssets();
 }
@@ -111,6 +185,7 @@ function voiceFilmRange(cl, row, v) {
 }
 async function exportFilmAssets(opts) {
   const o = opts || {};
+  const pendNote = warnPendingAssets();
   const tl = tlSyncFromShots();
   if (!tl.clips.length) {
     setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
@@ -129,11 +204,20 @@ async function exportFilmAssets(opts) {
     const dur = tlClipDur(cl);
     /* 与导出成片走**同一个**取源口径（`tlClipSrc`：本机优先、过期外链当场转存）：
        以前这里用预览口径的 `candTrackSrc`，同一条素材在「导出成片」里是本地文件、
-       在「导出素材」里却还是外链，链接一过期这一份就导不出来。 */
-    const realSrc = await tlClipSrc(cl);
-    if (realSrc && dur > 0.05) {
-      jobs.push({ kind: 'video', name: clipLabelOf(tl, k, cl, G.rows[k]),
-        clips: [{ src: realSrc, in: Math.max(0, Number(cl.in) || 0), out: Math.max(0, Number(cl.out) || 0), speed: cl.speed || 1 }] });
+       在「导出素材」里却还是外链，链接一过期这一份就导不出来。
+       图片段没有可解码的源：这一格导出一段「静态图撑满整段」的 mp4，与成片里那一格同一种画面。 */
+    if (cl.img) {
+      const still = window.EditorMedia ? window.EditorMedia.exportSrc({ src: cl.img }) : cl.img;
+      if (still && dur > 0.05) {
+        jobs.push({ kind: 'video', name: clipLabelOf(tl, k, cl, G.rows[k]),
+          clips: [{ src: 'black', still, in: 0, out: dur, speed: 1 }] });
+      }
+    } else {
+      const realSrc = await tlClipSrc(cl);
+      if (realSrc && dur > 0.05) {
+        jobs.push({ kind: 'video', name: clipLabelOf(tl, k, cl, G.rows[k]),
+          clips: [{ src: realSrc, in: Math.max(0, Number(cl.in) || 0), out: Math.max(0, Number(cl.out) || 0), speed: cl.speed || 1 }] });
+      }
     }
     /* 声音：这一段上的每一句各出一个文件（clipVoices 已经按「放不进这一段的不静默丢」算过）。
        这一条黑场是**这一句自己的文件**，所以 `start` 传 0 —— `v.start` 是「它在原来那一格里第几秒起」，
@@ -170,31 +254,33 @@ async function exportFilmAssets(opts) {
   });
   if (!go) return { ok: false, cancelled: true, err: '用户没有确认导出' };
   rendering = true; renderCancelled = false; assetsExporting = true;
+  const abortCtl = new AbortController();
+  renderAbortCtl = abortCtl;
   const btn = $('exportAssets');
   const ff = ExportFormats.of('assets');
   if (btn) btn.textContent = ff.cancelLabel;
   const size = filmSize();
   let done = 0, okN = 0, failed = [], cancelled = false;
   try {
+    const ME = await ensureMediaExport();
     for (const j of jobs) {
-      if (renderCancelled) break;
+      if (renderCancelled || abortCtl.signal.aborted) break;
       done++;
       if (btn) btn.textContent = ff.cancelLabel + ' ' + done + '/' + jobs.length;
       setStatus('正在导出第 ' + done + '/' + jobs.length + ' 个：' + j.name + (j.kind === 'audio' ? '（音频）' : '（画面）'));
       try {
         if (o.onProgress) o.onProgress({ done, total: jobs.length, name: j.name, kind: j.kind });
-        const r = await renderPost({
-          name: (projOf().name || '短片') + '-' + j.name,
-          width: size.w, height: size.h, fps: 30, crf: 20,
+        /* 单段一小片：画面段出 mp4（黑场配音那条出 m4a）。段起点 = 0（这一个文件里从头就是它）。 */
+        j.clips.forEach(cc => { cc.filmStart = 0; });
+        const one = j.clips[0] || {};
+        const dur = Math.max(0.2, (Number(one.out) || 0.2) - (Number(one.in) || 0));
+        const r = await ME.exportClip({
+          clips: j.clips, width: size.w, height: size.h, fps: 30, duration: dur,
           audioOnly: j.kind === 'audio',
-          clips: j.clips,
+          signal: abortCtl.signal,
         });
-        renderJobId = r.id;
-        const job = await pollRenderJob(r.id, () => renderCancelled);
-        if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '未完成');
-        const ext = j.kind === 'audio' ? 'm4a' : 'mp4';
-        const blob = await renderBlob(job.out, '导出素材 ' + j.name);
-        const saved = await saveBlob(window.fileSafe(j.name, 120) + '.' + ext, blob);
+        const saved = await saveBlob(window.fileSafe(j.name, 120) + '.' + r.ext, r.blob);
+        logSessionExport(window.fileSafe(j.name, 120) + '.' + r.ext, r.blob.size, j.kind === 'audio' ? '音频' : '画面');
         okN++;
         /* 一段一存，别攒到最后一次性写 —— 中途失败时已经落盘的那几个还在，
            而攒着的话失败就全丢了（用户会以为「一个都没导出来」）。 */
@@ -208,7 +294,7 @@ async function exportFilmAssets(opts) {
     /* 先把「用户取消过」捞出来：finally 清 renderCancelled 之后才判的话，
        下面的取消分支永远不成立，取消会被报成「素材导完了」。 */
     cancelled = renderCancelled;
-    rendering = false; renderCancelled = false; renderJobId = null; assetsExporting = false;
+    rendering = false; renderCancelled = false; renderAbortCtl = null; assetsExporting = false;
     if (btn) { btn.disabled = false; btn.innerHTML = icon(ff.icon, 13) + ' ' + ff.label; }
   }
   if (cancelled) {
@@ -218,15 +304,17 @@ async function exportFilmAssets(opts) {
   setStatus(failed.length
     ? '<span class="err">导出完了，但有 ' + failed.length + ' 个没成功：' + esc(failed.slice(0, 3).join('；'))
       + (failed.length > 3 ? ' …' : '') + '。成功的 ' + okN + ' 个已存好。</span>'
-    : '<span class="ok">✓ 素材导完了：' + okN + ' 个文件已存到本机（画面 ' + nV + ' · 配音 ' + nA + '）</span>');
-  return { ok: true, okN, nV, nA, failed, jobs: jobs.length };
+    : '<span class="ok">✓ 素材导完了：' + okN + ' 个文件已存到本机（画面 ' + nV + ' · 配音 ' + nA + '）</span>')
+    + (pendNote ? '<span class="warn"> · ⚠ ' + pendNote + '</span>' : '');
+  return { ok: true, okN, nV, nA, failed, jobs: jobs.length, pendingNote: pendNote };
 }
 /* 导出素材的文件名只洗一次字符：`web/ui/ui.js` 的 `fileSafe`。
    片段名来自镜头名，用户什么都可能打 —— 这一页以前自己写了第二份非法字符正则与截断长度，
    与资产库 / 生成工作台那两处的口径各不相同（同一部片子的素材从不同页导出，名字规则就不一样）。 */
-async function exportFilmFFmpeg(opts) {
+async function exportFilm(opts) {
   const o = opts || {};
   if (rendering) { setStatus('已有导出任务在进行中…'); return { ok: false, busy: true, err: '已有导出任务在进行中' }; }
+  const pendNote = warnPendingAssets();
   /* 时间线**先建**，再判空。
      以前这里是 `tlEnsure()`：它只在 `projOf().timeline` 缺失时补一个空壳，不从镜头建内容 ——
      而 `tlSyncFromShots`（能从镜头建出时间线的那一份）只在合并那一条路里被调。
@@ -239,68 +327,76 @@ async function exportFilmFFmpeg(opts) {
     setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
     return { ok: false, err: '现在一个可用镜头都没有' };
   }
-  /* 已经有一份**当前**的成片（导出过、内容没变）：直接存它，不再跑一遍 ffmpeg。
-     以前「导出成片」无条件重渲染 —— 刚导出过一次、中间什么都没改，点第二次又等一遍同样的几十秒，
-     而盘上那一份就是他要的东西。（下载成片按钮已删，这条路就是它的归宿。） */
-  if (projOf().merged && filmIsCurrent(projOf().merged)) {
-    const out = projOf().merged.name;
-    const got = await downloadMergedFilm();
-    /* 快捷路径也要照实报结果：盘上那一份取不到时 `downloadMergedFilm` 会作废 `proj.merged`
-       并给出一句「再点一次会重新合成」；这里再回 ok:true 等于把失败说成导出成功。 */
-    if (!got || !got.ok) return { ok: false, shortcut: true, out, err: (got && got.err) || '下载成片失败' };
-    return { ok: true, shortcut: true, out, clips: tl.clips.length };
+  /* 已经有一份**当前**的成片（导出过、内容没变、字节还在本次会话里）：直接给它，不再合成一遍。
+     会话缓存没有（刷新过 / 换了工程）就落进下面的正常导出 —— 重新合成一份，不报「盘上那份没了」。 */
+  const prevFp = projOf().merged && filmIsCurrent(projOf().merged) ? projOf().merged.name : '';
+  const cached = prevFp ? filmBlobCache.get(prevFp) : null;
+  if (cached) {
+    const saved = await saveBlob(prevFp, cached);
+    setStatus('<span class="ok">' + saved.msg + '（' + window.fmtBytes(cached.size) + ' · 这一轮刚合成的那份）</span>');
+    return { ok: true, shortcut: true, out: prevFp, clips: tl.clips.length };
   }
   const size = filmSize();
-  const btn = $('exportFilm');   // 主栏那个「导出成片（ffmpeg）」
+  const btn = $('exportFilm');   // 主栏那个「导出成片」
   const ff = ExportFormats.of('film');
   rendering = true; renderCancelled = false;
   if (btn) { btn.disabled = false; btn.textContent = ff.cancelLabel; }
+  const abortCtl = new AbortController();
+  renderAbortCtl = abortCtl;
   try {
     setStatus('正在准备素材地址…');
+    const ME = await ensureMediaExport();
     const clips = await buildRenderClips(tl);
-    /* 字幕烧录跟着这一条导出一起做：每条栅格化成与成片同宽高的 PNG，再交给 /render 叠上去。
-       栅格化失败就**当场停**（不导出一份没有字幕的成片假装成功）；没有字幕时一个字段都不发。 */
+    /* 段在成片里的起点秒（浏览器合成按它落帧）：与 filmFrames 的行起点同口径。 */
+    let f0 = 0;
+    clips.forEach(c => { c.filmStart = f0; f0 += Math.max(0, (Number(c.out) - Number(c.in)) / (Number(c.speed) || 1)); });
+    /* 字幕跟着这一条导出一起烧：每条栅格化成与成片同宽高的 PNG（dataURL，不落资产库），
+       合成循环里在 [start,end) 画上去。栅格化失败就**当场停**（不导出一份没有字幕的成片假装成功）。 */
     let subs = null;
     try {
       subs = await subtitleBurnItems(size);
     } catch (e) {
       throw new Error('字幕烧录准备失败：' + errText(e));
     }
-    const r = await renderPost({
-      name: stampName('mp4').replace(/\.mp4$/, ''), width: size.w, height: size.h, fps: 30, crf: 20, clips,
-      ...(subs && subs.items.length ? { subtitles: subs.items } : {}),
-    });
-    renderJobId = r.id;
-    if (o.onStarted) { try { o.onStarted({ renderId: r.id, clips: tl.clips.length, subtitles: subs ? subs.items.length : 0 }); } catch (e) { /* 回调是调用方给的，它抛错不该把已经提交的渲染带崩 */ } }
-    const job = await pollRenderJob(r.id, () => renderCancelled,
-      j => {
+    if (o.onStarted) { try { o.onStarted({ clips: tl.clips.length, subtitles: subs ? subs.items.length : 0 }); } catch (e) { /* 回调是调用方给的，它抛错不该把已经提交的导出带崩 */ } }
+    const r = await ME.exportFilm({
+      clips, width: size.w, height: size.h, fps: 30, duration: f0,
+      subtitles: (subs && subs.items) || [],
+      signal: abortCtl.signal,
+      onProgress: j => {
         if (btn) btn.textContent = ff.cancelLabel + ' ' + (j.progress || 0) + '%';
-        if (o.onProgress) { try { o.onProgress(j); } catch (e) { /* 同上：进度回调抛错不影响任务本身 */ } }
-      });   // 进度显示在按钮上（顶部横幅不再播报进度）
-    if (!job || job.state !== 'done') throw new Error((job && (job.err || job.error)) || '渲染未完成');
-    const blob = await renderBlob(job.out, '下载成片');
-    const saved = await saveBlob(job.out, blob);
+        if (o.onProgress) { try { o.onProgress(j); } catch (e) { /* 进度回调抛错不影响任务本身 */ } }
+      },
+    });
+    const blob = r.blob;
+    /* 扩展名跟导出回来的走：没有 H.264 的浏览器出的是 .webm（选容器在 MediaExport.pickCodec），
+       名字写成 .mp4 的话资产库与系统都会认错类型。 */
+    const outName = stampName(r.ext || 'mp4');
+    const saved = await saveBlob(outName, blob);
+    filmBlobCache.set(outName, blob);          // 同内容再点直接给
+    logSessionExport(outName, blob.size, '成片');
     /* 导出也是一份成片：记进 proj.merged（带内容指纹，判据就是 filmIsCurrent 那一句）。
-       以前不记，于是导出之后再点导出会把刚导出那一份**再合成一遍** ——
-       用户刚导出的东西没被认下来，白等一次几十秒的合成。
        指纹的字段名就叫 `fp`：`filmIsCurrent` 认不出别的名字，
        少了它会被当成「没有指纹的老成片」而退回只比段数（换候选、改入出点就判不出来了）。 */
-    projOf().merged = { name: job.out, duration: round1(tlDuration()), ts: Date.now(),
-      clips: tl.clips.length, fp: filmFingerprint(tl.clips), size: job.size || blob.size || 0 };
+    projOf().merged = { name: outName, duration: round1(tlDuration()), ts: Date.now(),
+      clips: tl.clips.length, fp: filmFingerprint(tl.clips), size: blob.size || 0 };
     scheduleSave();
     const subN = subs ? subs.items.length : 0;
     setStatus('<span class="ok">' + saved.msg + `（${tl.clips.length} 段 · ${fmtDur(tlDuration())} · ${window.fmtBytes(blob.size)}`
       + (subN ? ' · 烧录字幕 ' + subN + ' 条' : ' · 没有字幕') + '）</span>'
-      + (subs && subs.missing.length ? '<span class="warn"> · 有 ' + subs.missing.length + ' 个镜头的字幕没进成片（没有选用候选）</span>' : ''));
-    return { ok: true, out: job.out, bytes: blob.size, clips: tl.clips.length,
-      duration: round1(tlDuration()), subtitles: subN, missingSubtitles: subs ? subs.missing.length : 0 };
+      + (r.diag && r.diag.decodeModes && r.diag.decodeModes.length
+        ? '<span class="meta"> · 取帧：' + r.diag.decodeModes.map(m => ({ 'sequential-webcodecs': '顺序解', 'precise-seek': '逐格定位', 'static-image': '静态图' }[m] || m)).join(' / ') + '</span>' : '')
+      + (subs && subs.missing.length ? '<span class="warn"> · 有 ' + subs.missing.length + ' 个镜头的字幕没进成片（没有选用候选）</span>' : '')
+      + (pendNote ? '<span class="warn"> · ⚠ ' + pendNote + '</span>' : ''));
+    return { ok: true, out: outName, bytes: blob.size, clips: tl.clips.length,
+      duration: round1(tlDuration()), subtitles: subN, missingSubtitles: subs ? subs.missing.length : 0, pendingNote: pendNote };
   } catch (e) {
     setStatus(e.message === '已取消'
-      ? '已取消：本地停止等待，这一轮渲染也已通知代理中止'
+      ? '已取消：这一轮合成已停下，没写任何文件'
       : '<span class="err">导出失败：' + e.message + '</span>');
     return { ok: false, err: e.message, cancelled: e.message === '已取消' };
   } finally {
-    rendering = false; renderCancelled = false; renderJobId = null;
+    rendering = false; renderCancelled = false; renderAbortCtl = null;
     if (btn) { btn.disabled = false; btn.innerHTML = icon(ff.icon, 13) + ' ' + ff.label; }
   }
 }
@@ -325,27 +421,17 @@ function fcpCtx() {
   };
 }
 async function exportFCPXML(opts) {
+  warnPendingAssets();
   return runFcpExport(fcpCtx(), opts || {});
 }
 
-/* 送到剪映 / 达芬奇：确认目标 → 生成持久工程 → 尽力启动软件 → 弹窗给目录与导入路径。
+/* 送到达芬奇 / 剪映：两个独立目标各走各的（拆成两行后不再弹选择框）。
    「一键」到启动软件为止；最后那一步导入只能由用户在软件里点
    （两家都没有可靠的命令行「打开并导入这个文件」协议，不假装能替他点）。 */
 async function exportNle(opts) {
   opts = opts || {};
-  let app = opts.app === 'jianying' || opts.app === 'resolve' ? opts.app : '';
-  if (!app) {
-    app = await Confirm.choose({
-      title: '送到剪映 / 达芬奇',
-      sub: '生成一份持久工程（project.fcpxml + media/ + subtitles.srt），并尽量启动软件；最后在软件里点一次导入。',
-      options: [
-        { value: 'jianying', label: '剪映专业版', hint: '工程目录会打开在资源管理器里；若菜单里没有 FCPXML 导入，到 全局设置 打开这一项' },
-        { value: 'resolve', label: 'DaVinci Resolve', hint: '启动后到 文件 → 导入 → 时间线（FCPXML）选目录里的 project.fcpxml' },
-      ],
-      cancelLabel: '取消',
-    });
-  }
-  if (!app) return { ok: false, cancelled: true };
+  warnPendingAssets();
+  const app = opts.app === 'jianying' ? 'jianying' : 'resolve';
   let r;
   try { r = await runSendNle(fcpCtx(), { app }); }
   catch (e) {
@@ -398,8 +484,8 @@ async function revealNle(id) {
    剪辑 → 全片：成片的出口只有**导出**这一条
    合并结果记在 projOf().merged = { name, duration, ts, clips, size, fp }。
    顶部那颗「播放成片」已删（2026-10 用户点名）：看整片走「剪辑 → 全片」那一排的实时预览
-   （播放器那一排的 `#pbBtn` → `TlPlay.play()`），它按时间线直接播，**绝不为播放跑 ffmpeg**。
-   合成只发生在「导出成片」那一下（exportFilmFFmpeg 自己 renderPost，把结果记进 projOf().merged）。
+   （播放器那一排的 `#pbBtn` → `TlPlay.play()`），它按时间线直接播，**绝不为播放整片合成**。
+   合成只发生在「导出成片」那一下（exportFilm 自己 renderPost，把结果记进 projOf().merged）。
    `filmIsCurrent(projOf().merged)` 是「导出」这一条路自己用的快捷闸：盘上那份还能不能直接用。
    ========================================================================== */
 /* 这一份成片对应的是**哪一串内容**：每段的 [镜头 id, 选用的候选, 第几段, 入点, 出点, 速度, 音量,
@@ -430,7 +516,7 @@ function filmFingerprint(clips) {
 }
 /* 字幕也进成片指纹：改一句字幕、换字号颜色，盘上那份成片就旧了。
    不把 `projOf().rev` 直接塞进指纹 —— 撤销 / 改一个不入片的字段也会让 rev 变，
-   那会把「内容没变」误判成旧片而白跑一遍 ffmpeg。这里只认真正印在画面上的东西：
+   那会把「内容没变」误判成旧片而白跑一遍合成。这里只认真正印在画面上的东西：
    每一镜的条目（起止、文字、来源）与样式，按镜头顺序。 */
 function subtitleFingerprint() {
   const parts = [];
@@ -451,7 +537,7 @@ function filmIsCurrent(m) {
 }
 
 /* 烧录：每条字幕栅格化成与成片同宽高的透明 PNG（预览与 SRT 之外的第二条保底），
-   存进本机资产后交给 /render 的 subtitles[]；服务端用 overlay + enable='between(t,a,b)' 叠上去。 */
+   导出合成时在 [start,end) 逐帧画上去；只在导出这一趟的会话内存里，不进资产库也不落盘。 */
 function subCanvasB64(entry, style, w, h) {
   const cv = document.createElement('canvas');
   cv.width = w;
@@ -499,41 +585,13 @@ async function subtitleBurnItems(size) {
     const e = got.entries[i];
     const sh = allShots().find(x => x.id === e.shotId);
     const b64 = subCanvasB64(e, styleOf(sh), size.w, size.h);
-    const saved = await Api.saveLocalAsset({
-      name: 'subtitle-' + (i + 1) + '.png', mime: 'image/png', format: 'png', data: b64,
-      meta: { provider: '字幕', prompt: String(e.text || '').slice(0, 80) },
-    });
-    const src = saved.url || Api.assetSrc(saved.assetId || saved.id);
-    items.push({ src, start: round2(e.filmStart), end: round2(e.filmEnd) });
+    /* 栅格化出来的 PNG 直接当 dataURL 交给合成（浏览器内导出自己画）——
+       不再落本机资产库：字幕是**这一条成片的中间产物**，不是用户的素材，
+       以前每导一次就在资产库攒几十张 subtitle-N.png，占磁盘还没人会去用它。 */
+    items.push({ src: 'data:image/png;base64,' + b64, start: round2(e.filmStart), end: round2(e.filmEnd) });
     if (i % 5 === 4) setStatus('<span class="meta">正在栅格化字幕 ' + (i + 1) + '/' + got.entries.length + '…</span>');
   }
   return { items, count: items.length, missing: got.missing };
-}
-
-/* 成片已经在盘上且是最新的：直接下载，不再跑一遍 ffmpeg（「导出成片」的快捷路径）。 */
-async function downloadMergedFilm() {
-  const m = projOf().merged;          // 调用那条路的 exportFilmFFmpeg 先判过 filmIsCurrent
-  /* 盘上那一份取不到（手动删过 `.renders`、渲染目录换过地方、上一次没写完）或是空的：把记着的成片作废，
-     下一次点「导出成片」才会真跑一遍 ffmpeg 重新合成。
-     以前这里只回一句「请重新合并」—— 那颗按钮早删了，等于指着一颗不存在的按钮；
-     而且再点「导出成片」，`filmIsCurrent` 照旧说「这一份是当前的」，又走回同一条快捷路径、
-     拿到同一个 404 —— 死循环，界面一条出路都不给。 */
-  const lost = t => {
-    projOf().merged = null;
-    renderAll(); scheduleSave();
-    setStatus('<span class="err">' + t + '；已记下「盘上那一份没了」，素材都还在 —— 再点一次右上角「导出成片」会重新合成一份</span>');
-  };
-  try {
-    const blob = await renderBlob(m.name, '下载成片');
-    if (!blob.size) { lost('下载成片：文件是空的'); return { ok: false, err: '盘上那一份成片是空文件' }; }
-    const saved = await saveBlob(m.name, blob);
-    setStatus('<span class="ok">' + saved.msg + '（' + window.fmtBytes(blob.size) + '）</span>');
-    return { ok: true, out: m.name, bytes: blob.size };
-  } catch (e) {
-    if (e && e.gone) { lost(e.message); return { ok: false, err: e.message }; }
-    setStatus('<span class="err">下载失败：' + e.message + '</span>');
-    return { ok: false, err: e.message };
-  }
 }
 
 function stampName(ext) {
@@ -548,7 +606,7 @@ function stampName(ext) {
    `filmFingerprint` 一个字不变 → `filmIsCurrent` 说盘上那份还是新的 → 连「导出成片」都走
    快捷路径直接把旧的那份递出去（downloadMergedFilm），
    界面上没有任何一句「成片是旧的」，用户听到的还是上一版的音量
-   （用户点名的「音轨现在好像不能正确调整音量」：数据存对了、`/render` 也照那份混音，只是没人去重合成）。
+   （用户点名的「音轨现在好像不能正确调整音量」：数据存对了、合成也照那份混音，只是没人去重合成）。
    `off` 那一位以前同样没有，只是它总与 `at` 一起变（拖左把手两头同时走），所以没露过馅 —— 
    留着：任何一个数改了而指纹不变，都是同一类错。
    每一句一行、写成表达式而不是拼串：变异对照的锚点只能取单行（这份源码是 CRLF）。 */
@@ -557,13 +615,15 @@ const voiceFp = (c, ctx) => clipVoices(c, ctx).list.map(voiceFpOne).join(',');
   return {
     filmClick: exportFilmClick,
     assetsClick: clickExportAssets,
-    filmFFmpeg: exportFilmFFmpeg,
+    exportFilm: exportFilm,
     assets: exportFilmAssets,
     fcp: exportFCPXML,
-    nle: exportNle,
+    resolve: () => exportNle({ app: 'resolve' }),
+    jianying: () => exportNle({ app: 'jianying' }),
     isRendering: () => rendering,
-    currentJobId: () => renderJobId,
-    cancelJob: id => { renderCancelled = true; renderCancel(id); },
+    cancelJob: () => abortRender(),
+    sessionExports: () => sessionExports.slice(),
+    filmBlobOf: name => filmBlobCache.get(String(name || '')) || null,
     buildRenderClips,
     clipTimeLabel,
     voiceFilmRange,

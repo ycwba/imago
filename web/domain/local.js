@@ -26,7 +26,7 @@
     return t;
   }
   /* 「这一条该不该存」—— scan / 手动补存 / 页面那条按钮都读它。
-     `mode` 缺省读设置；传字符串是为了测试与「按类型另存」那一档复用。 */
+     `mode` 缺省读设置；传字符串是给探针留一个「不改设置也能问一遍」的口子。 */
   function saveScope() { return on(K_SAVE_SCOPE, 'all') === 'new' ? 'new' : 'all'; }
   function wantSave(e, mode) {
     if (!e || e.kind !== 'asset' || e.localAsset) return false;
@@ -60,47 +60,10 @@
      不优先读本机就谈不上「只看本机」—— 只勾第三档时它**等于没勾**（设置页那一项也就不画）。 */
   const localOnly = () => saveOn() && preferLocal() && on(K_HIDE_CLOUD, '') === '1';
 
-  /* ---------- 按类型分别决定「存不存 / 存到哪个文件夹」（设置页「自动保存」那一卡）----------
-     键 `sk_autosave`（前缀 sk_ 已跟着设置导出/云同步走），形状：
-       { image:{on:'on'|'off', dir:'D:\\AI图'}, video:{…}, audio:{…} }
-     **三档的默认值全是 on** —— 与以前那个总开关一致（原来就是全存），
-     所以第一次打开这一项，行为一个字都没变，只是多了「按类型分开」和「另存到指定目录」两件事。
-     判据只有这一份：设置页渲染、这里分流、代理读盘，三边各写一份就一定对不上。 */
-  const K_AUTOSAVE = 'sk_autosave';
-  /* 「这一类上一次另存**没成**的原因」：只在写失败时记一笔，写成功就把这一档清掉。
-     （成功不再记整条路径 —— 设置页那一格「上次存成：D:\…」早就没人看了，
-     而失败必须留着，否则「用户以为存上了、其实一次都没落盘」又会回来。）
-     不进同步白名单 —— 那是「刚才发生了什么」，不是「我想要什么」，跟着云同步会把
-     另一台机器上的旧路径带过来，而那台机器上那个盘符多半不存在。 */
-  const K_AUTOSAVE_LOG = 'sk_autosave_log';
-  function noteSaveFail(kind, why) {
-    try {
-      const d = JSON.parse(localStorage.getItem(K_AUTOSAVE_LOG) || '{}') || {};
-      if (why) d[kind] = { why: String(why), at: Date.now() }; else delete d[kind];
-      localStorage.setItem(K_AUTOSAVE_LOG, JSON.stringify(d));
-    } catch (e) {}
-  }
-  function saveFails() { try { return JSON.parse(localStorage.getItem(K_AUTOSAVE_LOG) || '{}') || {}; } catch (e) { return {}; } }
-  const SAVE_KINDS = [
-    { id: 'image', zh: '图片', exts: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] },
-    { id: 'video', zh: '视频', exts: ['mp4', 'webm', 'mov', 'mkv'] },
-    { id: 'audio', zh: '音频', exts: ['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'opus'] },
-  ];
-  function autosaveConf() {
-    let d = null;
-    try { d = JSON.parse(localStorage.getItem(K_AUTOSAVE) || 'null'); } catch (e) {}
-    const c = (d && typeof d === 'object') ? d : {};
-    const out = {};
-    for (const k of SAVE_KINDS) {
-      const row = (c[k.id] && typeof c[k.id] === 'object') ? c[k.id] : {};
-      out[k.id] = { on: row.on !== 'off', dir: String(row.dir || '').trim() };
-    }
-    return out;
-  }
-  function setAutosaveConf(c) { try { localStorage.setItem(K_AUTOSAVE, JSON.stringify(c || {})); } catch (e) {} }
-  /* 这一份产物属于哪一类：扩展名 / MIME 的判据在公共层（ui.js 的 `mediaKindFrom`），
-     这里只决定「存到哪一档」，不再自己列一份扩展名表。 */
-  const kindOf = (ext, mime) => window.mediaKindFrom({ ext, mime });
+  /* 产物只有一份，就住在资产库根的类型子目录里，而那个根默认就是 下载\拾帧 —— 用户翻得到的地方。
+     库根本身可以在设置页「本机资产库」那一格改，它不是浏览器里的偏好而是**代理要读的那份**，
+     所以它走 `sk_local_dir`（localStorage → DataSync 镜像成 .data/sk_local_dir.json，
+     代理的 localRoot() 现读），不在这里留第二份判据。 */
 
   let idx = null;
   let idxMaps = null;   // 镜像索引的反查表（{ up, la, aid, gid }）；write() 时作废
@@ -707,38 +670,11 @@ function info() {
            不然按钮说「已存好 N 条」而索引里一条都没有。 */
         throw new Error('代理没有返回资产号');
       }
-      /* ---------- 按类型另存一份到用户指定的文件夹 ----------
-         存进 .assets 资产库是**应用自己的那份**（离线能看、删了能回源），不能因为用户
-         想在「D:\AI图」里看到产物就不存 —— 那是两件事。所以这里是**额外再写一份**。
-         镜像成功之后用 `/save-local` **按资产号拷贝**（代理从 .assets 读），不再把同一段
-         base64 第二次递过去：大文件那一下会再把内存与请求体放大一遍。 */
-      const kind = kindOf(ext, (blob && blob.type) || r.mime || '');
-      const conf = autosaveConf()[kind] || null;
-      if (kind && conf && conf.on) {
-        let done = false;
-        if (Api.saveLocal) {
-          try {
-            const s = await Api.saveLocal({ ids: [r.id] });
-            const bad = (s && s.full && s.full[0] && s.full[0].why)
-              || (s && s.missing && s.missing.length ? '资产索引里没有这一条' : '');
-            const good = !!(s && ((s.saved && s.saved.length) || (s.dup && s.dup.length)));
-            noteSaveFail(kind, good ? '' : (bad || '代理没有确认写入'));
-            done = true;
-          } catch (e) {
-            if (!(e && e.status === 404)) { noteSaveFail(kind, errText(e)); done = true; }
-          }
-        }
-        /* 旧代理没有 /save-local：只有手里还有 b64 时才退回 /save */
-        if (!done && b64) {
-          try {
-            const s = await Api.saveToDir({ type: kind, name: r && r.name ? r.name : nameOf(ent, ext),
-              mime: (blob && blob.type) || '', format: r && r.format ? r.format : ext, data: b64 });
-            noteSaveFail(kind, s && s.ok ? '' : (s && s.error && s.error.message) || '代理没有确认写入');
-          } catch (e) {
-            noteSaveFail(kind, errText(e));
-          }
-        }
-      }
+      /* 到这里就结束了：**产物只有这一份**。
+         以前镜像之后还要再按类型拷一份到用户指定的文件夹，实测一次生成写两遍同样的字节
+         （359 份产物里 344 份字节完全相同），两份都躺在用户自己的盘上。
+         库根现在就是用户翻得到的 下载\拾帧\，本体落 图片\ / 视频\ / 音频\ 并用可读的规范名 ——
+         资产库、播放器、FCPXML 媒体包与用户自己开的那个文件夹是同一份文件，不再第二份。 */
     } catch (e) {
       /* 镜像失败**不打扰界面**：它是锦上添花，产物该显示还是显示。
          也不把失败写进索引 —— 下一轮列表刷新还会再 offer 一次（成功为止）。
@@ -942,6 +878,22 @@ function info() {
     if (!o) return '';
     const up = String(o.upstreamSrc || o.rawSrc || o.raw || o.url || byteSrcOf(o) || o.src || o.dl || '');
     return offer(String(o.provider || ''), o, up, opts);
+  }
+
+  /* 列表加载时的自动补存（J 的唯一入口）：对一屏里「本机还没有」的条目逐条 pull。
+     判据用 wantSave 那一份（已含「本机已有不算」「按 scope 判新不新旧」）——
+     页面不许自己判，只递条目数组。并发上限由镜像队列自己管（2 条），不新造队列。
+     只对**已渲染的那一屏**排（页面自己传当前页的 items），不预排全部。 */
+  function offerAll(items, opts) {
+    if (!saveOn()) return 0;
+    let n = 0;
+    for (const it of (Array.isArray(items) ? items : [])) {
+      if (!it) continue;
+      if (!wantSave(it)) continue;
+      const r = pull(it, opts);
+      if (r === 'queued') n++;
+    }
+    return n;
   }
 
   /* ---------- 「这一屏还要存回本机哪几条」只有这一份 ----------
@@ -1421,7 +1373,7 @@ function info() {
 
   window.AssetLocal = {
     saveOn, preferLocal, showBadge, offer, scan, announce, decorate, watch, pullMany, pullSummaryText,
-    pullPlan, pullBar,
+    pullPlan, pullBar, offerAll,
     /* 等镜像指针从 IndexedDB 读回来（列表加载前等一小会儿，避免首屏用暖启动缓存判漏）。 */
     ready: () => { read(); return bootMirrorIndex(); },
     pullBusy, pullStart, pullEnd, pullBtn, pullBtnTitle, pullReceipt,
@@ -1450,12 +1402,9 @@ function info() {
        页面只许调这两个，不许自己拼「有没有本机副本」—— 见上面的 hasLocal / hasLocalAddr。 */
     localOnly, hideAsCloud, hasLocalAddr,
     /* 「现在就把这一条存回本机」—— 收藏 / 素材库那两颗「自动下载」用的入口。
-       走的是后台自动镜像同一条落盘链（同一份索引、同一道去重、同一份按类型另存），
+       走的是后台自动镜像同一条落盘链（同一份索引、同一道去重、同一个规范名落点），
        区别只在绕过开关与逐条回执，见上面的 pull。 */
     pull,
-    /* 「自动保存：按类型分别存到哪」这一项的公共接口（设置页渲染与本页分流共用一份判据）。
-       设置页只负责画与存，不自己再读一遍 localStorage、更不自己判断哪一档开没开。 */
-    SAVE_KINDS, autosaveConf, setAutosaveConf, kindOf, saveFails,
     /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单。
        ⚠ 这一份读的是**本地指针表**，换端口 / 清浏览器数据 / 无痕窗口都会是空的 ——
        所以下面那个 syncStats() 得先把代理那份索引拉回来认一遍，数字才等于事实。 */
@@ -1463,14 +1412,13 @@ function info() {
       const rs = Object.values(read().m);
       return { count: rs.length, bytes: rs.reduce((a, r) => a + (Number(r && r.b) || 0), 0) };
     },
-    /* 从**代理那份索引**（.assets/index.json）现算「本机存了多少」，顺带把指针表认回来。
+    /* 从**代理那份索引**（.data\local-assets\）现算「本机存了多少」，顺带把指针表认回来。
        为什么必须有这一步：stats() 读的那张表是「哪条产物存在本机」的**缓存**，
-       本体在 .assets/。表空的时候设置页会写「本机已存 0 个产物，共 0 KB」——
-       而 .assets 里其实有 83 份（实测：无痕窗口打开设置页，磁盘上明明有，页面写 0）。
+       本体在库根（默认 下载\拾帧）的类型子目录里。表空的时候设置页会写「本机已存 0 个产物，共 0 KB」——
+       而库里其实有 83 份（实测：无痕窗口打开设置页，磁盘上明明有，页面写 0）。
        界面说的话与事实不符，正是这一页最不能出的那种毛病。
        走注册表声明的 selfAsset 列表（`local:/local-assets`），不自己拼地址；
-       每一行走 learn() —— 判据还是那一份，指针表当场认回来，
-       同一页下面的「补存」也才有东西可补（mirrorIds 读的就是这张表）。 */
+       每一行走 learn() —— 判据还是那一份，指针表当场认回来。 */
     async syncStats() {
       try { await bootMirrorIndex(); } catch (e) {}
       try {
@@ -1485,14 +1433,6 @@ function info() {
       /* 返回的是 `info()` 那一份（不是 stats()）：设置页那一行还要读在途数与最后一次失败原因，
          两个形状各回各的就会出现「count 更新了、在途数永远是 undefined」。 */
       return info();
-    },
-    /* 「补存」用：本机资产库里有哪些、分别属于哪一类。
-       判据是 kindOf（与镜像分流那一份同一处），**只给本机号** ——
-       路径一律由代理从配置读，页面递不得（见 Api.saveLocal）。 */
-    mirrorIds() {
-      return Object.values(read().m)
-        .filter(r => r && r.a)
-        .map(r => ({ id: r.a, kind: kindOf(r.f, ''), bytes: Number(r.b) || 0 }));
     },
     /* 抹掉一条本机镜像的记录（用户点「删除本机文件」成功之后）。判据与实现都在 learn 那份旁边。 */
     forgetMirror,

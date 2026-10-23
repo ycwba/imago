@@ -151,8 +151,8 @@ const REGISTRY = {
        retrieve    换地址的端点，`{id}` 是资产号占位
        urlFields   响应里「可下载地址」可能落在哪些点路径（按顺序取第一个命中的字符串）
        mimeField   响应里 MIME 的点路径（可空）
-     以前这段地址、字段名与密钥的环境变量名写死在 server/render-jobs.js 与三条路由里（4 处 keyOf、
-     1 处拼 URL），换一家跑「任务 + 资产号」的中转要改服务端代码 ——「新增供应商只改 REGISTRY」不成立。
+     以前这段地址、字段名与密钥的环境变量名散在四个文件里各写一份（4 处 keyOf、1 处拼 URL），
+     换一家跑「任务 + 资产号」的中转要改服务端代码 ——「新增供应商只改 REGISTRY」不成立。
      声明化之后这些调用点只问 resolveAssetStore（见文件末尾），页面问 /registry 拿 provider 字段即可。 */
   assetStore: {
     provider: 'sparkcine',

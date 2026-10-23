@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /* 切片性能：真实浏览器里把一条 20 秒素材摆成二十格，量四件事 ——
      首格 ≤ 600ms、整排 20 格 ≤ 2.5s、缩放后重填 ≤ 1.5s、一次重画解码次数不超期望值；
-   顺带把「一素材一只 video」「worker 编码真的在跑」「缩放命中 ≥70%」「同一工程二次打开 0 次解码」也数出来。
+   顺带把「一素材一只 video」「worker 编码真的在跑（仅兜底链跑过时）」「缩放命中 ≥70%」
+   「同一工程二次打开 0 次解码」也数出来。
+   主链是 mediabunny 批量取帧（不开 <video>、不建 worker，编码在主线程 toBlob）；
+   worker 与「一素材一只 video」只服务 <video> 兜底链 —— 计数为 0 且格子有图 = 主链接住了活。
    需要 ffmpeg 造 20 秒素材；没有就跳过并报明。 */
 'use strict';
 const fs = require('fs');
@@ -27,6 +30,22 @@ const HIT = 0.7;            // 缩放命中率下限
        比例尺要**在页面装配前**就定下来 —— 它进的是 tlPps 的初值。 */
     await page.addInitScript(() => {
       try { localStorage.setItem('dir_tl_pps', '64'); } catch (e) {}
+      /* 诊断：从**第一条**页面脚本开始记所有 /cache/* 的写出与结果（晚装的包装会漏掉首轮填充） */
+      window.__cacheNet = [];
+      const of = window.fetch;
+      window.fetch = function (u, o) {
+        const url = String(u && u.url || u || '');
+        if (url.indexOf('/cache/') >= 0) {
+          const rec = { url, method: (o && o.method) || 'GET', size: o && o.body && o.body.size || 0, status: 0, len: 0, at: Math.round(performance.now()), err: '' };
+          window.__cacheNet.push(rec);
+          return of.apply(this, arguments).then(r => {
+            rec.status = r.status;
+            rec.len = Number(r.headers.get('content-length') || 0);
+            return r;
+          }, e => { rec.err = String(e && e.message || e); throw e; });
+        }
+        return of.apply(this, arguments);
+      };
     });
     /* worker 的观测点：什么时候建、真的收发了多少条。必须在页面脚本之前装。 */
     await page.addInitScript(() => {
@@ -84,7 +103,7 @@ const HIT = 0.7;            // 缩放命中率下限
       return hit ? { id: hit.id, dur: hit.秒 } : null;
     });
     if (!imported) throw new Error('导入之后没有「已出片」的候选');
-    if (!(parseFloat(imported.dur) >= 19)) throw new Error('导入素材时长读成 ' + imported.dur + ' 秒，摆不出二十格（ffprobe 没读到 20 秒）');
+    if (!(parseFloat(imported.dur) >= 19)) throw new Error('导入素材时长读成 ' + imported.dur + ' 秒，摆不出二十格（媒体探测没读到 20 秒）');
     const sel = await page.eval(async id => {
       const A = window.WBBridge.get('director');
       const c = A.context();
@@ -153,17 +172,18 @@ const HIT = 0.7;            // 缩放命中率下限
         + first.trace.map(x => { const [k, t] = x.split('='); return k + '@' + (Number(t) - first.t0).toFixed(0); }).join(' '));
     }
     if (!(first.full <= ROW_MS)) throw new Error('整排 ' + first.total + ' 格用了 ' + first.full.toFixed(0) + 'ms，超过 ' + ROW_MS + 'ms');
-    /* 一条素材只该有一只 <video>、一次元数据解析。 */
+    /* 一条素材只该有一只 <video>、一次元数据解析（主链不开 <video>：计数为 0 = 没退兜底）。 */
     if (first.els > 1) throw new Error('一条素材开了 ' + first.els + ' 只 <video>（要求一素材一只）');
     if (first.meta > 1) throw new Error('一条素材解析了 ' + first.meta + ' 次元数据（要求一次）');
     /* 解码次数不超期望：每格一个时刻，同一时刻不重解（栅格去重后 ≤ 格数）。 */
     if (!(first.seek <= first.total)) throw new Error('首排解码 ' + first.seek + ' 次，超过期望的 ' + first.total + ' 次');
     if (first.uniq !== first.seek) throw new Error('同一批时刻里有重复解码：seek ' + first.seek + ' 次，去重后 ' + first.uniq + ' 个时刻');
-    /* 浏览器支持 ImageBitmap/OffscreenCanvas 时，切片编码必须真的交给 worker 且收到回执。 */
+    /* 兜底链真跑过（开过 <video>）才要求 worker 编码：主链的编码在主线程 toBlob，
+       worker 只服务 <video> 池 —— 主链下 worker 一枚都不该建。 */
     const supportsWorker = await page.eval(() => typeof Worker !== 'undefined'
       && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function');
-    if (supportsWorker) {
-      if (!first.workers.some(u => /slice-worker\.js/.test(u))) throw new Error('浏览器支持 worker，但切片 worker 从没建起来');
+    if (supportsWorker && first.els > 0) {
+      if (!first.workers.some(u => /slice-worker\.js/.test(u))) throw new Error('兜底链开了 <video>，但切片 worker 从没建起来');
       if (!(first.posts >= 1 && first.replies >= 1)) throw new Error('切片 worker 没收到/没回过编码任务（posts=' + first.posts + ' replies=' + first.replies + '）');
       if (first.replies !== first.posts) throw new Error('切片 worker 有任务没回执（posts=' + first.posts + ' replies=' + first.replies + '，会退回主线程）');
     }
@@ -275,25 +295,72 @@ const HIT = 0.7;            // 缩放命中率下限
     if (!(z2.full <= REFILL_MS)) throw new Error('缩回去后重填 ' + z2.full.toFixed(0) + 'ms，超过 ' + REFILL_MS + 'ms');
     if (z2.seek !== 0) throw new Error('整排都在缓存里，缩回去还解码了 ' + z2.seek + ' 次（单次重画解码次数应为 0）');
 
-    /* 等这批帧真的落进 IndexedDB（写入是后台事，不等它），再刷新同一工程看二次打开。 */
-    await page.waitFor(async () => {
-      const row = document.querySelector('.tl-vrow');
-      const frs = row && row.querySelector('[data-frs]');
-      if (!frs || !window.Kv || !window.Wb || !window.Wb.thumbs) return false;
-      const key = window.Wb.thumbs.keyOf(frs.getAttribute('data-frs'));
-      const rec = await window.Kv.at('slices').get(key);
-      return !!(rec && Array.isArray(rec.frames) && rec.frames.length >= 20);
-    }, 15000, 200).catch(() => {});
-    const cached = await page.eval(async () => {
-      const row = document.querySelector('.tl-vrow');
-      const frs = row && row.querySelector('[data-frs]');
-      if (!frs) return { err: '轨道上没有 [data-frs]' };
-      const key = window.Wb.thumbs.keyOf(frs.getAttribute('data-frs'));
-      const rec = await window.Kv.at('slices').get(key);
-      return { key, n: rec && Array.isArray(rec.frames) ? rec.frames.length : 0 };
+    /* 等这批帧真的落进**代理端**切片缓存（G 之后持久层是 `/cache/slices`，不再走 IndexedDB：
+       一条素材一条记录、打包成单条字节，服务端按 3000 张 / 40MB LRU 管）。写入是后台事，不等它。
+       以前这一支读 `Kv.at('slices')` —— 那个目标已经从登记表删了，于是 e2e 自己抛
+       「IndexedDB 目标没登记过：slices」，看起来像产品坏了，其实是判据没跟上搬家。 */
+    /* ⚠ 这里**不能用 page.waitFor(async fn)**：harness 的 eval 不 await 谓词返回的 Promise，
+       一个 Promise 对象恒真 —— 等待当场返回，后面读到的必然是 0（以前这一支就栽在这）。
+       改成显式轮询：每轮一次独立的 eval，等缓存真的出现再往下走。 */
+    /* 诊断：把 Api.cachePut 包一层，记下切片到底有没有往外写、写的什么键。
+       （只记不拦；断言失败时把 last puts 打进错误里，省得下次又靠猜。） */
+    await page.eval(() => {
+      if (window.__slicePuts) return true;
+      window.__slicePuts = [];
+      const orig = window.Api && window.Api.cachePut;
+      if (orig) window.Api.cachePut = function (t, k, b) {
+        try { window.__slicePuts.push([String(t), String(k), (b && b.size) || 0]); } catch (e) { /* 记录失败不影响写入 */ }
+        return orig.call(this, t, k, b);
+      };
+      return true;
     });
-    if (cached.err) throw new Error(cached.err);
-    if (!(cached.n >= 20)) throw new Error('首开后 IndexedDB 里只有 ' + cached.n + ' 张切片（应 ≥20），二次打开必然重解');
+    /* 读的那一侧用产品自己那一份解包器（`web/director/slice-pack.js`），判据里不再另写一张排布表：
+       写端一换排布，页面读出来的张数与这里读出来的必须是同一个 —— 各写一份时正是
+       「写端表头在前、读端逐帧交错」这种错位谁也发现不了。 */
+    const { unpackFrames } = await import(require('url').pathToFileURL(path.join(h.root, 'web/director/slice-pack.js')).href);
+    const readSlices = async key => {
+      const r = await fetch(proxy.base + '/cache/slices?key=' + encodeURIComponent(key),
+        { headers: proxy.cookie ? { cookie: proxy.cookie } : {} });
+      if (!r.ok) return { key, n: 0, bytes: 0, status: r.status };
+      const ab = await r.arrayBuffer();
+      let n = -1;
+      try { n = (await unpackFrames(ab)).length; } catch (e) { n = -1; }
+      return { key, n, bytes: ab.byteLength, status: r.status };
+    };
+    let cached = null;
+    for (let i = 0; i < 60; i++) {
+      const key = await page.eval(() => {
+        const row = document.querySelector('.tl-vrow');
+        const frs = row && row.querySelector('[data-frs]');
+        if (!frs || !window.Wb || !window.Wb.thumbs) return '';
+        return window.Wb.thumbs.keyOf(frs.getAttribute('data-frs'));
+      });
+      if (key) cached = await readSlices(key);
+      if (cached && cached.n >= 20) break;
+      await h.sleep(250);
+    }
+    if (!(cached && cached.n >= 20)) {
+      const net = await page.eval(() => ({
+        puts: (window.__cacheNet || []).filter(x => x.method !== 'GET').slice(-8),
+        gets: (window.__cacheNet || []).filter(x => x.method === 'GET').slice(-12),
+        total: (window.__cacheNet || []).length,
+      }));
+      const now = await page.eval(async () => {
+        const row = document.querySelector('.tl-vrow');
+        const frs = row && row.querySelector('[data-frs]');
+        if (!frs) return { err: 'no row' };
+        const key = window.Wb.thumbs.keyOf(frs.getAttribute('data-frs'));
+        const r = await fetch('/cache/slices?key=' + encodeURIComponent(key), { cache: 'reload', credentials: 'same-origin' });
+        const all = Api.cacheAll ? await Api.cacheAll('slices').catch(() => []) : [];
+        return { key, status: r.status, len: Number(r.headers.get('content-length') || 0),
+          all: (all || []).map(x => ({ k: x && x.k, n: x && x.v ? x.v.length : 0 })) };
+      });
+      throw new Error('首开后代理切片缓存里只有 ' + ((cached && cached.n) || 0) + ' 张切片（应 ≥20），二次打开必然重解；'
+        + '最近一次读：' + JSON.stringify(cached)
+        + '，最近的 cachePut：' + JSON.stringify(net.puts)
+        + '，最近的 cacheGet：' + JSON.stringify(net.gets)
+        + '（请求共 ' + net.total + ' 条），刚直读一次：' + JSON.stringify(now));
+    }
     await page.eval(() => { try { if (window.__spaFlush) window.__spaFlush(); } catch (e) {} return true; });
     await h.sleep(1300);                       // scheduleSave 的 500ms 防抖 + IndexedDB 写入
 
@@ -363,7 +430,7 @@ const HIT = 0.7;            // 缩放命中率下限
     if (!(second.full <= ROW_MS)) throw new Error('二次打开整排 ' + second.total + ' 格用了 ' + second.full.toFixed(0) + 'ms，超过 ' + ROW_MS + 'ms');
     if (second.seek !== 0 || second.meta !== 0 || second.els !== 0) {
       throw new Error('二次打开仍在解码（要求 0 次）：seek=' + second.seek + ' meta=' + second.meta + ' video=' + second.els
-        + '（IndexedDB 里有 ' + cached.n + ' 张，key=' + cached.key + '）');
+        + '（代理切片缓存里有 ' + cached.n + ' 张，key=' + cached.key + '）');
     }
 
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
@@ -398,7 +465,7 @@ const HIT = 0.7;            // 缩放命中率下限
     console.log('✓ 切片性能通过（首格 ' + first.first.toFixed(0) + 'ms / ' + first.total + ' 格 ' + first.full.toFixed(0)
       + 'ms / 缩放重填 ' + z1.full.toFixed(0) + 'ms、' + z2.full.toFixed(0) + 'ms / 首排解码 ' + first.seek
       + ' 次、一只 video / 缩放命中 ' + (hit1 * 100).toFixed(0) + '% / 整排重画 0 次解码 / 二次打开 0 次解码（'
-      + cached.n + ' 张来自 IndexedDB）/ worker 收发 ' + first.posts + ':' + first.replies + '）');
+      + cached.n + ' 张来自代理切片缓存）/ worker 收发 ' + first.posts + ':' + first.replies + '）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

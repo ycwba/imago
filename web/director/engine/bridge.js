@@ -32,7 +32,6 @@ export function createBridge(E, document, window) {
     cutSegs,
     rowLockWhy,
     tlSyncFromShots,
-    readJsonSafe,
     renderStatus,
     filmEdited,
     shotFilmAt,
@@ -147,8 +146,14 @@ export function createBridge(E, document, window) {
     } else {
       return loose('切哪一秒要说清：给 at（源视频的第几秒）或 seg（第几段）');
     }
-    if (at < 0 || at > total) return loose('at 要在 0–' + round1(total) + ' 秒之间（这一条 ' + round1(total) + ' 秒）');
-    at = round1(Math.max(0, Math.min(total, at)));
+    /* 尺子的右端不是 `total`：图片段与图片区空段排在视频源秒之后，各占自己的虚拟秒
+       （见 image-seg.js）。拿 `total` 去夹，落在图片段上的那几秒会被推回视频末尾 ——
+       `seg` 取中点的那条路（图片段的中点必然 > total）会直接报「at 要在 0–N 秒之间」，
+       于是助手永远剪不到图片段。与 `cutPin` 的夹法同一份边界。 */
+    const pan = round1(segs.reduce((m, s) => Math.max(m, Number(s.b) || 0), total));
+    if (at < 0 || at > pan) return loose('at 要在 0–' + pan + ' 秒之间（这一条视频 ' + round1(total) + ' 秒'
+      + (pan > total + 0.05 ? '，图片段 / 空段另占虚拟秒' : '') + '）');
+    at = round1(Math.max(0, Math.min(pan, at)));
     let i = segs.findIndex(x => at >= x.in && at < x.out);
     if (i < 0) i = segs.reduce((b, x, k) => (Math.abs(x.in - at) < Math.abs(segs[b].in - at) ? k : b), 0);
     const lock = dirLockOf(segs[i]);
@@ -559,30 +564,44 @@ export function createBridge(E, document, window) {
     a = a || {};
     const q = candSrcOf(a); if (q.err) return q;
     /* dryRun：助手在画确认卡片之前要先把「查哪一份、走哪条路、扣不扣费」说清楚，
-       但那一步**不许提交任务**（提交了就是一次真实转写，远程还按次计费）。
-       路线判据读 `/asr/settings`（与设置页同一份：本地是否可用 + 在线有没有密钥），
-       不在这里抄第二套规则。 */
+       但那一步**不许提交任务**（提交了就是一次真实转写，远程还按次计费）。 */
     if (a.dryRun) {
-      let st = null;
-      try { st = await readJsonSafe(await Net.fetch('/asr/settings', { timeout: 15000 }), '读取转写设置'); } catch (e) { /* 读不到转写设置就按「没配」那一档报，dryRun 不是错 */ }
+      /* 路线判定只有 `Asr.pickRoute` 一份（浏览器模型就绪 → 本地运行包 → 在线）：
+         在这儿再算一套，就会出现「卡片说在线按次计费、实际在浏览器里免费跑」那种假话。 */
+      let st = null; let route = '';
+      const want = String(a.route || '');
+      try {
+        if (!window.Asr) await window.__spaLoadScript('web/domain/asr.js', () => window.Asr);
+        st = await window.Asr.settings();
+        route = await window.Asr.pickRoute(want);
+      } catch (e) { /* 读不到转写设置就按「没配」那一档报，dryRun 不是错 */ }
       const s = (st && st.settings) || {};
       const svc = s.service || {};
       const local = !!(st && st.local && st.local.available);
-      const want = String(a.route || s.route || 'auto');
-      const route = want === 'local' ? 'local' : (want === 'service' ? 'service' : (local ? 'local' : 'service'));
-      const why = route === 'local'
-        ? (local ? '本机 whisper 可用：在本机跑，不产生平台费用'
-          : '路线定在本地，但本地模型不可用：' + ((st && st.local && st.local.why) || '缺少运行包') + '（提交会当场被拒）')
-        : '在线服务转写：供应商 ' + (svc.providerId || '没选') + ' · 模型 ' + (svc.model || 'whisper-1')
-          + '，按次计费' + (svc.hasKey ? '' : '（这一家还没配密钥时提交会被拒）');
+      if (!route) route = ['local', 'service', 'browser'].includes(want || s.route) ? (want || s.route) : (local ? 'local' : 'service');
+      const routeZh = (window.Asr && window.Asr.routeLabel) ? window.Asr.routeLabel(route) : route;
+      let why = routeZh;
+      if (route === 'browser') {
+        let ready = false;
+        try { const bs = await window.Asr.browserStatus(); ready = !!(bs && bs.complete); }
+        catch (e) { /* 问不到模型状态就按没就绪说 */ }
+        why += ready ? '；模型已就绪' : '；模型还没下全：首次要先经代理下几百 MB，可能等几分钟，关页就停';
+      } else if (route === 'local') {
+        why = local ? routeZh + '；本机运行包可用'
+          : '路线定在本地，但本地模型不可用：' + ((st && st.local && st.local.why) || '缺少运行包') + '（提交会当场被拒）';
+      } else {
+        why = routeZh + '：供应商 ' + (svc.providerId || '没选') + ' · 模型 ' + (svc.model || 'whisper-1')
+          + (svc.hasKey ? '' : '（这一家还没配密钥时提交会被拒）');
+      }
       return { ok: true, 镜头: q.sh ? capTxt(q.sh.name, 30) : '', 源: q.src.slice(0, 160),
-        route, language: String(a.language || s.language || ''), 会扣费: route === 'service', 说明: why };
+        route, routeZh, language: String(a.language || s.language || ''), 会扣费: route === 'service', 说明: why };
     }
     try {
       if (!window.Asr) await window.__spaLoadScript('web/domain/asr.js', () => window.Asr);
       const r = await window.Asr.transcribe({ src: q.src, language: String(a.language || ''), route: String(a.route || '') });
-      return Object.assign({ ok: true, 镜头: q.sh ? capTxt(q.sh.name, 30) : '',
-        源: q.src.slice(0, 160), 说明: '转写在代理里跑；用 media_transcription 读结果，不会自动改写台词或字幕' }, r);
+      const routeZh = (window.Asr && window.Asr.routeLabel) ? window.Asr.routeLabel(r && r.route) : '';
+      return Object.assign({ ok: true, 镜头: q.sh ? capTxt(q.sh.name, 30) : '', routeZh,
+        源: q.src.slice(0, 160), 说明: '转写路线：' + routeZh + '；用 media_transcription 读结果，不会自动改写台词或字幕' }, r);
     } catch (e) { return loose('提交转写失败：' + errText(e)); }
   }
   async function asrJob(a) {
@@ -639,7 +658,7 @@ export function createBridge(E, document, window) {
     const rec = expNew(fmt);
     const settle = r => expSettle(rec, !!(r && r.ok), r);
     if (f.kind === 'film') {
-      Export.filmFFmpeg({
+      Export.exportFilm({
         onStarted: x => {
           rec.renderId = x.renderId;
           rec.progress = 1;
@@ -680,40 +699,24 @@ export function createBridge(E, document, window) {
   }
   async function exportStatus(a) {
     const rec = expOf(a && a.jobId);
-    if (!rec) return loose('没有这次导出记录（助手发起的导出只在本次页面会话里记账；最近的导出用 export_list 读 /render/jobs）');
-    if (rec.renderId && rec.state === 'running') {
-      try {
-        const d = await renderStatus(rec.renderId);
-        if (d && d.progress != null) rec.progress = d.progress;
-        if (d && d.state && d.state !== 'running' && d.state !== 'queued') rec.renderState = d.state;
-      } catch (e) { /* 进度问不动就照旧回上一次记到的状态 */ }
-    }
+    if (!rec) return loose('没有这次导出记录（助手发起的导出只在本次页面会话里记账；最近的导出用 export_list 读）');
+    /* 进度由导出回调实时写在 rec 上（浏览器内合成，没有代理任务可问）。 */
     return Object.assign({ ok: true }, expView(rec));
   }
   function exportList() {
     return { ok: true, jobs: [...expJobs.values()].sort((a, b) => b.at - a.at).map(expView) };
   }
-  /* 助手侧「最近导出」：会话内自己发起的那几笔 + 代理落盘的最近导出记录。
-     读的是页面自己那一条 `/render/jobs`（openRecentExports 同一份），不在助手层另拼 URL。 */
+  /* 助手侧「最近导出」：本次页面会话里发起的那几笔。
+     服务端的导出记录随渲染管线一起删了（浏览器内合成没有代理账本）——
+     刷新之后就没有「最近导出」可查，要文件就再导一次或去下载目录找。 */
   async function exportRecent(a) {
-    const mine = exportList().jobs;
-    let server = [];
-    try {
-      const d = await readJsonSafe(await Net.fetch('/render/jobs', { timeout: 15000 }), '读取最近导出');
-      server = ((d && d.jobs) || []).slice(0, Number(a && a.limit) || 10).map(j => ({
-        id: j.id || '', 来源: '代理', 格式: j.name || j.out || '未命名',
-        状态: String(j.state || ''), 进度: Math.round(Number(j.progress) || 0),
-        文件: j.out || '', 存在: !!j.exists, 字节: j.bytes || 0,
-        时间: window.fmtWhen ? window.fmtWhen(j.createdAt || j.updatedAt) : '',
-      }));
-    } catch (e) { return { ok: false, err: '读不到最近导出：' + errText(e), 助手发起的: mine }; }
-    return { ok: true, 助手发起的: mine, 代理记录: server };
+    return { ok: true, 助手发起的: exportList().jobs, 说明: '只有本次页面会话里的记录（导出在浏览器内合成，代理不留账本）' };
   }
   async function exportCancel(a) {
     const rec = expOf(a && a.jobId);
-    if (!rec || !rec.renderId) return loose('这次导出还没有渲染任务号，停不下来');
-    if (rec.renderId !== Export.currentJobId()) return loose('这次导出的渲染任务已经不在当前这一轮里（可能已经结束）');
-    Export.cancelJob(rec.renderId);
+    if (!rec) return loose('没有这次导出记录');
+    if (rec.state !== 'running') return loose('这次导出已经不在跑（可能已经结束）');
+    Export.cancelJob();
     expSettle(rec, false, { cancelled: true, err: '已取消' });
     return { ok: true, text: '已取消这次导出（已经落盘的部分不受影响）' };
   }
@@ -722,12 +725,23 @@ export function createBridge(E, document, window) {
     const name = String(a.name || (projOf().merged && projOf().merged.name) || '').trim();
     if (!name) return loose('没说要存哪一份：给 name（最近导出里的文件名），或先导出一份成片');
     try {
-      const d = await Net.json('/render/save-to-assets', {
-        method: 'POST', retry: 0, timeout: 0,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, title: String(a.title || projOf().name || '').slice(0, 200) }),
+      /* 成片字节在会话缓存里（这一轮刚合成的那份）—— 直接把字节交给资产库，
+         不再走「服务端渲染目录里复制一份」那条路（渲染目录已经删了）。 */
+      const blob = Export.filmBlobOf ? Export.filmBlobOf(name) : null;
+      if (!blob) return loose('这一份字节不在本次会话里（刷新过就没了）：再点一次「导出成片」，导完立刻存');
+      const b64 = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result).split(',')[1] || '');
+        fr.onerror = () => rej(new Error('读不出字节'));
+        fr.readAsDataURL(blob);
       });
-      return Object.assign({ ok: true, text: (d.reused ? '资产库里已经有这一份：' : '已存进本机资产库：') + (d.name || name) }, d);
+      /* 类型跟文件名 / 字节走：成片没有 H.264 时导出来的是 .webm（选容器在 MediaExport.pickCodec）。 */
+      const fmt = (name.match(/\.([a-z0-9]+)$/i) || [])[1] || 'mp4';
+      const d = await window.Api.saveLocalAsset({
+        name: name, mime: blob.type || (fmt === 'webm' ? 'video/webm' : 'video/mp4'), format: fmt, data: b64,
+        meta: { provider: 'local', prompt: String(a.title || projOf().name || '').slice(0, 200) },
+      });
+      return Object.assign({ ok: true, text: (d && d.reused ? '资产库里已经有这一份：' : '已存进本机资产库：') + (name) }, d || {});
     } catch (e) { return loose('存进资产库失败：' + errText(e)); }
   }
 

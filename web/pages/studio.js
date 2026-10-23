@@ -2454,6 +2454,23 @@ const StudioView = {
         if (!AL || !AL.showBadge || !AL.showBadge() || !AL.stateOf) return '';
         return window.badgeHTML(AL.stateOf(it));
       }
+      /* 图片产物 → 导演台画面轨（跨页只递一次，导演台取走即删）。
+         只在图片卡上出现：视频/音频「加进成片」走的是另一套（选候选、挂配音），不在这里混。 */
+      function addToTimelineHTML(it) {
+        if (it.mtype !== '图片' || !(it.raw || it.media)) return '';
+        return '<button class="ghost tl2" title="把这张图放进导演台画面轨（插在当前这一镜的插针之后）">'
+          + icon('film', 12) + ' 加到时间线</button>';
+      }
+      function addToTimeline(it) {
+        const src = it.raw || it.media || '';
+        if (!src) { Toast.err('这一条还没有可用的图片地址'); return; }
+        if (!window.LS) { Toast.err('本机存储不可用，带不过去'); return; }
+        if (window.LS.setJson('dir_add_img', { src, name: (it.prompt || '图片').slice(0, 24) }) === false) {
+          Toast.err('本机存储写不进去，带不过去');
+          return;
+        }
+        GoPage.go('director.html');
+      }
       function cardHTML(it) {
         const bad = Wb.isFailed(it), unc = Wb.isUncertain(it);
         const run = running(it), cxProv = run ? provById(it.provider) : null;
@@ -2479,6 +2496,7 @@ const StudioView = {
             retry: (bad || unc) && !it.noResend && !!(it.prompt || it.local),
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
+            extraHTML: addToTimelineHTML(it),
           }) + '</div>'
           + '<div class="tdetail" hidden></div>'
           + '</div>';
@@ -2547,6 +2565,10 @@ const StudioView = {
           },
           onRemove: () => { audioTasks = audioTasks.filter(x => x !== it.srcRef); saveAudioTasks(); renderAll(); tally.run(true); },
           onRemoveFile: () => deleteLocalAsset(it),
+          extraBind: el => {
+            const b = el.querySelector('.tl2');
+            if (b) b.onclick = e => { e.stopPropagation(); e.preventDefault(); addToTimeline(it); };
+          },
         });
         return d;
       }
@@ -2647,6 +2669,8 @@ const StudioView = {
           paintCounts();
           cardList.paint(items);
           paintPullBtn();
+          /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
+          try { window.AssetLocal && AssetLocal.offerAll(items); } catch (e) { /* 补存失败不影响列表 */ }
           const el = $('histNote');
           if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
         } finally { mergedBatch = null; }

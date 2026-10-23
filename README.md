@@ -5,7 +5,7 @@
 
 - 运行时零构建：浏览器直接加载静态文件。
 - 严格 CSP：运行时没有模板编译器，模板在开发期预编译成 render 函数。
-- 密钥、任务、素材、成片默认只留在本机；云同步与另存都是可选项。
+- 密钥、任务、素材、成片默认只留在本机；云同步与手动下载都是可选项。
 - 页面切换不刷新：KeepAlive 页面池保留筛选、滚动、多选与剪辑状态。
 
 ## 快速开始
@@ -59,29 +59,35 @@ npm install
 ```text
 proxy.js                      薄入口（require server/app.js）
 server/
-  app.js                      组合根：配置、registry、路由分发、渲染队列
+  app.js                      组合根：配置、依赖装配、路由分发
+  registry-config.js          供应商注册表（新平台只改这里）
   routes/                     每组本机路由一个模块
+  local-root.js               本机资产库根的唯一算法（ASSETS_DIR > 设置页那一格 > 下载\拾帧）
+  local-assets-store.js       资产本体落点、双身份（fid + 采样签名）、磁盘对账
+  index-store.js              资产索引（快照 + 追加日志 + 串行写队列），账在 .data\local-assets\
+  user-dirs.js                用户可见目录根（系统下载文件夹 → 下载\拾帧 / 提示词）
   data-store.js               原子写 + .bak + 读坏拒写
   prompts-store.js            提示词归档
   cloud-store.js              云同步与备份
   skills-store.js             Skill 清单 / 安装 / 启停
   security.js / outbound.js   同源 / Cookie / 出站护栏
-  static.js                   ETag / gzip / HTML CSP 头
+  static.js                   ETag / brotli→gzip→原文 / HTML CSP 头
 shell.html                    SPA 外壳
 web/
   app.js                      路由 + KeepAlive 页面池
   core/                       路由表、页面桥、页面上下文、动作注册表
-  pages/                      九个 Vue 页面组件
+  pages/                      八个 Vue 页面组件
   director/                   导演台作用域岛 + 引擎 + 纯算法模块
   render/                     预编译 render 函数（生成物）
   ui/ net / store / kv / toast / datasync / skills / workbench / sidebar
   domain/                     资产、本机优先、能力、文字 AI、素材库、语义检索、canvas/（画布纯算法）
-  features/chat.js            AI 助手外壳（悬浮球 / 抽屉 / 会话）
+  features/chat.js            AI 助手外壳（悬浮球 / 抽屉 / 会话 / 引用队列）
   features/chat-tools.js      助手工具循环与动作目录
   styles/                     设计令牌与页面样式
 tools/
   precompile-vue.cjs          模板 → render 函数
   vue-templates/              模板源（开发期）
+  migrate-skills.cjs          一次性：用户 Skill 目录换根
 skills/<id>/SKILL.md          内置 Skill
 tests/                        常驻判据 + 单元 + e2e
 ```
@@ -111,16 +117,20 @@ npm run build:check  # 校验生成物
 
 - 产物身份只有一份判据：`AssetLib` 的 `mirrorOf`。
 - 本机 / 云端状态只有 `AssetLocal.stateOf(entry)`。
-- 自动镜像由 `wb:asset-done` 事件触发，字节由代理流式落盘到 `.assets/`。
+- 自动镜像由 `wb:asset-done` 事件触发，字节由代理流式落盘进**本机资产库根**的类型子目录
+  （默认 `下载\拾帧\图片|视频|音频|其他\`，设置页可改；一条产物只有一份本体，文件名按「场景+镜头+候选」规范名，撞名加 `-2`）。
+- 索引与本体分家：账在 `.data\local-assets\`（快照 + 追加日志），本体在库里。
+  每条账带**两个身份**——`fid`（设备+inode，改名认得）与采样内容签名（字节数 + 首尾各 1MB 的哈希，挪盘认得），
+  所以手动改名、整目录搬到另一块盘，下一轮磁盘对账还能把账认回来；同一任务重复下载只出一张卡。
 - 过期签名外链由 `Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc` 统一处理。
 - 导演台导出始终优先本机副本；预览是否优先本机由设置项 `sk_media_prefer` 控制。
 - 「存回本机」四颗按钮共用 `AssetLocal.pullMany`。
 
 ## 添加一家平台
 
-只改 `server/app.js` 的 `REGISTRY.providers`（relay / base / keyEnv / endpoints / models /
+只改 `server/registry-config.js` 的 `REGISTRY.providers`（relay / base / keyEnv / endpoints / modelDocs /
 create / inputRoles / inputTemplates / uploadFields / pricing），页面不改。
-注册表结构变化时把 `REGISTRY.version` +1。
+注册表结构变化时把 `REGISTRY.version` +1；资产存储换平台改顶层 `REGISTRY.assetStore`。
 
 用户自己的中转走设置页「添加自定义供应商」，按类型填写后自动继承能力、上传与端点；
 不需要改代码。
@@ -132,10 +142,11 @@ npm run build:check
 node tests/all.cjs --e2e
 ```
 
-`--e2e` 包括视觉回归（九条路由、工作台按三型分档，加上先喂状态才画得出来的字幕编辑区与助手来源卡片，
-共 13 档 × 1024/1440 × 浅/深主题 = 52 个画面）、
+`--e2e` 包括视觉回归（八条路由、工作台按三型分档，加上先喂状态才画得出来的字幕编辑区与助手来源卡片，
+共 12 档 × 1024/1440 × 浅/深主题 = 48 个画面）、
 画布页面 / 助手 / 导入导出（720 节点 5000 连线的挂载与平移预算）、语音识别与联网搜索（含助手回答下面的来源编号与引用卡片）、
-云同步带哪些键、FCPXML 媒体包，以及导演台性能预算与「切片解码失败之后自己补得回来」；
+云同步带哪些键、FCPXML 媒体包、本机资产一条链（落点 / 双身份 / 改名挪目录认回 / 重复下载并卡 / 删一张卡带走整组），
+以及导演台性能预算与「切片解码失败之后自己补得回来」；
 有意改版后更新基线：
 
 ```bash
@@ -150,7 +161,10 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
   RENDER_DIR=.renders-probe SKILLS_DIR=.skills-probe node proxy.js
 ```
 
-`node tests/data-snapshot.cjs` 用来确认 `.data / .assets / .renders` 没有被测试改动。
+`ASSETS_DIR` 指的是**库根**（默认在 `下载\拾帧`，仓库外）；打默认目录那两条链路的判据还要 `AUTOSAVE_DIR`
+（把整个「下载」基座指走，`server/user-dirs.js` 读它），否则探针会往用户真成品目录里写。
+
+`node tests/data-snapshot.cjs` 用来确认真实 `.data`、`.renders` 与库根本体没有被测试改动。
 测试细节、公共层唯一实现清单、平台事实与编码规范都在 `AGENTS.md`。
 
 ## 编码
@@ -158,7 +172,8 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
 - 源码与文档：UTF-8。
 - `启动.bat`：UTF-8 + `chcp 65001`。
 - `launcher.ps1`：UTF-8 带 BOM + CRLF（PowerShell 5.1 的要求）。
-- 不要提交 `.env`、`.data/`、`.assets/`、`.renders/`、`prompts/`、`.skills/`。
+- 不要提交 `.env`、`.data/`、`.assets/`、`.renders/`、`文件/`、`.skills/`：后两个是库根可能被指回项目内时的落点，里面是用户作品。
+- 产物本体默认在系统下载文件夹的 `拾帧\` 下，不在仓库里；仓库里的 `.data\local-assets\` 只是账。
 
 ## 第三方
 

@@ -1,5 +1,5 @@
 /* 场景 / 镜头 → 素材名的唯一一份算法。
-   本机镜像的索引名、另存到用户文件夹的文件名、FCPXML 媒体包里的 `media/<名>` 与 `<asset-clip name>`
+   库里的文件名与本机索引名、FCPXML 媒体包里的 `media/<名>` 与 `<asset-clip name>`
    都从这里出 —— 以前三处各拼一份，于是同一个视频在素材库叫「提示词前 24 字.mp4」、
    在媒体包里叫「镜头 3-7.mp4」、而底下的文件又是 `la_xxx.mp4`，对着 missing.txt 根本对不上。
    规则：`场景01-雨夜街头_镜头03-推门_候选2.mp4`；空名只留序号（`场景01_镜头03`），
@@ -34,11 +34,13 @@ export function sceneShotBase(parts) {
   const tag = String(p.tag == null ? '' : p.tag).trim();
   return tag ? core + '_' + safe(tag, 16) : core;
 }
+/* 候选 / 配音的本体名：不再加「候选N」「配音N」后缀（§0.5 规则：撞名交给 uniqueName 的 -2）。
+   段序固定：定位 → 语义 → 时间 → 来源（见 assetBase）。 */
 export function candidateBase(ctx, n) {
-  return sceneShotBase(Object.assign({}, ctx || {}, { tag: '候选' + Math.max(1, Math.floor(Number(n) || 1)) }));
+  return sceneShotBase(ctx || {});
 }
 export function voiceBase(ctx, n) {
-  return sceneShotBase(Object.assign({}, ctx || {}, { tag: '配音' + Math.max(1, Math.floor(Number(n) || 1)) }));
+  return sceneShotBase(ctx || {});
 }
 /* 时间线里一段画面的显示名（写进 `<asset-clip name>`）：场景与镜头都在，片段序号也在。 */
 export function clipLabel(ctx, segNo) {
@@ -112,4 +114,46 @@ export function voiceIndex(proj, voice) {
   const list = (proj && proj.voices) || [];
   const i = list.indexOf(voice);
   return i >= 0 ? i + 1 : 1;
+}
+
+/* ── §0.5 统一命名规范：产物本体的盘上文件名 ──────────────────────────────
+   段序固定：定位 → 语义 → 时间 → 来源。有就写，没有就省，绝不编。
+   例：`场景01-镜头03-（王八在水中缓慢移动）_20261019-104213_sparkcine.mp4`
+   各段取自：
+     定位 = meta.sceneIndex / meta.shotIndex（只有导演台镜像带得上；手传素材用「手传-」）
+     语义 = meta.prompt 前 20 字（为空整段省掉，不出现「（）」）
+     时间 = meta.detail.created（平台给的出结果时刻，格式 YYYYMMDD-HHmmss；落盘时刻每重镜像就变，不许用）
+     来源 = meta.provider（用 id 不用显示名 —— 显示名会改，id 不会）
+   身份与名字分开：id 永远是 la_xxx（/asset/<id> 路由、索引主键、去重都靠它），只有盘上文件名变。
+   ⚠ 清洗只许 fileSafe 一份（换 `-`）；saveBaseName 那套「换 _」已废。 */
+const assetStamp = d => {
+  const dt = (d instanceof Date) ? d : new Date(Number(d) || Date.now());
+  if (isNaN(dt.getTime())) return '';
+  const padNum = n => String(n).padStart(2, '0');
+  return dt.getFullYear() + padNum(dt.getMonth() + 1) + padNum(dt.getDate())
+    + '-' + padNum(dt.getHours()) + padNum(dt.getMinutes()) + padNum(dt.getSeconds());
+};
+export function assetBase(meta) {
+  const m = meta || {};
+  const parts = [];
+  /* 定位段：场景 / 镜头序号（只有导演台镜像带上）；都没有时看手传标志 */
+  const sn = m.sceneIndex != null ? pad2(num(m.sceneIndex) + 1) : '';
+  const tn = m.shotIndex != null ? pad2(num(m.shotIndex) + 1) : '';
+  if (sn && tn) parts.push('场景' + sn + '-镜头' + tn);
+  else if (sn) parts.push('场景' + sn);
+  else if (tn) parts.push('镜头' + tn);
+  else if (m.importedFrom || m.provider === '本机' || m.provider === 'local') parts.push('手传');
+  /* 语义段：提示词前 20 字，为空整段省掉 */
+  const sem = clipText(m.prompt, 20);
+  if (sem) parts.push('（' + sem + '）');
+  /* 时间段：平台给的出结果时刻（没有就不写，不用落盘时刻 —— 落盘时刻每重镜像就变） */
+  const created = m.detail && m.detail.created ? m.detail.created : m.createdAt;
+  const ts = created ? assetStamp(created) : '';
+  /* 来源段：平台 id（不是显示名） */
+  const src = String(m.provider || '').trim().replace(/[^A-Za-z0-9_-]/g, '');
+  const segs = [];
+  if (parts.length) segs.push(parts.join('-'));
+  if (ts) segs.push(ts);
+  if (src && src !== 'local' && src !== '本机') segs.push(src);
+  return safe(segs.join('_') || '素材', 120);
 }

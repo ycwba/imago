@@ -7,8 +7,13 @@
    媒体包里的 media/<name> 与任意别的本机路径认不回来：保留这一段的时间与入出点，
    把「哪几段没找到文件」原样报出去（不许静默丢段）。 */
 import { round1 } from './util.js';
+import { stripExt } from './naming.js';
 
 const clampSpd = v => Math.max(0.25, Math.min(4, Number(v) || 1));
+/* 静态图素材的判据：media-rep 的地址或 asset 名字带图片扩展名。
+   （FCPXML 没有「这是 still」这个字段；导出时 still 写成普通 `<asset hasVideo>`，
+   唯一稳定的线索就是文件扩展名。判不出就当视频读，时间点不会丢。） */
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|heic|tiff?)(?:\?|#|$)/i;
 const kids = (el, tag) => {
   const out = [];
   if (!el || !el.childNodes) return out;
@@ -99,10 +104,12 @@ export function parseFCPXML(text, opts = {}) {
     const id = a.getAttribute('id') || '';
     if (!id) return;
     const rep = firstKid(a, 'media-rep');
+    const src = rep ? rep.getAttribute('src') : '';
     assets[id] = {
       name: a.getAttribute('name') || '',
       duration: parseTime(a.getAttribute('duration'), 30) || 0,
-      src: rep ? rep.getAttribute('src') : '',
+      src,
+      still: IMAGE_EXT_RE.test(String(src || '')) || IMAGE_EXT_RE.test(String(a.getAttribute('name') || '')),
     };
   });
   const formats = {};
@@ -119,7 +126,7 @@ export function parseFCPXML(text, opts = {}) {
   const uid = typeof opts.uid === 'function' ? opts.uid : (() => 'fcp' + Math.random().toString(36).slice(2, 9));
 
   const warnings = [];
-  const stats = { clips: 0, gaps: 0, voices: 0, titles: 0, remote: 0, local: 0, unresolved: 0 };
+  const stats = { clips: 0, gaps: 0, stills: 0, voices: 0, titles: 0, remote: 0, local: 0, unresolved: 0 };
   const shots = [];
   const voices = [];
 
@@ -162,7 +169,17 @@ export function parseFCPXML(text, opts = {}) {
       error: null, name: el.getAttribute('name') || a.name || '',
       segs: [{ in: round1(start), out: round1(start + srcDur), a: round1(start), b: round1(start + srcDur), spd: spd !== 1 ? spd : undefined }],
     };
-    if (!cand.segs[0].spd) delete cand.segs[0].spd;
+    /* 静态图：这一段没有入出点也没有倍速，`duration` 就是它在成片里占的秒数。
+       段先写 [0, dur]；虚拟坐标由 `segsOf` 按候选时长现分（导出写的是 start="0s"、无 timeMap）。 */
+    if (a.still) {
+      const d = Math.max(0.1, round1(dur));
+      cand.trimS = 0; cand.trimE = d;
+      cand.duration = Math.max(d, Number(a.duration) || 0);
+      cand.segs = [{ img: res.url, in: 0, out: d, a: 0, b: d }];
+      /* XML 里的名字是媒体文件名（带扩展名）；段上的 imgName 是用户看到的图名 —— 与
+         拖图入轨时记的同一口径（不带扩展名），这样「导出 → 读回」跑一圈名字不变。 */
+      if (a.name) cand.segs[0].imgName = stripExt(String(a.name)) || String(a.name);
+    } else if (!cand.segs[0].spd) delete cand.segs[0].spd;
     const sh = {
       id: uid(), name: el.getAttribute('name') || a.name || ('镜头 ' + (shots.length + 1)),
       prompt: '', ar: arOf(fmt.w || 16, fmt.h || 9), res: '768p', tier: 'fast', draw: 1,
@@ -195,7 +212,9 @@ export function parseFCPXML(text, opts = {}) {
     const texts = kids(el, 'title').map(textOfTitle).filter(Boolean);
     if (texts.length) { sh.line = texts.join('\n'); stats.titles += texts.length; }
     shots.push(sh);
-    stats.clips++;
+    /* 图片段单独记一笔：它也是一条 spine 上的 clip，但界面上「N 段画面」说的是有视频的那些，
+       两边都数一遍就成了「4 段画面 / 1 段图片」而时间线上只有 3 段画面。 */
+    if (a.still) stats.stills++; else stats.clips++;
     return { dur, spd };
   };
 
@@ -212,7 +231,7 @@ export function parseFCPXML(text, opts = {}) {
       at += dur || 0.1;
       continue;
     }
-    if (tag === 'asset-clip' || tag === 'clip' || tag === 'ref-clip' || tag === 'mc-clip') {
+    if (tag === 'asset-clip' || tag === 'clip' || tag === 'ref-clip' || tag === 'mc-clip' || tag === 'video') {
       const got = clipOf(el);
       at += got.dur;
       continue;

@@ -1,5 +1,5 @@
 /* 画布文档：结构、校验、导入导出与项目索引条目。
-   文档只存引用与元数据 —— 媒体字节在 .assets 里，这里最多是一个资产号。 */
+   文档只存引用与元数据 —— 媒体字节在本机资产库里，这里最多是一个资产号。 */
 import { NODE_TYPES, typeOf, defaultSize, minSize, MEDIA_KINDS } from './registry.js';
 
 export const DOC_V = 1;

@@ -26,7 +26,11 @@ const h = require('./harness.cjs');
     if (!/wb_session=/.test(setCookie)) throw new Error('首屏没有种会话 Cookie');
     if (!/HttpOnly/i.test(setCookie) || !/SameSite=Strict/i.test(setCookie)) throw new Error('Cookie 属性不完整：' + setCookie);
     const csp = shell.headers.get('content-security-policy') || '';
-    if (!/script-src 'self'/.test(csp) || /unsafe-eval/.test(csp)) throw new Error('首屏 CSP 不是严格 script-src \'self\'：' + csp);
+    /* 'wasm-unsafe-eval' 只放开 WebAssembly 编译，不是 'unsafe-eval'：
+       反查时要把 wasm- 前缀那一条排掉，否则新加的 wasm 放行会被误判成放开 JS eval。 */
+    const hasUnsafeEval = /(?:^|[\s;])'unsafe-eval'/.test(csp);
+    if (!/script-src 'self'/.test(csp) || hasUnsafeEval) throw new Error('首屏 CSP 不是严格 script-src \'self\'：' + csp);
+    if (!/'wasm-unsafe-eval'/.test(csp)) throw new Error('首屏 CSP 缺 wasm-unsafe-eval（wasm 后端加载会被拦）：' + csp);
     if (!/frame-ancestors 'none'/.test(csp)) throw new Error('首屏 CSP 缺 frame-ancestors：' + csp);
     /* 切片编码走 blob worker：响应头与 shell.html 的 meta 取交集，头里少这一条 worker 就建不起来。 */
     if (!/worker-src 'self' blob:/.test(csp)) throw new Error('首屏响应头缺 worker-src blob：切片 worker 会被 CSP 拦掉 —— ' + csp);
@@ -81,13 +85,10 @@ const h = require('./harness.cjs');
     if (sys.status !== 200) throw new Error('/sys-status 应 200，实际 ' + sys.status);
     const sysJ = await sys.json();
     const num = v => typeof v === 'number' && isFinite(v);
-    if (!sysJ || !sysJ.渲染 || !num(sysJ.渲染.队列上限) || !num(sysJ.渲染.同时) || !num(sysJ.渲染.保留分钟)) {
-      throw new Error('/sys-status 的渲染那几个数没算出来（配置没交给渲染域？）：'
-        + JSON.stringify(sysJ && sysJ.渲染));
-    }
-    if (!sysJ.渲染.中文名 || !/RENDER_VCODEC/.test(String(sysJ.渲染.来源 || ''))) {
-      throw new Error('/sys-status 的渲染「来源」那一串没把生效值与出处一起说清：' + JSON.stringify(sysJ.渲染));
-    }
+    /* 服务端不再报渲染队列与编码器（成片在浏览器里合成）：这一格只留代理自己知道的现况，
+       渲染配置若又长回来，说明有人把已删的 ffmpeg 那一族接回去了。 */
+    if (sysJ && sysJ.渲染) throw new Error('/sys-status 又报起了渲染配置（服务端已经没有 ffmpeg）：' + JSON.stringify(sysJ.渲染));
+    if (!sysJ || !num(sysJ.at) || !sysJ.出站代理) throw new Error('/sys-status 少了时间戳或出站代理那一格');
     if (!sysJ.目录 || !sysJ.目录.数据 || !sysJ.目录.资产 || !sysJ.目录.渲染) {
       throw new Error('/sys-status 少了三个目录里某一个：' + JSON.stringify(sysJ && sysJ.目录));
     }
@@ -114,27 +115,30 @@ const h = require('./harness.cjs');
     const del = await call('/local-assets/' + encodeURIComponent(la.id), { method: 'DELETE' });
     if (del.status !== 200) throw new Error('DELETE /local-assets/<id> 应 200，实际 ' + del.status);
 
-    const saveRes = await call('/save', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'image', name: 'probe.png', format: 'png', data: Buffer.from('hello').toString('base64') }),
-    });
-    const saved = await saveRes.json();
-    if (saveRes.status !== 200 || !saved || !saved.ok || !fs.existsSync(saved.path)) {
-      throw new Error('POST /save 失败：' + JSON.stringify(saved));
+    /* 「另存第二份 / 按号补存 / 数旧落点 / 搬旧落点」整族撤销：产物只有一份，就住在库根的类型子目录里，
+       写完不再拷第二遍，也没有第二个落点要收编。四条都必须 404 ——
+       留着任何一条，要么一次生成写两遍同样的字节，要么留下一条没人调用却能写盘、删盘的路由。 */
+    for (const [p, m] of [['/save', 'POST'], ['/save-local', 'POST'], ['/save-stale', 'GET'], ['/save-move', 'POST']]) {
+      const r = await call(p, {
+        method: m, headers: { 'content-type': 'application/json' },
+        body: m === 'POST' ? JSON.stringify({ type: 'image', kind: 'image', name: 'probe.png', from: '@default' }) : undefined,
+      });
+      if (r.status !== 404) throw new Error('另存那一族已撤，' + m + ' ' + p + ' 应 404，实际 ' + r.status);
     }
-    const stale = await call('/save-stale');
-    if (stale.status !== 200) throw new Error('/save-stale 应 200，实际 ' + stale.status);
     const usage = await call('/assets-usage');
     if (usage.status !== 200) throw new Error('/assets-usage 应 200，实际 ' + usage.status);
 
-    const rs = await call('/render/status?id=nope');
-    if (rs.status !== 404) throw new Error('/render/status 未知任务应 404，实际 ' + rs.status);
-    const rp = await call('/render', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    if (rp.status !== 400) throw new Error('POST /render 缺 clips 应 400，实际 ' + rp.status);
-    const rc = await call('/render/cancel?id=nope', { method: 'POST' });
-    if (rc.status !== 404) throw new Error('/render/cancel 未知任务应 404，实际 ' + rc.status);
-    const rd = await call('/render/dl?name=nope.mp4');
-    if (rd.status !== 404) throw new Error('/render/dl 缺文件应 404，实际 ' + rd.status);
+    /* 服务端没有渲染队列：成片与素材都在浏览器里合成，这一族端点必须彻底不在。 */
+    for (const [p, m] of [
+      ['/render/status?id=nope', 'GET'],
+      ['/render', 'POST'],
+      ['/render/cancel?id=nope', 'POST'],
+      ['/render/dl?name=nope.mp4', 'GET'],
+      ['/render/jobs', 'GET'],
+    ]) {
+      const r = await call(p, { method: m, headers: { 'content-type': 'application/json' }, body: m === 'POST' ? '{}' : undefined });
+      if (r.status !== 404) throw new Error('渲染端点已删，' + m + ' ' + p + ' 应 404，实际 ' + r.status);
+    }
 
     const relayBad = await call('/textai/chat/completions', { headers: { 'x-up-base': 'http://127.0.0.1:1/v1' } });
     if (relayBad.status !== 400) throw new Error('relay 自定义地址到回环应 400，实际 ' + relayBad.status);
@@ -154,7 +158,7 @@ const h = require('./harness.cjs');
     const faults = h.logFaults(proxy.log);
     if (faults.length) throw new Error('代理日志里有未处理的异常（' + faults.length + ' 行）：\n  ' + faults.join('\n  '));
 
-    console.log('✓ 代理边界通过（Cookie / 同源 / POST 闸 / 系统、云同步、能力、本机资产、渲染、relay、出站通道与清缓存路由）');
+    console.log('✓ 代理边界通过（Cookie / 同源 / POST 闸 / 系统、云同步、能力、本机资产、渲染端点已撤销、relay、出站通道与清缓存路由）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

@@ -38,13 +38,13 @@ import { candidateBase, voiceBase, shotCtxOf, candidateIndex, voiceIndex } from 
 
 import { SLICE_TILE_PX, SLICE_N_MAX, sliceGeom, sliceBoxHTML, sliceTimes, snapSliceStep } from './slice.js';
 
-import { load as sliceCacheLoad, put as sliceCachePut } from './slice-cache.js';
+import { createTimeline } from './timeline.js';
 
 import { createPlayback } from './playback.js';
 
 import { SEG_MIN, segLen, segVol, segSpd, segFilmLen, segCarry, segsOf, segsFilmLen, segsCopy, segsWrite, TRACK_LANES_MAX, laneClamp, picLnOf, tlClipDur } from './segments.js';
 
-import { createTimeline } from './timeline.js';
+import { isImageSeg, isVirtualSeg } from './image-seg.js';
 
 import { voiceRateOf, voiceFrameOf, roundVoice, voiceRuns, rowSelIn, rowSelOut, makeVoiceAxBox, createVoiceFilm, lineEstSec, lineSpanAt, VOICE_SPD_MIN, VOICE_SPD_MAX } from './voice-layout.js';
 
@@ -58,6 +58,21 @@ import { createWaveform } from './waveform.js';
 import { createProjection } from './projection.js';
 
 import { voiceBlockLabel, voiceBlockText, createVoiceBlockRenderer } from './voice-block.js';
+
+/* 生成工作台「加到时间线」→ 导演台：两页是同一份文档，载荷经本机存储递**一次**。
+   写入在 `web/pages/studio.js`（图片产物卡），取走由页面壳在挂载完成与每次激活时调
+   `consumeAddedImage()`；真正的落点还是 `addImageToTrack`（拖进画面轨走同一枚）。
+   本机存储也没有别的跨页通道：导演台模块是动态 import 的，页面壳拿不到它的闭包。 */
+const ADDED_IMAGE_KEY = 'dir_add_img';
+let takeAddedImage = null;
+export function consumeAddedImage() {
+  if (!takeAddedImage || !window.LS) return false;
+  const spec = window.LS.json(ADDED_IMAGE_KEY);
+  if (!spec || !spec.src) return false;
+  window.LS.del(ADDED_IMAGE_KEY);
+  takeAddedImage(spec);
+  return true;
+}
 
 export function mount(document, window) {
 
@@ -450,6 +465,9 @@ const {
   voiceFilmWhy,
   voiceAdoptable,
   fillWaveforms,
+  videoPeaks,
+  drawSegWave,
+  fillSegWaveforms,
   voiceBlockHTML,
   cutSegIdx,
   curSegOf,
@@ -482,6 +500,7 @@ const {
   laneRowsFor,
   LANE_ROW_SEL,
   addLaneRow,
+  addImageToTrack,
   voiceLanePlan,
   dropLaneRow,
   voiceSplitByMaterial,
@@ -512,6 +531,8 @@ const {
   paintTlGroups,
   syncTlTools,
 } = Track;
+/* 生成工作台「加到时间线」的落点：与拖进画面轨同一枚 addImageToTrack，不另写一份放图逻辑。 */
+takeAddedImage = spec => addImageToTrack(spec);
 
 /* Frames域（engine/frames.js）：这一段（501-1109）搬进模块，这里只留访问器包与一条解构。
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
@@ -547,52 +568,6 @@ async function readJsonSafe(r, what) {
   if (!x.ok) throw new Error(`${what}：${x.d.error || x.d.err || ('HTTP ' + x.status)}`);
   return x.d;
 }
-/* 渲染是本地长任务：走统一网络层但关掉超时（timeout:0），POST 不自动重试 */
-const renderPost = body => Net.fetch('/render', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout: 0, retry: 0,
-}).then(r => readJsonSafe(r, '提交渲染任务'));
-const renderStatus = id => Net.fetch('/render/status?id=' + encodeURIComponent(id), { timeout: 15000 }).then(r => readJsonSafe(r, '查询渲染进度'));
-/* 等一轮渲染跑完：一次「查进度」失败不该把整次导出判成失败。
-   代理那边的 ffmpeg 仍在跑，网络抖动 / 15 秒超时只会让界面报「导出失败」，
-   用户重头再来又要多等几分钟。连续失败到上限（默认 10 次 ≈ 10 秒）才认输。
-   stopped() 由调用方给（导出与合并各有自己的取消标志），取消检查每轮都做。 */
-async function pollRenderJob(id, stopped, onTick, maxTicks = 900, maxFails = 10) {
-  let job = null, fails = 0;
-  for (let i = 0; i < maxTicks; i++) {
-    if (stopped()) throw new Error('已取消');
-    await new Promise(res => setTimeout(res, 1000));
-    try { job = await renderStatus(id); fails = 0; }
-    catch (e) {
-      if (++fails >= maxFails) {
-        throw new Error('查不到渲染进度（连续失败 ' + maxFails + ' 次）：' + errText(e));
-      }
-      continue;
-    }
-    if (job.state === 'done' || job.state === 'failed' || job.error) return job;
-    if (onTick) onTick(job);
-  }
-  return job;
-}
-/* 取消要真的取消：以前只把本地标志位翻一下，页面的轮询停了、代理里的 ffmpeg 却照样跑完（白占 CPU、
-   还在 .renders 里留下一条没人要的成片）。代理本来就有 /render/cancel（杀子进程 + 摘队列），接上它。 */
-const renderCancel = id => id ? Net.fetch('/render/cancel?id=' + encodeURIComponent(id),
-  { method: 'POST', timeout: 8000, retry: 0 }).catch(() => {}) : Promise.resolve();
-async function renderBlob(name, what) {
-  const r = await Net.fetch('/render/dl?name=' + encodeURIComponent(name), { timeout: 300000 });
-  if (!r.ok) {
-    /* 404 = 「记着的那一份在盘上找不到了」。成片现在**不按数量清理**（代理只清渲染崩溃留下的临时目录），
-       所以坏法是这三样之一：用户自己删过 `.renders`、设置页换过渲染目录、上一次合成没写完。
-       挂一个 `gone` 旗标给调用方：它要据此把记着的成片作废，否则下一次点导出照走快捷路径、
-       照拿同一个 404。文案里别再指「重新合并」—— 那三颗按钮早就从页面上删了。 */
-    const err = new Error((what || '下载成片') + '：'
-      + (r.status === 404 ? '盘上找不到那一份成片文件（可能被手动删过，或渲染目录换过地方）' : 'HTTP ' + r.status));
-    err.gone = r.status === 404;
-    throw err;
-  }
-  return await r.blob();
-}
-
-
 /* ============================================================================
    LLM 辅助：「一键分镜」那一路要的两个助手（宽松 JSON 解析 + 共用约束）。
    约定不变：LLM 只输出 JSON → 本地校验夹取 → 人确认（PromptReview）→ 应用。
@@ -849,10 +824,17 @@ const RULE_WITH = '\n\n可以把下面这些素材用进镜头：在某一条的
 const RULE_WITHOUT = '\n\n这次没有可用的素材（没选范围，或清单里挑不出相关的）：'
   + 'prompt 里**不要**写 @名字 这类引用，主体长什么样直接用文字写清楚。';
 /* 「归一名字 → 库条目」那张表：挑素材（`pick`）与挂图（`bind`）问的是同一件事
-   （AI 回的那个名字对得上清单里的哪一条），所以建法只这一份，同名留第一条。 */
+   （AI 回的那个名字对得上清单里的哪一条）。
+   同名多条各存各的（数组）：AI 报名字时取第一条（解析兜底），用户从挑选浮层选的按 id 精确落 refMeta。 */
 function libIdx(list) {
   const m = new Map();
-  (list || []).forEach(x => { const k = nameKey(x && x.name); if (k && !m.has(k)) m.set(k, x); });
+  (list || []).forEach(x => {
+    const k = nameKey(x && x.name);
+    if (!k) return;
+    const arr = m.get(k) || [];
+    arr.push(x);
+    m.set(k, arr);
+  });
   return m;
 }
 /* `@名字` 后面紧跟的标点不是名字的一部分（「@小雅，走进雨中」）；名字与资产名两头各洗一次，用同一份。
@@ -928,7 +910,7 @@ const {
 /* 一次会改动成片内容的编辑做完后调它：重画 + 存档。
    **这里不再自动合成**（2026-10 用户要求：合成只该发生在「导出成片」那一下）。
    以前这里是 `renderAll(); scheduleSave(); maybeAutoMerge();` —— 只要用户**曾经**合并过一次，
-   之后每改一个入点、每切一刀，都会在 1.2 秒后自动跑一遍 ffmpeg（几十秒、占满 CPU），
+   之后每改一个入点、每切一刀，都会在 1.2 秒后自动整片合成一遍（几十秒、占满 CPU），
    而剪辑本来就是连续微调的动作（改一处看一眼再改），于是整段时间都在重复合成。
    现在：编辑只改数据与画面，成片要等你点「导出成片」时才重做
    （那时快捷闸 `filmIsCurrent` 自己判旧的那份已过期，照常真跑一遍合成）。 */
@@ -960,6 +942,8 @@ function filmEdited() {
    老工程没有 `sh.subtitle` 时 `currentOf` 现派生、不写盘（不因为打开一次就写胖）。
    ========================================================================== */
 let subAsrBusy = '';
+let subAsrCtl = null;   // 在途识别的中止信号（浏览器 worker 与等待循环都听它）
+let subAsrJob = '';     // 已经建出的代理任务号：取消时补一次 cancel，别让它在后台跑完
 /* 这一镜在成片里的绝对起点（= 这一镜第一格在 tl.clips 里的累计秒）。
    没进成片（没有选用候选 / 一段画面都没留）返回 null —— 字幕换算不拿 0 冒充。 */
 function shotFilmAt(sh) {
@@ -1101,19 +1085,29 @@ async function subImportSrt(sh) {
     + '这是外来的手改数据，台词变化不会覆盖它）</span>');
 }
 async function subAsr(sh) {
-  if (!sh || subAsrBusy) return;
+  if (!sh) return;
+  /* 第二下就是「不等了」：浏览器内那一路线首次要先经代理下几百 MB 模型，
+     没有出口的话用户只能刷新页面。 */
+  if (subAsrBusy) { await subAsrAbort(); return; }
   const c = chosenCandOf(sh);
   const src = c ? candTrackSrc(c) : '';
   if (!src) { setStatus('<span class="err">这一镜还没有可识别的素材：先生成或导入一条视频</span>'); return; }
   subAsrBusy = sh.id;
+  const ctl = new AbortController();
+  subAsrCtl = ctl;
   try {
     if (!window.Asr) await window.__spaLoadScript('web/domain/asr.js', () => window.Asr);
     setStatus('<span class="meta">正在提交语音识别…</span>');
-    const r = await window.Asr.transcribe({ src });
+    const r = await window.Asr.transcribe({
+      src,
+      signal: ctl.signal,
+      onStage: s => { if (curShot() === sh && !ctl.signal.aborted) setStatus('<span class="meta">' + esc(window.Asr.stageText(s)) + '</span>'); },
+    });
+    subAsrJob = r.jobId || '';
     if (curShot() === sh) renderEditor();
     const job = await window.Asr.wait(r.jobId, j => {
-      if (curShot() === sh) setStatus('<span class="meta">正在识别这一镜的语音… ' + Math.round((j.progress || 0) * 100) + '%</span>');
-    });
+      if (curShot() === sh && !ctl.signal.aborted) setStatus('<span class="meta">正在识别这一镜的语音… ' + Math.round((j.progress || 0) * 100) + '%</span>');
+    }, { signal: ctl.signal });
     if (job.state !== 'done') throw new Error(job.error || ('识别任务 ' + job.state));
     const segs = job.segments || [];
     const candSegs = segsOf(c, candDur(c, sh));
@@ -1134,10 +1128,26 @@ async function subAsr(sh) {
     subWrite(sh, entries, 'asr', '自动识别字幕');
     setStatus('<span class="ok">✓ 识别完成：' + entries.length + ' 条字幕已写入「字幕」（识别结果不会反改台词与配音）</span>');
   } catch (e) {
-    setStatus('<span class="err">自动识别失败：' + esc(String(errText(e))) + '</span>');
+    if (ctl.signal.aborted) {
+      setStatus('<span class="err">已取消识别：这一镜的字幕没有改动</span>');
+    } else {
+      setStatus('<span class="err">自动识别失败：' + esc(String(errText(e))) + '</span>');
+    }
   } finally {
     subAsrBusy = '';
+    subAsrCtl = null;
+    subAsrJob = '';
     if (curShot() === sh) renderEditor();
+  }
+}
+/* 「不等了」：掐掉在途的浏览器 worker（signal 一路传到 terminate），
+   代理那一路已经建出任务号的再补一次 cancel，别让它在后台跑完。 */
+async function subAsrAbort() {
+  const id = subAsrJob;
+  subAsrJob = '';
+  try { if (subAsrCtl) subAsrCtl.abort(); } catch (e) { /* 已经断了 */ }
+  if (id) {
+    try { await window.Asr.cancel(id); } catch (e) { /* 已经跑完或取消不掉：状态由那一单自己报 */ }
   }
 }
 function subAddAtPin(sh) {
@@ -1205,7 +1215,7 @@ function paintSubOverlayAt(sec) {
   wrap.innerHTML = got ? overlayHTML(got.entry, got.style) : '';
 }
 /* 剪辑 → 全片 那一格状态说明整块已删（2026-10 用户点名：镜头统计那一行 + 成片陈旧那句长提示）。
-   成片新旧这件事现在只在**点导出那一刻**由 `exportFilmFFmpeg` 的快捷闸（`filmIsCurrent`）自己判，
+   成片新旧这件事现在只在**点导出那一刻**由 `exportFilm` 的快捷闸（`filmIsCurrent`）自己判，
    界面上不再有第二处陈述。 */
 
 /* 关标签/刷新前的同步兜底：IndexedDB 的写入是异步的，beforeunload 里不能等它。
@@ -1269,8 +1279,9 @@ function scheduleSave() {
       lastSavedJson = snap;
       $('saveState').textContent = '已保存到本地';
       /* 同时写一份到代理的数据目录（.data/workspace.json）：浏览器存储被清掉时还能从磁盘恢复。
-         这里只有**引用**（每条素材指向 `.assets` 里的一个资产号），视频字节不在 JSON 里 ——
-         那份镜像之所以还能当备份用，是因为 `.assets` 与它一起在项目目录下。
+         这里只有**引用**（每条素材指向本机资产库里的一个资产号），视频字节不在 JSON 里 ——
+         所以这一份备份认得工程与时间线，字节能不能取回，看那一根还在不在库根里
+         （库根默认在系统下载下的 拾帧\，见设置页「本机资产库」那一格）。
          （原来这句写的是「Blob 在 IndexedDB 里按 blobKey 存」—— 那个键全项目没有一处赋值，
           见下面 exportProject 那一段的注释。） */
       if (window.DataSync) {
@@ -1440,7 +1451,7 @@ let midCandExpand = window.LS.get('dir_cand_expand') === '1';
 /* ============================================================================
    剪辑态的「无感播放」：不渲染也能播剪完之后的样子
    ----------------------------------------------------------------------------
-   以前剪完要看效果只有一条路：合并成片（跑一遍 ffmpeg，几十秒），改一个入点就得再合一次。
+   以前剪完要看效果只有一条路：合并成片（整片合成一遍，几十秒），改一个入点就得再合一次。
    参考项目的分工是「预览走原生媒体路径保证流畅，导出才走独立的确定性离线渲染路径」——
    这里同义：**播放不渲染**。按时间线调度现成的素材：成片第 T 秒落在哪一段，
    就把播放器指到那一段的 `in + (T - 段起点)`；这一段放完自动接下一段。
@@ -1470,10 +1481,11 @@ let tlPlayhead = null;
    所以调用处按 midEditTrim 二选一，绝不两条都接上。 */
 function bindTlPlay(col, keepPlay, fmtClock, keepBox) {
   const a = col.querySelector('#player'), b = col.querySelector('#playerB');
+  const still = col.querySelector('#playerStill');
   const pb = col.querySelector('#pbBtn'), tb = col.querySelector('#pbTime'), mb = col.querySelector('#pbMute');
   const ab = col.querySelector('#arBadge');
   const before = TlPlay.fp;
-  TlPlay.mount(a, b, { muted: window.LS.get('dir_muted') === '1' });
+  TlPlay.mount(a, b, { muted: window.LS.get('dir_muted') === '1', still: still });
   const plan = tlPlayPlan();
   TlPlay.setPlan(plan.clips, plan.voices, { film: plan.film });
   if (ab) ab.textContent = '剪后预览 · ' + plan.clips.length + ' 段 · ' + fmtClock(TlPlay.total).replace(/^00:/, '') + 's';
@@ -1484,6 +1496,8 @@ function bindTlPlay(col, keepPlay, fmtClock, keepBox) {
   const toggle = () => { if (TlPlay.playing) TlPlay.pause(); else TlPlay.play(); };
   if (a) a.onclick = toggle;
   if (b) b.onclick = toggle;
+  /* 图片段盖在甲板上时点击落在它身上：同一颗播放 / 暂停，否则走到图片就点不动了。 */
+  if (still) still.onclick = toggle;
   if (mb) {
     mb.innerHTML = icon(TlPlay.muted ? 'speakerOff' : 'speaker', 14);
     mb.onclick = e => {
@@ -1563,7 +1577,7 @@ function playerMediaOf(sh) {
 /* 播放区文案（本镜候选 / 剪辑态实时预览 / 空态） */
 function playerAreaHTML(sh) {
   /* 剪辑态：播放交给 TlPlay（两个甲板，不渲染就能播剪完的样子）。
-     这是「剪完马上看到效果」的落点 —— 改一个入点不用再跑一遍 ffmpeg 合并。 */
+     这是「剪完马上看到效果」的落点 —— 改一个入点不用再整片合成一次。 */
   if (midEditTrim) {
     /* 一段都没有（这一镜没候选 / 全片没选用镜头）就别摆一个黑框骗人 ——
        那正是「看着能播、其实什么都没有」的空控件，按全站约定要照实说一句。 */
@@ -1578,6 +1592,8 @@ function playerAreaHTML(sh) {
     return `<div class="player-box">
       <video id="player" playsinline></video>
       <video id="playerB" playsinline class="back"></video>
+      <!-- 图片段那一层：走到静止画面上时盖住两个甲板（见 TlPlay.enterHold） -->
+      <img id="playerStill" class="player-still" alt="">
       <!-- 字幕叠层：与烧录同一份样式（overlayHTML）；播放头在本镜轴上就读 mapToShot，全片就读成片秒 -->
       <div class="sub-wrap" id="subWrap" aria-hidden="true"></div>
       ${pbBarHTML()}
@@ -1962,13 +1978,23 @@ function libScenePic(scName) {
   const hit = (D.Lib.list() || []).find(x => x && D.libKindOf(x) === 'scene' && nameKey(x.name) === k);
   return (hit && (D.refPicOf ? D.refPicOf(hit) : D.picOf(hit))) || '';
 }
-/* 这个场景**现在**对得上的那张图：左栏挑的 → 素材库同名那条 → 没有。
+/* 按 id 认库里那条（14.2-4：拆分镜建档时把 sceneLibId 绑上，喂图按 id）。
+   改名 / 同名两条都分得开 —— 名字那条只是老工程的兜底（只读不写）。 */
+function libEntryById(id) {
+  const D = window.Chars;
+  if (!D || !D.Lib || !id) return null;
+  return (D.Lib.list() || []).find(x => x && x.id === id) || null;
+}
+/* 这个场景**现在**对得上的那张图：左栏挑的 → 素材库按 id 绑的那条 → 同名兜底 → 没有。
    `sc.noPic` = 用户在左栏按过「这个场景不带图」，连素材库那张也不认领。
    这一项不是多余的状态：缩略图上显示的就是库里那张，只把 `sc.img` 清掉的话
    点完「×」画面一个字没变 —— 看着像按钮坏了，而用户确实想让它不带。 */
 function scenePicOf(sc) {
   if (!sc || sc.noPic) return '';
-  return sc.img || libScenePic(sc.name) || '';
+  if (sc.img) return sc.img;
+  const byId = sc.sceneLibId ? libEntryById(sc.sceneLibId) : null;
+  if (byId) return (window.Chars && (Chars.refPicOf ? Chars.refPicOf(byId) : Chars.picOf(byId))) || '';
+  return libScenePic(sc.name) || '';   // 老工程没绑 id 的兜底：按名字找一次，不写回
 }
 /* 一批新镜头落进某个场景之后统一认领它的场景图，结果收成 {added, why}。
    `skipped`（这个场景本来就没有图）不进统计、也不吭声 —— 界面上不该为「本来就没有的东西」报一句；
@@ -1987,7 +2013,10 @@ function feedScenePics(sc, shots) {
 function applyScenePic(sh, sc) {
   const pic = scenePicOf(sc);
   if (!pic) return { ok: false, skipped: true };
-  return addLibPicToShot(sh, { name: (sc && sc.name) || '场景' }, { src: pic });
+  /* 优先递库里那条真实条目（带 id）——refMeta 记 id 后改名不断引用；
+     老工程没绑 sceneLibId 时递名字对象，只按名字对（兜底只读不写）。 */
+  const hit = sc && sc.sceneLibId ? libEntryById(sc.sceneLibId) : null;
+  return addLibPicToShot(sh, hit || { id: sc && sc.sceneLibId, name: (sc && sc.name) || '场景' }, { src: pic });
 }
 /* 把 AI 拆出来的一批场景落进一个**已有项目**：同名（归一之后）的并进那一场，对不上号的才新建一场。
    单独成一个函数的两个理由：
@@ -2424,30 +2453,26 @@ function picLaneStep(row) {
    不另拼一句（否则拖起来看到的名秒与松手后格子上的对不上）。
    松手一定要 `dragGhostHide()`：漏一次就等于屏幕上留一张跟在手上的孤儿卡。 */
 let dragGhostEl = null, dragGhostCell = null;
-/* 跟手卡上的那张图：被拖的这一块自己有切片就用自己的；字幕块 / 待生成占位没有图，
-   就借**横向与它重叠最多**的那一格画面已经解出来的帧（全片那一排里自动落在这一镜那几格上，
-   不会借到别的镜的图）。只读现成的 `background-image`，拖动中途不发起解码。
+/* 跟手卡上的那张图：只用**被拖这一块自己**已经解出来的切片（画面格），配音块用它自己那份波形。
+   字幕块与待生成占位没有图 —— 它们长出自己的那一张卡（`.tl-ghost.sub` / `.tl-ghost.pend`）：
+   借一格画面来显示「一句话」，等于把手里拿的东西说成别的。
+   拖动中途一律不发起解码：取不到就留虚线占位（宁可少一张图，也不让一次手势等一趟解码），
+   名字用的是块上那行字本身，不另拼一句（否则拖起来看到的与松手后格子上的对不上）。
    同一块拖动中只量一次（缓存挂在节点上）：待生成占位的秒数每帧都在变，图不必每帧重找。 */
 function ghostSliceOf(cell) {
   if (cell && cell.__ghostBg !== undefined) return cell.__ghostBg;
   const own = cell && cell.querySelector ? cell.querySelector('.frs > .fr') : null;
-  let bg = (own && own.style && own.style.backgroundImage) || '';
-  if (!bg && cell && cell.closest) {
-    const inner = cell.closest('#tlInner');
-    if (inner) {
-      const r = cell.getBoundingClientRect();
-      let best = null;
-      inner.querySelectorAll('.tl-seg .frs > .fr').forEach(fr => {
-        if (fr.classList.contains('none')) return;
-        const q = fr.getBoundingClientRect();
-        const ov = Math.min(r.right, q.right) - Math.max(r.left, q.left);
-        if (ov > 0 && (!best || ov > best.ov)) best = { ov: ov, fr: fr };
-      });
-      bg = (best && best.fr.style && best.fr.style.backgroundImage) || '';
-    }
-  }
+  const bg = (own && !own.classList.contains('none') && own.style && own.style.backgroundImage) || '';
   if (cell) cell.__ghostBg = bg;
   return bg;
+}
+/* 这一块是哪一类：只有「自己带图」的画面格与配音块之外才需要换一张卡的样子。 */
+function ghostKindOf(cell) {
+  const c = cell && cell.classList;
+  if (!c) return '';
+  if (c.contains('tl-sub')) return 'sub';
+  if (c.contains('tl-vp')) return 'pend';
+  return '';
 }
 function dragGhostShow(ev, cell, label) {
   if (!dragGhostEl) {
@@ -2458,23 +2483,25 @@ function dragGhostShow(ev, cell, label) {
     document.body.appendChild(dragGhostEl);
   }
   const im = dragGhostEl.firstChild;
-  /* 图只在这一趟拖动第一次进来时取（`dragGhostCell` 记住它是哪一块）：
+  /* 图与卡的样子只在这一趟拖动第一次进来时定（`dragGhostCell` 记住它是哪一块）：
      待生成块拖动中每帧都调这里更新秒数，重新找图会把一次手势拖成上百次布局查询。 */
   if (dragGhostCell !== cell) {
     dragGhostCell = cell;
-    /* 拖的是一句配音：卡片上放它自己那份波形（克隆节点，不重解码也不重算包络 ——
-       波形还没后台填出来时 `.wv-box` 是空的，跟着下面那一支走虚线占位）。 */
-    const wv = cell && cell.querySelector ? cell.querySelector('.wv-box > svg') : null;
+    const kind = ghostKindOf(cell);
+    dragGhostEl.className = 'tl-ghost' + (kind ? ' ' + kind : '');
     im.style.backgroundImage = '';
-    if (wv) {
-      im.textContent = '';
-      im.appendChild(wv.cloneNode(true));
-      im.classList.remove('no');
-    } else {
-      im.textContent = '';
-      const bg = ghostSliceOf(cell);
-      im.style.backgroundImage = bg;
-      im.classList.toggle('no', !/^url\(/.test(bg));
+    im.textContent = '';
+    im.classList.remove('no');
+    if (!kind) {
+      /* 拖的是一句配音：放它自己那份波形（克隆节点，不重解码也不重算包络 ——
+         波形还没后台填出来时 `.wv-box` 是空的，跟着下面那一支走虚线占位）。 */
+      const wv = cell && cell.querySelector ? cell.querySelector('.wv-box > svg') : null;
+      if (wv) im.appendChild(wv.cloneNode(true));
+      else {
+        const bg = ghostSliceOf(cell);
+        im.style.backgroundImage = bg;
+        im.classList.toggle('no', !/^url\(/.test(bg));
+      }
     }
   }
   dragGhostEl.lastChild.textContent = String(label || '');
@@ -2496,23 +2523,24 @@ function dragGhostHide() {
    ⚠ 拖动全程**不碰剪针、也不碰播放器**：针是「上一次点在哪」的落点，把手改的是这一段的入出点，
    两件事没有因果关系。以前每一次 pointermove 都 `pl.currentTime = …; pl.pause()`，于是
    「拖一次把手 = 把正在看的那一镜换掉 + 中断播放 + 针跟着手走」，而预览跟着 seek 闪一下。 */
-function bindSegDrag(row, sh, c, total, G) {  /* 拖动中只重画**框内的灰遮罩**与那行小字：格子的 left/width（它由框 a/b 定）一个字都不改，
-     切片图也不重取 —— 这正是「左边/右边消失，而不是整体缩小」和
-     「剪一段不影响别的段的切片」两条落到代码上的地方。
-     以前这里是 `el.style.left/width = pct(in/out…)`，所以拖把手时整格一边缩一边挪，
-     看起来像把整段压扁了。 */
+function bindSegDrag(row, sh, c, total, G) {  /* 拖动中就地重画：这一格的 `left`/`width` 跟着选区当场变窄变宽，
+     它后面每一格在轴上整体前移 —— 与参考项目一样「块跟着手指缩扩」，剪掉的头尾根本不画。
+     只动 inline style：切片不重新解码、节点不销毁，松手整栏重画时才补那几帧。
+     分母用**拖动前**的轴长 `ax0`：中途刻度尺不动，格子在右端溢出一点，比整排跟着尺子抖要好。 */
+  const ax0 = shotAxTotal(G, total);
   const segsPaint = () => {
-    const list = segsOf(c, total);
-    row.querySelectorAll('.tl-seg').forEach(el => {
-      const i = Number(el.dataset.seg);
-      const s = list[i];
-      if (!s) return;
-      const bw = Math.max(0.01, s.b - s.a);
-      const ml = el.querySelector('.mask.l'), mr = el.querySelector('.mask.r');
-      if (ml) ml.style.width = pct(s.in - s.a, bw) + '%';
-      if (mr) mr.style.width = pct(s.b - s.out, bw) + '%';
-      const lab = el.querySelector('.lab');
-      if (lab) lab.textContent = segLabel(i, s);
+    const bar = row.parentElement;
+    if (!bar) return;
+    shotFrames(segsOf(c, total)).rows.forEach(rr => {
+      const cell = bar.querySelector('.tl-seg[data-seg="' + rr.i + '"]');
+      if (!cell) return;
+      cell.style.left = pct(rr.start, ax0) + '%';
+      cell.style.width = pct(rr.w, ax0) + '%';
+      /* 名称行是三段结构（名字 / 时长 / 静音钮）：拖动中只换时长那一格 ——
+         整行 textContent 会把静音钮一起写掉。 */
+      const durEl = cell.querySelector('.lab-dur');
+      if (durEl) durEl.textContent = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(rr.s)) : (round1(segFilmLen(rr.s)) + 's');
+      else { const lab = cell.querySelector('.lab'); if (lab) lab.textContent = segLabel(rr.i, rr.s); }
     });
   };
   const commit = (before) => {
@@ -2526,25 +2554,62 @@ function bindSegDrag(row, sh, c, total, G) {  /* 拖动中只重画**框内的�
   row.querySelectorAll('.cut').forEach(el => {
     const i = Number(el.dataset.seg);
     const edge = el.dataset.edge;
-    el.title = edge === 'l' ? '拖动设置这一段的开头' : '拖动设置这一段的结尾';
+    el.title = isImageSeg(segsOf(c, total)[i])
+      ? (edge === 'l' ? '拖左把手改这张图从哪儿开始（时长跟着变）' : '拖右把手改这张图占多久')
+      : (edge === 'l'
+        ? '拖这里改这一段的开头：向右把片头剪掉，向左放回来（最多回到源视频 ' + round1((segsOf(c, total)[i] || {}).a) + ' 秒）'
+        : '拖这里改这一段的结尾：向左把片尾剪掉，向右放回来（最多回到源视频 ' + round1((segsOf(c, total)[i] || {}).b) + ' 秒）');
     el.addEventListener('pointerdown', e => {
       e.stopPropagation(); e.preventDefault();
       /* `.act` = 参考项目里 `has-selected-edit-point` 那一档：手里握着哪一根，那一根就加粗发光。
          以前是绑定那一刻 `add('drag')` —— 于是每一根把手**永久**是加粗那档，界面上看不出「在拖谁」。 */
       el.classList.add('act');
-      /* 尺子取**格子自己**那一段矩形：它在轴上占的就是这一格的框 [a,b]。
-         轴 ↔ 源在这一格里只差一个倍速，而分子分母同除 —— 格子里的比例就是框里的比例，
-         所以拖把手不用管这一格是几倍速（拿整行的矩形才要折算，那才是「2 倍速时把手拖不动到框右沿」的来源）。 */
-      const crect = el.parentElement.getBoundingClientRect();
       const before = segsCopy(segsOf(c, total));   // 拖动之前的那一份
+      /* 尺子取**整条内容层**（这一排的 100% 宽 = 轴总长 `ax0`），锚在拖动前那一格的
+         「轴起点 + 选区起点」上按倍速摊开：格子现在画的就是选区，把手在格子边缘之外还能往回走，
+         那正是「把剪掉的头尾放回来」—— 所以这里不许夹 0–1，也不许用格子自己的矩形。
+         （从前拿格子矩形当尺子是成立的，因为那一格画的是框 [a,b]；改成画选区之后那把尺子就短了一截。） */
+      const seg0 = segsOf(c, total)[i] || {};
+      const a0 = Number(seg0.a) || 0, b0 = Number(seg0.b) || 0;
+      const r0 = (G.rows || [])[i] || {};
+      const in0 = r0.in == null ? (Number(seg0.in) || a0) : r0.in;
+      const spd0 = Number(r0.spd) || 1;
+      const start0 = Number(r0.start) || 0;
+      const rect = (row.parentElement || row).getBoundingClientRect();
       const move = ev => {
-        const k = Math.max(0, Math.min(1, (ev.clientX - crect.left) / Math.max(1, crect.width)));
+        const tAx = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * ax0;
+        const raw = round1(in0 + (tAx - start0) * spd0);
         const list = segsCopy(segsOf(c, total));
         const s = list[i]; if (!s) return;
-        const t = round1(Math.max(0, Math.min(total, s.a + k * Math.max(0.01, s.b - s.a))));
-        /* 选区夹在**框**里：拖左手柄拖不出框的左沿（a），右手柄拖不出右沿（b）。
+        if (isImageSeg(s)) {
+          /* 图片段没有「框内选区」：左把手改起点、右把手改终点，两头一起决定它在成片里占多久。
+             下限夹在视频总长之外（`segsOf` 认虚拟坐标的判据是 `a ≥ total + 0.05`），
+             并与前后虚拟段留 0.02 秒的缝 —— 两张图的坐标不许叠在一起，插针才有唯一答案。 */
+          const T = Math.max(0.1, Number(total) || 0);
+          if (edge === 'l') {
+            let lo = round1(T + 0.1);
+            for (let j = 0; j < i; j++) {
+              if (isVirtualSeg(list[j])) lo = Math.max(lo, round1((Number(list[j].b) || 0) + 0.02));
+            }
+            const a2 = round1(Math.max(lo, Math.min(raw, s.b - SEG_MIN)));
+            s.a = a2; s.in = a2;
+          } else {
+            let hi = Infinity;
+            for (let j = i + 1; j < list.length; j++) {
+              if (isVirtualSeg(list[j])) { hi = round1((Number(list[j].a) || 0) - 0.02); break; }
+            }
+            const lo = round1(s.a + SEG_MIN);
+            const b2 = round1(Math.max(lo, Math.min(isFinite(hi) ? hi : lo + 600, raw)));
+            s.b = b2; s.out = b2;
+          }
+          c.segs = list;                       // 拖动期间只动 segs（trimS/trimE 在松手时统一回写）
+          segsPaint();
+          return;
+        }
+        /* 选区夹在**框**里：拖左手柄拖不出框的左沿（a0），右手柄拖不出右沿（b0）。
            没有这一道的话，把把手拖到框外会让这一格和相邻格叠在一起 —— 而框存在的意义
-           就是「这一格只在自己那一块里动」。 */
+           就是「这一格只在自己那一块里动」（放回来最多放到这儿，不再多了）。 */
+        const t = Math.max(0, Math.min(total, Math.max(a0, Math.min(b0, raw))));
         if (edge === 'l') {
           s.in = Math.max(s.a, Math.min(t, s.out - SEG_MIN));
         } else {
@@ -2617,15 +2682,18 @@ const candTrackSrc = c => {
 };
 /* 段格上那行小字：没被剪过就写「第 N 段 · 3s」（与从前一字不差）；
    剪过（框比选区大）就把两个数都写出来 —— 「保留 3s（共 5s）」= 这一格里
-   真正进成片的 3 秒，以及这一格在源里分到的 5 秒（剩下 2 秒是灰掉的那块）。
+   真正进成片的 3 秒，以及这一格在源里分到的 5 秒（剩下 2 秒剪掉了、把手最多往外拖回到这儿）。
    渲染那一遍与拖动中那一遍共用这一个函数：两处各拼一句，拖起来文字就会跟静下来时不一样。 */
 const segLabel = (i, s) => {
   const keep = round1(segLen(s)), box = round1(Math.max(0.01, s.b - s.a));
-  /* 灰掉的那一段照样占时间，所以小字先说它是黑场 —— 只靠格子的底色分不出来（暗画面本来就长那样）。
+  /* 黑场与空段照样占时间，所以小字先说清这一格是哪一种「没有画面」—— 只靠格子的底色分不出来（暗画面本来就长那样）。
+     两种分开写：`gap` 是「插进来的一段空」（可以整段摘掉），`off && !gap` 是「删掉画面」的黑场
+     （再点一次「删掉」就把画面放回来）。混成一个词，用户就分不出「空一段」与「删掉画面」了。
      最后那个 ×倍速：小字前面那两个数（保留 / 共）都是**源秒**，而格子摆的是**这一排的尺子（轴秒）**
      —— 一段升到 2 倍速时格子和「3s」那两个字对不上（它占的轴长只剩一半）。不写这一枚，
      界面上就找不到「源里 3 秒、成片里 1.5 秒」这件事是谁说的。 */
-  return (s && s.off ? '黑场 · ' : '') + '第 ' + (i + 1) + ' 段 · '
+  const gray = s && s.gap ? '空段 · ' : (s && s.off ? '黑场 · ' : '');
+  return gray + '第 ' + (i + 1) + ' 段 · '
     + (box - keep > 0.05 ? '保留 ' + keep + 's（共 ' + box + 's）' : keep + 's')
     + (segSpd(s) !== 1 ? ' ' + spdTxt(segSpd(s)) : '');
 };
@@ -2639,13 +2707,13 @@ function paintPin(col, t, total) {
   if (t0) t0.textContent = fmtDur(Math.max(0, Number(t) || 0));
 }
 /* 本镜轨点到的那一秒（**源秒**）→ 播放计划里的那一秒（`TlPlay.t`）。
-   三者不是同一根轴：轨道与针按**这一排的尺子（轴秒 = 各格的框 ÷ 自己的倍速）**摆，
+   两者不是同一根轴：轨道与针按**这一排的尺子（轴秒 = 各格的选区 ÷ 自己的倍速）**摆，
    传进来的 `src` 是源秒（`bindPinZone` 先折回源秒才交过来，见那里），而计划量的是
    「剪剩的那几秒接起来」（被切掉的头尾不进计划）—— 剪过一刀之后拿源秒去 seek 会落到别的段上。
    折算：保留段按段内偏移 1:1 走（本镜这一档计划不缩倍速，见 `tlPlayPlan` 的 `film:false` 支），
-   灰块（被剪掉的头尾）夹到最近保留的那一头，黑场整格按同一段内偏移走（它本来就占住这几秒）。
+   还在框里但已被剪掉的那一截夹到最近保留的那一头，黑场整格按同一段内偏移走（它本来就占住这几秒）。
    与全片档 `filmSeek` 把焦点夹回选区的立场一致：计划里只有保留区与黑场，
-   没有「停在灰块某一帧」这回事。 */
+   没有「停在剪掉的那一帧」这回事。 */
 function pinFilmTShot(c, sh, src) {
   const total = candDur(c, sh);
   let acc = 0;
@@ -3005,6 +3073,9 @@ const Lanes = createLanes({
   shotRowAt: (...a) => shotRowAt(...a),
   voiceAxBox: (...a) => voiceAxBox(...a),
   fillWaveforms: (...a) => fillWaveforms(...a),
+  videoPeaks: (...a) => videoPeaks(...a),
+  drawSegWave: (...a) => drawSegWave(...a),
+  fillSegWaveforms: (...a) => fillSegWaveforms(...a),
   voiceBlockHTML: (...a) => voiceBlockHTML(...a),
   cutSegIdx: (...a) => cutSegIdx(...a),
   shotVoices: (...a) => shotVoices(...a),
@@ -3023,6 +3094,7 @@ const Lanes = createLanes({
   laneRowsOf: (...a) => laneRowsOf(...a),
   laneRowsFor: (...a) => laneRowsFor(...a),
   setCellLane: (...a) => setCellLane(...a),
+  addImageToTrack: (...a) => addImageToTrack(...a),
   moveShotInFilmOrder: (...a) => moveShotInFilmOrder(...a),
   tlSyncFromShots: (...a) => tlSyncFromShots(...a),
   paintTlGroups: (...a) => paintTlGroups(...a),
@@ -3290,7 +3362,7 @@ function compositionOf() {
   const c = proj && proj.composition;
   if (!c) return null;
   const w = Math.round(Number(c.width)), h = Math.round(Number(c.height));
-  /* 编码器要偶数宽高；范围与 /render 的夹取同一档（64–4096）。不合法的旧值当作没有。 */
+  /* 编码器要偶数宽高；范围按 64–4096 收（导出合成读的就是这一份画幅）。不合法的旧值当作没有。 */
   if (!(w >= 64 && h >= 64 && w <= 4096 && h <= 4096) || w % 2 || h % 2) return null;
   return { w, h };
 }
@@ -3449,7 +3521,7 @@ const {
 } = Panel;
 
 /* ---------- 导入本机视频 → 本机资产 → 本镜候选 ----------
-   落点和语音台的「本机音频」同一条：`Api.saveLocalAsset` 写进 `.assets` 并登记索引。
+   落点和语音台的「本机音频」同一条：`Api.saveLocalAsset` 写进本机资产库并登记索引。
    候选只记 `/asset/<id>`，不记 `blob:`（刷新即失效）也不记文件路径（页面拿不到）。
    去重凭据 `importOp` 由「名字 + 字节数 + 修改时间」算成，服务端不需要认识它：
    同一份文件再导一次只把视口移到已有那条，不再追加第二条候选。 */
@@ -3472,14 +3544,20 @@ function focusImported(hit, why) {
   setStatus('<span class="ok">' + why + '：在「' + esc(hit.sh.name || '未命名镜头') + '」第 '
     + (hit.i + 1) + ' 条候选里' + (hit.sh.selId === hit.c.vid ? '（已选用）' : '') + '</span>');
 }
-/* 真实时长 / 尺寸 / 音轨：只问 `/media/info` 这一条（ffprobe 在服务端）。
+/* 真实时长 / 尺寸 / 音轨：走 MediaBackend.info（浏览器内 mediabunny 元数据 + <video> 兜底），
+   服务端不提供媒体探测。
    失败不要挡住导入本身：拿不到时长就交回 null，播放器会自己量。 */
 async function mediaInfo(body) {
-  const r = await Net.fetch('/media/info', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}), timeout: 120000, retry: 0,
-  });
-  return await readJsonSafe(r, '媒体检查');
+  const src = (body && (body.src || body.url))
+    || (body && body.assetId ? Api.assetSrc(body.assetId) : '');
+  if (!src) return null;
+  const mb = (window.MediaBackend) || (window.Wb && Wb.vframe && await Wb.vframe._mbReady());
+  if (!mb) return null;
+  const info = await mb.info(src);
+  return info ? {
+    duration: info.duration, width: info.width, height: info.height,
+    hasAudio: info.hasAudio,
+  } : null;
 }
 function readFileB64(file) {
   return new Promise((res, rej) => {
@@ -3588,6 +3666,7 @@ async function importFcpProject(file) {
   sanitize();
   renderAll(); scheduleSave();
   const bits = [st.clips + ' 段画面'];
+  if (st.stills) bits.push(st.stills + ' 段图片');
   if (st.gaps) bits.push(st.gaps + ' 段黑场');
   if (st.voices) bits.push(st.voices + ' 句配音');
   if (st.titles) bits.push(st.titles + ' 条字幕');
@@ -3607,7 +3686,14 @@ async function importFcpProject(file) {
     jobs.push({
       entry: { kind: 'asset', provider: c.provider || 'remote', src: c.url, name: c.name || sh.name },
       name: sh.name || c.name || '素材',
-      apply: url => { c.url = url; c.local = true; scheduleSave(); },
+      /* 图片段的画面地址在段上（`segs[].img`），不在候选的 `url`：只改后者的话
+         「存一份到本机」之后那一格仍在读原外链，链接一过期就成了空图。 */
+      apply: url => {
+        const before = c.url;
+        c.url = url; c.local = true;
+        (c.segs || []).forEach(s => { if (s && typeof s.img === 'string' && s.img === before) s.img = url; });
+        scheduleSave();
+      },
     });
   }));
   (p.voices || []).forEach(v => {
@@ -3621,51 +3707,35 @@ async function importFcpProject(file) {
   autoLocalize(jobs);
 }
 
-/* ---------- 最近导出（.data/render-jobs.json 的最近 50 单） ----------
+/* ---------- 最近导出（本次页面会话的账本） ----------
    一次导出就是一份文件（成片或分开的素材段）。这里给两条出口：下载到本机、
-   复制一份进本机资产库（服务端直接拷文件，不走浏览器 base64）。
+   复制一份进本机资产库（字节取自本次会话缓存里的那一份）。
    `filmIsCurrent()` 仍是导出前的判据；这条弹窗只处理「已经导出的那份」。 */
-function jobStateText(j) {
-  const st = String(j.state || '');
-  if (st === 'done') return j.exists ? { t: '已完成', err: false } : { t: '记录在，但盘上找不到文件', err: true };
-  if (st === 'failed') return { t: '失败' + (j.err ? '：' + j.err : ''), err: true };
-  if (st === 'interrupted') return { t: j.err || '代理重启时这一单还没跑完', err: true };
-  if (st === 'running') return { t: '导出中' + (j.progress != null ? ' ' + Math.round(Number(j.progress) || 0) + '%' : ''), err: false };
-  if (st === 'queued') return { t: '排队中', err: false };
-  return { t: st || '状态未知', err: false };
-}
 async function openRecentExports() {
-  let data = null;
-  try {
-    data = await readJsonSafe(await Net.fetch('/render/jobs', { timeout: 15000 }), '读取最近导出');
-  } catch (e) {
-    setStatus('<span class="err">' + esc(errText(e)) + '</span>');
-    return;
-  }
-  const jobs = (data && data.jobs) || [];
+  /* 最近导出 = 本次页面会话的账本（Export.sessionExports）。浏览器内合成没有代理账本，
+     服务端渲染目录已经删了 —— 刷新之后这里就是空的，再导一次又会有。 */
+  const jobs = Export.sessionExports();
   await UiDialog.open({
     title: '最近导出',
-    sub: '最近 ' + (data.limit || 50) + ' 次合片 / 导出素材的记录。文件只在本机渲染目录里；「存资产库」会复制一份进本机资产库。',
+    sub: '本次页面会话里导出过的文件。带下载按钮的是这一轮刚合成的成片；素材在导出时已经交给浏览器下载（到下载目录找）。',
     body(el) {
       if (!jobs.length) {
-        el.innerHTML = '<div class="rx-empty">还没有导出记录。点页头「导出成片」或「导出素材」后，这里会出现那一份。</div>';
+        el.innerHTML = '<div class="rx-empty">本次会话还没有导出记录。点页头「导出成片」或「导出素材」后，这里会出现那一份。</div>';
         return;
       }
       el.innerHTML = '<div class="rx-list">' + jobs.map((j, i) => {
-        const st = jobStateText(j);
+        const can = Export.filmBlobOf(j.name);
         const parts = [
-          { s: window.fmtWhen(j.createdAt || j.updatedAt) },
+          { s: window.fmtWhen(j.at) },
           { s: j.bytes ? window.fmtBytes(j.bytes) : '' },
-          { s: (j.width && j.height ? j.width + '×' + j.height : '') },
-          { s: st.t, err: st.err },
+          { s: j.kind },
         ].filter(x => x.s);
-        const meta = parts.map(x => (x.err ? '<span class="err">' + esc(x.s) + '</span>' : esc(x.s))).join(' · ');
-        const can = j.state === 'done' && j.exists;
+        const meta = parts.map(x => esc(x.s)).join(' · ');
         return '<div class="rx-row" data-i="' + i + '">'
-          + '<div class="rx-main"><div class="rx-name">' + esc(j.name || j.out || '未命名') + '</div>'
+          + '<div class="rx-main"><div class="rx-name">' + esc(j.name || '未命名') + '</div>'
           + '<div class="rx-meta">' + meta + '</div></div>'
           + '<div class="rx-ops">'
-          + (can ? '<button class="op-btn" data-dl="' + i + '" title="下载这一份到本机">' + icon('download', 13) + '</button>' : '')
+          + (can ? '<button class="op-btn" data-dl="' + i + '" title="再下载一次这一份">' + icon('download', 13) + '</button>' : '')
           + (can ? '<button class="op-btn" data-save="' + i + '" title="复制一份进本机资产库，之后在素材库/资产库都能找到">' + icon('box', 13) + ' 存资产库</button>' : '')
           + '</div></div>';
       }).join('') + '</div>';
@@ -3673,39 +3743,35 @@ async function openRecentExports() {
         b.onclick = async () => {
           const j = jobs[Number(b.dataset.dl)];
           if (!j) return;
-          b.disabled = true;
-          try {
-            const blob = await renderBlob(j.name || j.out, '下载导出文件');
-            saveBlob(j.name || j.out || 'export.mp4', blob);
-            Toast.receipt('已开始下载 ' + (j.name || j.out || ''));
-          } catch (e) {
-            Toast.err(errText(e));
-          }
-          b.disabled = false;
+          const blob = Export.filmBlobOf(j.name);
+          if (!blob) return Toast.err('这一份字节不在本次会话里了（刷新过就没了）：再导一次即可');
+          saveBlob(j.name || 'export.mp4', blob);
+          Toast.receipt('已开始下载 ' + (j.name || ''));
         };
       });
       el.querySelectorAll('[data-save]').forEach(b => {
         b.onclick = async () => {
           const j = jobs[Number(b.dataset.save)];
           if (!j) return;
-          const old = b.innerHTML;
-          b.disabled = true;
-          b.textContent = '保存中…';
+          const blob = Export.filmBlobOf(j.name);
+          if (!blob) return Toast.err('这一份字节不在本次会话里了：再导一次即可');
+          b.disabled = true; b.textContent = '保存中…';
           try {
-            const r = await Net.fetch('/render/save-to-assets', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: j.name, title: String(j.name || '').replace(/\.[^.]+$/, '') }),
-              timeout: 0, retry: 0,
+            const b64 = await new Promise((res, rej) => {
+              const fr = new FileReader();
+              fr.onload = () => res(String(fr.result).split(',')[1] || '');
+              fr.onerror = () => rej(new Error('读不出字节'));
+              fr.readAsDataURL(blob);
             });
-            const d = await readJsonSafe(r, '存进本机资产库');
-            b.textContent = d.reused ? '已在资产库' : '已存资产库';
-            b.disabled = true;
-            Toast.receipt((d.reused ? '资产库里已经有这一份：' : '已存进本机资产库：') + (d.name || j.name || ''));
-          } catch (e) {
-            b.disabled = false;
-            b.innerHTML = old;
-            Toast.err(errText(e));
-          }
+            /* 类型跟文件名 / 字节走：成片没有 H.264 时导出来的是 .webm（选容器在 MediaExport.pickCodec）。 */
+            const fmt = (String(j.name || '').match(/\.([a-z0-9]+)$/i) || [])[1] || 'mp4';
+            await Api.saveLocalAsset({
+              name: j.name, mime: blob.type || (fmt === 'webm' ? 'video/webm' : 'video/mp4'), format: fmt, data: b64,
+              meta: { provider: 'local', prompt: String(j.name || '').replace(/\.[^.]+$/, '') },
+            });
+            b.textContent = '已存资产库';
+            Toast.receipt('已存进本机资产库：' + (j.name || ''));
+          } catch (e) { b.disabled = false; b.textContent = '存资产库'; Toast.err(errText(e)); }
         };
       });
     },
@@ -5182,19 +5248,22 @@ const Export = createExport({
   $, setStatus, projOf: () => proj, allShots, tlSyncFromShots, tlClipDur, tlClipSrc, tlDuration, fmtDur,
   clipVoices, voicesEnsure, voiceVolOf, tlCandidateOf, candDur, healStaleUrls,
   filmFrames, filmLayGray, filmSize, saveBlob, scheduleSave, renderAll, filmRowsForSubtitles,
-  readJsonSafe, renderPost, renderStatus, pollRenderJob, renderCancel, renderBlob,
+  readJsonSafe,
+  BoardAssetsOf: () => BoardAssets,
 });
 /* 页头那一排导出按钮由格式表现画现绑（web/domain/export-formats.js）：加一种导出不再动模板与这一排。
    绑定也只有这一处：剪辑栏每 3 秒随整列重建，把出口绑在那里等于每次重建都要重绑，
    导出中写在按钮上的那句「取消渲染 45%」会被下一次重画冲掉。
    **「播放成片」那一颗已删**：看效果走「剪辑 → 全片」那一排的实时预览（`#pbBtn` → TlPlay），
-   它从不为播放跑 ffmpeg；要一个文件才点这里的「导出成片」。 */
+   它从不为播放合成；要一个文件才点这里的「导出成片」。 */
 /* 每个 kind 给一个「返回点击处理器」的工厂：film / files 直接交现成函数，
    xml 才按这一行是裸 FCPXML 还是媒体包现包一个。 */
 const EXPORT_RUN = {
   film: () => Export.filmClick,
   files: () => Export.assetsClick,
-  xml: f => f.nle ? () => Export.nle() : () => Export.fcp({ bundle: !!f.bundle }),
+  xml: f => f.id === 'resolve' ? () => Export.resolve()
+    : f.id === 'jianying' ? () => Export.jianying()
+    : () => Export.fcp({ bundle: !!f.bundle }),
 };
 $('exportBtns').innerHTML = ExportFormats.list().map(f =>
   '<button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
@@ -5245,7 +5314,7 @@ function sanitize() {
     p.id = p.id || uid();
     p.name = p.name || '未命名短片';
     /* 画面比例是**一个项目一份**：只认偶数、64–4096 的宽高（编码器要偶数）；
-       坏值直接删掉，回落到「按第一条成片的画幅」的旧行为，而不是让 ffmpeg 到导出时才报错。 */
+       坏值直接删掉，回落到「按第一条成片的画幅」的旧行为，而不是让编码器到导出时才报错。 */
     if (p.composition) {
       const w = Math.round(Number(p.composition.width)), h = Math.round(Number(p.composition.height));
       if (w >= 64 && h >= 64 && w <= 4096 && h <= 4096 && !(w % 2) && !(h % 2)) p.composition = { width: w, height: h };
@@ -5357,6 +5426,8 @@ Wb.split.enable({
   wsLoaded = true;             // 从现在起才允许落盘（见 wsLoaded 那段）
   $('projName').value = proj.name;
   renderAll();                 // 首屏：不等能力接口、不等本地视频、不等余额
+  /* 14.1-6：老工程 refMeta 没 id 的条目按 label 反查库里补 id（幂等，已有 id 的不动）。 */
+  try { Panel.backfillRefMetaIds && Panel.backfillRefMetaIds(allShots()); } catch (e) { /* 补不上不影响启动 */ }
   setTimeout(() => Gen.announceDoneCandidates(), 0);   // 已经出画面但还没镜像的候选：投一次事件（不阻塞首屏）
   Gen.pollKick();             // 首屏立刻问一次在途候选，不等第一轮间隔
   loadCredits();
@@ -5409,7 +5480,6 @@ createBridge({
   rowLockWhy: (...a) => rowLockWhy(...a),
   tlSyncFromShots: (...a) => tlSyncFromShots(...a),
   readJsonSafe: (...a) => readJsonSafe(...a),
-  renderStatus: (...a) => renderStatus(...a),
   filmEdited: (...a) => filmEdited(...a),
   shotFilmAt: (...a) => shotFilmAt(...a),
   filmRowsForSubtitles: (...a) => filmRowsForSubtitles(...a),

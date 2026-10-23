@@ -1,5 +1,5 @@
 /* 静态文件服务：ETag + no-cache + 文本预压缩（brotli 优先、退 gzip、再退原文）。
-   仅服务工作台自己的前端资源；/render、/asset、/local-assets 等带签名的媒体路由不要用这里的缓存策略。 */
+   仅服务工作台自己的前端资源；/asset、/local-assets 等带签名的媒体路由不要用这里的缓存策略。 */
 'use strict';
 const fs = require('fs');
 const zlib = require('zlib');
@@ -53,7 +53,7 @@ function acceptedEncodings(header) {
   return ENCODINGS.filter(e => q[e.repr]).sort((a, b) => q[b.repr] - q[a.repr]).map(e => e.repr);
 }
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self' blob:";
+const HTML_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self' blob:";
 
 function htmlHeaders(ext) {
   return ext === '.html'

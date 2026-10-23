@@ -293,6 +293,21 @@
 
 /* Skill 管理：原来独立的 Skill Hub 页面整块搬进设置，控件形态与间距沿用公共件。
    卡片里给固定高度，列表与详情各自滚动，不把整页撑长。 */
+/* 「使用地方」一级菜单（§13.2）：11 个 contract + 助手一行，点一行选中那一份 */
+.settings-page .sk-slots { margin-bottom: var(--sp-3); border: 1px solid var(--line);
+  border-radius: var(--radius-1); background: var(--panel2); padding: var(--sp-2) var(--sp-3); }
+.settings-page .sk-slots-h { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-1-5); }
+.settings-page .sk-slot { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  width: 100%; text-align: left; padding: var(--sp-1-5) var(--sp-2); border: 0; border-top: 1px solid var(--line);
+  background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.settings-page .sk-slot:first-of-type { border-top: 0; }
+.settings-page .sk-slot:hover { background: var(--panel); }
+.settings-page .sk-slot.on { background: color-mix(in srgb, var(--acc) 10%, transparent); }
+.settings-page .sk-slot.asst { border-top: 2px solid var(--line); margin-top: var(--sp-1-5); }
+.settings-page .sk-slot-l { font-weight: 600; font-size: var(--fs-12-5); flex: 0 0 auto; }
+.settings-page .sk-slot-r { display: flex; gap: var(--sp-1); flex: 0 0 auto; }
+.settings-page .sk-slot-u { flex: 1 1 200px; font-size: var(--fs-11-5); color: var(--sub); line-height: 1.5; }
+
 .settings-page .sk-filters { padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
   border: 1px solid var(--line); border-radius: var(--radius-1); background: var(--panel2); }
 .settings-page .sk-filters .frow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
@@ -356,6 +371,11 @@
   font-size: var(--fs-1); color: var(--acc); border: 1px solid var(--line);
   border-radius: var(--radius-0); padding: 0 var(--sp-1-5); }
 .settings-page .sk-varlist .hint { margin-left: var(--sp-1); }
+.settings-page .sk-vartable { width: 100%; border-collapse: collapse; font-size: var(--fs-1); margin-top: var(--sp-1); }
+.settings-page .sk-vartable th, .settings-page .sk-vartable td {
+  text-align: left; padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line); }
+.settings-page .sk-vartable th { font-weight: 600; color: var(--dim); font-size: var(--fs-0); }
+.settings-page .sk-vartable code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--acc); }
 
 .settings-page .sk-body { flex: 1 1 auto; min-height: 260px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-3); }
 .settings-page .sk-files {

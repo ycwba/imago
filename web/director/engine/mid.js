@@ -6,6 +6,7 @@
 import { round1 } from '../util.js';
 import { SEG_MIN, segCarry, segsOf, segsWrite, laneClamp } from '../segments.js';
 import { voiceRateOf, voiceFrameOf, roundVoice } from '../voice-layout.js';
+import { linksOf, setLinks } from '../links.js';
 
 export function createMid(E, document, window) {
   const {
@@ -238,7 +239,7 @@ function renderMid() {
       <span class="meta" id="undoMeter" title="能撤销的步数 / 上限；内存快用满时会补一句字节数">${esc(undoMeterText())}</span>
       <!-- 这一排不再有合片出口：「导出成片 / 导出素材」搬到页头导入导出那一排，
            「播放成片」那一颗整颗删掉（2026-10 用户点名）—— 看效果走下面播放器那一排的播放，
-           它按时间线实时播，从不为播放跑 ffmpeg。 -->
+           它按时间线实时播，从不为播放合成。 -->
     </div>
     <div class="player-wrap" id="playerWrap">${playerAreaHTML(sh)}</div>
     <div class="cand-strip${midCandExpandOf() ? ' expanded' : ''}">
@@ -289,9 +290,8 @@ function renderMid() {
         <button class="tool mini" data-cut="right" title="丢掉插针右边的画面（这一段到插针为止）">${icon('scissors', 13)} 向右切</button>
         <button class="tool mini danger" data-cut="drop" title="删掉插针所在的那一段（格子不消失，原地变黑场，后面的段不前移）">${icon('trash', 13)} 删掉</button>
         <button class="tool mini" data-cut="merge" title="把插针这一段与它旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）">${icon('link', 13)} 融合</button>
-        <!-- 「空隙」那颗已删（2026-10 用户点名）：它造的是一段没有画面也没有锚点的格子，
-             要「这一段不要画面」有「删掉」（原地变黑场、时长不变），要「这一段不进成片」有「向右切」，
-             两颗都各有一句真话可说，而空隙是第三种口径 —— 全套判据（把手 / 针的落点 / 指纹 / 播放计划）都要为它多写一支。 -->
+        <button class="tool mini" data-cut="gap" title="在插针处插一段空（轨道上多一格灰格，成片里那几秒是黑的、占时间）">${icon('plus', 13)} 空一段</button>
+        <button class="tool mini" data-cut="close" title="把选中的空段整段摘掉（成片里那几秒消失，后面的段前移）">${icon('minus', 13)} 摘掉空段</button>
         <!-- 「不剪了」那颗已删（用户点名的第 8 条）：它把「一键抹掉这一条上所有剪切」放在最顺手的位置，
              而 undo（Ctrl+Z / 页头那颗「撤销」）本来就是干这件事的，且还能退回去。
              各处文案里指着它的地方一起换成那条真出路 —— 见 cutSegs 的拒绝语与 paintTrimRow。 -->
@@ -323,7 +323,7 @@ function renderMid() {
         </div>
         <div class="tl-bar" id="tlBar"></div>
       </div>
-      <div class="tl-time"><span id="tlT0">0:00.0</span><span id="tlT1" title="${(projOf().tlTab || 'shot') === 'shot' ? '这一排按每段的框 ÷ 它自己的倍速摊开，右边就是它的总长（被剪掉的那两块灰也占着地方）' : '全片轨按各段自己的长度排（灰掉的部分不进成片），右边括号里才是成片真实时长'}">${(projOf().tlTab || 'shot') === 'shot' ? shotAxText(cur, sh) : (fmtDur(filmFrames(tlSyncFromShots()).total) + '（成片 ' + fmtDur(totalDur()) + '）')}</span></div>
+      <div class="tl-time"><span id="tlT0">0:00.0</span><span id="tlT1" title="${(projOf().tlTab || 'shot') === 'shot' ? '这一排按每段**进成片的那一截** ÷ 它自己的倍速摊开，右边就是它的总长（剪掉的头尾不占地方；整格黑场照样占）' : '全片轨按各段自己的长度排（黑场那一格不进画面、照样占时间），右边括号里才是成片真实时长'}">${(projOf().tlTab || 'shot') === 'shot' ? shotAxText(cur, sh) : (fmtDur(filmFrames(tlSyncFromShots()).total) + '（成片 ' + fmtDur(totalDur()) + '）')}</span></div>
       ${cur ? `
       <div class="trim-editor">
         <span id="trimSegLab"></span>
@@ -417,12 +417,43 @@ function renderMid() {
     if (!b) return;
     const act = b.dataset.laneAct;
     const k = b.dataset.lane, ln = laneClamp(b.dataset.ln);
+    if (act === 'links') { openLinksDlg(); return; }
     if (act === 'row+') addLaneRow(k, col, ln > 0 ? ln : null);
     else if (act === 'row-') dropLaneRow(k, ln, col);
     else if (act === 'rhide') rowFlagToggle(k, ln, 'hides', col);
     else if (act === 'rlock') rowFlagToggle(k, ln, 'locks', col);
     else laneToggle(k, act);
   });
+  /* 联动设置弹层（主轨 = 画面轨第 0 行）：勾上的类型在主轨段变黑场时挪到下一段还有画面的段。
+     字幕不给 checkbox —— 派生字幕跟着配音走，manual/asr 只有 startMs/endMs、定位不到段，
+     给一个点了没用的勾就是假承诺。改 links 不改成片内容 → 只 scheduleSave，不 filmEdited。 */
+  function openLinksDlg() {
+    const cur = linksOf(projOf());
+    const OPTS = [['voice', '语音'], ['line', '台词'], ['pending', '待生成']];
+    let bodyEl = null;
+    UiDialog.open({
+      title: '主轨联动',
+      sub: '勾上的类型在主轨段变黑场时会挪到下一段还有画面的段；没勾的留在原地（成片里被跳过）。',
+      body(el) {
+        bodyEl = el;
+        el.innerHTML = OPTS.map(([v, label]) =>
+          '<label class="dlg-line"><input type="checkbox" data-link="' + v + '"' + (cur.indexOf(v) >= 0 ? ' checked' : '') + '> ' + label + '</label>').join('')
+          + '<div class="dlg-hint">字幕不单独勾：派生字幕跟着配音走；手动 / ASR 字幕按源秒定位，不动。</div>';
+      },
+      actions: [
+        { label: '取消', value: null },
+        { label: '保存', value: 'go', primary: true },
+      ],
+    }).then(v => {
+      if (v !== 'go' || !bodyEl) return;
+      const picked = [];
+      bodyEl.querySelectorAll('[data-link]').forEach(x => { if (x.checked) picked.push(x.dataset.link); });
+      setLinks(projOf(), picked);
+      scheduleSave();
+      renderTimeline();
+      setStatus('<span class="ok">✓ 联动已更新：' + (picked.length ? picked.map(p => ({ voice: '语音', line: '台词', pending: '待生成' }[p])).join('、') + ' 会在主轨段变黑场时挪走' : '全部关闭（变黑场时留在原地）') + '</span>');
+    });
+  }
   /* 每一行标签上那枚基数音量：与右栏那两枚同一套规矩 —— `input` 只改这一格上的百分数读数，
      `change`（松手）才写数据 + `filmEdited()`。中途整栏重画会把手指底下的滑块换掉，所以绝不在这一步动数据。
      锁着的那一行：`setLaneVol` 在函数入口硬拒并把原因写回读数旁边（滑块被压暗，这里只是把「为什么」说出口）。 */
@@ -551,7 +582,7 @@ function renderMid() {
     projOf().tlTab = b.dataset.tab;
     renderMid();
     /* 切到「全片」**不合成**（同上）：全片页签的预览现在由 `TlPlay` 按时间线直接播，
-       不需要先有一份成片文件。合成只剩页头「导出成片」这一颗（「导出素材」走的是同一条 /render，
+       不需要先有一份成片文件。合成只剩页头「导出成片」这一颗（「导出素材」走同一套页面内合成，
        但出的是零件不是一条整片）。 */
   });
   renderTimeline(col, sh, cur);

@@ -48,6 +48,38 @@ export function createApply(E, document, window) {
     setStatus,
   } = E;
 
+/* 「顺便给新素材出图」（拆分镜确认后的可选第二步）：出图要花钱，**勾了才排队** ——
+   确认框是唯一入口，不勾就维持「只建档不出图」。出图管道只有 `Chars.Pipe.drawPreview`
+   一条（素材库「批量补预览图」走的同一条），出完由 `wb:char-pic` 事件回填占位符并补参考图。 */
+async function maybeFillNewAssetPics(saved) {
+  const D = window.Chars;
+  if (!D || !D.Pipe || !D.Pipe.drawPreview || !saved || !saved.length) return;
+  const n = saved.length;
+  let ok = false;
+  try {
+    ok = await window.Confirm.ask({
+      title: '顺便给 ' + n + ' 条新素材出预览图？',
+      body: '每条发一次生图请求（共 ' + n + ' 张，按平台价计费、会花钱）。出完自动把占位符换成真名并补进参考图。'
+        + '不发就先留在素材库里，随时在素材库页手点「生成素材图」。',
+      okLabel: '出图（' + n + ' 张）',
+      cancelLabel: '先不出',
+    });
+  } catch (e) { return; }
+  if (!ok) return;
+  const reg = REGOf();
+  /* drawPreview 只读 drama.opts 的 imgModel / ratio 两个字段：型号留空 = 按注册表挑当前能用的。 */
+  const drama = { opts: { imgModel: '', ratio: '9:16' }, characters: [], scenes: [], shots: [] };
+  let done = 0;
+  const failed = [];
+  for (const item of saved) {
+    try { await D.Pipe.drawPreview(reg, drama, item, { count: 1 }); done++; }
+    catch (e) { failed.push((item && item.name) || '?'); }
+  }
+  Toast[(failed.length ? 'warn' : 'ok')](
+    '新素材出图：' + done + ' 条已发（出完自动补进参考图）'
+    + (failed.length ? '；没成：' + failed.join('、') : ''), 7000);
+}
+
 function landNewAssets(list, groupName) {
   const D = window.Chars;
   const out = { saved: [], failed: [], group: String(groupName || '').trim(), why: '' };
@@ -414,6 +446,15 @@ ${fillSkillVars(splitSysOf(), boardVars)}
   const allShots = newScenes.flatMap(sc => sc.shots || []);
   const assetGroup = Groups.assetGroupName(WSOf(), projOf());
   const landed = landNewAssets(chosenAssets || [], assetGroup);
+  /* 场景 ↔ 库里那条场景素材互记 id（14.2-4）：`sc.sceneLibId` 记下后喂图按 id（改名不断、
+     同名两条各绑各的）；老工程没绑的仍按名字兜底一次（只读不写，见 scenePicOf）。
+     名字比较是**严格比较**（与存盘合并同尺）—— 归一比较只留给 AI 报名解析那条兜底。 */
+  (landed.saved || []).filter(x => x && x.kind === 'scene' && x.id).forEach(e => {
+    const nm = String(e.name || '').trim();
+    newScenes.forEach(sc => {
+      if (!sc.sceneLibId && String(sc.name || '').trim() === nm) sc.sceneLibId = e.id;
+    });
+  });
   const pendingMarked = markPendingTokens(allShots, landed.saved);
   const assetNote = landed.saved.length
     ? '，新建素材 ' + landed.saved.length + ' 条（'
@@ -447,6 +488,9 @@ ${fillSkillVars(splitSysOf(), boardVars)}
       SplitAssets.bind(allShots, staged.picked));
   }
   renderAll(); scheduleSave();
+  /* 14.2-1：新素材可以顺便出预览图（确认框勾了才排队 —— 花钱任务不自动发）。
+     不等出图结果：拆分镜本身已经落盘，出图是后面几步，用户可以先去干别的。 */
+  if (landed.saved.length) maybeFillNewAssetPics(landed.saved).catch(() => {});
 }
 /* 「修改现有分镜」这一档：现有清单 + 用户那一句话 → changes → 账 → 审查弹窗 → 落盘。
    没有任何「AI 看一眼就自动写入」：改的是用户已经生成过的分镜，确认那一下是唯一入口。 */

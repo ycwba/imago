@@ -60,3 +60,40 @@ export function sliceTimes(a, b, n, step) {
   }
   return out;
 }
+
+/* ---------- 数据层预算（「解多少帧」的唯一口径） ----------
+   与上面的显示层（磁贴几何，「画多少格」）是**两层**，不能合成一层：
+   数据层决定一条素材的帧索引解多密（费解码、进缓存），显示层决定屏上摆几格（费 DOM）。
+   合成一层就会「解了 480 帧只画 8 格」，或反过来「画 60 格每格都触发一次解码」。
+   档位按素材时长走：越长的素材每格跨的源秒越大（30 分钟的素材按 1/30s 解就是 5.4 万帧），
+   封顶 480 —— 一条素材的帧索引到顶就不再变密，磁贴再放大也只从索引里挑已有的帧。 */
+export const FRAME_INDEX_MAX = 480;
+export function frameIndexPlan(dur) {
+  const d = Math.max(0.1, Number(dur) || 0);
+  const step = d <= 16 ? 1 / 30 : d <= 30 ? 1 / 20 : d <= 60 ? 0.1 : d <= 120 ? 0.2 : d <= 600 ? 0.5 : 1.5;
+  return { step, count: Math.min(FRAME_INDEX_MAX, Math.max(1, Math.ceil(d / step))) };
+}
+/* 数据层栅格时刻：0 起按 step 等分到时长，按 0.001s 量化、升序去重。
+   栅格与磁贴的绝对栅格（SLICE_STEPS）不是同一套 —— 磁贴时刻由 at-or-before 查帧兜住
+   （见 frameAtOrBefore），不要求两套栅格点重合。 */
+export function frameIndexTimes(dur, plan) {
+  const p = plan || frameIndexPlan(dur);
+  const d = Math.max(0.1, Number(dur) || 0.1);
+  const out = [];
+  for (let i = 0; i < p.count; i++) {
+    const x = Math.round(Math.min(d - 0.02, i * p.step) * 1000) / 1000;
+    if (x < 0) break;
+    if (!out.length || out[out.length - 1] !== x) out.push(x);
+  }
+  return out;
+}
+/* at-or-before 二分：升序数组里 ≤ t 的**最后一帧**下标（没有给 -1）。
+   语义与播放器「播到哪显哪帧」一致 —— 取最近邻会在 0.5 倍速时提前显出下一帧。 */
+export function frameAtOrBefore(sorted, t) {
+  if (!sorted || !sorted.length) return -1;
+  const x = Number(t);
+  if (!Number.isFinite(x)) return -1;
+  let lo = 0, hi = sorted.length;                 // 第一个 > x 的下标
+  while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] <= x) lo = m + 1; else hi = m; }
+  return lo - 1;
+}

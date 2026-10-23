@@ -73,16 +73,21 @@ assert.equal(vf.voiceInFilm({ shotId: 's1', candId: 'c1', seg: 0, src: 'a' }), t
 assert.match(vf.voiceFilmWhy({ shotId: 's1', candId: 'c2', src: 'a' }), /没被选用/);
 
 /* 台词那一格的时间尺（轨道上两个占位与剪辑右栏那两段共用这一份算式）：
-   本镜那一排折成本镜轴秒，全片那一排读成片秒 f0；倍速同时压起点偏移与长度。 */
+   起点按**选区左沿**平移（剪掉的头不占轴上的秒），本镜那一排折成本镜轴秒，
+   全片那一排读成片秒 f0；倍速同时压起点偏移与长度。 */
 assert.equal(lineSpanAt(null, 0, 4, false), null, '那一排没有这一镜的格子时不给读数，不拿 0 冒充起点');
-assert.deepEqual(lineSpanAt({ a: 0, b: 10, start: 0, spd: 1 }, 2, 6, false), { at: 2, len: 6 });
-assert.deepEqual(lineSpanAt({ a: 0, b: 10, start: 1, spd: 2 }, 4, 6, false), { at: 3, len: 3 },
-  '×2 时偏移与长度都只占一半（框不变，缩的是轴）');
-assert.deepEqual(lineSpanAt({ a: 2, b: 8, f0: 20, spd: 4 }, 2, 8, true), { at: 20, len: 2 },
+assert.deepEqual(lineSpanAt({ in: 0, out: 10, a: 0, b: 10, start: 0, spd: 1 }, 2, 6, false), { at: 2, len: 6 });
+assert.deepEqual(lineSpanAt({ in: 0, out: 10, start: 1, spd: 2 }, 4, 6, false), { at: 3, len: 3 },
+  '×2 时偏移与长度都只占一半（缩的是轴）');
+/* 框 [0,10] 剪成选区 [2,10]：这一格画出来的最左边那一像素就是源第 2 秒，
+   「这一段 +0 秒」的占位不许摆到剪掉的头那一截上去（那一截已经不占轴了）。 */
+assert.deepEqual(lineSpanAt({ in: 2, out: 10, a: 0, b: 10, start: 1, spd: 1 }, 2, 6, false), { at: 1, len: 6 },
+  '起点跟着选区左沿走，不按框左沿');
+assert.deepEqual(lineSpanAt({ in: 2, out: 8, f0: 20, spd: 4 }, 2, 8, true), { at: 20, len: 2 },
   '全片那一排读 f0（成片秒），不受这一格在轴上的位置影响');
-assert.deepEqual(lineSpanAt({ a: 2, b: 8, start: 0, spd: 2 }, 100, 4, false), { at: 3, len: 2 },
-  '起点越界先夹回框里：这一句不能摆到这一格之外');
-assert.deepEqual(lineSpanAt({ a: 0, b: 5, start: 0, spd: 1 }, 0, 0, false), { at: 0, len: 0.1 },
+assert.deepEqual(lineSpanAt({ in: 2, out: 8, start: 0, spd: 2 }, 100, 4, false), { at: 3, len: 2 },
+  '起点越界先夹回选区里：这一句不能摆到这一格之外');
+assert.deepEqual(lineSpanAt({ in: 0, out: 5, start: 0, spd: 1 }, 0, 0, false), { at: 0, len: 0.1 },
   '空台词塌成下限那一小格（0.05 进位到一位小数就是 0.1），不塌成看不见的 0 宽');
 assert.ok(lineEstSec('') >= 1.2 && Math.abs(lineEstSec('x'.repeat(45)) - 10) < 1e-9,
   '一句要念多久按字数估（下限 1.2 秒，4.5 字 / 秒）');

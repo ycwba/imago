@@ -19,7 +19,7 @@
      e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
         冒烟档走**限 4 路的并发**（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
         带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）；
-        全量档保持串行（41 条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口这轮没动。
+        全量档保持串行（四十多条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口这轮没动。
    判据进程内打包与 harness 共享 batch 入口这两件没做，待主线导演台 e2e 拆分收口后再接，
    这里不留半截实现。
    注意：tests/map.cjs 的 registry() 按源码文本现读本文件的登记行（run 首参 'tests/<名字>.cjs'）与
@@ -45,7 +45,7 @@ const E2E_TIMEOUT_MS = Number(process.env.ALL_E2E_TIMEOUT_MS || 600000);
    每条都要有原因；常驻判据目前没有一个写共享目录（都落 os.tmpdir 的 mkdtemp），这一档是给
    data-snapshot 一类「要对着真实目录比」的判据留的闸 —— 谁把它们加进 all.cjs，就在这里登记。 */
 const SERIAL_WRITE = [
-  'tests/data-snapshot.cjs',   // 对真实 .data/.assets/.renders 比基线（AGENTS §13.3），并发跑会读到别的判据的中间态
+  'tests/data-snapshot.cjs',   // 对真实 .data/.renders 与库根本体比基线（AGENTS §13.3），并发跑会读到别的判据的中间态
 ];
 
 const residentQueue = [];
@@ -202,6 +202,9 @@ run('tests/relay-retry.cjs', process.execPath, ['tests/relay-retry.cjs']);
 /* 出站 keep-alive：复用只发生在同 host:port 的池里，建连仍过内网闸 —— 不通过就不启用。 */
 run('tests/outbound-keepalive.cjs', process.execPath, ['tests/outbound-keepalive.cjs']);
 run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
+/* 库根那一条算法：盘上那一格（.data/sk_local_dir.json，正文就是 localStorage 原值）必须真被读出来，
+   否则现象是「设置页改了位置、产物还往老地方写」，而且一句错都不报。 */
+run('tests/local-root.cjs', process.execPath, ['tests/local-root.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);
@@ -225,8 +228,14 @@ run('tests/director-genall.mjs', process.execPath, ['tests/director-genall.mjs']
 /* 场景镜头命名：本机素材名与 FCPXML 包内名同源（补零 / 截断 / 单扩展名 / 去重）。 */
 run('tests/director-naming.mjs', process.execPath, ['tests/director-naming.mjs']);
 run('tests/director-slice.mjs', process.execPath, ['tests/director-slice.mjs']);
+/* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
+run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pack.mjs']);
 run('tests/director-playback.mjs', process.execPath, ['tests/director-playback.mjs']);
 run('tests/director-segments.mjs', process.execPath, ['tests/director-segments.mjs']);
+/* 图片段：虚拟坐标与视频不重叠 / 平铺格数 / 插入切开 / 行查找按包含。 */
+run('tests/director-image-seg.mjs', process.execPath, ['tests/director-image-seg.mjs']);
+run('tests/director-gap.mjs', process.execPath, ['tests/director-gap.mjs']);
+run('tests/director-links.mjs', process.execPath, ['tests/director-links.mjs']);
 run('tests/director-timeline.mjs', process.execPath, ['tests/director-timeline.mjs']);
 run('tests/director-voice.mjs', process.execPath, ['tests/director-voice.mjs']);
 run('tests/director-subtitles.mjs', process.execPath, ['tests/director-subtitles.mjs']);
@@ -258,6 +267,9 @@ run('tests/canvas-spatial.mjs', process.execPath, ['tests/canvas-spatial.mjs']);
 run('tests/canvas-gen.mjs', process.execPath, ['tests/canvas-gen.mjs']);
 run('tests/providers-validate.cjs', process.execPath, ['tests/providers-validate.cjs']);
 run('tests/asr-settings.mjs', process.execPath, ['tests/asr-settings.mjs']);
+/* 浏览器内 ASR 的纯算法面（worker 与判据共用）：WAV 拆 PCM / 词级成段 / 中文转写清理；
+   静态档顺带盯住 vendor 四件在场与 worker 的同源约束（模型与 wasm 从 CDN 直取在 CSP 下必死）。 */
+run('tests/director-asr-text.mjs', process.execPath, ['tests/director-asr-text.mjs']);
 /* 设置键一张账：界面偏好只由 ui.js 的 UI_PREFS 决定，
    同步 / 导出 / 恢复默认三份名单从它现取；新加一项设置没登记就在这里红。 */
 run('tests/settings-schema.cjs', process.execPath, ['tests/settings-schema.cjs']);
@@ -295,6 +307,9 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.arg
 /* 静态预压缩的线上那一半（同一份判据文件，`--live` 才起隔离实例）：响应头与三档体积真的到了线上。 */
 run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs', '--live'], { tier: 'browser' });
   run('tests/e2e/cloud-sync.cjs', process.execPath, ['tests/e2e/cloud-sync.cjs'], { tier: 'browser' });
+  /* 本机资产一条链：落点/双身份（fid + 采样签名）/改名挪目录认回/重复下载并成一张卡/删一张卡带走 altPaths
+     /磁盘对账只补一次。两条都不开 Chrome，只起隔离实例（AGENTS §13.2）。 */
+  run('tests/e2e/local-chain.cjs', process.execPath, ['tests/e2e/local-chain.cjs'], { tier: 'browser' });
   run('tests/e2e/asr.cjs', process.execPath, ['tests/e2e/asr.cjs'], { tier: 'browser' });
   run('tests/e2e/search.cjs', process.execPath, ['tests/e2e/search.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-actions.cjs', process.execPath, ['tests/e2e/chat-actions.cjs'], { tier: 'browser' });
@@ -325,6 +340,8 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/director-voice-lane.cjs', process.execPath, ['tests/e2e/director-voice-lane.cjs'], { tier: 'browser' });
   /* 字幕与待生成的拖动（把手 / 挪插针）+ 右栏起止两把尺子 + 配音 / 画面入出行可输。 */
   run('tests/e2e/director-sublane.cjs', process.execPath, ['tests/e2e/director-sublane.cjs'], { tier: 'browser' });
+  /* 图片素材进画面轨：交接载荷入轨 · 平铺格与三不带 · 右把手拖长 · 五把剪子对图片段 · 成片像素账 · FCPXML still 读回。 */
+  run('tests/e2e/director-image-track.cjs', process.execPath, ['tests/e2e/director-image-track.cjs'], { tier: 'browser' });
   /* 时间轴缩放：加减 1.15 / 滑块对数无极 / 自适应独立钮 / 围绕视野中心 / 只重排时间轴 / 1024 不溢出。 */
   run('tests/e2e/director-zoom.cjs', process.execPath, ['tests/e2e/director-zoom.cjs'], { tier: 'browser' });
   /* 导演台装配窗口里的关标签保存：没装配完不许把工作区写成空的（IndexedDB 与 .data/workspace.json 两份）。 */
@@ -336,7 +353,6 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 导演台项目组：分树 / 新建 / 老工程零迁移 / 删组不删短片。 */
   run('tests/e2e/director-groups.cjs', process.execPath, ['tests/e2e/director-groups.cjs'], { tier: 'browser' });
   run('tests/e2e/editing-assistant.cjs', process.execPath, ['tests/e2e/editing-assistant.cjs'], { tier: 'browser' });
-  run('tests/e2e/render-jobs.cjs', process.execPath, ['tests/e2e/render-jobs.cjs'], { tier: 'browser' });
   run('tests/e2e/canvas.cjs', process.execPath, ['tests/e2e/canvas.cjs'], { tier: 'browser' });
   run('tests/e2e/canvas-model.cjs', process.execPath, ['tests/e2e/canvas-model.cjs'], { tier: 'browser' });
   run('tests/e2e/canvas-assistant.cjs', process.execPath, ['tests/e2e/canvas-assistant.cjs'], { tier: 'browser' });

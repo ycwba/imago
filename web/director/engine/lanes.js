@@ -5,9 +5,10 @@
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { round1, pct, spdTxt } from '../util.js';
 import { sliceBoxHTML } from '../slice.js';
-import { SEG_MIN, segLen, segFilmLen, segsOf, segsCopy, segsWrite, laneClamp, tlClipDur } from '../segments.js';
+import { SEG_MIN, segLen, segVol, segFilmLen, segsOf, segsCopy, segsWrite, laneClamp, tlClipDur } from '../segments.js';
 import { lineEstSec, lineSpanAt } from '../voice-layout.js';
 import { linePointOf, linePointClamp, linePointSet } from '../line-point.js';
+import { isImageSeg, isVirtualSeg, imageTileCount, IMAGE_THUMBNAIL_TARGET_WIDTH } from '../image-seg.js';
 
 export function createLanes(E, document, window) {
   const {
@@ -31,10 +32,14 @@ export function createLanes(E, document, window) {
     shotAxTotal,
     voiceAxBox,
     fillWaveforms,
+    videoPeaks,
+    drawSegWave,
+    fillSegWaveforms,
     voiceBlockHTML,
     cutSegIdx,
     shotVoices,
     dragOnWindow,
+    dragBusy,
     reanchorVoices,
     cutPin,
     beginEdit,
@@ -54,6 +59,7 @@ export function createLanes(E, document, window) {
     laneRowsOf,
     laneRowsFor,
     setCellLane,
+    addImageToTrack,
     moveShotInFilmOrder,
     tlSyncFromShots,
     paintTlGroups,
@@ -408,6 +414,145 @@ function pinAtX(scope, col, sh, clientX, opts) {
   }
   return { seg: m.seg, at: m.at, box: m.box, ax: m.ax };
 }
+/* 拖一张图进画面轨 = 在落点那一秒插一段静态图（默认 2 秒，见 image-seg.js）。
+   载荷只认 `AssetRef` 那一份（素材库 / 资产库 / 收藏 / 工作台四个拖动源共用）；
+   视频与音频不接：视频要走候选（「用这条」），音频进声音轨 —— 在这里悄悄收下等于造一段
+   只有一帧、没有原声的「视频段」，而界面上没有任何一处说过这件事。
+   `dragover` 必须 preventDefault，否则浏览器不认这是可放区、drop 永远不来。 */
+function bindImageDrop(bar, col, sh) {
+  if (bar.__imgDropOff) { bar.__imgDropOff(); bar.__imgDropOff = null; }
+  const refOf = e => {
+    const Ref = window.AssetRef;
+    if (!Ref || !Ref.isRef(e.dataTransfer)) return null;
+    return Ref.read(e.dataTransfer);
+  };
+  const refKindOf = o => (window.mediaKindOf ? window.mediaKindOf(o.type || o.mtype || o.kind) : 'image');
+  const acceptOver = e => {
+    const o = refOf(e);
+    if (!o || refKindOf(o) !== 'image') return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'copy'; } catch (err) { /* 设不上就按引擎默认效果走 */ }
+  };
+  const drop = e => {
+    const o = refOf(e);
+    if (!o) return;
+    if (refKindOf(o) !== 'image') {
+      e.preventDefault();
+      Toast.warn('画面轨只收图片：视频请在这条候选上点「用这条」，音频进声音轨');
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const m = pinMeasure(bar, sh, e.clientX);
+    addImageToTrack({ src: o.src || o.dl || '', name: o.name || o.prompt || '', at: (m && !m.why) ? m.at : undefined });
+  };
+  bar.addEventListener('dragover', acceptOver);
+  bar.addEventListener('drop', drop);
+  bar.__imgDropOff = () => {
+    bar.removeEventListener('dragover', acceptOver);
+    bar.removeEventListener('drop', drop);
+  };
+}
+/* 预览轴：光标在轨道上**悬浮**时出一条半透明虚线（标出光标所在的那一秒），
+   与剪辑针共存 —— 针是点击产物（写数据、会 seek），预览轴是悬浮产物（不写数据、不动播放头、
+   移开即消）。位置换算用 pinMeasure（同一把尺子），**绝不调 pinAtX**（那个会写）。
+   拖把手 / 拖块时（dragBusy）停掉预览轴 —— 那是现成的判据。
+   取图节流 120ms 一次（pointermove 每秒能来几十次）；轴线本身每次都动（只改 style.left）。 */
+function bindPreviewAxis(bar, col, sh) {
+  const axis = bar.querySelector('.tl-pv-axis');
+  if (!axis) return;
+  let lastGrab = 0, hideT = 0;
+  const hide = () => { axis.classList.remove('on'); };
+  const move = e => {
+    if (dragBusy()) { hide(); return; }
+    clearTimeout(hideT);
+    const m = pinMeasure(bar, sh, e.clientX);
+    if (m.why || m.ax == null) { hide(); return; }
+    axis.classList.add('on');
+    axis.style.left = pct(m.box, m.ax) + '%';
+    /* 取那一帧盖到播放器上（节流）：不动 #player、不写 proj.cutAt、不 pause。 */
+    const now = Date.now();
+    if (now - lastGrab > 120) {
+      lastGrab = now;
+      grabPreviewFrame(col, m);
+    }
+  };
+  bar.addEventListener('pointermove', move);
+  bar.addEventListener('pointerleave', () => { hideT = setTimeout(hide, 80); });
+}
+/* 预览图取到就盖在 .sub-wrap 里（与字幕同一层，inset:0 + pointer-events:none，不吃指针）。
+   取不到就什么都不画（轴线照常）—— 不许白屏、不许卡。 */
+function grabPreviewFrame(col, m) {
+  const wrap = col && col.querySelector('.sub-wrap');
+  if (!wrap || !window.MediaBackend) return;
+  const src = m.c && (m.c.url || m.c.src) ? (m.c.url || m.c.src) : null;
+  if (!src) return;
+  const at = Number(m.at) || 0;
+  MediaBackend.grab(src, null, at).then(r => {
+    if (!r || !r.blob) return;
+    const u = URL.createObjectURL(r.blob);
+    const old = wrap.querySelector('.pv-frame');
+    if (old) { try { URL.revokeObjectURL(old.src); } catch (e) {} old.remove(); }
+    const img = document.createElement('img');
+    img.className = 'pv-frame';
+    img.src = u;
+    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;z-index:1';
+    wrap.appendChild(img);
+  }).catch(() => { /* 取帧失败就不显示预览图，轴线照常 */ });
+}
+/* 静音 / 音量（B 的片上控件）：两排共用同一份写入 —— 改的是**那一段**的 vol（segVol 接受 0–2），
+   与「删画面出黑场」的 off 是两件事（off = 画面不进了；静音只是原声不出声）。
+   静音要记住被静音前的值（seg.mutePrev），恢复时回到那个数；缺省 1 不落键（segVol 的口径）。 */
+function segVolWrite(sh, c, total, idx, v) {
+  const list = segsCopy(segsOf(c, total));
+  const s = list[idx];
+  if (!s) return false;
+  s.vol = Math.max(0, Math.min(2, isFinite(Number(v)) ? Number(v) : 1));
+  if (Math.abs(s.vol - 1) < 0.001) delete s.vol;
+  segsWrite(c, total, list);
+  return true;
+}
+function toggleSegMute(sh, c, total, idx) {
+  const list = segsCopy(segsOf(c, total));
+  const s = list[idx];
+  if (!s) return;
+  const cur = segVol(s);
+  if (cur > 0.001) {
+    s.mutePrev = cur;
+    s.vol = 0;
+  } else {
+    s.vol = Math.max(0.01, Math.min(2, Number(s.mutePrev) || 1));
+    delete s.mutePrev;
+    if (Math.abs(s.vol - 1) < 0.001) delete s.vol;
+  }
+  segsWrite(c, total, list);
+  filmEdited();
+}
+function bindSegVolCtl(scope, sh, c, total) {
+  scope.querySelectorAll('[data-segvol]').forEach(b => {
+    b.onclick = ev => {
+      ev.stopPropagation(); ev.preventDefault();
+      toggleSegMute(sh, c, total, Number(b.dataset.segvol));
+    };
+  });
+  scope.querySelectorAll('[data-segvolr]').forEach(r => {
+    r.onpointerdown = ev => ev.stopPropagation();
+    r.onclick = ev => ev.stopPropagation();
+    /* 拖动中只按新音量重画这一条波纹（便宜）；松手（change）才落盘 ——
+       每动一下 input 都 filmEdited 会整排重渲染 + 切片失效，手感直接崩。 */
+    const repaint = () => {
+      const box = r.parentElement, cv = box && box.querySelector('canvas');
+      if (!cv || !drawSegWave || !videoPeaks) return;
+      cv.dataset.vol = r.value;
+      videoPeaks(cv.dataset.wv).then(pk => { if (cv.isConnected) drawSegWave(cv, pk, cv.dataset.a, cv.dataset.b, r.value); });
+    };
+    r.oninput = repaint;
+    r.onchange = () => {
+      if (segVolWrite(sh, c, total, Number(r.dataset.segvolr), Number(r.value))) filmEdited();
+    };
+  });
+}
+
 function renderShotTrack(bar, col, sh, cur) {
   const c = cur || (sh.candidates || []).find(x => x.vid === sh.selId) || (sh.candidates || []).find(x => x.status === 'succeeded');
   if (!c) {
@@ -434,31 +579,71 @@ function renderShotTrack(bar, col, sh, cur) {
   const pps = tlPpsNow(ax);
   const src = candTrackSrc(c);
   const iSel = picSelAt(segs.length);
-  /* 格子按**框** [a,b] 摊在轴上（`start` / `w`，不是按选区）：拖把手时框不动，所以这一格的
-     左右边界与切片画面都不变 —— 变的是框内那两层灰遮罩的宽度（左边那块 = 被切掉的片头，
-     右边那块 = 被切掉的片尾）。选段之间也互不影响：改一段的倍速只挪它后面那些格。
-     切片图也按框取（`data-in/out` = 源秒 a/b）：拖把手改的是选区，帧不需要重新解码。 */
+  /* 格子按**选区** [in,out] 摊在轴上（`start` / `w` = 保留的那一截 ÷ 倍速）：拖把手时这一格当场变窄、
+     后面那些跟着前移，切掉的头尾压根不画 —— 画出来的宽就是它进成片占的宽（与刻度尺、播放头同一把尺子）。
+     框 [a,b] 不再参与排版，只留作「把手往外拖最多恢复到这儿」的上限。
+     切片图也按选区取（`data-in/out` = 源秒 in/out）：拖把手改了选区，松手整栏重画时补的那几帧才是新的头尾。 */
   /* 锁上画面轨 = 把手一颗都不画（不是画出来再禁用）：留一颗拖不动的把手等于
      「看着能点、其实什么都不做」。问的是**这一格自己那一行**（`rowLocked`：整条轨锁着时每一格都锁，
      只锁第 2 行时第 1 行的把手照画），与声音轨那一句走同一份判据。 */
   const cellHTML = r => {
     const s = r.s, i = r.i;
     const picLocked = rowLocked('pic', r.ln);
-    const bw = Math.max(0.01, r.dur);          // 框在**源**里有多长（灰遮罩比的都是它）
     const gone = !!s.off;
     /* 黑场那一格**不解码切片**（画面已经不进了，取帧只是白烧 CPU），但格子本身照原样占着位置 ——
        「点哪个轨道操作哪个轨道」要求它仍然可点、可选、可被「删掉」那颗按钮再点回来。 */
+    /* 图片段与图片区空段（虚拟坐标，见 image-seg.js）：三段形状照旧，只是中带铺**同一张图的定宽磁贴**、
+       下带没有原声。静音钮 / 音量条 / 波纹带一个都不画 —— 静态图没有声音可调；
+       但名称与时长照画，下带用一个等高的占位撑住行高，与视频格三带对齐。 */
+    const isImg = isImageSeg(s);
+    const isVGap = !isImg && isVirtualSeg(s);
+    const vol = segVol(s);
+    const muted = vol <= 0.001;
+    const segN = segs.length;
+    const baseTxt = isImg ? String(s.imgName || '图片') : isVGap ? '空段' : String(sh.name || '镜头');
+    const nmTxt = baseTxt + (segN > 1 ? ' · 第 ' + (i + 1) + ' 段' : '');
+    const durTxt = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(s)) : (round1(segFilmLen(s)) + 's');
+    const imgSrc = isImg ? Api.mediaSrc(s.img) : '';
+    const tip = gone
+      ? '第 ' + (i + 1) + ' 段：' + (isVGap ? '空段' : isImg ? '这张图' : '画面')
+        + '已删掉，成片里这一段出黑场（时长还是 ' + round1(segFilmLen(s)) + ' 秒，后面那段不前移）。想放回来就点上面那颗「恢复这一段画面」'
+      : isImg
+        ? '第 ' + (i + 1) + ' 段：静态图「' + String(s.imgName || '图片') + '」，成片里占 ' + round1(segFilmLen(s))
+          + ' 秒。静态图没有入出点：拖两端的把手改它的时长'
+          + (picLocked ? '（' + rowLockWhy('pic', r.ln) + '，把手不画也拖不动；' + rowUnlockHow('pic', r.ln) + '）'
+            : '；上下拖 = 挪到另一行')
+        : isVGap
+          ? '第 ' + (i + 1) + ' 段：空段，成片里这一段出 ' + round1(segFilmLen(s)) + ' 秒黑场（不吃源）。'
+            + '拖两端的把手改它的时长；点上面那颗「摘掉空段」整段去掉'
+          : '第 ' + (i + 1) + ' 段：这一段用源视频 ' + round1(r.in) + '–' + round1(r.out) + ' 秒，成片里占 '
+            + round1(segFilmLen(s)) + ' 秒（在源里这一段的框是 ' + round1(s.a) + '–' + round1(s.b) + ' 秒，把手往外拖最多恢复到这儿）。点空白处放插针'
+            + (picLocked ? '（' + rowLockWhy('pic', r.ln) + '，把手不画也拖不动；' + rowUnlockHow('pic', r.ln) + '）'
+              : '，拖格子两端的把手把这一段的头/尾切掉（这一格当场变窄、后面那些跟着前移）；上下拖 = 挪到另一行');
+    /* 图片段的中带：同一张图平铺 `imageTileCount` 格（>84px 宽就不止一格）。
+       这几个磁贴**不带 `data-frs`** —— `fillSlices` 只认那一个属性，静态图不该去解码取帧。 */
+    const midBand = gone ? ''
+      : isImg
+        ? `<span class="frs" style="--frs-w:${IMAGE_THUMBNAIL_TARGET_WIDTH}px">`
+          + new Array(imageTileCount(r.w * pps)).fill(0).map(() =>
+            `<i class="fr" style="background-image:url(&quot;${esc(imgSrc)}&quot;)"></i>`).join('')
+          + '</span>'
+        : sliceBoxHTML(src, r.in, r.out, r.w * pps, frameToSrc(r, pinAx));
+    const loBand = gone ? ''
+      : isImg ? '<span class="wv-box"><span class="wv-none">静态图 · 没有原声</span></span>'
+        : `<span class="wv-box">${muted ? '<span class="wv-none">静音</span>'
+          : `<canvas data-wv="${esc(src)}" data-a="${r.in}" data-b="${r.out}" data-vol="${vol}"></canvas>
+             <input class="wv-vol" type="range" min="0" max="2" step="0.05" value="${vol}" data-segvolr="${i}" title="这一段原声的音量（0–200%）">`}</span>`;
     return `
     <div class="tl-seg${i === iSel ? ' sel' : ''}${gone ? ' gone' : ''}" data-seg="${i}"
          style="left:${pct(r.start, ax)}%;width:${pct(r.w, ax)}%"
-         title="${gone ? '第 ' + (i + 1) + ' 段：画面已删掉，成片里这一段出黑场（时长还是 ' + round1(segFilmLen(s)) + ' 秒，后面那段不前移）。想放回来就点上面那颗「恢复这一段画面」'
-           : '第 ' + (i + 1) + ' 段：这一段框住源视频 ' + round1(s.a) + '–' + round1(s.b) + ' 秒；保留 ' + round1(s.in) + '–' + round1(s.out) + ' 秒（' + round1(segFilmLen(s)) + ' 秒）。点空白处放插针'
-           + (picLocked ? '（' + rowLockWhy('pic', r.ln) + '，把手不画也拖不动；' + rowUnlockHow('pic', r.ln) + '）'
-             : '，拖格子两端的把手把这一段的头/尾切掉（灰掉的那块就是被切掉的）；上下拖 = 挪到另一行')}">
-      ${gone ? '' : sliceBoxHTML(src, s.a, s.b, r.w * pps, frameToSrc(r, pinAx))}
-      <span class="mask l" style="width:${pct(s.in - s.a, bw)}%"></span>
-      <span class="mask r" style="width:${pct(s.b - s.out, bw)}%"></span>
-      <span class="lab">${esc(segLabel(i, s))}</span>
+         title="${esc(tip)}">
+      <span class="lab">
+        <span class="lab-name">${esc(nmTxt)}</span>
+        <span class="lab-dur">${esc(durTxt)}</span>
+        ${(gone || isImg || isVGap) ? '' : `<button class="mute${muted ? ' on' : ''}" data-segvol="${i}" title="${muted ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声 —— 与「删画面出黑场」是两件事）'}">${muted ? '静' : '声'}</button>`}
+      </span>
+      ${midBand}
+      ${loBand}
       ${picLocked ? '' : `<span class="cut l" data-seg="${i}" data-edge="l"></span><span class="cut r" data-seg="${i}" data-edge="r"></span>`}
     </div>`;
   };
@@ -487,8 +672,10 @@ function renderShotTrack(bar, col, sh, cur) {
   bindSubLanes(bar, col, false);
   /* 插针最后挂（挂在内容层上，穿过刻度尺 + 画面行 + 声音行）：
      它不属于任何一行，所以行的显隐、锁定都不影响它 —— 收起画面轨时针还得在。 */
-  bar.insertAdjacentHTML('beforeend', `<span class="tl-pin" style="left:${pct(pinAx, ax)}%"></span>`);
+  bar.insertAdjacentHTML('beforeend', `<span class="tl-pin" style="left:${pct(pinAx, ax)}%"></span><span class="tl-pv-axis" id="tlPvAxis"></span>`);
   bar.querySelectorAll('.tl-vrow').forEach(r => { bindSegDrag(r, sh, c, total, G); fillSlices(r); });
+  bindSegVolCtl(bar, sh, c, total);
+  fillSegWaveforms(bar);       // 画面格下带（原声波纹）后台填，不挡轨道出来
   bar.querySelectorAll('.tl-lane').forEach(l => bindVoiceLane(l, { total: ax, G: G }));
   bindPendingLanes(bar, { col, film: false, ax, G, sh, c, total, fallen: sh });
   syncLaneSide(col, bar);        // 左边那一列的轨名跟着行数长（画面几行、配音几行各有各的）
@@ -499,6 +686,8 @@ function renderShotTrack(bar, col, sh, cur) {
      从前那个「取第一行的矩形」直接 bail，于是整块区域点了没有任何反应。
      不依赖 duration 是否已知：钳在 0–total 之间，播放器能跳就跳。 */
   bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
+  bindPreviewAxis(bar, col, sh);
+  bindImageDrop(bar, col, sh);
   paintPin(col, pinAx, ax);
 }
 /* 刻度尺右端那枚读数（#tlT1）= 上面那把尺子的终点，与格子的 `left/width` 同一份账。
@@ -815,17 +1004,15 @@ function filmVoiceHTML(tl, g) {
     if (cl.kind !== 'shot') return;
     shotVoices(cl.shotId, cl.candId).forEach(v => {
       if ((Number(v.seg) || 0) !== (Number(cl.seg) || 0)) return;
-      /* 与「本镜」那一排走同一份折算（`voiceAxBox`）：块在框里的位置 = 选区起点相对框左沿的偏移
-         + 段内偏移（`v.at` 一直是「相对选区起点」的，这个口径从它诞生起就没变过 ——
-         变的是框基之后「格子的起点」怎么算）。
-         这一排的框左沿 = 那一格的轴起点 +（画面选区起点 - 画面框左沿）÷ 倍速 + 配音框的偏移。
+      /* 与「本镜」那一排走同一份折算（`voiceAxBox`）：`v.at` 从它诞生起就是「相对画面选区起点」的秒，
+         而那一格在轴上的起点就是选区左沿（被剪掉的头不再占秒），所以块与格子从同一处起算。
          ⚠ 块宽要过两道折算：`v.dur` 是**音频文件秒**（合成侧 atempo 之前那一段），
          ÷ 自己那一档（`own`）才是源秒，再 ÷ `r.spd` 才是轴秒 —— 合成侧正是
          `atempo = speed × spd`（`v.start` 只按画面倍速折算；句自己的倍速只改念多快、不挪位置）。
          少除 `own` 就是「右栏写着 ×1.5、这一排还按 1× 画长一截」。 */
       const bx = voiceAxBox(r, v);
-      lanePut(per, v, voiceBlockHTML(v, bx.box, bx.sel, ax,
-        '这一段第 ' + round1(bx.box.l - r.start) + ' 秒起，长 ' + round1(bx.dur) + ' 秒', { gray }));
+      lanePut(per, v, voiceBlockHTML(v, bx.sel, ax,
+        '这一段第 ' + round1(bx.sel.l - r.start) + ' 秒起，长 ' + round1(bx.dur) + ' 秒', { gray }));
     });
   });
   const orph = orphanVoices().length;
@@ -836,6 +1023,40 @@ function filmVoiceHTML(tl, g) {
 /* 全片那一排：一格 = 一段画面（一条候选剪出几段就是几格），按成片秒定位。
    与本镜同一套形状：格子两端的把手拖这一格的**源视频**头尾（折算回那一条候选的 segs），
    插针跟着成片秒走，点任意位置把焦点切到那一镜那一段（四把剪子剪的就是它）。 */
+/* 全片排的静音 / 音量：格子上只带 k 与 shot/cand/seg 身份，写入仍走本镜排那一套
+   （toggleSegMute / segVolWrite）—— 两排改的是**同一段数据**，不存在第二套账。 */
+function bindFilmVolCtl(scope) {
+  const findSeg = b => {
+    const sh = (allShots() || []).find(x => x && x.id === b.dataset.shot);
+    if (!sh) return null;
+    const cand = (sh.candidates || []).find(x => x && x.vid === b.dataset.cand);
+    if (!cand) return null;
+    return { sh, cand, total: candDur(cand, sh) };
+  };
+  scope.querySelectorAll('[data-fclipvol]').forEach(b => {
+    b.onclick = ev => {
+      ev.stopPropagation(); ev.preventDefault();
+      const t = findSeg(b);
+      if (t) toggleSegMute(t.sh, t.cand, t.total, Number(b.dataset.fseg));
+    };
+  });
+  scope.querySelectorAll('[data-fsegvol]').forEach(r => {
+    r.onpointerdown = ev => ev.stopPropagation();
+    r.onclick = ev => ev.stopPropagation();
+    const repaint = () => {
+      const box = r.parentElement, cv = box && box.querySelector('canvas');
+      if (!cv || !drawSegWave || !videoPeaks) return;
+      cv.dataset.vol = r.value;
+      videoPeaks(cv.dataset.wv).then(pk => { if (cv.isConnected) drawSegWave(cv, pk, cv.dataset.a, cv.dataset.b, r.value); });
+    };
+    r.oninput = repaint;
+    r.onchange = () => {
+      const t = findSeg(r);
+      if (t && segVolWrite(t.sh, t.cand, t.total, Number(r.dataset.fseg), Number(r.value))) filmEdited();
+    };
+  });
+}
+
 function renderFilmTrack(bar, col, sh) {
   const tl = tlSyncFromShots();
   if (!tl.clips.length) {
@@ -843,14 +1064,14 @@ function renderFilmTrack(bar, col, sh) {
       '<div class="tl-film" data-ln="0"><div class="tl-empty">还没有已选用的镜头：先在候选上点「用这条」，这里才会出现格子。</div></div>');
     return;
   }
-  /* 排版依据 = 各段的**框**（不是成片秒）：剪一段只改它自己框内的灰块，
-     别的格、别的格的切片、刻度尺，一个字节都不动（见 filmFrames 的说明）。 */
+  /* 排版依据 = 各段的**选区**（进成片的那一截 ÷ 倍速）：这一格画出来多宽，它在成片里就占几秒 ——
+     与刻度尺、播放头、配音块同一把尺子。剪一刀改的是这一格的宽与后面每一格的起点（见 filmFrames）。 */
   const G = filmFrames(tl);
   const total = G.total;
   /* 与「本镜」那一排同一份像素/秒：一格的屏上宽度 = r.w（轴秒）× pps，
      切片密度按**轴秒**现算 —— 用 r.dur 会在 spd ≠ 1 时把格子算宽/算窄，密度跟着偏。 */
   const pps = tlPpsNow(total);
-  /* 插针在**这一排的轴秒**上落在哪一格的框里（切片排解码顺序用的热区，见 fillSlices 的 chunkHot）：
+  /* 插针在**这一排的轴秒**上落在哪一格的选区里（切片排解码顺序用的热区，见 fillSlices 的 chunkHot）：
      与下面画格子用的是同一个 filmPinT，不在这里另算一份针的位置。 */
   const pinAx = filmPinT(tl, G);
   const curShotNow = curShot();
@@ -864,39 +1085,63 @@ function renderFilmTrack(bar, col, sh) {
     const cand = target ? tlCandidateOf(target, cl.candId) : null;
     const focus = picSelOn() && !!target && target === curShotNow && Number(cl.seg || 0) === cutSegIdx();
     const nSeg = segsOf(cand, candDur(cand, target)).length;
-    const name = target ? (target.name || '镜头') : (cl.name || '素材');
+    /* 图片段 / 图片区空段：名字不许再念镜头名（那一格已经不是那条视频了）。
+       图片段铺同一张图的定宽磁贴、不出静音钮 / 音量条 / 波纹带（下带用等高占位撑住行高）。 */
+    const isImg = !!cl.img;
+    const isVGap = !isImg && !!cl.gap;
+    const name = isImg ? String(cl.imgName || '图片') : isVGap ? '空段' : (target ? (target.name || '镜头') : (cl.name || '素材'));
     const keep = round1(Math.max(0.05, tlClipDur(cl)));
     const gone = !!cl.gray;
     const tip = (gone ? `第 ${k + 1} 格：${name} 的第 ${(Number(cl.seg || 0) + 1)}${nSeg > 1 ? '/' + nSeg : ''} 段 · 画面已删掉，成片里出 ${keep} 秒黑场（后面那格不前移）`
-      : `第 ${k + 1} 格：${name} 的第 ${(Number(cl.seg || 0) + 1)}${nSeg > 1 ? '/' + nSeg : ''} 段`
-        + ` · 保留 ${keep} 秒（这一段在源里分到 ${round1(r.dur)} 秒，灰掉的部分不进成片）`)
+      : isImg ? `第 ${k + 1} 格：静态图「${String(cl.imgName || '图片')}」的第 ${(Number(cl.seg || 0) + 1)}${nSeg > 1 ? '/' + nSeg : ''} 段 · 成片里占 ${keep} 秒（静态图没有入出点，拖两端把手改时长）`
+        : `第 ${k + 1} 格：${name} 的第 ${(Number(cl.seg || 0) + 1)}${nSeg > 1 ? '/' + nSeg : ''} 段`
+          + ` · 成片里占 ${keep} 秒（源视频 ${round1(r.in)}–${round1(r.out)} 秒；这一段的框是 ${round1(r.a)}–${round1(r.b)} 秒，把手往外拖最多恢复到这儿）`)
         + (picLocked ? '（点一下把焦点切到这里；' + rowLockWhy('pic', r.ln) + '，把手不画、拖不动，顺序也拖不了；'
           + rowUnlockHow('pic', r.ln) + '）'
           : '（点一下把焦点切到这里，四把剪子剪的就是这一条；拖格子两端的把手把这一段的头尾切掉；左右拖这一格 = 把那一镜在成片里挪个先后）');
     /* 格子背景：**每一镜**都铺它自己剪出来的切片图（用户点名「全片剪辑所有镜的切片都应该显示」）。
-       取帧区间 = 这一格的**框**（拖把手不改它）→ 剪一刀不会让整排重新解码。
-       取不到帧的（外链过期 / 没有候选地址）才退回镜头首帧；黑场没有画面。 */
+       取帧区间 = 这一格的**选区**（进成片的那一截）→ 剪一刀之后格子里看到的本来就是成片里看到的；
+       松手整栏重画时补帧（拖动中途只改宽，不重新解码）。
+       取不到帧的（外链过期 / 没有候选地址）才退回镜头首帧；黑场没有画面。
+       图片段不取帧：同一张图按格宽平铺（不带 `data-frs`，`fillSlices` 会跳过它）。 */
     const pic = (!isShot || !cand || !cand.url) ? ((target && target.firstFrame) ? Api.mediaSrc(target.firstFrame) : '') : '';
+    const imgSrc = isImg ? Api.mediaSrc(cl.img) : '';
     const slices = gone ? ''
-      : (isShot && cand && cand.url)
-      ? sliceBoxHTML(candTrackSrc(cand), r.a, r.b, r.w * pps, frameToSrc(r, pinAx))
-      : pic ? `<span class="frs"><i class="fr whole" style="background-image:url(&quot;${esc(pic)}&quot;)"></i></span>` : '';
-    /* 框内两块灰：左边 = 被切掉的片头（选区起点相对框左沿），右边 = 被切掉的片尾 */
-    const masks = isShot
-      ? `<span class="mask l" style="width:${pct(Math.max(0, Number(cl.in) || 0) - r.a, r.dur)}%"></span>`
-        + `<span class="mask r" style="width:${pct(r.b - Math.max(0, Number(cl.out) || 0), r.dur)}%"></span>`
-      : '';
-    /* 把手只画给「有源可拖」的画面格（拖的是框内选区，左右两颗）；外来素材一格都不画。
-       **画面轨锁上时一颗都不画**（与声音轨同一套：锁 = 不画 + 手势拒，不是画出来再禁用） */
+      : isImg ? `<span class="frs" style="--frs-w:${IMAGE_THUMBNAIL_TARGET_WIDTH}px">`
+        + new Array(imageTileCount(r.w * pps)).fill(0).map(() =>
+          `<i class="fr" style="background-image:url(&quot;${esc(imgSrc)}&quot;)"></i>`).join('')
+        + '</span>'
+        : (isShot && cand && cand.url)
+          ? sliceBoxHTML(candTrackSrc(cand), r.in, r.out, r.w * pps, frameToSrc(r, pinAx))
+          : pic ? `<span class="frs"><i class="fr whole" style="background-image:url(&quot;${esc(pic)}&quot;)"></i></span>` : '';
+    /* 把手只画给「有源可拖」的画面格（拖的是这一格的头/尾，左右两颗）；外来素材一格都不画。
+       **画面轨锁上时一颗都不画**（与声音轨同一套：锁 = 不画 + 手势拒，不是画出来再禁用）
+       图片段照样画：它拖的是自己占多久（左右把手都改时长）。 */
     const cuts = (picLocked || !isShot) ? ''
       : `<span class="cut l" data-k="${k}" data-edge="l"></span><span class="cut r" data-k="${k}" data-edge="r"></span>`;
     /* 小字的前半截（名字 + 段号 + 黑场）也记进 `data-lab`：拖把手时只换后半截的「保留秒数」与倍速，
        以前拖动中重写的是一份更短的串，一上手「黑场」前缀与倍速后缀就没了。 */
     const labPre = esc(name) + (nSeg > 1 ? ' ' + (Number(cl.seg || 0) + 1) : '') + ' · ' + (gone ? '黑场 ' : '');
+    /* 三段堆叠（与本镜那一排同形，P9）：名称行 / 切片 / 原声波纹带；片上静音钮 + 音量条同款 */
+    const volF = Number(cl.volume == null ? 1 : cl.volume);
+    const mutedF = volF <= 0.001;
+    const durF = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(keep) : (keep + 's');
+    const wvSrc = (isShot && cand && !isImg) ? candTrackSrc(cand) : '';
+    const loBand = gone ? '' : isImg ? '<span class="wv-box"><span class="wv-none">静态图 · 没有原声</span></span>'
+      : !wvSrc ? '' : `<span class="wv-box">${mutedF ? '<span class="wv-none">静音</span>'
+        : `<canvas data-wv="${esc(wvSrc)}" data-a="${r.in}" data-b="${r.out}" data-vol="${volF}"></canvas>
+           <input class="wv-vol" type="range" min="0" max="2" step="0.05" value="${volF}" data-fsegvol="${k}" data-shot="${esc(cl.shotId || '')}" data-cand="${esc(cl.candId || '')}" data-fseg="${Number(cl.seg || 0)}" title="这一段原声的音量（0–200%）">`}</span>`;
     return `<div class="tl-seg${focus ? ' sel' : ''}${gone ? ' gone' : ''}" data-k="${k}"
          style="left:${pct(r.start, total)}%;width:${pct(r.w, total)}%"
          title="${esc(tip)}">
-      ${slices}${masks}<span class="lab" data-lab="${labPre}">${labPre}${keep}s${r.spd !== 1 ? ' ' + spdTxt(r.spd) : ''}</span>${cuts}</div>`;
+      <span class="lab" data-lab="${labPre}">
+        <span class="lab-name">${labPre}</span>
+        <span class="lab-dur">${durF}${r.spd !== 1 ? ' ' + spdTxt(r.spd) : ''}</span>
+        ${(gone || !isShot || isImg) ? '' : `<button class="mute${mutedF ? ' on' : ''}" data-fclipvol="${k}" data-shot="${esc(cl.shotId || '')}" data-cand="${esc(cl.candId || '')}" data-fseg="${Number(cl.seg || 0)}" title="${mutedF ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声）'}">${mutedF ? '静' : '声'}</button>`}
+      </span>
+      ${slices}
+      ${loBand}
+      ${cuts}</div>`;
   };
   /* 画面轨有几行就摊几行（`r.ln` 读的是那一段上的 `s.ln` —— 与「本镜」那一排同一份数据，
      所以在本镜把某一格挪到第 3 行，切到全片它还在第 3 行）。外来素材没有段可挂，一律第一行。
@@ -909,6 +1154,8 @@ function renderFilmTrack(bar, col, sh) {
   }
   bar.insertAdjacentHTML('beforeend', rulerHTML(total, tlPpsNow(total)));
   bar.insertAdjacentHTML('beforeend', filmHTML);
+  bindFilmVolCtl(bar);
+  fillSegWaveforms(bar);        // 全片排的画面格下带也填（与本镜排同一份画法）
   /* 声音行**无条件画**（用户点名的第 ① 条）：从前这里先看 `voices`，于是「这一片一句配音都没有」
      那一排在界面上根本没有声音轨 —— 针没有可穿的第二行，空白处也无处可点（第 ④ 条要的「点空白 → 生成配音」
      连落点都没有）。本镜那一排本来就是无条件画（见 renderShotTrack），两条轨同一套形状。
@@ -925,13 +1172,14 @@ function renderFilmTrack(bar, col, sh) {
   fillWaveforms(bar);          // 后台填声音轨的波形（不挡轨道出来）
   /* 插针挂在内容层最外面，穿过刻度尺 + 全片行 +（有配音时）声音行 —— 与本镜那一排同一根针的画法。
      放在所有行之后：它不属于任何一行，行的显隐与锁定都不该把它一起收掉。 */
-  bar.insertAdjacentHTML('beforeend', `<span class="tl-pin" style="left:${pct(filmPinT(tl, G), total)}%"></span>`);
+  bar.insertAdjacentHTML('beforeend', `<span class="tl-pin" style="left:${pct(filmPinT(tl, G), total)}%"></span><span class="tl-pv-axis" id="tlPvAxis"></span>`);
   syncTlTools();                 // 统一剪辑条跟着这一排重画（本镜 / 全片都走这一份）
   syncLaneSide(col, bar);        // 左边那一列的轨名跟着行数长（画面几行、配音几行各有各的）
   fillSlices(bar);
   bindFilmDrag(bar, tl, total, G);
   bindFilmReorder(bar, col, tl, total, G);
   bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
+  bindPreviewAxis(bar, col, sh);
   paintPin(col, filmPinT(tl, G), total);
 }
 /* 全片轨的插针落在哪（成片秒）：焦点那一格的起点 + 插针在源里的偏移（按这一格的速度折算）。
@@ -970,10 +1218,9 @@ function filmSeek(tl, tFrame, g) {
   const segs = cand ? segsOf(cand, candDur(cand, target)) : [];
   const si = Math.min(segs.length - 1, Math.max(0, Number(cl.seg) || 0));
   const s = segs[si];
-  /* 框里任何位置都换算得出源秒，**包括被剪掉的头尾（灰区）**——
-     用户点灰区就是要把针放到那儿（用户点名的第 ⑥ 条）。以前这里把它夹回选区，
-     点下去针会自己弹回白区的边上，看着像「灰区点不动」。
-     注意这里放开的只是**针**：真正剪的那一刀仍由 `cutSegs` 管（灰区里切头尾照样会夹/拒并说明原因）。 */
+  /* 轴秒 → 源秒只走 `frameToSrc`，它夹在**选区**里：被剪掉的头尾已经不占轨道上的秒，
+     那一截压根点不到（针落在格子边缘上就是这一格的第一帧 / 最后一帧）。
+     真正剪的那一刀仍由 `cutSegs` 管（切到零长照样会夹并说明原因）。 */
   const tSrc = frameToSrc(r, tFrame);
   return { clip: cl, row: r, start: r.start, target: target, cand: cand, ci: ci, segs: segs, si: si, s: s,
     at: round1(tSrc) };
@@ -1032,14 +1279,15 @@ function filmApplyAt(col, tl, tFrame, opts) {
   scheduleSave();
 }
 /* 全片轨的把手：拖的是**这一格的源视频头尾**（折算回那一条候选的 segs）。
-   拖动期间只改框内那两块灰与那行小字 —— 格子的位置与宽度由**框**定，把手不改框，
-   所以别的格一格都不挪位（松手才写数据、才整栏重画）。
+   拖动期间这一格当场变窄 / 变宽，它后面每一格在轴上跟着挪 —— 松手才写数据、才整栏重画。
    ⚠ 与「本镜」那一排同一条纪律：拖动全程不碰剪针（`dragBusy()` 期间针本来就该站着）。 */
 function bindFilmDrag(scope, tl, total, g) {
   const G0 = g || filmFrames(tl);
-  /* 拖动中只重画**框内的两块灰**与那行小字 —— 格子的 left/width（由框定）、别的格、
-     整排切片，一个字节都不动。这正是「剪一段不影响别的段」在全片轨上的落点。
-     ⚠ 格子按行分在好几个 `.tl-film` 里，DOM 顺序不再等于格号，所以只能按 `data-k` 找回节点。 */
+  /* 拖动中就地重画：每一格的 `left` 与**被拖那一格**的 `width`（其余格的宽不由这次手势决定）。
+     只动 inline style，不销毁节点，手指底下那一枚还在原处；切片不重新解码，松手整栏重画时补帧。
+     ⚠ 格子按行分在好几个 `.tl-film` 里，DOM 顺序不再等于格号，所以只能按 `data-k` 找回节点。
+     分母仍是**拖动前**的总长 `total`：中途刻度尺不动，格子在右端溢出一点，
+     比整排跟着尺子抖要好；松手重画一次就对上了。 */
   const repaint = () => {
     const G2 = filmFrames(tlSyncFromShots());
     const cells = {};
@@ -1047,23 +1295,32 @@ function bindFilmDrag(scope, tl, total, g) {
     G2.rows.forEach(r => {
       const cell = cells[r.k];
       if (!cell) return;
-      /* 画面格的把手**不改框**（拖的是框内选区），所以这一支一格的位置与宽度都不重摆 ——
-         只跟着改框内那两块灰与那行小字。 */
-      const bw = Math.max(0.01, r.dur);
-      const ml = cell.querySelector('.mask.l'), mr = cell.querySelector('.mask.r');
-      if (ml) ml.style.width = pct(Math.max(0, Number(r.cl.in) || 0) - r.a, bw) + '%';
-      if (mr) mr.style.width = pct(r.b - Math.max(0, Number(r.cl.out) || 0), bw) + '%';
-      const lab = cell.querySelector('.lab');
-      /* 拖动中只换「保留几秒」；倍速这一段不变，照旧带在尾巴上（`data-lab` 里已有名字/段号/黑场）。 */
-      if (lab && lab.dataset.lab) {
+      cell.style.left = pct(r.start, total) + '%';
+      cell.style.width = pct(r.w, total) + '%';
+      /* 拖动中只换「这一格占几秒」（只动时长那一格：整行写会把静音钮写掉）。 */
+      const labD = cell.querySelector('.lab .lab-dur');
+      if (labD) {
         const sp = Number(r.spd) || 1;
-        lab.textContent = lab.dataset.lab + round1(Math.max(0.05, tlClipDur(r.cl))) + 's' + (sp !== 1 ? ' ' + spdTxt(sp) : '');
+        const keep2 = Math.max(0.05, tlClipDur(r.cl));
+        labD.textContent = ((window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(keep2) : round1(keep2) + 's') + (sp !== 1 ? ' ' + spdTxt(sp) : '');
+      } else {
+        const lab = cell.querySelector('.lab');
+        if (lab && lab.dataset.lab) {
+          const sp = Number(r.spd) || 1;
+          lab.textContent = lab.dataset.lab + round1(Math.max(0.05, tlClipDur(r.cl))) + 's' + (sp !== 1 ? ' ' + spdTxt(sp) : '');
+        }
       }
     });
   };
   scope.querySelectorAll('.cut').forEach(el => {
     const edge = el.dataset.edge;
-    el.title = edge === 'l' ? '拖动设置这一段的开头（灰掉的那块就是被切掉的）' : '拖动设置这一段的结尾（灰掉的那块就是被切掉的）';
+    const r0 = G0.rows[Number(el.dataset.k)];
+    const imgEdge = !!(r0 && r0.cl && r0.cl.img);
+    el.title = imgEdge
+      ? (edge === 'l' ? '拖左把手改这张图从哪儿开始（时长跟着变）' : '拖右把手改这张图占多久')
+      : (edge === 'l'
+        ? '拖这里改这一段的开头：向右把片头剪掉，向左放回来（最多回到源视频 ' + round1(r0 ? r0.a : 0) + ' 秒）'
+        : '拖这里改这一段的结尾：向左把片尾剪掉，向右放回来（最多回到源视频 ' + round1(r0 ? r0.b : 0) + ' 秒）');
     el.addEventListener('pointerdown', e => {
       e.stopPropagation(); e.preventDefault();
       const r = G0.rows[Number(el.dataset.k)];
@@ -1074,15 +1331,46 @@ function bindFilmDrag(scope, tl, total, g) {
       if (!cand) return;
       const cTotal = candDur(cand, target);
       const segIdx = Math.min(segsOf(cand, cTotal).length - 1, Math.max(0, Number(r.cl.seg) || 0));
+      const isImg = isImageSeg(segsOf(cand, cTotal)[segIdx]);
       const before = segsCopy(segsOf(cand, cTotal));   // 拖动之前的那一份（配音要按它还原绝对秒）
       const rect = scope.getBoundingClientRect();
       const move = ev => {
         /* 指针 → 框基秒 → 这一格里的**源秒**（框的左沿 + 框内偏移），再夹在框里：
            拖不出这一格分到的那一块，所以相邻格永远不会叠在一起。 */
-        const tFrame = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width))) * total;
-        const tSrc = frameToSrc(r, tFrame);
+        const k = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
         const list = segsCopy(segsOf(cand, cTotal));
         const seg = list[segIdx]; if (!seg) return;
+        if (isImg || isImageSeg(seg)) {
+          /* 图片段没有「框内选区」：它的坐标就是虚拟秒，左把手改起点、右把手改终点，两头一起决定时长。
+             下限夹在视频总长之外（`segsOf` 认虚拟坐标的判据是 `a ≥ total + 0.05`），
+             并与前后虚拟段留 0.02 秒的缝 —— 两张图的坐标不许叠在一起，插针才有唯一答案。 */
+          const raw = round1(r.a + (k * total - r.start) * (Number(r.spd) || 1));
+          const T = Math.max(0.1, Number(cTotal) || 0);
+          if (edge === 'l') {
+            let lo = round1(T + 0.1);
+            for (let j = 0; j < segIdx; j++) {
+              if (isVirtualSeg(list[j])) lo = Math.max(lo, round1((Number(list[j].b) || 0) + 0.02));
+            }
+            const a2 = round1(Math.max(lo, Math.min(raw, seg.b - SEG_MIN)));
+            seg.a = a2; seg.in = a2;
+          } else {
+            let hi = Infinity;
+            for (let j = segIdx + 1; j < list.length; j++) {
+              if (isVirtualSeg(list[j])) { hi = round1((Number(list[j].a) || 0) - 0.02); break; }
+            }
+            const lo = round1(seg.a + SEG_MIN);
+            const b2 = round1(Math.max(lo, Math.min(isFinite(hi) ? hi : lo + 600, raw)));
+            seg.b = b2; seg.out = b2;
+          }
+          cand.segs = list;
+          repaint();
+          return;
+        }
+        /* 指针 → 这一格里的**源秒**：锚在拖动前那一格的「轴起点 + 选区起点」上，按倍速摊开。
+           向左 extrapolate 落在选区之外就是往外恢复被剪掉的片头，所以只夹到**框** `[a,b]` 那一层 ——
+           拖不出这一格分到的那一块，相邻格永远不会叠在一起。
+           （不能用 `frameToSrc`：它夹在选区里，剪过一刀之后把手再也拖不回去。） */
+        const tSrc = round1(Math.max(r.a, Math.min(r.b, r.in + (k * total - r.start) * (Number(r.spd) || 1))));
         if (edge === 'l') seg.in = Math.max(seg.a, Math.min(tSrc, seg.out - SEG_MIN));
         else seg.out = Math.min(seg.b, Math.max(tSrc, seg.in + SEG_MIN));
         cand.segs = list;                     // 拖动期间只动 segs（trimS/trimE 在松手时统一回写）
@@ -1113,7 +1401,7 @@ function bindFilmDrag(scope, tl, total, g) {
    不同镜头的顺序」）。改的只有 `projOf().filmOrder` 这一份覆盖清单 —— 分镜表里镜头的先后不动，
    所以左栏的场景与镜头列表、AI 分镜的落点都不会被一次剪辑拖乱。
    拖动中途只画一根「插到这儿」的竖线，不重排格子：整栏重画会把手指底下的节点销毁（这是旧病）。
-   松手才写数据并走 `filmEdited()`（整栏重画 + 说一句「盘上那份是旧的」，不自动跑 ffmpeg）。
+   松手才写数据并走 `filmEdited()`（整栏重画 + 说一句「盘上那份是旧的」，不自动合成）。
    一镜有几段就一起走（格子按段摊开，但顺序是**按镜**记的）；贴在某一镜后面的黑场跟着那一镜走
    （它在 clips 里就锚在那一镜之后）；**那一格所在的那一行**锁着时这个手势一个字都不接
    （与把手、换行、本镜那一排同一份判据 `rowLocked`）。

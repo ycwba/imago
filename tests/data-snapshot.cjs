@@ -2,7 +2,7 @@
 /* 用户数据基线 —— 跑法：`node tests/data-snapshot.cjs [--write]`
    只记录每个目录的文件数 / 总字节 / 聚合 SHA，不记录文件名，避免把用户数据带进仓库。
    --write 写 tests/data-baseline.json；不带参数时与基线比对（只读，不修改）。
-   ⚠ 写入型 / 读真实 .data/.assets/.renders 的判据：不进 all.cjs 的并发池（AGENTS §13.2 的
+   ⚠ 写入型 / 读真实 .data/.renders 与库根本体的判据：不进 all.cjs 的并发池（AGENTS §13.2 的
    串行白名单点名了这一份），只手工跑（AGENTS §13.3）。
    以前 2.3s，慢点在「一个线程逐文件 readFileSync + sha256」——真实资产库 ~800MB
    就是 CPU 墙。现在逐文件的读与哈希分给 worker_threads 池（默认 min(4, 核数)），主线程只按
@@ -18,7 +18,20 @@ const { Worker } = require('worker_threads');
 const root = path.resolve(__dirname, '..');
 const BASE = path.join(__dirname, 'data-baseline.json');
 const WRITE = process.argv.includes('--write');
-const DIRS = ['.data', '.assets', '.renders'];
+/* 盯哪几块数据：
+     · `.data` —— 设置、任务记录、本机资产**账**（.data\local-assets\）；
+     · `.renders` —— FCPXML 媒体包；
+     · 库根那一份**产物本体**（默认 系统下载\拾帧，在仓库外）—— 基线里只记「库根」这一个标签，
+       不把用户的绝对路径写进仓库（这一份文件是要提交的）。
+   以前第三块是项目里的 `.assets\`：本体现在住在库根的类型子目录里（AGENTS §1），
+   所以盯的必须是搬完之后的那一个根 —— 「整目录没了」在这里照红，那是用户产物消失的信号。 */
+const { localRootOf } = require('../server/local-root.js');
+const LIB_LABEL = '库根';
+const DIRS = new Map([
+  ['.data', path.join(root, '.data')],
+  ['.renders', path.join(root, '.renders')],
+  [LIB_LABEL, localRootOf(root, path.join(root, process.env.DATA_DIR || '.data'))],
+]);
 /* 少于这么多文件就不值得起 worker 池（启动 + 通信开销约 80-120ms 就能盖过收益）。 */
 const PARALLEL_MIN_FILES = 12;
 
@@ -83,8 +96,7 @@ async function hashParallel(files) {
   return results;
 }
 
-async function snapshot(dir) {
-  const rel = path.relative(root, dir).replace(/\\/g, '/');
+async function snapshot(label, dir) {
   const files = walk(dir).sort();
   const h = crypto.createHash('sha256');
   let bytes = 0;
@@ -96,11 +108,11 @@ async function snapshot(dir) {
     h.update(r + '\0' + len + '\0');
     h.update(Buffer.from(sha, 'hex'));        // 与旧版 update(digestBuffer) 逐字节等价
   }
-  return { dir: rel, files: files.length, bytes, sha256: h.digest('hex') };
+  return { dir: label, files: files.length, bytes, sha256: h.digest('hex') };
 }
 
 (async () => {
-  const entries = await Promise.all(DIRS.map(async d => [d, await snapshot(path.join(root, d))]));
+  const entries = await Promise.all([...DIRS].map(async ([label, dir]) => [label, await snapshot(label, dir)]));
   const cur = Object.fromEntries(entries);
   console.log(JSON.stringify(cur, null, 2));
   if (WRITE) {
@@ -110,9 +122,9 @@ async function snapshot(dir) {
     let old = null;
     try { old = JSON.parse(fs.readFileSync(BASE, 'utf8')).dirs; } catch (e) {}
     let bad = 0;
-    for (const d of DIRS) {
+    for (const d of DIRS.keys()) {
       const a = old && old[d], b = cur[d];
-      if (!a) { console.log('  - ' + d + ' 无基线'); continue; }
+      if (!a) { console.log('  - ' + d + ' 无基线（第一次跑，或这一块是刚纳入盯的）'); continue; }
       if (a.sha256 !== b.sha256 || a.files !== b.files || a.bytes !== b.bytes) {
         bad++;
         console.log('  ✗ ' + d + ' 变了：' + a.files + '→' + b.files + ' 个文件，' + a.bytes + '→' + b.bytes + ' 字节');

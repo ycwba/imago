@@ -38,9 +38,14 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 .chars-page .grid.view-list { display: flex; flex-direction: column; gap: 10px; }
 .chars-page .card { overflow: hidden; position: relative; display: flex; flex-direction: column; }
 .chars-page .card .thumb { height: 150px; background: var(--thumbbg); display: flex; align-items: center; justify-content: center;
-  overflow: hidden; cursor: zoom-in; }
+  overflow: hidden; cursor: zoom-in; position: relative; }
 .chars-page .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .chars-page .card .thumb .none { color: var(--sub); font-size: 12px; text-align: center; line-height: 1.6; padding: 0 10px; }
+/* 报错盖在图上（卡面减法后错误原因不再单占一栏）：与「正在出」同一个位置，
+   状态样式不新增第二套 —— .why 那套字色 / 间距照旧，只加一层覆盖定位。 */
+.chars-page .card .thumb .thumb-why { position: absolute; inset: auto 0 0 0; max-height: 70%; overflow: auto;
+  background: color-mix(in srgb, var(--panel) 88%, transparent); padding: 4px 6px; cursor: default; }
+.chars-page .card .thumb .thumb-why .why { font-size: 11px; line-height: 1.45; color: var(--err); }
 /* 有预览图时这一格是「看大图」，没有时是「自己挑一张」—— 两种手感要看得出来 */
 .chars-page .card .thumb[data-a="pickface"] { cursor: copy; }
 .chars-page .card .body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 6px; }

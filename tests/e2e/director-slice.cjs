@@ -32,13 +32,18 @@ const h = require('./harness.cjs');
     });
 
     /* 装闸：从导入之前就一律失败，保证缓存里一张帧都没有，剪辑模式那一排必定留占位。
-       只换 `Wb.vframe.meta` —— 切片与首帧缩略图共用这一份，测的就是那条共用的流水线。 */
+       两条链的入口一并换掉：主链 `MediaBackend.frames`（mediabunny 批量取帧）与兜底
+       `Wb.vframe.meta`（<video> 池第一步问元数据）—— 两链都能独立出图，只堵一条堵不死。 */
     const armed = await page.eval(() => {
       const V = window.Wb && window.Wb.vframe;
       if (!V || typeof V.meta !== 'function') return { err: '页面没有 Wb.vframe.meta，制造不出解码失败' };
+      const M = window.MediaBackend;
+      if (!M || typeof M.frames !== 'function') return { err: '页面没有 MediaBackend.frames，制造不出解码失败' };
       window.__realMeta = V.meta.bind(V);
+      window.__realFrames = M.frames.bind(M);
       window.__sabHits = 0;
       V.meta = () => { window.__sabHits++; return Promise.reject(new Error('探针：这一阵解码一律失败')); };
+      M.frames = () => { window.__sabHits++; return Promise.reject(new Error('探针：这一阵解码一律失败')); };
       return { ok: true };
     });
     if (armed.err) throw new Error(armed.err);
@@ -106,7 +111,8 @@ const h = require('./harness.cjs');
       const d = await page.eval(id => {
         const c = window.WBBridge.get('director').context();
         const row = (c.候选 || []).find(x => x.id === id) || {};
-        return { 闸被叫过: window.__sabHits, 闸还在: String(window.Wb.vframe.meta).slice(0, 24),
+        return { 闸被叫过: window.__sabHits, 闸还在: String(window.Wb.vframe.meta).slice(0, 24)
+            + ' / frames=' + String(window.MediaBackend.frames).slice(0, 24),
           格子: document.querySelectorAll('.tl-vrow i.fr').length, 满: document.querySelectorAll('.tl-vrow i.fr[style]').length,
           暂停: String(window.__directorSlicePaused ? window.__directorSlicePaused() : '(没有这个口子)'),
           在看: c.当前候选, 这一条: row.状态 + ' / 选用=' + row.选用 + ' / 当前=' + row.当前,
@@ -116,9 +122,10 @@ const h = require('./harness.cjs');
     });
     const broken = await page.eval(tiles);
     const restored = await page.eval(() => {
-      if (!window.__realMeta) return { err: '没有装回 meta 的把手' };
+      if (!window.__realMeta || !window.__realFrames) return { err: '没有装回解码入口的把手' };
       window.Wb.vframe.meta = window.__realMeta;
-      delete window.__realMeta;
+      window.MediaBackend.frames = window.__realFrames;
+      delete window.__realMeta; delete window.__realFrames;
       return { ok: true };
     });
     if (restored.err) throw new Error(restored.err);

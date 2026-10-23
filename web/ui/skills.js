@@ -115,44 +115,6 @@
     return d || { files: [] };
   }
 
-  /* 旧版设置页手改过的 sk_polish_<kind> → 用户 Skill（.skills/legacy-<kind>）。
-     迁移成功才删旧键；装不上就原样留着并报出来，绝不半途丢掉用户的文字。 */
-  var KIND_CONTRACT = {
-    video: 'polish.video', img: 'polish.image', audio: 'polish.voice', follow: 'polish.follow',
-    story: 'story.json', split: 'split.json', board_edit: 'board_edit.json', img_split: 'img_split.json',
-    char_image: 'char.image.json', char_voice: 'char.voice.json',
-  };
-  var ALL_PAGES = ['director.html', 'studio.html', 'chars.html', 'assets.html', 'favorites.html', 'settings.html', 'usage.html'];
-  async function migrateLegacyPrompts() {
-    var TA = window.TextAI;
-    if (!TA || !TA.PROMPTS) return { moved: 0, skipped: ['文字 AI 模块没加载'] };
-    var moved = 0, skipped = [];
-    var groups = TA.PROMPTS || [];
-    for (var gi = 0; gi < groups.length; gi++) {
-      var items = (groups[gi] && groups[gi].items) || [];
-      for (var ii = 0; ii < items.length; ii++) {
-        var it = items[ii];
-        var key = TA.promptKey(it.key);
-        var text = '';
-        try { text = localStorage.getItem(key) || ''; } catch (e) { text = ''; }
-        if (!text.trim()) continue;
-        var contract = KIND_CONTRACT[it.key];
-        if (!contract) { skipped.push(it.key); continue; }
-        var id = 'legacy-' + String(it.key).replace(/_/g, '-');
-        var fm = '---\nid: ' + id + '\nname: 旧版：' + String(it.label || it.key).replace(/[\r\n]/g, ' ')
-          + '\ndescription: 从旧版设置页迁移的手改提示词\ntriggers: []\npages: [' + ALL_PAGES.join(', ')
-          + ']\ncontract: ' + contract + '\nversion: 1\n---\n\n' + text + '\n';
-        try {
-          await install([{ path: 'SKILL.md', text: fm }], { enable: true });
-          try { localStorage.removeItem(key); } catch (e) {}
-          moved++;
-        } catch (e) { skipped.push(it.key + '（' + errText(e) + '）'); }
-      }
-    }
-    if (moved) { invalidate(); await prime(); }
-    return { moved: moved, skipped: skipped };
-  }
-
   /* 页面 + 触发词匹配：enabled、页面在 pages 里（或没写 pages），且正文里有一个触发词。
      返回按触发词命中数排序的元数据；真正加载全文由 activeFor 做。 */
   function match(items, page, text) {
@@ -179,13 +141,37 @@
     var cjk = (t.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
     return cjk + Math.ceil((t.length - cjk) / 4);
   }
-  var SKILL_BUDGET = 3000;
+  var SKILL_BUDGET = 2000;
+  /* 预算拆两份额度（§13.4）：预载那份走系统提示词（最多 2 份，SKILL_BUDGET 是它的 token 总闸）；
+     回合内按需读的走工具结果，另有 ON_DEMAND_BUDGET —— 不拆的话预载两份就把额度占满，
+     助手自己选的那份根本拿不到预算。 */
+  var ON_DEMAND_BUDGET = 1000;
 
   /* 助手一轮用哪几份：最多两份、一份 contract 只取第一个。加载失败的那份跳过并返回原因。
+     opts.pinned = 用户点名钉死的那几个 id —— **指定优先、自动补位**（只钉一份 → 第二份按
+     触发词自动补；钉了两份就都不换 —— 给「我不喜欢它自己选」留一档）。
      返回的 body 已经是**预算内**的正文（不是原始全文）；truncated/truncatedChars 供界面与回合记录明示。 */
   async function activeFor(page, text, opts) {
     var items = await list();
-    var picked = match(items, page, text).slice(0, 2);
+    var pinned = [];
+    var pinSeen = {};
+    (Array.isArray(opts && opts.pinned) ? opts.pinned : []).forEach(function (id) {
+      var k = String(id || '');
+      if (k && !pinSeen[k]) { pinSeen[k] = 1; pinned.push(k); }
+    });
+    var picked = [];
+    var usedIds = {};
+    /* 指定优先：钉死的那几个先占名额（不再按触发词排序） */
+    for (var p = 0; p < pinned.length && picked.length < 2; p++) {
+      var pm = null;
+      for (var q0 = 0; q0 < items.length; q0++) { if (items[q0].id === pinned[p]) { pm = items[q0]; break; } }
+      if (pm && !usedIds[pm.id]) { picked.push(pm); usedIds[pm.id] = 1; }
+    }
+    /* 自动补位：剩余名额按触发词命中顺序补 */
+    var auto = match(items, page, text);
+    for (var ak = 0; ak < auto.length && picked.length < 2; ak++) {
+      if (!usedIds[auto[ak].id]) { picked.push(auto[ak]); usedIds[auto[ak].id] = 1; }
+    }
     var usedContracts = {};
     var out = [];
     for (var i = 0; i < picked.length; i++) {
@@ -249,8 +235,9 @@
 
   window.WbSkills = { list: list, full: full, readFile: readFile, files: files,
     install: install, importBundle: importBundle, update: update, setEnabled: setEnabled,
-    remove: remove, exportOne: exportOne, migrateLegacyPrompts: migrateLegacyPrompts,
-    match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL };
+    remove: remove, exportOne: exportOne,
+    match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL,
+    estTokens: estTokens, SKILL_BUDGET: SKILL_BUDGET, ON_DEMAND_BUDGET: ON_DEMAND_BUDGET };
   window.__skillBodies = window.__skillBodies || {};
   /* shell 里紧跟 ui.js 加载；不抢首屏，但要在第一次润色之前把正文备好。 */
   setTimeout(function () { prime(); }, 700);

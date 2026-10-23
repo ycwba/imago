@@ -1,24 +1,24 @@
 {
   "version": 1,
-  "at": "2026-10-21T02:58:44.597Z",
+  "at": "2026-10-23T17:01:09.435Z",
   "dirs": {
     ".data": {
       "dir": ".data",
-      "files": 135,
-      "bytes": 775301,
-      "sha256": "05015d427d0cb8f25231253e7f5d23861212582a90b82fa8d5ddfdf21cf1e663"
-    },
-    ".assets": {
-      "dir": ".assets",
-      "files": 362,
-      "bytes": 668544260,
-      "sha256": "5ec4be05daf3cdcf0a56b909dd6cc8719ab78d839516df8d4df13587c4a05b40"
+      "files": 310,
+      "bytes": 28033294,
+      "sha256": "a2e73d893362f2ddb87a8769aa4d84ae6ac606ffaa9ce073cad2d16b5aba951f"
     },
     ".renders": {
       "dir": ".renders",
-      "files": 46,
-      "bytes": 164823674,
-      "sha256": "82279eb4f807a820badfa1aaef7c6cd32c09888b86e87afa826908c893b4fbda"
+      "files": 77,
+      "bytes": 225834938,
+      "sha256": "52e39f56ab1b09d746fd682ca83e363180e1d77d92aeae48101d2fdd2eb12fc4"
+    },
+    "库根": {
+      "dir": "库根",
+      "files": 558,
+      "bytes": 756397519,
+      "sha256": "eea72aeb12a47032290e042d1a6c601a03cea9740ed3d259ff67e1fde6bb2373"
     }
   }
 }

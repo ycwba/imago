@@ -73,7 +73,7 @@ function createOutboundRoutes(ctx) {
       let localEnt = localAssetEntry(m[1]);
       let localF = localFileFromEntry(localEnt);
       /* 索引里没有（被挤出上限）或文件被删：这是「真要取这一份」的入口，才做一次补建。
-         普通读路径不补建 —— 那会让每个不存在的 id 都扫一遍 .assets（轮询会放大）。 */
+         普通读路径不补建 —— 那会让每个不存在的 id 都扫一遍库根（轮询会放大）。 */
       if (!localF) {
         const repaired = localAssetRepair(m[1]);
         if (repaired) { localEnt = repaired; localF = localFileFromEntry(repaired); }

@@ -21,25 +21,30 @@ const STRICT = process.argv.includes('--strict');
 const BASE = path.join(__dirname, 'metrics-baseline.json');
 const LINE_LIMIT = 1500;          // 「单文件行数」判据线
 const GROWTH_PCT = 5;             // 「总量相对基线」判据线
-const EXCLUDE_DIRS = new Set(['tests', 'docs', '_backup', '.git', 'node_modules', 'prompts', '文件', '.shots', '.data', '.assets', '.renders', 'render', 'tools']);
-const EXCLUDE_FILES = new Set(['vue.runtime.esm-browser.prod.js']);
+/* `design/` 是设计提案目录（design/preview/SPEC.md 自述：四版静态预览稿，不被 shell.html / web/ 引用、
+   不进构建、不进运行时），和 docs / tools 同一类 —— 拿它算源码体积只会把判据线越推越松。 */
+const EXCLUDE_DIRS = new Set(['tests', 'docs', '_backup', '.git', 'node_modules', 'prompts', '文件', '.shots', '.data', '.assets', '.renders', 'render', 'tools', 'design']);
+/* vendored 第三方（本地带上、运行时零构建）：压过的产物不是我们的代码，不参与行数判据 */
+const EXCLUDE_FILES = new Set(['vue.runtime.esm-browser.prod.js', 'mediabunny-aac-encoder.min.js']);
 const EXTS = new Set(['.js', '.html', '.css']);
 
 /* 超大文件登记表（只许减不许增，理由与 static-guards 的表同一套语义）：
    「一个文件 1500 行」这条以前只是文档里的一句话，所以谁都能再往下写。
    每张卡都有一句话说明为什么今天还留着、以及要往哪儿收 —— 写不出原因的就不该登记，该拆。 */
 const BIG_FILES = [
-  { file: 'web/director/engine.js', max: 5292, why: 'AGENTS.md §17 已决定：剪辑交互与预览引擎保持命令式，engine.js 是全站最大文件（「单文件 < 3k」不适用于它）。十一块热路径已按域搬到 web/director/engine/<域>.js，这里只剩状态、接线与 DOM 装配；13071 → 5292 是那一轮搬家的实测，再涨一行要说明为什么不能进已有域模块' },
-  { file: 'web/director/engine/panel.js', max: 2078, why: '从 engine.js 整块搬出的右栏（剪辑/生成/字幕/台词四档 + 弹层接线），搬时不改逻辑，所以体积原样保留；要收就得把每一档拆成一张表' },
-  { file: 'web/director/engine/track.js', max: 1644, why: '从 engine.js 搬出的轨道渲染与拖动（候选条 / 两条待生成轨 / 把手拖动外壳）。1644 行里含把手拖动那份，dup-guard 登记的另两份（chat.js / workbench.js）向它收敛之后这里也该跟着薄' },
-  { file: 'web/features/chat.js', max: 3266, why: '曾经的巨型闭包之一（助手）：工具循环与动作目录已拆去 chat-tools.js，这里只剩外壳 / 会话 / 渲染 / 发送循环；3243 → 3266 是收「流式中断落盘」那一条的代价' },
-  { file: 'web/features/chat-tools.js', max: 2558, why: '从 chat.js 拆出的工具循环与动作目录（TOOLS / ACTS / 形状表 / 注册表装配）；再拆就按「生成 / 素材 / 时间线 / 画布」各自成表' },
-  { file: 'web/domain/api.js', max: 1870, why: '按 window 面拆开的取数层：Api + 媒体地址/状态归类/统一取数的顶层函数。1735 → 1870 是「发送前的请求预览」（buildBody / preview，与 create 同源）落在这一层；再拆就把「媒体地址」单独切一块（workbench 也读它）' },
-  { file: 'web/pages/settings.js', max: 3873, why: '每个供应商的面板都写在一个页面文件里（型号表拆开后这里也该跟着薄）。3852 → 3873 是设置页导航与查找那轮的落点：5 颗组锚点、组内二级行、行级命中与「N 处命中」计数、回车定位都只能长在这一页；普通设置行的重复字段收成了 SET_ROWS 一行一条，组名单也不再手抄（读模板里那一节标题）。再涨就要先把「供应商与密钥」那张卡搬成子模块' },
-  { file: 'web/pages/studio.js', max: 3166, why: '曾经的巨型闭包之三（工作台页面侧装配）：卡片界面已挪到 ui/workbench，剩下的表单与生成流程待拆。3187 → 3166 是删掉那份没人调用的单任务 adoptTask（认领只有 adoptTasks 一条，批量版把同供应商合成一次 pollMany）之后的实测' },
-  { file: 'web/ui/workbench.js', max: 2786, why: '工作台卡片/灯箱/批量条：与 assetlib 同批收敛；卡片动作条与重试锁收敛在此，重登现状，只许往下走' },
-  { file: 'web/domain/chars.js', max: 2339, why: '角色域：拆 Chars 时要把界面挪回页面' },
-  { file: 'web/pages/chars.js', max: 2007, why: '角色页：与上一份是同一个域的两半，收敛时一起薄' },
+  { file: 'web/director/engine.js', max: 5389, why: 'AGENTS.md §17 已决定：剪辑交互与预览引擎保持命令式，engine.js 是全站最大文件（「单文件 < 3k」不适用于它）。十一块热路径已按域搬到 web/director/engine/<域>.js，这里只剩状态、接线与 DOM 装配；5389 是画面格三段式、图片段、字幕 ASR 与拖素材进轨这几处接到 engine 之后的实测，再涨一行要说明为什么不能进已有域模块' },
+  { file: 'web/director/engine/panel.js', max: 2116, why: '从 engine.js 整块搬出的右栏（剪辑/生成/字幕/台词四档 + 弹层接线），搬时不改逻辑，所以体积原样保留；2116 是音色档与字幕精确起止加进来之后。要收就得把每一档拆成一张表' },
+  { file: 'web/director/engine/track.js', max: 1938, why: '从 engine.js 搬出的轨道渲染与拖动（候选条 / 两条待生成轨 / 把手拖动外壳）。1938 行里含把手拖动那份（本镜与全片两排字幕也共用同一套手势）与待生成轨自己那套拖影；dup-guard 登记的另两份（chat.js / workbench.js）向它收敛之后这里也该跟着薄' },
+  { file: 'web/director/engine/lanes.js', max: 1512, why: '时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染都在这一份，三段式画面格（名称行 + 切片 + 原声波纹带）也落在它里面。刚过 1500 线：再涨先想清楚这一段是不是属于「渲染」而不是「几何」' },
+  { file: 'web/features/chat.js', max: 3817, why: '曾经的巨型闭包之一（助手）：工具循环与动作目录已拆去 chat-tools.js，这里只剩外壳 / 会话 / 渲染 / 发送循环；3817 是球旁浮窗、拖素材引用队列与只读工具接线之后。再涨就先把会话存储与发送循环拆开' },
+  { file: 'web/features/chat-tools.js', max: 2827, why: '从 chat.js 拆出的工具循环与动作目录（TOOLS / ACTS / 形状表 / 注册表装配）；2827 含 task_detail / asset_open / export_list 几条只读工具与两张形状表。再拆就按「生成 / 素材 / 时间线 / 画布」各自成表' },
+  { file: 'web/domain/api.js', max: 1893, why: '按 window 面拆开的取数层：Api + 媒体地址/状态归类/统一取数的顶层函数。1893 是「发送前的请求预览」（buildBody / preview，与 create 同源）与 exportCaps（成片环境现探）落在这一层、「按类型另存」那几条撤走之后；再拆就把「媒体地址」单独切一块（workbench 也读它）' },
+  { file: 'web/pages/settings.js', max: 3820, why: '每个供应商的面板都写在一个页面文件里（型号表拆开后这里也该跟着薄）。3820 是设置页导航与查找、成片环境那一格加进来、「把旧落点那些文件搬进库」那一整格撤掉之后：5 颗组锚点、组内二级行、行级命中与「N 处命中」计数、回车定位、两条通道卡都只能长在这一页；普通设置行的重复字段收成了 SET_ROWS 一行一条，组名单也不再手抄（读模板里那一节标题）。再涨就要先把「供应商与密钥」那张卡搬成子模块' },
+  { file: 'web/pages/studio.js', max: 3199, why: '曾经的巨型闭包之三（工作台页面侧装配）：卡片界面已挪到 ui/workbench，剩下的表单与生成流程待拆。3177 → 3199 是图片卡上「加到时间线」那一枚（跨页只递一次，导演台取走即删）接进来之后的实测；再涨就把三种类型的表单各自成块' },
+  { file: 'web/ui/workbench.js', max: 2717, why: '工作台卡片/灯箱/批量条：与 assetlib 同批收敛；卡片动作条与重试锁收敛在此。2786 → 2717 是取帧那一路收成 window.MediaBackend 的转发壳（`<video>` 只在媒体后端那一份里创建）之后；只许往下走' },
+  { file: 'web/domain/chars.js', max: 2347, why: '角色域：拆 Chars 时要把界面挪回页面；2347 是音色写回与克隆两条路径加进来之后' },
+  { file: 'web/pages/chars.js', max: 2140, why: '角色页：与上一份是同一个域的两半，收敛时一起薄；2140 是素材库体检与批量动作条加进来之后' },
+  { file: 'web/ui/ui.js', max: 1502, why: '公共面这一份（下拉 / 芯片 / 多选 / 格式 / 视图档 / 界面偏好 / 侧栏余额）：弹窗与表单族早先就拆去了 forms.js，剩下的都是跨页共用的面。1502 刚过线，再涨先问这一枚是不是只有一两页在用 —— 是就回页面，不是新公共件' },
 ];
 
 function walk(dir, out = []) {

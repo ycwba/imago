@@ -12,6 +12,9 @@
      G9  localStorage 读写必须在 try 内或经 `window.LS`（隐私模式一读就抛，页面不该各写一层）
      G10 全库只许一处 `createElement('link')`（页面 CSS 注入只剩 page-css.js 一份）
      G11 同一条 CSS 规则只许定义一处（同一选择器 + 同一规则体；页面根类下的覆盖不算）
+     G12 两处 CSP（shell.html 的 meta / static.js 的响应头）都要放行 `'wasm-unsafe-eval'`
+     G13 代理运行时不跑 ffmpeg / ffprobe（转码与取帧都在浏览器里）
+     G16 `createElement('video')` 只许出现在 web/media-backend.js
    存量违例一律**登记在案**（下面的表），基线只许减不许增：新出现一条身份就直接红。
    表是数据表，不是一堆 `|| true`；`GUARD_WRITE=1 node tests/static-guards.cjs` 会按现状重打表，
    收敛之后照抄粘回来即可。
@@ -50,6 +53,8 @@ const G2_CREATE_NO_GUARD = [
    整类收敛，按文件计数；同一文件里新增一条就红。
    原因同一句话（「空 catch 里混着真错误」），只有例外原因不同的才单独写。 */
 const G3_EMPTY_CATCH = [
+  { file: 'web/media-backend.js', max: 2, why: '新增：统一取帧器的 dispose / 兜底失败吞错（解码器释放失败不影响结果）' },
+  { file: 'web/director/engine/lanes.js', max: 1, why: '新增：预览轴取帧失败吞错（不显示预览图，轴线照常）' },
   { file: 'web/features/chat.js', max: 39, why: '存量：助手外壳（会话 / 渲染 / 发送）吞错的一批；工具循环与动作表已拆去 chat-tools.js' },
   { file: 'web/features/chat-tools.js', max: 7, why: '存量：随工具循环与动作表搬过来的一批（拆文件不改行为，逐处补原因或显式处理）' },
   { file: 'web/domain/assetlib.js', max: 7, why: '存量：AssetLib 列表归一化吞错的一批（拆出后只剩列表层与费用）' },
@@ -152,6 +157,24 @@ const G10_LINK_CREATE = [
    自己根类下的覆盖，AGENTS §3.4 允许；真正的坏法是整块规则被复制到第二个文件
    （改一处另一处不变），或同一文件里一字不差写两遍。@keyframes 的 from/to/% 不算选择器。 */
 const G11_DUP_CSS = [];
+/* G14 助手附件不落本机资产库：chat.js 里 Api.saveLocalAsset 的调用数登记为 0
+   （附件字节只活在内存 blob:，不进索引、不出资产库、不额外占磁盘）。 */
+const G14_CHAT_SAVE = [];
+/* G17 素材库页走设计令牌：chars.js 里不许出现裸十六进制色值 —— 探测器**复用 G4 的
+   detectBareHex**（同一个毛病只留一把尺子，不写第二套检测），这一条只是把范围锁到
+   素材库页：G4 的表里有存量登记，G17 的表恒空（chars.js 一处都不许有）。 */
+const G17_CHARS_HEX = [];
+/* G12 两处 CSP 都必须放行 WebAssembly 编译：mediabunny 的解码 / 编码走 wasm，
+   少一处（meta 或响应头）页面一用取帧就整片 CSP 报错。这一条是「缺了就红」，表恒空。
+   两处分别是 shell.html 的 meta 与 server/static.js 下发的响应头 —— 只改一处就是这条判据的现场。 */
+const G12_CSP_WASM = [];
+/* G13 代理运行时不跑外部转码器：取帧、抽音轨、合成成片全在浏览器里（MediaBackend / MediaExport），
+   代理只做取数与落盘。这一条只数**代码**（注释里说「这里不跑 ffmpeg」不算违例）。
+   表恒空 —— 出现任何一条就是「又有人把转码搬回服务端」。 */
+const G13_NO_FFMPEG = [];
+/* G16 `<video>` 解码器只许在 media-backend.js 里造：切片、导出兜底、缩略图全调它的口。
+   别处再造一只就是第二套取帧链（暂停、释放、seek 超时各写一遍，行为迟早漂开）。表恒空。 */
+const G16_VIDEO_CREATE = [];
 
 /* ============================ 探测器 ============================ */
 const ON_EVENTS = 'click|load|error|input|change|submit|focus|blur|keydown|keyup|scroll|toggle|abort|mouseover|mouseout|mousemove|dblclick|contextmenu|paste|copy|cut|wheel|touchstart|touchend|touchmove|pointerdown|pointerup|select|drag|dragstart|dragover|drop|animationend|animationstart|animationiteration|transitionend';
@@ -431,6 +454,48 @@ function detectLinkCreate(file, src) {
   }
   return out;
 }
+/* G12：这两份文件的 CSP 里必须出现 `'wasm-unsafe-eval'`（缺一处就是整片取帧报 CSP 违规）。
+   判据没有「数几处」的语义 —— 有就是过，没有就是红。 */
+function detectCspWasm(file, src) {
+  return /'wasm-unsafe-eval'/.test(src) ? {} : { [file + '#没放行-wasm-unsafe-eval']: 1 };
+}
+/* G13 只数代码：注释里写「这里不跑 ffmpeg」不算违例，字符串里的 `'ffmpeg'` 恰恰就是违例
+   （那正是 spawn 出去的那条命令），所以这一条剥注释、留字符串。 */
+const FFMPEG_WORD = /\bff(?:mpeg|probe)\b/g;
+function detectFfmpeg(file, src) {
+  const code = S.stripComments(src);
+  const n = (code.match(FFMPEG_WORD) || []).length;
+  return n ? { [file]: n } : {};
+}
+/* G16 只数代码：注释里举例说明「不许自己 createElement('video')」不算违例。 */
+const VIDEO_CREATE = /document\.createElement\(\s*['"]video['"]\s*\)/g;
+function detectVideoCreate(file, src) {
+  if (file === 'web/media-backend.js') return {};          // 唯一允许的那一份
+  const out = {};
+  const mask = nonCodeMask(src);
+  let m;
+  VIDEO_CREATE.lastIndex = 0;
+  while ((m = VIDEO_CREATE.exec(src))) {
+    if (mask[m.index]) continue;
+    out[file] = (out[file] || 0) + 1;
+  }
+  return out;
+}
+/* G14 助手附件不落本机资产库：chat.js 里不许再有 Api.saveLocalAsset 的调用。
+   附件字节只活在内存（blob:），不进索引、不出资产库、不额外占磁盘 ——
+   模型读图用 File、视频/音频模型不读、文本只存快照，落盘没有用处。 */
+const SAVE_LOCAL_ASSET = /Api\.saveLocalAsset\b/g;
+function detectChatSaveLocal(file, src) {
+  const out = {};
+  const mask = nonCodeMask(src);
+  let m;
+  SAVE_LOCAL_ASSET.lastIndex = 0;
+  while ((m = SAVE_LOCAL_ASSET.exec(src))) {
+    if (mask[m.index]) continue;
+    out[file] = (out[file] || 0) + 1;
+  }
+  return out;
+}
 /* 样式表全量只在第一次问的时候读一遍：跨文件重复天生要整份语料。 */
 let cssRuleIndex = null;
 function cssFiles() {
@@ -532,6 +597,26 @@ const GUARDS = [
     sources: cssFiles, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
     sample: `.demo-x { color: var(--pri); }\n.demo-y { color: var(--pri); }\n.demo-x { color: var(--pri); }`,
     ok: `.demo-x { color: var(--pri); }\n.chars-page .demo-x { color: var(--sec); }\n@keyframes demo-spin { from { opacity: 0; } to { opacity: 1; } }` },
+  { key: 'G12', title: "两处 CSP 都放行 'wasm-unsafe-eval'", table: G12_CSP_WASM, kind: 'entries', detect: detectCspWasm,
+    sources: () => ['shell.html', 'server/static.js'], sampleFile: 'shell.html', okFile: 'shell.html',
+    sample: `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">`,
+    ok: `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'">` },
+  { key: 'G13', title: '代理运行时不跑 ffmpeg / ffprobe', table: G13_NO_FFMPEG, kind: 'counts', detect: detectFfmpeg,
+    sources: S.serverSources, sampleFile: 'server/app.js', okFile: 'server/app.js',
+    sample: `const p = spawn('ffmpeg', ['-i', src, out]);`,
+    ok: `const p = spawn(st.bin, ['-m', st.model, '-f', wav]);\n// 注释里说「这里不跑 ffmpeg」不算违例` },
+  { key: 'G16', title: "createElement('video') 只许出现在 media-backend.js", table: G16_VIDEO_CREATE, kind: 'counts', detect: detectVideoCreate,
+    sampleFile: 'web/ui/workbench.js', okFile: 'web/media-backend.js',
+    sample: `const v = document.createElement('video');`,
+    ok: `const v = document.createElement('video');  // 这一份就是唯一允许造解码器的地方` },
+  { key: 'G14', title: '助手附件不落本机资产库（chat.js 里不许有 Api.saveLocalAsset）', table: G14_CHAT_SAVE, kind: 'counts', detect: detectChatSaveLocal,
+    sources: () => ['web/features/chat.js'], sampleFile: 'web/features/chat.js', okFile: 'web/features/chat.js',
+    sample: `Api.saveLocalAsset({ name: 'x.png', data: b64 });`,
+    ok: `const rec = { file: f, src: URL.createObjectURL(f) };  // 附件只活在内存，不落资产库` },
+  { key: 'G17', title: '素材库页走设计令牌（chars.js 里不许有裸十六进制色值）', table: G17_CHARS_HEX, kind: 'counts', detect: detectBareHex,
+    sources: () => ['web/pages/chars.js'], sampleFile: 'web/pages/chars.js', okFile: 'web/pages/chars.js',
+    sample: `el.style.color = '#e06666'; const bg = '#fff';`,
+    ok: `el.style.color = 'var(--err)'; const bg = 'var(--panel)';  // 颜色只取 tokens.css 的变量` },
 ];
 
 /* ============================ 跑 ============================ */

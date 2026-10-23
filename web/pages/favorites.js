@@ -262,6 +262,9 @@ export default {
       await nextTick();
       if (seq !== renderSeq) return;
       bindThumbs();
+      /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。
+         判据用 wantSave 那一份；「存回本机」按钮仍是「立刻取回」用的。 */
+      try { AssetLocal.offerAll(shown, { keyOf: it => it.key }); } catch (e) { /* 补存失败不影响列表 */ }
       resignSome(shown, seq).catch(e => console.warn('[fav] 过期回源失败', e));
     }
 

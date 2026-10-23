@@ -45,7 +45,7 @@ function handleStatic(req, res, ctx) {
     if ((!single && !webTree) || urlPath.includes('..') || /^\/\./.test(urlPath)) {
       res.writeHead(404); res.end('not found'); return true;
     }
-    if (!/\.(html|js|cjs|css|png|jpe?g|webp|gif|svg|ico|json|mp4|webm|woff2?|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|txt)$/i.test(urlPath)) {
+    if (!/\.(html|js|cjs|css|png|jpe?g|webp|gif|svg|ico|json|mjs|mp4|webm|woff2?|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|txt)$/i.test(urlPath)) {
       res.writeHead(404); res.end('not found'); return true;
     }
     if (/^\/(proxy\.(js|log|out\.log)|package(-lock)?\.json|启动\.bat)$/i.test(urlPath)) { res.writeHead(404); res.end('not found'); return true; }

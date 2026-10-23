@@ -4,7 +4,10 @@
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { round1, pct, spdTxt, escHTML } from '../util.js';
-import { SEG_MIN, segLen, segVol, segSpd, segFilmLen, segCarry, segsOf, segsFilmLen, segsCopy, segsWrite, TRACK_LANES_MAX, laneClamp, picLnOf, tlClipDur } from '../segments.js';
+import { SEG_MIN, segLen, segVol, segSpd, segFilmLen, segCarry, segsOf, segsFilmLen, segsCopy, segsWrite, segsPan, TRACK_LANES_MAX, laneClamp, picLnOf, tlClipDur } from '../segments.js';
+import { isImageSeg, isVirtualSeg, imageVirtualBase, imageTailSeg, makeGapSeg, placeImageSeg } from '../image-seg.js';
+import { isGap, linksOf, nextLiveSeg, relinkTargets, setLinks } from '../links.js';
+import { linePointOf, linePointSet } from '../line-point.js';
 import { createTimeline } from '../timeline.js';
 import { voiceRateOf, voiceFrameOf, voiceRuns, makeVoiceAxBox, createVoiceFilm, VOICE_SPD_MIN, VOICE_SPD_MAX } from '../voice-layout.js';
 import { createWaveform } from '../waveform.js';
@@ -39,7 +42,7 @@ export function createTrack(E, document, window) {
   } = E;
 
 /* ============================================================================
-   成片时间线（timeline）—— LLM 剪辑与 ffmpeg 离线导出的数据基础
+   成片时间线（timeline）—— LLM 剪辑与浏览器内离线导出的数据基础
    clip = { id, kind:'shot'|'asset', shotId?, candId?, assetId?, src?, name, in, out, speed, volume, gray? }
      · kind 'shot'  引用某个镜头的候选（可重排、可重复使用、可单独裁剪）
      · kind 'asset' 直接引用资产库素材（按 src 或资产号取用）
@@ -67,14 +70,14 @@ const candDur = (c, sh) => Math.max(0.1, Number(c && c.duration) || Number(sh &&
    「当前工程有哪些镜头、怎么找候选」交给它。 */
 const Timeline = createTimeline({ allShots, tlCandidateOf, candDur });
 const {
-  clipFrame, filmFrames, graySpans, axisGray, filmLayGray, frameToSrc, srcToFrame,
+  filmFrames, axisGray, filmLayGray, frameToSrc, srcToFrame,
   shotFrames, shotRowAt, shotRowOf, shotPinT, shotAxTotal,
 } = Timeline;
 const voiceAxBox = makeVoiceAxBox(srcToFrame);
 const {
   voiceFilmSpan, voiceFilmGap, VOICE_GAP_TXT, voiceFilmWhy, voiceInFilm, VOICE_GAP_FIX, voiceAdoptable,
 } = createVoiceFilm({ filmFrames, tlSyncFromShots: () => tlSyncFromShots(), allShots, voiceAxBox });
-const { voicePeaks, waveformSVG, fillWaveforms } = createWaveform({
+const { voicePeaks, waveformSVG, fillWaveforms, videoPeaks, drawSegWave, fillSegWaveforms } = createWaveform({
   mediaSrc: s => Api.mediaSrc(s),
   voiceOf: id => voicesEnsure().find(x => x.id === id),
 });
@@ -97,20 +100,20 @@ const candSelected = (sh, c) => !!(c && sh && sh.selId === c.vid);
    `[at, at+dur]` 是框内的**选区** = 真进成片的那一截。老数据没有这两个键时按「框 = 选区」现算）。
    `at` 相对**这一段自己**的起点（不是整条候选，也不是整片）：段会被切开、会被裁短，
    锚在段上才能在剪完之后仍然落在原来那句话的位置 —— 这是「本镜剪了、全片跟着变」在声音上的落点。
-   交给 `/render` 时按 `clips[].voices = [{ src, start, dur, vol }]`（start 相对该段起点，
-   代理那侧同一套约定：绝对偏移由那一段的 span 决定，客户端自己加会漂）。 */
+   导出合成按 `clips[].voices = [{ src, start, dur, vol }]` 取（start 相对该段起点；
+   绝对偏移由那一段的 span 决定，调用方自己加会漂）。 */
 function voicesEnsure() { if (!Array.isArray(projOf().voices)) projOf().voices = []; return projOf().voices; }
 const shotVoices = (shotId, candId) => voicesEnsure().filter(v => v.shotId === shotId && (!candId || v.candId === candId));
 const clipVoiceKey = (shotId, candId, seg) => [shotId, candId, seg == null ? 0 : seg].join('|');
 /* 这一段该带上哪几句配音，以及有几句被这一剪挤到了段外面（**不静默丢**：计数交给状态行说）。
    「放不放得下」用的是**源秒**（这一格选区的长度），不是这一段在成片里占的秒数：
-   配音是跟着画面一起变速的（代理那句 `at = offset + start/speed` + `atrim duration = span - start`，
+   配音是跟着画面一起变速的（合成那一侧是 `at = 段起点 + start/speed`、只取 `dur` 这一截，
    span 就是源秒），拿成片秒当上界会让 2 倍速的那一段把后半句误判成「挤不出去」。
    以前这一句要靠调用方把 `tlClipDur(c)` 递进来（倍速恒为 1 时两个数相等，所以没人发现），
    现在上界只有这一处现算 —— 五个调用点都只递那一个 clip。
    这里的 `vol` 是**合成后**的那一个（这一句 × 它所在那一行的基数），六个调用点拿到的都是「进成片的音量」：
-   指纹、预览、逐句导出、`/render` 因此不会再各说一件事（乘算只有 `voiceVolOf` 一份）。
-   `spd` 同一立场：这一句自己的那一档（`voiceRateOf` 一份），代理与预览都从这一处拿，不在调用点各拼一遍。 */
+   指纹、预览、逐句导出、合成因此不会再各说一件事（乘算只有 `voiceVolOf` 一份）。
+   `spd` 同一立场：这一句自己的那一档（`voiceRateOf` 一份），合成与预览都从这一处拿，不在调用点各拼一遍。 */
 /* 这一句压在的那一格**画面段**现在的倍速（回执与右栏那句读数要说这一句在成片里占多久时用）。
    找法与 `voicePinLocal` 的本镜那一支、右栏「这一条上的配音」那一行完全一样：shotId → candId → 段下标。
    ⚠ 它与 `bindVoiceLane` 里那枚局部 `voiceSpdOf` 是两条路：那一枚从**正在画的那一排的行表**里取
@@ -206,8 +209,13 @@ function dragOnWindow(move, up) {
 
 /* 一次段编辑之后把配音重新落到段上：先把旧的相对秒还原成**源视频里的绝对秒**，
    再看这个绝对时刻新落在哪一段。正好被切掉那一句不删 —— 挪到紧随其后的那段开头，
-   并把「挪了几句」照实说（这与「选了却没发」是同一类偏差）。 */
+   并把「挪了几句」照实说（这与「选了却没发」是同一类偏差）。
+   ⚠ 找新段时**跳过空段**（`isGap`）与**图片段 / 图片区空段**（虚拟坐标，不是源秒）：
+     它们的 `in/out` 不在源秒上，落在它们区间里的配音会命中一格没有「源里第几秒」可念的段。
+     跳过的只是 `gap` 与虚拟段，**不是**所有 `off` ——「删掉画面」的黑场今天就允许配音留在原地
+     （成片里被跳过），那件事归联动开关管。 */
 function reanchorVoices(sh, c, oldSegs, newSegs) {
+  const anchorable = s => !!s && !isGap(s) && !isVirtualSeg(s);
   let moved = 0;
   shotVoices(sh.id, c.vid).forEach(v => {
     const os = oldSegs[Math.min(oldSegs.length - 1, Math.max(0, Number(v.seg) || 0))];
@@ -216,16 +224,19 @@ function reanchorVoices(sh, c, oldSegs, newSegs) {
     const abs = os.in + at0;
     if (!newSegs.length) { v.seg = 0; v.at = 0; moved++; }
     else {
-      let ni = newSegs.findIndex(s => abs >= s.in && abs < s.out);
+      let ni = newSegs.findIndex(s => anchorable(s) && abs >= s.in && abs < s.out);
       if (ni < 0) {
-        ni = newSegs.findIndex(s => s.in > abs);
-        if (ni < 0) ni = newSegs.length - 1;
+        ni = newSegs.findIndex(s => anchorable(s) && s.in > abs);
+        /* 后面没有视频段了就落到**最后一段视频**（不是最后一段：最后一段可能是图片）。 */
+        if (ni < 0) {
+          for (let k = newSegs.length - 1; k >= 0; k--) if (anchorable(newSegs[k])) { ni = k; break; }
+        }
         v.at = 0; moved++;
       } else v.at = round1(Math.max(0, abs - newSegs[ni].in));
-      v.seg = ni;
+      v.seg = ni < 0 ? 0 : ni;
     }
     /* 框与选区**一起**平移：画面剪一刀改的是「这一段从源里第几秒开始算」，
-       不是「用户把音频的哪一截盖掉了」—— 框内那两块灰必须原样跟着走。
+       不是「用户把音频的哪一截切掉了」—— 框（把手往外拖的上限）必须原样跟着走。
        （只挪 at 不挪 fa 的话，画面剪一下就把配音的剪辑痕迹抹平了。） */
     const d = (Number(v.at) || 0) - at0;
     v.fa = round1(fr.fa + d); v.fb = round1(fr.fb + d);
@@ -243,8 +254,20 @@ function cutSegs(c, total, at, way) {
   /* 剪一刀要把这一段**自己身上**的四件事一起带走（音量 / 倍速 / 第几行 / 黑场旗标）——
      搬法只有 `segCarry` 一处，见它上面那段「以前每处各漏一两件」。 */
   const keep = o => segCarry(s, o);
+  /* 图片段与图片区里的空段：只有时长、没有「源里的入出点」，剪法按下面三支各走一条。 */
+  const virt = isVirtualSeg(s);
   if (way === 'split') {
     if (at - s.in < SEG_MIN || s.out - at < SEG_MIN) return { err: '插针离这一段的边界不到 0.2 秒，切不开（往中间挪一点再切）' };
+    /* 虚拟段切开的右半段要**换一份新的虚拟坐标**（原来的 a/b 还在左半段手里）：
+       两半仍然各占自己的时长，数组顺序决定谁在前，坐标只负责让插针有唯一答案。 */
+    if (virt) {
+      const tail = isImageSeg(s)
+        ? imageTailSeg(s, at, segs, total)
+        : makeGapSeg(imageVirtualBase(segs, total), s.out - at);
+      if (!isImageSeg(s) && s.ln) tail.ln = s.ln;
+      segs.splice(i, 1, keep({ in: s.in, out: at, a: s.a, b: at }), tail);
+      return { segs, at: Math.min(segs.length - 1, i + 1), pinAt: tail.a };
+    }
     /* 切开 = 把这一段的**框**按切点分成两个框，两段的选区各占一半 ——
        于是切开之后拖任一段的把手都不影响另一段（它们各在自己的框里）。 */
     segs.splice(i, 1, keep({ in: s.in, out: at, a: s.a, b: at }), keep({ in: at, out: s.out, a: at, b: s.b }));
@@ -252,6 +275,8 @@ function cutSegs(c, total, at, way) {
   }
   if (way === 'left') {
     if (s.out - at < SEG_MIN) return { err: '插针后面剩不到 0.2 秒 —— 整段不要就点「删掉这一段」' };
+    /* 虚拟段没有「框内灰区」可留（图 / 空段没有源画面可露）：左剪 = 起点后移、时长缩短。 */
+    if (virt) { segs[i] = keep({ in: at, out: s.out, a: at, b: s.b }); return { segs, at: i }; }
     /* 向左切 = 把这一段的头切掉：选区左沿挪到插针处（夹在框里），**框一个字都不动** ——
        所以轨道上这一格的左边界、宽度，以及别的段的切片，全都不变，只是框内左边多一块灰。 */
     segs[i] = keep({ in: Math.max(s.a, round1(at)), out: s.out, a: s.a, b: s.b });
@@ -259,6 +284,7 @@ function cutSegs(c, total, at, way) {
   }
   if (way === 'right') {
     if (at - s.in < SEG_MIN) return { err: '插针前面不到 0.2 秒 —— 整段不要就点「删掉这一段」' };
+    if (virt) { segs[i] = keep({ in: s.in, out: at, a: s.a, b: at }); return { segs, at: i }; }
     segs[i] = keep({ in: s.in, out: Math.min(s.b, round1(at)), a: s.a, b: s.b });
     return { segs, at: i };
   }
@@ -266,23 +292,73 @@ function cutSegs(c, total, at, way) {
     /* 删掉一段画面 = **留在原位变灰**（成片里出黑场），不是从段列表里摘掉：
        这一段的框、选区、时长一格都不动，后面那些段不前移，锚在它们上面的配音也就不会被无声挪走
        —— 用户点名的「视频片段不消失而是变灰…以确保时间统一」就落在这里。
-       对着已经灰掉的那一段再点一次就是把它放回来（同一颗按钮，按状态改口，见 syncTlTools）。 */
+       对着已经灰掉的那一段再点一次就是把它放回来（同一颗按钮，按状态改口，见 syncTlTools）。
+       ⚠ 空段不走这条路：它是「插进来的一段空」，用「摘掉空段」整段去掉，
+       不许被当成有画面的段来「恢复」（空段本来就没有画面可恢复）。 */
+    if (isGap(s)) return { err: '这是空段，用「摘掉空段」把它去掉' };
     if (s.off) { const o = Object.assign({}, s); delete o.off; segs[i] = o; return { segs, at: i, back: true }; }
     segs[i] = Object.assign({}, s, { off: 1 });
     return { segs, at: i, gray: 1 };
+  }
+  /* 插一段空（`gap`）：轨道上多一格灰格，成片里那几秒是黑的、**占时间**（多出来的，不是从别处挪的）。
+     与 `drop` 的区别见上：`drop` 是「这一格不要画面」（原段不动），`gap` 是「多插一段空」。
+     插针落在段边界 → 段数 +1；落在段中间 → 先按插针切开原段再插空 → 段数 +2。
+     插针落在框内灰头/灰尾（那里本来就没画面）→ 按最近的选区边界插入，不切选区。 */
+  if (way === 'gap') {
+    /* 图片区里没有「视频源秒」：空段接在这一格**后面**，用新的虚拟坐标（占 1 秒，黑场）。
+       插针也要跟着落到它上面（`pinAt`）：留在图片上，下一次「摘掉空段」问的是图片那一格，
+       而图片不是空段 —— 刚插进来的东西当场就够不着了。 */
+    if (virt) {
+      const g = makeGapSeg(imageVirtualBase(segs, total), 1);
+      segs.splice(i + 1, 0, g);
+      return { segs, at: i + 1, gapLen: 1, pinAt: g.a };
+    }
+    const T = Math.max(0.1, Number(total) || 0);
+    const pos = round1(Math.max(0, Math.min(T, at)));
+    let len = 1;
+    if (T - pos < SEG_MIN) return { err: '插针太靠尾，这里剩下不到 0.2 秒，往左挪一点再插空' };
+    len = round1(Math.min(len, T - pos));
+    if (len < SEG_MIN) return { err: '剩下的空间不到 0.2 秒，插不进一段空（往左挪一点再插）' };
+    const gapSeg = { in: pos, out: round1(pos + len), a: pos, b: round1(pos + len), off: 1, gap: 1 };
+    const atIn = Math.abs(pos - s.in) < 0.001;
+    const atOut = Math.abs(pos - s.out) < 0.001;
+    if (atIn || atOut) {
+      segs.splice(atIn ? i : i + 1, 0, gapSeg);
+      return { segs, at: atIn ? i : i + 1, gapLen: len };
+    }
+    if (pos > s.in + 0.001 && pos < s.out - 0.001) {
+      segs.splice(i, 1, keep({ in: s.in, out: pos, a: s.a, b: pos }), gapSeg, keep({ in: pos, out: s.out, a: pos, b: s.b }));
+      return { segs, at: i + 1, gapLen: len, splitForGap: 1 };
+    }
+    /* 框内灰头 / 灰尾：按最近的选区边界插，不切选区（再切只会多出一段 0.2 秒的碎片）。 */
+    const near = Math.abs(pos - s.in) <= Math.abs(pos - s.out) ? i : i + 1;
+    segs.splice(near, 0, gapSeg);
+    return { segs, at: near, gapLen: len };
+  }
+  /* 摘掉空段（`close`）：只接受 `off && gap` 的段，整段 splice 掉 →
+     后面的段前移、成片里那几秒消失。「删掉画面」的黑场（`off && !gap`）不许走这条路。 */
+  if (way === 'close') {
+    if (!isGap(s)) return { err: s.off ? '这一段是「删掉画面」的黑场，不是空段：要恢复画面点「删掉」，要缩短请用把手' : '这一段有画面，不是空段' };
+    segs.splice(i, 1);
+    return { segs, at: Math.max(0, Math.min(segs.length - 1, i)), closed: 1 };
   }
   /* 融合：把插针这一段与它**右边**挨着的那一段合回一段（右边不行再试左边）。
      判据是「本来就是一刀切开、之后没再动过」—— 两段的**框**挨着（x.b === y.a）、
      且**选区**也接得上（x.out === y.in）。合成一段后框与选区都是并集，
      于是留下的东西与切开之前一模一样（这正是用户要的「再融合」）。
      ⚠ 中间被剪掉过一截的两段不许融：一段只有一个框、一个选区，接不上的话
-       并集会把用户故意切掉的那一截**悄悄加回来**（静默改动画面 = 最坏的一种）。 */
+       并集会把用户故意切掉的那一截**悄悄加回来**（静默改动画面 = 最坏的一种）。
+     ⚠ 空段不许融：空段没有画面，融进有画面的段等于把一段空悄悄塞进画面里。 */
   if (way === 'merge') {
     if (segs.length === 1) return { err: '这一条只有一段，没有可融合的相邻段' };
     const near = (a, b) => Math.abs(a - b) < 0.011;      // round1 过后同一秒可能差 1 个末位
     for (const p of [[i, i + 1], [i - 1, i]]) {
       const x = segs[p[0]], y = segs[p[1]];
       if (!x || !y) continue;
+      if (isGap(x) || isGap(y)) return { err: '空段不能融合：先摘掉它，再融两边' };
+      /* 两张静态图各占自己的时长，没有「一刀切开的两半」这回事：融合后只剩一张图与一段并集时长，
+         另一张就从成片里消失了 —— 静默丢画面，与「把剪掉的那一截加回来」同一类。 */
+      if (isImageSeg(x) || isImageSeg(y)) return { err: '图片段不合并：静态图各自一段，没有「一刀切开的两半」这回事' };
       if (!near(x.b, y.a) || !near(x.out, y.in)) continue;
       /* 音量不一样就不许融：一段只有一个音量，硬合就得替用户挑一个（或取平均），
          而那是**悄悄改声音** —— 与「把切掉的那一截加回来」同一类。当场说清、让人先调成一样。 */
@@ -316,9 +392,16 @@ function cutPin(c, total) {
   /* 播放器刚建出来时 `currentTime` 是个合法的 0（`isFinite(Number(0))` 恒真），
      以前这里等于永远读播放器，`projOf().cutAt` 的回退一次都轮不到 —— 一进剪辑针就停在 0。
      只认「已经读到元数据、且真的播过/跳过一个非零位置」的那一份。 */
+  /* 夹到这一条的**整把尺子**（视频的 [0,total] 之后还有图片段 / 图片区空段的虚拟秒）：
+     拿 `total` 去夹会把落在图片段上的针推回视频末尾，下一次「切开」就切在别处。 */
+  const max = segsPan(c, total);
+  const saved = round1(Math.max(0, Math.min(max, Number(projOf().cutAt) || 0)));
+  /* 播放器只认视频的源秒：针落在图片段的虚拟秒上时 `currentTime` 根本到不了那儿，
+     读它就是拿一个旧位置去剪图片（点图片、切开 = 切在视频里的某处）。这一支优先读记下的那个。 */
+  if (saved > total + 0.05) return saved;
   const t = (pl && pl.readyState >= 1 && Number(pl.currentTime) > 0)
-    ? Number(pl.currentTime) : (Number(projOf().cutAt) || 0);
-  return round1(Math.max(0, Math.min(total, t)));
+    ? Number(pl.currentTime) : saved;
+  return round1(Math.max(0, Math.min(max, t)));
 }
 /* 一次剪切的唯一出口：算新段 → 写候选 → 配音重新锚定 → 重画 → 一句话说清进不进成片。
    两颗入口（本镜页签、全片页签）都调它，所以「在 A 处剪了 B 处也要变」不是同步逻辑，是根本没有第二份数据。 */
@@ -335,8 +418,40 @@ function applyCut(way) {
   if (r.err) { setStatus('<span class="err">' + r.err + '</span>'); return; }
   const newSegs = segsWrite(c, total, r.segs);
   projOf().cutSeg = Math.max(0, Math.min(newSegs.length - 1, Number(r.at) || 0));
-  projOf().cutAt = at;
+  /* 虚拟段把针一起带走（`pinAt`）：插入的图片区空段落在虚拟坐标的另一头，
+     针留在原地的话，下一次「摘掉空段」指着的是图片那一格。 */
+  projOf().cutAt = r.pinAt != null ? round1(r.pinAt) : at;
   const moved = reanchorVoices(sh, c, oldSegs, newSegs);
+  /* 联动：这次操作让某一段从「有画面」变成 `off:1`（`drop` 的 `gray`）时，
+     被勾选的那几类挪到下一段还有画面的段。`gap` 是新插的空段（插在段中时左右两半各自保留原配音，
+     不需要挪）；`close` 段被摘掉，`reanchorVoices` 已经按绝对源秒重锚，不再二次挪。 */
+  let relinkNote = '';
+  if (r.gray) {
+    const links = linksOf(projOf());
+    if (links.length) {
+      const seg = Number(r.at) || 0;
+      const lnOld = oldSegs[seg], lnNew = newSegs[seg];
+      if (lnOld && lnNew && !lnOld.off && lnNew.off) {
+        const vs = shotVoices(sh.id, c.vid);
+        const lp = linePointOf(sh, newSegs);
+        const tg = relinkTargets({ segs: newSegs, voices: vs, linePoint: lp, links, seg });
+        let vmoved = 0;
+        tg.voices.forEach(x => {
+          const d = (Number(x.v.at) || 0);
+          x.v.seg = x.toSeg; x.v.at = 0;
+          const fr = voiceFrameOf(x.v);
+          x.v.fa = round1(fr.fa - d); x.v.fb = round1(fr.fb - d);
+          vmoved++;
+        });
+        if (tg.line) linePointSet(sh, tg.line.toSeg, tg.line.toAt, newSegs);
+        if (vmoved || tg.line) {
+          relinkNote = '；联动：' + (vmoved ? '挪了 ' + vmoved + ' 句配音' : '')
+            + (vmoved && tg.line ? '、' : '')
+            + (tg.line ? '台词落点挪到第 ' + (tg.line.toSeg + 1) + ' 段开头' : '');
+        }
+      }
+    }
+  }
   const left = round1(segsFilmLen(c, total));
   /* 「删掉」现在不删段：段还留在原位，只是打上黑场旗标（时长与后面的段一个都不动 ——
      这正是用户要的「时间统一」）。所以这句回执不能说「删掉了」，得说清「成片里出黑、后面的段不前移」，
@@ -350,14 +465,49 @@ function applyCut(way) {
       : '这一段画面删掉了（格子还在原位，成片里出 ' + fmtDur(round1((newSegs[grayIdx] || {}).out || 0) - round1((newSegs[grayIdx] || {}).in || 0)) + ' 黑场，后面的段一个都不前移'
         + (underGray ? '；压在这上面的 ' + underGray + ' 句配音照放，音轨上那几截已变色' : '') + '）')
     : way === 'merge' ? '已把这两段融合回一段'
+    : way === 'gap' ? ('插了 ' + fmtDur(r.gapLen || 1) + ' 空' + (r.splitForGap ? '（原段已按插针切开）' : ''))
+    : way === 'close' ? '已把这段空摘掉（成片里那几秒消失，后面的段前移）'
     : '已取消裁剪';
   const inFilm = candSelected(sh, c);
   setStatus((inFilm ? '<span class="ok">✓ ' : '')
     + what + '：这一条现在 ' + newSegs.length + ' 段、共 ' + fmtDur(left)
     + (inFilm ? '，左栏时长与全片跟着变' : '，但这一条还没被选用，成片仍按选用的那条算')
     + (moved ? '；有 ' + moved + ' 句配音正好被切掉，已挪到紧随其后的那段开头' : '')
+    + relinkNote
     + (inFilm ? '</span>' : ''));
   filmEdited();
+}
+/* 把一张图片放进画面轨（拖素材到画面轨 / 图片产物上「加到时间线」的唯一落点）。
+   图片段与视频段同一份 `c.segs`：本镜 / 全片两排、播放、导出、FCPXML 读的都是它。
+   落点 = 传进来的那一秒（拖放处）或插针所在处；插在接住这一秒的那一格**之后**。
+   插入会让后面每一段的下标整体后移，所以配音要按**源秒**重锚、台词落点要跟着平移 ——
+   少做一件，插一张图就把台词与配音挪到下一段去了。 */
+function addImageToTrack(spec) {
+  const src = String((spec && spec.src) || '').trim();
+  if (!src) { setStatus('<span class="err">这张图没有可用的素材地址，放不进轨道</span>'); return null; }
+  const sh = curShot();
+  if (!sh) { setStatus('<span class="err">先挑一个镜头，再把图片放进它的画面轨</span>'); return null; }
+  const cands = sh.candidates || [];
+  const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
+  if (!c) { setStatus('<span class="err">这一镜还没有候选：图片段挂在候选自己的段列表上，先生成或导入一条视频</span>'); return null; }
+  const total = candDur(c, sh);
+  const oldSegs = segsOf(c, total);
+  const at = spec && isFinite(Number(spec.at)) ? Number(spec.at) : cutPin(c, total);
+  let index = oldSegs.length;
+  for (let k = 0; k < oldSegs.length; k++) if (at < oldSegs[k].b) { index = k + 1; break; }
+  const lp = oldSegs.length ? linePointOf(sh, oldSegs) : null;
+  beginEdit('插入图片');
+  const placed = placeImageSeg(oldSegs, total, { src: src, name: spec && spec.name, dur: spec && spec.dur, index: index });
+  const newSegs = segsWrite(c, total, placed.segs);
+  reanchorVoices(sh, c, oldSegs, newSegs);
+  if (lp && sh.lineAt != null && lp.seg >= placed.index) linePointSet(sh, lp.seg + 1, lp.at, newSegs);
+  projOf().cutSeg = placed.index;
+  projOf().cutAt = round1(placed.seg.a);
+  setStatus('<span class="ok">✓ 已把「' + escHTML(String((spec && spec.name) || '图片')) + '」插到第 '
+    + (placed.index + 1) + ' 格（' + round1(placed.seg.b - placed.seg.a)
+    + ' 秒；拖这一格的右把手改时长，静态图没有原声也没有倍速）</span>');
+  filmEdited();
+  return placed;
 }
 /* ============================================================================
    统一剪辑条 —— 画面段与配音句共用这一排按钮
@@ -535,7 +685,7 @@ function rowFlagToggle(k, ln, what, col) {
 /* 一条轨上第 ln 行的基数（默认 1，**只有 ≠1 才占一个键**，与段上的 vol/spd 同一记账）。
    它与片段音量是**乘算**不是覆盖 —— 「这一行压到 60%」之后某一格单独调到 100%，进成片仍是 60%，
    而那一格被调到 50% 时是 30%。两级各有出口，乘算只有下面 `picVolOf` / `voiceVolOf` 两处。
-   夹回 0–200% 也只做这一处：`TlPlay.setPlan`、`filmFingerprint`、`/render` 拿到的必须是同一个数，
+   夹回 0–200% 也只做这一处：`TlPlay.setPlan`、`filmFingerprint`、合成拿到的必须是同一个数，
    夹在下游就会出现「指纹说变了、听着没变」与反过来的那种。
    ⚠ 行数可以有很多行（用户点名的「配音 / 视频都要无限多条轨道」），所以基数是**按行**记的，
    不是按整轨记的：只有一行时两者本来就是同一件事，多行时「整轨调音量」会把人刚调好的那一行盖掉。 */
@@ -578,11 +728,13 @@ function voiceLanePlan(vLike, narrow) {
     const r = voiceBoxRowOf(v);
     if (!r) return null;
     const bx = voiceAxBox(r, v);
-    return { ln: voiceLn(v), l: bx.box.l, w: bx.box.w };
+    /* 抢行看的是**画出来的那一段**（选区），不是句自己的框：拖把手把块剪窄之后，
+       让开的正是剪掉那几秒所在的行 —— 按框算会把已经空出来的地方当成还占着。 */
+    return { ln: voiceLn(v), l: bx.sel.l, w: bx.sel.w };
   }).filter(Boolean);
   const r = voiceBoxRowOf(vLike);
   const bx = r ? voiceAxBox(r, { at: Number(vLike && vLike.at) || 0, dur: Math.max(0.05, Number(vLike && vLike.dur) || 0) }) : null;
-  const target = bx ? { l: bx.box.l, w: narrow ? 0.01 : bx.box.w } : null;
+  const target = bx ? { l: bx.sel.l, w: narrow ? 0.01 : bx.sel.w } : null;
   const plan = pickVoiceLane(items, target, rows, TRACK_LANES_MAX);
   return { ln: plan.ln, needNewRow: plan.needNewRow, why: plan.why, rows: rows };
 }
@@ -795,7 +947,7 @@ function setCellLane(sh, cand, segIdx, ln) {
 /* 整条轨的静音（用户点名的第 ② 条：点轨道左边那枚音量图标切静音）。
    与音量是**两件事**：静音不动任何一级音量（段 / 句自己的 vol 与行基数原样留着），
    取消静音就回到原样；乘算只在 `picVolOf` / `voiceVolOf` 两处，所以预览、指纹、
-   `/render` 三处读到的是同一个数。只有 true 才占键（与 vols / hides / locks 同一记账）。 */
+   合成三处读到的是同一个数。只有 true 才占键（与 vols / hides / locks 同一记账）。 */
 const laneMute = k => {
   const o = projOf() && projOf().lane && projOf().lane[k];
   return !!(o && o.mute);
@@ -1013,7 +1165,7 @@ function applyVoiceCut(way) {
       say(0, '插针在这一句的开头之前 —— 向右切等于整句都不要了，那样请直接点「删掉这一句」'); return;
     }
     v.dur = Math.max(voiceMin(), (loc.at - at0) * own);
-    say(1, '已把这一句的结尾切到插针处（现在长 ' + round1(v.dur) + ' 秒，右边那一截灰掉的不进成片）');
+    say(1, '已把这一句的结尾切到插针处（块当场变窄，现在长 ' + round1(v.dur) + ' 秒，右边切掉的那一截不进成片）');
     filmEdited(); return;
   }
   say(0, '不认识这种剪法');
@@ -1027,6 +1179,12 @@ function runCut(way) {
     const vv = tlVoiceHit();
     if (!vv) { setStatus('<span class="err">现在指着的是画面段，没有可试听的配音：先点轨道上的一句配音</span>'); return; }
     playVoicePreview(vv.id); return;
+  }
+  /* 空段只对画面段有效：配音句没有「插一段空 / 摘掉空段」这两支，
+     必须在转去 applyVoiceCut **之前**拦住 —— 否则会落进配音剪法的「不认识这种剪法」默认分支。 */
+  if ((way === 'gap' || way === 'close') && tlCutTarget() === 'voice') {
+    setStatus('<span class="err">空段只对画面段有效：先点一格画面（或把插针放到画面上）再试</span>');
+    return;
   }
   /* 锁轨是「改不动」的判据，剪辑条与轨上手势问同一个 tlLockWhy()：
      按钮压暗、点下去也照实说原因 —— 只在手势里拒，就会出现「按钮亮着、点了没反应」。 */
@@ -1069,6 +1227,12 @@ function setCutVol(vol) {
   const segs = segsOf(f.c, f.total);
   if (!segs.length) { setStatus('<span class="err">这一条一段画面都没留：按 Ctrl+Z 退回剪切之前，再调音量</span>'); return; }
   const i = Math.min(segs.length - 1, cutSegIdx());
+  /* 图片段没有原声（`segVol` 恒 0），空段也没有画面 —— 写进去也听不出任何区别，
+     回执说「已调」就是一句假话。 */
+  if (isVirtualSeg(segs[i])) {
+    setStatus('<span class="err">' + (isImageSeg(segs[i]) ? '图片段没有原声' : '空段没有画面，也没有原声') + '：这一段没有可调的音量</span>');
+    return;
+  }
   segs[i].vol = vol;
   segsWrite(f.c, f.total, segs);
   const rd2 = document.getElementById('tlVolVal');
@@ -1077,7 +1241,12 @@ function setCutVol(vol) {
   if (pl) { try { pl.volume = Math.min(1, picVolOf(segs[i])); } catch (e) { /* 画面段音量设不上就按原音量继续，不中断 */ } }
   /* 格子分在好几行里之后，DOM 顺序不再等于段号 —— 只能按 `data-seg` 找回那一格的读数。 */
   const lab = document.querySelector('#tlBar .tl-vrow .tl-seg[data-seg="' + i + '"] .lab');
-  if (lab) lab.textContent = segLabel(i, segs[i]);
+  if (lab) {
+    /* 三段结构：只换时长那一格（整行写会把静音钮写掉） */
+    const d2 = lab.querySelector('.lab-dur');
+    if (d2) d2.textContent = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(segs[i])) : (round1(segFilmLen(segs[i])) + 's');
+    else lab.textContent = segLabel(i, segs[i]);
+  }
   setStatus('<span class="ok">✓ 第 ' + (i + 1) + ' 段的原声现在是 ' + Math.round(vol * 100) + '%（'
     + (vol > 1 ? '超过 100% 的部分只在合并成片时生效' : '预览里当场就能听到') + '）</span>');
   filmEdited();
@@ -1141,7 +1310,11 @@ function spdWhy() {
   const why = tlLockWhy();
   if (why) return why + '：倍速不改。' + tlUnlockHow() + '。';
   if (tlCutTarget() === 'voice') return '这一枚调的是画面那一段在成片里占多久：现在指着的是配音那一句，画面那一排整个收起 —— 要改这一句念多快，用「这一句倍速」那一排';
-  if (!cutSpdSeg()) return '这一镜还没有画面段：先生成或导入一条候选，或按 Ctrl+Z 退回剪切之前。';
+  const w = cutSpdSeg();
+  if (!w) return '这一镜还没有画面段：先生成或导入一条候选，或按 Ctrl+Z 退回剪切之前。';
+  const s = w.segs[w.i];
+  if (isImageSeg(s)) return '这一格是图片段：静态图没有倍速，它占多久就是它自己的时长 —— 拖这一格的右把手改';
+  if (isVirtualSeg(s)) return '这一格是空段：没有画面就没有倍速，它多长由插空时定下，要改就摘掉重插一段';
   return '';
 }
 /* 倍速的唯一写点（形状与 setCutVol 一致：先问闸 → 写段 → segsWrite → 读数现画 → filmEdited）。
@@ -1166,6 +1339,11 @@ function setCutSpd(spd) {
    读 `segSpd(seg)` 就等于「手已经拖到 ×2，那行字还写着上一秒的 ×1」，非要人松手才看到对的数。 */
 function segLenText(seg, spd) {
   if (!seg) return '';
+  if (isImageSeg(seg)) {
+    return '这一段：图片「' + String(seg.imgName || '未命名') + '」占 ' + round1(segLen(seg))
+      + ' 秒（拖右把手改时长；静态图没有原声，也没有倍速）';
+  }
+  if (isVirtualSeg(seg)) return '这一段：空段占 ' + round1(segLen(seg)) + ' 秒（成片里出黑场，没有画面与原声）';
   const r = Math.max(0.25, Math.min(4, Number(spd) || 1));
   const ln = picLnOf(seg), base = laneVol('pic', ln);
   const mix = base !== 1 ? ' · 原声进成片 ' + Math.round(picVolOf(seg) * 100) + '%（段 '
@@ -1292,8 +1470,10 @@ function trackEmptyWhy(k) {
     : (film ? '全片那一排此刻没有格子：先在候选上点「用这条」，这一排才会出现画面段。'
       : '这一镜还没有画面段：先生成或导入一条候选，轨道上才有格子可设。');
 }
-/* 这一排此刻画出来的所有段（「整轨倍速」与「整轨音量」共用同一份清单，不按要改哪个字段分两份）。 */
-const trackSegsNow = () => trackSegTargets().reduce((a, t) => a.concat(t.segs), []);
+/* 这一排此刻画出来的所有视频段（「整轨倍速」与「整轨音量」共用同一份清单，不按要改哪个字段分两份）。
+   图片段 / 空段不算：它们没有倍速与原声，算进读数会让整轨那两枚滑块显示「不一 · 2 档」——
+   而那一档根本不是用户调出来的，也调不回去。写回仍走完整的 `t.segs`（见 setTrackSpd）。 */
+const trackSegsNow = () => trackSegTargets().reduce((a, t) => a.concat(t.segs.filter(s => !isVirtualSeg(s))), []);
 /* 「这一排是不是都同一档」只在这一处问：一致返回那一个数，不一致返回 null（读数不能替其中一档代言）。 */
 function trackOne(vals) {
   const u = [];
@@ -1310,9 +1490,12 @@ function setTrackSpd(spd) {
   const v = Math.max(0.25, Math.min(4, Number(spd) || 1));
   let n = 0;
   list.forEach(t => {
-    t.segs.forEach(s => { s.spd = v; n++; });
+    /* 图片段与空段跳过，但**整份列表照旧写回** —— 只把能调的那些递回 `segsWrite`
+       等于把这一条里的图片段整段删掉。 */
+    t.segs.forEach(s => { if (isVirtualSeg(s)) return; s.spd = v; n++; });
     segsWrite(t.c, t.total, t.segs);
   });
+  if (!n) { setStatus('<span class="err">这一排的画面都是图片段或空段：它们没有倍速可调</span>'); return; }
   syncTlTools();
   const word = v > 1 ? '变窄' : v < 1 ? '变宽' : '复原';
   setStatus('<span class="ok">✓ 整条画面轨 ' + n + ' 段（' + list.length
@@ -1384,9 +1567,11 @@ function setTrackVol(vol, lane) {
   if (!list.length) { setStatus('<span class="err">' + trackEmptyWhy('pic') + '</span>'); return; }
   let cnt = 0;
   list.forEach(t => {
-    t.segs.forEach(s => { s.vol = r; cnt++; });
+    /* 同 setTrackSpd：图片段 / 空段没有原声，跳过；列表整份写回，不删段。 */
+    t.segs.forEach(s => { if (isVirtualSeg(s)) return; s.vol = r; cnt++; });
     segsWrite(t.c, t.total, t.segs);
   });
+  if (!cnt) { setStatus('<span class="err">这一排的画面都是图片段或空段：它们没有原声可调</span>'); return; }
   syncTlTools();
   const w = cutSpdSeg();
   const pl = document.getElementById('player');
@@ -1427,7 +1612,10 @@ function paintTlAdjust(v, seg) {
     const sl = nx && nx.querySelector ? nx.querySelector('input') : null;
     if (sl) sl.setAttribute('aria-label', t); };
   const volBox = document.getElementById('tlVolBox');
-  if (seg) {
+  if (seg && isVirtualSeg(seg)) {
+    labOf('tlVolLab', isImageSeg(seg) ? '图片段没有原声' : '空段没有原声');
+    if (volBox) volBox.title = '图片段与空段都没有原声：这一枚不调';
+  } else if (seg) {
     labOf('tlVolLab', '这一段音量');
     if (volBox) volBox.title = '这一段画面的音量（0–200%，无级）：进成片还要乘所在那一行的基数';
   } else if (v) {
@@ -1616,9 +1804,11 @@ function syncTlTools() {
     vol = seg ? segVol(seg) : 1;
     picGray = !!seg && !!seg.off;
   }
+  /* 图片段 / 空段没有原声：音量滑块压暗（与倍速那几枚同一立场，按不动就说得出原因）。 */
+  const silent = !!seg && isVirtualSeg(seg);
   if (listen) listen.hidden = !v;
-  if (box) box.classList.toggle('off', !!tlLockWhy());
-  if (sl) sl.disabled = !!tlLockWhy();
+  if (box) box.classList.toggle('off', !!tlLockWhy() || silent);
+  if (sl) { sl.disabled = !!tlLockWhy() || silent; sl.title = silent ? '图片段 / 空段没有原声：音量不调' : ''; }
   if (sl) sl.value = String(Math.round(vol * 100 * 10) / 10);
   if (rd) rd.textContent = Math.round(vol * 100) + '%';
   /* 右栏那张卡：两枚滑块跟着闸走（锁 / 指着配音 / 没有画面段三种都写得出原因），
@@ -1638,11 +1828,20 @@ function syncTlTools() {
       : picGray ? '把这一段的画面放回来：它现在出黑，格子还留在原位，恢复后按选区出画面'
         : '删掉插针所在的那一段（格子不消失，原地变成黑场占位，后面的段一个都不前移 —— 这一段上的配音照放并在音轨上变色）',
     merge: '把' + who + '与旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）',
+    gap: '在插针处插一段空（轨道上多一格灰格，成片里那几秒是黑的、占时间；与「删掉」不同，这段空可以整段摘掉）',
+    close: '把选中的空段整段摘掉（成片里那几秒消失，后面的段前移）',
   };
+  /* 空段那一支只对**画面段**目标开（配音句没有「插空 / 摘空」两支）；
+     「摘掉空段」只在当前选中的段真的是空段时可见（`isGap`）——
+     显隐只在 syncTlTools 一处，别处不许再改一遍。 */
+  const isVoiceTarget = !!v;
+  const segIsGap = !!seg && isGap(seg);
   document.querySelectorAll('#tlTools [data-cut]').forEach(b => {
     const k = b.dataset.cut;
     if (tips[k]) b.title = tips[k];
     if (k === 'play') b.title = '试听' + who + '（听的就是留在成片里的那一段）';
+    if (k === 'gap') b.hidden = isVoiceTarget;
+    if (k === 'close') b.hidden = isVoiceTarget || !segIsGap;
     /* 指着黑场那一段时「删掉」这颗改口成「恢复画面」：段并没有被删（还在原位、只是出黑），
        再写「删掉」就是界面在撒谎，而它同时是用户把画面找回来的唯一出口。
        带图标的按钮**不能用 textContent 改字**（那会把里面那枚 svg 一起抹掉），整段重画。 */
@@ -1678,6 +1877,9 @@ function syncTlTools() {
     voiceFilmWhy,
     voiceAdoptable,
     fillWaveforms,
+    videoPeaks,
+    drawSegWave,
+    fillSegWaveforms,
     voiceBlockHTML,
     cutSegIdx,
     curSegOf,
@@ -1715,6 +1917,7 @@ function syncTlTools() {
     voiceSplitByMaterial,
     voiceMergeAll,
     setCellLane,
+    addImageToTrack,
     laneMute,
     trackOwnVol,
     laneMuteToggle,

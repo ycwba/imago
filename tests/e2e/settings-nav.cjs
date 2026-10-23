@@ -161,40 +161,55 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       '落定之后二级行不是这一组的栏目（要再滚一点才变就是这条）：'
       + JSON.stringify(j2.settled.sub) + ' vs ' + JSON.stringify(j2.want));
 
-    /* ---------- B2：搜索 → 行级命中 → 回车定位 → 高亮自清 → Esc 清空 ---------- */
+    /* ---------- B2：搜索 → 行级命中 → 回车定位 → 高亮自清 → Esc 清空 ----------
+       落点认的是**页面自己闪的那一行**（.set-flash）：那才是它真正滚过去的目标。
+       判「第一处 .set-hit」会被藏在没打开的档里的那一行骗过去（v-show 的子树 rect 全 0，
+       滚不动、屏幕上也没有，界面却写着「命中 5 行」）。 */
     const b2 = await page.eval(async () => {
       const q = document.querySelector('.set-nav input[type=search]');
-      q.value = 'ffmpeg';
+      q.value = '缓存';
       q.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise(r => setTimeout(r, 800));
       const hits = [...document.querySelectorAll('.settings-page .set-hit')];
+      const hiddenRows = hits.filter(el => el.offsetParent === null).length;
       const root = document.querySelector('.settings-page');
       const before = root.scrollTop;
       q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await new Promise(r => setTimeout(r, 300));
       const flashNow = document.querySelectorAll('.settings-page .set-flash').length;
+      const target = document.querySelector('.settings-page .set-flash');
       await new Promise(r => setTimeout(r, 1800));
-      const f = document.querySelector('.settings-page .set-hit');
-      const r1 = f.getBoundingClientRect(), rb = root.getBoundingClientRect();
+      const r1 = target ? target.getBoundingClientRect() : null;
+      const rb = root.getBoundingClientRect();
       const nav = document.querySelector('.set-nav').getBoundingClientRect();
       return {
         hitRows: hits.length,
+        hiddenRows,
+        targetText: target ? target.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : '',
+        sum: (document.querySelector('.set-nav-sum') || {}).textContent || '',
         counts: [...document.querySelectorAll('.settings-page .set-hcnt')].map(x => x.textContent.trim()),
         offGroups: document.querySelectorAll('.settings-page .set-group.set-off').length,
         scrolled: root.scrollTop !== before,
-        firstTopUnderNav: r1.top < nav.bottom,
-        firstVisible: r1.top >= rb.top - 4 && r1.bottom <= rb.bottom + 4,
+        targetPainted: !!target && target.offsetParent !== null,
+        underNav: !r1 || r1.top < nav.bottom,
+        firstVisible: !!r1 && r1.top >= rb.top - 4 && r1.bottom <= rb.bottom + 4,
         flashOnEnter: flashNow,
         flashCleared: document.querySelectorAll('.settings-page .set-flash').length,
         navBottom: Math.round(nav.bottom),
+        scrollTop: Math.round(root.scrollTop),
       };
     });
-    must(b2.hitRows > 0, '搜「ffmpeg」一个行级命中都没有（命中要落到 .set-hit 那一行，不是整张卡）');
+    must(b2.hitRows > 0, '搜「缓存」一个行级命中都没有（命中要落到 .set-hit 那一行，不是整张卡）');
     must(b2.counts.length > 0 && b2.counts.some(c => /\d/.test(c)), '命中计数没画出来：' + JSON.stringify(b2.counts));
-    must(b2.scrolled, '回车没有滚到第一处命中');
-    must(!b2.firstTopUnderNav, '第一处命中停在 sticky 导航底下（导航底 ' + b2.navBottom + '，行顶在它上面）—— 滚动没给导航让位');
-    must(b2.firstVisible, '回车之后第一处命中不在可视区里');
     must(b2.flashOnEnter >= 1, '回车后没有短暂高亮（.set-flash 一处都没有）');
+    must(b2.targetPainted, '回车跳到了一行画不出来的命中（在 display:none 的档里，屏幕上什么都没有，'
+      + '落点还被夹回页面顶）：藏着的档里有命中时，跳转要挑画得出来的第一处 —— ' + JSON.stringify(b2.targetText));
+    must(b2.hiddenRows === 0 || /没打开的一档/.test(b2.sum),
+      '有 ' + b2.hiddenRows + ' 行命中藏在没打开的档里，但导航那一行没把它们点名（用户会以为跳过去了）：'
+      + JSON.stringify(b2.sum.trim().slice(0, 140)));
+    must(b2.scrolled, '回车没有滚到第一处可见命中（scrollTop 还是 ' + b2.scrollTop + '）');
+    must(!b2.underNav, '落点那一行停在 sticky 导航底下（导航底 ' + b2.navBottom + '，行顶在它上面）—— 滚动没给导航让位');
+    must(b2.firstVisible, '回车之后落点那一行不在可视区里');
     must(b2.flashCleared === 0, '高亮没有自己清掉，还留着 ' + b2.flashCleared + ' 处');
 
     const esc = await page.eval(async () => {

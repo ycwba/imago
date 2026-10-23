@@ -37,7 +37,7 @@ function createSystemRoutes(ctx) {
   function handleSystem(req, res, urlObj) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
     if (dataPath === '/sys-status') {
-      /* 探测（ffmpeg / ffprobe）走异步 execFile，结果可能是 Promise —— 这里等它回来再回包，
+      /* sysStatus 可能回 Promise（体检里有异步段）—— 等它回来再回包，
          期间事件循环照常服务其它请求；失败也照实回一份 JSON，不让这条路由挂住。 */
       Promise.resolve(sysStatus(req.url.includes('fresh=1'))).then(body => {
         try {

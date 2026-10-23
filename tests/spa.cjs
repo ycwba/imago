@@ -161,8 +161,25 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      ·  +7.7KB（2026-10-22，拖素材到球的引用载荷）：+1 枚 `web/domain/asset-ref.cjs`（UMD .cjs，
        与 ident.cjs 同一套写法）—— 四个拖动源（素材库 / 收藏 / 资产库 / 工作台）与球 / 抽屉两个落点
        都要在 dragstart 那一刻写同一份载荷，而 dragstart 是同步事件，等到拖起来再补载已经晚了；
-       字段白名单与引用标签只有这一份（AGENTS §7 的「拖素材的引用载荷」）。实跑 28 枚 / 809273 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 28, FIRST_SCREEN_MAX_BYTES = 809273;
+       字段白名单与引用标签只有这一份（AGENTS §7 的「拖素材的引用载荷」）。实跑 28 枚 / 809273 字节。
+     ·  +2.2KB（2026-10-22，导出目录）：+1 枚 `web/domain/export-dir.js` —— 浏览器 File System Access
+       的句柄管理（选目录 / 写产物 / 清除），设置页与成片导出两处都要它；导出是**用户手势触发**的
+       当下动作，句柄又存 IndexedDB（`Kv.at('dirs')`），补载那一下的等待会卡在「点导出」的正中间，
+       所以这份不按需。实跑 29 枚 / 810671 字节。
+     ·  +1.3KB（2026-10-22 晚，Skill 13.4 助手自选）：枚数不变，涨的是 `skills.js` ——
+       `activeFor` 加 `opts.pinned`（用户点名指定优先、自动补位）与预算拆两份额度
+       （SKILL_BUDGET 3000→2000 预载 / ON_DEMAND_BUDGET 1000 按需），`estTokens` 导出给
+       chat-tools 的按需预算记账。Skill 是全站共用件（四个页面的润色入口都读它），拆按需会让每页各补一次。
+       实跑 29 枚 / 814346 字节。
+     ·  +1.1KB（2026-10-23，成片环境现探）：枚数不变，涨的是 `api.js` 的 `exportCaps()` ——
+       代理不再转码（没有渲染队列可问），成片能不能导只能由页面问 WebCodecs；设置页与助手的
+       「成片环境」读同一份探测结果，而 api.js 本来就在首屏（余额与列表都在它上面）。
+       实跑 29 枚 / 815511 字节。
+     ·  +0.5KB（2026-10-23，导出选容器）：枚数不变，涨的还是 `api.js` 的 `exportCaps` 读数 ——
+       导出按探针选容器（avc → mp4 / 只有 vp9 → webm，`MediaExport.pickCodec`），
+       读数跟着对齐：补 VP9 分项、只有 vp9 也算「能用」（成片会出 .webm），别在能导的浏览器上喊「不能用」。
+       实跑 29 枚 / 816051 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 817000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);
@@ -291,8 +308,9 @@ for (const f of ['web/app.js', 'web/core/routes.js', 'web/pages/favorites.js', '
 
 /* ---------- 7. 严格 CSP：模板预编译，运行时不再有编译器 ---------- */
 group('§7 严格 CSP / 模板预编译');
-ok('shell 带 script-src \'self\' 且没有 unsafe-eval',
-  /http-equiv="Content-Security-Policy"/.test(shell) && /script-src 'self'/.test(shell) && !/unsafe-eval/.test(shell));
+ok('shell 带 script-src \'self\' 且没有 unsafe-eval（wasm-unsafe-eval 只放行 wasm 编译）',
+  /http-equiv="Content-Security-Policy"/.test(shell) && /script-src 'self'/.test(shell)
+  && !/(?:^|[\s;])'unsafe-eval'/.test(shell) && /'wasm-unsafe-eval'/.test(shell));
 ok('shell 没有内联脚本（CSP 会拦）', !/<script(?![^>]*\bsrc=)[^>]*>/i.test(shell));
 ok('外壳不再引用完整版 Vue（编译器已移除）', !fs.existsSync(path.join(root, 'vue.esm-browser.prod.js')));
 ok('本地 Vue runtime 存在', fs.existsSync(path.join(root, 'vue.runtime.esm-browser.prod.js')));

@@ -269,14 +269,17 @@ class Page {
   async eval(fn, ...args) {
     const expression = typeof fn === 'function' ? '(' + fn.toString() + ')(' + args.map(a => JSON.stringify(a)).join(',') + ')' : String(fn);
     const r = await this.cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.text || 'evaluate 失败');
+    if (r.exceptionDetails) {
+      const d = r.exceptionDetails;
+      throw new Error((d.exception && d.exception.description) || d.text || 'evaluate 失败');
+    }
     return r.result && r.result.value;
   }
-  async waitFor(fn, timeout = 10000, every = 100) {
+  async waitFor(fn, timeout = 10000, every = 100, ...args) {
     const until = Date.now() + timeout;
     let last = null;
     while (Date.now() < until) {
-      try { if (await this.eval(fn)) return true; } catch (e) { last = e; }
+      try { if (await this.eval(fn, ...args)) return true; } catch (e) { last = e; }
       await sleep(every);
     }
     throw new Error('等待超时' + (last ? '：' + last.message : ''));
@@ -350,9 +353,8 @@ class Browser {
 
 /* 真起过一次进程之后，代理日志里不许有「请求处理异常」这一类。
    静态判据看不见「把函数搬进新文件、忘了把配置一起注入」那种改法：语法通、require 得动、
-   路由也挂得上，只有真请求打进去才在 catch 里冒出来（2026-10-20 实测：`render-jobs.js`
-   少注入 `RENDER_QUEUE_MAX`，`/sys-status` 整条 500，设置页健康那一格空转，
-   而 `node tests/all.cjs` 全绿）。探针打过的端点越多，这一条抓到东西的概率越大，
+   路由也挂得上，只有真请求打进去才在 catch 里冒出来（典型样子是 `/sys-status` 整条 500、
+   设置页健康那一格空转，而 `node tests/all.cjs` 全绿）。探针打过的端点越多，这一条抓到东西的概率越大，
    所以每个起过代理的脚本收尾都该调一次。 */
 function logFaults(log) {
   const text = Array.isArray(log) ? log.join('') : String(log || '');

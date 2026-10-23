@@ -105,7 +105,8 @@ const SplitAssets = {
     (Array.isArray(raw) ? raw : []).forEach(t => {
       const s = String(t == null ? '' : t).trim().replace(/^@+/, '');
       if (!s) return;
-      const x = byKey.get(nameKey(s));
+      const arr = byKey.get(nameKey(s));
+      const x = Array.isArray(arr) ? arr[0] : arr;   // 同名多条取第一条（AI 报名字的解析兜底）
       if (!x) { unknown++; return; }
       const k = nameKey(x.name);
       if (!seen.has(k)) { seen.add(k); picked.push(x); }
@@ -174,7 +175,8 @@ const SplitAssets = {
         /* 占位符（`待建:名字`）：还没有图可挂 —— 跳过，但数出来报给调用方
            （界面上要让人知道「这几条还得先出图」）。 */
         if (PLACEHOLDER_RE.test(nm)) { r.pending++; return; }
-        const x = byKey.get(nameKey(nm));
+        const arr = byKey.get(nameKey(nm));
+        const x = Array.isArray(arr) ? arr[0] : arr;   // 同名多条取第一条（AI 报名字的解析兜底）
         if (!x) return;
         const id = nameKey(nm) + '·' + nameKey(note);
         if (done.has(id)) return;

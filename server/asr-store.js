@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { writeJsonWithBak } = require('./fs-atomic.js');
 
-const ROUTES = new Set(['auto', 'local', 'service']);
+const ROUTES = new Set(['auto', 'browser', 'local', 'service']);
 const JOB_KEEP = 60;
 const SEG_MAX = 20000;
 

@@ -348,16 +348,58 @@ function topBoolValue(decl, on) {
 
   /* ---------- 本机环境（/sys-status）：一份取法、一份说法 ----------
      两个地方问的是同一件事：设置页「本机环境」那一栏、助手的 doctor。
-     各写一遍就会出现「设置页说能用、助手说不能用」，探测参数也会走样 ——
-     它要在本机起子进程跑 ffmpeg -version，慢机器上几秒不够，而且**不许重试**（同一次体检打两遍）。 */
+     各写一遍就会出现「设置页说能用、助手说不能用」；**不许重试**（同一次体检打两遍会让代理等两次）。 */
   const SYS_WHY = {
-    ffmpeg: '导演台「导出成片 / 导出素材」靠本机 ffmpeg 把时间线拼起来、把配音混进视频；没装时生成照常能走，到导出那一步才拦。'
-      + '要修：装好 ffmpeg（ffmpeg.exe 与 ffprobe.exe 放在同一个目录），把那个目录加进系统 PATH，'
-      + '用启动器重启一次代理，回来点「重新体检」。',
-    ffprobe: '量每一段素材的真实秒数（剪辑的出点与这一段有没有原声都按它判）；没有它成片时间会漂。'
-      + '要修：它与 ffmpeg 同一个安装包里，确认 ffprobe.exe 和 ffmpeg.exe 在同一个目录、且那个目录在 PATH 里。',
     健康: '代理进程自己有没有出过错。它按设计不会为了一次异常退出（本地工具不该打断使用），所以这一格说「出过」的时候，出路只有一条：在启动器点「重启」。重启后这份账清零；页面本身就是这台代理发出来的，不能在这一页重启它。',
   };
+  /* ---------- 浏览器内导出的能力（WebCodecs）：一份探测、一份说法 ----------
+     成片与素材都在页面里逐帧合成（MediaExport），
+     所以「这台机器能不能出片」取决于**这个浏览器**有没有 WebCodecs 与 H.264 编码器 ——
+     只有页面问得出来。设置页那一栏与助手的 doctor 都读这一份，不再各探一遍。 */
+  let _capsP = null;
+  function exportCaps(fresh) {
+    if (fresh) _capsP = null;
+    if (_capsP) return _capsP;
+    _capsP = (async () => {
+      try {
+        if (!window.MediaBackend) {
+          try { await window.__spaLoadScript('/web/media-backend.js', () => !!window.MediaBackend); } catch (e) { /* 加载不起来就按「没有后端」报，下一页再试 */ }
+        }
+        if (!window.MediaBackend) {
+          return { ok: false, chip: '没加载', cls: 'err', why: '浏览器内媒体后端没取到（web/media-backend.js）', items: [] };
+        }
+        /* 不带 load：只问 WebCodecs 与编码器，不为了体检去下 700KB 的解码包 */
+        const p = await window.MediaBackend.probe();
+        /* 导出按探针选容器（MediaExport.pickCodec）：avc 出 mp4，只有 vp9 出 webm ——
+           读数要跟这个行为一致，别在能导的浏览器上喊「不能用」。 */
+        const ok = !!p.webcodecs && (p.avc === true || p.vp9 === true);
+        return {
+          ok: ok, chip: ok ? '能用' : '不能用', cls: ok ? 'ok' : 'err',
+          why: ok
+            ? (p.avc === true ? '导出成片 / 导出素材都在页面里合成，不需要另装任何东西'
+              : '这个浏览器没有 H.264 编码器：成片会导成 .webm（VP9），功能不受影响')
+            : (p.webcodecs ? '这个浏览器 H.264 / VP9 编码器都没有：换 Chrome / Edge（94 以上）再导出'
+              : '这个浏览器没有 WebCodecs：换 Chrome / Edge（94 以上）再导出'),
+          items: [
+            { name: 'WebCodecs', ok: !!p.webcodecs, detail: '逐帧编解码靠它' },
+            { name: 'H.264 编码', ok: p.avc === true, detail: p.avc == null ? '这个浏览器问不出支持情况' : '导出成片（mp4）用它' },
+            { name: 'VP9 编码', ok: p.vp9 === true, detail: p.vp9 == null ? '这个浏览器问不出支持情况' : '没有 H.264 时的兜底：成片出 .webm' },
+            { name: 'AAC 编码', ok: p.aac === true || !!p.aacVendor, detail: p.aac ? '浏览器自带' : '用随包带的软件编码器（第一次导出时加载）' },
+          ],
+          raw: p,
+        };
+      } catch (e) {
+        return { ok: false, chip: '探测失败', cls: 'err', why: '探测浏览器编码能力时出错：' + errText(e), items: [] };
+      }
+    })();
+    return _capsP;
+  }
+  function exportCapsLines(c) {
+    const x = c || { chip: '没读到', why: '还没有探测结果', cls: 'warn', items: [] };
+    const out = ['成片导出（浏览器内）：' + x.chip + ' —— ' + (x.why || '')];
+    (x.items || []).forEach(it => out.push('  · ' + it.name + '：' + (it.ok ? '能用' : '不能用') + ' —— ' + (it.detail || '')));
+    return out;
+  }
   function sysStatus(fresh) {
     return window.Net.json('/sys-status' + (fresh ? '?fresh=1' : ''), { timeout: 20000, retry: 0 });
   }
@@ -435,21 +477,9 @@ function topBoolValue(decl, on) {
        「平台请求有没有从代理出去」是排查「所有平台都连不上」的第一个问题。 */
     const op = s.出站代理;
     if (op) out.push('出站代理：' + (op.状态 || '?') + ' —— ' + (op.来源 || '?'));
-    ['ffmpeg', 'ffprobe'].forEach(k => {
-      const t = sysTool(s[k], k);
-      out.push(k + '：' + t.chip + (t.why ? (t.cls === 'ok' ? '（' + t.why + '）' : '：' + t.why) : '')
-        + ' —— ' + SYS_WHY[k]);
-    });
-    /* 成片渲染那一行说的是「现在真的会怎么出片」，不是「.env 里写了什么」：
-       编码器、档位与那三个数字都是启动时定一次（改了要重启），所以来源跟着一起打出去。
-       旧代理没返回这一项就不写这一行 —— 缺它不影响导出，写一句「没读到」反而像坏了。 */
-    const rd = s.渲染;
-    if (rd) out.push('成片渲染：' + (rd.编码 || '?') + '（' + (rd.中文名 || '?') + '）· 档位 ' + (rd.档位 || '?')
-      + ' · 同时 ' + (rd.同时 || '?') + ' 条 · 队列上限 ' + (rd.队列上限 || '?') + ' · 任务记录留 ' + (rd.保留分钟 || '?') + ' 分钟'
-      + ' · 本机：' + (rd.本机说明 || '?') + ' —— ' + (rd.来源 || ''));
     /* 平台转发闸那一行说的是「这一家现在挤不挤、刚才有没有被限过流」：429/503 透到页面上只是
        一句「请求失败」，看不出是被人限了、也看不出等一会儿就会好 —— 这一行是那句废话的背面。
-       芯片、整句、四个数与来源都在代理那边拼好（与「成片渲染」同一立场），这里只照念。
+       芯片、整句、四个数与来源都在代理那边拼好，这里只照念。
        旧代理没返回这一项就不写这一行：没有闸时代码照样跑得动，写一句「没读到」反而像坏了。 */
     const rl = s.转发;
     if (rl) {
@@ -507,9 +537,10 @@ function topBoolValue(decl, on) {
     const d = u.目录 || {}, t = u.总 || {}, r = u.重复 || {}, gap = u.对不上 || {}, disk = u.盘 || {};
     const out = [];
     out.push('目录：' + (d.状态 || '?') + ' —— ' + (d.路径 || '?'));
-    /* 两处磁盘别混：这一格只数本机资产库（.assets，应用自己那份、离线能看、删了能回源）。
-       设置页「另存到指定文件夹」里的副本属于用户的成品目录，不归这一格统计、也不归这里删。 */
-    out.push('范围：只数本机资产库（.assets）；「另存到指定文件夹」的副本不在这里，也不归这一格删。');
+    /* 两处磁盘别混：这一格只数**当前库根**下的产物（默认 下载\拾帧\图片|视频|音频，位置在设置页那一格改）。
+       换过库根的话，旧根里那些字节仍躺在用户自己的目录里 —— 代理只扫当前根，
+       这一格既不数它们，也不碰它们；要接着用得自己把旧根的文件搬进新根。 */
+    out.push('范围：只数当前库根里的产物；旧根里留下的不在这里，也不归这一格删。');
     out.push('产物 ' + (t.文件数 || 0) + ' 个 · 共 ' + usageBytes(t.字节)
       + ' · 索引 ' + (t.索引条数 || 0) + ' 条'
       + (t.顶到上限 ? '（已顶到上限 ' + (t.上限 || '?') + ' 条 —— ' + USAGE_WHY.上限 + '）'
@@ -797,6 +828,8 @@ function topBoolValue(decl, on) {
     /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、
        助手的 doctor 三边都要问，各写一遍就会出现「设置页说能用、助手说不能用」。 */
     sysStatus, sysTool, sysDir, sysHealth, sysFaultLines, relayLines, sysStatusLines, SYS_WHY,
+    /* 浏览器内导出的能力：设置页那一栏与助手 doctor 读这同一份（不为了体检去下解码包）。 */
+    exportCaps, exportCapsLines,
     /* 本机资产库用量（/assets-usage）同一族：设置页那一栏与复制文本读这同一份。 */
     assetsUsage, usageLines, usageBytes, usageWhen, USAGE_WHY,
     providers() { return (_reg && _reg.providers) || []; },
@@ -1376,49 +1409,6 @@ function topBoolValue(decl, on) {
       return await this.request(prov, spec.endpoint || 'create', { method: 'POST', body, log,
         snapTag: fields.snapTag || '', snapLabel: fields.snapLabel || '' });
     },
-    /* 按类型另存到用户指定的文件夹（设置页「自动保存」那一卡配的）。
-       **目录不在这里传** —— 代理只认它自己读到的配置，请求体里带目录会被丢掉：
-       浏览器没法验证用户填的路径，代理也没法验证调用方是不是本工作台页面。 */
-    async saveToDir({ type, name, mime, format, data }) {
-      return rawFetch('/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, name, mime, format, data }),
-      });
-    },
-    /* 把**已经存在本机资产库里的成品**补一份到设置里指定的那个文件夹。
-       为什么需要它：`saveToDir` 只挂在**镜像流程内部**（runOne），而镜像那一步先被
-       `offer()` 的「这份产物已经存过了就跳过」挡在前面 —— 功能加上之前下载的那批
-       永远不会被补写。字节已经在 .assets 里，这里只是让代理**拷一份**（不重新下载、
-       不重新回源、`.assets` 那份一律不动）。
-       页面递的是**本机资产号**，不是路径 —— 代理按自己读到的配置决定写到哪。 */
-    async saveLocal({ ids }) {
-      return rawFetch('/save-local', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
-      });
-    },
-    /* 换下载位置时把**旧目录里那些副本**搬过去（会删掉源文件）。
-       目标目录只由代理读配置决定，页面只能递「旧目录从哪来」——
-       而且代理会核对这个目录是不是本工作台自己写出去过的，不是就不搬。 */
-    async saveMove({ kind, from }) {
-      return rawFetch('/save-move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, from }),
-      });
-    },
-    /* 数一遍「旧目录里还剩多少份本工作台的副本没搬」（GET /save-stale，只读）。
-       为什么页面要单独问一次磁盘：换目录那句问话只挂在「刚改完的那一刻」，
-       而 2026-10-15 那次改**默认位置**（项目内 文件\<类型> → 下载\拾帧\<类型>）一个字节都没动
-       `sk_autosave` 里的 `dir`（两边都是空串）—— 按配置比字符串永远比不出变化，
-       于是那批成品躺在项目目录里、界面上一个入口都没有。
-       返回的是代理自己搬得动的那几处（两代默认 + 它写过的目录名单），路径不由页面递。
-       老代理没有这一条 → 404：调用方当「数不清」处理，不弹红字、也不假装数到 0。 */
-    async saveStale() {
-      return rawFetch('/save-stale', { method: 'GET', cache: 'no-store' });
-    },
     /* 弹系统自带的文件夹选择框，让用户点着挑一个目录回来。
        浏览器自己给不了真实路径（`<input webkitdirectory>` 只给文件夹名、File System Access
        给的是存不下来的句柄），所以这条路必须由**本机代理**去弹 —— 拿到的是一条真路径字符串，
@@ -1460,6 +1450,37 @@ function topBoolValue(decl, on) {
         timeout: 0,
         retry: 0,
       });
+    },
+    /* 代理端缓存（缩略图 / 切片帧）：与浏览器 origin 无关的一份持久层。
+       键走查询参数（可能含 / ? : 与中文）；字节原样存取；清空走不带 key 的 DELETE。 */
+    cacheGet(t, key) {
+      return fetch('/cache/' + t + '?key=' + encodeURIComponent(key), { credentials: 'same-origin' })
+        .then(r => (r.ok ? r.blob() : null))
+        .catch(() => null);
+    },
+    cachePut(t, key, bytes) {
+      return fetch('/cache/' + t + '?key=' + encodeURIComponent(key), {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      }).then(r => r.ok).catch(() => false);
+    },
+    cacheDel(t, key) {
+      return fetch('/cache/' + t + '?key=' + encodeURIComponent(key), { method: 'DELETE', credentials: 'same-origin' })
+        .then(r => (r.ok ? r.json() : { ok: false }))
+        .catch(() => ({ ok: false }));
+    },
+    cacheClear(t) {
+      return fetch('/cache/' + t, { method: 'DELETE', credentials: 'same-origin' })
+        .then(r => (r.ok ? r.json() : { ok: false }))
+        .catch(() => ({ ok: false }));
+    },
+    /* 整表拉回（暖启动）：GET 不带 key → { items: [{k, v, ts}] } */
+    cacheAll(t) {
+      return fetch('/cache/' + t, { credentials: 'same-origin' })
+        .then(r => (r.ok ? r.json() : { items: [] }))
+        .then(j => (Array.isArray(j && j.items) ? j.items : []))
+        .catch(() => []);
     },
     /* 取响应里的点路径（'choices.0.message.audio.data'），数组下标也支持 */
     pickPath(raw, path) {

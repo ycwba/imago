@@ -57,7 +57,7 @@ function pollLive(t) {
    地址有没有、是不是本地导入的候选（la_ 号 / /asset/la_）由 `AssetLocal.announce` 判
    —— 那一道闸四个生产点共用一份（见 local.js 的 announce 说明）。 */
 /* 这一条候选的素材名（不带扩展名）：`场景01-雨夜街头_镜头03-推门_候选2`。
-   本机索引名、另存文件名、FCPXML 媒体包名都用它 —— 三处同源才不会出现
+   库里的文件名、本机索引名、FCPXML 媒体包名都用它 —— 三处同源才不会出现
    「素材库里叫一个名、包里的 media/ 又叫另一个名」。找不到所属镜头时交空串，
    `AssetLocal.nameOf` 会回落到提示词前缀（导入 / 历史条目的原行为）。 */
 function candidateAssetBase(c) {

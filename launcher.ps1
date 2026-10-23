@@ -396,7 +396,7 @@ function Find-FreePort([int]$From) {
 function Stop-PortListener([int]$Port) {
   # 返回值只用于日志与自检：界面上那句「为什么没关掉」必须照原话摆出来。
   # 强度与旧版 taskkill /F 完全一致（TerminateProcess）—— 所以 proxy.js 那个 SIGINT 兜底
-  # （顺手收掉 ffmpeg 子进程）不会跑。旧版也是这样，不是这一版新引入的；要改就连
+  # （顺手收掉在跑的子进程，如 whisper-cli）不会跑。旧版也是这样，不是这一版新引入的；要改就连
   # proxy.js 的退出协议一起改，别只在这里装优雅。
   $killed = @()
   $messages = @()
@@ -1202,7 +1202,7 @@ $btnOpen.Add_Click({
 #   · 服务是这个窗口起的 → 直接停，不问（对称：双击起来、关掉停掉）；
 #   · 服务在跑但不是这个窗口起的（例如你自己在命令行敲的 node proxy.js）→ 先问一句，
 #     因为「关掉一个我并没有从这里起过的服务」是意外，值得一次确认。
-# ffmpeg 子进程由 proxy.js 自己收（SIGINT/退出兜底），这一层不越权去管它的孩子。
+# 子进程由 proxy.js 自己收（SIGINT/退出兜底），这一层不越权去管它的孩子。
 $form.Add_FormClosing({
   param($s, $e)
   if ($script:StoppedByClose) { return }

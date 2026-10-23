@@ -203,7 +203,7 @@
   const TOOLS = {
     skill: {
       arg: '{ "id": "Skill 的 id" }',
-      doc: '读一份 Skill 的正文（这一类提示词/流程该怎么写）。本轮已加载的那两份可以直接读；本轮没加载的，只有用户在问题里点名要它时才按需加载。清单在【可用 Skill】里；加载后照它的写法，但输出契约与格式优先',
+      doc: '读一份 Skill 的正文（这一类提示词/流程该怎么写）。本轮已加载的那两份可以直接读；没加载的你自己判断要不要读（清单在【可用 Skill】里）——回合内最多再读 2 份、按需总额度约 1000 token，超了会回「预算用完了」。加载后照它的写法，但输出契约与格式优先',
       async run(a, meta) {
         const id = String((a && (a.id || a.name)) || '').trim();
         if (!window.WbSkills) return { 错误: 'Skill 客户端没有加载（web/ui/skills.js）' };
@@ -220,29 +220,54 @@
               body: hit.body, truncated: !!hit.truncated, chars: hit.chars, truncatedChars: hit.truncatedChars };
           }
         }
-        /* 回合内不换 Skill：只有用户这句话里点名了 id / 名字，才算「我要这一份」。
-           模型自己想起来再加载别的，同一轮前后依据就不一致了（也绕开了预算）。 */
-        const q = String((turn && turn.user && turn.user.text) || '');
+        /* §13.4 放开「必须用户点名」：助手可以自己判断要哪一份（清单本来就在系统提示词里）。
+           「同一轮前后依据不一致」用两道闸化解：回合内按需最多 2 份（份数封顶）+
+           按需总额度 ON_DEMAND_BUDGET（预算算总量，不许绕开）。 */
+        const onDemand = ((turn && turn.skills) || []).filter(x => x && x.onDemand);
+        if (onDemand.length >= 2) {
+          return { 错误: '这一轮按需读够 2 份了（' + onDemand.map(x => x.id).join('、') + '）：下一轮再读，或先用已有的这几份',
+            本轮已加载: ((turn && turn.skills) || []).map(x => x.id) };
+        }
         const items = await window.WbSkills.list();
         const m = items.find(x => x.id === id);
         if (!m) return { 错误: '没有这个 Skill：' + id, 可用: items.filter(x => x.enabled).map(x => x.id) };
-        if (!(q.includes(id) || (m.name && q.includes(m.name)))) {
-          return { 错误: '这一轮没有加载这份 Skill；下一轮提问里点名它，或让它的触发词命中问题',
+        const s = await window.WbSkills.full(id);
+        const full0 = String(s.body || '');
+        const est = (window.WbSkills.estTokens || (t => Math.ceil(String(t || '').length / 2)));
+        const capTokens = Number(window.WbSkills.ON_DEMAND_BUDGET) || 1000;
+        const usedTokens = Number(turn && turn.onDemandTokens) || 0;
+        const room = capTokens - usedTokens;
+        if (room < 80) {
+          return { 错误: '预算用完了（按需额度 ' + capTokens + ' token，已用 ' + usedTokens + '）：换一份更小的，或先回我',
             本轮已加载: ((turn && turn.skills) || []).map(x => x.id) };
         }
-        const s = await window.WbSkills.full(id);
-        const body = String(s.body || '');
+        /* 先按 6000 字符截，再按剩余预算截 —— 两道都过才发出去，截了哪一道都写清。 */
+        let body = full0.slice(0, 6000);
+        let truncChars = Math.min(full0.length, 6000);
+        let byBudget = false;
+        const tk0 = est(body);
+        if (tk0 > room) {
+          const keep = Math.max(0, Math.floor(body.length * room / tk0));
+          body = body.slice(0, keep);
+          truncChars = keep;
+          byBudget = true;
+        }
+        const tk = est(body);
         const rec = { id: s.id, name: s.name || s.id, version: s.version || 1, onDemand: true,
-          contentHash: String(s.contentHash || ''), chars: body.length,
-          truncated: body.length > 6000, truncatedChars: Math.min(body.length, 6000), tokens: 0 };
+          contentHash: String(s.contentHash || ''), chars: full0.length,
+          truncated: truncChars < full0.length, truncatedChars: truncChars, tokens: tk };
         if (turn) {
+          if (!Array.isArray(turn.skills)) turn.skills = [];
           turn.skills.push(rec);
+          turn.onDemandTokens = usedTokens + tk;
           turn.user.skillIds = (turn.user.skillIds || []).concat(s.id);
           turn.scope.skills = (turn.scope.skills || []).concat({ id: rec.id, name: rec.name, version: rec.version, contentHash: rec.contentHash });
           save();
         }
         return { id: s.id, name: s.name || s.id, contract: s.contract || '', version: s.version || 1,
-          body: cap(body, 6000), truncated: rec.truncated, chars: body.length, truncatedChars: rec.truncatedChars };
+          body: body, truncated: rec.truncated, chars: full0.length, truncatedChars: rec.truncatedChars,
+          截断原因: rec.truncated ? (byBudget ? '按需预算只剩 ' + room + ' token，只带了正文的一部分' : '超过 6000 字符上限') : '',
+          按需额度: { 已用: usedTokens + tk, 上限: capTokens } };
       },
     },
     overview: {
@@ -561,7 +586,7 @@
     doctor: {
       arg: '{ "verify": true }（可选：真去问一次文字 AI 的密钥。只打余额 / 账户接口，不建任务）',
       doc: '一键体检：代理在不在线、版本新不新；四类平台各有几家**真能用**（密钥在本机还是服务端 .env）、哪几家被停用、设置页添加失败被丢掉的那几家；'
-        + '数据目录 / 提示词归档 / 本机资产库读不读得动；**本机能不能出成片**（ffmpeg / ffprobe 装没装、三个落盘目录可不可写）；云同步配没配；助手自己的三个开关与浏览器通知授权。'
+        + '数据目录 / 提示词归档 / 本机资产库读不读得动；**这个浏览器能不能出成片**（WebCodecs / H.264 / AAC）、三个落盘目录可不可写；云同步配没配；助手自己的三个开关与浏览器通知授权。'
         + '用户说「怎么什么都没出来」「为什么提交不了」「导不出成片」「哪里配错了」先跑这一条，再按它说的那一项去修',
       async run(a) {
         let r = null;
@@ -601,22 +626,15 @@
            不让一个慢接口把整份体检拖没（用户要的是「哪里坏了」，不是一个转圈的界面）。 */
         try { const d = await Net.json('/data', { timeout: 8000, retry: 0 }); out.数据目录 = { 路径: d.dir, 文件数: (d.files || []).length }; }
         catch (e) { out.数据目录 = '读不到：' + cap(errText(e), 120); }
-        /* 导出成片用的是本机的 ffmpeg：没装 / 不在 PATH / 装的是商店那个占位壳，界面以前只在点「导出」时回一句「无法启动」。
-           这里是代理真的起子进程探过一次，三种原因分开写；旧代理没有这个接口，就照实说「要重启」。
-           「能不能用 / 为什么」那两档的说法用 Api.sysTool / Api.sysDir —— 与设置页「本机环境」那一栏同一个口径，
-           免得出现「设置页说能用、助手说不能用」。版本那串太长，助手这边只截一次。 */
+        /* 成片在**这个浏览器**里合成，代理那侧不算画面：
+           能不能出片只问 Api.exportCaps（与设置页「本机环境」那一栏同一份），目录仍问代理。 */
         try {
           const sy = await Api.sysStatus();
-          const tl = k => { const t = Api.sysTool(sy[k]); return t.chip + (t.why ? (t.cls === 'ok' ? '（' + cap(t.why, 60) + '）' : '：' + cap(t.why, 130)) : ''); };
           const dd = sy.目录 || {};
-          const rd = sy.渲染;
+          const caps = await Api.exportCaps();
           out.成片环境 = {
-            ffmpeg: tl('ffmpeg') + ' —— ' + Api.SYS_WHY.ffmpeg,
-            ffprobe: tl('ffprobe') + ' —— ' + Api.SYS_WHY.ffprobe,
-            /* 渲染配置：助手替人排查「成片怎么这么大 / 怎么这么慢」时，先要说出这台现在用的是谁。
-               说法与设置页那一行同源（都是代理现算的那一份），旧代理没返回就照实说没有。 */
-            渲染: rd ? (rd.编码 + '（' + (rd.中文名 || '?') + '）· 档位 ' + rd.档位 + ' · 同时 ' + rd.同时
-              + ' 条 · ' + rd.本机说明) : '这个代理还没报渲染配置（重启 proxy.js 后才有）',
+            导出: caps.chip + (caps.why ? ' —— ' + cap(caps.why, 160) : ''),
+            分项: (caps.items || []).map(x => x.name + '=' + (x.ok ? '能用' : '不能用')).join(' · ') || '没读到',
             目录: ['数据', '资产', '渲染'].map(n => n + '=' + Api.sysDir(dd[n]).chip).join(' · '),
             代理: '端口 ' + ((sy.代理 || {}).端口 || '?') + ' · 注册表 v' + ((sy.代理 || {}).版本 || '?'),
           };
@@ -628,7 +646,7 @@
             + ' —— ' + Api.SYS_WHY.健康;
         } catch (e) {
           out.成片环境 = e && e.status === 404
-            ? '这个代理是加体检接口之前启动的旧进程（重启 proxy.js 后才有 ffmpeg 与目录那几项）'
+            ? '这个代理是加体检接口之前启动的旧进程（重启 proxy.js 后才有目录那几项）；浏览器编码能力可以单独问「导出成片要什么」'
             : '读不到：' + cap(errText(e), 120);
         }
         try { const la = await Net.json('/local-assets', { timeout: 8000, retry: 0 }); out.本机资产 = (la.data || []).length + ' 条'; }
@@ -737,8 +755,9 @@
         if (!list.length) return '没有附件。让用户把文件拖到抽屉里，或点输入框下面的「＋文件」。';
         return list.map((f, i) => ({
           序号: i, 名称: f.name, 类型: f.kind, 大小: window.fmtBytes(f.size),
-          mime: f.mime || '（没声明）', 本机地址: f.src || '（没落盘）', 本机资产: f.la || '',
+          mime: f.mime || '（没声明）', 本机地址: f.src || '（没落盘）',
           还在: f.file ? '在（这一次拖进来的那个 File）'
+            : (f.src || '').startsWith('blob:') ? '在（内存里的这一份）'
             : LOCAL_SRC.test(f.src || '') ? '在（本机资产里有这一份，按地址回源）'
             : f.txt ? '在（加入时存的文本快照）' : '不在了（字节读不到，要让人重新拖进来）',
           说明: f.note || '',
@@ -753,8 +772,9 @@
         const list = ctxFiles();
         const rec = Number.isFinite(i) ? list[i] : null;
         if (!rec) return '没有序号 ' + i + ' 的附件（当前 ' + list.length + ' 个，从 0 数）。先用 files 查清单。';
-        if (!rec.file && !rec.txt && !LOCAL_SRC.test(rec.src || '')) {
-          return '「' + rec.name + '」的字节已经不在了（本机资产里也没有这一份）：让用户重新拖进来。';
+        const hasBytes = !!rec.file || !!rec.txt || (rec.src || '').startsWith('blob:') || LOCAL_SRC.test(rec.src || '');
+        if (!hasBytes) {
+          return '「' + rec.name + '」的字节已经不在了（附件不落本机资产库，刷新后就没有了）：让用户重新拖进来。';
         }
         if (rec.kind === '文本') {
           let txt = '', from = '原文';
@@ -881,7 +901,7 @@
     },
     media_info: {
       arg: '{ "take": 1, "shot": 1, "shotId": "可选", "assetId": "可选", "src": "可选" }',
-      doc: '问一份视频的真实情况：时长、宽×高、帧率、有没有音轨（ffprobe 在代理里跑，页面拿不到文件路径）。'
+      doc: '问一份视频的真实情况：时长、宽×高、帧率、有没有音轨（在页面里解，代理拿不到文件路径）。'
         + '给 take/shot 就读这一镜选用的那条候选；给 assetId 或 src 就查那一份本机资产',
       async run(a) { return dirRead('mediaInfo', a || {}); },
     },
@@ -917,7 +937,7 @@
     export_list: {
       arg: '{ "limit": 10 }',
       doc: '最近导出清单：助手这一轮发起的那几笔 + 代理落盘的最近导出记录（文件名、状态、字节、在不在盘上）。'
-        + '读的是页面同一个 /render/jobs，不在这里另算一套',
+        + '读的是导演台同一份会话内导出账本（导出成片 / 导出素材 / FCPXML），不在这里另算一套',
       async run(a) { return dirRead('exportList', a || {}); },
     },
     /* ---------- 画布五项只读：全部走 `WBBridge.canvas`，不读 DOM、不猜 id、不整份文档塞进上下文 ----------
@@ -1077,8 +1097,9 @@
     if (Number.isFinite(Number(en.file))) {
       const rec = ctxFiles()[Number(en.file)];
       if (!rec) return null;
-      /* File 优先；换页之后只剩本机资产地址（blob: 那一层早就失效了，递过去等于必败） */
-      const v = rec.file || (LOCAL_SRC.test(rec.src || '') ? rec.src : '');
+      /* File 优先；blob: 是会话期内存那一份（附件不落本机资产库，这就是它的字节来源）；
+         老会话记录里可能还有 /asset/ 的历史条目，照旧认。 */
+      const v = rec.file || ((rec.src || '').startsWith('blob:') ? rec.src : '') || (LOCAL_SRC.test(rec.src || '') ? rec.src : '');
       return v ? { kind: 'bytes', val: v } : null;
     }
     if (en.asset) {
@@ -1866,25 +1887,23 @@
     if (r && r.错误) return { err: r.错误 };
     return { 说明: '提交一次语音转写', 人话: [
       '源：' + cap(String(r.源 || ''), 140),
-      '路线：' + (r.route === 'local' ? '本地 whisper（在本机跑，不产生平台费用）' : '在线服务（按次计费）'),
-      '说明：' + (r.说明 || '转写结果只读回来，不会自动改写台词或字幕'),
+      (r.说明 || ('路线：' + (r.routeZh || '还没读到转写设置'))),
     ], 钉: null };
   }
   async function mediaTranscribeRun(a) {
     const r = await dirRead('asrStart', a || {});
     if (r && r.错误) throw new Error(r.错误);
-    return { ok: true, text: '转写已提交（任务号 ' + (r.jobId || '') + '，' + (r.route === 'local' ? '本地跑，不扣费' : '在线服务，按次计费') + '）：'
+    /* 浏览器内路线是「跑完才回」，回执已是 done —— 这时候说「已提交」是假话。 */
+    return { ok: true, text: (r.state === 'done' ? '识别已完成' : '转写已提交')
+      + '（任务号 ' + (r.jobId || '') + '，' + (r.routeZh || '路线未回写') + '）：'
       + '用 media_transcription 查状态与结果；结果不会自动改写台词或字幕', jobId: r.jobId || '' };
   }
   function exportStartCheck(a) {
     const fmt = String((a && a.format) || EF.ids()[0]);
     const f = EF.of(fmt);
     if (!f) return { err: 'format 只能是 ' + EF.hint() + '，现在写的是「' + fmt + '」' };
-    if (f.nle && !(a && (a.app === 'jianying' || a.app === 'resolve'))) {
-      return { err: 'format=nle 要另给 app：jianying 或 resolve' };
-    }
     return { 说明: '导出：' + f.assistant,
-      人话: [f.assistant, f.nle ? '目标：' + (a.app === 'jianying' ? '剪映专业版' : 'DaVinci Resolve') : '写的是本机渲染目录里的文件；不动工程数据'],
+      人话: [f.assistant, f.nle ? '目标：' + (fmt === 'jianying' ? '剪映专业版' : 'DaVinci Resolve') : '写的是本机渲染目录里的文件；不动工程数据'],
       钉: null };
   }
   async function exportStartRun(a) {
@@ -2363,20 +2382,21 @@
     },
     /* ---------- 转写（花钱/长任务）与导出（长任务 / 写资产库）---------- */
     media_transcribe: {
-      arg: '{ "take": 1, "shot": 1, "assetId": "可选", "src": "可选", "language": "zh", "route": "auto|local|service" }',
+      arg: '{ "take": 1, "shot": 1, "assetId": "可选", "src": "可选", "language": "zh", "route": "auto|browser|local|service" }',
       title: '提交一次语音转写（导演台）',
-      doc: '对某一镜选用的画面（或指定资产）里的音轨做一次语音识别，只回任务号：'
-        + '状态与分段结果用 media_transcription 读。本地路线不扣费，在线路线按次计费。'
+      doc: '对某一镜选用的画面（或指定资产）里的音轨做一次语音识别，回任务号（在线与本地路线提交即回，'
+        + '浏览器内路线要等本页 worker 跑完才回）：状态与分段结果用 media_transcription 读。'
+        + '走哪条路由语音识别设置决定，回执会照实说：'
+        + '浏览器内 Whisper 与本地路线不扣费（浏览器路线首次要先下几百 MB 模型，可能等几分钟），只有在线路线按次计费。'
         + '结果**不会**自动改写台词或字幕，要落进字幕得再用 subtitle_update。',
       check: mediaTranscribeCheck, run: mediaTranscribeRun,
     },
     export_start: {
-      arg: '{ "format": "' + EF.ids().join('|') + '", "app": "仅 nle 需要：jianying|resolve" }',
+      arg: '{ "format": "' + EF.ids().join('|') + '" }',
       title: '开始一次导出（导演台）',
       doc: '按当前时间线导出：' + EF.list().map(f => f.id + '=' + f.doc).join('；')
         + '。只回记录号，进度用 export_status 查。导出始终本机优先：已有当前成片不会重联合成。'
-        + 'format=nle 时另给 app（jianying 或 resolve）—— 会生成可导入工程并尽量启动该软件，'
-        + '最后一步导入仍由用户在软件里点。',
+        + 'resolve / jianying 会生成可导入工程并尽量启动该软件，最后一步导入仍由用户在软件里点。',
       check: exportStartCheck, run: exportStartRun,
     },
     export_save_to_assets: {
@@ -2705,10 +2725,9 @@
       source: { type: 'string', enum: ['line+voice'] } }, SHOTREF) },
     subtitle_import_srt: { type: 'object', properties: Object.assign({ text: { type: 'string' }, assetId: { type: 'string' } }, SHOTREF) },
     media_transcribe: { type: 'object', properties: Object.assign({ language: { type: 'string' },
-      route: { type: 'string', enum: ['auto', 'local', 'service'] }, assetId: { type: 'string' }, src: { type: 'string' } }, SHOTREF) },
+      route: { type: 'string', enum: ['auto', 'browser', 'local', 'service'] }, assetId: { type: 'string' }, src: { type: 'string' } }, SHOTREF) },
     export_start: { type: 'object', properties: {
-      format: { type: 'string', enum: EF.ids() },
-      app: { type: 'string', enum: ['jianying', 'resolve'] } } },
+      format: { type: 'string', enum: EF.ids() } } },
     export_save_to_assets: { type: 'object', properties: { name: { type: 'string' }, title: { type: 'string' } }, required: ['name'] },
     canvas_nodes_create: { type: 'object', required: ['nodes'],
       properties: { nodes: { type: 'array', items: CVNODE, minItems: 1, maxItems: APPLY_MAX } } },

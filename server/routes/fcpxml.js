@@ -16,12 +16,13 @@ const { createZip } = require('../zip.js');
 const { renameWithRetry } = require('../fs-atomic.js');
 const { sendJson, noStore } = require('./http');
 
-/* 媒体名怎么洗只有 app.js 注入的那一份 `fileSafe`（与 /save、/render、提示词归档同一条规则）：
+/* 媒体名怎么洗只有 app.js 注入的那一份 `fileSafe`（与提示词归档、库根落点同一条规则）：
    这里不再写第二份非法字符表。长度档取 120：与导演台把素材存回本机那一份齐平。 */
 const ASSET_NAME_MAX = 120;
 const ASSETS_MAX = 500;
 const MB = 1024 * 1024;
 const KEEP_IMPORTS = 20;           // 一键导入的工程目录只留最近 20 个，更早的连目录一起收
+const KEEP_BUNDLES = 20;           // bundle 目录同样只留最近 20 个（与 fcpxml-import 同口径）
 const IMPORT_ROOT = 'fcpxml-import';
 const IMPORT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const fmtMb = b => (b / MB).toFixed(0) + ' MB';
@@ -237,6 +238,17 @@ function pruneImports(ctx) {
     catch (e) { (ctx.log || (() => {}))('[fcpxml] 旧导入目录没删掉（下次再试）：' + name + '：' + ((e && e.message) || e)); }
   });
 }
+/* bundle 目录（fcpxml-<stamp>-<random>/）也纳入保留策略：保留最近 20 个，与 fcpxml-import 同口径。
+   以前只裁 import 那 20 个，bundle 目录从不清理 → .renders 无限膨胀。 */
+function pruneBundles(ctx) {
+  let entries = [];
+  try { entries = fs.readdirSync(ctx.renderDir, { withFileTypes: true }).filter(d => d.isDirectory() && /^fcpxml-/.test(d.name)).map(d => d.name); }
+  catch (e) { return; }
+  entries.sort().reverse().slice(KEEP_BUNDLES).forEach(name => {
+    try { fs.rmSync(path.join(ctx.renderDir, name), { recursive: true, force: true }); }
+    catch (e) { (ctx.log || (() => {}))('[fcpxml] 旧 bundle 目录没删掉（下次再试）：' + name + '：' + ((e && e.message) || e)); }
+  });
+}
 
 /* ---------------------------------------------------------------------------
    四条路由
@@ -245,6 +257,7 @@ function pruneImports(ctx) {
 async function handleBundle(req, res, ctx) {
   const parsed = parsePayload(ctx, await ctx.readJson(req, 32 * 1024 * 1024));
   const out = await writeBundle(ctx, { ...parsed, root: '' });
+  pruneBundles(ctx);
   send(res, 200, 'application/zip', out.zip,
     { 'Content-Disposition': 'attachment; filename="' + out.id + '.zip"' });
 }

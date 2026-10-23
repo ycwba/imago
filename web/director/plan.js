@@ -21,6 +21,8 @@ export function createPlayPlan(ctx) {
          用户看到的就是「时长明明没变，播起来却短了一截」。
          黑场没有原声（合成那边同理：`native:false`），所以不带宽。 */
       if (s.off) { clips.push({ src: '', in: s.in, out: s.out, vol: 1, spd: segSpd(s) }); acc += dur; return; }
+      /* 图片段是一张静止画面：没有可 seek 的源秒，甲板换成一张图按墙钟走完（与黑场同一支计时）。 */
+      if (s.img) { clips.push({ still: s.img, in: s.in, out: s.out, vol: 0, spd: 1 }); acc += dur; return; }
       clips.push({ src: src, in: s.in, out: s.out, vol: ctx.picVolOf(s), spd: segSpd(s) });
       acc += dur;
     };
@@ -44,6 +46,7 @@ export function createPlayPlan(ctx) {
            它占的秒数与合成那边完全一致，预览走到这里按墙钟走完，接下一格真画面。 */
         const src = cl.gray ? '' : ctx.candTrackSrc(cand);
         if (cl.gray) clips.push({ src: '', in: cl.in, out: cl.out, fs: fr.start, fa: fr.a, vol: 1, spd: spd });
+        else if (cl.img) clips.push({ still: cl.img, in: cl.in, out: cl.out, fs: fr.start, fa: fr.a, vol: 0, spd: 1 });
         else if (src) clips.push({ src: src, in: cl.in, out: cl.out, fs: fr.start, fa: fr.a, vol: cl.volume, spd: spd });
         acc = start + tlClipDur(cl);
         /* `off` 必须一起带进播放计划：它是「从音频文件的第几秒开始取」（拖左把手切掉开头时写的），

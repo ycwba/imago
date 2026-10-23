@@ -698,6 +698,8 @@ export default {
       }
       paintLoadErrors(false);
       cardList.paint(list);
+      /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
+      try { window.AssetLocal && AssetLocal.offerAll(list); } catch (e) { /* 补存失败不影响列表 */ }
     }
 
     /* ---------- 删除本机素材 ---------- */

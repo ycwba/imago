@@ -3,9 +3,22 @@
    区间外的名字一律由 createFrames(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { SLICE_N_MAX, sliceTimes, snapSliceStep } from '../slice.js';
-import { load as sliceCacheLoad, put as sliceCachePut } from '../slice-cache.js';
+import { SLICE_N_MAX, sliceTimes, frameIndexTimes, FRAME_INDEX_MAX } from '../slice.js';
+import { packFrames, unpackFrames } from '../slice-pack.js';
 
+/* 切片帧的持久层走代理的 /cache/slices（与浏览器 origin 无关的一份；换端口不再各攒一份）。
+   一条素材一条记录，打包 / 解包的排布只在 `web/director/slice-pack.js` 一份
+   （判据也从那一份读，不会出现「写的与读的各记一套」）。
+   上限与容量闸在代理那边（3000 张 / 40MB，LRU）；这里只管取放。
+   ⚠ 一屏的帧是**分几块**解出来的，每块都会写一次；直接 PUT 会把上一条记录整份覆盖掉，
+   最后盘上只剩最后一块那几张。所以这里按素材合并（新帧覆盖同一时刻）再整份写，
+   同一素材的写入排队 —— 并发 PUT 还会让索引与 .bin 互相错位。 */
+const sliceCacheLoad = async key => {
+  if (!window.Api || !Api.cacheGet) return [];
+  const b = await Api.cacheGet('slices', key);
+  if (!b) return [];
+  try { return await unpackFrames(b); } catch (e) { return []; }
+};
 export function createFrames(E, document, window) {
   const {
     REGOf,
@@ -18,21 +31,18 @@ export function createFrames(E, document, window) {
   } = E;
 
 /* ---------------- 轨道上的切片图 ----------------
-   一段里按秒铺几帧（每帧取这一段的等分中点），用的还是公共层 `Wb.vframe` 的 meta/seek 原语。
-   采到的帧按「素材地址 → {时刻: 图片}」缓存在这一页的内存里：剪辑每拖一下都重画整条轨道，
-   命中就不再解码。取不到帧不算错（格子里留占位，画面照样能剪）。
-
-   「取多帧」这一层按参考项目 `canvasesAtTimestamps` 的思路改成**并发**：
-   以前是同一个 <video> 顺序 seek，N 个时刻就是 N 次串行等待（每次 seek 都要等解码器
-   把这一段从头解一遍），一条二十格的轨道要等好几秒才填满 —— 而这只是缩略图。
-   现在把要取的时刻切成几段、每段一个 <video>，块内仍按时间递增顺序 seek（顺序解码比来回跳快得多）。
-   但「每条素材各开几块、素材之间再 Promise.all 全开」是错的：全片那一排有十几条候选时，
-   只会把中栏正在播的那条一起拖慢。 */
+   一条素材一份帧表（「稳定键 → {时刻: 图片}」），主链是 mediabunny 的批量取帧
+   （`MediaBackend.frames`：一趟解出一条**稠密帧索引**，密度口径在 slice.js 的
+   frameIndexPlan），兜底才是 <video> 池逐块 seek。取到的帧全进同一张表：剪辑每拖一下
+   都重画整条轨道，命中（或就近顶上，见 tileFrames）就不再解码。
+   取不到帧不算错（格子里留占位，画面照样能剪）。
+   主链兜底共用同一条流水线（slicePump）：同一条素材一次只有一趟活，全页同时在解的
+   不超过 SLICE_GLOBAL 趟 —— 十几条候选各开各的解码器，只会把中栏正在播的那条拖慢。 */
 const frameCache = new Map();
 const EMPTY_HITS = new Map();         // 这一条素材还没建缓存表时给读数用的空表（免得每处各 new 一份）
 const slicePending = new Map();       // 稳定键 → 已排进队列、还没出图的格子
 const sliceFailed = new Map();        // 稳定键 → Map(时刻 → { 失败时间, 连着失败几次 })：退避一阵后要自己再试
-const sliceJobs = [];                 // 全页共用的一条解码流水线上的活：{ key, src, times, hit, res, prio, q }
+const sliceJobs = [];                 // 全页共用的一条解码流水线上的活：{ key, src, times, hit, res, prio, hot, onFrame }
 let sliceBusy = 0;
 /* 并发与出图宽度别写死。4 核机器上开 4 路解码会把中栏播放一起拖住，
    8 核以上又用不满；出图宽度按 dpr —— 1x 屏上 160 宽是白给，2x 屏上 120 又糊。 */
@@ -46,8 +56,8 @@ const SLICE_V1 = /(?:[?&])slice=v1(?:&|$)/.test(typeof location !== 'undefined' 
 /* 一个素材只开一只 <video>。以前一块一只，同一素材四块就解析四遍元数据、四份缓冲，
    `release` 时还要 `load()` 主动丢弃。现在按素材键池化，块在素材内部排队，闲置 5 秒释放。 */
 const SLICE_IDLE = 5000;
-const sliceVideos = new Map();        // 素材键 → { v, src, busy, timer }
-const sliceActive = new Set();        // 正在解码的素材键（同一素材的块不并行）
+const sliceVideos = new Map();        // 素材键 → { v, src, timer }（忙闲由 sliceActive 把关，不另记）
+const sliceActive = new Set();        // 正在解码的素材键（同一条素材一次只有一趟活）
 const FRAME_SRC_MAX = 48;             // 缓存里最多留几条素材的帧：满了逐条淘汰最久没摸到的那一条
 const SLICE_FAIL_TTL = 5 * 60e3;      // 取不到的时刻最久 5 分钟后允许再试（签名换新 / 本机文件补回来）
 const SLICE_FAIL_FIRST = 8e3;         // 第一次失败只压 8 秒：解码超时多半是「这会儿忙」，不是「取不到」
@@ -196,7 +206,7 @@ async function sliceEncode(v, c, ctx, cw, ch) {
    `onFrame`（可省）= 每出一张就报一声（栏上要**边解边上屏**：整块七格一起等，
     首格就被压到「最慢那一格」的耗时上）。调用方自己合并重画。
    返回值 `{ miss, dead }`：dead 表示元数据都拿不到（地址过期/格式不支持），调用方要把这只 video 丢掉。 */
-async function grabChunk(v, times, hit, key, q, onFrame) {
+async function grabChunk(v, times, hit, key, onFrame) {
   const miss = new Set();
   const made = [];
   const markMiss = from => { for (const t of times) if (t >= from && !hit.has(t)) miss.add(t); };
@@ -216,7 +226,7 @@ async function grabChunk(v, times, hit, key, q, onFrame) {
       const url = blob ? URL.createObjectURL(blob) : '';
       if (url) {
         hit.set(t, url);
-        made.push([t, blob]);
+        made.push({ t, blob });
         if (onFrame) { try { onFrame(); } catch (e) { /* 上屏那一遍自己出错，不该打断解码 */ } }
         /* 单条素材的帧表也要有界：来回缩放会把每个采样时刻都留一份。
            淘汰最久没写入的那几张；1200 张远高于一屏（最多 512 格），不会动到当前这排。 */
@@ -232,7 +242,7 @@ async function grabChunk(v, times, hit, key, q, onFrame) {
     markMiss(0); /* 元数据都拿不到（外链过期 / 格式不支持）：这一排留占位 */
     return { miss, dead: true };
   }
-  if (made.length) sliceCachePut(key, q, made);   // 落 IndexedDB 是后台事：不 await，不挡下一块
+  if (made.length) sliceCachePut(key, made);   // 落代理缓存是后台事：不 await，不挡下一块
   return { miss, dead: false };
 }
 const chunkAsc = (list, n) => {
@@ -285,7 +295,35 @@ function sliceFail(key, t) {
   m.set(t, { at: Date.now(), n });
   return ttl;
 }
-/* 持久缓存只在一张素材第一次出现在这一页时问一次 IndexedDB。
+/* 这条素材**已经写进代理**的那一批（时刻 → 字节）：合并写盘的底座，也是「别再整份 GET 一次」的依据。
+   注意它比 frameCache 活得久：内存里的帧表被 LRU 淘汰不代表盘上那份也要跟着少。 */
+const slicePersist = new Map();
+const sliceCacheQ = new Map();        // 素材键 → 队尾 Promise（同一素材的 PUT 串行）
+/* 写不进缓存不挡取帧，但也不能静默吞掉：打包格式与代理的 32MB 上限任一处对不上，
+   界面看起来只是「下次打开又解码一遍」，没有第二处能看出来。同一次会话只报一声。 */
+let sliceCacheWarned = false;
+/* 落盘之前必须先等这一条的 GET 回来（`hydrateFrameSrc`）：否则第一块解完就 PUT，
+   会把盘上原有的那几张整份覆盖成「只有这一块」—— 合并底座就是空的。 */
+function sliceCachePut(key, made) {
+  if (!window.Api || !Api.cachePut || !made || !made.length) return;
+  let m = slicePersist.get(key);
+  if (!m) { m = new Map(); slicePersist.set(key, m); }
+  made.forEach(f => { const t = Number(f && f.t); if (f && f.blob && Number.isFinite(t)) m.set(t, f.blob); });
+  /* 盘上那一份只留最近的 SLICE_FRAME_MAX 张：同一条素材来回缩放会把每个采样点都留一份，
+     不封顶的话每写一次都要整份重传一遍越滚越大的记录。 */
+  while (m.size > SLICE_FRAME_MAX) m.delete(m.keys().next().value);
+  const prev = sliceCacheQ.get(key) || hydrateFrameSrc(key);
+  const run = prev.catch(() => {}).then(() => {
+    const list = Array.from(m, ([t, blob]) => ({ t, blob }));
+    return Api.cachePut('slices', key, packFrames(list));
+  }).then(ok => {
+    if (ok || sliceCacheWarned) return;
+    sliceCacheWarned = true;
+    try { console.warn('[slices] 切片缓存没写进代理：下次重画这一条要重新解码'); } catch (e) { /* 控制台不可用就算了 */ }
+  }, () => {});
+  sliceCacheQ.set(key, run);
+}
+/* 持久缓存只在一张素材第一次出现在这一页时问一次代理。
    命中的帧直接变成本页的 blob URL 塞进 frameCache —— 后面重画走的仍是同一条同步贴帧路径，
    不给「从磁盘来的帧」另开一套画法。 */
 const sliceHydrated = new Set();
@@ -296,11 +334,18 @@ function hydrateFrameSrc(key) {
   if (run) return run;
   const p = sliceCacheLoad(key).then(list => {
     if (!list || !list.length) return;
+    /* 盘上那一份是「合并写盘」的底座：先把它记下来（新解出来的同刻帧优先留着），
+       后面每一块解完只在这个基础上加，不会把别的块写掉。 */
+    let saved = slicePersist.get(key);
+    if (!saved) { saved = new Map(); slicePersist.set(key, saved); }
     const hit = frameCacheOf(key);
     touchFrameSrc(key);
     for (const f of list) {
-      const t = Number(f && f.t);
-      if (!f || !f.blob || !Number.isFinite(t) || hit.has(t)) continue;
+      if (!f || !f.blob) continue;
+      const t = Number(f.t);
+      if (!Number.isFinite(t)) continue;
+      if (!saved.has(t)) saved.set(t, f.blob);
+      if (hit.has(t)) continue;
       try { hit.set(t, URL.createObjectURL(f.blob)); } catch (e) { /* 缓存里的 blob 坏了：跳过这一张，实时解码会补 */ }
     }
   }).catch(() => {}).then(() => {
@@ -313,29 +358,29 @@ function hydrateFrameSrc(key) {
 /* 全页共用的那一条解码流水线：排队、认领、松手只在这一处。
    以前是「每条素材各自开 4 个解码器，素材之间再 Promise.all 全开」—— 十几条候选就是五六十个
    <video> 同时抢那几个硬件解码器，切片没变快、中栏正在播的那一条先卡。 */
-/* 下一块活：**看得见 / 针附近**的优先，不按入队先后。
-   同一条素材内部已经由 `chunkHot` 排过块序；跨素材时如果仍 FIFO，
-   屏幕外先入队的几条素材会把用户正盯着的那一条挤到后面。 */
+/* 下一趟活：**看得见**的优先，不按入队先后。
+   跨素材时如果仍 FIFO，屏幕外先入队的几条素材会把用户正盯着的那一条挤到后面。 */
 function sliceNextJob() {
   if (!sliceJobs.length) return null;
   let best = -1;
   for (let i = 0; i < sliceJobs.length; i++) {
-    if (sliceActive.has(sliceJobs[i].key)) continue;    // 同一素材的块串行，不抢同一只解码器
+    if (sliceActive.has(sliceJobs[i].key)) continue;    // 同一条素材一次只有一趟活（两条链都不并发）
     if (best < 0 || (sliceJobs[i].prio || 0) < (sliceJobs[best].prio || 0)) best = i;
   }
   return best < 0 ? null : sliceJobs.splice(best, 1)[0];
 }
 /* 一素材一只 video：池子按稳定键（sliceKey）取。地址从 /getv 换成 /asset 时要换源，
-   但忙着的这一只不能在中途换（那一块的时刻还要接着 seek）—— 等它闲下来。 */
+   但忙着的这一只不能在中途换（这一趟的时刻还要接着 seek）—— 等它闲下来。
+   忙闲不再另记一份：同一条素材一次只有一趟活由 sliceActive 把关（以前这里还记了个
+   busy 计数，只加不减，闲置释放那一路被它永远短路）。 */
 function sliceVideoTake(key, src) {
   let rec = sliceVideos.get(key);
-  if (rec && rec.src !== src && !rec.busy) { sliceVideoDrop(key); rec = null; }
+  if (rec && rec.src !== src) { sliceVideoDrop(key); rec = null; }
   if (!rec) {
-    rec = { v: Wb.vframe.el(src), src, busy: 0, timer: 0 };
+    rec = { v: Wb.vframe.el(src), src, timer: 0 };
     sliceVideos.set(key, rec);
   }
   if (rec.timer) { clearTimeout(rec.timer); rec.timer = 0; }
-  rec.busy++;
   return rec.v;
 }
 function sliceVideoDrop(key) {
@@ -348,53 +393,62 @@ function sliceVideoDrop(key) {
 /* 闲置 5 秒就把解码器交出去：切走镜头后池子里不该留着十几只 <video> 解着上一场的画面。 */
 function sliceVideoIdle(key) {
   const rec = sliceVideos.get(key);
-  if (!rec || rec.busy) return;
+  if (!rec) return;
   if (rec.timer) clearTimeout(rec.timer);
-  rec.timer = setTimeout(() => { rec.timer = 0; if (!rec.busy && !sliceActive.has(key)) sliceVideoDrop(key); }, SLICE_IDLE);
+  rec.timer = setTimeout(() => { rec.timer = 0; if (!sliceActive.has(key)) sliceVideoDrop(key); }, SLICE_IDLE);
 }
+let sliceMbWait = false;
 function slicePump() {
   if (slicePaused) return;
+  /* 切片的解码器只在 media-backend.js 里造（AGENTS §7），这一层没有第二份可退。
+     那一份还没到位就先不排活，等它加载完自己再来一遍；加载不起来就停在这里（格子保持占位）。 */
+  if (!(window.MediaBackend && window.MediaBackend._video)) {
+    if (!sliceMbWait && Wb.vframe) {
+      sliceMbWait = true;
+      Wb.vframe._mbReady().then(mb => {
+        sliceMbWait = false;
+        if (mb && !slicePaused) slicePump();
+      }, () => { sliceMbWait = false; });
+    }
+    return;
+  }
   const limit = SLICE_V1 ? 4 : SLICE_GLOBAL;
   while (sliceBusy < limit) {
     const job = sliceNextJob();
     if (!job) return;
     sliceBusy++;
-    const v1 = SLICE_V1;
-    const v = v1 ? Wb.vframe.el(job.src) : sliceVideoTake(job.key, job.src);
-    if (!v1) sliceActive.add(job.key);
-    grabChunk(v, job.times, job.hit, job.key, job.q, job.onFrame).then(
-      r => {
-        noteSliceFail(job.key, r.miss);
-        if (r.dead && !v1) sliceVideoDrop(job.key);     // 元数据都拿不到：这只解码器别再留着
-      },
-      () => noteSliceFail(job.key, job.times)
-    ).then(() => {
-      if (v1) Wb.vframe.release(v);
-      else { sliceActive.delete(job.key); sliceVideoIdle(job.key); }
-      sliceBusy--;
-      const p = slicePending.get(job.key);
-      if (p) { job.times.forEach(t => p.delete(t)); if (!p.size) slicePending.delete(job.key); }
-      slicePump();
-      job.res();
-    });
+    sliceActive.add(job.key);
+    /* 主链先接：mediabunny 能解就一趟索引解完；退下来才轮到 <video> 池逐块 seek。
+       两链只跑其一 —— 同一素材不并发两路解码。 */
+    indexPass(job)
+      .then(ok => (ok ? null : videoPass(job)), () => noteSliceFail(job.key, job.times))
+      .then(() => {}, () => {})
+      .then(() => {
+        sliceActive.delete(job.key);
+        sliceBusy--;
+        const p = slicePending.get(job.key);
+        if (p) { job.times.forEach(t => p.delete(t)); if (!p.size) slicePending.delete(job.key); }
+        slicePump();
+        job.res();
+      });
   }
 }
-/* 把「缓存没有、也没人在取」的这些时刻排进流水线，返回每块的 Promise（一块 = 一个 <video>）。
-   每块至少装三格再拆下一块：一格一块会把池子填满同一素材的零碎活，别的素材反而排不上。
-   `hot`（可省）= 这一条素材上插针指着的那一**源秒**：离它近的那一块先解，见 `chunkHot`。 */
-function sliceAsk(key, src, times, hit, hot, vis, q, onFrame) {
+/* 把「缓存没有、也没人在取」的这些时刻排进流水线：**一条素材一趟活**（不是一块一个 <video>）。
+   解码主链（indexPass）一趟把整张稠密帧索引铺满；只有兜底链（videoPass）才把时刻切块。
+   `hot`（可省）= 这一条素材上插针指着的那一**源秒**：主链按时间升序解（顺序解码比来回跳
+   快得多，不为了优先级破坏），兜底链拿它排块序（见 chunkHot）。
+   `vis` = 这一栏此刻看得见：看不见的活让位给正盯着的那一条，但一格都不丢。 */
+function sliceAsk(key, src, times, hit, hot, vis, onFrame) {
   const pend = slicePending.get(key);                     // 这一条素材上已经有人在取的格子，不再排第二遍
   const run = times.filter(t => !pend || !pend.has(t));
   if (!run.length) return [];
   const set = pend || new Set();
   slicePending.set(key, set);
-  const basePrio = vis ? 0 : 1000;
-  const push = (ts, i) => new Promise(res => {
-    ts.forEach(t => set.add(t));
-    sliceJobs.push({ key, src, times: ts, hit, res, prio: basePrio + i, q, onFrame });
+  return [new Promise(res => {
+    run.forEach(t => set.add(t));
+    sliceJobs.push({ key, src, times: run.slice().sort((x, y) => x - y), hit, res, prio: vis ? 0 : 1000, hot: hot >= 0 ? hot : -1, onFrame });
     slicePump();
-  });
-  return chunkHot(chunkAsc(run, Math.max(1, Math.min(SLICE_GLOBAL, Math.ceil(run.length / 3)))), hot).map(push);
+  })];
 }
 /* 把「这一格要画的 n 个时刻」和缓存里已有的帧配一次对，返回与 `ts` 等长的地址表（缺的留空）。
    正好那个时刻命中最好；命不中退到**同一张磁贴里离它最近**的那一张（tol = 一张磁贴跨的源秒）——
@@ -449,15 +503,95 @@ function chunkHot(chunks, hot) {
   const near = ts => (hot < ts[0] ? ts[0] - hot : hot > ts[ts.length - 1] ? hot - ts[ts.length - 1] : 0);
   return chunks.slice().sort((x, y) => near(x) - near(y));
 }
+/* 主链：mediabunny 批量取帧。一次向它要一个**稠密帧索引**（按素材时长分档、上限 480 张，
+   口径在 slice.js 的 frameIndexPlan/frameIndexTimes），外加这一排格子真正要的那几个时刻 ——
+   出来的帧全部进同一张帧表，往后无论怎么缩放重画，用的都是这一份
+   （磁贴对格的落点由 tileFrames 就近顶上，新格子不用等自己的那一帧解回来）。
+   返回 true = 主链接住了活（它判「没有缺的」或解完都算）；false = 退 videoPass。
+   调用方（slicePump）保证同一素材一次只有一趟活，job.hit 只归这一趟写。 */
+async function indexPass(job) {
+  const mb = window.MediaBackend;
+  if (!mb || !mb.frames || SLICE_V1) return false;
+  const made = [];
+  let saved = 0, planned = null;
+  const putMade = () => {
+    if (made.length <= saved) return;
+    sliceCachePut(job.key, made.slice(saved));
+    saved = made.length;
+  };
+  const r = await mb.frames(job.src, {
+    cap: FRAME_INDEX_MAX, w: SLICE_W,
+    has: t => job.hit.has(t),
+    plan: (dur, has) => {
+      /* 索引栅格 + 本趟要画的时刻合起来是这一次要解的集合：栅格让整条素材先有全套采样
+         （缩放不再触发新解码），时刻表兜住栅格盖不到的取整误差。已在退避里的不重问。 */
+      const grid = frameIndexTimes(dur).filter(t => !has(t) && !sliceBadFresh(job.key, t));
+      const tiles = job.times.filter(t => !has(t) && !sliceBadFresh(job.key, t));
+      planned = Array.from(new Set(grid.concat(tiles))).sort((x, y) => x - y);
+      return planned;
+    },
+    onFrame: f => {
+      if (!f || !f.blob) return;
+      const t = Number(f.t);
+      if (!Number.isFinite(t)) return;
+      const url = URL.createObjectURL(f.blob);
+      job.hit.set(t, url);
+      made.push({ t, blob: f.blob });
+      while (job.hit.size > SLICE_FRAME_MAX) {
+        const first = job.hit.keys().next().value;
+        const oldUrl = job.hit.get(first);
+        job.hit.delete(first);
+        try { URL.revokeObjectURL(oldUrl); } catch (e) { /* 地址已失效：不挡新的帧入表 */ }
+      }
+      if (job.onFrame) { try { job.onFrame(); } catch (e) { /* 上屏那一遍自己出错，不该打断解码 */ } }
+      if (made.length - saved >= 150) putMade();   // 长趟中途落盘：别攒几百张才写，一断全丢
+    },
+  });
+  if (!r || r.mode === 'fallback') return false;
+  /* 主链接了活却一帧都没交出来（迭代器空转 / 定点全 null）：退兜底，别把整排钉死在主链上 ——
+     兜底那条是另一套解码路径，同一个文件它经常解得动。出了一部分帧就照旧收下：
+     缺的时刻记退避，就近顶上先画着大头。 */
+  if (!made.length && (r.mode === 'stream' || (planned && planned.length))) {
+    noteSliceFail(job.key, r.mode === 'stream' ? job.times : planned.filter(t => !job.hit.has(t)));
+    return false;
+  }
+  if (r.mode === 'stream') {
+    /* 整段流式出来的是真实包时刻，与栅格时刻对不齐（差零点几秒是常态），
+       靠 tileFrames 就近顶上。 */
+  } else if (planned) {
+    noteSliceFail(job.key, planned.filter(t => !job.hit.has(t)));
+  }
+  putMade();
+  return true;
+}
+/* 兜底链：<video> 池逐块 seek（mediabunny 解不动的容器 / 远程且包数装不下的走这条）。
+   块序按「离插针近的先」排（chunkHot），块内时间递增 —— 顺序 seek 比来回跳快得多。 */
+async function videoPass(job) {
+  const v1 = SLICE_V1;
+  const asc = job.times.slice().sort((x, y) => x - y);
+  const chunks = chunkHot(chunkAsc(asc, Math.max(1, Math.min(SLICE_GLOBAL, Math.ceil(asc.length / 3)))), job.hot);
+  const v = v1 ? Wb.vframe.el(job.src) : sliceVideoTake(job.key, job.src);
+  try {
+    const left = chunks.slice();
+    while (left.length) {
+      const ts = left.shift();
+      const r = await grabChunk(v, ts, job.hit, job.key, job.onFrame);
+      noteSliceFail(job.key, r.miss);
+      if (r.dead) {
+        if (!v1) sliceVideoDrop(job.key);            // 元数据都拿不到：这只解码器别再留着
+        left.forEach(rest => noteSliceFail(job.key, rest));
+        break;
+      }
+    }
+  } catch (e) { noteSliceFail(job.key, job.times); }
+  finally { if (v1) Wb.vframe.release(v); else sliceVideoIdle(job.key); }
+}
 /* 铺好格子 → 后台把帧填进去（重画时先画占位，绝不为了缩略图把整栏卡住） */
 async function fillSlices(root) {
   /* 记下「这一栏还要出图」：退避到点那一次就照着它再排一遍活（见 sliceRetryIn）。
      整栏重画会把旧行节点换掉，攒多了就顺手把已经不在树上的清掉。 */
   sliceRoots.add(root);
   if (sliceRoots.size > 32) Array.from(sliceRoots).forEach(r => { if (!r.isConnected) sliceRoots.delete(r); });
-  /* 先把编码 worker 建起来：它的脚本加载与线程启动和下面的回填缓存、取元数据并行，
-     等第一帧真要编码时它已经在等着了（首格预算里省下的就是这一段）。 */
-  if (!SLICE_V1) sliceWorkerOf();
   /* 一次收集：读**此刻**挂在栏上的那些格子，连带它们要的几个时刻。
      抽成函数是因为填完帧还要再走一遍 —— 期间整栏可能又重画过一次，
      把帧填进第一次那批已经孤立的节点里，等于取到了却上不了屏。 */
@@ -510,7 +644,7 @@ async function fillSlices(root) {
   const first = collect();
   draw(first);
   /* ② 只剩「缓存没有、这一条素材上也没人在取、而且不是已经确认取不到」的那些格子去解码。
-     不同素材之间不再各开一份并发：活全排进 sliceAsk 那条流水线，全页同时在解码的就是 SLICE_GLOBAL 块。 */
+     不同素材之间不再各开一份并发：活全排进 sliceAsk 那条流水线，全页同时在解的就是 SLICE_GLOBAL 趟。 */
   const jobs = [];
   /* 排活之前先按**看得见的**排一下：放大之后一屏只装得下一两条候选，而文档顺序解码时
      屏幕外那几条会把看得见的这条挤到队尾 —— 用户盯着的那一块要等好几秒才出图。
@@ -529,10 +663,8 @@ async function fillSlices(root) {
     return row ? (rowRects.get(row) || null) : null;
   };
   const items = Array.from(first.values()).map(rec => {
-    let q = 5;
-    rec.plans.forEach(p => { const x = snapSliceStep(p.step); if (x < q) q = x; });
     return {
-      key: rec.key, src: rec.src, plans: rec.plans, q,
+      key: rec.key, src: rec.src, plans: rec.plans,
       vis: barRect ? rec.plans.some(p => {
         const r = rowRectOf(p.t);
         return !r || (r.right > barRect.left - 320 && r.left < barRect.right + 320);
@@ -561,7 +693,7 @@ async function fillSlices(root) {
     if (root.isConnected) draw(collect());
   }
   items.filter(x => !warmItems.includes(x)).forEach(x => hydrateFrameSrc(x.key).then(redrawSoon));
-  items.forEach(({ key, src, plans, vis, q }) => {
+  items.forEach(({ key, src, plans, vis }) => {
     const marks = new Set();
     let hot = -1;
     plans.forEach(p => {
@@ -574,7 +706,7 @@ async function fillSlices(root) {
     const need = Array.from(marks)
       .filter(t => !warm.has(t) && !sliceBadFresh(key, t))
       .sort((x, y) => x - y);
-    if (need.length) sliceAsk(key, src, need, frameCacheOf(key), hot, vis, q, redrawSoon).forEach(p => { jobs.push(p); p.then(redrawSoon); });
+    if (need.length) sliceAsk(key, src, need, frameCacheOf(key), hot, vis, redrawSoon).forEach(p => { jobs.push(p); p.then(redrawSoon); });
   });
   if (jobs.length) {
     await Promise.all(jobs);
@@ -593,7 +725,7 @@ window.addEventListener('spa:page', e => {
   if (!paused) sliceResume();
 });
 
-/* 片段 → ffmpeg 可用的素材地址（本地导入 / 链接已过期的候选会先转存成一条长期有效的资产） */
+/* 片段 → 导出来源地址（本地导入 / 链接已过期的候选会先转存成一条长期有效的资产） */
 async function tlClipSrc(c) {
   /* 灰掉那一段的素材就是黑场本身：不再去取候选的地址、也不做转存（那一段画面用户已经说了不要）。
      代理那边 `src === 'black'` 走 lavfi 生成，段长由 in/out 决定 —— 所以时长还是那几秒。 */
@@ -617,7 +749,7 @@ async function tlClipSrc(c) {
   if (c.assetId) return Api.assetSrc(c.assetId);
   /* 原来这里还先取`cand.blobKey` 指向的 IndexedDB 字节 —— 而 blobKey 从没有一处赋值，
      那一支恒为null，等于多一次查库却从不生效（IndexedDB 里没有 blobKey 的索引）。删掉。
-     真正在用的是下面这条：本地导入/ 过期链接当场转存成 `.assets` 资产（toAsset）。 */
+     真正在用的是下面这条：本地导入 / 过期链接当场转存成本机资产（toAsset）。 */
   const fresh = await freshUrl(cand).catch(() => null);
   const source = fresh;
   if (!source) return null;

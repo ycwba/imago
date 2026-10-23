@@ -5,16 +5,27 @@
    这里只决定「用第几段、传哪个秒」，落到轨道上仍走 `lineSpanAt` / `shotRowAt`，
    一把尺子都不新增。 */
 import { round1 } from './util.js';
+import { isImageSeg } from './image-seg.js';
 
 /* 夹到合法区间：段号落在 [0, 段数-1]，秒数落在这一段的选区 `[in, out - 0.1]`。
    读的时候也要夹 —— 剪过一刀之后段数会变、段会变短，旧的 `lineAt` 可能落在
-   已经不存在的段 / 段尾之外，不夹就会把块画到这一镜外面。 */
+   已经不存在的段 / 段尾之外，不夹就会把块画到这一镜外面。
+   图片段不接台词（它没有「源里的第几秒」可念）：落点跳过它们，往后找第一段视频，
+   后面没有就往前找；一镜全是图片段时落回 0，不硬造一个不存在的视频秒。 */
 export function linePointClamp(pt, segs) {
   const list = Array.isArray(segs) ? segs : [];
   const seg0 = Math.max(0, Math.round(Number(pt && pt.seg) || 0));
   const at0 = Math.max(0, Number(pt && pt.at) || 0);
   if (!list.length) return { seg: seg0, at: round1(at0) };
-  const seg = Math.min(list.length - 1, seg0);
+  const isVideo = i => !isImageSeg(list[i]);
+  let seg = Math.min(list.length - 1, seg0);
+  if (!isVideo(seg)) {
+    let fwd = -1, back = -1;
+    for (let i = seg; i < list.length; i++) if (isVideo(i)) { fwd = i; break; }
+    for (let i = seg - 1; i >= 0; i--) if (isVideo(i)) { back = i; break; }
+    if (fwd < 0 && back < 0) return { seg: 0, at: 0 };
+    seg = fwd >= 0 ? fwd : back;
+  }
   const s = list[seg] || {};
   const a = Math.max(0, Number(s.in) || 0);
   const b = Math.max(a, Number(s.out) || a);

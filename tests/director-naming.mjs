@@ -4,7 +4,7 @@
    这里钉四件事：序号补零与空名回落、截断吃不掉后缀、扩展名恰好一个、撞名插序号。 */
 import assert from 'node:assert/strict';
 import { sceneShotBase, candidateBase, voiceBase, clipLabel,
-  stripExt, withExt, uniqueName, shotCtxOf, candidateIndex, voiceIndex } from '../web/director/naming.js';
+  stripExt, withExt, uniqueName, shotCtxOf, candidateIndex, voiceIndex, assetBase } from '../web/director/naming.js';
 
 /* 浏览器里 safe() / pad2() 直接用 ui.js 的 fileSafe / pad2；Node 单测没有它们，这里补同规则的桩，
    让「非法字符被洗掉、后缀仍在」「序号补零」这两条也能在这里判。 */
@@ -16,8 +16,8 @@ globalThis.window = {
 
 const ctx = { sceneIndex: 0, sceneName: '雨夜街头', shotIndex: 2, shotName: '推门' };
 assert.equal(sceneShotBase(ctx), '场景01-雨夜街头_镜头03-推门');
-assert.equal(candidateBase(ctx, 2), '场景01-雨夜街头_镜头03-推门_候选2');
-assert.equal(voiceBase(ctx, 1), '场景01-雨夜街头_镜头03-推门_配音1');
+assert.equal(candidateBase(ctx, 2), '场景01-雨夜街头_镜头03-推门', '不再加「候选N」后缀（撞名交给 uniqueName）');
+assert.equal(voiceBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '不再加「配音N」后缀');
 assert.equal(clipLabel(ctx, 1), '场景01 雨夜街头 · 镜头03 推门 · 片段1');
 assert.equal(sceneShotBase({ sceneIndex: 1, shotIndex: 0 }), '场景02_镜头01',
   '空名只留序号，不凭空造「未命名」');
@@ -65,4 +65,22 @@ assert.equal(candidateIndex(s1, s1.candidates[1]), 2);
 assert.equal(candidateIndex(s1, { id: 'nope' }), 1, '索引里没有就按第一条算');
 assert.equal(voiceIndex(proj, proj.voices[1]), 2);
 
-console.log('✓ 导演台命名：场景/镜头补零与空名回落、各自截断且后缀保留、扩展名恰好一个、撞名插序号、跨场景定位');
+/* ── assetBase：§0.5 统一命名规范 ────────────────────────────── */
+/* 全段齐全：定位 → 语义 → 时间 → 来源 */
+const ab1 = assetBase({ sceneIndex: 0, shotIndex: 2, prompt: '王八在水中缓慢移动', detail: { created: '2026-10-19T10:42:13Z' }, provider: 'sparkcine' });
+assert.ok(ab1.startsWith('场景01-镜头03-（王八在水中缓慢移动）_'), '全段齐全：定位+语义在前');
+assert.ok(ab1.includes('sparkcine'), '来源段在后');
+/* 没有场景/镜头：手传素材 */
+const ab2 = assetBase({ prompt: '猫在窗台', provider: '本机' });
+assert.ok(ab2.startsWith('手传-（猫在窗台）'), '手传素材用手传- 前缀');
+/* 没有提示词：语义段整段省掉（不出现「（）」） */
+const ab3 = assetBase({ sceneIndex: 0, shotIndex: 0, provider: 'sparkcine' });
+assert.ok(!ab3.includes('（'), '没有提示词不出现（）');
+assert.ok(ab3.startsWith('场景01-镜头01'), '定位段照常');
+/* 没有时间/来源：省略 */
+const ab4 = assetBase({ prompt: '测试' });
+assert.ok(!ab4.includes('_'), '没有时间和来源时只有语义段');
+/* id 与名字分开：assetBase 只管盘上文件名 */
+assert.ok(typeof assetBase({}) === 'string', '总能出一个名字');
+
+console.log('✓ 导演台命名：场景/镜头补零与空名回落、各自截断且后缀保留、扩展名恰好一个、撞名插序号、跨场景定位、assetBase 规范名');

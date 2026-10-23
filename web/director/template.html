@@ -275,6 +275,11 @@
   /* 黑场（画面被删掉的那一格）在预览里走的那几秒：甲板没有素材，就把当前那一帧压成纯黑。
      不用 `visibility:hidden` —— 那会把 16:9 的盒子一起收掉，画面当场塌一下再弹回来。 */
   .player-box video.blackout { filter: brightness(0); }
+  /* 图片段（静止画面）那一层：走到图片时盖住两个甲板（甲板此刻压黑）。
+     画幅与 `video` 同一条（16:9 盒子由视频甲板撑起来），图片按 contain 居中；没打开时完全不占位。 */
+  .player-box .player-still { display: none; position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000; border-radius: 4px; z-index: 1; cursor: pointer; }
+  .player-box .player-still.on { display: block; }
   /* 播放器那一排：按钮的尺寸与「svg 在不在圆心」只在这里定一份。
      原来是 `line-height: 40px; text-align: center` —— 那套**只对文字有效**：
      按钮里塞的是 `<svg>`（`icon()` 出的一层 `.ic`），基线一掉就把图标拽到圆心下方，
@@ -306,6 +311,7 @@
      在全屏下不会反过来压制这一条。 */
   .player-box:fullscreen { background: #000; }
   .player-box:fullscreen video { width: 100%; height: 100%; max-height: none; border-radius: 0; }
+  .player-box:fullscreen .player-still { border-radius: 0; }
   .player-empty { aspect-ratio: var(--film-ar, 16 / 9); max-height: 420px; width: 100%; background: var(--input);
     border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
   .player-empty .pe-ic { font-size: 42px; opacity: .5; }
@@ -377,19 +383,28 @@
      轨道区的形状（照参考图）：**左边一列轨名 + 右边一条会滚的轨道**
      ----------------------------------------------------------------------------
      两列一张网格。左列不参与横向滚动 —— 轨名、显隐、锁定一直在手边，滚到片尾也看得见；
-     右列才是滚动容器。两边的**行高由同一批变量决定**（下面那五个 `--tlh-*`）：
+     右列才是滚动容器。两边的**行高由同一批变量决定**（下面那几枚 `--tlh-*`）：
      分开写数字的话，收一行、滚一下就会错开一格，而「轨名指着哪一轨」这件事就假了。
      收起一行 = 行高换成 18px 并把内容不画（`.hid-*` 那两条），不是把整行删掉：
      删掉之后插针与刻度尺的换算要跟着改，而它们与行高无关。
      ========================================================================== */
-  /* 行高一档比从前高（52→64 / 38→52）：第 2 行往上的标签格里现在要装下
-     名 + 眼睛 + 锁 + ＋ + × + 那一行的音量滑块，116px 宽装不下就按 `flex-wrap` 换行，
+  /* 画面轨一格要装下三段（名称行 18 + 切片 + 原声波纹带 18），配音 / 待生成 / 字幕那一行只有块本身，
+     所以两档不同高，但**左右两列吃同一批变量**：`.tl-hrow.*` 与 `.tl-lane` / `.tl-vp-lane` / `.tl-sub-lane`
+     各自的 `height` 都只从 `--tlh-pic` / `--tlh-voice` 取，不再写第二个数。
+     标签格里现在要装下名 + 眼睛 + 锁 + ＋ + × + 那一行的音量滑块，116px 宽装不下就按 `flex-wrap` 换行，
      换了两三行必须给得出高度 —— 否则滑块被裁掉一半，而「这一行压到 60%」这件事又变成看不见的状态。
      `--tlh-min` 是**收起一行**之后那一窄条的高度：整条轨收起用的是 `--tlh-*` 换成 18px，
      而单行收起要留得住眼睛与锁两颗（20px + 边框），所以比它高一点、各自一个落点。 */
   .tl-grid { display: grid; grid-template-columns: 116px 1fr; align-items: start; margin: 6px 0 12px;
-    --tlh-ruler: 19px; --tlh-pic: 64px; --tlh-voice: 52px; --tlh-gap: 20px; --tlh-pad: 12px; --tlh-min: 22px; }
+    --tlh-ruler: 19px; --tlh-pic: 96px; --tlh-voice: 52px; --seg-lab-h: 18px; --seg-wv-h: 18px; --tlh-gap: 20px; --tlh-pad: 12px; --tlh-min: 22px;
+    /* 块体离轨框的那一圈留白：**三条块状轨共用这一枚**（配音块 / 待生成占位 / 字幕块）。
+       以前是各写各的（3px / 4px / 4px），于是同一排里三块的高度差着一两像素，
+       上下挨着时看得出「这几条轨不是同一把尺子画的」。画面格不用这一枚：它自己就是那一行的
+       三段堆叠（名称 / 切片 / 波纹），上下各留 4px 会把波纹带挤出去。 */
+    --tlh-inset: 4px; }
   .tl-grid.hid-pic { --tlh-pic: 18px; }
+  /* 收起态（18px）：三段都放不下 —— 名称 / 切片 / 波纹带全部不画，只留格子的底色与边框 */
+  .tl-grid.hid-pic .tl-seg .lab, .tl-grid.hid-pic .tl-seg .frs, .tl-grid.hid-pic .tl-seg .wv-box { display: none; }
   .tl-grid.hid-voice { --tlh-voice: 18px; }
   .tl-side { display: flex; flex-direction: column; gap: var(--tlh-gap, 20px); padding: var(--tlh-pad, 12px) 0; }
   /* 轨名格里现在有三颗按钮（眼睛 / 锁 / ＋）+ 名字 + 行数与音量那颗基数标签，
@@ -397,8 +412,8 @@
      看不见就等于状态丢了。行高仍由那五个 `--tlh-*` 决定，所以换行不会把右边那一列错开一格。 */
   .tl-hrow { display: flex; align-items: center; gap: 3px; padding-left: 5px; flex-wrap: wrap; row-gap: 1px; min-width: 0; }
   .tl-hrow.ruler { height: var(--tlh-ruler, 19px); padding-left: 0; }
-  .tl-hrow.pic { height: var(--tlh-pic, 52px); border: 1px solid var(--line); border-radius: 6px; background: var(--input); }
-  .tl-hrow.voice { height: var(--tlh-voice, 38px); border: 1px solid var(--line); border-radius: 6px;
+  .tl-hrow.pic { height: var(--tlh-pic, 96px); border: 1px solid var(--line); border-radius: 6px; background: var(--input); }
+  .tl-hrow.voice { height: var(--tlh-voice, 52px); border: 1px solid var(--line); border-radius: 6px;
     background: var(--input); border-style: dashed; min-width: 0; overflow: hidden; }
   /* 第 2 行往上的标签行：形状与第一行一模一样（同一批 `--tlh-*` 变量），只是没有那两颗按钮
      —— 显 / 锁管的是**这一轨**，不是某一行，重复画三颗会把「按下去管谁」说糊。
@@ -511,10 +526,13 @@
   .tl-zoom #tlZoomRange:focus-visible { outline: 2px solid var(--acc, #7c5cff); outline-offset: 2px; }
   /* 两行轨道**同一套形状**：本镜按源视频秒、全片按成片秒，都是一排绝对定位的段格 + 一根针。
      以前全片那一排是 flex 流（格子靠 flex 定宽），于是它没有针、没有把手、样式也与本镜不一致。 */
-  .tl-vrow, .tl-film { position: relative; height: var(--tlh-pic, 52px); border: 1px solid var(--line); border-radius: 6px;
+  .tl-vrow, .tl-film { position: relative; height: var(--tlh-pic, 96px); border: 1px solid var(--line); border-radius: 6px;
     background: var(--input); transition: border-color .12s; }
   .tl-bar:hover .tl-vrow, .tl-bar:hover .tl-film { border-color: rgba(124,92,255,.45); }
-  .tl-vrow .tl-seg, .tl-film .tl-seg { position: absolute; top: 0; bottom: 0; }
+  .tl-vrow .tl-seg, .tl-film .tl-seg { position: absolute; top: 0; bottom: 0;
+    /* 三段堆叠（照参考项目 Timeline.jsx 的 clip 形状）：上 = 名称行，中 = 切片，下 = 原声波纹带。
+       以前是「切片铺满 + 小字浮在左下角」的叠图；三段各有各的高，剪掉的头尾不再画进格子，所以只有中间那一段归把手盖。 */
+    display: flex; flex-direction: column; overflow: hidden; }
   /* 淡尺：每**一个主档**一道竖线，看得出「这一段占几秒」而不只是「占整条的几成」。
      那个宽度由 `tlApplyScale` 写成行上的 `--tl-step-px`（刻度尺算出来的同一个主档），
      所以尺上的线与轨道里的线是同一条落点 —— 纯装饰，不接点击。
@@ -527,13 +545,23 @@
   .tl-vrow::before, .tl-film::before { content: ""; position: absolute; inset: 0; border-radius: 6px; pointer-events: none;
     background: repeating-linear-gradient(90deg, rgba(127,127,127,.18) 0 1px, transparent 1px var(--tl-step-px, 100000px));
     background-position: -1px 0; }
-  .tl-bar .tl-seg { background: linear-gradient(180deg, rgba(124,92,255,.36), rgba(124,92,255,.2));
-    border: 1px solid rgba(124,92,255,.4); border-radius: 4px; cursor: pointer;
+  /* 格子的底 = **切片背后那层深色**，不是主题色：三段竖排（名称行 / 切片 / 波纹带）里只有中间那条铺画面，
+     上下两条带子露的就是这个底。半透明紫从前藏在「切片铺满整格」底下看不见，三段一拆就整排透出来，
+     界面变成「轨道是紫的」；深色玻璃底才是参考项目那一排的样子（image clip `rgba(12,18,24,.86)`），
+     紫只留给选中与悬停那两档强调。
+     `align-items: stretch` + `justify-content: flex-start` 是三段式的承重：居中会把三条带子按**内容宽**收缩，
+     而波纹带里全是绝对定位的东西（内容宽 0）—— 于是名字跑到格子中间、波纹带整个消失，
+     剩下的紫底看着就像「背景被换了」。 */
+  .tl-bar .tl-seg { background: linear-gradient(180deg, rgba(12,18,24,.9), rgba(12,18,24,.82));
+    border: 1px solid rgba(255,255,255,.16); border-radius: 4px; cursor: grab;
     /* 与块体 / 把手同一道规矩：格子上按下去是「换行」或「放插针」，不能被横向滚动容器抢走
        （抢走只来 pointercancel、pointerup 永远不来，真机上就是「按下去拖不动」）。 */
     touch-action: none;
-    display: flex; align-items: center; justify-content: center; font-size: 10.5px; color: var(--acc); min-width: 12px;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    font-size: 10.5px; color: #eafcff; min-width: 12px;
     transition: filter .12s, box-shadow .12s, border-color .12s; }
+  /* 手里正攥着某一格换行 / 挪顺序时：与配音块、待生成、字幕同一档抓取光标（把手另说，它是 ew-resize）。 */
+  .tl-bar .tl-seg:active { cursor: grabbing; }
   .tl-bar .tl-seg:hover { filter: brightness(1.18); }
   /* 点中的那一格：**内侧一圈 2px 亮环 + 外面一道实心同色环 + 提亮**。
      三条都是「选中」独有的形状，与 `:hover` 那条 `filter: brightness(1.18)` 不撞：
@@ -544,24 +572,45 @@
      只有「多出来一圈白边」才分得出点的是哪一格。
      外面那层 14px 紫色泛光已删：上下相邻的就是配音行，一圈光糊过去，界面上变成
      「点了一格，画面格和它下面那句配音都在亮」，而那一句话根本不是选中对象。
-     z-index 抬到灰遮罩(2)/小字(5)之上、针(8)之下；把手另有一档（见下面 `.cut`）。 */
+     z-index 抬到切片(2)/小字(5)之上、针(8)之下；把手另有一档（见下面 `.cut`）。 */
   .tl-bar .tl-seg.sel { z-index: 6; color: #fff; border-color: rgba(240,236,255,.96);
     outline: 2px solid rgba(240,236,255,.96); outline-offset: -2px;
     filter: brightness(1.34) saturate(1.18);
     box-shadow: 0 0 0 2px rgba(240,236,255,.92); }
-  /* 删掉的那一格 = **黑场占位**：格子还在原位、宽度和位置一个字没动，只是里面没有画面。
-     它与「框内那两块灰」是两件事，长得也必须不一样：那两块是「这一格里被剪掉的头/尾」，
-     整格是灰纹 = 「这一整格在成片里是黑的」。斜纹 + 虚线边 + 灰字，一眼分得出来。 */
+  /* 被剪掉的头 / 尾**不再画任何东西**：格子画的就是选区（进成片的那一截），剪一刀 = 这一格当场变窄、
+     后面每一格在轴上跟着前移。框 [a,b] 只剩「把手往外最多拖回到这儿」这一个用途。
+     `.tl-seg.gone`（整格黑场 / 空段）仍然是斜纹占位：那几秒真的进成片、只是没有画面，
+     与「剪掉的头尾不占时间」是两件事，所以只有它画得出来。 */
   .tl-seg.gone { background: repeating-linear-gradient(45deg, rgba(18,20,26,.9) 0 6px, rgba(52,56,66,.82) 6px 12px);
     border: 1px dashed rgba(148,163,184,.8); color: #cbd5e1; }
   /* 黑场那几格被悬停时不提亮（斜纹底提亮只会变成一片脏灰），但**选中那一下照样要亮** ——
      所以这一条排除 `.sel`，而不是再补一条「gone.sel:hover 也亮」把亮度数字写两遍。 */
   .tl-bar .tl-seg.gone:not(.sel):hover { filter: none; }
-  .tl-seg.gone .mask { opacity: .45; }
   /* 悬停 / 选中时切片提到全不透明（平时 .9 是为了让紫底透一点，看得出这是「可点的一条」） */
   .tl-bar .tl-seg:hover .frs, .tl-seg.sel .frs { opacity: 1; }
-  .tl-seg .lab { position: absolute; left: 3px; bottom: 1px; font-size: 9.5px; line-height: 1.1;
-    color: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.55); pointer-events: none; z-index: 5; white-space: nowrap; }
+  /* 名称行（上段）：流式一行，不再浮在左下角 —— 名字 + 段号在左、成片时长在右、静音钮贴右端 */
+  .tl-seg .lab { flex: 0 0 var(--seg-lab-h, 18px); display: flex; align-items: center; gap: 4px;
+    padding: 0 3px; font-size: 9.5px; line-height: 1.1; min-width: 0;
+    color: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.55); z-index: 5; }
+  /* 把手现在贴着格子的整高（见下面 `.cut`），名字那一行会被它压住左/右 13px —— 让开一格把手的宽。
+     锁住的那一行不画把手，所以用 `:has` 现量：没有那一根就不白留 15px。 */
+  .tl-seg:has(.cut.l) .lab { padding-left: 15px; }
+  .tl-seg:has(.cut.r) .lab { padding-right: 15px; }
+  .tl-seg .lab .lab-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-seg .lab .lab-dur { flex: 0 0 auto; opacity: .85; }
+  /* 静音钮：段级原声开关（切 segVol 0 ↔ 记住的前值；与「删画面出黑场」的 off 是两件事） */
+  .tl-seg .lab .mute { flex: 0 0 auto; width: 13px; height: 13px; padding: 0; border: 0; border-radius: 3px;
+    background: transparent; color: inherit; cursor: pointer; font-size: 9px; line-height: 13px; text-align: center; opacity: .8; }
+  .tl-seg .lab .mute:hover { opacity: 1; background: rgba(127,127,127,.25); }
+  .tl-seg .lab .mute.on { opacity: 1; color: var(--err, #e06666); }
+  /* 原声波纹带（下段）：canvas 条形（照 WaveformStrip 的画法），hover 时右缘出音量滑杆 */
+  .tl-seg .wv-box { flex: 0 0 var(--seg-wv-h, 18px); position: relative; overflow: hidden; min-height: 0; }
+  .tl-seg .wv-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; --waveform-color: #35ead9; }
+  .tl-seg .wv-box .wv-vol { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 44px; height: auto;
+    opacity: 0; pointer-events: none; transition: opacity .12s; accent-color: var(--acc); }
+  .tl-seg .wv-box:hover .wv-vol { opacity: .9; pointer-events: auto; }
+  .tl-seg .wv-box .wv-none { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 8.5px; color: rgba(234,252,255,.72); opacity: .9; }
   /* 轨道上的切片图：磁贴**定宽**（`--frs-w`，由 JS 的 `sliceGeom` 一处算出）——
      缩放改的是「这一格摊得下几张」，每张在屏上始终那么宽。从前是 `repeat(n, minmax(0,1fr))`
      把每帧铺成 1/n 格宽，推大比例尺时同一批帧跟着拉宽、推小时压窄，
@@ -569,7 +618,7 @@
      格子放不下整张时最后一张被 `overflow:hidden` **裁掉一截** —— 就是用户点名的「像被遮住那样」，
      宁可裁半张，也不为了铺满整格去改变每张的宽度。
      `.whole` 是例外：给那些「整格只铺一张」的占位（取不到画面 / 非 shots 的首帧兜底），跨满整格。 */
-  .tl-seg .frs { position: absolute; inset: 0; display: flex; overflow: hidden;
+  .tl-seg .frs { flex: 1 1 auto; min-height: 0; position: relative; display: flex; overflow: hidden;
     border-radius: 4px; opacity: .9; background: #05070a; }
   .tl-seg .frs .fr { flex: 0 0 var(--frs-w, 64px); min-width: 0; background-size: cover; background-position: center;
     /* 帧与帧之间那道缝画在磁贴**自己身上**（不用 flex gap）：gap 额外占宽，
@@ -582,24 +631,7 @@
   /* 「取不到画面」那句挂在 `.fr.none` 上（先前写的 `.frs.none` 那个类名压根没人挂过）：
      宁可看得出「没有图」，也不要一格空着让人以为还在转圈。 */
   .tl-seg .frs .fr.none::after { content: "取不到画面"; display: flex; align-items: center; justify-content: center;
-    height: 100%; font-size: 9.5px; color: var(--sub); }
-  /* 被切掉的头 / 尾：压暗 + 45° 斜纹。
-     斜纹这一笔是必要的：只有一层灰时，它和「切片还没取到」的占位长得一样，
-     而这两件事的意思正好相反（一个是「我不要这段」，一个是「马上就来」）。
-     这两个遮罩是「拉左边/拉右边」的可视化本体：拖把手时只改它们的宽度，
-     格子的左右边界与宽度不动 —— 所以看起来是「左边/右边那块消失」，不是整条缩小。 */
-  /* 被剪掉的头 / 尾：压暗 + 密斜纹 + 一条亮虚线边界。
-     以前是「半透明灰」——在缩略图上看几乎和正常画面一样（尤其暗画面），用户报「看不出哪块被剪了」。
-     现在三层叠加：底色压到 .74、斜纹间距 4px、靠选区那一侧画一道白色虚线，
-     一眼能分清「哪一截还在成片里」。 */
-  .tl-seg .mask { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 2;
-    background: repeating-linear-gradient(45deg, rgba(12,14,20,.74) 0 4px, rgba(12,14,20,.52) 4px 8px);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); }
-  /* 紧贴保留区的那一条边：告诉眼睛「界线在这里」 */
-  .tl-seg .mask.l { border-right: 2px dashed rgba(255,255,255,.75); }
-  .tl-seg .mask.r { border-left: 2px dashed rgba(255,255,255,.75); }
-  .tl-seg .mask.l { left: 0; border-radius: 4px 0 0 4px; }
-  .tl-seg .mask.r { right: 0; border-radius: 0 4px 4px 0; }
+    height: 100%; font-size: 9.5px; color: rgba(234,252,255,.72); }
   /* 左右把手 = 参考项目 `.image-resize-handle` 那一套，尺寸与配色逐条照搬：
      13px 宽、贴着格子的整高（不上下出挑）、深色玻璃底 + 一层青绿渐光、朝外那一道 1px 亮边、
      靠内那一侧画两条 1×18px 的抓手线（左把手在 4/7px、右把手在 7/4px），hover 整条变青绿 .34。
@@ -608,7 +640,7 @@
      照抄 9px 就把抓手线钉在格子顶上，比例反而不一样了。
      `touch-action: none` 是**必须**的：轨道现在是横向滚动容器，触屏/触控板上的横向拖动
      会被浏览器抢走当滚动 —— 那样只会收到一个 pointercancel，`pointerup` 永远不来，
-     表现就是「拖不动 / 拖到一半卡住」。z-index 要高过框内的灰遮罩（2）与那行小字（5），
+     表现就是「拖不动 / 拖到一半卡住」。z-index 要高过切片磁贴（2）与那行小字（5），
      否则把手会被它们盖住（看着在那儿、按下去没反应）；仍低于插针（8）。 */
   .tl-seg .cut { position: absolute; top: 0; bottom: 0; width: 13px; padding: 0; border: 0;
     border-left: 1px solid rgba(255,255,255,.26); border-radius: 0;
@@ -637,6 +669,13 @@
     box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 8; }
   .tl-pin::before { content: ""; position: absolute; top: -5px; left: -4px; width: 10px; height: 10px;
     border-radius: 50% 50% 50% 0; background: #fff; transform: rotate(-45deg); }
+  /* 预览轴：**悬浮**时出的半透明虚线（标出光标所在那一秒），与剪辑针共存、两种生命周期 ——
+     针是点击产物（写数据）、预览轴是悬浮产物（不写数据、不动播放头），移开即消。
+     视觉上分得清：预览轴半透明虚线，针保持实心白。同样挂在内容层 `.tl-inner` 上（与针同尺）。 */
+  .tl-pv-axis { position: absolute; top: 0; bottom: 0; width: 1px;
+    border-left: 1px dashed rgba(255,255,255,.55); background: rgba(255,255,255,.12);
+    pointer-events: none; z-index: 7; display: none; }
+  .tl-pv-axis.on { display: block; }
   /* 拖动某一格换顺序时那根「插到这儿」的竖线：只在这一趟拖动里存在，松手就撤。
      画它而不是把格子拖着走 —— 整排在拖动中途重排会把正在拖的那个节点销毁（旧病）。 */
   .tl-drop { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--acc, #7c5cff);
@@ -661,6 +700,17 @@
   .tl-ghost > i svg { display: block; width: 100%; height: 100%; color: #7fd0ff; }
   .tl-ghost > i polygon { fill: currentColor; }
   .tl-ghost > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 拖的是**字幕**或**待生成配音**时：整张卡就是那一块自己的样子，左边那一格图不画。
+     借画面切片那一路（`ghostSliceOf`）只在「手里拿的确实是一格画面」时说得通；字幕与待生成没有画面，
+     借一张邻居的帧会把「我在挪一句话」说成「我在挪一格视频」。配色各自照自己那一块的轨上样式。 */
+  .tl-ghost.sub, .tl-ghost.pend { justify-content: center; min-width: 150px; }
+  .tl-ghost.sub > i, .tl-ghost.pend > i { display: none; }
+  .tl-ghost.sub { border-color: rgba(124,92,255,.8);
+    background: linear-gradient(180deg, rgba(124,92,255,.5), rgba(96,68,208,.5)), rgba(18,18,24,.94); }
+  .tl-ghost.pend { border-style: dashed; border-color: rgba(34,197,94,.7);
+    background: repeating-linear-gradient(45deg, rgba(34,197,94,.1) 0 6px, rgba(34,197,94,.2) 6px 12px), rgba(18,18,24,.94); }
+  .tl-ghost.pend::before { content: "待生成"; flex: none; font-size: 9.5px; line-height: 15px; padding: 0 5px;
+    border-radius: 3px; background: rgba(34,197,94,.2); color: #22c55e; }
   /* 时间刻度尺（参考项目的轨道顶上就有这一条）：光看两端两个秒数，估算不了
      「这一段占几秒」「刚才切的那刀在哪儿」——每档画一道**竖线**，主档还带秒数。
      档位按总时长现算（见 rulerHTML）：写死「每 5 秒一道」在 3 秒的短镜头上会一道都没有，
@@ -685,11 +735,13 @@
   .tl-ruler .tk.te .tkl { left: auto; right: 4px; }   /* 写在最右那根线的左边：否则标签伸出内容层，多出一条几像素的横向滚动 */
   /* 声音轨：块的位置 = 它锚定的那一段在时间基上的位置。
      行高 34 而不是 26：块里要画波形，20px 高的块画出来只剩一根线，看不出起伏。 */
-  .tl-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px dashed var(--line); border-radius: 4px; background: rgba(124,92,255,.05); }
-  .tl-lane .tl-v { position: absolute; top: 3px; height: 32px; min-width: 22px; display: flex; align-items: center; gap: 3px;
-    padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1; cursor: pointer; overflow: hidden; white-space: nowrap;
+  .tl-lane { position: relative; height: var(--tlh-voice, 52px); border: 1px dashed var(--line); border-radius: 4px; background: rgba(124,92,255,.05); }
+  .tl-lane .tl-v { position: absolute; top: var(--tlh-inset, 4px); bottom: var(--tlh-inset, 4px); min-width: 22px;
+    display: flex; align-items: center; gap: 3px;
+    padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1; cursor: grab; overflow: hidden; white-space: nowrap;
     background: rgba(34,197,94,.3); border: 1px solid rgba(34,197,94,.55); color: var(--txt);
     touch-action: none; }        /* 同上：块体是拖动目标，手势不能被滚动容器抢走 */
+  .tl-lane .tl-v:active { cursor: grabbing; }
   /* 正在响的那一句：外圈亮环 + 走动的虚线边框（一片绿块里一眼分出在放哪一句） */
   .tl-lane .tl-v.playing { box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 0 10px rgba(34,197,94,.6); }
   /* 别的镜上溢出进来、在这里**只读**的那一截：半透明 + 虚线边。
@@ -722,7 +774,7 @@
      鼠标扫过音轨就变成「调整」箭头，而那块地方本来是「挪位置 / 试听」。两条一起收掉。
      现在常显，并且与画面轨那两条 `.cut` 是**同一份设计**（参考项目的青绿玻璃条：13px 宽、贴满块高、
      朝外一道亮边、靠内两条 1×18px 抓手线、hover 变青绿、拖起来那一刻加宽到 17px 并发光）。
-     块只有 32px 高且 `overflow:hidden`，所以发光的那一圈外阴影会被块沿裁掉一截 ——
+     块上下各留 `--tlh-inset` 且 `overflow:hidden`，所以发光的那一圈外阴影会被块沿裁掉一截 ——
      宽度与配色照旧一样，不为了露出阴影把块高改了。 */
   .tl-lane .tl-v .vo-cut { position: absolute; top: 0; bottom: 0; width: 13px; z-index: 4;
     border: 0; border-left: 1px solid rgba(255,255,255,.26); border-radius: 0;
@@ -749,23 +801,19 @@
   .tl-lane .tl-v .vn { font-size: 9px; opacity: .85; font-variant-numeric: tabular-nums; }
   /* 块底那条 6px 的音量横条已删（它带来两件事：`cursor: ns-resize` 让鼠标扫过音轨就变成
      「调整」箭头，而它是音量第二个出口 —— 与全站那一枚统一的音量滑块重复）。 */
-  /* 被切掉开头/结尾的那一块（与画面轨一致：压暗 + 斜纹 = 我不要这段，不是「还没加载」）。
-     两条挂在**框**内的左右两头：左边那块 = 音频开头被切掉的，右边那块 = 结尾被切掉的。
-     块本身（框）不缩不挪，所以拖把手看到的是「盖掉一截」而不是「整块缩放」。 */
-  .tl-lane .tl-v .vo-off { position: absolute; top: 0; bottom: 0; left: 0; pointer-events: none; z-index: 2;
-    background: repeating-linear-gradient(45deg, rgba(10,12,18,.8) 0 4px, rgba(10,12,18,.55) 4px 8px);
-    border-right: 2px dashed rgba(255,255,255,.75); }
-  .tl-lane .tl-v .vo-off.r { left: auto; right: 0; border-right: 0; border-left: 2px dashed rgba(255,255,255,.75); }
-  /* 压在**灰场**（画面被删掉的那一格）上的那几截：音频在那几秒**跳过**（停住、越过之后接着放），
+  /* 被切掉的头 / 尾不再画遮挡：块画的就是「进成片的那一截」，拖把手时块当场变窄、往外拖放回来
+     （与画面轨同一套）。`fa/fb` 那对框只活在数据里，当作往外拖的上限。 */
+  /* 压在**黑场**（画面被删掉的那一格）上的那几截：音频在那几秒**跳过**（停住、越过之后接着放），
      所以画成与跳过的画面格同一种灰（`.tl-seg.gone` 那一族），块本身顺延拉长。
-     与 `.vo-off` 是两件事（那两块 = 这一句被切掉的头尾，不进成片），所以颜色与纹路各不相同。 */
+     这是「成片里真占着时间、却没有画面」的那几秒，与「剪掉、根本不占时间」是两件事，
+     所以只有它画得出来。 */
   .tl-lane .tl-v .vo-skip { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 3;
     background: repeating-linear-gradient(45deg, rgba(18,20,26,.9) 0 6px, rgba(52,56,66,.82) 6px 12px);
     border-left: 1px dashed rgba(148,163,184,.8); border-right: 1px dashed rgba(148,163,184,.8); }
   .tl-lane .lane-hint { position: absolute; left: 6px; top: 9px; font-size: 10.5px; color: var(--sub); }
   .tl-empty { padding: 8px 10px; font-size: 11.5px; color: var(--sub); }
-  /* **统一剪辑条**：画面段与配音句共用这一排（五把剪子 + 试听；音量与倍速在右栏那张卡上。
-     颗数以标记为准 —— `#tlTools [data-cut]` 画几颗就是几颗，判据 `.tmp-dirdom.cjs` ㉛a 会当场数）。
+  /* **统一剪辑条**：画面段与配音句共用这一排（几把剪子 + 空段那一头 + 试听；音量与倍速在右栏那张卡上）。
+     颗数以标记为准 —— `#tlTools [data-cut]` 画几颗就是几颗，这里不写死数字。
      以前声音那一份是另一根条（`.tl-vtools`，挂在音轨行下面、点中一句才出现），于是
      同一件事在两处两种做法、那一排剪子只对画面齐、音量有三个出口（±10% 两颗、块底拖动一条、
      条上读数一个）。用户点名的「两者功能一致使用统一的剪辑按钮」就是收在这里。
@@ -795,15 +843,15 @@
     overflow: hidden; text-overflow: ellipsis; }
   /* 待生成配音那一轨：与真配音轨**同一把尺子**（轴秒），但骨子里是另一行 —— 它是「台词还没有声音」的占位，
      不参与选中 / 剪切（那两件事只对真块）；点 = 填进右栏，按住左右拖 = 把插针（合成落点）带走。 */
-  .tl-vp-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px dashed rgba(34,197,94,.28);
+  .tl-vp-lane { position: relative; height: var(--tlh-voice, 52px); border: 1px dashed rgba(34,197,94,.28);
     border-radius: 4px; }
   .tl-grid.hid-voice .tl-vp-lane { display: none; }
-  .tl-vp { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; gap: 5px;
+  .tl-vp { position: absolute; top: var(--tlh-inset, 4px); bottom: var(--tlh-inset, 4px); display: flex; align-items: center; gap: 5px;
     padding: 0 8px; border: 1px dashed rgba(34,197,94,.65); border-radius: 4px;
     background: repeating-linear-gradient(45deg, rgba(34,197,94,.07) 0 6px, rgba(34,197,94,.13) 6px 12px);
     color: var(--sub); font-size: 10.5px; cursor: grab; overflow: hidden; touch-action: none; }
   .tl-vp:active { cursor: grabbing; }
-  .tl-vp:hover { background: rgba(34,197,94,.16); color: var(--text); }
+  .tl-vp:hover { background: rgba(34,197,94,.16); color: var(--txt); }
   .tl-vp b { flex: none; font-size: 9.5px; padding: 0 5px; border-radius: 3px; background: rgba(34,197,94,.2); color: #22c55e; }
   .tl-vp span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tl-vp .vpm { flex: none; font-size: 9.5px; opacity: .8; }
@@ -815,27 +863,38 @@
   .tl-grid.hid-voice .tl-hrow.pend { display: none; }
   /* 字幕行：与配音轨同高的一排。块体按住拖 = 挪出现时间，两端把手直接改起止（字幕没有「灰场」——
      改的就是它的实际长度）；点一下跳到那里，改字在右栏。左列标签与右列逐像素同高。 */
-  .tl-sub-lane { position: relative; height: var(--tlh-voice, 38px); border: 1px solid rgba(124,92,255,.3);
+  .tl-sub-lane { position: relative; height: var(--tlh-voice, 52px); border: 1px solid rgba(124,92,255,.3);
     border-radius: 4px; background: rgba(124,92,255,.04); }
-  .tl-sub { position: absolute; top: 4px; bottom: 4px; display: flex; align-items: center; padding: 0 7px;
+  .tl-sub { position: absolute; top: var(--tlh-inset, 4px); bottom: var(--tlh-inset, 4px); display: flex; align-items: center; padding: 0 7px;
     border: 1px solid rgba(124,92,255,.55); border-radius: 4px; background: rgba(124,92,255,.2);
-    color: var(--text); font-size: 10.5px; cursor: move; overflow: hidden; white-space: nowrap; touch-action: none; }
+    color: var(--txt); font-size: 10.5px; cursor: grab; overflow: hidden; white-space: nowrap; touch-action: none; }
+  /* 抓取光标与画面格 / 配音块 / 待生成占位同一档（以前这一条是 `move`：四条轨里只有它长成「移动」箭头）。
+     两端把手仍是 `ew-resize` —— 手指底下那根是「改起止」，与「挪整条」分得开。 */
+  .tl-sub:active { cursor: grabbing; }
   .tl-sub:hover { background: rgba(124,92,255,.34); border-color: rgba(124,92,255,.8); }
   .tl-sub .sub-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-  /* 字幕的两端把手：形状与配音块那两根同一套（宽度 / 抓手线 / .act 加粗发光），
-     颜色换成字幕自己的紫 —— 手指底下的那一根是「改起止」不是「挪块」，一眼分得清。 */
-  .tl-lane .tl-sub .sub-cut, .tl-sub-lane .tl-sub .sub-cut { position: absolute; top: 0; bottom: 0; width: 11px; z-index: 4;
-    background: rgba(124,92,255,.25); border: 1px solid rgba(124,92,255,.55); cursor: ew-resize; }
+  /* 两端把手各压住 13px：字让开，否则句首那几个字被攥在把手底下（与画面格那两条同一件事）。 */
+  .tl-sub:has(.sub-cut.l) { padding-left: 15px; }
+  .tl-sub:has(.sub-cut.r) { padding-right: 15px; }
+  /* 字幕的两端把手：**形状与宽度与画面格、配音块那两根逐条相同**（13px 贴满块高、靠内两条抓手线、
+     拖起来那一刻加宽到 17px）—— 四条轨的把手只按颜色分身份，不按形状。
+     颜色仍用字幕自己的紫：手指底下的那一根是「改起止」不是「挪块」，一眼分得清。
+     `touch-action: none` 与另两排同一理由（轨道是横向滚动容器，不写死会被浏览器抢去当滚动）。 */
+  .tl-lane .tl-sub .sub-cut, .tl-sub-lane .tl-sub .sub-cut { position: absolute; top: 0; bottom: 0; width: 13px; z-index: 4;
+    border: 0; border-left: 1px solid rgba(255,255,255,.26); border-radius: 0;
+    cursor: ew-resize; touch-action: none;
+    background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(124,92,255,.3)), rgba(10,6,22,.34); }
   .tl-sub-lane .tl-sub .sub-cut.l { left: 0; border-right: 1px solid rgba(255,255,255,.26); border-left: 0;
-    border-radius: 4px 0 0 4px; }
-  .tl-sub-lane .tl-sub .sub-cut.r { right: 0; border-radius: 0 4px 4px 0; }
+    background: linear-gradient(270deg, rgba(255,255,255,.05), rgba(124,92,255,.3)), rgba(10,6,22,.34); }
+  .tl-sub-lane .tl-sub .sub-cut.r { right: 0; }
   .tl-sub-lane .tl-sub .sub-cut::before, .tl-sub-lane .tl-sub .sub-cut::after { content: ""; position: absolute;
-    top: 50%; width: 1px; height: 12px; margin-top: -6px; background: rgba(255,255,255,.5); }
-  .tl-sub-lane .tl-sub .sub-cut::before { right: 6px; } .tl-sub-lane .tl-sub .sub-cut::after { right: 4px; }
-  .tl-sub-lane .tl-sub .sub-cut.l::before { right: auto; left: 4px; } .tl-sub-lane .tl-sub .sub-cut.l::after { right: auto; left: 6px; }
+    top: 50%; margin-top: -9px; width: 1px; height: 18px; border-radius: 999px; background: rgba(244,238,255,.78); }
+  .tl-sub-lane .tl-sub .sub-cut::before { right: 7px; } .tl-sub-lane .tl-sub .sub-cut::after { right: 4px; }
+  .tl-sub-lane .tl-sub .sub-cut.l::before { right: auto; left: 4px; } .tl-sub-lane .tl-sub .sub-cut.l::after { right: auto; left: 7px; }
   .tl-sub-lane .tl-sub .sub-cut:hover { background: rgba(124,92,255,.5); }
-  .tl-sub-lane .tl-sub .sub-cut.act { z-index: 5; width: 15px; border-color: rgba(236,230,255,.9);
-    background: rgba(124,92,255,.62); }
+  .tl-sub-lane .tl-sub .sub-cut.act { z-index: 5; width: 17px; border-color: rgba(236,230,255,.9);
+    background: linear-gradient(90deg, rgba(124,92,255,.86), rgba(124,92,255,.3));
+    box-shadow: -3px 0 10px rgba(124,92,255,.3), 3px 0 10px rgba(124,92,255,.3); }
   .tl-hrow.sub { height: var(--tlh-voice, 52px); font-size: 10px; color: var(--sub); gap: 5px;
     border: 1px solid rgba(124,92,255,.3); border-radius: 6px; background: rgba(124,92,255,.04); }
   .tl-hrow.sub .tl-hname { color: rgba(124,92,255,.9); }

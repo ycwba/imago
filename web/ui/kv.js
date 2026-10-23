@@ -81,7 +81,6 @@ const conns = new Map();                     // 库名 -> Promise<IDBDatabase>�
     ws: { db: 'director_db', store: 'kv', label: '导演台工作区与本地视频', backup: true },
     fav: { db: 'fav_db', store: 'files', label: '收藏的本地文件', backup: true },
     blobs: { db: 'wb_blobs', store: 'blobs', label: '音色复刻的参考音频', backup: true },
-    thumbs: { db: 'wb_thumbs', store: 'thumbs', label: '缩略图缓存（丢了能重建）', backup: false },
     /* 本机镜像指针（哪条产物存在 .assets）。20k 条放进 localStorage 会顶到 5MB 配额，
        把设置/素材库一起挤掉；本体放 IndexedDB，localStorage 只留最近 2000 条的暖启动缓存。
        它不是用户作品，丢了能从代理的 /local-assets 重建，所以不进整包备份。 */
@@ -91,8 +90,10 @@ const conns = new Map();                     // 库名 -> Promise<IDBDatabase>�
     chatResults: { db: 'chat_db', store: 'results', label: '助手长结果（随会话）', backup: true },
     /* 画布工程：整份文档按项目 id 存；项目索引仍走 Store（canvas_index）。 */
     canvasDocs: { db: 'canvas_db', store: 'docs', label: '画布工程', backup: true },
-    /* 导演台切片帧（导演台/slice-cache.js）：丢了能重建，不进整包备份。 */
-    slices: { db: 'wb_slices', store: 'slices', label: '导演台切片缓存（丢了能重建）', backup: false },
+    /* 浏览器目录句柄（导出目录）：FileSystemDirectoryHandle，丢了重选，不进整包备份。 */
+    dirs: { db: 'wb_dirs', store: 'kv', label: '导出目录句柄（丢了重选）', backup: false },
+    /* 缩略图 / 切片帧的持久层已搬代理的 /cache/*（与 origin 无关），不再有 wb_thumbs / wb_slices：
+       旧 origin 里的那几十 MB 缓存不读、不迁移，由用户清站点数据回收。 */
   };
   const bound = new Map();
   function at(name) {

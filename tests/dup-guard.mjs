@@ -18,7 +18,7 @@ const base = JSON.parse(fs.readFileSync(baseFile, 'utf8'));
 
 function walk(dir, out) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+    if (e.name === 'node_modules' || e.name.startsWith('.') || e.name === 'vendor') continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, out);
     else if (/\.(?:js|mjs|cjs)$/.test(e.name)) out.push(p);

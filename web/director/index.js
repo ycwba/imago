@@ -25,6 +25,7 @@ export default {
     let styleEl = null;
     let active = { value: true };
     let installed = false;
+    let engineApi = null;   // 挂载后才有：生成工作台递过来的那张图要在 mount 之后才取得走
     let themeObs = null;
     let lastTheme = '';
     const listeners = [];   // { target, type, fn, wrapped }
@@ -82,15 +83,18 @@ export default {
       if (installed) return;
       installed = true;
       try {
-        /* 四件事一起要：三份公共经典脚本、模板 HTML、engine 那条模块链。
+        /* 这几件事一起要：五份公共经典脚本、模板 HTML、engine 那条模块链。
            以前一份一份 await，进这一页要串行等四次往返。并起来的前提都查过：
              · workbench.js / chars.js / export-formats.js 在求值期都不读对方（chars.js 只在函数里用
                `Wb.Blobs`，export-formats 只挂 window.ExportFormats），互不依赖才敢同时插；
              · engine.js 顶层只有 import，整个函数体在 `mount()` 里（`Wb.ST` 那一行也在里面），
                而 mount 照旧等到模板上完 DOM 才调 —— 提前取模块只是提前取字节。
-           no-cache = 每次向本地代理复验 ETag（304 就不重下），改了模板也能立刻生效。 */
+           no-cache = 每次向本地代理复验 ETag（304 就不重下），改了模板也能立刻生效。
+           媒体后端也要在 mount 之前到位：切片的 <video> 只在 media-backend.js 里造
+           （AGENTS §7），那一条链没有自己的兜底可退。 */
         const scriptsP = Promise.all([
           window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
+          window.__spaLoadScript('web/media-backend.js', () => window.MediaBackend),
           window.__spaLoadScript('web/domain/chars.js', () => window.Chars),
           window.__spaLoadScript('web/domain/export-formats.js', () => window.ExportFormats),
           /* 原始请求面板（不常驻在 shell.html —— 别处打开它就是白下一次）。 */
@@ -117,8 +121,10 @@ export default {
         env.winProxy.EditorMedia = createEditorMedia({ assetLocal: window.AssetLocal, api: window.Api });
         /* 引擎是真正的 ES 模块（可被 node --check 静态检查），document / window 两份代理按参数传进去；
            不再用 new Function 执行字符串；Vue 模板已在开发期预编译（严格 CSP 不需要 unsafe-eval）。 */
-        const { mount } = await engineP;
-        mount(env.docProxy, env.winProxy);
+        engineApi = await engineP;
+        engineApi.mount(env.docProxy, env.winProxy);
+        /* 从生成工作台点「加到时间线」过来的那一张图：mount 之前引擎还没有落点，取不走。 */
+        try { engineApi.consumeAddedImage(); } catch (e) { console.warn('[director] 跨页图片没放进去：', e); }
         if (window.fillIcons) window.fillIcons(host.value);
         if (window.Dropdowns) window.Dropdowns.build(host.value);
         /* 导演台自己的「换背景」只改 documentElement + localStorage，不知道外壳侧栏那张图标；
@@ -147,6 +153,8 @@ export default {
       active.value = true;
       try { if (window.__directorSlicePause) window.__directorSlicePause(false); } catch (e) {}
       if (styleEl && !styleEl.isConnected) document.head.appendChild(styleEl);
+      /* 每次激活都取一次：从生成工作台点「加到时间线」跳过来时，导演台只是被 KeepAlive 放回前台。 */
+      try { if (engineApi) engineApi.consumeAddedImage(); } catch (e) { console.warn('[director] 跨页图片没放进去：', e); }
       /* 隐藏期间可能改过窗口尺寸；放回文档后让导演台自己重排一次（它的 resize 监听在隐藏时是放行的）。 */
       setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 0);
     });

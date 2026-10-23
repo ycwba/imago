@@ -154,6 +154,7 @@ window.Chars = (function () {
       voiceMode: o.voiceMode || '',             // 这一位用哪种方式定声音：'' = 跟界面上选中的语音型号，preset/design/clone
       voiceBy: o.voiceBy || '',                 // 'ai' = 这一位的声音是「让 AI 定音色」写上的（界面要标出来，人可以直接改）
       refAudio: o.refAudio || '',               // 参考音频（本机资产地址，clone 型号用它做音色复刻）
+      refAudioId: o.refAudioId || '',           // 稳定身份（§14.1-7）：素材 id 或本机资产 id —— 地址只作兜底
       refAudioName: o.refAudioName || '',
       voiceCands: Array.isArray(o.voiceCands) ? o.voiceCands : [],   // 一次合成几条候选试听：[{voice, name, src, dur}]，挑中才写 voice
       /* 自动定音色的两条留痕（`autoVoice` 写）：`voiceErr` 是**没定成的原因**，
@@ -315,7 +316,7 @@ window.Chars = (function () {
       /* 声音候选也在拷贝清单里：漏了它，库里那几条试听拉进这一集就全没了，
          界面上一眼看得出「出过候选」，格子却是空的（字段拷贝漏字段那一类）。 */
       voiceCands: (src.voiceCands || []).slice(0, VOICE_CAND_CAP),
-      refAudio: src.refAudio || '', refAudioName: src.refAudioName || '' };
+      refAudio: src.refAudio || '', refAudioId: src.refAudioId || '', refAudioName: src.refAudioName || '' };
   }
   /* 这一集里的这一条是角色、场景还是道具：场景有 desc 没有 look（AI 拆出来的那些字段都不全，所以两个都看） */
   function episodeKindOf(x) {
@@ -463,6 +464,7 @@ window.Chars = (function () {
            于是存进库、再拉回界面就看不出哪位是 AI 定的（那条「AI 定 ·」的标签整排消失）。 */
         voiceBy: keep(char.voiceBy, base.voiceBy),
         refAudio: keep(char.refAudio, base.refAudio),
+        refAudioId: keep(char.refAudioId, base.refAudioId),
         refAudioName: keep(char.refAudioName, base.refAudioName),
         // faces 和 assets 需要特殊处理：数组和对象要合并而非简单覆盖
         /* 去重要按 **src** 比：库里存的是 JSON，每次读写都是新对象，
@@ -711,7 +713,7 @@ window.Chars = (function () {
         item.voiceName = f.voice.voiceName || '';
         item.voiceNote = f.voice.voiceNote || '';
         item.voiceMode = f.voice.voiceMode || 'preset';
-        if (f.voice.refAudio) { item.refAudio = f.voice.refAudio; item.refAudioName = f.voice.refAudioName || ''; }
+        if (f.voice.refAudio) { item.refAudio = f.voice.refAudio; item.refAudioId = f.voice.refAudioId || ''; item.refAudioName = f.voice.refAudioName || ''; }
         item.voiceBy = f.voice.voiceBy || 'user';
       }
       if (Array.isArray(f.faces) && f.faces.length) item.faces = f.faces.slice(0, FACE_CAP);
@@ -1778,6 +1780,9 @@ window.Chars = (function () {
       }
     }
     char.refAudio = src;
+    /* 稳定身份（§14.1-7）：这里源是「自己合成过的那条」的本机资产地址 ——
+       从地址里认出 la 资产号记进 refAudioId；地址将来变了（换端口 / 文件搬迁）按它找得回来。 */
+    char.refAudioId = ((/^\/asset\/([A-Za-z0-9_-]+)/.exec(src) || [])[1]) || '';
     char.refAudioName = String(name || cand.name || '生成的那一条').slice(0, 40);
     char.voiceMode = 'clone';
     /* 预设音色 id 要清掉：留着的话「方式那一排」切到预设时仍会命中它，
@@ -1810,6 +1815,9 @@ window.Chars = (function () {
         + window.fmtBytes(rule.maxBytes) };
     }
     char.refAudio = src;
+    /* 稳定身份（§14.1-7）：源是素材库里另一位 —— 记它的**素材 id**，地址只作兜底。
+       素材改名 / 音频文件搬迁都不断这层绑定（谁引用谁 = id，与 refMeta / sceneId 同口径）。 */
+    char.refAudioId = String((entry && entry.id) || '');
     char.refAudioName = String((entry && entry.name) || '参考音频').slice(0, 40) + ' 的声音';
     char.voiceMode = 'clone';
     char.voice = '';

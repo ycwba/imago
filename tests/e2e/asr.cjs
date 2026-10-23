@@ -291,6 +291,36 @@ function wav(seconds = 0.2) {
     if (ui.route !== 'service') throw new Error('设置页没读回 route=service：' + ui.route);
     if (ui.keyShown) throw new Error('设置页把密钥回显出来了');
     if (!ui.localText) throw new Error('设置页没有画「本机运行包」这一行');
+
+    /* 浏览器内 Whisper 这一档：路线里有得选、模型状态行照 /models/status 画（探针实例没有模型 → 照实说还没下载） */
+    const browserOpt = await page.eval(() => {
+      const card = document.querySelector('#asrCard');
+      return {
+        row: card.innerText.includes('浏览器内模型'),
+        opt: !!card.querySelector('option[value="browser"]'),
+      };
+    });
+    if (!browserOpt.row) throw new Error('设置页没有画「浏览器内模型」这一行');
+    if (!browserOpt.opt) throw new Error('「走哪条路」里没有浏览器内 Whisper 这一档');
+    await page.waitFor(() => {
+      const c = document.querySelector('#asrCard');
+      if (!(c && /还没下载|缺 \d+ 个文件/.test(c.innerText))) {
+        throw new Error('浏览器内模型状态行没照 /models/status 画出来（探针实例没有模型，应说「还没下载」）');
+      }
+      return true;
+    }, 10000);
+
+    /* /models/ 双闸之外的行为：status 认只读、点号段进不了模型目录
+       （%2e%2e 会被 URL 归一先吃掉、在路由表上落 404；字面 ..%2f 到了处理器按 400 拒 —— 两种都进不了盘） */
+    const mst = await call('/models/status?id=onnx-community/whisper-small_timestamped');
+    if (mst.status !== 200 || !mst.json || mst.json.id !== 'onnx-community/whisper-small_timestamped'
+      || !Array.isArray(mst.json.files)) throw new Error('/models/status 形状不对：' + mst.status + ' ' + mst.text);
+    const trav = await call('/models/%2e%2e/.env');
+    if (trav.status !== 400 && trav.status !== 404) throw new Error('点号段进不了模型目录，实际 ' + trav.status);
+    const trav2 = await call('/models/..%2f.env');
+    if (trav2.status !== 400) throw new Error('编码点号段要按 400 拒，实际 ' + trav2.status);
+    const mpost = await call('/models/org/name/f.bin', { method: 'POST' });
+    if (mpost.status !== 405) throw new Error('/models 文件档只收 GET，实际 ' + mpost.status);
     await page.eval(() => document.querySelector('#provTabs button[data-tab="search"]').click());
     await page.waitFor(() => {
       const c = document.querySelector('#searchCard');

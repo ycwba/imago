@@ -25,7 +25,7 @@ function createIndexStore(opts) {
   /* 上一次真正落盘的条目快照（id → JSON 串）。**不能拿 `cache` 当对照**：
      `read()` 把内存表原样交给调用方，调用方 `unshift` / 改字段之后再 `write(cache)`，
      这时新旧两份是同一个数组 —— diff 出来零条改动，索引永远不落盘。
-     表现是「资产文件在 .assets 里、列表重启后就空了」。 */
+     表现是「资产文件好好在盘上、列表重启后就空了」。 */
   let persisted = null;
   let ops = 0;
   let journalSkipped = 0;

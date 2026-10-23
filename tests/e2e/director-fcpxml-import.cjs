@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 导演台 FCPXML 导入（页头收口后的唯一「导入」入口）：
    · 页头不再有「导入文件 / 资产库 / 导入项目 / 导出项目」与尺寸下拉，只剩「导入 FCPXML」；
-   · 真的从文件入口导入一份 FCPXML：镜头顺序、入出点、倍速、黑场、台词、配音位置都读得回来；
+   · 真的从文件入口导入一份 FCPXML：镜头顺序、入出点、倍速、黑场、静态图、台词、配音位置都读得回来；
    · 导入的是一份新短片，写进工作区（IndexedDB）而不是覆盖当前工程。 */
 'use strict';
 const fs = require('fs');
@@ -20,11 +20,14 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
     <asset id="a2" name="voice-one" start="0s" duration="20s">
       <media-rep kind="original-media" src="/asset/la_probe_voice.mp3"/>
     </asset>
+    <asset id="a3" name="封面" start="0s" duration="30s" format="r1">
+      <media-rep kind="original-media" src="/asset/la_probe_still.png"/>
+    </asset>
   </resources>
   <library>
     <event name="导入探针">
       <project name="导入探针">
-        <sequence format="r1" duration="7s" tcStart="0s" tcFormat="NDF">
+        <sequence format="r1" duration="9s" tcStart="0s" tcFormat="NDF">
           <spine>
             <asset-clip ref="a1" name="第一段" offset="0s" start="2s" duration="3s">
               <timeMap>
@@ -41,6 +44,7 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
             </asset-clip>
             <gap name="空档" offset="3s" duration="2s"/>
             <asset-clip ref="a1" name="第二段" offset="5s" start="10s" duration="2s"/>
+            <asset-clip ref="a3" name="封面" offset="7s" start="0s" duration="2s"/>
           </spine>
         </sequence>
       </project>
@@ -96,13 +100,21 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
     });
     if (!ws) throw new Error('导入后的短片没写进工作区');
     const shots = ws.shots || [];
-    if (shots.length !== 3) throw new Error('应导入 3 段（两段画面 + 一段黑场），实际：' + shots.length);
+    if (shots.length !== 4) throw new Error('应导入 4 段（两段画面 + 一段黑场 + 一段静态图），实际：' + shots.length);
     if (shots[1].name !== '空档') throw new Error('中间那段黑场丢了：' + shots[1].name);
     const g = shots[1].candidates[0];
     const gs = g && g.segs && g.segs[0];
     if (!gs || gs.in !== 0 || gs.out !== 2 || !gs.off) throw new Error('黑场应是一段 2 秒的灰块：' + JSON.stringify(gs));
     if (shots[0].line !== '第一句字幕') throw new Error('第一段台词没读回来：' + shots[0].line);
     if (shots[0].candidates[0].url !== '/asset/la_probe1?v=2') throw new Error('本机素材地址没认回来：' + shots[0].candidates[0].url);
+    /* 静态图：认成 img 段（不是一段 0–2 秒的视频），时长就是它在成片里占的秒数。 */
+    const sc = shots[3].candidates[0];
+    const ss = sc && sc.segs && sc.segs[0];
+    if (!ss || !ss.img) throw new Error('静态图没落成图片段：' + JSON.stringify(sc && sc.segs));
+    if (ss.img !== '/asset/la_probe_still?v=2') throw new Error('静态图地址没认回来：' + ss.img);
+    if (ss.imgName !== '封面') throw new Error('静态图的名字丢了：' + JSON.stringify(ss));
+    if (ss.out - ss.in !== 2 || ss.b - ss.a !== 2) throw new Error('静态图应占 2 秒：' + JSON.stringify(ss));
+    if ('spd' in ss) throw new Error('静态图没有倍速，不该落 spd：' + JSON.stringify(ss));
     if (ws.voices.length !== 1) throw new Error('配音条数不对：' + ws.voices.length);
     const v = ws.voices[0];
     if (v.shotId !== shots[0].id || v.seg !== 0) throw new Error('配音没锚在第一段：' + JSON.stringify(v));
@@ -115,7 +127,7 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
-    console.log('✓ FCPXML 导入：页头只留这一颗 · 入出点/倍速/黑场/台词/配音锚点/画幅全部读回');
+    console.log('✓ FCPXML 导入：页头只留这一颗 · 入出点/倍速/黑场/静态图/台词/配音锚点/画幅全部读回');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

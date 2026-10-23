@@ -185,9 +185,11 @@ ok('助手动作统一走 ActionRegistry（planToken / 串行）', /createAction
 ok('任意脚本注入整族已删除', !/new Function/.test(chat) && !/ai_chat_inject/.test(chat) && !/runInject/.test(chat));
 ok('助手按页面与触发词加载 Skill', /WbSkills\.activeFor/.test(chat) && /CALL: skill/.test(chat));
 ok('Skill 之外的输出契约读 contracts.js 一份', /text-ai\/contracts\.js/.test(chat) && /contractFor/.test(chat));
-ok('提示词编辑器整块删除，正文以 Skill 为准', !/data-pp=/.test(read('web/pages/settings.js'))
+ok('提示词编辑器整块删除，正文以 Skill 为准（旧版手改档也已拆掉）', !/data-pp=/.test(read('web/pages/settings.js'))
   && !/renderPolishGroups/.test(read('web/pages/settings.js'))
-  && /clearManualPrompts/.test(read('web/domain/text-ai.js')) && /清掉旧版手改/.test(read('web/pages/settings.js')));
+  && !/clearManualPrompts/.test(read('web/domain/text-ai.js'))
+  && !/promptKey\(/.test(read('web/domain/text-ai.js'))
+  && !/migrateLegacyPrompts/.test(read('web/ui/skills.js')));
 ok('查询结果预算按 tokens 估算', /chat\/text-util\.js/.test(chat) && /estimateTokens/.test(chat) && /tokenOf\(/.test(chat));
 ok('发给模型前抹掉密钥形状', /chat\/text-util\.js/.test(chat) && /redactSecrets/.test(chat) && /redactOf\(out\)/.test(chat));
 ok('当前界面快照带时间线只读上下文', /WBBridge\.get\('director'\)/.test(read('web/core/page-context.js')));
@@ -223,8 +225,8 @@ ok('导出只读当前时间线', /export async function buildFCPXML/.test(fcp)
   && /tlSyncFromShots\(\)/.test(fcp.split('export async function buildFCPXML')[1] || '')
   && /export async function exportFCPXML/.test(fcp)
   && /buildFCPXML\(/.test(fcp.split('export async function exportFCPXML')[1] || ''));
-ok('本机素材走真实文件、缺失素材保留离线引用', /localFileOf/.test(fcp)
-  && /'media\/' \+ encodeURI\(name\)/.test(fcp) && /missing\.push/.test(fcp));
+ok('本机素材走真实文件、缺失素材保留离线引用（路径编码只有 encodePath 一份）', /localFileOf/.test(fcp)
+  && /encodePath\(name\)/.test(fcp) && /missing\.push/.test(fcp));
 ok('倍速写成 timeMap / 配音带偏移', /<timeMap>/.test(fcp) && /lane="-/.test(fcp));
 ok('黑场与缺素材不会静默丢段', /<gap /.test(fcp) && /本机没有可用文件的素材/.test(fcp));
 
@@ -232,8 +234,11 @@ ok('黑场与缺素材不会静默丢段', /<gap /.test(fcp) && /本机没有可
 group('§10 自动镜像与常驻页面生命周期');
 ok('代理有流式 from-url 通道且同源单飞', /dataPath === '\/local-assets\/from-url'/.test(proxy)
   && /withLocalSaveLock/.test(proxy) && /downloadTo\(target, tmp\)/.test(proxy));
-ok('镜像写入浏览器侧走 from-url、另存走 save-local', /saveLocalFromUrl/.test(al)
-  && /Api\.saveLocal\(\{ ids: \[r\.id\] \}\)/.test(al));
+/* 产物只有一份：镜像写进库根的类型子目录，写完不再「按号另存第二份到用户目录」。
+   `Api.saveLocal(` 后面带括号钉死：`Api.saveLocalAsset` / `saveLocalFromUrl` 是写库那一条，
+   不许被这一条误伤（少了那对括号，判据就变成「不许有任何本机写入」）。 */
+ok('镜像写入浏览器侧只走 from-url，第二份「另存」整族已撤', /saveLocalFromUrl/.test(al)
+  && !/Api\.saveLocal\(/.test(al) && !/Api\.saveToDir\(/.test(al));
 ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey = d\.a\[r\.id\]/.test(al)
   && /const key = oldKey \|\| k/.test(al));
 /* 「生成完成 → 自动镜像」这条链：以前四个生产者各自

@@ -14,8 +14,8 @@
      5. 静态对账整棵依赖树的两个方向（搬域时真踩出来的那一类）：
         「工厂解构了、调用点没给」→ 拿到的是 undefined，界面一格空数；
         「工厂用了 app.js 的配置名、本文件既没声明也没解构」→ 自由变量，跑到那一行才 ReferenceError。
-        两条都只在源码上比名单，不发一次请求；`/sys-status` 曾经因为少注入一个 RENDER_QUEUE_MAX
-        返回 500，而 `node --check`、语法判据、端点冒烟全绿 —— 只有这两条对账能在起进程之前拦住。
+        两条都只在源码上比名单，不发一次请求；这类漏注入在 `node --check`、语法判据与端点冒烟里
+        都是全绿的 —— 只有这两条对账能在起进程之前拦住。
    依赖全部是假对象：不碰网络（上游一律回 example.com 的假 JSON）、不起真子进程（spawn 只记账）、
    不写用户目录（写盘类落点全部指到 os.tmpdir 的探针目录，跑完整包删掉）。
    目标：全部端点 2 秒内跑完。 */
@@ -196,6 +196,10 @@ const asrStore = {
   patchSettings: s => Object.assign({ revision: 2 }, s || {}),
   putJob: () => {}, job: () => null, patchJob: () => {}, removeJob: () => {},
   jobs: () => [], running: () => 0,
+  /* browser-result 那一支用的三件：段落归一 / SRT 拼装 / 哈希去重，直接用真实现（纯函数，无副作用） */
+  normSegments: require(S.abs('server/asr-store.js')).normSegments,
+  toSrt: require(S.abs('server/asr-store.js')).toSrt,
+  findByHash: () => null,
 };
 const searchStore = {
   settings: () => ({ revision: 1, enabled: false, provider: 'tavily', maxResults: 3 }),
@@ -211,16 +215,9 @@ const skillsStore = {
   setEnabled: () => {}, remove: () => {},
   exportBundle: () => Buffer.from('probe'), dir: () => tmpDir('skills'),
 };
-const renderJobsStore = {
-  all: () => [{ id: 'live1', state: 'done', out: 'a.mp4', bytes: 4, updatedAt: Date.now() }],
-  record: () => {}, LIMIT: 50,
-};
-
 /* 注入点里没有、但 route 自己带兜底（`ctx.X || 默认值`）的 key：读到就给 undefined，不判红。
    登记在案，不许默默变多；app 真的下发了这个 key，就该把这一行删掉。 */
-const CTX_TOLERATED = [
-  { id: 'server/routes/render.js#SUBTITLE_MAX', why: 'render.js 里写的是 `ctx.SUBTITLE_MAX || 2000`，app 不注入是有意的默认值路径' },
-];
+const CTX_TOLERATED = [];
 const tolerated = new Map(CTX_TOLERATED.map(r => [r.id, r]));
 const toleratedHit = new Set();
 const unregistered = new Set();   // 注入点里有、这份表没登记假件的 key：只提示，不算红
@@ -292,7 +289,7 @@ const FAKES = {
   },
   assetInfoOf: () => (async () => ({ url: 'https://example.com/x.png', mime: 'image/png' })),
   /* 资产存储声明解析出来的那一份（server/registry-config.js 的 resolveAssetStore）：
-     路由只在密钥回退那一行读 keyEnv，其余字段归 render-jobs 用。 */
+     路由只在密钥回退那一行读 keyEnv，其余字段给「按资产号换地址」的调用点用。 */
   assetStore: () => ({
     provider: 'sparkcine', base: 'https://hi.example', keyEnv: 'SPARKCINE_API_KEY',
     retrieve: '/api/open/v1/assets/{id}', urlFields: ['url'], mimeField: 'mime_type',
@@ -312,10 +309,12 @@ const FAKES = {
   extInUrl: () => () => 'png',
   extOfMime: () => () => 'png',
   withLocalSaveLock: () => (k, fn) => (typeof fn === 'function' ? fn() : undefined),
-  /* app.js 里这三条是**同步**的（`() => indexStore.read()` 那一族），假件必须同形状 */
+  /* app.js 里这两条是**同步**的（`() => indexStore.read()` 那一族），假件必须同形状 */
   localIndexRead: () => () => [],
   localIndexUpsert: () => item => item,
-  localIndexRemove: () => () => true,
+  /* 一张卡背后的那几条账（删除按整组收，判据与列表并卡同一份）：假件回空表，
+     于是 DELETE 走的仍是「只有眼前这一条」那一路，冒烟不碰真盘。 */
+  localAssetSiblings: () => () => [],
   /* 串行队列那两条（见 server/index-store.js 的 update / putInto）：假件必须真的把回调跑一次，
      否则「忘了 await」「回调里传错参数」在这一层看不见；put 反过来要求第一个参数是那张表，
      直接把 item 传进来就当场抛 —— 端点变 500，这一条判据就红。 */
@@ -328,21 +327,13 @@ const FAKES = {
     if (!item || !item.id) throw new Error('putInto 少了条目');
     return true;
   },
+  localIndexDrop: () => (list, id) => {
+    if (!Array.isArray(list)) throw new Error('dropFrom 拿到的不是那张表');
+    if (!id) throw new Error('dropFrom 少了资产号');
+    return true;
+  },
   localFillMissing: () => () => 0,
   whyNoSpace: () => () => null,
-  insideLocalDir: () => () => false,
-  /* --- 媒体 / 渲染 --- */
-  probe: () => (async () => ({
-    format: { format_name: 'mp4', duration: '2.0', size: '5' },
-    streams: [{ codec_type: 'video', codec_name: 'h264', width: 128, height: 72, avg_frame_rate: '12/1' }],
-  })),
-  runFfmpeg: () => (async () => ({ code: 0, out: '' })),
-  killJobProcs: () => () => 0,
-  sendFileWithRange: () => (req, res, f, h) => { try { res.writeHead(200, h || {}); res.end('bytes'); } catch (e) {} },
-  enqueueRender: () => () => {},
-  pruneRenders: () => () => {},
-  running: () => () => 1,
-  pending: () => () => 0,
   /* --- 并发闸（形状抄 app.js：gate 一份对象、relayTake(gate, onSlot, opts) 当场给名额） --- */
   relayGateOf: () => p => ({
     key: String((p && (p.keyId || p.id)) || 'smoke'), name: String((p && (p.name || p.id)) || '冒烟平台'),
@@ -363,23 +354,26 @@ const FAKES = {
   relayRetryWait: () => () => null,
   noteRelayEvent: () => () => {},
   cacheSweep: () => () => {},
-  /* --- 另存三兄弟 --- */
-  autosaveDir: () => () => tmpDir('save'),
-  autosaveDefaultDirs: () => () => [],
-  autosaveUsedAdd: () => () => {},
-  autosaveUsedHas: () => () => false,
-  saveBaseName: () => (n, d) => String(n || d || 'file.bin'),
-  saveDirIndex: () => () => ({}),
-  saveKindOf: () => () => 'image',
-  saveUniqueName: () => (dir, base) => String(base || 'file.bin'),
-  saveStaleScan: () => () => [],
-  saveLocalCopy: () => (async () => ({ ok: true, file: path.join(tmpDir('save'), 'probe.png') })),
-  typeLabel: () => () => '图片',
-  productKindOfName: () => () => 'image',
+  /* --- 本机资产库的落点与账 ---
+     下面这几枚是 /local-assets 那一条落链要的假件：落点只有一种（库根下的类型子目录），
+     既没有「再另存一份」那条路，也没有第二个落点要收编。 */
+  bodyDirOf: () => () => tmpDir('save'),
+  bodyDirNameOf: () => () => '图片',
+  localRootDir: () => () => tmpDir('assets'),
+  mintAssetId: () => () => 'la_smoke',
+  newBodyPlace: () => () => ({ abs: path.join(tmpDir('save'), 'probe.png') }),
+  invalidateScan: () => () => {},
+  localAdopt: () => () => ({ added: [], skipped: 0 }),
+  entryAbsOf: () => () => '',
+  localSigOf: () => () => '',
+  /* fid 由存储层现算（fileFidOf）：冒烟里不 stat 真文件，给一个固定号即可。 */
+  fileFidOf: () => () => '0:0',
+  localAssetPaths: () => () => [],
+  localAssetRepair: () => () => null,
   /* --- 系统 / 注册表 --- */
   sysStatus: () => () => ({
     目录: { 数据: { 路径: tmpDir('data') }, 资产: { 路径: tmpDir('assets') }, 渲染: { 路径: tmpDir('renders') } },
-    ffmpeg: { ok: true }, 端口: 5175,
+    端口: 5175,
   }),
   registryVersion: () => 99,
   version: () => 99,
@@ -393,9 +387,6 @@ const FAKES = {
   detailCache: () => new Map(), listCache: () => new Map(),
   detailInflight: () => new Map(), listInflight: () => new Map(),
   DETAIL_TTL: () => 5000,
-  renders: () => new Map([['live1', { id: 'live1', state: 'running', progress: 10, stage: 'x', log: [], out: 'a.mp4' }]]),
-  renderQueue: () => [],
-  renderJobs: () => renderJobsStore,
   store: () => asrStore,
   customNotice: () => ({ reason: '', dropped: [] }),
   modelPrefsNotice: () => ({ reason: '', notice: [] }),
@@ -406,12 +397,8 @@ const FAKES = {
   ROOT: () => tmp,
   MIME: () => MIME_MAP,
   mime: () => MIME_MAP,
-  SAVE_KINDS: () => ['image', 'video', 'audio'],
   LOCAL_INDEX_MAX: () => 100,
-  RENDER_CLIPS_MAX: () => 200,
-  RENDER_QUEUE_MAX: () => 4,
   VOICE_MAX: () => 40,
-  state: () => ({ preparing: 0, rendering: 0 }),
   renderDir: () => tmpDir('renders'),
   maxAssetBytes: () => 5 * 1024 * 1024,
   maxBundleBytes: () => 20 * 1024 * 1024,
@@ -484,14 +471,12 @@ const MODULES = [
   { file: 'server/routes/relay.js', factory: 'createRelayRoutes' },
   { file: 'server/routes/outbound.js', factory: 'createOutboundRoutes' },
   { file: 'server/routes/local-assets.js', factory: 'createLocalAssets' },
-  { file: 'server/routes/media.js', factory: 'createMediaRoutes' },
-  { file: 'server/routes/save.js', factory: 'createSaveRoutes' },
   { file: 'server/routes/usage.js', factory: 'createUsageRoutes' },
-  { file: 'server/routes/render.js', factory: 'createRenderRoutes' },
   { file: 'server/routes/skills.js', standalone: 'handleSkills' },
   { file: 'server/routes/fcpxml.js', standalone: 'handleFcpxml' },
   { file: 'server/routes/pick-dir.js', factory: 'createPickDirRoute' },
   { file: 'server/routes/asr.js', factory: 'createAsrRoutes', fakes: { providers: () => ALL_PROVIDERS } },
+  { file: 'server/routes/models.js', factory: 'createModelsRoutes' },
   { file: 'server/routes/search.js', factory: 'createSearchRoutes', fakes: { providers: () => ALL_PROVIDERS } },
   { file: 'server/routes/static.js', standalone: 'handleStatic' },
   { file: 'server/data-store.js', factory: 'createDataStore', handler: 'handleData' },
@@ -582,27 +567,7 @@ const HITS = {
     { url: '/local-assets/la_probe', method: 'DELETE' },
     { url: '/nope', expect: false },
   ],
-  'server/routes/media.js': [
-    { handler: 'handleMediaInfo', url: '/media/info', method: 'POST', body: JSON.stringify({ assetId: 'la_missing' }) },
-    { handler: 'handleMediaInfo', url: '/media/info', method: 'POST', body: JSON.stringify({}) },
-    { handler: 'handlePrepareReferenceVideo', url: '/media/prepare-reference-video', method: 'POST', body: JSON.stringify({}) },
-  ],
-  'server/routes/save.js': [
-    { url: '/save', method: 'POST', body: JSON.stringify({ type: 'image', data: 'aGk=', name: 'probe.png' }) },
-    { url: '/save', method: 'POST', body: JSON.stringify({ type: 'nope', data: 'aGk=' }) },
-    { url: '/save-stale' },
-    { url: '/save-local', method: 'POST', body: JSON.stringify({ id: 'la_missing', type: 'image' }) },
-    { url: '/save-move', method: 'POST', body: JSON.stringify({ from: '', to: '' }) },
-  ],
   'server/routes/usage.js': [{ url: '/assets-usage' }],
-  'server/routes/render.js': [
-    { url: '/render/status?id=live1' }, { url: '/render/status?id=ghost' },
-    { url: '/render/cancel?id=live1' }, { url: '/render/dl?name=nope.mp4' },
-    { url: '/render/jobs' },
-    { url: '/render/save-to-assets', method: 'POST', body: JSON.stringify({ name: 'nope.mp4' }) },
-    { url: '/render', method: 'POST', body: JSON.stringify({ clips: [{ in: 0, out: 1 }], fps: 24 }) },
-    { url: '/render', method: 'POST', body: '{}' },
-  ],
   'server/routes/skills.js': [
     { url: '/skills' },
     { url: '/skills/ghost' },
@@ -618,7 +583,55 @@ const HITS = {
     { url: '/asr' }, { url: '/asr/settings' },
     { url: '/asr/settings', method: 'PUT', body: JSON.stringify({ settings: { route: 'service' } }) },
     { url: '/asr/transcribe', method: 'POST', body: JSON.stringify({ route: 'service', assetId: 'la_ghost' }) },
+    {
+      /* 浏览器内那一路线代理跑不了：不拦的话任务照建、work() 按「非 local 即在线」默默扣一次钱，
+         账上却写着 browser。 */
+      url: '/asr/transcribe', method: 'POST', body: JSON.stringify({ route: 'browser', src: '/asset/la_ghost' }),
+      check: res => res.statusCode === 400 ? '' : '浏览器路线该当场拒，实际 ' + res.statusCode + ' ' + String(res.body || ''),
+    },
     { url: '/asr/jobs/ghost' },
+    {
+      url: '/asr/browser-result', method: 'POST',
+      body: JSON.stringify({ segments: [{ start: 0, end: 1.2, text: '探针一句' }], language: 'zh', sourceHash: 'h1234567890abcdef', engine: '浏览器内 Whisper', media: 'probe.wav' }),
+      check: res => {
+        try {
+          const d = JSON.parse(res.body);
+          if (d.state !== 'done') return '落账不是 done：' + res.body;
+          if (!d.jobId || d.jobId !== d.id) return '回执缺 jobId（wait(r.jobId) 的调用方要靠它）';
+          if (!/探针一句/.test(d.srt)) return 'SRT 没按同一份 toSrt 出：' + String(d.srt);
+        } catch (e) { return '回执不是 JSON：' + res.body; }
+        return '';
+      },
+    },
+    {
+      url: '/asr/browser-result', method: 'POST', body: JSON.stringify({ segments: [] }),
+      check: res => res.statusCode === 400 ? '' : '空段落该回 400，实际 ' + res.statusCode,
+    },
+  ],
+  'server/routes/models.js': [
+    {
+      url: '/models/status?id=onnx-community/whisper-small_timestamped',
+      check: res => {
+        try {
+          const d = JSON.parse(res.body);
+          if (d.id !== 'onnx-community/whisper-small_timestamped') return 'id 没回写：' + res.body;
+          if (!Array.isArray(d.files) || typeof d.bytes !== 'number') return 'files/bytes 形状不对：' + res.body;
+          if (d.files.some(f => /\.part$/.test(f.file))) return '.part 算进了已就绪清单：' + res.body;
+        } catch (e) { return '回执不是 JSON：' + res.body; }
+        return '';
+      },
+    },
+    { url: '/models/status?id=abc', check: res => res.statusCode === 400 ? '' : '单段 id 该回 400，实际 ' + res.statusCode },
+    /* 点号段走不到模型目录：URL 归一（/models/../x → /x）与百分号编码（%2e%2e）都按 400 拒 */
+    { url: '/models/../.env', check: res => res.statusCode === 400 ? '' : '点号段该回 400，实际 ' + res.statusCode },
+    { url: '/models/%2e%2e/.env', check: res => res.statusCode === 400 ? '' : '编码点号段该回 400，实际 ' + res.statusCode },
+    { url: '/models/org', check: res => res.statusCode === 400 ? '' : '缺文件段该回 400，实际 ' + res.statusCode },
+    { url: '/models/org/name/f.bin', method: 'POST', check: res => res.statusCode === 405 ? '' : '非 GET 该回 405，实际 ' + res.statusCode },
+    /* 本机没有这份文件 → 走镜像代下载（假上游回 200 小 JSON）：整条「写 .part → 改名 → 流回」要跑得通 */
+    {
+      url: '/models/org/name/missing.bin',
+      check: res => res.statusCode === 200 ? '' : '代下载落空了：' + res.statusCode + ' ' + String(res.body || ''),
+    },
   ],
   'server/routes/search.js': [
     { url: '/search' }, { url: '/search/settings' },
@@ -698,7 +711,7 @@ function dispatchBlock() {
   return end < 0 ? src.slice(i) : src.slice(i, end);
 }
 /* 一律回 `{ why }`：why 非空就是这条路由没挂在表上（红）。只盯 `handle*` 那一族导出 ——
-   模块顺手导出的别的函数（`saveLocalCopy`、`dataFileOf` 那些给 app 当依赖用的）不归分发分管。
+   模块顺手导出的别的函数（给 app 当依赖用的那些小件）不归分发分管。
    回空串当成功、回字符串当失败那种写法容易自己绕进去。 */
 function tableCheck(mod, handlers) {
   const block = dispatchBlock();
@@ -758,6 +771,16 @@ async function _runHit(mod, wiring, handlerName, handler, hit) {
   }
 }
 
+/* 静态分发的扩展名白名单必须认 .mjs：vendor 的 mediabunny 是 ESM（`import('/web/vendor/mediabunny.min.mjs')`），
+   白名单漏了它就 404 —— 而调用方全都优雅降级（切片走 <video>、波形写「不可用」、导出退精确 seek），
+   表面一切正常、实际整条新栈没跑起来。这一条钉住「确实能取到」。 */
+{
+  const rs = fs.readFileSync(S.abs('server/routes/static.js'), 'utf8');
+  const app = fs.readFileSync(S.abs('server/app.js'), 'utf8');
+  const hasMjs = /mjs/.test(rs);
+  ok('静态白名单认 .mjs（vendor 的 ESM 靠它）', hasMjs && /'\.mjs':\s*'text\/javascript'/.test(app));
+}
+
 /* 自检跑一遍这套判据自己：两份故意写坏的样品必须红，否则「永远绿」的判据比没有判据更坏。 */
 async function selfTest() {
   const sample = require(S.abs('tests/fixtures/route-defect-sample.js'));
@@ -785,9 +808,8 @@ async function selfTest() {
 
 /* ---------- 依赖注入对账（「把域搬出 app.js」的配套判据）----------
    搬域最容易留的一种雷：函数搬走了，它读的那些配置没跟着搬。这种代码**语法通、require 得动、
-   面也挂得上**，静态与运行期各判据都看不见 —— 2026-10-20 实测：`render-jobs.js` 的
-   `renderStatus()` 里用了 `RENDER_QUEUE_MAX`，注入点却没给，于是 `/sys-status` 整条 500、
-   设置页「代理体检」那一格空转，而 `node tests/all.cjs` 全绿。
+   面也挂得上**，静态与运行期各判据都看不见，只有真请求打进去才在 catch 里冒出来 ——
+   `/sys-status` 整条 500、设置页「代理体检」那一格空转，而 `node tests/all.cjs` 全绿。
    这里不做作用域分析，只做集合比对：**模块声明要的 ⊆ 调用点给的**。
    只数「把 deps 整包解构」的那种工厂（`const { a, b } = deps;`）；逐个 `ctx.x` 读的那一族
    由上面那面 Proxy 在运行期盯着，两条判据各管一半、不重叠。 */
@@ -831,7 +853,7 @@ function injectionAudit() {
 }
 
 /* 反向那一半，也是**真的漏过一次的那一半**：模块里用了一个只有 app.js 才有的配置名，
-   却没从注入里接下来 —— 那是自由变量，运行期当场 ReferenceError（`renderStatus()` 那次就是这么炸的）。
+   却没从注入里接下来 —— 那是自由变量，运行期当场 ReferenceError。
    只查「长得像配置」的那一批（app.js 顶层的 UPPER_SNAKE 常量），不做完整作用域分析：
    要防的就是「搬域时把函数搬走、配置名忘了一起解构」，查得准比查得全有用。 */
 function appConfigConsts() {
@@ -880,7 +902,10 @@ function freeConfigAudit() {
         if (/^[A-Za-z_$][\w$]*$/.test(t)) known.add(t);
       }
     }
-    const free = names.filter(n => known.has(n) === false && new RegExp('\\b' + n + '\\b').test(src));
+    /* 「用了它」必须是**裸标识符**：`deps.LOCAL_DIR` 是属性访问（读的就是注入进来的那一份），
+       不是自由变量。`\b` 挡不住这一点 —— 点不在 \w 里，所以 `deps.` 后面照样算一个词边界。 */
+    const free = names.filter(n => known.has(n) === false
+      && new RegExp('(?:^|[^$.\\w])' + n + '\\b').test(src));
     if (free.length) rows.push({ file, why: file + ' 直接用了 app.js 的配置 ' + free.join('/')
       + '，但本文件既没声明也没从注入里解构 —— 那是自由变量，跑到那一行就是 ReferenceError' });
   }

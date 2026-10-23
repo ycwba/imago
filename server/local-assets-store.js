@@ -1,17 +1,27 @@
-/* 本机落盘的存储层：磁盘余量口径 + 按类型另存（/save*）+ 本机资产库那一份索引与读文件。
+/* 本机落盘的存储层：磁盘余量口径 + 本机资产库那一份「账」与读文件。
    2026-10-20 从 server/app.js 原样搬出：这里只有业务助手与落盘口径，
-   请求解析与响应在 server/routes/save.js、server/routes/local-assets.js、server/routes/usage.js。
-   目录（LOCAL_DIR / RENDER_DIR）、dataDirPath、log、MIME、spawnSync 由 app 组合根注入 ——
-   路径口径全站只有那一处（path.resolve，绝对路径要能直接用），这里不重复算。 */
+   请求解析与响应在 server/routes/local-assets.js、server/routes/usage.js。
+   目录（LOCAL_DIR）、dataDirPath、log、MIME、spawnSync、fileSafe、localRoot 由 app 组合根注入 ——
+   路径口径全站只有那一处（path.resolve，绝对路径要能直接用），这里不重复算。
+   ---------------------------------------------------------------------------
+   一句话说清这一层的立场：**盘上的文件是本体，索引只是它的一份账**。
+   所以账可以丢、可以换地方、可以改名搬家，而产物不能因此看不见 ——
+   每条记录带两个可移植的身份（fid 与采样内容签名，见下面 localSigOf），启动与列表前做一次磁盘对账，
+   账落后的那一条按身份认回新路径，盘上有而账里没有的那一条补一条账。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const crypto = require('crypto');
 const MediaId = require('../web/domain/ident.cjs');
 const { createIndexStore } = require('./index-store.js');
 
 function createLocalAssetsStore(deps) {
-  const { ROOT, LOCAL_DIR, RENDER_DIR, MIME, dataDirPath, log, spawnSync } = deps;
+  const { MIME, dataDirPath, log, spawnSync, localRoot, fileSafe } = deps;
+  /* 库根：每次现读（设置页改了不必重启）。 */
+  const DIR = () => (localRoot ? localRoot() : deps.LOCAL_DIR);
+  /* 账本不在库根里：根是用户翻得到的 下载\拾帧，里面只放产物本体。
+     账放 .data\local-assets\，于是「换根」只是换个本体堆，账一直跟着应用走。 */
+  const INDEX_DIR = () => path.resolve(dataDirPath(), 'local-assets');
 
   /* ---------- 写媒体之前先问一句「这块盘还剩多少」 ----------
      以前是等 ENOSPC 抛出来才报错，而那一句多半落在 handler 的 catch 里只进日志：
@@ -30,29 +40,18 @@ function createLocalAssetsStore(deps) {
     try { const s = fs.statfsSync(dir); return s.bsize * s.bavail; } catch { return null; }
   }
   /* 够 → 返回 null；不够 → 返回那句要回给调用方的话（**不抛**：各条路由的失败出口不一样，
-     /save 回 JSON、/render 写进 job.err，让调用方自己决定怎么说）。 */
+     落盘那条回 JSON、FCPXML 包写进 missing / 错误回执，让调用方自己决定怎么说）。 */
   function whyNoSpace(dir, need, what) {
     const free = freeBytesOf(dir);
     if (free === null || free >= need + DISK_HEADROOM) return null;
     return (what ? what + ' ' : '') + '要写 ' + mbOf(need) + '，而「' + dir + '」所在的盘只剩 ' + mbOf(free)
       + '（还要留 ' + mbOf(DISK_HEADROOM) + ' 余量给改名与备份）—— 腾点空间或换一个盘再试';
   }
-  /* 渲染只能问一个「最低下限」：成片要多少字节取决于段数、时长、码率与配音，
-     猜一个具体数会写出假承诺（说「要 200MB」而实际写出 1.2GB）。所以这一档只兜
-     「盘明显快满」那种必然失败的情况 —— **在下载素材之前就拦**，而不是等 ffmpeg 跑到
-     最后写文件时崩在半个 mp4 上（那时用户已经等了几分钟，而盘上留了一个坏文件）。 */
-  const RENDER_MIN_FREE = 256 * 1024 * 1024;
-  function whyRenderSpace() {
-    const free = freeBytesOf(RENDER_DIR);
-    if (free === null || free >= RENDER_MIN_FREE) return null;
-    return '导出成片的落盘目录只剩 ' + mbOf(free) + '，而一遍渲染要边解码边写临时文件（至少要留出 '
-      + mbOf(RENDER_MIN_FREE) + '）—— 清一清这块盘，或在 .env 里把 RENDER_DIR 指到别的盘（改完要重启）';
-  }
   /* ---------- 启动时清掉崩溃残留的临时写入文件 ----------
-     两处原子写（`.data/<key>.json` 与 `.assets/index.json`）都是「写 <目标名>.tmp-<pid>-<随机串> → rename」，
+     两处原子写（`.data/<key>.json` 与 `.data/local-assets/index.json`）都是「写 <目标名>.tmp-<pid>-<随机串> → rename」，
      正常路径要么 rename 走、要么 catch 里 unlink 掉，**只有进程被硬杀 / 断电才会留下**。
      留下的害处不是占地方（一份 JSON 几十 KB）：`GET /data` 的清单与设置页「数据与备份」会把它们
-     列成来路不明的条目，而资产索引重建时也会扫到多出来的名字。
+     列成来路不明的条目，而磁盘对账也会把多出来的名字当成一份没登记的产物。
      三条口径：
      ① **只认自己写出来的那一个形状**（`.tmp-<数字>-<2~8 位小写字母数字>` 结尾），
         用户放进这两个目录的文件名再奇怪都不碰 —— 这条路由删的是我们自己的垃圾，不是用户的东西；
@@ -64,12 +63,17 @@ function createLocalAssetsStore(deps) {
   const TMP_STALE_MS = 15 * 60 * 1000;
   function sweepStaleTmp(dirs) {
     let n = 0;
-    (dirs || [dataDirPath(), LOCAL_DIR]).forEach(dir => {
+    (dirs || [dataDirPath(), INDEX_DIR(), DIR()]).forEach(dir => {
       let names = [];
       try { names = fs.readdirSync(dir); } catch { return; }        // 目录还没建 = 没有残留可言
       names.forEach(name => {
-        if (!TMP_STALE_RE.test(name)) return;
         const f = path.join(dir, name);
+        /* 类型子目录再进一层：产物本体现在落在 库根\图片\ 这一档里，
+           半成品（`.tmp-` 那份）也跟着落在同一层，只扫库根就永远清不掉它。 */
+        let isDir = false;
+        try { isDir = fs.statSync(f).isDirectory(); } catch { /* 摸不到就当不是目录 */ }
+        if (isDir) { if (dir === DIR() && !SKIP_DIR_NAMES.has(name)) sweepStaleTmp([f]); return; }
+        if (!TMP_STALE_RE.test(name)) return;
         try {
           const st = fs.statSync(f);
           if (!st.isFile()) return;
@@ -81,16 +85,16 @@ function createLocalAssetsStore(deps) {
     });
     return n;
   }
-  /* ---------- 按类型另存到用户指定的文件夹（POST /save 用） ----------
-     配置在 `.data/sk_autosave.json`（设置页存进 localStorage 的 `sk_autosave`，由 DataSync 镜像过来，
-     所以换机器 / 云同步都跟着走 —— 里面只有目录路径，没有任何密钥）。
-     形状：{ image:{on:'on'|'off', dir:'D:\\AI图'}, video:{…}, audio:{…} }。
-     **目录不存在时自动建**（用户填 `D:\AI图\短剧` 而 `AI图` 还没有是常事），
-     建不出来就照实报错，不静默跳过 —— 静默跳过的话界面上什么痕迹都没有，
-     用户会以为「保存了」而文件其实没落盘。 */
-  const SAVE_KINDS = ['image', 'video', 'audio'];
-  /* 「英文媒体类别 → 中文类型名」在本机代理只这一张表（2026-10-15 从两份逐字相同的表收成一份：
-     另存目录那一头叫 `saveKindZh`、本机资产那一头叫 `LOCAL_KIND_ALIAS`，谁改了其中一份另一份不知道，
+  /* ---------- 库根的布局：本体按类型分子目录，账不在库根里 ----------
+     库根（localRoot()：默认 系统下载\拾帧，设置页「本机资产库」那一格可改）下面固定这几档：
+       图片\ 视频\ 音频\ —— 产物本体，文件名就是资产库里看到的那个名字（撞名加 -2/-3，不覆盖）
+       其他\ —— 扩展名与 mime 都认不出类别的那一份（不替用户编一个类型）
+     提示词\ 是 .md 归档（prompts-store），不是产物，所有扫描都跳过它。
+     ⚠ 这里**没有**「另存一份到别的文件夹」那一档了：本体本来就落在用户翻得到的地方，
+     再拷一份只会让同一个视频在盘上出现两份（这台机器实测 359 份里 344 份字节完全相同），
+     而资产库、离线预览、缩略图、删了能回源全靠那一份本体。
+     「英文媒体类别 → 中文类型名」在本机代理只这一张表（2026-10-15 从两份逐字相同的表收成一份：
+     落点目录那一头叫 `saveKindZh`、本机资产那一头叫 `LOCAL_KIND_ALIAS`，谁改了其中一份另一份不知道，
      表现是「磁盘上的文件夹叫图片、资产库列表里却按另一套名字筛」）。
      ⚠ 这一族的名字是**素材**的名字（音频），与浏览器侧那张「供应商类型」的表（`ui.js` 的 `provKindZh`，
        audio 那一格叫「语音」—— 一型供应方，不是一条素材）差一格，两边不许合并；
@@ -99,107 +103,39 @@ function createLocalAssetsStore(deps) {
      Node 里没有 window，所以这张小表必须在本机各留一份（与 `fileSafe` / `dayKey` 同一类登记在案的例外）。 */
   const MEDIA_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
   const typeLabel = t => MEDIA_KIND_ZH[t] || t;
-  /* 内容指纹：另存索引、本机资产扫描与云同步共用（取前 12 位足够区分本机文件）。 */
-  const sha1Of = buf => require('crypto').createHash('sha1').update(buf).digest('hex').slice(0, 12);
-  /* 系统默认的「下载」文件夹。**不要**直接用 %USERPROFILE%\Downloads 猜 ——
-     用户可以把它搬到别的盘（D:\下载），那件事记在注册表里：
-     HKCU\...\Explorer\Shell Folders 的
-     {374DE290-123F-4565-9164-39C4925E467B}（Downloads 的 KNOWNFOLDERID 固定 GUID）。
-     问一次就缓存：另存这三条路由每个文件都会问一次目录，reg.exe 一次上百毫秒，
-     不能每存一份就问一遍。问不到（不是 Windows / 注册表没这一项 / reg 被拦）就退到
-     homedir\Downloads —— 那是绝大多数机器上的真实位置。 */
-  let systemDownloadsCache = null;
-  function systemDownloadsDir() {
-    if (systemDownloadsCache) return systemDownloadsCache;
-    /* 探针（隔离实例）用 AUTOSAVE_DIR 把整个「下载」基座指走 —— 与 DATA_DIR / ASSETS_DIR /
-       RENDER_DIR 同一个理由：默认落盘地现在在用户真实的下载文件夹里，探针不该往那儿写。
-       指了就一口价，不再问注册表（否则「隔离」只隔了一半）。 */
-    const forced = String(process.env.AUTOSAVE_DIR || '').trim();
-    if (forced) { systemDownloadsCache = path.resolve(forced); return systemDownloadsCache; }
-    let dir = '';
-    try {
-      if (process.platform === 'win32') {
-        const r = spawnSync('reg', ['query',
-          'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders',
-          '/v', '{374DE290-123F-4565-9164-39C4925E467B}'],
-          { encoding: 'utf8', windowsHide: true });
-        const m = r && r.stdout && r.stdout.match(/REG_SZ\s+(\S.*)/);
-        if (m && m[1].trim()) dir = m[1].trim();
-      }
-    } catch {}
-    if (!dir) dir = path.join(os.homedir(), 'Downloads');
-    /* 注册表里可能是 REG_EXPAND_SZ（值里带 %USERPROFILE% 之类）—— reg query 不给展开，自己展开一层 */
-    dir = dir.replace(/%([^%]+)%/g, (s, n) => process.env[n] || s);
-    systemDownloadsCache = path.resolve(dir);
-    return systemDownloadsCache;
-  }
-  /* 没指定目录时的默认落盘地：**系统下载文件夹**下的 拾帧\<类型>，按类型分子目录。
-     为什么是下载文件夹：设置项留空原本的意思是「只存 .assets 资产库、不另存一份」，
-     于是用户永远看不到自己生成的成品，得自己去一个点号开头的隐藏目录里翻。
-     留空 = 用这个默认，是把「什么都不做」换成「存到看得见的地方」，
-     仍然随时能改 —— 逐类型的自定义路径优先级更高（见 autosaveDir）。
-     **2026-10-15 之前这里落的是项目下的 文件\ 文件夹**（跟着 DataSync 的仓库走），
-     用户点名改成下载文件夹：成品是用户自己的东西，不该长在工具的目录里
-     （项目目录还要进版本库，几百 MB 的成片混在里面迟早出事）。
-     老目录没有丢：/save-move 的 @default 两支都认（见 autosaveDefaultDirs）。 */
-  const AUTOSAVE_TOP_DIR = '拾帧';
-  const autosaveDefaultDir = kind => path.join(systemDownloadsDir(), AUTOSAVE_TOP_DIR, typeLabel(kind));
-  /* 改默认位置之前的那一版：项目下 文件\<类型>。只为 /save-move 的「旧的也是默认目录」
-     这一支留着 —— 这台机器实测里面有 800 多份成品，换默认之后它们还躺在那儿，
-     用户下一次把另存目录改到别处时，那一批也得能跟着搬（不然永远留在项目里）。
-     探针口 AUTOSAVE_LEGACY_DIR 与 AUTOSAVE_DIR 同一纪律：这台开发机上老默认目录里
-     就是真实成品，探针验 @default 搬迁不能真去动它们。指了就一口价（当基座，再拼类型子目录）。 */
-  const autosaveLegacyDefaultDir = kind => {
-    const forced = String(process.env.AUTOSAVE_LEGACY_DIR || '').trim();
-    return forced ? path.join(path.resolve(forced), typeLabel(kind))
-                  : path.join(ROOT, '文件', typeLabel(kind));
-  };
-  /* 「旧的也是默认目录」时的候选源（按序尝试）：新默认、老默认，各自只认真实存在的那些。
-     一个都不存在时保留新默认当报错点（ENOENT 那句话里点名的就是新位置）。
-     为什么不直接返回单个：过渡期两处都可能还有东西，只搬一处等于另一半永远搬不走。 */
-  function autosaveDefaultDirs(kind) {
-    const all = [autosaveDefaultDir(kind), autosaveLegacyDefaultDir(kind)];
-    const hit = all.filter(d => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
-    return hit.length ? hit : [all[0]];
-  }
-  function autosaveConf() {
-    /* 与下面 `dataDirPath()` 同一份表达式：这里**不能**去调它 —— 它是 2339 行的 const，
-       本函数在 1400 行，调用它就依赖「模块加载完之前不会被调用」这件事（能跑，但脆）。 */
-    const f = path.resolve(ROOT, process.env.DATA_DIR || '.data', 'sk_autosave.json');
-    try {
-      const v = JSON.parse(fs.readFileSync(f, 'utf8'));
-      return (v && typeof v === 'object') ? v : {};
-    } catch { return {}; }
-  }
-  /** 这一类该存到哪个目录（'' = 这一类关了，不另存）。
-      留空不再等于「不另存」：那是 2026-10 之前的默认，代价是成品只落在 .assets 这个
-      点号开头的目录里，用户看不见。留空 = 用 autosaveDefaultDir（下载\拾帧\<类型>）。 */
-  function autosaveDir(kind) {
-    const c = (autosaveConf()[kind] || {});
-    if (c.on === 'off') return '';
-    const d = String(c.dir || '').trim();
-    if (!d) return autosaveDefaultDir(kind);
-    return path.resolve(d.replace(/[\\/]+$/, ''));
+  /* 系统「下载」文件夹 / 各个根：口径只有一份，在 server/user-dirs.js（AGENTS §1）——
+     prompts-store 也 require 同一份，不许各拼各的「下载」路径。 */
+  const userDirs = require('./user-dirs.js');
+  const OTHER_DIR_NAME = '其他';
+  /* 库根里**不当产物**的那几档：提示词归档（.md）与回收站（搬东西时留下的空壳）。
+     扫描、用量、认回一律跳过 —— 把用户自己放的 .md 说成「一份没登记的产物」是假话。 */
+  const SKIP_DIR_NAMES = new Set([path.basename(userDirs.promptsRoot()), '.trash']);
+  /* 某一类本体的目录（绝对路径，按当前库根现算 —— 库根改了不必重启）。 */
+  const bodyDirOf = zh => path.join(DIR(), String(zh || OTHER_DIR_NAME));
+  /* 一条产物该落哪一档：**只认扩展名表与 mime**，认不出就 其他。
+     刻意不吃 `localMediaType` 那句「兜底成音频」：兜底在索引里顶多筛错档，
+     落到目录上就是替用户把一份不知道是什么的字节塞进 音频\。
+     ⚠ `LOCAL_KIND_BY_EXT` 定义在本函数之后，这里只**引用**不求值（调用点都在收到请求之后），
+       与下面 `productKindOfName` 引同一张表是同一个道理。 */
+  function bodyDirNameOf(x) {
+    const fmt = String((x && x.format) || '').toLowerCase().replace(/^\./, '');
+    if (LOCAL_KIND_BY_EXT[fmt]) return LOCAL_KIND_BY_EXT[fmt];
+    const m = String((x && x.mime) || '').toLowerCase();
+    if (m.startsWith('image/')) return '图片';
+    if (m.startsWith('video/')) return '视频';
+    if (m.startsWith('audio/')) return '音频';
+    return OTHER_DIR_NAME;
   }
   /* 「图片/视频/音频」反回 image/video/audio。类型判据只有 localMediaType 一处，
      这里只做中英互转，不另写一份扩展名名单（LOCAL_KIND_BY_EXT 已经有一份了）。 */
   const saveKindOf = zh => Object.keys(MEDIA_KIND_ZH).find(k => MEDIA_KIND_ZH[k] === zh) || '';
-  /* 文件名：只留 basename 与安全字符（防 ../ 穿越）。三条另存路由共用这一份。 */
-  function saveBaseName(name, fallback) {
-    return path.basename(String(name == null ? '' : name) || fallback || 'file.bin')
-      .replace(/[^\w.\-一-龥]+/g, '_').replace(/^_+/, '').slice(0, 120)
-      || (fallback || 'file.bin');
-  }
   /* 在 dir 里找一个不撞名的文件名：同名加 -2 / -3 序号，**不覆盖** ——
      覆盖会把用户自己整理过的文件名换掉，而且没有任何提示。
-     /save、/save-local、/save-move 三条路由共用这一份：各写一遍就会出现
-     「补存那次叫 a-2、下一回生成又叫 a-2」这种同目录里两套编号。
-     `skip`（可选）是**本轮已经抢过一次的号码**：existsSync 只是快照，两个并发请求
-     同一瞬间都会选中 `a.mp4`，所以撞 EEXIST 的名字要拉黑后重新找位，
-     否则序号会原地打转、永远找不出空位。 */
-  function saveUniqueName(dir, base, onTooMany, skip) {
+     落点只有 newBodyPlace 一处走这一份：各写一遍就会出现「这一回叫 a-2、下一回生成又叫 a-2」
+     这种同目录里两套编号。 */
+  function saveUniqueName(dir, base, onTooMany) {
     let file = base, n = 2;
-    while (fs.existsSync(path.join(dir, file)) || (skip && skip.has(file))) {
+    while (fs.existsSync(path.join(dir, file))) {
       const dot = base.lastIndexOf('.');
       file = (dot > 0 ? base.slice(0, dot) : base) + '-' + n + (dot > 0 ? base.slice(dot) : '');
       n++;
@@ -207,167 +143,245 @@ function createLocalAssetsStore(deps) {
     }
     return file;
   }
-  /* 目标目录里已经有哪些内容：建一张「字节数:摘要 → 文件名」的表。
-     为什么必须有这一步：另存是**镜像的附属动作** —— 用户改目录之前新生成的那批，
-     早就被 /save 写进旧目录了。不判重就补存的话，同一个视频会在新目录里出现两份：
-     一份是补存拷来的 `a.mp4`，一份是搬迁搬过来的 `a-2.mp4`（撞名才加的序号）。
-     只比字节数不够 —— 同长度不同内容是常事（改一帧的视频、改过参数的图），所以再比 sha1。
-     整条目录只读一遍、由调用方复用，别在循环里每个 id 重扫一次（83 个产物 × 目录里几十个
-     文件就是几千次全文件读）。`sha1Of` 定义在 3271 行，这里能安全引用：
-     本函数只在**收到请求之后**才被调用，那时模块早已加载完。 */
-  /* 这个目录是不是**本机资产库本体**（.assets，或它里面的某个子目录）。
-     另存那三条路由都要过这一道。为什么单独拦、而不是靠白名单：
-     白名单（sk_autosave_used.json）证明的是「这个目录是本工作台写过的」，
-     证明不了「搬走 / 写进去它是安全的」—— 用户把另存目录填成 .assets 是完全合法的操作，
-     而那样 /save 写进去的副本会把 .assets 记进白名单，下一次换位置 /save-move 就会
-     **真的把资产库里的文件搬走**。.assets 是整个工作台的本体：离线能看、删了能回源、
-     缩略图全靠它，搬空了就是「资产库里什么都没有了」。
-     判据只有这一份（LOCAL_DIR 同一处），三条路由各调它，不再各写一遍前缀比较。 */
-  function insideLocalDir(dir) {
-    if (!dir) return false;
-    try {
-      const base = path.resolve(LOCAL_DIR), s = path.resolve(dir);
-      return s === base || s.startsWith(base + path.sep);
-    } catch { return false; }
+  /* ---------- 一条记录怎么指回盘上那个文件：三级认回 ----------
+     账里的 `file` 是**相对库根**的路径（图片\xxx.png）。用户改名、挪到别的类型目录、整堆搬到另一块盘，
+     路径都会失效，而文件还是那一个文件 —— 所以认回按三级走：
+       ① 相对路径还在 → 直接用（常态，一次 stat）；
+       ② fid（`dev:ino`）对得上 → 同卷改名 / 移动，ino 不变，扫一次目录就认得；
+       ③ 采样内容签名（字节数 + 头尾各 1MB 的 sha1，ImageMagick 的 imohash 同一族做法）对得上 →
+          跨盘复制、换机、被同步盘重写一遍，这些场合 dev/ino 全变了，路径与 fid 都指望不上，只有内容还认得。
+     认回来就把新的 `file` / `fid` / `sig` 一起写进账，下一次就又是①那条常态路。
+     三级全落空才说「文件不在了」：不假装还在，也不顺手删条目 —— 条目里还留着回源外链与费用那笔账。 */
+  const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+  const absKey = p => { const s = String(p || ''); return CASE_INSENSITIVE_FS ? s.toLowerCase() : s; };
+  /* 账里的 file：相对库根，也认绝对路径（历史条目，以及刚从旧目录搬进来还没落定的那一条）。 */
+  function entryAbsOf(ent) {
+    const f = String((ent && ent.file) || '');
+    if (!f) return '';
+    try { return path.isAbsolute(f) ? path.normalize(f) : path.join(DIR(), f); } catch { return ''; }
   }
-  /* 目录内容指纹表（判重按**内容 sha1 不按文件名**）。
-     以前对目录里**每一个**文件都 readFileSync + sha1 —— `文件\视频` 512 个文件 / 788 MB，
-     实测外推约 1,848 ms 的**同步**阻塞（全在请求回调里），期间轮询、/asset 取图、/getv 播放
-     全部停摆。而判重本来就是「同 size 才可能同内容」，所以改成**按 size 建桶、懒算 sha1**：
-       · 目录里 size 只出现一次的那些，一个字节都不用读（不同内容的视频 size 几乎必然不同）；
-       · 只有真拿一个 size 来查、且这个 size 在目录里出现过时，才去读那几个同 size 的文件。
-     再按目录 mtime 缓存整张表（判据照抄 _customCache 的 mtime 双键，不引入新范式）：
-     目录没变就直接复用，连那 512 次 statSync 都省掉。 */
-  const dirIndexCache = new Map();          // dir → { mtimeMs, idx }
-  function buildDirIndex(dir) {
-    const bySize = new Map();               // size → [名字]
+  /* fid = `<dev>:<ino>`，都取字符串（不 Number()：超过 2^53 会丢精度，而 NTFS 的 ino 真能超过）。
+     ⚠ 必须用 `{ bigint: true }` 那一次 stat：普通 statSync 交回来的是已经丢过精度的 double，
+       同一个文件的两条账就可能算出两个号 —— 写盘那一条与扫盘认回那一条对不上，②那一级永远落空。
+     整站只有这一处算法（落盘那一条与磁盘对账那一条都调 fileFidOf）。 */
+  const fidOfStat = st => String(st.dev) + ':' + String(st.ino);
+  function fileFidOf(abs) {
+    try { return fidOfStat(fs.statSync(abs, { bigint: true })); } catch { return ''; }
+  }
+  const SIG_SAMPLE = 1024 * 1024;
+  /* 采样内容签名：`字节数:头尾各 1MB 的 sha1 前 16 位`。
+     为什么不用整份 sha1：这一枚在磁盘对账时要给「同字节数的那几个」现算，
+     一条 788MB 的片子读全量是几百毫秒的**主线程同步阻塞**，
+     而认「还是不是这一个文件」靠长度 + 头尾两段已经够。
+     ⚠ 它是「把已经落盘的那一条找回来」的钥匙，不是「这两份内容一模一样」的证据：
+       头尾相同、中间不同的两个文件会算出同一个签名。所以靠它动手的地方（认回路径、
+       删一张卡带走同一产物的那几张）都以「同一件事的两种落点」为前提，不用它决定删哪一份。 */
+  function localSigOf(file, size) {
+    let fd = 0;
     try {
-      for (const n of fs.readdirSync(dir)) {
-        let st; try { st = fs.statSync(path.join(dir, n)); } catch { continue; }
+      fd = fs.openSync(file, 'r');
+      const n = Number(size);
+      if (!Number.isFinite(n) || n < 0) return '';
+      const head = Buffer.alloc(Math.min(n, SIG_SAMPLE));
+      if (head.length) fs.readSync(fd, head, 0, head.length, 0);
+      let tail = head;
+      if (n > SIG_SAMPLE * 2) {
+        tail = Buffer.alloc(SIG_SAMPLE);
+        fs.readSync(fd, tail, 0, SIG_SAMPLE, n - SIG_SAMPLE);
+      }
+      const h = crypto.createHash('sha1');
+      h.update(head);
+      if (tail !== head) h.update(tail);
+      return n + ':' + h.digest('hex').slice(0, 16);
+    } catch { return ''; }
+    finally { if (fd) { try { fs.closeSync(fd); } catch {} } }
+  }
+  /* 库根的一次磁盘对账快照：readdir + stat，**不读内容**（签名只在真要认回/补建时才算，
+     而且先按字节数分桶，同字节数只有一个的候选什么都不用读）。
+     跳开提示词那一档与回收站；30 秒内的同一份根直接复用（列表、认回、用量三处共用这一份）。 */
+  let scanCache = null;
+  const SCAN_TTL = 30 * 1000;
+  function dirScan(force) {
+    const root = DIR();
+    if (!force && scanCache && scanCache.root === root && Date.now() - scanCache.at < SCAN_TTL) return scanCache;
+    const files = [];
+    const scanTree = (dir, rel) => {
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const name of entries.map(e => e.name)) {
+        if (rel === '' && SKIP_DIR_NAMES.has(name)) continue;
+        const abs = path.join(dir, name);
+        const relPath = rel ? rel + path.sep + name : name;
+        let st;
+        /* bigint 那一份：ino 超过 2^53 时普通 statSync 交回的是丢过精度的 double（见上面 fileFidOf）。
+           字节数与修改时间在下面都要显式收回 Number —— Map 的键与 `Number(ent.byte_length)` 那一档比的是数字，
+           BigInt 直接当键会让 bySize 永远查不中（123n 与 123 不是同一个键）。 */
+        try { st = fs.statSync(abs, { bigint: true }); } catch { continue; }
+        if (st.isDirectory()) { scanTree(abs, relPath); continue; }
         if (!st.isFile()) continue;
-        const arr = bySize.get(st.size); if (arr) arr.push(n); else bySize.set(st.size, [n]);
+        files.push({ rel: relPath, abs, size: Number(st.size), mtimeMs: Number(st.mtimeMs), fid: fidOfStat(st), sig: '' });
       }
-    } catch { /* 目录还不存在 = 里面什么都没有 */ }
-    const shaCache = new Map();             // 名字 → sha1（同一份文件在一次请求里可能被查多次）
-    const shaOfName = n => {
-      if (shaCache.has(n)) return shaCache.get(n);
-      let h = '';
-      try { h = sha1Of(fs.readFileSync(path.join(dir, n))); } catch {}
-      shaCache.set(n, h);
-      return h;
     };
-    return {
-      /* 目录里有没有与这段内容完全相同的文件？有就返回它的文件名。 */
-      get(size, hash) {
-        const cands = bySize.get(size);
-        if (!cands) return undefined;
-        for (const n of cands) if (shaOfName(n) === hash) return n;
-        return undefined;
-      },
-      /* 本次刚写进去的文件也要能立刻被后面的同内容请求命中（与以前 sums.set 同一个语义）。 */
-      add(size, hash, name) {
-        const arr = bySize.get(size);
-        if (arr) { if (arr.indexOf(name) < 0) arr.push(name); } else bySize.set(size, [name]);
-        shaCache.set(name, hash);
-      },
-    };
-  }
-  function saveDirIndex(dir) {
-    let mtimeMs = 0;
-    try { mtimeMs = fs.statSync(dir).mtimeMs; } catch { mtimeMs = 0; }
-    const hit = dirIndexCache.get(dir);
-    if (hit && mtimeMs && hit.mtimeMs === mtimeMs) return hit.idx;
-    const idx = buildDirIndex(dir);
-    dirIndexCache.set(dir, { mtimeMs, idx });
-    if (dirIndexCache.size > 16) { const k = dirIndexCache.keys().next().value; dirIndexCache.delete(k); }
-    return idx;
-  }
-  /* ---------- 代理自己写过的目录名单（POST /save-move 的安全闸） ----------
-     换下载位置时页面要递「从哪个旧目录搬过来」，而 /save 特意**不接受**客户端递的目录 ——
-     认了它，这条路由就等于「任意本机网页往任意路径写/搬文件」。
-     所以旧目录必须能被证明是**本工作台自己写出来的**：代理每写一次就把那个目录记进
-     `.data/sk_autosave_used.json`，/save-move 只接受名单里的。
-     代价是「早于这份名单的旧目录」搬不了 —— 那种情况页面会照实说「那个目录不是本工作台写的」，
-     而不是替用户猜。 */
-  const autosaveUsedPath = () => path.resolve(ROOT, process.env.DATA_DIR || '.data', 'sk_autosave_used.json');
-  function autosaveUsedRead() {
-    try { const v = JSON.parse(fs.readFileSync(autosaveUsedPath(), 'utf8')); return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []; }
-    catch { return []; }
-  }
-  function autosaveUsedAdd(dir) {
-    try {
-      if (!dir) return;
-      const list = autosaveUsedRead();
-      const key = path.resolve(dir);
-      if (list.some(x => path.resolve(x) === key)) return;
-      list.push(key);
-      fs.writeFileSync(autosaveUsedPath(), JSON.stringify(list.slice(-50), null, 0));
-    } catch (e) { log('[save] 目录名单写不下去（不影响存文件）：' + e.message); }
-  }
-  function autosaveUsedHas(dir) {
-    if (!dir) return false;
-    const key = path.resolve(dir);
-    return autosaveUsedRead().some(x => { try { return path.resolve(x) === key; } catch { return false; } });
-  }
-  /* ---------- 旧目录里还剩多少份没搬（GET /save-stale 用，只读） ----------
-     为什么必须有这一条：搬迁那句问话以前**只挂在「刚改完目录的那一刻」**，而实测这一台机器
-     一次都没弹出来过 —— 2026-10-15 把默认位置从项目内的 文件\<类型> 换成了 下载\拾帧\<类型>，
-     而 `dir` 这个字段一个字都没变（还是空串）。「换没换目录」按字符串比根本比不出来，
-     界面上又没有第二个入口：错过了那一句，几百份成品就一直躺在项目目录里
-     （还跟着仓库一起被 git 扫，而它们恰恰是最不该进版本库的大文件）。
-     所以这一条**不问配置问了磁盘**：把「代理搬得动的地方」逐个点数。
-     来源表与 /save-move 能搬的那几处严格同一份（两代默认 + 自己写过的目录名单），
-     否则界面上会出现一颗按下去必然失败的按钮。
-     安全：不接受任何客户端递进来的路径，也不接查询串 —— 报出去的位置全部来自代理自己的名单。 */
-  function saveStaleScan() {
-    const out = {};
-    const used = autosaveUsedRead();
-    for (const kind of SAVE_KINDS) {
-      const to = autosaveDir(kind);                 // '' = 这一类现在是关着的
-      const toKey = to ? path.resolve(to) : '';
-      const label = typeLabel(kind);
-      /* 候选来源连「它是第几代默认」一起记：页面搬的时候要递 `@default`
-         （那两个默认目录是一起搬的，代理那条分支不需要白名单），
-         而自己挑过的旧目录只能逐个点名、并且要过白名单。
-         不标这一位的话，页面要么把默认目录当普通路径递过来被白名单拒（搬不动），
-         要么统一递 @default（等于把用户自己挑过的目录也当默认的搬 —— 那是越权）。
-         默认目录是**按类型**分的（下载\拾帧\图片 vs 文件\图片），所以这一份必须在
-          kinds 循环**里面**现取 —— 提到外面拼一份全局名单，类型就对不上了。 */
-      const cands = [];
-      for (const d of autosaveDefaultDirs(kind)) cands.push({ dir: d, isDefault: true });
-      for (const d of used) cands.push({ dir: d, isDefault: false });
-      const seen = new Set(), dirs = [];
-      for (const cd of cands) {
-        let key = '';
-        try { key = path.resolve(cd.dir); } catch { continue; }
-        if (!key || key === toKey || seen.has(key) || insideLocalDir(key)) continue;
-        seen.add(key);
-        let names;
-        try { names = fs.readdirSync(key); } catch { continue; }   // 目录不存在 = 里面什么都没有
-        let count = 0, bytes = 0;
-        for (const n of names) {
-          if (productKindOfName(n) !== kind) continue;           // 严格判据：与 /save-move 同一份
-          let st; try { st = fs.statSync(path.join(key, n)); } catch { continue; }
-          if (!st.isFile()) continue;
-          count++; bytes += st.size;
-        }
-        if (count) dirs.push({ dir: key, count, bytes, isDefault: cd.isDefault });
-      }
-      dirs.sort((a, b) => b.bytes - a.bytes);       // 占盘最多的排最前（用户先搬谁一目了然）
-      out[kind] = { on: !!to, to, label, dirs, count: dirs.reduce((s, x) => s + x.count, 0),
-        bytes: dirs.reduce((s, x) => s + x.bytes, 0) };
+    scanTree(root, '');
+    const byAbs = new Map(), byFid = new Map(), bySize = new Map();
+    for (const f of files) {
+      const k = absKey(f.abs);
+      if (!byAbs.has(k)) byAbs.set(k, f);
+      if (!byFid.has(f.fid)) byFid.set(f.fid, f);
+      const a = bySize.get(f.size); if (a) a.push(f); else bySize.set(f.size, [f]);
     }
-    return out;
+    scanCache = { at: Date.now(), root, files, byAbs, byFid, bySize };
+    return scanCache;
+  }
+  const invalidateScan = () => { scanCache = null; };
+  /* 在某一次磁盘快照里给一条账找文件：相对路径 → fid → 采样签名。**只认不写**，
+     用量体检与补账都要靠它判「这一条到底还在不在」，那两处不该顺手改账。
+     `altPaths` 是同内容并进来的那几份（见 localAdopt），它们同样是这一条的自己。 */
+  function resolveInScan(sc, ent) {
+    if (!ent) return null;
+    const direct = entryAbsOf(ent);
+    let hit = direct ? sc.byAbs.get(absKey(direct)) : null;
+    if (!hit) {
+      for (const p of (Array.isArray(ent.altPaths) ? ent.altPaths : [])) {
+        const s = String(p || '');
+        if (!s) continue;
+        hit = sc.byAbs.get(absKey(path.isAbsolute(s) ? s : path.join(sc.root, s)));
+        if (hit) break;
+      }
+    }
+    if (!hit && ent.fid) hit = sc.byFid.get(String(ent.fid)) || null;
+    if (!hit && ent.sig) {
+      const same = sc.bySize.get(Number(ent.byte_length) || -1) || [];
+      for (const f of same) {
+        if (!f.sig) f.sig = localSigOf(f.abs, f.size);
+        if (f.sig && f.sig === ent.sig) { hit = f; break; }
+      }
+    }
+    return hit || null;
+  }
+  /* 三级认回的唯一入口（读路径）：返回绝对路径，'' = 真找不到 —— 调用方照实说「文件不在了」。
+     走到②③那两级时把新路径与 fid / sig 一起写回账：认一次落一次，下一次又是①那条常态路。
+     ⚠ 早先这里认回来之后调的是 `indexStore.upsert(ent.id, ent)`，而 upsert 的签名是 `upsert(item)`：
+       第一个参数被当条目用，`.id` 取在一个字符串上，putInto 当场抛「索引条目缺少 id」，又被 catch 咽掉。
+       结果是「跟住改名」只在当次请求里成立，账永远没改，每读一次就重扫一遍目录。现在写的是整条。 */
+  function localFileFromEntry(ent) {
+    if (!ent || !ent.file) return '';
+    const direct = entryAbsOf(ent);
+    if (direct && fs.existsSync(direct)) return direct;
+    /* 那一份磁盘快照可能是几十秒前的：用户在文件管理器里又挪了一刀，快照里就还留着**上一个位置**。
+       命中了但那个路径已经不在了 = 快照旧了，重扫一次再认；重扫还没有才说「文件不在了」。
+       （常态是第一句 existsSync 就返回，不花钱；只有账对不上盘的那几次才重扫。） */
+    let sc = dirScan();
+    let hit = resolveInScan(sc, ent);
+    if (!hit || !fs.existsSync(hit.abs)) {
+      sc = dirScan(true);
+      hit = resolveInScan(sc, ent);
+    }
+    if (!hit || !fs.existsSync(hit.abs)) return '';
+    ent.file = path.relative(sc.root, hit.abs) || hit.rel;
+    ent.fid = hit.fid;
+    if (!ent.sig) ent.sig = hit.sig || localSigOf(hit.abs, hit.size);
+    try { indexStore.upsert(ent); }
+    catch (e) { log('[local-assets] 认回后的路径没写进账（本次按读到的算）：' + e.message); }
+    return hit.abs;
+  }
+  /* ---------- 盘上有、账里没有的那一份：补一条账 ----------
+     手动下载后自己拖进 图片\ 的、从别的机器拷过来的一堆、被上限挤出去的那一批，都靠这一步重新看得见。
+     三条规矩：
+     ① **只补扩展名认得出类别的那些**（.md / .txt / 用户自己的笔记一律不动 —— 替它们编一条「产物」是假话）；
+     ② 能通过 fid 或采样签名对上已有那一条的，**不新开**，把新路径挂到它名下（`altPaths`）——
+        这是「同一份产物重复下载只出现一张卡」的另一半：文件都在盘上，列表里是一条，
+        而两个路径都取得到东西，收藏与工作区里存过的 `/asset/<老号>` 不许断；
+     ③ 只写账、**不碰盘上的字节**（不重命名、不移动、不删 —— 那是用户的东西，要搬得用户点头）。
+     返回补了几条、跳了几条；调用点是启动一次与列表前一次（都带 dirScan 的 30 秒缓存）。 */
+  function mintAssetId() {
+    return 'la_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+  function localAdopt(force) {
+    const sc = dirScan(force);
+    const list = localIndexRead();
+    const knownAbs = new Set(), knownFid = new Set(), knownSig = new Map();
+    for (const x of list) {
+      if (!x || !x.file) continue;
+      const hit = resolveInScan(sc, x);
+      if (hit) knownAbs.add(absKey(hit.abs));
+      knownAbs.add(absKey(entryAbsOf(x)));
+      if (x.fid) knownFid.add(String(x.fid));
+      if (x.sig && x.byte_length) {
+        const a = knownSig.get(x.sig);
+        if (a) a.push(x); else knownSig.set(x.sig, [x]);
+      }
+    }
+    const added = [];
+    let skipped = 0;
+    for (const f of sc.files) {
+      if (knownAbs.has(absKey(f.abs))) continue;
+      const fmt = (path.extname(f.abs).slice(1) || '').toLowerCase();
+      const zh = LOCAL_KIND_BY_EXT[fmt];
+      if (!zh) { skipped++; continue; }                 // 认不出类别的文件不补账（.md 与笔记在这一档被挡掉）
+      if (knownFid.has(f.fid)) { skipped++; continue; }
+      /* 只有真需要分辨「同字节数的还不止这一个」时才现算签名：
+         一个目录里 size 独一份的文件，一个字节都不用读。 */
+      const same = sc.bySize.get(f.size) || [];
+      const sig = same.length > 1 || !f.size ? localSigOf(f.abs, f.size) : '';
+      const peers = sig ? knownSig.get(sig) : null;
+      if (peers && peers.length) {
+        const ent = peers.find(x => resolveInScan(sc, x)) || peers[0];
+        const rel = path.relative(sc.root, f.abs);
+        ent.altPaths = (Array.isArray(ent.altPaths) ? ent.altPaths : []).concat([rel]);
+        try { indexStore.upsert(ent); } catch (e) { log('[local-assets] 同内容并账没写成：' + e.message); }
+        skipped++;
+        continue;
+      }
+      const item = {
+        id: mintAssetId(), file: f.rel, name: path.basename(f.rel), mime: MIME['.' + fmt] || 'application/octet-stream',        format: fmt, byte_length: f.size, created_at: new Date(f.mtimeMs).toISOString(),
+        media_type: zh, provider: 'local',
+        prompt: '', model: '', voice: '', duration: null, credits: null, priceText: '', chars: null, usage: null,
+        upstream: '', fid: f.fid, sig: sig || localSigOf(f.abs, f.size), adopted: true,
+      };
+      try { indexStore.upsert(item); added.push(item); }
+      catch (e) { log('[local-assets] 补账没写成（文件仍在盘上）：' + e.message); continue; }
+      /* 刚补的那一条要立刻算「已经认过了」：同一趟里后面那份同内容的文件才会走②的并账，
+         而不是又开一张新卡（一次拷进来几百份重复，列表就几百张卡）。 */
+      knownAbs.add(absKey(f.abs));
+      if (f.fid) knownFid.add(String(f.fid));
+      if (item.sig) { const a = knownSig.get(item.sig); if (a) a.push(item); else knownSig.set(item.sig, [item]); }
+    }
+    if (added.length || skipped) log('[local-assets] 磁盘对账：补 ' + added.length + ' 条账，' + skipped + ' 份并到已有条目或跳过');
+    return { added: added.length, skipped };
+  }
+  /* ---------- 一条产物该落在哪、叫什么：唯一出处 ----------
+     规范名 = 人类可读名（调用方给的 `name`，导演台是「场景+镜头+候选」，别的页是提示词前缀）
+     洗过之后的那一段 + 恰好一个扩展名；同名不覆盖，加 -2 / -3。
+     没有名字才退回资产号当文件名（仍然可读：la_xxx.mp4，只是不好看）。 */
+  function bodyBaseNameOf({ name, id, format }) {
+    const fmt = String(format || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const raw = String(name || '').trim();
+    const stem = fileSafe(raw.replace(/\.[A-Za-z0-9]{1,6}$/, ''), 80) || fileSafe(id, 40);
+    return (stem || id || '素材') + (fmt ? '.' + fmt : '');
+  }
+  /* 落点一次算全：目录（会 mkdir）、相对库根的路径、绝对路径、最终文件名。
+     库里已经有的那份**字节**由磁盘对账那一级认回（dirScan → localAdopt），不在这里比：
+     同名而内容不同的两份是两个作品，各自一个文件、各一张卡才对。 */
+  function newBodyPlace(spec) {
+    const fmt = String(spec.format || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+    const zh = bodyDirNameOf({ format: fmt, mime: spec.mime });
+    const dir = bodyDirOf(zh);
+    fs.mkdirSync(dir, { recursive: true });
+    const base = bodyBaseNameOf({ name: spec.name, id: spec.id, format: fmt });
+    const file = saveUniqueName(dir, base, () => base.replace(/(\.[^.]+)?$/, m => '-' + Date.now().toString(36) + m));
+    return { dir, file: zh + path.sep + file, abs: path.join(dir, file), name: file, 类型: zh };
   }
   const LOCAL_INDEX_MAX = 20000;
-  const indexStore = createIndexStore({ dir: LOCAL_DIR, log, max: LOCAL_INDEX_MAX });
+  /* 账本落在 .data\local-assets\，与本体分开：本体是用户翻得到、可以自己整理的作品，
+     账是应用的私有记录 —— 换库根时账跟着应用走，不必把一堆 json 塞进用户的作品文件夹。 */
+  const indexStore = createIndexStore({ dir: INDEX_DIR(), log, max: LOCAL_INDEX_MAX });
   const localIndexRead = () => indexStore.read();
   const localIndexEntry = id => indexStore.entry(id);
   const localIndexUpsert = item => indexStore.upsert(item);
-  const localIndexRemove = id => indexStore.remove(id);
 
-  /* 读路径只查索引，**不在这里补建**：`/asset/<id>` 每张缩略图都要走它，
-     一个不存在的 id 被轮询时（页面 3 秒一问）每次都会 readdirSync 整个 .assets 目录。
+  /* 读路径只查账，**不在这里补建**：`/asset/<id>` 每张缩略图都要走它，
+     一个不存在的 id 被轮询时（页面 3 秒一问）每次都会扫一遍库根。
      要补建的入口单独一个 localAssetRepair（见下），由真正要拿文件的操作显式调用。 */
   function localAssetEntry(id) {
     return localIndexEntry(id);
@@ -393,14 +407,10 @@ function createLocalAssetsStore(deps) {
     return given ? (MEDIA_KIND_ZH[given.toLowerCase()] || given) : '音频';
   }
   /* 「磁盘上这一个文件名属不属于某一类产物」——**只看扩展名表，不吃 localMediaType 那句音频兜底**。
-     索引里那条记录有 mime、有调用方给的 media_type，兜底audio 顶多让资产库筛错档（已经修过一轮）；
-     而对着一个目录里的文件名，能证明类型的只有扩展名，兜底就是**替用户编一个类型**。
-     踩出来的形状：待搬迁那一排把用户自己目录里的 `notes.txt`（105 KB）数成「音频」，
-     而 /save-move 用同一句判据于是**真的把它搬进 拾帧\音频 并删掉源文件** ——
-     一个「按类型搬成品」的功能把人家文件夹里的非成品扫走了。
-     数与搬必须共用这一份严格判据：**数得到的才是搬得动的**，否则界面上那个数字是一次删源的承诺。
-     （`LOCAL_KIND_BY_EXT` / `saveKindOf` 都定义在本函数之后，这里只**引用**不**求值** ——
-     两个调用点都收到请求之后才跑，那时模块早已加载完；与 `buildDirIndex` 引 `sha1Of` 同一道理。） */
+     索引里那条记录有 mime、有调用方给的 media_type，兜底成音频顶多让资产库筛错档；
+     而对着一个目录里的文件名，能证明类型的只有扩展名，兜底就是**替用户编一个类型**：
+     用户自己丢在产物目录里的一张便签 `notes.txt` 会被数成「音频」，跟着「按类型清点」被搬走、删掉。
+     清点与动手必须共用这一份严格判据：**数得到的才是动得了的**。 */
   function productKindOfName(name) {
     const fmt = String(path.extname(String(name || ''))).toLowerCase().replace(/^\./, '');
     return saveKindOf(LOCAL_KIND_BY_EXT[fmt] || '');
@@ -453,82 +463,76 @@ function createLocalAssetsStore(deps) {
     if (!old.detail && inc.detail) { old.detail = inc.detail; changed = true; }   // 生成时间在这里，缺了就只能回落盘时间
     return changed;
   }
-  /* 按文件名补一条索引（文件名就是 <id>.<格式>），并写回索引。
-     **明确补建入口**：只有真正要拿文件、而索引里没有时才调（localAssetFile / `/asset/<id>`）。
-     盘上确实没有的 id 记 60 秒负缓存 —— 轮询同一个不存在的号时不再每次扫全目录。 */
+  /* 账里根本没有这一个号：只有「文件名就是资产号」的那一批认得回来
+     （给不出可读名字时 newBodyPlace 会退回 `la_xxx.<格式>`，旧版资产库根里也全是这个形状）。
+     规范名那一些认不回来是**事实**，不是漏洞：号只活在账里，账没了就没有对应关系，
+     只能靠磁盘对账（localAdopt）把它当一份「没登记过的产物」补一条新账。
+     **明确补建入口**：只有真正要拿文件、而账里没有时才调（localAssetFile / `/asset/<id>`）。
+     盘上确实没有的号记 60 秒负缓存 —— 轮询同一个不存在的 id 时不再每次扫一遍库根。 */
   const repairMiss = new Map();
   const REPAIR_MISS_TTL = 60 * 1000;
-  function localAssetRebuild(id) {
+  function localAssetRepair(id) {
     const clean = String(id || '').replace(/[^A-Za-z0-9_-]/g, '');
     if (!clean) return null;
     const missAt = repairMiss.get(clean);
     if (missAt && Date.now() - missAt < REPAIR_MISS_TTL) return null;
-    let files = [];
-    try { files = fs.readdirSync(LOCAL_DIR); } catch { return null; }
-    const f = files.find(x => x.startsWith(clean + '.'));
-    if (!f) { repairMiss.set(clean, Date.now()); return null; }
-    let st = null;
-    try { st = fs.statSync(path.join(LOCAL_DIR, f)); } catch { repairMiss.set(clean, Date.now()); return null; }
-    if (!st.isFile()) { repairMiss.set(clean, Date.now()); return null; }
+    const sc = dirScan();
+    /* 同样要先确认那一份还在原地：快照可能是几十秒前的，而这一条会**当成一条新账写进盘**。
+       按一个已经不存在的位置补建，界面上就是一条「已丢失」的假条目。 */
+    const hit = sc.files.find(f => path.basename(f.abs).replace(/\.[^.]*$/, '') === clean && fs.existsSync(f.abs));
+    if (!hit) { repairMiss.set(clean, Date.now()); return null; }
     repairMiss.delete(clean);
-    const fmt = (path.extname(f).slice(1) || 'wav').toLowerCase();
+    const fmt = (path.extname(hit.abs).slice(1) || 'wav').toLowerCase();
     const mime = MIME['.' + fmt] || 'application/octet-stream';
     const item = {
-      id: clean, file: f, name: f, mime, format: fmt,
-      byte_length: st.size, created_at: st.mtime.toISOString(), media_type: localMediaType({ mime, format: fmt }),
+      id: clean, file: hit.rel, name: path.basename(hit.rel), mime, format: fmt,
+      byte_length: hit.size, created_at: new Date(hit.mtimeMs).toISOString(),
+      media_type: localMediaType({ mime, format: fmt }),
       prompt: '', model: '', voice: '', provider: 'local', duration: null,
-      credits: null, priceText: '', chars: null, usage: null, rebuilt: true,
+      credits: null, priceText: '', chars: null, usage: null, upstream: '', rebuilt: true,
+      fid: hit.fid, sig: hit.sig || localSigOf(hit.abs, hit.size),
     };
-    /* 补建是**读**路径上的一步（文件就在眼前，条目已经拼好了），索引写不成也不该让读操作失败 ——
+    /* 补建是**读**路径上的一步（文件就在眼前，条目已经拼好了），账写不成也不该让读操作失败 ——
        真正需要「写不成就要报错」的是落盘那两条路（见 index-store 里 upsert 的说明）。 */
     try { localIndexUpsert(item); }
-    catch (e) { log('[local-assets] 补建条目写索引失败（文件仍在，本次按读到的算）：' + e.message); }
+    catch (e) { log('[local-assets] 补建条目写账失败（文件仍在，本次按读到的算）：' + e.message); }
     return item;
   }
-  function localFileFromEntry(ent) {
-    if (!ent || !ent.file) return null;
-    const f = path.join(LOCAL_DIR, path.basename(ent.file));
-    return fs.existsSync(f) ? f : null;
-  }
-  /* 明确补建入口：索引里没有（被挤出 20000 条上限）但文件还在盘上时，按文件名补一条。 */
-  function localAssetRepair(id) {
-    return localAssetRebuild(id);
-  }
   function localAssetFile(id) {
-    const ent = localFileFromEntry(localAssetEntry(id));
-    if (ent) return ent;
-    return localFileFromEntry(localAssetRepair(id));
+    const p = localFileFromEntry(localAssetEntry(id));
+    if (p) return p;
+    const repaired = localAssetRepair(id);
+    return repaired ? localFileFromEntry(repaired) : '';
   }
   /* ---------- 本机资产库占了多少地方（GET /assets-usage 用，只读） ----------
-     为什么必须有这一条：`.assets` 是这一台机器上唯一**只增不减**的那一堆 ——
-     索引封顶 `LOCAL_INDEX_MAX` 条，文件却永远不清（删条目时文件删不掉只报错、不裁索引），
-     而「同一份产物被镜像了几次」以前只在 `GET /local-assets` 末尾报一个 `duplicates` 数字，
+     为什么必须有这一条：库根是这一台机器上唯一**只增不减**的那一堆 ——
+     账封顶 `LOCAL_INDEX_MAX` 条，文件却永远不清（删条目时文件删不掉只报错、不裁账），
+     而「同一份产物被存了几次」以前只在 `GET /local-assets` 末尾报一个 `duplicates` 数字，
      界面上没有任何地方把它摊开。于是盘涨到几十 GB 之后，人只知道「C 盘满了」，
      不知道是哪些片子、重复了几份、哪一份最占地方 —— 更没有一条安全的路把它降下来。
      三条口径，缺一条这一格就变成假控件：
      ① **只数、只说，一个字节都不写不删**。删本机产物只有资产库那一页那一条路
-       （勾卡片 → 删除 → 二次确认 → `DELETE /local-assets/<id>`，删掉文件才裁索引）。
+       （勾卡片 → 删除 → 二次确认 → `DELETE /local-assets/<id>`，删掉文件才裁账）。
        在这里放一颗「一键清理」等于让一次统计顺带删掉用户的作品 —— 而统计**永远分不出**
-       「多余的重复」与「被挤出索引但还要留着的历史产物」（就是下面 `索引外` 那一段），
+       「多余的重复」与「账挤出去了但还要留着的历史产物」（就是下面 `没进账` 那一段），
        所以这份读数只负责把话说清、把出路指对。
-     ② 判重的身份只有 `localUpKey` 一份（host + path，签名参数一律不参与），
-       与 `GET /local-assets` 收敛列表、`POST /local-assets` 挡重复镜像用的是同一个键。
-       在这一格另写一份「按文件名去重」，界面上就会出现「这里说没重复、列表里同一份卡三张」。
-     ③ 内容级判重（来源外链不同、字节却完全相同）先按 size 分桶、只有**同大小**才去读，
-       并且一次扫描有**字节预算**：整目录 readFileSync 会把事件循环按住几秒
-       （`buildDirIndex` 上面那段注释量的就是这笔账：512 个文件 / 788 MB ≈ 1,848 ms 同步阻塞，
-       期间轮询、`/asset` 取图、播放全部停摆）。所以这里 `await fs.promises.readFile`、
-       按预算读、读不完的那一些**照实说**「还有 N 份同大小的没验」而不是当它们不存在。
+     ② 判重用的是这一层认身份的同一把尺：来源去重键 `localUpKey`（host + path，签名参数不参与）
+       与采样内容签名 `localSigOf`（长度 + 头尾各 1MB）。与 `localAdopt` 并账、
+       `GET /local-assets` 收敛列表是同一套判据 —— 在这一格另写一份「按文件名去重」，
+       界面上就会出现「这里说没重复、列表里同一份卡三张」。
+     ③ 内容级先按 size 分桶、只有**同字节数**才去算签名，并且一次扫描有**字节预算**：
+       签名只读头尾两段（每条最多 2 MB），比整份读便宜两个数量级，但仍然要有界 ——
+       同步读盘按住的是整个事件循环（期间轮询、`/asset` 取图、播放全部停摆）。
+       超预算的那些**照实说**「还有 N 份同大小的没验」，而不是当它们不存在。
      类型那一档走 `productKindOfName`（只看扩展名表，不吃 `localMediaType` 那句音频兜底）——
-     与 `/save-stale`、`/save-move` 同一份严格判据：对着一堆文件名猜不出类型的就归「其它」，
-     不替用户编一个类型。 */
+     对着一堆文件名猜不出类型的就归「其它」，不替用户编一个类型。 */
   const USAGE_TOP = 6;                         // 「最占地方 / 最旧的」各列几条
   const USAGE_HASH_BUDGET = 96 * 1024 * 1024;  // 一次扫描最多验这么多字节的内容
   const USAGE_LOW_FREE = 1024 * 1024 * 1024;   // 这块盘剩不到这么多就把这一格标黄
-  const usageShaCache = new Map();             // 文件名 → { mtimeMs, size, sha }（同大小同修改时间就免再读）
+  const usageSigCache = new Map();             // 相对路径 → { mtimeMs, size, sig }（没改过就免再读）
   const usageKindOf = name => { const k = productKindOfName(name); return k ? typeLabel(k) : '其它'; };
   /* 「这一份是什么时候有的」→ 毫秒：优先生成时间（localAssetWhen，见它的注释），
-     索引里那条没有 / 补建出来的那条才退到落盘 mtime。取不出时间就回 0（只用于排序，不参与上色）。 */
+     账里那条没有 / 补建出来的那条才退到落盘 mtime。取不出时间就回 0（只用于排序，不参与上色）。 */
   function usageWhenMs(ent, mtimeMs) {
     const raw = localAssetWhen(ent);
     if (raw == null || raw === '') return mtimeMs || 0;
@@ -537,7 +541,7 @@ function createLocalAssetsStore(deps) {
     return t;
   }
   async function localUsageScan() {
-    const dir = LOCAL_DIR;
+    const dir = DIR();
     let 目录 = { 路径: dir, 状态: '可写' };
     try {
       const st = fs.statSync(dir);
@@ -548,25 +552,27 @@ function createLocalAssetsStore(deps) {
         : '读不了这个目录：' + ((e && e.code) || (e && e.message) || e) };
     }
 
-    /* 索引读不出来时 localIndexRead 已经把坏文件改名留档、返回空表 —— 那一条本函数不重复处理，
+    /* 账读不出来时 localIndexRead 已经把坏文件改名留档、返回空表 —— 那一条本函数不重复处理，
        也不写盘（这里只读）；顶到上限那一档据此照实说。 */
     const idxList = localIndexRead();
-    const byFile = new Map();
-    for (const x of idxList) { if (x && x.file && !byFile.has(x.file)) byFile.set(x.file, x); }
-
-    let names = [];
-    try { names = fs.readdirSync(dir); } catch { names = []; }
-    const files = [];
-    for (const n of names) {
-      /* 产物文件名是 `<id>.<格式>`；索引本体与两类崩溃 / 损坏残留不是（启动清扫已经收过 .tmp-，
-         数到这里还剩 .bad- 那份坏索引留档 —— 把它算成一份产物就是把用户的备份说成作品）。 */
-      if (!n || n === 'index.json' || n.indexOf('.tmp-') >= 0 || n.indexOf('.bad-') >= 0 || n.indexOf('.bak.') >= 0) continue;
-      let st; try { st = fs.statSync(path.join(dir, n)); } catch { continue; }
-      if (!st.isFile()) continue;
-      files.push({ name: n, size: st.size, mtimeMs: st.mtimeMs, ent: byFile.get(n) || null });
-      files[files.length - 1].when = usageWhenMs(files[files.length - 1].ent, st.mtimeMs);
-      files[files.length - 1].类型 = usageKindOf(n);
+    const sc = dirScan(true);
+    /* 每一条账先在磁盘快照里找到自己的文件（路径 → fid → 签名，**不写账**），
+       同一份文件只归给第一条账（索引顺序 = 新→旧），其余指向它的条目算「对不上」。 */
+    const entByAbs = new Map();
+    const 没了 = [];
+    for (const x of idxList) {
+      if (!x || !x.file) { if (x) 没了.push(x); continue; }
+      const hit = resolveInScan(sc, x);
+      if (!hit) { 没了.push(x); continue; }
+      const k = absKey(hit.abs);
+      if (!entByAbs.has(k)) entByAbs.set(k, x);
     }
+    const files = sc.files.map(f => {
+      const ent = entByAbs.get(absKey(f.abs)) || null;
+      return { name: f.rel, abs: f.abs, size: f.size, mtimeMs: f.mtimeMs, fid: f.fid,
+        sig: f.sig || (ent && ent.sig) || '', ent };
+    });
+    for (const f of files) { f.when = usageWhenMs(f.ent, f.mtimeMs); f.类型 = usageKindOf(f.name); }
     const 总字节 = files.reduce((s, f) => s + f.size, 0);
 
     /* ---- 按类型 ---- */
@@ -578,7 +584,7 @@ function createLocalAssetsStore(deps) {
     const 按类型 = [...kindMap.values()].sort((a, b) => b.字节 - a.字节);
 
     /* ---- 判重：先并成「同一份产物」的组，再按组算多占 ----
-       两种身份并成一族（并查集），因为「同一来源的两次镜像」与「字节完全相同但来源不同」
+       两种身份并成一族（并查集），因为「同一来源的两次镜像」与「字节相同但来源不同」
        说的是同一件事的两半：只按来源认会漏掉换过中转地址重下的那批，只按内容认又说不清
        「是不是同一件作品」。合完之后每组只留最晚那一份，其余记成多占 —— 这样两个口径
        不会把同一份重复算两次。 */
@@ -599,7 +605,7 @@ function createLocalAssetsStore(deps) {
       同来源组++;
       for (let i = 1; i < a.length; i++) join(nameIdx.get(a[0].name), nameIdx.get(a[i].name));
     }
-    /* 内容级：只有 size 在目录里出现过 ≥2 次才可能同内容（不同内容的视频 size 几乎必然不同） */
+    /* 内容级：只有 size 在库里出现过 ≥2 次才可能同内容（不同内容的视频 size 几乎必然不同） */
     const sizeMap = new Map();
     for (const f of files) {
       if (f.size <= 0) continue;                       // 空文件不用读也认不出什么，跳过
@@ -609,22 +615,23 @@ function createLocalAssetsStore(deps) {
     for (const a of sizeMap.values()) {
       if (a.length < 2) continue;
       for (const f of a) {
-        if (f.sha) continue;
-        const hit = usageShaCache.get(f.name);
-        if (hit && hit.mtimeMs === f.mtimeMs && hit.size === f.size) { f.sha = hit.sha; 验过文件++; continue; }
-        if (读了字节 + f.size > USAGE_HASH_BUDGET) { f.unchecked = true; 没验的++; continue; }
-        try { f.sha = sha1Of(await fs.promises.readFile(path.join(dir, f.name))); }
-        catch { f.unchecked = true; 没验的++; continue; }
-        读了字节 += f.size; 验过文件++;
-        usageShaCache.set(f.name, { mtimeMs: f.mtimeMs, size: f.size, sha: f.sha });
-        if (usageShaCache.size > 8000) usageShaCache.clear();   // 缓存本身也要有界（这是长跑进程）
+        if (f.sig) continue;                            // 目录快照或账里已经带过，不用再读
+        const hit = usageSigCache.get(f.name);
+        if (hit && hit.mtimeMs === f.mtimeMs && hit.size === f.size) { f.sig = hit.sig; 验过文件++; continue; }
+        const cost = Math.min(f.size, SIG_SAMPLE * 2);
+        if (读了字节 + cost > USAGE_HASH_BUDGET) { f.unchecked = true; 没验的++; continue; }
+        f.sig = localSigOf(f.abs, f.size);
+        if (!f.sig) { f.unchecked = true; 没验的++; continue; }
+        读了字节 += cost; 验过文件++;
+        usageSigCache.set(f.name, { mtimeMs: f.mtimeMs, size: f.size, sig: f.sig });
+        if (usageSigCache.size > 8000) usageSigCache.clear();   // 缓存本身也要有界（这是长跑进程）
       }
-      const shaMap = new Map();
+      const sigMap = new Map();
       for (const f of a) {
-        if (!f.sha) continue;
-        const g = shaMap.get(f.sha) || []; g.push(f); shaMap.set(f.sha, g);
+        if (!f.sig) continue;
+        const g = sigMap.get(f.sig) || []; g.push(f); sigMap.set(f.sig, g);
       }
-      for (const g of shaMap.values()) {
+      for (const g of sigMap.values()) {
         if (g.length < 2) continue;
         同内容组++;
         for (let i = 1; i < g.length; i++) join(nameIdx.get(g[0].name), nameIdx.get(g[i].name));
@@ -644,11 +651,9 @@ function createLocalAssetsStore(deps) {
       for (const f of g) if (f !== keep) 多占字节 += f.size;
     }
 
-    /* ---- 索引与磁盘对不上的那两批 ---- */
-    const diskNames = new Set(files.map(f => f.name));
-    const 索引外 = files.filter(f => !f.ent);
-    const 索引外字节 = 索引外.reduce((s, f) => s + f.size, 0);
-    const 没了 = idxList.filter(x => x && x.file && !diskNames.has(x.file));
+    /* ---- 账与磁盘对不上的那两批 ---- */
+    const 没进账 = files.filter(f => !f.ent);
+    const 没进账字节 = 没进账.reduce((s, f) => s + f.size, 0);
     const 没了字节 = 没了.reduce((s, x) => s + (Number(x.byte_length) || 0), 0);
 
     const 顶到上限 = idxList.length >= LOCAL_INDEX_MAX;
@@ -665,7 +670,7 @@ function createLocalAssetsStore(deps) {
     const 因由 = [];
     if (目录.状态 !== '可写' && 目录.状态.indexOf('还没有这个目录') < 0) { cls = 'err'; 因由.push('目录读不了'); }
     if (顶到上限) { if (cls === 'ok') cls = 'warn'; 因由.push('索引条数已顶到上限'); }
-    if (没了.length) { if (cls === 'ok') cls = 'warn'; 因由.push('有索引没文件的条目'); }
+    if (没了.length) { if (cls === 'ok') cls = 'warn'; 因由.push('有账上没文件的条目'); }
     if (剩 !== null && 剩 < USAGE_LOW_FREE) { if (cls === 'ok') cls = 'warn'; 因由.push('这块盘剩余空间不多'); }
     const chip = files.length
       ? 多出份 ? '压了 ' + 多出份 + ' 份重复' : '没有重复'
@@ -679,7 +684,8 @@ function createLocalAssetsStore(deps) {
       重复: { 组数: 重复组, 多出份数: 多出份, 多占字节, 同来源组, 同内容组,
         验过文件, 读了字节, 预算字节: USAGE_HASH_BUDGET, 没验份数: 没验的,
         判完: 没验的 === 0 },
-      对不上: { 索引外文件数: 索引外.length, 索引外字节, 没文件条数: 没了.length, 没文件字节: 没了字节 },
+      对不上: { 索引外文件数: 没进账.length, 索引外字节: 没进账字节,
+        没文件条数: 没了.length, 没文件字节: 没了字节 },
       盘: { 剩余: 剩 },
       最大, 最旧,
       几条: USAGE_TOP,
@@ -692,7 +698,7 @@ function createLocalAssetsStore(deps) {
     src.on('error', () => { try { res.destroy(); } catch {} });
     src.pipe(res);
   }
-  /* 带 Range 的本地文件响应（两处落盘目录出口 /asset 与 /render/dl 共用一份）。
+  /* 带 Range 的本地文件响应（落盘目录出口 /asset 唯一的出口）。
      headers 由调用方给（Content-Type / 缓存 / 附件名）。 */
   function sendFileWithRange(req, res, file, headers) {
     const st = fs.statSync(file);
@@ -723,12 +729,21 @@ function createLocalAssetsStore(deps) {
     res.writeHead(200, headers);
     pipeFile(fs.createReadStream(file), res);
   }
-  /* entry 由调用方给时就不再全量读一遍索引：/asset/<id> 这条链手里已经握着 entry，
+  /* entry 由调用方给时就不再全量读一遍账：/asset/<id> 这条链手里已经握着 entry，
      以前却在这里又 localIndexRead() 一次 —— 页面上每一张缩略图、每一个 <video> 都打它，
-     索引攒大之后就是每个媒体请求 2 次全量读盘解析。 */
+     账攒大之后就是每个媒体请求 2 次全量读盘解析。
+     自己找时按**解析后的绝对路径**比，不比 basename：本体现在住在 库根\图片\ 那一层里，
+     不同子目录同名是常事（图片\a.png 与 视频\a.png 是两条账）。 */
   function serveLocalFile(req, res, file, q, entry) {
     const base = path.basename(file);
-    if (!entry) entry = localIndexRead().find(x => x && x.file === base) || {};
+    if (!entry) {
+      const want = absKey(file);
+      entry = localIndexRead().find(x => {
+        if (!x || !x.file) return false;
+        const a = entryAbsOf(x);
+        return a && absKey(a) === want;
+      }) || {};
+    }
     const headers = {
       'Content-Type': entry.mime || 'application/octet-stream',
       'Accept-Ranges': 'bytes',
@@ -745,17 +760,55 @@ function createLocalAssetsStore(deps) {
   const localIndexPut = (list, item) => indexStore.putInto(list, item);
   const localIndexDrop = (list, id) => indexStore.dropFrom(list, id);
 
+  /* 一条账名下**所有的**文件：本体那一条 + 同内容并进来的那几份（localAdopt 挂的 altPaths）。
+     删除要走这一份：界面上是一张卡，卡背后可能是两份字节，只删 `file` 那一份的话
+     另一份下一轮对账又被补成一条新账 —— 用户看见「删了又回来」。
+     每条路径都过一遍存在性检查：altPaths 是磁盘快照那一刻的记录，用户随时可能自己删掉。 */
+  function localAssetPaths(ent) {
+    if (!ent) return [];
+    const out = [];
+    const addPath = p => { if (p && !out.includes(p)) out.push(p); };
+    const direct = entryAbsOf(ent);
+    if (direct && fs.existsSync(direct)) addPath(direct);
+    else addPath(localFileFromEntry(ent));
+    for (const p of (Array.isArray(ent.altPaths) ? ent.altPaths : [])) {
+      const s = String(p || '');
+      if (!s) continue;
+      const abs = path.isAbsolute(s) ? s : path.join(DIR(), s);
+      if (fs.existsSync(abs)) addPath(abs);
+    }
+    return out;
+  }
+
+  /* 一张卡背后**全部的**账：列表把「同一个上游产物号」或「同一个内容签名」的那几条并成一张卡，
+     所以删这一张卡也得按同一把尺子删干净。
+     为什么必须连着删：同一份产物从另一个中转地址重下一次（换了域名的 CDN、手工拷进来又存回去的那份）
+     认不出同一个来源键，落的是新 id、新文件 —— 盘上两份字节、账上两条、界面上还是一张卡。
+     只删手里这一条的话，另一条下一轮又单独成为一张卡，或变成「文件已不在」的空条，
+     用户看见的就是「删了又回来」。判据与列表那一处同一份（localUpKey 与 sig），不另起一套。 */
+  function localAssetSiblings(all, ent) {
+    if (!ent || !ent.id) return [];
+    const up = localUpKey(ent.upstream);
+    const sig = String(ent.sig || '');
+    return (Array.isArray(all) ? all : []).filter(x => {
+      if (!x || !x.id || x.id === ent.id) return false;
+      if (up && localUpKey(x.upstream) === up) return true;
+      return !!sig && String(x.sig || '') === sig;
+    });
+  }
+
+  /* 交出去的是「组合根要用的那些」，一份不多：落点、认回、账、用量与读文件。
+     只在层内用的那一些（类型表 MEDIA_KIND_ZH、目录对账快照 dirScan、账本句柄 indexStore、
+     单条读账 localIndexEntry、文件名去重 saveUniqueName、用量那一档的 productKindOfName）
+     不挂在这里 —— 挂出去就有人在外面再拼一份落点、再扫一遍盘。 */
   return {
-    MEDIA_KIND_ZH, typeLabel, sha1Of, SAVE_KINDS,
-    saveKindOf, saveBaseName, saveUniqueName, insideLocalDir,
-    saveDirIndex, autosaveDir, autosaveDefaultDirs, autosaveUsedAdd,
-    autosaveUsedHas, saveStaleScan, whyNoSpace, whyRenderSpace,
-    sweepStaleTmp, LOCAL_INDEX_MAX, indexStore, localIndexRead,
-    localIndexEntry, localIndexUpsert, localIndexRemove,
-    localIndexUpdate, localIndexPut, localIndexDrop,
-    localAssetEntry, localAssetRepair, localMediaType, productKindOfName, localAssetWhen,
-    localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
-    localUsageScan, sendFileWithRange, serveLocalFile,
+    bodyDirOf, bodyDirNameOf,
+    newBodyPlace, mintAssetId, localAdopt, invalidateScan, entryAbsOf, localSigOf, fileFidOf,
+    whyNoSpace, sweepStaleTmp,
+    localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localIndexDrop,
+    localAssetEntry, localAssetRepair, localAssetPaths, localMediaType, localAssetWhen,
+    localUpKey, localFillMissing, localFileFromEntry, localAssetFile, localAssetSiblings,
+    localUsageScan, serveLocalFile,
   };
 }
 

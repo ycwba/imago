@@ -756,10 +756,31 @@ function needProv(providerId, where) {
    把「是哪一张」并进 label（而不是另存一个 note 字段）还有一个好处：
    同一位的两张资产拿到的是**两个不同的 token**，各指各的那一张，
    不会像以前那样「两张都叫 @小雅，只认第一张」。 */
-function addRefImage(sh, src, label) {
+function addRefImage(sh, src, label, refId) {
   sh.refImages.push(src);
   sh.refMeta = Array.isArray(sh.refMeta) ? sh.refMeta : [];
-  sh.refMeta.push({ label: label || null });
+  /* refMeta 扩成 { id, label }：id 是库条目主键（改名不断引用），label 是芯片上显示的 token。
+     老数据没有 id 的条目按 label → nameKey 反查库里补 id（14.1-6）。 */
+  sh.refMeta.push({ id: refId || null, label: label || null });
+}
+/* 14.1-6：老工程 refMeta 没 id 的条目，按 label → nameKey 反查库里补 id。
+   查不到的照实标「这条引用对不上库」，不静默丢。幂等：已有 id 的不动。 */
+function backfillRefMetaIds(shots) {
+  if (!window.Chars || !Chars.Lib) return 0;
+  let n = 0;
+  try {
+    const lib = Chars.Lib.list() || [];
+    (shots || []).forEach(sh => {
+      (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
+        if (!rm || rm.id) return;
+        const lb = String(rm.label || '').replace(/^@/, '').split('·')[0].trim();
+        if (!lb) return;
+        const hit = lib.find(x => x && nameKey(x.name) === nameKey(lb));
+        if (hit) { rm.id = hit.id; n++; }
+      });
+    });
+  } catch (e) { /* 库读不到就跳过，下次再补 */ }
+  return n;
 }
 function removeRefImage(sh, i) {
   sh.refImages.splice(i, 1);
@@ -1216,7 +1237,7 @@ function addLibPicToShot(sh, entry, pick) {
   sh.refImages = Array.isArray(sh.refImages) ? sh.refImages : [];
   if (sh.refImages.indexOf(pic) >= 0) return { ok: true, dup: true, label: label };
   if (sh.refImages.length >= ic.maxRef) return { ok: false, why: '参考图最多 ' + ic.maxRef + ' 张，先删掉一张再加' };
-  addRefImage(sh, pic, label);
+  addRefImage(sh, pic, label, entry && entry.id);
   return { ok: true, label: label };
 }
 
@@ -2107,6 +2128,7 @@ function installCapRepaint() {
     provOf,
     needProv,
     addRefImage,
+    backfillRefMetaIds,
     syncAtBack,
     libPicChoices,
     addLibPicToShot,

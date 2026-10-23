@@ -561,7 +561,7 @@ function wirePairs(items) {
 }
 
 function listFiles(dir, out) {  for (const name of fs.readdirSync(dir)) {
-    if (name === 'node_modules' || name.startsWith('.')) continue;
+    if (name === 'node_modules' || name === 'vendor' || name.startsWith('.')) continue;
     const p = path.join(dir, name);
     if (fs.statSync(p).isDirectory()) listFiles(p, out);
     else if (name.endsWith('.js') && !name.startsWith('vue.runtime')) out.push(p);

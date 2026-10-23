@@ -451,110 +451,56 @@
        toBlob / toDataURL 直接抛错。视频台的「首帧槽位选视频」与导演台的「接上一镜尾帧 /
        用视频当首帧」共用这一份实现（以前两个页面各写一套：一个出 PNG File、一个出 JPEG dataURL）。 */
     vframe: {
-      _same(src) {
-        const s = String(src || '');
-        return /^https?:/i.test(s) ? '/fetch?url=' + encodeURIComponent(s) : s;
+      /* 统一取帧器（web/media-backend.js，经典脚本挂 window.MediaBackend）的按需补载。
+         主档 mediabunny（vendor 的 ESM，动态 import）、兜底 <video> —— 两条链都在那一份里。
+         这里只留转发壳：Wb.vframe 是经典脚本不能 import ESM，而 MediaBackend 内部能。 */
+      _mb: null,
+      _mbReady() {
+        if (window.MediaBackend) { this._mb = window.MediaBackend; return Promise.resolve(this._mb); }
+        if (this._mb) return this._mb;
+        this._mb = new Promise(res => {
+          const done = () => res(window.MediaBackend || null);
+          /* ⚠ __spaLoadScript 的第二个参数是「加载完应该出现的那个全局」的检测函数，不是回调：
+             以前这里把 done 当 test 传进去 —— test() 当场返回 undefined，加载器于是判定「已经就绪」，
+             一个 <script> 都不插，MediaBackend 永远不存在（切片退 <video>、导入读不到时长、导出退精确 seek，
+             全都优雅降级，界面上看不出坏）。路径也要带前导斜杠，否则相对当前文档解析会歪。 */
+          if (window.__spaLoadScript) window.__spaLoadScript('/web/media-backend.js', () => !!window.MediaBackend).then(done, done);
+          else {                                     // 没有 SPA 加载器时（独立页）用裸 script
+            const s = document.createElement('script');
+            s.src = '/web/media-backend.js';
+            s.onload = done;
+            s.onerror = done;
+            document.head.appendChild(s);
+          }
+        });
+        return this._mb;
       },
-      /* 一只「只为解码而存在」的 <video>：静音 + playsInline + 那个给老浏览器看的 playsinline 属性
-         （少一行 muted，取帧时就把声音放了出来；少 playsInline，手机上会跳到全屏播放器）。
-         取帧的两处 —— 这一份 grab 与导演台的切片块 —— 都要这一套，以前各写一遍就会各漂一行。 */
-      el(src) {
-        const v = document.createElement('video');
-        v.muted = true; v.playsInline = true; v.preload = 'auto';
-        v.setAttribute('playsinline', '');
-        v.src = this._same(src);
-        return v;
+      /* 解码器只看 media-backend.js 那一份（AGENTS §7：`createElement('video')` 只许出现在那里）。
+         这一层只留转发；那一份没就位就照实报错，不再自己造第二只 <video>。
+         调用方拿这些原语的路径（导演台切片）都在取活之前 await 过 `_mbReady()`。 */
+      _video() {
+        const mb = window.MediaBackend;
+        if (!mb || !mb._video) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js）');
+        return mb._video;
       },
+      el(src) { return this._video().el(src); },
       /* 用完把解码器交出去：不摘 src 的话一路解码一直挂着，几十格就把整页拖慢 */
-      release(v) { try { v.removeAttribute('src'); v.load(); } catch (e) {} },
-      meta(v) {
-        return new Promise((res, rej) => {
-          if (v.readyState >= 1) return res();
-          let done = false;
-          const fin = ok => {
-            if (done) return; done = true;
-            clearTimeout(to);
-            v.removeEventListener('loadedmetadata', onOk); v.removeEventListener('error', onErr);
-            ok ? res() : rej(new Error('视频读不出来（格式不支持，或地址已过期）'));
-          };
-          const onOk = () => fin(true), onErr = () => fin(false);
-          const to = setTimeout(() => fin(false), 20000);
-          v.addEventListener('loadedmetadata', onOk);
-          v.addEventListener('error', onErr);
-          v.load();
-        });
-      },
-      seek(v, t) {
-        return new Promise((res, rej) => {
-          let done = false;
-          const fin = ok => {
-            if (done) return; done = true;
-            clearTimeout(to);
-            v.removeEventListener('seeked', onSeek); v.removeEventListener('error', onErr);
-            ok ? res() : rej(new Error('视频定位失败（文件损坏或格式不支持）'));
-          };
-          const onSeek = () => fin(true), onErr = () => fin(false);
-          const to = setTimeout(() => fin(false), 15000);
-          v.addEventListener('seeked', onSeek, { once: true });
-          v.addEventListener('error', onErr, { once: true });
-          try { v.currentTime = t; } catch (e) { fin(false); return; }
-          // 已经停在目标位置（例如取第一帧、而它本来就在 0 秒）：不会再触发 seeked，直接完成
-          if (Math.abs(v.currentTime - t) < 0.0005 && v.readyState >= 2) fin(true);
-        });
-      },
+      release(v) { return this._video().release(v); },
+      meta(v) { return this._video().meta(v); },
+      seek(v, t) { return this._video().seek(v, t); },
       /* which：'last' 取最后一帧（默认）/ 'first' 取第一帧；atSeconds 有值时截该时刻（用于剪辑后的尾帧）。
-         返回 { blob, w, h } */
+         返回 { blob, w, h }。转发给 MediaBackend.grab（主档 mediabunny → 兜底 <video>）。 */
       async grab(src, which, atSeconds) {
-        const first = which === 'first' || which === 'start';
-        const v = this.el(src);
-        try {
-          await this.meta(v);
-          let dur = isFinite(v.duration) ? Number(v.duration) : 0;
-          /* duration 是 Infinity / NaN（有些流式编码的 mp4 元数据里没有时长）时以前直接跳过 seek，
-             结果「最后一帧」拿到的是 0 秒那一帧 —— 静默取错帧。先试 seekable 给的范围末端。 */
-          if (!(dur > 0)) {
-            try { const sk = v.seekable; if (sk && sk.length) dur = Number(sk.end(sk.length - 1)) || 0; } catch (e) {}
-          }
-          if (atSeconds != null) {
-            const t = Math.max(0, Math.min(Number(atSeconds) - 0.05, Math.max(0, dur - 0.05)));
-            await this.seek(v, t);
-          } else if (dur > 0) {
-            await this.seek(v, first ? 0 : Math.max(0, dur - 0.05));
-          } else if (!first) {
-            throw new Error('这个视频读不到时长，取不到最后一帧（可改用图片作首帧，或先转码）');
-          }
-          const w = v.videoWidth, h = v.videoHeight;
-          if (!w || !h) throw new Error('视频里没有可用画面（可能是纯音频或已损坏的文件）');
-          const c = document.createElement('canvas');
-          c.width = w; c.height = h;
-          c.getContext('2d').drawImage(v, 0, 0, w, h);
-          const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-          if (!blob || !blob.size) throw new Error('抓帧失败（画面为空）');
-          return { blob, w, h };
-        } finally {
-          this.release(v);
-        }
+        const mb = await this._mbReady();
+        if (!mb) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js），取不了帧');
+        return mb.grab(src, which, atSeconds);
       },
-      _decode(blob) {
-        if (window.createImageBitmap) return createImageBitmap(blob);
-        return new Promise((res, rej) => {                              // 老浏览器兜底
-          const u = URL.createObjectURL(blob);
-          const im = new Image();
-          im.onload = () => { URL.revokeObjectURL(u); res(im); };
-          im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('帧解码失败')); };
-          im.src = u;
-        });
-      },
-      /* 抓一帧 → 最长边 maxSide（默认 1600）的 JPEG dataURL：直接当首帧图存放（要写本地存档，不能太大） */
+      /* 抓一帧 → 最长边 maxSide（默认 1600）的 JPEG dataURL：直接当首帧图存放（要写本地存档，不能太大）。
+         转发给 MediaBackend.dataURL（它内部走 grab → 缩放 → JPEG）。 */
       async dataURL(src, which, atSeconds, maxSide) {
-        const { blob, w, h } = await this.grab(src, which, atSeconds);
-        const img = await this._decode(blob);
-        const scale = Math.min(1, (maxSide > 0 ? maxSide : 1600) / Math.max(w, h));
-        const cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
-        const c = document.createElement('canvas');
-        c.width = cw; c.height = ch;
-        c.getContext('2d').drawImage(img, 0, 0, cw, ch);
-        return c.toDataURL('image/jpeg', 0.9);
+        const mb = await this._mbReady();
+        if (!mb) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js），取不了帧');
+        return mb.dataURL(src, which, atSeconds, maxSide);
       },
       async dataURLFromFile(f, which, maxSide) {
         const tmp = URL.createObjectURL(f);
@@ -653,10 +599,22 @@
       BYTES: 64 * 1024 * 1024,      // 缓存总量上限（图片缩略图比视频帧大，条数之外再加一道字节闸）
       PRUNE_MIN_MS: 8000,           // 两次全表淘汰之间至少隔这么久（见 _prune 的节流注释）
       _lastPruneAt: 0,
-      /* 开库、连接复用与事务全走 ui.js 的 Kv（这里以前也自己写过一份）；
-         库/表名在 Kv 的登记表里（thumbs = wb_thumbs/thumbs），到调用时才取 */
-      _tx(mode, fn) {
-        return window.Kv.at('thumbs').tx(mode, fn);
+      /* 持久层走代理的 /cache/thumbs（与浏览器 origin 无关的一份：换端口、换浏览器都只有一份）。
+         内存层 _map 仍存 dataURL（渲染路径不变）；写入时 dataURL → Blob PUT，读回时 Blob → dataURL。
+         容量闸（3000 条 / 64MB、LRU）在代理那边；这里只管取放与内存。 */
+      _store: 'thumbs',
+      async _cacheGet(key) {
+        if (!window.Api || !Api.cacheGet) return '';
+        const b = await Api.cacheGet(this._store, key);
+        if (!b) return '';
+        try {
+          /* dataURL 以 base64 文本存（一条 20KB 左右），读回直接就是 dataURL */
+          return await b.text();
+        } catch (e) { return ''; }
+      },
+      _cachePut(key, dataUrl) {
+        if (!window.Api || !Api.cachePut) return Promise.resolve(false);
+        return Api.cachePut(this._store, key, new Blob([dataUrl], { type: 'text/plain' }));
       },
       /* 地址归一化：同一份素材无论经过什么包装，都要算出同一个键 —— 否则缩略图缓存永远命不中、
          观感就是「每次都重新加载」。要去掉三类每次都变的东西：
@@ -714,7 +672,7 @@
         this._touched.clear();
         this._aliases.clear();
         this._loaded = Promise.resolve(0);   // 表已空，别让下次 hydrate 再把整表读回来
-        try { await this._tx('readwrite', st => st.clear()); } catch (e) {}
+        try { if (window.Api && Api.cacheClear) await Api.cacheClear(this._store); } catch (e) {}
         return n;
       },
       /* bind 等待 hydrate 后原地换图；返回「这次读回了多少条」——
@@ -729,7 +687,7 @@
         this._loaded = (async () => {
           let n = 0;
           try {
-            const rows = await this._tx('readonly', st => st.getAll());
+            const rows = (window.Api && Api.cacheAll) ? await Api.cacheAll(this._store) : [];
             (rows || []).filter(r => r && r.k && typeof r.v === 'string' && r.v)
               .sort((a, b) => (b.ts || 0) - (a.ts || 0)).forEach(r => {
                 const key = this.keyOf(r.k);
@@ -756,10 +714,12 @@
         const batch = new Map([...this._dirty].map(k => [k, this._map.get(k)]).filter(([, v]) => v));
         if (!batch.size) return Promise.resolve(true);
         const aliases = [...this._aliases].filter(([, key]) => batch.has(key));
-        this._saving = this._tx('readwrite', st => {
-          for (const [k, v] of batch) st.put({ k, v, ts: Date.now() }, k);
-          for (const [old] of aliases) st.delete(old); // 与新键写入同一事务；失败全部回滚
-        }).then(() => {
+        /* 逐条 PUT 到代理的 /cache/thumbs（代理那边有条数 + 字节 + LRU 闸）；
+           别名（旧键）逐条 DELETE。全部发出即算收尾，不等逐条 ack（后台事，不挡渲染）。 */
+        this._saving = Promise.all([
+          ...[...batch].map(([k, v]) => this._cachePut(k, v)),
+          ...aliases.map(([old]) => (window.Api && Api.cacheDel) ? Api.cacheDel(this._store, old) : null),
+        ]).then(() => {
           for (const [k, v] of batch) { if (this._map.get(k) === v) this._dirty.delete(k); }
           for (const [old, key] of aliases) { if (this._aliases.get(old) === key) this._aliases.delete(old); }
           return true;
@@ -768,11 +728,6 @@
           if (ok && this._dirty.size) return this._flush();
           if (ok) {
             clearTimeout(this._pruneT);
-            /* 节流闸：`_save` 是不 debounce 的，抽帧并发最高 6 路，首屏抽几十帧
-               就是几十次 `_flush` → 几十次 `_prune`，而每次 `_prune` 都在一个 readwrite
-               事务里 `getAll()` 把**整张缩略图表**读进内存排序（上限 3000 条 / 64 MB）。
-               淘汰语义（`_touched` / `_dirty` 保护、两趟顺序）一个字都不动，只加一道闸：
-               距上一次真扫不够 PRUNE_MIN_MS 就往后排，把几十次并成一次。 */
             const wait = Math.max(1000, this.PRUNE_MIN_MS - (Date.now() - this._lastPruneAt));
             this._pruneT = setTimeout(() => { this._lastPruneAt = Date.now(); this._prune(); }, wait);
           }
@@ -780,32 +735,26 @@
         });
         return this._saving;
       },
-      /* 容量控制：超过 CAP 条或 BYTES 字节就淘汰。两趟，各管一件事：
-         ① 先删这一页**没读到过**的那些（`_touched` 以外），仍按写入时间从早到晚；
-         ② 只有「这一页在用的一批本身就超额度」时才连在用的也删 —— 那种情况再怎么排
-            都装不下，只能让最热的那几张也重抽一次。
-         待写的（`_dirty`）任何时候都不删：刚抽出来的帧还没落盘就被删掉，等于白抽。 */
+      /* 内存层容量控制：代理那边有持久层的 LRU（3000 条 / 64MB），这里只管**这一页面的内存**
+         不被撑爆 —— 超过 CAP / BYTES 就按「先删没读到过的、再删在用的」从内存里摘掉，
+         让下一次 get() 走代理回源（而不是把 64MB 的 dataURL 一直挂在 Map 上）。 */
       async _prune() {
         try {
+          const size = v => String(v || '').length;
           const drop = [];
-          await this._tx('readwrite', st => {
-            const q = st.getAll();
-            q.onsuccess = () => {
-              const size = r => String(r.v || '').length;
-              const rows = (q.result || []).sort((a, b) => (a.ts || 0) - (b.ts || 0));
-              const gone = new Set();
-              let total = rows.reduce((n, r) => n + size(r), 0);
-              const free = r => {
-                if (!r || this._dirty.has(r.k) || gone.has(r.k)) return;
-                gone.add(r.k); st.delete(r.k); drop.push(r); total -= size(r);
-              };
-              const over = () => (rows.length - gone.size) > this.CAP || total > this.BYTES;
-              for (const r of rows) { if (!over()) break; if (!this._touched.has(r.k)) free(r); }
-              for (const r of rows) { if (!over()) break; free(r); }
-            };
-          });
+          const rows = [...this._map.entries()].map(([k, v]) => ({ k, v, ts: 0 }))
+            .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+          const gone = new Set();
+          let total = rows.reduce((n, r) => n + size(r.v), 0);
+          const free = r => {
+            if (!r || this._dirty.has(r.k) || gone.has(r.k)) return;
+            gone.add(r.k); drop.push(r); total -= size(r.v);
+          };
+          const over = () => (rows.length - gone.size) > this.CAP || total > this.BYTES;
+          for (const r of rows) { if (!over()) break; if (!this._touched.has(r.k)) free(r); }
+          for (const r of rows) { if (!over()) break; free(r); }
           for (const r of drop) {
-            if (!this._dirty.has(r.k) && this._map.get(r.k) === r.v) this._map.delete(r.k);
+            if (!this._dirty.has(r.k)) this._map.delete(r.k);
             this._touched.delete(r.k);
           }
         } catch (e) {}
@@ -1056,33 +1005,18 @@
       },
       /* 提帧器不依附卡片 DOM：滚动 / 重画不会新开同 key 的视频流；结束、失败、超时都卸载。 */
       _extract(job) {
-        return new Promise(resolve => {
-          const video = document.createElement('video');
-          let timer, finished = false;
-          const end = frame => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            video.removeEventListener('loadeddata', capture);
-            video.removeEventListener('seeked', capture);
-            video.removeEventListener('error', error);
-            video.removeEventListener('loadedmetadata', seek);
-            this._release(video);
-            resolve(frame);
-          };
-          const capture = () => { if (video.readyState >= 2 && !video.seeking) end(this._capture(video, job.key) || ''); };
-          const error = () => end('');
-          const seek = () => { try { video.currentTime = Math.min(0.1, (video.duration || 1) / 2); } catch {} };
-          video.preload = 'metadata'; video.muted = true; video.playsInline = true;
-          video.addEventListener('loadedmetadata', seek);
-          video.addEventListener('loadeddata', capture);
-          video.addEventListener('seeked', capture);
-          video.addEventListener('error', error);
-          timer = setTimeout(() => { job.timedOut = true; error(); }, job.ms || this.EXT_MS);
-          const src = this._source(job.src);
-          if (!src) { end(''); return; }
-          try { video.src = src; video.load(); } catch { end(''); }
-        });
+        /* 统一走 MediaBackend.frame（主档 mediabunny → 兜底 <video>）——
+           不再自己 createElement('video')：八处取帧点全收在 media-backend.js 一份。 */
+        return this._mbFrame(job).then(v => v || '');
+      },
+      async _mbFrame(job) {
+        const src = this._source(job.src);
+        if (!src) return '';
+        try {
+          const mb = await (Wb.vframe ? Wb.vframe._mbReady() : Promise.resolve(window.MediaBackend));
+          if (!mb) return '';
+          return (await mb.frame(src, { at: 0.1, w: 512, quality: 0.82 })) || '';
+        } catch (e) { return ''; }   // 抽帧失败保持占位，不影响播放
       },
       /* 批量接线：把一段 HTML 里所有带 data-thumb-key 的 img / video 一次接上（wrap = 它们的父节点）。
          给「整块 innerHTML 重画、但每个媒体节点不值得单独 bind」的面板用（如导演台的素材槽）。
@@ -2699,15 +2633,12 @@
         const kind = (c.kindOf ? c.kindOf(it) : 'image') || 'image';
         const mk = tag => { const el = document.createElement(tag); el.src = src; el.controls = true; el.autoplay = true; return el; };
         /* 视频 / 音频也要有加载失败的兜底：图片那一支本来就有（下面 im.onerror），
-           媒体这两支漏了 —— 于是盘上那份成片没了之后灯箱里是一片黑，界面上什么都不说。
-           判据：地址是不是渲染目录那一条通道（/render/dl），是就把出路说出来。 */
+           媒体这两支漏了 —— 于是盘上那份成片没了之后灯箱里是一片黑，界面上什么都不说。 */
         const mediaBad = el => {
           el.onerror = () => {
             const tip = document.createElement('div');
             tip.className = 'lb-hint';
-            tip.textContent = /\/render\/dl\b/.test(String(src))
-              ? '这份成片文件本地已经没有了（可能被手动删过，或渲染目录换过地方）—— 回导演台再点一次「导出成片」就好，素材都还在'
-              : '这条视频 / 音频现在读不出来（可能已过期或已被清理）';
+            tip.textContent = '这条视频 / 音频现在读不出来（文件可能已被移走或清理，上游地址也可能过期了）—— 本机产物回资产库重新「存回本机」，成片回导演台再导出一次就好';
             stage.innerHTML = '';
             stage.appendChild(tip);
           };
