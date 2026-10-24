@@ -18,8 +18,6 @@
       needs: [C, T, P, D] },
     { file: 'studio.html', id: 'studio', label: '生成工作台', ic: 'sparkles', title: '生成工作台', aiLabel: '生成工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
       needs: [C, T, P, D] },
-    { file: 'canvas.html', id: 'canvas', label: '画布', ic: 'layers', title: '画布', src: './pages/canvas.js', root: '.canvas-page',
-      needs: [C, P, D] },
     { file: 'favorites.html', id: 'favorites', label: '我的收藏', ic: 'star', title: '我的收藏', src: './pages/favorites.js', root: '.fav-page',
       needs: [D] },
     { file: 'assets.html', id: 'assets', label: '资产库', ic: 'box', title: '资产库', src: './pages/assets.js', root: '.assets-page',
@@ -43,8 +41,7 @@
     'audio-gen.html': 'studio.html?t=audio',
     'roles.html': 'favorites.html',
     'skills.html': 'settings.html',
-    'usage': 'usage.html',
-    'canvas': 'canvas.html'
+    'usage': 'usage.html'
   };
 
   const byFile = {};

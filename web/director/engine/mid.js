@@ -247,11 +247,11 @@ function renderMid() {
       ${cands.length ? `<span class="cand-pager">
         <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}<span class="tx">${midCandExpandOf() ? '收起' : '展开'}</span></button>
         <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
-        <span style="font-size:12px;color:var(--sub)">第 ${projOf().curCand + 1} / ${cands.length} 条</span>
+        <span style="font-size: var(--fs-12);color:var(--sub)">第 ${projOf().curCand + 1} / ${cands.length} 条</span>
         <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
       </span>` : ''}
     </div>
-    <div class="cand-acts" id="candActs" style="padding:0 16px 6px;justify-content:flex-end">
+    <div class="cand-acts" id="candActs" style="padding: 0 var(--sp-16) var(--sp-6);justify-content:flex-end">
       ${candActsHTML(sh)}
     </div>
     <div class="mid-tools">
@@ -268,7 +268,7 @@ function renderMid() {
           <button type="button" class="${projOf().tlTab === 'film' ? 'on' : ''}" data-tab="film" role="tab" aria-selected="${projOf().tlTab === 'film' ? 'true' : 'false'}">全片</button>
         </span>
         <span style="flex:1"></span>
-        <span class="tl-tip" style="font-size:11.5px;color:var(--sub)">${(projOf().tlTab || 'shot') === 'shot' ? '把这一条候选切成几段、逐段调入出点' : '点一格把焦点切到那一镜，四把剪子剪的都是焦点那一条；左右拖一格 = 把那一镜挪到别一镜前面'}</span>
+        <span class="tl-tip" style="font-size: var(--fs-11-5);color:var(--sub)">${(projOf().tlTab || 'shot') === 'shot' ? '把这一条候选切成几段、逐段调入出点' : '点一格把焦点切到那一镜，四把剪子剪的都是焦点那一条；左右拖一格 = 把那一镜挪到别一镜前面'}</span>
         <!-- 时间轴缩放（与剪映一致：时间长了整条比屏幕宽，左右拖；Ctrl+滚轮也行）。
              「自适应」= 短片子正好铺满、长片子铺到 12px/秒 就停并开始左右滚动（见 tlCurrentPps）。
              手动缩小**没有那条下限**：可以一直缩到比这条轨道还短，右边留出空白（见 tlMinPps）。

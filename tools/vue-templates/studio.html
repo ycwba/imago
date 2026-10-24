@@ -1,5 +1,5 @@
 
-    <div class="page-main studio-page wb2" ref="pageEl">
+    <div class="page-main studio-page wb" ref="pageEl">
       <div class="layout">
         <div class="col-left" data-r="leftCol">
           <div class="st-top">
@@ -45,7 +45,7 @@
             <div class="style-row" data-r="styleRow" hidden>
               <label>风格 / 音色描述 <span style="color:var(--err)">*</span>（音色设计型号必填）</label>
               <input data-r="style" class="ui-inp" placeholder="例：一位温柔的年轻女声，语速偏慢，适合睡前故事">
-              <div style="margin-top:6px">
+              <div style="margin-top:var(--sp-6)">
                 <button class="ghost" data-r="stylePick" title="从素材库挑一位，把它身上写的那段音色描述填到这里">取一位素材的音色描述</button>
               </div>
             </div>
@@ -61,7 +61,7 @@
               <span class="sum"><span data-r="advSum"></span><span class="chev">▼</span></span>
             </div>
             <div class="adv-body" data-r="advBody"></div>
-            <div class="hint" data-r="capHint" style="font-size:11.5px;color:var(--sub);margin-top:10px"></div>
+            <div class="hint" data-r="capHint" style="font-size:var(--fs-11-5);color:var(--sub);margin-top:var(--sp-10)"></div>
           </div>
 
           <div class="costbar"><span data-r="costTxt">估价中…</span><span class="note" data-r="mode">文生视频</span></div>
@@ -70,7 +70,7 @@
           <div data-r="status"></div>
           <div data-raw-host></div>
           <div data-r="balTip" hidden></div>
-          <div class="hint" data-r="pendingHint" style="display:none;font-size:11.5px;margin-top:6px"></div>
+          <div class="hint" data-r="pendingHint" style="display:none;font-size:var(--fs-11-5);margin-top:var(--sp-6)"></div>
         </div>
 
         <div class="col-right">

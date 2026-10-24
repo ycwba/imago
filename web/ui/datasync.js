@@ -52,10 +52,6 @@
     /* AI 助手的对话记录：换浏览器 / 换机器还想接着上次问，所以和数据文件走。
        只存问答正文（上限 60 条），工具查出来的东西不落盘 —— 那是随时能重查的。 */
     'ai_chat',
-    /* 画布的**项目索引**（标题 / 节点数 / 时间）。整份文档在 IndexedDB（Kv.at('canvasDocs')，
-       backup:true 走整包备份），这一份只是列表：跟着数据文件走，清过浏览器数据后项目库
-       还能按名字排出来，等文档从备份恢复再补上封面。索引里只有标题与计数，没有本机路径。 */
-    'canvas_index',
     /* 注意：提示词不再进 localStorage，改存归档文件夹（PromptLog → /prompts），
        归档目录 prompt_dir 也刻意不在这里 —— 换台机器路径就不一样，跟着云同步反而添乱 */
   ];
@@ -574,7 +570,7 @@
      于是每次开页面都重复一遍「拉回来 / 删掉」，还在 `.data/` 留下一串 `.bak`。 */
   const afterSynced = () => {
     try { if (window.ModelPrefs) window.ModelPrefs.migrate(); } catch (e) {}
-    return migrateRenamedKeys().then(sweepLegacyKeys, sweepLegacyKeys);
+    return migrateRenamedKeys().then(sweepLegacyKeys, sweepLegacyKeys).then(sweepLegacyDbs, sweepLegacyDbs);
   };
   const afterBoot = () => { window.DataSync.boot().then(afterSynced, afterSynced); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', afterBoot);

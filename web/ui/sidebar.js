@@ -550,7 +550,7 @@
     if (busy && s2.dlTotal > 0) {
       const pct = Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal)));
       /* 行距不在这里写 inline style：`.sb-mirror .l2` 一条规则统着（sidebar.css），
-         行内 `style="margin-top:3px"` 那种写法是一份没人管的裸值。 */
+         行内 `style="margin-top: var(--sp-3)"` 那种写法是一份没人管的裸值。 */
       dl = '<div class="dlbar" title="' + window.esc(String(s2.dlName || '')) + '"><i style="width:' + pct + '%"></i></div>'
         + '<div class="l2">正在下这一份 <b>' + pct + '%</b>'
         + (s2.dlName ? '（' + window.esc(String(s2.dlName).slice(0, 18)) + '）' : '')

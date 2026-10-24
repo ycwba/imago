@@ -93,35 +93,6 @@
     },
   };
 
-  /* 画布这一页的快照**只带账不带正文**：一份 720 节点的文档如果整份进每一轮上下文，
-     预算一轮就吃光了，而模型真正需要的是「在哪一份画布上、第几号修订、有多少节点、选中了谁、能不能改」。
-     要看内容让它自己问 canvas_get / canvas_node_read（那两项有各自的条数与字节预算）。 */
-  GET['canvas.html'] = root => {
-    const o = {};
-    add(o, '画布标题', val(root, '.canvas-page .cv-name'));
-    add(o, '保存状态', txt(root, '.canvas-page .cv-state'));
-    if (q(root, '.canvas-page .cv-lib')) add(o, '项目库', txt(root, '.canvas-page .cv-count') || '正在列这一台机器上的画布');
-    try {
-      const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('canvas') : null;
-      if (!A || !A.context) return o;
-      const c = A.context({ limit: 1 }) || {};
-      if (c.画布 === '没打开') return o;
-      add(o, '画布', c.画布 || c.id);
-      add(o, '标题', c.title || c.标题);
-      add(o, '修订', c.revision);
-      add(o, '节点数', c.节点数);
-      add(o, '连线数', c.连线数);
-      const sel = (c.选中 || []).slice(0, 6).map(x => String(x.标题 || x.id || '').trim()).filter(Boolean);
-      add(o, '选中', sel.length ? sel.join(' / ') + ((c.选中 || []).length > sel.length ? ' 等' : '') : '');
-      add(o, '生成中', (c.生成中 || []).length ? (c.生成中 || []).length + ' 枚' : '');
-      const h = c.历史 || {};
-      add(o, '撤销栈', (h.可撤销 || h.可重做) ? '还能退 ' + (h.可撤销 || 0) + ' 步 · 可重做 ' + (h.可重做 || 0) + ' 步' : '');
-      /* 只读是**页面**说了算的一张闸：助手据此决定这一轮要不要把写工具与动作清单交出去。 */
-      o.只读 = !!(typeof A.readOnly === 'function' && A.readOnly());
-    } catch (e) {}
-    return o;
-  };
-
   /* 根类不再在这里抄第二份：路由表每条带 `root`，GET 的覆盖率由 tests/spa.cjs 判住。 */
   window.__acPageCtx = function () {
     let r = null;

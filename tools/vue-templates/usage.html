@@ -4,7 +4,7 @@
       <div class="desc">只统计<b>已配置密钥</b>的平台。生成平台的花费取自接口返回的真实积分/价格；文字 AI 不折算金额，只统计消耗的 tokens。</div>
 
       <div class="bar">
-        <button class="ghost" id="reload" style="padding:8px 15px" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
+        <button class="ghost" id="reload" style="padding:var(--sp-8) var(--sp-15)" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
         <span class="sp"></span>
         <span class="upd" id="upd">{{ upd }}</span>
       </div>
@@ -15,7 +15,7 @@
         <div class="ub-left">
           <div class="cards" id="balances">
             <div v-if="balanceLoading" class="empty">加载中…</div>
-            <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn,#d97706)' : ''">
+            <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn)' : ''">
               <template v-if="balanceTip.kind === 'proxy'">读不到本机代理{{ balanceTip.why ? '（' + balanceTip.why + '）' : '' }}：这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。<br>先跑一次项目目录里的「启动.bat」（或 <code>node proxy.js</code>），再点右上「刷新」。</template>
               <template v-else-if="balanceTip.kind === 'warn'">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点右上角「刷新」。</template>
               <template v-else>还没有配置任何平台的密钥，请先到「设置」里填写</template>
@@ -86,7 +86,7 @@
                 <div>累计输入 / 输出<b>{{ aiStat.pt.toLocaleString() }} / {{ aiStat.ct.toLocaleString() }}</b></div>
               </template>
             </div>
-            <div class="hint" id="aiPriceNote" style="margin:2px 0 12px">{{ aiPriceNote }}</div>
+            <div class="hint" id="aiPriceNote" style="margin:var(--sp-2) 0 var(--sp-12)">{{ aiPriceNote }}</div>
             <div id="aiByModel">
               <table v-if="aiModelRows.length">
                 <thead><tr><th>型号</th><th>次数</th><th>输入 tokens</th><th>输出 tokens</th><th class="num">合计 tokens</th></tr></thead>
@@ -133,7 +133,7 @@
             </div>
             <button class="ghost" id="expBills" title="把当前筛选出的账单导出成 CSV（Excel 可直接打开）" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
             <div id="billNote" @click="onBillNoteClick" v-html="billNoteHtml"></div>
-            <div class="upd" id="billCnt" style="margin-bottom:8px">{{ billCntText }}</div>
+            <div class="upd" id="billCnt" style="margin-bottom:var(--sp-8)">{{ billCntText }}</div>
             <div id="bills">
               <div v-if="billDownHtml" v-html="billDownHtml"></div>
               <div v-else-if="billLoading" class="empty">加载中…</div>
@@ -144,7 +144,7 @@
                   <tr v-for="(b, i) in billRows" :key="i" :title="billRowTitle(b)">
                     <td class="t">{{ fmtWhen(b.ts) || '—' }}</td>
                     <td class="p">{{ b.platform || '' }}</td>
-                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:10px">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
+                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:var(--fs-10)">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
                     <td class="num">
                       <template v-if="b.tokens != null">{{ b.tokens.toLocaleString() }} tokens</template>
                       <template v-else-if="b.cost == null"><span title="平台这次没返回价格，不是 0">平台未提供价格</span></template>

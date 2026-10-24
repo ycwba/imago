@@ -22,7 +22,7 @@
   ⚠ 换根之后旧根里的文件不会自己跟过去：代理只扫**当前**根，旧根那些产物在界面上照实显示「文件不在了」，
   回源外链与费用记录照样在 —— 要接着用旧根那些字节，就把旧根整个搬进新根。
   `.renders/` 只剩 FCPXML 媒体包（浏览器内合成成片，服务端没有 ffmpeg）。
-- 八个页面：导演台、素材库、生成工作台（视频/图像/语音）、画布、收藏、资产库、用量、设置（设置不进侧栏）。路由表只有 `web/core/routes.js` 一份。
+- 七个页面：导演台、素材库、生成工作台（视频/图像/语音）、收藏、资产库、用量、设置（设置不进侧栏）。路由表只有 `web/core/routes.js` 一份。
 
 ## 2. 当前目录结构
 
@@ -64,8 +64,7 @@
 │  ├─ shell-boot.js             主题与“在外壳里”旗标（外部脚本，避免内联脚本）
 │  ├─ boot-assistant.js         空闲时加载 AI 助手（`ai_chat_off` 命中就整个不下载）
 │  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
-│  ├─ pages/                    favorites / usage / assets / settings / chars / studio /
-│  │                            canvas（导演台在 web/director/index.js）
+│  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 web/director/index.js）
 │  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
 │  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output；成片与素材都走它）
 │  ├─ director/                 导演台：index + template.html + engine.js + engine/<域>.js（按域搬出的热路径）+ 纯算法模块
@@ -76,14 +75,15 @@
 │  │                            text-ai / gen-rules / fav / prompt-log / asset-picker / ai-find / chars /
 │  │                            ident / asset-ref / identity / semantic / asr / search / zip-read /
 │  │                            chat/text-util / text-ai/contracts
-│  │  └─ canvas/                自由画布：registry / doc / ops / spatial / history / gen / view
 │  ├─ features/chat.js          AI 助手外壳：悬浮球 / 抽屉 / 会话 / 发送循环
 │  ├─ features/chat-tools.js    助手工具循环与动作目录（TOOLS / ACTS / 两张形状表）
 │  ├─ package.json             {"type":"module"}（让 node 测试按 ESM 读 web/ 模块）
-│  └─ styles/                   tokens.css / ui.css / spa-*.css
+│  └─ styles/                   tokens.css / ui.css / wb.css / sidebar.css / chat.css / spa-*.css
 ├─ tools/
 │  ├─ precompile-vue.cjs        模板 → render 函数（开发期）
-│  ├─ tokenize-css.cjs          裸 px/色值统计（开发期，§3.4 收敛用）
+│  ├─ tokenize-css.cjs          裸值体检 + 机械替换 + 值→令牌映射（§3.4 收敛用）
+│  ├─ token-lib.cjs             上面两个工具的共用件：规则表 / 扫描范围 / 值→令牌的映射（只有这一份）
+│  ├─ check-vars.cjs            令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
@@ -135,31 +135,90 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - `style-src 'unsafe-inline'`：允许现有的 `style=` 与动态样式元素；不要新增内联 `<style>` 以外的脚本能力。
 - 页面代码里的所有 URL 必须是同源相对路径；媒体用 `Api.mediaSrc()`。
 
-### 3.4 设计令牌与视觉
+### 3.4 设计规范（硬约束）
 
-- `web/styles/tokens.css` 是**唯一**的主题 / 间距 / 字号 / 圆角 / 阴影 / 动效令牌来源；
-  `ui.css` 与页面 CSS 不许再定义 `:root` 或 `html[data-theme="dark"]` 的第二套变量。
-- 页面样式优先用 `var(--sp-*)` / `var(--fs-*)` / `var(--radius-*)` / `var(--shadow-*)` / `var(--dur-*)`；
-  新代码不要再写裸的 4/8/12/16/24/32px 间距与 6/10/14 圆角。
-- 颜色只从令牌取；页面确有品牌差异（如素材库的深色强调色）时，只在该页根类下覆盖一个变量，并写明理由。
-- 所有可交互元素至少覆盖 `hover` / `focus-visible` / `active` / `disabled` / busy；
-  `ui.css` 末尾有一份全站兜底，页面不要重复写同一份焦点样式。
+这一节是**界面层的硬约束**：令牌、主题、布局、组件、交互、验证。
+下面每一条都有尺子或判据盯着 —— 违反不是「不好看」，是**判据红**。
+
+#### 3.4.1 令牌：唯一的取值出处
+
+- `web/styles/tokens.css` 是**唯一**的主题 / 间距 / 字号 / 圆角 / 描边宽 / 组件尺寸 / 阴影 / 动效令牌来源；
+  别的样式表与页面 CSS 不许再定义 `:root` 或 `html[data-theme="dark"]` 的第二套变量。
+- **令牌名 = 它的值**：`--sp-14` 就是 14px、`--fs-12-5` 就是 12.5px、`--radius-10` 就是 10px、
+  `--acc-tint-18` 就是 18%。早先「序号 = 档位」的写法（`--sp-1:4px` / `--fs-1:12px`）已经全部改成按值命名 ——
+  序号写法要人记「--sp-3 是几像素」，而且同一档里两套命名并存时必然漂开（`--fs-1` 与 `--fs-12` 指的是
+  两个完全不同的字号，却看不出差别）。**不许回退到序号写法。**
+- 尺寸档位分**主档**与**补档**：
+
+  | 档 | 主档（新代码优先用） | 补档（收容现存值） |
+  | --- | --- | --- |
+  | 间距 `--sp-*` | 4 / 8 / 12 / 16 / 24 / 32 | 1–3、5–7、9–11、13–15、18–20、22、26、28、34、40、42、54、60 |
+  | 字号 `--fs-*` | 12 / 13 / 14 / 16 / 20 / 24 | 其余（8.5–11.5、12.5、13.5、14.5、15、17、18、19、26、42） |
+  | 圆角 `--radius-*` | 6 / 10 / 14 | 其余（1–5、7–9、12、20、99、999） |
+  | 组件尺寸 `--sz-*` | 角色命名：`--sz-ico` `--sz-ctl` `--sz-tile` `--sz-thumb-h` `--sz-card` `--sz-scroll` `--sz-wb` | — |
+
+  补档是「那些值本来就在那儿、只是没名字」的**收容位**，等布局重构那一轮统一收敛
+  （收敛时只改 `tokens.css` 这一个文件，调用点不用动）。候选映射与影响面见 §16 的 `--collapse`。
+- **不许写令牌兜底值**：`var(--x, #fallback)` 里的兜底是**同一个数的第二份拷贝**，两边会漂开。
+  令牌要么在 `tokens.css` 里声明，要么由 JS 运行时写到 DOM 上（那种要在 CSS 里也声明一份默认值，
+  JS 的行内样式覆盖它）。
+- **`calc()` 里必须写 `var(--x)`**：`calc(-1 * --sp-4)` 是非法 CSS —— 声明整条作废、退回初始值，
+  页面照常显示、只是那一处没了，肉眼极难发现。负偏移写成 `calc(-1 * var(--sp-4))`。
+- **透明度只走 `--a-*` 阶梯**：`color-mix(in srgb, var(--基色) var(--a-10), transparent)`。
+  阶梯是「用量 ≥4 次」的 21 档；零星百分比是存量（判据 G21 登记在案，只许减不许增）。
+- 页面样式**不许再写裸的**间距 / 字号 / 圆角 / 描边宽 / 色值 / 时长。
+- **模板源也在射程里**：`tools/vue-templates/*.html` 预编译进 `web/render/*.js`，等于活代码，
+  它的行内 `style=` 同样不许写死。
+
+#### 3.4.2 主题：深浅两档与「固定色」的边界
+
+`tokens.css` 按段分清了三件事 —— **换主题时只动 ① 与深色档**：
+
+| 段 | 内容 | 跟不跟主题走 |
+| --- | --- | --- |
+| ① 主题色 | `--bg` `--panel` `--line` `--txt` `--sub` `--acc` `--acc2` `--ok` `--warn` `--err` `--pri` `--input` `--thumbbg` `--atbg` `--scroll` | **跟**：深浅两档必须成对覆盖（判据 G19） |
+| ①b 两档一致的固定色 | `--on-acc` `--media-bg` `--chart-1..12` | 不跟（反白字、媒体黑底、图表色两档该同值） |
+| ② 派生色 | `--acc-tint-*` `--acc-line-32` `--warn-tint` | **跟**（由 ① 现算） |
+| ③ 固定中性色 | `--pal-gray*` `--pal-slate*` `--pal-scrim` | 不跟（只给**深底浮层**用：灯箱、缩略图上的播放钮遮罩） |
+| ④ 导演台深底配色 | `--dir-ink-*` `--dir-fog-*` `--dir-cyan` `--dir-green` … | **不跟**：导演台轨道区天生深底。前缀 `--dir-*` 就是「这族不跟主题走」的标记 |
+
+- 共享界面的文字 / 描边 / 底色 / 状态**一律取 ① 段**（`--err` / `--warn` / `--ok` / `--acc` / `--acc2`），
+  **不许再挑固定色** —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
+- 加一枚新的主题色时，**深色档必须一起加**（判据 G19）；深色档里拼错的名字不会报错，只是**静默失效**，
+  同一条判据也把它抓住。
+- 换主题的验收方式：切 `html[data-theme]` 后逐屏看 —— 浅/深两档的语义色必须各自成体系，
+  不允许某一档里出现「另一种主题的颜色」。
+- 页面确有品牌差异时，只在该页根类下覆盖**一个**变量，并写明理由；不许自己另起一套色。
+
+#### 3.4.3 布局：两种页面外壳
+
+| 外壳 | 用在哪 | 形状 | 定义在哪 |
+| --- | --- | --- | --- |
+| `.page-shell` | 素材库 / 资产库 / 收藏 / 用量 / 设置 | 页头 + 留白 + 整页滚动 | `web/styles/ui.css` |
+| `.wb` | 生成工作台 | 左栏写、右栏看，两栏各自滚动 + 生成按钮 + 状态行 | `web/styles/wb.css` |
+
+- **页面自己的差异**（卡片网格、提示词区、素材槽…）留在各自的 `web/styles/spa-<id>.css` 里，
+  且**必须挂在该页根类下**（`.chars-page .card`）；**不许**在页面补丁里顶层定义公共类（判据 G20）。
+- 页面根元素统一是 `class="page-main <id>-page <外壳类>"`：`.page-main` 与 `<id>-page` 由路由表的
+  `root` 带着，工作台页额外挂 `.wb`。
+- **断点**：媒体查询里**不能**用 CSS 变量（`var()` 在 `@media` 里不成立），所以断点只能靠
+  「登记 + 判据 G22」防漂移。当前登记的 12 档：520 / 620 / 700 / 720 / 760 / 820 / 900 / 960 /
+  1100 / 1180 / 1200 / 1280 —— 偏多，布局重构那轮再收成 3–5 档。
 - **吸顶栏的吸附边 = 滚动容器的内容边**：滚动容器（`.page-shell`）自己带 `padding-top` 时，
   `position: sticky` 的顶栏会停在那条留白下面，就是「下滑后顶上没有贴住、上面空一截」。
   要做吸顶栏就把页面根的 `padding-top` 归 0、那份留白挪进内容层（设置页放 `.set-wrap`），
   首屏留白照旧要有。判据 `tests/e2e/settings-nav.cjs` 直接量下滑后顶栏与容器顶的缝，
   并用 `elementFromPoint` 摸那一行是不是顶栏本身。
 - 同一条 flex 列里两块抢高度（侧栏导航 vs 余额区），**只许有一处** `flex-shrink` + `overflow-y:auto`
-  当兜底；把「可缩可滚」的那份额度换给另一块时，另一处的兜底要显式 revert 回来，而且 revert
+  当兜底；把「可缩可滚」那份额度换给另一块时，另一处的兜底要显式 revert 回来，而且 revert
   必须跟着「这一档到底画不画这一块」走。落到侧栏那两档的写法见 §11.1。
-- 视觉回归：`node tests/e2e/ui-visual.cjs`（八条路由、工作台按三型分档，再加两档要先喂状态才画得出来的
-  「字幕编辑区 / 助手来源卡片」共 12 档 × 1024/1440 × 浅/深主题 = 48 个画面，24×14 RGB 指纹；
-  字幕那一档要本机 ffmpeg 造可选用的视频，没有就整档跳过并报明）。
-  首次或有意改版后：`UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs` 更新
-  `tests/fixtures/visual/fingerprints.json`；不要为了让测试变绿随意放宽阈值。
 
-**组件复用是硬约束**：新写任何界面块之前，先按 §7 的唯一实现清单查一遍；已有组件能表达的就直接用，
-不够用就扩展公共组件，**不允许在页面里复制一份“看起来差不多”的实现**。至少这些必须走公共件：
+#### 3.4.4 组件：公共件复用
+
+**同一个功能只应有一份实现**。新写任何界面块之前，先按 §7 的唯一实现清单查一遍；已有组件能表达的就直接用，
+不够用就扩展公共组件，**不允许在页面里复制一份“看起来差不多”的实现**。
+
+**JS 公共件**（页面只能从 `web/ui/index.js` 取）：
 
 | 界面需求 | 必须使用 |
 | --- | --- |
@@ -178,10 +237,51 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 跳页 | `GoPage.go`（站内不再 `location.href`） |
 | 本机 / 云端标识 | `badgeOf` / `badgeHTML`（`web/ui/badge-state.js`）+ `AssetLocal.stateOf` |
 
-页面只允许写“这一页自己的排版与布局”；卡片、弹层、下拉、芯片、分页、缩略图、提示、确认这些**不许**
-在页面里出现第二份。发现重复实现，先把公共件补齐再把页面改过去，不要在旧副本上继续加功能。
-存量页面里还有迁徙前手写的卡片/列表标记：**新功能与新建页面一律按上表执行**；改到哪一页就把那一页
-顺手收敛到公共件，不要再新增第二份手写实现。
+**公共样式类**（`web/styles/ui.css` / `wb.css` 里的公共层）——页面只许在**自己的根类下**改它们：
+
+| 角色 | 公共类 |
+| --- | --- |
+| 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item` |
+| 按钮 | `.pri`（主） `.ghost`（次） `.tool`（磁贴） `.ui-linkbtn` |
+| 分段 / 芯片 | `.ui-seg` `.chip` |
+| 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
+| 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.pinl` |
+| 空态 / 加载 | `.empty` `.ui-wait` |
+| 工具条 / 视图切换 / 分页 | `.toolbar` `.viewtoggle` `.pager-row` `.pginfo` |
+| 浮层 | `.ui-vrow` `.ui-voice` `.ui-cands` |
+
+- 页面只允许写“这一页自己的排版与布局”；卡片、弹层、下拉、芯片、分页、缩略图、提示、确认这些**不许**
+  在页面里出现第二份。发现重复实现，先把公共件补齐再把页面改过去，不要在旧副本上继续加功能。
+- 存量页面里还有迁徙前手写的卡片/列表标记：**新功能与新建页面一律按上表执行**；改到哪一页就把那一页
+  顺手收敛到公共件，不要再新增第二份手写实现。
+- 判据 **G20** 盯着「页面补丁里不许顶层定义公共类」—— 页面差异必须写成
+  `.chars-page .card` / `.studio-page .task` 这种挂在页面根类下的形式。
+- 样式表都是**真实文件**：`web/styles/` 下按组件分（`ui.css` 公共件、`wb.css` 工作台外壳、
+  `sidebar.css` 侧栏、`chat.css` 助手面板、`spa-<id>.css` 页面补丁），由 `shell.html` 统一挂载；
+  **不许把一段 CSS 塞进 JS 模板字符串**（助手面板那 250 行曾经就藏在 `chat.js` 的模板字符串里）。
+  唯一例外是 `web/director/template.html` 内嵌的 `<style>` 块 —— 导演台是作用域岛，
+  那块样式跟着模板一起被 `index.js` 取用（§9.1）；它里面的取值同样走令牌。
+
+#### 3.4.5 交互
+
+- 所有可交互元素至少覆盖 `hover` / `focus-visible` / `active` / `disabled` / busy；
+  `ui.css` 末尾有一份全站兜底，页面不要重复写同一份焦点样式。
+
+#### 3.4.6 验证：四把尺子
+
+| 尺子 | 管什么 | 命令 |
+| --- | --- | --- |
+| 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--map` 看映射 / `--collapse` 看收敛影响面） |
+| 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
+| 静态判据 | G18 裸值 / G19 主题色成对 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 | `node tests/static-guards.cjs` |
+| 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
+
+- 静态判据的存量表**只许减不许增**（`GUARD_WRITE=1` 重打表，但每条都要补一句原因）。
+- 视觉回归：七条路由（工作台按视频/图像/语音分三档 → 九档），再加两档「要喂状态才画得出来」的
+  「字幕编辑区 / 助手来源卡片」，共 **11 档 × 1024/1440 × 浅/深主题 = 44 个画面**，24×14 RGB 指纹；
+  字幕那一档要本机 ffmpeg 造可选用的视频，没有就整档跳过并报明。
+  首次或**有意改版**后：`UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs` 更新
+  `tests/fixtures/visual/fingerprints.json`；不要为了让测试变绿随意放宽阈值。
 
 ### 3.5 启动器与编码
 
@@ -350,11 +450,13 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ### 6.5 Git 远端与推送
 
-- 远端只有 `github` 一个（`https://github.com/ycwba/shizhen-workbench.git`），**不叫 `origin`**。
-  `main` 跟踪 `github/main`，所以裸 `git push` / `git pull` 就够，不必再写远端名。
-- 远端 `main` 是 2026-10-22 用 `--force-with-lease` 推上去的**真实历史**（46 提交）。
-  此前远端只有一个与本地无共同祖先的孤儿快照提交 `3d3f5ad`，该快照保留在远端
-  `archive/snapshot-gh` 分支（本地分支 `snapshot-gh` 同它）。
+- 远端只有一个：`https://github.com/ycwba/shizhen-workbench.git`。**它在本地克隆里的别名不固定**
+  （本机这份是 `origin`，另一份工作副本里叫 `github`）—— 所以**别按远端名写命令**：
+  `main` 跟踪哪个远端就跑裸 `git push` / `git pull`，那才是稳的。
+  （判据 `tests/doc-contract.cjs` 盯的是**地址**，不是别名。）
+- 远端 `main` 是 2026-10-22 用 `--force-with-lease` 推上去的**真实历史**（截至 2026-10-24 为 49 提交）。
+  此前远端只有一个与本地无共同祖先的孤儿快照提交 `3d3f5ad`，该快照保留在远端的
+  `archive/snapshot-gh` 分支。
 - 看到「有共同祖先为零的另一个根提交」不是历史断了，**不要**去 `--allow-unrelated-histories`
   合并它：那是同一份代码的旧快照，合并只会把旧状态搅回新历史。
 - 其它分支（`feat/drama-cast-assets-and-voice` / `fix-audio-model-dropdown-loop` /
@@ -405,13 +507,6 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 收藏 | `web/domain/fav.js` 的 `Fav` |
 | 素材库 | `web/domain/chars.js` 的 `Chars`（`Lib` / `Pipe` / `SET`） |
 | 语义检索 | `web/domain/semantic.js` 的 `SemanticSearch.rank` |
-| 画布能建哪几类节点 / 输入闸 | `web/domain/canvas/registry.js`（类型、`acceptsInputKind`、上限只在这一份） |
-| 画布文档与合法性 | `web/domain/canvas/doc.js` 的 `sanitizeDoc` / `validDoc` / `cleanMeta` / `LIMITS` |
-| 画布写入唯一出口 | `web/domain/canvas/ops.js` 的 `applyOperations`（CAS 修订号、成环、类型、连带删线都在这） |
-| 画布撤销栈 | `web/domain/canvas/history.js`（补丁式、`source:'external'` 推基线） |
-| 画布几何 / 视口 | `web/domain/canvas/spatial.js` / `view.js` |
-| 画布生成（怎么跑、缺什么） | `web/domain/canvas/gen.js` 的 `resolve` / `whyReady` / `submit` |
-| 画布节点检索排序 | `web/pages/canvas.js` 的 `rankNodes`（判据仍读 `SemanticSearch.rank`，助手与 Ctrl+F 共用这一份） |
 | 导演台台词面板 | `web/director/lines.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档两段共用；镜头编辑右栏没有第二份） |
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
 | 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
@@ -451,7 +546,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 路由表只有 `web/core/routes.js` 的 `WB_ROUTES`：页面文件 / id / 侧栏名 / 图标 / 标题 /
   组件地址 `src` / 旧地址别名都从这里读，外壳的页面组件映射由这张表现搭。新增页面只改这一处，
   不在 `web/app.js` 或页面里另抄一份映射（`tests/spa.cjs` 拦）。
-- 页面组件：默认导出，根节点 `page-main <page>-page`；私有样式挂页面根类；公共样式走
+- 页面组件：默认导出，根节点 `page-main <page>-page <外壳类>`（外壳类：普通页 `.page-shell`、
+  两栏工作台 `.wb`；见 §3.4.3）；私有样式挂页面根类；公共样式走
   `web/styles/`。数据/副作用走公共层，不重写。
 - 切页可见性：`spa:page` 事件与 `window.__spaActivity.visible()`（裸布尔 `__spaPageVisible` 已删，两套判据并存就是「切走了还在轮询」那一类）；隐藏页的轮询 / 抽帧 / 缩略图要停。
 - 页面内不要 `location.href` 换页；站内跳转走 `GoPage` / `window.appShow`。
@@ -463,28 +559,6 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 助手读当前页快照走 `page-context.js` 的 `__acPageCtx`，不要靠扫 DOM 猜。
 - 新增公共 UI 组件放 `web/ui/` 并从 `web/ui/index.js` 导出；页面不要深路径引用组件。
 
-### 8.1 画布页与它的助手写入桥
-
-- `web/pages/canvas.js` 是画布唯一一页：文档、几何、渲染、轮询与 `WBBridge.canvas` 在同一个闭包里；
-  纯算法按域在 `web/domain/canvas/`（见 §7），页面只留接线。
-- **唯一写出口**是页内的 `commit()` → `ops.js` 的 `applyOperations(doc, ops, { expectedRevision })`：
-  类型、输入上限、成环、删节点连带断线、修订号 +1、进撤销栈全在这一处；别的地方不许直接改文档数组。
-- 助手只能走桥的 `apply`，八个写动作（`canvas_nodes_create` / `_update` / `_delete`、
-  `canvas_edges_create` / `_delete`、`canvas_viewport_set`、`canvas_generation_propose`、`canvas_undo`）
-  加五项只读（`canvas_get` / `canvas_search` / `canvas_node_read` / `canvas_assets_list` /
-  `canvas_generation_status`），只在画布在前台时可见。CAS 凭据（`expectedRevision`、`operationId`）由
-  `stampWrite` 在提交那一刻现读现补，不写进动作的 schema、也不让模型填。
-- 助手写入进撤销栈时带 `source:'external'` 并推进基线：用户 Ctrl+Z 撤不到助手那一步，助手自己用
-  `canvas_undo` 退；`canvas_undo` 里写的是「要退掉的那一步」的号，交到注册表前必须换成
-  `undoOperationId` —— 注册表那个位子是**这一次执行**的幂等键，混用会命中上一次写入的缓存结果，
-  撤销根本没跑、卡片却照着旧回执念。
-- 视图（`canvas_viewport_set`）只动视口：不涨修订、不进撤销栈；`ops.js` 的 `VIEW_OPS` 是那条判据唯一出处。
-- 提案与扣费分开：画卡片与 `execute:false` 那一次执行都不建任务、不发一次生成请求；只给 `nodeId`、
-  一条操作都没有的那种「这一枚打算怎么跑」是纯读，不能拿「至少要一条操作」拒掉。
-- 只读的那一份画布由页面自己声明 `readOnly()`：助手的写闸与界面快照都只认这一处。
-- 资产引用只认本机查得到的号（`cvAssetGate`）；一条资产怎么变成节点只问桥的 `assetNode`（页面那份 `assetOpOf`）。
-- 画布内检索排序只有页面那一份 `rankNodes`（判据仍读 `SemanticSearch.rank`，它回的是
-  `{ item, score, why }` 那一层壳，`item` 才是检索行）；页面 Ctrl+F 与助手的 `canvas_search` 共用，助手不另排。
 
 ## 9. 导演台
 
@@ -492,6 +566,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - `web/director/index.js`：Vue 页面组件 + 作用域岛（模板 HTML、样式、生命周期、`WBBridge` 安装）。
 - `web/director/template.html`：导演台真实 DOM 模板（不是 Vue 模板，不参与预编译）。
+  它内嵌的 `<style>` 块是**全站唯一的例外**：`index.js` 运行时把这一块取出来，
+  以 `@scope (.director-page)` 注入 —— 导演台是作用域岛，样式必须跟着模板一起被取用。
+  那块里的取值同样走令牌（§3.4.1），不写死。
 - `web/director/engine.js`：命令式热路径的状态与接线；**这一层里的代码按域机械搬进 `web/director/engine/*.js`**，
   每一枚 `createX(E, document, window)` 只收 engine 递进来的访问器与函数（`document` / `window` 用参数名遮蔽，
   作用域岛递进来的两份代理继续生效）。engine.js 继续持有工程数据与可变状态，模块里不留第二份
@@ -742,10 +819,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 档 | 命令 | 场景 | 耗时（本机实测） |
 | --- | --- | --- | --- |
 | 秒级 | `npm run check` | 每次保存后 | ~0.5s |
+| 样式秒级 | `node tools/tokenize-css.cjs` + `node tools/check-vars.cjs` | 动了样式 / 令牌后 | <1s |
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 | ~3s |
-| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2 分钟 |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 47 条 e2e 串行（浏览器档共 49 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
+| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 5 条（4 路并发）~2 分钟 |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 44 条 e2e 串行（浏览器档共 46 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -757,7 +835,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 两边不一致当场红）。这里不再抄一遍全表，只说各档是哪一路：
 
 - 静态纪律一路：`syntax` / `selfcheck` / `spa`（独立判据，不再由 selfcheck 代跑）/ `static-guards` /
-  `scope-guards` / `dup-guard` / `architecture` / `metrics` / `ui-catalog` / `settings-schema`。
+  `scope-guards` / `dup-guard` / `architecture` / `metrics` / `ui-catalog` / `settings-schema` /
+  `doc-contract`（AGENTS.md §3.4 那份设计规范与代码一致 —— 文档不许说谎）。
 - 服务端与数据一路：`routes-smoke`（ctx 注入 + 每条端点走一遍假 req/res）/ `index-store` / `local-first` /
   `relay-retry` / `outbound-keepalive` / `assetlib-cache` / `pull-scope` / `providers-validate` / `asr-settings` /
   `zip` / `skill-hub` / `fcpxml-client` / `static-encoding`（不起实例的那一半）。
@@ -765,10 +844,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
   以及 `ASSETS_DIR` 压过它、默认跟系统下载文件夹走）；浏览器档的 `local-chain`（落点、双身份 fid + 采样签名、
   改名挪目录认回、重复下载并成一张卡、**删一张卡带走整组**、磁盘对账只补一次；只起隔离实例，不开 Chrome）。
 - 纯算法一路：`core` / `editing` / `editor-media` / `local-edit` / `gen-rules` / `task-detail` / `asset-ref` /
-  `export-formats` / `raw-preview` / `skill-refvars` / `canvas-*` / `director-*`（含 `director-asr-text`：
+  `export-formats` / `raw-preview` / `skill-refvars` / `director-*`（含 `director-asr-text`：
   浏览器内识别的分段算法 + 「worker 只认同源 `/models/`、vendored 四件在位」那两条静态判据）。
-- 浏览器档分两级：`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / lock / canvas，
-  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 条，
+- 浏览器档分两级：`--e2e:fast` 只跑冒烟 5 条（smoke / ui-contract / ui-shared / director-perf / lock，
+  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 44 条，
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
   （后者是同一份判据的「线上那一半」，要起隔离实例）。
 `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
@@ -777,7 +856,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ```bash
 UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs                    # 全部画面
-UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=canvas node tests/e2e/ui-visual.cjs   # 只补点名的那一页
+UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=studio node tests/e2e/ui-visual.cjs   # 只补点名的那一页
 PARITY_WRITE=1 node tests/e2e/parity.cjs
 ```
 
@@ -834,6 +913,8 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
    新页面还要在 `web/core/page-context.js` 的 GET 里点名（助手快照），视觉档位与
    「哪些页必须有快照 / root」都由这张表现取，漏了直接红。
 4. 私有样式 `web/styles/spa-<id>.css`（根类下），公共样式复用 `tokens.css` / `ui.css`。
+   页面根元素是 `class="page-main <id>-page <外壳类>"`：普通页挂 `.page-shell`，
+   工作台那样的两栏页挂 `.wb`（外壳与形状见 §3.4.3）；页面补丁里**不许**顶层定义公共类（判据 G20）。
 5. 需要后台可见性/保存钩子时接 `spa:page` 与 `__spaRegister`。
 6. 动态补载公共脚本只用当前路径（`web/ui/workbench.js` / `web/domain/chars.js`）；
    `__spaLoadScript('workbench.js')` 这类根目录旧文件名已被 `tests/spa.cjs` 拦截。
@@ -901,6 +982,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 | --- | --- | --- |
 | 新页面 | `web/pages/<id>.js` + `tools/vue-templates/<id>.html` + `web/styles/spa-<id>.css` | `web/core/routes.js` 加一条（含组件地址 `src`）、运行 `npm run build` |
 | 共享 Vue 组件 | `web/ui/<name>.js`，并从 `web/ui/index.js` 导出 | 样式只进 `ui.css`/`tokens.css`；页面不许深路径 import |
+| 新的公共样式 / 组件样式 | `web/styles/<组件>.css`，并在 `shell.html` 挂上 | 取值走令牌（§3.4.1）；公共类进 §3.4.4 那张表；页面补丁里不许顶层定义公共类（G20） |
 | 共享纯逻辑 | `web/domain/<domain>.js`（挂一个 `window.<Domain>` 面） | 只暴露最小方法；页面不复制规则 |
 | 外壳/路由/生命周期 | `web/core/*.js`、`web/app.js` | 不留页面专用全局；需要跨页桥走 `WBBridge` |
 | 新服务端路由 | `server/routes/<name>.js` | 在 `server/app.js` 构造依赖与分发；敏感路由加 `LOCAL_ONLY`；补 e2e |
@@ -915,7 +997,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 | 新视觉基线 | `tests/fixtures/visual/` | 只允许 `UI_VISUAL_WRITE=1` 更新；实际截图走 gitignore |
 
 本轮新增能力的落位：原始请求面板 `web/ui/raw-request.js`（经典脚本；**按需补载** —— 导演台 /
-生成工作台 / 画布三页各自 `__spaLoadScript`，其余页不白下这一份；脚本数 / 字节预算在
+生成工作台两页各自 `__spaLoadScript`，其余页不白下这一份；脚本数 / 字节预算在
 `tests/spa.cjs`）；接续与批量调度 `web/director/chain.js`；场景镜头命名 `web/director/naming.js`；
 发送前预览 `web/domain/api.js` 的 `buildBody` / `preview` + `web/director/board-preview.js`；
 导演台项目组 `web/director/groups.js`；拆分镜的新素材 `web/director/board-assets.js`
@@ -972,9 +1054,13 @@ npm run build:check         # 校验模板与生成物一致
 npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s）
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
 npm run test                # 合并档：常驻判据全量（并发池，~3s）
-npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2 分钟）
-npm run test:e2e            # 浏览器档：47 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:all            # 全量档：常驻池 + e2e 冒烟 5 条（4 路并发，~2 分钟）
+npm run test:e2e            # 浏览器档：44 条 e2e 全量串行（含视觉回归、性能、parity）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
+node tools/tokenize-css.cjs            # 样式秒级档：裸值体检（只读；--write 机械替换 / --map 映射 / --collapse 收敛影响面）
+node tools/check-vars.cjs              # 令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）
+node tests/static-guards.cjs           # 静态纪律 21 条判据（G18 裸值 / G19 主题色成对 / G20 公共类 / G21 透明度阶梯 / G22 断点）
+node tests/e2e/ui-visual.cjs           # 视觉回归 44 个画面；重打基线加 UI_VISUAL_WRITE=1
 node tests/data-snapshot.cjs  # 写入型：对真实 .data / .renders 与库根本体比基线（§13.3）
 powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest
 set WB_LAUNCHER_DRYRUN=1 && 启动.bat
@@ -1001,4 +1087,19 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
   会让对话记录从整包备份与云端消失，收益不抵损失。
 - **撤销仍是项目快照栈**：导演台 `undoStack` 存 JSON 快照，足够覆盖当前编辑粒度；
   改成命令日志是独立的协作/历史功能，不与本轮 UI 收口混做。
+- **令牌名 = 值，不回退到「序号 = 档位」**：序号写法要人记「--sp-3 是几像素」，
+  而且同一档里两套命名并存时必然漂开（`--fs-1` 与 `--fs-12` 是两个完全不同的字号）。
+  改名的成本在令牌化那一轮一次付清（718 处），之后新增一律按值命名。
+- **主题色与固定色分家**：`tokens.css` ① 段跟主题走、③ 段与 ④ 段（`--dir-*` 导演台深底）
+  不跟。共享界面一律取语义色 —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
+  加主题色必须连深色档一起加（判据 G19）。
+- **页面外壳只有两种**（`.page-shell` / `.wb`），工作台那套两栏骨架的**唯一一份**在
+  `web/styles/wb.css`：以前 ui.css 那份是给老工作台页的死代码、SPA 那份是逐条照抄，
+  两份迟早对不上。页面差异留在 `spa-<id>.css` 且必须挂在页面根类下（判据 G20）。
+- **样式表的落点**：真实文件、按组件分、由 `shell.html` 统一挂载，
+  **不许把一段 CSS 塞进 JS 模板字符串**（助手面板那 250 行曾经就藏在 `chat.js` 里，
+  于是改样式要翻 JS、颜色兜底值散在字符串中、别的页面也没法复用）。
+- **样式层不写死，靠四把尺子守**（体检 / 引用完整性 / 五条静态判据 / 视觉回归）。
+  间距与断点**暂不收敛**：补档是收容位，收敛会改画面 —— 那是布局重构那一轮的设计决定；
+  候选映射与影响面已经备好（`tools/tokenize-css.cjs --collapse`），到时只改 `tokens.css` 一处。
 

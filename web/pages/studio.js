@@ -55,7 +55,7 @@ const ADV_BODY_HTML =
   + '<div id="durWrap"><label>时长（秒）</label><select id="dur"></select></div>'
   + '<div id="arWrap"><label>画面比例</label><select id="ar"></select></div>'
   + '</div><div class="adv-grid"><div id="drawWrap"><label>生成条数</label><select id="draw"></select><div class="sel-hint" id="drawHint"></div></div></div>'
-  + '<div class="adv-grid" id="boolRows" style="margin-top:10px"></div>'
+  + '<div class="adv-grid" id="boolRows" style="margin-top: var(--sp-10)"></div>'
   + '</div>'
   + '<div class="adv-type" data-t="image" hidden>'
   + '<div class="adv-grid">'
@@ -70,8 +70,8 @@ const ADV_BODY_HTML =
   + '<div id="voiceCol"><label>音色</label><select id="voice"></select></div>'
   + '<div><label>输出格式</label><select id="formatA"></select></div>'
   + '</div></div>'
-  + '<div class="adv-grid" id="topBools" style="margin-top:10px" hidden></div>'
-  + '<div class="adv-grid" id="shapeFields" style="margin-top:10px" hidden></div>';
+  + '<div class="adv-grid" id="topBools" style="margin-top: var(--sp-10)" hidden></div>'
+  + '<div class="adv-grid" id="shapeFields" style="margin-top: var(--sp-10)" hidden></div>';
 
 const StudioView = {
   name: 'StudioView',
@@ -2052,9 +2052,9 @@ const StudioView = {
         if (!window.Api || !Api.isBalanceErr(e)) { box.hidden = true; box.innerHTML = ''; return; }
         if (provId) Api.balOut.mark(provId);
         box.hidden = false;
-        box.innerHTML = '<div class="ui-note err" style="margin-top:8px">这一家的余额 / 额度不够（先充上再合成，'
+        box.innerHTML = '<div class="ui-note err" style="margin-top: var(--sp-8)">这一家的余额 / 额度不够（先充上再合成，'
           + '不然再点一次还是同一句拒）。'
-          + '<button class="tool mini" data-balgo style="margin-left:6px">去「用量与余额」</button></div>';
+          + '<button class="tool mini" data-balgo style="margin-left: var(--sp-6)">去「用量与余额」</button></div>';
         const b = box.querySelector('[data-balgo]');
         if (b) b.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.hash = 'usage.html'));
       }
@@ -2657,7 +2657,9 @@ const StudioView = {
             + '要看它们就在设置页关掉这一项（它们还在平台那边，收藏与素材库也不受这一项影响）。')
           : Wb.emptyHTML('还没有历史素材。左栏写好提示词点「生成」，出来的产物会自动出现在这里；也可以把素材拖到左栏当参考。')),
         notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
-        onNew: el => { try { el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 280, easing: 'ease-out' }); } catch (e) {} },
+        /* 新卡片入场：走公共的 .card-enter（时长与位移在 ui.css 里，都取令牌），
+           不在 JS 里另抄一份 6px / 280ms。 */
+        onNew: el => { try { el.classList.add('card-enter'); } catch (e) {} },
       });
       const browseList = () => filteredItems().filter(x => x.media);
       function renderAll() {

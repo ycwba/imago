@@ -1074,9 +1074,9 @@ function info() {
   }
 
   /* ---------- 「生成完成」这条事件的唯一生产处 ----------
-     以前 engine.js / studio.js / assetlib._announce / canvas/gen.announce 四处各自 dispatch，四份
-     字段集合互不相同（导演台带 priceMicros、工作台不带；一家写 `src`、一家写 `url`），消费方只能
-     逐字段可选容错，加一个字段就要改四个地方。现在四个生产点都只调 announce()，四条归一化规则
+     导演台 / 工作台 / assetlib._announce 三处各自 dispatch 时字段集合互不相同（导演台带
+     priceMicros、工作台不带；一家写 `src`、一家写 `url`），消费方只能逐字段可选容错，
+     加一个字段就要改三处。现在三个生产点都只调 announce()，三条归一化规则
      各写在它自己那一行上（补齐但不凭空造 / 六个派生字段一条规则 / 本机导入与没地址的不投 /
      同一批按 keyOf 折一次）。三种生产者形状的对拍与「缺 kind 就不许下单」判在
      tests/e2e/ui-contract.cjs ③ —— 纯 Node 那半边只能判委托，归一化对不对要有真 AssetLocal 才验得到。 */

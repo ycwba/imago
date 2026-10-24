@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 拖拽判据：页面里拖一张卡片（浏览器会顺手往 dataTransfer 里塞一份文件）不算上传。
-   收藏页拖一下卡片会多出一条收藏、画布上拖节点会多出一枚节点，都是这条判据漏了。
+   收藏页拖一下卡片会多出一条收藏，就是这条判据漏了。
    同时验一个正控：从窗口外拖进来的文件仍然会被收藏页收下。 */
 'use strict';
 const h = require('./harness.cjs');
@@ -76,32 +76,8 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     const after = await page.eval(() => ({ n: Fav.list().length, names: Fav.list().map(x => x.name || x.key) }));
     must(after.n === 2, '外部文件没被收下：' + JSON.stringify(after));
 
-    /* ---------- 3) 画布：页面里拖节点也不能长出新节点 ---------- */
-    await page.goto(proxy.base + '/shell.html#canvas.html');
-    await page.waitFor('window.WBBridge && window.WBBridge.get("canvas")', 25000);
-    await page.eval(() => { const b = document.querySelector('.cv-lib-bar button.pri'); if (b) b.click(); });
-    await page.waitFor('!!document.getElementById("pfDlg")', 15000);
-    await page.eval(() => { document.getElementById('pf_0').value = '拖拽判据'; document.getElementById('pfOk').click(); });
-    await page.waitFor('window.WBBridge.get("canvas").ready()', 20000);
-    const canvasDrop = await page.eval(async png => {
-      const bin = atob(png);
-      const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-      const before = window.WBBridge.get('canvas').context().节点数;
-      const dt = new DataTransfer();
-      dt.items.add(new File([bytes], 'probe.png', { type: 'image/png' }));
-      dt.setData('text/html', '<img src="probe.png">');
-      const stage = document.querySelector('.cv-stage');
-      stage.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      const over = stage.classList.contains('cv-over');
-      stage.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 320, clientY: 240 }));
-      await new Promise(r => setTimeout(r, 400));
-      return { before, after: window.WBBridge.get('canvas').context().节点数, over, still: stage.classList.contains('cv-over') };
-    }, PNG);
-    must(canvasDrop.over === false && canvasDrop.still === false, '画布里拖节点亮起了投放遮罩：' + JSON.stringify(canvasDrop));
-    must(canvasDrop.after === canvasDrop.before, '画布里拖一下节点多出了节点：' + JSON.stringify(canvasDrop));
-
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
-    console.log('✓ 拖拽判据通过（收藏页拖卡片不多收藏 · 画布拖节点不多节点 · 遮罩不亮 · 外部文件仍能收下 · 零控制台错误）');
+    console.log('✓ 拖拽判据通过（收藏页拖卡片不多收藏 · 遮罩不亮 · 外部文件仍能收下 · 零控制台错误）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

@@ -16,7 +16,7 @@
         常驻判据实测全部只写 os.tmpdir 的 mkdtemp 探针目录，白名单先登记 data-snapshot 防今后误加）。
      测试用 Node 选型：判据子进程优先用系统 node（NODE 环境变量可指定，拿不到回落 execPath），
         与 map.cjs / watch.cjs 共用同一份 resolveNode（不另存第二张选型表）。
-     e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
+     e2e 分档：--e2e:fast 只跑冒烟档 5 个（清单见 FAST_E2E），--e2e 全量。
         冒烟档走**限 4 路的并发**（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
         带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）；
         全量档保持串行（四十多条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口这轮没动。
@@ -54,7 +54,7 @@ let bad = 0;
 
 /* run() 保持与旧串行版同样的调用形状（name/cmd/args/env），map.cjs 的登记表照读得动；
    差别只有一条：不再当场 spawnSync，而是排队，最后由并发池统一跑。
-   浏览器档在 --e2e:fast 时只留 FAST_E2E 挑中的 6 条（登记行仍逐条在源码里，map.cjs 照数得到全量）。 */
+   浏览器档在 --e2e:fast 时只留 FAST_E2E 挑中的 5 条（登记行仍逐条在源码里，map.cjs 照数得到全量）。 */
 const run = (name, cmd, args, opts = {}) => {
   const isBrowser = opts.tier === 'browser' || /^tests\/e2e\//.test(name);
   if (isBrowser && FAST_ONLY && !fastPick(name)) return;
@@ -63,10 +63,10 @@ const run = (name, cmd, args, opts = {}) => {
 /* 浏览器判据的挑选：--e2e 全量，--e2e:fast 只跑冒烟档。 */
 const FULL_E2E = process.argv.includes('--e2e') || process.env.ALL_E2E === '1';
 const FAST_ONLY = process.argv.includes('--e2e:fast') && !FULL_E2E;
-/* 冒烟档 6 个（验收：3 分钟以内）：smoke 兜「八页都能加载、控制台无错」，
+/* 冒烟档 5 个（验收：3 分钟以内）：smoke 兜「各页都能加载、控制台无错」，
    ui-contract / ui-shared 兜公共件契约与列表页，director-perf 兜导演台热路径预算，
-   lock 兜单实例锁（最便宜的一条代理判据），canvas 兜画布写出口与撤销栈（页面级唯一红得住的）。 */
-const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'lock', 'canvas'];
+   lock 兜单实例锁（最便宜的一条代理判据）。 */
+const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'lock'];
 const fastPick = name => {
   const id = String(name).replace(/^tests\/e2e\//, '').replace(/\.(cjs|mjs)$/, '');
   return FAST_E2E.includes(id);
@@ -168,7 +168,7 @@ function flushBrowser() {
   if (rows.length) console.log('  逐条耗时：' + rows.join(' ｜ '));
 }
 
-/* 冒烟档：限 4 路并发（6 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
+/* 冒烟档：限 4 路并发（5 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
    输出与常驻池一样按完成顺序整块打印、带每条耗时；每条自起隔离 proxy + 独立探针目录，互不写脏。 */
 async function flushBrowserFast() {
   const lanes = Math.min(4, CONCURRENCY, browserQueue.length);
@@ -257,14 +257,6 @@ run('tests/task-detail.mjs', process.execPath, ['tests/task-detail.mjs']);
 run('tests/director-script.mjs', process.execPath, ['tests/director-script.mjs']);
 /* 导出格式只有一张表：页头按钮 / engine 分派 / 助手枚举都从它派生。 */
 run('tests/export-formats.cjs', process.execPath, ['tests/export-formats.cjs']);
-/* 自由画布的六份纯模块：注册表 / 文档 / 操作 / 历史 / 空间索引 / 生成桥。
-   画布页只有一个 commit() 写出口，规则全压在这几件里 —— 它们红了，页面上点什么都白点。 */
-run('tests/canvas-registry.mjs', process.execPath, ['tests/canvas-registry.mjs']);
-run('tests/canvas-doc.mjs', process.execPath, ['tests/canvas-doc.mjs']);
-run('tests/canvas-ops.mjs', process.execPath, ['tests/canvas-ops.mjs']);
-run('tests/canvas-history.mjs', process.execPath, ['tests/canvas-history.mjs']);
-run('tests/canvas-spatial.mjs', process.execPath, ['tests/canvas-spatial.mjs']);
-run('tests/canvas-gen.mjs', process.execPath, ['tests/canvas-gen.mjs']);
 run('tests/providers-validate.cjs', process.execPath, ['tests/providers-validate.cjs']);
 run('tests/asr-settings.mjs', process.execPath, ['tests/asr-settings.mjs']);
 /* 浏览器内 ASR 的纯算法面（worker 与判据共用）：WAV 拆 PCM / 词级成段 / 中文转写清理；
@@ -285,6 +277,10 @@ run('tests/routes-smoke.cjs', process.execPath, ['tests/routes-smoke.cjs']);
    裸 #RRGGBB、页面侧碰 Dropdowns 私有物、裸 localStorage、第二处 createElement('link')、
    同一条 CSS 规则写两遍。存量违例登记在案，只许减不许增。 */
 run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
+/* 文档契约：AGENTS.md §3.4 那份设计规范（令牌名 / 主题分段 / 两种外壳 / 公共类 /
+   断点档 / 判据条数 / 画面档数）必须与代码一致 —— 文档不许说谎，
+   代码改了而文档没改，下一个人就照着过期文档写。 */
+run('tests/doc-contract.cjs', process.execPath, ['tests/doc-contract.cjs']);
 /* 静态预压缩：br→gzip→原文 退档、ETag 带表示名、缓存命中不再压。
    常驻这一档不起实例（进程内驱动 serveStatic）；线上响应头与体积比对在同一条文件的 `--live` 档，
    登记在下面 e2e 段。 */
@@ -353,10 +349,6 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 导演台项目组：分树 / 新建 / 老工程零迁移 / 删组不删短片。 */
   run('tests/e2e/director-groups.cjs', process.execPath, ['tests/e2e/director-groups.cjs'], { tier: 'browser' });
   run('tests/e2e/editing-assistant.cjs', process.execPath, ['tests/e2e/editing-assistant.cjs'], { tier: 'browser' });
-  run('tests/e2e/canvas.cjs', process.execPath, ['tests/e2e/canvas.cjs'], { tier: 'browser' });
-  run('tests/e2e/canvas-model.cjs', process.execPath, ['tests/e2e/canvas-model.cjs'], { tier: 'browser' });
-  run('tests/e2e/canvas-assistant.cjs', process.execPath, ['tests/e2e/canvas-assistant.cjs'], { tier: 'browser' });
-  run('tests/e2e/canvas-port.cjs', process.execPath, ['tests/e2e/canvas-port.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-contract.cjs', process.execPath, ['tests/e2e/ui-contract.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-shared.cjs', process.execPath, ['tests/e2e/ui-shared.cjs'], { tier: 'browser' });
   run('tests/e2e/favorites-pager.cjs', process.execPath, ['tests/e2e/favorites-pager.cjs'], { tier: 'browser' });
@@ -371,7 +363,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/sidebar-balance.cjs', process.execPath, ['tests/e2e/sidebar-balance.cjs'], { tier: 'browser' });
   run('tests/e2e/lock.cjs', process.execPath, ['tests/e2e/lock.cjs'], { tier: 'browser' });
 } else {
-  console.log('\n=== 浏览器 e2e ===\n  - 跳过（加 --e2e 全量 / --e2e:fast 冒烟档 6 个 / ALL_E2E=1）');
+  console.log('\n=== 浏览器 e2e ===\n  - 跳过（加 --e2e 全量 / --e2e:fast 冒烟档 5 个 / ALL_E2E=1）');
 }
 
 (async () => {

@@ -1510,6 +1510,10 @@ const LEGACY_KEYS = [
      是「上一趟另存没成的原因」，两者都再没有读者。库根本身改由 `sk_local_dir` 那**一个**目录承担，
      它是代理要读的那份（localStorage → .data/sk_local_dir.json），不在这里。 */
   'sk_autosave', 'sk_autosave_log',
+  /* 画布页删除（2026-10-24）：`canvas_index` 是画布的项目索引（标题 / 节点数 / 时间），
+     画布的文档本体在 IndexedDB（canvas_db），那边跟着「清站点数据」走，不在这里清。
+     索引键要在这里点名的原因和其它旧键一样：不删的话下次 boot 会从服务器镜像恢复回来。 */
+  'canvas_index',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
@@ -1521,6 +1525,21 @@ async function sweepLegacyKeys() {
     try { await Net.fetch('/data/' + encodeURIComponent(k) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) { /* 镜像删不掉下次 boot 顶多再清一遍，不拦本机这次的清理 */ }
   }
   console.info('[Store] 清掉了几个不再使用的旧键：' + hit.join('、'));
+}
+
+/* IndexedDB 里的同一类残留：整库随页作废的（画布页删除后的 canvas_db），不再进 Kv 登记表，
+   登记表读不到它，只能在这里点名 deleteDatabase。库没有活跃连接时立即删掉，
+   有连接时浏览器等连接关了再删（画布页已删，不会再有连接）；删不掉就下次 boot 再来一遍，幂等。 */
+const LEGACY_IDB = ['canvas_db'];
+function sweepLegacyDbs() {
+  if (typeof indexedDB === 'undefined') return;
+  for (const name of LEGACY_IDB) {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => console.info('[Store] 清掉了不再使用的旧库：' + name);
+      req.onerror = () => { /* 删不掉不拦 boot：下次开机再清一遍 */ };
+    } catch (e) { /* 隐私模式拿不到 indexedDB：那份残留本来也存不下 */ }
+  }
 }
 
 /* ---------- 本机存储：裸 localStorage 的唯一包装 ----------

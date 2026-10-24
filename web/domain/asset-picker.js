@@ -789,7 +789,7 @@ window.AssetPicker = {
             e.src = next; e.dl = next; repaint(e);
           });
         } catch (e) {
-          if (load.isConnected) load.innerHTML = '<span style="color:var(--err,#dc2626)">资产库加载失败：' + window.esc(errText(e, '请检查网络或密钥')) + '</span>';
+          if (load.isConnected) load.innerHTML = '<span style="color: var(--err)">资产库加载失败：' + window.esc(errText(e, '请检查网络或密钥')) + '</span>';
         }
       })();
     });

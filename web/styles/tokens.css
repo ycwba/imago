@@ -1,55 +1,178 @@
-/* 设计令牌：颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效。
-   组件只读变量；页面不写死颜色。与现有 ui.css 的 --bg/--panel… 同名，迁移期可并存。 */
+/* ============================================================================
+   设计令牌 —— 全站唯一的取值出处。
+   页面与组件只读这里的变量；自己那份写死的值就是「两套会漂移的东西」。
+
+   命名约定：**名字即值**。
+     --sp-14 就是 14px；--fs-12-5 就是 12.5px；--radius-10 就是 10px；--acc-tint-18 就是 18%。
+   早先「序号 = 档位」的写法（--sp-1:4px / --fs-1:12px / --radius-4:8px）已经全部改成按值命名：
+     序号写法要人记「--sp-3 是几像素」，而且同一档里两套命名并存时必然漂开
+     （--fs-1 与 --fs-10 指的是两个完全不同的字号，却看不出差别）。
+
+   分档：
+     · 颜色      —— 主题变量 + 由主题色现算的淡底/描边
+     · 间距/字号/圆角/描边宽 —— 尺寸档位（名字即值）
+     · 阴影/动效 —— 阴影与时长
+
+   ⚠ 尺寸档位里**主档**是 4/8/12/16/24/32（间距）、12/13/14/16/20/24（字号）、6/10/14（圆角）——
+     新写样式优先用这几档。其余的补档是把**现存代码里本来就在那儿、只是没名字**的值收容起来，
+     等布局重构那一轮统一收敛（收敛时只改这一份文件，调用点不用动）。
+   ========================================================================== */
+
 :root {
+  /* ---------- ① 主题色：深浅两档**必须成对覆盖** ----------
+     换主题只动这一段 + 下面那段深色覆盖；其余各段两档刻意一致。
+     凡是界面上的「文字 / 描边 / 底色 / 状态」都从这里取，别再挑固定色。 */
   --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
   --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6;
   --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
-  --thumbbg:#e2e5ee; --thumbfg:#9aa1b4;
-  --local:#0f766e; --cloud:#5b6b8c; --both:#6957e8;
+  --thumbbg:#e2e5ee;
+  --atbg: rgba(35, 38, 47, .13);
+  --scroll:#c4c9dc;
+
+  /* ---------- ①b 两档一致的固定色：跟主题无关 ----------
+     反白字、媒体黑底、图表调色板 —— 它们在深浅两档里都该是同一个值。 */
+  --on-acc:#fff; --media-bg:#000;
   /* 图表调色板：用量页按平台名稳定取色（唯一一份；深浅主题共用这 12 枚）。 */
   --chart-1:#6957e8; --chart-2:#19b394; --chart-3:#f59e0b; --chart-4:#ef4444;
   --chart-5:#3b82f6; --chart-6:#a855f7; --chart-7:#14b8a6; --chart-8:#f97316;
   --chart-9:#22c55e; --chart-10:#eab308; --chart-11:#ec4899; --chart-12:#06b6d4;
-  --atbg: rgba(35, 38, 47, .13);
-  --on-acc:#fff; --media-bg:#000; --scroll:#c4c9dc;
 
-  --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
-  --fs-1:12px; --fs-2:13px; --fs-3:14px; --fs-4:16px; --fs-5:20px; --fs-6:24px;
-  /* 补档：全站高频裸值归到这几枚小字号（名字即像素值，避免「一半 var 一半裸值」）。 */
-  --fs-10:10px; --fs-11:11px; --fs-11-5:11.5px; --fs-12-5:12.5px; --fs-13-5:13.5px;
-  /* 侧栏图标那一列的字阶：图标按 1em 画，字号就是它的尺寸，收起态要更大一档好点中。 */
-  --fs-15:15px; --fs-17:17px;
-  --radius-1:6px; --radius-2:10px; --radius-3:14px; --radius-4:8px;
-  /* 补档：把设置页剩下的裸 px 收进令牌 —— 这四枚不是新设计的档位，
-     只是「那些值本来就在那里、只是没名字」的收容位；新写样式仍优先用上面那几档。
-     --hair / --accent-bar 是给 `border-top: 1px …` 这类**描边宽度**用的：工具的判据把
-     `-top/-left/-right/-bottom` 一律当间距看，不收成令牌就永远清不干净。 */
-  --sp-0-5:2px; --sp-3-5:14px;
-  --radius-0:4px; --radius-pill:999px;
-  --hair:1px; --accent-bar:3px;
+  /* ---------- ② 派生色：由主题色现算（跟着主题走）----------
+     换强调色时淡底与描边自动跟着走。
+     不再各写一份 rgba(108,140,255) / rgba(124,92,255)（那是两套会漂移的固定紫）。 */
+  --acc-tint-10:color-mix(in srgb, var(--acc) 10%, transparent);
+  --acc-tint-18:color-mix(in srgb, var(--acc) 18%, transparent);
+  --acc-line-32:color-mix(in srgb, var(--acc) 32%, transparent);
+  /* 语义色淡底：警告条那一族 */
+  --warn-tint:color-mix(in srgb, var(--warn) 10%, transparent);
+
+  /* ---------- ③ 固定中性色：深浅两档一致 ----------
+     只给**深底浮层**用（灯箱、缩略图上的播放钮遮罩）：那里的字与遮罩
+     两档都得是深底 + 浅字，所以它们不跟主题走。 */
+  --pal-gray:#7f7f7f; --pal-gray-2:#5b5f72;
+  --pal-slate:#94a3b8; --pal-slate-2:#cbd5e1; --pal-slate-3:#b9bdd0;
+  --pal-slate-4:#e5e7eb; --pal-slate-5:#cfd4e2;
+  --pal-scrim:#0c0e16;
+
+  /* ---------- ④ 导演台深底配色：天生深色，**不跟主题走** ----------
+     导演台的轨道区永远是深底（深浅主题刻意一致），所以它自带一套配色。
+     前缀 --dir-* 就是「这一族不跟主题走」的标记 —— 换主题时别顺手改它们。
+     命名按色相，不按用途（轨道底/配音块/待生成这些用途名要等真正知道它
+     用在哪的那一轮再起，免得名字与实际用途对不上）。
+     透明度同样现算：color-mix(in srgb, var(--基色) N%, transparent)。 */
+  /* 紫与靛 */
+  --dir-indigo:#6c8cff;
+  --dir-violet-2:#6044d0;
+  /* 青与天蓝 */
+  --dir-cyan:#35ead9; --dir-sky:#7fd0ff;
+  /* 绿 / 红 / 琥珀 */
+  --dir-green:#22c55e; --dir-green-lt:#4ade80; --dir-forest:#006633;
+  --dir-red:#ef4444; --dir-red-2:#dc2626;
+  --dir-amber:#f97316; --dir-amber-dk:#d97706;
+  /* 深底表面（编号是登记顺序，不表示深浅） */
+  --dir-ink-0:#05070a; --dir-ink-1:#040b0f; --dir-ink-2:#0c1218; --dir-ink-3:#12141a;
+  --dir-ink-4:#121218; --dir-ink-5:#2a2550; --dir-ink-6:#343842; --dir-ink-7:#0a0616;
+  --dir-ink-8:#141828;
+  /* 深底上的浅色 */
+  --dir-fog-0:#eae7fb; --dir-fog-1:#f0ecff; --dir-fog-2:#f4eeff; --dir-fog-3:#ece6ff;
+  --dir-fog-4:#eafcff; --dir-fog-5:#ebfffd; --dir-fog-6:#e1fffc;
+
+  /* ---------- 透明度阶梯（名字即值）----------
+     淡底 / 描边 / 遮罩的透明度只有这一份：color-mix(…, var(--a-10), transparent)。
+     阶梯 = 用量 ≥4 次的那些档；剩下零星几个百分比还留在调用点（存量），
+     判据 G21 盯着不让它再长 —— 布局重构那一轮再把它们收进阶梯。 */
+  --a-4:4%; --a-8:8%; --a-10:10%; --a-12:12%; --a-14:14%; --a-16:16%; --a-18:18%;
+  --a-20:20%; --a-24:24%; --a-26:26%; --a-28:28%; --a-30:30%; --a-34:34%; --a-35:35%;
+  --a-50:50%; --a-55:55%; --a-60:60%; --a-72:72%; --a-80:80%; --a-82:82%; --a-90:90%;
+
+  /* ---------- 尺寸档位：组件尺寸（名字即值）----------
+     这些是**跨页复用**的组件尺寸：同一个角色（缩略图 / 卡片列宽 / 控件高 / 图标）
+     在好几页各写一遍，改一处就得改一片，所以收进令牌。 */
+  --sz-ico:15px;          /* 小图标（等待圈、设置卡图标、播放钮里的图形） */
+  --sz-ctl:34px;          /* 控件高度（设置页输入框 / 按钮 / 播放钮） */
+  --sz-tile:132px;        /* 素材磁贴宽 */
+  --sz-thumb-h:96px;      /* 缩略图高（与 --sz-tile 配对） */
+  --sz-card:268px;        /* 卡片网格列宽 */
+  --sz-scroll:8px;        /* 细滚动条宽 */
+  --sz-wb:1440px;         /* 工作台最大宽 */
+
+  /* ---------- 尺寸档位：间距（名字即值） ----------
+     主档：4 8 12 16 24 32；其余为补档，收容现存值。 */
+  --sp-1:1px; --sp-2:2px; --sp-3:3px; --sp-4:4px; --sp-5:5px; --sp-6:6px;
+  --sp-7:7px; --sp-8:8px; --sp-9:9px; --sp-10:10px; --sp-11:11px; --sp-12:12px;
+  --sp-13:13px; --sp-14:14px; --sp-15:15px; --sp-16:16px; --sp-18:18px; --sp-19:19px;
+  --sp-20:20px; --sp-22:22px; --sp-24:24px; --sp-26:26px; --sp-28:28px; --sp-32:32px;
+  --sp-34:34px; --sp-40:40px; --sp-42:42px; --sp-54:54px; --sp-60:60px;
+
+  /* ---------- 尺寸档位：字号 ----------
+     主档：12 13 14 16 20 24；其余为补档。 */
+  --fs-8-5:8.5px; --fs-9:9px; --fs-9-5:9.5px; --fs-10:10px; --fs-10-5:10.5px;
+  --fs-11:11px; --fs-11-5:11.5px; --fs-12:12px; --fs-12-5:12.5px; --fs-13:13px;
+  --fs-13-5:13.5px; --fs-14:14px; --fs-14-5:14.5px; --fs-15:15px; --fs-16:16px;
+  --fs-17:17px; --fs-18:18px; --fs-19:19px; --fs-20:20px; --fs-24:24px; --fs-26:26px;
+  --fs-42:42px;
+
+  /* ---------- 尺寸档位：圆角 ----------
+     主档：6 10 14；其余为补档。 */
+  --radius-1:1px; --radius-2:2px; --radius-3:3px; --radius-4:4px; --radius-5:5px;
+  --radius-6:6px; --radius-7:7px; --radius-8:8px; --radius-9:9px; --radius-10:10px;
+  --radius-12:12px; --radius-14:14px; --radius-20:20px; --radius-99:99px; --radius-999:999px;
+
+  /* ---------- 尺寸档位：描边宽 ----------
+     1px 是全站最多的描边，给个短名 --hair；其余按值。 */
+  --hair:1px; --hair-1-5:1.5px; --hair-2:2px; --hair-3:3px; --hair-5:5px; --hair-6:6px;
+  /* 强调色条（选中标记、inset 色带）的厚度 */
+  --accent-bar:3px;
+
+  /* ---------- 阴影 ---------- */
   --shadow-1:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
   --shadow-2:0 8px 24px rgba(16,24,40,.12);
-  --dur-1:120ms; --dur-2:180ms; --ease:cubic-bezier(.2,.8,.2,1);
-  /* 选中/激活底色唯一写法：由 --acc 现算淡底，浅色/深色主题都跟着强调色走，
-     不再各写一份 rgba(108,140,255) / rgba(124,92,255)（那是两套会漂移的固定紫）。 */
-  --acc-tint:color-mix(in srgb, var(--acc) 10%, transparent);
-  --acc-tint-2:color-mix(in srgb, var(--acc) 18%, transparent);
-  --acc-line:color-mix(in srgb, var(--acc) 32%, transparent);
+  --shadow-3:0 20px 50px rgba(0, 0, 0, .3);
+  --shadow-4:0 1px 3px rgba(0, 0, 0, .10);
+  --shadow-5:0 6px 18px rgba(0, 0, 0, .08);
+  --shadow-6:0 4px 14px rgba(0,0,0,.06);
+  --shadow-7:0 4px 14px rgba(0, 0, 0, .08);
+  --shadow-8:0 2px 10px rgba(0, 0, 0, .35);
+  --shadow-9:0 1px 3px rgba(0,0,0,.14);
+  --shadow-10:0 18px 60px rgba(0, 0, 0, .28);
+  --shadow-11:0 12px 32px rgba(0,0,0,.18);
+  --shadow-12:0 12px 32px rgba(0, 0, 0, .35);
+  --shadow-13:0 10px 26px rgba(0, 0, 0, .14);
+  --shadow-14:0 14px 34px rgba(0, 0, 0, .16);
+  --shadow-15:0 0 0 0 rgba(255,255,255,.55);
+  --shadow-16:0 12px 32px rgba(0,0,0,.25);
+
+  /* ---------- 动效 ----------
+     时长按**毫秒值**命名（--dur-120 就是 120ms），与尺寸档位同一套规则。 */
+  --dur-100:100ms; --dur-120:120ms; --dur-140:140ms; --dur-150:150ms; --dur-160:160ms;
+  --dur-180:180ms; --dur-200:200ms; --dur-250:250ms; --dur-280:280ms; --dur-400:400ms;
+  --dur-800:800ms; --dur-900:900ms; --dur-1100:1.1s; --dur-1200:1.2s; --dur-1400:1.4s;
+  --dur-1600:1.6s;
+  --ease:cubic-bezier(.2,.8,.2,1);
+
+  /* ---------- 字体 ---------- */
   --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
   /* 侧栏轨道默认宽（收起态与窄窗口）。展开时 sidebar.js 把同名变量写在 documentElement 的行内
      样式上覆盖它，#app / 悬浮球 / lightbox 都读这一枚 —— 所以它必须是令牌，不能只活在 CSS 的兜底值里。 */
   --sbw:66px;
 }
+
+/* ---------- 深色主题 ----------
+   只改**语义色**；尺寸档位（间距/字号/圆角）深浅两档刻意一致 ——
+   那是同一套排版节奏，不该跟着主题变。 */
 html[data-theme="dark"] {
   --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
   --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff;
   --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
-  --thumbbg:#39415a; --thumbfg:#aab2c6;
-  --local:#2dd4bf; --cloud:#93a4c4; --both:#8b9dff;
+  --thumbbg:#39415a;
   --atbg: rgba(255, 255, 255, .13);
   --scroll:#2a3046;
   --shadow-1:0 1px 2px rgba(0,0,0,.35); --shadow-2:0 8px 24px rgba(0,0,0,.45);
 }
+
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-1:0ms; --dur-2:0ms; }
+  :root { --dur-100:0ms; --dur-120:0ms; --dur-140:0ms; --dur-150:0ms; --dur-160:0ms;
+         --dur-180:0ms; --dur-200:0ms; --dur-250:0ms; --dur-280:0ms; --dur-400:0ms;
+         --dur-800:0ms; --dur-900:0ms; --dur-1100:0ms; --dur-1200:0ms; --dur-1400:0ms; --dur-1600:0ms; }
 }

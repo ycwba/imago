@@ -1281,7 +1281,7 @@ export function render(_ctx, _cache) {
               _createElementVNode("span", _hoisted_167, null, 512 /* NEED_PATCH */),
               _cache[67] || (_cache[67] = _createElementVNode("span", {
                 class: "flabel",
-                style: {"margin-left":"14px"}
+                style: {"margin-left":"var(--sp-14)"}
               }, "搜索", -1 /* CACHED */)),
               _createElementVNode("input", {
                 type: "search",
@@ -1585,11 +1585,11 @@ export function render(_ctx, _cache) {
           ]),
           _cache[87] || (_cache[87] = _createElementVNode("label", {
             class: "plabel",
-            style: {"margin-top":"14px"}
+            style: {"margin-top":"var(--sp-14)"}
           }, "云同步（WebDAV）", -1 /* CACHED */)),
           _cache[88] || (_cache[88] = _createElementVNode("div", {
             class: "pb-tip",
-            style: {"margin-bottom":"8px"}
+            style: {"margin-bottom":"var(--sp-8)"}
           }, [
             _createTextVNode("坚果云请在「账户信息 → 安全选项」里生成"),
             _createElementVNode("b", null, "应用密码"),

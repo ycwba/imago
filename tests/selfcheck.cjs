@@ -108,7 +108,7 @@ ok('页面池切页不改 iframe.src', !/\.src\s*=\s*route\.src/.test(core));
 ok('有页面可见性事件', /spa:page/.test(core));
 ok('有站内换页事件（pushState 不发 hashchange）', /spa:navigate/.test(core));
 ok('切页前记录滚动位置', /spa:before-leave/.test(core));
-ok('每个页面都有助手只读快照', ['director.html','canvas.html','studio.html','chars.html','assets.html','settings.html','usage.html','favorites.html']
+ok('每个页面都有助手只读快照', ['director.html','studio.html','chars.html','assets.html','settings.html','usage.html','favorites.html']
   .every(f => read('web/core/page-context.js').includes("'" + f + "'")) && /__acPageCtx/.test(read('web/core/page-context.js')));
 ok('助手在 compose 里自动带当前界面', /【当前界面/.test(read('web/features/chat.js')) && /hostCtx\(\)/.test(read('web/features/chat.js')));
 ok('助手有本地语义检索工具', /find\s*:\s*\{/.test(read('web/features/chat-tools.js')) && /SemanticSearch/.test(read('web/features/chat-tools.js')));
@@ -241,20 +241,19 @@ ok('镜像写入浏览器侧只走 from-url，第二份「另存」整族已撤'
   && !/Api\.saveLocal\(/.test(al) && !/Api\.saveToDir\(/.test(al));
 ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey = d\.a\[r\.id\]/.test(al)
   && /const key = oldKey \|\| k/.test(al));
-/* 「生成完成 → 自动镜像」这条链：以前四个生产者各自
-   `dispatchEvent(new CustomEvent(...))`，字段集合各不相同，消费方只能逐字段容错。
-   判据钉的是反面：**事件名只许出现在 local.js 那一处生产点**，四个原来的生产点必须都改调
+/* 「生成完成 → 自动镜像」这条链：三处生产者各自
+   `dispatchEvent(new CustomEvent(...))` 的年代已经收掉；字段集合各不相同，消费方只能逐字段容错。
+   判据钉的是反面：**事件名只许出现在 local.js 那一处生产点**，三个生产点必须都改调
    `AssetLocal.announce`。数之前先剥注释 —— 说明文字里引用旧写法不算一条违例（同一条规矩）。
-   留着「旧写法也算过」的 or 分支 = 这条链可以慢慢长回四份。 */
+   留着「旧写法也算过」的 or 分支 = 这条链可以慢慢长回三份。 */
 {
   const code = f => S.stripComments(read(f));
   const localCode = code('web/domain/local.js');
-  /* 四个生产点。导演台那一份自 G1 起按域住在 engine/<域>.js（生成 / 轮询那一条），
+  /* 三个生产点。导演台那一份自 G1 起按域住在 engine/<域>.js（生成 / 轮询那一条），
      所以这里看的是整层拼起来的那一份 —— 认「名字在哪儿」不认「文件叫什么」。 */
   const four = [
     ['导演台 engine 层', S.engineFiles().map(code).join('\n')],
     ['web/pages/studio.js', code('web/pages/studio.js')],
-    ['web/domain/canvas/gen.js', code('web/domain/canvas/gen.js')],
     ['web/domain/gen-forms.js', code('web/domain/gen-forms.js')],
   ];
   const dispatchN = (localCode.match(/new CustomEvent\('wb:asset-done'/g) || []).length;
@@ -276,60 +275,6 @@ ok('关标签前多页钩子都跑 + 导演台同步救生包', /__spaRegister/.
   && /__spaRegister\(window\.__spaFlush/.test(frag) && /dir_ws_unload/.test(frag)
   && /__spaRegister\(window\.__spaFlush/.test(read('web/pages/settings.js')));
 ok('助手页面快照是合法 JSON 而不是截断串', /function compactCtx/.test(chat) && /compactCtx\(pc\)/.test(chat));
-
-/* ---------- 11. 画布助手：唯一写入桥 + 身份 / 参数 / 撤销判据 ---------- */
-group('§11 画布助手（WBBridge.canvas）');
-const cvPage = read('web/pages/canvas.js');
-const cvGen = read('web/domain/canvas/gen.js');
-const cvHist = read('web/domain/canvas/history.js');
-const pcJs = read('web/core/page-context.js');
-ok('画布写入桥只装一次，且只有页面装', (cvPage.match(/WBBridge\.install\('canvas'/g) || []).length === 1
-  && !/WBBridge\.install\('canvas'/.test(chat));
-ok('助手接了画布八个写动作', ['canvas_nodes_create', 'canvas_nodes_update', 'canvas_nodes_delete',
-  'canvas_edges_create', 'canvas_edges_delete', 'canvas_viewport_set', 'canvas_generation_propose', 'canvas_undo']
-  .every(k => chat.includes(k + ': {')));
-ok('画布只读面走桥不重算', ['canvas_get', 'canvas_search', 'canvas_node_read', 'canvas_assets_list',
-  'canvas_generation_status'].every(k => chat.includes(k + ': {')) && /canvasRead\(/.test(chat));
-ok('写画布只有桥的 apply 一个出口', (chat.match(/g\.A\.apply\(ops,/g) || []).length === 1
-  && /expectedRevision: a && a\.expectedRevision/.test(chat));
-const cvSchema = chat.slice(chat.indexOf("canvas_nodes_create: { type: 'object'"), chat.indexOf("canvas_undo: { type: 'object'"));
-ok('CAS 凭据不给模型填（schema 里没有修订号与 operationId）', cvSchema.length > 200
-  && !/expectedRevision/.test(cvSchema) && !/operationId/.test(cvSchema));
-ok('资产引用只认本机查得到的号', /模型编的号一律不收/.test(chat) && /await cvAssetGate\(ops\)/.test(chat)
-  && /AssetLib\.listCache/.test(chat) && /\/local-assets/.test(chat));
-ok('画布节点检索只有页面那一份（助手不另排序）', /function rankNodes\(/.test(cvPage) && !/rankNodes/.test(chat));
-/* SemanticSearch.rank 回的是 { item, score, why } 那一层壳：把它当节点读会撞「metadata of undefined」，
-   画布 Ctrl+F 与助手的 canvas_search 是同一条链路，一处坏两处死。 */
-ok('节点检索解开 rank 那层壳（壳里的 item 才是检索行）', /const node = r\.item\.node/.test(cvPage)
-  && /pick\(\{ item: d, score: 1/.test(cvPage));
-/* 图片与视频两条提交共用同一个 base（图片 spread，视频 Object.assign 再覆盖），
-   键名一律是 Api.createBody 认的那一份（res / ar / quality / tier / format / size / duration）。 */
-ok('生成参数键名只认 createBody 那一份（画质不再被丢）', /res: r\.params\.res/.test(cvGen)
-  && /\.\.\.base/.test(cvGen) && /Object\.assign\(\{\}, base/.test(cvGen) && !/resolution: r\.params/.test(cvGen)
-  && /cvParamKeys/.test(chat) && /checkParam\(/.test(chat));
-ok('一条资产变节点只有页面那一份 assetOpOf', /function assetOpOf\(/.test(cvPage)
-  && /assetNode: \(kind, assetId, pt, title\) => assetOpOf/.test(cvPage) && /A\.assetNode\(/.test(chat));
-ok('助手写入推进撤销基线，用户 Ctrl+Z 不跨越它', /source: 'external'/.test(cvPage)
-  && /item\.source === 'external'\) baseline = cursor/.test(cvHist) && /canUndo\(\) \{ return cursor > baseline/.test(cvHist));
-ok('撤销按 operationId 找，不是栈顶就拒并说清压了几步', /code: 'not_top'/.test(cvHist)
-  && /r\.code === 'not_top'/.test(chat) && /steps/.test(chat) && /canvasUndoCall/.test(chat));
-/* 那个号在注册表那一层是「这一次执行」的幂等键：要退掉的那一步的号留在原位，
-   run() 会命中那一次写入的缓存结果 —— 撤销根本没跑，卡片却照着旧回执念「加了 1 枚节点」。 */
-ok('撤销不拿目标步的号当幂等键（换名后才交给注册表）', /delete a\.operationId/.test(chat)
-  && /a\.undoOperationId = target/.test(chat) && /a\.undoOperationId \|\| a\.operationId/.test(chat));
-ok('只读画布不交写工具（页面一张闸，助手与快照都读它）', /readOnly: \(\) =>/.test(cvPage)
-  && /g\.readOnly\(\)/.test(chat) && /\.只读 = !!/.test(pcJs));
-const cvStampList = chat.slice(chat.indexOf('const CANVAS_WRITE = ['), chat.indexOf('function stampWrite('));
-ok('视图动作不占 CAS（只动视图、不涨修订）', !/canvas_viewport_set/.test(cvStampList)
-  && /S\.surface\.setViewport\(vp\)/.test(cvPage) && /不涨修订/.test(chat));
-/* 策略登记从三张侧面表收进 ACTION_META 一张，
-   所以这一条读的是 `{ effect: 'cost', … }` 那一行，不再是 `ACTION_EFFECT` 里的 `'…': 'cost'`。 */
-ok('提案与扣费分开（画卡片不建任务）', /没有建任务也没扣费/.test(cvPage) && /不建任务也不扣费/.test(chat)
-  && /canvas_generation_propose: *\{[^}]*effect: *'cost'/.test(chat));
-/* 最常用的那一种是「这一枚打算怎么生成、还缺什么」：只给 nodeId、一条要写的操作都没有。
-   拿「至少一条操作」当门槛等于把这一族的第一句拒掉，所以没有 ops 时要用当前文档算 —— 仍然纯读。 */
-ok('只给 nodeId 的提案不被「至少要一条操作」拒掉', /ops\.length \? applyOperations\(S\.doc, ops\)/.test(cvPage)
-  && /findNode\(S\.doc, want\)/.test(cvPage));
 
 console.log('\n' + (bad ? '✗ ' : '✓ ') + checks + ' 项，' + bad + ' 项未通过');
 process.exit(bad ? 1 : 0);

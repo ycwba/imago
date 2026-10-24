@@ -342,7 +342,7 @@
             <div class="sk-filters">
               <div class="frow">
                 <span class="flabel">筛选</span><span class="chips" ref="skillChipsEl"></span>
-                <span class="flabel" style="margin-left:14px">搜索</span>
+                <span class="flabel" style="margin-left:var(--sp-14)">搜索</span>
                 <input type="search" ref="skillQEl" :value="skillQ" @input="onSkillSearch" placeholder="名称 / id / 描述 / 触发词">
                 <span class="sp"></span>
                 <button class="ghost" :disabled="skillBusy" @click="reloadSkills(true)"><span v-html="icRefresh"></span> 重新读取</button>
@@ -463,8 +463,8 @@
               <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
               <span class="hint sm">{{ dataMsg }}</span>
             </div>
-            <label class="plabel" style="margin-top:14px">云同步（WebDAV）</label>
-            <div class="pb-tip" style="margin-bottom:8px">坚果云请在「账户信息 → 安全选项」里生成<b>应用密码</b>，不要填登录密码。</div>
+            <label class="plabel" style="margin-top:var(--sp-14)">云同步（WebDAV）</label>
+            <div class="pb-tip" style="margin-bottom:var(--sp-8)">坚果云请在「账户信息 → 安全选项」里生成<b>应用密码</b>，不要填登录密码。</div>
             <div class="krow">
               <span class="kicon"><span v-html="icLink"></span></span>
               <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">

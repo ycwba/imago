@@ -15,5 +15,5 @@
   /* 原页面在窄窗口下让 body 滚；宿主已经是滚动容器 */
   .director-page .page-main { height: auto; min-height: 100%; overflow: visible; }
 }
-.director-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; gap: var(--sp-2); padding: 12px; }
+.director-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-12); }
 .director-fallback iframe { flex: 1 1 auto; width: 100%; border: 0; background: var(--bg); }

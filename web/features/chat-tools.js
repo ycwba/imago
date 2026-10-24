@@ -4,7 +4,7 @@
    从 chat.js 拆出（TOOLS / ACTS / schema / 会话 / 看护 / UI 原先挤在一个闭包里）。
    这一份只放「模型能查什么、能做什么」：TOOLS（只读查询）、ACTS（写入动作）、
    TOOL_INPUT / ACTION_META 两份形状表、写动作注册表的装配，以及生成 / 素材 / 时间线 /
-   字幕 / 画布这些动作的校验与执行。外壳、会话、渲染与发送循环仍在 chat.js。
+   字幕这些动作的校验与执行。外壳、会话、渲染与发送循环仍在 chat.js。
    搬过来的代码逐字未改；唯一的差别是外部依赖从 build(C) 取 —— 闭包从一个变成两个，
    调用点仍是 window.AiChat.TOOLS / .ACTS / .ACT_META / .visibleActs。
    加载顺序：chat-tools.js → chat.js（见 boot-assistant.js）。
@@ -940,62 +940,6 @@
         + '读的是导演台同一份会话内导出账本（导出成片 / 导出素材 / FCPXML），不在这里另算一套',
       async run(a) { return dirRead('exportList', a || {}); },
     },
-    /* ---------- 画布五项只读：全部走 `WBBridge.canvas`，不读 DOM、不猜 id、不整份文档塞进上下文 ----------
-       文档 / 坐标 / 连线 / 生成状态只有一份真相，就是画布那一页；这里只把桥的回执转给模型。
-       不在画布页时桥会说「先切到画布」，那是设计：换成扫 DOM 或翻 localStorage 就出现第二份说法。 */
-    canvas_get: {
-      arg: '{ "limit": 120 }',
-      doc: '画布此刻的账：项目 id/标题/修订号/视口、节点数与连线数、最多 200 条节点摘要'
-        + '（id/type/标题/x/y/宽/高/状态/有没有产物 + 一句摘要）、当前选中、正在生成的节点，'
-        + '以及撤销栈（还能退几步、最近那些条目、哪一条是助手写的）。'
-        + '要动画布先读它拿真 id；正文与提示词全文要 canvas_node_read',
-      async run(a) {
-        const r = await canvasRead('context', { limit: Number((a && a.limit) || 120) });
-        if (r && r.错误) return r;
-        const t = await canvasRead('types', {});
-        return Object.assign({}, r, { 能建类型: Array.isArray(t)
-          ? t.map(x => x.类型 + '（' + x.名称 + (x.能生成 ? '·会出产物' : '·不出产物') + '，最多接 ' + (x.输入上限 || 0) + ' 路）') : [] });
-      },
-    },
-    canvas_search: {
-      arg: '{ "q": "要找的意思", "limit": 20 }',
-      doc: '在**这一份画布的节点**里按意思找：标题、正文、提示词、资产名都参与排序，'
-        + '回 id + 类型 + 坐标 + 一句摘要 + 匹配度/命中原因（走 SemanticSearch 那一份公共排序）。'
-        + '它只搜画布里有什么，不搜资产库（那是 canvas_assets_list）也不搜本机文件（那是 find）；'
-        + '改哪几枚之前用它定 id，别凭记忆编',
-      async run(a) { return canvasRead('search', { q: String((a && a.q) || ''), limit: Number((a && a.limit) || 20) }); },
-    },
-    canvas_node_read: {
-      arg: '{ "id": "节点 id" }',
-      doc: '读单枚节点的全部：正文/提示词（最长 8KB，超了逐档裁并在「正文有裁切」里写明）、生成参数、'
-        + '平台与型号、资产引用、状态、连线（含方向）与入度。字节不在这里 —— 产物走资产库地址。',
-      async run(a) {
-        const id = String((a && (a.id || a.nodeId)) || '').trim();
-        if (!id) return { 错误: 'canvas_node_read 要给 id：先用 canvas_get 或 canvas_search 找到那一枚' };
-        return canvasRead('nodeRead', id);
-      },
-    },
-    canvas_assets_list: {
-      arg: '{ "limit": 40 }',
-      doc: '本机现在挂得上号的素材清单：本机资产库（/local-assets）+ 两份任务列表缓存 + 素材库那些条目的参考图号，'
-        + '回号、名称、类型、在不在本机、来源。写节点时想引用某个产物，**只能从这里挑**：'
-        + '资产闸只认这张表里查得到的号，编一个号会被当场拒（那种节点画出来是个永远打不开的框）。',
-      async run(a) {
-        const limit = Math.max(1, Math.min(200, Number((a && a.limit) || 40)));
-        const rows = await cvAssetDump(limit);
-        return rows.错误 ? rows : Object.assign({ 共: rows.共, 清单: rows.rows,
-          说明: '同一份产物可能挂在产物号与任务号两个键上，这里每个条目只列一次（挑显示出来的那一个号用）'
-            + '；「在本机」为空表示这一刻没查过字节。要落成节点用 canvas_nodes_create 的 asset 字段' },
-          rows.共 > limit ? { 截断: '只给前 ' + limit + ' 条（还有 ' + (rows.共 - limit) + ' 条）：缩小范围或加大 limit' } : {});
-      },
-    },
-    canvas_generation_status: {
-      arg: '{ "nodeId": "可选：只看这一枚；不给就列正在跑与失败过的" }',
-      doc: '问画布上那一枚节点生成到哪了：节点状态、任务号、有没有产物、页面这一轮队列里是否还在跑，'
-        + '还在跑时顺带现问一次平台（「仍在跑 / 已经出片 / 失败原因」）。只报事实：'
-        + '平台说完了不等于画布已经落库，产物号与字节仍由页面那台轮询器写。',
-      async run(a) { return canvasRead('genStatus', { nodeId: String((a && a.nodeId) || '') }); },
-    },
     asset_open: {
       arg: '{ "index": 0 } 或 { "id": "la_xxx / 平台产物号", "url": "本机地址", "ask": "想从图里看出什么" }',
       doc: '取一条素材的字节并真的看它。**用户提到某张图、要你看图、或要照着某张图做事时，先用这个工具把图取出来看**，'
@@ -1663,9 +1607,9 @@
     const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('director') : null;
     return (A && typeof A.check === 'function' && typeof A.run === 'function') ? A : null;
   }
-  /* 只读面：桥上的方法失败形状各家不同（导演台 `{err}` / `{ok:false, err}`，画布 `{ok:false, reason}`，
-     查不到时直接回 null），统一翻成 `错误`，其余原样交给模型 —— 判据在页面那一份，这里只换外壳形状，不补任何校验。
-     `页` 只用来把「不在那一页」说清：两个页面共用这一份，避免画布那边再抄一只读一遍。 */
+  /* 只读面：桥上的方法失败形状各家不同（导演台 `{err}` / `{ok:false, err}`，查不到时直接回 null），
+     统一翻成 `错误`，其余原样交给模型 —— 判据在页面那一份，这里只换外壳形状，不补任何校验。
+     `页` 只用来把「不在那一页」说清。 */
   async function bridgeRead(页, page, method, a) {
     const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get(page) : null;
     if (!A || typeof A[method] !== 'function') {
@@ -1686,28 +1630,20 @@
     return r;
   }
   const dirRead = (method, a) => bridgeRead('导演台', 'director', method, a);
-  const canvasRead = (method, a) => bridgeRead('画布', 'canvas', method, a);
   /* 写动作的修订号从哪来：**在画卡片的那一刻现读桥**，而不是让模型自己填一个数。
      模型填的话它要么抄上一轮的旧值（每次都是「工程改过」），要么编一个（当场拒）。
-     现读之后 check 与 run 之间还有一次 CAS：用户在「执行 / 取消」之间自己动了轨道或画布，
+     现读之后 check 与 run 之间还有一次 CAS：用户在「执行 / 取消」之间自己动过轨道，
      run 那一次就会 mismatch 当场拒掉，绝不拿旧计划盖新编辑。
-     `operationId` 同理由助手生成（注册表按它做 24 小时去重，同一意图不会跑两遍）。
-     `canvas_undo` 与 `canvas_viewport_set` 刻意不进这两族：前者退的就是「按 operationId 撤我自己那一次」，
-     给它盖一个刚生成的新 id 等于让撤销去找一个从没存在过的步骤，回回都是「历史里没有这一步」；
-     后者只动视图 —— 文档一个字节都没改，给它盖修订号等于为一个不存在的冲突设一道闸。 */
+     `operationId` 同理由助手生成（注册表按它做 24 小时去重，同一意图不会跑两遍）。 */
   const DIR_WRITE = ['select_take', 'cut_timeline', 'set_clip', 'undo_edit', 'timeline_apply',
     'subtitle_update', 'subtitle_resegment', 'subtitle_import_srt'];
-  const CANVAS_WRITE = ['canvas_nodes_create', 'canvas_nodes_update', 'canvas_nodes_delete',
-    'canvas_edges_create', 'canvas_edges_delete', 'canvas_generation_propose'];
   function stampWrite(name, arg, scope, opId) {
     if (!arg || typeof arg !== 'object') return arg;
-    const isDir = DIR_WRITE.includes(name), isCv = CANVAS_WRITE.includes(name);
-    if (!isDir && !isCv) return arg;
+    if (!DIR_WRITE.includes(name)) return arg;
     if (arg.expectedRevision == null) {
       let rev = null;
-      /* 两边读的都是各自那份快照里的修订号：导演台是工程 revision，画布是文档 revision。
-         桥不在（用户已经切走）就退回本轮上下文里那一个数，跟以前一样。 */
-      const A = isDir ? directorBridge() : canvasBridge();
+      /* 读的是导演台那份快照里的修订号（工程 revision）。桥不在（用户已经切走）就退回本轮上下文里那一个数。 */
+      const A = directorBridge();
       try { if (A && typeof A.context === 'function') rev = Number(A.context().revision); } catch (e) { rev = null; }
       if (!Number.isFinite(rev)) rev = Number(scope && scope.revision);
       arg.expectedRevision = Number.isFinite(rev) ? rev : 0;
@@ -1922,343 +1858,6 @@
     return { ok: true, text: r.text || '已存进本机资产库', assetId: r.id || '' };
   }
 
-  /* ---------- 画布：唯一写入桥 `WBBridge.canvas`（页面实现 web/pages/canvas.js）----------
-     文档、节点、坐标、连线、生成状态、撤销栈只有画布那一页有一份；助手只做三件事：
-     把模型写的字段收成桥认的 ops、把「平台声明」与「资产身份」这两套公共层事实核对一遍、
-     把桥的回执翻成人话。这里不读 DOM、不碰文档、不写第二份几何 / 搜索 / 参数校验。
-     版本号是道真闸：页面还是旧桥（没有 view / propose / assetNode）时整族动作宁可不出现，
-     也不能出现「认得这个名字、答的却是别的东西」。 */
-  function canvasBridge() {
-    const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('canvas') : null;
-    if (!A || Number(A.version) < 2) return null;
-    /* 版本号 + 方法名两道一起看：页面是旧桥（缺 view / propose / assetNode）时整族动作宁可不出现，
-       也不能出现「认得这个名字、答的却是别的东西」那种更坏的情形。 */
-    const need = ['ready', 'readOnly', 'types', 'center', 'view', 'context', 'search', 'nodeRead',
-      'check', 'apply', 'undo', 'run', 'genStatus', 'propose', 'assetNode'];
-    if (!need.every(k => typeof A[k] === 'function')) return null;
-    return A;
-  }
-  const CV_NO = '画布这一层还没加载（或者你现在不在画布页）：先切到画布、等它把文档读出来，再让我动它'
-    + '（不要用 click 去绕，绕过去就没有这些判据了）';
-  function cvBridge() {
-    const g = canvasBridge();
-    if (!g || (typeof g.ready === 'function' && !g.ready())) return { err: CV_NO };
-    /* 「这一份画布打不开来改」是页面说了算的一张闸（只读快照、别人给的分享件都归它）。
-       命中时写动作与生成提案当场消失，不是画完卡片再拒。 */
-    if (typeof g.readOnly === 'function' && g.readOnly()) {
-      return { err: '这一份画布是只读的：要改就先回项目库打开可写的那一份，或另存一份再编辑' };
-    }
-    return { A: g };
-  }
-  /* 一条模型写的节点 → 桥认的形状。create 与 update 共用同一份白名单：
-     几何只有 title/x/y/width/height，metadata 只有 content/prompt/prov/model/params/assetId。
-     野键一概不收 —— 模型的想象力不该变成文档里谁也读不懂的一项；
-     取值范围（坐标边界、尺寸下限、正文上限）由 doc.js 那一份夹，这里不重复算。 */
-  const CV_GEO = ['title', 'x', 'y', 'width', 'height'];
-  const CV_TXT = ['content', 'prompt', 'prov', 'model'];
-  function cvShape(src) {
-    if (!src || typeof src !== 'object') return { err: '这一项不是对象' };
-    const m = (src.metadata && typeof src.metadata === 'object') ? src.metadata : {};
-    const out = { out: {}, meta: {} };
-    CV_GEO.forEach(k => { if (src[k] !== undefined) out.out[k] = k === 'title' ? String(src[k]) : Number(src[k]); });
-    if (src.type !== undefined) out.out.type = String(src.type || '').trim();
-    CV_TXT.forEach(k => { const v = src[k] !== undefined ? src[k] : m[k]; if (v !== undefined) out.meta[k] = String(v == null ? '' : v); });
-    const ps = Object.assign({}, (src.params && typeof src.params === 'object') ? src.params
-      : (m.params && typeof m.params === 'object') ? m.params : {});
-    const vc = src.voice !== undefined ? src.voice : m.voice;
-    if (vc !== undefined) ps.voice = String(vc);
-    if (Object.keys(ps).length) out.meta.params = ps;
-    const as = src.asset !== undefined ? src.asset : (src.assetId !== undefined ? src.assetId : m.assetId);
-    if (as !== undefined && String(as).trim()) out.meta.assetId = String(as).trim();
-    if (Object.keys(out.meta).length) out.out.metadata = out.meta;
-    return out;
-  }
-  /* 参数名只认 `Api.createBody` 那份局部名（STD 的七个键 + 语音的 voice）：
-     名字写错要么被平台静默忽略、要么撞一个「未知字段」的 400，两种都查不到。
-     取值只有在能定位到型号时才判 —— 型号也可能连在配置节点上、这一刻还没进这一批 ops，
-     判不了就说判不了，不假装通过。 */
-  function cvParamKeys(params) {
-    const bad = Object.keys(params || {}).filter(k => k !== 'voice' && !Object.prototype.hasOwnProperty.call(STD, k));
-    return bad.length ? '参数名「' + bad.join(' / ') + '」不是通用字段：能写的是 '
-      + Object.keys(STD).join(' / ') + '（语音另带 voice 音色）' : '';
-  }
-  function cvParamVals(prov, model, params) {
-    const o = {};
-    for (const [k, v] of Object.entries(params || {})) {
-      if (k === 'voice') {
-        const list = (window.TtsAdv && TtsAdv.voices(prov, model)) || [];
-        if (!list.length) continue;                 // 这一家没声明音色清单：不替它编一份
-        const hit = list.find(x => x && String(x.id) === String(v));
-        if (!hit) return { err: '音色「' + v + '」不在「' + model.id + '」声明的清单里：' + list.map(x => x.id).join(' / ') };
-        o.voice = String(hit.id);
-        continue;
-      }
-      const c = window.GenRules ? GenRules.checkParam(model, k, v) : { 错: { why: 'no-rules', key: k } };
-      if (c.错) return { err: paramErrZh(c.错) };
-      o[k] = c.值;
-    }
-    return { params: o };
-  }
-  /* 资产引用的身份：号必须在**本机查得到**的清单里。清单三个来源，全是公共层的现成读法 ——
-     代理那份本机资产（/local-assets）、两份列表缓存（CACHES 那一份）、素材库里那条的参考图号
-     （Chars.refPicOf 那一份）。产物号与任务号都收：节点上两种都存过，只认一种会把真号判成假号。
-     30 秒缓存：一次对话里助手会连着核对好几条，逐条重拉列表只是在抢代理。 */
-  let cvAssets = null;
-  async function cvAssetIndex() {
-    if (cvAssets && Date.now() - cvAssets.at < 30000) return cvAssets.map;
-    const map = new Map();
-    const put = (id, row) => { const s = String(id || '').trim(); if (s && !map.has(s)) map.set(s, row); };
-    try {
-      const la = await Net.json('/local-assets', { timeout: 8000, retry: 0 });
-      (la.data || []).forEach(r => put(r.id, { 名称: r.name || r.prompt || '本机资产', 类型: window.mediaKindOf ? mediaKindOf(r.media_type) : String(r.media_type || ''), 在本机: true, 来源: '本机资产库' }));
-    } catch (e) { /* 代理没起来就照旧只看缓存那两份，不要在这里抛错 */ }
-    if (window.AssetLib && AssetLib.listCache) {
-      Object.keys(CACHES).forEach(k => AssetLib.listCache(k).read().forEach(e => {
-        if (!e) return;
-        const row = { 名称: e.prompt || e.name || e.type || '产物',
-          类型: window.mediaKindOf ? mediaKindOf(e.type) : String(e.type || ''),
-          在本机: window.AssetLocal && AssetLocal.stateOf ? !!AssetLocal.stateOf(e).local : null,
-          来源: CACHES[k] };
-        put(e.assetId, row); put(e.genId, row); put(e.id, row);
-      }));
-    }
-    const D = DRA();
-    if (D && D.Lib && D.Lib.list && D.refPicOf) D.Lib.list().forEach(c => {
-      const id = String(D.refPicOf(c) || '');
-      /* 参考图存的也可能是个地址：那不是一个「资产号」，塞进画布节点永远查不到产物，不收进清单。 */
-      if (!id || /^(https?:|\/|data:|blob:)/i.test(id)) return;
-      put(id, { 名称: (c.name || '素材') + '（素材库参考图）', 类型: 'image', 在本机: null, 来源: '素材库' });
-    });
-    cvAssets = { at: Date.now(), map };
-    return map;
-  }
-  async function cvAssetLook(id) {
-    const map = await cvAssetIndex();
-    const hit = map.get(String(id || '').trim());
-    return hit ? { row: hit } : { err: '资产库里查不到这个号：' + cap(String(id), 60) + '。'
-      + '模型编的号一律不收（那种节点画出来是一个永远打不开的框，导出件里是一条离线素材）——'
-      + '先用 canvas_assets_list 看本机有哪些号，或让用户从画布的「放素材进来」里挑' };
-  }
-  /* 身份索引倒成清单给人看（canvas_assets_list 用）。同一份产物会挂在产物号 / 任务号 / 本机号三个键上，
-     按行对象去重、每个条目只报第一次出现的那一个号 —— 插入顺序就是 assetId → genId → id，
-     正好是往节点里写该用的那一个。 */
-  async function cvAssetDump(limit) {
-    const map = await cvAssetIndex();
-    const seen = new Set(); const rows = [];
-    for (const [id, row] of map) {
-      if (seen.has(row)) continue;
-      seen.add(row);
-      rows.push({ 号: id, 名称: cap(row.名称, 60), 类型: row.类型, 在本机: row.在本机, 来源: row.来源 });
-    }
-    rows.sort((a, b) => String(a.来源).localeCompare(String(b.来源)));
-    return { rows: rows.slice(0, limit), 共: rows.length };
-  }
-  /* 一批 ops 里所有资产引用都过一遍身份闸：任一条查不到就整批当场拒绝（与画布那边的「要么全做」同一口径）。 */
-  async function cvAssetGate(ops) {
-    for (const o of ops) {
-      const m = (o.node && o.node.metadata) || (o.patch && o.patch.metadata) || null;
-      const id = m && m.assetId;
-      if (!id) continue;
-      const r = await cvAssetLook(id);
-      if (r.err) return r.err;
-    }
-    return '';
-  }
-  function cvCheck(A, ops) {
-    let r = null;
-    try { r = A.check(ops); } catch (e) { r = { ok: false, reason: errText(e) }; }
-    if (!r || r.ok === false) return { err: cap(String((r && (r.reason || r.err)) || '画布拒绝了这一批操作'), 400) };
-    return { r };
-  }
-  /* 五个写动作与生成提案共用这道闸：条数、资产身份、桥的纯读校验。
-     check 在画卡片之前跑完，所以不可能出现「点执行才撞错」。 */
-  async function cvGate(ops, head) {
-    const g = cvBridge(); if (g.err) return { err: g.err };
-    if (!ops.length) return { err: '这一批里一条操作都没有：说清要加哪一枚 / 改哪一项' };
-    if (ops.length > APPLY_MAX) return { err: '一次最多 ' + APPLY_MAX + ' 条操作（现在 ' + ops.length + ' 条：整批撤销太粗，请分批）' };
-    const bad = await cvAssetGate(ops); if (bad) return { err: bad };
-    const c = cvCheck(g.A, ops); if (c.err) return { err: c.err };
-    const lines = (head || []).slice();
-    const n = (c.r.changed && c.r.changed.nodes || []).length;
-    const e = (c.r.changed && c.r.changed.connections || []).length;
-    if (n || e) lines.push('会动到：' + (n ? n + ' 枚节点' : '') + (n && e ? ' · ' : '') + (e ? e + ' 条连线' : '') + '（整批一次撤销，改坏了一句话退回来）');
-    return { 说明: lines[0] || '改画布', 人话: lines, 钉: null };
-  }
-  /* 提交这一批：CAS 的 expectedRevision / operationId 由 stampWrite 在画卡片那一刻补上，
-     所以用户在「执行 / 取消」之间自己动过画布时，这里会 mismatch 当场拒，绝不拿旧计划盖新编辑。 */
-  async function cvApply(ops, a, label) {
-    const g = cvBridge(); if (g.err) throw new Error(g.err);
-    const r = g.A.apply(ops, { expectedRevision: a && a.expectedRevision, operationId: a && a.operationId, label: label || '助手改画布' });
-    if (!r || r.ok === false) {
-      const e = new Error(cap(String((r && (r.reason || r.err)) || '画布拒绝了这一批操作'), 400));
-      if (r && r.code) e.code = r.code;
-      throw e;
-    }
-    const nodes = (r.改动节点 || []).slice(), edges = (r.改动连线 || []).slice();
-    return { r, nodes, edges };
-  }
-  function cvReceipt(r, nodes, edges, text) {
-    const casc = Number(r.连带连线数) || 0;
-    return { ok: true, revision: Number(r.修订) || 0, nodeIds: nodes, edgeIds: edges, changedIds: nodes.concat(edges),
-      text: text + (casc ? '（连带删掉 ' + casc + ' 条挂在这些节点上的连线）' : '')
-        + '。修订号现在是 ' + (Number(r.修订) || 0) + '，画布自动落盘；要退回就说「撤销刚才画布那一步」。' };
-  }
-  /* 退助手自己写的那一条：桥按 operationId 找回，不是栈顶就拒。后面压着的那几步是用户自己的编辑
-     （或更晚的一次助手写入），一起回滚掉才是真的丢东西 —— 所以这里只把「先撤那几步」说清楚，
-     并把 code 带在错误上，界面上的错误行才指得动下一步。 */
-  async function canvasUndoCall(A, id) {
-    let r;
-    try { r = await A.undo(id); } catch (e) { throw new Error(cap(errText(e), 300)); }
-    if (!r || r.ok === false) {
-      const msg = cap(String((r && (r.reason || r.err)) || '画布没有退回这一步'), 400);
-      const e = new Error(r && r.code === 'not_top'
-        ? msg + '（后面那 ' + (Number(r.steps) || 0) + ' 步我不会替你去动：那是画布上更晚的改动，'
-          + '请先在画布上按 Ctrl+Z 退掉它们，再让我退这一条）'
-        : msg);
-      if (r && r.code) e.code = r.code;
-      throw e;
-    }
-    return r;
-  }
-  /* 生成提案 → 提交：一条链都不新写。桥的 propose 在一份临时副本上算「能不能跑、缺什么」，
-     花费由 AssetLib.estimateCost 那一份公共估算给（拉不到定价表就说「估不了」，不编一个数）；
-     用户点执行才 apply + 桥的 run —— 任务号与产物号都从页面那一条路落进节点。 */
-  async function cvCost(p) {
-    if (!p || !p.ok) return '';
-    const prov = Api.prov(String(p.平台id || ''));
-    if (!prov) return '';
-    const model = (prov.models || []).find(m => m && m.id === p.型号id);
-    if (!model) return '';
-    try {
-      const c = await AssetLib.estimateCost(prov, model, Object.assign({}, p.参数 || {}, { count: Number((p.参数 || {}).count) || 1 }));
-      return c && c.ok ? '预计花费：' + c.text + '（' + c.detail + '）' : '预计花费：估不了（' + ((c && c.reason) || '平台没声明定价方式') + '）';
-    } catch (e) { return '预计花费：估不了（' + cap(errText(e), 120) + '）' }
-  }
-  function cvNodeList(a) {
-    const list = Array.isArray(a && a.nodes) ? a.nodes : (a && a.node ? [a.node] : [a || {}]);
-    if (!list.length) return { err: 'nodes 是空的：说清要加哪几枚节点' };
-    if (list.length > APPLY_MAX) return { err: '一次最多建 ' + APPLY_MAX + ' 枚（现在 ' + list.length + ' 枚）' };
-    return { list };
-  }
-  function cvPatchList(a) {
-    const list = Array.isArray(a && a.patches) ? a.patches : (Array.isArray(a && a.nodes) ? a.nodes : null);
-    if (!list) return { err: 'patches 要是一个数组：每项 { "id": "节点 id", 要改的字段… }' };
-    if (!list.length) return { err: 'patches 是空的：说清要改哪几枚' };
-    if (list.length > APPLY_MAX) return { err: '一次最多改 ' + APPLY_MAX + ' 枚（现在 ' + list.length + ' 枚）' };
-    return { list };
-  }
-  function cvIds(a, what) {
-    const ids = Array.isArray(a && a.ids) ? a.ids.map(String).filter(Boolean) : [];
-    if (!ids.length) return { err: what + '：ids 要给至少一个号（先用 canvas_get 或 canvas_search 找到它）' };
-    return { ids };
-  }
-  async function cvCreateOps(a) {
-    const g = cvBridge(); if (g.err) return g;
-    const n = cvNodeList(a); if (n.err) return n;
-    const A = g.A, C = A.center ? A.center() : { x: 0, y: 0 };
-    const ops = [];
-    for (let i = 0; i < n.list.length; i++) {
-      const raw = n.list[i] || {};
-      const s = cvShape(raw); if (s.err) return { err: '第 ' + (i + 1) + ' 枚：' + s.err };
-      const sh = s.out, mt = sh.metadata || {};
-      const pt = { x: Number.isFinite(Number(sh.x)) ? Number(sh.x) : C.x + i * 36,
-        y: Number.isFinite(Number(sh.y)) ? Number(sh.y) : C.y + i * 36 };
-      const badKey = cvParamKeys(mt.params);
-      if (badKey) return { err: '第 ' + (i + 1) + ' 枚：' + badKey };
-      /* 带资产号的节点交给页面那一份 assetOpOf：它同时决定 assetKind / sourceAssetId / status
-         这几项怎么配 —— 助手这边再拼一份，导出件那头就先撞坏。 */
-      if (mt.assetId) {
-        const r = await cvAssetLook(mt.assetId);
-        if (r.err) return { err: '第 ' + (i + 1) + ' 枚：' + r.err };
-        ops.push(A.assetNode(r.row.类型, mt.assetId, pt, sh.title || r.row.名称));
-        continue;
-      }
-      if (!String(sh.type || '')) return { err: '第 ' + (i + 1) + ' 枚没写 type：能建的是 '
-        + (A.types ? A.types().map(t => t.类型).join(' / ') : 'text / image / video / audio / config / asset-ref') };
-      const node = { type: sh.type, title: sh.title, x: pt.x, y: pt.y };
-      if (Number.isFinite(Number(sh.width))) node.width = Number(sh.width);
-      if (Number.isFinite(Number(sh.height))) node.height = Number(sh.height);
-      if (mt.params) {
-        /* 这一枚自己就带了平台与型号时，取值当场按声明核一遍；带不全就先放着 ——
-           型号也可能从连进来的配置节点拿，那要到 run 之前才判得了，桥的 propose 会说清缺什么。 */
-        if (mt.prov && mt.model) {
-          const prov = Api.prov(mt.prov);
-          const model = prov && (prov.models || []).find(m => m && m.id === mt.model);
-          if (!model) return { err: '第 ' + (i + 1) + ' 枚：平台「' + mt.prov + '」没有型号「' + mt.model + '」' };
-          const v = cvParamVals(prov, model, mt.params);
-          if (v.err) return { err: '第 ' + (i + 1) + ' 枚：' + v.err };
-          mt.params = v.params;
-        }
-      }
-      if (Object.keys(mt).length) node.metadata = mt;
-      ops.push({ op: 'add_node', node });
-    }
-    return { ops };
-  }
-  async function cvUpdateOps(a) {
-    const g = cvBridge(); if (g.err) return g;
-    const n = cvPatchList(a); if (n.err) return n;
-    const ops = [];
-    for (let i = 0; i < n.list.length; i++) {
-      const raw = n.list[i] || {};
-      const id = String(raw.id || '').trim();
-      if (!id) return { err: '第 ' + (i + 1) + ' 项没写 id：改哪一枚要说清（用 canvas_search 找到它）' };
-      const s = cvShape(raw); if (s.err) return { err: '第 ' + (i + 1) + ' 项：' + s.err };
-      if (s.out.type !== undefined) return { err: '第 ' + (i + 1) + ' 项要改 type：节点类型改了它存的字段就不对了，请删掉重建' };
-      const patch = Object.assign({}, s.out);
-      delete patch.type;
-      if (!Object.keys(patch).length) return { err: '第 ' + (i + 1) + ' 项什么都没要改：title / x / y / width / height / content / prompt / prov / model / params / asset 至少给一项' };
-      const mt = patch.metadata || {};
-      const badKey = cvParamKeys(mt.params);
-      if (badKey) return { err: '第 ' + (i + 1) + ' 项：' + badKey };
-      if (mt.params && mt.prov && mt.model) {
-        const prov = Api.prov(mt.prov);
-        const model = prov && (prov.models || []).find(m => m && m.id === mt.model);
-        if (!model) return { err: '第 ' + (i + 1) + ' 项：平台「' + mt.prov + '」没有型号「' + mt.model + '」' };
-        const v = cvParamVals(prov, model, mt.params);
-        if (v.err) return { err: '第 ' + (i + 1) + ' 项：' + v.err };
-        mt.params = v.params;
-      }
-      ops.push({ op: 'update_node', id, patch });
-    }
-    return { ops };
-  }
-  function cvEdgeOps(a) {
-    const list = Array.isArray(a && a.edges) ? a.edges : (a && (a.from || a.to) ? [a] : []);
-    if (!list.length) return { err: 'edges 要给至少一条：{ "from": "号", "to": "号" }（方向是「谁喂给谁」）' };
-    if (list.length > APPLY_MAX) return { err: '一次最多连 ' + APPLY_MAX + ' 条' };
-    const ops = [];
-    for (let i = 0; i < list.length; i++) {
-      const e = list[i] || {};
-      const from = String(e.from || e.fromNodeId || '').trim(), to = String(e.to || e.toNodeId || '').trim();
-      if (!from || !to) return { err: '第 ' + (i + 1) + ' 条没写全 from / to' };
-      const o = { op: 'connect_nodes', from, to };
-      if (e.fromHandle !== undefined) o.fromHandle = String(e.fromHandle);
-      if (e.toHandle !== undefined) o.toHandle = String(e.toHandle);
-      ops.push(o);
-    }
-    return { ops };
-  }
-  /* 生成提案的 ops：与上面几条同一套归一化（不另开第二份形状），
-     然后由桥在一份临时副本上算「能不能跑、缺什么、会动到谁」。 */
-  async function cvProposeOps(a) {
-    const list = [];
-    if (a && (a.nodes || a.node)) { const r = await cvCreateOps(a); if (r.err) return r; list.push(...r.ops); }
-    if (a && (a.patches || (Array.isArray(a.nodes) && a.nodes.some(x => x && x.id)))) {
-      const r = await cvUpdateOps({ patches: a.patches || a.nodes }); if (r.err) return r; list.push(...r.ops);
-    }
-    if (a && a.edges) { const r = cvEdgeOps(a); if (r.err) return r; list.push(...r.ops); }
-    if (!list.length && !String((a && a.nodeId) || '')) return { err: '提案要写清点：新建（nodes）、改哪几项（patches）、连哪条线（edges），或给一个已经在画布上的 nodeId' };
-    return { ops: list };
-  }
-  const cvAct = {
-    nodes_create: { head: '在画布上加节点', text: r => '加了 ' + r.nodes.length + ' 枚节点（' + cap(r.nodes.join('、'), 200) + '）' },
-    nodes_update: { head: '改画布上的节点', text: r => '改了 ' + r.nodes.length + ' 枚节点' },
-    nodes_delete: { head: '删掉画布上的节点', text: r => '删掉了 ' + r.nodes.length + ' 枚节点' },
-    edges_create: { head: '在画布上连线', text: r => '连了 ' + r.edges.length + ' 条线（方向就是生成的喂料方向）' },
-    edges_delete: { head: '删掉画布上的连线', text: r => '删掉了 ' + r.edges.length + ' 条线' },
-  };
-
   const ACTS = {
     generate: {
       arg: '{ "provider": "平台 id", "model": "型号 id", "prompt": "提示词", "params": { "count|duration|res|ar|quality|tier|format": 值 }, "inputs": [ { "role": "reference_image", "file": 0 } ] }',
@@ -2406,202 +2005,17 @@
         + '**保存为新资产，不会删原文件，也没法撤销**（重复存同一份会认成已有那条，不会堆两份）。',
       check: exportSaveCheck, run: exportSaveRun,
     },
-    /* ---------- 画布六个写动作 + 生成提案 + 撤销：全部经 `WBBridge.canvas` ----------
-       形状归一化在 cvCreateOps / cvUpdateOps / cvEdgeOps（野键不收、资产号必查得到、参数名只认 createBody 那一份），
-       几何 / 类型 / 容量 / 成环 / 重复边这些判据一律交给桥（applyOperations 是唯一一份）。
-       expectedRevision 与 operationId 由 stampWrite 在画卡片那一刻补：模型不填、也填不对。 */
-    canvas_nodes_create: {
-      arg: '{ "nodes": [ { "type": "text|image|video|audio|config|asset-ref", "title": "…", "x": 0, "y": 0, '
-        + '"content": "文本节点正文", "prompt": "提示词", "prov": "平台 id", "model": "型号 id", '
-        + '"params": { "count|duration|res|ar|quality|tier|format|voice": 值 }, "asset": "资产号" }, … ] }',
-      title: '在画布上加节点',
-      doc: '在画布上新建 1–20 枚节点。type 只能是注册表里那六类；不写 x/y 就摆在当前屏幕正中并自动错开。'
-        + '带 asset（资产号）时它必须是 canvas_assets_list 里查得到的那一个，节点会按资产类型建好并标成已有产物。'
-        + '整批一次撤销：这一条算画布历史里的一个条目，canvas_undo 一句话退回来。',
-      check: async a => { const r = await cvCreateOps(a); return r.err ? r : cvGate(r.ops, [cvAct.nodes_create.head + '：' + r.ops.length + ' 枚']); },
-      run: async a => { const r = await cvCreateOps(a); if (r.err) throw new Error(r.err);
-        const out = await cvApply(r.ops, a, '助手加节点');
-        return cvReceipt(out.r, out.nodes, out.edges, cvAct.nodes_create.text(out)); },
-    },
-    canvas_nodes_update: {
-      arg: '{ "patches": [ { "id": "节点 id", "title": "…", "x": 0, "y": 0, "width": 288, "height": 162, '
-        + '"content": "…", "prompt": "…", "prov": "平台 id", "model": "型号 id", "params": { … } }, … ] }',
-      title: '改画布上的节点',
-      doc: '改已有节点的标题 / 位置 / 尺寸 / 正文 / 提示词 / 平台型号 / 参数（一次最多 20 枚）。'
-        + '**不能改 type**：类型改了它存的字段就不对了，要换类型就删掉重建。'
-        + 'id 从 canvas_get 或 canvas_search 里拿，别凭记忆编。',
-      check: async a => { const r = await cvUpdateOps(a); return r.err ? r : cvGate(r.ops, [cvAct.nodes_update.head + '：' + r.ops.length + ' 枚']); },
-      run: async a => { const r = await cvUpdateOps(a); if (r.err) throw new Error(r.err);
-        const out = await cvApply(r.ops, a, '助手改节点');
-        return cvReceipt(out.r, out.nodes, out.edges, cvAct.nodes_update.text(out)); },
-    },
-    canvas_nodes_delete: {
-      arg: '{ "ids": ["节点 id", …] }',
-      title: '删掉画布上的节点',
-      doc: '按 id 删节点，挂在它们上的连线一起删（回执会报连带了几条）。'
-        + '不能把最后一枚删光；文档改坏了用 canvas_undo 退回这一步（用户后面自己又改过就先撤那些）。',
-      check: async a => { const r = cvIds(a, '删节点'); return r.err ? r : cvGate([{ op: 'delete_nodes', ids: r.ids }],
-        [cvAct.nodes_delete.head + '：' + r.ids.length + ' 枚']); },
-      run: async a => { const r = cvIds(a, '删节点'); if (r.err) throw new Error(r.err);
-        const out = await cvApply([{ op: 'delete_nodes', ids: r.ids }], a, '助手删节点');
-        return cvReceipt(out.r, out.nodes, out.edges, cvAct.nodes_delete.text(out)); },
-    },
-    canvas_edges_create: {
-      arg: '{ "edges": [ { "from": "喂料那一端的节点 id", "to": "接收端的节点 id" }, … ] }',
-      title: '在画布上连线',
-      doc: '连 1–20 条线：from 是喂料的一端，to 是接收的一端。'
-        + '两端都得在画布上、不能自己连自己、同一对不能重复、不能成环，'
-        + '接收端收不收这一类、还剩下几个输入位都由画布按注册表判（满了就直接拒）。',
-      check: async a => { const r = cvEdgeOps(a); return r.err ? r : cvGate(r.ops, [cvAct.edges_create.head + '：' + r.ops.length + ' 条']); },
-      run: async a => { const r = cvEdgeOps(a); if (r.err) throw new Error(r.err);
-        const out = await cvApply(r.ops, a, '助手连线');
-        return cvReceipt(out.r, out.nodes, out.edges, cvAct.edges_create.text(out)); },
-    },
-    canvas_edges_delete: {
-      arg: '{ "ids": ["连线 id", …] }',
-      title: '删掉画布上的连线',
-      doc: '只删线，不动节点。id 从 canvas_node_read 返回的「连线」里拿。算一个撤销条目。',
-      check: async a => { const r = cvIds(a, '删连线'); return r.err ? r : cvGate([{ op: 'delete_connections', ids: r.ids }],
-        [cvAct.edges_delete.head + '：' + r.ids.length + ' 条']); },
-      run: async a => { const r = cvIds(a, '删连线'); if (r.err) throw new Error(r.err);
-        const out = await cvApply([{ op: 'delete_connections', ids: r.ids }], a, '助手删线');
-        return cvReceipt(out.r, out.nodes, out.edges, cvAct.edges_delete.text(out)); },
-    },
-    /* 视图不动内容：不涨修订、不进撤销栈，所以它不算「写内容」——effect 是 ui，也不需要撤销。 */
-    canvas_viewport_set: {
-      arg: '{ "mode": "fit|center|set", "nodeId": "center 时给", "ids": ["fit 时只看这几枚"], "x": 0, "y": 0, "scale": 1 }',
-      title: '让画布看某一片（画布）',
-      doc: 'fit=把全部（或指定的那几枚）框进屏幕，center=把某一枚挪到正中并保住当前倍率，'
-        + 'set=照给的 x/y/scale 摆（scale 由画布夹在它允许的范围内）。'
-        + '**只动视图**：不改节点、不涨修订、不需要撤销 —— 用户说「带我看看那张图」用它。',
-      check: a => { const g = cvBridge(); if (g.err) return g;
-        const mode = String((a && a.mode) || 'fit');
-        if (!['fit', 'center', 'set'].includes(mode)) return { err: 'mode 只有 fit / center / set 三档，现在写的是「' + mode + '」' };
-        const r = g.A.check([{ op: 'set_viewport', viewport: { x: 0, y: 0, scale: 1 } }]);
-        if (!r || r.ok === false) return { err: '画布现在不接受视图改动：' + ((r && (r.reason || r.err)) || '未知原因') };
-        return { 说明: '让画布看' + (mode === 'fit' ? '全' : mode === 'center' ? '那一片' : '指定位置'),
-          人话: ['mode：' + mode, '只动视图：不改内容、不涨修订'], 钉: null }; },
-      async run(a) { const g = cvBridge(); if (g.err) throw new Error(g.err);
-        const r = g.A.view(a || {});
-        if (!r || r.ok === false) throw new Error(cap(String((r && (r.reason || r.err)) || '画布没接受这次视图改动'), 400));
-        return { ok: true, text: '画布已经' + (String((a || {}).mode || 'fit') === 'fit' ? '把这一片框进屏幕'
-          : String((a || {}).mode) === 'center' ? '把那一枚挪到屏幕正中' : '按给的坐标摆好')
-          + '（当前 ' + (r.缩放 || '') + '）。没改任何内容，不用撤销。' }; },
-    },
-    /* 提案 = 卡片上把「打算怎么改 + 用什么型号 + 大概多少钱」摆清楚；点执行才真的写文档并建任务。
-       这一段刻意是 cost：一次点击可能花钱，注册表对它不画「撤销」而画「取消/等确认」，
-       而写进去的那几枚节点仍然由 canvas_undo 退（任务是平台那边的事，撤不掉就照实说）。 */
-    canvas_generation_propose: {
-      arg: '{ "nodes"/"patches"/"edges": 同上面几条的形状（可选：要先落进画布的那一步）, '
-        + '"nodeId": "要生成哪一枚（省略＝这一批最后改到的那枚）", "execute": false 表示只落节点不生成 }',
-      title: '画布上生成一枚产物（先提案）',
-      doc: '先把要改的摆上画布，再给出这一份提案：平台、型号、提示词字数、参数、几路参考素材、'
-        + '能力来自哪几枚节点、缺什么、预计花费。**画卡片这一步不建任务也不扣费**；'
-        + '用户点执行才提交（execute:false 时只写文档、不生成）。任务号写进节点 metadata.taskId，'
-        + '出片后产物号写 metadata.assetId，字节由自动镜像存本机。',
-      async check(a) {
-        const g = cvBridge(); if (g.err) return g;
-        const r = await cvProposeOps(a); if (r.err) return r;
-        if (r.ops.length) { const bad = await cvAssetGate(r.ops); if (bad) return { err: bad };
-          const c = cvCheck(g.A, r.ops); if (c.err) return c; }
-        const p = g.A.propose({ ops: r.ops, nodeId: String((a && a.nodeId) || '') });
-        if (!p || p.ok === false) return { err: cap(String((p && (p.reason || p.err)) || '这一份提案算不出来'), 400) };
-        const lines = ['节点：' + cap(p.提案节点.名称 + '「' + p.提案节点.标题 + '」', 80)
-          + (r.ops.length ? '（这一步会先把它写进画布）' : '（已经在画布上）')];
-        if (p.平台) lines.push('平台与型号：' + p.平台 + ' · ' + p.型号);
-        lines.push('提示词：' + p.提示词字数 + ' 字 · 输入 ' + p.输入);
-        if (p.参数 && Object.keys(p.参数).length) lines.push('参数：' + cap(Object.entries(p.参数).map(([k, v]) => k + '=' + v).join(' '), 200));
-        if (p.缺料 && p.缺料.length) lines.push('连过来的素材还缺产物：' + cap(p.缺料.join('、'), 160));
-        const cost = await cvCost(p);
-        if (cost) lines.push(cost);
-        lines.push((a && a.execute === false || a && a.execute === 'false')
-          ? '这一条只把节点写进画布，不建任务、不扣费'
-          : (p.就绪 ? '点执行就提交这一条（会花钱）' : '点执行会先把节点写进画布，但现在还生成不了：' + p.缺什么));
-        return { 说明: '画布生成提案：' + cap(p.提案节点.名称, 40), 人话: lines, 钉: null, 提案: p };
-      },
-      async run(a) {
-        const g = cvBridge(); if (g.err) throw new Error(g.err);
-        const r = await cvProposeOps(a); if (r.err) throw new Error(r.err);
-        let out = null;
-        if (r.ops.length) out = await cvApply(r.ops, a, '助手按提案改画布');
-        const nodeId = String((a && a.nodeId) || '') || (out && out.nodes.length ? out.nodes[out.nodes.length - 1] : '');
-        if (a && (a.execute === false || a.execute === 'false')) {
-          return out ? cvReceipt(out.r, out.nodes, out.edges, '按提案把画布写好了（没有建任务）')
-            : { ok: true, text: '这一份提案没有要写的东西：也没有要生成的节点（execute:false）' };
-        }
-        if (!nodeId) throw new Error('提案算不出要给哪一枚节点生成：给 nodeId，或先让它把节点写进画布');
-        const run = await g.A.run(nodeId);
-        if (!run || run.ok === false) {
-          const e = new Error(cap(String((run && (run.reason || run.err)) || '画布没开始这一条生成'), 400));
-          if (run && run.code) e.code = run.code;
-          throw e;
-        }
-        const bits = [];
-        if (out) bits.push('画布已经按提案写好（修订 ' + (out.r.修订 || 0) + '）');
-        bits.push(run.text || '已提交');
-        if (run.assetId) bits.push('产物号 ' + run.assetId);
-        return { ok: true, revision: Number(run.修订 || (out && out.r.修订) || 0) || 0,
-          nodeIds: out ? out.nodes : [nodeId], edgeIds: out ? out.edges : [],
-          changedIds: out ? out.nodes.concat(out.edges) : [nodeId],
-          text: cap(bits.join('；'), 500) + '。状态用 canvas_generation_status 问，产物号与字节由画布自己回写。' };
-      },
-    },
-    /* 助手只退自己写的那一条：桥按 operationId 找，不是栈顶就拒并说清后面还压了几步人工改动，
-       绝不静默回滚用户自己的编辑（那才是真正丢东西的一种「撤销」）。 */
-    canvas_undo: {
-      arg: '{ "operationId": "可选：回执里那一个；省略＝退最近一次助手写入" }',
-      title: '撤销助手在画布上的那一步',
-      doc: '按 operationId 退掉**助手自己写的那一步**（不是用户的 Ctrl+Z）。不填就退最近一次助手写入。'
-        + '用户在那之后又自己改过几笔时它会拒绝并说清还压着几步，要先让用户撤掉那几步 —— 这是设计，不是故障。',
-      check(a) {
-        const g = cvBridge(); if (g.err) return g;
-        /* `operationId` 在注册表那一层另有用途：它是**这一次执行**的幂等键。
-           撤销动作里写的是「要退掉的那一步」的号，留在原位会命中那一次写入缓存的结果 ——
-           撤销根本没跑，卡片却照着旧回执念「加了 1 枚节点」。
-           所以进门这一刻把它挪进 undoOperationId，让注册表改用卡片自己那一个号（同一张卡片重复点仍然只跑一次）。 */
-        const target = String((a && a.operationId) || '').trim();
-        if (a && typeof a === 'object') { delete a.operationId; if (target) a.undoOperationId = target; }
-        const id = target;
-        const h = (g.A.context({ limit: 1 }).历史) || {};
-        const rows = h.最近 || [];
-        if (id) {
-          const hit = rows.find(x => x && x.operationId === id);
-          if (!hit) return { err: '这一份画布的历史里没有这一步（operationId「' + cap(id, 40) + '」）：可能被更整的撤销挤掉了，或它本来就不是助手写的' };
-        } else if (!rows.some(x => x && x.source === 'external')) {
-          return { err: '这一份画布上没有助手写入的步骤：要退用户自己那一步，请在画布上按 Ctrl+Z（助手不代撤人工编辑）' };
-        }
-        return { 说明: '退掉助手在画布上写的那一步', 人话: [id ? 'operationId：' + cap(id, 40) : '最近一次助手写入',
-          '还能撤 ' + (h.可撤销 || 0) + ' 步（用户自己的那一段）'], 钉: null };
-      },
-      async run(a, pin, card) {
-        const g = cvBridge(); if (g.err) throw new Error(g.err);
-        let id = String((a && (a.undoOperationId || a.operationId)) || '');
-        if (!id) {
-          const rows = ((g.A.context({ limit: 1 }).历史) || {}).最近 || [];
-          for (let i = rows.length - 1; i >= 0; i--) { const x = rows[i]; if (x && x.source === 'external' && x.applied && x.operationId) { id = String(x.operationId); break; } }
-          if (!id) throw new Error('找不到助手自己写的那一步：这一份画布的历史里没有 external 条目');
-        }
-        const r = await canvasUndoCall(g.A, id);
-        const back = r.撤掉了 || '那一步';
-        return { ok: true, revision: Number(r.修订) || 0, nodeIds: r.改动节点 || [], edgeIds: r.改动连线 || [],
-          changedIds: (r.改动节点 || []).concat(r.改动连线 || []),
-          text: '已经退掉助手写的「' + cap(String(back), 60) + '」（operationId ' + cap(id, 40) + '，现在修订 ' + (Number(r.修订) || 0) + '）' };
-      },
-    },
   };
 
   /* 工具的作用域与参数形状：目录本体仍只有 TOOLS / ACTS 一张表，这里只补
      「哪些页面能用」与「参数长什么样」两项，供 ActionRegistry.list 与提示词过滤共用。
      跨页硬调不静默执行 —— runTool 与注册表都会按当前 route 拒绝并说明先切页。 */
   const DIRECTOR = 'director.html';
-  const CANVAS = 'canvas.html';
   const TOOL_ROUTE = {
     timeline_get: DIRECTOR, timeline_history: DIRECTOR,
     subtitle_list: DIRECTOR, subtitle_export_srt: DIRECTOR,
     media_info: DIRECTOR, media_frames: DIRECTOR, media_transcription: DIRECTOR,
     export_status: DIRECTOR, export_list: DIRECTOR,
-    canvas_get: CANVAS, canvas_search: CANVAS, canvas_node_read: CANVAS,
-    canvas_assets_list: CANVAS, canvas_generation_status: CANVAS,
   };
   /* 写动作的**策略**只在这一张表里说三件事：花不花钱（effect）、在哪一页出现（route）、怎么退（undo）。
      以前这三项摊在 ACT_ROUTE / ACTION_EFFECT / ACTION_UNDO 三张表里，新增一条动作要四处各补一行，
@@ -2632,32 +2046,10 @@
     export_save_to_assets: { effect: 'write', route: DIRECTOR },
     save_char: { effect: 'write', route: 'chars.html' },
     remove_char: { effect: 'write', route: 'chars.html' },
-    canvas_nodes_create: { effect: 'write', route: CANVAS, undo: 'canvas_undo' },
-    canvas_nodes_update: { effect: 'write', route: CANVAS, undo: 'canvas_undo' },
-    canvas_nodes_delete: { effect: 'write', route: CANVAS, undo: 'canvas_undo' },
-    canvas_edges_create: { effect: 'write', route: CANVAS, undo: 'canvas_undo' },
-    canvas_edges_delete: { effect: 'write', route: CANVAS, undo: 'canvas_undo' },
-    canvas_viewport_set: { effect: 'ui', route: CANVAS },
-    canvas_generation_propose: { effect: 'cost', route: CANVAS, undo: 'canvas_undo' },
-    canvas_undo: { effect: 'write', route: CANVAS },
   };
   const actMeta = id => ACTION_META[id] || {};
   const actRoute = id => actMeta(id).route || '*';
   const actUndo = id => actMeta(id).undo || '';
-  /* 画布节点/参数的形状：这里只是给模型的**写法说明**，判据不在这里 ——
-     类型只有注册表（`typeOf`）那一份、参数名只有 `Api.createBody` 那一份、取值只有 Capabilities 那一份，
-     所以这一份故意不写 enum：写了 enum 就等于把注册表那六类抄第二遍，注册表加一档这里就骗人。 */
-  const CVPARAM = { type: 'object', properties: {
-    count: { type: 'integer', min: 1, max: 8 }, duration: { type: 'number', min: 0.1 },
-    res: { type: 'string' }, ar: { type: 'string' }, quality: { type: 'string' },
-    tier: { type: 'string' }, format: { type: 'string' }, size: { type: 'string' }, voice: { type: 'string' } } };
-  const CVFIELDS = { title: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' },
-    width: { type: 'number' }, height: { type: 'number' }, content: { type: 'string' },
-    prompt: { type: 'string' }, prov: { type: 'string' }, model: { type: 'string' }, asset: { type: 'string' } };
-  const CVNODE = { type: 'object', properties: Object.assign({ type: { type: 'string' }, params: CVPARAM }, CVFIELDS) };
-  const CVPATCH = { type: 'object', required: ['id'], properties: Object.assign({ id: { type: 'string' }, params: CVPARAM }, CVFIELDS) };
-  const CVEDGE = { type: 'object', required: ['from', 'to'], properties: { from: { type: 'string' }, to: { type: 'string' },
-    fromHandle: { type: 'string' }, toHandle: { type: 'string' } } };
   const TOOL_INPUT = {
     skill: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } },
     history: { type: 'object', properties: { remote: { type: 'boolean' }, scope: { type: 'string' }, limit: { type: 'integer', min: 1, max: 100 } } },
@@ -2679,11 +2071,6 @@
     media_transcription: { type: 'object', properties: { jobId: { type: 'string' } } },
     export_status: { type: 'object', properties: { jobId: { type: 'string' } } },
     export_list: { type: 'object', properties: { limit: { type: 'integer', min: 1, max: 50 } } },
-    canvas_node_read: { type: 'object', properties: { id: { type: 'string' }, nodeId: { type: 'string' } } },
-    canvas_get: { type: 'object', properties: { limit: { type: 'integer', min: 1, max: 200 } } },
-    canvas_search: { type: 'object', required: ['q'], properties: { q: { type: 'string' }, limit: { type: 'integer', min: 1, max: 50 } } },
-    canvas_assets_list: { type: 'object', properties: { limit: { type: 'integer', min: 1, max: 200 } } },
-    canvas_generation_status: { type: 'object', properties: { nodeId: { type: 'string' } } },
     asset_open: { type: 'object', properties: {
       index: { type: 'integer', min: 0, max: 19 }, id: { type: 'string' },
       url: { type: 'string' }, ask: { type: 'string' } } },
@@ -2705,7 +2092,7 @@
     return r === '*' || !route || r === route;
   });
   /* 写动作的参数形状：`expectedRevision` / `operationId` **不放进 schema** ——
-     它们由助手在画卡片那一刻现读桥补上（见 stampWrite，导演台与画布共用这一份）。
+     它们由助手在画卡片那一刻现读桥补上（见 stampWrite）。
      让模型填这两个数，结果只有两种：抄上一轮的旧值（每次都是「改过」），或编一个（当场被拒）。 */
   const SHOTREF = { shot: { type: 'integer', min: 1 }, shotId: { type: 'string' },
     take: { type: 'integer', min: 1 }, scene: { type: 'integer', min: 1 } };
@@ -2729,24 +2116,6 @@
     export_start: { type: 'object', properties: {
       format: { type: 'string', enum: EF.ids() } } },
     export_save_to_assets: { type: 'object', properties: { name: { type: 'string' }, title: { type: 'string' } }, required: ['name'] },
-    canvas_nodes_create: { type: 'object', required: ['nodes'],
-      properties: { nodes: { type: 'array', items: CVNODE, minItems: 1, maxItems: APPLY_MAX } } },
-    canvas_nodes_update: { type: 'object', required: ['patches'],
-      properties: { patches: { type: 'array', items: CVPATCH, minItems: 1, maxItems: APPLY_MAX } } },
-    canvas_nodes_delete: { type: 'object', required: ['ids'],
-      properties: { ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: APPLY_MAX } } },
-    canvas_edges_create: { type: 'object', required: ['edges'],
-      properties: { edges: { type: 'array', items: CVEDGE, minItems: 1, maxItems: APPLY_MAX } } },
-    canvas_edges_delete: { type: 'object', required: ['ids'],
-      properties: { ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: APPLY_MAX } } },
-    canvas_viewport_set: { type: 'object', properties: { mode: { type: 'string', enum: ['fit', 'center', 'set'] },
-      nodeId: { type: 'string' }, ids: { type: 'array', items: { type: 'string' }, maxItems: APPLY_MAX },
-      x: { type: 'number' }, y: { type: 'number' }, scale: { type: 'number' } } },
-    canvas_generation_propose: { type: 'object', properties: { nodeId: { type: 'string' },
-      execute: { type: 'boolean' }, nodes: { type: 'array', items: CVNODE, maxItems: APPLY_MAX },
-      patches: { type: 'array', items: CVPATCH, maxItems: APPLY_MAX },
-      edges: { type: 'array', items: CVEDGE, maxItems: APPLY_MAX } } },
-    canvas_undo: { type: 'object', properties: { operationId: { type: 'string' } } },
   });
 
   /* 动作统一登记到 `web/core/actions.js`：确认卡片走 planToken（一次性、10 分钟过期），
@@ -2796,10 +2165,9 @@
         },
       };
       if (effect === 'cost') def.cancel = false;
-      /* undo 挂在「这条动作往文档里写了东西」上，不挂在 effect 标签上：画布的生成提案既是 cost
-         （点执行会扣费）也真的写节点，能退就得把退法给到卡片，不能因为它标成 cost 就假装退不掉。
-         undo_edit 本身就是「撤销」：桥里只暴露 select/cut/set/undo，没有「撤销这次撤销」的入口，
-         所以它和别的退不掉的写动作一样标 irreversible —— 卡片上不画假按钮。
+      /* undo 挂在「这条动作往文档里写了东西」上，不挂在 effect 标签上：能退的写动作就得把
+         退法给到卡片。undo_edit 本身就是「撤销」：桥里只暴露 select/cut/set/undo，
+         没有「撤销这次撤销」的入口，所以它和别的退不掉的写动作一样标 irreversible —— 卡片上不画假按钮。
          以前这一句要求「除 undo_edit 外」才标 irreversible，而退法表里也没有 undo_edit，
          于是 register 当场拒掉它，它后面那七个动作一个都没进目录（助手只会说「没有这个动作」）。 */
       if (meta.undo) def.undo = meta.undo;
@@ -2832,7 +2200,7 @@
 
       return {
         TOOLS, ACTS, ACTION_META, TOOL_INPUT, visibleActs, visibleTools, regClosed,
-        DIRECTOR, CANVAS, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite,
+        DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite,
         registry: () => actionReg, regError: () => actionRegErr, ready: () => actionRegReady,
       };
     },

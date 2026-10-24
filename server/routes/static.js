@@ -8,7 +8,6 @@ const SPA_REDIRECT = {
   '/favorites.html': 'favorites.html', '/roles.html': 'favorites.html',
   '/usage.html': 'usage.html', '/usage': 'usage.html',
   '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/chars.html': 'chars.html',
-  '/canvas.html': 'canvas.html',
   '/skills.html': 'settings.html',
   '/studio.html': 'studio.html',
   '/image.html': 'studio.html?t=image', '/image-gen.html': 'studio.html?t=image',

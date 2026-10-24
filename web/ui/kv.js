@@ -88,8 +88,6 @@ const conns = new Map();                     // 库名 -> Promise<IDBDatabase>�
     /* 助手长结果：turn 里只留 resultId/size/preview，正文按 offset 分页读；随会话备份，
        否则整包备份恢复后 turn 里的 resultId 会悬空。清理在写入新结果时按会话/时间做。 */
     chatResults: { db: 'chat_db', store: 'results', label: '助手长结果（随会话）', backup: true },
-    /* 画布工程：整份文档按项目 id 存；项目索引仍走 Store（canvas_index）。 */
-    canvasDocs: { db: 'canvas_db', store: 'docs', label: '画布工程', backup: true },
     /* 浏览器目录句柄（导出目录）：FileSystemDirectoryHandle，丢了重选，不进整包备份。 */
     dirs: { db: 'wb_dirs', store: 'kv', label: '导出目录句柄（丢了重选）', backup: false },
     /* 缩略图 / 切片帧的持久层已搬代理的 /cache/*（与 origin 无关），不再有 wb_thumbs / wb_slices：

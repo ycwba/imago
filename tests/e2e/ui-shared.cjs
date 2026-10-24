@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-/* 公共组件判据（画布 / 导演台剪辑与右栏）：光有 class 不算数 —— 点开、切换、重建之后都要还是那一份。
-   画布：排序下拉由公共 Dropdowns 包住（原生 select 仍是数据源）、缩放两颗是公共图标、
-        新建那一颗是公共 .pri；从工程页退回库时下拉要重新包上。
+/* 公共组件判据（用量页 / 导演台剪辑与右栏）：光有 class 不算数 —— 点开、切换之后都要还是那一份。
+   用量页：账单筛选下拉由公共 Dropdowns 包住（原生 select 仍是数据源，点开浮层选一项要同步回
+        select 的 value 与按钮上的字；范围那一路是静态选项，不依赖任何已配置的供应商）。
    导演台：本镜 / 全片与右栏四档都是公共 .ui-seg（选中态 .on 由一处翻，旧 .vc-tab 标记不再出现），
         时间线缩放两颗也是公共图标。 */
 'use strict';
@@ -41,77 +41,36 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     await page.eval(async rec => { await window.Kv.at('ws').put('workspace', rec); },
       { projects: [project], curId: project.id, roles: [], ts: Date.now() });
 
-    /* ---------- 画布：排序 / 缩放 / 新建 ---------- */
-    await page.goto(proxy.base + '/shell.html#canvas.html');
-    await page.waitFor(() => !!document.querySelector('.cv-lib'), 20000);
-    await page.waitFor(() => !!(window.WBBridge && window.WBBridge.get('canvas')), 20000);
-
-    const canvasBits = await readWhen(() => {
-      const sel = document.querySelector('.cv-lib-bar select.cv-sort');
+    /* ---------- 用量页：账单筛选下拉由公共 Dropdowns 包住 ---------- */
+    await page.goto(proxy.base + '/shell.html#usage.html');
+    await page.waitFor(() => !!document.querySelector('.usage-page'), 20000);
+    const usageBits = await readWhen(() => {
+      const sel = document.querySelector('#fRange');
       const dd = sel && sel.closest('.dd');
       const btn = dd && dd.querySelector('.dd-btn');
-      if (!sel || !dd || !btn) return null;
-      const pri = document.querySelector('.cv-lib-bar button.pri');
-      return {
-        wrapped: true,
-        label: btn.querySelector('.lbl').textContent,
-        nativeInside: dd.querySelector('select.cv-sort') === sel,
-        pri: !!pri,
-        priBg: pri ? getComputedStyle(pri).backgroundColor : '',
-      };
-    }, 15000);
-    must(canvasBits.label === '最近修改', '公共下拉没读出当前排序：' + canvasBits.label);
-    must(canvasBits.nativeInside, '原生 select 被挪出了 .dd：数据源必须留在里面');
-    must(canvasBits.pri, '新建画布没有用公共 .pri');
-    must(!/rgba\(0, 0, 0, 0\)|transparent/.test(canvasBits.priBg), '公共 .pri 没吃到主色底：' + canvasBits.priBg);
+      if (!sel || !dd || !btn || !sel.options.length) return null;
+      return { label: btn.querySelector('.lbl').textContent, nativeInside: dd.querySelector('select') === sel };
+    }, 20000);
+    must(usageBits.nativeInside, '原生 select 被挪出了 .dd：数据源必须留在里面');
+    must(usageBits.label === '近 30 天', '公共下拉没读出当前值：' + usageBits.label);
 
-    /* 点开公共浮层、选「按标题」：原生 select 与按钮文字要一起变 */
+    /* 点开公共浮层、选「今天」：原生 select 与按钮文字要一起变 */
     const picked = await page.eval(() => {
-      const dd = document.querySelector('.cv-lib-bar .dd');
+      const sel = document.querySelector('#fRange');
+      const dd = sel.closest('.dd');
       dd.querySelector('.dd-btn').click();
       const list = document.querySelector('.dd-list.on');
-      if (!list) return { err: '点开排序下拉没有出现 .dd-list.on' };
-      const opt = list.querySelector('.dd-opt[data-val="title"]');
-      if (!opt) return { err: '浮层里没有「按标题」这一项：' + list.textContent };
+      if (!list) return { err: '点开范围下拉没有出现 .dd-list.on' };
+      const opt = list.querySelector('.dd-opt[data-val="1"]');
+      if (!opt) return { err: '浮层里没有「今天」这一项：' + list.textContent };
       opt.click();
-      return {
-        value: document.querySelector('.cv-lib-bar select.cv-sort').value,
-        label: dd.querySelector('.dd-btn .lbl').textContent,
-        closed: !document.querySelector('.dd-list.on'),
-      };
+      return { value: sel.value, label: dd.querySelector('.dd-btn .lbl').textContent,
+        closed: !document.querySelector('.dd-list.on') };
     });
     must(!picked.err, picked.err || '');
-    must(picked.value === 'title' && picked.label === '按标题', '公共下拉的选择没回到原生 select / 按钮：' + JSON.stringify(picked));
+    must(picked.value === '1' && picked.label === '今天', '公共下拉的选择没回到原生 select / 按钮：' + JSON.stringify(picked));
     must(picked.closed, '选完之后浮层没有收起');
-
-    /* 建一张画布再退回库：v-if 换回来的排序下拉必须重新被 Dropdowns 包上 */
-    await page.eval(() => document.querySelector('.cv-lib-bar button.pri').click());
-    await page.waitFor(() => !!document.getElementById('pfDlg'), 8000);
-    await page.eval(() => { document.getElementById('pf_0').value = '公共组件探针'; document.getElementById('pfOk').click(); });
-    await page.waitFor(() => !!(window.WBBridge.get('canvas').context() || {}).id, 15000);
-    const workBits = await readWhen(() => {
-      if (!document.querySelector('.cv-zoom')) return null;
-      return {
-        zoomSvg: document.querySelectorAll('.cv-zoom button[aria-label] svg').length,
-        dockTools: document.querySelectorAll('.cv-dock .tool').length,
-        dockSvg: document.querySelectorAll('.cv-dock .tool .ic svg').length,
-      };
-    }, 12000);
-    must(workBits.zoomSvg === 2, '缩放两颗要用公共图标（应各有 1 个 svg）：' + workBits.zoomSvg);
-    must(workBits.dockTools >= 9, '画布工具栏少了按钮：' + workBits.dockTools);
-    must(workBits.dockSvg >= workBits.dockTools, '画布工具栏的图标没画出来：' + workBits.dockSvg + '/' + workBits.dockTools);
-    await page.eval(() => document.querySelector('.cv-back').click());
-    const back = await readWhen(() => {
-      const sel = document.querySelector('.cv-lib-bar select.cv-sort');
-      const dd = sel && sel.closest('.dd');
-      if (!dd) return null;
-      dd.querySelector('.dd-btn').click();
-      const list = document.querySelector('.dd-list.on');
-      return { wrapped: !!dd, opts: list ? list.querySelectorAll('.dd-opt').length : 0 };
-    }, 15000);
-    must(back.wrapped, '从工程页退回库之后，排序下拉没有被重新包成公共下拉');
-    must(back.opts === 3, '退回库之后浮层里的选项丢了：' + back.opts);
-    await page.eval(() => window.Dropdowns.closeAll());
+    await page.eval(() => window.Dropdowns && window.Dropdowns.closeAll && window.Dropdowns.closeAll());
 
     /* ---------- 导演台：时间线范围 / 右栏五档 / 缩放图标 ---------- */
     await page.goto(proxy.base + '/shell.html?probe=1#director.html');
@@ -178,7 +137,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     must(!errs.length, '页面异常：' + errs.join(' | '));
-    console.log('✓ 画布 / 导演台用上公共组件（排序下拉 · 分段开关 · 图标 · 主按钮；重建与重画后仍是同一份）');
+    console.log('✓ 用量页 / 导演台用上公共组件（筛选下拉 · 分段开关 · 图标；切换与重画后仍是同一份）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

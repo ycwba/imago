@@ -90,7 +90,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        新的预览是**页面主动算**的（`RawRequest.schedule` → `Api.preview` 的纯算，不发网络请求），
        不再依赖「事件在请求发出的那一刻就投」；「已发送」那一份仍然收 `wb:raw-request` 事件，
        但那件事发生在用户点生成之后 —— 那时页面早就加载完了，不会漏。
-       所以 `raw-request.js` 改成**按需补载**（导演台 / 生成工作台 / 画布三页各自 `__spaLoadScript`），
+       所以 `raw-request.js` 改成**按需补载**（导演台 / 生成工作台两页各自 `__spaLoadScript`），
        首屏少一枚 11.6KB 的脚本。
      ·  +4.7KB：同一天补的三样东西都落在**必须常驻**的那几份里，按需加载反而更贵：
        `api.js` 的 `buildBody` / `preview`（请求体拼装的唯一出口 —— 预览与实发共用它才保证

@@ -392,8 +392,11 @@ window.TextAI = {
     const all = (typeof window !== 'undefined' && window.__skillBodies) || null;
     if (!c || !all || !all[c]) return '';
     /* SKILL.md 的第一行标题是给人和清单看的，不是提示词正文；末尾空白也去掉，
-       这样「同一份 DEF 生成的 Skill」与 DEF 逐字节相同，历史默认副本仍能被 prune 认出来。 */
-    return String(all[c]).replace(/^\s*#\s+[^\n]*\r?\n+/, '').replace(/^\n+/, '').replace(/\s+$/, '');
+       这样「同一份 DEF 生成的 Skill」与 DEF 逐字节相同，历史默认副本仍能被 prune 认出来。
+       行尾一并归一到 LF：代理回的是盘上那份正文，而 autocrlf 检出会把 SKILL.md 落成 CRLF
+       —— DEF 是 LF 那一份，不归一的话同源判据（tests/e2e/smoke.cjs）在换行符上永远漂开。 */
+    return String(all[c]).replace(/\r\n/g, '\n')
+      .replace(/^\s*#\s+[^\n]*\r?\n+/, '').replace(/^\n+/, '').replace(/\s+$/, '');
   },
   defaultPrompt(kind, askNote) {
     const raw = this.skillBody(kind) || this.DEF[kind] || '';

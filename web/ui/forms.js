@@ -874,7 +874,7 @@
           retry.onclick = async () => {
             retry.disabled = true; retry.textContent = '润色中…';
             body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新润色…</div>';
-            try { paint(await o.retry()); } catch (e) { paint(''); body.insertAdjacentHTML('afterbegin', `<div style="color:var(--err,#dc2626);font-size:12px;margin-bottom:8px">重新润色失败：${esc(e.message)}</div>`); }
+            try { paint(await o.retry()); } catch (e) { paint(''); body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新润色失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新润色';
           };
         } else retry.style.display = 'none';
@@ -922,7 +922,7 @@
             retry.disabled = true; retry.textContent = '规划中…';
             body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>';
             try { items = (await o.retry()).map(x => ({ ...x, label: x.label, text: x.text })); }
-            catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div style="color:var(--err,#dc2626);font-size:12px;margin-bottom:8px">重新规划失败：${esc(e.message)}</div>`); }
+            catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新规划失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新规划';
             paint();
           };
@@ -1030,7 +1030,7 @@
            要真需要一块能点的内容，就由页面造好一个节点递进来（节点是它自己造的，不是字符串）。
            两者只许给一个；都给了以 bodyNode 为准（它显然是更具体的那一个）。 */
         if (o.bodyNode) body.appendChild(o.bodyNode);
-        else if (o.body) { body.innerHTML = '<div class="cf-msg" style="margin-bottom:12px"></div>'; body.querySelector('.cf-msg').textContent = o.body; }
+        else if (o.body) { body.innerHTML = '<div class="cf-msg" style="margin-bottom: var(--sp-12)"></div>'; body.querySelector('.cf-msg').textContent = o.body; }
         const box = document.createElement('div');
         box.className = 'cf-opts';
         (o.options || []).forEach(op => {

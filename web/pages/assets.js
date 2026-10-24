@@ -129,7 +129,7 @@ export default {
       const ks = Object.keys(loadErrors || {});
       const bits = ks.map(k => window.esc(String(k)) + '：' + window.esc(String(loadErrors[k])));
       if (!bits.length) return '';
-      return '<div class="empty" style="color:var(--warn,#d97706)">部分内容加载失败：<br>'
+      return '<div class="empty" style="color: var(--warn)">部分内容加载失败：<br>'
         + bits.join('<br>')
         + '<br><br>（检查网络与密钥，或点「重新加载」重试）</div>';
     }
@@ -139,7 +139,7 @@ export default {
       const box = loadErrEl.value;
       if (!box) return;
       const bits = Object.keys(loadErrors).map(k => window.esc(String(k)) + ' 加载失败：' + window.esc(String(loadErrors[k])));
-      const err = bits.length ? '<div class="hint" style="color:var(--warn,#d97706);margin:6px 0">' + bits.join('；') + '</div>' : '';
+      const err = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-6) 0">' + bits.join('；') + '</div>' : '';
       const hide = (!listEmpty && hiddenCloud > 0)
         ? '<div class="hint sm">已按「不显示云端任务」藏起 ' + hiddenCloud + ' 条本机还没有那份字节的产物。</div>' : '';
       box.innerHTML = err + hide;
@@ -462,9 +462,9 @@ export default {
       let media;
       if (a.kind === 'task') {
         media = lateDone
-          ? '<div class="timg"><span style="color:var(--ok,#16a34a)">已完成（正在同步列表…）</span></div>'
+          ? '<div class="timg"><span style="color: var(--ok)">已完成（正在同步列表…）</span></div>'
           : unc
-            ? '<div class="timg"><span style="color:var(--warn,#d97706)">结果未知</span></div>'
+            ? '<div class="timg"><span style="color: var(--warn)">结果未知</span></div>'
             : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + window.Wb.stText(a.status) + '</span>' : window.Wb.stText(a.status) + '…') + '</div>';
       } else if (a.type === '视频') {
         media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' }) + '</div>';
@@ -1042,7 +1042,7 @@ export default {
       searchFb = window.Wb.filterBar.bind(typeRowEl.value, {
         cls: '', chips: ['全部', '图片', '视频', '音频'], value: F.type,
         headHTML: '<span class="flabel">大类型</span>',
-        betweenHTML: '<span class="flabel" style="margin-left:14px">搜索</span>',
+        betweenHTML: '<span class="flabel" style="margin-left: var(--sp-14)">搜索</span>',
         inputId: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
         onFilter: v => { F.type = v; renderFilters(); renderGrid(); },
         onSearch: v => { F.q = String(v == null ? '' : v).trim().toLowerCase(); renderGrid(); },

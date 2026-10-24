@@ -2,7 +2,7 @@
 import { createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
-  class: "page-main studio-page wb2",
+  class: "page-main studio-page wb",
   ref: "pageEl"
 }
 
@@ -152,7 +152,7 @@ export function render(_ctx, _cache) {
               class: "ui-inp",
               placeholder: "例：一位温柔的年轻女声，语速偏慢，适合睡前故事"
             }),
-            _createElementVNode("div", { style: {"margin-top":"6px"} }, [
+            _createElementVNode("div", { style: {"margin-top":"var(--sp-6)"} }, [
               _createElementVNode("button", {
                 class: "ghost",
                 "data-r": "stylePick",
@@ -220,7 +220,7 @@ export function render(_ctx, _cache) {
           _createElementVNode("div", {
             class: "hint",
             "data-r": "capHint",
-            style: {"font-size":"11.5px","color":"var(--sub)","margin-top":"10px"}
+            style: {"font-size":"var(--fs-11-5)","color":"var(--sub)","margin-top":"var(--sp-10)"}
           })
         ]),
         _createElementVNode("div", { class: "costbar" }, [
@@ -247,7 +247,7 @@ export function render(_ctx, _cache) {
         _createElementVNode("div", {
           class: "hint",
           "data-r": "pendingHint",
-          style: {"display":"none","font-size":"11.5px","margin-top":"6px"}
+          style: {"display":"none","font-size":"var(--fs-11-5)","margin-top":"var(--sp-6)"}
         })
       ]),
       _createElementVNode("div", { class: "col-right" }, [

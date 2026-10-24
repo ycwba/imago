@@ -5049,7 +5049,7 @@ function updateBanner() {
   const running = all.some(sh => Gen.chainStateOf(sh) === 'running');
   const prog = running ? '⏳ 生成中…（' + ready + '/' + all.length + ' 已完成）' : '';
   // 刚提交完的结果优先显示 12 秒（和进度并排），之后再回到普通进度文案
-  if (genAllMsg && Date.now() - genAllMsg.ts < 12000) { note.innerHTML = genAllMsg.html + (prog ? '<span style="display:block;margin-top:2px">' + prog + '</span>' : ''); return; }
+  if (genAllMsg && Date.now() - genAllMsg.ts < 12000) { note.innerHTML = genAllMsg.html + (prog ? '<span style="display:block;margin-top: var(--sp-2)">' + prog + '</span>' : ''); return; }
   if (running) { note.textContent = prog; return; }
   note.textContent = ready === all.length && all.length
     ? `✓ ${ready} 个分镜已完成，可以剪辑与导出了`
@@ -5127,8 +5127,8 @@ function editScript() {
     sub: '当前分镜写成的一份稿子。逐镜一段「画面」；台词不在这里，在剪辑右栏「台词」那一档改。',
     body(el) {
       el.innerHTML = '<textarea class="ui-ta" spellcheck="false" aria-label="剧本正文"'
-        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;line-height:1.65"></textarea>'
-        + '<div role="alert" style="display:none;color:var(--err);font-size:12px;line-height:1.6;margin-top:6px"></div>';
+        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-12-5);line-height:1.65"></textarea>'
+        + '<div role="alert" style="display:none;color:var(--err);font-size: var(--fs-12);line-height:1.6;margin-top: var(--sp-6)"></div>';
       ta = el.querySelector('textarea');
       errEl = el.querySelector('[role="alert"]');
       ta.value = scriptTextOf(proj.scenes);

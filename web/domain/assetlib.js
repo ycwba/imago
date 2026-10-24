@@ -355,13 +355,6 @@
         const tail = String(f.key || '').split(':').pop();
         return !!tail && tail === target;
       };
-      const hitCanvas = doc => {
-        if (!doc || typeof doc !== 'object') return false;
-        return (doc.nodes || []).some(n => {
-          const m = (n && n.metadata) || {};
-          return eq(m.assetId) || eq(m.sourceAssetId) || inUrl(m.storageKey);
-        });
-      };
       try {
         if (window.Kv && window.Kv.at) {
           const ws = await window.Kv.at('ws').get('workspace');
@@ -389,14 +382,6 @@
           }
         }
       } catch (e) { unknown.push('我的收藏'); }
-      try {
-        if (window.Kv && window.Kv.at) {
-          const rows = await window.Kv.at('canvasDocs').entries();
-          for (const [k, doc] of rows) {
-            if (hitCanvas(doc)) items.push({ kind: 'canvas', label: '画布 · ' + String((doc && doc.name) || k), at: '' });
-          }
-        }
-      } catch (e) { unknown.push('画布'); }
       return { items, unknown };
     },
     /* 加载生成内容（支持增量/分批，平台无关）

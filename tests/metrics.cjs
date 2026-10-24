@@ -37,7 +37,7 @@ const BIG_FILES = [
   { file: 'web/director/engine/track.js', max: 1938, why: '从 engine.js 搬出的轨道渲染与拖动（候选条 / 两条待生成轨 / 把手拖动外壳）。1938 行里含把手拖动那份（本镜与全片两排字幕也共用同一套手势）与待生成轨自己那套拖影；dup-guard 登记的另两份（chat.js / workbench.js）向它收敛之后这里也该跟着薄' },
   { file: 'web/director/engine/lanes.js', max: 1512, why: '时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染都在这一份，三段式画面格（名称行 + 切片 + 原声波纹带）也落在它里面。刚过 1500 线：再涨先想清楚这一段是不是属于「渲染」而不是「几何」' },
   { file: 'web/features/chat.js', max: 3817, why: '曾经的巨型闭包之一（助手）：工具循环与动作目录已拆去 chat-tools.js，这里只剩外壳 / 会话 / 渲染 / 发送循环；3817 是球旁浮窗、拖素材引用队列与只读工具接线之后。再涨就先把会话存储与发送循环拆开' },
-  { file: 'web/features/chat-tools.js', max: 2827, why: '从 chat.js 拆出的工具循环与动作目录（TOOLS / ACTS / 形状表 / 注册表装配）；2827 含 task_detail / asset_open / export_list 几条只读工具与两张形状表。再拆就按「生成 / 素材 / 时间线 / 画布」各自成表' },
+  { file: 'web/features/chat-tools.js', max: 2208, why: '从 chat.js 拆出的工具循环与动作目录（TOOLS / ACTS / 形状表 / 注册表装配）；2208 是画布动作整族删除之后的实测，含 task_detail / asset_open / export_list 几条只读工具与两张形状表。再拆就按「生成 / 素材 / 时间线」各自成表' },
   { file: 'web/domain/api.js', max: 1893, why: '按 window 面拆开的取数层：Api + 媒体地址/状态归类/统一取数的顶层函数。1893 是「发送前的请求预览」（buildBody / preview，与 create 同源）与 exportCaps（成片环境现探）落在这一层、「按类型另存」那几条撤走之后；再拆就把「媒体地址」单独切一块（workbench 也读它）' },
   { file: 'web/pages/settings.js', max: 3820, why: '每个供应商的面板都写在一个页面文件里（型号表拆开后这里也该跟着薄）。3820 是设置页导航与查找、成片环境那一格加进来、「把旧落点那些文件搬进库」那一整格撤掉之后：5 颗组锚点、组内二级行、行级命中与「N 处命中」计数、回车定位、两条通道卡都只能长在这一页；普通设置行的重复字段收成了 SET_ROWS 一行一条，组名单也不再手抄（读模板里那一节标题）。再涨就要先把「供应商与密钥」那张卡搬成子模块' },
   { file: 'web/pages/studio.js', max: 3199, why: '曾经的巨型闭包之三（工作台页面侧装配）：卡片界面已挪到 ui/workbench，剩下的表单与生成流程待拆。3177 → 3199 是图片卡上「加到时间线」那一枚（跨页只递一次，导演台取走即删）接进来之后的实测；再涨就把三种类型的表单各自成块' },

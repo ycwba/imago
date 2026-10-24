@@ -500,7 +500,7 @@
   /* ---------- 系统提示词：身份 → 任务 → 硬性要求 → 禁止 → 输出格式（全站同一条骨架） ---------- */
   const SYS_HEAD = [
     '身份：你是「本地优先 AI 创作工作台」的内置助手。这项目是纯前端页面 + 一个本机 Node 代理（proxy.js，默认 http://localhost:5175），',
-    '页面有：导演台、画布、素材库、生成工作台（视频 / 图像 / 音频）、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
+    '页面有：导演台、素材库、生成工作台（视频 / 图像 / 音频）、资产库、收藏、用量与余额、设置。所有平台接口都经代理转发。',
     '你挂在外壳那一层，切页面不会打断你；脚下那一页的当前下拉值与它自己的状态，都在 overview 里。',
     '',
     '任务：回答关于这台机器与这个项目的问题 —— 哪家平台能用、某型号支持哪些参数取值、',
@@ -572,21 +572,8 @@
     '  · 动手前先看【当前界面】里的镜头 id、候选序号与段号；**不要用 click 去点轨道上那排按钮** ——',
     '    它们指向的是用户此刻指着的那一段，你看不见那个焦点。改坏了用 undo_edit 退回（最多 5 步）。',
     '  · 用户不在导演台时这些动作会说「先切到导演台」；告诉他切过去，不要改用注入去绕。',
-    '画布这一层你能**直接改文档**（动作走 canvas_nodes_create / canvas_nodes_update / canvas_nodes_delete /',
-    '  canvas_edges_create / canvas_edges_delete / canvas_viewport_set / canvas_generation_propose / canvas_undo）：',
-    '  · 动手前先 canvas_get 或 canvas_search 拿**真 id**（节点号是随机的，凭记忆编一定撞错）；'
-      + '一次一批最多 20 条操作，整批要么全做要么整批退回，算画布历史里的一个条目。',
-    '  · 节点 type 只有注册表那六类；**不能改已有节点的 type**（要换类型就删掉重建）。'
-      + '参数名只有 res / ar / quality / tier / format / size / duration / count（语音另带 voice 音色）。',
-    '  · 要引用产物就只能用 canvas_assets_list 里查得到的号；编一个号会被当场拒（那种节点永远打不开）。',
-    '  · 生成走 canvas_generation_propose：画卡片这一步**不建任务也不扣费**，卡片上写清平台、型号、提示词字数、'
-      + '几路参考素材、缺什么、预计花费，用户点执行才提交。只要「把节点摆好别生成」就传 execute:false。',
-    '  · **不要用 click 去点画布上的节点或按钮** —— 你看不见用户此刻指着哪一枚，改坏了也很难说清。',
-    '  · 退这一步用 canvas_undo（按 operationId 退**你自己写的那一条**）；用户在那之后又自己改过几笔时它会拒绝，'
-      + '那是设计不是故障 —— 告诉他先按 Ctrl+Z 退掉那几步。视图（canvas_viewport_set）不改内容、不进撤销栈。',
-    '  · 用户不在画布页时这一族动作根本不出现，只读的那份画布连写工具都不给；这两种情况都告诉他切过去。',
   ].join('\n');
-  /* 本轮可用的查询/动作按 TurnScope.route 过滤：不在这一页的域（剪辑 / 画布）连清单都不出现，
+  /* 本轮可用的查询/动作按 TurnScope.route 过滤：不在这一页的域（剪辑）连清单都不出现，
      模型不会「看见一个名字就硬调」；万一硬调，runTool 与注册表都会明确拒绝并说明先切页。 */
   function sysNow(scope) {
     const route = scope && scope.route;
@@ -1241,8 +1228,8 @@
       st.textContent = m.out;
       c.appendChild(st);
     }
-    /* 改完的那几处要留在卡片上：只写一句「做完了」的话，用户想回头看一眼刚动的是哪一镜、
-       哪一枚节点，只能自己翻时间线找。定位按钮每一条 ids 一枚（导演台是镜头，画布是节点/连线），
+    /* 改完的那几处要留在卡片上：只写一句「做完了」的话，用户想回头看一眼刚动的是哪一镜，
+       只能自己翻时间线找。定位按钮每一条 ids 一枚（导演台是镜头），
        点了才跳 —— 执行完那一下只闪、不抢当前视图。 */
     if (m.st === 'ok' && Array.isArray(m.changedIds) && m.changedIds.length) {
       const row = document.createElement('div');
@@ -1295,9 +1282,6 @@
     if (!a) return;
     Object.assign(a, patch || {});
     if (patch && patch.revision) t.changed.revision = patch.revision;
-    /* 画布那一族动的是节点与连线，两个数得分开记：changedIds 是两者拼起来的一份，靠它猜不出哪一个是线。 */
-    if (patch && Array.isArray(patch.nodeIds) && patch.nodeIds.length) t.changed.nodes = patch.nodeIds;
-    if (patch && Array.isArray(patch.edgeIds) && patch.edgeIds.length) t.changed.edges = patch.edgeIds;
     if (patch && Array.isArray(patch.changedIds) && patch.changedIds.length) {
       const key = /^(select_take|cut_timeline|set_clip|undo_edit|timeline_apply)$/.test(m.act) ? 'clips'
         : /^subtitle_/.test(m.act) ? 'subtitles' : '';
@@ -1310,10 +1294,9 @@
   const changedOrigin = t => {
     const r = String((t && t.scope && t.scope.route) || '');
     if (/^director\.html/.test(r)) return 'director';
-    if (/^canvas\.html/.test(r)) return 'canvas';
     return '';
   };
-  const originZh = n => (n === 'director' ? '导演台' : n === 'canvas' ? '画布' : '');
+  const originZh = n => (n === 'director' ? '导演台' : '');
   function locateChanged(m, id) {
     const name = changedOrigin(turnOf(m && m.turnId));
     if (!name) return note('这一处不在可定位的页面里', 'warn');
@@ -1360,7 +1343,6 @@
         state: m.st === 'err' ? 'error' : 'ok', resultText: cap(m.out, 500),
         revision: Number(r && r.revision) || 0,
         changedIds,
-        nodeIds: (r && r.nodeIds) || [], edgeIds: (r && r.edgeIds) || [],
         undo: (r && r.undo) || actUndo(m.act) || '',
       });
       if (m.st === 'ok') flashChanged(turnOf(m.turnId), changedIds);
@@ -1841,7 +1823,6 @@
     if (/^subtitle/.test(name)) return '字幕';
     if (/^media/.test(name)) return '媒体';
     if (/^export/.test(name)) return '导出';
-    if (/^canvas/.test(name)) return '画布';
     if (/^web_/.test(name)) return '搜索';
     if (name === 'skill') return 'Skill';
     return '资产 / 本机';
@@ -2332,7 +2313,6 @@
     try {
       if (window.WBBridge && WBBridge.get) {
         if (route === DIRECTOR && WBBridge.get('director')) bridge = 'director';
-        if (route === CANVAS && WBBridge.get('canvas')) bridge = 'canvas';
       }
     } catch (e) {}
     return {
@@ -2778,7 +2758,7 @@
     const wasDock = document.documentElement.classList.contains('ac-dock');
     document.documentElement.classList.toggle('ac-dock', on);
     if (app) app.style.width = on
-      ? 'calc(100% - var(--sbw, 66px) - ' + Math.round(dockW) + 'px)' : '';
+      ? 'calc(100% - var(--sbw) - ' + Math.round(dockW) + 'px)' : '';
     /* 从固定退回悬浮（窄窗 / 点按钮）时浮窗还没摆过：先贴到球旁边，别让它停在 0,0。 */
     if (wasDock && !on && isOpen()) placeFloat();
   }
@@ -3071,255 +3051,7 @@
   /* 助手这一层挂在外壳上，而外壳没有内容页那条全局 border-box：
      `width:100%` 再叠上自己的 padding(10)+border(1)，确认卡片就比抽屉宽 22px，
      右边整条戳到窗口外（实测卡片右边缘 1510 > 视口 1500）。 */
-  const CSS = `
-#acPanel *,#acPanel *::before,#acPanel *::after,#acBall{box-sizing:border-box}
-#acBall{position:fixed;right:auto;bottom:auto;left:auto;top:auto;z-index:56;width:${BALL}px;height:${BALL}px;border-radius:50%;padding:0;
-  border:1px solid var(--line,#e4e6f0);background:var(--panel,#fff);color:var(--acc,#6957e8);
-  display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;
-  box-shadow:var(--shadow-2);transition:filter var(--dur-1) var(--ease)}
-#acBall:hover{filter:brightness(1.08)}
-#acBall.drag{cursor:grabbing;transition:none}
-#acBall:focus-visible{outline:2px solid var(--acc,#6957e8);outline-offset:2px}
-/* 固定档面板占住右边一条时球才让位；悬浮档的浮窗就贴着球，球是它的锚点，也是「还有几条没看」的入口。 */
-html.ac-dock.ac-open #acBall{display:none}
-/* 收起态除了 translateX 还要 visibility:hidden（配 transition 延迟）——
-   pointer-events:none 只挡鼠标、不挡焦点：不加这一条，收起之后按 Tab 焦点会落进屏幕外那排控件
-   （输入框回车即发送、「清空」回车即删掉这段对话）。setOpen 里另有一个 inert，那份是双保险，
-   也是给不支持 inert 的浏览器的兜底路径。 */
-#acPanel{position:fixed;top:0;right:0;bottom:0;width:min(var(--ac-w,420px),100vw);z-index:56;background:var(--panel,#fff);
-  border-left:1px solid var(--line,#e4e6f0);display:flex;flex-direction:column;
-  transform:translateX(101%);transition:transform var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease);pointer-events:none;visibility:hidden}
-html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:var(--shadow-2);visibility:visible}
-/* 悬浮档：不占右边一整条，而是贴着球的浮窗。位置由 chat.js 按球的矩形现算，宽高都是可调的。
-   收起动画也换掉：translateX(101%) 在这一档看着像「从屏幕右边飞过来」，改成在锚点那儿放大 / 淡入。 */
-html:not(.ac-dock) #acPanel{top:var(--ac-top,0px);left:var(--ac-left,auto);right:auto;bottom:auto;
-  box-sizing:border-box;
-  height:var(--ac-h,560px);max-height:calc(100vh - 24px);
-  border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-4);
-  transform:scale(.96);transform-origin:var(--ac-to,100% 100%);opacity:0;
-  transition:transform var(--dur-2) var(--ease),opacity var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease)}
-html:not(.ac-dock).ac-open #acPanel{transform:none;opacity:1}
-/* 固定模式：面板照旧占右边这一条，但页面（#app）的宽度由 chat.js 用内联 calc 收窄 ——
-   它与侧栏一起读 --sbw，侧栏展开/收起时宽度跟着变。窄窗口不挤（见 DOCK_MIN）。 */
-html.ac-dock #acPanel{box-shadow:none}
-.ac-x.on{color:var(--acc,#6957e8);background:var(--acc-tint);border-radius:var(--radius-1)}
-.ac-hd{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-2);padding:11px 12px;border-bottom:1px solid var(--line,#e4e6f0);
-  background:linear-gradient(180deg, color-mix(in srgb, var(--acc) 9%, transparent), transparent)}
-.ac-hd .ac-tt{display:inline-flex;align-items:center;gap:var(--sp-1-5);font-size:var(--fs-13-5);font-weight:700;color:var(--acc,#6957e8)}
-.ac-hd .ac-here{font-size:var(--fs-10);color:var(--sub,#8a8fa3);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
-.ac-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:5;touch-action:none}
-.ac-grip:hover{background:var(--acc-tint-2)}
-/* 下沿把手只在悬浮档出现：固定档 top:0 / bottom:0 是「撑满一列」，没有高度可调。
-   输入框自己也有 resize:vertical —— 浮窗档把它关掉，高度只留面板这一根把手，免得拉到错的那个。 */
-.ac-grip-b{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:row-resize;z-index:5;touch-action:none}
-.ac-grip-b:hover{background:var(--acc-tint-2)}
-html.ac-dock .ac-grip-b{display:none}
-html:not(.ac-dock) .ac-ta{resize:none}
-@media (max-width:520px){html.ac-dock #acPanel{width:100vw!important}.ac-grip{display:none}}
-.ac-ctx{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:7px 12px;border-bottom:1px solid var(--line,#e4e6f0);background:var(--panel,#fff)}
-.ac-ctx[hidden]{display:none}
-.ac-ctx .ac-chip{max-width:100%;border:1px solid var(--line,#e4e6f0);background:var(--panel2,#f3f4f9);color:var(--sub,#8a8fa3);
-  border-radius:var(--radius-3);padding:2px 8px;font-size:var(--fs-10);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ac-x{flex:0 0 auto;border:0;background:transparent;color:var(--sub,#8a8fa3);font-size:var(--fs-5);line-height:1;cursor:pointer;padding:2px 6px}
-.ac-x:hover{color:var(--txt,#23262f)}
-.ac-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-3);display:flex;flex-direction:column;gap:9px;overscroll-behavior:contain}
-.ac-wel{display:flex;flex-direction:column;gap:9px}
-.ac-who{font-size:var(--fs-11-5);line-height:1.6;color:var(--sub,#8a8fa3);background:var(--panel2,#f3f4f9);
-  border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-4);padding:8px 10px}
-.ac-q{display:flex;flex-wrap:wrap;gap:var(--sp-1-5)}
-.ac-qi{border:1px solid var(--line,#e4e6f0);background:var(--panel,#fff);color:var(--txt,#23262f);
-  border-radius:var(--radius-3);padding:5px 10px;font-size:var(--fs-11-5);cursor:pointer;white-space:normal;text-align:left}
-.ac-qi:hover{border-color:var(--acc,#6957e8);color:var(--acc,#6957e8)}
-/* 「先体检这台机器」：空态第一颗，摆在所有问句之上。
-   要显眼一点 —— 它是给「刚打开、还不知道能问什么」的那个人准备的入口，
-   跟下面那排举例问句不是一类东西（一颗是动作，六颗是问题的样本）。 */
-.ac-qi.ac-dr{background:var(--acc,#6957e8);color:#fff;border-color:var(--acc,#6957e8);font-weight:600}
-.ac-qi.ac-dr:hover{filter:brightness(1.08);color:#fff}
-/* 「正在写…（已等 N 秒）」那一行：挂在正在流式那块的最后。
-   它随那一块一起被替换掉（收尾时整块换成正式气泡），所以不用自己去清。 */
-.ac-live-tip{flex:0 0 auto;margin-top:4px;font-size:var(--fs-11);color:var(--sub,#8a8fa3);
-  border-top:1px dashed var(--line,#e4e6f0);padding-top:4px}
-.ac-m{display:flex;flex-direction:column;gap:3px}
-.ac-ai{align-items:flex-start}.ac-me{align-items:flex-end}.ac-err{align-items:flex-start}.ac-note{align-items:flex-start}
-.ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-12-5);line-height:1.62;padding:8px 10px;border-radius:var(--radius-4);max-width:100%}
-/* markdown 那几条气泡改回 normal：pre-wrap 是给纯文本准备的，而 Md 产出的是块级元素 ——
-   块与块之间本来就有结构，再让容器把换行也当一次换行，段落之间就多出一截空行。
-   行内的换行由 Md 自己转成 <br>（约定③），所以版式不丢。
-   写 .ac-bd.md 而不是靠加载顺序压过 .ac-bd：这份样式是运行时注入的，与 ui.css 同权重。 */
-.ac-bd.md{white-space:normal}
-.ac-me .ac-bd{background:var(--acc-tint-2);color:var(--txt,#23262f)}
-.ac-ai .ac-bd{background:var(--panel2,#f3f4f9);border:1px solid var(--line,#e4e6f0);color:var(--txt,#23262f)}
-.ac-err .ac-bd{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.24);color:var(--err,#dc2626)}
-/* 助手自己那条「任务出结果了」的通知气泡：不是用户问出来的，所以要和问答区分开（虚线边 + 强调色） */
-.ac-note .ac-bd{background:var(--panel2,#f3f4f9);border:1px dashed var(--acc,#6957e8);color:var(--txt,#23262f)}
-/* ---------- 历史任务卡片（history 查询画在回答下面的那些） ----------
-   图片直接显示、视频就地播、语音给播放器；src 一律是 Api.mediaSrc 换过的本机地址。
-   .ac-card-media 上要有 .ready（Wb.thumbs 出画后加的），占位层 .tph 由 ui.css 排版。 */
-.ac-cards{display:flex;flex-direction:column;gap:7px;width:100%}
-.ac-cards-hd{font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3)}
-.ac-card{background:var(--panel,#fff);border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-4);overflow:hidden}
-.ac-card-media{position:relative;background:var(--panel2,#f3f4f9)}
-.ac-card-media .ac-img,.ac-card-media .ac-vid{display:block;width:100%;max-height:220px;object-fit:contain;background:#000}
-.ac-aud{display:block;width:100%;padding:6px 8px}
-.ac-card-bd{padding:7px 9px;display:flex;flex-direction:column;gap:var(--sp-1)}
-.ac-card-meta{font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
-.ac-card-prompt{font-size:var(--fs-1);line-height:1.55;color:var(--txt,#23262f);overflow-wrap:anywhere;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.ac-card-ft{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
-.ac-card-id{font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3);overflow-wrap:anywhere;min-width:0}
-.ac-card-go{border:1px solid var(--line,#e4e6f0);background:var(--panel,#fff);color:var(--txt,#23262f);
-  border-radius:var(--radius-1);padding:2px 8px;font-size:var(--fs-10);line-height:1.5;cursor:pointer;white-space:nowrap}
-.ac-card-go:hover{border-color:var(--acc,#6957e8);color:var(--acc,#6957e8)}
-/* ---------- 选择框（ASK 画的） ----------
-   面板本体是 InlinePolish.ask 画的，样式在 ui.css 的 .pinl 那一套 —— 这里只管它在这条消息里的位置。 */
-.ac-ask{width:100%}
-.ac-ask.done{font-size:var(--fs-11);line-height:1.55;color:var(--sub,#8a8fa3);padding:5px 8px;
-  background:var(--panel2,#f3f4f9);border:1px dashed var(--line,#e4e6f0);border-radius:var(--radius-1);
-  white-space:pre-wrap;overflow-wrap:anywhere}
-/* 球上的计数点：pointer-events:none —— 它盖在球的右上角，不能吃掉球的点击（否则点不动助手就等于弄丢） */
-.ac-dot{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:var(--radius-2);
-  background:var(--sub,#8a8fa3);color:#fff;font-size:var(--fs-10);font-weight:700;line-height:17px;text-align:center;
-  border:1.5px solid var(--panel,#fff);pointer-events:none}
-.ac-dot.new{background:var(--acc,#6957e8);animation:acPulse 1.6s ease-in-out infinite}
-@media (prefers-reduced-motion:reduce){.ac-dot.new{animation:none}}
-.ac-ft{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
-.ac-ft button{border:0;background:transparent;color:var(--sub,#8a8fa3);font-size:var(--fs-10);padding:0;cursor:pointer}
-.ac-ft button:hover{color:var(--acc,#6957e8)}
-.ac-step{align-self:flex-start;font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3);
-  background:var(--panel2,#f3f4f9);border:1px dashed var(--line,#e4e6f0);border-radius:var(--radius-1);padding:3px 8px;max-width:100%;overflow-wrap:anywhere}
-.ac-turn-wrap{align-self:flex-start;width:100%;display:flex;flex-direction:column;gap:var(--sp-1)}
-.ac-turn{align-self:flex-start;width:100%;font-size:var(--fs-10);line-height:1.55;color:var(--sub,#8a8fa3)}
-.ac-src{display:flex;flex-direction:column;gap:2px;padding:4px 8px;border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-1);background:var(--panel,#fff)}
-.ac-src-h{font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
-.ac-src-a{font-size:var(--fs-11);line-height:1.5;color:var(--acc,#6957e8);text-decoration:none;overflow-wrap:anywhere}
-.ac-src-a:hover{text-decoration:underline}
-.ac-turn>summary{cursor:pointer;list-style:none;padding:3px 8px;border:1px dashed var(--line,#e4e6f0);border-radius:var(--radius-1);background:var(--panel2,#f3f4f9);overflow-wrap:anywhere}
-.ac-turn>summary::-webkit-details-marker{display:none}
-.ac-turn>summary::before{content:'▸ ';color:var(--sub,#8a8fa3)}
-.ac-turn[open]>summary::before{content:'▾ '}
-.ac-turn-list{padding:4px 8px 2px;display:flex;flex-direction:column;gap:2px}
-.ac-turn-g{font-weight:700;color:var(--sub,#8a8fa3);margin-top:3px}
-.ac-turn-row{overflow-wrap:anywhere}
-.ac-turn-row.error,.ac-turn-row.err{color:var(--err,#dc2626)}
-.ac-turn-row.act{color:var(--txt,#23262f)}
-.ac-think{font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3);max-height:64px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
-.ac-live .ac-bd:empty::before{content:'…';color:var(--sub,#8a8fa3)}
-.ac-run{align-items:flex-start}
-.ac-run-card{background:var(--panel,#fff);border:1px solid var(--acc,#6957e8);border-radius:var(--radius-4);width:100%}
-.ac-run-hd{font-size:var(--fs-11-5);font-weight:700;color:var(--acc,#6957e8);margin-bottom:4px}
-.ac-run-row{font-size:var(--fs-11-5);line-height:1.6;color:var(--txt,#23262f);white-space:pre-wrap;overflow-wrap:anywhere}
-.ac-run-bd{display:flex;align-items:center;gap:7px}
-.ac-run-st{font-size:var(--fs-11);line-height:1.55;margin-top:5px;padding:5px 8px;border-radius:var(--radius-1);white-space:pre-wrap;overflow-wrap:anywhere;width:100%}
-.ac-run-st.ok{background:rgba(22,163,74,.10);border:1px solid rgba(22,163,74,.26);color:var(--ok,#16a34a)}
-.ac-run-st.err{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.24);color:var(--err,#dc2626)}
-/* 正在执行的那一会儿不能是绿色：绿色 = 「已经做完了」，而这一行写的是「正在提交…」，
-   看着就像提交已经成功（其实接口还没回）。 */
-.ac-run-st.run{background:var(--panel2,#f3f4f9);border:1px solid var(--line,#e4e6f0);color:var(--sub,#8a8fa3)}
-/* 「结果未知」用警告色（琥珀）：红色会被读成「没成」，绿色会被读成「成了」——
-   这一档的真实含义是「不知道」，所以既不能借用失败色也不能借用成功色。 */
-.ac-run-st.uncertain{background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.28);color:var(--warn,#d97706)}
-.ac-run-changed{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px;font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
-.ac-loc{border:1px solid var(--line,#e4e6f0);background:var(--panel2,#f3f4f9);color:var(--txt,#23262f);
-  font-size:var(--fs-10);line-height:1.4;padding:1px 8px;border-radius:var(--radius-2);cursor:pointer}
-.ac-loc:hover{border-color:var(--acc,#6957e8);color:var(--acc,#6957e8)}
-.ac-skills{display:flex;flex-wrap:wrap;gap:var(--sp-1);align-self:flex-start;max-width:100%}
-.ac-skill{display:inline-flex;align-items:center;gap:var(--sp-1);font-size:var(--fs-10);line-height:1.5;
-  padding:2px 8px;border-radius:var(--radius-3);border:1px solid var(--line,#e4e6f0);background:var(--panel,#fff);
-  color:var(--txt,#23262f);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ac-skill:hover{border-color:var(--acc,#6957e8);color:var(--acc,#6957e8)}
-.ac-skill-tag{font-style:normal;font-size:var(--fs-10);line-height:1.5;padding:0 4px;border-radius:var(--radius-1);
-  background:rgba(217,119,6,.10);color:var(--warn,#d97706);flex:0 0 auto}
-.ac-skill-tag.off{background:var(--panel2,#f3f4f9);color:var(--sub,#8a8fa3)}
-.ac-skill-pre{margin:0;padding:2px 2px 6px;font-family:inherit;font-size:var(--fs-11-5);line-height:1.65;
-  white-space:pre-wrap;overflow-wrap:anywhere;max-height:52vh;overflow:auto;color:var(--txt,#23262f)}
-.ac-files{display:flex;flex-wrap:wrap;gap:5px}
-.ac-fi{display:inline-flex;align-items:center;gap:var(--sp-1);font-size:var(--fs-10);line-height:1.4;color:var(--txt,#23262f);
-  background:var(--panel2,#f3f4f9);border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-3);padding:2px 4px 2px 8px;max-width:100%;overflow-wrap:anywhere}
-.ac-fi.warn{border-color:var(--warn,#d97706);color:var(--warn,#d97706)}
-.ac-fi button{border:0;background:transparent;color:var(--sub,#8a8fa3);font-size:var(--fs-2);line-height:1;cursor:pointer;padding:0 4px}
-.ac-fi button:hover{color:var(--err,#dc2626)}
-/* 用户那条消息下面的附件芯片：与输入框上那排同一套 .ac-fi，只是不可删
-   （那是「这一条已经发出去了」的记录，不是草稿）。 */
-.ac-mfs{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-bottom:4px;
-  max-width:92%;font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
-.ac-mfs .ac-fi{padding:2px 8px}
-.ac-in{flex:0 0 auto;border-top:1px solid var(--line,#e4e6f0);padding:9px 10px;display:flex;flex-direction:column;gap:7px}
-/* 输入框是「底 + 层 + 字」三层：背景与边框在 wrap（引用高亮画在文字**下面**，
-   所以 textarea 自己必须透明）；字体/行高只在这里定义一份，textarea 与量矩形的镜像一起继承。 */
-.ac-ta-wrap{position:relative;width:100%;padding:8px 9px;font-family:inherit;font-size:var(--fs-12-5);line-height:1.5;
-  color:var(--txt,#23262f);background:var(--input,#f6f7fb);border:1px solid var(--line,#e4e6f0);
-  border-radius:var(--radius-1);display:flex}
-.ac-ta-wrap:focus-within{border-color:var(--acc,#6957e8)}
-.ac-ta{position:relative;z-index:1;flex:1 1 auto;width:100%;min-height:56px;max-height:34vh;resize:vertical;
-  padding:0;border:0;background:transparent;font-family:inherit;font-size:inherit;line-height:inherit;
-  color:var(--txt,#23262f);outline:none}
-.ac-ref-layer{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit}
-.ac-ta-mirror{position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;z-index:-1;
-  white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;padding:0;border:0}
-.ac-ref-hl{position:absolute;background:rgba(105,87,232,.14);border-radius:3px;pointer-events:none}
-.ac-ref-x{position:absolute;z-index:2;width:16px;height:16px;padding:0;border:0;border-radius:50%;cursor:pointer;
-  background:var(--panel,#fff);color:var(--sub,#8a8fa3);font-size:var(--fs-2);line-height:1;
-  box-shadow:0 0 0 1px var(--line,#e4e6f0)}
-.ac-ref-x:hover{color:var(--err,#dc2626);box-shadow:0 0 0 1px var(--err,#dc2626)}
-/* 悬停浮层：position:fixed 且挂 body，父级的 overflow 裁不到它（与导演台拖动示意同一手） */
-.ac-ref-tip{position:fixed;z-index:210;max-width:260px;display:flex;align-items:center;gap:7px;padding:6px;
-  background:var(--panel,#fff);border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-2);box-shadow:var(--shadow-2);
-  pointer-events:none;font-size:var(--fs-10);color:var(--txt,#23262f)}
-.ac-ref-tip[hidden]{display:none}
-.ac-ref-tip img{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-1);flex:0 0 auto}
-.ac-ref-tip-b{min-width:0;display:flex;flex-direction:column;gap:2px}
-.ac-ref-tip-b b{font-weight:600;overflow-wrap:anywhere}
-.ac-ref-tip-b span{color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
-.ac-refdl{display:flex;gap:var(--sp-3);align-items:flex-start}
-.ac-refdl img{max-width:min(260px,40vw);max-height:min(260px,40vh);object-fit:contain;border-radius:var(--radius-1);
-  border:1px solid var(--line,#e4e6f0);background:var(--panel2,#f3f4f9)}
-.ac-refdl-none{font-size:var(--fs-11);line-height:1.6;color:var(--sub,#8a8fa3);max-width:280px}
-.ac-refdl-meta{min-width:0;display:flex;flex-direction:column;gap:4px;font-size:var(--fs-11);line-height:1.6}
-.ac-refdl-meta b{font-weight:600;overflow-wrap:anywhere}
-.ac-refdl-meta>div{color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
-.ac-refdl-src{font-size:var(--fs-10);color:var(--sub,#8a8fa3);overflow-wrap:anywhere}
-.ac-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.ac-row .sp{flex:1 1 auto}
-/* 清空与发送之间拉开一档（危险动作不贴着主操作）；撤销那颗是清空后临时出现的。 */
-#acWipe{margin-right:var(--sp-3)}
-.ac-undo{margin-left:var(--sp-1-5);color:var(--acc)}
-.ac-hint{font-size:var(--fs-10);line-height:1.5;color:var(--sub,#8a8fa3)}
-/* 抽屉里那一行**一次性**提示（note() 用）：与上面常驻的 .ac-hint 分两条通道 ——
-   合成一句的话「读不到设置」那种要一直挂着的状态会被下一条提示冲掉，
-   而「已删除那段会话」会在抽屉底下赖着不走。与 ui.js 的 AssetPicker 计数条同一套形状。 */
-.ac-note{font-size:var(--fs-11);line-height:1.5;margin-top:3px;color:var(--sub,#8a8fa3)}
-.ac-note[hidden]{display:none}
-.ac-note.ok{color:var(--ok,#16a34a)}
-.ac-note.warn{color:var(--warn,#d97706)}
-.ac-note.err{color:var(--err,#dc2626)}
-/* 历史会话：盖在对话区**上面**的一块浮层，不把对话区换掉（换掉的话点错一下，写的字就没了） */
-.ac-hist{position:absolute;left:8px;right:8px;top:42px;z-index:3;background:var(--panel,#fff);
-  border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-2);box-shadow:var(--shadow-2);
-  max-height:min(430px,62vh);display:flex;flex-direction:column;overflow:hidden}
-.ac-hist[hidden]{display:none}
-.ac-hist-h{display:flex;align-items:center;gap:var(--sp-2);padding:7px 10px;border-bottom:1px solid var(--line,#e4e6f0);
-  font-size:var(--fs-10);color:var(--sub,#8a8fa3)}
-.ac-hist-h b{flex:1 1 auto;font-size:var(--fs-1);font-weight:600;color:var(--txt,#23262f)}
-.ac-hist-qrow{padding:6px 8px;border-bottom:1px solid var(--line,#e4e6f0)}
-.ac-hist-qrow input{width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--line,#e4e6f0);border-radius:var(--radius-1);
-  background:var(--input,#f6f7fb);color:var(--txt,#23262f);font:inherit;font-size:var(--fs-11-5);outline:none}
-.ac-hist-qrow input:focus{border-color:var(--acc,#6957e8)}
-.ac-hist-l{overflow-y:auto;padding:5px}
-.ac-hs{position:relative;display:block;width:100%;text-align:left;border:0;background:transparent;
-  border-radius:var(--radius-1);padding:6px 26px 6px 9px;cursor:pointer;color:inherit;font:inherit}
-.ac-hs:hover{background:var(--input,#f6f7fb)}
-.ac-hs.on{background:var(--input,#f6f7fb);box-shadow:inset 2px 0 0 var(--acc,#6957e8)}
-.ac-hs-t{font-size:var(--fs-12-5);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ac-hs-m{font-size:var(--fs-10);color:var(--sub,#8a8fa3);margin-top:2px}
-.ac-hs-x{position:absolute;right:4px;top:6px;border:0;background:transparent;color:var(--sub,#8a8fa3);
-  font-size:var(--fs-3);line-height:1;cursor:pointer;padding:2px 5px;border-radius:var(--radius-1)}
-.ac-hs-x:hover{color:var(--err,#dc2626);background:var(--panel,#fff)}
-.ac-x.ic{display:inline-flex;align-items:center;justify-content:center;padding:3px}
-.ac-x.ic:hover{background:var(--input,#f6f7fb)}
-.ac-x.on{color:var(--acc,#6957e8);background:var(--input,#f6f7fb)}
-#acPanel.ac-drop{outline:2px dashed var(--acc,#6957e8);outline-offset:-6px}
-#acBall.ac-drop{outline:2px dashed var(--acc,#6957e8);outline-offset:3px}
-`;
+
 
   /* ---------- 抽屉里的就地提示 ----------
      助手的每一次操作都发生在这块抽屉里，而右上角那排 Toast 固定挂在 top:14 / right:16
@@ -3373,10 +3105,9 @@ html:not(.ac-dock) .ac-ta{resize:none}
 
   function mount() {
     if (document.getElementById('acPanel')) return;
-    const st = document.createElement('style');
-    st.id = 'acStyle';
-    st.textContent = CSS;
-    document.head.appendChild(st);
+    /* 这一层的样式在 web/styles/chat.css（外壳统一挂载），不再在运行时插一段 <style>。
+       球的直径读 --ac-ball —— 常量 BALL 是唯一出处，由这里写到 documentElement。 */
+    document.documentElement.style.setProperty('--ac-ball', BALL + 'px');
 
     const ball = document.createElement('button');
     ball.id = 'acBall';
@@ -3834,7 +3565,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
     getREG: () => REG,
   });
   const { TOOLS, ACTS, ACTION_META, visibleActs, visibleTools,
-    DIRECTOR, CANVAS, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite } = CHAT_TOOLS;
+    DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite } = CHAT_TOOLS;
   function boot() { if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount, { once: true }); }
   boot();
 

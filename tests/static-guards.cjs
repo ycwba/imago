@@ -31,19 +31,18 @@ const WRITE = process.env.GUARD_WRITE === '1';
 /* G1 内联事件：现状 0 条 —— 这条表必须是空的，出现任何一条都是新的 CSP 违规。 */
 const G1_INLINE_HANDLER = [];
 
-/* G2 创建调用点没有「结果未知」判据：现状 8 处。每条都要说清「判据在哪儿」。 */
+/* G2 创建调用点没有「结果未知」判据：现状 7 处。每条都要说清「判据在哪儿」。 */
 const G2_CREATE_NO_GUARD = [
   { id: 'web/pages/studio.js#createImageOnce', max: 1, why: '创建的错误出口在外层 submit（studio.js 顶层闭包里的 maybeSubmitErr），这一层只发不判；要补的是并到同一个出口' },
   { id: 'web/pages/studio.js#createVideoOnce', max: 1, why: '同上：视频那一路也靠外层 submit 兜「结果未知」' },
   { id: 'web/domain/gen-forms.js#create', max: 1, why: 'AiGen.create 只把 Api.create 的错误往上透传；「结果未知」的判据在 Api.maybeSubmitted（api.js）与调用方，本层不重复判' },
   { id: 'web/domain/assetlib.js#retry', max: 1, why: '重试的调用方 pages/assets.js:583 在外面判 uncertain；本层只透传错误' },
   { id: 'web/domain/gen-forms.js#synthTts', max: 1, why: '语音合成的调用方（pages/studio.js:1629 AiGen.synthTts）在上一层处理；本层只透传（拆文件后随 AiGen 进 gen-forms.js）' },
-  { id: 'web/domain/canvas/gen.js#submit', max: 1, why: '画布提交由调用方 pages/canvas.js:643 判 maybeSubmitted；本层只发' },
   { id: 'web/domain/chars.js#ttsOnce', max: 1, why: '角色配音两条出口（chars.js:1564/1659）的调用方在外面收错误；本层只透传' },
   { id: 'web/features/chat-tools.js#runGenerate', max: 1, why: '助手生成动作的另一个出口（会话里 3588 行那一路有 Api.maybeSubmitted 判据）；拆文件后随动作表进 chat-tools.js，待并到同一收口' },
 ];
 
-/* G3 空 catch：现状 294 处 / 35 个文件（最早数的 396 处里含注释里举的反例，探测器只认代码）。
+/* G3 空 catch：现状 279 处 / 35 个文件（最早数的 396 处里含注释里举的反例，探测器只认代码）。
    ⚠ 2026-10-21 修探测器：`nonCodeMask` 以前不认正则字面量与模板串的 `${}` 嵌套，
    凡是有 `/["'“”《》]+$/` 这种带引号的字符类、或模板里再套模板的文件，从那一行起整份都算
    「注释里的例子」—— 同一份 engine.js 数出过 17 / 34 / 51 三个数，这张表谁也对不起谁。
@@ -75,7 +74,6 @@ const G3_EMPTY_CATCH = [
   { file: 'web/domain/fav.js', max: 5, why: '存量：收藏吞错的一批' },
   { file: 'web/domain/gen-forms.js', max: 8, why: '存量：型号/参数/配音表单族吞错的一批（从 assetlib.js 拆出）' },
   { file: 'web/core/page-context.js', max: 3, why: '存量：页面上下文吞错的一批' },
-  { file: 'web/pages/canvas.js', max: 3, why: '存量：画布页吞错的一批' },
   { file: 'web/ui/kv.js', max: 3, why: '存量：键值存储吞错的一批' },
   { file: 'web/core/hooks.js', max: 2, why: '存量：生命周期钩子吞错的一批' },
   { file: 'web/domain/asset-transfer.js', max: 2, why: '存量：搬运/转存吞错的一批' },
@@ -87,7 +85,6 @@ const G3_EMPTY_CATCH = [
   { file: 'web/director/fcpxml.js', max: 1, why: '存量：FCPXML 导出吞错的一批' },
   { file: 'web/director/split-assets.js', max: 1, why: '存量：拆素材吞错的一批' },
   { file: 'web/domain/asr.js', max: 1, why: '存量：转写吞错的一批' },
-  { file: 'web/domain/canvas/view.js', max: 1, why: '存量：画布视图吞错的一批' },
   { file: 'web/shell-boot.js', max: 1, why: '存量：外壳启动吞错的一批' },
   { file: 'web/ui/toast.js', max: 1, why: '存量：提示条吞错的一批' },
 ];
@@ -109,11 +106,10 @@ const G4_BARE_HEX = [
 const G5_DD_REBUILD = [];
 
 /* G6 手写错误文案：最早数的 145 处 `(e && e.message) || e` 已全部改调 `window.errText`
-   （唯一实现在 web/ui/net.js，那一层自己不算）。现状 3 处，留下的都必须是「拿不到公共件」或
+   （唯一实现在 web/ui/net.js，那一层自己不算）。现状 2 处，留下的都必须是「拿不到公共件」或
    「根本不是在写文案」：只许减。 */
 const G6_HAND_ERROR_TEXT = [
   { file: 'web/core/actions.js', max: 1, why: 'ESM 模块在 Node 单测里也被直接 import，那边没有 net.js：兜底只退回 e.message，文案判据仍只有 errText 那一份' },
-  { file: 'web/domain/canvas/doc.js', max: 1, why: '同上：画布纯模块在 Node 单测里跑，先问 globalThis.errText、拿不到才自己取 message' },
   { file: 'web/domain/api.js', max: 1, why: '这一处读 message 是「给错误分类」（判 404 / 已取消），不是给人看的那句，换成文案层反而不对' },
 ];
 
@@ -164,6 +160,11 @@ const G14_CHAT_SAVE = [];
    detectBareHex**（同一个毛病只留一把尺子，不写第二套检测），这一条只是把范围锁到
    素材库页：G4 的表里有存量登记，G17 的表恒空（chars.js 一处都不许有）。 */
 const G17_CHARS_HEX = [];
+/* G18 样式层的裸值：尺寸（间距/字号/圆角/描边宽）、配色、令牌兜底值 —— 一律不许再写死。
+   探测器**复用 tools/tokenize-css.cjs 的规则表**（值→令牌的那张映射只有一份，
+   体检、替换、判据都从这里出），这一条只负责「谁来扫、扫哪些文件」。
+   tokens.css 本身不在扫描范围内 —— 那里是**值的定义处**，写裸 px 是它的本职。 */
+const G18_STYLE_BARE = [];
 /* G12 两处 CSP 都必须放行 WebAssembly 编译：mediabunny 的解码 / 编码走 wasm，
    少一处（meta 或响应头）页面一用取帧就整片 CSP 报错。这一条是「缺了就红」，表恒空。
    两处分别是 shell.html 的 meta 与 server/static.js 下发的响应头 —— 只改一处就是这条判据的现场。 */
@@ -503,6 +504,151 @@ function cssFiles() {
     .filter(f => /\.css$/.test(f)).sort()
     .map(f => 'web/styles/' + f);
 }
+/* G18 要扫的范围：样式表 + 模板里的 <style> 块 + JS 的行内 style。
+   tokens.css 是**值的定义处**，不扫（那里写裸 px 是它的本职）；
+   web/render/ 是预编译生成物，不扫。 */
+function styleSources() {
+  const out = [];
+  const walk = (dir, skipTokens) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of ents) {
+      if (e.name === 'node_modules' || e.name === 'render' || e.name === 'vendor') continue;
+      const p = dir + '/' + e.name;
+      if (e.isDirectory()) walk(p, skipTokens);
+      else if (/\.(css|html|js|mjs|cjs)$/.test(e.name)) {
+        const rel = S.asRel(p);
+        if (skipTokens && rel.endsWith('web/styles/tokens.css')) continue;
+        out.push(rel);
+      }
+    }
+  };
+  walk(S.abs('web'), true);
+  /* 模板源（tools/vue-templates/*.html）也扫：它预编译进 web/render/*.js，等于活代码。 */
+  walk(S.abs('tools/vue-templates'), false);
+  return out.sort();
+}
+/* G19 主题色深浅两档必须成对覆盖：tokens.css ① 段里的每一枚，深色档都要覆盖；
+   深色档里出现的名字，:root 里也得有 —— 拼错的名字不会报错，只是**静默失效**。
+   换主题时最容易漏的就是这一条：加了一枚新主题色，浅色好看、深色瞎一眼。 */
+const G19_THEME_PAIR = [];
+function detectThemePair(file, src) {
+  const out = {};
+  const rootBlock = (src.split(':root {')[1] || '').split('}')[0];
+  const darkBlock = (src.split('html[data-theme="dark"] {')[1] || '').split('}')[0];
+  const sec = /① 主题色[\s\S]*?\*\/([\s\S]*?)\/\* -+/.exec(src);
+  const themeSec = sec ? sec[1] : '';
+  const themeNames = [...themeSec.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]);
+  const darkNames = new Set([...darkBlock.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]));
+  const rootNames = new Set([...rootBlock.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]));
+  for (const n of themeNames) {
+    if (!darkNames.has(n)) out[file + '#深色档没覆盖主题色 ' + n] = 1;
+  }
+  for (const n of darkNames) {
+    if (!rootNames.has(n)) out[file + '#深色档里的 ' + n + ' 在 :root 里没有定义（拼错会静默失效）'] = 1;
+  }
+  return out;
+}
+
+/* G21 透明度阶梯：color-mix 的百分比只许从 --a-* 阶梯里取（阶梯本身在 tokens.css）。
+   存量是布局重构前留下的零星百分比，登记在案、只许减不许增 ——
+   新写的淡底不许再自己编一个百分比。 */
+const G21_ALPHA = [
+  { file: 'web/director/template.html', max: 34, why: '导演台深底配色那族的淡底/描边透明度（62/45/96/25/6/42/94/70/5/85/40/68/65/7/13/3/78/86/9/88/32/75/92/0 等零星档）：它们是**深底上的自定义强度**，跟阶梯里的档不是同一套语义；等布局重构那轮定了「深底强度」怎么收，再并进阶梯' },
+  { file: 'web/styles/ui.css', max: 9, why: '共享件里的零星档（深底浮层上的遮罩与描边强度）：同理，深底浮层的强度与浅底淡底不是一套；收进阶梯前先留在这里' },
+  { file: 'web/styles/spa-chars.css', max: 2, why: '素材库卡片的两处淡底强度（深底缩略图上的选中环）：同上' },
+  { file: 'web/styles/chat.css', max: 1, why: '助手面板的一处深底遮罩强度：同上' },
+  { file: 'web/styles/spa-studio.css', max: 1, why: '工作台缩略图播放钮的一处深底遮罩强度：同上' },
+];
+let alphaLadderCache = null;
+function alphaLadder() {
+  if (alphaLadderCache) return alphaLadderCache;
+  alphaLadderCache = new Set();
+  try {
+    const t = S.read('web/styles/tokens.css');
+    for (const m of t.matchAll(/--a-(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)%/g)) alphaLadderCache.add(m[2]);
+  } catch (e) { /* 令牌表读不到：阶梯为空，等于全部报出来（保守） */ }
+  return alphaLadderCache;
+}
+function detectAlphaLadder(file, src) {
+  const out = {};
+  const ladder = alphaLadder();
+  const re = /color-mix\(in srgb, var\(--[\w-]+\) (\d+(?:\.\d+)?)%, transparent\)/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (ladder.has(m[1])) continue;
+    out[file] = (out[file] || 0) + 1;
+  }
+  return out;
+}
+
+/* G20 页面补丁里不许出现**顶层**公共类：公共层（ui.css / wb.css）已经有的类，
+   页面文件再自己定义一遍 = 第二份实现（两份各自演化，迟早对不上）。
+   页面的差异必须挂在页面根类下（.chars-page .card / .studio-page .task …）。
+   现状 0 处 —— 这条是守住现状的栏杆，不是清存量。 */
+const G20_TOPLEVEL = [];
+let publicClassCache = null;
+function publicClasses() {
+  if (publicClassCache) return publicClassCache;
+  publicClassCache = new Set();
+  for (const f of ['web/styles/ui.css', 'web/styles/wb.css']) {
+    try {
+      const src = S.read(f);
+      for (const m of src.matchAll(/(^|[},])\s*\.(-?[_a-zA-Z][\w-]*)/g)) publicClassCache.add(m[2]);
+    } catch (e) { /* 公共层读不到：集合为空，等于不报（保守） */ }
+  }
+  return publicClassCache;
+}
+function detectToplevelPublic(file, src) {
+  const out = {};
+  const pub = publicClasses();
+  const re = /(^|[},])\s*\.(-?[_a-zA-Z][\w-]*)\s*[,{]/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const cls = m[2];
+    if (!pub.has(cls)) continue;
+    const idx = m.index + m[1].length;
+    const line = src.slice(idx, src.indexOf('\n', idx)).trim();
+    out[file + '#顶层定义了公共类 .' + cls + '：' + line.slice(0, 60)] = 1;
+  }
+  return out;
+}
+function pagePatchFiles() {
+  return fs.readdirSync(S.abs('web/styles'))
+    .filter(f => /^spa-.*\.css$/.test(f))
+    .sort()
+    .map(f => 'web/styles/' + f);
+}
+
+/* G22 断点只许用登记的那几档：媒体查询里的 px **不能**用 CSS 变量共享
+   （var() 在 @media 里不成立），所以断点值只能靠「集合 + 判据」来防漂移。
+   登记的档位（现状 12 档，多的那几档是历史遗留；布局重构那轮再收成 3–5 档）：
+     520 620 700 720 760 820 900 960 1100 1180 1200 1280
+   新增断点要在下面这行里加进去，并写清为什么不能并到已有档。 */
+const G22_BREAKPOINT = [];
+const BP_ALLOWED = new Set([520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200, 1280]);
+function detectBreakpoint(file, src) {
+  const out = {};
+  const re = /@media\s*\((?:max|min)-width:\s*(\d+)px\)/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const n = Number(m[1]);
+    if (BP_ALLOWED.has(n)) continue;
+    out[file + '#用了没登记的断点 ' + n + 'px'] = 1;
+  }
+  return out;
+}
+
+/* G18 的探测器：规则表复用 tools/token-lib.cjs（值→令牌的映射只有一份），
+   这里只负责把「哪些声明算裸值」的结果变成判据的条目。 */
+const T = require('../tools/token-lib.cjs');
+function detectStyleBare(file, src) {
+  const out = {};
+  for (const r of T.scanSource(T.maskComments(src), T.kindOfSrc(file))) {
+    out[file + '#' + r.name + ': ' + String(r.value).slice(0, 60)] = 1;
+  }
+  return out;
+}
 function cssRulesOf(src) {
   const text = String(src).replace(/\/\*[\s\S]*?\*\//g, '');
   const out = [];
@@ -617,6 +763,26 @@ const GUARDS = [
     sources: () => ['web/pages/chars.js'], sampleFile: 'web/pages/chars.js', okFile: 'web/pages/chars.js',
     sample: `el.style.color = '#e06666'; const bg = '#fff';`,
     ok: `el.style.color = 'var(--err)'; const bg = 'var(--panel)';  // 颜色只取 tokens.css 的变量` },
+  { key: 'G18', title: '样式层不许再写死：尺寸 / 配色 / 令牌兜底值一律走令牌', table: G18_STYLE_BARE, kind: 'entries', detect: detectStyleBare,
+    sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
+    sample: `.demo-a { padding: 8px; font-size: 12px; border-radius: 6px; color: #ff0000; }`,
+    ok: `.demo-a { padding: var(--sp-8); font-size: var(--fs-12); border-radius: var(--radius-6); color: var(--pri); }` },
+  { key: 'G19', title: '主题色深浅两档必须成对覆盖（加主题色别忘了深色档）', table: G19_THEME_PAIR, kind: 'entries', detect: detectThemePair,
+    sources: () => ['web/styles/tokens.css'], sampleFile: 'web/styles/tokens.css', okFile: 'web/styles/tokens.css',
+    sample: `:root { /* ---------- ① 主题色 ---------- */ --bg:#fff; --txt:#000; }\n/* ---------- ② 派生色 ---------- */\nhtml[data-theme="dark"] { --txt:#fff; }`,
+    ok: `:root { /* ---------- ① 主题色 ---------- */ --bg:#fff; --txt:#000; }\n/* ---------- ② 派生色 ---------- */\nhtml[data-theme="dark"] { --bg:#111; --txt:#fff; }` },
+  { key: 'G21', title: '透明度只许从 --a-* 阶梯里取（不许自己编百分比）', table: G21_ALPHA, kind: 'counts', detect: detectAlphaLadder,
+    sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
+    sample: `.demo-a { background: color-mix(in srgb, var(--acc) 7%, transparent); }`,
+    ok: `.demo-a { background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }` },
+  { key: 'G20', title: '页面补丁里不许顶层定义公共类（第二份实现）', table: G20_TOPLEVEL, kind: 'entries', detect: detectToplevelPublic,
+    sources: pagePatchFiles, sampleFile: 'web/styles/spa-synthetic.css', okFile: 'web/styles/spa-synthetic.css',
+    sample: `.tool { padding: 4px; }`,
+    ok: `.demo-page .tool { padding: 4px; }` },
+  { key: 'G22', title: '断点只许用登记的那几档（媒体查询里没法用变量共享）', table: G22_BREAKPOINT, kind: 'entries', detect: detectBreakpoint,
+    sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
+    sample: `@media (max-width: 999px) { .demo-a { color: var(--pri); } }`,
+    ok: `@media (max-width: 760px) { .demo-a { color: var(--pri); } }` },
 ];
 
 /* ============================ 跑 ============================ */

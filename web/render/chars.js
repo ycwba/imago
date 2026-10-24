@@ -34,7 +34,7 @@ const _hoisted_21 = { ref: "ttsPickEl" }
 const _hoisted_22 = {
   ref: "aiLiveEl",
   hidden: "",
-  style: {"margin":"0 0 10px"}
+  style: {"margin":"0 0 var(--sp-10)"}
 }
 const _hoisted_23 = {
   key: 0,

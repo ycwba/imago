@@ -11,7 +11,9 @@ const OUT_DIR = path.join(root, 'web', 'render');
 const VUE_RUNTIME = '../../vue.runtime.esm-browser.prod.js';
 const NAMES = [
   'app-loading', 'app-error', 'app-shell',
-  'assets', 'canvas', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director',
+  /* 画布页已下线（2026-10-24）：模板、页面、样式与那一族测试一并删除，
+     预编译清单里也就不再有它 —— 清单里留着一条会去找一份不存在的模板，直接构建失败。 */
+  'assets', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director',
 ];
 
 function getCompiler() {
@@ -22,7 +24,11 @@ function getCompiler() {
 }
 
 function build(name, compile) {
-  const src = fs.readFileSync(path.join(TPL_DIR, name + '.html'), 'utf8');
+  /* 行尾先归一化：模板源在 Windows 上检出是 CRLF，编译器会把 \r\n **原样编进注释文本**，
+     于是产物随「这台机器怎么检出」变 —— 同一份模板在两台机器上编出两份产物，
+     build:check 也就跟着随机地红。归一化成 LF，产物才与检出方式无关。 */
+  const raw = fs.readFileSync(path.join(TPL_DIR, name + '.html'), 'utf8');
+  const src = raw.replace(/\r\n/g, '\n');
   const errors = [];
   const warnings = [];
   const out = compile.compile(src, {

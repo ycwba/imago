@@ -1326,7 +1326,7 @@ function modeChipsHTML(sh) {
   /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与生成工作台同一份）；
      这一页只负责把它们包进自己的容器（整块编辑器每次重绘都重建这一段）。 */
   const chips = comboChips(list, sh.combo);
-  return '<div class="ed-label" style="margin-top:12px"><span>输入模式</span><span class="cnt">'
+  return '<div class="ed-label" style="margin-top: var(--sp-12)"><span>输入模式</span><span class="cnt">'
     + esc(comboNote(cb)) + '</span></div>' + (chips ? '<div class="mode-row" id="modeRow">' + chips + '</div>' : '');
 }
 /* 芯片的接线：整块编辑器每次重绘都重建这一段，所以每次重画后绑一次就够了。 */
@@ -1599,7 +1599,7 @@ function renderEditor() {
            （与参考图角标、refTokenize 同一份编号）。点一下写进提示词；鼠标移上去弹预览
            （素材名 + 图片）。⚠ 这段注释在模板串里，一个反引号都不能有。 */
         mats.length ? `
-        <div class="ed-label" style="margin-top:10px"><span>提到素材</span><span class="cnt">点一下写进提示词</span></div>
+        <div class="ed-label" style="margin-top: var(--sp-10)"><span>提到素材</span><span class="cnt">点一下写进提示词</span></div>
         <div class="mchips">${mats.map(m => {
           /* 芯片上写**提示词里那个 token**：`@小雅` / `@小雅·三视图`。
              没有来源标签的（自己传的、切片生成的）才退回 `@参考图N`。
@@ -1621,16 +1621,16 @@ function renderEditor() {
            排在「画面素材」那一格标签**之前**：它管的是下面这些槽位一次收哪几类，
            放在标签后面就读成了「画面素材的一种设置」（生成工作台也是这个顺序）。 */
         modeChipsHTML(sh)}
-      <div class="ed-label" style="margin-top:16px"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
-      ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin:0 0 6px">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
+      ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-6)">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
       <button class="polish" id="kfGenBtn"${kfRunOf() ? ' disabled' : ''}>${icon('sparkles', 13)} ${kfRunOf() ? '生成中…' : '按描述生成这一镜的画面'}</button>
       <!-- 规划那一轮的流式面板（公共 InlinePolish.live）。它必须留在 DOM 里：
            整列每 3 秒重画一次，面板会被重新拼出来的这一块带走 —— AiStream 每次 push 前
            会确认面板还在宿主里、不在就重画一块并补回已收到的字（见那一块说明）。
            注意：这一段在模板串里，注释里不许出现星号或反引号。 -->
       <div id="kfPlanInline" hidden></div>
-      <div style="display:flex;align-items:center;gap:8px;margin:-4px 0 4px">
-        <select id="kfModel" style="flex:1;min-width:120px;padding:5px 8px;background:var(--input);border:1px solid var(--line);border-radius:3px;color:var(--txt);font-size:12px">${kfModelOptions()}</select>
+      <div style="display:flex;align-items:center;gap: var(--sp-8);margin: calc(-1 * var(--sp-4)) 0 var(--sp-4)">
+        <select id="kfModel" style="flex:1;min-width:120px;padding: var(--sp-5) var(--sp-8);background:var(--input);border: var(--hair) solid var(--line);border-radius: var(--radius-3);color:var(--txt);font-size: var(--fs-12)">${kfModelOptions()}</select>
         <span class="hint" id="kfEst" style="margin-top:0"></span>
       </div>
       ${/* 画面生成的高级设置：与图片工作台同一套形状（折叠 + 摘要 + 按声明显隐的档位）。
@@ -1639,7 +1639,7 @@ function renderEditor() {
            反过来只声明了顶层开关（如 VGENV 的「平台提示词优化」）的四档全空型号，这块**必须**出现，
            否则同一个平台在视频那一面能勾、在画面生成里连入口都没有。 */
         (['quality', 'aspect_ratio', 'size', 'output_format'].some(x => kp.kinds[x].on) || kfRefCap || kfExtras)
-          ? `<div class="adv${AdvParams.closed('sk_kf_adv_closed') ? ' closed' : ''}" id="kfAdvBox" style="margin:0 0 10px">
+          ? `<div class="adv${AdvParams.closed('sk_kf_adv_closed') ? ' closed' : ''}" id="kfAdvBox" style="margin: 0 0 var(--sp-10)">
         <div class="adv-head" id="kfAdvHead">
           <h2>${icon('gear', 14)} 画面高级设置</h2>
           <span class="sum"><span id="kfAdvSum">${esc(kp.summary)}</span><span class="chev">▼</span></span>
@@ -1653,10 +1653,10 @@ function renderEditor() {
           </div>
           ${/* 三排「AdvParams 四档之外」的声明驱动控件：画法与判据都在 gen-forms.js 的 AdvExtras，
                与上面视频那一面、与生成工作台图像栏都是同一一份。容器常驻，内容由 paintKfAdv 现画。 */ ''}
-          <div class="adv-grid" id="kfBoolRows" style="margin-top:10px" hidden></div>
-          <div class="adv-grid" id="kfTopBools" style="margin-top:10px" hidden></div>
-          <div class="adv-grid" id="kfShapeFields" style="margin-top:10px" hidden></div>
-          <div class="hint" id="kfRefHint" style="margin-top:8px">${esc(kfRefLine)}</div>
+          <div class="adv-grid" id="kfBoolRows" style="margin-top: var(--sp-10)" hidden></div>
+          <div class="adv-grid" id="kfTopBools" style="margin-top: var(--sp-10)" hidden></div>
+          <div class="adv-grid" id="kfShapeFields" style="margin-top: var(--sp-10)" hidden></div>
+          <div class="hint" id="kfRefHint" style="margin-top: var(--sp-8)">${esc(kfRefLine)}</div>
         </div>
       </div>` : ''}
       ${/* 接上一镜：开着且没有显式首帧时，提交那一刻自动取上一镜的结尾当首帧。
@@ -1676,7 +1676,7 @@ function renderEditor() {
               : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
               : kf.status === 'queued' ? `<span class="spin-dot" style="opacity:.45"></span><span class="sub">排队中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
               : kf.status === 'failed' ? `<span class="sub err" title="${esc(kf.err || '')}">失败</span>`
-                + `<button class="x iconbtn on-dark" data-retry="${i}" title="重试这一张" style="right:20px">${icon('refresh', 12)}</button>`
+                + `<button class="x iconbtn on-dark" data-retry="${i}" title="重试这一张" style="right: var(--sp-20)">${icon('refresh', 12)}</button>`
                 + `<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
               : `<span class="ic">${icon('image', 16)}</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
             <span class="cap">画面 ${i + 1} · 第 ${kf.t} 秒</span>
@@ -1704,7 +1704,7 @@ function renderEditor() {
       ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}>
         ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
-      <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top:16px">
+      <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top: var(--sp-16)">
         <div class="adv-head" id="advHead">
           <h2>${icon('gear', 14)} 高级设置</h2>
           <span class="sum"><span id="advSum">${esc(vp.summary)}</span><span class="chev">▼</span></span>
@@ -1732,9 +1732,9 @@ function renderEditor() {
                画法与判据都在 gen-forms.js 的 AdvExtras，与生成工作台是同一一份 ——
                导演台以前整块没有它们，于是同一个平台在工作台能勾「Turbo 加速档」「平台自动润色」，
                在这一镜上连控件都不画、提交体里一个字都不发。容器常驻，内容由 paintShotAdv 现画。 */ ''}
-          <div class="adv-grid" id="edBoolRows" style="margin-top:10px" hidden></div>
-          <div class="adv-grid" id="edTopBools" style="margin-top:10px" hidden></div>
-          <div class="adv-grid" id="edShapeFields" style="margin-top:10px" hidden></div>
+          <div class="adv-grid" id="edBoolRows" style="margin-top: var(--sp-10)" hidden></div>
+          <div class="adv-grid" id="edTopBools" style="margin-top: var(--sp-10)" hidden></div>
+          <div class="adv-grid" id="edShapeFields" style="margin-top: var(--sp-10)" hidden></div>
         </div>
       </div>
       <div class="ed-footer">

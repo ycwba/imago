@@ -44,17 +44,13 @@ const h = require('./harness.cjs');
       const visible = r => (window.AiChat.visibleActs ? window.AiChat.visibleActs(r) : []);
       const onSettings = visible('settings.html');
       const onDirector = visible('director.html');
-      const onCanvas = visible('canvas.html');
       const has = (arr, k) => arr.indexOf(k) >= 0;
       return { miss, broken, guard, rejected, n: actIds.length,
         noMeta, orphanMeta, costIds,
         settingsCount: onSettings.length,
         dirLeak: ['select_take', 'cut_timeline', 'undo_edit'].filter(k => has(onSettings, k)),
-        cvLeak: ['canvas_undo', 'canvas_nodes_create'].filter(k => has(onDirector, k)),
-        dirOnCanvas: ['select_take', 'subtitle_update'].filter(k => has(onCanvas, k)),
         settingsHasGenerate: has(onSettings, 'generate'),
-        directorHasOwn: has(onDirector, 'select_take'),
-        canvasHasOwn: has(onCanvas, 'canvas_undo') };
+        directorHasOwn: has(onDirector, 'select_take') };
     });
     if (out.miss.length) throw new Error('缺少动作：' + out.miss.join(','));
     if (out.broken.length) throw new Error('动作定义不完整：' + out.broken.join(','));
@@ -63,21 +59,18 @@ const h = require('./harness.cjs');
     if (out.noMeta.length) throw new Error('这些动作没有策略登记（ACTION_META 缺 effect 或 route）：' + out.noMeta.join(',')
       + ' —— 漏 route = 谁都看得见，漏 effect = 花钱的当只读');
     if (out.orphanMeta.length) throw new Error('ACTION_META 里登记了动作面没有的条目：' + out.orphanMeta.join(','));
-    const needCost = ['generate', 'media_transcribe', 'canvas_generation_propose'];
+    const needCost = ['generate', 'media_transcribe'];
     const lostCost = needCost.filter(k => out.costIds.indexOf(k) < 0);
     if (lostCost.length) throw new Error('这几条要花钱的动作没标成 cost：' + lostCost.join(',')
       + ' —— 卡片不画 cancel，出事时没人知道它扣了费');
     if (out.dirLeak.length) throw new Error('设置页的动作清单里还有导演台那几条：' + out.dirLeak.join(',')
       + '（按页过滤没生效 —— 就是「route 从来没生效过」的坏法）');
-    if (out.cvLeak.length) throw new Error('导演台页的清单里混进了画布动作：' + out.cvLeak.join(','));
-    if (out.dirOnCanvas.length) throw new Error('画布页的清单里混进了导演台动作：' + out.dirOnCanvas.join(','));
     if (!out.settingsHasGenerate) throw new Error('generate 是全站动作，设置页却看不见它');
     if (!out.directorHasOwn) throw new Error('导演台页看不见 select_take —— route 登记或 visibleActs 读错了');
-    if (!out.canvasHasOwn) throw new Error('画布页看不见 canvas_undo —— 同上');
     if (!out.settingsCount) throw new Error('设置页一条动作都没有（清单或策略表空了）');
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
     console.log('✓ 助手动作目录通过（' + out.n + ' 个动作；跨页守卫与 schema 拒绝生效；'
-      + '策略表齐全，设置页 ' + out.settingsCount + ' 条 · 导演台/画布互不串页）');
+      + '策略表齐全，设置页 ' + out.settingsCount + ' 条 · 导演台动作不串页）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

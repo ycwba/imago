@@ -1,0 +1,62 @@
+/* ============================================================================
+   工作台外壳（.wb）——「左栏写、右栏看」的两栏骨架，全站**唯一一份**。
+
+   以前这套规则在 ui.css 里写给 <body class="wb2"> 的老工作台页（图片 / 视频 / 语音），
+   那三页早被 SPA 取代 —— 那一份已经是**死代码**（全库再没有带 wb2 的 body）。
+   SPA 的工作台页当初是「逐条照抄」到 spa-studio.css 里的，于是同一套骨架有两份，
+   改一处要记得改另一处。现在合成这一份：任何工作台页把根元素挂上 `.wb` 就能用。
+
+   与 .page-shell 的分工：
+     · .page-shell —— 普通页的壳（页头 + 留白 + 整页滚动），素材库 / 资产库 / 收藏 / 用量 / 设置
+     · .wb        —— 工作台的壳（两栏 + 生成按钮 + 状态行），左右两栏各自滚动
+   页面自己的差异（卡片网格、提示词区、素材槽…）留在各自的 spa-*.css 里，不要往这里塞。
+   ========================================================================== */
+
+/* 两栏骨架。
+   min-width:0（含轨道用 minmax(0,1fr)）让右栏只由容器宽度决定：卡片里的长提示词、
+   不带空格的外链不能把它顶开——顶开了就整页横向溢出。
+   scrollbar-gutter:stable 让滚动条出现/消失不再改变内容宽：任务数不同的两页右栏因此同宽，
+   轮询中任务开始/结束也不会让整列重排（表现为切页闪动、列表发「卡」）。 */
+.wb { height: 100%; overflow: hidden; }
+.wb .layout {
+  --sp0: minmax(380px, 520px);
+  display: grid; grid-template-columns: var(--sp0) minmax(0, 1fr); gap: var(--sp-22);
+  max-width: var(--sz-wb); margin: 0 auto; padding: var(--sp-18) var(--sp-22);
+  height: 100%; overflow: hidden; align-items: stretch; position: relative;
+}
+.wb .col-left { overflow-y: auto; min-height: 0; min-width: 0; padding-right: var(--sp-4); scrollbar-gutter: stable; }
+.wb .col-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.wb .col-right .tasks-head { flex: 0 0 auto; }
+.wb .col-right #result {
+  flex: 1 1 auto; overflow-y: auto; min-height: 0; min-width: 0;
+  padding-right: var(--sp-4); scrollbar-gutter: stable;
+}
+.wb .col-left::-webkit-scrollbar,
+.wb .col-right #result::-webkit-scrollbar { width: var(--sz-scroll); }
+.wb .col-left::-webkit-scrollbar-track,
+.wb .col-right #result::-webkit-scrollbar-track { background: transparent; }
+.wb .col-left::-webkit-scrollbar-thumb,
+.wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+html[data-theme="dark"] .wb .col-left::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); }
+
+/* 生成按钮 + 它下面那两行说明。
+   #goWhy 默认不显示，由 workbench.js 的 Wb.ready 在用户动过手之后才显出来。 */
+.wb button.go {
+  margin-top: var(--sp-12); width: 100%; padding: var(--sp-12); border: 0; border-radius: var(--radius-6);
+  background: var(--pri); color: var(--on-acc); font-size: var(--fs-14-5); font-weight: 600;
+  cursor: pointer; transition: filter var(--dur-180), transform var(--dur-100);
+}
+.wb button.go:hover:not(:disabled) { filter: brightness(1.12); }
+.wb button.go:active:not(:disabled) { transform: scale(.99); }
+.wb button.go:disabled { opacity: .5; cursor: not-allowed; }
+.wb #status { margin-top: var(--sp-10); font-size: var(--fs-12-5); color: var(--sub); min-height: 17px; white-space: pre-wrap; }
+.wb #goWhy { display: none; margin-top: var(--sp-6); font-size: var(--fs-11-5); color: var(--warn); }
+
+/* 窄窗口：两栏并成单列，整页滚。 */
+@media (max-width: 960px) {
+  .wb { height: auto; overflow: auto; }
+  .wb .layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
+  .wb .col-left, .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
+}
+@media (max-width: 720px) { .wb .layout { padding: var(--sp-12); gap: var(--sp-14); } }

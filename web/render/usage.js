@@ -77,7 +77,7 @@ const _hoisted_36 = {
 const _hoisted_37 = {
   class: "hint",
   id: "aiPriceNote",
-  style: {"margin":"2px 0 12px"}
+  style: {"margin":"var(--sp-2) 0 var(--sp-12)"}
 }
 const _hoisted_38 = { id: "aiByModel" }
 const _hoisted_39 = { key: 0 }
@@ -108,7 +108,7 @@ const _hoisted_57 = ["onClick", "innerHTML"]
 const _hoisted_58 = {
   class: "upd",
   id: "billCnt",
-  style: {"margin-bottom":"8px"}
+  style: {"margin-bottom":"var(--sp-8)"}
 }
 const _hoisted_59 = { id: "bills" }
 const _hoisted_60 = ["innerHTML"]
@@ -130,7 +130,7 @@ const _hoisted_67 = {
 }
 const _hoisted_68 = {
   key: 1,
-  style: {"font-size":"10px"}
+  style: {"font-size":"var(--fs-10)"}
 }
 const _hoisted_69 = {
   key: 2,
@@ -157,7 +157,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("button", {
         class: "ghost",
         id: "reload",
-        style: {"padding":"8px 15px"},
+        style: {"padding":"var(--sp-8) var(--sp-15)"},
         disabled: _ctx.reloading,
         onClick: _ctx.reloadAll
       }, [
@@ -185,7 +185,7 @@ export function render(_ctx, _cache) {
               ? (_openBlock(), _createElementBlock("div", {
                   key: 1,
                   class: "empty",
-                  style: _normalizeStyle(_ctx.balanceTip.kind === 'warn' ? 'color:var(--warn,#d97706)' : '')
+                  style: _normalizeStyle(_ctx.balanceTip.kind === 'warn' ? 'color:var(--warn)' : '')
                 }, [
                   (_ctx.balanceTip.kind === 'proxy')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [

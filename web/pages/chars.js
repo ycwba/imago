@@ -1599,7 +1599,7 @@ export default {
     function draftPlaceholder(name, kind, want) {
       const one = (lab) => '<div class="ui-cand"><div class="ui-wait fill" style="width:76px;height:76px">'
         + '<i></i><span>' + lab + '…</span></div></div>';
-      return '<div class="ui-pick"><div class="ui-hint" style="margin-bottom:8px">'
+      return '<div class="ui-pick"><div class="ui-hint" style="margin-bottom: var(--sp-8)">'
         + '正在给「' + D.esc(name) + '」准备 ' + (want.voice ? '图与声音' : '图')
         + ' —— 出好了会让你挑；这一步还没存进素材库</div>'
         + '<div class="ui-cands">' + (want.pic ? one('图') : '') + (want.voice ? one('声音') : '') + '</div></div>';
@@ -1642,7 +1642,7 @@ export default {
             + '仍然可以只用文字创建，之后在编辑区「声音」那一块选一种方式定音色（预设音色 / 写声音描述 / 复刻参考音频）。</div>')
           : '';
         body.innerHTML = secPic + secVoice
-          + '<div class="ui-hint" style="margin-top:10px">挑完点下面的「创建素材」才写进素材库；'
+          + '<div class="ui-hint" style="margin-top: var(--sp-10)">挑完点下面的「创建素材」才写进素材库；'
           + '直接关掉这一窗则什么都不会保存。</div>';
         body.querySelectorAll('[data-pi]').forEach(el => {
           el.onclick = () => { chosen = Number(el.dataset.pi); draw(); };

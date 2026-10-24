@@ -3,8 +3,8 @@
    另加两处「只有状态才画」的界面：字幕编辑区、助手来源卡片。
    不存整张截图：把画面缩成 24×14 的 RGB 指纹，和 tests/fixtures/visual/fingerprints.json 比。
    首次生成基线：UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs
-   只补某一页：UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=canvas node tests/e2e/ui-visual.cjs（其余画面的基线原样留着）
-   点名也可以直接给参数：node tests/e2e/ui-visual.cjs --pages=canvas（cmd / PowerShell 里更好抄）
+   只补某一页：UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=studio node tests/e2e/ui-visual.cjs（其余画面的基线原样留着）
+   点名也可以直接给参数：node tests/e2e/ui-visual.cjs --pages=studio（cmd / PowerShell 里更好抄）
    有差异时把实际截图写到 tests/fixtures/visual/actual/（gitignore）。 */
 'use strict';
 const fs = require('fs');
@@ -23,7 +23,7 @@ const ACTUAL_DIR = path.join(ROOT, 'tests/fixtures/visual/actual');
 const WRITE = process.env.UI_VISUAL_WRITE === '1';
 /* 点名只跑这几页（按 PAGES 里的那个名字）。加一页时不必为其余画面重跑一遍，
    更不必拿这一页的一次截图去赌另外十九档在这一刻还是不是准的。
-   两种写法等价：`UI_VISUAL_PAGES=canvas` 与 `--pages=canvas`（后者在 Windows 的 cmd 里也能直接粘）。
+   两种写法等价：`UI_VISUAL_PAGES=studio` 与 `--pages=studio`（后者在 Windows 的 cmd 里也能直接粘）。
    名字给前缀也算：`--pages=studio` 命中工作台那三档（studio-video / -image / -audio），
    改一个 spa-<页>.css 要的就是这一页的所有画面。 */
 const argPages = (() => {
@@ -167,6 +167,8 @@ async function prepSubtitles(page) {
    四张画面就成了 2、4、6、8 张卡片，同一档拍不出同一张图。 */
 let chatFake = null;
 async function prepChatSources(page, proxy) {
+  /* 助手是空闲装载的：全量跑时前面几档的时间早把它带起来了，点名单跑这一档就得自己等。 */
+  await page.waitFor(() => !!window.AiChat, 25000).catch(() => {});
   await page.eval(() => { AiChat.open(); return true; });
   /* 底栏提示是设置页那份供应方 / 型号回来之后才写的（paintHint）：不等它落定，
      同一档第一次拍在写之前、第二次拍在写之后，四张画面里会出现两种底栏。 */

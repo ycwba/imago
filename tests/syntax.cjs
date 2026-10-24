@@ -9,7 +9,7 @@
 
    两种模式都试：
      · 脚本模式 —— 24 个 IIFE 经典脚本（挂 window.<Name>，没有 import）
-     · 模块模式 —— 页面 / 导演台 / 画布那些 ESM（有 import / export）
+     · 模块模式 —— 页面 / 导演台那些 ESM（有 import / export）
    先尽量在进程内解析（vm.Script + vm.SourceTextModule，一次进程扫完全部文件）；
    拿不到模块 API 时退回逐文件 `node --check`（慢一个数量级，判据一模一样）。
 

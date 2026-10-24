@@ -403,7 +403,7 @@ export default {
       }).join('');
       const legend = series.map(sv => {
         const subs = [...sv.subs.keys()].map(x => x.replace(/^SparkCine\s*/, '').replace(/^VGENV\s*/, '')).filter(Boolean);
-        const subTxt = subs.length ? `<i style="background:transparent;width:auto;margin:0 0 0 2px;font-style:normal;color:var(--sub)">（${subs.slice(0, 3).join('/')}${subs.length > 3 ? '…' : ''}）</i>` : '';
+        const subTxt = subs.length ? `<i style="background:transparent;width:auto;margin: 0 0 0 var(--sp-2);font-style:normal;color:var(--sub)">（${subs.slice(0, 3).join('/')}${subs.length > 3 ? '…' : ''}）</i>` : '';
         return `<span title="${sv.name}"><i style="background:${colorOf(sv.name)}"></i>${shortName(sv.name)}${subTxt}${sv.unit ? ' · ' + sv.unit : ''} <b style="color:var(--sub);font-weight:500">${ROUND(sv.total).toLocaleString()}</b></span>`;
       }).join('');
       return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="每日消费曲线">${bars}</svg>

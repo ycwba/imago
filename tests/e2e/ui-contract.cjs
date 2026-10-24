@@ -16,9 +16,9 @@
       监听 `securitypolicyviolation` 要 0 次，同时裂图必须被「已丢失」角标替掉
       —— 只判「没违规」会漏掉另一半：监听没跑、图还是裂的，也算坏。
 
-   ③ 「生成完成」这条事件（`wb:asset-done`）曾经有四个生产者各写一份 payload（事件契约靠字符串）。收成 `AssetLocal.announce()` 之后，纯 Node 那半边只能判「委托给了谁」，
+   ③ 「生成完成」这条事件（`wb:asset-done`）曾经有几处生产者各写一份 payload（事件契约靠字符串）。收成 `AssetLocal.announce()` 之后，归一化本身
       归一化本身对不对只有真 AssetLocal 在场才验得到，所以这一节判六件事：
-        · 三种生产者形状（工作台全字段 / 导演台带价目 / 画布只给地址）折完之后 own key 集合一模一样，
+        · 三种形状（工作台全字段 / 导演台带价目 / 只给 provider+地址+任务号的最小条目）折完之后 own key 集合一模一样，
           别名（`taskId` / `raw`）折进正名之后要从条目里删掉 —— 一份事实只留一个出处；
         · 派生那六个（src / assetId / genId / id / rawSrc / dl）按一条规则算，且不给缺的字段凭空造值；
         · 该不投的三种（没有地址 / `la_` 本机导入 / 空批次）一条都不许投出去；
@@ -192,12 +192,13 @@ const LISTENER_PROBE = () => {
       .filter(e => !/Refused to execute inline script/.test(e));
     must(cspErr.length === 0, '控制台里有 CSP 报错：' + JSON.stringify(cspErr.slice(0, 2)));
 
-    /* ---------- ③ 「生成完成」这条事件：四处写法折成同一种形状 ---------- */
-    /* 判的都是「只有真 AssetLocal 在场才验得到」的那几件事（tests/canvas-gen.mjs 里
-       引用了这一处，纯 Node 那半边只判委托、不判归一化）：
-         · 三家生产者的字段集合本来不一样（导演台带 priceMicros/currency/gstatus、工作台带
-           duration/priceText、画布只给一条最小条目，地址一家写 `src`、一家写 `url`）——
-           折完之后**own key 集合必须是同一份**，否则消费方还要逐字段可选容错，加字段就改四处；
+    /* ---------- ③ 「生成完成」这条事件：几处写法折成同一种形状 ---------- */
+    /* 判的都是「只有真 AssetLocal 在场才验得到」的那几件事（这一处没有纯 Node 半边可替，
+       归一化对不对必须有真 AssetLocal 才验得到）：
+         · 两家生产者的字段集合本来不一样（导演台带 priceMicros/currency/gstatus、工作台带
+           duration/priceText，地址一家写 `src`、一家写 `url`），再摆一条只有 provider/src/taskId
+           的最小条目当「下限形状」——
+           折完之后**own key 集合必须是同一份**，否则消费方还要逐字段可选容错，加字段就改几处；
          · 派生那六个（src / assetId / genId / id / rawSrc / dl）按一条规则算出来；
          · 该不投的三种（没有地址 / `la_` 本机导入 / 空批次）一条都不许投出去；
          · 同一批里同一条产物（换了签名地址也算同一条）只投一遍，换一家平台算另一条；
@@ -225,8 +226,8 @@ const LISTENER_PROBE = () => {
       window.addEventListener('wb:asset-done', on);
       const run = list => { const before = batches.length; const ret = AL.announce(list); return { ret, sent: batches.length - before }; };
 
-      /* 三种生产者形状各投一次（字段集合按各页历史上真发过的那份写）。
-         任务号故意两种写法都摆出来：工作台当年写 `genId`，导演台与画布写 `taskId` —— 折完之后
+      /* 三种形状各投一次（两家生产者按各自历史上真发过的那份写 + 一条最小条目当「下限形状」）。
+         任务号故意两种写法都摆出来：工作台当年写 `genId`，导演台写 `taskId` —— 折完之后
          别名必须消失，条目里只留 `genId` 一个出处（下面那句 own key 集合相同就是判这一条）。 */
       const likeStudio = { kind: 'asset', provider: 'provA', assetId: 'a1', genId: 't1', type: 'image', format: 'png',
         status: 'done', src: 'https://up.example/x1.png?sig=1', rawSrc: 'https://up.example/x1.png?sig=1',
@@ -234,15 +235,15 @@ const LISTENER_PROBE = () => {
         created: '2026-10-19T00:00:00.000Z' };
       const likeDirector = { kind: 'asset', provider: 'provB', assetId: 'a2', taskId: 't2', url: '/asset/a2',
         priceMicros: 123456, currency: 'CNY', gstatus: 'succeeded' };
-      const likeCanvas = { provider: 'provC', src: '/asset/a3', taskId: 't3' };
-      const likeCanvasExtra = { provider: 'provD', src: '/asset/a4', taskId: 't4', extraField: '留着' };
+      const likeBare = { provider: 'provC', src: '/asset/a3', taskId: 't3' };
+      const likeBareExtra = { provider: 'provD', src: '/asset/a4', taskId: 't4', extraField: '留着' };
       run([likeStudio]);
       const s0 = batches[batches.length - 1][0];
       run([likeDirector]);
       const d0 = batches[batches.length - 1][0];
-      run([likeCanvas]);
+      run([likeBare]);
       const c0 = batches[batches.length - 1][0];
-      run([likeCanvasExtra]);
+      run([likeBareExtra]);
       const e0 = batches[batches.length - 1][0];
       const shapeOf = n => Object.keys(n || {}).sort().join('|');
 
@@ -263,7 +264,7 @@ const LISTENER_PROBE = () => {
         noUndef: [s0, d0, c0, e0].every(x => x && Object.keys(x).every(k => x[k] !== undefined)),
       };
 
-      /* 不凭空造：likeCanvas 没给 kind / status / 时刻 —— 补了 kind 就等于替用户决定「这是产物，去下载」，
+      /* 不凭空造：likeBare 没给 kind / status / 时刻 —— 补了 kind 就等于替用户决定「这是产物，去下载」，
          补了时刻就等于把一条历史产物判成新产物（wantSave 的「一个时刻都没有」那一档会失效）。 */
       const invented = { kind: !!c0 && c0.kind !== '', status: !!c0 && c0.status !== '',
         created: !!c0 && c0.created !== '', completed: !!c0 && c0.completed !== '', ts: !!c0 && c0.ts !== '' };

@@ -1416,9 +1416,9 @@ const SettingsView = {
           + MD.map(m => '<option value="' + m + '" ' + (window.pageModeOf(t.key) === m ? 'selected' : '') + '>'
             + (m === 'page' ? '翻页' : '动态加载（滚动自动加载）') + '</option>').join('')
           + '</select>'
-          + '<span style="font-size:12.5px;color:var(--sub)">每页</span>'
+          + '<span style="font-size: var(--fs-12-5);color:var(--sub)">每页</span>'
           + '<input type="number" min="' + SZ.min + '" max="' + SZ.max + '" data-size="' + window.esc(t.key) + '" value="' + window.pageSizeOf(t.key) + '" style="flex:0 0 90px">'
-          + '<span style="font-size:12.5px;color:var(--sub)">条</span>';
+          + '<span style="font-size: var(--fs-12-5);color:var(--sub)">条</span>';
         box.appendChild(row);
       });
       if (window.Dropdowns) Dropdowns.build(box);
@@ -1794,7 +1794,7 @@ const SettingsView = {
           ctl = '<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="' + id + '"' + (val === '0' ? '' : ' checked') + '> 开启</label>';
         } else if (it.kind === 'num') {
           ctl = '<input type="number" min="0" step="' + window.esc(it.step || '0.5') + '" data-set="' + id + '" value="' + window.esc(val) + '" style="flex:0 0 110px">'
-            + (it.unit ? '<span style="font-size:12.5px;color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
+            + (it.unit ? '<span style="font-size: var(--fs-12-5);color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
         } else {
           ctl = '<select data-set="' + id + '" style="flex:0 0 210px">'
             + (it.options || []).map(o => '<option value="' + window.esc(o.id) + '"' + (o.id === val ? ' selected' : '') + '>' + window.esc(o.label) + '</option>').join('')
@@ -2687,7 +2687,7 @@ const SettingsView = {
       const d = u.目录 || {};
       let html = chipRow('本机资产库', u.档 || 'warn', u.芯片 || '?',
         (u.因由 || []).join(' · ') || '没有要提醒的 —— 这一格只数不删', d.路径 || '');
-      html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top:4px">'
+      html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top: var(--sp-4)">'
         + window.esc(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
       if (usageRowsEl.value) usageRowsEl.value.innerHTML = html;
       usageMsg.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
@@ -2762,7 +2762,7 @@ const SettingsView = {
       const kinds = (window.Wb && Wb.History.kinds()) || [];
       host.innerHTML = kinds.map(k => {
         const n = Wb.History.read(k.kind).length;
-        return '<div class="krow" style="gap:8px;flex-wrap:wrap;margin-top:10px">'
+        return '<div class="krow" style="gap: var(--sp-8);flex-wrap:wrap;margin-top: var(--sp-10)">'
           + '<span class="kn">本地任务记录</span>'
           + '<span class="sub-line">' + window.esc(k.label) + '：本机 ' + n + ' 条。'
           + (n ? '这不是缓存：清掉后本机存的任务号与提示词就没了（平台上的任务与已生成的文件不受影响），删除还会同步进数据文件与云端。'
@@ -3707,7 +3707,7 @@ const SettingsView = {
     }
     /* 滚到哪儿，二级行就跟着换成哪一组的标题（上面那排组锚点也跟着挪亮）。
        判定线要落在「跳转落点」下面：点锚点滚完，组顶正好停在 scroll-margin 那条线
-       （spa-settings.css：--setnavh + --sp-3-5），也就是导航底下 14px。线只加 8px 时
+       （spa-settings.css：--setnavh + --sp-14），也就是导航底下 14px。线只加 8px 时
        刚跳到的那组顶永远比线低 6px —— 落定的滚动事件把它判回上一组，二级行与锚点
        高亮要再往下滚一点才翻过来（2026-10-21 报告）。margin 里含导航高，减回去才是
        导航底下的空档；再放宽 12px，兜住 scrollToEl 落定补校正的 ±10 容差。 */
