@@ -93,6 +93,7 @@
   --sz-tile:132px;        /* 素材磁贴宽 */
   --sz-thumb-h:96px;      /* 缩略图高（与 --sz-tile 配对） */
   --sz-card:268px;        /* 卡片网格列宽 */
+  --sz-card-sm:200px;      /* 卡片网格的窄档（紧凑视图 / 窄窗） */
   --sz-scroll:8px;        /* 细滚动条宽 */
   --sz-wb:1440px;         /* 工作台最大宽 */
   --sz-dock:320px;        /* 剪辑态轨道坞的默认高度（拖动后由 Wb.split 写进 --dock-h 覆盖） */

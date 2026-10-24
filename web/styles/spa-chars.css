@@ -7,15 +7,11 @@
 .chars-page {
   /* 本页**有意**与全站不同的一条：深色下的强调色更亮一点（素材库卡片密度高，
      深底上 #7c5cff 那些数字偏暗）。其余公共变量一律跟 ui.css 走。 */
-  position: absolute;
-  inset: 0;
-  overflow: auto;
   background: var(--bg);
   color: var(--txt);
   font-family: var(--font-ui);
 }
 html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
-.chars-page, .chars-page * { box-sizing: border-box; }
 
 .chars-page .desc { font-size: var(--fs-14); color: var(--sub); line-height: 1.7; max-width: 860px; }
 /* .toolbar 的 flex / 间距 / 换行在 ui.css（公共一份）；.toolbar2、.toolbar3 公共里没有，还在这里。 */

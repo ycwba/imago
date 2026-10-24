@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/assets.html 编译，别手改。 */
-import { createElementVNode as _createElementVNode, createCommentVNode as _createCommentVNode, toDisplayString as _toDisplayString, normalizeClass as _normalizeClass, createTextVNode as _createTextVNode, vShow as _vShow, withDirectives as _withDirectives, withKeys as _withKeys, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
+import { createElementVNode as _createElementVNode, createCommentVNode as _createCommentVNode, toDisplayString as _toDisplayString, normalizeClass as _normalizeClass, createTextVNode as _createTextVNode, vShow as _vShow, withDirectives as _withDirectives, openBlock as _openBlock, createElementBlock as _createElementBlock, withKeys as _withKeys } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main assets-page page-shell",
@@ -36,54 +36,58 @@ const _hoisted_17 = ["onClick"]
 const _hoisted_18 = ["disabled", "title", "onClick"]
 const _hoisted_19 = ["onClick"]
 const _hoisted_20 = ["onClick"]
-const _hoisted_21 = { ref: "pagerBtnsEl" }
-const _hoisted_22 = ["onKeydown"]
-const _hoisted_23 = ["disabled", "onClick"]
-const _hoisted_24 = {
-  id: "cnt",
-  class: "info"
-}
-const _hoisted_25 = {
+const _hoisted_21 = {
   class: "viewtoggle",
   id: "fView",
   ref: "viewEl",
   role: "group",
   "aria-label": "展示样式切换"
 }
-const _hoisted_26 = {
+const _hoisted_22 = {
   ref: "loadErrEl",
   id: "loadErr"
 }
-const _hoisted_27 = {
+const _hoisted_23 = {
   class: "bulkbar",
   id: "bulkBar"
 }
-const _hoisted_28 = {
+const _hoisted_24 = {
   class: "bk-cnt",
   id: "bulkCnt"
 }
-const _hoisted_29 = ["disabled", "onClick"]
-const _hoisted_30 = ["onClick"]
-const _hoisted_31 = ["disabled", "onClick"]
-const _hoisted_32 = {
+const _hoisted_25 = ["disabled", "onClick"]
+const _hoisted_26 = ["onClick"]
+const _hoisted_27 = ["disabled", "onClick"]
+const _hoisted_28 = {
   class: "bk-tip",
   id: "bulkTip"
 }
-const _hoisted_33 = ["onClick"]
-const _hoisted_34 = {
+const _hoisted_29 = ["onClick"]
+const _hoisted_30 = {
   key: 0,
   class: "empty"
 }
-const _hoisted_35 = ["onClick"]
-const _hoisted_36 = {
+const _hoisted_31 = ["onClick"]
+const _hoisted_32 = {
   class: "grid",
   id: "grid",
   ref: "gridEl"
 }
-const _hoisted_37 = {
+const _hoisted_33 = {
   id: "gridEnd",
   ref: "gridEndEl",
   style: {"height":"1px"}
+}
+const _hoisted_34 = { class: "assets-pager" }
+const _hoisted_35 = {
+  class: "pager-row",
+  ref: "pagerBtnsEl"
+}
+const _hoisted_36 = ["onKeydown"]
+const _hoisted_37 = ["disabled", "onClick"]
+const _hoisted_38 = {
+  id: "cnt",
+  class: "info"
 }
 
 export function render(_ctx, _cache) {
@@ -192,42 +196,24 @@ export function render(_ctx, _cache) {
             }, null, -1 /* CACHED */),
             _createTextVNode(" 取消全部进行中", -1 /* CACHED */)
           ]))], 8 /* PROPS */, _hoisted_20),
-          _withDirectives(_createElementVNode("span", _hoisted_21, null, 512 /* NEED_PATCH */), [
-            [_vShow, _ctx.isPageMode && _ctx.pagerReady]
-          ]),
-          _createElementVNode("input", {
-            type: "number",
-            id: "gotoPage",
-            ref: "gotoPageEl",
-            min: "1",
-            placeholder: "跳页",
-            onKeydown: _withKeys(_ctx.gotoPageInput, ["enter"])
-          }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_22),
-          _createElementVNode("button", {
-            class: "ghost",
-            id: "gotoBtn",
-            disabled: _ctx.gotoBusy,
-            onClick: _ctx.gotoPageInput
-          }, _toDisplayString(_ctx.gotoBtnText), 9 /* TEXT, PROPS */, _hoisted_23),
-          _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.cntText), 1 /* TEXT */),
-          _createElementVNode("span", _hoisted_25, null, 512 /* NEED_PATCH */)
+          _createElementVNode("span", _hoisted_21, null, 512 /* NEED_PATCH */)
         ])
       ])
     ]),
-    _createElementVNode("div", _hoisted_26, null, 512 /* NEED_PATCH */),
-    _withDirectives(_createElementVNode("div", _hoisted_27, [
-      _createElementVNode("span", _hoisted_28, _toDisplayString(_ctx.bulkCountText), 1 /* TEXT */),
+    _createElementVNode("div", _hoisted_22, null, 512 /* NEED_PATCH */),
+    _withDirectives(_createElementVNode("div", _hoisted_23, [
+      _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.bulkCountText), 1 /* TEXT */),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkAll",
         disabled: _ctx.bulkAllDisabled,
         onClick: _ctx.bulkAll
-      }, _toDisplayString(_ctx.bulkAllText), 9 /* TEXT, PROPS */, _hoisted_29),
+      }, _toDisplayString(_ctx.bulkAllText), 9 /* TEXT, PROPS */, _hoisted_25),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkClear",
         onClick: _ctx.bulkClear
-      }, "取消选择", 8 /* PROPS */, _hoisted_30),
+      }, "取消选择", 8 /* PROPS */, _hoisted_26),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkDown",
@@ -239,8 +225,8 @@ export function render(_ctx, _cache) {
           "data-size": "13"
         }, null, -1 /* CACHED */),
         _createTextVNode(" 批量下载", -1 /* CACHED */)
-      ]))], 8 /* PROPS */, _hoisted_31),
-      _createElementVNode("span", _hoisted_32, _toDisplayString(_ctx.bulkTipText), 1 /* TEXT */),
+      ]))], 8 /* PROPS */, _hoisted_27),
+      _createElementVNode("span", _hoisted_28, _toDisplayString(_ctx.bulkTipText), 1 /* TEXT */),
       _cache[9] || (_cache[9] = _createElementVNode("span", {
         class: "sp",
         style: {"flex":"1"}
@@ -249,24 +235,45 @@ export function render(_ctx, _cache) {
         class: "ghost",
         id: "multiExit",
         onClick: _ctx.exitMulti
-      }, "退出多选", 8 /* PROPS */, _hoisted_33)
+      }, "退出多选", 8 /* PROPS */, _hoisted_29)
     ], 512 /* NEED_PATCH */), [
       [_vShow, _ctx.multiMode]
     ]),
     (_ctx.failed)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
+      ? (_openBlock(), _createElementBlock("div", _hoisted_30, [
           _createTextVNode(_toDisplayString(_ctx.failed) + " ", 1 /* TEXT */),
           _createElementVNode("button", {
             class: "ghost mini",
             onClick: _ctx.retryLoad
-          }, "重新加载本页", 8 /* PROPS */, _hoisted_35)
+          }, "重新加载本页", 8 /* PROPS */, _hoisted_31)
         ]))
       : _createCommentVNode("v-if", true),
-    _withDirectives(_createElementVNode("div", _hoisted_36, [...(_cache[10] || (_cache[10] = [
+    _withDirectives(_createElementVNode("div", _hoisted_32, [...(_cache[10] || (_cache[10] = [
       _createElementVNode("div", { class: "empty" }, "加载中…", -1 /* CACHED */)
     ]))], 512 /* NEED_PATCH */), [
       [_vShow, !_ctx.failed]
     ]),
-    _createElementVNode("div", _hoisted_37, null, 512 /* NEED_PATCH */)
+    _createElementVNode("div", _hoisted_33, null, 512 /* NEED_PATCH */),
+    _createCommentVNode(" 翻页行在**页底**（收藏 / 素材库 / 工作台同一处）：以前它挤在顶部那条筛选行里，\n           一排按钮（多选 / 刷新 / 存回本机 / 取消全部）后面还跟着翻页与跳页，跨页时位置全不一样。 "),
+    _createElementVNode("div", _hoisted_34, [
+      _withDirectives(_createElementVNode("span", _hoisted_35, null, 512 /* NEED_PATCH */), [
+        [_vShow, _ctx.isPageMode && _ctx.pagerReady]
+      ]),
+      _createElementVNode("input", {
+        type: "number",
+        id: "gotoPage",
+        ref: "gotoPageEl",
+        min: "1",
+        placeholder: "跳页",
+        onKeydown: _withKeys(_ctx.gotoPageInput, ["enter"])
+      }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_36),
+      _createElementVNode("button", {
+        class: "ghost",
+        id: "gotoBtn",
+        disabled: _ctx.gotoBusy,
+        onClick: _ctx.gotoPageInput
+      }, _toDisplayString(_ctx.gotoBtnText), 9 /* TEXT, PROPS */, _hoisted_37),
+      _createElementVNode("span", _hoisted_38, _toDisplayString(_ctx.cntText), 1 /* TEXT */)
+    ])
   ], 512 /* NEED_PATCH */))
 }

@@ -17,7 +17,9 @@
    不带空格的外链不能把它顶开——顶开了就整页横向溢出。
    scrollbar-gutter:stable 让滚动条出现/消失不再改变内容宽：任务数不同的两页右栏因此同宽，
    轮询中任务开始/结束也不会让整列重排（表现为切页闪动、列表发「卡」）。 */
-.wb { height: 100%; overflow: hidden; }
+/* 工作台的壳：定位与盒模型跟 .page-shell 同一份（公共层），滚法不同 ——
+   整页不滚，左右两栏各自滚（见下面 .wb .col-left / .col-right）。 */
+.wb { position: absolute; inset: 0; height: 100%; overflow: hidden; box-sizing: border-box; }
 .wb .layout {
   --sp0: minmax(380px, 520px);
   display: grid; grid-template-columns: var(--sp0) minmax(0, 1fr); gap: var(--sp-22);

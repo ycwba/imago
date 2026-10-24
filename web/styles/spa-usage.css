@@ -5,11 +5,8 @@
 /* 页面本体：外壳给的是 fixed 的内容区，这一页自己滚（与 .fav-page 同一种形状）。
    body 的底色与 .page-main 的留白搬到这里。 */
 .usage-page {
-  position: absolute; inset: 0; overflow: auto;
   background: var(--bg); color: var(--txt);
-  box-sizing: border-box;
 }
-.usage-page, .usage-page * { box-sizing: border-box; }
 .usage-page .desc { font-size: var(--fs-13-5); color: var(--sub); line-height: 1.7; max-width: 860px; }
 .usage-page .bar { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 .usage-page .bar .sp { flex: 1; }

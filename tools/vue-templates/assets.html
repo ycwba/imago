@@ -28,10 +28,6 @@
             <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
             <button class="ghost" id="pullLocalBtn" ref="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物存回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
             <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" title="取消所有排队/生成中的任务" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
-            <span ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
-            <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
-            <button class="ghost" id="gotoBtn" :disabled="gotoBusy" @click="gotoPageInput">{{ gotoBtnText }}</button>
-            <span id="cnt" class="info">{{ cntText }}</span>
             <span class="viewtoggle" id="fView" ref="viewEl" role="group" aria-label="展示样式切换"></span>
           </span>
         </div>
@@ -52,5 +48,13 @@
       <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
       <div class="grid" id="grid" ref="gridEl" v-show="!failed"><div class="empty">加载中…</div></div>
       <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
+      <!-- 翻页行在**页底**（收藏 / 素材库 / 工作台同一处）：以前它挤在顶部那条筛选行里，
+           一排按钮（多选 / 刷新 / 存回本机 / 取消全部）后面还跟着翻页与跳页，跨页时位置全不一样。 -->
+      <div class="assets-pager">
+        <span class="pager-row" ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
+        <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
+        <button class="ghost" id="gotoBtn" :disabled="gotoBusy" @click="gotoPageInput">{{ gotoBtnText }}</button>
+        <span id="cnt" class="info">{{ cntText }}</span>
+      </div>
     </div>
   

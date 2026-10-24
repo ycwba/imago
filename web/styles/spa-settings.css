@@ -15,12 +15,9 @@
    --setnavh 由下面的 ResizeObserver 实时写进来（顶栏真实高度），这里只给一个初始值 ——
    不用 var(--setnavh, 96px) 那种内联兜底：兜底值本身就是第二份会漂移的数（判据也把它算作裸值）。 */
 .settings-page {
-  position: absolute; inset: 0; overflow: auto;
   background: var(--bg); color: var(--txt);
   font-family: var(--font-ui);
-  box-sizing: border-box;
   --setnavh: 96px;
-
 }
 /* ⚠ sticky 的吸附边是滚动容器的**内容边**：容器自己带 padding-top 时，顶栏会停在那条带子
    下面 —— 下滑之后顶栏上面永远空着一截，卡片从那截底下滚过去（就是「没有顶在上面」）。
@@ -29,7 +26,7 @@
 /* 原页面的 `* { box-sizing: border-box; margin: 0; padding: 0; }`：
    用 :where() 把它压回 0 特异性，ui.css 里那些带 class 的组件（.ghost / .krow / .tool …）
    照样按自己的规则排 —— 这一点与原来那份文档里的行为一致。 */
-:where(.settings-page), :where(.settings-page) * { box-sizing: border-box; }
+/* box-sizing 由公共 .page-shell * 给（同一份）；这一页只保留 margin / padding 的归零。 */
 :where(.settings-page) * { margin: 0; padding: 0; }
 
 /* 宽屏下这一页不再整幅拉满 —— 内容限宽居中，右侧那一大片空白就是原来「krow 限宽 + 全幅卡」造成的。

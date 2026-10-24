@@ -1,11 +1,6 @@
 /* 已迁到 Vue 的页面样式。外壳文档里的类名是全站共享的，所以一律挂在页面根类下，
    不进 iframe 的那批旧页面不受影响。 */
 
-.fav-page {
-  position: absolute; inset: 0; overflow: auto;
-  box-sizing: border-box;
-}
-.fav-page, .fav-page * { box-sizing: border-box; }
 
 /* 首屏留白由 .page-shell 的 padding-top 统一给（24px）—— 页面自己再压一份 margin-top
    就叠成 44px，与资产库（24px）、设置页（24px）不一致；切页时上边距会跳。 */
@@ -13,10 +8,12 @@
 .fav-page .toolbar input[type=search] { flex: 0 1 320px; }
 .fav-page .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 
-.fav-page .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-16); }
+/* 卡片列宽收成两档（--sz-card / --sz-card-sm）：收藏 / 素材库 / 资产库 / 工作台
+   以前各写各的（268 / 220 / 200 / 180 / 150），切页时卡片密度忽宽忽窄。 */
+.fav-page .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr)); gap: var(--sp-16); }
 .fav-page .grid.view-compact { gap: var(--sp-10); }
 @media (max-width: 760px) {
-  .fav-page .grid.view-compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-12); }
+  .fav-page .grid.view-compact { grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); gap: var(--sp-12); }
   .fav-page .grid.view-list .card .thumb { width: 108px; flex-basis: 108px; height: 78px; }
 }
 

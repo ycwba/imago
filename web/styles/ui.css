@@ -1163,7 +1163,13 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .card-surface:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
 /* 拖起来的那张卡压暗：三页（素材库 / 资产库 / 收藏）的拖动源共用这一档反馈。 */
 .card-surface.dragging { opacity: .45; }
-.page-shell { padding: var(--sp-24) var(--sp-32) var(--sp-60); box-sizing: border-box; }
+/* 页面外壳（**唯一一份**）：定位 + 滚动 + 盒模型 + 留白。
+   以前六个页面各抄了一遍 position/inset/overflow/box-sizing —— 差一个像素就是某一页
+   多一条滚动条、某一页少一圈留白（AGENTS.md §3.4.3 的「两种外壳」）。
+   导演台是**作用域岛**，它不吃这一份的留白（内部 .page-main 是整屏高的列），那份另在 spa-director.css。 */
+.page-shell { position: absolute; inset: 0; overflow: auto; box-sizing: border-box;
+  padding: var(--sp-24) var(--sp-32) var(--sp-60); }
+.page-shell * { box-sizing: border-box; }
 @media (max-width: 760px) { .page-shell { padding: var(--sp-16) var(--sp-14) var(--sp-40); } }
 .page-h1 { font-family: var(--font-ui); font-size: var(--fs-24); margin: 0 0 var(--sp-8);
   display: flex; align-items: center; gap: var(--sp-8); }

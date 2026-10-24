@@ -3,7 +3,6 @@
 
 /* ---------- 页面根：铺满外壳内容区，背景与 body 原来那一份一致 ---------- */
 .studio-page {
-  position: absolute; inset: 0; overflow: hidden;
   color: var(--txt);
   font-family: var(--font-ui);
   background: radial-gradient(900px 500px at 85% -5%, color-mix(in srgb, var(--acc) var(--a-14), transparent), transparent 60%),
@@ -18,7 +17,20 @@
 .studio-page :where(*) { margin: 0; padding: 0; }
 
 
-/* ---------- 左栏顶部：类型切换（左） + 模型下拉（右） ---------- */
+/* ---------- 页底那一行：翻页 ---------- */
+/* 页面根改成竖排：网格吃掉剩下的高，翻页行与页脚各占自己那一条。 */
+.studio-page.wb { display: flex; flex-direction: column; }
+.studio-page.wb .layout { flex: 1 1 auto; min-height: 0; }
+.studio-page .wb-pager { flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  gap: var(--sp-8); padding: var(--sp-8) var(--sp-22) var(--sp-6); border-top: var(--hair) solid var(--line); }
+.studio-page .wb-pager .pgrow { display: inline-flex; align-items: center; gap: var(--sp-8); }
+.studio-page .wb-pager input[type="number"] { width: 76px; }
+
+/* ---------- 左栏顶部：页面标题 + 类型切换（左） + 模型下拉（右） ---------- */
+/* 标题走公共 .page-h1 的形状，这一页按工作台的密度收小一号（工作台是工具，不是介绍页）。 */
+.studio-page .st-brand { margin-bottom: var(--sp-12); }
+.studio-page .st-brand .page-h1 { font-size: var(--fs-18); margin: 0 0 var(--sp-4); }
+.studio-page .st-brand .desc { font-size: var(--fs-12); color: var(--sub); margin: 0; line-height: 1.6; }
 .studio-page .st-top { display: flex; align-items: center; gap: var(--sp-10); margin-bottom: var(--sp-10); }
 .studio-page .st-top .ui-seg { flex: 0 0 auto; }
 .studio-page .st-top .st-model { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
@@ -121,5 +133,5 @@
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
   .studio-page .st-top .st-model select { max-width: none; }
-  .studio-page.wb .col-right #result { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .studio-page.wb .col-right #result { grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); }
 }

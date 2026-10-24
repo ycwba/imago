@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/studio.html 编译，别手改。 */
-import { createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, createCommentVNode as _createCommentVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
+import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, createStaticVNode as _createStaticVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main studio-page wb",
@@ -7,12 +7,17 @@ const _hoisted_1 = {
 }
 
 export function render(_ctx, _cache) {
-  return (_openBlock(), _createElementBlock("div", _hoisted_1, [...(_cache[0] || (_cache[0] = [
-    _createElementVNode("div", { class: "layout" }, [
+  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+    _cache[0] || (_cache[0] = _createElementVNode("div", { class: "layout" }, [
       _createElementVNode("div", {
         class: "col-left",
         "data-r": "leftCol"
       }, [
+        _createCommentVNode(" 页面标题：其余五页都有 .page-h1，这一页以前只有类型切换器 ——\n               切到这页看不出「这是生成工作台」，只剩页脚一行小字。 "),
+        _createElementVNode("div", { class: "st-brand" }, [
+          _createElementVNode("h1", { class: "page-h1" }, "生成工作台"),
+          _createElementVNode("p", { class: "desc" }, "左栏写、右栏看：左边选类型与参数，右边看这一台的生成结果。")
+        ]),
         _createElementVNode("div", { class: "st-top" }, [
           _createElementVNode("div", {
             class: "ui-seg",
@@ -259,22 +264,6 @@ export function render(_ctx, _cache) {
               "data-r": "searchHost"
             }),
             _createElementVNode("span", { class: "pgsep" }),
-            _createElementVNode("span", {
-              class: "pgrow",
-              id: "stPgRow",
-              "data-r": "stPgRow"
-            }),
-            _createElementVNode("input", {
-              type: "number",
-              id: "stGotoPage",
-              "data-r": "stGotoPage",
-              min: "1",
-              placeholder: "跳页"
-            }),
-            _createElementVNode("button", {
-              class: "ghost",
-              "data-r": "gotoBtn"
-            }, "跳转"),
             _createElementVNode("button", {
               class: "ghost",
               id: "multiBtn",
@@ -378,7 +367,8 @@ export function render(_ctx, _cache) {
           "data-r": "result"
         })
       ])
-    ], -1 /* CACHED */),
-    _createElementVNode("div", { class: "ver" }, "生成工作台 · 视频 / 图像 / 音频 · 右栏卡片可拖到左栏当参考素材", -1 /* CACHED */)
-  ]))], 512 /* NEED_PATCH */))
+    ], -1 /* CACHED */)),
+    _createCommentVNode(" 翻页行在**页底**（收藏 / 素材库 / 资产库同一处）：切页时翻页不用重新找位置。\n           以前它塞在右栏头那一排按钮中间，跟搜索框和「刷新 / 存回本机」挤在一起。 "),
+    _cache[1] || (_cache[1] = _createStaticVNode("<div class=\"wb-pager\"><span class=\"pgrow\" id=\"stPgRow\" data-r=\"stPgRow\"></span><input type=\"number\" id=\"stGotoPage\" data-r=\"stGotoPage\" min=\"1\" placeholder=\"跳页\"><button class=\"ghost\" data-r=\"gotoBtn\">跳转</button></div><div class=\"ver\">生成工作台 · 视频 / 图像 / 音频 · 右栏卡片可拖到左栏当参考素材</div>", 2))
+  ], 512 /* NEED_PATCH */))
 }
