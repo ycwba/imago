@@ -387,6 +387,35 @@ window.TextAI = {
       { name: 'board', from: '当前分镜', desc: '分镜内容' },
     ],
   },
+  /* Skill 的「使用场景」：设置页 Skill 卡的一级菜单 = 场景，点一个场景看
+     「这一步会拿到什么」+「这个场景的 Skill」。
+     一个场景 = 一个 contract = 一类活儿的写法（contract 的真相在上面的 SKILL_CONTRACT）。
+     场景名与「用在哪」**沿用 PROMPTS** —— 那是这条指令的唯一说明处，这里不抄第二份；
+     PROMPTS 里没有的两条（助手、拆分镜素材判定）自带说明。
+     分组是 PROMPTS 没有的东西：那一组（gen / charpic / voice）分的是「提示词长什么样」，
+     这里分的是「这一处活儿在哪个工作台做」。 */
+  SKILL_SCENE_GROUPS: [
+    { id: 'assistant', name: 'AI 助手', note: '按需触发，不占固定位' },
+    { id: 'studio', name: '生成工作台', note: '视频 · 图像 · 语音' },
+    { id: 'director', name: '导演台', note: '拆分镜 · 分镜 · 成片' },
+    { id: 'chars', name: '素材库', note: '角色 · 场景 · 音色' },
+  ],
+  SKILL_SCENES: [
+    { group: 'assistant', key: 'assistant', assistant: true, label: 'AI 助手',
+      used: '助手在回合里自己判断加载：预载最多 2 份进系统提示词 + 按需最多 2 份走工具结果；用户在问题里点名的优先钉住。它不占固定位 —— 下面是候选，命中触发词才会被带进回合。' },
+    { group: 'studio', key: 'video' },
+    { group: 'studio', key: 'img' },
+    { group: 'studio', key: 'audio' },
+    { group: 'studio', key: 'img_split' },
+    { group: 'studio', key: 'follow' },
+    { group: 'director', key: 'story' },
+    { group: 'director', key: 'split' },
+    { group: 'director', key: 'board_edit' },
+    { group: 'director', key: 'board_assets', label: '拆分镜素材判定',
+      used: '导演台「拆分镜」→ 判断哪些新角色/场景/物品要建档并出图' },
+    { group: 'chars', key: 'char_image' },
+    { group: 'chars', key: 'char_voice' },
+  ],
   skillBody(kind) {
     const c = this.SKILL_CONTRACT[kind];
     const all = (typeof window !== 'undefined' && window.__skillBodies) || null;

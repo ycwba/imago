@@ -328,7 +328,7 @@ const h = require('./harness.cjs');
       const seg = document.querySelector('#tlBar .tl-seg[data-seg="0"]');
       const t1 = document.getElementById('tlT1');
       return seg && t1 ? { w: parseFloat(seg.style.width), ax: t1.textContent,
-        dur: (seg.querySelector('.lab-dur') || {}).textContent || '',
+        dur: (seg.querySelector('.seg-dur') || {}).textContent || '',
         tip: seg.title, mask: !!seg.querySelector('.mask') } : null;
     }, 8000);
     if (cells.mask) throw new Error('剪掉的头尾不再画成遮挡（那一层已删）：' + JSON.stringify(cells));
@@ -584,7 +584,15 @@ const h = require('./harness.cjs');
          具体秒数交给下面两条按现算的 `want2` / `axS` 去比 —— 别在这里写死一个轴的刻度。 */
       if (!el || !p || !gen || gen.hidden || parseFloat(el.style.left) < 80) return null;
       return { left: parseFloat(el.style.left), pin: parseFloat(p.style.left) };
-    }, 8000);
+    }, 8000).catch(async () => {
+      const dbg = await page.eval(() => {
+        const els = Array.from(document.querySelectorAll('#tlBar .tl-vp')).map(e => ({
+          shot: e.dataset.shot, left: e.style.left, width: e.style.width, title: e.title }));
+        return { els, pin: (document.querySelector('#tlBar .tl-pin') || {}).style?.left,
+          gen: !!(document.getElementById('grpVoiceAdd') && !document.getElementById('grpVoiceAdd').hidden) };
+      });
+      throw new Error('待生成块没停在右端：' + JSON.stringify(dbg));
+    });
     if (moved2.left / 100 * axS < 4) throw new Error('再点一次不该把块拽回第一段起点：' + moved2.left);
     if (Math.abs(moved2.pin / 100 * axS - want2) > 0.25) {
       throw new Error('再点一次针该落在新的点击处 ' + want2 + ' 秒：' + moved2.pin);

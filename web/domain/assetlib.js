@@ -447,7 +447,11 @@
              数组**就地改**（不换 `st.out` 的引用）：续拉时页面把自己那份数组递进来，
              引用一换它后面的合并就落在旧数组上。 */
           const A = window.AssetLocal;
-          const kept = this.settleEntries(this.out);
+          /* settleEntries 是 **AssetLib** 上的方法（不是这一份 loader 状态上的）——
+             以前写成 this.settleEntries，emit 一跑就 TypeError（首屏缓存那条路因此对不上）。
+             这一份只管塌表与镜像，合表判据仍然只有 AssetLib.settleEntries 一处。 */
+          const AL = window.AssetLib;
+          const kept = (AL && AL.settleEntries) ? AL.settleEntries(this.out) : this.out.slice();
           if (kept.length !== this.out.length) {
             /* 就地改，不换引用（同上）。twins 里因此留着已删条目的记录不要紧：
                下一次同产物的批次最多把一个不在表里的对象当 prev，紧接着这一趟塌表又会把它纠正过来。 */

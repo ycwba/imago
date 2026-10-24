@@ -32,9 +32,6 @@ export function createLanes(E, document, window) {
     shotAxTotal,
     voiceAxBox,
     fillWaveforms,
-    videoPeaks,
-    drawSegWave,
-    fillSegWaveforms,
     voiceBlockHTML,
     cutSegIdx,
     shotVoices,
@@ -234,7 +231,7 @@ function tlApplyScale(bar, total) {
    · 播放器那一只 `.player-box` 即便有 `keepBox` 也先被 `remove()` 了一次（全屏正开着时等于当场退出全屏）。
    这三件都与「这一排摊开几像素/秒」无关，所以缩放只重排时间轴。 */
 function tlRescale() {
-  const col = $('midCol'), sh = curShot();
+  const col = document.getElementById('tlDock'), sh = curShot();
   if (!col || !sh || !col.querySelector('#tlBar')) return;   // 不在剪辑态就没有这一排可重排
   const cands = sh.candidates || [];
   renderTimeline(col, sh, cands[projOf().curCand] || cands[0]);
@@ -529,26 +526,12 @@ function toggleSegMute(sh, c, total, idx) {
   filmEdited();
 }
 function bindSegVolCtl(scope, sh, c, total) {
+  /* 段级静音小钮（盖在切片右上角那枚 .seg-mute）。音量只有右栏那张「这一段 / 这一句」卡上
+     那一枚滑块 —— 画面轨自己的波纹带（连同带出来的那条音量滑杆）已随「去画面波纹」整条撤掉。 */
   scope.querySelectorAll('[data-segvol]').forEach(b => {
     b.onclick = ev => {
       ev.stopPropagation(); ev.preventDefault();
       toggleSegMute(sh, c, total, Number(b.dataset.segvol));
-    };
-  });
-  scope.querySelectorAll('[data-segvolr]').forEach(r => {
-    r.onpointerdown = ev => ev.stopPropagation();
-    r.onclick = ev => ev.stopPropagation();
-    /* 拖动中只按新音量重画这一条波纹（便宜）；松手（change）才落盘 ——
-       每动一下 input 都 filmEdited 会整排重渲染 + 切片失效，手感直接崩。 */
-    const repaint = () => {
-      const box = r.parentElement, cv = box && box.querySelector('canvas');
-      if (!cv || !drawSegWave || !videoPeaks) return;
-      cv.dataset.vol = r.value;
-      videoPeaks(cv.dataset.wv).then(pk => { if (cv.isConnected) drawSegWave(cv, pk, cv.dataset.a, cv.dataset.b, r.value); });
-    };
-    r.oninput = repaint;
-    r.onchange = () => {
-      if (segVolWrite(sh, c, total, Number(r.dataset.segvolr), Number(r.value))) filmEdited();
     };
   });
 }
@@ -611,14 +594,14 @@ function renderShotTrack(bar, col, sh, cur) {
         ? '第 ' + (i + 1) + ' 段：静态图「' + String(s.imgName || '图片') + '」，成片里占 ' + round1(segFilmLen(s))
           + ' 秒。静态图没有入出点：拖两端的把手改它的时长'
           + (picLocked ? '（' + rowLockWhy('pic', r.ln) + '，把手不画也拖不动；' + rowUnlockHow('pic', r.ln) + '）'
-            : '；上下拖 = 挪到另一行')
+            : '；上下拖 = 挪到另一行，左右拖 = 挪到别处（原位自动空一段）')
         : isVGap
           ? '第 ' + (i + 1) + ' 段：空段，成片里这一段出 ' + round1(segFilmLen(s)) + ' 秒黑场（不吃源）。'
-            + '拖两端的把手改它的时长；点上面那颗「摘掉空段」整段去掉'
+            + '拖两端的把手改它的时长；左右拖走这一格 = 把这段空摘掉'
           : '第 ' + (i + 1) + ' 段：这一段用源视频 ' + round1(r.in) + '–' + round1(r.out) + ' 秒，成片里占 '
             + round1(segFilmLen(s)) + ' 秒（在源里这一段的框是 ' + round1(s.a) + '–' + round1(s.b) + ' 秒，把手往外拖最多恢复到这儿）。点空白处放插针'
             + (picLocked ? '（' + rowLockWhy('pic', r.ln) + '，把手不画也拖不动；' + rowUnlockHow('pic', r.ln) + '）'
-              : '，拖格子两端的把手把这一段的头/尾切掉（这一格当场变窄、后面那些跟着前移）；上下拖 = 挪到另一行');
+              : '，拖格子两端的把手把这一段的头/尾切掉（这一格当场变窄、后面那些跟着前移）；上下拖 = 挪到另一行，左右拖 = 挪到别处（原位自动空一段）');
     /* 图片段的中带：同一张图平铺 `imageTileCount` 格（>84px 宽就不止一格）。
        这几个磁贴**不带 `data-frs`** —— `fillSlices` 只认那一个属性，静态图不该去解码取帧。 */
     const midBand = gone ? ''
@@ -628,22 +611,14 @@ function renderShotTrack(bar, col, sh, cur) {
             `<i class="fr" style="background-image:url(&quot;${esc(imgSrc)}&quot;)"></i>`).join('')
           + '</span>'
         : sliceBoxHTML(src, r.in, r.out, r.w * pps, frameToSrc(r, pinAx));
-    const loBand = gone ? ''
-      : isImg ? '<span class="wv-box"><span class="wv-none">静态图 · 没有原声</span></span>'
-        : `<span class="wv-box">${muted ? '<span class="wv-none">静音</span>'
-          : `<canvas data-wv="${esc(src)}" data-a="${r.in}" data-b="${r.out}" data-vol="${vol}"></canvas>
-             <input class="wv-vol" type="range" min="0" max="2" step="0.05" value="${vol}" data-segvolr="${i}" title="这一段原声的音量（0–200%）">`}</span>`;
     return `
-    <div class="tl-seg${i === iSel ? ' sel' : ''}${gone ? ' gone' : ''}" data-seg="${i}"
+    <div class="tl-seg${i === iSel ? ' sel' : ''}${gone ? ' gone' : ''}" data-seg="${i}" data-name="${esc(baseTxt)}"
          style="left:${pct(r.start, ax)}%;width:${pct(r.w, ax)}%"
          title="${esc(tip)}">
-      <span class="lab">
-        <span class="lab-name">${esc(nmTxt)}</span>
-        <span class="lab-dur">${esc(durTxt)}</span>
-        ${(gone || isImg || isVGap) ? '' : `<button class="mute${muted ? ' on' : ''}" data-segvol="${i}" title="${muted ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声 —— 与「删画面出黑场」是两件事）'}">${muted ? '静' : '声'}</button>`}
-      </span>
       ${midBand}
-      ${loBand}
+      <span class="seg-name">${esc(nmTxt)}</span>
+      <span class="seg-dur">${esc(durTxt)}</span>
+      ${(gone || isImg || isVGap) ? '' : `<button class="seg-mute${muted ? ' on' : ''}" data-segvol="${i}" title="${muted ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声 —— 与「删画面出黑场」是两件事）'}">${muted ? '静' : '声'}</button>`}
       ${picLocked ? '' : `<span class="cut l" data-seg="${i}" data-edge="l"></span><span class="cut r" data-seg="${i}" data-edge="r"></span>`}
     </div>`;
   };
@@ -658,7 +633,7 @@ function renderShotTrack(bar, col, sh, cur) {
     const body = G.rows.filter(r => r.ln === ln).map(r => cellHTML(r)).join('');
     /* 那句「一段都没留」只说一次（挂在第一行）：行数可以是用户自己加的，
        每一行都重复一句等于把三行空白变成三条警告。 */
-    picHTML += `<div class="tl-vrow${rowHidden('pic', ln) ? ' hid' : ''}" data-ln="${ln}">` + (body
+    picHTML += `<div class="tl-vrow${rowHidden('pic', ln) ? ' ghosted' : ''}" data-ln="${ln}">` + (body
       || (segs.length || ln ? '' : '<div class="tl-empty">这一条候选一段画面都没留：按 Ctrl+Z 退回去，或在上面「切开」重新分一段。</div>')) + '</div>';
   }
   bar.insertAdjacentHTML('beforeend', rulerHTML(ax, tlPpsNow(ax)));
@@ -675,7 +650,6 @@ function renderShotTrack(bar, col, sh, cur) {
   bar.insertAdjacentHTML('beforeend', `<span class="tl-pin" style="left:${pct(pinAx, ax)}%"></span><span class="tl-pv-axis" id="tlPvAxis"></span>`);
   bar.querySelectorAll('.tl-vrow').forEach(r => { bindSegDrag(r, sh, c, total, G); fillSlices(r); });
   bindSegVolCtl(bar, sh, c, total);
-  fillSegWaveforms(bar);       // 画面格下带（原声波纹）后台填，不挡轨道出来
   bar.querySelectorAll('.tl-lane').forEach(l => bindVoiceLane(l, { total: ax, G: G }));
   bindPendingLanes(bar, { col, film: false, ax, G, sh, c, total, fallen: sh });
   syncLaneSide(col, bar);        // 左边那一列的轨名跟着行数长（画面几行、配音几行各有各的）
@@ -685,7 +659,7 @@ function renderShotTrack(bar, col, sh, cur) {
      绑在**整张网格**上（轨名那一列也算），不绑在滚动容器里：画面轨一行都没画出来时，
      从前那个「取第一行的矩形」直接 bail，于是整块区域点了没有任何反应。
      不依赖 duration 是否已知：钳在 0–total 之间，播放器能跳就跳。 */
-  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
+  bindPinZone((bar.closest && bar.closest('.tl-grid')) || col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
   bindPreviewAxis(bar, col, sh);
   bindImageDrop(bar, col, sh);
   paintPin(col, pinAx, ax);
@@ -1033,26 +1007,13 @@ function bindFilmVolCtl(scope) {
     if (!cand) return null;
     return { sh, cand, total: candDur(cand, sh) };
   };
+  /* 只剩段级静音小钮：画面轨自己的波纹带（连同带出来的音量滑杆）已整条撤掉，
+     音量只在右栏那张卡上（两排写的是同一段数据，见 setCutVol / setTrackVol）。 */
   scope.querySelectorAll('[data-fclipvol]').forEach(b => {
     b.onclick = ev => {
       ev.stopPropagation(); ev.preventDefault();
       const t = findSeg(b);
       if (t) toggleSegMute(t.sh, t.cand, t.total, Number(b.dataset.fseg));
-    };
-  });
-  scope.querySelectorAll('[data-fsegvol]').forEach(r => {
-    r.onpointerdown = ev => ev.stopPropagation();
-    r.onclick = ev => ev.stopPropagation();
-    const repaint = () => {
-      const box = r.parentElement, cv = box && box.querySelector('canvas');
-      if (!cv || !drawSegWave || !videoPeaks) return;
-      cv.dataset.vol = r.value;
-      videoPeaks(cv.dataset.wv).then(pk => { if (cv.isConnected) drawSegWave(cv, pk, cv.dataset.a, cv.dataset.b, r.value); });
-    };
-    r.oninput = repaint;
-    r.onchange = () => {
-      const t = findSeg(r);
-      if (t && segVolWrite(t.sh, t.cand, t.total, Number(r.dataset.fseg), Number(r.value))) filmEdited();
     };
   });
 }
@@ -1119,28 +1080,19 @@ function renderFilmTrack(bar, col, sh) {
        图片段照样画：它拖的是自己占多久（左右把手都改时长）。 */
     const cuts = (picLocked || !isShot) ? ''
       : `<span class="cut l" data-k="${k}" data-edge="l"></span><span class="cut r" data-k="${k}" data-edge="r"></span>`;
-    /* 小字的前半截（名字 + 段号 + 黑场）也记进 `data-lab`：拖把手时只换后半截的「保留秒数」与倍速，
-       以前拖动中重写的是一份更短的串，一上手「黑场」前缀与倍速后缀就没了。 */
-    const labPre = esc(name) + (nSeg > 1 ? ' ' + (Number(cl.seg || 0) + 1) : '') + ' · ' + (gone ? '黑场 ' : '');
+    /* 名称覆盖件的前缀（名字 + 黑场标记）；段号只在剪成多段时补在后面。 */
+    const labPre = esc(name) + ' · ' + (gone ? '黑场 ' : '');
     /* 三段堆叠（与本镜那一排同形，P9）：名称行 / 切片 / 原声波纹带；片上静音钮 + 音量条同款 */
     const volF = Number(cl.volume == null ? 1 : cl.volume);
     const mutedF = volF <= 0.001;
     const durF = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(keep) : (keep + 's');
-    const wvSrc = (isShot && cand && !isImg) ? candTrackSrc(cand) : '';
-    const loBand = gone ? '' : isImg ? '<span class="wv-box"><span class="wv-none">静态图 · 没有原声</span></span>'
-      : !wvSrc ? '' : `<span class="wv-box">${mutedF ? '<span class="wv-none">静音</span>'
-        : `<canvas data-wv="${esc(wvSrc)}" data-a="${r.in}" data-b="${r.out}" data-vol="${volF}"></canvas>
-           <input class="wv-vol" type="range" min="0" max="2" step="0.05" value="${volF}" data-fsegvol="${k}" data-shot="${esc(cl.shotId || '')}" data-cand="${esc(cl.candId || '')}" data-fseg="${Number(cl.seg || 0)}" title="这一段原声的音量（0–200%）">`}</span>`;
-    return `<div class="tl-seg${focus ? ' sel' : ''}${gone ? ' gone' : ''}" data-k="${k}"
+    return `<div class="tl-seg${focus ? ' sel' : ''}${gone ? ' gone' : ''}" data-k="${k}" data-name="${esc(name)}"
          style="left:${pct(r.start, total)}%;width:${pct(r.w, total)}%"
          title="${esc(tip)}">
-      <span class="lab" data-lab="${labPre}">
-        <span class="lab-name">${labPre}</span>
-        <span class="lab-dur">${durF}${r.spd !== 1 ? ' ' + spdTxt(r.spd) : ''}</span>
-        ${(gone || !isShot || isImg) ? '' : `<button class="mute${mutedF ? ' on' : ''}" data-fclipvol="${k}" data-shot="${esc(cl.shotId || '')}" data-cand="${esc(cl.candId || '')}" data-fseg="${Number(cl.seg || 0)}" title="${mutedF ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声）'}">${mutedF ? '静' : '声'}</button>`}
-      </span>
       ${slices}
-      ${loBand}
+      <span class="seg-name">${labPre}${nSeg > 1 ? ' ' + (Number(cl.seg || 0) + 1) : ''}</span>
+      <span class="seg-dur">${durF}${r.spd !== 1 ? ' ' + spdTxt(r.spd) : ''}</span>
+      ${(gone || !isShot || isImg) ? '' : `<button class="seg-mute${mutedF ? ' on' : ''}" data-fclipvol="${k}" data-shot="${esc(cl.shotId || '')}" data-cand="${esc(cl.candId || '')}" data-fseg="${Number(cl.seg || 0)}" title="${mutedF ? '这一段原声静音了：点一下恢复原来的音量' : '把这一段原声静音（画面还在，只是不出声）'}">${mutedF ? '静' : '声'}</button>`}
       ${cuts}</div>`;
   };
   /* 画面轨有几行就摊几行（`r.ln` 读的是那一段上的 `s.ln` —— 与「本镜」那一排同一份数据，
@@ -1149,13 +1101,12 @@ function renderFilmTrack(bar, col, sh) {
   const lanes = laneRowsFor('pic', laneRowsOf(G.rows));
   let filmHTML = '';
   for (let ln = 0; ln < lanes; ln++) {
-    filmHTML += `<div class="tl-film${rowHidden('pic', ln) ? ' hid' : ''}" data-ln="${ln}">`
+    filmHTML += `<div class="tl-film${rowHidden('pic', ln) ? ' ghosted' : ''}" data-ln="${ln}">`
       + G.rows.filter(r => r.ln === ln).map(cellHTML).join('') + '</div>';
   }
   bar.insertAdjacentHTML('beforeend', rulerHTML(total, tlPpsNow(total)));
   bar.insertAdjacentHTML('beforeend', filmHTML);
   bindFilmVolCtl(bar);
-  fillSegWaveforms(bar);        // 全片排的画面格下带也填（与本镜排同一份画法）
   /* 声音行**无条件画**（用户点名的第 ① 条）：从前这里先看 `voices`，于是「这一片一句配音都没有」
      那一排在界面上根本没有声音轨 —— 针没有可穿的第二行，空白处也无处可点（第 ④ 条要的「点空白 → 生成配音」
      连落点都没有）。本镜那一排本来就是无条件画（见 renderShotTrack），两条轨同一套形状。
@@ -1178,7 +1129,7 @@ function renderFilmTrack(bar, col, sh) {
   fillSlices(bar);
   bindFilmDrag(bar, tl, total, G);
   bindFilmReorder(bar, col, tl, total, G);
-  bindPinZone(col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
+  bindPinZone((bar.closest && bar.closest('.tl-grid')) || col.querySelector('#tlGrid') || bar, col, sh, pinAtX);
   bindPreviewAxis(bar, col, sh);
   paintPin(col, filmPinT(tl, G), total);
 }
@@ -1297,18 +1248,12 @@ function bindFilmDrag(scope, tl, total, g) {
       if (!cell) return;
       cell.style.left = pct(r.start, total) + '%';
       cell.style.width = pct(r.w, total) + '%';
-      /* 拖动中只换「这一格占几秒」（只动时长那一格：整行写会把静音钮写掉）。 */
-      const labD = cell.querySelector('.lab .lab-dur');
+      /* 拖动中只换右下角那枚时长徽标（.seg-dur），名称覆盖件不动。 */
+      const labD = cell.querySelector('.seg-dur');
       if (labD) {
         const sp = Number(r.spd) || 1;
         const keep2 = Math.max(0.05, tlClipDur(r.cl));
         labD.textContent = ((window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(keep2) : round1(keep2) + 's') + (sp !== 1 ? ' ' + spdTxt(sp) : '');
-      } else {
-        const lab = cell.querySelector('.lab');
-        if (lab && lab.dataset.lab) {
-          const sp = Number(r.spd) || 1;
-          lab.textContent = lab.dataset.lab + round1(Math.max(0.05, tlClipDur(r.cl))) + 's' + (sp !== 1 ? ' ' + spdTxt(sp) : '');
-        }
       }
     });
   };
@@ -1433,6 +1378,11 @@ function bindFilmReorder(scope, col, tl, total, g) {
       /* 锁问的是**这一格所在那一行**（整条轨锁着时每一格都锁）：锁了第 2 行，第 1 行的格子照样能挪顺序、能换行。 */
       if (rowLocked('pic', ln0)) return;
       let moved = 0, mark = null, want = null, mode = '', lnWant = ln0;
+      /* 画面轨现在有几行（行随内容长）：拖到**最后一行之下**就是「新建一行」——
+         行号写在段身上，落上去那一行自己长出来（跟参考项目「释放以新增轨道」同一件事）。
+         拖的过程中先告诉用户「松手会新开一行」，别让人以为拖到底了没反应。 */
+      const picRowsNow = () => G0.rows.reduce((a, r) => Math.max(a, (r && Number(r.ln) || 0) + 1), 1);
+      let saidNew = false;
       const move = ev => {
         const dx = ev.clientX - x0, dy = ev.clientY - y0;
         /* 起手时那一下位移更大的方向**一次定死**这一趟是「挪顺序」还是「换行」，中途不改判：
@@ -1442,11 +1392,17 @@ function bindFilmReorder(scope, col, tl, total, g) {
           if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
           mode = Math.abs(dy) > Math.abs(dx) ? 'lane' : 'order';
           moved = 1; el.style.opacity = '.72';       // 单击不闪暗，真拖起来才淡下去
-          dragGhostShow(ev, el, (el.querySelector('.lab') || {}).textContent);
+          dragGhostShow(ev, el, el.dataset.name || '');
         } else dragGhostMove(ev);
         if (mode === 'lane') {
           lnWant = laneClamp(ln0 + Math.round(dy / step));
           el.style.transform = 'translateY(' + round1((lnWant - ln0) * step) + 'px)';
+          /* 拖到最后一行之下 = 会新开一行：说一句（状态变了才说，不跟着 pointermove 刷屏） */
+          const beyond = lnWant >= picRowsNow();
+          if (beyond !== saidNew) {
+            saidNew = beyond;
+            if (beyond) setStatus('<span class="info">松手就在下面新建一行（画面轨第 ' + (lnWant + 1) + ' 行）</span>');
+          }
           return;
         }
         const tFrame = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width))) * total;
@@ -1484,8 +1440,12 @@ function bindFilmReorder(scope, col, tl, total, g) {
           const target = allShots().find(x => x.id === r0.cl.shotId);
           const cand = target ? tlCandidateOf(target, r0.cl.candId) : null;
           if (!setCellLane(target, cand, Number(r0.cl.seg) || 0, lnWant)) return;
+          /* 落在最后一行之下 = 那一行是**新开的**（行随内容长出来），说清楚。 */
+          const isNew = lnWant >= picRowsNow();
           setStatus('<span class="ok">✓ 「' + esc(r0.cl.name || '镜头') + '」第 ' + ((Number(r0.cl.seg) || 0) + 1)
-            + ' 段挪到了画面轨第 ' + (lnWant + 1) + ' 行（切到「本镜」看还是这一行：两条轨存的是同一个行号；'
+            + ' 段挪到了画面轨第 ' + (lnWant + 1) + ' 行'
+            + (isNew ? '（**新开的一行**：那一行原本不存在，放上去就长出来了）' : '')
+            + '（切到「本镜」看还是这一行：两条轨存的是同一个行号；'
             + '进成片的顺序、时长与切片一个字没动，这一行的基数音量在右栏那张卡上调）</span>');
           filmEdited();
           return;

@@ -82,7 +82,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     });
     const seg = await readWhen(() => {
       const tabs = document.getElementById('vcTabs');
-      const range = document.querySelector('.tl-tabs .ui-seg');
+      /* 轨道坞（#tlDock）的页签：元素自己就是公共 .ui-seg（不再嵌一层壳）。 */
+      const range = document.querySelector('#tlDock .tl-tabs.ui-seg');
       if (!tabs || !range) return null;
       return {
         tabs: tabs.classList.contains('ui-seg'),

@@ -1,6 +1,8 @@
 /* 出站地址护栏（SSRF）—— 从 proxy.js 无行为搬移。
    /fetch、/getv、/getfile、/s3put 会把浏览器递来的 URL 取回/写穿；只允许公网 https。
-   DNS rebinding 防护在 guardedLookup；域名解析校验在 assertPublicHost。 */
+   DNS rebinding 防护在 guardedLookup；域名解析校验在 assertPublicHost。
+   走 HTTP CONNECT 隧道的 URL 在 guardOutboundUrl 里跳过本地 DNS 校验（探针由
+   server/outbound.js 经 setProxyProbe 注册，见下面 viaProxyTunnel 的说明）。 */
 'use strict';
 const dns = require('dns');
 
@@ -67,6 +69,10 @@ function isPrivateHost(host) {
     if (a === 169 && b === 254) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && (b === 168 || b === 0)) return true;
+    /* 198.18.0.0/15（基准测试段，也是 Clash fake-ip 的默认网段）仍按内网拦：直连时
+       公网域名解析到这里 = 本机解析已被代理软件接管，绝不该照这个地址自己出站。
+       「走 CONNECT 隧道时跳过本地 DNS 闸」是 guardOutboundUrl 里 probe 那一层的豁免，
+       不删这一条 —— 直连路径永远要拦它。 */
     if (a === 198 && (b === 18 || b === 19)) return true;
     return false;
   }
@@ -103,6 +109,20 @@ function baseKeyOf(u) {
 }
 const hostGuardCache = new Map();
 const HOST_GUARD_TTL = 5 * 60 * 1000;
+let proxyProbe = null;
+/* 出站层（server/outbound.js）注册的探针：fn(url) → true 表示这条 URL 将经
+   HTTP CONNECT 隧道发出、目标域名由代理端解析。这一层不知道代理配置在哪，
+   只认探针的答复；探针抛错或没注册一律当「不走隧道」处理（保守 = 照做本地校验）。 */
+function setProxyProbe(fn) { proxyProbe = typeof fn === 'function' ? fn : null; }
+function viaProxyTunnel(u) {
+  if (!proxyProbe) return false;
+  try { return proxyProbe(u) === true; } catch (e) { return false; }
+}
+/* 代理配置变化（开关系统代理 / 换地址）后由出站层调用：hostGuardCache 里可能压着
+   上一轮模式留下的结论 —— 开着代理且代理用 fake-ip 时，公网域名在本机 dns.lookup
+   里全是 198.18.x.x、被记成「解析到内网」；不清掉的话，关掉代理后的 HOST_GUARD_TTL
+   （5 分钟）内仍然条条被拒。变化即清，让下一次请求按当前模式重新判。 */
+function resetHostGuard() { hostGuardCache.clear(); }
 function assertPublicHost(host) {
   const hit = hostGuardCache.get(host);
   if (hit && Date.now() - hit.ts < HOST_GUARD_TTL) {
@@ -127,8 +147,13 @@ async function guardOutboundUrl(raw) {
   const u = safeOutboundUrl(raw);
   if (!u) throw new Error('只允许取回公网 https 地址（回环 / 内网 / 明文 http 一律拒绝）');
   const h = new URL(u).hostname.replace(/^\[|\]$/g, '');
-  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) await assertPublicHost(h);
+  /* 走 HTTP CONNECT 隧道时，目标域名的解析由代理端完成，本机不该做这道 DNS 校验：
+     代理软件（Clash 等）开 fake-ip 后，公网域名在本机 dns.lookup 里全是 198.18.x.x，
+     assertPublicHost 会把全部出站当「解析到内网」拦死。所以非字面量 IP 的主机先问
+     probe，走隧道就跳过 assertPublicHost；字面量 IP 的 isPrivateHost 检查与
+     https-only 检查在上面 safeOutboundUrl 那一道照旧，不受 probe 影响。 */
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(h) && !viaProxyTunnel(u)) await assertPublicHost(h);
   return u;
 }
 
-module.exports = { isPrivateHost, guardedLookup, safeOutboundUrl, baseKeyOf, guardOutboundUrl };
+module.exports = { isPrivateHost, guardedLookup, safeOutboundUrl, baseKeyOf, guardOutboundUrl, setProxyProbe, resetHostGuard };

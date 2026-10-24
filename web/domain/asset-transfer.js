@@ -361,8 +361,13 @@
       const blob = (typeof Blob === 'function' && source instanceof Blob) ? source : await this.blobOf(source, opts.onStage);
       if (!blob || !blob.size) throw new Error('这条素材的字节取不到了（本机文件可能已经不在了）');
       const nm = String(opts.name || blob.name || '素材').slice(0, 60);
+      /* 只认得出**媒体扩展名**才落本机资产库（它只收图片 / 视频 / 音频，服务端那道闸同判据）。
+         以前认不出时改用 mime 猜一个（text/plain → 'plain'）照存 —— 字幕 / 文本就这么混进账里
+         长成一条假媒体。认不出就当场拒绝，让调用方把原因说给用户。 */
       const fmt = (nm.match(/\.(png|jpe?g|gif|webp|mp4|webm|mov|mp3|wav|ogg|m4a|flac|aac)$/i) || [])[1]
-        || (String(blob.type || '').split('/')[1] || 'bin').replace('jpeg', 'jpg');
+        || (/^image\/(png|jpeg|gif|webp)$|^video\/(mp4|webm|quicktime)$|^audio\/(mpeg|mp3|wav|ogg|m4a|flac|aac)$/.test(String(blob.type || ''))
+          ? String(blob.type).split('/')[1].replace('jpeg', 'jpg').replace('quicktime', 'mov').replace('mpeg', 'mp3') : '');
+      if (!fmt) throw new Error('「' + nm + '」不是图片 / 视频 / 音频，本机资产库不收它');
       const b64 = String(await this.toDataURL(blob)).split(',')[1] || '';
       if (!b64) throw new Error('读不出这条素材的字节');
       const ext = String(fmt).toLowerCase();

@@ -87,6 +87,8 @@
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
+├─ design/skill-settings/       设计稿（设置页 Skill 卡那一版：场景轨 + 场景详情）。
+│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
@@ -328,6 +330,13 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 代理主动取字节前必须过 `guardOutboundUrl`（异步，含 DNS）或 `safeOutboundUrl`（同步字面量）：
   只允许公网 **https**；回环 / 内网 / 链路本地 / 解析到内网的域名一律拒。
+- **走系统 / 环境代理的出站是 CONNECT 隧道**（`server/outbound.js` 的 `ProxyTunnelAgent`）：
+  代理来源只认「`.env` 的 PROXY_OFF=1 > 环境变量 HTTPS_PROXY 等五键 > Windows 系统代理（后台 `reg query` 每 30s 刷）」。
+  隧道这条路上目标域名由代理端解析 —— `guardOutboundUrl` 的本地 DNS 校验与 `guardedLookup` 注入
+  都按 `setProxyProbe` 的探针答复整道跳过（直连路径照旧），否则 Clash 一类开 fake-ip 后公网域名
+  在本机全解析成 198.18.x.x、出站条条被拦；198.18.0.0/15 仍在 `isPrivateHost` 的拦截表里（直连时必须拦）。
+  代理开关 / 换地址（label 变了）即 `security.resetHostGuard()` 清一次 DNS 闸缓存。
+  判据 `tests/proxy-tunnel.cjs`（假代理 + 本地 TLS 目标，离线跑通 CONNECT + TLS + 复用 + 拒绝四条）。
 - `/getfile`、`/s3put`、`/fetch`、`/getv` 四条通道只走 `takeOutboundUrl`，不要各自拼 400。
 - 状态码原样透传；4xx/5xx 一律 `no-store`（签名过期 403 不能被缓存一整天）。
 
@@ -337,6 +346,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
   `server/local-assets-store.js` 的 `bodyDirOf` / `newBodyPlace` —— 库根按 §7 那一条现算，根下按类型分
   `图片/` `视频/` `音频/` `其他/`，撞名加 `-2` / `-3`；请求体里带 `dir` 也没有哪一行去读它。
   一条产物只有那一个本体，同一份东西重复下载、重复补存在账上并成一张卡（§6.3），不往第二个目录拷一份。
+- **`/from-url` 先问地址的真相再问声明**：目标地址（或名字）pathname 上认得出的扩展名压过请求体里的
+  `format` —— 是媒体就按它归类（声明写错至少落点对），是文档类（`isDocExt`：srt/vtt/ass/txt/json…）
+  整个 400 拒收，客户端猜不出格式兜底声明的 mp4 绕不开这道闸（字幕 / 文本的去处是下载目录与提示词归档）；
+  认不出的扩展名不猜，仍按声明走。
 - `POST /pick-dir`：必须异步 `spawn`，不许 `spawnSync`；返回路径是隐私，只在 `LOCAL_ONLY` 里。
 - 写盘前问余量：`whyNoSpace(dir, need, what)` 命中就 409 / 记进失败清单，一个字节都不落。
   量不到余量（没有 `statfsSync` / 目录不存在）一律放行，绝不把 `null` 当“不够”。
@@ -435,6 +448,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 自动镜像由应用级事件触发：`wb:asset-done`；`AssetLocal.watch` 统一接住并 scan。
   字节由代理流式落盘：`Api.saveLocalFromUrl` → `POST /local-assets/from-url`，不要 base64 大文件。
 - 镜像指针本体在 IndexedDB（`Kv.at('mirror')`），`sk_local_mirror` 只留暖启动缓存。
+- 浏览器侧镜像索引指到死号时自愈（`web/domain/local.js` 的 `learn`，判据 `tests/local-first.cjs`）：
+  账行带身份（upstream / detail）就按键改指；账被整份重建、补出来的是裸行（无身份字段）时，
+  按「文件名 + 字节数」把死记录接回当前账 —— 两边**各自唯一**才接（接错比不接更糟），
+  旧号的指针留着给 `onMediaError` 那一跳换活号。指针维护只动指针不下载字节，
+  不受「自动存本机」开关管；开关只管要不要为新产物建镜像记录。
 - 过期签名外链由公共层负责：`Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc`；
   页面不许自己判过期，也不许拿 assetId 拼 `/asset/<id>`。
 - 读写链路的判据：`tests/e2e/local-chain.cjs`（新默认根下的落点 / 双身份 / 改名挪目录认回 /
@@ -480,6 +498,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 弹窗 / 确认 | `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | 页面尺寸 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS` |
+| 可拖动分栏 | `Wb.split.enable`（把手 DOM 与落盘都在这一份；工作台两栏与导演台三栏共用，键分别是 `wb_split` / `dir_split`） |
+| 批量下载 | `Wb.downloadList`（资产库 / 生成工作台共用一份：逐条下载 + 进度 + 成功失败计数） |
+| 多选 | `Wb.multi`（资产库 / 生成工作台共用一份：勾选集合 + 全选/取消全选 + 批量条那三处读数；页面只给 `keyOf` / `visible` / `onChange` / `mode`） |
 | 跳页 | `GoPage.go`（同文档走 `window.appShow`） |
 | 媒体 | `web/domain/api.js` 的 `Api.mediaSrc` / `Api.mediaKey` / `Api.mediaExpired` / `Api.healMedia` |
 | 接口 / 统一取数 | `web/domain/api.js` 的 `Api`（`request` / `create` / `createBody` / `pollTask` / `list` / 余额）+ 顶层 `netFetch` / `respBody` / `classifyStatus` |
@@ -515,10 +536,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 导演台项目组 | `web/director/groups.js` 的 `list` / `groupOf` / `assetGroupName` / `ensure` / `rename` / `remove` / `assign` / `tree`（**组名即素材组名**；老工程零迁移） |
 | 拆分镜的新素材 | `web/director/board-assets.js` 的 `plan` / `stage` / `repeatCounts` / `pendingIn` / `resolve` / `shotsPending` / `libSpec`（重复出现才建、占位符词法、建档落点） |
 | 发送前的请求预览 | `web/domain/api.js` 的 `buildBody` / `preview`（**与 `create` 同源**，预览 = 纯算，不发网络请求） |
-| 原始请求面板 | `window.RawRequest`（`web/ui/raw-request.js`；**按需补载**；预览与已发送并排；不含 headers / 密钥，只在页面会话内存） |
+| 原始请求面板 | `window.RawRequest`（`web/ui/raw-request.js`；**按需补载**；一栏预览（还没发）一栏实发（最近一次）并排，标题一枚状态标；不含 headers / 密钥，只在页面会话内存；发出去那一刻把当时的预览一起存下，对不上就在标题上标出来） |
 | Skill 正文里的变量占位符 | `web/domain/gen-forms.js` 的 `window.TplVars`（`fill` / `names`；**「项目引用规则」就是它**） |
 | 导演台的变量填料 | `web/director/board-vars.js` 的 `castOf` / `assetsOf` / `vars`（角色表 / 选中素材 / 现有分镜 / 时长区间） |
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
+| Skill 的使用场景（设置页一级菜单） | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES`（分组 + 场景；场景名与「用在哪」沿用 `PROMPTS`，变量说明在 `SKILL_VARS`，三处同源不许各抄一份） |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf` |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
@@ -578,7 +600,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - `track.js`：画面轨/全片轨的时长与候选折算、拖动把手的三处共用一套手势
   - `lanes.js`：时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染
   - `frames.js`：切片取帧、帧缓存与退避重试（`fillSlices` / `sliceForgetFail` / `sliceUserTouch`）
-  - `mid.js`：中间栏整列渲染（预览甲板 + 候选条 + 时间轴容器）与三秒重建时的滚动还原
+  - `mid.js`：中间栏整列渲染（预览甲板 + 候选条）与**剪辑态轨道坞**（`#tlDock`：工具条 + 两排轨道 +
+    顶部拖高把手，铺满页面宽度的底栏）与三秒重建时的滚动还原
   - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）
   - `voice.js`：配音的数据侧（时长、音色方式、位置、登记与右栏配音列渲染）
   - `voice-lane.js`：声音轨行 HTML、轨道侧栏同步、孤儿配音认领、试听与块拖动绑定
@@ -586,7 +609,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
     右栏起止精确输入 `subSetTime`（成片秒 ↔ 源秒唯一折算口）；本镜块带 `data-src`（源秒）、
     全片块带 `data-axis`（框轴秒），写盘只有一个出口 engine 的 `subWrite`
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）
-  - `export.js`：成片指纹、导出成片（**浏览器内合成**，`MediaExport`）、素材导出、FCPXML 与送到剪映 / 达芬奇；「最近导出」读会话内账本（`Export.sessionExports`），服务端没有渲染任务账
+  - `export.js`：成片指纹、导出成片（**浏览器内合成**，`MediaExport`）、FCPXML / 媒体包与
+    送到剪映 / 达芬奇（`Export.resolve` / `Export.jianying` / 助手分派走 `Export.nle({app, silent})`，
+    silent 不弹结果弹窗）；服务端没有渲染任务账
   - `lanes.js` 的三段式画面格（B）：上 = 名称行（名字+段号 · 成片时长 · 静音钮）、中 = 切片、下 = 原声波纹带（canvas 条形，`waveform.js` 的 `drawSegWave`；配音句卡仍是 `waveformSVG`，各管各的）
   - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，见 §9.3）
 - 纯算法按域拆开，engine 只调用：
@@ -613,7 +638,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - `naming.js`：场景镜头命名（本机素材名、候选 / 配音后缀、FCPXML 片段名与去重）
   - `media.js`：候选身份 → 预览 / 导出地址（本机号只走 `AssetLocal.localAssetIdOf`，画面段、配音、切片、FCPXML 都只问这一份）
   - `subtitles.js`：字幕轨（台词/配音派生、SRT 导入导出、烧录与 FCPXML 都读 `currentOf`）
-  - `fcpxml.js` / `fcpxml-import.js`：导出与读回（读回落进同一份工程数据）
+  - `fcpxml.js`：导出（单文件 / 媒体包 / 送到剪映 / 达芬奇同一份拼装器；第三方 FCPXML 的**读回已撤**）
   - `asr-text.js`：浏览器内 ASR 的纯算法面（`wavToPcm` / `groupWords` / `normalizeAsrWhitespace` /
     `applyChineseReplacements` / `isSuspiciousChineseTranscript`）—— `asr-worker.js` 与 `tests/director-asr-text.mjs`
     读同一份（**要换分段规则只动这里**）
@@ -634,6 +659,33 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 台词与提示词互不带动：`sh.line` / `sh.lineWho` 与 `sh.prompt` 各写各的，剧本视图只写 `prompt`；
   AI 拆分镜仍按画面生成台词并落进同一份字段（那是生成，不是同步）。
 - 切片按框取帧；缓存键走稳定身份；缩放只重排、不整列重画。
+- **画面段的空段只有一个来处**：把某一格**左右拖走**（段体横拖重排，原位自动空出一段同长空段、
+  虚拟区带 `vc` 标记；拖的是空段本身则摘掉），竖拖 = 换行。旧「空一段 / 摘掉空段」两把剪法与按钮已撤。
+  画面段的段格 = 一条切片带 + 三枚覆盖件（`.seg-name` 名称盖左上、`.seg-dur` 时长徽标钉右下、
+  `.seg-mute` 静音钮钉右上），**没有**画面轨自己的波纹带（原声波形只在配音轨那排；
+  段音量在右栏那张「这一段 / 这一句」卡上调）。
+- 剪辑态布局：轨道坞（`#tlDock`）与三栏 `.layout` 平级、铺满页面宽度；剪辑 / 生成两态切换时
+  三栏形状与视频栏（**固定的标准横屏 16:9**：宽 = `56vh × 16/9`，居中，左右栏与下栏拖动时
+  一个像素不动）一个像素不变。剪辑态里**候选条与
+  「用这条 / 锁定 / 删除」整排不画**（换候选回生成态点）。轨道坞底下那一行是**读数行 + 入出点行**
+  （`#tlT0`/`#tlT1` 与 `#trimS`/`#trimE`/`#trimApply`/`#trimNote`）：那两个秒数框是**唯一**能直接写
+  秒数的入口（块上把手只能拖着走），指着配音时调的是**这一句**的保留片段（`paintTrimRow` 写行标，
+  宿主是坞不是中栏）。剪辑态左栏换面成
+  「历史编辑记录（读撤销栈本身：`undoStack` + `undoLabels`/`undoTimes` 两张并行账）+ 素材入口」；
+  右栏的「生成这一镜」动作行（`.ed-footer`）钉在 `#edCol` 底部（在 `.ed-body` 滚动区之外）。
+- 轨道坞的形状：**行数只由内容决定**（`track.js` 的 `laneRowsOf` = 最高块行 +1）—— 加行的唯一途径是
+  「把段 / 素材上下拖到新行」（行号写在块身上，重画时行自己长出来），那一行空了重画即自动消失；
+  拖到最后一行之下就是「新建一行」（拖动中先说一句「松手就在下面新建一行」，落定后回执写明
+  「新开的一行」）；左列是**眼睛 + 锁 + 名字**（照参考项目 track-labels：状态键在前、名字吃剩余宽度；
+  ＋/× 与音量滑块已撤，段音量在右栏那张卡上调）。
+  左列那一格轨名必须与右列那一排轨道**逐行对齐**（画面 / 配音 / 待生成 / 字幕四类，
+  行高只从 `--tlh-pic` / `--tlh-voice` 取）：差一格就等于「这个名字指着哪一轨」是假话，
+  插针与刻度尺也会错开。**网格现在住在轨道坞里**（`#tlDock`），所以按右列反查网格
+  （`bar.closest('.tl-grid')`），别再问中栏要 `.tl-side` —— 问错地方的后果是整列不更新
+  （加出来的行不出现、眼睛与锁的状态永远不刷新）。
+  眼睛「隐藏」**不收窄行高**：整条轨（或单行）变灰（压暗 + 去饱和），块还画在原行号与位置上，
+  手势层用 `rowHidden` 拒绝编辑。轨道区超高时**纵向滚**且不显滚动条（`.tl-scroll`），
+  顶部把手（`.dock-grip`）像三栏拖宽一样拖动调高度（记本机 `dir_dock_h`）。
 - 字幕行三个画点（右栏清单 / 本镜轨 / 全片轨）与两排拖动只有 `sub-lane.js` 一份：块体拖 = 挪出现
   （长度不变）、把手 = 改起止（0.1s 最短）、写盘只有 engine 的 `subWrite`。**两排两把尺子**：
   本镜块带 `data-src`（源秒，按框轴摆位）、全片块带 `data-axis`（框轴秒）；右栏起止输入按右栏自己的尺子
@@ -735,6 +787,17 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **contract 白名单**在 `server/skills-store.js` 的 `CONTRACTS`：加一种新任务就在那里加一条，
   同时 `TextAI.SKILL_CONTRACT` 加一条（页面侧同一张表的另一半）。
   `board_assets.json` = 拆分镜「判断哪些新角色/场景/物品要建档并出图」那一条。
+- **设置页的 Skill 卡：一级菜单 = 使用场景**（`TextAI.SKILL_SCENE_GROUPS` / `SKILL_SCENES`）。
+  点一个场景 → 右边给两件事：① 这一步会拿到什么（变量表，**场景级**，按 contract 取 `SKILL_VARS`
+  —— 换一份写法，喂料方式不变）② 这个场景的 Skill（这一 contract 下的每一份、谁在生效、有没有冲突）。
+  全量清单退到「全部 Skill」一个**二级**入口 —— 原来它与一级菜单并排，是那处重复的来源。
+  槽位灯说的是「这个 contract 槽现在被谁占着」：紫=我的、灰=内置、虚线=空档（用内置默认正文）、
+  红=两份都启用（`skills-store` 的口径：同一 contract 第一个启用的算数，后面那份算冲突）。
+- **新建 / 编辑一份 Skill 在浏览器里做**（设置页场景详情里的「添加新 Skill」/「编辑正文」）：
+  frontmatter 由表单生成、正文自己敲，落盘走 `POST /skills/install`（新建）或 `/skills/:id/update`（改）。
+  ⚠ **内置 Skill 只读**：改不了内置那一份，要改就自己新建一份占同一个 contract
+  （服务端会把同 contract 的内置那份自动停用）。「复制为我的 Skill」与「导出」两条**已整族删除**
+  （前端函数、`web/ui/skills.js` 的 `exportOne`、服务端 `/skills/:id/export` 路由都没了）。
 - 查询结果按 `estimateTokens` 预算；发出前 `redactSecrets` 抹密钥形状。
 - 设置项只有白名单（`ADJUST` + `PAGE_TARGETS` + `sk_model_<kid>` + `Chars.SET`）；
   助手的供应方/型号只在设置页选（`sk_text_prov` + `sk_model_<kid>`），抽屉里没有第二份选择。
@@ -838,7 +901,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
   `scope-guards` / `dup-guard` / `architecture` / `metrics` / `ui-catalog` / `settings-schema` /
   `doc-contract`（AGENTS.md §3.4 那份设计规范与代码一致 —— 文档不许说谎）。
 - 服务端与数据一路：`routes-smoke`（ctx 注入 + 每条端点走一遍假 req/res）/ `index-store` / `local-first` /
-  `relay-retry` / `outbound-keepalive` / `assetlib-cache` / `pull-scope` / `providers-validate` / `asr-settings` /
+  `relay-retry` / `outbound-keepalive` / `proxy-tunnel`（CONNECT 隧道：CONNECT + TLS + 复用 + 拒绝，离线）/
+  `assetlib-cache` / `pull-scope` / `providers-validate` / `asr-settings` /
   `zip` / `skill-hub` / `fcpxml-client` / `static-encoding`（不起实例的那一半）。
 - 本机资产一路：服务端档的 `local-root`（库根那一条算法 —— 盘上那一格必须真被读出来，
   以及 `ASSETS_DIR` 压过它、默认跟系统下载文件夹走）；浏览器档的 `local-chain`（落点、双身份 fid + 采样签名、
@@ -846,6 +910,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 纯算法一路：`core` / `editing` / `editor-media` / `local-edit` / `gen-rules` / `task-detail` / `asset-ref` /
   `export-formats` / `raw-preview` / `skill-refvars` / `director-*`（含 `director-asr-text`：
   浏览器内识别的分段算法 + 「worker 只认同源 `/models/`、vendored 四件在位」那两条静态判据）。
+- 列表页的翻页一行：`pager-row`（资产库 / 收藏 / 角色库 / 生成工作台四页都得把翻页行**画出来**：
+  宿主登记了、行看得见、上一/下一页两颗在 —— 上一轮「翻页组件不显示」就是工作台那一处
+  宿主 `stPgRow` 从未登记，整行从未填过；翻页之后的行为由 `favorites-pager` 盯）。
 - 浏览器档分两级：`--e2e:fast` 只跑冒烟 5 条（smoke / ui-contract / ui-shared / director-perf / lock，
   4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 44 条，
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
@@ -944,12 +1011,15 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 ### 14.5 新增导入导出格式
 
 - 导演台的**导出格式**只有一张表 `web/domain/export-formats.js`：页头按钮、`export_start` 的校验/分派/文案、
-  助手 `export_start` 的 enum 都从它派生。加一种导出 = 表里一行（`kind` 是 `film` / `files` / `xml` 之一）
+  助手 `export_start` 的 enum 都从它派生。加一种导出 = 表里一行（`kind` 是 `film` / `xml` 之一）
   + engine 里一个 builder；判据 `tests/export-formats.cjs`。
+- 页头只有「导出成片 / 导出媒体包」两颗平铺按钮；「导出 FCPXML」是**拆分按钮**（主钮 + 尾部 chevron
+  浮层，达芬奇 / 剪映收在浮层里）。旧「导入 FCPXML / 最近导出 / 导出素材」三颗与
+  `web/director/fcpxml-import.js`（第三方 FCPXML 读回）、`Export.sessionExports` 会话账本已整族删除。
 - 直接送到剪映 / 达芬奇是表里的 `nle` 行（`kind:'xml'` + `nle:true`），走 `fcpxml.js` 的 `sendToNle`
   → `POST /fcpxml/import` + `/fcpxml/launch`；不是第二种导出格式，也不在页面里另写一套。
+  页面按钮走 `Export.resolve()` / `Export.jianying()`，助手分派走 `Export.nle({app, silent})`（同一份 `exportNle`）。
 - 纯拼装在 `web/director/*`（如 `fcpxml.js`）或 `web/domain/*`，不在页面里拼字符串。
-- 导出素材的文件名带成片时间点（`clipTimeLabel` / `voiceFilmRange`），不要只给哈希名。
 - 缺失素材/段落一律报数（清单/状态行），不许静默丢。
 
 ### 14.6 明确禁止
@@ -1005,7 +1075,9 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 **「项目引用规则」**（Skill 正文里的变量占位符 `{cast}` `{what}` `{board}` …）=
 `web/domain/gen-forms.js` 的 `window.TplVars`（唯一一份填法）+ `web/director/board-vars.js`（填什么）；
 NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`，持久目录
-`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）；台词落点 `web/director/line-point.js`；
+`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）；台词落点 `web/director/line-point.js`；剪辑态轨道坞与左栏编辑态在 `engine/mid.js` +
+`template.html`（`.tl-dock` / `#editLeft` / `.dock-grip`）；页头导出拆分按钮在 `engine.js` 的
+页头装配段（`#exportFcpMore` / `#exportFcpMenu`）；
 配音分轨 / 合轨的行规划 `web/director/voice-lanes.js`；拖素材的引用载荷 `web/domain/asset-ref.cjs`
 （**必须是 .cjs**：`web/package.json` 的 type:module 会把 .js 当 ESM，UMD 的 `module.exports` 分支不会走，
 经典脚本与 Node 判据两头都读同一份）。

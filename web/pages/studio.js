@@ -2410,10 +2410,16 @@ const StudioView = {
 
       /* ---------- 卡片 ---------- */
       const KIND_TAG = { 图片: 'image', 视频: 'video', 音频: 'mic' };
+      /* 多选状态放在这里（卡片签名的读者）：卡片重画与否靠签名，
+         签名里没有「多选中 / 已勾选」这一项 → 进多选时卡片不会被重画，勾选框就不会出现。 */
+      let multiMode = false;
+      const selected = new Set();
+      const taskKeyOf = it => itemKey(it);
       const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.model,
         it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts,
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
-        (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-'].join('|');
+        (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-',
+        multiMode ? 'M' : '-', (multiMode && selected.has(taskKeyOf(it))) ? 'S' : '-'].join('|');
       const openDetail = new Set();
       function mediaBox(it) {
         const run = Wb.isRunning(it), bad = Wb.isFailed(it);
@@ -2454,23 +2460,8 @@ const StudioView = {
         if (!AL || !AL.showBadge || !AL.showBadge() || !AL.stateOf) return '';
         return window.badgeHTML(AL.stateOf(it));
       }
-      /* 图片产物 → 导演台画面轨（跨页只递一次，导演台取走即删）。
-         只在图片卡上出现：视频/音频「加进成片」走的是另一套（选候选、挂配音），不在这里混。 */
-      function addToTimelineHTML(it) {
-        if (it.mtype !== '图片' || !(it.raw || it.media)) return '';
-        return '<button class="ghost tl2" title="把这张图放进导演台画面轨（插在当前这一镜的插针之后）">'
-          + icon('film', 12) + ' 加到时间线</button>';
-      }
-      function addToTimeline(it) {
-        const src = it.raw || it.media || '';
-        if (!src) { Toast.err('这一条还没有可用的图片地址'); return; }
-        if (!window.LS) { Toast.err('本机存储不可用，带不过去'); return; }
-        if (window.LS.setJson('dir_add_img', { src, name: (it.prompt || '图片').slice(0, 24) }) === false) {
-          Toast.err('本机存储写不进去，带不过去');
-          return;
-        }
-        GoPage.go('director.html');
-      }
+      /* 图片产物 → 导演台画面轨这一条已删（2026-10 用户点名）：任务卡上只留「详情 / 放大 / 下载 / 删除」，
+         要把图放进导演台走资产库（那一页才是本机字节的真相所在）。 */
       function cardHTML(it) {
         const bad = Wb.isFailed(it), unc = Wb.isUncertain(it);
         const run = running(it), cxProv = run ? provById(it.provider) : null;
@@ -2496,7 +2487,6 @@ const StudioView = {
             retry: (bad || unc) && !it.noResend && !!(it.prompt || it.local),
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
-            extraHTML: addToTimelineHTML(it),
           }) + '</div>'
           + '<div class="tdetail" hidden></div>'
           + '</div>';
@@ -2565,11 +2555,31 @@ const StudioView = {
           },
           onRemove: () => { audioTasks = audioTasks.filter(x => x !== it.srcRef); saveAudioTasks(); renderAll(); tally.run(true); },
           onRemoveFile: () => deleteLocalAsset(it),
-          extraBind: el => {
-            const b = el.querySelector('.tl2');
-            if (b) b.onclick = e => { e.stopPropagation(); e.preventDefault(); addToTimeline(it); };
-          },
         });
+        /* 多选态：点卡片就是勾选（不是打开大图）—— 与资产库同一套手感。
+           勾选块是绝对定位的，卡片自己得是定位祖先（spa-studio.css 里给 .task 补了 position）。 */
+        if (multiMode) {
+          const on = selected.has(taskKeyOf(it));
+          d.classList.toggle('picked', on);
+          const pick = document.createElement('div');
+          pick.className = 'pick' + (on ? ' on' : '');
+          pick.textContent = on ? '✓' : '';
+          pick.title = '勾选后批量下载';
+          pick.tabIndex = 0;
+          pick.setAttribute('role', 'checkbox');
+          pick.setAttribute('aria-checked', on ? 'true' : 'false');
+          pick.setAttribute('aria-label', '勾选这条（批量下载）');
+          pick.onclick = e => { e.stopPropagation(); taskMulti().toggle(it); };
+          pick.onkeydown = e => {
+            if (e.key !== ' ' && e.key !== 'Enter') return;
+            e.preventDefault(); e.stopPropagation();
+            taskMulti().toggle(it);
+          };
+          d.appendChild(pick);
+          /* 多选时点画面/点标题都是勾选，别再打开大图 */
+          if (imgWrap) imgWrap.onclick = () => taskMulti().toggle(it);
+          if (tp) tp.onclick = e => { e.stopPropagation(); taskMulti().toggle(it); };
+        }
         return d;
       }
       function paintCard(d, it) {
@@ -2671,6 +2681,7 @@ const StudioView = {
           paintCounts();
           cardList.paint(items);
           paintPullBtn();
+          taskMulti().paintBar(bulkEls);
           /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
           try { window.AssetLocal && AssetLocal.offerAll(items); } catch (e) { /* 补存失败不影响列表 */ }
           const el = $('histNote');
@@ -2680,7 +2691,25 @@ const StudioView = {
       const tally = Wb.tally(() => AssetLib.countAll({ reg: REG, accept: e => !!e.type, maxPages: 3 }));
       tally.onDone.push(() => { try { renderAll(); } catch (e) {} });
       const pgRow = $('stPgRow');
-      if (pgRow) pgRow.innerHTML = Wb.pager.rowHTML('st', { hidden: true, info: '第 1 页' });
+      if (pgRow) pgRow.innerHTML = Wb.pager.rowHTML('st', { info: '第 1 页' });
+      /* 动态加载档没有翻页按钮（资产库那一档也是把整行藏起来），跳页那一格改成「取到第 N 页」。 */
+      if (PAGE_MODE !== 'page') {
+        if (pgRow) pgRow.hidden = true;
+        const goto = $('gotoBtn');
+        if (goto) { goto.textContent = '取到第 N 页'; goto.title = '把第 N 页之前的内容都取回来（动态加载档没有翻页按钮）'; }
+      }
+      /* 取到第 N 页：把该页之前的内容都取回来（动态加载档的「跳页」就是这一句）。
+         资产库那一页用同一份语义（gotoPageInput 里算 want 再续拉）。 */
+      async function fillPages(need) {
+        if (!need) {
+          if (!serverHasMore) return;
+          await loadServer(1);
+          return;
+        }
+        let guard = 0;
+        const floor = Math.max(1, need) * PAGE_SIZE;
+        while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
+      }
       const pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE,
         pgPrevId: 'stPgPrev', pgNextId: 'stPgNext', pgInfoId: 'stPgInfo', gotoPage: 'stGotoPage',
@@ -2689,16 +2718,7 @@ const StudioView = {
         total: () => tally.value(),
         searchQ: () => searchQ,
         render: () => renderAll(),
-        fill: async need => {
-          if (need) {
-            let guard = 0;
-            const floor = Math.max(1, need) * PAGE_SIZE;
-            while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
-            return;
-          }
-          if (!serverHasMore) return;
-          return loadServer(1);
-        },
+        fill: fillPages,
       });
       $('result').addEventListener('click', e => {
         const card = e.target.closest('.task');
@@ -2706,6 +2726,8 @@ const StudioView = {
         if (e.target.closest('.dt') || e.target.closest('.tprompt') || e.target.closest('button')) return;
         if (e.target.closest('.tdetail') || e.target.closest('.acts')) return;
         if (e.target.closest('video') || e.target.closest('audio')) return;
+        /* 多选时点卡片是**勾选**，不是展开详情（与资产库同一套手感） */
+        if (multiMode) { if (card._item) taskMulti().toggle(card._item); return; }
         card._setOpen(card._det.hidden);
       });
       $('result').addEventListener('click', e => {
@@ -2952,8 +2974,76 @@ const StudioView = {
           if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60);
         }
       };
-      $('gotoBtn').onclick = () => pager.gotoInput('gotoPage');
+      $('gotoBtn').onclick = async () => {
+        if (PAGE_MODE === 'page') { pager.gotoInput('gotoPage'); return; }
+        /* 动态加载档：跳页 = 把第 N 页之前的内容都取回来（与资产库同一份语义） */
+        const n = Math.max(1, Math.floor(Number($('stGotoPage').value) || 1));
+        $('stGotoPage').value = '';
+        await fillPages(n);
+        renderAll();
+      };
       $('stGotoPage').addEventListener('keydown', e => { if (e.key === 'Enter') pager.gotoInput('gotoPage'); });
+
+      /* ---------- 多选 + 批量下载（与资产库同一套公共件） ----------
+         勾选框 .pick、批量条 .bulkbar、批量下载 Wb.downloadList 三样都是公共件，
+         这一页只提供「哪些条目被勾中了」这一份状态（多选态在卡片那一节声明）。 */
+      /* 多选：状态与操作在公共件 `Wb.multi` 里（与资产库同一份，不许各写一套）。
+         这一页只提供三件事：哪几个字段算同一条、当前这一屏看得见哪些、改完之后怎么重画。
+         ⚠ workbench.js 是这一页**异步补载**的（onMounted 里 await），所以实例要等它到了再拿 ——
+         在 setup 里就建它会拿到 undefined（页面一开就白屏）。 */
+      let multiInst = null;
+      const taskMulti = () => multiInst || (multiInst = window.Wb.multi({
+        sel: selected,
+        keyOf: taskKeyOf,
+        visible: filteredItems,
+        onChange: renderAll,
+        canDownload: it => !!(it.dl || it.media || it.raw),
+        mode: {
+          isOn: () => multiMode,
+          set: v => {
+            multiMode = v;
+            const box = $('result');
+            if (box) box.classList.toggle('taskMulti', v);
+            const btn = $('multiBtn');
+            if (btn) btn.classList.toggle('active', v);
+          },
+        },
+      }));
+      /* 批量条那几个节点（这一页是 DOM 节点，资产库是 Vue 绑定）：只给公共件一组 setter。 */
+      const bulkEls = {
+        show: on => { const b = $('bulkBar'); if (b) b.hidden = !on; },
+        count: t => { const c = $('bulkCnt'); if (c) c.textContent = t; },
+        all: t => { const a = $('bulkAll'); if (a) a.textContent = t; },
+        canDown: ok => { const d = $('bulkDown'); if (d) d.disabled = !ok; },
+      };
+      async function bulkDownload() {
+        const items = taskMulti().selected().filter(it => it.dl || it.media || it.raw);
+        if (!items.length) { Toast.warn('选中的条目里没有可下载的产物'); return; }
+        await window.Wb.downloadList(items.map(it => ({ url: it.dl || it.media || it.raw, name: fileNameOf(it) })));
+      }
+      $('multiBtn').onclick = () => taskMulti().setMode(!multiMode);
+      $('multiExit').onclick = () => taskMulti().setMode(false);
+      $('bulkClear').onclick = () => taskMulti().clear();
+      $('bulkAll').onclick = () => {
+        const list = filteredItems();
+        if (!list.length) return;
+        taskMulti().setAll();
+        renderAll();
+      };
+      $('bulkDown').onclick = bulkDownload;
+
+      /* ---------- 左右两栏可拖动（公共件 Wb.split；拖拽条 DOM 与落盘都在那一层） ----------
+         这一页以前没有开它：老工作台的启动代码带着 wb2 的 body 判断，页面迁到 SPA 之后
+         那个判断再也没成立过（wb2 已是死代码），于是左右栏宽度一直写死在 minmax(380px,520px)。 */
+      if (window.Wb && Wb.split && Wb.split.enable) {
+        const sp = Wb.split.enable({
+          box: '.layout', key: 'wb_split',
+          cols: [{ el: '.col-left' }, { el: '.col-right' }],
+          handles: [{ left: 0, right: 1, resize: 0, varName: 'sp0', min: 300, max: 900 }],
+        });
+        if (sp && sp.destroy) disposers.push(() => sp.destroy());
+      }
+
       let pullMore = null;
       function autoLoadMore() { if (pullMore) pullMore(); }
       const onResize = () => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); };

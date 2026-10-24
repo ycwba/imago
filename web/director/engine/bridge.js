@@ -671,16 +671,6 @@ export function createBridge(E, document, window) {
       }).catch(e => settle({ ok: false, err: errText(e)}));
       return { ok: true, jobId: rec.id, format: fmt, state: 'running', 说明: f.startNote };
     }
-    if (f.kind === 'files') {
-      Export.assets({ skipConfirm: true, onProgress: p => {
-        rec.progress = Math.round((p.done / Math.max(1, p.total)) * 100);
-        rec.text = '正在导出第 ' + p.done + '/' + p.total + ' 个：' + p.name;
-      } }).then(r => {
-        settle(r);
-        if (r && r.ok) rec.counts = { 画面: r.nV, 配音: r.nA, 已存: r.okN };
-      }).catch(e => settle({ ok: false, err: errText(e)}));
-      return { ok: true, jobId: rec.id, format: fmt, state: 'running', 说明: f.startNote };
-    }
     /* 送到 NLE 要指定是哪一家：助手不弹选择框（那是用户界面），由动作参数给。 */
     if (f.nle) {
       const app = (a && (a.app === 'jianying' || a.app === 'resolve')) ? a.app : '';

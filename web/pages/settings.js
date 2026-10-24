@@ -2839,9 +2839,16 @@ const SettingsView = {
       finally { promptOpenBusy.value = false; }
     }
 
-    /* ---------- Skill：清单 / 详情 / 启停 / 安装 / 更新 / 导入导出 / 卸载 ----------
-       解析与写盘全在代理的 skills-store；这一节就是原来那个独立页面的全部能力，
-       搬进设置后只有这一份实现（不再保留第二个 Skill 页面）。 */
+    /* ---------- Skill：按「使用场景」组织 ----------
+       一级菜单 = 场景（分组与场景声明在 TextAI.SKILL_SCENE_GROUPS / SKILL_SCENES；
+       场景名与「用在哪」沿用 PROMPTS —— 那是这条指令的唯一说明处）。
+       点一个场景 → 右边给两件事：
+         ① 这一步会拿到什么：变量表（TextAI.SKILL_VARS，按 contract 声明 —— **场景级**，
+            不跟着某一份 Skill 走：换一份写法，喂料方式不变）
+         ② 这个场景的 Skill：这一 contract 下的每一份，谁在生效、有没有冲突、怎么接管
+       全量清单退到「全部 Skill」一个二级入口 —— 原来它与一级菜单并排，是那处重复的来源。
+       解析与写盘全在代理的 skills-store。「复制为我的」「导出」两条已整族删除：
+       要自己写一份就在浏览器里新建（下面那张 skillForm 表单）。 */
     const SKILL_FILTERS = [['all', '全部'], ['enabled', '已启用'], ['disabled', '已停用'], ['builtin', '内置'], ['user', '我的']];
     const skillItems = ref([]);
     const skillReady = ref(false);
@@ -2849,87 +2856,180 @@ const SettingsView = {
     const skillBusy = ref(false);
     const skillFileEl = ref(null);
     const skillChipsEl = ref(null);
-    const skillQEl = ref(null);
     const skillPreEl = ref(null);
+    /* 场景轨选中哪一个 / 右栏当前是「场景详情」「全部 Skill」还是「新建（编辑）Skill」 */
+    const skillSceneKey = ref('');
+    const skillMode = ref('scene');
     const skillQ = ref('');
-    const skillFilter = ref('all');
-    const skillSelId = ref('');
-    const skillDetail = ref(null);
+    const skillAllQ = ref('');
+    const skillAllFilter = ref('all');
+    const skillSelId = ref('');        /* 展开了正文的那一份 */
+    const skillActive = ref(null);     /* 当前场景里正在生效的那一份（正文用来查占位符） */
     const skillFiles = ref([]);
     const skillFilePath = ref('');
     const skillFileNote = ref('');
-    let skillHash = '';
-    let skillImportMode = 'import';
     let skillExpectedHash = '';
+    let skillImportTarget = '';        /* 「导入同 id 更新」针对哪一份 */
+    let skillFormHash = '';            /* 编辑时那份的当前 hash（更新要拿它对账） */
+    /* 新建 / 编辑：浏览器里直接写一份 SKILL.md（frontmatter 由表单生成，正文自己敲） */
+    const skillForm = reactive({
+      mode: 'create', id: '', name: '', description: '', contract: '',
+      triggers: '', pages: [], body: '', version: 1,
+    });
+    /* 页面能勾的页面（Skill 的 pages 字段只收页面文件名）：从路由表现取，不另抄一份 */
+    const skillPages = computed(() => {
+      const pages = (window.WB_ROUTES && window.WB_ROUTES.pages) || [];
+      return pages.filter(p => p && p.file).map(p => p.file);
+    });
 
-    const skillFiltered = computed(() => {
+    /* 场景表：分组 + 每组里的场景。场景名与「用在哪」从 PROMPTS 取（唯一说明处），
+       SKILL_SCENES 里自带的那两条（助手、拆分镜素材判定）是 PROMPTS 没有的。 */
+    const skillSceneTree = computed(() => {
+      const TA = window.TextAI || {};
+      const meta = {};
+      (TA.PROMPTS || []).forEach(g => (g.items || []).forEach(it => { meta[it.key] = it; }));
+      const groups = (TA.SKILL_SCENE_GROUPS || []).map(g => ({ id: g.id, name: g.name, note: g.note || '', scenes: [] }));
+      const byId = {};
+      groups.forEach(g => { byId[g.id] = g; });
+      (TA.SKILL_SCENES || []).forEach(sc => {
+        const g = byId[sc.group];
+        if (!g) return;
+        const pm = meta[sc.key] || null;
+        g.scenes.push({
+          key: sc.key, group: sc.group, assistant: !!sc.assistant,
+          contract: (TA.SKILL_CONTRACT || {})[sc.key] || '',
+          label: sc.label || (pm && pm.label) || sc.key,
+          used: sc.used || (pm && pm.used) || '',
+        });
+      });
+      return groups.filter(g => g.scenes.length);
+    });
+
+    /* 场景轨的搜索：场景名 / 说明 / 这一场景下的 Skill 名与 id 都算命中 */
+    const skillTree = computed(() => {
       const kw = String(skillQ.value || '').trim().toLowerCase();
+      if (!kw) return skillSceneTree.value;
+      return skillSceneTree.value.map(g => ({
+        id: g.id, name: g.name, note: g.note,
+        scenes: g.scenes.filter(sc => {
+          const hay = [sc.label, sc.used, sc.contract].concat(
+            skillSceneState(sc).list.map(x => x.id + ' ' + x.name)
+          ).join(' ').toLowerCase();
+          return hay.indexOf(kw) >= 0;
+        }),
+      })).filter(g => g.scenes.length);
+    });
+
+    const skillScene = computed(() => {
+      const tree = skillSceneTree.value;
+      for (const g of tree) for (const sc of g.scenes) if (sc.key === skillSceneKey.value) return sc;
+      /* 还没选过时落在第一个「占固定位」的场景上 —— 助手那一项不占位，不该是落点 */
+      for (const g of tree) for (const sc of g.scenes) if (!sc.assistant) return sc;
+      return tree.length ? (tree[0].scenes[0] || null) : null;
+    });
+
+    /* 这个场景里的 Skill 与槽位状态。服务端口径（skills-store.list）：
+       同一 contract 下**第一个**启用的算数，后面那份被标成 conflict —— 别处也按这一份算。 */
+    function skillSceneState(sc) {
+      const items = skillItems.value || [];
+      if (!sc) return { list: [], active: null, conflict: false, lamp: 'empty', text: '空档' };
+      if (sc.assistant) {
+        const on = items.filter(x => x && x.enabled);
+        return { list: on, active: null, conflict: false, lamp: 'asst', text: on.length + ' 份已启用' };
+      }
+      const list = items.filter(x => x && x.contract === sc.contract);
+      const on = list.filter(x => x.enabled);
+      const active = on[0] || null;
+      const conflict = on.length > 1;
+      return {
+        list, active, conflict,
+        lamp: conflict ? 'conflict' : (active ? (active.source === 'user' ? 'mine' : 'builtin') : 'empty'),
+        text: conflict ? '冲突' : (active ? (active.source === 'user' ? '我的' : '内置') : '空档'),
+      };
+    }
+    const skillSceneNow = computed(() => skillSceneState(skillScene.value));
+    function isSceneActive(s) {
+      const st = skillSceneNow.value;
+      return !!(st.active && st.active.id === s.id);
+    }
+    /* 这一步会拿到什么（变量表）：场景级 —— TextAI.SKILL_VARS 按 contract 声明 */
+    const skillSceneVars = computed(() => {
+      const sc = skillScene.value;
+      if (!sc || !sc.contract) return [];
+      const TA = window.TextAI || {};
+      return (TA.SKILL_VARS || {})[sc.contract] || [];
+    });
+    /* 生效中的那份正文用了场景说明里没登记的占位符 → 提醒（程序不会填这个位置） */
+    const skillSceneUnknown = computed(() => {
+      const act = skillActive.value;
+      if (!act || !act.body) return [];
+      const known = skillSceneVars.value.map(v => v.name);
+      const names = (window.TplVars && TplVars.names) ? TplVars.names(act.body) : [];
+      return names.filter(n => known.indexOf(n) < 0);
+    });
+    /* 「全部 Skill」里的清单（筛选 + 搜索） */
+    const skillAllFiltered = computed(() => {
+      const kw = String(skillAllQ.value || '').trim().toLowerCase();
       return (skillItems.value || []).filter(it => {
-        if (skillFilter.value === 'enabled' && !it.enabled) return false;
-        if (skillFilter.value === 'disabled' && it.enabled) return false;
-        if (skillFilter.value === 'builtin' && it.source !== 'builtin') return false;
-        if (skillFilter.value === 'user' && it.source !== 'user') return false;
+        if (skillAllFilter.value === 'enabled' && !it.enabled) return false;
+        if (skillAllFilter.value === 'disabled' && it.enabled) return false;
+        if (skillAllFilter.value === 'builtin' && it.source !== 'builtin') return false;
+        if (skillAllFilter.value === 'user' && it.source !== 'user') return false;
         if (!kw) return true;
         const hay = [it.id, it.name, it.description, (it.triggers || []).join(' '), it.contract].join(' ').toLowerCase();
-        return hay.includes(kw);
+        return hay.indexOf(kw) >= 0;
       });
     });
-    const skillCntText = computed(() => skillFiltered.value.length + ' / ' + (skillItems.value || []).length + ' 份 Skill');
+    const skillCntText = computed(() => skillAllFiltered.value.length + ' / ' + (skillItems.value || []).length + ' 份 Skill');
+    /* 这份 Skill 归哪个场景（全量清单里那一列） */
+    function skillSceneNameOf(contract) {
+      if (!contract) return '—';
+      const tree = skillSceneTree.value;
+      for (const g of tree) for (const sc of g.scenes) if (sc.contract === contract) return sc.label;
+      return contract;
+    }
 
-    /* 一级菜单 = 「这个 Skill 用在哪」（§13.2）：11 个 contract 各一行 + 助手一行（唯一按需触发的）。
-       每行三件事：现在用的是哪一份（内置 / 我的）、有没有冲突、人话的用在哪。
-       点一行 = 选中「现在用的那一份」进下面的详情（清单 / 变量表 / 改 / 恢复都在那里）。 */
-    const skillSlots = computed(() => {
-      const TA = window.TextAI || {};
-      const contracts = TA.SKILL_CONTRACT || {};
-      const prompts = TA.PROMPTS || [];
-      const items = skillItems.value || [];
-      const labelOf = {}, usedOf = {};
-      prompts.forEach(g => (g.items || []).forEach(it => { labelOf[it.key] = it.label; usedOf[it.key] = it.used; }));
-      const FALLBACK = {
-        board_assets: ['拆分镜素材判定', '拆分镜时判定哪些新角色/场景/物品要建档并出图'],
-      };
-      const rows = Object.keys(contracts).map(kind => {
-        const contract = contracts[kind];
-        const mine = items.filter(x => x && x.contract === contract);
-        /* 「现在用的是哪一份」= 启用且没冲突的那份；一份都没启用就是空档（界面照实说「用内置默认」）。 */
-        const active = mine.find(x => x.enabled && !x.conflict) || mine.find(x => x.enabled) || null;
-        return {
-          id: kind, contract,
-          label: labelOf[kind] || (FALLBACK[kind] ? FALLBACK[kind][0] : kind),
-          used: usedOf[kind] || (FALLBACK[kind] ? FALLBACK[kind][1] : ''),
-          current: active ? { id: active.id, name: active.name || active.id, source: active.source } : null,
-          conflict: mine.some(x => x && x.conflict),
-          count: mine.length,
-          assistant: false,
-        };
-      });
-      rows.push({
-        id: 'assistant', contract: '', label: 'AI 助手（唯一按需触发，不按位置固定）',
-        used: '助手在回合里自己判断加载：预载最多 2 份进系统提示词 + 按需最多 2 份走工具结果；'
-          + '用户在问题里点名的优先钉住。这一项的语义与上面 11 个不同 —— 不是「一个位置一份正文」。',
-        current: null, conflict: false, count: items.filter(x => x && x.enabled).length, assistant: true,
-      });
-      return rows;
-    });
-    async function pickSkillSlot(row) {
-      if (!row || row.assistant) { skillMsg.value = '助手那项是按需触发的：没有「固定一份」可选 —— 清单里任意启用的 Skill 都可能被它按需读取。'; return; }
-      if (row.current) { await selectSkill(row.current.id); return; }
-      /* 这个位置没有启用的 Skill → 过滤清单到这个 contract，让用户挑一份或看内置默认 */
-      skillQ.value = row.contract;
-      skillFilter.value = 'all';
-      paintSkillChips();
-      skillMsg.value = '「' + row.label + '」现在用的是内置默认（没有启用的 Skill 声明这个 contract）—— 下面已筛出相关 Skill。';
+    /* 点一个场景 = 右边换成这个场景的详情（变量表 + 这一场景的 Skill）。 */
+    function pickSkillScene(sc) {
+      if (!sc) return;
+      skillSceneKey.value = sc.key;
+      skillMode.value = 'scene';
+      skillSelId.value = '';
+      skillFiles.value = [];
+      skillFilePath.value = '';
+      if (skillPreEl.value) skillPreEl.value.textContent = '';
+      loadSceneActive(sc);
+    }
+    /* 当前场景里正在生效的那一份的正文 —— 用来查它用了哪些占位符 */
+    async function loadSceneActive(sc) {
+      const key = sc && sc.key;
+      skillActive.value = null;
+      const st = skillSceneState(sc);
+      if (!st.active) return;
+      try {
+        const d = await window.WbSkills.full(st.active.id);
+        /* 等这一趟的功夫里可能已经切到别的场景了 —— 别把上一格的正文按到这一格上 */
+        if (key && skillScene.value && skillScene.value.key !== key) return;
+        skillActive.value = d;
+      } catch (e) { /* 读不出来就不提占位符那一条，别的照常 */ }
+    }
+    function openSkillAll() {
+      skillMode.value = 'all';
+      nextTick(() => paintSkillChips());
+    }
+    function closeSkillAll() {
+      skillMode.value = 'scene';
     }
 
     function paintSkillChips() {
       if (!window.Chips || !skillChipsEl.value) return;
-      window.Chips.render(skillChipsEl.value, SKILL_FILTERS, skillFilter.value, v => {
-        skillFilter.value = v;
+      window.Chips.render(skillChipsEl.value, SKILL_FILTERS, skillAllFilter.value, v => {
+        skillAllFilter.value = v;
         paintSkillChips();
       });
     }
     function onSkillSearch(e) { skillQ.value = e.target.value; }
+    function onSkillAllSearch(e) { skillAllQ.value = e.target.value; }
 
     async function reloadSkills(force) {
       if (!window.WbSkills) { skillMsg.value = 'Skill 客户端没有加载（web/ui/skills.js）'; return; }
@@ -2938,7 +3038,6 @@ const SettingsView = {
         skillItems.value = await window.WbSkills.list(!!force);
         if (skillSelId.value && !skillItems.value.some(x => x.id === skillSelId.value)) {
           skillSelId.value = '';
-          skillDetail.value = null;
           skillFiles.value = [];
           skillFilePath.value = '';
           if (skillPreEl.value) skillPreEl.value.textContent = '';
@@ -2946,6 +3045,9 @@ const SettingsView = {
           await loadSkillDetail(skillSelId.value, true);
         }
         paintSkillChips();
+        /* 当前场景里生效的那一份可能换人了（启停 / 卸载 / 装新的一份）→ 重读它的正文 */
+        const sc = skillScene.value;
+        if (sc) await loadSceneActive(sc);
       } catch (e) {
         skillMsg.value = '读不到 Skill 清单：' + errText(e);
       } finally {
@@ -2956,33 +3058,40 @@ const SettingsView = {
 
     async function loadSkillDetail(id, quiet) {
       const s = await window.WbSkills.full(id);
-      skillDetail.value = s;
       const f = await window.WbSkills.files(id);
       skillFiles.value = f.files || [];
-      skillHash = f.hash || '';
-      if (!s.contentHash) s.contentHash = skillHash;
-      /* 「项目引用规则」那一格跟着这一份走（选中另一份 Skill 时要换掉）。
-         变量名单要扫**正文** —— 正文在 `s.body` 里（服务端已经给了）。 */
-      fillSkillVarNames(s, s.body || '');
+      if (!s.contentHash && f.hash) s.contentHash = f.hash;
+      /* 变量表不跟着这一份走 —— 它跟着**场景**走（TextAI.SKILL_VARS 按 contract 声明）。
+         这一份的正文只用来预览，以及算「它用了哪些占位符」那条提醒。 */
       const main = skillFiles.value.find(x => x.path === 'SKILL.md') || skillFiles.value[0];
       await openSkillFile(main ? main.path : '');
       if (!quiet) await nextTick();
     }
 
-    async function selectSkill(id) {
+    /* 展开一份 Skill 的正文（文件树 + 预览）。同一时刻只展开一份。 */
+    async function toggleSkillOpen(id) {
       if (!id) return;
+      if (skillSelId.value === id) {
+        skillSelId.value = '';
+        skillFiles.value = [];
+        skillFilePath.value = '';
+        if (skillPreEl.value) skillPreEl.value.textContent = '';
+        return;
+      }
       skillSelId.value = id;
       skillBusy.value = true;
       try {
         await loadSkillDetail(id);
       } catch (e) {
-        skillDetail.value = null;
         skillFiles.value = [];
         Toast.err('读不到这份 Skill：' + errText(e));
       } finally {
         skillBusy.value = false;
       }
     }
+
+    /* 预览那一块 <pre> 在列表行里（v-for），普通 ref 会收成数组 —— 用函数 ref 拿准那一个。 */
+    function setSkillPreEl(el) { skillPreEl.value = el; }
 
     async function openSkillFile(path) {
       skillFilePath.value = path || '';
@@ -3003,10 +3112,11 @@ const SettingsView = {
       }
     }
 
-    async function toggleSkillEnabled() {
-      if (!skillDetail.value) return;
-      const id = skillDetail.value.id;
-      const on = !skillDetail.value.enabled;
+    /* 启停：按行来（行上那一颗按钮），不再走「选中哪一份」那套。 */
+    async function toggleSkillEnabled(id) {
+      const it = (skillItems.value || []).filter(x => x.id === id)[0];
+      if (!it) return;
+      const on = !it.enabled;
       skillBusy.value = true;
       try {
         await window.WbSkills.setEnabled(id, on);
@@ -3020,76 +3130,130 @@ const SettingsView = {
       }
     }
 
-    /* 内置只能读：复制成用户 Skill 时改 id / 名字，其余文件原样带过去。
-       只动 frontmatter 里这两行，不在这里重新解析整套规则（那是服务端的事）。 */
-    function cloneSkillText(text, oldId, newId, oldName) {
-      const lines = String(text || '').split('\n');
-      let inFm = false, seen = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (i === 0 && line.trim() === '---') { inFm = true; continue; }
-        if (inFm && line.trim() === '---') break;
-        if (!inFm) continue;
-        if (!seen && /^id\s*:/.test(line)) { lines[i] = 'id: ' + newId; seen = true; }
-        else if (/^name\s*:/.test(line)) lines[i] = 'name: ' + String(oldName || newId).replace(/[\r\n]/g, ' ') + '（我的）';
+    /* ---------- 新建 / 编辑：在浏览器里直接写一份 Skill ----------
+       「添加新 Skill」开的是空白表单（contract 预填当前场景）；「编辑正文」开的是已有那一份。
+       frontmatter 由表单生成，正文自己敲 —— 落盘走 /skills/install（新建）或 /skills/:id/update（改）。
+       ⚠ 内置 Skill 只读：改不了内置那一份。要改就自己新建一份占同一个 contract
+         （服务端会把同 contract 的内置那份自动停用）。 */
+    function skillFormReset(sc) {
+      skillForm.mode = 'create';
+      skillForm.id = '';
+      skillForm.name = '';
+      skillForm.description = '';
+      skillForm.contract = (sc && sc.contract) || (skillScene.value && skillScene.value.contract) || '';
+      skillForm.triggers = '';
+      skillForm.pages = [];
+      skillForm.body = '';
+      skillForm.version = 1;
+      skillFormHash = '';
+    }
+    function openSkillNew() {
+      const sc = skillScene.value;
+      if (!sc || !sc.contract) {
+        Toast.err('助手那一项不占固定位 —— 给某类活儿写一份，要去左栏选那个场景');
+        return;
       }
-      return lines.join('\n');
+      skillFormReset(sc);
+      skillMode.value = 'new';
     }
-
-    /* ---- 项目引用规则 ----
-       「项目引用规则」指的是**这份 Skill 正文里的变量占位符**（`{cast}` `{what}` `{board}` …）——
-       程序在发请求前按**当前项目**把实际内容填进去。
-       读法：扫正文里写了哪些变量（`window.TplVars.names`，那一份只有一处）。 */
-    const skillVarNames = ref([]);
-    /* 变量参数表（从 SKILL_VARS 出）：占位符 / 程序从哪填 / 填什么 —— 三级说明。
-       扫出来的变量名与 SKILL_VARS 的说明对上；没说明的占位符也照实列出。 */
-    const skillVarInfo = ref([]);
-    /* 选中一份 Skill 时把它正文里用到的变量列出来（填料是程序的事，这里只给用户看）。 */
-    function fillSkillVarNames(d, bodyText) {
-      const names = (window.TplVars && TplVars.names) ? TplVars.names(bodyText || (d && d.body) || '') : [];
-      skillVarNames.value = names;
-      /* 合上 SKILL_VARS 的说明（按 contract 查） */
-      const contract = d && d.contract;
-      const vars = (window.TextAI && TextAI.SKILL_VARS && contract) ? (TextAI.SKILL_VARS[contract] || []) : [];
-      skillVarInfo.value = names.map(n => {
-        const hit = vars.find(v => v.name === n);
-        return { name: n, from: hit ? hit.from : '（未登记）', desc: hit ? hit.desc : '正文里用到但没写说明' };
-      });
-    }
-
-    async function copySkillToMine() {
-      if (!skillDetail.value) return;
+    async function openSkillEdit(id) {
+      const it = (skillItems.value || []).filter(x => x.id === id)[0];
+      if (!it || it.source === 'builtin') { Toast.err('内置 Skill 是只读的 —— 要改就自己新建一份'); return; }
       skillBusy.value = true;
       try {
-        const bundle = await window.WbSkills.exportOne(skillDetail.value.id);
-        const list = (bundle.files || []).map(f => ({ path: f.path, text: f.text }));
-        const main = list.find(f => /(^|\/)SKILL\.md$/.test(f.path));
-        if (!main) throw new Error('这份 Skill 没有 SKILL.md（内置目录不完整？）');
-        let base = String(skillDetail.value.id).replace(/-mine\d*$/, '') + '-mine';
-        if (base.length > 40) base = base.slice(0, 40);
-        let id = base, n = 1;
-        while (skillItems.value.some(x => x.id === id)) id = base.slice(0, 37) + '-' + (++n);
-        main.text = cloneSkillText(main.text, skillDetail.value.id, id, skillDetail.value.name);
-        await window.WbSkills.importBundle(list, { enable: false });
-        skillMsg.value = '✓ 已复制为 ' + id + '（默认停用）';
-        Toast.receipt('已复制为 ' + id + '（默认停用）');
-        await reloadSkills(true);
-        await selectSkill(id);
+        const d = await window.WbSkills.full(id);
+        skillForm.mode = 'edit';
+        skillForm.id = d.id;
+        skillForm.name = d.name || '';
+        skillForm.description = d.description || '';
+        skillForm.contract = d.contract || '';
+        skillForm.triggers = (d.triggers || []).join('、');
+        skillForm.pages = (d.pages || []).slice();
+        skillForm.body = d.body || '';
+        skillForm.version = d.version || 1;
+        skillFormHash = d.contentHash || '';
+        skillMode.value = 'new';
       } catch (e) {
-        Toast.err('复制失败：' + errText(e));
+        Toast.err('读不到这份 Skill：' + errText(e));
       } finally {
         skillBusy.value = false;
       }
     }
-
-    function pickSkillFile(mode) {
-      skillImportMode = mode === 'update' ? 'update' : 'import';
-      if (skillImportMode === 'update') {
-        if (!skillDetail.value || skillDetail.value.source === 'builtin') return;
-        skillExpectedHash = skillDetail.value.contentHash || skillHash;
-      } else {
-        skillExpectedHash = '';
+    /* frontmatter 由表单生成：id / name / description / triggers / pages / contract / version。
+       正文原样接在后面 —— 那是这份 Skill 真正的内容。 */
+    function skillFormFiles() {
+      const trig = String(skillForm.triggers || '').split(/[、,，\s]+/).map(s => s.trim()).filter(Boolean);
+      const pages = (skillForm.pages || []).filter(Boolean);
+      const q = s => '"' + String(s || '').replace(/"/g, '').replace(/[\r\n]/g, ' ') + '"';
+      const fm = ['---',
+        'id: ' + String(skillForm.id || '').trim(),
+        'name: ' + String(skillForm.name || '').replace(/[\r\n]/g, ' '),
+        'description: ' + String(skillForm.description || '').replace(/[\r\n]/g, ' '),
+        'triggers: [' + trig.map(q).join(', ') + ']',
+        'pages: [' + pages.map(q).join(', ') + ']',
+        'contract: ' + skillForm.contract,
+        'version: ' + (skillForm.version || 1),
+        '---', ''].join('\n');
+      return [{ path: 'SKILL.md', text: fm + '\n' + String(skillForm.body || '') }];
+    }
+    async function saveSkillNew() {
+      const id = String(skillForm.id || '').trim();
+      if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)) { Toast.err('id 只能用小写字母、数字与连字符（2–41 个字符）'); return; }
+      if (!String(skillForm.name || '').trim()) { Toast.err('给它起个名字'); return; }
+      if (!String(skillForm.description || '').trim()) { Toast.err('写一句它管什么（description 必填）'); return; }
+      if (!String(skillForm.body || '').trim()) { Toast.err('正文是空的 —— 这份 Skill 要告诉 AI 怎么写'); return; }
+      const wasEdit = skillForm.mode === 'edit';
+      skillBusy.value = true;
+      try {
+        const files = skillFormFiles();
+        if (wasEdit) {
+          /* 更新是整目录换：不带上 references 等附属文件，它们会跟着没掉 —— 一并带回去。 */
+          const extra = [];
+          try {
+            const fl = await window.WbSkills.files(id);
+            for (const f of (fl.files || [])) {
+              if (f.path === 'SKILL.md') continue;
+              try { extra.push({ path: f.path, text: await window.WbSkills.readFile(id, f.path) }); }
+              catch (e) { /* 读不到的那一个附属文件就跳过：只更新 SKILL.md 也算数 */ }
+            }
+          } catch (e) { /* 读不到附属文件就只更新 SKILL.md */ }
+          await window.WbSkills.update(id, files.concat(extra), skillFormHash);
+          skillMsg.value = '✓ 已更新 ' + id;
+          Toast.receipt('已更新 ' + id);
+        } else {
+          const s = await window.WbSkills.install(files, { enable: true });
+          skillMsg.value = '✓ 已新建 ' + s.id + '（并已启用：同一 contract 上原来那份自动让位）';
+          Toast.receipt('已新建 ' + s.id);
+        }
+        skillMode.value = 'scene';
+        await reloadSkills(true);
+        if (wasEdit) await toggleSkillOpen(id);
+      } catch (e) {
+        Toast.err('保存失败：' + errText(e));
+      } finally {
+        skillBusy.value = false;
       }
+    }
+    function cancelSkillNew() {
+      skillMode.value = 'scene';
+      skillFormReset(null);
+    }
+
+    /* 「复制为我的 Skill」这条整族删掉了：内置只读，要自己写一份就用上面那张表单新建。 */
+
+    function pickSkillFile(mode, id) {
+      skillImportTarget = mode === 'update' ? (id || '') : '';
+      if (skillImportTarget) {
+        const it = (skillItems.value || []).filter(x => x.id === skillImportTarget)[0];
+        if (!it || it.source === 'builtin') { skillImportTarget = ''; return; }
+        /* 更新要拿当前 hash 对账：现场读一次（清单里没有 hash） */
+        window.WbSkills.full(skillImportTarget).then(d => {
+          skillExpectedHash = d.contentHash || '';
+          if (skillFileEl.value) skillFileEl.value.click();
+        }).catch(e => Toast.err('读不到这一份的当前版本：' + errText(e)));
+        return;
+      }
+      skillExpectedHash = '';
       if (skillFileEl.value) skillFileEl.value.click();
     }
 
@@ -3109,20 +3273,19 @@ const SettingsView = {
       e.target.value = '';
       if (!file) return;
       skillBusy.value = true;
-      const mode = skillImportMode;
+      const target = skillImportTarget;
       try {
         const next = await skillFilesFromPick(file);
-        if (mode === 'update' && skillDetail.value) {
-          await window.WbSkills.update(skillDetail.value.id, next, skillExpectedHash);
-          skillMsg.value = '✓ 已更新 ' + skillDetail.value.id;
-          Toast.receipt('已更新 ' + skillDetail.value.id);
+        if (target) {
+          await window.WbSkills.update(target, next, skillExpectedHash);
+          skillMsg.value = '✓ 已更新 ' + target;
+          Toast.receipt('已更新 ' + target);
           await reloadSkills(true);
         } else {
           const s = await window.WbSkills.importBundle(next, { enable: false });
           skillMsg.value = '✓ 已导入 ' + s.id + '（默认停用，需要时再启用）';
           Toast.receipt('已导入 ' + s.id + '（默认停用，需要时再启用）');
           await reloadSkills(true);
-          await selectSkill(s.id);
         }
       } catch (err) {
         const msg = errText(err);
@@ -3130,46 +3293,35 @@ const SettingsView = {
         else Toast.err('导入失败：' + msg);
         if (/已经变了/.test(msg)) { try { await reloadSkills(true); } catch (e2) {} }
       } finally {
-        skillImportMode = 'import';
+        skillImportTarget = '';
         skillExpectedHash = '';
         skillBusy.value = false;
       }
     }
 
-    async function exportSkill() {
-      if (!skillDetail.value) return;
-      skillBusy.value = true;
-      try {
-        const bundle = await window.WbSkills.exportOne(skillDetail.value.id);
-        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-        await window.Net.save(blob, skillDetail.value.id + '.skill.json');
-      } catch (e) {
-        Toast.err('导出失败：' + errText(e));
-      } finally {
-        skillBusy.value = false;
-      }
-    }
+    /* 「导出」这条整族删掉了：Skill 不再往外发文件；要留一份就用「编辑正文」把内容拷走。 */
 
-    async function removeSkill(e) {
-      if (!skillDetail.value) return;
+    async function removeSkill(id, e) {
+      const it = (skillItems.value || []).filter(x => x.id === id)[0];
+      if (!it) return;
       const btn = e && e.currentTarget;
       if (window.Confirm && Confirm.arm && btn) {
         if (window.Confirm.arm(btn, '确认卸载', {
-          key: skillDetail.value.id,
-          note: '卸载后 .skills/' + skillDetail.value.id + ' 的文件与启用状态都会被删除。',
+          key: id,
+          note: '卸载后 .skills/' + id + ' 的文件与启用状态都会被删除。',
         })) return;
       }
-      const id = skillDetail.value.id;
       skillBusy.value = true;
       try {
         await window.WbSkills.remove(id);
         skillMsg.value = '✓ 已卸载 ' + id;
         Toast.receipt('已卸载 ' + id);
-        skillSelId.value = '';
-        skillDetail.value = null;
-        skillFiles.value = [];
-        skillFilePath.value = '';
-        if (skillPreEl.value) skillPreEl.value.textContent = '';
+        if (skillSelId.value === id) {
+          skillSelId.value = '';
+          skillFiles.value = [];
+          skillFilePath.value = '';
+          if (skillPreEl.value) skillPreEl.value.textContent = '';
+        }
         await reloadSkills(true);
       } catch (err) {
         Toast.err('卸载失败：' + errText(err));
@@ -3871,13 +4023,14 @@ const SettingsView = {
       cacheBusy, clearApiCache, clearMetaCache, clearThumbCache, clearMissedCache, histBoxEl, cacheUsage, cacheMsg,
       promptDir, promptDirEl, onPromptDirChange, promptInfo, promptInfoTitle, promptMsg, promptRefresh,
       openPromptDir, promptOpenBusy, promptRecentEl,
-      skillItems, skillReady, skillMsg, skillBusy, skillFileEl, skillChipsEl, skillQEl, skillPreEl,
-      skillSlots, pickSkillSlot,
-      skillQ, skillFilter, skillSelId, skillDetail, skillFiles, skillFilePath, skillFileNote,
-      skillFiltered, skillCntText, paintSkillChips, onSkillSearch, reloadSkills, selectSkill, openSkillFile,
-      toggleSkillEnabled, copySkillToMine, pickSkillFile, onImportSkillFile, exportSkill, removeSkill, fmtSkillSize,
-      skillVarNames,
-      skillVarInfo,
+      skillItems, skillReady, skillMsg, skillBusy, skillFileEl, skillChipsEl, skillPreEl,
+      skillSceneKey, skillMode, skillTree, skillScene, skillSceneNow, skillSceneVars, skillSceneUnknown,
+      skillSceneState, isSceneActive, pickSkillScene, openSkillAll, closeSkillAll, skillSceneNameOf,
+      skillQ, skillAllQ, skillAllFilter, skillAllFiltered, skillSelId, skillActive,
+      skillFiles, skillFilePath, skillFileNote, skillCntText, skillPages,
+      paintSkillChips, onSkillSearch, onSkillAllSearch, reloadSkills, toggleSkillOpen, setSkillPreEl,
+      openSkillFile, toggleSkillEnabled, pickSkillFile, onImportSkillFile, removeSkill, fmtSkillSize,
+      skillForm, openSkillNew, openSkillEdit, saveSkillNew, cancelSkillNew,
       asr, asrKey, asrLocal, asrLocalText, asrBrowser, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,

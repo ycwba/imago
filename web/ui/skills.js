@@ -110,11 +110,8 @@
     } catch (e) { return window.__skillBodies || {}; }
   }
 
-  async function exportOne(id) {
-    var d = await window.Net.json('/skills/' + encodeURIComponent(id) + '/export', { timeout: 15000, retry: 0 });
-    return d || { files: [] };
-  }
-
+  /* 「导出」这条整族删掉了：Skill 不再往外发文件（服务端那条 /skills/:id/export 也一并删了）。
+     要留一份内容就用设置页的「编辑正文」把它拷走。 */
   /* 页面 + 触发词匹配：enabled、页面在 pages 里（或没写 pages），且正文里有一个触发词。
      返回按触发词命中数排序的元数据；真正加载全文由 activeFor 做。 */
   function match(items, page, text) {
@@ -235,7 +232,7 @@
 
   window.WbSkills = { list: list, full: full, readFile: readFile, files: files,
     install: install, importBundle: importBundle, update: update, setEnabled: setEnabled,
-    remove: remove, exportOne: exportOne,
+    remove: remove,
     match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL,
     estTokens: estTokens, SKILL_BUDGET: SKILL_BUDGET, ON_DEMAND_BUDGET: ON_DEMAND_BUDGET };
   window.__skillBodies = window.__skillBodies || {};

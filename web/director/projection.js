@@ -15,7 +15,21 @@ export function createProjection({ getProj, allShots, shotReady, tlCandidateOf, 
     const out = ord.map(id => byId[id]).filter(Boolean);
     const seen = {};
     out.forEach(sh => { seen[sh.id] = 1; });
-    list.forEach(sh => { if (!seen[sh.id]) out.push(sh); });
+    /* 不在覆盖清单里的镜头（新建的、拆分镜新落的）按**分镜表里的位置**插进来：
+     * 挪到它前面最近那一镜的后面；前面一个都不在清单里就挪到它后面最近那一镜的前面；
+     * 两头都找不到才追加到末尾。以前一律 push 到末尾 —— 在两镜之间新建的那一镜，
+     * 生成出片后在剪辑顺序里跑到了片尾，而用户建它时指的位置就在两镜之间。 */
+    list.forEach((sh, i) => {
+      if (seen[sh.id]) return;
+      seen[sh.id] = 1;
+      const posOf = id => out.findIndex(x => x.id === id);
+      let at = -1;
+      for (let j = i - 1; j >= 0; j--) { const k = posOf(list[j].id); if (k >= 0) { at = k + 1; break; } }
+      if (at < 0) {
+        for (let j = i + 1; j < list.length; j++) { const k = posOf(list[j].id); if (k >= 0) { at = k; break; } }
+      }
+      out.splice(at < 0 ? out.length : at, 0, sh);
+    });
     return out;
   }
   const filmOrderNow = () => filmShotsOrdered(allShots().filter(shotReady));

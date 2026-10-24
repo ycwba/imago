@@ -4,7 +4,7 @@
    + engine 里接一个 builder；模板按钮、接线、校验、文案不再各改一处。
    放在 domain 而不是 director：助手（web/features/chat.js）也要读同一份，而它是经典脚本，
    按需加载时只能拿 window 面（加载点见 web/boot-assistant.js 与 web/director/index.js）。
-   kind：film=整片合成；files=画面/配音分开出文件；xml=交换文件（bundle 再带媒体包，
+   kind：film=整片合成；xml=交换文件（bundle 再带媒体包，
    nle 生成持久工程并送到剪映 / 达芬奇）。 */
 (function () {
   'use strict';
@@ -15,12 +15,6 @@
       assistant: '合成成片（在这个浏览器里逐帧编码）',
       doc: '合成成片（浏览器内合成，进度能查、能取消）',
       startNote: '已在页面里开始合成；进度用 export_status 查，取消用 export_cancel' },
-    { id: 'assets', button: 'exportAssets', kind: 'files', label: '导出素材', icon: 'box',
-      renders: true, cancelLabel: '取消导出素材',
-      title: '把选定成片的素材分开导出：每段画面一个 mp4、每句配音一个音频文件；导出中再点 = 取消',
-      assistant: '导出全片素材（一段一个、一句一个）',
-      doc: '画面与配音分开出文件（一段一个、一句一个）',
-      startNote: '已开始导出素材（一段一个、一句一个）；进度用 export_status 查' },
     { id: 'fcpxml', button: 'exportFcp', kind: 'xml', label: '导出 FCPXML', icon: 'film',
       title: '把当前时间线导出成 Final Cut Pro / 达芬奇可导入的 FCPXML：保留镜头顺序、入出点、倍速与配音位置；本机没有落盘的素材会在文件开头列出来',
       assistant: '导出 FCPXML（当前字幕一起写入）',

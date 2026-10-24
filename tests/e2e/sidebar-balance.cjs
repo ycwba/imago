@@ -6,7 +6,7 @@
      · 多的那几家不再「跳去用量页」，改成就地展开（`sb_bal_exp`）：整份名单摆在同一条列里，
        **只有卡列表那一格滚**，导航与本机产物行钉在原位；收起后回到 cap 张。展开是偏好，要跨重载。
      · 余额区里**不再有跳转钮**（去用量页 / 去设置）：侧栏里只许出现 expand / collapse / refresh 三枚。
-   「展开」这一位撞的就是「导航优先」那条硬约束，所以每档都同时判：卡全摆出来时导航仍 7 条不被裁、
+   「展开」这一位撞的就是「导航优先」那条硬约束，所以每档都同时判：卡全摆出来时导航全部不被裁、
    自己不长滚动条，而「收起」钮永远点得到（点不回就是死锁）。
    ≤660 与 66px 那两档卡片块本来不画，展开位对它们必须等于不存在（sidebar.css 里那两条 revert）。
    本机产物那一行的明细照同一句话走：要看更多就点开标题行，不跳转 —— 顺带判「重画一次就重绑一次」。
@@ -37,6 +37,16 @@ const STUB = () => {
 /* 「有内滚动条」= overflow 这一轴**真的生效**且内容确实超出。
    只判 scrollHeight > clientHeight 会把 overflow:hidden 的容器也算成「在滚」（误报）；
    只判 overflow 又把「写着 auto 但其实没超出」算成红。 */
+const fs = require('fs');
+const path = require('path');
+/* 侧栏导航条数从路由表现算（web/core/routes.js 里没有 nav:false 的页）：
+   写死一个数，路由加一页 / 并一页这条判据就悄悄变成假话。 */
+const NAV_N = (() => {
+  const src = fs.readFileSync(path.join(__dirname, '../../web/core/routes.js'), 'utf8');
+  const pages = (src.match(/file:\s*'[^']+\.html'/g) || []).length;
+  const off = (src.match(/nav:\s*false/g) || []).length;
+  return pages - off;
+})();
 const BARS = sel => {
   const el = document.querySelector(sel);
   if (!el) return { miss: 1 };
@@ -73,6 +83,13 @@ const SNAP = () => {
     return { top: Math.round(r.top - bb.top), bottom: Math.round(bb.bottom - r.bottom), h: Math.round(r.height) }; };
   return {
     boxH: Math.round(bb.height),
+    /* 底部那组有没有钉在柱底：设置行（侧栏最后一块）的下沿与侧栏下沿的缝。
+       展开态导航退回自然高之后，这一组不上钉就会浮到导航脚下（组件「错位到上面」）。 */
+    setPin: (() => {
+      const row = document.querySelector('.sidebar > .sb-bottom:last-child');
+      if (!row) return null;
+      return Math.round(rail.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom);
+    })(),
     sumVis: vis(sum), bodyVis: vis(body),
     sumText: sum ? sum.textContent.replace(/\s+/g, ' ').trim() : '',
     sumTitle: title,
@@ -169,7 +186,7 @@ const check = (name, cond, detail) => {
     check('1024x600：矮窗整区收成一行摘要（卡片块不画）', s.sumVis && !s.bodyVis, s);
     check('1024x600：摘要只有一行高', s.sumH > 0 && s.sumH <= 32 && s.sumOver <= 1, { sumH: s.sumH, over: s.sumOver });
     check('1024x600：区域总高 = 那一行 + 容器留白（没有第二块）', s.boxH <= s.sumH + 24, { boxH: s.boxH, sumH: s.sumH });
-    check('1024x600：导航 7 条全露出（无被裁）', s.navCount === 7 && s.navClipped === 0, s);
+    check('1024x600：导航全部露出（无被裁）', s.navCount === NAV_N && s.navClipped === 0, s);
     check('整栏：余额区里没有「去用量页 / 去设置」跳转钮', s.jumps === 0, { jumps: s.jumps });
 
     /* ---------- 档二：1024x500（验收：窗口高 500px 时导航全部可见）---------- */
@@ -181,7 +198,7 @@ const check = (name, cond, detail) => {
     console.log('  #sbBalance ' + JSON.stringify(bal) + '\n  nav ' + JSON.stringify(nv));
     check('1024x500：#sbBalance 无内滚动条', !bal.barY && !bal.barX, bal);
     check('1024x500：导航无内滚动条', !nv.barY && !nv.barX, nv);
-    check('1024x500：7 条导航全部可见', s.navCount === 7 && s.navClipped === 0, s);
+    check('1024x500：导航全部可见', s.navCount === NAV_N && s.navClipped === 0, s);
     check('1024x500：余额区仍是一行摘要', s.sumVis && !s.bodyVis, s);
 
     /* ---------- 档三：1440x900 收起态（66px）---------- */
@@ -249,14 +266,16 @@ const check = (name, cond, detail) => {
     check(EXP + '：整份名单都摆出来了（卡数 = 摘要报的家数）', s.cardTotal === s.sumTotal && s.cards.length === s.sumTotal,
       { cards: s.cards.length, total: s.sumTotal });
     check(EXP + '：.bal-exp 挂上，卡包在唯一滚动位 .sb-bal-cards 里', s.balExp && s.wrapVis, { balExp: s.balExp, wrapVis: s.wrapVis });
-    check(EXP + '：导航仍 7 条全可见、自己不长滚动条（导航优先于「看全」）',
-      !nv.barY && !nv.barX && s.navCount === 7 && s.navClipped === 0, { nav: nv, navClipped: s.navClipped });
+    check(EXP + '：导航仍全部可见、自己不长滚动条（导航优先于「看全」）',
+      !nv.barY && !nv.barX && s.navCount === NAV_N && s.navClipped === 0, { nav: nv, navClipped: s.navClipped });
     check(EXP + '：整个区域自己不长第二条滚动条（滚的只有卡格）', !bal.barY && !bal.barX, bal);
     check(EXP + '：确实只有卡格超出（900px 高摆 6 张必然要滚 —— 这就是就地展开的代价，摆在明面上）', s.wrapBar,
       { wrapBar: s.wrapBar, wrapBox: s.wrapBox });
     check(EXP + '：本机产物行与按钮行完整留在盒子里（「收起」永远点得到，不死锁）',
       s.mirBox && s.mirBox.top >= -1 && s.mirBox.bottom >= -1 && s.actsBox && s.actsBox.bottom >= -1,
       { mirBox: s.mirBox, actsBox: s.actsBox });
+    check(EXP + '：底部一组钉在柱底（导航退自然高后不整体浮上去 —— 组件「错位到上面」就是它）',
+      s.setPin != null && Math.abs(s.setPin) <= 2, { setPin: s.setPin });
     check(EXP + '：按钮换成「收起」+「刷新余额」', JSON.stringify([...s.acts].sort()) === JSON.stringify(['collapse', 'refresh']),
       { acts: s.acts });
     check(EXP + '：展开是偏好，当场落盘', (await expPref()) === '1', { pref: await expPref() });
@@ -272,7 +291,7 @@ const check = (name, cond, detail) => {
     console.log('  重载后：卡 ' + s2.cards.length + ' 张 · .bal-exp=' + s2.balExp + ' · 按钮 ' + JSON.stringify(s2.actTexts));
     check('重载后仍是展开态（卡数 = 家数、.bal-exp 挂回）', s2.balExp && s2.cards.length === s2.sumTotal && s2.sumTotal === 6,
       { balExp: s2.balExp, cards: s2.cards.length, total: s2.sumTotal });
-    check('重载后导航照旧 7 条不被裁', !nv2.barY && s2.navCount === 7 && s2.navClipped === 0, { nav: nv2, navClipped: s2.navClipped });
+    check('重载后导航照旧全部不被裁', !nv2.barY && s2.navCount === NAV_N && s2.navClipped === 0, { nav: nv2, navClipped: s2.navClipped });
 
     /* 收回一档：回到 cap 张，`.bal-exp` 摘掉，界面上不多留一条没人管的滚动条。 */
     check('点得动「收起」', (await clickBal('collapse')) === 1, {});
@@ -302,8 +321,8 @@ const check = (name, cond, detail) => {
       console.log('\n===== 展开偏好开着 @' + w + 'x' + ht + '（' + tag + '）=====\n  卡 ' + r.cards.length + ' 张 · .bal-exp=' + r.balExp
         + ' · 摘要可见=' + r.sumVis + ' · 卡片块可见=' + r.bodyVis + '\n  nav ' + JSON.stringify(v));
       check(tag + ' × 展开偏好：卡片块不画（摘要行是这一档唯一入口）', !r.bodyVis && r.sumVis, { bodyVis: r.bodyVis, sumVis: r.sumVis });
-      check(tag + ' × 展开偏好：导航没有内滚动条且 7 条不被裁',
-        !v.barY && !v.barX && r.navCount === 7 && r.navClipped === 0, { nav: v, navClipped: r.navClipped });
+      check(tag + ' × 展开偏好：导航没有内滚动条且全部不被裁',
+        !v.barY && !v.barX && r.navCount === NAV_N && r.navClipped === 0, { nav: v, navClipped: r.navClipped });
       check(tag + ' × 展开偏好：余额区没有内滚动条', !b.barY && !b.barX && !b.miss, { bal: b });
       await setPref('0');
     }
@@ -408,8 +427,8 @@ const check = (name, cond, detail) => {
           const r = await resizeOnly(ht, expanded, exp);
           check(tag + '：余额区没有内滚动条（纵/横）', !r.b.barY && !r.b.barX && !r.b.miss, { bal: r.b });
           if (ht >= 500) {
-            check(tag + '：导航没有内滚动条且 7 条不被裁',
-              !r.v.barY && !r.v.barX && r.st.navCount === 7 && r.st.navClipped === 0,
+            check(tag + '：导航没有内滚动条且全部不被裁',
+              !r.v.barY && !r.v.barX && r.st.navCount === NAV_N && r.st.navClipped === 0,
               { nav: r.v, navCount: r.st.navCount, navClipped: r.st.navClipped });
           }
           /* 只有卡片块真画出来的那一档才判「展开态真的摆全了」；摘要档由档六管。 */

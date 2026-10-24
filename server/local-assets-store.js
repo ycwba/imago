@@ -15,6 +15,39 @@ const crypto = require('crypto');
 const MediaId = require('../web/domain/ident.cjs');
 const { createIndexStore } = require('./index-store.js');
 
+/* ---------- 图片 / 视频 / 音频的已知扩展名（本机资产的类别表，全站只有这一张） ----------
+   落点目录（bodyDirNameOf）、磁盘对账补账（localAdopt）、列表重算类型（localMediaType）、
+   用量清点（productKindOfName）都查它。表放在**模块层**而不是工厂闭包里：路由那一侧的两个
+   写入口（server/routes/local-assets.js）也要用它当闸，直连模块导出 —— 那是一枚纯函数，
+   不属于任何一个实例的状态，也不进组合根的注入清单（这份手工名单少一行就是运行期 TypeError）。 */
+const LOCAL_KIND_BY_EXT = {
+  png: '图片', jpg: '图片', jpeg: '图片', webp: '图片', gif: '图片', bmp: '图片', avif: '图片',
+  mp4: '视频', mov: '视频', webm: '视频', mkv: '视频', m4v: '视频',
+  mp3: '音频', wav: '音频', m4a: '音频', aac: '音频', ogg: '音频', oga: '音频', flac: '音频',
+  pcm: '音频', pcm16: '音频', opus: '音频',
+};
+/* 「这一枚扩展名是不是图片 / 视频 / 音频」——本机资产库写入口的闸。
+   为什么资产库只收媒体：库根是「一条产物一个本体」的作品堆，账、缩略图、播放、回源外链、
+   用量清理全按这三类运转；字幕 / 文本没有类型档位，写进来只会落进 其他\，再被列表的
+   「认不出兜底成音频」（localMediaType 那句，只服务老数据的读路径）画成一条假音频。
+   字幕 / 文本有自己的去处：下载目录与 提示词\ 归档（server/prompts-store.js）。
+   与 productKindOfName 同一张表、同一个「只认扩展名、不猜类型」的立场。 */
+function isMediaExt(fmt) {
+  const f = String(fmt || '').toLowerCase().replace(/^\./, '');
+  return !!LOCAL_KIND_BY_EXT[f];
+}
+
+/* 已知的「文档类」扩展名（不是媒体，也不该被猜成媒体）。平台把字幕 / 文本挂在产物
+   地址上、客户端猜不出格式声明成 mp4 时，按地址上的真相拒收 —— 认不出扩展名
+   （.bin 这类）不在此列，仍按声明走，免得误伤真实的媒体下载。 */
+const DOC_EXTS = new Set([
+  'srt', 'vtt', 'ass', 'ssa', 'scc', 'sbv', 'lrc', 'cue',
+  'txt', 'json', 'xml', 'html', 'htm', 'md', 'pdf', 'csv',
+]);
+function isDocExt(fmt) {
+  return DOC_EXTS.has(String(fmt || '').toLowerCase().replace(/^\./, ''));
+}
+
 function createLocalAssetsStore(deps) {
   const { MIME, dataDirPath, log, spawnSync, localRoot, fileSafe } = deps;
   /* 库根：每次现读（设置页改了不必重启）。 */
@@ -115,7 +148,7 @@ function createLocalAssetsStore(deps) {
   /* 一条产物该落哪一档：**只认扩展名表与 mime**，认不出就 其他。
      刻意不吃 `localMediaType` 那句「兜底成音频」：兜底在索引里顶多筛错档，
      落到目录上就是替用户把一份不知道是什么的字节塞进 音频\。
-     ⚠ `LOCAL_KIND_BY_EXT` 定义在本函数之后，这里只**引用**不求值（调用点都在收到请求之后），
+     ⚠ `LOCAL_KIND_BY_EXT` 在模块层（isMediaExt 用的那张表），这里只**引用**，
        与下面 `productKindOfName` 引同一张表是同一个道理。 */
   function bodyDirNameOf(x) {
     const fmt = String((x && x.format) || '').toLowerCase().replace(/^\./, '');
@@ -386,15 +419,12 @@ function createLocalAssetsStore(deps) {
   function localAssetEntry(id) {
     return localIndexEntry(id);
   }
-  /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（落盘文件名就是 <id>.<格式>，最可靠），
-     再按 mime，最后按调用方给的 media_type（英文写法认成中文）。缺省过去写死 audio，
-     「短剧末帧」这种没传类型的 PNG 就被记成音频，资产库按图片筛永远挑不到它。 */
-  const LOCAL_KIND_BY_EXT = {
-    png: '图片', jpg: '图片', jpeg: '图片', webp: '图片', gif: '图片', bmp: '图片', avif: '图片',
-    mp4: '视频', mov: '视频', webm: '视频', mkv: '视频', m4v: '视频',
-    mp3: '音频', wav: '音频', m4a: '音频', aac: '音频', ogg: '音频', oga: '音频', flac: '音频',
-    pcm: '音频', pcm16: '音频', opus: '音频',
-  };
+  /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（表在模块层的 LOCAL_KIND_BY_EXT，
+     落盘文件名就是 <id>.<格式>，最可靠），再按 mime，最后按调用方给的 media_type
+     （英文写法认成中文）。缺省过去写死 audio，「短剧末帧」这种没传类型的 PNG 就被记成音频，
+     资产库按图片筛永远挑不到它。末尾那句「认不出兜底成音频」只服务**老数据的读路径**
+     （列表 / 认回要能读旧账，不能崩）；新条目进不来这一步 —— 两个写入口在落字节之前
+     先过 isMediaExt 那道闸（server/routes/local-assets.js）。 */
   function localMediaType(x) {
     if (!x) return '音频';
     const fmt = String(x.format || path.extname(x.file || '')).toLowerCase().replace(/^\./, '');
@@ -812,4 +842,4 @@ function createLocalAssetsStore(deps) {
   };
 }
 
-module.exports = { createLocalAssetsStore };
+module.exports = { createLocalAssetsStore, isMediaExt, isDocExt };

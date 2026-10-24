@@ -81,7 +81,7 @@ for (const f of comps) {
 
 /* ---------- 4. 共享层与外壳接线 ---------- */
 group('§4 共享层与外壳');
-for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.cjs', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/fcpxml-import.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/playback.js', 'web/director/segments.js', 'web/director/timeline.js', 'web/director/voice-layout.js', 'web/director/plan.js', 'web/director/waveform.js', 'web/director/projection.js', 'web/director/voice-block.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
+for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.cjs', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/playback.js', 'web/director/segments.js', 'web/director/timeline.js', 'web/director/voice-layout.js', 'web/director/plan.js', 'web/director/waveform.js', 'web/director/projection.js', 'web/director/voice-block.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
   ok(f + ' 仍在', fs.existsSync(path.join(root, f)));
 }
 const shell = read('shell.html');
@@ -115,8 +115,6 @@ ok('助手有本地语义检索工具', /find\s*:\s*\{/.test(read('web/features/
 ok('语义检索模块有 rank', /SemanticSearch\s*=\s*\{\s*norm/.test(read('web/domain/semantic.js')) && /function\s+rank/.test(read('web/domain/semantic.js')));
 ok('切片缓存用稳定键 / 失败 TTL / 同图不重绘', /function\s+sliceKey/.test(EL)
   && /SLICE_FAIL_TTL/.test(EL) && /__frsSig/.test(EL));
-ok('导出素材名带成片时间点', /function\s+clipTimeLabel/.test(read('web/director/engine/export.js'))
-  && /voiceFilmRange/.test(read('web/director/engine/export.js')));
 ok('本机/云端标识有开关', /sk_media_badge/.test(read('web/ui/ui.js')) && /showBadge/.test(read('web/domain/local.js')));
 ok('Vue 页面可交未保存状态', /__spaFlush/.test(core) && /__spaDirty/.test(core));
 

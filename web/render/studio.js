@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/studio.html 编译，别手改。 */
-import { createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
+import { createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, createCommentVNode as _createCommentVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main studio-page wb",
@@ -252,7 +252,6 @@ export function render(_ctx, _cache) {
       ]),
       _createElementVNode("div", { class: "col-right" }, [
         _createElementVNode("div", { class: "tasks-head" }, [
-          _createElementVNode("span", { class: "tab" }, "这一台的生成历史"),
           _createElementVNode("span", { class: "sp" }),
           _createElementVNode("span", { class: "pgroup" }, [
             _createElementVNode("span", {
@@ -262,7 +261,8 @@ export function render(_ctx, _cache) {
             _createElementVNode("span", { class: "pgsep" }),
             _createElementVNode("span", {
               class: "pgrow",
-              id: "stPgRow"
+              id: "stPgRow",
+              "data-r": "stPgRow"
             }),
             _createElementVNode("input", {
               type: "number",
@@ -275,6 +275,18 @@ export function render(_ctx, _cache) {
               class: "ghost",
               "data-r": "gotoBtn"
             }, "跳转"),
+            _createElementVNode("button", {
+              class: "ghost",
+              id: "multiBtn",
+              "data-r": "multiBtn",
+              title: "进入多选：点卡片勾选，可批量下载"
+            }, [
+              _createElementVNode("span", {
+                "data-icon": "checkBox",
+                "data-size": "13"
+              }),
+              _createTextVNode(" 多选")
+            ]),
             _createElementVNode("button", {
               class: "ghost",
               "data-r": "sync",
@@ -316,6 +328,50 @@ export function render(_ctx, _cache) {
             "data-r": "winAll",
             title: "默认只看最近 30 天；点这里看全部"
           }, "查看全部")
+        ]),
+        _createCommentVNode(" 多选条（与资产库同一套公共件：.bulkbar / .bk-cnt / .bk-tip） "),
+        _createElementVNode("div", {
+          class: "bulkbar",
+          id: "stBulkBar",
+          "data-r": "bulkBar",
+          hidden: ""
+        }, [
+          _createElementVNode("span", {
+            class: "bk-cnt",
+            "data-r": "bulkCnt"
+          }, "已选 0 项"),
+          _createElementVNode("button", {
+            class: "ghost",
+            "data-r": "bulkAll"
+          }, "全选"),
+          _createElementVNode("button", {
+            class: "ghost",
+            "data-r": "bulkClear"
+          }, "取消选择"),
+          _createElementVNode("button", {
+            class: "ghost",
+            id: "stBulkDown",
+            "data-r": "bulkDown",
+            disabled: ""
+          }, [
+            _createElementVNode("span", {
+              "data-icon": "download",
+              "data-size": "13"
+            }),
+            _createTextVNode(" 批量下载")
+          ]),
+          _createElementVNode("span", {
+            class: "bk-tip",
+            "data-r": "bulkTip"
+          }, "点卡片即可勾选"),
+          _createElementVNode("span", {
+            class: "sp",
+            style: {"flex":"1"}
+          }),
+          _createElementVNode("button", {
+            class: "ghost",
+            "data-r": "multiExit"
+          }, "退出多选")
         ]),
         _createElementVNode("div", {
           id: "result",

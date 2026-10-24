@@ -141,8 +141,8 @@ const h = require('./harness.cjs');
       });
       ok(!!live, '导演台右栏画出了「原始请求」折叠块');
       if (live) {
-        ok(/将要发送|尚未发送/.test(live.summary), '标题说的是「将要发送」：' + live.summary);
-        ok(live.halves === 2, '并排两栏（将要发出 / 已发送）：' + live.halves);
+        ok(/预览中|尚未发送/.test(live.summary), '标题说的是「预览中」：' + live.summary);
+        ok(live.halves === 2, '并排两栏（预览 / 实发）：' + live.halves);
       }
 
       /* ③ 预览那一栏是真请求体（占位符不算内容） */

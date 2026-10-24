@@ -39,6 +39,7 @@ export function createTrack(E, document, window) {
     vcTabOf,
     renderAll,
     setStatus,
+    setTrackDragT,
   } = E;
 
 /* ============================================================================
@@ -77,7 +78,7 @@ const voiceAxBox = makeVoiceAxBox(srcToFrame);
 const {
   voiceFilmSpan, voiceFilmGap, VOICE_GAP_TXT, voiceFilmWhy, voiceInFilm, VOICE_GAP_FIX, voiceAdoptable,
 } = createVoiceFilm({ filmFrames, tlSyncFromShots: () => tlSyncFromShots(), allShots, voiceAxBox });
-const { voicePeaks, waveformSVG, fillWaveforms, videoPeaks, drawSegWave, fillSegWaveforms } = createWaveform({
+const { voicePeaks, waveformSVG, fillWaveforms } = createWaveform({
   mediaSrc: s => Api.mediaSrc(s),
   voiceOf: id => voicesEnsure().find(x => x.id === id),
 });
@@ -293,55 +294,15 @@ function cutSegs(c, total, at, way) {
        这一段的框、选区、时长一格都不动，后面那些段不前移，锚在它们上面的配音也就不会被无声挪走
        —— 用户点名的「视频片段不消失而是变灰…以确保时间统一」就落在这里。
        对着已经灰掉的那一段再点一次就是把它放回来（同一颗按钮，按状态改口，见 syncTlTools）。
-       ⚠ 空段不走这条路：它是「插进来的一段空」，用「摘掉空段」整段去掉，
+       ⚠ 空段不走这条路：它是「拖走一段画面留下的空」，把那段空左右拖走即摘掉，
        不许被当成有画面的段来「恢复」（空段本来就没有画面可恢复）。 */
-    if (isGap(s)) return { err: '这是空段，用「摘掉空段」把它去掉' };
+    if (isGap(s)) return { err: '这是空段：把它左右拖走就摘掉了' };
     if (s.off) { const o = Object.assign({}, s); delete o.off; segs[i] = o; return { segs, at: i, back: true }; }
     segs[i] = Object.assign({}, s, { off: 1 });
     return { segs, at: i, gray: 1 };
   }
-  /* 插一段空（`gap`）：轨道上多一格灰格，成片里那几秒是黑的、**占时间**（多出来的，不是从别处挪的）。
-     与 `drop` 的区别见上：`drop` 是「这一格不要画面」（原段不动），`gap` 是「多插一段空」。
-     插针落在段边界 → 段数 +1；落在段中间 → 先按插针切开原段再插空 → 段数 +2。
-     插针落在框内灰头/灰尾（那里本来就没画面）→ 按最近的选区边界插入，不切选区。 */
-  if (way === 'gap') {
-    /* 图片区里没有「视频源秒」：空段接在这一格**后面**，用新的虚拟坐标（占 1 秒，黑场）。
-       插针也要跟着落到它上面（`pinAt`）：留在图片上，下一次「摘掉空段」问的是图片那一格，
-       而图片不是空段 —— 刚插进来的东西当场就够不着了。 */
-    if (virt) {
-      const g = makeGapSeg(imageVirtualBase(segs, total), 1);
-      segs.splice(i + 1, 0, g);
-      return { segs, at: i + 1, gapLen: 1, pinAt: g.a };
-    }
-    const T = Math.max(0.1, Number(total) || 0);
-    const pos = round1(Math.max(0, Math.min(T, at)));
-    let len = 1;
-    if (T - pos < SEG_MIN) return { err: '插针太靠尾，这里剩下不到 0.2 秒，往左挪一点再插空' };
-    len = round1(Math.min(len, T - pos));
-    if (len < SEG_MIN) return { err: '剩下的空间不到 0.2 秒，插不进一段空（往左挪一点再插）' };
-    const gapSeg = { in: pos, out: round1(pos + len), a: pos, b: round1(pos + len), off: 1, gap: 1 };
-    const atIn = Math.abs(pos - s.in) < 0.001;
-    const atOut = Math.abs(pos - s.out) < 0.001;
-    if (atIn || atOut) {
-      segs.splice(atIn ? i : i + 1, 0, gapSeg);
-      return { segs, at: atIn ? i : i + 1, gapLen: len };
-    }
-    if (pos > s.in + 0.001 && pos < s.out - 0.001) {
-      segs.splice(i, 1, keep({ in: s.in, out: pos, a: s.a, b: pos }), gapSeg, keep({ in: pos, out: s.out, a: pos, b: s.b }));
-      return { segs, at: i + 1, gapLen: len, splitForGap: 1 };
-    }
-    /* 框内灰头 / 灰尾：按最近的选区边界插，不切选区（再切只会多出一段 0.2 秒的碎片）。 */
-    const near = Math.abs(pos - s.in) <= Math.abs(pos - s.out) ? i : i + 1;
-    segs.splice(near, 0, gapSeg);
-    return { segs, at: near, gapLen: len };
-  }
-  /* 摘掉空段（`close`）：只接受 `off && gap` 的段，整段 splice 掉 →
-     后面的段前移、成片里那几秒消失。「删掉画面」的黑场（`off && !gap`）不许走这条路。 */
-  if (way === 'close') {
-    if (!isGap(s)) return { err: s.off ? '这一段是「删掉画面」的黑场，不是空段：要恢复画面点「删掉」，要缩短请用把手' : '这一段有画面，不是空段' };
-    segs.splice(i, 1);
-    return { segs, at: Math.max(0, Math.min(segs.length - 1, i)), closed: 1 };
-  }
+  /* 空段的来处只剩一个：把某一格左右拖走，原位自动空出一段（见 engine.js bindSegDrag 的 order 支）。
+     「空一段 / 摘掉空段」两把剪法已随按钮一起撤掉 —— 摘空 = 把那段空左右拖走。 */
   /* 融合：把插针这一段与它**右边**挨着的那一段合回一段（右边不行再试左边）。
      判据是「本来就是一刀切开、之后没再动过」—— 两段的**框**挨着（x.b === y.a）、
      且**选区**也接得上（x.out === y.in）。合成一段后框与选区都是并集，
@@ -355,7 +316,7 @@ function cutSegs(c, total, at, way) {
     for (const p of [[i, i + 1], [i - 1, i]]) {
       const x = segs[p[0]], y = segs[p[1]];
       if (!x || !y) continue;
-      if (isGap(x) || isGap(y)) return { err: '空段不能融合：先摘掉它，再融两边' };
+      if (isGap(x) || isGap(y)) return { err: '空段不能融合：先把那段空左右拖走，再融两边' };
       /* 两张静态图各占自己的时长，没有「一刀切开的两半」这回事：融合后只剩一张图与一段并集时长，
          另一张就从成片里消失了 —— 静默丢画面，与「把剪掉的那一截加回来」同一类。 */
       if (isImageSeg(x) || isImageSeg(y)) return { err: '图片段不合并：静态图各自一段，没有「一刀切开的两半」这回事' };
@@ -465,8 +426,6 @@ function applyCut(way) {
       : '这一段画面删掉了（格子还在原位，成片里出 ' + fmtDur(round1((newSegs[grayIdx] || {}).out || 0) - round1((newSegs[grayIdx] || {}).in || 0)) + ' 黑场，后面的段一个都不前移'
         + (underGray ? '；压在这上面的 ' + underGray + ' 句配音照放，音轨上那几截已变色' : '') + '）')
     : way === 'merge' ? '已把这两段融合回一段'
-    : way === 'gap' ? ('插了 ' + fmtDur(r.gapLen || 1) + ' 空' + (r.splitForGap ? '（原段已按插针切开）' : ''))
-    : way === 'close' ? '已把这段空摘掉（成片里那几秒消失，后面的段前移）'
     : '已取消裁剪';
   const inFilm = candSelected(sh, c);
   setStatus((inFilm ? '<span class="ok">✓ ' : '')
@@ -611,7 +570,7 @@ const laneHidden = k => laneState(k).hide;
    上面那两颗管的是**整条轨**；这一组管的是**其中一行**
    ----------------------------------------------------------------------------
    用户点名的「添加出来的画面 / 配音轨道也要有收起、锁定、添加、音量」—— 四件事里
-   添加与音量本来就有落点（`addLaneRow` / `laneVol`），缺的是单行的显与锁。
+   行数由内容决定（拖到新行自动长出来），音量在右栏那张卡上调，缺的只是单行的显与锁。
    **第 1 行不另设一套**：它就是这条轨的锚行，它的显 / 锁 = 轨名旁那两颗（`laneState`），
    所以 `ln<=0` 一律回退到轨级 —— 否则「锁了整条轨」与「锁了第 1 行」会算成两个数，
    左列两把锁各说各话，而 ⑰f/⑰g 那几档量的正是「按轨名那颗下去管的是整条轨」。
@@ -677,8 +636,8 @@ function rowFlagToggle(k, ln, what, col) {
   if (on) m[ln2] = true; else delete m[ln2];
   if (!Object.keys(m).length) delete o[what];
   setStatus('<span class="ok">✓ ' + rowNm(k, ln2) + (what === 'locks'
-    ? (on ? '已锁定：这一行上的块拖不动、剪不了，这一行的音量也不调（别的行与另一轨不受影响；解锁就点这一行标签上那颗锁）' : '已解锁')
-    : (on ? '已收起（只剩这一行标签自己，块与把手都不画，再点一下眼睛展开）' : '已展开')) + '</span>');
+    ? (on ? '已锁定：这一行上的块拖不动、剪不了（别的行与另一轨不受影响；解锁就点这一行标签上那颗锁）' : '已解锁')
+    : (on ? '已隐藏（整行变灰：块还画在原位，只是不可编辑；再点一下眼睛恢复）' : '已取消隐藏')) + '</span>');
   renderAll();
   scheduleSave();
 }
@@ -699,17 +658,11 @@ const clampVol = x => Math.max(0, Math.min(2, Number(x) || 0));
    空着的中间行照样画：抽掉空行会把它上面那一行整体往下塌一格，而那一格正是插针与刻度尺对齐的地方。 */
 const laneRowsOf = items => (Array.isArray(items) ? items : [])
   .reduce((a, x) => Math.max(a, laneClamp(x && x.ln) + 1), 1);
-/* 一条轨**至少**画几行（用户点名的「现在怎么添加新轨道」）。
-   从前行数只由内容推出来（最高那一行 + 1），于是空行根本造不出来：想把下一句配音放到第 3 行，
-   就得先把它拖过去，而第 3 行在界面上还不存在 —— 没有落点。
-   存在工程里（`projOf().lane[k].rows`，**只有 >1 才占一个键**，与 `vols` 同一记账，老数据不用迁移）。
-   行数读法只有一份 `laneRowsFor`：渲染那一排的四条路（本镜画面 / 本镜声音 / 全片画面 / 全片声音）
-   与左栏标签都问它，不许各自再拼一遍 `Math.max`。 */
-const laneMinRows = k => {
-  const o = projOf() && projOf().lane && projOf().lane[k];
-  return Math.max(1, Math.min(TRACK_LANES_MAX, Number(o && o.rows) || 0));
-};
-const laneRowsFor = (k, n) => Math.max(laneMinRows(k), Math.max(1, Number(n) || 0));
+/* 一条轨画几行只由**内容**决定（最高那一行 + 1，`laneRowsOf` 一处）：加行的途径只剩
+   「把段 / 素材拖到新行」—— 行号写到段 / 句身上，重画时行自己长出来；那一行空了
+   （块删了 / 拖走了）下一轮重画自动消失。旧「＋/× 按钮」与「o.rows 落盘记忆」
+   已随左列精简一起撤掉，`laneRowsFor` 只是给调用方夹一个上限。 */
+const laneRowsFor = (k, n) => Math.max(1, Math.min(TRACK_LANES_MAX, Number(n) || 0));
 /* 一句配音压在哪一格画面段上（按 `shotId / candId / seg` 找那一排的行；找不到 = 画不出来）。 */
 const voiceBoxRowOf = v => {
   const sh = allShots().find(s => s && s.id === v.shotId);
@@ -723,7 +676,7 @@ const voiceBoxRowOf = v => {
    `narrow` 只问「目标左沿这一秒被没被占」（合成发请求前的预检：还不知道音频多长，
    用一个极窄窗问，不会误伤「长度不确定但位置空着」的正常情况）。 */
 function voiceLanePlan(vLike, narrow) {
-  const rows = Math.max(laneMinRows('voice'), laneRowsOf(voicesEnsure()));
+  const rows = laneRowsOf(voicesEnsure());
   const items = voicesEnsure().map(v => {
     const r = voiceBoxRowOf(v);
     if (!r) return null;
@@ -738,61 +691,47 @@ function voiceLanePlan(vLike, narrow) {
   const plan = pickVoiceLane(items, target, rows, TRACK_LANES_MAX);
   return { ln: plan.ln, needNewRow: plan.needNewRow, why: plan.why, rows: rows };
 }
-/* 现在画了几行：数**已经画出来的行**（与 `syncLaneSide` 同一口径），不重算一遍数据 ——
-   收起的那一轨仍然占着一行窄条，行数照旧。 */
-const LANE_ROW_SEL = { pic: '.tl-vrow, .tl-film', voice: '.tl-lane' };
-function drawnRows(k, col) {
-  const bar = col && col.querySelector('#tlBar');
-  if (!bar) return laneMinRows(k);
-  return Math.max(1, bar.querySelectorAll(LANE_ROW_SEL[k]).length);
-}
-/* 加一行 / 删一行的判据与落地只有这一处（轨名旁那颗「＋」与每一行标签上那颗「×」只是它的两个出口）。
-   两条要说清的拒绝：这一轨收着（加了也看不见）、到上限（再多左栏自己就要滚）。
-   拒绝走工具栏那行小字（`class="info"`），不占顶部横幅 —— 横幅是「出错才常驻」那一档，
-   「只剩一行」不是错误，用户按不动的原因写在按钮 title 里（见 syncLaneSide），这一句只是补一句。
-   「＋」现在挂在**每一行**的标签上（用户点名的第 19 条），所以加行有两种走法：
-   轨名那一颗挂在最下面（沿用从前的形状），第 N 行那一颗插在**这一行下面**、下面那些整体往下挪一格。 */
 function toolRefuse(t) { setStatus('<span class="info">' + t + '</span>'); }
-function addLaneRow(k, col, atLn) {
-  if (atLn != null && atLn > 0) return insertLaneRow(k, atLn, col);
-  const nm = laneNm(k);
-  if (laneHidden(k)) { toolRefuse(nm + '此刻是收起的（行高只有 18px，加了也看不见）：先点轨名旁那颗眼睛展开。'); return -1; }
-  const n = drawnRows(k, col);
-  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return -1; }
-  setLaneRows(k, n + 1);
-  setStatus('<span class="ok">✓ ' + nm + '加到第 ' + (n + 1) + ' 行：把块上下拖就能挪到新行（行距、锁与音量都按行算；'
-    + '每一行的标签上都有一颗「×」，能单独把它删掉）</span>');
-  filmEdited();
-  return n;
+const LANE_ROW_SEL = { pic: '.tl-vrow, .tl-film', voice: '.tl-lane' };
+/* 全片配音按「声音来源」分到各自的轨道上（右栏「分轨」那颗按钮的唯一落点）。
+   分组键三级兜底在 `voice-lanes.js`；第三级在这里把 `src` 换成剥掉签名参数的身份 ——
+   同一段音频换了签名仍是同一个 key，两段不同的音频不会被合并。
+   只写 `v.ln`：时间、时长、选区、音量、倍速与台词一个字节都不动，成片里的声音完全一样。 */
+const voiceSrcKeyOf = u => {
+  const api = window.Api;
+  return api && api.mediaKey ? api.mediaKey(u) : String(u || '');
+};
+function voiceSplitByMaterial(keyOf) {
+  const why = tlLockWhy();
+  if (why) { setStatus('<span class="err">' + why + '：分轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
+  const voices = voicesEnsure();
+  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再按声音来源分轨。'); return; }
+  const groups = groupByMaterial(voices, typeof keyOf === 'function' ? keyOf : (v => defaultKeyOf(v, voiceSrcKeyOf)));
+  const { rows, overflow } = planLaneRows(groups, TRACK_LANES_MAX);
+  const dirty = rows.some(r => r.voices.some(v => voiceLn(v) !== r.ln));
+  if (dirty) beginEdit('配音分轨');
+  const moved = applyLanePlan(rows);
+  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句分到 ' + rows.length + ' 条轨道'
+    + (moved ? '（挪了 ' + moved + ' 句）' : '（本来就在这些行上）')
+    + '（时间、时长与音量一个字不动；只改画在第几行，成片里的声音完全一样）</span>'
+    + (overflow.length ? '；另有 ' + overflow.length + ' 组没排上：'
+      + overflow.map(g => escHTML(g.label)).join('、') + '（配音轨最多 ' + TRACK_LANES_MAX + ' 行）' : ''));
+  if (dirty) filmEdited();
 }
-/* 在**第 at 行下面**插一行（第 2 行往上那些标签上的「＋」）。新行是空的，但它占一个行号 ——
-   原来挂在 at 以下的那些行整体往下挪一格，块上的 `ln` 与按行的三张表（基数音量 / 收起 / 锁定）
-   必须一起挪：只挪块的话，「第 3 行的 60%」还挂在 3 上，于是压到补上来的那一行；
-   只挪表的话，收起与锁定会跟着一个已经换了块的空行。 */
-function insertLaneRow(k, at, col) {
-  const nm = laneNm(k);
-  const want = laneClamp(at);
-  if (rowHidden(k, want)) {
-    toolRefuse((want <= 0 ? nm : rowNm(k, want)) + '此刻是收起的（行高只有 18px，在它下面加了也看不见）：'
-      + (want <= 0 ? '先点轨名旁那颗眼睛展开。' : '先点这一行上那颗眼睛展开。'));
-    return -1;
-  }
-  const n = drawnRows(k, col);
-  if (n >= TRACK_LANES_MAX) { toolRefuse(nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）。'); return -1; }
-  if (want >= n) { toolRefuse(nm + '第 ' + (want + 1) + ' 行此刻并不存在（现在 ' + n + ' 行）：整栏重画之后行号跟着变，重新点一次。'); return -1; }
-  mapLaneBlockRows(k, cur => rowAfterInsert(cur, want));
-  moveRowFlags(k, cur => rowAfterInsert(cur, want));
-  const nextRows = n + 1;
-  setLaneRows(k, nextRows);
-  setStatus('<span class="ok">✓ 在' + rowNm(k, want) + '下面插了一行（现在 ' + nextRows + ' 行）：'
-    + '原来第 ' + (want + 2) + ' 行往下的块整体往下挪一格，每一段的入出点、时长、倍速与配音一个字没动</span>');
+/* 全片配音合并到第 1 条轨道（右栏「合轨」那颗按钮的唯一落点）。只改排版：
+   同一行里可能有好几句在时间上重叠，成片里会一起响 —— 回执里写清楚。 */
+function voiceMergeAll() {
+  const why = tlLockWhy();
+  if (why) { setStatus('<span class="err">' + why + '：合轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
+  const voices = voicesEnsure();
+  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再点合轨。'); return; }
+  if (!voices.some(v => voiceLn(v) !== 0)) { toolRefuse('全片配音已经都在第 1 条轨道上了。'); return; }
+  beginEdit('配音合轨');
+  mapLaneBlockRows('voice', () => 0);
+  keepRowFlagsFirst('voice');
+  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句合并到第 1 条轨道（只改排版，不改成片；同一行里可能有重叠，成片里会一起响）</span>');
   filmEdited();
 }
-/* 行号在「删一行 / 插一行」之后的走法，两张表（块上的 ln + 按行的三张表）共用同一个映射：
-   · 删：被删那一行上的块并到**上面一行**（ln-1），再往上的每一行往下补一格；
-   · 插：新行落在 at+1，at 以下（含 at 自己）不动，比 at 大的每一行往下挪一格。 */
-const rowAfterDrop = (cur, ln) => (cur === ln ? ln - 1 : cur > ln ? cur - 1 : cur);
-const rowAfterInsert = (cur, at) => (cur > at ? cur + 1 : cur);
 /* 块上的行号过一遍（画面轨要遍历**所有候选**，不只当前那条：全片那一排把每一镜的段摊在同一批行里，
    只改当前这条的话，插/删的行号在别的镜上还留着，行自己长回来）。 */
 function mapLaneBlockRows(k, fn) {
@@ -812,111 +751,8 @@ function mapLaneBlockRows(k, fn) {
   }
   return moved;
 }
-/* 按行记的那三张表（基数音量 `vols` / 收起 `hides` / 锁定 `locks`）一起过同一个映射。
-   只有非默认才占键（与 `laneVol` / `rowFlag` 同一记账），所以搬完之后：并进第 0 行的那一份
-   没有地方记就随它消失（第 0 行 = 默认，不留一份「看不见的加压」），塌空的表整个删掉。 */
+/* 按行记的那三张表（基数音量 `vols` / 收起 `hides` / 锁定 `locks`）。 */
 const ROW_FLAG_COLS = ['vols', 'hides', 'locks'];
-function moveRowFlags(k, fn) {
-  const o = projOf() && projOf().lane && projOf().lane[k];
-  if (!o) return;
-  ROW_FLAG_COLS.forEach(what => {
-    const src = o[what];
-    if (!src) return;
-    const out = {};
-    Object.keys(src).forEach(key => {
-      const cur = Number(key);
-      if (!isFinite(cur)) { out[key] = src[key]; return; }
-      const to = laneClamp(fn(cur));
-      if (to > 0) out[to] = src[key];
-    });
-    if (Object.keys(out).length) o[what] = out; else delete o[what];
-  });
-}
-function shiftLaneRows(k, ln) {
-  let on = 0, below = 0;
-  const hit = cur => {
-    const to = rowAfterDrop(cur, ln);
-    if (to !== cur) { if (cur === ln) on++; else below++; }
-    return to;
-  };
-  mapLaneBlockRows(k, hit);
-  moveRowFlags(k, cur => rowAfterDrop(cur, ln));
-  return { on: on, below: below };
-}
-/* 删掉**指定的那一行**（用户点名的第 ⑤ 条：多添加出来的轨道要能够独立删除）。
-   从前只有「最后一行并且它是空的」收得掉（− 只挂在最后一行的标签上），于是加出来的第 2、3 行
-   只要摆上过东西就永远删不掉。这一行上的块不许凭空消失：它们并到上面那一行，
-   再往上的行整体往下补一格 —— 画面段在同一条候选里时间上前后不相接，并上去不会叠；
-   配音句本来就允许同一行有好几句。这与「上下拖块体换行」是同一件事的反方向，不是新出口。
-   第 1 行是锚行：整条轨至少留一行，要收起来用轨名旁那颗眼睛。 */
-function dropLaneRow(k, ln, col) {
-  const nm = laneNm(k);
-  if (laneHidden(k)) { toolRefuse(nm + '此刻是收起的（行高只有 18px，删了也看不见）：先点轨名旁那颗眼睛展开。'); return; }
-  const n = drawnRows(k, col);
-  if (n <= 1) { toolRefuse(nm + '只剩一行，没有可删的：整条轨要收起来点轨名旁那颗眼睛。'); return; }
-  const want = Math.max(0, Math.round(Number(ln) || 0));
-  if (want <= 0) { toolRefuse(nm + '第 1 行是这条轨的锚行：整条轨至少留一行，删掉它等于整条轨没了。'); return; }
-  if (want >= n) { toolRefuse(nm + '第 ' + (want + 1) + ' 行此刻并不存在（现在 ' + n + ' 行）：整栏重画之后行号跟着变，重新点一次。'); return; }
-  /* 只收起**这一行**时那颗「×」本来就被 CSS 藏掉、`syncLaneSide` 又把它压暗，函数入口照样硬拒 ——
-     删掉一条看不见的行等于让用户不知道自己删了什么（与「承诺要么实现、要么改文案」同一立场）。 */
-  if (rowHidden(k, want)) { toolRefuse(rowNm(k, want) + '此刻是收起的（行高只有 18px，删了也看不见）：先点这一行上那颗眼睛展开。'); return; }
-  const mv = shiftLaneRows(k, want);
-  setLaneRows(k, n - 1);
-  setStatus('<span class="ok">✓ 删掉了' + nm + '第 ' + (want + 1) + ' 行'
-    + (mv.on ? '：这一行上的 ' + mv.on + ' 个块并到第 ' + want + ' 行' : '')
-    + (mv.below ? (mv.on ? '，' : '：') + '再往下的 ' + mv.below + ' 个块往上补一格' : '')
-    + '（每一段的入出点、时长、倍速、配音与它们各自的音量一个字没动；'
-    + '按行记的那三张表 —— 基数音量 / 收起 / 锁定 —— 跟着块一起挪了行号）</span>');
-  filmEdited();
-}
-function setLaneRows(k, n) {
-  projOf().lane = projOf().lane || {};
-  const o = projOf().lane[k] = projOf().lane[k] || {};
-  const v = Math.max(1, Math.min(TRACK_LANES_MAX, Math.round(Number(n) || 1)));
-  if (v <= 1) delete o.rows; else o.rows = v;
-}
-/* 全片配音按「声音来源」分到各自的轨道上（右栏「分轨」那颗按钮的唯一落点）。
-   分组键三级兜底在 `voice-lanes.js`；第三级在这里把 `src` 换成剥掉签名参数的身份 ——
-   同一段音频换了签名仍是同一个 key，两段不同的音频不会被合并。
-   只写 `v.ln`：时间、时长、选区、音量、倍速与台词一个字节都不动，成片里的声音完全一样。 */
-const voiceSrcKeyOf = u => {
-  const api = window.Api;
-  return api && api.mediaKey ? api.mediaKey(u) : String(u || '');
-};
-function voiceSplitByMaterial(keyOf) {
-  const why = tlLockWhy();
-  if (why) { setStatus('<span class="err">' + why + '：分轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
-  const voices = voicesEnsure();
-  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再按声音来源分轨。'); return; }
-  const groups = groupByMaterial(voices, typeof keyOf === 'function' ? keyOf : (v => defaultKeyOf(v, voiceSrcKeyOf)));
-  const { rows, overflow } = planLaneRows(groups, TRACK_LANES_MAX);
-  const dirty = rows.some(r => r.voices.some(v => voiceLn(v) !== r.ln)) || laneMinRows('voice') < rows.length;
-  if (dirty) beginEdit('配音分轨');
-  const moved = applyLanePlan(rows);
-  const need = Math.max(laneMinRows('voice'), rows.length);
-  if (need !== laneMinRows('voice')) setLaneRows('voice', need);
-  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句分到 ' + rows.length + ' 条轨道'
-    + (moved ? '（挪了 ' + moved + ' 句）' : '（本来就在这些行上）')
-    + '（时间、时长与音量一个字不动；只改画在第几行，成片里的声音完全一样）</span>'
-    + (overflow.length ? '；另有 ' + overflow.length + ' 组没排上：'
-      + overflow.map(g => escHTML(g.label)).join('、') + '（配音轨最多 ' + TRACK_LANES_MAX + ' 行）' : ''));
-  if (dirty) filmEdited();
-}
-/* 全片配音合并到第 1 条轨道（右栏「合轨」那颗按钮的唯一落点）。只改排版：
-   同一行里可能有好几句在时间上重叠，成片里会一起响 —— 回执里写清楚。 */
-function voiceMergeAll() {
-  const why = tlLockWhy();
-  if (why) { setStatus('<span class="err">' + why + '：合轨只改画在第几行，锁着的时候也一样不动。' + tlUnlockHow() + '。</span>'); return; }
-  const voices = voicesEnsure();
-  if (!voices.length) { toolRefuse('全片还没有配音：先合成一句，再点合轨。'); return; }
-  if (!voices.some(v => voiceLn(v) !== 0) && laneMinRows('voice') === 1) { toolRefuse('全片配音已经都在第 1 条轨道上了。'); return; }
-  beginEdit('配音合轨');
-  mapLaneBlockRows('voice', () => 0);
-  keepRowFlagsFirst('voice');
-  setLaneRows('voice', 1);
-  setStatus('<span class="ok">✓ 已把 ' + voices.length + ' 句合并到第 1 条轨道（只改排版，不改成片；同一行里可能有重叠，成片里会一起响）</span>');
-  filmEdited();
-}
 /* 合轨之后只剩第 1 行：按行记的三张表（基数音量 / 收起 / 锁定）里那些已经不存在的行不能留着，
    否则下次加到那一行会「凭空」被压暗 / 收起 / 锁住。第 1 行自己的设置保留。 */
 function keepRowFlagsFirst(k) {
@@ -944,6 +780,95 @@ function setCellLane(sh, cand, segIdx, ln) {
   segsWrite(cand, total, list);   // 走 segsWrite：它顺手把 `ln=0` 那个键摘掉（第一行是缺省）
   return s;
 }
+/* 行重排的唯一写入口：把第 fromLn 行挪到第 toLn 行（同一条轨内部，中间的行整体让一格）。
+   块上的行号（`mapLaneBlockRows` 遍历所有候选 / 全部配音）与按行记的三张表
+   （基数音量 / 收起 / 锁定）一起搬 —— 行的次序只是排版：块的时间、选区、音量值、
+   锁定与隐藏状态原样跟着行走，成片一个字不变。 */
+function laneRowMove(k, fromLn, toLn) {
+  fromLn = laneClamp(fromLn); toLn = laneClamp(toLn);
+  if (fromLn === toLn) return false;
+  const newLn = x => {
+    x = laneClamp(x);
+    if (x === fromLn) return toLn;
+    if (fromLn < toLn) return (x > fromLn && x <= toLn) ? x - 1 : x;
+    return (x >= toLn && x < fromLn) ? x + 1 : x;
+  };
+  beginEdit('挪' + rowNm(k, fromLn) + '到第 ' + (toLn + 1) + ' 行');
+  mapLaneBlockRows(k, newLn);
+  const o = projOf().lane = projOf().lane || {};
+  const t = o[k] = o[k] || {};
+  ROW_FLAG_COLS.forEach(what => {
+    const src = t[what];
+    if (!src) return;
+    const out = {};
+    Object.keys(src).forEach(key => { out[newLn(key)] = src[key]; });
+    t[what] = out;
+  });
+  filmEdited();
+  return true;
+}
+/* 轨道行拖动重排（用户点名「轨道要像左右栏那样拖动位置」）：按住左列轨名行的空白处
+   （按钮除外）上下拖，同类型行（画面 / 配音各自内部）重排。拖动中行本体与右列对应的
+   轨道行一起平移让位（transform + `.rowdrag` 档的过渡），松手才写数据 —— 上面
+   `laneRowMove` 是唯一落点。行随内容长（`laneRowsOf`），「拖出新行」只能靠把块拖下去：
+   行重排只在这些已经画出来的行之间换位。松手要压一下插针（`trackDragT`）：
+   bindPinZone 绑的是整张网格，轨名行也算轨道。 */
+function bindLaneRowDrag(body) {
+  const side = body.querySelector('.tl-side');
+  const bar = body.querySelector('#tlBar');
+  if (!side || !bar) return;
+  const barRowSelOf = (k, ln) => LANE_ROW_SEL[k].split(',').map(s => s.trim() + '[data-ln="' + ln + '"]').join(',');
+  /* 委托在 `.tl-side` 上：extra 行每次 syncLaneSide 都整个重建，逐行绑会把监听丢在重建里。 */
+  side.addEventListener('pointerdown', e => {
+    if (e.button != null && e.button !== 0) return;
+    const cell = e.target.closest('.tl-hrow.pic, .tl-hrow.voice');
+    if (!cell || !side.contains(cell)) return;
+    if (e.target.closest('button')) return;                 // 眼睛 / 锁 / 联动自己管自己的手势
+    const k = cell.classList.contains('pic') ? 'pic' : 'voice';
+    const sel = '.tl-hrow.' + k;
+    const anchor = side.querySelector(sel);
+    const ln0 = cell === anchor ? 0 : laneClamp(cell.dataset.ln);
+    const rows = [anchor, ...side.querySelectorAll(sel + '.extra')].filter(Boolean);
+    if (rows.length < 2) return;                            // 只有一行：没有可换的位置
+    const y0 = e.clientY;
+    const r0 = rows[0].getBoundingClientRect();
+    const r1 = rows[1].getBoundingClientRect();
+    const stepH = Math.max(8, r1.top - r0.top);             // 行高 + 行距（左右两列同一批 --tlh-*）
+    const lnOf = r => (r === anchor ? 0 : laneClamp(r.dataset.ln));
+    const barRowOf = ln => bar.querySelector(barRowSelOf(k, ln));
+    let moved = false, toWant = ln0;
+    const paint = to => {
+      rows.forEach(r => {
+        const ln = lnOf(r);
+        let sh = 0;
+        if (ln === ln0) sh = (to - ln0) * stepH;
+        else if (ln0 < to && ln > ln0 && ln <= to) sh = -stepH;
+        else if (to < ln0 && ln >= to && ln < ln0) sh = stepH;
+        r.style.transform = sh ? 'translateY(' + sh + 'px)' : '';
+        const br = barRowOf(ln);
+        if (br) br.style.transform = r.style.transform;
+      });
+    };
+    const move = ev => {
+      const dy = ev.clientY - y0;
+      if (!moved && Math.abs(dy) < 6) return;
+      if (!moved) { moved = true; side.classList.add('rowdrag'); bar.classList.add('rowdrag'); }
+      toWant = Math.max(0, Math.min(rows.length - 1, ln0 + Math.round(dy / stepH)));
+      paint(toWant);
+    };
+    const up = () => {
+      side.classList.remove('rowdrag'); bar.classList.remove('rowdrag');
+      rows.forEach(r => { r.style.transform = ''; const br = barRowOf(lnOf(r)); if (br) br.style.transform = ''; });
+      if (!moved || toWant === ln0) return;
+      setTrackDragT(Date.now());
+      if (laneRowMove(k, ln0, toWant)) {
+        setStatus('<span class="ok">✓ ' + rowNm(k, ln0) + '挪到了第 ' + (toWant + 1) + ' 行'
+          + '（只换行的次序：块与行上的音量 / 隐藏 / 锁定都跟着这一行走，成片一个字不变）</span>');
+      }
+    };
+    dragOnWindow(move, up);
+  });
+}
 /* 整条轨的静音（用户点名的第 ② 条：点轨道左边那枚音量图标切静音）。
    与音量是**两件事**：静音不动任何一级音量（段 / 句自己的 vol 与行基数原样留着），
    取消静音就回到原样；乘算只在 `picVolOf` / `voiceVolOf` 两处，所以预览、指纹、
@@ -964,23 +889,6 @@ function trackVoiceScope() {
 const trackOwnVol = k => (k === 'voice'
   ? trackVoiceScope().map(v => (v && v.vol != null && isFinite(Number(v.vol)) ? Number(v.vol) : 1))
   : trackSegsNow().map(s => segVol(s)));
-function laneMuteToggle(k) {
-  k = k === 'voice' ? 'voice' : 'pic';
-  if (laneLocked(k)) {
-    toolRefuse('整条' + laneNm(k) + '已锁定：静音也不切。' + rowUnlockHow(k, 0) + '。');
-    return;
-  }
-  projOf().lane = projOf().lane || {};
-  const o = projOf().lane[k] = projOf().lane[k] || {};
-  const on = !o.mute;
-  if (on) o.mute = true; else delete o.mute;
-  setStatus('<span class="' + (on ? 'warn' : 'ok') + '">' + icon(on ? 'speakerOff' : 'speaker', 12) + ' '
-    + laneNm(k) + (on
-      ? '已静音：预览与成片这一轨都不出声（每一段 / 每一句的音量原样留着，再点一下恢复）'
-      : '已取消静音') + '</span>');
-  renderAll();
-  scheduleSave();
-}
 const picVolOf = s => clampVol(segVol(s) * laneVol('pic', picLnOf(s)) * (laneMute('pic') ? 0 : 1));
 /* 工程 → 时间线的投影（镜头顺序与 clips 派生）在 projection.js；播放计划 / 导出 / FCPXML 读同一份。 */
 const { filmShotsOrdered, filmOrderNow, moveShotInFilmOrder, tlFromShots, tlSyncFromShots } = createProjection({
@@ -1017,8 +925,8 @@ function laneToggle(k, what) {
   const o = projOf().lane[k] = projOf().lane[k] || {};
   o[what] = !o[what];
   const nm = laneNm(k);
-  setStatus('<span class="ok">✓ ' + nm + (what === 'lock' ? (o.lock ? '已锁定：拖、剪、调音量都不接了' : '已解锁')
-    : (o.hide ? '已收起（再点一下眼睛展开）' : '已展开')) + '</span>');
+  setStatus('<span class="ok">✓ ' + nm + (what === 'lock' ? (o.lock ? '已锁定：拖、剪都不接了' : '已解锁')
+    : (o.hide ? '已隐藏（整条轨变灰：块还画在原位，只是不可编辑；再点一下眼睛恢复）' : '已取消隐藏')) + '</span>');
   renderAll();
   scheduleSave();
 }
@@ -1180,12 +1088,6 @@ function runCut(way) {
     if (!vv) { setStatus('<span class="err">现在指着的是画面段，没有可试听的配音：先点轨道上的一句配音</span>'); return; }
     playVoicePreview(vv.id); return;
   }
-  /* 空段只对画面段有效：配音句没有「插一段空 / 摘掉空段」这两支，
-     必须在转去 applyVoiceCut **之前**拦住 —— 否则会落进配音剪法的「不认识这种剪法」默认分支。 */
-  if ((way === 'gap' || way === 'close') && tlCutTarget() === 'voice') {
-    setStatus('<span class="err">空段只对画面段有效：先点一格画面（或把插针放到画面上）再试</span>');
-    return;
-  }
   /* 锁轨是「改不动」的判据，剪辑条与轨上手势问同一个 tlLockWhy()：
      按钮压暗、点下去也照实说原因 —— 只在手势里拒，就会出现「按钮亮着、点了没反应」。 */
   const why = tlLockWhy();
@@ -1239,14 +1141,9 @@ function setCutVol(vol) {
   if (rd2) rd2.textContent = Math.round(vol * 100) + '%';
   const pl = document.getElementById('player');
   if (pl) { try { pl.volume = Math.min(1, picVolOf(segs[i])); } catch (e) { /* 画面段音量设不上就按原音量继续，不中断 */ } }
-  /* 格子分在好几行里之后，DOM 顺序不再等于段号 —— 只能按 `data-seg` 找回那一格的读数。 */
-  const lab = document.querySelector('#tlBar .tl-vrow .tl-seg[data-seg="' + i + '"] .lab');
-  if (lab) {
-    /* 三段结构：只换时长那一格（整行写会把静音钮写掉） */
-    const d2 = lab.querySelector('.lab-dur');
-    if (d2) d2.textContent = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(segs[i])) : (round1(segFilmLen(segs[i])) + 's');
-    else lab.textContent = segLabel(i, segs[i]);
-  }
+  /* 格子分在好几行里之后，DOM 顺序不再等于段号 —— 只能按 `data-seg` 找回那一格的时长徽标。 */
+  const d2 = document.querySelector('#tlBar .tl-vrow .tl-seg[data-seg="' + i + '"] .seg-dur');
+  if (d2) d2.textContent = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(segs[i])) : (round1(segFilmLen(segs[i])) + 's');
   setStatus('<span class="ok">✓ 第 ' + (i + 1) + ' 段的原声现在是 ' + Math.round(vol * 100) + '%（'
     + (vol > 1 ? '超过 100% 的部分只在合并成片时生效' : '预览里当场就能听到') + '）</span>');
   filmEdited();
@@ -1314,7 +1211,7 @@ function spdWhy() {
   if (!w) return '这一镜还没有画面段：先生成或导入一条候选，或按 Ctrl+Z 退回剪切之前。';
   const s = w.segs[w.i];
   if (isImageSeg(s)) return '这一格是图片段：静态图没有倍速，它占多久就是它自己的时长 —— 拖这一格的右把手改';
-  if (isVirtualSeg(s)) return '这一格是空段：没有画面就没有倍速，它多长由插空时定下，要改就摘掉重插一段';
+  if (isVirtualSeg(s)) return '这一格是空段：没有画面就没有倍速，它多长跟着被拖走的那一段，要改就把它拖走再拖一段新的';
   return '';
 }
 /* 倍速的唯一写点（形状与 setCutVol 一致：先问闸 → 写段 → segsWrite → 读数现画 → filmEdited）。
@@ -1828,20 +1725,11 @@ function syncTlTools() {
       : picGray ? '把这一段的画面放回来：它现在出黑，格子还留在原位，恢复后按选区出画面'
         : '删掉插针所在的那一段（格子不消失，原地变成黑场占位，后面的段一个都不前移 —— 这一段上的配音照放并在音轨上变色）',
     merge: '把' + who + '与旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）',
-    gap: '在插针处插一段空（轨道上多一格灰格，成片里那几秒是黑的、占时间；与「删掉」不同，这段空可以整段摘掉）',
-    close: '把选中的空段整段摘掉（成片里那几秒消失，后面的段前移）',
   };
-  /* 空段那一支只对**画面段**目标开（配音句没有「插空 / 摘空」两支）；
-     「摘掉空段」只在当前选中的段真的是空段时可见（`isGap`）——
-     显隐只在 syncTlTools 一处，别处不许再改一遍。 */
-  const isVoiceTarget = !!v;
-  const segIsGap = !!seg && isGap(seg);
   document.querySelectorAll('#tlTools [data-cut]').forEach(b => {
     const k = b.dataset.cut;
     if (tips[k]) b.title = tips[k];
     if (k === 'play') b.title = '试听' + who + '（听的就是留在成片里的那一段）';
-    if (k === 'gap') b.hidden = isVoiceTarget;
-    if (k === 'close') b.hidden = isVoiceTarget || !segIsGap;
     /* 指着黑场那一段时「删掉」这颗改口成「恢复画面」：段并没有被删（还在原位、只是出黑），
        再写「删掉」就是界面在撒谎，而它同时是用户把画面找回来的唯一出口。
        带图标的按钮**不能用 textContent 改字**（那会把里面那枚 svg 一起抹掉），整段重画。 */
@@ -1877,9 +1765,6 @@ function syncTlTools() {
     voiceFilmWhy,
     voiceAdoptable,
     fillWaveforms,
-    videoPeaks,
-    drawSegWave,
-    fillSegWaveforms,
     voiceBlockHTML,
     cutSegIdx,
     curSegOf,
@@ -1911,16 +1796,15 @@ function syncTlTools() {
     laneRowsOf,
     laneRowsFor,
     LANE_ROW_SEL,
-    addLaneRow,
     voiceLanePlan,
-    dropLaneRow,
     voiceSplitByMaterial,
     voiceMergeAll,
     setCellLane,
+    laneRowMove,
+    bindLaneRowDrag,
     addImageToTrack,
     laneMute,
     trackOwnVol,
-    laneMuteToggle,
     picVolOf,
     moveShotInFilmOrder,
     tlSyncFromShots,

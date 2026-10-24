@@ -70,6 +70,11 @@
 /* 卡片改成「画面在上、信息在下」的竖版网格（ui.css 的 .task 是给列表用的横版） */
 .studio-page.wb .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr));
   gap: var(--sp-12); align-content: start; }
+/* 多选勾选框是绝对定位的（ui.css 的 .task .pick）：卡片自己得是定位祖先，
+   否则所有卡片的勾选框会叠到容器左上角。
+   勾选框占住卡片左上角 → 多选时给卡片顶那行让出位置（不然压住「图片 / 视频」那一枚类型标）。 */
+.studio-page.wb .col-right #result .task { position: relative; }
+.studio-page.wb .col-right #result.multi .task .card-top { padding-left: var(--sp-26); }
 .studio-page.wb .col-right #result .task { flex-direction: column; gap: var(--sp-8); margin-bottom: 0; padding: var(--sp-10); }
 .studio-page.wb .col-right #result .task .timg { width: 100%; height: auto; aspect-ratio: 16 / 9; cursor: default; align-self: stretch; }
 .studio-page.wb .col-right #result .task .timg img,

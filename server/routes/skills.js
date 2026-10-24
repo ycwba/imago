@@ -47,22 +47,6 @@ async function handleSkills(req, res, ctx) {
       sendJson(res, 200, { text: store.readRef(id, url.searchParams.get('file') || '') });
       return true;
     }
-    if (part[1] === 'export' && method === 'GET') {
-      const x = store.get(id);
-      if (!x) throw new Error('没有这个 Skill');
-      const files = [];
-      const walk = (dir, base) => {
-        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, ent.name);
-          const rel = path.relative(base, full).replace(/\\/g, '/');
-          if (ent.isDirectory()) walk(full, base);
-          else files.push({ path: rel, text: fs.readFileSync(full, 'utf8') });
-        }
-      };
-      walk(x.dir, x.dir);
-      sendJson(res, 200, { id, name: x.name, files });
-      return true;
-    }
     if (!part[1] && method === 'GET') {
       const x = store.get(id);
       if (!x) throw new Error('没有这个 Skill');

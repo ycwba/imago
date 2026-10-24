@@ -317,119 +317,207 @@
           <div class="card" id="skillCard">
             <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
             <div class="sub">Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。
-              助手会在命中触发词时自动带上最多两份；其余只在清单里列出，需要时由它按需加载全文。
+              <b>左边是使用场景</b>：选一个场景，右边告诉你这一步会拿到哪些项目上下文、现在用的是哪一份 Skill、你能怎么接管。
               Skill 只补充写法，<b>输出格式与禁止项由机器契约管，Skill 改不了它</b>。</div>
 
-            <!-- 一级菜单 = 「这个 Skill 用在哪」（§13.2）：11 个使用地方 + 助手一行。
-                 点一行选中「现在用的那一份」，清单 / 变量表 / 改 / 恢复在下面那一栏。 -->
-            <div class="sk-slots">
-              <div class="sk-slots-h"><b>使用地方</b><span class="hint">每一处现在用的是哪一份；点一行看/改那一份</span></div>
-              <button v-for="row in skillSlots" :key="row.id" class="sk-slot" :class="{ on: row.current && row.current.id === skillSelId, asst: row.assistant }"
-                type="button" @click="pickSkillSlot(row)">
-                <span class="sk-slot-l">{{ row.label }}</span>
-                <span class="sk-slot-r">
-                  <span v-if="row.assistant" class="ui-tag">按需触发</span>
-                  <template v-else>
-                    <span v-if="row.current" class="ui-tag ok">{{ row.current.source === 'builtin' ? '内置' : '我的' }}·{{ row.current.name }}</span>
-                    <span v-else class="ui-tag">内置默认</span>
-                    <span v-if="row.conflict" class="ui-tag err">contract 冲突</span>
+            <div class="sk-scenes">
+              <!-- 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），
+                   行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 -->
+              <aside class="sk-rail">
+                <div class="sk-rail-top">
+                  <input type="search" class="sk-search" :value="skillQ" @input="onSkillSearch" placeholder="搜场景 / Skill 名 / id">
+                  <button class="ghost mini" id="skAllBtn" type="button" :disabled="skillBusy" @click="openSkillAll">全部 Skill {{ skillItems.length }}</button>
+                </div>
+                <div class="sk-groups">
+                  <template v-for="g in skillTree" :key="g.id">
+                    <div class="sk-rg-h"><span class="sk-rg-n">{{ g.name }}</span><span class="sk-rg-c">{{ g.scenes.length }}</span></div>
+                    <button v-for="sc in g.scenes" :key="sc.key" class="sk-srow" :class="{ on: skillMode === 'scene' && skillScene && skillScene.key === sc.key }"
+                      type="button" :data-scene="sc.key" @click="pickSkillScene(sc)">
+                      <span class="sk-lamp" :class="'lit-' + skillSceneState(sc).lamp"></span>
+                      <span class="sk-s-l">{{ sc.label }}</span>
+                      <span class="sk-s-r" :class="{ err: skillSceneState(sc).lamp === 'conflict' }">{{ skillSceneState(sc).text }}</span>
+                    </button>
                   </template>
-                </span>
-                <span class="sk-slot-u">{{ row.used }}</span>
-              </button>
-            </div>
+                  <div v-if="!skillTree.length" class="empty sm">没有匹配的场景。</div>
+                </div>
+                <div class="sk-legend">
+                  <span class="sk-lg"><span class="sk-lamp lit-mine"></span>我的一份在用</span>
+                  <span class="sk-lg"><span class="sk-lamp lit-builtin"></span>内置的在用</span>
+                  <span class="sk-lg"><span class="sk-lamp lit-empty"></span>空档 · 用内置默认正文</span>
+                  <span class="sk-lg"><span class="sk-lamp lit-conflict"></span>两份都启用了</span>
+                </div>
+              </aside>
 
-            <div class="sk-filters">
-              <div class="frow">
-                <span class="flabel">筛选</span><span class="chips" ref="skillChipsEl"></span>
-                <span class="flabel" style="margin-left:var(--sp-14)">搜索</span>
-                <input type="search" ref="skillQEl" :value="skillQ" @input="onSkillSearch" placeholder="名称 / id / 描述 / 触发词">
-                <span class="sp"></span>
-                <button class="ghost" :disabled="skillBusy" @click="reloadSkills(true)"><span v-html="icRefresh"></span> 重新读取</button>
-                <button class="ghost" :disabled="skillBusy" @click="pickSkillFile('import')"><span v-html="icPlus"></span> 导入 .md / .zip</button>
-                <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
-                <span class="cnt">{{ skillCntText }}</span>
-              </div>
-            </div>
+              <!-- 右：详情。三个形态：场景详情 / 全部 Skill / 新建（编辑）Skill -->
+              <section class="sk-detail">
 
-            <div class="sk-layout">
-              <div class="sk-list">
-                <div v-if="!skillReady" class="empty"><span class="spin-dot"></span> 正在读取 Skill…</div>
-                <div v-else-if="!skillFiltered.length" class="empty">没有匹配的 Skill。点「导入 .md / .zip」安装一份。</div>
-                <button v-for="it in skillFiltered" :key="it.id" class="sk-item" :class="{ on: it.id === skillSelId }"
-                  :data-skill-id="it.id" @click="selectSkill(it.id)">
-                  <span class="sk-line1"><b class="sk-name">{{ it.name || it.id }}</b><span class="sk-id">{{ it.id }}</span></span>
-                  <span class="sk-tags">
-                    <span class="ui-tag" :class="it.enabled ? 'ok' : ''">{{ it.enabled ? '已启用' : '已停用' }}</span>
-                    <span class="ui-tag">{{ it.source === 'builtin' ? '内置' : '我的' }}</span>
-                    <span class="ui-tag">v{{ it.version || 1 }}</span>
-                    <span v-if="it.conflict" class="ui-tag err">contract 冲突</span>
-                  </span>
-                  <span class="sk-desc">{{ it.description }}</span>
-                </button>
-              </div>
-
-              <div class="sk-detail">
-                <div v-if="!skillDetail" class="empty">左边选一份 Skill 看详情。</div>
-                <template v-else>
-                  <div class="sk-head">
-                    <div class="sk-title">
-                      <h2>{{ skillDetail.name || skillDetail.id }}</h2>
-                      <div class="sk-meta">{{ skillDetail.id }} · v{{ skillDetail.version || 1 }} · {{ skillDetail.source === 'builtin' ? '内置（只读）' : '我的 Skill' }}<span v-if="skillDetail.contract"> · 契约 {{ skillDetail.contract }}</span></div>
+                <!-- ① 场景详情 -->
+                <template v-if="skillMode === 'scene' && skillScene">
+                  <div class="sk-d-head">
+                    <div class="sk-d-l">
+                      <h3 class="sk-d-title">{{ skillScene.label }}</h3>
+                      <div class="sk-used">{{ skillScene.used }}</div>
+                      <div class="sk-meta">
+                        <code class="sk-code">{{ skillScene.contract || '（不占固定位）' }}</code>
+                        <span class="ui-tag err" v-if="skillSceneNow.conflict">contract 冲突 · 两份都启用了</span>
+                        <span class="ui-tag ok" v-else-if="skillSceneNow.active">正在生效：{{ skillSceneNow.active.name }}</span>
+                        <span class="ui-tag" v-else>空档 · 用内置默认正文</span>
+                        <span class="sk-cnt">这个场景里 {{ skillSceneNow.list.length }} 份 Skill</span>
+                      </div>
                     </div>
                     <div class="sk-acts">
-                      <button class="ghost" id="skToggle" :disabled="skillBusy" @click="toggleSkillEnabled">{{ skillDetail.enabled ? '停用' : '启用' }}</button>
-                      <button v-if="skillDetail.source === 'builtin'" class="ghost" id="skCopy" :disabled="skillBusy" @click="copySkillToMine">复制为我的 Skill</button>
-                      <button v-else class="ghost" id="skUpdate" :disabled="skillBusy" @click="pickSkillFile('update')">更新（导入同 id）</button>
-                      <button class="ghost" id="skExport" :disabled="skillBusy" @click="exportSkill">导出</button>
-                      <button class="ghost danger" id="skRemove" :disabled="skillBusy || skillDetail.source === 'builtin'" @click="removeSkill($event)">卸载</button>
+                      <button class="pri" id="skNewBtn" type="button" :disabled="skillBusy" @click="openSkillNew">添加新 Skill</button>
                     </div>
                   </div>
 
-                  <div class="sk-desc2">{{ skillDetail.description }}</div>
-                  <div class="sk-flags" v-if="skillDetail.triggers && skillDetail.triggers.length"><b>触发词</b>{{ skillDetail.triggers.join(' / ') }}</div>
-                  <div class="sk-flags" v-if="skillDetail.pages && skillDetail.pages.length"><b>页面</b>{{ skillDetail.pages.join(' / ') }}</div>
-                  <div class="sk-flags" v-if="skillDetail.contract"><b>机器契约</b>{{ skillDetail.contract }}</div>
-
-                  <!-- 项目引用规则：这份 Skill 正文里写了哪些**变量占位符**（{cast} {what} {board} …），
-                       程序在发请求前按**当前项目**把实际内容填进去 —— 这就是「项目引用规则」。
-                       内置 Skill 只读（要改先「复制为我的 Skill」）。 -->
-                  <div class="sk-refrule">
-                    <div class="sk-flags"><b>项目引用规则</b>
-                      <span class="hint">正文里的 <code>{变量}</code> 由程序按当前项目填料：填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。</span>
+                  <div class="sk-sec">
+                    <div class="sk-sec-h"><b>这一步会拿到什么</b><span class="hint">程序在发请求前按当前项目把下面这些位置填上真实内容</span></div>
+                    <div v-if="skillSceneVars.length" class="sk-vlist">
+                      <div class="sk-vrow" v-for="v in skillSceneVars" :key="v.name">
+                        <code class="sk-vk">{{ '{' + v.name + '}' }}</code>
+                        <span class="sk-vfrom">{{ v.from }}</span>
+                        <span class="sk-vdesc">{{ v.desc }}</span>
+                      </div>
+                      <div class="sk-vnote">填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。这张表跟着「场景」走，不跟着某一份 Skill 走 —— 换一份写法，喂料方式不变。</div>
                     </div>
-                    <div class="sk-varlist" v-if="skillVarInfo.length">
-                      <table class="sk-vartable">
-                        <thead><tr><th>占位符</th><th>程序从哪填</th><th>填什么</th></tr></thead>
-                        <tbody>
-                          <tr v-for="v in skillVarInfo" :key="v.name">
-                            <td><code>{{ '{' + v.name + '}' }}</code></td>
-                            <td>{{ v.from }}</td>
-                            <td>{{ v.desc }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div v-else class="sk-vempty">这一步不需要项目上下文 —— 它只读你写的那句话（你在输入框里打的那段描述），不读角色表、不读素材库、不读分镜。</div>
+                    <div class="sk-warn" v-if="skillSceneUnknown.length">
+                      <span>!</span>
+                      <span>正在生效的「<b>{{ skillActive ? skillActive.name : '' }}</b>」正文里还用了
+                        <code v-for="n in skillSceneUnknown" :key="n">{{ '{' + n + '}' }}</code>，
+                        但这个场景的说明里没有登记它 —— 程序不会填这个位置，AI 会当成要自己补的空位。</span>
                     </div>
-                    <div class="hint" v-else>这一份正文里没有写变量（程序会照原样发出去）。</div>
                   </div>
 
-                  <div class="sk-body">
-                    <div class="sk-files">
-                      <button v-for="f in skillFiles" :key="f.path" class="sk-file" :class="{ on: f.path === skillFilePath }"
-                        :data-file="f.path" @click="openSkillFile(f.path)">
-                        <span class="sk-fpath">{{ f.path }}</span><span class="sk-sz">{{ fmtSkillSize(f.size) }}</span>
-                      </button>
+                  <div class="sk-sec">
+                    <div class="sk-sec-h"><b>这个场景的 Skill</b><span class="hint">同一时刻只有一份生效</span></div>
+                    <div v-if="!skillSceneNow.list.length" class="sk-vempty">这个场景还没有任何 Skill —— 现在用的是产品内置的默认正文。</div>
+                    <div v-for="s in skillSceneNow.list" :key="s.id" class="sk-item" :class="{ on: isSceneActive(s), off: !s.enabled }" :data-skill-id="s.id">
+                      <span class="sk-bar"></span>
+                      <div class="sk-i-main">
+                        <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }} · v{{ s.version || 1 }}</span></div>
+                        <div class="sk-desc">{{ s.description }}</div>
+                        <div class="sk-tags">
+                          <span class="ui-tag acc" v-if="isSceneActive(s)">正在生效</span>
+                          <span class="ui-tag err" v-if="s.conflict">contract 冲突</span>
+                          <span class="ui-tag">{{ s.source === 'builtin' ? '内置（只读）' : '我的 Skill' }}</span>
+                          <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                          <span class="ui-tag mono" v-for="p in s.pages" :key="p">{{ p }}</span>
+                          <span class="ui-tag" v-for="t in s.triggers" :key="t">#{{ t }}</span>
+                        </div>
+                      </div>
+                      <div class="sk-acts">
+                        <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                        <button class="ghost mini sk-edit-btn" v-if="s.source !== 'builtin'" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="openSkillEdit(s.id)">编辑正文</button>
+                        <button class="ghost mini" v-if="s.source !== 'builtin'" type="button" :disabled="skillBusy" @click="pickSkillFile('update', s.id)">导入同 id 更新</button>
+                        <button class="ghost mini danger sk-remove" type="button" :data-skill-id="s.id" :disabled="skillBusy || s.source === 'builtin'" @click="removeSkill(s.id, $event)">卸载</button>
+                        <button class="ghost mini sk-open-btn" type="button" :data-skill-id="s.id" @click="toggleSkillOpen(s.id)">{{ skillSelId === s.id ? '收起正文' : '查看正文' }}</button>                      </div>
+                      <div class="sk-open" v-if="skillSelId === s.id">
+                        <div class="sk-files" v-if="skillFiles.length">
+                          <button v-for="f in skillFiles" :key="f.path" class="sk-file" :class="{ on: f.path === skillFilePath }" type="button" @click="openSkillFile(f.path)">
+                            <span class="sk-fpath">{{ f.path }}</span><span class="sk-sz">{{ fmtSkillSize(f.size) }}</span>
+                          </button>
+                        </div>
+                        <div class="sk-prev">
+                          <div class="sk-prev-bar"><span class="sk-fname">{{ skillFilePath || '（选左边文件）' }}</span><span class="sp"></span><span class="hint">{{ skillFileNote }}</span></div>
+                          <pre class="sk-pre" :ref="setSkillPreEl"></pre>
+                        </div>
+                      </div>
                     </div>
-                    <div class="sk-prev">
-                      <div class="sk-prev-bar"><span class="sk-fname">{{ skillFilePath || '（选左边文件）' }}</span><span class="sp"></span><span class="hint">{{ skillFileNote }}</span></div>
-                      <pre ref="skillPreEl" class="sk-pre"></pre>
+                  </div>
+
+                  <div class="sk-foot">Skill 只补充写法，输出格式与禁止项由机器契约管，Skill 改不了它。启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。</div>
+                </template>
+
+                <!-- ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） -->
+                <template v-else-if="skillMode === 'all'">
+                  <div class="sk-d-head">
+                    <div class="sk-d-l">
+                      <h3 class="sk-d-title">全部 Skill</h3>
+                      <div class="sk-used">原来的全量清单退到这里：按来源/状态查一份 Skill，或者找一份还没归位的。它不再与「使用场景」并排出现 —— 那就是重复的来源。</div>
+                    </div>
+                    <div class="sk-acts">
+                      <button class="ghost" type="button" @click="closeSkillAll">回到场景</button>
+                      <button class="ghost" id="skImportBtn" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
+                    </div>
+                  </div>
+                  <div class="sk-sec">
+                    <div class="sk-filters">
+                      <span class="chips" ref="skillChipsEl"></span>
+                      <input type="search" class="sk-search" :value="skillAllQ" @input="onSkillAllSearch" placeholder="名称 / id / 描述 / 触发词">
+                      <span class="sk-cnt">{{ skillCntText }}</span>
+                    </div>
+                    <div class="sk-alllist">
+                      <div v-for="s in skillAllFiltered" :key="s.id" class="sk-allrow" :data-skill-id="s.id">
+                        <div class="sk-i-main">
+                          <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }}</span></div>
+                          <div class="sk-desc">{{ s.description }}</div>
+                        </div>
+                        <div class="sk-tags">
+                          <span class="ui-tag mono">{{ skillSceneNameOf(s.contract) }}</span>
+                          <span class="ui-tag">{{ s.source === 'builtin' ? '内置' : '我的' }}</span>
+                          <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                        </div>
+                        <div class="sk-acts">
+                          <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                        </div>
+                      </div>
+                      <div v-if="!skillAllFiltered.length" class="empty sm">没有匹配的 Skill。</div>
                     </div>
                   </div>
                 </template>
-              </div>
+
+                <!-- ③ 新建 / 编辑：在浏览器里直接写一份 SKILL.md -->
+                <template v-else>
+                  <div class="sk-d-head">
+                    <div class="sk-d-l">
+                      <h3 class="sk-d-title">{{ skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill' }}</h3>
+                      <div class="sk-used">{{ skillForm.mode === 'edit'
+                        ? '改的是「' + skillForm.id + '」这一份 —— 保存后下一轮生效。'
+                        : '在浏览器里直接写一份：下面几格是它的身份，最下面那格是正文（也就是喂给 AI 的那份写法）。' }}</div>
+                      <div class="sk-meta">
+                        <code class="sk-code">contract：{{ skillForm.contract }}</code>
+                        <span class="sk-cnt">同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份内置的会让位</span>
+                      </div>
+                    </div>
+                    <div class="sk-acts">
+                      <button class="ghost" type="button" @click="cancelSkillNew">返回场景</button>
+                      <button class="pri" id="skSaveBtn" type="button" :disabled="skillBusy" @click="saveSkillNew">保存</button>
+                    </div>
+                  </div>
+                  <div class="sk-sec">
+                    <div class="sk-form">
+                      <label class="sk-field"><span class="sk-label">id</span>
+                        <input id="skFId" class="sk-input" v-model="skillForm.id" :disabled="skillForm.mode === 'edit'" placeholder="小写字母 / 数字 / 连字符，例如 my-video-prompt">
+                      </label>
+                      <label class="sk-field"><span class="sk-label">名字</span>
+                        <input id="skFName" class="sk-input" v-model="skillForm.name" placeholder="给人看的名字">
+                      </label>
+                      <label class="sk-field"><span class="sk-label">它管什么</span>
+                        <input id="skFDesc" class="sk-input" v-model="skillForm.description" placeholder="一句话说清这份 Skill 负责哪类活儿">
+                      </label>
+                      <label class="sk-field"><span class="sk-label">触发词</span>
+                        <input id="skFTrig" class="sk-input" v-model="skillForm.triggers" placeholder="用顿号或逗号隔开，例如 视频、提示词">
+                      </label>
+                      <div class="sk-field"><span class="sk-label">页面</span>
+                        <div class="sk-pages">
+                          <label class="sk-page" v-for="p in skillPages" :key="p">
+                            <input type="checkbox" :value="p" v-model="skillForm.pages"><span>{{ p }}</span>
+                          </label>
+                        </div>
+                      </div>
+                      <label class="sk-field"><span class="sk-label">正文</span>
+                        <textarea id="skFBody" class="sk-textarea" v-model="skillForm.body" rows="14" placeholder="这份 Skill 要告诉 AI 怎么写。可以用 {变量} 占位，程序会按当前项目填进去。"></textarea>
+                      </label>
+                    </div>
+                    <div class="sk-vnote">正文里的 <code>{变量}</code> 由程序按当前项目填料 —— 这个场景能拿到哪些变量，看上面「这一步会拿到什么」那一张表。填不上的原样留着，AI 会知道那是要它自己补的位子。</div>
+                  </div>
+                </template>
+              </section>
             </div>
 
-            <div class="sk-hint">启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 不能删，但可以装一份同 id 的替换它，或复制成「我的」再改。</div>
+            <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
+            <div class="sk-hint">启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。导入只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 只读 —— 要改就自己「添加新 Skill」写一份自己的。</div>
             <div v-if="skillMsg" class="hint sm sk-msg">{{ skillMsg }}</div>
           </div>
         </section>

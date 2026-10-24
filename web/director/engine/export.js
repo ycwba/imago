@@ -62,13 +62,6 @@ try { ensureMediaExport().catch(() => {}); } catch (e) { /* 预热失败不挡�
    只活在当前会话（刷新后没有）—— 浏览器里没有第二个持久去处（服务端渲染目录已删），
    刷新后第一次导出会重新合成，这比在用户盘上悄悄多存一份要干净。 */
 const filmBlobCache = new Map();
-/* 会话内导出账本（「最近导出」弹窗读它）：浏览器内合成没有代理账本，这次会话导出过什么就在这里。
-   刷新即清空 —— 成片字节在 filmBlobCache 里还能直接下；素材那份当场就交给浏览器下载了。 */
-const sessionExports = [];
-function logSessionExport(name, bytes, kind) {
-  sessionExports.unshift({ name, bytes: bytes || 0, kind: kind || '导出', at: Date.now() });
-  if (sessionExports.length > 50) sessionExports.length = 50;
-}
 
 /* 时间线 → 送给 MediaExport 的 clips。导出与「合并全片」以前各抄了一份逐字相同的循环
    （连「第 N 段没有可用素材」那句一起），收成这一份。
@@ -148,169 +141,6 @@ function exportFilmClick() { if (rendering) { abortRender(); return; } exportFil
    两类都**逐个**跑而不是一次全交：一次全交的话，一个片段失败整批都没了，
    而用户要的就是「单独再导某一段」。
    ========================================================================== */
-let assetsExporting = false;
-function clickExportAssets() {
-  /* 导出素材期间这颗按钮就是「取消」：先判自己在跑，再去判别的导出占着位子。 */
-  if (assetsExporting) { abortRender(); return; }
-  if (rendering) { setStatus('已有导出任务在进行中…'); return; }
-  exportFilmAssets();
-}
-/* 一句配音 / 一段画面在成片里的位置（第几段、那一镜叫什么）—— 用在导出后的文件名上，
-   免得落盘是一堆 `成片-3f2a.mp4`，过两天谁也认不出是哪一段。 */
-/* 00m12.3s：文件名里只用「分 + 秒」，不出现冒号（Windows 文件名不能带冒号）。 */
-function clipTimeLabel(sec) {
-  const t = Math.max(0, Number(sec) || 0);
-  const m = Math.floor(t / 60);
-  return String(m).padStart(2, '0') + 'm' + (t - m * 60).toFixed(1).padStart(4, '0') + 's';
-}
-function clipLabelOf(tl, k, cl, row, extra) {
-  if (!cl) return '镜头';
-  const sh = allShots().find(x => x.id === cl.shotId);
-  const segNo = (Number(cl.seg) || 0) + 1;
-  const multi = ((tl && tl.clips) || []).filter(x => x.shotId === cl.shotId && x.candId === cl.candId).length > 1;
-  const range = row && Number.isFinite(Number(row.f0))
-    ? '-' + clipTimeLabel(row.f0) + '-' + clipTimeLabel(Number(row.f0) + Number(row.fd || 0))
-    : '';
-  return String(k + 1).padStart(2, '0') + '-' + ((sh && sh.name) || '镜头')
-    + (multi ? '-第' + segNo + '段' : '') + range + (extra || '');
-}
-/* 一句配音在成片秒上的区间：start 是这一句在段内源秒上的起点，spd 是画面倍速，
-   句自己的 spd 再乘在音频长度上（与 clipVoices / 代理 atempo 同一把尺子）。 */
-function voiceFilmRange(cl, row, v) {
-  const sp = Math.max(0.25, Math.min(4, Number(cl.speed) || 1));
-  const vs = Math.max(0.25, Math.min(4, Number(v.spd) || 1));
-  const st = (Number(row && row.f0) || 0) + (Number(v.start) || 0) / sp;
-  const du = Math.max(0.05, (Number(v.dur) || 0) / (sp * vs));
-  return [st, st + du];
-}
-async function exportFilmAssets(opts) {
-  const o = opts || {};
-  const pendNote = warnPendingAssets();
-  const tl = tlSyncFromShots();
-  if (!tl.clips.length) {
-    setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
-    return { ok: false, err: '现在一个可用镜头都没有' };
-  }
-  /* 先把地址备齐（批量换一轮过期外链，别逐段各问一次 —— 见 buildRenderClips 那段说明） */
-  await healStaleUrls().catch(() => 0);
-  const jobs = [];                       // { name, clips, kind }
-  let skipVoice = 0;
-  /* 灰场表（成片秒）与 buildRenderClips 同一份取法：一句压在灰场上的配音要劈成几截导出，
-     口径与「导出成片」那一趟必须一致（否则导出的素材与成片里听到的不是同一种切法）。 */
-  const G = filmFrames(tl);
-  const gray = filmLayGray(G);
-  for (let k = 0; k < tl.clips.length; k++) {
-    const cl = tl.clips[k];
-    const dur = tlClipDur(cl);
-    /* 与导出成片走**同一个**取源口径（`tlClipSrc`：本机优先、过期外链当场转存）：
-       以前这里用预览口径的 `candTrackSrc`，同一条素材在「导出成片」里是本地文件、
-       在「导出素材」里却还是外链，链接一过期这一份就导不出来。
-       图片段没有可解码的源：这一格导出一段「静态图撑满整段」的 mp4，与成片里那一格同一种画面。 */
-    if (cl.img) {
-      const still = window.EditorMedia ? window.EditorMedia.exportSrc({ src: cl.img }) : cl.img;
-      if (still && dur > 0.05) {
-        jobs.push({ kind: 'video', name: clipLabelOf(tl, k, cl, G.rows[k]),
-          clips: [{ src: 'black', still, in: 0, out: dur, speed: 1 }] });
-      }
-    } else {
-      const realSrc = await tlClipSrc(cl);
-      if (realSrc && dur > 0.05) {
-        jobs.push({ kind: 'video', name: clipLabelOf(tl, k, cl, G.rows[k]),
-          clips: [{ src: realSrc, in: Math.max(0, Number(cl.in) || 0), out: Math.max(0, Number(cl.out) || 0), speed: cl.speed || 1 }] });
-      }
-    }
-    /* 声音：这一段上的每一句各出一个文件（clipVoices 已经按「放不进这一段的不静默丢」算过）。
-       这一条黑场是**这一句自己的文件**，所以 `start` 传 0 —— `v.start` 是「它在原来那一格里第几秒起」，
-       跟这个文件没有半点关系；照原样递过去会被代理按 `room = 段长 - start` 再截一刀，
-       于是「第 2 秒起、念 3 秒」的那一句导出来只剩 1 秒。
-       `speed` 跟着那一段走：素材导出的目的是「拿到的就是成片里的那一份」，
-       而上过倍速之后，成片里这一句本来就被同一条 atempo 变过速。 */
-    const vv = clipVoices(cl, { start: G.rows[k].f0, gray: gray });
-    skipVoice += vv.skip;
-    vv.list.forEach((v, i) => {
-      const [v0, v1] = voiceFilmRange(cl, G.rows[k], v);
-      /* 这一格的源长度 = 这一句的音频时长 ÷ **它自己的倍速**：代理按 `speed × v.spd` 的 atempo
-         把它变快之后才得到成片里的那一段；照原样递 `v.dur` 的话，句倍速 < 1 时导出会被截短
-         （与 `voiceFilmRange` 那把尺子逐字对齐）。 */
-      const vs = Math.max(0.25, Math.min(4, Number(v.spd) || 1));
-      jobs.push({ kind: 'audio', name: clipLabelOf(tl, k, cl, G.rows[k], '-配音' + (i + 1))
-        + '-' + clipTimeLabel(v0) + '-' + clipTimeLabel(v1),
-        clips: [{ src: 'black', in: 0, out: Math.max(0.2, v.dur / vs), speed: cl.speed || 1, voices: [Object.assign({}, v, { start: 0 })] }] });
-    });
-  }
-  if (!jobs.length) {
-    setStatus('<span class="err">这一版成片里没有可导出的素材：画面段都取不到可用地址，配音一句都没有</span>');
-    return { ok: false, err: '这一版成片里没有可导出的素材' };
-  }
-  const nV = jobs.filter(j => j.kind === 'video').length;
-  const nA = jobs.length - nV;
-  const go = o.skipConfirm ? true : await Confirm.ask({
-    title: '导出全片素材',
-    sub: '画面与配音分开出文件，一段一个、一句一个。',
-    body: '要导出的素材：\n· 视频片段 ' + nV + ' 个（每段一个 mp4）\n· 音频片段 ' + nA + ' 个（每句一个音频）'
-      + (skipVoice ? '\n（另有 ' + skipVoice + ' 句配音落在剪不到画面的位置上，这次不带）' : '')
-      + '\n\n逐个渲染，段数多时可能要等一会儿。',
-    okLabel: '开始导出', cancelLabel: '先不导',
-  });
-  if (!go) return { ok: false, cancelled: true, err: '用户没有确认导出' };
-  rendering = true; renderCancelled = false; assetsExporting = true;
-  const abortCtl = new AbortController();
-  renderAbortCtl = abortCtl;
-  const btn = $('exportAssets');
-  const ff = ExportFormats.of('assets');
-  if (btn) btn.textContent = ff.cancelLabel;
-  const size = filmSize();
-  let done = 0, okN = 0, failed = [], cancelled = false;
-  try {
-    const ME = await ensureMediaExport();
-    for (const j of jobs) {
-      if (renderCancelled || abortCtl.signal.aborted) break;
-      done++;
-      if (btn) btn.textContent = ff.cancelLabel + ' ' + done + '/' + jobs.length;
-      setStatus('正在导出第 ' + done + '/' + jobs.length + ' 个：' + j.name + (j.kind === 'audio' ? '（音频）' : '（画面）'));
-      try {
-        if (o.onProgress) o.onProgress({ done, total: jobs.length, name: j.name, kind: j.kind });
-        /* 单段一小片：画面段出 mp4（黑场配音那条出 m4a）。段起点 = 0（这一个文件里从头就是它）。 */
-        j.clips.forEach(cc => { cc.filmStart = 0; });
-        const one = j.clips[0] || {};
-        const dur = Math.max(0.2, (Number(one.out) || 0.2) - (Number(one.in) || 0));
-        const r = await ME.exportClip({
-          clips: j.clips, width: size.w, height: size.h, fps: 30, duration: dur,
-          audioOnly: j.kind === 'audio',
-          signal: abortCtl.signal,
-        });
-        const saved = await saveBlob(window.fileSafe(j.name, 120) + '.' + r.ext, r.blob);
-        logSessionExport(window.fileSafe(j.name, 120) + '.' + r.ext, r.blob.size, j.kind === 'audio' ? '音频' : '画面');
-        okN++;
-        /* 一段一存，别攒到最后一次性写 —— 中途失败时已经落盘的那几个还在，
-           而攒着的话失败就全丢了（用户会以为「一个都没导出来」）。 */
-        setStatus('<span class="ok">✓ ' + saved.msg + '（' + done + '/' + jobs.length + '）</span>');
-      } catch (e) {
-        if (String(e && e.message) === '已取消') break;
-        failed.push(j.name + '：' + errText(e));
-      }
-    }
-  } finally {
-    /* 先把「用户取消过」捞出来：finally 清 renderCancelled 之后才判的话，
-       下面的取消分支永远不成立，取消会被报成「素材导完了」。 */
-    cancelled = renderCancelled;
-    rendering = false; renderCancelled = false; renderAbortCtl = null; assetsExporting = false;
-    if (btn) { btn.disabled = false; btn.innerHTML = icon(ff.icon, 13) + ' ' + ff.label; }
-  }
-  if (cancelled) {
-    setStatus('已取消：已导出的 ' + okN + ' 个都留在盘上');
-    return { ok: false, cancelled: true, okN, nV, nA, failed, jobs: jobs.length };
-  }
-  setStatus(failed.length
-    ? '<span class="err">导出完了，但有 ' + failed.length + ' 个没成功：' + esc(failed.slice(0, 3).join('；'))
-      + (failed.length > 3 ? ' …' : '') + '。成功的 ' + okN + ' 个已存好。</span>'
-    : '<span class="ok">✓ 素材导完了：' + okN + ' 个文件已存到本机（画面 ' + nV + ' · 配音 ' + nA + '）</span>')
-    + (pendNote ? '<span class="warn"> · ⚠ ' + pendNote + '</span>' : '');
-  return { ok: true, okN, nV, nA, failed, jobs: jobs.length, pendingNote: pendNote };
-}
-/* 导出素材的文件名只洗一次字符：`web/ui/ui.js` 的 `fileSafe`。
-   片段名来自镜头名，用户什么都可能打 —— 这一页以前自己写了第二份非法字符正则与截断长度，
-   与资产库 / 生成工作台那两处的口径各不相同（同一部片子的素材从不同页导出，名字规则就不一样）。 */
 async function exportFilm(opts) {
   const o = opts || {};
   if (rendering) { setStatus('已有导出任务在进行中…'); return { ok: false, busy: true, err: '已有导出任务在进行中' }; }
@@ -374,7 +204,6 @@ async function exportFilm(opts) {
     const outName = stampName(r.ext || 'mp4');
     const saved = await saveBlob(outName, blob);
     filmBlobCache.set(outName, blob);          // 同内容再点直接给
-    logSessionExport(outName, blob.size, '成片');
     /* 导出也是一份成片：记进 proj.merged（带内容指纹，判据就是 filmIsCurrent 那一句）。
        指纹的字段名就叫 `fp`：`filmIsCurrent` 认不出别的名字，
        少了它会被当成「没有指纹的老成片」而退回只比段数（换候选、改入出点就判不出来了）。 */
@@ -614,19 +443,19 @@ const voiceFpOne = v => [Math.round(v.start * 10) / 10, v.dur, Math.round((v.off
 const voiceFp = (c, ctx) => clipVoices(c, ctx).list.map(voiceFpOne).join(',');
   return {
     filmClick: exportFilmClick,
-    assetsClick: clickExportAssets,
     exportFilm: exportFilm,
-    assets: exportFilmAssets,
     fcp: exportFCPXML,
     resolve: () => exportNle({ app: 'resolve' }),
     jianying: () => exportNle({ app: 'jianying' }),
+    /* 助手的 export_start 分派只认这一枚（bridge 按 formats 行的 nle 标记给 app）：
+       silent = 不弹 nleDialog，结果走助手自己的回执。 */
+    nle: opts => exportNle(Object.assign({}, opts)),
     isRendering: () => rendering,
     cancelJob: () => abortRender(),
-    sessionExports: () => sessionExports.slice(),
+    /* 助手「把刚导出的成片存进资产库」读这一枚：它只看成片字节缓存（同内容再点直接给的那份），
+       与已撤的「最近导出」弹窗无关。 */
     filmBlobOf: name => filmBlobCache.get(String(name || '')) || null,
     buildRenderClips,
-    clipTimeLabel,
-    voiceFilmRange,
     filmFingerprint,
     filmIsCurrent,
   };

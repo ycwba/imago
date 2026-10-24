@@ -542,13 +542,30 @@ function refreshGenAllEst() {
     gaEstTimer = null;
     const my = ++gaEstSeq;
     const el = $('genAllEst');
+    const btn = $('genAll');
     if (!el || !dirForeground()) return;
     const plan = genAllPlan();
-    if (!plan.ok.length && !plan.wait.length) {
-      if (!plan.bad.length) { el.hidden = true; el.innerHTML = ''; return; }
+    /* 按钮与估价行**同一份计划**（genAllPlan）：计划一变，按钮的文案与可用状态一起变。
+       以前按钮永远是「生成全部分镜」，旁边那行写着「可生成 2 镜 · 不能生成 1 镜」——
+       同一件事两套说法，按钮也不知道自己该不该点。 */
+    const can = plan.ok.length + plan.wait.length;
+    if (btn) {
+      btn.textContent = can ? ('生成 ' + can + ' 个分镜') : '生成全部分镜';
+      btn.disabled = !can;
+      btn.title = can
+        ? ('这一轮会提交 ' + can + ' 个分镜' + (plan.bad.length ? '，另有 ' + plan.bad.length + ' 镜现在不能生成' : ''))
+        : '现在没有能生成的分镜（原因见下面那一行）';
+    }
+    if (!can) {
       el.hidden = false;
-      el.innerHTML = '<span class="warn">' + plan.bad.length + ' 镜现在不能生成：'
-        + esc((plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0])) + '</span>';
+      if (!allShots().length) {
+        el.innerHTML = '<span class="dim">还没有分镜 —— 先加一个场景与镜头</span>';
+      } else if (!plan.bad.length) {
+        el.innerHTML = '<span class="dim">全部镜头都已有生成结果 —— 要重跑先删掉那一镜的候选</span>';
+      } else {
+        el.innerHTML = '<span class="warn">' + plan.bad.length + ' 镜现在不能生成：'
+          + esc((plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0])) + '</span>';
+      }
       return;
     }
     el.hidden = false;

@@ -11,7 +11,7 @@ html.sb-open .sidebar { width: 200px; }
 /* 窄窗口（≤1100px）里展开 = 浮层盖在内容上，内容区不让位（--sbw 仍是 66px），
    所以加个投影，一眼看出这一档是临时浮出来的。 */
 html.sb-narrow.sb-open .sidebar { box-shadow: var(--shadow-2); }
-.sidebar .sb-brand { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-10) var(--sp-8); white-space: nowrap; position: relative; width: 100%; cursor: pointer; }
+.sidebar .sb-brand { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-10) var(--sp-8) var(--sp-10) var(--sp-15); white-space: nowrap; position: relative; width: 100%; cursor: pointer; }
 .sidebar .sb-logo { width: 36px; height: 36px; border-radius: var(--radius-6); background: var(--pri); color: var(--on-acc);
   display: flex; align-items: center; justify-content: center; font-weight: 700; flex: 0 0 36px;
   cursor: pointer; border: 0; user-select: none; transition: filter var(--dur-120), transform var(--dur-120); }
@@ -21,11 +21,20 @@ html.sb-narrow.sb-open .sidebar { box-shadow: var(--shadow-2); }
 .sidebar .sb-group { font-size: var(--fs-10); color: var(--sub); padding: var(--sp-8) var(--sp-24) var(--sp-4); white-space: nowrap; }
 /* 收起态一律 display:none（以前是 opacity:0）：opacity 藏得住文字却藏不住它占的宽度，
    66px 里图标被 gap + 隐形文字顶得偏左，分组标题也白占两行高度。 */
+/* 图标列：收起 / 展开**两态同一个左边界**（--sp-22 这一列，22px 宽的盒子）。
+   以前收起态靠 justify-content:center 把图标摆在 66px 正中（22px），展开态却贴在 8px ——
+   一收一放整列图标横跳 15px，看着像页面自己动了一下。
+   现在两态都按这一列摆：收起时它正好居中（(66-22)/2 = 22），展开时它原地不动，文字往右长出来。
+   品牌那块（AI 标志 36px 宽）按**中心**对齐这一列（15 + 18 = 33 = 22 + 11），
+   所以标志与图标在两态里都站在同一条竖线上。 */
 html:not(.sb-open) .sidebar .sb-name, html:not(.sb-open) .sidebar .sb-group,
 html:not(.sb-open) .sidebar nav a .lb, html:not(.sb-open) .sidebar .sb-set .lb { display: none; }
 html:not(.sb-open) .sidebar .sb-brand, html:not(.sb-open) .sidebar nav a,
-html:not(.sb-open) .sidebar .sb-set { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
-html:not(.sb-open) .sidebar .sb-brand { padding-top: var(--sp-12); padding-bottom: var(--sp-12); }
+html:not(.sb-open) .sidebar .sb-set { justify-content: flex-start; gap: 0; padding-right: 0; }
+/* 那一列图标离侧栏左边 22px（nav 自己有 8px 内边距，所以这里再让 14px）。
+   收起态 22 + 22 = 44，66px 的带子里左右各留 22 —— 正好居中；展开态它原地不动。 */
+html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set { padding-left: var(--sp-14); }
+html:not(.sb-open) .sidebar .sb-brand { padding-left: var(--sp-15); padding-top: var(--sp-12); padding-bottom: var(--sp-12); }
 /* 收起态悬停时弹出来的名字浮标。**position:fixed 挂 body**，不写进侧栏里：
    .sidebar nav 那一条带子是 overflow-x:hidden（那一行注释讲了为什么），写在里面的提示会被裁掉。
    与下拉浮层同一套理由 —— 要脱离祖先的裁剪，只有离开文档流这一条路。 */
@@ -47,12 +56,13 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17);
    窗口矮下来只有这一条会被挤，而它自己带 overflow —— 摘要行那一档（≤660px）就是为了让它全露出来。 */
 .sidebar nav { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) var(--sp-8); flex: 1 1 auto;
   min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
-.sidebar nav a { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8); border-radius: var(--radius-6);
+.sidebar nav a { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-14); border-radius: var(--radius-6);
   color: var(--txt); text-decoration: none; font-size: var(--fs-13); white-space: nowrap; transition: background var(--dur-120); }
 .sidebar nav a:hover { background: var(--panel2); }
 .sidebar nav a.active { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
-/* 图标位那一列的盒子（导航 + 设置入口共用一份，别再写两条一模一样的） */
-.sidebar nav a .ic, .sidebar .sb-set .ic { width: 20px; text-align: center; font-size: var(--fs-15); flex: 0 0 20px; }
+/* 图标位那一列的盒子（导航 + 设置入口共用一份，别再写两条一模一样的）：
+   两态都是 22px 宽（收起态那一档原来是 20px + fs-17，展开态 20px + fs-15 —— 图标大小也跟着跳）。 */
+.sidebar nav a .ic, .sidebar .sb-set .ic { width: 22px; text-align: center; font-size: var(--fs-17); flex: 0 0 22px; }
 /* 底部两块（账户余额 / 设置·换背景）不参与滚动、也不许被无声裁掉（flex:0 0 auto）。
    余额区**默认不再内滚动** —— 以前这一格写 `max-height: min(34vh, 260px); overflow-y: auto`，
    六家有余额端点的平台加上本机产物行、刷新行最多 8 块，每块 50-70px，必然超过 260px，
@@ -70,8 +80,15 @@ html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17);
    判据是「导航优先」（AGENTS §11.1）：展开是为了看全部供应商，不是为了把第 7 条导航挤掉，
    所以导航退回自然高（不再 shrink、也不需要自己滚），余额区允许 shrink，
    shrink 只落在 `.sb-bal-cards` 这一格上 —— 本机产物行与按钮行钉在原位不跟着滚。
-   全摆得下时 JS 不挂这一位，一切照旧（没有多余的滚动条，也没有空出来的下半截）。 */
+   全摆得下时 JS 不挂这一位，一切照旧（没有多余的滚动条，也没有空出来的下半截）。
+   「账户余额」分组标题带 `margin-top:auto`：导航退回自然高之后，底部那组
+   （标题 + 余额区 + 设置行）要钉在柱底 —— 不补这一枚，展开的家数少时它们会整体
+   浮到导航脚下（下面一截空白），看起来就是「组件错位到上面去了」。
+   展开内容高过窗口时自由空间为零，auto margin 自然归零，不影响「卡列表自己滚」。
+   余额关掉时这一位不会被挂上（bal-exp 只在 shown.length > cap 时成立，关掉 = 0 家），
+   两个 revert 档里 nav 照旧 flex:1 吃掉全部自由空间，auto margin 同样不起作用。 */
 .sidebar.bal-exp nav { flex: 0 0 auto; overflow: visible; }
+.sidebar.bal-exp #sbBalGroup { margin-top: auto; }
 .sidebar.bal-exp #sbBalance { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .sidebar.bal-exp .sb-bal-body, .sidebar.bal-exp .sb-bal { flex: 0 1 auto; min-height: 0; }
 .sidebar.bal-exp .sb-bal-body > .sb-mirror, .sidebar.bal-exp .sb-bal-acts { flex: 0 0 auto; }
@@ -151,7 +168,7 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
 .sb-mirror.bad { border-color: var(--warn); }
 .sb-mirror.bad .l2 { color: var(--warn); }
 /* 设置入口固定在左下角 */
-.sidebar .sb-set { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-6);
+.sidebar .sb-set { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-14); border-radius: var(--radius-6);
   color: var(--txt); text-decoration: none; font-size: var(--fs-13); white-space: nowrap; transition: background var(--dur-120); }
 .sidebar .sb-set:hover { background: var(--panel2); color: var(--acc); }
 .sidebar .sb-set.active { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
@@ -163,7 +180,7 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
   .sidebar .sb-brand { padding-top: var(--sp-8); padding-bottom: var(--sp-8); }
   .sidebar .sb-group { padding: var(--sp-6) var(--sp-24) var(--sp-4); }
   .sidebar nav { padding: var(--sp-4) var(--sp-8); }
-  .sidebar nav a { padding: var(--sp-6) var(--sp-8); }
+  .sidebar nav a { padding: var(--sp-6) var(--sp-8) var(--sp-6) var(--sp-14); }
   .sidebar .sb-bottom { padding: var(--sp-6) var(--sp-8); }
   .sb-bal { gap: var(--sp-4); }
   .sb-bal-body { gap: var(--sp-4); }

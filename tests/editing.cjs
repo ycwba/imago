@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 剪辑引擎里那几段**纯函数**的常驻回归：切片就近落格、热区排序、导出素材的时间点命名。
+/* 剪辑引擎里那几段**纯函数**的常驻回归：切片就近落格、热区排序。
    跑法：`node tests/editing.cjs`（不启动浏览器，也不碰真实数据）。 */
 const fs = require('fs');
 const vm = require('vm');
@@ -29,13 +29,7 @@ function fn(name) {
 
 const ctx = { console, Math, Number, Date, URL: { revokeObjectURL() {} } };
 vm.createContext(ctx);
-vm.runInContext([fn('clipTimeLabel'), fn('voiceFilmRange'), fn('tileFrames'), fn('chunkHot')].join('\n'), ctx);
-
-ok('成片秒命名 0 → 00m00.0s', ctx.clipTimeLabel(0) === '00m00.0s');
-ok('成片秒命名 12.3 → 00m12.3s', ctx.clipTimeLabel(12.3) === '00m12.3s');
-ok('成片秒命名 125.4 → 02m05.4s', ctx.clipTimeLabel(125.4) === '02m05.4s');
-const vr = ctx.voiceFilmRange({ speed: 2 }, { f0: 10 }, { start: 4, dur: 2, spd: 1 });
-ok('配音区间按画面倍速折算到成片秒', vr[0] === 12 && vr[1] === 13, JSON.stringify(vr));
+vm.runInContext([fn('tileFrames'), fn('chunkHot')].join('\n'), ctx);
 
 const got = new Map([[0, 'a'], [1, 'b'], [2, 'c']]);
 const tiles = ctx.tileFrames(got, [0.1, 1.1, 2.1], 0, 3, 1);

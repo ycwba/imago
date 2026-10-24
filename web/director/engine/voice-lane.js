@@ -175,7 +175,7 @@ function voiceLanesHTML(per, rows, hint) {
     /* 那句说明只在**整条轨都空着**时出现在第一行（用户自己加了轨道、一句还没摆，
        那一行正该告诉他去哪儿加）；一旦有块，空行就是空行，不要每条都喊一遍。
        `hid` = 只收起**这一行**（左列那一格与这一条必须同高，见 CSS 那两条 `--tlh-min`）。 */
-    out += `<div class="tl-lane${rowHidden('voice', i) ? ' hid' : ''}" data-ln="${i}">` + (body
+    out += `<div class="tl-lane${rowHidden('voice', i) ? ' ghosted' : ''}" data-ln="${i}">` + (body
       || (i === 0 && !any ? '<span class="lane-hint">' + hint + '</span>' : '')) + '</div>';
   }
   return out;
@@ -194,54 +194,32 @@ function voiceLanesHTML(per, rows, hint) {
 function laneRowCtlHTML(k, ln) {
   const nm = k === 'voice' ? '配音' : '画面';
   const hid = rowHidden(k, ln), lock = rowLocked(k, ln);
-  const vol = laneVol(k, ln);
   const who = ln > 0 ? nm + '轨第 ' + (ln + 1) + ' 行' : nm + '轨第 1 行（整条轨）';
-  const one = k === 'voice' ? '句' : '段';
   /* 「联动」只给画面轨第 0 行（主轨 = 锚行，不新增 master 字段）：
      勾上的类型在主轨段变黑场时会挪到下一段还有画面的段。它**不是** ROW_FLAG_COLS
      那张按行表（vols/hides/locks），搬行时不跟着走 —— 走独立的 data-lane-act="links"。 */
   const lk = (k === 'pic' && ln === 0) ? linksOf(projOf()) : [];
+  /* 「联动」与眼睛 / 锁同一颗形状（照参考项目 track-labels 的图标钮）：22px、无边框、图标说话，
+     开着用 `.on` 点亮（联动自己的点亮色，不与锁的琥珀混）。位置就在第一行标签最左。 */
   const linksBtn = (k === 'pic' && ln === 0)
-    ? `<button type="button" class="tool ghost mini${lk.length ? ' on' : ''}" data-lane="pic" data-ln="0" data-lane-act="links"`
-      + ` title="联动设置：勾上的类型在主轨段变黑场时会挪到下一段还有画面的段；没勾的留在原地（成片里被跳过）">`
-      + `${icon('link', 11)} 联动${lk.length ? ' · ' + lk.length : ''}</button>`
+    ? `<button type="button" class="tl-hbtn links${lk.length ? ' on' : ''}" data-lane="pic" data-ln="0" data-lane-act="links"`
+      + ` title="联动设置：勾上的类型在主轨段变黑场时会挪到下一段还有画面的段；没勾的留在原地（成片里被跳过）`
+      + (lk.length ? '。已勾 ' + lk.length + ' 类' : '') + `">${icon('link', 12)}</button>`
     : '';
-  /* 第 1 行那枚滑块 = **整轨音量**（用户点名的第 ② 条）：与右栏「整轨音量」同一批字段
-     （段 / 句自己的 vol），不是行基数 —— 初值取这一排此刻都同一档时的那一个数，
-     不一致时由 syncLaneSide 写「不一」并把拇指停在第一个数上。 */
-  const tv = ln > 0 ? null : trackOne(trackOwnVol(k));
-  const shown = ln > 0 ? vol : (tv.one != null ? tv.one : (tv.first != null ? tv.first : 1));
-  const rdTxt = ln > 0 ? Math.round(vol * 100) + '%' : (tv.one != null ? Math.round(tv.one * 100) + '%' : '不一');
+  /* 左列只有名字 + 眼睛 + 锁：加行靠把段 / 素材拖到新行（行随内容自动长出来、空了自动消失），
+     音量在右栏那张卡上调 —— 左列的 ＋/× 与音量滑块已按用户要求撤掉。 */
   return linksBtn + `<button type="button" class="tl-hbtn" data-lane="${k}" data-ln="${ln}" data-lane-act="${ln > 0 ? 'rhide' : 'hide'}"`
-    + ` title="${hid ? '展开' : '收起'}${who}（${hid ? '这一行重新长出来，块还挂在原来的行号上' : '只收这一行：块与把手都不画，别的行与另一轨不受影响'}）">${icon(hid ? 'eyeOff' : 'eye', 12)}</button>`
+    + ` title="${hid ? '取消隐藏' : '隐藏'}${who}（${hid ? '这一行恢复原样' : '整行变灰：块还画在原来的行号与位置上，只是不可编辑'}）">${icon(hid ? 'eyeOff' : 'eye', 12)}</button>`
     + `<button type="button" class="tl-hbtn${lock ? ' on' : ''}" data-lane="${k}" data-ln="${ln}" data-lane-act="${ln > 0 ? 'rlock' : 'lock'}"`
-    + ` title="${lock ? who + '已锁定：这一行上的块拖不动、剪不了，音量也不调（点一下解锁）' : '锁定' + who + '：锁上之后拖不动、剪不了，免得调隔壁时误改这一行'}">${icon('lock', 12)}</button>`
-    + `<button type="button" class="tl-hbtn" data-lane="${k}" data-ln="${ln}" data-lane-act="row+"`
-    + ` title="在${who}下面加一行：下面那些行整体往下挪一格，块上的时间与倍速一个字不动">${icon('plus', 11)}</button>`
-    + `<input type="range" class="tl-hvol-sl" data-lane="${k}" data-ln="${ln}" min="0" max="200" step="0.1"`
-    + ` value="${Math.round(shown * 1000) / 10}" aria-label="${ln > 0 ? nm + '轨第 ' + (ln + 1) + ' 行的音量' : '整条' + nm + '轨的音量'}">`
-    + (ln > 0
-      ? `<i class="tl-hvol" title="${who}的基数 ${Math.round(vol * 100)}%：这一行上每一${one}都跟着一起${vol < 1 ? '变轻' : vol > 1 ? '变响' : '不变'}，段 / 句自己那枚音量在它之上再乘">${icon('speaker', 10)}<b class="tl-hvol-n">${rdTxt}</b></i>`
-      : `<button type="button" class="tl-hvol${laneMute(k) ? ' mut' : ''}" data-lane-mute="${k}"`
-        + ` title="点一下把整条${nm}轨${laneMute(k) ? '取消静音' : '静音'}：${laneMute(k) ? '恢复之后每一段 / 每一句回到原来的音量' : '预览与成片这一轨都不出声，每一段 / 每一句的音量原样留着'}；旁边的滑块调整轨音量（现在 ${rdTxt}）">`
-        + `${icon(laneMute(k) ? 'speakerOff' : 'speaker', 10)}<b class="tl-hvol-n">${rdTxt}</b></button>`);
+    + ` title="${lock ? who + '已锁定：这一行上的块拖不动、剪不了（点一下解锁）' : '锁定' + who + '：锁上之后拖不动、剪不了，免得调隔壁时误改这一行'}">${icon('lock', 12)}</button>`;
 }
-function laneSideRowHTML(k, ln, blocks) {
+function laneSideRowHTML(k, ln) {
   const nm = k === 'voice' ? '配音' : '画面';
   const hid = rowHidden(k, ln);
-  const tip = laneNm(k) + '第 ' + (ln + 1) + ' 行：这一行上的块上下拖就能换行；'
-    + '眼睛收这一行、锁只锁这一行、＋ 在这一行下面插一行、滑块调这一行的基数音量（与右栏那两枚滑块同一个数）。';
-  /* 收起的那一行照样要有这一格（左边窄条 + 右边窄条同高，行号才不会与刻度尺错开）：
-     `.hid` 只把滑块、读数、＋、× 藏掉（见 CSS 那一条），名与眼睛、锁留着 —— 否则收起的行再也展不开。 */
-  return `<div class="tl-hrow ${k} extra${hid ? ' hid' : ''}" data-ln="${ln}" title="${esc(tip)}">`
-    + `<span class="tl-hname">${nm} ${ln + 1}</span>` + laneRowCtlHTML(k, ln)
-    /* 每一行（第 2 行往上）各有一颗自己的「×」（用户点名的第 ⑤ 条：多添加出来的轨道要能独立删除）。
-       从前这一颗只挂在**空的最后一行**上，于是摆过东西的第 2、3 行永远删不掉。
-       删一行不吞内容：这一行的块并到上面那一行，再往下的行补位（判据与回执都在 `dropLaneRow`）。
-       第 1 行不画 —— 它是锚行，整条轨至少留一行，收整条轨用轨名旁那颗眼睛。 */
-    + `<button type="button" class="tl-hbtn" data-lane="${k}" data-ln="${ln}" data-lane-act="row-"`
-    + ` title="删掉${nm}轨第 ${ln + 1} 行${blocks ? '（这一行上有 ' + blocks + ' 个块：它们并到第 ' + ln + ' 行，'
-      + '再往下的行往上补一格；入出点、时长、倍速与配音都不动）' : '（这一行是空的，入出点、音量与配音都不动）'}">${icon('minus', 11)}</button>`
+  const tip = laneNm(k) + '第 ' + (ln + 1) + ' 行：把段 / 素材上下拖到这一行就能把它排上来；'
+    + '眼睛隐藏（整行变灰）、锁只锁这一行。';
+  return `<div class="tl-hrow ${k} extra${hid ? ' ghosted' : ''}" data-ln="${ln}" title="${esc(tip)}">`
+    + laneRowCtlHTML(k, ln) + `<span class="tl-hname">${nm} ${ln + 1}</span>`
     + '</div>';
 }
 /* 轨名那一格的名字（第 1 行）：四件套由 `laneRowCtlHTML` 出，这里只给名字。
@@ -251,7 +229,12 @@ function laneRowBtnsHTML(k) {
   return `<span class="tl-hname">${k === 'voice' ? '配音' : '画面'}</span>`;
 }
 function syncLaneSide(col, bar) {
-  const side = col && col.querySelector('.tl-side');
+  /* 轨名那一列现在住在**轨道坞**里（工具条连着网格一起搬进坞以后，中栏只留播放器），
+     而这一份被调用时手上是「右列」（bar）—— 那一列的上一级就是网格，轨名那一格是它的兄弟节点。
+     所以从 bar 往上找网格，比问调用方要哪一栏稳：栏换了位置，这一列也不会跟丢。
+     （早先按 `col` 查 → 坞里找不到 → 整列不更新：加出来的行不出现，眼睛与锁的状态也永远不刷新。） */
+  const grid = bar && bar.closest ? bar.closest('.tl-grid') : null;
+  const side = (grid && grid.querySelector('.tl-side')) || (col && col.querySelector('.tl-side'));
   if (!side || !bar) return;
   /* 待生成配音那一行标签是**画完轨道之后**才补的（与 extra 行同一个时机）：
      先摘掉上一趟那一枚，否则每 3 秒整栏重画一次就叠一层。 */
@@ -261,92 +244,44 @@ function syncLaneSide(col, bar) {
     if (!anchor) return;
     const rows = [...bar.querySelectorAll(LANE_ROW_SEL[k])];
     const n = Math.max(1, rows.length);
-    /* 每一行上摆了几个块要**现在量**（右栏那一排的节点，不是重算一遍数据 —— 与标签行同一口径）：
-       它只进那颗「×」的 title，删行的动作本身不读它（`dropLaneRow` 把块并到上面那一行）。 */
     side.querySelectorAll('.tl-hrow.' + k + '.extra').forEach(x => x.remove());
     let extra = '';
-    for (let i = 1; i < n; i++) {
-      const el = rows[i];
-      extra += laneSideRowHTML(k, i, el ? el.querySelectorAll('.tl-seg, .tl-v').length : 0);
-    }
+    for (let i = 1; i < n; i++) extra += laneSideRowHTML(k, i);
     anchor.insertAdjacentHTML('afterend', extra);
-    /* 每一格的「＋/×/眼睛/锁/滑块/读数」在这里**逐行**现量现写（用户点名的第 19 条：
-       加出来的那一行也要有这四件事）。标记里那份是画出来那一刻按同一份数据填的初值，
-       这里只补两件事：① 按**这一行**的收起/锁定/上限算 disabled 与「为什么按不动」，
-       ② 把滑块与读数对齐 `laneVol(k, 这一行)` —— 刚拖完一块到新行、整栏还没重画时，
-       那一格的读数要指着它自己那一行的基数，不能还挂着上一次渲染留下的数。
-       `addLaneRow` / `dropLaneRow` / `rowFlagToggle` / `setLaneVol` 是同一份判据的落地方，
-       按钮只是把它们的拒绝提前显示出来，这里不另判一份。 */
-    const nm = laneNm(k);
+    /* 眼睛与锁的状态在这里逐行现写：按钮标记里的初值是画出来那一刻的数据，
+       刚拖完一块 / 刚切过锁而整栏还没重画时，这一格要指着它自己那一行。 */
     side.querySelectorAll('.tl-hrow.' + k).forEach(cell => {
       const ln = cell === anchor ? 0 : laneClamp(cell.dataset.ln);
-      const full = n >= TRACK_LANES_MAX, hid = rowHidden(k, ln), lock = rowLocked(k, ln);
-      const plus = cell.querySelector('[data-lane-act="row+"]');
-      if (plus) {
-        plus.disabled = full || hid;
-        plus.title = hid ? (ln > 0 ? rowNm(k, ln) + '此刻是收起的，加了也看不见：先点这一行上那颗眼睛展开'
-            : nm + '此刻是收起的，加了也看不见：先点旁边那颗眼睛展开')
-          : full ? nm + '已经到 ' + n + ' 行，这是上限（再多左边那一列标签自己就要滚起来了）'
-            : (ln > 0 ? '在' + rowNm(k, ln) + '下面插一行：下面那些行整体往下挪一格，块上的入出点、倍速、配音与三张按行的表（音量 / 收起 / 锁定）跟着一起挪'
-              : '给' + nm + '加一行（挂在最下面）：现在 ' + n + ' 行，块上下拖就能挪过去');
-      }
-      /* 「×」只有第 1 行不画，其余都能点；只剩一行时（n<=1）压根没有 extra 行。
-         收起的那一行删不了（行高 18px，删了看不见）—— 问的是**这一行**收没收，不是整条轨。 */
-      const minus = cell.querySelector('[data-lane-act="row-"]');
-      if (minus) {
-        minus.disabled = hid;
-        if (hid) minus.title = rowNm(k, ln) + '是收起的，删了看不见：先点这一行上那颗眼睛展开';
-      }
-      /* 眼睛与锁**永不 disabled** —— 它们正是「让这一行重新能动、能看见」的那颗出口。 */
+      const hid = rowHidden(k, ln), lock = rowLocked(k, ln);
+      /* 锁住的行要一眼看得出（照参考项目：锁住的行压暗 + 斜纹底，块也跟着去饱和）。
+         右列那一行也一起标上 —— 左列标了、右列没标，两边说的不是同一件事。 */
+      cell.classList.toggle('locked', lock);
+      const rowSel = LANE_ROW_SEL[k].split(',').map(s => s.trim() + '[data-ln="' + ln + '"]').join(',');
+      const rowEls = bar ? bar.querySelectorAll(rowSel) : [];
+      rowEls.forEach(r => r.classList.toggle('locked', lock));
       const eye = cell.querySelector('[data-lane-act="rhide"], [data-lane-act="hide"]');
-      if (eye) eye.disabled = false;
+      if (eye) {
+        eye.disabled = false;
+        eye.innerHTML = icon(hid ? 'eyeOff' : 'eye', 12);
+      }
       const lk = cell.querySelector('[data-lane-act="rlock"], [data-lane-act="lock"]');
       if (lk) {
-        lk.disabled = false;
+        /* 藏着的行上锁键按不动（照参考项目 track-labels）：看不见的一行锁不锁没有意义，
+           而「按了没反应」比「明着禁用」更让人以为程序坏了 —— 所以 title 写明为什么。 */
+        lk.disabled = hid && ln > 0;
         lk.classList.toggle('on', lock);
-        lk.title = lock ? rowLockWhy(k, ln) + '：' + rowUnlockHow(k, ln) + '（点一下解锁）'
-          : '锁定' + rowNm(k, ln) + '：锁上之后这一行上的块拖不动、剪不了，这一行的基数音量也不调，'
-            + (ln > 0 ? '免得调隔壁时误改这一行（别的行与另一轨不受影响）' : '整条轨每一行都跟着锁');
-      }
-      const sl = cell.querySelector('.tl-hvol-sl');
-      const rd = cell.querySelector('.tl-hvol-n');
-      const box = cell.querySelector('.tl-hvol');
-      /* 锚行（第 1 行）= **整轨音量**：读数取这一排此刻都同一档时的那一个数，不一致写「不一」；
-         extra 行仍是这一行的基数（用户点名的第 19 条，四件套那一半保持原样）。 */
-      const tv = ln > 0 ? null : trackOne(trackOwnVol(k));
-      const val = ln > 0 ? laneVol(k, ln) : (tv.one != null ? tv.one : (tv.first != null ? tv.first : 1));
-      const rdTxt = ln > 0 ? Math.round(val * 100) + '%'
-        : (tv.one != null ? Math.round(tv.one * 100) + '%' : '不一');
-      if (sl) {
-        sl.disabled = lock;
-        sl.value = String(Math.round(val * 1000) / 10);
-        sl.title = (lock ? rowLockWhy(k, ln) + '：' + rowUnlockHow(k, ln) + '之后才能调。' : '')
-          + (ln > 0
-            ? rowNm(k, ln) + '的基数音量：与右栏那一枚是同一个数，这一行上每一' + (k === 'voice' ? '句' : '段') + '都跟着一起变'
-            : '整条' + nm + '轨的音量：把这一排每一' + (k === 'voice' ? '句' : '段') + '自己的音量都设成这一档'
-              + (tv.one == null && tv.kinds > 0 ? '（此刻有 ' + tv.kinds + ' 档，拇指停在第一档上）' : '')
-              + '；与右栏那枚「整轨音量」同一个数，段 / 句自己那枚在下面各调各的');
-      }
-      if (rd) rd.textContent = rdTxt;
-      if (box) {
-        if (ln > 0) {
-          box.title = rowNm(k, ln) + '的基数 ' + Math.round(val * 100) + '%：这一行上每一'
-            + (k === 'voice' ? '句' : '段') + '都跟着一起' + (val < 1 ? '变轻' : val > 1 ? '变响' : '不变')
-            + '，段 / 句自己那枚音量在它之上再乘';
-        } else {
-          const mut = laneMute(k);
-          box.classList.toggle('mut', mut);
-          box.innerHTML = icon(mut ? 'speakerOff' : 'speaker', 10) + '<b class="tl-hvol-n">' + rdTxt + '</b>';
-          box.title = '点一下把整条' + nm + '轨' + (mut ? '取消静音' : '静音') + '：'
-            + (mut ? '恢复之后每一段 / 每一句回到原来的音量' : '预览与成片这一轨都不出声，每一段 / 每一句的音量原样留着')
-            + '；旁边的滑块调整轨音量（现在 ' + rdTxt + '）';
-        }
+        lk.title = hid && ln > 0
+          ? '这一行已经藏起来了（点眼睛恢复后才能锁）'
+          : (lock ? rowLockWhy(k, ln) + '：' + rowUnlockHow(k, ln) + '（点一下解锁）'
+            : '锁定' + rowNm(k, ln) + '：锁上之后这一行上的块拖不动、剪不了，'
+              + (ln > 0 ? '免得调隔壁时误改这一行（别的行与另一轨不受影响）' : '整条轨每一行都跟着锁'));
       }
     });
   });
-  /* 待生成配音那一行标签排在**配音轨所有行之后**（用户点名：它应该在默认配音轨下方）：
-     右边那一排斜纹占位（`.tl-vp-lane`）画了几条，这里就补一行同高的标签，
-     两列的插针与刻度尺才不会错开一格。配音轨收起时两边一起不画。 */
+  /* 待生成配音那一行标签排在**配音轨所有行之后**：右边那一排斜纹占位（`.tl-vp-lane`）画了几条，
+     这里就补一行同高的标签 —— 左列与右列行数一致，两列的插针与刻度尺才不会错开一格。
+     配音轨收起时两边一起不画。 */
+  side.querySelectorAll('.tl-hrow.pend').forEach(x => x.remove());
   if (!laneHidden('voice')) {
     const pend = bar.querySelectorAll('.tl-vp-lane .tl-vp');
     const last = [].slice.call(side.querySelectorAll('.tl-hrow.voice')).pop();
@@ -364,6 +299,14 @@ function syncLaneSide(col, bar) {
       + icon('docTab', 10) + '<span class="tl-hname">字幕</span></div>');
   }
 }
+
+/* 轨名那一格的名字（第 1 行）：四件套由 `laneRowCtlHTML` 出，这里只给名字。
+   收行不在锚行这一格 —— 它画在**要收掉的那一行**的标签上（见 laneSideRowHTML 的 `row-`）：
+   「−」挂在锚行上指的是最后那一行，而最后那一行离按钮隔着好几行，点的人得先在脑子里换算一次。 */
+function laneRowBtnsHTML(k) {
+  return `<span class="tl-hname">${k === 'voice' ? '配音' : '画面'}</span>`;
+}
+
 function voiceLaneHTML(sh, c, total, g) {
   const segs = c ? segsOf(c, total) : [];
   const G = g || shotFrames(segs);
@@ -578,6 +521,8 @@ function bindVoiceLane(row, o) {
       if (el.classList.contains('spill')) return;
       /* 锁问的是**这一块自己那一行**（整条轨锁着时每一行都锁）：锁了第 2 行，第 1 行的句子照样能拖。 */
       const dLn = laneClamp(Number((el.closest('.tl-lane') || row).dataset.ln) || 0);
+      /* 隐藏（灰显）的那一行不可编辑：块还画在原位，只是眼睛把它藏了。 */
+      if (rowHidden('voice', dLn)) { e.preventDefault(); e.stopPropagation(); return; }
       if (rowLocked('voice', dLn)) {
         /* 锁住这一行：手势一个都不接，但要说清为什么接不上（否则看着像「拖不动」的 bug） */
         e.preventDefault(); e.stopPropagation();
@@ -810,6 +755,10 @@ function selectVoice(id) {
   paintVoiceSel();
   dropPicSel();
   syncTlTools();
+  /* 入出点那一行要跟着目标走：点一句配音，那一行就该写「这一句配音」并摆它的入出点
+     （点一格画面时是画面那一段 —— 两条路共用 `paintTrimRow` 一份）。
+     这一句以前漏了：点完配音，剪子指着声音，底下那行却还写着「插针那一段画面」。 */
+  paintTrimRow();
   scheduleSave();
 }
 

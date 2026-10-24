@@ -1,6 +1,8 @@
 /* 本机资产库路由：/local-assets/from-url（流式落盘）/ POST（base64 落盘）/ GET（列表，一份产物一条）/ DELETE。
    业务助手函数与目录口径由 app 注入（都在 server/local-assets-store.js）；这里只做请求解析与响应。
    落点只有一个：库根的类型子目录（下载\拾帧\图片\ 那一层），文件名是资产库里看到的那个规范名。
+   两个写入口都有类别闸：只收图片 / 视频 / 音频（isMediaExt，判据就是存储层那张类别表）——
+   字幕 / 文本进不了账，也就不会在页面上显示成一条「认不出类型」的假音频。
    以前「存进资产库」之外还要再另存一份到别的文件夹，于是 359 份产物里有 344 份字节完全相同的副本
    —— 本体本来就落在用户翻得到的地方，第二份只是占地方。 */
 'use strict';
@@ -9,6 +11,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { renameWithRetry, fsyncPath, atomicWrite } = require('../fs-atomic.js');
 const { sendJson, fail } = require('./http');
+/* 类别闸直接连存储层的那张表（LOCAL_KIND_BY_EXT → isMediaExt）：落点、对账、用量与这道闸
+   必须读同一份名单；它是纯函数、不碰实例状态，所以走模块导出，不经组合根的注入清单转发。 */
+const { isMediaExt, isDocExt } = require('../local-assets-store.js');
 
 function createLocalAssets(ctx) {
   const readBody = ctx.readBody;
@@ -77,8 +82,22 @@ function createLocalAssets(ctx) {
         const localId = localPath ? localPath[1] : '';
         const up = safeOutboundUrl(String(meta.upstream || '')) || (/^https:\/\//i.test(target) ? target : '');
         const upKey = localUpKey(up);
-        const fmt = String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
-          || extInUrl(target) || extInUrl(spec.name) || extOfMime(spec.mime) || 'mp4';
+        /* 地址上的扩展名是字节的真相，优先于客户端声明：
+           · 认得出且是文档类（字幕 / 文本）→ 整个拒收 —— 客户端猜不出格式会声明成 mp4，
+             这一枚声明不能把媒体闸绕开（字幕 / 文本的去处是下载目录与提示词归档）；
+           · 认得出且是媒体 → 压过声明（声明错了至少落点与类型是对的）；
+           · 认不出（.bin 等）→ 不猜，仍按声明走，免得误伤真实的媒体下载。 */
+        const urlExt = extInUrl(target) || extInUrl(spec.name);
+        if (urlExt && isDocExt(urlExt)) return failMsg(res, 400,
+          '本机资产库只收图片 / 视频 / 音频；这一份的地址是 .' + urlExt + '（字幕 / 文本请放下载或提示词目录）');
+        const fmt = (urlExt && isMediaExt(urlExt) ? urlExt : '')
+          || String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+          || urlExt || extOfMime(spec.mime) || 'mp4';
+        /* 类别闸：算出扩展名就先验，一个字节都不落 —— 字幕 / 文本没有类型档位，
+           存进来只会落进 其他\，再被列表「认不出兜底成音频」画成一条假音频
+           （见 server/local-assets-store.js 的 isMediaExt）。 */
+        if (!isMediaExt(fmt)) return failMsg(res, 400,
+          '本机资产库只收图片 / 视频 / 音频；字幕 / 文本请放下载或提示词目录（这一份认出的格式是 ' + fmt + '）');
         const mime = spec.mime || MIME['.' + fmt] || 'application/octet-stream';
         const lockKey = upKey ? 'up:' + upKey : (localId ? 'la:' + localId : 'url:' + target);
         try {
@@ -184,6 +203,10 @@ function createLocalAssets(ctx) {
         try {
           const buf = Buffer.from(String(spec.data), 'base64');
           const fmt = String(spec.format || 'wav').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'wav';
+          /* 同一道类别闸（见上面 from-url 那一段）：base64 直传也不例外，非媒体的扩展名当场 400，
+             不落字节也不记账。 */
+          if (!isMediaExt(fmt)) return failMsg(res, 400,
+            '本机资产库只收图片 / 视频 / 音频；字幕 / 文本请放下载或提示词目录（这一份认出的格式是 ' + fmt + '）');
           const mime = spec.mime || (MIME['.' + fmt] || 'application/octet-stream');
           const meta = spec.meta || {};
           // WAV 头里能直接算出时长（字节率），不用客户端再解析

@@ -75,11 +75,15 @@ const h = require('./harness.cjs');
       const v = document.getElementById('tlZoomVal'), a = document.getElementById('tlZoomAuto'),
         r = document.getElementById('tlZoomRange');
       return { text: (v || {}).textContent || '', dis: a ? a.disabled : null, pos: r ? Number(r.value) : null,
-        barW: (document.getElementById('tlBar') || {}).clientWidth || 0 };
+        barW: (document.getElementById('tlBar') || {}).clientWidth || 0,
+        /* 内容层的宽 = 总长 × 像素/秒（实现里内容层就是照这个算的）：
+           用它反推铺满档，比事后量容器准 —— 容器宽会因为滚动条出现/消失而变，
+           内容层的宽不会（那正是实现当时用的那个数）。 */
+        innerW: (document.getElementById('tlInner') || {}).clientWidth || 0 };
     });
     if (st0.text !== '自适应') throw new Error('初始读数该写「自适应」：' + st0.text);
     if (st0.dis !== true) throw new Error('自适应档里「自适应」钮该一开始就 disabled：' + st0.dis);
-    const fit = st0.barW / 6;                       // 自适应 = 容器多宽铺多满（这条候选 6 秒）
+    const fit = (st0.innerW || st0.barW) / 6;         // 自适应 = 铺多满（这条候选 6 秒）
     if (Math.abs(st0.pos - posFor(fit, MIN_SHOT)) > 1) {
       throw new Error('滑块没停在自适应对应的那一档：' + st0.pos + ' ≠ ' + posFor(fit, MIN_SHOT));
     }
@@ -146,21 +150,23 @@ const h = require('./harness.cjs');
     const soft0 = await page.eval(() => {
       const th = document.querySelector('#candThumbs > *');
       if (th) th.__zoomProbe = 1;
-      const pl = document.querySelector('.player-box') || document.querySelector('#player');
+      const pl = document.querySelector('.player-box') || document.querySelector('#player') || document.querySelector('.player-empty');
       if (pl) pl.__zoomProbe = 1;
       const col = document.getElementById('midCol');
       return { hasTh: !!th, hasPl: !!pl, top: col ? col.scrollTop : 0, fs: !!document.fullscreenElement };
     });
-    if (!soft0.hasTh) throw new Error('这一镜该有候选缩略图可验');
+    /* 剪辑态**不画候选条**（用户点名的形状：轨道坞 + 播放器就是剪辑的全部，换候选回生成态点），
+       所以这一档验的是**播放器**那个节点不被重建；候选条那一半在生成态才有，有就一起验。 */
+    if (!soft0.hasPl) throw new Error('剪辑态该有播放器可验');
     await setPos(posLo + 40);
     const soft1 = await page.eval(() => {
       const th = document.querySelector('#candThumbs > *');
-      const pl = document.querySelector('.player-box') || document.querySelector('#player');
+      const pl = document.querySelector('.player-box') || document.querySelector('#player') || document.querySelector('.player-empty');
       const col = document.getElementById('midCol');
       return { sameTh: !!(th && th.__zoomProbe === 1), samePl: !!(pl && pl.__zoomProbe === 1),
         top: col ? col.scrollTop : 0, fs: !!document.fullscreenElement };
     });
-    if (!soft1.sameTh) throw new Error('缩放不该把候选缩略图换成新节点（那是整列重画的旧病）');
+    if (soft0.hasTh && !soft1.sameTh) throw new Error('缩放不该把候选缩略图换成新节点（那是整列重画的旧病）');
     if (soft0.hasPl && !soft1.samePl) throw new Error('缩放不该重建播放器节点');
     if (soft1.top !== soft0.top) throw new Error('缩放不该动中间栏的滚动位置：' + soft0.top + ' → ' + soft1.top);
     if (soft1.fs) throw new Error('缩放不该进全屏');
@@ -188,7 +194,9 @@ const h = require('./harness.cjs');
     await page.setSize(1024, 800);
     await new Promise(r => setTimeout(r, 400));
     const wide = await page.eval(() => {
-      const row = document.querySelector('.tl-tabs');
+      /* 缩放那一组现在住在**工具条**里（`.tl-dock-tools`），页签（`.tl-tabs`）是它左边那一颗 ——
+         量「有没有出行」要拿它真正所在的那一行的右沿当界，不是页签那一颗。 */
+      const row = document.querySelector('.tl-dock-tools') || document.querySelector('.tl-tabs');
       const r = document.getElementById('tlZoomRange').getBoundingClientRect();
       const a = document.getElementById('tlZoomAuto').getBoundingClientRect();
       const rr = row.getBoundingClientRect();
@@ -197,12 +205,12 @@ const h = require('./harness.cjs');
         rowRight: rr.right, tipHidden: tip ? getComputedStyle(tip).display === 'none' : true };
     });
     if (!wide.tipHidden) throw new Error('1024 宽说明文字该整句藏掉（宽预算让给控件）');
-    if (wide.sw > wide.cw + 1) throw new Error('1024 宽 .tl-tabs 该不溢出：' + wide.sw + ' > ' + wide.cw);
+    if (wide.sw > wide.cw + 1) throw new Error('1024 宽工具条该不溢出：' + wide.sw + ' > ' + wide.cw);
     if (wide.maxRight > wide.rowRight + 1) throw new Error('滑块 / 自适应钮出行了：' + wide.maxRight + ' > ' + wide.rowRight);
 
     /* ⑧ 新控件不进页签绑定：点「＋」/ 滑块 /「自适应」都不会切「本镜 / 全片」，缩放照常工作 */
     const tabOf = () => page.eval(() => {
-      const on = document.querySelector('.tl-tabs .ui-seg button.on');
+      const on = document.querySelector('.tl-tabs button[data-tab].on');
       return on ? on.dataset.tab : '';
     });
     if (await tabOf() !== 'shot') throw new Error('回到本镜页签后页签该在「本镜」');
@@ -224,10 +232,13 @@ const h = require('./harness.cjs');
     if (await tabOf() !== 'shot') throw new Error('点「自适应」不该切页签');
     const stored = await page.eval(() => window.LS.get('dir_tl_pps'));
     if (stored) throw new Error('回到自适应该清掉落盘键：' + stored);
-    /* 铺满档按**现在**的容器宽算（上面刚缩到 1024，tlBar 比开头 1440 时窄得多），
-       不能拿 ① 里抓的旧 fit 对照；自适应下限 12px/秒 与实现同一条式子。 */
-    const barW2 = await page.eval(() => (document.getElementById('tlBar') || {}).clientWidth || 0);
-    const fit2 = Math.max(12, barW2 / 6);
+    /* 铺满档按**现在**的尺子算（上面刚缩到 1024，tlBar 比开头 1440 时窄得多），
+       不能拿 ① 里抓的旧 fit 对照；自适应下限 12px/秒 与实现同一条式子。
+       尺子取内容层的宽（= 总长 × 像素/秒，就是实现当时用的那个数）：事后量容器会踩到滚动条。 */
+    const barW2 = await page.eval(() => ({
+      bar: (document.getElementById('tlBar') || {}).clientWidth || 0,
+      inner: (document.getElementById('tlInner') || {}).clientWidth || 0 }));
+    const fit2 = Math.max(12, (barW2.inner || barW2.bar) / 6);
     if (Math.abs(back.pos - posFor(fit2, MIN_SHOT)) > 1) throw new Error('回自适应后滑块该停回铺满档：' + back.pos + ' ≠ ' + posFor(fit2, MIN_SHOT));
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);

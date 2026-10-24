@@ -201,6 +201,9 @@ run('tests/pull-scope.mjs', process.execPath, ['tests/pull-scope.mjs']);
 run('tests/relay-retry.cjs', process.execPath, ['tests/relay-retry.cjs']);
 /* 出站 keep-alive：复用只发生在同 host:port 的池里，建连仍过内网闸 —— 不通过就不启用。 */
 run('tests/outbound-keepalive.cjs', process.execPath, ['tests/outbound-keepalive.cjs']);
+/* CONNECT 隧道（系统/环境代理）：假代理 + 本地 TLS 目标，离线跑。抓「2xx 之后的 close
+   被当成提前关闭」那道竞态 —— 命中它时走系统代理的出站条条失败。 */
+run('tests/proxy-tunnel.cjs', process.execPath, ['tests/proxy-tunnel.cjs']);
 run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
 /* 库根那一条算法：盘上那一格（.data/sk_local_dir.json，正文就是 localStorage 原值）必须真被读出来，
    否则现象是「设置页改了位置、产物还往老地方写」，而且一句错都不报。 */
@@ -327,7 +330,6 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/skills.cjs', process.execPath, ['tests/e2e/skills.cjs'], { tier: 'browser' });
   run('tests/e2e/skill-hub.cjs', process.execPath, ['tests/e2e/skill-hub.cjs'], { tier: 'browser' });
   run('tests/e2e/fcpxml.cjs', process.execPath, ['tests/e2e/fcpxml.cjs'], { tier: 'browser' });
-  run('tests/e2e/director-fcpxml-import.cjs', process.execPath, ['tests/e2e/director-fcpxml-import.cjs'], { tier: 'browser' });
   run('tests/e2e/editing-assets.cjs', process.execPath, ['tests/e2e/editing-assets.cjs'], { tier: 'browser' });
   run('tests/e2e/director-slice.cjs', process.execPath, ['tests/e2e/director-slice.cjs'], { tier: 'browser' });
   run('tests/e2e/director-slice-perf.cjs', process.execPath, ['tests/e2e/director-slice-perf.cjs'], { tier: 'browser' });
@@ -352,6 +354,10 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/ui-contract.cjs', process.execPath, ['tests/e2e/ui-contract.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-shared.cjs', process.execPath, ['tests/e2e/ui-shared.cjs'], { tier: 'browser' });
   run('tests/e2e/favorites-pager.cjs', process.execPath, ['tests/e2e/favorites-pager.cjs'], { tier: 'browser' });
+  /* 翻页行在四页都得**画出来**（用户报过「翻页组件不显示」：工作台那一处是宿主从未登记，
+     整行从未填过）。这一条盯「宿主登记 + 行可见 + 上一/下一页在」；翻页之后的行为
+     由 favorites-pager 那一条盯（它点「下一页」看缩略图换页）。 */
+  run('tests/e2e/pager-row.cjs', process.execPath, ['tests/e2e/pager-row.cjs'], { tier: 'browser' });
   /* 资产库取数四档：首屏「取列表」请求数、后台计数不许重回第 1 页、
      同参数第二次 load 命中结果级短缓存、有缓存时选择器打开 ≤300ms。
      上游指到一个没人听的端口（判的是页面自己的取数轮次，不是平台通不通），并归零传输层重试。 */

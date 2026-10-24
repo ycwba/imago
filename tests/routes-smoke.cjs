@@ -296,7 +296,7 @@ const FAKES = {
   }),
   s3putStream: () => (req, res) => { try { res.writeHead(200, { 'Content-Type': 'application/x-ndjson' }); res.end('{}\n'); } catch (e) {} },
   serveLocalFile: () => (req, res) => { try { res.writeHead(200, { 'Content-Type': 'application/octet-stream' }); res.end('local'); } catch (e) {} },
-  resolveSrc: () => (async () => 'https://example.com/src.mp4'),
+  resolveSrc: () => (async u => String(u || 'https://example.com/src.mp4')),
   downloadTo: () => (async (url, file) => { if (file) fs.writeFileSync(String(file), 'probe'); return 5; }),
   /* --- 本机资产：索引 / 落盘全部指向探针目录，条目一律「查无此资产」 --- */
   localAssetFile: () => () => '',
@@ -306,7 +306,7 @@ const FAKES = {
   localAssetWhen: () => () => 0,
   localUpKey: () => u => String(u || ''),
   localUsageScan: () => (async () => ({ dirs: [], entries: 0, bytes: 0 })),
-  extInUrl: () => () => 'png',
+  extInUrl: () => u => { try { return (/\.([a-z0-9]{1,6})$/i.exec(new URL(String(u), 'http://x').pathname) || [])[1] || ''; } catch (e) { return ''; } },
   extOfMime: () => () => 'png',
   withLocalSaveLock: () => (k, fn) => (typeof fn === 'function' ? fn() : undefined),
   /* app.js 里这两条是**同步**的（`() => indexStore.read()` 那一族），假件必须同形状 */
@@ -563,6 +563,18 @@ const HITS = {
   'server/routes/local-assets.js': [
     { url: '/local-assets' },
     { url: '/local-assets/from-url', method: 'POST', body: JSON.stringify({ url: 'https://example.com/a.png', meta: {} }) },
+    {
+      /* 地址真相压过客户端声明：.srt 的地址哪怕声明成 mp4 也要拒 —— 客户端猜不出格式
+         时兜底声明的 mp4 不能把媒体闸绕开（字幕进资产库的那条路）。 */
+      url: '/local-assets/from-url', method: 'POST', body: JSON.stringify({ url: 'https://example.com/a.srt', format: 'mp4', meta: {} }),
+      check: res => res.statusCode === 400 && /\.srt/.test(String(res.body || ''))
+        ? '' : '地址是 .srt 应当 400 并点名扩展名，实际 ' + res.statusCode + ' ' + String(res.body || '').slice(0, 80),
+    },
+    {
+      /* 反面：地址是媒体、声明写错 — 按地址的扩展名放行，不连坐。 */
+      url: '/local-assets/from-url', method: 'POST', body: JSON.stringify({ url: 'https://example.com/a.mp4', format: 'wav', meta: {} }),
+      check: res => res.statusCode >= 400 ? '地址 .mp4 不该被声明连坐拒收，实际 ' + res.statusCode + ' ' + String(res.body || '').slice(0, 80) : '',
+    },
     { url: '/local-assets', method: 'POST', body: JSON.stringify({ data: 'aGk=', name: 'a.png', mime: 'image/png' }) },
     { url: '/local-assets/la_probe', method: 'DELETE' },
     { url: '/nope', expect: false },

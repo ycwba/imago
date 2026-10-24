@@ -81,7 +81,6 @@ const G3_EMPTY_CATCH = [
   { file: 'web/ui/skills.js', max: 2, why: '存量：Skill 面板吞错的一批' },
   { file: 'web/boot-assistant.js', max: 1, why: '存量：开机助手吞错的一批' },
   { file: 'web/core/activity.js', max: 1, why: '存量：活动记录吞错的一批' },
-  { file: 'web/director/fcpxml-import.js', max: 1, why: '存量：FCPXML 导入吞错的一批' },
   { file: 'web/director/fcpxml.js', max: 1, why: '存量：FCPXML 导出吞错的一批' },
   { file: 'web/director/split-assets.js', max: 1, why: '存量：拆素材吞错的一批' },
   { file: 'web/domain/asr.js', max: 1, why: '存量：转写吞错的一批' },

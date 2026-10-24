@@ -1029,15 +1029,18 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   background: var(--panel); box-shadow: var(--shadow-5); flex-wrap: wrap; }
 .bulkbar .bk-cnt { font-size: var(--fs-12-5); font-weight: 600; color: var(--acc); margin-right: var(--sp-4); }
 
-/* ---------- 卡片上的多选框（资产库） ---------- */
-#grid .task .pick { position: absolute; top: var(--sp-6); left: var(--sp-6); z-index: 6; width: 18px; height: 18px;
+/* ---------- 卡片上的多选框（资产库 / 生成工作台共用一份） ----------
+   绝对定位在卡片左上角：卡片自己必须是定位祖先（否则勾选框会跑到容器左上角，
+   所有卡片的勾选框叠在一起）。`.multi` 是**容器**上的开关类（多选进行中），
+   页面给容器加它，卡片上的 .pick 才会露出来。 */
+.task .pick { position: absolute; top: var(--sp-6); left: var(--sp-6); z-index: 6; width: 18px; height: 18px;
   border-radius: var(--radius-4); border: var(--hair-1-5) solid var(--line); background: var(--panel);
   color: var(--on-acc); font-size: var(--fs-12); line-height: 15px; text-align: center; cursor: pointer; user-select: none;
   box-shadow: var(--shadow-4); transition: border-color var(--dur-120), background var(--dur-120); }
-#grid.multi .task:hover .pick { border-color: var(--acc); }
-#grid .task .pick:hover { border-color: var(--acc); }
-#grid .task .pick.on { background: var(--acc); border-color: var(--acc); }
-#grid .task.picked { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--hair)); }
+.multi .task:hover .pick { border-color: var(--acc); }
+.task .pick:hover { border-color: var(--acc); }
+.task .pick.on { background: var(--acc); border-color: var(--acc); }
+.task.picked { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--hair)); }
 
 /* ---------- 状态文字的语义色（各页原本各自定义 .err/.ok，缺 .warn） ----------
    director.html 的 setStatus 会按 class="warn" 判断警示级；视频台的互斥提示也用它。
@@ -1046,11 +1049,11 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .ok { color: var(--ok); }
 .warn { color: var(--warn); }
 
-/* ---------- 资产库多选：只在实际多选时给卡片加勾选手感 ---------- */
-#grid.multi .task { cursor: pointer; }
-#grid.multi .task:hover { border-color: var(--acc); }
-#grid .task .pick { display: none; }
-#grid.multi .task .pick { display: block; }
+/* ---------- 多选进行中：只在实际多选时给卡片加勾选手感 ---------- */
+.multi .task { cursor: pointer; }
+.multi .task:hover { border-color: var(--acc); }
+.task .pick { display: none; }
+.multi .task .pick { display: block; }
 .bulkbar .bk-tip { font-size: var(--fs-11-5); color: var(--sub); }
 #multiBtn.active { border-color: var(--acc); color: var(--acc); background: var(--acc-tint-10); font-weight: 600; }
 
@@ -1166,6 +1169,15 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   font-size: var(--fs-12-5); color: var(--txt); overflow: hidden; }
 .raw-req > summary { cursor: pointer; padding: var(--sp-6) var(--sp-8); color: var(--sub);
   display: flex; align-items: center; gap: var(--sp-6); list-style: none; user-select: none; }
+/* 标题这一行：标题永远是「原始请求」，右边一枚状态标说清现在是什么状态 */
+.raw-req > summary .raw-title { font-weight: 600; color: var(--txt); }
+.raw-req > summary .raw-chip { font-size: var(--fs-11); color: var(--sub); background: var(--panel);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-999); padding: var(--sp-1) var(--sp-8); }
+.raw-req > summary .raw-chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) var(--a-30), transparent); }
+.raw-req > summary .raw-warn { font-size: var(--fs-11); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) var(--a-10), transparent);
+  border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-30), transparent);
+  border-radius: var(--radius-999); padding: var(--sp-1) var(--sp-8); }
 .raw-req > summary::-webkit-details-marker { display: none; }
 .raw-req > summary::before { content: '▸'; color: var(--acc); flex: 0 0 auto; }
 .raw-req[open] > summary::before { content: '▾'; }
@@ -1184,8 +1196,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .raw-both > summary { flex: 0 0 auto; }
 .raw-half { display: flex; flex-direction: column; min-width: 0; }
 .raw-half > i { font-style: normal; padding: var(--sp-4) var(--sp-8); color: var(--sub);
-  background: var(--panel); border-top: var(--hair) solid var(--line); font-size: var(--fs-11-5); }
-.raw-half > pre { border-top: none; }
+  background: var(--panel); border-top: var(--hair) solid var(--line); font-size: var(--fs-11-5); }.raw-half > pre { border-top: none; }
 @media (min-width: 1180px) {
   .raw-both { flex-direction: row; }
   .raw-both .raw-half { flex: 1 1 50%; min-width: 0; }

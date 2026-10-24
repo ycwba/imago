@@ -215,7 +215,7 @@ function createSkillsStore(opts) {
   const remove = id => {
     const x = get(id);
     if (!x) throw new Error('没有这个 Skill');
-    if (x.source !== 'user') throw new Error('内置 Skill 不能删除，可复制为我的 Skill');
+    if (x.source !== 'user') throw new Error('内置 Skill 不能删除');
     fs.rmSync(x.dir, { recursive: true, force: true });
     const st = loadState(); delete st.enabled[id]; saveState();
   };
@@ -266,7 +266,7 @@ function createSkillsStore(opts) {
   const update = (id, files, expectedHash) => {
     const x = get(id);
     if (!x) throw new Error('没有这个 Skill');
-    if (x.source !== 'user') throw new Error('内置 Skill 不能改，先复制成我的 Skill');
+    if (x.source !== 'user') throw new Error('内置 Skill 不能改，要改就在设置页新建一份自己的');
     const main = (Array.isArray(files) ? files : []).find(f => /(^|\/)SKILL\.md$/.test(String(f && f.path || '')));
     if (!main) throw new Error('更新包缺少 SKILL.md');
     const meta = parseFrontmatter(String(main.text || '')).meta;

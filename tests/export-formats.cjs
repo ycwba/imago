@@ -27,12 +27,12 @@ ok('表挂在 window.ExportFormats 上并给出读法', !!EF && ['list', 'ids', 
 if (!EF) process.exit(1);
 
 const list = EF.list(), ids = EF.ids();
-ok('五个导出格式都在（成片 / 素材 / FCPXML / 媒体包 / 送到 NLE）',
-  JSON.stringify(ids) === JSON.stringify(['film', 'assets', 'fcpxml', 'bundle', 'resolve', 'jianying']));
+ok('导出格式都在（成片 / FCPXML / 媒体包 / 送到 NLE；「导出素材」与「导入 FCPXML / 最近导出」已按用户要求撤掉）',
+  JSON.stringify(ids) === JSON.stringify(['film', 'fcpxml', 'bundle', 'resolve', 'jianying']));
 ok('id 与页头按钮号都不重复',
   new Set(ids).size === ids.length && new Set(list.map(f => f.button)).size === list.length);
-ok('每条都有 engine 认识的 kind', list.every(f => ['film', 'files', 'xml'].includes(f.kind)),
-  list.filter(f => !['film', 'files', 'xml'].includes(f.kind)).map(f => f.id).join(', '));
+ok('每条都有 engine 认识的 kind', list.every(f => ['film', 'xml'].includes(f.kind)),
+  list.filter(f => !['film', 'xml'].includes(f.kind)).map(f => f.id).join(', '));
 ok('每条都带页面与助手要的文案字段', list.every(f =>
   f.id && f.button && f.label && f.icon && f.title && f.assistant && f.doc && f.startNote));
 ok('占用合成名额的档都给了取消文案', list.every(f => !f.renders || !!f.cancelLabel));
@@ -54,7 +54,7 @@ ok('engine 不再写死格式数组', !/\[\s*'film',\s*'assets',\s*'fcpxml',\s*'
   && /ExportFormats\.of\(fmt\)/.test(engine) && /ExportFormats\.ids\(\)\[0\]/.test(engine));
 ok('页头按钮与取消状态都表驱动',
   /ExportFormats\.list\(\)\.forEach/.test(engine) && /ExportFormats\.of\(r\.format\)/.test(engine)
-  && /ExportFormats\.of\('assets'\)/.test(exp) && /ExportFormats\.of\('film'\)/.test(exp));
+  && /ExportFormats\.of\('film'\)/.test(exp));
 ok('导出流程只在 engine/export.js 一处（engine 只接线）',
   declIn(/async function exportFilm\(/).join() === 'web/director/engine/export.js'
   && declIn(/async function exportFCPXML/).join() === 'web/director/engine/export.js'

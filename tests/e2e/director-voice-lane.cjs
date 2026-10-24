@@ -98,8 +98,10 @@ const h = require('./harness.cjs');
       const rec = await window.Kv.at('ws').get('workspace');
       const p = rec && (rec.projects || []).find(x => x.id === 'p-vlane');
       if (!p || !Array.isArray(p.voices) || p.voices.length !== 3) return null;
-      const rows = (p.lane && p.lane.voice && p.lane.voice.rows) || 1;
       const fresh = p.voices.find(v => !String(v.id).startsWith('vo-'));
+      /* 行数不再单独落盘（行由内容长出来：轨有几行 = 各句行号的最大值 + 1）——
+         落盘的那份事实就是每句自己的 `ln`。 */
+      const rows = Math.max.apply(null, p.voices.map(v => Number(v.ln) || 0)) + 1;
       return rows === 2 && fresh && Number(fresh.ln) === 1 ? { rows, ln: fresh.ln } : null;
     }, 12000);
 

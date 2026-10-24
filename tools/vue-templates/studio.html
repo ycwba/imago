@@ -75,14 +75,14 @@
 
         <div class="col-right">
           <div class="tasks-head">
-            <span class="tab">这一台的生成历史</span>
             <span class="sp"></span>
             <span class="pgroup">
               <span class="fb-host" data-r="searchHost"></span>
               <span class="pgsep"></span>
-              <span class="pgrow" id="stPgRow"></span>
+              <span class="pgrow" id="stPgRow" data-r="stPgRow"></span>
               <input type="number" id="stGotoPage" data-r="stGotoPage" min="1" placeholder="跳页">
               <button class="ghost" data-r="gotoBtn">跳转</button>
+              <button class="ghost" id="multiBtn" data-r="multiBtn" title="进入多选：点卡片勾选，可批量下载"><span data-icon="checkBox" data-size="13"></span> 多选</button>
               <button class="ghost" data-r="sync" title="重新从各平台取回这一屏列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
               <button class="ghost" data-r="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"><span data-icon="box" data-size="13"></span> 存回本机</button>
             </span>
@@ -92,6 +92,16 @@
             <span class="sp"></span>
             <span class="hint" data-r="histNote"></span>
             <button class="ghost" data-r="winAll" title="默认只看最近 30 天；点这里看全部">查看全部</button>
+          </div>
+          <!-- 多选条（与资产库同一套公共件：.bulkbar / .bk-cnt / .bk-tip） -->
+          <div class="bulkbar" id="stBulkBar" data-r="bulkBar" hidden>
+            <span class="bk-cnt" data-r="bulkCnt">已选 0 项</span>
+            <button class="ghost" data-r="bulkAll">全选</button>
+            <button class="ghost" data-r="bulkClear">取消选择</button>
+            <button class="ghost" id="stBulkDown" data-r="bulkDown" disabled><span data-icon="download" data-size="13"></span> 批量下载</button>
+            <span class="bk-tip" data-r="bulkTip">点卡片即可勾选</span>
+            <span class="sp" style="flex:1"></span>
+            <button class="ghost" data-r="multiExit">退出多选</button>
           </div>
           <div id="result" data-r="result"></div>
         </div>

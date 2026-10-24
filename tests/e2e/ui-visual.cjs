@@ -138,6 +138,13 @@ async function prepSubtitles(page) {
      轨道那一侧有「退避到点自己再排一遍活」的闸门，等它把画面补回来就行，不靠再点一次剪辑开关去催。 */
   await page.eval(() => { [...document.querySelectorAll('video')].forEach(v => { try { v.pause(); } catch (e) {} }); return true; });
   await page.waitFor(tilesFilled, 90000, 400).catch(() => {});
+  /* 播放器那一格也要定下来：首帧还没解出来时它是黑的，解出来后是那一帧 —— 同一份基线
+     两次连拍会差 36 格、最大差 255（纯黑 ↔ 有画面）。等它「有一帧可画」（readyState ≥ 2）
+     再拍，这一档才是同一张图。甲板有两个（#player / #playerB），两个都要等到。 */
+  await page.waitFor(() => {
+    const vs = [...document.querySelectorAll('#playerWrap video')];
+    return vs.length ? vs.every(v => v.readyState >= 2) : true;
+  }, 30000, 300).catch(() => {});
   if (!(await page.eval(tilesFilled))) {
     const c = await page.eval(() => ({ gaps: document.querySelectorAll('.tl-vrow i.fr.gap').length,
       filled: document.querySelectorAll('.tl-vrow i.fr[style]').length,

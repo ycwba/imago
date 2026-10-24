@@ -1737,12 +1737,13 @@ function renderEditor() {
           <div class="adv-grid" id="edShapeFields" style="margin-top: var(--sp-10)" hidden></div>
         </div>
       </div>
-      <div class="ed-footer">
-        <span class="can ${canGen ? '' : 'no'}" id="edFooterCan"${blockWhy ? ` title="${esc(blockWhy)}"` : ''}>${footerCanText(canGen, blockWhy)}</span>
-        <span class="est" id="estTxt">估价中…</span>
-        <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
-      </div>
       ${window.RawRequest ? RawRequest.liveHTML('dir:shot:' + sh.id) : ''}
+    </div>
+    <!-- 动作行在 .ed-body 之外（#edCol 钉底的那一块）：表单再长，「生成这一镜」也悬在右栏底部 -->
+    <div class="ed-footer">
+      <span class="can ${canGen ? '' : 'no'}" id="edFooterCan"${blockWhy ? ` title="${esc(blockWhy)}"` : ''}>${footerCanText(canGen, blockWhy)}</span>
+      <span class="est" id="estTxt">估价中…</span>
+      <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
     </div>`;
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */

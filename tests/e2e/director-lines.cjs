@@ -406,11 +406,14 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
     const splitSaved = await readWhen(async () => {
       const rec = await window.Kv.at('ws').get('workspace');
       const p = rec && (rec.projects || []).find(x => x.id === 'p-lines');
-      if (!p || !Array.isArray(p.voices)) return null;
-      const rows = (p.lane && p.lane.voice && p.lane.voice.rows) || 1;
+      if (!p || !Array.isArray(p.voices) || p.voices.length !== 3) return null;
       const byId = {};
       p.voices.forEach(v => { byId[v.id] = Number(v.ln) || 0; });
-      return rows === 2 ? { rows, byId, voices: p.voices } : null;
+      /* 行数**不再落盘**（行随内容长出来，`laneRowsOf` 一处算），落盘的只有每句自己的行号。
+         存盘是去抖的 —— 所以这里等的是「行号已经按说话人分好组」那一刻，
+         读到的才是刚落盘的那一份（不是改动之前那一份）。 */
+      if (byId.vo1 !== byId.vo2 || byId.vo3 === byId.vo1) return null;
+      return { persistedRows: (p.lane && p.lane.voice && p.lane.voice.rows) || 0, byId, voices: p.voices };
     }, 10000);
     if (splitSaved.byId.vo1 !== splitSaved.byId.vo2 || splitSaved.byId.vo3 === splitSaved.byId.vo1) {
       throw new Error('存盘的 ln 没按声音来源分组：' + JSON.stringify(splitSaved.byId));
@@ -447,7 +450,23 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
     }, 8000);
     if (Object.values(undone).some(n => n !== 0)) throw new Error('Ctrl+Z 没退回分轨前：' + JSON.stringify(undone));
     await page.eval(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true })); });
-    await readWhen(() => document.querySelectorAll('#tlBar .tl-lane').length >= 2 ? { ok: true } : null, 8000);
+    /* 重做同样把视口带回第一镜（游标不进快照）—— 与上面那一步一样：**先回到第二镜再读轨道**，
+       否则读到的是第一镜的轨道（那儿本来只有一行），看着像「重做没恢复分轨」。 */
+    await page.eval(async () => {
+      const item = document.querySelector('.shot-item[data-sid="sh2"]');
+      if (!item.classList.contains('sel')) item.click();
+      await new Promise(r => setTimeout(r, 300));
+    });
+    await readWhen(() => document.querySelectorAll('#tlBar .tl-lane').length >= 2 ? { ok: true } : null, 8000)
+      .catch(async () => {
+        const dbg = await page.eval(() => ({
+          lanes: document.querySelectorAll('#tlBar .tl-lane').length,
+          op: (document.getElementById('opState') || {}).textContent || '',
+          ln: [...document.querySelectorAll('#tlBar .tl-lane')].map(l => l.dataset.ln),
+          sel: (document.querySelector('.shot-item.sel') || {}).dataset?.sid || '',
+        }));
+        throw new Error('重做没恢复分轨：' + JSON.stringify(dbg));
+      });
     await page.eval(async () => {
       const item = document.querySelector('.shot-item[data-sid="sh2"]');
       if (!item.classList.contains('sel')) item.click();

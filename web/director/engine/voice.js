@@ -933,13 +933,18 @@ async function refAudioBase64(ref) {
 /* 本机音频 → 一条长期可用的本机资产（与语音台产物同一个落点；预览、导出合成与 FCPXML
    都按本机地址取它，不认临时 blob 地址）。 */
 async function localAudioAsset(file) {
+  const fmt = String((String(file.name).split('.').pop() || 'mp3')).toLowerCase();
+  /* 入口先验扩展名：文件选择器的 accept=audio/* 挡不住 Windows 文件框里切「所有文件」，
+     选进来一个 .srt/.txt 会被当音频入账（服务端那道闸会拒，但这里先说清是谁的问题）。 */
+  if (!/^(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm)$/.test(fmt)) {
+    throw new Error('「' + file.name + '」不是音频文件（.' + fmt + '）—— 本机音频只收 mp3 / wav / m4a / aac / ogg / flac');
+  }
   const b64 = await new Promise((res, rej) => {
     const rd = new FileReader();
     rd.onload = () => res(String(rd.result).split(',')[1] || '');
     rd.onerror = () => rej(new Error('读这个文件失败'));
     rd.readAsDataURL(file);
   });
-  const fmt = String((String(file.name).split('.').pop() || 'mp3')).toLowerCase();
   const saved = await Api.saveLocalAsset({ name: file.name, mime: file.type || ('audio/' + fmt), format: fmt, data: b64,
     meta: { provider: '本机', prompt: '' } });
   return saved.url || Api.assetSrc(saved.assetId || saved.id);
@@ -959,7 +964,7 @@ async function addVoiceEntry(src, sh, c, extra) {
   const who = String((sh && sh.lineWho) || v.who || '').trim();
   if (who) v.who = who;
   /* 落哪一行：目标时间窗内没被占的行里取行号最小的；全被占就新开一行。
-     行满 12 / 轨收着时 `addLaneRow` 自己给出拒绝的那一句 —— 拿到 -1 就一个字节都不落，
+     行满 12 时 `voiceLanePlan` 自己给 -1 —— 拿到 -1 就一个字节都不落，
      但声音已经生成出来了，落不下必须说清音频在哪（不静默吞）。 */
   const plan = voiceLanePlan(v);
   let newRow = false;
@@ -969,9 +974,11 @@ async function addVoiceEntry(src, sh, c, extra) {
     return;
   }
   if (plan.needNewRow) {
-    const got = addLaneRow('voice', document.getElementById('midCol') || document);
-    if (got < 0) return;
-    v.ln = got;
+    /* 行**不再单独开**：行数由内容决定（`laneRowsOf` = 最高那一行 + 1），
+       把这句写到新行号上，重画时那一行自己长出来。
+       以前这里调 `addLaneRow`（左栏「＋」按钮那一条路），那条路随左栏精简一起撤了，
+       调用点却还留着 —— 铺一条音频当场 TypeError，这一句就永远落不下。 */
+    v.ln = plan.ln;
     newRow = true;
   } else if (plan.ln > 0) {
     v.ln = plan.ln;

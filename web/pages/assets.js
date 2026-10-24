@@ -150,22 +150,25 @@ export default {
        这一把比卡片多一维供应商：同一个号在两家平台是两份不同的东西，勾掉一个不该把另一个也取消。 */
     const selKeyOf = a => (a.provider || '') + '|' + window.AssetLib.entryKey(a);
 
-    function setMultiMode(on) {
-      multiMode.value = !!on;
-      if (!multiMode.value) selected.clear();
-      if (gridEl.value) gridEl.value.classList.toggle('multi', multiMode.value);
-      renderGrid();
-    }
-    function toggleSelect(a, on) {
-      const k = selKeyOf(a);
-      if (on === undefined) on = !selected.has(k);
-      on ? selected.add(k) : selected.delete(k);
-      renderGrid();
-    }
-    function selectedItems() { return applyFilters().filter(a => selected.has(selKeyOf(a))); }
-    /* 「全选」按下去到底做什么，取决于当前这一屏是不是已经全选了 —— 判据只写这一处，
-       按钮文案与点击行为都读它（原来文案永远是「全选当前列表」，全选中点它其实是取消）。 */
-    const allOnOf = list => list.length > 0 && list.every(a => selected.has(selKeyOf(a)));
+    /* 多选：状态与操作在公共件 `Wb.multi` 里（生成工作台同一份，不许各写一套）。
+       这一页只提供三件事：哪几个字段算同一条、当前这一屏看得见哪些、改完之后怎么重画。
+       ⚠ workbench.js 是这一页**异步补载**的（onMounted 里 await），所以实例要等它到了再拿 ——
+       在 setup 里就建它会拿到 undefined（页面一开就白屏）。 */
+    let multiInst = null;
+    const assetsMulti = () => multiInst || (multiInst = window.Wb.multi({
+      sel: selected,
+      keyOf: selKeyOf,
+      visible: applyFilters,
+      onChange: renderGrid,
+      canDownload: a => !!(a.dl || a.src),
+      mode: {
+        isOn: () => multiMode.value,
+        set: v => {
+          multiMode.value = v;
+          if (gridEl.value) gridEl.value.classList.toggle('assetsMulti', v);
+        },
+      },
+    }));
 
     /* ---------- 存回本机：范围不跟「不显示云端任务」走 ----------
        本机 / 去重 / 去空地址的判据在 AssetLocal.pullPlan 那一份（三页共用）。 */
@@ -210,15 +213,15 @@ export default {
 
     function paintBulkBar() {
       if (!multiMode.value) return;
-      const n = selected.size;
-      const items = selectedItems();
-      const eff = items.length;
-      bulkCountText.value = eff === n ? ('已选 ' + n + ' 项') : ('已选 ' + n + ' 项（当前筛选下可见 ' + eff + ' 项）');
+      /* 三处读数（已选几项 / 全选那颗的文案 / 下载键能不能点）由公共件算：
+         同一句话不许两页各写一遍。 */
+      assetsMulti().paintBar({
+        count: t => { bulkCountText.value = t; },
+        all: t => { bulkAllText.value = t; },
+        canDown: ok => { bulkDownDisabled.value = !ok; },
+        allDisabled: none => { bulkAllDisabled.value = none; },
+      });
       bulkTipText.value = '点卡片即可勾选';
-      bulkDownDisabled.value = !items.some(a => a.dl || a.src);
-      const vis = applyFilters();
-      bulkAllText.value = allOnOf(vis) ? '取消全选' : ('全选当前列表' + (vis.length ? '（' + vis.length + ' 项）' : ''));
-      bulkAllDisabled.value = !vis.length;
     }
 
     /* ---------- 进行中的任务自动刷新 ---------- */
@@ -530,11 +533,11 @@ export default {
         box.setAttribute('role', 'checkbox');
         box.setAttribute('aria-checked', picked ? 'true' : 'false');
         box.setAttribute('aria-label', '勾选这条（批量下载）');
-        box.onclick = e => { e.stopPropagation(); toggleSelect(a); };
+        box.onclick = e => { e.stopPropagation(); assetsMulti().toggle(a); };
         box.onkeydown = e => {
           if (e.key !== ' ' && e.key !== 'Enter') return;
           e.preventDefault(); e.stopPropagation();
-          toggleSelect(a);
+          assetsMulti().toggle(a);
         };
         d.appendChild(box);
       }
@@ -542,11 +545,11 @@ export default {
         if (!multiMode.value) return;
         if (e.target.closest('.acts') || e.target.closest('.cdet')) return;
         e.preventDefault();
-        toggleSelect(a);
+        assetsMulti().toggle(a);
       };
       const thumb = d.querySelector('.timg');
       if (thumb) thumb.onclick = e => {
-        if (multiMode.value) { e.stopPropagation(); toggleSelect(a); return; }
+        if (multiMode.value) { e.stopPropagation(); assetsMulti().toggle(a); return; }
         window.Wb.lightbox.open(a);
       };
       /* 标准那一排（详情 / 下载 / 取消 / 重试）整排交给公共件接线：确认框、忙碌态、报错、
@@ -1134,27 +1137,15 @@ export default {
     function onStorage() { if (started) renderGrid(); }
     function onKeydown(e) {
       if (!isActive()) return;
-      if (e.key === 'Escape' && multiMode.value) setMultiMode(false);
+      if (e.key === 'Escape' && multiMode.value) assetsMulti().setMode(false);
     }
 
     async function bulkDownload() {
       if (!started) return;
-      const items = selectedItems().filter(a => a.dl || a.src);
-      if (!items.length) { window.Toast.warn('选中的条目里没有可下载的产物'); return; }
-      const okClear = await window.Confirm.ask({ title: '批量下载', body: `下载选中的 ${items.length} 个产物？浏览器会连续保存多个文件。`, okLabel: '开始下载', cancelLabel: '取消' });
-      if (!okClear) return;
-      let ok = 0, fail = 0;
-      /* 逐条下载以前一个字不显示：三四十个文件要跑一两分钟，看上去就是「点了没反应」。
-         进度只走 Toast.progress（全站这一处进度提示的实现）。 */
-      const prog = window.Toast.progress('正在下载 0/' + items.length + '…');
-      for (let i = 0; i < items.length; i++) {
-        const a = items[i];
-        prog.set('正在下载 ' + (i + 1) + '/' + items.length + '：' + fileNameOf(a));
-        try { await window.Wb.save(a.dl || a.src, fileNameOf(a)); ok++; }
-        catch (e) { fail++; console.warn('[assets] 下载失败', a, e); }
-      }
-      prog.done(fail ? ('下载完成：成功 ' + ok + ' 个，失败 ' + fail + ' 个（可重试或单独打开）')
-        : ('已下载 ' + ok + ' 个文件'), fail ? 9000 : 3200);
+      /* 批量下载是公共件（Wb.downloadList）：资产库与生成工作台同一份实现，
+         进度条与成功/失败计数也只在那里一份。 */
+      await window.Wb.downloadList(
+        assetsMulti().selected().filter(a => a.dl || a.src).map(a => ({ url: a.dl || a.src, name: fileNameOf(a) })));
     }
 
     async function cancelAll() {
@@ -1265,7 +1256,7 @@ export default {
       if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
       if (poller && poller.stop) poller.stop();
       if (busOff) busOff();
-      if (gridEl.value) gridEl.value.classList.remove('multi');
+      if (gridEl.value) gridEl.value.classList.remove('assetsMulti');
       const sentinel = gridEndEl.value && gridEndEl.value._sentinelBound;
       if (sentinel && sentinel.disconnect) sentinel.disconnect();
     });
@@ -1280,16 +1271,15 @@ export default {
       pageEl, gridEl, gridEndEl, loadErrEl, typeRowEl, fDateEl, fProvEl, fStatusEl, viewEl,
       aiSearchBtn, aiChipEl, dFromEl, dToEl, pullLocalBtn, cancelAllBtn, gotoPageEl, pagerBtnsEl,
       onSearchClick, runAiSearch, openDatePicker, onDateChange, clearDates,
-      toggleMulti: () => setMultiMode(!multiMode.value),
-      exitMulti: () => setMultiMode(false),
+      toggleMulti: () => assetsMulti().setMode(!multiMode.value),
+      exitMulti: () => assetsMulti().setMode(false),
       bulkAll: () => {
         const list = applyFilters();
         if (!list.length) return;
-        const allOn = allOnOf(list);
-        list.forEach(a => allOn ? selected.delete(selKeyOf(a)) : selected.add(selKeyOf(a)));
+        assetsMulti().setAll();
         renderGrid();
       },
-      bulkClear: () => { selected.clear(); renderGrid(); },
+      bulkClear: () => assetsMulti().clear(),
       bulkDownload,
       pullLocalPage, reload, cancelAll, gotoPageInput,
     };

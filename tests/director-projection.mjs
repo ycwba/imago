@@ -23,7 +23,22 @@ const P = createProjection({
 
 assert.deepEqual(P.filmShotsOrdered(shots).map(x => x.id), ['a', 'b', 'c'], '没覆盖时照原顺序');
 proj.filmOrder = ['b', 'a'];
-assert.deepEqual(P.filmShotsOrdered(shots).map(x => x.id), ['b', 'a', 'c'], '覆盖优先，新增的补在后面');
+assert.deepEqual(P.filmShotsOrdered(shots).map(x => x.id), ['b', 'c', 'a'],
+  '覆盖优先，清单外的新镜头按分镜表位置插到邻近镜头旁边（c 排在 b 后面 → 插到 b 后面）');
+/* 在两镜之间新建的那一镜，剪辑顺序也落在两镜之间（不是追加到片尾）。 */
+{
+  const list2 = [
+    { id: 'A', name: '甲', selId: 'c1', candidates: [{ vid: 'c1', duration: 6, segs: [{ in: 0, out: 6 }] }] },
+    { id: 'C', name: '新', selId: '', candidates: [] },
+    { id: 'B', name: '乙', selId: 'c2', candidates: [{ vid: 'c2', duration: 5, segs: [{ in: 0, out: 5 }] }] },
+  ];
+  proj.filmOrder = ['A', 'B'];
+  assert.deepEqual(P.filmShotsOrdered(list2).map(x => x.id), ['A', 'C', 'B'], '两镜之间新建的镜头插在两镜之间');
+  /* 排在所有已排镜头之前的新镜头插到最前（它后面最近的那一镜是 A）。 */
+  const list3 = [{ id: 'Z', name: '新前', selId: '', candidates: [] }].concat(list2);
+  assert.deepEqual(P.filmShotsOrdered(list3).map(x => x.id), ['Z', 'A', 'C', 'B'], '排在最前的新镜头插到最前');
+  proj.filmOrder = ['b', 'a'];   // 还原主线那一档的覆盖清单
+}
 assert.equal(P.moveShotInFilmOrder('a', 'b', false), true);
 assert.deepEqual(proj.filmOrder, ['a', 'b']);
 assert.equal(P.moveShotInFilmOrder('a', 'b', false), false, '顺序没变就说没变');

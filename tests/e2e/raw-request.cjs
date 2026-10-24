@@ -32,7 +32,7 @@ const h = require('./harness.cjs');
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
 
     /* 默认收起，且在没有快照时给出「尚未发送」的占位。
-       ⚠ 这一块现在是**并排两栏**（左边「将要发出」= 发送前预览，右边「已发送」= 真发出去的那一次），
+       ⚠ 这一块现在是**并排两栏**（左边「预览 · 还没发」= 发送前预览，右边「实发 · 最近一次」= 真发出去的那一次），
        所以「请求体」那一栏是**第二个** pre —— 取第一个会读到预览那栏（那是纯算出来的那一份，
        与投进来的快照不是一回事）。 */
     const tag = 'dir:shot:sh1';
@@ -44,7 +44,7 @@ const h = require('./harness.cjs');
         halves: ps.length, pre: ps[1] ? ps[1].textContent : (el.querySelector('pre') || {}).textContent };
     });
     if (before.open) throw new Error('原始请求折叠条默认不该展开');
-    if (!/尚未发送|将要发送/.test(before.summary)) throw new Error('没有快照时摘要不对：' + before.summary);
+    if (!/尚未发送|预览中/.test(before.summary)) throw new Error('没有快照时摘要不对：' + before.summary);
     if (before.halves !== 2) throw new Error('并排两栏不对：' + before.halves);
 
     /* 合成一份快照：生产路径里 `Api.request` 先把请求体过一遍 `snapOf` 再投事件，这里照做。

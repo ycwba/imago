@@ -933,6 +933,10 @@
       _finish(job, frame) {
         this._note(job, '');
         if (!frame && this._retry(job)) return;
+        /* 抽到的帧当场落缓存（内存 + /cache/thumbs）：这一条不写，重建出来的卡片永远查不到
+           「上一次抽到的首帧」，每次整列重画（导演台切顺序/剪辑、轮询重建）都要重新解码一遍
+           —— 正是「缩略图总是重新取首帧」。_save 自带体积闸与 keyOf 归一化，重复写同值无副作用。 */
+        if (frame) this._save(job.key, frame);
         for (const b of job.subs) {
           if (this._io) this._io.unobserve(b.wrap);
           if (!this._valid(b)) continue;
@@ -1485,6 +1489,102 @@
       const b = await this.blob(url);
       window.Net.save(b, name);
       return { ok: true };
+    },
+
+    /* 批量下载：资产库 / 生成工作台共用这一份（逐条下载 + 进度 + 成功/失败数）。
+       items: [{ url, name }]（也认 { dl } / { src } 两个别名 —— 任务条目的地址就叫这两个）。
+       nameOf: 可选，自己给文件名（不传就用条目上的 name，再不传就叫 download）。 */
+    async downloadList(items, nameOf) {
+      const list = (items || []).filter(x => x && (x.url || x.dl || x.src));
+      if (!list.length) { window.Toast.warn('选中的条目里没有可下载的产物'); return { ok: 0, fail: 0 }; }
+      const go = await window.Confirm.ask({
+        title: '批量下载', body: '下载选中的 ' + list.length + ' 个产物？浏览器会连续保存多个文件。',
+        okLabel: '开始下载', cancelLabel: '取消',
+      });
+      if (!go) return { ok: 0, fail: 0, canceled: true };
+      let ok = 0, fail = 0;
+      /* 逐条下载以前一个字不显示：三四十个文件要跑一两分钟，看上去就是「点了没反应」。
+         进度只走 Toast.progress（全站这一处进度提示的实现）。 */
+      const prog = window.Toast.progress('正在下载 0/' + list.length + '…');
+      for (let i = 0; i < list.length; i++) {
+        const a = list[i];
+        const name = (nameOf ? nameOf(a) : '') || a.name || 'download';
+        prog.set('正在下载 ' + (i + 1) + '/' + list.length + '：' + name);
+        try { await this.save(a.url || a.dl || a.src, name); ok++; }
+        catch (e) { fail++; console.warn('[Wb] 下载失败', a, e); }
+      }
+      prog.done(fail ? ('下载完成：成功 ' + ok + ' 个，失败 ' + fail + ' 个（可重试或单独打开）')
+        : ('已下载 ' + ok + ' 个文件'), fail ? 9000 : 3200);
+      return { ok, fail };
+    },
+
+    /* 多选：一份状态 + 一套操作（资产库与生成工作台共用这一份）。
+       勾选框 `.pick`、批量条 `.bulkbar` 是公共样式；这里管的是「哪些条目被勾中了」这一份状态。
+       两页的差别只有三处，别的都一样：条目身份（keyOf）、当前这一屏看得见的条目（visible）、
+       改完之后怎么重画（onChange）与怎么切多选态（onMode）。 */
+    multi(opts) {
+      const o = opts || {};
+      const keyOf = o.keyOf || (x => String(x));
+      const visible = o.visible || (() => []);
+      const onChange = o.onChange || (() => {});
+      /* 多选态本身归页面（Vue ref / 普通变量都行）：模式 = mode.isOn() / mode.set(v)。
+         没给 mode 时这里自己存一份 st.on。 */
+      const mode = o.mode || null;
+      /* 勾选集合：页面自己有就传进来（它自己的卡片签名要读），不给就这里新建。 */
+      const sel = o.sel || new Set();
+      const st = { on: false };
+      const api = {
+        st, sel,
+        get on() { return mode ? !!mode.isOn() : st.on; },
+        has(it) { return sel.has(keyOf(it)); },
+        setMode(v) {
+          const on = !!v;
+          if (!on) sel.clear();
+          if (mode) mode.set(on); else st.on = on;
+          onChange();
+        },
+        toggle(it, on) {
+          const k = keyOf(it);
+          if (on === undefined) on = !sel.has(k);
+          if (on) sel.add(k); else sel.delete(k);
+          onChange();
+        },
+        selected() { return visible().filter(it => sel.has(keyOf(it))); },
+        /* 「全选」按下去到底做什么，取决于当前这一屏是不是已经全选了 —— 判据只写这一处，
+           按钮文案与点击行为都读它。 */
+        allOn(list) { const l = list || visible(); return l.length > 0 && l.every(it => sel.has(keyOf(it))); },
+        setAll(on) {
+          const l = visible();
+          if (!l.length) return;
+          const cur = api.allOn(l);
+          const want = on === undefined ? !cur : !!on;
+          l.forEach(it => { if (want) sel.add(keyOf(it)); else sel.delete(keyOf(it)); });
+          onChange();
+        },
+        clear() { sel.clear(); onChange(); },
+        /* 批量条那三处读数（两页同一句）：已选几项 / 全选那颗的文案 / 下载键能不能点。 */
+        countText(n) {
+          return n === sel.size ? ('已选 ' + sel.size + ' 项')
+            : ('已选 ' + sel.size + ' 项（当前筛选下可见 ' + n + ' 项）');
+        },
+        allText(list) {
+          const l = list || visible();
+          return api.allOn(l) ? '取消全选' : ('全选当前列表' + (l.length ? '（' + l.length + ' 项）' : ''));
+        },
+        /* 批量条：两页的批量条长得不一样（资产库是 Vue 绑的，生成工作台是 DOM 节点），
+           写的却是同一件事 —— 页面给一组 setter，判据与文案只有这一份。 */
+        paintBar(bar) {
+          if (!bar) return;
+          if (bar.show) bar.show(api.on);
+          if (!api.on) return;
+          const items = api.selected();
+          bar.count(api.countText(items.length));
+          bar.all(api.allText());
+          if (bar.canDown) bar.canDown(items.some(o.canDownload));
+          if (bar.allDisabled) bar.allDisabled(!visible().length);
+        },
+      };
+      return api;
     },
 
     /* ---------- 卡片动作区：三台同一套按钮、同一套顺序 ---------- */

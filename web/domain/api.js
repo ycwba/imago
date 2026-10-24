@@ -86,9 +86,11 @@ function classifyStatus(spec, rawStatus) {
 }
 const FRESH = new Map();      // 素材身份 → 本次会话换回的新鲜地址
 const FRESHING = new Set();   // 在途的素材身份：并发批量回源不重复问同一份素材
-/* 换地址时保留调用方原本的包装形式（/fetch?url=…&dl=1 的下载语义不能丢）。 */
+/* 换地址时保留调用方原本的包装形式（/fetch 的下载语义不能丢）。
+   新鲜值自己是同源本地路径（/asset/la_…）时原样交回：再包一层 /getv?url=/asset/… 会被出站护栏拒掉。 */
 function rewrapMedia(old, fresh) {
   if (!fresh) return old;
+  if (/^\//.test(fresh) && !/^\/(getv|fetch)\?/i.test(fresh)) return fresh;
   const inner = innerMedia(fresh) || fresh;
   if (/^\/fetch\?/i.test(old)) return '/fetch?url=' + encodeURIComponent(inner) + (/dl=1/i.test(old) ? '&dl=1' : '');
   if (/^\/getv\?/i.test(old)) return '/getv?url=' + encodeURIComponent(inner);
@@ -102,11 +104,10 @@ function mediaSrc(url) {
      「优先用本机文件」的开关只管得着资产库那张列表 —— 收藏、导演台里存着的
      还是当年的签名外链，第二天 403，表现就是「视频没有预览图、点开只回一句 Format error」，
      而本机明明有那一个文件。勾了「优先用本机」却照打外链 = 开关在骗人。
-     只认 http(s) 与 /getv 包装（/fetch 的下载语义、本机地址自己都不用再换）。
-     **这里不处理 /asset/<平台产物号> 那一路**：它在抽帧那边已经由缩略图键解决
-     （keyOf → localAssetIdOf → 同一个本机号，抽帧地址随即变成本机文件，见 workbench.js）。
-     在这一层改它会越过「优先用本机文件」开关去换**画面上取哪个字节** —— 那是开关自己的活。 */
-  if (/^(https?:|\/getv\?)/i.test(u)) {
+     认 http(s)、/getv 包装与 /asset/<平台产物号>（这一路 localAssetIdOf 走 aids 表认得出
+     本机副本；/asset/la_ 本身就是本机地址，换了也是它自己，白问但不伤）。/fetch 的下载语义、
+     本机地址都不用再换。 */
+  if (/^(https?:|\/getv\?|\/asset\/)/i.test(u)) {
     const AL = window.AssetLocal;
     const loc = (AL && AL.localCopyOf) ? AL.localCopyOf(u) : '';
     if (loc) return loc;
@@ -183,11 +184,21 @@ async function healMedia(recs, opts) {
       /* 只换回同类地址：接口没给外链就不动（别拿资产号拼 /asset/<id> —— 那条本地路由只服务
          本工作台自己落盘的产物，别平台的资产号进去就是 404 破图）。 */
       const next = p && p.done && p.url ? mediaSrc(p.url) : '';
-      if (!next || next === x.url) continue;
-      FRESH.set(x.key, next);
-      if (FRESH.size > 500) FRESH.delete(FRESH.keys().next().value);
-      done++;
-      if (onFresh) { try { onFresh(x.rec, next, x.url); } catch (e) {} }
+      if (next && next !== x.url) {
+        FRESH.set(x.key, next);
+        if (FRESH.size > 500) FRESH.delete(FRESH.keys().next().value);
+        done++;
+        if (onFresh) { try { onFresh(x.rec, next, x.url); } catch (e) {} }
+        continue;
+      }
+      /* 平台没换到新地址而本机存过这份产物 → 会话内退回本机副本（只写 FRESH 画面层，
+         不调 onFresh：存储里那条平台外链留着）。没有这一档，续签失败就是「直接不显示」。 */
+      const AL = window.AssetLocal;
+      const la = (AL && AL.localAssetIdOf) ? AL.localAssetIdOf(x.url) : '';
+      if (la) {
+        FRESH.set(x.key, Api.assetSrc(la));
+        if (FRESH.size > 500) FRESH.delete(FRESH.keys().next().value);
+      }
     }
   }
   for (const x of stale) FRESHING.delete(x.key);
