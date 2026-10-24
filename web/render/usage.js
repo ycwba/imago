@@ -382,7 +382,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]))
               : (_ctx.aiLoaded)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_41, "暂无数据"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_41, "还没有按型号的用量：调用一次文字 AI（润色 / 分镜 / 检索）之后，这里会按型号分开记。"))
                 : _createCommentVNode("v-if", true)
           ]),
           _cache[29] || (_cache[29] = _createElementVNode("h2", { class: "sect-mini" }, "按日用量", -1 /* CACHED */)),
@@ -407,7 +407,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]))
               : (_ctx.aiLoaded)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_46, "暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_46, "还没有文字 AI 调用记录：用文字 AI 润色或分镜之后，这里会按天记下次数与 tokens。"))
                 : _createCommentVNode("v-if", true)
           ])
         ])
@@ -485,7 +485,7 @@ export function render(_ctx, _cache) {
               : (_ctx.billLoading)
                 ? (_openBlock(), _createElementBlock("div", _hoisted_61, "加载中…"))
                 : (!_ctx.billRows.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_62, "没有符合条件的账单"))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_62, "这个筛选下没有账单：把时间范围放宽或换个平台看看；一条都没有的话，多半是还没在「设置」里填平台密钥。"))
                   : (_openBlock(), _createElementBlock("table", _hoisted_63, [
                       _cache[33] || (_cache[33] = _createElementVNode("thead", null, [
                         _createElementVNode("tr", null, [

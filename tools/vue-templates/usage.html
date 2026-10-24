@@ -98,7 +98,7 @@
                   </tr>
                 </tbody>
               </table>
-              <div v-else-if="aiLoaded" class="empty">暂无数据</div>
+              <div v-else-if="aiLoaded" class="empty">还没有按型号的用量：调用一次文字 AI（润色 / 分镜 / 检索）之后，这里会按型号分开记。</div>
             </div>
             <h2 class="sect-mini">按日用量</h2>
             <div id="aiDaily">
@@ -110,7 +110,7 @@
                   </tr>
                 </tbody>
               </table>
-              <div v-else-if="aiLoaded" class="empty">暂无文字 AI 调用记录（用过润色 / 分镜 / 检索后就会出现）</div>
+              <div v-else-if="aiLoaded" class="empty">还没有文字 AI 调用记录：用文字 AI 润色或分镜之后，这里会按天记下次数与 tokens。</div>
             </div>
           </div>
         </div>
@@ -137,7 +137,7 @@
             <div id="bills">
               <div v-if="billDownHtml" v-html="billDownHtml"></div>
               <div v-else-if="billLoading" class="empty">加载中…</div>
-              <div v-else-if="!billRows.length" class="empty">没有符合条件的账单</div>
+              <div v-else-if="!billRows.length" class="empty">这个筛选下没有账单：把时间范围放宽或换个平台看看；一条都没有的话，多半是还没在「设置」里填平台密钥。</div>
               <table v-else>
                 <thead><tr><th>时间</th><th>平台</th><th class="w">明细</th><th class="num">花费 / 用量</th></tr></thead>
                 <tbody>

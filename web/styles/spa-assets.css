@@ -88,14 +88,10 @@
 .assets-page .task .timg.audio .dur { font-size: var(--fs-10-5); color: var(--sub); margin-top: var(--sp-4); }
 @media (max-width: 760px) { .assets-page .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }
 /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），
-   这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉。 */
-.assets-page .task .meta1 { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); color: var(--sub); }
-.assets-page .task .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
-.assets-page .task .dot.fail { background: var(--err); }
+   这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉 ——
+   以前这一页把 .meta1 / .dot / .tprompt / .meta2 又抄了一遍，
+   结果公共那份后来加的（.dot.run 的闪、.tprompt:hover、.meta2 的长词折行）在这页全都没了。 */
 .assets-page .favnote { font-size: var(--fs-11-5); color: var(--acc); margin: var(--sp-2) 0 var(--sp-4); word-break: break-word; }
-.assets-page .task .tprompt { font-size: var(--fs-13); line-height: 1.5; margin: var(--sp-5) 0; color: var(--txt);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.assets-page .task .meta2 { font-size: var(--fs-12); color: var(--sub); }
 /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
 .assets-page .asset .meta .cancel { color: var(--err); cursor: pointer; }
 .assets-page .badge { font-size: var(--fs-10-5); padding: var(--sp-1) var(--sp-7); border-radius: var(--radius-3); background: var(--panel2); color: var(--sub); }

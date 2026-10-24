@@ -2309,11 +2309,13 @@ function renderScenes() {
   updateProjUI();
 }
 
-/* 剪辑态左栏：历史编辑记录（撤销栈的每一步，点一行撤回到那一步之前）+ 素材入口。
+/* 剪辑态左栏底部那一块：**历史编辑记录**（撤销栈的每一步，点一行撤回到那一步之前）。
    历史读的就是 undoStack / undoLabels 本身；栈被上限挤掉的那几步照实不显示
-   （空态那句话把两档上限说清，与 undoMeterText 同一份账）。 */
+   （空态那句话把两档上限说清）。
+   这一块做成**折叠区**（原生 details，默认收起）：它平时只是「有没有可退的步骤」这一句，
+   展开才是一列步骤 —— 以前它占掉左栏整列，剪的时候连分镜列表都看不见了。
+   「导入视频 / 素材」已经挪到左栏表头（项目级动作），这里不再重复一个入口。 */
 function renderEditLeft(box) {
-  const sh = curShot();
   let rows = '';
   for (let i = undoStack.length - 1; i >= 0; i--) {
     const lbl = undoLabels[i] || '编辑';
@@ -2322,18 +2324,13 @@ function renderEditLeft(box) {
       + '<span class="hn">' + esc(lbl) + '</span><span class="ht">' + window.fmtHM(undoTimes[i] || Date.now()) + '</span></button>';
   }
   box.innerHTML = `
-    <div class="el-sec">
-      <b>历史编辑记录</b>
-      ${rows ? '<div class="hist-list">' + rows + '</div>'
-        : '<div class="hist-empty">还没有可撤销的编辑：剪一刀、拖一格，这里就会出现一步。<br>上限 ' + UNDO_MAX_COUNT + ' 步 / ' + window.fmtBytes(UNDO_MAX_BYTES) + '，用满时从最旧的一步开始挤掉。</div>'}
-    </div>
-    <div class="el-sec">
-      <b>素材</b>
-      <button class="ghost" id="elImport">${icon('box', 13)} 导入视频 / 素材</button>
-      <div class="hint">拖素材库 / 资产库的图片进画面轨 = 在落点插一段静态图；换用哪条候选在中栏候选条上点。</div>
-    </div>`;
-  const imp = box.querySelector('#elImport');
-  if (imp) imp.onclick = () => openLibDlg(sh);
+    <details class="el-hist">
+      <summary><span class="hn">历史编辑记录</span><span class="n">${undoStack.length ? undoStack.length + ' 步可退' : '还没有可退的步骤'}</span></summary>
+      <div class="el-body">
+        ${rows ? '<div class="hist-list">' + rows + '</div>'
+          : '<div class="hist-empty">剪一刀、拖一格，这里就会出现一步。<br>上限 ' + UNDO_MAX_COUNT + ' 步 / ' + window.fmtBytes(UNDO_MAX_BYTES) + '，用满时从最旧的一步开始挤掉。</div>'}
+      </div>
+    </details>`;
   box.querySelectorAll('[data-undo-to]').forEach(b => {
     b.onclick = () => {
       const to = Number(b.dataset.undoTo) || 0;
@@ -5177,6 +5174,9 @@ function editScript() {
   });
 }
 $('scriptEditBtn').onclick = editScript;
+/* 「导入视频 / 素材」的唯一入口：左栏表头（项目级动作，跟剧本 / 拆分镜同族）。
+   以前中栏一颗、剪辑态左栏一颗 —— 同一个函数两个入口，用户点名过位置乱。 */
+$('libImportLeft').onclick = () => openLibDlg(curShot());
 $('scriptBtn').onclick = async () => {
   // 升级：优先走 AI 拆分场景与镜头；没配文字 AI 时回退到原来的手动拆分
   try {
@@ -5321,44 +5321,22 @@ $('importMediaFile').onchange = e => {
   if (e.target) e.target.value = '';       // 同一份文件再选一次也要能触发 change
   if (f) importMediaFile(f);
 };
-/* 轨道坞顶部把手：像三栏拖宽一样拖动调轨道区高度（#tlDockBody 的 max-height，
-   记本机 dir_dock_h）。dock 与把手都是常驻节点，这里一次绑好 —— renderMid 每次重画的是
-   里面的 #tlDockBody 内容，动不到这一份接线。 */
+/* 轨道坞的高度：走**公共件 Wb.split 的上下轴**（与左右栏同一套把手 —— 同样的外观、
+   悬停光标、双击复位、落盘口径），不再手写第二套指针拖动。
+   拖动改的是 --dock-h（落在 .page-main 上），坞的上限跟着变 → 上面三栏真的被顶矮，
+   这就是「像左右栏一样能移并且影响布局」的那一条。
+   旧键 dir_dock_h 是那套手写把手留下的（一个裸数字），迁移期读出来按同样意思用一次就清掉。 */
 {
-  const grip = $('dockGrip'), body = $('tlDockBody');
-  const saved = Number(window.LS.get('dir_dock_h')) || 0;
-  if (saved >= 120) body.style.maxHeight = saved + 'px';
-  if (grip) {
-    grip.addEventListener('pointerdown', e => {
-      if (e.button != null && e.button !== 0) return;
-      e.preventDefault();
-      const y0 = e.clientY, h0 = Math.round(parseFloat(body.style.maxHeight) || body.getBoundingClientRect().height);
-      document.body.style.cursor = 'ns-resize';
-      let hCur = h0;
-      const move = ev => {
-        hCur = Math.max(120, Math.min(window.innerHeight - 260, Math.round(h0 + (ev.clientY - y0))));
-        body.style.maxHeight = hCur + 'px';
-        grip.title = '轨道区高度 ' + hCur + 'px（松手记住；双击回到默认）';
-      };
-      const up = () => {
-        document.body.style.cursor = '';
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-        window.removeEventListener('pointercancel', up);
-        /* 存的是**拖出来的上限**，不是此刻的实际渲染高：行少时内容撑不满，
-           存小值会让下一次行多时被旧上限卡住。 */
-        window.LS.set('dir_dock_h', String(hCur));
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
-      window.addEventListener('pointercancel', up);
-    });
-    grip.addEventListener('dblclick', () => {
-      body.style.maxHeight = '';
-      window.LS.del('dir_dock_h');
-      grip.title = '按住上下拖：调整轨道区的高度';
-    });
+  const old = Number(window.LS.get('dir_dock_h')) || 0;
+  if (old >= 120) {
+    try { window.LS.set('dir_dock', JSON.stringify({ dock_h: old })); } catch (e) { /* 写不进去就用默认值 */ }
   }
+  window.LS.del('dir_dock_h');
+  Wb.split.enable({
+    box: '.page-main', axis: 'y', key: 'dir_dock',
+    cols: [{ el: '#tlDock' }],
+    handles: [{ left: 0, right: 0, resize: 0, varName: 'dock_h', min: 140, max: 720 }],
+  });
 }
 
 /* ---------- 灯箱：DOM 与翻页/键盘/关闭/信息条全在 Wb.lightbox（见 AGENTS.md §3），页面只声明怎么取地址 ---------- */

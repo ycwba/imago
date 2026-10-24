@@ -82,7 +82,7 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
     /* 进剪辑：本镜那一排此刻只有第一镜的斜纹占位（第二镜还没台词） */
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && !t.classList.contains('active')) t.click();
+      if (t && !t.classList.contains('on')) t.click();
     });
     await page.waitFor(() => !!document.querySelector('#vcTabs [data-vctab="lines"]'), 15000);
     const lane0 = await page.eval(() => ({
@@ -248,7 +248,7 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
     /* ④ 剧本里只有画面：改台词不动画面，改画面（剧本）也不动台词 */
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && t.classList.contains('active')) t.click();
+      if (t && t.classList.contains('on')) t.click();
     });
     await page.eval(() => document.getElementById('scriptEditBtn').click());
     const script0 = await readWhen(() => {
@@ -268,7 +268,7 @@ const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
     /* 剧本改完之后：台词那一句与说话人一个字都不动 */
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && !t.classList.contains('active')) t.click();
+      if (t && !t.classList.contains('on')) t.click();
     });
     await readWhen(() => {
       const g = document.getElementById('grpLines');

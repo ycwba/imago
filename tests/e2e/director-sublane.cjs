@@ -100,7 +100,7 @@ const h = require('./harness.cjs');
 
     /* 进剪辑（本镜页签）。两条轨此刻的账：镜头 A 6 秒（轴 = 源，没切没倍速）、镜头 B 4 秒，
        全片轴 = 10 秒 —— 下面所有秒数都是照这两个数手算的。 */
-    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('active')) t.click(); });
+    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('on')) t.click(); });
     await page.waitFor(() => !!document.querySelector('#tlBar .tl-sub[data-shot="sh1"]'), 15000);
 
     /* ① 字幕块带把手，读数是这一排的尺子（镜头 A 在成片开头，成片秒 = 源秒） */
@@ -558,7 +558,7 @@ const h = require('./harness.cjs');
        （它随 cutAt 一起落了盘）—— 两份状态各落各的。 */
     await page.goto(proxy.base + '/shell.html#director.html');
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
-    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('active')) t.click(); });
+    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('on')) t.click(); });
     const reloaded = await readWhen(() => {
       const el = document.querySelector('#tlBar .tl-vp[data-shot="sh1"]');
       const p = document.querySelector('#tlBar .tl-pin');

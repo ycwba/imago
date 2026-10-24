@@ -10,7 +10,7 @@ const _hoisted_3 = { class: "page-h1" }
 const _hoisted_4 = ["innerHTML"]
 const _hoisted_5 = {
   key: 0,
-  class: "card"
+  class: "card card-surface"
 }
 const _hoisted_6 = { class: "ui-note err" }
 const _hoisted_7 = ["onClick"]
@@ -33,7 +33,7 @@ const _hoisted_14 = {
   class: "set-group",
   "data-group": "keys"
 }
-const _hoisted_15 = { class: "card" }
+const _hoisted_15 = { class: "card card-surface" }
 const _hoisted_16 = { class: "card-h" }
 const _hoisted_17 = ["innerHTML"]
 const _hoisted_18 = {
@@ -180,14 +180,14 @@ const _hoisted_121 = {
   class: "set-group",
   "data-group": "ui"
 }
-const _hoisted_122 = { class: "card" }
+const _hoisted_122 = { class: "card card-surface" }
 const _hoisted_123 = { class: "card-h" }
 const _hoisted_124 = ["innerHTML"]
 const _hoisted_125 = {
   class: "kcols",
   ref: "netBoxEl"
 }
-const _hoisted_126 = { class: "card" }
+const _hoisted_126 = { class: "card card-surface" }
 const _hoisted_127 = { class: "card-h" }
 const _hoisted_128 = ["innerHTML"]
 const _hoisted_129 = {
@@ -195,7 +195,7 @@ const _hoisted_129 = {
   class: "kcols",
   ref: "pageBoxEl"
 }
-const _hoisted_130 = { class: "card" }
+const _hoisted_130 = { class: "card card-surface" }
 const _hoisted_131 = { class: "card-h" }
 const _hoisted_132 = ["innerHTML"]
 const _hoisted_133 = {
@@ -207,7 +207,7 @@ const _hoisted_134 = {
   class: "set-group",
   "data-group": "gen"
 }
-const _hoisted_135 = { class: "card" }
+const _hoisted_135 = { class: "card card-surface" }
 const _hoisted_136 = { class: "card-h" }
 const _hoisted_137 = ["innerHTML"]
 const _hoisted_138 = {
@@ -219,7 +219,7 @@ const _hoisted_139 = {
   class: "kcols",
   ref: "storeRowsEl"
 }
-const _hoisted_140 = { class: "card" }
+const _hoisted_140 = { class: "card card-surface" }
 const _hoisted_141 = { class: "card-h" }
 const _hoisted_142 = ["innerHTML"]
 const _hoisted_143 = {
@@ -227,7 +227,7 @@ const _hoisted_143 = {
   class: "kcols",
   ref: "charsBoxEl"
 }
-const _hoisted_144 = { class: "card" }
+const _hoisted_144 = { class: "card card-surface" }
 const _hoisted_145 = { class: "card-h" }
 const _hoisted_146 = ["innerHTML"]
 const _hoisted_147 = {
@@ -235,7 +235,7 @@ const _hoisted_147 = {
   ref: "assistantBoxEl"
 }
 const _hoisted_148 = {
-  class: "card",
+  class: "card card-surface",
   id: "polishCard"
 }
 const _hoisted_149 = { class: "card-h" }
@@ -246,7 +246,7 @@ const _hoisted_152 = {
   ref: "polishBoxEl"
 }
 const _hoisted_153 = {
-  class: "card",
+  class: "card card-surface",
   id: "skillCard"
 }
 const _hoisted_154 = { class: "card-h" }
@@ -407,7 +407,7 @@ const _hoisted_263 = {
   class: "set-group",
   "data-group": "data"
 }
-const _hoisted_264 = { class: "card" }
+const _hoisted_264 = { class: "card card-surface" }
 const _hoisted_265 = { class: "card-h" }
 const _hoisted_266 = ["innerHTML"]
 const _hoisted_267 = { class: "kcols" }
@@ -461,7 +461,7 @@ const _hoisted_308 = {
   id: "cloudBackups",
   ref: "cloudBackupsEl"
 }
-const _hoisted_309 = { class: "card" }
+const _hoisted_309 = { class: "card card-surface" }
 const _hoisted_310 = { class: "krow" }
 const _hoisted_311 = { class: "kicon" }
 const _hoisted_312 = ["innerHTML"]
@@ -477,7 +477,7 @@ const _hoisted_319 = {
   class: "prompt-recent"
 }
 const _hoisted_320 = {
-  class: "card",
+  class: "card card-surface",
   id: "ioCard"
 }
 const _hoisted_321 = { class: "card-h" }
@@ -493,7 +493,7 @@ const _hoisted_328 = {
   "data-fold-key": "set_fold_maint"
 }
 const _hoisted_329 = { class: "fold-body" }
-const _hoisted_330 = { class: "card" }
+const _hoisted_330 = { class: "card card-surface" }
 const _hoisted_331 = { class: "card-h" }
 const _hoisted_332 = ["innerHTML"]
 const _hoisted_333 = {
@@ -504,7 +504,7 @@ const _hoisted_334 = { class: "krow tight" }
 const _hoisted_335 = ["disabled", "onClick"]
 const _hoisted_336 = ["disabled", "onClick", "title"]
 const _hoisted_337 = { class: "hint sm" }
-const _hoisted_338 = { class: "card" }
+const _hoisted_338 = { class: "card card-surface" }
 const _hoisted_339 = { class: "card-h" }
 const _hoisted_340 = ["innerHTML"]
 const _hoisted_341 = {
@@ -519,7 +519,7 @@ const _hoisted_345 = {
   ref: "usageGoSlotEl"
 }
 const _hoisted_346 = { class: "hint sm" }
-const _hoisted_347 = { class: "card" }
+const _hoisted_347 = { class: "card card-surface" }
 const _hoisted_348 = { class: "card-h" }
 const _hoisted_349 = ["innerHTML"]
 const _hoisted_350 = { class: "kcols" }
@@ -946,7 +946,7 @@ export function render(_ctx, _cache) {
           ])
         ]),
         _createElementVNode("div", {
-          class: "card",
+          class: "card card-surface",
           ref: "cusCardEl",
           hidden: !_ctx.cusShown
         }, [

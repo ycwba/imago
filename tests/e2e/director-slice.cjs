@@ -93,7 +93,7 @@ const h = require('./harness.cjs');
     const trim = await page.eval(() => {
       const t = document.getElementById('trimBtn');
       if (!t) return { err: '导演台没有 #trimBtn 那颗剪辑开关' };
-      if (!t.classList.contains('active')) t.click();
+      if (!t.classList.contains('on')) t.click();
       return { ok: true };
     });
     if (trim.err) throw new Error(trim.err);

@@ -20,7 +20,7 @@
   font-family: var(--font-ui);
   box-sizing: border-box;
   --setnavh: 96px;
-  --card-h-pad: 92px;          /* 卡标题右侧留给动作按钮的那一段：是个几何量，不是间距档位 */
+
 }
 /* ⚠ sticky 的吸附边是滚动容器的**内容边**：容器自己带 padding-top 时，顶栏会停在那条带子
    下面 —— 下滑之后顶栏上面永远空着一截，卡片从那截底下滚过去（就是「没有顶在上面」）。
@@ -52,9 +52,16 @@
   .settings-page .kcols > :not(.krow) { grid-column: 1 / -1; }
 }
 .settings-page .desc { font-size: var(--fs-13); color: var(--sub); margin-bottom: var(--sp-24); }
-.settings-page .card { position: relative; background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-16) var(--sp-24); margin-bottom: var(--sp-16); box-shadow: var(--shadow-1); }
+/* 卡片**皮肤**用公共那一件（.card-surface：底色 / 描边 / 圆角 / 悬停），
+   页面只留排版（内边距与间距）—— 以前这一页自己写了一份卡片皮肤（radius-8 + shadow-1、无悬停），
+   全站两套卡片长得不一样（用户点名：整页重新设计）。 */
+.settings-page .card { position: relative; padding: var(--sp-16) var(--sp-24); margin-bottom: var(--sp-16); }
 .settings-page .card h2 { font-size: var(--fs-15); margin-bottom: var(--sp-4); }
 .settings-page .card .sub { font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-12); }
+/* 卡内的分组小标题（「导出目录」「本机资产库」）：以前只有 class 没有样式，
+   渲染出来跟正文一样，读起来像漏了标题。这里给它一条底线，跟组标题同族、小一号。 */
+.settings-page .sect-t { display: block; font-size: var(--fs-13); font-weight: 600; color: var(--txt);
+  margin: var(--sp-14) 0 var(--sp-8); padding-bottom: var(--sp-5); border-bottom: var(--hair) solid var(--line); }
 /* 清理缓存那一节：每行「名称 + 说明 + 清空」，说明占满剩余宽度 */
 .settings-page .krow .sub-line { flex: 1; min-width: 180px; font-size: var(--fs-12-5); color: var(--sub); }
 .settings-page .krow input { flex: 1; min-width: 240px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-12-5); font-family: monospace; outline: none; }
@@ -148,7 +155,10 @@
    图标位固定宽度：有图标的栏显图标，没有对应图标的显一个**空**位（不留白）——
    否则十二栏的标题会随着有没有图标左右跳。不需要图标的地方（如页面大标题）不加这个位。
    （`.card` 的 `position: relative` 在上面那一条一份就够，这里不再重复定义同一个类。） */
-.settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-8); padding-right: var(--card-h-pad); }
+/* 标题行：图标位 + 标题。右侧**不再恒留一段空位**（--card-h-pad 92px 没有一张卡真的用得上，
+   只是让十六张卡的标题右缘看着齐 —— 齐的是空地，不是内容）。真有动作就放 .card-h-acts。 */
+.settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-8); }
+.settings-page .card > h2.card-h .card-h-acts { margin-left: auto; display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: 16px; height: 16px; color: var(--sub); }
 .settings-page .card > h2.card-h .card-ic svg { width: var(--sz-ico); height: var(--sz-ico); fill: none; stroke: currentColor;
@@ -226,7 +236,11 @@
 /* 一级只有 5 颗组锚点，二级那一排是当前组的栏目标题（一组最多 5 栏，一行放得下）。
    只有一级时二级行是空的，整排收掉，别留一条空灰带。 */
 .settings-page .set-nav-chips[hidden] { display: none; }
-.settings-page .set-nav-sub { margin-top: var(--sp-4); }
+/* 二级行**固定一行高**：它列的是当前组的栏目标题，组一换内容就换 → 导航高度跟着变 →
+   --setnavh 跟着变 → 滚动锚点的偏移跟着变（以前靠落定补校正最多兜三回）。
+   现在这一行高度恒定，偏移也就是一个数。 */
+.settings-page .set-nav-sub { margin-top: var(--sp-4); min-height: var(--sp-26); max-height: var(--sp-26);
+  overflow: hidden; display: flex; align-items: center; gap: var(--sp-6); }
 /* 导航芯片：几何仍取 ui.css 里 `.chip` 那一份（描边 / hover / 焦点都不再重定义），
    这里只补这一排自己的差异：药丸形、更小的字号、单行省略（它是「滚到那一组 / 那张卡」，不是筛选档）。 */
 .settings-page .set-chip { font-size: var(--fs-11-5); line-height: 1.4; padding: var(--sp-4) var(--sp-10);
@@ -299,7 +313,9 @@
 /* ---------- 左：场景轨 ---------- */
 .settings-page .sk-rail { border: var(--hair) solid var(--line); border-radius: var(--radius-8); background: var(--panel);
   padding: var(--sp-12); display: flex; flex-direction: column; gap: var(--sp-10);
-  position: sticky; top: var(--sp-60); max-height: calc(100vh - var(--sp-60)); overflow: auto; }
+  /* 吸附边跟**动态**的导航高度走（--setnavh 是这一页实测写进来的）：
+     写死一个 --sp-60 的话，导航一变高，轨的上半截就藏到导航底下（用户点名：吸顶打架）。 */
+  position: sticky; top: calc(var(--setnavh) + var(--sp-6)); max-height: calc(100vh - var(--setnavh) - var(--sp-24)); overflow: auto; }
 .settings-page .sk-rail-top { display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .sk-search { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--sp-12);
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--input);

@@ -25,8 +25,8 @@
           <span class="sp"></span>
           <span class="toolbar">
             <button class="ghost" id="multiBtn" :class="{ active: multiMode }" title="进入多选：点卡片勾选，可批量下载" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-            <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 重新加载</button>
-            <button class="ghost" id="pullLocalBtn" ref="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物取回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
+            <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+            <button class="ghost" id="pullLocalBtn" ref="pullLocalBtn" title="把这一屏里本机还没有那份字节的产物存回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
             <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" title="取消所有排队/生成中的任务" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
             <span ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
             <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">

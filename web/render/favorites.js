@@ -66,7 +66,7 @@ export function render(_ctx, _cache) {
         class: "ghost",
         ref: "pullBtn",
         onClick: _ctx.pullLocal,
-        title: "把当前筛选里「本机还没有那份字节」的收藏取回本机资产库；本地上传的那一批不算（字节本来就在浏览器里）"
+        title: "把当前筛选里「本机还没有那份字节」的收藏存回本机；本地上传的那一批不算（字节本来就在浏览器里）"
       }, null, 8 /* PROPS */, _hoisted_7),
       _createElementVNode("button", {
         class: "ghost",

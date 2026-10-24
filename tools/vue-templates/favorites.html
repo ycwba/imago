@@ -6,7 +6,7 @@
       <div class="toolbar2">
         <span class="sp"></span>
         <span class="viewtoggle" ref="viewEl"></span>
-        <button class="ghost" ref="pullBtn" @click="pullLocal" title="把当前筛选里「本机还没有那份字节」的收藏取回本机资产库；本地上传的那一批不算（字节本来就在浏览器里）"></button>
+        <button class="ghost" ref="pullBtn" @click="pullLocal" title="把当前筛选里「本机还没有那份字节」的收藏存回本机；本地上传的那一批不算（字节本来就在浏览器里）"></button>
         <button class="ghost" :disabled="uploading" @click="pickFiles" v-html="uploadHtml"></button>
         <input type="file" multiple hidden ref="fileEl" @change="onFiles">
       </div>

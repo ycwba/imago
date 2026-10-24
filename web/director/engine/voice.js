@@ -354,8 +354,11 @@ function renderVoiceCol(col, sh) {
     <div class="ed-body">
       <!-- 「这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕」五档：一排分段按钮，
            一次只露一格。点中轨上一句 → 音量与倍速；点台词 / 待生成占位 → 生成配音；
-           点字幕块 → 字幕；谁都没点过 → 这一镜上的配音。显隐由 paintTlGroups 一处翻 hidden。 -->
+           点字幕块 → 字幕；谁都没点过 → 这一镜上的配音。显隐由 paintTlGroups 一处翻 hidden。
+           **档位条常驻**：指着画面段时它也留在那儿（那一档点亮「这一段画面」）——
+           右栏在剪辑态任何时候都有导航，不至于突然变成一张没有路标的空白卡。 -->
       <div class="ui-seg vc-tabs" id="vcTabs" role="tablist">
+        <span class="vc-lit" data-vctab="pic" role="presentation">这一段画面</span>
         <button type="button" data-vctab="list" role="tab">这一镜上的配音${n ? ' ' + n : ''}</button>
         <button type="button" data-vctab="adj" role="tab">音量与倍速</button>
         <button type="button" data-vctab="lines" role="tab">台词</button>

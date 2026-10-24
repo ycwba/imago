@@ -40,7 +40,7 @@ const h = require('./harness.cjs');
     await page.goto(proxy.base + '/shell.html#director.html');
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh2"]'), 15000);
-    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('active')) t.click(); });
+    await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('on')) t.click(); });
     await page.waitFor(() => !!document.querySelector('#tlBar .tl-seg'), 15000);
 
     const readWhen = async (fn, timeout = 8000) => {

@@ -4,7 +4,7 @@
         <h1 class="page-h1"><span v-html="icGear"></span> 设置</h1>
         <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（代理程序本身不带任何密钥）。</div>
 
-        <div v-if="failed" class="card"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div></div>
+        <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div></div>
 
         <!-- 这一页有 16 栏，找一项设置全靠滚。这一条把「有哪五组」与「搜关键词」放在最上面：
              上面一排是 5 个组锚点（点它跳到那一组），下面一排是**当前这一组**的栏目标题。
@@ -25,7 +25,7 @@
         <section class="set-group" data-group="keys">
           <h2 class="set-group-h">账户与密钥</h2>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icKey"></span>供应商与密钥</h2>
             <div class="sub">按生成类型分开配（图片 / 视频 / 语音 / 文字 AI），只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
               最后两档不是供应商：<b>语音识别</b>与<b>联网搜索</b>和它们同一层级，各自一份设置。
@@ -164,7 +164,7 @@
             </div>
           </div>
 
-          <div class="card" ref="cusCardEl" :hidden="!cusShown">
+          <div class="card card-surface" ref="cusCardEl" :hidden="!cusShown">
             <h2>添加自定义供应商（中转站 / 网关 / 企业部署）</h2>
             <div class="sub">两种接法：①「供应商」选一家内置平台，<b>接口地址自动填好它官网的地址</b>，贴上密钥点添加；
               ② 选末尾的「自定义」再挑一个<b>接口形状</b>（OpenAI 兼容 / H3 兼容…），地址与密钥填你自己的。
@@ -246,19 +246,19 @@
         <section class="set-group" data-group="ui">
           <h2 class="set-group-h">界面与列表</h2>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icRefresh"></span>网络与刷新</h2>
             <!-- 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 -->
             <div class="kcols" ref="netBoxEl"></div>
           </div>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icList"></span>列表分页</h2>
             <div class="sub">「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。</div>
             <div id="pageSettings" class="kcols" ref="pageBoxEl"></div>
           </div>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icSun"></span>外观与界面</h2>
             <div class="sub">界面长什么样、列表默认怎么摆，跟着数据文件走（换台机器还在）。
               改完就自动存进本机；主题与左栏当场跟着变。</div>
@@ -269,7 +269,7 @@
         <section class="set-group" data-group="gen">
           <h2 class="set-group-h">生成与助手</h2>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icFolder"></span>产物存放</h2>
             <div class="sub">生成完的产物<b>留在哪、优先从哪读、列表里要不要只显示本机有的</b>。三项连着看：关掉「自动存本机」后，
               新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
@@ -279,13 +279,13 @@
             <div class="kcols" ref="storeRowsEl"></div>
           </div>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
             <div class="sub">这几项只作用于「素材库」那一页：界面上的说法与真的发给文字 AI 的参数是同一个开关。</div>
             <div id="charsSet" class="kcols" ref="charsBoxEl"></div>
           </div>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>AI 助手</h2>
             <div class="sub">右下角那个悬浮球 / 右侧抽屉（<code>Ctrl + /</code> 开合）。它<b>读</b>本机数据不用问；
               <b>动手</b>（提交一次生成、改一项设置）默认要你在卡片上点「执行」。</div>
@@ -302,7 +302,7 @@
               它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>
           </div>
 
-          <div class="card" id="polishCard">
+          <div class="card card-surface" id="polishCard">
             <h2 class="card-h"><span class="card-ic" v-html="icPencil"></span>润色行为</h2>
             <div class="sub">提示词正文由 Skill 提供（见下面「Skill」那一栏）；这里只留「润色前要不要先反问」这一个行为开关。</div>
             <div class="polish-block">
@@ -314,7 +314,7 @@
             </div>
           </div>
 
-          <div class="card" id="skillCard">
+          <div class="card card-surface" id="skillCard">
             <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
             <div class="sub">Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。
               <b>左边是使用场景</b>：选一个场景，右边告诉你这一步会拿到哪些项目上下文、现在用的是哪一份 Skill、你能怎么接管。
@@ -525,7 +525,7 @@
         <section class="set-group" data-group="data">
           <h2 class="set-group-h">数据与同步</h2>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与同步</h2>
             <div class="sub">开启后数据会同时写一份到本机项目目录的 <code>.data/</code>（普通 JSON 文件），可备份、可同步到你自己的网盘。</div>
             <div class="kcols">
@@ -583,7 +583,7 @@
             <div id="cloudBackups" ref="cloudBackupsEl"></div>
           </div>
 
-          <div class="card">
+          <div class="card card-surface">
             <h2 class="card-h"><span class="card-ic empty"></span>提示词归档</h2>
             <label class="plabel">归档目录</label>
             <div class="krow">
@@ -601,7 +601,7 @@
           </div>
 
           <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
-          <div class="card" id="ioCard">
+          <div class="card card-surface" id="ioCard">
             <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
             <div class="sub">上面每一栏改完就自动存进本机，这里三项管的都是<b>整份设置</b>：导出成一个 JSON（可换电脑导入）、从 JSON 恢复、清回出厂状态。
               导出默认不含密钥，选了含密钥那份文件里就是明文，别外传。
@@ -623,7 +623,7 @@
             <button class="tool fold-toggle" type="button" aria-expanded="false"><span class="fold-title">本机维护</span><span class="fold-txt">展开</span></button>
           </h2>
           <div class="fold-body">
-            <div class="card">
+            <div class="card card-surface">
               <h2 class="card-h"><span class="card-ic" v-html="icGear"></span>本机环境</h2>
               <div class="sub">问的是<b>这台机器现在能不能干活</b>：代理版本、这个浏览器出不出得了成片（WebCodecs / H.264 / AAC）、三个落盘目录能不能写。
                 全部现读，<b>一个字节都不写</b>。</div>
@@ -637,7 +637,7 @@
               <div class="pb-tip">「重新体检」会重新读一遍代理的现况、并重新问一次这个浏览器的编码能力：换过浏览器、改过目录权限时用这一颗，不用重启代理。</div>
             </div>
 
-            <div class="card">
+            <div class="card card-surface">
               <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>资产库磁盘用量</h2>
               <div class="sub">本机存下来的图片 / 视频 / 语音占多大地方、<b>同一件有没有压了好几份</b>、这块盘还剩多少。
                 全部现读，<b>一个字节都不写不删</b>。</div>
@@ -653,7 +653,7 @@
                 能安全清掉的是<b>缓存</b>，在「清理缓存」那一栏 —— 这一栏不动文件。</div>
             </div>
 
-            <div class="card">
+            <div class="card card-surface">
               <h2 class="card-h"><span class="card-ic" v-html="icTrash"></span>清理缓存</h2>
               <div class="sub">这四项都是<b>能自己重新生成的缓存</b>，清掉不会少任何作品（图片 / 视频 / 语音、提示词归档、收藏、历史一律不动）。
                 <b>换密钥、平台改了参数又不想干等过期</b>时用这一栏最快。</div>

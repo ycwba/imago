@@ -7,7 +7,9 @@
 }
 .fav-page, .fav-page * { box-sizing: border-box; }
 
-.fav-page .toolbar { margin: var(--sp-20) 0 var(--sp-6); }
+/* 首屏留白由 .page-shell 的 padding-top 统一给（24px）—— 页面自己再压一份 margin-top
+   就叠成 44px，与资产库（24px）、设置页（24px）不一致；切页时上边距会跳。 */
+.fav-page .toolbar { margin: 0 0 var(--sp-6); }
 .fav-page .toolbar input[type=search] { flex: 0 1 320px; }
 .fav-page .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 

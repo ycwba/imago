@@ -9,7 +9,9 @@
   }
   /* 页面骨架：头部 + 三栏，默认占满一屏、由各栏自己滚；
      窄窗口下会被下面的 @media 放开成「内容多高就多高」，交给页面整体滚动。 */
-  .page-main { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  /* --dock-h 是轨道坞的高度（公共件 Wb.split 拖出来的那个数就写在这里，行内样式覆盖这一份默认值）。
+     默认值走组件尺寸令牌 --sz-dock，CSS 里不写死像素、也不写 var() 兜底值（G18）。 */
+  .page-main { --dock-h: var(--sz-dock); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   header { display: flex; align-items: center; gap: var(--sp-14); padding: var(--sp-10) var(--sp-20);
     border-bottom: var(--hair) solid var(--line); background: var(--panel); flex: 0 0 auto; flex-wrap: wrap; }
   /* 导出按钮容器：按钮由 web/domain/export-formats.js 表现画，display:contents 让它们
@@ -53,7 +55,10 @@
   #scenesBox::-webkit-scrollbar-thumb:hover { background: var(--sub); }
   /* 中栏：flex-basis 写 0（不是 auto）——auto 会让基准尺寸跟着内容走，候选条一变多/变宽，
      三栏占比就跟着飘；basis:0 之后中栏宽度只由容器与两侧栏决定，候选多少都不影响占比。 */
-  .col-mid { flex: 1 1 0%; min-width: 0; }
+  /* 中栏是「看片台」：两侧是编辑器（有卡片外框），中间这一栏不套外框 ——
+     底色直接是页面底，播放器与候选条自己站得住。三栏同底同边同角的时候，
+     「哪一栏是编辑器、哪一栏是看片」这件事得靠猜（用户点名：功能区分）。 */
+  .col-mid { flex: 1 1 0%; min-width: 0; background: none; border: 0; border-radius: 0; overflow: visible; }
   .col-right { flex: 0 1 var(--sp1); min-width: 298px; }
   /* ---------- 窗口尺寸自适应 ----------
      栏宽用 clamp 跟着窗口平滑缩放（不再固定像素），中间播放区吃掉剩下的空间；
@@ -232,17 +237,25 @@
   .add-scene { margin: var(--sp-8) var(--sp-12); width: calc(100% - 24px); padding: var(--sp-9); text-align: center; border: var(--hair) dashed var(--line);
     border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-12-5); cursor: pointer; background: none; }
   .add-scene:hover { color: var(--acc); border-color: var(--acc); }
-  /* 剪辑态左栏换面：分镜列表与「生成全部」整列让位给「历史编辑记录 + 素材」。
-     切换只翻 .editing 类，四块常驻结构不销毁 —— 退出剪辑时左栏原样回来（滚动位置也不丢）。
-     历史那一列读的是撤销栈本身（engine 的 undoLabels），点一行 = 撤回到那一步之前。 */
-  .col-left.editing > .left-head, .col-left.editing > #scenesBox,
+  /* 剪辑态左栏：**分镜列表留着**（剪的时候也要能换镜），只有「加场景 / 生成全部」让位；
+     历史编辑记录收成**底部一块折叠区**（原生 details：不用 JS、不用额外状态）。
+     以前整列换成「历史 + 素材」—— 左栏在两态里答的是两个完全不同的问题，
+     剪辑时想换一镜都找不到列表（用户点名：左右栏功能区分）。 */
   .col-left.editing > .add-scene, .col-left.editing > .gen-all { display: none; }
   #editLeft { display: none; }
-  .col-left.editing > #editLeft { display: flex; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
-    flex-direction: column; gap: var(--sp-12); padding: var(--sp-10) var(--sp-12); }
-  #editLeft .el-sec { display: flex; flex-direction: column; gap: var(--sp-7); }
-  #editLeft .el-sec > b { font-size: var(--fs-12-5); color: var(--sub); font-weight: 600; }
-  #editLeft .el-sec .ghost { width: 100%; }
+  .col-left.editing > #editLeft { display: block; flex: 0 0 auto; max-height: 42%; overflow-y: auto; overflow-x: hidden;
+    border-top: var(--hair) solid var(--line); background: var(--panel2); }
+  #editLeft .el-hist { display: block; }
+  #editLeft .el-hist > summary { display: flex; align-items: center; gap: var(--sp-7); cursor: pointer;
+    padding: var(--sp-9) var(--sp-12); font-size: var(--fs-12-5); color: var(--sub); font-weight: 600;
+    list-style: none; user-select: none; }
+  #editLeft .el-hist > summary::-webkit-details-marker { display: none; }
+  #editLeft .el-hist > summary::before { content: "▸"; font-size: var(--fs-11); color: var(--sub); transition: transform var(--dur-180); }
+  #editLeft .el-hist[open] > summary::before { transform: rotate(90deg); }
+  #editLeft .el-hist > summary:hover { color: var(--txt); }
+  #editLeft .el-hist .hn { flex: 1 1 auto; }
+  #editLeft .el-hist .n { font-weight: 400; color: var(--sub); }
+  #editLeft .el-hist .el-body { padding: 0 var(--sp-12) var(--sp-12); }
   .hist-list { display: flex; flex-direction: column; gap: var(--sp-4); }
   .hist-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-5) var(--sp-8);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input);
@@ -398,19 +411,16 @@
   /* 剪辑态轨道坞（#tlDock）：铺满页面宽度的底栏 —— 工具条一行 + 轨道网格。
      它与三栏 .layout 平级（不再塞在中栏里），剪辑态 / 生成态切换时三栏只是让出底部这一块高度，
      视频栏定高不动，布局形状不跳。 */
+  /* 高度 = 公共件 Wb.split 拖出来的那个数（--dock-h，落在 .page-main 上）：
+     拖它就把上面三栏顶矮 —— 与左右栏拖宽一样，坞是布局的一部分，不是浮在下面的一块。 */
   .tl-dock { flex: 0 0 auto; margin: 0 var(--sp-16) var(--sp-12); padding: 0 var(--sp-12) var(--sp-10);
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-    display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; }
+    display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0;
+    max-height: var(--dock-h); }
   .tl-dock[hidden] { display: none; }
-  /* 顶部拖拽把手：像左栏 / 右栏拖宽一样，拖它调轨道区自己的高度（记本机 dir_dock_h）。 */
-  .dock-grip { flex: 0 0 8px; margin: 0 calc(-1 * var(--sp-12)); cursor: ns-resize; position: relative;
-    touch-action: none; }
-  .dock-grip::before { content: ""; position: absolute; left: 50%; top: var(--sp-1); width: 36px; height: var(--sp-1);
-    transform: translateX(-50%); border-radius: var(--radius-999); background: var(--line); }
-  .dock-grip:hover::before { background: var(--acc); }
-  /* 轨道区：高度由把手定（默认 288px），行多时**上下滑**且不显滚动条 —— 轨道自己就是「内容比视口长」
-     的那一族，滚动条只会把行高啃掉一截。 */
-  .tl-scroll { overflow-y: auto; scrollbar-width: none; min-height: 0; max-height: 288px; }
+  /* 轨道区：行多时**上下滑**且不显滚动条 —— 轨道自己就是「内容比视口长」的那一族，
+     滚动条只会把行高啃掉一截。高度上限由坞给（flex 列里它自己收缩）。 */
+  .tl-scroll { overflow-y: auto; scrollbar-width: none; min-height: 0; flex: 1 1 auto; }
   .tl-scroll::-webkit-scrollbar { display: none; }
   /* 工具条**浮动固定**（照参考项目 timeline-tools 的那一条）：sticky 钉在轨道滚动容器顶上，
      行多时轨道从它底下滚过去，工具与缩放永远在手边。面板底 + 一条发丝线把「浮在轨道上」
@@ -420,6 +430,14 @@
     display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; padding: var(--sp-6) var(--sp-2) var(--sp-4);
     background: var(--panel); border-bottom: var(--hair) solid var(--line); }
   .tl-dock-tools .tl-tools { margin: 0; flex-wrap: nowrap; }
+  /* 工具条三组之间的分隔（范围 / 剪子 / 缩放）：一条发丝线，
+     让「哪几颗是一组」一眼看得出来 —— 以前三组平铺在一起，缩放那一撮看着像剪子。 */
+  .tl-dock-tools .tl-sep { flex: 0 0 auto; width: var(--hair); align-self: stretch; margin: var(--sp-2) var(--sp-2);
+    background: var(--line); }
+  /* 候选条那排的计数：芯片，不再是一句灰字（「第 1 / 5 条」的数字自己会跳）。 */
+  .cand-pager .cand-count { font-size: var(--fs-12); color: var(--sub); font-variant-numeric: tabular-nums;
+    padding: var(--sp-3) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+    background: var(--input); }
   .tl-dock-tools .sp { flex: 1 1 auto; }
   .tl-dock .tl-hint { margin: 0 0 var(--sp-2); }
   .tl-dock .tl-vline { margin: 0 0 var(--sp-2); }
@@ -916,6 +934,15 @@
   .vc-tabs[hidden] { display: none; }
   .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: var(--fs-11-5); padding: var(--sp-4) var(--sp-6);
     overflow: hidden; text-overflow: ellipsis; }
+  /* 「这一段画面」那枚**指示**（不是按钮：画面这一档由轨道上的指针决定，点它没有意义），
+     但要跟旁边的档位按钮长得一样 —— 它亮着就说明现在改的是画面那一段。 */
+  .vc-tabs .vc-lit { flex: 1 1 0; min-width: 0; font-size: var(--fs-11-5); padding: var(--sp-4) var(--sp-6);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sub);
+    display: flex; align-items: center; justify-content: center;
+    border-right: var(--hair) solid var(--line); }
+  .vc-tabs .vc-lit.on { background: var(--pri); color: var(--on-acc); font-weight: 600; }
+  /* 画面那一档亮着时，配音那几颗按不动（点了也不换档）：按暗 + 说明为什么。 */
+  .vc-tabs > button:disabled { color: var(--sub); opacity: .55; cursor: default; }
   /* 待生成配音那一轨：与真配音轨**同一把尺子**（轴秒），但骨子里是另一行 —— 它是「台词还没有声音」的占位，
      不参与选中 / 剪切（那两件事只对真块）；点 = 填进右栏，按住左右拖 = 把插针（合成落点）带走。 */
   .tl-vp-lane { position: relative; height: var(--tlh-voice); border: var(--hair) dashed color-mix(in srgb, var(--dir-green) var(--a-28), transparent);
@@ -1259,6 +1286,9 @@
       <b>分镜 <span id="scCount">0</span></b>
       <button class="script-btn sec" id="scriptEditBtn" title="剧本：每一镜的画面写成一份可编辑的稿子；台词不在这里，在剪辑右栏「台词」那一档改"><span data-icon="docTab" data-size="13"></span> 剧本</button>
       <button class="script-btn" id="scriptBtn" title="AI 分镜：贴剧本拆一份新的 / 对着现有分镜说一句话让它改 / 接着往下拆"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
+      <!-- 导入是**项目级动作**（跟剧本、拆分镜同族），所以住在这张表头里；
+           以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口（用户点名）。 -->
+      <button class="script-btn" id="libImportLeft" title="导入视频 / 素材：视频成为这一镜的新候选，图片成为静态段"><span data-icon="box" data-size="13"></span> 导入</button>
     </div>
     <div id="scenesBox"></div>
     <!-- 剪辑态左栏：历史编辑记录 + 素材入口（renderScenes 按剪辑模式翻显隐） -->
@@ -1281,11 +1311,11 @@
   <div class="col col-right" id="edCol"></div>
 </div>
 
-<!-- 剪辑态轨道坞：铺满页面宽度的底栏。顶部那根把手拖动调轨道区高度（记本机 dir_dock_h），
+<!-- 剪辑态轨道坞：铺满页面宽度的底栏。顶部那根把手由公共件 Wb.split 生成（与左右栏同一套：
+     同样的外观、悬停光标、双击复位、落盘口径），拖它把上面三栏顶矮。
      轨道区行多时上下滑且不显滚动条。内容由 renderMid 在剪辑模式下现画（mid.js），
      生成态整块 hidden —— 三栏布局两种模式同一份，视频栏定高不动。 -->
 <div class="tl-dock" id="tlDock" hidden>
-  <div class="dock-grip" id="dockGrip" title="按住上下拖：调整轨道区的高度"></div>
   <div class="tl-scroll" id="tlDockBody"></div>
 </div>
 

@@ -131,7 +131,7 @@ export default {
       if (!bits.length) return '';
       return '<div class="empty" style="color: var(--warn)">部分内容加载失败：<br>'
         + bits.join('<br>')
-        + '<br><br>（检查网络与密钥，或点「重新加载」重试）</div>';
+        + '<br><br>（检查网络与密钥，或点工具条上的「刷新」重试）</div>';
     }
     const loadFailed = () => Object.keys(loadErrors || {}).length > 0;
 
@@ -239,7 +239,7 @@ export default {
     }
 
     function startWatch() {
-      if (!window.Wb.poller) return;    // 旧 workbench 没有轮询器：照旧手动「重新加载」
+      if (!window.Wb.poller) return;    // 旧 workbench 没有轮询器：照旧手动「刷新」
       poller = window.Wb.poller({
         label: '资产状态', interval: 5000, page: PAGE_FILE,
         tasks: () => assets.filter(a => a.kind === 'task'),
@@ -662,7 +662,7 @@ export default {
       }
       if (!assets.length) {
         return window.Wb.emptyHTML(['还没有取回任何产物：这一页只列各平台已经给出来的任务与产物，它自己不生成东西。',
-          '点上面「重新加载」重新取一次列表，或先生成一条。'],
+          '点工具条上的「刷新」重新取一次列表，或先生成一条。'],
         window.GoPage.btn('studio.html?t=video', '去生成工作台')
           + window.GoPage.btn('chars.html', '去素材库'));
       }
@@ -690,7 +690,7 @@ export default {
       cntText.value = '共 ' + filteredAll().length + ' 项 · 本页 ' + list.length + ' 项'
         + (sel ? ' · 已选 ' + sel + ' 项' : '');
       reloadDisabled.value = loadingNow > 0;
-      reloadTitle.value = loadingNow > 0 ? '正在加载…' : '重新加载（跳过服务端短缓存）';
+      reloadTitle.value = loadingNow > 0 ? '正在加载…' : '刷新（跳过服务端短缓存）';
       paintBulkBar();
       paintPullBtn();
       if (!list.length) {
@@ -960,7 +960,7 @@ export default {
       paintAiChip();
     }
 
-    /* ---------- 重新加载 / 翻页 ---------- */
+    /* ---------- 刷新 / 翻页 ---------- */
     /* 从头再取：清掉游标与去重集，但不清 assets —— mergeEntries 负责把旧的并回来。 */
     function rewindFetch() {
       loadGen++;
@@ -974,7 +974,7 @@ export default {
       rewindFetch();
       pager.setPage(0);
       reloadDisabled.value = true; reloadTitle.value = '正在加载…';
-      try { await load(); } finally { reloadDisabled.value = false; reloadTitle.value = '重新加载（跳过服务端短缓存）'; }
+      try { await load(); } finally { reloadDisabled.value = false; reloadTitle.value = '刷新（跳过服务端短缓存）'; }
     }
     /* 任务完成 / 撤单之后要拉一次新数据，但用户可能正翻在第 5 页找东西：
        以前这几处直接调 reload()，页码归 1、首屏重画，人就被弹回开头。
@@ -998,7 +998,7 @@ export default {
         await ensureLoaded(want);
         pager.setPage(want);
       } finally {
-        reloadDisabled.value = false; reloadTitle.value = '重新加载（跳过服务端短缓存）';
+        reloadDisabled.value = false; reloadTitle.value = '刷新（跳过服务端短缓存）';
         renderGrid();
       }
     }

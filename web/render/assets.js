@@ -170,13 +170,13 @@ export function render(_ctx, _cache) {
               "data-icon": "refresh",
               "data-size": "13"
             }, null, -1 /* CACHED */),
-            _createTextVNode(" 重新加载", -1 /* CACHED */)
+            _createTextVNode(" 刷新", -1 /* CACHED */)
           ]))], 8 /* PROPS */, _hoisted_18),
           _createElementVNode("button", {
             class: "ghost",
             id: "pullLocalBtn",
             ref: "pullLocalBtn",
-            title: "把这一屏里本机还没有那份字节的产物取回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）",
+            title: "把这一屏里本机还没有那份字节的产物存回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）",
             onClick: _ctx.pullLocalPage
           }, null, 8 /* PROPS */, _hoisted_19),
           _createElementVNode("button", {

@@ -19,7 +19,7 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 
 .chars-page .desc { font-size: var(--fs-14); color: var(--sub); line-height: 1.7; max-width: 860px; }
 /* .toolbar 的 flex / 间距 / 换行在 ui.css（公共一份）；.toolbar2、.toolbar3 公共里没有，还在这里。 */
-.chars-page .toolbar { margin: var(--sp-20) 0 var(--sp-6); }
+.chars-page .toolbar { margin: 0 0 var(--sp-6); }
 .chars-page .toolbar2, .chars-page .toolbar3 { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; }
 .chars-page .toolbar2 { margin: 0 0 var(--sp-6); }
 .chars-page .toolbar3 { margin: 0 0 var(--sp-16); }
@@ -135,13 +135,10 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 .chars-page .hrow .gap { color: var(--warn); font-size: var(--fs-11-5); }
 .chars-page .hrow .gap.ok { color: var(--ok); }
 
-.chars-page .batchbar { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin: 0 0 var(--sp-12);
-  padding: var(--sp-9) var(--sp-12); border: var(--hair) solid var(--acc); border-radius: var(--radius-8); background: color-mix(in srgb, var(--acc) 7%, var(--panel)); }
-.chars-page .batchbar > b { font-size: var(--fs-12-5); }
-.chars-page .batchbar .sp { flex: 1; }
-.chars-page .batchbar .batch-grp { flex: 0 1 200px; }
-.chars-page .batchbar .batch-text { font-size: var(--fs-12); color: var(--sub); }
-.chars-page .batchbar .tool { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }
+/* 批量条本体在公共 .bulkbar（粘顶 + 同一套描边）；这一页只留两个自己的差异：
+   分组输入框的宽度，以及那一排小按钮更紧一点。 */
+.chars-page .bulkbar .batch-grp { flex: 0 1 200px; }
+.chars-page .bulkbar .tool { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }
 
 .chars-page .card.multi { cursor: pointer; }
 .chars-page .card.picked { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-30), transparent); }

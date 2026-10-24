@@ -2353,6 +2353,10 @@
       enable(o) {
         const box = typeof o.box === 'string' ? document.querySelector(o.box) : o.box;
         if (!box || box._wbSplit) return null;
+        /* 轴：x = 左右分栏（工作台两栏 / 导演台三栏），y = 上下分栏（导演台底栏那条轨道坞）。
+           两条轴共用**同一份把手外观与落盘口径** —— 底栏那根把手以前是手写的第二套，
+           悬停的样子、拖动的手感、双击复位都和左右栏不一样（用户点名）。 */
+        const axis = o.axis === 'y' ? 'y' : 'x';
         const cols = (o.cols || []).map(c => (typeof c.el === 'string' ? box.querySelector(c.el) : c.el)).filter(Boolean);
         const hs = (o.handles || []).filter(h => cols[h.left] != null && cols[h.right] != null && cols[h.resize]);
         if (!hs.length) return null;
@@ -2372,26 +2376,37 @@
         hs.forEach(h => { if (Number(st[h.varName]) > 0) box.style.setProperty('--' + h.varName, clamp(h, st[h.varName]) + 'px'); });
         const made = hs.map(h => {
           const el = document.createElement('div');
-          el.className = 'wb-split';
-          el.title = '拖动调整左右占比 · 双击恢复默认';
+          const target = cols[h.resize];
+          el.className = 'wb-split' + (axis === 'y' ? ' wb-split-y' : '');
+          el.title = axis === 'y' ? '拖动调整上下高度 · 双击恢复默认' : '拖动调整左右占比 · 双击恢复默认';
           el.innerHTML = '<i></i>';
-          box.appendChild(el);
+          if (axis === 'y') {
+            /* 上下那条：把手住在被拖那一栏的**顶边上**（静态位置，不绝对定位）——
+               它就是那条栏的一部分；那一栏藏起来（生成态坞是 hidden）把手也跟着藏。 */
+            const host = (typeof o.handleHost === 'string' ? document.querySelector(o.handleHost) : o.handleHost) || target;
+            if (host) host.insertBefore(el, host.firstChild);
+          } else {
+            box.appendChild(el);
+          }
           el.addEventListener('pointerdown', e => {
             if (e.button !== 0 || el._hide) return;
             const target = cols[h.resize];
-            const start = e.clientX, startW = target.getBoundingClientRect().width;
-            const sign = h.resize <= h.left ? 1 : -1;      // 拖的是缝隙右边的栏 → 反向
+            const rect = target.getBoundingClientRect();
+            /* 上下那条：把手在**顶上**，往上拖 = 变高（与左右栏「拖缝隙右边那栏就反向」同一套反向逻辑）。 */
+            const start = axis === 'y' ? e.clientY : e.clientX;
+            const startW = axis === 'y' ? rect.height : rect.width;
+            const sign = axis === 'y' ? -1 : (h.resize <= h.left ? 1 : -1);
             el.setPointerCapture(e.pointerId);
             el.classList.add('on');
-            document.body.classList.add('wb-splitting');
+            document.body.classList.add(axis === 'y' ? 'wb-splitting-y' : 'wb-splitting');
             e.preventDefault();
-            const move = ev => put(h, clamp(h, startW + sign * (ev.clientX - start)));
+            const move = ev => put(h, clamp(h, startW + sign * ((axis === 'y' ? ev.clientY : ev.clientX) - start)));
             const up = () => {
               el.removeEventListener('pointermove', move);
               el.removeEventListener('pointerup', up);
               el.removeEventListener('pointercancel', up);
               el.classList.remove('on');
-              document.body.classList.remove('wb-splitting');
+              document.body.classList.remove(axis === 'y' ? 'wb-splitting-y' : 'wb-splitting');
               flush();                       // 松手落定：把拖拽期间防抖掉的那一次补上（见 save 那段）
               layout();
             };
@@ -2407,6 +2422,15 @@
         function layout() {
           const b = box.getBoundingClientRect();
           made.forEach(({ h, el }) => {
+            if (axis === 'y') {
+              /* 上下那条是静态位置（住在栏里），这里只判「那一栏还在不在」：
+                 生成态整条坞是 hidden，把手跟着藏掉，别留一根拖不动的死把手。 */
+              const t = cols[h.resize].getBoundingClientRect();
+              const hide = t.height <= 0 || t.width <= 0;
+              el._hide = hide;
+              el.classList.toggle('hide', hide);
+              return;
+            }
             const r = cols[h.left].getBoundingClientRect(), nr = cols[h.right].getBoundingClientRect();
             const gapL = r.right - b.left, gapR = nr.left - b.left;
             // 上下堆叠（窄窗口断点）或缝隙被挤没 → 这条不可用

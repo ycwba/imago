@@ -8,7 +8,7 @@
       <div class="toolbar2">
         <span class="grp">分组<span ref="grpPickEl"></span></span>
         <button class="tool" ref="btnFillEl" :disabled="fillDisabled" :title="fillTitle" @click="fillRest">{{ fillText }}</button>
-        <button class="tool" ref="btnLocalEl" title="把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库：换机器、外链过期、关掉网页都不影响它们" @click="pullLocal"></button>
+        <button class="tool" ref="btnLocalEl" title="把当前这一档里「本机还没有那份字节」的图与参考音频存回本机：换机器、外链过期、关掉网页都不影响它们" @click="pullLocal"></button>
         <span class="sp"></span>
         <span class="busy">{{ busyText }}</span>
         <button class="ghost" v-show="stopVisible" ref="btnStopEl" :disabled="stopDisabled" @click="onStop">停下</button>
@@ -40,15 +40,17 @@
         </div>
       </div>
 
-      <div class="batchbar" v-if="multi">
-        <b>已选 {{ batchCount }} 条</b>
+      <!-- 批量条用公共那一件 .bulkbar（资产库 / 生成工作台同款：粘顶、同一套描边与计数芯片）。
+           以前这一页自己写了一份 .batchbar，第二套皮肤（不粘顶、描边色不同）。 -->
+      <div class="bulkbar" v-if="multi">
+        <span class="bk-cnt">已选 {{ batchCount }} 条</span>
         <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillPics">补预览图</button>
         <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillAssets">补角色资产</button>
         <button class="tool" :disabled="!batchCount || batchBusy" @click="batchFillVoices">AI 定声音</button>
         <input class="ui-inp batch-grp" v-model="batchGroup" maxlength="20" placeholder="批量分组（留空 = 清空）">
         <button class="ghost" :disabled="!batchCount || batchBusy" @click="batchSetGroup">应用分组</button>
         <span class="sp"></span>
-        <span class="batch-text">{{ batchText }}</span>
+        <span class="bk-tip">{{ batchText }}</span>
         <button class="ghost danger" :disabled="!batchCount || batchBusy" @click="batchRemove">删掉所选</button>
       </div>
 

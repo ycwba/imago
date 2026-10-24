@@ -1636,8 +1636,10 @@ function paintTlGroups() {
   const hide = (id, yes) => { const el = document.getElementById(id); if (el) el.hidden = !!yes; };
   /* 配音那一侧再分四格（用户点名的第 ③ 条）：不点过 = 这一镜上的配音，点中一句 = 音量与倍速，
      点台词 = 台词那一档，点空白 / 待生成占位 = 生成配音。`vcTabOf()` 只有这四个取值，别的地方不写第五种。 */
-  const tab = voice ? (vcTabOf() === 'adj' || vcTabOf() === 'gen' || vcTabOf() === 'sub' || vcTabOf() === 'lines' ? vcTabOf() : 'list') : '';
-  hide('vcTabs', !voice);
+  const tab = voice ? (vcTabOf() === 'adj' || vcTabOf() === 'gen' || vcTabOf() === 'sub' || vcTabOf() === 'lines' ? vcTabOf() : 'list') : 'pic';
+  /* 档位条**常驻**：指着画面段时右栏仍留着这一排（画面那一档点亮）——
+     整排藏掉之后右栏就没有任何导航了，用户在里面不知道自己在哪一档。 */
+  hide('vcTabs', false);
   hide('tlAdj', voice && tab !== 'adj');
   hide('grpPic', voice);
   hide('grpVoice', !voice || tab !== 'adj');
@@ -1651,7 +1653,14 @@ function paintTlGroups() {
   document.querySelectorAll('#vcTabs [data-vctab]').forEach(b => {
     const on = b.dataset.vctab === tab;
     b.classList.toggle('on', on);
-    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    /* 「这一段画面」那枚是 span（只报状态，不是可点的档位）：不挂 aria-selected。 */
+    if (b.tagName === 'BUTTON') b.setAttribute('aria-selected', on ? 'true' : 'false');
+    /* 画面那一档亮着时，配音那几颗按下去也不会换档 —— 与其让它点了没反应，
+       不如按暗并说清为什么（在轨道上点一句配音才有配音那一档）。 */
+    if (b.tagName === 'BUTTON') {
+      b.disabled = !voice;
+      b.title = voice ? '' : '现在指着的是画面那一段：在轨道上点一句配音（或待生成占位）才切到配音这几档';
+    }
   });
   const l = document.getElementById('edLane');
   if (l) l.textContent = laneNm(voice ? 'voice' : 'pic');

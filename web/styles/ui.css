@@ -26,6 +26,16 @@
 body.wb-splitting { cursor: col-resize; user-select: none; }
 body.wb-splitting * { user-select: none !important; }
 
+/* 上下那条（导演台底栏轨道坞）：**同一份外观**，只是方向翻了 ——
+   同样是「平时透明、悬停显出一条细线、按下变主色、双击复位」，线从竖的变成横的。 */
+.wb-split-y { position: relative; width: 100%; height: 10px; margin: 0; cursor: ns-resize;
+  display: flex; align-items: center; justify-content: center; touch-action: none; background: none; border: 0; }
+.wb-split-y i { display: block; width: 36px; height: 2px; border-radius: var(--radius-2); background: var(--line);
+  transition: background var(--dur-180), height var(--dur-120); }
+.wb-split-y:hover i, .wb-split-y.on i { background: var(--acc); height: 3px; }
+body.wb-splitting-y { cursor: ns-resize; user-select: none; }
+body.wb-splitting-y * { user-select: none !important; }
+
 /* ---------- 展示样式切换（图标开关）+ 分页信息：资产库 / 我的收藏共用 ----------
    开关本体由 workbench.js 的 Wb.viewToggle 渲染（两处图标、记忆、切换逻辑一份实现）。 */
 .viewtoggle { display: inline-flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--radius-6);

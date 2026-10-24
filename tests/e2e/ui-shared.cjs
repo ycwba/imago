@@ -78,7 +78,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && !t.classList.contains('active')) t.click();
+      if (t && !t.classList.contains('on')) t.click();
     });
     const seg = await readWhen(() => {
       const tabs = document.getElementById('vcTabs');

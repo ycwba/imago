@@ -152,7 +152,7 @@ const HIT = 0.7;            // 缩放命中率下限
       read();
       const t = document.getElementById('trimBtn');
       if (!t) return { err: '导演台没有 #trimBtn 那颗剪辑开关' };
-      if (!t.classList.contains('active')) t.click();
+      if (!t.classList.contains('on')) t.click();
       return { ok: true };
     });
     if (startRows.err) throw new Error(startRows.err);
@@ -372,7 +372,7 @@ const HIT = 0.7;            // 缩放命中率下限
     }, 15000, 200).catch(() => { throw new Error('刷新后工作区里没有已出片的候选（工程没恢复）'); });
     const restoreOff = await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && t.classList.contains('active')) { t.click(); return true; }
+      if (t && t.classList.contains('on')) { t.click(); return true; }
       return false;
     });
     if (restoreOff) await h.sleep(200);       // 剪辑态被恢复的话先关掉，从一个没有轨道的界面重新量
@@ -413,7 +413,7 @@ const HIT = 0.7;            // 缩放命中率下限
       read();
       const t = document.getElementById('trimBtn');
       if (!t) return { err: '刷新后没有 #trimBtn' };
-      if (!t.classList.contains('active')) t.click();
+      if (!t.classList.contains('on')) t.click();
       return { ok: true };
     });
     if (secondStart.err) throw new Error(secondStart.err);

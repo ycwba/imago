@@ -223,12 +223,15 @@ function renderMid() {
       <input class="sname" value="${esc(sh.name)}">
       <span class="meta">${esc(sc.name)} · ${shotDurText(sh)} · ${sel ? '已选用' : '未选用'}</span>
       <span class="sp"></span>
-      <!-- 顺序 / 剪辑 是这一屏的两种形态：放在中栏顶上，紧挨着它要换的那一栏。
-           以前这一对埋在候选条下面那排工具里，位置太深（用户点名：位置不合适）。
+      <!-- 工作模式：顺序 / 剪辑 是这一屏的两种形态 —— 放在中栏顶上，紧挨着它要换的那一栏。
+           做成**一枚分段开关**（公共 .ui-seg）：两态互斥，本来就是一枚开关，
+           不该画成两颗各自高亮的按钮（用户点名：这两颗的组件设计）。
            「‹ › 撤销 重做 撤销 N/M」那一整簇已删（2026-10 用户点名）：
            撤销 / 重做走 Ctrl+Z / Ctrl+Y，剪辑态左栏的「历史编辑记录」也能点着退回去。 -->
-      <button class="ghost ${midOrderOf() ? 'active' : ''}" id="ordBtn">${icon('list', 13)} 顺序</button>
-      <button class="ghost ${midEditTrimOf() ? 'active' : ''}" id="trimBtn">${icon('scissors', 13)} 剪辑</button>
+      <span class="ui-seg mid-mode" id="midMode" role="tablist" aria-label="工作模式">
+        <button type="button" class="${midOrderOf() ? 'on' : ''}" id="ordBtn" role="tab" aria-selected="${midOrderOf() ? 'true' : 'false'}">${icon('list', 13)} 顺序</button>
+        <button type="button" class="${midEditTrimOf() ? 'on' : ''}" id="trimBtn" role="tab" aria-selected="${midEditTrimOf() ? 'true' : 'false'}">${icon('scissors', 13)} 剪辑</button>
+      </span>
     </div>
     <div class="player-wrap" id="playerWrap">${playerAreaHTML(sh)}</div>
     ${/* 剪辑态不画候选条与「用这条 / 锁定 / 删除」那排（用户点名）：轨道坞 + 播放器就是剪辑的全部，
@@ -239,15 +242,16 @@ function renderMid() {
       ${cands.length ? `<span class="cand-pager">
         <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}<span class="tx">${midCandExpandOf() ? '收起' : '展开'}</span></button>
         <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
-        <span style="font-size: var(--fs-12);color:var(--sub)">第 ${projOf().curCand + 1} / ${cands.length} 条</span>
+        <span class="cand-count" title="第 ${projOf().curCand + 1} 条候选，共 ${cands.length} 条（左右两颗切换）">${projOf().curCand + 1} / ${cands.length}</span>
         <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
       </span>` : ''}
     </div>
     <div class="cand-acts" id="candActs" style="padding: 0 var(--sp-16) var(--sp-6);justify-content:flex-end">
       ${candActsHTML(sh)}
     </div>`}
+    <!-- 「导入视频 / 素材」**收成一处**：它是项目级动作（跟剧本、拆分镜同族），
+         以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口（用户点名）。现在它在左栏表头。 -->
     <div class="mid-tools">
-      <button class="ghost" id="libImportMid">${icon('box', 13)} 导入视频 / 素材</button>
       <span class="total">全片 ${fmtDur(totalDur())}</span>
     </div>
         ${midOrderOf() ? '<div class="shot-strip" id="shotStrip"></div>' : ''}`;
@@ -297,8 +301,7 @@ function renderMid() {
     setTrimMode(on);
     setStatus(on ? '剪辑模式：调本镜入出点，或切到「全片」合并整片' : '已退出剪辑模式');
   };
-  const libMid = col.querySelector('#libImportMid');
-  if (libMid) libMid.onclick = () => openLibDlg(sh);   // 中栏：只导入视频作为本镜候选
+  /* 导入入口只剩左栏表头那一处（libImportLeft，engine.js 里绑），中栏那颗已撤。 */
   /* 剪辑态轨道坞（#tlDock）：铺满页面宽度的底栏，工具条 / 轨道网格 / 入出点全在坞里；
      播放器与候选条仍在中栏 —— 两种模式切换时中栏那几块一个像素不动。
      工具条一组（剪子）+ 页签（本镜 / 全片）+ 缩放一组，同一行排开（照参考项目 timeline-tools）。 */
@@ -553,6 +556,7 @@ function tlDockHTML(sh, cur) {
         <button type="button" class="${(projOf().tlTab || 'shot') === 'shot' ? 'on' : ''}" data-tab="shot" role="tab" aria-selected="${(projOf().tlTab || 'shot') === 'shot' ? 'true' : 'false'}">本镜</button>
         <button type="button" class="${projOf().tlTab === 'film' ? 'on' : ''}" data-tab="film" role="tab" aria-selected="${projOf().tlTab === 'film' ? 'true' : 'false'}">全片</button>
       </span>
+      <span class="tl-sep" aria-hidden="true"></span>
       <!-- 统一剪辑条：这一排只有一个目标（画面段或配音句，见 syncTlTools），两组剪子同一份语义。
            「空一段 / 摘掉空段」两颗已撤：空段不再靠按钮插 —— 把某一格左右拖走，原位自动空出一段。 -->
       <div class="tl-tools" id="tlTools">
@@ -563,6 +567,7 @@ function tlDockHTML(sh, cur) {
         <button class="tool mini danger" data-cut="drop" title="删掉插针所在的那一段（格子不消失，原地变黑场，后面的段不前移）">${icon('trash', 13)} 删掉</button>
         <button class="tool mini" data-cut="merge" title="把插针这一段与它旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）">${icon('link', 13)} 融合</button>
       </div>
+      <span class="tl-sep" aria-hidden="true"></span>
       <span class="sp"></span>
       <!-- 时间轴缩放（与剪映一致：时间长了整条比屏幕宽，左右拖；Ctrl+滚轮也行）。「自适应」= 短片子正好铺满、
            长片子铺到 12px/秒 就停并开始左右滚动；手动缩小没有下限，可以缩到比轨道还短（见 tlMinPps）。 -->

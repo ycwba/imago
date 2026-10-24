@@ -55,7 +55,7 @@ const h = require('./harness.cjs');
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
-      if (t && !t.classList.contains('active')) t.click();
+      if (t && !t.classList.contains('on')) t.click();
       const v = document.querySelector('#vcTabs [data-vctab="list"]');
       if (v) v.click();
     });

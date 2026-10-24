@@ -64,13 +64,13 @@ const GW = 24, GH = 14;
    同一份页面要连拍 4 个画面（两档尺寸 × 两种主题），prep 每一步都得能重跑：
    再导一次会多一条候选、再点一次剪辑开关会把这一档关掉，拍出来的就不是同一张图。 */
 /* 字幕这一档要先点进两处才画得出来：剪辑模式、右栏「字幕」那一格。
-   都点用户点的那两颗开关，但先看状态再点（`#trimBtn` 的 `active` 与 `#grpSub.hidden` 就是它们的当前值），
+   都点用户点的那两颗开关，但先看状态再点（`#trimBtn` 的 `on` 与 `#grpSub.hidden` 就是它们的当前值），
    因为同一份页面要连拍四个画面，再点一次就是把这一档关掉。 */
 async function enterTrimSub(page) {
   const steps = await page.eval(() => {
     const t = document.getElementById('trimBtn');
     if (!t) return { err: '导演台没有 #trimBtn 那颗剪辑开关，字幕编辑区进不去' };
-    if (!t.classList.contains('active')) t.click();
+    if (!t.classList.contains('on')) t.click();
     const g = document.getElementById('grpSub');
     if (!g) return { err: '开了剪辑模式也没有「字幕」那一格（#grpSub 没画出来）' };
     if (g.hidden) {

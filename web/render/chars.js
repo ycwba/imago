@@ -60,33 +60,34 @@ const _hoisted_32 = {
 }
 const _hoisted_33 = {
   key: 1,
-  class: "batchbar"
+  class: "bulkbar"
 }
-const _hoisted_34 = ["disabled", "onClick"]
+const _hoisted_34 = { class: "bk-cnt" }
 const _hoisted_35 = ["disabled", "onClick"]
 const _hoisted_36 = ["disabled", "onClick"]
-const _hoisted_37 = ["onUpdate:modelValue"]
-const _hoisted_38 = ["disabled", "onClick"]
-const _hoisted_39 = { class: "batch-text" }
-const _hoisted_40 = ["disabled", "onClick"]
-const _hoisted_41 = {
+const _hoisted_37 = ["disabled", "onClick"]
+const _hoisted_38 = ["onUpdate:modelValue"]
+const _hoisted_39 = ["disabled", "onClick"]
+const _hoisted_40 = { class: "bk-tip" }
+const _hoisted_41 = ["disabled", "onClick"]
+const _hoisted_42 = {
   key: 2,
   class: "empty"
 }
-const _hoisted_42 = ["onClick"]
-const _hoisted_43 = {
+const _hoisted_43 = ["onClick"]
+const _hoisted_44 = {
   key: 3,
   class: "empty"
 }
-const _hoisted_44 = ["onClick", "onInput", "onChange", "onFocusin", "onFocusout", "onDragstart", "onDragend"]
-const _hoisted_45 = ["innerHTML"]
-const _hoisted_46 = ["data-id", "innerHTML"]
-const _hoisted_47 = {
+const _hoisted_45 = ["onClick", "onInput", "onChange", "onFocusin", "onFocusout", "onDragstart", "onDragend"]
+const _hoisted_46 = ["innerHTML"]
+const _hoisted_47 = ["data-id", "innerHTML"]
+const _hoisted_48 = {
   id: "gridEnd",
   ref: "gridEndEl",
   style: {"height":"1px"}
 }
-const _hoisted_48 = {
+const _hoisted_49 = {
   id: "grpList",
   ref: "grpListEl"
 }
@@ -122,7 +123,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("button", {
         class: "tool",
         ref: "btnLocalEl",
-        title: "把当前这一档里「本机还没有那份字节」的图与参考音频取回本机资产库：换机器、外链过期、关掉网页都不影响它们",
+        title: "把当前这一档里「本机还没有那份字节」的图与参考音频存回本机：换机器、外链过期、关掉网页都不影响它们",
         onClick: _ctx.pullLocal
       }, null, 8 /* PROPS */, _hoisted_9),
       _cache[2] || (_cache[2] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
@@ -196,56 +197,57 @@ export function render(_ctx, _cache) {
           ])
         ]))
       : _createCommentVNode("v-if", true),
+    _createCommentVNode(" 批量条用公共那一件 .bulkbar（资产库 / 生成工作台同款：粘顶、同一套描边与计数芯片）。\n           以前这一页自己写了一份 .batchbar，第二套皮肤（不粘顶、描边色不同）。 "),
     (_ctx.multi)
       ? (_openBlock(), _createElementBlock("div", _hoisted_33, [
-          _createElementVNode("b", null, "已选 " + _toDisplayString(_ctx.batchCount) + " 条", 1 /* TEXT */),
+          _createElementVNode("span", _hoisted_34, "已选 " + _toDisplayString(_ctx.batchCount) + " 条", 1 /* TEXT */),
           _createElementVNode("button", {
             class: "tool",
             disabled: !_ctx.batchCount || _ctx.batchBusy,
             onClick: _ctx.batchFillPics
-          }, "补预览图", 8 /* PROPS */, _hoisted_34),
+          }, "补预览图", 8 /* PROPS */, _hoisted_35),
           _createElementVNode("button", {
             class: "tool",
             disabled: !_ctx.batchCount || _ctx.batchBusy,
             onClick: _ctx.batchFillAssets
-          }, "补角色资产", 8 /* PROPS */, _hoisted_35),
+          }, "补角色资产", 8 /* PROPS */, _hoisted_36),
           _createElementVNode("button", {
             class: "tool",
             disabled: !_ctx.batchCount || _ctx.batchBusy,
             onClick: _ctx.batchFillVoices
-          }, "AI 定声音", 8 /* PROPS */, _hoisted_36),
+          }, "AI 定声音", 8 /* PROPS */, _hoisted_37),
           _withDirectives(_createElementVNode("input", {
             class: "ui-inp batch-grp",
             "onUpdate:modelValue": $event => ((_ctx.batchGroup) = $event),
             maxlength: "20",
             placeholder: "批量分组（留空 = 清空）"
-          }, null, 8 /* PROPS */, _hoisted_37), [
+          }, null, 8 /* PROPS */, _hoisted_38), [
             [_vModelText, _ctx.batchGroup]
           ]),
           _createElementVNode("button", {
             class: "ghost",
             disabled: !_ctx.batchCount || _ctx.batchBusy,
             onClick: _ctx.batchSetGroup
-          }, "应用分组", 8 /* PROPS */, _hoisted_38),
+          }, "应用分组", 8 /* PROPS */, _hoisted_39),
           _cache[8] || (_cache[8] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
-          _createElementVNode("span", _hoisted_39, _toDisplayString(_ctx.batchText), 1 /* TEXT */),
+          _createElementVNode("span", _hoisted_40, _toDisplayString(_ctx.batchText), 1 /* TEXT */),
           _createElementVNode("button", {
             class: "ghost danger",
             disabled: !_ctx.batchCount || _ctx.batchBusy,
             onClick: _ctx.batchRemove
-          }, "删掉所选", 8 /* PROPS */, _hoisted_40)
+          }, "删掉所选", 8 /* PROPS */, _hoisted_41)
         ]))
       : _createCommentVNode("v-if", true),
     (_ctx.failed)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_41, [
+      ? (_openBlock(), _createElementBlock("div", _hoisted_42, [
           _createTextVNode(_toDisplayString(_ctx.failed) + " ", 1 /* TEXT */),
           _createElementVNode("button", {
             class: "ghost mini",
             onClick: _ctx.retryLoad
-          }, "重新加载本页", 8 /* PROPS */, _hoisted_42)
+          }, "重新加载本页", 8 /* PROPS */, _hoisted_43)
         ]))
       : (!_ctx.ready)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_43, [...(_cache[9] || (_cache[9] = [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_44, [...(_cache[9] || (_cache[9] = [
             _createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
             _createTextVNode(" 正在读取素材库…", -1 /* CACHED */)
           ]))]))
@@ -266,7 +268,7 @@ export function render(_ctx, _cache) {
             key: 0,
             class: "empty",
             innerHTML: _ctx.emptyHtml
-          }, null, 8 /* PROPS */, _hoisted_45))
+          }, null, 8 /* PROPS */, _hoisted_46))
         : _createCommentVNode("v-if", true),
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cards, (card) => {
         return (_openBlock(), _createElementBlock("div", {
@@ -275,17 +277,17 @@ export function render(_ctx, _cache) {
           draggable: "true",
           "data-id": card.id,
           innerHTML: card.html
-        }, null, 10 /* CLASS, PROPS */, _hoisted_46))
+        }, null, 10 /* CLASS, PROPS */, _hoisted_47))
       }), 128 /* KEYED_FRAGMENT */))
-    ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_44), [
+    ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_45), [
       [_vShow, _ctx.ready && !_ctx.failed]
     ]),
-    _createElementVNode("div", _hoisted_47, null, 512 /* NEED_PATCH */),
+    _createElementVNode("div", _hoisted_48, null, 512 /* NEED_PATCH */),
     _createElementVNode("div", {
       class: "pager-row",
       ref: "pagerRowEl",
       style: _normalizeStyle({ display: _ctx.pagerVisible ? '' : 'none' })
     }, null, 4 /* STYLE */),
-    _createElementVNode("datalist", _hoisted_48, null, 512 /* NEED_PATCH */)
+    _createElementVNode("datalist", _hoisted_49, null, 512 /* NEED_PATCH */)
   ], 512 /* NEED_PATCH */))
 }
