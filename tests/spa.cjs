@@ -178,8 +178,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      ·  +0.5KB（2026-10-23，导出选容器）：枚数不变，涨的还是 `api.js` 的 `exportCaps` 读数 ——
        导出按探针选容器（avc → mp4 / 只有 vp9 → webm，`MediaExport.pickCodec`），
        读数跟着对齐：补 VP9 分项、只有 vp9 也算「能用」（成片会出 .webm），别在能导的浏览器上喊「不能用」。
-       实跑 29 枚 / 816051 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 817000;
+       实跑 29 枚 / 816051 字节。
+     ·  +4.8KB（2026-10-24，本机副本「已丢失」自愈）：枚数不变，涨的是 `web/domain/local.js` ——
+       ① `/asset/<平台产物号>` 加载失败先经 aid 表认本机副本再回源外链；② 账被整份重建（磁盘对账
+       补的裸行没有 upstream / detail）时改指算不出键，镜像索引里指死的旧号按「名字 + 字节」
+       接回当前账（healDeadPointers，两边各自唯一才接）；③ onMediaError 多一跳「记录已换活号」。
+       AssetLocal 是镜像身份层，资产库 / 工作台 / 收藏的首屏取数都经它，没有第二个落点。
+       实跑 29 枚 / 820872 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 822000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

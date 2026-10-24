@@ -204,6 +204,60 @@ const IDX = {
   const localNew = AL.mirrorKeyOf({ kind: 'asset', provider: 'probe', id: 'la_t' + (N - 1), assetId: 'la_t' + (N - 1), src: '/asset/la_t' + (N - 1) + '?v=2' });
   ok('裁掉的那些本机号也从反查表里消失', localOld === '' && localNew === 'probe|a:asset_t' + (N - 1), localOld + ' / ' + localNew);
 
+  /* ⑪ 账被整份重建之后：镜像记录指着的旧本机号全成了死号，按「名字 + 字节」接回当前账。
+     账被删掉重补的那一次，磁盘对账把每份产物补成裸行（没有 upstream、没有 detail、号全换新），
+     改指那一支算不出键，永远救不了 —— 卡片一直问一个查无此号的 /asset/<旧号>，
+     回源外链也过期了，界面上就是「文件明明在、卡上写着已丢失」。 */
+  {
+    const { AL } = boot({ index: {
+      v: 1,
+      m: { 'sparkcine|a:asset_old': { a: 'la_dead', f: 'png', n: '王八.png', t: 0, b: 1234,
+        up: 'https://cdn.example.com/old.mp4?Expires=1&Signature=x', p: 'asset_old' } },
+      a: { la_dead: 'sparkcine|a:asset_old' },
+    } });
+    const e0 = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_old', src: '/asset/asset_old?v=2' };
+    AL.decorate(e0, { allowGen: false });
+    ok('接回之前：平台卡认到的是死号', e0.mirror && e0.mirror.a === 'la_dead', JSON.stringify(e0.mirror && e0.mirror.a));
+    /* 裸行：磁盘对账补建的那一种形状（provider local、没有 detail、upstream 空） */
+    AL.learn({ id: 'la_alive', provider: 'local', format: 'png', name: '王八.png', byte_length: 1234, upstream: '' });
+    await new Promise(r => setTimeout(r, 10));           // 认回在微任务里合并执行
+    const e2 = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_old', src: '/asset/asset_old?v=2' };
+    AL.decorate(e2, { allowGen: false });
+    ok('同名同字节的裸行把死记录接回活号', e2.mirror && e2.mirror.a === 'la_alive', JSON.stringify(e2.mirror && e2.mirror.a));
+    ok('平台卡换到活号地址', e2.src === '/asset/la_alive?v=2', e2.src);
+    ok('镜像键没变（还是原来那一条记录）', e2.mirrorKey === 'sparkcine|a:asset_old', String(e2.mirrorKey));
+  }
+  /* ⑪b 认回的三条安全护栏：名字对不上不接、认不准（同名同字节不止一条）不接、saveOn 关着照样接 */
+  {
+    const { AL } = boot({ index: { v: 1, m: { 'p|a:x': { a: 'la_d', f: 'png', n: '甲.png', t: 0, b: 10 } }, a: { la_d: 'p|a:x' } } });
+    AL.learn({ id: 'la_z', provider: 'local', format: 'png', name: '乙.png', byte_length: 10, upstream: '' });
+    await new Promise(r => setTimeout(r, 10));
+    const e = { kind: 'asset', provider: 'p', assetId: 'x', src: '/asset/x?v=2' };
+    AL.decorate(e, { allowGen: false });
+    ok('名字对不上：不接', e.mirror && e.mirror.a === 'la_d', JSON.stringify(e.mirror && e.mirror.a));
+  }
+  {
+    const { AL } = boot({ index: { v: 1, m: { 'p|a:x': { a: 'la_d', f: 'png', n: '甲.png', t: 0, b: 10 } }, a: { la_d: 'p|a:x' } } });
+    AL.learn({ id: 'la_z1', provider: 'local', format: 'png', name: '甲.png', byte_length: 10, upstream: '' });
+    AL.learn({ id: 'la_z2', provider: 'local', format: 'png', name: '甲.png', byte_length: 10, upstream: '' });
+    await new Promise(r => setTimeout(r, 10));
+    const e = { kind: 'asset', provider: 'p', assetId: 'x', src: '/asset/x?v=2' };
+    AL.decorate(e, { allowGen: false });
+    ok('同名同字节的账行不止一条：认不准，不接', e.mirror && e.mirror.a === 'la_d', JSON.stringify(e.mirror && e.mirror.a));
+  }
+  {
+    const { AL, localStorage: ls } = boot({ index: { v: 1, m: { 'p|a:x': { a: 'la_d', f: 'png', n: '甲.png', t: 0, b: 10 } }, a: { la_d: 'p|a:x' } },
+      prefs: { sk_media_local: 'off' } });
+    AL.learn({ id: 'la_z', provider: 'local', format: 'png', name: '甲.png', byte_length: 10, upstream: '' });
+    await new Promise(r => setTimeout(r, 10));
+    const e = { kind: 'asset', provider: 'p', assetId: 'x', src: '/asset/x?v=2' };
+    AL.decorate(e, { allowGen: false });
+    ok('自动存本机关着：指针维护照样跑（死号接回活号）', e.mirror && e.mirror.a === 'la_z', JSON.stringify(e.mirror && e.mirror.a));
+    const recs = JSON.parse(ls.getItem('sk_local_mirror') || '{}').m || {};
+    ok('自动存本机关着：没为新号建镜像记录（表里只有原来那一条）',
+      Object.keys(recs).length === 1 && recs['p|a:x'], JSON.stringify(Object.keys(recs)));
+  }
+
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
   process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

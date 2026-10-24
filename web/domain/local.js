@@ -577,7 +577,17 @@ function info() {
       /* 新通道：代理按地址流式落盘，浏览器不再把整段字节读进内存再 base64。
          旧代理没有 `/local-assets/from-url`（404）才退回 blob + base64；这条回退只服务
          blob:/data: 与旧代理，日常的 http / /asset / /getv 都走新通道。 */
-      const guessExt = String((ent && ent.format) || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+      /* 地址 pathname 上认得出的扩展名比「条目声明」大：平台把字幕 / 文本也挂成产物地址时，
+         条目那份兜底的 format（缺省 mp4）会替它撒谎 —— 按地址真相送格式，服务端那道
+         文档类闸（isDocExt）才拦得住，这份东西就不会进资产库。 */
+      const urlExt = (() => {
+        try {
+          if (!/^(https?:|\/\/)/i.test(String(url || ''))) return '';
+          return (new URL(url).pathname.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || '';
+        } catch (e) { return ''; }
+      })();
+      const guessExt = urlExt
+        || String((ent && ent.format) || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
         || (ent && window.isAudioType && isAudioType(ent.type) ? 'wav' : '')
         || (/\.(wav|mp3|m4a|aac|ogg|flac)(?:\?|$)/i.exec(String(url || '')) || [])[1]
         || 'mp4';
@@ -586,7 +596,8 @@ function info() {
       if (direct) {
         try {
           r = await Api.saveLocalFromUrl({
-            url, name: nameOf(ent, guessExt), mime: '', format: (ent && ent.format) || '',
+            url, name: nameOf(ent, guessExt), mime: '',
+            format: urlExt || (ent && ent.format) || '',
             meta: Object.assign({}, metaBase, { detail: detailOf(0) }),
           });
         } catch (e) {
@@ -629,7 +640,7 @@ function info() {
           tell(tooBig, { skip: true });
           return;
         }
-        ext = window.blobExtOf(blob, ent && ent.format);
+        ext = window.blobExtOf(blob, urlExt || (ent && ent.format));
         b64 = await blobToB64(blob);
         r = await Api.saveLocalAsset({
           name: nameOf(ent, ext), mime: blob.type || '', format: ext,
@@ -1140,12 +1151,77 @@ function info() {
      浏览器每个源各记各的键，挡不住另一个源（另一个端口）把同一份再存一遍。
      只补索引里没有的键，已有的原样留着（它记的是最近一次真镜像）。
      键的算法与 offer/decorate **完全同一个表达式** —— 换成别的就是第二份判据，
-     会出现「认回来的键与卡片算的键对不上」，表现还是「同一个任务重复出现」。 */
-  /* 本次列表里**已经见过**的本机号。用途只有一个：认出「指针表指向的那份已经不在了」。
+     会出现「认回来的键与卡片算的键对不上」，表现还是「同一个任务重复出现」。
+     改指与死指针认回（下面两段）只动指针、一个字节都不下载，所以**不问 saveOn**；
+     saveOn 管的只是「要不要为新产物建镜像记录」那一段。 */
+  /* 本次列表里**已经见过**的本机号。改指与死指针认回都拿它判「这份已经不在了」：
      它是**内存**的（页面一开就空），所以不需要清理，也不会在多标签页之间打架。 */
   const liveSeen = new Set();
+  /* ---------- 账被整份重建后的死指针认回：名字 + 字节那一座桥 ----------
+     账（.data\local-assets\index.json）整份没了的那一次，磁盘对账会把每一份产物补成一条**裸行**
+     （upstream / detail 全空、本机号全部换新）。浏览器镜像索引里的记录还活着，rec.a 指着的
+     却全是死号；改指要靠账行自己的身份算键，裸行算不出键，永远救不了 —— 卡片一直去问一个
+     查无此号的 /asset/<本机号>，回源外链也过期了，界面上就是「文件明明在、卡上写着已丢失」。
+     还能对得上的硬信息只剩两样：文件名与字节数（镜像那天记下的 rec.n / rec.b，
+     账行叫 name / byte_length）。两边**各自唯一**才接：一组死记录只许配一条账行、
+     一条账行只许配一组死记录 —— 接错比不接更糟（卡片会显示成别的文件）。
+     唯一性在一批里判，批由微任务合并（一页列表的行总是同步 learn 完的，一批就是整份账）。
+     接完 rec.a 换活号、反查表整表作废；死号的旧指针**留着** ——
+     onMediaError 拿着旧地址那一跳还要靠它找到记录、再换到活号（一次多余的 404 换一次自愈）。 */
+  let healBatch = null, healQueued = false;
+  function queueHeal(raw) {
+    if (!healBatch) healBatch = [];
+    healBatch.push(raw);
+    if (healQueued) return;
+    healQueued = true;
+    Promise.resolve().then(() => {
+      healQueued = false;
+      const rows = healBatch;
+      healBatch = null;
+      healDeadPointers(rows);
+    });
+  }
+  function healDeadPointers(rows) {
+    try {
+      const d = read();
+      const byFile = new Map();
+      (rows || []).forEach(r => {
+        const nm = String(r.name || ''), b = Number(r.byte_length) || 0;
+        if (!nm || !b) return;
+        const k2 = nm + '\u0001' + b;
+        const a = byFile.get(k2);
+        if (a) a.push(r); else byFile.set(k2, [r]);
+      });
+      if (!byFile.size) return;
+      const deadByFile = new Map();
+      Object.keys(d.a).forEach(la => {
+        if (liveSeen.has(la)) return;
+        const key = d.a[la], rec = key ? d.m[key] : null;
+        if (!rec) { delete d.a[la]; return; }            // 悬空指针顺手清掉
+        if (String(rec.a || '') !== la) return;          // 已接回活号：旧指针留给 onMediaError 用
+        const k2 = String(rec.n || '') + '\u0001' + (Number(rec.b) || 0);
+        const it = { key, rec };
+        const a = deadByFile.get(k2);
+        if (a) a.push(it); else deadByFile.set(k2, [it]);
+      });
+      let healed = 0;
+      byFile.forEach((rs, k2) => {
+        if (rs.length !== 1) return;                     // 同名同字节的账行不止一条：认不准，不接
+        const dead = deadByFile.get(k2);
+        if (!dead || !dead.length) return;
+        const id = String(rs[0].id || '');
+        if (!id) return;
+        dead.forEach(it => {
+          it.rec.a = id;
+          if (!d.a[id]) d.a[id] = it.key;                // 指针表让给先占住的那个键；这份记录靠 aid / la 表认回
+          healed++;
+        });
+      });
+      if (healed) { idxMaps = null; queueWrite(); }
+    } catch (e) { console.warn('[AssetLocal] 死指针认回没跑成：', e); }
+  }
   function learn(raw) {
-    if (!saveOn() || !raw) return;
+    if (!raw) return;
     const id = String(raw.id || '');
     if (!/^la_/.test(id)) return;
     liveSeen.add(id);
@@ -1196,6 +1272,9 @@ function info() {
       queueWrite();
       return;
     }
+    /* 裸行（磁盘对账补建的那一族：没有 upstream、没有 detail）让改指无从算键 ——
+       排进死指针认回的批里，然后照旧往下走（saveOn 开着就该建 |f: 记录）。 */
+    if (!k) queueHeal(raw);
     /* **先看这个本机号是不是已经绑过身份** —— 绑过就别再来一遍。
        踩过：`d.a[<本机号>]` 已经指向平台那条的身份（`prov|g:job_1`，offer 落盘时写的），
        而本机列表这一行自己算不出任何身份，于是又给它建了一个 `prov|f:la_xxx`，
@@ -1224,6 +1303,9 @@ function info() {
         return;
       }
     }
+    /* 到这里是「要新建一条镜像记录」了 —— 这才是「自动存本机」开关的范围。
+       指针维护（改指 / 死指针认回 / 给已有记录补身份）不下载任何字节，永远照跑。 */
+    if (!saveOn()) return;
     if (k && d.m[k]) {
       /* 同一个键已经被另一份本机文件占了。`|g:` 只会在「多图任务共用一个任务号」时撞；
          这条文件必须有自己的唯一身份，否则它永远进不了索引（删不掉、认不回、
@@ -1318,8 +1400,24 @@ function info() {
     const raw = String(el.getAttribute('src') || el.getAttribute('data-src') || '');
     const am = raw.match(/^\/asset\/([A-Za-z0-9_-]+)/);
     if (am && !/^\/asset\/local/.test(raw)) {
-      /* 本机那份没了 → 找它是从哪个外链取回来的 */
+      /* /asset/<平台产物号> 挂了：先问本机有没有它的副本（localAssetIdOf 的 aids 表认得出）。
+         以前这一路只试「按 upstream 回源」，索引里没有 upstream 就直接判丢失 ——
+         而本机明明存着那一份，表现是「云端失效后直接不显示」。 */
+      const la = localAssetIdOf(raw);
+      if (la && raw.indexOf('/asset/' + la) < 0) {
+        el.dataset.fb = '1'; el.dataset.fbLoc = la;
+        el.setAttribute('src', Api.assetSrc(la));
+        return;
+      }
+      /* 记录已经改指 / 被死指针认回接到活号：先换活号再试（旧号那一跳 404 换来的自愈，
+         不用它就直接回源外链 —— 外链多半已过期，一次能救的机缘就浪费了）。 */
       const rec = d.a[am[1]] ? d.m[d.a[am[1]]] : null;
+      if (rec && rec.a && raw.indexOf('/asset/' + rec.a) < 0) {
+        el.dataset.fb = '1'; el.dataset.fbLoc = String(rec.a);
+        el.setAttribute('src', Api.assetSrc(rec.a));
+        return;
+      }
+      /* 本机那份没了 → 找它是从哪个外链取回来的 */
       if (rec && rec.up) {
         el.dataset.fb = '1'; el.dataset.fbUp = rec.up;
         el.setAttribute('src', '/getv?url=' + encodeURIComponent(rec.up));
