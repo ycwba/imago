@@ -755,10 +755,21 @@
      **挂在内容层 `.tl-inner` 上，不挂在行里**（照参考图：一根白线从刻度尺一直穿到最下面那轨）。
      挂在行里时它只有一行高，而「现在指着哪一秒」是整块轨道共用的一件事 —— 刻度尺上看不出针在哪、
      声音轨上又要再画一根，两处还会各自漂。行与 `.tl-inner` 同宽，所以百分比换算一个字都不用改。 */
+  /* 剪辑针：一条线 + 一颗针头。**能拎着走**（剪辑软件里针是能拖的）——
+     视觉上仍是 2px 那根线，只是多了一条 12px 的透明热区与 ew-resize 光标；
+     悬停 / 拖动时针头放大一点，告诉人「这儿能拎」。 */
   .tl-pin { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--on-acc);
-    box-shadow: 0 0 0 var(--hair) color-mix(in srgb, var(--media-bg) 45%, transparent); pointer-events: none; z-index: 8; }
+    box-shadow: 0 0 0 var(--hair) color-mix(in srgb, var(--media-bg) 45%, transparent); z-index: 8;
+    cursor: ew-resize; pointer-events: auto; }
+  /* 热区：比线宽一圈，12px，透明 —— 细线不好点。 */
+  .tl-pin::after { content: ""; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--sp-5)); width: var(--sp-10); }
   .tl-pin::before { content: ""; position: absolute; top: calc(-1 * var(--sp-5)); left: calc(-1 * var(--sp-4)); width: 10px; height: 10px;
-    border-radius: 50% 50% 50% 0; background: var(--on-acc); transform: rotate(-45deg); }
+    border-radius: 50% 50% 50% 0; background: var(--on-acc); transform: rotate(-45deg);
+    transition: transform var(--dur-120); }
+  .tl-pin:hover::before, .tl-pin.dragging::before { transform: rotate(-45deg) scale(1.3); }
+  /* 拖的时候全局都是那个光标（手拖到哪儿都别变成箭头）。 */
+  body.tl-pinning { cursor: ew-resize; user-select: none; }
+  body.tl-pinning * { user-select: none !important; }
   /* 预览轴：**悬浮**时出的半透明虚线（标出光标所在那一秒），与剪辑针共存、两种生命周期 ——
      针是点击产物（写数据）、预览轴是悬浮产物（不写数据、不动播放头），移开即消。
      视觉上分得清：预览轴半透明虚线，针保持实心白。同样挂在内容层 `.tl-inner` 上（与针同尺）。 */

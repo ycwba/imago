@@ -385,8 +385,8 @@ export default {
          错误原因不另开一栏 —— 它就是这张图为什么没出来，看图的地方就要看得到。 */
       const errHTML = errsHTML(c);
       const thumb = vo
-        ? `<div class="thumb" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
-        : `<div class="thumb"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'pickface'}"`} title="${faceBusy
+        ? `<div class="thumb card-shell-media" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
+        : `<div class="thumb card-shell-media"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'pickface'}"`} title="${faceBusy
           ? '正在出' + esc(pw) + '：出来会自动换上'
           : pic ? pw + '：点一下看大图'
             : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + nSuffix() + pw + '」'}">
@@ -396,9 +396,9 @@ export default {
           ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}</div>`;
       const pickedNow = sel.value.has(c.id);
       return `${multi.value ? `<div class="pickbox${pickedNow ? ' on' : ''}" title="勾选后批量补缺 / 分组 / 删除">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
-        <div class="main"><div class="body">
+        <div class="main"><div class="body card-shell-body">
           <div class="nm">${nmInner(c)}</div>
-          <div class="acts">${window.Wb.actsHTML(c, {
+          <div class="acts card-shell-actions">${window.Wb.actsHTML(c, {
             items: [
               { act: 'edit', label: editOpen ? '收起' : '编辑' },
               { act: 'rename', label: '改名', title: '给这一条换名字：全片按 id 自动回填引用，改名不断' },

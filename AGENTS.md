@@ -253,7 +253,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 | 角色 | 公共类 |
 | --- | --- |
-| 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item` |
+| 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item`（竖排卡片的壳：`.card-shell-media` / `.card-shell-body` / `.card-shell-actions` —— 收藏的媒体卡与素材库的角色卡共用这一副，页面只留自己的差异：图多高、怎么裁、字距多少；横排的任务卡走 `.task` 那一组） |
 | 按钮 | `.pri`（主） `.ghost`（次） `.tool`（磁贴） `.ui-linkbtn` |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
@@ -708,7 +708,13 @@ frame-ancestors 'none'; worker-src 'self' blob:
   （加出来的行不出现、眼睛与锁的状态永远不刷新）。
   眼睛「隐藏」**不收窄行高**：整条轨（或单行）变灰（压暗 + 去饱和），块还画在原行号与位置上，
   手势层用 `rowHidden` 拒绝编辑。轨道区超高时**纵向滚**且不显滚动条（`.tl-scroll`），
-  顶部把手（`.dock-grip`）像三栏拖宽一样拖动调高度（记本机 `dir_dock_h`）。
+  顶部把手用**公共件 `Wb.split` 的上下轴**（与左右栏同一套把手外观 / 悬停光标 / 双击复位 / 落盘，
+  键 `dir_dock`，高度落在 `.page-main` 的 `--dock-h`）—— 以前那根手写的 `.dock-grip` 已撤。
+- **剪辑针能拎着走**（剪辑软件里针是能拖的）：按住针头左右拖 = 把「剪在哪一秒」搬过去。
+  量尺子 / 折轴秒 / 写针**仍然只走放针那一个出口**（lanes 的 `pinAtX`），不许在拖动里再折一遍；
+  拖动**不换目标轨**（传当前那一轨：针搬的是「剪在哪」，不是「现在改画面还是改声音」）；
+  松手后紧跟的那一下 click 由 `pinDragged()` 作废（否则又会按「点到哪一格」把目标改掉）。
+  全片档的针**不拎**（那一档的针是「跳到这一秒」，拎它会跟跳转抢方向）。
 - 字幕行三个画点（右栏清单 / 本镜轨 / 全片轨）与两排拖动只有 `sub-lane.js` 一份：块体拖 = 挪出现
   （长度不变）、把手 = 改起止（0.1s 最短）、写盘只有 engine 的 `subWrite`。**两排两把尺子**：
   本镜块带 `data-src`（源秒，按框轴摆位）、全片块带 `data-axis`（框轴秒）；右栏起止输入按右栏自己的尺子

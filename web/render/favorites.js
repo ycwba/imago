@@ -36,13 +36,13 @@ const _hoisted_14 = {
 }
 const _hoisted_15 = ["data-key", "onDragstart", "onDragend"]
 const _hoisted_16 = ["onClick", "innerHTML"]
-const _hoisted_17 = { class: "body" }
+const _hoisted_17 = { class: "body card-shell-body" }
 const _hoisted_18 = ["onClick"]
 const _hoisted_19 = { class: "m" }
 const _hoisted_20 = ["innerHTML"]
 const _hoisted_21 = { class: "note" }
 const _hoisted_22 = ["value", "onInput", "onBlur", "onClick"]
-const _hoisted_23 = { class: "acts" }
+const _hoisted_23 = { class: "acts card-shell-actions" }
 const _hoisted_24 = ["title", "onClick"]
 const _hoisted_25 = ["disabled", "onClick"]
 const _hoisted_26 = ["onClick"]
@@ -109,7 +109,7 @@ export function render(_ctx, _cache) {
                 onDragend: $event => (_ctx.onCardDragEnd($event))
               }, [
                 _createElementVNode("div", {
-                  class: "thumb",
+                  class: "thumb card-shell-media",
                   onClick: $event => (_ctx.openLb(it)),
                   innerHTML: _ctx.thumbHtml(it)
                 }, null, 8 /* PROPS */, _hoisted_16),

@@ -2480,6 +2480,11 @@ const {
    同一立场，但那边是「选中 + 试听」在块自己的 handler 里，这边要挡的是 `.tl-bar` 上那个整排共用的放针点击）。 */
 let trackDragT = 0;
 const trackDragged = () => (Date.now() - trackDragT) < 350;
+/* 拖**剪辑针**的那一下：同样要在松手后作废紧随的 click ——
+   否则松手时网格那个 click 处理器会按「点到哪一格」再放一次针，还会顺手把目标轨换掉
+   （拖针搬的是「剪在哪」，不是「现在改画面还是改声音」）。 */
+let pinDragT = 0;
+const pinDragged = () => (Date.now() - pinDragT) < 350;
 /* 画面那一排的「一行有多高」（上下拖换行的换算）：不能写死 52 ——
    轨道收起时那一行是 18px，写死的话在收起的状态下拖一下会跳好几行。
    量的是**这一行自己的高度 + 父容器的行间距**；本镜（`.tl-vrow`）与全片（`.tl-film`）是同一种行，
@@ -2908,6 +2913,7 @@ function bindPinZone(grid, col, sh, pin) {
     if (e.target.closest('.cut') || e.target.closest('.vo-cut')) return;    // 把手：拖拽，不挪针
     if (e.target.closest('.sub-cut')) return;                               // 字幕两端的把手：同上
     if (trackDragged()) return;      // 刚把某一格拖去换行 / 换顺序：那不是「在这里放插针」
+    if (pinDragged()) return;       // 刚把剪辑针拎到别处：松手那一下 click 不再放一次针
     /* 别的镜上溢出进来的那一截：它自己的 handler 会把焦点跳到它那一镜（整栏重画），
        这里再按旧几何放一次针就是在跟那次跳转抢方向。 */
     if (e.target.closest('.tl-v.spill')) return;
@@ -2938,8 +2944,45 @@ function bindPinZone(grid, col, sh, pin) {
        点声音行都从这里过。自己在这里再折一遍，必然与待生成占位那一套漂开。 */
     pin(grid, col, sh, e.clientX, { lane: lane });
   };
+  /* 剪辑针**能拎着走**：按住针头左右拖 = 把「剪在哪一秒」搬过去（剪辑软件里针就是能拖的）。
+     量尺子、折轴秒 / 源秒、写针仍然只走 pinAtX 那一个出口（与点轨道放针同一份换算）——
+     自己在这里再折一遍，必然与点轨道那份漂开。
+     拖动**不换目标轨**：传当前那一轨（针搬的是「剪在哪」，不是「现在改画面还是改声音」）。
+     全片档的针不拎：那一档的针是「跳到这一秒」，拎它会跟跳转抢方向。 */
+  const onPinDown = e => {
+    const pinEl = e.target.closest && e.target.closest('.tl-pin');
+    if (!pinEl || (e.button != null && e.button !== 0)) return;
+    if ((proj.tlTab || 'shot') !== 'shot') return;
+    e.preventDefault(); e.stopPropagation();       // 别让这一下顺手把某一格拖去换行
+    const lane = proj.tlLane || 'voice';
+    const x0 = e.clientX;
+    let moved = false;
+    pinEl.classList.add('dragging');
+    document.body.classList.add('tl-pinning');
+    const move = ev => {
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;   // 3px 阈值：没真的拖就别算
+      moved = true;
+      pin(grid, col, sh, ev.clientX, { lane: lane });
+    };
+    const up = () => {
+      pinEl.classList.remove('dragging');
+      document.body.classList.remove('tl-pinning');
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (moved) pinDragT = Date.now();     // 只有真拖过才作废那一下 click
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
   grid.addEventListener('click', on);
-  grid.__pinOff = () => { grid.removeEventListener('click', on); grid.__pinOff = null; };
+  grid.addEventListener('pointerdown', onPinDown);
+  grid.__pinOff = () => {
+    grid.removeEventListener('click', on);
+    grid.removeEventListener('pointerdown', onPinDown);
+    grid.__pinOff = null;
+  };
 }
 /* 「剪辑界面正指着哪一段」换了之后的五处联动：格子高亮、入出点那一行、工具条那句提示、右栏落点说明。
    这五处在同一份数据上（proj.cutSeg / proj.cutAt），所以只需要一个出口，不存在「改了 A 忘了 B」。 */

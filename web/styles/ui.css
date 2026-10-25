@@ -38,6 +38,17 @@ body.wb-splitting-y * { user-select: none !important; }
 
 /* ---------- 展示样式切换（图标开关）+ 分页信息：资产库 / 我的收藏共用 ----------
    开关本体由 workbench.js 的 Wb.viewToggle 渲染（两处图标、记忆、切换逻辑一份实现）。 */
+/* ---------- 竖排卡片壳（一份）：缩略图 / 主体 / 动作区 ----------
+   收藏的媒体卡与素材库的角色卡是**同一副壳**（上面一块图、下面一块字、动作排在下面），
+   以前两页各写一遍几何（.thumb / .body / .acts 的排版）—— 壳归公共层，
+   页面只留自己的差异：图片多高、图怎么裁、字距多少、动作离正文多远。
+   资产库 / 生成工作台那张任务卡是**横排**的（缩略图在左），它自己那份公共壳在 .task 那一组。 */
+.card-shell-media { position: relative; height: var(--sz-thumb-h); background: var(--thumbbg);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: zoom-in; }
+.card-shell-media img, .card-shell-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-shell-body { padding: var(--sp-9) var(--sp-11) var(--sp-11); }
+.card-shell-actions { display: flex; gap: var(--sp-6); flex-wrap: wrap; align-items: center; }
+
 .viewtoggle { display: inline-flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--radius-6);
   background: var(--panel2); border: var(--hair) solid var(--line); }
 .viewtoggle button { width: 32px; height: 26px; display: inline-flex; align-items: center; justify-content: center;

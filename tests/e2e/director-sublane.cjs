@@ -52,10 +52,10 @@ const h = require('./harness.cjs');
       { projects: [project], curId: project.id, roles: [], ts: Date.now() });
     await page.goto(proxy.base + '/shell.html#director.html');
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
-    const readWhen = async (fn, timeout = 10000) => {
+    const readWhen = async (fn, timeout = 10000, ...args) => {
       const until = Date.now() + timeout;
       while (Date.now() < until) {
-        const v = await page.eval(fn);
+        const v = await page.eval(fn, ...args);
         if (v) return v;
         await new Promise(r => setTimeout(r, 100));
       }
@@ -613,6 +613,9 @@ const h = require('./harness.cjs');
           bl: Math.round(parseFloat(s.borderLeftWidth) || 0), br: Math.round(parseFloat(s.borderRightWidth) || 0) }; };
       const out = { miss, vars: { pic: gv('--tlh-pic'), voice: gv('--tlh-voice'), inset: gv('--tlh-inset') },
         rows: {}, blocks: {}, handles: {}, cursors: {} };
+      /* 剪辑针：能拎着走的那一根（剪辑软件里针是能拖的）—— 光标该是 ew-resize。 */
+      const pinEl = document.querySelector('#tlBar .tl-pin');
+      out.pinCursor = pinEl ? getComputedStyle(pinEl).cursor : '';
       /* 左列那一格轨名 ↔ 右列那一排轨道：同一档只从同一枚变量取高（错开一格 = 「这个名字指着哪一轨」是假话） */
       [['pic', '.tl-hrow.pic', '#tlBar .tl-vrow'], ['voice', '.tl-hrow.voice', '#tlBar .tl-lane'],
         ['pend', '.tl-hrow.pend', '#tlBar .tl-vp-lane'], ['sub', '.tl-hrow.sub', '#tlBar .tl-sub-lane']]
@@ -691,6 +694,7 @@ const h = require('./harness.cjs');
     Object.keys(uni.cursors).forEach(k => {
       if (uni.cursors[k] !== 'grab') throw new Error('块上的光标该是 grab（按下去拿起来挪）：' + JSON.stringify(uni.cursors));
     });
+    if (uni.pinCursor !== 'ew-resize') throw new Error('剪辑针该能拎着走（光标 ew-resize，不是 default）：' + uni.pinCursor);
     ['tl-seg', 'tl-v', 'tl-vp', 'tl-sub'].forEach(k => {
       if (!uni.active[k]) throw new Error('缺「攥着那一块时变 grabbing」那一档（.' + k + ':active）：' + JSON.stringify(uni.active));
     });
@@ -701,11 +705,34 @@ const h = require('./harness.cjs');
     });
     if (oldMask) throw new Error('框内那层灰遮挡已整个删掉，轨道上不该再有 .mask / .vo-off 节点：' + oldMask);
 
+    /* ⑫ 剪辑针**能拎着走**：按住针头拖到别处 → 针要跟着走，读数（#tlT0）一起变。
+       量尺子 / 折算仍走放针那一个出口（pinAtX），所以这一条盯的是「拖得动」与「拖完落点对」，
+       不另写一份换算。 */
+    const pinBefore = await page.eval(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      return p ? { left: parseFloat(p.style.left), t: (document.getElementById('tlT0') || {}).textContent || '' } : null;
+    });
+    if (!pinBefore) throw new Error('轨道上没有剪辑针（.tl-pin 没了）');
+    const pinDown = await down('#tlBar .tl-pin');
+    const pinIr = await innerRect();
+    const pinTx = pinIr.left + pinIr.width * 0.7;
+    await moveTo(pinTx, pinDown.y);
+    await up(pinTx, pinDown.y);
+    const pinAfter = await readWhen((before) => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      if (!p) return null;
+      const l = parseFloat(p.style.left);
+      const t = (document.getElementById('tlT0') || {}).textContent || '';
+      return Math.abs(l - before.left) > 5 ? { left: l, t } : null;
+    }, 8000, pinBefore);
+    if (!pinAfter) throw new Error('拖剪辑针没把针搬走（left 还在原地）：' + JSON.stringify(pinBefore));
+    if (pinAfter.t === pinBefore.t) throw new Error('拖针后读数该跟着走（#tlT0 没变）：' + JSON.stringify({ before: pinBefore, after: pinAfter }));
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
     const fl = h.logFaults(proxy.log);
     if (fl.length) throw new Error('代理日志有未声明异常：\n' + fl.join('\n'));
-    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输 · 点块 = 针落在点击处 · 字幕与待生成的跟手卡各是自己的那一张 · 落点刷新后还在 · 四轨同高同把手同光标且框内无遮挡');
+    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输 · 点块 = 针落在点击处 · 字幕与待生成的跟手卡各是自己的那一张 · 落点刷新后还在 · 四轨同高同把手同光标且框内无遮挡 · 剪辑针能拎着走（拖动落点 + 读数跟走）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     const errs = (page && page.errors || []).filter(Boolean).slice(0, 5);

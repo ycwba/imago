@@ -33,9 +33,9 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
    又插在 ui.css 之后，按源码顺序会把它盖回 grid —— 这里显式照抄那一条，让列表档真的是竖排。 */
 .chars-page .grid.view-list { display: flex; flex-direction: column; gap: var(--sp-10); }
 .chars-page .card { overflow: hidden; position: relative; display: flex; flex-direction: column; }
-.chars-page .card .thumb { height: 150px; background: var(--thumbbg); display: flex; align-items: center; justify-content: center;
-  overflow: hidden; cursor: zoom-in; position: relative; }
-.chars-page .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 缩略图那一格的壳在公共层（.card-shell-media）；这一页只留自己的差异：角色图比别处高一档。 */
+.chars-page .card .body { display: flex; flex-direction: column; gap: var(--sp-6); }
+.chars-page .card .thumb { height: 150px; }
 .chars-page .card .thumb .none { color: var(--sub); font-size: var(--fs-12); text-align: center; line-height: 1.6; padding: 0 var(--sp-10); }
 /* 报错盖在图上（卡面减法后错误原因不再单占一栏）：与「正在出」同一个位置，
    状态样式不新增第二套 —— .why 那套字色 / 间距照旧，只加一层覆盖定位。 */
@@ -44,7 +44,6 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 .chars-page .card .thumb .thumb-why .why { font-size: var(--fs-11); line-height: 1.45; color: var(--err); }
 /* 有预览图时这一格是「看大图」，没有时是「自己挑一张」—— 两种手感要看得出来 */
 .chars-page .card .thumb[data-a="pickface"] { cursor: copy; }
-.chars-page .card .body { padding: var(--sp-9) var(--sp-11) var(--sp-11); display: flex; flex-direction: column; gap: var(--sp-6); }
 .chars-page .card .nm { font-size: var(--fs-14); font-weight: 600; display: flex; align-items: center; gap: var(--sp-7); flex-wrap: wrap; }
 .chars-page .card .tags { display: flex; gap: var(--sp-6); flex-wrap: wrap; }
 .chars-page .card .bio { font-size: var(--fs-12-5); color: var(--sub); line-height: 1.55; }
@@ -70,7 +69,7 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 .chars-page .ui-inp[data-a="assetname"] { flex: 0 1 168px; }
 .chars-page .ui-inp[data-a="assetwhat"] { flex: 1 1 200px; }
 .chars-page .ui-asset .ui-inp[data-a="assetrename"] { flex: 0 1 168px; }
-.chars-page .card .acts { display: flex; gap: var(--sp-6); flex-wrap: wrap; margin-top: var(--sp-2); align-items: center; }
+.chars-page .card .acts { margin-top: var(--sp-2); }
 .chars-page .card .acts .sp { flex: 1; }   /* 编辑区那一行把「去掉参考音频」顶到行尾 */
 .chars-page .card .acts .tool { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }   /* .ghost 已收进 ui.css */
 /* 就地展开的编辑区（名字 / 类型 / 分组 / 描述 / 声音）——不弹新窗，改完即存 */

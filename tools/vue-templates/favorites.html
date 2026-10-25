@@ -17,15 +17,15 @@
         <div v-if="!viewItems.length" class="empty">{{ emptyWhy }}</div>
         <div v-for="it in pageItems" :key="it.key" class="card card-surface" draggable="true" :data-key="it.key"
           @dragstart="onCardDragStart($event, it)" @dragend="onCardDragEnd($event)">
-          <div class="thumb" @click="openLb(it)" v-html="thumbHtml(it)"></div>
-          <div class="body">
+          <div class="thumb card-shell-media" @click="openLb(it)" v-html="thumbHtml(it)"></div>
+          <div class="body card-shell-body">
             <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>
             <div class="m"><span v-html="badgeHtml(it)"></span>{{ metaOf(it) }}</div>
             <div class="note">
               <textarea :value="it.note || ''" rows="2" @input="onNote(it, $event)" @blur="flushNote(it)" @click.stop
                 placeholder="写备注：这条素材是干什么用的（搜索和 AI 都会用它）"></textarea>
             </div>
-            <div class="acts">
+            <div class="acts card-shell-actions">
               <button v-if="canReuse(it)" class="ghost" :title="'带着这条素材去' + reuseTabZh(it.type) + '那一栏'" @click.stop="reuse(it)">复用</button>
               <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
               <button class="ghost danger" @click.stop="dropItem(it)">移出收藏</button>
