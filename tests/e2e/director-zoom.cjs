@@ -241,6 +241,28 @@ const h = require('./harness.cjs');
     const fit2 = Math.max(12, (barW2.inner || barW2.bar) / 6);
     if (Math.abs(back.pos - posFor(fit2, MIN_SHOT)) > 1) throw new Error('回自适应后滑块该停回铺满档：' + back.pos + ' ≠ ' + posFor(fit2, MIN_SHOT));
 
+    /* ⑨ 缩放组里「自适应」只该出现**一次**（读数那处说的是状态）；
+       回自适应那颗钮写的是动作「铺满」—— 以前两者都写「自适应」，一排里出现两个一样的词（用户点名）。 */
+    const zoomWords = await page.eval(() => {
+      const z = document.querySelector('.tl-zoom');
+      if (!z) return null;
+      const txt = el => (el ? (el.textContent || '').trim() : '');
+      const all = [...z.querySelectorAll('*')].filter(el => txt(el) === '自适应').length;
+      return { all, val: txt(document.getElementById('tlZoomVal')), btn: txt(document.getElementById('tlZoomAuto')) };
+    });
+    if (!zoomWords) throw new Error('工具条里没有缩放那一组（.tl-zoom）');
+    if (zoomWords.all > 1) throw new Error('缩放组里「自适应」只该出现一次（读数那处）：' + JSON.stringify(zoomWords));
+    if (zoomWords.btn !== '铺满') throw new Error('回自适应那颗钮该写「铺满」（它写的是这个动作）：' + JSON.stringify(zoomWords));
+
+    /* ⑩ 「向左切 / 向右切」是一对，图标也得成对：右的那枚是左的镜像，不是剪刀。 */
+    const cutIcons = await page.eval(() => {
+      const l = document.querySelector('[data-cut="left"]'), r = document.querySelector('[data-cut="right"]');
+      return { l: l ? (l.getAttribute('data-ic') || '') : '', r: r ? (r.getAttribute('data-ic') || '') : '' };
+    });
+    if (cutIcons.l !== 'arrowLeft' || cutIcons.r !== 'arrowRight') {
+      throw new Error('向左切 / 向右切的图标该是一对镜像箭头：' + JSON.stringify(cutIcons));
+    }
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
     const fl = h.logFaults(proxy.log);

@@ -564,8 +564,8 @@ function tlDockToolsHTML() {
       <div class="tl-tools" id="tlTools">
         <button class="tool mini" data-cut="play" id="tlListen" hidden>${icon('play', 12)} 试听</button>
         <button class="tool mini" data-cut="split" title="在插针处把这一段切成两段">${icon('scissors', 13)} 切开</button>
-        <button class="tool mini" data-cut="left" title="丢掉插针左边的画面（这一段从插针开始）">${icon('arrowLeft', 13)} 向左切</button>
-        <button class="tool mini" data-cut="right" title="丢掉插针右边的画面（这一段到插针为止）">${icon('scissors', 13)} 向右切</button>
+        <button class="tool mini" data-cut="left" data-ic="arrowLeft" title="丢掉插针左边的画面（这一段从插针开始）">${icon('arrowLeft', 13)} 向左切</button>
+        <button class="tool mini" data-cut="right" data-ic="arrowRight" title="丢掉插针右边的画面（这一段到插针为止）">${icon('arrowRight', 13)} 向右切</button>
         <button class="tool mini danger" data-cut="drop" title="删掉插针所在的那一段（格子不消失，原地变黑场，后面的段不前移）">${icon('trash', 13)} 删掉</button>
         <button class="tool mini" data-cut="merge" title="把插针这一段与它旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）">${icon('link', 13)} 融合</button>
       </div>
@@ -578,7 +578,9 @@ function tlDockToolsHTML() {
         <input type="range" id="tlZoomRange" min="0" max="1000" step="1" value="0" aria-label="时间轴缩放（像素/秒，对数）" title="拖动无极调节像素/秒（对数刻度）">
         <button type="button" id="tlZoomIn" title="放大（看细节）">${icon('plus', 13)}</button>
         <span class="tl-zval" id="tlZoomVal">自适应</span>
-        <button type="button" id="tlZoomAuto" title="回到自适应" disabled>自适应</button>
+        <!-- 这颗钮写的是**动作**（铺满），不是状态：状态由左边那个读数说（「自适应」/ 多少 px/秒）。
+             以前读数与按钮都写「自适应」，一排里出现两个一样的词（用户点名）。 -->
+        <button type="button" id="tlZoomAuto" title="回到自适应" disabled>铺满</button>
       </span>
     </div>`;
 }
