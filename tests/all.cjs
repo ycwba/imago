@@ -197,6 +197,9 @@ run('tests/editing.cjs', process.execPath, ['tests/editing.cjs']);
 run('tests/local-first.cjs', process.execPath, ['tests/local-first.cjs']);
 /* 列表结果级短缓存：同参数 30 秒内第二次调用 0 次上游请求；续拉 / 数总数 / noCache 不吃缓存。 */
 run('tests/assetlib-cache.cjs', process.execPath, ['tests/assetlib-cache.cjs']);
+/* 本机条目删除路由与归属显示：localSelf 行直连 /local-assets（provider 注记 'local'/'本机' 不再当平台 id 查）；
+   解析不到平台的本机行显示「本机」（字幕残留 PNG 那一族「删不掉 / 挂语音平台名」的回归）。 */
+run('tests/asset-remove.cjs', process.execPath, ['tests/asset-remove.cjs']);
 run('tests/pull-scope.mjs', process.execPath, ['tests/pull-scope.mjs']);
 run('tests/relay-retry.cjs', process.execPath, ['tests/relay-retry.cjs']);
 /* 出站 keep-alive：复用只发生在同 host:port 的池里，建连仍过内网闸 —— 不通过就不启用。 */
@@ -218,6 +221,9 @@ run('tests/director-board.mjs', process.execPath, ['tests/director-board.mjs']);
 run('tests/director-split-assets.mjs', process.execPath, ['tests/director-split-assets.mjs']);
 /* 拆分镜的「新素材」：重复出现才建 / 名字对不上不建 / 占位符词法 / 建档落点。 */
 run('tests/director-board-assets.mjs', process.execPath, ['tests/director-board-assets.mjs']);
+/* 拆分镜 / 改分镜的「AI 反问」：Skill 与 DEF 逐字一致（快档）/ 回答是硬约束的契约 /
+   NO_ASK 不破 / askPolish 的 focus 拼装 / splitUI → renderSplitPanel 四处接线。 */
+run('tests/director-split-ask.mjs', process.execPath, ['tests/director-split-ask.mjs']);
 /* 项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 组名即素材组名。 */
 run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']);
 /* 发送前预览（dry-run）：预览与实发同源 / 不发网络请求 / 占位符 / 展示形状。 */
@@ -334,6 +340,9 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/director-slice.cjs', process.execPath, ['tests/e2e/director-slice.cjs'], { tier: 'browser' });
   run('tests/e2e/director-slice-perf.cjs', process.execPath, ['tests/e2e/director-slice-perf.cjs'], { tier: 'browser' });
   run('tests/e2e/director-lines.cjs', process.execPath, ['tests/e2e/director-lines.cjs'], { tier: 'browser' });
+  /* 审阅弹窗「按这句再改」（PromptReview.onFollow）：行随 onFollow 出现、snapshot 带手改、
+     就地流式 / 换清单 / 对话记录 / 失败退回、「重新规划」让路、平铺审阅同套。 */
+  run('tests/e2e/split-follow.cjs', process.execPath, ['tests/e2e/split-follow.cjs'], { tier: 'browser' });
   /* 新加配音落在目标时间窗没被占的那一行 / 全占就新开一行 / 12 行满时合成前拒绝（不发请求）。 */
   run('tests/e2e/director-voice-lane.cjs', process.execPath, ['tests/e2e/director-voice-lane.cjs'], { tier: 'browser' });
   /* 字幕与待生成的拖动（把手 / 挪插针）+ 右栏起止两把尺子 + 配音 / 画面入出行可输。 */
@@ -358,6 +367,18 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
      整行从未填过）。这一条盯「宿主登记 + 行可见 + 上一/下一页在」；翻页之后的行为
      由 favorites-pager 那一条盯（它点「下一页」看缩略图换页）。 */
   run('tests/e2e/pager-row.cjs', process.execPath, ['tests/e2e/pager-row.cjs'], { tier: 'browser' });
+  /* 滚动位：点一颗按钮不该把视口甩回最上面（用户报过「有的页面点击按钮等组件后视角会移动到页面最上方」）。
+     根因是「整片重画把滚动容器一起换掉了」—— 外壳那份保护（web/core/scroll-guard.js）罩住所有
+     innerHTML / outerHTML 的整片重画。这一条盯机制（造一只滚动容器重画它）与实景（导演台右栏）。 */
+  run('tests/e2e/scroll-guard.cjs', process.execPath, ['tests/e2e/scroll-guard.cjs'], { tier: 'browser' });
+  /* 代理 stdout 断了不许自旋：启动器窗口一关，管道就断；写日志 → 抛 EPIPE → 被「未捕获异常」
+     接住 → 又写日志 → 再抛一次，无限自旋（实测一个实例 1.6 小时烧掉 800 多秒 CPU，
+     端口在听却不回话）。它起隔离实例，不开 Chrome。 */
+  run('tests/e2e/proxy-stdout.cjs', process.execPath, ['tests/e2e/proxy-stdout.cjs'], { tier: 'browser' });
+  /* 「存回本机」只存**多选勾选的那几条**（工作台 / 资产库两页）：那颗按钮住在多选条里，
+     多选之后才出现；点下去只排勾选的那些。工作台的翻页行住在右栏顶上（搜索那一排下面）。
+     顺带盯「多选时勾选框看得见」—— 勾选框隐形的话，「存选中的」就是盲存。 */
+  run('tests/e2e/pull-selected.cjs', process.execPath, ['tests/e2e/pull-selected.cjs'], { tier: 'browser' });
   /* 资产库取数四档：首屏「取列表」请求数、后台计数不许重回第 1 页、
      同参数第二次 load 命中结果级短缓存、有缓存时选择器打开 ≤300ms。
      上游指到一个没人听的端口（判的是页面自己的取数轮次，不是平台通不通），并归零传输层重试。 */

@@ -104,7 +104,11 @@ const candSelected = (sh, c) => !!(c && sh && sh.selId === c.vid);
    导出合成按 `clips[].voices = [{ src, start, dur, vol }]` 取（start 相对该段起点；
    绝对偏移由那一段的 span 决定，调用方自己加会漂）。 */
 function voicesEnsure() { if (!Array.isArray(projOf().voices)) projOf().voices = []; return projOf().voices; }
-const shotVoices = (shotId, candId) => voicesEnsure().filter(v => v.shotId === shotId && (!candId || v.candId === candId));
+/* 读路径（画轨道 / 查某一句）用这一份：不建字段。voicesEnsure 只留给**要写**的入口
+   （合成落一句、删一句）—— 以前 shotVoices 也走它，桥上一次纯读 context() 就往工程里
+   塞一个 voices:[]，快照变了、下一次保存多压一步撤销还把空字段写进盘。 */
+const voicesRead = () => (Array.isArray(projOf().voices) ? projOf().voices : []);
+const shotVoices = (shotId, candId) => voicesRead().filter(v => v.shotId === shotId && (!candId || v.candId === candId));
 const clipVoiceKey = (shotId, candId, seg) => [shotId, candId, seg == null ? 0 : seg].join('|');
 /* 这一段该带上哪几句配音，以及有几句被这一剪挤到了段外面（**不静默丢**：计数交给状态行说）。
    「放不放得下」用的是**源秒**（这一格选区的长度），不是这一段在成片里占的秒数：
@@ -399,9 +403,12 @@ function applyCut(way) {
         let vmoved = 0;
         tg.voices.forEach(x => {
           const d = (Number(x.v.at) || 0);
+          /* fa/fb 按**旧 at**先求（voiceFrameOf 读 at 求框），再把落点平移到新段开头：
+             at 改成 0 之后才求，fr.fa 会被夹成 0，写出一个负的 fa —— 负 fa 被
+             voiceFrameOf 当坏数据重置，「把手往外拖能放回被切掉的那截」就成了假话。 */
+          const fr0 = voiceFrameOf(x.v);
           x.v.seg = x.toSeg; x.v.at = 0;
-          const fr = voiceFrameOf(x.v);
-          x.v.fa = round1(fr.fa - d); x.v.fb = round1(fr.fb - d);
+          x.v.fa = round1(fr0.fa - d); x.v.fb = round1(fr0.fb - d);
           vmoved++;
         });
         if (tg.line) linePointSet(sh, tg.line.toSeg, tg.line.toAt, newSegs);
@@ -423,7 +430,9 @@ function applyCut(way) {
     : way === 'left' ? '已把插针左边切掉'
     : way === 'right' ? '已把插针右边切掉'
     : way === 'drop' ? (r.back ? '已把这一段画面放回来'
-      : '这一段画面删掉了（格子还在原位，成片里出 ' + fmtDur(round1((newSegs[grayIdx] || {}).out || 0) - round1((newSegs[grayIdx] || {}).in || 0)) + ' 黑场，后面的段一个都不前移'
+      /* 黑场占的成片秒 = segFilmLen（选区 ÷ 倍速），与前后两句里的秒数同一把尺子：
+         以前这里写 out - in（源秒），同一句回执里「共 5 秒」「出 10 秒黑场」自相矛盾。 */
+      : '这一段画面删掉了（格子还在原位，成片里出 ' + fmtDur(segFilmLen(newSegs[grayIdx] || {})) + ' 黑场，后面的段一个都不前移'
         + (underGray ? '；压在这上面的 ' + underGray + ' 句配音照放，音轨上那几截已变色' : '') + '）')
     : way === 'merge' ? '已把这两段融合回一段'
     : '已取消裁剪';
@@ -880,7 +889,7 @@ const laneMute = k => {
 /* 整轨音量那个数的清单（**不按「此刻选中谁」筛**）：左列那枚滑块与右栏那枚「整轨音量」
    改的是同一批东西（段 / 句自己的 vol），但左列不看选中，右栏跟着手走。 */
 function trackVoiceScope() {
-  if ((projOf().tlTab || 'shot') === 'film') return voicesEnsure().filter(x => !!voiceFilmSpan(x));
+  if (isFilmMode()) return voicesEnsure().filter(x => !!voiceFilmSpan(x));
   const sh = curShot();
   if (!sh) return [];
   const c = cutCand();
@@ -951,7 +960,7 @@ function focusVoiceShot(v) {
 function voicePinLocal(v) {
   const sh = allShots().find(x => x.id === v.shotId);
   const c = sh ? (sh.candidates || []).find(x => x.vid === v.candId) : null;
-  if ((projOf().tlTab || 'shot') === 'film') {
+  if (isFilmMode()) {
     const tl = tlSyncFromShots(), G = filmFrames(tl);
     const r = G.rows.find(x => x.cl.kind === 'shot' && x.cl.shotId === v.shotId && x.cl.candId === v.candId
       && (Number(x.cl.seg) || 0) === (Number(v.seg) || 0));
@@ -1337,7 +1346,7 @@ function setVoiceSpd(spd) {
    （`trackEmptyWhy`）：压暗时写进 title、拖下去时打进回执，两处各写一遍迟早对不上。 */
 function trackSegTargets() {
   const out = [];
-  if ((projOf().tlTab || 'shot') === 'film') {
+  if (isFilmMode()) {
     const seen = new Set();
     tlSyncFromShots().clips.forEach(cl => {
       if (!cl || cl.kind !== 'shot') return;
@@ -1360,7 +1369,7 @@ function trackSegTargets() {
 /* 「这一排此刻没有可改的东西」那句原因只拼一份（画卡时压暗的 title 与函数入口的硬拒读的是它）。
    闸（锁 / 指着别的轨）与「没东西」是两类话，合成一句就会在解锁之后仍然说不通。 */
 function trackEmptyWhy(k) {
-  const film = (projOf().tlTab || 'shot') === 'film';
+  const film = isFilmMode();
   return k === 'voice'
     ? '这一排此刻没有可改的配音：' + (film ? '先在候选上点「用这条」，或到「插入语音」合成一句。'
       : '先点轨道上的一句声音块。')
@@ -1396,14 +1405,14 @@ function setTrackSpd(spd) {
   syncTlTools();
   const word = v > 1 ? '变窄' : v < 1 ? '变宽' : '复原';
   setStatus('<span class="ok">✓ 整条画面轨 ' + n + ' 段（' + list.length
-    + ((projOf().tlTab || 'shot') === 'film' ? ' 镜' : ' 条候选')
+    + (isFilmMode() ? ' 镜' : ' 条候选')
     + '）都设成 ' + spdTxt(v) + '：这一排的每一格一起' + word + '，源秒与入出点不动）</span>');
   filmEdited();
 }
 /* 配音那一侧的「整轨」：范围与画出来的块同一份判据（本镜 = `shotVoices`，全片 = 能算出 `voiceFilmSpan`
    的那几句 —— 挂在没被选用的候选上的孤句这一排根本不画，改它等于背着一句没说出口的话动手）。 */
 function trackVoiceTargets() {
-  if ((projOf().tlTab || 'shot') !== 'film') {
+  if (!isFilmMode()) {
     const v = tlVoiceHit();
     if (!v) return [];
     return shotVoices(v.shotId, v.candId);
@@ -1474,7 +1483,7 @@ function setTrackVol(vol, lane) {
   const pl = document.getElementById('player');
   if (pl && w) { try { pl.volume = Math.min(1, picVolOf(w.segs[w.i])); } catch (e) { /* 画面段音量设不上就按原音量继续，不中断 */ } }
   setStatus('<span class="ok">✓ 整条画面轨 ' + cnt + ' 段（' + list.length
-    + ((projOf().tlTab || 'shot') === 'film' ? ' 镜' : ' 条候选') + '）原声都设成 ' + pct
+    + (isFilmMode() ? ' 镜' : ' 条候选') + '）原声都设成 ' + pct
     + '（与上面那枚各调各的；'
     + (r > 1 ? '超过 100% 的部分只在合并成片时生效' : '进成片还要乘所在那一行的基数') + '）</span>');
   filmEdited();
@@ -1550,7 +1559,7 @@ function paintTlAdjust(v, seg) {
      不一致时滑块停在**第一个数**上，拖下去以它为起点是可预期的。
      title 里那句范围跟着页签现写 —— 「整条轨」在界面上就是**此刻这一排**，
      本镜与全片装的段数不是一回事，写死一句就是假话。 */
-  const filmTab = (projOf().tlTab || 'shot') === 'film';
+  const filmTab = isFilmMode();
   const scopePic = filmTab ? '每一镜选用那一条候选的所有段' : '这一条候选的所有段';
   const scopeVoice = filmTab ? '此刻进得了成片的所有句' : '这一条候选上的所有句';
   const SPD_OPTS = { def: 1, defRd: '×1', toSl: x => Math.round(x * 20) / 20, fmt: spdTxt };

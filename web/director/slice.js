@@ -55,7 +55,11 @@ export function sliceTimes(a, b, n, step) {
   const q = snapSliceStep(st);
   const out = [];
   for (let i = 0; i < k; i++) {
-    const x = Math.round(Math.max(lo, Math.min(hi - 0.02, Math.round((lo + st * i) / q) * q)) * 1000) / 1000;
+    /* 第一张钉在**这一段自己的第一帧**（lo 原样，只做 0.001 量化）——
+       以前它也走「就近栅格」，段起点不在栅格上时（lo=1.3、q=0.5）第一张显示的是
+       1.5 秒那一帧，与上面那句「第一张必须是这一段自己的第一帧」的承诺相反。 */
+    const raw = i === 0 ? lo : Math.round((lo + st * i) / q) * q;
+    const x = Math.round(Math.max(lo, Math.min(hi - 0.02, raw)) * 1000) / 1000;
     if (!out.length || out[out.length - 1] !== x) out.push(x);
   }
   return out;

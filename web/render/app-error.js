@@ -5,9 +5,15 @@ const _hoisted_1 = {
   class: "spa-frame-loading",
   style: {"color":"var(--err)"}
 }
+const _hoisted_2 = ["onClick"]
 
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
-    _createElementVNode("span", null, "这一页没有加载起来：" + _toDisplayString(_ctx.error && _ctx.error.message || _ctx.error), 1 /* TEXT */)
+    _createElementVNode("span", null, "这一页没有加载起来：" + _toDisplayString(_ctx.error && _ctx.error.message || _ctx.error), 1 /* TEXT */),
+    _createElementVNode("button", {
+      type: "button",
+      class: "ghost",
+      onClick: _ctx.retry
+    }, "重新加载本页", 8 /* PROPS */, _hoisted_2)
   ]))
 }

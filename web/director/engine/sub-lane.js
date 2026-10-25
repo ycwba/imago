@@ -226,8 +226,17 @@ export function createSubLane(E, document, window) {
      读数（title）与右栏输入框同一把尺子：已进成片 = 成片秒，没进 = 源秒。 */
   function subLaneHTML(sh, c, g, ax) {
     const cur = subCurrent(sh);
+    if (!cur.entries.length) return '';
+    /* 字幕的源秒挂在**选用候选**的时间轴上（数据层契约，subtitles.js 头注）。
+       正在查看的是另一条候选时，这一排的几何（c 的段）不是字幕的那把尺子：
+       按查看候选折算会整体漂，松手折回又用选用候选的几何 → 块跳位。
+       那一档只说一句「跟着谁」，不画块 —— 配音轨那行本来就是按候选各归各（v.candId），
+       字幕做不到按候选各归各，就照实不装懂。 */
+    const chosen = chosenCandOf(sh);
+    if (chosen && chosen !== c) {
+      return '<div class="tl-sub-lane"><div class="tl-empty">字幕跟着「选用」的那条候选：正在看的是另一条，字幕块不画（要在这条上配字幕，先点候选条里的「用这条」）</div></div>';
+    }
     const list = mapToShot(sh, cur.entries, { cand: c });
-    if (!list.length) return '';
     const G = g || shotFrames(segsOf(c, candDur(c, sh)));
     const shotAt = shotFilmAt(sh);
     return '<div class="tl-sub-lane">' + list.map((e, i) => {

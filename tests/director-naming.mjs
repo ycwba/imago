@@ -16,8 +16,11 @@ globalThis.window = {
 
 const ctx = { sceneIndex: 0, sceneName: '雨夜街头', shotIndex: 2, shotName: '推门' };
 assert.equal(sceneShotBase(ctx), '场景01-雨夜街头_镜头03-推门');
-assert.equal(candidateBase(ctx, 2), '场景01-雨夜街头_镜头03-推门', '不再加「候选N」后缀（撞名交给 uniqueName）');
-assert.equal(voiceBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '不再加「配音N」后缀');
+/* 第 2 条候选带「候选2」后缀（头注与 local.js 的口径一致：同镜多候选不再靠两套各自的 -2 编号）；
+   第 1 条保持干净。配音仍不加后缀。 */
+assert.equal(candidateBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '第 1 条候选不带后缀');
+assert.equal(candidateBase(ctx, 2), '场景01-雨夜街头_镜头03-推门_候选2', '第 2 条起带「候选N」后缀');
+assert.equal(voiceBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '不加「配音N」后缀');
 assert.equal(clipLabel(ctx, 1), '场景01 雨夜街头 · 镜头03 推门 · 片段1');
 assert.equal(sceneShotBase({ sceneIndex: 1, shotIndex: 0 }), '场景02_镜头01',
   '空名只留序号，不凭空造「未命名」');

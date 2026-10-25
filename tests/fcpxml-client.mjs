@@ -7,10 +7,12 @@ import assert from 'node:assert/strict';
 import { buildFCPXML, exportFCPXML } from '../web/director/fcpxml.js';
 
 let saved = null, status = '';
+/* path = 账里「相对库根的落点」（<类型子目录>\<规范名>.<ext>）：单文件 FCPXML 的 file://
+   绝对路径从它拼 —— 本机号 la_xxx 不是文件名（AGENTS §6.3：本体在 <库根>\视频\<规范名>.mp4）。 */
 const localFiles = {
-  '/asset/la_pic?dl=1': { id: 'la_pic', format: 'mp4', name: '场景01-雨夜街头_镜头01-推门_候选1.mp4' },
-  '/asset/la_voice?dl=1': { id: 'la_voice', format: 'wav', name: '场景01-雨夜街头_镜头01-推门_配音1.wav' },
-  '/asset/la_still?dl=1': { id: 'la_still', format: 'png', name: '封面.png' },
+  '/asset/la_pic?dl=1': { id: 'la_pic', format: 'mp4', name: '场景01-雨夜街头_镜头01-推门_候选1.mp4', path: '视频/场景01-雨夜街头_镜头01-推门_候选1.mp4' },
+  '/asset/la_voice?dl=1': { id: 'la_voice', format: 'wav', name: '场景01-雨夜街头_镜头01-推门_配音1.wav', path: '音频/场景01-雨夜街头_镜头01-推门_配音1.wav' },
+  '/asset/la_still?dl=1': { id: 'la_still', format: 'png', name: '封面.png', path: '图片/封面.png' },
 };
 const AssetLocal = {
   ready: async () => {},
@@ -110,9 +112,12 @@ const xml = await saved.blob.text();
 assert.ok(/<timeMap>/.test(xml), '倍速要写成 timeMap');
 assert.ok(/lane="-/.test(xml), '配音要挂在 lane 上');
 assert.ok(/<gap /.test(xml), '黑场要写成 gap');
-assert.ok(/file:\/\/\/C:\/work\/assets\/la_pic\.mp4/.test(xml), '单文件仍指向本机真实文件');
-assert.ok(/C:\/work\/assets\/la_voice\.wav/.test(xml), '配音也要走本机文件');
-assert.ok(/file:\/\/\/C:\/work\/assets\/la_still\.png/.test(xml), '图片也走本机真实文件（导出始终本机优先）');
+/* 真实落点 = <库根>\<类型>\<规范名>（localFileOf.path），不再是「库根/la_xxx.ext」那个不存在的地址。
+   file:// 里的中文经 encodeURI 是百分号编码 —— 对着解码回可读文本的那一份比。 */
+const plain = decodeURIComponent(xml);
+assert.ok(/file:\/\/\/C:\/work\/assets\/视频\/场景01-雨夜街头_镜头01-推门_候选1\.mp4/.test(plain), '单文件指向本机真实落点（类型子目录 + 规范名）');
+assert.ok(/C:\/work\/assets\/音频\/场景01-雨夜街头_镜头01-推门_配音1\.wav/.test(plain), '配音也要走本机文件');
+assert.ok(/file:\/\/\/C:\/work\/assets\/图片\/封面\.png/.test(plain), '图片也走本机真实文件（导出始终本机优先）');
 assert.ok(xml.includes('name="' + videoName + '"'), '单文件的 <asset name> 仍是同一个可读名');
 assert.ok(/<asset [^>]*name="封面\.png"[^>]*hasVideo="1"/.test(xml), '单文件里静态图的 asset 属性与媒体包一致');
 assert.ok(!xml.includes('src="media/'), '单文件不写相对 media/ 路径');

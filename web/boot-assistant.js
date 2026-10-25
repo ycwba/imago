@@ -24,7 +24,10 @@
        助手在任何一页都可能用到它们，而这一页未必声明了欠哪几份。名单**从路由表现取**
        （WB_ROUTES.needAll），不在这里抄第二份；认全局那一步也只有 routes.js 的 NEED_GLOBAL 一处。
        并发取（__spaNeeds 内部 Promise.all），与下面那条串行链互不排队。 */
-    window.__spaNeeds(window.WB_ROUTES && window.WB_ROUTES.needAll);
+    window.__spaNeeds(window.WB_ROUTES && window.WB_ROUTES.needAll).catch(function () {});
+    /* 上面那句不带 catch 的时候，四份 needs 里任意一份失败就是一条 unhandled rejection
+       （而且失败的那份脚本会被永久记住 —— 路由表那边已改成「失败不缓存」）。
+       助手的取数本来就各自带兜底，这里吞掉的只是「补载没成」这个事实本身。 */
     /* 一份一份装是既有行为：这层在空闲时段，不在首屏；chat.js 求值时要读 Wb / Chars /
        ExportFormats，排最后保证它起跑时前三份已在。 */
     files.reduce(function (p, f) {

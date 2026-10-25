@@ -184,8 +184,64 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        补的裸行没有 upstream / detail）时改指算不出键，镜像索引里指死的旧号按「名字 + 字节」
        接回当前账（healDeadPointers，两边各自唯一才接）；③ onMediaError 多一跳「记录已换活号」。
        AssetLocal 是镜像身份层，资产库 / 工作台 / 收藏的首屏取数都经它，没有第二个落点。
-       实跑 29 枚 / 820872 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 822000;
+       实跑 29 枚 / 820872 字节。
+     ·  +1.9KB（2026-10-25，左栏改成「满 232 / 窄 56」两个形态）：枚数不变，涨的是 `web/ui/sidebar.js` ——
+       ① 窄形态的六项各带一枚**两字短标签**（`.sh`，文案从 `web/core/routes.js` 的 `short` 字段来）——
+          收起之后也认得出，不靠悬停才知道这一项是什么；
+       ② 窄形态的压缩块多画一排「**每家一个状态点**」（实心 = 取到了、空心红 = 取不到），
+          56px 里放不下三个平台名，但放得下三个「各家怎么样了」；
+       ③ 满形态的余额卡从三行收成**两行**（名字 + 金额 / 冻结 + 单位）—— 同一栏高度里能多摆一家。
+       侧栏是**首屏同步脚本**（外壳一起加载），这三样都在它里面，挪不到按需去。
+       实跑 29 枚 / 822796 字节。
+     ·  +0.5KB（2026-10-25，引用标记里去掉内部号）：枚数不变，涨的是 `web/domain/asset-ref.cjs` ——
+       新增 `shortLabel()`：正文里那行标记只写「这是哪一条」（号与类型不进标记），
+       号留给悬停浮层与发给模型的那份清单。它必须与 `label()` 在**同一份**里 ——
+       两者都读拖动载荷那份记录，而 dragstart 是同步事件，等拖起来再补载已经晚了
+       （理由见上面 2026-10-22 那条），所以只能常驻在同一枚里。
+       实跑 29 枚 / 823624 字节（这一笔里也含着另一处正在改首屏那几份的工作，按同一口径记账）。
+     ·  +6.8KB（2026-10-25，路由/供应商审计修复）：枚数不变，涨的是 `web/app.js`、`web/core/routes.js`、
+       `web/domain/api.js`、`web/ui/sidebar.js` 与 `web/render/app-error.js` ——
+       ① 空 hash 落「上次页」+ hash 里多余 `#` 只取路由本体（app.js 的 parse 重写）；
+       ② 按需脚本失败不再永久缓存（routes.js 的 pending 失败删键 + 旧标签分支清定时器）；
+       ③ 页面失败块给「重新加载本页」按钮（app-error 模板 + ViewError.setup）；
+       ④ createBody 按型号能力校验取值集合 / 模板族 topBools 过 fieldState（api.js）；
+       ⑤ 侧栏设置入口读路由表 label/short（sidebar.js）。这些都在外壳与取数底座上，没有按需的落点。
+       实跑 29 枚 / 830572 字节。
+     ·  +0.8KB（2026-10-25，「已丢失」角标不许铺满整屏）：枚数不变，涨的是 `web/domain/local.js` ——
+       角标是 `position:absolute; inset:0`，铺开的是「最近的定位祖先」：素材库检查器那格大图、
+       详情层候选排那一格都不是定位容器，于是一张图挂了就变成「点一下素材卡整屏一块已丢失」。
+       现在角标按图自己的盒子定位（父容器补定位 + 量出图那一格），另加一档小格的紧凑写法。
+       这一笔里也含着另一处正在改首屏那几份的工作，按同一口径记账。
+       实跑 29 枚 / 839397 字节。
+    ·  +0.8KB（2026-10-25，收藏页「上传本地文件」入口加回来）：枚数不变，涨的是 `web/domain/fav.js` ——
+      `addLocalFile` / `typeOfName` / `idbPut` 三件恢复（上传的本体进 IndexedDB，键仍由 Kv.at('fav') 管）。
+      fav.js 是首屏常驻的取数底座：收藏页工具行那颗「上传本地文件」按钮与「拖文件进窗口」都落在它上面，
+      补载那一下会卡在「点上传」的正中间（拖拽更是同步事件），所以只能常驻在同一枚里。
+      实跑 29 枚 / 840222 字节。
+     ·  +1.6KB（2026-10-25，本机条目删不掉 + 归属挂错名字）：枚数不变，涨的是 `web/domain/assetlib.js` ——
+       ① remove() 给「条目即本机资产」的行（localSelf）直连 DELETE /local-assets：索引里 provider 只是
+          「谁生成的」注记（语音产物写平台 id，导入 / 盘上补账写「本机」/ 'local'），以前当平台 id 查注册表，
+          'local' /「本机」查不到任何一家，这批卡（老版字幕烧录落下的 subtitle-*.png、导入的视频、
+          盘上对账补的账）的删除键一点就抛「找不到平台」，永远删不掉；
+       ② 归属显示：provider 注记解析不到平台时写「本机」，不再挂来源那家语音平台的 displayName
+          （用户点名「字幕以图片形式出现、供应商显示的是语音的供应商」）。
+       assetlib.js 是首屏常驻的列表归一层（资产库 / 工作台 / 收藏的取数都经它），判据 tests/asset-remove.cjs。
+       实跑 29 枚 / 841788 字节。
+     ·  +0.4KB（2026-10-25，「点一颗按钮，视角跳回最上面」修掉）：枚数不变，涨的是 `web/app.js` ——
+       外壳装一份 `web/core/scroll-guard.js`（import + 一行 install + 那段说明注释）。
+       新的那一份**不在首屏同步脚本里**：它是 ESM，由 app.js 静态 import 走模块图，
+       不占 `<script>` 枚数（所以这里只记 app.js 那几行）。
+       它不能按需：整片重画（`innerHTML`）随时都在发生，等它按需补载的那一下，
+       第一批重画已经把滚动位吃掉了（那一族毛病正是「点一颗与滚动无关的按钮，视口被甩回顶」）。
+       实跑 29 枚 / 842180 字节。
+    ·  +0.9KB（2026-10-25，收藏动作下沉到 domain 层）：枚数不变，涨的是 `web/domain/fav.js` ——
+      新增 `isEntry` / `addEntry` / `removeEntry` / `toggleEntry` 四个入口：
+      「把一条产物收进 / 拿出收藏」这一件事**只有这一份实现**（身份 = assetKey，
+      收藏项 = fromEntry），页面只给「这一条能不能收」与「按钮长什么样」。
+      卡面上那颗 ★ 与三页批量条上的「收藏 / 取消收藏」都走它。
+      fav.js 是首屏常驻的取数底座（收藏是全站共用的数据层），挪不到按需去。
+      实跑 29 枚 / 843038 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 843038;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

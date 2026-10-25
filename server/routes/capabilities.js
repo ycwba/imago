@@ -4,6 +4,10 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+/* 型号清单响应「数组落在哪个字段」只认顶层 modelList.fields 那一份声明：
+   以前这里自己抄了一张（data / models / 数组），回 {result:[…]} / {items:[…]} 的平台
+   设置页「获取型号列表」拉得到、这里却回空清单 —— 同一家、同一个接口，两处两个结论。 */
+const { modelRowsOf, REGISTRY } = require('../registry-config.js');
 
 function createCapabilities(opts) {
   const dataDirPath = opts.dataDirPath;
@@ -124,7 +128,7 @@ async function capFetchPayload(prov, endpoint, apiKey) {
       return { ...base, source: 'registry', models: {}, note: '上游能力接口返回 ' + r.status + '（按平台声明兜底）' };
     }
     const j = JSON.parse(r.body.toString('utf8'));
-    const list = j.data || j.models || (Array.isArray(j) ? j : []);
+    const list = modelRowsOf(REGISTRY, j);
     const models = {};
     list.forEach(m => { if (m && m.id) models[m.id] = m; });
     if (!Object.keys(models).length) {
@@ -153,7 +157,9 @@ async function handleCapabilities(req, res, urlObj) {
     res.end(JSON.stringify(payload));
     return true;
   };
-  const cacheKey = prov.base + '|' + endpoint;
+  /* 缓存键带 provider id：同 base 同端点的两家（历史上 sparkcine 两家就同过）不该共用一份
+     「声明为 A 家取回的清单」—— 客户端现在不读 provider 字段，一读就串。 */
+  const cacheKey = prov.id + '|' + prov.base + '|' + endpoint;
   let capResolve = null;
   if (endpoint && !noCache) {
     const hit = capCache.get(cacheKey);

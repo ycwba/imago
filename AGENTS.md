@@ -63,7 +63,7 @@
 │  ├─ app.js                    Vue 外壳：hash 路由 + KeepAlive 页面池 + 生命周期
 │  ├─ shell-boot.js             主题与“在外壳里”旗标（外部脚本，避免内联脚本）
 │  ├─ boot-assistant.js         空闲时加载 AI 助手（`ai_chat_off` 命中就整个不下载）
-│  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
+│  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report / scroll-guard
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 web/director/index.js）
 │  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
 │  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output；成片与素材都走它）
@@ -89,6 +89,17 @@
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
 ├─ design/skill-settings/       设计稿（设置页 Skill 卡那一版：场景轨 + 场景详情）。
 │                               纯静态、不进运行时；决策记录见其中的 DESIGN.md
+├─ design/settings-layout/      设计稿（设置页整体重排那一版：目录轨 + 连续文档）。
+│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
+│                               已于 2026-10-25 落到真品（§3.4.3 的「两栏两滚」）
+├─ design/assets-layout/        设计稿（资产库重排那一版：在制台 + 问题台 + 按天分槽的片墙）。
+│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md
+├─ design/materials-layout/    设计稿（素材库页三栏那一版：目录轨 + 素材台 + 检查器）。
+│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
+│                               已于 2026-10-25 落到真品
+├─ design/materials-detail/    设计稿（新建 / 编辑一条素材那一版：整屏层 + 每个生成位自带型号与数量）。
+│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
+│                               已于 2026-10-25 落到真品
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
@@ -198,6 +209,14 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | --- | --- | --- | --- |
 | `.page-shell` | 素材库 / 资产库 / 收藏 / 用量 / 设置 | 页头 + 留白 + 整页滚动 | `web/styles/ui.css` |
 | `.wb` | 生成工作台 | 左栏写、右栏看，两栏各自滚动 + 生成按钮 + 状态行 | `web/styles/wb.css` |
+| `.sidebar` | 全站（外壳层，不在页面里） | **满 232px / 窄 56px 两个形态**，收/展的开关是左上角那块品牌砖 | `web/styles/sidebar.css` |
+
+- **侧栏只有两个形态**（2026-10-25 收口，详见 §11.1）：满 232px（图标 + 完整名字 + 「此刻」卡）与
+  窄 56px（图标 + **两字短标签**，认得出、不靠悬停）。收/展的开关是**左上角那块品牌砖** ——
+  侧栏里**没有第二样收展标识**（不画箭头、不画拉片：品牌块是品牌，不是控件；箭头在两个形态里
+  指向相反，看着像两件不同的事）。两态共用同一套垂直节奏（顶行 58 / 导航行 42 / 底部行 36），
+  收展开时侧栏里没有任何东西上下跳。栏宽只有 `--sbw`（56）与 `--sbw-full`（232）两枚令牌，
+  消费方（`#app` / 悬浮球 / 灯箱）都读它们，**不许再写死像素**。
 
 - **外壳只有这一份**（2026-10 收口）：`.page-shell` 给全站普通页 —— 定位（`position:absolute; inset:0`）、
   滚动（整页滚）、盒模型（`box-sizing`）与留白都在它身上；以前六个页面各抄了一遍前四项，
@@ -208,19 +227,33 @@ frame-ancestors 'none'; worker-src 'self' blob:
   且**必须挂在该页根类下**（`.chars-page .card`）；**不许**在页面补丁里顶层定义公共类（判据 G20）。
 - **卡片列宽只有两档**：`--sz-card`（268px）与 `--sz-card-sm`（200px，紧凑视图 / 窄窗）。
   以前四页各写各的（268 / 220 / 200 / 180 / 150），切页时卡片密度忽宽忽窄。
-- **翻页行只有一处**：页面**底部**（收藏 / 素材库 / 资产库 / 生成工作台同一处）。
+- **翻页行一处一套，位置按外壳分**：普通页（收藏 / 素材库 / 资产库）在页面**底部**；
+  **生成工作台在右栏的上方**（搜索那一排下面、结果区上面）—— 工作台是「两栏各自滚」，
+  右栏自己滚，页底那一行要滚到最下面才看得见，翻页放在那儿等于没有。
   以前资产库把它塞在顶部筛选行里、工作台塞在右栏头那一排按钮中间 —— 切页要重新找位置。
   判据 `tests/e2e/pager-row.cjs` 盯「四页的翻页行都画出来」。
 - 页面根元素统一是 `class="page-main <id>-page <外壳类>"`：`.page-main` 与 `<id>-page` 由路由表的
   `root` 带着，工作台页额外挂 `.wb`。
 - **断点**：媒体查询里**不能**用 CSS 变量（`var()` 在 `@media` 里不成立），所以断点只能靠
-  「登记 + 判据 G22」防漂移。当前登记的 12 档：520 / 620 / 700 / 720 / 760 / 820 / 900 / 960 /
-  1100 / 1180 / 1200 / 1280 —— 偏多，布局重构那轮再收成 3–5 档。
-- **吸顶栏的吸附边 = 滚动容器的内容边**：滚动容器（`.page-shell`）自己带 `padding-top` 时，
-  `position: sticky` 的顶栏会停在那条留白下面，就是「下滑后顶上没有贴住、上面空一截」。
-  要做吸顶栏就把页面根的 `padding-top` 归 0、那份留白挪进内容层（设置页放 `.set-wrap`），
-  首屏留白照旧要有。判据 `tests/e2e/settings-nav.cjs` 直接量下滑后顶栏与容器顶的缝，
-  并用 `elementFromPoint` 摸那一行是不是顶栏本身。
+  「登记 + 判据 G22」防漂移。当前登记的 11 档：520 / 620 / 700 / 720 / 760 / 820 / 900 / 960 /
+  1100 / 1180 / 1200 —— 偏多，布局重构那轮再收成 3–5 档。
+- **设置页是第三种外壳**（2026-10-25 重排）：**两栏两滚** —— 左边是目录轨（索引），
+  右边是 15 张卡排成的一条**连续文档**；**页面自己不滚**，目录轨与那条文档各滚各的
+  （与 `.wb` 工作台同一套做法）。因此：
+  · 滚动的**唯一出口**是 `scrollToEl`（`web/pages/settings.js`）：它给**钉住的组标题**让出高度
+    （`--setanchor`，组标题多高就让多少，由 JS 量出来写进 CSS 变量），并在落定后补校正；
+    这一页不许有第二处裸 `scrollIntoView`（判据 `tests/e2e/settings-nav.cjs` 直接数源码）。
+  · 目录轨与那份文档的**组名 / 栏目标题全部从 DOM 现读**（`.set-group[data-group]` 与
+    `.card[data-nav]`），JS 里不许有第二份清单；轨上每行的**当前值**现读同一份真相
+    （`UI_PREFS` / `PAGE_TARGETS` / `Net.NUMS` / `SET_ROWS` / 注册表 / `asr` / `search` / 体检与用量），
+    不另存一份状态 —— 另存一份就会与卡里画着的那一项各说各话。
+  · 轨上一共 **15 行**：**一张卡一行**。「语音识别」「联网搜索」是供应商那张卡里的两档
+    （与图片 / 视频 / 语音 / 文字同一层级），轨上**不另占行** —— 轨索引的是「卡」，
+    卡里的档位不重复列一遍（重复列 = 轨与卡变成两份清单）。
+  · **滚动定位**：右栏滚到哪一栏，轨上那一行就亮；点轨上一行 → 右栏平滑滚到那一栏
+    （当场就亮，落定不回跳；折叠组里的那一栏先展开，**展开不写盘**）。
+  · 这一页**没有「保存」按钮**，所以「改完就存本机 · 刚刚存过」那句回执必须在**状态行**里
+    （`.set-save`），不能没有。
 - 同一条 flex 列里两块抢高度（侧栏导航 vs 余额区），**只许有一处** `flex-shrink` + `overflow-y:auto`
   当兜底；把「可缩可滚」那份额度换给另一块时，另一处的兜底要显式 revert 回来，而且 revert
   必须跟着「这一档到底画不画这一块」走。落到侧栏那两档的写法见 §11.1。
@@ -254,6 +287,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 角色 | 公共类 |
 | --- | --- |
 | 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item`（竖排卡片的壳：`.card-shell-media` / `.card-shell-body` / `.card-shell-actions` —— 收藏的媒体卡与素材库的角色卡共用这一副，页面只留自己的差异：图多高、怎么裁、字距多少；横排的任务卡走 `.task` 那一组） |
+| 卡片公共件（状态牌 / 就地展开 / 账条 / 诊断块 / 展开带子） | `.plate`（+ `.plate--*`） `.exp` `.led` `.why` `.diag` `.exp-acts` `.band`（+ `.band-tether`）—— **资产库与收藏页共用同一副**（`web/styles/ui.css`）；接线是 `Wb.expand` / `Wb.close` / `Wb.closeAll` / `Wb.anchor`（`web/ui/workbench.js`）。**展开不许另起一层**（右检 / 抽屉 / 浮层都不算）：在原界面里把那张卡自己打开 |
 | 按钮 | `.pri`（主） `.ghost`（次） `.tool`（磁贴） `.ui-linkbtn` |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
@@ -278,6 +312,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 所有可交互元素至少覆盖 `hover` / `focus-visible` / `active` / `disabled` / busy；
   `ui.css` 末尾有一份全站兜底，页面不要重复写同一份焦点样式。
+- **程序性 focus 不许抢视口**：拿 `focus()` 只是为了「把光标续上」时一律带
+  `{ preventScroll: true }`（`web/ui/workbench.js` 的焦点锚恢复就是这一处）——
+  不带的话浏览器会把那一格滚进视野，用户明明在看别处，视角却被拽走。
+  真要「把某处滚过来」，走滚动那一族（设置页的 `scrollToEl`），别拿 focus 当滚动用。
 
 #### 3.4.6 验证：四把尺子
 
@@ -335,6 +373,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 新写探针先用 `GET /` 收下 `Set-Cookie` 再打本机路由（样板见 `tests/e2e/harness.cjs`）。
 - relay 前缀与 `/asset/<id>` 也只接受同源请求（跨站 403）；relay 前缀从
   `REGISTRY.providers[].relay` 现取，不要手写。
+- **relay 前缀一家一段**（2026-10-25 起，v19）：转发、转发闸、create 判定都按前缀认家，
+  前缀挂了不等价的几家，第二家的请求与密钥就会打到第一家的 base 上（v19 以前八家文字 AI
+  共用 `/textai`，非 DeepSeek 的密钥被原样发给 api.deepseek.com）。同一段前缀只允许
+  **base / keyEnv / endpoints 完全一致**的等价声明共用（sparkcine 两家），判据在
+  `server/providers/validate.js`（tests/providers-validate.cjs 盯着）。
 
 ### 4.3 出站护栏
 
@@ -394,9 +437,12 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 内置平台也要先“添加一次”才进「供应商与密钥」卡；用官方地址添加自己是正常路径。
 - 类型档：`image / video / audio / text`；文字 AI 的供应方、密钥、地址、型号、识图开关
   都在「文字」档里，一家一张卡。类型名与顺序只有 `ui.js` 的 `provKindZh` / `provKinds` 一份。
-- 「供应商与密钥」这一张卡的分档里还有 `asr`（语音识别）与 `search`（联网搜索）两档：
-  它们不是平台供应商，而是同一层级的两种接法，表单由设置页持有、设置存服务端 `.data/asr.json` /
-  `.data/search.json`；两档的容器 id 仍是 `#asrCard` / `#searchCard`。
+- **语音识别**（`asr`）与**联网搜索**（`search`）与四类平台**同一层级**，但不是一类平台 ——
+  是另外两种接法：表单由设置页持有、设置存服务端 `.data/asr.json` / `.data/search.json`；
+  容器 id 仍是 `#asrCard` / `#searchCard`。
+  ⚠ 它们是「供应商与密钥」那张卡的**第 5、6 档**（`VIRTUAL_TABS`：图片 / 视频 / 语音 / 文字 之后），
+  **不是另两张卡** —— 产品自己的文案就是这么写的：「最后两档不是供应商：语音识别与联网搜索和它们同一层级，
+  各自一份设置」。左侧目录轨只索引「卡」，这两档在轨上**不另占行**。
 - 显示名按「类型 + 编号」预填；同名会让型号下拉分组与收藏筛选项分不开。
 - 自定义条目没有环境密钥回退，也不认 `x-up-base`（防止把 A 的密钥发到 B）。
 
@@ -465,6 +511,13 @@ frame-ancestors 'none'; worker-src 'self' blob:
   不受「自动存本机」开关管；开关只管要不要为新产物建镜像记录。
 - 过期签名外链由公共层负责：`Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc`；
   页面不许自己判过期，也不许拿 assetId 拼 `/asset/<id>`。
+- **「已丢失」角标只许盖住它自己那一张图**（`web/domain/local.js` 的 `lostTip`）：
+  `.lost-tip` 是 `position:absolute; inset:0`，铺开的是**最近的定位祖先** ——
+  灯箱的舞台、检查器那格大图、详情层候选排那一格都不是定位容器，
+  不管就变成「点一下素材卡，整屏一块已丢失」（角标 1384×900，用户只看到一句没头没尾的话）。
+  所以角标按图**自己的盒子**定位；媒体槽也该自己定位（`.timg, .thumb, .sthumb-wrap` 已经这么写，
+  页面自己的槽照着补 `position: relative`）。判据 `tests/e2e/ui-contract.cjs`：
+  角标不许比它那一格更大。
 - 读写链路的判据：`tests/e2e/local-chain.cjs`（新默认根下的落点 / 双身份 / 改名挪目录认回 /
   重复下载并成一张卡 / 删一张卡带走 altPaths / 磁盘对账只补一次）。它不开 Chrome，只起隔离实例，
   并且每一条都点名 `.*-probe` 假根，跑完自己清干净。
@@ -508,6 +561,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 弹窗 / 确认 | `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | 页面尺寸 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS` |
+| 侧栏（导航项与它们的文案） | `web/core/routes.js` 的 `WB_ROUTES.pages`：每一页一行，`label` 是全名（满形态显示、悬停名牌念它、读屏 `aria-label` 用它），`short` 是**两字短标签**（窄形态压在图标下面）—— **侧栏不许另抄一份**（改了页面名忘了改短标签，侧栏上就出现两个名字） |
 | 可拖动分栏 | `Wb.split.enable`（把手 DOM 与落盘都在这一份；工作台两栏与导演台三栏共用，键分别是 `wb_split` / `dir_split`；`axis:'y'` 是**上下**那条 —— 导演台底栏轨道坞走它，键 `dir_dock`，高度落在 `.page-main` 的 `--dock-h`） |
 | 批量下载 | `Wb.downloadList`（资产库 / 生成工作台共用一份：逐条下载 + 进度 + 成功失败计数） |
 | 多选 | `Wb.multi`（资产库 / 生成工作台共用一份：勾选集合 + 全选/取消全选 + 批量条那三处读数；页面只给 `keyOf` / `visible` / `onChange` / `mode`） |
@@ -551,6 +605,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 导演台的变量填料 | `web/director/board-vars.js` 的 `castOf` / `assetsOf` / `vars`（角色表 / 选中素材 / 现有分镜 / 时长区间） |
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
 | Skill 的使用场景（设置页一级菜单） | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES`（分组 + 场景；场景名与「用在哪」沿用 `PROMPTS`，变量说明在 `SKILL_VARS`，三处同源不许各抄一份） |
+| 设置页的目录轨（组 / 栏 / 当前值） | `web/pages/settings.js` 的 `groupEls` / `cardsOf` / `navTitleOf` / `NAV_VALUE`（**全部从 DOM 现读**：组名读 `.set-group[data-group]`，栏目标题读 `.card[data-nav]`，当前值读 `UI_PREFS` / `PAGE_TARGETS` / `Net.NUMS` / `SET_ROWS` / 注册表 / 体检与用量 —— JS 里不许有第二份清单，也不许另存一份状态；轨上一行 = 一张卡，**卡里的档位不另占行**） |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf` |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
@@ -562,6 +617,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单，判据 `tests/settings-schema.cjs`） |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码，不各写一套判据） |
 | 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（`fatal` / `warn` → `POST /client-error` → 代理健康账） |
+| 视口不许被重画甩回顶 | `web/core/scroll-guard.js` 的 `installScrollGuard`（外壳一份；罩住所有 `innerHTML` / `outerHTML` 的整片重画，把里面滚动容器的位置放回去 —— **「点一颗按钮，视角跳到最上面」就是这一族**；判据 `tests/e2e/scroll-guard.cjs`） |
 | 本机索引写入口 | `server/index-store.js` 的 `update(fn)` 串行队列 + `putInto` / `dropFrom`（跨 await 的读-改-写只能走这一处） |
 | 一行素材的身份键 | `AssetLib.entryKey`（页面与缓存）；裸工作台任务记录用 `Wb.taskKey` |
 
@@ -618,7 +674,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - `sub-lane.js`：字幕的三个画点（右栏清单 / 本镜轨 / 全片轨）与两排字幕拖动（块体 + 左右把手）、
     右栏起止精确输入 `subSetTime`（成片秒 ↔ 源秒唯一折算口）；本镜块带 `data-src`（源秒）、
     全片块带 `data-axis`（框轴秒），写盘只有一个出口 engine 的 `subWrite`
-  - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）
+  - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）；
+    拆分镜 / 改稿**前**的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 +
+    `renderSplitPanel` 重画钩子，宿主与润色面板同为 `#polishInline`）
   - `export.js`：成片指纹、导出成片（**浏览器内合成**，`MediaExport`）、FCPXML / 媒体包与
     送到剪映 / 达芬奇（`Export.resolve` / `Export.jianying` / 助手分派走 `Export.nle({app, silent})`，
     silent 不弹结果弹窗）；服务端没有渲染任务账
@@ -683,16 +741,28 @@ frame-ancestors 'none'; worker-src 'self' blob:
   宿主是坞不是中栏）。
 - 导演台**四块的分工**（2026-10 用户点名「左右栏功能区分」后重划）：
   · **左栏 = 在哪一镜 + 项目级动作**：分镜列表两态都在（剪的时候也要能换镜），
+    **剪辑态那份列表只列「已选用的候选」镜头**（判据 `shotReady`：这一镜选的那条已经出画面，
+    也就是它进了成片的那一份账；没选用的那一镜在剪辑态不画，空场景整个不画；生成态照旧列全部镜头），
     表头住着「剧本 / 拆分镜 / 导入」三颗项目级动作（「导入视频 / 素材」全站只剩这一处入口 ——
-    以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口）；剪辑态左栏**底部**多一块折叠的
+    以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口）；**剪辑态不画生成态那几颗**
+    （剧本 / 拆分镜 / 加一个场景 / 生成全部分镜 / 场景图 / 新建镜头 / 删除场景 /
+    镜头行的抓手·复制·删除 —— 剪辑态左栏答的是「这一镜剪到哪了」，
+    不是「下一批生成什么」；「导入」是项目级动作，留着。
+    这几颗是**不画**（不是画了藏起来）：处理器跟着一起不绑，画出来却点不动是最坏的一种）；
+    剪辑态左栏**底部**多一块折叠的
     「历史编辑记录」（原生 `details`，读撤销栈本身：`undoStack` + `undoLabels`/`undoTimes`），
     以前它占掉左栏整列，剪的时候连分镜列表都看不见。
   · **中栏 = 看片**：播放器 + 候选条 + 顺序条；它是**唯一不套卡片外框**的一栏（两侧是编辑器，
     中间是看片台，三栏同底同边同角的时候得靠猜哪一栏是什么）。
   · **右栏 = 这一镜的属性**：生成态是「怎么生成」（提示词 / 槽位 / 参数 + 钉底动作行），
-    剪辑态是「这一镜在轨道上的属性」（五档：这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕），
+    剪辑态是「这一镜在轨道上的属性」（六档：这一段画面 / 这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕），
     **档位条常驻**（指着画面段时那排也留着，「这一段画面」那枚亮着 —— 整排藏掉之后右栏就没有导航了）。
   · **底栏 = 剪什么**：轨道坞，铺满页宽，高度由公共件拖出来（`--dock-h`），拖它真的把上面三栏顶矮。
+- **剪辑态左栏点一行**（用户点名）：**本镜档** = 切到那一镜（针落到那一镜自己那一秒，
+  走 `setPin` —— 针的唯一写入口）；**全片档** = 剪辑针跳到那一镜在成片里的对应位置
+  （走 `filmApplyAt` —— 焦点 / 针 / 播放器 / 那句报数都归它管）。
+  两处都不自己折算秒数：成片秒与源秒是两把尺子，各有各的折算口（`filmFrames` / `shotPinT`），
+  在这里再写一份就是第二本账 —— 针与格子迟早对不上。
 - 「顺序 / 剪辑」是**一枚分段开关**（公共 `.ui-seg`，选中态类名 `on`），住在中栏顶上 ——
   它切的是这一屏的两种形态，不是两颗各自高亮的按钮。
 - 剪辑态右栏的「生成这一镜」动作行（`.ed-footer`）钉在 `#edCol` 底部（在 `.ed-body` 滚动区之外）。
@@ -757,6 +827,28 @@ frame-ancestors 'none'; worker-src 'self' blob:
   最长优先）→ 重复出现的才建。素材刚建档时还没有图，提示词里先写占位符 `@待建:名字`；
   素材出图后（`Chars.setPic` 投 `wb:char-pic`）占位符换成真名并把图补进引用它的镜头。
   出图**不自动发**（要花钱，按 §6.2），建档与占位是同一段落盘里的事。
+- **拆分镜 / 改分镜的两段式反问**（2026-10，与「AI 润色」同一套）：
+  生成轮之前先走一轮 `TextAI.askPolish`（AI 自己判断这段料值不值得先问；设置 `sk_polish_ask`
+  选「从不问」整轮不发，focus 一句按任务点名值得问的缺口 —— SPLIT_ASK_FOCUS / EDIT_ASK_FOCUS）。
+  问了就在 `#polishInline` 出问答面板（候选点选 + 每题一个自由输入框），回答经 `TextAI.answersNote`
+  随生成轮的正文交上去当**硬约束**（split 要求 10 / board_edit 要求 12 写明），一趟只问一次
+  （「重新规划」按同一份回答重跑，不重新问）。规矩：
+  · 反问轮与生成轮的 sys / user **同源**（apply 域的 `sysOfRun` / `userOfRun` / `varsOf`）——
+    问出来的问题才贴着这一次的料，不会问系统提示里已经写明的事；
+  · 反问**不进 Skill 正文**：split / board_edit 仍在 `NO_ASK`（正文永远是「只返回 JSON」的生成指令），
+    问答契约由 askPolish 在那一轮临时拼上；
+  · 过程状态在 apply 域的 `splitUI`（loading / ask / stream 三相），编辑器整列重画后由
+    `renderSplitPanel` 拼回来（panel.js 的 renderEditor 尾部、紧跟 renderPolishPanel 之后调）；
+    **空项目（还没有任何镜头）时编辑器整栏是空的、连宿主都没有**，画家自己补一块
+    `#polishInline` 当宿主 —— 「拆一份新的」恰恰常从空项目发起；
+  · 挑素材（`ensureStaged`）与「新素材判定」（`stageAssetsOf`）两段也进过程面板；
+    生成轮的流式面板归 `AiStream` 自管（push 时自愈），`splitUI` 只挂 busy 档住「拆分镜」重入；
+  · **确认弹窗里还有「按这句再改」**（PromptReview 的 `onFollow`，`web/ui/forms.js` 的 mountFollow，
+    分组 / 平铺两种审阅共用；流式就地画在弹窗里，可中止）：对着**弹窗里此刻这份**（含手改）
+    说一句，AI 在它上面再改一轮 —— 拆新 / 追加档走 `split_follow` 契约（`skills/split-follow/`，
+    输出改后的**完整方案**整份替换，方案变了待建素材判定跟着重问）；改稿档把这句话并进修改要求
+    整轮重跑（成功过的那几句进 `followAsks`，之后的重新规划也带着）。
+    「重新规划」= 从头重拆，「按这句再改」= 在这版上改，是两条路；两者都在跑时互相让路（一轮一个）。
 - **发送前的请求预览**（`board-preview.js` + `Api.preview`）：预览 = **纯算**，一个网络请求都不发；
   要上传的素材槽位用**占位符**代替（真发时才上传，预览不能触发）。
   预览与实发共用 `Api.buildBody` —— 两边各拼一次的话，预览里显示的体与真发的体迟早不一样，
@@ -764,7 +856,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **Skill 正文里的变量**（项目引用规则）：拆分镜 / 改分镜 / 新素材判定三处发请求前，
   都把 Skill 正文里的 `{变量}` 按这一次的料填上（`TplVars.fill` + `board-vars.js`）。
   ⚠ **内置 Skill 正文与 `TextAI.DEF[kind]` 必须逐字相同**（判据：tests/e2e/smoke.cjs 的
-  「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
+  「内置 Skill 正文与 TextAI.DEF 漂开了」；split / board_edit 两条另有快档版
+  tests/director-split-ask.mjs，不开浏览器）—— 同一份提示词两处维护，改一处就要同步另一处。
 
 ### 9.2.1 本轮的语义补充（A / B / C）
 
@@ -790,7 +883,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
   会话记录、Skill 自动加载、上下文预算、密钥脱敏都在 chat.js。
 - 抽屉缺省是**球旁的浮窗**：贴着悬浮球摆（左上方，放不下就翻到另一侧，最后夹进视口并让开侧栏），
   宽 `--ac-w` / 高 `--ac-h` 由左沿与下沿两根把手拖，记本机 `ai_chat_w` / `ai_chat_h`；
-  拖标题栏能把浮窗拖走，位置记 `ai_chat_fxy`，此后不再跟球（删键即恢复跟球）。
+  **浮窗只能随球拖动** —— 拖标题栏挪的是**球**（球与浮窗是一组），浮窗永远贴着球，
+  没有「拖走就不再跟」这回事（旧的 `ai_chat_fxy` 标记已作废）。
   另一档是固定右栏（`html.ac-dock`，`#app` 用内联宽度让出 `--sbw + 面板宽`，页面可继续操作，
   球让位）。偏好只存本机 `ai_chat_dock`，打开状态本身不持久；
   窗口窄于 `DOCK_MIN` 自动回浮层，放宽后按偏好恢复。
@@ -821,15 +915,18 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **contract 白名单**在 `server/skills-store.js` 的 `CONTRACTS`：加一种新任务就在那里加一条，
   同时 `TextAI.SKILL_CONTRACT` 加一条（页面侧同一张表的另一半）。
   `board_assets.json` = 拆分镜「判断哪些新角色/场景/物品要建档并出图」那一条。
-- **设置页的布局骨架**（2026-10 重划）：
+- **设置页的布局骨架**（2026-10 重划，2026-10-25 再改一次）：
   · 卡片**皮肤用公共那一件** `.card-surface`（底色 / 描边 / 圆角 / 悬停）—— 页面只留排版
     （内边距与间距）；以前这一页自己写了一份卡片皮肤（radius-8 + shadow-1、无悬停），全站两套卡片。
   · 卡标题行 = 图标位 + 标题（真要有动作就放 `.card-h-acts`），**不再恒留 92px 空位**
     （那一段空位没有一张卡真的用得上，齐的是空地不是内容）。
   · 卡内的分组小标题是 `.sect-t`（**必须有样式**：以前只有 class 没有样式，渲染出来跟正文一样）。
-  · 粘顶导航的**二级行固定一行高**（`.set-nav-sub`）：它列的是当前组的栏目标题，
-    组一换内容就换 → 导航高度自变 → `--setnavh` 自变 → 滚动锚点跟着跳（以前靠落定补校正兜）。
-  · 技能场景轨的吸附边跟**动态**的 `--setnavh` 走（写死 `--sp-60` 的话导航一高，轨的上半截就藏进去）。
+  · **两栏两滚**（2026-10-25）：左边 `.set-rail` 是目录轨（5 组 15 行，每行带**当前值**），
+    右边 `.set-doc-scroll` 是 15 张卡排成的一条**连续文档**（组标题钉顶、状态行钉底）；
+    **页面自己不滚**。滚法与「滚动只有一个出口」见 §3.4.3。
+  · 卡内那些行**标签列定宽 164px**（`.krow > .kn`）—— 控件都从同一条竖线开始；
+    这一页的行**不再两列并排**（`.kcols` 改回一块）：左轨占掉 272px 之后右栏只剩 900px 上下，
+    两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行。
 - **设置页的 Skill 卡：一级菜单 = 使用场景**（`TextAI.SKILL_SCENE_GROUPS` / `SKILL_SCENES`）。
   点一个场景 → 右边给两件事：① 这一步会拿到什么（变量表，**场景级**，按 contract 取 `SKILL_VARS`
   —— 换一份写法，喂料方式不变）② 这个场景的 Skill（这一 contract 下的每一份、谁在生效、有没有冲突）。
@@ -851,11 +948,31 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 素材库身份锚点只有 `newChar/newScene/newProp` 的 `anchor` 与 `Chars.refPicOf`；
   页面不许自己 `c.face || c.img` 拼。
 - 素材库体检数字现算，不落库；多选批量全部调单条入口；使用关系读同一份 `loadRefUse()`。
+- **素材页的「默认」归设置页，页面只留「这一次用哪个」**（2026-10-25 用户要求）：
+  · **页面上不许有任何「本页默认」面板**（左轨那一块与详情层那颗「用本页默认」链接都已删）；
+  · 默认值在设置页「素材库」那张卡里：`Chars.SET` 的 `imgModel`（默认生图型号）/
+    `ttsModel`（默认语音型号）/ `candN`（默认一次出几张候选）/ `voiceN`（默认一次出几条语音）——
+    图说「张」、语音说「条」，**两项分开设**（混成一项就没法只调一边）；型号下拉只有那一份实现
+    （`Chars.Pipe.modelSelectHTML`，按平台分组，带一档「自动」= 平台清单里第一个）；
+  · **每一处生成位仍能当场换型号与张数**，换的那一次只管那一处；
+  · **不往本机存「上次用的型号与张数」**（旧的 `char_opts` 键已停用，开页时清掉）——
+    记了就会不自觉地按上次那个跑；
+  · 页面上的两处现场选择：目录轨「出齐用」一行、多选批量条上的「出图 / 声音」两行；
+  · ⚠ **型号清单是后到的**（`Capabilities` 从平台能力接口逐家取，落到 `prov.models` 里，
+    每家落定广播一次 `wb:cap-ready`）。画型号下拉的页面必须**自己拉一次能力**并**按家补画**
+    （见 `web/pages/chars.js` 的 `loadCaps` / `onCapReady`，与导演台右栏 `installCapRepaint` 同一套）——
+    不接这一下，型号下拉会永远停在「没配生图平台」那句**假话**上（平台明明配好了）。
 - 工作台三类型共用一页：`?t=video|image|audio`；型号与提示词分类型记住；
   右栏历史三类型合并、按 `assetId` 去重。
 - 输入模式（一次请求能用哪几类素材）只有 `Capabilities.combos` 一份；判据双向
   （缺料 / 超料 / 不收 / 互斥），`mode` 不是提交字段。
 - 四颗“存回本机”只走 `AssetLocal.pullMany`；页面里一次都不许出现 `AssetLocal.pull`。
+- **「存回本机」的范围按页分两种**（2026-10-25 用户定的）：
+  · **生成工作台 / 资产库**：这颗按钮住在**多选条**里（不是筛选行那一排），**多选之后才出现**，
+    存的是**勾选的那几条** —— 不多选就点它等于「把这一屏都存一遍」，那不是用户的意思。
+    范围 = `Wb.multi.selected()` 过 `AssetLocal.pullPlan`（本机已有 / 没地址 / 本地上传的都剔掉）。
+  · **收藏 / 素材库**：仍是那一档（当前筛选 / 当前档）的整批，因为那两页没有多选条。
+  判据在 `AssetLocal.pullPlan` 一份；按钮上的数与 title 走 `AssetLocal.pullBar` / `pullBtnTitle`。
 - “不显示云端任务”是 `AssetLocal.hideAsCloud` 一张闸，不是一套筛选。
 - 卡片徽标只有 `web/ui/badge-state.js` 一份（`badgeOf` / `badgeHTML`），五页同读 `AssetLocal.stateOf`。
 - 选择器来源档位只有 `AssetPicker` 的 `inView` 一处；音频条目按 `noMedia` 走自己的调度，
@@ -866,27 +983,55 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 侧栏是**外壳顶层文档里的经典脚本**（`shell.html` 在 `ui.js` 之后、`app.js` 之前加载），不是 Vue 页面；
   取数仍走公共层（`Api` 余额 / `AssetLocal.info()`），探针不许另写一份余额卡。
+- **两个形态，只有两个**（2026-10-25）：满 232px（`--sbw-full`）与窄 56px（`--sbw`），
+  `sidebar.js` 每次切形态把 `--sbw` 写成当前那一态的宽度；窄窗（≤1100px）里展开是**浮层**，
+  那时 `--sbw` 仍是 56（内容不让位）。消费方（`#app` / 悬浮球 / 灯箱）都读这两个变量，
+  **不许再写死 200 / 66 这样的像素**（`shell.html` 里那条写死 200px 的规则已经删了）。
+- **收 / 展的开关是左上角那块品牌砖**（`.sb-logo`，`role=button`），侧栏里**没有第二样收展标识**：
+  不画箭头、不画拉片。品牌块是品牌，不是控件 —— 所以它做成「点它收展」的那一块，而不是
+  另加一颗控件；两个形态里它是**同一块砖**（30px、离左边 13px、同一行高），手指不用记位置。
+- **窄形态认得出**：导航项的图标下面常驻一枚**两字短标签**（`.sh`），文案取
+  `web/core/routes.js` 每一页的 `short` 字段（导演 / 素材 / 生成 / 收藏 / 资产 / 用量）——
+  **与 `label` 放在同一张表里，侧栏不许另抄一份**（改了页面名忘了改短标签，侧栏上就出现两个名字）。
+  悬停弹出的名牌只负责**补全全名**，不是认路的唯一手段；窄形态下 `aria-label` 仍写全名。
+  当前项在窄形态变成**实心方块**（`.ic` 染 `--pri`），满形态是淡紫底 + 内边缘那道 3px 紫条。
 - 高度分配只有一套：`.sidebar` 是 fixed flex column，`nav` 拿 `flex:1 1 auto; min-height:0` 与它自己的
-  `overflow-y:auto`，`.sb-bottom` / `#sbBalance` 钉死 `flex:0 0 auto`。余额卡能摆几张由 `sidebar.js`
-  的 `BAL_CAPS` 按实测窗口高度现算 —— **导航优先于卡片**；矮窗（`max-height: 660px`）与 66px 收起态
-  整区收成一行摘要，卡片块根本不画。
+  `overflow-y:auto`，`.sb-bottom` / `#sbBalance` 钉死 `flex:0 0 auto`，品牌砖 `.sb-brand` 也钉死
+  `flex:0 0 auto`（它同时是整栏收 / 展的开关，被挤扁就是全栏最显眼的一处错位）。余额卡能摆几张由
+  `sidebar.js` 的 `BAL_CAPS` 按实测窗口高度现算 —— **导航优先于卡片**；矮窗（`max-height: 660px`）
+  与窄形态整区退成压缩版，卡片块根本不画。
 - **看全部供应商 = 就地展开**，不是跳页：`[data-bal="expand"]` 给 `.sidebar` 挂 `bal-exp`，
-  把「唯一可缩可滚」那份额度只落在 `.sb-bal-cards` 上，导航退回自然高；偏好写本机 `sb_bal_exp`，
-  跨刷新保留。这一位在「卡片块不画的两档」必须 revert 成原样（`sidebar.css` 里那两段
-  `html:not(.sb-open) .sidebar.bal-exp nav` / `@media (max-height: 660px)`），否则等于拆掉 A2 的兜底。
+  把「唯一可缩可滚」那份额度只落在 `.sb-bal-cards` 上；此时 `nav` 改成 `flex:1 0 auto`
+  —— **可以长高、绝不压缩**：长出来的那截就是导航与余额卡之间的空档，由它把底部两块
+  （设置 / 换背景）顶回底边。写成 `flex:0 0 auto`（连长高也归零）时空档没人接，底部两块
+  会**离底边浮起来**（展开一次、整栏错位一次，空档大到一定程度还会被挤出屏幕）。
+  偏好写本机 `sb_bal_exp`，跨刷新保留。这一位在「卡片块不画的两档」必须 revert 成原样
+  （`sidebar.css` 里那两段 `html:not(.sb-open) .sidebar.bal-exp nav` /
+  `@media (max-height: 660px)`），否则等于拆掉 A2 的兜底。
 - 余额区**不放跳转钮**：「还有 N 家，去用量页」与「去设置」两枚已撤（左下角本来就有「设置」入口，
   同一件事不给第二条捷径）。区里只许 `expand` / `collapse` / `refresh` 三枚 `.ghost mini`；
-  点开摘要走公共弹窗（`UiDialog`）看全量卡，侧栏里不堆第二摞**可见**卡。
+  点开压缩块走公共弹窗（`UiDialog`）看全量卡，侧栏里不堆第二摞**可见**卡。
+- **满形态那张「此刻」卡**（`.sb-bal-body`）：抬头「账户余额 · N 家」+ 余额行 + 按钮行 + 本机产物行，
+  顺序是「余额在上、落盘在下」；**窄形态的压缩版也是这个顺序**（家数 → 每家一个状态点 → 落盘进度条），
+  两个形态读起来是同一件事。本机产物行在卡**底**（`.sb-bal-body` 的最后一块），不跟卡列表一起滚。
+- **余额行是两行**（名字 + 金额 / 冻结 + 单位）：以前是「名字 / 可用 / 冻结」三行、每行带描边的小卡，
+  高度是现在的两倍 —— 同样一栏高度里能多摆一家。取不到的那一家**不藏**：原因直接摆到第二行
+  （红色、单行省略，全文在 `title` 里）。金额那一位**不许截**（数字截了就是假账）。
+- **窄形态那排状态点**：每家一个 —— 实心紫 = 这一家取到了，空心红圈 = 这一家取不到。
+  56px 里放不下三个平台名，但放得下三个「各家怎么样了」；点上有 `title` 念出是哪一家、为什么。
 - 展开钮的文案是「展开」（展开后是「收起」），总家数在 `title` 里 —— **N = 总家数**，差一家就是假话；
   「展开」与「刷新余额」永远同一行（`.sb-bal-acts` 不换行、按钮 `white-space:nowrap`）。
   窗口高到卡全摆得下时这一行只有「刷新余额」（`extra === 0` 的条件不许动：没有多余卡还给一颗「展开」，
   点下去什么都不会多出来）。
+- 这一区两枚开关（`[data-bal="expand"]` 与「产物存本机」明细行）的箭头用**同一套**：
+  **展开 = 朝上，收起 = 朝下** —— 同一个词永远配同一个箭头，一处朝上一处朝下就得靠猜。
 - 本机产物那一行就地展开明细（「本次会话存成 N 份 · 上次存成 <fmtWhen>」），只用 `AssetLocal.info()`
   的现有读数与 §7 的公共时间格式化，不为这一行写第二份；落盘重画（`wb:mirror-ready`）与整块重画
   （`sb-balance-refresh`）之后都要重新绑上点击 —— 那两条路都是 `innerHTML` 重来。
-- 判据 `tests/e2e/sidebar-balance.cjs` 十档：摘要档 / 500px 高导航完整 / 66px 收起 / 默认限卡 /
-  就地展开（只有卡片块在滚、「收起」钮永不被挤出容器）/ 展开偏好跨重载 / 明细行 / 传输中 /
-  详情弹窗 / 480–1100 高度扫描。
+- 判据 `tests/e2e/sidebar-balance.cjs` 十档：满形态（232px + 卡面抬头 + 本机行在卡底）/
+  窄形态（56px + 短标签常驻 + 状态点 + 进度条）/ 悬停名牌补全全名 / 矮窗压缩版 /
+  500px 高导航完整 / 就地展开（只有卡片块在滚、「收起」钮永不被挤出容器）/ 展开偏好跨重载 /
+  明细行 / 详情弹窗 / 480–1100 高度扫描 / 来回切形态。
 
 ## 12. 服务端与路由
 
@@ -917,6 +1062,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
   当场 400。放行不会报错，但任务照建、`work()` 的「local 才本地」三元判据会**默默扣一次在线转写的钱**，
   而账上写着 browser —— 路线的真相只有 `Asr.pickRoute` 一份（§7），代理这一层只负责把不该来的挡掉。
 - 代理健康账：未捕获异常 / 未接住的 Promise / 500 / 连接错误四类；只报不自杀，连接错误不算故障。
+- **stdout 断了不许自旋**（`server/app.js` 的 `writeLog`）：启动器窗口一关，stdout 管道就断；
+  往断掉的管道写会抛异步 EPIPE，那条 EPIPE 又被「未捕获异常」那个出口接住 → 它记一笔 → 再写一次
+  → 再抛一次：**无限自旋**（实测一个实例 1.6 小时烧掉 800 多秒 CPU，端口在听却不回话，
+  `proxy.log` 刷到 1.8 MB 全是同一句）。所以 stdout 断了就把这条路封掉（`outWrite` + 流的 `error` 事件），
+  **日志文件照旧落盘**（那是排障的正经依据）。判据 `tests/e2e/proxy-stdout.cjs`。
 
 ## 13. 测试与验证
 
@@ -929,7 +1079,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 | ~3s |
 | 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 5 条（4 路并发）~2 分钟 |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 44 条 e2e 串行（浏览器档共 46 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 48 条 e2e 串行（浏览器档共 50 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -956,8 +1106,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 列表页的翻页一行：`pager-row`（资产库 / 收藏 / 角色库 / 生成工作台四页都得把翻页行**画出来**：
   宿主登记了、行看得见、上一/下一页两颗在 —— 上一轮「翻页组件不显示」就是工作台那一处
   宿主 `stPgRow` 从未登记，整行从未填过；翻页之后的行为由 `favorites-pager` 盯）。
+- 「存回本机」存的是**多选勾选的那几条**：`pull-selected`（工作台 / 资产库两页：那颗按钮住在
+  多选条里、多选之后才出现、点下去只排勾选的那些；工作台的翻页行住在右栏顶上 ——
+  搜索那一排下面；顺带盯「多选时勾选框看得见」，勾选框隐形的话「存选中的」就是盲存）。
 - 浏览器档分两级：`--e2e:fast` 只跑冒烟 5 条（smoke / ui-contract / ui-shared / director-perf / lock，
-  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 44 条，
+  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 条（含 harness），
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
   （后者是同一份判据的「线上那一半」，要起隔离实例）。
 `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
@@ -1170,7 +1323,7 @@ npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s�
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
 npm run test                # 合并档：常驻判据全量（并发池，~3s）
 npm run test:all            # 全量档：常驻池 + e2e 冒烟 5 条（4 路并发，~2 分钟）
-npm run test:e2e            # 浏览器档：44 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:e2e            # 浏览器档：48 条 e2e 全量串行（含视觉回归、性能、parity）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
 node tools/tokenize-css.cjs            # 样式秒级档：裸值体检（只读；--write 机械替换 / --map 映射 / --collapse 收敛影响面）
 node tools/check-vars.cjs              # 令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）

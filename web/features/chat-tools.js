@@ -1074,6 +1074,26 @@
     const v = o[key];
     return Array.isArray(v) ? v : (v == null ? null : [v]);
   }
+  /* --------------------------------------------------------------------------
+     工序的中文短名 —— 界面上给用户看的那一份。
+     TOOLS 表里只有 id（模型看的是 id，`doc` 是长说明，短的没法直接用）；
+     副驾台把一轮的工具调用收成一条「工序脊」，节点上要写人话。
+     这一份是**展示层**的映射，与 TOOLS 一一对应；漏了不猜 —— 回落成 id。
+     加新工具时记得在这里补一条（判据 tests/chat-tools.mjs 盯着一一对应）。
+     -------------------------------------------------------------------------- */
+  const TOOL_ZH = {
+    skill: '读一份 Skill', overview: '看本机现状', tasks: '查这批任务', history: '查历史任务',
+    models: '看有哪些型号', model: '查型号声明', chars: '查素材库', find: '找一找',
+    fav: '查收藏', assets: '查本机资产', prompts: '查提示词归档', usage: '查用量',
+    settings: '查设置', doctor: '体检这台机器', credits: '查余额', page_state: '看当前界面',
+    go: '切到那一页', files: '查附件', read_file: '读文件', tool_result_read: '读长结果',
+    web_search: '联网搜', web_read: '读那个网页', timeline_get: '读时间线', timeline_history: '时间线的历史',
+    subtitle_list: '看字幕清单', subtitle_export_srt: '导出字幕', media_info: '看媒体信息',
+    media_frames: '抽帧', media_transcription: '语音转写', export_status: '看导出状态',
+    export_list: '看导出清单', asset_open: '取素材字节', task_detail: '查任务详情',
+  };
+  const toolZh = name => TOOL_ZH[String(name || '')] || String(name || '');
+
   /* 单个参数按型号声明校验：判据在 `web/domain/gen-rules.js` 的 `GenRules.checkParam`（全站一份），
      这里只把那条结构化的错翻成要对模型说的话。 */
   function paramErrZh(e) {
@@ -1711,6 +1731,7 @@
       const src = (o.arg && typeof o.arg === 'object') ? o.arg : o;
       const arg = Object.assign({}, src);
       delete arg.op; delete arg.arg;
+      delete arg._rollback;             // 内部回滚旗标只认助手侧 undo 那一条：模型塞进 op 参数里不许生效
       if (op === 'cut' && !String(arg.way || '')) return { err: '第 ' + (i + 1) + ' 条 cut 没写 way（split / left / right / drop / merge）' };
       if (op === 'set' && ['speed', 'volume', 'gray'].every(k => arg[k] == null)) {
         return { err: '第 ' + (i + 1) + ' 条 set 什么都没要改：speed / volume / gray 至少给一项' };
@@ -2200,7 +2221,7 @@
 
       return {
         TOOLS, ACTS, ACTION_META, TOOL_INPUT, visibleActs, visibleTools, regClosed,
-        DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite,
+        DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh,
         registry: () => actionReg, regError: () => actionRegErr, ready: () => actionRegReady,
       };
     },

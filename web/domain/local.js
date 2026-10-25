@@ -344,13 +344,15 @@
     return rec && rec.a ? String(rec.a) : '';
   }
   /* 「这一条地址对应的本机文件长什么样」：给 FCPXML 这种要**磁盘路径**的出口用。
-     只返回 id / 格式 / 名字 / 字节数，不给路径 —— 路径由代理的资产目录与页面拼（见导演台导出）。
+     id / 格式 / 名字 / 字节数之外还给 `path`（账里相对库根的落点，单文件 FCPXML 拼绝对路径用）；
+     老索引还没学到那一项时是空串，调用方按「不知道路径」处理，别自己拼一个错地址。
      索引丢了但地址就是 `/asset/la_x` 时 id 仍认得出，格式给空串（调用方按产物类型兜底）。 */
   function localFileOf(u) {
     const id = localAssetIdOf(u);
     if (!id) return null;
     const d = read(), k = maps().la[id], rec = k ? d.m[k] : null;
-    return { id, format: String((rec && rec.f) || ''), name: String((rec && rec.n) || ''), bytes: Number((rec && rec.b) || 0) };
+    return { id, format: String((rec && rec.f) || ''), name: String((rec && rec.n) || ''),
+      bytes: Number((rec && rec.b) || 0), path: String((rec && rec.fp) || '') };
   }
   /* 一条产物在镜像索引里的身份。**平台列表那一条**由 decorate 挂上 mirrorKey；
      **本机资产库那一条**（条目即资产，id 就是 la_xxx）只能按本机号反查。
@@ -1239,6 +1241,9 @@ function info() {
       if (platAsset && String(rec.p || '') !== platAsset) { rec.p = platAsset; ch = true; }
       if (task && String(rec.g || '') !== task) { rec.g = task; ch = true; }
       if (up && String(rec.up || '') !== up) { rec.up = up; ch = true; }
+      // fp = 相对库根的落点（单文件 FCPXML 拼绝对路径用）：老记录没这一项时顺手补上
+      const fp = String(raw.file || '');
+      if (fp && String(rec.fp || '') !== fp) { rec.fp = fp; ch = true; }
       return ch;
     };
     /* ---------- 改指：指针表指的那份已经不在本机资产库里了 ----------
@@ -1315,7 +1320,7 @@ function info() {
       const fk = String(raw.provider || '') + '|f:' + id;
       if (d.m[fk]) return;
       d.m[fk] = { a: id, f: String(raw.format || ''), n: String(raw.name || ''), t: 0,
-        b: Number(raw.byte_length || 0), up, p: platAsset, g: task };
+        b: Number(raw.byte_length || 0), up, p: platAsset, g: task, fp: String(raw.file || '') };
       d.a[id] = fk;
       noteRecMaps(d.m[fk], fk);
       queueWrite();
@@ -1327,7 +1332,7 @@ function info() {
     const key = k || (String(raw.provider || '') + '|f:' + id);
     if (d.m[key]) return;
     d.m[key] = { a: id, f: String(raw.format || ''), n: String(raw.name || ''), t: 0,
-      b: Number(raw.byte_length || 0), up, p: platAsset, g: task };
+      b: Number(raw.byte_length || 0), up, p: platAsset, g: task, fp: String(raw.file || '') };
     d.a[id] = key;
     /* 反查表要**当场**补上这一条，不能等下面那一次 write()：
        write 是排到微任务里去的，而调用方（normalize → pushEntry → emit）还在同一个同步块里，
@@ -1385,12 +1390,38 @@ function info() {
        · 两边都试过还挂 → 标 lost，插一个「已丢失」角标（而不是留一张裂图让人猜） */
   const LB = '文件已丢失（本机副本与平台地址都没了）';
   function lostTip(el) {
-    if (el.parentElement && el.parentElement.querySelector('.lost-tip')) return;
+    const parent = el.parentElement;
+    if (!parent) return;
+    if (parent.querySelector('.lost-tip')) return;
     const s = document.createElement('span');
     s.className = 'lost-tip';
     s.textContent = '已丢失';
     s.title = LB;
-    if (el.parentElement) el.parentElement.appendChild(s);
+    parent.appendChild(s);
+    /* 角标只盖**这一张图**。
+       `.lost-tip` 是 position:absolute; inset:0 —— 它铺开的是「最近的定位祖先」，
+       而灯箱的舞台、检查器那格大图、详情层的候选排、角色资产那一格**都不是定位容器**：
+       于是一张图挂了就变成「整屏一块已丢失」（点一下素材卡全屏变灰，用户只看到一句没头没尾的话）。
+       所以这里两步：
+         ① 给图那一格的父容器补上定位（只这一处，不动全站；position:relative 不改排版）；
+         ② 按图**自己的盒子**把角标摆进去 —— 父容器比图大时（候选排那一格：图 + 名字），
+            角标只盖图那一块，不把旁边的字也盖掉。 */
+    try {
+      if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+      const w = el.offsetWidth, h = el.offsetHeight;
+      if (w > 0 && h > 0) {
+        /* offsetLeft/Top 是相对 offsetParent 的**边框盒**，绝对定位的包含块是**内边距盒**：
+           差一个边框宽（clientLeft/clientTop），减掉。 */
+        s.style.left = (el.offsetLeft - parent.clientLeft) + 'px';
+        s.style.top = (el.offsetTop - parent.clientTop) + 'px';
+        s.style.width = w + 'px';
+        s.style.height = h + 'px';
+        s.style.right = 'auto';
+        s.style.bottom = 'auto';
+        /* 那一格太小（角色资产那个 34px 缩略图）：三个字会挤成竖排一列，换紧凑写法。 */
+        if (w < 64 || h < 40) s.classList.add('is-tiny');
+      }
+    } catch (e) { /* 量不出来就退回「铺满那一格」，总比铺满整屏好 */ }
   }
   function onMediaError(e) {
     const el = e && e.target;

@@ -237,11 +237,18 @@
   .add-scene { margin: var(--sp-8) var(--sp-12); width: calc(100% - 24px); padding: var(--sp-9); text-align: center; border: var(--hair) dashed var(--line);
     border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-12-5); cursor: pointer; background: none; }
   .add-scene:hover { color: var(--acc); border-color: var(--acc); }
-  /* 剪辑态左栏：**分镜列表留着**（剪的时候也要能换镜），只有「加场景 / 生成全部」让位；
+  /* 剪辑态左栏：**分镜列表留着**（剪的时候也要能换镜），但那份列表只列**已选用候选**的镜头；
+     生成态那几颗（剧本 / 拆分镜 / 加一个场景 / 生成全部分镜）一律让位 ——
+     剪辑态左栏答的是「这一镜剪到哪了」，不是「下一批生成什么」（用户点名）。
+     「导入视频 / 素材」是项目级动作，留着。
+     ⚠ 场景头与镜头行里的那几颗（场景图 / 新建镜头 / 删除场景 / 抓手·复制·删除）是
+     **JS 里就不画**（见 engine.js 的 renderScenes），不靠这条 CSS 藏 ——
+     藏起来但处理器还绑着，就是「点不动的那颗按钮」。
      历史编辑记录收成**底部一块折叠区**（原生 details：不用 JS、不用额外状态）。
      以前整列换成「历史 + 素材」—— 左栏在两态里答的是两个完全不同的问题，
      剪辑时想换一镜都找不到列表（用户点名：左右栏功能区分）。 */
   .col-left.editing > .add-scene, .col-left.editing > .gen-all { display: none; }
+  .col-left.editing .left-head #scriptEditBtn, .col-left.editing .left-head #scriptBtn { display: none; }
   #editLeft { display: none; }
   .col-left.editing > #editLeft { display: block; flex: 0 0 auto; max-height: 42%; overflow-y: auto; overflow-x: hidden;
     border-top: var(--hair) solid var(--line); background: var(--panel2); }

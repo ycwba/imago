@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/studio.html 编译，别手改。 */
-import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, createStaticVNode as _createStaticVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
+import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main studio-page wb",
@@ -13,7 +13,7 @@ export function render(_ctx, _cache) {
         class: "col-left",
         "data-r": "leftCol"
       }, [
-        _createCommentVNode(" 页面标题：其余五页都有 .page-h1，这一页以前只有类型切换器 ——\n               切到这页看不出「这是生成工作台」，只剩页脚一行小字。 "),
+        _createCommentVNode(" 页面标题：其余五页都有 .page-h1，这一页以前只有类型切换器 ——\n               切到这页看不出「这是生成工作台」。 "),
         _createElementVNode("div", { class: "st-brand" }, [
           _createElementVNode("h1", { class: "page-h1" }, "生成工作台"),
           _createElementVNode("p", { class: "desc" }, "左栏写、右栏看：左边选类型与参数，右边看这一台的生成结果。")
@@ -256,50 +256,7 @@ export function render(_ctx, _cache) {
         })
       ]),
       _createElementVNode("div", { class: "col-right" }, [
-        _createElementVNode("div", { class: "tasks-head" }, [
-          _createElementVNode("span", { class: "sp" }),
-          _createElementVNode("span", { class: "pgroup" }, [
-            _createElementVNode("span", {
-              class: "fb-host",
-              "data-r": "searchHost"
-            }),
-            _createElementVNode("span", { class: "pgsep" }),
-            _createElementVNode("button", {
-              class: "ghost",
-              id: "multiBtn",
-              "data-r": "multiBtn",
-              title: "进入多选：点卡片勾选，可批量下载"
-            }, [
-              _createElementVNode("span", {
-                "data-icon": "checkBox",
-                "data-size": "13"
-              }),
-              _createTextVNode(" 多选")
-            ]),
-            _createElementVNode("button", {
-              class: "ghost",
-              "data-r": "sync",
-              title: "重新从各平台取回这一屏列表"
-            }, [
-              _createElementVNode("span", {
-                "data-icon": "refresh",
-                "data-size": "13"
-              }),
-              _createTextVNode(" 刷新")
-            ]),
-            _createElementVNode("button", {
-              class: "ghost",
-              "data-r": "pullLocalBtn",
-              title: "把这一屏里本机还没有那份字节的产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"
-            }, [
-              _createElementVNode("span", {
-                "data-icon": "box",
-                "data-size": "13"
-              }),
-              _createTextVNode(" 存回本机")
-            ])
-          ])
-        ]),
+        _createCommentVNode(" 类型选择这一排在**上面**：下面那一排是搜索与「多选 / 刷新」这些动作，\n               筛选压在它们下面时，用户要先越过一排按钮才看见「按类型筛」；\n               资产库那一页也是这个次序（筛选在前、动作在后），两页次序一致。 "),
         _createElementVNode("div", { class: "hist-filters" }, [
           _createElementVNode("div", {
             class: "ui-seg",
@@ -317,6 +274,58 @@ export function render(_ctx, _cache) {
             "data-r": "winAll",
             title: "默认只看最近 30 天；点这里看全部"
           }, "查看全部")
+        ]),
+        _createElementVNode("div", { class: "tasks-head" }, [
+          _createElementVNode("span", { class: "sp" }),
+          _createElementVNode("span", { class: "pgroup" }, [
+            _createElementVNode("span", {
+              class: "fb-host",
+              "data-r": "searchHost"
+            }),
+            _createElementVNode("span", { class: "pgsep" }),
+            _createElementVNode("button", {
+              class: "ghost",
+              id: "multiBtn",
+              "data-r": "multiBtn",
+              title: "进入多选：点卡片勾选，可批量下载、存回本机"
+            }, [
+              _createElementVNode("span", {
+                "data-icon": "checkBox",
+                "data-size": "13"
+              }),
+              _createTextVNode(" 多选")
+            ]),
+            _createElementVNode("button", {
+              class: "ghost",
+              "data-r": "sync",
+              title: "重新从各平台取回这一屏列表"
+            }, [
+              _createElementVNode("span", {
+                "data-icon": "refresh",
+                "data-size": "13"
+              }),
+              _createTextVNode(" 刷新")
+            ])
+          ])
+        ]),
+        _createCommentVNode(" 翻页行在**右栏的上方**（搜索那一排下面）：翻页是「看这一屏」的动作，\n               放在结果区顶上，翻到第几页一眼就看得见；以前它塞在页底，右栏滚到底才找得到。\n               收藏 / 素材库 / 资产库三页仍在页底（整页滚，页底那一处是全站统一的位置）。 "),
+        _createElementVNode("div", { class: "wb-pager" }, [
+          _createElementVNode("span", {
+            class: "pgrow",
+            id: "stPgRow",
+            "data-r": "stPgRow"
+          }),
+          _createElementVNode("input", {
+            type: "number",
+            id: "stGotoPage",
+            "data-r": "stGotoPage",
+            min: "1",
+            placeholder: "跳页"
+          }),
+          _createElementVNode("button", {
+            class: "ghost",
+            "data-r": "gotoBtn"
+          }, "跳转")
         ]),
         _createCommentVNode(" 多选条（与资产库同一套公共件：.bulkbar / .bk-cnt / .bk-tip） "),
         _createElementVNode("div", {
@@ -349,6 +358,49 @@ export function render(_ctx, _cache) {
             }),
             _createTextVNode(" 批量下载")
           ]),
+          _createCommentVNode(" 收藏那两颗：把勾选的产物收进「我的收藏」/ 从里面拿出来（与资产库同一套公共件） "),
+          _createElementVNode("button", {
+            class: "ghost",
+            id: "stBulkFavAdd",
+            "data-r": "bulkFavAdd",
+            disabled: "",
+            title: "把勾选的那些产物加入「我的收藏」"
+          }, [
+            _createElementVNode("span", {
+              "data-icon": "star",
+              "data-size": "13"
+            }),
+            _createTextVNode(" 收藏")
+          ]),
+          _createElementVNode("button", {
+            class: "ghost",
+            id: "stBulkFavRemove",
+            "data-r": "bulkFavRemove",
+            disabled: "",
+            title: "把勾选的那些从「我的收藏」里移出"
+          }, [
+            _createElementVNode("span", {
+              "data-icon": "starFill",
+              "data-size": "13"
+            }),
+            _createTextVNode(" 取消收藏")
+          ]),
+          _createCommentVNode(" 「存回本机」是**多选才出现**的动作，存的是**勾选的那几条**（不是整屏）：\n                 不多选就点它，等于「把这一屏都存一遍」—— 那不是用户的意思。 "),
+          _createElementVNode("button", {
+            class: "ghost",
+            id: "stPullLocal",
+            "data-r": "pullLocalBtn",
+            title: "把勾选的那些产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"
+          }, [
+            _createElementVNode("span", { class: "ic" }, [
+              _createElementVNode("span", {
+                "data-icon": "box",
+                "data-size": "13"
+              })
+            ]),
+            _createTextVNode(),
+            _createElementVNode("span", { class: "tx" }, "存回本机")
+          ]),
           _createElementVNode("span", {
             class: "bk-tip",
             "data-r": "bulkTip"
@@ -368,7 +420,6 @@ export function render(_ctx, _cache) {
         })
       ])
     ], -1 /* CACHED */)),
-    _createCommentVNode(" 翻页行在**页底**（收藏 / 素材库 / 资产库同一处）：切页时翻页不用重新找位置。\n           以前它塞在右栏头那一排按钮中间，跟搜索框和「刷新 / 存回本机」挤在一起。 "),
-    _cache[1] || (_cache[1] = _createStaticVNode("<div class=\"wb-pager\"><span class=\"pgrow\" id=\"stPgRow\" data-r=\"stPgRow\"></span><input type=\"number\" id=\"stGotoPage\" data-r=\"stGotoPage\" min=\"1\" placeholder=\"跳页\"><button class=\"ghost\" data-r=\"gotoBtn\">跳转</button></div><div class=\"ver\">生成工作台 · 视频 / 图像 / 音频 · 右栏卡片可拖到左栏当参考素材</div>", 2))
+    _createCommentVNode(" 页底没有别的了：翻页行在右栏顶上（见上面 .col-right 里那一处），\n           提示词区那一块说明文字在左栏（.st-brand 的 .desc）。\n           ⚠ 这里**不要再加一个平级于 .layout 的块**：.wb 是固定高、overflow:hidden 的壳，\n           .layout 已经是 height:100%，多一个兄弟节点就会把两栏顶矮一截（页脚那行就是这么把\n           左右栏压短了一截的）。 ")
   ], 512 /* NEED_PATCH */))
 }

@@ -1,689 +1,698 @@
 
     <div class="page-main settings-page page-shell" ref="rootEl">
-      <div class="set-wrap">
-        <h1 class="page-h1"><span v-html="icGear"></span> 设置</h1>
-        <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（代理程序本身不带任何密钥）。</div>
-
-        <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div></div>
-
-        <!-- 这一页有 16 栏，找一项设置全靠滚。这一条把「有哪五组」与「搜关键词」放在最上面：
-             上面一排是 5 个组锚点（点它跳到那一组），下面一排是**当前这一组**的栏目标题。
-             两份清单都是从下面的 .set-group / .card 现读的（新加一栏自动出现，不要再手抄标题清单）。 -->
-        <div class="set-nav" ref="setNavEl">
-          <div class="set-nav-top">
-            <input ref="setQEl" type="search" v-model="setQ" @input="syncNav" @keydown="onNavKey"
-              placeholder="找一项设置（密钥、目录、分页、润色…）" autocomplete="off" spellcheck="false">
-            <button class="ghost" :hidden="!navHasFilter" @click="clearNav">清除筛选</button>
-            <span class="set-nav-sum" :class="{ err: navSumErr }">{{ navSum }}</span>
-            <!-- 自动保存的状态只在这一格说话（判据与文案见 markChanged / paintSaveState） -->
-            <span class="set-nav-sum" :class="saveKind">{{ saveText }}</span>
-          </div>
-          <div class="set-nav-chips" ref="setChipsEl"></div>
-          <div class="set-nav-chips set-nav-sub" ref="setSubEl"></div>
+      <!-- 左：目录轨（索引，不是另一套页面）。
+           点哪一行 → 右栏平滑滚到那一栏；右栏滚到哪一栏 → 轨上那一行亮起来。
+           每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，
+           就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 -->
+      <aside class="set-rail">
+        <div class="set-rail-top">
+          <input ref="setQEl" type="search" v-model="setQ" @input="syncNav" @keydown="onNavKey"
+            placeholder="找一项设置（密钥、目录、分页…）" autocomplete="off" spellcheck="false">
+          <button class="ghost mini" :hidden="!navHasFilter" @click="clearNav">清除</button>
         </div>
+        <div class="set-rail-note" :class="{ err: navSumErr }" v-if="navHasFilter">{{ navSum }}</div>
+        <div class="set-rail-scroll" ref="setRailEl"></div>
+        <div class="set-rail-foot"><span class="dot"></span><span>{{ navSumShort }}</span></div>
+      </aside>
 
-        <section class="set-group" data-group="keys">
-          <h2 class="set-group-h">账户与密钥</h2>
+      <!-- 右：一条**连续的文档**。5 组 15 张卡从上到下排成一条 ——
+           滚到哪一栏就接着滚到下一栏，卡与卡之间没有黑屏、没有跳。
+           组标题钉在顶上，状态行钉在底下，中间那条就是全部设置。 -->
+      <div class="set-doc">
+        <div class="set-doc-scroll" ref="setDocEl">
+            <h1 class="page-h1"><span v-html="icGear"></span> 设置</h1>
+            <div class="desc">平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 <code>.env</code> / 环境变量里的密钥（代理程序本身不带任何密钥）。</div>
 
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icKey"></span>供应商与密钥</h2>
-            <div class="sub">按生成类型分开配（图片 / 视频 / 语音 / 文字 AI），只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
-              最后两档不是供应商：<b>语音识别</b>与<b>联网搜索</b>和它们同一层级，各自一份设置。
-              <b>「识图能力」是全局一项</b>，只画在当前「作用文字 AI」的那张卡下面。</div>
-            <div class="ui-seg" id="provTabs" ref="provTabsEl"></div>
-            <div class="krow thin" v-show="provTabView !== 'asr' && provTabView !== 'search'">
-              <span class="hint sm" :class="{ kerr: provSumErr }">{{ provSumText }}</span>
-              <span class="sp"></span>
-              <span class="acts"><button class="ghost" @click="openCus">＋ 添加自定义供应商</button></span>
-            </div>
-            <div ref="provListEl"></div>
+            <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div></div>
 
-            <div class="prov-sec" id="asrCard" v-show="provTabView === 'asr'">
-              <div class="prov-sec-h"><span class="card-ic" v-html="icMic"></span>语音识别（ASR）</div>
-              <div class="sub">把音频 / 视频里的说话转成文字与 SRT。三条路：浏览器内 Whisper（模型经代理
-                同源代下载，识别全在本机浏览器跑）、本地 whisper.cpp（不联网、不花钱）、
-                在线走 OpenAI 兼容的 <code>/audio/transcriptions</code>。设置与密钥只存在代理那一边的
-                <code>.data/asr.json</code>，读回来只有「有没有密钥」，不回显。</div>
-              <div class="krow thin">
-                <span class="kn">本机运行包</span>
-                <span class="sub-line">{{ asrLocalText }}</span>
-                <button class="ghost mini" :disabled="asrBusy" @click="loadAsr">重新检查</button>
-              </div>
-              <div class="krow thin">
-                <span class="kn">浏览器内模型</span>
-                <span class="sub-line">{{ asrBrowserText }}</span>
-              </div>
-              <div class="krow thin">
-                <span class="kn">走哪条路</span>
-                <select v-model="asr.route" style="flex:1 1 300px">
-                  <option value="auto">自动（浏览器模型已就绪就本机识别，否则本地可用用本地，最后在线）</option>
-                  <option value="browser">只走浏览器内 Whisper（首次要经代理下载模型，约 250–500MB）</option>
-                  <option value="local">只走本地 whisper.cpp</option>
-                  <option value="service">只走在线服务</option>
-                </select>
-                <span class="hint sm" style="flex:1 1 260px">本地运行时先把音轨抽成 16k 单声道 WAV，再交给 whisper-cli；浏览器内识别在页面 worker 里跑，关页就停。</span>
-              </div>
-              <div class="krow thin">
-                <span class="kn">语言</span>
-                <input v-model="asr.language" placeholder="留空 = 自动（可填 zh / en / ja / ko）" style="flex:1">
-              </div>
-              <div class="krow thin">
-                <span class="kn">在线服务商</span>
-                <select ref="asrProvEl" v-model="asr.service.providerId" style="flex:1 1 260px">
-                  <option value="">手动填接口地址</option>
-                  <option v-for="p in asrProvOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-                <span class="hint sm">选了就从这家取默认地址与渠道密钥</span>
-              </div>
-              <div class="krow thin">
-                <span class="kn">型号</span>
-                <input v-model="asr.service.model" placeholder="whisper-1" style="flex:1">
-              </div>
-              <div class="krow thin">
-                <span class="kn">接口地址</span>
-                <input v-model="asr.service.baseUrl" placeholder="https://api.openai.com/v1（留空 = 用供应商默认地址）" style="flex:1">
-              </div>
-              <div class="krow thin">
-                <span class="kn">密钥</span>
-                <input type="password" v-model="asrKey" :placeholder="asr.service.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 复用供应商渠道 / .env 里的密钥'" style="flex:1">
-                <button class="ghost mini" :disabled="asrBusy || !asr.service.hasKey" @click="clearAsrKey($event)">清掉单独存的</button>
-              </div>
-              <div class="krow tight">
-                <button class="tool acc" :disabled="asrBusy" @click="saveAsr">{{ asrBusy ? '处理中…' : '保存语音识别设置' }}</button>
-                <button class="ghost" @click="testAsr">{{ asrBusy ? '取消识别' : '选一段音频测试识别' }}</button>
-                <span class="hint sm">{{ asrMsg }}</span>
-              </div>
-              <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
-              <div class="pb-tip">「测试识别」会真的跑一次转写（只有在线路线会产生一次调用）—— 选素材库里一段短音频即可。
-                浏览器内那一路线首次要先经代理下载模型，几百 MB 可能等几分钟，识别中再点这一颗就是不等了。
-                本地不可用时这里会直接说明缺的是二进制还是模型，不会假装可用。</div>
-            </div>
+            <section class="set-group" data-group="keys" data-note="谁在替你干活：接进来的平台各一把密钥，两种接法各一份。">
+              <h2 class="set-group-h">账户与密钥</h2>
 
-            <div class="prov-sec" id="searchCard" v-show="provTabView === 'search'">
-              <div class="prov-sec-h"><span class="card-ic" v-html="icSearch"></span>联网搜索</div>
-              <div class="sub">给 AI 助手补充「现在网上怎么说」：Tavily 返回标题 / 网址 / 摘要；
-                DeepSeek 走对话模型（模型本身要能联网，结果可能没有日期）。搜索结果只在内存缓存 10 分钟，
-                失败不自动重试、不编结果；读网页只收公网 https，15 秒超时、≤2MB。</div>
-              <div class="krow thin">
-                <label class="crow" style="flex:1"><input type="checkbox" v-model="search.enabled"> 启用联网搜索</label>
-              </div>
-              <div class="krow thin">
-                <span class="kn">搜索服务</span>
-                <select v-model="search.provider" style="flex:1 1 220px">
-                  <option value="tavily">Tavily</option>
-                  <option value="deepseek">DeepSeek（对话模型）</option>
-                </select>
-                <span class="kn">结果数</span>
-                <input type="number" v-model.number="search.maxResults" min="1" max="10" step="1" style="width:70px">
-              </div>
-              <div class="krow thin">
-                <span class="kn">密钥来源</span>
-                <select v-model="search.credentialSource" style="flex:1 1 220px">
-                  <option value="channel">复用渠道密钥</option>
-                  <option value="manual">单独一把搜索密钥</option>
-                </select>
-                <span class="hint sm">{{ searchCredText }}</span>
-              </div>
-              <div class="krow thin" v-show="search.credentialSource === 'channel'">
-                <span class="kn">渠道</span>
-                <select ref="searchChannelEl" v-model="search.channelId" style="flex:1 1 260px">
-                  <option v-for="p in searchChannelOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-                <span class="hint sm">Tavily 没有内置渠道，这一档通常要选「单独一把搜索密钥」</span>
-              </div>
-              <div class="krow thin" v-show="search.provider === 'deepseek'">
-                <span class="kn">模型</span>
-                <input v-model="search.model" placeholder="deepseek-chat（换一个能联网的模型）" style="flex:1">
-              </div>
-              <div class="krow thin">
-                <span class="kn">接口地址</span>
-                <input v-model="search.baseUrl" placeholder="留空 = 服务默认（Tavily: https://api.tavily.com/search；DeepSeek: 渠道地址）" style="flex:1">
-              </div>
-              <div class="krow thin">
-                <span class="kn">密钥</span>
-                <input type="password" v-model="searchKey" :placeholder="search.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 用上面选的那家渠道密钥'" style="flex:1">
-                <button class="ghost mini" :disabled="searchBusy || !search.hasKey" @click="clearSearchKey($event)">清掉单独存的</button>
-              </div>
-              <div class="krow tight">
-                <button class="tool acc" :disabled="searchBusy" @click="saveSearch">{{ searchBusy ? '处理中…' : '保存搜索设置' }}</button>
-                <input v-model="searchTestQ" placeholder="试搜一句（会真的调用一次）" style="flex:1 1 240px" @keydown.enter="testSearch">
-                <button class="ghost" :disabled="searchBusy" @click="testSearch">测试搜索</button>
-                <span class="hint sm">{{ searchMsg }}</span>
-              </div>
-              <div v-if="searchResults.length" class="search-hits">
-                <div v-for="r in searchResults" :key="r.id" class="search-hit">
-                  <a :href="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
-                  <span class="search-dom">{{ r.domain }}<template v-if="r.publishedAt"> · {{ r.publishedAt }}</template></span>
-                  <div class="search-snip">{{ r.snippet }}</div>
+              <div class="card card-surface" data-nav="providers">
+                <h2 class="card-h"><span class="card-ic" v-html="icKey"></span>供应商与密钥</h2>
+                <div class="sub">按生成类型分开配（图片 / 视频 / 语音 / 文字 AI），只列本机<b>在用</b>的：添加进来的，或密钥已经有着落的（这里填了 / <code>.env</code> 里有）。找不到某家就是还没接进来，用右边的按钮加。
+                  最后两档不是供应商：<b>语音识别</b>与<b>联网搜索</b>和它们同一层级，各自一份设置。
+                  <b>「识图能力」是全局一项</b>，只画在当前「作用文字 AI」的那张卡下面。</div>
+                <div class="ui-seg" id="provTabs" ref="provTabsEl"></div>
+                <div class="krow thin" v-show="provTabView !== 'asr' && provTabView !== 'search'">
+                  <span class="hint sm" :class="{ kerr: provSumErr }">{{ provSumText }}</span>
+                  <span class="sp"></span>
+                  <span class="acts"><button class="ghost" @click="openCus">＋ 添加自定义供应商</button></span>
                 </div>
-                <button class="ghost mini" @click="readFirstSearch">读第一条正文</button>
-              </div>
-              <pre v-else-if="searchTested" class="search-read">这一轮没有可显示的结果（原因见上面那一行，不编结果）。</pre>
-              <pre v-if="searchRead" class="search-read">{{ searchRead.title }} — {{ searchRead.url }}
-{{ searchRead.text }}</pre>
-            </div>
-          </div>
+                <div ref="provListEl"></div>
 
-          <div class="card card-surface" ref="cusCardEl" :hidden="!cusShown">
-            <h2>添加自定义供应商（中转站 / 网关 / 企业部署）</h2>
-            <div class="sub">两种接法：①「供应商」选一家内置平台，<b>接口地址自动填好它官网的地址</b>，贴上密钥点添加；
-              ② 选末尾的「自定义」再挑一个<b>接口形状</b>（OpenAI 兼容 / H3 兼容…），地址与密钥填你自己的。
-              建出来的都是独立的一家：不设家数上限。
-              接口形状真不一样的平台要改 <code>proxy.js</code> 的 <code>REGISTRY</code>，这里不猜字段。</div>
-            <div class="krow thin" v-if="cusMineShown">
-              <span class="kn">已添加</span>
-              <div class="cus-mine">
-                <div class="cus-mine-g" v-for="g in cusMineGroups" :key="g.kind">
-                  <span class="hint sm">{{ g.zh }}</span>
-                  <span class="cus-mine-i" v-for="e in g.items" :key="e.id" :class="{ on: e.id === cusEditing }">
-                    <span class="t">{{ e.name }}</span>
-                    <span class="hint sm">{{ e.modelsN }} 个型号</span>
-                    <button class="ghost xs" @click="editCus(e.id)">编辑</button>
-                    <button class="ghost xs danger" @click="removeCus(e.id)">删除</button>
-                  </span>
+                  <!-- 语音识别：与图片 / 视频 / 语音 / 文字**同一层级**的一档（不是一类平台，是另一种接法）。
+                       它与联网搜索都住在这张卡里 —— 左侧目录轨只索引「卡」，这两档不另占行。 -->
+                  <div class="prov-sec" id="asrCard" v-show="provTabView === 'asr'">
+                    <h2 class="prov-sec-h"><span class="card-ic" v-html="icMic"></span>语音识别（ASR）</h2>
+                  <div class="sub">把音频 / 视频里的说话转成文字与 SRT。三条路：浏览器内 Whisper（模型经代理同源代下载，识别全在本机浏览器跑）、本地 whisper.cpp（不联网、不花钱）、在线走 OpenAI 兼容的 <code>/audio/transcriptions</code>。设置与密钥只存在代理那一边的 <code>.data/asr.json</code>，读回来只有「有没有密钥」，不回显。</div>
+                  <div class="krow thin">
+                    <span class="kn">本机运行包</span>
+                    <span class="sub-line">{{ asrLocalText }}</span>
+                    <button class="ghost mini" :disabled="asrBusy" @click="loadAsr">重新检查</button>
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">浏览器内模型</span>
+                    <span class="sub-line">{{ asrBrowserText }}</span>
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">走哪条路</span>
+                    <select v-model="asr.route" style="flex:1 1 300px">
+                      <option value="auto">自动（浏览器模型已就绪就本机识别，否则本地可用用本地，最后在线）</option>
+                      <option value="browser">只走浏览器内 Whisper（首次要经代理下载模型，约 250–500MB）</option>
+                      <option value="local">只走本地 whisper.cpp</option>
+                      <option value="service">只走在线服务</option>
+                    </select>
+                    <span class="hint sm" style="flex:1 1 260px">本地运行时先把音轨抽成 16k 单声道 WAV，再交给 whisper-cli；浏览器内识别在页面 worker 里跑，关页就停。</span>
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">语言</span>
+                    <input v-model="asr.language" placeholder="留空 = 自动（可填 zh / en / ja / ko）" style="flex:1">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">在线服务商</span>
+                    <select ref="asrProvEl" v-model="asr.service.providerId" style="flex:1 1 260px">
+                      <option value="">手动填接口地址</option>
+                      <option v-for="p in asrProvOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                    <span class="hint sm">选了就从这家取默认地址与渠道密钥</span>
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">型号</span>
+                    <input v-model="asr.service.model" placeholder="whisper-1" style="flex:1">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">接口地址</span>
+                    <input v-model="asr.service.baseUrl" placeholder="https://api.openai.com/v1（留空 = 用供应商默认地址）" style="flex:1">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">密钥</span>
+                    <input type="password" v-model="asrKey" :placeholder="asr.service.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 复用供应商渠道 / .env 里的密钥'" style="flex:1">
+                    <button class="ghost mini" :disabled="asrBusy || !asr.service.hasKey" @click="clearAsrKey($event)">清掉单独存的</button>
+                  </div>
+                  <div class="krow tight">
+                    <button class="tool acc" :disabled="asrBusy" @click="saveAsr">{{ asrBusy ? '处理中…' : '保存语音识别设置' }}</button>
+                    <button class="ghost" @click="testAsr">{{ asrBusy ? '取消识别' : '选一段音频测试识别' }}</button>
+                    <span class="hint sm">{{ asrMsg }}</span>
+                  </div>
+                  <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
+                  <div class="pb-tip">「测试识别」会真的跑一次转写（只有在线路线会产生一次调用）—— 选素材库里一段短音频即可。
+                    浏览器内那一路线首次要先经代理下载模型，几百 MB 可能等几分钟，识别中再点这一颗就是不等了。
+                    本地不可用时这里会直接说明缺的是二进制还是模型，不会假装可用。</div>
                 </div>
-              </div>
-            </div>
-            <div class="krow thin">
-              <span class="kn">供应商</span>
-              <select ref="cusProvEl" v-model="cusProvSel" @change="onCusProvChange" style="flex:1 1 auto">
-                <option v-for="p in cusProvOpts" :key="p.id" :value="p.id">{{ p.label }}</option>
-              </select>
-              <span class="hint sm" style="flex:1 1 240px">内置那几家<b>照它整套走</b>（能力声明、上传流程、端点全继承），只换你的地址与密钥 ——
-                选了就<b>不用再挑接口形状</b>。最后一项「自定义」= 你跑的是别的厂商的协议。</span>
-            </div>
-            <div class="krow thin" :hidden="!cusShapeShown">
-              <span class="kn">接口形状</span>
-              <select ref="cusShapeEl" v-model="cusShapeSel" @change="onCusShapeChange" style="flex:1 1 auto">
-                <option v-for="f in cusShapeOpts" :key="f.id || 'none'" :value="f.id">{{ f.label }}</option>
-              </select>
-              <span class="hint sm" style="flex:1 1 240px">{{ cusShapeHint }}</span>
-            </div>
-            <div class="krow thin">
-              <span class="kn">显示名</span>
-              <input ref="cusNameEl" v-model="cusName" placeholder="选内置那一家会自动填它的平台名（型号下拉的分组名认的就是它）· 想叫别的，直接改">
-            </div>
-            <div class="krow thin">
-              <span class="kn">接口地址</span>
-              <input ref="cusBaseEl" v-model="cusBase" placeholder="选了供应商会自动填它官网的地址 · 换成你自己的中转 / 网关地址也行（https://gw.example.com/api/v1）">
-            </div>
-            <div class="krow thin">
-              <span class="kn">密钥</span>
-              <input ref="cusKeyEl" :type="cusKeyShown ? 'text' : 'password'" v-model="cusKey" placeholder="这一家自己的密钥（存 sk_key_，不进那份平台清单）">
-              <span class="acts"><button class="ghost eye" type="button" :title="cusKeyShown ? '隐藏密钥' : '显示密钥'" @click="cusKeyShown = !cusKeyShown"><span v-html="cusKeyShown ? icEyeOff : icEye"></span></button></span>
-            </div>
-            <div class="krow thin" style="align-items:flex-start">
-              <span class="kn">型号</span>
-              <div class="cus-models mlist">
-                <div v-if="!cusModelRows.length" class="mlist-empty">{{ cusModelsEmpty }}</div>
-                <template v-else>
-                  <label class="mlist-row" v-for="x in cusModelRows" :key="x.id">
-                    <input type="checkbox" :checked="!cusOff.has(x.id)" @change="onCusModelToggle(x.id, $event)">
-                    <span>{{ x.name }} <code>{{ x.id }}</code></span>
-                    <span class="mlist-src">{{ x.tagZh }}</span>
-                  </label>
-                </template>
-              </div>
-            </div>
-            <div class="krow thin">
-              <span class="kn">自己填 id</span>
-              <input ref="cusExtraEl" v-model="cusExtra" @input="rebuildCusModels" placeholder="逗号分隔（这一类没有型号列表接口时才用）">
-              <span class="acts"><button class="ghost xs" :disabled="cusFetchBusy" @click="fetchCusModels"
-                title="用上面填的地址与密钥，问一次它自己的型号列表（只读，不花钱、不建任务）">{{ cusFetchBusy ? '获取中…' : '获取型号列表' }}</button></span>
-            </div>
-            <div class="cus-acts">
-              <button class="tool acc" @click="addCus">{{ cusAddText }}</button>
-              <button class="ghost" v-show="cusCancelShown" @click="cancelCus">取消编辑</button>
-              <span class="hint sm">{{ cusCount }}</span>
-              <span class="okmsg" :class="cusMsgCls">{{ cusMsg }}</span>
-            </div>
-            <div class="sub">地址只收<b>公网 https</b>（回环、内网、明文 http 都会被代理拒绝）。
-              这一家的密钥<b>不会</b>回退到 <code>.env</code> 里的内置密钥。
-              添加与删除<b>当场落盘</b>，和这一页其它项一样不用等保存。</div>
-          </div>
-        </section>
-
-        <section class="set-group" data-group="ui">
-          <h2 class="set-group-h">界面与列表</h2>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icRefresh"></span>网络与刷新</h2>
-            <!-- 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 -->
-            <div class="kcols" ref="netBoxEl"></div>
-          </div>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icList"></span>列表分页</h2>
-            <div class="sub">「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。</div>
-            <div id="pageSettings" class="kcols" ref="pageBoxEl"></div>
-          </div>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icSun"></span>外观与界面</h2>
-            <div class="sub">界面长什么样、列表默认怎么摆，跟着数据文件走（换台机器还在）。
-              改完就自动存进本机；主题与左栏当场跟着变。</div>
-            <div id="uiPrefs" class="kcols" ref="uiPrefsBoxEl"></div>
-          </div>
-        </section>
-
-        <section class="set-group" data-group="gen">
-          <h2 class="set-group-h">生成与助手</h2>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icFolder"></span>产物存放</h2>
-            <div class="sub">生成完的产物<b>留在哪、优先从哪读、列表里要不要只显示本机有的</b>。三项连着看：关掉「自动存本机」后，
-              新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
-              前两项没开着时这一行<b>整个收起来</b>（画着却不生效等于骗人去勾）。</div>
-            <div id="storePrefs" class="kcols" ref="storePrefsBoxEl"></div>
-            <!-- 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 -->
-            <div class="kcols" ref="storeRowsEl"></div>
-          </div>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
-            <div class="sub">这几项只作用于「素材库」那一页：界面上的说法与真的发给文字 AI 的参数是同一个开关。</div>
-            <div id="charsSet" class="kcols" ref="charsBoxEl"></div>
-          </div>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>AI 助手</h2>
-            <div class="sub">右下角那个悬浮球 / 右侧抽屉（<code>Ctrl + /</code> 开合）。它<b>读</b>本机数据不用问；
-              <b>动手</b>（提交一次生成、改一项设置）默认要你在卡片上点「执行」。</div>
-            <!-- 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 -->
-            <div class="kcols" ref="assistantBoxEl"></div>
-            <div class="pb-tip">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着，
-              重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div>
-            <div class="pb-tip">勾上之后助手<b>校验完就立刻执行</b>，不等你点确认。一次生成在平台那边就是一条真任务，
-              <b>没把握就别勾</b>。改素材库那一步仍会单独再问一次（它会直接落盘）；改设置则照这条总开关走。</div>
-            <div class="pb-tip">「吸住」与「任务提醒」还有这个总开关都是<b>本机窗口</b>的事，<b>不跟着云同步</b>、不参与整包备份。</div>
-            <details class="ref"><summary>系统通知的授权怎么做</summary><div class="ref-body">
-              球上的数字不需要授权；<b>系统通知</b>要浏览器点头，所以有上面那颗「现在授权」。
-              拒过一次浏览器就不再问，得去地址栏左边的「网站设置」里手动放开。
-              它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>
-          </div>
-
-          <div class="card card-surface" id="polishCard">
-            <h2 class="card-h"><span class="card-ic" v-html="icPencil"></span>润色行为</h2>
-            <div class="sub">提示词正文由 Skill 提供（见下面「Skill」那一栏）；这里只留「润色前要不要先反问」这一个行为开关。</div>
-            <div class="polish-block">
-              <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）</span></div>
-              <!-- 那一格下拉的行由 SET_ROWS 声明。 -->
-              <div class="kcols" ref="polishBoxEl"></div>
-              <div class="pb-tip">「AI 判断」= 先让文字 AI 读一遍你的描述，<b>它自己决定</b>是先反问几个问题、还是直接润色
-                （按「补上这些会不会明显改变成片效果」判断，不按字数）。你答完的答案会当<b>硬约束</b>写进润色。</div>
-            </div>
-          </div>
-
-          <div class="card card-surface" id="skillCard">
-            <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
-            <div class="sub">Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。
-              <b>左边是使用场景</b>：选一个场景，右边告诉你这一步会拿到哪些项目上下文、现在用的是哪一份 Skill、你能怎么接管。
-              Skill 只补充写法，<b>输出格式与禁止项由机器契约管，Skill 改不了它</b>。</div>
-
-            <div class="sk-scenes">
-              <!-- 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），
-                   行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 -->
-              <aside class="sk-rail">
-                <div class="sk-rail-top">
-                  <input type="search" class="sk-search" :value="skillQ" @input="onSkillSearch" placeholder="搜场景 / Skill 名 / id">
-                  <button class="ghost mini" id="skAllBtn" type="button" :disabled="skillBusy" @click="openSkillAll">全部 Skill {{ skillItems.length }}</button>
-                </div>
-                <div class="sk-groups">
-                  <template v-for="g in skillTree" :key="g.id">
-                    <div class="sk-rg-h"><span class="sk-rg-n">{{ g.name }}</span><span class="sk-rg-c">{{ g.scenes.length }}</span></div>
-                    <button v-for="sc in g.scenes" :key="sc.key" class="sk-srow" :class="{ on: skillMode === 'scene' && skillScene && skillScene.key === sc.key }"
-                      type="button" :data-scene="sc.key" @click="pickSkillScene(sc)">
-                      <span class="sk-lamp" :class="'lit-' + skillSceneState(sc).lamp"></span>
-                      <span class="sk-s-l">{{ sc.label }}</span>
-                      <span class="sk-s-r" :class="{ err: skillSceneState(sc).lamp === 'conflict' }">{{ skillSceneState(sc).text }}</span>
-                    </button>
-                  </template>
-                  <div v-if="!skillTree.length" class="empty sm">没有匹配的场景。</div>
-                </div>
-                <div class="sk-legend">
-                  <span class="sk-lg"><span class="sk-lamp lit-mine"></span>我的一份在用</span>
-                  <span class="sk-lg"><span class="sk-lamp lit-builtin"></span>内置的在用</span>
-                  <span class="sk-lg"><span class="sk-lamp lit-empty"></span>空档 · 用内置默认正文</span>
-                  <span class="sk-lg"><span class="sk-lamp lit-conflict"></span>两份都启用了</span>
-                </div>
-              </aside>
-
-              <!-- 右：详情。三个形态：场景详情 / 全部 Skill / 新建（编辑）Skill -->
-              <section class="sk-detail">
-
-                <!-- ① 场景详情 -->
-                <template v-if="skillMode === 'scene' && skillScene">
-                  <div class="sk-d-head">
-                    <div class="sk-d-l">
-                      <h3 class="sk-d-title">{{ skillScene.label }}</h3>
-                      <div class="sk-used">{{ skillScene.used }}</div>
-                      <div class="sk-meta">
-                        <code class="sk-code">{{ skillScene.contract || '（不占固定位）' }}</code>
-                        <span class="ui-tag err" v-if="skillSceneNow.conflict">contract 冲突 · 两份都启用了</span>
-                        <span class="ui-tag ok" v-else-if="skillSceneNow.active">正在生效：{{ skillSceneNow.active.name }}</span>
-                        <span class="ui-tag" v-else>空档 · 用内置默认正文</span>
-                        <span class="sk-cnt">这个场景里 {{ skillSceneNow.list.length }} 份 Skill</span>
-                      </div>
+                <!-- 联网搜索：同样与四类平台同一层级的一档 -->
+                <div class="prov-sec" id="searchCard" v-show="provTabView === 'search'">
+                  <h2 class="prov-sec-h"><span class="card-ic" v-html="icSearch"></span>联网搜索</h2>
+                  <div class="sub">给 AI 助手补充「现在网上怎么说」：Tavily 返回标题 / 网址 / 摘要；DeepSeek 走对话模型（模型本身要能联网，结果可能没有日期）。搜索结果只在内存缓存 10 分钟，失败不自动重试、不编结果；读网页只收公网 https，15 秒超时、≤2MB。</div>
+                  <div class="krow thin">
+                    <label class="crow" style="flex:1"><input type="checkbox" v-model="search.enabled"> 启用联网搜索</label>
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">搜索服务</span>
+                    <select v-model="search.provider" style="flex:1 1 220px">
+                      <option value="tavily">Tavily</option>
+                      <option value="deepseek">DeepSeek（对话模型）</option>
+                    </select>
+                    <span class="kn">结果数</span>
+                    <input type="number" v-model.number="search.maxResults" min="1" max="10" step="1" style="width:70px">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">密钥来源</span>
+                    <select v-model="search.credentialSource" style="flex:1 1 220px">
+                      <option value="channel">复用渠道密钥</option>
+                      <option value="manual">单独一把搜索密钥</option>
+                    </select>
+                    <span class="hint sm">{{ searchCredText }}</span>
+                  </div>
+                  <div class="krow thin" v-show="search.credentialSource === 'channel'">
+                    <span class="kn">渠道</span>
+                    <select ref="searchChannelEl" v-model="search.channelId" style="flex:1 1 260px">
+                      <option v-for="p in searchChannelOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                    <span class="hint sm">Tavily 没有内置渠道，这一档通常要选「单独一把搜索密钥」</span>
+                  </div>
+                  <div class="krow thin" v-show="search.provider === 'deepseek'">
+                    <span class="kn">模型</span>
+                    <input v-model="search.model" placeholder="deepseek-chat（换一个能联网的模型）" style="flex:1">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">接口地址</span>
+                    <input v-model="search.baseUrl" placeholder="留空 = 服务默认（Tavily: https://api.tavily.com/search；DeepSeek: 渠道地址）" style="flex:1">
+                  </div>
+                  <div class="krow thin">
+                    <span class="kn">密钥</span>
+                    <input type="password" v-model="searchKey" :placeholder="search.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 用上面选的那家渠道密钥'" style="flex:1">
+                    <button class="ghost mini" :disabled="searchBusy || !search.hasKey" @click="clearSearchKey($event)">清掉单独存的</button>
+                  </div>
+                  <div class="krow tight">
+                    <button class="tool acc" :disabled="searchBusy" @click="saveSearch">{{ searchBusy ? '处理中…' : '保存搜索设置' }}</button>
+                    <input v-model="searchTestQ" placeholder="试搜一句（会真的调用一次）" style="flex:1 1 240px" @keydown.enter="testSearch">
+                    <button class="ghost" :disabled="searchBusy" @click="testSearch">测试搜索</button>
+                    <span class="hint sm">{{ searchMsg }}</span>
+                  </div>
+                  <div v-if="searchResults.length" class="search-hits">
+                    <div v-for="r in searchResults" :key="r.id" class="search-hit">
+                      <a :href="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+                      <span class="search-dom">{{ r.domain }}<template v-if="r.publishedAt"> · {{ r.publishedAt }}</template></span>
+                      <div class="search-snip">{{ r.snippet }}</div>
                     </div>
-                    <div class="sk-acts">
-                      <button class="pri" id="skNewBtn" type="button" :disabled="skillBusy" @click="openSkillNew">添加新 Skill</button>
+                    <button class="ghost mini" @click="readFirstSearch">读第一条正文</button>
+                  </div>
+                  <pre v-else-if="searchTested" class="search-read">这一轮没有可显示的结果（原因见上面那一行，不编结果）。</pre>
+                  <pre v-if="searchRead" class="search-read">{{ searchRead.title }} — {{ searchRead.url }}
+    {{ searchRead.text }}</pre>
+                </div>
+                </div>
+
+              <div class="card card-surface" ref="cusCardEl" :hidden="!cusShown">
+                <h2>添加自定义供应商（中转站 / 网关 / 企业部署）</h2>
+                <div class="sub">两种接法：①「供应商」选一家内置平台，<b>接口地址自动填好它官网的地址</b>，贴上密钥点添加；
+                  ② 选末尾的「自定义」再挑一个<b>接口形状</b>（OpenAI 兼容 / H3 兼容…），地址与密钥填你自己的。
+                  建出来的都是独立的一家：不设家数上限。
+                  接口形状真不一样的平台要改 <code>proxy.js</code> 的 <code>REGISTRY</code>，这里不猜字段。</div>
+                <div class="krow thin" v-if="cusMineShown">
+                  <span class="kn">已添加</span>
+                  <div class="cus-mine">
+                    <div class="cus-mine-g" v-for="g in cusMineGroups" :key="g.kind">
+                      <span class="hint sm">{{ g.zh }}</span>
+                      <span class="cus-mine-i" v-for="e in g.items" :key="e.id" :class="{ on: e.id === cusEditing }">
+                        <span class="t">{{ e.name }}</span>
+                        <span class="hint sm">{{ e.modelsN }} 个型号</span>
+                        <button class="ghost xs" @click="editCus(e.id)">编辑</button>
+                        <button class="ghost xs danger" @click="removeCus(e.id)">删除</button>
+                      </span>
                     </div>
                   </div>
-
-                  <div class="sk-sec">
-                    <div class="sk-sec-h"><b>这一步会拿到什么</b><span class="hint">程序在发请求前按当前项目把下面这些位置填上真实内容</span></div>
-                    <div v-if="skillSceneVars.length" class="sk-vlist">
-                      <div class="sk-vrow" v-for="v in skillSceneVars" :key="v.name">
-                        <code class="sk-vk">{{ '{' + v.name + '}' }}</code>
-                        <span class="sk-vfrom">{{ v.from }}</span>
-                        <span class="sk-vdesc">{{ v.desc }}</span>
-                      </div>
-                      <div class="sk-vnote">填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。这张表跟着「场景」走，不跟着某一份 Skill 走 —— 换一份写法，喂料方式不变。</div>
-                    </div>
-                    <div v-else class="sk-vempty">这一步不需要项目上下文 —— 它只读你写的那句话（你在输入框里打的那段描述），不读角色表、不读素材库、不读分镜。</div>
-                    <div class="sk-warn" v-if="skillSceneUnknown.length">
-                      <span>!</span>
-                      <span>正在生效的「<b>{{ skillActive ? skillActive.name : '' }}</b>」正文里还用了
-                        <code v-for="n in skillSceneUnknown" :key="n">{{ '{' + n + '}' }}</code>，
-                        但这个场景的说明里没有登记它 —— 程序不会填这个位置，AI 会当成要自己补的空位。</span>
-                    </div>
+                </div>
+                <div class="krow thin">
+                  <span class="kn">供应商</span>
+                  <select ref="cusProvEl" v-model="cusProvSel" @change="onCusProvChange" style="flex:1 1 auto">
+                    <option v-for="p in cusProvOpts" :key="p.id" :value="p.id">{{ p.label }}</option>
+                  </select>
+                  <span class="hint sm" style="flex:1 1 240px">内置那几家<b>照它整套走</b>（能力声明、上传流程、端点全继承），只换你的地址与密钥 ——
+                    选了就<b>不用再挑接口形状</b>。最后一项「自定义」= 你跑的是别的厂商的协议。</span>
+                </div>
+                <div class="krow thin" :hidden="!cusShapeShown">
+                  <span class="kn">接口形状</span>
+                  <select ref="cusShapeEl" v-model="cusShapeSel" @change="onCusShapeChange" style="flex:1 1 auto">
+                    <option v-for="f in cusShapeOpts" :key="f.id || 'none'" :value="f.id">{{ f.label }}</option>
+                  </select>
+                  <span class="hint sm" style="flex:1 1 240px">{{ cusShapeHint }}</span>
+                </div>
+                <div class="krow thin">
+                  <span class="kn">显示名</span>
+                  <input ref="cusNameEl" v-model="cusName" placeholder="选内置那一家会自动填它的平台名（型号下拉的分组名认的就是它）· 想叫别的，直接改">
+                </div>
+                <div class="krow thin">
+                  <span class="kn">接口地址</span>
+                  <input ref="cusBaseEl" v-model="cusBase" placeholder="选了供应商会自动填它官网的地址 · 换成你自己的中转 / 网关地址也行（https://gw.example.com/api/v1）">
+                </div>
+                <div class="krow thin">
+                  <span class="kn">密钥</span>
+                  <input ref="cusKeyEl" :type="cusKeyShown ? 'text' : 'password'" v-model="cusKey" placeholder="这一家自己的密钥（存 sk_key_，不进那份平台清单）">
+                  <span class="acts"><button class="ghost eye" type="button" :title="cusKeyShown ? '隐藏密钥' : '显示密钥'" @click="cusKeyShown = !cusKeyShown"><span v-html="cusKeyShown ? icEyeOff : icEye"></span></button></span>
+                </div>
+                <div class="krow thin" style="align-items:flex-start">
+                  <span class="kn">型号</span>
+                  <div class="cus-models mlist">
+                    <div v-if="!cusModelRows.length" class="mlist-empty">{{ cusModelsEmpty }}</div>
+                    <template v-else>
+                      <label class="mlist-row" v-for="x in cusModelRows" :key="x.id">
+                        <input type="checkbox" :checked="!cusOff.has(x.id)" @change="onCusModelToggle(x.id, $event)">
+                        <span>{{ x.name }} <code>{{ x.id }}</code></span>
+                        <span class="mlist-src">{{ x.tagZh }}</span>
+                      </label>
+                    </template>
                   </div>
+                </div>
+                <div class="krow thin">
+                  <span class="kn">自己填 id</span>
+                  <input ref="cusExtraEl" v-model="cusExtra" @input="rebuildCusModels" placeholder="逗号分隔（这一类没有型号列表接口时才用）">
+                  <span class="acts"><button class="ghost xs" :disabled="cusFetchBusy" @click="fetchCusModels"
+                    title="用上面填的地址与密钥，问一次它自己的型号列表（只读，不花钱、不建任务）">{{ cusFetchBusy ? '获取中…' : '获取型号列表' }}</button></span>
+                </div>
+                <div class="cus-acts">
+                  <button class="tool acc" @click="addCus">{{ cusAddText }}</button>
+                  <button class="ghost" v-show="cusCancelShown" @click="cancelCus">取消编辑</button>
+                  <span class="hint sm">{{ cusCount }}</span>
+                  <span class="okmsg" :class="cusMsgCls">{{ cusMsg }}</span>
+                </div>
+                <div class="sub">地址只收<b>公网 https</b>（回环、内网、明文 http 都会被代理拒绝）。
+                  这一家的密钥<b>不会</b>回退到 <code>.env</code> 里的内置密钥。
+                  添加与删除<b>当场落盘</b>，和这一页其它项一样不用等保存。</div>
+              </div>
+            </section>
 
-                  <div class="sk-sec">
-                    <div class="sk-sec-h"><b>这个场景的 Skill</b><span class="hint">同一时刻只有一份生效</span></div>
-                    <div v-if="!skillSceneNow.list.length" class="sk-vempty">这个场景还没有任何 Skill —— 现在用的是产品内置的默认正文。</div>
-                    <div v-for="s in skillSceneNow.list" :key="s.id" class="sk-item" :class="{ on: isSceneActive(s), off: !s.enabled }" :data-skill-id="s.id">
-                      <span class="sk-bar"></span>
-                      <div class="sk-i-main">
-                        <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }} · v{{ s.version || 1 }}</span></div>
-                        <div class="sk-desc">{{ s.description }}</div>
-                        <div class="sk-tags">
-                          <span class="ui-tag acc" v-if="isSceneActive(s)">正在生效</span>
-                          <span class="ui-tag err" v-if="s.conflict">contract 冲突</span>
-                          <span class="ui-tag">{{ s.source === 'builtin' ? '内置（只读）' : '我的 Skill' }}</span>
-                          <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
-                          <span class="ui-tag mono" v-for="p in s.pages" :key="p">{{ p }}</span>
-                          <span class="ui-tag" v-for="t in s.triggers" :key="t">#{{ t }}</span>
-                        </div>
-                      </div>
-                      <div class="sk-acts">
-                        <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
-                        <button class="ghost mini sk-edit-btn" v-if="s.source !== 'builtin'" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="openSkillEdit(s.id)">编辑正文</button>
-                        <button class="ghost mini" v-if="s.source !== 'builtin'" type="button" :disabled="skillBusy" @click="pickSkillFile('update', s.id)">导入同 id 更新</button>
-                        <button class="ghost mini danger sk-remove" type="button" :data-skill-id="s.id" :disabled="skillBusy || s.source === 'builtin'" @click="removeSkill(s.id, $event)">卸载</button>
-                        <button class="ghost mini sk-open-btn" type="button" :data-skill-id="s.id" @click="toggleSkillOpen(s.id)">{{ skillSelId === s.id ? '收起正文' : '查看正文' }}</button>                      </div>
-                      <div class="sk-open" v-if="skillSelId === s.id">
-                        <div class="sk-files" v-if="skillFiles.length">
-                          <button v-for="f in skillFiles" :key="f.path" class="sk-file" :class="{ on: f.path === skillFilePath }" type="button" @click="openSkillFile(f.path)">
-                            <span class="sk-fpath">{{ f.path }}</span><span class="sk-sz">{{ fmtSkillSize(f.size) }}</span>
-                          </button>
-                        </div>
-                        <div class="sk-prev">
-                          <div class="sk-prev-bar"><span class="sk-fname">{{ skillFilePath || '（选左边文件）' }}</span><span class="sp"></span><span class="hint">{{ skillFileNote }}</span></div>
-                          <pre class="sk-pre" :ref="setSkillPreEl"></pre>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+            <section class="set-group" data-group="ui" data-note="打开就长什么样、列表默认怎么摆、卡在哪等。">
+              <h2 class="set-group-h">界面与列表</h2>
 
-                  <div class="sk-foot">Skill 只补充写法，输出格式与禁止项由机器契约管，Skill 改不了它。启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。</div>
-                </template>
+              <div class="card card-surface" data-nav="network">
+                <h2 class="card-h"><span class="card-ic" v-html="icRefresh"></span>网络与刷新</h2>
+                <!-- 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 -->
+                <div class="kcols" ref="netBoxEl"></div>
+              </div>
 
-                <!-- ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） -->
-                <template v-else-if="skillMode === 'all'">
-                  <div class="sk-d-head">
-                    <div class="sk-d-l">
-                      <h3 class="sk-d-title">全部 Skill</h3>
-                      <div class="sk-used">原来的全量清单退到这里：按来源/状态查一份 Skill，或者找一份还没归位的。它不再与「使用场景」并排出现 —— 那就是重复的来源。</div>
+              <div class="card card-surface" data-nav="paging">
+                <h2 class="card-h"><span class="card-ic" v-html="icList"></span>列表分页</h2>
+                <div class="sub">「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。</div>
+                <div id="pageSettings" class="kcols" ref="pageBoxEl"></div>
+              </div>
+
+              <div class="card card-surface" data-nav="appearance">
+                <h2 class="card-h"><span class="card-ic" v-html="icSun"></span>外观与界面</h2>
+                <div class="sub">界面长什么样、列表默认怎么摆，跟着数据文件走（换台机器还在）。
+                  改完就自动存进本机；主题与左栏当场跟着变。</div>
+                <div id="uiPrefs" class="kcols" ref="uiPrefsBoxEl"></div>
+              </div>
+            </section>
+
+            <section class="set-group" data-group="gen" data-note="产物落在哪、素材库怎么出图、右下角那个悬浮球怎么 behave。">
+              <h2 class="set-group-h">生成与助手</h2>
+
+              <div class="card card-surface" data-nav="storage">
+                <h2 class="card-h"><span class="card-ic" v-html="icFolder"></span>产物存放</h2>
+                <div class="sub">生成完的产物<b>留在哪、优先从哪读、列表里要不要只显示本机有的</b>。三项连着看：关掉「自动存本机」后，
+                  新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效，
+                  前两项没开着时这一行<b>整个收起来</b>（画着却不生效等于骗人去勾）。</div>
+                <div id="storePrefs" class="kcols" ref="storePrefsBoxEl"></div>
+                <!-- 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 -->
+                <div class="kcols" ref="storeRowsEl"></div>
+              </div>
+
+              <div class="card card-surface" data-nav="chars">
+                <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
+                <div class="sub">这一张卡管「素材库」那一页的<b>默认</b>：默认生图型号、默认语音型号、默认一次出几张候选、默认一次出几条语音。
+                  素材库页面上不再有「本页默认」面板，但<b>每一处生成位仍能当场换型号与张数</b> —— 换的那一次只管那一处，不写回这里
+                  （写回来就变成「按上次那个跑」了）。下面两颗开关管的是界面上的说法与真的发给文字 AI 的参数同一个。</div>
+                <div id="charsSet" class="kcols" ref="charsBoxEl"></div>
+              </div>
+
+              <div class="card card-surface" data-nav="assistant">
+                <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>AI 助手</h2>
+                <div class="sub">右下角那个悬浮球 / 右侧抽屉（<code>Ctrl + /</code> 开合）。它<b>读</b>本机数据不用问；
+                  <b>动手</b>（提交一次生成、改一项设置）默认要你在卡片上点「执行」。</div>
+                <!-- 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 -->
+                <div class="kcols" ref="assistantBoxEl"></div>
+                <div class="pb-tip">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着，
+                  重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div>
+                <div class="pb-tip">勾上之后助手<b>校验完就立刻执行</b>，不等你点确认。一次生成在平台那边就是一条真任务，
+                  <b>没把握就别勾</b>。改素材库那一步仍会单独再问一次（它会直接落盘）；改设置则照这条总开关走。</div>
+                <div class="pb-tip">「吸住」与「任务提醒」还有这个总开关都是<b>本机窗口</b>的事，<b>不跟着云同步</b>、不参与整包备份。</div>
+                <details class="ref"><summary>系统通知的授权怎么做</summary><div class="ref-body">
+                  球上的数字不需要授权；<b>系统通知</b>要浏览器点头，所以有上面那颗「现在授权」。
+                  拒过一次浏览器就不再问，得去地址栏左边的「网站设置」里手动放开。
+                  它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>
+              </div>
+
+              <div class="card card-surface" data-nav="polish" id="polishCard">
+                <h2 class="card-h"><span class="card-ic" v-html="icPencil"></span>润色行为</h2>
+                <div class="sub">提示词正文由 Skill 提供（见下面「Skill」那一栏）；这里只留「润色前要不要先反问」这一个行为开关。</div>
+                <div class="polish-block">
+                  <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）</span></div>
+                  <!-- 那一格下拉的行由 SET_ROWS 声明。 -->
+                  <div class="kcols" ref="polishBoxEl"></div>
+                  <div class="pb-tip">「AI 判断」= 先让文字 AI 读一遍你的描述，<b>它自己决定</b>是先反问几个问题、还是直接润色
+                    （按「补上这些会不会明显改变成片效果」判断，不按字数）。你答完的答案会当<b>硬约束</b>写进润色。</div>
+                </div>
+              </div>
+
+              <div class="card card-surface" data-nav="skill" id="skillCard">
+                <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
+                <div class="sub">Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。
+                  <b>左边是使用场景</b>：选一个场景，右边告诉你这一步会拿到哪些项目上下文、现在用的是哪一份 Skill、你能怎么接管。
+                  Skill 只补充写法，<b>输出格式与禁止项由机器契约管，Skill 改不了它</b>。</div>
+
+                <div class="sk-scenes">
+                  <!-- 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），
+                       行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 -->
+                  <aside class="sk-rail">
+                    <div class="sk-rail-top">
+                      <input type="search" class="sk-search" :value="skillQ" @input="onSkillSearch" placeholder="搜场景 / Skill 名 / id">
+                      <button class="ghost mini" id="skAllBtn" type="button" :disabled="skillBusy" @click="openSkillAll">全部 Skill {{ skillItems.length }}</button>
                     </div>
-                    <div class="sk-acts">
-                      <button class="ghost" type="button" @click="closeSkillAll">回到场景</button>
-                      <button class="ghost" id="skImportBtn" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
+                    <div class="sk-groups">
+                      <template v-for="g in skillTree" :key="g.id">
+                        <div class="sk-rg-h"><span class="sk-rg-n">{{ g.name }}</span><span class="sk-rg-c">{{ g.scenes.length }}</span></div>
+                        <button v-for="sc in g.scenes" :key="sc.key" class="sk-srow" :class="{ on: skillMode === 'scene' && skillScene && skillScene.key === sc.key }"
+                          type="button" :data-scene="sc.key" @click="pickSkillScene(sc)">
+                          <span class="sk-lamp" :class="'lit-' + skillSceneState(sc).lamp"></span>
+                          <span class="sk-s-l">{{ sc.label }}</span>
+                          <span class="sk-s-r" :class="{ err: skillSceneState(sc).lamp === 'conflict' }">{{ skillSceneState(sc).text }}</span>
+                        </button>
+                      </template>
+                      <div v-if="!skillTree.length" class="empty sm">没有匹配的场景。</div>
                     </div>
-                  </div>
-                  <div class="sk-sec">
-                    <div class="sk-filters">
-                      <span class="chips" ref="skillChipsEl"></span>
-                      <input type="search" class="sk-search" :value="skillAllQ" @input="onSkillAllSearch" placeholder="名称 / id / 描述 / 触发词">
-                      <span class="sk-cnt">{{ skillCntText }}</span>
+                    <div class="sk-legend">
+                      <span class="sk-lg"><span class="sk-lamp lit-mine"></span>我的一份在用</span>
+                      <span class="sk-lg"><span class="sk-lamp lit-builtin"></span>内置的在用</span>
+                      <span class="sk-lg"><span class="sk-lamp lit-empty"></span>空档 · 用内置默认正文</span>
+                      <span class="sk-lg"><span class="sk-lamp lit-conflict"></span>两份都启用了</span>
                     </div>
-                    <div class="sk-alllist">
-                      <div v-for="s in skillAllFiltered" :key="s.id" class="sk-allrow" :data-skill-id="s.id">
-                        <div class="sk-i-main">
-                          <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }}</span></div>
-                          <div class="sk-desc">{{ s.description }}</div>
-                        </div>
-                        <div class="sk-tags">
-                          <span class="ui-tag mono">{{ skillSceneNameOf(s.contract) }}</span>
-                          <span class="ui-tag">{{ s.source === 'builtin' ? '内置' : '我的' }}</span>
-                          <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                  </aside>
+
+                  <!-- 右：详情。三个形态：场景详情 / 全部 Skill / 新建（编辑）Skill -->
+                  <section class="sk-detail">
+
+                    <!-- ① 场景详情 -->
+                    <template v-if="skillMode === 'scene' && skillScene">
+                      <div class="sk-d-head">
+                        <div class="sk-d-l">
+                          <h3 class="sk-d-title">{{ skillScene.label }}</h3>
+                          <div class="sk-used">{{ skillScene.used }}</div>
+                          <div class="sk-meta">
+                            <code class="sk-code">{{ skillScene.contract || '（不占固定位）' }}</code>
+                            <span class="ui-tag err" v-if="skillSceneNow.conflict">contract 冲突 · 两份都启用了</span>
+                            <span class="ui-tag ok" v-else-if="skillSceneNow.active">正在生效：{{ skillSceneNow.active.name }}</span>
+                            <span class="ui-tag" v-else>空档 · 用内置默认正文</span>
+                            <span class="sk-cnt">这个场景里 {{ skillSceneNow.list.length }} 份 Skill</span>
+                          </div>
                         </div>
                         <div class="sk-acts">
-                          <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                          <button class="pri" id="skNewBtn" type="button" :disabled="skillBusy" @click="openSkillNew">添加新 Skill</button>
                         </div>
                       </div>
-                      <div v-if="!skillAllFiltered.length" class="empty sm">没有匹配的 Skill。</div>
-                    </div>
-                  </div>
-                </template>
 
-                <!-- ③ 新建 / 编辑：在浏览器里直接写一份 SKILL.md -->
-                <template v-else>
-                  <div class="sk-d-head">
-                    <div class="sk-d-l">
-                      <h3 class="sk-d-title">{{ skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill' }}</h3>
-                      <div class="sk-used">{{ skillForm.mode === 'edit'
-                        ? '改的是「' + skillForm.id + '」这一份 —— 保存后下一轮生效。'
-                        : '在浏览器里直接写一份：下面几格是它的身份，最下面那格是正文（也就是喂给 AI 的那份写法）。' }}</div>
-                      <div class="sk-meta">
-                        <code class="sk-code">contract：{{ skillForm.contract }}</code>
-                        <span class="sk-cnt">同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份内置的会让位</span>
+                      <div class="sk-sec">
+                        <div class="sk-sec-h"><b>这一步会拿到什么</b><span class="hint">程序在发请求前按当前项目把下面这些位置填上真实内容</span></div>
+                        <div v-if="skillSceneVars.length" class="sk-vlist">
+                          <div class="sk-vrow" v-for="v in skillSceneVars" :key="v.name">
+                            <code class="sk-vk">{{ '{' + v.name + '}' }}</code>
+                            <span class="sk-vfrom">{{ v.from }}</span>
+                            <span class="sk-vdesc">{{ v.desc }}</span>
+                          </div>
+                          <div class="sk-vnote">填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。这张表跟着「场景」走，不跟着某一份 Skill 走 —— 换一份写法，喂料方式不变。</div>
+                        </div>
+                        <div v-else class="sk-vempty">这一步不需要项目上下文 —— 它只读你写的那句话（你在输入框里打的那段描述），不读角色表、不读素材库、不读分镜。</div>
+                        <div class="sk-warn" v-if="skillSceneUnknown.length">
+                          <span>!</span>
+                          <span>正在生效的「<b>{{ skillActive ? skillActive.name : '' }}</b>」正文里还用了
+                            <code v-for="n in skillSceneUnknown" :key="n">{{ '{' + n + '}' }}</code>，
+                            但这个场景的说明里没有登记它 —— 程序不会填这个位置，AI 会当成要自己补的空位。</span>
+                        </div>
                       </div>
-                    </div>
-                    <div class="sk-acts">
-                      <button class="ghost" type="button" @click="cancelSkillNew">返回场景</button>
-                      <button class="pri" id="skSaveBtn" type="button" :disabled="skillBusy" @click="saveSkillNew">保存</button>
-                    </div>
-                  </div>
-                  <div class="sk-sec">
-                    <div class="sk-form">
-                      <label class="sk-field"><span class="sk-label">id</span>
-                        <input id="skFId" class="sk-input" v-model="skillForm.id" :disabled="skillForm.mode === 'edit'" placeholder="小写字母 / 数字 / 连字符，例如 my-video-prompt">
-                      </label>
-                      <label class="sk-field"><span class="sk-label">名字</span>
-                        <input id="skFName" class="sk-input" v-model="skillForm.name" placeholder="给人看的名字">
-                      </label>
-                      <label class="sk-field"><span class="sk-label">它管什么</span>
-                        <input id="skFDesc" class="sk-input" v-model="skillForm.description" placeholder="一句话说清这份 Skill 负责哪类活儿">
-                      </label>
-                      <label class="sk-field"><span class="sk-label">触发词</span>
-                        <input id="skFTrig" class="sk-input" v-model="skillForm.triggers" placeholder="用顿号或逗号隔开，例如 视频、提示词">
-                      </label>
-                      <div class="sk-field"><span class="sk-label">页面</span>
-                        <div class="sk-pages">
-                          <label class="sk-page" v-for="p in skillPages" :key="p">
-                            <input type="checkbox" :value="p" v-model="skillForm.pages"><span>{{ p }}</span>
+
+                      <div class="sk-sec">
+                        <div class="sk-sec-h"><b>这个场景的 Skill</b><span class="hint">同一时刻只有一份生效</span></div>
+                        <div v-if="!skillSceneNow.list.length" class="sk-vempty">这个场景还没有任何 Skill —— 现在用的是产品内置的默认正文。</div>
+                        <div v-for="s in skillSceneNow.list" :key="s.id" class="sk-item" :class="{ on: isSceneActive(s), off: !s.enabled }" :data-skill-id="s.id">
+                          <span class="sk-bar"></span>
+                          <div class="sk-i-main">
+                            <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }} · v{{ s.version || 1 }}</span></div>
+                            <div class="sk-desc">{{ s.description }}</div>
+                            <div class="sk-tags">
+                              <span class="ui-tag acc" v-if="isSceneActive(s)">正在生效</span>
+                              <span class="ui-tag err" v-if="s.conflict">contract 冲突</span>
+                              <span class="ui-tag">{{ s.source === 'builtin' ? '内置（只读）' : '我的 Skill' }}</span>
+                              <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                              <span class="ui-tag mono" v-for="p in s.pages" :key="p">{{ p }}</span>
+                              <span class="ui-tag" v-for="t in s.triggers" :key="t">#{{ t }}</span>
+                            </div>
+                          </div>
+                          <div class="sk-acts">
+                            <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                            <button class="ghost mini sk-edit-btn" v-if="s.source !== 'builtin'" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="openSkillEdit(s.id)">编辑正文</button>
+                            <button class="ghost mini" v-if="s.source !== 'builtin'" type="button" :disabled="skillBusy" @click="pickSkillFile('update', s.id)">导入同 id 更新</button>
+                            <button class="ghost mini danger sk-remove" type="button" :data-skill-id="s.id" :disabled="skillBusy || s.source === 'builtin'" @click="removeSkill(s.id, $event)">卸载</button>
+                            <button class="ghost mini sk-open-btn" type="button" :data-skill-id="s.id" @click="toggleSkillOpen(s.id)">{{ skillSelId === s.id ? '收起正文' : '查看正文' }}</button>                      </div>
+                          <div class="sk-open" v-if="skillSelId === s.id">
+                            <div class="sk-files" v-if="skillFiles.length">
+                              <button v-for="f in skillFiles" :key="f.path" class="sk-file" :class="{ on: f.path === skillFilePath }" type="button" @click="openSkillFile(f.path)">
+                                <span class="sk-fpath">{{ f.path }}</span><span class="sk-sz">{{ fmtSkillSize(f.size) }}</span>
+                              </button>
+                            </div>
+                            <div class="sk-prev">
+                              <div class="sk-prev-bar"><span class="sk-fname">{{ skillFilePath || '（选左边文件）' }}</span><span class="sp"></span><span class="hint">{{ skillFileNote }}</span></div>
+                              <pre class="sk-pre" :ref="setSkillPreEl"></pre>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="sk-foot">Skill 只补充写法，输出格式与禁止项由机器契约管，Skill 改不了它。启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。</div>
+                    </template>
+
+                    <!-- ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） -->
+                    <template v-else-if="skillMode === 'all'">
+                      <div class="sk-d-head">
+                        <div class="sk-d-l">
+                          <h3 class="sk-d-title">全部 Skill</h3>
+                          <div class="sk-used">原来的全量清单退到这里：按来源/状态查一份 Skill，或者找一份还没归位的。它不再与「使用场景」并排出现 —— 那就是重复的来源。</div>
+                        </div>
+                        <div class="sk-acts">
+                          <button class="ghost" type="button" @click="closeSkillAll">回到场景</button>
+                          <button class="ghost" id="skImportBtn" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
+                        </div>
+                      </div>
+                      <div class="sk-sec">
+                        <div class="sk-filters">
+                          <span class="chips" ref="skillChipsEl"></span>
+                          <input type="search" class="sk-search" :value="skillAllQ" @input="onSkillAllSearch" placeholder="名称 / id / 描述 / 触发词">
+                          <span class="sk-cnt">{{ skillCntText }}</span>
+                        </div>
+                        <div class="sk-alllist">
+                          <div v-for="s in skillAllFiltered" :key="s.id" class="sk-allrow" :data-skill-id="s.id">
+                            <div class="sk-i-main">
+                              <div class="sk-line1"><b class="sk-name">{{ s.name }}</b><span class="sk-id">{{ s.id }}</span></div>
+                              <div class="sk-desc">{{ s.description }}</div>
+                            </div>
+                            <div class="sk-tags">
+                              <span class="ui-tag mono">{{ skillSceneNameOf(s.contract) }}</span>
+                              <span class="ui-tag">{{ s.source === 'builtin' ? '内置' : '我的' }}</span>
+                              <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                            </div>
+                            <div class="sk-acts">
+                              <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                            </div>
+                          </div>
+                          <div v-if="!skillAllFiltered.length" class="empty sm">没有匹配的 Skill。</div>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- ③ 新建 / 编辑：在浏览器里直接写一份 SKILL.md -->
+                    <template v-else>
+                      <div class="sk-d-head">
+                        <div class="sk-d-l">
+                          <h3 class="sk-d-title">{{ skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill' }}</h3>
+                          <div class="sk-used">{{ skillForm.mode === 'edit'
+                            ? '改的是「' + skillForm.id + '」这一份 —— 保存后下一轮生效。'
+                            : '在浏览器里直接写一份：下面几格是它的身份，最下面那格是正文（也就是喂给 AI 的那份写法）。' }}</div>
+                          <div class="sk-meta">
+                            <code class="sk-code">contract：{{ skillForm.contract }}</code>
+                            <span class="sk-cnt">同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份内置的会让位</span>
+                          </div>
+                        </div>
+                        <div class="sk-acts">
+                          <button class="ghost" type="button" @click="cancelSkillNew">返回场景</button>
+                          <button class="pri" id="skSaveBtn" type="button" :disabled="skillBusy" @click="saveSkillNew">保存</button>
+                        </div>
+                      </div>
+                      <div class="sk-sec">
+                        <div class="sk-form">
+                          <label class="sk-field"><span class="sk-label">id</span>
+                            <input id="skFId" class="sk-input" v-model="skillForm.id" :disabled="skillForm.mode === 'edit'" placeholder="小写字母 / 数字 / 连字符，例如 my-video-prompt">
+                          </label>
+                          <label class="sk-field"><span class="sk-label">名字</span>
+                            <input id="skFName" class="sk-input" v-model="skillForm.name" placeholder="给人看的名字">
+                          </label>
+                          <label class="sk-field"><span class="sk-label">它管什么</span>
+                            <input id="skFDesc" class="sk-input" v-model="skillForm.description" placeholder="一句话说清这份 Skill 负责哪类活儿">
+                          </label>
+                          <label class="sk-field"><span class="sk-label">触发词</span>
+                            <input id="skFTrig" class="sk-input" v-model="skillForm.triggers" placeholder="用顿号或逗号隔开，例如 视频、提示词">
+                          </label>
+                          <div class="sk-field"><span class="sk-label">页面</span>
+                            <div class="sk-pages">
+                              <label class="sk-page" v-for="p in skillPages" :key="p">
+                                <input type="checkbox" :value="p" v-model="skillForm.pages"><span>{{ p }}</span>
+                              </label>
+                            </div>
+                          </div>
+                          <label class="sk-field"><span class="sk-label">正文</span>
+                            <textarea id="skFBody" class="sk-textarea" v-model="skillForm.body" rows="14" placeholder="这份 Skill 要告诉 AI 怎么写。可以用 {变量} 占位，程序会按当前项目填进去。"></textarea>
                           </label>
                         </div>
+                        <div class="sk-vnote">正文里的 <code>{变量}</code> 由程序按当前项目填料 —— 这个场景能拿到哪些变量，看上面「这一步会拿到什么」那一张表。填不上的原样留着，AI 会知道那是要它自己补的位子。</div>
                       </div>
-                      <label class="sk-field"><span class="sk-label">正文</span>
-                        <textarea id="skFBody" class="sk-textarea" v-model="skillForm.body" rows="14" placeholder="这份 Skill 要告诉 AI 怎么写。可以用 {变量} 占位，程序会按当前项目填进去。"></textarea>
-                      </label>
-                    </div>
-                    <div class="sk-vnote">正文里的 <code>{变量}</code> 由程序按当前项目填料 —— 这个场景能拿到哪些变量，看上面「这一步会拿到什么」那一张表。填不上的原样留着，AI 会知道那是要它自己补的位子。</div>
+                    </template>
+                  </section>
+                </div>
+
+                <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
+                <div class="sk-hint">启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。导入只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 只读 —— 要改就自己「添加新 Skill」写一份自己的。</div>
+                <div v-if="skillMsg" class="hint sm sk-msg">{{ skillMsg }}</div>
+              </div>
+            </section>
+
+            <section class="set-group" data-group="data" data-note="东西存哪、怎么带走、坏了怎么恢复。">
+              <h2 class="set-group-h">数据与同步</h2>
+
+              <div class="card card-surface" data-nav="sync">
+                <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与同步</h2>
+                <div class="sub">开启后数据会同时写一份到本机项目目录的 <code>.data/</code>（普通 JSON 文件），可备份、可同步到你自己的网盘。</div>
+                <div class="kcols">
+                  <div class="krow">
+                    <span class="kicon"><span v-html="icFolder"></span></span>
+                    <span class="kn">数据文件</span>
+                    <span class="dir-name" :title="dataInfoTitle">{{ dataInfo }}</span>
+                    <button class="ghost mini wide" :disabled="dataBusy.copy" @click="copyDataDir">复制路径</button>
+                    <button class="ghost mini wide" @click="reloadDataInfo">刷新</button>
                   </div>
-                </template>
-              </section>
-            </div>
-
-            <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
-            <div class="sk-hint">启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。导入只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 只读 —— 要改就自己「添加新 Skill」写一份自己的。</div>
-            <div v-if="skillMsg" class="hint sm sk-msg">{{ skillMsg }}</div>
-          </div>
-        </section>
-
-        <section class="set-group" data-group="data">
-          <h2 class="set-group-h">数据与同步</h2>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与同步</h2>
-            <div class="sub">开启后数据会同时写一份到本机项目目录的 <code>.data/</code>（普通 JSON 文件），可备份、可同步到你自己的网盘。</div>
-            <div class="kcols">
-              <div class="krow">
-                <span class="kicon"><span v-html="icFolder"></span></span>
-                <span class="kn">数据文件</span>
-                <span class="dir-name" :title="dataInfoTitle">{{ dataInfo }}</span>
-                <button class="ghost mini wide" :disabled="dataBusy.copy" @click="copyDataDir">复制路径</button>
-                <button class="ghost mini wide" @click="reloadDataInfo">刷新</button>
-              </div>
-              <div class="krow">
-                <span class="kicon"><span v-html="icClock"></span></span>
-                <span class="kn">浏览器存储</span>
-                <span class="dir-name">{{ persistInfo }}</span>
-                <button class="ghost mini wide" v-show="!persistGranted" @click="askPersist">申请持久化</button>
-              </div>
-            </div>
-            <div class="krow tight">
-              <button class="ghost wide" :disabled="dataBusy.push" @click="pushData">↑ 本机 → 数据文件</button>
-              <button class="ghost wide" :disabled="dataBusy.pull" @click="pullData">↓ 数据文件 → 本机</button>
-              <button class="ghost wide" :disabled="dataBusy.exp" @click="exportAll"><span class="ic" data-icon="download" data-size="13"></span> 导出整包备份</button>
-              <button class="ghost wide" :disabled="dataBusy.imp" @click="pickImportAll"><span class="ic" data-icon="upload" data-size="13"></span> 导入整包备份</button>
-              <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
-              <span class="hint sm">{{ dataMsg }}</span>
-            </div>
-            <label class="plabel" style="margin-top:var(--sp-14)">云同步（WebDAV）</label>
-            <div class="pb-tip" style="margin-bottom:var(--sp-8)">坚果云请在「账户信息 → 安全选项」里生成<b>应用密码</b>，不要填登录密码。</div>
-            <div class="krow">
-              <span class="kicon"><span v-html="icLink"></span></span>
-              <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">
-            </div>
-            <div class="krow">
-              <span class="kicon"><span v-html="icKey"></span></span>
-              <input id="cloudUser" v-model="cloudUser" @change="saveCloud" placeholder="账号（邮箱）" style="flex:1">
-              <input id="cloudPass" type="password" v-model="cloudPass" @change="saveCloud" placeholder="应用密码" style="flex:1">
-            </div>
-            <div class="krow tight">
-              <button class="ghost wide" @click="cloudBusy.test ? cloudAbort('test') : cloudCall('test')">{{ cloudBusy.test ? '中止这次' : '测试连接' }}</button>
-              <button class="ghost wide" @click="cloudBusy.push ? cloudAbort('push') : cloudPush()">{{ cloudBusy.push ? '中止这次' : '↑ 上传到云端' }}</button>
-              <button class="ghost wide" @click="cloudBusy.pull ? cloudAbort('pull') : cloudPull()">{{ cloudBusy.pull ? '中止这次' : '↓ 从云端下载' }}</button>
-              <button class="ghost wide" @click="cloudBusy.sync ? cloudAbort('sync') : cloudSync()"
-                title="两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边">{{ cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步' }}</button>
-              <label class="crow">
-                <input type="checkbox" id="cloudKeys" v-model="cloudKeys" @change="saveCloud"> 连密钥一起同步（默认否）</label>
-              <label class="crow" title="提示词归档是磁盘上的一堆 .md，不进整包备份 —— 换机器就没了。勾上跟着 push/pull/sync 走云端 prompts/ 目录，只推不删。">
-                <input type="checkbox" id="cloudPrompts" v-model="cloudPrompts" @change="saveCloud"> 连提示词归档一起（默认否）</label>
-              <span class="hint sm">{{ cloudMsg }}</span>
-            </div>
-            <div class="krow tight">
-              <span class="hint sm">{{ cloudState }}</span>
-            </div>
-            <!-- 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 -->
-            <div id="cloudConflicts" ref="cloudConflictsEl"></div>
-            <!-- 备份：每次云端覆盖本机之前留的那一份，可一键恢复 -->
-            <div id="cloudBackups" ref="cloudBackupsEl"></div>
-          </div>
-
-          <div class="card card-surface">
-            <h2 class="card-h"><span class="card-ic empty"></span>提示词归档</h2>
-            <label class="plabel">归档目录</label>
-            <div class="krow">
-              <span class="kicon"><span v-html="icFolderDoc"></span></span>
-              <input id="promptDir" ref="promptDirEl" v-model="promptDir" @change="onPromptDirChange" placeholder="留空 = 默认（下载\拾帧\提示词）" style="flex:1">
-              <span id="promptDirInfo" :title="promptInfoTitle" style="flex:0 0 auto">{{ promptInfo }}</span>
-            </div>
-            <div class="pb-tip">支持 <code>~</code> 开头（用户主目录）与绝对路径，目录不存在会自动创建；这一项不参与云同步。</div>
-            <div class="krow tight">
-              <button class="ghost wide" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
-              <button class="ghost wide" @click="promptRefresh">刷新清单</button>
-              <span class="hint sm">{{ promptMsg }}</span>
-            </div>
-            <div id="promptRecent" ref="promptRecentEl" class="prompt-recent"></div>
-          </div>
-
-          <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
-          <div class="card card-surface" id="ioCard">
-            <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
-            <div class="sub">上面每一栏改完就自动存进本机，这里三项管的都是<b>整份设置</b>：导出成一个 JSON（可换电脑导入）、从 JSON 恢复、清回出厂状态。
-              导出默认不含密钥，选了含密钥那份文件里就是明文，别外传。
-              <b>这份文件只含设置</b>：素材库（角色 / 场景 / 道具）、生成历史、收藏与导演台工作区都是数据，
-              不在这里面 —— 要整份带走请用上面「数据与同步」那一栏的「导出整包备份」。</div>
-            <div class="krow tight">
-              <button class="ghost" @click="exportSetup" title="把当前设置导出成 JSON（可换电脑导入）"><span class="ic" data-icon="download" data-size="13"></span> 导出设置</button>
-              <button class="ghost" @click="pickImportSetup" title="从导出的 JSON 恢复设置"><span class="ic" data-icon="upload" data-size="13"></span> 导入设置</button>
-              <button class="ghost danger" @click="resetSetup" title="清空密钥、接口地址、目录、分页与润色指令">恢复默认</button>
-              <input type="file" ref="impSetFileEl" accept=".json,application/json" style="display:none" @change="onImportSetupFile">
-            </div>
-          </div>
-        </section>
-
-        <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，
-             键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 -->
-        <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint">
-          <h2 class="set-group-h">
-            <button class="tool fold-toggle" type="button" aria-expanded="false"><span class="fold-title">本机维护</span><span class="fold-txt">展开</span></button>
-          </h2>
-          <div class="fold-body">
-            <div class="card card-surface">
-              <h2 class="card-h"><span class="card-ic" v-html="icGear"></span>本机环境</h2>
-              <div class="sub">问的是<b>这台机器现在能不能干活</b>：代理版本、这个浏览器出不出得了成片（WebCodecs / H.264 / AAC）、三个落盘目录能不能写。
-                全部现读，<b>一个字节都不写</b>。</div>
-              <div id="sysRows" ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
-              <div class="krow tight">
-                <button class="ghost wide" :disabled="sysBusy" @click="recheckSys">重新体检</button>
-                <button class="ghost wide" :disabled="sysCopyDisabled" @click="copySys"
-                  :title="sysCopyDisabled ? '还没读到体检结果（代理没在运行，或它是加这一项之前启动的旧版）' : '把上面这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'">复制体检结果</button>
-                <span class="hint sm">{{ sysMsg }}</span>
-              </div>
-              <div class="pb-tip">「重新体检」会重新读一遍代理的现况、并重新问一次这个浏览器的编码能力：换过浏览器、改过目录权限时用这一颗，不用重启代理。</div>
-            </div>
-
-            <div class="card card-surface">
-              <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>资产库磁盘用量</h2>
-              <div class="sub">本机存下来的图片 / 视频 / 语音占多大地方、<b>同一件有没有压了好几份</b>、这块盘还剩多少。
-                全部现读，<b>一个字节都不写不删</b>。</div>
-              <div id="usageRows" ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
-              <div class="krow tight">
-                <button class="ghost wide" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
-                <button class="ghost wide" :disabled="usageCopyDisabled" @click="copyUsage"
-                  :title="usageCopyDisabled ? '还没读到用量（代理没在运行，或它是加这一项之前启动的旧版）' : '把这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'">复制这份读数</button>
-                <span id="usageGoSlot" ref="usageGoSlotEl"></span>
-                <span class="hint sm">{{ usageMsg }}</span>
-              </div>
-              <div class="pb-tip">「重新数一遍」真的要把目录翻一遍（内容级判重一次有字节预算，读不完的那一些会照实说还有几份没验）。
-                能安全清掉的是<b>缓存</b>，在「清理缓存」那一栏 —— 这一栏不动文件。</div>
-            </div>
-
-            <div class="card card-surface">
-              <h2 class="card-h"><span class="card-ic" v-html="icTrash"></span>清理缓存</h2>
-              <div class="sub">这四项都是<b>能自己重新生成的缓存</b>，清掉不会少任何作品（图片 / 视频 / 语音、提示词归档、收藏、历史一律不动）。
-                <b>换密钥、平台改了参数又不想干等过期</b>时用这一栏最快。</div>
-              <div class="kcols">
-                <div class="krow tight">
-                  <span class="kn">平台接口应答</span>
-                  <span class="sub-line">平台返回的列表 / 任务详情 / 产物地址 / 能力表 / 报价的副本。换了密钥或平台改了参数时清它，下次打开重新拉。</span>
-                  <button class="ghost mini wide" :disabled="cacheBusy.api" @click="clearApiCache">{{ cacheBusy.api ? '清理中…' : '清空' }}</button>
+                  <div class="krow">
+                    <span class="kicon"><span v-html="icClock"></span></span>
+                    <span class="kn">浏览器存储</span>
+                    <span class="dir-name">{{ persistInfo }}</span>
+                    <button class="ghost mini wide" v-show="!persistGranted" @click="askPersist">申请持久化</button>
+                  </div>
                 </div>
                 <div class="krow tight">
-                  <span class="kn">文字 AI 型号能力</span>
-                  <span class="sub-line">每个文字型号「能不能识图」的判定（缓存 12 小时）。换了文字型号、或某个型号突然支持识图了就清它，下次润色时重新判。</span>
-                  <button class="ghost mini wide" :disabled="cacheBusy.meta" @click="clearMetaCache">{{ cacheBusy.meta ? '清理中…' : '清空' }}</button>
+                  <button class="ghost wide" :disabled="dataBusy.push" @click="pushData">↑ 本机 → 数据文件</button>
+                  <button class="ghost wide" :disabled="dataBusy.pull" @click="pullData">↓ 数据文件 → 本机</button>
+                  <button class="ghost wide" :disabled="dataBusy.exp" @click="exportAll"><span class="ic" data-icon="download" data-size="13"></span> 导出整包备份</button>
+                  <button class="ghost wide" :disabled="dataBusy.imp" @click="pickImportAll"><span class="ic" data-icon="upload" data-size="13"></span> 导入整包备份</button>
+                  <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
+                  <span class="hint sm">{{ dataMsg }}</span>
+                </div>
+                <label class="plabel" style="margin-top:var(--sp-14)">云同步（WebDAV）</label>
+                <div class="pb-tip" style="margin-bottom:var(--sp-8)">坚果云请在「账户信息 → 安全选项」里生成<b>应用密码</b>，不要填登录密码。</div>
+                <div class="krow">
+                  <span class="kicon"><span v-html="icLink"></span></span>
+                  <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">
+                </div>
+                <div class="krow">
+                  <span class="kicon"><span v-html="icKey"></span></span>
+                  <input id="cloudUser" v-model="cloudUser" @change="saveCloud" placeholder="账号（邮箱）" style="flex:1">
+                  <input id="cloudPass" type="password" v-model="cloudPass" @change="saveCloud" placeholder="应用密码" style="flex:1">
                 </div>
                 <div class="krow tight">
-                  <span class="kn">缩略图与体积探测</span>
-                  <span class="sub-line">视频首帧与图片小图的本地副本，加上上传前的体积测量（存 IndexedDB）。清了下次看列表会重新抽帧，视频多时 CPU 忙一会儿。</span>
-                  <button class="ghost mini wide" :disabled="cacheBusy.thumb" @click="clearThumbCache">{{ cacheBusy.thumb ? '清理中…' : '清空' }}</button>
+                  <button class="ghost wide" @click="cloudBusy.test ? cloudAbort('test') : cloudCall('test')">{{ cloudBusy.test ? '中止这次' : '测试连接' }}</button>
+                  <button class="ghost wide" @click="cloudBusy.push ? cloudAbort('push') : cloudPush()">{{ cloudBusy.push ? '中止这次' : '↑ 上传到云端' }}</button>
+                  <button class="ghost wide" @click="cloudBusy.pull ? cloudAbort('pull') : cloudPull()">{{ cloudBusy.pull ? '中止这次' : '↓ 从云端下载' }}</button>
+                  <button class="ghost wide" @click="cloudBusy.sync ? cloudAbort('sync') : cloudSync()"
+                    title="两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边">{{ cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步' }}</button>
+                  <label class="crow">
+                    <input type="checkbox" id="cloudKeys" v-model="cloudKeys" @change="saveCloud"> 连密钥一起同步（默认否）</label>
+                  <label class="crow" title="提示词归档是磁盘上的一堆 .md，不进整包备份 —— 换机器就没了。勾上跟着 push/pull/sync 走云端 prompts/ 目录，只推不删。">
+                    <input type="checkbox" id="cloudPrompts" v-model="cloudPrompts" @change="saveCloud"> 连提示词归档一起（默认否）</label>
+                  <span class="hint sm">{{ cloudMsg }}</span>
                 </div>
                 <div class="krow tight">
-                  <span class="kn">「没归档到」标记</span>
-                  <span class="sub-line">哪些任务的提示词在本机归档里找不到（免得反复去问同一个任务号，只在本标签页有效）。手工补过归档文件或换过归档目录后清它。</span>
-                  <button class="ghost mini wide" :disabled="cacheBusy.missed" @click="clearMissedCache">{{ cacheBusy.missed ? '清理中…' : '清空' }}</button>
+                  <span class="hint sm">{{ cloudState }}</span>
+                </div>
+                <!-- 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 -->
+                <div id="cloudConflicts" ref="cloudConflictsEl"></div>
+                <!-- 备份：每次云端覆盖本机之前留的那一份，可一键恢复 -->
+                <div id="cloudBackups" ref="cloudBackupsEl"></div>
+              </div>
+
+              <div class="card card-surface" data-nav="prompts">
+                <h2 class="card-h"><span class="card-ic empty"></span>提示词归档</h2>
+                <label class="plabel">归档目录</label>
+                <div class="krow">
+                  <span class="kicon"><span v-html="icFolderDoc"></span></span>
+                  <input id="promptDir" ref="promptDirEl" v-model="promptDir" @change="onPromptDirChange" placeholder="留空 = 默认（下载\拾帧\提示词）" style="flex:1">
+                  <span id="promptDirInfo" :title="promptInfoTitle" style="flex:0 0 auto">{{ promptInfo }}</span>
+                </div>
+                <div class="pb-tip">支持 <code>~</code> 开头（用户主目录）与绝对路径，目录不存在会自动创建；这一项不参与云同步。</div>
+                <div class="krow tight">
+                  <button class="ghost wide" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
+                  <button class="ghost wide" @click="promptRefresh">刷新清单</button>
+                  <span class="hint sm">{{ promptMsg }}</span>
+                </div>
+                <div id="promptRecent" ref="promptRecentEl" class="prompt-recent"></div>
+              </div>
+
+              <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
+              <div class="card card-surface" data-nav="backup" id="ioCard">
+                <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
+                <div class="sub">上面每一栏改完就自动存进本机，这里三项管的都是<b>整份设置</b>：导出成一个 JSON（可换电脑导入）、从 JSON 恢复、清回出厂状态。
+                  导出默认不含密钥，选了含密钥那份文件里就是明文，别外传。
+                  <b>这份文件只含设置</b>：素材库（角色 / 场景 / 道具）、生成历史、收藏与导演台工作区都是数据，
+                  不在这里面 —— 要整份带走请用上面「数据与同步」那一栏的「导出整包备份」。</div>
+                <div class="krow tight">
+                  <button class="ghost" @click="exportSetup" title="把当前设置导出成 JSON（可换电脑导入）"><span class="ic" data-icon="download" data-size="13"></span> 导出设置</button>
+                  <button class="ghost" @click="pickImportSetup" title="从导出的 JSON 恢复设置"><span class="ic" data-icon="upload" data-size="13"></span> 导入设置</button>
+                  <button class="ghost danger" @click="resetSetup" title="清空密钥、接口地址、目录、分页与润色指令">恢复默认</button>
+                  <input type="file" ref="impSetFileEl" accept=".json,application/json" style="display:none" @change="onImportSetupFile">
                 </div>
               </div>
-              <div id="histClearRows" ref="histBoxEl"></div>
-              <div class="hint sm cache-line" id="cacheUsage">{{ cacheUsage }}</div>
-              <div class="hint sm cache-line" id="cacheMsg">{{ cacheMsg }}</div>
-            </div>
-          </div>
-        </section>
+            </section>
+
+            <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，
+                 键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 -->
+            <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint" data-note="这台机器现在行不行、低频的清理。">
+              <h2 class="set-group-h">
+                <button class="tool fold-toggle" type="button" aria-expanded="false"><span class="fold-title">本机维护</span><span class="fold-txt">展开</span></button>
+              </h2>
+              <div class="fold-body">
+                <div class="card card-surface" data-nav="env">
+                  <h2 class="card-h"><span class="card-ic" v-html="icGear"></span>本机环境</h2>
+                  <div class="sub">问的是<b>这台机器现在能不能干活</b>：代理版本、这个浏览器出不出得了成片（WebCodecs / H.264 / AAC）、三个落盘目录能不能写。
+                    全部现读，<b>一个字节都不写</b>。</div>
+                  <div id="sysRows" ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
+                  <div class="krow tight">
+                    <button class="ghost wide" :disabled="sysBusy" @click="recheckSys">重新体检</button>
+                    <button class="ghost wide" :disabled="sysCopyDisabled" @click="copySys"
+                      :title="sysCopyDisabled ? '还没读到体检结果（代理没在运行，或它是加这一项之前启动的旧版）' : '把上面这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'">复制体检结果</button>
+                    <span class="hint sm">{{ sysMsg }}</span>
+                  </div>
+                  <div class="pb-tip">「重新体检」会重新读一遍代理的现况、并重新问一次这个浏览器的编码能力：换过浏览器、改过目录权限时用这一颗，不用重启代理。</div>
+                </div>
+
+                <div class="card card-surface" data-nav="disk">
+                  <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>资产库磁盘用量</h2>
+                  <div class="sub">本机存下来的图片 / 视频 / 语音占多大地方、<b>同一件有没有压了好几份</b>、这块盘还剩多少。
+                    全部现读，<b>一个字节都不写不删</b>。</div>
+                  <div id="usageRows" ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
+                  <div class="krow tight">
+                    <button class="ghost wide" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
+                    <button class="ghost wide" :disabled="usageCopyDisabled" @click="copyUsage"
+                      :title="usageCopyDisabled ? '还没读到用量（代理没在运行，或它是加这一项之前启动的旧版）' : '把这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'">复制这份读数</button>
+                    <span id="usageGoSlot" ref="usageGoSlotEl"></span>
+                    <span class="hint sm">{{ usageMsg }}</span>
+                  </div>
+                  <div class="pb-tip">「重新数一遍」真的要把目录翻一遍（内容级判重一次有字节预算，读不完的那一些会照实说还有几份没验）。
+                    能安全清掉的是<b>缓存</b>，在「清理缓存」那一栏 —— 这一栏不动文件。</div>
+                </div>
+
+                <div class="card card-surface" data-nav="cache">
+                  <h2 class="card-h"><span class="card-ic" v-html="icTrash"></span>清理缓存</h2>
+                  <div class="sub">这四项都是<b>能自己重新生成的缓存</b>，清掉不会少任何作品（图片 / 视频 / 语音、提示词归档、收藏、历史一律不动）。
+                    <b>换密钥、平台改了参数又不想干等过期</b>时用这一栏最快。</div>
+                  <div class="kcols">
+                    <div class="krow tight">
+                      <span class="kn">平台接口应答</span>
+                      <span class="sub-line">平台返回的列表 / 任务详情 / 产物地址 / 能力表 / 报价的副本。换了密钥或平台改了参数时清它，下次打开重新拉。</span>
+                      <button class="ghost mini wide" :disabled="cacheBusy.api" @click="clearApiCache">{{ cacheBusy.api ? '清理中…' : '清空' }}</button>
+                    </div>
+                    <div class="krow tight">
+                      <span class="kn">文字 AI 型号能力</span>
+                      <span class="sub-line">每个文字型号「能不能识图」的判定（缓存 12 小时）。换了文字型号、或某个型号突然支持识图了就清它，下次润色时重新判。</span>
+                      <button class="ghost mini wide" :disabled="cacheBusy.meta" @click="clearMetaCache">{{ cacheBusy.meta ? '清理中…' : '清空' }}</button>
+                    </div>
+                    <div class="krow tight">
+                      <span class="kn">缩略图与体积探测</span>
+                      <span class="sub-line">视频首帧与图片小图的本地副本，加上上传前的体积测量（存 IndexedDB）。清了下次看列表会重新抽帧，视频多时 CPU 忙一会儿。</span>
+                      <button class="ghost mini wide" :disabled="cacheBusy.thumb" @click="clearThumbCache">{{ cacheBusy.thumb ? '清理中…' : '清空' }}</button>
+                    </div>
+                    <div class="krow tight">
+                      <span class="kn">「没归档到」标记</span>
+                      <span class="sub-line">哪些任务的提示词在本机归档里找不到（免得反复去问同一个任务号，只在本标签页有效）。手工补过归档文件或换过归档目录后清它。</span>
+                      <button class="ghost mini wide" :disabled="cacheBusy.missed" @click="clearMissedCache">{{ cacheBusy.missed ? '清理中…' : '清空' }}</button>
+                    </div>
+                  </div>
+                  <div id="histClearRows" ref="histBoxEl"></div>
+                  <div class="hint sm cache-line" id="cacheUsage">{{ cacheUsage }}</div>
+                  <div class="hint sm cache-line" id="cacheMsg">{{ cacheMsg }}</div>
+                </div>
+              </div>
+            </section>
+        </div>
+        <!-- 钉在底下的一行：现在在第几项 + 改没改（自动保存的回执只在这一格说话） -->
+        <div class="set-status">
+          <span class="set-pos">{{ navPos }}</span>
+          <span class="sp"></span>
+          <span class="set-save" :class="saveKind">{{ saveText }}</span>
+        </div>
       </div>
     </div>

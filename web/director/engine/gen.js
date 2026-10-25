@@ -14,7 +14,7 @@ export function createGen(E) {
     applyRefSyntax, refTokenize, resolvedModel, ROLE_ZH, comboLabel, shotUsedRoles, shotCombo,
     shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
     shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
-    updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid,
+    updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid, videoPlanOf,
   } = E;
 let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变
 /* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部）。
@@ -58,19 +58,46 @@ function pollLive(t) {
    —— 那一道闸四个生产点共用一份（见 local.js 的 announce 说明）。 */
 /* 这一条候选的素材名（不带扩展名）：`场景01-雨夜街头_镜头03-推门_候选2`。
    库里的文件名、本机索引名、FCPXML 媒体包名都用它 —— 三处同源才不会出现
-   「素材库里叫一个名、包里的 media/ 又叫另一个名」。找不到所属镜头时交空串，
-   `AssetLocal.nameOf` 会回落到提示词前缀（导入 / 历史条目的原行为）。 */
-function candidateAssetBase(c) {
-  const sh = allShots().find(x => (x.candidates || []).indexOf(c) >= 0);
-  const ctx = sh ? shotCtxOf(projOf(), sh) : null;
+   「素材库里叫一个名、包里的 media/ 又叫另一个名」。所属镜头由调用方递进来
+   （轮询那两处手里都有 sh）—— 以前在这里按 allShots()（**当前短片**）反查，
+   短片 A 的任务在切到 B 之后跑完，名字就回落到提示词前缀，三处同源在这一路上断了。 */
+function shotOwnerOf(sh) {
+  for (const p of ((wsOf() && wsOf().projects) || [])) {
+    if ((p.scenes || []).some(s => (s.shots || []).includes(sh))) return p;
+  }
+  return null;
+}
+function candidateAssetBase(c, shRef) {
+  let sh = shRef || null;
+  let owner = sh ? shotOwnerOf(sh) : null;
+  if (!sh) {
+    for (const p of ((wsOf() && wsOf().projects) || [])) {
+      for (const sc of (p.scenes || [])) {
+        const hit = (sc.shots || []).find(x => (x.candidates || []).indexOf(c) >= 0);
+        if (hit) { sh = hit; owner = p; break; }
+      }
+      if (sh) break;
+    }
+  }
+  const ctx = sh && owner ? shotCtxOf(owner, sh) : null;
   return ctx ? candidateBase(ctx, candidateIndex(sh, c)) : '';
 }
 function voiceAssetBase(v, shRef) {
-  const sh = shRef || allShots().find(x => x.id === (v && v.shotId));
-  const ctx = sh ? shotCtxOf(projOf(), sh) : null;
-  return ctx ? voiceBase(ctx, voiceIndex(projOf(), v)) : '';
+  let sh = shRef || null;
+  let owner = null;
+  if (!sh) {
+    for (const p of ((wsOf() && wsOf().projects) || [])) {
+      for (const sc of (p.scenes || [])) {
+        const hit = (sc.shots || []).find(x => x.id === (v && v.shotId));
+        if (hit) { sh = hit; owner = p; break; }
+      }
+      if (sh) break;
+    }
+  } else owner = shotOwnerOf(sh);
+  const ctx = sh && owner ? shotCtxOf(owner, sh) : null;
+  return ctx ? voiceBase(ctx, voiceIndex(owner, v)) : '';
 }
-function announceAssetDone(c) {
+function announceAssetDone(c, shRef) {
   if (!c || c._mirrorAnnounced) return;
   const src = String(c.url || (c.assetId ? Api.assetSrc(c.assetId) : ''));
   if (!src) return;
@@ -78,7 +105,7 @@ function announceAssetDone(c) {
   window.AssetLocal.announce([{
     kind: 'asset', provider: c.provider || '', assetId: c.assetId || '', genId: c.vid || '',
     type: '视频', format: c.format || 'mp4', status: 'done', src,
-    name: candidateAssetBase(c),                // base，不带扩展名（见 local.js 的 nameOf）
+    name: candidateAssetBase(c, shRef),            // base，不带扩展名（见 local.js 的 nameOf）
     prompt: c.prompt || '', model: c.model || '', tier: c.tier || '', res: c.res || '', ar: c.ar || '',
     duration: c.duration ?? null, credits: c.credits ?? null, priceMicros: c.priceMicros ?? null,
     currency: c.currency || '', priceText: c.priceText || '', gstatus: c.gstatus || c.status || '',
@@ -86,7 +113,11 @@ function announceAssetDone(c) {
   }]);
 }
 function announceDoneCandidates() {
-  try { allShots().forEach(sh => (sh.candidates || []).forEach(c => { if (c && c.status === 'succeeded' && c.url) announceAssetDone(c); })); } catch (e) { /* 自动镜像是尽力而为，抛错不该打断这一屏渲染 */ }
+  try {
+    /* 起点扫**所有短片**（不只是当前这一部）：切走之后跑完的候选同样要投自动镜像。 */
+    ((wsOf() && wsOf().projects) || []).forEach(p => (p.scenes || []).forEach(sc => (sc.shots || []).forEach(sh =>
+      (sh.candidates || []).forEach(c => { if (c && c.status === 'succeeded' && c.url) announceAssetDone(c, sh); }))));
+  } catch (e) { /* 自动镜像是尽力而为，抛错不该打断这一屏渲染 */ }
 }
 function pollOne(t) {
   const { c, sh, mine } = t;
@@ -137,7 +168,7 @@ function pollOne(t) {
       }
       if (p.done || p.failed) {
         if (!sh.selId && p.done) { sh.selId = c.vid; }   // 第一条成功的自动选用
-        if (p.done) announceAssetDone(c);                // 自动镜像的入口（见 announceAssetDone）
+        if (p.done) announceAssetDone(c, sh);            // 自动镜像的入口（见 announceAssetDone）
         p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
       }
     } else if (r) {
@@ -218,10 +249,20 @@ function pushPlaceholders(sh, count) {
 async function submitCandidate(sh, ph) {
   const p = String((ph && ph.prompt != null && String(ph.prompt).trim()) ? ph.prompt : sh.prompt).trim();
   ph.prompt = p;                                 // 记下这条用的描述（方便回看/复用）
+  /* 占位符原样发出去 = 模型收到一个它不认识的 token：素材还没出图时提一句，
+     别等成片出来才发现画面不对（导出前那道提醒在 export.js，这一道管提交）。 */
+  if (/@待建:/.test(p)) Toast.warn('提示词里还有 @待建:… 的占位（素材还没出图）：这次会原样发给平台，出图后建议重生成这一镜');
   ensureChainModel(sh);                          // 接续镜头先落到支持首帧的型号上，再问能力与报价
   const rm = resolvedModel(sh);
   if (!rm) throw new Error('没有支持这一镜素材的型号（当前输入：' +
     (shotUsedRoles(sh).map(r => ROLE_ZH[r] || r).join(' / ') || '纯文字') + '）：换一个支持它的型号，或清空这组素材');
+  /* 时长按**真正发请求这一家**再夹一次：落盘那一夹（clampShotDurations）可能发生在
+     接续型号落定之前 —— ensureChainModel 换到的另一家 min/max 不同，越界值发出去就是一句 4xx。 */
+  const durPlan = videoPlanOf(sh).kinds.duration;
+  if (durPlan.list.length && Number(sh.duration) !== Number(durPlan.value)) {
+    sh.duration = Number(durPlan.value);
+    scheduleSave('时长按型号收正');
+  }
   const modelId = rm.id;
   /* 提交这一下必须用 needProv：认不出平台就**停下并说清**，绝不默默发给另一家
      （见 provOf 那段注释 —— 那个兜底正是「model must match …/…」这个看不懂的报错的来源）。 */
@@ -309,10 +350,14 @@ async function submitCandidate(sh, ph) {
   } catch (e) {
     /* 「结果未知」不能写成「失败」：超时 / 断连 / 5xx 时请求多半已经被平台受理，
        显示成失败就会诱导用户重拍 —— 重复建任务、重复扣费。
-       （哪一类错误算「可能已受理」由统一层标记：api.js 的 Api.request、web/ui/ui.js 的 Net.fetch） */
+       判据只用 Api.maybeSubmitted（全站一份，认传输层超时 / 断连的那条消息）：
+       以前判的是属性 e.maybeSubmitted —— 它只在 5xx / 408 / 200-读不出 JSON 时被设置，
+       **传输层超时**（Net.read 抛的「请求超时」）根本没走到那两行，于是最常见的那一种
+       被当成了普通失败，「别急着重拍」那句警告一句不出。 */
+    const unknown = !!(window.Api && Api.maybeSubmitted ? Api.maybeSubmitted(e) : (e && e.maybeSubmitted));
     ph.status = 'failed';
-    ph.error = (e && e.maybeSubmitted ? '提交结果未知（平台可能已受理，重拍会再扣一次费）：' : '') + errText(e);
-    if (e && e.maybeSubmitted) Toast.warn('这条提交结果未知：平台可能已经建好任务，先刷新候选，别急着重拍');
+    ph.error = (unknown ? '提交结果未知（平台可能已受理，重拍会再扣一次费）：' : '') + errText(e);
+    if (unknown) Toast.warn('这条提交结果未知：平台可能已经建好任务，先刷新候选，别急着重拍');
     /* 这一镜可能已经没有任何在跑的候选了：等它尾帧的接续镜不能干等到轮询下一轮
        （提交阶段就失败的那一条根本不会被轮询碰到）。 */
     settleShot(sh);
@@ -320,11 +365,15 @@ async function submitCandidate(sh, ph) {
     throw e;
   }
 }
-/* 单镜生成：一条条提交（「生成这一镜」按钮用） */
-async function drawShot(sh, count) {
-  const p = sh.prompt.trim();
+/* 单镜生成：一条条提交（「生成这一镜」按钮用）。
+   promptText 缺省读 sh.prompt（这一镜的描述）；按钮那一档传的是提示词框里
+   正显示的那一句（promptTextOf —— 翻看候选时框里是那条候选当年的描述），
+   屏幕、预览、发出的请求体三处说的必须是同一句话。 */
+async function drawShot(sh, count, promptText) {
+  const p = String(promptText != null ? promptText : sh.prompt).trim();
   if (!p) throw new Error(NO_PROMPT_WHY);
   const phs = pushPlaceholders(sh, count);
+  phs.forEach(x => { x.prompt = p; });
   for (let k = 0; k < count; k++) {
     try { await submitCandidate(sh, phs[k]); }
     catch (e) {

@@ -9,19 +9,13 @@
   color: var(--txt);
   font-family: var(--font-ui);
 }
-/* 窄窗口：收紧留白，日期区间等筛选控件允许折行 */
+/* 窄窗口：收紧留白，筛选控件允许折行 */
 @media (max-width: 760px) {
-  .assets-page .filters { gap: var(--sp-8); }
-  .assets-page .daterange { flex-wrap: wrap; }
-  .assets-page .datepick { width: 108px; }
+  .assets-page .as-filters { gap: var(--sp-8); }
+  .assets-page .as-range { flex-wrap: wrap; }
+  .assets-page .as-range .datepick { width: 108px; }
 }
 .assets-page .desc { font-size: var(--fs-13); color: var(--sub); margin: 0 0 var(--sp-18); }
-.assets-page .filters { display: flex; flex-direction: column; gap: var(--sp-10); margin-bottom: var(--sp-18); }
-.assets-page .frow { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
-.assets-page .frow .flabel { font-size: var(--fs-12); color: var(--sub); flex: 0 0 64px; }
-.assets-page .frow input { padding: var(--sp-7) var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--panel); color: var(--txt); font-size: var(--fs-13); outline: none; width: 240px; }
-.assets-page .frow input:focus { border-color: var(--acc); }
-.assets-page .frow .sp { flex: 1; }
 .assets-page .toolbar { justify-content: flex-end; }   /* 基础形态（flex / 间距 / 控件高度）在 ui.css */
 /* 「跳页」那一格是 .frow 里的 input，但它的尺寸归 .toolbar 那一档（ui.css）。
    这一条把被上面 `.assets-page .frow input` 抬高的优先级按回公共尺寸，不然跳页框会变成 240px 宽。 */
@@ -34,28 +28,9 @@
   margin: var(--sp-16) 0 var(--sp-8); }
 .assets-page .assets-pager .info { font-size: var(--fs-12-5); color: var(--sub); }
 .assets-page .assets-pager input[type="number"] { width: 76px; }
-/* 日期区间：紧凑一组；外观走公共规范（描边/圆角/主题色），点击打开站内日期弹层。
+/* 日期区间（自定义时间那一档里露出来的那两个框）：紧凑一组；外观走公共规范
+   （描边/圆角/主题色），点击打开站内日期弹层。
    注意：这里不能加 overflow:hidden —— 日期弹层 .dp-pop 就挂在本元素内部定位，裁掉就点不出来了 */
-.assets-page .frow .daterange { display: inline-flex; align-items: center; gap: var(--sp-6); flex: 0 0 auto; }
-.assets-page .frow .daterange .dsep { color: var(--sub); font-size: var(--fs-12); line-height: 1; flex: 0 0 auto; }
-.assets-page .frow .datepick { position: relative; display: inline-flex; align-items: center; width: 116px; height: 32px;
-  border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--panel); cursor: pointer;
-  transition: border-color var(--dur-180); }
-.assets-page .frow .datepick:hover { border-color: var(--acc); }
-.assets-page .frow .datepick:focus-within { border-color: var(--acc); }
-.assets-page .frow .datepick input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%;
-  opacity: 0; border: 0; padding: 0; margin: 0; cursor: pointer; pointer-events: none; }
-.assets-page .frow .datepick .dp-face { pointer-events: none; display: flex; align-items: center; gap: var(--sp-6);
-  width: 100%; padding: 0 var(--sp-9); font-size: var(--fs-12-5); color: var(--txt); white-space: nowrap; }
-.assets-page .frow .datepick .dp-face.ph { color: var(--sub); }
-/* 日历图标：mask + currentColor 跟随主题色；挂在伪元素上，日期读数重画也抹不掉 */
-.assets-page .frow .datepick .dp-face::after {
-  content: ''; margin-left: auto; flex: 0 0 14px; width: 14px; height: 14px;
-  background: currentColor; opacity: .55;
-  -webkit-mask: var(--dp-cal) center / 14px 14px no-repeat;
-  mask: var(--dp-cal) center / 14px 14px no-repeat;
-}
-.assets-page .frow .datepick:hover .dp-face::after { opacity: .85; }
 
 /* 列表容器：卡片/紧凑的容器形态不同（流式 / 方块网格）。
    要写成 .assets-page #grid.view-x（ID+类）——#grid 自身的 display 优先级更高，只用类选择器会盖不过它 */
@@ -68,15 +43,14 @@
 /* ---------- 展示样式：列表（默认，横条一行一条，与素材库/收藏同一档名） ---------- */
 .assets-page #grid.view-list { display: flex; flex-direction: column; gap: var(--sp-12); }
 /* ---------- 展示样式：紧凑（方块网格） ---------- */
-.assets-page #grid.view-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); gap: var(--sp-10); align-items: start; }
-.assets-page .view-compact .task { display: block; padding: 0; overflow: hidden; border-radius: var(--radius-10); }
+.assets-page #grid.view-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); gap: var(--sp-10); align-items: stretch; }
+.assets-page .view-compact .task { display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-10); }
 .assets-page .view-compact .task .timg { width: 100%; height: 124px; border-radius: 0; border: 0; border-bottom: var(--hair) solid var(--line); }
-.assets-page .view-compact .task .tmain { padding: var(--sp-8) var(--sp-9) var(--sp-9); }
+.assets-page .view-compact .task .tmain { padding: var(--sp-8) var(--sp-9) var(--sp-9); flex: 1 1 auto; }
 .assets-page .view-compact .task .meta1 { font-size: var(--fs-10); }
 .assets-page .view-compact .task .date { display: none; }
-.assets-page .view-compact .task .tprompt { font-size: var(--fs-12); margin: var(--sp-3) 0 0; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-.assets-page .view-compact .task .meta2,
-.assets-page .view-compact .task .acts,
+.assets-page .view-compact .task .tprompt { font-size: var(--fs-12); margin: var(--sp-3) 0 0; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; min-height: 3em; }
+/* 网格档里格子不展开：展开的内容落在行下面那条带子上（.band）。 */
 .assets-page .view-compact .task .cdet { display: none; }
 .assets-page .view-compact .task:hover { transform: translateY(-1px); }
 .assets-page .task .timg { width: var(--sz-tile); height: var(--sz-thumb-h); border-radius: var(--radius-6); overflow: hidden; flex: 0 0 auto;
@@ -91,8 +65,95 @@
    这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉 ——
    以前这一页把 .meta1 / .dot / .tprompt / .meta2 又抄了一遍，
    结果公共那份后来加的（.dot.run 的闪、.tprompt:hover、.meta2 的长词折行）在这页全都没了。 */
-.assets-page .favnote { font-size: var(--fs-11-5); color: var(--acc); margin: var(--sp-2) 0 var(--sp-4); word-break: break-word; }
+/* ---------- 卡面四行定高：状态 / 提示词 / 那一行信息 / 动作 ----------
+   以前卡面上还有两行「有才有」的行（平台原话、★ 收藏备注），
+   再加上提示词会折行、meta2 会折行、动作那排被长文案撑成两行 ——
+   高度就参差不齐了。现在每一行的高度都是固定的：
+   · 提示词：两行（3em = 行高 1.5 × 2），一行提示词也占两行的位置；
+   · meta2：一行，省略号（全文在 title 里）；
+   · 动作：一行，不换行（按钮文案短了：「重试」两个字，代价写在悬停里）。 */
+.assets-page .task .tprompt { min-height: 3em; }
+.assets-page .task .meta2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.assets-page .task .acts { flex-wrap: nowrap; }
 /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
+/* ---------- 页头：标题 + 状态三档 + 找东西 + 换档 ----------
+   状态三档不是「又一颗筛选项」：它回答的是「这批东西现在怎么样」——
+   在制（还在跑）/ 失败 / 结果未知（可能已被受理，钱可能已经扣了）。
+   每一档带条数、点一下就把列表筛到那一档；**计数为 0 的那一档不画**
+   （库里没有失败的时候，页头不该挂着一颗「失败 0」）。 */
+.assets-page .as-head { display: flex; flex-direction: column; gap: var(--sp-10); margin-bottom: var(--sp-12); }
+.assets-page .as-head-1 { display: flex; align-items: center; gap: var(--sp-16); flex-wrap: wrap; }
+.assets-page .as-head-1 .page-h1 { margin: 0; }
+.assets-page .as-head-2 { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; }
+.assets-page .as-head-tools { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+.assets-page .as-head-tools .flabel { font-size: var(--fs-12); color: var(--sub); }
+.assets-page .as-head-tools input[type="search"] { width: 260px; height: 32px; padding: 0 var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel);
+  color: var(--txt); font-size: var(--fs-12-5); outline: none; font-family: inherit; }
+.assets-page .as-head-tools input[type="search"]:focus { border-color: var(--acc); }
+.assets-page .as-head-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+
+.assets-page .as-sum { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+.assets-page .as-sum-i { display: inline-flex; align-items: center; gap: var(--sp-6); height: var(--sz-ctl);
+  padding: 0 var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-8);
+  background: var(--panel); color: var(--sub); font-family: inherit; font-size: var(--fs-12-5);
+  cursor: pointer; white-space: nowrap;
+  transition: border-color var(--dur-120), background var(--dur-120), color var(--dur-120); }
+.assets-page .as-sum-i:hover { border-color: var(--acc); color: var(--txt); }
+.assets-page .as-sum-i.on { border-color: var(--acc); background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+.assets-page .as-sum-i b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-13);
+  color: var(--txt); font-weight: 600; }
+.assets-page .as-sum-i.on b { color: var(--acc); }
+/* 状态点：形状也带信息 —— 实心琥珀=在跑 / 空心琥珀=结果未知 / 实心红=失败 */
+.assets-page .as-sum-i .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+  display: inline-block; flex: 0 0 auto; }
+.assets-page .as-sum-i .dot.live { background: var(--warn); animation: blink var(--dur-1200) infinite; }
+.assets-page .as-sum-i .dot.unc { background: var(--warn); box-shadow: inset 0 0 0 var(--hair-2) var(--panel); }
+.assets-page .as-sum-i .dot.fail { background: var(--err); }
+
+/* ---------- 一行筛选：类型（带条数）+ 平台 + 时间 ----------
+   平台从一个下拉走：平台涨到十几家时，一行十几颗芯片会把整行撑开。
+   时间也是一个下拉（预设）；选「自定义区间」时后面才露出起止日期。 */
+.assets-page .as-filters { display: flex; align-items: center; gap: var(--sp-14); flex-wrap: wrap; margin-bottom: var(--sp-12); }
+.assets-page .as-sel { display: inline-flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-12); color: var(--sub); }
+.assets-page .as-range { display: inline-flex; align-items: center; gap: var(--sp-6); }
+.assets-page .as-range .dsep { color: var(--sub); font-size: var(--fs-12); line-height: 1; flex: 0 0 auto; }
+.assets-page .as-range .datepick { position: relative; display: inline-flex; align-items: center; width: 116px; height: 32px;
+  border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--panel); cursor: pointer;
+  transition: border-color var(--dur-180); }
+.assets-page .as-range .datepick:hover { border-color: var(--acc); }
+.assets-page .as-range .datepick:focus-within { border-color: var(--acc); }
+.assets-page .as-range .datepick input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: 0; padding: 0; margin: 0; cursor: pointer; pointer-events: none; }
+.assets-page .as-range .datepick .dp-face { pointer-events: none; display: flex; align-items: center; gap: var(--sp-6);
+  width: 100%; padding: 0 var(--sp-9); font-size: var(--fs-12-5); color: var(--txt); white-space: nowrap; }
+.assets-page .as-range .datepick .dp-face.ph { color: var(--sub); }
+.assets-page .as-range .datepick .dp-face::after {
+  content: ''; margin-left: auto; flex: 0 0 14px; width: 14px; height: 14px;
+  background: currentColor; opacity: .55;
+  -webkit-mask: var(--dp-cal) center / 14px 14px no-repeat;
+  mask: var(--dp-cal) center / 14px 14px no-repeat;
+}
+.assets-page .as-range .datepick:hover .dp-face::after { opacity: .85; }
+
+/* 详情展开：就地展开（公共件 .exp / .is-open）——
+   展开区里那一份详情（Wb.detail 的 .det-* 结构）不再套一层灰盒子：
+   盒子在卡里会把卡撑成两三百像素（那一段几何就撑坏了）。
+   账条横着排多列：就地展开的宽度是整行的，挤成一条长龙没有必要。 */
+.assets-page .cdet { display: block; margin: 0; padding: 0; border: 0; background: none;
+  font-size: var(--fs-12-5); color: var(--sub); }
+.assets-page .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-8) var(--sp-16); }
+.assets-page .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
+.assets-page .cdet .det-row .k { flex: 0 0 auto; }
+.assets-page .cdet .det-row > span:last-child { color: var(--txt); }
+/* 状态牌：这一格没有画面、但有话要说（公共件 .plate）。 */
+.assets-page .timg .plate { gap: var(--sp-3); }
+/* 平台原话的两行（短因）在这块牌子里说 —— 卡面上不再单占一行（那样卡片高度就不齐了）。 */
+.assets-page .timg .plate-t { max-width: 100%; overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 网格档的展开带子（公共件 .band）：那一行保持原样，带子接在它下面。 */
+.assets-page #grid .band-in .cdet { margin-top: var(--sp-4); }
 .assets-page .asset .meta .cancel { color: var(--err); cursor: pointer; }
 .assets-page .badge { font-size: var(--fs-10-5); padding: var(--sp-1) var(--sp-7); border-radius: var(--radius-3); background: var(--panel2); color: var(--sub); }
 .assets-page .badge.acc { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }

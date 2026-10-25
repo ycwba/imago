@@ -1,0 +1,221 @@
+/* ============================================================================
+   新建素材 / 编辑素材 —— 布局稿（设计稿，不是产品代码）
+   ---------------------------------------------------------------------------
+   取值全部来自产品真文件：
+     · 颜色 / 间距 / 字号 / 圆角 —— ../../web/styles/tokens.css（唯一出处）
+     · 按钮 / 芯片 / 候选排 / 声音行 / 输入框 —— ../../web/styles/ui.css（公共件，一个都不重写）
+     · 侧栏 —— ../../web/styles/sidebar.css
+   深色档是 tokens.css 的深色那一段自动派生（换 data-theme 就成立）。
+
+   落地到产品里时，① --font-mono 加进 tokens.css；
+              ② 「完备度点阵」那套形状语言与素材库那一稿共用一份定义，别写两遍；
+              ③ 候选排 / 声音行 / 输入框都用公共件，页面里不要再抄一份。
+   ========================================================================== */
+
+.demo-mat { --font-mono: ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace; }
+
+html, body { height: 100%; }
+html[data-theme="dark"] { color-scheme: dark; }
+body.demo-mat {
+  margin: 0; background: var(--bg); color: var(--txt);
+  font-family: var(--font-ui); font-size: var(--fs-13);
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+
+/* ══ 整屏层：盖住素材台那一块，右边整屏都是它 ══════════════════════════════ */
+.md-layer {
+  position: fixed; left: var(--sbw); top: 0; right: 0; bottom: 0; z-index: 70;
+  background: var(--bg); display: flex; flex-direction: column;
+}
+
+/* ---------- 头栏 ---------- */
+.md-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-12);
+  height: 58px; padding: 0 var(--sp-20);
+  background: var(--panel); border-bottom: var(--hair) solid var(--line);
+}
+.md-back { display: inline-flex; align-items: center; gap: var(--sp-6); padding: var(--sp-5) var(--sp-12); }
+.md-title { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; }
+.md-name { font-size: var(--fs-16); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-head .ui-tag { font-size: var(--fs-11-5); padding: 0 var(--sp-9); }
+.md-head .sp { flex: 1; }
+/* 状态位：改完就地存，所以回执在头栏右侧（这一页没有「保存」按钮） */
+.md-saved { font-size: var(--fs-12); color: var(--sub); display: inline-flex; align-items: center; gap: var(--sp-7); }
+.md-saved.is-new { color: var(--warn); }
+
+/* ---------- 身体：左「画面」吸顶 + 右「连续文档」 ---------- */
+.md-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 440px minmax(0, 1fr); }
+.md-media {
+  border-right: var(--hair) solid var(--line); background: var(--panel);
+  overflow-y: auto; padding: var(--sp-16) var(--sp-18) var(--sp-24);
+}
+.md-doc { overflow-y: auto; padding: var(--sp-20) var(--sp-28) var(--sp-40); }
+.md-doc-inner { max-width: 820px; }
+
+/* ---------- 左栏：大预览图 / 动作 / 锚点 / 候选 ---------- */
+.md-hero {
+  position: relative; border-radius: var(--radius-10); overflow: hidden;
+  background: var(--thumbbg); aspect-ratio: 4 / 3;
+}
+.md-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 还没有预览图：画成「一个空位」，不是一个坏掉的图 */
+.md-hero.is-empty { background: var(--panel2); border: var(--hair) dashed var(--line); }
+.md-hero .mh-empty { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: var(--sp-6); text-align: center; padding: var(--sp-20); }
+.md-hero .mh-empty .t { font-size: var(--fs-14); color: var(--txt); }
+.md-hero .mh-empty .s { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; max-width: 300px; }
+
+.md-mrow { margin-top: var(--sp-18); }
+.md-mt { display: flex; align-items: baseline; gap: var(--sp-8); margin-bottom: var(--sp-8);
+  font-size: var(--fs-11); color: var(--sub); letter-spacing: .08em; }
+.md-mt .n { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-11); letter-spacing: 0; }
+.md-macts { display: flex; gap: var(--sp-8); margin-top: var(--sp-12); }
+.md-macts .ghost { font-size: var(--fs-12); padding: var(--sp-6) var(--sp-13); }
+
+/* 身份锚点：一排小方块，点一个就把它设成「认人最准的那一张」 */
+.md-anchors { display: flex; gap: var(--sp-8); flex-wrap: wrap; }
+.md-anchor {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-4); border: var(--hair) solid var(--line); border-radius: var(--radius-8);
+  background: var(--panel2); color: var(--sub); cursor: pointer; font-size: var(--fs-10-5);
+  font-family: inherit;
+}
+.md-anchor img { width: 58px; height: 58px; object-fit: cover; border-radius: var(--radius-5); display: block; }
+.md-anchor.on { border-color: var(--acc); color: var(--txt);
+  box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-28), transparent); }
+
+/* ---------- 右栏：一条连续的文档 ---------- */
+.md-sec { padding-bottom: var(--sp-22); margin-bottom: var(--sp-22); border-bottom: var(--hair) solid var(--line); }
+.md-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.md-sec-t { font-size: var(--fs-11); color: var(--sub); letter-spacing: .08em; margin-bottom: var(--sp-14); }
+.md-sec-n { margin-left: var(--sp-10); letter-spacing: 0; color: var(--sub); opacity: .85; }
+.md-field { display: block; margin-bottom: var(--sp-12); }
+.md-field > span { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-6); }
+.md-field .ui-inp, .md-field .ui-ta { width: 100%; }
+.md-field .ui-ta { min-height: 74px; }
+.md-fhint { margin-top: var(--sp-6); font-size: var(--fs-11-5); color: var(--sub); line-height: 1.5; }
+.md-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-12); }
+.md-row3 { display: grid; grid-template-columns: 1.2fr .8fr 1.2fr; gap: var(--sp-12); }
+.md-check { display: inline-flex; align-items: center; gap: var(--sp-7); font-size: var(--fs-12); color: var(--sub); }
+.md-check input { accent-color: var(--acc); }
+
+/* 角色资产：一行一张（缩略图 + 名字 + 模板 + 带着的道具 + 这一行自己的重出参数） */
+.md-assets { display: flex; flex-direction: column; gap: var(--sp-8); }
+.md-asset {
+  display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
+  padding: var(--sp-8) var(--sp-10); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-8); background: var(--panel);
+}
+.md-asset img { width: 52px; height: 38px; object-fit: cover; border-radius: var(--radius-5); display: block; }
+.md-asset .ui-inp { flex: 0 1 130px; height: 28px; }
+.md-asset .ui-tag { font-size: var(--fs-11); }
+.md-asset .sp { flex: 1; }
+/* 这一张「带着哪些道具」—— 出图与拍摄时把它当参考图发出去 */
+.md-props { display: inline-flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
+.md-props-l { font-size: var(--fs-11); color: var(--sub); }
+/* 行内生成参数：这一行重出用**这一行自己的**型号与数量 */
+.md-row-gen { display: inline-flex; align-items: center; gap: var(--sp-5); }
+.md-row-gen-l { font-size: var(--fs-11); color: var(--sub); }
+.md-row-gen select { height: 24px; font-size: var(--fs-11); }
+
+/* ---------- 生成条（公共件）：参数永远贴着它要生成的东西 ---------- */
+.gen-bar {
+  padding: var(--sp-10) var(--sp-12); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); background: var(--panel2); margin-bottom: var(--sp-10);
+}
+.gen-row { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+.gen-row-acts { margin-top: var(--sp-8); }
+.gen-row-inline { margin-top: var(--sp-10); padding-top: var(--sp-10); border-top: var(--hair) solid var(--line); }
+.gen-lab { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); letter-spacing: .06em; }
+.gen-row .sp { flex: 1; }
+.gen-bar select {
+  height: 28px; border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  background: var(--panel); color: var(--txt); font-family: inherit; font-size: var(--fs-11-5);
+  padding: 0 var(--sp-8); max-width: 190px;
+}
+.gen-bar select.gen-count { max-width: 74px; }
+.gen-bar .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-11); }
+.gen-act { font-size: var(--fs-12); padding: var(--sp-6) var(--sp-14); }
+/* 「依据什么」那一行：出图照哪一句画、参考图用哪一张 —— 说清楚这一次到底会发什么 */
+.gen-why {
+  display: flex; align-items: baseline; gap: var(--sp-10); margin-top: var(--sp-8);
+  font-size: var(--fs-11-5); color: var(--sub); line-height: 1.5;
+}
+.gen-why .sp { flex: 1; }
+.gen-why .ui-linkbtn { flex: 0 0 auto; font-size: var(--fs-11); }
+/* 声音那一处：定声音的方式（只列这一家真有型号的方式） */
+.gen-ways { display: inline-flex; gap: var(--sp-4); padding: var(--sp-3);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); }
+.gen-way { border: 0; background: none; cursor: pointer; font-family: inherit;
+  font-size: var(--fs-11-5); color: var(--sub); padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-5); }
+.gen-way.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+
+/* ---------- 声音区 ---------- */
+.md-voice-now {
+  display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap;
+  padding: var(--sp-9) var(--sp-11); margin-bottom: var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-8); background: var(--panel);
+}
+.md-voice-now-l { font-size: var(--fs-11); color: var(--sub); }
+.md-pills { display: flex; gap: var(--sp-6); flex-wrap: wrap; }
+.md-ref { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
+  padding: var(--sp-9) var(--sp-11); border: var(--hair) dashed var(--line); border-radius: var(--radius-8); }
+.md-ref .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-11); }
+
+/* 声音那一块用公共件（.ui-vrow / .ui-voice / .ui-cands），页面不另画一套 */
+.md-voice-seg { display: inline-flex; gap: var(--sp-4); padding: var(--sp-3);
+  background: var(--panel2); border: var(--hair) solid var(--line); border-radius: var(--radius-6); }
+.md-voice-seg button { border: 0; background: none; cursor: pointer; font-family: inherit;
+  font-size: var(--fs-11-5); color: var(--sub); padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-5); }
+.md-voice-seg button.on { background: var(--panel); color: var(--acc); box-shadow: var(--shadow-9); font-weight: 600; }
+
+/* 使用关系：一行一个镜头 */
+.md-uses { display: flex; flex-direction: column; gap: var(--sp-6); }
+.md-use { display: grid; grid-template-columns: 84px 84px 1fr; gap: var(--sp-10);
+  padding: var(--sp-8) var(--sp-11); border-radius: var(--radius-7); background: var(--panel);
+  border: var(--hair) solid var(--line); font-size: var(--fs-12-5); color: var(--sub); }
+.md-use span:last-child { color: var(--txt); }
+
+/* ---------- 页脚 ---------- */
+.md-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-10);
+  height: 58px; padding: 0 var(--sp-20);
+  background: var(--panel); border-top: var(--hair) solid var(--line);
+}
+.md-foot .sp { flex: 1; }
+.md-foot .ghost { font-size: var(--fs-12); padding: var(--sp-6) var(--sp-13); }
+.md-foot .pri { font-size: var(--fs-12-5); padding: var(--sp-7) var(--sp-16); }
+.md-foot-tip { font-size: var(--fs-11-5); color: var(--sub); }
+
+/* ── 完备度点阵（与素材库那一稿同一套形状语言） ── */
+.md-dots { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.md-dots i { display: block; width: 10px; height: 10px; border-radius: var(--radius-2); }
+.md-dots i.ok { background: var(--ok); }
+.md-dots i.miss { border: var(--hair) solid var(--warn);
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--warn) var(--a-30), transparent) 0 2px, transparent 2px 4px); }
+.md-dots i.na { width: 10px; height: 2px; background: var(--line); }
+.md-stat { font-size: var(--fs-11-5); color: var(--sub); }
+.md-stat.is-warn { color: var(--warn); }
+.md-stat.is-err { color: var(--err); }
+
+/* ---------- 演示用的状态切换条（不属于设计本体） ---------- */
+.demo-switch {
+  position: fixed; left: 50%; bottom: var(--sp-18); transform: translateX(-50%); z-index: 90;
+  display: flex; align-items: center; gap: var(--sp-6); padding: var(--sp-6) var(--sp-10);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-999);
+  box-shadow: var(--shadow-5); font-size: var(--fs-12);
+}
+.demo-switch .ds-t { color: var(--sub); font-size: var(--fs-11-5); padding: 0 var(--sp-4); }
+.demo-switch button { border: 0; background: none; cursor: pointer; font-family: inherit;
+  font-size: var(--fs-12); color: var(--sub); padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-999); }
+.demo-switch button.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+body.shotting .demo-switch { display: none; }
+
+@media (max-width: 1180px) {
+  .md-body { grid-template-columns: minmax(0, 1fr); }
+  .md-media { border-right: 0; border-bottom: var(--hair) solid var(--line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-anchor, .md-sec { transition: none; }
+}

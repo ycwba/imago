@@ -110,4 +110,20 @@ assert.equal(s.job('k64'), null);
 assert.equal(s.removeJob('k64'), false);
 
 fs.rmSync(dir, { recursive: true, force: true });
+
+/* ---------- 通道密钥镜像（channel-cred.mirrored）：字符串键落盘是裸文本 ----------
+   `sk_key_*` / `sk_base_*` 这类键走 ui.js 的 `LS.set`（裸字符串），DataSync 原样镜像成文件；
+   只有对象类的键才是 Store 的信封 `{"data":…,"ts":…}`。以前 mirrored 只按信封 JSON.parse ——
+   字符串键必抛、永远返回空，「用渠道那把密钥」永远读不到设置页里填的那把。 */
+const { mirrored } = require('../server/channel-cred.js');
+const mdir = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-chan-'));
+const mctx = { dataFileOf: k => path.join(mdir, k + '.json') };
+fs.writeFileSync(path.join(mdir, 'sk_key_probe.json'), 'sk-or-v1-abc123');
+fs.writeFileSync(path.join(mdir, 'sk_base_probe.json'), '{"data":"https://x.example/v1","ts":1}');
+fs.writeFileSync(path.join(mdir, 'sk_key_blank.json'), '   ');
+assert.equal(mirrored(mctx, 'sk_key_', 'probe'), 'sk-or-v1-abc123', '裸文本要按原值读回来');
+assert.equal(mirrored(mctx, 'sk_base_', 'probe'), 'https://x.example/v1', '信封形状照旧拆 data');
+assert.equal(mirrored(mctx, 'sk_key_', 'blank'), '', '空文件就是没有');
+assert.equal(mirrored(mctx, 'sk_key_', 'missing'), '', '读不到就是没有');
+fs.rmSync(mdir, { recursive: true, force: true });
 console.log('✓ ASR 设置与任务账本行为通过');

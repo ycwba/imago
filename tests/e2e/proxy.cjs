@@ -65,7 +65,9 @@ const h = require('./harness.cjs');
     const cap = await call('/capabilities?provider=deepseek');
     if (cap.status !== 200) throw new Error('GET /capabilities 应 200，实际 ' + cap.status);
     const capJson = await cap.json();
-    if (!capJson || capJson.provider !== 'deepseek' || capJson.endpoint !== null || capJson.source !== 'registry') {
+    /* deepseek 自 v19 起声明了 endpoints.models（端点只活在注册表那一份）——
+       /capabilities 会照声明去问上游；探针环境没有密钥，上游 401 → 按 registry 兜底（source:'registry'）。 */
+    if (!capJson || capJson.provider !== 'deepseek' || capJson.endpoint !== '/models' || capJson.source !== 'registry') {
       throw new Error('/capabilities 回包不对：' + JSON.stringify(capJson));
     }
     const cap404 = await call('/capabilities?provider=no-such-provider');
@@ -140,7 +142,8 @@ const h = require('./harness.cjs');
       if (r.status !== 404) throw new Error('渲染端点已删，' + m + ' ' + p + ' 应 404，实际 ' + r.status);
     }
 
-    const relayBad = await call('/textai/chat/completions', { headers: { 'x-up-base': 'http://127.0.0.1:1/v1' } });
+    /* v19 起 relay 一家一段：文字 AI 不再共用 /textai，DeepSeek 的段是 /textai/deepseek */
+    const relayBad = await call('/textai/deepseek/chat/completions', { headers: { 'x-up-base': 'http://127.0.0.1:1/v1' } });
     if (relayBad.status !== 400) throw new Error('relay 自定义地址到回环应 400，实际 ' + relayBad.status);
 
     for (const [p, m] of [

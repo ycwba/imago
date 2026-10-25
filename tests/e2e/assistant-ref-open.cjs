@@ -3,7 +3,9 @@
    ① 队列里真的留下了号与地址，这一轮发给模型的正文里有【这次引用的素材】清单与同一下标；
    ② 助手用 asset_open 按清单序号取字节 —— 真的取到图、真的交给看图型号（字节是本机那份）；
    ③ 取不到就说取不到，不编图里的内容；
-   ④ 输入框里的引用可悬停（弹出这一条）可点击（开弹层看图），× 只移引用、不删资产库。 */
+   ④ 输入框里的引用可悬停（弹出这一条）可点击（开弹层看图）；
+      **正文是真相** —— 把那段文字改坏，这条引用就作废（队列里那条一起删、这一轮不再发给模型），
+      资产库里的那一份没动。高亮上不再有 ×（标记就是正文里的文字，键盘删它就够了）。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -29,7 +31,6 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     await page.waitFor(() => !!window.Store && !!window.Fav, 20000, 100);
     await page.eval((id) => {
       localStorage.setItem('ai_chat_dock', '0');            // 浮层：面板不收边、贴球，量得到高亮矩形
-      localStorage.removeItem('ai_chat_fxy');
       localStorage.setItem('sk_text_prov', 'deepseek');
       localStorage.setItem('sk_model_deepseek', 'stub-model');
       localStorage.setItem('sk_text_vision', 'on');
@@ -97,7 +98,10 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     });
     must(tip.has && tip.hidden === false, '悬停没有弹出这一条：' + JSON.stringify(tip));
     must(/海边灯塔的一张小图|助手引用探针/.test(tip.text) && /资产/.test(tip.text), '悬停卡里没有名字 / 资产号：' + JSON.stringify(tip.text));
-    must(tip.img === '/asset/' + laId, '悬停卡里的缩略图不是这一份本机资产：' + tip.img);
+    /* 本机资产地址的**唯一拼法**是 Api.assetSrc（带 ?v=2 那个固定版本位）——
+       断言别写死形状，问产品要那条地址（web/domain/api.js 的 assetSrc）。 */
+    const wantTip = await page.eval(id => (window.Api && window.Api.assetSrc ? window.Api.assetSrc(id) : '/asset/' + id), laId);
+    must(tip.img === wantTip, '悬停卡里的缩略图不是这一份本机资产：' + tip.img + '（要 ' + wantTip + '）');
 
     /* ---------- 3) 点击：开弹层，图能画出来（地址就是队列里那一份） ---------- */
     const dlg = await page.eval(async () => {
@@ -121,7 +125,7 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     });
     must(dlg.open, '点引用没有开弹层：' + JSON.stringify(dlg));
     must(/引用的素材/.test(dlg.title), '弹层标题不对：' + dlg.title);
-    must(dlg.img === '/asset/' + laId, '弹层里画的不是这条资产：' + dlg.img);
+    must(dlg.img === wantTip, '弹层里画的不是这条资产：' + dlg.img + '（要 ' + wantTip + '）');
     must(dlg.closed, '弹层关不掉：' + JSON.stringify(dlg));
 
     /* ---------- 4) 这一轮的正文里有清单，序号从 0 起、带号带地址 ---------- */
@@ -171,34 +175,35 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(seen.miss && /读不出像素|取不到/.test(seen.miss.结论 || ''),
       '取不到字节时没有照实说：' + JSON.stringify(seen.miss));
 
-    /* ---------- 6) × 只移引用：文字与队列都没了，资产库那一份还在 ---------- */
+    /* ---------- 6) 改字即作废：正文是真相，这条引用不再算数（资产库那一份还在） ---------- */
     await drop();
     await h.sleep(260);
     const cut = await page.eval(async () => {
-      const x = document.querySelector('.ac-ref-x');
-      if (!x) return { noX: true };
-      x.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      await new Promise(r => setTimeout(r, 120));
+      const ta = document.getElementById('acTa');
+      /* 模拟用户把那段标记改坏了（少掉右括号）：正文是真相 → 这条引用作废 */
+      ta.value = ta.value.replace(/\]/, '');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 160));
       const raw = JSON.parse(localStorage.getItem('ai_chat_refs') || 'null');
       const note = document.getElementById('acNote');
       return {
-        value: document.getElementById('acTa').value,
+        value: ta.value,
         hl: document.querySelectorAll('.ac-ref-hl').length,
         saved: ((raw && raw.data) || raw || []).length,
         note: note && !note.hidden ? note.textContent : '',
       };
     });
-    must(!cut.noX, '重新拖进来之后没有删除钮');
-    must(!/\[引用素材：/.test(cut.value), '点了 × 标记还在输入框里：' + JSON.stringify(cut.value));
-    must(cut.hl === 0, '点了 × 高亮还画着：' + cut.hl);
-    must(cut.saved === 0, '点了 × 引用队列里还留着：' + cut.saved);
-    must(/移开/.test(cut.note) && /不删/.test(cut.note), '点 × 之后没说清只移引用：' + JSON.stringify(cut.note));
+    must(!/\[引用素材：[^\]\n]+\]/.test(cut.value), '改字之后那圈完整标记还在输入框里：' + JSON.stringify(cut.value));
+    must(cut.hl === 0, '改字之后高亮还画着：' + cut.hl);
+    must(cut.saved === 0, '改字之后引用队列里还留着：' + cut.saved);
+    must(/去掉/.test(cut.note) && /不会再拿到/.test(cut.note) && /没动/.test(cut.note),
+      '改字之后没说清这条引用作废了：' + JSON.stringify(cut.note));
     const still = await (await fetch(proxy.base + '/local-assets', { headers: { cookie: proxy.cookie } })).json();
-    must(((still && still.data) || []).some(x => x && x.id === laId), '点 × 把本机资产也删掉了：' + JSON.stringify(still).slice(0, 300));
+    must(((still && still.data) || []).some(x => x && x.id === laId), '引用作废把本机资产也删掉了：' + JSON.stringify(still).slice(0, 300));
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     must(!errs.length, '页面异常：' + errs.join(' | '));
-    console.log('✓ 凭号取图（队列留号 · 正文清单同下标 · asset_open 真的取到字节 · 取不到照实说 · 悬停/弹层/× 只移引用）');
+    console.log('✓ 凭号取图（队列留号 · 正文清单同下标 · asset_open 真的取到字节 · 取不到照实说 · 悬停/弹层 · 改字即作废）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

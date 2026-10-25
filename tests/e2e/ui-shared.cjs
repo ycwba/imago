@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-/* 公共组件判据（用量页 / 导演台剪辑与右栏）：光有 class 不算数 —— 点开、切换之后都要还是那一份。
+/* 公共组件判据（用量页 / 导演台剪辑与右栏 / 生成工作台）：光有 class 不算数 —— 点开、切换之后都要还是那一份。
    用量页：账单筛选下拉由公共 Dropdowns 包住（原生 select 仍是数据源，点开浮层选一项要同步回
-        select 的 value 与按钮上的字；范围那一路是静态选项，不依赖任何已配置的供应商）。
+        select 的 value 与按钮上的字）；范围那一路是静态选项，不依赖任何已配置的供应商）。
    导演台：本镜 / 全片与右栏四档都是公共 .ui-seg（选中态 .on 由一处翻，旧 .vc-tab 标记不再出现），
-        时间线缩放两颗也是公共图标。 */
+        时间线缩放两颗也是公共图标。
+   生成工作台：型号下拉与高级设置里每一颗下拉都在公共 .dd 里（原生 select 留在里面当数据源），
+        公共那颗型号按钮没有被页面样式压成一个窄条；右栏「类型选择」那一排在「存回本机 / 多选 /
+        批量下载」那一排**上面**。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -136,9 +139,82 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(film.on.length === 1 && film.on[0] === 'film', '切到全片后选中态不对：' + JSON.stringify(film.on));
     must(film.zoomSvg === 2, '重画之后缩放图标丢了：' + film.zoomSvg);
 
+    /* ---------- 生成工作台：型号下拉 / 高级设置走公共下拉件，右栏次序 ---------- */
+    /* 这一页以前栽在同一个坑上：页面自己的样式还在给**原生** select 写尺寸与外观，
+       公共 Dropdowns 上来之后原生 select 已经藏进 .dd 里，那几条规则整条落空 ——
+       型号那颗公共按钮按内容宽收缩成一个 61px 的小方块，看着像没做完。
+       高级设置那一排同理：写给原生 select 的宽度规则落空后，公共 .dd 的宽度没人管。
+       这里判「公共件在位」+「公共件没有被页面样式压塌」+「右栏次序」三件事。 */
+    /* 只打工作台三档用的那份空清单（视觉档那一招）：这一节不查平台，跨平台读口一律换成空清单。 */
+    await page.addInitScript(() => {
+      const L = window.AssetLib;
+      if (!L || typeof L.load !== 'function') return;
+      if (!L.__sharedLoad) {
+        L.__sharedLoad = L.load;
+        L.load = async () => ({ entries: [], cursors: {}, hasMore: false, errors: {}, failed: {} });
+      }
+    });
+    await page.goto(proxy.base + '/shell.html#studio.html');
+    await page.waitFor(() => !!document.querySelector('.studio-page'), 25000);
+    /* 型号清单要等注册表回来：选项没填上时公共按钮只能显示「请选择」，判据会白捡一个绿。 */
+    await readWhen(() => {
+      const sel = document.querySelector('.studio-page select[data-r="model"]');
+      return !!(sel && sel.value && sel.options.length);
+    }, 30000);
+    const studio = await page.eval(() => {
+      const root = document.querySelector('.studio-page');
+      const sel = root.querySelector('select[data-r="model"]');
+      const dd = sel && sel.closest('.dd');
+      const btn = dd && dd.querySelector('.dd-btn');
+      const advSels = [...root.querySelectorAll('.adv-body select')];
+      const adv = root.querySelector('.adv');
+      const col = root.querySelector('.col-right');
+      const rows = [...col.children];
+      const at = cls => rows.findIndex(r => (r.className || '').split(' ').includes(cls));
+      const top = sel2 => (sel2 ? Math.round(sel2.getBoundingClientRect().top) : -1);
+      /* 公共按钮的内边距：页面那条 `* { margin:0; padding:0 }` 重置曾经把公共件的边距整排抹掉
+         （工作台这一页的 `.dd-btn` 是 0px / 17px 高，用量页同一个是 8px 12px / 37px 高），
+         于是公共件「在位」却不像公共件。这一条盯住内边距。 */
+      const padOf = el => (el ? Math.round(parseFloat(getComputedStyle(el).paddingLeft) || 0) : -1);
+      const advBtn = root.querySelector('.adv-body .dd .dd-btn');
+      return {
+        inDD: !!dd,
+        nativeInside: !!(dd && dd.querySelector('select') === sel),
+        label: btn ? btn.querySelector('.lbl').textContent : '',
+        wantLabel: sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent : '',
+        btnW: btn ? Math.round(btn.getBoundingClientRect().width) : 0,
+        btnPad: padOf(btn),
+        advBtnPad: padOf(advBtn),
+        advPublic: !!(adv && adv.className.split(' ').includes('adv')),
+        advSels: advSels.length,
+        advInDD: advSels.length ? advSels.every(s => !!s.closest('.dd')) : false,
+        typeRow: at('hist-filters'), dlRow: at('tasks-head'), bulkRow: at('bulkbar'),
+        typeTop: top(col.querySelector('.hist-filters')), dlTop: top(col.querySelector('.tasks-head')),
+      };
+    });
+    must(studio.inDD, '型号下拉没有走公共 Dropdowns（.dd 壳）');
+    must(studio.nativeInside, '原生 select 被挪出了 .dd：它必须留在里面当数据源');
+    must(studio.label && studio.label === studio.wantLabel,
+      '公共下拉按钮没读出当前型号：按钮「' + studio.label + '」/ 选项「' + studio.wantLabel + '」');
+    must(studio.btnW >= 120, '公共那颗型号按钮被页面样式压塌了（宽 ' + studio.btnW
+      + 'px —— 页面样式不该再按原生 select 定尺寸）');
+    must(studio.btnPad >= 8, '公共那颗型号按钮的内边距被页面那条重置抹掉了（padding-left '
+      + studio.btnPad + 'px，公共件是 9px）');
+    must(studio.advPublic, '高级设置用的不是公共参数卡（.adv）');
+    must(studio.advSels > 0 && studio.advInDD, '高级设置里的下拉有 ' + studio.advSels
+      + ' 颗，不是每一颗都在公共 .dd 里');
+    must(studio.advBtnPad >= 8, '高级设置里公共那颗下拉按钮的内边距被页面那条重置抹掉了（padding-left '
+      + studio.advBtnPad + 'px，公共件是 9px）');
+    must(studio.typeRow >= 0 && studio.dlRow >= 0 && studio.typeRow < studio.dlRow,
+      '右栏次序不对：类型选择那一排（' + studio.typeRow + '）要排在下载/动作那一排（' + studio.dlRow + '）上面');
+    must(studio.typeTop >= 0 && studio.dlTop >= 0 && studio.typeTop < studio.dlTop,
+      '右栏视觉次序不对：类型选择那一排（top ' + studio.typeTop + '）没有排在下载/动作那一排（top '
+      + studio.dlTop + '）上面');
+    must(studio.bulkRow > studio.typeRow, '批量下载那一排要排在类型选择的下面');
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     must(!errs.length, '页面异常：' + errs.join(' | '));
-    console.log('✓ 用量页 / 导演台用上公共组件（筛选下拉 · 分段开关 · 图标；切换与重画后仍是同一份）');
+    console.log('✓ 用量页 / 导演台 / 生成工作台用上公共组件（筛选下拉 · 分段开关 · 图标 · 参数卡；切换与重画后仍是同一份）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

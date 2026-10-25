@@ -266,7 +266,7 @@ function renderMid() {
   if (col.scrollTop !== keepY) col.scrollTop = keepY;
   if (Math.abs(window.scrollY - keepWinY) > 1) window.scrollTo(0, keepWinY);
   // 事件
-  col.querySelector('.sname').oninput = e => { sh.name = e.target.value; renderScenesSoon(); scheduleSave(); };
+  col.querySelector('.sname').oninput = e => { sh.name = e.target.value; renderScenesSoon(); scheduleSave('改镜头名'); };
   /* 「‹ › 切上一镜 / 下一镜」与「撤销 / 重做」那一簇已删（2026-10 用户点名）：
      切镜走左栏的分镜列表，撤销 / 重做走 Ctrl+Z / Ctrl+Y 与剪辑态左栏的「历史编辑记录」。 */
   /* 「导出成片 / 导出素材」两颗搬到页头，接线也跟着搬到那里一次绑好（2026-10）：

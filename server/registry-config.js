@@ -144,8 +144,12 @@ const REGISTRY = {
      改成 modelDocs 之后它只剩两个用途（识图判定、自定义供应商的接口形状参照），不再冒充清单。
      旧页面（v15 及以下）读的是 `models`：它仍然认 modelDocs 吗？不认 → 那几个 id 的识图判定会退回「自动」，
      而型号清单本来就要靠页面点一次「获取型号列表」取回，取回的那份存在 `.data/sk_model_prefs.json` 里。
+     v19：relay 前缀一家一段 —— 文字 AI 八家拆成 /textai/<id>，硅基流动与 MiniMax 的图/视/音各档
+     也各占一段（/siliconflow/image、/minimax/tts…）。以前八家共用 /textai，转发按前缀取「排在最前的那家」，
+     非 DeepSeek 的密钥会被原样发给 api.deepseek.com（功能全坏 + 密钥外泄）。同一段前缀只允许
+     「base / keyEnv / endpoints 完全一致」的等价声明共用（sparkcine 两家），判据在 providers/validate.js。
      改注册表结构时顺手 +1。 */
-  version: 18,
+  version: 19,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -172,7 +176,11 @@ const REGISTRY = {
      它们跟 OpenAI 官方不是一家，但接口一模一样。设置页「供应商」下拉末尾那一项「自定义」就是走这份清单。
      每一项的 template 必须是一个**真实存在的内置平台 id**（buildCustom 照它整套克隆，
      这一族的能力声明、上传流程、retrieve 环节全从它来）—— 所以这里不编不存在的形状，
-     加一族就是给某个内置平台补一个更好懂的名字。 */
+     加一族就是给某个内置平台补一个更好懂的名字。
+     可选的 `needs` 声明「这一族承诺了模板必须具备的环节」（如 ['retrieve']）——
+     校验器照它查模板，形状描述了模板没有的东西就当场红（以前 file-id-retrieve 形状
+     写着「要再换一次地址」，模板 minimax-video 却没有 retrieve 环节，按那一族添加的
+     自定义供应商永远换不到产物地址；v2 协议直接给地址，这一族已整条撤下）。 */
   interfaceShapes: {
     image: [
       { id: 'openai-image', name: 'OpenAI 兼容生图（POST /images/generations，当场返回图片）',
@@ -185,8 +193,6 @@ const REGISTRY = {
         template: 'sparkcine-video', note: '跑 H3 那一族的中转网关选它：模型名带 h3- 前缀那一套' },
       { id: 'vgenv-compatible', name: 'VGENV 兼容接口（建任务 → 按任务列表轮询 → 产物是签名地址）',
         template: 'vgenv', note: '没有可用的详情端点，状态靠列表接口按任务号找' },
-      { id: 'file-id-retrieve', name: '文件号 + retrieve 两段式（状态接口只给 file_id，要再换一次地址）',
-        template: 'minimax-video', note: '这是通用 retrieve 环节那一族：产物地址要再问一次文件接口' },
       { id: 'submit-status', name: '提交 + 状态两段式（结果地址直给，但可能只管几分钟）',
         template: 'siliconflow-video', note: '结果地址有效期很短，靠「产物自动存本机」那一层留住' },
       { id: 'async-result', name: '异步结果（结果在一个数组里，状态 PROCESSING / SUCCESS / FAIL）',
@@ -688,6 +694,7 @@ const REGISTRY = {
       site: 'https://openrouter.ai',
       endpoints: {
         chat: '/chat/completions',
+        models: '/models',
         /* 余额：官方文档 GET /api/v1/credits → { data: { total_credits, total_usage } }。
            **只有「管理密钥」能问**（普通 API key 回 403）—— 问不到不等于余额是 0，
            解析见 assetlib.js 的 Api.balance 的 openrouter-credits。 */
@@ -716,11 +723,14 @@ const REGISTRY = {
       ],
     },
     {
-      id: 'deepseek', name: 'DeepSeek 文字 AI', kind: 'text', relay: '/textai',
+      /* relay 一家一段（/textai/<id>）：转发 / 转发闸 / create 判定都按前缀认家，
+         前缀撞了就会把 A 家的请求与密钥打到 B 家的地址上（以前八家共用 /textai 就是这个事故）。 */
+      id: 'deepseek', name: 'DeepSeek 文字 AI', kind: 'text', relay: '/textai/deepseek',
       base: 'https://api.deepseek.com', keyEnv: 'DEEPSEEK_API_KEY', baseEditable: true,
       site: 'https://platform.deepseek.com',
       endpoints: {
         chat: '/chat/completions',
+        models: '/models',
         /* 余额：官方文档 GET /user/balance → { is_available, balance_infos:[{ currency, total_balance, … }] }。
            total_balance 是**字符串**，解析见 assetlib.js 的 Api.balance 的 deepseek-balance。 */
         credits: '/user/balance',
@@ -741,20 +751,21 @@ const REGISTRY = {
        下面那一行 `modelDocs` 是**「文档里写过这个 id 支持什么」**，不是清单：
        用户自己填了这个 id 才用得上（识图判定照它查）。它不参与任何「型号有哪些」的判断。 */
     {
-      id: 'openai', name: 'OpenAI 文字 AI', kind: 'text', relay: '/textai',
+      id: 'openai', name: 'OpenAI 文字 AI', kind: 'text', relay: '/textai/openai',
       base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
       site: 'https://platform.openai.com',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: { chat: '/chat/completions', models: '/models' },
       /* OpenAI 没有公开的余额 API（/dashboard/billing 要网页登录态，API key 问不了）—— 不声明，
          设置页照样画出「侧栏余额」勾选框并写明「这家没提供余额接口」。 */
       modelDocs: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
     },
     {
-      id: 'moonshot', name: '月之暗面 Kimi', kind: 'text', relay: '/textai',
+      id: 'moonshot', name: '月之暗面 Kimi', kind: 'text', relay: '/textai/moonshot',
       base: 'https://api.moonshot.cn/v1', keyEnv: 'MOONSHOT_API_KEY', baseEditable: true,
       site: 'https://platform.moonshot.cn',
       endpoints: {
         chat: '/chat/completions',
+        models: '/models',
         /* 官方文档 GET /v1/users/me/balance → { code, data: { available_balance, voucher_balance, cash_balance } }
            单位是**人民币元**；available ≤ 0 时平台直接拒绝推理。 */
         credits: '/users/me/balance',
@@ -763,40 +774,45 @@ const REGISTRY = {
       modelDocs: [{ id: 'kimi-k2.6', name: 'Kimi K2.6', modes: ['text'] }],
     },
     {
-      id: 'zhipu', name: '智谱 GLM', kind: 'text', relay: '/textai',
+      id: 'zhipu', name: '智谱 GLM', kind: 'text', relay: '/textai/zhipu',
       base: 'https://open.bigmodel.cn/api/paas/v4', keyEnv: 'ZHIPUAI_API_KEY', baseEditable: true,
       site: 'https://open.bigmodel.cn',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: { chat: '/chat/completions', models: '/models' },
       modelDocs: [{ id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', modes: ['text'] }],
     },
     {
-      id: 'dashscope', name: '通义千问 百炼', kind: 'text', relay: '/textai',
+      id: 'dashscope', name: '通义千问 百炼', kind: 'text', relay: '/textai/dashscope',
       base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', keyEnv: 'DASHSCOPE_API_KEY', baseEditable: true,
       site: 'https://bailian.console.aliyun.com',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: { chat: '/chat/completions', models: '/models' },
       modelDocs: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', modes: ['text'] }],
     },
     {
-      id: 'siliconflow', name: '硅基流动 SiliconFlow', kind: 'text', relay: '/textai',
+      id: 'siliconflow', name: '硅基流动 SiliconFlow', kind: 'text', relay: '/textai/siliconflow',
       base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', baseEditable: true,
       site: 'https://cloud.siliconflow.cn',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: {
+        chat: '/chat/completions',
+        models: '/models',
+        /* 余额：GET /v1/user/info → { data: { totalBalance, chargeBalance, … } }（解析见 text-ai.js）。 */
+        credits: '/user/info',
+      },
       /* 硅基流动一个 key 覆盖 200+ 模型（DeepSeek / Qwen / GLM / MiniMax 都有），
          型号名是「厂商/型号」带斜杠的那种 —— 写死一份清单只会过期得更快。 */
       modelDocs: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
     },
     {
-      id: 'volcengine', name: '火山方舟 豆包', kind: 'text', relay: '/textai',
+      id: 'volcengine', name: '火山方舟 豆包', kind: 'text', relay: '/textai/volcengine',
       base: 'https://ark.cn-beijing.volces.com/api/v3', keyEnv: 'ARK_API_KEY', baseEditable: true,
       site: 'https://console.volcengine.com/ark',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: { chat: '/chat/completions', models: '/models' },
       modelDocs: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
     },
     {
-      id: 'minimax-text', name: 'MiniMax 文字 AI', kind: 'text', relay: '/textai', keyId: 'minimax',
+      id: 'minimax-text', name: 'MiniMax 文字 AI', kind: 'text', relay: '/textai/minimax-text', keyId: 'minimax',
       base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', baseEditable: true,
       site: 'https://platform.minimax.io',
-      endpoints: { chat: '/chat/completions' },
+      endpoints: { chat: '/chat/completions', models: '/models' },
       modelDocs: [{ id: 'MiniMax-M3', name: 'MiniMax M3', modes: ['text'] }],
     },
     {
@@ -811,7 +827,7 @@ const REGISTRY = {
          页面里没有 if (prov.id === …)。以后再接同形状的平台（OpenAI / 豆包兼容网关 / 各家中转）
          只要复制这一条换 base 与型号。 */
       id: 'siliconflow-image', name: '硅基流动 生图', displayName: 'SiliconFlow', kind: 'image',
-      relay: '/siliconflow', keyId: 'siliconflow',   // 与上面那家文字共用一把密钥 → 设置页只出一张卡
+      relay: '/siliconflow/image', keyId: 'siliconflow',   // 与文字那家共用一把密钥 → 设置页只出一张卡；relay 各占一段
       base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', site: 'https://cloud.siliconflow.cn',
       endpoints: {
         create: '/images/generations',
@@ -857,7 +873,7 @@ const REGISTRY = {
          官方文档写 data.audio 是十六进制（WebSocket 指南明确说「用十六进制解码，别当 base64」），
          而 /local-assets 收的是 base64，页面按这份声明转换（认不出合法十六进制时退回按 base64 试一次）。
          一家平台同时做文字与语音时给两条 provider 同一个 keyId → 设置页只出一张密钥卡。 */
-      id: 'minimax-tts', name: 'MiniMax 语音合成', displayName: 'MiniMax', kind: 'audio', relay: '/minimax', keyId: 'minimax',
+      id: 'minimax-tts', name: 'MiniMax 语音合成', displayName: 'MiniMax', kind: 'audio', relay: '/minimax/tts', keyId: 'minimax',
       base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', site: 'https://platform.minimax.io',
       pricing: { type: 'per_1k_chars', currency: '¥' },
       endpoints: {
@@ -922,12 +938,12 @@ const REGISTRY = {
          所以 inputTemplates 的落点是 content 数组，不是 v1 的 first_frame_image 标量。
          上游只给单任务查询、没有列表接口 → 不声明 endpoints.list（资产库里来自这条线的条目
          是任务完成时自动落到本机的产物，见 studio 的本地镜像）。 */
-      id: 'minimax-video', name: 'MiniMax 视频', displayName: 'MiniMax', kind: 'video', relay: '/minimax', keyId: 'minimax',
-      base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', site: 'https://platform.minimax.io',
+      id: 'minimax-video', name: 'MiniMax 视频', displayName: 'MiniMax', kind: 'video', relay: '/minimax/video', keyId: 'minimax',
+      base: 'https://api.minimax.io/v2', keyEnv: 'MINIMAX_API_KEY', site: 'https://platform.minimax.io',
       pricing: { type: 'quote', currency: '¥' },
       noPromptField: true,     // query 响应不返回提示词（界面靠 PromptLog 归档的那份补显示）
       endpoints: {
-        create: '/video_generation',                    // POST /v2 形状（见下面 create）
+        create: '/video_generation',                    // POST {base}/video_generation（base 已是 …/v2）
         poll: '/query/video_generation/{id}',          // GET，任务号是**路径参数**
       },
       list: {
@@ -978,7 +994,7 @@ const REGISTRY = {
          明天打开资产库就是一排裂图，而条目本身还显示「已完成」。
          声明里不写 expires（平台没给过期时间），由本机镜像那一层按「存过就用本地的」兜住。 */
       id: 'siliconflow-video', name: '硅基流动 视频', displayName: 'SiliconFlow', kind: 'video',
-      relay: '/siliconflow', keyId: 'siliconflow',
+      relay: '/siliconflow/video', keyId: 'siliconflow',
       base: 'https://api.siliconflow.cn/v1', keyEnv: 'SILICONFLOW_API_KEY', site: 'https://cloud.siliconflow.cn',
       pricing: { type: 'quote', currency: '¥' },
       noPromptField: true,
@@ -1050,6 +1066,14 @@ const REGISTRY = {
            值集对不上，上游会拒。所以下面把这一家的档位**声明成它自己的值集**，
            界面上那一列显示的就是 speed / quality，映射过去才对得上。 */
         body: { model: 'model', prompt: 'prompt', size: 'size', quality: 'tier', duration: 'duration' },
+        /* 首尾帧按官方文档直接进提交体顶层（POST /v4/videos/generations 收 first_frame_image /
+           last_frame_image 两个标量字段；首尾帧模式 = 两张都给）。以前这里没声明模板 ——
+           槽位照 inputRoles 画得出来、提交那一刻却因为「没有模板」被整个丢掉：
+           用户放了首尾帧、钱照扣，出的是文生视频。声明补上，槽位才真的发得出去。 */
+        inputTemplates: {
+          first_frame: { to: 'first_frame_image', many: false, tmpl: '$url' },
+          last_frame: { to: 'last_frame_image', many: false, tmpl: '$url' },
+        },
       },
       /* ⚠ 这一份**不是型号清单**（v13 起）：智谱的 GET /api/paas/v4/models 列的是 glm-4.5 / glm-5
          那一批**对话**模型，不含 cogvideox —— 接上去视频台会变成聊天模型下拉。

@@ -64,20 +64,36 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(drag.overLit === false && drag.stillLit === false, '页面内拖拽亮起了上传遮罩：' + JSON.stringify(drag));
     must(drag.count === 1, '拖一下收藏卡片多出了一条收藏：' + JSON.stringify(drag));
 
-    /* ---------- 2) 正控：真正从窗口外拖进来的文件仍然收下 ---------- */
-    await page.eval(png => {
+    /* ---------- 2) 从窗口外拖进来的文件**要**被收藏页收下（2026-10-25 产品口径）----------
+       「上传本地文件」这一支**在**（入口、拖拽导入、Fav.addLocalFile 都在）：
+       用户手里的本机素材要能直接进收藏，就得有个地方把它丢进来 ——
+       工具行那颗「上传本地文件」按钮与「拖文件进窗口」是同一个 addFiles。
+       （去掉的只是「文件」那一颗筛选芯片，不是这个入口。） */
+    const dropped = await page.eval(async png => {
       const bin = atob(png);
       const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
       const dt = new DataTransfer();
       dt.items.add(new File([bytes], 'outside.png', { type: 'image/png' }));
+      /* 先 dragover：上传遮罩（body.drop）要亮起来 */
+      document.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 200, clientY: 200 }));
+      const lit = document.body.classList.contains('drop');
       document.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 200, clientY: 200 }));
+      return { lit, stillLit: document.body.classList.contains('drop') };
     }, PNG);
-    await page.waitFor('window.Fav.list().length >= 2', 15000);
-    const after = await page.eval(() => ({ n: Fav.list().length, names: Fav.list().map(x => x.name || x.key) }));
-    must(after.n === 2, '外部文件没被收下：' + JSON.stringify(after));
+    must(dropped.lit === true, '外部文件拖进来没有亮起上传遮罩：' + JSON.stringify(dropped));
+    must(dropped.stillLit === false, '放下之后上传遮罩没撤：' + JSON.stringify(dropped));
+    /* 本体进 IndexedDB，异步落盘：等它真的进收藏 */
+    await page.waitFor(() => Fav.list().length === 2, 10000).catch(() => {});
+    const after = await page.eval(() => ({
+      n: Fav.list().length,
+      local: Fav.list().filter(x => x.kind === 'local').map(x => x.name),
+    }));
+    must(after.n === 2, '外部文件拖进来没有进收藏：' + JSON.stringify(after));
+    must(after.local.length === 1 && /outside\.png/.test(after.local[0]),
+      '进收藏的不是那个本地上传的文件：' + JSON.stringify(after));
 
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.join(' | '));
-    console.log('✓ 拖拽判据通过（收藏页拖卡片不多收藏 · 遮罩不亮 · 外部文件仍能收下 · 零控制台错误）');
+    console.log('✓ 拖拽判据通过（收藏页拖卡片不多收藏 · 遮罩不亮 · 外部文件拖进来进收藏 · 零控制台错误）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

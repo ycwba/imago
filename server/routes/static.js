@@ -1,19 +1,33 @@
 /* 静态资源与 SPA 旧地址重定向。只放行工作台前端资源（根级单文件 + web/ 子树）。 */
 'use strict';
 const path = require('path');
+const fs = require('fs');
+const vm = require('vm');
 const { serveStatic } = require('../static.js');
 
-const SPA_REDIRECT = {
-  '/director.html': 'director.html',
-  '/favorites.html': 'favorites.html', '/roles.html': 'favorites.html',
-  '/usage.html': 'usage.html', '/usage': 'usage.html',
-  '/assets.html': 'assets.html', '/settings.html': 'settings.html', '/chars.html': 'chars.html',
-  '/skills.html': 'settings.html',
-  '/studio.html': 'studio.html',
-  '/image.html': 'studio.html?t=image', '/image-gen.html': 'studio.html?t=image',
-  '/video.html': 'studio.html?t=video', '/video-gen.html': 'studio.html?t=video',
-  '/audio.html': 'studio.html?t=audio', '/audio-gen.html': 'studio.html?t=audio',
-};
+/* 旧地址 302 的映射从客户端路由表**现派生**（「路由表只有 web/core/routes.js 一份」）：
+   routes.js 是经典脚本（shell.html <script> 直挂），Node 侧拿不到 import，
+   就照 tests/spa.cjs 的同一套办法在沙箱里跑一遍、取它身上的 alias。
+   客户端补了别名、服务端不用再抄一遍 —— 以前两份拷贝就是这么漂开的
+   （客户端保留入站查询串、服务端 studio 那一族整条丢弃，同一件事两层行为）。
+   不派生的键：'' 与 '/'（根由 FILE_MAP 直出 shell.html）、'app.html'（同上，旧壳入口）。 */
+const SPA_REDIRECT_EXCLUDED = new Set(['', '/', 'app.html']);
+function deriveSpaRedirect() {
+  try {
+    const sandbox = { window: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../web/core/routes.js'), 'utf8'),
+      sandbox, { filename: 'web/core/routes.js' });
+    const R = sandbox.window.WB_ROUTES || {};
+    const out = {};
+    /* 本名页也要 302（磁盘上没有 director.html 这些文件，直接打开旧路径要落到外壳的 hash） */
+    for (const p of R.pages || []) { if (p && p.file) out['/' + p.file] = p.file; }
+    for (const [from, to] of Object.entries(R.alias || {})) {
+      if (!SPA_REDIRECT_EXCLUDED.has(from) && to) out['/' + from] = to;
+    }
+    return out;
+  } catch { return {}; }   // 读不到路由表（不可能，除非仓库被搬空）：退成没有重定向，静态服务照常
+}
+const SPA_REDIRECT = deriveSpaRedirect();
 const FILE_MAP = {
   '/': 'shell.html', '/app.html': 'shell.html', '/shell.html': 'shell.html',
   '/sidebar.js': 'web/ui/sidebar.js', '/assetlib.js': 'web/domain/assetlib.js',
@@ -27,9 +41,16 @@ function handleStatic(req, res, ctx) {
   if (SPA_REDIRECT[urlPath]) {
     const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     let dest = SPA_REDIRECT[urlPath];
+    /* studio 一族只对 t= 做**归一化**（客户端 web/app.js 的语义是「入站查询原样保留」），
+       其余参数（?reuse=1 …）原样跟过去 —— 以前整条查询被丢弃，
+       老书签 / 外部链接 / sidebar.js 那条 location.replace 带进来的载荷就断在这一跳。 */
     if (dest.indexOf('studio.html') === 0) {
-      const m = /[?&]t=(video|image|audio)/.exec(search);
-      if (m) dest = 'studio.html?t=' + m[1];
+      const qs = new URLSearchParams(search.replace(/^\?/, ''));
+      const t = qs.get('t');
+      if (t === 'video' || t === 'image' || t === 'audio') dest = 'studio.html?t=' + t;
+      qs.delete('t');
+      const rest = qs.toString();
+      if (rest) dest += (dest.indexOf('?') >= 0 ? '&' : '?') + rest;
     } else if (search && dest.indexOf('?') < 0) {
       dest += search;
     }

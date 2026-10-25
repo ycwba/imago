@@ -123,7 +123,8 @@ npm run build:check  # 校验生成物
   所以手动改名、整目录搬到另一块盘，下一轮磁盘对账还能把账认回来；同一任务重复下载只出一张卡。
 - 过期签名外链由 `Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc` 统一处理。
 - 导演台导出始终优先本机副本；预览是否优先本机由设置项 `sk_media_prefer` 控制。
-- 「存回本机」四颗按钮共用 `AssetLocal.pullMany`。
+- 「存回本机」四颗按钮共用 `AssetLocal.pullMany`；工作台与资产库那一颗在**多选条**里，
+  多选之后才出现，存的是**勾选的那几条**。
 
 ## 添加一家平台
 

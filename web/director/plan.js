@@ -11,8 +11,9 @@ export function createPlayPlan(ctx) {
     const clips = [], voices = [];
     let acc = 0;
     /* `spd` 两条 push 都带上，但**只有全片页签真的按它折算**（`TlPlay` 拿 `film` 旗标决定轴系数）：
-       本镜轨量的是「这一条候选的第几秒」，倍速把剪掉的那一截缩进成片，不该把这一镜的刻度尺也缩短 ——
-       否则用户剪完一刀，本镜轨上「这一段从源第 3 秒开始」的读数会跟着漂，而把手拖的还是那几个源秒。 */
+       本镜**播放**量的是「这一条候选的第几秒」（甲板走源秒，倍速不缩墙钟）——
+       注意这只管播放这一头；**轨道排版**那一把轴按倍速缩（timeline.js 的 `shotFrames`，
+       `w = dur / spd`），两条是两种读法、各有各的用处，别把这句话读成「本镜轨的格子也不缩」。 */
     const push = (src, s) => {
       const dur = segLen(s);
       if (dur <= 0.02) return;
@@ -27,11 +28,12 @@ export function createPlayPlan(ctx) {
       acc += dur;
     };
     if (film) {
-      /* 一次同步、一份框基几何：`tl.clips[i]` 与 `G.rows[i]` 是同一个序（下标 k 对上），
-         所以这一格在**框基轴**上的起点就是 `G.rows[k].start`。
-         为什么必须把 `fs`（框基起点）/ `fa`（框左沿）带进播放计划：全片轨的插针画在框基轴上，
-         而 TlPlay.t 是**成片秒**（Σ 保留长度）。两根轴只在「一段没剪过」时长度相等 ——
-         一旦哪一段剪出灰块，针就会走进灰块里（用户报的「播放后剪辑条在剪掉的灰块上走」）。 */
+      /* 一次同步、一份几何：`tl.clips[i]` 与 `G.rows[i]` 是同一个序（下标 k 对上），
+         这一格在**选区轴**上的起点就是 `G.rows[k].start`。
+         `fs`（轴起点）带进播放计划，是为了 `frameT()` 把成片秒 TlPlay.t 折到这一根轴上
+         给播放头用 —— 排版那把轴如今就是选区轴（`w = fd`、`start = f0`，见 timeline.js
+         filmFrames 那段注释：被剪掉的头尾不占秒），不是从前那根带着灰块的框基轴，
+         frameT 里也不再有 `(in - fa)/rate` 那一项。`fa` 只是顺手带着的框左沿，播放侧已不再消费它。 */
       const tl = ctx.tlSyncFromShots();
       const G = ctx.filmFrames(tl);
       const grayFilm = ctx.filmLayGray(G);

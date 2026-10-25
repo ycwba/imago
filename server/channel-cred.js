@@ -15,14 +15,27 @@ function providerOf(ctx, id) {
   catch { return null; }
 }
 
-/* 读 `sk_key_<kid>` / `sk_base_<kid>` 那种镜像文件里的字符串值。 */
+/* 读 `sk_key_<kid>` / `sk_base_<kid>` 那种镜像文件里的字符串值。
+   镜像文件的正文就是客户端 localStorage 的原值（data-store 原样落盘）：字符串类的键
+   （sk_key_* / sk_base_* 都是）落盘是**裸文本**（`D:\作品`、`sk-or-v1-…`，不是 JSON），
+   只有对象类的键才是 Store 的信封 `{"data":…,"ts":…}`。所以先按裸文本读；
+   只有内容长得像信封（JSON 对象且带 data 字段）才按信封拆。
+   以前只按信封 JSON.parse —— 字符串键必抛 → catch → 返回空，
+   「用渠道那把密钥」永远读不到设置页里填的那把，设置页明明显示「已填密钥」。 */
 function mirrored(ctx, kind, kid) {
   if (!kid) return '';
-  try {
-    const env = JSON.parse(fs.readFileSync(ctx.dataFileOf(kind + kid), 'utf8'));
-    const v = env && env.data;
-    return typeof v === 'string' ? v.trim() : '';
-  } catch { return ''; }
+  let raw = '';
+  try { raw = fs.readFileSync(ctx.dataFileOf(kind + kid), 'utf8'); } catch { return ''; }
+  const text = String(raw).trim();
+  if (!text) return '';
+  if (text.startsWith('{')) {
+    try {
+      const env = JSON.parse(text);
+      const v = env && env.data;
+      if (typeof v === 'string') return v.trim();
+    } catch { /* 不是合法 JSON（或不是信封形状）：按裸文本原样用 */ }
+  }
+  return text;
 }
 
 function channelKey(ctx, kid) {

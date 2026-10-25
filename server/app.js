@@ -41,7 +41,7 @@ const { createRegistryRoutes } = require('./routes/registry.js');
 const { createPickDirRoute } = require('./routes/pick-dir.js');
 const { createCacheRoutes } = require('./routes/cache.js');
 const { createUsageRoutes } = require('./routes/usage.js');
-const { validateProviders, validateAssetStore } = require('./providers/validate.js');
+const { validateProviders, validateAssetStore, validateInterfaceShapes } = require('./providers/validate.js');
 const { handleStatic } = require('./routes/static.js');
 /* 四个域从组合根搬出去：注册表、本机存储层、渲染任务、转发闸。
    这里只留组合根本该做的事：构造配置与依赖、接线、分发。 */
@@ -243,8 +243,16 @@ function readBody(req, res, limit) {
    而这类样板漂移的方向是坏的：少抄一道护栏就等于「任意本机网页可以借代理打内网」。
    返回 null 表示已经替调用方把 400 回掉了，调用方直接 return。 */
 async function takeOutboundUrl(req, res, prefix, tag) {
-  try { return await guardOutboundUrl(safeDecode(req.url.slice(prefix.length))); }
-  catch (e) {
+  try {
+    /* 四条通道的 rest = 「编码过的目标地址」+ 本地附加参数（&dl=1 …）。目标地址本身编码过
+       （encodeURIComponent 把 & 变成 %26），所以裸 & 一定是本地参数的分隔符 —— 只取第一段，
+       别把 dl=1 这类本地标记发给上游：对「整个查询串参与签名」的 CDN，多一个参数就是 403，
+       而那句报错来自上游、极难定位（之前产物下载不下来 / 缩略图坏掉就有这一族）。 */
+    let raw = req.url.slice(prefix.length);
+    const amp = raw.indexOf('&');
+    if (amp >= 0) raw = raw.slice(0, amp);
+    return await guardOutboundUrl(safeDecode(raw));
+  } catch (e) {
     log(`[${tag}] 拒绝出站：` + e.message);
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('bad url: ' + e.message);
@@ -357,8 +365,22 @@ let logLines = 0;
    判据：与上一条逐字相同的连续重复，只在第 2 / 10 / 100 / 1000 / 10000 次各写一行带计数的；
    换一句话、或超过 30 秒没有新的重复，就立刻照常写。单次发生的话一句都不会被吞。 */
 const logDedup = { msg: '', n: 0, at: 0 };
+/* stdout 断了就**别再往它写** —— 启动器窗口一关，管道就断；`console.log` 写进断掉的管道
+   会抛异步 EPIPE，那条 EPIPE 又被「未捕获异常」那个出口接住 → 它调 log() → 再写一次 →
+   再抛一次：**无限自旋**（实测一个实例在 1.6 小时里烧掉 800 多秒 CPU，端口在听但不回话，
+   proxy.log 刷到 1.8 MB 全是同一句）。
+   所以：stdout 只在还活着的时候写，断了就把这条路封掉；**日志文件照旧落盘**（那是排障的正经依据）。
+   stderr 同理 —— 没人接它的错误事件也会走同一条自旋。 */
+let stdoutAlive = true;
+const outWrite = s => {
+  if (!stdoutAlive) return;
+  try { process.stdout.write(s + '\n'); } catch (e) { stdoutAlive = false; }
+};
+for (const st of [process.stdout, process.stderr]) {
+  try { st.on('error', () => { if (st === process.stdout) stdoutAlive = false; }); } catch (e) { /* 这条流没有 on 也不影响写文件 */ }
+}
 function writeLog(s) {
-  console.log(s);
+  outWrite(s);
   try {
     fs.appendFileSync(LOG, s + '\n');
     if (++logLines % 200 === 0) rotateLog();   // 运行中轮转，不再只靠启动那一次
@@ -1068,10 +1090,14 @@ if (cloudState.lastAt) {
 /* 同一个 DATA_DIR 只允许一个代理写 journal / index / .data；第二个实例直接拒绝启动。 */
 const registryCheck = validateProviders(REGISTRY.providers);
 if (!registryCheck.ok) log('[registry] 声明校验未通过：' + registryCheck.errors.join('；'));
-else if (registryCheck.sharedRelays.length) log('[registry] 声明校验通过（共用 relay：' + registryCheck.sharedRelays.join(' / ') + '）');
+else if (registryCheck.sharedRelays.length) log('[registry] 声明校验通过（等价共用 relay：' + registryCheck.sharedRelays.join(' / ') + '）');
 /* assetStore 声明坏掉不会让任何一条路由抛错，只会表现成「资产永远取不回」 —— 启动时点名报出来。 */
 const assetStoreCheck = validateAssetStore(REGISTRY);
 if (!assetStoreCheck.ok) log('[registry] assetStore 声明未通过：' + assetStoreCheck.errors.join('；'));
+/* 接口形状（自定义供应商的族清单）同样只报不打断：template 指空 / 承诺的 retrieve 环节模板没有，
+   表现是「按那一族添加的供应商建不出来或换不到产物地址」。 */
+const shapesCheck = validateInterfaceShapes(REGISTRY);
+if (!shapesCheck.ok) shapesCheck.errors.forEach(e => log('[registry] ' + e));
 let instanceLock = null;
 try {
   instanceLock = acquireInstanceLock({ dir: dataDirPath(), port: PORT, log });

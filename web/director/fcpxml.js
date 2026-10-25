@@ -93,8 +93,14 @@ export async function buildFCPXML(ctx, opts) {
       const key = kind + ':la:' + la;
       const name = mediaNameOf(key, base, ext);
       if (bundle) return { key, name, local: false, bundleSrc: Api.assetSrc(la), href: mediaHref(name) };
-      const p = assetsDir.replace(/[\\/]+$/, '') + '/' + la + '.' + ext;
-      return { key, name, local: true, href: fileUrl(p) };
+      /* 单文件那一档给 FCP 的是 file:// 绝对路径：本体的真实落点是
+         <库根>\<类型>\<规范名>.<ext>（账里的 file 字段，localFileOf 递过来的 path）。
+         以前拿本机号 la_xxx 当文件名直接拼在库根下 —— 导入 FCP / 达芬奇后全部离线。
+         path 没学到（老索引还没刷新）就照实记「本机没有」，不编一个必然断链的地址。 */
+      const rel = String((f && f.path) || '').replace(/\\/g, '/').replace(/^\/+/, '');
+      if (rel) return { key, name, local: true, href: fileUrl(assetsDir.replace(/[\\/]+$/, '') + '/' + rel) };
+      missing.push({ name, src: String(src || '') });
+      return { key, name, local: false, bundleSrc: '', href: mediaHref(name) };
     }
     const key = kind + ':u:' + (src || base);
     const name = mediaNameOf(key, base, fallback);
@@ -326,10 +332,13 @@ export async function exportFCPXML(ctx, opts) {
         body: JSON.stringify({ fcpxml: r.xml, srt: r.subtitles ? r.srt : '', assets: r.bundleAssets }),
       });
       await window.Net.save(zip, baseName + '-媒体包.zip');
+      /* 这里的 missing 是**客户端预测**（不在本机索引里的那些），不是服务端实数：
+       代理会按原地址回源取，真取不到才往包里写 missing.txt —— 包里没有这个文件就是全取到了。
+       以前按预测数写「N 处取不到本机文件，名单在 missing.txt」，而包其实是齐的，名单根本不存在。 */
       setStatus('<span class="ok">✓ 已导出媒体包：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音 · '
         + r.bundleAssets.length + ' 份素材（zip 里是 project.fcpxml + media/，换台机器直接导入）'
         + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条（时间线标题 + subtitles.srt）' : '')
-        + (r.missing.length ? ' · ' + r.missing.length + ' 处取不到本机文件，名单在 missing.txt' : '')
+        + (r.missing.length ? ' · 有 ' + r.missing.length + ' 处素材不在本机索引里，由代理按原地址回源取；真取不到的才记在包里的 missing.txt（包里没有这个文件 = 全取到了）' : '')
         + extra + '</span>');
       return { ok: true, bundle: true, rows: r.rows, voices: r.voices,
         subtitles: r.subtitles, assets: r.bundleAssets.length,

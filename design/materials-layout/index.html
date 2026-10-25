@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>素材库 · 布局稿</title>
+<!-- 这一稿是「设计稿」，不是产品代码：web/ 与 server/ 一行未动。
+     令牌与公共件直接引真文件（只读引用），所以稿子里的颜色、圆角、按钮
+     与产品里现在跑的完全是同一套；深色档是 tokens.css 的深色那一段自动派生。 -->
+<link rel="stylesheet" href="../../web/styles/tokens.css">
+<link rel="stylesheet" href="../../web/styles/ui.css">
+<link rel="stylesheet" href="../../web/styles/sidebar.css">
+<link rel="stylesheet" href="demo-materials.css">
+</head>
+<body class="demo-mat">
+
+<!-- ══ 应用侧栏（真外壳，窄形态 56px：图标 + 两字短标签） ══ -->
+<div class="sidebar">
+  <div class="sb-brand"><span class="sb-logo" title="点击收起 / 展开侧边栏">AI</span>
+    <span class="sb-brand-txt"><span class="sb-name">AI 创作工作台</span><span class="sb-sub">本地优先 · 数据留在本机</span></span></div>
+  <nav>
+    <a href="#" data-page="director.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.9" y="3" width="12.2" height="10" rx="1.5"/><path d="M4.7 3v10M11.3 3v10M1.9 8h12.2"/></svg></span><span class="lb">导演台</span><span class="sh">导演</span></a>
+    <a href="#" data-page="chars.html" class="active"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.1" cy="5.5" r="2.4"/><path d="M2.2 13.1c0-2.2 1.8-3.7 3.9-3.7s3.9 1.5 3.9 3.7"/><path d="M10.6 3.4a2.3 2.3 0 0 1 0 4.3"/><path d="M11.7 9.8c1.6.5 2.7 1.8 2.7 3.3"/></svg></span><span class="lb">素材库</span><span class="sh">素材</span></a>
+    <a href="#" data-page="studio.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 2.2l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z"/><path d="M11.8 8.6l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z"/></svg></span><span class="lb">生成工作台</span><span class="sh">生成</span></a>
+    <a href="#" data-page="favorites.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z"/></svg></span><span class="lb">我的收藏</span><span class="sh">收藏</span></a>
+    <a href="#" data-page="assets.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"/><path d="M2.5 5L8 8l5.5-3M8 8v6"/></svg></span><span class="lb">资产库</span><span class="sh">资产</span></a>
+    <a href="#" data-page="usage.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 13.4V2.6M2.6 13.4h10.8"/><path d="M5.6 11V7.4M8.2 11V4.8M10.8 11V8.8"/></svg></span><span class="lb">用量与余额</span><span class="sh">用量</span></a>
+  </nav>
+  <div class="sb-bottom" id="sbBalance">
+    <div class="sb-bal-sum">
+      <div class="p"><span class="ic"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.4"/><path d="M10 6.2c-.4-.7-1.1-1-2-1-1.1 0-1.9.5-1.9 1.3 0 .9.8 1.2 1.9 1.4 1.2.2 2 .6 2 1.5s-.9 1.4-2 1.4c-1 0-1.7-.4-2.1-1.1M8 3.8v8.4"/></svg></span><b>4</b><span class="u">家余额</span></div>
+      <div class="sb-bal-dots"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="ok"></i></div>
+    </div>
+  </div>
+  <div class="sb-bottom">
+    <a class="sb-set" href="#" data-page="settings.html"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1 1M11.1 11.1l1 1M12.1 3.9l-1 1M4.9 11.1l-1 1"/></svg></span><span class="lb">设置</span></a>
+    <button class="sb-set" id="sbTheme" type="button" title="切换亮色 / 暗色背景"><span class="ic"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 9.6A5.2 5.2 0 0 1 6.4 3 5.4 5.4 0 1 0 13 9.6z"/></svg></span><span class="lb">换背景</span></button>
+  </div>
+</div>
+
+<div id="app">
+
+  <!-- ══ ① 目录轨：把「三行工具条 + 体检面板 + 筛选芯片」收成一条可点的目录 ══ -->
+  <aside class="mat-rail">
+    <div class="rail-top">
+      <div class="rail-h1">素材库</div>
+      <button class="rail-close" type="button" id="railClose" title="收起目录"><span class="ic"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/></svg></span></button>
+      <div class="rail-sub">10 条 · 9 条被导演台用到</div>
+    </div>
+
+    <div class="rail-scroll">
+      <div class="rail-sec">
+        <div class="rail-st">类型</div>
+        <div class="rail-row on" data-f="kind" data-v="all"><span>全部</span><span class="n">10</span></div>
+        <div class="rail-row" data-f="kind" data-v="actor"><span>角色</span><span class="n">5</span></div>
+        <div class="rail-row" data-f="kind" data-v="scene"><span>场景</span><span class="n">3</span></div>
+        <div class="rail-row" data-f="kind" data-v="prop"><span>道具</span><span class="n">2</span></div>
+      </div>
+
+      <div class="rail-sec">
+        <div class="rail-st">还缺什么<span class="rail-acts">
+          <button class="rail-fix" type="button" title="把这一档缺的东西一次性补齐">一次出齐</button>
+          <button class="rail-fix" type="button" title="把这一档里「本机还没有那份字节」的图与参考音频存回本机">存回本机</button>
+        </span></div>
+        <div class="rail-row" data-f="miss" data-v="nopic"><span class="missdot nopic"></span><span>缺预览图</span><span class="n">1</span></div>
+        <div class="rail-row" data-f="miss" data-v="noasset"><span class="missdot noasset"></span><span>缺角色资产</span><span class="n">2</span></div>
+        <div class="rail-row" data-f="miss" data-v="novoice"><span class="missdot novoice"></span><span>缺声音</span><span class="n">1</span></div>
+        <div class="rail-row" data-f="miss" data-v="nodesc"><span class="missdot nodesc"></span><span>缺描述</span><span class="n">2</span></div>
+        <!-- 2026-10-25 修正：左轨原来的「本页默认」整块撤掉（默认值改由设置页「素材库」那张卡管）；
+             2026-10-25 再修正：「出齐用哪个型号」那一行也撤掉了 ——
+             「出齐」用哪个型号只有一处出处（设置页那个默认生图型号），左轨不再挑。 -->
+      </div>
+
+      <div class="rail-sec">
+        <div class="rail-st">分组</div>
+        <div class="rail-row" data-f="group" data-v="校园篇"><span>校园篇</span><span class="n">6</span></div>
+        <div class="rail-row" data-f="group" data-v="雨夜篇"><span>雨夜篇</span><span class="n">2</span></div>
+        <div class="rail-row" data-f="group" data-v="未分组"><span>未分组</span><span class="n">2</span></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ══ ② 素材台 ══ -->
+  <section class="mat-stage">
+    <header class="mat-head toolbar" id="matHead">
+      <button class="ghost rail-toggle" type="button" id="railToggle">目录</button>
+      <input type="search" placeholder="搜索素材（名字、描述、分组）" aria-label="搜索素材">
+      <button class="tool" type="button"><span class="ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 2.2l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z"/><path d="M11.8 8.6l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z"/></svg></span>AI 找素材</button>
+      <span class="sp"></span>
+      <span class="viewtoggle" id="viewToggle">
+        <button type="button" class="active" data-view="grid" title="网格">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></button>
+        <button type="button" data-view="list" title="列表">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.6 4h8M5.6 8h8M5.6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01"/></svg></button>
+      </span>
+      <button class="ghost" type="button" id="btnMulti">多选</button>
+      <button class="pri" type="button"><span class="ic"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg></span>新建素材</button>
+    </header>
+
+    <div class="mat-scroll" id="matScroll">
+      <!-- 多选态：公共那一件 .bulkbar（粘顶 + 同一套描边与计数芯片） -->
+      <div class="bulkbar" id="matBulk" hidden>
+        <span class="bk-cnt">已选 <b>3</b> 条</span>
+        <button class="tool" type="button">补预览图</button>
+        <button class="tool" type="button">补角色资产</button>
+        <button class="tool" type="button">AI 定声音</button>
+        <input class="ui-inp bk-grp" placeholder="批量分组（留空 = 清空）" maxlength="20">
+        <button class="ghost" type="button">应用分组</button>
+        <span class="sp"></span>
+        <span class="bk-tip">正在补「苏念」的角色资产…</span>
+        <button class="ghost danger" type="button">删掉所选</button>
+        <button class="ghost" type="button" id="btnMulti2">退出多选</button>
+      </div>
+
+      <div class="mat-grid" id="matGrid">
+
+        <!-- 角色 -->
+        <article class="mcard" data-id="linwan" data-kind="actor" data-group="校园篇" data-miss="">
+          <div class="mthumb">
+            <img src="assets/char-linwan.jpg" alt="林晚的预览图">
+            <span class="mchip mchip-grp">校园篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">林晚</span><span class="mkind">角色</span><span class="mrefs">被 6 镜引用</span></div>
+            <p class="mbio">高二女生，校服马尾，习惯把书角折起来。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 · 角色资产 · 声音 · 描述：全齐"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="ok"></i></span><span class="mstat">齐了</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="chenyan" data-kind="actor" data-group="校园篇" data-miss="novoice">
+          <div class="mthumb">
+            <img src="assets/char-chenyan.jpg" alt="陈砚的预览图">
+            <span class="mchip mchip-grp">校园篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">陈砚</span><span class="mkind">角色</span><span class="mrefs">被 3 镜引用</span></div>
+            <p class="mbio">高三男生，戴眼镜，永远带着一本没写完的错题本。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 ✓ · 声音 ✗ · 描述 ✓"><i class="ok"></i><i class="ok"></i><i class="miss"></i><i class="ok"></i></span><span class="mstat is-warn">缺 1 项</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="sunian" data-kind="actor" data-group="校园篇" data-miss="noasset">
+          <div class="mthumb">
+            <img src="assets/char-sunian.jpg" alt="苏念的预览图">
+            <span class="mchip mchip-grp">校园篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">苏念</span><span class="mkind">角色</span><span class="mrefs">被 2 镜引用</span></div>
+            <p class="mbio">短发文艺女，值日时爱在天台待到天黑。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 ✗ · 声音 ✓ · 描述 ✓"><i class="ok"></i><i class="miss"></i><i class="ok"></i><i class="ok"></i></span><span class="mstat is-warn">缺 1 项</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="ache" data-kind="actor" data-group="未分组" data-miss="nodesc">
+          <div class="mthumb">
+            <img src="assets/char-ache.jpg" alt="阿澈的预览图">
+            <span class="mchip mchip-grp">未分组</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">阿澈</span><span class="mkind">角色</span><span class="mrefs">被 1 镜引用</span></div>
+            <p class="mbio">转学生，雨天也穿同一件黑色卫衣。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 ✓ · 声音 ✓ · 描述 ✗"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="miss"></i></span><span class="mstat is-warn">缺 1 项</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="laozhou" data-kind="actor" data-group="校园篇" data-miss="nopic noasset">
+          <div class="mthumb mph-empty">
+            <div class="mpnone">还没有预览图<br><span>点这里自己挑一张</span></div>
+            <span class="mchip mchip-grp">校园篇</span>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">老周</span><span class="mkind">角色</span><span class="mrefs">被 4 镜引用</span></div>
+            <p class="mbio">门卫，值夜班时总开着收音机。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✗ · 角色资产 ✗ · 声音 ✓ · 描述 ✓"><i class="miss"></i><i class="miss"></i><i class="ok"></i><i class="ok"></i></span><span class="mstat is-err">缺 2 项</span></div>
+          </div>
+        </article>
+
+        <!-- 场景 -->
+        <article class="mcard" data-id="rooftop" data-kind="scene" data-group="校园篇" data-miss="">
+          <div class="mthumb">
+            <img src="assets/scene-rooftop.jpg" alt="教学楼天台的预览图">
+            <span class="mchip mchip-grp">校园篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">教学楼天台</span><span class="mkind">场景</span><span class="mrefs">被 5 镜引用</span></div>
+            <p class="mbio">黄昏时天台是全校最后一处还亮着的地方。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 不适用 · 声音 不适用 · 描述 ✓"><i class="ok"></i><i class="na"></i><i class="na"></i><i class="ok"></i></span><span class="mstat">齐了</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="gate" data-kind="scene" data-group="雨夜篇" data-miss="">
+          <div class="mthumb">
+            <img src="assets/scene-gate.jpg" alt="雨夜校门的预览图">
+            <span class="mchip mchip-grp">雨夜篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">雨夜校门</span><span class="mkind">场景</span><span class="mrefs">被 2 镜引用</span></div>
+            <p class="mbio">雨夜的校门，霓虹在水面上碎成一片。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 不适用 · 声音 不适用 · 描述 ✓"><i class="ok"></i><i class="na"></i><i class="na"></i><i class="ok"></i></span><span class="mstat">齐了</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="classroom" data-kind="scene" data-group="校园篇" data-miss="">
+          <div class="mthumb">
+            <img src="assets/scene-classroom.jpg" alt="空教室的预览图">
+            <span class="mchip mchip-grp">校园篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">空教室</span><span class="mkind">场景</span><span class="mrefs">被 1 镜引用</span></div>
+            <p class="mbio">放学后的空教室，风把卷子翻过一页。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 不适用 · 声音 不适用 · 描述 ✓"><i class="ok"></i><i class="na"></i><i class="na"></i><i class="ok"></i></span><span class="mstat">齐了</span></div>
+          </div>
+        </article>
+
+        <!-- 道具 -->
+        <article class="mcard" data-id="umbrella" data-kind="prop" data-group="雨夜篇" data-miss="">
+          <div class="mthumb">
+            <img src="assets/prop-umbrella.jpg" alt="黑色雨伞的预览图">
+            <span class="mchip mchip-grp">雨夜篇</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">黑色雨伞</span><span class="mkind">道具</span><span class="mrefs">被 3 镜引用</span></div>
+            <p class="mbio">伞骨断过一根，用胶带缠着。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 不适用 · 声音 不适用 · 描述 ✓"><i class="ok"></i><i class="na"></i><i class="na"></i><i class="ok"></i></span><span class="mstat">齐了</span></div>
+          </div>
+        </article>
+
+        <article class="mcard" data-id="recorder" data-kind="prop" data-group="未分组" data-miss="nodesc">
+          <div class="mthumb">
+            <img src="assets/prop-recorder.jpg" alt="褪色录音机的预览图">
+            <span class="mchip mchip-grp">未分组</span>
+            <div class="macts"><button class="mg" type="button">编辑</button><button class="mg" type="button">拿去生成</button><button class="mg" type="button">找相似</button></div>
+          </div>
+          <div class="mbody">
+            <div class="mrow"><span class="mname">褪色录音机</span><span class="mkind">道具</span><span class="mrefs">还没被用过</span></div>
+            <p class="mbio">1998 年的口袋机，磁带还在转。</p>
+            <div class="mfoot"><span class="mdots" title="预览图 ✓ · 角色资产 不适用 · 声音 不适用 · 描述 ✗"><i class="ok"></i><i class="na"></i><i class="na"></i><i class="miss"></i></span><span class="mstat is-warn">缺 1 项</span></div>
+          </div>
+        </article>
+
+      </div>
+
+      <div class="pager-row">
+        <button class="ghost" type="button">上一页</button>
+        <span class="pginfo">1 / 2</span>
+        <button class="ghost" type="button">下一页</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ ③ 检查器：编辑不再撑开卡片，改成右侧一列 ══ -->
+  <aside class="mat-insp" id="matInsp">
+    <div class="insp-head">
+      <div class="insp-title">
+        <span class="mname">林晚</span>
+        <span class="mchip mchip-flat">角色</span><span class="mchip mchip-flat">校园篇</span>
+      </div>
+      <button class="ghost insp-close" type="button" id="inspClose" title="收起这一列（Esc 也一样）">收起</button>
+    </div>
+
+    <div class="insp-scroll">
+      <div class="insp-hero"><img src="assets/char-linwan.jpg" alt="林晚的预览图"></div>
+
+      <div class="insp-status">
+        <div class="mdots big" title="预览图 ✓ · 角色资产 ✓ · 声音 ✓ · 描述 ✓"><i class="ok"></i><i class="ok"></i><i class="ok"></i><i class="ok"></i></div>
+        <span class="mstat">齐了</span>
+        <span class="insp-refs">被 6 镜引用</span>
+      </div>
+
+      <div class="insp-legend">
+        <span class="lg"><b class="ok"></b>预览图</span>
+        <span class="lg"><b class="ok"></b>角色资产</span>
+        <span class="lg"><b class="ok"></b>声音</span>
+        <span class="lg"><b class="ok"></b>描述</span>
+      </div>
+
+      <div class="insp-sec">
+        <div class="insp-st">基本信息</div>
+        <label class="insp-lbl"><span>名字</span><input class="ui-inp" value="林晚" maxlength="20"></label>
+        <label class="insp-lbl"><span>类型</span><select class="ui-inp"><option>角色</option><option>场景</option><option>道具</option></select></label>
+        <label class="insp-lbl"><span>分组</span><input class="ui-inp" value="校园篇" maxlength="20"></label>
+      </div>
+
+      <div class="insp-sec">
+        <div class="insp-st">画面</div>
+        <div class="insp-cands">
+          <span class="ui-cand"><img src="assets/char-linwan.jpg" alt="预览图"></span>
+          <span class="ui-cand"><img src="assets/char-chenyan.jpg" alt="候选图 1"></span>
+          <span class="ui-cand"><img src="assets/char-sunian.jpg" alt="候选图 2"></span>
+        </div>
+        <div class="insp-row"><span class="insp-rk">角色资产</span><span class="insp-rv">三视图 · 表情表（2 张）</span></div>
+        <div class="insp-row"><span class="insp-rk">身份锚点</span><span class="insp-rv">预览图这一张（认人最准）</span></div>
+        <div class="insp-acts">
+          <button class="ghost" type="button">AI 重出预览图</button>
+          <button class="ghost" type="button">自己传一张</button>
+        </div>
+      </div>
+
+      <div class="insp-sec">
+        <div class="insp-st">声音</div>
+        <div class="insp-row"><span class="insp-rk">音色</span><span class="insp-rv">云希 2.0 · 女声 · 偏冷</span></div>
+        <div class="insp-acts"><button class="ghost" type="button">试听</button><button class="ghost" type="button">AI 重定声音</button></div>
+      </div>
+
+      <div class="insp-sec">
+        <div class="insp-st">描述</div>
+        <textarea class="ui-ta" rows="3">高二女生，校服马尾，习惯把书角折起来。说话慢，但一句是一句。</textarea>
+      </div>
+
+      <div class="insp-sec">
+        <div class="insp-st">使用关系</div>
+        <div class="insp-use"><span>第 3 集</span><span>第 12 镜</span><span>雨夜校门</span></div>
+        <div class="insp-use"><span>第 3 集</span><span>第 19 镜</span><span>教学楼天台</span></div>
+        <div class="insp-use"><span>第 5 集</span><span>第 2 镜</span><span>空教室</span></div>
+      </div>
+    </div>
+
+    <div class="insp-foot">
+      <button class="pri" type="button">打开详情</button>
+      <button class="ghost" type="button">改名</button>
+      <button class="ghost" type="button">拿去生成</button>
+      <button class="ghost" type="button">找相似</button>
+      <button class="ghost danger" type="button">从库里删掉</button>
+    </div>
+  </aside>
+
+</div>
+
+<script src="demo-materials.js"></script>
+</body>
+</html>

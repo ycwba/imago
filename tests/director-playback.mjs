@@ -23,7 +23,9 @@ assert.equal(TlPlay.clipAt(4.9), 1);
 TlPlay.idx = 0;
 TlPlay.t = 1.5;
 near(TlPlay.srcT(), 2.5, '本镜档源秒');
-assert.equal(TlPlay.frameT(), 2.5);
+/* frameT = 该格在选区轴上的起点（fs）+ 段内走过的成片秒：不再有「(in-fa)/rate」那一项 ——
+   排版轴就是选区轴（被剪掉的头尾不占秒），重复加会把播放头推到真实位置之外。本镜档 fs=0 → frameT 就是 t。 */
+assert.equal(TlPlay.frameT(), 1.5);
 
 /* 全片档：2 倍速真的把这一格缩成一半，源秒按 rate 涨 */
 TlPlay.setPlan([{ src: 'b', in: 4, out: 8, spd: 2, fs: 10, fa: 1, vol: 0.8 }], [], { film: true });
@@ -32,7 +34,9 @@ assert.equal(TlPlay.plan[0].rate, 2);
 TlPlay.idx = 0;
 TlPlay.t = 1;
 near(TlPlay.srcT(), 6, '全片档源秒');
-near(TlPlay.frameT(), 12.5, '全片档框基秒');
+/* fs=10（这一格在选区轴上的起点）、t=1（段内走过 1 秒）→ 11。被剪掉的片头（fa=1 与 in=4 之间的差）
+   不再重复加：轨道那根轴上根本没有那一截。 */
+near(TlPlay.frameT(), 11, '全片档播放头');
 
 /* 指纹认倍速与配音，不认画面段音量（音量当场 applyVol 就能改，不该触发 seek） */
 const fp1 = TlPlay.fp;

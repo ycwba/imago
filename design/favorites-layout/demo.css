@@ -1,0 +1,256 @@
+/* ============================================================================
+   收藏页布局稿的样式（设计稿专用，不进产品）。
+
+   令牌与公共件直接引真文件（只读引用）：
+     ../../web/styles/tokens.css   唯一的取值出处（浅色 / 深色两档）
+     ../../web/styles/ui.css       公共件（按钮 / 芯片 / 徽标 / 分页行 …）
+     ../../web/styles/sidebar.css  侧栏
+
+   这一份只写**这一版新排版**的东西：页头、概览条、摘录行、摘录带、缩略墙。
+   凡是产品里已经有的公共件（.ghost / .chip / .srcbadge / .viewtoggle /
+   .ui-seg / .pager-row / .card-surface / .card-shell-*），这里一律**复用**，
+   不另抄一份外观。
+
+   末尾那一段 `.fv-old` 是**现状的复刻**（照抄 web/styles/spa-pages.css 里
+   .fav-page 那一族），只为「同一批内容、两套摆法」的对照，不是新设计。
+
+   ⚠ 全部取值走令牌，不写裸值（AGENTS.md §3.4.1）。
+   ========================================================================== */
+
+/* ---------- 外壳（与 shell.html 里那几行同源） ---------- */
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
+body { font-family: var(--font-ui); }
+/* 稿子永远用侧栏的**满形态**：前后对照得是同一条侧栏。 */
+html { --sbw: var(--sbw-full); }
+#app { position: fixed; top: 0; left: var(--sbw, 56px); width: calc(100% - var(--sbw, 56px)); height: 100%;
+  z-index: 1; background: var(--bg); transition: left var(--dur-180) var(--ease), width var(--dur-180) var(--ease); }
+.fav-page { background: var(--bg); color: var(--txt); }
+
+/* ============================================================================
+   ① 页头 —— 一行摆完。
+   改造前是两道工具条：第一行「筛选 + 搜索 + AI + 计数」，第二行右边孤零零
+   三个按钮（视图切换 / 存回本机 / 上传）。第二行的按钮与第一行的控件不在
+   同一条基线上，视线要来回折。新版把「找东西」的东西收在一行，把「摆法」
+   与「页面级动作」收到下面那一行。
+   ========================================================================== */
+.fv-head { display: flex; align-items: center; gap: var(--sp-16); flex-wrap: wrap; }
+.fv-head .page-h1 { margin: 0; }
+.fv-star { display: inline-flex; color: var(--acc); }
+.fv-head-r { margin-left: auto; display: flex; align-items: center; gap: var(--sp-10); }
+.fv-head-r input[type="search"] { flex: 0 1 320px; height: var(--sz-ctl); padding: 0 var(--sp-12);
+  font-size: var(--fs-12-5); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  background: var(--input); color: var(--txt); font-family: inherit; }
+.fv-head-r input[type="search"]:focus { border-color: var(--acc); }
+.fv-head-r input[type="search"]:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
+
+/* ============================================================================
+   ② 概览条 —— 这一页唯一该先看见的事：
+   **这批收藏的字节，有多少真在这台机器上。**
+   本地优先的产品里，「这条收藏的字节还在不在本机」决定它还能不能用；
+   改造前这件事只藏在每张卡 meta 行里的一个小徽标上，页面上没有任何概览。
+
+   那条比例条就是答案本身：左段是本机，右段是云端，长度按条数分。
+   ========================================================================== */
+.fv-gauge { margin: var(--sp-16) 0 var(--sp-12); padding: var(--sp-12) var(--sp-16);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10); }
+.gv-line { display: flex; align-items: center; gap: var(--sp-12); font-size: var(--fs-13); color: var(--sub); }
+.gv-line b { color: var(--txt); }
+.gv-tot { font-size: var(--fs-13); }
+.gv-tot b { font-size: var(--fs-16); }
+.gv-warn { color: var(--warn); font-size: var(--fs-12-5); }
+.gv-sp { flex: 1; }
+
+/* 比例条：标签在两头，条在中间 —— 左段是本机，右段是云端，一眼对得上。 */
+.gv-bar { display: flex; align-items: center; gap: var(--sp-12); margin-top: var(--sp-10); }
+.gv-lab { font-size: var(--fs-12-5); color: var(--sub); white-space: nowrap; }
+.gv-lab b { color: var(--txt); }
+.gv-track { display: block; flex: 1 1 auto; height: var(--sp-4); border-radius: var(--radius-99);
+  background: var(--line); overflow: hidden; }
+.gv-fill { display: block; height: 100%; width: 0; border-radius: var(--radius-99);
+  background: var(--ok); transition: width var(--dur-280) var(--ease); }
+
+/* ============================================================================
+   ③ 筛选与摆法 —— 一行：左边筛选，右边摆法。
+   ========================================================================== */
+.fv-tools { display: flex; align-items: center; gap: var(--sp-16); flex-wrap: wrap;
+  margin: 0 0 var(--sp-12); }
+.fv-chips { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+.fv-chips .chip { font-family: inherit; cursor: pointer; }
+.fv-tools-r { margin-left: auto; display: flex; align-items: center; gap: var(--sp-12); }
+.fv-tools-r .ui-seg { font-size: var(--fs-12-5); }
+
+/* ============================================================================
+   ④ 摘录行 —— 新版的主体。
+   一行五段：帧 ｜ 摘录 ｜ 字节在哪 ｜ 来源与规格 ｜ 动作。
+
+   为什么是「行」而不是「卡」：
+   收藏不是仓库，是一份**被挑过的清单**。清单要的是能一眼读下去 ——
+   卡片把每条摊成 268px 宽的一格，图占 96px、备注挤在一个 34px 高的灰框里，
+   十五条收藏要滚过三千多像素，而且每条都带三个常驻按钮（其中「移出收藏」
+   是红的，抢走的正是最不该抢的注意力）。
+   行把同样的内容压成 114px 一条，扫一遍就完。
+   ========================================================================== */
+.fv-list { border-top: var(--hair) solid var(--line); }
+.fv-row { display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 76px 196px 132px;
+  gap: var(--sp-20); align-items: start; padding: var(--sp-12) var(--sp-4);
+  border-bottom: var(--hair) solid var(--line); transition: background var(--dur-120); }
+.fv-row:hover { background: var(--panel); }
+.fv-row:hover .fv-acts { opacity: 1; }
+
+/* 帧：统一裁到 16:9 的一条。
+   这一批真机收藏大多是 9:16 的竖图（288×512），塞进横框要么留大片黑边、
+   要么把上下切掉 —— 列表里的这一格是**认得出是哪一条**用的，不是看画面的地方；
+   看完整图是灯箱与详情那一层的事（那里仍按产品规矩给全图）。 */
+.fv-frame { position: relative; width: 224px; aspect-ratio: 16 / 9; background: var(--media-bg);
+  border-radius: var(--radius-6); overflow: hidden; cursor: zoom-in; }
+.fv-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fv-frame .audio { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+  color: var(--pal-slate-2); font-size: var(--fs-11-5); height: 100%; justify-content: center; }
+.fv-frame .audio svg { color: var(--pal-slate); }
+/* 时长角标：视频那一格 */
+.fv-frame .dur { position: absolute; right: var(--sp-4); bottom: var(--sp-4);
+  padding: 0 var(--sp-5); border-radius: var(--radius-3); background: color-mix(in srgb, var(--pal-scrim) var(--a-72), transparent);
+  color: var(--pal-slate-2); font-size: var(--fs-10-5); line-height: 1.6; }
+
+/* 摘录：标题（提示词 / 名称）+ 备注带 */
+.fv-excerpt { min-width: 0; }
+.fv-title { font-size: var(--fs-15); line-height: 1.55; color: var(--txt); font-weight: 500;
+  word-break: break-word; cursor: zoom-in;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---- 摘录带：这一版的视觉签名 ----
+   备注在产品自己的 AI 规则里排第一（备注 > 名称/描述 > 类型），
+   改造前它却是每张卡最下面那个最不起眼的灰文本框。
+   新版把它提到主位，并且给它一条**跟着文字长度走的荧光带**：
+   带子多宽就是这条备注有多长，一列带子扫下来，
+   读到的是「这一批收藏各自是干什么用的」，不是「这一批收藏长什么样」。
+
+   没写备注的那几行留一条虚线空位 —— 空着也是一条信息：
+   这条还没被你认领。 */
+.fv-band { display: inline-block; max-width: 100%; margin-top: var(--sp-8);
+  padding: var(--sp-2) var(--sp-8); border-left: var(--accent-bar) solid var(--acc);
+  border-radius: 0 var(--radius-4) var(--radius-4) 0;
+  background: var(--acc-tint-18); color: var(--txt); font-size: var(--fs-14); line-height: 1.6;
+  overflow-wrap: anywhere; }
+.fv-band::before { content: "「"; }
+.fv-band::after { content: "」"; }
+.fv-band-t { outline: none; }
+.fv-band:focus-within { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
+.fv-band.empty { background: none; border: var(--hair) dashed var(--line); border-left-width: var(--hair);
+  color: var(--sub); cursor: text; }
+.fv-band.empty::before, .fv-band.empty::after { content: none; }
+.fv-band.empty:hover { border-color: var(--acc); color: var(--acc); }
+/* 空位上的提示字（没写备注的那几行） */
+.fv-band-t:empty::before { content: attr(data-ph); color: var(--sub); }
+.fv-band.empty:hover .fv-band-t:empty::before { color: var(--acc); }
+
+/* 字节在哪：产品那枚徽标（badge-state.js 一份），这里只挪了位置。 */
+.fv-src { padding-top: var(--sp-3); }
+.fv-src .srcbadge { margin-right: 0; }
+
+/* 来源与规格 */
+.fv-meta { min-width: 0; font-size: var(--fs-12-5); color: var(--sub); line-height: 1.75; }
+.fv-meta .m1 { color: var(--txt); }
+.fv-meta .m2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fv-meta .m3 { color: var(--sub); font-size: var(--fs-12); }
+
+/* 动作：两个次要动作常驻，破坏性的「移出收藏」收进 ⋯ ——
+   破坏性操作不该是页面上最显眼的那颗按钮。 */
+.fv-acts { display: flex; align-items: center; gap: var(--sp-4); padding-top: var(--sp-1); }
+.fv-acts .ghost { height: 26px; padding: 0 var(--sp-8); font-size: var(--fs-11-5); font-family: inherit; }
+.fv-acts .more { width: 26px; padding: 0; font-size: var(--fs-14); line-height: 1; }
+
+/* ============================================================================
+   ⑤ 缩略墙 —— 第二档密度。
+   墙里每格只留「图 + 标题 + 备注带」，一个按钮都不挂：
+   想动手就点开灯箱（真正的动作在那儿做）。
+   ========================================================================== */
+.fv-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr));
+  gap: var(--sp-16); }
+.fv-tile { margin: 0; background: var(--panel); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); overflow: hidden; transition: border-color var(--dur-180), box-shadow var(--dur-180); }
+.fv-tile:hover { border-color: var(--acc); box-shadow: var(--shadow-2); }
+.fv-tile .tv-frame { position: relative; height: var(--sz-thumb-h); background: var(--media-bg);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: zoom-in; }
+.fv-tile .tv-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fv-tile .tv-frame .audio { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+  color: var(--pal-slate-2); font-size: var(--fs-11-5); }
+.fv-tile figcaption { padding: var(--sp-8) var(--sp-10) var(--sp-10); }
+.fv-tile .tt-title { font-size: var(--fs-12); color: var(--txt); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fv-tile .fv-band { margin-top: var(--sp-6); font-size: var(--fs-12); padding: var(--sp-1) var(--sp-6); }
+
+/* ============================================================================
+   浮层菜单（⋯ 里那几项）
+   ========================================================================== */
+.fv-menu { position: fixed; z-index: 120; min-width: 168px; padding: var(--sp-4);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8);
+  box-shadow: var(--shadow-2); }
+.fv-menu button { display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: var(--sp-7) var(--sp-8); border-radius: var(--radius-6); font-size: var(--fs-12-5);
+  color: var(--txt); font-family: inherit; cursor: pointer; }
+.fv-menu button:hover { background: var(--panel2); }
+.fv-menu button.danger { color: var(--err); }
+.fv-menu button.danger:hover { background: color-mix(in srgb, var(--err) var(--a-8), transparent); }
+
+/* ============================================================================
+   空态 —— 四种「空」说四种话（沿用产品的口径）。
+   ========================================================================== */
+.fv-empty { grid-column: 1 / -1; color: var(--sub); font-size: var(--fs-13); text-align: center;
+  padding: var(--sp-60) 0; }
+
+/* ============================================================================
+   响应式（断点取登记过的那两档：1200 / 820）
+   ========================================================================== */
+@media (max-width: 1200px) {
+  /* 窄窗：把「收藏于」那一行收起来（点标题能看全），腾给摘录列。 */
+  .fv-row { grid-template-columns: 132px minmax(0, 1fr) 66px 130px 116px; gap: var(--sp-14); }
+  .fv-frame { width: 132px; }
+  .fv-title { font-size: var(--fs-14); }
+  .fv-band { font-size: var(--fs-13-5); }
+  .fv-meta { font-size: var(--fs-12); }
+  .fv-meta .m3 { display: none; }
+}
+@media (max-width: 820px) {
+  .fv-row { grid-template-columns: 108px minmax(0, 1fr); gap: var(--sp-12) var(--sp-14); }
+  .fv-frame { width: 108px; grid-row: span 3; }
+  .fv-src { padding-top: 0; }
+  .fv-meta { grid-column: 2; }
+  .fv-acts { grid-column: 2; padding-top: 0; }
+}
+
+/* ============================================================================
+   现状复刻 —— 只为「同一批内容、两套摆法」的对照。
+   几何照抄 web/styles/spa-pages.css 里 .fav-page 那一族（卡片 268px、
+   缩略图完整显示不裁、备注是个 34px 的灰文本框、三个常驻按钮，移出收藏是红的）。
+   现状那一页**没有概览条**，所以切到它时把新版的概览条与芯片行收起来 ——
+   对照的是整页，不是半页。
+   ========================================================================== */
+body.is-old .fv-gauge, body.is-old .fv-chips { display: none; }
+/* 现状那一页自带视图切换（在那道工具条里），顶上那枚就别再画一次。 */
+body.is-old .fv-tools-r .viewtoggle { display: none; }
+.fv-old .toolbar { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; margin: 0 0 var(--sp-6); }
+.fv-old .toolbar input[type="search"] { flex: 0 1 320px; height: 32px; padding: 0 var(--sp-12);
+  font-size: var(--fs-12-5); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  background: var(--input); color: var(--txt); font-family: inherit; }
+.fv-old .toolbar .cnt { color: var(--sub); font-size: var(--fs-13); }
+.fv-old .toolbar .sp { flex: 1; }
+.fv-old .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
+.fv-old .toolbar2 .sp { flex: 1; }
+.fv-old .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr)); gap: var(--sp-16); }
+.fv-old .card { overflow: hidden; position: relative; }
+.fv-old .card .thumb img, .fv-old .card .thumb video { width: 100%; height: 100%; object-fit: contain;
+  background: var(--media-bg); display: block; }
+.fv-old .card .body { padding: var(--sp-7) var(--sp-9) var(--sp-9); }
+.fv-old .card .t { font-size: var(--fs-12); line-height: 1.5; margin-bottom: var(--sp-4);
+  word-break: break-word; cursor: zoom-in;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fv-old .card .m { font-size: var(--fs-11-5); color: var(--sub); }
+.fv-old .card .note { margin-top: var(--sp-8); }
+.fv-old .card .note textarea { width: 100%; min-height: 34px; max-height: 90px; resize: vertical;
+  font-size: var(--fs-12); line-height: 1.5; padding: var(--sp-5) var(--sp-8);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input);
+  color: var(--txt); font-family: inherit; outline: none; }
+.fv-old .card .acts { margin-top: var(--sp-10); }
+.fv-old .card .acts .ghost { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }

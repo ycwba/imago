@@ -1,0 +1,154 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   我的收藏 ·「卡片同形 + 详情就地展开」设计稿
+
+   这一稿只谈两件事：
+     ① 各种收藏（图片 / 视频 / 音频 / 文件 / 平台的 / 本地上传的 / 只剩外链的）
+        **同宽同形**：一张卡就是一张卡，状态只换里面的内容。
+     ② 详情**就地展开**：不另起一层（收藏页今天只有灯箱 —— 灯箱就是另起一层），
+        在原界面里把那张卡自己打开。
+
+   ★ 状态牌 / 就地展开 / 账条 / 诊断块 / 展开带子**不在这一份里** ——
+     它们是**公共卡片件**（`design/shared-kit/card-kit.css`），
+     资产库那一稿（`design/asset-detail-state/`）引的是同一份。两页不各写一套。
+
+   这一页自己的样式只有 `.fv-*` 这一族（这一页自己的排版）。
+   竖排卡壳（.card / .card-surface / .card-shell-media / .card-shell-body /
+   .card-shell-actions）、徽标（.srcbadge）、详情那一段的类名（.det-prompt /
+   .det-prompt-hd / .det-refs）都是**产品公共层**的，真品已经在用（AGENTS §3.4.4）。
+   ════════════════════════════════════════════════════════════════════════════ */
+
+body.demo-fv { background: var(--bg); color: var(--txt); font-family: var(--font-ui); }
+#app { position: fixed; top: 0; left: var(--sbw, 56px); width: calc(100% - var(--sbw, 56px)); height: 100%; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+.fv-page { color: var(--txt); font-family: var(--font-ui); }
+.fv-page * { box-sizing: border-box; }
+
+.fv-mat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0;
+  padding: var(--sp-20) var(--sp-28) var(--sp-12); }
+
+/* ─────────────────────────── 页头 ─────────────────────────── */
+
+.fv-head { flex: 0 0 auto; display: flex; align-items: flex-start; gap: var(--sp-16); flex-wrap: wrap;
+  margin-bottom: var(--sp-12); }
+.fv-title { flex: 0 0 auto; }
+.fv-title .page-h1 { margin: 0 0 var(--sp-2); }
+.fv-sub { font-size: var(--fs-12-5); color: var(--sub); }
+.fv-tools { margin-left: auto; display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; }
+.fv-tools input[type="search"] { min-width: 200px; height: 32px; padding: 0 var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel);
+  color: var(--txt); font-size: var(--fs-12-5); outline: none; font-family: inherit; }
+.fv-tools input[type="search"]:focus { border-color: var(--acc); }
+
+/* ─────────────────────────── 概览条：字节还在不在本机 ───────────────────────────
+   上一稿（design/favorites-layout/）定的：本地优先的产品该有的第一眼事实。
+   这一稿把它从两段扩成三段 —— **「只剩外链」也得算一档**：
+   那一类既不在本机、也不能直接看，是收藏页最该被看见的一档。 */
+.fv-sum { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-14);
+  margin-bottom: var(--sp-12); font-size: var(--fs-12-5); color: var(--sub); }
+.fv-sum-bar { display: flex; height: var(--sp-8); width: 320px; border-radius: var(--radius-4);
+  overflow: hidden; background: var(--panel2); }
+.fv-sum-bar i { display: block; height: 100%; }
+.fv-sum-bar i.local { background: var(--ok); }
+.fv-sum-bar i.cloud { background: var(--sub); }
+.fv-sum-bar i.stale { background: var(--warn); }
+.fv-sum-i { display: inline-flex; align-items: center; gap: var(--sp-6); }
+.fv-sum-i b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--txt); }
+.fv-sum-i .k { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.fv-sum-i .k.local { background: var(--ok); }
+.fv-sum-i .k.cloud { background: var(--sub); }
+.fv-sum-i .k.stale { background: var(--warn); }
+.fv-sum-i.stale b { color: var(--warn); }
+
+/* ─────────────────────────── 筛选行 ─────────────────────────── */
+
+.fv-filters { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap;
+  margin-bottom: var(--sp-12); }
+
+/* ─────────────────────────── 主体 ─────────────────────────── */
+
+.fv-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.fv-list { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-10); }
+
+/* 网格档：卡片一行几格是**算出来的**（--fv-cols），
+   展开的内容接在**它那一行的下面**（公共件 .band）——
+   格子长高会把同一行别的格子底下留出空洞，网格最怕这种。 */
+.fv-list.is-grid { display: flex; flex-direction: column; gap: var(--sp-10); align-items: stretch; }
+.fv-row { display: grid; grid-template-columns: repeat(var(--fv-cols, 4), minmax(0, 1fr)); gap: var(--sp-16); }
+.fv-list.is-compact .fv-row { gap: var(--sp-10); }
+
+/* 清单档：一条一条读下去 */
+.fv-list.is-list { gap: var(--sp-10); }
+.fv-list.is-list .fv-row { display: flex; flex-direction: column; gap: var(--sp-10); }
+
+.fv-foot { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: var(--sp-10);
+  padding-top: var(--sp-10); }
+.fv-foot .pginfo { font-size: var(--fs-12); color: var(--sub); }
+
+/* ─────────────────────────── 卡片 ───────────────────────────
+   骨骸是**公共那一副竖排卡壳**（.card / .card-surface / .card-shell-media /
+   .card-shell-body / .card-shell-actions）—— 收藏与素材库共用同一副，
+   这一页只留自己的差异：图多高、怎么裁、字距多少。 */
+
+.fv-card { overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.fv-card .card-shell-media { cursor: zoom-in; }
+/* 这一页的图**裁成 16:9 铺满那一格**（不裁的话，9:16 的竖图塞进横框只剩中间一条，
+   两边全是黑 —— 上一稿 design/favorites-layout/ 已经量过：这一批收藏大多是竖图）。
+   **要认的取舍**：那一格的作用是「认得出是哪一条」，看整张图是灯箱的事。 */
+.fv-list.is-grid .fv-card .card-shell-media { height: 150px; }
+.fv-list.is-compact .fv-card .card-shell-media { height: 112px; }
+.fv-card .thumb img, .fv-card .thumb video { width: 100%; height: 100%; object-fit: cover;
+  background: var(--media-bg); display: block; }
+.fv-card .card-shell-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.fv-card .t { font-size: var(--fs-12); line-height: 1.5; margin-bottom: var(--sp-4); word-break: break-word;
+  cursor: zoom-in; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fv-card .m { font-size: var(--fs-11-5); color: var(--sub); }
+.fv-card .acts { margin-top: auto; padding-top: var(--sp-10); }
+.fv-card .acts .ghost { padding: var(--sp-5) var(--sp-12); border-radius: var(--radius-6); font-size: var(--fs-11-5); }
+.fv-card .acts .fv-open { color: var(--acc); }
+.fv-card.is-open { border-color: var(--acc); box-shadow: var(--shadow-2); }
+
+/* 清单档：横排一行（缩略图在左），与素材库那张横排任务卡同一个方向 */
+.fv-list.is-list .fv-card { flex-direction: row; }
+.fv-list.is-list .fv-card .card-shell-media { width: 168px; height: 104px; flex: 0 0 168px;
+  border-right: var(--hair) solid var(--line); }
+.fv-list.is-list .fv-card .card-shell-body { padding: var(--sp-10) var(--sp-12) var(--sp-12); }
+.fv-list.is-list .fv-card .t { font-size: var(--fs-13-5); -webkit-line-clamp: unset; display: block; }
+.fv-list.is-list .fv-card .acts { padding-top: var(--sp-8); }
+
+/* 紧凑档：格子小一点，备注带收成一行 */
+.fv-list.is-compact .fv-card .card-shell-media { height: 84px; }
+.fv-list.is-compact .fv-card .card-shell-body { padding: var(--sp-7) var(--sp-9) var(--sp-9); }
+.fv-list.is-compact .fv-card .t { font-size: var(--fs-11-5); -webkit-line-clamp: 1; }
+.fv-list.is-compact .fv-note-t { font-size: var(--fs-11); }
+
+/* ─────────────────────────── 备注带 ───────────────────────────
+   产品自己的 AI 挑素材规则写着（web/pages/favorites.js）：
+   「优先级：备注（备注写的是用途）> 名称/描述 > 类型。」
+   所以**备注是这一页最要紧的一栏** —— 它在卡上是主位，标题在它下面。
+   上一稿（design/favorites-layout/）把备注做成一条跟着文字长度走的荧光带；
+   这一稿把同一件带子搬进卡片，带子里的备注是**就地可编辑**的。 */
+.fv-note { position: relative; margin-bottom: var(--sp-6); }
+.fv-note textarea { width: 100%; min-height: 20px; resize: none; overflow: hidden;
+  font-family: inherit; font-size: var(--fs-12); line-height: 1.5; color: var(--txt);
+  background: transparent; border: 0; border-left: var(--accent-bar) solid var(--acc);
+  border-radius: 0; padding: var(--sp-1) var(--sp-8); }
+.fv-note textarea:focus { outline: none; border-left-color: var(--acc); background: var(--acc-tint-10); }
+.fv-note textarea::placeholder { color: var(--sub); opacity: .8; }
+/* 没写备注的那几条：留一条虚线空位 —— 空着也是一条信息 */
+.fv-note.empty::before { content: "＋ 写备注（这条素材是干什么用的）";
+  display: block; font-size: var(--fs-11-5); color: var(--sub);
+  border-left: var(--hair) dashed var(--line); padding: var(--sp-1) var(--sp-8); }
+.fv-note.empty textarea { position: absolute; inset: 0; height: 100%; opacity: 0; cursor: text; }
+.fv-note-t { font-size: var(--fs-12); }
+
+/* 网格档的带子里，卡片本体那一行不再重复「平台原话」 */
+.fv-band .fv-card { display: none; }
+
+@media (max-width: 760px) {
+  .fv-tools { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .exp { transition: none; }
+}

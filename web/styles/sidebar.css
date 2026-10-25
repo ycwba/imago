@@ -1,153 +1,146 @@
 /* 全局侧边栏样式：从 web/ui/sidebar.js 的运行时注入抽出来（唯一一份）。
-   颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效 / 轨道宽只从 tokens.css 取（`node tools/tokenize-css.cjs`
-   对本文件报 0 处裸值）；字面量只允许留**布局盒**：图标列 20/22px 位宽、收起态点靶 38px、
-   进度条 3px 那道缝（AGENTS §3.4 的令牌表是间距 / 字号 / 圆角 / 阴影 / 动效，这几枚是结构尺寸，
-   没有对应档；排版节奏那一些一律走 var(--sp-*) / var(--fs-*) / var(--radius-*)）。
+   两个形态：
+     满 232px（--sbw-full）  图标 + 完整名字 + 一张「此刻」卡（账户余额 + 产物存本机）
+     窄  56px（--sbw）        图标 + **两字短标签**（常驻，不靠悬停才知道这一项是什么）
+   收 / 展的开关是**左上角那块品牌砖**（点它收展）—— 侧栏里没有第二样收展标识。
+   两个形态共用同一套垂直节奏（顶行 58 / 导航行 42 / 底部行 36），收展开时侧栏里不跳。
+   颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效只从 tokens.css 取；字面量只允许留**布局盒**：
+   图标列 22px、窄形态的图标块 26px、导航行 42px、进度条 3px 那道缝（AGENTS §3.4 的令牌表是
+   间距 / 字号 / 圆角 / 阴影 / 动效，这几枚是结构尺寸，没有对应档；排版节奏那一些一律走
+   var(--sp-*) / var(--fs-*) / var(--radius-*)）。
    由 shell.html 以 <link> 引入，加载顺序在 ui.css 之后。 */
 .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--sbw); z-index: 90;
   background: var(--panel); border-right: var(--hair) solid var(--line); display: flex; flex-direction: column;
   overflow: hidden; transition: width var(--dur-180) var(--ease); }
-html.sb-open .sidebar { width: 200px; }
-/* 窄窗口（≤1100px）里展开 = 浮层盖在内容上，内容区不让位（--sbw 仍是 66px），
+html.sb-open .sidebar { width: var(--sbw-full); }
+/* 窄窗口（≤1100px）里展开 = 浮层盖在内容上，内容区不让位（--sbw 仍是窄形态那一档），
    所以加个投影，一眼看出这一档是临时浮出来的。 */
 html.sb-narrow.sb-open .sidebar { box-shadow: var(--shadow-2); }
-.sidebar .sb-brand { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-10) var(--sp-8) var(--sp-10) var(--sp-15); white-space: nowrap; position: relative; width: 100%; cursor: pointer; }
-.sidebar .sb-logo { width: 36px; height: 36px; border-radius: var(--radius-6); background: var(--pri); color: var(--on-acc);
-  display: flex; align-items: center; justify-content: center; font-weight: 700; flex: 0 0 36px;
+
+/* ---------- 顶行：品牌砖（= 收 / 展开关）+ 品牌字 ----------
+   品牌砖在两个形态里是**同一块砖**（30px、离左边 13px、同一行高）：点它收展，
+   手指不用记位置；窄形态下它正好落在 56px 那一条的正中。 */
+/* 品牌砖的高度是死的（58px，矮窗那一档 50px）：这一块同时是**整栏收 / 展的开关**，
+   挤扁它等于把开关变小、logo 与标题跟着往上挪几像素 —— 那是全栏最显眼的错位。
+   整栏塞不下时该让位的是导航与余额区（它们可缩、可滚），品牌砖不参与。 */
+.sidebar .sb-brand { display: flex; align-items: center; gap: var(--sp-10); height: 58px;
+  padding: 0 var(--sp-8) 0 var(--sp-13); white-space: nowrap; position: relative; width: 100%;
+  cursor: pointer; flex: 0 0 auto; }
+.sidebar .sb-logo { width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--radius-10); background: var(--pri); color: var(--on-acc);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-12);
   cursor: pointer; border: 0; user-select: none; transition: filter var(--dur-120), transform var(--dur-120); }
 .sidebar .sb-logo:hover { filter: brightness(1.12); transform: scale(1.05); }
 .sidebar .sb-logo:active { transform: scale(.96); }
-.sidebar .sb-name { font-weight: 700; font-size: var(--fs-14); color: var(--txt); }
-.sidebar .sb-group { font-size: var(--fs-10); color: var(--sub); padding: var(--sp-8) var(--sp-24) var(--sp-4); white-space: nowrap; }
-/* 收起态一律 display:none（以前是 opacity:0）：opacity 藏得住文字却藏不住它占的宽度，
-   66px 里图标被 gap + 隐形文字顶得偏左，分组标题也白占两行高度。 */
-/* 图标列：收起 / 展开**两态同一个左边界**（--sp-22 这一列，22px 宽的盒子）。
-   以前收起态靠 justify-content:center 把图标摆在 66px 正中（22px），展开态却贴在 8px ——
-   一收一放整列图标横跳 15px，看着像页面自己动了一下。
-   现在两态都按这一列摆：收起时它正好居中（(66-22)/2 = 22），展开时它原地不动，文字往右长出来。
-   品牌那块（AI 标志 36px 宽）按**中心**对齐这一列（15 + 18 = 33 = 22 + 11），
-   所以标志与图标在两态里都站在同一条竖线上。 */
-html:not(.sb-open) .sidebar .sb-name, html:not(.sb-open) .sidebar .sb-group,
-html:not(.sb-open) .sidebar nav a .lb, html:not(.sb-open) .sidebar .sb-set .lb { display: none; }
-html:not(.sb-open) .sidebar .sb-brand, html:not(.sb-open) .sidebar nav a,
-html:not(.sb-open) .sidebar .sb-set { justify-content: flex-start; gap: 0; padding-right: 0; }
-/* 那一列图标离侧栏左边 22px（nav 自己有 8px 内边距，所以这里再让 14px）。
-   收起态 22 + 22 = 44，66px 的带子里左右各留 22 —— 正好居中；展开态它原地不动。 */
-html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set { padding-left: var(--sp-14); }
-html:not(.sb-open) .sidebar .sb-brand { padding-left: var(--sp-15); padding-top: var(--sp-12); padding-bottom: var(--sp-12); }
-/* 收起态悬停时弹出来的名字浮标。**position:fixed 挂 body**，不写进侧栏里：
-   .sidebar nav 那一条带子是 overflow-x:hidden（那一行注释讲了为什么），写在里面的提示会被裁掉。
-   与下拉浮层同一套理由 —— 要脱离祖先的裁剪，只有离开文档流这一条路。 */
+.sidebar .sb-brand-txt { min-width: 0; display: flex; flex-direction: column; }
+.sidebar .sb-name { font-weight: 700; font-size: var(--fs-13-5); color: var(--txt); line-height: 1.3; }
+.sidebar .sb-sub { font-size: var(--fs-10-5); color: var(--sub); line-height: 1.3; margin-top: var(--sp-2); }
+
+/* ---------- 导航 ----------
+   满形态：图标在左、名字在右（40px 那一行）。
+   窄形态：图标在上、两字短标签在下（同样 42px 那一行）——
+   收起之后**认得出**才是这一形态存在的理由，悬停只负责补全全名。 */
+.sidebar nav { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4) var(--sp-8);
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.sidebar nav a { display: flex; align-items: center; gap: var(--sp-10); height: 42px;
+  padding: 0 var(--sp-8) 0 var(--sp-8); border-radius: var(--radius-10);
+  color: var(--txt); text-decoration: none; font-size: var(--fs-13); white-space: nowrap;
+  transition: background var(--dur-120), color var(--dur-120); }
+.sidebar nav a:hover { background: var(--panel2); }
+.sidebar nav a.active { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+/* 当前项：贴着侧栏内边缘的那道强调条（满形态才有 —— 窄形态那一栏窄，
+   留给「实心方块」去说「你在哪」，两处都摆就成了两套话）。 */
+.sidebar nav a.active::before { content: ""; position: absolute; left: calc(-1 * var(--sp-8)); top: var(--sp-9);
+  bottom: var(--sp-9); width: 3px; border-radius: 0 var(--radius-3) var(--radius-3) 0; background: var(--acc); }
+.sidebar nav a { position: relative; }
+/* 图标位那一列的盒子（导航 + 设置入口共用一份）：满形态 22px 宽。 */
+.sidebar nav a .ic, .sidebar .sb-set .ic { width: 22px; flex: 0 0 22px; text-align: center; font-size: var(--fs-17);
+  display: flex; align-items: center; justify-content: center; }
+.sidebar nav a .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 两字短标签：只在窄形态露出来（满形态用 .lb 的全名）。设置入口那一行与导航项同一套。 */
+.sidebar nav a .sh, .sidebar .sb-set .sh { display: none; }
+
+/* ---------- 窄形态（56px）----------
+   收起之后这一列只有图标 + 两字短标签。 */
+html:not(.sb-open) .sidebar .sb-name,
+html:not(.sb-open) .sidebar .sb-sub,
+html:not(.sb-open) .sidebar nav a .lb,
+html:not(.sb-open) .sidebar .sb-set .lb { display: none; }
+html:not(.sb-open) .sidebar nav a .sh,
+html:not(.sb-open) .sidebar .sb-set .sh { display: block; font-size: var(--fs-12); line-height: 1.25; text-align: center; }
+html:not(.sb-open) .sidebar nav a { flex-direction: column; justify-content: center; gap: var(--sp-1);
+  height: 42px; padding: 0; }
+html:not(.sb-open) .sidebar nav a .ic { width: 26px; flex: 0 0 26px; height: 26px; }
+html:not(.sb-open) .sidebar nav a.active { background: none; }
+html:not(.sb-open) .sidebar nav a.active::before { display: none; }
+/* 当前项在窄形态变成**实心方块**：56px 里最认得出的一种「你在哪」。 */
+html:not(.sb-open) .sidebar nav a.active .ic { background: var(--pri); color: var(--on-acc); border-radius: var(--radius-8); }
+html:not(.sb-open) .sidebar nav a.active .sh { color: var(--acc); font-weight: 700; }
+html:not(.sb-open) .sidebar .sb-brand { padding-right: 0; }
+html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; height: 36px; }
+
+/* 窄形态下的悬停名牌（补全全名，不是「认出这一项」的唯一手段）。
+   position:fixed 挂 body，不写进侧栏里：.sidebar nav 那一条带子是 overflow-x:hidden，
+   写在里面的提示会被裁掉。与下拉浮层同一套理由 —— 要脱离祖先的裁剪，只有离开文档流这一条路。 */
 .sb-tip { position: fixed; z-index: 120; pointer-events: none; padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-6);
   background: var(--panel); border: var(--hair) solid var(--line); box-shadow: var(--shadow-2);
   color: var(--txt); font-size: var(--fs-12); line-height: 1.4; white-space: nowrap; }
-/* 收起态：手指够得着的目标不放大就点不准（66px 的带子里留白很多，图标只有 20px）。
-   那一条验收（窗口高 500px 时 7 条导航全可见不滚动）在收起态本来差 44px：
-   这一列没走全局的 border-box 重置，`min-height: 38` 量的只是内容盒，上下留白全叠在它外面，
-   每条实际 46px —— 7 条加间距就把导航那条带子顶出去了。
-   现在按 border-box 把这两条钉死在 38（点靶本身一寸没缩），条与条之间的缝也退一档：
-   收起态只剩图标，4px 的缝在 38px 高的块之间看不出分隔，2px 够。
-   展开态（200px 那一档）不受这几条影响。 */
-html:not(.sb-open) .sidebar nav a, html:not(.sb-open) .sidebar .sb-set {
-  box-sizing: border-box; min-height: 38px; height: 38px; padding-top: var(--sp-4); padding-bottom: var(--sp-4); }
-html:not(.sb-open) .sidebar nav { gap: var(--sp-2); }
-html:not(.sb-open) .sidebar nav a .ic { flex: 0 0 22px; font-size: var(--fs-17); }
-/* 导航是这一列里**唯一吃剩余高度**的一条（「导航优先」）：余额区改成定高不滚之后，
-   窗口矮下来只有这一条会被挤，而它自己带 overflow —— 摘要行那一档（≤660px）就是为了让它全露出来。 */
-.sidebar nav { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) var(--sp-8); flex: 1 1 auto;
-  min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
-.sidebar nav a { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-14); border-radius: var(--radius-6);
-  color: var(--txt); text-decoration: none; font-size: var(--fs-13); white-space: nowrap; transition: background var(--dur-120); }
-.sidebar nav a:hover { background: var(--panel2); }
-.sidebar nav a.active { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
-/* 图标位那一列的盒子（导航 + 设置入口共用一份，别再写两条一模一样的）：
-   两态都是 22px 宽（收起态那一档原来是 20px + fs-17，展开态 20px + fs-15 —— 图标大小也跟着跳）。 */
-.sidebar nav a .ic, .sidebar .sb-set .ic { width: 22px; text-align: center; font-size: var(--fs-17); flex: 0 0 22px; }
-/* 底部两块（账户余额 / 设置·换背景）不参与滚动、也不许被无声裁掉（flex:0 0 auto）。
-   余额区**默认不再内滚动** —— 以前这一格写 `max-height: min(34vh, 260px); overflow-y: auto`，
-   六家有余额端点的平台加上本机产物行、刷新行最多 8 块，每块 50-70px，必然超过 260px，
-   于是「余额」和「本机产物」挤在同一个内滚动容器里互相看不见。现在容器只有 overflow:hidden
-   （长文案一律省略号），高度由内容自己定：卡片限几张在 sidebar.js 的 BAL_CAPS（按窗口高 3 / 2 / 1 / 0 张），
-   多的按「展开全部 N 家」**就地展开**（只有卡列表那一格滚，见下面 `.bal-exp` 那一段），
-   收起态与 ≤660px 的矮窗整区退成一行摘要、点开走公共弹窗。 */
-.sidebar .sb-bottom { padding: var(--sp-10) var(--sp-8); border-top: var(--hair) solid var(--line); flex: 0 0 auto; }
-.sidebar .sb-bottom#sbBalance { overflow: hidden; }
-.sb-bal { display: flex; flex-direction: column; gap: var(--sp-6); }
-/* 卡列表自己是一格：默认只是竖排（与「卡直接摆在 .sb-bal 里」等效），
-   展开态才由下面 `.bal-exp` 那一段让它滚 —— 这样本机产物行与按钮行永远钉在原位。 */
-.sb-bal-cards { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
-/* ---------- 展开态（sidebar.js 的 sb_bal_exp）：这一列的高度分配改由卡列表吸收 ----------
-   判据是「导航优先」（AGENTS §11.1）：展开是为了看全部供应商，不是为了把第 7 条导航挤掉，
-   所以导航退回自然高（不再 shrink、也不需要自己滚），余额区允许 shrink，
-   shrink 只落在 `.sb-bal-cards` 这一格上 —— 本机产物行与按钮行钉在原位不跟着滚。
-   全摆得下时 JS 不挂这一位，一切照旧（没有多余的滚动条，也没有空出来的下半截）。
-   「账户余额」分组标题带 `margin-top:auto`：导航退回自然高之后，底部那组
-   （标题 + 余额区 + 设置行）要钉在柱底 —— 不补这一枚，展开的家数少时它们会整体
-   浮到导航脚下（下面一截空白），看起来就是「组件错位到上面去了」。
-   展开内容高过窗口时自由空间为零，auto margin 自然归零，不影响「卡列表自己滚」。
-   余额关掉时这一位不会被挂上（bal-exp 只在 shown.length > cap 时成立，关掉 = 0 家），
-   两个 revert 档里 nav 照旧 flex:1 吃掉全部自由空间，auto margin 同样不起作用。 */
-.sidebar.bal-exp nav { flex: 0 0 auto; overflow: visible; }
-.sidebar.bal-exp #sbBalGroup { margin-top: auto; }
-.sidebar.bal-exp #sbBalance { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.sidebar.bal-exp .sb-bal-body, .sidebar.bal-exp .sb-bal { flex: 0 1 auto; min-height: 0; }
-.sidebar.bal-exp .sb-bal-body > .sb-mirror, .sidebar.bal-exp .sb-bal-acts { flex: 0 0 auto; }
-.sidebar.bal-exp .sb-bal-cards { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding-right: var(--sp-4); }
-/* ⚠ `.bal-exp` 里「导航不再 shrink、也不再自己滚」这一半，只在**卡片块真的画出来**的那一档成立。
-   收起态（66px）与 ≤660px 矮窗里 `.sb-bal-body` 整块不画（CSS 收成摘要行），卡再多也不占高度 ——
-   这时候还钉着导航，「导航优先」的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来（摘要是唯一入口，
-   而它不带滚）。所以这两档把高度分配与 overflow 原样还回去，展开位对它们等于不存在。 */
-html:not(.sb-open) .sidebar.bal-exp nav { flex: 1 1 auto; overflow-y: auto; }
-html:not(.sb-open) .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: auto; display: block; }
-/* ---------- 余额卡（名字一行、金额一行、状态一行，三行都是单行）----------
-   以前 `.l2` 写 `white-space: normal` + `word-break: break-all`，「可用 1234.56 credits · 冻结 …」
-   在同一排里折成两行或三行，六张卡高低参差；现在两行都 nowrap + 省略号，卡高由行高定死，
-   全文在 title 里（弹层那一份把 nowrap 放开，见文件末尾）。 */
-.sb-bal-card { border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-6) var(--sp-8); background: var(--panel2); cursor: default; min-width: 0; }
-.sb-bal-card .l1 { display: flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-11-5); color: var(--txt); font-weight: 600; min-width: 0; }
-.sb-bal-card .l1 .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-bal-card .l1 .ic { font-size: var(--fs-12); flex: 0 0 auto; }
-/* 正在取数的那张卡：图标位换成一颗小转点（公共 .spin-dot 是 18px，塞进图标位会溢出卡面） */
-.sb-bal-card .l1 .ic .spin-dot { display: inline-block; width: var(--sp-12); height: var(--sp-12); vertical-align: -1px; }
-.sb-bal-card .l2, .sb-bal-card .l3 { margin-top: var(--sp-4); font-size: var(--fs-11); color: var(--sub); line-height: 1.5;
+
+/* ---------- 「此刻」区（账户余额 + 产物存本机）----------
+   满形态：一张卡（.sb-bal-body 那一格就是卡面：淡底 + 描边 + 圆角）。
+   窄形态：同一份内容的压缩版（.sb-bal-sum：家数 + 每家一个状态点 + 落盘进度条）。 */
+.sidebar .sb-bottom { padding: 0 var(--sp-8) var(--sp-8); border-top: var(--hair) solid var(--line); flex: 0 0 auto; }
+.sidebar #sbBalance { overflow: hidden; }
+.sb-bal { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+/* 卡面：账户余额与产物存本机都住在这一个盒子里 */
+.sb-bal-body { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0;
+  margin: var(--sp-8) var(--sp-8) 0; padding: var(--sp-10) var(--sp-10) var(--sp-10);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel2); }
+.sb-bal-cards { display: flex; flex-direction: column; min-width: 0; }
+/* 满形态那张卡的抬头：「账户余额 · N 家」。N 是总数（这一档只摆得下前几张，
+   多的那几家由下面的「展开」就地摆出来）。 */
+.sb-now-t { display: flex; align-items: baseline; gap: var(--sp-8); font-size: var(--fs-11);
+  color: var(--sub); font-weight: 600; margin-bottom: var(--sp-2); }
+.sb-now-t span { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* ---------- 余额卡：两行（名字 + 金额 / 冻结 + 单位）----------
+   以前是「名字 / 可用 / 冻结」三行、每行带描边的小卡，高度是现在的两倍 ——
+   同样一栏高度里能多摆一家。取不到的那一家不藏：原因直接摆到行面上。 */
+.sb-bal-card { display: flex; flex-direction: column; gap: 0; padding: var(--sp-5) 0;
+  border-bottom: var(--hair) solid var(--line); min-width: 0; }
+.sb-bal-card:last-child { border-bottom: 0; }
+.sb-bal-card .l1 { display: flex; align-items: baseline; gap: var(--sp-8); flex: 1 1 auto; min-width: 0; }
+.sb-bal-card .l1 .nm { font-size: var(--fs-12); color: var(--txt); font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-bal-card .l1 .am { margin-left: auto; flex: 0 0 auto; font-size: var(--fs-12); font-weight: 700; color: var(--txt);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sb-bal-card .l2 { margin-top: var(--sp-1); font-size: var(--fs-10-5); color: var(--sub); line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sb-bal-card .l2 b, .sb-bal-card .l3 b { color: var(--txt); font-weight: 600; }
-/* 余额取不到时那一行：要说得出「这是失败」，不能和正常的数字长一个样 */
-.sb-bal-card .l3 .balerr { color: var(--err); }
-/* 一张卡都画不出来时的那句说明（正在读取 / 平台没有余额接口 / 全被勾掉）：
-   只有这一行，不参与「卡等高」，所以允许它自己折行。 */
-.sb-bal-note { font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
-/* ---------- 摘要行（收起态与矮窗用这一行代替整区）----------
-   66px 里只放「图标 + 数字」，单位（「家余额」「存本机」）由 CSS 藏掉，全文在 title；
-   点开看详情走公共弹窗（UiDialog），不在侧栏里堆卡。 */
-.sb-bal-sum { display: none; align-items: center; justify-content: center; gap: var(--sp-8);
-  padding: var(--sp-4) var(--sp-4); border-radius: var(--radius-6); font-size: var(--fs-11); color: var(--sub); }
-.sb-bal-sum .p { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
-.sb-bal-sum .p b { color: var(--txt); font-weight: 600; font-size: var(--fs-11-5); }
-.sb-bal-sum .p.dim b { color: var(--sub); font-weight: 400; }
-.sb-bal-sum .p.sto.busy { color: var(--acc); }
-.sb-bal-sum .p.sto.busy b { color: var(--acc); }
-.sb-bal-sum .spin-dot { width: var(--sp-8); height: var(--sp-8); }
-.sb-bal-sum[role="button"] { cursor: pointer; }
-.sb-bal-sum[role="button"]:hover { background: var(--panel2); color: var(--acc); }
-html:not(.sb-open) #sbBalance .sb-bal-sum { display: flex; gap: var(--sp-6); }
-html:not(.sb-open) #sbBalance .sb-bal-sum .u { display: none; }
-html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
-/* ---------- 按钮族（公共件 .ghost mini + icon()，不再自拼 HTML 行）----------
-   「刷新余额」过去是一行自拼的 div（`asButton` 补 role 才能点）；现在都换成 .ghost.mini，
-   尺寸与交互全部由 ui.css 那一份兜着，这里只排「一行摆几颗、怎么对齐」。
-   ⚠ 这一族里只剩「展开 / 收起」与「刷新余额」，且**排在同一行**：省下来的那一行高度留给卡。
-     「还有 N 家，去用量页」「去设置」两颗跳转钮已撤 —— 要看全部就就地展开。 */
-/* 按钮行固定一行：栏宽 184px 是定死的，两枚按钮都不能折行（中文会按字断开，
-   断在按钮内部就成了「两行字挤在一颗按钮里」）。超宽走省略号（下一行）。
-   ⚠ 展开钮的文案是「展开」，总家数在 title 里 —— 文案缩短后正常不会触发省略。 */
-.sb-bal-acts { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: nowrap; }
-#sbBalance .sb-bal-acts .ghost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* ---------- 「产物正在存进本机」那一行（固定在区域顶部，不参与任何滚动）----------
-   侧栏唯一的本机落盘实况：传输中时它是整区里最显眼的一块，所以排第一、也不跟着卡一起滚。 */
-.sb-bal-body { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
-.sb-mirror { border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-6) var(--sp-8); background: var(--panel2); }
+.sb-bal-card.bad .l2 { color: var(--err); }
+.sb-bal-card.bad .l1 .am { color: var(--sub); font-weight: 600; }
+/* 一张卡都画不出来时的那句说明：只有这一行，不参与「卡等高」。 */
+.sb-bal-note { font-size: var(--fs-10-5); color: var(--sub); padding: var(--sp-5) 0 var(--sp-2); line-height: 1.5; }
+
+/* ---------- 窄形态的压缩版 ----------
+   56px 里放不下三个平台名，但放得下三个「各家怎么样了」——
+   实心点 = 这一家取到了，空心红点 = 这一家取不到（悬停念完整名单）。 */
+.sb-bal-sum { display: none; align-items: center; justify-content: center; gap: var(--sp-6);
+  padding: var(--sp-6) 0 var(--sp-4); font-size: var(--fs-11-5); color: var(--sub); }
+.sb-bal-sum .p { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.sb-bal-sum .p b { color: var(--txt); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sb-bal-sum .p.sto b { color: var(--txt); }
+/* 每家一个点 */
+.sb-bal-dots { display: flex; justify-content: center; gap: var(--sp-4); margin-top: var(--sp-4); }
+.sb-bal-dots i { display: block; width: 5px; height: 5px; border-radius: var(--radius-99); }
+.sb-bal-dots i.ok { background: var(--acc); }
+.sb-bal-dots i.bad { background: transparent; border: var(--hair-1-5) solid var(--err); }
+.sb-bal-sum-sep { height: var(--hair); background: var(--line); margin: var(--sp-6) var(--sp-4) var(--sp-5); }
+/* 落盘进度：窄形态是一条 3px 的进度条 + 份数（满形态在卡里，同一条） */
+.sb-bal-sum-mirror { display: flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-4) var(--sp-4); }
+.sb-bal-sum-mirror .sb-mirror-bar { flex: 1 1 auto; margin-top: 0; }
+.sb-bal-sum-mirror .sb-mirror-n { flex: 0 0 auto; font-size: var(--fs-9-5); color: var(--sub);
+  font-variant-numeric: tabular-nums; }
+
+/* ---------- 产物存本机（满形态，在卡里）---------- */
+.sb-mirror { border-radius: var(--radius-6); padding: 0; background: none; }
 /* 标题行**就是开关**（整行可点，箭头在行尾说话）：明细就地展开，不跳去任何一页。
    焦点样式走 ui.css 末尾那份全站兜底，这里只把名字列撑开、箭头钉在行尾。 */
 .sb-mirror .l1 { display: flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-11-5);
@@ -156,60 +149,91 @@ html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
 .sb-mirror .l1 .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-mirror .l1 .chev { flex: 0 0 auto; color: var(--sub); }
 .sb-mirror .l1:hover .chev { color: var(--acc); }
-.sb-mirror .l2 { margin-top: var(--sp-4); font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
+.sb-mirror .l2 { margin-top: var(--sp-3); font-size: var(--fs-10-5); color: var(--sub); line-height: 1.5; }
 .sb-mirror .l2 b { color: var(--txt); }
-/* 明细行（本次会话存成几份 / 最后一次落盘在什么时候）：与 l2 同一档，只是更暗一档 */
-.sb-mirror .l3 { margin-top: var(--sp-4); font-size: var(--fs-11); color: var(--sub); line-height: 1.5; }
+.sb-mirror .l3 { margin-top: var(--sp-3); font-size: var(--fs-10-5); color: var(--sub); line-height: 1.5; }
 .sb-mirror .l3 b { color: var(--txt); }
-/* 下载进度条：一条细轨（3px 那道缝是结构尺寸），跟「正在存 N 份」那行连着读 ——
-   一眼看出「在下第几个、下到多少」。 */
-.sb-mirror .dlbar { height: 3px; border-radius: var(--radius-6); background: var(--line); overflow: hidden; margin-top: var(--sp-4); }
-.sb-mirror .dlbar i { display: block; height: 100%; background: var(--acc); border-radius: var(--radius-6); transition: width var(--dur-180); }
-.sb-mirror.bad { border-color: var(--warn); }
-.sb-mirror.bad .l2 { color: var(--warn); }
+.sb-mirror.bad .l2 { color: var(--err); }
+/* 下载进度条：一条细轨（3px 那道缝是结构尺寸），跟「正在存 N 份」那一行连着读。
+   满形态（卡里那一条）与窄形态（压缩块那一条）是同一条。 */
+.sb-mirror .dlbar, .sb-bal-sum-mirror .dlbar { height: 3px; border-radius: var(--radius-6);
+  background: var(--line); overflow: hidden; }
+.sb-mirror .dlbar i, .sb-bal-sum-mirror .dlbar i { display: block; height: 100%; background: var(--acc);
+  border-radius: var(--radius-6); transition: width var(--dur-180); }
+/* 正在取数的那一张：转点跟在「正在读取…」前面（它比一句静态说明更像「在动」）。 */
+.sb-bal-card .l2 .spin-dot { display: inline-block; width: var(--sp-10); height: var(--sp-10); vertical-align: -1px; }
+
+/* ---------- 按钮族（公共件 .ghost mini + icon()，不再自拼 HTML 行）---------- */
+.sb-bal-acts { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: nowrap; }
+#sbBalance .sb-bal-acts .ghost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 展开位（就地展开时的高度分配）----------
+   展开是为了看全部供应商，不是为了把第 7 条导航挤掉 —— 所以导航**不压缩**
+   （shrink 归零、不需要自己滚），余额区允许 shrink，shrink **只落在 .sb-bal-cards 那一格**：
+   本机产物行与按钮行钉在原位不跟着滚。全摆得下时 JS 不挂这一位，一切照旧
+   （没有多余的滚动条，也没有空出来的下半截）。
+   ⚠ 导航这一格**保留长高的余地**（grow 留着，shrink 归零）：长出来的那截就是导航与
+     余额卡之间的空档，由它把底部那两块（设置 / 换背景）顶回底边。
+     以前这里写的是 `flex:0 0 auto`（连长高也归零）—— 多出来的空档就没人接，
+     底部两块会**离底边浮起来**（展开一次、整栏错位一次；空档大到一定程度还会被挤出屏幕）。
+     改法：导航「可以长高、绝不压缩」—— 压缩那份额度仍旧只落在卡列表那一格。 */
+.sidebar.bal-exp nav { flex: 1 0 auto; }
+.sidebar.bal-exp #sbBalance { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sidebar.bal-exp .sb-bal-body { flex: 0 1 auto; min-height: 0; }
+.sidebar.bal-exp .sb-bal { flex: 0 1 auto; min-height: 0; }
+.sidebar.bal-exp .sb-now-t { flex: 0 0 auto; }
+.sidebar.bal-exp .sb-bal-body > .sb-mirror, .sidebar.bal-exp .sb-bal-acts { flex: 0 0 auto; }
+.sidebar.bal-exp .sb-bal-cards { flex: 0 1 auto; min-height: 0; overflow-y: auto;
+  overscroll-behavior: contain; padding-right: var(--sp-4); }
+/* 窄形态里卡片块不画，展开位对它**等于不存在**（见下面那两条 revert）——
+   这时候还钉着导航，「导航优先」的兜底就反了：窗口太矮时第 7 条既顶出盒子又滚不回来。 */
+html:not(.sb-open) .sidebar.bal-exp nav { flex: 1 1 auto; overflow-y: auto; }
+html:not(.sb-open) .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: auto; display: block; }
+
 /* 设置入口固定在左下角 */
-.sidebar .sb-set { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-14); border-radius: var(--radius-6);
-  color: var(--txt); text-decoration: none; font-size: var(--fs-13); white-space: nowrap; transition: background var(--dur-120); }
+.sidebar .sb-set { display: flex; align-items: center; gap: var(--sp-10); height: 36px; padding: 0 var(--sp-8);
+  border-radius: var(--radius-6); color: var(--txt); text-decoration: none; font-size: var(--fs-13);
+  white-space: nowrap; transition: background var(--dur-120), color var(--dur-120); }
 .sidebar .sb-set:hover { background: var(--panel2); color: var(--acc); }
 .sidebar .sb-set.active { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
 .sidebar button.sb-set { width: 100%; border: 0; background: none; font-family: inherit; text-align: left;
   cursor: pointer; display: flex; align-items: center; }
-/* 矮窗口再压一档行高，让导航整列露出来（余额区里的卡片张数由 balCap() 跟着这一档降）。
+
+/* 矮窗口再压一档行高，让导航整列露出来（余额区里的行数由 balCap() 跟着这一档降）。
    这一档的口径是「导航优先」：这里每一行减的都是**行距**，减出来的高度全部让给 nav。 */
 @media (max-height: 780px) {
-  .sidebar .sb-brand { padding-top: var(--sp-8); padding-bottom: var(--sp-8); }
-  .sidebar .sb-group { padding: var(--sp-6) var(--sp-24) var(--sp-4); }
-  .sidebar nav { padding: var(--sp-4) var(--sp-8); }
-  .sidebar nav a { padding: var(--sp-6) var(--sp-8) var(--sp-6) var(--sp-14); }
-  .sidebar .sb-bottom { padding: var(--sp-6) var(--sp-8); }
-  .sb-bal { gap: var(--sp-4); }
-  .sb-bal-body { gap: var(--sp-4); }
-  .sb-bal-card { padding: var(--sp-4) var(--sp-6); }
-  .sb-mirror { padding: var(--sp-4) var(--sp-6); }
+  .sidebar nav a { height: 34px; }
+  html:not(.sb-open) .sidebar nav a { height: 38px; }
+  .sidebar .sb-brand { height: 50px; }
+  .sidebar .sb-bottom { padding: 0 var(--sp-6) var(--sp-6); }
+  .sb-bal-body { margin: var(--sp-6) var(--sp-6) 0; padding: var(--sp-8) var(--sp-8); }
+  .sb-bal-card { padding: var(--sp-4) 0; }
 }
-/* 窗口高 ≤660px 时余额区整块退成摘要行 —— 摘要只占一行，导航反而全露得出来。
-   用 #sbBalance 限定：详情弹层里的 `.sb-bal-body` 在这一档必须照常画（它不在侧栏盒子里）。
-   文档（AGENTS §11.1）说的是「低于 640px」，实测这一条要画到 660：641..648 那一小带里
-   「不摆卡的本机行 + 两排按钮」（压缩后 190）+ 固定块 188 + 导航 270 = 648 已经把窗口高吃满，
-   再等到 640 才收，中间那几像素就是导航的第 7 条被顶出去滚。收得更早一档不影响验收
-   （「低于 640px 自动收成摘要行」在这一档里仍然成立，只是它的上界挪到了 660）。
-   「账户余额」那个分组标题也一起让掉：这一档里摘要行自己写着「N 家余额 · M 存本机」，
-   标题腾出来的那一行正是第 7 条导航差的那点高度（验收：500px 高要 7 条全可见不滚）。
-   ⚠ 这一条与 sidebar.js 的 BAL_CAPS 是同一批数，两处要一起改。 */
+/* 窗口高 ≤660px 时余额区整块退成压缩版 —— 窄形态那一块（家数 + 状态点 + 进度条），
+   高度固定，导航反而全露得出来。用 #sbBalance 限定：详情弹层里的 `.sb-bal-body` 在这一档
+   必须照常画（它不在侧栏盒子里）。 */
 @media (max-height: 660px) {
   #sbBalance .sb-bal-body { display: none; }
-  #sbBalance .sb-bal-sum { display: flex; }
+  #sbBalance .sb-bal-sum { display: flex; flex-direction: column; gap: 0; }
   #sbBalance .sb-bal-sum .u { display: none; }
-  #sbBalGroup { display: none; }
-  /* 展开位在这一档同样等于不存在（卡片块不画，钉导航只会把「导航优先」的兜底拆掉）——见上面那段 ⚠。 */
+  #sbBalance .sb-bal-dots { display: flex; }
+  #sbBalance .sb-bal-sum-mirror { display: flex; }
+  /* 展开位在这一档同样等于不存在（卡片块不画，钉导航只会把「导航优先」的兜底拆掉）。 */
   .sidebar.bal-exp nav { flex: 1 1 auto; overflow-y: auto; }
   .sidebar.bal-exp #sbBalance { flex: 0 0 auto; min-height: auto; display: block; }
-  .sidebar nav a { padding: var(--sp-4) var(--sp-8); }
-  .sidebar .sb-brand { padding-top: var(--sp-6); padding-bottom: var(--sp-6); }
 }
+/* 窄形态永远只画压缩版那一块（满形态那一块里有名字与金额，56px 放不下），
+   并且把单位（「家余额」的「家余额」三个字）藏掉 —— 56px 里它会竖排。 */
+html:not(.sb-open) #sbBalance .sb-bal-body { display: none; }
+html:not(.sb-open) #sbBalance .sb-bal-sum { display: flex; flex-direction: column; gap: 0; }
+html:not(.sb-open) #sbBalance .sb-bal-sum .u { display: none; }
+html:not(.sb-open) #sbBalance .sb-bal-dots { display: flex; }
+html:not(.sb-open) #sbBalance .sb-bal-sum-mirror { display: flex; }
+
 /* 详情弹层（UiDialog）里摆的是同一批卡：宽得下，就把「单行 + 省略号」放开，全文照出。
    两列网格是这一档唯一的宽度：六家时纵向不滚。 */
 dialog .sb-bal-body { gap: var(--sp-8); }
 dialog .sb-bal.pop { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-8); }
-dialog .sb-bal.pop .sb-bal-card .l2, dialog .sb-bal.pop .sb-bal-card .l3 { white-space: normal; overflow: visible; text-overflow: clip; word-break: normal; }
+dialog .sb-bal.pop .sb-bal-card { border-bottom: 0; }
+dialog .sb-bal.pop .sb-bal-card .l2 { white-space: normal; overflow: visible; text-overflow: clip; word-break: normal; }
 dialog .sb-bal.pop .sb-bal-note, dialog .sb-bal.pop .sb-bal-acts { grid-column: 1 / -1; }

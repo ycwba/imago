@@ -7,6 +7,7 @@ import { speakerOf, lineTimeOf, lineRowHTML } from '../lines.js';
 import { createBoardPreview } from '../board-preview.js';
 import { segsOf } from '../segments.js';
 import { lineEstSec, lineSpanAt } from '../voice-layout.js';
+import { linePointOf } from '../line-point.js';
 
 export function createPanel(E, document, window) {
   const {
@@ -27,6 +28,7 @@ export function createPanel(E, document, window) {
     chainWaitWhy,
     resolveChainFrame,
     filmEdited,
+    renderSoft,
     scheduleSave,
     assetStoreId,
     sameAssetSpace,
@@ -46,6 +48,7 @@ export function createPanel(E, document, window) {
     polishUIOf,
     setPolishUI,
     renderPolishPanel,
+    renderSplitPanel,
     polishPrompt,
     toDataURL,
     uploadImageDataUrl,
@@ -1259,7 +1262,16 @@ window.addEventListener('wb:char-pic', e => {
   /* 找出引用了这条待建素材的镜头（占位符还在的那些）。 */
   const shots = BoardAssetsOf().shotsPending(allShots(), name);
   shots.forEach(sh => {
-    sh.prompt = BoardAssetsOf().resolve(String(sh.prompt || ''), name, name);
+    const resolved = BoardAssetsOf().resolve(String(sh.prompt || ''), name, name);
+    sh.prompt = resolved;
+    /* 提示词框显示的是「当前查看那条候选的 prompt 优先」（promptTextOf），
+       与手打同一份口径（ta.oninput 同时写两处）：只写 sh.prompt 的话，框里还是
+       旧的 @待建:写法，用户在框里动一下键盘就把替换结果覆盖回去了。
+       只动**当前镜头**正在看的那条候选 —— 别的镜头的 curCand 下标不是它们的。 */
+    if (sh === curShot()) {
+      const c0 = (sh.candidates || [])[projOf().curCand];
+      if (c0 && c0.prompt) c0.prompt = resolved;
+    }
     touched++;
     const one = addLibPicToShot(sh, item, null);
     if (one.ok) { if (!one.dup) pics++; }
@@ -1339,19 +1351,23 @@ function bindModeChips(sh) {
    台词行本身不改变几何 —— 打字时只照着它把那两个读数补一遍（`paintLineWhen`），
    不必为一次击键把整片时间线重算。清单每次重画都重建这张表。 */
 let lineGeoCache = new Map();
-function lineTimeFor(geo, line) {
+function lineTimeFor(geo, line, fromSrc) {
   const est = lineEstSec(line);
+  /* 落点秒存在 geo 上（linePanelRows 算好）：打字时的就地重算（paintLineWhen，两参调用）
+     与整份重画（三参调用）读的是同一个数 —— 不存的话，打字那一路会退回「段起点」，
+     两个读数在一呼一吸之间来回跳。 */
+  const src = fromSrc != null ? fromSrc : (geo && geo.at);
   return lineTimeOf({
-    shot: geo.r0 ? lineSpanAt(geo.r0, (geo.r0.s || {}).in, est, false) : null,
+    shot: geo.r0 ? lineSpanAt(geo.r0, src != null ? src : (geo.r0.s || {}).in, est, false) : null,
     film: geo.fr ? lineSpanAt(geo.fr, geo.fr.cl.in, est, true) : null,
   });
 }
 /* 台词那一档的每一行：一行 = 一镜的一句台词，读的是 sh.line / sh.lineWho 这一份数据，
    与轨道上那两个待生成占位同一个判据 `pendingLineOf`（界面里不存在第二份「有没有配过音」的账）。
    两个时间读数各走自己那一排的尺子（`lineSpanAt`，与占位符同一把）：
-     · 本镜 —— 这一镜第一段保留区的起点起的**轴秒**；
-     · 全片 —— 这一镜第一格在**成片**里的起点起的成片秒。
-   全片那一排先按镜头归一次：`filmFrames` 的缓存认的是 tl 的对象引用，而 `tlSyncFromShots`
+     · 本镜 —— 落点所在那一段、从落点那一秒起的**轴秒**；
+     · 全片 —— 落点所在那一格在**成片**里的起点起的成片秒。
+   全片那一排先按「镜头 + 段号」归一次：`filmFrames` 的缓存认的是 tl 的对象引用，而 `tlSyncFromShots`
    每次都造新对象，逐行现算就是每一行把全片几何重算一遍。
    `includeEmptyMine`：当前这一镜即使还没台词也留一行，否则「在本镜台词里写第一句」指向一片空气。 */
 function linePanelRows(curSh, opts) {
@@ -1360,7 +1376,11 @@ function linePanelRows(curSh, opts) {
   const filmRow = new Map();
   filmFrames(tlSyncFromShots()).rows.forEach(r => {
     const cl = r.cl;
-    if (cl && cl.kind === 'shot' && !filmRow.has(cl.shotId)) filmRow.set(cl.shotId, r);
+    /* 按「镜头 + 段号」记格：台词落点可能在任何一段上，两个读数要落在**那一段**的格子上
+       （以前一律取这一镜第一格，落点挪到第二段之后读数就停在段首）。 */
+    if (cl && cl.kind === 'shot' && !filmRow.has(cl.shotId + ':' + (Number(cl.seg) || 0))) {
+      filmRow.set(cl.shotId + ':' + (Number(cl.seg) || 0), r);
+    }
   });
   lineGeoCache = new Map();
   const rows = allShots().map((x, i) => ({ x: x, no: i + 1 }))
@@ -1369,8 +1389,13 @@ function linePanelRows(curSh, opts) {
       const cands = o.x.candidates || [];
       const c = cands.find(y => y.vid === o.x.selId) || cands[0] || null;
       const segs = c ? segsOf(c, candDur(c, o.x)) : [];
-      const r0 = segs.length ? shotFrames(segs).rows[0] : null;
-      const geo = { r0, fr: filmRow.get(o.x.id) || null };
+      const srows = segs.length ? shotFrames(segs).rows : [];
+      /* 落点（第几段 + 段内哪一秒）才是这句台词真正的位置 —— 与轨道占位、合成同一份
+         （line-point.js 的唯一读写口）。没有落点时 linePointOf 回落第一段起点，与从前逐字相同。 */
+      const pt = segs.length ? linePointOf(o.x, segs) : null;
+      const r0 = pt ? srows[Math.min(srows.length - 1, pt.seg)] : null;
+      const fr = pt ? filmRow.get(o.x.id + ':' + pt.seg) || null : null;
+      const geo = { r0, fr, at: pt ? pt.at : null };
       lineGeoCache.set(o.x.id, geo);
       const text = String(o.x.line || '');
       return {
@@ -1378,7 +1403,7 @@ function linePanelRows(curSh, opts) {
         text,
         who: String(o.x.lineWho || ''),
         speaker: speakerOf(o.x.lineWho, lib),
-        time: lineTimeFor(geo, text),
+        time: lineTimeFor(geo, text, pt ? pt.at : null),
         pending: !!pendingLineOf(o.x),
         empty: !text.trim(),
         mine: o.x === curSh,
@@ -1516,7 +1541,13 @@ function renderEditor() {
   hideMention();                                  // 这一块要整片重画，@ 浮层先收掉（它挂在 body 上，不跟着换）
   hideAtPeek();                                   // 悬停小卡同理
   const sh = curShot();
-  if (!sh) { col.innerHTML = ''; return; }        // 没有镜头先退出，别去解析模型
+  if (!sh) {
+    col.innerHTML = '';
+    /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起（拆一份新的），
+       问答 / 过程面板的宿主由 renderSplitPanel 自己补一块（splitUI 在跑才有），重画后也在这里拼回来。 */
+    renderSplitPanel();
+    return;                                         // 没有镜头先退出，别去解析模型
+  }
   /* 接续镜头先确保型号能收首帧：能力槽位、素材判据与报价都读 `resolvedModel`，
      晚一步换型号就会画出「没有首帧槽、按钮却要带首帧」的一屏。 */
   const modelBefore = sh.model;
@@ -1531,15 +1562,24 @@ function renderEditor() {
   const vp = videoPlanOf(sh);
   const vk = vp.kinds;
   /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
-     duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。 */
-  if (vk.tier.list.length) sh.tier = vk.tier.value;
-  if (vk.resolution.list.length) sh.res = vk.resolution.value;
-  if (vk.aspect_ratio.list.length) sh.ar = vk.aspect_ratio.value;
+     duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。
+     回写发生漂移（存的值不在新型号声明里，被 plan 的回落收正）时不再静默：
+     照实落盘（scheduleSave 带标签 → 进撤销栈、推进修订号）并说一句收正了什么 ——
+     以前渲染函数改了工程数据却不落盘不推进 rev，CAS 与撤销都「看不见」这一次改写。 */
+  const drift = [];
+  if (vk.tier.list.length && sh.tier !== vk.tier.value) { drift.push('档位 ' + sh.tier + ' → ' + vk.tier.value); sh.tier = vk.tier.value; }
+  if (vk.resolution.list.length && sh.res !== vk.resolution.value) { drift.push('分辨率 ' + sh.res + ' → ' + vk.resolution.value); sh.res = vk.resolution.value; }
+  if (vk.aspect_ratio.list.length && sh.ar !== vk.aspect_ratio.value) { drift.push('画幅 ' + sh.ar + ' → ' + vk.aspect_ratio.value); sh.ar = vk.aspect_ratio.value; }
   /* size 是「宽x高」那一族平台用的画幅写法（SiliconFlow 的 image_size / OpenAI 兼容的 size），
      与 ar（比例）是两种字段 —— 声明了才回写、才发，没声明的这一档一个字都不带。 */
-  if (vk.size.list.length) sh.size = vk.size.value;
-  if (vk.duration.list.length) sh.duration = Number(vk.duration.value);
+  if (vk.size.list.length && sh.size !== vk.size.value) { drift.push('尺寸 ' + sh.size + ' → ' + vk.size.value); sh.size = vk.size.value; }
+  if (vk.duration.list.length && Number(sh.duration) !== Number(vk.duration.value)) { drift.push('时长 ' + sh.duration + ' → ' + vk.duration.value + ' 秒'); sh.duration = Number(vk.duration.value); }
+  if (vk.count.list.length && Number(sh.draw) !== Number(vk.count.value)) { drift.push('条数 ' + sh.draw + ' → ' + vk.count.value); }
   sh.draw = vk.count.list.length ? Number(vk.count.value) : 1;
+  if (drift.length) {
+    scheduleSave('参数按型号声明收正');
+    setStatus('「' + (sh.name || '这一镜') + '」的部分参数不在当前型号的声明里，已收正：' + drift.join('；') + '（可 Ctrl+Z 退回）');
+  }
   /* 剪辑模式打开时右栏整片换成「声音栏」（用户点名的形状：像生成工作台那样合成一句配音，
      加的是剪辑那一轨）。镜头编辑器不画：两套控件同屏只会互相抢同一颗按钮。
      放在**参数回写之后**：那一串回写读的是中栏参数条的活控件，跳过它会让「改时长」在剪辑模式下静默失效。 */
@@ -1771,19 +1811,20 @@ function renderEditor() {
      不再有一个「全塞进去」的第二入口。 */
   refreshEst();   // 每次重渲染刷新费用预估
   // 事件
-  const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave(); };
-  const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { sh.res = e.target.value; scheduleSave(); };
+  const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave('改画幅'); refreshShotPreview(sh); };
+  const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { sh.res = e.target.value; scheduleSave('改分辨率'); refreshShotPreview(sh); };
   /* 尺寸档只有这一家声明了才画出来（advSel 判 `k.on`），所以这里同样是「有节点才接线」。 */
-  const edSizeEl = $('edSize'); if (edSizeEl) edSizeEl.onchange = e => { sh.size = e.target.value; scheduleSave(); };
+  const edSizeEl = $('edSize'); if (edSizeEl) edSizeEl.onchange = e => { sh.size = e.target.value; scheduleSave('改尺寸'); refreshShotPreview(sh); };
   /* 条数下拉在「这个型号一次只能出一条」时根本不画（与工作台同一判据，见 AdvParams.plan 的 many），
      所以这里不能像以前那样裸用 `$('edDraw').onchange` —— 那是 TypeError。 */
   const edDrawEl = $('edDraw'); if (edDrawEl) edDrawEl.onchange = e => {
     sh.draw = Math.max(1, parseInt(e.target.value, 10) || 1);
-    scheduleSave();
+    scheduleSave('改条数');
+    refreshShotPreview(sh);   // 「将要发出的请求」跟着条数走（面板的意义就是核对）
     renderEditor();      // 让右下角「生成这一镜（N 条）」按钮同步条数
     updateBanner();      // 横幅提示同步
   };
-  const edTierEl = $('edTier'); if (edTierEl) edTierEl.onchange = e => { sh.tier = e.target.value; scheduleSave(); };
+  const edTierEl = $('edTier'); if (edTierEl) edTierEl.onchange = e => { sh.tier = e.target.value; scheduleSave('改档位'); refreshShotPreview(sh); };
   /* 分辨率 / 比例 / 尺寸改动后要重算报价（edTier、edDraw 上面各自已有 onchange，这里只管这几个） */
   ['edRes', 'edAr', 'edSize'].forEach(id2 => {
     const el2 = col.querySelector('#' + id2);
@@ -1819,7 +1860,7 @@ function renderEditor() {
     /* 换模型后「这一档在新模型上不存在」的纠正不在这里做：renderEditor 里的 AdvParams.plan
        就是那份回落（这里以前自己写了一遍 resolutions/tiers/aspect_ratios/durations/max_outputs
        的逐项纠正，写法与下拉画出来那一份、发出去那一份是三套 —— 现在同一判据只走 plan 一次）。 */
-    renderEditor(); renderMid(); scheduleSave();
+    renderEditor(); renderMid(); scheduleSave('换型号'); refreshShotPreview(sh);
   };
   const ta = $('edPrompt');
   ta.oninput = () => {
@@ -1843,7 +1884,7 @@ function renderEditor() {
     syncGenGate(sh);
     // 左栏卡片只在「有/无描述」翻转时才需要重画，不必每敲一个字重建整列
     if (!d0 && hadText !== !!ta.value.trim()) renderScenes();
-    scheduleSave();
+    scheduleSave('改描述');
     syncMention(sh);                            // @ 引用素材库的候选浮层（见上面那一段）
     syncAtBack(sh);                             // @片段 的高亮镜像层（见 atBackHTML）
     /* 「将要发出的请求」跟着改：提示词是请求体里最重要的一项，
@@ -1896,7 +1937,7 @@ function renderEditor() {
   if (durRangeEl) durRangeEl.oninput = e => {
     sh.duration = clampDur(e.target.value);
     if (durNumEl) durNumEl.value = sh.duration;
-    scheduleSave(); estSlide(); updateBanner();
+    scheduleSave('改时长'); refreshShotPreview(sh); estSlide(); updateBanner();
   };
   if (durRangeEl) durRangeEl.onchange = () => { renderMid(); };   // 松手后同步时间线（重建播放器）
   /* 模型没声明时长范围（hasDur=false）时这两行控件根本不在 DOM 里：
@@ -1905,11 +1946,15 @@ function renderEditor() {
   if (durNumEl) durNumEl.oninput = e => {
     sh.duration = clampDur(e.target.value);
     if (durRangeEl) durRangeEl.value = sh.duration;
-    scheduleSave(); estSlide(); updateBanner();
+    scheduleSave('改时长'); refreshShotPreview(sh); estSlide(); updateBanner();
   };
   if (durNumEl) durNumEl.onchange = () => { durNumEl.value = sh.duration; renderMid(); };
   $('polishBtn').onclick = polishPrompt;
   renderPolishPanel(sh);        // 润色面板（若这一镜有未处理的润色结果，重渲染后重新画出来）
+  /* 拆分镜 / 改分镜的问答与过程面板（splitUI 在 apply 域）：它在跑时宿主归它 ——
+     上面那颗润色面板一看 polishUI 为空就把宿主 clear 掉了，这里紧跟着按 splitUI 拼回来；
+     两边都没在跑时它什么都不画，宿主保持清空。 */
+  renderSplitPanel();
   $('kfGenBtn').onclick = () => generateKeyframes(sh);
   const clrFailed = $('kfClearFailed');
   if (clrFailed) clrFailed.onclick = () => {
@@ -1976,7 +2021,8 @@ function renderEditor() {
       } else if (draft0) {
         await generateCandidate(draft0);                 // 空草稿：按右栏写的描述生成这一条
       } else {
-        await GenOf().drawShot(sh, sh.draw || 1);
+        /* 传提示词框**正显示**的那一句（翻看候选时是那条候选的描述）：框、预览、请求体同一句。 */
+        await GenOf().drawShot(sh, sh.draw || 1, promptTextOf(sh));
       }
       renderAll(); loadCredits();
     } catch (e) {
@@ -2102,9 +2148,12 @@ function installCapRepaint() {
   window.addEventListener('wb:cap-ready', () => {
     if (!wsLoadedOf()) return;
     clearTimeout(capReadyT);
-    capReadyT = setTimeout(() => { try { renderEditor(); } catch { /* 补画抛错不打断别的 */ } }, 300);
+    /* 走 renderSoft（['edit']）：正在右栏打字时先不重建（重建会把输入框换掉、
+       焦点与光标全丢 —— renderSoft 那道闸就是为这一条立的），失焦再补。
+       以前直接调 renderEditor，绕过了那道闸。 */
+    capReadyT = setTimeout(() => { try { renderSoft(['edit']); } catch { /* 补画抛错不打断别的 */ } }, 300);
   });
-  Capabilities.load(REGOf()).then(() => { try { renderEditor(); } catch { /* 首屏重画抛错不打断后面的恢复流程 */ } }).catch(() => {});
+  Capabilities.load(REGOf()).then(() => { try { renderSoft(['edit']); } catch { /* 首屏重画抛错不打断后面的恢复流程 */ } }).catch(() => {});
 }
 
   return {

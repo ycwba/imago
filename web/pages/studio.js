@@ -2682,6 +2682,10 @@ const StudioView = {
           cardList.paint(items);
           paintPullBtn();
           taskMulti().paintBar(bulkEls);
+          /* 批量条上那句提示：选中的这些里有多少还没收 / 已经收着（公共件算，三页同一句）。 */
+          const ftip = taskMulti().favTip();
+          const tipEl = $('bulkTip');
+          if (tipEl) tipEl.textContent = ftip ? ('点卡片即可勾选 · ' + ftip) : '点卡片即可勾选';
           /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
           try { window.AssetLocal && AssetLocal.offerAll(items); } catch (e) { /* 补存失败不影响列表 */ }
           const el = $('histNote');
@@ -2930,22 +2934,33 @@ const StudioView = {
       const searchGo = searchFb && searchFb.el.querySelector('[data-fb="go"]');
       if (searchGo) searchGo.onclick = () => searchFb.setQuery(searchFb.value(), true);
       function pullScope() {
-        /* 范围与卡片徽标读同一份判据（AssetLocal.pullPlan → stateOf）。 */
+        /* 范围 = **勾选的那几条**（不是整屏）：「存回本机」是多选条里的一颗，
+           它存的就是选中的那些 —— 不多选就点它等于「把这一屏都存一遍」，那不是用户的意思。
+           本机 / 去重 / 去空地址的判据在 AssetLocal.pullPlan 那一份（与卡片徽标同一份）。 */
         return AssetLocal.pullPlan(
-          (mergedBatch || mergedItems()).filter(e => e && matched(e)
-            && (filterKind === 'all' || e.mtype === filterKind)),
+          taskMulti().selected(),
           { keyOf: e => [e.provider, e.assetId || e.id || e.genId || e.taskId].join('|') });
       }
       function paintPullBtn() {
-        if (!$('pullLocalBtn')) return;
-        AssetLocal.pullBar($('pullLocalBtn'), pullScope(), { what: '产物' });
+        const btn = $('pullLocalBtn');
+        if (!btn) return;
+        const picked = taskMulti().selected();
+        AssetLocal.pullBar(btn, pullScope(), {
+          what: '产物', zone: '选中的',
+          empty: picked.length ? '选中的这些本机都已经有了，不用再存' : '先勾选要存回本机的产物',
+        });
       }
       $('pullLocalBtn').onclick = async () => {
         const b = $('pullLocalBtn');
+        const picked = taskMulti().selected();
         const todo = pullScope();
-        if (!todo.length) {
+        if (!picked.length) {
           /* 守卫型那一句走 warn 档：ok/info 默认被安静档吞掉，按钮看起来就是「点了没反应」。 */
-          Toast.warn(mergedBatch && mergedBatch.length ? '这一屏要存的本机都已经有了' : '这一屏还没有可存的产物');
+          Toast.warn('先勾选要存回本机的产物（多选之后点卡片即可）');
+          return;
+        }
+        if (!todo.length) {
+          Toast.warn('选中的这些本机都已经有了');
           return;
         }
         AssetLocal.pullStart(b);
@@ -2998,12 +3013,25 @@ const StudioView = {
         visible: filteredItems,
         onChange: renderAll,
         canDownload: it => !!(it.dl || it.media || it.raw),
+        /* 收藏这一族：右栏也能把产物收进「我的收藏」。
+           身份用**产物号**（与资产库里同一条产物是同一个收藏键，不会收两次），
+           还没有字节的任务（还在跑 / 失败）收不进去 —— can 挡着。
+           收 / 拿的动作在 domain/fav.js（Fav.addEntry / removeEntry）一份。 */
+        fav: {
+          can: it => !!(it.assetId && (it.media || it.raw || it.dl)),
+          isOn: it => !!(window.Fav && window.Fav.isEntry(studioFavEntry(it))),
+          add: it => { window.Fav.addEntry(studioFavEntry(it)); },
+          remove: it => { window.Fav.removeEntry(studioFavEntry(it)); },
+        },
         mode: {
           isOn: () => multiMode,
           set: v => {
             multiMode = v;
             const box = $('result');
-            if (box) box.classList.toggle('taskMulti', v);
+            /* 容器上挂的是**公共**那个开关类 `.multi`（ui.css 里 `.multi .task .pick` 才把
+               勾选框露出来）：以前这一页挂的是自造的 `taskMulti`，于是多选时勾选框一直是
+               隐形的 —— 选没选、选了哪几条全都看不见，「存选中的」就成了盲存。 */
+            if (box) box.classList.toggle('multi', v);
             const btn = $('multiBtn');
             if (btn) btn.classList.toggle('active', v);
           },
@@ -3015,7 +3043,30 @@ const StudioView = {
         count: t => { const c = $('bulkCnt'); if (c) c.textContent = t; },
         all: t => { const a = $('bulkAll'); if (a) a.textContent = t; },
         canDown: ok => { const d = $('bulkDown'); if (d) d.disabled = !ok; },
+        favAdd: ok => { const d = $('bulkFavAdd'); if (d) d.disabled = !ok; },
+        favRemove: ok => { const d = $('bulkFavRemove'); if (d) d.disabled = !ok; },
       };
+      /* 收藏：这一页的条目是任务，右栏那一批产物 —— 收进「我的收藏」时用**产物号**当身份，
+         与资产库里那一条是同一条（同一个收藏键，不会收两次）。 */
+      function studioFavEntry(it) {
+        return {
+          provider: it.provider || '', providerName: it.providerName || '', assetId: it.assetId || '',
+          prompt: it.prompt || '', type: it.mtype || '图片', src: it.raw || it.media || '',
+          dl: it.dl || '', format: it.format || '', duration: it.durationSec || null, ts: it.ts || Date.now(),
+        };
+      }
+      function studioBulkFavAdd() {
+        const n = taskMulti().favAdd();
+        if (!n) { Toast.warn('选中的这些都已经在收藏里了'); return; }
+        Toast.receipt('已加入收藏 ' + n + ' 条');
+        renderAll();
+      }
+      function studioBulkFavRemove() {
+        const n = taskMulti().favRemove();
+        if (!n) { Toast.warn('选中的这些都不在收藏里'); return; }
+        Toast.receipt('已从收藏移出 ' + n + ' 条');
+        renderAll();
+      }
       async function bulkDownload() {
         const items = taskMulti().selected().filter(it => it.dl || it.media || it.raw);
         if (!items.length) { Toast.warn('选中的条目里没有可下载的产物'); return; }
@@ -3031,6 +3082,10 @@ const StudioView = {
         renderAll();
       };
       $('bulkDown').onclick = bulkDownload;
+      const bulkFavAddBtn = $('bulkFavAdd');
+      if (bulkFavAddBtn) bulkFavAddBtn.onclick = studioBulkFavAdd;
+      const bulkFavRemoveBtn = $('bulkFavRemove');
+      if (bulkFavRemoveBtn) bulkFavRemoveBtn.onclick = studioBulkFavRemove;
 
       /* ---------- 左右两栏可拖动（公共件 Wb.split；拖拽条 DOM 与落盘都在那一层） ----------
          这一页以前没有开它：老工作台的启动代码带着 wb2 的 body 判断，页面迁到 SPA 之后
@@ -3046,7 +3101,10 @@ const StudioView = {
 
       let pullMore = null;
       function autoLoadMore() { if (pullMore) pullMore(); }
-      const onResize = () => { if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); };
+      /* 隐藏页不发列表请求：KeepAlive 池里切页只离屏、不 unmount，这条监听在用户
+         已经离开工作台之后还活着 —— 拖一下窗口边缘就会按「滚到底自动续拉」再打一次平台列表。
+         页里其余 document 级监听第一行都有 isActive()，这一条不能是漏网的那个。 */
+      const onResize = () => { if (!isActive()) return; if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 120); };
       window.addEventListener('resize', onResize);
       disposers.push(() => window.removeEventListener('resize', onResize));
 

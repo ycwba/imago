@@ -47,6 +47,7 @@ export function createVoice(E, document, window) {
     filmEdited,
     subAsrBusyOf,
     shotFilmAt,
+    chosenCandOf,
     subCurrent,
     subStyleWrite,
     subGenerate,
@@ -139,9 +140,13 @@ function voiceTarget(sh, c) {
   if (!segs.length) return null;
   const hasPt = !!sh && sh.lineAt != null && sh.lineAt !== '' && isFinite(Number(sh.lineAt));
   const pt = hasPt ? linePointOf(sh, segs) : null;
-  const si = pt ? pt.seg : Math.min(segs.length - 1, cutSegIdx());
+  /* 没有落点时**只有针真的落在本镜这一条候选上**才用针（setPin 记的 cutShot/cutCand）：
+     针是全局一枚，上一镜 / 上一条候选留下的段号与秒数，对本候选的段列表没有意义 ——
+     两组段来自两段不同的视频，拿来索引就是串台。那一档回落第一段起点。 */
+  const pinMine = pt ? false : (projOf().cutShot === sh.id && projOf().cutCand === c.vid);
+  const si = pt ? pt.seg : (pinMine ? Math.min(segs.length - 1, cutSegIdx()) : 0);
   const s = segs[si];
-  const src = pt ? pt.at : (Number(projOf().cutAt) || 0);
+  const src = pt ? pt.at : (pinMine ? (Number(projOf().cutAt) || 0) : 0);
   const at = round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), src - s.in)));
   return { si, s, at, segs, total };
 }
@@ -291,6 +296,14 @@ function voiceReg() {
 }
 function renderVoiceCol(col, sh) {
   const idx = allShots().indexOf(sh) + 1;
+  /* 配音草稿跟镜走（draft.shotId 记它属于哪一镜）：草稿对象是全局一份，
+     不清的话切到 B 镜点「合成」会把 A 镜那句台词（连音色 / 参考音频）合到 B 镜上 —— 真发请求、真扣费。
+     留一个空草稿远比带着上一镜的句子诚实；openPendingVoice 点待生成占位那条路会重新按那句填。 */
+  const vd = voiceDraftOf();
+  if (vd.shotId !== sh.id) {
+    vd.shotId = sh.id;
+    vd.text = ''; vd.who = ''; vd.design = ''; vd.ref = null;
+  }
   const cands = sh.candidates || [];
   const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
   const t = voiceTarget(sh, c);
@@ -310,7 +323,10 @@ function renderVoiceCol(col, sh) {
   const subCur = subCurrent(sh);
   const subSt = styleOf(sh);
   const subAt = shotFilmAt(sh);
-  const subSpan = c ? segsOf(c, candDur(c, sh)).reduce((a, s) => a + segFilmLen(s), 0) : 0;
+  /* 字幕那几行只认**选用候选**的几何（数据层契约）：正在查看另一条候选时，
+     c 是查看那条 —— 拿它折字幕的成片秒会整体漂（sub-lane.js 的本镜轨同一道闸）。 */
+  const subC = chosenCandOf(sh) || c;
+  const subSpan = subC ? segsOf(subC, candDur(subC, sh)).reduce((a, s) => a + segFilmLen(s), 0) : 0;
   const subWhere = subAt == null
     ? '这一镜还没进成片：显示的是源秒（选用候选并留在成片里之后，时间会折成成片秒）'
     : '这一镜在成片里从 ' + fmtDur(subAt) + ' 开始，长 ' + fmtDur(subSpan) + '；下面显示的是成片秒';
@@ -319,7 +335,7 @@ function renderVoiceCol(col, sh) {
       : subCur.staleWhy === 'nocand' ? '这一镜现在没有选用候选，字幕没有可映射的成片时间'
         : '台词 / 配音已经变过，字幕是按上一版生成的（手改 / 识别结果不会被覆盖）')
     : '';
-  const subRows = subRowsHTML(sh, subCur, c);
+  const subRows = subRowsHTML(sh, subCur, subC);
   /* 「台词」那一档两段的数据：本镜那一句（还没写也留一行，那是写作入口）与其余每一句。
      一行只出现一次 —— 本镜那一行不在「全片」里重复一遍，否则同一个字段两格输入框，
      敲其中一格另一格还是旧字（本项目反复要拦的那一类）。 */
@@ -734,14 +750,16 @@ function renderVoiceCol(col, sh) {
     /* 「将要发出的请求」跟着改：这句话是要真发出去的那段文字。 */
     refreshVoicePreview(sh);
   };
-  const vd = col.querySelector('#voiceDesign');
-  if (vd) vd.oninput = () => { voiceDraftOf().design = vd.value; paintVoiceGate(); refreshVoicePreview(sh); };
+  /* 这一格是**输入框**（上面的 `vd` 是草稿对象，两件事别共用一个名字）：
+     同名会撞成「重复声明」，整个模块直接解析失败 —— 这一页当场白屏。 */
+  const vdIn = col.querySelector('#voiceDesign');
+  if (vdIn) vdIn.oninput = () => { voiceDraftOf().design = vdIn.value; paintVoiceGate(); refreshVoicePreview(sh); };
   /* 取一位素材身上写好的音色描述填进这一格。整链（开哪一档、空描述怎么说、覆盖前先问一句）
      在公共层 `VoiceNote.run` —— 生成工作台那一格走的是同一条链，两处各拼一份迟早有一种说法在骗人。 */
   const vdp = col.querySelector('#voiceDesignPick');
   if (vdp) vdp.onclick = () => window.VoiceNote.run({
-    value: () => vd.value,
-    write: t => { vd.value = t; voiceDraftOf().design = t; paintVoiceGate(); },
+    value: () => vdIn.value,
+    write: t => { vdIn.value = t; voiceDraftOf().design = t; paintVoiceGate(); },
     say: setStatus,
   });
   /* 「存回素材库」：把这一格的声音描述写回素材库里同名的那一位 ——

@@ -6,8 +6,8 @@
      库/表名也只在那边的登记表里写一次（fav = fav_db/files）。
      本页可能在 ui.js 之前加载，所以取 window.Kv，而且只在函数里取（调用时才解析）。 */
   const favKv = () => window.Kv.at('fav');
-  function idbPut(k, v) { return favKv().put(k, v); }
   function idbGet(k) { return favKv().get(k); }
+  function idbPut(k, v) { return favKv().put(k, v); }
   function idbDel(k) { return favKv().del(k).catch(() => {}); }
 
   /* blob URL 缓存：**有上限 + 可回收 + 按最近使用淘汰（LRU）**
@@ -78,9 +78,14 @@
     try { window.dispatchEvent(new CustomEvent('fav-change', { detail: { local: true, failed: !ok } })); } catch (e) {}
     return ok;
   }
+
+  /* 收藏页也收本地上传的文件：类型**按文件名后缀**判，认不出的归「文件」。
+     （收藏页的筛选里**没有**「文件」那一档 —— 那一档从芯片里撤掉了：
+     它装的只有本地上传的文件，而卡面上写的是「文件」、芯片上写的是「其它」，
+     同一个屏幕上两种叫法。要看它们就点「全部」。） */
   const typeOfName = n => (/\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(n) ? '图片'
     : (/\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(n) ? '视频'
-    : (/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(n) ? '音频' : '文件')));
+      : (/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(n) ? '音频' : '文件')));
 
   /* 收藏一条「接口不返回提示词」的资产时，如果这条的提示词还没补上（列表那一轮回源没赶上），
      后台按任务号从本机归档补一次再写回 —— 否则「先收藏、提示词后到」的记录会永远空着，
@@ -164,6 +169,18 @@
     },
     /* add 返回收藏项（落盘失败返回 null）；remove 返回是否删成功（写不进去 = false） */
     add(item) { return write([item].concat(list().filter(x => x.key !== item.key))) ? item : null; },
+    /* 上传本地文件到收藏（本体进 IndexedDB）。失败会让调用方拿到异常，不再静默 */
+    async addLocalFile(file) {
+      if (!file || !file.size) throw new Error('文件是空的');
+      const fileKey = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      try {
+        await idbPut(fileKey, file);
+      } catch (e) {
+        throw new Error('存不进浏览器本地库（' + errText(e, '可能是隐私模式或空间不足') + '）');
+      }
+      return this.add({ key: 'l:' + fileKey, kind: 'local', fileKey, name: file.name || '未命名文件',
+        mime: file.type || '', type: typeOfName(file.name || ''), size: file.size || 0, ts: Date.now() });
+    },
     remove(key) {
       const hit = list().find(x => x.key === key);
       if (hit && hit.kind === 'local' && hit.fileKey) { idbDel(hit.fileKey); releaseUrl(hit.fileKey); }
@@ -175,6 +192,19 @@
       if (this.has(item.key)) { this.remove(item.key); return this.has(item.key); }
       this.add(item);
       return this.has(item.key);
+    },
+    /* ---------- 按**条目**收 / 拿（卡面上那颗星与批量收藏共用这一份） ----------
+       页面上拿到的是一条资产条目（provider / assetId / src …），
+       收藏的身份与落盘在这一层定：身份 = Fav.assetKey(e)，收藏项 = Fav.fromEntry(e)。
+       页面只决定「这一条能不能收」（还没有字节的任务不行）与「按钮长什么样」。 */
+    isEntry(e) { return this.has(this.assetKey(e)); },
+    addEntry(e) { return this.add(this.fromEntry(e)); },
+    removeEntry(e) { return this.remove(this.assetKey(e)); },
+    /* 切一颗：收藏 / 移出，返回切完之后的状态（true = 已在收藏里） */
+    toggleEntry(e) {
+      if (this.isEntry(e)) { this.removeEntry(e); return this.isEntry(e); }
+      this.addEntry(e);
+      return this.isEntry(e);
     },
     /* 备注：收藏的用途说明，搜索和文字 AI 都会用 */
     note(key) { const hit = list().find(x => x.key === key); return (hit && hit.note) || ''; },
@@ -200,18 +230,6 @@
         来源: x.kind === 'local' ? '本地上传' : (x.providerName || '资产库'),
         备注: x.note || '', 收藏ID: x.key,
       }));
-    },
-    /* 上传本地文件到收藏（本体进 IndexedDB）。失败会让调用方拿到异常，不再静默 */
-    async addLocalFile(file) {
-      if (!file || !file.size) throw new Error('文件是空的');
-      const fileKey = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      try {
-        await idbPut(fileKey, file);
-      } catch (e) {
-        throw new Error('存不进浏览器本地库（' + errText(e, '可能是隐私模式或空间不足') + '）');
-      }
-      return this.add({ key: 'l:' + fileKey, kind: 'local', fileKey, name: file.name || '未命名文件',
-        mime: file.type || '', type: typeOfName(file.name || ''), size: file.size || 0, ts: Date.now() });
     },
     async localUrl(fileKey) {
       const hit = touchUrl(fileKey);

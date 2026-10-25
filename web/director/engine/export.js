@@ -157,6 +157,14 @@ async function exportFilm(opts) {
     setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
     return { ok: false, err: '现在一个可用镜头都没有' };
   }
+  /* 没选用候选的镜头会被 tlSyncFromShots **静默过滤**：不在这里数一遍说出来，
+     用户看到的回执就是「6 段 · 24.5 秒」，要到看片那一刻才发现少了 4 镜。 */
+  const inFilmIds = new Set(tl.clips.map(c => c.shotId));
+  const notInFilm = allShots().filter(sh => !inFilmIds.has(sh.id));
+  const notInFilmNote = notInFilm.length
+    ? '有 ' + notInFilm.length + ' 个镜头没进成片（没有选用候选）：' + notInFilm.slice(0, 6).map(sh => sh.name || '未命名').join('、')
+      + (notInFilm.length > 6 ? ' 等' : '')
+    : '';
   /* 已经有一份**当前**的成片（导出过、内容没变、字节还在本次会话里）：直接给它，不再合成一遍。
      会话缓存没有（刷新过 / 换了工程）就落进下面的正常导出 —— 重新合成一份，不报「盘上那份没了」。 */
   const prevFp = projOf().merged && filmIsCurrent(projOf().merged) ? projOf().merged.name : '';
@@ -213,12 +221,14 @@ async function exportFilm(opts) {
     const subN = subs ? subs.items.length : 0;
     setStatus('<span class="ok">' + saved.msg + `（${tl.clips.length} 段 · ${fmtDur(tlDuration())} · ${window.fmtBytes(blob.size)}`
       + (subN ? ' · 烧录字幕 ' + subN + ' 条' : ' · 没有字幕') + '）</span>'
+      + (notInFilmNote ? '<span class="warn"> · ⚠ ' + notInFilmNote + '</span>' : '')
       + (r.diag && r.diag.decodeModes && r.diag.decodeModes.length
         ? '<span class="meta"> · 取帧：' + r.diag.decodeModes.map(m => ({ 'sequential-webcodecs': '顺序解', 'precise-seek': '逐格定位', 'static-image': '静态图' }[m] || m)).join(' / ') + '</span>' : '')
       + (subs && subs.missing.length ? '<span class="warn"> · 有 ' + subs.missing.length + ' 个镜头的字幕没进成片（没有选用候选）</span>' : '')
       + (pendNote ? '<span class="warn"> · ⚠ ' + pendNote + '</span>' : ''));
     return { ok: true, out: outName, bytes: blob.size, clips: tl.clips.length,
-      duration: round1(tlDuration()), subtitles: subN, missingSubtitles: subs ? subs.missing.length : 0, pendingNote: pendNote };
+      duration: round1(tlDuration()), subtitles: subN, missingSubtitles: subs ? subs.missing.length : 0,
+      notInFilm: notInFilm.length, pendingNote: pendNote };
   } catch (e) {
     setStatus(e.message === '已取消'
       ? '已取消：这一轮合成已停下，没写任何文件'
@@ -340,6 +350,10 @@ function filmFingerprint(clips) {
   return list.map((c, i) => [c.shotId || '', c.candId || c.vid || c.cand || '',
     c.seg == null ? 0 : c.seg, c.in || 0, c.out || 0,
     c.speed || 1, c.volume == null ? 1 : c.volume, c.gray ? 'g' : '',
+    /* 图片段换图 / 改名、空段 / 虚拟坐标标记与 projection.syncSig 同一份口径：
+       这四项不进上面那七个数，漏了就是「换了图 / 动了空段，指纹还说成片没变」，
+       快捷路径把上一轮那份 blob 原样再给一遍 —— 用户的改动被吞掉。 */
+    c.img || '', c.imgName || '', c.vc ? 1 : 0, c.gap ? 1 : 0,
     voiceFp(c, { start: f0s[i], gray: gray })].join('~')).join('|')
     + '||sub:' + subtitleFingerprint();
 }

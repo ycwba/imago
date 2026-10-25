@@ -168,10 +168,34 @@ const LISTENER_PROBE = () => {
         await new Promise(r => setTimeout(r, 80));
       }
       const tip = host.querySelector('.lost-tip');
+      /* 角标不许**比它所在那一格更大**。
+         `.lost-tip` 是 position:absolute; inset:0 —— 铺开的是「最近的定位祖先」。
+         素材库检查器那格大图、详情层候选排那一格都不是定位容器：
+         不修就变成「点一下素材卡，整屏一块已丢失」（角标 1384×900，用户只看到一句没头没尾的话）。
+         这里用一格**不定位**的容器复现那一档，量角标有多大。 */
+      const host2 = document.createElement('div');
+      host2.id = 'cspProbe2';
+      host2.style.cssText = 'position:static;width:320px;height:200px;';
+      document.body.appendChild(host2);
+      const bad2 = '/probe-missing-image-2-' + Date.now() + '.png';
+      host2.innerHTML = window.Wb.thumbs.mediaHTML(bad2, { type: 'image' });
+      const img2 = host2.querySelector('img');
+      if (img2) window.Wb.thumbs.bind(host2, img2, bad2);
+      const until2 = Date.now() + 4000;
+      while (Date.now() < until2 && !(host2.querySelector('.lost-tip') || (img2 && img2.dataset.lost === '1'))) {
+        await new Promise(r => setTimeout(r, 80));
+      }
+      const tip2 = host2.querySelector('.lost-tip');
+      const b2 = tip2 ? tip2.getBoundingClientRect() : null;
+      const slot2 = host2.getBoundingClientRect();
       const r = { html: html.slice(0, 240), inline, control, viol: viol.slice(), lost: !!tip,
         tipText: tip ? tip.textContent : '', dataLost: img ? String(img.dataset.lost || '') : '(无 img)',
+        tipBox: b2 ? { w: Math.round(b2.width), h: Math.round(b2.height) } : null,
+        slotBox: { w: Math.round(slot2.width), h: Math.round(slot2.height) },
+        vw: window.innerWidth, vh: window.innerHeight,
         cspMeta: (document.querySelector('meta[http-equiv="Content-Security-Policy"]') || {}).content || '' };
       host.remove();
+      host2.remove();
       return r;
     });
     /* 前置条件：这一页真的在严格 CSP 之下。没有那道闸，下面「0 次违规」是白捡的 ——
@@ -186,6 +210,16 @@ const LISTENER_PROBE = () => {
     must(csp.lost || csp.dataLost === '1',
       '404 的缩略图要被「已丢失」兜底替掉，不能留一张裂图（data-lost=' + csp.dataLost + '，角标=' + csp.lost + '）');
     if (csp.lost) must(/已丢失/.test(csp.tipText), '角标文案要说清「已丢失」，实际：' + csp.tipText);
+    /* 角标只许盖住它那一格：比那一格大就是「铺到了定位祖先身上」——
+       素材库那格大图 / 候选排那一格不是定位容器，角标会一路铺到整屏。 */
+    if (csp.tipBox) {
+      must(csp.tipBox.w <= csp.slotBox.w + 8 && csp.tipBox.h <= csp.slotBox.h + 8,
+        '「已丢失」角标铺到了那一格之外：角标 ' + csp.tipBox.w + '×' + csp.tipBox.h
+        + '，那一格只有 ' + csp.slotBox.w + '×' + csp.slotBox.h
+        + '（视口 ' + csp.vw + '×' + csp.vh + '）—— 角标会盖住整屏，用户只看到一句没头没尾的话');
+    } else {
+      must(false, '404 的图连「已丢失」角标都没插上（data-lost=' + csp.dataLost + '）');
+    }
     const cspErr = (page.errors || []).filter(e => /Content Security Policy|unsafe-inline|Refused to execute/i.test(e))
       /* 阳性对照那句「Refused to execute inline script」是我们自己插出来的，不算违规证据；
          真正的回退会说 "inline event handler"，那句不会被这条滤掉。 */

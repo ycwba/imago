@@ -22,11 +22,14 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
 
   /* Vue 外壳只占内容区，侧栏由 web/ui/sidebar.js 画在左边。
-     尺寸用 --sbw（侧栏收起 66 / 展开 200），与旧 iframe 外壳同一套变量。 */
-  #app { position: fixed; top: 0; left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); height: 100%;
+     尺寸用 --sbw（侧栏窄 56 / 满 232），与旧 iframe 外壳同一套变量。
+     sidebar.js 每次切形态都把 --sbw 写成当前那一态的宽度：
+       宽窗口 + 满形态 → 232（内容让位）· 宽窗口 + 窄形态 → 56
+       窄窗口（≤1100px）+ 满形态 → 56（那是盖在内容上的浮层，内容不让位）
+     所以这里**只认 --sbw**：不再另写一条写死 200px 的规则 ——
+     那条规则一改宽度就会忘了改，#app 与侧栏对不上。 */
+  #app { position: fixed; top: 0; left: var(--sbw, 56px); width: calc(100% - var(--sbw, 56px)); height: 100%;
     z-index: 1; background: var(--bg); transition: left .18s ease, width .18s ease; }
-  html.sb-narrow.sb-open #app { left: var(--sbw, 66px); width: calc(100% - var(--sbw, 66px)); }
-  html.sb-open:not(.sb-narrow) #app { left: 200px; width: calc(100% - 200px); }
 
   .spa-shell, .spa-frame-wrap, .spa-page-host { position: absolute; inset: 0; }
   .spa-frame-wrap { overflow: hidden; }

@@ -10,19 +10,26 @@
     var(--bg);
 }
 /* studio.html 开头那条 `* { box-sizing; margin: 0; padding:0 }`。
-   用 :where() 保持零权重 —— 写成 `.studio-page *` 会以 (0,1,0) 压过 ui.css 的类规则
-   （.pinl / .adv / .task 的内边距会被整排抹掉）。 */
-.studio-page,
-.studio-page :where(*, *::before, *::after) { box-sizing: border-box; }
-.studio-page :where(*) { margin: 0; padding: 0; }
+   ⚠ **整条都要零权重**：`:where()` 只把它自己那部分算成 0 —— 前面的 `.studio-page` 仍然算 (0,1,0)，
+   与 `.dd-btn` / `.tool` / `.ghost` / `.adv-head` 这些公共类**同权重**，而页面样式表后加载，
+   于是这一条把公共件的内外边距**整排抹掉**：
+     · 型号下拉那颗公共按钮被压成 17px 高、零内边距（用量页同一个 `.dd-btn` 是 8px 12px / 37px 高）；
+     · 高级设置那张公共参数卡的 `.adv-head` / `.adv-body` 内边距也没了 —— 标题与标签贴着卡片边，
+       看着就像「这一块没有用公共件」。
+   整条裹进 :where()（连 `.studio-page` 一起）才是真正的零权重：谁有规则谁的赢，
+   只有那些没有别的规则的裸元素（div / label / textarea）才归这条重置管。 */
+:where(.studio-page, .studio-page *, .studio-page *::before, .studio-page *::after) { box-sizing: border-box; }
+:where(.studio-page, .studio-page *) { margin: 0; padding: 0; }
 
 
-/* ---------- 页底那一行：翻页 ---------- */
-/* 页面根改成竖排：网格吃掉剩下的高，翻页行与页脚各占自己那一条。 */
-.studio-page.wb { display: flex; flex-direction: column; }
-.studio-page.wb .layout { flex: 1 1 auto; min-height: 0; }
-.studio-page .wb-pager { flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-  gap: var(--sp-8); padding: var(--sp-8) var(--sp-22) var(--sp-6); border-top: var(--hair) solid var(--line); }
+/* ---------- 右栏顶上那一行：翻页 ---------- */
+/* 页面根**不再**改成竖排：以前页底有一行页脚（.ver），根是 flex 竖排、页脚另占一条，
+   两栏就被顶矮一截。页脚撤掉后根回到普通块盒，.layout 由 wb.css 那一份 height:100% 吃满。
+   ⚠ 要在这一页加页脚之类的兄弟节点，先想清楚：.wb 是固定高 + overflow:hidden 的壳。 */
+/* 翻页行是**右栏的一格**（搜索那一排下面、结果区上面）：翻页是「看这一屏」的动作，
+   放在结果区顶上，翻到第几页一眼就看得见；以前它在页底，右栏滚到底才找得到。 */
+.studio-page .wb-pager { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8);
+  margin-bottom: var(--sp-12); }
 .studio-page .wb-pager .pgrow { display: inline-flex; align-items: center; gap: var(--sp-8); }
 .studio-page .wb-pager input[type="number"] { width: 76px; }
 
@@ -33,8 +40,14 @@
 .studio-page .st-brand .desc { font-size: var(--fs-12); color: var(--sub); margin: 0; line-height: 1.6; }
 .studio-page .st-top { display: flex; align-items: center; gap: var(--sp-10); margin-bottom: var(--sp-10); }
 .studio-page .st-top .ui-seg { flex: 0 0 auto; }
+/* 型号下拉走公共件（ui.js 的 Dropdowns：.dd / .dd-btn，原生 select 藏在 .dd 里当数据源）。
+   以前这里写的是 `select { width:100%; max-width:340px }` —— 那是**原生**下拉的尺寸，
+   公共件上来之后原生 select 被藏起来，那条规则整条落空：公共那颗按钮按内容宽收缩，
+   实测只剩 61px（一个字宽的小方块），看着像没做完。现在尺寸改给**公共件**那一份：
+   .dd 铺满这一格（封顶 340px），.dd-btn 再铺满 .dd。 */
 .studio-page .st-top .st-model { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
-.studio-page .st-top .st-model select { width: 100%; max-width: 340px; }
+.studio-page .st-top .st-model .dd { flex: 1 1 auto; min-width: 0; max-width: 340px; }
+.studio-page .st-top .st-model .dd-btn { width: 100%; }
 .studio-page .st-sub { font-size: var(--fs-11-5); color: var(--sub); margin: 0 var(--sp-2) var(--sp-10); min-height: 15px; }
 .studio-page .st-sub.warn { color: var(--warn); }
 
@@ -51,17 +64,20 @@
 .studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-5); }
 .studio-page .style-row input { width: 100%; }
 
-/* ---------- 高级设置（三种类型共用这一个容器，内容按类型重建） ---------- */
+/* ---------- 高级设置（三种类型共用这一个容器，内容按类型重建） ----------
+   卡片壳（.adv / .adv-head / .adv-body / .adv-grid / .sel-hint）与每一格里那颗下拉
+   都是公共件：ui.css 的参数卡片 + ui.js 的 Dropdowns。页面只留自己那一层差异
+   （这张卡在左栏的位置、几块参数区之间的距离），不再给原生 select 写外观 ——
+   公共件上来之后原生 select 已经藏进 .dd 里，写给它的规则一律落空。 */
 .studio-page .adv { margin-top: var(--sp-12); overflow: hidden; }
 .studio-page .adv-head h2 { display: flex; align-items: center; gap: var(--sp-6); }
 .studio-page .adv-grid + .adv-grid { margin-top: var(--sp-10); }
-.studio-page .adv-grid label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-5); }
-.studio-page .adv-grid select, .studio-page .adv-grid input { width: 100%; }
+.studio-page .adv-grid input { width: 100%; }
+.studio-page .adv-grid .dd { width: 100%; }
 .studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-10); margin-top: var(--sp-12);
   font-size: var(--fs-12-5); color: var(--sub); flex-wrap: wrap; }
 .studio-page .costbar .note { color: var(--sub); }
 .studio-page .hint { font-size: var(--fs-11-5); color: var(--sub); }
-.studio-page .ver { text-align: center; font-size: var(--fs-11-5); color: var(--sub); padding: var(--sp-14) 0 var(--sp-4); }
 
 /* ---------- 左栏：素材槽磁贴的排布（磁贴长什么样仍只有 ui.css 那一份） ---------- */
 .studio-page #inputArea .assets-grid { grid-template-columns: repeat(auto-fill, minmax(var(--sz-tile), 1fr)); }
@@ -71,7 +87,11 @@
 .studio-page #inputArea .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: var(--acc-tint-10);
   box-shadow: 0 0 0 var(--hair-3) color-mix(in srgb, var(--acc) var(--a-16), transparent); }
 .studio-page .split-opts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; font-size: var(--fs-12); color: var(--sub); }
-.studio-page .split-opts select { padding: var(--sp-4) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-12); }
+/* 标签与它那一颗下拉并排（公共 Dropdowns 把原生 select 变成块级的 .dd，
+   不给 label 摆成 inline-flex 的话，「张数」与下拉会各占一行）。 */
+.studio-page .split-opts label { display: inline-flex; align-items: center; gap: var(--sp-6); }
+/* 这一排的下拉也是公共件：密度跟旁边那个输入框一档（padding / 圆角 / 字号只取令牌）。 */
+.studio-page .split-opts .dd-btn { padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-3); font-size: var(--fs-12); }
 .studio-page .split-opts input { padding: var(--sp-4) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-12); width: 212px; }
 .studio-page .split-opts input:focus { outline: none; border-color: var(--acc); }
 
@@ -132,6 +152,6 @@
   .studio-page textarea { min-height: 112px; font-size: var(--fs-13-5); }
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
-  .studio-page .st-top .st-model select { max-width: none; }
+  .studio-page .st-top .st-model .dd { max-width: none; }
   .studio-page.wb .col-right #result { grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); }
 }

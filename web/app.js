@@ -11,18 +11,27 @@ import { render as AppShellRender } from './render/app-shell.js';
 import { createHooks } from './core/hooks.js';
 import { createActivity } from './core/activity.js';
 import { preloadModule } from './core/page-css.js';
+import { installScrollGuard } from './core/scroll-guard.js';
 
 const R = window.WB_ROUTES;
 const LAST = 'sb_last_page';
 
 /* ---------- 路由解析：hash / 旧路径 / 别名 → { file, src, page } ---------- */
 function parse(input) {
-  let s = String(input || '').split('#').pop();
+  /* 先剥掉首尾多余的 '#'，再只认**第一个 '#' 之前的路由本体**：
+     「#image.html#」「#favorites.html#a#b」这类老书签以前会整段落空（split('#').pop() 取到尾巴），
+     静默落到默认页或被还原 —— 剥完之后照常认出旧地址别名。 */
+  let s = String(input || '').replace(/^#+/, '');
+  const hi = s.indexOf('#');
+  if (hi >= 0) s = s.slice(0, hi);
   try { s = decodeURIComponent(s); } catch (e) {}
   const qi = s.indexOf('?');
   const q = qi >= 0 ? s.slice(qi) : '';
   s = (qi >= 0 ? s.slice(0, qi) : s).replace(/^.*\//, '');
-  if (!s) s = R.defaultPage;
+  /* 空 hash 与「认不得的地址」同样返回 null，由调用方决定回退到哪：
+     空 hash（直接打开本机根地址这种最常见的入口）该落到**上次页**，
+     认不得的才一路退到默认页。以前空 hash 在这里就被替换成默认页，「上次页」那条回退成了死代码。 */
+  if (!s) return null;
   const target = R.alias[s] || s;
   const eq = target.indexOf('?');
   const file = eq >= 0 ? target.slice(0, eq) : target;
@@ -48,6 +57,11 @@ window.__spaActivity = activity;
 const ViewLoading = { render: ViewLoadingRender };
 const ViewError = {
   props: ['error'],
+  /* 失败块里那颗「重新加载本页」：出口只有 __spaReload 一份（先交各页的保存，再 reload）。
+     以前失败块只有一行红字、没有任何可点的出路 —— 模块 404 / 超时的页面卡死到用户自己按 F5。 */
+  setup() {
+    return { retry: () => { try { if (window.__spaReload) window.__spaReload(); else location.reload(); } catch (e) { location.reload(); } } };
+  },
   render: ViewErrorRender,
 };
 const lazy = loader => defineAsyncComponent({ loader, loadingComponent: ViewLoading, errorComponent: ViewError, delay: 0, timeout: 30000 });
@@ -207,6 +221,10 @@ window.addEventListener('beforeunload', e => {
 });
 
 const app = createApp(App);
+/* 全站一份：整片重画（innerHTML / outerHTML）不许把滚动位吃掉 ——
+   「点一颗按钮，视角就跳回最上面」就是这一族（web/core/scroll-guard.js 有完整说明）。
+   装在挂载之前：页面是按需 import 的，第一屏重画时这一份已经在位。 */
+installScrollGuard();
 app.config.errorHandler = (err, instance, info) => {
   console.error('[spa]', info, err);
   try { if (window.Toast) Toast.err('页面出错：' + String(errText(err))); } catch (e) {}

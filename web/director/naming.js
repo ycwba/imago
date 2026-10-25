@@ -34,10 +34,12 @@ export function sceneShotBase(parts) {
   const tag = String(p.tag == null ? '' : p.tag).trim();
   return tag ? core + '_' + safe(tag, 16) : core;
 }
-/* 候选 / 配音的本体名：不再加「候选N」「配音N」后缀（§0.5 规则：撞名交给 uniqueName 的 -2）。
-   段序固定：定位 → 语义 → 时间 → 来源（见 assetBase）。 */
+/* 候选 / 配音的本体名：第二条起带「候选N」后缀（头注与 local.js 的口径都写着
+   `…_候选2`），第一条不带 —— 同一镜只出一条时名字保持干净；多条时盘上不再靠
+   服务端的 `-2` 各自编号（那与 FCPXML 媒体包 uniqueName 的编号是两套，对不上号）。 */
 export function candidateBase(ctx, n) {
-  return sceneShotBase(ctx || {});
+  const k = num(n) || 1;
+  return sceneShotBase(Object.assign({}, ctx || {}, k > 1 ? { tag: '候选' + k } : null));
 }
 export function voiceBase(ctx, n) {
   return sceneShotBase(ctx || {});

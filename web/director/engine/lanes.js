@@ -935,6 +935,8 @@ function openPendingVoice(sh, col) {
   }
   setVcTab('gen');
   const p = lineDraftOf(sh);
+  /* 草稿先认主（shotId），再填内容 —— renderAll → renderVoiceCol 只清「别人的」草稿。 */
+  voiceDraftOf().shotId = sh.id;
   /* 换了一句台词就把上一句的音色草稿清掉（同一句重复点则留着用户手改过的那一份）：
      上一句的参考音频要是留在这一格里，合成出来会是另一个人的声音，而且真扣费。 */
   const sameText = voiceDraftOf().text === p.text;
@@ -944,7 +946,7 @@ function openPendingVoice(sh, col) {
      「把这一格的声音描述存回素材库」靠它找素材库里那一位。 */
   voiceDraftOf().who = p.who || '';
   renderAll();
-  prefillVoiceWho(p.who, { keep: sameText }).then(note => {
+  prefillVoiceWho(p.who, { keep: sameText, shot: sh }).then(note => {
     if (curShot() !== sh) return;
     paintTlGroups();
     renderEditor();
@@ -966,6 +968,9 @@ async function prefillVoiceWho(who, opt) {
   /* 找谁、读音色描述还是取参考音频字节，全在 `Chars.Pipe.voicePrefillOf` 那一份里：
      库里那一列叫什么不出 web/domain/chars.js，这里只认它交回来的 note / blob / why。 */
   const pick = await Chars.Pipe.voicePrefillOf(who, way.mode);
+  /* await 回来时用户可能已经切到另一镜：草稿只属于当前那一镜（shotId），
+     慢回来的音色料写进别人的草稿 = B 镜合成出来是 A 镜说话人的声音，而且真扣费。 */
+  if (opt && opt.shot && voiceDraftOf().shotId !== opt.shot.id) return '';
   if (!pick.found) return pick.why;
   if (pick.why) return pick.why;
   if (way.mode === 'design') {
@@ -1239,10 +1244,13 @@ function filmApplyAt(col, tl, tFrame, opts) {
     (Number(hit.at) - Math.max(0, Number(hit.clip.in) || 0)) / (Number(hit.row.spd) || 1)));
   TlPlayOf().pause();
   TlPlayOf().seek((planI >= 0 ? TlPlayOf().starts[planI] : (Number(hit.row.f0) || 0)) + segOff, false);
-  setStatus(msg);
   renderScenes(); renderEditor();
   paintTrimRow();               // 入出点那一行跟着新焦点走（renderEditor 只重画右栏，不重画工具条那一行）
   paintTlHint(col, curShot(), (curShot().candidates || [])[projOf().curCand]);
+  /* 回执放在**最后**：换焦点那次 renderEditor 可能在右栏做「参数按型号声明收正」并写一句状态 ——
+     那是渲染顺带说的，用户这一下的手势回执（跳到第几秒、焦点切到哪）不该被它盖掉；
+     收正本身照旧落盘（scheduleSave 带标签，撤销栈看得见）。 */
+  setStatus(msg);
   scheduleSave();
 }
 /* 全片轨的把手：拖的是**这一格的源视频头尾**（折算回那一条候选的 segs）。
@@ -1253,8 +1261,9 @@ function bindFilmDrag(scope, tl, total, g) {
   /* 拖动中就地重画：每一格的 `left` 与**被拖那一格**的 `width`（其余格的宽不由这次手势决定）。
      只动 inline style，不销毁节点，手指底下那一枚还在原处；切片不重新解码，松手整栏重画时补帧。
      ⚠ 格子按行分在好几个 `.tl-film` 里，DOM 顺序不再等于格号，所以只能按 `data-k` 找回节点。
-     分母仍是**拖动前**的总长 `total`：中途刻度尺不动，格子在右端溢出一点，
-     比整排跟着尺子抖要好；松手重画一次就对上了。 */
+     分母仍是**拖动前**的总长 `total`（中途刻度尺不动、整排不跟着尺子抖）；
+     把这一格拉长时新几何会算到旧总长之外 —— 每一格的右端夹在 100% 以内，
+     宁可中途最后几格临时挤一挤，也不越过轨道右端「炸开」，松手重画即对齐。 */
   const repaint = () => {
     const G2 = filmFrames(tlSyncFromShots());
     const cells = {};
@@ -1262,8 +1271,9 @@ function bindFilmDrag(scope, tl, total, g) {
     G2.rows.forEach(r => {
       const cell = cells[r.k];
       if (!cell) return;
-      cell.style.left = pct(r.start, total) + '%';
-      cell.style.width = pct(r.w, total) + '%';
+      const l = Math.max(0, Math.min(99.9, pct(r.start, total)));
+      cell.style.left = l + '%';
+      cell.style.width = Math.max(0.1, Math.min(100 - l, pct(r.w, total))) + '%';
       /* 拖动中只换右下角那枚时长徽标（.seg-dur），名称覆盖件不动。 */
       const labD = cell.querySelector('.seg-dur');
       if (labD) {
@@ -1301,7 +1311,10 @@ function bindFilmDrag(scope, tl, total, g) {
         const k = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
         const list = segsCopy(segsOf(cand, cTotal));
         const seg = list[segIdx]; if (!seg) return;
-        if (isImg || isImageSeg(seg)) {
+        /* 虚拟坐标那一族（图片段 + 图片区里的空段）没有「框内选区」：把手直接改 a/b，
+           两头一起决定它在成片里占多久。只认 isImageSeg 的话，图片区里那段 vc 空段
+           会掉进视频分支 —— 只写 in/out、坐标又是虚拟的，等于把手是死的。 */
+        if (isImg || isVirtualSeg(seg)) {
           /* 图片段没有「框内选区」：它的坐标就是虚拟秒，左把手改起点、右把手改终点，两头一起决定时长。
              下限夹在视频总长之外（`segsOf` 认虚拟坐标的判据是 `a ≥ total + 0.05`），
              并与前后虚拟段留 0.02 秒的缝 —— 两张图的坐标不许叠在一起，插针才有唯一答案。 */

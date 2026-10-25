@@ -3,22 +3,48 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { validateProviders, validateAssetStore } = require('../server/providers/validate.js');
+const { validateProviders, validateAssetStore, validateInterfaceShapes } = require('../server/providers/validate.js');
 const good = { id: 'a', name: 'A', kind: 'image', relay: '/a', models: [{ id: 'm' }], endpoints: { create: '/x' } };
 const dupId = { ...good, name: 'A2' };
-const shared = { id: 'b', name: 'B', kind: 'video', relay: '/a', endpoints: { models: '/models' } };
 const docOnly = { id: 'c', name: 'C', kind: 'audio', relay: '/c', newModelDefaults: { modes: ['text_to_speech'] } };
-const text = { id: 'd', name: 'D', kind: 'text', relay: '/textai', endpoints: { chat: '/chat/completions' } };
+const text = { id: 'd', name: 'D', kind: 'text', relay: '/textai/d', endpoints: { chat: '/chat/completions' } };
 const bad = { id: 'b', kind: 'nope', relay: 'b' };
-const r = validateProviders([good, dupId, shared, docOnly, text, bad]);
+/* relay 共用只允许「等价声明」（base / keyEnv / endpoints 完全一致）：
+   前缀挂了不等价的几家，转发按前缀取第一家，第二家的请求与密钥会打到第一家的地址上
+   （v19 以前八家文字 AI 共用 /textai，OpenAI 的密钥被原样发给 api.deepseek.com）。 */
+const equiv1 = { id: 'e1', name: 'E1', kind: 'video', relay: '/eq', keyId: 'eq', base: 'https://eq.example', keyEnv: 'EQ_KEY',
+  endpoints: { create: '/gen', models: '/models' }, models: [{ id: 'm' }] };
+const equiv2 = { ...equiv1, id: 'e2', kind: 'image' };           // 等价：合法共用
+const inequiv = { ...equiv1, id: 'e3', base: 'https://other.example' };  // base 不同：必须红
+const r = validateProviders([good, dupId, equiv1, equiv2, docOnly, text, bad, inequiv]);
 assert.equal(r.ok, false);
 assert.ok(r.invalid.some(x => x.id === 'a' && x.errors.some(e => /id 重复/.test(e))));
-assert.ok(!r.invalid.some(x => /relay 重复/.test(x.errors.join(''))), 'relay 共用是合法声明');
+assert.ok(r.sharedRelays.includes('/eq'), '等价共用要登记在 sharedRelays');
+assert.ok(!r.invalid.some(x => (x.id === 'e1' || x.id === 'e2') && /relay 前缀/.test(x.errors.join(''))),
+  '等价声明共用 relay 是合法的');
+assert.ok(r.invalid.some(x => x.id === 'e3' && /relay 前缀/.test(x.errors.join(''))), '不等价共用 relay 要红');
 assert.ok(r.invalid.some(x => x.id === 'b' && x.errors.some(e => /kind/.test(e))));
-assert.ok(r.sharedRelays.includes('/a'));
-assert.equal(validateProviders([good, shared, docOnly, text]).ok, true);
+assert.equal(validateProviders([good, equiv1, equiv2, docOnly, text]).ok, true);
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'video', relay: '/x' }]).ok, false, '没有型号来源要报错');
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'text', relay: '/x' }]).ok, false, '文字缺 chat 要报错');
+/* 多段 relay（/textai/<id> 这种一段家族名 + 一段 id）是合法形状 */
+assert.equal(validateProviders([{ ...good, id: 'p1', relay: '/textai/p1' }]).ok, true, '多段 relay 要认');
+/* 声明了输入槽位（inputRoles）就必须有 create.inputTemplates 把它放进提交体 ——
+   差一个就是「槽位画得出来、提交那一刻整个丢掉」，用户放了素材、钱照扣。 */
+const slots = { id: 's1', name: 'S1', kind: 'video', relay: '/s1', endpoints: { create: '/x' },
+  models: [{ id: 'm', inputRoles: { first_frame: { max: 1 } } }],
+  create: { endpoint: 'create', body: { model: 'model' } } };
+assert.equal(validateProviders([slots]).ok, false, 'inputRoles 没有对应 inputTemplates 要红');
+assert.ok(validateProviders([slots]).errors.join('').includes('first_frame'));
+slots.create.inputTemplates = { first_frame: { to: 'image', many: false, tmpl: '$url' } };
+assert.equal(validateProviders([slots]).ok, true, '补上模板就合法');
+/* TTS 模板族豁免：复刻的参考音频按约定走 create.template 的 {{voice}}（gen-forms.synthTts 同一收口），
+   不走 inputTemplates —— 有 tts 声明的家族不按槽位查模板。 */
+const ttsClone = { id: 't1', name: 'T1', kind: 'audio', relay: '/t1', endpoints: { create: '/x' },
+  tts: { voices: [], textRole: 'assistant', styleRole: 'user', responsePath: 'x' },
+  modelDocs: [{ id: 'm', ttsMode: 'clone', inputRoles: { reference_audio: { max: 1, min: 1 } } }],
+  create: { endpoint: 'create', template: { model: '{{model}}', audio: { voice: '{{voice}}' } } } };
+assert.equal(validateProviders([ttsClone]).ok, true, 'TTS 模板族的复刻槽位按约定走 {{voice}}，不该红');
 console.log('✓ provider 声明校验通过');
 
 /* 真实注册表也要过同一套（这张判据以前只测 fixture，
@@ -63,6 +89,20 @@ assert.ok(resolved && /^https:\/\//.test(resolved.base) && resolved.keyEnv,
 assert.equal(resolveAssetStore({ assetStore: { provider: 'nope', retrieve: '/x/{id}' }, providers: REGISTRY.providers }), null,
   '点名不存在时 resolveAssetStore 该回 null（不猜一家兜底）');
 console.log('✓ assetStore 声明校验通过（' + resolved.provider + '）');
+
+/* interfaceShapes（自定义供应商的接口族）：template 必须真实存在；
+   声明了 needs:['retrieve'] 的族，模板必须有 endpoints.retrieve + retrieve 配置 ——
+   以前 file-id-retrieve 形状写着「要再换一次地址」，模板却没有 retrieve 环节，
+   按那一族添加的自定义供应商永远换不到产物地址，谁都不会红。 */
+const shapes = validateInterfaceShapes(REGISTRY);
+assert.ok(shapes.ok, '真实 interfaceShapes 有坏声明：\n' + shapes.errors.join('\n'));
+const fakeReg = { providers: [{ id: 't1', name: 'T', kind: 'video', relay: '/t1', models: [{ id: 'm' }], endpoints: { create: '/x' } }],
+  interfaceShapes: { video: [{ id: 'fr', name: 'F', template: 't1', needs: ['retrieve'] }] } };
+assert.equal(validateInterfaceShapes(fakeReg).ok, false, '承诺 retrieve 而模板没有要红');
+assert.equal(validateInterfaceShapes({ providers: fakeReg.providers, interfaceShapes: { video: [{ id: 'fr', name: 'F', template: 'nope' }] } }).ok, false,
+  'template 指向不存在的 id 要红');
+assert.equal(validateInterfaceShapes({ providers: fakeReg.providers }).ok, true, '没有 interfaceShapes 是合法状态');
+console.log('✓ interfaceShapes 声明校验通过');
 
 /* 型号清单响应形状：以前六处各抄一张字段表且互不相同（result 只有服务端认、items 只有资产库认）。
    现在统一读顶层 modelList.fields；这里验服务端那份照声明取数，并盯住页面不再长出第二张表。 */

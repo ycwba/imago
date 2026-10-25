@@ -336,6 +336,16 @@ function diff(a, b) {
               return !!page && !!sel && !!sel.value && !!note && !/正在取回/.test(note.textContent);
             }, 30000).catch(() => {});
           }
+          /* 素材库页目录轨「出齐用」那一行：型号下拉里的选项是**能力接口一家一家回来
+             才长出来的**（`Capabilities` 把型号并进 `prov.models`，落定就广播 `wb:cap-ready`，
+             页面据此补画）。不等它，拍到的就是「没配生图平台」那句占位 —— 同一档两次拍会差一格。
+             与 studio 那一档同理：等型号真选上再往下走。 */
+          if (name.startsWith('chars')) {
+            await page.waitFor(() => {
+              const sel = document.querySelector('.chars-page .rail-gen select');
+              return !!sel && !!sel.value;
+            }, 30000).catch(() => {});
+          }
           let label = '';
           if (opts.prep) label = await opts.prep(page, proxy);
           await new Promise(r => setTimeout(r, 700));
@@ -343,7 +353,10 @@ function diff(a, b) {
           await page.waitFor(() => {
             const note = document.getElementById('histNote');
             const sel = document.getElementById('model');
-            return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value);
+            const rail = document.querySelector('.chars-page .rail-gen select');
+            const onChars = !!document.querySelector('.chars-page');
+            return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value)
+              && (!onChars || (!!rail && !!rail.value));
           }, 15000).catch(() => {});
           const shot = await page.cdp.send('Page.captureScreenshot', { format: 'png' });
           const buf = Buffer.from(shot.data, 'base64');

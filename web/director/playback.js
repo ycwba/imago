@@ -300,7 +300,11 @@ export function createPlayback({ mediaSrc }) {
     frameT() {
       const c = this.plan[this.idx];
       if (!c) return this.t;
-      return round1(c.fs + (c.in - c.fa) / c.rate + Math.max(0, this.t - this.starts[this.idx]));
+      /* 全片那一排的格子摊在**选区轴**上（filmFrames 的 start/w —— 被剪掉的头尾不占秒，
+      `fs` 就是这一格在那根轴上的起点）。以前这里还加一项 `(c.in - c.fa)/rate`
+      （框左沿到选区左沿的差）——那是框基排版时代的遗留：现在轴上根本没有那一截，
+      加它等于把剪掉的片头重复算一遍，片头剪得越多播放头越偏，严重时直接甩出轨道末尾。 */
+      return round1(c.fs + Math.max(0, this.t - this.starts[this.idx]));
     },
     async seek(t, play) {
       const my = ++this.gen;

@@ -23,8 +23,10 @@ import { ensureCss } from '../core/page-css.js';
 ensureCss('web/styles/spa-settings.css', 'spa-settings');
 
 const CUS_KINDS = [['image', '图片'], ['video', '视频'], ['audio', '语音'], ['text', '文字']];
-/* 供应商卡里那两档不是「一类平台」，而是同一层级的两种接法：语音识别与联网搜索。
-   它们共用同一排分段按钮，但下面画的是自己的表单，不列供应商卡。 */
+/* 供应商卡的分档：前四档是「一类平台」（图片 / 视频 / 语音 / 文字），
+   后两档是**同一层级的另一种接法** —— 语音识别与联网搜索。它们不是一类平台，
+   所以不按「家」计数，但和四类平台排在同一排档位上（产品文案就是这么写的：
+   「最后两档不是供应商：语音识别与联网搜索和它们同一层级，各自一份设置」）。 */
 const VIRTUAL_TABS = [['asr', '语音识别'], ['search', '联网搜索']];
 const isVirtualTab = k => VIRTUAL_TABS.some(t => t[0] === k);
 const CUS_CUSTOM = '__custom__';           // 「供应商」下拉里那一项「自定义」的值
@@ -64,9 +66,21 @@ const SET_ROWS = [
   { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不用我点确认（卡片照画，动作自动提交）', on: '1', off: null, def: false },
   { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到窗口边上时吸住（默认开）', on: null, off: '0', def: true },
   { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '助手提交的任务出结果时弹一次系统通知', on: '1', off: null, def: false, after: 'notice' },
-  /* 润色行为 */
-  { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: '润色前要不要先反问', def: 'ai',
-    opts: [['ai', '交给 AI 判断（推荐）：它读完觉得缺什么才问'], ['on', '强制先问'], ['off', '从不问，直接润色']] },
+  /* 引用发给助手时带哪些字段（默认全带）。
+     ⚠ 它只裁**给助手看的那份清单**（refBlock）—— 工具侧（asset_open 按序号取）读的是这一轮
+        真正发出去的那份完整记录，所以裁了清单，助手照样能按序号把字节取回来。
+        你拖进来的东西、输入框里的高亮、消息下方那排记录，一样都不受影响。 */
+  { card: 'assistant', kind: 'sel', key: 'ai_chat_ref_send', label: '引用发给助手时带哪些', def: 'all',
+    opts: [['all', '全带：名字 · 类型 · 资产号 · 地址 · 任务号（推荐默认）'],
+           ['image', '只带地址（能取到字节的那一条）'],
+           ['task', '只带任务号'],
+           ['asset', '只带资产号'],
+           ['name', '只带名字与类型（最小）']],
+    hint: '只裁给助手看的那份清单；助手要真看某一条，按序号取就行（序号一直对得上）。' },
+  /* 润色行为（导演台的拆分镜 / 改分镜反问也读这一档） */
+  { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
+    opts: [['ai', '交给 AI 判断（推荐）：它读完觉得缺什么才问'], ['on', '强制先问'], ['off', '从不问，直接开始']],
+    hint: '管两处：各工作台的「AI 润色」与导演台的「拆分镜 / 改分镜」。问出来的答案会当作硬约束落实进结果。' },
 ];
 
 const SettingsView = {
@@ -74,10 +88,9 @@ const SettingsView = {
   setup() {
     /* ---------- 容器（全部走 ref；组件里不出现 document.getElementById） ---------- */
     const rootEl = ref(null);
-    const setNavEl = ref(null);
+    const setRailEl = ref(null);   /* 左：目录轨的清单（JS 现画） */
+    const setDocEl = ref(null);    /* 右：那条文档 —— 这一页的滚动容器 */
     const setQEl = ref(null);
-    const setChipsEl = ref(null);
-    const setSubEl = ref(null);
     const provTabsEl = ref(null);
     const provListEl = ref(null);
     const cusCardEl = ref(null);
@@ -131,6 +144,8 @@ const SettingsView = {
     const navHasFilter = ref(false);
     const navSum = ref('');
     const navSumErr = ref(false);
+    const navSumShort = ref('');   /* 轨底那一行短摘要（5 组 · 15 栏） */
+    const navPos = ref('');        /* 状态行左边：现在在第几项 */
     /* 供应商卡 */
     const provSumText = ref('');
     const provSumErr = ref(false);
@@ -178,7 +193,11 @@ const SettingsView = {
     }
 
     /* 按「存密钥的那一格」（keyId）归并：一家平台同时服务图片与视频时共用一把 sk_key_<keyId>，
-       界面上也就只该有一条 —— 同一次保存里两个框抢同一把钥匙，后写的会把前一个盖掉。 */
+       界面上也就只该有一条 —— 同一次保存里两个框抢同一把钥匙，后写的会把前一个盖掉。
+       合并卡上的一切（接口地址能不能改 / 验证打哪家的端点）都取**当前这一档**的那一位：
+       以前 prov 取「注册表顺序第一家」，硅基流动与 MiniMax 的图 / 视频 / 语音档会画出
+       文字档才有 baseEditable 的「接口地址」输入框 —— 填了、存了、说「已保存」，
+       而这一档的 provider 根本不收地址，实际一点用没有。 */
     function provGroups() {
       const merged = new Map();
       (REG.providers || []).forEach(p => {
@@ -193,6 +212,7 @@ const SettingsView = {
         if (!m.site && p.site) m.site = p.site;
         m.kindIds.push(p.kind);
         if (p.endpoints && p.endpoints.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
+        if (p.kind === provTab) { m.prov = p; m.base = p.base || ''; }
       });
       const all = [...merged.values()];
       all.forEach(m => {
@@ -299,6 +319,7 @@ const SettingsView = {
           if (b.dataset.tab === provTab) return;
           setProvTab(b.dataset.tab);
           renderProv();
+          /* 切档不换轨上亮的那一行 —— 亮的是「供应商与密钥」这一张卡，不是卡里的某一档。 */
           if (!isVirtualTab(provTab)) cusKindChanged();
         };
       });
@@ -394,12 +415,16 @@ const SettingsView = {
           modelsBlock(m)
           + (provTab === 'text' && curTextId() === m.prov.id ? visionBlock(m) : '');
         box.appendChild(wrap);
-        // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，直接清掉，保持输入框为空
+        // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，清掉，保持输入框为空。
+        // 判据带长度（不止末 4 位）：tail 相同的两把不同密钥概率虽小但不是零；server 的 /env-status 带 len。
+        // 走 keyCleared 那一套（跟「清除」按钮同一条路）：删除排队进自动保存、顶栏回执照说 ——
+        // 以前在渲染里直接 LS.del，绕过了「改完就存本机 · 刚刚存过」的状态行。
         if (!m.custom && envInfo[kid] && envInfo[kid].hasEnv) {
           const lk = keyFor(kid);
-          if (lk && lk.slice(-4) === envInfo[kid].tail) {
-            window.LS.del('sk_key_' + kid);
+          if (lk && lk.slice(-4) === envInfo[kid].tail && lk.length === envInfo[kid].len) {
             keyDraft.delete(kid);
+            keyCleared.add(kid);
+            markChanged();
             const inp = wrap.querySelector('[data-key]');
             if (inp) inp.value = '';
           }
@@ -706,6 +731,8 @@ const SettingsView = {
       setREG(await Api.registry().catch(() => null));
       Api.setRegistry(REG);
       renderProv();
+      /* 注册表变了 → 「素材库」那张卡里的两个型号下拉要重画（型号清单换了）。 */
+      renderCharsSet();
       paintCusCount();
       paintCusMine();
       try {
@@ -791,7 +818,10 @@ const SettingsView = {
             + '（在「文字 AI」那一档重新选一家，或先切过去再回来）。' : ''),
       });
       if (!go) return;
-      Api.customDrop(kid);
+      if (!Api.customDrop(kid)) {
+        cusSetMsg('没有删掉：清单写不进本机存储（配额满或隐私模式）。先到本页「清理缓存」那一栏删掉不用的历史再试。', 'err');
+        return;
+      }
       if (cusEditing.value === kid) cusReset();
       await afterCustomChanged(kid);
       cusSetMsg('已删掉「' + ((e && e.name) || kid) + '」。', 'ok');
@@ -806,7 +836,7 @@ const SettingsView = {
       const name = String(cusName.value || '').trim();
       if (!name) { cusSetMsg('写个显示名 —— 型号下拉的分组名与收藏里的筛选项认的就是它。', 'err'); return; }
       const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
-      if (!/^https:\/\//i.test(base)) {
+      if (!httpsBaseOk(base)) {
         cusSetMsg('地址要以 https:// 开头（代理只放行公网 https：它会把密钥转发给这个地址，明文与内网一律拒）。', 'err');
         return;
       }
@@ -838,7 +868,14 @@ const SettingsView = {
           + '先到本页「清理缓存」那一栏删掉不用的历史，再重填一次。', 'err');
         return;
       }
-      Api.customSet(list);
+      /* 清单这一格写不进去（配额满 / 隐私模式）时当场收工，顺手把刚写进去的密钥摘掉
+         —— 留下一把没人认领的 sk_key_<id>，它会跟着导出 / 云同步跑到别的机器上。 */
+      if (!Api.customSet(list)) {
+        window.LS.del('sk_key_' + id);
+        cusSetMsg('「' + name + '」没有保存：本机存储写不进清单这一格（配额满或浏览器在隐私模式）。'
+          + '先到本页「清理缓存」那一栏删掉不用的历史，再重试一次。', 'err');
+        return;
+      }
       if (t.kind !== 'text') {
         setProvTab(t.kind);
         provSel.set(t.kind, id);
@@ -864,7 +901,7 @@ const SettingsView = {
       const t = cusTemplate();
       if (!t) { cusSetMsg('先选一个「接口形状」（照哪一家的接口）。', 'err'); return; }
       const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
-      if (!/^https:\/\//i.test(base)) { cusSetMsg('先填上面的接口地址（要 https:// 开头），获取型号要用它。', 'err'); return; }
+      if (!httpsBaseOk(base)) { cusSetMsg('先填上面的接口地址（要 https:// 开头），获取型号要用它。', 'err'); return; }
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
       if (!key) { cusSetMsg('先填密钥 —— 型号列表是要鉴权的接口。', 'err'); if (cusKeyEl.value) cusKeyEl.value.focus(); return; }
       cusFetchBusy.value = true;
@@ -1202,6 +1239,10 @@ const SettingsView = {
         : '当前型号 ' + v.model + '：润色时只发文字（判定依据：' + v.why + '）。若该型号确实能识图，把上面选成「支持识图」即可强制启用。';
     }
     const cleanKey = s => String(s == null ? '' : s).replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
+    /* 内置平台与自定义供应商共用的接口地址判据（就这一份）：代理的出站护栏只放行公网 https，
+       http / 内网地址每一笔请求都会被代理当场拒 —— 设置页不拦的话错误发生在很久以后。 */
+    const httpsBaseOk = v => /^https:\/\//i.test(String(v == null ? '' : v).trim());
+    const BASE_SKIP_WHY = '接口地址（只收公网 https，代理会把密钥发到这个地址）';
     const draftOf = kid => draftKey(kid);
     const draftBaseOf = kid => draftBase(kid);
     function useFormCreds(p) {
@@ -1780,6 +1821,18 @@ const SettingsView = {
     }
 
     /* ---------- 素材库的设置（控件、默认值、文案全部来自 Chars.SET） ---------- */
+    /* 型号下拉只有那一份实现（Chars.Pipe.modelSelectHTML，按平台分组）。
+       「自动」那一档是**空值**：空 = 用注册表里第一个声明了这个 mode 的型号
+       （顺序由设置页的「型号清单偏好」决定），也就是「不指定、按默认走」。 */
+    function modelCtl(id, it, val) {
+      let h = '';
+      try { h = Chars.Pipe.modelSelectHTML(REG, { kind: it.modelKind, mode: it.mode, value: val, emptyText: '这一类还没有平台' }); }
+      catch (e) { h = '<span class="hint sm">读不到平台清单</span>'; }
+      if (h.indexOf('<select ') !== 0) return h;
+      h = h.replace('<select ', '<select data-set="' + window.esc(id) + '" style="flex:0 0 260px" ');
+      h = h.replace(/(<select [^>]*>)/, '$1<option value=""' + (val ? '' : ' selected') + '>自动（平台清单里第一个）</option>');
+      return h;
+    }
     function renderCharsSet() {
       const box = charsBoxEl.value;
       if (!box) return;
@@ -1795,6 +1848,8 @@ const SettingsView = {
         } else if (it.kind === 'num') {
           ctl = '<input type="number" min="0" step="' + window.esc(it.step || '0.5') + '" data-set="' + id + '" value="' + window.esc(val) + '" style="flex:0 0 110px">'
             + (it.unit ? '<span style="font-size: var(--fs-12-5);color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
+        } else if (it.kind === 'model') {
+          ctl = modelCtl(id, it, val);
         } else {
           ctl = '<select data-set="' + id + '" style="flex:0 0 210px">'
             + (it.options || []).map(o => '<option value="' + window.esc(o.id) + '"' + (o.id === val ? ' selected' : '') + '>' + window.esc(o.label) + '</option>').join('')
@@ -1818,6 +1873,9 @@ const SettingsView = {
         else if (it.kind === 'num') {
           const n = Number(el.value);
           window.LS.set(it.key, String(Number.isFinite(n) && n > 0 ? n : Number(it.def)));
+        } else if (it.kind === 'model') {
+          /* 空 = 「自动」：把键**删掉**，不要留一个空串（留空串与没存过是两种意思）。 */
+          if (el.value) window.LS.set(it.key, el.value); else window.LS.del(it.key);
         } else if (el.value) window.LS.set(it.key, el.value);
       });
     }
@@ -1980,22 +2038,34 @@ const SettingsView = {
         return false;
       }
       const skipped = [];
-      /* 先把「本轮改过、但此刻没画出来」的草稿落盘（卡片按类型档过滤渲染）。 */
+      /* 先把「本轮改过、但此刻没画出来」的草稿落盘（卡片按类型档过滤渲染）。
+         密钥与「验证」走同一份 cleanKey —— 以前落盘存原值、验证用清洗值，
+         粘贴带 `Bearer ` 前缀的密钥（厂商控制台大多这么给）验证 ✓ 通过、
+         之后所有润色 / 识图 / 助手请求 401，用户以为是自己配错了。 */
       const domKeys = new Set(qa('[data-key]').map(i => i.dataset.key));
-      for (const [kid, v] of keyDraft) if (!domKeys.has(kid)) W('sk_key_' + kid, v);
+      for (const [kid, v] of keyDraft) if (!domKeys.has(kid) && cleanKey(v)) W('sk_key_' + kid, cleanKey(v));
       for (const kid of keyCleared) if (!domKeys.has(kid)) Wdel('sk_key_' + kid);
       const domBases = new Set(qa('[data-base]').map(i => i.dataset.base));
-      for (const [kid, v] of baseDraft) if (!domBases.has(kid) && v) W('sk_base_' + kid, v);
+      for (const [kid, v] of baseDraft) {
+        if (domBases.has(kid)) continue;
+        if (!v) continue;
+        if (!httpsBaseOk(v)) { skipped.push(BASE_SKIP_WHY); continue; }
+        W('sk_base_' + kid, v.trim());
+      }
       if (textForm && textForm.flushDrafts) textForm.flushDrafts(W, Wdel, skipped, domKeys);
       qa('[data-key]').forEach(inp => {
-        if (inp.value.trim()) W('sk_key_' + inp.dataset.key, inp.value.trim());
+        if (cleanKey(inp.value)) W('sk_key_' + inp.dataset.key, cleanKey(inp.value));
         else Wdel('sk_key_' + inp.dataset.key);
       });
-      /* 接口地址：必须以 http(s):// 开头；属于别家官方地址时问一次「仍然保存吗」。 */
+      /* 接口地址：只收公网 https（代理的出站护栏只放行公网 https —— http 地址每一笔请求
+         都会回 400「自定义接口地址只允许公网 https」，设置页不拦的话错误发生在很久以后）；
+         属于别家官方地址时问一次「仍然保存吗」。
+         「这一轮改过、但此刻没画出来」的那一路（上面 baseDraft）走同一份校验 ——
+         以前那条路完全不校验，ftp:// 与内网地址都会原样落盘。 */
       for (const inp of qa('[data-base]')) {
         const v = String(inp.value || '').trim();
         if (!v) { Wdel('sk_base_' + inp.dataset.base); continue; }
-        if (!/^https?:\/\//.test(v)) { skipped.push('接口地址（要以 http:// 或 https:// 开头）'); continue; }
+        if (!httpsBaseOk(v)) { skipped.push(BASE_SKIP_WHY); continue; }
         const row = provRows.get(inp.dataset.base);
         const own = row && row.prov ? Api.hostOwner(REG, v, row.prov) : null;
         if (own && own.kind === 'other-provider') {
@@ -2089,7 +2159,7 @@ const SettingsView = {
       'sk_custom', 'sk_prov_tab', 'sk_local_dir',
       /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
          刻意不写 'ai_chat_' 前缀：ai_chat（对话记录）与 ai_chat_files / _xy / _watch 是数据与本机窗口的事。 */
-      'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock',
+      'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock', 'ai_chat_ref_send',
       ...SET_ROWS.filter(r => r.key).map(r => r.key),
       ...((window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [])
     ];
@@ -2215,12 +2285,15 @@ const SettingsView = {
     const persistInfo = ref('读取中…');
     const persistGranted = ref(false);
     const dataBusy = reactive({ copy: false, push: false, pull: false, exp: false, imp: false });
+    /* 目录轨上「数据与同步」那一行的当前值（几份数据）—— 与 dataInfo 同源，只是短。 */
+    const dataCount = ref(0);
     async function refreshDataInfo() {
       try {
         const r = await Net.fetch('/data', { timeout: 15000 });
         const d = await r.json();
         const n = (d.files || []).length;
         const kb = (d.files || []).reduce((a, f) => a + f.size, 0);
+        dataCount.value = n;
         dataInfo.value = d.dir + ' · ' + n + ' 份数据 · ' + window.fmtBytes(kb);
         dataInfoTitle.value = d.dir;
       } catch (e) { dataInfo.value = '读不到（代理没在运行？）'; }
@@ -2709,12 +2782,15 @@ const SettingsView = {
     const cacheMsg = ref('');
     const cacheUsage = ref('');
     const cacheBusy = reactive({ api: false, meta: false, thumb: false, missed: false });
+    /* 目录轨上「清理缓存」那一行的当前值（本机 localStorage 占多少）—— 与 cacheUsage 同源，只是短。 */
+    const cacheBytes = ref(0);
     function paintCacheUsage() {
       let total = 0; const rows = [];
       for (const k of window.LS.keys()) {
         const b = (k.length + String(window.LS.get(k) || '').length) * 2;
         total += b; rows.push([k, b]);
       }
+      cacheBytes.value = total;
       rows.sort((a, b) => b[1] - a[1]);
       const top = rows.slice(0, 3).map(([k, b]) => k + ' ' + mbOf(b)).join('、');
       cacheUsage.value = '本机 localStorage 现在约 ' + mbOf(total)
@@ -2795,8 +2871,11 @@ const SettingsView = {
     const promptInfoTitle = ref('');
     const promptMsg = ref('');
     const promptOpenBusy = ref(false);
+    /* 目录轨上「提示词归档」那一行的当前值（几份）—— 与 promptInfo 同源，只是短。 */
+    const promptCount = ref(0);
     function paintPrompt(d) {
       const rows = d.recent || [];
+      promptCount.value = d.count || 0;
       promptInfo.value = rows.length ? (d.count + ' 份归档') : '还没有归档';
       promptInfoTitle.value = d.dir || '';
       if (!promptRecentEl.value) return;
@@ -3606,18 +3685,21 @@ const SettingsView = {
       } catch (e) { searchMsg.value = '✗ ' + errText(e); }
     }
 
-    /* ---------- 栏目导航与关键词筛选（组锚点 + 命中到行；从 DOM 现读，不手抄标题清单） ---------- */
-    let navSig = '';
-    let navSubSig = '';
+    /* ---------- 左：目录轨（索引） + 右：那条连续的文档 ----------
+       这一页有两栏：左边是目录（5 组 15 行，每行带它的**当前值**），
+       右边是 15 张卡排成的一条文档（组标题钉在顶上，状态行钉在底下）。
+       目录、组名、栏目标题全部**从 DOM 现读**（下面这几个函数），JS 里没有第二份清单；
+       值速记也是现读同一份真相压成一行短字（NAV_VALUE 一族），不另存一份状态 ——
+       否则轨上那个数与卡里画着的那一项就会各说各话。 */
     let navQueued = 0;
     let navRO = null;
     let navMO = null;
     let navScrollQueued = 0;
     let flashTimer = null;
     let settleTimer = 0;
-    let curGroup = '';
+    let curNavId = '';           /* 现在停在文档里的哪一栏（轨上亮的那一行） */
     let scrollHolding = false;
-    /* 这一轮每张卡里命中的行（syncNav 现算一次，卡标题那枚「N 处命中」与二级行都读它）。 */
+    /* 这一轮每张卡里命中的行（syncNav 现算一次，卡标题那枚「N 处命中」与轨上那枚数都读它）。 */
     const cardHits = new Map();
     /* 组名读 DOM 里那一行标题；折叠那一组的标题在按钮里（后面还跟着「展开」两个字，只取 .fold-title）。 */
     const groupNameOf = sec => {
@@ -3632,6 +3714,10 @@ const SettingsView = {
       return [...sec.querySelectorAll(':scope > .card, :scope > .fold-body > .card')].filter(c => c && !c.hidden);
     }
     function navCards() { return groupEls().flatMap(cardsOf); }
+    /* 目录轨上的行 = **每一张卡**（一张卡一行）。
+       「语音识别」「联网搜索」是供应商那张卡里的两档（与图片 / 视频 / 语音 / 文字同一层级），
+       它们不另占行 —— 那一排档位在卡里，轨上不重复列一遍。 */
+    function navRows() { return navCards().filter(c => c.dataset && c.dataset.nav); }
     /* 卡标题里只认文字：命中数那枚 .set-hcnt 是自己塞进去的，读数前先摘掉。 */
     function navTitleOf(c) {
       const h = c.querySelector('h2');
@@ -3640,41 +3726,174 @@ const SettingsView = {
       clone.querySelectorAll('.set-hcnt').forEach(x => x.remove());
       return clone.textContent.trim() || '（这一栏没有标题）';
     }
-    function setNavH() {
-      if (!setNavEl.value || !rootEl.value) return;
-      const h = Math.round(setNavEl.value.getBoundingClientRect().height);
-      if (h > 0) rootEl.value.style.setProperty('--setnavh', h + 'px');
+    /* 组说明写在 <section data-note="…"> 里 —— 目录轨上那一组管什么，现读，不抄第二份。 */
+    const groupNoteOf = sec => (sec && sec.dataset ? (sec.dataset.note || '') : '');
+
+    /* ---------- 值速记：目录轨上每一行右边那一小段「现在是什么」 ----------
+       取值全部现读 —— 与那一栏里画着的是同一份真相（UI_PREFS / PAGE_TARGETS /
+       Net.NUMS / SET_ROWS / 注册表 / asr / search / 体检与用量 / 归档清单）。
+       这里只把同一份真相压成一行短字，不另存一份状态。 */
+    function uiPrefLabel(key) {
+      const rows = (window.UI_PREFS && window.UI_PREFS.rows) || [];
+      const r = rows.find(x => x.key === key);
+      if (!r) return '';
+      if (r.kind === 'bool') return (window.UI_PREFS.isOn && UI_PREFS.isOn(key)) ? '开' : '关';
+      const cur = window.LS.get(key);
+      const v = cur == null ? r.def : cur;
+      const o = (r.opts || []).find(x => x[0] === v);
+      return o ? o[1] : '';
     }
-    /* 这一页**唯一**的滚动出口（自定义供应商卡、组锚点、二级行、搜索命中行五处都走它）：
-       导航是 sticky 的，卡顶要停在导航下面，靠的是 CSS 里那条 scroll-margin-top = --setnavh + 一档间距。
-       可是那条只覆盖 `.card / .set-group`，二级行（组内标题那一排）正好在**点下锚点这一刻**
-       才冒出来、命中行（.krow / .sub …）根本不带那条 margin —— 按旧高度算出来的位置就差那一截
-       （实测停在 263px，导航已经 158px 高）。所以先重测高度再滚，并在滚动落定后补一次校正：
+    const NAV_VALUE = {
+      /* 生成平台：在用几家（一家平台同时服务图片+视频只算一家 —— 与供应商卡里那张清单同口径）。 */
+      providers: () => {
+        const n = provGroups().filter(m => provUsable(m)).length;
+        return n ? (n + ' 家在用') : '还没接';
+      },
+      /* 语音识别 / 联网搜索是供应商那张卡里的两档，轨上不另占行 → 它们的当前值
+         也不进值速记（那一栏跟着卡走，看卡就知道）。 */
+      appearance: () => (uiPrefLabel('dir_theme') || '浅色') + ' · ' + (uiPrefLabel('dir_asset_view') || '列表'),
+      paging: () => '每页 ' + (window.pageSizeOf ? window.pageSizeOf('studio') : 24) + ' 条',
+      network: () => net.timeout + ' 秒 · 重试 ' + net.retry + ' 次',
+      storage: () => ((window.UI_PREFS && UI_PREFS.isOn('sk_media_local')) ? '自动存本机' : '只留外链'),
+      chars: () => {
+        /* 「素材库」那张卡现在管的是**默认**：出图张数、语音条数与两个默认型号。 */
+        if (!window.Chars || !Chars.setting) return '';
+        const n = Chars.setting('candN');
+        const v = Chars.setting('voiceN');
+        const pinned = ['imgModel', 'ttsModel'].filter(k => Chars.setting(k)).length;
+        return (n ? (n + ' 张') : '') + (v ? (' · ' + v + ' 条') : '') + (pinned ? (' · 指定 ' + pinned + ' 个型号') : ' · 型号自动');
+      },
+      assistant: () => (window.LS.get('ai_chat_off') === '1' ? '已关' : '已开'),
+      polish: () => ({ ai: '交给 AI 判断', on: '强制先问', off: '从不问' })[window.LS.get('sk_polish_ask') || 'ai'],
+      skill: () => {
+        const n = (skillItems.value || []).filter(x => x.enabled).length;
+        return n ? (n + ' 份已启用') : '一份都没启用';
+      },
+      sync: () => (dataCount.value ? (dataCount.value + ' 份数据') : '本机 → 数据文件'),
+      prompts: () => (promptCount.value ? (promptCount.value + ' 份') : '还没有归档'),
+      backup: () => '整份设置',
+      env: () => {
+        if (!lastSys) return '读取中…';
+        const h = (window.Api && Api.sysHealth) ? Api.sysHealth(lastSys.健康) : null;
+        return (h && h.chip) || '已读';
+      },
+      disk: () => (lastUsage ? (lastUsage.芯片 || '0 KB') : '数盘中…'),
+      cache: () => (cacheBytes.value ? mbOf(cacheBytes.value) : '—'),
+    };
+    function navValueOf(id) {
+      const f = NAV_VALUE[id];
+      if (!f) return '';
+      try { return f() || ''; } catch (e) { return ''; }
+    }
+
+    /* ---------- 目录轨：画那棵树 ----------
+       一行 = 名字 + 引点 + 值速记。引点是排版手法（说明「这一项有一个值，值在右边」），
+       值速记把 15 个旋钮的当前值压成一列 —— 眼睛从上往下扫一遍就知道这台机器什么状态。 */
+    function paintRail() {
+      const box = setRailEl.value;
+      if (!box) return;
+      const filtering = !!(setQ.value || '').trim();
+      let html = '';
+      groupEls().forEach(sec => {
+        const rows = cardsOf(sec).filter(c => c.dataset && c.dataset.nav);
+        if (!rows.length) return;
+        html += '<div class="set-rail-g"><span class="t">' + window.esc(groupNameOf(sec)) + '</span>'
+          + '<span class="n">' + rows.length + '</span></div>';
+        const note = groupNoteOf(sec);
+        if (note) html += '<div class="set-rail-note">' + window.esc(note) + '</div>';
+        rows.forEach(c => {
+          const id = c.dataset.nav;
+          const hits = cardHits.get(c) || [];
+          const on = id === curNavId;
+          html += '<a class="set-rail-i' + (on ? ' on' : '') + (filtering && !hits.length ? ' dim' : '')
+            + '" href="#" data-nav="' + window.esc(id) + '" title="' + window.esc(navTitleOf(c)) + '">'
+            + '<span class="set-rail-n">' + window.esc(navTitleOf(c)) + '</span>'
+            + '<span class="set-rail-lead"></span>'
+            + '<span class="set-rail-v">' + window.esc(navValueOf(id)) + '</span></a>';
+        });
+      });
+      box.innerHTML = html;
+      /* 点哪一行 → 右栏平滑滚到那一张卡（走本页唯一的滚动出口 scrollToEl）。
+         筛选期间点的是没命中的那一行 → 先把筛选撤了再滚过去（否则滚过去看不见）。
+         这一栏在收着的组里（本机维护默认收着）→ 先展开再滚过去；
+         展开这一下**不写盘**（openFold 走的是程序化展开，见 initFolds）。 */
+      box.querySelectorAll('.set-rail-i').forEach(el => {
+        el.onclick = e => {
+          e.preventDefault();
+          const id = el.getAttribute('data-nav') || '';
+          if (el.classList.contains('dim')) { setQ.value = ''; syncNav(); }
+          const doc = setDocEl.value;
+          const card = doc ? doc.querySelector('.card[data-nav="' + id + '"]') : null;
+          setCurNav(id);
+          if (!card) return;
+          const sec = card.closest('.set-group');
+          if (sec) openFold(sec);
+          requestAnimationFrame(() => scrollToEl(card));
+        };
+      });
+    }
+    /* 滚动时只换高亮，不重画整棵树（重画会把滚动位置与展开状态弄丢）。 */
+    function markCurRail(id) {
+      const box = setRailEl.value;
+      if (!box) return;
+      box.querySelectorAll('.set-rail-i').forEach(el => {
+        el.classList.toggle('on', el.getAttribute('data-nav') === id);
+      });
+    }
+    /* 底部那一行：现在在第几项（在一条 8000px 的文档里，「我在哪」得一直看得见）。 */
+    function updatePos() {
+      const rows = navRows();
+      const i = rows.findIndex(c => (c.dataset.nav || '') === curNavId);
+      navPos.value = i < 0 ? '' : ('第 ' + (i + 1) + ' / ' + rows.length + ' 项 · ' + navTitleOf(rows[i]));
+    }
+    function setCurNav(id) {
+      if (id === curNavId) return;
+      curNavId = id;
+      markCurRail(id);
+      updatePos();
+    }
+
+    /* 这一页**唯一**的滚动出口（目录轨跳转、搜索命中、打开自定义供应商卡都走它）：
+       右边那条文档自己滚（.set-doc-scroll），卡顶要停在**钉住的组标题**下面，
+       靠的是 CSS 里那条 scroll-margin-top = --setanchor（组标题多高就让多少）。
+       命中行（.krow / .sub …）根本不带那条 margin —— 按旧高度算出来的位置就差那一截。
+       所以先重测高度再滚，并在滚动落定后补一次校正：
        折叠里那几栏的行是异步补出来的（体检 / 用量 / 清单行），高度会在滚动途中变。
        跳转途中 scrollHolding 挂起滚动跟随（onScrollNav），落定才交还 —— 不然平滑滚动路过
-       上一组时，事件会把点完的 curGroup 与二级行改回去，一闪再闪。
-       ⚠ 别再在这一页写第二处裸 `scrollIntoView`：那一种滚法不给 sticky 导航让位，也不会补校正。 */
+       上一组时，事件会把点完的那一行改回去，一闪再闪。
+       ⚠ 别再在这一页写第二处裸 `scrollIntoView`：那一种滚法不给钉住的组标题让位，也不会补校正。 */
+    function anchorH() {
+      const doc = setDocEl.value;
+      if (!doc) return 44;
+      const hs = doc.querySelectorAll('.set-group-h');
+      let h = 0;
+      hs.forEach(x => { const r = x.getBoundingClientRect(); if (r.height > h) h = r.height; });
+      return Math.round(h) + 14;
+    }
+    function setDocAnchor() {
+      const doc = setDocEl.value;
+      if (!doc) return;
+      doc.style.setProperty('--setanchor', anchorH() + 'px');
+    }
     function scrollToEl(el, block) {
-      const root = rootEl.value;
-      if (!root || !el) return;
+      const doc = setDocEl.value;
+      if (!doc || !el) return;
       scrollHolding = true;
-      setNavH();
+      setDocAnchor();
       el.scrollIntoView({ block: block || 'start', behavior: 'smooth' });
       let tries = 0;
       if (settleTimer) clearTimeout(settleTimer);
       settleTimer = setTimeout(settleJump, 520);
       function settleJump() {
         settleTimer = 0;
-        if (!rootEl.value) { scrollHolding = false; return; }
-        if (!el.isConnected) { scrollHolding = false; navFollow(); return; }
-        setNavH();
-        const r = el.getBoundingClientRect(), rr = root.getBoundingClientRect();
-        const navH = setNavEl.value ? setNavEl.value.getBoundingClientRect().height : 0;
-        const want = block === 'center' ? Math.round(rr.height / 2) : Math.round(navH + 14);
+        if (!setDocEl.value || !el.isConnected) { scrollHolding = false; navFollow(); return; }
+        setDocAnchor();
+        const r = el.getBoundingClientRect(), rr = doc.getBoundingClientRect();
+        const want = block === 'center' ? Math.round(rr.height / 2) : anchorH();
         if (Math.abs((r.top - rr.top) - want) > 10) {
           /* 补校正也是平滑滚，落定再验一遍；最多补三回，用户中途抢滚就不拉扯了。 */
           if (++tries > 3) { scrollHolding = false; navFollow(); return; }
-          root.scrollTo({ top: root.scrollTop + (r.top - rr.top) - want, behavior: 'smooth' });
+          doc.scrollTo({ top: doc.scrollTop + (r.top - rr.top) - want, behavior: 'smooth' });
           settleTimer = setTimeout(settleJump, 520);
           return;
         }
@@ -3687,52 +3906,6 @@ const SettingsView = {
     function openFold(sec) {
       if (!sec || !sec.classList.contains('foldable')) return;
       if (sec._foldSet) sec._foldSet(true); else sec.classList.add('open');
-    }
-    /* 组锚点：一共 5 颗。筛选时芯片后面的数字是这一组命中几行。 */
-    function paintChips(secs, groupHits, filtering) {
-      if (!setChipsEl.value) return;
-      const sig = secs.map(s => s.dataset.group + ':' + (groupHits[s.dataset.group] || 0)).join('|');
-      if (sig === navSig) return;
-      navSig = sig;
-      window.Chips.render(setChipsEl.value, secs.map(s => [s.dataset.group, groupNameOf(s)]), curGroup,
-        gid => {
-          const sec = secs.find(s => s.dataset.group === gid);
-          if (!sec) { Toast.err('这一组刚被移走了，滚一下重画后再试'); return; }
-          openFold(sec);
-          curGroup = gid;
-          paintSubChips(sec);
-          paintChipOn();
-          scrollToEl(sec);
-        },
-        {
-          cls: 'set-chip',
-          count: filtering ? (gid => groupHits[gid] || 0) : null,
-          title: gid => {
-            const sec = secs.find(s => s.dataset.group === gid);
-            return groupNameOf(sec) + '：' + (sec ? cardsOf(sec).map(navTitleOf).join('、') : '');
-          },
-        });
-    }
-    /* 二级行：当前这一组的栏目标题（点它滚到那张卡）。 */
-    function paintSubChips(sec) {
-      const box = setSubEl.value;
-      if (!box) return;
-      const cards = sec ? cardsOf(sec) : [];
-      const filtering = !!(setQ.value || '').trim();
-      const sig = (sec ? sec.dataset.group : '-') + '|'
-        + cards.map(c => navTitleOf(c) + ':' + (filtering ? (cardHits.get(c) || []).length : 0)).join('|');
-      if (sig === navSubSig) return;
-      navSubSig = sig;
-      if (!cards.length) { box.innerHTML = ''; box.hidden = true; return; }
-      box.hidden = false;
-      window.Chips.render(box, cards.map((c, i) => [String(i), navTitleOf(c)]), '',
-        i => {
-          const el = cards[+i];
-          if (!el) return;
-          if (el.classList.contains('set-off')) { setQ.value = ''; syncNav(); }
-          scrollToEl(el);
-        },
-        { cls: 'set-chip set-chip-sub', count: filtering ? (i => (cardHits.get(cards[+i]) || []).length) : null });
     }
     /* 搜的是这一行里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容。 */
     const hayOf = c => ((c.textContent || '') + ' '
@@ -3767,22 +3940,6 @@ const SettingsView = {
         h.appendChild(el);
       }
     }
-    /* 命中也可能落在**没画出来的行**上：「供应商与密钥」那张卡里，语音识别 / 联网搜索两块靠
-       分段开关切显隐（v-show），字在 DOM 里、屏幕上没有。按回车滚到那样一行时落点被夹回页面顶，
-       用户看见的是「什么都没发生」。口径：计数照实算（那一段确实写着这些字），
-       跳转只滚到**画得出来的第一处**，并把另外几行所在的档点名说出去 ——
-       不替用户偷偷切档（`sk_prov_tab` 是要落盘的界面偏好，为了跳过去不该改它）。 */
-    const painted = el => !!el && el.offsetParent !== null;
-    function hitSecName(el) {
-      const sec = el.closest ? el.closest('.prov-sec') : null;
-      const h = sec && sec.querySelector('.prov-sec-h');
-      return h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
-    }
-    /* 命中的行都在这儿：画得出来的、藏在没打开的档里的，分开数。 */
-    function hitSplit() {
-      const all = qa('.set-hit');
-      return { all, shown: all.filter(painted), hidden: all.filter(el => !painted(el)) };
-    }
     function syncNav() {
       const secs = groupEls();
       const terms = (setQ.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -3807,40 +3964,36 @@ const SettingsView = {
         if (gRows) openFold(sec);
         hitRows += gRows;
       });
-      if (!curGroup || !secs.some(s => s.dataset.group === curGroup)) curGroup = secs.length ? secs[0].dataset.group : '';
-      paintChips(secs, groupHits, filtering);
-      paintSubChips(secs.find(s => s.dataset.group === curGroup));
       navHasFilter.value = filtering;
       navSumErr.value = filtering && !hitRows;
-      const total = navCards().length;
-      const split = filtering ? hitSplit() : null;
-      const offNames = split ? [...new Set(split.hidden.map(hitSecName).filter(Boolean))] : [];
+      const total = navRows().length;
+      navSumShort.value = !filtering
+        ? (secs.length + ' 组 · ' + total + ' 项')
+        : ('「' + terms.join(' ') + '」命中 ' + hitRows + ' 行 · ' + hitCards + ' / ' + total + ' 项');
       navSum.value = !filtering
-        ? ('共 ' + secs.length + ' 组 / ' + total + ' 栏 · 点组名跳到那一组，下面那一排是这一组里的栏目；也可以输入关键词直接命中到行')
-        : ('「' + terms.join(' ') + '」命中 ' + hitRows + ' 行（在 ' + hitCards + ' / ' + total + ' 栏里）'
-          + (hitRows
-            ? (split.shown.length
-              ? '，按回车跳到第一处；组名后面的数字是这一组命中几行，其余栏目先收起来'
-                + (offNames.length ? '（其中 ' + split.hidden.length + ' 行在没打开的一档里：'
-                  + offNames.join(' / ') + ' —— 点上面那一档才看得见）' : '')
-              : ' —— 这些行都在没打开的一档里：' + offNames.join(' / ') + '，点上面那一档才看得见')
-            : ' —— 这一页没有含这些词的行。换个说法试试（密钥 / 地址 / 目录 / 分页 / 润色 / 备份 / 缓存），'
-              + '或者问右下角的 AI 助手这一项在哪一栏'));
+        ? ('左边点一项，右边滚到那一处 —— 滚过去哪一项，那一项就亮着。也可以直接输入关键词，命中落到行。')
+        : ('「' + terms.join(' ') + '」命中 ' + hitRows + ' 行（在 ' + hitCards + ' / ' + total + ' 项里）'
+          + (hitRows ? '，按回车跳到第一处' : ' —— 这一页没有含这些词的行。换个说法试试（密钥 / 地址 / 目录 / 分页 / 润色 / 备份 / 缓存）'));
+      paintRail();
+      navFollow();
     }
     function clearNav() {
       setQ.value = '';
       syncNav();
       if (setQEl.value) setQEl.value.focus();
     }
-    /* 回车滚到第一处**画得出来的**命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。 */
+    /* 回车滚到第一处**画得出来的**命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。
+       命中可能落在**没打开的一档**里（语音识别 / 联网搜索那两档靠分段开关切显隐）：
+       字在 DOM 里、屏幕上没有，滚过去看不见 —— 那种不跳，改成把那一档点名说出去
+       （左边目录轨上那两行直达它：点一下就切到那一档）。 */
     function gotoFirstHit() {
-      const split = hitSplit();
-      const first = split.shown[0];
+      const all = qa('.set-hit');
+      const first = all.filter(painted)[0];
       if (!first) {
-        if (split.all.length) {
-          const names = [...new Set(split.all.map(hitSecName).filter(Boolean))];
-          Toast.warn('这一轮命中的 ' + split.all.length + ' 行都在没打开的一档里：'
-            + (names.join(' / ') || '收着的那一段') + '，点上面那一档再跳');
+        if (all.length) {
+          const names = [...new Set(all.map(hitSecName).filter(Boolean))];
+          Toast.warn('这一轮命中的 ' + all.length + ' 行都在没打开的一档里：'
+            + (names.join(' / ') || '收着的那一段') + '，点左边对应那一行就切过去了');
         } else if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
         return;
       }
@@ -3857,35 +4010,41 @@ const SettingsView = {
       if (e.key === 'Escape') { setQ.value = ''; syncNav(); return; }
       if (e.key === 'Enter') { e.preventDefault(); gotoFirstHit(); }
     }
-    /* 滚到哪儿，二级行就跟着换成哪一组的标题（上面那排组锚点也跟着挪亮）。
-       判定线要落在「跳转落点」下面：点锚点滚完，组顶正好停在 scroll-margin 那条线
-       （spa-settings.css：--setnavh + --sp-14），也就是导航底下 14px。线只加 8px 时
-       刚跳到的那组顶永远比线低 6px —— 落定的滚动事件把它判回上一组，二级行与锚点
-       高亮要再往下滚一点才翻过来（2026-10-21 报告）。margin 里含导航高，减回去才是
-       导航底下的空档；再放宽 12px，兜住 scrollToEl 落定补校正的 ±10 容差。 */
-    function activeGroup() {
-      const secs = groupEls();
-      if (!secs.length) return null;
-      const nav = setNavEl.value;
-      const navB = nav ? nav.getBoundingClientRect().bottom : 0;
-      const navH = nav ? nav.getBoundingClientRect().height : 0;
-      const margin = parseFloat(getComputedStyle(secs[0]).scrollMarginTop) || 0;
-      const line = navB + Math.max(8, margin - navH + 12);
-      let best = secs[0];
-      secs.forEach(s => { if (s.getBoundingClientRect().top <= line) best = s; });
+    /* 画不出来的行（hidden 的那一块）不算命中点 —— 按回车跳到那样一行时落点被夹回页面顶，
+       用户看见的是「什么都没发生」。口径：计数照实算，跳转只滚到**画得出来的第一处**。 */
+    const painted = el => !!el && el.offsetParent !== null;
+    /* 命中行所在的档名（藏在没打开的那一档里的行，回报时说清是哪一档）。 */
+    function hitSecName(el) {
+      const sec = el.closest ? el.closest('.prov-sec') : null;
+      const h = sec && sec.querySelector('.prov-sec-h');
+      return h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
+    }
+    /* 滚到哪儿，目录轨就亮哪一项：拿视口上三分之一那条线当锚点 ——
+       锚点落在哪张卡里就亮哪张；正好在两张卡之间（组标题那一段）就亮刚过去的那张。
+       滚到底了：最后一张卡算当前（否则最后一栏永远亮不到）。 */
+    function activeCard() {
+      const doc = setDocEl.value;
+      if (!doc) return null;
+      const rows = navCards().filter(c => c.dataset && c.dataset.nav);
+      if (!rows.length) return null;
+      const dr = doc.getBoundingClientRect();
+      const line = dr.top + Math.min(180, Math.round(doc.clientHeight * 0.32));
+      let best = null;
+      for (const c of rows) {
+        const r = c.getBoundingClientRect();
+        if (r.top <= line) best = c; else break;
+      }
+      if (doc.scrollTop + doc.clientHeight >= doc.scrollHeight - 6) best = rows[rows.length - 1];
       return best;
     }
-    function paintChipOn() {
-      if (!setChipsEl.value) return;
-      [...setChipsEl.value.querySelectorAll('.chip')].forEach(b => b.classList.toggle('on', b.dataset.v === curGroup));
-    }
-    /* 按当前滚动位置改判一次活动组（滚动事件与程序化跳转落定共用这一份）。 */
+    /* 按当前滚动位置改判一次（滚动事件与程序化跳转落定共用这一份）。
+       ⚠ 跳转途中（scrollHolding）不许改判 —— 平滑滚动路过的那几栏会把刚点的那一行改回去，
+       一闪再闪。落定之后 settleJump 交还 scrollHolding 再判一次，那一次才是真的。 */
     function navFollow() {
-      const sec = activeGroup();
-      if (!sec || sec.dataset.group === curGroup) return;
-      curGroup = sec.dataset.group;
-      paintSubChips(sec);
-      paintChipOn();
+      if (scrollHolding) return;
+      const c = activeCard();
+      if (!c) return;
+      setCurNav(c.dataset.nav || '');
     }
     function onScrollNav() {
       if (navScrollQueued || scrollHolding) return;
@@ -3895,20 +4054,29 @@ const SettingsView = {
       });
     }
     function setupNav() {
-      setNavH();
-      if (setNavEl.value && window.ResizeObserver) { navRO = new ResizeObserver(setNavH); navRO.observe(setNavEl.value); }
-      window.addEventListener('resize', setNavH);
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(setNavH).catch(() => {});
-      if (rootEl.value) rootEl.value.addEventListener('scroll', onScrollNav, { passive: true });
-      /* 两类变化都要跟着重算：① 某一栏被页面自己临时打开 / 收起（hidden 一变，芯片就该变）；
-         ② 栏里的行是异步补出来的（体检、用量、供应商卡、清单行）—— 命中数与底色得跟上。
-         自己刚写进去的那几处（.set-nav 里的芯片、卡标题上那枚命中数）不算「页面变了」，否则就是自己勾自己。 */
+      setDocAnchor();
+      const doc = setDocEl.value;
+      if (doc) {
+        doc.addEventListener('scroll', onScrollNav, { passive: true });
+        /* 组标题那几行的高度会随窗口宽度变（说明那一行折行）—— 停靠位跟着它挪。 */
+        if (window.ResizeObserver) {
+          navRO = new ResizeObserver(() => { setDocAnchor(); });
+          doc.querySelectorAll('.set-group-h').forEach(h => {
+            try { navRO.observe(h); } catch (e) { /* 观察不了就罢了：停靠位退回初始值 44px */ }
+          });
+        }
+      }
+      window.addEventListener('resize', setDocAnchor);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(setDocAnchor).catch(() => {});
+      /* 两类变化都要跟着重算：① 某一栏被页面自己临时打开 / 收起（hidden 一变，目录就该变）；
+         ② 栏里的行是异步补出来的（体检、用量、供应商卡、清单行）—— 命中数、值速记与底色得跟上。
+         自己刚写进去的那几处（目录轨、卡标题上那枚命中数）不算「页面变了」，否则就是自己勾自己。 */
       try {
         const main = rootEl.value;
         navMO = new MutationObserver(ms => {
           if (!ms.some(x => {
             const t = x.target;
-            return !!t && t.nodeType === 1 && !(t.closest && (t.closest('.set-nav') || t.closest('.set-hcnt')));
+            return !!t && t.nodeType === 1 && !(t.closest && (t.closest('.set-rail') || t.closest('.set-hcnt')));
           })) return;
           clearTimeout(navQueued);
           navQueued = setTimeout(syncNav, 120);
@@ -3958,7 +4126,6 @@ const SettingsView = {
       initCloud();
       renderPageSettings();
       renderUiPrefs();
-      renderCharsSet();
       initPromptArchive();
       initTextForm();
       paintSkillChips();
@@ -3977,6 +4144,9 @@ const SettingsView = {
       setupNav();
       try { if (window.TextAI) await TextAI.warm(await Api.registry()); } catch (e) {}
       await loadReg();
+      /* 「素材库」那张卡里有两行**型号下拉**：型号清单来自注册表，
+         所以这一张卡必须等 loadReg() 之后才画（早画就是一个空下拉）。 */
+      renderCharsSet();
       loadAsr();
       loadSearch();
       ready.value = true;
@@ -3984,7 +4154,8 @@ const SettingsView = {
     });
     onBeforeUnmount(() => {
       if (rootEl.value) rootEl.value.removeEventListener('change', onRootChange);
-      window.removeEventListener('resize', setNavH);
+      if (setDocEl.value) setDocEl.value.removeEventListener('scroll', onScrollNav);
+      window.removeEventListener('resize', setDocAnchor);
       if (navRO) { try { navRO.disconnect(); } catch (e) {} navRO = null; }
       if (navMO) { try { navMO.disconnect(); } catch (e) {} navMO = null; }
       clearTimeout(navQueued);
@@ -4000,7 +4171,8 @@ const SettingsView = {
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
       rootEl, failed, ready,
-      setNavEl, setQEl, setChipsEl, setSubEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
+      setRailEl, setDocEl, setQEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
+      navSumShort, navPos,
       saveText, saveKind,
       provTabsEl, provTabView, provSumText, provSumErr, provListEl, openCus,
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,

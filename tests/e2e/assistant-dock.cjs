@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* 助手的两档摆法：
-   · 缺省 = 浮层（贴着悬浮球的小浮窗，宽高可拖、可拖走；拖走后不再跟球）；
+   · 缺省 = 浮层（贴着悬浮球的小浮窗，宽高可拖；**只能随球一起挪** ——
+     拖标题栏挪的是球，浮窗永远贴着球，没有「拖走就不再跟」这回事）；
    · 点「固定到右侧」= 页面让出右边那一条，面板撑满一列（球让位、没有下沿把手）。
    偏好只在本机（ai_chat_dock），窄于 900px 时固定档退回浮层、偏好不改。 */
 'use strict';
@@ -131,9 +132,8 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(Number(afterH.storedH) === afterH.panelH, '调高没落进 ai_chat_h：' + afterH.storedH + ' / ' + afterH.panelH);
     must(inView(afterH), '调高后浮窗越出视口：' + JSON.stringify(afterH));
 
-    /* 5) 球动了浮窗跟着（还没拖走过，没有 ai_chat_fxy） */
+    /* 5) 球动了浮窗跟着 */
     const b0 = await layout();
-    must(b0.fxy == null, '还没拖浮窗就写下了 ai_chat_fxy：' + b0.fxy);
     await ptr('#acBall', -90, -70);
     await h.sleep(120);
     const b1 = await layout();
@@ -142,7 +142,8 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(nearBall(b1), '跟着球之后浮窗没贴住球：' + JSON.stringify({ gap: gapOf(b1), b1 }));
     must(inView(b1), '跟球后浮窗越出视口：' + JSON.stringify(b1));
 
-    /* 6) 拖走浮窗：记 ai_chat_fxy，此后球再动它也不动 */
+    /* 6) 拖浮窗标题栏 = 挪这一组：球跟着走，浮窗**仍然贴着球**，
+          而且没有「脱离」这回事 —— 之后再拖球，浮窗照样跟。 */
     const p0 = await layout();
     await ptr('.ac-hd', -120, 80);
     /* 真实浏览器在 pointerup 后会补发一枚 click（拖完那一下由面板吃掉）；合成的 PointerEvent 不会，
@@ -150,27 +151,23 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     await page.eval(() => document.querySelector('.ac-hd').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
     await h.sleep(120);
     const p1 = await layout();
-    must(p1.fxy != null, '拖走浮窗后没记 ai_chat_fxy：' + p1.fxy);
-    must(p1.panelLeft !== p0.panelLeft || p1.panelTop !== p0.panelTop,
-      '拖标题栏没挪动浮窗：' + JSON.stringify({ p0, p1 }));
+    must(p1.ballLeft !== p0.ballLeft || p1.ballTop !== p0.ballTop,
+      '拖标题栏没挪动这一组（球该跟着走）：' + JSON.stringify({ p0, p1 }));
+    must(nearBall(p1), '拖完之后浮窗没贴住球：' + JSON.stringify({ gap: gapOf(p1), p1 }));
     must(p1.open && !p1.dock, '拖浮窗时把它关掉或切档了：' + JSON.stringify({ p1 }));
     must(inView(p1), '拖走后浮窗越出视口：' + JSON.stringify(p1));
+    must(p1.fxy == null, '不该再有「浮窗被拖走」这个标记（浮窗不再能脱离球）：' + p1.fxy);
+
+    /* 之后再拖球：浮窗**仍然**跟着（没有「拖走过就不跟」这回事了） */
     const p2 = await layout();
     await ptr('#acBall', 60, -40);
     await h.sleep(120);
     const p3 = await layout();
     must(p3.ballLeft !== p2.ballLeft || p3.ballTop !== p2.ballTop, '第二次拖球没动：' + JSON.stringify({ p2, p3 }));
-    must(p3.panelLeft === p2.panelLeft && p3.panelTop === p2.panelTop,
-      '浮窗已经拖走却还跟着球：' + JSON.stringify({ p2, p3 }));
-
-    /* 删掉 ai_chat_fxy = 回到跟球：球再动，浮窗重新贴上去 */
-    await page.eval(() => localStorage.removeItem('ai_chat_fxy'));
-    await ptr('#acBall', -40, -20);
-    await h.sleep(120);
-    const p4 = await layout();
-    must(p4.panelLeft !== p3.panelLeft || p4.panelTop !== p3.panelTop,
-      '清掉 ai_chat_fxy 后浮窗没有回到跟球：' + JSON.stringify({ p3, p4 }));
-    must(nearBall(p4), '重新跟球后没贴住球：' + JSON.stringify({ gap: gapOf(p4), p4 }));
+    must(p3.panelLeft !== p2.panelLeft || p3.panelTop !== p2.panelTop,
+      '球动了浮窗却不跟（浮窗只能随球拖动）：' + JSON.stringify({ p2, p3 }));
+    must(nearBall(p3), '重新跟球后没贴住球：' + JSON.stringify({ gap: gapOf(p3), p3 }));
+    must(inView(p3), '跟球后浮窗越出视口：' + JSON.stringify(p3));
 
     /* 7) 刷新后仍按偏好打开：先切回固定（偏好=1），刷新，再打开仍是固定 */
     await toggle();

@@ -8,35 +8,82 @@
 .fav-page .toolbar input[type=search] { flex: 0 1 320px; }
 .fav-page .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 
+/* 平台 + 时间（与资产库一样的两种）+ 摆法 */
+.fav-page .fav-filters { display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap; margin: 0 0 var(--sp-14); }
+.fav-page .fav-sel { display: inline-flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-12); color: var(--sub); }
+
 /* 卡片列宽收成两档（--sz-card / --sz-card-sm）：收藏 / 素材库 / 资产库 / 工作台
-   以前各写各的（268 / 220 / 200 / 180 / 150），切页时卡片密度忽宽忽窄。 */
-.fav-page .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr)); gap: var(--sp-16); }
-.fav-page .grid.view-compact { gap: var(--sp-10); }
+   以前各写各的（268 / 220 / 200 / 180 / 150），切页时卡片密度忽宽忽窄。
+   **显式分行**：紧凑档（网格）里展开的内容要插在它那一行的下面，
+   所以这一档必须先分好组 —— 一行几格由 JS 算出来写进 --fav-cols，两边共用一个数。 */
+.fav-page .grid { --fav-cols: 1; display: flex; flex-direction: column; gap: var(--sp-10); }
+.fav-page .fav-row { display: grid; grid-template-columns: repeat(var(--fav-cols), minmax(0, 1fr)); gap: var(--sp-10); }
+.fav-page .grid.view-list .fav-row { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 760px) {
-  .fav-page .grid.view-compact { grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); gap: var(--sp-12); }
+  .fav-page .grid.view-compact .fav-row { gap: var(--sp-8); }
   .fav-page .grid.view-list .card .thumb { width: 108px; flex-basis: 108px; height: 78px; }
 }
 
 .fav-page .card { overflow: hidden; position: relative; }
 /* 缩略图那一格的壳在公共层（.card-shell-media）；这一页只留自己的差异：图**完整显示**不裁。 */
 .fav-page .card .thumb img, .fav-page .card .thumb video { width: 100%; height: 100%; object-fit: contain; background: var(--media-bg); display: block; }
-.fav-page .card .thumb .audio { display: flex; flex-direction: column; align-items: center; gap: var(--sp-6); color: var(--sub); font-size: var(--fs-12); }
+/* 状态牌：这一格没有画面、但有话要说（公共件 .plate）——音频 / 文件 / 还没拿到地址的那几条。 */
+.fav-page .card .thumb .plate { gap: var(--sp-3); }
+.fav-page .card .thumb .plate-t { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fav-page .card .body { padding: var(--sp-7) var(--sp-9) var(--sp-9); }
 .fav-page .card .t { font-size: var(--fs-12); line-height: 1.5; margin-bottom: var(--sp-4); word-break: break-word; cursor: zoom-in;
   -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .fav-page .card .m { font-size: var(--fs-11-5); color: var(--sub); }
-.fav-page .card .note { margin-top: var(--sp-8); }
-.fav-page .card .note textarea { width: 100%; min-height: 34px; max-height: 90px; resize: vertical; font-size: var(--fs-12); line-height: 1.5;
-  padding: var(--sp-5) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input); color: var(--txt);
-  font-family: inherit; outline: none; }
-.fav-page .card .note textarea:focus { border-color: var(--acc); }
+/* 备注：在这一页最要紧（产品自己的 AI 挑素材规则：备注 > 名称 > 类型）——
+   所以它排在标题**上面**，做成一条带子（左边一道强调色竖条），就地可编辑。
+   没写的那几条留一条虚线空位 —— 空着也是一条信息。 */
+.fav-page .card .note { margin: 0 0 var(--sp-6); }
+.fav-page .card .note textarea { width: 100%; min-height: 20px; max-height: 90px; resize: vertical;
+  font-size: var(--fs-12); line-height: 1.5; padding: var(--sp-1) var(--sp-8);
+  border: 0; border-left: var(--accent-bar) solid var(--acc); border-radius: 0;
+  background: transparent; color: var(--txt); font-family: inherit; outline: none; }
+.fav-page .card .note textarea:focus { background: var(--acc-tint-10); }
+.fav-page .card .note textarea::placeholder { color: var(--sub); opacity: .75; }
+.fav-page .card .note.empty::before { content: "＋ 写备注（这条素材是干什么用的）";
+  display: block; font-size: var(--fs-11-5); color: var(--sub);
+  border-left: var(--hair) dashed var(--line); padding: var(--sp-1) var(--sp-8); }
+.fav-page .card .note.empty textarea { position: absolute; inset: 0; height: 100%; opacity: 0; cursor: text; }
 .fav-page .card .acts { margin-top: var(--sp-10); }
+.fav-page .card .acts .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-12); border-radius: var(--radius-6); }
+.fav-page .card .acts .fav-open { color: var(--acc); }
 /* 拖文件进来时那个虚框盖在整份文档上（favorites 的监听挂在 document 上） */
 body.drop { outline: var(--hair-2) dashed var(--acc); outline-offset: calc(-1 * var(--hair-6)); }
+.fav-page .card.is-open { border-color: var(--acc); box-shadow: var(--shadow-2); }
+/* 详情就地展开（公共件 .exp）：展开的东西还在这张卡原来的位置上。 */
+/* 详情就地展开（公共件 .exp）：展开的东西还在这张卡原来的位置上。
+   详情那一段的宿主有两处：清单档在卡里、紧凑档在行下面那条带子里 —— 两处都要画出来
+   （公共层 .cdet 默认 display:none）。 */
+.fav-page .card .cdet, .fav-page .band .cdet { display: block; margin: 0; padding: 0; border: 0; background: none;
+  font-size: var(--fs-12-5); color: var(--sub); }
+.fav-page .card .cdet .det-body, .fav-page .band .cdet .det-body {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--sp-8) var(--sp-16); }
+.fav-page .card .cdet .det-row, .fav-page .band .cdet .det-row {
+  flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.fav-page .card .cdet .det-row .k, .fav-page .band .cdet .det-row .k { flex: 0 0 auto; }
+.fav-page .card .cdet .det-row > span:last-child,
+.fav-page .band .cdet .det-row > span:last-child { color: var(--txt); }
 
+/* 列表档：一条一条读下去（与资产库的横排任务卡同一个方向）
+   那一格**裁成 16:9 铺满**（不裁的话，9:16 的竖图塞进横框只剩中间一条，两边全是黑）；
+   要认的取舍：那一格的作用是「认得出是哪一条」，看整张图是灯箱的事。 */
+.fav-page .grid.view-list { gap: var(--sp-10); }
 .fav-page .grid.view-list .card { display: flex; align-items: stretch; }
-.fav-page .grid.view-list .card .thumb { width: 168px; height: 104px; flex: 0 0 168px; border-right: var(--hair) solid var(--line); }
-.fav-page .grid.view-list .card .body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: var(--sp-10) var(--sp-12) var(--sp-12); }
+.fav-page .grid.view-list .card .thumb { width: 168px; height: 94px; flex: 0 0 168px; border-right: var(--hair) solid var(--line); }
+.fav-page .grid.view-list .card .thumb img, .fav-page .grid.view-list .card .thumb video { object-fit: cover; }
+.fav-page .grid.view-list .card .body { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: var(--sp-10) var(--sp-12) var(--sp-12); }
 .fav-page .grid.view-list .card .t { font-size: var(--fs-13-5); -webkit-line-clamp: unset; display: block; overflow: visible; }
-.fav-page .grid.view-list .card .m, .fav-page .grid.view-list .card .note { display: block; }
-.fav-page .grid.view-list .card .acts { display: flex; }
+.fav-page .grid.view-list .card .m { display: block; }
+.fav-page .grid.view-list .card .acts { display: flex; margin-top: var(--sp-8); }
+/* 紧凑档（网格）：格子小，画面**完整显示不裁**（这一档是「扫一眼认人」）。 */
+.fav-page .grid.view-compact .card .card-shell-media { height: 112px; }
+.fav-page .grid.view-compact .card .card-shell-body { padding: var(--sp-7) var(--sp-9) var(--sp-9); }
+.fav-page .grid.view-compact .card .t { font-size: var(--fs-11-5); -webkit-line-clamp: 1; }
+.fav-page .grid.view-compact .card .note textarea { font-size: var(--fs-11); }
+/* 紧凑档里格子不展开：展开的内容落在行下面那条带子上（.band）。 */
+.fav-page .grid.view-compact .card .exp { display: none; }
+.fav-page .grid.view-compact .card.is-open { border-color: var(--acc); }

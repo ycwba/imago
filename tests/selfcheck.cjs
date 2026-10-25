@@ -51,8 +51,13 @@ group('§2 旧页面退场');
 const GONE = ['director.html', 'favorites.html', 'usage.html', 'assets.html', 'settings.html', 'chars.html', 'studio.html'];
 for (const f of GONE) ok(f + ' 已删除', !fs.existsSync(path.join(root, f)));
 const proxy = read('server/app.js') + read('server/routes/static.js') + read('server/routes/local-assets.js');
+const routesSrc2 = read('web/core/routes.js');
+/* 2026-10-25 起服务端的 302 表从客户端路由表**现派生**（server/routes/static.js 的 deriveSpaRedirect，
+   「路由表只有 web/core/routes.js 一份」）—— 静态源码里不再有那张字面量表，这里改查两端：
+   static.js 还在派生（而不是又抄了一份回去），routes.js 的 pages / alias 里点得到这些地址。 */
+ok('代理的 302 表从客户端路由表现派生', /deriveSpaRedirect/.test(proxy) && /WB_ROUTES/.test(proxy));
 for (const f of ['/favorites.html', '/usage.html', '/assets.html', '/settings.html', '/chars.html', '/studio.html', '/roles.html', '/video.html', '/image.html', '/audio.html']) {
-  ok('代理给旧地址 ' + f + ' 留了重定向', proxy.includes("'" + f + "'"));
+  ok('代理给旧地址 ' + f + ' 留了重定向', routesSrc2.includes("'" + f.slice(1) + "'"));
 }
 ok('重定向到 shell.html 的 hash', /Location:\s*'\/shell\.html#'/.test(proxy));
 const redirAt = proxy.indexOf('SPA_REDIRECT[');
@@ -136,8 +141,11 @@ ok('decorate 与 twinOf 都走 mirrorOf', /mirrorOf\(e,\s*!!\(opts && opts\.allo
   && /mirrorOf\(e,\s*false\)/.test(al));
 ok('本机/云端状态只有 stateOf 一份出口', /function\s+stateOf\s*\(/.test(al)
   && /hasLocal,\s*hasCloud,\s*stateOf/.test(al));
-ok('三个页面的卡片标识都读 stateOf', ['web/pages/assets.js', 'web/pages/favorites.js', 'web/pages/studio.js']
-  .every(f => read(f).includes('stateOf')));
+/* 画「本机 / 云端」徽标的页（资产库 / 工作台）都读 stateOf —— 那一档的身份只有一份出口。
+   收藏页**不画**这一档徽标（那一页不显示本机 / 云端 / 只剩外链），所以它不读 stateOf。 */
+ok('画本机/云端徽标的两页都读 stateOf（收藏页不画这一档）',
+  ['web/pages/assets.js', 'web/pages/studio.js'].every(f => read(f).includes('stateOf'))
+  && !/stateOf/.test(read('web/pages/favorites.js')));
 ok('镜像落盘带平台产物号（多图逐份认回）', /asset:\s*\(ent && ent\.assetId\)/.test(al));
 ok('整表合并按产物数决定能否按任务号认', /outCount/.test(al) && /allowGen/.test(al));
 group('§6b 本机优先判据的接线（local-first 由 all.cjs 独立跑，这里验接线不重跑）');
@@ -193,19 +201,41 @@ ok('发给模型前抹掉密钥形状', /chat\/text-util\.js/.test(chat) && /red
 ok('当前界面快照带时间线只读上下文', /WBBridge\.get\('director'\)/.test(read('web/core/page-context.js')));
 
 /* ---------- 8. 素材库：体检 / 批量 / 锚点 / 视觉相似 ---------- */
-group('§8 素材库（体检 / 批量 / 锚点 / 相似）');
+group('§8 素材库（缺口档 / 批量 / 锚点 / 相似）');
 const charsJs = read('web/domain/chars.js');
 const charsPage = read('web/pages/chars.js');
+/* 详情层（新建 / 编辑一条素材）是素材库页的一部分，单独一个文件 —— 判据要连它一起读。 */
+const charsDetail = read('web/pages/chars/detail.js');
 ok('身份锚点只有一份读法 refPicOf', /function refPicOf\(/.test(charsJs)
   && /anchor: keep\(char\.anchor/.test(charsJs));
 ok('出资产与重出预览都走锚点', /const base = refPicOf\(item\)/.test(charsJs)
   && /const anchor = String\(item\.anchor/.test(charsJs) && /inputEntries: inputEntries/.test(charsJs));
 ok('导演台取参考图也走锚点', /refPicOf/.test(frag));
-ok('素材库有体检与「还没有描述」缺口', /char-health/.test(read('tools/vue-templates/chars.html')) && /nodesc/.test(charsPage));
+ok('素材库有「还缺什么」缺口档与「还没有描述」', /rail-st/.test(charsPage)
+  && /还缺什么/.test(charsPage) && /nodesc/.test(charsPage));
 ok('多选批量五件事都在', ['batchFillPics', 'batchFillAssets', 'batchFillVoices', 'batchSetGroup', 'batchRemove']
   .every(k => charsPage.includes(k)));
 ok('视觉相似在本机算 dHash', /function imgHash/.test(charsPage) && /function findSimilar/.test(charsPage));
 ok('搜索走本地语义排序', /SemanticSearch/.test(charsPage) && /S\.rank/.test(charsPage));
+ok('新建 / 编辑在素材详情那一层（不塞回卡片里）', /createDetail/.test(charsPage)
+  && /export function createDetail/.test(charsDetail));
+ok('每个生成位自带型号与数量', /gen-bar/.test(charsDetail) && /gen-model/.test(charsDetail)
+  && /gen-count/.test(charsDetail));
+/* 「本页默认」2026-10 撤掉：默认值改由设置页「素材库」那张卡管（默认生图型号 / 默认语音型号 /
+   默认出几张），页面上每一处生成位仍能当场换 —— 换的那一次只管那一处。 */
+ok('素材库页面上没有「本页默认」这一块',
+  !/本页默认/.test(read('tools/vue-templates/chars.html'))
+  && !/rail-foot|rf-row|rf-hint/.test(charsPage)
+  && !/本页默认/.test(read('web/styles/spa-chars.css'))
+  && !/gendef/.test(charsDetail));
+ok('素材页的默认型号与张数在设置页「素材库」那张卡里',
+  /imgModel/.test(charsJs) && /ttsModel/.test(charsJs) && /kind: 'model'/.test(charsJs)
+  && /modelCtl/.test(read('web/pages/settings.js'))
+  && /defImgModel/.test(charsPage) && /defTtsModel/.test(charsPage));
+ok('语音条数是独立一项（与出图张数分开设）',
+  /voiceN/.test(charsJs) && /char_voice_n/.test(charsJs) && /voiceN\(\)/.test(charsDetail));
+ok('不再往本机存「上次用的型号与张数」', !/saveOpts/.test(charsPage)
+  && !/write\(\s*'char_opts'/.test(charsPage) && !/getItem\('char_opts'\)/.test(charsPage));
 
 /* ---------- 9. 导演台 FCPXML 导出 ---------- */
 group('§9 导演台 FCPXML 导出');

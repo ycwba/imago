@@ -83,7 +83,9 @@ export function voiceRuns(lo, len, gray) {
   const gs = (gray || []).map(g => [Number(g[0]) || 0, Number(g[1]) || 0, g.length > 2 ? (g[2] ? 1 : 0) : 1])
     .filter(g => g[1] - g[0] > 0.02).sort((x, y) => x[0] - y[0]);
   let held = 0;
-  for (let guard = 0; guard < 64 && left > 0.02; guard++) {
+  /* 上限只防死循环（每圈至少吃掉一条灰场或走完剩余时长）：
+     一条长配音跨过几十段连续黑场是合法状态，64 那个旧上限会把尾巴静默吞掉。 */
+  for (let guard = 0; guard < 4096 && left > 0.02; guard++) {
     /* 下一个撞上的灰场 = 第一条与 `[cur, cur+left)` 有实质重叠的（清单排过序，取第一条即是最近的） */
     const hit = gs.find(g => g[1] > cur + 0.02 && g[0] < cur + left - 0.02);
     if (!hit) { runs.push([cur, cur + left]); cur += left; left = 0; break; }

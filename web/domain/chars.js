@@ -81,16 +81,35 @@ window.Chars = (function () {
       hint: '默认「自动」：优先让 AI 按角色的外貌与性格现造嗓子，这一家没有这类型号时才退回预设音色。',
       options: [{ id: 'auto', label: '自动（优先生成音色）' }, { id: 'design', label: '按描述生成音色' },
         { id: 'clone', label: '复刻参考音频' }, { id: 'preset', label: '从固定音色里挑' }] },
+    /* 素材页的默认生图型号（2026-10 用户要求：「去除页面里显示的本页默认，
+       依然使用设置页原来那个素材页默认设置的默认」）：
+       这一项**就是**那个默认 —— 空 = 自动（用注册表里第一个声明了 text_to_image 的型号，
+       顺序由设置页的「型号清单偏好」决定）。
+       素材库页面上不再有「本页默认」面板，但每一处生成位仍能当场换型号 ——
+       换的那一次只管那一处，不写回这里（写回来就成了「按上次那个跑」）。 */
+    imgModel: { key: 'char_img_model', kind: 'model', modelKind: 'image', mode: 'text_to_image', def: '',
+      label: '默认生图型号',
+      hint: '素材库各处出图（预览图 / 角色资产 / 批量补图）默认用哪一个型号。空 = 自动（用平台清单里第一个）；页面每一处生成位都能当场换，换完只管那一处。' },
+    /* 默认语音型号：同上，那一处是出声音与定音色。 */
+    ttsModel: { key: 'char_tts_model', kind: 'model', modelKind: 'audio', mode: 'text_to_speech', def: '',
+      label: '默认语音型号',
+      hint: '素材库里出声音、定音色默认用哪一家的哪一个型号。空 = 自动（用平台清单里第一个）；页面每一处都能当场换。' },
     /* 候选张数：角色、场景、道具**一次出几张**让你挑。
        它是**下限**，实际张数由两个数取小的那个：
-         ① 这个设置（这里，1~8）；
+         ① 这个设置（这里，1~8）—— 它是**默认值**：页面每一处都能当场改，改完只管那一处；
          ② 这一次用的生图型号声明的 `max_outputs`（`previewCap`）——
             上游只让一次出一张时，摆 3 个格子也没用，界面上照实说是 1 张。
        一次出 3 张 = 3 倍的钱，所以默认值取 3（够挑、又不像「再出 4 张」那么肉疼），
        想要更省就改 1（等于回到只出一张、挑不了）。 */
     candN: { key: 'char_cand_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '8',
-      label: '角色 / 场景 / 道具 一次出几张候选',
-      hint: '调大就是多画几张：每张换一条提示词（背景 / 光线 / 表情），是几个可挑的路子；上限看生图平台一次能让几张' },
+      label: '默认一次出几张候选',
+      hint: '素材库各处出图默认一次几张（页面每一处都能当场改，改完只管那一处）。调大就是多画几张：每张换一条提示词（背景 / 光线 / 表情），是几个可挑的路子；上限看生图平台一次能让几张' },
+    /* 语音候选的条数：一次合成几条声音让你试听挑。
+       与图那项**分开设**：图说「张」、语音说「条」，混成一项就没法只调一边
+       （想多画两张图不代表想多合成四条声音）。 */
+    voiceN: { key: 'char_voice_n', kind: 'num', def: '3', unit: '条', step: '1', min: '1', max: '8',
+      label: '默认一次出几条语音',
+      hint: '素材库里一次合成几条声音候选让你试听挑（与上面「出几张候选」是两项，图与语音各调各的）。从固定音色里挑的那家还会夹到它声明的音色清单长度 —— 清单只有两把就只出两条' },
   };
   /* 「这一次要出几张候选」：**判据只有这一处**（页面按钮文案、生图提交、界面上标的上限都读它）。
      夹到 `previewCap`（上游声明的上限）—— 请求一个上游只让出 1 张的模型出 3 张，
@@ -116,6 +135,8 @@ window.Chars = (function () {
   const flagOn = id => setting(id) !== '0';
   const aiVoiceOn = () => flagOn('aiVoice');
   const candN = () => { const n = Number(setting('candN')); return Number.isFinite(n) && n >= 1 ? Math.round(n) : Number(SET.candN.def); };
+  /* 语音候选的条数：与图那项分开设（`char_voice_n`），读法与 `candN` 同一套。 */
+  const voiceN = () => { const n = Number(setting('voiceN')); return Number.isFinite(n) && n >= 1 ? Math.round(n) : Number(SET.voiceN.def); };
   const TIME_OFS = [{ id: '深夜', label: '深夜' }, { id: '白天', label: '白天' }, { id: '黄昏', label: '黄昏' }, { id: '清晨', label: '清晨' }];
 
   /* 角色：kind='actor' 出镜，kind='narrator' 只出声（旁白）。
@@ -706,8 +727,7 @@ window.Chars = (function () {
         : kind === 'prop' ? newProp({ name, look: f.look, bio: f.bio, group: f.group })
           : newChar({ name, kind, bio: f.bio, look: f.look, group: f.group });
       if (f.pic) setPic(item, f.pic);
-      /* 挑好的音色（design 写描述 / preset 选 id / clone 带参考音频）—— 直接写进库里那一条，
-         界面上「声音」那一块立刻认得出是 AI 定的还是用户挑的。 */
+      /* 挑好的音色（design 写描述 / preset 选 id / clone 带参考音频）直接写进库里那一条，界面上「声音」那块立刻认得出是 AI 定的还是用户挑的。 */
       if (f.voice) {
         item.voice = f.voice.voice || '';
         item.voiceName = f.voice.voiceName || '';
@@ -717,9 +737,10 @@ window.Chars = (function () {
         item.voiceBy = f.voice.voiceBy || 'user';
       }
       if (Array.isArray(f.faces) && f.faces.length) item.faces = f.faces.slice(0, FACE_CAP);
-      /* 候选里**不许**再自动把 faces[0] 顶成主图：以前有这一句，于是页面说了「只用文字创建（不带主图）」，
-         库里那条还是带着一张 —— 而且带的是用户没点过的那一张。主图只有一个来路：`f.pic`，
-         也就是挑选窗里被点中的那一张（自己传的也算，它就在候选第一格）。 */
+      /* 新建那一步出的角色资产与声音试听也一起存进来 —— 「起一条就建齐」是那一页的承诺，建档这一下就该把这一条身上所有的图与声音收齐。 */
+      if (Array.isArray(f.assets) && f.assets.length) item.assets = f.assets.slice();
+      if (Array.isArray(f.voiceCands) && f.voiceCands.length) item.voiceCands = f.voiceCands.slice();
+      /* 候选里**不许**再自动把 faces[0] 顶成主图：以前有这一句，于是页面说了「只用文字创建（不带主图）」，库里那条还是带着一张 —— 而且带的是用户没点过的那一张。主图只有一个来路：`f.pic`。 */
       const saved2 = Lib.save(item, { exact: true });
       const e2 = Lib.writeError();
       if (e2) return { error: e2 };
@@ -1568,7 +1589,7 @@ window.Chars = (function () {
     if (!got.ok) return { ok: false, why: got.why };
     let vc = null;
     if (o.cands) {
-      stage('正在给「' + c.name + '」合成 ' + candN() + ' 条试听…');
+      stage('正在给「' + c.name + '」合成 ' + voiceN() + ' 条试听…');
       try { vc = await voiceCands(REG, drama.opts, c, { onStep: o.onCands }); }
       catch (e) { vc = { made: 0, failed: 0, err: errText(e)}; }
     }
@@ -1675,8 +1696,10 @@ window.Chars = (function () {
        · design / clone：这一家没有音色清单，多条只是「同一句多试几遍」。挑一条**不会**改变以后
          拍出来的声音（那声音是照描述 / 参考音频现造的）—— 所以 pickable=false，界面只给试听、
          不给一个看着能选其实什么都不换的「用这一条」（和「别编假检查」同一条规矩）。
-     一次能出几条不写死：跟着设置里的「候选张数」走（默认 3），preset 再夹到清单长度。 */
+     一次能出几条不写死：跟着设置里的「默认一次出几条语音」走（默认 3），preset 再夹到清单长度；**这一处可以单独给一个数**
+     （`opts.candN`）—— 素材详情页「声音」那一格自带条数，不该被全页的设置牵着走。 */
   function voiceCap(REG, opts, char) {
+    const want = Math.max(1, Number((opts || {}).candN) || voiceN());
     const w = voiceWay(char, REG, opts);
     if (w.mode === 'none') {
       const ways = ttsWays(REG, opts);
@@ -1689,19 +1712,17 @@ window.Chars = (function () {
          按描述出声时那段描述是 `ttsOnce` 的 style 字段，复刻时要挂上参考音频。
          缺了还照发，平台只会回一句 Param Incorrect —— 用户看到的是「参数不对」，
          而他能改的那件事（写一句描述 / 点「AI 定音色」/ 挂一段参考音频）一个字都没提。
-         2026-10 实测：关掉自动补画（于是没跑自动定音色）的新角色，点「一次出 3 条试听」
-         就是这个下场：3 次请求、3 条失败、界面上只挂一句平台原话。
-         判据用 `voiceReady`（与第 2/3 步那份前置条件清单**同一份**，不另写条件）。
+         判据用 `voiceReady`（与第 2/3 步那份前置条件清单**同一份**，不另写条件）；
          n=0 → `voiceCandsHTML` 不摆那颗按钮，并把 why 当原因写出来。 */
       const r = voiceReady(REG, opts, char);
       if (!r.ok) {
         return { n: 0, pickable: false, mode: w.mode, list: [],
           why: (r.why || '这一位还没定声音') + ' —— 先在上面写一句声音描述，或点「AI 定音色」让文字 AI 按人设写，再出试听' };
       }
-      return { n: candN(), pickable: false, mode: w.mode, list: [], why: '' };
+      return { n: want, pickable: false, mode: w.mode, list: [], why: '' };
     }
     if (!list.length) return { n: 0, pickable: true, mode: 'preset', list: [], why: '这个预设音色型号没有声明任何音色，出不了候选' };
-    return { n: Math.min(candN(), list.length), pickable: true, mode: 'preset', list: list, why: '' };
+    return { n: Math.min(want, list.length), pickable: true, mode: 'preset', list: list, why: '' };
   }
   /* 出候选的顺序：这位**现在用的那把**排第一 —— 一排里没有对照，就听不出新挑的那把到底换没换。 */
   function voiceCandPicks(REG, opts, char, cap) {
@@ -2321,7 +2342,7 @@ window.Chars = (function () {
      而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
   return {
     /* ---- 设置项：设置页照 SET 这张表渲染控件，页面读 setting / aiVoiceOn / candCount ---- */
-    SET, setting, aiVoiceOn, candN, candCount, previewCap,
+    SET, setting, aiVoiceOn, candN, voiceN, candCount, previewCap,
     /* 一份素材身上最多留几张候选图：页面在「认领切页前没等完的出图」时要把新图并进 faces，
        上限必须与 drawPreview 用的**同一个数**，所以把它导出去（页面别自己写一个 8）。 */
     FACE_CAP,

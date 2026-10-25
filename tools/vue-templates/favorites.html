@@ -2,39 +2,110 @@
     <div class="page-main fav-page page-shell">
       <h1 class="page-h1"><span v-html="starIcon"></span>我的收藏</h1>
 
+      <!-- 筛选行：类型（带条数）+ 搜索 + AI 找素材（公共件 Wb.filterBar） -->
       <div class="toolbar" ref="toolbarEl"></div>
-      <div class="toolbar2">
-        <span class="sp"></span>
+
+      <!-- 平台 + 时间（与资产库一样的两种）+ 摆法 -->
+      <div class="fav-filters">
+        <label class="fav-sel"><span>平台</span>
+          <select class="ui-inp" id="favProv" ref="favProvEl" aria-label="按平台筛选"></select></label>
+        <label class="fav-sel"><span>时间</span>
+          <select class="ui-inp" id="favTime" ref="favTimeEl" aria-label="按收藏时间筛选">
+            <option value="0">全部时间</option>
+            <option value="1">今天</option>
+            <option value="7">近 7 天</option>
+            <option value="30">近 30 天</option>
+          </select></label>
+        <span class="sp" style="flex:1"></span>
         <span class="viewtoggle" ref="viewEl"></span>
-        <button class="ghost" ref="pullBtn" @click="pullLocal" title="把当前筛选里「本机还没有那份字节」的收藏存回本机；本地上传的那一批不算（字节本来就在浏览器里）"></button>
+        <button class="ghost" ref="pullBtn" @click="pullLocal" title="把当前筛选里「本机还没有那份字节」的收藏存回本机"></button>
+        <button class="ghost" id="multiBtn" :class="{ active: multiMode }" title="进入多选：点卡片勾选，可批量下载、移出收藏" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
         <button class="ghost" :disabled="uploading" @click="pickFiles" v-html="uploadHtml"></button>
         <input type="file" multiple hidden ref="fileEl" @change="onFiles">
       </div>
 
+      <!-- 多选条：与资产库同一套公共件（.bulkbar）。「移出收藏」这种破坏性动作
+           收在这一行里，不在每张卡上喊。 -->
+      <div class="bulkbar" id="bulkBar" v-show="multiMode">
+        <span class="bk-cnt" id="bulkCnt">{{ bulkCountText }}</span>
+        <button class="ghost" id="bulkAll" :disabled="bulkAllDisabled" @click="bulkAll">{{ bulkAllText }}</button>
+        <button class="ghost" id="bulkClear" @click="bulkClear">取消选择</button>
+        <button class="ghost" id="bulkDown" :disabled="bulkDownDisabled" @click="bulkDownload"><span data-icon="download" data-size="13"></span> 批量下载</button>
+        <button class="ghost danger" id="bulkDrop" :disabled="bulkFavRemoveDisabled" @click="bulkDrop"><span data-icon="starFill" data-size="13"></span> 取消收藏</button>
+        <span class="bk-tip" id="bulkTip">{{ bulkTipText }}</span>
+        <span class="sp" style="flex:1"></span>
+        <button class="ghost" id="multiExit" @click="exitMulti">退出多选</button>
+      </div>
+
       <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
       <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 正在读取收藏…</div>
-      <div v-else class="grid" ref="grids">
+      <div v-else class="grid" ref="grids" :class="'view-' + view">
         <div v-if="!viewItems.length" class="empty">{{ emptyWhy }}</div>
-        <div v-for="it in pageItems" :key="it.key" class="card card-surface" draggable="true" :data-key="it.key"
-          @dragstart="onCardDragStart($event, it)" @dragend="onCardDragEnd($event)">
-          <div class="thumb card-shell-media" @click="openLb(it)" v-html="thumbHtml(it)"></div>
-          <div class="body card-shell-body">
-            <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>
-            <div class="m"><span v-html="badgeHtml(it)"></span>{{ metaOf(it) }}</div>
-            <div class="note">
-              <textarea :value="it.note || ''" rows="2" @input="onNote(it, $event)" @blur="flushNote(it)" @click.stop
-                placeholder="写备注：这条素材是干什么用的（搜索和 AI 都会用它）"></textarea>
-            </div>
-            <div class="acts card-shell-actions">
-              <button v-if="canReuse(it)" class="ghost" :title="'带着这条素材去' + reuseTabZh(it.type) + '那一栏'" @click.stop="reuse(it)">复用</button>
-              <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
-              <button class="ghost danger" @click.stop="dropItem(it)">移出收藏</button>
+        <!-- 显式分行：紧凑档（网格）里展开的内容要插在**它那一行的下面**，
+             格子长高会把同一行别的格子底下留出空洞 —— 网格最怕这种。
+             清单档一行一条，不需要分组。 -->
+        <template v-for="(row, ri) in rows" :key="'r' + ri">
+          <div class="fav-row">
+            <div v-for="it in row" :key="it.key" class="card card-surface fav-card" draggable="true" :data-key="it.key"
+              :class="{ 'is-open': openKey === it.key }"
+              @dragstart="onCardDragStart($event, it)" @dragend="onCardDragEnd($event)">
+              <!-- 多选框：与资产库同一件（.pick），勾选后走批量条 -->
+              <div v-if="multiMode" class="pick" :class="{ on: favPicked(it) }" role="checkbox" tabindex="0"
+                :aria-checked="favPicked(it) ? 'true' : 'false'" aria-label="勾选这条（批量下载 / 移出收藏）"
+                @click.stop="togglePick(it)" @keydown="onPickKey($event, it)"></div>
+              <div class="thumb card-shell-media" @click="openLb(it)" v-html="thumbHtml(it)"></div>
+              <div class="body card-shell-body">
+                <!-- 备注在这一页最要紧（产品自己的 AI 挑素材规则：备注 > 名称 > 类型），
+                     所以它在标题**上面**，做成一条带子；没写的留一条虚线空位。 -->
+                <div class="note">
+                  <textarea :value="it.note || ''" rows="1" @input="onNote(it, $event)" @blur="flushNote(it)" @click.stop
+                    placeholder="＋ 写备注（这条素材是干什么用的）"></textarea>
+                </div>
+                <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>
+                <div class="m">{{ metaOf(it) }}</div>
+                <div class="acts card-shell-actions">
+                  <button v-if="canReuse(it)" class="ghost" :title="'带着这条素材去' + reuseTabZh(it.type) + '那一栏'" @click.stop="reuse(it)">复用</button>
+                  <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
+                  <button class="ghost fav-open" @click.stop="toggleFavDetail(it)">{{ openKey === it.key ? '收起' : '详情' }}</button>
+                  <!-- 移出收藏：卡面上就有一颗（用户要的就是「看得见、点得到」）。
+                       展开区里那一颗是同一件事的另一个入口，不是第二套实现。 -->
+                  <button class="ghost danger fav-drop" @click.stop="dropItem(it)">移出收藏</button>
+                </div>
+                <!-- 详情就地展开（公共件 .exp）：清单档里那张卡自己长高，
+                     紧凑档里它落在下面那条带子上（.band）。 -->
+                <div class="exp"><div class="exp-in"><div class="exp-body">
+                  <div class="cdet"></div>
+                  <div class="exp-acts">
+                    <button v-if="canReuse(it)" class="ghost" @click.stop="reuse(it)">复用</button>
+                    <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
+                    <span class="sp"></span>
+                    <button class="ghost danger" @click.stop="dropItem(it)">移出收藏</button>
+                  </div>
+                </div></div></div>
+              </div>
             </div>
           </div>
-        </div>
+          <!-- 紧凑档的展开带子：整行宽，插在它那一行的下面，一根连线指回那个格子 -->
+          <div v-if="bandItem(row)" class="band" :data-for="bandItem(row).key">
+            <span class="band-tether"></span>
+            <div class="band-in">
+              <div class="band-hd">
+                <span class="t">{{ bandItem(row).prompt || bandItem(row).name }}</span>
+                <span class="sp"></span>
+                <button class="ghost fav-open" @click.stop="closeDetail">收起</button>
+              </div>
+              <div class="cdet"></div>
+              <div class="exp-acts">
+                <button v-if="canReuse(bandItem(row))" class="ghost" @click.stop="reuse(bandItem(row))">复用</button>
+                <button class="ghost" :disabled="!!dlBusy[bandItem(row).key]" @click.stop="download(bandItem(row))">{{ dlMsg[bandItem(row).key] || '下载' }}</button>
+                <span class="sp"></span>
+                <button class="ghost danger" @click.stop="dropItem(bandItem(row))">移出收藏</button>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <div id="gridEnd" ref="gridEnd" style="height:1px"></div>
       <div class="pager-row" id="pagerRow" ref="pagerRow" :style="{ display: pagerVisible ? '' : 'none' }"></div>
     </div>
-  

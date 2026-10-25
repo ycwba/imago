@@ -67,10 +67,16 @@ function boardPlanOf(changes, snap, opt) {
     : d + ' 秒');
   const sceneOf = ref => {
     if (ref == null || ref === '') return snap.length === 1 ? snap[0] : null;
+    /* 先按名字认，认不出再按序号：场景名以数字开头（「3 号站台」）时，
+       parseInt 先跑会把它当序号指到第 3 场 —— 名字优先，AI 用名字指代就落到名字上。 */
+    const key = nameKey(ref);
+    if (key) {
+      const byName = snap.find(x => nameKey(x.name) === key);
+      if (byName) return byName;
+    }
     const n = parseInt(ref, 10);
     if (Number.isFinite(n) && n >= 1 && n <= snap.length) return snap[n - 1];
-    const key = nameKey(ref);
-    return key ? (snap.find(x => nameKey(x.name) === key) || null) : null;
+    return null;
   };
   /* 「AI 说的第 N 镜」翻成那一条镜头，全站只有这一处（加了「删镜头」「挪顺序」两条分支之后，
      同一句 `S.shots[parseInt(ch.shot, 10) - 1]` 在三个分支里各抄了一遍 —— 只要有一支漏掉那个 `-1`

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>左栏导航重设计 · 设计稿</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+<div class="dg-wrap">
+
+  <header class="dg-head">
+    <div>
+      <span class="dg-kicker">设计稿 · 产品代码一行没动</span>
+      <h1>左栏导航重设计：三档宽度</h1>
+      <p>
+        现在只有 <b>66px 收起 / 200px 展开</b> 两档，开关藏在左上角那个 AI 方块里，
+        收起后只剩六个认不出的图标。这一稿把它改成 <b>轨 / 列 / 架</b> 三档，
+        开关挪到侧栏右边缘一枚看得见的 <b>刻度拉片</b> 上，轨态悬停出 <b>预告卡</b>。
+        点右上角三颗按钮或拉片上的任一档都能切。
+      </p>
+    </div>
+    <div class="dg-head-r">
+      <div class="dg-modes" id="modes" role="tablist" aria-label="侧栏宽度"></div>
+      <button class="dg-theme" id="dgTheme" type="button" title="换深浅主题（夜间档由日间自动派生）"></button>
+    </div>
+  </header>
+
+  <section class="dg-stage">
+    <div class="dg-shell" id="shell">
+      <aside class="sb" id="sb" data-mode="shelf" aria-label="左栏导航"></aside>
+      <main class="dg-content">
+        <div class="dg-content-top">
+          <span class="t">导演台</span>
+          <span class="c">2 个项目</span>
+          <span class="c">4 场</span>
+        </div>
+        <div class="dg-content-body">
+          <div class="dg-tools"><i></i><i></i><i></i><i></i></div>
+          <div class="dg-grid">
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+          </div>
+        </div>
+      </main>
+      <div class="dg-placeholder">内容区占位 —— 真机是这一块</div>
+    </div>
+  </section>
+
+  <section class="dg-notes" id="notes"></section>
+
+  <section class="dg-before">
+    <h3>改造前 → 改造后</h3>
+    <p>左边两张是<b>真机截图</b>（隔离探针代理，浅色档）：收起态 66px、展开态 200px。
+       收起态那六个图标，光看形状分不出谁是谁 —— 产品自己的代码注释写着「功能还在，但认不出来」。
+       右边两张是这一稿。</p>
+    <div class="row">
+      <figure>
+        <img src="shots/before-rail.png" alt="改造前的收起态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>改造前 · 收起态（66px）</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/after-side-rail.png" alt="改造后的轨态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>改造后 · 轨（60px）</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/before-open.png" alt="改造前的展开态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>改造前 · 展开态（200px）</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/after-side-shelf.png" alt="改造后的架态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>改造后 · 架（256px）</figcaption>
+      </figure>
+    </div>
+  </section>
+
+</div>
+
+<script src="real.js"></script>
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

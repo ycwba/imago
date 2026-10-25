@@ -6,10 +6,8 @@ import { render } from '../render/assets.js';
 
 const PAGE_MODE = window.pageModeOf('assets');
 const PAGE_SIZE = window.pageSizeOf('assets');
-const DATE_PRESETS = [['全部', 0], ['今天', 1], ['近 7 天', 7], ['近 30 天', 30]];
 import { ensureCss } from '../core/page-css.js';
 
-const ST_MAP = { '已完成': 'done', '生成中': 'running', '排队中': 'queued', '失败': 'failed', '结果未知': 'uncertain' };
 
 /* 这一份样式单独放在 spa-assets.css，打开这一页时由 `ensureCss` 按需挂上
    （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
@@ -39,22 +37,30 @@ export default {
     const bulkDownDisabled = ref(true);
     const bulkAllText = ref('全选当前列表');
     const bulkAllDisabled = ref(false);
+    /* 收藏那两颗（批量收藏 / 取消收藏）：能不能点由公共件算（选中的里还有没有能收 / 能拿的）。 */
+    const bulkFavAddDisabled = ref(true);
+    const bulkFavRemoveDisabled = ref(true);
     /* 旧页面把翻页那一排写成 display:none，第一次 renderGrid 才露出来：
        数据没回来之前先不摆一排空按钮（它们一出一隐会把右边那排挤动）。 */
     const pagerReady = ref(false);
 
-    const F = reactive({ type: '全部', provider: '全部', status: '全部', q: '', from: '', to: '', presetDays: 0 });
+    /* 筛选状态：类型 / 平台 / 时间 / 关键词 / 状态三档。
+       状态从「第五颗芯片」提成**页头三档**（在制 / 失败 / 结果未知）——
+       它不是又一颗筛选项，是「这批东西现在怎么样」的第一眼事实。 */
+    const F = reactive({ type: '全部', provider: '全部', bucket: '', q: '', from: '', to: '', time: '0' });
     const faceFrom = computed(() => (F.from ? F.from.slice(5).replace('-', '/') : '起始'));
     const faceTo = computed(() => (F.to ? F.to.slice(5).replace('-', '/') : '结束'));
+    const timeMode = computed(() => F.time);
 
     const pageEl = ref(null);
     const gridEl = ref(null);
     const gridEndEl = ref(null);
     const loadErrEl = ref(null);
-    const typeRowEl = ref(null);
-    const fDateEl = ref(null);
-    const fProvEl = ref(null);
-    const fStatusEl = ref(null);
+    const headToolsEl = ref(null);
+    const asTypeEl = ref(null);
+    const asProvEl = ref(null);
+    const asTimeEl = ref(null);
+    const asSumEl = ref(null);
     const viewEl = ref(null);
     const aiSearchBtn = ref(null);
     const aiChipEl = ref(null);
@@ -161,24 +167,42 @@ export default {
       visible: applyFilters,
       onChange: renderGrid,
       canDownload: a => !!(a.dl || a.src),
+      /* 收藏这一族：语义由这一页给（**产物**才收得进去，任务卡还没有字节），
+         计数与批量那一圈在公共件 Wb.multi 里（三页同一份）。 */
+      fav: {
+        can: a => a.kind === 'asset',
+        isOn: a => !!(window.Fav && window.Fav.isEntry(a)),
+        add: a => { window.Fav.addEntry(a); },
+        remove: a => { window.Fav.removeEntry(a); },
+      },
       mode: {
         isOn: () => multiMode.value,
         set: v => {
           multiMode.value = v;
-          if (gridEl.value) gridEl.value.classList.toggle('assetsMulti', v);
+          /* 容器上挂的是**公共**那个开关类 `.multi`（ui.css 里 `.multi .task .pick` 才把
+             勾选框露出来）：以前这一页挂的是自造的 `assetsMulti`，于是多选时勾选框一直是
+             隐形的 —— 选没选、选了哪几条全都看不见，「存选中的」就成了盲存。 */
+          if (gridEl.value) gridEl.value.classList.toggle('multi', v);
         },
       },
     }));
 
-    /* ---------- 存回本机：范围不跟「不显示云端任务」走 ----------
-       本机 / 去重 / 去空地址的判据在 AssetLocal.pullPlan 那一份（三页共用）。 */
+    /* ---------- 存回本机：范围 = 多选里勾选的那几条 ---------- */
+    /* 这颗按钮是**多选条里**的一颗（不在筛选行那一排）：它存的就是勾选的那些，
+       不多选就点它等于「把这一屏都存一遍」—— 那不是用户的意思。
+       本机 / 去重 / 去空地址的判据在 AssetLocal.pullPlan 那一份（与卡片徽标同一份）。 */
     function pullScope() {
       return window.AssetLocal.pullPlan(
-        applyFilters({ includeHidden: true }).filter(a => a.kind === 'asset'), { keyOf: selKeyOf });
+        assetsMulti().selected().filter(a => a.kind === 'asset'), { keyOf: selKeyOf });
     }
     function paintPullBtn() {
-      if (!pullLocalBtn.value) return;
-      window.AssetLocal.pullBar(pullLocalBtn.value, pullScope(), { what: '产物' });
+      const btn = pullLocalBtn.value;
+      if (!btn) return;
+      const picked = assetsMulti().selected();
+      window.AssetLocal.pullBar(btn, pullScope(), {
+        what: '产物', zone: '选中的',
+        empty: picked.length ? '选中的这些本机都已经有了，不用再存' : '先勾选要存回本机的产物',
+      });
     }
     /* 首屏数据回来之前按钮上写的是静态那一版（与旧页面标记逐字相同）：
        不先按 0 条画一次 —— 那会在「还在加载」时就说「这一屏的产物本机都已经有了」。 */
@@ -191,12 +215,15 @@ export default {
     async function pullLocalPage() {
       if (!started) return;
       const btn = pullLocalBtn.value;
+      const picked = assetsMulti().selected();
       const todo = pullScope();
-      if (!todo.length) {
+      if (!picked.length) {
         /* 「你点了，但什么都没发生」必须看得见：这一类用 warn 档（ok/info 默认静音） */
-        window.Toast.warn(assets.some(a => a.kind === 'asset')
-          ? '这一屏要存的本机都已经有了'
-          : '这一屏还没有可存的产物（排队 / 生成中的任务没有字节可下）');
+        window.Toast.warn('先勾选要存回本机的产物（多选之后点卡片即可）');
+        return;
+      }
+      if (!todo.length) {
+        window.Toast.warn('选中的这些本机都已经有了');
         return;
       }
       window.AssetLocal.pullStart(btn);
@@ -214,14 +241,34 @@ export default {
     function paintBulkBar() {
       if (!multiMode.value) return;
       /* 三处读数（已选几项 / 全选那颗的文案 / 下载键能不能点）由公共件算：
-         同一句话不许两页各写一遍。 */
+         同一句话不许两页各写一遍。收藏那两颗的能不能点也是公共件算。 */
       assetsMulti().paintBar({
         count: t => { bulkCountText.value = t; },
         all: t => { bulkAllText.value = t; },
         canDown: ok => { bulkDownDisabled.value = !ok; },
         allDisabled: none => { bulkAllDisabled.value = none; },
+        favAdd: ok => { bulkFavAddDisabled.value = !ok; },
+        favRemove: ok => { bulkFavRemoveDisabled.value = !ok; },
       });
-      bulkTipText.value = '点卡片即可勾选';
+      const tip = assetsMulti().favTip();
+      bulkTipText.value = tip ? ('点卡片即可勾选 · ' + tip) : '点卡片即可勾选';
+    }
+
+    /* 批量收藏 / 取消收藏：勾选的那些一起收进「我的收藏」或一起拿出来。
+       动作与计数都在公共件 Wb.multi（Wb.fav 是那颗星标的实现）。 */
+    function assetsBulkFavAdd() {
+      if (!started) return;
+      const n = assetsMulti().favAdd();
+      if (!n) { window.Toast.warn('选中的这些都已经在收藏里了'); return; }
+      window.Toast.receipt('已加入收藏 ' + n + ' 条');
+      renderGrid();
+    }
+    function assetsBulkFavRemove() {
+      if (!started) return;
+      const n = assetsMulti().favRemove();
+      if (!n) { window.Toast.warn('选中的这些都不在收藏里'); return; }
+      window.Toast.receipt('已从收藏移出 ' + n + ' 条');
+      renderGrid();
     }
 
     /* ---------- 进行中的任务自动刷新 ---------- */
@@ -321,16 +368,35 @@ export default {
     function assetIdsOf(a) {
       return [a.assetId, a.genId, a.id, a.vid, a.taskId].filter(Boolean).join(' ').toLowerCase();
     }
-    const stBucket = a => a.kind !== 'task' ? 'done' : window.Api.classifyStatus(null, a.status);
+    /* 「这一条属于哪一档」：页头三档的判据。
+       在制 = 生成中 + 排队中；失败 = 真失败（已取消 / 已过期不算，那只是结束了）；
+       结果未知 = 提交可能被受理（钱可能已经扣了）。 */
+    function bucketOf(a) {
+      if (a.kind !== 'task') return '';
+      const st = String(a.status || '').toLowerCase();
+      if (window.Wb.isUncertain(a.status)) return 'uncertain';
+      if (CALMED_ST.includes(st)) return '';
+      if (window.Wb.stBad(a.status)) return 'failed';
+      if (window.Wb.stLive(a.status)) return 'live';
+      return '';
+    }
+    const BUCKETS = [
+      { key: 'live', label: '在制', dot: 'live' },
+      { key: 'failed', label: '失败', dot: 'fail' },
+      { key: 'uncertain', label: '结果未知', dot: 'unc' },
+    ];
 
     function applyFilters(opts) {
       const keepHidden = !!(opts && opts.includeHidden);
+      /* 算页头那三档的条数时要看「除这一档以外」的所有条件 ——
+         点一下就得到这个数，数字不会对不上。 */
+      const noBucket = !!(opts && opts.noBucket);
       if (!keepHidden) hiddenCloud = 0;
       let all = assets.filter(a => {
         if (window.AssetLocal.hideAsCloud(a)) { if (!keepHidden) { hiddenCloud++; return false; } }
         if (!(F.type === '全部' || typeKey(a.type) === typeKey(F.type))) return false;
         if (F.provider !== '全部' && a.providerName !== F.provider) return false;
-        if (F.status !== '全部' && stBucket(a) !== ST_MAP[F.status]) return false;
+        if (!noBucket && F.bucket && bucketOf(a) !== F.bucket) return false;
         if (!F.q) return true;
         return (a.prompt || '').toLowerCase().includes(F.q) || assetIdsOf(a).includes(F.q);
       });
@@ -378,7 +444,7 @@ export default {
       return pager ? pager.slice(all) : all;
     }
     const filteredAll = () => applyFilters();
-    const noFilter = () => F.type === '全部' && F.provider === '全部' && F.status === '全部' && !F.q && !F.from && !F.to && !FAI;
+    const noFilter = () => F.type === '全部' && F.provider === '全部' && !F.bucket && !F.q && !F.from && !F.to && !FAI;
 
     function updatePager() {
       if (!started) return;
@@ -394,6 +460,7 @@ export default {
       const fk = window.Fav ? window.Fav.assetKey(a) : '';
       const st = window.AssetLocal && AssetLocal.stateOf ? AssetLocal.stateOf(a) : null;
       return [a.kind, a.status, a.src, a.prompt, a.providerName, a.type, a.format, a.duration, a.ts,
+        a.failMsg || '',
         multiMode.value ? 'M' : '-', multiMode.value && selected.has(selKeyOf(a)) ? 'S' : '-',
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
         st ? st.state : '-',
@@ -404,9 +471,28 @@ export default {
     function favNote(a) {
       return window.Fav ? (window.Fav.note(window.Fav.assetKey(a)) || '') : '';
     }
+    /* 卡面上那颗星（★ 收藏 / ★ 已收藏）：与「详情」同一排，不用展开就能收 / 拿。
+       **收 / 拿的动作**在 domain/fav.js（Fav.toggleEntry —— 身份与落盘都在那一层），
+       这里只画那颗按钮、切完把字与亮灭改回来。 */
     function favLabel(a) {
-      const on = window.Fav && window.Fav.has(window.Fav.assetKey(a));
+      const on = !!(window.Fav && window.Fav.isEntry(a));
       return (window.icon ? window.icon(on ? 'starFill' : 'star', 12) : '') + (on ? ' 已收藏' : ' 收藏');
+    }
+    function favBtnHTML(a) {
+      return '<button class="ghost favbtn' + (window.Fav && window.Fav.isEntry(a) ? ' on' : '') + '" title="加入 / 移出我的收藏">'
+        + favLabel(a) + '</button>';
+    }
+    function bindFavBtn(el, a) {
+      const fb = el.querySelector('.favbtn');
+      if (!fb || !window.Fav) return;
+      fb.onclick = e => {
+        e.stopPropagation();
+        const before = window.Fav.isEntry(a);
+        const on = window.Fav.toggleEntry(a);
+        fb.classList.toggle('on', on);
+        fb.innerHTML = favLabel(a);
+        if (on !== before) window.Toast.ok(on ? '已加入我的收藏' : '已移出我的收藏');   // 星标自己会亮，归安静档
+      };
     }
     function noPromptText(a) {
       const prov = ((typeof REG !== 'undefined' && REG && REG.providers) || []).find(p2 => p2.id === a.provider || p2.keyId === a.provider);
@@ -427,8 +513,8 @@ export default {
       return window.badgeHTML(AL.stateOf(a));
     }
 
-    /* 卡片底部那一排：任务那一族（详情 / 下载 / 取消 / 重试）整排交给公共件 Wb.actsHTML，
-       这一页只有三颗私有动作（收藏 / 删本机那一份 / 复用）作为 extra 接在后面。
+    /* 卡片底部那一排：任务那一族（详情 / 取消 / 重试）整排交给公共件 Wb.actsHTML，
+       这一页只给**重试**补一句「会再扣多少」。
        以前整排是这里手写的，公共件那两道闸一道都没跟上：平台没声明 cancel 端点时照样画一颗
        能点的「取消任务」（点了吞异常还把状态改成失败 = 假终局，那条在平台上还在跑、还在计费），
        「结果未知」那一档也没走公共件的重发确认；文案与顺序另与工作台各写一套。 */
@@ -444,14 +530,92 @@ export default {
         cancel: isTask && !!a.genId && canCx,
         cancelWhy: isTask && !canCx ? window.Wb.cancelWhyNot(prov) : '',
         retry: isTask && !!a.prompt,
-        extraHTML: a.kind === 'asset' ? [
-          `<button class="ghost favbtn${window.Fav && window.Fav.has(window.Fav.assetKey(a)) ? ' on' : ''}" title="加入 / 移出我的收藏">${favLabel(a)}</button>`,
-          a.localAsset ? `<button class="ghost danger delbtn" title="${a.mirror
-            ? '本机这份是副本（.assets 目录）：删掉只腾磁盘，平台那份仍在，以后能回源'
-            : '它存在本机 .assets 目录：删掉释放磁盘，平台侧素材不受影响'}">${a.mirror ? '删除本机副本' : '删除本机文件'}</button>` : '',
-          '<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>',
-        ].join('') : '',
+        /* 「再点一下要花多少」写在**悬停提示**里，按钮上只留两个字 ——
+           长文案（「重试（会再扣 ¥0.1000）」）会把这一排撑成两行，
+           卡片高度就参差了（紧凑档一格 200px，一行放不下）。 */
+        retryLabel: retryLabelOf(a),
+        retryTitle: retryTitleOf(a),
+        /* 收藏那颗（★ 收藏 / ★ 已收藏）插在「详情」之后 —— 公共件只管它插在哪一档，
+           按钮本身是这一页的（收 / 拿的动作在 domain/fav.js 一份）。 */
+        afterDetailHTML: a.kind === 'asset' ? favBtnHTML(a) : '',
+        extraHTML: '',
       };
+    }
+
+    /* 展开区里**多出来的**动作：卡面上已经有「详情 / 收藏 / 下载」（任务卡多留 取消 / 重试）。
+       复用 / 删除本机这一份 —— 尤其最后那颗红框的 —— 收在这一行：
+       破坏性动作不该是每张卡上最显眼的那颗按钮。 */
+    function expActsHTML(a) {
+      if (a.kind !== 'asset') return '';
+      const b = [];
+      b.push('<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>');
+      b.push('<span class="sp"></span>');
+      if (a.localAsset) {
+        b.push('<button class="ghost danger delbtn" title="' + (a.mirror
+          ? '本机这份是副本（.assets 目录）：删掉只腾磁盘，平台那份仍在，以后能回源'
+          : '它存在本机 .assets 目录：删掉释放磁盘，平台侧素材不受影响') + '">'
+          + (a.mirror ? '删除本机副本' : '删除本机这一份') + '</button>');
+      }
+      return b.join('');
+    }
+
+    /* ---------- 卡片 ----------
+       **五种状态共用同一副骨骸**：左边一格 132×96 的槽，右边一列字。
+       状态只换**槽里的内容**（状态牌）与**字里的几行**（平台原话 / 代价）——
+       宽度、结构、左边缘全都一样。状态牌是公共件（ui.css 的 .plate）。 */
+
+    /* 「已取消 / 已过期」不是错误：它只是**结束了**（用户自己撤的或平台过期了），
+       染成红色会让人以为出了问题。 */
+    const CALMED_ST = ['cancelled', 'canceled', 'expired', 'invalid', 'aborted', 'rejected'];
+
+    /* 这一条的费用口径（AssetLib.costOf 一份）：积分优先，其次金额。 */
+    function costOf(a) {
+      try { return (window.AssetLib && window.AssetLib.costOf) ? window.AssetLib.costOf(a) : { cost: null, unit: '' }; }
+      catch (e) { return { cost: null, unit: '' }; }
+    }
+    function costText(a) {
+      const c = costOf(a);
+      if (c.cost == null || c.cost === '') return '';
+      return c.unit === '元' ? ('¥' + Number(c.cost).toFixed(4)) : (c.cost + ' ' + c.unit);
+    }
+    /* 「再点一下要花多少」写在**悬停提示**里；按钮上只留两个字（长文案会把这一排撑成两行）。 */
+    function retryLabelOf(a) {
+      return window.Wb.isUncertain(a.status) ? '重发' : '重试';
+    }
+    function retryTitleOf(a) {
+      const money = costText(a);
+      const unc = window.Wb.isUncertain(a.status);
+      if (!money) return unc ? '再发一次：上一次提交可能已经被平台受理（可能已经扣费）' : '再跑一次';
+      return unc ? ('再发一次：可能再扣一次 ' + money + '（上一次提交可能已经被受理）')
+        : ('再跑一次：会再扣 ' + money);
+    }
+
+    /* 状态牌：这一格没有画面、但有话要说。 */
+    function plateHTML(a) {
+      if (a.kind !== 'task') return '';
+      const st = String(a.status || '').toLowerCase();
+      const txt = window.Wb.stText(a.status);
+      if (CALMED_ST.includes(st)) {
+        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + window.esc(txt) + '</span></span></div>';
+      }
+      if (window.Wb.isUncertain(a.status)) {
+        return '<div class="timg"><span class="plate plate--unc"><span class="plate-st">' + window.esc(txt) + '</span>'
+          + '<span class="plate-t">可能已扣费</span></span></div>';
+      }
+      if (window.Wb.stBad(a.status)) {
+        /* 短因取平台原话的头一截（429 / 内容审核…），完整原话在下面那一行与展开的详情里。 */
+        const short = String(a.failMsg || '').replace(/\s+/g, ' ').trim().slice(0, 22);
+        return '<div class="timg"><span class="plate plate--fail"><span class="plate-st">' + window.esc(txt) + '</span>'
+          + (short ? '<span class="plate-t">' + window.esc(short) + '</span>' : '') + '</span></div>';
+      }
+      if (st === 'queued') {
+        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + window.esc(txt) + '</span></span></div>';
+      }
+      if (window.Wb.stLive(a.status)) {
+        return '<div class="timg"><span class="plate plate--live"><span class="plate-st">' + window.esc(txt) + '</span>'
+          + '<span class="plate-bar"><i style="width:' + (a.progress || 0) + '%"></i></span></span></div>';
+      }
+      return '';
     }
 
     function assetCardHTML(a) {
@@ -462,17 +626,18 @@ export default {
          用户照着这句去等产物，而产物可能根本没有，还顺手把「重试」当成了免费的操作。 */
       const unc = a.kind === 'task' && window.Wb.isUncertain(a.status);
       const lateDone = a.kind === 'task' && !bad && !run && !unc;
+      const plate = plateHTML(a);
       let media;
-      if (a.kind === 'task') {
-        media = lateDone
-          ? '<div class="timg"><span style="color: var(--ok)">已完成（正在同步列表…）</span></div>'
-          : unc
-            ? '<div class="timg"><span style="color: var(--warn)">结果未知</span></div>'
-            : '<div class="timg"><span class="spin-dot" style="' + (bad ? 'display:none' : '') + '"></span>' + (bad ? '<span style="color:var(--err)">' + window.Wb.stText(a.status) + '</span>' : window.Wb.stText(a.status) + '…') + '</div>';
+      if (plate) media = plate;
+      else if (a.kind === 'task') {
+        media = '<div class="timg"><span class="plate plate--plain"><span class="plate-st">已完成</span>'
+          + '<span class="plate-t">正在同步列表…</span></span></div>';
       } else if (a.type === '视频') {
         media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' }) + '</div>';
       } else if (window.isAudioType(a.type)) {
-        media = '<div class="timg audio"><span class="note-ic">' + window.icon('mic', 14) + '</span><span class="dur">' + window.fileExtOf(a).toUpperCase() + (a.duration ? ' · ' + a.duration + 's' : '') + '</span></div>';
+        media = '<div class="timg"><span class="plate plate--audio"><span class="plate-st">'
+          + window.esc(window.fileExtOf(a).toUpperCase() || '音频') + '</span>'
+          + (a.duration ? '<span class="plate-t">' + window.esc(a.duration) + 's</span>' : '') + '</span></div>';
       } else {
         media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(window.Api.mediaSrc(a.src), {
           type: 'image',
@@ -480,14 +645,25 @@ export default {
         }) + '</div>';
       }
       const date = window.fmtWhen(a.ts);
+      /* 卡面**只有四行**：状态 / 提示词 / 那一行信息 / 动作 —— 每一行的高度都是固定的，
+         所以一屏卡一样高。
+         「平台原话」以前在卡面单占一行（只有失败 / 结果未知才有），
+         「★ 收藏备注」也各占一行（有才有）—— 这两行一有就没，卡片高度就参差了。
+         现在：平台原话在**状态牌那一格**（短因，满两行）与展开的详情里（全文），
+         收藏备注在 ★ 那颗的悬停与展开的详情里。 */
+      const cost = (bad || unc) ? costText(a) : '';
+      const meta = [a.providerName, a.type, a.kind === 'asset' ? (a.format || '').toUpperCase() : '',
+        a.duration ? a.duration + 's' : '', cost].filter(Boolean).join(' · ');
       return media + `
       <div class="tmain">
         <div class="meta1"><span class="dot${run ? ' run' : bad ? ' fail' : ''}"></span><span>${a.kind === 'task' ? (lateDone ? '已完成' : window.Wb.stText(a.status)) : '已完成'}</span>${assetBadge(a)}<span class="date">${date}</span></div>
         <div class="tprompt" title="${window.esc(a.prompt || '')}">${window.esc(a.prompt || noPromptText(a))}</div>
-        ${favNote(a) ? `<div class="favnote" title="收藏备注">★ ${window.esc(favNote(a))}</div>` : ''}
-        <div class="meta2">${[a.providerName, a.type, a.kind === 'asset' ? (a.format || '').toUpperCase() : '', a.duration ? a.duration + 's' : ''].filter(Boolean).join(' · ')}</div>
+        <div class="meta2" title="${window.esc(meta)}">${window.esc(meta)}</div>
         <div class="acts">${window.Wb.actsHTML(a, actsOpts(a))}</div>
-        <div class="cdet"></div>
+        <div class="exp"><div class="exp-in"><div class="exp-body">
+          <div class="cdet"></div>
+          ${expActsHTML(a) ? `<div class="exp-acts">${expActsHTML(a)}</div>` : ''}
+        </div></div></div>
       </div>`;
     }
 
@@ -496,6 +672,86 @@ export default {
       if (!wrap) return;
       const media = wrap.querySelector('video[data-src], video[src], img');
       if (media) window.Wb.thumbs.bind(wrap, media, a.src || '');
+    }
+
+    /* ---------- 详情：就地展开，不另起一层 ----------
+       清单档：那张卡自己长高（字列从摘要换成详情），下面几行顺移，别的卡不动。
+       紧凑档（网格）：格子长高会把同一行别的格子底下留出空洞 —— 网格最怕这种。
+       所以那一行保持原样，展开的内容接在**它那一行的下面**，成一条整行宽的带子，
+       一根量出来的连线从带子上沿指回那个格子。
+       接线（一次只开一条、按钮的字跟着变）是公共件 Wb.expand 一份。 */
+    function isGridView() {
+      return !!(viewToggle && viewToggle.value === 'compact');
+    }
+
+    /* 网格档的展开带子：一次只有一条。 */
+    let bandKey = '';
+    let bandEl = null;
+
+    function closeBand() {
+      const k = bandKey;
+      if (bandEl && bandEl.parentNode) bandEl.parentNode.removeChild(bandEl);
+      bandEl = null;
+      bandKey = '';
+      if (k && cardList && cardList.el) {
+        const c = cardList.el(k);
+        if (c) c.classList.remove('is-band');
+      }
+    }
+
+    /* 这一行最后一张卡：**量出来的**（同一行的卡 offsetTop 一样），不重排整片网格。 */
+    function rowEndOf(el) {
+      let last = el;
+      let n = el.nextElementSibling;
+      while (n && n.classList && !n.classList.contains('band') && n.offsetTop === el.offsetTop) {
+        last = n; n = n.nextElementSibling;
+      }
+      return last;
+    }
+
+    /* 重画之后把带子放回它那一行的下面：Wb.cards 只挪卡片，带子是插在容器里的另一个孩子，
+       重画一遍它就跑到容器末尾去了。 */
+    function reinsertBand() {
+      if (!bandEl || !bandKey) return;
+      const card = cardList && cardList.el ? cardList.el(bandKey) : null;
+      if (!card) { closeBand(); return; }
+      const rowEnd = rowEndOf(card);
+      if (rowEnd && rowEnd.parentNode) rowEnd.parentNode.insertBefore(bandEl, rowEnd.nextSibling);
+      window.Wb.expand.anchor(bandEl, card);
+    }
+
+    function toggleBand(d, a) {
+      const box = gridEl.value;
+      if (!box) return;
+      if (bandKey === assetKeyOf(a)) { closeBand(); return; }
+      closeBand();
+      const band = document.createElement('div');
+      band.className = 'band';
+      band.innerHTML = '<span class="band-tether"></span>'
+        + '<div class="band-in"><div class="band-hd">'
+        + '<span class="t">' + window.esc(a.kind === 'task' ? window.Wb.stText(a.status) : (a.prompt || '这一条')) + '</span>'
+        + '<span class="sp"></span><button class="ghost" data-act="closeband">收起</button></div>'
+        + '<div class="cdet"></div></div>';
+      const rowEnd = rowEndOf(d);
+      if (rowEnd && rowEnd.parentNode) rowEnd.parentNode.insertBefore(band, rowEnd.nextSibling);
+      else box.appendChild(band);
+      bandEl = band;
+      bandKey = assetKeyOf(a);
+      d.classList.add('is-band');
+      const host = band.querySelector('.cdet');
+      if (host) window.Wb.detail.render(a, host);
+      const cb = band.querySelector('[data-act="closeband"]');
+      if (cb) cb.onclick = e => { e.stopPropagation(); closeBand(); };
+      window.Wb.expand.anchor(band, d);
+    }
+
+    function toggleDetail(d, a) {
+      const detBox = d.querySelector('.cdet');
+      if (!detBox) return;
+      if (isGridView()) { toggleBand(d, a); return; }
+      /* 先把内容放进去再打开：`.exp` 的 0fr → 1fr 过渡要有内容才看得出「长出来」。 */
+      const open = window.Wb.expand.open(d, { scope: gridEl.value });
+      if (open) window.Wb.detail.render(a, detBox);
     }
 
     function bindAssetCard(d, a) {
@@ -542,10 +798,17 @@ export default {
         d.appendChild(box);
       }
       d.onclick = e => {
-        if (!multiMode.value) return;
-        if (e.target.closest('.acts') || e.target.closest('.cdet')) return;
-        e.preventDefault();
-        assetsMulti().toggle(a);
+        if (multiMode.value) {
+          if (e.target.closest('.acts') || e.target.closest('.exp')) return;
+          e.preventDefault();
+          assetsMulti().toggle(a);
+          return;
+        }
+        /* 紧凑档：卡身上点一下 = 打开这一条的详情（缩略图仍是灯箱，动作那一排不动）。
+           清单档有「详情」那颗按钮，不靠点卡身 —— 免得拖完卡片手一松就开了一页详情。 */
+        if (isGridView() && !e.target.closest('.timg') && !e.target.closest('.acts')) {
+          toggleDetail(d, a);
+        }
       };
       const thumb = d.querySelector('.timg');
       if (thumb) thumb.onclick = e => {
@@ -555,17 +818,9 @@ export default {
       /* 标准那一排（详情 / 下载 / 取消 / 重试）整排交给公共件接线：确认框、忙碌态、报错、
          「这一家没有撤单接口」那道闸，还有「结果未知不许当普通重试」的核对与扣费提醒，
          都在 Wb.bindActs 一份（以前这里自己写了一套，那两道闸都没跟上）。
-         这一页只剩三颗私有按钮：收藏 / 删本机那一份 / 复用。 */
+         这一页只剩三颗私有按钮：收藏 / 删本机那一份 / 复用（都在展开区里）。 */
       window.Wb.bindActs(d, a, Object.assign(actsOpts(a), {
-        onDetail: () => {
-          const btn = d.querySelector('.dt'), detBox = d.querySelector('.cdet');
-          if (!detBox) return;
-          const open = detBox.style.display === 'block';
-          detBox.style.display = open ? 'none' : 'block';
-          /* 这颗按钮带图标：改字只能改 `.tx` 那一截，textContent 会把图标一起抹掉。 */
-          if (btn) window.btnText(btn, open ? '详情' : '收起');
-          if (!open) window.Wb.detail.render(a, detBox);
-        },
+        onDetail: () => toggleDetail(d, a),
         onCancel: async () => {
           const it = assets.find(x => x.id === a.id || x.genId === a.genId) || a;
           /* 平台必须由条目自己那一家现取：任务号在别家平台上可能是另一条（还扣着钱）的任务。 */
@@ -580,18 +835,8 @@ export default {
         },
         onRetry: async () => { await retryEntry(a); await refreshKeepPage(); },
         extraBind: el => {
-          const fb = el.querySelector('.favbtn');
-          if (fb) fb.onclick = e => {
-            e.stopPropagation();
-            if (!window.Fav) return;
-            const it = window.Fav.fromEntry(a);
-            const before = window.Fav.has(it.key);
-            const on = window.Fav.toggle(it);
-            fb.classList.toggle('on', on);
-            fb.innerHTML = favLabel(a);
-            if (on === before) return;
-            window.Toast.ok(on ? '已加入我的收藏' : '已移出我的收藏');   // 星标自己会亮，归安静档
-          };
+          /* 收藏那颗（★/☆）的接线：收 / 拿在 domain/fav.js 一份，这里只把字与亮灭改回来。 */
+          bindFavBtn(el, a);
           const ru = el.querySelector('.cureuse');
           if (ru) ru.onclick = e => { e.stopPropagation(); reuseAsset(a); };
           const delb = el.querySelector('.delbtn');
@@ -622,6 +867,9 @@ export default {
         if (nm) nm.replaceWith(oldMedia);
       }
       if (oldDet) { const nd = d.querySelector('.cdet'); if (nd) nd.replaceWith(oldDet); }
+      /* 重画换了卡里的按钮：「详情 / 收起」那两个字要跟着这张卡现在的状态走
+         （轮询每 5 秒重画一次，展开着的那张卡不能每 5 秒把按钮变回「详情」）。 */
+      window.Wb.expand.sync(d);
       return bindAssetCard(d, a);
     }
 
@@ -632,20 +880,20 @@ export default {
       const bits = [];
       if (F.type !== '全部') bits.push('类型「' + F.type + '」');
       if (F.provider !== '全部') bits.push('平台「' + F.provider + '」');
-      if (F.status !== '全部') bits.push('状态「' + F.status + '」');
+      if (F.bucket) { const b = BUCKETS.find(x => x.key === F.bucket); bits.push('状态「' + (b ? b.label : F.bucket) + '」'); }
       if (F.q) bits.push('关键词「' + F.q + '」');
       if (F.from || F.to) bits.push('日期 ' + (F.from || '不限') + ' → ' + (F.to || '不限'));
       if (FAI) bits.push('AI 条件「' + String(FAI.desc).slice(0, 20) + '」');
       return bits;
     }
     function clearFilters() {
-      F.type = '全部'; F.provider = '全部'; F.status = '全部'; F.q = '';
-      F.from = ''; F.to = ''; F.presetDays = 0;
+      F.type = '全部'; F.provider = '全部'; F.bucket = ''; F.q = '';
+      F.from = ''; F.to = ''; F.time = '0';
       FAI = null; aiAsc = 0;
       if (searchFb) searchFb.setQuery('');
       if (dFromEl.value) dFromEl.value.value = '';
       if (dToEl.value) dToEl.value.value = '';
-      paintDateChips(); paintAiChip(); renderFilters(); renderGrid();
+      renderFilters(); paintAiChip(); renderGrid();
     }
     function emptyStateHTML() {
       const err = loadErrorsText();
@@ -684,6 +932,8 @@ export default {
       const list = filtered();
       viewToggle && viewToggle.apply();
       updatePager();
+      /* 页头那三档的条数跟着数据走（轮询每 5 秒重画一次，状态变了那三档也要跟着变）。 */
+      renderSum();
       const sel = [...selected].length;
       /* 页头这个数和分页条那个数必须同一个口径。以前写的是「共 list.length 项」，而 list 只是
          **当前这一页**（一页 24 条），分页条上却是筛选后的总数（几百条）—— 同屏两个「共」互相打脸。 */
@@ -701,6 +951,9 @@ export default {
       }
       paintLoadErrors(false);
       cardList.paint(list);
+      /* 网格档那条展开带子：重画会把卡片挪一遍，带子要跟着回到它那一行的下面
+         （Wb.cards 只认卡片，带子是插在容器里的另一个孩子）。 */
+      reinsertBand();
       /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
       try { window.AssetLocal && AssetLocal.offerAll(list); } catch (e) { /* 补存失败不影响列表 */ }
     }
@@ -776,6 +1029,13 @@ export default {
         provider: a => (REG.providers || []).find(p => p.id === a.provider) || null,
         taskId: a => a.genId || a.id || '',
         openRef: (ids, i, a, g, refs) => openRefLb(ids[i], a.genId || a.id, a, (refs || [])[i]),
+        /* 卡面上撤掉的那两行，在这里说全 —— 展开区就是「这一条的账」：
+           平台原话（失败 / 结果未知）、这次的费用、收藏备注。 */
+        rows: a => [
+          ['平台原话', a.failMsg || ''],
+          ['费用', costText(a)],
+          ['收藏备注', favNote(a)],
+        ].filter(r => r[1]),
       };
     }
     function lightboxCfg() {
@@ -822,55 +1082,84 @@ export default {
         assetId: a.assetId || a.id, src: a.src, dl: a.dl, prompt: a.prompt || '' });
     }
 
-    /* ---------- 筛选芯片 / 日期 ---------- */
+    /* ---------- 筛选行：类型（带条数）+ 平台 + 时间；状态三档在页头 ---------- */
     function renderFilters() {
-      if (searchFb) {
-        searchFb.setChips(['全部', '图片', '视频', '音频'], F.type, v => {
+      /* 类型：每一档带条数。条数跟着**其它**筛选条件走（页头三档同理）——
+         点一下就得到这个数，数字不会对不上。 */
+      if (asTypeEl.value) {
+        const pool = applyFilters({ noBucket: true });
+        window.Chips.render(asTypeEl.value, ['全部', '图片', '视频', '音频'], F.type, v => {
           F.type = v;
           renderFilters(); renderGrid();
-        });
+        }, { count: v => (v === '全部' ? pool.length : pool.filter(a => typeKey(a.type) === typeKey(v)).length) });
       }
-      if (fProvEl.value) {
-        window.Chips.render(fProvEl.value, uniq('providerName'), F.provider, v => { F.provider = v; renderFilters(); renderGrid(); });
+      /* 平台：从一个下拉走。平台涨到十几家时，一行十几颗芯片会把整行撑开。 */
+      if (asProvEl.value) {
+        const ps = uniq('providerName');
+        if (F.provider !== '全部' && !ps.includes(F.provider)) F.provider = '全部';
+        asProvEl.value.innerHTML = ['全部', ...ps]
+          .map(p => '<option value="' + window.esc(p) + '">' + window.esc(p) + '</option>').join('');
+        asProvEl.value.value = F.provider;
+        /* 换过 options 必须通知公共下拉：浮层那份列表是 build 那一刻的快照。 */
+        if (window.Dropdowns) window.Dropdowns.sync(asProvEl.value);
       }
-      if (fStatusEl.value) {
-        window.Chips.render(fStatusEl.value, ['全部', '已完成', '生成中', '排队中', '失败', '结果未知'], F.status, v => { F.status = v; renderFilters(); renderGrid(); });
-      }
+      if (asTimeEl.value) asTimeEl.value.value = F.time;
+      renderSum();
     }
 
-    function paintDateChips() {
-      if (!fDateEl.value) return;
-      window.Chips.render(fDateEl.value, DATE_PRESETS.map(([label, days]) => [days, label]), F.presetDays, v => {
-        const days = Number(v);
-        if (!days) {
-          F.from = ''; F.to = ''; F.presetDays = 0;
-          if (dFromEl.value) dFromEl.value.value = '';
-          if (dToEl.value) dToEl.value.value = '';
-        } else {
-          const now = new Date();
-          const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
-          F.from = window.dayKey(start); F.to = window.dayKey(now); F.presetDays = days;
-          if (dFromEl.value) dFromEl.value.value = F.from;
-          if (dToEl.value) dToEl.value.value = F.to;
-        }
-        paintDateChips();
-        renderGrid();
-      }, { isOn: v => (Number(v) === 0 ? (!F.from && !F.to) : F.presetDays === Number(v)) });
+    /* 页头三档：在制 / 失败 / 结果未知。
+       每一档带条数、点一下把列表筛到那一档；**计数为 0 的那一档不画**
+       （库里没有失败的时候，页头不该挂着一颗「失败 0」）。 */
+    function renderSum() {
+      const box = asSumEl.value;
+      if (!box) return;
+      const pool = applyFilters({ noBucket: true });
+      const n = { live: 0, failed: 0, uncertain: 0 };
+      pool.forEach(a => { const b = bucketOf(a); if (b) n[b]++; });
+      box.innerHTML = BUCKETS.map(b => {
+        if (!n[b.key]) return '';
+        return '<button class="as-sum-i' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
+          + ' title="只看这一档（再点一下取消）"><i class="dot ' + b.dot + '"></i>'
+          + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
+      }).join('');
+    }
+
+    function onSumClick(e) {
+      const b = e.target.closest('[data-bucket]');
+      if (!b) return;
+      F.bucket = F.bucket === b.dataset.bucket ? '' : b.dataset.bucket;
+      renderSum(); renderGrid();
+    }
+
+    /* 时间：一个下拉（全部 / 今天 / 近 7 天 / 近 30 天 / 自定义区间）。
+       预设直接换算成起止日期（区间那一套判据只有一份）。 */
+    function onTimeChange() {
+      const v = asTimeEl.value ? asTimeEl.value.value : '0';
+      F.time = v;
+      if (v === '0' || v === 'custom') {
+        F.from = ''; F.to = '';
+      } else {
+        const days = Number(v) || 0;
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+        F.from = window.dayKey(start); F.to = window.dayKey(now);
+      }
+      if (dFromEl.value) dFromEl.value.value = F.from;
+      if (dToEl.value) dToEl.value.value = F.to;
+      renderFilters(); renderGrid();
     }
 
     function onDateChange(which) {
       if (which === 'from') F.from = dFromEl.value ? dFromEl.value.value : '';
       else F.to = dToEl.value ? dToEl.value.value : '';
-      F.presetDays = 0;
-      paintDateChips();
-      renderGrid();
+      F.time = 'custom';
+      renderFilters(); renderGrid();
     }
     function clearDates() {
-      F.from = ''; F.to = ''; F.presetDays = 0;
+      F.from = ''; F.to = ''; F.time = '0';
       if (dFromEl.value) dFromEl.value.value = '';
       if (dToEl.value) dToEl.value.value = '';
-      paintDateChips();
-      renderGrid();
+      renderFilters(); renderGrid();
     }
     function openDatePicker(which, e) {
       if (e.target.closest('.dp-pop')) return;
@@ -878,7 +1167,7 @@ export default {
       const inp = which === 'from' ? (dFromEl.value || null) : (dToEl.value || null);
       if (!inp || !window.DatePicker) return;
       e.preventDefault();
-      window.DatePicker.open(holder, inp, { onPick: () => { paintDateChips(); renderGrid(); } });
+      window.DatePicker.open(holder, inp, { onPick: () => { renderFilters(); renderGrid(); } });
     }
 
     /* ---------- 搜索 ---------- */
@@ -1040,20 +1329,24 @@ export default {
     /* ---------- 启动 ---------- */
     function initWb() {
       LIST_CACHE = window.AssetLib.listCache('assets_cache_v1');
-      /* 「大类型 + 搜索」这一行：公共件生成芯片 / 输入框 / 计数，这一页只把自己的
-         AI 检索按钮与 AI 芯片作为额外内容塞进去（顺序与原模板一致）。 */
-      searchFb = window.Wb.filterBar.bind(typeRowEl.value, {
-        cls: '', chips: ['全部', '图片', '视频', '音频'], value: F.type,
-        headHTML: '<span class="flabel">大类型</span>',
-        betweenHTML: '<span class="flabel" style="margin-left: var(--sp-14)">搜索</span>',
+      /* 「搜索」这一格在**页头**（公共件 Wb.filterBar：搜索框 + 防抖 + Enter 即搜 + AI 芯片宿主），
+         类型芯片在下面那一行筛选里（公共件 Chips.render，带条数）。 */
+      searchFb = window.Wb.filterBar.bind(headToolsEl.value, {
+        cls: '', chips: null, value: F.q,
+        headHTML: '<span class="flabel">搜索</span>',
         inputId: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
-        onFilter: v => { F.type = v; renderFilters(); renderGrid(); },
         onSearch: v => { F.q = String(v == null ? '' : v).trim().toLowerCase(); renderGrid(); },
         extraHTML: '<button class="ghost" id="searchBtn" title="立即按当前关键词筛选（输入时也会自动筛）" style="flex:0 0 auto">搜索</button>'
           + '<button class="ghost" id="aiSearchBtn" title="按左边搜索框里写的描述做 AI 检索（翻译成筛选条件就地过滤）" style="flex:0 0 auto">AI 检索</button>'
           + '<span data-fb="aiChip"></span>',
         cnt: false,
       });
+      /* 页头三档（状态）：点一下把列表筛到那一档 */
+      if (asSumEl.value) asSumEl.value.addEventListener('click', onSumClick);
+      /* 时间下拉 */
+      if (asTimeEl.value) asTimeEl.value.addEventListener('change', onTimeChange);
+      /* 平台下拉的浮层由 load() 里那一次 Dropdowns.build 建（这一页是后挂上来的），
+         options 换过之后由 renderFilters 里的 sync 通知。 */
       const searchBtn = searchFb.el.querySelector('#searchBtn');
       if (searchBtn) searchBtn.onclick = onSearchClick;
       aiSearchBtn.value = searchFb.el.querySelector('#aiSearchBtn');
@@ -1083,6 +1376,9 @@ export default {
       });
       viewToggle = window.Wb.viewToggle.create({
         el: viewEl.value, key: 'dir_asset_view', target: gridEl.value,
+        /* 换档时把开着的那些收起来：清单档是「卡自己长高」，紧凑档是「行下面那条带子」，
+           两者的展开形状不同，不能带着一条带子切档。 */
+        onPick: () => { closeBand(); window.Wb.expand.closeAll(gridEl.value); },
       });
       /* 登记这一页那两份配置：公共件只在「登记的这一页正是前台」时才装上，
          所以初始化跑在「用户已经切走」之后（workbench 脚本异步加载）也不会把
@@ -1237,7 +1533,6 @@ export default {
       window.addEventListener('fav-change', onFavChange);
       offStorage = window.StorageBus.on(['fav_items', 'sk_media_badge'], onStorage);
       document.addEventListener('keydown', onKeydown);
-      paintDateChips();
       paintPullInitial();
       if (window.fillIcons) window.fillIcons(pageEl.value);
       try { await load(); } catch (e) { console.warn('[assets] 加载失败：', e); }
@@ -1256,7 +1551,7 @@ export default {
       if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
       if (poller && poller.stop) poller.stop();
       if (busOff) busOff();
-      if (gridEl.value) gridEl.value.classList.remove('assetsMulti');
+      if (gridEl.value) gridEl.value.classList.remove('multi');
       const sentinel = gridEndEl.value && gridEndEl.value._sentinelBound;
       if (sentinel && sentinel.disconnect) sentinel.disconnect();
     });
@@ -1265,12 +1560,12 @@ export default {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
       failed, cntText, gotoBtnText, gotoBusy,
       reloadDisabled, reloadTitle, multiMode, bulkCountText, bulkTipText, bulkDownDisabled,
-      bulkAllText, bulkAllDisabled,
+      bulkAllText, bulkAllDisabled, bulkFavAddDisabled, bulkFavRemoveDisabled,
       isPageMode: PAGE_MODE === 'page', pagerReady,
       F, faceFrom, faceTo,
-      pageEl, gridEl, gridEndEl, loadErrEl, typeRowEl, fDateEl, fProvEl, fStatusEl, viewEl,
+      pageEl, gridEl, gridEndEl, loadErrEl, headToolsEl, asTypeEl, asProvEl, asTimeEl, asSumEl, viewEl,
       aiSearchBtn, aiChipEl, dFromEl, dToEl, pullLocalBtn, cancelAllBtn, gotoPageEl, pagerBtnsEl,
-      onSearchClick, runAiSearch, openDatePicker, onDateChange, clearDates,
+      onSearchClick, runAiSearch, openDatePicker, onDateChange, clearDates, onTimeChange, onSumClick, timeMode,
       toggleMulti: () => assetsMulti().setMode(!multiMode.value),
       exitMulti: () => assetsMulti().setMode(false),
       bulkAll: () => {
@@ -1280,7 +1575,7 @@ export default {
         renderGrid();
       },
       bulkClear: () => assetsMulti().clear(),
-      bulkDownload,
+      bulkDownload, assetsBulkFavAdd, assetsBulkFavRemove,
       pullLocalPage, reload, cancelAll, gotoPageInput,
     };
   },

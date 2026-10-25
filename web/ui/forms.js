@@ -477,6 +477,97 @@
   }
   function close(dlg, out, resolve) { try { dlg.close(); } catch {} dlg.remove(); resolve(out); }
 
+  /* ---------- 「按这句再改」那一行（结果面板 InlinePolish.show 的同款，搬进审阅弹窗）----------
+     生成完、确认写入之前，用户还能对着**当前这份**说一句要求，AI 在它上面再改一轮。
+     只在调用方给了 o.onFollow 时出现；分组审阅（mode:'board'）与平铺审阅共用这一份。
+       · o.onFollow(你那句话, ctl, currentItems) → Promise<items数组 | { items, assets }>
+         currentItems = 弹窗里**此刻**的那一份（含用户手改的每一格）—— 改要落在它身上，
+         不是落在最初那份上；ctl.push / ctl.signal 与润色的 onFollow 同一个契约
+         （流式就地画在弹窗里的 live 面板、可中止）。
+       · hooks.snapshot()     把此刻的条目交回调用方（形状与进弹窗时一致）
+       · hooks.install(items, assets)   跑完了换清单（assets 只有分镜那一路会重问后给）
+       · blocked()            空清单时「采用」本来就该禁用 —— 收尾恢复时问它
+     对话记录（rounds）是弹窗自己的状态：模态一关就没了，不需要跨重画保存。
+     一轮在跑时「重新规划」也要让路（两个动作都会整份换清单，叠着跑谁盖谁都说不清）。 */
+  function mountFollow(dlg, o, okBtn, blocked, hooks) {
+    if (typeof o.onFollow !== 'function') return { busy: () => false };
+    const foot = dlg.querySelector('.pr-foot');
+    const wrap = document.createElement('div');
+    wrap.className = 'pr-follow';
+    wrap.innerHTML = `<div class="pr-talk" hidden></div><div class="pr-live" hidden></div>
+      <div class="pr-fnote" hidden></div>
+      <div class="pr-followrow">
+        <input class="pr-followin" type="text" spellcheck="false"
+          placeholder="${window.esc(o.followPlaceholder || '还要怎么改？写一句，AI 在当前这份上再改一轮（写完按回车）')}">
+        <button class="ghost pr-followbtn">${icon('sparkles', 13)} 按这句再改</button>
+      </div>`;
+    foot.parentNode.insertBefore(wrap, foot);
+    const talk = wrap.querySelector('.pr-talk');
+    const liveHost = wrap.querySelector('.pr-live');
+    const fnoteEl = wrap.querySelector('.pr-fnote');
+    const inp = wrap.querySelector('.pr-followin');
+    const btn = wrap.querySelector('.pr-followbtn');
+    const retryBtn = dlg.querySelector('#prRetry');
+    const rounds = [];
+    const paintTalk = () => {
+      talk.hidden = !rounds.length;
+      talk.innerHTML = rounds.map((t, i) => `<div class="pr-turn">第 ${i + 1} 轮 · 你说：${window.esc(t)}</div>`).join('');
+    };
+    const fnote = (t, bad) => {
+      fnoteEl.textContent = t || '';
+      fnoteEl.hidden = !t;
+      fnoteEl.classList.toggle('bad', !!bad);
+    };
+    let busy = false, ab = null;
+    const setBusy = on => {
+      busy = on;
+      okBtn.disabled = on || blocked();
+      if (retryBtn) retryBtn.disabled = on;
+      btn.innerHTML = on ? icon('stop', 13) + ' 停止这一轮' : icon('sparkles', 13) + ' 按这句再改';
+    };
+    const run = async () => {
+      if (busy) { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经收尾的话再 abort 无害，兜住就好 */ } } return; }   // 跑着时这一颗是「停止」
+      const askText = String(inp.value || '').trim();
+      if (!askText) { fnote('先在上面那一格写一句要怎么改（写完按回车）', true); inp.focus(); return; }
+      if (typeof AbortController === 'function') ab = new AbortController();
+      setBusy(true);
+      fnote('', false);
+      let lv = null;
+      const ctl = {
+        push(piece, kind) {
+          if (kind === 'reasoning' || !piece) return;
+          if (!lv) lv = window.InlinePolish.live(liveHost, { title: o.followTitle || 'AI 正在按这句话调整…',
+            onStop: () => { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经不在跑：再 abort 无害，兜住就好 */ } } } });
+          lv.push(piece, kind);
+        },
+        get signal() { return ab && ab.signal; },
+      };
+      try {
+        const r = await o.onFollow(askText, ctl, hooks.snapshot());
+        const fresh = (r && typeof r === 'object' && !Array.isArray(r)) ? r : { items: r };
+        hooks.install(fresh.items || fresh, fresh.assets);
+        rounds.push(askText); paintTalk();
+        fnote('已按你这句话改过一版（不满意就接着说，或直接改上面的条目）', false);
+        inp.value = '';
+        window.InlinePolish.clear(liveHost);   // 清单已经换掉，流式那一段不再留
+      } catch (e) {
+        const gone = ab && ab.signal && ab.signal.aborted;
+        const msg = gone ? '这一轮已经停下（下面还是你改之前的那一版）' : ('这一轮没改成：' + errText(e));
+        if (lv) lv.fail(msg); else fnote(msg, true);
+        /* 失败不清 live：已经写出来的字就是这一轮唯一拿到的结果 */
+      }
+      ab = null;
+      setBusy(false);
+    };
+    btn.onclick = run;
+    inp.onkeydown = e => {
+      if (e.key !== 'Enter') return;
+      if (e.isComposing || e.keyCode === 229) return;   // 中文输入法选词上屏那一下不发
+      e.preventDefault(); run();
+    };
+    return { busy: () => busy };
+  }
+
   /* ============================ 分镜审阅（mode:'board'）============================
      与平铺那一份同住本 IIFE、共用 mount / close / `.pr-*` 外壳，但**代码路径完全分开**：
      openList 只在 `o.mode === 'board'` 时走进这里并当场 return，平铺那段一行不经过。
@@ -808,9 +899,27 @@
     dlg.querySelector('#prCancel').onclick = () => close(dlg, null, resolve);
     dlg.addEventListener('cancel', e => { e.preventDefault(); close(dlg, null, resolve); });
     const retry = dlg.querySelector('#prRetry');
+    /* 「按这句再改」：新方案是**从此刻这份改出来的**（手改已经喂回去了）——
+       整份替换，不走 mergeFresh 的「改过的留着」那一条（那是给「从剧本重拆」的重新规划用的：
+       那份新方案不认识用户的手改）。待建素材照旧保住手改的那几条（与重新规划同一立场）。 */
+    const follow = mountFollow(dlg, o, okBtn, () => !rows.length, {
+      snapshot: () => rows.map(r => ({ key: r.key, scene: r.scene, name: r.name, dur: r.dur,
+        text: r.text, line: r.line, who: r.who, chain: r.chain, chainModel: r.chainModel })),
+      install: (freshItems, freshAssets) => {
+        rows = normAll(freshItems || []);
+        if (canAssets && Array.isArray(freshAssets)) {
+          const editedNames = new Set(assets.filter(a => a.edited).map(a => nameKeyOf(a.name)));
+          const seen = new Set(editedNames);
+          assets = assets.filter(a => editedNames.has(nameKeyOf(a.name)))
+            .concat((freshAssets || []).filter(a => a && !seen.has(nameKeyOf(a.name))).map(a => Object.assign({}, a)));
+        }
+        paint();
+      },
+    });
     if (o.retry) {
       retry.innerHTML = icon('refresh', 13) + ' 重新规划';
       retry.onclick = async () => {
+        if (follow.busy()) return;               // 「按这句再改」在跑：让它跑完，别两路一起换清单
         retry.disabled = true; retry.textContent = '规划中…';
         note('');
         const mine = rows;                 // 问失败时要原样退回的这一版：一个字都不动
@@ -916,9 +1025,15 @@
         dlg.querySelector('#prCancel').onclick = () => close(dlg, null, resolve);
         dlg.addEventListener('cancel', e => { e.preventDefault(); close(dlg, null, resolve); });
         const retry = dlg.querySelector('#prRetry');
+        /* 「按这句再改」（平铺审阅，导演台「修改现有分镜」那一路在用）：此刻的条目递回去当底稿。 */
+        const follow = mountFollow(dlg, o, okBtn, () => !items.length, {
+          snapshot: () => items.map(x => ({ ...x })),
+          install: freshItems => { items = (freshItems || []).map(x => ({ ...x, label: x.label, text: x.text })); paint(); },
+        });
         if (o.retry) {
           retry.innerHTML = icon('refresh', 13) + ' 重新规划';
           retry.onclick = async () => {
+            if (follow.busy()) return;             // 「按这句再改」在跑：让它跑完
             retry.disabled = true; retry.textContent = '规划中…';
             body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>';
             try { items = (await o.retry()).map(x => ({ ...x, label: x.label, text: x.text })); }

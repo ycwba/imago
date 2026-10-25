@@ -63,7 +63,11 @@
     const providerId = routedId || (selfProvId && selfProvId !== prov.id ? selfProvId : prov.id);
     const ownProv = (providerId && providerId !== prov.id && providerId !== routedId && window.Api)
       ? (window.Api.prov(providerId) || null) : null;
-    const providerName = (ownProv && (ownProv.displayName || ownProv.name)) || prov.displayName || prov.name;
+    /* 归属要说真话：provider 注记解析不到注册表平台（'local' /「本机」那一批）就写「本机」——
+       以前一律落到来源那家的 displayName，本机 PNG 在卡片上挂着语音平台的名字。 */
+    const providerName = (ownProv && (ownProv.displayName || ownProv.name))
+      || ((spec.selfAsset && !routedId && providerId !== prov.id && !ownProv) ? '本机' : '')
+      || prov.displayName || prov.name;
     // 上游没给 prompt 时用本机记录兜底（例如 VGENV 的接口不返回它），并标注来源
     const rawPrompt = g('prompt') || '';
     /* 归档按平台任务号查（判据只有一处：PromptLog.askId，见 refillPrompts）；
@@ -667,6 +671,20 @@
        返回 mirrorGone:true，让调用方**只清本机索引、不要把整条从列表摘掉**：
        平台那份还在，卡片必须留着。 */
     async remove(entry) {
+      /* 条目即本机资产（/local-assets 那张列表的行）：删 /local-assets 那一条本身。索引里 provider 只是
+         「谁生成的」注记（语音产物写平台 id，导入 / 盘上补账写「本机」/ 'local'），以前当平台 id 查注册表，
+         'local' /「本机」查不到任何一家，这批卡的删除键一点就抛「找不到平台」（字幕残留 PNG 正是这一族）。
+         `localAsset && !mirror` 是缓存里可能还留着的旧形状（与 decorate 判 selfRow 同一把尺）。 */
+      const selfId = entry && entry.localSelf
+        ? String(entry.assetId || entry.id || '')
+        : (entry && entry.localAsset && !entry.mirror && /^la_/.test(String(entry.assetId || entry.id || '')) ? String(entry.assetId || entry.id) : '');
+      if (selfId) {
+        const reg = await Api.registry();
+        const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
+        if (!src) throw new Error('找不到本机资产库这条来源（注册表里没有声明本机端点的平台）');
+        await Api.request(src, 'remove', { id: selfId, method: 'DELETE' });
+        return { localGone: true, id: selfId };
+      }
       if (entry && entry.mirror && entry.mirror.a) {
         const reg = await Api.registry();
         const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);

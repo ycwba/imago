@@ -122,9 +122,9 @@ function createRelayRoutes(ctx) {
         ['cookie', 'connection', 'origin', 'referer', 'accept-encoding', 'host', 'authorization', 'content-length', 'transfer-encoding', 'x-up-base', 'x-no-cache'].forEach(h => delete fwd[h]);
         const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
           || (keyFallback ? keyOf(relayHit.keyEnv) || DEFAULTS[relayHit.keyId || relayHit.id] || relayHit.defaultKey : '') || '';
-        /* 转发失败那句话的主语必须是**真打出去的那一台**，不能是「前缀排第一的那家」：
-           relay 前缀可以好几家共用（九家文字 AI 里有八家的 relay 都是 /textai，上面那个 find 只按前缀
-           拿到排在最前的 deepseek），页面还能用 x-up-base 把地址整个换掉。以前这里写 relayHit.id，
+        /* 转发失败那句话的主语必须是**真打出去的那一台**：relay 前缀一家一段（v19 起，
+           等价声明才允许共用，判据在 providers/validate.js），relayHit 就是这一家；
+           页面还能用 x-up-base 把地址整个换掉。以前这里写 relayHit.id，
            界面就成了「deepseek 转发失败（打到 openrouter.ai）」—— 让人去别的一家翻密钥、翻设置。
            地址是页面递来的（baseOverridden）时不再报平台名，只报那一台主机 —— 这才是唯一确定的事实。 */
         const upHost = String(base).replace(/^https?:\/\//, '').split('/')[0];

@@ -2,7 +2,16 @@
    数据与副作用全部走已有的公共层（Chars / Wb / AssetLocal / AssetPicker / AssetTransfer /
    AiFind / AiChip / Chips / Dropdowns / Confirm / Toast），组件只负责「这一屏长什么样」。
    `chars.js` 仍是全站唯一的数据层（Chars.Pipe / Chars.Lib / Chars.Cast / Chars.SET），
-   这一页一个字都不重写它；卡片内部那几块（声音 / 角色资产 / 候选排）仍是 Cast 产出的标记。
+   这一页一个字都不重写它。
+
+   布局（2026-10-25 重排）是三栏：
+     · 左「目录轨」：类型 / 还缺什么 / 分组 —— 取代筛选芯片行 + 三行工具条 + 体检面板；
+       「出齐」用哪个型号只有一处出处：设置页「素材库」那张卡的默认生图型号
+      （目录轨上那行「出齐用」的下拉已经撤掉）。
+     · 中「素材台」：一行工具 + 卡片网格 + 底部翻页行；
+     · 右「检查器」：点一张卡才占位 —— 取代卡内就地展开的编辑区。
+   「新建 / 编辑一条素材」挪到**整屏层**（`./chars/detail.js`）：那一层有自己的骨架
+   （左边画面吸顶、右边一条连续文档）与「每个生成位自带型号与数量」的生成条。
 
    与旧页的两点结构差异（行为不变）：
    ① 卡片不再逐个 `bindCard`：网格上用事件委托接 `data-a` / `data-act` / `data-f`，
@@ -11,14 +20,16 @@
       `pgPrevId` 一档、AiChip 的清除键给唯一 id），页面自己的元素全走 ref。 */
 import { ref, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/chars.js';
+import { createDetail, detailDots, detailStat } from './chars/detail.js';
 
 const PAGE_MODE = window.pageModeOf('chars');
 const PAGE_SIZE = window.pageSizeOf('chars');
-/* 三种类型各一档（与库里那三种平级，道具是 2026-10 加的），后面三个是「还缺什么」的缺口档。 */
+/* 三种类型各一档（与库里那三种平级，道具是 2026-10 加的）—— 目录轨「类型」那一节。 */
 import { ensureCss } from '../core/page-css.js';
 
-const FILTERS = [['all', '全部'], ['actor', '角色'], ['scene', '场景'], ['prop', '道具'],
-  ['nopic', '还没有预览图'], ['noasset', '还没有角色资产'], ['novoice', '还没有声音'], ['nodesc', '还没有描述']];
+const KIND_ROWS = [['all', '全部'], ['actor', '角色'], ['scene', '场景'], ['prop', '道具']];
+/* 「还缺什么」那四档：与卡面上的完备度点阵同一套语义（预览图 · 角色资产 · 声音 · 描述）。 */
+const GAP_ROWS = [['nopic', '缺预览图'], ['noasset', '缺角色资产'], ['novoice', '缺声音'], ['nodesc', '缺描述']];
 
 /* 这一份样式单独放在 spa-chars.css，打开这一页时由 `ensureCss` 按需挂上
    （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
@@ -39,40 +50,37 @@ export default {
 
     /* ---------- DOM 宿主（页面自己的元素一律走 ref） ---------- */
     const rootEl = ref(null);
+    const matEl = ref(null);
     const toolbarEl = ref(null);
     const aiFindBtn = ref(null);
     const aiChipEl = ref(null);
-    const grpPickEl = ref(null);
+    const railScrollEl = ref(null);
+    const railSubEl = ref(null);
     const grpListEl = ref(null);
     const viewEl = ref(null);
-    const btnFillEl = ref(null);
-    const btnLocalEl = ref(null);
-    const btnStopEl = ref(null);
     const btnNewEl = ref(null);
-    const imgPickEl = ref(null);
-    const ttsPickEl = ref(null);
-    const candPickEl = ref(null);
+    const btnMultiEl = ref(null);
+    const railToggleEl = ref(null);
+    const bkImgPickEl = ref(null);
+    const bkTtsPickEl = ref(null);
     const aiLiveEl = ref(null);
     const gridEl = ref(null);
     const gridEndEl = ref(null);
     const pagerRowEl = ref(null);
+    const inspEl = ref(null);
 
     /* ---------- 界面状态 ---------- */
     const ready = ref(false);
     const failed = ref('');
     const cards = ref([]);            // [{ id, html }]：一张卡一条，重画只换这一条
-    const openId = ref('');           // 哪一张卡展开了编辑区
+    const inspId = ref('');            // 哪一张卡在右侧检查器里（点一下才开）
+    const railOpen = ref(false);       // 窄窗下目录轨是覆盖抽屉
     const q = ref('');
     const searchPh = ref('搜索素材');
     const cntText = ref('');
     const busyText = ref('');
-    const stopVisible = ref(false);
-    const stopDisabled = ref(false);
     const pagerVisible = ref(false);
     const emptyHtml = ref('');
-    const fillText = ref('一次出齐这一档');
-    const fillDisabled = ref(true);
-    const fillTitle = ref('');
     /* 多选与批量补缺：素材一多，「一条一条点开补」就是最耗时的那段。
        选中集合用新 Set 整体替换（ref 只有换引用才会触发模板重画）。 */
     const multi = ref(false);
@@ -81,7 +89,6 @@ export default {
     const batchBusy = ref(false);
     const batchText = ref('');
     const batchGroup = ref('');
-    const health = ref({ total: 0, groups: 0, used: 0, rows: [], note: '' });
     const ticHtml = window.icon ? icon('layers', 20) : '';
     const newBtnHtml = (window.icon ? icon('plus', 13) : '') + ' 新建素材';
     const aiBtnHtml = (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材';
@@ -90,15 +97,17 @@ export default {
     let D = window.Chars || null;
     let REG = null;
     let alive = true;
-    /* 顶部主工具条（芯片 / 搜索 / AI 按钮 / AI 条件芯片 / 计数）由 Wb.filterBar 生成，
+    /* 顶部主工具条（搜索 / AI 按钮 / AI 条件芯片 / 计数）由 Wb.filterBar 生成，
        这一页只留点完之后做什么；aiFindBtn / aiChipEl 在 bind 之后指回那一份里的节点。 */
     let toolbarFb = null;
-    const filter = ref('all');
+    /* 目录轨上两档筛选各自独立：类型（全部/角色/场景/道具）与缺口（缺预览图/…）。 */
+    const kindFilter = ref('all');
+    const gapFilter = ref('');
     const group = ref('');            // '' = 全部组；'__none' = 未分组
     let aiPick = null, aiWhy = '', aiRank = null;
     let busyMsg = '';
     /* 「一次出齐」这一轮的两位状态：按过停下（不再开新的任务）、这一轮有没有停下可言。 */
-    let stopFlag = false, fillStoppable = false;
+    let stopFlag = false, fillStoppable = false, stopDisabled = false;
     let renderSeq = 0;
     const viewItems = [];             // 当前视图的素材（灯箱翻页范围）
     const media = [];                 // 当前视图能点开看的图（预览图 + 各资产）
@@ -107,26 +116,40 @@ export default {
     let offStorage = null;
     let viewToggle = null;
     let sentinelIO = null;
-    let candSelBuilt = false;
     let nameBefore = '';
     let fieldTimer = null;
     let headPend = null, headTimer = 0;
     let libWarnedAt = 0;
 
-    /* 这一页没有「某一集」，所以出图 / 出声音用的型号在本页选一下（存 char_opts）。
-       传进 Chars.Pipe 时套成 drama 的样子（那些函数只读 opts.imgModel / opts.ttsModel / opts.ratio）。 */
-    let opts = { imgModel: '', ttsModel: '', ratio: '9:16', style: '' };
-    /* 读写走 Store（信封 + 写不进去当场说一句）。旧格式是裸 JSON、没有信封，
-       这里先摸一次裸值：认出来就并进 opts，下一次保存自然变成信封 ——
-       不摸这一把，这次改动会把用户早就选好的型号当成「没选过」清掉。 */
-    (() => {
-      let raw = null;
-      try { raw = JSON.parse(localStorage.getItem('char_opts') || 'null'); } catch (e) { raw = null; }
-      if (raw && typeof raw === 'object' && !Array.isArray(raw) && !('data' in raw)) opts = Object.assign(opts, raw);
-      else opts = Object.assign(opts, Store.read('char_opts', null) || {});
-    })();
-    const fakeDrama = () => ({ opts: opts, characters: [], scenes: [], shots: [] });
-    function saveOpts() { Store.write('char_opts', opts, { label: '素材库这一页的型号与比例' }); }
+    /* 这一页没有「某一集」，所以传进 Chars.Pipe 的 drama 只是个壳：它那一份 opts 只带
+       **这一次挑的型号**与固定画幅（9:16）。
+       ⚠ 这里**不再有「本页默认」**：默认值在设置页「素材库」那张卡里
+       （默认生图型号 / 默认语音型号 / 默认出几张），页面上每一处生成位自己挑、自己改，
+       改的只管那一处，**不写回设置页也不写进本机** ——
+       「按上次那个跑」不是这一页该有的行为（旧的本机键 `char_opts` 已停用，见 boot）。 */
+    const opts = { ratio: '9:16' };
+    /* 设置页那一份默认（每次现读：那边改了，这边立刻跟着变）。 */
+    const defImgModel = () => String(D.setting('imgModel') || '');
+    const defTtsModel = () => String(D.setting('ttsModel') || '');
+    /* 批量出图各自挑的型号（作用域不同，各挑各的）：只活在这一页，不落盘。 */
+    const BATCH = { imgModel: '', ttsModel: '' };
+    const fakeDrama = (imgModel, ttsModel) => ({
+      opts: Object.assign({}, opts, { imgModel: imgModel || '', ttsModel: ttsModel || '' }),
+      characters: [], scenes: [], shots: [],
+    });
+    /* 某一处生成位单独挑了型号 → 给它一份自己的 drama / opts（那一处出图出声音只认自己那份）。 */
+    const dramaWith = model => fakeDrama(model);
+    const optsWith = (model, count) => Object.assign({}, opts,
+      { ttsModel: model || '' }, count ? { candN: count } : {});
+    /* 「现在生效的那一个型号」：这一处挑的 → 设置页的默认 → 注册表里第一个。
+       下拉里要显示的就是它（空串不是给用户看的答案）。 */
+    const effKey = (kind, mode, key) => {
+      try {
+        const v = D.Pipe.pickProvModel(REG, kind, key || '', mode);
+        return v ? v.key : '';
+      } catch (e) { return ''; }
+    };
+    let detail = null;
 
     const src = s => window.Api.mediaSrc(s);
     /* 图片一律由 Wb.thumbs 画（地址映射、尺寸缓存、失败占位、解码属性都在那一份里），
@@ -140,8 +163,12 @@ export default {
     const assetTpls = c => D.Cast.assetTplsOf(c);
     const kindF = k => D.Lib.kindF(k);
     const ONE = 1;
-    const candCount = () => Math.max(ONE, Number(D.candCount(REG, opts)) || ONE);
-    const nSuffix = () => { const n = candCount(); return n > 1 ? ' ' + n + ' 张' : ''; };
+    /* 「这一次出几张」：设置页那个「默认出几张」照旧管用（它是全局设置），
+       再夹到**这个型号**声明的上限（上游只让出一张时，摆 3 个格子也没用）。 */
+    const candCount = (modelKey) => {
+      const hit = D.Pipe.pickProvModel(REG, 'image', modelKey || '', 'text_to_image');
+      return Math.max(ONE, Number(D.candCount(REG, opts, null, hit && hit.model)) || ONE);
+    };
     const picWord = c => isProp(c) ? '道具图' : '预览图';
     const mainKind = c => isScene(c) ? 'img' : isProp(c) ? 'prop' : 'face';
     const aiRankOf = c => (aiRank && aiRank.has(c.id) ? aiRank.get(c.id) : Number.MAX_SAFE_INTEGER);
@@ -212,9 +239,7 @@ export default {
 
     function paintBusy() {
       busyText.value = genLine() || busyMsg;
-      stopVisible.value = !!(genHas('fill', null) && fillStoppable);
-      paintFillBtn();
-      paintLocalBtn();
+      paintCharsRail();
     }
 
     /* ---------- 「切页不丢」：把正在跑的出图任务号落盘 ----------
@@ -302,28 +327,9 @@ export default {
     }
 
     /* 三种类型的主图同一条路、同一份读写。名字（lab）才是三档真正不同的东西。 */
-    const candK = lab => ({ bus: 'face', lab: lab,
-      gen: x => D.Pipe.drawPreview(REG, fakeDrama(), x, { onTask: onTaskHook }),
-      got: x => D.picOf(x), set: (x, v) => D.setPic(x, v) });
+    const candK = lab => ({ lab: lab, got: x => D.picOf(x), set: (x, v) => D.setPic(x, v) });
     const CANDK = { face: candK('预览图'), img: candK('场景图'), prop: candK('道具图') };
 
-    function moreCandsBtn(kind, dis) {
-      const n = candCount();
-      return `<button class="ui-linkbtn" data-a="morecand" data-k="${esc(kind)}"${dis ? ' disabled' : ''}>`
-        + (n > 1 ? '再画 ' + n + ' 张候选' : '再画 1 张') + '</button>';
-    }
-    async function moreCands(c, kind) {
-      const k = CANDK[kind]; if (!k) return;
-      await genRun(k.bus, c.id, c, '正在给「' + c.name + '」出 ' + candCount() + ' 张' + k.lab + '候选…', () => k.gen(c));
-    }
-    function useCand(c, kind, s2) {
-      const k = CANDK[kind]; if (!k || !s2) return;
-      k.set(c, s2);
-      const ok = !!libSave(c);
-      paintCard(c);
-      if (!ok) return;
-      Toast.receipt('这条现在用这张。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
-    }
     async function genRun(kind, id, c, msg, fn, quiet, label) {
       if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中，好了会自动出现，不用再点一次'); return false; }
       genSet(kind, id, msg); errSet(kind, id, ''); paintCard(c);
@@ -343,177 +349,52 @@ export default {
       return !err;
     }
 
-    /* ---------- 卡片标记 ---------- */
-    function nmInner(c) {
-      return `${esc(c.name)}<span class="ui-tag">${D.LIB_KINDS[D.libKindOf(c)]}</span>`
-        + (isScene(c) && c.time ? `<span class="ui-tag">${esc(c.time)}</span>` : '')
-        + (!isScene(c) && !isProp(c) && D.voiceOnlyOf(c) ? '<span class="ui-tag">只出声</span>' : '')
-        + (c.group ? `<span class="ui-tag">${esc(c.group)}</span>` : '');
-    }
-    function bioInner(c) {
-      return esc(c.bio || '') + (c.bio && c.look ? '<br>' : '') + esc((c.look || '').slice(0, 80));
-    }
-    function refTag(c) {
-      const list = refUse.get(String((c && c.name) || '')) || [];
-      const n = list.length;
-      if (!n) return '';
-      const where = list.slice(0, 4).map(u => [u.pname, u.sname, u.shname].filter(Boolean).join(' / ')).join('；');
-      return '<span class="ui-tag" title="导演台的这些镜头写了 @' + esc(c.name) + '：' + esc(where)
-        + (n > 4 ? ' 等 ' + n + ' 处' : '') + '">被 ' + n + ' 镜引用</span>';
-    }
-    function mainCandsHTML(c, pw, busy, editOpen) {
-      const kind = mainKind(c);
-      const n = candCount();
-      const list = (c.faces || []).filter(x => x && x.src);
-      const tail = editOpen ? moreCandsBtn(kind, false) : '';
-      return busy
-        ? `<div class="ui-cands"><span class="lab">${esc(pw)}候选</span>${D.Cast.waitHTML('正在出 ' + n + ' 张')}${editOpen ? moreCandsBtn(kind, true) : ''}</div>`
-        : D.Cast.picCandsHTML(list, D.picOf(c), { act: 'usecand', del: 'canddel', label: pw + '候选', name: c.name,
-            extra: ' data-k="' + kind + '"', tail: tail });
-    }
-
-    /* 原始请求折叠块：生成按钮旁边一处（画面）与声音那一处各一枚，内容由 RawRequest 自己更新。 */
-    const rawHostHTML = tag => (window.RawRequest ? '<div class="chars-raw">' + RawRequest.html(tag) + '</div>' : '');
+    /* 卡面：图 + 名字 + 类型 + 被引用数 + 描述 + 完备度点阵。
+       描述与「被 N 镜引用」原来只有展开编辑区才看得到 —— 现在摆在卡面上，扫一眼就知道这个人是谁。 */
     function cardHTML(c) {
-      const sc = isScene(c), pr = isProp(c);
       const pw = picWord(c);
       const pic = D.picOf(c);
-      const editOpen = openId.value === c.id;
       const faceBusy = genHas('face', c.id);
       const vo = voiced(c) && D.voiceOnlyOf(c);
       /* 报错盖在图上（与「正在出」同一个位置）：卡面只剩图 + 名字 + 徽标 + 组名，
          错误原因不另开一栏 —— 它就是这张图为什么没出来，看图的地方就要看得到。 */
       const errHTML = errsHTML(c);
       const thumb = vo
-        ? `<div class="thumb card-shell-media" title="只出声：这一位不出画面，所以不必有${esc(pw)}（要让它出镜就在编辑区把勾去掉）"><div class="none">只出声<br>不出镜</div></div>`
-        : `<div class="thumb card-shell-media"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'pickface'}"`} title="${faceBusy
+        ? `<div class="mthumb mph-empty card-shell-media" title="只出声：这一位不出画面，所以不必有${esc(pw)}"><div class="none"><b>只出声</b><i>不出镜</i></div></div>`
+        : `<div class="mthumb${isScene(c) ? ' mph-scene' : ''} card-shell-media"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'edit'}"`} title="${faceBusy
           ? '正在出' + esc(pw) + '：出来会自动换上'
           : pic ? pw + '：点一下看大图'
-            : '还没有' + pw + '：点这里从资产库 / 我的收藏 / 本机文件挑一张，或点「编辑」后按「AI 出' + nSuffix() + pw + '」'}">
+            : '还没有' + pw + '：点这里打开详情，挑一张或让 AI 出一张'}">
           ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
             : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="身份锚点：出图、出资产与导演台参考图优先用它">锚点</span>' : '')
-              : `<div class="none">还没有${esc(pw)}<br>点这里自己挑一张</div>`}
+              : `<div class="none"><b>还没有${esc(pw)}</b><i>点这里自己挑一张</i></div>`}
           ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}</div>`;
       const pickedNow = sel.value.has(c.id);
-      return `${multi.value ? `<div class="pickbox${pickedNow ? ' on' : ''}" title="勾选后批量补缺 / 分组 / 删除">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
-        <div class="main"><div class="body card-shell-body">
-          <div class="nm">${nmInner(c)}</div>
-          <div class="acts card-shell-actions">${window.Wb.actsHTML(c, {
-            items: [
-              { act: 'edit', label: editOpen ? '收起' : '编辑' },
-              { act: 'rename', label: '改名', title: '给这一条换名字：全片按 id 自动回填引用，改名不断' },
-              pic ? { act: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去生成工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
-              pic ? { act: 'similar', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
-              { act: 'del', label: '从库里删掉', danger: true },
-            ].filter(Boolean),
-          })}</div>
+      const uses = (refUse.get(String(c.name || '')) || []).length;
+      const kindLab = D.LIB_KINDS[D.libKindOf(c)] || '';
+      const acts = window.Wb.actsHTML(c, {
+        items: [
+          { act: 'edit', label: '编辑', title: '打开这一条的详情：改描述、出图、配声音' },
+          pic ? { act: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去生成工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
+          pic ? { act: 'similar', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
+          { act: 'del', label: '从库里删掉', danger: true },
+        ].filter(Boolean),
+      });
+      return `${multi.value ? `<div class="pick${pickedNow ? ' on' : ''}" title="勾选后批量补缺 / 分组 / 删除">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
+        <div class="mbody card-shell-body">
+          <div class="mrow"><span class="mname">${esc(c.name || '（无名）')}</span>
+            <span class="mkind">${esc(kindLab)}</span>
+            ${uses ? '<span class="mrefs">被 ' + uses + ' 镜引用</span>' : ''}</div>
+          <p class="mbio">${esc(D.descOf(c) || c.bio || '还没写描述')}</p>
+          <div class="mfoot">${detailDots(D, c)}${detailStat(D, c)}</div>
         </div>
-        ${editOpen ? editHTML(c) : ''}
-        </div>`;
-    }
-
-    function anchorHTML(c) {
-      if (D.voiceOnlyOf(c)) return '';
-      const shown = D.picOf(c);
-      const cur = c.anchor || '';
-      const list = [];
-      if (shown) list.push({ src: shown, label: picWord(c) });
-      (c.faces || []).forEach((f, i) => { if (f && f.src && !list.some(x => x.src === f.src)) list.push({ src: f.src, label: '候选图 ' + (i + 1) }); });
-      D.Cast.assetsOf(c).forEach(a => { if (a && a.src && !list.some(x => x.src === a.src)) list.push({ src: a.src, label: D.Cast.assetName(a) || '资产' }); });
-      return `<div class="ed-sec">身份锚点 · 参考图质量</div>
-        <div class="ui-hint">锚点是「认人最准的那一张」：出图、出角色资产与导演台取参考图时优先用它。不设 = 跟随预览图。</div>
-        ${list.length ? `<div class="anchor-list">${list.map(x => `<button class="anch${x.src === cur ? ' on' : ''}" data-a="setanchor" data-src="${esc(x.src)}" title="把这一张设为身份锚点">
-          ${thumbImg(x.src)}<span>${esc(x.label)}</span></button>`).join('')}</div>` : '<div class="ui-hint">先出 / 挑一张预览图，才能设身份锚点。</div>'}
-        <div class="anchor-acts"><button class="ui-linkbtn" data-a="clearanchor"${cur ? '' : ' disabled'}>跟随预览图</button>
-          <button class="ui-linkbtn" data-a="similar" data-src="${esc(cur || shown || '')}">找相似素材</button></div>
-        <div class="anchorq" data-q="${esc(c.id)}">正在量参考图…</div>`;
-    }
-    function usageHTML(c) {
-      const list = refUse.get(String(c.name || '')) || [];
-      if (!list.length) return '<div class="ed-sec">使用关系</div><div class="ui-hint">导演台里还没有镜头写 @' + esc(c.name || '这一条') + '。</div>';
-      return '<div class="ed-sec">使用关系 · ' + list.length + ' 个镜头</div>'
-        + '<div class="usage-list">' + list.slice(0, 12).map(u => '<div class="usage"><span>' + esc(u.pname) + '</span><span>' + esc(u.sname) + '</span><span>' + esc(u.shname) + '</span></div>').join('') + '</div>'
-        + (list.length > 12 ? '<div class="ui-hint">还有 ' + (list.length - 12) + ' 处没列出来。</div>' : '');
-    }
-
-    function editHTML(c) {
-      const sc = isScene(c), pr = isProp(c);
-      const kf = kindF(D.libKindOf(c));
-      const pw = picWord(c);
-      const vo = !sc && !pr && D.voiceOnlyOf(c);
-      const tpls = assetTpls(c);
-      const list = D.Cast.assetsOf(c);
-      const libProps = D.Lib.list().filter(x => x && isProp(x));
-      const dr = draftOf(c.id);
-      const drTpl = tpls.includes(dr.tpl) ? dr.tpl : (tpls[0] || 'custom');
-      const anTxt = '这一张';
-      const assetListHTML = list.length ? '<div class="ui-cands"><span class="lab">角色资产 ' + list.length + ' 张</span>'
-        + '<div class="ui-assets">' + list.map(a => {
-          const lab = D.Cast.assetName(a);
-          const opts2 = libProps.map(p => `<label class="ck sm" title="这一张图上带着「${esc(p.name)}」"><input type="checkbox" data-a="assetprop" data-id="${esc(a.id)}" data-pid="${esc(p.id)}"${(a.propIds || []).includes(p.id) ? ' checked' : ''}>${esc(p.name)}</label>`).join('');
-          return `<div class="ui-asset" data-aid="${esc(a.id)}">`
-            + `<span class="ui-cand" data-a="zoom" data-src="${esc(a.src)}" data-label="${esc(c.name + ' · ' + lab)}">${thumbImg(a.src)}</span>`
-            + `<input class="ui-inp" data-a="assetrename" data-id="${esc(a.id)}" maxlength="24" value="${esc(lab)}" title="这一张叫什么（改了立刻存）">`
-            + `<button class="ui-linkbtn" data-a="assetregen" data-id="${esc(a.id)}" title="照着同一个提示词再出一张，换掉这一张">重出${anTxt}</button>`
-            + `<button class="ui-linkbtn" data-a="reuse" data-src="${esc(a.src || '')}" data-name="${esc(lab)}" title="带着这一张去生成工作台，放进参考图那一栏">拿去生成</button>`
-            + `<button class="ui-linkbtn" data-a="assetclear" data-id="${esc(a.id)}" data-label="${esc(lab)}">去掉这一张</button>`
-            + (libProps.length ? '<span class="ui-props">' + opts2 + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，点右上「新建素材」加一条（类型选「道具」）</span>')
-            + '</div>';
-        }).join('') + '</div>'
-        + '<div class="ui-hint sm">这些图拍摄时都会作为参考图发给视频 AI（按平台声明的上限截，超出的会点名哪几张没发）。</div>'
-        + '</div>' : '';
-      const assetGenHTML = (tpls.length && !vo) ? '<div class="ui-cands"><span class="lab">加一张角色资产</span>'
-        + `<input class="ui-inp" data-a="assetname" maxlength="24" value="${esc(dr.name)}" placeholder="这一张叫什么（填了就按它画，留空用模板名）">`
-        + `<select data-a="assettpl">${tpls.map(k => `<option value="${esc(k)}"${k === drTpl ? ' selected' : ''}>${esc(D.Cast.assetLabel(c, k) || k)}</option>`).join('')}</select>`
-        + `<input class="ui-inp" data-a="assetwhat" maxlength="60" value="${esc(dr.what)}" placeholder="选「自定义」时写清楚要画什么，例：雨天造型、侧脸特写">`
-        + `<button class="ghost mini" data-a="assetgen">AI 出${anTxt}</button>`
-        + `<button class="ui-linkbtn" data-a="assetpick2">＋ 自己传一张</button>`
-        + '</div>' : '';
-      const waitRows = (() => {
-        const tail = '#' + c.id, out = [];
-        for (const [k, msg] of GEN) {
-          if (k.indexOf('asset#') !== 0 || !k.endsWith(tail)) continue;
-          out.push('<div class="ui-asset sm">' + D.Cast.waitHTML((msg || '正在出') + '…') + '</div>');
-        }
-        return out.join('');
-      })();
-      const picBtns = vo ? '' : `<button class="ghost" data-a="face"${genHas('face', c.id) ? ' disabled' : ''}>${genHas('face', c.id) ? '正在出' + pw : (D.picOf(c) ? 'AI 重出' : 'AI 出') + nSuffix() + pw}</button>`
-        + `<button class="ghost" data-a="pickface" title="从资产库 / 我的收藏 / 本机文件里挑一张当${esc(pw)}（不靠生成，直接拿现成的）">${D.picOf(c) ? '换一张' + pw : '自己传' + pw}</button>`;
-      return `<div class="edit" data-edit="${esc(c.id)}">
-        <div class="eh"><span class="t">编辑「${esc(c.name || '这条素材')}」· 改完就地存</span>
-          ${D.Cast.voiceTag(c)}
-          ${refTag(c)}
-          <button class="ui-linkbtn" data-a="closeedit" title="收起这一块的编辑区（按 Esc 也一样）">收起</button></div>
-
-        <div class="ed-sec">基本信息</div>
-        <label>名字<input data-f="name" value="${esc(c.name || '')}" maxlength="20"></label>
-        <label>类型<select data-f="kind">${Object.keys(D.LIB_KINDS).map(k =>
-          `<option value="${k}"${D.libKindOf(c) === k ? ' selected' : ''}>${D.LIB_KINDS[k]}</option>`).join('')}</select></label>
-        <label>分组（可留空；素材库页能按整组筛与查找）<input data-f="group" list="grpList" value="${esc(c.group || '')}" maxlength="20" placeholder="例：校园篇主要角色"></label>
-
-        <div class="ed-sec">描述</div>
-        <label>${kf.look.lab}<textarea data-f="look" rows="3">${esc(c.look || '')}</textarea></label>
-        ${sc ? `<label>${kf.time.lab}<select data-f="time" title="${esc(kf.time.hint)}">${D.Cast.timeOptsHTML(c)}</select></label>` : ''}
-        <label>${kf.bio.lab}<input data-f="bio" value="${esc(c.bio || '')}"></label>
-        ${voiced(c) ? `<label class="ck"><input type="checkbox" data-f="voiceOnly"${D.voiceOnlyOf(c) ? ' checked' : ''}> 只出声（不出镜）</label>` : ''}
-        ${vo ? '<div class="ui-hint">这一位是「只出声」：不出画面，所以' + pw + '与角色资产的入口都不给它摆（想让它出镜就取消上面那个勾）。库里已经存着的图还在下面，能看也能去掉。</div>' : ''}
-        ${pr ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。生成某一镜时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : ''}
-
-        ${vo ? '' : `<div class="ed-sec">画面</div><div class="ed-acts">${picBtns}</div>${rawHostHTML('chars:' + (sc ? 'scene' : pr ? 'prop' : 'char') + ':' + c.id)}`}
-        ${vo ? '' : mainCandsHTML(c, pw, genHas('face', c.id), true)}
-        ${assetListHTML}${waitRows}${assetGenHTML}
-
-        ${anchorHTML(c)}
-        ${usageHTML(c)}
-
-        ${voiced(c) ? `<div class="ed-sec">声音</div>${D.Cast.voiceRowHTML(REG, opts, c, { waiting: genMsg('voicecands', c.id) })}${rawHostHTML('chars:voice:' + c.id)}` : ''}
-      </div>`;
+        <div class="macts card-shell-actions">${acts}</div>`;
     }
 
     function safeCardHTML(c) {
       try { return cardHTML(c); } catch (e) {
         console.error('[chars] 这一条画不出来：', e, c);
-        return '<div class="edit"><div class="eh"><span class="t">这一条画不出来</span></div>'
+        return '<div class="mbody card-shell-body"><div class="mrow"><span class="mname">这一条画不出来</span></div>'
           + '<div class="ui-hint">' + esc((c && c.name) || '（这一条没有名字）') + '：'
           + esc(errText(e))
           + '<br>其余条目不受影响；这一条的数据还在库里，刷新一下再看看。</div></div>';
@@ -531,8 +412,7 @@ export default {
       return D ? D.Lib.get(id) : null;
     }
     async function paintCard(c) {
-      paintFillBtn();
-      paintLocalBtn();
+      paintCharsRail();
       if (!c || !D) return;
       const i = cards.value.findIndex(x => x.id === c.id);
       if (i < 0) return;
@@ -544,7 +424,6 @@ export default {
       if (!alive) return;
       const nx = cardEl(c.id);
       bindCardDom();
-      if (openId.value === c.id) paintQuality(c);
       back();
     }
     function bindCardDom() {
@@ -553,7 +432,6 @@ export default {
       /* 卡片里的图片由 Wb.thumbs 接线（缓存命中直接用小图、失败换占位）：整块重画之后一次 bindAll，
          页面不必每张卡各调一次 bind（重复 bind 同一元素是安全的）。 */
       if (window.Wb) window.Wb.thumbs.bindAll(gridEl.value);
-      if (window.RawRequest) window.RawRequest.bind(gridEl.value);
       /* 自动补存：开关开着时把这一屏「本机还没有」的素材排进镜像队列。 */
       try {
         if (window.AssetLocal && AssetLocal.offerAll) {
@@ -562,30 +440,24 @@ export default {
           AssetLocal.offerAll(jobs);
         }
       } catch (e) { /* 补存失败不影响列表 */ }
-      if (openId.value) { const el = cardEl(openId.value); if (el) syncWhat(el); }
     }
-    function syncDraft(card, c) {
-      const nm = card && card.querySelector('[data-a="assetname"]');
-      const tpl = card && card.querySelector('[data-a="assettpl"]');
-      const what = card && card.querySelector('[data-a="assetwhat"]');
+    /* 「加一张角色资产」那三格（名字 / 模板 / 自定义描述）的草稿值 —— 出图时按它写提示词。
+       那一格在生成条里（`.gen-bar`），在真品的编辑区里是 `.ui-cands` —— 两处都找。 */
+    function syncDraft(c, el) {
+      const box = (el && el.closest && el.closest('.ui-cands, .gen-bar')) || el || null;
+      const nm = box && box.querySelector('[data-a="assetname"]');
+      const tpl = box && box.querySelector('[data-a="assettpl"]');
+      const what = box && box.querySelector('[data-a="assetwhat"]');
       DRAFT.set(c.id, { name: (nm || {}).value || '', tpl: (tpl || {}).value || '', what: (what || {}).value || '' });
     }
-    function syncWhat(card) {
-      const tpl = card && card.querySelector('[data-a="assettpl"]');
-      const what = card && card.querySelector('[data-a="assetwhat"]');
-      if (!tpl || !what) return;
-      const custom = tpl.value === 'custom';
-      what.disabled = !custom;
-      what.placeholder = custom ? '写清楚要画什么，例：雨天造型、侧脸特写' : '（只有选「自定义」时才用这一格）';
-    }
 
-    /* 就地更新标题 / 简介那两行（只换内容，不碰按钮与输入框）。 */
+    /* 就地更新卡面上的名字 / 描述（只换内容，不碰按钮与输入框）。 */
     function paintHeads(c) {
       const el = cardEl(c.id); if (!el) return;
-      const nm = el.querySelector('.nm'), bio = el.querySelector('.bio'), eh = el.querySelector('.edit .eh > .t');
-      if (nm) nm.innerHTML = nmInner(c);
-      if (bio) bio.innerHTML = bioInner(c);
-      if (eh) eh.textContent = '编辑「' + (c.name || '这条素材') + '」· 改完就地存';
+      const nm = el.querySelector('.mname'), bio = el.querySelector('.mbio');
+      if (nm) nm.textContent = c.name || '（无名）';
+      if (bio) bio.textContent = D.descOf(c) || c.bio || '还没写描述';
+      paintInsp();
     }
     function flushHeads() {
       clearTimeout(headTimer); headTimer = 0;
@@ -598,21 +470,14 @@ export default {
       headTimer = setTimeout(flushHeads, 400);
     }
 
-    /* ---------- 顶部筛选 ---------- */
+    /* ---------- 筛选：目录轨上两档各自独立（类型 / 缺口） ---------- */
     function match(c, f) {
-      if (f === 'all') return true;
+      if (!f || f === 'all') return true;
       if (f === 'actor' || f === 'scene' || f === 'prop') return D.libKindOf(c) === f;
       if (f === 'nopic') return !D.voiceOnlyOf(c) && !D.picOf(c);
       if (f === 'noasset' || f === 'nothree') return !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length && !D.Cast.assetsOf(c).length;
       if (f === 'nodesc') return !String(D.descOf(c) || '').trim();
       return voiced(c) && !c.refAudio && !c.voice && !String(c.voiceNote || '').trim();
-    }
-    function paintChips() {
-      if (!toolbarFb || !D) return;
-      const all = D.Lib.list();
-      toolbarFb.setChips(FILTERS, filter.value,
-        v => { filter.value = v; resetPaging(); render(); },
-        { count: v => all.filter(c => c && match(c, v)).length });
     }
     function paintAiChip() {
       if (!aiChipEl.value) return;
@@ -627,19 +492,89 @@ export default {
       if (toolbarFb) toolbarFb.setCount(text);
     }
 
+    /* 分组名单：目录轨「分组」那一节与详情层里那个分组输入框共用这一份。 */
     function paintGroups() {
       const gs = D.Lib.groups();
       const none = D.Lib.list().filter(c => c && D.Lib.groupMatch(c, '__none')).length;
       group.value = D.Lib.reconcileGroup(group.value, gs, !!none);
-      const el = grpPickEl.value; if (!el) return;
-      el.innerHTML = '<select><option value=""' + (group.value ? '' : ' selected') + '>全部组</option>'
-        + gs.map(g => `<option value="${esc(g.name)}"${group.value === g.name ? ' selected' : ''}>${esc(g.name)}（${g.n}）</option>`).join('')
-        + (none ? `<option value="__none"${group.value === '__none' ? ' selected' : ''}>未分组（${none}）</option>` : '')
-        + '</select>';
-      const sel = el.querySelector('select');
-      if (sel) sel.onchange = () => { group.value = sel.value; resetPaging(); render(); };
-      if (window.Dropdowns) window.Dropdowns.build(el);
       if (grpListEl.value) grpListEl.value.innerHTML = gs.map(g => `<option value="${esc(g.name)}">`).join('');
+    }
+
+    /* ---------- ③ 检查器：点一张卡才占位 ---------- */
+    function paintInsp() {
+      const el = inspEl.value;
+      if (!el || !D) return;
+      const c = inspId.value ? itemOf(inspId.value) : null;
+      if (!c) { el.innerHTML = ''; return; }
+      const pic = D.picOf(c);
+      const uses = refUse.get(String(c.name || '')) || [];
+      const kf = kindF(D.libKindOf(c));
+      el.innerHTML = '<div class="insp-head"><div class="insp-title">'
+        + '<span class="mname">' + esc(c.name || '（无名）') + '</span>'
+        + '<span class="ui-tag">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span>'
+        + (c.group ? '<span class="ui-tag">' + esc(c.group) + '</span>' : '')
+        + '</div><button class="ghost insp-close" type="button" data-insp="close">收起</button></div>'
+        + '<div class="insp-scroll">'
+        + (pic ? '<div class="insp-hero">' + thumbImg(pic) + '</div>' : '')
+        + '<div class="insp-status">' + detailDots(D, c) + detailStat(D, c)
+        + '<span class="insp-refs">' + (uses.length ? '被 ' + uses.length + ' 镜引用' : '还没被用过') + '</span></div>'
+        + '<div class="insp-sec"><div class="insp-st">基本信息</div>'
+        + '<div class="insp-row"><span class="insp-rk">类型</span><span class="insp-rv">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span></div>'
+        + '<div class="insp-row"><span class="insp-rk">分组</span><span class="insp-rv">' + esc(c.group || '未分组') + '</span></div>'
+        + (D.isSceneItem(c) ? '<div class="insp-row"><span class="insp-rk">时段</span><span class="insp-rv">' + esc(c.time || '') + '</span></div>' : '')
+        + '</div>'
+        + '<div class="insp-sec"><div class="insp-st">描述</div>'
+        + '<div class="insp-row"><span class="insp-rk">' + esc(kf.look.lab.split('（')[0]) + '</span></div>'
+        + '<div class="ui-hint">' + esc(D.descOf(c) || '还没写描述') + '</div>'
+        + '<div class="insp-row" style="margin-top:var(--sp-8)"><span class="insp-rk">' + esc(kf.bio.lab.split('（')[0]) + '</span></div>'
+        + '<div class="ui-hint">' + esc(c.bio || '还没写') + '</div>'
+        + '</div>'
+        + (uses.length ? '<div class="insp-sec"><div class="insp-st">使用关系 · ' + uses.length + ' 个镜头</div>'
+          + uses.slice(0, 6).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
+          + '</div>' : '')
+        + '</div>'
+        + '<div class="insp-foot">'
+        + '<button class="pri" type="button" data-insp="open">打开详情</button>'
+        + (pic ? '<button class="ghost" type="button" data-insp="reuse">拿去生成</button>' : '')
+        + (pic ? '<button class="ghost" type="button" data-insp="similar">找相似</button>' : '')
+        + '<button class="ghost danger" type="button" data-insp="del">从库里删掉</button>'
+        + '</div>';
+      /* 检查器里的图也走公共缩略图那一份（缓存命中直接用小图、失败换占位） */
+      if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(el);
+    }
+    /* 检查器上的点击：几颗按钮各自干什么 */
+    function onInspClick(e) {
+      const t = e.target && e.target.closest ? e.target.closest('[data-insp]') : null;
+      if (!t || !inspEl.value || !inspEl.value.contains(t)) return;
+      const c = inspId.value ? itemOf(inspId.value) : null;
+      if (!c) return;
+      const act = t.getAttribute('data-insp');
+      if (act === 'close') { toggleInsp(c.id, false); return; }
+      if (act === 'open') { openDetail(c.id); return; }
+      if (act === 'reuse') { const s2 = D.picOf(c); if (s2) window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: c.name || '' }); return; }
+      if (act === 'similar') { findSimilar(c, ''); return; }
+      if (act === 'del') { invoke(ACTS.del, c, t, null); return; }
+    }
+
+    /* 「素材详情」整屏层：新建 / 编辑一条素材都在那里（画面 + 文档两栏）。 */
+    function makeDetail() {
+      detail = createDetail({
+        D,
+        get REG() { return REG; },
+        refUse, DRAFT,
+        libSave, errSet, genRun, genHas, genSet, genClear, genMsg, onTaskHook, aiPanel,
+        dramaWith, optsWith, defImgModel, defTtsModel, effKey,
+        picWord, mainKind, candCount, durablePic, thumbImg, errText,
+        saveField, queueFieldSave, syncDraft, draftOf,
+        kindFields: c => kindF(D.libKindOf(c)),
+        measureQuality,
+        errsHTML,
+        render: () => { render(); },
+        findSimilar, openZoom,
+        hostEl: rootEl.value,
+        onClose: () => { inspId.value = ''; render(); },
+        onCreated: (saved) => { openDetail(saved.id); },
+      });
     }
 
     /* ---------- 展示样式与分页 ----------
@@ -650,6 +585,20 @@ export default {
 
     /* ---------- 一次出齐这一档 ---------- */
     const FILL_CONC = 6;
+    /* 这一档用的型号：**设置页那个默认**（素材库那张卡里管）。
+       目录轨上原来有一行「出齐用」的下拉（这一轮现挑的，不落盘），那一行已经撤掉 ——
+       型号只有一个出处：设置页「素材库」那张卡。当场换型号的需求走那一档自己的生成位。 */
+    const fillModel = () => defImgModel();
+    /* 型号的名字（给提示文案用）：跨平台同名是常事，所以带上平台名。 */
+    const modelLabel = (kind, mode, key) => {
+      try {
+        const v = D.Pipe.pickProvModel(REG, kind, key || '', mode);
+        if (!v) return '';
+        const p = String(v.prov.displayName || v.prov.name || v.prov.id || '');
+        const m = String(v.model.name || v.model.id || '');
+        return p ? (p + ' · ' + m) : m;
+      } catch (e) { return ''; }
+    };
     function fillPlan() {
       const jobs = [];
       let face = 0, three = 0, usable = 0;
@@ -665,28 +614,6 @@ export default {
       });
       return { jobs, face, three, tasks: face + three, usable };
     }
-    function paintFillBtn() {
-      if (!btnFillEl.value || !D) return;
-      if (!REG) {
-        fillDisabled.value = true; fillText.value = '一次出齐这一档';
-        fillTitle.value = '正在读平台能力声明…';
-        return;
-      }
-      if (genHas('fill', null)) { fillDisabled.value = true; fillText.value = '正在出齐这一档…'; return; }
-      if (!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) {
-        fillDisabled.value = true; fillText.value = '一次出齐这一档';
-        fillTitle.value = '现在没有可用的生图平台：到设置页填一把密钥，或在右边「出图型号」里挑一个';
-        return;
-      }
-      const p = fillPlan();
-      fillDisabled.value = !p.tasks;
-      fillText.value = p.tasks ? '一次出齐这一档（' + p.tasks + ' 次）' : '一次出齐这一档';
-      fillTitle.value = p.tasks
-        ? '这一档里 ' + p.face + ' 条还缺预览图／道具图、' + p.three + ' 位角色还缺三视图：每一条发一次生图请求，'
-          + '一次出一张。中途可以按「停下」'
-        : (p.usable ? '这一档里的预览图与三视图都齐了，没有要补的'
-          : (p.usable === 0 && viewItems.length ? '这一档里只有「只出声」的素材，它们不出画面' : '这一档里没有素材'));
-    }
     async function fillRest() {
       if (!D || genHas('fill', null)) return;
       const p = fillPlan();
@@ -695,26 +622,27 @@ export default {
         title: '一次出齐这一档',
         body: '这一档里有 ' + p.face + ' 条还缺预览图／道具图、' + p.three + ' 位角色还缺三视图，'
           + '一共发 ' + p.tasks + ' 次生图请求（每次出一张）。'
+          + '用的型号：' + (modelLabel('image', 'text_to_image', fillModel()) || '（没有可用平台）') + '。'
           + '中途可以按「停下」，但已经发出去的那些收不回来，平台那边会照样跑完。',
         okLabel: '开始出',
       })) return;
       stopFlag = false;
       fillStoppable = p.jobs.length > 1;
-      stopDisabled.value = false;
+      stopDisabled = false;
       let done = 0;
       genSet('fill', null, '一次出齐：0 / ' + p.jobs.length + ' 条…');
       try {
         await D.Pipe.runPool(p.jobs, FILL_CONC, async (j) => {
           if (stopFlag) return;
           const c = j.c;
-          if (j.face) await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, onTask: hook }), true);
+          if (j.face) await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(fillModel()), c, { count: ONE, onTask: hook }), true);
           if (stopFlag) return;
           if (j.three) {
             if (!D.picOf(c)) {
               errSet('asset#three', c.id, '预览图这次没出来；三视图要照着它画，所以这一步跳过了');
               paintCard(c);
             } else {
-              await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE, onTask: hook }), true);
+              await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(fillModel()), c, 'three', { count: ONE, onTask: hook }), true);
             }
           }
           done++;
@@ -727,45 +655,86 @@ export default {
       }
     }
 
-    /* ---------- 体检 / 多选 / 身份锚点 / 视觉相似 ----------
+    /* ---------- 目录轨：类型 / 还缺什么 / 分组 ----------
        这一族都读 D.Lib.list() 与 refUse，不另存一份账：
-       体检 = 现算覆盖度，批量 = 对选中的那几条调同一批单条入口，
+       计数 = 现算覆盖度（每一行的数字只算「别的档不挡着」的那些），
+       批量 = 对选中的那几条调同一批单条入口，
        锚点 = chars.js 的 refPicOf（生成与导演台参考图共用），
        视觉相似 = dHash 在本机画布上算（不上传、不调模型）。 */
-    function updateHealth() {
-      if (!D) return;
+    function matchGap(c) { return !gapFilter.value || match(c, gapFilter.value); }
+    function matchGroup(c) { return !group.value || D.Lib.groupMatch(c, group.value); }
+    function matchKind(c) { return kindFilter.value === 'all' || match(c, kindFilter.value); }
+
+    function railRow(act, v, label, n, on, dot) {
+      return '<button class="rail-row' + (on ? ' on' : '') + '" type="button" data-rail="' + act + '" data-v="' + esc(v) + '">'
+        + (dot ? '<span class="missdot ' + esc(dot) + '"></span>' : '')
+        + '<span>' + esc(label) + '</span><span class="n">' + n + '</span></button>';
+    }
+    function paintCharsRail() {
+      const el = railScrollEl.value;
+      if (!el || !D) return;
       const all = D.Lib.list();
-      const groups = D.Lib.groups().length;
-      const needPic = all.filter(c => !D.voiceOnlyOf(c));
-      const picOk = needPic.filter(c => !!D.picOf(c)).length;
-      const needAsset = all.filter(c => !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length);
-      const assetOk = needAsset.filter(c => D.Cast.assetsOf(c).length).length;
-      const needVoice = all.filter(c => voiced(c));
-      let voiceOk = 0;
-      if (REG) needVoice.forEach(c => { try { if (D.Cast.voiceReady(REG, opts, c).ok) voiceOk++; } catch (e) { /* 这一位的声音就绪状态问不动就不计进「已有声音」 */ } });
-      const descOk = all.filter(c => String(D.descOf(c) || '').trim()).length;
-      const used = all.filter(c => (refUse.get(String(c.name || '')) || []).length).length;
-      let ttsNote = '';
-      if (!REG) ttsNote = '平台能力声明还没读回来，声音那一行暂时按「未配置」算。';
-      else {
-        try {
-          const ways = D.Pipe.ttsWays(REG, opts);
-          if (!ways.ok) ttsNote = '还没配可用的语音平台，声音那一行会显示全缺（到设置页「语音」那一档配一个）。';
-        } catch (e) { /* 语音平台判据抛错就不写那句提示，体检照旧出 */ }
+      const countItems = fn => all.filter(c => c && fn(c)).length;
+      /* 类型那一行的数字：按「除了类型以外的档」算（点了它就换这一档，看的是这一档里剩多少） */
+      const kindRows = KIND_ROWS.map(r => railRow('kind', r[0], r[1],
+        countItems(c => match(c, r[0]) && matchGap(c) && matchGroup(c)), kindFilter.value === r[0])).join('');
+      /* 缺口那几行：同理，按「除了缺口以外的档」算 */
+      const gapRows = GAP_ROWS.map(r => railRow('gap', r[0], r[1],
+        countItems(c => match(c, r[0]) && matchKind(c) && matchGroup(c)), gapFilter.value === r[0], 'gap')).join('');
+      const gs = D.Lib.groups();
+      /* 分组那几行的数字：按「除了分组以外的档」算（点了它就换这一组，看的是这一组里剩多少）——
+         三段的数字必须是同一个口径，否则会出现「角色 1 条 / 校园篇 2 条」这种对不上的读数。 */
+      const inScope = all.filter(c => c && matchKind(c) && matchGap(c));
+      const grpCount = name => inScope.filter(c => D.Lib.groupMatch(c, name)).length;
+      const none = grpCount('__none');
+      const grpRows = gs.map(g => railRow('group', g.name, g.name, grpCount(g.name), group.value === g.name)).join('')
+        + (none ? railRow('group', '__none', '未分组', none, group.value === '__none') : '');
+      const fill = fillPlan();
+      const filling = genHas('fill', null);
+      const fillWhy = !REG ? '正在读平台能力声明…'
+        : (!D.Pipe.pickProvModel(REG, 'image', fillModel(), 'text_to_image')
+          ? '现在没有可用的生图平台：到设置页「供应商与密钥」填一把密钥，或在设置页「素材库」那张卡里选一个默认型号'
+          : (fill.tasks
+            ? '这一档里 ' + fill.face + ' 条还缺预览图／道具图、' + fill.three + ' 位角色还缺三视图：每一条发一次生图请求，一次出一张'
+            : (fill.usable ? '这一档里的预览图与三视图都齐了，没有要补的' : '这一档里没有素材')));
+      el.innerHTML = '<div class="rail-sec"><div class="rail-st">类型</div>' + kindRows + '</div>'
+        + '<div class="rail-sec"><div class="rail-st">还缺什么<span class="rail-acts">'
+        + '<button class="rail-fix" type="button" data-rail="fill" title="' + esc(fillWhy) + '"' + (filling || !fill.tasks ? ' disabled' : '') + '>'
+        + (filling ? '正在出齐…' : '出齐') + '</button>'
+        + '<button class="rail-fix" type="button" data-rail="local" title="把这一档里「本机还没有那份字节」的图与参考音频存回本机">存本机</button>'
+        + (filling ? '<button class="rail-fix" type="button" data-rail="stop" title="不再开新的任务（已经发出去的那些收不回来）">停下</button>' : '')
+        + '</span></div>' + gapRows
+        + '</div>'
+        + '<div class="rail-sec"><div class="rail-st">分组</div>'
+        + (grpRows || '<div class="ui-hint">还没有分组</div>') + '</div>';
+      if (window.Dropdowns) window.Dropdowns.build(el);
+      if (railSubEl.value) {
+        const used = all.filter(c => (refUse.get(String(c.name || '')) || []).length).length;
+        railSubEl.value.innerHTML = esc(all.length + ' 条 · ' + used + ' 条被导演台用到')
+          + (busyText.value ? '<span class="rail-busy">' + esc(busyText.value) + '</span>' : '');
       }
-      const rows = [
-        { key: 'pic', label: '预览图', ok: picOk, need: needPic.length, filter: 'nopic', why: '没有预览图就不会出现在导演台的参考图候选里' },
-        { key: 'asset', label: '角色资产', ok: assetOk, need: needAsset.length, filter: 'noasset', why: '角色资产是三视图 / 表情 / 服装，拍摄时作为参考图发出去' },
-        { key: 'voice', label: '声音', ok: voiceOk, need: needVoice.length, filter: 'novoice', why: '还没有可用的音色配置（预设 / 描述 / 参考音频）' },
-        { key: 'desc', label: '描述', ok: descOk, need: all.length, filter: 'nodesc', why: '描述是文字 AI 与生图提示词的底稿' },
-      ].map(r => Object.assign(r, { pct: r.need ? Math.round(r.ok / r.need * 100) : 100 }));
-      health.value = {
-        total: all.length, groups, used, rows,
-        note: ttsNote,
-      };
+    }
+    /* 目录轨上的点击：换一档筛选，或触发那两个批量动作。 */
+    function onRailClick(e) {
+      const t = e.target && e.target.closest ? e.target.closest('[data-rail]') : null;
+      if (!t || !railScrollEl.value || !railScrollEl.value.contains(t)) return;
+      const act = t.getAttribute('data-rail');
+      if (act === 'kind' || act === 'gap' || act === 'group') railPick(act, t.getAttribute('data-v'));
+      else if (act === 'fill') fillRest();
+      else if (act === 'local') pullLocal();
+      else if (act === 'stop') onStop();
+    }
+    /* 目录轨上点一行 = 换一档筛选（再点同一行 = 回到不限） */
+    function railPick(act, v) {
+      if (act === 'kind') kindFilter.value = kindFilter.value === v && v !== 'all' ? 'all' : v;
+      else if (act === 'gap') gapFilter.value = gapFilter.value === v ? '' : v;
+      else if (act === 'group') group.value = group.value === v ? '' : v;
+      resetPaging();
+      render();
     }
     function jumpFilter(f) {
-      filter.value = f || 'all';
+      kindFilter.value = 'all';
+      gapFilter.value = f || '';
       resetPaging();
       render();
     }
@@ -805,7 +774,7 @@ export default {
       batchText.value = label + '：0 / ' + jobs.length;
       stopFlag = false;
       fillStoppable = jobs.length > 1;
-      stopDisabled.value = false;
+      stopDisabled = false;
       genSet('fill', null, label + '：0 / ' + jobs.length);
       let done = 0, fails = 0;
       try {
@@ -825,17 +794,21 @@ export default {
       }
       return { done, fails, stopped: stopFlag };
     }
+    /* 多选态那一批用的型号：批量条上现挑的 → 设置页那个默认（不落盘）。 */
+    const batchModel = () => BATCH.imgModel || defImgModel();
+    const batchTts = () => BATCH.ttsModel || defTtsModel();
     async function batchFillPics() {
       const items = selectedItems().filter(c => !D.voiceOnlyOf(c) && !D.picOf(c));
       if (!items.length) return Toast.warn('选中的素材都不缺预览图：没有要补的');
-      if (!REG || !D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在「出图型号」里挑一个');
+      if (!REG || !D.Pipe.pickProvModel(REG, 'image', batchModel(), 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在批量条上挑一个型号');
       if (!await window.Confirm.ask({
         title: '给选中的 ' + items.length + ' 条补预览图',
-        body: '每一条发一次生图请求（一次出一张），会花钱；中途可以按「停下」，但已经发出去的那些收不回来。',
+        body: '每一条发一次生图请求（一次出一张），会花钱；中途可以按「停下」，但已经发出去的那些收不回来。'
+          + '用的型号：' + (modelLabel('image', 'text_to_image', batchModel()) || '（没有可用平台）') + '。',
         okLabel: '开始补图',
       })) return;
       const r = await batchRun('补预览图', items, async c => {
-        const ok = await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: ONE, onTask: hook }), true);
+        const ok = await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(batchModel()), c, { count: ONE, onTask: hook }), true);
         if (!ok) throw new Error('这一条没出成');
       });
       Toast[(r.fails ? 'warn' : 'ok')]('补预览图：' + r.done + ' 条处理完' + (r.fails ? '，' + r.fails + ' 条没成（原因留在各自卡片上）' : '') + (r.stopped ? '；已按「停下」' : ''), 7000);
@@ -843,32 +816,35 @@ export default {
     async function batchFillAssets() {
       const items = selectedItems().filter(c => !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length && !D.Cast.assetsOf(c).length);
       if (!items.length) return Toast.warn('选中的角色都不缺角色资产：没有要补的');
-      if (!REG || !D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在「出图型号」里挑一个');
+      if (!REG || !D.Pipe.pickProvModel(REG, 'image', batchModel(), 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在批量条上挑一个型号');
       if (!await window.Confirm.ask({
         title: '给选中的 ' + items.length + ' 位补角色资产',
-        body: '每位发一次生图请求，出一张三视图（会拿身份锚点 / 预览图当参考）；会花钱，中途可以按「停下」。没有预览图的会跳过并写清原因。',
+        body: '每位发一次生图请求，出一张三视图（会拿身份锚点 / 预览图当参考）；会花钱，中途可以按「停下」。没有预览图的会跳过并写清原因。'
+          + '用的型号：' + (modelLabel('image', 'text_to_image', batchModel()) || '（没有可用平台）') + '。',
         okLabel: '开始补资产',
       })) return;
       const r = await batchRun('补角色资产', items, async c => {
         if (!D.picOf(c)) { errSet('asset#three', c.id, '预览图还没出：三视图要照着它画，这一步跳过了'); paintCard(c); throw new Error('没有预览图'); }
-        const ok = await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(), c, 'three', { count: ONE, onTask: hook }), true);
+        const ok = await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(batchModel()), c, 'three', { count: ONE, onTask: hook }), true);
         if (!ok) throw new Error('这一位没出成');
       });
       Toast[(r.fails ? 'warn' : 'ok')]('补角色资产：' + r.done + ' 位处理完' + (r.fails ? '，' + r.fails + ' 位没成（原因留在各自卡片上）' : '') + (r.stopped ? '；已按「停下」' : ''), 7000);
     }
     async function batchFillVoices() {
       if (!REG) return Toast.err('平台能力声明还没读回来，等这一页加载完再试');
-      const items = selectedItems().filter(c => voiced(c) && !D.Cast.voiceReady(REG, opts, c).ok);
+      const vo = optsWith(batchTts());
+      const items = selectedItems().filter(c => voiced(c) && !D.Cast.voiceReady(REG, vo, c).ok);
       if (!items.length) return Toast.warn('选中的角色都不缺声音配置：没有要补的');
       if (!window.TextAI) return Toast.err('文字 AI 模块还没加载');
       if (!await window.Confirm.ask({
         title: '让 AI 给选中的 ' + items.length + ' 位定声音',
         body: '逐位按人设写一段音色描述 / 选一个音色（调用文字 AI，会消耗 tokens；不会合成音频，也不会上传素材）。'
-          + '定好之后自动落盘，之后在编辑区随时能改或试听。',
+          + '定好之后自动落盘，之后在编辑区随时能改或试听。'
+          + '用的语音平台：' + (modelLabel('audio', 'text_to_speech', batchTts()) || '（没有可用平台）') + '。',
         okLabel: '开始定声音',
       })) return;
       const r = await batchRun('AI 定声音', items, async c => {
-        const got = await D.Pipe.autoVoice(REG, fakeDrama(), c, {});
+        const got = await D.Pipe.autoVoice(REG, fakeDrama('', batchTts()), c, {});
         if (!got.ok) { errSet('voice', c.id, got.why || 'AI 没给出可用的音色'); paintCard(c); throw new Error(got.why || '没定成'); }
         c.voiceBy = 'ai';
         libSave(c);
@@ -910,7 +886,7 @@ export default {
       sel.value = new Set();
       multi.value = false;
       batchCount.value = 0;
-      openId.value = '';
+      inspId.value = '';
       await render();
       if (e) Toast.err(e, 9000); else Toast.receipt('已删掉 ' + ok + ' 条素材');
     }
@@ -944,9 +920,9 @@ export default {
         img.src = window.Api.mediaSrc(src);
       });
     }
-    async function paintQuality(c) {
+    async function measureQuality(c, host) {
       if (!c) return;
-      const el = cardEl(c.id) && cardEl(c.id).querySelector('[data-q]');
+      const el = host && host.querySelector('[data-q]');
       if (!el) return;
       const src = c.anchor || D.picOf(c);
       if (!src) { el.textContent = '还没有图：先出 / 挑一张预览图，再设身份锚点。'; el.className = 'anchorq low'; return; }
@@ -1008,8 +984,8 @@ export default {
     async function locateItem(id) {
       const c = D.Lib.get(id);
       if (!c) return Toast.warn('这一条已经不在了');
-      filter.value = 'all'; group.value = ''; q.value = ''; aiPick = null; aiWhy = ''; aiRank = null;
-      openId.value = id;
+      kindFilter.value = 'all'; gapFilter.value = ''; group.value = ''; q.value = ''; aiPick = null; aiWhy = ''; aiRank = null;
+      inspId.value = id;
       resetPaging();
       await render();
       await nextTick();
@@ -1068,16 +1044,23 @@ export default {
       viewItems.forEach(c => { if (c) localSlots(c).forEach(s => jobs.push({ c, lab: s.lab, src: s.src, set: s.set })); });
       return jobs;
     }
+    /* 「存回本机」那颗按钮在目录轨上（画轨时一起画出来）：状态与忙闲仍归公共件
+       `AssetLocal.pullBtn` —— 那一件管的是「还剩几个没存 / 正在存 / 存完了」的读数。 */
+    function localBtnEl() {
+      const el = railScrollEl.value;
+      return el ? el.querySelector('[data-rail="local"]') : null;
+    }
     function paintLocalBtn() {
-      if (!btnLocalEl.value || !D) return;
-      window.AssetLocal.pullBtn(btnLocalEl.value, localPlan().length, {
+      const btn = localBtnEl();
+      if (!btn || !D) return;
+      window.AssetLocal.pullBtn(btn, localPlan().length, {
         icon: false, disableEmpty: true, busyText: '正在存回本机…',
         zone: '这一档', what: '素材', unit: '个',
         empty: viewItems.length ? '这一档筛出来的素材，本机都已经有了，不用再存' : '这一档里还没有素材',
       });
     }
     async function pullLocal() {
-      const btn = btnLocalEl.value;
+      const btn = localBtnEl();
       if (!D || !btn || window.AssetLocal.pullBusy(btn)) return;
       const jobs = localPlan();
       if (!jobs.length) { Toast.warn(viewItems.length ? '这一档要存的本机都已经有了' : '这一档里还没有素材'); return; }
@@ -1115,21 +1098,25 @@ export default {
         return '';
       }
     }
+    /* 改完一条之后的收尾：写库 → 重画卡面与检查器（详情层开着就让它自己重画）。 */
     function keep(c, keepOpen) {
       libSave(c);
-      if (!keepOpen) openId.value = '';
       setBusy('');
-      if (openId.value === c.id) { paintCard(c); paintChips(); }
+      if (inspId.value === c.id) { paintCard(c); paintInsp(); }
       else render();
     }
-    async function toggleEdit(id, force) {
-      const on = force == null ? openId.value !== id : !!force;
-      openId.value = on ? id : '';
+    /* 检查器：点一张卡就开（再点同一张 = 收）。 */
+    async function toggleInsp(id, force) {
+      const on = force == null ? inspId.value !== id : !!force;
+      inspId.value = on ? id : '';
       await render();
-      if (!on) return;
-      await nextTick();
-      const el = cardEl(id);
-      if (el) el.scrollIntoView({ block: 'nearest' });
+    }
+    /* 详情层：编辑一条（整屏层那一套） */
+    async function openDetail(id) {
+      if (!detail) return;
+      inspId.value = id;
+      await render();
+      detail.open(id);
     }
     function openZoom(c, label, s2) {
       if (!s2) { Toast.err('这一条还没有这张图'); return; }
@@ -1138,47 +1125,25 @@ export default {
       else window.Wb.lightbox.open({ key: 'char:' + c.id + ':' + s2, s: s2, name: c.name + ' · ' + (label || '图'), item: c });
     }
 
-    async function pickRefAudio(c) {
-      const rr = D.Cast.refAudioRule(REG, opts);
-      const got = await window.AssetPicker.open({ types: rr.types, multiple: false, limit: 1,
-        title: '给「' + c.name + '」选一段参考音频', rule: rr.rule, upload: rr.upload });
-      if (!got || !got.length) return;
-      setBusy('正在读这段参考音频…');
-      const it = got[0];
-      const b = it.file || await window.Net.blob(it.dl || it.src, { timeout: 120000 });
-      if (rr.rule.maxBytes && b.size > rr.rule.maxBytes) { setBusy(''); return Toast.err('参考音频太大：上限 ' + window.fmtBytes(rr.rule.maxBytes) + '，这段 ' + window.fmtBytes(b.size)); }
-      await D.Pipe.saveRefAudio(c, b, (it.prompt || it.name || '参考音频').slice(0, 20));
-      keep(c, true);
-      Toast.receipt('参考音频挂上了，可以试听；视频型号有「参考音频」槽位时也会一起发过去');
-    }
 
-    /* ---------- 卡片上的动作（事件委托按名字派到这里） ---------- */
+    /* ---------- 卡片上的动作（事件委托按名字派到这里） ----------
+    /* 这一层只留**卡面上**那几个动作；编辑 / 出图 / 声音 / 角色资产那一族搬进
+    /* 「素材详情」整屏层了（./chars/detail.js）—— 同一件事只有一份实现。 */
     const ACTS = {
-      edit: async (c) => { toggleEdit(c.id); },
-      closeedit: async (c) => { toggleEdit(c.id, false); },
-      /* 卡上直接改名：打开编辑区并把光标放进名字那一格（改名确认与全片回填走
-         onFieldSave 的 name 分支 —— 那条链已有「将回填 N 处」提示，不另写一套）。 */
-      rename: async (c) => {
-        await toggleEdit(c.id, true);
-        const el = cardEl(c.id);
-        const inp = el && el.querySelector('[data-f="name"]');
-        if (inp) { inp.focus(); inp.select(); }
+      /* 点「编辑」= 打开这一条的详情（整屏层）。检查器里那颗「打开详情」是同一个去处。 */
+      edit: async (c) => { await openDetail(c.id); },
+      /* 点缩略图看大图（灯箱）：预览图与角色资产共用那一份。 */
+      zoom: async (c, el) => { openZoom(c, el.dataset.label || el.dataset.name || picWord(c), el.dataset.src); },
+      zoomface: async (c, el) => { openZoom(c, picWord(c), el.dataset.src || D.picOf(c)); },
+      /* 「拿去生成」：带着这张去生成工作台，放进参考图那一栏。 */
+      reuse: (c, el) => {
+        const s2 = el.dataset.src || D.picOf(c);
+        if (!s2) return Toast.err('这一条还没有图，先在详情里挑一张或让 AI 出一张');
+        window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: el.dataset.name || c.name || '' });
       },
-      face: async (c) => {
-        const pw = picWord(c);
-        await genRun('face', c.id, c, '正在出「' + c.name + '」的' + pw + '（' + candCount() + ' 张）…',
-          () => D.Pipe.drawPreview(REG, fakeDrama(), c, { count: candCount(), replace: true, onTask: onTaskHook }));
-      },
-      morecand: async (c, el) => { await moreCands(c, el.dataset.k || mainKind(c)); },
-      usecand: async (c, el) => { useCand(c, el.dataset.k || mainKind(c), el.dataset.src); },
-      canddel: async (c, el) => {
-        const k = CANDK[el.dataset.k || mainKind(c)]; if (!k) return;
-        const r2 = D.Cast.dropFaceCand(c, el.dataset.src, { got: k.got, set: k.set });
-        if (!r2.ok) return Toast.err(r2.why);
-        const ok = !!libSave(c);
-        paintCard(c);
-        if (ok) Toast.receipt('删掉了这一张候选' + (r2.left ? '，还剩 ' + r2.left + ' 张' : '（这一类清空了）'));
-      },
+      /* 「找相似」：在本机按画面指纹找相似的图（不上传、不调模型）。 */
+      similar: (c, el) => findSimilar(c, el.dataset.src || ''),
+      /* 「从库里删掉」：这一条从素材库消失（本机存的参考音频一起删）。 */
       del: async (c, el) => {
         const busy = genOn(c);
         if (busy) return Toast.err('这一条正有一项在生成（' + errLabel(busy, c) + '），等它出来或按「停下」再删 —— 现在删掉，那一轮收尾会把它写回库里');
@@ -1189,209 +1154,12 @@ export default {
         if (e) Toast.err(e, 9000);
         if (gone) {
           ERR.forEach((v, k) => { if (k.endsWith('#' + c.id)) ERR.delete(k); });
-          openId.value = '';
+          if (inspId.value === c.id) inspId.value = '';
           render();
         }
       },
-      reuse: (c, el) => {
-        const s2 = el.dataset.src || '';
-        if (!s2) return Toast.err('这一条还没有图，先在编辑区挑一张或让 AI 出一张');
-        window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: el.dataset.name || c.name || '' });
-      },
-      setanchor: (c, el) => {
-        const s2 = el.dataset.src || '';
-        if (!s2) return Toast.err('这一张没有地址');
-        c.anchor = s2;
-        libSave(c);
-        paintCard(c);
-        Toast.receipt('身份锚点已设为这一张：之后出图 / 出资产 / 导演台取参考图都优先用它');
-      },
-      clearanchor: (c) => {
-        if (!c.anchor) return;
-        delete c.anchor;
-        libSave(c);
-        paintCard(c);
-        Toast.receipt('已取消身份锚点，改回跟随预览图');
-      },
-      similar: (c, el) => findSimilar(c, el.dataset.src || ''),
-      pickface: async (c) => {
-        const pw = picWord(c);
-        const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
-          title: '给「' + c.name + '」选一张' + pw,
-          note: isProp(c) ? '道具图就是道具自己：挑一张最像的，拍每一段时它都会作为参考图发出去'
-            : pw + '是三视图与拍摄时认脸的凭据，挑一张最像的' });
-        if (got && got[0]) { const s2 = await durablePic(got[0], c.name + '-' + pw); if (s2) { D.setPic(c, s2); keep(c, true); } }
-      },
-      assetpick2: async (c, el, card) => {
-        const box = el.closest('.ui-cands') || card;
-        const nm = (box.querySelector('[data-a="assetname"]') || {}).value || '';
-        const tpl = (box.querySelector('[data-a="assettpl"]') || {}).value || 'custom';
-        const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
-          title: '给「' + c.name + '」加一张角色资产', note: '不靠生成，直接用现成的这一张' });
-        if (got && got[0]) { const s2 = await durablePic(got[0], c.name + '-' + (nm.trim() || got[0].name || '资产')); if (s2) { D.Cast.addAsset(c, { name: nm.trim(), tpl: tpl, src: s2 }); keep(c, true); } }
-      },
-      assetgen: async (c, el, card) => {
-        const box = el.closest('.ui-cands') || card;
-        const nm = (box.querySelector('[data-a="assetname"]') || {}).value || '';
-        const tpl = (box.querySelector('[data-a="assettpl"]') || {}).value || 'three';
-        const what = (box.querySelector('[data-a="assetwhat"]') || {}).value || '';
-        if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
-        const lab = nm.trim() || D.Cast.assetLabel(c, tpl) || '资产';
-        const n = ONE;
-        const ok = await genRun('asset#new:' + tpl, c.id, c,
-          '正在出「' + c.name + '」的' + lab + '…',
-          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, tpl, { count: n, name: nm.trim(), what: what.trim(), onTask: onTaskHook }),
-          false, lab);
-        if (ok) DRAFT.set(c.id, { name: '', tpl: tpl, what: '' });
-      },
-      assetregen: async (c, el) => {
-        const a = D.Cast.assetById(c, el.dataset.id);
-        if (!a) return Toast.err('这一张已经不在了');
-        const lab = D.Cast.assetName(a);
-        await genRun('asset#' + a.id, c.id, c, '正在重出「' + c.name + '」的' + lab + '…',
-          () => D.Pipe.drawCharAsset(REG, fakeDrama(), c, a.tpl, { count: ONE, name: lab, replaceId: a.id, onTask: onTaskHook }));
-      },
-      assetclear: async (c, el) => {
-        const id = el.dataset.id; if (!id) return;
-        const lab = el.dataset.label || '这一张';
-        if (window.Confirm.arm(el, '确认去掉' + lab, { note: '素材库里这一张会空出来；已经拉进某一集的那条不受影响' })) return;
-        D.Cast.removeAsset(c, id);
-        keep(c, true);
-        Toast.receipt('去掉了「' + c.name + '」的' + lab);
-      },
-      assetprop: async (c, el) => {
-        const a = D.Cast.assetById(c, el.dataset.id);
-        if (!a) return Toast.err('这一张已经不在了');
-        const pid = el.dataset.pid;
-        const now = (a.propIds || []).slice();
-        const i = now.indexOf(pid);
-        if (el.checked) { if (i < 0) now.push(pid); } else if (i >= 0) now.splice(i, 1);
-        D.Cast.setAssetProps(c, a.id, now);
-        keep(c, true);
-      },
-      refclear: async (c) => { await D.Pipe.clearRefAudio(c); keep(c, true); },
-      play: async (c) => {
-        await genRun('voice', c.id, c, '正在合成「' + c.name + '」的试听…', async () => {
-          const r = await D.Cast.preview(REG, opts, c, { onStage: m => genSet('voice', c.id, m) });
-          if (r.why) Toast.err(r.why);
-          else if (r.label) Toast.ok('试听：' + r.label);          // 只复述当前状态，归安静档
-        });
-      },
-      voice: async (c, el) => { c.voice = el.dataset.vid; c.voiceName = D.Cast.voiceName(REG, opts, c.voice, c.voiceMode); keep(c, true); },
-      voiceway: async (c, el) => {
-        const w = D.Pipe.setVoiceWay(REG, opts, c, el.dataset.way);
-        c.voiceBy = ''; c.voiceName = D.Cast.voiceName(REG, opts, c.voice, w.mode);
-        keep(c, true);
-        if (w.fellback) Toast.err('这个平台没有「' + D.Cast.wayLabel(el.dataset.way) + '」的型号，这一位现在按「' + D.Cast.wayLabel(w.mode) + '」出声');
-      },
-      refaudio: async (c) => { await pickRefAudio(c); },
-      /* 「用素材库里的另一位」那两条（用户要求：「使用素材进行描述或克隆」）：
-         · vnotepick —— 拿别人写好的**音色描述**填进这一格（描述档）；
-         · vaudiopick —— 拿别人挂着的**参考音频**当这一位的嗓子（复刻档）。
-         两条都走公共层 `window.VoiceNote`（导演台与生成工作台那两格走的是同一条链）——
-         这里再写一份选择器与措辞，迟早有一种说法在骗人。 */
-      vnotepick: async (c) => {
-        await window.VoiceNote.run({
-          value: () => c.voiceNote || '',
-          write: t => { c.voiceNote = t; c.voiceMode = 'design'; keep(c, true); render(); },
-          say: () => {},
-        });
-      },
-      vaudiopick: async (c) => {
-        await window.VoiceNote.runClone({
-          apply: (entry) => {
-            const r = D.Pipe.cloneFromLibEntry(REG, opts, c, entry);
-            if (!r.ok) { Toast.err(r.why); return; }
-            keep(c, true);
-            Toast.receipt('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 'ok', 6000);
-            render();
-          },
-          say: () => {},
-        });
-      },
-      revoice: async (c) => {
-        await genRun('voicecands', c.id, c, '正在按人设定「' + c.name + '」的声音…', async () => {
-          const live = aiPanel();
-          const r = await D.Pipe.autoVoice(REG, fakeDrama(), c, {
-            cands: true, onDelta: live.push,
-            onStage: m => genSet('voicecands', c.id, m),
-            onCands: (i, tot) => genSet('voicecands', c.id, '正在给「' + c.name + '」合成第 ' + i + ' / ' + tot + ' 条试听…'),
-          }).finally(() => live.done());
-          if (!r.ok) { c.voiceErr = r.why || '没定成'; c.voiceAuto = ''; }
-        });
-      },
-      vgen: async (c, el) => {
-        const n = Math.max(1, Number(el.dataset.n) || 2);
-        await genRun('voicecands', c.id, c, '正在给「' + c.name + '」出 ' + n + ' 条试听…',
-          () => D.Pipe.voiceCands(REG, opts, c, {
-            onStep: (i, tot, nm) => genSet('voicecands', c.id,
-              '正在出「' + c.name + '」第 ' + i + ' / ' + tot + ' 条' + (nm ? '（' + nm + '）' : '') + '…')
-          }));
-      },
-      vplay: async (c, el) => {
-        const r = await D.Cast.playAsset(el.dataset.src);
-        if (r.why) Toast.err(r.why);
-      },
-      vclone: async (c, el) => {
-        const r = D.Pipe.cloneFromCands(REG, opts, c, el.dataset.src, el.dataset.name);
-        if (!r.ok) { Toast.err(r.why); return; }
-        keep(c, true);
-        Toast.receipt('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 'ok', 6000);
-        render();
-      },
-      vuse: async (c, el) => {
-        c.voice = el.dataset.vid;
-        c.voiceName = el.dataset.vname || D.Cast.voiceName(REG, opts, c.voice, c.voiceMode);
-        keep(c, true);
-        Toast.receipt('这一位以后按「' + (c.voiceName || c.voice) + '」念');
-      },
-      /* 候选排里的缩略图（picCandsHTML 用的是 data-act="zoom"）：两页共用那份标记，
-         点开看大图这一件事也得在这边接上 —— 不接就是一张点不开的小图。 */
-      zoom: async (c, el) => { openZoom(c, el.dataset.label || el.dataset.name || '图', el.dataset.src); },
     };
 
-    function invoke(fn, c, el, card) {
-      if (!fn) return;
-      Promise.resolve().then(() => fn(c, el, card)).catch(err => {
-        Toast.err(errText(err));
-        setBusy('');
-      });
-    }
-
-    /* ---------- 网格上的事件委托 ---------- */
-    function onGridClick(e) {
-      const root = gridEl.value;
-      if (!root || !e.target || !e.target.closest) return;
-      /* 多选态：点卡片正文 = 勾选；按钮区（.acts）与编辑区照旧可用 ——
-         否则想一边多选一边改一条就得退出多选。 */
-      const card0 = e.target.closest('.card');
-      const c0 = card0 && itemOf(card0.dataset.id);
-      if (multi.value && c0 && !e.target.closest('.acts') && !e.target.closest('.edit')) {
-        e.preventDefault();
-        toggleSel(c0);
-        return;
-      }
-      const t = e.target.closest('[data-a],[data-act]');
-      if (!t || !root.contains(t)) return;
-      if (t.hasAttribute('data-f')) return;
-      const card = t.closest('.card');
-      const c = card && itemOf(card.dataset.id);
-      if (!c) return;
-      const a = t.dataset.a || '';
-      if (a === 'zoom' || a === 'zoomface') {
-        e.stopPropagation();
-        openZoom(c, a === 'zoomface' ? picWord(c) : (t.dataset.label || '图'), t.dataset.src || D.picOf(c));
-        return;
-      }
-      if (a) {
-        if (a === 'assetname' || a === 'assetwhat' || a === 'assettpl' || a === 'assetrename') return;
-        invoke(ACTS[a], c, t, card);
-        return;
-      }
-      const act = t.dataset.act || '';
-      if (!act || act === 'voicenote') return;
-      invoke(ACTS[act], c, t, card);
-    }
     /* 拖动一张卡 = 引用这一条（载荷唯一出口在 web/domain/asset-ref.cjs）。
        卡片整块可拖，卡里的图因此要显式 draggable="false"：否则浏览器先按「拖一张图」起势，
        拿到的是一份图片地址，而不是这一条的引用。 */
@@ -1412,61 +1180,44 @@ export default {
       const card = e.target && e.target.closest ? e.target.closest('.card') : null;
       if (card) card.classList.remove('dragging');
     }
-    function onGridInput(e) {
-      const t = e.target;
-      if (!t || !gridEl.value) return;
-      const card = t.closest && t.closest('.card');
-      const c = card && itemOf(card.dataset.id);
-      if (!c) return;
-      if (t.dataset && t.dataset.f) {
-        if (t.tagName === 'SELECT' || t.type === 'checkbox') return;
-        const k = t.dataset.f;
-        c[k] = t.value;
-        if (k !== 'name') queueFieldSave(c);
+
+    function invoke(fn, c, el, card) {
+      if (!fn) return;
+      Promise.resolve().then(() => fn(c, el, card)).catch(err => {
+        Toast.err(errText(err));
+        setBusy('');
+      });
+    }
+
+    /* ---------- 网格上的事件委托 ---------- */
+    function onGridClick(e) {
+      const root = gridEl.value;
+      if (!root || !e.target || !e.target.closest) return;
+      const card0 = e.target.closest('.card');
+      const c0 = card0 && itemOf(card0.dataset.id);
+      /* 多选态：点卡片正文 = 勾选；那一排动作照旧可用 ——
+         否则想一边多选一边改一条就得退出多选。 */
+      if (multi.value && c0 && !e.target.closest('.macts')) {
+        e.preventDefault();
+        toggleSel(c0);
         return;
       }
-      const a = t.dataset && t.dataset.a;
-      if (a === 'assetname' || a === 'assetwhat') { syncDraft(card, c); return; }
-      if (t.dataset && t.dataset.act === 'voicenote') c.voiceNote = t.value;
-    }
-    function onGridChange(e) {
-      const t = e.target;
-      if (!t || !gridEl.value) return;
-      const card = t.closest && t.closest('.card');
-      const c = card && itemOf(card.dataset.id);
-      if (!c) return;
-      if (t.dataset && t.dataset.f) {
-        const k = t.dataset.f;
-        if (t.type === 'checkbox') { saveField(c, t, k); paintCard(c); paintChips(); }
-        else if (t.tagName === 'SELECT') { saveField(c, t, k); render(); }
+      const t = e.target.closest('[data-a],[data-act]');
+      if (t && root.contains(t)) {
+        const card = t.closest('.card');
+        const c = card && itemOf(card.dataset.id);
+        if (!c) return;
+        const name = t.dataset.a || t.dataset.act || '';
+        if (!name) return;
+        e.stopPropagation();
+        invoke(ACTS[name], c, t, card);
         return;
       }
-      if (t.dataset && t.dataset.a === 'assettpl') { syncDraft(card, c); syncWhat(card); return; }
-      if (t.dataset && (t.dataset.a === 'assetname' || t.dataset.a === 'assetwhat')) { syncDraft(card, c); return; }
-      if (t.dataset && t.dataset.a === 'assetrename') { renameAsset(c, t); return; }
+      /* 点卡片正文 = 右侧检查器开这一条（再点同一张 = 收）。 */
+      if (c0) toggleInsp(c0.id);
     }
-    function onGridFocusIn(e) {
-      const t = e.target;
-      if (!t || !t.dataset || t.dataset.f !== 'name') return;
-      const card = t.closest && t.closest('.card');
-      const c = card && itemOf(card.dataset.id);
-      if (c) nameBefore = String(c.name || '').trim();
-    }
-    function onGridFocusOut(e) {
-      const t = e.target;
-      if (!t || !gridEl.value) return;
-      const card = t.closest && t.closest('.card');
-      const c = card && itemOf(card.dataset.id);
-      if (!c) return;
-      if (t.dataset && t.dataset.f) {
-        if (t.type === 'checkbox' || t.tagName === 'SELECT') return;
-        clearTimeout(fieldTimer);
-        saveField(c, t, t.dataset.f);
-        queueHeads(c);
-        return;
-      }
-      if (t.dataset && t.dataset.act === 'voicenote') libSave(c);
-    }
+    /* 改完一个字段就地存（详情层与检查器共用这一份）：类型换了要拦重名，
+       名字换了要问一句「导演台里有 N 处引用，回填吗」。 */
     async function saveField(c, el, k) {
       const wasKind = D.libKindOf(c);
       c[k] = el.type === 'checkbox' ? el.checked : (el.value.trim ? el.value.trim() : el.value);
@@ -1562,7 +1313,8 @@ export default {
       apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
       onPick: () => {
         q.value = '';
-        filter.value = 'all';
+        kindFilter.value = 'all';
+        gapFilter.value = '';
         if (toolbarFb) toolbarFb.setQuery('');
       },
       done: () => { resetPaging(); render(); },
@@ -1595,261 +1347,55 @@ export default {
       return map;
     }
 
-    /* ---------- 新建一条素材（先出后选再创建） ---------- */
-    function draftPlaceholder(name, kind, want) {
-      const one = (lab) => '<div class="ui-cand"><div class="ui-wait fill" style="width:76px;height:76px">'
-        + '<i></i><span>' + lab + '…</span></div></div>';
-      return '<div class="ui-pick"><div class="ui-hint" style="margin-bottom: var(--sp-8)">'
-        + '正在给「' + D.esc(name) + '」准备 ' + (want.voice ? '图与声音' : '图')
-        + ' —— 出好了会让你挑；这一步还没存进素材库</div>'
-        + '<div class="ui-cands">' + (want.pic ? one('图') : '') + (want.voice ? one('声音') : '') + '</div></div>';
-    }
-    const canPlayNow = st => !!(st && st.voice && (st.voice.refAudio || st.voice.voice));
-
-    async function pickDraft(f, kind, state, why) {
-      const body = document.createElement('div');
-      body.className = 'ui-pick';
-      const own = state.pic ? [{ src: state.pic, own: true }] : [];
-      const cands = () => own.concat(state.faces);
-      let chosen = cands().length ? 0 : -1;
-
-      const draw = () => {
-        const pw = picWord(f);
-        const cs = cands();
-        const secPic = cs.length
-          ? '<div class="ui-sec">挑一张' + D.esc(pw) + '（第 ' + (chosen + 1) + ' / ' + cs.length + ' 张）</div>'
-            + '<div class="ui-cands">' + cs.map((x, i) =>
-              '<div class="ui-cand' + (i === chosen ? ' on' : '') + '" data-pi="' + i + '" title="点一下就选它">'
-              + '<img src="' + D.esc(x.src) + '" alt="' + (x.own ? '自己传的' : '第 ' + (i + 1) + ' 张') + '">'
-              + '<span class="t">' + (x.own ? '自己传的' : '第 ' + (i + 1) + ' 张') + '</span></div>').join('') + '</div>'
-            + '<div class="btn-row"><button class="ghost" data-pd="open">放大看这一张</button>'
-            + '<button class="ghost" data-pd="again">再出几张</button></div>'
-          : '<div class="ui-sec">' + D.esc(pw) + '</div><div class="ui-hint">'
-            + (why.length && why[0].indexOf('图') >= 0 ? D.esc(why[0]) + '。' : '这次没出图（描述还没写）。')
-            + '可以只用文字创建，之后在编辑区点「AI 出' + nSuffix() + D.esc(pw) + '」。</div>';
-        const secVoice = kind === 'actor'
-          ? '<div class="ui-sec">声音</div>' + (state.voice
-            ? '<div class="ui-box" data-pd="voice"><div class="ui-hint">'
-            + (state.voice.voiceMode === 'clone' ? '复刻这一位的参考音频'
-              : (state.voice.voiceNote ? '音色描述：' + D.esc(state.voice.voiceNote)
-                : '预设音色：' + D.esc(state.voice.voiceName || state.voice.voice || '')))
-            + '</div><div class="btn-row"><button class="ghost" data-pd="play">试听</button>'
-            + '<button class="ghost" data-pd="voiceagain">让 AI 换一个</button></div>'
-            + (canPlayNow(state) ? '' : '<div class="ui-hint">音色描述与预设音色要等素材建好、拿到预览音频之后才能试听</div>')
-            + '</div>'
-            : '<div class="ui-hint">'
-            + (why.length && why.some(x => x.indexOf('声音') >= 0) ? D.esc(why.find(x => x.indexOf('声音') >= 0)) + '。' : '这次没定音色（设置里那个开关没开）。')
-            + '仍然可以只用文字创建，之后在编辑区「声音」那一块选一种方式定音色（预设音色 / 写声音描述 / 复刻参考音频）。</div>')
-          : '';
-        body.innerHTML = secPic + secVoice
-          + '<div class="ui-hint" style="margin-top: var(--sp-10)">挑完点下面的「创建素材」才写进素材库；'
-          + '直接关掉这一窗则什么都不会保存。</div>';
-        body.querySelectorAll('[data-pi]').forEach(el => {
-          el.onclick = () => { chosen = Number(el.dataset.pi); draw(); };
-        });
-        const ag = body.querySelector('[data-pd="again"]');
-        if (ag) ag.onclick = async () => { await againPic(); };
-        const op = body.querySelector('[data-pd="open"]');
-        if (op) op.onclick = () => {
-          const cs2 = cands();
-          const x = cs2[chosen];
-          if (!x) return;
-          const items = cs2.map(f2 => ({ src: f2.src, label: f.name }));
-          window.Wb.lightbox.open(Object.assign({ key: 'draft:' + f.name + ':' + chosen }, items[chosen]), items);
-        };
-        const pb = body.querySelector('[data-pd="play"]');
-        if (pb && !canPlayNow(state)) pb.disabled = true;
-        if (pb) pb.onclick = async () => {
-          try { await D.Cast.playAsset(state.voice.refAudio || state.voice.voice); }
-          catch (e) { Toast.err('试听没出声：' + errText(e)); }
-        };
-        const va = body.querySelector('[data-pd="voiceagain"]');
-        if (va) va.onclick = async () => { await againVoice(); };
-      };
-      const againPic = async () => {
-        const look2 = String(f.look || '').trim();
-        if (!look2) return Toast.warn('出图要靠上面那段描述 —— 先补一句');
-        if (!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image')) {
-          return Toast.warn('现在没有可用的生图平台：到设置页填一把密钥，或在右边「出图型号」里挑一个');
-        }
-        const tmp2 = { id: 'draft_pic', kind, name: f.name, look: f.look, desc: kind === 'scene' ? f.look : '',
-          time: kind === 'scene' ? f.time : '', faces: [] };
-        await genRun('face', 'draft_pic', tmp2, '正在再出几张…',
-          () => D.Pipe.drawPreview(REG, fakeDrama(), tmp2, { count: candCount(), onTask: onTaskHook }));
-        const got = (tmp2.faces || []).slice();
-        if (got.length) { state.faces = state.faces.concat(got); chosen = cands().length - got.length; draw(); }
-        else { Toast.warn('这次没出成（生成失败或被拒绝了）—— 可以再试一次，或直接只用文字创建', 8000); draw(); }
-      };
-      const againVoice = async () => {
-        if (!D.aiVoiceOn()) return Toast.warn('设置里「让 AI 给角色定音色」没开');
-        const shell2 = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar({ id: 'd', kind: 'actor', name: f.name, look: f.look, bio: f.bio })] });
-        await genRun('voice', 'draft_voice', { id: 'draft_voice' }, '正在换一个音色…',
-          () => { const live = aiPanel(); return D.Pipe.assignVoices(REG, shell2, { only: [f.name], onDelta: live.push }).finally(() => live.done()); });
-        const one2 = shell2.characters[0] || {};
-        if (one2.voice || one2.refAudio || String(one2.voiceNote || '').trim()) {
-          state.voice = { voice: one2.voice, voiceName: one2.voiceName, voiceNote: one2.voiceNote,
-            voiceMode: one2.voiceMode, refAudio: one2.refAudio, refAudioName: one2.refAudioName, voiceBy: 'ai' };
-          draw();
-        } else Toast.warn('这次没定成 —— 可以再试一次，或直接只用文字创建', 8000);
-      };
-      draw();
-
-      const cs3 = cands();
-      const onOwn = cs3[chosen] && cs3[chosen].own;
-      const pick = await window.Confirm.choose({
-        title: '挑一下，再创建「' + f.name + '」',
-        bodyNode: body,
-        options: [{ value: 'ok', label: '创建素材', hint: (chosen >= 0 && cs3[chosen]
-            ? (onOwn ? '带上你自己挑的那张图' : '用第 ' + (chosen + 1) + ' 张图') : '不带主图')
-            + (state.voice ? ' · 带刚定的那把嗓子' : '') },
-        { value: 'text', label: '只用文字创建', hint: '不带主图也不带嗓子（已经出好的那几张留在候选里，之后在编辑区点「用这一张」就能换上）' }],
-        cancelLabel: '取消（什么也不保存）',
-      });
-      if (pick === 'text') return { pic: '', faces: state.faces, voice: null };
-      if (!pick) return null;
-      return { pic: chosen >= 0 && cs3[chosen] ? cs3[chosen].src : '', faces: state.faces, voice: state.voice };
-    }
-
-    async function commitNew(f, kind, picked) {
-      const c = D.Lib.commitForm(Object.assign({}, f, {
-        pic: (picked && picked.pic) || '',
-        faces: (picked && picked.faces) || [],
-        voice: (picked && picked.voice) || null,
-      }));
-      if (c && c.error) return Toast.err(c.error);
-      const saved = c.item;
-      const hid = [];
-      if (!match(saved, filter.value)) {
-        filter.value = D.libKindOf(saved);
-        hid.push('类型档切到「' + (D.LIB_KINDS[filter.value] || filter.value) + '」');
-      }
-      if (group.value && !D.Lib.groupMatch(saved, group.value)) { group.value = D.Lib.groupNameOf(saved) || '__none'; hid.push('分组跟着切过去'); }
-      const qq = q.value.trim();
-      if (qq && !D.Lib.hayOf(saved).includes(qq.toLowerCase())) { q.value = ''; hid.push('清空了搜索框'); }
-      if (aiPick && !aiPick.has(saved.id)) { aiPick = null; aiWhy = ''; hid.push('退出「AI 挑的那批」'); }
-      const bits = ['编辑区已经打开——' + c.tip];
-      if (picked && picked.faces && picked.faces.length > 1) bits.push('刚才挑的是第几张可以随时换');
-      Toast.receipt('建好了：' + saved.name + '。' + bits.join('；') + (hid.length ? '（' + hid.join('、') + '，不然这一张不在当前这一档里）' : ''));
-      openId.value = saved.id; resetPaging(); await render();
-      if (revealItem(saved.id)) await render();
-      const mine = cardEl(saved.id);
-      if (mine && mine.scrollIntoView) mine.scrollIntoView({ block: 'center' });
-    }
-    /* 把某一条跳出来（刚建好、或从别处指回来）：「放开到覆盖它的范围」这套算法只有
-       `Wb.pager.reveal` 一份，这一页只负责把条目号换成它在下拉后的视图里的位置。 */
-    function revealItem(id) {
-      if (!pager) return false;
-      const i = viewItems.findIndex(x => x && x.id === id);
-      return i >= 0 && pager.reveal(i);
-    }
-
+    /* ---------- 新建一条素材 ---------- */
+    /* 新建就走「素材详情」那一层的空骨架：名字、类型、分组、描述都在那一页里填，
+       填完直接出第一张图、挑好再存 —— 不再经过那个弹窗。 */
     async function newChar() {
-      if (!D) return;
-      const r = await D.Lib.newForm({ group: group.value === '__none' ? '' : group.value, onlyFields: true });
-      if (!r) return;
-      if (r.error) return Toast.err(r.error);
-      const f = r.fields;
-      const kind = r.kind;
-      const look = String(f.look || '').trim();
-      const canPic = !!look && !f.pic && !!D.Pipe.pickProvModel(REG, 'image', opts.imgModel, 'text_to_image');
-      const canVoice = kind === 'actor' && D.aiVoiceOn();
-      if (!f.pic && !canPic && !canVoice) {
-        const yes = !window.Confirm || await window.Confirm.ask({
-          title: '这一条只能存文字',
-          body: (look ? '现在没有可用的生图平台（设置页填一把密钥，或在上面「出图型号」里挑一个）' : '还没写描述（出图靠它）')
-            + (kind === 'actor' ? '；「让 AI 给角色定音色」那个开关也没开' : '')
-            + '，所以这次出不了图。仍然要把它存进素材库吗？',
-          okLabel: '只用文字创建', cancelLabel: '回去补',
-        });
-        if (!yes) return;
-        return commitNew(f, kind, { pic: f.pic || '' });
-      }
-      const tmp = {
-        id: 'draft_' + Date.now().toString(36), kind: kind,
-        name: f.name, group: f.group, look: f.look, bio: f.bio,
-        desc: kind === 'scene' ? f.look : '', time: kind === 'scene' ? f.time : '',
-        faces: [], voice: '', voiceName: '', voiceNote: '', voiceMode: '',
-      };
-      const host = document.createElement('div');
-      host.className = 'ui-draft';
-      if (canPic || canVoice) {
-        host.innerHTML = draftPlaceholder(f.name, kind, { pic: !!canPic, voice: canVoice });
-        /* 外壳文档的 body 是 overflow:hidden（旧页 body 自己滚）：挂 body 上会看不见。
-           挂进这一页的滚动区，占位符照旧在流程里、出完那一句能看见。 */
-        (rootEl.value || document.body).appendChild(host);
-      }
-      const state = { pic: f.pic || '', faces: [], voice: null, busy: { pic: !!canPic, voice: canVoice } };
-      const jobs = [];
-      if (canPic) {
-        jobs.push((async () => {
-          await genRun('face', tmp.id, tmp, '正在出「' + f.name + '」的预览图…',
-            () => D.Pipe.drawPreview(REG, fakeDrama(), tmp, { count: candCount(), onTask: onTaskHook }));
-          state.faces = (tmp.faces || []).slice();
-        })());
-      }
-      if (canVoice) {
-        jobs.push((async () => {
-          const shell = Object.assign(fakeDrama(), { characters: [D.toEpisodeChar(Object.assign({}, tmp, { kind: 'actor' }))] });
-          await genRun('voice', tmp.id, tmp, '正在按人设定「' + f.name + '」的声音…',
-            () => { const live = aiPanel(); return D.Pipe.assignVoices(REG, shell, { only: [f.name], onDelta: live.push }).finally(() => live.done()); });
-          const one = shell.characters[0] || {};
-          if (one.voice || one.refAudio || String(one.voiceNote || '').trim()) {
-            state.voice = { voice: one.voice, voiceName: one.voiceName, voiceNote: one.voiceNote,
-              voiceMode: one.voiceMode, refAudio: one.refAudio, refAudioName: one.refAudioName, voiceBy: 'ai' };
-          }
-        })());
-      }
-      await Promise.allSettled(jobs);
-      const why = [];
-      if (canPic && !state.faces.length) why.push('图没出来' + (look ? '' : '（没写描述）'));
-      if (canVoice && !state.voice) why.push('声音没定出来');
-      host.remove();
-      const picked = await pickDraft(f, kind, state, why);
-      if (!picked) return;
-      return commitNew(f, kind, picked);
+      if (!D || !detail) return;
+      detail.openNew({
+        name: '', kind: 'actor', group: group.value === '__none' ? '' : group.value,
+        look: '', bio: '', time: '深夜', pic: '',
+      });
     }
 
-    /* ---------- 型号下拉 / 出图张数 ---------- */
-    function paintModelPicks() {
-      const mk = (host, kind, mode, val, onpick, hint) => {
+    /* ---------- 多选态批量条上的两个型号下拉（出图 / 声音） ----------
+       各自挑各自的：默认取设置页那一份，当场换的只管这一轮（不写回设置页）。 */
+    function paintBatchPicks() {
+      const mk = (host, kind, mode, val, onpick, empty) => {
         const el = host.value; if (!el) return;
-        el.innerHTML = D.Pipe.modelSelectHTML(REG, { id: 'chars_' + kind + '_sel', kind: kind, mode: mode, value: val, emptyText: hint });
+        let h = '';
+        try { h = D.Pipe.modelSelectHTML(REG, { kind: kind, mode: mode, value: effKey(kind, mode, val), emptyText: empty }); }
+        catch (e) { h = '<span class="ui-hint">' + empty + '</span>'; }
+        el.innerHTML = h.replace('<select ', '<select class="bk-model" ');
         const s = el.querySelector('select');
         if (s) s.onchange = () => { onpick(s.value); };
         if (window.Dropdowns) window.Dropdowns.build(el);
       };
-      mk(imgPickEl, 'image', 'text_to_image', opts.imgModel,
-        v => { opts.imgModel = v; saveOpts(); render(); }, '没配生图平台');
-      mk(ttsPickEl, 'audio', 'text_to_speech', opts.ttsModel,
-        v => { opts.ttsModel = v; saveOpts(); render(); }, '没配语音平台');
-      paintCandPick();
+      mk(bkImgPickEl, 'image', 'text_to_image', batchModel(), v => { BATCH.imgModel = v; }, '没配生图平台');
+      mk(bkTtsPickEl, 'audio', 'text_to_speech', batchTts(), v => { BATCH.ttsModel = v; }, '没配语音平台');
     }
-    function paintCandPick() {
-      const host = candPickEl.value; if (!host || !D) return;
-      const it = D.SET.candN;
-      const lo = Number(it.min) || 1, hi = Number(it.max) || 8;
-      if (!candSelBuilt) {
-        candSelBuilt = true;
-        host.innerHTML = '<select>'
-          + Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
-            .map(n => '<option value="' + n + '">' + n + ' 张</option>').join('')
-          + '</select>';
-        const s = host.querySelector('select');
-        if (s) s.onchange = () => {
-          window.LS.set(it.key, String(Number(s.value) || Number(it.def)));   // 存不下（隐私模式）就只生效这一次
-          render();
-        };
-        if (window.Dropdowns) window.Dropdowns.build(host);
-      }
-      const sel = host.querySelector('select'); if (!sel) return;
-      const raw = String(Number(D.setting('candN')) || Number(it.def));
-      if (sel.value !== raw) { sel.value = raw; if (window.Dropdowns) window.Dropdowns.sync(sel); }
-      const real = candCount();
-      sel.title = '一次出几张预览图候选（角色 / 场景 / 道具的主图）。'
-        + (real < Number(raw) ? '当前生图型号最多一次出 ' + real + ' 张，所以实际是 ' + real + ' 张。' : '')
-        + '与设置页「角色 / 场景 / 道具 一次出几张候选」是同一个设置。'
-        + '「加一张角色资产」与「一次出齐这一档」不受它影响，都固定出 1 张。';
-      host.title = sel.title;
+
+    /* ---------- 型号清单是**后到**的 ----------
+       注册表里平台先在，型号清单是**能力接口一家一家回来才长出来的**
+       （`Capabilities.load` 把它们并进 `prov.models`，每家落定广播一次 `wb:cap-ready`）。
+       首屏那一刻多半还没有 —— 型号下拉会画成「没配生图平台」，那是句假话（平台明明配好了）。
+       所以这一页自己拉一次能力，并按家补画（同一套做法见导演台右栏的 `installCapRepaint`）。 */
+    let capTimer = 0;
+    function onCapReady() {
+      clearTimeout(capTimer);
+      capTimer = setTimeout(() => {
+        if (!alive) return;
+        paintCharsRail();      // 目录轨「出齐用」那一行
+        paintBatchPicks();     // 多选批量条上的出图 / 声音两行
+        if (detail && detail.isOpen()) detail.paint();   // 详情层里那三处生成条
+      }, 300);
+    }
+    function loadCaps() {
+      if (!window.Capabilities || !REG) return;
+      /* 不 await：拉能力可能要几秒（各家并发），首屏不等它 —— 用注册表兜底先把界面画出来，
+         能力到了再按家补画。拉不到就用注册表那份声明，页面照常用。 */
+      try { Promise.resolve(window.Capabilities.load(REG)).catch(() => {}); }
+      catch (e) { /* 拉不到就用注册表兜底声明 */ }
     }
 
     /* ---------- 主渲染 ---------- */
@@ -1857,14 +1403,12 @@ export default {
       if (!ready.value || !D) return;
       await loadRefUse();
       syncSel();
-      updateHealth();
       const seq = ++renderSeq;
-      paintChips(); paintAiChip(); paintGroups(); paintModelPicks();
+      paintCharsRail(); paintAiChip(); paintGroups(); paintBatchPicks();
       if (viewToggle) viewToggle.apply();
       const qv = q.value.trim();
       const all = D.Lib.list();
-      let items = all.filter(c => c && match(c, filter.value)
-        && (!group.value || D.Lib.groupMatch(c, group.value))
+      let items = all.filter(c => c && matchKind(c) && matchGap(c) && matchGroup(c)
         && (!aiPick || aiPick.has(c.id)));
       /* 搜索走本地语义排序（SemanticSearch 全站一份）：中文 bigram + 字段加权 +
          原文整句命中加分。以前这里是 `hayOf(c).includes(q)`，只认字面，
@@ -1899,7 +1443,6 @@ export default {
         });
       });
       setCnt(items.length ? '共 ' + items.length + ' 条' : '');
-      paintFillBtn();
       paintLocalBtn();
       pagerVisible.value = items.length > 0;
       if (!items.length) {
@@ -1920,7 +1463,7 @@ export default {
       await nextTick();
       if (seq !== renderSeq) return;
       bindCardDom();
-      if (openId.value) paintQuality(itemOf(openId.value));
+      paintInsp();
     }
 
     /* 过期签名图的后台回源（与收藏页同一份 Api.healMedia） */
@@ -2008,11 +1551,9 @@ export default {
     function bindToolbar() {
       if (!toolbarEl.value) return;
       toolbarFb = window.Wb.filterBar.bind(toolbarEl.value, {
-        chips: FILTERS,
-        value: filter.value,
+        chips: null,
         q: q.value,
         placeholder: searchPh.value,
-        onFilter: v => { filter.value = v; resetPaging(); render(); },
         onSearch: v => { q.value = v; resetPaging(); render(); },
         /* Esc 清掉搜索框与 AI 条件（与旧页同一个出口：清完由 AI 的 done 重画一次）。 */
         onEscape: () => {
@@ -2101,12 +1642,16 @@ export default {
     }
 
     async function boot() {
-      if (opts.style) { delete opts.style; try { saveOpts(); } catch (e) { /* 退回默认档时存不下（隐私模式）就只生效这一次 */ } }
+      /* 旧的「本页默认」没有了 —— 它存过的那个本机键（char_opts）**清掉**：
+         留着是一份没人再读的死数据（还占着本机存储配额）。
+         只清这一个键，别的设置一个不碰。 */
+      try { if (window.LS && LS.del) LS.del('char_opts'); } catch (e) { /* 删不掉也不拦这一页 */ }
       searchPh.value = '搜' + D.Lib.SEARCH_FIELDS.map(f => f[0]).join(' / ');
       bindToolbar();
       try { REG = await window.Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }
       ready.value = true;
       await render();
+      loadCaps();
       resumePending();
       healLibFaces();
       sentinelIO = window.Wb.pager.sentinel(gridEndEl.value, () => {
@@ -2118,23 +1663,25 @@ export default {
       if (!genHas('fill', null)) return;
       stopFlag = true;
       genSet('fill', null, '正在停下：已经发出去的那 ' + Math.max(0, GEN.size - 1) + ' 条收不回来，等它们跑完这一批就不再发新的');
-      stopDisabled.value = true;
+      stopDisabled = true;
+      paintCharsRail();
     }
     function onStorage() { if (ready.value) render(); }
     function onPointerUp() { if (!isActive()) return; setTimeout(flushHeads, 0); }
     function onDocKey(e) {
       if (!isActive()) return;
-      if (e.key !== 'Escape' || !openId.value) return;
+      if (e.key !== 'Escape') return;
       if (e.target && toolbarFb && e.target === toolbarFb.input) return;
       if (document.querySelector('dialog[open]')) return;
       if (window.Wb && window.Wb.lightbox && window.Wb.lightbox.isOpen && window.Wb.lightbox.isOpen()) return;
-      toggleEdit(openId.value, false);
+      if (detail && detail.isOpen()) { detail.close(); return; }
+      if (inspId.value) toggleInsp(inspId.value, false);
     }
     function onVisibleChange() {
       /* 切回这一页时把「被 N 镜引用」重新数一遍（旧页每次打开都会读一次盘）；
          编辑区开着就不整页重画，免得把正在敲的字换掉。
          灯箱与详情的配置不用这一页管：公共层按前台页装回各自那一份（见 registerAdapters）。 */
-      if (ready.value && !openId.value) { refUseAt = 0; render(); }
+      if (ready.value && !inspId.value) { refUseAt = 0; render(); }
     }
 
     onMounted(async () => {
@@ -2155,6 +1702,13 @@ export default {
       await nextTick();
       try {
         initModules();
+        makeDetail();
+        if (railScrollEl.value) {
+          railScrollEl.value.addEventListener('click', onRailClick);
+        }
+        /* 能力一家一家落定 → 型号清单长出来 → 型号下拉补画（见 loadCaps 那段注释） */
+        window.addEventListener('wb:cap-ready', onCapReady);
+        if (inspEl.value) inspEl.value.addEventListener('click', onInspClick);
       } catch (e) {
         failed.value = '素材库初始化失败：' + errText(e);
         if (window.PageReport) PageReport.pageFail('素材库', failed.value, e);
@@ -2180,6 +1734,11 @@ export default {
       document.removeEventListener('keydown', onDocKey);
       clearTimeout(fieldTimer);
       clearTimeout(headTimer);
+      if (railScrollEl.value) {
+        railScrollEl.value.removeEventListener('click', onRailClick);
+      }
+      window.removeEventListener('wb:cap-ready', onCapReady);
+      clearTimeout(capTimer);
       if (sentinelIO && sentinelIO.disconnect) { try { sentinelIO.disconnect(); } catch (e) { /* 观察器已经断开就没有可断开的 */ } }
       if (offActivity) offActivity();
       unregisterAdapters();
@@ -2189,17 +1748,16 @@ export default {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      rootEl, toolbarEl, grpPickEl, grpListEl, viewEl,
-      btnFillEl, btnLocalEl, btnStopEl, btnNewEl, imgPickEl, ttsPickEl, candPickEl, aiLiveEl,
+      rootEl, matEl, toolbarEl, railScrollEl, railSubEl, grpListEl, viewEl, inspEl,
+      btnNewEl, btnMultiEl, railToggleEl, bkImgPickEl, bkTtsPickEl, aiLiveEl,
       gridEl, gridEndEl, pagerRowEl,
-      ready, failed, cards, openId, q, cntText, busyText, stopVisible, stopDisabled,
-      pagerVisible, emptyHtml, fillText, fillDisabled, fillTitle,
+      ready, failed, cards, inspId, railOpen, q, cntText, busyText,
+      pagerVisible, emptyHtml,
       ticHtml, newBtnHtml, aiBtnHtml,
-      multi, batchCount, batchText, batchGroup, health, isPicked,
-      runAiFind, fillRest, pullLocal, onStop, newChar,
-      onGridClick, onGridInput, onGridChange, onGridFocusIn, onGridFocusOut,
-      onGridDragStart, onGridDragEnd,
-      toggleMulti, jumpFilter,
+      multi, batchCount, batchText, batchGroup, isPicked,
+      runAiFind, newChar,
+      onGridClick, onGridDragStart, onGridDragEnd,
+      toggleMulti, toggleInsp,
       batchFillPics, batchFillAssets, batchFillVoices, batchSetGroup, batchRemove,
     };
   },

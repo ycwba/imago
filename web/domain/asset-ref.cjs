@@ -103,5 +103,18 @@
     return s;
   }
 
-  return { MIME, MIME_ID, set, read, isRef, label };
+  /* 标记里用的**短名**：只有「这是哪一条」的那部分（提示词优先，其次名字）。
+     号与类型**不进标记** —— 标记是正文里的一行字，拖着「（资产 la_xxx）」既长又难看，
+     而用户要认的是「哪一条」，不是它的内部号。
+     号留给两处：悬停浮层（`.ac-ref-tip`）与发给模型的那份清单（`refBlock`）——
+     那两处才真的需要它。这一份是 `label()` 的兄弟，不是它的替代。 */
+  function shortLabel(o) {
+    if (!o || typeof o !== 'object') return '';
+    let main = String(o.prompt || o.name || '').replace(/\s+/g, ' ').trim();
+    if (!main) main = String(o.assetId || o.id || '').trim();
+    if (main.length > 48) main = main.slice(0, 48) + '…';
+    return main;
+  }
+
+  return { MIME, MIME_ID, set, read, isRef, label, shortLabel };
 });

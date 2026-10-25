@@ -79,7 +79,7 @@ const G3_EMPTY_CATCH = [
   { file: 'web/domain/asset-transfer.js', max: 2, why: '存量：搬运/转存吞错的一批' },
   { file: 'web/ui/net.js', max: 2, why: '存量：统一网络层吞错的一批' },
   { file: 'web/ui/skills.js', max: 2, why: '存量：Skill 面板吞错的一批' },
-  { file: 'web/boot-assistant.js', max: 1, why: '存量：开机助手吞错的一批' },
+  { file: 'web/boot-assistant.js', max: 2, why: '存量：开机助手吞错的一批；2026-10-25 新增一条 —— 空闲补载 needAll 那一路的 .catch（助手在各页的取数都自带兜底，补载失败不该变成 unhandled rejection，也不该打断串行链）' },
   { file: 'web/core/activity.js', max: 1, why: '存量：活动记录吞错的一批' },
   { file: 'web/director/fcpxml.js', max: 1, why: '存量：FCPXML 导出吞错的一批' },
   { file: 'web/director/split-assets.js', max: 1, why: '存量：拆素材吞错的一批' },
@@ -555,7 +555,7 @@ function detectThemePair(file, src) {
 const G21_ALPHA = [
   { file: 'web/director/template.html', max: 34, why: '导演台深底配色那族的淡底/描边透明度（62/45/96/25/6/42/94/70/5/85/40/68/65/7/13/3/78/86/9/88/32/75/92/0 等零星档）：它们是**深底上的自定义强度**，跟阶梯里的档不是同一套语义；等布局重构那轮定了「深底强度」怎么收，再并进阶梯' },
   { file: 'web/styles/ui.css', max: 9, why: '共享件里的零星档（深底浮层上的遮罩与描边强度）：同理，深底浮层的强度与浅底淡底不是一套；收进阶梯前先留在这里' },
-  { file: 'web/styles/spa-chars.css', max: 2, why: '素材库卡片的两处淡底强度（深底缩略图上的选中环）：同上' },
+  { file: 'web/styles/spa-chars.css', max: 0, why: '素材库重排之后那一页的淡底强度全部收进阶梯了（原两处深底选中环已删）' },
   { file: 'web/styles/chat.css', max: 1, why: '助手面板的一处深底遮罩强度：同上' },
   { file: 'web/styles/spa-studio.css', max: 1, why: '工作台缩略图播放钮的一处深底遮罩强度：同上' },
 ];

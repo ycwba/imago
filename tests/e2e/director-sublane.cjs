@@ -18,7 +18,10 @@
       拖完字幕块 / 拉完把手补发的那一下 click 不放针、也不翻右栏；
    ⑥ 四条轨是同一把尺子画的：轨名那一格与右边那一排同高、配音 / 待生成 / 字幕三排同高、
       三块块体同高，三排把手同宽且贴满块沿（不留缝），块上是 grab、把手是 ew-resize、
-      攥着那一档 grabbing 各有规则；框内那层灰遮挡（`.mask` / `.vo-off`）一个节点都不留。 */
+      攥着那一档 grabbing 各有规则；框内那层灰遮挡（`.mask` / `.vo-off`）一个节点都不留。
+   ⑦ 剪辑态左栏：只列**已选用的候选**镜头（没选用的那一镜不画），生成态那几颗
+      （剧本 / 拆分镜 / 加一个场景 / 生成全部分镜）一个都不画，「导入」留着；
+      点左栏那一行 = 本镜档切到那一镜 / 全片档把剪辑针跳到那一镜在成片里的对应位置。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -39,6 +42,12 @@ const h = require('./harness.cjs');
     scenes: [{ id: 'sc1', name: '场景 1', shots: [
       shot('sh1', '镜头 A', 'A 的画面', '第一句台词', '林夏', 6),
       shot('sh2', '镜头 B', 'B 的画面', '第二句台词', '', 4),
+      /* 第三镜**没有选用候选**（`selId` 空、候选还是草稿）：它不进成片，
+         剪辑态左栏那份「已选用候选」的列表里不该有它 —— 生成态那一列照旧列全部镜头。 */
+      { id: 'sh3', name: '镜头 C', prompt: 'C 的画面', line: '', lineWho: '',
+        ar: '16:9', res: '768p', tier: 'fast', draw: 1, refImages: [], keyframes: [], selId: null,
+        candidates: [{ vid: 'v-sh3', provider: 'local', status: 'draft', progress: 0,
+          url: '', duration: 5, shotId: 'sh3' }] },
     ] }],
   };
   let proxy, browser, page;
@@ -757,11 +766,97 @@ const h = require('./harness.cjs');
     if (!pinAfter) throw new Error('拖剪辑针没把针搬走（left 还在原地）：' + JSON.stringify(pinBefore));
     if (pinAfter.t === pinBefore.t) throw new Error('拖针后读数该跟着走（#tlT0 没变）：' + JSON.stringify({ before: pinBefore, after: pinAfter }));
 
+    /* ⑬ 剪辑态左栏（用户点名「剪辑态左栏不应该显示全部镜头，应该只显示所有选定的候选镜头，
+       并且不应该显示剧本拆分新建删除等生成态相关组件」）：
+       ⑬-1 左栏那份列表只列**已选用的候选**镜头（镜头 C 还没选用，不画）；
+            生成态那几颗（剧本 / 拆分镜 / 加一个场景 / 生成全部分镜）在剪辑态一律不画，
+            「导入视频 / 素材」是项目级动作，留着。
+       ⑬-2 本镜档点一行 = 切到那一镜（当前镜变成那一镜，针落到那一镜的开头）。
+       ⑬-3 全片档点一行 = 剪辑针跳到那一镜在成片里的对应位置（落在那一格的区间内）。 */
+    const leftEdit = await page.eval(() => {
+      const items = [...document.querySelectorAll('#scenesBox .shot-item')];
+      /* 「看不见」= 元素没有（或者被 display:none 收掉）：offsetParent 为 null 就是它不在版面上。 */
+      const gone = sel => { const e = document.querySelector(sel); return !e || e.offsetParent === null; };
+      return {
+        sids: items.map(i => i.dataset.sid),
+        metas: items.map(i => (i.querySelector('.smeta') || {}).textContent || ''),
+        script: gone('#scriptEditBtn'), split: gone('#scriptBtn'),
+        addScene: gone('#addScene'), genAll: gone('.col-left > .gen-all'),
+        genBtn: gone('#genAll'), importOn: !gone('#libImportLeft'),
+        /* 场景头与镜头行里那几颗也是生成态的：场景图（换参考图）/ 新建镜头 / 删除场景，
+           镜头行的抓手（排序）/ 复制 / 删除 —— 剪辑态一个都不该画。
+           判据是「**节点在不在**」而不是「藏没藏」：画出来再用 CSS 收起来的那几颗，
+           处理器还绑着，剪的时候一不留神就复制了一镜或删掉了一段。 */
+        sceneBtns: document.querySelectorAll('#scenesBox .scene-head button').length,
+        shotOps: document.querySelectorAll('#scenesBox .shot-item .ops').length,
+      };
+    });
+    if (leftEdit.sids.join(',') !== 'sh1,sh2') {
+      throw new Error('剪辑态左栏该只列已选用候选的镜头（sh1 / sh2，镜头 C 没选用不该画）：' + leftEdit.sids.join(','));
+    }
+    if (!leftEdit.metas.every(m => /已选用/.test(m))) {
+      throw new Error('左栏每一行都得是「已选用候选」的那一镜：' + JSON.stringify(leftEdit.metas));
+    }
+    if (!leftEdit.script || !leftEdit.split || !leftEdit.addScene || !leftEdit.genAll || !leftEdit.genBtn) {
+      throw new Error('剪辑态不该画生成态那几颗（剧本 / 拆分镜 / 加一个场景 / 生成全部分镜）：' + JSON.stringify(leftEdit));
+    }
+    if (!leftEdit.importOn) throw new Error('「导入视频 / 素材」是项目级动作，剪辑态该留着');
+    if (leftEdit.sceneBtns !== 0) {
+      throw new Error('剪辑态场景头还留着生成态那几颗（场景图 / 新建镜头 / 删除场景）：' + leftEdit.sceneBtns + ' 个');
+    }
+    if (leftEdit.shotOps !== 0) {
+      throw new Error('剪辑态镜头行还留着抓手 / 复制 / 删除：' + leftEdit.shotOps + ' 组');
+    }
+
+    /* ⑬-2 本镜档点一行 = 切到那一镜：当前镜变成那一镜，指针落到那一镜自己的开头。 */
+    await page.eval(() => document.querySelector('#scenesBox .shot-item[data-sid="sh2"]').click());
+    const switched = await readWhen(() => {
+      const c = window.WBBridge.get('director').context();
+      const sel = document.querySelector('#scenesBox .shot-item.sel');
+      const p = document.querySelector('#tlBar .tl-pin');
+      if (!c || c.镜头id !== 'sh2' || !sel || sel.dataset.sid !== 'sh2' || !p) return null;
+      return { id: c.镜头id, sel: sel.dataset.sid,
+        chosen: (c.候选 || []).filter(x => x.选用).map(x => x.id),
+        pin: parseFloat(p.style.left), t0: (document.getElementById('tlT0') || {}).textContent || '' };
+    }, 8000);
+    if (!switched.chosen.length) throw new Error('切到那一镜后它的选用候选读不出来：' + JSON.stringify(switched));
+    if (switched.chosen[0] !== 'v-sh2') throw new Error('切过去该指着这一镜选用的那条候选：' + JSON.stringify(switched));
+    if (!(switched.pin <= 0.5)) throw new Error('切到那一镜后针该落在它的开头：' + JSON.stringify(switched));
+
+    /* ⑬-3 全片档点一行 = 剪辑针跳到那一镜在成片里的对应位置。 */
+    await page.eval(() => document.querySelector('.tl-tabs [data-tab="film"]').click());
+    const filmBefore = await readWhen(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      const cells = [...document.querySelectorAll('#tlBar .tl-film .tl-seg')];
+      if (!p || !cells.length) return null;
+      return { pin: parseFloat(p.style.left),
+        cells: cells.map(c => ({ name: c.dataset.name, left: parseFloat(c.style.left), width: parseFloat(c.style.width) })) };
+    }, 8000);
+    await page.eval(() => document.querySelector('#scenesBox .shot-item[data-sid="sh1"]').click());
+    const jumped = await readWhen(() => {
+      const p = document.querySelector('#tlBar .tl-pin');
+      const c = window.WBBridge.get('director').context();
+      if (!p || !c || c.镜头id !== 'sh1') return null;
+      return { pin: parseFloat(p.style.left), op: (document.getElementById('opState') || {}).textContent || '' };
+    }, 8000);
+    const cellA = filmBefore.cells.find(c => c.name === '镜头 A');
+    if (!cellA) throw new Error('全片那一排没有镜头 A 那一格：' + JSON.stringify(filmBefore.cells));
+    if (Math.abs(jumped.pin - filmBefore.pin) < 1) {
+      throw new Error('点镜头 A 剪辑针该跳走（还在原地）：' + JSON.stringify({ before: filmBefore.pin, after: jumped.pin }));
+    }
+    if (jumped.pin < cellA.left - 0.5 || jumped.pin > cellA.left + cellA.width + 0.5) {
+      throw new Error('针该落在镜头 A 那一格的区间里（' + cellA.left + '%–' + (cellA.left + cellA.width) + '%）：' + jumped.pin + '%');
+    }
+    if (!/焦点切到「镜头 A」/.test(jumped.op)) {
+      throw new Error('全片档点一行该走 filmApplyAt（报焦点切到那一镜）：' + jumped.op);
+    }
+
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
     const fl = h.logFaults(proxy.log);
     if (fl.length) throw new Error('代理日志有未声明异常：\n' + fl.join('\n'));
-    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输 · 点块 = 针落在点击处 · 字幕与待生成的跟手卡各是自己的那一张 · 落点刷新后还在 · 四轨同高同把手同光标且框内无遮挡 · 剪辑针能拎着走（拖动落点 + 读数跟走）');
+    console.log('✓ 字幕块可拖（把手改起止 / 块体挪出现）· 待生成拖 = 挪插针 · 右栏起止两把尺子各收各的秒 · 配音 / 画面入出行可输 · 点块 = 针落在点击处 · 字幕与待生成的跟手卡各是自己的那一张 · 落点刷新后还在 · 四轨同高同把手同光标且框内无遮挡 · 剪辑针能拎着走（拖动落点 + 读数跟走）'
+      + ' · 剪辑态左栏只列已选用候选的镜头且不画生成态那几颗 · 点左栏一行（本镜 = 切到那一镜 / 全片 = 针跳到那一镜在成片里的位置）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     const errs = (page && page.errors || []).filter(Boolean).slice(0, 5);

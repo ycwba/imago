@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>导演台 · 布局重构稿（同一副骨架，内部重排）</title>
+<!-- 令牌直接取产品那一份：这一稿不另起一套色与尺寸（落地时它就是同一套）。 -->
+<link rel="stylesheet" href="../../web/styles/tokens.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<div class="dir" id="dir" data-mode="gen">
+
+  <!-- ══════════ 页头：项目 · 模式 · 时码 · 出口 ══════════ -->
+  <header class="dh">
+    <span class="dh-brand">导演台</span>
+    <button class="dh-proj" type="button">▤ 我的短片 <b>3</b> ⌄</button>
+    <input class="dh-name" value="雨夜便利店" aria-label="项目名">
+    <span class="dh-saved">✓ 已保存到本地</span>
+
+    <!-- 模式开关：原来它在中栏顶上（顺序 / 剪辑），位置太深 ——
+         现在提到页头，全页一个模式，页头就能说清「我现在在做什么」。 -->
+    <div class="dh-mode">
+      <div class="seg" id="modeSeg" role="tablist" aria-label="导演台模式">
+        <button type="button" data-mode="gen" class="on">顺序</button>
+        <button type="button" data-mode="edit">剪辑</button>
+      </div>
+    </div>
+
+    <!-- 时码：这一稿的签名件。页头这一枚与底部轨道尺同源同一把尺。 -->
+    <span class="dh-tc" id="dhTc">00:00:04:02</span>
+
+    <span class="sp"></span>
+    <button class="ghost" type="button">↓ 导出成片</button>
+    <button class="ghost" type="button">↓ 导出 FCPXML</button>
+    <button class="ghost" type="button">↓ 导出媒体包</button>
+    <button class="ghost demo-only" type="button" id="themeBtn" title="演示用：同一份稿子切深浅两档">◐ 深浅档</button>
+  </header>
+
+  <!-- ══════════ 主体：左（分镜） 中（看片台） 右（这一镜） ══════════ -->
+  <main class="cols">
+
+    <!-- ───────── 左栏 · 分镜表 ───────── -->
+    <section class="col col-l" aria-label="分镜">
+      <div class="lh">
+        <b>分镜 <span id="shotCount">8</span></b>
+        <span class="sp"></span>
+        <button class="gh" type="button">剧本</button>
+        <button class="gh" type="button">拆分镜</button>
+        <button class="gh" type="button">导入</button>
+      </div>
+
+      <div class="lscroll" id="shotList"><!-- demo.js 画 --></div>
+
+      <!-- 生成坞：估价与「生成全部分镜」常驻在左栏底部 ——
+           列表再长，提交按钮也不会被滚走（原来它跟着列表一起沉）。 -->
+      <div class="gen-dock" id="genDock">
+        <div class="gen-est">
+          <span class="ok">✓ 可生成 5 镜（8 条）</span>
+          <span class="muted">预计 ¥3.20 · 不能生成 3 镜</span>
+        </div>
+        <div class="gen-bar"><i><b style="width:40%"></b></i><span>已完成 2 / 5 镜</span></div>
+        <button class="pri" type="button" id="genAll">生成 5 个分镜</button>
+      </div>
+
+      <!-- 剪辑态左栏底部：历史编辑记录。
+           原来它是折叠区、塞在分镜列表下面，把列表挤掉一半；
+           现在占同一个位置（列表下方）但不压列表 —— 折叠区挪成一块常驻摘要。 -->
+      <div class="gen-dock" id="histDock" hidden>
+        <div class="gen-est">
+          <span><b style="font-size:var(--fs-12-5)">历史编辑记录</b> <span class="muted">3 步可退</span></span>
+        </div>
+        <div class="hist">
+          <div class="hist-row"><span>切开这一镜</span><span class="mono">14:32</span></div>
+          <div class="hist-row"><span>改这一句台词</span><span class="mono">14:30</span></div>
+          <div class="hist-row"><span>收进这一镜</span><span class="mono">14:28</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── 中栏 · 看片台 ───────── -->
+    <section class="col col-m" aria-label="看片台">
+      <div class="mh">
+        <span class="mh-no" id="mhNo">04</span>
+        <input class="mh-name" id="mhName" value="收银台空无一人" aria-label="镜名">
+        <span class="mh-meta" id="mhMeta">便利店内 · 3.2 秒 · 已选用</span>
+        <span class="sp"></span>
+        <span class="mh-hint" id="mhHint">这一镜有 2 条候选</span>
+      </div>
+
+      <!-- 画面台：剪辑态多一条「剪后预览」角标 -->
+      <div class="monitor" id="monitor">
+        <div class="screen">
+          <img id="screenImg" src="assets/scene-classroom.jpg" alt="">
+          <div class="screen-empty" id="screenEmpty" hidden>这一镜还没有画面描述</div>
+          <span class="screen-tag" id="screenTag">剪后预览 · 3 段 · 3.2s</span>
+          <div class="pb">
+            <button class="pb-b" type="button">▶</button>
+            <span class="pb-t">00:00 / 00:03</span>
+            <span class="sp"></span>
+            <span class="pb-t">🔊</span>
+            <span class="pb-t">⛶</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 候选带（生成态）：贴着画面台下方，动作直接长在候选卡上 -->
+      <div class="cands" id="cands"><!-- demo.js 画 --></div>
+
+      <!-- 这一镜的轨道（剪辑态）：跟画面台同屏，不再让视线跑到页面最底 -->
+      <div class="shot-track" id="shotTrack" hidden><!-- demo.js 画 --></div>
+
+      <!-- 全片顺序带（生成态常驻 / 剪辑态也在）：按秒成比例的一条带 ——
+           片子有多长、哪一镜在哪，宽度本身就是答案。 -->
+      <div class="seq" id="seq">
+        <div class="seq-h">
+          <span class="seq-t">全片</span>
+          <span class="seq-d" id="seqDur">0:15.6</span>
+          <span class="sp"></span>
+          <span class="seq-tip">按秒排布 · 点一格切到那一镜</span>
+        </div>
+        <div class="seq-strip" id="seqStrip"><!-- demo.js 画 --></div>
+      </div>
+    </section>
+
+    <!-- ───────── 右栏 · 这一镜（生成态：工作单 / 剪辑态：声音四段） ───────── -->
+    <section class="col col-r" aria-label="这一镜">
+      <div class="rh">
+        <b id="rhTitle">这一镜</b>
+        <span class="sp"></span>
+        <span class="rh-sub" id="rhSub">第 4 镜 · 便利店内</span>
+      </div>
+
+      <!-- 生成态：表单（可滚） -->
+      <div class="rscroll" id="rGen"><!-- demo.js 画 --></div>
+
+      <!-- 生成态：提交坞常驻底部 -->
+      <div class="submit" id="submit">
+        <div class="submit-line">
+          <span class="ok">✓ 可以生成</span>
+          <span class="muted" id="estTxt">VGENV 视频换人 · ¥0.24</span>
+        </div>
+        <button class="pri" type="button" id="genOne">生成这一镜（1 条）</button>
+      </div>
+
+      <!-- 剪辑态：竖排四段（画面 / 配音 / 台词 / 字幕）——
+           段名与底部轨道的行名同序同字，上下对得上。 -->
+      <div class="rail" id="rail" hidden><!-- demo.js 画 --></div>
+    </section>
+  </main>
+
+  <!-- ══════════ 轨道坞（剪辑态）：工具条 + 时码尺 + 轨行
+       「本镜」那一档撤掉了 —— 这一镜的轨道已经上提到中栏、跟着画面台一起看；
+       坞里只留**全片**这一把尺。两档原是一套行的两个范围，现在各归各处，不重画。 -->
+  <footer class="dock" id="dock" hidden>
+    <div class="dock-tools">
+      <b style="font-size:var(--fs-12-5)">全片轨道</b>
+      <span class="mono muted">0:15.6</span>
+      <span class="sep"></span>
+      <button class="ghost sm" type="button">▶ 试听</button>
+      <span class="sp"></span>
+      <span class="zoom">－ <i class="zbar"><b></b></i> ＋ <span class="muted">自适应</span></span>
+    </div>
+
+    <!-- 时码尺：与轨行共用一把尺（同一 px/秒、同一左列宽） -->
+    <div class="ruler" id="ruler"><!-- demo.js 画 --></div>
+
+    <div class="tracks" id="tracks"><!-- demo.js 画 --></div>
+
+    <div class="dock-read">
+      <span><i>插针</i><b>0:04.2</b></span>
+      <span><i>本镜</i><b>0:03.2</b></span>
+      <span><i>成片</i><b>0:15.6</b></span>
+      <span class="sp"></span>
+      <span class="muted">锁定行不吃剪切 · 眼睛图标只藏不删</span>
+    </div>
+  </footer>
+
+</div>
+
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

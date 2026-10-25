@@ -53,13 +53,15 @@ function createSystemRoutes(ctx) {
       return true;
     }
     if (dataPath === '/env-status') {
-      /* 密钥来源状态：只暴露「有没有」和尾 4 位，不泄露完整密钥。 */
+      /* 密钥来源状态：只暴露「有没有」+ 尾 4 位 + 长度，不泄露完整密钥。
+         len 是给设置页比对用的第二道判据 —— 只比 tail 的话，
+         用户自己那把与 .env 那把「末 4 位撞上」时会被误当默认密钥清掉。 */
       const out = {};
       for (const p of providers) {
         const kid = p.keyId || p.id;
         if (out[kid] !== undefined) continue;
         const v = process.env[p.keyEnv] || defaults[kid] || '';
-        out[kid] = { hasEnv: !!v, tail: v ? String(v).slice(-4) : '' };
+        out[kid] = { hasEnv: !!v, tail: v ? String(v).slice(-4) : '', len: v ? String(v).length : 0 };
       }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(out));

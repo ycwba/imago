@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>生成工作台 · 布局重构稿 第二稿「三栏作业台」</title>
+<!-- 令牌直接取产品那一份：这一稿不另起一套色与尺寸（落地时它就是同一套）。 -->
+<link rel="stylesheet" href="../../web/styles/tokens.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<div class="bench" id="bench">
+
+  <!-- ============ 作业头：做什么（类型）· 用谁（型号）· 能不能做（余额） ============ -->
+  <header class="head">
+    <div class="seg" id="typeSeg" role="tablist" aria-label="生成类型"></div>
+    <div class="model">
+      <button class="model-btn" type="button" id="modelBtn">
+        <span class="model-n" id="modelName">—</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <span class="model-cap" id="modelCap">—</span>
+    </div>
+    <span class="sp"></span>
+    <span class="bal" id="bal">—</span>
+    <button class="ghost demo-only" type="button" id="themeBtn" title="演示用：同一份稿子切深浅两档">◐ 深浅档</button>
+  </header>
+
+  <!-- ============ 主体：三栏 —— 描述 | 参数 | 结果 ============ -->
+  <main class="body">
+
+    <!-- 栏 A · 描述：提示词 / 输入模式 / 参考素材（全部摊开） -->
+    <section class="col col-a" id="colA" aria-label="描述"></section>
+
+    <!-- 栏 B · 参数：型号参数 / 平台开关 / 费用（全部摊开，永不折叠） -->
+    <section class="col col-b" id="colB" aria-label="参数"></section>
+
+    <!-- 栏 C · 结果：当前这一条 + 历史墙 -->
+    <section class="col col-c" aria-label="结果">
+
+      <article class="stage" id="stage">
+        <div class="stage-media" id="stageMedia">
+          <div class="frame" id="stageFrame"></div>
+          <span class="stage-play" id="stagePlay" aria-hidden="true"></span>
+          <span class="stage-spec" id="stageSpec">—</span>
+        </div>
+        <div class="stage-side">
+          <div class="stage-top">
+            <span class="tag" id="stageType">图片</span>
+            <span class="state ok"><i class="dot"></i>已完成</span>
+            <span class="tag ghost" id="stageLocal">本机</span>
+          </div>
+          <p class="stage-prompt" id="stagePrompt">—</p>
+          <div class="stage-meta" id="stageMeta">—</div>
+          <div class="stage-params" id="stageParams"></div>
+          <div class="stage-acts">
+            <button class="ghost" type="button">放大</button>
+            <button class="ghost" type="button">下载</button>
+            <button class="ghost" type="button">以此为参考</button>
+          </div>
+        </div>
+      </article>
+
+      <div class="wall">
+        <div class="wall-hd">
+          <div class="seg sm" id="filterSeg" role="tablist" aria-label="按类型筛选"></div>
+          <span class="muted">最近 30 天</span>
+          <span class="sp"></span>
+          <span class="search"><input type="text" id="search" placeholder="搜索提示词 / ID" aria-label="搜索提示词 / ID"></span>
+          <button class="ghost" type="button" id="multiBtn">多选</button>
+        </div>
+        <!-- 翻页行在结果区**上方**：翻页是「看这一屏」的动作 -->
+        <div class="wall-pager">
+          <span class="pg">‹ 上一页</span>
+          <span class="pg">第 <b>1</b> 页 / 共 <b>29</b> 页</span>
+          <span class="pg">下一页 ›</span>
+          <span class="pg sep"></span>
+          <span class="pg">跳页 <input type="number" min="1" value="1" aria-label="跳页"></span>
+          <span class="pg">跳转</span>
+        </div>
+        <div class="bulk" id="bulk" hidden>
+          <span class="bk-cnt" id="bulkCnt">已选 0 项</span>
+          <button class="ghost" type="button">全选</button>
+          <button class="ghost" type="button">取消选择</button>
+          <button class="ghost" type="button">批量下载</button>
+          <button class="ghost" type="button">存回本机</button>
+          <span class="sp"></span>
+          <button class="ghost" type="button" id="multiExit">退出多选</button>
+        </div>
+        <div class="wall-grid" id="wallGrid"></div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ============ 提交坞：估价 · 回执 · 提交（永远在这一屏里） ============ -->
+  <footer class="dock">
+    <div class="dock-est">
+      <span class="eyebrow">估价</span>
+      <span class="dock-v" id="estV">—</span>
+      <span class="dock-sub" id="estSub">—</span>
+    </div>
+    <div class="dock-mid" id="receipt">
+      <span class="state ok"><i class="dot"></i>上一条 18:50 已完成</span>
+      <span class="muted">local · PNG · 42.0 KB</span>
+    </div>
+    <div class="dock-act">
+      <button class="ghost" type="button" id="clearBtn">清空这一栏</button>
+      <button class="pri" type="button" id="goBtn">生成视频</button>
+    </div>
+  </footer>
+
+</div>
+
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

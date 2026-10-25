@@ -652,14 +652,19 @@ async function fillSlices(root) {
   const barEl = document.getElementById('tlBar');
   const barRect = barEl ? barEl.getBoundingClientRect() : null;
   /* 可见性按**行**算 —— 一栏最多三条行轨（本镜 / 全片 / 配音），每行取一次矩形，
-     别对每格各来一次 getBoundingClientRect（一次重画 40-200 次强制布局）。 */
+     别对每格各来一次 getBoundingClientRect（一次重画 40-200 次强制布局）。
+     全片那一排的行是 `.tl-film`（不是 `.tl-vrow`）：漏了它，全片页签的可见性
+     恒为「看得见」，屏外的素材与屏内同优先级排队 —— 那道「可见性优先」就白立了。 */
   const rowRects = new Map();
   if (barRect) {
-    root.querySelectorAll('.tl-vrow').forEach(r => rowRects.set(r, r.getBoundingClientRect()));
-    if (root.classList && root.classList.contains('tl-vrow')) rowRects.set(root, root.getBoundingClientRect());
+    root.querySelectorAll('.tl-vrow, .tl-film').forEach(r => rowRects.set(r, r.getBoundingClientRect()));
+    if (root.classList && (root.classList.contains('tl-vrow') || root.classList.contains('tl-film'))) {
+      rowRects.set(root, root.getBoundingClientRect());
+    }
   }
   const rowRectOf = el => {
-    const row = el && el.closest ? el.closest('.tl-vrow') : null;
+    if (!el || !el.closest) return null;
+    const row = el.closest('.tl-vrow') || el.closest('.tl-film');
     return row ? (rowRects.get(row) || null) : null;
   };
   const items = Array.from(first.values()).map(rec => {

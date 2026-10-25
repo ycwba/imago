@@ -48,8 +48,17 @@
   const K_W = 'ai_chat_w';               // 抽屉宽度（本机窗口的事，不跟着云同步）
   const K_H = 'ai_chat_h';               // 浮窗高度（同上；固定档撑满，不用它）
   const K_DOCK = 'ai_chat_dock';         // 固定到右侧（把页面挤到左边）；本机窗口的事，不跟云同步
-  const K_FXY = 'ai_chat_fxy';           // 浮窗被拖走后的位置；有它 = 已脱离球，删掉 = 回到跟球
   const K_NOTICE = 'ai_chat_notice';     // 「出结果弹系统通知」：要浏览器授权，授权按钮在设置页那一卡
+  const K_REF_SEND = 'ai_chat_ref_send'; // 「引用发给助手时带哪些字段」：默认全带，设置页「AI 助手」那张卡上改
+  /* 这一档只裁**给模型看的那份清单**（refBlock）：
+     工具侧（asset_open 按序号取）读的是这一轮真正发出去的那份完整记录，
+     裁了清单也不影响助手按序号把字节取回来 —— 序号与清单始终是同一份。
+     拖进来的东西、输入框里的高亮、消息下方那排记录，一样都不受它影响。 */
+  const REF_SEND_MODES = ['all', 'image', 'task', 'asset', 'name'];
+  const refSend = () => {
+    const v = String(window.LS.get(K_REF_SEND) || 'all');
+    return REF_SEND_MODES.indexOf(v) >= 0 ? v : 'all';
+  };
   const autoRun = () => window.LS.get(K_AUTO) === '1';
   const CAP = 60;                        // 单个会话的记录条数上限
   const SESS_CAP = 40;                   // 会话数上限（超了丢最久没用的那个，当前这条永远不丢）
@@ -932,6 +941,13 @@
     try { if (window.AssetRef && r) return window.AssetRef.label(r); } catch (e) { /* 读不出标签就落到下面那行通用兜底，不该让引用行画不出来 */ }
     return cap(String((r && (r.prompt || r.name || r.assetId || r.id)) || '未命名素材'), 48);
   };
+  /* 引用在正文里用的**短名**（不带号、不带类型）：标记是正文里的一行字，
+     拖着「（资产 la_xxx）」既长又难看 —— 用户要认的是「哪一条」，不是它的内部号。
+     号留给两处：悬停浮层（.ac-ref-tip）与发给模型的那份清单（refBlock）。 */
+  const refShort = r => {
+    try { if (window.AssetRef && typeof window.AssetRef.shortLabel === 'function') return window.AssetRef.shortLabel(r); } catch (e) {}
+    return cap(String((r && (r.prompt || r.name || r.assetId || r.id)) || '未命名素材'), 48);
+  };
   /* 队列里只留能定位一条素材的字段（别的 UI 状态过不了刷新，也不该进提示词） */
   function normRef(r) {
     if (!r || typeof r !== 'object') return null;
@@ -982,7 +998,7 @@
   function addRefText(r) {
     const { rec, dropped } = addRef(r);
     if (!rec) { note('这条素材没带可用的号或地址，没能引用', 'warn'); return null; }
-    const mark = '[引用素材：' + refLabel(rec) + ']';
+    const mark = '[引用素材：' + refShort(rec) + ']';
     if (el.ta) {
       const v = el.ta.value || '';
       const a = el.ta.selectionStart == null ? v.length : el.ta.selectionStart;
@@ -996,11 +1012,16 @@
     else note('已把这个素材引用写进输入框');
     return rec;
   }
-  /* 发出去那一刻拍快照（与 shotFiles 同理）：清掉草稿之后，这一轮的 refBlock 与工具里的「第几条」都读它 */
-  function shotRefs() {
-    roundRefs = refs.map(r => Object.assign({}, r));
+  /* 发出去那一刻拍快照（与 shotFiles 同理）：清掉草稿之后，这一轮的 refBlock 与工具里的「第几条」都读它。
+     **只取正文里还对得上的那些** —— 正文是真相（改字即作废，见 refTextChanged）：
+     以前是整个 refs 队列都发，用户把标记删了，模型这一轮照样拿到。 */
+  function shotRefs(text) {
+    const src = text == null ? (el.ta ? el.ta.value || '' : '') : String(text);
+    const live = new Set(markerRanges(src).filter(x => x.idx >= 0).map(x => x.idx));
+    const list = refs.filter((r, i) => live.has(i));
+    roundRefs = list.map(r => Object.assign({}, r));
     return roundRefs.map(r => ({
-      kind: r.kind || '素材', name: refLabel(r), type: r.type || '',
+      kind: r.kind || '素材', name: refLabel(r), short: refShort(r), type: r.type || '',
       assetId: r.assetId || '', taskId: r.taskId || '',
       ok: !!(r.assetId || r.src || r.dl || r.fileKey || r.taskId || r.id),
     }));
@@ -1013,18 +1034,40 @@
     paintRefMarks();
   }
   /* 这一轮的引用清单。序号必须与 shotRefs() 拍下的那一份同一个下标 ——
-     模型说的「第 1 条」与 asset_open 取的得是同一条。 */
+     模型说的「第 1 条」与 asset_open 取的得是同一条。
+     清单里**带哪些字段**由设置页那一档说了算（默认全带，见 refSend）。 */
   function refBlock() {
     const list = roundRefs || [];
     if (!list.length) return '';
+    const mode = refSend();
     return '【这次引用的素材】\n' + list.map((r, i) => {
-      const bits = [refLabel(r), r.type || r.kind || '素材'];
-      if (r.assetId) bits.push('资产 ' + r.assetId);
-      if (r.src) bits.push('地址 ' + r.src);
-      else if (r.dl) bits.push('下载地址 ' + r.dl);
-      if (r.taskId) bits.push('任务号 ' + r.taskId);
-      if (r.fileKey) bits.push('本机文件（收藏）' + r.fileKey);
-      if (!r.assetId && !r.src && !r.dl && !r.fileKey) bits.push('只有号 ' + (r.id || r.taskId || ''));
+      const type = r.type || r.kind || '素材';
+      const bits = [refLabel(r)];
+      if (mode === 'all') {
+        bits.push(type);
+        if (r.assetId) bits.push('资产 ' + r.assetId);
+        if (r.src) bits.push('地址 ' + r.src);
+        else if (r.dl) bits.push('下载地址 ' + r.dl);
+        if (r.taskId) bits.push('任务号 ' + r.taskId);
+        if (r.fileKey) bits.push('本机文件（收藏）' + r.fileKey);
+        if (!r.assetId && !r.src && !r.dl && !r.fileKey) bits.push('只有号 ' + (r.id || r.taskId || ''));
+      } else if (mode === 'image') {
+        bits.push(type);
+        if (r.src) bits.push('地址 ' + r.src);
+        else if (r.dl) bits.push('下载地址 ' + r.dl);
+        else if (r.assetId) bits.push('资产 ' + r.assetId);
+        else if (r.taskId) bits.push('任务号 ' + r.taskId);
+      } else if (mode === 'task') {
+        bits.push(type);
+        if (r.taskId) bits.push('任务号 ' + r.taskId);
+        else if (r.assetId) bits.push('资产 ' + r.assetId);
+      } else if (mode === 'asset') {
+        bits.push(type);
+        if (r.assetId) bits.push('资产 ' + r.assetId);
+        else if (r.taskId) bits.push('任务号 ' + r.taskId);
+      } else {
+        bits.push(type);
+      }
       return i + ' = ' + bits.join(' · ');
     }).join('\n')
       + '\n（这些是用户拖进来的引用。要真的看其中某一条，用 asset_open 按序号取；不要凭这段文字猜图里有什么。）\n\n';
@@ -1036,7 +1079,7 @@
     const out = [];
     const byLabel = new Map();
     refs.forEach((r, i) => {
-      const l = refLabel(r);
+      const l = refShort(r);
       if (!byLabel.has(l)) byLabel.set(l, []);
       byLabel.get(l).push(i);
     });
@@ -1049,7 +1092,6 @@
     return out;
   }
   let refRects = [];                     // 每个标记矩形的层内坐标（现算，不缓存）
-  let matchedRefs = new Set();           // 输入框里还画着高亮的队列下标（用来报「文字被改掉了」）
   function paintRefMarks() {
     const layer = el.refLayer, ta = el.ta, mirror = el.refMirror;
     if (!layer || !ta || !mirror) return;
@@ -1066,6 +1108,10 @@
       const lr = layer.getBoundingClientRect();
       ranges.forEach(rg => {
         if (!node) return;
+        /* 对不上队列的标记（idx < 0）**不画高亮**：
+           它既不是一条有效的引用，也不该让人以为它是。
+           正文是真相 —— 标记对不上 = 这条引用不作数（见 refTextChanged）。 */
+        if (rg.idx < 0) return;
         let rects = [];
         try {
           const range = document.createRange();
@@ -1087,36 +1133,31 @@
           hl.style.width = box.width + 'px';
           hl.style.height = box.height + 'px';
           layer.appendChild(hl);
-          /* 叉号只落在**最后一行**的右端（多行标记每行一块灰底，但只需要一个删除入口） */
-          if (k === rects.length - 1 && rg.idx >= 0) {
-            const x = document.createElement('button');
-            x.type = 'button';
-            x.className = 'ac-ref-x';
-            x.tabIndex = -1;
-            x.title = '从这一轮移开这条引用（只移引用，不删资产库里的东西）';
-            x.textContent = '×';
-            x.dataset.ref = String(rg.idx);
-            x.dataset.start = String(rg.start);
-            x.dataset.end = String(rg.end);
-            x.style.left = Math.max(0, box.left + box.width - 12) + 'px';
-            x.style.top = (box.top + Math.max(0, (box.height - 16) / 2)) + 'px';
-            layer.appendChild(x);
-          }
+          /* 以前这里还画一个 ×（.ac-ref-x）当删除入口，现在**没有**了：
+             标记本来就是正文里的文字，键盘选中那段删掉就行；
+             删掉 = 这条引用作废（正文是真相，见 refTextChanged）。
+             少一个按钮，也少一处「高亮没了但引用还在」的暗坑。 */
         });
       });
     }
-    matchedRefs = new Set(ranges.filter(x => x.idx >= 0).map(x => x.idx));
   }
-  /* 输入框里的文字变了：重画高亮；如果之前还画着的某条引用现在找不到对应标记了，照实说一句
-     （队列里还在，所以这一轮模型仍会拿到它 —— 不说明的话用户以为删掉那行字就等于不带它了）。 */
+  /* 输入框里的文字变了：**正文是真相** ——
+     那段引用文字被改过或删掉了，这条引用就作废（队列里那条一起删掉，这一轮不再发给模型）。
+     以前是「只说一句、引用还留着、模型这一轮照样拿到」：用户看着高亮没了，以为没带它，
+     其实模型这一轮还是拿到了（还白花一轮 tokens 看图）。 */
   function refTextChanged() {
     const now = new Set(markerRanges(el.ta ? el.ta.value || '' : '').filter(x => x.idx >= 0).map(x => x.idx));
     const lost = [];
-    matchedRefs.forEach(i => { if (!now.has(i) && refs[i]) lost.push(refLabel(refs[i])); });
+    const keep = [];
+    refs.forEach((r, i) => { if (now.has(i)) keep.push(r); else lost.push(refLabel(r)); });
+    if (lost.length) {
+      refs = keep;
+      saveRefs();
+    }
     paintRefMarks();
     if (lost.length) {
-      note('输入框里那段引用文字被改过或删掉了，但这条引用还在清单里（这一轮助手仍会拿到它）：'
-        + lost.join('、') + '。不想带它，用引用上的 × 移开。', 'warn');
+      note('输入框里那段引用文字被改过了 —— 这条引用已经去掉，这一轮助手不会再拿到它：'
+        + lost.join('、') + '。资产库/收藏里的那一份没动。', 'warn');
     }
   }
   let refTip = null;
@@ -1139,7 +1180,7 @@
     const meta = [r.type || r.kind, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '',
       r.fileKey ? '本机文件' : ''].filter(Boolean).join(' · ');
     refTip.innerHTML = (r.src ? '<img draggable="false" loading="lazy" alt="">' : '')
-      + '<div class="ac-ref-tip-b"><b>' + esc(cap(refLabel(r), 60)) + '</b><span>' + esc(meta || '没有更多信息') + '</span></div>';
+      + '<div class="ac-ref-tip-b"><b>' + esc(cap(refShort(r), 60)) + '</b><span>' + esc(meta || '没有更多信息') + '</span></div>';
     const img = refTip.querySelector('img');
     if (img) {
       img.src = r.src;
@@ -1161,11 +1202,11 @@
       .filter(Boolean).map(esc).join(' · ');
     UiDialog.open({
       title: '引用的素材',
-      sub: refLabel(r),
+      sub: refShort(r),
       body: box => {
         box.innerHTML = '<div class="ac-refdl">'
           + (r.src ? '<img draggable="false" alt="">' : '<div class="ac-refdl-none">这一条没有可直接显示的地址（只有号）。要看它，发出去后让助手用 asset_open 按序号取。</div>')
-          + '<div class="ac-refdl-meta"><b>' + esc(refLabel(r)) + '</b><div>' + meta + '</div>'
+          + '<div class="ac-refdl-meta"><b>' + esc(refShort(r)) + '</b><div>' + meta + '</div>'
           + (r.src ? '<div class="ac-refdl-src">' + esc(r.src) + '</div>' : '')
           + (r.dl ? '<div class="ac-refdl-src">下载地址：' + esc(r.dl) + '</div>' : '') + '</div></div>';
         const img = box.querySelector('img');
@@ -1184,6 +1225,26 @@
   }
 
   /* ---------- 画 ---------- */
+  /* 你发出去的那条：正文里的「[引用素材：名字]」渲染成**高亮文字**（跟输入框里那一个同款手法），
+     悬停给出类型 / 资产号 / 任务号 —— 号写出来才看得见，不藏在悬停里。 */
+  function meHtml(m) {
+    const refs = m.refs || [];
+    const t = String(m.t || '');
+    const re = /\[引用素材：([^\]\n]*)\]/g;
+    let html = '', last = 0, mm;
+    while ((mm = re.exec(t))) {
+      html += esc(t.slice(last, mm.index));
+      const r = refs.find(x => x && x.short === mm[1])
+        || refs.find(x => x && x.name === mm[1])
+        || refs.find(x => x && x.assetId && mm[1].indexOf(x.assetId) >= 0) || null;
+      const meta = r ? [r.type, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '']
+        .filter(Boolean).join(' · ') : '';
+      html += '<span class="ac-mref"' + (meta ? ' title="' + esc(meta) + '"' : '') + '>' + esc(mm[0]) + '</span>';
+      last = mm.index + mm[0].length;
+    }
+    html += esc(t.slice(last));
+    return html;
+  }
   const QUICK = [
     '我现在哪些平台能用？', '素材库里有哪些角色？', '这一条素材的音色配好了吗？',
     '生图有哪些型号，分别支持什么参数？', '最近 7 天文字 AI 用了多少？', '把这张图看看，照它的样子出一张',
@@ -1201,7 +1262,8 @@
   const quickFor = () => QUICK_BY_PAGE[page()] || QUICK;
   function runNode(m) {
     const d = document.createElement('div');
-    d.className = 'ac-m ac-run';
+    /* 状态挂在卡上：待确认（st 为空）是琥珀，做完是普通卡，失败/结果未知各有各的色。 */
+    d.className = 'ac-m ac-run ' + (m.st ? 's-' + m.st : 's-gate');
     const c = document.createElement('div');
     c.className = 'ac-bd ac-run-card';
     const hd = document.createElement('div');
@@ -1818,6 +1880,9 @@
     return d;
   }
 
+  /* 工序的分组名：以前「工具活动」那张折叠卡按它分段落（资产/本机、剪辑、字幕…）。
+     现在工序收成一条**脊**（连续的一串节点），分组会打断那条线，所以这一族退役了 ——
+     工具的中文短名走 chat-tools.js 的 TOOL_ZH（那里是工具表的家）。 */
   const TOOL_GROUP = name => {
     if (/^(timeline|cut|set_clip|select_take|undo_edit)/.test(name)) return '剪辑';
     if (/^subtitle/.test(name)) return '字幕';
@@ -1911,93 +1976,161 @@
     } catch (e) {}
     return box;
   }
-  /* 可折叠的「工具活动」：默认收起，失败/结果未知自动展开。
-     它不是逐步动画，也不重复正文 —— 只回答「这一轮查了什么、动没动、用了多久」。 */
-  function turnNode(m) {
+  /* 这一轮的工具活动拆成三块：工序（画成一条脊）、这一轮带的 Skill、来源。
+     以前是三样并排的块（.ac-turn 折叠卡 + .ac-skills + .ac-src），
+     现在收进**一张工单卡**的三层：工序在上，Skill 在工序之前，来源在最后。 */
+  function turnParts(m) {
     const t = turnOf(m.turnId);
-    /* 来源列表挂在折叠卡**外面**：模型正文里的 [来源 n] 必须一眼能点开，
-       藏进「工具活动」等于让用户先展开一层才拿得到链接。 */
-    const wrap = document.createElement('div');
-    wrap.className = 'ac-turn-wrap';
-    const d = document.createElement('details');
-    d.className = 'ac-turn';
-    wrap.appendChild(d);
-    const tools = (t && t.tools) || [], acts2 = (t && t.actions) || [], sks = (t && t.skills) || [];
-    const bad = !!(t && (t.status === 'error' || tools.some(x => x.state === 'error') || acts2.some(x => x.state === 'error')));
-    d.open = bad;
-    const sm = document.createElement('summary');
-    const errN = tools.filter(x => x.state === 'error').length;
-    sm.textContent = '工具活动：' + tools.length + ' 次查询'
-      + (acts2.length ? ' · ' + acts2.length + ' 个动作' : '')
-      + (errN ? ' · ' + errN + ' 个失败' : '')
-      + (bad ? ' · 点开看原因' : '');
-    d.appendChild(sm);
-    if (!t) return wrap;
-    const box = document.createElement('div');
-    box.className = 'ac-turn-list';
-    let last = '';
-    tools.forEach(x => {
-      const g = TOOL_GROUP(x.name);
-      if (g !== last) {
-        const h = document.createElement('div');
-        h.className = 'ac-turn-g';
-        h.textContent = g;
-        box.appendChild(h);
-        last = g;
-      }
-      const row = document.createElement('div');
-      row.className = 'ac-turn-row ' + (x.state || '');
-      const sec = x.endedAt ? Math.max(0, Math.round((x.endedAt - x.startedAt) / 1000)) : 0;
-      row.textContent = x.name + '(' + cap(String(x.argsDigest || ''), 60) + ') · '
-        + (x.state === 'running' ? '进行中' : x.state === 'error' ? '失败' : '完成')
-        + (sec ? ' · ' + sec + 's' : '')
-        + (x.size ? ' · ' + x.size + ' 字' : '')
-        + (x.error ? ' · ' + x.error : '');
-      box.appendChild(row);
-    });
-    acts2.forEach(a => {
-      const row = document.createElement('div');
-      row.className = 'ac-turn-row act ' + (a.state || '');
-      row.textContent = '动作 ' + (a.effect || '') + ' · ' + (a.state === 'awaiting' ? '等你确认' : a.state === 'ok' ? '已执行' : a.state === 'uncertain' ? '结果未知' : a.state === 'error' ? '失败' : (a.state || ''))
-        + (a.undo ? ' · 可撤销（' + a.undo + '）' : '')
-        + (a.resultText ? ' · ' + cap(a.resultText, 120) : '');
-      box.appendChild(row);
-    });
-    if (t.status === 'error' && t.error) {
-      const row = document.createElement('div');
-      row.className = 'ac-turn-row error';
-      row.textContent = '这一轮失败：' + cap(t.error, 200);
-      box.appendChild(row);
-    }
-    d.appendChild(box);
-    /* Skill 挂在折叠卡外面：这一轮用了哪份写法是一句「当时是什么状态」，
-       藏进「工具活动」等于让用户先展开一层才看得到，也没法直接点开正文。 */
-    if (sks.length) wrap.appendChild(skillStrip(sks));
+    if (!t) return null;
     const src = (t.sources || []).filter(x => x && /^https?:\/\//i.test(x.url || ''));
-    if (src.length) {
-      const sb = document.createElement('div');
-      sb.className = 'ac-src';
-      const sh = document.createElement('div');
-      sh.className = 'ac-src-h';
-      sh.textContent = '来源（点开原网页；正文里的 [来源 n] 就是这里的编号）';
-      sb.appendChild(sh);
-      src.forEach(x => {
-        const a = document.createElement('a');
-        a.className = 'ac-src-a';
-        a.href = x.url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.textContent = '[来源 ' + (x.n || '?') + '] ' + (x.title || x.url)
-          + (x.domain ? ' · ' + x.domain : '');
-        sb.appendChild(a);
-      });
-      wrap.appendChild(sb);
-    }
-    return wrap;
+    return { skills: t.skills || [], sources: src, tools: t.tools || [], status: t.status, error: t.error };
+  }
+  /* 工序脊的节点：这一轮做过的每一道工序一个节点 —— 绿=做完 红=失败 蓝=在跑 琥珀=等你点头。
+     名字走 chat-tools.js 那份短名表（TOOLS 表里只有 id，界面上要给人看中文）。 */
+  function toolZhOf(name) {
+    try { if (CHAT_TOOLS && typeof CHAT_TOOLS.toolZh === 'function') return CHAT_TOOLS.toolZh(name); } catch (e) {}
+    return String(name || '');
+  }
+  function actTitleOf(act) {
+    const a = ACTS && ACTS[act];
+    return (a && (a.title || a.名)) || String(act || '');
+  }
+  function durOfTool(x) {
+    if (!x || !x.endedAt || !x.startedAt) return '';
+    const s = Math.max(0, Math.round((x.endedAt - x.startedAt) / 1000));
+    return s ? s + 's' : '';
+  }
+  function spineNodes(parts) {
+    const seen = new Set();
+    const nodes = [];
+    parts.forEach(p => {
+      if (p.r === 'turn') {
+        const t = turnOf(p.turnId);
+        if (!t) return;
+        (t.tools || []).forEach(x => {
+          const k = x.id || x.name;
+          if (seen.has(k)) return;
+          seen.add(k);
+          nodes.push({
+            kind: 'tool', name: toolZhOf(x.name), raw: x.name, state: x.state || '',
+            ms: durOfTool(x), err: x.error || '', size: x.size || 0, args: x.argsDigest || '',
+          });
+        });
+      } else if (p.r === 'run') {
+        nodes.push({
+          kind: 'act', name: actTitleOf(p.act), state: p.st || '', act: p.act,
+          ms: '', err: p.out || '', detail: (p.人话 || []).join(' · '),
+        });
+      }
+    });
+    return nodes;
+  }
+  /* 这一轮带的 Skill（它是这一轮的前提，放在工序之前） */
+  function collectSkills(parts) {
+    const sks = [];
+    parts.forEach(p => {
+      if (p.r !== 'turn') return;
+      const t = turnOf(p.turnId);
+      if (!t) return;
+      (t.skills || []).forEach(s => { if (s && !sks.some(x => x.id === s.id)) sks.push(s); });
+    });
+    return sks;
+  }
+  function spineEl(nodes) {
+    if (!nodes.length) return null;
+    const box = document.createElement('div');
+    box.className = 'ac-spine';
+    const rows = nodes.map(n => {
+      let st = 'done';
+      if (n.kind === 'act') {
+        if (!n.state) st = 'wait';
+        else if (n.state === 'err') st = 'bad';
+        else if (n.state === 'uncertain') st = 'wait';
+        else if (n.state === 'run') st = 'run';
+        else if (n.state === 'cancel') st = 'skip';
+      } else {
+        if (n.state === 'error') st = 'bad';
+        else if (n.state === 'running') st = 'run';
+      }
+      const more = n.err || (n.args ? '参数 ' + cap(n.args, 60) : '') || n.detail || '';
+      const row = document.createElement('div');
+      row.className = 'ac-sp-row ' + st;
+      const dot = document.createElement('i');
+      dot.className = 'ac-sp-dot';
+      const nm = document.createElement('span');
+      nm.className = 'ac-sp-name';
+      nm.textContent = n.name;
+      const ms = document.createElement('span');
+      ms.className = 'ac-sp-ms';
+      ms.textContent = n.ms;
+      row.appendChild(dot); row.appendChild(nm); row.appendChild(ms);
+      if (more) {
+        const d = document.createElement('div');
+        d.className = 'ac-sp-more';
+        d.textContent = more;
+        row.appendChild(d);
+      }
+      return row;
+    });
+    rows.forEach(r => box.appendChild(r));
+    const tg = document.createElement('button');
+    tg.type = 'button';
+    tg.className = 'ac-sp-toggle';
+    tg.textContent = '展开工序';
+    tg.onclick = () => {
+      const open = box.classList.toggle('open');
+      tg.textContent = open ? '收起工序' : '展开工序';
+    };
+    box.appendChild(tg);
+    return box;
+  }
+  /* 来源列表：模型正文里的 [来源 n] 必须一眼能点开，
+     藏进「工具活动」等于让用户先展开一层才拿得到链接。 */
+  function srcBox(src) {
+    const sb = document.createElement('div');
+    sb.className = 'ac-src';
+    const sh = document.createElement('div');
+    sh.className = 'ac-src-h';
+    sh.textContent = '来源（点开原网页；正文里的 [来源 n] 就是这里的编号）';
+    sb.appendChild(sh);
+    src.forEach(x => {
+      const a = document.createElement('a');
+      a.className = 'ac-src-a';
+      a.href = x.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = '[来源 ' + (x.n || '?') + '] ' + (x.title || x.url)
+        + (x.domain ? ' · ' + x.domain : '');
+      sb.appendChild(a);
+    });
+    return sb;
+  }
+  /* 工单卡：动了手的那一轮。卡左缘一条状态色带，卡内从上到下是固定的几层。 */
+  function jobCard(parts, nodes) {
+    const card = document.createElement('article');
+    card.className = 'ac-job s-' + jobState(parts);
+    /* ① 这一轮带的 Skill（它是这一轮的前提，放在工序之前） */
+    const sks = collectSkills(parts);
+    const srcs = [];
+    parts.forEach(p => {
+      if (p.r !== 'turn') return;
+      const t = turnParts(p);
+      if (!t) return;
+      t.sources.forEach(x => { if (!srcs.some(y => y.n === x.n && y.url === x.url)) srcs.push(x); });
+    });
+    if (sks.length) card.appendChild(skillStrip(sks));
+    /* ② 工序脊 */
+    const spine = spineEl(nodes);
+    if (spine) card.appendChild(spine);
+    /* ③ 其余按原来的先后顺序：执行闸 → 结论 → 产物 → 选择框 → 过程小条 */
+    parts.forEach(p => { if (p.r !== 'turn' && p.r !== 'note' && p.r !== 'err') card.appendChild(node(p)); });
+    /* ④ 来源 */
+    if (srcs.length) card.appendChild(srcBox(srcs));
+    return card;
   }
 
   function node(m) {
-    if (m.r === 'turn') return turnNode(m);
+    /* 'turn'（工具活动）不再单独成块 —— 它已经被工序脊吸收了（见 jobCard / spineEl）。 */
     if (m.r === 'run') return runNode(m);
     if (m.r === 'cards') return cardsNode(m);
     if (m.r === 'ask') return askNode(m);
@@ -2014,28 +2147,23 @@
       b.className += ' md';
       if (window.Md) Md.mount(b, m.t); else b.textContent = m.t;
     } else b.textContent = m.t;
-    /* 用户那条下面挂一排附件芯片：输入框上那排**发完就清掉了**（不清就是「东西还挂在
-       输入框里」，看着像没发出去）。这里是这一条消息唯一留下的凭据，
-       摘要随消息落盘 —— 刷新之后仍然看得见这条带了什么。 */
-    if (m.r === 'me' && ((m.fs || []).length || (m.refs || []).length)) {
-      const fw = document.createElement('div');
-      fw.className = 'ac-mfs';
-      fw.textContent = '随这条发出：';
-      (m.fs || []).forEach(f => {
-        const s = document.createElement('span');
-        s.className = 'ac-fi' + (f.ok ? '' : ' warn');
-        s.title = (f.ok ? '' : '字节已不在 ') + (f.note || '') + '｜' + (f.name || '');
-        s.textContent = (f.kind || '文件') + '·' + cap(f.name || '', 18);
-        fw.appendChild(s);
-      });
-      (m.refs || []).forEach(r => {
-        const s = document.createElement('span');
-        s.className = 'ac-fi';
-        s.title = [r.type, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : ''].filter(Boolean).join(' · ');
-        s.textContent = '引用·' + cap(r.name || r.assetId || '素材', 18);
-        fw.appendChild(s);
-      });
-      d.appendChild(fw);
+    /* 用户那条：正文里的「[引用素材：名字]」渲染成**高亮文字** ——
+       跟输入框里那一个同款手法，悬停给出类型 / 资产号 / 任务号。
+       引用不再走下面那排小芯片了：它已经回到正文里（那排芯片只留附件 —— 文件不是正文的一部分）。 */
+    if (m.r === 'me') {
+      b.innerHTML = meHtml(m);
+      if ((m.fs || []).length) {
+        const fw = document.createElement('div');
+        fw.className = 'ac-mfs';
+        (m.fs || []).forEach(f => {
+          const s = document.createElement('span');
+          s.className = 'ac-fi' + (f.ok ? '' : ' warn');
+          s.title = (f.ok ? '' : '字节已不在 ') + (f.note || '') + '｜' + (f.name || '');
+          s.textContent = (f.kind || '文件') + '·' + cap(f.name || '', 18);
+          fw.appendChild(s);
+        });
+        d.appendChild(fw);
+      }
     }
     d.appendChild(b);
     /* 「重发」：答到一半出错时挂在这条下面（m.again 是当时那句原话）。
@@ -2070,6 +2198,72 @@
       d.appendChild(ft);
     }
     return d;
+  }
+  /* ---------- 一轮 = 你发出去的那条 + 助手的回应 ----------
+     助手的回应有两种形态：
+       · 纯回答（没调工具、没动作、没产物）→ **一条气泡**（左对齐）
+       · 动过手（查了 / 写了 / 提交了 / 产出了）→ **一张工单卡**（左缘一条状态色带）
+     消息存储格式一个字没动（还是那串扁平的 msgs）—— 只是画的时候按轮归堆。
+     怎么分轮：以「你发出去的那条」为界，它后面到下一条之前的块都归这一轮。 */
+  function turnsEl() {
+    const wrap = document.createElement('div');
+    wrap.className = 'ac-turns';
+    let me = null;            // 这一轮你发的那条
+    let parts = [];           // 这一轮助手的块
+    const closeTurn = () => {
+      if (!me && !parts.length) return;
+      wrap.appendChild(turnEl(me, parts));
+      me = null; parts = [];
+    };
+    msgs.forEach(m => {
+      if (m.r === 'me') { closeTurn(); me = m; return; }
+      parts.push(m);
+    });
+    closeTurn();
+    return wrap;
+  }
+  function turnEl(me, parts) {
+    const t = document.createElement('div');
+    t.className = 'ac-turn';
+    if (me) t.appendChild(node(me));
+    /* 「动没动手」看的是**有没有真工序**（查了 / 提了动作 / 产出了东西），
+       不是看这一轮有没有消息 —— 纯回答也会带一份 Skill（那只是「按什么规范写」，
+       它没查、没写、没花钱，不该因此升格成一张工单卡）。 */
+    const nodes = spineNodes(parts);
+    const hasCards = parts.some(x => x.r === 'cards');
+    if (nodes.length || hasCards) {
+      t.appendChild(jobCard(parts, nodes));
+    } else {
+      /* 纯回答：一条气泡（选择框也在这儿），外面挂这一轮带的 Skill。 */
+      parts.filter(x => x.r === 'ai' || x.r === 'ask').forEach(x => t.appendChild(node(x)));
+      const sks = collectSkills(parts);
+      if (sks.length) t.appendChild(skillStrip(sks));
+    }
+    /* 通知与报错是这一轮的旁白，摆在卡的外面。 */
+    parts.filter(x => x.r === 'note' || x.r === 'err').forEach(x => t.appendChild(node(x)));
+    return t;
+  }
+  /* 这一轮的状态：卡左缘那条色带按它上色（绿=做完 / 琥珀=等你点头 / 红=失败 / 紫=在跑）。 */
+  function jobState(parts) {
+    let fail = false, run = false, wait = false;
+    parts.forEach(p => {
+      if (p.r === 'err') fail = true;
+      else if (p.r === 'run') {
+        if (!p.st) wait = true;
+        else if (p.st === 'err' || p.st === 'uncertain') fail = true;
+        else if (p.st === 'run') run = true;
+      } else if (p.r === 'turn') {
+        const t = turnOf(p.turnId);
+        if (!t) return;
+        if (t.status === 'error') fail = true;
+        if ((t.tools || []).some(x => x.state === 'error')) fail = true;
+        if ((t.tools || []).some(x => x.state === 'running')) run = true;
+      }
+    });
+    if (fail) return 'failed';
+    if (wait) return 'gate';
+    if (run) return 'running';
+    return 'done';
   }
   /* jump=true：这一次重画**一定要**滚到底 —— 打开/切换会话、清空、刚发出去一句话，
      这些时候用户要看的就是最新那条，哪怕重画前他正往上翻着找上一次的答案。
@@ -2123,7 +2317,7 @@
       });
       w.appendChild(q);
       box.appendChild(w);
-    } else msgs.forEach(m => box.appendChild(node(m)));
+    } else box.appendChild(turnsEl());
     if (keep && keep.parentNode !== box) box.appendChild(keep);
     /* 「贴到底」只在该贴的时候贴：任务出结果、系统通知、切页都会触发整块重画，
      * 而用户常常正在往上翻上一条结果 —— 无条件 scrollHeight 把他刚找到的那一行拽回底部
@@ -2418,9 +2612,11 @@
     if (CHAT_TOOLS.ready()) { try { await CHAT_TOOLS.ready(); } catch (e) {} }
     if (contractsReady) { try { await contractsReady; } catch (e) {} }
     if (textUtilReady) { try { await textUtilReady; } catch (e) {} }
+    /* 引用快照要在**清空输入框之前**算：正文是真相（改字即作废），
+       快照靠正文里还对得上的标记来筛 —— 清空了就没得筛了。 */
+    const refShot = shotRefs(el.ta.value);
     el.ta.value = '';
     const shot = shotFiles();
-    const refShot = shotRefs();
     /* 气泡上挂上这一条带了什么，**然后立刻把输入框上那排芯片清掉**：
        「发出去的东西还挂在输入框里」会被当成没发出去，于是再发一次（等于白花一轮 tokens）。
        摘要跟着消息落盘，刷新后也还在。 */
@@ -2826,17 +3022,20 @@
     return null;
   }
   /* 左栏那一块是 z=90，悬浮球只有 z=56：球停在它覆盖的那一条里就点不到了（等于把助手弄丢）。
-     所以左边界让开 --sbw（展开时 sidebar.js 把它改成 200px），存过的旧位置也在下一次摆放时挪回来。 */
+     所以左边界让开 --sbw（切到满形态时 sidebar.js 把它改成 232px），存过的旧位置也在下一次摆放时挪回来。 */
   const sbW = () => {
-    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sbw'));
-    /* 窄窗 + 侧栏展开时，sidebar.js 把 --sbw 写成 66px（那是折叠态的宽度），
-       而浮层**实际**是 200px（OPEN_W）—— 球停在 74~120px 就被浮层完全盖住，
-       点不到也看不见。而 sb:toggle 那条「重摆一次」本来就为防这个，读到的却是错的 66，
+    const cs = getComputedStyle(document.documentElement);
+    const v = parseFloat(cs.getPropertyValue('--sbw'));
+    /* 窄窗 + 侧栏展开时，sidebar.js 把 --sbw 写成窄形态的宽度（56px），
+       而浮层**实际**是满形态那一档的宽度（--sbw-full）—— 球停在 74~120px 就被浮层完全盖住，
+       点不到也看不见。而 sb:toggle 那条「重摆一次」本来就为防这个，读到的却是错的 56，
        于是**主动把球摆到了会被盖住的位置**。所以这里取两者的大。
+       满形态的宽度读 **--sbw-full 令牌**，不写死数字 —— 侧栏改宽，它自己跟着改。
        判据只此一份：clampXY 与 snapXY 都调它。 */
     const narrowOpen = document.documentElement.classList.contains('sb-narrow')
       && document.documentElement.classList.contains('sb-open');
-    const real = narrowOpen ? 200 : 0;
+    const full = parseFloat(cs.getPropertyValue('--sbw-full')) || 0;
+    const real = narrowOpen ? full : 0;
     const a = Number.isFinite(v) && v > 0 ? v : 0;
     return Math.max(a, real);
   };
@@ -2883,25 +3082,18 @@
       try { localStorage.setItem(K_XY, JSON.stringify({ x: p.x, y: p.y })); } catch (e) {}
     }
   }
-  /* ---------- 浮窗（悬浮档）：贴着球的小窗，宽高可调、可拖走 ----------
+  /* ---------- 浮窗（悬浮档）：贴着球的小窗，宽高可调 ----------
      与固定档是同一个 `#acPanel`，只是摆法不同：
        · 固定档 —— `top:0;right:0;bottom:0`，页面让出宽度（CSS 里 `html.ac-dock`）；
        · 悬浮档 —— 位置按球的矩形现算（`--ac-left/top`），宽 `--ac-w`、高 `--ac-h`。
      落点默认在球的左上方（浮窗右下角贴着球左上角，留 8px）；球在左半边就翻到右侧、
      在上边就翻到下边，最后 clamp 进视口并让开侧栏（与 `clampXY` 同一把 `sbW` 尺子）。
-     拖过浮窗就记 `ai_chat_fxy`，此后不再跟球（有键 = 已脱离，删键 = 回到跟球）。 */
+     **浮窗不再能脱离球**：它只能随球一起挪（拖标题栏挪的就是球，见 mount 里那段）。
+     以前拖过浮窗会记 `ai_chat_fxy` 表示「已脱离，此后不再跟球」——
+     那个状态是自相矛盾的（球在左下、浮窗在右上，两者再无关系），
+     而用户要的正是「一组东西一起动」。那个键已作废，旧的残留在 mount() 里清掉。 */
   const FLOAT_GAP = 8;
   let floatX = 0, floatY = 0;
-  function fxyGet() {
-    try {
-      const o = JSON.parse(localStorage.getItem(K_FXY) || 'null');
-      if (o && Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.y))) return { x: Number(o.x), y: Number(o.y) };
-    } catch (e) { /* 无痕 / 禁存储读不到：当作没拖过，浮窗继续跟球 */ }
-    return null;
-  }
-  const fxySet = (x, y) => {
-    try { localStorage.setItem(K_FXY, JSON.stringify({ x: Math.round(x), y: Math.round(y) })); } catch (e) { /* 写不进就这次不记（无痕 / 禁存储）：位置偏好丢得起，回跟球 */ }
-  };
   /* 用 offsetWidth/offsetHeight 而不是 getBoundingClientRect：收起态的浮窗带 scale(.96)，
      而 setOpen 是「先摆位置再挂 ac-open」，那一刻量 rect 会得到缩过的 405×540 ——
      按它算出的间距就比实际小一截（浮窗贴不到球边上）。offset 尺寸不受 transform 影响。 */
@@ -2930,17 +3122,10 @@
       el.panel.style.setProperty('--ac-to', ox + ' ' + oy);
     }
   }
-  /* 跟球摆：有 `ai_chat_fxy` 就不动（用户把浮窗拖走了）；否则贴着球现算。 */
+  /* 跟球摆：浮窗永远贴着球 —— 位置一律现算，没有第二份「拖走过」的存档。 */
   function placeFloat() {
     if (!el.panel || !floatNow()) return;
     const { w, h } = panelSize();
-    const saved = fxyGet();
-    if (saved) {
-      const c = clampPanelXY(saved.x, saved.y, w, h);
-      floatX = c.x; floatY = c.y;
-      paintFloatPos();
-      return;
-    }
     const b = el.ball ? el.ball.getBoundingClientRect() : null;
     let x = 8 + sbW(), y = 6;
     if (b) {
@@ -2962,9 +3147,9 @@
     floatX = c.x; floatY = c.y;
     paintFloatPos();
   }
-  /* 球动了 → 浮窗跟着；拖走过就不跟。 */
+  /* 球动了 → 浮窗跟着（浮窗不再有「脱离球」这个状态）。 */
   function followBall() {
-    if (!el.panel || !floatNow() || fxyGet()) return;
+    if (!el.panel || !floatNow()) return;
     placeFloat();
   }
   function bindBallDrag() {
@@ -3042,7 +3227,7 @@
       await addFiles(list);
     });
     window.addEventListener('resize', placeBall);
-    /* 侧栏收起 ↔ 展开改的是 --sbw（66 / 200），而球不会自己动：球原先贴在左边 74px 处，
+    /* 侧栏收起 ↔ 展开改的是 --sbw（56 / 232），而球不会自己动：球原先贴在左边 74px 处，
        一展开就被侧栏（z=90）盖住，点不到 = 助手看着像没了。sidebar.js 每次 apply() 末尾发这一条。 */
     window.addEventListener('sb:toggle', () => { placeBall(); followBall(); });
   }
@@ -3105,6 +3290,10 @@
 
   function mount() {
     if (document.getElementById('acPanel')) return;
+    /* 旧的「浮窗被拖走」标记（`ai_chat_fxy`）作废了：浮窗不再能脱离球，
+       它只能随球一起挪（拖标题栏挪的是球）。留着那个键没有害处，
+       但它会让旧机器以为浮窗还停在别处 —— 一次性的残留，读到就删。 */
+    try { localStorage.removeItem('ai_chat_fxy'); } catch (e) { /* 无痕 / 禁存储：删不掉也不影响（已经没人读它了） */ }
     /* 这一层的样式在 web/styles/chat.css（外壳统一挂载），不再在运行时插一段 <style>。
        球的直径读 --ac-ball —— 常量 BALL 是唯一出处，由这里写到 documentElement。 */
     document.documentElement.style.setProperty('--ac-ball', BALL + 'px');
@@ -3146,7 +3335,7 @@
         <button class="ac-x ic" id="acHist" title="历史会话" aria-label="历史会话"><span data-icon="clock" data-size="15"></span></button>
         <button class="ac-x" id="acClose" title="收起" aria-label="收起">×</button>
       </div>
-      <div class="ac-ctx" id="acCtx" hidden></div>
+      <div class="ac-scrim" id="acScrim" hidden></div>
       <div class="ac-hist" id="acHistBox" hidden>
         <div class="ac-hist-h"><b>历史会话</b><span id="acHistSum"></span><button class="ac-x" id="acHistClose" title="关掉">×</button></div>
         <div class="ac-hist-qrow"><input id="acHistQ" type="search" placeholder="搜索会话标题或内容…"></div>
@@ -3176,10 +3365,10 @@
     el.panel = p;
     el.body = $('acBody'); el.ta = $('acTa'); el.send = $('acSend'); el.stop = $('acStop');
     el.wipe = $('acWipe'); el.here = $('acHere'); el.hint = $('acHint'); el.note = $('acNote');
-    el.ctx = $('acCtx');
     el.close = $('acClose'); el.attach = $('acFile'); el.fileIn = $('acFileIn'); el.files = $('acFiles');
     el.taWrap = $('acTaWrap'); el.refLayer = $('acRefLayer'); el.refMirror = $('acRefMirror');
     el.newS = $('acNew'); el.hist = $('acHist'); el.histBox = $('acHistBox'); el.histList = $('acHistList');
+    el.scrim = $('acScrim');
     el.grip = $('acGrip'); el.gripB = $('acGripB'); el.histQ = $('acHistQ'); el.dock = $('acDock');
     /* 抽屉宽度：拖左沿调，记在本机（换台机器不带走）。窄窗口由 CSS 强制全屏。
        固定模式下这一条同时也是页面让出来的宽度 —— 拖动时页面跟着收放。 */
@@ -3232,16 +3421,21 @@
       el.gripB.addEventListener('pointerup', up);
       el.gripB.addEventListener('pointercancel', up);
     });
-    /* 浮窗拖动：只有标题栏的空白处能起拖（按钮上按下不算，否则「点固定」会先变成一次拖动）。
-       位移过 4px 才起拖，松手记 `ai_chat_fxy`（此后不再跟球）；拖完吃掉补发的 click。 */
+    /* 浮窗拖动：**挪的是球，浮窗始终贴着球** —— 拖标题栏就是把「球 + 浮窗」这一组挪走。
+       以前这里是拖浮窗自己，松手记 `ai_chat_fxy` 表示「已脱离，此后不再跟球」——
+       那个状态自相矛盾（球在左下、浮窗在右上，两者再无关系），
+       而用户要的正是「一组东西一起动」。现在没有脱离这回事了。
+       只有标题栏的空白处能起拖（按钮上按下不算，否则「点固定」会先变成一次拖动）。
+       位移过 4px 才起拖；拖完吃掉补发的 click。 */
     {
       const hd = p.querySelector('.ac-hd');
+      const b = el.ball;
       let drag = null, pmoved = false;
       hd.addEventListener('pointerdown', e => {
-        if (!floatNow() || (e.button !== 0 && e.pointerType === 'mouse')) return;
+        if (!floatNow() || !b || (e.button !== 0 && e.pointerType === 'mouse')) return;
         if (e.target.closest('button')) return;
-        const r = p.getBoundingClientRect();
-        drag = { px: e.clientX, py: e.clientY, x: r.left, y: r.top, w: r.width, h: r.height };
+        const br = b.getBoundingClientRect();
+        drag = { px: e.clientX, py: e.clientY, bx: br.left, by: br.top };
         pmoved = false;
         try { hd.setPointerCapture(e.pointerId); } catch (err) { /* 抓不到也照拖：move/up 监听都挂在标题栏上，capture 只管拖出元素外还能跟上 */ }
       });
@@ -3251,15 +3445,24 @@
         if (!pmoved && Math.abs(dx) + Math.abs(dy) < 4) return;
         pmoved = true;
         p.classList.add('ac-move');
-        const c = clampPanelXY(drag.x + dx, drag.y + dy, drag.w, drag.h);
-        floatX = c.x; floatY = c.y;
-        paintFloatPos();
+        const c = clampXY(drag.bx + dx, drag.by + dy);
+        b.style.left = c.x + 'px';
+        b.style.top = c.y + 'px';
+        /* 浮窗回到球边 —— 它跟的是球，不是鼠标 */
+        placeFloat();
       });
       const pend = e => {
         if (!drag) return;
         try { hd.releasePointerCapture(e.pointerId); } catch (err) { /* 之前没抓到过（或指针已没）：没有可释放的，直接收尾 */ }
         p.classList.remove('ac-move');
-        if (pmoved) fxySet(floatX, floatY);
+        if (pmoved) {
+          /* 松手：球按自己的规矩吸边（左半边去最左、右半边去最右），坐标记本机。 */
+          const s = snapXY(b.offsetLeft, b.offsetTop);
+          const c = clampXY(s.x, s.y);
+          try { localStorage.setItem(K_XY, JSON.stringify({ x: c.x, y: c.y })); } catch (err) {}
+          b.style.left = c.x + 'px'; b.style.top = c.y + 'px';
+          placeFloat();
+        }
         /* pointercancel 之后浏览器不会补发 click：旗标得在这里清，否则下一次真点击会被吞掉。 */
         if (e.type === 'pointercancel') pmoved = false;
         drag = null;
@@ -3284,7 +3487,7 @@
       try { localStorage.setItem(K_DOCK, next ? '1' : '0'); } catch (e) {}
       paintDockBtn();
       applyDock();
-      if (!next) placeFloat();     // 切回悬浮档：摆到球旁边（拖走过的仍按 ai_chat_fxy）
+      if (!next) placeFloat();     // 切回悬浮档：摆到球旁边（浮窗永远随球，没有「拖走过」这一档）
       note(next
         ? (window.innerWidth >= DOCK_MIN
           ? '已固定到右侧：页面让到左边，可以一边操作一边问（再点一下改回浮层）'
@@ -3307,9 +3510,12 @@
       if (!el.histBox) return;
       const show = el.histBox.hidden;
       el.histBox.hidden = !show;
+      /* 底下那层淡遮罩：点别处能收，但界面上得**看得出**哪儿能点。 */
+      if (el.scrim) el.scrim.hidden = !show;
       el.hist.classList.toggle('on', show);
       if (show) paintHist();
     };
+    if (el.scrim) el.scrim.onclick = closeHist;
     /* closeHist 是模块级那一处（paintHist 选中一条后也要用它） */
     const histClose = $('acHistClose');
     if (histClose) histClose.onclick = closeHist;
@@ -3418,21 +3624,9 @@
       e.preventDefault();
       openRefDialog(hit.idx);
     });
-    if (el.refLayer) el.refLayer.addEventListener('click', e => {
-      const x = e.target && e.target.closest ? e.target.closest('.ac-ref-x') : null;
-      if (!x) return;
-      e.preventDefault(); e.stopPropagation();
-      const a = Number(x.dataset.start), b = Number(x.dataset.end), idx = Number(x.dataset.ref);
-      if (!(a >= 0 && b > a)) return;
-      el.ta.setRangeText('', a, b, 'end');
-      el.ta.focus();
-      if (idx >= 0 && refs[idx]) {
-        refs.splice(idx, 1);
-        saveRefs();
-        note('已把这条引用从清单里移开（只移引用，不删资产库/收藏里的东西）');
-      } else note('已删掉这段引用文字');
-      paintRefMarks();
-    });
+    /* 以前高亮层上挂着一个 ×（.ac-ref-x）当删除入口，现在**没有**了：
+       标记本来就是正文里的文字，键盘选中那段删掉就行 —— 删掉 = 这条引用作废
+       （正文是真相，见 refTextChanged）。少一个按钮，也少一处「高亮没了但引用还在」的暗坑。 */
     window.addEventListener('resize', paintRefMarks);
     if (window.ResizeObserver) {
       try { new ResizeObserver(() => paintRefMarks()).observe(el.ta); } catch (e) { /* 挂不上就退到上面那行 resize 事件那一档，高亮晚一点刷新 */ }
@@ -3467,6 +3661,7 @@
      放在 mount() 的话那条点击处理够不着）。只改显隐与时钟按钮的高亮，不动对话区。 */
   function closeHist() {
     if (el.histBox) el.histBox.hidden = true;
+    if (el.scrim) el.scrim.hidden = true;
     if (el.hist) el.hist.classList.remove('on');
   }
   /* 历史会话列表：按最近用过排（存的是创建顺序，这里排一次） */
@@ -3483,7 +3678,8 @@
     box.innerHTML = items.map(s => '<button class="ac-hs' + (s.id === SESS.cur ? ' on' : '') + '" data-sid="' + esc(s.id)
       + '" title="切到这段会话（按 Delete 删除）">'
       + '<div class="ac-hs-t">' + esc(s.title || '（还没说话）') + '</div>'
-      + '<div class="ac-hs-m">' + esc(when(s.at)) + ' · ' + (s.msgs || []).length + ' 条</div>'
+      + '<div class="ac-hs-m">' + esc(when(s.at)) + ' · ' + (s.msgs || []).length + ' 条'
+      + (s.id === SESS.cur ? '<em class="ac-hs-cur">当前</em>' : '') + '</div>'
       /* ✕ 只是那一点的视觉落点，键盘删由整行的 Delete 负责（见下面 onkeydown）：
          所以它不再挂 role="button" —— 一个 Tab 不到的按钮角色比没有更难骗过读屏。 */
       + '<span class="ac-hs-x" data-del="' + esc(s.id) + '" title="删除这段会话" aria-hidden="true">✕</span></button>').join('');
@@ -3511,23 +3707,12 @@
     paintCtx();
     if (el.body) paint();
   }
-  /* 页面上那几项「此刻是什么」：与 compose 发给模型的是同一份 hostCtx()。
-     只显示短值；长文本交给 title，避免把抽屉顶成两行。 */
-  function paintCtx() {
-    const box = el.ctx;
-    if (!box) return;
-    let ctx = null;
-    try { ctx = hostCtx(); } catch (e) { ctx = null; }
-    if (!ctx || typeof ctx !== 'object') { box.hidden = true; box.innerHTML = ''; return; }
-    const bits = Object.entries(ctx).filter(([k, v]) => k !== '页面' && v !== '' && v != null)
-      .slice(0, 6).map(([k, v]) => {
-        const raw = (v && typeof v === 'object') ? JSON.stringify(v) : String(v);
-        return '<span class="ac-chip" title="' + esc(k + '：' + raw) + '">' + esc(k) + '：' + esc(cap(raw, 26)) + '</span>';
-      });
-    if (!bits.length) { box.hidden = true; box.innerHTML = ''; return; }
-    box.hidden = false;
-    box.innerHTML = bits.join('');
-  }
+  /* 页面上那几项「此刻是什么」：这一族**不再画在助手上方**了。
+     它装的是**宿主页面的状态快照**（hostCtx()：类型 / 型号 / 素材槽那一类），
+     助手每轮本来就自动带着这份快照进系统提示词 —— 界面上再摆一遍只是重复，
+     而且摆的是「你脚下那一页现在是什么」，跟「这一轮助手在干什么」没关系。
+     那一行现在只留顶栏的「在 XX」（产品的 ac-here）。 */
+  function paintCtx() { /* 故意留空：上下文带已退役，宿主页面的快照仍照旧发给模型 */ }
 
   /* ---------- 快捷键：Ctrl/⌘ + / 开合（在输入框里不抢按键）；Esc 收抽屉 ---------- */
   document.addEventListener('keydown', e => {

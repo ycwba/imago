@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>左栏重设计 · 两形态</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+<div class="dg-wrap">
+
+  <header class="dg-head">
+    <div>
+      <span class="dg-kicker">设计稿 · 产品代码一行没动</span>
+      <h1>左栏重设计：两个形态</h1>
+      <p>
+        真机今天只有 <b>66px 收起 / 200px 展开</b> 两档：收起后只剩六个认不出的图标，
+        开关藏在左上角那个 AI 方块里。
+        这一稿只做两个形态 —— <b>满 232px</b>（名字 + 一张「此刻」卡）与
+        <b>窄 56px</b>（图标 + 两字短标签，<b>认得出，不必悬停</b>），
+        收 / 展是顶行右端单独一颗按钮。
+      </p>
+    </div>
+    <div class="dg-head-r">
+      <div class="dg-modes" id="modes" role="tablist" aria-label="侧栏形态"></div>
+      <button class="dg-theme" id="dgTheme" type="button" title="换深浅主题（夜间档由日间自动派生）"></button>
+    </div>
+  </header>
+
+  <section class="dg-stage">
+    <div class="dg-shell" id="shell">
+      <aside class="sb" id="sb" data-form="full" aria-label="左栏导航"></aside>
+      <main class="dg-content">
+        <div class="dg-content-top">
+          <span class="t">导演台</span>
+          <span class="c">2 个项目</span>
+          <span class="c">4 场</span>
+        </div>
+        <div class="dg-content-body">
+          <div class="dg-tools"><i></i><i></i><i></i><i></i></div>
+          <div class="dg-grid">
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+            <div class="dg-cell"><div class="m"></div><div class="b"><i></i><i></i></div></div>
+          </div>
+        </div>
+      </main>
+      <div class="dg-placeholder">内容区占位 —— 真机是这一块</div>
+    </div>
+  </section>
+
+  <section class="dg-notes" id="notes"></section>
+
+  <section class="dg-before">
+    <h3>真机今天的样子（对照）</h3>
+    <p>跑隔离探针代理截的真机（浅色档 1440×900）。左边收起态 66px：六个图标，
+       光看形状分不出谁是谁 —— 产品自己的代码注释写着「功能还在，但认不出来」。</p>
+    <div class="row">
+      <figure>
+        <img src="shots/before-rail.png" alt="真机收起态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>真机 · 收起态（66px）</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/before-open.png" alt="真机展开态侧栏" onerror="this.closest('figure').style.display='none'">
+        <figcaption>真机 · 展开态（200px）</figcaption>
+      </figure>
+    </div>
+  </section>
+
+</div>
+
+<script src="real.js"></script>
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

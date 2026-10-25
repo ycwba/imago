@@ -97,6 +97,9 @@
   --sz-scroll:8px;        /* 细滚动条宽 */
   --sz-wb:1440px;         /* 工作台最大宽 */
   --sz-dock:320px;        /* 剪辑态轨道坞的默认高度（拖动后由 Wb.split 写进 --dock-h 覆盖） */
+  /* 目录轨 / 检查器两列的宽度（设置页的目录轨、素材库的左轨与右检共用这两枚） */
+  --rail-w:208px;
+  --insp-w:340px;
 
   /* ---------- 尺寸档位：间距（名字即值） ----------
      主档：4 8 12 16 24 32；其余为补档，收容现存值。 */
@@ -154,10 +157,15 @@
 
   /* ---------- 字体 ---------- */
   --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* 等宽：给「计数 / 编号 / 读数」用 —— 那一列要能上下对齐着看才像一列。
+     系统字体里就有等宽，不用外链字体（CSP 是 font-src 'self' data:）。 */
+  --font-mono:ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
 
-  /* 侧栏轨道默认宽（收起态与窄窗口）。展开时 sidebar.js 把同名变量写在 documentElement 的行内
-     样式上覆盖它，#app / 悬浮球 / lightbox 都读这一枚 —— 所以它必须是令牌，不能只活在 CSS 的兜底值里。 */
-  --sbw:66px;
+  /* 侧栏轨道宽：两个形态 —— 满 232px / 窄 56px。
+     展开时 sidebar.js 把同名变量写在 documentElement 的行内样式上覆盖它，
+     #app / 悬浮球 / lightbox 都读这一枚 —— 所以它必须是令牌，不能只活在 CSS 的兜底值里。
+     `--sbw-full` 是「满」那一态的宽度（窄窗浮层时也用它 —— 那是盖在内容上的一整条）。 */
+  --sbw:56px; --sbw-full:232px;
 }
 
 /* ---------- 深色主题 ----------

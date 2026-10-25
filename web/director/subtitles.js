@@ -218,19 +218,26 @@ export function srtSerialize(entries, opts) {
   const crlf = o.crlf !== false;
   const nl = crlf ? '\r\n' : '\n';
   const stamp = v => {
-    const t = Math.max(0, Number(v) || 0);
+    /* 先取整再分解：分开「对毫秒 Math.round」的话 0.9995 秒会被进位成 ,1000 ——
+       SRT 的时间行必须是 0–999 的毫秒。 */
+    const t = Math.max(0, Math.round(Number(v) || 0));
     const h = Math.floor(t / 3600000);
     const m = Math.floor((t % 3600000) / 60000);
     const s = Math.floor((t % 60000) / 1000);
-    const mm = Math.round(t % 1000);
+    const mm = t % 1000;
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':'
       + String(s).padStart(2, '0') + ',' + String(mm).padStart(3, '0');
   };
   const list = (Array.isArray(entries) ? entries : [])
     .filter(e => e && String(e.text == null ? '' : e.text).trim())
     .map(e => ({
-      a: Math.max(0, Number(e.startMs != null ? e.startMs : (Number(e.filmStart) || 0) * 1000) || 0),
-      b: Math.max(0, Number(e.endMs != null ? e.endMs : (Number(e.filmEnd) || 0) * 1000) || 0),
+      /* 同一条 entry 上可能同时带着源毫秒（startMs）与成片毫秒（filmStartMs，filmOf 的产物）：
+         SRT 文件里的时间是**成片秒**（见本段头注），有成片毫秒必须用它 ——
+         以前 startMs 先判，全片导出的时间轴整体错位回源秒。 */
+      a: Math.max(0, Number(e.filmStartMs != null ? e.filmStartMs
+        : e.startMs != null ? e.startMs : (Number(e.filmStart) || 0) * 1000) || 0),
+      b: Math.max(0, Number(e.filmEndMs != null ? e.filmEndMs
+        : e.endMs != null ? e.endMs : (Number(e.filmEnd) || 0) * 1000) || 0),
       text: String(e.text).replace(/\r\n?/g, '\n').trim(),
     }))
     .sort((x, y) => x.a - y.a || x.b - y.b);
@@ -344,6 +351,13 @@ export function mapToShot(sh, entries, opts) {
   }).filter(Boolean).sort((x, y) => x.shotStart - y.shotStart);
 }
 
+/* 本镜在成片里占几秒（Σ 每段选区 ÷ 倍速，**不取整**）。
+   SRT 导入的「本镜范围」过滤必须用它 —— 折回（mapFromFilm）用的就是这一把不取整的尺，
+   过滤那一边用取整口径的话，恰好落在边界 0.1 秒里的那条会被判成本镜之外而丢掉。 */
+export function filmSpanOf(sh, shotAt, cand) {
+  return segsOfShot(sh, cand).reduce((a, s) => a + segFilm(s), 0);
+}
+
 /* 成片秒 → 源秒（SRT 导入）。与 mapToFilm 同一套段映射，只是方向反过来。 */
 export function mapFromFilm(sh, shotAt, entries, opts) {
   const cand = opts && opts.cand;
@@ -372,6 +386,28 @@ export function mapFromFilm(sh, shotAt, entries, opts) {
       startMs: ms(a.src), endMs: ms(Math.max(a.src + 0.001, b.src)), seg: a.seg,
     });
   }).filter(e => e.endMs > e.startMs);
+}
+
+/* 换「选用候选」时把**手改 / 识别**那份字幕搬到新候选的源时间轴上：
+   旧源秒 →（旧候选的段几何）成片秒 →（新候选的段几何）新源秒。
+   派生那一份（line+voice）不用搬 —— 换完自动按新候选重派生。
+   纯函数：返回新的 subtitle 对象（不修改 sh），搬不了（旧候选已删 / 全被夹掉）返回 null，
+   由调用方决定要不要在回执里说一句。 */
+export function remapSubtitles(sh, voices, toVid) {
+  const stored = sh && sh.subtitle;
+  if (!stored || typeof stored !== 'object') return null;
+  const source = stored.source === 'manual' || stored.source === 'asr' ? stored.source : '';
+  if (!source || !Array.isArray(stored.entries) || !stored.entries.length) return null;
+  const cands = sh.candidates || [];
+  const from = cands.find(c => c && c.vid === stored.candId) || null;
+  const to = cands.find(c => c && c.vid === toVid) || null;
+  if (!from || !to || from === to) return null;
+  const film = mapToFilm(sh, 0, stored.entries, { cand: from });
+  if (!film.length) return null;
+  const asFilmMs = film.map(e => ({ text: e.text, startMs: e.filmStartMs, endMs: e.filmEndMs }));
+  const back = mapFromFilm(sh, 0, asFilmMs, { cand: to });
+  if (!back.length) return null;
+  return Object.assign({}, stored, { entries: back, candId: toVid, sourceHash: sourceHashOf(sh, voices) });
 }
 
 /* 播放头（成片秒或本镜甲板秒）落在哪一条字幕。默认 film 轴；本镜预览传 axis:'shot'。 */
@@ -407,6 +443,7 @@ export function filmEntriesOf(rows, shots, voices) {
   const byId = new Map((Array.isArray(shots) ? shots : []).map(sh => [sh.id, sh]));
   const seen = new Set();
   const out = [], missing = [];
+  let dropped = 0;
   (Array.isArray(rows) ? rows : []).forEach((row, idx) => {
     const c = row && row.c;
     if (!c || c.kind !== 'shot' || seen.has(c.shotId)) return;
@@ -417,7 +454,11 @@ export function filmEntriesOf(rows, shots, voices) {
     if (!cur.entries.length) return;
     cur.entries.forEach(e => {
       const m = filmOf(sh, row.at, e);
-      if (m) out.push(Object.assign(m, { shotId: sh.id, holderIndex: idx, source: cur.source, stale: cur.stale, staleWhy: cur.staleWhy }));
+      if (!m) return;
+      /* 整条落在被剪掉的区间里：映射后只剩 filmOf 兜的那 1/30 秒一闪，
+         肉眼等于没有 —— 收下来只会导出一条废条目。照实计数（dropped），不静默。 */
+      if (m.filmEnd - m.filmStart < 0.1) { dropped++; return; }
+      out.push(Object.assign(m, { shotId: sh.id, holderIndex: idx, source: cur.source, stale: cur.stale, staleWhy: cur.staleWhy }));
     });
   });
   (Array.isArray(shots) ? shots : []).forEach(sh => {
@@ -426,7 +467,7 @@ export function filmEntriesOf(rows, shots, voices) {
     if (cur.entries.length) missing.push({ shot: sh, count: cur.entries.length, why: chosenCandOf(sh) ? 'notinfilm' : 'nocand' });
   });
   out.sort((a, b) => a.filmStart - b.filmStart || a.filmEnd - b.filmEnd);
-  return { entries: out, missing };
+  return { entries: out, missing, dropped };
 }
 
 /* FCPXML `<title>`：每镜的字幕挂到它起点所在的那一格（黑场也挂），lane 从正 1 起算。

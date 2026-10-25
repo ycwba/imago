@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>生成工作台 · 打磨稿（保留左右两栏）</title>
+<!-- 令牌直接取产品那一份：这一稿不另起一套色与尺寸（落地时它就是同一套）。 -->
+<link rel="stylesheet" href="../../web/styles/tokens.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<div class="bench" id="bench">
+
+  <!-- ================= 左栏：写 ================= -->
+  <div class="wl">
+
+    <div class="wl-hd">
+      <div class="t-row">
+        <h1 class="page-h1">生成工作台</h1>
+        <button class="model-btn" type="button" id="modelBtn">
+          <span class="model-n" id="modelName">—</span>
+          <span class="chev" aria-hidden="true"></span>
+        </button>
+      </div>
+      <p class="desc">左栏写、右栏看：左边选类型与参数，右边看这一台的生成结果。</p>
+      <div class="seg" id="typeSeg" role="tablist" aria-label="生成类型"></div>
+      <p class="sub" id="capLine">能力来自上游接口（缓存）</p>
+    </div>
+
+    <!-- 提示词 -->
+    <section class="blk blk-prompt">
+      <div class="blk-hd">
+        <span class="eyebrow">提示词</span>
+        <span class="blk-v" id="promptCount">0 字</span>
+      </div>
+      <textarea id="prompt" spellcheck="false" placeholder="描述你要的那一段…"></textarea>
+      <div class="blk-tools">
+        <button class="tool acc" type="button">✦ AI 润色</button>
+        <button class="tool" type="button">✦ 拆分片段生成</button>
+        <span class="sp"></span>
+        <button class="tool" type="button">清空</button>
+      </div>
+      <p class="hint" id="promptHint">智能参考：这一档收拢「缩略画面 s1 · 开头画面 s1 · 参考首图 s9 · 参考音频 s2」——素材就是纯文字，放哪一批就是哪一种请求。</p>
+    </section>
+
+    <!-- 输入模式 + 参考素材 -->
+    <section class="blk">
+      <div class="blk-hd">
+        <span class="eyebrow">输入模式</span>
+        <span class="blk-v" id="modeVal">智能参考</span>
+      </div>
+      <div class="chips" id="modeChips"></div>
+      <div class="blk-hd blk-hd-2">
+        <span class="eyebrow">参考素材</span>
+        <span class="blk-v" id="slotVal">3 项</span>
+      </div>
+      <div class="slots" id="slots"></div>
+    </section>
+
+    <!-- 高级设置（默认展开） -->
+    <section class="blk blk-adv">
+      <div class="blk-hd adv-hd" id="advHead">
+        <span class="eyebrow adv-k"><span class="gear" aria-hidden="true">⚙</span> 高级设置</span>
+        <span class="blk-v" id="advSum">base · 快速 · 768p · 5 秒 · 9:16</span>
+        <span class="chev" aria-hidden="true"></span>
+      </div>
+      <div class="adv-body" id="advBody"></div>
+    </section>
+
+    <!-- 常驻提交条：左栏滚到哪儿它都在 -->
+    <div class="submit">
+      <div class="submit-est">
+        <span class="est-v" id="estV">—</span>
+        <span class="est-sub" id="estSub">—</span>
+      </div>
+      <button class="pri" type="button" id="goBtn">生成视频</button>
+      <div class="submit-state" id="status">
+        <span class="state ok"><i class="dot"></i>上一条 18:50 已完成</span>
+        <span class="muted">local · PNG · 42.0 KB</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= 右栏：看 ================= -->
+  <div class="wr">
+    <div class="wr-hd">
+      <div class="seg sm" id="filterSeg" role="tablist" aria-label="按类型筛选"></div>
+      <span class="muted">最近 30 天</span>
+      <button class="ghost xs" type="button">查看全部</button>
+      <span class="sp"></span>
+      <input type="text" id="search" placeholder="搜索提示词 / ID" aria-label="搜索提示词 / ID">
+      <button class="ghost" type="button" id="multiBtn">多选</button>
+      <button class="ghost" type="button" id="refreshBtn">刷新</button>
+      <button class="ghost demo-only" type="button" id="themeBtn" title="演示用：同一份稿子切深浅两档">◐</button>
+    </div>
+
+    <div class="wr-pager">
+      <span class="pg">‹ 上一页</span>
+      <span class="pg">第 <b>1</b> 页 / 共 <b>29</b> 页</span>
+      <span class="pg">下一页 ›</span>
+      <span class="pg sep"></span>
+      <span class="pg">跳页 <input type="number" min="1" value="1" aria-label="跳页"></span>
+      <span class="pg">跳转</span>
+    </div>
+
+    <div class="bulk" id="bulk" hidden>
+      <span class="bk-cnt" id="bulkCnt">已选 0 项</span>
+      <button class="ghost xs" type="button">全选</button>
+      <button class="ghost xs" type="button">取消选择</button>
+      <button class="ghost xs" type="button">批量下载</button>
+      <button class="ghost xs" type="button">存回本机</button>
+      <span class="sp"></span>
+      <button class="ghost xs" type="button" id="multiExit">退出多选</button>
+    </div>
+
+    <!-- 最新一条：横条，给「刚出来的那条」一个落点 -->
+    <div class="latest" id="latest">
+      <div class="latest-thumb" id="latestThumb"><span class="frame th-1"></span></div>
+      <div class="latest-main">
+        <div class="latest-top">
+          <span class="tag newest">最新</span>
+          <span class="t" id="latestType">视频</span>
+          <span class="state ok"><i class="dot"></i>已完成</span>
+          <span class="tag" id="latestLocal">本机</span>
+          <span class="d" id="latestTime">—</span>
+        </div>
+        <p class="latest-p" id="latestPrompt">—</p>
+      </div>
+      <div class="latest-acts">
+        <button class="ghost xs" type="button">放大</button>
+        <button class="ghost xs" type="button">下载</button>
+        <button class="ghost xs" type="button">以此为参考</button>
+      </div>
+    </div>
+
+    <div class="wall-grid" id="wallGrid"></div>
+  </div>
+
+</div>
+
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

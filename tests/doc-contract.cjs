@@ -96,7 +96,10 @@ for (const dir of ['web', 'tools']) {
   };
   walk(dir);
 }
-const docBp = [520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200, 1280];
+/* 登记在 AGENTS.md §3.4.3 的那几档断点（代码里 @media (min|max)-width 用到的）。
+   2026-10-25：1280 那一档随设置页的 `.kcols` 两列排版一起去掉了 —— 设置页改成两栏两滚之后，
+   右栏那条文档只有 900px 上下，两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行。 */
+const docBp = [520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200];
 ok(bps.size === docBp.length && docBp.every(b => bps.has(b)),
   '断点档位与文档不一致（文档 ' + docBp.length + ' 档，代码 ' + bps.size + ' 档：' + [...bps].sort((a, b) => a - b).join(' ') + '）');
 
@@ -122,7 +125,7 @@ for (const g of ['G18', 'G19', 'G20', 'G21', 'G22']) {
 const nVis = Object.keys(JSON.parse(read('tests/fixtures/visual/fingerprints.json')).screens).length;
 ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
-ok(nE2e === 44, 'e2e 应为 44 条，实际 ' + nE2e);
+ok(nE2e === 48, 'e2e 应为 48 条，实际 ' + nE2e);
 
 /* ---------- §6.5 的远端地址必须与实际远端一致 ----------
    远端**别名**随克隆而异（本机叫 origin、另一份工作副本叫 github），

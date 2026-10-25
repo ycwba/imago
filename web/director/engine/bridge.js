@@ -5,7 +5,7 @@
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { round1, spdTxt } from '../util.js';
 import { segLen, segVol, segSpd, segFilmLen, segsOf, segsWrite, picLnOf } from '../segments.js';
-import { chosenCandOf, currentOf, entriesFromShot, setStyle, srtParse, srtSerialize, resegment, filmOf, mapToFilm, mapToShot, mapFromFilm, filmEntriesOf } from '../subtitles.js';
+import { chosenCandOf, currentOf, entriesFromShot, setStyle, srtParse, srtSerialize, resegment, filmOf, mapToFilm, mapToShot, mapFromFilm, filmEntriesOf, filmSpanOf } from '../subtitles.js';
 
 export function createBridge(E, document, window) {
   const {
@@ -329,7 +329,7 @@ export function createBridge(E, document, window) {
     const c = chosenCandOf(sh);
     if (!c) return loose('「' + capTxt(sh.name, 30) + '」还没有选用候选：字幕的源秒/成片秒都要按选用那条换算，先在导演台选一条');
     const total = candDur(c, sh);
-    const cur = currentOf(sh, voicesEnsure());
+    const cur = currentOf(sh, voicesRead());
     const wantEntries = a.entries !== undefined;
     const wantText = typeof a.text === 'string' && !!a.text.trim();
     const wantReseg = a.maxChars !== undefined;
@@ -349,8 +349,7 @@ export function createBridge(E, document, window) {
       if (parsed.length > 5000) return loose('这段 SRT 有 ' + parsed.length + ' 条，超过 5000 条上限');
       const shotAt = shotFilmAt(sh);
       if (shotAt == null) return loose('「' + capTxt(sh.name, 30) + '」还没进成片（没有选用候选 / 画面全被剪掉），SRT 的成片秒折不回源秒');
-      const segs = segsOf(c, total);
-      const span = segs.reduce((x, g) => x + segFilmLen(g), 0);
+      const span = filmSpanOf(sh, shotAt, c);
       const inSpan = parsed.filter(e => {
         const at = (Number(e.startMs) || 0) / 1000;
         return at >= shotAt - 0.001 && at < shotAt + span + 0.001;
@@ -374,12 +373,12 @@ export function createBridge(E, document, window) {
     } else if (wantReseg) {
       const lim = Number(a.maxChars);
       if (!Number.isInteger(lim) || lim < 1 || lim > 500) return loose('maxChars 是每行最多几个字（1–500 的整数）');
-      const base = a.source === 'line+voice' ? entriesFromShot(sh, voicesEnsure(), c) : cur.entries;
+      const base = a.source === 'line+voice' ? entriesFromShot(sh, voicesRead(), c) : cur.entries;
       if (!base.length) return loose('「' + capTxt(sh.name, 30) + '」现在没有字幕可重切：先用 entries 更新或导入 SRT');
-      entries = resegment(base, lim);
+      entries = resegment(base, lim).map(e => Object.assign({}, e, { src: 'manual' }));
       source = 'manual'; mode = 'resegment'; maxChars = lim;
     } else if (a.source === 'line+voice') {
-      entries = entriesFromShot(sh, voicesEnsure(), c);
+      entries = entriesFromShot(sh, voicesRead(), c);
       if (!entries.length) return loose('这一镜没有可派生字幕的台词或配音：先写台词，或在配音轨上合成一句');
       source = 'line+voice'; mode = 'generate';
     } else if (!stylePatch) {
@@ -430,8 +429,14 @@ export function createBridge(E, document, window) {
     if (!b.inBatch || b.last) filmEdited();
   }
   function revNow() { return Number(projOf() && projOf().rev) || 0; }
-  function revGate(a) {
-    if (a && a._rollback) return null;          // 整批失败时的内部回滚：此时 revision 已被这批写入推进
+  /* 只读路径用的配音清单：不建 proj.voices 字段（voicesEnsure 会往工程里写一个空数组，
+     桥上的纯读也就改了工程 —— 快照变、下一次保存多压一步撤销）。 */
+  const voicesRead = () => (Array.isArray(projOf().voices) ? projOf().voices : []);
+  function revGate(a, op) {
+    /* `_rollback` 只认 undo 那一条（批量失败时助手侧的整批回滚，chat-tools.js 的
+       timelineApplyRun）：模型往 select / cut / set 的参数里塞一个 _rollback:true
+       就能把 revision 校验整个绕过去 —— 参数对象是原样递进来的，得在这里按 op 收口。 */
+    if (a && a._rollback && op === 'undo') return null;
     const b = subBatch(a);
     if (b && !b.first) return null;
     const exp = a && a.expectedRevision;
@@ -450,7 +455,7 @@ export function createBridge(E, document, window) {
   function subtitleInfo(a) {
     const s = shotOf(a || {}); if (s.err) return s;
     const sh = s.sh, c = chosenCandOf(sh);
-    const cur = currentOf(sh, voicesEnsure());
+    const cur = currentOf(sh, voicesRead());
     const shotAt = shotFilmAt(sh);
     const list = (sh.candidates || []);
     const ci = c ? list.findIndex(x => x.vid === c.vid) : -1;
@@ -485,7 +490,7 @@ export function createBridge(E, document, window) {
     if (sid != null && sid !== '') {
       const sh = allShots().find(x => String(x.id) === String(sid));
       if (!sh) return loose('没有这个镜头：' + sid);
-      const cur = currentOf(sh, voicesEnsure());
+      const cur = currentOf(sh, voicesRead());
       const shotAt = shotFilmAt(sh);
       const mapped = shotAt != null ? mapToFilm(sh, shotAt, cur.entries) : mapToShot(sh, cur.entries);
       const entries = mapped.map(e => {
@@ -498,7 +503,7 @@ export function createBridge(E, document, window) {
         text: srtSerialize(entries, { bom: false, crlf: false }), revision: revNow() };
     }
     const { rows } = filmRowsForSubtitles();
-    const got = filmEntriesOf(rows, allShots(), voicesEnsure());
+    const got = filmEntriesOf(rows, allShots(), voicesRead());
     return {
       ok: true,
       条数: got.entries.length,
@@ -602,7 +607,13 @@ export function createBridge(E, document, window) {
       const routeZh = (window.Asr && window.Asr.routeLabel) ? window.Asr.routeLabel(r && r.route) : '';
       return Object.assign({ ok: true, 镜头: q.sh ? capTxt(q.sh.name, 30) : '', routeZh,
         源: q.src.slice(0, 160), 说明: '转写路线：' + routeZh + '；用 media_transcription 读结果，不会自动改写台词或字幕' }, r);
-    } catch (e) { return loose('提交转写失败：' + errText(e)); }
+    } catch (e) {
+      /* 「结果未知」不能写成「提交失败」：maybeSubmitted 标记在这个异常上
+         （Net 打的），loose 把它压成纯字符串就丢了 —— 助手与用户都以为没提交，
+         重试一次就是第二次扣费（在线转写按次计费）。 */
+      const unknown = !!(window.Api && Api.maybeSubmitted && Api.maybeSubmitted(e));
+      return loose((unknown ? '提交结果未知（平台可能已受理并计费，先读 asrJob 确认，别急着重提）：' : '提交转写失败：') + errText(e));
+    }
   }
   async function asrJob(a) {
     const id = String((a && a.jobId) || '').trim();
@@ -740,12 +751,16 @@ export function createBridge(E, document, window) {
     if (!READY()) return loose('导演台还没加载完，等这一页画出来再说');
     try {
       if (op === 'select' || op === 'cut' || op === 'set' || op === 'undo') {
-        const gate = revGate(a);
+        const gate = revGate(a, op);
         if (gate) return gate;
       }
       if (op === 'select') {
         const p = selectPlan(a); if (p.err) return p;
-        return { ok: true, text: '把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选设为选用' + (p.already ? '（现在已经是）' : ''),
+        /* pid/vid = 这一次读到的**身份**（哪一部短片、哪一条候选）：check 与 run 之间
+           用户可能切了短片、候选可能被轮询重排（「已出片」的往前排）——
+           run 时身份对不上就拒掉，让模型按新状态重读；下标是活的，身份才是用户批准的那一条。 */
+        return { ok: true, pid: projOf().id, vid: p.c.vid,
+          text: '把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选设为选用' + (p.already ? '（现在已经是）' : ''),
           lines: ['镜头：' + capTxt(p.sh.name, 40) + (p.sc ? '（' + capTxt(p.sc.name, 20) + '）' : ''),
             '候选：第 ' + (p.i + 1) + ' / ' + (p.sh.candidates || []).length + ' 条 · ' + capTxt(p.c.vid, 40),
             '状态：' + (p.c.status || '未知') + ' · ' + round1(candDur(p.c, p.sh)) + ' 秒',
@@ -754,7 +769,8 @@ export function createBridge(E, document, window) {
       if (op === 'cut') {
         const p = cutPlan(a); if (p.err) return p;
         const after = p.out.segs.reduce((x, s) => x + segFilmLen(s), 0);
-        return { ok: true, text: WAY_ZH[p.way] + '：' + capTxt(p.sh.name, 30) + ' 第 ' + (p.i + 1) + ' 条',
+        return { ok: true, pid: projOf().id, vid: p.c.vid,
+          text: WAY_ZH[p.way] + '：' + capTxt(p.sh.name, 30) + ' 第 ' + (p.i + 1) + ' 条',
           lines: ['镜头：' + capTxt(p.sh.name, 40),
             '候选：第 ' + (p.i + 1) + ' 条 · ' + round1(p.total) + ' 秒',
             '剪法：' + WAY_ZH[p.way] + (p.way === 'split' || p.way === 'left' || p.way === 'right' ? '（插针 ' + p.at + ' 秒）' : ''),
@@ -776,14 +792,15 @@ export function createBridge(E, document, window) {
             '字幕：' + n + ' 条' + (p.mode === 'style' ? '（只改样式）' : '')]
             .concat(p.stylePatch ? ['样式：' + Object.keys(p.stylePatch).join(' / ')] : [])
             .concat(p.warnings.map(w => '注意：' + w));
-          return { ok: true, text: what, lines, subtitleCount: n, stale: p.cur.stale };
+          return { ok: true, pid: projOf().id, vid: p.c.vid, text: what, lines, subtitleCount: n, stale: p.cur.stale };
         }
         const p = setPlan(a); if (p.err) return p;
         const bits = [];
         if (p.next.speed != null) bits.push('倍速 → ' + spdTxt(p.next.speed));
         if (p.next.volume != null) bits.push('原声 → ' + Math.round(p.next.volume * 100) + '%');
         if (p.next.gray != null) bits.push(p.next.gray ? '删成黑场' : '恢复画面');
-        return { ok: true, text: '改第 ' + (p.i + 1) + ' 条候选的第 ' + (p.segs.indexOf(p.seg) + 1) + ' 段：' + bits.join(' · '),
+        return { ok: true, pid: projOf().id, vid: p.c.vid,
+          text: '改第 ' + (p.i + 1) + ' 条候选的第 ' + (p.segs.indexOf(p.seg) + 1) + ' 段：' + bits.join(' · '),
           lines: ['镜头：' + capTxt(p.sh.name, 40),
             '候选：第 ' + (p.i + 1) + ' 条（共 ' + p.segs.length + ' 段）',
             '这一段的现在：' + round1(segLen(p.seg)) + ' 秒源 · 倍速 ' + spdTxt(segSpd(p.seg)) + ' · 原声 ' + Math.round(segVol(p.seg) * 100) + '%',
@@ -802,9 +819,27 @@ export function createBridge(E, document, window) {
     const chk = dirCheck(op, a);
     if (!chk.ok) return chk;
     /* check 与 run 是两次独立的纯读：中间状态没变时结果一致；万一变了（用户在等确认时
-       自己又点了一下轨道），run 照**当下**这份重算，不拿卡片上那份旧计划去写。 */
+       自己又点了一下轨道），run 照**当下**这份重算，不拿卡片上那份旧计划去写。
+       但「重算」只对**纯计算的参数**成立 —— 用户批准的是那一条候选 / 那一部短片（身份），
+       不是那个下标：候选重排（轮询把已出片的往前挪）或切了短片之后照下标执行，
+       改的就是另一条 / 另一部。pid 在这里一次判完；vid 由各 op 分支在重算出 plan 之后
+       与 chk.vid 比（plan 认镜认候选用的是同一份参数，跨镜 / 跨候选都不会比错对象）。 */
+    if (op === 'select' || op === 'cut' || op === 'set') {
+      if (chk.pid && projOf().id && chk.pid !== projOf().id) {
+        return loose('工程在你读取之后换了一部短片（读取时是 ' + chk.pid + '，现在是 ' + projOf().id
+          + '）。这次没有执行：重新读 timeline_get，确认短片后再来一次');
+      }
+    }
+    const vidGate = p => {
+      if (chk.vid && p && p.c && p.c.vid && p.c.vid !== chk.vid) {
+        return loose('候选在你读取之后重排过（你批准的是 ' + chk.vid + '，现在解析到的是 ' + p.c.vid
+          + '）。这次没有执行：重新读 timeline_get，按候选 id（candId）再来一次');
+      }
+      return null;
+    };
     if (op === 'select') {
       const p = selectPlan(a); if (p.err) return p;
+      const vg = vidGate(p); if (vg) return vg;
       if (p.already && !batchOf(a).inBatch) {
         renderAll();
         setStatus('这一条<b>已经是</b>选用的那条了；没有改任何数据');
@@ -821,6 +856,7 @@ export function createBridge(E, document, window) {
     }
     if (op === 'cut') {
       const p = cutPlan(a); if (p.err) return p;
+      const vg = vidGate(p); if (vg) return vg;
       const b = editBegin(a, 'AI 切段');
       const newSegs = segsWrite(p.c, p.total, p.out.segs);
       projOf().cutSeg = Math.max(0, Math.min(newSegs.length - 1, Number(p.out.at) || 0));
@@ -835,6 +871,7 @@ export function createBridge(E, document, window) {
     if (op === 'set') {
       if (a && a.kind === 'subtitle') {
         const p = subPlan(a); if (p.err) return p;
+        const vg = vidGate(p); if (vg) return vg;
         const b = editBegin(a, 'AI 改字幕');
         if (p.stylePatch) {
           if (!p.sh.subtitle || typeof p.sh.subtitle !== 'object') p.sh.subtitle = {};
@@ -845,7 +882,7 @@ export function createBridge(E, document, window) {
         const ci = (p.sh.candidates || []).findIndex(x => x.vid === p.c.vid);
         focus(p.sc, p.sh, Math.max(0, ci));
         editEnd(a, b);
-        const cur = currentOf(p.sh, voicesEnsure());
+        const cur = currentOf(p.sh, voicesRead());
         const text = subResultText(p, cur);
         setStatus('<span class="ok">✓ ' + esc(text) + '</span>');
         return { ok: true, text, revision: revNow(), changedIds: [p.sh.id], warnings: p.warnings,
@@ -853,6 +890,7 @@ export function createBridge(E, document, window) {
           unexported: !projOf().merged || !Export.filmIsCurrent(projOf().merged) };
       }
       const p = setPlan(a); if (p.err) return p;
+      const vg0 = vidGate(p); if (vg0) return vg0;
       const segNo = p.segs.indexOf(p.seg) + 1;
       const seg = p.segs[segNo - 1];
       const b = editBegin(a, 'AI 改片段');
@@ -950,7 +988,7 @@ export function createBridge(E, document, window) {
         选中段: segs.length ? Math.min(segs.length, Math.max(1, (Number(projOf().cutSeg) || 0) + 1)) : 0,
         播放头: TlPlay.plan.length ? round1(TlPlay.t) : null,
         字幕: (() => {
-          const cur = currentOf(sh, voicesEnsure());
+          const cur = currentOf(sh, voicesRead());
           return { 条数: cur.entries.length, 来源: cur.source, 过时: cur.stale,
             过时原因: cur.staleWhy || '', 在成片里: shotFilmAt(sh) != null };
         })(),

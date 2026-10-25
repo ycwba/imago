@@ -184,7 +184,10 @@
       const where = (host.isConnected && box.contains(host)) ? host : box;
       const t = where.querySelector(sel);
       if (!t) return;
-      t.focus();
+      /* preventScroll：这一格是为了**续上打字**才把焦点放回去的，不是要把视口拽过去。
+         不带这个旗标，浏览器会把这一格滚进视野 —— 用户明明在看别处（列表轮询每几秒重画一次），
+         视角却被这一格拽走，正是「点一下 / 等一下，视口就跳了」那一族。 */
+      try { t.focus({ preventScroll: true }); } catch (e) { try { t.focus(); } catch (e2) { /* 放不回去就算了 */ } }
       if (pos >= 0 && t.setSelectionRange) { try { t.setSelectionRange(pos, pos); } catch (e) { /* 只读与 number 这类输入框没有选区：放不回去就算了，焦点已经回到这一格 */ } }
     };
   }
@@ -1532,6 +1535,11 @@
       const mode = o.mode || null;
       /* 勾选集合：页面自己有就传进来（它自己的卡片签名要读），不给就这里新建。 */
       const sel = o.sel || new Set();
+      /* 收藏这一族（批量收藏 / 批量取消收藏）：**语义由页面给，批量那一圈只有这一份**。
+         三页都要这两颗动作，但「哪些条目算同一条」「怎么算已收藏」三页不一样
+         （资产库按产物号、工作台按任务产物、收藏页按收藏项自己的键）→ 页面给：
+         fav: { can, isOn, add, remove }。 */
+      const favCfg = o.fav || null;
       const st = { on: false };
       const api = {
         st, sel,
@@ -1562,7 +1570,64 @@
           onChange();
         },
         clear() { sel.clear(); onChange(); },
-        /* 批量条那三处读数（两页同一句）：已选几项 / 全选那颗的文案 / 下载键能不能点。 */
+        /* ---------- 批量收藏：选中那几条里「还没收藏的」收进去，「已收藏的」拿出来 ---------- */
+        /* 计数与批量循环只有这一份；页面只给「这一条算不算已收藏 / 怎么收怎么拿」。 */
+        favState() {
+          if (!favCfg) return { on: 0, off: 0, can: 0 };
+          let on = 0, off = 0, can = 0;
+          for (const it of api.selected()) {
+            if (favCfg.can && !favCfg.can(it)) continue;
+            can++;
+            if (favCfg.isOn(it)) on++; else off++;
+          }
+          return { on, off, can };
+        },
+        /* 收：只收「还能收且还没收藏」的 —— 已经收藏的再收一次没有意义。 */
+        favAdd() {
+          if (!favCfg) return 0;
+          let n = 0;
+          for (const it of api.selected()) {
+            if (favCfg.can && !favCfg.can(it)) continue;
+            if (favCfg.isOn(it)) continue;
+            favCfg.add(it); n++;
+          }
+          onChange();
+          return n;
+        },
+        /* 拿：只拿「已经收藏在收藏里」的。 */
+        favRemove() {
+          if (!favCfg) return 0;
+          let n = 0;
+          for (const it of api.selected()) {
+            if (!favCfg.isOn(it)) continue;
+            favCfg.remove(it); n++;
+          }
+          onChange();
+          return n;
+        },
+        /* 批量条上那句提示：选中的这些里有多少还没收 / 已经收着（三页同一句）。 */
+        favTip() {
+          const f = api.favState();
+          if (!f.can) return '';
+          const bits = [];
+          if (f.off) bits.push(f.off + ' 条还没收藏');
+          if (f.on) bits.push(f.on + ' 条已收藏');
+          return bits.join(' · ');
+        },
+        /* 批量条那三处读数直接写进页面的 ref：Vue 的那几页（资产库 / 收藏页）接法一样，
+         所以这一份收在这里，页面只把自己的 ref 递进来 —— 不各写一份 paintBar。 */
+      paintRefs(refs) {
+        if (!refs) return;
+        this.paintBar({
+          count: t => { refs.count.value = t; },
+          all: t => { refs.all.value = t; },
+          canDown: ok => { refs.canDown.value = !ok; },
+          allDisabled: none => { refs.allDisabled.value = none; },
+          favAdd: ok => { if (refs.favAddDisabled) refs.favAddDisabled.value = !ok; },
+          favRemove: ok => { if (refs.favRemoveDisabled) refs.favRemoveDisabled.value = !ok; },
+        });
+      },
+      /* ---------- 批量条那三处读数（两页同一句）：已选几项 / 全选那颗的文案 / 下载键能不能点。 */
         countText(n) {
           return n === sel.size ? ('已选 ' + sel.size + ' 项')
             : ('已选 ' + sel.size + ' 项（当前筛选下可见 ' + n + ' 项）');
@@ -1582,9 +1647,65 @@
           bar.all(api.allText());
           if (bar.canDown) bar.canDown(items.some(o.canDownload));
           if (bar.allDisabled) bar.allDisabled(!visible().length);
+          /* 收藏那两颗：能不能点由「选中的这些里还有没有能收 / 能拿的」决定。 */
+          if (favCfg) {
+            const f = api.favState();
+            if (bar.favAdd) bar.favAdd(f.off > 0);
+            if (bar.favRemove) bar.favRemove(f.on > 0);
+          }
         },
       };
       return api;
+    },
+
+    /* ---------- 就地展开（资产库与收藏页共用这一份） ----------
+       展开的**行为**（一次只开一条、按钮的字跟着变、Esc 收起、连线落在哪儿）
+       与展开的**长相**（`.exp` / `.is-open`，在 ui.css 的公共层）是同一件事的两半 ——
+       两页各写一半，早晚会长歪。 */
+    expand: {
+      /* 打开 / 收起一张卡。
+         o: { force: true|false }   不给就切换
+         返回：现在是不是开着 */
+      open(card, o) {
+        if (!card) return false;
+        const opt = o || {};
+        const want = opt.force === undefined ? !card.classList.contains('is-open') : !!opt.force;
+        /* 一次只开一条：同时开几条会把页面拉扯得不像话。
+           范围 = 最近的列表容器（页面给 data-kit-scope），没有就整份文档。 */
+        const scope = opt.scope || card.closest('[data-kit-scope]') || document;
+        scope.querySelectorAll('.is-open').forEach(c => { if (c !== card) this.close(c); });
+        card.classList.toggle('is-open', want);
+        this.sync(card);
+        return want;
+      },
+      /* 按钮上的字跟着状态走：「详情」↔「收起」。
+         「详情」那颗带一颗 chevron：文字装在 .tx 里、图标装在 .ic 里，
+         改字只能改 .tx 那一截（textContent 会把图标一起抹掉）。 */
+      sync(card) {
+        const btn = card && card.querySelector('[data-kit-toggle]');
+        if (!btn) return;
+        const on = card.classList.contains('is-open');
+        const tx = btn.querySelector('.tx');
+        if (tx) tx.textContent = on ? '收起' : '详情';
+        else btn.textContent = on ? '收起' : '详情';
+      },
+      close(card) {
+        if (!card) return;
+        card.classList.remove('is-open');
+        this.sync(card);
+      },
+      closeAll(scope) {
+        (scope || document).querySelectorAll('.is-open').forEach(c => this.close(c));
+      },
+      /* 连线落在哪儿是**量出来的**，不是猜的：量那个格子与带子的矩形，
+         把横坐标写进带子上的 CSS 变量（--kit-anchor）。
+         换成第 2 列、第 3 列，线也跟着挪。 */
+      anchor(band, tile) {
+        if (!band || !tile) return;
+        const b = band.getBoundingClientRect();
+        const t = tile.getBoundingClientRect();
+        band.style.setProperty('--kit-anchor', Math.round(t.left - b.left + t.width / 2) + 'px');
+      },
     },
 
     /* ---------- 卡片动作区：三台同一套按钮、同一套顺序 ---------- */
@@ -1617,8 +1738,13 @@
          资产库的产物格不画预览（点缩略图就是灯箱），但必须有下载。 */
       const hasMedia = !!(o.preview || o.hasMedia);
       const B = [];
-      B.push('<button class="ghost dt"><span class="ic">' + icon('chevronDown', 13) + '</span><span class="tx">详情</span></button>');
-      if (hasMedia) B.push('<button class="ghost pv"><span class="ic">' + icon('play', 12) + '</span> ' + esc(o.previewLabel || '预览') + '</button>');
+      B.push('<button class="ghost dt" data-kit-toggle><span class="ic">' + icon('chevronDown', 13) + '</span><span class="tx">详情</span></button>');
+      /* afterDetailHTML：页面自己的按钮插在「详情」之后（资产库那颗「收藏」就在这一档）。
+         它是**页面私有**的，公共件只管插在哪一档 —— 顺序与显隐判据仍由页面自己写。 */
+      if (o.afterDetailHTML) B.push(o.afterDetailHTML);
+      /* 「预览」只在页面**要**它的时候才画（o.preview）：资产库的产物格点缩略图就是灯箱，
+         再挂一颗「预览」是同一件事说两遍（这一排以前跟着 hasMedia 走，资产库因此多出一颗）。 */
+      if (o.preview) B.push('<button class="ghost pv"><span class="ic">' + icon('play', 12) + '</span> ' + esc(o.previewLabel || '预览') + '</button>');
       if (hasMedia && o.download !== false) {
         B.push('<button class="ghost dl2" title="用浏览器默认方式下载">下载</button>');
       }
@@ -1628,10 +1754,12 @@
          判据在 Api.canCancel 一份，那句话在 Wb.cancelWhyNot 一份；两颗都只在「这一条还在跑」时才画（run 在这里判），
          页面只决定给不给那句话 —— 否则一条已经完成的卡上也挂颗「取消不了」。 */
       else if (run && o.cancelWhy) B.push('<button class="ghost danger cx" disabled title="' + esc(o.cancelWhy) + '">取消</button>');
-      if (failed && o.retry) B.push('<button class="ghost rt"><span class="ic">' + icon('refresh', 12) + '</span> 重试</button>');
+      /* retryLabel：页面自己算出来的**带代价的字样**（「重试（会再扣 6 积分）」）。
+         不给就是原来那两个字。写明代价是为了让人在点之前就知道要花多少。 */
+      if (failed && o.retry) B.push('<button class="ghost rt"><span class="ic">' + icon('refresh', 12) + '</span> ' + esc(o.retryLabel || '重试') + '</button>');
       /* 「结果未知」不能写成普通重试：那条提交可能已经被平台受理，重发就是第二次扣费。
          出路还是要给（同步合成这类根本没有任务号可核对），但字样写明后果，点下去先过一道确认。 */
-      else if (unc && o.retry) B.push('<button class="ghost rt warn"><span class="ic">' + icon('refresh', 12) + '</span> 重发（可能再扣一次费）</button>');
+      else if (unc && o.retry) B.push('<button class="ghost rt warn"><span class="ic">' + icon('refresh', 12) + '</span> ' + esc(o.retryLabel || '重发（可能再扣一次费）') + '</button>');
       /* 平台已经出活、只是本机没存下：这一颗给的是「不用再花钱」的那条路。 */
       if (o.saveLocal) B.push('<button class="ghost sv">再存一次本机</button>');
       if (o.remove) B.push('<button class="ghost danger del">删除记录</button>');

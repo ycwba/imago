@@ -914,23 +914,30 @@ function topBoolValue(decl, on) {
         return Array.isArray(a) ? a : [];
       } catch { return []; }        // 写坏过一次就不再猜：界面按「没有自定义平台」渲染，代理那边会说明读失败
     },
-    customSet(list) { window.LS.set('sk_custom', JSON.stringify(list || [])); },
+    /* 返回 LS.set 的布尔值：清单写不进去（配额满 / 隐私模式）时调用方要能当场说「没加上」，
+       不能卡片画出来、回执说「已添加」，下一次刷新这一家就没了。 */
+    customSet(list) { return window.LS.set('sk_custom', JSON.stringify(list || [])); },
     customId() { return 'cus-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); },
     /* 删掉一家：清单里那条 + 它名下的密钥 / 停用勾选 / 万一存过的地址 / 型号偏好一起清。
        只删清单会留下 `sk_key_cus-xxx` 这种没人认领的死数据，而且它跟着云同步出网。
        自填型号那一格以前没清：删掉之后它那份型号还留在盘上，而 keyId(null) 会兜底成
-       'deepseek'，于是这份死数据在别处被读出来时表现成「别家凭空多出几个我填过的型号」。 */
+       'deepseek'，于是这份死数据在别处被读出来时表现成「别家凭空多出几个我填过的型号」。
+       清单删不掉就整个收工（返回 false）：卡片还在但密钥没了，比「删一半」更难查。
+       `sk_text_prov` 指着它也一并清掉 —— 死 id 留在盘上，设置页与助手读到的
+       「作用文字 AI」就成了一个不存在的家。 */
     customDrop(id) {
-      this.customSet(this.customList().filter(e => e && e.id !== id));
+      if (!this.customSet(this.customList().filter(e => e && e.id !== id))) return false;
       /* 清干净这一家名下的每一把钥匙。
          `sk_model_` 是漏掉过的那一个：设置页按 `sk_model_<keyId>` 存
          型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
       ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => window.LS.del(p + id));
+      if (window.LS.get('sk_text_prov') === id) window.LS.del('sk_text_prov');
       /* 「自己填的型号」与「隐藏了哪几个」现在住在同一份 `sk_model_prefs` 里、按 keyId 分格，
          所以这里按格子摘，而不是再往 `sk_text_models_<id>` 上删一次 —— 那个键已经并进新键了，
          留着一条删除路径等于承认还有两处记录。 */
       if (window.ModelPrefs) window.ModelPrefs.drop(id);
+      return true;
     },
     /* 端点 URL：端点名 → relay + 模板（{id} 用 sub 替换） */
     url(prov, name, sub) {
@@ -1215,6 +1222,38 @@ function topBoolValue(decl, on) {
         const bad = (p || !b.omitted) ? window.CharLimits.why(p, b, { who, noun: '提示词' }) : '';
         if (bad) throw new Error(bad);
       }
+      /* ---------- 提交体第二道闸：取值要落在型号能力声明的集合里 ----------
+         能力清单过期（平台撤了一个分辨率 / 格式）或哪一处把越界值递进来时，
+         以前请求照发、由平台回 400 —— 报错与用户做的事毫无关系，本地没有一句人话。
+         清单不存在（没拉到能力 / 自填型号没写 options）就跳过：判据缺数据不等于越界。
+         值都来自按同一份声明画出来的下拉，正常路径不会碰到这一段。 */
+      const mdl = (prov && Array.isArray(prov.models) && f.model) ? prov.models.find(x => x && x.id === f.model) : null;
+      const opts = (mdl && mdl.options) || null;
+      if (opts) {
+        const who = (prov && (prov.displayName || prov.name)) || '该平台';
+        const hasVal = v => v != null && v !== '';         // 空值本来就不进提交体，不参与校验
+        const inSet = (v, list) => list.map(String).includes(String(v));
+        const notInList = (label, v, list) => {
+          throw new Error('提交给「' + who + '」的' + label + '（' + v + '）不在型号「' + f.model + '」声明的取值里：'
+            + '允许 ' + list.join(' / ') + '。能力清单可能过期 —— 到设置页这一家重新「获取型号列表」，或检查这一项的来源。');
+        };
+        if (hasVal(f.count) && opts.max_outputs > 0 && !(Number(f.count) >= 1 && Number(f.count) <= opts.max_outputs)) {
+          throw new Error('提交给「' + who + '」的张数（' + f.count + '）超出型号「' + f.model + '」声明的范围：一次最多 ' + opts.max_outputs + ' 张。');
+        }
+        if (hasVal(f.format) && Array.isArray(opts.output_formats) && opts.output_formats.length && !inSet(f.format, opts.output_formats)) notInList('输出格式', f.format, opts.output_formats);
+        if (hasVal(f.res) && Array.isArray(opts.resolutions) && opts.resolutions.length && !inSet(f.res, opts.resolutions)) notInList('分辨率', f.res, opts.resolutions);
+        if (hasVal(f.size) && Array.isArray(opts.sizes) && opts.sizes.length && !inSet(f.size, opts.sizes)) notInList('尺寸', f.size, opts.sizes);
+        if (hasVal(f.tier) && Array.isArray(opts.tiers) && opts.tiers.length && !inSet(f.tier, opts.tiers)) notInList('画质档', f.tier, opts.tiers);
+        if (hasVal(f.quality) && Array.isArray(opts.qualities) && opts.qualities.length && !inSet(f.quality, opts.qualities)) notInList('画质', f.quality, opts.qualities);
+        if (hasVal(f.ar) && Array.isArray(opts.aspect_ratios) && opts.aspect_ratios.length && !inSet(f.ar, opts.aspect_ratios)) notInList('画幅比例', f.ar, opts.aspect_ratios);
+        if (hasVal(f.duration) && Array.isArray(opts.durations) && opts.durations.length) {
+          const a = Number(opts.durations[0]), b2 = Number(opts.durations[opts.durations.length - 1]);
+          const ok = (opts.durations.length === 2 && !isNaN(a) && !isNaN(b2))
+            ? (Number(f.duration) >= Math.min(a, b2) && Number(f.duration) <= Math.max(a, b2))
+            : opts.durations.some(d => Number(d) === Number(f.duration));
+          if (!ok) notInList('时长', f.duration, opts.durations);
+        }
+      }
       const body = {};
       Object.entries(spec.body || {}).forEach(([k2, src]) => {
         const v = std[src];
@@ -1380,8 +1419,16 @@ function topBoolValue(decl, on) {
          生成工作台那三排都读这一份声明），用户勾了、发出去却没有那一项，等于承诺了一件没做的事。
          所以调用方真的递了值就按声明摆到顶层；body/nest 那一族不经过这里（createBody 已经放对位置）。 */
       if (spec.template && body && typeof body === 'object' && !Array.isArray(body)) {
+        const sctxB = { mode: (f.shape && f.shape.mode) || '', intent: f.creation_intent, caps: (f.shape && f.shape.caps) || null };
         Object.keys(spec.topBools || {}).forEach(k => {
-          if (!(k in body) && f && Object.prototype.hasOwnProperty.call(f, k)) body[k] = !!f[k];
+          if (!(k in body) && f && Object.prototype.hasOwnProperty.call(f, k)) {
+            /* 与 createBody 那一支同一道闸：声明了 hide.when 的开关在「这一次的形状」里被藏掉时
+               一个字都不发 —— 显式发就被 422 的平台（VGENV 那一族）躲不开这一刀。
+               capabilities 没就绪时照旧发（判据缺数据不等于该静默）。 */
+            const st = (window.Capabilities && window.Capabilities.fieldState)
+              ? window.Capabilities.fieldState(spec.topBools[k], sctxB) : null;
+            if (!(st && st.hidden)) body[k] = !!f[k];
+          }
         });
       }
       return body;

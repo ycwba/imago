@@ -25,7 +25,6 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     await page.waitFor(() => !!window.Store && !!window.Chars, 20000, 100);
     await page.eval((data) => {
       localStorage.setItem('ai_chat_dock', '0');          // 钉成浮层：这台机器上次点过「固定」也不算坏
-      localStorage.removeItem('ai_chat_fxy');
       localStorage.setItem('char_lib', JSON.stringify({ data: [{
         id: 'c_ref', name: '引用探针', kind: 'char', face: data, anchor: data,
         bio: '海边来的人', look: '短发、浅色外套', group: '探针组',
@@ -109,8 +108,10 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(drop.open === true && drop.dock === false, '拖到球上没有打开浮层（面板收起是这次的核心路径）：' + JSON.stringify(drop));
     must(/\[引用素材：[^\]\n]+/.test(drop.value), '输入框里没有 [引用素材：…]：' + JSON.stringify(drop.value));
     must(/引用探针|短发、浅色外套/.test(drop.value), '引用行里没有这一条的名字或描述：' + JSON.stringify(drop.value));
-    must(drop.hl >= 1 && drop.hasX, '输入框里没画出引用高亮与删除钮：' + JSON.stringify(drop));
-    must(drop.xTab === '-1', '删除钮不该进 Tab 序列（textarea 的焦点不能被它抢走）：' + drop.xTab);
+    must(drop.hl >= 1, '输入框里没画出引用高亮：' + JSON.stringify(drop));
+    /* 高亮上那个 ×（删除钮）已经去掉了：标记就是正文里的文字，键盘选中那段删掉就行 ——
+       删掉 = 这条引用作废（正文是真相，见 chat.js 的 refTextChanged）。 */
+    must(drop.hasX === false, '高亮上还有那个删除钮（应当去掉，改字即作废）：' + JSON.stringify(drop));
     must(drop.layerPE === 'none', '高亮层会挡住输入框的点击：' + drop.layerPE);
     must(drop.opacity === '1' && !/rgba\([^)]*,\s*0\)|transparent/.test(drop.color),
       '文字被画成了透明（高亮盖住了正文）：' + JSON.stringify({ color: drop.color, opacity: drop.opacity }));

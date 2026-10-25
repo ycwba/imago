@@ -140,7 +140,10 @@ window.TextAI = {
       + '8. 时长范围已经给在上面，不用自己数；镜数由你按内容定。\n'
       + '9. `chain` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"（第 1 镜永远不写）；'
       + '其余镜头留空字符串。写了它的镜头生成时会自动取上一镜的尾帧当首帧，所以这一镜的 prompt 从**落幅之后**写起，'
-      + '不要再把上一镜已经拍过的画面重复描述一遍。长镜头由程序按型号上限自动拆成接续段，你不用自己拆。',
+      + '不要再把上一镜已经拍过的画面重复描述一遍。长镜头由程序按型号上限自动拆成接续段，你不用自己拆。\n'
+      + '10. 消息里若带着「用户已经回答了你先前的追问」，那些回答是**硬约束**：逐条落实进分镜'
+      + '（风格、节奏、台词取舍、镜头怎么动都照它来），不要再反问同一件事，也不要自行改动用户已定的选择；'
+      + '没带那一段就按上面的要求直接拆。',
     /* 导演台「拆分镜 → 修改现有分镜」：在**已经排好的**分镜上改 —— 改提示词 / 名字 / 时长 / 台词、
        加新镜头、开新场景、删镜头、调顺序。与 split 的分家：split 从剧本现拆一份全新的，这一条对着
        带序号的既有清单下刀，所以「按序号定位、只带改动、不许重新编号」是它的命门。
@@ -179,7 +182,34 @@ window.TextAI = {
       + '有台词时 speaker 写说这句话的角色名（照清单里的叫法，没有名字写「旁白」）；要清掉台词就把 line 与 speaker 都写成空字符串。\n'
       + '11. `chain` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"（第 1 镜永远不写）；'
       + '清单里已经标着「接上一镜」的镜头不要再抄一遍；要取消接续就写空字符串。'
-      + '长镜头由程序按型号上限自动拆成接续段并自动标好，你不用自己拆，也不要把上一镜的画面在下一镜里重复描述一遍。\n\n'
+      + '长镜头由程序按型号上限自动拆成接续段并自动标好，你不用自己拆，也不要把上一镜的画面在下一镜里重复描述一遍。\n'
+      + '12. 消息里若带着「用户已经回答了你先前的追问」，那些回答是**硬约束**：逐条落实进改动'
+      + '（改哪些镜、往哪个方向改、台词与时长动不动都照它来），不要再反问同一件事，也不要自行改动用户已定的选择。\n\n'
+      + '只输出 JSON。',
+    /* 拆分镜审查弹窗里「按这句再改」：方案已经拆出来、还没确认写入，用户看着它又提一句。
+       与 follow（润色结果接着对话）同一家法：**只改点名的那几处**，其余原样保留。
+       与 split / board_edit 的分家：那两条从头出方案，这一条对着**已经拆好的这份**下刀，
+       所以「输出完整方案（改的没改的都在）」是它的命门 —— 模型最爱只回改动的那几条，
+       而程序是整份替换，缺了哪条哪条就真丢了。当前方案清单由消息带上（boardListOfItems 那份编号）。 */
+    split_follow: '你是分镜师。屏幕上已经有一份拆好的分镜方案（确认写入前的最后一步），现在用户看着它又提了一句要求。'
+      + '你的任务是**按这一句话在当前这份方案上改**，不是重新发挥、也不是从头再拆。\n\n'
+      + '**这一份 Skill 能用到的项目资料（程序按当前项目填好；填不上时那一句会原样留在这里）：**\n\n'
+      + '本项目素材库里的角色 / 场景 / 物品（名字、外貌、已定的音色）：\n{cast}\n\n'
+      + '这一次选中的素材（可以直接 @ 引用）：\n{assets}\n\n'
+      + '用户这一轮的调整要求：\n{what}\n\n'
+      + '每镜时长可以取的范围：\n{dur}\n\n'
+      + '要求：\n'
+      + '1. 只改用户点名的那几处；其余镜头的提示词、时长、名字、台词、说话人、先后顺序、接续标记都**原样保留**，'
+      + '场景名沿用现有叫法（不要重新分场、不要重新编号）。\n'
+      + '2. 用户的话与当前方案冲突时以用户这句为准；他没说的那些不要顺手改，也不要把自己上一轮的想法再补一遍。\n'
+      + '3. 这句话里读不出来的细节按最常见的做法补，不要反问。\n'
+      + '4. 仍然遵守拆分镜的全部规矩：台词只放**本来就有**的对白，逐字照抄（没有就空字符串，不要自己编，也不要写进 prompt）；'
+      + 'speaker 写说这句话的角色名（照剧本叫法，没有名字写「旁白」）；`chain` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"；'
+      + '`name` 不超过 12 个字；`note` 是整句画面说明，不要截断。\n'
+      + '5. 输出**改后的完整方案**：只返回 JSON，不要任何解释、不要 markdown 代码块。格式：\n'
+      + '   {"title":"短片名","scenes":[{"name":"场景名","shots":[{"prompt":"镜头提示词","duration":5,"name":"镜头短名",'
+      + '"note":"一句画面说明","line":"这一镜要念的台词","speaker":"说这句话的角色名","chain":"tail"}]}]}\n'
+      + '   scenes 里必须有**全部**镜头 —— 改过的和没改的都在，不要只回改动的那几条（程序整份替换，缺了哪条哪条就真丢了）。\n\n'
       + '只输出 JSON。',
     /* 拆分镜的第 4 段：判断这份方案里有没有「该新建一条素材」的角色/场景/物品。
        与 split / board_edit 的分家：那两条**出分镜**，这一条**只出素材建议**（不改镜头）。
@@ -296,9 +326,12 @@ window.TextAI = {
         { key: 'story', label: '分镜切片规划（决定张数 + 每张提示词）', used: '导演台右栏「按描述生成这一镜的画面」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"t":0,"prompt":"…"}]}`），由它决定生成几张、每张在第几秒、每张画什么。改这条时请保留 JSON 格式要求，否则会退化成按 2.5 秒硬切片。' },
         { key: 'split', label: '剧本拆分镜', used: '导演台「拆分镜」→ 任务「拆一份新的 / 接着往下拆」',
-          ref: '要求文字 AI `只返回 JSON`（`{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}`）；末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。改这条时请保留 JSON 格式要求。' },
+          ref: '要求文字 AI `只返回 JSON`（`{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}`）；末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。改这条时请保留 JSON 格式要求。\n拆分前程序会先走一轮**反问**（与润色同一套问答：AI 自己判断要不要问，问答面板就地展开，回答按硬约束落实 —— 就是要求 10 那一条；设置里选「从不问」整轮跳过）。' },
         { key: 'board_edit', label: '修改现有分镜（改 / 加镜头、优化提示词）', used: '导演台「拆分镜」→ 任务选「修改现有分镜」',
-          ref: '要求文字 AI `只返回 JSON`（`{"changes":[{"action":"update","scene":1,"shot":2,"prompt":"…"},{"action":"insert","scene":1,"after":2,"prompt":"…"},{"action":"insert","newScene":"新场景名","prompt":"…"}]}`）；消息里会附上按序号编好的当前分镜清单，AI 按 `scene`/`shot`/`after` 的序号改与插。改这条时请保留 JSON 格式要求与「只带真的要改的字段」那一条 —— 程序按序号定位，对不上号的会整条丢掉并计数。' },
+          ref: '要求文字 AI `只返回 JSON`（`{"changes":[{"action":"update","scene":1,"shot":2,"prompt":"…"},{"action":"insert","scene":1,"after":2,"prompt":"…"},{"action":"insert","newScene":"新场景名","prompt":"…"}]}`）；消息里会附上按序号编好的当前分镜清单，AI 按 `scene`/`shot`/`after` 的序号改与插。改这条时请保留 JSON 格式要求与「只带真的要改的字段」那一条 —— 程序按序号定位，对不上号的会整条丢掉并计数。\n动刀前同样可以先反问（与拆分镜同一套，回答按硬约束落实，见要求 12）。' },
+        { key: 'split_follow', label: '拆分镜再调整（确认弹窗里「按这句再改」）',
+          used: '导演台「拆分镜」审查弹窗 → 对着拆好的方案说一句要怎么改，AI 在它上面再改一轮',
+          ref: '要求文字 AI `只返回 JSON`（格式与拆分镜同款），但输出的是**改后的完整方案** —— `scenes` 里要有全部镜头（改过的与没改的），程序拿它整份替换。改这条时请保留「只改点名的那几处」与「输出完整方案」两条：少了前者，用户没点名的镜头会被顺手改掉；少了后者，没回的那几条镜头就真丢了。' },
         { key: 'img_split', label: '图片片段拆分（一段描述 → 几张图的提示词）', used: '生成工作台「图像」栏「拆分片段生成」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"label":"片段名","prompt":"…"}]}`）。改这条时请保留 JSON 格式要求，否则拆分会直接报「没有给出可用的拆分方案」。' },
       ] },
@@ -324,8 +357,11 @@ window.TextAI = {
      界面报「AI 没有给出可用的分镜结构」。而设置页把 `prompt('story')` 的结果**整段写回**
      `sk_polish_story`（那是用户在设置页里能改的那一栏），只要 ASK_NOTE 被拼上去，
      下一次进设置页改动任何一项，那趟自动保存的整页 DOM 扫描会把它连 ASK_NOTE 一起写回盘上，
-     导演台读到的就是带着「你可以追问」的指令。 */
-  NO_ASK: ['char_image', 'char_voice', 'story', 'split', 'board_edit', 'img_split', 'follow'],
+     导演台读到的就是带着「你可以追问」的指令。
+     拆分镜 / 改分镜的「反问」不走这条路：它是**单独的一轮**（导演台先调 `askPolish` 判断
+     要不要问，问答面板收答案后随生成轮的正文交上去）—— 这几条的正文里因此永远不该出现
+     ASK_NOTE，而「回答是硬约束」由各自要求清单的最后一条（split 第 10 条 / board_edit 第 12 条）写明。 */
+  NO_ASK: ['char_image', 'char_voice', 'story', 'split', 'board_edit', 'img_split', 'follow', 'split_follow'],
   /* 「没有存盘时这条指令应该长什么样」——**只算默认，绝不碰存盘**。
      两处共用这一份，免得各算一遍：
        · prompt()：没有存盘就返回它（用户改过的优先）
@@ -341,6 +377,8 @@ window.TextAI = {
   SKILL_CONTRACT: {
     video: 'polish.video', img: 'polish.image', audio: 'polish.voice', follow: 'polish.follow',
     story: 'story.json', split: 'split.json', board_edit: 'board_edit.json', img_split: 'img_split.json',
+    /* 拆分镜审查弹窗「按这句再改」那一条：对着已拆好的方案按一句话再改一轮。 */
+    split_follow: 'split_follow.json',
     char_image: 'char.image.json', char_voice: 'char.voice.json',
     /* 拆分镜那一条「判断哪些新角色/场景/物品要建档并出图」的指令。 */
     board_assets: 'board_assets.json',
@@ -366,6 +404,12 @@ window.TextAI = {
       { name: 'cast', from: '素材库的角色清单', desc: '可选演员名单' },
       { name: 'assets', from: '素材库的场景/道具清单', desc: '可用素材' },
       { name: 'board', from: '现有分镜', desc: '当前分镜内容' },
+      { name: 'dur', from: '目标总时长', desc: '期望的成片时长' },
+    ],
+    'split_follow.json': [
+      { name: 'what', from: '用户这一轮的调整要求', desc: '对着当前方案说的一句' },
+      { name: 'cast', from: '素材库的角色清单', desc: '可选演员名单' },
+      { name: 'assets', from: '素材库的场景/道具清单', desc: '可用素材' },
       { name: 'dur', from: '目标总时长', desc: '期望的成片时长' },
     ],
     'img_split.json': [],
@@ -411,6 +455,8 @@ window.TextAI = {
     { group: 'director', key: 'story' },
     { group: 'director', key: 'split' },
     { group: 'director', key: 'board_edit' },
+    { group: 'director', key: 'split_follow', label: '拆分镜再调整',
+      used: '导演台「拆分镜」审查弹窗里的「按这句再改」：对着拆好的方案说一句，AI 在它上面改一轮' },
     { group: 'director', key: 'board_assets', label: '拆分镜素材判定',
       used: '导演台「拆分镜」→ 判断哪些新角色/场景/物品要建档并出图' },
     { group: 'chars', key: 'char_image' },
@@ -736,7 +782,7 @@ window.TextAI = {
   async rawModels(REG, provIn) {
     const prov = provIn || this.prov(REG);
     if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
-    const r = await netFetch(prov.relay + '/models', { headers: this._headers(prov), timeout: 20000 });
+    const r = await netFetch(prov.relay + ((prov.endpoints && prov.endpoints.models) || '/models'), { headers: this._headers(prov), timeout: 20000 });
     /* 文字 AI 的失败也要过 ERROR_HINT：上游只回一句「Insufficient Balance」时，
        界面得说清是余额/额度不够、去哪儿处理，而不是把英文原样甩在计数条上。
        错误体不一定是 JSON（网关的 HTML 错误页、代理那句 text/plain），所以原文一起带给 errorMessage。 */
@@ -1129,10 +1175,15 @@ window.TextAI = {
        {"need": true|false, "questions":[{"q":"问题","options":["候选1","候选2"]}]}
      返回 { need, questions }：调用方（InlinePolish.interactive / 导演台）据此决定要不要出问答面板。 */
   async askPolish(REG, sys, user, opts) {
+    const o = opts || {};
     const sysAsk = String(sys || '')
       + '\n\n【这一轮你的任务：判断这段内容值不值得先问问题】\n'
       + '判断标准：如果补上缺失信息能明显改变成片效果，就问；如果内容已经足够具体（主体、动作、场景/氛围、'
       + '风格取向都说了），就直接说 need=false，别为了显得认真而提问。\n'
+      /* o.focus = 这一类活儿最值得先问的缺口（调用方按自己的任务给一句；润色那几处不传，
+         就按上面的通用判据问）。放在「提问要求」前面：先看清这一处该问什么，再守提问的格式。 */
+      + (o.focus ? '这一类活儿最值得先问清楚的缺口：' + o.focus + '；不在这些缺口里的、剧本里已经写明的，都不要再问。\n'
+      : '')
       + '提问要求：\n'
       + '1. 只问「缺的那部分」，缺几项问几项；不要复述用户已经写明的内容，也不要为了显得认真而把已经说清的再问一遍。\n'
       + '2. 每个问题都要具体到**能点选**（例：「光线与时间？黄金时刻 / 冷调夜景 / 阴天柔光」），'
@@ -1215,9 +1266,12 @@ window.TextAI = {
 /* ============================================================================
    TextAI 余额（不再折算金额：文字 AI 只记录 tokens 用量，展示见「用量与余额」页）
    ========================================================================== */
-/* 各平台余额接口规格（只有声明了 url 的能精确查询） */
+/* 各平台余额响应的**解析器**（只有这里声明的能解析出数）。
+   端点一律从 `prov.endpoints.credits` 读（注册表那一份声明）—— 以前这张表还各带一条 url，
+   与注册表里的 credits 端点是同一件事的两份拷贝，改注册表这一份不会跟着动，
+   余额卡就「读不出数」了。 */
 window.TextAI.BALANCE = {
-  deepseek: { url: '/user/balance', parse: d => {
+  deepseek: { parse: d => {
     const b = (Array.isArray(d && d.balance_infos) ? d.balance_infos[0] : null) || null;
     /* 读不到余额字段就是「没验成」，不是「余额 0 且密钥可用」—— 空对象折成 ok:true 会让
        设置页把一把只能查余额却查不出数的钥匙报成可用。 */
@@ -1225,13 +1279,13 @@ window.TextAI.BALANCE = {
     return { ok: true, currency: b.currency || 'CNY', amount: Number(b.total_balance || 0),
       extra: `充值 ${b.topped_up_balance ?? '—'} · 赠送 ${b.granted_balance ?? '—'}`, available: d.is_available !== false };
   } },
-  moonshot: { url: '/users/me/balance', parse: d => {
+  moonshot: { parse: d => {
     const b = (d && d.data) || null;
     if (!b || b.available_balance == null) return { ok: false };
     const amount = Number(b.available_balance ?? 0);
     return { ok: true, currency: 'CNY', amount, extra: `现金 ${b.cash_balance ?? '—'} · 代金券 ${b.voucher_balance ?? '—'}`, available: true };
   } },
-  siliconflow: { url: '/user/info', parse: d => {
+  siliconflow: { parse: d => {
     const b = (d && d.data) || null;
     const raw = b ? (b.totalBalance ?? b.balance) : null;
     if (raw == null) return { ok: false };
@@ -1240,7 +1294,7 @@ window.TextAI.BALANCE = {
   } },
   /* OpenRouter 的 /credits 只认**管理密钥**，普通 API key 会回 403 —— 那是正常的，
      页面会照实显示原因。侧栏余额卡不画它（那边只有 micros / 积分两种解析形状，硬套会显示成 ¥0.00）。 */
-  openrouter: { url: '/credits', parse: d => {
+  openrouter: { parse: d => {
     const b = (d && d.data) || null;
     if (!b || b.total_credits == null) return { ok: false };
     const total = Number(b.total_credits ?? 0), used = Number(b.total_usage ?? 0);
@@ -1253,9 +1307,10 @@ window.TextAI.BALANCE = {
 window.TextAI.fetchBalance = async function (REG, prov) {
   const kid = this.keyId(prov);
   const spec = this.BALANCE[kid];
-  if (!spec) return { ok: false, unsupported: true, reason: '该平台没有公开的余额查询接口' };
+  const ep = prov && prov.endpoints && prov.endpoints.credits;
+  if (!spec || !ep) return { ok: false, unsupported: true, reason: '该平台没有公开的余额查询接口' };
   try {
-    const r = await netFetch(prov.relay + spec.url, { headers: this._headers(prov), timeout: 15000 });
+    const r = await netFetch(prov.relay + ep, { headers: this._headers(prov), timeout: 15000 });
     const { d, plain } = await respBody(r);
     if (!r.ok) {
       /* 与非 2xx 的别处同一份文案口径（Api.errorMessage：JSON 用它的 error.message，

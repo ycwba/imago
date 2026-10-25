@@ -443,6 +443,17 @@ window.Capabilities = {
           accept: sp.accept || (d && d.accept) || '', maxBytes: sp.maxBytes || (d && d.maxBytes) || 0,
           group: this.groupOf(sp.role, d || sp), modes: (sp.modes || []).slice(), src: d ? 'both' : 'api' });
       });
+      /* 上游没列、注册表按官方文档写了的 role 也要补上（上限取声明）——
+         以前 api 一存在就整份 return，上游 /models 少列一个 role（有些型号不列参考音频），
+         注册表写明的那个槽位在界面上整个不见，用户以为平台不支持。 */
+      if (declared) {
+        Object.entries(declared).forEach(([role, d]) => {
+          if (!d || out.has(role)) return;
+          out.set(role, { role, media: d.media || '', min: d.min || 0, max: d.max || 1,
+            accept: d.accept || '', maxBytes: d.maxBytes || 0,
+            group: this.groupOf(role, d), modes: (d.modes || []).slice(), src: 'registry' });
+        });
+      }
       return this._memoSpecs(model, o, [...out.values()]);
     }
     if (declared) {

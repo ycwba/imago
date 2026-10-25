@@ -88,7 +88,7 @@ written.add('sk_media_local_scope');                       // 第三档依附开
 prefKeys.forEach(k => written.add(k));                     // UI_PREFS 那一圈由 saveUiPrefs 循环写
 const notExported = [...written].filter(k => !covers(literals(exportArr).concat(prefKeys), k));
 ok('设置页写的每一项都在导出名单里（新加一项必须登记）', notExported.length === 0, '漏：' + notExported.join(', '));
-const ASSIST = ['ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock'];
+const ASSIST = ['ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock', 'ai_chat_ref_send'];
 const EX = literals(exportArr);
 ok('助手那五颗开关进导出（notice/snap 漂移的收口）', ASSIST.every(k => EX.includes(k)),
   ASSIST.filter(k => !EX.includes(k)).join(','));

@@ -1,0 +1,280 @@
+/* ============================================================================
+   素材库 · 布局稿（设计稿，不是产品代码）
+   ---------------------------------------------------------------------------
+   这一份样式**只服务于这张稿**。取值全部来自产品真文件：
+     · 颜色 / 间距 / 字号 / 圆角 —— ../../web/styles/tokens.css（唯一出处）
+     · 按钮 / 芯片 / 卡片 / 分页 / 空态 —— ../../web/styles/ui.css（公共件，一个都不重写）
+     · 侧栏 —— ../../web/styles/sidebar.css
+   所以稿子里的颜色与产品里现在跑的完全是同一套；深色档是 tokens.css 的深色
+   那一段自动派生出来的（换 data-theme 就成立，不另设计一版）。
+
+   真要落地到产品里时，下面三件事要回产品那一份去：
+     ① --rail-w / --insp-w / --font-mono 三个值加进 tokens.css（这里是 demo 作用域的临时值）；
+     ② 目录轨的「组名 / 计数」从 DOM 现读（照设置页目录轨的规矩，JS 里不许有第二份清单）；
+     ③ 卡面那一排动作按钮收进公共件（不要在页面里另抄一份 .mg）。
+   ========================================================================== */
+
+.demo-mat {
+  /* demo 作用域的三个临时值（落地时进 tokens.css） */
+  --rail-w: 208px;        /* 目录轨宽 */
+  --insp-w: 340px;        /* 检查器宽 */
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+
+html, body { height: 100%; }
+/* 原生控件（select / input / 滚动条）跟着主题走：深色档里 select 的文字默认还是黑的
+   （UA 用 fieldtext，不看 --txt）。产品那边建议在 tokens.css 的深色档加这一句。 */
+html[data-theme="dark"] { color-scheme: dark; }
+body.demo-mat {
+  margin: 0; background: var(--bg); color: var(--txt);
+  font-family: var(--font-ui); font-size: var(--fs-13);
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+
+/* 三段：目录轨 · 素材台 · 检查器（检查器点开才占位） */
+#app {
+  margin-left: var(--sbw); height: 100vh; overflow: hidden;
+  display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr);
+}
+#app.has-insp { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--insp-w); }
+
+/* ══ ① 目录轨 ══════════════════════════════════════════════════════════════
+   取代原来的「筛选芯片行 + 三行工具条 + 体检面板」——三处散着的东西收成一条目录。 */
+.mat-rail {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-right: var(--hair) solid var(--line);
+}
+.rail-top { padding: var(--sp-16) var(--sp-14) var(--sp-12); position: relative; }
+.rail-close { display: none; position: absolute; right: var(--sp-8); top: var(--sp-12); width: 26px; height: 26px;
+  align-items: center; justify-content: center; border: 0; border-radius: var(--radius-6); cursor: pointer;
+  background: none; color: var(--sub); font-family: inherit; }
+.rail-close:hover { background: var(--panel2); color: var(--txt); }
+.rail-h1 { font-size: var(--fs-20); font-weight: 700; letter-spacing: .01em; }
+.rail-sub { margin-top: var(--sp-4); font-size: var(--fs-11-5); color: var(--sub); line-height: 1.5; }
+.rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 var(--sp-8) var(--sp-12); }
+
+.rail-sec { margin-top: var(--sp-14); }
+.rail-st {
+  display: flex; align-items: center; gap: var(--sp-8);
+  padding: 0 var(--sp-6) var(--sp-6);
+  font-size: var(--fs-11); color: var(--sub); letter-spacing: .1em;
+}
+.rail-acts { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-10); }
+.rail-fix {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font-size: var(--fs-11); color: var(--acc); font-family: inherit;
+}
+.rail-fix:hover { text-decoration: underline; }
+
+.rail-row {
+  display: flex; align-items: center; gap: var(--sp-8);
+  height: 30px; padding: 0 var(--sp-8); border-radius: var(--radius-6);
+  font-size: var(--fs-12-5); color: var(--txt); cursor: pointer;
+  transition: background var(--dur-120), color var(--dur-120);
+}
+.rail-row:hover { background: var(--panel2); }
+.rail-row.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+.rail-row .n {
+  margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-11-5);
+  color: var(--sub); font-variant-numeric: tabular-nums;
+}
+.rail-row.on .n { color: var(--acc); }
+/* 「还缺什么」那一节每行前面一枚小方块：与卡面上的完备度点阵同一套形状语言 */
+.missdot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: var(--radius-2);
+  border: var(--hair) solid var(--warn);
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--warn) var(--a-28), transparent) 0 2px, transparent 2px 4px); }
+
+/* 「出齐用哪个型号」那一行已经撤掉（2026-10-25）：
+   「出齐」用哪个型号只有一处出处 —— 设置页「素材库」那张卡的默认生图型号。
+   左轨不再挑型号，也就不留那一行。 */
+.rail-gen-sel .ui-inp { width: 100%; }
+
+/* ══ ② 素材台 ═══════════════════════════════════════════════════════════════ */
+.mat-stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.mat-head {
+  flex: 0 0 auto; padding: var(--sp-11) var(--sp-18);
+  border-bottom: var(--hair) solid var(--line); background: var(--panel);
+}
+.mat-head input[type="search"] { flex: 0 1 300px; }
+.mat-head .tool { height: 32px; }
+.mat-head .viewtoggle { margin-left: 0; }
+.mat-head .pri { padding: var(--sp-7) var(--sp-14); font-size: var(--fs-12-5); }
+.mat-head .pri .ic, .mat-head .tool .ic { display: inline-flex; align-items: center; }
+
+.mat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--sp-16) var(--sp-18) var(--sp-40); }
+.bulkbar { margin: 0 0 var(--sp-14); }
+.bulkbar .bk-grp { flex: 0 1 190px; }
+.bulkbar .bk-tip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 卡片网格：列宽仍是全站那一档（--sz-card 268） */
+.mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr)); gap: var(--sp-16); }
+.mat-grid.view-list { display: flex; flex-direction: column; gap: var(--sp-10); }
+.mat-grid.view-list .mcard { flex-direction: row; }
+.mat-grid.view-list .mthumb { width: 150px; flex: 0 0 150px; aspect-ratio: auto; min-height: var(--sz-thumb-h); }
+.mat-grid.view-list .mbody { flex: 1 1 auto; min-width: 0; }
+
+/* ══ 卡片 ══════════════════════════════════════════════════════════════════ */
+.mcard {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  background: var(--panel); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); overflow: hidden; cursor: pointer;
+  transition: border-color var(--dur-180), box-shadow var(--dur-180), transform var(--dur-180);
+}
+.mcard:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+.mcard.sel { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-18), transparent); }
+
+.mthumb { position: relative; aspect-ratio: 16 / 9; background: var(--thumbbg); overflow: hidden; }
+.mthumb img { width: 100%; height: 100%; object-fit: cover; display: block; object-position: center 22%; }
+.mthumb.mph-scene img { object-position: center 50%; }
+.mthumb.mph-empty { display: flex; align-items: center; justify-content: center; }
+.mpnone { text-align: center; font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
+.mpnone span { font-size: var(--fs-11); color: var(--sub); opacity: .8; }
+
+/* 图上那枚徽标：深底浮层 —— 用 ①b 段的两枚固定色（两档一致的那种） */
+.mchip {
+  position: absolute; top: var(--sp-8); padding: 0 var(--sp-8); border-radius: var(--radius-20);
+  font-size: var(--fs-10-5); line-height: 1.7; color: var(--on-acc);
+  background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent);
+}
+.mchip-grp { right: var(--sp-8); }
+.mchip-flat { position: static; color: var(--sub); background: var(--panel2); border: var(--hair) solid var(--line); }
+
+/* 悬停浮出来的那一排动作（真落地时收进公共件） */
+.macts {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; gap: var(--sp-6); padding: var(--sp-10) var(--sp-8) var(--sp-8);
+  background: linear-gradient(to top, color-mix(in srgb, var(--media-bg) var(--a-72), transparent), transparent);
+  opacity: 0; transition: opacity var(--dur-180);
+}
+.mcard:hover .macts { opacity: 1; }
+.mg {
+  border: 0; border-radius: var(--radius-6); cursor: pointer; font-family: inherit;
+  font-size: var(--fs-11); line-height: 1; padding: var(--sp-6) var(--sp-9);
+  color: var(--on-acc); background: color-mix(in srgb, var(--media-bg) var(--a-62), transparent);
+}
+.mg:hover { background: var(--acc); }
+
+.mbody { display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-10) var(--sp-12) var(--sp-12); }
+.mrow { display: flex; align-items: center; gap: var(--sp-7); min-width: 0; }
+.mname { font-size: var(--fs-14); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 类型徽标：跟名字并排放在文字行里 —— 图片那一块留给「分组」和（多选时）勾选框 */
+.mkind {
+  flex: 0 0 auto; font-size: var(--fs-10-5); line-height: 1.7; color: var(--sub);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-20); padding: 0 var(--sp-7);
+}
+.mrefs { margin-left: auto; flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); }
+.mbio {
+  margin: 0; font-size: var(--fs-12-5); color: var(--sub); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.mfoot { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-2); }
+.mstat { font-size: var(--fs-11); color: var(--sub); }
+.mstat.is-warn { color: var(--warn); }
+.mstat.is-err { color: var(--err); }
+
+/* ── 完备度点阵（本稿的签名件）：预览图 · 角色资产 · 声音 · 描述 ──
+   齐 = 实心方块（--ok）；缺 = 描边 + 斜纹（--warn）；不适用 = 一条短横（--line）。 */
+.mdots { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.mdots i { display: block; width: 10px; height: 10px; border-radius: var(--radius-2); }
+.mdots i.ok { background: var(--ok); }
+.mdots i.miss {
+  border: var(--hair) solid var(--warn);
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--warn) var(--a-30), transparent) 0 2px, transparent 2px 4px);
+}
+.mdots i.na { width: 10px; height: 2px; background: var(--line); }
+.mdots.big i { width: 12px; height: 12px; }
+
+/* 多选勾选框（公共件那套形状，落到卡片上） */
+.mcard .pick { display: none; }
+.mat-grid.multi .mcard .pick {
+  display: block; position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 6;
+  width: 20px; height: 20px; border-radius: var(--radius-5);
+  border: var(--hair-1-5) solid color-mix(in srgb, var(--on-acc) var(--a-90), transparent);
+  background: color-mix(in srgb, var(--media-bg) var(--a-35), transparent);
+  color: var(--on-acc); font-size: var(--fs-12); line-height: 17px; text-align: center;
+  user-select: none; cursor: pointer;
+}
+.mat-grid.multi .mcard .pick.on { background: var(--acc); border-color: var(--acc); }
+.mat-grid.multi .mcard.picked { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--hair)); }
+
+/* ══ ③ 检查器 ══════════════════════════════════════════════════════════════
+   编辑从「卡内就地展开」搬到这里：网格不再被一张一千像素高的卡撑坏。 */
+.mat-insp {
+  display: none; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: var(--hair) solid var(--line);
+}
+#app.has-insp .mat-insp { display: flex; }
+.insp-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-10);
+  padding: var(--sp-12) var(--sp-14); border-bottom: var(--hair) solid var(--line);
+}
+.insp-title { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; flex: 1 1 auto; }
+.insp-title .mname { font-size: var(--fs-16); }
+.insp-close { flex: 0 0 auto; padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }
+
+.insp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--sp-14); }
+.insp-hero { border-radius: var(--radius-10); overflow: hidden; background: var(--thumbbg); aspect-ratio: 16 / 9; }
+.insp-hero img { width: 100%; height: 100%; object-fit: cover; display: block; object-position: center 22%; }
+.insp-status {
+  display: flex; align-items: center; gap: var(--sp-10);
+  margin: var(--sp-12) 0 var(--sp-4); padding: var(--sp-9) var(--sp-11);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-8); background: var(--panel2);
+}
+.insp-refs { margin-left: auto; font-size: var(--fs-11-5); color: var(--sub); }
+/* 点阵的图例：卡面那四枚小方块在这里被点名一次，这一套形状语言才立得住 */
+.insp-legend { display: flex; flex-wrap: wrap; gap: var(--sp-5) var(--sp-14); margin-top: var(--sp-10);
+  font-size: var(--fs-11); color: var(--sub); }
+.insp-legend .lg { display: inline-flex; align-items: center; gap: var(--sp-5); }
+.insp-legend .lg b { width: 9px; height: 9px; border-radius: var(--radius-2); background: var(--ok); }
+
+.insp-sec { padding: var(--sp-14) 0; border-bottom: var(--hair) solid var(--line); }
+.insp-sec:last-child { border-bottom: 0; }
+.insp-st { font-size: var(--fs-11); color: var(--sub); letter-spacing: .08em; margin-bottom: var(--sp-10); }
+.insp-lbl { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-10); margin-bottom: var(--sp-7); font-size: var(--fs-12); color: var(--sub); }
+.insp-lbl > span { flex: 0 0 auto; }
+.insp-lbl .ui-inp { flex: 0 1 190px; text-align: left; }
+.insp-cands { display: flex; gap: var(--sp-7); margin-bottom: var(--sp-10); }
+.insp-cands .ui-cand { padding: var(--sp-3); }
+.insp-cands .ui-cand img { width: 54px; height: 54px; }
+.insp-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-10); padding: var(--sp-5) 0; font-size: var(--fs-12-5); }
+.insp-rk { color: var(--sub); flex: 0 0 auto; }
+.insp-rv { text-align: right; }
+.insp-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-9); }
+.insp-acts .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-11); }
+.insp-use {
+  display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-9); margin-bottom: var(--sp-5);
+  border-radius: var(--radius-6); background: var(--panel2); font-size: var(--fs-11-5); color: var(--sub);
+}
+.insp-use span:last-child { color: var(--txt); }
+
+.insp-foot {
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: var(--sp-7);
+  padding: var(--sp-11) var(--sp-14); border-top: var(--hair) solid var(--line); background: var(--panel);
+}
+.insp-foot .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-10); }
+.insp-foot .pri { font-size: var(--fs-11-5); padding: var(--sp-6) var(--sp-12); margin-right: var(--sp-4); }
+
+/* 空态（筛完一条不剩时） */
+.mat-empty { grid-column: 1 / -1; }
+
+/* 窄窗：目录轨改成覆盖抽屉（点头栏那颗「目录」开），检查器也改覆盖式 —— 两列都不再占地方 */
+.rail-toggle { display: none; }
+@media (max-width: 1180px) {
+  #app, #app.has-insp { grid-template-columns: minmax(0, 1fr); }
+  .rail-toggle { display: inline-flex; }
+  .rail-close { display: inline-flex; }
+  .mat-rail {
+    position: fixed; left: var(--sbw); top: 0; bottom: 0; width: var(--rail-w); z-index: 85;
+    transform: translateX(-100%); transition: transform var(--dur-200) var(--ease);
+    box-shadow: var(--shadow-13);
+  }
+  #app.rail-open .mat-rail { transform: none; }
+  #app.has-insp .mat-insp { position: fixed; right: 0; top: 0; bottom: 0; width: var(--insp-w); z-index: 80;
+    box-shadow: var(--shadow-13); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcard, .macts { transition: none; }
+  .mcard:hover { transform: none; }
+}
