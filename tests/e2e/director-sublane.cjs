@@ -705,6 +705,35 @@ const h = require('./harness.cjs');
     });
     if (oldMask) throw new Error('框内那层灰遮挡已整个删掉，轨道上不该再有 .mask / .vo-off 节点：' + oldMask);
 
+    /* 刻度尺在**自己那一道**（#tlRulerLane，轨道区外面）：不是内容层里的 sticky 浮层 ——
+       以前它是 sticky 浮在轨道上面，一滚动就压在画面轨中间（用户点名）。 */
+    const rulerLane = await page.eval(() => {
+      const lane = document.getElementById('tlRulerLane');
+      const rl = lane && lane.querySelector('.tl-ruler');
+      const bar = document.getElementById('tlBar');
+      const inner = bar && bar.querySelector('#tlInner');
+      const side = document.querySelector('.tl-side');
+      if (!lane || !rl || !bar) return null;
+      return {
+        inLane: rl.parentElement === lane,
+        notInBar: !bar.contains(rl),
+        left: Math.round(rl.getBoundingClientRect().left - bar.getBoundingClientRect().left),
+        sideW: side ? Math.round(side.getBoundingClientRect().width) : -1,
+        w: Math.round(rl.getBoundingClientRect().width),
+        innerW: inner ? Math.round(inner.getBoundingClientRect().width) : -1,
+      };
+    });
+    if (!rulerLane) throw new Error('轨道坞里没有刻度尺那一道（#tlRulerLane）');
+    if (!rulerLane.inLane || !rulerLane.notInBar) {
+      throw new Error('刻度尺该在 #tlRulerLane 里、不在内容层里（sticky 浮层会压在画面轨中间）：' + JSON.stringify(rulerLane));
+    }
+    if (Math.abs(rulerLane.left) > 2) {
+      throw new Error('刻度尺该与轨道区左沿齐（尺在坞里靠 --tl-side-w 跳过轨名列那宽）：' + JSON.stringify(rulerLane));
+    }
+    if (Math.abs(rulerLane.w - rulerLane.innerW) > 2) {
+      throw new Error('刻度尺的宽该等于内容层那一段（横着跟轨道一起走）：' + JSON.stringify(rulerLane));
+    }
+
     /* ⑫ 剪辑针**能拎着走**：按住针头拖到别处 → 针要跟着走，读数（#tlT0）一起变。
        量尺子 / 折算仍走放针那一个出口（pinAtX），所以这一条盯的是「拖得动」与「拖完落点对」，
        不另写一份换算。 */

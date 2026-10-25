@@ -425,8 +425,8 @@
   /* 工具条**浮动固定**（照参考项目 timeline-tools 的那一条）：sticky 钉在轨道滚动容器顶上，
      行多时轨道从它底下滚过去，工具与缩放永远在手边。面板底 + 一条发丝线把「浮在轨道上」
      说清楚；--tl-tools-h 同时是刻度尺吸附的偏移（尺要贴在工具条下面，不能钻到它背后）。 */
-  .tl-dock { --tl-tools-h: 42px; }
-  .tl-dock-tools { position: sticky; top: 0; z-index: 80; min-height: var(--tl-tools-h);
+  .tl-dock { --tl-tools-h: 42px; --tl-side-w: 116px; }
+  .tl-dock-tools { flex: 0 0 auto; z-index: 80; min-height: var(--tl-tools-h);
     display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; padding: var(--sp-6) var(--sp-2) var(--sp-4);
     background: var(--panel); border-bottom: var(--hair) solid var(--line); }
   .tl-dock-tools .tl-tools { margin: 0; flex-wrap: nowrap; }
@@ -480,7 +480,7 @@
      换了两三行必须给得出高度 —— 否则滑块被裁掉一半，而「这一行压到 60%」这件事又变成看不见的状态。
      `--tlh-min` 是**收起一行**之后那一窄条的高度：整条轨收起用的是 `--tlh-*` 换成 18px，
      而单行收起要留得住眼睛与锁两颗（20px + 边框），所以比它高一点、各自一个落点。 */
-  .tl-grid { display: grid; grid-template-columns: 116px 1fr; align-items: start; margin: var(--sp-6) 0 var(--sp-12);
+  .tl-grid { display: grid; grid-template-columns: var(--tl-side-w) 1fr; align-items: start; margin: var(--sp-6) 0 var(--sp-12);
     --tlh-ruler: 19px; --tlh-pic: 48px; --tlh-voice: 42px; --tlh-gap: 10px; --tlh-pad: 8px; --tlh-min: 22px;
     /* 块体离轨框的那一圈留白：**三条块状轨共用这一枚**（配音块 / 待生成占位 / 字幕块）。
        以前是各写各的（3px / 4px / 4px），于是同一排里三块的高度差着一两像素，
@@ -819,7 +819,11 @@
   /* 刻度尺**吸附**在浮动工具条正下方（参考项目 timeline-ruler-viewport 同一招）：
      行多时轨道从尺子底下滚过去，秒数一直在。尺与左列那格同吃 `--tl-tools-h`（工具条的高度），
      差 1px 就会与刻度错位；底色必须补 —— 不补的话滚上来的轨道从尺子背后透出来。 */
-  .tl-ruler { position: sticky; top: var(--tl-tools-h); z-index: 70; height: calc(var(--tlh-ruler) - 3px); margin: 0 0 var(--sp-3);
+  /* 刻度尺在**自己那一道**里（.tl-rulerlane，轨道区外面）：竖着不动、横着跟轨道一起走。 */
+  .tl-rulerlane { flex: 0 0 auto; position: relative; height: var(--tlh-ruler); overflow: hidden;
+    background: var(--panel); border-bottom: var(--hair) solid var(--line); }
+  .tl-rulerlane .tl-ruler { position: absolute; top: 0; left: var(--tl-side-w); width: 0; z-index: 70;
+    height: calc(var(--tlh-ruler) - 3px);
     border-bottom: var(--hair) solid var(--line); background: var(--panel); }
   /* 次档 = 底部一道短细线（不写字）；主档 = 通高 1.5px 的亮线 + 秒数。
      通高那根线是「尺」与「轨」的接缝：眼睛顺着它往下走就能落到轨道里那一格上。
@@ -1327,6 +1331,10 @@
      轨道区行多时上下滑且不显滚动条。内容由 renderMid 在剪辑模式下现画（mid.js），
      生成态整块 hidden —— 三栏布局两种模式同一份，视频栏定高不动。 -->
 <div class="tl-dock" id="tlDock" hidden>
+  <!-- 工具条与刻度尺都在**滚动区外面**：工具条常驻顶上，刻度尺自己一道，
+       轨道从尺子下面滚过去（以前尺子是 sticky 浮在轨道上面，一滚动就压在画面轨中间）。 -->
+  <div class="tl-dock-tools" id="tlDockTools"></div>
+  <div class="tl-rulerlane" id="tlRulerLane"></div>
   <div class="tl-scroll" id="tlDockBody"></div>
 </div>
 

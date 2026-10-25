@@ -308,7 +308,9 @@ function renderMid() {
   if (midEditTrimOf() && dock) {
     dock.hidden = false;
     const body = dock.querySelector('#tlDockBody');
-    body.innerHTML = tlDockHTML(sh, cur);
+    const toolsEl = dock.querySelector('#tlDockTools');
+    if (toolsEl) toolsEl.innerHTML = tlDockToolsHTML();
+    body.innerHTML = tlDockBodyHTML(sh, cur);
     bindTlDock(dock, col, sh, cur);
     renderTimeline(body, sh, cur);
     /* 入出点那一行（正在调谁、起止几秒）在**轨道坞**里，而坞每 3 秒随整栏重画一次 ——
@@ -549,7 +551,7 @@ function renderShotStrip(col) {
    工具条（剪子一组 + 本镜/全片页签 + 缩放一组）一行排开，下面是读数行、配音文字行、
    轨道网格（左轨名列 + 右滚动轨）与入出点那一行。之前这些全塞在中栏里（.timeline-wrap），
    于是轨道只有中栏那么宽、视频栏被挤得换一次模式变一次大小；现在与三栏平级铺满整行。 */
-function tlDockHTML(sh, cur) {
+function tlDockToolsHTML() {
   return `
     <div class="tl-dock-tools">
       <span class="ui-seg tl-tabs" role="tablist" aria-label="时间线范围">
@@ -578,7 +580,12 @@ function tlDockHTML(sh, cur) {
         <span class="tl-zval" id="tlZoomVal">自适应</span>
         <button type="button" id="tlZoomAuto" title="回到自适应" disabled>自适应</button>
       </span>
-    </div>
+    </div>`;
+}
+/* 轨道区的内容（**不含工具条**）：工具条与刻度尺都在滚动区外面 ——
+   工具条常驻顶上、刻度尺自己一道，两样都不该被轨道压住。 */
+function tlDockBodyHTML(sh, cur) {
+  return `
     <!-- 只读这一句配音的文字（选中配音块时露出；paintVoiceLine 一处翻 hidden） -->
     <div class="tl-vline" id="tlVoiceLine" hidden>
       <span class="vl-chip">配音</span>
@@ -589,7 +596,6 @@ function tlDockHTML(sh, cur) {
     <div class="tl-hint" id="tlHint"></div>
     <div class="tl-grid${(laneHidden('pic') ? ' hid-pic' : '') + (laneHidden('voice') ? ' hid-voice' : '')}" id="tlGrid">
       <div class="tl-side">
-        <div class="tl-hrow ruler"></div>
         <div class="tl-hrow pic">${laneRowCtlHTML('pic', 0)}${laneRowBtnsHTML('pic')}</div>
         <div class="tl-hrow voice">${laneRowCtlHTML('voice', 0)}${laneRowBtnsHTML('voice')}</div>
       </div>

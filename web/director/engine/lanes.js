@@ -183,6 +183,22 @@ function rulerHTML(total, pps) {
   return h + '</div>';
 }
 /* 把这一页签的比例尺落到内容层上，并放回该在的滚动位置（顺序：先宽、后滚） */
+/* 刻度尺：**自己的那一道**（在轨道区外面，贴着轨道区的顶）。
+   以前它住在内容层里、用 sticky 浮在轨道**上面** —— 一滚动就压在画面轨中间（用户点名）。
+   现在它在坞里单独一格：竖着不动（不进滚动区，轨道从它下面滚过去），
+   横着跟轨道一起走（跟着 #tlBar 的 scrollLeft 平移）—— 与剪映 / PR 一样，尺是固定的一条道。 */
+function placeRuler(bar, total) {
+  const lane = document.getElementById('tlRulerLane');
+  if (!lane || !bar) return;
+  lane.innerHTML = rulerHTML(total, tlPpsNow(total));
+  const rl = lane.querySelector('.tl-ruler');
+  if (!rl) return;
+  /* 尺的宽度 = 内容层那一段的宽（总长 × 像素/秒），它俩才是一条尺。 */
+  rl.style.width = tlInnerWidth(total, tlPpsNow(total)) + 'px';
+  const sync = () => { rl.style.transform = 'translateX(' + (-(bar.scrollLeft || 0)) + 'px)'; };
+  bar.addEventListener('scroll', sync);
+  sync();
+}
 function tlApplyScale(bar, total) {
   const inner = bar.querySelector('#tlInner');
   if (!inner) return;
@@ -636,7 +652,7 @@ function renderShotTrack(bar, col, sh, cur) {
     picHTML += `<div class="tl-vrow${rowHidden('pic', ln) ? ' ghosted' : ''}" data-ln="${ln}">` + (body
       || (segs.length || ln ? '' : '<div class="tl-empty">这一条候选一段画面都没留：按 Ctrl+Z 退回去，或在上面「切开」重新分一段。</div>')) + '</div>';
   }
-  bar.insertAdjacentHTML('beforeend', rulerHTML(ax, tlPpsNow(ax)));
+  placeRuler(bar, ax);
   bar.insertAdjacentHTML('beforeend', picHTML);
   bar.insertAdjacentHTML('beforeend', voiceLaneHTML(sh, c, total, G));
   /* 待生成配音那一轨排在**真配音轨下方**（用户点名）：它说的是「这一镜还有话没配」，
@@ -1104,7 +1120,7 @@ function renderFilmTrack(bar, col, sh) {
     filmHTML += `<div class="tl-film${rowHidden('pic', ln) ? ' ghosted' : ''}" data-ln="${ln}">`
       + G.rows.filter(r => r.ln === ln).map(cellHTML).join('') + '</div>';
   }
-  bar.insertAdjacentHTML('beforeend', rulerHTML(total, tlPpsNow(total)));
+  placeRuler(bar, total);
   bar.insertAdjacentHTML('beforeend', filmHTML);
   bindFilmVolCtl(bar);
   /* 声音行**无条件画**（用户点名的第 ① 条）：从前这里先看 `voices`，于是「这一片一句配音都没有」
