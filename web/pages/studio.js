@@ -760,8 +760,8 @@ const StudioView = {
         const ta = $('prompt');
         if (ta) {
           paintPromptHint();
-          ta.title = slots.length ? '下方小方块可上传素材（可用哪些、几张、收什么文件，随所选型号的能力变化）；也可以把右栏的素材卡直接拖进来'
-            : (comboNow() ? '当前输入模式不带素材，想带就换上面那一档' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
+          ta.title = slots.length ? '可上传素材，或拖素材卡进来'
+            : (comboNow() ? '当前模式不带素材' : '当前型号只支持纯文字');
         }
         area.innerHTML = '';
         clearSlotOver();
@@ -843,14 +843,14 @@ const StudioView = {
           box2.className = 'conflict-hint';
           box2.style.color = 'var(--warn)';
           box2.innerHTML = gLines.map(x => '<div>' + window.esc(x) + '</div>').join('')
-            + (canSwitch ? '<a href="#" class="lnk">切到「' + window.esc(comboLabel(fit)) + '」</a>' : '')
-            + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<a href="#" class="lnk2">清空这些素材</a>' : '')
+            + (canSwitch ? '<button type="button" class="ui-linkbtn">切到「' + window.esc(comboLabel(fit)) + '」</button>' : '')
+            + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<button type="button" class="ui-linkbtn">清空这些素材</button>' : '')
             + (!canSwitch && !badKinds.length ? (gaps.missing.length ? '：补上缺的那一类素材，或换一档 / 换型号'
               : '：换一档或换回支持的型号') : '');
-          const go = box2.querySelector('.lnk');
-          if (go) go.onclick = e => { e.preventDefault(); setCombo(fit.id); };
-          const cl = box2.querySelector('.lnk2');
-          if (cl) cl.onclick = e => { e.preventDefault(); badKinds.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+          const go = box2.querySelector('.ui-linkbtn');
+          if (go) go.onclick = () => setCombo(fit.id);
+          const cl = box2.querySelectorAll('.ui-linkbtn')[1];
+          if (cl) cl.onclick = () => { badKinds.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
           area.appendChild(box2);
         }
         updateGoState();
@@ -869,7 +869,9 @@ const StudioView = {
       }
 
       /* ============================ ⑤ 参数面板 ============================ */
-      $('advBody').innerHTML = ADV_BODY_HTML;
+      /* 这一块整片重画：它在左栏（一只滚动容器）里，重画后上面那段的高度变了，
+         视口可能被夹回顶 → 走公共件 Wb.viewport.keep（左栏按锚点还位）。 */
+      Wb.viewport.keep($('leftCol'), () => { $('advBody').innerHTML = ADV_BODY_HTML; });
       collectAdv();
       const RATIO_HINT = {
         '1:1': ['方形，适合头像与商品图', ''], '16:9': ['横屏，适合风景与视频感画面', 'land'], '9:16': ['竖屏，适合手机全屏与人物', 'port'],
@@ -1371,8 +1373,8 @@ const StudioView = {
         const refused = t => { release(); setStatus(t); };
         const original = ta.value.trim();
         if (original.length < 2) { refused('<span class="err">先写几个字再润色</span>'); return; }
-        if (!TextAI.prov(REG)) { refused('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-        if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
+        if (!TextAI.prov(REG)) { refused('<span class="err">没有可用的文字 AI</span>'); return; }
+        if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
         const sysBase = TextAI.prompt(POLISH_SYS[TYPE]);
         const host = $('polishInline');
         $('splitInline').hidden = true;
@@ -1404,7 +1406,7 @@ const StudioView = {
         try {
           await InlinePolish.interactive(host, {
             ask: TextAI.shouldAsk() ? ask : null, run, before: original,
-            askTitle: 'AI 想先问几个问题', askIntro: '点一个候选；都不合适就点最后一个「其他」自己写（会原样发给 AI）；没答的按默认理解走',
+            askTitle: 'AI 想先问几个问题', askIntro: '点一个候选，或选「其他」自己写。',
             onFollow: follow,
             followPlaceholder: TYPE === 'audio'
               ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法（写完按回车）'
@@ -1429,7 +1431,7 @@ const StudioView = {
       function syncSplitDimCustom() {
         const on = isCustomDim();
         $('splitDimCustomWrap').hidden = !on;
-        if (on) { try { $('splitDimCustom').focus(); } catch (e) {} }
+        if (on) { try { window.focusQuiet($('splitDimCustom')); } catch (e) {} }
       }
       $('splitDim').addEventListener('change', syncSplitDimCustom);
       $('splitDimCustom').addEventListener('input', () => { writeLS('studio_split_dim_custom', $('splitDimCustom').value); });
@@ -1483,8 +1485,8 @@ const StudioView = {
         const release = () => { splitBusy = false; btn.disabled = false; btn.textContent = prev; };
         const refused = t => { release(); setStatus(t); };
         if (($('prompt').value || '').trim().length < 2) { refused('<span class="err">先写一段描述再拆分</span>'); return; }
-        if (!TextAI.prov(REG)) { refused('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-        if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先到「设置」填写文字 AI 密钥（拆分方案靠它出）</span>'); return; }
+        if (!TextAI.prov(REG)) { refused('<span class="err">没有可用的文字 AI</span>'); return; }
+        if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
         const blk = submitBlockReason();
         if (blk) { refused('<span class="err">' + window.esc(blk) + '</span>'); return; }
         try {
@@ -1599,7 +1601,7 @@ const StudioView = {
                 rec.note = '列表这次没取回来，还没核对上';
               } else {
                 rec.state = 'settled';
-                setStatus('<span class="warn">已核对列表：上面有这条任务就是成功了，别重复生成</span>');
+                setStatus('<span class="warn">已核对，别重复生成</span>');
               }
               prunePending();
               renderPendingHint();
@@ -1629,12 +1631,10 @@ const StudioView = {
         startPendingTick();
         const secs = Math.max(1, Math.round((Date.now() - un.at) / 1000));
         box.style.display = '';
-        box.innerHTML = '<span class="warn">上一条提交还在等平台响应（已 ' + secs + ' 秒）：'
-          + (un.state === 'inflight' ? '请求已经发出去了，平台受理后会自己出现在右边列表里。'
-            : '平台可能已受理（' + window.esc(un.note || '响应丢了') + '），正在核对列表。')
-          + '</span> 再点生成会再提交一份（可能重复扣费）：<a href="#" data-force>仍然再提交</a>';
+        box.innerHTML = '<span class="warn">还在等平台响应（' + secs + ' 秒）。'
+          + '</span> 再点会重复扣费：<button type="button" class="ui-linkbtn" data-force>仍然提交</button>';
         const b = box.querySelector('[data-force]');
-        if (b) b.onclick = e => { e.preventDefault(); armedAt = Date.now(); $('go').click(); };
+        if (b) b.onclick = () => { armedAt = Date.now(); $('go').click(); };
       }
       let pendingTick = null;
       function startPendingTick() { if (!pendingTick) pendingTick = setInterval(() => { if (document.hidden || !isActive()) return; renderPendingHint(); }, 1000); }
@@ -1880,7 +1880,7 @@ const StudioView = {
       $('go').onclick = async () => {
         /* 同步守卫放在第一行：以前这里只靠 disabled，而 Wb.ready 在用户动一下提示词之后就按
            「输入合不合法」重写 disabled —— 提交还在路上，按钮却被重新点亮，再点一份就是第二次扣费。 */
-        if (submitting) { setStatus('<span class="warn">这一轮还在提交中（等平台响应）：现在再点会发出第二份创建请求，已拦住</span>'); return; }
+        if (submitting) { setStatus('<span class="warn">还在提交中，已拦住</span>'); return; }
         const why = submitBlockReason();
         if (why) { setStatus('<span class="err">' + why + '</span>'); updateGoState(); return; }
         if (unresolvedSubmit() && !resubmitArmed()) { armResubmit(); return; }
@@ -2052,8 +2052,7 @@ const StudioView = {
         if (!window.Api || !Api.isBalanceErr(e)) { box.hidden = true; box.innerHTML = ''; return; }
         if (provId) Api.balOut.mark(provId);
         box.hidden = false;
-        box.innerHTML = '<div class="ui-note err" style="margin-top: var(--sp-8)">这一家的余额 / 额度不够（先充上再合成，'
-          + '不然再点一次还是同一句拒）。'
+        box.innerHTML = '<div class="ui-note err" style="margin-top: var(--sp-8)">余额不足，先充值。'
           + '<button class="tool mini" data-balgo style="margin-left: var(--sp-6)">去「用量与余额」</button></div>';
         const b = box.querySelector('[data-balgo]');
         if (b) b.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.hash = 'usage.html'));
@@ -2076,7 +2075,7 @@ const StudioView = {
         audioTasks.forEach(t => {
           if (Wb.stLive(t.status)) {
             t.status = 'uncertain';
-            t.error = '这一条提交时页面刷新了：平台可能已经合成并扣费（这一家没有任务号可查），先在资产库里核对，确认没有再重发';
+            t.error = '提交时页面刷新了，先去资产库核对。';
           }
           if (t.keepKey && !(window.AiGen && AiGen.hasTtsBytes(t.keepKey))) t.keepKey = '';
         });
@@ -2182,6 +2181,10 @@ const StudioView = {
         kindOrder = next;
         return next;
       }
+      /* 类型筛选走公共件 Wb.kindFilter（全站一份：工作台 / 收藏页 / 资产库三处共用）。
+         档位表是这一页自己算的（这一屏出现过的类型），公共件只吃「档位表 + 每档条数 + 点完之后做什么」。 */
+      let kindFilterApi = null;
+      const kindCounts = new Map();
       function paintCounts() {
         const passable = mergedItems().filter(matched);
         const matched_ = passable.filter(it => !AssetLocal.hideAsCloud(it));
@@ -2191,36 +2194,26 @@ const StudioView = {
         matched_.forEach(it => { if (it.mtype) c.set(it.mtype, (c.get(it.mtype) || 0) + 1); });
         const kinds = kindTabs();
         if (filterKind !== 'all' && !kinds.includes(filterKind)) kinds.push(filterKind);
-        const box = $('histFilter');
-        const want = ['all'].concat(kinds).join('|');
-        if (box.dataset.kinds !== want) {
-          box.dataset.kinds = want;
-          box.innerHTML = ['all'].concat(kinds)
-            .map(k => '<button type="button" data-k="' + window.esc(k) + '">' + window.esc(k === 'all' ? '全部' : k)
-              + '<span class="seg-n">0</span></button>').join('');
+        kindCounts.clear();
+        c.forEach((n, k) => kindCounts.set(k, n));
+        kindCounts.set('all', matched_.length);
+        if (!kindFilterApi) {
+          kindFilterApi = Wb.kindFilter.bind($('histFilter'), {
+            kinds: [['all', '全部']],
+            value: filterKind,
+            count: v => Number(kindCounts.get(v) || 0),
+            onPick: v => { filterKind = v; pager.setPage(0); renderAll(); },
+          });
         }
-        box.querySelectorAll('button[data-k]').forEach(b => {
-          const k = b.dataset.k;
-          const n = k === 'all' ? matched_.length : (c.get(k) || 0);
-          const el = b.querySelector('.seg-n');
-          if (el) el.textContent = n;
-          b.classList.toggle('on', k === filterKind);
-          b.hidden = (k !== 'all' && k !== filterKind && !n);
-        });
+        kindFilterApi.setKinds([['all', '全部']].concat(kinds.map(k => [k, k])));
+        kindFilterApi.setValue(filterKind);
         const note = $('histNote');
         const hidden = total - matched_.length - hiddenCloud;
         note.textContent = (showAll ? '全部时间范围' : '最近 30 天')
           + (hidden > 0 ? ' · 另有 ' + hidden + ' 条更早的没显示' : '')
-          + (hiddenCloud > 0 ? ' · ' + hiddenCloud + ' 条本机还没有这份字节，按「不显示云端任务」藏起来了' : '')
+          + (hiddenCloud > 0 ? ' · ' + hiddenCloud + ' 条已隐藏' : '')
           + (serverLoading ? ' · 正在取回…' : '');
       }
-      $('histFilter').addEventListener('click', e => {
-        const b = e.target.closest('button[data-k]');
-        if (!b) return;
-        filterKind = b.dataset.k;
-        pager.setPage(0);
-        renderAll();
-      });
       $('winAll').onclick = () => {
         showAll = !showAll;
         $('winAll').textContent = showAll ? '只看最近 30 天' : '查看全部';
@@ -2604,11 +2597,11 @@ const StudioView = {
         if (!hasDraft) return true;
         return !!(await window.Confirm.ask({
           title: '用这一条覆盖左栏？', danger: true, okLabel: '覆盖', cancelLabel: '先不覆盖',
-          body: '左栏现在写的提示词与参数会被这一条替换（参考素材不会自动带上）。覆盖之后要自己点「生成」才会发出去。',
+          body: '会替换左栏的提示词与参数。',
         }));
       }
       async function retryItem(it) {
-        if (submitting) { Toast.warn('这一轮还在提交中：先等它落定，再重发这一条'); return; }
+        if (submitting) { Toast.warn('还在提交中'); return; }
         if (!await confirmOverwriteDraft()) return;
         if (it.local) {
           const rec = it.srcRef || audioTasks.find(x => (x.localId || x.id) === it.localId);
@@ -2620,7 +2613,7 @@ const StudioView = {
           setType('audio', true);
           $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
           rec.status = 'creating'; rec.error = ''; rec.noResend = false; saveAudioTasks(); renderAll();
-          setStatus('<span class="warn">已把这一条填回左栏：确认无误后点「生成」才会发出去</span>');
+          setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
           updateGoState();
           return;
         }
@@ -2631,13 +2624,13 @@ const StudioView = {
         const hit = ((provGroups().find(p => p.id === it.provider) || {}).models || [])
           .find(m => String(m && m.id) === String(it.model));
         if (!hit) {
-          Toast.warn('这条原来的型号现在不在可选清单里（换过平台或型号下架了）：请在左栏重新选一个型号再生成');
+          Toast.warn('型号已不在清单里，重新选一个。');
           return;
         }
         $('model').value = prov.id + '::' + hit.id;
         $('model').dispatchEvent(new Event('change'));
         $('prompt').value = it.prompt || '';
-        setStatus('<span class="warn">已按当前面板参数填回左栏（原来的参考素材不会自动带上；要带就在左栏重新选）：确认后点「生成」</span>');
+        setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
         updateGoState();
       }
       async function deleteLocalAsset(it) {
@@ -2663,9 +2656,8 @@ const StudioView = {
         sigOf: it => cardSig(it),
         paint: (d, it) => paintCard(d, it),
         emptyHTML: () => (hiddenCloud
-          ? Wb.emptyHTML('这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，按「不显示云端任务」藏起来了。'
-            + '要看它们就在设置页关掉这一项（它们还在平台那边，收藏与素材库也不受这一项影响）。')
-          : Wb.emptyHTML('还没有历史素材。左栏写好提示词点「生成」，出来的产物会自动出现在这里；也可以把素材拖到左栏当参考。')),
+          ? Wb.emptyHTML(hiddenCloud + ' 条已按设置隐藏')
+          : Wb.emptyHTML('还没有历史素材')),
         notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
         /* 新卡片入场：走公共的 .card-enter（时长与位移在 ui.css 里，都取令牌），
            不在 JS 里另抄一份 6px / 280ms。 */
@@ -2766,7 +2758,7 @@ const StudioView = {
           ['错误', it.error],
           ['任务ID', it.taskId || (it.assetId ? it.assetId : '（本机记录，无任务号）')],
         ],
-        actions: it => (it.media ? '<button class="ghost" data-act="reuse" title="把这条的提示词与素材填进左栏（按类型自动切过去）">'
+        actions: it => (it.media ? '<button class="ghost" data-act="reuse" title="填进左栏">'
           + icon('reuse', 12) + ' 复用这次创作</button>' : ''),
         bindActions: (host, it) => {
           const b = host.querySelector('[data-act="reuse"]');
@@ -2898,13 +2890,9 @@ const StudioView = {
         if (it.prompt) bits.push('提示词');
         if (it.model) bits.push('型号');
         if (r && r.ok) bits.push('1 个' + it.mtype + '素材');
-        const dropped = (has && !it.asMaterial)
-          ? (wantType === 'video'
-            ? '（这一条视频本身没有进「参考视频」槽 —— 复用带过来的是提示词与参数；要拿它当参考请用「@ 素材」）'
-            : '（这一条素材本身没有进槽 —— 要拿它当参考请用「@ 素材」）')
-          : '';
+        const dropped = (has && !it.asMaterial) ? '（没进参考槽）' : '';
         setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>'
-          + '<span class="warn">　确认后自己点「生成」—— 这一步没有提交任务，也没有扣费。</span>'
+          + '<span class="warn">　确认后点「生成」。</span>'
           + (dropped ? '<span class="warn">　' + dropped + '</span>' : ''));
       }
       async function applyReuseFromAssets() {
@@ -3063,8 +3051,8 @@ const StudioView = {
       }
       function studioBulkFavRemove() {
         const n = taskMulti().favRemove();
-        if (!n) { Toast.warn('选中的这些都不在收藏里'); return; }
-        Toast.receipt('已从收藏移出 ' + n + ' 条');
+        if (!n) { Toast.warn('都不在收藏里'); return; }
+        Toast.receipt('已取消 ' + n + ' 条收藏');
         renderAll();
       }
       async function bulkDownload() {
@@ -3091,11 +3079,15 @@ const StudioView = {
          这一页以前没有开它：老工作台的启动代码带着 wb2 的 body 判断，页面迁到 SPA 之后
          那个判断再也没成立过（wb2 已是死代码），于是左右栏宽度一直写死在 minmax(380px,520px)。 */
       if (window.Wb && Wb.split && Wb.split.enable) {
-        const sp = Wb.split.enable({
-          box: '.layout', key: 'wb_split',
+        /* box 必须是**本页的** .layout：文档级选择器在 KeepAlive 页面池里会命中别的页
+           （导演台也有 .layout），而那边早已 _wbSplit=true → enable 直接返回 null →
+           工作台既没有把手、也读不到存下来的 wb_split（用户拖出来的那一档就白存了）。 */
+        const layoutEl = pageEl.value ? pageEl.value.querySelector('.layout') : null;
+        const sp = layoutEl ? Wb.split.enable({
+          box: layoutEl, key: 'wb_split',
           cols: [{ el: '.col-left' }, { el: '.col-right' }],
-          handles: [{ left: 0, right: 1, resize: 0, varName: 'sp0', min: 300, max: 900 }],
-        });
+          handles: [{ left: 0, right: 1, resize: 0, varName: 'sp0', min: 380, max: 900 }],
+        }) : null;
         if (sp && sp.destroy) disposers.push(() => sp.destroy());
       }
 

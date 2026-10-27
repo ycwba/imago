@@ -43,7 +43,9 @@
   --acc-tint-10:color-mix(in srgb, var(--acc) 10%, transparent);
   --acc-tint-18:color-mix(in srgb, var(--acc) 18%, transparent);
   --acc-line-32:color-mix(in srgb, var(--acc) 32%, transparent);
-  /* 语义色淡底：警告条那一族 */
+  /* 语义色淡底：状态牌那一族（成功 / 失败 / 警告）与警告条 */
+  --ok-tint:color-mix(in srgb, var(--ok) 10%, transparent);
+  --err-tint:color-mix(in srgb, var(--err) 10%, transparent);
   --warn-tint:color-mix(in srgb, var(--warn) 10%, transparent);
 
   /* ---------- ③ 固定中性色：深浅两档一致 ----------
@@ -54,28 +56,16 @@
   --pal-slate-4:#e5e7eb; --pal-slate-5:#cfd4e2;
   --pal-scrim:#0c0e16;
 
-  /* ---------- ④ 导演台深底配色：天生深色，**不跟主题走** ----------
-     导演台的轨道区永远是深底（深浅主题刻意一致），所以它自带一套配色。
-     前缀 --dir-* 就是「这一族不跟主题走」的标记 —— 换主题时别顺手改它们。
-     命名按色相，不按用途（轨道底/配音块/待生成这些用途名要等真正知道它
-     用在哪的那一轮再起，免得名字与实际用途对不上）。
-     透明度同样现算：color-mix(in srgb, var(--基色) N%, transparent)。 */
-  /* 紫与靛 */
-  --dir-indigo:#6c8cff;
-  --dir-violet-2:#6044d0;
-  /* 青与天蓝 */
-  --dir-cyan:#35ead9; --dir-sky:#7fd0ff;
-  /* 绿 / 红 / 琥珀 */
-  --dir-green:#22c55e; --dir-green-lt:#4ade80; --dir-forest:#006633;
-  --dir-red:#ef4444; --dir-red-2:#dc2626;
-  --dir-amber:#f97316; --dir-amber-dk:#d97706;
-  /* 深底表面（编号是登记顺序，不表示深浅） */
-  --dir-ink-0:#05070a; --dir-ink-1:#040b0f; --dir-ink-2:#0c1218; --dir-ink-3:#12141a;
-  --dir-ink-4:#121218; --dir-ink-5:#2a2550; --dir-ink-6:#343842; --dir-ink-7:#0a0616;
-  --dir-ink-8:#141828;
-  /* 深底上的浅色 */
-  --dir-fog-0:#eae7fb; --dir-fog-1:#f0ecff; --dir-fog-2:#f4eeff; --dir-fog-3:#ece6ff;
-  --dir-fog-4:#eafcff; --dir-fog-5:#ebfffd; --dir-fog-6:#e1fffc;
+  /* ---------- ③b 导演台标记色：轨道里的**功能标记**，不是主题色 ----------
+     切点 / 就绪 / 静音 / 音量高 —— 这四个颜色在时间轴上说的是状态，
+     混进主题强调色会分不清「选中了」和「这里有一个切点」。
+     深浅两档各一套（跟主题色一样跟档走）：以前导演台的轨道区是固定深底，
+     这几枚不跟档走，浅色主题下会读不出来。
+     命名按**用途**不按色相 —— 用途名才扛得住换色。 */
+  --mark-cut: #0f9e94;    /* 剪切点（轨上那条竖线） */
+  --mark-ready: #16a34a;  /* 已就绪 / 生成成功 */
+  --mark-mute: #dc2626;   /* 静音 */
+  --mark-loud: #d97706;   /* 音量偏高 */
 
   /* ---------- 透明度阶梯（名字即值）----------
      淡底 / 描边 / 遮罩的透明度只有这一份：color-mix(…, var(--a-10), transparent)。
@@ -97,9 +87,20 @@
   --sz-scroll:8px;        /* 细滚动条宽 */
   --sz-wb:1440px;         /* 工作台最大宽 */
   --sz-dock:320px;        /* 剪辑态轨道坞的默认高度（拖动后由 Wb.split 写进 --dock-h 覆盖） */
-  /* 目录轨 / 检查器两列的宽度（设置页的目录轨、素材库的左轨与右检共用这两枚） */
+  /* 设置页账号卡流：卡高固定（展开密钥行 / 型号面板都不改卡的外形，卡内中段自己滚），
+     列宽给一个下限、由 auto-fill 铺满一行。能力名列宽是「四字 + 那枚小格子」的实测宽。
+     300 是量出来的：右栏在 1440 下约 966px，扣掉两道 12px 间隙后 minmax(300px,1fr) 正好铺三列；
+     330 只能铺两列（卡宽 477px —— 又变成一条横条，正是这一版要摆脱的形状）。
+     卡高 372：卡头 + 能力格 + 卡底之外，中段留约 240px（常见一到三档够用，再多中段自己滚）。 */
+  --sz-acct:320px;
+  --sz-acct-w:300px;
+  --sz-capname:78px;
+  /* 目录轨 / 检查器的宽度：素材库的左轨与右检共用这两枚。
+     设置页的目录轨**另有自己的一枚**（--setrail-w）：它每一行还要带一个「当前值」速记，
+     比素材库那根宽。两页各用各的宽度令牌 —— 一根轨两个宽度，就是左轨压住右栏的起因。 */
   --rail-w:208px;
   --insp-w:340px;
+  --setrail-w:272px;
 
   /* ---------- 尺寸档位：间距（名字即值） ----------
      主档：4 8 12 16 24 32；其余为补档，收容现存值。 */
@@ -115,7 +116,7 @@
   --fs-11:11px; --fs-11-5:11.5px; --fs-12:12px; --fs-12-5:12.5px; --fs-13:13px;
   --fs-13-5:13.5px; --fs-14:14px; --fs-14-5:14.5px; --fs-15:15px; --fs-16:16px;
   --fs-17:17px; --fs-18:18px; --fs-19:19px; --fs-20:20px; --fs-24:24px; --fs-26:26px;
-  --fs-42:42px;
+  --fs-42:42px; --fs-54:54px;
 
   /* ---------- 尺寸档位：圆角 ----------
      主档：6 10 14；其余为补档。 */
@@ -178,6 +179,8 @@ html[data-theme="dark"] {
   --thumbbg:#39415a;
   --atbg: rgba(255, 255, 255, .13);
   --scroll:#2a3046;
+  /* ③b 标记色：深色档各一枚（浅色档在 :root 的 ③b 段） */
+  --mark-cut:#35ead9; --mark-ready:#4ade80; --mark-mute:#ff7a7a; --mark-loud:#fbbf24;
   --shadow-1:0 1px 2px rgba(0,0,0,.35); --shadow-2:0 8px 24px rgba(0,0,0,.45);
 }
 

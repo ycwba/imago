@@ -59,36 +59,49 @@ function pickFilm(dir) {
       const c0 = A.context();
       const hit = (c0.候选 || []).find(x => x.状态 === 'succeeded');
       if (!hit) return { err: '没有导入成功的候选' };
-      const sel = await A.run('select', { candId: hit.id, expectedRevision: c0.revision });
+      /* 新桥按身份对账：check 记下这一次要动谁，run 再解析一遍对身份。 */
+      const arg = { candId: hit.id };
+      const k = A.check('select', arg);
+      if (!k || k.ok === false) return { err: '选用候选没过校验：' + JSON.stringify(k) };
+      const sel = A.run('select', arg);
       const c = A.context();
-      return { vid: hit.id, 候选: (c.候选 || []).length, sel, 选用: c.选用,
-        总秒: c.这一条 && c.这一条.总秒, 段数: c.这一条 && c.这一条.段数, revision: c.revision, hash: location.hash };
+      const f = c.成片 || {};
+      const seg0 = (f.段 || [])[0] || {};
+      return { vid: hit.id, 候选: (c.候选 || []).length, sel, 选用: c.选用, clipId: seg0.id || '',
+        总秒: f.总秒, 段数: f.段数, hash: location.hash };
     });
     if (before.err) throw new Error(JSON.stringify(before));
     if (!before.sel.ok) throw new Error('选用导入的那一条失败：' + JSON.stringify(before.sel));
     if (!(before.总秒 > 1.5)) throw new Error('候选时长没读到真实视频秒数（应是 2 秒）：' + JSON.stringify(before));
     if (before.段数 !== 1) throw new Error('新导入的候选应该是整段：' + JSON.stringify(before));
+    if (!before.clipId) throw new Error('选用之后成片里没有那一段：' + JSON.stringify(before));
 
-    /* 剪 → 倍速 → 字幕：全部走唯一写入桥，写动作带 expectedRevision。 */
-    const steps = await page.eval(async vid => {
+    /* 剪 → 倍速 → 字幕：全部走唯一写入桥（每一步先 check 再 run，凭据是块 id）。 */
+    const steps = await page.eval(async clipId => {
       const A = window.WBBridge.get('director');
-      const rev = () => A.context().revision;
-      const cut = await A.run('cut', { candId: vid, way: 'split', at: 1.0, expectedRevision: rev() });
-      const set = await A.run('set', { candId: vid, seg: 2, speed: 2, expectedRevision: rev() });
-      const sub = await A.run('set', { kind: 'subtitle', candId: vid,
-        entries: [{ index: 1, startMs: 200, endMs: 900, text: '探针字幕一句' }], expectedRevision: rev() });
-      const bad = await A.check('cut', { candId: vid, way: 'split', at: 0.5, expectedRevision: rev() + 77 });
+      const doIt = (op, arg) => {
+        const k = A.check(op, arg);
+        if (!k || k.ok === false) return { ok: false, err: (k && k.err) || 'check 没过' };
+        return A.run(op, arg);
+      };
+      const cut = doIt('cut', { id: clipId, way: 'split', at: 1.0 });
+      const seg2 = ((A.context().成片 || {}).段 || [])[1] || {};
+      const set = doIt('set', { kind: 'clip', id: seg2.id, speed: 2 });
+      const sub = doIt('set', { kind: 'subtitle',
+        entries: [{ start: 0.2, end: 0.9, text: '探针字幕一句' }] });
+      /* 反面：切点贴边（距段头 0.01 秒）必须在 check 阶段就被拒。 */
+      const bad = A.check('cut', { id: clipId, way: 'split', at: 0.01 });
       const c = A.context();
-      return { cut, set, sub, bad, 段数: c.这一条 && c.这一条.段数, 成片秒: c.这一条 && c.这一条.成片秒,
-        字幕: c.字幕, revision: c.revision, 可撤销: c.可撤销 };
-    }, before.vid);
+      const f = c.成片 || {};
+      return { cut, set, sub, bad, 段数: f.段数, 成片秒: f.总秒, 字幕: c.字幕, 可撤销: c.可撤销 };
+    }, before.clipId);
     if (!steps.cut.ok) throw new Error('剪切失败：' + JSON.stringify(steps.cut));
     if (!steps.set.ok) throw new Error('改倍速失败：' + JSON.stringify(steps.set));
     if (!steps.sub.ok) throw new Error('写字幕失败：' + JSON.stringify(steps.sub));
     if (steps.段数 !== 2) throw new Error('剪完应该是两段：' + JSON.stringify(steps.段数));
     if (!(steps.成片秒 > 1.4 && steps.成片秒 < 1.7)) throw new Error('第二段 2 倍速没落到成片秒上（应约 1.5 秒）：' + steps.成片秒);
-    if (!(steps.sub.subtitleCount === 1)) throw new Error('字幕回执条数不对：' + JSON.stringify(steps.sub));
-    if (steps.bad && steps.bad.code !== 'revision_mismatch') throw new Error('过期修订号没被拒：' + JSON.stringify(steps.bad));
+    if (!(steps.字幕 && steps.字幕.条数 === 1)) throw new Error('字幕条数不对：' + JSON.stringify(steps.字幕));
+    if (!steps.bad || steps.bad.ok !== false) throw new Error('贴边的切点没在 check 阶段被拒：' + JSON.stringify(steps.bad));
     if (!(steps.可撤销 >= 3)) throw new Error('三次写入至少压了三个撤销快照：' + steps.可撤销);
 
     /* 导出成片（助手入口 = 页面同一套导出函数），把字幕一起烧进去。 */

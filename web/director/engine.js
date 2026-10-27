@@ -3,29 +3,28 @@
    运行时没有 new Function，严格 CSP 不需要 unsafe-eval。 */
 import { createExport } from './engine/export.js';
 import { createGen } from './engine/gen.js';
-import { createVoiceLane} from './engine/voice-lane.js';
 import { createApply} from './engine/apply.js';
 import { createMid} from './engine/mid.js';
 import { createFrames} from './engine/frames.js';
+import { createStrip } from './engine/strip.js';
+import { createTimeline } from './engine/timeline.js';
+import { createPlay, playSafe } from './engine/play.js';
+import { createEdit } from './engine/edit.js';
+import { tlClampZoom } from './tl-scale.js';
+import { createMarker } from './tl-markers.js';
 import { createVoice} from './engine/voice.js';
 import { createBridge} from './engine/bridge.js';
-import { createLanes} from './engine/lanes.js';
-import { createSubLane } from './engine/sub-lane.js';
+import { createCaptionDomain } from './engine/caption.js';
 import { createPanel} from './engine/panel.js';
-import { createTrack} from './engine/track.js';
-import { parseJsonLoose, round1, round2, pct, spdTxt, ctxClip, reEscape, BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from './util.js';
-
-import { speakerOf, lineTimeOf, lineRowHTML } from './lines.js';
+import { parseJsonLoose, round1, pct, num, BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from './util.js';
 
 import { scriptTextOf, parseScript, applyScript } from './script.js';
 
 import { createBoardTools } from './board.js';
 
-import { shotPlacement, chainDeps, splitLongShots, pickChainModel, quoteKeyOf, sumQuotes, runWithDeps, hasTailFrame, isRunning } from './chain.js';
+import { chainDeps, splitLongShots, pickChainModel, hasTailFrame, isRunning } from './chain.js';
 
 import { createSplitAssets } from './split-assets.js';
-
-import { createBoardPreview } from './board-preview.js';
 
 import { createGroups } from './groups.js';
 
@@ -33,47 +32,7 @@ import { createBoardAssets } from './board-assets.js';
 
 import { createBoardVars } from './board-vars.js';
 
-import { candidateBase, voiceBase, shotCtxOf, candidateIndex, voiceIndex } from './naming.js';
-
-import { SLICE_TILE_PX, SLICE_N_MAX, sliceGeom, sliceBoxHTML, sliceTimes, snapSliceStep } from './slice.js';
-import { linePointOf, linePointSet } from './line-point.js';
-import { isGap } from './links.js';
-
-import { createTimeline } from './timeline.js';
-
-import { createPlayback } from './playback.js';
-
-import { SEG_MIN, segLen, segVol, segSpd, segFilmLen, segCarry, segsOf, segsFilmLen, segsCopy, segsWrite, TRACK_LANES_MAX, laneClamp, picLnOf, tlClipDur } from './segments.js';
-
-import { isImageSeg, isVirtualSeg, isVirtualGap } from './image-seg.js';
-
-import { voiceRateOf, voiceFrameOf, roundVoice, voiceRuns, rowSelIn, rowSelOut, makeVoiceAxBox, createVoiceFilm, lineEstSec, lineSpanAt, VOICE_SPD_MIN, VOICE_SPD_MAX } from './voice-layout.js';
-
-import { chosenCandOf, currentOf, entriesFromShot, sourceHashOf, styleOf, setStyle, srtParse, srtSerialize,
-  resegment, filmOf, mapToFilm, mapToShot, mapFromFilm, entryAt, overlayHTML, filmEntriesOf, remapSubtitles, filmSpanOf } from './subtitles.js';
-
-import { createPlayPlan } from './plan.js';
-
-import { createWaveform } from './waveform.js';
-
-import { createProjection } from './projection.js';
-
-import { voiceBlockLabel, voiceBlockText, createVoiceBlockRenderer } from './voice-block.js';
-
-/* 生成工作台「加到时间线」→ 导演台：两页是同一份文档，载荷经本机存储递**一次**。
-   写入在 `web/pages/studio.js`（图片产物卡），取走由页面壳在挂载完成与每次激活时调
-   `consumeAddedImage()`；真正的落点还是 `addImageToTrack`（拖进画面轨走同一枚）。
-   本机存储也没有别的跨页通道：导演台模块是动态 import 的，页面壳拿不到它的闭包。 */
-const ADDED_IMAGE_KEY = 'dir_add_img';
-let takeAddedImage = null;
-export function consumeAddedImage() {
-  if (!takeAddedImage || !window.LS) return false;
-  const spec = window.LS.json(ADDED_IMAGE_KEY);
-  if (!spec || !spec.src) return false;
-  window.LS.del(ADDED_IMAGE_KEY);
-  takeAddedImage(spec);
-  return true;
-}
+import { normalizeFilm, promoteCandidate, demoteShot, normalizeTransition, transitionNameOf, chosenCandOf, deriveTimeline, createClip, clipDurationOf, pos, IMAGE_SEGMENT_SECONDS, MAX_FILM_SECONDS } from './film.js';
 
 export function mount(document, window) {
 
@@ -87,10 +46,6 @@ const $ = id => document.getElementById(id);
    助手那边 export_start 的枚举都只读这一份。没加载就当场炸 —— 悄悄少画一排导出入口更坏。 */
 const ExportFormats = window.ExportFormats;
 if (!ExportFormats) throw new Error('导出格式表没加载：web/domain/export-formats.js');
-
-/* 剪辑态播放层（两个甲板接力 + 配音按成片绝对时间起播）。
-   媒体地址照样只走 Api.mediaSrc，播放这一层不另判平台。 */
-const { playSafe, TlPlay } = createPlayback({ mediaSrc: s => Api.mediaSrc(s) });
 
 /* ---------- 常量 ---------- */
 /* 档位 / 比例 / 格式的中文名表不在这里抄第二份：在 `gen-forms.js` 的 `AdvParams`（工作台与导演台同一份）。 */
@@ -209,7 +164,8 @@ function newShot(prompt = '') {
     line: '',
     /* 说这句台词的是谁（素材库里的角色名）。有台词才可能有它，且只决定把这一句填进合成框时
        预填哪一位的音色（设计档填 `voiceNote`、克隆档挂 `refAudio`）—— 它不进提示词、
-       不进配音轨、也不是 `proj.voices` 的字段，与 `line` 一样是「还没合成的那句话」的附属信息。 */
+       不进配音轨、也不是 `proj.film.voices` / `proj.film.pending` 里的字段，
+       与 `line` 一样是「还没合成的那句话」的附属信息。 */
     lineWho: '',
     note: '',
     /* 接续：`linkPrev === 'tail'` 表示这一镜生成时自动取上一镜的尾帧当首帧。
@@ -226,71 +182,128 @@ function newShot(prompt = '') {
 /* 工作区/项目是异步加载的，轮询定时器可能在 proj 还是 null 时先跑起来 —— 这里统一兜住，
    否则抛 TypeError，页面顶部出现「脚本错误」横幅且右栏一直空着。 */
 const allShots = () => (proj ? proj.scenes.flatMap(sc => sc.shots) : []);
+/* 成片模型（`proj.film`，web/director/film.js）：新剪辑核的唯一数据层。
+   读回来时由 sanitize 整份规整；这里只负责「缺了就补一张空片」。 */
+function ensureFilm() {
+  if (!proj) return normalizeFilm(null);
+  if (!proj.film || typeof proj.film !== 'object') proj.film = normalizeFilm(null);
+  return proj.film;
+}
+/* 一段画面上写的是「哪一镜」：历史与回执都按镜头名点名（片段自带的 name 是素材名，用户读不出是谁）。 */
+const filmClipName = c => {
+  const s = c && allShots().find(x => x && x.id === c.shotId);
+  return (s && s.name) || (c && c.name) || '画面段';
+};
+/* 选用 / 取消选用候选的**唯一入口**：selId 与成片片段一起变（两处各改一次迟早对不上）。
+   选用 = 提升（已有片段原位替换、没有按镜头顺序插入）；取消 = 把这一镜的片段整组撤掉。 */
+function setSelectedCandidate(sh, cand) {
+  if (!sh) return false;
+  const had = sh.selId || null;
+  sh.selId = cand ? cand.vid : null;
+  const film = ensureFilm();
+  if (cand) {
+    const r = promoteCandidate(film.clips, sh, cand, allShots().map(s => s.id));
+    if (r.index >= 0) film.clips = r.clips;
+  } else if (had) {
+    film.clips = demoteShot(film.clips, sh.id).clips;
+  }
+  return had !== sh.selId;
+}
 const curScene = () => (proj ? proj.scenes[proj.curScene] || proj.scenes[0] : null);
 const curShot = () => curScene()?.shots[proj.curShot];
 const fmtDur = s => (Math.round(s * 10) / 10) + ' 秒';
 const shotDur = sh => {
+  if (!sh) return 0;
+  /* 成片那一份说了算：这一镜的片段已在成片里（可能被剪过几刀），时长 = 那几段 duration 之和。 */
+  const mine = (ensureFilm().clips || []).filter(c => c && c.shotId === sh.id);
+  if (mine.length) return round1(mine.reduce((a, c) => a + clipDurationOf(c), 0));
   const c = sh.candidates.find(c => c.vid === sh.selId) || sh.candidates.find(c => c.status === 'succeeded');
   if (!c) return 0;
-  /* 多段：按段求和（切开之后这一镜在成片里就是这几段之和，不是「首段入点到末段出点」）。
-     问的是**成片秒**那一份（选区 ÷ 倍速）：这一项进的是左栏镜头时长与顶上那句「全片 X 秒」，
-     倍速把时间改了，这两处读数就得跟着变 —— 否则「轨道缩了一半而那句还说 12 秒」。 */
-  if (Array.isArray(c.segs)) return round1(segsFilmLen(c, candDur(c, sh)));
-  if (c.trimE != null) return Math.max(0, c.trimE - (c.trimS || 0));
+  if (c.trimE != null) return round1(Math.max(0, c.trimE - (c.trimS || 0)));
   if (c.duration) return c.duration;
   if (c.url) return sh.duration || 5;
   return 0;   // 还没出画面：不显示假时长
 };
 /* 本镜时长文案：没生成就写「未生成」 */
 const shotDurText = sh => { const d = shotDur(sh); return d ? fmtDur(d) : '未生成'; };
-/* 裁剪落地之后那一句（两个入口共用）—— **必须说清这一条在不在成片里**。
-   剪辑这段改的是「我现在正在看的那条候选」（curCand），
-   而左栏镜头时长、工具条「全片 X 秒」算的是「已选用的那条」（selId）。
-   两者不是同一条时，一句光秃秃的「✓ 已保留 3 秒」会让人以为成片短了 2 秒 ——
-   去看成片却发现一点没变（还是第 1 条那 5 秒），于是以为这个功能坏了。 */
-function trimStatus(sh, c, extra) {
-  /* 秒数按「剪辑界面正指着的那一段」算，不按 trimS/trimE 的并集算：
-     切开之后一镜可能有几段，说「已保留 8 秒」而格子里明明是两段各 3 秒，等于说一句对不上画面的话。 */
-  const segN = curSegOf(sh, c);
-  const sec = segN ? fmtDur(segLen(segN)) : '0 秒';
-  const nSeg = (c && Array.isArray(c.segs)) ? c.segs.length : 1;
-  const inFilm = !!(c && c.vid === sh.selId);
-  const at = (sh.candidates || []).findIndex(x => x.vid === sh.selId);
-  const tail = inFilm ? '（这一条正被选用，成片跟着变）'
-    : '，但这一条还没被选用 —— 成片现在用的是' + (at >= 0 ? '第 ' + (at + 1) + ' 条' : '别的候选')
-      + '，左栏时长与「全片」的秒数都按它算；要让这次裁剪进成片，先在这一条上点「用这条」';
-  /* 「截断」是真出了事（我们改了你输了的值），照旧走横幅；其余走工具栏那行小字 ——
-     这里**不能用 warn 类**：那会把顶部横幅点亮，而拖动裁剪是每拖一下都会发生的高频动作，
-     一个常驻横幅会变成噪音（用户上次特意说过「除非出 bug 不要弹东西」）。 */
-  const many = nSeg > 1 ? '（这一条现在有 ' + nSeg + ' 段）' : '';
-  if (extra) return '<span class="err">' + extra + '；已保留 ' + sec + many + (inFilm ? tail : '') + '</span>';
-  return inFilm ? '<span class="ok">✓ 已保留 ' + sec + many + tail + '</span>' : '已保留 ' + sec + many + tail;
-}
 const shotReady = sh => sh.selId && sh.candidates.some(c => c.vid === sh.selId && c.status === 'succeeded');
-const totalDur = () => allShots().filter(shotReady).reduce((a, sh) => a + shotDur(sh), 0);
 
 /* ---------- 持久化（IndexedDB）----------
    开库、缺仓库补建、连接复用全在 web/ui/ui.js 的 Kv 里（本页以前自己写过一份最完整的，
    现在设置页 / 资产库页 / 保存落点用的是同一份）。库/表名也不在这里抄：
    Kv.at('ws') = 导演台工作区与本地视频。 */
 const wsKv = Kv.at('ws');
-/* ---------- 撤销 / 重做（快照式，Ctrl+Z / Ctrl+Y）---------- */
+/* ---------- 撤销 / 重做（**只追加的操作日志 + 当前状态指针**，Ctrl+Z / Ctrl+Y）----------
+   历史是一条**只追加**的日志：每做一次编辑就往末尾记一条（带那一刻的完整快照）。
+   「现在是哪一版」由一个**指针**说 —— 回退**不删任何记录**，只在日志末尾追一条
+   「回退到「xxx」」并把指针指回那条记录的状态。于是：
+     · 所有记录**始终可见**（干过什么全在日志里，审计可查，不会因为回退而消失）；
+     · 回退几次就多几条「回退到 …」的记录 —— 日志就是一本流水账，不是一条被剪短的线；
+     · 从旧状态再改一版也不抹掉后面的记录（新记录追加在末尾，指针跟到末尾）。
+   上限仍是 30 条 / 24 MB：超了从**最旧**的一头丢（丢的是最老的那几条编辑记录）。 */
+let historySeq = 1;
+let historyBytes = 0;
+/* 起点：还没编辑过之前的那一版状态（指针 = -1 时生效）。 */
+let historyBase = '';
+/* 日志本体：`{ id, at, label, json, kind: 'edit'|'rollback'|'redo', target }` —— 只 push，不 splice 中间。 */
+const historyLog = [];
+/* 当前生效状态在日志里的下标；-1 = 起点（historyBase）。 */
+let historyCursor = -1;
+/* 这一次编辑叫什么：beginEdit 先记下名字，落盘时再定稿（见 historyCommit）。 */
+let pendingEdit = null;
+/* 给桥与面板读的**视图**：undoStack = 指针之前那几条记录的状态，redoStack = 指针之后那几条。
+   「这一步叫什么」不从这里读 —— 日志条目自己带 label，面板与桥直接看 historyLog。 */
 const undoStack = [], redoStack = [];
-/* 与两个栈同步的两张并行账：「这一步编辑叫什么」+「什么时候发生」—— 剪辑态左栏的
-   历史编辑记录读的就是它们（历史不另记一份操作日志，两份账迟早对不上；
-   被上限挤掉的那几步照实不显示，undoMeterText 会说明为什么少了）。 */
-const undoLabels = [], undoTimes = [], redoLabels = [];
 let lastSavedJson = '';
 /* 快照是整份工作区 JSON（含内联图片），必须限总量：以前无上限保留 50 份，大工程会吃掉上百 MB 内存。
    **两档上限都不在界面上**（README 与项目介绍曾写「最多 50 步」，实际是 30 步 / 24 MB），
    所以按 Ctrl+Z 突然「没有可撤销的操作」时用户不会知道是触了步数还是触了内存 ——
    那一瞬看起来就像坏了。工具条上常驻一句「撤销 N/30」，耗尽时说清是哪一档顶到了。 */
 const UNDO_MAX_BYTES = 24 * 1024 * 1024, UNDO_MAX_COUNT = 30;
-let undoBytes = 0;
-/* 「为什么存不下」—— pushUndo 的两处早退各有一个原因，耗尽时照实报出去。
-   判据与 pushUndo 同一处，不在这里重算。 */
+/* 「为什么存不下」—— 记一步的两处早退各有一个原因，耗尽时照实报出去。
+   判据与 historyCommit 同一处，不在这里重算。 */
 let undoSkipWhy = '';
-function pushUndo(json, label) {
+/* 指针此刻对应的那份状态（面板、撤销、重做、助手读的都是它）。 */
+function historyStateAt(i) {
+  if (i == null || i < 0) return historyBase;
+  const e = historyLog[i];
+  return e ? e.json : historyBase;
+}
+/* 把「日志 + 指针」同步成外面那几份账（桥与面板读的就是它们），并立刻重画面板。 */
+function historySync() {
+  undoStack.length = 0; redoStack.length = 0;
+  for (let i = 0; i < historyLog.length; i++) {
+    const e = historyLog[i];
+    if (i < historyCursor) undoStack.push(e.json);
+    /* 重做只数**编辑记录**（回退 / 重做是流水记录，不是一版状态；redo() 自己也是这么跳的）——
+       数进来会让「可重做 N 步」比真的能重做的多。 */
+    else if (i > historyCursor && e.kind === 'edit') redoStack.push(e.json);
+  }
+  /* 起点（还没编辑过的那一版）也是一步可撤销的状态：指针落在某条记录上时，Ctrl+Z 退到 -1
+     退的就是它。以前视图只数「指针之前那几条记录」，于是**一次编辑之后撤销栈读数是 0** ——
+     助手照这个数回「没有可撤销的操作」，Ctrl+Z 却真的会退；一次真编辑被记成「没发生」。 */
+  if (historyCursor >= 0) undoStack.unshift(historyBase);
+  /* 面板跟着历史走：记一步 / 回退 / 重做都立刻重画左栏那块「历史编辑记录」——
+     否则剪完一刀要等下一次轮询（几秒）才看见新的一步，用户会以为「没记上」。 */
+  try {
+    const box = document.getElementById('editLeft');
+    if (box && !box.hidden) renderEditLeft(box);
+  } catch (e) { /* 面板画不出来不挡历史本身 */ }
+}
+/* 追一条记录（**只追加**，永不插队、永不删中间） */
+function historyAppend(label, json, kind, target) {
+  const when = Date.now();
+  const e = { id: historySeq++, at: when, label: label || '编辑', json: json || '',
+    kind: kind || 'edit', target: target == null ? null : target };
+  historyLog.push(e);
+  historyBytes += (json || '').length;
+  historyEvict();
+  historyCursor = historyLog.length - 1;      // 指针跟到这条（它就是刚做出来的那一版）
+  return e;
+}
+/* 记一步编辑：把「刚开始那一步」定稿；走的是纯保存那一路就追加一条新的。 */
+function historyCommit(label, at) {
+  const json = snapOf();
   if (!json) return false;
   if (json.length > UNDO_MAX_BYTES / 2) {
     /* 单份就超预算一半：不存（避免一份快照把预算吃光） */
@@ -298,46 +311,108 @@ function pushUndo(json, label) {
       + window.fmtBytes(UNDO_MAX_BYTES / 2) + '）';
     return false;
   }
-  undoStack.push(json);
-  /* 标签没有就不猜：回落到上一次 beginEdit 的标签会把「改台词」写到一次参数编辑头上。 */
-  undoLabels.push(label || '编辑');
-  undoTimes.push(Date.now());
-  undoBytes += json.length;
-  /* 早退的两档各报各的：以前只要栈短了就写「步数用满」，
-     单份大快照把内存预算顶爆时用户看到的却是一句「30 步用完了」——
-     原因写错，下一次按 Ctrl+Z 也还是不明白为什么只剩这几步。 */
-  let evictWhy = '';
-  while (undoStack.length > UNDO_MAX_COUNT || undoBytes > UNDO_MAX_BYTES) {
-    evictWhy = undoStack.length > UNDO_MAX_COUNT
-      ? '撤销已用满上限（' + UNDO_MAX_COUNT + ' 步）'
-      : '撤销内存已用满（' + window.fmtBytes(UNDO_MAX_BYTES) + '）';
-    undoBytes -= undoStack.shift().length;
-    undoLabels.shift(); undoTimes.shift();
+  const cur = historyLog[historyCursor];
+  if (cur && cur.pending) {
+    /* 刚开始那一条：状态换成改完之后的那一版，名字与时间也补上（日志条目本身不换位置）。 */
+    historyBytes += json.length - (cur.json || '').length;
+    cur.json = json;
+    cur.pending = false;
+    if (at) cur.at = at;
+    if (label) cur.label = label;
+    historyEvict();
+    historySync();
+    return true;
   }
-  if (evictWhy) undoSkipWhy = evictWhy;
+  /* 指针这一条记的就是这个状态 = 这一次保存没有产生新的一版（定稿之后又走了一趟保存）：
+     不再追加一条一模一样的记录 —— 追加了会让「退一步」退到同一条状态上（看起来没反应）。 */
+  if (cur && cur.json === json) { historySync(); return true; }
+  historyAppend(label || '编辑', json, 'edit', null);
+  historySync();
   return true;
 }
-/* 助手那几条时间线动作在改数据之前调它：**当场**把改动前的快照压进撤销栈。
-   正常编辑靠 `scheduleSave` 的 500ms 合并窗口落一次快照 —— 助手动作之后用户可能立刻说
-   「撤销」，那时窗口还没到，栈里是空的，`undo()` 会回一句「可撤销的已经用完了」（假话）。
-   压过之后同一轮 `scheduleSave` 不再重复压同一份（`undoPushed` 只跳过那一次）；
-   这一步不改 `lastSavedJson`，落盘照旧。 */
-let undoPushed = false;
-/* 栈顶那一份快照是「哪一次编辑」的标签：只给人看（助手 `history()` 回执），
-   不参与判据。调 beginEdit 的入口可以不传（默认「编辑」）；传了就写在这里。 */
-let lastUndoLabel = '';
-function beginEdit(label) {
-  lastUndoLabel = label || '编辑';
-  const snap = snapOf();
-  if (pushUndo(snap, lastUndoLabel)) { redoStack.length = 0; redoLabels.length = 0; undoPushed = true; }
+/* 上限两档各报各的：超了从**最旧**的一头丢（丢最老的那几条），
+   指针跟着往前挪同样的条数 —— 不挪的话指针会指到一条已经不存在的记录上。 */
+function historyEvict() {
+  let evictWhy = '';
+  let dropped = 0;
+  while (historyLog.length > UNDO_MAX_COUNT || historyBytes > UNDO_MAX_BYTES) {
+    const old = historyLog[0];
+    if (!old) break;
+    /* 只剩一条时不再丢（否则连撤销都没了） */
+    if (historyLog.length <= 1) break;
+    evictWhy = historyLog.length > UNDO_MAX_COUNT
+      ? '撤销已用满上限（' + UNDO_MAX_COUNT + ' 步）'
+      : '撤销内存已用满（' + window.fmtBytes(UNDO_MAX_BYTES) + '）';
+    historyBytes -= (old.json || '').length;
+    /* 丢掉最旧那一条之前，把它之前的状态留给起点：丢完之后指针 -1 仍然退得回「那之前」。 */
+    if (historyLog.length >= 1) historyBase = old.json || historyBase;
+    historyLog.shift();
+    dropped++;
+  }
+  if (dropped) historyCursor = Math.max(-1, historyCursor - dropped);
+  if (evictWhy) undoSkipWhy = evictWhy;
 }
-/* 「撤销 N/M」那一行已删（2026-10 用户点名）：中栏顶上那一簇按钮整簇去掉以后，
-   这一行没有落点了 —— 步数与上限在剪辑态左栏的「历史编辑记录」里说清。 */
-function pushRedo(json, label) {
-  if (!json || json.length > UNDO_MAX_BYTES / 2) return;
-  redoStack.push(json);
-  redoLabels.push(label || '编辑');
-  if (redoStack.length > UNDO_MAX_COUNT) { redoStack.shift(); redoLabels.shift(); }
+/* 把「还没定稿」的那一步按**此刻**的状态定下来（落盘时 / 下一次 beginEdit 之前都要走一次）。 */
+function historyFinalizePending() {
+  const cur = historyLog[historyCursor];
+  if (!cur || !cur.pending) return false;
+  const json = snapOf();
+  if (!json) return false;
+  historyBytes += json.length - (cur.json || '').length;
+  cur.json = json;
+  cur.pending = false;
+  return true;
+}
+/* 日志末尾那一条的标签 = 「最近做过的那件事叫什么」（助手回执与面板读的都是它）。
+   指针之前的那一条叫「下一次 Ctrl+Z 要退掉的」，两者不是一个东西 —— 以前这里读的是后者，
+   于是刚切完一刀，回执上还在念上一步。 */
+function historyNewestLabel() { const e = historyLog[historyLog.length - 1]; return e ? e.label : ''; }
+/* 助手那几条时间线动作在改数据之前调它：**当场**记一条（用户点完执行马上说「撤销」也退得回去）。 */
+function beginEdit(label) {
+  /* 名字先记下（**这一步做了什么**：调用方给一句精确描述）。
+     记录**当场追加**（状态先记「改动前」那一版，落盘时再换成改完之后的那一版）——
+     否则「可撤销 N 步」会晚 500 ms 才加一，用户看着像没记上（也是那两条假话的来源）。 */
+  historyFinalizePending();          // 上一步先按此刻的状态定稿
+  const before = snapOf();
+  if (!before) return;
+  if (before.length > UNDO_MAX_BYTES / 2) {
+    undoSkipWhy = '这一份工作区太大（' + window.fmtBytes(before.length) + '，超过单份上限 '
+      + window.fmtBytes(UNDO_MAX_BYTES / 2) + '）';
+    return;
+  }
+  if (!historyBase) historyBase = before;      // 起点那一版
+  pendingEdit = { label: label || '编辑', at: Date.now(), before: before };
+  const e = historyAppend(label || '编辑', before, 'edit', null);
+  e.pending = true;
+  historySync();
+}
+/* 指针挪到日志里的第 i 条，并**追加一条「回退到 xxx」**（不删任何记录）。
+   这就是用户要的语义：回退也是一次「发生过的事」，日志里要留痕、所有记录始终可见；
+   而「当前生效」的指针指向 **xxx 那一条**（不是刚追的这条流水记录）。 */
+function historyGoTo(i, kind, verb) {
+  /* 先把手里那一步结算掉（与 undo / redo 进门那一句同一个出口，面板直接点一行也必须走）：
+     上一步还在 500ms 合并窗口里就让它带着**自己的**状态与名字定稿，
+     否则 `pendingEdit` 会一直挂在这儿，恢复之后那一次保存把旧名字盖在一个新状态上
+     （表现为：回退之后日志末尾冒出一条念着上一步名字的记录，指针还跟着它跑了）。 */
+  historyFinalizePending();
+  settlePendingEdit();
+  const targetIdx = Math.max(-1, Math.min(historyLog.length - 1, i));
+  const target = targetIdx >= 0 ? historyLog[targetIdx] : null;
+  const want = historyStateAt(targetIdx);
+  if (!restoreSnap(want)) return false;
+  const label = (verb || '回退到') + '「' + (target ? target.label : '起点')
+    + '」' + (target ? '（' + window.fmtHM(target.at) + '）' : '');
+  /* 追一条流水记录（它自己不做状态变化）。historyAppend 会把指针带到末尾 ——
+     所以这里紧接着把它按语义摆回去：指针指向**目标那一条**（回退到的是它那一版）。 */
+  historyAppend(label, want, kind || 'rollback', target ? target.id : null);
+  historyCursor = targetIdx;
+  historySync();
+  return true;
+}
+/* 按 id 找日志里那一行（面板上点一行 = 回退到它） */
+function historyRowById(id) {
+  for (let i = 0; i < historyLog.length; i++) if (historyLog[i].id === id) return { i: i, e: historyLog[i] };
+  return null;
 }
 // 快照剔除轮询的瞬态字段（进度/排队位置），避免自动轮询污染撤销栈
 function snapOf() {
@@ -351,6 +426,8 @@ function snapOf() {
      **只序列化当前项目**：多项目工程里整个工作区可能有几十 MB，
      每 500ms / 每一刀都 stringify 全部项目是主线程卡顿的主要来源；
      撤销只需要恢复正在改的那一个项目（切项目会换 curId，恢复时跟着切回去）。 */
+  /* 编辑视图状态（剪辑针、播放头）不进快照：剪辑态自己的视图状态由 Timeline 持有，
+     撤销恢复的是作品内容，不恢复「你刚才看到哪一秒」。 */
   if (!proj) return '';
   /* `groups` 一起进快照：项目组是一次编辑（建组 / 归组 / 删组），
      不进快照的话 Ctrl+Z 撤不回去 —— 那条组关系就再也回不来了。 */
@@ -394,18 +471,15 @@ function restoreSnap(json) {
     if (shNow && Array.isArray(shNow.candidates) && shNow.candidates.length) {
       proj.curCand = Math.max(0, shNow.candidates.findIndex(x => x && x.vid === vp.cd));
     }
-    if (proj.cutShot == null) ownPinToView();   // 老快照没有针归属：认给恢复出来的这一镜
-    /* 刚弹出的那一步已经被这次恢复「消费」掉了：压过链的旗标归位，
-       否则恢复之后 500ms 内的下一次纯输入编辑会被当成「已有链」跳过结算。 */
-    undoPushed = false;
     renderAll();
     /* renderMid 末尾会 scheduleSave；撤销/重做本身就是「回到已存状态」，
        不能让这次重画顺手把 redoStack 清掉（那会让「撤销一步再重做」直接没有反应）。 */
     clearTimeout(saveTimer); saveTimer = null;
+    /* 恢复就是一个**结算点**：手里那一步（名字 + 「改动前」的那一份）到这儿已经没有意义了 ——
+       留着的话，恢复之后飘出来的那一次保存会把**上一步**的名字盖在一个新状态上
+       （日志末尾冒出一条念着旧名字的记录，指针还跟着它跑了）。 */
+    pendingEdit = null; saveLabelNext = ''; saveQuietRound = true;
     try { $('saveState').textContent = '已保存到本地'; } catch (e) { /* 取不到那个节点也只丢一句提示，保存本身已经成了 */ }
-    /* 撤销/重做也是一次真实改动：revision 只增不减（bumpRevision 里有 floor），
-       否则退回旧快照时 rev 倒退，同一份工作区会先后拿到同一个号，助手 CAS 就认不出中间改过。 */
-    bumpRevision();
     const snap = snapOf();
     wsKv.put('workspace', { projects: WS.projects, curId: WS.curId, roles: WS.roles, ts: Date.now() });
     lastSavedJson = snap;
@@ -416,6 +490,11 @@ function restoreSnap(json) {
     return false;
   }
 }
+/* 手里这一步「叫什么」：beginEdit 记过名的用它的名，只走 scheduleSave('<名字>') 的那一句算。
+   空串 = 没有任何人报过「这一步做了什么」—— 那多半是重画顺手补的字段（画幅组合、
+   时长按型号收正、参数默认值、镜像旗标），不是用户的一次编辑。
+   日志里每一条都要说清做了什么（AGENTS §9.2），所以没名字的那一份**不进日志**（字节照旧落盘）。 */
+function editLabelInFlight() { return pendingEdit ? pendingEdit.label : (saveLabelNext || ''); }
 /* 500ms 合并窗口还没到期的那份改动，先结算成一步可撤销的编辑。
    scheduleSave 的定时器到期才把「改动前」压进撤销栈 —— 窗口没到就按 Ctrl+Z，
    栈顶要么是空的（回一句「可撤销的已经用完了」的假话），要么是**更早那一步**
@@ -423,50 +502,54 @@ function restoreSnap(json) {
    轮询那一轮的静默保存（saveQuietRound）不算用户编辑，不结算。 */
 function settlePendingEdit() {
   try {
-    /* undoPushed 还亮着 = 最近这条编辑链的「改动前」已经由 beginEdit 压进栈了，
-       它的改动还没落盘 —— 这时再压一份 lastSavedJson 是**更早的旧状态**：
-       一次 Ctrl+Z 会退过这条链、直接回到上一次落盘（拖走一段退两步就是这么来的）。
-       只有纯 scheduleSave 那一路（没有任何 beginEdit 压过）才需要在这里补一份。 */
-    if (!lastSavedJson || saveQuietRound || undoPushed) return;
-    if (snapOf() === lastSavedJson) return;
-    if (pushUndo(lastSavedJson, '编辑')) { redoStack.length = 0; redoLabels.length = 0; undoPushed = true; }
+    if (!lastSavedJson || saveQuietRound) return;
+    const curSnap = snapOf();
+    if (curSnap === lastSavedJson) { pendingEdit = null; saveLabelNext = ''; return; }
+    const label = editLabelInFlight();
+    /* 叫不出名字的变化不进日志（见 editLabelInFlight）：但也不能就当没发生 ——
+       重新排一次静默保存，把这几行字节落下去。 */
+    if (!label) { scheduleSaveQuiet(); return; }
+    if (historyCommit(label, pendingEdit ? pendingEdit.at : Date.now())) { pendingEdit = null; saveLabelNext = ''; }
   } catch (e) { /* 结算失败不拦撤销本身，按普通路径走 */ }
 }
+/* 撤销一步 = **指针往前挪一条**，并在日志末尾追一条「回退到 xxx」。
+   不删任何记录：回退本身也是一次「发生过的事」，日志里留痕（用户点名）。
+   指针前面什么都没了（指针 = -1，生效的是起点那版）就是「没有可撤销的操作」。 */
 function undo() {
+  /* 还没定稿的那一步先按此刻的状态定下来（否则退一步会退过头：那一格记的还是「改动前」）。 */
+  historyFinalizePending();
   settlePendingEdit();
-  if (!undoStack.length) {
+  if (historyCursor < 0) {
     /* 真·空栈只报一句临时状态（不挂常驻错误横幅）：以前那句带 class="err" 的长文案
        会走 ErrBanner 常驻横幅，「撤销按快了」这一下的分量被放大成一次故障。 */
     setStatus('没有可撤销的操作' + (undoSkipWhy ? '（' + undoSkipWhy + '）' : ''));
     return;
   }
   undoSkipWhy = '';
-  const back = undoStack.pop();
-  const lbl = undoLabels.pop() || '编辑';
-  undoTimes.pop();
-  const cur = snapOf();
-  if (!restoreSnap(back)) {
-    undoStack.push(back); undoLabels.push(lbl); undoTimes.push(Date.now());
+  const from = historyCursor;
+  /* 往回挪一条；挪到 -1 = 起点那一版。回退记录追加在末尾，指针停在**它**上。 */
+  if (!historyGoTo(from - 1, 'rollback', '回退到')) {
     setStatus('<span class="err">撤销失败：这份快照没能恢复，工作区保持原样</span>');
     return;
   }
-  pushRedo(cur, lbl);
   setStatus('<span class="ok">✓ 已撤销（Ctrl+Y 重做）</span>');
 }
+/* 重做一步 = 指针往后挪一条（挪向「刚才回退掉的那一条」），同样追加一条「重做到 xxx」。 */
 function redo() {
-  /* 窗口内还有没结算的编辑 = 一次新编辑：先结算并清掉重做栈（新编辑挡住重做），
-   否则重做会把一份旧状态盖在刚输入、还没落盘的内容上 —— 与 undo 那一侧同一个坑。 */
+  historyFinalizePending();
+  /* 窗口内还有没结算的编辑 = 一次新编辑：先结算（它会挡住重做），
+     否则重做会把一份旧状态盖在刚输入、还没落盘的内容上 —— 与 undo 那一侧同一个坑。 */
   settlePendingEdit();
-  if (!redoStack.length) { setStatus('没有可重做的操作'); return; }
-  const fwd = redoStack.pop();
-  const lbl = redoLabels.pop() || '编辑';
-  const cur = snapOf();
-  if (!restoreSnap(fwd)) {
-    redoStack.push(fwd); redoLabels.push(lbl);
+  /* 指针后面最近的那一条**编辑记录**（跳过回退 / 重做这类流水记录，它们不是一版状态）。 */
+  let next = -1;
+  for (let i = historyCursor + 1; i < historyLog.length; i++) {
+    if (historyLog[i].kind === 'edit') { next = i; break; }
+  }
+  if (next < 0) { setStatus('没有可重做的操作'); return; }
+  if (!historyGoTo(next, 'redo', '重做到')) {
     setStatus('<span class="err">重做失败：这份快照没能恢复，工作区保持原样</span>');
     return;
   }
-  pushUndo(cur, lbl);
   setStatus('<span class="ok">✓ 已重做</span>');
 }
 document.addEventListener('keydown', e => {
@@ -478,116 +561,11 @@ document.addEventListener('keydown', e => {
   else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
 });
 
-/* Track域（engine/track.js）：这一段（393-1928）搬进模块，这里只留访问器包与一条解构。
-   接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
-   因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
-const Track = createTrack({
-  projOf: () => proj,
-  uid: (...a) => uid(...a),
-  allShots: (...a) => allShots(...a),
-  curShot: (...a) => curShot(...a),
-  fmtDur: (...a) => fmtDur(...a),
-  shotReady: (...a) => shotReady(...a),
-  beginEdit: (...a) => beginEdit(...a),
-  filmEdited: (...a) => filmEdited(...a),
-  scheduleSave: (...a) => scheduleSave(...a),
-  isFilmMode: (...a) => isFilmMode(...a),
-  segLabel: (...a) => segLabel(...a),
-  paintTrimRow: (...a) => paintTrimRow(...a),
-  voiceElOf: () => voiceEl,
-  playVoicePreview: (...a) => playVoicePreview(...a),
-  paintVoiceVol: (...a) => paintVoiceVol(...a),
-  voiceLn: (...a) => voiceLn(...a),
-  voiceMin: () => VOICE_MIN,
-  selectVoice: (...a) => selectVoice(...a),
-  filmPinT: (...a) => filmPinT(...a),
-  vcTabOf: () => vcTab,
-  renderAll: (...a) => renderAll(...a),
-  setStatus: (...a) => setStatus(...a),
-  setTrackDragT: v => { trackDragT = v; },
-}, document, window);
-const {
-  tlDuration,
-  tlCandidateOf,
-  candDur,
-  filmFrames,
-  axisGray,
-  filmLayGray,
-  frameToSrc,
-  srcToFrame,
-  shotFrames,
-  shotRowAt,
-  shotPinT,
-  shotAxTotal,
-  voiceAxBox,
-  voiceFilmSpan,
-  voiceFilmWhy,
-  voiceAdoptable,
-  fillWaveforms,
-  voiceBlockHTML,
-  cutSegIdx,
-  curSegOf,
-  candSelected,
-  voicesEnsure,
-  shotVoices,
-  clipVoices,
-  dragBusy,
-  dragOnWindow,
-  reanchorVoices,
-  cutSegs,
-  cutPin,
-  tlCutTarget,
-  tlVoiceHit,
-  voiceSelId,
-  picSelOn,
-  picSelAt,
-  tlFocusPos,
-  laneLocked,
-  laneHidden,
-  rowHidden,
-  rowLocked,
-  laneNm,
-  rowNm,
-  rowLockWhy,
-  rowUnlockHow,
-  rowFlagToggle,
-  laneVol,
-  laneRowsOf,
-  laneRowsFor,
-  LANE_ROW_SEL,
-  addImageToTrack,
-  voiceLanePlan,
-  voiceSplitByMaterial,
-  voiceMergeAll,
-  setCellLane,
-  laneRowMove,
-  bindLaneRowDrag,
-  laneMute,
-  trackOwnVol,
-  picVolOf,
-  moveShotInFilmOrder,
-  tlSyncFromShots,
-  voiceVolOf,
-  setLaneVol,
-  laneToggle,
-  focusVoiceShot,
-  runCut,
-  setCutVol,
-  setCutLane,
-  cutSpdSeg,
-  setCutSpd,
-  segLenText,
-  voiceLenText,
-  setVoiceSpd,
-  trackOne,
-  setTrackSpd,
-  setTrackVoiceSpd,
-  setTrackVol,
-  paintTlGroups,
-  syncTlTools,
-} = Track;
-/* 生成工作台「加到时间线」的落点：与拖进画面轨同一枚 addImageToTrack，不另写一份放图逻辑。 */
-takeAddedImage = spec => addImageToTrack(spec);
+/* 候选时长（镜头行 / 总时长 / 各域共用的退路）：候选自带时长优先，退镜头声明，再退 5 秒。 */
+const candDur = (c, sh) => Math.max(0.1, Number(c && c.duration) || Number(sh && sh.duration) || 5);
+/* 按镜头 + 候选 id 找候选（切片流水线解地址用）：先按 vid，退回选用那条。 */
+const tlCandidateOf = (sh, candId) =>
+  ((sh && sh.candidates) || []).find(c => c.vid === candId) || ((sh && sh.candidates) || []).find(c => c.vid === sh.selId) || null;
 
 /* Frames域（engine/frames.js）：这一段（501-1109）搬进模块，这里只留访问器包与一条解构。
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
@@ -600,13 +578,99 @@ const Frames = createFrames({
   assetStoreId: (...a) => assetStoreId(...a),
   sameAssetSpace: (...a) => sameAssetSpace(...a),
   freshUrl: (...a) => freshUrl(...a),
+  healStaleUrls: (...a) => healStaleUrls(...a),
+  mediaSrc: (...a) => Api.mediaSrc(...a),
+  /* 退避到点那一次只把胶片格重新问一遍帧（不重画整板）：箭头递进，建包时 Timeline 还没初始化。 */
+  stripRepaint: () => Timeline.stripRefresh(),
 }, document, window);
 const {
   sliceForgetFail,
-  sliceUserTouch,
-  fillSlices,
   tlClipSrc,
 } = Frames;
+
+/* 成片那一轨的缩放：一个标量（tl-scale.js 的 0.25–16 倍），落本机 —— 换镜头、剪一刀都不重置。
+   `tl-scale.js` 是唯一换算口，这里只存「现在是几倍」。 */
+let tlZoom = (() => {
+  const v = Number(window.LS && window.LS.get('dir_tl_zoom'));
+  return Number.isFinite(v) && v > 0 ? v : 1;
+})();
+
+/* Strip域（engine/strip.js）：块里面画什么 —— 画面段的胶片格、配音段与待生成段的波形与文字。
+   帧解码不在这边：`Frames` 那条流水线出图，这里只算采样点再把回来的图贴进格子。 */
+const Strip = createStrip({
+  getZoom: () => tlZoom,
+  ensureFrames: (...a) => Frames.ensureFrames(...a),
+  framePeek: (...a) => Frames.framePeek(...a),
+  mediaSrc: (...a) => Api.mediaSrc(...a),
+  icon: (n, s) => window.icon(n, s),
+  esc: s => window.esc(s),
+}, document, window);
+
+/* Timeline域（engine/timeline.js）：时间线板整块 —— 工具栏 / 刻度尺 / 标记条 / 轨道与块 /
+   连接点与转场浮层 / 播放头与吸附线 / 缩放与滚动。它只管画与视口操作；
+   块上的手势在 engine/edit.js，播放推进在 engine/play.js，帧与波形在 engine/strip.js。 */
+const Timeline = createTimeline({
+  filmOf: () => ensureFilm(),
+  icon: (n, s) => window.icon(n, s),
+  esc: s => window.esc(s),
+  fmtClock: (...a) => Wb.fmtClock(...a),
+  getZoom: () => tlZoom,
+  setZoom: v => { tlZoom = tlClampZoom(Number(v) || 1); if (window.LS) window.LS.set('dir_tl_zoom', String(tlZoom)); },
+  setStatus: (...a) => setStatus(...a),
+  scheduleSaveQuiet: () => scheduleSaveQuiet(),
+  transitionSet: (...a) => transitionSet(...a),
+  toolAction: (...a) => toolAction(...a),
+  strip: Strip,
+  seekRequest: (...a) => Play.seek(...a),
+  /* 板上的手势在 Edit 域：重画之前先问一次「台词有没有变成待生成块」，
+     重画之后把选中态与浮层接回去；工具条那排的状态也从 Edit 现读。 */
+  beforeRender: () => Edit.beforeRender(),
+  onBoardRender: () => Edit.onBoardRender(),
+  toolState: () => Edit.toolState(),
+  dblClickEmpty: t => Edit.addSegmentAt(t),
+  /* 缩放落定 = 用户明确的重试信号：取帧退避放行一次（frames.js 的表）。 */
+  sliceForgetFail: () => Frames.sliceForgetFail(),
+}, document, window);
+
+/* Play域（engine/play.js）：单调主时钟 + 单一预览面 + 配音对齐 + 转场层。
+   它只读 film；播放头位置经 `Timeline.playbackStart / playbackSync / playbackStop`
+   三条出口回到板上（那些名字在这里还只是箭头，第一次真正调用时早已初始化）。 */
+const Play = createPlay({
+  filmNow: () => ensureFilm(),
+  icon: (n, s) => window.icon(n, s),
+  esc: s => window.esc(s),
+  fmtClock: (...a) => Wb.fmtClock(...a),
+  mediaSrc: (...a) => Api.mediaSrc(...a),
+  Timeline,
+  bindPbFull: (...a) => bindPbFull(...a),
+  pbBarHTML: (...a) => pbBarHTML(...a),
+  updateArBadge: (...a) => updateArBadge(...a),
+  setStatus: (...a) => setStatus(...a),
+}, document, window);
+/* Edit域（engine/edit.js）：块上的手势与工具条动作 —— 只改 `proj.film`，几何一律问 Timeline。
+   它在 Play 之后建：`Play` 与 `Timeline` 都要按对象引用递进去（拖完一下要不要暂停、
+   切开之后针落在哪一秒），而它自己只提供函数，不在初始化时读那两份的状态。 */
+const Edit = createEdit({
+  filmOf: () => ensureFilm(),
+  icon: (n, s) => window.icon(n, s),
+  esc: s => window.esc(s),
+  setStatus: (...a) => setStatus(...a),
+  beginEdit: (...a) => beginEdit(...a),
+  filmEdited: (...a) => filmEdited(...a),
+  scheduleSaveQuiet: () => scheduleSaveQuiet(),
+  Timeline,
+  Play,
+  addMarkerAt: (...a) => addMarkerAt(...a),
+  shotLines: () => allShots().map(sh => ({ id: sh.id, name: sh.name, line: sh.line, who: sh.lineWho })),
+  openPendingBlock: (...a) => openPendingBlock(...a),
+  /* 焦点变了 → 右栏那张卡（哪一档亮、卡上那几个数）跟着换。Voice 在 Edit 之后才建，
+     所以这一位必须是箭头：建包时直接引用会撞 TDZ。 */
+  onFocus: () => Voice.paintVcCard(),
+  sliceForgetFail: () => Frames.sliceForgetFail(),
+}, document, window);
+/* 「手上正拖着一块」的判据只有一处该问：拖的那一层自己（Edit 域的手势）。
+   中栏每 3 秒那一次重建要问的是「现在能不能重画」。 */
+const dragBusy = () => Edit.dragBusy();
 
 
 
@@ -951,7 +1015,6 @@ const Apply = createApply({
   feedScenePics: (...a) => feedScenePics(...a),
   placeScenesInto: (...a) => placeScenesInto(...a),
   reportScenePics: (...a) => reportScenePics(...a),
-  lineLandedNote: (...a) => lineLandedNote(...a),
   boardEstimate: (...a) => boardEstimate(...a),
   renderAll: (...a) => renderAll(...a),
   switchProject: (...a) => switchProject(...a),
@@ -970,20 +1033,7 @@ const {
    而剪辑本来就是连续微调的动作（改一处看一眼再改），于是整段时间都在重复合成。
    现在：编辑只改数据与画面，成片要等你点「导出成片」时才重做
    （那时快捷闸 `filmIsCurrent` 自己判旧的那份已过期，照常真跑一遍合成）。 */
-/* 修订号的**唯一**写入点：只增不减。撤销/重做会退回旧快照里的 proj（旧 rev），
-   所以这里用 revFloor 兜住 —— 同一份工作区的 revision 永远向前走，助手 CAS 才认得出
-   「读取之后又改过」。 */
-let revFloor = 0;
-function bumpRevision() {
-  if (!proj) return 0;
-  revFloor = Math.max(revFloor, Number(proj.rev) || 0) + 1;
-  proj.rev = revFloor;
-  return proj.rev;
-}
 function filmEdited() {
-  /* 修订号只给「助手写入」的 CAS 用：每次会改成片内容（含字幕）的编辑都 +1，
-     助手拿旧 revision 提交时当场拒掉，而不是把用户刚做的编辑盖掉。 */
-  bumpRevision();
   /* 切段 / 改倍速之后那几格的采样点已经换了，原来记的「这块取不到帧」不再作数：
      放行一次，让下一次重画真的去取。 */
   sliceForgetFail();
@@ -995,320 +1045,6 @@ function filmEdited() {
   updateBanner(); updateProjUI();
   scheduleSave();
 }
-
-/* ============================================================================
-   字幕：右栏「字幕」、轨道字幕行、预览叠层、SRT / 烧录 / FCPXML
-   ----------------------------------------------------------------------------
-   数据层只有一份：`sh.subtitle.entries` 是**候选源秒**（AGENTS §9.2），
-   显示与导出全部经 `currentOf → mapToFilm`；导入 SRT 用 `mapFromFilm` 折回源秒。
-   老工程没有 `sh.subtitle` 时 `currentOf` 现派生、不写盘（不因为打开一次就写胖）。
-   ========================================================================== */
-let subAsrBusy = '';
-let subAsrCtl = null;   // 在途识别的中止信号（浏览器 worker 与等待循环都听它）
-let subAsrJob = '';     // 已经建出的代理任务号：取消时补一次 cancel，别让它在后台跑完
-/* 这一镜在成片里的绝对起点（= 这一镜第一格在 tl.clips 里的累计秒）。
-   没进成片（没有选用候选 / 一段画面都没留）返回 null —— 字幕换算不拿 0 冒充。 */
-function shotFilmAt(sh) {
-  if (!sh) return null;
-  const tl = tlSyncFromShots();
-  let at = 0;
-  for (const c of tl.clips) {
-    if (c.kind === 'shot' && c.shotId === sh.id) return at;
-    at += tlClipDur(c);
-  }
-  return null;
-}
-/* 成片行（FCPXML / SRT / 烧录共用的一份形状）：`{c, at, dur}`，at 是这一格在成片里的起点。 */
-function filmRowsForSubtitles() {
-  const tl = tlSyncFromShots();
-  const rows = [];
-  let at = 0;
-  tl.clips.forEach(c => {
-    const dur = tlClipDur(c);
-    rows.push({ c, at, dur });
-    at += dur;
-  });
-  return { rows, total: at };
-}
-function subCurrent(sh) { return currentOf(sh, voicesEnsure()); }
-/* 写字幕数据的唯一落点：不压快照、不重画（由调用方决定这次编辑的边界）。
-   `source` 只能是 line+voice / manual / asr（与 subtitles.js 的判据同一套）。 */
-function subWriteData(sh, entries, source) {
-  if (!sh) return null;
-  const st = styleOf(sh);
-  const cand = chosenCandOf(sh);
-  sh.subtitle = {
-    candId: cand ? cand.vid : '',
-    entries: (Array.isArray(entries) ? entries : []).map((e, i) => Object.assign({}, e, { index: i + 1 })),
-    style: st,
-    source: source === 'asr' || source === 'manual' ? source : 'line+voice',
-    sourceHash: sourceHashOf(sh, voicesEnsure()),
-  };
-  return sh.subtitle;
-}
-function subWrite(sh, entries, source, label) {
-  if (!sh) return;
-  beginEdit(label || '编辑字幕');
-  subWriteData(sh, entries, source);
-  filmEdited();
-}
-function subStyleWrite(sh, patch, label) {
-  if (!sh) return;
-  beginEdit(label || '改字幕样式');
-  if (!sh.subtitle || typeof sh.subtitle !== 'object') sh.subtitle = {};
-  setStyle(sh, patch);
-  filmEdited();
-}
-function subGenerate(sh) {
-  if (!sh) return;
-  const cur = subCurrent(sh);
-  if (cur.stale) {
-    /* 台词/配音变过，而现在的字幕是手改 / 识别出来的：生成会覆盖它们 —— 先问一句。 */
-    if (!Confirm.arm($('subGen'), '覆盖现在的字幕？', { note: '这一镜的台词或配音已经变过；重新生成会按新台词/配音派生的 ' + cur.entries.length + ' 条字幕替换现在这一份（可以按 Ctrl+Z 退回）' })) return;
-  }
-  const entries = entriesFromShot(sh, voicesEnsure(), chosenCandOf(sh));
-  if (!entries.length) {
-    setStatus('<span class="err">这一镜没有可生成字幕的台词或配音：先在分镜里写台词，或在配音轨上合成一句</span>');
-    return;
-  }
-  subWrite(sh, entries, 'line+voice', '从台词生成字幕');
-  setStatus('<span class="ok">✓ 已按台词/配音生成 ' + entries.length + ' 条字幕（之后台词或配音再变，会自动跟着重派生）</span>');
-}
-function subResegment(sh) {
-  if (!sh) return;
-  const cur = subCurrent(sh);
-  if (!cur.entries.length) { setStatus('<span class="err">这一镜还没有字幕</span>'); return; }
-  const st = styleOf(sh);
-  /* 重切后的每一条都标 manual：整份从此是手改（台词/配音再变不再跟着重派生），
-     右栏那枚来源标签也就照实写「手改」—— 留着「配音 / 台词」是假话。 */
-  const next = resegment(cur.entries, st.maxCharsPerEntry).map(e => Object.assign({}, e, { src: 'manual' }));
-  if (next.length === cur.entries.length) {
-    setStatus('<span class="meta">已经是每行不超过 ' + st.maxCharsPerEntry + ' 个字，没有可再切的字幕</span>');
-    return;
-  }
-  subWrite(sh, next, 'manual', '按每行字数重切字幕');
-  /* 回执必须说清「这份从此是手改」：重切之后 currentOf 的 source 是 manual，
-     台词 / 配音再变也不会自动跟着改 —— 不说的话用户以为还是自动派生那一份。 */
-  setStatus('<span class="ok">✓ 已按每行 ' + st.maxCharsPerEntry + ' 字重切成 ' + next.length + ' 条（内容不变，时间按字数比例分）。'
-    + (cur.source === 'line+voice' ? '这一份从现在起算手改：之后改台词 / 配音，字幕不再自动跟着变（Ctrl+Z 可退回自动派生）' : '')
-    + '</span>');
-}
-function pickTextFile(accept) {
-  return new Promise(resolve => {
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = accept || '';
-    inp.style.display = 'none';
-    inp.onchange = () => {
-      const f = inp.files && inp.files[0];
-      try { inp.remove(); } catch (e) { /* 临时输入框已经不在 DOM 里就没有可移除的 */ }
-      resolve(f || null);
-    };
-    document.body.appendChild(inp);
-    inp.click();
-  });
-}
-function subExportSrt() {
-  const { rows } = filmRowsForSubtitles();
-  const got = filmEntriesOf(rows, allShots(), voicesEnsure());
-  if (!got.entries.length) {
-    setStatus('<span class="err">现在一条字幕都没有：先在「字幕」里生成、导入或自动识别</span>');
-    return;
-  }
-  const text = srtSerialize(got.entries, { bom: true, crlf: true });
-  const name = window.fileSafe((proj && proj.name) || '成片', 60) + '-字幕-' + window.fileStamp() + '.srt';
-  const saved = saveBlob(name, new Blob([text], { type: 'application/x-subrip;charset=utf-8' }));
-  /* 没进成片的两类原因分开说（subtitles.js 的 missing.why）：有选用候选但没进成片
-     是「画面全被剪掉 / 没排进去」，跟「没有选用候选」是两码事，混着说用户会去查错地方。 */
-  const missNoCand = got.missing.filter(m => m.why === 'nocand').length;
-  const missNotIn = got.missing.length - missNoCand;
-  setStatus('<span class="ok">' + saved.msg + '（' + got.entries.length + ' 条字幕，时间是成片秒）</span>'
-    + (missNoCand ? '<span class="warn"> · 有 ' + missNoCand + ' 个镜头的字幕没导出：那一镜没有选用候选</span>' : '')
-    + (missNotIn ? '<span class="warn"> · 有 ' + missNotIn + ' 个镜头的字幕没导出：已选用的候选没进成片（画面全被剪掉或未排在成片里）</span>' : '')
-    + (got.dropped ? '<span class="warn"> · 有 ' + got.dropped + ' 条字幕整条落在被剪掉的区间里，没有导出</span>' : ''));
-}
-async function subImportSrt(sh) {
-  if (!sh) return;
-  const c = chosenCandOf(sh);
-  if (!c) { setStatus('<span class="err">这一镜还没有选用候选：SRT 的时间是成片秒，没有候选就折不回源秒</span>'); return; }
-  const shotAt = shotFilmAt(sh);
-  if (shotAt == null) { setStatus('<span class="err">这一镜还没进成片（没有选用候选 / 画面全被剪掉）：先在候选上点「用这条」</span>'); return; }
-  const file = await pickTextFile('.srt,.txt,text/plain,application/x-subrip');
-  if (!file) return;
-  let text = '';
-  try { text = await file.text(); } catch (e) { setStatus('<span class="err">读这个文件失败：' + esc(String(errText(e))) + '</span>'); return; }
-  const parsed = srtParse(text);
-  if (!parsed.length) { setStatus('<span class="err">这个 SRT 里没有解析出字幕（检查一下时间行是不是 00:00:00,000 --> 00:00:02,000）</span>'); return; }
-  /* 范围过滤与折回（mapFromFilm）同一把不取整的尺：取整口径会把恰好落在
-     本镜最后 0.1 秒里的那条判到本镜之外丢掉。 */
-  const span = filmSpanOf(sh, shotAt, c);
-  const inSpan = parsed.filter(e => {
-    const a = (Number(e.startMs) || 0) / 1000;
-    return a >= shotAt - 0.001 && a < shotAt + span + 0.001;
-  });
-  if (!inSpan.length) {
-    setStatus('<span class="err">这段 SRT 里没有落在本镜的字幕（本镜在成片里是 ' + fmtDur(shotAt) + '–'
-      + fmtDur(shotAt + span) + '）</span>');
-    return;
-  }
-  const mapped = mapFromFilm(sh, shotAt, inSpan, { cand: c });
-  if (!mapped.length) { setStatus('<span class="err">SRT 落在本镜的那几条折回源秒后是空的</span>'); return; }
-  subWrite(sh, mapped, 'manual', '导入 SRT');
-  setStatus('<span class="ok">✓ 已导入 ' + mapped.length + ' 条字幕（SRT 的成片秒已折回这一镜的源秒；'
-    + (parsed.skipped ? parsed.skipped + ' 块格式不对已跳过；' : '')
-    + (parsed.length - inSpan.length ? (parsed.length - inSpan.length) + ' 条不在本镜；' : '')
-    + '这是外来的手改数据，台词变化不会覆盖它）</span>');
-}
-async function subAsr(sh) {
-  if (!sh) return;
-  /* 第二下就是「不等了」：浏览器内那一路线首次要先经代理下几百 MB 模型，
-     没有出口的话用户只能刷新页面。 */
-  if (subAsrBusy) { await subAsrAbort(); return; }
-  const c = chosenCandOf(sh);
-  const src = c ? candTrackSrc(c) : '';
-  if (!src) { setStatus('<span class="err">这一镜还没有可识别的素材：先生成或导入一条视频</span>'); return; }
-  subAsrBusy = sh.id;
-  const ctl = new AbortController();
-  subAsrCtl = ctl;
-  /* 立刻重画一次：按钮要马上翻成「不等了」的样子（subAsrBusyOf 现算文案），
-     不然模型下载那几分钟里按钮还写「自动识别」，第二下其实是取消 —— 用户以为在再识一次。 */
-  renderEditor();
-  try {
-    if (!window.Asr) await window.__spaLoadScript('web/domain/asr.js', () => window.Asr);
-    setStatus('<span class="meta">正在提交语音识别…</span>');
-    const r = await window.Asr.transcribe({
-      src,
-      signal: ctl.signal,
-      onStage: s => { if (curShot() === sh && !ctl.signal.aborted) setStatus('<span class="meta">' + esc(window.Asr.stageText(s)) + '</span>'); },
-    });
-    subAsrJob = r.jobId || '';
-    if (curShot() === sh) renderEditor();
-    const job = await window.Asr.wait(r.jobId, j => {
-      if (curShot() === sh && !ctl.signal.aborted) setStatus('<span class="meta">正在识别这一镜的语音… ' + Math.round((j.progress || 0) * 100) + '%</span>');
-    }, { signal: ctl.signal });
-    if (job.state !== 'done') throw new Error(job.error || ('识别任务 ' + job.state));
-    const segs = job.segments || [];
-    const candSegs = segsOf(c, candDur(c, sh));
-    const entries = [];
-    let droppedShort = 0;
-    segs.forEach(s0 => {
-      const a = Number(s0.start) || 0;
-      const b = Number(s0.end) || 0;
-      const mid = (a + b) / 2;
-      const seg = candSegs.find(x => mid >= x.in && mid <= x.out);
-      /* 中点不在任何保留片段里（整句落在被剪掉的那一截 / 段间空档）：一样照实计数，
-         不静默吞 —— 回执只报「识别完成 N 条」的话，少了谁没人知道。 */
-      if (!seg) { droppedShort++; return; }
-      const st = Math.max(a, seg.in);
-      const en = Math.min(b, seg.out);
-      const tx = String(s0.text == null ? '' : s0.text).trim();
-      if (!tx) return;
-      /* 被剪掉 / 短于 80ms 的条目照实计数：回执里说少了谁，不静默吞。 */
-      if (en - st < 0.08) { droppedShort++; return; }
-      entries.push({ startMs: Math.round(st * 1000), endMs: Math.round(en * 1000), text: tx, src: 'asr' });
-    });
-    if (!entries.length) throw new Error('识别完成，但结果一条都不在保留的片段里（看看是不是把有说话的片段剪掉了）');
-    subWrite(sh, entries, 'asr', '自动识别字幕');
-    /* 服务端把「文本可疑」并进 engine 那串文案（server/routes/asr.js），没有单独的布尔字段 ——
-       这里按那句话认；认不出就当不可疑，宁可少说一句不多说。 */
-    const sus = /文本可疑/.test(String(job.engine || ''));
-    setStatus('<span class="ok">✓ 识别完成：' + entries.length + ' 条字幕已写入「字幕」（识别结果不会反改台词与配音）</span>'
-      + (droppedShort ? '<span class="warn"> · 有 ' + droppedShort + ' 条太短（不足 0.08 秒）或落在被剪掉的区间里，没有写入</span>' : '')
-      + (sus ? '<span class="warn"> · 这段音的识别结果可疑（中文占比偏低 / 夹着长串外文），建议人工复核一遍再烧录</span>' : ''));
-  } catch (e) {
-    if (ctl.signal.aborted) {
-      setStatus('<span class="err">已取消识别：这一镜的字幕没有改动</span>');
-    } else {
-      setStatus('<span class="err">自动识别失败：' + esc(String(errText(e))) + '</span>');
-    }
-  } finally {
-    subAsrBusy = '';
-    subAsrCtl = null;
-    subAsrJob = '';
-    if (curShot() === sh) renderEditor();
-  }
-}
-/* 「不等了」：掐掉在途的浏览器 worker（signal 一路传到 terminate），
-   代理那一路已经建出任务号的再补一次 cancel，别让它在后台跑完。 */
-async function subAsrAbort() {
-  const id = subAsrJob;
-  subAsrJob = '';
-  try { if (subAsrCtl) subAsrCtl.abort(); } catch (e) { /* 已经断了 */ }
-  if (id) {
-    try { await window.Asr.cancel(id); } catch (e) { /* 已经跑完或取消不掉：状态由那一单自己报 */ }
-  }
-}
-function subAddAtPin(sh) {
-  if (!sh) return;
-  const c = chosenCandOf(sh);
-  const cur = subCurrent(sh);
-  const total = c ? candDur(c, sh) : 0;
-  /* 插针是全局一枚（proj.cutAt），但那个秒数只对「放针那一镜」有意义（setPin 记 proj.cutShot）：
-     针还停在别的镜上时从 0 开始，不拿 A 镜的秒数往 B 镜里塞。 */
-  const foreignPin = !!proj.cutShot && proj.cutShot !== sh.id;
-  const at = foreignPin ? 0 : Math.max(0, Math.min(total, Number(proj.cutAt) || 0));
-  const end = total ? Math.min(total, at + 2) : at + 2;
-  const entries = cur.entries.concat([{
-    startMs: Math.round(at * 1000), endMs: Math.round(Math.max(at + 0.2, end) * 1000),
-    text: '新字幕', src: 'manual',
-  }]);
-  subWrite(sh, entries, cur.source === 'asr' ? 'asr' : 'manual', '加一条字幕');
-  if (foreignPin) setStatus('<span class="meta">插针还在另一镜上：新字幕从本镜 0 秒开始（点本镜轨道放针后再加，会落在针那里）</span>');
-}
-function subDelete(sh, i) {
-  if (!sh) return;
-  const cur = subCurrent(sh);
-  const e = cur.entries[i];
-  if (!e) return;
-  const entries = cur.entries.filter((x, k) => k !== i);
-  subWrite(sh, entries, cur.source === 'asr' ? 'asr' : 'manual', '删一条字幕');
-  setStatus('<span class="ok">✓ 已删掉字幕「' + esc(String(e.text).slice(0, 20)) + '」（台词与配音没动）</span>');
-}
-function subSetText(sh, i, text) {
-  if (!sh) return;
-  const cur = subCurrent(sh);
-  if (!cur.entries[i]) return;
-  const v = String(text == null ? '' : text).replace(/\r\n?/g, '\n').trim();
-  if (v === cur.entries[i].text) return;
-  const entries = cur.entries.map((e, k) => (k === i ? Object.assign({}, e, { text: v, src: e.src === 'voice' || e.src === 'line' ? e.src : 'manual' }) : e));
-  subWrite(sh, entries, cur.source === 'asr' ? 'asr' : 'manual', '改字幕文字');
-}
-/* 右栏字幕清单 / 本镜与全片两排字幕块 / 它们的拖动与起止输入：
-   整域搬进 web/director/engine/sub-lane.js（createSubLane），这里只留包与解构（见 Lanes / Voice 两处）。 */
-/* 预览叠层：本镜读本镜甲板轴，全片读成片秒；两条都从 currentOf 派生。 */
-let subOverlayCache = { key: '', list: [] };
-function filmSubtitleList() {
-  const key = String(proj.rev || 0) + ':' + voicesEnsure().length;
-  if (subOverlayCache.key === key) return subOverlayCache.list;
-  const { rows } = filmRowsForSubtitles();
-  subOverlayCache = { key, list: filmEntriesOf(rows, allShots(), voicesEnsure()).entries };
-  return subOverlayCache.list;
-}
-function subOverlayState(sec) {
-  if ((proj.tlTab || 'shot') === 'film') {
-    const t = Math.max(0, Number(sec) || 0) * 1000;
-    const e = filmSubtitleList().find(x => t >= x.filmStartMs - 1 && t < x.filmEndMs - 1);
-    if (!e) return null;
-    const sh = allShots().find(x => x.id === e.shotId);
-    return { entry: e, style: styleOf(sh) };
-  }
-  const sh = curShot();
-  if (!sh) return null;
-  const e = entryAt(sh, sec, { axis: 'shot', voices: voicesEnsure(), cand: chosenCandOf(sh) });
-  return e ? { entry: e, style: styleOf(sh) } : null;
-}
-function paintSubOverlayAt(sec) {
-  const wrap = $('subWrap');
-  if (!wrap) return;
-  const got = subOverlayState(Math.max(0, Number(sec) || 0));
-  const key = got ? JSON.stringify([got.entry.index, got.entry.text, got.style]) : '';
-  if (wrap.dataset.key === key) return;
-  wrap.dataset.key = key;
-  wrap.innerHTML = got ? overlayHTML(got.entry, got.style) : '';
-}
-/* 剪辑 → 全片 那一格状态说明整块已删（2026-10 用户点名：镜头统计那一行 + 成片陈旧那句长提示）。
-   成片新旧这件事现在只在**点导出那一刻**由 `exportFilm` 的快捷闸（`filmIsCurrent`）自己判，
-   界面上不再有第二处陈述。 */
 
 /* 关标签/刷新前的同步兜底：IndexedDB 的写入是异步的，beforeunload 里不能等它。
    这里把同一份工作区写进 localStorage 的**一次性**键（只有出现未落盘改动时才写），
@@ -1371,27 +1107,25 @@ function armSaveTimer() {
   (async () => {
     saveTimer = null;
     const snap = snapOf();
-    const quiet = saveQuietRound, lbl = saveLabelNext;
+    const quiet = saveQuietRound;
+    /* 这一步叫什么要在这里取：紧接着 saveLabelNext 就被清空了。 */
+    const label = editLabelInFlight();
     saveQuietRound = true; saveLabelNext = '';
     /* 一个字节都没变（轮询到「还是生成中」、或者重画顺手调了一次）：不写 IndexedDB、
        不做镜像、也不往撤销栈里再压一份。以前这里无条件 stringify + put + mirrorWs，
        一次 3 秒的轮询就是一次整份工作区的序列化与落盘。 */
     if (lastSavedJson && snap === lastSavedJson) {
-      undoPushed = false;
       $('saveState').textContent = '已保存到本地';
       return;
     }
-    /* 压撤销的门槛有两道：这一轮不是静默的（有过用户编辑），且变的不是只有 curId
-       （切短片不消耗撤销次数）。 */
-    if (lastSavedJson && !undoPushed && !quiet && snapBodyOf(snap) !== snapBodyOf(lastSavedJson)) {
-      pushUndo(lastSavedJson, lbl || '编辑');          // 限总量，避免大工程把内存吃满
-      redoStack.length = 0;
-      /* 只走 scheduleSave 的那些编辑（提示词 / 型号 / 时长 / 画质 / 比例…）也推进修订号：
-       助手的 CAS 只比这一个数（revGate），这些编辑不推进它，助手就「看不见」——
-       用户刚改完参数，它还按旧读数照旧写入。 */
-      bumpRevision();
+    /* 压撤销的门槛有三道：这一轮不是静默的（有过用户编辑），变的不是只有 curId
+       （切短片不消耗撤销次数），而且**这一步叫得出名字**（见 editLabelInFlight）。 */
+    if (lastSavedJson && !quiet && snapBodyOf(snap) !== snapBodyOf(lastSavedJson)) {
+      /* 记一步 = 往**只追加**的日志末尾追一条（老的记录一条都不动）。
+         没名字的那一份只落盘不进日志：重画顺手补的字段（画幅组合 / 时长收正 / 参数默认值）
+         不是用户的一次编辑，记进日志就是那句没说清做了什么的话。 */
+      if (label && historyCommit(label, pendingEdit ? pendingEdit.at : Date.now())) pendingEdit = null;
     }
-    undoPushed = false;
     try {
       const wsRec = { projects: WS.projects, curId: WS.curId, roles: WS.roles, groups: WS.groups, ts: Date.now() };
       await wsKv.put('workspace', wsRec);
@@ -1558,8 +1292,8 @@ function candThumbInner(c, isCur, i) {
 }
 /* 没有候选时的占位卡：点了就按这一镜的配置生成一条 */
 function candPlaceholder() {
-  return `<div class="cand-thumb addcand big" data-add="1" title="新增一个空候选：先写描述，再点「生成这条」">
-      <span class="plusic">${icon('plus', 18)}</span><span class="pt">还没有候选</span><span class="pd">点这里新增一个候选</span>
+  return `<div class="cand-thumb addcand big" data-add="1" title="新增候选">
+      <span class="plusic">${icon('plus', 18)}</span><span class="pt">还没有候选</span><span class="pd">点这里新增</span>
     </div>`;
 }
 /* 有候选时行尾的小加号：再抽一条 */
@@ -1567,78 +1301,7 @@ function candAddTile() {
   return `<div class="cand-thumb addcand" data-add="1" title="新增一个空候选：先写这条候选的描述，再点「生成这条」">${icon('plus', 16)}</div>`;
 }
 let midCandExpand = window.LS.get('dir_cand_expand') === '1';
-/* ============================================================================
-   剪辑态的「无感播放」：不渲染也能播剪完之后的样子
-   ----------------------------------------------------------------------------
-   以前剪完要看效果只有一条路：合并成片（整片合成一遍，几十秒），改一个入点就得再合一次。
-   参考项目的分工是「预览走原生媒体路径保证流畅，导出才走独立的确定性离线渲染路径」——
-   这里同义：**播放不渲染**。按时间线调度现成的素材：成片第 T 秒落在哪一段，
-   就把播放器指到那一段的 `in + (T - 段起点)`；这一段放完自动接下一段。
-   段与段之间用两个 <video> 甲板接力（后面那个提前把下一段加载并定到入点），
-   所以接缝上看不出换了一条素材。配音由这一层按成片绝对时间起播（Audio 元素，同一根时间基）。
-   ========================================================================== */
-/* 剪辑态播放计划：本镜 / 全片两路，算法在 plan.js；这里只把工程状态与函数接进去。 */
-let tlPlayPlanOf = null;
-function tlPlayPlan() {
-  if (!tlPlayPlanOf) {
-    tlPlayPlanOf = createPlayPlan({
-      getProj: () => proj, curShot, allShots, tlCandidateOf, candDur,
-      picVolOf: s => picVolOf(s), tlSyncFromShots, filmFrames, filmLayGray,
-      candTrackSrc: c => candTrackSrc(c), clipVoices: (c, o) => clipVoices(c, o),
-      shotVoices: (a, b) => shotVoices(a, b), voiceVolOf: v => voiceVolOf(v),
-    });
-  }
-  return tlPlayPlanOf();
-}
-
-/* 剪辑态「播放进度 → 插针」那一下：renderMid 里注册，TlPlay 每帧回调它。
-   不直接把 syncPlayhead 塞给 TlPlay 是因为它每次重画都是一个新的闭包（绑着新的 col），
-   而 TlPlay 是模块级单例 —— 中间那层变量就是为了让两者不必同生同死。 */
-let tlPlayhead = null;
-/* 剪辑态的播放器接线：播放 / 暂停、声音、时间、以及「进度跟着插针走」都从 TlPlay 走。
-   与下面那一整段普通播放器接线是互斥的两条路（同一个 #player，两种含义），
-   所以调用处按 midEditTrim 二选一，绝不两条都接上。 */
-function bindTlPlay(col, keepPlay, fmtClock, keepBox) {
-  const a = col.querySelector('#player'), b = col.querySelector('#playerB');
-  const still = col.querySelector('#playerStill');
-  const pb = col.querySelector('#pbBtn'), tb = col.querySelector('#pbTime'), mb = col.querySelector('#pbMute');
-  const ab = col.querySelector('#arBadge');
-  const before = TlPlay.fp;
-  TlPlay.mount(a, b, { muted: window.LS.get('dir_muted') === '1', still: still });
-  const plan = tlPlayPlan();
-  TlPlay.setPlan(plan.clips, plan.voices, { film: plan.film });
-  if (ab) ab.textContent = '剪后预览 · ' + plan.clips.length + ' 段 · ' + fmtClock(TlPlay.total).replace(/^00:/, '') + 's';
-  const sync = () => { if (pb) pb.innerHTML = icon(TlPlay.playing ? 'pause' : 'play', 15); };
-  const showT = () => { if (tb) tb.textContent = fmtClock(TlPlay.t) + ' / ' + fmtClock(TlPlay.total); };
-  TlPlay.onTime = () => { sync(); showT(); paintSubOverlayAt(TlPlay.t); if (tlPlayhead) tlPlayhead(); };
-  if (pb) pb.onclick = e => { e.stopPropagation(); if (TlPlay.playing) TlPlay.pause(); else TlPlay.play(); };
-  const toggle = () => { if (TlPlay.playing) TlPlay.pause(); else TlPlay.play(); };
-  if (a) a.onclick = toggle;
-  if (b) b.onclick = toggle;
-  /* 图片段盖在甲板上时点击落在它身上：同一颗播放 / 暂停，否则走到图片就点不动了。 */
-  if (still) still.onclick = toggle;
-  if (mb) {
-    mb.innerHTML = icon(TlPlay.muted ? 'speakerOff' : 'speaker', 14);
-    mb.onclick = e => {
-      e.stopPropagation();
-      const on = !TlPlay.muted;
-      TlPlay.setMuted(on);
-      mb.innerHTML = icon(on ? 'speakerOff' : 'speaker', 14);
-      mb.title = on ? '已静音（点击开启声音）' : '声音已开启（点击静音）';
-      window.LS.set('dir_muted', on ? '1' : '0');
-    };
-  }
-  bindPbFull(col.querySelector('.player-box'));
-  sync(); showT();
-  paintSubOverlayAt(TlPlay.t);
-  /* 只有**计划真的变了**（剪了一刀、换了候选、加了配音）才重新定位：
-     那时画面必须立刻反映新的段落，哪怕正在播也要从头接上。
-     计划没变而只是整列重画（轮询那 3 秒一次，且甲板节点被保住了）就一个字都不动 ——
-     去 seek 一次会把正在播的画面卡一下、把这一句的配音掐断重头再放。 */
-  if (!keepBox || TlPlay.fp !== before) TlPlay.seek(keepPlay ? keepPlay.t : 0, !!(keepPlay && !keepPlay.paused));
-}
-
-/* 播放器下方那一排控件**只有一份标记**：剪辑态那两个甲板与候选播放器以前各抄一遍
+/* 播放器下方那一排控件**只有一份标记**：剪辑态那个预览面与候选播放器以前各抄一遍
    （三行一模一样的按钮 + 一份「按 localStorage 决定喇叭图标」的判断），改一颗就得记着改两处。
    左下 = 播放/暂停 + 时长读数；右下 = 声音 + 全屏，两颗挨着、全屏在最右下角（用户点名）。
    静音态的图标与 title 都按 dir_muted 现读，不写死「声音开关」。 */
@@ -1695,35 +1358,21 @@ function playerMediaOf(sh) {
 }
 /* 播放区文案（本镜候选 / 剪辑态实时预览 / 空态） */
 function playerAreaHTML(sh) {
-  /* 剪辑态：播放交给 TlPlay（两个甲板，不渲染就能播剪完的样子）。
+  /* 剪辑态：播放交给 Play（单一预览面，按当前 clip 换元素）。
      这是「剪完马上看到效果」的落点 —— 改一个入点不用再整片合成一次。 */
   if (midEditTrim) {
-    /* 一段都没有（这一镜没候选 / 全片没选用镜头）就别摆一个黑框骗人 ——
+    /* 一段都没有（这一镜没候选 / 还没有任何已选用的镜头）就别摆一个黑框骗人 ——
        那正是「看着能播、其实什么都没有」的空控件，按全站约定要照实说一句。 */
-    if (!tlPlayPlan().clips.length) {
+    if (!Play.clipCount()) {
       return `<div class="player-empty">
-        <div class="pe-t">${(proj.tlTab || 'shot') === 'film' ? '还没有已选用的镜头' : '这一镜还没有候选'}</div>
-        <div class="pe-d">${(proj.tlTab || 'shot') === 'film'
-          ? '先在候选上点「用这条」，这里的剪辑预览就会按剪完的样子播'
-          : '先生成或导入一条视频：剪辑预览直接按剪完的段落播，不用先合并成片'}</div>
+        <div class="pe-t">还没有已选用的镜头</div>
+        <div class="pe-d">先在候选上点「用这条」，这里的剪辑预览就会按剪完的样子播</div>
       </div>`;
     }
-    return `<div class="player-box">
-      <video id="player" playsinline></video>
-      <video id="playerB" playsinline class="back"></video>
-      <!-- 图片段那一层：走到静止画面上时盖住两个甲板（见 TlPlay.enterHold） -->
-      <img id="playerStill" class="player-still" alt="">
-      <!-- 字幕叠层：与烧录同一份样式（overlayHTML）；播放头在本镜轴上就读 mapToShot，全片就读成片秒 -->
-      <div class="sub-wrap" id="subWrap" aria-hidden="true"></div>
-      ${pbBarHTML()}
-      <!-- 右上角那一格与不剪辑时同一套：只写画面尺寸（由 updateArBadge 现读真实宽高），
-           以前这里写着「剪后预览 · 不用先合并」，而 bindTlPlay 又把它顶成「剪后预览 · 5 段 · 8.0s」——
-           用户点名要看的是尺寸，不是这两句。 -->
-      <span class="arbadge" id="arBadge"></span></div>`;
+    return Play.stageHTML();
   }
-  /* 「全片模式下的播放器」那一整块已经删掉了：`isFilmMode()` 要求 `midEditTrim`，
-     而剪辑态在上面就 return 了（两个甲板 + TlPlay 实时播），所以这里永远走不到 ——
-     留着是一份没人执行的分支，还带着一句「点播放成片会先合并」的假承诺。 */
+  /* 走到这里就是生成态：剪辑态在上面已经 return（两个甲板 + 实时播），
+     不再有别的一种播放器。 */
   const pm = playerMediaOf(sh);
   if (pm) {
     const frame = Wb.thumbs.get(pm.cur.url, thumbKey(pm.cur)) || '';
@@ -1756,21 +1405,20 @@ function bindCandActs(col) {
   const cur = (sh.candidates || [])[proj.curCand];
   const uc = col.querySelector('#usec');
   if (uc) uc.onclick = () => {
-    /* 换选用候选 = 成片内容变了。手改 / 识别那份字幕的源秒还挂在**旧候选**的时间轴上：
-       先按身份搬过去（remapSubtitles：旧源秒 → 旧候选成片秒 → 新候选源秒），
-       搬不了（旧候选已删 / 全被夹掉）就留 stale 提示照实说；派生那份会自动重派生。 */
-    beginEdit('换选用候选');
-    const moved = remapSubtitles(sh, voicesEnsure(), cur.vid);
-    if (moved) sh.subtitle = moved;
-    sh.selId = cur.vid;
+    const candNo = (sh.candidates || []).indexOf(cur) + 1;
+    const prevNo = (sh.candidates || []).findIndex(x => x.vid === sh.selId) + 1;
+    beginEdit(prevNo
+      ? `把「${sh.name || '这一镜'}」选用的候选从第 ${prevNo} 条换成第 ${candNo} 条（${fmtDur(candDur(cur, sh))}）`
+      : `把「${sh.name || '这一镜'}」第 ${candNo} 条候选（${fmtDur(candDur(cur, sh))}）接进成片`);
+    setSelectedCandidate(sh, cur);
     filmEdited();
-    if (moved) setStatus('<span class="meta">已把手改 / 识别的字幕按新候选的时间轴重排（Ctrl+Z 可退回）</span>');
   };   // 选用后不自动锁定，可手动加锁（换候选 = 成片内容变了）
   const un = col.querySelector('#unsel');
   if (un) un.onclick = e => { const b = e.currentTarget;
-    /* note 写清后果：取消选用之后这一镜的成片位置就空出来了，全片会少这一段 */
-    Confirm.arm(b, '确认取消？', { note: '取消选用后，这一镜不再进成片（全片会少这一段）' })
-      || (sh.selId = null, filmEdited()); };
+    /* note 写清后果：取消选用之后这一镜的成片位置就空出来了 */
+    Confirm.arm(b, '确认取消？', { note: '取消选用后，这一镜不再进成片' })
+      || (beginEdit(`把「${sh.name || '这一镜'}」从成片里撤掉（取消选用第 ${Math.max(1, (sh.candidates || []).findIndex(x => x.vid === sh.selId) + 1)} 条候选）`),
+        setSelectedCandidate(sh, null), filmEdited()); };
   const lk = col.querySelector('#lockc');
   if (lk) lk.onclick = () => { if (cur) { cur.locked = !cur.locked; renderAll(); scheduleSave(); } };
   const dl = col.querySelector('#delc');
@@ -1798,7 +1446,7 @@ function bindCandActs(col) {
           Api.cancel(cxProv, cur.vid).catch(e => Toast.warn('没能让平台停掉这条任务：' + errText(e) + '（平台上可能还在跑）'));
         }
         sh.candidates = (sh.candidates || []).filter(c => c !== cur);
-        if (sh.selId === cur.vid) sh.selId = null;
+        if (sh.selId === cur.vid) setSelectedCandidate(sh, null);
         releaseCandUrl(cur);                                          // 本地视频的 blob: URL 用完了要回收
         proj.curCand = Math.max(0, Math.min(proj.curCand, sh.candidates.length - 1));
         filmEdited();
@@ -1954,7 +1602,7 @@ function addCandidateDraft() {
   sh.candidates.push(ph);
   proj.curCand = sh.candidates.length - 1;         // 新占位直接选中，马上就能写描述
   renderAll(); scheduleSave();
-  setTimeout(() => { const ta = $('edPrompt'); if (ta) { ta.focus(); ta.select(); } }, 80);   // 描述在右栏写
+  setTimeout(() => { const ta = $('edPrompt'); if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); ta.select(); } }, 80);   // 描述在右栏写
 }
 /* 生成某一条候选（用这条自己的描述；草稿会原地变成任务） */
 async function generateCandidate(ph) {
@@ -1964,7 +1612,7 @@ async function generateCandidate(ph) {
   if (!txt) {
     setStatus('<span class="err">' + NO_PROMPT_WHY + '（可以先复制当前镜头的描述再改）</span>');
     const ta = $('edPrompt');
-    if (ta) ta.focus();
+    if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); }
     return;
   }
   ph.prompt = txt;
@@ -2277,8 +1925,8 @@ function renderScenes() {
   proj.scenes.forEach((sc, si) => {
     /* 剪辑态左栏这一列只列**已选用的候选**镜头（`shotReady` = 这一镜选的那条已经出画面，
        也就是它进了成片的那一份账）；生成态那一列照旧列全部镜头，一个都不少。
-       「列出哪几镜」与「点它会去哪」是一件事：剪辑态点一行 = 本镜档切到那一镜 /
-       全片档把剪辑针跳到那一镜在成片里的位置（见 `leftShotPick`）。
+       「列出哪几镜」与「点它会去哪」是一件事：剪辑态点一行 = 剪辑针跳到那一镜在成片里的位置
+       （见 `leftShotPick`）。
        场景分组留着，一个可用的都没有的空场景在剪辑态整个不画（别占一行空壳）。 */
     const listed = [];
     sc.shots.forEach((sh, xi) => { if (!midEditTrim || shotReady(sh)) listed.push([sh, xi]); });
@@ -2384,8 +2032,8 @@ function renderScenes() {
         if (pbarHTML) kept.insertAdjacentHTML('beforeend', pbarHTML);
         Wb.thumbs.bind(kept, keptMedia, rawSrc);
       } else Wb.thumbs.bind(it.querySelector('.sthumb-wrap'), it.querySelector('.sthumb'), rawSrc);
-      /* 点一行：生成态 = 切到那一镜（老样子，一字不改）；
-         剪辑态 = 本镜档切到那一镜 / 全片档把剪辑针跳到那一镜在成片里的位置（`leftShotPick`）。 */
+      /* 点一行：生成态 = 换看哪一镜（老样子，一字不改）；
+         剪辑态 = 剪辑针跳到那一镜在成片里的位置（`leftShotPick`）。 */
       it.onclick = () => {
         if (!midEditTrim) { proj.curScene = si; proj.curShot = xi; renderAll(); return; }
         leftShotPick(sc, sh, xi);
@@ -2459,13 +2107,10 @@ function renderScenes() {
   updateProjUI();
 }
 
-/* 剪辑态左栏点一镜（用户点名「在『本镜』下点击那里切换镜头，在『全片』时点击则剪辑针跳转到相应镜头对应位置」）：
-   · **本镜档** = 切到那一镜 —— 既有的切镜出口（`proj.curScene` / `proj.curShot` + 整栏重画），
-     针落到那一镜自己的第一段开头（`setPin` 是针的**唯一**写入口）。
-   · **全片档** = 把剪辑针跳到那一镜在成片里的对应位置 —— 走 `filmApplyAt` 那一个出口
-     （焦点、针、播放器与那句报数都归它管）。
-   两处都不自己折算秒数：成片秒与源秒是两把尺子，各有各的折算口（`filmFrames` / `shotPinT`），
-   在这里再写一份就是第二本账 —— 针与格子迟早对不上。 */
+/* 剪辑态左栏点一镜：**播放头跳到那一镜在成片里的对应位置**（用户点名）。
+   成片秒是派生几何（`deriveTimeline` 一处），这里只问它，不自己折算 ——
+   折算是第二本账，播放头与格子迟早对不上。
+   剪辑态只有成片那一排：点一行 = 把播放头放到那一镜在成片里的起点，没有第二种落点。 */
 function leftShotPick(sc, sh, xi) {
   proj.curScene = proj.scenes.indexOf(sc);
   proj.curShot = xi;
@@ -2475,79 +2120,220 @@ function leftShotPick(sc, sh, xi) {
     const ci = (sh.candidates || []).findIndex(x => x.vid === c.vid);
     if (ci >= 0) proj.curCand = ci;
   }
-  if (isFilmMode()) {
-    /* 全片档：那一镜在成片里的起点由 `filmFrames` 那一行几何表给出（成片秒 ↔ 框基秒只此一份），
-       跳转交给 `filmApplyAt` —— 它自己按框基现算，针、焦点与播放器一起落。 */
-    const tl = tlSyncFromShots();
-    const row = filmFrames(tl).rows.find(r => r.cl && r.cl.kind === 'shot' && r.cl.shotId === sh.id);
-    if (!row) { setStatus('这一镜还没进成片：先在它那一栏点「用这条」'); renderAll(); return; }
-    filmApplyAt(document.getElementById('tlDock'), tl, row.start, { lane: 'pic' });
+  if (inCutMode()) {
+    const row = deriveTimeline(ensureFilm().clips || []).rows.find(r => (r.clip || {}).shotId === sh.id);
+    if (!row) { setStatus('这一镜还没进成片：先在生成态给它选一条「用这条」'); renderAll(); return; }
+    Timeline.seekTo(num(row.start), { follow: true });
     return;
   }
-  /* 本镜档：切镜之后针落到那一镜自己的第一段开头（段没剪过时就是这一镜的第 0 秒）。 */
+  /* 不在剪辑态（顺序 / 生成）：点左栏就是**换看哪一镜**，没有轨道也就没有针要放 ——
+     进剪辑态时那一排的针由几何现算（`filmPinInfo`），落在当前那一镜上。 */
   renderAll();
-  if (!c) return;
-  const total = candDur(c, sh);
-  const segs = segsOf(c, total);
-  setPin(document.getElementById('midCol'), sh, c, total, segs.length ? (Number(segs[0].in) || 0) : 0);
-  /* 入出点那一行（正在调第几段）跟着新落点走 —— 整栏重画时它读的还是上一镜的那一秒。 */
-  paintTrimRow();
 }
 
-/* 剪辑态左栏底部那一块：**历史编辑记录**（撤销栈的每一步，点一行撤回到那一步之前）。
-   历史读的就是 undoStack / undoLabels 本身；栈被上限挤掉的那几步照实不显示
-   （空态那句话把两档上限说清）。
+/* 剪辑态左栏底部那一块：**历史编辑记录**。
+   历史是一条**只追加的操作日志**：最新的一条在最上，**一条都不删**（回退也留痕）。
+   「当前生效」的那一条用一枚标记点亮（指针）；点任意一行 = 回退到那一行那一版的状态，
+   回退会在末尾追一条「回退到「xxx」」—— 于是所有记录始终可见、干过什么全查得到。
+   被上限挤掉的最老那几条照实不显示（空态那句话把两档上限说清）。
    这一块做成**折叠区**（原生 details，默认收起）：它平时只是「有没有可退的步骤」这一句，
-   展开才是一列步骤 —— 以前它占掉左栏整列，剪的时候连分镜列表都看不见了。
+   展开才是一列记录 —— 以前它占掉左栏整列，剪的时候连分镜列表都看不见了。
    「导入视频 / 素材」已经挪到左栏表头（项目级动作），这里不再重复一个入口。 */
 function renderEditLeft(box) {
-  let rows = '';
-  for (let i = undoStack.length - 1; i >= 0; i--) {
-    const lbl = undoLabels[i] || '编辑';
-    rows += '<button type="button" class="hist-row" data-undo-to="' + i + '"'
-      + ' title="撤回到「' + esc(lbl) + '」之前的状态（之后的那几步都进「重做」，Ctrl+Y 一步一步回来）">'
-      + '<span class="hn">' + esc(lbl) + '</span><span class="ht">' + window.fmtHM(undoTimes[i] || Date.now()) + '</span></button>';
+  const rows = [];
+  /* 倒序画（最新在最上）：日志本身是正的、只追加。 */
+  for (let i = historyLog.length - 1; i >= 0; i--) {
+    const e = historyLog[i];
+    const isNow = i === historyCursor;
+    const kindTxt = e.kind === 'rollback' ? '回退' : e.kind === 'redo' ? '重做' : '编辑';
+    rows.push('<button type="button" class="hist-row' + (isNow ? ' now' : '') + (e.kind !== 'edit' ? ' mark' : '') + '"'
+      + ' data-hist-i="' + i + '"'
+      + ' title="' + esc(kindTxt + ' · ' + window.fmtHM(e.at) + '：' + e.label)
+      + (isNow ? '（现在生效的就是这一版）' : '（点一下回退到这一版；回退会在末尾留一条记录）') + '">'
+      + '<span class="hk">' + esc(kindTxt) + '</span>'
+      + '<span class="hn">' + esc(e.label) + '</span>'
+      + '<span class="ht">' + window.fmtHM(e.at) + '</span></button>');
   }
   box.innerHTML = `
     <details class="el-hist">
-      <summary><span class="hn">历史编辑记录</span><span class="n">${undoStack.length ? undoStack.length + ' 步可退' : '还没有可退的步骤'}</span></summary>
+      <summary><span class="hn">历史编辑记录</span><span class="n">${historyLog.length ? historyLog.length + ' 条 · ' + Math.max(0, historyCursor + 1) + ' 步可退' : '还没有记录'}</span></summary>
       <div class="el-body">
-        ${rows ? '<div class="hist-list">' + rows + '</div>'
-          : '<div class="hist-empty">剪一刀、拖一格，这里就会出现一步。<br>上限 ' + UNDO_MAX_COUNT + ' 步 / ' + window.fmtBytes(UNDO_MAX_BYTES) + '，用满时从最旧的一步开始挤掉。</div>'}
+        ${rows.length ? '<div class="hist-list">' + rows.join('') + '</div>'
+          : '<div class="hist-empty">还没有记录</div>'}
       </div>
     </details>`;
-  box.querySelectorAll('[data-undo-to]').forEach(b => {
+  box.querySelectorAll('[data-hist-i]').forEach(b => {
     b.onclick = () => {
-      const to = Number(b.dataset.undoTo) || 0;
-      let n = 0;
-      while (undoStack.length > to) { undo(); n++; }
-      if (n) setStatus('<span class="ok">✓ 已退回 ' + n + ' 步（Ctrl+Y 一步一步重做）</span>');
+      const i = Number(b.dataset.histI);
+      if (!Number.isFinite(i) || i === historyCursor) return;
+      if (!historyGoTo(i, 'rollback', '回退到')) {
+        setStatus('<span class="err">退不回去：这份快照没能恢复，工作区保持原样</span>');
+        return;
+      }
+      setStatus('<span class="ok">✓ 已回退到「' + esc((historyLog[i] || {}).label || '那一步')
+        + '」那一版（历史里留了一条记录，前面那些一条都没删）</span>');
     };
   });
 }
 
 /* ---------- 渲染：中栏 ---------- */
-let midEditTrim = false;   // 剪辑模式（本镜 / 全片 是它的子菜单）
-/* 「全片」这一档只有在剪辑模式打开时才算成立：本镜/全片那两个标签就在剪辑面板里，
-   关掉剪辑后 proj.tlTab 还留着 'film' —— 只看它的地方会把界面停在「全片」那套逻辑上
-   （以前两处各写一种判断，一处带 midEditTrim、一处不带，表现就是关掉剪辑还在按全片走）。 */
-const isFilmMode = () => midEditTrim && proj.tlTab === 'film';
-let midOrder = true;       // 顺序模式：下方显示镜头缩略图，可拖动排序（默认打开）
+let midEditTrim = false;   // 剪辑模式（只有一条轨：成片那一排）
+/* 剪辑态**只有一条轨**（用户点名：不再有「本镜 / 全片」两个页签），所以「是不是按成片那一套逻辑走」
+   = 「剪辑模式开着没有」。这一枚判据只分**剪辑态 / 生成态**两档：生成态的播放器、左栏点一行、
+   字幕叠层各有一套秒尺子，切了剪辑模式它们才换那一套。 */
+const inCutMode = () => midEditTrim;
 /* 打开 / 关掉剪辑模式只有一个出口：旗标 + 收甲板 + 中栏 + 右栏四件事必须一起做，漏一件就是
    「中栏已经换成轨道、右栏还停在镜头编辑器」或「甲板收掉了但后台还在解码发声」。
    页面里裸写 `midEditTrim = …` 的地方从此只有这一处。 */
 function setTrimMode(on) {
   midEditTrim = !!on;
-  if (midEditTrim) midOrder = false;
-  /* 退出剪辑就收掉那两个甲板：留着会在后台接着解码（声音也跟着响），
+  /* 退出剪辑就收掉播放核：留着会在后台接着解码（声音也跟着响），
      而界面上已经没有它们的位置了。 */
-  else TlPlay.destroy();
+  if (!midEditTrim) Play.dispose();
+  /* 进剪辑态：播放头落到当前那一镜在成片里的起点（成片秒是派生几何，只问一处）。 */
+  if (midEditTrim) {
+    const sh0 = curShot();
+    if (sh0) {
+      const row = deriveTimeline(ensureFilm().clips || []).rows.find(r => (r.clip || {}).shotId === sh0.id);
+      if (row) Timeline.seekTo(num(row.start), { follow: true });
+    }
+  }
   renderMid();
   /* 右栏同一次点完就要跟着换（用户点名的形状）：只调 renderMid 只换中栏，
      右栏还停在镜头编辑器上，看起来像「剪辑模式没打开」。
      左栏也要跟着换面（剪辑态 = 历史编辑记录 + 素材，renderScenes 里那一档）。 */
   renderEditor();
   renderScenes();
+}
+/* 连接点那一颗 ◇ 的唯一写口：转场挂在**左段**身上（进入下一段）。
+   `live` 是拖动时长滑块那一刻（只刷新、不压撤销快照），松手那一下才定稿。 */
+function transitionSet(index, patch, opts) {
+  const film = ensureFilm();
+  const left = film.clips[index], right = film.clips[index + 1];
+  if (!left || !right) return false;
+  const live = !!(opts && opts.live);
+  const cur = left.transition || { id: 'none' };
+  const next = normalizeTransition(Object.assign({}, cur, patch || {}), left, right);
+  /* 历史里只说「第 N 段 → 第 M 段」读不出是谁：段序一变，那两个数就指向别的镜头了。
+     同一句话既是留痕也是回执 —— 浮层里点一颗预设，页面上要说「改了哪两段之间」。 */
+  const label = '把「' + filmClipName(left) + '」→「' + filmClipName(right) + '」之间的转场'
+    + (next ? '设为 ' + transitionNameOf(next.id) + ' ' + next.duration + ' 秒' : '去掉');
+  if (!live) beginEdit(label);
+  if (next) left.transition = next; else delete left.transition;
+  /* 拖动时长滑块时不重建那块板：浮层就在板里面，重建会把手指底下的 range 换掉。
+     松手那一下走 filmEdited()，整块跟着重画。 */
+  if (live) scheduleSaveQuiet();
+  else { filmEdited(); setStatus(label); }
+  return true;
+}
+/* 工具条上除缩放 / 吸附 / 波纹 / 标记条 / 选择工具之外那几颗的出口（Timeline 只报动作名）：
+   撤销与重做动的是工程快照，播放动的是播放层，所以留在这边；
+   删 / 复制 / 切开 / 合并 / 增删段 / 长短微调 / 关联族 / 标记面板全部交 Edit 域（它改 `proj.film`）。 */
+function toolAction(act) {
+  if (act === 'undo') return undo();
+  if (act === 'redo') return redo();
+  if (act === 'play') return Play.toggle();
+  /* 回到播放头 = 把视口滚到播放头那一秒（播放头本身不动）。 */
+  if (act === 'to-playhead') return Timeline.scrollToTime(Timeline.playhead(), 0.3);
+  return Edit.toolAction(act);
+}
+/* 在某一秒加一枚标记（工具条那颗 flag 与快捷键 M 同一个出口）。 */
+function addMarkerAt(time, type) {
+  const film = ensureFilm();
+  const t = Math.max(0, Number(time) || 0);
+  const m = createMarker({ type: type || 'marker', time: t });
+  beginEdit('在 ' + Wb.fmtClock(t) + ' 加了一枚标记');
+  film.markers.push(m);
+  film.markers.sort((a, b) => a.time - b.time);
+  filmEdited();
+  setStatus('<span class="ok">✓ 已在 ' + Wb.fmtClock(m.time) + ' 加一枚标记</span>');
+  return m;
+}
+/* ---------------- 「这一镜的台词还没配音」那一族 ----------------
+   三条不能各写一份的口径：
+     ① 判据只有 `pendingLineOf`：台词有字 + 这一镜身上没有任何一条配音的文字与它相同。
+        轨道上那些待生成块由 Edit 域的 `syncPending` 按同一条判据写进 `proj.film.pending`，
+        清单上的徽章与轨道上的斜纹块读的是这里这一个函数；
+     ② 位置只有块自己的 `start`（成片秒）—— 拖它的手势在 Edit 域，这里只读；
+     ③ 点击只有一个出口 `openPendingVoice`，它一个计费请求都不发：合成仍只在
+        「合成并加到这一轨」那一下。 */
+const lineTrim = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+/* 「同一句话」按去空白后比：台词末尾多一个空格不该让这一句重新变成待生成。 */
+const lineSame = (a, b) => String(a == null ? '' : a).replace(/\s+/g, '').trim().toLowerCase()
+  === String(b == null ? '' : b).replace(/\s+/g, '').trim().toLowerCase();
+function pendingLineOf(sh) {
+  const text = lineTrim(sh && sh.line);
+  if (!text) return null;
+  const voiced = (ensureFilm().voices || []).some(v => v && v.shotId === sh.id && lineSame(v.text, text));
+  return voiced ? null : { text, who: lineTrim(sh && sh.lineWho) };
+}
+/* 点轨道上那个待生成块（Edit 只报块号）与点台词清单里的一行（那里手上就是镜头本身）
+   是同一个出口 —— 两条路进来的行为必须一模一样。 */
+function openPendingBlock(id) {
+  const p = (ensureFilm().pending || []).find(x => x && x.id === id);
+  const sh = p && allShots().find(x => x.id === p.shotId);
+  if (sh) openPendingVoice(sh);
+}
+/* 把焦点切到那一镜、播放头落到这一句自己的块上、台词填进合成框、翻到「生成配音」。
+   先画一版（字已经在了），素材库那边取字节回来再补画一次那两格 —— 一条人声可能几 MB，
+   为了等它把整个点击拖住不动，用户会以为没点中。 */
+function openPendingVoice(sh) {
+  if (!sh) return;
+  const sc = proj.scenes.find(s2 => s2.shots.includes(sh));
+  if (sc) { proj.curScene = proj.scenes.indexOf(sc); proj.curShot = sc.shots.indexOf(sh); }
+  /* 块画在哪、播放头就落在哪、合成将来也在哪；这一镜的台词已经配过音时没有块，针不动
+     （从台词清单点进来只是要看那一镜，那一句的位置由它自己那条配音说着）。 */
+  const pend = (ensureFilm().pending || []).find(p => p && p.shotId === sh.id);
+  if (pend) Timeline.seekTo(Math.max(0, Number(pend.start) || 0), { follow: true });
+  const p = { text: lineTrim(sh.line), who: lineTrim(sh.lineWho) };
+  /* 草稿先认主（shotId），再填内容 —— 右栏配音那一栏只清「别人的」草稿。 */
+  voiceDraft.shotId = sh.id;
+  /* 换了一句台词就把上一句的音色草稿清掉（同一句重复点则留着用户手改过的那一份）：
+     上一句的参考音频要是留在这一格里，合成出来会是另一个人的声音，而且真扣费。 */
+  const sameText = voiceDraft.text === p.text;
+  if (!sameText) { voiceDraft.design = ''; voiceDraft.ref = null; }
+  voiceDraft.text = p.text;
+  voiceDraft.who = p.who;
+  vcTab = 'gen';
+  renderAll();
+  /* 焦点 / 播放头 / 草稿都是视图状态（不进工程快照）：静默落盘即可，
+     别在历史里压一步「点了一下待生成占位」。 */
+  scheduleSaveQuiet();
+  prefillVoiceWho(p.who, { keep: sameText, shot: sh }).then(note => {
+    if (curShot() !== sh) return;
+    renderEditor();
+    if (note) setStatus('<span class="meta">' + esc(note) + '</span>');
+  }).catch(() => {});
+}
+/* 按说话人去素材库找料：音色设计取那位的 `voiceNote`，音色复刻取那段参考音频的字节。
+   找不到人 / 那一位没写描述 / 没挂音频时**一个字都不写**（仍可手挑），但要把原因说出来 ——
+   「点了占位符，参考那一格却还空着」必须有一句话解释，否则看着像页面没接上。
+   返回的是给人看的那句话（调用方决定往哪儿放），不在这里弹提示。 */
+async function prefillVoiceWho(who, opt) {
+  const way = voiceWayOf(voiceReg(), proj.voiceModel || '');
+  /* 同一句台词重复点占位符：那一格已经有用户手挑的音色（描述 / 参考音频）就不再用素材库那份盖掉。
+     只有「换了一句」才重新按说话人预填。 */
+  if (opt && opt.keep) {
+    if (way.mode === 'design' && String(voiceDraft.design || '').trim()) return '';
+    if (way.mode === 'clone' && voiceDraft.ref) return '';
+  }
+  /* 找谁、读音色描述还是取参考音频字节，全在 `Chars.Pipe.voicePrefillOf` 那一份里：
+     库里那一列叫什么不出 web/domain/chars.js，这里只认它交回来的 note / blob / why。 */
+  const pick = await Chars.Pipe.voicePrefillOf(who, way.mode);
+  /* await 回来时用户可能已经切到另一镜：草稿只属于当前那一镜（shotId），
+     慢回来的音色料写进别人的草稿 = B 镜合成出来是 A 镜说话人的声音，而且真扣费。 */
+  if (opt && opt.shot && voiceDraft.shotId !== opt.shot.id) return '';
+  if (!pick.found) return pick.why;
+  if (pick.why) return pick.why;
+  if (way.mode === 'design') {
+    voiceDraft.design = pick.note;
+    return '已按素材库「' + pick.name + '」的音色描述填进「声音描述」';
+  }
+  if (way.mode === 'clone') {
+    voiceDraft.ref = { assetId: '', src: '', name: pick.refName || pick.name, file: pick.blob };
+    return '已把素材库「' + pick.name + '」的参考音频填进「音色素材」';
+  }
+  return '这一档是预设音色：台词里的说话人「' + pick.name + '」不参与选音色，音色请在下拉里手挑';
 }
 /* 中栏空态：按这一镜的实际情况给出文案（不再写死「点右侧生成这一镜」） */
 /* 当前查看的是不是「空占位」候选（已新增、还没生成） */
@@ -2568,51 +2354,29 @@ function curDraftCand() {
 const Mid = createMid({
   $: (...a) => $(...a),
   playSafe: (...a) => playSafe(...a),
-  TlPlay: TlPlay,
+  Play: Play,
   projOf: () => proj,
   allShots: (...a) => allShots(...a),
   curScene: (...a) => curScene(...a),
   curShot: (...a) => curShot(...a),
   fmtDur: (...a) => fmtDur(...a),
   shotDurText: (...a) => shotDurText(...a),
-  trimStatus: (...a) => trimStatus(...a),
   shotReady: (...a) => shotReady(...a),
-  totalDur: (...a) => totalDur(...a),
   undoStack: undoStack,
   redoStack: redoStack,
   UNDO_MAX_BYTES: UNDO_MAX_BYTES,
   UNDO_MAX_COUNT: UNDO_MAX_COUNT,
   undo: (...a) => undo(...a),  redo: (...a) => redo(...a),
-  candDur: (...a) => candDur(...a),
-  filmFrames: (...a) => filmFrames(...a),
-  shotFrames: (...a) => shotFrames(...a),
-  shotPinT: (...a) => shotPinT(...a),
-  shotAxTotal: (...a) => shotAxTotal(...a),
-  cutSegIdx: (...a) => cutSegIdx(...a),
   dragBusy: (...a) => dragBusy(...a),
-  reanchorVoices: (...a) => reanchorVoices(...a),
-  tlCutTarget: (...a) => tlCutTarget(...a),
-  tlVoiceHit: (...a) => tlVoiceHit(...a),
-  voiceMin: () => VOICE_MIN,
-  laneHidden: (...a) => laneHidden(...a),
-  rowFlagToggle: (...a) => rowFlagToggle(...a),
-  bindLaneRowDrag: (...a) => bindLaneRowDrag(...a),
-  tlSyncFromShots: (...a) => tlSyncFromShots(...a),
-  setLaneVol: (...a) => setLaneVol(...a),
-  laneToggle: (...a) => laneToggle(...a),
-  runCut: (...a) => runCut(...a),
-  setTrackVol: (...a) => setTrackVol(...a),
-  syncTlTools: (...a) => syncTlTools(...a),
   filmEdited: (...a) => filmEdited(...a),
   scheduleSave: (...a) => scheduleSave(...a),
+  scheduleSaveQuiet: (...a) => scheduleSaveQuiet(...a),
   thumbKey: (...a) => thumbKey(...a),
   shotStatusOf: (...a) => shotStatusOf(...a),
   candThumbInner: (...a) => candThumbInner(...a),
   candPlaceholder: (...a) => candPlaceholder(...a),
   candAddTile: (...a) => candAddTile(...a),
   midCandExpandOf: () => midCandExpand,
-  tlPlayheadOf: () => tlPlayhead,
-  bindTlPlay: (...a) => bindTlPlay(...a),
   bindPbFull: (...a) => bindPbFull(...a),
   fullscreenHold: (...a) => fullscreenHold(...a),
   playerMediaOf: (...a) => playerMediaOf(...a),
@@ -2625,33 +2389,16 @@ const Mid = createMid({
   sortCandidates: (...a) => sortCandidates(...a),
   renderScenesSoon: renderScenesSoon,
   midEditTrimOf: () => midEditTrim,
-  isFilmMode: (...a) => isFilmMode(...a),
-  midOrderOf: () => midOrder,
   setTrimMode: (...a) => setTrimMode(...a),
+  importMedia: () => openLibDlg(curShot()),
   curDraftCand: (...a) => curDraftCand(...a),
-  paintPin: (...a) => paintPin(...a),
-  setPin: (...a) => setPin(...a),
-  paintTrimRow: (...a) => paintTrimRow(...a),
-  laneRowCtlHTML: (...a) => laneRowCtlHTML(...a),
-  laneRowBtnsHTML: (...a) => laneRowBtnsHTML(...a),
-  tlScrollWantOf: () => tlScrollWant,
-  tlZoomBy: (...a) => tlZoomBy(...a),
-  tlZoomWheel: (...a) => tlZoomWheel(...a),
-  tlZoomAuto: (...a) => tlZoomAuto(...a),
-  tlZoomSetPos: (...a) => tlZoomSetPos(...a),
-  tlZoomCommit: (...a) => tlZoomCommit(...a),
-  renderTimeline: (...a) => renderTimeline(...a),
-  shotAxText: (...a) => shotAxText(...a),
-  filmApplyAt: (...a) => filmApplyAt(...a),
+  Timeline: Timeline,
+  Edit: Edit,
   syncGenGate: (...a) => syncGenGate(...a),
   syncAtBack: (...a) => syncAtBack(...a),
   renderEditor: (...a) => renderEditor(...a),
-  openLibDlg: (...a) => openLibDlg(...a),
   renderAll: (...a) => renderAll(...a),
   setStatus: (...a) => setStatus(...a),
-  setTlPlayhead: v => { tlPlayhead = v; },
-  setMidOrder: v => { midOrder = v; },
-  setTlScrollWant: v => { tlScrollWant = v; },
 }, document, window);
 const {
   promptTextOf,
@@ -2660,929 +2407,24 @@ const {
   updateArBadge,
   renderMid,
 } = Mid;
-/* 在轨道上拖完一下（上下拖 = 换行，左右拖 = 换顺序）之后，紧跟的那一次 click 不许再被当成
-   「在这里放插针」。判据只有一个时刻：拖完 350ms 内的点击一律让路（与配音那一路的 voiceWasDragged
-   同一立场，但那边是「选中 + 试听」在块自己的 handler 里，这边要挡的是 `.tl-bar` 上那个整排共用的放针点击）。 */
-let trackDragT = 0;
-const trackDragged = () => (Date.now() - trackDragT) < 350;
-/* 拖**剪辑针**的那一下：同样要在松手后作废紧随的 click ——
-   否则松手时网格那个 click 处理器会按「点到哪一格」再放一次针，还会顺手把目标轨换掉
-   （拖针搬的是「剪在哪」，不是「现在改画面还是改声音」）。 */
-let pinDragT = 0;
-const pinDragged = () => (Date.now() - pinDragT) < 350;
-/* 画面那一排的「一行有多高」（上下拖换行的换算）：不能写死 52 ——
-   轨道收起时那一行是 18px，写死的话在收起的状态下拖一下会跳好几行。
-   量的是**这一行自己的高度 + 父容器的行间距**；本镜（`.tl-vrow`）与全片（`.tl-film`）是同一种行，
-   两条轨共用这一个函数（各写一份的话，其中一条轨的行距迟早和另一条不一样）。 */
-function picLaneStep(row) {
-  const h = row.getBoundingClientRect().height || 52;
-  const cs = row.parentElement ? getComputedStyle(row.parentElement) : null;
-  return Math.max(14, h + (Number.parseFloat((cs && cs.rowGap) || '20') || 20));
-}
-/* 拖动某一格时跟着指针走的那张小卡（用户点名的第 ⑧ 条：拖片段要有**片段缩略图**示意）。
-   挂在 `document.body` 上、`position:fixed`：轨道 `.tl-bar` 是横向滚动容器，画在它里面的卡片会被
-   overflow 裁掉，而这一张要跟着鼠标出得去轨道。
-   图只从**被点那一格已经解出来的切片**里拿（`.frs > .fr` 的那张 background-image），配音块则拿它自己那份
-   波形（`.wv-box > svg`）—— 拖动中途不重新解码：
-   取不到就只写名字与秒数（宁可少一张图，也不让一次拖动等一趟解码），名字用的是格子上那行小字本身，
-   不另拼一句（否则拖起来看到的名秒与松手后格子上的对不上）。
-   松手一定要 `dragGhostHide()`：漏一次就等于屏幕上留一张跟在手上的孤儿卡。 */
-let dragGhostEl = null, dragGhostCell = null;
-/* 跟手卡上的那张图：只用**被拖这一块自己**已经解出来的切片（画面格），配音块用它自己那份波形。
-   字幕块与待生成占位没有图 —— 它们长出自己的那一张卡（`.tl-ghost.sub` / `.tl-ghost.pend`）：
-   借一格画面来显示「一句话」，等于把手里拿的东西说成别的。
-   拖动中途一律不发起解码：取不到就留虚线占位（宁可少一张图，也不让一次手势等一趟解码），
-   名字用的是块上那行字本身，不另拼一句（否则拖起来看到的与松手后格子上的对不上）。
-   同一块拖动中只量一次（缓存挂在节点上）：待生成占位的秒数每帧都在变，图不必每帧重找。 */
-function ghostSliceOf(cell) {
-  if (cell && cell.__ghostBg !== undefined) return cell.__ghostBg;
-  const own = cell && cell.querySelector ? cell.querySelector('.frs > .fr') : null;
-  const bg = (own && !own.classList.contains('none') && own.style && own.style.backgroundImage) || '';
-  if (cell) cell.__ghostBg = bg;
-  return bg;
-}
-/* 这一块是哪一类：只有「自己带图」的画面格与配音块之外才需要换一张卡的样子。 */
-function ghostKindOf(cell) {
-  const c = cell && cell.classList;
-  if (!c) return '';
-  if (c.contains('tl-sub')) return 'sub';
-  if (c.contains('tl-vp')) return 'pend';
-  return '';
-}
-function dragGhostShow(ev, cell, label) {
-  if (!dragGhostEl) {
-    dragGhostEl = document.createElement('div');
-    dragGhostEl.className = 'tl-ghost';
-    dragGhostEl.appendChild(document.createElement('i'));
-    dragGhostEl.appendChild(document.createElement('span'));
-    document.body.appendChild(dragGhostEl);
-  }
-  const im = dragGhostEl.firstChild;
-  /* 图与卡的样子只在这一趟拖动第一次进来时定（`dragGhostCell` 记住它是哪一块）：
-     待生成块拖动中每帧都调这里更新秒数，重新找图会把一次手势拖成上百次布局查询。 */
-  if (dragGhostCell !== cell) {
-    dragGhostCell = cell;
-    const kind = ghostKindOf(cell);
-    dragGhostEl.className = 'tl-ghost' + (kind ? ' ' + kind : '');
-    im.style.backgroundImage = '';
-    im.textContent = '';
-    im.classList.remove('no');
-    if (!kind) {
-      /* 拖的是一句配音：放它自己那份波形（克隆节点，不重解码也不重算包络 ——
-         波形还没后台填出来时 `.wv-box` 是空的，跟着下面那一支走虚线占位）。 */
-      const wv = cell && cell.querySelector ? cell.querySelector('.wv-box > svg') : null;
-      if (wv) im.appendChild(wv.cloneNode(true));
-      else {
-        const bg = ghostSliceOf(cell);
-        im.style.backgroundImage = bg;
-        im.classList.toggle('no', !/^url\(/.test(bg));
-      }
-    }
-  }
-  dragGhostEl.lastChild.textContent = String(label || '');
-  dragGhostMove(ev);
-}
-function dragGhostMove(ev) {
-  if (!dragGhostEl) return;
-  dragGhostEl.style.left = Math.round((Number(ev.clientX) || 0) + 16) + 'px';
-  dragGhostEl.style.top = Math.round((Number(ev.clientY) || 0) + 18) + 'px';
-}
-function dragGhostHide() {
-  if (!dragGhostEl) return;
-  dragGhostEl.remove();
-  dragGhostEl = null;
-  dragGhostCell = null;
-}
-/* 时间线两端的把手：拖的是**这一段自己**的入点 / 出点（不再是整条候选的并集）。
-   拖动过程中只改样式，松手才写数据 —— 整块重画会把正在拖的那个节点销毁（原来就是这样，保持）。
-   ⚠ 拖动全程**不碰剪针、也不碰播放器**：针是「上一次点在哪」的落点，把手改的是这一段的入出点，
-   两件事没有因果关系。以前每一次 pointermove 都 `pl.currentTime = …; pl.pause()`，于是
-   「拖一次把手 = 把正在看的那一镜换掉 + 中断播放 + 针跟着手走」，而预览跟着 seek 闪一下。 */
-function bindSegDrag(row, sh, c, total, G) {  /* 拖动中就地重画：这一格的 `left`/`width` 跟着选区当场变窄变宽，
-     它后面每一格在轴上整体前移 —— 与参考项目一样「块跟着手指缩扩」，剪掉的头尾根本不画。
-     只动 inline style：切片不重新解码、节点不销毁，松手整栏重画时才补那几帧。
-     分母用**拖动前**的轴长 `ax0`：中途刻度尺不动，格子在右端溢出一点，比整排跟着尺子抖要好。 */
-  const ax0 = shotAxTotal(G, total);
-  const segsPaint = () => {
-    const bar = row.parentElement;
-    if (!bar) return;
-    shotFrames(segsOf(c, total)).rows.forEach(rr => {
-      const cell = bar.querySelector('.tl-seg[data-seg="' + rr.i + '"]');
-      if (!cell) return;
-      cell.style.left = pct(rr.start, ax0) + '%';
-      cell.style.width = pct(rr.w, ax0) + '%';
-      /* 时长读数是盖在切片右下角的那枚覆盖件（.seg-dur）：只换它，
-         名称覆盖件（.seg-name）不动。 */
-      const durEl = cell.querySelector('.seg-dur');
-      if (durEl) durEl.textContent = (window.Wb && window.Wb.fmtClock) ? window.Wb.fmtClock(segFilmLen(rr.s)) : (round1(segFilmLen(rr.s)) + 's');
-    });
-  };
-  const commit = (before) => {
-    /* `before` 必须是**拖动之前**那一份段列表：reanchorVoices 要把「旧的相对秒」还原成源里的绝对秒，
-       传拖动之后的那一份（那就是 segsOf 现在的返回值）等于新旧同一份 —— 配音看着挪了、账其实没动。 */
-    const now = segsOf(c, total);
-    const moved = reanchorVoices(sh, c, before, now);   // 端点还在自己段内，绝对时刻不变 → 只是重新落位
-    setStatus(trimStatus(sh, c, moved ? '有 ' + moved + ' 句配音被切到段外，已挪到下一段开头' : ''));
-    filmEdited();
-  };
-  row.querySelectorAll('.cut').forEach(el => {
-    const i = Number(el.dataset.seg);
-    const edge = el.dataset.edge;
-    const segT0 = segsOf(c, total)[i] || {};
-    el.title = isVirtualGap(segT0)
-      ? (edge === 'l' ? '拖左把手改这段空从哪儿开始（时长跟着变）' : '拖右把手改这段空占多久')
-      : isImageSeg(segT0)
-      ? (edge === 'l' ? '拖左把手改这张图从哪儿开始（时长跟着变）' : '拖右把手改这张图占多久')
-      : (edge === 'l'
-        ? '拖这里改这一段的开头：向右把片头剪掉，向左放回来（最多回到源视频 ' + round1(segT0.a) + ' 秒）'
-        : '拖这里改这一段的结尾：向左把片尾剪掉，向右放回来（最多回到源视频 ' + round1(segT0.b) + ' 秒）');
-    el.addEventListener('pointerdown', e => {
-      if (rowHidden('pic', Number(row.dataset.ln) || 0)) return;   // 隐藏（灰显）的行不可剪
-      e.stopPropagation(); e.preventDefault();
-      /* `.act` = 参考项目里 `has-selected-edit-point` 那一档：手里握着哪一根，那一根就加粗发光。
-         以前是绑定那一刻 `add('drag')` —— 于是每一根把手**永久**是加粗那档，界面上看不出「在拖谁」。 */
-      el.classList.add('act');
-      const before = segsCopy(segsOf(c, total));   // 拖动之前的那一份
-      /* 尺子取**整条内容层**（这一排的 100% 宽 = 轴总长 `ax0`），锚在拖动前那一格的
-         「轴起点 + 选区起点」上按倍速摊开：格子现在画的就是选区，把手在格子边缘之外还能往回走，
-         那正是「把剪掉的头尾放回来」—— 所以这里不许夹 0–1，也不许用格子自己的矩形。
-         （从前拿格子矩形当尺子是成立的，因为那一格画的是框 [a,b]；改成画选区之后那把尺子就短了一截。） */
-      const seg0 = segsOf(c, total)[i] || {};
-      const a0 = Number(seg0.a) || 0, b0 = Number(seg0.b) || 0;
-      const r0 = (G.rows || [])[i] || {};
-      const in0 = r0.in == null ? (Number(seg0.in) || a0) : r0.in;
-      const spd0 = Number(r0.spd) || 1;
-      const start0 = Number(r0.start) || 0;
-      const rect = (row.parentElement || row).getBoundingClientRect();
-      const move = ev => {
-        const tAx = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * ax0;
-        const raw = round1(in0 + (tAx - start0) * spd0);
-        const list = segsCopy(segsOf(c, total));
-        const s = list[i]; if (!s) return;
-        if (isVirtualSeg(s)) {
-          /* 虚拟坐标那一族（图片段 + 图片区里的空段）没有「框内选区」：把手直接改 a/b，
-             两头一起决定它在成片里占多久。下限夹在视频总长之外
-             （`segsOf` 认虚拟坐标的判据是 `a ≥ total + 0.05`），并与前后虚拟段留 0.02 秒的缝 ——
-             两张图的坐标不许叠在一起，插针才有唯一答案。只认 isImageSeg 的话，
-             图片区里那段 vc 空段会掉进下面的视频分支：只写 in/out、坐标又是虚拟的，把手就是死的。 */
-          const T = Math.max(0.1, Number(total) || 0);
-          if (edge === 'l') {
-            let lo = round1(T + 0.1);
-            for (let j = 0; j < i; j++) {
-              if (isVirtualSeg(list[j])) lo = Math.max(lo, round1((Number(list[j].b) || 0) + 0.02));
-            }
-            const a2 = round1(Math.max(lo, Math.min(raw, s.b - SEG_MIN)));
-            s.a = a2; s.in = a2;
-          } else {
-            let hi = Infinity;
-            for (let j = i + 1; j < list.length; j++) {
-              if (isVirtualSeg(list[j])) { hi = round1((Number(list[j].a) || 0) - 0.02); break; }
-            }
-            const lo = round1(s.a + SEG_MIN);
-            const b2 = round1(Math.max(lo, Math.min(isFinite(hi) ? hi : lo + 600, raw)));
-            s.b = b2; s.out = b2;
-          }
-          c.segs = list;                       // 拖动期间只动 segs（trimS/trimE 在松手时统一回写）
-          segsPaint();
-          return;
-        }
-        /* 选区夹在**框**里：拖左手柄拖不出框的左沿（a0），右手柄拖不出右沿（b0）。
-           没有这一道的话，把把手拖到框外会让这一格和相邻格叠在一起 —— 而框存在的意义
-           就是「这一格只在自己那一块里动」（放回来最多放到这儿，不再多了）。 */
-        const t = Math.max(0, Math.min(total, Math.max(a0, Math.min(b0, raw))));
-        if (edge === 'l') {
-          s.in = Math.max(s.a, Math.min(t, s.out - SEG_MIN));
-        } else {
-          s.out = Math.min(s.b, Math.max(t, s.in + SEG_MIN));
-        }
-        c.segs = list;                       // 拖动期间只动 segs（trimS/trimE 在松手时统一回写）
-        segsPaint();
-      };
-      const up = () => {
-        el.classList.remove('act');
-        segsWrite(c, total, segsOf(c, total));
-        commit(before);
-      };
-      dragOnWindow(move, up);
-    });
-  });
-  /* 段体两种手势，起手时位移更大的方向一次定死（与全片那一排 bindFilmReorder 同一立场）：
-       · 竖拖 = 换行（`s.ln`，只改画在第几行，不改时间）；
-       · 横拖 = 重排 —— 松手把这一段挪到别处，**原位自动空出一段同长的空段**（黑场、占时间），
-         别的段一个都不挪；拖的是空段本身则把它摘掉（拖走 = 没了）。
-     「空一段」按钮那一族因此撤掉：要空就拖走一段，界面与数据都只有这一个来处。
-     拖动中只画一根「插到这儿」的竖线（.tl-drop），不重排整列 —— 中途重画会销毁手指底下的节点。
-     松手之后紧跟而来的那一次 click 不算「放插针」（见 trackDragged）。 */
-  row.querySelectorAll('.tl-seg').forEach(el => {
-    el.addEventListener('pointerdown', e => {
-      if (e.button != null && e.button !== 0) return;
-      if (e.target.closest('.cut')) return;               // 把手那一路自己管它的拖动
-      if (e.target.closest('.seg-mute')) return;          // 静音小钮自己管
-      if (rowHidden('pic', Number(row.dataset.ln) || 0)) return;  // 隐藏（灰显）的行：块看得见但拖不动
-      if (rowLocked('pic', Number(row.dataset.ln) || 0)) return;  // 这一行锁着就一个手势都不接（别的行与另一轨照旧）
-      const i = Number(el.dataset.seg);
-      const segs0 = segsOf(c, total);
-      const s0 = segs0[i];
-      if (!s0) return;
-      const ln0 = picLnOf(s0);
-      const y0 = e.clientY, x0 = e.clientX;
-      /* 行距不能写死：轨道收起时那一行是 18px，写死的话在收起的状态下拖一下会跳好几行
-         （`picLaneStep` —— 与全片那一排同一个换算，两条画面轨不许各自量一份）。 */
-      const step = picLaneStep(row);
-      const bar = row.parentElement;                      // .tl-inner：比例尺与插针同一个宿主
-      const rect = bar ? bar.getBoundingClientRect() : row.getBoundingClientRect();
-      let mode = '', moved = 0, lnWant = ln0, jIns = -1;
-      const dropAt = tAx => {
-        /* 指针那一秒落在哪一段上：落在它**前半** = 插到它前面，后半 = 插到它后面。
-           落在缝里 / 两端 = 插到左边最近那段之后（左边没有段就插到最前）。 */
-        let j = null;
-        for (const r of G.rows) {
-          if (r.i === i) continue;
-          if (tAx >= r.start && tAx < r.start + r.w) { j = (tAx < r.start + r.w / 2) ? r.i : r.i + 1; break; }
-        }
-        if (j == null) {
-          let prevI = -1;
-          for (const r of G.rows) { if (r.i !== i && r.start + r.w <= tAx + 1e-6) prevI = Math.max(prevI, r.i); }
-          j = prevI < 0 ? 0 : prevI + 1;
-        }
-        return Math.max(0, Math.min(segs0.length, j));
-      };
-      const move = ev => {
-        const dy = ev.clientY - y0, dx = ev.clientX - x0;
-        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-        if (!mode) {
-          mode = Math.abs(dy) > Math.abs(dx) ? 'lane' : 'order';
-          moved = 1;
-          el.style.opacity = '.72';
-          if (mode === 'order') {
-            el.classList.add('lift');
-            if (bar) bar.classList.add('orderdrag');      // 让位的格子吃过渡，跟手的那一格不吃
-          }
-          dragGhostShow(ev, el, el.dataset.name || segLabel(i, s0));
-        } else dragGhostMove(ev);
-        if (mode === 'lane') {
-          lnWant = laneClamp(ln0 + Math.round(dy / step));
-          el.style.transform = 'translateY(' + round1((lnWant - ln0) * step) + 'px)';
-          return;
-        }
-        /* 无缝重排（照参考项目 is-reorder-dragging 那一档的手感）：
-           被拖的那一格**自己跟着手走**（translateX，夹在轨道内），原位不再画一根插线 ——
-           让位由其余格子**真的让出来**：被拖格从原位拿走（后面的合拢 w_i），
-           落点让出一个同样大的洞（洞后的格子推走 w_i + 缝），
-           jIns 一变格子们就带着过渡滑到新位置。松手才写数据，落点算式（dropAt）没动。 */
-        const tAx = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width))) * ax0;
-        jIns = dropAt(tAx);
-        const rSelf = G.rows.find(r => r.i === i) || {};
-        const wIpx = rect.width * ((Number(rSelf.w) || 0) / Math.max(0.001, ax0));
-        const gapPx = 8;
-        const leftInBar = rect.width * ((Number(rSelf.start) || 0) / Math.max(0.001, ax0));
-        const follow = Math.max(-leftInBar, Math.min(rect.width - leftInBar - wIpx, dx));
-        el.style.transform = 'translateX(' + round1(follow) + 'px)';
-        if (jIns === i || jIns === i + 1) jIns = -1;      // 插到自己前 / 后一格 = 没挪，全部归位
-        if (bar) bar.querySelectorAll('.tl-seg[data-seg]').forEach(cell => {
-          if (cell === el) return;
-          const j = Number(cell.dataset.seg);
-          let sh2 = 0;
-          if (jIns > i) { if (j > i && j < jIns) sh2 = -wIpx; else if (j >= jIns) sh2 = wIpx + gapPx; }
-          else if (jIns >= 0 && jIns < i) { if (j >= jIns && j < i) sh2 = gapPx; else if (j > i) sh2 = -wIpx; }
-          cell.style.transform = sh2 ? 'translateX(' + round1(sh2) + 'px)' : '';
-        });
-      };
-      const up = () => {
-        el.style.transform = '';
-        el.style.opacity = '';
-        el.classList.remove('lift');
-        if (bar) {
-          bar.classList.remove('orderdrag');
-          bar.querySelectorAll('.tl-seg[data-seg]').forEach(cell => { cell.style.transform = ''; });
-        }
-        dragGhostHide();
-        if (!moved) return;
-        trackDragT = Date.now();
-        if (mode === 'lane') {
-          if (lnWant === ln0) {
-            /* 绕回原来那一行：一个数都没改，不许打「✓ 挪到了」（与配音那一路同一句纪律） */
-            setStatus('<span class="info">这一段拖回了画面轨第 ' + (ln0 + 1) + ' 行，位置没变</span>');
-            return;
-          }
-          if (!setCellLane(sh, c, i, lnWant)) return;
-          setStatus('<span class="ok">✓ 第 ' + (i + 1) + ' 段挪到了画面轨第 ' + (lnWant + 1) + ' 行'
-            + '（只是排版：进成片的顺序、时长与切片一个字没动；这一行的音量在右栏那张卡上调）</span>');
-          filmEdited();
-          return;
-        }
-        /* 拖的是空段本身：摘掉（整段 splice，后面的段前移、成片里那几秒消失）。 */
-        if (isGap(s0)) {
-          const before = segsCopy(segsOf(c, total));
-          beginEdit('摘掉空段');
-          const list = segsCopy(segsOf(c, total));
-          list.splice(i, 1);
-          const now = segsWrite(c, total, list);
-          reanchorVoices(sh, c, before, now);
-          setStatus('<span class="ok">✓ 已把这段空摘掉（成片里那 ' + round1(segFilmLen(s0)) + ' 秒消失，后面的段前移）</span>');
-          filmEdited();
-          return;
-        }
-        if (jIns < 0) {
-          setStatus('<span class="info">这一段拖回了原位，什么都没改</span>');
-          return;
-        }
-        /* 拖走自动空：原位补一段**同长**的空段（黑场、占时间、不吃源），别的段一动不动；
-           被拖的那一段带着自己的选区与框插到落点 —— 段与段各自带秒，数组顺序就是播放顺序。 */
-        const before = segsCopy(segsOf(c, total));
-        const lpOld = before.length ? linePointOf(sh, before) : null;
-        beginEdit('拖走镜头段');
-        const list = segsCopy(segsOf(c, total));
-        const me = list.splice(i, 1)[0];
-        const gap = { in: round1(me.in), out: round1(me.out), a: round1(me.a), b: round1(me.b), off: 1, gap: 1 };
-        if (me.ln != null) gap.ln = me.ln;               // 空段留在被拖走那一段原来的行上
-        if (isVirtualSeg(me)) gap.vc = 1;                // 图片区拖走：空段按虚拟坐标存（丢 vc 会被夹回视频区）
-        if (me.spd != null) gap.spd = me.spd;            // 带走那一段的倍速：黑场在成片里占 (out-in)/spd，丢了就凭空变长
-        list.splice(i, 0, gap);
-        list.splice(jIns, 0, me);
-        const now = segsWrite(c, total, list);
-        reanchorVoices(sh, c, before, now);
-        /* 台词落点：lpOld.at 本来就是**绝对源秒**（line-point 的契约 —— 写它的那几处
-           （轨道拖块 / 剪切）传的都是绝对秒，linePointClamp 只负责夹进段选区）。
-           按绝对秒在重排后的段里找回落点所在段、写回也传绝对秒 —— 以前在这里多加了一次
-           host.in、写回又减掉新段的 in（当成相对秒），一段拖走后落点就跳到别的段上去了。 */
-        if (lpOld) {
-          const abs = Math.max(0, Number(lpOld.at) || 0);
-          let ni = now.findIndex(x => !isGap(x) && !isVirtualSeg(x) && abs >= x.in && abs < x.out);
-          if (ni < 0) ni = now.findIndex(x => !isGap(x) && !isVirtualSeg(x) && x.in > abs);
-          if (ni < 0) for (let k = now.length - 1; k >= 0; k--) if (!isGap(now[k]) && !isVirtualSeg(now[k])) { ni = k; break; }
-          if (ni >= 0) linePointSet(sh, ni, round1(abs), now);
-        }
-        proj.cutSeg = Math.max(0, Math.min(now.length - 1, jIns));
-        proj.cutAt = round1(me.in);
-        setStatus('<span class="ok">✓ 第 ' + (i + 1) + ' 段挪到了第 ' + (jIns + 1) + ' 个位置，原位自动空出 '
-          + round1(segFilmLen(me)) + ' 秒黑场（别的段一个都没挪；把那段空左右拖走即摘掉）</span>');
-        filmEdited();
-      };
-      e.preventDefault(); e.stopPropagation();
-      dragOnWindow(move, up);
-    });
-  });
-}
-/* 轨道取帧用的地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（AGENTS §4.1） */
-const candTrackSrc = c => {
-  const src = c && (c.src || c.url);
-  if (!src) return '';
-  const EM = window.EditorMedia;
-  return EM ? EM.previewSrc(c) : Api.mediaSrc(src);
-};
-/* 段格上那行小字：没被剪过就写「第 N 段 · 3s」（与从前一字不差）；
-   剪过（框比选区大）就把两个数都写出来 —— 「保留 3s（共 5s）」= 这一格里
-   真正进成片的 3 秒，以及这一格在源里分到的 5 秒（剩下 2 秒剪掉了、把手最多往外拖回到这儿）。
-   渲染那一遍与拖动中那一遍共用这一个函数：两处各拼一句，拖起来文字就会跟静下来时不一样。 */
-/* 段格小字（拖动中就地重画那一格的读数用）：名称已是覆盖件（.seg-name，不在这一行里），
-   这里只拼「第几段」那一截。 */
-const segLabel = (i, s) => {
-  const keep = round1(segLen(s)), box = round1(Math.max(0.01, s.b - s.a));
-  /* 黑场与空段照样占时间，所以小字先说清这一格是哪一种「没有画面」—— 只靠格子的底色分不出来（暗画面本来就长那样）。
-     两种分开写：`gap` 是「插进来的一段空」（可以整段摘掉），`off && !gap` 是「删掉画面」的黑场
-     （再点一次「删掉」就把画面放回来）。混成一个词，用户就分不出「空一段」与「删掉画面」了。
-     最后那个 ×倍速：小字前面那两个数（保留 / 共）都是**源秒**，而格子摆的是**这一排的尺子（轴秒）**
-     —— 一段升到 2 倍速时格子和「3s」那两个字对不上（它占的轴长只剩一半）。不写这一枚，
-     界面上就找不到「源里 3 秒、成片里 1.5 秒」这件事是谁说的。 */
-  const gray = s && s.gap ? '空段 · ' : (s && s.off ? '黑场 · ' : '');
-  return gray + '第 ' + (i + 1) + ' 段 · '
-    + (box - keep > 0.05 ? '保留 ' + keep + 's（共 ' + box + 's）' : keep + 's')
-    + (segSpd(s) !== 1 ? ' ' + spdTxt(segSpd(s)) : '');
-};
-
-/* 插针跟着落点走（针挂在行上，不在段格子里：段被切开/拖短时针不该跟着段一起挪）。
-   顺手维护时间尺左半边（#tlT0 = 插针此刻的秒数）—— 两处读的都是同一份落点。 */
-function paintPin(col, t, total) {
-  /* 轨道坞（#tlDock）不在中栏里，而 paintPin 的调用方手上什么栏都有（中栏 / 轨道坞 / 播放跟随闭包），
-     这里全按页面根查 —— 插针全页只有一份，谁调都画同一根。 */
-  const pin = document.querySelector('#tlBar .tl-pin');
-  if (pin) pin.style.left = pct(t, total) + '%';
-  const t0 = document.getElementById('tlT0');
-  if (t0) t0.textContent = fmtDur(Math.max(0, Number(t) || 0));
-}
-/* 本镜轨点到的那一秒（**源秒**）→ 播放计划里的那一秒（`TlPlay.t`）。
-   两者不是同一根轴：轨道与针按**这一排的尺子（轴秒 = 各格的选区 ÷ 自己的倍速）**摆，
-   传进来的 `src` 是源秒（`bindPinZone` 先折回源秒才交过来，见那里），而计划量的是
-   「剪剩的那几秒接起来」（被切掉的头尾不进计划）—— 剪过一刀之后拿源秒去 seek 会落到别的段上。
-   折算：保留段按段内偏移 1:1 走（本镜这一档计划不缩倍速，见 `tlPlayPlan` 的 `film:false` 支），
-   还在框里但已被剪掉的那一截夹到最近保留的那一头，黑场整格按同一段内偏移走（它本来就占住这几秒）。
-   与全片档 `filmSeek` 把焦点夹回选区的立场一致：计划里只有保留区与黑场，
-   没有「停在剪掉的那一帧」这回事。 */
-function pinFilmTShot(c, sh, src) {
-  const total = candDur(c, sh);
-  let acc = 0;
-  for (const s of segsOf(c, total)) {
-    const d = segLen(s);
-    if (d <= 0.02) continue;
-    const a = Math.max(0, Math.min(total, Number(s.a) || 0));
-    const b = Math.min(total, Math.max(a, Number(s.b) || (s.in + d)));
-    if (src < a) return acc;                       // 段与段之间的缝（脏数据）：停在这一段的头
-    if (src < b) return acc + Math.max(0, Math.min(d, src - s.in));
-    acc += d;
-  }
-  return acc;
-}
-/* 放插针的点击区 = **整张网格**（轨道名那一列也算），不只是格子：缝里、行上下的空白、
-   声音行以外的区域、轨名旁边那块什么都没有的地方，点下去都是「把针挪到这儿」
-   （用户点名「轨道上下留一定空余方便在空白地方也点击位置」+「点击没有轨道的地方也应该出现剪辑线」）。
-   时刻按**内容层 `.tl-inner`** 的矩形折算 —— 画面行、声音行、刻度尺都是它的 100% 宽，
-   所以同一个比例就是同一个秒；从前取的是「第一行」的矩形，于是画面轨收起 / 一行都没画出来时
-   整块区域根本点不动，界面看起来是轨道坏了。
-   只有把手与轨名栏那几颗按钮不算（红把手与配音那两条边各有自己的拖动；眼睛 / 锁 / ＋ / − 改的是轨道本身）。
-   **点在哪一行都放针**（用户点名「点击哪个轨道（无论音频视频）都要能出现」）：
-   从前声音整行被当成「不归我管」直接 bail，于是点声音轨的空白什么反应都没有；
-   点在一句配音上也放针，但**不把剪辑目标交回画面轨**（那一句的 selectVoice 已经把目标交给配音了，
-   针只是走过去给剪刀指位置 —— 与「目标只跟着手走」不冲突，手点的就是这一句）。 */
-function bindPinZone(grid, col, sh, pin) {
-  /* 先摘掉上一份再绑。整列重建时 `#tlGrid` 是新节点，这一句什么都不做；
-     而**缩放只重排 `#tlBar`**（见 tlRescale），这张网格是一直活着的那个节点 ——
-     不摘就是每缩一次多叠一层，点一下轨道放 N 次针（与「保住播放器节点要先摘EventListener」同一条规矩）。 */
-  if (grid.__pinOff) grid.__pinOff();
-  const on = e => {
-    /* 显 / 锁 / 加行 / 收行 / 行音量：改轨道，不放针。行音量排上「滑块 + 右边那枚百分数读数」是一件事的两半
-       （点数字不等于想把剪针搬过去），所以两个都在排除名单里 —— 只排滑块会留下一个「点上去会跳针」的读数。 */
-    if (e.target.closest('.tl-hbtn') || e.target.closest('.tl-hvol-sl, .tl-hvol')) return;
-    if (e.target.closest('.cut') || e.target.closest('.vo-cut')) return;    // 把手：拖拽，不挪针
-    if (e.target.closest('.sub-cut')) return;                               // 字幕两端的把手：同上
-    if (trackDragged()) return;      // 刚把某一格拖去换行 / 换顺序：那不是「在这里放插针」
-    if (pinDragged()) return;       // 刚把剪辑针拎到别处：松手那一下 click 不再放一次针
-    /* 别的镜上溢出进来的那一截：它自己的 handler 会把焦点跳到它那一镜（整栏重画），
-       这里再按旧几何放一次针就是在跟那次跳转抢方向。 */
-    if (e.target.closest('.tl-v.spill')) return;
-    /* 待生成占位有自己的点击（写落点 + 换到「生成配音」那一格），
-       这里再按旧几何放一次针就是在跟它抢方向。 */
-    if (e.target.closest('.tl-vp')) return;
-    const onVoice = !!e.target.closest('.tl-v');
-    const onPic = !!e.target.closest('.tl-seg');
-    /* 点字幕块 = 把针放到点击处，但右栏留在「字幕」那一档（它自己的 click 先一步翻好了）——
-       这里再翻回「生成配音」就是「点字幕、右栏却换成写台词」。 */
-    const onSub = !!e.target.closest('.tl-sub');
-    /* 落点三档，各开各的右栏（用户点名的第 ②③④ 条）：
-         · 点中一句配音 → 目标交给声音轨（右栏 = 那一句的音量 / 试听 / 删掉）；
-         · 点中一格画面 → 目标交给画面轨（右栏 = 这一段的倍速 / 入出点 / 原声音量）；
-         · 点在没有块的地方（空行、轨名、刻度尺）→ 目标也交给声音轨，右栏就是「生成配音」那一张卡。
-       第三档是本轮新加的：以前「不在配音块上」一律算点画面，于是在空白处点一下放针，
-       右栏却换成画面那几排 —— 想加一句配音的人刚点完落点，那个入口就收了。
-       点空白不等于「指着某一格画面」，`onVoice` 那一支仍不写目标（它自己那一路 `selectVoice` 已经写过，
-       这里再写一次就是第二份落点）。 */
-    const lane = onPic ? 'pic' : (onVoice ? null : 'voice');
-    /* 点在没有块的地方 = 「我要加一句」（用户点名的第 ②③④ 条那一档）：
-       右栏不仅交给声音轨，还直接翻到「生成配音」那一格 —— 刚放完落点，入口就该在眼前。
-       **顺手取消选中那一句**（用户点名的第 ④ 条）：配音文字那一行只在选中某一句时才出现，
-       而 `tlVoiceHit` 还认着 `proj.curVoice` —— 不清的话点完空白它仍挂在上一句上。
-       目标轨仍是声音（`tlPanel` 只看 `proj.tlLane`），所以那张「加一句配音」的卡照旧打开。 */
-    if (lane === 'voice' && !onSub) { vcTab = 'gen'; proj.curVoice = ''; }
-    /* 量尺子、折轴秒 / 源秒、写针只有一份（lanes 的 `pinAtX`）：点空白、点画面格、点字幕块、
-       点声音行都从这里过。自己在这里再折一遍，必然与待生成占位那一套漂开。 */
-    pin(grid, col, sh, e.clientX, { lane: lane });
-  };
-  /* 剪辑针**能拎着走**：按住针头左右拖 = 把「剪在哪一秒」搬过去（剪辑软件里针就是能拖的）。
-     量尺子、折轴秒 / 源秒、写针仍然只走 pinAtX 那一个出口（与点轨道放针同一份换算）——
-     自己在这里再折一遍，必然与点轨道那份漂开。
-     拖动**不换目标轨**：传当前那一轨（针搬的是「剪在哪」，不是「现在改画面还是改声音」）。
-     全片档的针不拎：那一档的针是「跳到这一秒」，拎它会跟跳转抢方向。 */
-  const onPinDown = e => {
-    const pinEl = e.target.closest && e.target.closest('.tl-pin');
-    if (!pinEl || (e.button != null && e.button !== 0)) return;
-    if ((proj.tlTab || 'shot') !== 'shot') return;
-    e.preventDefault(); e.stopPropagation();       // 别让这一下顺手把某一格拖去换行
-    const lane = proj.tlLane || 'voice';
-    const x0 = e.clientX;
-    let moved = false;
-    pinEl.classList.add('dragging');
-    document.body.classList.add('tl-pinning');
-    const move = ev => {
-      if (!moved && Math.abs(ev.clientX - x0) < 3) return;   // 3px 阈值：没真的拖就别算
-      moved = true;
-      pin(grid, col, sh, ev.clientX, { lane: lane });
-    };
-    const up = () => {
-      pinEl.classList.remove('dragging');
-      document.body.classList.remove('tl-pinning');
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      if (moved) pinDragT = Date.now();     // 只有真拖过才作废那一下 click
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  };
-  grid.addEventListener('click', on);
-  grid.addEventListener('pointerdown', onPinDown);
-  grid.__pinOff = () => {
-    grid.removeEventListener('click', on);
-    grid.removeEventListener('pointerdown', onPinDown);
-    grid.__pinOff = null;
-  };
-}
-/* 「剪辑界面正指着哪一段」换了之后的五处联动：格子高亮、入出点那一行、工具条那句提示、右栏落点说明。
-   这五处在同一份数据上（proj.cutSeg / proj.cutAt），所以只需要一个出口，不存在「改了 A 忘了 B」。 */
-function paintSegFocus(col, sh, c, total) {
-  const segs = segsOf(c, total);
-  /* 亮环只画「目标那一轨的那一格」：目标是配音时 `picSelAt` 给 -1 → 这里一格都不亮
-     （从前它只看 `cutSegIdx()`，于是点一句配音，上面那一格还带着白环 = 上下两排同时亮）。 */
-  const i = picSelAt(segs.length);
-  document.querySelectorAll('#tlBar .tl-vrow .tl-seg').forEach(el => el.classList.toggle('sel', Number(el.dataset.seg) === i));
-  /* 目标交回画面轨那一下（点一格画面 / 点在画面上）也要把配音那一排的亮环收掉 ——
-     就地重画只动格子的话，上一句配音会一直亮着，而剪子已经指着这一段了。 */
-  paintVoiceSel();
-  paintTlHint(col, sh, c);
-  paintVoicePos();
-  /* 换了指着哪一段，芯片、那一排按钮的句子、入出点那一行和右栏那张卡（音量 / 倍速 / 曲线）一起跟上：
-     「切了一格，格子与入出点都变了、滑块还停在上一段的音量」就是少这一行的样子。 */
-  syncTlTools();
-}
-/* 把插针放到指定秒：先记数据（proj.cutAt / proj.cutSeg），再把上面那四处一次跟上。
-   点轨道、拖动播放进度、从「全片」跳回来都走这里 —— 剪子读的就是这一份落点。
-   `lane` 只在**用户自己的手势**时给：'pic' = 点了一格画面，'voice' = 点在空白处（要生成配音），
-   不给 = 不是手点的（播放头跟随、整栏重画、`syncPlayhead`）—— 目标只跟着手走，不跟着播放头走。
-   少了这一个参数就是「点了一句配音 → 播放跟随或整栏重画把针推着走 → 目标悄悄交回画面轨」，
-   用户接着推滑块调的是画面段而芯片还写着配音（探针 ⑰c2 抓到的正是这一条）。 */
-/* 针的归属（cutShot / cutCand，setPin 写）：配音落点与「在插针处加字幕」只在针真属于
-   这一镜这一条候选时才用它 —— 旧针的段号与秒数对别的候选的段列表没有意义。
-   老存档只有 cutAt、没有归属：装配 / 恢复老快照时把针认给**当时看着的那一镜那一条候选**
-   （它本来就停在那里）；此后归属只由 setPin 改写，换镜 / 换候选不跟过去。 */
-function ownPinToView() {
-  if (!proj) return;
-  const sc = (proj.scenes || [])[proj.curScene] || null;
-  const sh = sc ? (sc.shots || [])[proj.curShot] : null;
-  if (!sh) { delete proj.cutShot; delete proj.cutCand; return; }
-  const cands = sh.candidates || [];
-  const c = cands[proj.curCand] || cands.find(x => x.vid === sh.selId) || null;
-  proj.cutShot = sh.id;
-  if (c) proj.cutCand = c.vid; else delete proj.cutCand;
-}
-function setPin(col, sh, c, total, t, lane) {
-  if (lane) proj.tlLane = lane;      // 点画面 = 交回画面轨，点空白 = 交给声音轨（与 selectVoice 对称，两处各自只改自己那一轨）
-  /* 针的夹取上限是**这一排的轴总长**（shotAxTotal，含图片段的虚拟坐标区），不是视频时长：
-   以前夹到 candDur，点图片段时虚拟秒被夹回视频末尾 —— 针顶在最后一段视频上，
-   剪刀剪的也是那一段，图片段那把专门的剪子永远走不到（cutPin 里「留住虚拟秒」那道闸白立了）。 */
-  const segs = segsOf(c, total);
-  const G0 = shotFrames(segs);
-  const axMax = shotAxTotal(G0, total);
-  proj.cutAt = round1(Math.max(0, Math.min(axMax, Number(t) || 0)));
-  /* 针记下「落在哪一镜哪条候选」（cutShot/cutCand）：配音落点与「在插针处加字幕」
-   只在针真属于这一镜这一条候选时才用它 —— 换镜 / 换候选之后，旧针的段号与秒数
-   对新候选的段列表没有意义（两组段来自两段不同的视频）。 */
-  if (sh && sh.id) proj.cutShot = sh.id;
-  if (c && c.vid) proj.cutCand = c.vid;
-  /* 先按**框**认段，再按选区认：针可以停在灰区里（用户点名的第 ⑥ 条），
-     而灰区不属于任何 [in,out) —— 只按选区找会落到「最后一段」，
-     于是针在第一段的片头灰区、剪子却指着最后一段，这正是「点灰区看起来没反应」的另一半。 */
-  let i = segs.findIndex(s => proj.cutAt >= s.a && proj.cutAt < s.b);
-  if (i < 0) i = segs.findIndex(s => proj.cutAt >= s.in && proj.cutAt < s.out);
-  if (i < 0 && segs.length) i = segs.length - 1;
-  proj.cutSeg = Math.max(0, i);
-  /* 交进来的 `t` 与写进去的 `proj.cutAt` 都是**源秒**（剪刀、入出点那两框、配音锚点全按它算），
-     画针时折算成这一排的轴秒 —— 一处口径（`shotPinT`），别让针与格子各走一根轴。 */
-  const G = shotFrames(segs);
-  paintPin(col, shotPinT(G, proj.cutAt), shotAxTotal(G, total));
-  paintSegFocus(col, sh, c, total);
-}
-/* 工具条右边那行小字：插针在哪、这一条留了几秒、配音几句、剪完进不进成片 ——
-   全片那一排格子与左栏时长读的都是同一份 c.segs，所以这里不需要再说第二遍。
-   全片页签多一句「成片第几秒」：那一栏的插针按成片秒走，与剪刀指着的源秒是两件事，
-   混成一句话就会读出「针在 12 秒、剪的是 3 秒」这种对不上的感觉。 */
-function paintTlHint(col, sh, c) {
-  /* 与 paintPin 同一条：这一行住在轨道坞里，按页面根查（col 参数只留兼容调用形状）。 */
-  const el = document.getElementById('tlHint');
-  if (!el) return;
-  if (!sh) { el.textContent = '先挑一个镜头'; return; }
-  if (!c) { el.textContent = '这一镜还没有候选，剪不了'; return; }
-  /* 这一行只报三个数：落在哪一秒、第几格 / 第几段、这条候选留了多少。
-     以前它把同一件事说两遍（「插针 0 秒」与「全片轨 0 秒」是两个轴却都叫秒、
-     「这一段 15 秒」就是「源里 0–15 秒」那一段的长度），末尾还挂一句解释性的长话 ——
-     整行九十多字，用户点名的第 7 条。「为什么这个页签报格、那个报段」写在 `tlFocusPos` 那里，只有一份。
-     这一格在源里的头尾**不在这里报**：下面那一行「保留片段 __ – __」给的就是同两个数（`paintTrimRow`），
-     一处改了两处就得跟着同步，少同步一次界面自己打架。 */
-  const p = tlFocusPos();
-  const total = candDur(c, sh);
-  /* 这一行说的两个秒数都是**这一排的尺子**（轴秒）：针那一个要和画出来的位置对上，
-     「留 / 总」那一对要和对右边刻度的格子对上。倍速 ≠ 1 时它们与源秒不是一回事，
-     而源秒那两个数下面那一行「保留片段 __ – __」已经报了（它写明是源视频里的秒数）。 */
-  const G = shotFrames(segsOf(c, total));
-  const ax = shotAxTotal(G, total);
-  const vs = shotVoices(sh.id, c.vid);
-  const parts = [];
-  /* 针那一秒只在它有意义的时候说：全片那一排里找不到这一格时（这一条候选没进成片），
-     「全片几秒」本来就是这一格的位置 —— 少说这一句，芯片那句「不在全片那一排」就是全部。 */
-  /* 读数读的是**数据里那一秒**（`proj.cutAt`），不是播放器此刻的 `currentTime`：两者本该是同一个数，
-     但播放器还没加载 / 这条素材取不到字节时 `currentTime` 恒为 0，于是「针画在灰区里、读数写着 0 秒」——
-     点灰区看起来像没动。播放中 `proj.cutAt` 由 `setPin` 每一帧跟着写，读数照样跟着播放头走。 */
-  const pinSrc = round1(Math.max(0, Math.min(total, Number(proj.cutAt) || 0)));
-  if (!p.film) parts.push('插针 ' + round1(shotPinT(G, pinSrc)) + ' 秒');
-  else if (p.row) parts.push('全片 ' + round1(filmPinT(p.tl, p.G)) + ' 秒');
-  parts.push(p.chip + p.sub);
-  parts.push('这条留 ' + round1(segsFilmLen(c, total)) + '/' + round1(ax) + ' 秒');
-  if (vs.length) parts.push('配音 ' + vs.length + ' 句');
-  parts.push(candSelected(sh, c) ? '已选用' : '还没选用：成片仍按选用的那条算');
-  el.textContent = parts.join(' · ');
-}
-/* 入出点 / 这一句起止那一行：画的是「剪辑界面指着的那一个」（配音句优先，其次插针那一段画面），
-   不是整条候选的并集。重画挂在 syncTlTools（目标一变它就跟着）：selectVoice / setPin /
-   filmApplyAt 三条换目标的路都从那里过 —— 只挂在其中一条路上，就会出现「切了目标、输入框还写着旧的」。
-   `col` 可空（selectVoice 手里没有栏）：这一行全页只有一份，退回整页查。
-   两个秒数都是**源视频里的秒数**；指着配音时与配音把手的同一套口径
-   （`at` 在源秒上量，`dur` 是音频文件秒 ÷ 自己那一档才是源长）。 */
-function paintTrimRow(col) {
-  const scope = col || document;
-  const lab = scope.querySelector('#trimSegLab');
-  if (!lab) return;
-  const note = scope.querySelector('#trimNote');
-  const v = tlVoiceHit();
-  if (v) {
-    const own = voiceRateOf(v);
-    const a = round1(Math.max(0, Number(v.at) || 0));
-    const b = round1(a + (Number(v.dur) || 0) / own);
-    lab.innerHTML = '正在调<b>这一句配音</b>（念 ' + round1((Number(v.dur) || 0) / own) + ' 秒）：保留片段';
-    const is = scope.querySelector('#trimS'), ie = scope.querySelector('#trimE');
-    if (is) is.value = a;
-    if (ie) ie.value = b;
-    if (note) note.textContent = '这是源视频里的秒数；音频自己那一份从第 ' + round1(Math.max(0, Number(v.off) || 0)) + ' 秒起'
-      + (own !== 1 ? '（×' + own + ' 倍速）' : '') + '。也可以直接拖块两端的把手';
-    return;
-  }
-  const sh = curShot();
-  /* 两框读的是**正在查看**的那条候选（轨道画的就是它，写点 mid.js 的 applyTrimFromInputs
-     改的也是它）—— 以前这里读「选用」那条：框里显示 A 的秒数、应用却改到 B 的入出点，
-     同一行两把尺子。查看的不是选用那条时在 label 里说一句，别让人以为改的是成片那条。 */
-  const candsNow = sh.candidates || [];
-  const cur = candsNow[proj.curCand] || candsNow[0] || null;
-  if (!cur) { lab.textContent = '这一镜还没有候选'; if (note) note.textContent = ''; return; }
-  const notSel = cur.vid !== sh.selId ? '（正在看的是未选用的一条：改的是它的入出点）' : '';
-  const total = candDur(cur, sh);
-  const segs = segsOf(cur, total);
-  const i = Math.min(segs.length - 1, cutSegIdx());
-  const s = segs[i];
-  lab.innerHTML = (s
-    ? `这一条候选剪成 <b>${segs.length}</b> 段，正在调第 <b>${i + 1}</b> 段（这条结果 ${round1(total)} 秒）：保留片段`
-    : `这一条候选一段画面都没留（整条 ${round1(total)} 秒）：按 Ctrl+Z 退回剪切之前`) + esc(notSel);
-  const is = scope.querySelector('#trimS'), ie = scope.querySelector('#trimE');
-  if (is) is.value = s ? s.in : 0;
-  if (ie) ie.value = s ? s.out : 0;
-  if (note) note.textContent = '这是源视频里的秒数；也可以直接拖动格子两端的把手';
-}
-
-/* 「开始播放，并吞掉自动播放被浏览器拦下的那个拒绝」只有播放层那一份（playback.js），
-   这里不再留第二份：同一段实现在两处，改一处另一处就会漂。 */
-/* 这几枚是 engine 的状态，只是声明恰好落在被搬走的那一段里：
-   整条提到接线之前（模块只读访问器），engine.js 继续持有它们 —— 状态不外迁。 */
-let voiceEl = null;
-/* VoiceLane域（engine/voice-lane.js）：这一段（2863-3615）搬进模块，这里只留访问器包与一条解构。
-   接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
-   因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
-const VoiceLane = createVoiceLane({
-  playSafe: playSafe,
+/* Caption域（engine/caption.js）：全片字幕的数据动作（补字幕 / 重切 / SRT 出 / 入 / 语音识别 /
+   单条编辑）与右栏「字幕」那一格。字幕只有一份 —— `proj.film.captions`，时间就是成片秒，
+   所以这一域没有秒制折算；写入走 Edit.patch、点名走 Edit.describeItem，都不留第二出口。
+   E 里每一位都包成箭头：建包时 `renderEditor` 那一类还没初始化，直接引用会撞 TDZ。 */
+const Caption = createCaptionDomain({
+  filmOf: () => ensureFilm(),
   projOf: () => proj,
-  allShots: allShots,
-  candDur: candDur,
-  paintTrimRow: (...a) => paintTrimRow(...a),
-  filmFrames: filmFrames,
-  axisGray: axisGray,
-  frameToSrc: frameToSrc,
-  shotFrames: shotFrames,
-  shotPinT: shotPinT,
-  shotAxTotal: shotAxTotal,
-  voiceAxBox: voiceAxBox,
-  voiceFilmSpan: voiceFilmSpan,
-  voiceAdoptable: voiceAdoptable,
-  voiceBlockHTML: voiceBlockHTML,
-  voicesEnsure: voicesEnsure,
-  shotVoices: shotVoices,
-  dragOnWindow: dragOnWindow,
-  voiceSelId: voiceSelId,
-  picSelOn: picSelOn,
-  laneLocked: laneLocked,
-  laneHidden: laneHidden,
-  rowHidden: rowHidden,
-  rowLocked: rowLocked,
-  laneNm: laneNm,
-  rowNm: rowNm,
-  rowLockWhy: rowLockWhy,
-  rowUnlockHow: rowUnlockHow,
-  laneVol: laneVol,
-  laneRowsFor: laneRowsFor,
-  LANE_ROW_SEL: LANE_ROW_SEL,
-  laneMute: laneMute,
-  trackOwnVol: trackOwnVol,
-  tlSyncFromShots: tlSyncFromShots,
-  voiceVolOf: voiceVolOf,
-  focusVoiceShot: focusVoiceShot,
-  trackOne: trackOne,
-  syncTlTools: syncTlTools,
-  filmEdited: filmEdited,
-  scheduleSave: scheduleSave,
-  dragGhostShow: dragGhostShow,
-  dragGhostMove: dragGhostMove,
-  dragGhostHide: dragGhostHide,
-  voiceElOf: () => voiceEl,
-  vcTabOf: () => vcTab,
-  audioDurOf: (...a) => audioDurOf(...a),
-  setStatus: setStatus,
-  setVcTab: v => { vcTab = v; },
-  setVoiceEl: v => { voiceEl = v; },
-}, document, window);
-const {
-  playVoicePreview,
-  paintVoiceVol,
-  orphanVoices,
-  orphanVoicesOf,
-  adoptWhy,
-  adoptOrphanVoices,
-  voiceLn,
-  lanePut,
-  voiceLanesHTML,
-  laneRowCtlHTML,
-  laneRowBtnsHTML,
-  syncLaneSide,
-  voiceLaneHTML,
-  VOICE_MIN,
-  bindVoiceLane,
-  paintVoiceSel,
-  dropPicSel,
-  selectVoice,
-} = VoiceLane;
-
-/* SubLane域（engine/sub-lane.js）：右栏字幕清单、两排字幕块与它们的拖动 / 起止输入。
-   建在 Lanes 之前（Lanes 的渲染要调它的三个画点）；E 里每一位都包成箭头 ——
-   `filmApplyAt` 那几位在 Lanes 解构里才落定，跑起来（拖动 / 点击）时早已初始化。 */
-const SubLane = createSubLane({
-  projOf: () => proj,
-  allShots: (...a) => allShots(...a),
-  curShot: (...a) => curShot(...a),
-  candDur: (...a) => candDur(...a),
-  chosenCandOf: (...a) => chosenCandOf(...a),
-  fmtDur: (...a) => fmtDur(...a),
-  subCurrent: (...a) => subCurrent(...a),
-  subWrite: (...a) => subWrite(...a),
-  voicesEnsure: (...a) => voicesEnsure(...a),
-  shotFrames: (...a) => shotFrames(...a),
-  shotPinT: (...a) => shotPinT(...a),
-  shotAxTotal: (...a) => shotAxTotal(...a),
-  shotRowAt: (...a) => shotRowAt(...a),
-  frameToSrc: (...a) => frameToSrc(...a),
-  srcToFrame: (...a) => srcToFrame(...a),
-  filmFrames: (...a) => filmFrames(...a),
-  tlSyncFromShots: (...a) => tlSyncFromShots(...a),
-  shotFilmAt: (...a) => shotFilmAt(...a),
-  setPin: (...a) => setPin(...a),
-  TlPlayOf: () => TlPlay,
-  filmApplyAt: (...a) => filmApplyAt(...a),
-  renderEditor: (...a) => renderEditor(...a),
+  Edit,
+  Timeline,
+  Play,
   setStatus: (...a) => setStatus(...a),
-  dragOnWindow: (...a) => dragOnWindow(...a),
-  dragGhostShow: (...a) => dragGhostShow(...a),
-  dragGhostMove: (...a) => dragGhostMove(...a),
-  dragGhostHide: (...a) => dragGhostHide(...a),
-  setVcTab: v => { vcTab = v; },
+  esc: s => window.esc(s),
+  icon: (n, s) => window.icon(n, s),
+  mediaSrc: (...a) => Api.mediaSrc(...a),
+  saveBlob: (...a) => saveBlob(...a),
+  renderEditor: (...a) => renderEditor(...a),
 }, document, window);
 
-/* ============================================================================
-   时间轴的比例尺（与剪映/参考项目同一条路子）
-   ---------------------------------------------------------------------------
-   以前这里所有东西都按「总时长 = 100% 宽度」摆，于是片子一长格子就被压成一团、
-   而且**没法左右滚**（没有可滚的余量）。现在改成工具箱里那两个概念：
-     · `pxPerSec`（像素/秒）—— 唯一的比例尺；
-     · 内容层 `.tl-inner` 的宽度 = `总时长 × pxPerSec` —— 超出容器就横向滚动。
-   行内那些绝对定位的元素**继续用百分比**：它们的父级（行）宽度如今由 pxPerSec 决定，
-   所以百分比自动跟着比例尺走，一行代码都不用改。
-   ========================================================================== */
-/* 缩放的上下限。下限**不是一个写死的像素/秒**：整条内容最短还得点得动（`TL_MIN_W` 像素），
-   再缩就没有一格能按了。所以真实下限跟着这一排的总长走 —— 3 秒的候选最多缩到 8px/秒，
-   20 分钟的长片能缩到 0.04。这样「读数 / 内容层宽度 / 围绕视野中心那一秒的滚动换算」三处
-   永远互相对得上：从前 `tlInnerWidth` 里那句 `Math.max(60, …)` 会让「写着 4 像素/秒、
-   实际摊成 60 像素宽」同时成立，而 60 像素是拍脑袋的数，不是算出来的。 */
-const TL_MIN_W = 24, TL_MIN_ZOOM = 0.02, TL_MAX_ZOOM = 600;
-const tlMinPps = total => Math.max(TL_MIN_ZOOM, TL_MIN_W / Math.max(0.1, Number(total) || 0.1));
-/* 「自适应」那档的下限：一部长片在 900px 的栏里铺满等于 3px/秒，格子和刻度会糊成一片，
-   所以自适应铺到这一档就停、再长让它左右滚。**手动缩小不受这一档限制**（用户点名：
-   不必限制最小，可以缩到不占据整个轨道）。 */
-const TL_MIN_PPS = 12;
-/* 用户手动缩放过就记住（`dir_tl_pps`）；0 = 自适应：短片子铺满、长片子缩到下限再左右滚。 */
-let tlPps = (() => {
-  /* 走公共的 window.LS：这一行在页面装配期执行，而隐私模式下裸读会抛 ——
-     抛出去整页就白屏了（探针 ① 就是这么抓到 readLS 未定义的）；LS.get 把「读不到」统一变成 null。 */
-  const v = Number(window.LS.get('dir_tl_pps') || '');
-  return v > 0 ? v : 0;
-})();
-/* 现在生效的像素/秒：手动缩过就按那一档（夹在 `tlMinPps(总长)`～`TL_MAX_ZOOM`），
-   没缩过就是「自适应」= 容器多宽铺多满，但不低于 `TL_MIN_PPS`。 */
-/* 这几枚是 engine 的状态，只是声明恰好落在被搬走的那一段里：
-   整条提到接线之前（模块只读访问器），engine.js 继续持有它们 —— 状态不外迁。 */
-let tlScrollWant = -1;
-/* Lanes域（engine/lanes.js）：这一段（5187-6069）搬进模块，这里只留访问器包与一条解构。
-   接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
-   因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
-const Lanes = createLanes({
-  $: (...a) => $(...a),
-  TlPlayOf: () => TlPlay,
-  projOf: () => proj,
-  allShots: (...a) => allShots(...a),
-  curShot: (...a) => curShot(...a),
-  fmtDur: (...a) => fmtDur(...a),
-  shotDurText: (...a) => shotDurText(...a),
-  trimStatus: (...a) => trimStatus(...a),
-  tlCandidateOf: (...a) => tlCandidateOf(...a),
-  candDur: (...a) => candDur(...a),
-  filmFrames: (...a) => filmFrames(...a),
-  axisGray: (...a) => axisGray(...a),
-  frameToSrc: (...a) => frameToSrc(...a),
-  srcToFrame: (...a) => srcToFrame(...a),
-  shotFrames: (...a) => shotFrames(...a),
-  shotPinT: (...a) => shotPinT(...a),
-  shotAxTotal: (...a) => shotAxTotal(...a),
-  shotRowAt: (...a) => shotRowAt(...a),
-  voiceAxBox: (...a) => voiceAxBox(...a),
-  fillWaveforms: (...a) => fillWaveforms(...a),
-  voiceBlockHTML: (...a) => voiceBlockHTML(...a),
-  cutSegIdx: (...a) => cutSegIdx(...a),
-  shotVoices: (...a) => shotVoices(...a),
-  dragOnWindow: (...a) => dragOnWindow(...a),
-  reanchorVoices: (...a) => reanchorVoices(...a),
-  cutPin: (...a) => cutPin(...a),
-  beginEdit: (...a) => beginEdit(...a),
-  picSelOn: (...a) => picSelOn(...a),
-  picSelAt: (...a) => picSelAt(...a),
-  laneHidden: (...a) => laneHidden(...a),
-  rowHidden: (...a) => rowHidden(...a),
-  rowLocked: (...a) => rowLocked(...a),
-  laneNm: (...a) => laneNm(...a),
-  rowLockWhy: (...a) => rowLockWhy(...a),
-  rowUnlockHow: (...a) => rowUnlockHow(...a),
-  laneRowsOf: (...a) => laneRowsOf(...a),
-  laneRowsFor: (...a) => laneRowsFor(...a),
-  setCellLane: (...a) => setCellLane(...a),
-  addImageToTrack: (...a) => addImageToTrack(...a),
-  moveShotInFilmOrder: (...a) => moveShotInFilmOrder(...a),
-  tlSyncFromShots: (...a) => tlSyncFromShots(...a),
-  paintTlGroups: (...a) => paintTlGroups(...a),
-  syncTlTools: (...a) => syncTlTools(...a),
-  sliceForgetFail: (...a) => sliceForgetFail(...a),
-  fillSlices: (...a) => fillSlices(...a),
-  filmEdited: (...a) => filmEdited(...a),
-  subLaneHTML: (...a) => SubLane.subLaneHTML(...a),
-  filmSubLaneHTML: (...a) => SubLane.filmSubLaneHTML(...a),
-  bindSubLanes: (...a) => SubLane.bindSubLanes(...a),
-  chosenCandOf: (...a) => chosenCandOf(...a),
-  setPin: (...a) => setPin(...a),
-  pinFilmTShot: (...a) => pinFilmTShot(...a),
-  sliceUserTouch: (...a) => sliceUserTouch(...a),
-  paintTrimRow: (...a) => paintTrimRow(...a),
-  scheduleSave: (...a) => scheduleSave(...a),
-  renderScenes: (...a) => renderScenes(...a),
-  midEditTrimOf: () => midEditTrim,
-  trackDragTOf: () => trackDragT,
-  picLaneStep: (...a) => picLaneStep(...a),
-  dragGhostShow: (...a) => dragGhostShow(...a),
-  dragGhostMove: (...a) => dragGhostMove(...a),
-  dragGhostHide: (...a) => dragGhostHide(...a),
-  bindSegDrag: (...a) => bindSegDrag(...a),
-  candTrackSrc: (...a) => candTrackSrc(...a),
-  segLabel: (...a) => segLabel(...a),
-  paintPin: (...a) => paintPin(...a),
-  bindPinZone: (...a) => bindPinZone(...a),
-  paintTlHint: (...a) => paintTlHint(...a),
-  orphanVoices: (...a) => orphanVoices(...a),
-  lanePut: (...a) => lanePut(...a),
-  voiceLanesHTML: (...a) => voiceLanesHTML(...a),
-  syncLaneSide: (...a) => syncLaneSide(...a),
-  voiceLaneHTML: (...a) => voiceLaneHTML(...a),
-  bindVoiceLane: (...a) => bindVoiceLane(...a),
-  paintVoiceSel: (...a) => paintVoiceSel(...a),
-  dropPicSel: (...a) => dropPicSel(...a),
-  TL_MAX_ZOOMOf: () => TL_MAX_ZOOM,
-  tlMinPps: (...a) => tlMinPps(...a),
-  TL_MIN_PPSOf: () => TL_MIN_PPS,
-  tlPpsOf: () => tlPps,
-  tlScrollWantOf: () => tlScrollWant,
-  voiceDraftOf: () => voiceDraft,
-  setVcTab: v => { vcTab = v; },
-  voiceWayOf: (...a) => voiceWayOf(...a),
-  paintVoicePos: (...a) => paintVoicePos(...a),
-  voiceReg: (...a) => voiceReg(...a),
-  renderEditor: (...a) => renderEditor(...a),
-  renderAll: (...a) => renderAll(...a),
-  setStatus: (...a) => setStatus(...a),
-  setTlPps: v => { tlPps = v; },
-  setTrackDragT: v => { trackDragT = v; },
-  setTlScrollWant: v => { tlScrollWant = v; },
-}, document, window);
-const {
-  tlZoomBy,
-  tlZoomWheel,
-  tlZoomAuto,
-  tlZoomSetPos,
-  tlZoomCommit,
-  renderTimeline,
-  shotAxText,
-  lineLandedNote,
-  pendingLineOf,
-  openPendingVoice,
-  filmPinT,
-  filmApplyAt,
-} = Lanes;
 /* 这几枚是 engine 的状态，只是声明恰好落在被搬走的那一段里：
    整条提到接线之前（模块只读访问器），engine.js 继续持有它们 —— 状态不外迁。 */
 let voiceDraft = { shotId: '', text: '', voice: '', format: '', design: '', ref: null, bools: {}, tb: {}, who: '' };
@@ -3593,59 +2435,19 @@ let vcTab = 'list';
 const Voice = createVoice({
   projOf: () => proj,
   REGOf: () => REG,
-  uid: (...a) => uid(...a),
+  /* 成片那一本账与「改一步」的唯一出口：配音的增删改读写 `proj.film.voices`，
+     提交走 Edit 的 commit（beginEdit + 规整 + 清选择 + 标脏），针的位置读 Timeline。 */
+  filmOf: () => ensureFilm(),
+  Edit: Edit,
+  Timeline: Timeline,
   allShots: (...a) => allShots(...a),
   curShot: (...a) => curShot(...a),
   fmtDur: (...a) => fmtDur(...a),
   candDur: (...a) => candDur(...a),
-  voiceFilmWhy: (...a) => voiceFilmWhy(...a),
-  cutSegIdx: (...a) => cutSegIdx(...a),
-  candSelected: (...a) => candSelected(...a),
-  voicesEnsure: (...a) => voicesEnsure(...a),
-  shotVoices: (...a) => shotVoices(...a),
-  voiceLn: (...a) => voiceLn(...a),
-  voiceLanePlan: (...a) => voiceLanePlan(...a),
-  tlVoiceHit: (...a) => tlVoiceHit(...a),
-  voiceVolOf: (...a) => voiceVolOf(...a),
-  setLaneVol: (...a) => setLaneVol(...a),
-  setCutVol: (...a) => setCutVol(...a),
-  setCutLane: (...a) => setCutLane(...a),
-  voiceSplitByMaterial: (...a) => voiceSplitByMaterial(...a),
-  voiceMergeAll: (...a) => voiceMergeAll(...a),
-  cutSpdSeg: (...a) => cutSpdSeg(...a),
-  setCutSpd: (...a) => setCutSpd(...a),
-  segLenText: (...a) => segLenText(...a),
-  voiceLenText: (...a) => voiceLenText(...a),
-  setVoiceSpd: (...a) => setVoiceSpd(...a),
-  setTrackSpd: (...a) => setTrackSpd(...a),
-  setTrackVoiceSpd: (...a) => setTrackVoiceSpd(...a),
-  setTrackVol: (...a) => setTrackVol(...a),
-  paintTlGroups: (...a) => paintTlGroups(...a),
-  syncTlTools: (...a) => syncTlTools(...a),
-  filmEdited: (...a) => filmEdited(...a),
-  subAsrBusyOf: () => subAsrBusy,
-  shotFilmAt: (...a) => shotFilmAt(...a),
-  chosenCandOf: (...a) => chosenCandOf(...a),
-  subCurrent: (...a) => subCurrent(...a),
-  subStyleWrite: (...a) => subStyleWrite(...a),
-  subGenerate: (...a) => subGenerate(...a),
-  subResegment: (...a) => subResegment(...a),
-  subExportSrt: (...a) => subExportSrt(...a),
-  subImportSrt: (...a) => subImportSrt(...a),
-  subAsr: (...a) => subAsr(...a),
-  subAddAtPin: (...a) => subAddAtPin(...a),
-  subDelete: (...a) => subDelete(...a),
-  subSetText: (...a) => subSetText(...a),
-  subRowsHTML: (...a) => SubLane.subRowsHTML(...a),
-  subSetTime: (...a) => SubLane.subSetTime(...a),
+  capPanelHTML: (...a) => Caption.capPanelHTML(...a),
+  bindCapPanel: (...a) => Caption.bindCapPanel(...a),
   scheduleSave: (...a) => scheduleSave(...a),
   midEditTrimOf: () => midEditTrim,
-  voiceElOf: () => voiceEl,
-  playVoicePreview: (...a) => playVoicePreview(...a),
-  orphanVoicesOf: (...a) => orphanVoicesOf(...a),
-  adoptWhy: (...a) => adoptWhy(...a),
-  adoptOrphanVoices: (...a) => adoptOrphanVoices(...a),
-  selectVoice: (...a) => selectVoice(...a),
   voiceDraftOf: () => voiceDraft,
   vcTabOf: () => vcTab,
   polishVoiceText: (...a) => polishVoiceText(...a),
@@ -3682,7 +2484,7 @@ async function polishVoiceText(col) {
   const original = String(ta.value || '').trim();
   if (original.length < 2) { setStatus('<span class="err">先写几个字再润色</span>'); return; }
   if (!window.TextAI || !TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
+  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
   host.hidden = false;
   const sysBase = TextAI.prompt('audio');
   /* 这一处特有的一句（工作台润的是一整段文本，这里润的是画面上一句台词：要短、要一口气念完）。
@@ -3724,7 +2526,7 @@ async function polishVoiceText(col) {
         /* 字数闸门跟着重判一次：润完可能变短到这一家的最少字数以下，按钮要当场禁掉
            （与手写时那一条是同一个判据，所以直接调输入框上那个 handler，不另写一份）。 */
         if (typeof ta.oninput === 'function') ta.oninput();
-        setStatus('<span class="ok">✓ 已替换这一句（还没合成 —— 改到满意再点「合成并加到这一轨」）</span>');
+        setStatus('<span class="ok">✓ 已替换这一句</span>');
       },
       onStatus: t => setStatus(t),
     });
@@ -3776,7 +2578,7 @@ function saveBlob(name, blob) {
 }
 /* 成片尺寸：`proj.composition` 优先（FCPXML 导入写的就是它），没有就按第一个已选用镜头的比例
    计算（长边 1280），保证所有镜头比例一致地居中填充。
-   画幅是**全片一份**：切片、实时预览、导出成片、FCPXML 都读这里，不在别处再推一次。
+   画幅是**一部片子一份**：切片、实时预览、导出成片、FCPXML 都读这里，不在别处再推一次。
    页头那颗比例下拉已按 2026-10 用户要求删掉：新项目跟第一个镜头的比例走，
    FCPXML 导入的工程带上文件里声明的画幅。 */
 function compositionOf() {
@@ -3798,9 +2600,8 @@ function filmSize() {
   if (w >= h) return { w: long, h: Math.round(long * h / w / 2) * 2 };
   return { w: Math.round(long * w / h / 2) * 2, h: long };
 }
-/* 播放区不再跟全片画幅走（2026-10 用户点名：固定的标准横屏 16:9）——
-   所以以前那个「把当前画幅写进 --film-ar」的出口整条删掉。
-   全片的真实尺寸仍然由 filmSize() 那一处算（导出与 FCPXML 用的是它）。 */
+/* 播放区是**固定的标准横屏 16:9**（2026-10 用户点名），不跟成片画幅走 ——
+   成片的真实尺寸只由 filmSize() 那一处算（导出与 FCPXML 读它），界面上没有第二个去处。 */
 
 /* ---------- 视频模型与参数：按这一镜的输入推导可用模型 ---------- */
 /* 提示词里的 @参考图N = 引用第 N 张素材图；提交前按平台声明的语法转换（未声明就原样提交） */
@@ -3840,10 +2641,7 @@ const Panel = createPanel({
   curShot: (...a) => curShot(...a),
   beginEdit: (...a) => beginEdit(...a),
   renderSoft: (...a) => renderSoft(...a),
-  candDur: (...a) => candDur(...a),
-  filmFrames: (...a) => filmFrames(...a),
-  shotFrames: (...a) => shotFrames(...a),
-  tlSyncFromShots: (...a) => tlSyncFromShots(...a),
+  filmOf: () => ensureFilm(),
   chainModelList: (...a) => chainModelList(...a),
   ensureChainModel: (...a) => ensureChainModel(...a),
   chainModelWhy: (...a) => chainModelWhy(...a),
@@ -3851,6 +2649,7 @@ const Panel = createPanel({
   resolveChainFrame: (...a) => resolveChainFrame(...a),
   filmEdited: (...a) => filmEdited(...a),
   scheduleSave: (...a) => scheduleSave(...a),
+  scheduleSaveQuiet: (...a) => scheduleSaveQuiet(...a),
   assetStoreId: (...a) => assetStoreId(...a),
   sameAssetSpace: (...a) => sameAssetSpace(...a),
   loadCredits: (...a) => loadCredits(...a),
@@ -3866,7 +2665,6 @@ const Panel = createPanel({
   renderVoiceCol: (...a) => renderVoiceCol(...a),
   applyRefSyntax: (...a) => applyRefSyntax(...a),
   pickRefMedia: (...a) => pickRefMedia(...a),
-  polishUIOf: () => polishUI,
   setPolishUI: v => { polishUI = v; },
   renderPolishPanel: (...a) => renderPolishPanel(...a),
   /* 拆分镜 / 改分镜的问答与过程面板（apply 域的状态）：编辑器整列重画后也要按 splitUI 拼回来，
@@ -3876,7 +2674,6 @@ const Panel = createPanel({
   toDataURL: (...a) => toDataURL(...a),
   uploadImageDataUrl: (...a) => uploadImageDataUrl(...a),
   openPickDlg: (...a) => openPickDlg(...a),
-  kfQOf: () => kfQ,
   setKfQ: v => { kfQ = v; },
   kfArOf: () => kfAr,
   setKfAr: v => { kfAr = v; },
@@ -3967,6 +2764,14 @@ function focusImported(hit, why) {
 /* 真实时长 / 尺寸 / 音轨：走 MediaBackend.info（浏览器内 mediabunny 元数据 + <video> 兜底），
    服务端不提供媒体探测。
    失败不要挡住导入本身：拿不到时长就交回 null，播放器会自己量。 */
+/* 候选 → 同源媒体地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（AGENTS §4.1）；
+   本机已镜像的走 EditorMedia（本机优先）。轨道取帧与助手的媒体检查共用这一份。 */
+const candTrackSrc = c => {
+  const src = c && (c.src || c.url);
+  if (!src) return '';
+  const EM = window.EditorMedia;
+  return EM ? EM.previewSrc(c) : Api.mediaSrc(src);
+};
 async function mediaInfo(body) {
   const src = (body && (body.src || body.url))
     || (body && body.assetId ? Api.assetSrc(body.assetId) : '');
@@ -4026,7 +2831,7 @@ async function importMediaFile(file) {
     });
     sh.candidates.push(cand);
     const autoSel = !sh.selId;
-    if (autoSel) sh.selId = cand.vid;
+    if (autoSel) setSelectedCandidate(sh, cand);
     filmEdited();
     setStatus('<span class="ok">✓ 已导入「' + esc(name) + '」为本镜候选'
       + (autoSel ? '，并已选用为这一镜的画面（成片按它算）' : '')
@@ -4090,7 +2895,7 @@ async function useLibEntry(sh, it) {
         const cand2 = mkImportedCandidate({ vid: 'local_' + uid(), provider: assetStoreId(),
           url: Api.assetSrc(aid2), duration: it.duration, importOp: opA });
         sh.candidates.push(cand2);
-        if (!sh.selId) sh.selId = cand2.vid;
+        if (!sh.selId) setSelectedCandidate(sh, cand2);
         filmEdited();
         setStatus('<span class="ok">✓ 已把收藏的视频导入为这一镜的候选</span>');
         return;
@@ -4111,7 +2916,7 @@ async function useLibEntry(sh, it) {
       provider: isPlat ? it.provider : 'local', url: it.src, local: !isPlat, duration: it.duration,
       importOp: op || undefined });
     sh.candidates.push(cand);
-    if (!sh.selId) sh.selId = cand.vid;
+    if (!sh.selId) setSelectedCandidate(sh, cand);
     /* 第三方供应商的文件：导入这一下就排进本机镜像（剪辑取帧与导出都读得到字节）。 */
     if (needsLocal(cand.url)) {
       autoLocalize([{
@@ -4286,7 +3091,7 @@ async function polishPrompt() {
   const original = (ta.value || '').trim();
   if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
   if (!TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
+  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
   const sysBase = TextAI.prompt('video');   // 内置默认只有一份（TextAI.DEF，见设置页）
   let images = [];
   /* 流式有两个落点，取决于这一轮是谁发起的：
@@ -5011,7 +3816,7 @@ async function generateKeyframes(sh) {
   if (kfRun) return;
   kfRun = true;
   if (!TextAI.prov(REG)) { kfRun = false; setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-  if (!(await TextAI.canRun(REG))) { kfRun = false; setStatus('<span class="err">请先到「设置」填写文字 AI 密钥（或在 .env / 系统环境变量里配置）</span>'); return; }
+  if (!(await TextAI.canRun(REG))) { kfRun = false; setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
   const pickImg = kfModelOf();
   const imgProv = pickImg.prov, imgModel = pickImg.model;
   if (!imgProv || !imgModel) { kfRun = false; setStatus('<span class="err">注册表里没有可用的图片型号</span>'); return; }
@@ -5365,7 +4170,7 @@ function updateBanner() {
 /* 在指定场景末尾新建镜头并立刻进入编辑状态 */
 function addShotToScene(sc, idx) {
   const sh = newShot();
-  setTimeout(() => { const ta = $('edPrompt'); if (ta) { ta.focus(); ta.select(); } }, 120);
+  setTimeout(() => { const ta = $('edPrompt'); if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); ta.select(); } }, 120);
   const at = idx == null ? sc.shots.length : idx;
   sc.shots.splice(at, 0, sh);
   proj.curScene = proj.scenes.indexOf(sc);
@@ -5376,7 +4181,7 @@ function addShotToScene(sc, idx) {
   reportScenePics(feedScenePics(sc, [sh]));
   renderAll(); scheduleSave();
   const ta = $('edPrompt');
-  if (ta) ta.focus();
+  if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); }
 }
 /* 顶部横幅只在出错 / 异常时出现（常驻、不会被错过）；普通提示走右下角 Toast。
    以前这里把「非错误」的消息直接丢掉，于是「已定位到 8.2 秒」「✓ 已按镜头重建时间线」
@@ -5460,9 +4265,8 @@ function editScript() {
   });
 }
 $('scriptEditBtn').onclick = editScript;
-/* 「导入视频 / 素材」的唯一入口：左栏表头（项目级动作，跟剧本 / 拆分镜同族）。
-   以前中栏一颗、剪辑态左栏一颗 —— 同一个函数两个入口，用户点名过位置乱。 */
-$('libImportLeft').onclick = () => openLibDlg(curShot());
+/* 「导入视频 / 素材」的唯一入口在中栏动作行（`#importMid`，由 engine/mid.js 每轮重建时绑回来）；
+   同一个函数只有这一个入口 —— 以前左栏表头一颗、中栏一颗，用户点名过位置乱。 */
 $('scriptBtn').onclick = async () => {
   // 升级：优先走 AI 拆分场景与镜头；没配文字 AI 时回退到原来的手动拆分
   try {
@@ -5518,7 +4322,7 @@ const Gen = createGen({
   shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
   shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
   updateBanner, setStatus, hasRealCandidate, projOf: () => proj, wsOf: () => WS, regOf: () => REG,
-  setForceMid: v => { forceMid = v; },
+  setForceMid: v => { forceMid = v; }, setSelectedCandidate,
 });
 
 $('genAll').onclick = async () => {
@@ -5526,7 +4330,7 @@ $('genAll').onclick = async () => {
   const plan = Gen.genAllPlan();
   if (!plan.ok.length && !plan.wait.length) {
     if (!plan.todo.length) {
-      setStatus('<span class="err">所有镜头都已有生成结果，无需重复生成（想重跑先删掉那一镜的候选）</span>');
+      setStatus('<span class="err">所有镜头已有结果</span>');
     } else {
       const first = plan.bad[0] ? (plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0]) : '';
       setStatus('<span class="err">这些镜头还不能生成' + (first ? '（' + first + '）' : '') + '</span>');
@@ -5547,19 +4351,18 @@ $('genAll').onclick = async () => {
     Gen.refreshGenAllEst();
   }
 };
-/* 导出域（engine/export.js）：合并成片 / 导出素材 / FCPXML / 送到 NLE。
-   这里只把引擎的读写口递进去；导出状态（渲染中 / 任务号 / 取消）由那一份自己持有。 */
+/* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 送到 NLE。
+   这里只把引擎的读写口递进去；导出状态（渲染中 / 取消）由那一份自己持有。
+   时间线不再从这里递：`filmOf` 给出唯一的那份成片模型，段表由导出域自己按 `deriveTimeline` 现算，
+   FCPXML 读同一份 `buildRenderPlan()` —— 递一堆折算口进去迟早和成片各说各话。 */
 const Export = createExport({
-  $, setStatus, projOf: () => proj, allShots, tlSyncFromShots, tlClipDur, tlClipSrc, tlDuration, fmtDur,
-  clipVoices, voicesEnsure, voiceVolOf, tlCandidateOf, candDur, healStaleUrls,
-  filmFrames, filmLayGray, filmSize, saveBlob, scheduleSave, renderAll, filmRowsForSubtitles,
-  readJsonSafe,
-  BoardAssetsOf: () => BoardAssets,
+  $, setStatus, projOf: () => proj, allShots, filmOf: () => ensureFilm(), clipNameOf: filmClipName,
+  fmtDur, filmSize, saveBlob, scheduleSave, healStaleUrls, BoardAssetsOf: () => BoardAssets,
 });
 /* 页头那一排导出按钮由格式表现画现绑（web/domain/export-formats.js）：加一种导出不再动模板与这一排。
    绑定也只有这一处：剪辑栏每 3 秒随整列重建，把出口绑在那里等于每次重建都要重绑，
    导出中写在按钮上的那句「取消渲染 45%」会被下一次重画冲掉。
-   **「播放成片」那一颗已删**：看效果走「剪辑 → 全片」那一排的实时预览（`#pbBtn` → TlPlay），
+   **「播放成片」那一颗已删**：看效果走剪辑态那条轨的实时预览（`#pbBtn` → Play），
    它从不为播放合成；要一个文件才点这里的「导出成片」。 */
 /* 每个 kind 给一个「返回点击处理器」的工厂：film 直接交现成函数，
    xml 按这一行是裸 FCPXML、媒体包还是 NLE（达芬奇 / 剪映）现包一个。 */
@@ -5575,7 +4378,7 @@ $('exportBtns').innerHTML = ExportFormats.list().filter(f => f.id !== 'resolve' 
   .map(f => f.id === 'fcpxml'
     ? '<span class="exp-split"><button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
       + icon(f.icon, 13) + ' ' + esc(f.label) + '</button>'
-      + '<button class="ghost exp-more" id="exportFcpMore" title="送到剪辑软件：生成工程并尽量启动软件打开">'
+      + '<button class="ghost exp-more" id="exportFcpMore" title="送到剪辑软件">'
       + icon('chevronDown', 12) + '</button>'
       + '<span class="exp-menu" id="exportFcpMenu" hidden></span></span>'
     : '<button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
@@ -5610,19 +4413,26 @@ $('importMediaFile').onchange = e => {
 };
 /* 轨道坞的高度：走**公共件 Wb.split 的上下轴**（与左右栏同一套把手 —— 同样的外观、
    悬停光标、双击复位、落盘口径），不再手写第二套指针拖动。
-   拖动改的是 --dock-h（落在 .page-main 上），坞的上限跟着变 → 上面三栏真的被顶矮，
-   这就是「像左右栏一样能移并且影响布局」的那一条。
-   旧键 dir_dock_h 是那套手写把手留下的（一个裸数字），迁移期读出来按同样意思用一次就清掉。 */
+   拖动改的是 --dock-h（落在 .page-main 上）：坞高**就是那个数**（flex-basis），
+   上面三栏被顶矮 —— 这就是「像左右栏一样能移并且影响布局」的那一条。
+   ⚠ 变量名必须是 'dock-h'：Wb.split 写的是 '--' + varName，写成 dock_h 会落到 --dock_h 上，
+   而 CSS 读的是 --dock-h —— 两边对不上号时把手看着能拖、坞却纹丝不动（存的值还越拖越偏）。
+   旧键 dir_dock_h 是那套手写把手留下的（一个裸数字），那份是真生效过的，迁移期读出来按同样意思用一次就清掉；
+   同一份记录里的 dock_h 一并作废：那是写错变量名那版存下来的死值，从来没生效过 ——
+   用户没见过的尺寸不算偏好，留着会在修好之后突然把坞顶高一截。 */
 {
   const old = Number(window.LS.get('dir_dock_h')) || 0;
-  if (old >= 120) {
-    try { window.LS.set('dir_dock', JSON.stringify({ dock_h: old })); } catch (e) { /* 写不进去就用默认值 */ }
-  }
+  const rec = (function () { const r = window.LS.json('dir_dock', null); return (r && typeof r === 'object') ? r : {}; })();
+  delete rec.dock_h;                       // 写错变量名那版留下的死值：作废
+  if (old >= 120) rec['dock-h'] = old;     // 手写把手那版是真生效过的，搬过来
+  try { window.LS.set('dir_dock', JSON.stringify(rec)); } catch (e) { /* 写不进去就用默认值 */ }
   window.LS.del('dir_dock_h');
   Wb.split.enable({
     box: '.page-main', axis: 'y', key: 'dir_dock',
-    cols: [{ el: '#tlDock' }],
-    handles: [{ left: 0, right: 0, resize: 0, varName: 'dock_h', min: 140, max: 720 }],
+    cols: [{ el: '#tlBoard' }],
+    /* 下限放到 48：允许一路拖到底、把轨道整块「盖住」（只剩一条抓手），
+       想看回来再往上拖 —— 用户点名的「轨道栏应该能拖到最底下」。 */
+    handles: [{ left: 0, right: 0, resize: 0, varName: 'dock-h', min: 48, max: 720 }],
   });
 }
 
@@ -5652,6 +4462,13 @@ function sanitize() {
   WS.projects.forEach(p => {
     p.id = p.id || uid();
     p.name = p.name || '未命名短片';
+    /* 成片模型（新剪辑核）：旧工程没有这一项就是一张空片 —— 没有迁移、没有版本号，
+       旧键（c.segs / proj.timeline / proj.voices…）任何一个字节都不读。 */
+    p.film = normalizeFilm(p.film);
+    /* `tlTab` 是「本镜 / 全片」两个页签留下的字段：剪辑态只剩成片那一轨，再没有任何一处读它。
+       留着的话下一次编辑的快照里还带着这一枚死值（`sanitize` 之后没人清它），所以在这里抹掉 ——
+       与上面 `composition` 坏值「直接删掉」同一族处理。 */
+    delete p.tlTab;
     /* 画面比例是**一个项目一份**：只认偶数、64–4096 的宽高（编码器要偶数）；
        坏值直接删掉，回落到「按第一条成片的画幅」的旧行为，而不是让编码器到导出时才报错。 */
     if (p.composition) {
@@ -5713,9 +4530,13 @@ function sanitize() {
      · 余额查询、任务轮询                → 各自异步
    以前这些 await 串在首屏之前，导致打开页面有 1~2 秒空白。 */
 /* 三栏占比可拖（拖拽条 DOM 与 localStorage 读写都在 workbench.js 的 Wb.split 里）：
-   两条拖拽条分别改左栏和右栏，中栏永远吃掉剩下的空间。 */
-Wb.split.enable({
-  box: '.layout', key: 'dir_split',
+   两条拖拽条分别改左栏和右栏，中栏永远吃掉剩下的空间。
+   box 传**元素**而不是选择器串：Wb.split 在公共件里用的是真 document，
+   文档级 '.layout' 在 KeepAlive 页面池里会命中别的页（工作台也有 .layout）。
+   这里 document 是导演台自己的代理 → querySelector 只会落在本页这一块。 */
+const dirLayout = document.querySelector('.layout');
+if (dirLayout) Wb.split.enable({
+  box: dirLayout, key: 'dir_split',
   cols: [{ el: '.col-left' }, { el: '.col-mid' }, { el: '.col-right' }],
   handles: [
     { left: 0, right: 1, resize: 0, varName: 'sp0', min: 198, max: 520 },
@@ -5760,9 +4581,7 @@ Wb.split.enable({
     roles: ws.roles || [], groups: ws.groups };
   proj = WS.projects.find(p => p.id === WS.curId);
   sanitize();
-  revFloor = Math.max(revFloor, Number(proj.rev) || 0);
   lastSavedJson = snapOf();    // 撤销栈基线
-  ownPinToView();              // 老存档的无主针认给装配进来时的这一镜（见 ownPinToView）
   wsLoaded = true;             // 从现在起才允许落盘（见 wsLoaded 那段）
   $('projName').value = proj.name;
   renderAll();                 // 首屏：不等能力接口、不等本地视频、不等余额
@@ -5782,48 +4601,43 @@ Wb.split.enable({
    给外壳 / AI 助手的**时间线写入桥**（全项目只有这一份）
    ----------------------------------------------------------------------------
    助手不该靠 DOM 去点轨道上的按钮：那要「先 page_state 找按钮 → 再点」两步，
-   而按钮本身还依赖「现在指着哪一段」这种界面态。这里把同一批编辑器函数暴露成
-   一条带校验、可撤销的接口；校验与执行都走**编辑器自己的**函数，不另写第二套：
-     · select_take   选一条候选进成片（= 候选上那颗「用这条」）→ sh.selId
-     · cut_timeline  切开 / 左切 / 右切 / 删成黑场 / 融合 → cutSegs + segsWrite + reanchorVoices
-     · set_clip      这一段的倍速 / 音量 / 黑场 → 同一份 segs 数据
-     · undo_edit     撤销 / 重做（Ctrl+Z / Ctrl+Y 的同一份栈）
-   规矩：① 只在导演台**前台**可用；② 先 check（纯读）再 run；③ 任何写入前 `beginEdit()`
-   压一份撤销快照（用户点完执行马上说「撤销」也退得回去）；④ 行锁着的段一律拒绝。
+   而按钮本身还依赖「现在指着哪一块」这种界面态。桥只认**成片秒**（proj.film 的
+   start/end 都是它），写只有三条出口 —— Edit.patch（画面段 / 配音 / 待生成）、
+   Edit.toolAction（切开 / 删 / 复制 / 融合，与工具条同一批函数）、Caption.*（字幕一族）：
+     · select   选一条候选进成片（= 候选上那颗「用这条」）→ setSelectedCandidate
+     · cut      切开 / 剪头 / 剪尾 / 删段 / 复制 / 融合 → Edit.toolAction
+     · set      倍速 / 音量 / 静音 / 行 / 起止 / 滑移 / 滚切点 / 滑动 / 挪位 / 转场 / 字幕
+     · undo     撤销 / 重做（Ctrl+Z / Ctrl+Y 的同一份栈）
+   规矩：① 只在导演台**前台**可用；② 先 check（纯读）再 run，check 把这次动作的
+   **身份**记下来（工程 id + 块 id），run 前按同样的参数重算一遍，身份对不上就拒 ——
+   「你读的时候是这一段，动手时已经不是了」；③ 任何写入都在撤销窗口里（用户点完
+   执行马上说「撤销」也退得回去）；④ 行锁着的块一律拒绝。
    页面那三条 UI 路径不经过这里 —— 这是给「外壳那一层」的唯一入口，不是第二套剪辑实现。
    ========================================================================== */
-/* Bridge域（engine/bridge.js）：这一段（8472-9397）搬进模块，这里只留一个访问器包（这一域不交名字回来）。
+/* Bridge域（engine/bridge.js）：这一段搬进模块，这里只留一个访问器包（这一域不交名字回来）。
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
 createBridge({
-  ExportFormats: ExportFormats,
-  TlPlay: TlPlay,
+  ExportFormats,
+  Timeline,
+  Edit,
+  Caption,
   projOf: () => proj,
+  filmOf: () => ensureFilm(),
   allShots: (...a) => allShots(...a),
   curScene: (...a) => curScene(...a),
   curShot: (...a) => curShot(...a),
-  fmtDur: (...a) => fmtDur(...a),
   undoStack: undoStack,
   redoStack: redoStack,
   UNDO_MAX_BYTES: UNDO_MAX_BYTES,
   UNDO_MAX_COUNT: UNDO_MAX_COUNT,
-  undoBytesOf: () => undoBytes,
+  undoBytesOf: () => historyBytes,
   undoSkipWhyOf: () => undoSkipWhy,
-  lastUndoLabelOf: () => lastUndoLabel,
-  beginEdit: (...a) => beginEdit(...a),
+  newestHistoryLabelOf: () => historyNewestLabel(),
   undo: (...a) => undo(...a),
   redo: (...a) => redo(...a),
   candDur: (...a) => candDur(...a),
-  voicesEnsure: (...a) => voicesEnsure(...a),
-  reanchorVoices: (...a) => reanchorVoices(...a),
-  cutSegs: (...a) => cutSegs(...a),
-  rowLockWhy: (...a) => rowLockWhy(...a),
-  tlSyncFromShots: (...a) => tlSyncFromShots(...a),
-  readJsonSafe: (...a) => readJsonSafe(...a),
-  filmEdited: (...a) => filmEdited(...a),
-  shotFilmAt: (...a) => shotFilmAt(...a),
-  filmRowsForSubtitles: (...a) => filmRowsForSubtitles(...a),
-  subWriteData: (...a) => subWriteData(...a),
+  setSelectedCandidate,
   candTrackSrc: (...a) => candTrackSrc(...a),
   mediaInfo: (...a) => mediaInfo(...a),
   renderAll: (...a) => renderAll(...a),

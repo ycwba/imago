@@ -148,8 +148,16 @@ const REGISTRY = {
      也各占一段（/siliconflow/image、/minimax/tts…）。以前八家共用 /textai，转发按前缀取「排在最前的那家」，
      非 DeepSeek 的密钥会被原样发给 api.deepseek.com（功能全坏 + 密钥外泄）。同一段前缀只允许
      「base / keyEnv / endpoints 完全一致」的等价声明共用（sparkcine 两家），判据在 providers/validate.js。
+     v20：provider 级 `extraCaps`（目前两种取值：`asr` / `search`）—— 语音识别与联网搜索这两档
+     的**旁注**：声明了说明这一家上游确实提供那个端点（前者要 OpenAI 兼容的 /audio/transcriptions，
+     后者要一个真能给出网址的对话模型）。
+     ⚠ v20 当时它还是**显示门槛**（没有这一格就不画），2026-10-27 起不是了：那两档跟着「文字对话」一起来，
+     与图片 / 视频同一套规则（这家有这一档就画一行），没声明的行里挂一枚「未声明」。
+     理由：同一件「这家能当文字 AI」的事实被拆成三种表现（有文字档的家只画「字」、声明过的那几处才有
+     「识 / 搜」），一张卡上根本看不出这家人到底能干什么；而「能不能用」本来就该按上游实测来判断。
+     字段本身留着（校验仍在 providers/validate.js），只是不再决定画不画。
      改注册表结构时顺手 +1。 */
-  version: 19,
+  version: 20,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -736,6 +744,10 @@ const REGISTRY = {
         credits: '/user/balance',
       },
       balance: { style: 'deepseek-balance' },
+      /* 联网搜索：设置页「联网搜索」那一档的对话模型渠道就是照这一家写的
+         （服务端 /search/query 的对话搜索带默认型号 deepseek-chat）。
+         声明这一档 = 上游真能给出网址；没声明的文字供应商卡上照样有「搜」那一格（只是挂「未声明」）。 */
+      extraCaps: ['search'],
       modelDocs: [
         { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', modes: ['text'] },
         { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', modes: ['text'] },
@@ -755,6 +767,9 @@ const REGISTRY = {
       base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
       site: 'https://platform.openai.com',
       endpoints: { chat: '/chat/completions', models: '/models' },
+      /* 在线语音识别：OpenAI 自己的 POST /audio/transcriptions（默认型号 whisper-1）。
+         声明这一档 = 上游确实有这个端点；没声明的文字供应商卡上照样有「识」那一格（挂「未声明」）。 */
+      extraCaps: ['asr'],
       /* OpenAI 没有公开的余额 API（/dashboard/billing 要网页登录态，API key 问不了）—— 不声明，
          设置页照样画出「侧栏余额」勾选框并写明「这家没提供余额接口」。 */
       modelDocs: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
@@ -797,6 +812,9 @@ const REGISTRY = {
         /* 余额：GET /v1/user/info → { data: { totalBalance, chargeBalance, … } }（解析见 text-ai.js）。 */
         credits: '/user/info',
       },
+      /* 在线语音识别：这一家也提供 OpenAI 兼容的 POST /audio/transcriptions（SenseVoice 那一族，
+         型号名不是 whisper-1 —— 设置页那一格自己填）。 */
+      extraCaps: ['asr'],
       /* 硅基流动一个 key 覆盖 200+ 模型（DeepSeek / Qwen / GLM / MiniMax 都有），
          型号名是「厂商/型号」带斜杠的那种 —— 写死一份清单只会过期得更快。 */
       modelDocs: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
@@ -1136,6 +1154,8 @@ function createRegistryConfig(deps) {
      pricing 也摘：单价是各家自己的事，照抄内置那一份会报出假价格（用量与预估都不该骗人）。 */
   const CUSTOM_STRIP = ['id', 'keyId', 'relay', 'base', 'keyEnv', 'defaultKey', 'site',
     'name', 'displayName', 'kind', 'models', 'mediaProviders', 'pricing', 'custom', 'customShape',
+    /* `extraCaps` **不摘**：自定义那几家照的是模板那一套接口形状（文字档 = OpenAI 兼容对话），
+       形状一样、能力就一样 —— 摘掉的话用户自己架的网关永远进不了「联网搜索」的渠道下拉。 */
     /* default：内置「没显式选过时首选哪家」的旗标不能跟着复制 —— 照 OpenRouter 克隆一家，
        表现就成了「凭空多了一家默认」，润色打到用户的网关上。
        baseEditable：这一家的地址本来就是用户自己填的（就在 sk_custom 里），

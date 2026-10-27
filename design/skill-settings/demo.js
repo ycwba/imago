@@ -4,7 +4,7 @@
      · 新版：场景轨（左）→ 场景详情（右）—— 本稿要推的那一版
      · 现状：照搬今天的结构（使用地方 12 行 + 全量清单 + 详情里的变量表），用来对照
    状态规则照 server/skills-store.js：同一个 contract 同一时刻只能有一份 Skill 生效；
-   启用「我的」会把同 contract 的内置那份自动停用；启用第二份「我的」会被拒。 */
+   启一份就把同 contract 的原来那份自动停用（内置的、我的，都是让位，不报错）。 */
 (function () {
   'use strict';
 
@@ -104,7 +104,7 @@
     m.appendChild(h('div', { class: 'msgbox' + (kind ? ' ' + kind : ''), text: t }));
   }
 
-  /* ---------- 启停（规则照服务端） ---------- */
+  /* ---------- 启停（规则照服务端：同一 contract 只留一份，启一份 → 别的直接停） ---------- */
   function toggleEnabled(id) {
     var s = SKILLS.filter(function (x) { return x.id === id; })[0];
     if (!s) return;
@@ -112,18 +112,14 @@
       s.enabled = false;
       say('已停用 ' + s.id + '：下一轮助手请求生效，当前这一轮不会热替换。');
     } else {
-      var other = SKILLS.filter(function (x) { return x.id !== id && x.enabled && x.contract === s.contract; })[0];
-      if (other && other.source === 'builtin') {
-        other.enabled = false;
-        s.enabled = true;
-        say('已启用 ' + s.id + '：同一 contract 上原来的内置「' + other.id + '」自动停用。');
-      } else if (other) {
-        say('同一个 contract 只能启用一个 Skill：' + other.id + ' 已启用。先停用它。', 'err');
-        return;
-      } else {
-        s.enabled = true;
-        say('已启用 ' + s.id + '：下一轮助手请求生效。');
-      }
+      /* 同 contract 的原来那份**直接让位**（不报错、不让人先关掉再开）；
+         内置那份也一样让位。 */
+      var others = SKILLS.filter(function (x) { return x.id !== id && x.enabled && x.contract === s.contract; });
+      others.forEach(function (o) { o.enabled = false; });
+      s.enabled = true;
+      say(others.length
+        ? '已启用 ' + s.id + '：同一 contract 上原来的「' + others.map(function (o) { return o.id; }).join('、') + '」自动停用。'
+        : '已启用 ' + s.id + '：下一轮助手请求生效。');
     }
     render();
   }
@@ -215,7 +211,7 @@
         }),
         h('div', { class: 'd-meta' }, [
           code('contract：' + sc.contract),
-          h('span', { class: 'sk-id', text: '同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份内置的会让位' }),
+          h('span', { class: 'sk-id', text: '同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份会让位' }),
         ]),
       ]),
       h('div', { class: 'acts' }, [

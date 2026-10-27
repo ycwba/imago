@@ -66,7 +66,7 @@ const FAST_ONLY = process.argv.includes('--e2e:fast') && !FULL_E2E;
 /* 冒烟档 5 个（验收：3 分钟以内）：smoke 兜「各页都能加载、控制台无错」，
    ui-contract / ui-shared 兜公共件契约与列表页，director-perf 兜导演台热路径预算，
    lock 兜单实例锁（最便宜的一条代理判据）。 */
-const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'lock'];
+const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'director-core', 'lock'];
 const fastPick = name => {
   const id = String(name).replace(/^tests\/e2e\//, '').replace(/\.(cjs|mjs)$/, '');
   return FAST_E2E.includes(id);
@@ -237,27 +237,14 @@ run('tests/director-genall.mjs', process.execPath, ['tests/director-genall.mjs']
 /* 场景镜头命名：本机素材名与 FCPXML 包内名同源（补零 / 截断 / 单扩展名 / 去重）。 */
 run('tests/director-naming.mjs', process.execPath, ['tests/director-naming.mjs']);
 run('tests/director-slice.mjs', process.execPath, ['tests/director-slice.mjs']);
+/* 成片模型 proj.film（新剪辑核）：顺序唯一真相 / 折算 / 转场窗 / 行规划 / 派生时间线。 */
+run('tests/director-film.mjs', process.execPath, ['tests/director-film.mjs']);
+/* 胶片条计划（显示层）：格宽档位 / 采样时刻 / 图片平铺 / 就近顶上。 */
+run('tests/director-strip.mjs', process.execPath, ['tests/director-strip.mjs']);
+/* 时间线编辑纯件：切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 波形 / 刻度像素换算。 */
+run('tests/director-tl-edit.mjs', process.execPath, ['tests/director-tl-edit.mjs']);
 /* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
 run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pack.mjs']);
-run('tests/director-playback.mjs', process.execPath, ['tests/director-playback.mjs']);
-run('tests/director-segments.mjs', process.execPath, ['tests/director-segments.mjs']);
-/* 图片段：虚拟坐标与视频不重叠 / 平铺格数 / 插入切开 / 行查找按包含。 */
-run('tests/director-image-seg.mjs', process.execPath, ['tests/director-image-seg.mjs']);
-run('tests/director-gap.mjs', process.execPath, ['tests/director-gap.mjs']);
-run('tests/director-links.mjs', process.execPath, ['tests/director-links.mjs']);
-run('tests/director-timeline.mjs', process.execPath, ['tests/director-timeline.mjs']);
-run('tests/director-voice.mjs', process.execPath, ['tests/director-voice.mjs']);
-run('tests/director-subtitles.mjs', process.execPath, ['tests/director-subtitles.mjs']);
-run('tests/director-plan.mjs', process.execPath, ['tests/director-plan.mjs']);
-run('tests/director-waveform.mjs', process.execPath, ['tests/director-waveform.mjs']);
-run('tests/director-projection.mjs', process.execPath, ['tests/director-projection.mjs']);
-run('tests/director-voice-block.mjs', process.execPath, ['tests/director-voice-block.mjs']);
-/* 台词清单：剪辑右栏「台词」那一档的一份渲染（说话人缩略图 / 本镜与全片两个时间 / 三种状态）。 */
-run('tests/director-lines.mjs', process.execPath, ['tests/director-lines.mjs']);
-/* 台词落点：第几段 + 段内源秒，缺省 = 第一段起点；读到脏数据要夹回来。 */
-run('tests/director-line-point.mjs', process.execPath, ['tests/director-line-point.mjs']);
-/* 配音分轨 / 合轨：分组稳定、只写 ln、超上限点名；时间 / 音量 / 选区一个字节不动。 */
-run('tests/director-voice-lanes.mjs', process.execPath, ['tests/director-voice-lanes.mjs']);
 /* 拖素材的引用载荷：字段白名单、两个 MIME、标签拼装；老载荷与本机号都只按号走。 */
 run('tests/asset-ref.mjs', process.execPath, ['tests/asset-ref.mjs']);
 /* 任务详情：号反查 / 六种原因码 / 批量共用一轮；平台用桩替，不发一个真请求。 */
@@ -297,6 +284,9 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs']
 /* 作用域判据：引用了解析不到的裸名字（`node --check` 看不见，跑到那一行才 ReferenceError）。
    搬函数与「helper 只留一份」这两条路最容易留这种疤，本轮抓到过四处。 */
 run('tests/scope-guards.cjs', process.execPath, ['tests/scope-guards.cjs']);
+/* 按域搬线那一层的名单纪律：域模块顶上 `const { … } = E` 点名的每一位，engine.js 那只接线对象里必须真有的。
+   漏一位不是报错，是那条分支解构出 undefined 才炸（抓到过：预览轴那一位漏 → 悬停取帧整条静默失效）。 */
+run('tests/director-e-deps.cjs', process.execPath, ['tests/director-e-deps.cjs']);
 /* 同一实现别写第二份（AGENTS §7 唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
@@ -330,29 +320,34 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/chat-context.cjs', process.execPath, ['tests/e2e/chat-context.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-search-cite.cjs', process.execPath, ['tests/e2e/chat-search-cite.cjs'], { tier: 'browser' });
   run('tests/e2e/director-perf.cjs', process.execPath, ['tests/e2e/director-perf.cjs'], { tier: 'browser' });
+  /* 剪辑核冒烟（一次装配）：板 / 切一刀 / 撤销 / 转场 / 标记 / 字幕 / 缩放 / 就地刷 / 历史。
+     日常验证走 `npm run test:director`（纯件 4 条 + 这一条，约 35 秒）；重交互仍靠 director-edit。 */
+  run('tests/e2e/director-core.cjs', process.execPath, ['tests/e2e/director-core.cjs'], { tier: 'browser' });
   /* 冷启动基线：FCP/TTI/首屏脚本字节/JS 解析时间 + 堆用量；--soak 另做驻留对比。 */
   run('tests/perf/boot.cjs', process.execPath, ['tests/perf/boot.cjs'], { tier: 'browser' });
-  run('tests/e2e/parity.cjs', process.execPath, ['tests/e2e/parity.cjs'], { tier: 'browser' });
   run('tests/e2e/skills.cjs', process.execPath, ['tests/e2e/skills.cjs'], { tier: 'browser' });
   run('tests/e2e/skill-hub.cjs', process.execPath, ['tests/e2e/skill-hub.cjs'], { tier: 'browser' });
   run('tests/e2e/fcpxml.cjs', process.execPath, ['tests/e2e/fcpxml.cjs'], { tier: 'browser' });
   run('tests/e2e/editing-assets.cjs', process.execPath, ['tests/e2e/editing-assets.cjs'], { tier: 'browser' });
-  run('tests/e2e/director-slice.cjs', process.execPath, ['tests/e2e/director-slice.cjs'], { tier: 'browser' });
-  run('tests/e2e/director-slice-perf.cjs', process.execPath, ['tests/e2e/director-slice-perf.cjs'], { tier: 'browser' });
-  run('tests/e2e/director-lines.cjs', process.execPath, ['tests/e2e/director-lines.cjs'], { tier: 'browser' });
   /* 审阅弹窗「按这句再改」（PromptReview.onFollow）：行随 onFollow 出现、snapshot 带手改、
      就地流式 / 换清单 / 对话记录 / 失败退回、「重新规划」让路、平铺审阅同套。 */
   run('tests/e2e/split-follow.cjs', process.execPath, ['tests/e2e/split-follow.cjs'], { tier: 'browser' });
-  /* 新加配音落在目标时间窗没被占的那一行 / 全占就新开一行 / 12 行满时合成前拒绝（不发请求）。 */
-  run('tests/e2e/director-voice-lane.cjs', process.execPath, ['tests/e2e/director-voice-lane.cjs'], { tier: 'browser' });
-  /* 字幕与待生成的拖动（把手 / 挪插针）+ 右栏起止两把尺子 + 配音 / 画面入出行可输。 */
-  run('tests/e2e/director-sublane.cjs', process.execPath, ['tests/e2e/director-sublane.cjs'], { tier: 'browser' });
-  /* 图片素材进画面轨：交接载荷入轨 · 平铺格与三不带 · 右把手拖长 · 五把剪子对图片段 · 成片像素账 · FCPXML still 读回。 */
-  run('tests/e2e/director-image-track.cjs', process.execPath, ['tests/e2e/director-image-track.cjs'], { tier: 'browser' });
-  /* 时间轴缩放：加减 1.15 / 滑块对数无极 / 自适应独立钮 / 围绕视野中心 / 只重排时间轴 / 1024 不溢出。 */
-  run('tests/e2e/director-zoom.cjs', process.execPath, ['tests/e2e/director-zoom.cjs'], { tier: 'browser' });
+  /* 剪辑态左栏「历史编辑记录」：描述精确（哪一镜的哪一段 · 几秒 · 调到多少）· 非线性分支不丢 · 点历史即回退 · 撤销重做同一条路。 */
+  run('tests/e2e/director-history.cjs', process.execPath, ['tests/e2e/director-history.cjs'], { tier: 'browser' });
+  /* 剪辑核的交互面（新片模型）：四档各管一路 ——
+     ① 落点与选择（点块 / 空白 / 轨名 / 刻度尺的归属 · 六档选择工具 · 滑移与滑动）；
+     ② 拖动（把手 trim · 块体换行换序 · 吸附线 · 波纹那一句回执 · 锁定行拒绝）；
+     ③ 标记一族（M / Shift+M / 面板过滤 · 拎块体与拎止点 · 范围两条读数）与转场浮层（预设 / 时长 / 去掉）；
+     ④ 工具条全量（剪子 / 合并 / 复制 / 新增一段 / 摘掉一段 / 缩短拉长 / 回到播放头 / 缩放三颗 / 撤销重做）。 */
+  run('tests/e2e/director-edit.cjs', process.execPath, ['tests/e2e/director-edit.cjs'], { tier: 'browser' });
+  /* 播放核：seek 落在成片秒 / 转场窗口内出层出效果 / 字幕按起止进出 / 播放推进时画面与配音随主时钟对齐 /
+     暂停冻住 / 到片尾停住 / 切页回来同一个预览面与播放头与剪辑态。 */
+  run('tests/e2e/director-playback.cjs', process.execPath, ['tests/e2e/director-playback.cjs'], { tier: 'browser' });
   /* 导演台装配窗口里的关标签保存：没装配完不许把工作区写成空的（IndexedDB 与 .data/workspace.json 两份）。 */
   run('tests/e2e/director-boot-flush.cjs', process.execPath, ['tests/e2e/director-boot-flush.cjs'], { tier: 'browser' });
+  /* 导演台开机结算：按声明补齐参数 = 静默落盘（不占撤销、不推进修订号），
+     把存过的非法值收正 = 一次真编辑（撤销 + 标签 + 修订号 + 状态行那句「可 Ctrl+Z 退回」）。 */
+  run('tests/e2e/director-boot-quiet.cjs', process.execPath, ['tests/e2e/director-boot-quiet.cjs'], { tier: 'browser' });
   /* 原始请求折叠条：脱敏 / 默认收起 / 导演台重画后仍展开 / 工作台三型标签。 */
   run('tests/e2e/raw-request.cjs', process.execPath, ['tests/e2e/raw-request.cjs'], { tier: 'browser' });
   /* 发送前预览：不用点生成就能看到将要发出的请求体 / 改提示词跟着变 / 预览不发请求。 */
@@ -362,15 +357,25 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/editing-assistant.cjs', process.execPath, ['tests/e2e/editing-assistant.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-contract.cjs', process.execPath, ['tests/e2e/ui-contract.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-shared.cjs', process.execPath, ['tests/e2e/ui-shared.cjs'], { tier: 'browser' });
+  /* 页头组件：各页面共用那一条 .phead（全站唯一一份）。写好了没登记 = 全量档永远跑不到它。
+     导演台正在重构，暂不在这一条里（接回来时 page-head.cjs 的 PAGES 补一行）。 */
+  run('tests/e2e/page-head.cjs', process.execPath, ['tests/e2e/page-head.cjs'], { tier: 'browser' });
+  /* 工作台左右两栏可拖：把手在本页 .layout（不是文档级选择器命中别的页）·
+    拖得动且跟手 · **拖动全程页面左右两端的空白不变**（两栏块不许按内容定宽）· 落盘 · 复位 · 切页不丢。 */
+  run('tests/e2e/wb-split.cjs', process.execPath, ['tests/e2e/wb-split.cjs'], { tier: 'browser' });
+  /* 文件类型筛选（图片 / 视频 / 音频）：收藏 / 工作台 / 资产库共用公共件 Wb.kindFilter
+     （分段 + 每档计数 · 点一下换档 · 空档不画）。用户点名：这几页该用工作台那一副。 */
+  run('tests/e2e/kind-filter.cjs', process.execPath, ['tests/e2e/kind-filter.cjs'], { tier: 'browser' });
   run('tests/e2e/favorites-pager.cjs', process.execPath, ['tests/e2e/favorites-pager.cjs'], { tier: 'browser' });
   /* 翻页行在四页都得**画出来**（用户报过「翻页组件不显示」：工作台那一处是宿主从未登记，
      整行从未填过）。这一条盯「宿主登记 + 行可见 + 上一/下一页在」；翻页之后的行为
      由 favorites-pager 那一条盯（它点「下一页」看缩略图换页）。 */
   run('tests/e2e/pager-row.cjs', process.execPath, ['tests/e2e/pager-row.cjs'], { tier: 'browser' });
   /* 滚动位：点一颗按钮不该把视口甩回最上面（用户报过「有的页面点击按钮等组件后视角会移动到页面最上方」）。
-     根因是「整片重画把滚动容器一起换掉了」—— 外壳那份保护（web/core/scroll-guard.js）罩住所有
-     innerHTML / outerHTML 的整片重画。这一条盯机制（造一只滚动容器重画它）与实景（导演台右栏）。 */
-  run('tests/e2e/scroll-guard.cjs', process.execPath, ['tests/e2e/scroll-guard.cjs'], { tier: 'browser' });
+     根因是「整片重画把滚动容器一起换掉了」—— 公共件 Wb.viewport.keep（web/ui/workbench.js）
+     在重画点按锚点把视口还回去；列表那一族由 Wb.cards.paint 统一调用。这一条盯对照（裸重画确实丢位）、
+     机制（套 keep 还原）与共享列表件（整箱重画不吃位）。⚠ 不碰导演台：那一页正在重构。 */
+  run('tests/e2e/viewport-keep.cjs', process.execPath, ['tests/e2e/viewport-keep.cjs'], { tier: 'browser' });
   /* 代理 stdout 断了不许自旋：启动器窗口一关，管道就断；写日志 → 抛 EPIPE → 被「未捕获异常」
      接住 → 又写日志 → 再抛一次，无限自旋（实测一个实例 1.6 小时烧掉 800 多秒 CPU，
      端口在听却不回话）。它起隔离实例，不开 Chrome。 */

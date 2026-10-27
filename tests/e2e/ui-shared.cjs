@@ -2,8 +2,9 @@
 /* 公共组件判据（用量页 / 导演台剪辑与右栏 / 生成工作台）：光有 class 不算数 —— 点开、切换之后都要还是那一份。
    用量页：账单筛选下拉由公共 Dropdowns 包住（原生 select 仍是数据源，点开浮层选一项要同步回
         select 的 value 与按钮上的字）；范围那一路是静态选项，不依赖任何已配置的供应商）。
-   导演台：本镜 / 全片与右栏四档都是公共 .ui-seg（选中态 .on 由一处翻，旧 .vc-tab 标记不再出现），
-        时间线缩放两颗也是公共图标。
+   导演台：右栏档位条是公共 .ui-seg（选中态 .on 由一处翻，旧 .vc-tab 标记不再出现），
+        时间线工具条那三颗缩放（缩小 / 自适应 / 放大）也是公共图标；整栏重画（点档位 / 缩一下）
+        之后这两条仍然成立。
    生成工作台：型号下拉与高级设置里每一颗下拉都在公共 .dd 里（原生 select 留在里面当数据源），
         公共那颗型号按钮没有被页面样式压成一个窄条；右栏「类型选择」那一排在「存回本机 / 多选 /
         批量下载」那一排**上面**。 */
@@ -75,7 +76,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(picked.closed, '选完之后浮层没有收起');
     await page.eval(() => window.Dropdowns && window.Dropdowns.closeAll && window.Dropdowns.closeAll());
 
-    /* ---------- 导演台：时间线范围 / 右栏五档 / 缩放图标 ---------- */
+    /* ---------- 导演台：右栏档位条 + 时间线缩放（公共件的两处落点） ---------- */
     await page.goto(proxy.base + '/shell.html?probe=1#director.html');
     await page.waitFor(() => !!(window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready()), 25000);
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
@@ -85,59 +86,58 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     });
     const seg = await readWhen(() => {
       const tabs = document.getElementById('vcTabs');
-      /* 轨道坞（#tlDock）的页签：元素自己就是公共 .ui-seg（不再嵌一层壳）。 */
-      const range = document.querySelector('#tlDock .tl-tabs.ui-seg');
-      if (!tabs || !range) return null;
+      const tools = document.getElementById('tlTools');
+      if (!tabs || !tools) return null;
       return {
         tabs: tabs.classList.contains('ui-seg'),
-        on: (tabs.querySelector('button.on') || {}).dataset ? tabs.querySelector('button.on').dataset.vctab : '',
+        /* .on 只有一颗，且可能是「这一段画面」那枚 span（指着画面段的时候）：
+           所以读的是档位条里带 .on 的**那一个**，不是「按钮里的那一个」。 */
+        on: [...tabs.querySelectorAll('.on')].map(e => e.dataset.vctab),
         legacy: document.querySelectorAll('.vc-tab').length,
-        rangeSeg: range.tagName.toLowerCase() + '.' + range.className.replace(/\s+/g, '.'),
-        rangeOn: (document.querySelector('.tl-tabs button[data-tab].on') || {}).dataset ?
-          document.querySelector('.tl-tabs button[data-tab].on').dataset.tab : '',
-        zoomSvg: document.querySelectorAll('#tlZoomOut svg, #tlZoomIn svg').length,
+        zoomSvg: tools.querySelectorAll('[data-tl="zoom-out"] svg, [data-tl="zoom-fit"] svg, [data-tl="zoom-in"] svg').length,
       };
     }, 15000);
-    must(seg.tabs, '右栏五档没有用公共 .ui-seg');
-    must(seg.on === 'list', '右栏默认应停在「这一镜上的配音」（.on）：' + seg.on);
+    must(seg.tabs, '右栏档位条没有用公共 .ui-seg');
+    must(seg.on.length === 1 && seg.on[0] === 'list', '右栏默认应停在「这一镜上的配音」（.on 只有一颗）：' + JSON.stringify(seg.on));
     must(seg.legacy === 0, '旧的自制 .vc-tab 标记还在 DOM 里：' + seg.legacy);
-    must(/ui-seg/.test(seg.rangeSeg), '本镜 / 全片没有用公共 .ui-seg：' + seg.rangeSeg);
-    must(seg.rangeOn === 'shot', '时间线默认应停在本镜：' + seg.rangeOn);
-    must(seg.zoomSvg === 2, '时间线缩放两颗要用公共图标：' + seg.zoomSvg);
+    must(seg.zoomSvg === 3, '时间线缩放那三颗要用公共图标：' + seg.zoomSvg);
 
-    /* 右栏切到「台词」再切到「字幕」：.on 只落在点中的那一颗，对应那一格真的露出来（其余几格收起） */
+    /* 右栏切到「台词」再切到「字幕」：.on 只落在点中的那一颗，对应那一格真的露出来（其余几格收起）。
+       顶上那一层写的是**此刻看着的这一镜**（镜头名），不是档位名 —— 档位的名字由它自己那颗按钮说，
+       两处都写同一个词就分出两个层级（见 `track.js` 的 paintTlGroups）。 */
     const lines = await readWhen(() => {
       document.querySelector('#vcTabs [data-vctab="lines"]').click();
       const g = document.getElementById('grpLines');
       if (!g || g.hidden) return null;
-      const on = [...document.querySelectorAll('#vcTabs button.on')].map(b => b.dataset.vctab);
+      const on = [...document.querySelectorAll('#vcTabs .on')].map(b => b.dataset.vctab);
       const other = ['grpPic', 'grpVoice', 'grpVoiceAdd', 'grpVoiceList', 'grpSub']
         .filter(id => { const e = document.getElementById(id); return e && !e.hidden; });
       return { tabs: on, other, title: (document.getElementById('edTitle') || {}).textContent };
     }, 15000);
     must(lines.tabs.length === 1 && lines.tabs[0] === 'lines', '右栏选中态应只有一颗且在「台词」：' + JSON.stringify(lines.tabs));
     must(!lines.other.length, '切到「台词」时别的那些格没收起：' + JSON.stringify(lines.other));
-    must(lines.title === '台词', '右栏标题应跟着换成「台词」：' + lines.title);
+    must(lines.title === '镜头 A', '右栏顶上该写此刻看着的这一镜（档位名由按钮说）：' + lines.title);
 
     const sub = await page.eval(() => {
       document.querySelector('#vcTabs [data-vctab="sub"]').click();
       const tabs = document.getElementById('vcTabs');
-      const on = [...tabs.querySelectorAll('button.on')].map(b => b.dataset.vctab);
+      const on = [...tabs.querySelectorAll('.on')].map(b => b.dataset.vctab);
       const g = document.getElementById('grpSub');
       return { tabs: on, grpVisible: !!g && !g.hidden };
     });
     must(sub.tabs.length === 1 && sub.tabs[0] === 'sub', '右栏选中态应只有一颗且在「字幕」：' + JSON.stringify(sub.tabs));
     must(sub.grpVisible, '切到「字幕」那一格没有露出来');
 
-    /* 时间线切到全片：renderMid 重画之后 .on 仍只有一颗，缩放图标还在 */
-    await page.eval(() => document.querySelector('.tl-tabs button[data-tab="film"]').click());
-    const film = await readWhen(() => {
-      const on = [...document.querySelectorAll('.tl-tabs button[data-tab].on')].map(b => b.dataset.tab);
+    /* 缩一下（走工具条那颗放大 → 整条重排）之后公共件不丢：档位条仍只有一颗 .on、三颗图标还在 */
+    await page.eval(() => document.querySelector('#tlTools [data-tl="zoom-in"]').click());
+    const zoomed = await readWhen(() => {
+      const on = [...document.querySelectorAll('#vcTabs .on')].map(b => b.dataset.vctab);
       if (!on.length) return null;
-      return { on, zoomSvg: document.querySelectorAll('#tlZoomOut svg, #tlZoomIn svg').length };
+      const tools = document.getElementById('tlTools');
+      return { on, zoomSvg: tools ? tools.querySelectorAll('[data-tl="zoom-out"] svg, [data-tl="zoom-fit"] svg, [data-tl="zoom-in"] svg').length : 0 };
     }, 12000);
-    must(film.on.length === 1 && film.on[0] === 'film', '切到全片后选中态不对：' + JSON.stringify(film.on));
-    must(film.zoomSvg === 2, '重画之后缩放图标丢了：' + film.zoomSvg);
+    must(zoomed.on.length === 1 && zoomed.on[0] === 'sub', '缩放重排之后右栏选中态不对：' + JSON.stringify(zoomed.on));
+    must(zoomed.zoomSvg === 3, '重排之后缩放图标丢了：' + zoomed.zoomSvg);
 
     /* ---------- 生成工作台：型号下拉 / 高级设置走公共下拉件，右栏次序 ---------- */
     /* 这一页以前栽在同一个坑上：页面自己的样式还在给**原生** select 写尺寸与外观，

@@ -267,8 +267,9 @@ function wav(seconds = 0.2) {
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.goto(proxy.base + '/shell.html#settings.html');
-    await page.waitFor(() => !!(document.querySelector('#provTabs button[data-tab="asr"]') && document.querySelector('#provTabs button[data-tab="search"]')), 15000);
-    await page.eval(() => document.querySelector('#provTabs button[data-tab="asr"]').click());
+    /* 语音识别 / 联网搜索这两份表单没有「切到那一档」的开关了：它们住在账号卡流里
+       （有哪家顶着这一档就搬进那张卡，否则通栏摆在网格下面），一份都在 DOM 里、看得见。 */
+    await page.waitFor(() => !!document.querySelector('#asrCard'), 15000);
     await page.waitFor(() => {
       const c = document.querySelector('#asrCard');
       return !!(c && c.offsetParent !== null);
@@ -321,7 +322,6 @@ function wav(seconds = 0.2) {
     if (trav2.status !== 400) throw new Error('编码点号段要按 400 拒，实际 ' + trav2.status);
     const mpost = await call('/models/org/name/f.bin', { method: 'POST' });
     if (mpost.status !== 405) throw new Error('/models 文件档只收 GET，实际 ' + mpost.status);
-    await page.eval(() => document.querySelector('#provTabs button[data-tab="search"]').click());
     await page.waitFor(() => {
       const c = document.querySelector('#searchCard');
       return !!(c && c.offsetParent !== null);

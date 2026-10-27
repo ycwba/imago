@@ -22,20 +22,21 @@ import { ensureCss } from '../core/page-css.js';
    与 spa-chars / spa-studio / spa-assets 同一套：已经由别处引过时不再插第二张。 */
 ensureCss('web/styles/spa-settings.css', 'spa-settings');
 
-const CUS_KINDS = [['image', '图片'], ['video', '视频'], ['audio', '语音'], ['text', '文字']];
-/* 供应商卡的分档：前四档是「一类平台」（图片 / 视频 / 语音 / 文字），
-   后两档是**同一层级的另一种接法** —— 语音识别与联网搜索。它们不是一类平台，
-   所以不按「家」计数，但和四类平台排在同一排档位上（产品文案就是这么写的：
-   「最后两档不是供应商：语音识别与联网搜索和它们同一层级，各自一份设置」）。 */
-const VIRTUAL_TABS = [['asr', '语音识别'], ['search', '联网搜索']];
-const isVirtualTab = k => VIRTUAL_TABS.some(t => t[0] === k);
-const CUS_CUSTOM = '__custom__';           // 「供应商」下拉里那一项「自定义」的值
-const KIND_MNEW = {
-  text: '自己填一个型号，例如 openai/gpt-4o-mini、glm-4-flash',
-  image: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
-  video: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
-  audio: '自己填一个型号 id（它没有列型号的接口时只能这样加）',
-};
+/* ---------- 六档能力（一张账号卡里「这一家会做什么」的那一排） ----------
+   前四档是「一类平台」（图片 / 视频 / 语音合成 / 文字对话），名字、顺序与取值都现读
+   ui.js 的 provKinds() / provKindZh()（AGENTS §5.2 那份唯一清单）—— 这里不抄第二份名单。
+   后两档（语音识别 / 联网搜索）与四类平台**同一层级**，但不是「一类平台」：它们是另外两种接法，
+   住在「有文字对话档」的那几家卡里（谁能当在线识别 / 搜索的渠道，就是那几家文字账号 ——
+   与 serviceProvOpts() 的判据同一份）。 */
+const EXTRA_CAPS = [['asr', '语音识别'], ['search', '联网搜索']];
+/* 卡顶那一格里的一个字：图 / 视 / 音 / 字 / 识 / 搜（图例那一行就是用来教这一次的）。 */
+const CAP_GLYPH = { image: '图', video: '视', audio: '音', text: '字', asr: '识', search: '搜' };
+const capZh = id => (EXTRA_CAPS.find(kv => kv[0] === id) || [])[1]
+  || (window.provKindZh ? window.provKindZh(id) : String(id || ''));
+const capGlyph = id => CAP_GLYPH[id] || '·';
+/* 单选档 = 同一时刻只有一家顶着（点状态牌就是换一家上位）；
+   多选档 = 几家可以同时开着（点状态牌是在用 / 停用）。 */
+const SOLO_CAP = new Set(['text', 'asr', 'search']);
 
 /* ---------- 声明式清单（分组 + 「一处声明」） ----------
    五组导航：id、顺序、显示名**只写在模板那一节 DOM 上**（`<section data-group>` 里的
@@ -58,28 +59,27 @@ const SET_ROWS = [
   /* 产物存放：三行（自动存档位 + 左栏两块开关）。库根位置不在这里 —— 那是代理读的配置，
      由「本机资产库」那一卡直接写 `sk_local_dir`。 */
   { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '自动存本机要存哪一档', def: 'all', keep: 1,
-    opts: [['all', '连历史产物一起补齐（推荐默认）'], ['new', '只存开启之后新生成的']], hintDyn: 'saveScope' },
+    opts: [['all', '连历史一起补齐（推荐）'], ['new', '只存新生成的']], hintDyn: 'saveScope' },
   { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
-  { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物（正在存几份 / 已存多少）', on: '1', off: '0', def: true, keep: 1 },
+  { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物', on: '1', off: '0', def: true, keep: 1 },
   /* AI 助手：四颗开关（after: 'notice' 在通知那一行追加「现在授权」与授权状态说明） */
-  { card: 'assistant', kind: 'check', key: 'ai_chat_off', label: '启用 AI 助手（默认开；关掉后右下角不再有悬浮球，Ctrl + / 也不生效）', on: null, off: '1', def: true, keep: 1 },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不用我点确认（卡片照画，动作自动提交）', on: '1', off: null, def: false },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到窗口边上时吸住（默认开）', on: null, off: '0', def: true },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '助手提交的任务出结果时弹一次系统通知', on: '1', off: null, def: false, after: 'notice' },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_off', label: '启用 AI 助手', on: null, off: '1', def: true, keep: 1 },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不确认', on: '1', off: null, def: false },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到边上时吸住', on: null, off: '0', def: true },
+  { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '任务出结果时系统通知', on: '1', off: null, def: false, after: 'notice' },
   /* 引用发给助手时带哪些字段（默认全带）。
      ⚠ 它只裁**给助手看的那份清单**（refBlock）—— 工具侧（asset_open 按序号取）读的是这一轮
         真正发出去的那份完整记录，所以裁了清单，助手照样能按序号把字节取回来。
         你拖进来的东西、输入框里的高亮、消息下方那排记录，一样都不受影响。 */
   { card: 'assistant', kind: 'sel', key: 'ai_chat_ref_send', label: '引用发给助手时带哪些', def: 'all',
-    opts: [['all', '全带：名字 · 类型 · 资产号 · 地址 · 任务号（推荐默认）'],
-           ['image', '只带地址（能取到字节的那一条）'],
+    opts: [['all', '全带（推荐）'],
+           ['image', '只带地址'],
            ['task', '只带任务号'],
            ['asset', '只带资产号'],
-           ['name', '只带名字与类型（最小）']],
-    hint: '只裁给助手看的那份清单；助手要真看某一条，按序号取就行（序号一直对得上）。' },
+           ['name', '只带名字与类型']] },
   /* 润色行为（导演台的拆分镜 / 改分镜反问也读这一档） */
   { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
-    opts: [['ai', '交给 AI 判断（推荐）：它读完觉得缺什么才问'], ['on', '强制先问'], ['off', '从不问，直接开始']],
+    opts: [['ai', 'AI 判断（推荐）'], ['on', '强制先问'], ['off', '从不问']],
     hint: '管两处：各工作台的「AI 润色」与导演台的「拆分镜 / 改分镜」。问出来的答案会当作硬约束落实进结果。' },
 ];
 
@@ -91,15 +91,20 @@ const SettingsView = {
     const setRailEl = ref(null);   /* 左：目录轨的清单（JS 现画） */
     const setDocEl = ref(null);    /* 右：那条文档 —— 这一页的滚动容器 */
     const setQEl = ref(null);
-    const provTabsEl = ref(null);
+    const capLegendEl = ref(null);
+    const acctToolsEl = ref(null);
     const provListEl = ref(null);
+    const provErrEl = ref(null);
+    const acctParkEl = ref(null);
+    const asrFormEl = ref(null);
+    const searchFormEl = ref(null);
     const cusCardEl = ref(null);
     const cusNameEl = ref(null);
     const cusBaseEl = ref(null);
     const cusKeyEl = ref(null);
     const cusExtraEl = ref(null);
-    const cusProvEl = ref(null);
     const cusShapeEl = ref(null);
+    const cusCapEl = ref(null);
     const pageBoxEl = ref(null);
     const uiPrefsBoxEl = ref(null);
     const storePrefsBoxEl = ref(null);
@@ -146,36 +151,31 @@ const SettingsView = {
     const navSumErr = ref(false);
     const navSumShort = ref('');   /* 轨底那一行短摘要（5 组 · 15 栏） */
     const navPos = ref('');        /* 状态行左边：现在在第几项 */
-    /* 供应商卡 */
-    const provSumText = ref('');
-    const provSumErr = ref(false);
 
-    /* ---------- 供应商：类型档 / 草稿 / 归并 ---------- */
-    let provTab = window.LS.get('sk_prov_tab');
-    if (!window.provKinds || (!isVirtualTab(provTab) && window.provKinds().indexOf(provTab) < 0)) provTab = 'image';
-    /* 模板里的 v-show 认这个镜像：provTab 是命令式重画用的局部量，两个入口都走 setProvTab。 */
-    const provTabView = ref(provTab);
-    function setProvTab(k) {
-      provTab = k;
-      provTabView.value = k;
-      window.LS.set('sk_prov_tab', k);
-    }
-    const provSel = new Map();          // kind → 这一类里最后看过的 keyId（只用于默认展开哪张卡）
+    /* ---------- 供应商：账号卡 / 筛选 / 草稿 ----------
+       「按类型分档、一屏只看那一类」那一排分段开关已经撤掉：一家账号一张卡，
+       卡里列着它能开通的每一档，所以「当前哪一档」这个状态本身就没有了 ——
+       它的旧键 sk_prov_tab 连带导出名单一起删（不留「读旧键」的兼容层，ui.js 的 LEGACY_KEYS 负责清盘）。 */
+    const acctFilter = ref('all');    /* 筛选芯片：'all' 或某一档 id（数字算的是**账号数**） */
+    const keyOpen = new Set();        /* 名字右边那颗「密钥」点开了哪几家（本轮会话，不落盘） */
+    const panelOpen = new Set();      /* 展开着型号清单面板的那几个槽位（keyId:档，一档一个槽） */
+    const pendingAdds = new Set();    /* 刚在「添加供应商」里点了添加、还没填密钥的那几家 keyId */
     /* 「作用文字 AI」点过、还没落盘的那一个。为什么需要它：换一家会整块重画（识图那一段只画在
-       当前那一家的卡上），而重画会先把旧卡片整个换掉 —— 那时 DOM 里已经没有那个刚点中的单选框，
+       当前那一家的卡上），而重画会先把旧卡片整个换掉 —— 那时 DOM 里已经没有刚点中的那一块，
        `curTextId()` 只能回落到盘上的旧值，点一下看起来像「弹回去了」。记一份草稿（与密钥 / 型号
        同一套「改完先留在内存、由自动保存统一落盘」的写法），重画时按它选回去；落盘后清掉。 */
     let textPickDraft = '';
     const keyDraft = new Map();         // keyId → 还没落盘的密钥
-    const baseDraft = new Map();        // keyId → 还没落盘的接口地址
     const keyCleared = new Set();       // 点了「清除」、还没落盘的 keyId
-    const provRows = new Map();         // keyId → 归并后的那一条（验证 / 地址归属要用）
-    let provSumPainter = null;
+    const acctOffSet = new Map();       // keyId → 点了「暂时不用 / 取消」、还没落盘
+    const provRows = new Map();         // keyId → 归并后的那一条（验证要用它认出这一家）
+    let acctSumPainter = null;
 
     const keyFor = id => window.LS.get('sk_key_' + id) || '';
     const draftKey = kid => (keyCleared.has(kid) ? ''
       : (keyDraft.has(kid) ? keyDraft.get(kid) : keyFor(kid)));
-    const draftBase = kid => (baseDraft.has(kid) ? baseDraft.get(kid) : (window.LS.get('sk_base_' + kid) || ''));
+    /* 接口地址：卡上不再单独改（预设那几家一律走官方地址），只有自定义那几家在添加 / 编辑那一格改，
+       那一份写在 sk_custom 的条目里 —— 所以这一页没有「地址草稿」这一层。 */
 
     function setREG(d) {
       REG = d && d.providers ? d : { providers: [] };
@@ -185,42 +185,143 @@ const SettingsView = {
     function curTextId() {
       const list = window.TextAI ? TextAI.all(REG) : [];
       if (!list.length) return '';
-      const picked = q('[data-tpick]:checked');
-      if (picked && picked.dataset.tpick) return picked.dataset.tpick;
       if (textPickDraft) return textPickDraft;
       const saved = TextAI.savedProv(REG);
       return saved ? saved.id : ((TextAI.prov(REG) || list[0]).id);
     }
+    /* 「顶着这一档的那一家」的 keyId：单选档（文字对话 / 语音识别 / 联网搜索）靠它判主位。
+       语音识别与联网搜索的真相在服务端那两份设置里（.data/asr.json / .data/search.json），
+       与卡上那些 localStorage 键各管各的 —— 这里只**读**，改它们仍走各自的表单。 */
+    const kidOfProv = id => {
+      const p = (REG.providers || []).find(x => x.id === id);
+      return p ? String(p.keyId || p.id) : '';
+    };
+    function priKidOf(cap) {
+      if (cap === 'text') return kidOfProv(curTextId());
+      if (cap === 'asr') {
+        /* 只有真的会走到在线那一路才算「有哪家顶着」：route = 只走浏览器内 / 只走本机时
+           providerId 是备着用的，说它是主位就是假话。 */
+        const route = asr.route;
+        if (route !== 'service' && !(route === 'auto' && asr.service.providerId)) return '';
+        return kidOfProv(asr.service.providerId);
+      }
+      if (cap === 'search') {
+        if (!search.enabled || search.provider !== 'deepseek' || search.credentialSource !== 'channel') return '';
+        return kidOfProv(search.channelId);
+      }
+      return '';
+    }
 
-    /* 按「存密钥的那一格」（keyId）归并：一家平台同时服务图片与视频时共用一把 sk_key_<keyId>，
-       界面上也就只该有一条 —— 同一次保存里两个框抢同一把钥匙，后写的会把前一个盖掉。
-       合并卡上的一切（接口地址能不能改 / 验证打哪家的端点）都取**当前这一档**的那一位：
-       以前 prov 取「注册表顺序第一家」，硅基流动与 MiniMax 的图 / 视频 / 语音档会画出
-       文字档才有 baseEditable 的「接口地址」输入框 —— 填了、存了、说「已保存」，
-       而这一档的 provider 根本不收地址，实际一点用没有。 */
+    /* ---------- 手动加一档能力（这一家其实还做某一档，只是注册表没写） ----------
+       注册表里「这家会哪几档」是**声明出来的**（provider 的 kind；语音识别 / 联网搜索两档跟着
+       文字档一起来，见 provGroups 里那段说明）—— 平台后来支持了新的一档、或者这一家其实是中转站
+       而上游还有别的档时，界面上原来没有地方表达，只能改 proxy.js 的 REGISTRY 再重启代理。
+       这里补一份**本机声明**：
+         sk_caps_<keyId> = ["video","asr"]（与「自己填的型号」「暂时不用」同属「这一家的事」）
+       它只声明「这一档在界面里存在」，型号也由你自己填（sk_model_prefs 那份清单本来就按账号存）。
+       ⚠ **真能生成**还要注册表那边有一条端点声明 —— 生成三档（图片 / 视频 / 语音合成）手动加进来时，
+       那一行必须把这句话写在脸上（见 capRowHTML 的 manual-note），不能让人以为加完就能出图。
+       语音识别 / 联网搜索两档不一样：它们走的是这名账号自己的 base + 密钥 + 一个 OpenAI 兼容端点，
+       手动声明之后确实能用（渠道就是这一家）。
+       **不提供手动加「文字对话」**：那一档必须是注册表里 `kind: 'text'` 的那一条（TextAI 按 kind 筛，
+       不是按 keyId 认），加在别家身上点了也不会生效 —— 要另接一家文字供应商走「添加供应商」里的自定义。 */
+    const MANUAL_OK = ['image', 'video', 'audio', 'asr', 'search'];
+    const manualCapsOf = kid => {
+      try {
+        const arr = JSON.parse(window.LS.get('sk_caps_' + kid) || '[]');
+        return Array.isArray(arr) ? arr.filter(c => typeof c === 'string' && MANUAL_OK.indexOf(c) >= 0) : [];
+      } catch { return []; }
+    };
+    function setManualCaps(kid, arr) {
+      const uniq = [...new Set(arr.filter(Boolean))];
+      if (uniq.length) window.LS.set('sk_caps_' + kid, JSON.stringify(uniq));
+      else window.LS.del('sk_caps_' + kid);
+      markChanged();
+    }
+
+    /* 按「存密钥的那一格」（keyId）归并：一家平台同时服务几种模态时共用一把 sk_key_<keyId>，
+       界面上也就只该有一张卡、一把密钥 —— 以前一张卡只画「当前那一档」，同一家的第二张卡在另一档里，
+       卡底还要补一句「同一把密钥也用于：…」，那是把注册表的拆法直接摊给用户看。
+       归并结果改成**账号 + 能力清单**：caps 是这家能开通的每一档，capProv 按档取回那一档自己的
+       provider 声明（型号清单、端点、能力都按档各说各的，不能混着用）。 */
     function provGroups() {
       const merged = new Map();
       (REG.providers || []).forEach(p => {
         const keyId = p.keyId || p.id;
         let m = merged.get(keyId);
         if (!m) {
-          m = { keyId, names: [], kindIds: [], credits: null, site: '', base: p.base || '', prov: p,
-            custom: !!p.custom, shapeName: p.customShapeName || '' };
+          m = { keyId, names: [], byKind: new Map(), caps: [], credits: null, site: '',
+            base: p.base || '', prov: p, custom: !!p.custom, shapeName: p.customShapeName || '' };
           merged.set(keyId, m);
         }
         m.names.push(p.name);
         if (!m.site && p.site) m.site = p.site;
-        m.kindIds.push(p.kind);
+        if (!m.base && p.base) m.base = p.base;
+        if (!m.byKind.has(p.kind)) m.byKind.set(p.kind, p);
         if (p.endpoints && p.endpoints.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
-        if (p.kind === provTab) { m.prov = p; m.base = p.base || ''; }
       });
       const all = [...merged.values()];
       all.forEach(m => {
         m.name = (m.names[0] || '').split(' ')[0];
-        m.kindSet = [...new Set(m.kindIds)];
-        m.kindLabel = m.kindSet.map(k => window.provKindZh(k)).join('+');
+        /* 档的顺序跟着 ui.js 那份 provKinds()（全站唯一），自定义那几家声明了第五种也不会漏画。 */
+        const kinds = window.provKinds().filter(k => m.byKind.has(k));
+        const extra = [...m.byKind.keys()].filter(k => kinds.indexOf(k) < 0);
+        const plat = kinds.concat(extra);
+        /* 语音识别 / 联网搜索不是「有文字档就等于会」：前者要一堆 OpenAI 兼容的
+           /audio/transcriptions，后者要一个真能给出网址的对话模型 —— 两样都由 provider
+           自己声明 `extraCaps`。没声明的家不画这两档（画上去再点，用户只会得到一次对不上的失败）。 */
+        /* 语音识别 / 联网搜索与图片、视频**同一套显示规则**：这家有这一档就画这一行。
+           「有没有」的判据是**这家能当文字 AI**（两档走的都是它的 base + 密钥 + 一个
+           OpenAI 兼容端点 / 一个能联网的对话模型）—— 以前还要注册表再声明一道 `extraCaps`，
+           于是同一件「有文字档」的事实被拆成三种表现：有文字档的家只画「字」，
+           声明过的那几处才有「识 / 搜」，用户在一张卡上根本看不出这家人到底能干什么。
+           `extraCaps` 现在只当**旁注**：声明过的说明上游确实提供那个端点，没声明的在行里说一句。 */
+        const hasText = m.byKind.has('text');
+        const extras = new Set();
+        [...m.byKind.values()].forEach(p => (p.extraCaps || []).forEach(c => extras.add(c)));
+        const chatCaps = hasText ? EXTRA_CAPS.map(kv => kv[0]) : [];
+        const declared = plat.concat(chatCaps);
+        m.declaredExtra = extras;
+        /* 本机手动声明的那几档排在有声明的那几档后面（它们不在注册表里，是这家「其实还做」的） */
+        const manual = manualCapsOf(m.keyId)
+          .filter(c => allCaps().indexOf(c) >= 0 && declared.indexOf(c) < 0);
+        m.manualCaps = new Set(manual);
+        m.caps = declared.concat(manual);
+        m.kindLabel = m.caps.map(capZh).join('+');
+        m.prov = capProv(m, m.caps[0]) || m.prov;
       });
       return all;
+    }
+    /* 这一档在这家对应的 provider 声明（型号清单 / 端点都按它算）。
+       语音识别 / 联网搜索两档没有自己的 kind：它们是**文字那家**的两种用途，
+       所以取这一家的文字那一条（以前按 `extraCaps` 声明找，于是「能当文字 AI」还不够，
+       还得注册表再点一次头；现在与图片/视频一样：有这一档就画）。
+       手动声明的那一档（m.manualCaps）在注册表里没有对应条目 —— 借这一家自己的身份
+       （id / keyId / relay / base / keyEnv）合成一条**只用于界面**的声明：endpoints 空着，
+       于是型号面板不会画「取一次」（真的没有那个接口），只剩「自己填」。 */
+    function capProv(m, cap) {
+      if (cap === 'asr' || cap === 'search') {
+        const hit = m.byKind.get('text');
+        if (hit) return hit;
+      } else {
+        const hit = m.byKind.get(cap);
+        if (hit) return hit;
+      }
+      if (m.manualCaps && m.manualCaps.has(cap)) {
+        const base = m.prov || {};
+        return { id: base.id || m.keyId, kind: cap, keyId: m.keyId, relay: base.relay,
+          name: base.name, base: base.base || m.base, keyEnv: base.keyEnv,
+          endpoints: {}, extraCaps: [], manual: true };
+      }
+      return null;
+    }
+    /* 「验证 / 取型号」该打哪一家的端点：优先有余额接口的，其次有型号接口的，最后回到文字档
+       （文字那一家走 TextAI.verifyKey，注册表本来就没给它声明余额 / 型号端点）。 */
+    function verifyProv(m) {
+      const list = window.provKinds().map(k => m.byKind.get(k)).filter(Boolean);
+      return list.find(p => p.endpoints && p.endpoints.credits)
+        || list.find(p => p.endpoints && p.endpoints.models)
+        || m.byKind.get('text') || list[0] || m.prov;
     }
     function keyState(m) {
       if (draftKey(m.keyId)) return '已填密钥';
@@ -231,330 +332,793 @@ const SettingsView = {
       return (window.Api && Api.provUsable) ? Api.provUsable({ keyId: m.keyId, id: m.prov.id, custom: m.custom }, envInfo)
         : (!!m.custom || keyState(m) !== '还没填密钥');
     }
-    /* 这一把密钥**现在是从哪来的** —— 写在卡上（三种来源：设置页 / .env / 刚清除还没落盘）。 */
-    function keySourceNote(kid) {
+    /* 这一家被「暂时不用」停掉了没有：sk_off_ 按 keyId 存，所以一停就是这一家**所有**档一起停。
+       acctOffSet 是「点了但还没落盘」那一档 —— 状态行那一句自动存本机是防抖之后才写的，
+       不先读它，重画的一刻会按盘上的旧值把卡片弹回原样（点一下没反应）。 */
+    const acctOff = m => acctOffSet.has(m.keyId)
+      ? acctOffSet.get(m.keyId)
+      : (window.Api ? Api.isOff(m.prov) : false);
+    /* 一张卡里某一档此刻的状态牌：
+       · 多选档（图片 / 视频 / 语音合成）没有「主位」，只有 在用 / 停用；
+       · 单选档（文字对话 / 语音识别 / 联网搜索）多两态 —— 顶着的那家 = 主位，
+         能顶但没顶着 = 备用。点状态牌做什么，见 capPlateClick。 */
+    function capState(m, cap) {
+      if (!provUsable(m) || acctOff(m)) return 'off';
+      if (SOLO_CAP.has(cap)) return priKidOf(cap) === m.keyId ? 'pri' : 'alt';
+      return 'on';
+    }
+    const CAP_STATE_ZH = { pri: '主位', on: '在用', alt: '备用', off: '停用' };
+    /* 这一把密钥**现在是从哪来的** —— 写在卡上（三种来源：设置页 / .env / 刚清除还没落盘）。
+       卡只有 300px 宽（三列），所以这里给两句：`short` 是行内那一句（一行放得下），
+       `tip` 是完整解释（挂 title，含「点清除才会真的没有」这种长话）。两句话从同一处出，不会漂开。 */
+    function keySourceOf(kid) {
       if (keyCleared.has(kid) && window.LS.get('sk_key_' + kid)) {
-        return '密钥来源：刚刚点了「清除」，这一项正在自动存进本机 —— 存好之前磁盘上那把还在，'
-          + '别的地方现在用的仍是它。（顶栏一直写着「没存进本机」时，说明这一趟没成。）';
+        return {
+          short: '正在存进本机…',
+          tip: '存好之前旧密钥还在用。',
+        };
       }
       const local = !!draftKey(kid);
       const env = !!(envInfo[kid] && envInfo[kid].hasEnv);
-      if (local && env) return '密钥来源：设置页里存着一把（与 .env 无关；留空即改回用 .env 那把）';
-      if (local) return '密钥来源：<b>设置页里存着的</b>（存在 <code>.data/sk_key_' + window.esc(kid) + '.json</code>，与 .env 无关）—— 点「清除」才会真的没有';
-      if (env) return '密钥来源：服务端环境密钥（.env 或系统环境变量）';
-      return '密钥来源：还没有（在上面填一把，或在 <code>.env</code> 里配同名变量）';
+      if (local && env) return {
+        short: '设置页存着一把',
+        tip: '留空 = 改回 .env。',
+      };
+      if (local) return {
+        short: '设置页里存着的（sk_key_' + kid + '）',
+        tip: '点「清除」才会真的没有。',
+      };
+      if (env) return { short: '服务端环境密钥（.env）', tip: '密钥来源：服务端环境密钥（.env 或系统环境变量）' };
+      return { short: '还没有密钥', tip: '密钥来源：还没有（在上面填一把，或在 .env 里配同名变量）' };
     }
+    const keySourceNote = kid => keySourceOf(kid).short;
     function refreshProvNotes() {
       qa('[data-ksrc]').forEach(sp => {
         const kid = sp.dataset.ksrc;
-        if (kid) sp.innerHTML = keySourceNote(kid);
+        if (!kid) return;
+        const s = keySourceOf(kid);
+        sp.textContent = s.short;          /* 纯文本：这一句里不再带 <b>/<code>，所以不走 innerHTML */
+        sp.title = s.tip;
       });
-      if (provSumPainter) provSumPainter();
+      if (acctSumPainter) acctSumPainter();
     }
 
-    /* 「型号清单」这一段：四类供应方都画，长在**自己那张供应商卡**里，默认折叠。
-       只画骨架：认家、取型号列表、画每一行都在 textForm 里（paint 时填）。 */
-    function modelsBlock(m) {
-      const kid = window.esc(m.keyId);
-      const text = provTab === 'text';
-      const p = m.prov || {};
-      const canFetch = text || !!(p.endpoints && p.endpoints.models);
-      const head = text
-        ? '<div class="krow thin"><span class="kn">型号</span>'
-          + '<select data-tmodel="' + kid + '"></select>'
-          + '<span class="acts"><button class="ghost xs" data-ttest="' + kid + '"'
-          + ' title="给这一家发一条测试消息（用左边下拉里当前这个型号）">测试</button></span></div>'
-        : '';
-      return '<div class="tai mblk foldable" data-mblk="' + kid + '" data-fold-key="set_fold_models_' + kid + '" data-fold-once>'
-        + head
-        + '<div class="mb-head">'
-        + '<button class="tool fold-toggle" type="button" aria-expanded="false"'
-        + ' title="展开可以自己填型号、从接口取一次清单，并逐个决定哪一个出现在工作台下拉里">'
-        + '型号清单<span class="fold-txt">展开</span></button>'
-        + '<span class="hint sm" data-mcount="' + kid + '"></span>'
-        + '</div>'
-        + '<div class="fold-body">'
-        + '<div class="krow tight">'
-        + '<input data-tmnew="' + kid + '" placeholder="' + window.esc(KIND_MNEW[provTab] || KIND_MNEW.text) + '">'
-        + '<button class="ghost wide" data-tadd="' + kid + '">添加型号</button>'
-        + (canFetch ? '<button class="ghost xs" data-tfetch="' + kid + '"'
-          + ' title="用这一栏里现在的密钥与接口地址问一次它的型号清单（不花钱、不建任务）">获取型号列表</button>' : '')
-        + '</div>'
-        + '<div class="mlist" data-tchips="' + kid + '"></div>'
-        + '</div>'
-        + '</div>';
+    /* ---------- 型号面板的槽位 ----------
+       一格面板 = 「keyId:档」。同一把密钥下每一档各有自己的接口声明（型号清单、端点按档各说各的），
+       所以「展开的是哪一格」「刚从哪一家的接口取回的那一份」都按槽存 —— 以前只有一个 keyId，
+       一家同时做图片与视频时两档抢同一格（取回的清单串档）。
+       ⚠ 但「自己填的 id」与「藏起来的那几个」记在**账号**上（sk_model_prefs 按 keyId 存）：
+       这是存储层的事实，界面不装作按档各存一份，面板里那一行 hint 照实说出来。 */
+    const slotKey = (kid, cap) => String(kid) + ':' + String(cap);
+    const slotKid = s => String(s || '').slice(0, Math.max(0, String(s || '').lastIndexOf(':')));
+    const slotCap = s => String(s || '').slice(String(s || '').lastIndexOf(':') + 1);
+    const slotOfProv = p => (p ? slotKey(p.keyId || p.id, p.kind) : '');
+    function provBySlot(slot) {
+      const m = provRows.get(slotKid(slot));
+      return m ? capProv(m, slotCap(slot)) : null;
     }
-    function visionBlock(m) {
-      const kid = window.esc(m.keyId);
-      return '<div class="tai-h">' + ic('eye', 13) + '识图能力'
-        + '<span class="hint sm">润色时要不要把参考图一起发给它（这一项对所有文字供应商生效）</span></div>'
-        + '<div class="krow"><span class="kn">参考图</span>'
-        + '<select data-tvision="' + kid + '">'
-        + '<option value="auto" title="按接口返回与平台声明自动判断">自动</option>'
-        + '<option value="on" title="强制把图片一起发给它">支持识图</option>'
-        + '<option value="off" title="强制只发文字">不支持</option>'
-        + '</select></div>'
-        + '<div class="pb-tip" data-vtip="' + kid + '"></div>';
+    const fetchNote = new Map();       // slot → {state:'busy'|'done'|'err', n, ms, why}
+    const allCaps = () => (window.provKinds ? window.provKinds() : [])
+      .concat(EXTRA_CAPS.map(kv => kv[0]));
+    /* 状态牌的四态在卡顶能力条与每一档行上是同一枚东西：实心 = 主位、淡底 = 在用、
+       白底 = 备用、压暗 = 停用 / 还没接上。点它做什么必须写在 title 里（两档的语义不一样）。 */
+    function plateTitle(m, cap, st) {
+      if (st === 'off') {
+        if (acctOff(m)) return '这一家勾了「暂时不用」—— 点一下取消（按账号存：它名下 ' + m.kindLabel + ' 一起恢复）';
+        return '这一档还没接上：点名字右边那颗「密钥」填一把才算接上';
+      }
+      if (!SOLO_CAP.has(cap)) {
+        return '这一档在用 · 点一下把这一家「暂时不用」（按账号存，它名下 ' + m.kindLabel + ' 一起停）';
+      }
+      return st === 'pri'
+        ? '这一档现在走这家'
+        : '点一下让这一档走这家';
     }
-
-    function setMsg(kid, text, cls) {
-      const el = q('[data-msg="' + kid + '"]');
-      if (!el) return;
-      el.className = cls; el.textContent = text;
-    }
-
-    function renderProv() {
-      if (!provTabsEl.value || !provListEl.value) return;
-      const all = provGroups();
-      const listed = k => all.filter(m => m.kindSet.includes(k) && provUsable(m)).length;
-      /* ① 类型分段：按钮后面那个数字 = 这一类现在列着几家（= 在用的几家）。
-         语音识别 / 联网搜索排在最后两档：它们与四类平台同一层级，但不按「家」计数。 */
-      const tabs = provTabsEl.value;
-      tabs.innerHTML = window.provKinds().map(k => '<button data-tab="' + k + '"' + (k === provTab ? ' class="on"' : '') + '>'
-        + window.esc(window.provKindZh(k)) + '<b class="seg-n">' + listed(k) + '</b></button>').join('')
-        + VIRTUAL_TABS.map(([k, zh]) => '<button data-tab="' + k + '"' + (k === provTab ? ' class="on"' : '') + '>'
-          + window.esc(zh) + '</button>').join('');
-      tabs.querySelectorAll('[data-tab]').forEach(b => {
-        b.onclick = () => {
-          if (b.dataset.tab === provTab) return;
-          setProvTab(b.dataset.tab);
-          renderProv();
-          /* 切档不换轨上亮的那一行 —— 亮的是「供应商与密钥」这一张卡，不是卡里的某一档。 */
-          if (!isVirtualTab(provTab)) cusKindChanged();
-        };
-      });
-      /* 这两个是表单，不是供应商清单：清掉上面那一批卡，留着分段按钮。 */
-      if (isVirtualTab(provTab)) {
-        provRows.clear();
-        provSumErr.value = false;
-        provSumText.value = '';
-        provSumPainter = () => {};
-        provListEl.value.innerHTML = '';
+    function capPlateClick(m, cap) {
+      const st = capState(m, cap);
+      if (acctOff(m)) {
+        acctOffSet.set(m.keyId, false);
+        markChanged();
+        renderProv();
+        Toast.receipt('「' + m.name + '」已重新启用', 'ok');
         return;
       }
-      /* ② 只列「已经在用的」那几家（自己加的 / 密钥有着落的）。 */
-      const gs = all.filter(m => m.kindSet.includes(provTab) && provUsable(m));
-      const avail = all.filter(m => m.kindSet.includes(provTab));
-      provRows.clear();
-      gs.forEach(m => provRows.set(m.keyId, m));
-      const paintSum = () => {
-        if (window.Api && Api.regFailed && Api.regFailed()) {
-          provSumText.value = '读不到注册表 —— 本地代理没连上或还没启动'
-            + (Api.regError ? '（原因：' + Api.regError() + '）' : '')
-            + '。先把 proxy.js 启动起来（启动.bat 选 1，或 node proxy.js）再刷新这一页；'
-            + '在它起来之前，下面这些「配没配密钥 / 能出几张 / 这个型号支持什么」都是错的。';
-          provSumErr.value = true;
-          return;
-        }
-        provSumErr.value = false;
-        const g2 = all.filter(m => m.kindSet.includes(provTab) && provUsable(m));
-        const noKey = g2.filter(m => keyState(m) === '还没填密钥').length;
-        provSumText.value = g2.length
-          ? window.provKindZh(provTab) + '类：已接 ' + g2.length + ' 家 · 注册表里共 ' + avail.length + ' 家可选'
-            + (noKey ? ' · 有 ' + noKey + ' 家还没填密钥' : ' · 密钥都配好了')
-          : window.provKindZh(provTab) + '类还没有在用的平台 —— 注册表里共 ' + avail.length
-            + ' 家可选，点右边的「＋ 添加自定义供应商」把要用的接进来（选它、填上密钥，地址会自动填好官网的）';
-      };
-      provSumPainter = paintSum;
-      paintSum();
-      /* ③ 一家一张卡（一次一把钥匙只对应一个输入框）。 */
-      const box = provListEl.value;
-      box.innerHTML = '';
-      const order = gs.slice().sort((a, b) => (a.custom === b.custom ? 0 : (a.custom ? 1 : -1)));
-      for (const cur of order) {
-        const m = cur, kid = m.keyId, off = window.Api ? Api.isOff(m.prov) : false;
-        provRows.set(kid, m);
-        const wrap = document.createElement('div');
-        wrap.className = 'prov' + (off ? ' off' : '') + (m.custom ? ' cus' : '');
-        const nameHtml = m.site
-          ? '<a class="site" href="' + window.esc(m.site) + '" target="_blank" rel="noopener" title="打开官网 ' + window.esc(m.site) + '">' + window.esc(m.name) + '</a>'
-          : window.esc(m.name);
-        const others = m.kindSet.filter(k => k !== provTab).map(k => window.provKindZh(k));
-        const meta = m.custom
-          ? ('转发到 <code>' + window.esc(m.prov.base) + '</code> · 接口形状取自「' + window.esc(m.shapeName) + '」 · 型号 '
-            + ((m.prov.models || []).length) + ' 个 —— 名字 / 地址 / 型号清单点下面那颗「编辑」改')
-          : (m.prov.baseEditable
-            ? '官方地址 <code>' + window.esc(m.base) + '</code>（可改成任意 OpenAI 兼容地址，按供应商各存各的）'
-            : '官方地址 <code>' + window.esc(m.base) + '</code>（不收地址：中转站请添加成自定义供应商）');
-        wrap.innerHTML =
-          '<div class="krow">' +
-            '<span class="kicon">' + ic('key', 15) + '</span><span class="kn">' + nameHtml
-              + '<div class="kinds">' + window.esc(m.kindLabel) + (m.custom ? ' · 自定义' : '') + '</div></span>' +
-            '<input type="password" data-key="' + window.esc(kid) + '" value="' + window.esc(draftKey(kid)) + '" placeholder="'
-              + (m.custom ? '填写这一家自己的密钥（不会用内置平台的密钥）'
-                : envInfo[kid] && envInfo[kid].hasEnv ? '已使用服务端环境密钥（留空即可）' : '填写密钥，或使用默认') + '">' +
-            '<span class="acts">' +
-              '<button class="ghost eye" data-eye="' + window.esc(kid) + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>' +
-              '<button class="ghost clr" data-clr="' + window.esc(kid) + '">清除</button>' +
-              '<button class="ghost xs" data-vfy="' + window.esc(kid) + '"'
-                + ' title="拿这一栏现在填的密钥问一次只读接口（余额 / 型号清单 / 列表）：不建任务、不扣费，还没自动存进本机也能问">验证</button>' +
-              '<label class="sbshow' + (m.credits ? '' : ' dim') + '" title="'
-              + (m.credits
-                ? '勾选后在左侧栏「账户余额」里显示这个接口的余额（改完自动存进本机）'
-                : '这家平台没有提供余额查询接口，勾了也不会显示余额')
-              + '"><input type="checkbox" data-bal="' + window.esc(kid) + '"' + (window.SbBal && SbBal.isOff(kid) ? '' : ' checked') + '>侧栏余额</label>' +
-              '<label class="sbshow" title="勾上 = 这一家不进该工作台的型号下拉（历史任务照常能看）。改完自动存进本机">'
-                + '<input type="checkbox" data-off="' + window.esc(kid) + '"' + (off ? ' checked' : '') + '>暂时不用</label>' +
-              (m.custom ? '<button class="ghost xs" data-cedit="' + window.esc(kid) + '">编辑</button>'
-                + '<button class="ghost xs danger" data-cdel="' + window.esc(kid) + '">删除</button>' : '') +
-              (provTab === 'text' ? '<label class="sbshow" title="润色、识图、发送消息都发给这一家（改完自动存进本机）">'
-                + '<input type="radio" name="textProvPick" data-tpick="' + window.esc(m.prov.id) + '"'
-                + (curTextId() === m.prov.id ? ' checked' : '') + '>作用文字 AI</label>' : '') +
-            '</span>' +
-          '</div>' +
-          (m.prov.baseEditable
-            ? '<div class="krow thin"><span class="kn">接口地址</span>'
-              + '<input data-base="' + window.esc(kid) + '" value="' + window.esc(draftBase(kid)) + '" placeholder="留空则用：' + window.esc(m.base) + '">'
-              + '<span class="hint sm" data-basehint="' + window.esc(kid) + '"></span></div>'
-            : '') +
-          '<div class="meta">' + meta
-          + (others.length ? '<br>同一把密钥也用于：' + window.esc(others.join(' / ')) + '（切上面那一档，看到的还是这一把）' : '')
-          + '<br><span data-ksrc="' + window.esc(kid) + '">' + keySourceNote(kid) + '</span>'
-          + '</div>' +
-          '<div class="msg" data-msg="' + window.esc(kid) + '"></div>' +
-          modelsBlock(m)
-          + (provTab === 'text' && curTextId() === m.prov.id ? visionBlock(m) : '');
-        box.appendChild(wrap);
-        // 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，清掉，保持输入框为空。
-        // 判据带长度（不止末 4 位）：tail 相同的两把不同密钥概率虽小但不是零；server 的 /env-status 带 len。
-        // 走 keyCleared 那一套（跟「清除」按钮同一条路）：删除排队进自动保存、顶栏回执照说 ——
-        // 以前在渲染里直接 LS.del，绕过了「改完就存本机 · 刚刚存过」的状态行。
-        if (!m.custom && envInfo[kid] && envInfo[kid].hasEnv) {
-          const lk = keyFor(kid);
-          if (lk && lk.slice(-4) === envInfo[kid].tail && lk.length === envInfo[kid].len) {
-            keyDraft.delete(kid);
-            keyCleared.add(kid);
-            markChanged();
-            const inp = wrap.querySelector('[data-key]');
-            if (inp) inp.value = '';
-          }
-        }
+      if (st === 'off') {
+        Toast.receipt('「' + m.name + '」还没接上，点「密钥」填一把', 'warn');
+        keyOpen.add(m.keyId);
+        renderProv();
+        return;
       }
-      /* 代理把清单里读不懂的条目丢掉时必须当场说出来。 */
+      if (!SOLO_CAP.has(cap)) {
+        acctOffSet.set(m.keyId, true);
+        markChanged();
+        renderProv();
+        Toast.receipt('「' + m.name + '」暂时不用：这一停是按账号停的，它名下 ' + m.kindLabel + ' 一起不进型号下拉（历史任务照常能看）', 'ok');
+        return;
+      }
+      if (st === 'pri') { Toast.receipt('这一档走「' + m.name + '」', 'info'); return; }
+      const p = capProv(m, cap);
+      if (cap === 'text') {
+        textPickDraft = (p && p.id) || '';
+        markChanged();
+        renderProv();
+        Toast.receipt('文字对话改走「' + m.name + '」（润色、识图、助手都发给它）—— 原本那家降为备用', 'ok');
+        return;
+      }
+      if (cap === 'asr') {
+        asr.service.providerId = (p && p.id) || '';
+        const was = asr.route;
+        /* 「只走浏览器内 / 只走本机」这两条锁死的路根本不经过任何一家 —— 不把它们放开，
+           点了这一格只是把渠道换个名字，界面照旧亮不起来（那就是假话）。 */
+        if (was === 'browser' || was === 'local') asr.route = 'auto';
+        markChanged();
+        renderProv();
+        Toast.receipt('在线识别的渠道改成「' + m.name + '」'
+          + (was === 'browser' || was === 'local' ? '；「走哪条路」原本锁在「' + (window.Asr ? Asr.routeLabel(was) : was) + '」，已改成「自动」——否则这一档不会走到在线那一路' : ''), 'ok');
+        return;
+      }
+      search.channelId = (p && p.id) || '';
+      const wasP = search.provider;
+      if (!search.enabled) search.enabled = true;
+      /* Tavily 没有「渠道」这一说（它认自己那一把搜索密钥）：要让这一家顶搜索档，
+         搜索服务必须一起切到 DeepSeek —— 不一起切，点了这格还是走 Tavily。 */
+      if (wasP !== 'deepseek') search.provider = 'deepseek';
+      if (search.credentialSource !== 'channel') search.credentialSource = 'channel';
+      markChanged();
+      renderProv();
+      Toast.receipt('联网搜索改走「' + m.name + '」', 'ok');
+    }
+
+    /* 这一档的**设置住在哪张卡**（与「谁顶着」是两件事）：
+       · 文字对话 —— 就是作用文字 AI 那家（与真品一致）；
+       · 语音识别 / 联网搜索 —— 看渠道（asr.service.providerId / search.channelId）；
+         渠道没选时落到**第一个能用的文字账号**，这样设置永远有地方摆，不需要「通栏兜底」。
+       注意它**不看** search.enabled 与 asr.route：那两项是「用不用」，不是「设置摆哪儿」——
+       以前拿「顶着」判，于是一关掉联网搜索，它的表单就整块消失了。 */
+    function hostKidOf(cap) {
+      if (cap === 'text') return kidOfProv(curTextId());
+      if (cap === 'asr' || cap === 'search') {
+        const want = kidOfProv(cap === 'asr' ? asr.service.providerId : search.channelId);
+        const list = listedAccounts(lastAcctAll);
+        /* 渠道指向的那一家**没接进来 / 已被筛掉**时也回落到第一个文字账号 ——
+           否则那两张表单又没地方摆，只能退回「通栏兜底」那一块（正是要去掉的东西）。 */
+        if (want && list.some(m => m.keyId === want)) return want;
+        return firstTextKid();
+      }
+      return '';
+    }
+    function firstTextKid() {
+      const list = listedAccounts(lastAcctAll);
+      const hit = list.find(m => m.caps.indexOf('text') >= 0 && provUsable(m)) || list.find(m => m.caps.indexOf('text') >= 0);
+      return hit ? hit.keyId : '';
+    }
+    /* 一档一行：能力名 · 状态牌 ·（只有文字档带着那一个型号下拉 = 全站润色在用的 sk_model_<keyId>，
+       不是「每档一个默认型号」那种新东西）·「型号 n/m」就地展开这一档的清单。
+       语音识别 / 联网搜索两档没有型号清单（型号就在自己那张表单里填），所以那一格换成型号读数。 */
+    function capRowHTML(m, cap) {
+      const p = capProv(m, cap);
+      if (!p) return '';
+      const es = window.esc(slotKey(m.keyId, cap));
+      const st = capState(m, cap);
+      const open = panelOpen.has(slotKey(m.keyId, cap));
+      const chan = cap === 'asr' || cap === 'search';
+      const model = cap === 'asr' ? asr.service.model : cap === 'search' ? search.model : '';
+      const isManual = !!(p.manual);
+      return '<div class="crow' + (st === 'off' ? ' dim' : '') + '" data-crow="' + es + '">'
+        + '<span class="cn"><span class="cg">' + capGlyph(cap) + '</span>' + window.esc(capZh(cap))
+          + (isManual ? '<i class="manual" title="手动加的">手动</i>' : '')
+        + '</span>'
+        + '<button class="st st-btn ' + st + '" type="button" data-cap-toggle="' + es + '"'
+          + ' title="' + window.esc(plateTitle(m, cap, st)) + '">' + CAP_STATE_ZH[st] + '</button>'
+        + (chan
+          ? '<span class="hint sm">'
+            + '型号 <code>' + window.esc(model || '—') + '</code></span>'
+            + (m.declaredExtra && m.declaredExtra.has(cap) ? ''
+              : '<span class="hint sm" title="注册表未声明">未声明</span>')
+          : '<button class="ghost xs' + (open ? ' active' : '') + '" type="button" data-panel="' + es + '"'
+            + ' title="' + (open ? '收起型号清单' : '展开型号清单') + '">'
+            + (open ? '收起型号 ' : '型号 ') + '<b data-mcount="' + es + '"></b></button>')
+        + (isManual
+          ? '<button class="ghost xs" type="button" data-cap-rm="' + es + '"'
+            + ' title="撤掉这份声明">撤掉</button>'
+          : '')
+        /* 文字档的型号下拉 + 测试放在**主行之后**（.crow-sub 独占一整行）：
+           主行因此只剩「能力名 + 状态牌 + 型号 n/m」，与别的档对齐；下拉拿到整行宽，型号 id 读得全。 */
+        + (cap === 'text'
+          ? '<div class="crow-sub"><select class="sel" data-tmodel="' + window.esc(m.keyId) + '"></select>'
+            + '<button class="ghost xs" type="button" data-ttest="' + es + '"'
+            + ' title="发测试消息">测试</button></div>'
+          : '')
+        + '</div>'
+        /* 手动加的生成三档：注册表里没有端点声明 —— 不加这一句，用户会以为已经能出图。 */
+        + (isManual && !chan && !SOLO_CAP.has(cap)
+          ? '<div class="manual-note">注册表未声明端点，需在 REGISTRY 补。</div>'
+          : '')
+        + (isManual && chan
+          ? '<div class="manual-note">走这家自己的地址与密钥。</div>'
+          : '');
+    }
+    /* 这一档的全局项：识图（文字档）+ 语音识别 / 联网搜索的表单。
+       画在**这一档所在**那张卡里（hostKidOf：文字 = 作用文字 AI；识别 / 搜索 = 渠道那家，
+       没选渠道就落到第一个能当文字 AI 的账号）—— 表单本体是 Vue 节点，画完网格由 placeForms 搬进来。 */
+    function priFormHTML(m, cap) {
+      if (cap === 'text') {
+        const kid = window.esc(m.keyId);
+        return '<div class="incard-form capform-text">'
+          + '<div class="tai-h">' + ic('eye', 13) + '识图能力'
+          + '</div>'
+          + '<div class="krow thin"><span class="kn">参考图</span>'
+          + '<select data-tvision="' + kid + '">'
+          + '<option value="auto">自动</option>'
+          + '<option value="on">支持识图</option>'
+          + '<option value="off">不支持</option>'
+          + '</select></div>'
+          + '<div class="pb-tip" data-vtip="' + kid + '"></div>'
+          + '</div>';
+      }
+      return '<div class="formslot" data-formslot="' + cap + '"></div>';
+    }
+    function modelPanelHTML(m, cap) {
+      const slot = slotKey(m.keyId, cap);
+      const es = window.esc(slot);
+      const p = capProv(m, cap);
+      const text = !!(p && p.kind === 'text');
+      const canFetch = text || !!(p && p.endpoints && p.endpoints.models);
+      return '<div class="mpanel" data-mblk="' + es + '">'
+        + '<div class="mpanel-h"><span class="t">型号清单 · ' + window.esc(capZh(cap)) + '</span>'
+          + '<span class="st alt" data-mfetch="' + es + '">还没取过</span><span class="sp"></span>'
+          + (canFetch
+            ? '<button class="ghost xs" type="button" data-tfetch="' + es + '"'
+              + ' title="只读，不花钱">取一次型号清单</button>'
+            : '<span class="hint sm">没有型号接口，自己填 id</span>')
+        + '</div>'
+        + '<div class="mpanel-h"><span class="hint" data-mnote="' + es + '"></span><span class="sp"></span>'
+          + '<span class="hint">' + (text
+            ? '点一行 = 全站润色用它。'
+            : '勾掉 = 下拉里隐藏。') + '</span></div>'
+        + '<div class="mlist" data-tchips="' + es + '"></div>'
+        + '<div class="krow thin"><span class="kn">自己填</span>'
+          + '<input data-tmnew="' + es + '" placeholder="逗号分隔">'
+          + '<button class="ghost xs" type="button" data-tadd="' + es + '">添加</button></div>'
+        + '<div class="msg" data-pmsg="' + es + '"></div>'
+        + '</div>';
+    }
+    /* 「这一家还会做别的档」—— 手动声明一档（不认识的档加不出来，认识的档这里都能加）。
+       展开时是一排可选档位（已经有声明的那几档不列）；加进来之后那一行带「手动」标记，
+       型号清单没有「取一次」（注册表里没有那个接口），只留「自己填」。 */
+    const capPickOpen = new Set();
+    function capAddHTML(m) {
+      const miss = allCaps().filter(c => MANUAL_OK.indexOf(c) >= 0 && m.caps.indexOf(c) < 0);
+      const es = window.esc(m.keyId);
+      const open = capPickOpen.has(m.keyId);
+      if (!miss.length) {
+        return open ? '' : '<div class="capadd"><span class="hint">这一家能手动加的那几档都加上了</span></div>';
+      }
+      if (!open) {
+        return '<div class="capadd"><button class="ghost xs" type="button" data-cap-pick="' + es + '">'
+          + '＋ 手动加一档能力</button>'
+          + '<span class="hint">型号自己填</span></div>';
+      }
+      return '<div class="capadd capadd-open">'
+        + '<div class="capadd-h"><span>手动加一档能力</span><span class="sp"></span>'
+          + '<button class="ghost xs" type="button" data-cap-pick="' + es + '">收起</button></div>'
+        + '<div class="pickrow">' + miss.map(c => '<button class="ghost xs pickchip" type="button"'
+          + ' data-cap-add="' + es + '" data-cap="' + window.esc(c) + '">'
+          + capGlyph(c) + ' ' + window.esc(capZh(c)) + '</button>').join('') + '</div>'
+        + '<span class="hint">只是声明；生成类需 REGISTRY 补端点。</span>'
+        + '</div>';
+    }
+    function capStripHTML(m) {
+      return '<div class="capstrip">' + m.caps.map(cap => {
+        const st = capState(m, cap);
+        return '<button class="capcell ' + st + (acctFilter.value === cap ? ' hit' : '') + '" type="button"'
+          + ' data-cap-toggle="' + window.esc(slotKey(m.keyId, cap)) + '"'
+          + ' title="' + window.esc(capZh(cap) + ' · ' + CAP_STATE_ZH[st] + ' —— ' + plateTitle(m, cap, st)) + '">'
+          + capGlyph(cap) + '</button>';
+      }).join('') + '</div>';
+    }
+    function keyRowHTML(m) {
+      const kid = window.esc(m.keyId);
+      const ph = m.custom ? '这一家的密钥'
+        : (envInfo[m.keyId] || {}).hasEnv ? '服务端密钥，留空即可' : '填写密钥，或使用默认';
+      return '<div class="krow thin keyrow"><span class="kn">密钥</span>'
+        + '<input type="password" data-key="' + kid + '" value="' + window.esc(draftKey(m.keyId)) + '"'
+        + ' placeholder="' + window.esc(ph) + '">'
+        + '<button class="ghost xs" type="button" data-eye="' + kid + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>'
+        + '<button class="ghost clr" type="button" data-clr="' + kid + '" title="清掉本机密钥">清除</button>'
+        + '<button class="ghost xs" type="button" data-vfy="' + kid + '"'
+        + ' title="只读验证，不扣费">验证</button>'
+        + '</div>'
+        + '<div class="krow thin"><span class="hint sm" data-ksrc="' + kid + '"'
+          + ' title="' + window.esc(keySourceOf(m.keyId).tip) + '">' + window.esc(keySourceNote(m.keyId)) + '</span></div>'
+        + '<div class="msg" data-msg="' + kid + '"></div>';
+    }
+    function keyBadge(m) {
+      const s = keyState(m);
+      return { cls: s === '已填密钥' ? 'ok' : s === '用服务端密钥' ? 'on' : 'alt', zh: s };
+    }
+    function accountCardHTML(m) {
+      const kid = window.esc(m.keyId);
+      const off = acctOff(m);
+      const kb = keyBadge(m);
+      const open = keyOpen.has(m.keyId) || pendingAdds.has(m.keyId);
+      /* 只有自定义那几家需要一句「这一家的地址在哪」：预设那几家的地址是注册表的事，
+         卡上不摊官网地址、也不写「卡上不再改地址」那种话（用户点名不要）。 */
+      const meta = m.custom
+        ? ('转发到 <code>' + window.esc(m.prov.base) + '</code> · 接口形状取自「' + window.esc(m.shapeName) + '」'
+          + ' · 名字 / 地址 / 型号清单点下面那颗「编辑」改')
+        : '';
+      const mid = (open ? keyRowHTML(m) : '')
+        + m.caps.map(cap => capRowHTML(m, cap)
+          + (hostKidOf(cap) === m.keyId ? priFormHTML(m, cap) : '')
+          + (panelOpen.has(slotKey(m.keyId, cap)) ? modelPanelHTML(m, cap) : '')).join('')
+        + capAddHTML(m);
+      return '<div class="acct fcard' + (off ? ' acct-off' : '') + (m.custom ? ' cus' : '')
+        + '" data-acct="' + kid + '">'
+        + '<div class="fcard-h"><span class="fcard-ic">' + window.esc((m.name || '?').slice(0, 1).toUpperCase()) + '</span>'
+          + '<div class="fcard-tt"><div class="fcard-t">'
+            + (m.site
+              ? '<a class="site" href="' + window.esc(m.site) + '" target="_blank" rel="noopener" title="打开官网 '
+                + window.esc(m.site) + '">' + window.esc(m.name) + '</a><span class="ext">↗</span>'
+              : '<span>' + window.esc(m.name) + '</span>')
+            + '<button class="keytoggle' + (open ? ' on' : '') + '" type="button" data-ktoggle="' + kid + '"'
+              + ' title="密钥设置' + (open ? '（点一下收起来）' : '（默认收着，点一下才摊开）') + '">密钥 '
+              + (open ? '▴' : '▾') + '</button>'
+            + (m.custom ? '<span class="st alt">自定义</span>' : '')
+            + '</div>' + (meta ? '<div class="fcard-d">' + meta + '</div>' : '') + '</div>'
+          + '<span class="fcard-badge"><span class="st ' + kb.cls + '">' + kb.zh + '</span></span></div>'
+        + capStripHTML(m)
+        + '<div class="acct-mid">' + mid + '</div>'
+        + '<div class="fcard-acts">'
+          + '<label class="check' + (m.credits ? '' : ' dim') + '" title="'
+            + (m.credits ? '勾选后在左侧栏「账户余额」里显示这一家的余额（改完自动存进本机）'
+              : '这一家没有提供余额查询接口，勾了也不会显示余额')
+            + '"><input type="checkbox" data-bal="' + kid + '"' + (window.SbBal && SbBal.isOff(m.keyId) ? '' : ' checked') + '>侧栏余额</label>'
+          + '<label class="check" title="勾上 = 这一家不进工作台的型号下拉（按账号停：它名下 '
+            + window.esc(m.kindLabel) + ' 一起停；历史任务照常能看）。改完自动存进本机">'
+            + '<input type="checkbox" data-off="' + kid + '"' + (off ? ' checked' : '') + '>暂时不用</label>'
+          + '<span class="sp"></span>'
+          + (m.custom
+            ? '<button class="ghost xs" type="button" data-cedit="' + kid + '">编辑</button>'
+              + '<button class="ghost xs danger" type="button" data-cdel="' + kid + '">删除</button>'
+            : '')
+          + '<span class="hint sm" data-acctmsg="' + kid + '"></span>'
+        + '</div></div>';
+    }
+    /* 「添加供应商」那张卡：**两个形态、同一张卡**。
+       常态 = 注册表里还接着、本机还没接进来的那几家（点「添加」把它请进界面，卡里摊开密钥行）；
+       展开自定义 = 这张卡自己变成「添加自定义供应商」，字段就在卡里填（没有第二套添加界面，
+       也没有另一层弹窗 / 另一张旧式 .card）。收起就是右上角那颗「返回预设」。 */
+    function presetAccounts(all) {
+      return all.filter(m => !m.custom && !provUsable(m) && !pendingAdds.has(m.keyId));
+    }
+    function presetRowHTML(m) {
+      const glyphs = m.caps.map(capGlyph).join('');
+      return '<div class="preset"><span class="pg">' + window.esc((m.name || '?').slice(0, 1).toUpperCase()) + '</span>'
+        + '<div class="pw"><span class="pn">' + window.esc(m.name) + '</span>'
+        + '<span class="pnote">' + window.esc(m.kindLabel) + ' · ' + window.esc(m.base)
+        + ((envInfo[m.keyId] || {}).hasEnv ? ' · <code>.env</code> 里已有密钥' : '') + '</span></div>'
+        + '<span class="pcaps" title="' + window.esc(m.kindLabel) + '">' + glyphs + '</span>'
+        + '<button class="ghost xs" type="button" data-preset="' + window.esc(m.keyId) + '">添加</button></div>';
+    }
+    function addTileHTML(all) {
+      const rest = presetAccounts(all);
+      const custom = cusShown.value;
+      return '<div class="acct fcard add-tile' + (custom ? ' cus-open' : '') + '" data-acct="__add__">'
+        + '<div class="fcard-h">'
+          + '<div class="fcard-tt"><div class="fcard-t"><span>'
+            + (custom ? '添加自定义供应商' : '添加供应商') + '</span></div></div>'
+        + (custom
+          ? '<span class="fcard-badge"><button class="ghost xs" type="button" data-cus-close="1">返回预设</button></span>'
+          : '<span class="fcard-badge"><span class="st alt">待接入 ' + rest.length + '</span></span>')
+        + '</div>'
+        + (custom
+          ? '<div class="acct-mid"><div class="formslot" data-formslot="cus"></div></div>'
+          : '<div class="acct-mid">'
+            + (rest.length ? rest.map(presetRowHTML).join('')
+              : '<div class="mlist-empty">注册表里的都请进来了 —— 还可以添加自己的中转站。</div>')
+            + '<button class="ghost wide" type="button" data-cus-open="1">＋ 自定义（中转站 / 网关 / 企业部署）</button>'
+            + '</div>')
+        + '</div>';
+    }
+
+    /* ---------- 图例 / 芯片 / 摘要条 ---------- */
+    function paintLegend() {
+      const el = capLegendEl.value;
+      if (!el) return;
+      el.innerHTML = '<span class="cl-t">卡顶那一排能力格只画这一家<b>会的</b>那几档</span>'
+        + allCaps().map(c => '<span class="cl-item"><i class="cl-g">' + capGlyph(c) + '</i><b>'
+          + window.esc(capZh(c)) + '</b></span>').join('')
+        + '<span class="cl-hint">实心 = 主位 · 淡底 = 在用 · 白底 = 备用 · 压暗 = 停用 / 还没接上；'
+        + '单选档同时只有一家顶着。</span>';
+    }
+    let lastAcctAll = [];
+    let lastAcctShown = [];
+    function paintSumLine() {
+      const el = q('[data-fsum]');
+      if (!el) return;
+      const all = lastAcctAll;
+      if (window.Api && Api.regFailed && Api.regFailed()) {
+        el.className = 'fsum err';
+        el.innerHTML = '<b>读不到注册表</b><span class="hint sm">代理未启动 —— 跑启动.bat 再刷新。</span>';
+        return;
+      }
+      const cap = acctFilter.value;
+      const noKey = all.filter(m => !provUsable(m)).length;
+      if (cap === 'all') {
+        el.className = 'fsum';
+        el.innerHTML = '<b>' + all.length + ' 家账号</b><span class="hint sm">密钥已经配上 '
+          + (all.length - noKey) + ' 家' + (noKey ? ' · 还差密钥 ' + noKey + ' 家（在末尾那张「添加供应商」里）' : '')
+          + '</span>';
+        return;
+      }
+      const list = lastAcctShown;
+      const on = list.filter(m => { const s = capState(m, cap); return s === 'pri' || s === 'on'; }).length;
+      const alt = list.filter(m => capState(m, cap) === 'alt').length;
+      const off = list.length - on - alt;
+      el.className = 'fsum';
+      el.innerHTML = '<b>做「' + window.esc(capZh(cap)) + '」的 ' + list.length + ' 家</b>'
+        + '<span class="hint sm">在用 ' + on + ' 家' + (alt ? ' · 备用 ' + alt + ' 家' : '')
+        + (off ? ' · 没接上 ' + off + ' 家' : '') + ' —— 按「在用 → 备用 → 没接上」排，'
+        + '同档里能力多的在前；被筛的那一格在能力条上圈了出来。</span>'
+        + '<span class="sp"></span><button class="ghost xs" type="button" data-fchip="all">看全部 '
+        + all.length + ' 家</button>';
+    }
+    let toolsWired = false;
+    function paintTools() {
+      const el = acctToolsEl.value;
+      if (!el) return;
+      const chip = (id, zh, n) => '<button class="fchip' + (acctFilter.value === id ? ' on' : '') + '"'
+        + ' type="button" data-fchip="' + id + '" title="' + window.esc('只看有「' + zh + '」这一档的那几家（数字是账号数）') + '"><span>'
+        + window.esc(zh) + '</span>' + (n == null ? '' : '<b class="n">' + n + '</b>') + '</button>';
+      el.innerHTML = '<div class="filters">' + chip('all', '全部', lastAcctAll.length)
+        + allCaps().map(c => chip(c, capZh(c), lastAcctAll.filter(m => m.caps.indexOf(c) >= 0).length)).join('')
+        + '</div><div class="fsum" data-fsum></div>';
+      acctSumPainter = paintSumLine;
+      paintSumLine();
+      if (!toolsWired) {
+        toolsWired = true;
+        el.addEventListener('click', ev => {
+          const b = ev.target.closest && ev.target.closest('[data-fchip]');
+          if (!b) return;
+          ev.preventDefault();
+          acctFilter.value = b.dataset.fchip;
+          renderProv();
+        });
+      }
+    }
+    /* 代理把注册表里读不懂的条目丢掉、或者那份型号偏好读不出来 —— 必须通栏说出来，不藏进卡片网格。 */
+    function paintRegErr() {
+      const el = provErrEl.value;
+      if (!el) return;
+      const lines = [];
+      if (window.Api && Api.regFailed && Api.regFailed()) {
+        lines.push('读不到注册表：本地代理没连上或还没启动' + (Api.regError ? '（原因：' + Api.regError() + '）' : '')
+          + '。先把 proxy.js 启动起来再刷新这一页。');
+      }
       const cu = REG && REG.custom;
       const dropped = (cu && cu.dropped) || [];
       if (dropped.length || (cu && cu.reason)) {
-        const line = document.createElement('div');
-        line.className = 'msg err';
-        line.textContent = '有 ' + dropped.length + ' 条自定义平台没被本地代理认：'
-          + dropped.map(d => '「' + d.id + '」' + d.why).join('；') + (cu.reason ? '（' + cu.reason + '）' : '') + '。';
-        box.appendChild(line);
+        lines.push('有 ' + dropped.length + ' 条自定义平台没被本地代理认：'
+          + dropped.map(d => '「' + d.id + '」' + d.why).join('；') + (cu.reason ? '（' + cu.reason + '）' : '') + '。');
       }
-      /* 「自己填的型号」与「藏了哪几个」的记录读不懂时也必须说一句。 */
       const mp = REG && REG.modelPrefs;
       if (mp && mp.reason) {
-        const line = document.createElement('div');
-        line.textContent = '⚠ ' + mp.reason + ' —— 这一家的「自己填的型号」和「隐藏 / 展示」现在都没生效，'
-          + '工作台上看到的仍是接口给的那一份原始清单。修好之前别在这里勾（勾了也不会变）。';
-        line.className = 'msg err';
-        box.appendChild(line);
+        lines.push('「自己填的型号」与「隐藏 / 展示」那份记录读不懂：' + mp.reason
+          + ' —— 修好之前在这里勾了也不会变，工作台上看到的仍是接口给的那一份原始清单。');
       }
-      /* 「验证」用的是**这一栏现在的值**（含还没保存的那把）。 */
-      box.querySelectorAll('[data-vfy]').forEach(btn => {
-        btn.onclick = async () => {
-          const k = btn.dataset.vfy, m = provRows.get(k);
-          if (!m) return;
-          btn.disabled = true;
-          const to = () => draftBase(k) || m.prov.base;
-          const via = window.Api ? Api.verifyTarget(m.prov) : { via: '', label: '' };
-          /* 文字 AI 的 registry 只声明了 chat（没有余额 / 模型清单端点），验证口径是问一次它的余额接口。
-             用的是**这一栏刚填的**密钥与地址（TextAI.setFormOverride，只进内存不写盘）。 */
-          if (!via.via) {
-            setMsg(k, via.label || '', 'msg');
-            let r = { state: 'unknown', text: '' };
-            try {
-              useFormCreds(m.prov);
-              r = await TextAI.verifyKey(REG, m.prov);
-            } catch (e) { r.text = errText(e); }
-            btn.disabled = false;
-            const ok = r.state === 'ok';
-            setMsg(k, (ok ? '✓ ' : r.state === 'invalid' ? '✗ ' : '· ') + (r.text || '') + '（转发到 ' + to() + '）',
-              'msg ' + (ok ? 'ok' : r.state === 'invalid' ? 'err' : ''));
-            return;
-          }
-          setMsg(k, '正在用这一栏里的密钥问一次「' + via.label + '」…', 'msg');
-          let r = { ok: false, detail: '', why: '' };
-          try { r = await Api.verify(m.prov, { key: draftKey(k), base: draftBase(k) || null }); } catch (e) { r.why = errText(e); }
-          btn.disabled = false;
-          setMsg(k, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + to() + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
-        };
+      el.innerHTML = lines.map(t => '<div class="msg err">' + window.esc(t) + '</div>').join('');
+    }
+
+    /* 卡片等高（--sz-acct）+ 卡内那一段自己滚：展开密钥行、展开型号面板都不改卡的外形，
+       所以整片重画时唯一要还回去的是「卡里那一段滚到了哪」。 */
+    function midScrolls() {
+      const out = new Map();
+      qa('.acct .acct-mid').forEach(el => {
+        const card = el.closest ? el.closest('.acct') : null;
+        if (card) out.set(card.dataset.acct, el.scrollTop);
       });
-      /* 接口地址：输入时现算一次「这个 host 是不是别家的官方地址」，当场写在名字后面的提示里。 */
-      box.querySelectorAll('[data-base]').forEach(inp => {
-        inp.oninput = () => {
-          baseDraft.set(inp.dataset.base, inp.value.trim());
-          const m = provRows.get(inp.dataset.base);
-          const hint = q('[data-basehint="' + inp.dataset.base + '"]');
-          const v = inp.value.trim();
-          if (!hint || !m) return;
-          const own = Api.hostOwner(REG, v, m.prov);
-          hint.textContent = !v ? '留空 = 用官方地址' : (own && own.kind === 'other-provider')
-            ? '⚠ 这是「' + own.name + '」的官方地址，用这家的密钥会被上游拒绝' : '';
-          hint.style.color = (own && own.kind === 'other-provider') ? 'var(--err)' : '';
-        };
+      return out;
+    }
+    function restoreMidScrolls(map) {
+      qa('.acct .acct-mid').forEach(el => {
+        const card = el.closest ? el.closest('.acct') : null;
+        const v = card ? map.get(card.dataset.acct) : 0;
+        if (v) el.scrollTop = v;
       });
-      /* 暂时不用：改的是勾选状态 + 那张卡的明暗，落盘跟着这一页统一的自动保存。 */
-      box.querySelectorAll('[data-off]').forEach(cb => {
-        cb.onchange = () => {
-          const card = cb.closest('.prov');
-          if (card) card.classList.toggle('off', cb.checked);
-        };
+    }
+    function listedAccounts(all) {
+      return all.filter(m => provUsable(m) || pendingAdds.has(m.keyId));
+    }
+    function filteredAccounts() {
+      const all = listedAccounts(lastAcctAll);
+      const cap = acctFilter.value;
+      const list = cap === 'all' ? all.slice() : all.filter(m => m.caps.indexOf(cap) >= 0);
+      const rank = m => {
+        if (cap === 'all') return 0;
+        const s = capState(m, cap);
+        return (s === 'pri' || s === 'on') ? 0 : (s === 'alt' ? 1 : 2);
+      };
+      return list.sort((a, b) => rank(a) - rank(b)
+        || (cap === 'all' ? (a.custom === b.custom ? 0 : (a.custom ? 1 : -1)) : b.caps.length - a.caps.length));
+    }
+
+    function renderProv() {
+      if (!provListEl.value) return;
+      lastAcctAll = provGroups();
+      provRows.clear();
+      lastAcctAll.forEach(m => provRows.set(m.keyId, m));
+      paintLegend();
+      lastAcctShown = filteredAccounts();
+      paintTools();
+      paintRegErr();
+      const keep = midScrolls();
+      provListEl.value.innerHTML = lastAcctShown.map(accountCardHTML).join('') + addTileHTML(lastAcctAll);
+      restoreMidScrolls(keep);
+      /* 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，清掉，保持输入框为空。
+         判据带长度（不止末 4 位）：tail 相同的两把不同密钥概率虽小但不是零；server 的 /env-status 带 len。
+         走 keyCleared 那一套（跟「清除」按钮同一条路）：删除排队进自动保存、顶栏回执照说 ——
+         以前在渲染里直接 LS.del，绕过了「改完就存本机 · 刚刚存过」的状态行。 */
+      lastAcctShown.forEach(m => {
+        if (m.custom || !(envInfo[m.keyId] || {}).hasEnv) return;
+        const lk = keyFor(m.keyId);
+        if (!lk || lk.slice(-4) !== envInfo[m.keyId].tail || lk.length !== envInfo[m.keyId].len) return;
+        keyDraft.delete(m.keyId);
+        keyCleared.add(m.keyId);
+        markChanged();
+        const inp = q('[data-key="' + window.esc(m.keyId) + '"]');
+        if (inp) inp.value = '';
       });
-      box.querySelectorAll('[data-cedit]').forEach(b => { b.onclick = () => editCus(b.dataset.cedit); });
-      box.querySelectorAll('[data-cdel]').forEach(b => { b.onclick = () => removeCus(b.dataset.cdel); });
-      /* 作用文字 AI：换一家就整块重画（识图那一段只画在当前这一家的卡上）。 */
-      box.querySelectorAll('[data-tpick]').forEach(rb => {
-        rb.onchange = () => { textPickDraft = rb.dataset.tpick || ''; renderProv(); };
-      });
-      /* 密钥输入只记进那份未保存的草稿；逐字敲时不存盘。 */
-      box.querySelectorAll('[data-key]').forEach(inp => {
-        inp.oninput = () => {
-          keyCleared.delete(inp.dataset.key);
-          if (inp.value.trim()) keyDraft.set(inp.dataset.key, inp.value.trim());
-          else keyDraft.delete(inp.dataset.key);
-        };
-      });
-      /* 密钥默认密文，点眼睛可切换明文查看。 */
-      box.querySelectorAll('[data-eye]').forEach(b => {
-        b.onclick = () => {
-          const inp = b.closest('.krow').querySelector('[data-key]');
-          if (!inp) return;
-          inp.type = inp.type === 'password' ? 'text' : 'password';
-          b.innerHTML = ic(inp.type === 'password' ? 'eye' : 'eyeOff', 13);
-          b.title = inp.type === 'password' ? '显示密钥' : '隐藏密钥';
-        };
-      });
-      /* 型号块先画骨架、后填内容（取型号列表要等 TextAI 就绪）。 */
-      initFolds(box);
       if (textForm) textForm.paint();
-      /* 清除本机密钥：不在这里 removeItem，跟着自动保存排队落盘。 */
-      box.querySelectorAll('[data-clr]').forEach(b => {
-        b.onclick = () => {
-          const kid = b.dataset.clr;
-          const inp = b.closest('.krow').querySelector('[data-key]');
-          if (inp) inp.value = '';
-          keyDraft.delete(kid);
-          keyCleared.add(kid);
-          markChanged();
-          b.textContent = '已清除';
-          b.title = '这一项已经排队存进本机（顶栏那一句会说存好了没有）';
-          setTimeout(() => { b.textContent = '清除'; b.title = '清掉本机存的这把密钥（存进本机后生效）'; }, 1500);
-          refreshProvNotes();
-        };
+      placeForms();
+      wireAcct();
+      if (window.Dropdowns && provListEl.value) Dropdowns.build(provListEl.value);
+    }
+
+    /* ---------- 卡片流里的动作：一次绑定、整片重画后不用补绑 ----------
+       网格每次都是 provListEl.innerHTML 重来，所以事件挂在**容器**上（委托）。
+       旧写法每次重画都要 `[data-x].forEach(el => el.onclick = …)` 补一遍，漏一处就是那颗按钮点不动。 */
+    let acctWired = false;
+    function setMsg(kid, text, cls) {
+      const el = msgOf(kid);
+      if (!el) return;
+      el.className = cls; el.textContent = text;
+    }
+    /* 卡底那一行的回执（型号面板没开、或这一档根本没有面板时用它）。 */
+    function acctMsg(kid, text, cls) {
+      const el = q('[data-acctmsg="' + window.esc(kid) + '"]');
+      if (!el) return;
+      el.className = 'hint sm ' + (cls || '');
+      el.textContent = text;
+    }
+    /* 卡里那一段（.acct-mid）自己滚：就地展开型号面板时把新出来的那一格滚进视野。
+       这里**不用** scrollIntoView —— 它会把外面那条文档一起滚（页面上跳），而滚卡里那一段
+       只需要动 .acct-mid.scrollTop；这一页滚动的唯一出口仍是 scrollToEl（那一条只管文档）。 */
+    function revealInMid(el) {
+      const mid = el && el.closest ? el.closest('.acct-mid') : null;
+      if (!mid) return;
+      const r = el.getBoundingClientRect(), b = mid.getBoundingClientRect();
+      const d = r.bottom - b.bottom, u = b.top - r.top;
+      if (d > 0) mid.scrollTop += d + 8;
+      else if (u > 0) mid.scrollTop -= u + 8;
+    }
+
+    /* ---------- 两块表单往哪摆（语音识别 / 联网搜索 / 自定义供应商） ----------
+       它们是 Vue 绑定的节点，网格每次整片重画会把它们冲掉 —— 所以本体一直住在 .acct-park
+       （hidden：不画，但节点一直在原地活着），画完网格由这里搬进**这一档所在的那张卡**里那一行下面。
+       「所在」= hostKidOf：识别看 asr.service.providerId、搜索看 search.channelId；
+       两者都没选时落到**第一个能当文字 AI 的账号**（两档本来就是文字账号的两种用途）。
+       **没有通栏兜底那一块**：与图片 / 视频一样，能力在哪张卡上，设置就在哪张卡里 ——
+       以前「没哪家顶着」时表单整块挂到网格下面，等于这一档又变回了一张独立的卡。 */
+    const MOVERS = () => [['asr', asrFormEl.value], ['search', searchFormEl.value], ['cus', cusCardEl.value]];
+    function placeForms() {
+      MOVERS().forEach(([cap, el]) => {
+        if (!el) return;
+        const slot = q('[data-formslot="' + cap + '"]');
+        if (slot && el.parentNode !== slot) slot.appendChild(el);
+        else if (!slot && acctParkEl.value && el.parentNode !== acctParkEl.value) acctParkEl.value.appendChild(el);
       });
     }
 
+    /* 「验证」用的是**这一栏现在的值**（含还没保存的那把），问一次只读接口，不建任务、不扣费。 */
+    async function verifyAccount(kid, btn) {
+      const m = provRows.get(kid);
+      if (!m) return;
+      const p = verifyProv(m);
+      btn.disabled = true;
+      const via = window.Api ? Api.verifyTarget(p) : { via: '', label: '' };
+      const to = p && p.base;
+      if (!via.via) {
+        setMsg(kid, via.label || '', 'msg');
+        let r = { state: 'unknown', text: '' };
+        try {
+          useFormCreds(p);
+          r = await TextAI.verifyKey(REG, p);
+        } catch (e) { r.text = errText(e); }
+        btn.disabled = false;
+        const ok = r.state === 'ok';
+        setMsg(kid, (ok ? '✓ ' : r.state === 'invalid' ? '✗ ' : '· ') + (r.text || '') + '（转发到 ' + to + '）',
+          'msg ' + (ok ? 'ok' : r.state === 'invalid' ? 'err' : ''));
+        return;
+      }
+      setMsg(kid, '正在用这一栏里的密钥问一次「' + via.label + '」…', 'msg');
+      let r = { ok: false, detail: '', why: '' };
+      try { r = await Api.verify(p, { key: draftKey(kid), base: null }); } catch (e) { r.why = errText(e); }
+      btn.disabled = false;
+      setMsg(kid, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + to + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
+    }
+
+    /* 打开「添加一家」那张卡里的自定义表：两个入口都是它（添加卡上的「＋ 自定义」、
+       账户卡上的「＋ 添加一家（做…）」）—— 表单只在卡片里填，没有第二套添加界面。 */
+    function openCusForm() {
+      openCus();
+      renderProv();
+      nextTick(() => { if (cusCardEl.value) scrollToEl(cusCardEl.value); });
+    }
+
+    function onAcctClick(ev) {
+      const t = ev.target;
+      const kt = t.closest && t.closest('[data-ktoggle]');
+      if (kt) {
+        ev.preventDefault();
+        const kid = kt.dataset.ktoggle;
+        if (keyOpen.has(kid)) keyOpen.delete(kid); else keyOpen.add(kid);
+        renderProv();
+        if (keyOpen.has(kid)) { const inp = q('[data-key="' + window.esc(kid) + '"]'); if (inp) window.focusQuiet(inp); }
+        return;
+      }
+      const cap = t.closest && t.closest('[data-cap-toggle]');
+      if (cap) {
+        ev.preventDefault();
+        const m = provRows.get(slotKid(cap.dataset.capToggle));
+        if (m) capPlateClick(m, slotCap(cap.dataset.capToggle));
+        return;
+      }
+      const pn = t.closest && t.closest('[data-panel]');
+      if (pn) {
+        ev.preventDefault();
+        const slot = pn.dataset.panel;
+        if (panelOpen.has(slot)) panelOpen.delete(slot);
+        else { panelOpen.add(slot); autofetchTried.delete(slot); }
+        renderProv();
+        if (panelOpen.has(slot)) revealInMid(q('[data-mblk="' + window.esc(slot) + '"]'));
+        return;
+      }
+      const co = t.closest && t.closest('[data-cus-open]');
+      if (co) { ev.preventDefault(); openCusForm(); return; }
+      const cc = t.closest && t.closest('[data-cus-close]');
+      if (cc) { ev.preventDefault(); hideCus(); return; }   /* hideCus 自己会把卡片流重画回「预设」那一形态 */
+      /* 自定义供应商卡里那排能力档位（图标，可多选；第一个是主档） */
+      const ccp = t.closest && t.closest('[data-cuscap]');
+      if (ccp) { ev.preventDefault(); pickCusCap(ccp.dataset.cuscap); return; }
+      /* 手动加一档能力：展开可选档位 / 加一档 / 撤掉一档 */
+      const cpi = t.closest && t.closest('[data-cap-pick]');
+      if (cpi) {
+        ev.preventDefault();
+        const kid2 = cpi.dataset.capPick;
+        if (capPickOpen.has(kid2)) capPickOpen.delete(kid2); else capPickOpen.add(kid2);
+        renderProv();
+        return;
+      }
+      const cad = t.closest && t.closest('[data-cap-add]');
+      if (cad) {
+        ev.preventDefault();
+        const kid3 = cad.dataset.capAdd, cap3 = cad.dataset.cap;
+        setManualCaps(kid3, manualCapsOf(kid3).concat([cap3]));
+        capPickOpen.delete(kid3);
+        renderProv();
+        /* 加完就把这一档的型号面板摊开 —— 型号得自己填，这是下一步唯一要做的事 */
+        panelOpen.add(slotKey(kid3, cap3));
+        renderProv();
+        revealInMid(q('[data-mblk="' + window.esc(slotKey(kid3, cap3)) + '"]'));
+        Toast.receipt('已给这一家加上「' + capZh(cap3) + '」—— 型号清单里自己填 id', 'ok');
+        return;
+      }
+      const crm = t.closest && t.closest('[data-cap-rm]');
+      if (crm) {
+        ev.preventDefault();
+        const kid4 = slotKid(crm.dataset.capRm), cap4 = slotCap(crm.dataset.capRm);
+        setManualCaps(kid4, manualCapsOf(kid4).filter(c => c !== cap4));
+        panelOpen.delete(slotKey(kid4, cap4));
+        renderProv();
+        Toast.receipt('已撤掉「' + capZh(cap4) + '」这一档', 'ok');
+        return;
+      }
+      const pa = t.closest && t.closest('[data-preset]');
+      if (pa) {
+        ev.preventDefault();
+        const kid = pa.dataset.preset;
+        pendingAdds.add(kid);
+        keyOpen.add(kid);
+        renderProv();
+        const inp = q('[data-key="' + window.esc(kid) + '"]');
+        if (inp) { window.focusQuiet(inp); revealInMid(inp); }
+        Toast.receipt('已把「' + ((provRows.get(kid) || {}).name || kid) + '」请进界面 —— 这一步什么都没写；'
+          + '在摊开的那一栏填一把密钥才算接上（改完自动存进本机）', 'ok');
+        return;
+      }
+      const eye = t.closest && t.closest('[data-eye]');
+      if (eye) {
+        ev.preventDefault();
+        const inp = eye.closest('.krow') ? eye.closest('.krow').querySelector('[data-key]') : null;
+        if (!inp) return;
+        inp.type = inp.type === 'password' ? 'text' : 'password';
+        eye.innerHTML = ic(inp.type === 'password' ? 'eye' : 'eyeOff', 13);
+        eye.title = inp.type === 'password' ? '显示密钥' : '隐藏密钥';
+        return;
+      }
+      const clr = t.closest && t.closest('[data-clr]');
+      if (clr) {
+        ev.preventDefault();
+        const kid = clr.dataset.clr;
+        const inp = clr.closest('.krow') ? clr.closest('.krow').querySelector('[data-key]') : null;
+        if (inp) inp.value = '';
+        keyDraft.delete(kid);
+        keyCleared.add(kid);
+        markChanged();
+        clr.textContent = '已清除';
+        clr.title = '这一项已经排队存进本机（顶栏那一句会说存好了没有）';
+        setTimeout(() => { clr.textContent = '清除'; clr.title = '清掉本机存的这把密钥（存进本机后生效）'; }, 1500);
+        refreshProvNotes();
+        return;
+      }
+      const vf = t.closest && t.closest('[data-vfy]');
+      if (vf) { ev.preventDefault(); verifyAccount(vf.dataset.vfy, vf); return; }
+      const ce = t.closest && t.closest('[data-cedit]');
+      if (ce) { ev.preventDefault(); editCus(ce.dataset.cedit); return; }
+      const cd = t.closest && t.closest('[data-cdel]');
+      if (cd) { ev.preventDefault(); removeCus(cd.dataset.cdel); return; }
+    }
+    function onAcctChange(ev) {
+      const t = ev.target;
+      const off = t.closest && t.closest('[data-off]');
+      if (off) {
+        acctOffSet.set(off.dataset.off, !!off.checked);
+        markChanged();
+        renderProv();
+        return;
+      }
+      const bal = t.closest && t.closest('[data-bal]');
+      if (bal) {
+        if (window.SbBal) {
+          const off2 = new Set(SbBal.off());
+          if (bal.checked) off2.delete(bal.dataset.bal); else off2.add(bal.dataset.bal);
+          SbBal.setList([...off2]);
+        }
+        markChanged();
+      }
+    }
+    function onAcctInput(ev) {
+      const t = ev.target;
+      if (!(t.dataset && t.dataset.key)) return;
+      keyCleared.delete(t.dataset.key);
+      if (t.value.trim()) keyDraft.set(t.dataset.key, t.value.trim());
+      else keyDraft.delete(t.dataset.key);
+    }
+    function wireAcct() {
+      const el = provListEl.value;
+      if (acctWired || !el) return;
+      acctWired = true;
+      /* 一张卡上有两类接线：卡自己的开关（密钥 / 状态牌 / 添加 / 验证 / 侧栏余额）与型号面板里的清单操作。
+         各认各的那一族 data-*（面板那一族只出现在 [data-mblk] 里），互不抢，所以可以并挂在一个节点上。 */
+      el.addEventListener('click', onAcctClick);
+      el.addEventListener('click', onPanelClick);
+      el.addEventListener('change', onAcctChange);
+      el.addEventListener('change', onPanelChange);
+      el.addEventListener('input', onAcctInput);
+    }
+
     /* ---------- 添加自定义供应商 ----------
-       界面只收四样：照哪一家的接口形状、显示名、地址、型号清单；密钥按 sk_key_<新 id> 单独存。
-       清单写成 sk_custom（DataSync 镜像成 .data/sk_custom.json，代理读那份合并进 /registry）。 */
+       界面只收：接口形状、显示名、地址、密钥、**能力档位**、型号清单；密钥按 sk_key_<新 id> 单独存。
+       清单写成 sk_custom（DataSync 镜像成 .data/sk_custom.json，代理读那份合并进 /registry）。
+       「能力档位」与卡顶那排能力格同一副图标、可多选：第一个选中的是**主档**（決定接口形状与端点，
+       也决定这条自定义条目建出来是哪种 kind），其余按「本机手动声明」记在这一家上
+       （`sk_caps_<新 id>`，与卡里「＋ 手动加一档能力」同一个键、同一套语义）。 */
     const cusShown = ref(false);
     const cusEditing = ref('');
-    const cusProvSel = ref('');
     const cusShapeSel = ref('');
-    const cusProvOpts = ref([]);
     const cusShapeOpts = ref([]);
     const cusShapeShown = ref(false);
-    const cusShapeHint = ref('');
     const cusName = ref('');
     const cusBase = ref('');
     const cusKey = ref('');
@@ -573,23 +1137,24 @@ const SettingsView = {
     const cusFetchBusy = ref(false);
     const cusMineGroups = ref([]);
     const cusMineShown = ref(false);
+    /* 能力档位：多选，**第一个 = 主档**（列表顺序就是选中顺序）。 */
+    const cusCaps = ref(['image']);
+    const cusNamePh = ref('型号下拉的分组名认的就是它');
     let cusAutoName = '';
     let cusAutoBase = '';
 
     const cusHost = u => { try { return new URL(u).host; } catch (e) { return String(u || ''); } };
-    const cusKind = () => (window.provKinds().indexOf(provTab) >= 0 ? provTab : 'image');
-    function cusBuiltins(kind) {
-      return (REG.providers || []).filter(p => !p.custom && p.kind === kind);
-    }
+    /* 档 → 接口形状那一族。语音识别 / 联网搜索没有自己的接口族：它们跑在文字那一套上。 */
+    const shapeKindOf = cap => (cap === 'asr' || cap === 'search') ? 'text' : cap;
+    const cusKind = () => shapeKindOf(cusCaps.value[0] || 'image');
     function cusFamilies(kind) {
       return ((REG && REG.interfaceShapes) || {})[kind] || [];
     }
     const cusProvById = id => (REG.providers || []).find(p => p.id === id) || null;
+    /* 照哪一家的接口形状：只按**主档**那一族找（没有了「先选一家内置平台」这一层，
+       所以模板永远来自 interfaceShapes —— 这就是「你跑的是哪一套协议」那件事）。 */
     function cusTemplate() {
-      const kind = cusKind();
-      const pv = cusProvSel.value;
-      if (pv && pv !== CUS_CUSTOM) return cusProvById(pv);
-      const fam = cusFamilies(kind).find(f => f.id === cusShapeSel.value);
+      const fam = cusFamilies(cusKind()).find(f => f.id === cusShapeSel.value);
       return fam ? cusProvById(fam.template) : null;
     }
     function cusSetMsg(text, cls) {
@@ -598,21 +1163,16 @@ const SettingsView = {
     }
     function paintCusCount() {
       if (!cusCount) return;
-      const kind = cusKind();
+      const caps = cusCaps.value;
       const list = Api.customList();
-      const n = list.length;
-      const mine = list.filter(e => e && (e.kind || '') === kind).length;
-      cusCount.value = window.provKindZh(kind) + '类 · 四种类型合计已接 ' + n + ' 家 · 这一类 ' + mine + ' 家';
+      cusCount.value = caps.map(capZh).join(' + ') + ' · 合计已接 ' + list.length + ' 家';
     }
-    /* 显示名预填跟着「照哪一家」走（内置那家填它自己的平台名，「自定义」按类型编号）。 */
+    /* 显示名预填：按主档自动编号（「图片 1 / 视频 2」这种），换档跟着换，用户改过就不再动。 */
     function cusDefaultName(kind) {
-      const pv = cusProvSel.value;
-      const b = pv && pv !== CUS_CUSTOM ? cusProvById(pv) : null;
-      const zh = (CUS_KINDS.find(k => k[0] === kind) || [, kind])[1];
-      const stem = String((b && (b.displayName || b.name)) || '').trim() || zh;
+      const zh = capZh(kind);
       const taken = new Set(Api.customList().filter(e => e && (e.kind || 'image') === kind).map(e => (e.name || '').trim()));
-      for (let i = 1; i < 200; i++) { const n = i === 1 ? stem : stem + ' ' + i; if (!taken.has(n)) return n; }
-      return stem;
+      for (let i = 1; i < 200; i++) { const n = i === 1 ? zh : zh + ' ' + i; if (!taken.has(n)) return n; }
+      return zh;
     }
     function cusFillName() { cusAutoName = cusDefaultName(cusKind()); cusName.value = cusAutoName; }
     function cusSyncName() {
@@ -630,14 +1190,17 @@ const SettingsView = {
       const cur = String(cusBase.value || '').trim();
       if (!cur || cur === cusAutoBase) cusFillBase();
     }
-    /* 「已添加的几家」列在这张卡里：在哪一档加的就回到哪一档改 / 删。 */
+    /* 「已添加的几家」列在这张卡里：按档分组、全部列出来（不再只列「当前那一档」—— 一排分段开关已经撤掉）。
+       点某一家的「编辑」会把上面那一格「哪一档」切到它自己那一档，否则改了档就变成另一条声明。 */
     function paintCusMine() {
       const list = Api.customList().filter(e => e && e.id);
       cusMineShown.value = !!list.length;
-      cusMineGroups.value = CUS_KINDS.map(kv => {
-        const mine = list.filter(e => (e.kind || 'image') === kv[0]);
+      const kinds = window.provKinds();
+      const extra = [...new Set(list.map(e => e.kind || 'image'))].filter(k => kinds.indexOf(k) < 0);
+      cusMineGroups.value = kinds.concat(extra).map(k => {
+        const mine = list.filter(e => (e.kind || 'image') === k);
         return {
-          kind: kv[0], zh: kv[1],
+          kind: k, zh: capZh(k),
           items: mine.map(e => ({ id: e.id, name: e.name || e.id, modelsN: (e.models || []).length })),
         };
       }).filter(g => g.items.length);
@@ -645,61 +1208,85 @@ const SettingsView = {
     function openCus() {
       cusShown.value = true;
       if (cusEditing.value) cusReset();
-      cusProvSel.value = '';
       cusShapeSel.value = '';
       renderCus();
       nextTick(() => {
         if (cusCardEl.value) scrollToEl(cusCardEl.value);
         const focus = String(cusName.value || '').trim() ? cusBaseEl.value : cusNameEl.value;
-        if (focus) focus.focus();
+        if (focus) window.focusQuiet(focus);
       });
     }
-    /* 类型 → 供应商 → 接口形状 → 型号 联动：清单全取自 /registry 的声明。 */
+    /* 收起来 = 这一张卡不再占位；正在编辑的那一条原样留着（没点「保存这一家」就没动过它）。 */
+    function hideCus() {
+      cusShown.value = false;
+      if (cusEditing.value) cusReset();
+      renderProv();
+      cusSetMsg('', '');
+    }
+    /* 能力档 → 接口形状 → 型号 联动：清单全取自 /registry 的声明。
+       没有「先选一家内置平台」这一格了 —— 那条路就是「另一家内置平台」，与「添加自己的」是两件事；
+       这一张卡只做后者（要接内置那几家，上面那张卡里点「添加」）。 */
     function renderCus() {
       const kind = cusKind();
+      paintCusCaps();
+      paintCusNamePh();
       paintCusCount();
       paintCusMine();
-      /* ---- 供应商（内置那几家 + 末尾「自定义」） ---- */
-      const provs = cusBuiltins(kind);
-      const prev = cusProvSel.value;
-      cusProvOpts.value = provs.map(p => ({ id: p.id, label: p.displayName || p.name }))
-        .concat([{ id: CUS_CUSTOM, label: '自定义（我跑的是别的厂商的协议）' }]);
-      const okIds = provs.map(p => p.id).concat([CUS_CUSTOM]);
-      if (!cusProvSel.value || okIds.indexOf(cusProvSel.value) < 0) {
-        cusProvSel.value = (prev && okIds.indexOf(prev) >= 0) ? prev : (provs[0] ? provs[0].id : CUS_CUSTOM);
-      }
-      /* ---- 接口形状：只在「自定义」时出现 ---- */
-      const isCustom = cusProvSel.value === CUS_CUSTOM;
-      cusShapeShown.value = isCustom;
-      if (isCustom) {
-        const fams = cusFamilies(kind);
-        cusShapeOpts.value = fams.length
-          ? fams.map(f => ({ id: f.id, label: f.name }))
-          : [{ id: '', label: '这一类还没有登记接口形状' }];
-        const sk = cusShapeSel.value;
-        cusShapeSel.value = fams.some(f => f.id === sk) ? sk : ((fams[0] && fams[0].id) || '');
-        if (!fams.length) {
-          cusModelsEmpty.value = '这一类在注册表里还没有登记接口形状 —— 接口形状完全不一样的平台需要改代理的注册表，这里不猜字段。';
-          cusModelRows.value = [];
-          cusShapeHint.value = '';
-          cusSyncBase();
-          cusSyncName();
-          nextTick(syncCusDropdowns);
-          return;
-        }
-        const f = fams.find(x => x.id === cusShapeSel.value);
-        const tpl = f ? cusProvById(f.template) : null;
-        cusShapeHint.value = (f && f.note ? f.note + ' ' : '') + '照「' + ((tpl && (tpl.displayName || tpl.name)) || '—') + '」那一家的声明走。';
+      const fams = cusFamilies(kind);
+      cusShapeShown.value = true;
+      cusShapeOpts.value = fams.length
+        ? fams.map(f => ({ id: f.id, label: f.name }))
+        : [{ id: '', label: '这一类还没有登记接口形状' }];
+      const sk = cusShapeSel.value;
+      cusShapeSel.value = fams.some(f => f.id === sk) ? sk : ((fams[0] && fams[0].id) || '');
+      if (!fams.length) {
+        cusModelsEmpty.value = '注册表没有这一类的接口形状。';
+        cusModelRows.value = [];
+        cusSyncBase();
+        cusSyncName();
+        nextTick(syncCusDropdowns);
+        return;
       }
       cusSyncBase();
       cusSyncName();
       nextTick(syncCusDropdowns);
       rebuildCusModels();
     }
+    /* 能力档位那一排图标：与卡顶那排能力格同一副（.capcell），点一下加/去；第一个选中的是主档。 */
+    function paintCusCaps() {
+      const el = cusCapEl.value;
+      if (!el) return;
+      const caps = cusCaps.value;
+      el.innerHTML = allCaps().map(c => {
+        const on = caps.indexOf(c) >= 0;
+        const main = caps[0] === c;
+        return '<button class="capcell' + (on ? ' on' : '') + (main ? ' main' : '') + '" type="button"'
+          + ' data-cuscap="' + window.esc(c) + '" title="' + window.esc(capZh(c)
+            + (main ? ' · 主档（决定接口形状与端点）' : on ? ' · 已选（手动声明的一档）' : ' · 点一下选中')) + '">'
+          + capGlyph(c) + '</button>';
+      }).join('')
+        + '<span class="hint">点图标选档位，可多选；<b>第一个是主档</b>（决定接口形状与端点），'
+        + '其余按「手动声明」记在这一家上。</span>';
+    }
+    function pickCusCap(cap) {
+      const caps = cusCaps.value.slice();
+      const i = caps.indexOf(cap);
+      if (i >= 0) { if (caps.length === 1) return; caps.splice(i, 1); }
+      else caps.push(cap);
+      cusCaps.value = caps;      /* 换主档会换接口形状族 */
+      renderCus();
+    }
+    /* 显示名的占位符按主档那几家已接的名字走（不再由「选了一家内置平台」自动填）。 */
+    function paintCusNamePh() {
+      cusNamePh.value = '例如「我的中转站」—— 型号下拉的分组名认的就是它';
+    }
     function syncCusDropdowns() {
       if (!window.Dropdowns) return;
-      if (cusProvEl.value) { Dropdowns.build(cusProvEl.value.parentElement || cusProvEl.value); Dropdowns.sync(cusProvEl.value); }
-      if (cusShapeEl.value) { Dropdowns.build(cusShapeEl.value.parentElement || cusShapeEl.value); Dropdowns.sync(cusShapeEl.value); }
+      [cusShapeEl.value].forEach(el => {
+        if (!el) return;
+        Dropdowns.build(el.parentElement || el);
+        Dropdowns.sync(el);
+      });
     }
     /* 型号清单：一律现取，不预填模板写死的那份；三个来源并成一份、默认全勾。 */
     function rebuildCusModels() {
@@ -716,7 +1303,7 @@ const SettingsView = {
       const tagZh = { saved: '已保存', fetched: '接口返回', typed: '手填' };
       cusModelRows.value = all.map(x => ({ id: x.id, name: x.name, tag: x.tag, tagZh: tagZh[x.tag] || '' }));
       cusModelsEmpty.value = all.length ? ''
-        : '点右边「获取型号列表」用它自己的接口问一次，拿回来的型号会全部勾上（用不上的再自己勾掉）；也可以用下面「自己填 id」手打。'
+        : '可获取型号列表，或自己填 id。'
           + '这里不会替你预填内置那家的型号清单 —— 那是「内置那一家」的声明，中转站未必有。';
     }
     function onCusModelToggle(id, ev) {
@@ -744,13 +1331,6 @@ const SettingsView = {
         if (droppedKid && top && typeof top.__sbBalanceDrop === 'function') top.__sbBalanceDrop(droppedKid);
       } catch (e) {}
     }
-    function cusKindChanged() {
-      if (!cusShown.value) return;
-      cusProvSel.value = '';
-      cusShapeSel.value = '';
-      renderCus();
-    }
-    function onCusProvChange(ev) { if (ev && ev.target) cusProvSel.value = ev.target.value; renderCus(); }
     function onCusShapeChange(ev) { if (ev && ev.target) cusShapeSel.value = ev.target.value; renderCus(); }
     function cusReset() {
       cusEditing.value = '';
@@ -758,35 +1338,30 @@ const SettingsView = {
       cusCancelShown.value = false;
       cusName.value = ''; cusBase.value = ''; cusKey.value = ''; cusExtra.value = '';
       cusAutoName = '';
+      cusCaps.value = ['image'];
       cusFetched.value = []; cusFetchFrom.value = ''; cusOff.clear();
       renderCus();
     }
     async function editCus(kid) {
       const e = Api.customList().find(x => x && x.id === kid);
-      if (!e) { setMsg(kid, '清单里找不到这一条（可能刚被删掉）—— 刷新一次页面看看。', 'msg err'); return; }
-      if (e.kind && e.kind !== provTab) {
-        setProvTab(e.kind);
-        if (e.kind !== 'text') provSel.set(e.kind, kid);
-        renderProv();
-      }
+      if (!e) { acctMsg(kid, '清单里找不到这一条（可能刚被删掉）—— 刷新一次页面看看。', 'err'); return; }
+      /* 编辑哪一家：档位回填成「它自己的主档 + 手动声明的那几档」（与卡里那几行一致）。 */
+      cusCaps.value = [e.kind || 'image'].concat(manualCapsOf(kid));
       cusShown.value = true;
+      /* 「哪一张卡里有这一格」要重画网格才知道：添加卡里那个落点是 cusShown 变了才画出来的。 */
+      renderProv();
       cusEditing.value = kid;
       cusOff.clear();
       cusAutoName = '';
       cusAutoBase = '';
-      cusProvSel.value = '';
       cusShapeSel.value = '';
       renderCus();
-      /* 还原「当初是怎么选的」 */
+      /* 还原「当初选的是哪一族形状」：shapeId 是新写法，老条目只剩 shape（模板 provider id），
+         照它反查回那一族。 */
       const fams = cusFamilies(e.kind);
-      if (e.prov && cusProvById(e.prov)) cusProvSel.value = e.prov;
-      else if (e.shapeId && fams.some(f => f.id === e.shapeId)) { cusProvSel.value = CUS_CUSTOM; cusShapeSel.value = e.shapeId; }
-      else if (cusProvById(e.shape)) cusProvSel.value = e.shape;
-      else {
-        cusProvSel.value = CUS_CUSTOM;
-        const f = fams.find(x => x.template === e.shape);
-        if (f) cusShapeSel.value = f.id;
-      }
+      const byShapeId = e.shapeId && fams.some(f => f.id === e.shapeId) ? e.shapeId
+        : ((fams.find(x => x.template === e.shape) || {}).id || '');
+      if (byShapeId) cusShapeSel.value = byShapeId;
       renderCus();
       cusName.value = e.name || '';
       cusAutoName = '';
@@ -803,7 +1378,7 @@ const SettingsView = {
       nextTick(() => {
         syncCusDropdowns();
         /* 卡片刚从 hidden 里放出来时量位置才算数：同步那一行代码还在隐藏态里，滚不动。 */
-        if (cusProvEl.value) scrollToEl(cusProvEl.value, 'center');
+        if (cusCapEl.value) scrollToEl(cusCapEl.value, 'center');
       });
     }
     async function removeCus(kid) {
@@ -814,12 +1389,11 @@ const SettingsView = {
         sub: '删掉「' + ((e && e.name) || kid) + '」，连它名下的密钥、型号选择与「暂时不用」勾选一起清。',
         body: '已经生成的产物与历史不受影响（那些记在平台列表与本机资产里）。'
           + '以后还要用同一个网关就重新添加一家 —— 新的 id 不认旧密钥，需要重填一次。'
-          + (wasText ? '\n\n注意：这一家正是现在「作用文字 AI」的那一家，删掉之后 AI 润色 / 拆分 / 助手会改用别家'
-            + '（在「文字 AI」那一档重新选一家，或先切过去再回来）。' : ''),
+          + (wasText ? '\n\n注意：这一家是当前文字 AI，删掉后会改用别家。' : ''),
       });
       if (!go) return;
       if (!Api.customDrop(kid)) {
-        cusSetMsg('没有删掉：清单写不进本机存储（配额满或隐私模式）。先到本页「清理缓存」那一栏删掉不用的历史再试。', 'err');
+        cusSetMsg('没删掉：本机存储满，先清缓存。', 'err');
         return;
       }
       if (cusEditing.value === kid) cusReset();
@@ -828,9 +1402,8 @@ const SettingsView = {
     }
     async function addCus() {
       const t = cusTemplate();
-      const isCustom = cusProvSel.value === CUS_CUSTOM;
       if (!t) {
-        cusSetMsg(isCustom ? '在「接口形状」里选一套协议（OpenAI 兼容 / H3 兼容…）。' : '在「供应商」里选一家内置平台，或选「自定义」再挑一套接口形状。', 'err');
+        cusSetMsg('在「接口形状」里选一套协议（OpenAI 兼容 / H3 兼容…）。', 'err');
         return;
       }
       const name = String(cusName.value || '').trim();
@@ -852,10 +1425,14 @@ const SettingsView = {
       const list = Api.customList().filter(e => e && e.id !== id);
       list.push({
         id, name, kind: t.kind, shape: t.id,
-        prov: isCustom ? '' : cusProvSel.value,
-        shapeId: isCustom ? cusShapeSel.value : '',
+        prov: '',
+        shapeId: cusShapeSel.value,
         base, models,
       });
+      /* 选了两个以上档位：第一个是主档（这条自定义条目就是它），其余记成「手动声明」——
+         与卡里「＋ 手动加一档能力」同一个键、同一套语义：识别 / 搜索真能用，
+         生成三档只算声明（那一行会写明还差注册表一条端点）。 */
+      const extraCaps = cusCaps.value.slice(1);
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
       /* 先落密钥、再落那份清单：密钥这一格写不进去（配额满 / 隐私模式）时当场收工，
          不会出现「卡片说已添加、下一次调用才发现根本没有密钥」。写盘走 `window.LS`
@@ -876,20 +1453,24 @@ const SettingsView = {
           + '先到本页「清理缓存」那一栏删掉不用的历史，再重试一次。', 'err');
         return;
       }
-      if (t.kind !== 'text') {
-        setProvTab(t.kind);
-        provSel.set(t.kind, id);
-      }
       await afterCustomChanged();
+      /* 多选的其余档：记成这一家的「手动声明」（sk_caps_<id>）。识别 / 搜索真能用；
+         生成三档只算声明 —— 卡里那一行会写明还差注册表一条端点，这里不假装。 */
+      setManualCaps(id, extraCaps);
       const wasEditing = cusEditing.value;
       cusReset();
+      /* 加完 / 存完就收起来（回到「预设」形态）：这张卡平时是清单，展开只是临时填一填。
+         回执走 Toast —— 收起之后表单里那一行字没人看得见。 */
+      cusShown.value = false;
+      renderProv();
       const via = Api.verifyTarget({ endpoints: t.endpoints });
-      cusSetMsg('已' + (wasEditing ? '保存' : '添加') + '「' + name + '」，界面已经切到这一家。'
+      Toast.receipt('已' + (wasEditing ? '保存' : '添加') + '「' + name + '」—— 卡片流里现在就是它自己那一张卡。'
+        + (extraCaps.length ? '另外 ' + extraCaps.map(capZh).join(' / ') + ' 记成了「手动声明」那一档。' : '')
         + (t.kind === 'text'
-          ? '它的密钥 / 地址 / 型号清单都在这一张卡里（要成为默认的那家，点它卡上的「作用文字 AI」，改完自动存进本机；'
-            + '地址与型号清单以后用「编辑」改）。'
-          : window.provKindZh(t.kind) + '台与素材库的型号下拉里现在都有它。'
-            + '要确认地址与密钥通不通，点上面那张卡上的「验证」（问一次' + via.label + '，不建任务、不扣费）。'), 'ok');
+          ? '密钥 / 型号清单 / 识图都在那一张卡上（要让它顶「文字对话」这一档，点卡上那一格的状态牌；'
+            + '地址要改就点卡底的「编辑」）。'
+          : capZh(t.kind) + '这一档的型号下拉里现在都有它。'
+            + '要确认地址与密钥通不通，点它那张卡上的「验证」（问一次' + via.label + '，不建任务、不扣费）。'), 'ok');
     }
     function cancelCus() {
       const n = cusEditing.value;
@@ -903,7 +1484,7 @@ const SettingsView = {
       const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
       if (!httpsBaseOk(base)) { cusSetMsg('先填上面的接口地址（要 https:// 开头），获取型号要用它。', 'err'); return; }
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
-      if (!key) { cusSetMsg('先填密钥 —— 型号列表是要鉴权的接口。', 'err'); if (cusKeyEl.value) cusKeyEl.value.focus(); return; }
+      if (!key) { cusSetMsg('先填密钥 —— 型号列表是要鉴权的接口。', 'err'); if (cusKeyEl.value) window.focusQuiet(cusKeyEl.value); return; }
       cusFetchBusy.value = true;
       try {
         const r = await Net.fetch('/custom/models', {
@@ -1029,11 +1610,13 @@ const SettingsView = {
       syncServiceProvs();
     }
 
-    /* ---------- 文字 AI：型号 + 识图（供应方 / 密钥 / 地址都在供应商卡里） ----------
-       取回的型号列表按供应方各存各的；型号与识图也有草稿（切档回来不丢）。
+    /* ---------- 型号面板的读写（供应方 / 密钥都在账号卡里） ----------
+       一格面板 = 一个槽（keyId:档）：同一把密钥下图片档与文字档各有自己的型号接口，
+       取回的清单按槽存才不会串档。⚠ 落盘仍是按账号那一份：文字档的型号 = sk_model_<keyId>，
+       「自己填的 id」与「藏起来的那几个」= sk_model_prefs（也按 keyId）—— 界面不装作按档各存一份。
        这一段整体在 textForm 里，而 saveAllNow 在外面 —— 跨这一层只走 textForm 的公开口。 */
-    const fetched = new Map();      // providerId → [{id,name}]（本轮内存副本）
-    const fetchedOf = p => fetched.get((p && (p.keyId || p.id)) || '') || [];
+    const fetched = new Map();      // slot → [{id,name}]（本轮内存副本，不落盘）
+    const fetchedOf = p => (p ? fetched.get(slotOfProv(p)) : null) || [];
     const modelDraft = new Map();   // keyId → 还没落盘的型号
     const visionDraft = { v: null };
     let visionTipSeq = 0;
@@ -1046,23 +1629,54 @@ const SettingsView = {
       const picked = list.find(x => x.id === curTextId());
       return picked || TextAI.prov(REG) || list[0];
     }
-    /* 认家按整份注册表找；同一把 keyId 可能对应两条 provider，优先取**当前这一档**的。 */
-    const provByKid = kid => {
-      const list = (REG.providers || []);
-      const same = list.filter(p => String(p.keyId || p.id) === String(kid));
-      if (!same.length) return null;
-      return same.find(p => p.kind === provTab) || same[0];
-    };
-    const kidOf = el => {
+    /* 识图那一格是「文字档」的属性：按 keyId 找回它自己那一条文字声明。 */
+    const textProvOf = kid => provBySlot(slotKey(kid, 'text'));
+    /* 面板里的控件都带槽名（keyId:档）：有的直接写在身上（tkid / panel / ttest / tfetch / tadd / tmnew），
+       有的只住在面板那一格里（由 [data-mblk] 供）。外面这一层只认槽，不认 keyId。 */
+    const SLOT_ATTRS = ['tkid', 'panel', 'ttest', 'tfetch', 'tadd', 'tmnew'];
+    const slotOfEl = el => {
       if (!el || !el.dataset) return '';
+      for (const a of SLOT_ATTRS) { if (el.dataset[a]) return el.dataset[a]; }
       const blk = el.closest && el.closest('[data-mblk]');
-      return el.dataset.tkid || el.dataset.tmodel || el.dataset.tvision
-        || el.dataset.tfetch || el.dataset.ttest || el.dataset.tadd
-        || (blk ? blk.dataset.mblk : '');
+      return blk ? blk.dataset.mblk : '';
     };
     const selOf = kid => q('[data-tmodel="' + kid + '"]');
     const msgOf = kid => q('[data-msg="' + kid + '"]');
-    const countOf = kid => q('[data-mcount="' + kid + '"]');
+    const countOf = slot => q('[data-mcount="' + window.esc(slot) + '"]');
+    const noteOf = slot => q('[data-mnote="' + window.esc(slot) + '"]');
+    const fetchOf = slot => q('[data-mfetch="' + window.esc(slot) + '"]');
+    /* 面板里那一行的回执：面板开着就写在面板底下，只点了「测试」这种没开面板的写在卡底。 */
+    function panelMsg(slot, text, cls) {
+      const el = q('[data-pmsg="' + window.esc(slot) + '"]');
+      if (el) { el.className = 'msg ' + (cls || ''); el.textContent = text; return; }
+      acctMsg(slotKid(slot), text, cls);
+    }
+    /* 面板顶部那一枚状态牌 + 计数（四态：还没取过 / 正在取 / 取回 n 个·耗时 / 取失败：原因）。 */
+    function paintFetchNote(slot) {
+      const el = fetchOf(slot);
+      if (!el) return;
+      const f = fetchNote.get(slot) || { state: '' };
+      const p = provBySlot(slot);
+      if (f.state === 'busy') { el.className = 'st warn'; el.textContent = '正在取…'; }
+      else if (f.state === 'done') { el.className = 'st ok'; el.textContent = '已取回 ' + f.n + ' 个 · ' + f.ms + 'ms'; }
+      else if (f.state === 'err') { el.className = 'st err'; el.textContent = '取失败：' + f.why; }
+      else if (p && p.endpoints && p.endpoints.models) { el.className = 'st alt'; el.textContent = '还没取过'; }
+      else { el.className = 'st off'; el.textContent = '这一档没有型号接口'; }
+      const btn = q('[data-tfetch="' + window.esc(slot) + '"]');
+      if (btn) btn.textContent = f.state === 'busy' ? '取回中…' : '取一次型号清单';
+      const note = noteOf(slot);
+      if (note) {
+        const p2 = provBySlot(slot);
+        const n = p2 ? allModelsOf(p2).length : 0;
+        const vis = p2 ? allModelsOf(p2).filter(x => !(window.ModelPrefs && ModelPrefs.isOff(p2, x.id))).length : 0;
+        const text = !!(p2 && p2.kind === 'text');
+        note.textContent = '共 ' + n + ' 个 · ' + (text ? '全站润色在用那一个就是这一档的选中值'
+          : '工作台列 ' + vis + ' 个') + (p2 && ((p2.models || []).length) ? ' · 注册表里写了 ' + p2.models.length + ' 个' : '');
+      }
+      const cb = q('[data-panel="' + window.esc(slot) + '"]');
+      if (cb) cb.innerHTML = (panelOpen.has(slot) ? '收起型号 ' : '型号 ') + '<b data-mcount="' + window.esc(slot) + '"></b>';
+      setCount(slot);
+    }
     /* 这一家「都有哪些型号」= 三路并起来，包含被藏起来的那一些。 */
     function allModelsOf(p) {
       const map = new Map();
@@ -1085,27 +1699,26 @@ const SettingsView = {
       const arr = [...map.values()];
       return arr.sort((a, b) => a.id.localeCompare(b.id));
     }
-    function setCount(kid) {
-      const el = countOf(kid);
+    /* 「型号 n/m」那一个按钮上的数：m = 这一档现在知道的总数，n = 会出现在工作台上的那几个。
+       计数挂在按钮里那一枚 <b> 上，取回 / 勾选 / 自己填之后由这里刷新（不整片重画卡片）。 */
+    function setCount(slot) {
+      const el = countOf(slot);
       if (!el) return;
-      const p = provByKid(kid);
-      if (!p) { el.textContent = '（没认出这一家，刷新一下页面再试）'; return; }
+      const p = provBySlot(slot);
+      if (!p) { el.textContent = '—'; el.title = '没认出这一家（注册表可能刚变过）—— 刷新一次页面'; return; }
       const list = allModelsOf(p);
-      const empty = '还没有型号：点「获取型号列表」问一次它的接口，或在下面自己填一个 id';
-      if (!list.length) { el.textContent = empty; return; }
-      if (p.kind === 'text') {
-        const cur = ((selOf(kid) || {}).value) || '';
-        el.textContent = '共 ' + list.length + ' 个 · ' + (cur ? '现在用 ' + cur : '还没选（在下面点一行）');
-        return;
-      }
-      const off = list.filter(x => window.ModelPrefs && ModelPrefs.isOff(p, x.id)).length;
-      el.textContent = '共 ' + list.length + ' 个 · 工作台列 ' + (list.length - off) + ' 个' + (off ? ' · 藏着 ' + off + ' 个' : '');
+      const shown = list.filter(x => !(window.ModelPrefs && ModelPrefs.isOff(p, x.id))).length;
+      el.textContent = shown + '/' + list.length;
+      el.title = '工作台与素材库的型号下拉里列 ' + shown + ' 个 · 这一档一共知道 ' + list.length + ' 个';
     }
-    /* 型号下拉：只显示这一家的型号，按来源分组。keep：明确要选中的那个。 */
-    function fillModelOptions(kid, keep) {
+    /* 型号下拉：只显示这一家的型号，按来源分组。keep：明确要选中的那个。
+       这个下拉只属于「文字对话」那一档（多选档没有下拉，只有面板里的清单行）。 */
+    function fillModelOptions(slot, keep) {
+      if (slotCap(slot) !== 'text') return;
+      const kid = slotKid(slot);
       const sel = selOf(kid);
       if (!sel) return;
-      const p = provByKid(kid);
+      const p = provBySlot(slot);
       if (!p) {
         sel.innerHTML = '<option value="">（没认出这一家，刷新一下页面再试）</option>';
         sel.value = '';
@@ -1119,41 +1732,46 @@ const SettingsView = {
         : '<option value="">（还没有这家接口的型号）</option>';
       const list = ids.length ? ids : [];
       sel.value = list.includes(prev) ? prev : (list[0] || '');
+      /* 一个型号都还没有：只有面板开着时才补那句说明（面板没开时，这一行自己的占位选项与
+         「型号 0/0」已经说清，卡底再挂一段只是噪音）。 */
       if (!list.length) {
-        const cur = (msgOf(kid) || {}).textContent || '';
-        if (!cur || cur.indexOf('还没有型号') === 0) {
-          setMsg(kid, '还没有型号：点「获取型号列表」从它的 /models 拉，或在下面自己填一个（填的只属于这家）。'
-            + '型号完全由接口给你，我们不预置一份固定清单。', 'msg');
+        const mEl = q('[data-pmsg="' + window.esc(slot) + '"]');
+        const cur = (mEl && mEl.textContent) || '';
+        if (mEl && (!cur || cur.indexOf('还没有型号') === 0)) {
+          mEl.className = 'msg';
+          mEl.textContent = '还没有型号。';
         }
       }
-      const row = sel.closest('.krow');
+      const row = sel.closest('.crow') || sel.closest('.krow');
       if (window.Dropdowns && row) { Dropdowns.build(row); Dropdowns.sync(row); }
     }
     /* 每一行 = 一个型号 + 一个「在工作台上展示」的勾选 +（自己填的那几条）一颗「移除」。
-       文字 AI 是单选（点一行 = 全站润色用它），生成三类是多选（勾选 = 出现在工作台下拉里）。 */
-    function renderModelRows(kid) {
-      const box = q('[data-tchips="' + kid + '"]');
+       文字档是单选（点一行 = 全站润色用它，写的还是 sk_model_<keyId> 那一个值）；
+       生成三类是多选（勾选 = 出现在工作台下拉里）。 */
+    function renderModelRows(slot) {
+      const kid = slotKid(slot);
+      const box = q('[data-tchips="' + window.esc(slot) + '"]');
       if (!box) return;
-      const p = provByKid(kid);
+      const p = provBySlot(slot);
       if (!p) { box.innerHTML = ''; return; }
       const list = allModelsOf(p);
       const cur = ((selOf(kid) || {}).value) || '';
       if (!list.length) {
-        box.innerHTML = '<div class="mlist-empty">这一家一个型号都还没有。'
-          + '它有列型号的接口就点上面「获取型号列表」；没有就在上面填一个型号 id —— 我们不会替它编一份清单。</div>';
+        box.innerHTML = '<div class="mlist-empty">还没有型号。</div>';
         return;
       }
       const text = p.kind === 'text';
+      const es = window.esc(slot);
       box.innerHTML = list.map(x => {
         const id2 = window.esc(x.id);
         const src = x.typed ? '自己填的' : (x.api ? '接口给的' : '本机记的');
         const del = x.typed
           ? '<button class="ghost xs" title="移除这个型号（只清本机记录，平台那边不受影响）"'
-            + ' data-tdel="' + id2 + '" data-tkid="' + window.esc(kid) + '">' + ic('close', 10) + '</button>' : '';
+            + ' data-tdel="' + id2 + '" data-tkid="' + es + '">' + ic('close', 10) + '</button>' : '';
         if (text) {
           const on = x.id === cur;
           return '<div class="mlist-row' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
-            + ' data-tpick-model="' + id2 + '" data-tkid="' + window.esc(kid) + '"'
+            + ' data-tpick-model="' + id2 + '" data-tkid="' + es + '"'
             + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
             + ' title="' + (on ? '正在用：全站润色（导演台、素材库里的 AI 文字）都用这一个'
               : '点这一行 = 全站润色改用这个型号') + '">'
@@ -1165,30 +1783,33 @@ const SettingsView = {
         return '<div class="mlist-row' + (off ? ' off' : '') + '">'
           + '<label title="' + (off ? '勾上 = 让它重新出现在工作台的型号下拉里'
             : '勾掉 = 在工作台的型号下拉里藏掉这一条（不是删掉，随时能勾回来）') + '">'
-          + '<input type="checkbox" data-mshow="' + id2 + '" data-tkid="' + window.esc(kid) + '"' + (off ? '' : ' checked') + '>'
+          + '<input type="checkbox" data-mshow="' + id2 + '" data-tkid="' + es + '"' + (off ? '' : ' checked') + '>'
           + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + window.esc(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
           + '</label>'
           + '<span class="mlist-src">' + src + '</span>' + del
           + '</div>';
       }).join('');
     }
-    /* 点清单上一行 = 选中这一个（与型号下拉写同一个键 sk_model_<keyId>，两处必须同时动）。 */
-    function pickTextModel(kid, id) {
-      const p = provByKid(kid);
+    /* 点文字档清单上一行 = 选中这一个（与上面那个下拉写同一个键 sk_model_<keyId>，两处必须同时动）。 */
+    function pickTextModel(slot, id) {
+      const kid = slotKid(slot);
+      const p = provBySlot(slot);
       const sel = selOf(kid);
       const m = String(id || '');
       if (!p || !sel || !m) return;
       if (![...sel.options].some(o => o.value === m)) {
-        setMsg(kid, '这一行不在下拉的选项里（清单与下拉对不上）—— 点「获取型号列表」重新取一次。', 'msg err');
+        panelMsg(slot, '这一行不在下拉的选项里（清单与下拉对不上）—— 点「取一次型号清单」重新取一次。', 'msg err');
         return;
       }
       if (sel.value === m && modelDraft.get(kid) === m) return;
       sel.value = m;
+      /* 下拉是公共件包出来的，程序化改值之后要让它把显示文字与选项列表跟上。 */
+      if (window.Dropdowns) Dropdowns.sync(sel);
       modelDraft.set(kid, m);
-      renderModelRows(kid);
-      setCount(kid);
+      renderModelRows(slot);
+      paintFetchNote(slot);
       refreshVisionTip(kid);
-      setMsg(kid, '已选择型号：' + m + '（全站润色都用它；改完就自动存进本机，「测试」会直接用这个）', 'msg');
+      panelMsg(slot, '已选择型号：' + m + '（全站润色都用它；改完就自动存进本机，「测试」会直接用这个）', 'msg');
       markChanged();
     }
     /* 文字档改单选之后，「藏起来」在这一档不再有界面 —— 旧版本留下的 off 记录要摘掉。
@@ -1199,12 +1820,19 @@ const SettingsView = {
       off.forEach(id => ModelPrefs.setOff(p, id, false));
     }
     function paintTextCards() {
+      /* 「型号 n/m」那枚计数每一档行上都有（不只是展开着面板的那几档）：按槽现算一遍。 */
+      qa('[data-mcount]').forEach(el => setCount(el.dataset.mcount));
+      /* 文字档那一个下拉**常驻**在每一行上（不随面板开合），所以先按它把选项填上；
+         型号面板只在展开时才在 DOM 里，里面的清单行按槽重画。 */
+      qa('[data-tmodel]').forEach(sel => {
+        const slot = slotKey(sel.dataset.tmodel, 'text');
+        forgetTextOff(provBySlot(slot));
+        fillModelOptions(slot);
+      });
       qa('[data-mblk]').forEach(blk => {
-        const kid = blk.dataset.mblk;
-        forgetTextOff(provByKid(kid));
-        fillModelOptions(kid);
-        renderModelRows(kid);
-        setCount(kid);
+        const slot = blk.dataset.mblk;
+        renderModelRows(slot);
+        paintFetchNote(slot);
       });
       scheduleAutofetch();
       const tv = q('[data-tvision]');
@@ -1215,13 +1843,14 @@ const SettingsView = {
         refreshVisionTip(tv.dataset.tvision);
       }
     }
-    /* 识图能力：自动 / 支持 / 不支持（存 sk_text_vision）。 */
+    /* 识图能力：自动 / 支持 / 不支持（存 sk_text_vision）。它跟着「文字档」那一条声明走，
+       所以按 keyId 找回那一条，而不是按卡上正在展开的某一档。 */
     async function refreshVisionTip(kid) {
       const el = q('[data-vtip="' + kid + '"]');
       if (!el || !window.TextAI) return;
       const seq = ++visionTipSeq;
       const REG2 = REG || { providers: [] };
-      const p2 = provByKid(kid);
+      const p2 = textProvOf(kid);
       if (!p2) { el.textContent = '没认出这一家供应商，识图能力判不了 —— 刷新一下页面再试。'; return; }
       const mdl = ((selOf(kid) || {}).value) || '';
       el.textContent = '正在读取型号能力…';
@@ -1230,8 +1859,7 @@ const SettingsView = {
       catch (e) { v = TextAI.vision(REG2, p2, mdl); }
       if (seq !== visionTipSeq) return;
       if (!v.model) {
-        el.textContent = '还没选型号，识图能力判不了 —— 先点「获取型号列表」用它自己的 /models 拉一个，'
-          + '或在上面的输入框里自己填一个。';
+        el.textContent = '还没选型号。';
         return;
       }
       el.textContent = v.ok
@@ -1239,18 +1867,16 @@ const SettingsView = {
         : '当前型号 ' + v.model + '：润色时只发文字（判定依据：' + v.why + '）。若该型号确实能识图，把上面选成「支持识图」即可强制启用。';
     }
     const cleanKey = s => String(s == null ? '' : s).replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
-    /* 内置平台与自定义供应商共用的接口地址判据（就这一份）：代理的出站护栏只放行公网 https，
-       http / 内网地址每一笔请求都会被代理当场拒 —— 设置页不拦的话错误发生在很久以后。 */
+    /* 接口地址的判据：代理的出站护栏只放行公网 https，http / 内网地址每一笔请求都会被代理当场拒 ——
+       添加与编辑自定义那一家时不拦的话，错误发生在很久以后。 */
     const httpsBaseOk = v => /^https:\/\//i.test(String(v == null ? '' : v).trim());
-    const BASE_SKIP_WHY = '接口地址（只收公网 https，代理会把密钥发到这个地址）';
     const draftOf = kid => draftKey(kid);
-    const draftBaseOf = kid => draftBase(kid);
+    /* 地址没有草稿：卡上不再改它，取型号 / 验证用的就是盘上那一份（自定义那几家由添加与编辑那一格写盘）。 */
     function useFormCreds(p) {
       if (!p) return '';
       const kid = p.keyId || p.id;
       const raw = cleanKey(draftOf(kid));
-      const base = (draftBaseOf(kid) || '').trim();
-      TextAI.setFormOverride(p, { key: raw, base });
+      TextAI.setFormOverride(p, { key: raw, base: null });
       return raw;
     }
     const fetchTextModels = async p => {
@@ -1270,15 +1896,27 @@ const SettingsView = {
       });
       return out;
     };
-    async function runFetchModels(p, kid) {
-      const list = p.kind === 'text' ? await fetchTextModels(p, kid) : await fetchMediaModels(p);
-      if (!list.length) throw new Error('接口没有返回型号');
-      fetched.set(kid, list);
-      if (window.ModelPrefs) ModelPrefs.setGot(p, list);
-      renderModelRows(kid);
-      setCount(kid);
-      fillModelOptions(kid);
-      return list;
+    async function runFetchModels(p, slot, btn) {
+      if (btn) {
+        fetchNote.set(slot, { state: 'busy' });
+        paintFetchNote(slot);
+      }
+      const t0 = Date.now();
+      try {
+        const list = p.kind === 'text' ? await fetchTextModels(p) : await fetchMediaModels(p);
+        if (!list.length) throw new Error('接口没有返回型号');
+        fetched.set(slot, list);
+        if (window.ModelPrefs) ModelPrefs.setGot(p, list);
+        fetchNote.set(slot, { state: 'done', n: list.length, ms: Date.now() - t0 });
+        renderModelRows(slot);
+        fillModelOptions(slot);
+        paintFetchNote(slot);
+        return list;
+      } catch (e) {
+        fetchNote.set(slot, { state: 'err', why: errText(e), ms: Date.now() - t0 });
+        paintFetchNote(slot);
+        throw e;
+      }
     }
     const autofetchTried = new Set();
     let autofetchRunning = false;
@@ -1287,14 +1925,14 @@ const SettingsView = {
       autofetchRunning = true;
       try {
         for (const blk of qa('[data-mblk]')) {
-          const kid = blk.dataset.mblk;
-          if (autofetchTried.has(kid)) continue;
-          const p = provByKid(kid);
+          const slot = blk.dataset.mblk;
+          if (autofetchTried.has(slot)) continue;
+          const p = provBySlot(slot);
           if (!p || p.kind === 'text') continue;
           if (!(p.endpoints && p.endpoints.models)) continue;
-          if (allModelsOf(p).length) { autofetchTried.add(kid); continue; }
-          autofetchTried.add(kid);
-          try { await runFetchModels(p, kid); } catch (e) { /* 取不到就照旧显示那句提示 */ }
+          autofetchTried.add(slot);
+          if (allModelsOf(p).length) continue;
+          try { await runFetchModels(p, slot); } catch (e) { /* 取不到就照旧显示那句提示 */ }
         }
       } finally { autofetchRunning = false; }
     }
@@ -1303,20 +1941,23 @@ const SettingsView = {
       scheduleAutofetch._busy = true;
       setTimeout(() => { scheduleAutofetch._busy = false; autofetchModels(); }, 400);
     }
-    async function onProvClick(ev) {
+    /* 型号面板里那一格的操作：取清单 / 测试 / 自己填 / 移除 / 点一行选中。
+       与卡上那一族开关（onAcctClick）各认各的 data-*，挂在同一颗网格上互不抢。 */
+    async function onPanelClick(ev) {
       const row = ev.target.closest('[data-tpick-model]');
       if (row && !ev.target.closest('[data-tdel]')) {
         ev.preventDefault();
-        pickTextModel(kidOf(row), row.dataset.tpickModel);
+        pickTextModel(slotOfEl(row), row.dataset.tpickModel);
         return;
       }
       const b = ev.target.closest('[data-tfetch],[data-ttest],[data-tadd],[data-tdel]');
       if (!b) return;
       ev.preventDefault();
-      const kid = kidOf(b);
-      const prov = provByKid(kid);
+      const slot = slotOfEl(b);
+      const kid = slotKid(slot);
+      const prov = provBySlot(slot);
       if (!prov) {
-        setMsg(kid, '没认出「' + kid + '」这一家（注册表可能刚变过，或这家已经被删了）。'
+        panelMsg(slot, '没认出这一档（注册表可能刚变过，或这一家已经被删了）。'
           + '先刷新一下页面再填 —— 宁可不加，也不能把型号写到别家去。', 'msg err');
         return;
       }
@@ -1324,49 +1965,53 @@ const SettingsView = {
         const id2 = b.dataset.tdel, sel2 = selOf(kid);
         const was = sel2 && sel2.value === id2;
         TextAI.removeCustom(prov, id2);
-        renderModelRows(kid);
-        setCount(kid);
-        fillModelOptions(kid);
+        renderModelRows(slot);
+        fillModelOptions(slot);
+        setCount(slot);
         if (was) refreshVisionTip(kid);
-        setMsg(kid, '已移除型号「' + id2 + '」（只清本机记录；接口自己列出的那些不受影响）', 'msg ok');
+        panelMsg(slot, '已移除型号「' + id2 + '」（只清本机记录；接口自己列出的那些不受影响）', 'msg ok');
         return;
       }
       if (b.dataset.tadd != null) {
-        const inp = q('[data-tmnew="' + kid + '"]');
-        const id2 = ((inp || {}).value || '').trim();
-        if (!id2) { if (inp) inp.focus(); return; }
-        TextAI.addCustom(prov, id2);
+        const inp = (b.closest('.mpanel') || document).querySelector('[data-tmnew]');
+        const raw = ((inp || {}).value || '').trim();
+        if (!raw) { if (inp) window.focusQuiet(inp); return; }
+        /* 逗号分隔一次填多个：一行的输入框，多次落盘 —— 与「自己填」那一格的说法一致。 */
+        const ids = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+        ids.forEach(id2 => TextAI.addCustom(prov, id2));
         if (inp) inp.value = '';
-        renderModelRows(kid);
-        setCount(kid);
-        fillModelOptions(kid, id2);
-        setMsg(kid, '已添加型号 ' + id2 + '（当场存进本机；只属于「' + (prov.name || '这一家')
-          + '」，切到别家不会出现。工作台的型号下拉下一次打开就有它）', 'msg ok');
-        refreshVisionTip(kid);
+        renderModelRows(slot);
+        fillModelOptions(slot, ids[ids.length - 1]);
+        setCount(slot);
+        panelMsg(slot, '已添加 ' + ids.join('、') + '（当场存进本机；只属于「' + (prov.name || '这一家')
+          + '」这一家，别家不会出现。工作台的型号下拉下一次打开就有它们）', 'msg ok');
+        if (prov.kind === 'text') refreshVisionTip(kid);
         return;
       }
       if (b.dataset.tfetch != null) {
         const p = prov;
-        b.disabled = true; const label0 = b.textContent; b.textContent = '获取中…';
+        b.disabled = true;
         try {
-          const list = await runFetchModels(p, kid);
+          const list = await runFetchModels(p, slot, b);
           const from = (p.kind === 'text' ? (TextAI.base(p) || p.base) : (p.base || '')) || '这一家的默认地址';
-          setMsg(kid, '从「' + from + '」获取到 ' + list.length + ' 个型号（只属于「' + p.name + '」），当前选中 ' + (((selOf(kid) || {}).value) || '—'), 'msg ok');
-          refreshVisionTip(kid);
+          panelMsg(slot, '从「' + from + '」取回 ' + list.length + ' 个型号（只属于「' + p.name + '」'
+            + capZh(slotCap(slot)) + '这一档），当前选中 ' + (((selOf(kid) || {}).value) || '—'), 'msg ok');
+          if (p.kind === 'text') refreshVisionTip(kid);
           markChanged();
           if (p.kind === 'text') {
             try {
               const v = await TextAI.verifyKey(await Api.registry(), p);
-              setMsg(kid, ((msgOf(kid) || {}).textContent || '') + '　|　' + v.text
-                + (/OpenRouter|聚合/.test(p.name) ? '（它的型号表公开，所以这一步才有必要）' : ''), 'msg ok');
+              const el = q('[data-pmsg="' + window.esc(slot) + '"]');
+              if (el) el.textContent += '　|　' + v.text
+                + (/OpenRouter|聚合/.test(p.name) ? '（它的型号表公开，所以这一步才有必要）' : '');
             } catch (e) { /* 验证失败不拖累取列表 */ }
           }
         } catch (e) {
           const hint = p.kind === 'text' ? ''
-            : '（生成平台的型号清单是拿「已经存进本机」的那把密钥去问的：刚贴上去的等顶栏那一句变成「✓ 已存本机」再取一次）';
-          setMsg(kid, '获取失败：' + errText(e) + hint, 'msg err');
+            : '（生成平台的型号清单是拿「已经存进本机」的那把密钥去问的：刚贴上去的等状态行那一句变成「刚刚存过」再取一次）';
+          panelMsg(slot, '取型号清单失败：' + errText(e) + hint, 'msg err');
         }
-        finally { b.disabled = false; b.textContent = label0; }
+        finally { b.disabled = false; }
         return;
       }
       if (b.dataset.ttest != null) {
@@ -1375,38 +2020,40 @@ const SettingsView = {
         try {
           useFormCreds(p);
           const model = ((selOf(kid) || {}).value) || '';
-          if (!model) throw new Error('先在上面选一个型号，或自己填一个');
+          if (!model) throw new Error('先在上面选一个型号，或在下面自己填一个');
           if (TextAI.ownsModel && !TextAI.ownsModel(p, model, fetchedOf(p))) {
-            throw new Error('「' + model + '」不属于「' + (p.name || '这一家') + '」的型号列表 —— 多半是刚切供应商时留下的旧值，重新选一个或点「获取型号列表」');
+            throw new Error('「' + model + '」不属于「' + (p.name || '这一家') + '」的型号列表 —— 多半是刚切供应商时留下的旧值，重新选一个或点「取一次型号清单」');
           }
           const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok', { model }, p);
-          setMsg(kid, '✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
-        } catch (e) { setMsg(kid, '✗ 测试失败：' + errText(e), 'msg err'); }
+          panelMsg(slot, '✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
+        } catch (e) { panelMsg(slot, '✗ 测试失败：' + errText(e), 'msg err'); }
         finally { b.disabled = false; b.textContent = label0; }
       }
     }
-    function onProvChange(ev) {
+    function onPanelChange(ev) {
       const cb = ev.target.closest && ev.target.closest('[data-mshow]');
       if (cb) {
-        const kid = kidOf(cb), id2 = cb.dataset.mshow;
-        const p = provByKid(kid);
+        const slot = slotOfEl(cb), id2 = cb.dataset.mshow;
+        const kid = slotKid(slot);
+        const p = provBySlot(slot);
         if (!p || !window.ModelPrefs) {
           cb.checked = !cb.checked;
-          setMsg(kid, '没认出这一家（注册表可能刚变过）。先刷新页面再勾 —— 藏 / 展示不能写到别家去。', 'msg err');
+          panelMsg(slot, '没认出这一档，刷新再试。', 'msg err');
           return;
         }
         const hide = !cb.checked;
         ModelPrefs.setOff(p, id2, hide);
         const wasCur = ((selOf(kid) || {}).value) === id2;
-        renderModelRows(kid);
-        setCount(kid);
-        fillModelOptions(kid);
+        renderModelRows(slot);
+        fillModelOptions(slot);
+        setCount(slot);
         const sel2 = selOf(kid);
         if (sel2) modelDraft.set(kid, sel2.value);
         refreshVisionTip(kid);
-        setMsg(kid, (hide ? '已隐藏 ' : '已展示 ') + id2
-          + '（当场存进本机' + (hide ? '；这不是删掉，勾回来它就在工作台上了' : '') + '）'
-          + (hide && wasCur ? '　|　它原本是这一家选中的型号，下拉已换到清单里的第一个；要把别的那个存成默认，在下面重选一次（选完自动存进本机）' : ''),
+        panelMsg(slot, (hide ? '已隐藏 ' : '已展示 ') + id2
+          + '（当场存进本机；按账号存 —— 这一家每一档共用那一份'
+          + (hide ? '；这不是删掉，勾回来它就在工作台上了' : '') + '）'
+          + (hide && wasCur ? '　|　它原本是这一家选中的型号，下拉已换到清单里的第一个（选完自动存进本机）' : ''),
           'msg ok');
         return;
       }
@@ -1415,32 +2062,31 @@ const SettingsView = {
       const kid = s.dataset.tmodel || s.dataset.tvision;
       if (s.dataset.tvision) { visionDraft.v = s.value; refreshVisionTip(kid); return; }
       modelDraft.set(kid, s.value);
-      renderModelRows(kid);
-      setCount(kid);
-      setMsg(kid, '已选择型号：' + (s.value || '（空）') + '（全站润色都用它；改完就自动存进本机，「测试」会直接用这个）', 'msg');
+      const slot = slotKey(kid, 'text');
+      renderModelRows(slot);
+      setCount(slot);
+      panelMsg(slot, '已选择型号：' + (s.value || '（空）') + '（全站润色都用它；改完就自动存进本机，「测试」会直接用这个）', 'msg');
       refreshVisionTip(kid);
     }
     function initTextForm() {
       textForm = {
-        prov: curTextProv, list: textProvList, provByKid, fetchedOf, paint: paintTextCards,
+        prov: curTextProv, list: textProvList, provBySlot, textProvOf, fetchedOf, paint: paintTextCards,
         clearDrafts() { modelDraft.clear(); visionDraft.v = null; },
         flushDrafts(W, Wdel, skipped, domKeys) {
           for (const [kid, m] of modelDraft) {
             if (domKeys && domKeys.has(kid)) continue;
             if (!m) continue;
-            const p = provByKid(kid);
+            const p = textProvOf(kid);
             if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, fetchedOf(p))) { skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）'); continue; }
             W('sk_model_' + kid, m);
           }
           if (visionDraft.v != null && !q('[data-tvision]')) W('sk_text_vision', visionDraft.v);
         },
       };
-      /* textForm 只给这一页自己用（以前还挂过 window.__textForm，全站没有读它的地方）。 */
+      /* textForm 只给这一页自己用（以前还挂过 window.__textForm，全站没有读它的地方）。
+         面板与卡片上的接线都挂在网格那一个节点上，由 wireAcct 一次绑齐（重画只换 innerHTML，
+         监听器留着 —— 以前每次重画重新绑一遍，重画与点击交错时就会留下死按钮）。 */
       if (window.Dropdowns && rootEl.value) Dropdowns.build(rootEl.value);
-      if (provListEl.value) {
-        provListEl.value.addEventListener('click', onProvClick);
-        provListEl.value.addEventListener('change', onProvChange);
-      }
     }
 
     /* ---------- 列表分页 ---------- */
@@ -1552,7 +2198,7 @@ const SettingsView = {
             const okLine = st.on
               ? ('本机已存 ' + st.count + ' 个产物，共 ' + mbOf(st.bytes) + busy
                 + '（单个超过 200 MB 的不自动存）')
-              : '产物自动存本机已关闭：卡片只留平台地址，地址过期后只能靠「优先用本机文件」之外的手段找回。';
+              : '自动存本机已关闭。';
             const parts = [okLine];
             if (st.on && st.lastAt) {
               parts.push(st.lastErr
@@ -1586,7 +2232,7 @@ const SettingsView = {
       tip.className = 'hint sm';
       tip.style.margin = '-4px 0 8px';
       tip.textContent = '浏览器渲染的成片与导出的素材落到这个文件夹（浏览器直接写进去）。'
-        + '没有选时产物会进系统下载文件夹。这一档用浏览器的目录句柄，与下面「本机资产库」（服务端路径，代理写）是两件事。';
+        + '没选时存系统下载文件夹。';
       box.appendChild(tip);
       const row = document.createElement('div');
       row.className = 'krow';
@@ -1605,8 +2251,8 @@ const SettingsView = {
         lab.textContent = '未选择';
         btn.textContent = '选择文件夹';
         btn.disabled = true;
-        btn.title = '这个浏览器不支持选目录（File System Access 只在 Chromium 系可用）';
-        why.textContent = '这个浏览器不支持选目录，产物会进系统下载文件夹';
+        btn.title = '浏览器不支持选目录';
+        why.textContent = '不支持选目录，存系统下载文件夹';
         clr.disabled = true;
       } else {
         const paint = name => {
@@ -1712,7 +2358,7 @@ const SettingsView = {
         if (Confirm.arm(rst, '确认恢复默认', { key: 'lib-rst', hint: '再点一次就清空这一格目录 · 已经存下的文件一个都不动' })) return;
         inp.value = '';
         await saveLibDir();
-        setLibNote('已恢复默认：下一次生成起存到系统「下载」下的 拾帧\\。已经在别的目录里的文件一个都不动。');
+        setLibNote('已恢复默认。');
       };
       row.appendChild(kn); row.appendChild(inp); row.appendChild(pick); row.appendChild(rst); row.appendChild(why);
       box.appendChild(row);
@@ -1777,7 +2423,7 @@ const SettingsView = {
       await refreshLibRoot();
       if (prev !== want) {
         setLibNote(want ? ('位置已改成这一格（下一次生成才落到这里，已经在库里的文件不动）。')
-          : '位置已留空 → 用默认的 下载\\拾帧（下一次生成才落到这里，已经在库里的文件不动）。');
+          : '已留空，用默认位置。');
       }
     }
 
@@ -2031,65 +2677,38 @@ const SettingsView = {
       let quotaDead = !window.LS.set('_probe_write', '1');
       if (!quotaDead) window.LS.del('_probe_write');
       if (quotaDead) {
-        saveFailed = '本机存储写不进去了，刚才那一项没有保存。先到本页「清理缓存」那一栏的「本地任务记录」'
-          + '删掉不用的历史（那一步真的会腾出 localStorage），或删掉素材库里不要的条目；'
-          + '腾出来之后再改任何一项都会自动重试。';
+        saveFailed = '本机存储满，先清缓存。';
         paintSaveState();
         return false;
       }
       const skipped = [];
-      /* 先把「本轮改过、但此刻没画出来」的草稿落盘（卡片按类型档过滤渲染）。
+      /* 先把「本轮改过、但此刻没画出来」的草稿落盘（筛选芯片会把卡片收起来）。
          密钥与「验证」走同一份 cleanKey —— 以前落盘存原值、验证用清洗值，
          粘贴带 `Bearer ` 前缀的密钥（厂商控制台大多这么给）验证 ✓ 通过、
          之后所有润色 / 识图 / 助手请求 401，用户以为是自己配错了。 */
       const domKeys = new Set(qa('[data-key]').map(i => i.dataset.key));
       for (const [kid, v] of keyDraft) if (!domKeys.has(kid) && cleanKey(v)) W('sk_key_' + kid, cleanKey(v));
       for (const kid of keyCleared) if (!domKeys.has(kid)) Wdel('sk_key_' + kid);
-      const domBases = new Set(qa('[data-base]').map(i => i.dataset.base));
-      for (const [kid, v] of baseDraft) {
-        if (domBases.has(kid)) continue;
-        if (!v) continue;
-        if (!httpsBaseOk(v)) { skipped.push(BASE_SKIP_WHY); continue; }
-        W('sk_base_' + kid, v.trim());
-      }
       if (textForm && textForm.flushDrafts) textForm.flushDrafts(W, Wdel, skipped, domKeys);
       qa('[data-key]').forEach(inp => {
         if (cleanKey(inp.value)) W('sk_key_' + inp.dataset.key, cleanKey(inp.value));
         else Wdel('sk_key_' + inp.dataset.key);
       });
-      /* 接口地址：只收公网 https（代理的出站护栏只放行公网 https —— http 地址每一笔请求
-         都会回 400「自定义接口地址只允许公网 https」，设置页不拦的话错误发生在很久以后）；
-         属于别家官方地址时问一次「仍然保存吗」。
-         「这一轮改过、但此刻没画出来」的那一路（上面 baseDraft）走同一份校验 ——
-         以前那条路完全不校验，ftp:// 与内网地址都会原样落盘。 */
-      for (const inp of qa('[data-base]')) {
-        const v = String(inp.value || '').trim();
-        if (!v) { Wdel('sk_base_' + inp.dataset.base); continue; }
-        if (!httpsBaseOk(v)) { skipped.push(BASE_SKIP_WHY); continue; }
-        const row = provRows.get(inp.dataset.base);
-        const own = row && row.prov ? Api.hostOwner(REG, v, row.prov) : null;
-        if (own && own.kind === 'other-provider') {
-          const go = await Confirm.ask({
-            title: '接口地址与供应商不是一家，仍然保存吗？',
-            okLabel: '仍然保存', danger: true,
-            sub: '这个地址属于「' + own.name + '」，而供应商是「' + ((row && row.name) || '当前家') + '」。'
-              + '用后者的密钥发这个地址，上游多半会以「密钥无效」拒绝。'
-              + '如果这是你的中转网关 / 自建代理、且它接受这把密钥，就存下来。',
-            body: '选「取消」= 这一项不写盘（其它设置照存，你的输入原样保留）。',
-          });
-          if (go) W('sk_base_' + inp.dataset.base, v);
-          else skipped.push('接口地址（与选中的供应商不是一家）');
-        } else W('sk_base_' + inp.dataset.base, v);
-      }
-      baseDraft.clear();
       keyDraft.clear();
       keyCleared.clear();
       if (textForm && textForm.clearDrafts) textForm.clearDrafts();
-      /* 「暂时不用」在这里落盘（表单里其它地方一律不写盘）。 */
+      /* 「暂时不用」在这里落盘（表单里其它地方一律不写盘）。先补「点过但此刻没画出来」的那几家：
+         筛选芯片把卡片收起来时 DOM 里没有它们的勾选框，不清草稿下一次重画又会按盘上的旧值弹回。 */
+      const domOff = new Set(qa('[data-off]').map(cb => cb.dataset.off));
+      for (const [kid, v] of acctOffSet) {
+        if (domOff.has(kid)) continue;
+        if (v) W('sk_off_' + kid, '1'); else Wdel('sk_off_' + kid);
+      }
       qa('[data-off]').forEach(cb => {
         if (cb.checked) W('sk_off_' + cb.dataset.off, '1');
         else Wdel('sk_off_' + cb.dataset.off);
       });
+      acctOffSet.clear();
       /* 侧栏余额勾选：在现有名单上按这一行勾选增删，再顺手剪掉已经不存在的 kid。 */
       if (window.SbBal) {
         const off = new Set(SbBal.off());
@@ -2097,10 +2716,11 @@ const SettingsView = {
         const live = new Set((REG.providers || []).map(p => p.keyId || p.id));
         SbBal.setList([...off].filter(k => live.has(k)));
       }
+      /* 「作用文字 AI」= 点某一张卡上「文字对话」那一格的状态牌（单选档换主位）。
+         换一家会整块重画，DOM 里已经没有刚点中那一块，所以这一项由草稿带着落盘。 */
       const tp = textForm ? textForm.prov() : null;
       if (tp) {
-        const pickedEl = q('[data-tpick]:checked');
-        if (pickedEl && pickedEl.dataset.tpick) W(TextAI.provKey(), pickedEl.dataset.tpick);
+        if (textPickDraft) W(TextAI.provKey(), textPickDraft);
         else if (!window.LS.get(TextAI.provKey())) W(TextAI.provKey(), tp.id);
         textPickDraft = '';
         TextAI.setFormOverride(tp, null);
@@ -2109,7 +2729,7 @@ const SettingsView = {
       qa('[data-tmodel]').forEach(sel => {
         const kid = sel.dataset.tmodel, m = sel.value;
         if (!m) return;
-        const p = (textForm && textForm.provByKid) ? textForm.provByKid(kid) : null;
+        const p = textForm ? textForm.textProvOf(kid) : null;
         if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, textForm.fetchedOf(p))) {
           skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）');
         } else {
@@ -2154,9 +2774,9 @@ const SettingsView = {
        普通设置行那一批改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
        只有助手那五颗开关**保留字面量**：tests/settings-schema.cjs 判据⑤点名要在这张数组里看到它们
        （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
-    const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
+    const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_caps_', 'sk_text_', 'sk_polish_', 'sk_dir_',
       'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
-      'sk_custom', 'sk_prov_tab', 'sk_local_dir',
+      'sk_custom', 'sk_local_dir',
       /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
          刻意不写 'ai_chat_' 前缀：ai_chat（对话记录）与 ai_chat_files / _xy / _watch 是数据与本机窗口的事。 */
       'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock', 'ai_chat_ref_send',
@@ -2165,7 +2785,7 @@ const SettingsView = {
     ];
     const DATA_KEYS = ['char_lib'];
     const isSettingKey = k => !DATA_KEYS.includes(k) && EXPORTABLE.some(p => k === p || k.startsWith(p));
-    const RESET_KEEP = ['sk_prov_tab', 'sk_local_dir',
+    const RESET_KEEP = ['sk_local_dir',
       /* 在这台机器上关掉助手是一次有意图的选择：「恢复默认」不该顺手把那颗悬浮球装回来。 */
       'ai_chat_off',
       ...SET_ROWS.filter(r => r.keep).map(r => r.key),
@@ -2261,9 +2881,9 @@ const SettingsView = {
     }
     async function resetSetup() {
       const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
-        body: '会清掉：平台密钥、文字 AI 接口地址与型号、你「添加自定义供应商」那几家（清单与它们的密钥/停用勾选）、润色指令、分页方式与每页条数、素材库的音色与候选张数那几项、网络超时与轮询间隔、分栏比例、提示词归档目录。\n'
-          + '不会清掉：主题、列表视图、各页折叠面板的开合偏好；生成历史、资产、收藏与素材库本身都不受影响。\n'
-          + '清空之前会先把当前设置（含密钥）导出一份 JSON 到下载目录，清错了可以用它导回来。' });
+        body: '会清掉：密钥、接口地址与型号、自定义供应商、润色指令、分页、网络与分栏等全部设置。\n'
+          + '不会清掉：主题、视图偏好、生成历史、资产、收藏与素材库。\n'
+          + '清空前会自动导出一份 JSON 到下载目录。' });
       if (!ok) return;
       await stopPendingSave();
       const bak = backupSettingsBefore('恢复默认前');
@@ -2331,9 +2951,7 @@ const SettingsView = {
     }
     async function pullData() {
       const ok = await Confirm.ask({ title: '从数据文件恢复？', danger: true, okLabel: '恢复并刷新',
-        body: '会用 .data/ 里的数据覆盖浏览器当前数据（设置、历史、收藏、工作区），然后自动刷新页面。\n'
-          + '覆盖之前会先把当前数据导出一份整包备份（只含数据、不含本机文件字节）到下载目录，'
-          + '恢复错了可以用它导回来。' });
+        body: '会覆盖当前数据并自动刷新。覆盖前会自动备份到下载目录。' });
       if (!ok) return;
       if (dataBusy.pull) return;
       dataBusy.pull = true; dataMsg.value = '正在备份当前数据…';
@@ -2353,7 +2971,7 @@ const SettingsView = {
         options: [
           { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏列表、导演台工作区；体积小、恢复够用' },
           { value: 'prompts', label: '数据 + 提示词归档', hint: '再把归档文件夹里那几百上千份 .md 一起打包（纯文本，体积增加不大）' },
-          { value: 'all', label: '连本地文件一起导出', hint: '文件会转成 base64 一起打包，体积可能很大（几百 MB）。不含提示词归档 —— 那份另见上一项' },
+          { value: 'all', label: '连本地文件一起导出', hint: '体积可能大；不含提示词归档。' },
         ],
       });
       if (!pick) return;
@@ -2388,11 +3006,7 @@ const SettingsView = {
           const pack = JSON.parse(r.result);
           const nP = (pack.prompts && pack.prompts.files && pack.prompts.files.length) || 0;
           const ok = await Confirm.ask({ title: '导入整包备份？', danger: true, okLabel: '导入并刷新',
-            body: '会用备份里的内容覆盖浏览器当前数据（设置、历史、收藏、工作区，以及备份里带的本地文件'
-              + (nP ? '，还有 ' + nP + ' 份提示词归档' : '')
-              + '），然后自动刷新。' + (nP ? '归档不会覆盖本机已有的同名文件。' : '')
-              + '\n覆盖之前会先把当前数据导出一份整包备份（只含数据、不含本机文件字节）到下载目录，'
-              + '导错了可以用它导回来。' });
+            body: '会覆盖当前数据并自动刷新。覆盖前会自动备份到下载目录。' });
           if (!ok) return;
           dataMsg.value = '正在备份当前数据…';
           await stopPendingSave();
@@ -3018,7 +3632,10 @@ const SettingsView = {
       }
       const list = items.filter(x => x && x.contract === sc.contract);
       const on = list.filter(x => x.enabled);
-      const active = on[0] || null;
+      /* 谁在生效：**按服务端那枚 conflict 标签**取（它说谁是「被让位的那份」）。
+         页面不能自己按清单顺序取第一个 —— 两份都启用时（老版本状态文件 / 手改）那会选错，
+         界面说的「正在生效」和真正喂给 AI 的正文就不是同一份了。 */
+      const active = on.find(x => !x.conflict) || null;
       const conflict = on.length > 1;
       return {
         list, active, conflict,
@@ -3198,9 +3815,13 @@ const SettingsView = {
       const on = !it.enabled;
       skillBusy.value = true;
       try {
-        await window.WbSkills.setEnabled(id, on);
-        skillMsg.value = '✓ ' + (on ? '已启用 ' : '已停用 ') + id + '：下一轮助手请求生效';
-        Toast.receipt((on ? '已启用 ' : '已停用 ') + id + '：下一轮助手请求生效');
+        const r = await window.WbSkills.setEnabled(id, on);
+        /* 同 contract 的原来那份被服务端**直接停掉**了 —— 回执里要点名，
+           不然界面上突然少了一份在用，人会以为出错了。 */
+        const dis = (r && r.displaced) || [];
+        const tail = dis.length ? '（同一 contract 只留一份，原来的 ' + dis.join('、') + ' 已自动停用）' : '';
+        skillMsg.value = '✓ ' + (on ? '已启用 ' : '已停用 ') + id + tail + '：下一轮助手请求生效';
+        Toast.receipt((on ? '已启用 ' : '已停用 ') + id + tail + '：下一轮助手请求生效');
         await reloadSkills(true);
       } catch (e) {
         Toast.err(errText(e) || '切换失败');
@@ -3300,9 +3921,14 @@ const SettingsView = {
           skillMsg.value = '✓ 已更新 ' + id;
           Toast.receipt('已更新 ' + id);
         } else {
-          const s = await window.WbSkills.install(files, { enable: true });
-          skillMsg.value = '✓ 已新建 ' + s.id + '（并已启用：同一 contract 上原来那份自动让位）';
-          Toast.receipt('已新建 ' + s.id);
+          const r = await window.WbSkills.install(files, { enable: true });
+          const s = r.skill || {};
+          /* 装上去就等于「启用这一份」：同 contract 的原来那份**直接让位**（服务端干的），
+             回执里点名是谁让的位。 */
+          const dis = (r && r.displaced) || [];
+          const tail = dis.length ? '（并已启用：同一 contract 上的 ' + dis.join('、') + ' 已自动停用）' : '（并已启用）';
+          skillMsg.value = '✓ 已新建 ' + s.id + tail;
+          Toast.receipt('已新建 ' + s.id + tail);
         }
         skillMode.value = 'scene';
         await reloadSkills(true);
@@ -3361,7 +3987,8 @@ const SettingsView = {
           Toast.receipt('已更新 ' + target);
           await reloadSkills(true);
         } else {
-          const s = await window.WbSkills.importBundle(next, { enable: false });
+          const r = await window.WbSkills.importBundle(next, { enable: false });
+          const s = r.skill || {};
           skillMsg.value = '✓ 已导入 ' + s.id + '（默认停用，需要时再启用）';
           Toast.receipt('已导入 ' + s.id + '（默认停用，需要时再启用）');
           await reloadSkills(true);
@@ -3461,18 +4088,33 @@ const SettingsView = {
       return '还没填密钥';
     });
 
-    function serviceProvOpts() {
+    /* 语音识别 / 联网搜索各自的「在线服务商」候选：列**所有能当文字 AI 的账号**（判据与能力格同一条：
+       有文字档就带这两档 —— 两档走的都是这家的 base + 密钥 + 一个 OpenAI 兼容端点 / 一个能联网的对话模型）。
+       注册表里**明确声明过**这一档（`extraCaps`）的排在前面；没声明的照列，但名字后面注明一句，
+       否则用户会在一个根本没有那个端点的家上试半天。
+       存着的那一家即便已经不在注册表里，也照样列出来 —— 藏掉它的话下拉会空着、而请求仍在用它。 */
+    function serviceProvOpts(cap, curId) {
       const seen = new Set();
-      return (REG.providers || []).filter(p => p.kind === 'text').filter(p => {
+      const all = (REG.providers || []).filter(p => p.kind === 'text').filter(p => {
         const k = p.keyId || p.id;
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
-      }).map(p => ({ id: p.id, name: p.name + (p.custom ? '（我的）' : '') }));
+      });
+      const declared = p => (p.extraCaps || []).indexOf(cap) >= 0;
+      const list = all.slice()
+        .sort((a, b) => (declared(a) === declared(b) ? 0 : (declared(a) ? -1 : 1)))
+        .map(p => ({ id: p.id, name: p.name + (p.custom ? '（我的）' : '') + (declared(p) ? '' : '（没声明这一档，上游可能不支持）') }));
+      const cur = String(curId || '');
+      if (cur && !list.some(x => x.id === cur)) {
+        const p = (REG.providers || []).find(x => x.id === cur);
+        list.unshift({ id: cur, name: (p ? p.name : cur) + '（没声明这一档，上游可能不支持）' });
+      }
+      return list;
     }
     function syncServiceProvs() {
-      asrProvOpts.value = serviceProvOpts();
-      searchChannelOpts.value = serviceProvOpts();
+      asrProvOpts.value = serviceProvOpts('asr', asr.service.providerId);
+      searchChannelOpts.value = serviceProvOpts('search', search.channelId);
       nextTick(() => {
         [asrProvEl.value, searchChannelEl.value].forEach(el => {
           if (el && window.Dropdowns) Dropdowns.sync(el);
@@ -3744,10 +4386,13 @@ const SettingsView = {
       return o ? o[1] : '';
     }
     const NAV_VALUE = {
-      /* 生成平台：在用几家（一家平台同时服务图片+视频只算一家 —— 与供应商卡里那张清单同口径）。 */
+      /* 账号卡流：接进来几家（用得上 = 有密钥 / 自定义 / .env 配了），再给出各档各几家 ——
+         轨道那一行只有一小格，给「N 家」与最常看的两档就够，别的进卡里看。 */
       providers: () => {
-        const n = provGroups().filter(m => provUsable(m)).length;
-        return n ? (n + ' 家在用') : '还没接';
+        const on = provGroups().filter(m => provUsable(m));
+        if (!on.length) return '还没接';
+        const by = cap => on.filter(m => m.caps.indexOf(cap) >= 0).length;
+        return on.length + ' 家 · 图 ' + by('image') + ' / 视 ' + by('video');
       },
       /* 语音识别 / 联网搜索是供应商那张卡里的两档，轨上不另占行 → 它们的当前值
          也不进值速记（那一栏跟着卡走，看卡就知道）。 */
@@ -3910,11 +4555,11 @@ const SettingsView = {
     /* 搜的是这一行里看得见的字（标题、说明、标签、提示），不含输入框里用户自己敲的内容。 */
     const hayOf = c => ((c.textContent || '') + ' '
       + [...c.querySelectorAll('input,textarea,select,button')].map(x => x.placeholder || x.title || '').join(' ')).toLowerCase();
-    /* 命中落到**行**上。一行 = 一个 krow / 一张供应商卡 / 一段说明 …
-       大盒里套小盒的（供应商卡里面有 krow）只标最里面那一条，免得两层底色叠在一起。
+    /* 命中落到**行**上。一行 = 一个 krow / 一张账号卡 / 一段说明 …
+       大盒里套小盒的（账号卡里面有 krow 与型号行）只标最里面那一条，免得两层底色叠在一起。
        几个词凑不齐在同一行时退回「含任一个词的行」—— 搜「密钥 同步」这种，别一个命中都不给。 */
-    const ROW_SEL = '.krow, .sub, .pb-tip, .prov, .polish-block, .cloud-box, .cloud-row, .sk-item,'
-      + ' .ui-note, .cus-acts, .search-hit, .ref, .sk-hint, .mlist-row';
+    const ROW_SEL = '.krow, .sub, .pb-tip, .acct, .crow, .capadd, .polish-block, .cloud-box, .cloud-row, .sk-item,'
+      + ' .ui-note, .cus-acts, .search-hit, .ref, .sk-hint, .mlist-row, .preset';
     function rowHits(card, terms) {
       if (!terms.length) return [];
       const cand = [...card.querySelectorAll(ROW_SEL)];
@@ -3980,20 +4625,21 @@ const SettingsView = {
     function clearNav() {
       setQ.value = '';
       syncNav();
-      if (setQEl.value) setQEl.value.focus();
+      if (setQEl.value) window.focusQuiet(setQEl.value);
     }
     /* 回车滚到第一处**画得出来的**命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。
-       命中可能落在**没打开的一档**里（语音识别 / 联网搜索那两档靠分段开关切显隐）：
-       字在 DOM 里、屏幕上没有，滚过去看不见 —— 那种不跳，改成把那一档点名说出去
-       （左边目录轨上那两行直达它：点一下就切到那一档）。 */
+       命中可能落在**屏幕上没有的那一份表单**里（语音识别 / 联网搜索：没有哪一家账号顶着对应那一档时，
+       它们停在网格外那一只 hidden 的格子里）：字在 DOM 里、屏幕上没有，滚过去看不见 ——
+       那种不跳，改成点名说清是哪一份表单，并指左边目录轨上「账户与密钥」那一行。 */
     function gotoFirstHit() {
       const all = qa('.set-hit');
       const first = all.filter(painted)[0];
       if (!first) {
         if (all.length) {
           const names = [...new Set(all.map(hitSecName).filter(Boolean))];
-          Toast.warn('这一轮命中的 ' + all.length + ' 行都在没打开的一档里：'
-            + (names.join(' / ') || '收着的那一段') + '，点左边对应那一行就切过去了');
+          Toast.warn('这一轮命中的 ' + all.length + ' 行在屏幕上没有的那一份表单里：'
+            + (names.join(' / ') || '收着的那一段')
+            + ' —— 点左边目录轨上「账户与密钥」那一行，让它顶在某张卡上就能看见');
         } else if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
         return;
       }
@@ -4013,11 +4659,16 @@ const SettingsView = {
     /* 画不出来的行（hidden 的那一块）不算命中点 —— 按回车跳到那样一行时落点被夹回页面顶，
        用户看见的是「什么都没发生」。口径：计数照实算，跳转只滚到**画得出来的第一处**。 */
     const painted = el => !!el && el.offsetParent !== null;
-    /* 命中行所在的档名（藏在没打开的那一档里的行，回报时说清是哪一档）。 */
+    /* 命中行在哪一份「停在网格外面」的表单里（语音识别 / 联网搜索本体住在 .acct-park，
+       由 placeForms 搬进顶着那一档的卡；没搬进去时整块 hidden，屏幕上没有）。 */
     function hitSecName(el) {
-      const sec = el.closest ? el.closest('.prov-sec') : null;
-      const h = sec && sec.querySelector('.prov-sec-h');
-      return h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
+      /* 这两块表单现在没有自己的标题（与图片 / 视频一样，设置就在卡里那一行下面）——
+         名字按容器 id 认，别再去找已经不存在的 .incard-h。 */
+      const box = el.closest ? el.closest('.incard') : null;
+      if (!box) return '';
+      if (box.id === 'asrCard') return '语音识别';
+      if (box.id === 'searchCard') return '联网搜索';
+      return '';
     }
     /* 滚到哪儿，目录轨就亮哪一项：拿视口上三分之一那条线当锚点 ——
        锚点落在哪张卡里就亮哪张；正好在两张卡之间（组标题那一段）就亮刚过去的那张。
@@ -4174,10 +4825,11 @@ const SettingsView = {
       setRailEl, setDocEl, setQEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
       navSumShort, navPos,
       saveText, saveKind,
-      provTabsEl, provTabView, provSumText, provSumErr, provListEl, openCus,
+      capLegendEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
+      asrFormEl, searchFormEl, openCus, hideCus,
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,
-      cusProvEl, cusProvSel, cusProvOpts, onCusProvChange,
-      cusShapeEl, cusShapeSel, cusShapeOpts, cusShapeShown, cusShapeHint, onCusShapeChange,
+      cusCapEl, cusCaps, pickCusCap, cusNamePh,
+      cusShapeEl, cusShapeSel, cusShapeOpts, cusShapeShown, onCusShapeChange,
       cusNameEl, cusName, cusBaseEl, cusBase, cusKeyEl, cusKey, cusKeyShown,
       cusExtraEl, cusExtra, rebuildCusModels, cusModelRows, cusOff, onCusModelToggle, cusModelsEmpty,
       cusFetchBusy, fetchCusModels, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,

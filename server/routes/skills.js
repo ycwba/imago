@@ -21,14 +21,14 @@ async function handleSkills(req, res, ctx) {
     }
     if (part[0] === 'install' && method === 'POST') {
       const body = await ctx.readJson(req, 6 * 1024 * 1024);
-      const skill = store.install(body.files || [], { enable: body.enable !== false });
-      sendJson(res, 200, { ok: true, skill: { id: skill.id, source: skill.source } });
+      const r = store.install(body.files || [], { enable: body.enable !== false });
+      sendJson(res, 200, { ok: true, skill: { id: r.skill.id, source: r.skill.source }, displaced: r.displaced || [] });
       return true;
     }
     if (part[0] === 'import' && method === 'POST') {
       const body = await ctx.readJson(req, 6 * 1024 * 1024);
-      const skill = store.importBundle(body.files || [], { enable: body.enable !== false });
-      sendJson(res, 200, { ok: true, skill: { id: skill.id, source: skill.source } });
+      const r = store.importBundle(body.files || [], { enable: body.enable !== false });
+      sendJson(res, 200, { ok: true, skill: { id: r.skill.id, source: r.skill.source }, displaced: r.displaced || [] });
       return true;
     }
     const id = part[0];
@@ -62,8 +62,10 @@ async function handleSkills(req, res, ctx) {
     }
     if (!part[1] && method === 'PUT') {
       const body = await ctx.readJson(req, 64 * 1024);
-      store.setEnabled(id, body.enabled !== false);
-      sendJson(res, 200, { ok: true });
+      /* 同 contract 的原来那份被**直接停掉**了 —— 把让位的那几份报回去，
+         界面上要当场说清「哪一份停了」，不能只让人看状态自己猜。 */
+      const displaced = store.setEnabled(id, body.enabled !== false);
+      sendJson(res, 200, { ok: true, displaced: displaced || [] });
       return true;
     }
     if (!part[1] && method === 'DELETE') {

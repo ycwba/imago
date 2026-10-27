@@ -295,7 +295,8 @@
         },
         setPlaceholder(text) { if (input) input.placeholder = text == null ? '' : String(text); return api; },
         value() { return input ? input.value : ''; },
-        focus() { if (input) input.focus(); return api; },
+        /* 焦点送进搜索框只是为了「光标接着打」→ 不许抢视口（window.focusQuiet） */
+        focus() { if (input) { if (window.focusQuiet) window.focusQuiet(input); else input.focus(); } return api; },
         destroy() {
           clearTimeout(timer); timer = 0;
           if (input) { input.removeEventListener('input', later); input.removeEventListener('keydown', onSearchKey); }
@@ -307,10 +308,201 @@
     },
   };
 
+  /* 文件类型筛选（图片/视频/音频）：全站一份 —— 工作台 / 收藏页 / 资产库三处共用。
+     形状照工作台原来那副：.ui-seg 分段控件 + 每档一枚计数芯片（.seg-n）。
+     以前三页三副样子：工作台自己拼 innerHTML、收藏页走 filterBar 的芯片行、资产库走 Chips.render 的芯片行
+     —— 用户点名：这几页的「文件类型筛选」该用工作台那一副。先把它收成公共件，三页共用。
+
+     公共件只管「画与接线」：档位表、每档条数、点完之后做什么，都由页面给。
+     各页的内部值口径不一样（工作台用 mtype、收藏页用中文、资产库经 typeKey 归一），**都不归这里管**。
+
+     行为照搬工作台原来那份（studio.js 的 paintCounts），别另发明：
+       · 档位集合不变时**不重建 DOM**（照 dataset.kinds 那套口径）—— 每次重画都重建会闪、丢焦点；
+       · 计数刷新只改文本 + .on + hidden，不重排；
+       · **计数为 0 且不是当前档的那一颗不画**；「全部」档恒显；当前档即使 0 也留着（否则回不去）。
+     选中态统一 .on（与 Chips.render 同一枚 class，不分两派）。 */
+  const kindFilter = {
+    normKinds(list) {
+      return (list || []).map(k => (Array.isArray(k)
+        ? [String(k[0]), k[1] != null ? String(k[1]) : String(k[0])]
+        : [String(k), String(k)]));
+    },
+    html(o = {}) {
+      const oo = o || {};
+      const kinds = kindFilter.normKinds(oo.kinds);
+      return kinds.map(k => '<button type="button" data-k="' + esc(k[0]) + '">' + esc(k[1])
+        + (oo.count ? '<span class="seg-n">0</span>' : '') + '</button>').join('');
+    },
+    bind(host, o = {}) {
+      const el = typeof host === 'string' ? document.getElementById(host) : host;
+      if (!el) return null;
+      /* 挂一枚旗标：全站认「文件类型筛选」就认它（页面上还有别的 .ui-seg ——
+         工作台左栏那颗是「生成类型」开关，不是这一族）。判据也靠它定位。 */
+      el.setAttribute('data-kind-filter', '1');
+      const oo = o || {};
+      let kinds = kindFilter.normKinds(oo.kinds);
+      let value = oo.value != null ? String(oo.value) : (kinds.length ? kinds[0][0] : '');
+      let countFn = typeof oo.count === 'function' ? oo.count : null;
+      let onPick = oo.onPick || null;
+      const allKey = oo.allKey != null ? String(oo.allKey) : 'all';
+      const hideEmpty = oo.hideEmpty !== false;
+
+      const rebuild = () => {
+        const want = kinds.map(k => k[0]).join('|');
+        if (el.dataset.kinds === want) return;
+        el.dataset.kinds = want;
+        el.innerHTML = kindFilter.html({ kinds, count: countFn });
+      };
+      const paint = () => {
+        rebuild();
+        el.querySelectorAll('button[data-k]').forEach(b => {
+          const k = b.dataset.k || '';
+          const n = countFn ? Number(countFn(k) || 0) : 0;
+          const segN = b.querySelector('.seg-n');
+          if (segN) segN.textContent = n;
+          b.classList.toggle('on', k === value);
+          b.hidden = hideEmpty && k !== allKey && k !== value && !n;
+        });
+      };
+      const onClick = e => {
+        const b = e.target && e.target.closest ? e.target.closest('button[data-k]') : null;
+        if (!b || !el.contains(b)) return;
+        value = b.dataset.k || '';
+        paint();
+        if (onPick) onPick(value);
+      };
+      el.addEventListener('click', onClick);
+      paint();
+      return {
+        el,
+        value() { return value; },
+        setValue(v) { value = v == null ? '' : String(v); paint(); },
+        setKinds(list) { kinds = kindFilter.normKinds(list); paint(); },
+        setCounts(fn) { countFn = typeof fn === 'function' ? fn : null; paint(); },
+        paint,
+        destroy() { el.removeEventListener('click', onClick); },
+      };
+    },
+  };
+
+  /* ---------- 视口不许被重画甩回顶（公共件） ----------
+     以前外壳装一份 web/core/scroll-guard.js：猴补 Element.prototype.innerHTML /
+     outerHTML / replaceChildren —— 在全局原型上动手脚，只罩得住「整片重画把滚动容器**换掉**」，
+     罩不住「重画后内容变短 → 浏览器把滚动位**夹回上限（=0）**」。
+     现在改成**在实际代码里防**：要重画一块
+     「含滚动容器的区域」时，走这一份。
+
+     keep(el, fn)：重画前后把视口还回去 ——
+       · 锚点 = 重画前那只滚动容器里**第一个可见的子元素**（连它的键 / 下标一起记下）；
+       · 重画后按同一条**路径**找回那只滚动容器（重画可能把容器本身换掉），
+         再按锚点（先找同一颗，找不到就按同一下标）把它挪回原来离容器顶那么远的地方；
+       · 锚点没了（那一段被换掉了）就退回原来的 scrollTop（浏览器自己夹上限）；
+       · 只动被点名的那几只滚动容器（含 el 自己），不碰文档滚动。
+     为什么按**锚点**而不是像素偏移：锚点以上的内容高度变了，按偏移还原会漂。 */
+  const viewport = {
+    /* 只认**真的能滚**的容器（scrollHeight > clientHeight）；clientHeight 为 0 的没渲染，跳过。 */
+    _scrollers(root) {
+      const out = [];
+      if (!root || root.nodeType !== 1) return out;
+      if (root.clientHeight > 0 && root.scrollHeight > root.clientHeight + 1) out.push(root);
+      const all = root.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++) {
+        const n = all[i];
+        if (n.clientHeight > 0 && n.scrollHeight > n.clientHeight + 1) out.push(n);
+      }
+      return out;
+    },
+    /* 子节点在父节点里的下标链（不是 CSS 路径）：重画之后按同一条链找回**新**节点。 */
+    _pathOf(el, root) {
+      const idx = [];
+      let n = el;
+      while (n && n !== root) {
+        const p = n.parentElement;
+        if (!p) return null;
+        let i = 0;
+        const kids = p.children;
+        for (let k = 0; k < kids.length; k++) { if (kids[k] === n) { i = k + 1; break; } }
+        if (!i) return null;
+        idx.unshift(i);
+        n = p;
+      }
+      return n === root ? idx : null;
+    },
+    _byPath(root, idx) {
+      let n = root;
+      for (const i of idx) {
+        n = n.children[i - 1];
+        if (!n) return null;
+      }
+      return n;
+    },
+    /* 锚点的身份：先找稳定键（列表项多半有），没有就按下标。 */
+    _keyOf(n) {
+      if (!n || !n.getAttribute) return '';
+      const d = n.getAttribute('data-key') || n.getAttribute('data-id') || n.getAttribute('data-k')
+        || n.getAttribute('data-tkey') || n.getAttribute('data-nav') || n.getAttribute('data-gid')
+        || n.getAttribute('data-task');
+      if (d) return 'k:' + d;
+      if (n.id) return 'i:' + n.id;
+      return '';
+    },
+    _grab(root) {
+      const keep = [];
+      for (const el of this._scrollers(root)) {
+        const top = Math.round(el.scrollTop);
+        if (top <= 0) continue;              /* 没滚过的容器本来就不该被还原 */
+        const er = el.getBoundingClientRect();
+        const kids = el.children;
+        let anchor = null, idx = -1, delta = 0;
+        for (let i = 0; i < kids.length; i++) {
+          const r = kids[i].getBoundingClientRect();
+          if (r.bottom > er.top + 1) { anchor = kids[i]; idx = i; delta = r.top - er.top; break; }
+        }
+        const path = this._pathOf(el, root);
+        if (!path) continue;
+        keep.push({ path, top, key: this._keyOf(anchor), idx, delta });
+      }
+      return keep;
+    },
+    _put(root, keep) {
+      for (const k of keep) {
+        const el = this._byPath(root, k.path);
+        if (!el || !el.isConnected) continue;
+        if (el.scrollTop > 4) continue;        /* 位置没丢，不动它 */
+        try {
+          let node = null;
+          if (k.key) {
+            const kids = el.children;
+            for (let i = 0; i < kids.length; i++) {
+              if (this._keyOf(kids[i]) === k.key) { node = kids[i]; break; }
+            }
+          }
+          if (!node && k.idx >= 0 && el.children[k.idx]) node = el.children[k.idx];
+          if (!node) { el.scrollTop = k.top; continue; }
+          const er = el.getBoundingClientRect();
+          const nr = node.getBoundingClientRect();
+          el.scrollTop = el.scrollTop + (nr.top - er.top) - k.delta;
+        } catch (e) { /* 放不回去就算了：这一处不许把重画带崩 */ }
+      }
+    },
+    /* 重画一块**会换掉滚动容器**的区域：前后把视口还回去。 */
+    keep(el, fn) {
+      let keep = null;
+      try { keep = this._grab(el); } catch (e) { keep = null; }
+      let out;
+      try { out = fn(); } finally {
+        try { if (keep && keep.length) this._put(el, keep); } catch (e) {}
+      }
+      return out;
+    },
+  };
+
   window.Wb = {
     ST,
     emptyHTML,
     filterBar,
+    kindFilter,
+    viewport,
     stText(s) { const t = norm(s); return ST[t] || s || ''; },
     /* 活 / 失败的判定只看状态串，页面别再自己列 ['failed','cancelled'] 这种词表
        （少一个同义词就会把已完成的任务画成失败，或者把在跑的任务从轮询集合里漏掉）。 */
@@ -2049,50 +2241,55 @@
           els, box,
           el: key => els.get(String(key)),
           count: () => els.size,
-          /* 全量对齐：位置没变就不动 DOM（缩略图不重解码、不闪） */
+          /* 全量对齐：位置没变就不动 DOM（缩略图不重解码、不闪）。
+             这一箱 DOM 动完，**视口要跟着走**（重画不许把视线甩回顶）：
+             整片重画这一箱时按锚点把位置放回去 —— 公共件 Wb.viewport.keep
+             （以前靠外壳那份全局猴补，已撤掉）。 */
           paint(items) {
             const back = anchorCardFocus(box);
             const list = items || [];
-            if (!list.length) {
-              els.clear();
-              box.innerHTML = (o.emptyHTML ? o.emptyHTML() : emptyHTML('暂无内容')) + (o.notesHTML ? o.notesHTML() : '');
-              return;
-            }
-            box.querySelectorAll('.empty').forEach(e => e.remove());
-            if (o.notesHTML) {
-              const html = o.notesHTML();
-              const note = box.querySelector('.list-note');
-              if (note) { if (html) note.outerHTML = html; else note.remove(); }
-              else if (html) box.insertAdjacentHTML('afterbegin', html);
-            }
-            let ref = box.querySelector('.' + CLS);
-            for (const it of list) {
-              const key = String(o.keyOf(it));
-              let el = els.get(key);
-              if (!el) {
-                el = document.createElement('div');
-                el.className = CLS;
-                el.dataset.tkey = key;
-                els.set(key, el);
-                paint(el, it);                                  // 新建也走页面的 paint：样式与重绘完全一致
-                el._sig = sigOf(it);
-                el._item = it;
-                if (o.onNew) o.onNew(el, it);
-              } else {
-                el._item = it;
-                if (el._sig !== sigOf(it)) { paint(el, it); el._sig = sigOf(it); }
+            viewport.keep(box, () => {
+              if (!list.length) {
+                els.clear();
+                box.innerHTML = (o.emptyHTML ? o.emptyHTML() : emptyHTML('暂无内容')) + (o.notesHTML ? o.notesHTML() : '');
+                return;
               }
-              if (el === ref) ref = ref.nextElementSibling;
-              else box.insertBefore(el, ref);
-            }
-            while (ref) {
-              const nx = ref.nextElementSibling;
-              if (ref.classList && ref.classList.contains(CLS)) {
-                if (ref.dataset && ref.dataset.tkey) els.delete(ref.dataset.tkey);
-                ref.remove();
+              box.querySelectorAll('.empty').forEach(e => e.remove());
+              if (o.notesHTML) {
+                const html = o.notesHTML();
+                const note = box.querySelector('.list-note');
+                if (note) { if (html) note.outerHTML = html; else note.remove(); }
+                else if (html) box.insertAdjacentHTML('afterbegin', html);
               }
-              ref = nx;
-            }
+              let ref = box.querySelector('.' + CLS);
+              for (const it of list) {
+                const key = String(o.keyOf(it));
+                let el = els.get(key);
+                if (!el) {
+                  el = document.createElement('div');
+                  el.className = CLS;
+                  el.dataset.tkey = key;
+                  els.set(key, el);
+                  paint(el, it);                                  // 新建也走页面的 paint：样式与重绘完全一致
+                  el._sig = sigOf(it);
+                  el._item = it;
+                  if (o.onNew) o.onNew(el, it);
+                } else {
+                  el._item = it;
+                  if (el._sig !== sigOf(it)) { paint(el, it); el._sig = sigOf(it); }
+                }
+                if (el === ref) ref = ref.nextElementSibling;
+                else box.insertBefore(el, ref);
+              }
+              while (ref) {
+                const nx = ref.nextElementSibling;
+                if (ref.classList && ref.classList.contains(CLS)) {
+                  if (ref.dataset && ref.dataset.tkey) els.delete(ref.dataset.tkey);
+                  ref.remove();
+                }
+                ref = nx;
+              }
+            });
             back();
           },
           clear() { els.clear(); box.innerHTML = ''; },
@@ -2486,7 +2683,9 @@
            悬停的样子、拖动的手感、双击复位都和左右栏不一样（用户点名）。 */
         const axis = o.axis === 'y' ? 'y' : 'x';
         const cols = (o.cols || []).map(c => (typeof c.el === 'string' ? box.querySelector(c.el) : c.el)).filter(Boolean);
-        const hs = (o.handles || []).filter(h => cols[h.left] != null && cols[h.right] != null && cols[h.resize]);
+        /* resize 是**列下标**，0 是合法值（导演台轨道坞就拖第 0 栏）——
+           以前这里按真假过滤，`resize: 0` 被当成「没给」，那条把手从来没生成过。 */
+        const hs = (o.handles || []).filter(h => cols[h.left] != null && cols[h.right] != null && Number.isInteger(h.resize) && cols[h.resize] != null);
         if (!hs.length) return null;
         box._wbSplit = true;
         const key = o.key || 'wb_split';
@@ -2499,9 +2698,19 @@
         let saveT = 0;
         const flush = () => { if (saveT) { clearTimeout(saveT); saveT = 0; } try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
         const save = () => { if (saveT) clearTimeout(saveT); saveT = setTimeout(flush, 250); };
-        const put = (h, w) => { st[h.varName] = w; box.style.setProperty('--' + h.varName, w + 'px'); save(); };
-        const clear = h => { delete st[h.varName]; box.style.removeProperty('--' + h.varName); save(); };
-        hs.forEach(h => { if (Number(st[h.varName]) > 0) box.style.setProperty('--' + h.varName, clamp(h, st[h.varName]) + 'px'); });
+        /* 「这一栏的尺寸已经被写死了」的旗标，挂在**被拖的那一栏**上：
+           拖过 / 有存下来的值 → 挂上；双击复位 → 摘掉。
+           页面靠它分两种口径（导演台轨道坞就是这一种）：没拖过时那一栏按内容算，
+           拖过之后那个像素就是它的尺寸 —— 与左右栏「默认弹性、拖过写死」同一套。 */
+        const markFixed = (h, on) => {
+          const t = cols[h.resize];
+          if (!t) return;
+          if (on) { if (!t.hasAttribute('data-split-fixed')) t.setAttribute('data-split-fixed', '1'); }
+          else if (t.hasAttribute('data-split-fixed')) t.removeAttribute('data-split-fixed');
+        };
+        const put = (h, w) => { st[h.varName] = w; box.style.setProperty('--' + h.varName, w + 'px'); markFixed(h, true); save(); };
+        const clear = h => { delete st[h.varName]; box.style.removeProperty('--' + h.varName); markFixed(h, false); save(); };
+        hs.forEach(h => { if (Number(st[h.varName]) > 0) { box.style.setProperty('--' + h.varName, clamp(h, st[h.varName]) + 'px'); markFixed(h, true); } });
         const made = hs.map(h => {
           const el = document.createElement('div');
           const target = cols[h.resize];
@@ -2509,8 +2718,9 @@
           el.title = axis === 'y' ? '拖动调整上下高度 · 双击恢复默认' : '拖动调整左右占比 · 双击恢复默认';
           el.innerHTML = '<i></i>';
           if (axis === 'y') {
-            /* 上下那条：把手住在被拖那一栏的**顶边上**（静态位置，不绝对定位）——
-               它就是那条栏的一部分；那一栏藏起来（生成态坞是 hidden）把手也跟着藏。 */
+            /* 上下那条：把手挂进被拖那一栏，由 CSS 绝对定位到它的**上沿正中**（骑在边线上）——
+               所以宿主必须是那一栏自己（它得是定位祖先），而不是外层 box。
+               那一栏藏起来（生成态坞是 hidden）把手也跟着藏：它是那一栏的一部分。 */
             const host = (typeof o.handleHost === 'string' ? document.querySelector(o.handleHost) : o.handleHost) || target;
             if (host) host.insertBefore(el, host.firstChild);
           } else {
@@ -2551,7 +2761,7 @@
           const b = box.getBoundingClientRect();
           made.forEach(({ h, el }) => {
             if (axis === 'y') {
-              /* 上下那条是静态位置（住在栏里），这里只判「那一栏还在不在」：
+              /* 上下那条的几何全在 CSS 里（贴在宿主上沿、左右通长），这里只判「那一栏还在不在」：
                  生成态整条坞是 hidden，把手跟着藏掉，别留一根拖不动的死把手。 */
               const t = cols[h.resize].getBoundingClientRect();
               const hide = t.height <= 0 || t.width <= 0;

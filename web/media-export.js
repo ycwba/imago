@@ -1,11 +1,18 @@
 /* 浏览器内离线导出 —— 成片与素材都在这一条链上出，代理只负责取数与落盘。
    管线形状照参考项目的 offlineVideoExport.js：帧计划 → 合成（逐帧画） → 混音 → mediabunny Output。
-   合成模型是**本项目的 clips**：`{ src: 'black'|地址, in, out, speed, volume, voices:[…] }`
-   （buildRenderClips 组的那份；黑场 = src:'black'，配音挂在段上）。
-   图片段多一个 `still`（静态图地址）：`src` 仍是 'black'（没有原声、没有解码源），整段画那一张。
+   交进来的口径 = 新剪辑核的成片（`proj.film` 经 `deriveTimeline` 摊平），engine/export.js 是唯一的组表人：
+   · `clips[i] = { kind:'video'|'image', src, start, duration, sourceStart, sourceDuration, playbackRate, volume, muted }`
+     —— start/duration 是**成片秒**（顺序派生，这一层不再自己累加起点），源窗口是**源秒**；
+   · `transitions[i] = { id, start, end, duration, from, to }` —— 窗口由 `film.js` 的 `transitionWindow`
+     算好（预览问的是同一枚函数），这一层只按它摆帧，**不再夹第二次**；
+   · `voices[i]` = 绝对成片秒的配音块（含淡入淡出与倍速）；
+   · `captions[i] = { text, start, end, position, highlight }` —— 字幕在画布上现画，
+     不再为每一条生成一张整幅 PNG（几十条字幕就是几十张全帧图留在内存里）。
+   画面按 **contain** 铺（与预览的 `object-fit: contain` 同一条）：黑边照实留在文件里，
+   导出的那幅画与屏幕上看到的那幅画是同一幅 —— 比例不同的素材不裁切。
    取帧走 mediabunny CanvasSink 顺序解（整段一次解完比逐格 seek 快且稳），解不动退逐格定位
    （`MediaBackend.seekIter`，造 <video> 的活只在 media-backend.js 那一份里）；
-   混音走 OfflineAudioContext（原声按段 vol、配音按句 vol，倍速用 WSOLA 变速不变调）。
+   混音走 OfflineAudioContext（原声按段 vol、配音按块 vol × 淡入淡出，倍速用 WSOLA 变速不变调）。
    ⚠ 成片整个在内存里（BufferTarget）：1080p/几分钟的片子几十 MB，可接受；
    这个版本不支持超长片（>10 分钟会顶内存）—— 那是 StreamTarget 的活，要时再加。 */
 (function () {
@@ -191,14 +198,17 @@
     finally { try { if (input) input.dispose(); } catch (e) { /* 收尾清理，失败也要往下走 */ } }
   }
 
-  /* 混音：原声（段 vol × 变速）+ 配音（句 vol × 变速）→ 一个 AudioBuffer（或 null = 全静音）。
-     clips 的口径只有一份（`clipVoices`）：voice.start 是源秒（相对段 in），落点 = 段起点 + start/speed。 */
+  /* 混音：原声（段音量 / 静音）+ 配音（块音量 × 淡入淡出包络 × 倍速）→ 一个 AudioBuffer（null = 全静音）。
+     两路都是**绝对成片秒**：`clips[i].start` 是段在成片里的起点，`voices[i].start` 是块在成片里的起点 ——
+     配音不再挂在段上、也不再从段起点折算（那是旧模型的第二本账）。
+     包络形状与预览一致（`film.js` 的 `fadeGain`：线性斜坡，淡入淡出各夹到块时长的一半）。 */
   async function mixAudio(opts) {
     const duration = Math.max(0.1, Number(opts.duration) || 0.1);
     const rate = 48000;
     const ctx = new window.OfflineAudioContext(2, Math.ceil(duration * rate), rate);
     let scheduled = 0;
-    const putGain = (buffer, atSec, gain, stretch) => {
+    /* atSec = 落点（成片秒）；stretch = 倍速（>1 = 变快、输出更短）；fade = { in, out } 块内秒。 */
+    const putGain = (buffer, atSec, gain, stretch, fade) => {
       if (!buffer || !(gain > 0) || atSec >= duration) return;
       let buf = buffer;
       if (stretch && Math.abs(stretch - 1) > 0.01) {
@@ -211,45 +221,215 @@
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const g = ctx.createGain();
-      g.gain.value = gain;
       src.connect(g).connect(ctx.destination);
-      try { src.start(Math.max(0, atSec)); scheduled++; } catch (e) { /* 收尾清理，失败也要往下走 */ }
+      /* 包络按**变速之后**的实际长度走：那才是这一块在成片里占的秒数。 */
+      const blockDur = buf.duration;
+      const t0 = Math.max(0, atSec);
+      const fi = Math.min(Math.max(0, Number(fade && fade.in) || 0), blockDur / 2);
+      const fo = Math.min(Math.max(0, Number(fade && fade.out) || 0), blockDur / 2);
+      g.gain.setValueAtTime(fi > 0 ? 0 : gain, t0);
+      if (fi > 0) g.gain.linearRampToValueAtTime(gain, t0 + fi);
+      if (fo > 0) {
+        g.gain.setValueAtTime(gain, Math.max(t0 + fi, t0 + blockDur - fo));
+        g.gain.linearRampToValueAtTime(0, Math.min(duration, t0 + blockDur));
+      }
+      try { src.start(t0); scheduled++; } catch (e) { /* 收尾清理，失败也要往下走 */ }
     };
-    /* 每段的原声 */
+    /* 每段的原声：图片段没有原声；静音 = 增益 0（画面照样进成片，别把段整条跳掉） */
     for (const cl of (opts.clips || [])) {
-      const sp = clampN(Number(cl.speed) || 1, 0.25, 4);
-      const f0 = Math.max(0, Number(cl.filmStart) || 0);
-      const vol = cl.volume == null ? 1 : Number(cl.volume);
-      if (cl.src && cl.src !== 'black' && vol > 0) {
-        const from = Math.max(0, Number(cl.in) || 0);
-        const to = Math.max(from + 0.05, Number(cl.out) || 0);
+      if (cl.kind === 'image') continue;
+      const sp = clampN(Number(cl.playbackRate) || 1, 0.25, 4);
+      const f0 = Math.max(0, Number(cl.start) || 0);
+      const vol = cl.muted ? 0 : (cl.volume == null ? 1 : Number(cl.volume));
+      if (cl.src && vol > 0) {
+        const from = Math.max(0, Number(cl.sourceStart) || 0);
+        const to = from + Math.max(0.05, Number(cl.sourceDuration) || 0);
         const buf = await decodeSlice(cl.src, from, to);
-        putGain(buf, f0, vol, sp);
+        putGain(buf, f0, vol, sp, null);
       }
-      /* 挂在这一段上的配音（口径见 clipVoices：start 源秒 / dur 音频秒 / off 音频内起点） */
-      for (const v of (cl.voices || [])) {
-        const vr = sp * (clampN(Number(v.spd) || 1, 0.25, 4));
-        const at = f0 + (Math.max(0, Number(v.start) || 0) / sp);
-        const dur = Math.max(0.1, Number(v.dur) || 0);
-        const off = Math.max(0, Number(v.off) || 0);
-        const buf = await decodeSlice(v.src, off, off + dur);
-        putGain(buf, at, Number(v.vol) == null ? 1 : Number(v.vol), vr);
-      }
+    }
+    /* 配音：解「素材里的那一窗」，变速之后落在成片的绝对秒上 */
+    for (const v of (opts.voices || [])) {
+      const vol = v.volume == null ? 1 : Number(v.volume);
+      if (!v.src || !(vol > 0)) continue;
+      const from = Math.max(0, Number(v.sourceStart) || 0);
+      const to = from + Math.max(0.1, Number(v.sourceDuration) || 0);
+      const buf = await decodeSlice(v.src, from, to);
+      putGain(buf, Math.max(0, Number(v.start) || 0), vol,
+        clampN(Number(v.playbackRate) || 1, 0.25, 4), { in: v.fadeIn, out: v.fadeOut });
     }
     if (!scheduled) return null;
     return await ctx.startRendering();
   }
 
-  /* 画一帧：黑场填黑；图片/视频帧按 cover（居中裁切）铺满画布。 */
-  function drawFrame(ctx, w, h, src) {
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, w, h);
+  /* 只画画面、不清底：转场层要把下一段叠在已经铺好的那一帧上面。 */
+  function drawContain(ctx, w, h, src) {
     if (!src) return;
     const sw = src.width || src.videoWidth, sh = src.height || src.videoHeight;
     if (!sw || !sh) return;
-    const scale = Math.max(w / sw, h / sh);
+    const scale = Math.min(w / sw, h / sh);
     const dw = sw * scale, dh = sh * scale;
     ctx.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }
+
+  /* 画一帧：先铺黑底，再把画面按 contain 居中放进去（预览的 `object-fit: contain` 同一条）。
+     没有画面（素材地址空 / 解不出帧）= 只剩那块黑底。 */
+  function drawFrame(ctx, w, h, src) {
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, w, h);
+    drawContain(ctx, w, h, src);
+  }
+
+  /* 转场合成：与预览层 `.preview-transition-layer`（web/director/template.html）逐条对应 ——
+     屏幕上那一刀与片子里那一刀得是同一刀。下面三枚数是照那几条 CSS 抄的，改一边要改另一边：
+     `--sp-12` = 模糊半径 12px（type-blur）、1.12 = type-zoom 的起始缩放、0.7 = 闪白那层的透明度。
+     `glitch` 在预览里没有对应的效果（只有淡入），这里也照实按淡入合成 —— 不假装导出了花屏。 */
+  const TR_BLUR_PX = 12;
+  const TR_ZOOM_SCALE = 1.12;
+  const TR_FLASH_ALPHA = 0.7;
+
+  /* `p` = 窗口进度 0→1：下一段淡入 / 推进 / 落回清晰的整幅叠在底帧上。 */
+  function compositeTransition(ctx, w, h, id, p, src) {
+    if (!src) return;
+    const prog = clampN(p, 0, 1);
+    ctx.save();
+    let alpha = prog;
+    if (id === 'wipe-left') {
+      ctx.beginPath(); ctx.rect(w * (1 - prog), 0, w * prog, h); ctx.clip(); alpha = 1;
+    } else if (id === 'wipe-up') {
+      ctx.beginPath(); ctx.rect(0, h * (1 - prog), w, h * prog); ctx.clip(); alpha = 1;
+    } else if (id === 'split') {
+      const dw = w * prog;
+      ctx.beginPath(); ctx.rect((w - dw) / 2, 0, dw, h); ctx.clip(); alpha = 1;
+    } else if (id === 'zoom') {
+      const s = TR_ZOOM_SCALE - prog * (TR_ZOOM_SCALE - 1);
+      ctx.translate(w / 2, h / 2); ctx.scale(s, s); ctx.translate(-w / 2, -h / 2);
+    } else if (id === 'blur') {
+      /* 半径按画幅高等比缩（CSS 那条作用在 ~1080 高的台子上） */
+      ctx.filter = 'blur(' + ((1 - prog) * TR_BLUR_PX * (h / 1080)).toFixed(2) + 'px)';
+    }
+    ctx.globalAlpha = clampN(alpha, 0, 1);
+    drawContain(ctx, w, h, src);
+    ctx.restore();
+    if (id === 'flash') {
+      ctx.save();
+      ctx.globalAlpha = TR_FLASH_ALPHA * prog;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+  }
+
+  /* 字幕现画：形状照预览叠层 `.sub-ov`（web/director/template.html）那一条 ——
+     字号 = 画布高的 54/1080、左右各留 6%、行高 1.28、底部块离底 9% / 顶部块离顶 8% /
+     居中那一档垂直居中、高亮 = 黑底 55% + 圆角 + .18em .45em 内边距、字色 `--on-acc`（白）带黑投影。
+     改那一族 CSS 要回来对着改这里，否则屏幕上与片子里的字幕是两副样子。 */
+  const CAP_SIZE_RATIO = 54 / 1080;
+  const CAP_SIDE_RATIO = 0.06;
+  const CAP_LINE_HEIGHT = 1.28;
+  const CAP_BOTTOM_RATIO = 0.09;
+  const CAP_TOP_RATIO = 0.08;
+  const CAP_HL_ALPHA = 0.55;
+  const CAP_FONT_WEIGHT = 600;
+  const CAP_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+  /* 中日韩与全角标点：逐字可断（与浏览器的 pre-wrap 一样）；拉丁词不拆开。 */
+  const CAP_CJK = /[぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯]/;
+
+  /* 把一行切成「可断单元」：CJK 一字一单元，其余攒到空白为止（空白跟着前一个单元，
+     这样换行不会把一行的开头空出来）。 */
+  function captionUnits(text) {
+    const units = [];
+    let buf = '';
+    for (const ch of String(text || '')) {
+      if (CAP_CJK.test(ch)) { if (buf) { units.push(buf); buf = ''; } units.push(ch); continue; }
+      buf += ch;
+      if (/\s/.test(ch)) { units.push(buf); buf = ''; }
+    }
+    if (buf) units.push(buf);
+    return units;
+  }
+
+  function wrapCaptionLine(ctx, text, maxW) {
+    const out = [];
+    let line = '', lineWidth = 0;
+    const pushLine = () => { out.push(line.replace(/\s+$/, '')); line = ''; lineWidth = 0; };
+    for (const u of captionUnits(text)) {
+      const uw = ctx.measureText(u).width;
+      if (line && lineWidth + uw > maxW) pushLine();
+      /* 单个单元本身就超宽（一长串字母数字）：逐字硬断，不断就溢出画面 */
+      if (!line && uw > maxW && u.length > 1) {
+        for (const ch of u) {
+          const cw = ctx.measureText(ch).width;
+          if (line && lineWidth + cw > maxW) pushLine();
+          line += ch; lineWidth += cw;
+        }
+        continue;
+      }
+      line += u; lineWidth += uw;
+    }
+    if (line) pushLine();
+    return out;
+  }
+
+  /* 一条字幕 → 要画的几行：先按硬换行分段（`\n` 在预览里是 `<br>`），每段再按宽度折。 */
+  function captionLines(ctx, text, maxW) {
+    const out = [];
+    for (const para of String(text || '').split(/\r?\n/)) {
+      if (!para) { out.push(''); continue; }
+      for (const l of wrapCaptionLine(ctx, para, maxW)) out.push(l);
+    }
+    return out.length ? out : [''];
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    const rad = Math.min(Math.max(0, r), w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.lineTo(x + w - rad, y); ctx.arcTo(x + w, y, x + w, y + rad, rad);
+    ctx.lineTo(x + w, y + h - rad); ctx.arcTo(x + w, y + h, x + w - rad, y + h, rad);
+    ctx.lineTo(x + rad, y + h); ctx.arcTo(x, y + h, x, y + h - rad, rad);
+    ctx.lineTo(x, y + rad); ctx.arcTo(x, y, x + rad, y, rad);
+    ctx.closePath();
+  }
+
+  /* `list` 已经由调用方按「这一秒该露哪几条」筛好（行可见性在编辑核那一层判，这里不问）。 */
+  function drawCaptions(ctx, w, h, list) {
+    if (!list || !list.length) return;
+    const fs = Math.max(8, h * CAP_SIZE_RATIO);
+    const lh = fs * CAP_LINE_HEIGHT;
+    const maxW = w * (1 - CAP_SIDE_RATIO * 2);
+    const cx = w / 2;
+    ctx.save();
+    ctx.font = CAP_FONT_WEIGHT + ' ' + fs.toFixed(1) + 'px ' + CAP_FONT_STACK;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const c of list) {
+      const text = String((c && c.text) || '');
+      if (!text.trim()) continue;
+      const lines = captionLines(ctx, text, maxW);
+      const blockH = lines.length * lh;
+      const pos = c.position === 'top' ? 'top' : (c.position === 'middle' ? 'middle' : 'bottom');
+      const top = pos === 'top' ? h * CAP_TOP_RATIO
+        : pos === 'middle' ? (h - blockH) / 2
+          : h * (1 - CAP_BOTTOM_RATIO) - blockH;
+      if (c.highlight) {
+        let bw = 0;
+        for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+        const padX = fs * 0.45, padY = fs * 0.18;
+        roundRectPath(ctx, cx - bw / 2 - padX, top - padY, bw + padX * 2, blockH + padY * 2, fs * 0.11);
+        ctx.fillStyle = 'rgba(0,0,0,' + CAP_HL_ALPHA + ')';
+        ctx.fill();
+      }
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur = fs * (6 / 54);
+      ctx.shadowOffsetY = fs * (2 / 54);
+      ctx.fillStyle = '#fff';
+      lines.forEach((l, i) => ctx.fillText(l, cx, top + lh * (i + 0.5)));
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+    }
+    ctx.restore();
   }
 
   /* 兜底取帧要借 media-backend.js 的 <video> 原语；这一页还没加载它就补一次。
@@ -262,7 +442,7 @@
     return window.MediaBackend && window.MediaBackend.seekIter ? window.MediaBackend : null;
   }
 
-  /* 图片段（cl.still）：字节只取一次，之后每一帧都画同一张。
+  /* 图片段（kind:'image'）：字节只取一次，之后每一段里的每一帧都画同一张。
      createImageBitmap 直接给 drawImage 用；解不动（老浏览器 / 格式怪）退 <img> + blob URL，
      两个都要在收尾时释放 —— 一段一张，三十段不释放就是三十张整图留在内存里。 */
   async function loadStill(src) {
@@ -280,9 +460,9 @@
   const stillDrawable = st => (st ? (st.bmp || st.img) : null);
 
   /* 每段一个「顺序取帧器」：主档 CanvasSink.canvasesAtTimestamps（顺序解，快且稳）；
-     解不动退逐格定位（慢但兼容）。黑场不出帧。 */
+     解不动退逐格定位（慢但兼容）。没有地址的段不出帧（画面上就是黑底）。 */
   async function makeFrameIter(cl, timestamps, MB) {
-    if (!cl.src || cl.src === 'black' || !timestamps.length) return null;
+    if (!cl.src || !timestamps.length) return null;
     try {
       const blob = await bytesOf(cl.src);
       const input = new MB.Input({ source: new MB.BlobSource(blob), formats: MB.ALL_FORMATS });
@@ -311,7 +491,8 @@
     }
   }
 
-  /* 主入口：导出一条成片。clips 里每条要带 filmStart（段在成片里的起点秒）。
+  /* 主入口：导出一条成片。`clips[i]` 带成片秒的 start/duration 与源窗口（源秒），
+     `transitions[i]` 是 film.js 夹好的窗口，`voices` / `captions` 都是绝对成片秒。
      返回 { blob, ext, mime, diag }；取消走 signal（abort 后抛 '已取消'）。 */
   async function exportFilm(o) {
     const opts = o || {};
@@ -332,23 +513,61 @@
     const plan = framePlan(duration, fps, opts.keyFrameInterval);
     /* 混音与取帧准备并行 —— 互不依赖 */
     const audioPromise = opts.audio === false ? Promise.resolve(null)
-      : mixAudio({ clips: opts.clips, duration });
-    /* 每段的取帧器（按帧计划切出各段要的源时刻） */
-    const iters = [];
+      : mixAudio({ clips: opts.clips, voices: opts.voices, duration });
+    /* 每段一个槽：起点 / 跨度按**成片秒**给（deriveTimeline 摊出来的那一列），不再自己累加 */
+    const rows = [];
     for (const cl of (opts.clips || [])) {
       throwIfAbort();
-      const sp = clampN(Number(cl.speed) || 1, 0.25, 4);
-      const f0 = Math.max(0, Number(cl.filmStart) || 0);
-      const span = Math.max(0, (Number(cl.out) - Number(cl.in)) / sp);
-      if (cl.still) {
-        const still = await loadStill(cl.still);
-        iters.push({ cl, iter: null, still: stillDrawable(still), stillRes: still, times: [], at: 0, f0, span });
+      const sp = clampN(Number(cl.playbackRate) || 1, 0.25, 4);
+      const f0 = Math.max(0, Number(cl.start) || 0);
+      const span = Math.max(0, Number(cl.duration) || 0);
+      if (cl.kind === 'image') {
+        const still = cl.src ? await loadStill(cl.src) : null;
+        rows.push({ cl, f0, span, speed: sp, iter: null, still: stillDrawable(still), stillRes: still });
         continue;
       }
       const times = plan.filter(f => f.timestamp >= f0 - 1e-6 && f.timestamp < f0 + span - 1e-6)
-        .map(f => Math.max(0, (Number(cl.in) || 0) + (f.timestamp - f0) * sp));
+        .map(f => Math.max(0, (Number(cl.sourceStart) || 0) + (f.timestamp - f0) * sp));
       const iter = await makeFrameIter(cl, times, MB);
-      iters.push({ cl, iter, times, at: 0, f0, span });
+      rows.push({ cl, f0, span, speed: sp, iter, still: null, stillRes: null });
+    }
+    /* 转场窗口：下一段在那一窗里露的是**它自己的开头**（与预览同一把尺子：
+       源时刻 = 下段 sourceStart + (成片秒 − 窗口起点) × 下段倍速）。
+       这一段帧落在下段顺序表的前面，同一只迭代器不能倒着走，所以进窗时**另建一只**、出窗立刻释放
+       —— 同时最多活着一只，不会为每个窗口各留一份解码器。 */
+    const windows = (opts.transitions || [])
+      .map(x => ({
+        id: String((x && x.id) || ''),
+        start: Math.max(0, Number(x && x.start) || 0),
+        end: Math.max(0, Number(x && x.end) || 0),
+        duration: Math.max(0.01, Number(x && x.duration) || 0),
+        to: Number(x && x.to),
+        active: null,
+      }))
+      .filter(x => x.end > x.start);
+    const captionList = (opts.captions || []).map(c => ({
+      text: String((c && c.text) || ''),
+      start: Math.max(0, Number(c && c.start) || 0),
+      end: Math.max(0, Number(c && c.end) || 0),
+      position: c && c.position,
+      highlight: !!(c && c.highlight),
+    })).filter(c => c.end > c.start && c.text.trim());
+    async function ensureIncoming(win) {
+      const row = rows[win.to];
+      if (!row) return null;
+      /* 图片段本来就是「一张画一直用」：直接借它已经载好的那一张，不再解第二遍 */
+      if (row.cl.kind === 'image') return { kind: 'image', drawable: row.still };
+      const times = plan.filter(f => f.timestamp >= win.start - 1e-6 && f.timestamp < win.end - 1e-6)
+        .map(f => Math.max(0, (Number(row.cl.sourceStart) || 0) + (f.timestamp - win.start) * row.speed));
+      const iter = await makeFrameIter(row.cl, times, MB);
+      return iter ? { kind: 'video', iter } : null;
+    }
+    async function releaseIncoming(win) {
+      const a = win && win.active;
+      if (!a || !a.iter) { if (win) win.active = null; return; }
+      win.active = null;
+      try { if (a.iter.close) await a.iter.close(); else if (a.iter.dispose) a.iter.dispose(); }
+      catch (e) { /* 释放失败不影响结果 */ }
     }
     const audioBuffer = await audioPromise;
     throwIfAbort();
@@ -357,14 +576,6 @@
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('创建不了离线导出画布');
-    /* 字幕帧（整幅 PNG，start/end 成片秒） */
-    const subImgs = [];
-    for (const s of (opts.subtitles || [])) {
-      const im = new Image();
-      im.src = s.src;
-      await new Promise(res => { im.onload = res; im.onerror = res; });
-      if (im.width) subImgs.push({ im, start: Number(s.start) || 0, end: Number(s.end) || 0 });
-    }
     const target = new MB.BufferTarget();
     const output = new MB.Output({ format: outputFormatOf(MB, pk), target });
     const videoSource = new MB.CanvasSource(canvas, {
@@ -381,8 +592,11 @@
     }
     const abortOut = () => { output.cancel().catch(() => {}); };
     if (signal) signal.addEventListener('abort', abortOut, { once: true });
+    /* 此刻正压着的那一窗转场：声明在 try 外面，收尾（disposeAll）才拿得到它去释放那只在途的取帧器 */
+    let winNow = null;
     const disposeAll = async () => {
-      for (const it of iters) {
+      await releaseIncoming(winNow);
+      for (const it of rows) {
         if (it.stillRes) {
           try { if (it.stillRes.bmp && it.stillRes.bmp.close) it.stillRes.bmp.close(); } catch (e) { /* 释放失败不影响结果 */ }
           try { if (it.stillRes.url) URL.revokeObjectURL(it.stillRes.url); } catch (e) { /* 释放失败不影响结果 */ }
@@ -396,6 +610,7 @@
     };
     /* 取帧链的诊断（顺序解 / 逐格定位）在外面的回执里要报 —— 声明放 try 外面 */
     const decodeModes = [];
+    const pushMode = m => { if (m && decodeModes.indexOf(m) < 0) decodeModes.push(m); };
     try {
       throwIfAbort();
       await output.start();
@@ -403,25 +618,42 @@
       const step = Math.max(1, Math.round(plan.length / 100));
       for (const f of plan) {
         throwIfAbort();
-        /* 找这一帧落在哪一段 */
+        const t = f.timestamp;
+        /* 这一帧落在哪一段 / 正压在哪一窗转场上（两个都是顺序表上的小扫描，段数与窗数都不大） */
+        let win = null;
+        for (const x of windows) {
+          if (t >= x.start - 1e-6 && t < x.end - 1e-6) { win = x; break; }
+        }
+        if (win !== winNow) {
+          if (winNow) await releaseIncoming(winNow);
+          winNow = win;
+          if (winNow && !winNow.active) winNow.active = await ensureIncoming(winNow);
+        }
         let hit = null;
-        for (const it of iters) {
-          if (f.timestamp >= it.f0 - 1e-6 && f.timestamp < it.f0 + it.span - 1e-6) { hit = it; break; }
+        for (const it of rows) {
+          if (t >= it.f0 - 1e-6 && t < it.f0 + it.span - 1e-6) { hit = it; break; }
         }
         if (hit && hit.still) {
           drawFrame(ctx, w, h, hit.still);
-          if (decodeModes.indexOf('static-image') < 0) decodeModes.push('static-image');
+          pushMode('static-image');
         } else if (hit && hit.iter) {
           const frame = await hit.iter.next();
-          if (frame) drawFrame(ctx, w, h, frame);
-          else drawFrame(ctx, w, h, null);
-          if (decodeModes.indexOf(hit.iter.mode) < 0) decodeModes.push(hit.iter.mode);
+          drawFrame(ctx, w, h, frame || null);
+          pushMode(hit.iter.mode);
         } else {
-          drawFrame(ctx, w, h, null);           // 黑场 / 空档
+          drawFrame(ctx, w, h, null);           // 没有地址 / 解不出画面：留一块黑底
         }
-        for (const s of subImgs) {
-          if (f.timestamp >= s.start && f.timestamp < s.end) ctx.drawImage(s.im, 0, 0, w, h);
+        if (winNow && winNow.active) {
+          const a = winNow.active;
+          const inc = a.kind === 'image' ? a.drawable : await a.iter.next();
+          if (a.kind === 'image') pushMode('static-image'); else pushMode(a.iter.mode);
+          compositeTransition(ctx, w, h, winNow.id, (t - winNow.start) / winNow.duration, inc);
         }
+        let live = null;
+        for (const c of captionList) {
+          if (t >= c.start && t < c.end) (live || (live = [])).push(c);
+        }
+        drawCaptions(ctx, w, h, live);
         await videoSource.add(f.timestamp, f.duration, { keyFrame: f.keyFrame });
         if (f.index % step === 0) onProgress({ progress: 10 + Math.round(f.index / plan.length * 84), msg: '正在合成 ' + (f.index + 1) + '/' + plan.length + ' 帧' });
       }
@@ -438,32 +670,12 @@
     return {
       blob: new Blob([target.buffer], { type: pk.mime }),
       ext: pk.ext, mime: pk.mime,
-      diag: { width: w, height: h, fps, frames: plan.length, decodeModes, hasAudio: !!audioBuffer, codec: pk.video },
+      diag: {
+        width: w, height: h, fps, frames: plan.length, decodeModes,
+        hasAudio: !!audioBuffer, codec: pk.video,
+        transitions: windows.length, captions: captionList.length,
+      },
     };
-  }
-
-  /* 素材导出的一小段：单段视频（或一条纯音频）。audioOnly 时出 m4a（没有画面轨）。 */
-  async function exportClip(o) {
-    const opts = o || {};
-    if (opts.audioOnly) {
-      const MB = await loadMb();
-      if (!MB) throw new Error('浏览器里没有 mediabunny，编不了音频');
-      await ensureAac(MB);
-      const buf = await mixAudio({ clips: opts.clips, duration: opts.duration });
-      if (!buf) throw new Error('这一段没有声音可导');
-      const target = new MB.BufferTarget();
-      const output = new MB.Output({
-        format: new MB.Mp4OutputFormat({ fastStart: 'in-memory', metadataFormat: 'mdta' }),
-        target,
-      });
-      const src = new MB.AudioBufferSource({ codec: 'aac', bitrate: 192000 });
-      output.addAudioTrack(src);
-      await output.start();
-      await src.add(buf);
-      await output.finalize();
-      return { blob: new Blob([target.buffer], { type: 'audio/mp4' }), ext: 'm4a', mime: 'audio/mp4' };
-    }
-    return await exportFilm(o);
   }
 
   /* 给没有音轨的视频补一条静音轨：
@@ -544,5 +756,5 @@
     return ctx.createBuffer(2, len, rate);
   }
 
-  window.MediaExport = { framePlan, exportFilm, exportClip, pickCodec, mixAudio, timeStretchCh, ensureAudioTrack };
+  window.MediaExport = { framePlan, exportFilm, pickCodec, mixAudio, timeStretchCh, ensureAudioTrack };
 })();

@@ -63,7 +63,7 @@
     });
     invalidate();
     prime();
-    return d && d.skill;
+    return d || {};
   }
 
   async function install(files, opts) {
@@ -73,7 +73,7 @@
     });
     invalidate();
     prime();
-    return d && d.skill;
+    return d || {};
   }
 
   async function setEnabled(id, on) {

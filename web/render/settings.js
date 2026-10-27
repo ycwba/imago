@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/settings.html 编译，别手改。 */
-import { createCommentVNode as _createCommentVNode, vModelText as _vModelText, createElementVNode as _createElementVNode, withDirectives as _withDirectives, toDisplayString as _toDisplayString, normalizeClass as _normalizeClass, openBlock as _openBlock, createElementBlock as _createElementBlock, createTextVNode as _createTextVNode, vShow as _vShow, vModelSelect as _vModelSelect, renderList as _renderList, Fragment as _Fragment, vModelCheckbox as _vModelCheckbox, withKeys as _withKeys, vModelDynamic as _vModelDynamic, createStaticVNode as _createStaticVNode } from "../../vue.runtime.esm-browser.prod.js"
+import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, vModelText as _vModelText, withDirectives as _withDirectives, toDisplayString as _toDisplayString, normalizeClass as _normalizeClass, openBlock as _openBlock, createElementBlock as _createElementBlock, createTextVNode as _createTextVNode, vModelSelect as _vModelSelect, renderList as _renderList, Fragment as _Fragment, vModelCheckbox as _vModelCheckbox, vShow as _vShow, withKeys as _withKeys, vModelDynamic as _vModelDynamic, createStaticVNode as _createStaticVNode } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main settings-page page-shell",
@@ -19,577 +19,588 @@ const _hoisted_9 = {
   class: "set-doc-scroll",
   ref: "setDocEl"
 }
-const _hoisted_10 = { class: "page-h1" }
-const _hoisted_11 = ["innerHTML"]
-const _hoisted_12 = {
+const _hoisted_10 = {
   key: 0,
   class: "card card-surface"
 }
-const _hoisted_13 = { class: "ui-note err" }
-const _hoisted_14 = ["onClick"]
-const _hoisted_15 = {
+const _hoisted_11 = { class: "ui-note err" }
+const _hoisted_12 = ["onClick"]
+const _hoisted_13 = {
   class: "set-group",
   "data-group": "keys",
-  "data-note": "谁在替你干活：接进来的平台各一把密钥，两种接法各一份。"
+  "data-note": ""
 }
-const _hoisted_16 = {
+const _hoisted_14 = {
   class: "card card-surface",
   "data-nav": "providers"
 }
-const _hoisted_17 = { class: "card-h" }
-const _hoisted_18 = ["innerHTML"]
+const _hoisted_15 = { class: "card-h" }
+const _hoisted_16 = ["innerHTML"]
+const _hoisted_17 = {
+  class: "caplegend",
+  ref: "capLegendEl"
+}
+const _hoisted_18 = {
+  class: "acct-tools",
+  ref: "acctToolsEl"
+}
 const _hoisted_19 = {
-  class: "ui-seg",
-  id: "provTabs",
-  ref: "provTabsEl"
+  class: "acct-grid",
+  ref: "provListEl"
 }
-const _hoisted_20 = { class: "krow thin" }
-const _hoisted_21 = { class: "acts" }
-const _hoisted_22 = ["onClick"]
-const _hoisted_23 = { ref: "provListEl" }
-const _hoisted_24 = {
-  class: "prov-sec",
-  id: "asrCard"
+const _hoisted_20 = {
+  class: "acct-err",
+  ref: "provErrEl"
 }
-const _hoisted_25 = { class: "prov-sec-h" }
-const _hoisted_26 = ["innerHTML"]
-const _hoisted_27 = { class: "krow thin" }
-const _hoisted_28 = { class: "sub-line" }
-const _hoisted_29 = ["disabled", "onClick"]
+const _hoisted_21 = {
+  class: "acct-park",
+  hidden: "",
+  ref: "acctParkEl"
+}
+const _hoisted_22 = {
+  class: "incard",
+  id: "asrCard",
+  ref: "asrFormEl"
+}
+const _hoisted_23 = { class: "krow thin" }
+const _hoisted_24 = { class: "sub-line" }
+const _hoisted_25 = ["disabled", "onClick"]
+const _hoisted_26 = { class: "krow thin" }
+const _hoisted_27 = { class: "sub-line" }
+const _hoisted_28 = { class: "krow thin" }
+const _hoisted_29 = ["onUpdate:modelValue"]
 const _hoisted_30 = { class: "krow thin" }
-const _hoisted_31 = { class: "sub-line" }
+const _hoisted_31 = ["onUpdate:modelValue"]
 const _hoisted_32 = { class: "krow thin" }
 const _hoisted_33 = ["onUpdate:modelValue"]
-const _hoisted_34 = { class: "krow thin" }
-const _hoisted_35 = ["onUpdate:modelValue"]
-const _hoisted_36 = { class: "krow thin" }
-const _hoisted_37 = ["onUpdate:modelValue"]
-const _hoisted_38 = ["value"]
+const _hoisted_34 = ["value"]
+const _hoisted_35 = { class: "krow thin" }
+const _hoisted_36 = ["onUpdate:modelValue"]
+const _hoisted_37 = { class: "krow thin" }
+const _hoisted_38 = ["onUpdate:modelValue"]
 const _hoisted_39 = { class: "krow thin" }
-const _hoisted_40 = ["onUpdate:modelValue"]
-const _hoisted_41 = { class: "krow thin" }
-const _hoisted_42 = ["onUpdate:modelValue"]
-const _hoisted_43 = { class: "krow thin" }
-const _hoisted_44 = ["onUpdate:modelValue", "placeholder"]
-const _hoisted_45 = ["disabled", "onClick"]
-const _hoisted_46 = { class: "krow tight" }
-const _hoisted_47 = ["disabled", "onClick"]
-const _hoisted_48 = ["onClick"]
-const _hoisted_49 = { class: "hint sm" }
-const _hoisted_50 = {
+const _hoisted_40 = ["onUpdate:modelValue", "placeholder"]
+const _hoisted_41 = ["disabled", "onClick"]
+const _hoisted_42 = { class: "krow tight" }
+const _hoisted_43 = ["disabled", "onClick"]
+const _hoisted_44 = ["onClick"]
+const _hoisted_45 = { class: "hint sm" }
+const _hoisted_46 = {
   key: 0,
   class: "search-read"
 }
-const _hoisted_51 = {
-  class: "prov-sec",
-  id: "searchCard"
+const _hoisted_47 = {
+  class: "incard",
+  id: "searchCard",
+  ref: "searchFormEl"
 }
-const _hoisted_52 = { class: "prov-sec-h" }
-const _hoisted_53 = ["innerHTML"]
-const _hoisted_54 = { class: "krow thin" }
-const _hoisted_55 = {
+const _hoisted_48 = { class: "krow thin" }
+const _hoisted_49 = {
   class: "crow",
   style: {"flex":"1"}
 }
-const _hoisted_56 = ["onUpdate:modelValue"]
+const _hoisted_50 = ["onUpdate:modelValue"]
+const _hoisted_51 = { class: "krow thin" }
+const _hoisted_52 = ["onUpdate:modelValue"]
+const _hoisted_53 = ["onUpdate:modelValue"]
+const _hoisted_54 = { class: "krow thin" }
+const _hoisted_55 = ["onUpdate:modelValue"]
+const _hoisted_56 = { class: "hint sm" }
 const _hoisted_57 = { class: "krow thin" }
 const _hoisted_58 = ["onUpdate:modelValue"]
-const _hoisted_59 = ["onUpdate:modelValue"]
+const _hoisted_59 = ["value"]
 const _hoisted_60 = { class: "krow thin" }
 const _hoisted_61 = ["onUpdate:modelValue"]
-const _hoisted_62 = { class: "hint sm" }
-const _hoisted_63 = { class: "krow thin" }
-const _hoisted_64 = ["onUpdate:modelValue"]
-const _hoisted_65 = ["value"]
-const _hoisted_66 = { class: "krow thin" }
-const _hoisted_67 = ["onUpdate:modelValue"]
-const _hoisted_68 = { class: "krow thin" }
-const _hoisted_69 = ["onUpdate:modelValue"]
-const _hoisted_70 = { class: "krow thin" }
-const _hoisted_71 = ["onUpdate:modelValue", "placeholder"]
-const _hoisted_72 = ["disabled", "onClick"]
-const _hoisted_73 = { class: "krow tight" }
-const _hoisted_74 = ["disabled", "onClick"]
-const _hoisted_75 = ["onUpdate:modelValue", "onKeydown"]
-const _hoisted_76 = ["disabled", "onClick"]
-const _hoisted_77 = { class: "hint sm" }
-const _hoisted_78 = {
+const _hoisted_62 = { class: "krow thin" }
+const _hoisted_63 = ["onUpdate:modelValue"]
+const _hoisted_64 = { class: "krow thin" }
+const _hoisted_65 = ["onUpdate:modelValue", "placeholder"]
+const _hoisted_66 = ["disabled", "onClick"]
+const _hoisted_67 = { class: "krow tight" }
+const _hoisted_68 = ["disabled", "onClick"]
+const _hoisted_69 = ["onUpdate:modelValue", "onKeydown"]
+const _hoisted_70 = ["disabled", "onClick"]
+const _hoisted_71 = { class: "hint sm" }
+const _hoisted_72 = {
   key: 0,
   class: "search-hits"
 }
-const _hoisted_79 = ["href"]
-const _hoisted_80 = { class: "search-dom" }
-const _hoisted_81 = { class: "search-snip" }
-const _hoisted_82 = ["onClick"]
-const _hoisted_83 = {
+const _hoisted_73 = ["href"]
+const _hoisted_74 = { class: "search-dom" }
+const _hoisted_75 = { class: "search-snip" }
+const _hoisted_76 = ["onClick"]
+const _hoisted_77 = {
   key: 1,
   class: "search-read"
 }
-const _hoisted_84 = {
+const _hoisted_78 = {
   key: 2,
   class: "search-read"
 }
-const _hoisted_85 = ["hidden"]
-const _hoisted_86 = {
-  key: 0,
-  class: "krow thin"
-}
-const _hoisted_87 = { class: "cus-mine" }
-const _hoisted_88 = { class: "hint sm" }
-const _hoisted_89 = { class: "t" }
-const _hoisted_90 = { class: "hint sm" }
-const _hoisted_91 = ["onClick"]
-const _hoisted_92 = ["onClick"]
-const _hoisted_93 = { class: "krow thin" }
-const _hoisted_94 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_95 = ["value"]
-const _hoisted_96 = ["hidden"]
-const _hoisted_97 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_98 = ["value"]
-const _hoisted_99 = {
-  class: "hint sm",
-  style: {"flex":"1 1 240px"}
-}
-const _hoisted_100 = { class: "krow thin" }
-const _hoisted_101 = ["onUpdate:modelValue"]
-const _hoisted_102 = { class: "krow thin" }
-const _hoisted_103 = ["onUpdate:modelValue"]
-const _hoisted_104 = { class: "krow thin" }
-const _hoisted_105 = ["type", "onUpdate:modelValue"]
-const _hoisted_106 = { class: "acts" }
-const _hoisted_107 = ["title", "onClick"]
-const _hoisted_108 = ["innerHTML"]
-const _hoisted_109 = {
+const _hoisted_79 = ["hidden"]
+const _hoisted_80 = ["hidden"]
+const _hoisted_81 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_82 = ["value"]
+const _hoisted_83 = { class: "krow thin" }
+const _hoisted_84 = ["onUpdate:modelValue", "placeholder"]
+const _hoisted_85 = { class: "krow thin" }
+const _hoisted_86 = ["onUpdate:modelValue"]
+const _hoisted_87 = { class: "krow thin" }
+const _hoisted_88 = ["type", "onUpdate:modelValue"]
+const _hoisted_89 = { class: "acts" }
+const _hoisted_90 = ["title", "onClick"]
+const _hoisted_91 = ["innerHTML"]
+const _hoisted_92 = {
   class: "krow thin",
   style: {"align-items":"flex-start"}
 }
-const _hoisted_110 = { class: "cus-models mlist" }
-const _hoisted_111 = {
+const _hoisted_93 = {
+  class: "cappick",
+  ref: "cusCapEl"
+}
+const _hoisted_94 = {
+  class: "krow thin",
+  style: {"align-items":"flex-start"}
+}
+const _hoisted_95 = {
   key: 0,
   class: "mlist-empty"
 }
-const _hoisted_112 = ["checked", "onChange"]
-const _hoisted_113 = { class: "mlist-src" }
-const _hoisted_114 = { class: "krow thin" }
-const _hoisted_115 = ["onUpdate:modelValue", "onInput"]
-const _hoisted_116 = { class: "acts" }
-const _hoisted_117 = ["disabled", "onClick"]
-const _hoisted_118 = { class: "cus-acts" }
-const _hoisted_119 = ["onClick"]
-const _hoisted_120 = ["onClick"]
-const _hoisted_121 = { class: "hint sm" }
-const _hoisted_122 = {
+const _hoisted_96 = ["checked", "onChange"]
+const _hoisted_97 = { class: "mlist-src" }
+const _hoisted_98 = { class: "krow thin" }
+const _hoisted_99 = ["onUpdate:modelValue", "onInput"]
+const _hoisted_100 = { class: "acts" }
+const _hoisted_101 = ["disabled", "onClick"]
+const _hoisted_102 = { class: "cus-acts" }
+const _hoisted_103 = ["onClick"]
+const _hoisted_104 = ["onClick"]
+const _hoisted_105 = { class: "hint sm" }
+const _hoisted_106 = {
+  key: 0,
+  class: "krow thin",
+  style: {"align-items":"flex-start"}
+}
+const _hoisted_107 = { class: "cus-mine" }
+const _hoisted_108 = { class: "hint sm" }
+const _hoisted_109 = { class: "t" }
+const _hoisted_110 = { class: "hint sm" }
+const _hoisted_111 = ["onClick"]
+const _hoisted_112 = ["onClick"]
+const _hoisted_113 = {
   class: "set-group",
   "data-group": "ui",
-  "data-note": "打开就长什么样、列表默认怎么摆、卡在哪等。"
+  "data-note": ""
 }
-const _hoisted_123 = {
+const _hoisted_114 = {
   class: "card card-surface",
   "data-nav": "network"
 }
-const _hoisted_124 = { class: "card-h" }
-const _hoisted_125 = ["innerHTML"]
-const _hoisted_126 = {
+const _hoisted_115 = { class: "card-h" }
+const _hoisted_116 = ["innerHTML"]
+const _hoisted_117 = {
   class: "kcols",
   ref: "netBoxEl"
 }
-const _hoisted_127 = {
+const _hoisted_118 = {
   class: "card card-surface",
   "data-nav": "paging"
 }
-const _hoisted_128 = { class: "card-h" }
-const _hoisted_129 = ["innerHTML"]
-const _hoisted_130 = {
+const _hoisted_119 = { class: "card-h" }
+const _hoisted_120 = ["innerHTML"]
+const _hoisted_121 = {
   id: "pageSettings",
   class: "kcols",
   ref: "pageBoxEl"
 }
-const _hoisted_131 = {
+const _hoisted_122 = {
   class: "card card-surface",
   "data-nav": "appearance"
 }
-const _hoisted_132 = { class: "card-h" }
-const _hoisted_133 = ["innerHTML"]
-const _hoisted_134 = {
+const _hoisted_123 = { class: "card-h" }
+const _hoisted_124 = ["innerHTML"]
+const _hoisted_125 = {
   id: "uiPrefs",
   class: "kcols",
   ref: "uiPrefsBoxEl"
 }
-const _hoisted_135 = {
+const _hoisted_126 = {
   class: "set-group",
   "data-group": "gen",
-  "data-note": "产物落在哪、素材库怎么出图、右下角那个悬浮球怎么 behave。"
+  "data-note": ""
 }
-const _hoisted_136 = {
+const _hoisted_127 = {
   class: "card card-surface",
   "data-nav": "storage"
 }
-const _hoisted_137 = { class: "card-h" }
-const _hoisted_138 = ["innerHTML"]
-const _hoisted_139 = {
+const _hoisted_128 = { class: "card-h" }
+const _hoisted_129 = ["innerHTML"]
+const _hoisted_130 = {
   id: "storePrefs",
   class: "kcols",
   ref: "storePrefsBoxEl"
 }
-const _hoisted_140 = {
+const _hoisted_131 = {
   class: "kcols",
   ref: "storeRowsEl"
 }
-const _hoisted_141 = {
+const _hoisted_132 = {
   class: "card card-surface",
   "data-nav": "chars"
 }
-const _hoisted_142 = { class: "card-h" }
-const _hoisted_143 = ["innerHTML"]
-const _hoisted_144 = {
+const _hoisted_133 = { class: "card-h" }
+const _hoisted_134 = ["innerHTML"]
+const _hoisted_135 = {
   id: "charsSet",
   class: "kcols",
   ref: "charsBoxEl"
 }
-const _hoisted_145 = {
+const _hoisted_136 = {
   class: "card card-surface",
   "data-nav": "assistant"
 }
-const _hoisted_146 = { class: "card-h" }
-const _hoisted_147 = ["innerHTML"]
-const _hoisted_148 = {
+const _hoisted_137 = { class: "card-h" }
+const _hoisted_138 = ["innerHTML"]
+const _hoisted_139 = {
   class: "kcols",
   ref: "assistantBoxEl"
 }
-const _hoisted_149 = {
+const _hoisted_140 = {
   class: "card card-surface",
   "data-nav": "polish",
   id: "polishCard"
 }
-const _hoisted_150 = { class: "card-h" }
-const _hoisted_151 = ["innerHTML"]
-const _hoisted_152 = { class: "polish-block" }
-const _hoisted_153 = {
+const _hoisted_141 = { class: "card-h" }
+const _hoisted_142 = ["innerHTML"]
+const _hoisted_143 = { class: "polish-block" }
+const _hoisted_144 = {
   class: "kcols",
   ref: "polishBoxEl"
 }
-const _hoisted_154 = {
+const _hoisted_145 = {
   class: "card card-surface",
   "data-nav": "skill",
   id: "skillCard"
 }
-const _hoisted_155 = { class: "card-h" }
-const _hoisted_156 = ["innerHTML"]
-const _hoisted_157 = { class: "sk-scenes" }
-const _hoisted_158 = { class: "sk-rail" }
-const _hoisted_159 = { class: "sk-rail-top" }
-const _hoisted_160 = ["value", "onInput"]
-const _hoisted_161 = ["disabled", "onClick"]
-const _hoisted_162 = { class: "sk-groups" }
-const _hoisted_163 = { class: "sk-rg-h" }
-const _hoisted_164 = { class: "sk-rg-n" }
-const _hoisted_165 = { class: "sk-rg-c" }
-const _hoisted_166 = ["data-scene", "onClick"]
-const _hoisted_167 = { class: "sk-s-l" }
-const _hoisted_168 = {
+const _hoisted_146 = { class: "card-h" }
+const _hoisted_147 = ["innerHTML"]
+const _hoisted_148 = { class: "sk-scenes" }
+const _hoisted_149 = { class: "sk-rail" }
+const _hoisted_150 = { class: "sk-rail-top" }
+const _hoisted_151 = ["value", "onInput"]
+const _hoisted_152 = ["disabled", "onClick"]
+const _hoisted_153 = { class: "sk-groups" }
+const _hoisted_154 = { class: "sk-rg-h" }
+const _hoisted_155 = { class: "sk-rg-n" }
+const _hoisted_156 = { class: "sk-rg-c" }
+const _hoisted_157 = ["data-scene", "onClick"]
+const _hoisted_158 = { class: "sk-s-l" }
+const _hoisted_159 = {
   key: 0,
   class: "empty sm"
 }
-const _hoisted_169 = { class: "sk-detail" }
-const _hoisted_170 = { class: "sk-d-head" }
-const _hoisted_171 = { class: "sk-d-l" }
-const _hoisted_172 = { class: "sk-d-title" }
-const _hoisted_173 = { class: "sk-used" }
-const _hoisted_174 = { class: "sk-meta" }
-const _hoisted_175 = { class: "sk-code" }
-const _hoisted_176 = {
+const _hoisted_160 = { class: "sk-detail" }
+const _hoisted_161 = { class: "sk-d-head" }
+const _hoisted_162 = { class: "sk-d-l" }
+const _hoisted_163 = { class: "sk-d-title" }
+const _hoisted_164 = { class: "sk-used" }
+const _hoisted_165 = { class: "sk-meta" }
+const _hoisted_166 = { class: "sk-code" }
+const _hoisted_167 = {
   key: 0,
   class: "ui-tag err"
 }
-const _hoisted_177 = {
+const _hoisted_168 = {
   key: 1,
   class: "ui-tag ok"
 }
-const _hoisted_178 = {
+const _hoisted_169 = {
   key: 2,
   class: "ui-tag"
 }
-const _hoisted_179 = { class: "sk-cnt" }
-const _hoisted_180 = { class: "sk-acts" }
-const _hoisted_181 = ["disabled", "onClick"]
-const _hoisted_182 = { class: "sk-sec" }
-const _hoisted_183 = {
+const _hoisted_170 = { class: "sk-cnt" }
+const _hoisted_171 = { class: "sk-acts" }
+const _hoisted_172 = ["disabled", "onClick"]
+const _hoisted_173 = { class: "sk-sec" }
+const _hoisted_174 = {
   key: 0,
   class: "sk-vlist"
 }
-const _hoisted_184 = { class: "sk-vk" }
-const _hoisted_185 = { class: "sk-vfrom" }
-const _hoisted_186 = { class: "sk-vdesc" }
-const _hoisted_187 = {
+const _hoisted_175 = { class: "sk-vk" }
+const _hoisted_176 = { class: "sk-vfrom" }
+const _hoisted_177 = { class: "sk-vdesc" }
+const _hoisted_178 = {
   key: 1,
   class: "sk-vempty"
 }
-const _hoisted_188 = {
+const _hoisted_179 = {
   key: 2,
   class: "sk-warn"
 }
-const _hoisted_189 = { class: "sk-sec" }
-const _hoisted_190 = {
+const _hoisted_180 = { class: "sk-sec" }
+const _hoisted_181 = {
   key: 0,
   class: "sk-vempty"
 }
-const _hoisted_191 = ["data-skill-id"]
-const _hoisted_192 = { class: "sk-i-main" }
-const _hoisted_193 = { class: "sk-line1" }
-const _hoisted_194 = { class: "sk-name" }
-const _hoisted_195 = { class: "sk-id" }
-const _hoisted_196 = { class: "sk-desc" }
-const _hoisted_197 = { class: "sk-tags" }
-const _hoisted_198 = {
+const _hoisted_182 = ["data-skill-id"]
+const _hoisted_183 = { class: "sk-i-main" }
+const _hoisted_184 = { class: "sk-line1" }
+const _hoisted_185 = { class: "sk-name" }
+const _hoisted_186 = { class: "sk-id" }
+const _hoisted_187 = { class: "sk-desc" }
+const _hoisted_188 = { class: "sk-tags" }
+const _hoisted_189 = {
   key: 0,
   class: "ui-tag acc"
 }
-const _hoisted_199 = {
+const _hoisted_190 = {
   key: 1,
   class: "ui-tag err"
 }
-const _hoisted_200 = { class: "ui-tag" }
-const _hoisted_201 = { class: "sk-acts" }
-const _hoisted_202 = ["data-skill-id", "disabled", "onClick"]
-const _hoisted_203 = ["data-skill-id", "disabled", "onClick"]
-const _hoisted_204 = ["disabled", "onClick"]
-const _hoisted_205 = ["data-skill-id", "disabled", "onClick"]
-const _hoisted_206 = ["data-skill-id", "onClick"]
-const _hoisted_207 = {
+const _hoisted_191 = { class: "ui-tag" }
+const _hoisted_192 = { class: "sk-acts" }
+const _hoisted_193 = ["data-skill-id", "disabled", "onClick"]
+const _hoisted_194 = ["data-skill-id", "disabled", "onClick"]
+const _hoisted_195 = ["disabled", "onClick"]
+const _hoisted_196 = ["data-skill-id", "disabled", "onClick"]
+const _hoisted_197 = ["data-skill-id", "onClick"]
+const _hoisted_198 = {
   key: 0,
   class: "sk-open"
 }
-const _hoisted_208 = {
+const _hoisted_199 = {
   key: 0,
   class: "sk-files"
 }
+const _hoisted_200 = ["onClick"]
+const _hoisted_201 = { class: "sk-fpath" }
+const _hoisted_202 = { class: "sk-sz" }
+const _hoisted_203 = { class: "sk-prev" }
+const _hoisted_204 = { class: "sk-prev-bar" }
+const _hoisted_205 = { class: "sk-fname" }
+const _hoisted_206 = { class: "hint" }
+const _hoisted_207 = { class: "sk-d-head" }
+const _hoisted_208 = { class: "sk-acts" }
 const _hoisted_209 = ["onClick"]
-const _hoisted_210 = { class: "sk-fpath" }
-const _hoisted_211 = { class: "sk-sz" }
-const _hoisted_212 = { class: "sk-prev" }
-const _hoisted_213 = { class: "sk-prev-bar" }
-const _hoisted_214 = { class: "sk-fname" }
-const _hoisted_215 = { class: "hint" }
-const _hoisted_216 = { class: "sk-d-head" }
-const _hoisted_217 = { class: "sk-acts" }
-const _hoisted_218 = ["onClick"]
-const _hoisted_219 = ["disabled", "onClick"]
-const _hoisted_220 = { class: "sk-sec" }
-const _hoisted_221 = { class: "sk-filters" }
-const _hoisted_222 = {
+const _hoisted_210 = ["disabled", "onClick"]
+const _hoisted_211 = { class: "sk-sec" }
+const _hoisted_212 = { class: "sk-filters" }
+const _hoisted_213 = {
   class: "chips",
   ref: "skillChipsEl"
 }
-const _hoisted_223 = ["value", "onInput"]
-const _hoisted_224 = { class: "sk-cnt" }
-const _hoisted_225 = { class: "sk-alllist" }
-const _hoisted_226 = ["data-skill-id"]
-const _hoisted_227 = { class: "sk-i-main" }
-const _hoisted_228 = { class: "sk-line1" }
-const _hoisted_229 = { class: "sk-name" }
-const _hoisted_230 = { class: "sk-id" }
-const _hoisted_231 = { class: "sk-desc" }
-const _hoisted_232 = { class: "sk-tags" }
-const _hoisted_233 = { class: "ui-tag mono" }
-const _hoisted_234 = { class: "ui-tag" }
-const _hoisted_235 = { class: "sk-acts" }
-const _hoisted_236 = ["data-skill-id", "disabled", "onClick"]
-const _hoisted_237 = {
+const _hoisted_214 = ["value", "onInput"]
+const _hoisted_215 = { class: "sk-cnt" }
+const _hoisted_216 = { class: "sk-alllist" }
+const _hoisted_217 = ["data-skill-id"]
+const _hoisted_218 = { class: "sk-i-main" }
+const _hoisted_219 = { class: "sk-line1" }
+const _hoisted_220 = { class: "sk-name" }
+const _hoisted_221 = { class: "sk-id" }
+const _hoisted_222 = { class: "sk-desc" }
+const _hoisted_223 = { class: "sk-tags" }
+const _hoisted_224 = { class: "ui-tag mono" }
+const _hoisted_225 = { class: "ui-tag" }
+const _hoisted_226 = { class: "sk-acts" }
+const _hoisted_227 = ["data-skill-id", "disabled", "onClick"]
+const _hoisted_228 = {
   key: 0,
   class: "empty sm"
 }
-const _hoisted_238 = { class: "sk-d-head" }
-const _hoisted_239 = { class: "sk-d-l" }
-const _hoisted_240 = { class: "sk-d-title" }
-const _hoisted_241 = { class: "sk-used" }
-const _hoisted_242 = { class: "sk-meta" }
-const _hoisted_243 = { class: "sk-code" }
-const _hoisted_244 = { class: "sk-acts" }
-const _hoisted_245 = ["onClick"]
-const _hoisted_246 = ["disabled", "onClick"]
-const _hoisted_247 = { class: "sk-sec" }
-const _hoisted_248 = { class: "sk-form" }
-const _hoisted_249 = { class: "sk-field" }
-const _hoisted_250 = ["onUpdate:modelValue", "disabled"]
+const _hoisted_229 = { class: "sk-d-head" }
+const _hoisted_230 = { class: "sk-d-l" }
+const _hoisted_231 = { class: "sk-d-title" }
+const _hoisted_232 = { class: "sk-used" }
+const _hoisted_233 = { class: "sk-meta" }
+const _hoisted_234 = { class: "sk-code" }
+const _hoisted_235 = { class: "sk-acts" }
+const _hoisted_236 = ["onClick"]
+const _hoisted_237 = ["disabled", "onClick"]
+const _hoisted_238 = { class: "sk-sec" }
+const _hoisted_239 = { class: "sk-form" }
+const _hoisted_240 = { class: "sk-field" }
+const _hoisted_241 = ["onUpdate:modelValue", "disabled"]
+const _hoisted_242 = { class: "sk-field" }
+const _hoisted_243 = ["onUpdate:modelValue"]
+const _hoisted_244 = { class: "sk-field" }
+const _hoisted_245 = ["onUpdate:modelValue"]
+const _hoisted_246 = { class: "sk-field" }
+const _hoisted_247 = ["onUpdate:modelValue"]
+const _hoisted_248 = { class: "sk-field" }
+const _hoisted_249 = { class: "sk-pages" }
+const _hoisted_250 = ["value", "onUpdate:modelValue"]
 const _hoisted_251 = { class: "sk-field" }
 const _hoisted_252 = ["onUpdate:modelValue"]
-const _hoisted_253 = { class: "sk-field" }
-const _hoisted_254 = ["onUpdate:modelValue"]
-const _hoisted_255 = { class: "sk-field" }
-const _hoisted_256 = ["onUpdate:modelValue"]
-const _hoisted_257 = { class: "sk-field" }
-const _hoisted_258 = { class: "sk-pages" }
-const _hoisted_259 = ["value", "onUpdate:modelValue"]
-const _hoisted_260 = { class: "sk-field" }
-const _hoisted_261 = ["onUpdate:modelValue"]
-const _hoisted_262 = ["onChange"]
-const _hoisted_263 = {
+const _hoisted_253 = ["onChange"]
+const _hoisted_254 = {
   key: 0,
   class: "hint sm sk-msg"
 }
-const _hoisted_264 = {
+const _hoisted_255 = {
   class: "set-group",
   "data-group": "data",
-  "data-note": "东西存哪、怎么带走、坏了怎么恢复。"
+  "data-note": ""
 }
-const _hoisted_265 = {
+const _hoisted_256 = {
   class: "card card-surface",
   "data-nav": "sync"
 }
-const _hoisted_266 = { class: "card-h" }
-const _hoisted_267 = ["innerHTML"]
-const _hoisted_268 = { class: "kcols" }
-const _hoisted_269 = { class: "krow" }
-const _hoisted_270 = { class: "kicon" }
-const _hoisted_271 = ["innerHTML"]
-const _hoisted_272 = ["title"]
+const _hoisted_257 = { class: "card-h" }
+const _hoisted_258 = ["innerHTML"]
+const _hoisted_259 = { class: "kcols" }
+const _hoisted_260 = { class: "krow" }
+const _hoisted_261 = { class: "kicon" }
+const _hoisted_262 = ["innerHTML"]
+const _hoisted_263 = ["title"]
+const _hoisted_264 = ["disabled", "onClick"]
+const _hoisted_265 = ["onClick"]
+const _hoisted_266 = { class: "krow" }
+const _hoisted_267 = { class: "kicon" }
+const _hoisted_268 = ["innerHTML"]
+const _hoisted_269 = { class: "dir-name" }
+const _hoisted_270 = ["onClick"]
+const _hoisted_271 = { class: "krow tight" }
+const _hoisted_272 = ["disabled", "onClick"]
 const _hoisted_273 = ["disabled", "onClick"]
-const _hoisted_274 = ["onClick"]
-const _hoisted_275 = { class: "krow" }
-const _hoisted_276 = { class: "kicon" }
-const _hoisted_277 = ["innerHTML"]
-const _hoisted_278 = { class: "dir-name" }
-const _hoisted_279 = ["onClick"]
-const _hoisted_280 = { class: "krow tight" }
-const _hoisted_281 = ["disabled", "onClick"]
-const _hoisted_282 = ["disabled", "onClick"]
-const _hoisted_283 = ["disabled", "onClick"]
-const _hoisted_284 = ["disabled", "onClick"]
-const _hoisted_285 = ["onChange"]
-const _hoisted_286 = { class: "hint sm" }
-const _hoisted_287 = { class: "krow" }
-const _hoisted_288 = { class: "kicon" }
-const _hoisted_289 = ["innerHTML"]
-const _hoisted_290 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_291 = { class: "krow" }
-const _hoisted_292 = { class: "kicon" }
-const _hoisted_293 = ["innerHTML"]
-const _hoisted_294 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_295 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_296 = { class: "krow tight" }
-const _hoisted_297 = ["onClick"]
-const _hoisted_298 = ["onClick"]
-const _hoisted_299 = ["onClick"]
-const _hoisted_300 = ["onClick"]
-const _hoisted_301 = { class: "crow" }
-const _hoisted_302 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_303 = {
+const _hoisted_274 = ["disabled", "onClick"]
+const _hoisted_275 = ["disabled", "onClick"]
+const _hoisted_276 = ["onChange"]
+const _hoisted_277 = { class: "hint sm" }
+const _hoisted_278 = { class: "krow" }
+const _hoisted_279 = { class: "kicon" }
+const _hoisted_280 = ["innerHTML"]
+const _hoisted_281 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_282 = { class: "krow" }
+const _hoisted_283 = { class: "kicon" }
+const _hoisted_284 = ["innerHTML"]
+const _hoisted_285 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_286 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_287 = { class: "krow tight" }
+const _hoisted_288 = ["onClick"]
+const _hoisted_289 = ["onClick"]
+const _hoisted_290 = ["onClick"]
+const _hoisted_291 = ["onClick"]
+const _hoisted_292 = { class: "crow" }
+const _hoisted_293 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_294 = {
   class: "crow",
-  title: "提示词归档是磁盘上的一堆 .md，不进整包备份 —— 换机器就没了。勾上跟着 push/pull/sync 走云端 prompts/ 目录，只推不删。"
+  title: "只推不删"
 }
-const _hoisted_304 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_305 = { class: "hint sm" }
-const _hoisted_306 = { class: "krow tight" }
-const _hoisted_307 = { class: "hint sm" }
-const _hoisted_308 = {
+const _hoisted_295 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_296 = { class: "hint sm" }
+const _hoisted_297 = { class: "krow tight" }
+const _hoisted_298 = { class: "hint sm" }
+const _hoisted_299 = {
   id: "cloudConflicts",
   ref: "cloudConflictsEl"
 }
-const _hoisted_309 = {
+const _hoisted_300 = {
   id: "cloudBackups",
   ref: "cloudBackupsEl"
 }
-const _hoisted_310 = {
+const _hoisted_301 = {
   class: "card card-surface",
   "data-nav": "prompts"
 }
-const _hoisted_311 = { class: "krow" }
-const _hoisted_312 = { class: "kicon" }
-const _hoisted_313 = ["innerHTML"]
-const _hoisted_314 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_315 = ["title"]
-const _hoisted_316 = { class: "krow tight" }
-const _hoisted_317 = ["disabled", "onClick"]
-const _hoisted_318 = ["onClick"]
-const _hoisted_319 = { class: "hint sm" }
-const _hoisted_320 = {
+const _hoisted_302 = { class: "krow" }
+const _hoisted_303 = { class: "kicon" }
+const _hoisted_304 = ["innerHTML"]
+const _hoisted_305 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_306 = ["title"]
+const _hoisted_307 = { class: "krow tight" }
+const _hoisted_308 = ["disabled", "onClick"]
+const _hoisted_309 = ["onClick"]
+const _hoisted_310 = { class: "hint sm" }
+const _hoisted_311 = {
   id: "promptRecent",
   ref: "promptRecentEl",
   class: "prompt-recent"
 }
-const _hoisted_321 = {
+const _hoisted_312 = {
   class: "card card-surface",
   "data-nav": "backup",
   id: "ioCard"
 }
-const _hoisted_322 = { class: "card-h" }
-const _hoisted_323 = ["innerHTML"]
-const _hoisted_324 = { class: "krow tight" }
-const _hoisted_325 = ["onClick"]
-const _hoisted_326 = ["onClick"]
-const _hoisted_327 = ["onClick"]
-const _hoisted_328 = ["onChange"]
-const _hoisted_329 = {
+const _hoisted_313 = { class: "card-h" }
+const _hoisted_314 = ["innerHTML"]
+const _hoisted_315 = { class: "krow tight" }
+const _hoisted_316 = ["onClick"]
+const _hoisted_317 = ["onClick"]
+const _hoisted_318 = ["onClick"]
+const _hoisted_319 = ["onChange"]
+const _hoisted_320 = {
   class: "set-group foldable",
   "data-group": "maint",
   "data-fold-key": "set_fold_maint",
-  "data-note": "这台机器现在行不行、低频的清理。"
+  "data-note": ""
 }
-const _hoisted_330 = { class: "fold-body" }
-const _hoisted_331 = {
+const _hoisted_321 = { class: "fold-body" }
+const _hoisted_322 = {
   class: "card card-surface",
   "data-nav": "env"
 }
-const _hoisted_332 = { class: "card-h" }
-const _hoisted_333 = ["innerHTML"]
-const _hoisted_334 = {
+const _hoisted_323 = { class: "card-h" }
+const _hoisted_324 = ["innerHTML"]
+const _hoisted_325 = {
   id: "sysRows",
   ref: "sysRowsEl"
 }
-const _hoisted_335 = { class: "krow tight" }
-const _hoisted_336 = ["disabled", "onClick"]
-const _hoisted_337 = ["disabled", "onClick", "title"]
-const _hoisted_338 = { class: "hint sm" }
-const _hoisted_339 = {
+const _hoisted_326 = { class: "krow tight" }
+const _hoisted_327 = ["disabled", "onClick"]
+const _hoisted_328 = ["disabled", "onClick", "title"]
+const _hoisted_329 = { class: "hint sm" }
+const _hoisted_330 = {
   class: "card card-surface",
   "data-nav": "disk"
 }
-const _hoisted_340 = { class: "card-h" }
-const _hoisted_341 = ["innerHTML"]
-const _hoisted_342 = {
+const _hoisted_331 = { class: "card-h" }
+const _hoisted_332 = ["innerHTML"]
+const _hoisted_333 = {
   id: "usageRows",
   ref: "usageRowsEl"
 }
-const _hoisted_343 = { class: "krow tight" }
-const _hoisted_344 = ["disabled", "onClick"]
-const _hoisted_345 = ["disabled", "onClick", "title"]
-const _hoisted_346 = {
+const _hoisted_334 = { class: "krow tight" }
+const _hoisted_335 = ["disabled", "onClick"]
+const _hoisted_336 = ["disabled", "onClick", "title"]
+const _hoisted_337 = {
   id: "usageGoSlot",
   ref: "usageGoSlotEl"
 }
-const _hoisted_347 = { class: "hint sm" }
-const _hoisted_348 = {
+const _hoisted_338 = { class: "hint sm" }
+const _hoisted_339 = {
   class: "card card-surface",
   "data-nav": "cache"
 }
-const _hoisted_349 = { class: "card-h" }
-const _hoisted_350 = ["innerHTML"]
-const _hoisted_351 = { class: "kcols" }
-const _hoisted_352 = { class: "krow tight" }
-const _hoisted_353 = ["disabled", "onClick"]
-const _hoisted_354 = { class: "krow tight" }
-const _hoisted_355 = ["disabled", "onClick"]
-const _hoisted_356 = { class: "krow tight" }
-const _hoisted_357 = ["disabled", "onClick"]
-const _hoisted_358 = { class: "krow tight" }
-const _hoisted_359 = ["disabled", "onClick"]
-const _hoisted_360 = {
+const _hoisted_340 = { class: "card-h" }
+const _hoisted_341 = ["innerHTML"]
+const _hoisted_342 = { class: "kcols" }
+const _hoisted_343 = { class: "krow tight" }
+const _hoisted_344 = ["disabled", "onClick"]
+const _hoisted_345 = { class: "krow tight" }
+const _hoisted_346 = ["disabled", "onClick"]
+const _hoisted_347 = { class: "krow tight" }
+const _hoisted_348 = ["disabled", "onClick"]
+const _hoisted_349 = { class: "krow tight" }
+const _hoisted_350 = ["disabled", "onClick"]
+const _hoisted_351 = {
   id: "histClearRows",
   ref: "histBoxEl"
 }
-const _hoisted_361 = {
+const _hoisted_352 = {
   class: "hint sm cache-line",
   id: "cacheUsage"
 }
-const _hoisted_362 = {
+const _hoisted_353 = {
   class: "hint sm cache-line",
   id: "cacheMsg"
 }
-const _hoisted_363 = { class: "set-status" }
-const _hoisted_364 = { class: "set-pos" }
+const _hoisted_354 = { class: "set-status" }
+const _hoisted_355 = { class: "set-pos" }
 
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+    _createCommentVNode(" 统一页头（全站唯一一份 .phead）：以前标题在右栏那条连续文档的最上面，\n           往下一滚名字就没了。现在提到通栏顶部钉住；左边的目录轨与右边的文档各滚各的。 "),
+    _cache[108] || (_cache[108] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">设置</h1></div><p class=\"phead-sub\">全部设置都在本机改。</p><div class=\"phead-acts\"></div></header>", 1)),
     _createCommentVNode(" 左：目录轨（索引，不是另一套页面）。\n           点哪一行 → 右栏平滑滚到那一栏；右栏滚到哪一栏 → 轨上那一行亮起来。\n           每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，\n           就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 "),
     _createElementVNode("aside", _hoisted_2, [
       _createElementVNode("div", _hoisted_3, [
@@ -599,7 +610,7 @@ export function render(_ctx, _cache) {
           "onUpdate:modelValue": $event => ((_ctx.setQ) = $event),
           onInput: _ctx.syncNav,
           onKeydown: _ctx.onNavKey,
-          placeholder: "找一项设置（密钥、目录、分页…）",
+          placeholder: "找一项设置",
           autocomplete: "off",
           spellcheck: "false"
         }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_4), [
@@ -626,457 +637,330 @@ export function render(_ctx, _cache) {
     _createCommentVNode(" 右：一条**连续的文档**。5 组 15 张卡从上到下排成一条 ——\n           滚到哪一栏就接着滚到下一栏，卡与卡之间没有黑屏、没有跳。\n           组标题钉在顶上，状态行钉在底下，中间那条就是全部设置。 "),
     _createElementVNode("div", _hoisted_8, [
       _createElementVNode("div", _hoisted_9, [
-        _createElementVNode("h1", _hoisted_10, [
-          _createElementVNode("span", { innerHTML: _ctx.icGear }, null, 8 /* PROPS */, _hoisted_11),
-          _cache[1] || (_cache[1] = _createTextVNode(" 设置", -1 /* CACHED */))
-        ]),
-        _cache[124] || (_cache[124] = _createElementVNode("div", { class: "desc" }, [
-          _createTextVNode("平台密钥保存在浏览器本地，随请求经本地代理发往对应平台；留空则使用本地代理的 "),
+        _cache[106] || (_cache[106] = _createElementVNode("div", { class: "desc" }, [
+          _createTextVNode("密钥存本机；留空则用本地代理 "),
           _createElementVNode("code", null, ".env"),
-          _createTextVNode(" / 环境变量里的密钥（代理程序本身不带任何密钥）。")
+          _createTextVNode(" 里的密钥。")
         ], -1 /* CACHED */)),
         (_ctx.failed)
-          ? (_openBlock(), _createElementBlock("div", _hoisted_12, [
-              _createElementVNode("div", _hoisted_13, [
+          ? (_openBlock(), _createElementBlock("div", _hoisted_10, [
+              _createElementVNode("div", _hoisted_11, [
                 _createTextVNode(_toDisplayString(_ctx.failed) + " ", 1 /* TEXT */),
                 _createElementVNode("button", {
                   class: "ghost mini",
                   onClick: _ctx.retryLoad
-                }, "重新加载本页", 8 /* PROPS */, _hoisted_14)
+                }, "重试", 8 /* PROPS */, _hoisted_12)
               ])
             ]))
           : _createCommentVNode("v-if", true),
-        _createElementVNode("section", _hoisted_15, [
-          _cache[45] || (_cache[45] = _createElementVNode("h2", { class: "set-group-h" }, "账户与密钥", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_16, [
-            _createElementVNode("h2", _hoisted_17, [
+        _createElementVNode("section", _hoisted_13, [
+          _cache[30] || (_cache[30] = _createElementVNode("h2", { class: "set-group-h" }, "账户与密钥", -1 /* CACHED */)),
+          _createElementVNode("div", _hoisted_14, [
+            _createElementVNode("h2", _hoisted_15, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icKey
-              }, null, 8 /* PROPS */, _hoisted_18),
-              _cache[2] || (_cache[2] = _createTextVNode("供应商与密钥", -1 /* CACHED */))
+              }, null, 8 /* PROPS */, _hoisted_16),
+              _cache[1] || (_cache[1] = _createTextVNode("供应商与密钥", -1 /* CACHED */))
             ]),
-            _cache[32] || (_cache[32] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("按生成类型分开配（图片 / 视频 / 语音 / 文字 AI），只列本机"),
-              _createElementVNode("b", null, "在用"),
-              _createTextVNode("的：添加进来的，或密钥已经有着落的（这里填了 / "),
-              _createElementVNode("code", null, ".env"),
-              _createTextVNode(" 里有）。找不到某家就是还没接进来，用右边的按钮加。 最后两档不是供应商："),
-              _createElementVNode("b", null, "语音识别"),
-              _createTextVNode("与"),
-              _createElementVNode("b", null, "联网搜索"),
-              _createTextVNode("和它们同一层级，各自一份设置。 "),
-              _createElementVNode("b", null, "「识图能力」是全局一项"),
-              _createTextVNode("，只画在当前「作用文字 AI」的那张卡下面。")
-            ], -1 /* CACHED */)),
+            _createCommentVNode(" 图例教一次「哪个字是哪一档」（卡顶那排小方格是这一页独有的图形语言）。 "),
+            _createElementVNode("div", _hoisted_17, null, 512 /* NEED_PATCH */),
+            _createCommentVNode(" 芯片（按档筛）+ 摘要条：数字是**账号数**，不是 provider 条数。 "),
+            _createElementVNode("div", _hoisted_18, null, 512 /* NEED_PATCH */),
+            _createCommentVNode(" 一条卡片流：账号卡 + 末尾那张「添加供应商」卡（等高竖排，卡内中段可滚）。 "),
             _createElementVNode("div", _hoisted_19, null, 512 /* NEED_PATCH */),
-            _withDirectives(_createElementVNode("div", _hoisted_20, [
-              _createElementVNode("span", {
-                class: _normalizeClass(["hint sm", { kerr: _ctx.provSumErr }])
-              }, _toDisplayString(_ctx.provSumText), 3 /* TEXT, CLASS */),
-              _cache[3] || (_cache[3] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
-              _createElementVNode("span", _hoisted_21, [
-                _createElementVNode("button", {
-                  class: "ghost",
-                  onClick: _ctx.openCus
-                }, "＋ 添加自定义供应商", 8 /* PROPS */, _hoisted_22)
-              ])
-            ], 512 /* NEED_PATCH */), [
-              [_vShow, _ctx.provTabView !== 'asr' && _ctx.provTabView !== 'search']
-            ]),
-            _createElementVNode("div", _hoisted_23, null, 512 /* NEED_PATCH */),
-            _createCommentVNode(" 语音识别：与图片 / 视频 / 语音 / 文字**同一层级**的一档（不是一类平台，是另一种接法）。\n                       它与联网搜索都住在这张卡里 —— 左侧目录轨只索引「卡」，这两档不另占行。 "),
-            _withDirectives(_createElementVNode("div", _hoisted_24, [
-              _createElementVNode("h2", _hoisted_25, [
-                _createElementVNode("span", {
-                  class: "card-ic",
-                  innerHTML: _ctx.icMic
-                }, null, 8 /* PROPS */, _hoisted_26),
-                _cache[4] || (_cache[4] = _createTextVNode("语音识别（ASR）", -1 /* CACHED */))
-              ]),
-              _cache[17] || (_cache[17] = _createElementVNode("div", { class: "sub" }, [
-                _createTextVNode("把音频 / 视频里的说话转成文字与 SRT。三条路：浏览器内 Whisper（模型经代理同源代下载，识别全在本机浏览器跑）、本地 whisper.cpp（不联网、不花钱）、在线走 OpenAI 兼容的 "),
-                _createElementVNode("code", null, "/audio/transcriptions"),
-                _createTextVNode("。设置与密钥只存在代理那一边的 "),
-                _createElementVNode("code", null, ".data/asr.json"),
-                _createTextVNode("，读回来只有「有没有密钥」，不回显。")
-              ], -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_27, [
-                _cache[5] || (_cache[5] = _createElementVNode("span", { class: "kn" }, "本机运行包", -1 /* CACHED */)),
-                _createElementVNode("span", _hoisted_28, _toDisplayString(_ctx.asrLocalText), 1 /* TEXT */),
-                _createElementVNode("button", {
-                  class: "ghost mini",
-                  disabled: _ctx.asrBusy,
-                  onClick: _ctx.loadAsr
-                }, "重新检查", 8 /* PROPS */, _hoisted_29)
-              ]),
-              _createElementVNode("div", _hoisted_30, [
-                _cache[6] || (_cache[6] = _createElementVNode("span", { class: "kn" }, "浏览器内模型", -1 /* CACHED */)),
-                _createElementVNode("span", _hoisted_31, _toDisplayString(_ctx.asrBrowserText), 1 /* TEXT */)
-              ]),
-              _createElementVNode("div", _hoisted_32, [
-                _cache[8] || (_cache[8] = _createElementVNode("span", { class: "kn" }, "走哪条路", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("select", {
-                  "onUpdate:modelValue": $event => ((_ctx.asr.route) = $event),
-                  style: {"flex":"1 1 300px"}
-                }, [...(_cache[7] || (_cache[7] = [
-                  _createElementVNode("option", { value: "auto" }, "自动（浏览器模型已就绪就本机识别，否则本地可用用本地，最后在线）", -1 /* CACHED */),
-                  _createElementVNode("option", { value: "browser" }, "只走浏览器内 Whisper（首次要经代理下载模型，约 250–500MB）", -1 /* CACHED */),
-                  _createElementVNode("option", { value: "local" }, "只走本地 whisper.cpp", -1 /* CACHED */),
-                  _createElementVNode("option", { value: "service" }, "只走在线服务", -1 /* CACHED */)
-                ]))], 8 /* PROPS */, _hoisted_33), [
-                  [_vModelSelect, _ctx.asr.route]
+            _createCommentVNode(" 注册表那一类的报错（旧代理丢了哪几家 / 型号偏好读不出来）：通栏一条，不进卡片网格。 "),
+            _createElementVNode("div", _hoisted_20, null, 512 /* NEED_PATCH */),
+            _createCommentVNode(" 两块「全局项」表单住在这里，**不在上面那个网格里** —— 网格每次都是整片重画，\n                     而这两块是 Vue 绑定的节点。画完网格后把它们搬进**这一档所在的账号**那张卡里\n                     那一行下面（placeForms 认 hostKidOf：谁是这个渠道，就住谁那张卡；都没选时落到\n                     第一个能当文字 AI 的账号）。没有「通栏兜底」那一块 —— 与图片 / 视频一样，\n                     能力在哪张卡上，设置就在哪张卡里。 "),
+            _createElementVNode("div", _hoisted_21, [
+              _createElementVNode("div", _hoisted_22, [
+                _createElementVNode("div", _hoisted_23, [
+                  _cache[2] || (_cache[2] = _createElementVNode("span", { class: "kn" }, "本机运行包", -1 /* CACHED */)),
+                  _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.asrLocalText), 1 /* TEXT */),
+                  _createElementVNode("button", {
+                    class: "ghost mini",
+                    disabled: _ctx.asrBusy,
+                    onClick: _ctx.loadAsr
+                  }, "重新检查", 8 /* PROPS */, _hoisted_25)
                 ]),
-                _cache[9] || (_cache[9] = _createElementVNode("span", {
-                  class: "hint sm",
-                  style: {"flex":"1 1 260px"}
-                }, "本地运行时先把音轨抽成 16k 单声道 WAV，再交给 whisper-cli；浏览器内识别在页面 worker 里跑，关页就停。", -1 /* CACHED */))
-              ]),
-              _createElementVNode("div", _hoisted_34, [
-                _cache[10] || (_cache[10] = _createElementVNode("span", { class: "kn" }, "语言", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.asr.language) = $event),
-                  placeholder: "留空 = 自动（可填 zh / en / ja / ko）",
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_35), [
-                  [_vModelText, _ctx.asr.language]
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_36, [
-                _cache[12] || (_cache[12] = _createElementVNode("span", { class: "kn" }, "在线服务商", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("select", {
-                  ref: "asrProvEl",
-                  "onUpdate:modelValue": $event => ((_ctx.asr.service.providerId) = $event),
-                  style: {"flex":"1 1 260px"}
-                }, [
-                  _cache[11] || (_cache[11] = _createElementVNode("option", { value: "" }, "手动填接口地址", -1 /* CACHED */)),
-                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.asrProvOpts, (p) => {
-                    return (_openBlock(), _createElementBlock("option", {
-                      key: p.id,
-                      value: p.id
-                    }, _toDisplayString(p.name), 9 /* TEXT, PROPS */, _hoisted_38))
-                  }), 128 /* KEYED_FRAGMENT */))
-                ], 8 /* PROPS */, _hoisted_37), [
-                  [_vModelSelect, _ctx.asr.service.providerId]
+                _createElementVNode("div", _hoisted_26, [
+                  _cache[3] || (_cache[3] = _createElementVNode("span", { class: "kn" }, "浏览器内模型", -1 /* CACHED */)),
+                  _createElementVNode("span", _hoisted_27, _toDisplayString(_ctx.asrBrowserText), 1 /* TEXT */)
                 ]),
-                _cache[13] || (_cache[13] = _createElementVNode("span", { class: "hint sm" }, "选了就从这家取默认地址与渠道密钥", -1 /* CACHED */))
-              ]),
-              _createElementVNode("div", _hoisted_39, [
-                _cache[14] || (_cache[14] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.asr.service.model) = $event),
-                  placeholder: "whisper-1",
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_40), [
-                  [_vModelText, _ctx.asr.service.model]
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_41, [
-                _cache[15] || (_cache[15] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.asr.service.baseUrl) = $event),
-                  placeholder: "https://api.openai.com/v1（留空 = 用供应商默认地址）",
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_42), [
-                  [_vModelText, _ctx.asr.service.baseUrl]
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_43, [
-                _cache[16] || (_cache[16] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  type: "password",
-                  "onUpdate:modelValue": $event => ((_ctx.asrKey) = $event),
-                  placeholder: _ctx.asr.service.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 复用供应商渠道 / .env 里的密钥',
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_44), [
-                  [_vModelText, _ctx.asrKey]
+                _createElementVNode("div", _hoisted_28, [
+                  _cache[5] || (_cache[5] = _createElementVNode("span", { class: "kn" }, "走哪条路", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("select", {
+                    "onUpdate:modelValue": $event => ((_ctx.asr.route) = $event),
+                    style: {"flex":"1 1 300px"}
+                  }, [...(_cache[4] || (_cache[4] = [
+                    _createElementVNode("option", { value: "auto" }, "自动", -1 /* CACHED */),
+                    _createElementVNode("option", { value: "browser" }, "浏览器内 Whisper", -1 /* CACHED */),
+                    _createElementVNode("option", { value: "local" }, "本地 whisper.cpp", -1 /* CACHED */),
+                    _createElementVNode("option", { value: "service" }, "在线服务", -1 /* CACHED */)
+                  ]))], 8 /* PROPS */, _hoisted_29), [
+                    [_vModelSelect, _ctx.asr.route]
+                  ])
                 ]),
-                _createElementVNode("button", {
-                  class: "ghost mini",
-                  disabled: _ctx.asrBusy || !_ctx.asr.service.hasKey,
-                  onClick: $event => (_ctx.clearAsrKey($event))
-                }, "清掉单独存的", 8 /* PROPS */, _hoisted_45)
-              ]),
-              _createElementVNode("div", _hoisted_46, [
-                _createElementVNode("button", {
-                  class: "tool acc",
-                  disabled: _ctx.asrBusy,
-                  onClick: _ctx.saveAsr
-                }, _toDisplayString(_ctx.asrBusy ? '处理中…' : '保存语音识别设置'), 9 /* TEXT, PROPS */, _hoisted_47),
-                _createElementVNode("button", {
-                  class: "ghost",
-                  onClick: _ctx.testAsr
-                }, _toDisplayString(_ctx.asrBusy ? '取消识别' : '选一段音频测试识别'), 9 /* TEXT, PROPS */, _hoisted_48),
-                _createElementVNode("span", _hoisted_49, _toDisplayString(_ctx.asrMsg), 1 /* TEXT */)
-              ]),
-              (_ctx.asrTestText)
-                ? (_openBlock(), _createElementBlock("pre", _hoisted_50, _toDisplayString(_ctx.asrTestText), 1 /* TEXT */))
-                : _createCommentVNode("v-if", true),
-              _cache[18] || (_cache[18] = _createElementVNode("div", { class: "pb-tip" }, "「测试识别」会真的跑一次转写（只有在线路线会产生一次调用）—— 选素材库里一段短音频即可。 浏览器内那一路线首次要先经代理下载模型，几百 MB 可能等几分钟，识别中再点这一颗就是不等了。 本地不可用时这里会直接说明缺的是二进制还是模型，不会假装可用。", -1 /* CACHED */))
-            ], 512 /* NEED_PATCH */), [
-              [_vShow, _ctx.provTabView === 'asr']
-            ]),
-            _createCommentVNode(" 联网搜索：同样与四类平台同一层级的一档 "),
-            _withDirectives(_createElementVNode("div", _hoisted_51, [
-              _createElementVNode("h2", _hoisted_52, [
-                _createElementVNode("span", {
-                  class: "card-ic",
-                  innerHTML: _ctx.icSearch
-                }, null, 8 /* PROPS */, _hoisted_53),
-                _cache[19] || (_cache[19] = _createTextVNode("联网搜索", -1 /* CACHED */))
-              ]),
-              _cache[31] || (_cache[31] = _createElementVNode("div", { class: "sub" }, "给 AI 助手补充「现在网上怎么说」：Tavily 返回标题 / 网址 / 摘要；DeepSeek 走对话模型（模型本身要能联网，结果可能没有日期）。搜索结果只在内存缓存 10 分钟，失败不自动重试、不编结果；读网页只收公网 https，15 秒超时、≤2MB。", -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_54, [
-                _createElementVNode("label", _hoisted_55, [
+                _createElementVNode("div", _hoisted_30, [
+                  _cache[6] || (_cache[6] = _createElementVNode("span", { class: "kn" }, "语言", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
-                    type: "checkbox",
-                    "onUpdate:modelValue": $event => ((_ctx.search.enabled) = $event)
-                  }, null, 8 /* PROPS */, _hoisted_56), [
-                    [_vModelCheckbox, _ctx.search.enabled]
+                    "onUpdate:modelValue": $event => ((_ctx.asr.language) = $event),
+                    placeholder: "留空 = 自动",
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_31), [
+                    [_vModelText, _ctx.asr.language]
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_32, [
+                  _cache[8] || (_cache[8] = _createElementVNode("span", { class: "kn" }, "在线服务商", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("select", {
+                    ref: "asrProvEl",
+                    "onUpdate:modelValue": $event => ((_ctx.asr.service.providerId) = $event),
+                    style: {"flex":"1 1 260px"}
+                  }, [
+                    _cache[7] || (_cache[7] = _createElementVNode("option", { value: "" }, "手动填接口地址", -1 /* CACHED */)),
+                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.asrProvOpts, (p) => {
+                      return (_openBlock(), _createElementBlock("option", {
+                        key: p.id,
+                        value: p.id
+                      }, _toDisplayString(p.name), 9 /* TEXT, PROPS */, _hoisted_34))
+                    }), 128 /* KEYED_FRAGMENT */))
+                  ], 8 /* PROPS */, _hoisted_33), [
+                    [_vModelSelect, _ctx.asr.service.providerId]
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_35, [
+                  _cache[9] || (_cache[9] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": $event => ((_ctx.asr.service.model) = $event),
+                    placeholder: "whisper-1",
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_36), [
+                    [_vModelText, _ctx.asr.service.model]
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_37, [
+                  _cache[10] || (_cache[10] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": $event => ((_ctx.asr.service.baseUrl) = $event),
+                    placeholder: "留空 = 默认地址",
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_38), [
+                    [_vModelText, _ctx.asr.service.baseUrl]
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_39, [
+                  _cache[11] || (_cache[11] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    type: "password",
+                    "onUpdate:modelValue": $event => ((_ctx.asrKey) = $event),
+                    placeholder: _ctx.asr.service.hasKey ? '已存，留空不改' : '留空 = 复用渠道密钥',
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_40), [
+                    [_vModelText, _ctx.asrKey]
                   ]),
-                  _cache[20] || (_cache[20] = _createTextVNode(" 启用联网搜索", -1 /* CACHED */))
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_57, [
-                _cache[22] || (_cache[22] = _createElementVNode("span", { class: "kn" }, "搜索服务", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("select", {
-                  "onUpdate:modelValue": $event => ((_ctx.search.provider) = $event),
-                  style: {"flex":"1 1 220px"}
-                }, [...(_cache[21] || (_cache[21] = [
-                  _createElementVNode("option", { value: "tavily" }, "Tavily", -1 /* CACHED */),
-                  _createElementVNode("option", { value: "deepseek" }, "DeepSeek（对话模型）", -1 /* CACHED */)
-                ]))], 8 /* PROPS */, _hoisted_58), [
-                  [_vModelSelect, _ctx.search.provider]
+                  _createElementVNode("button", {
+                    class: "ghost mini",
+                    disabled: _ctx.asrBusy || !_ctx.asr.service.hasKey,
+                    onClick: $event => (_ctx.clearAsrKey($event))
+                  }, "清掉", 8 /* PROPS */, _hoisted_41)
                 ]),
-                _cache[23] || (_cache[23] = _createElementVNode("span", { class: "kn" }, "结果数", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  type: "number",
-                  "onUpdate:modelValue": $event => ((_ctx.search.maxResults) = $event),
-                  min: "1",
-                  max: "10",
-                  step: "1",
-                  style: {"width":"70px"}
-                }, null, 8 /* PROPS */, _hoisted_59), [
-                  [
-                    _vModelText,
-                    _ctx.search.maxResults,
-                    void 0,
-                    { number: true }
-                  ]
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_60, [
-                _cache[25] || (_cache[25] = _createElementVNode("span", { class: "kn" }, "密钥来源", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("select", {
-                  "onUpdate:modelValue": $event => ((_ctx.search.credentialSource) = $event),
-                  style: {"flex":"1 1 220px"}
-                }, [...(_cache[24] || (_cache[24] = [
-                  _createElementVNode("option", { value: "channel" }, "复用渠道密钥", -1 /* CACHED */),
-                  _createElementVNode("option", { value: "manual" }, "单独一把搜索密钥", -1 /* CACHED */)
-                ]))], 8 /* PROPS */, _hoisted_61), [
-                  [_vModelSelect, _ctx.search.credentialSource]
+                _createElementVNode("div", _hoisted_42, [
+                  _createElementVNode("button", {
+                    class: "tool acc",
+                    disabled: _ctx.asrBusy,
+                    onClick: _ctx.saveAsr
+                  }, _toDisplayString(_ctx.asrBusy ? '处理中…' : '保存'), 9 /* TEXT, PROPS */, _hoisted_43),
+                  _createElementVNode("button", {
+                    class: "ghost",
+                    onClick: _ctx.testAsr
+                  }, _toDisplayString(_ctx.asrBusy ? '取消识别' : '测试识别'), 9 /* TEXT, PROPS */, _hoisted_44),
+                  _createElementVNode("span", _hoisted_45, _toDisplayString(_ctx.asrMsg), 1 /* TEXT */)
                 ]),
-                _createElementVNode("span", _hoisted_62, _toDisplayString(_ctx.searchCredText), 1 /* TEXT */)
-              ]),
-              _withDirectives(_createElementVNode("div", _hoisted_63, [
-                _cache[26] || (_cache[26] = _createElementVNode("span", { class: "kn" }, "渠道", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("select", {
-                  ref: "searchChannelEl",
-                  "onUpdate:modelValue": $event => ((_ctx.search.channelId) = $event),
-                  style: {"flex":"1 1 260px"}
-                }, [
-                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.searchChannelOpts, (p) => {
-                    return (_openBlock(), _createElementBlock("option", {
-                      key: p.id,
-                      value: p.id
-                    }, _toDisplayString(p.name), 9 /* TEXT, PROPS */, _hoisted_65))
-                  }), 128 /* KEYED_FRAGMENT */))
-                ], 8 /* PROPS */, _hoisted_64), [
-                  [_vModelSelect, _ctx.search.channelId]
+                (_ctx.asrTestText)
+                  ? (_openBlock(), _createElementBlock("pre", _hoisted_46, _toDisplayString(_ctx.asrTestText), 1 /* TEXT */))
+                  : _createCommentVNode("v-if", true)
+              ], 512 /* NEED_PATCH */),
+              _createCommentVNode(" 联网搜索：同一档，表单只画在「这一档所在」那家的卡里 "),
+              _createElementVNode("div", _hoisted_47, [
+                _createElementVNode("div", _hoisted_48, [
+                  _createElementVNode("label", _hoisted_49, [
+                    _withDirectives(_createElementVNode("input", {
+                      type: "checkbox",
+                      "onUpdate:modelValue": $event => ((_ctx.search.enabled) = $event)
+                    }, null, 8 /* PROPS */, _hoisted_50), [
+                      [_vModelCheckbox, _ctx.search.enabled]
+                    ]),
+                    _cache[12] || (_cache[12] = _createTextVNode(" 启用联网搜索", -1 /* CACHED */))
+                  ])
                 ]),
-                _cache[27] || (_cache[27] = _createElementVNode("span", { class: "hint sm" }, "Tavily 没有内置渠道，这一档通常要选「单独一把搜索密钥」", -1 /* CACHED */))
-              ], 512 /* NEED_PATCH */), [
-                [_vShow, _ctx.search.credentialSource === 'channel']
-              ]),
-              _withDirectives(_createElementVNode("div", _hoisted_66, [
-                _cache[28] || (_cache[28] = _createElementVNode("span", { class: "kn" }, "模型", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.search.model) = $event),
-                  placeholder: "deepseek-chat（换一个能联网的模型）",
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_67), [
-                  [_vModelText, _ctx.search.model]
-                ])
-              ], 512 /* NEED_PATCH */), [
-                [_vShow, _ctx.search.provider === 'deepseek']
-              ]),
-              _createElementVNode("div", _hoisted_68, [
-                _cache[29] || (_cache[29] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.search.baseUrl) = $event),
-                  placeholder: "留空 = 服务默认（Tavily: https://api.tavily.com/search；DeepSeek: 渠道地址）",
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_69), [
-                  [_vModelText, _ctx.search.baseUrl]
-                ])
-              ]),
-              _createElementVNode("div", _hoisted_70, [
-                _cache[30] || (_cache[30] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
-                _withDirectives(_createElementVNode("input", {
-                  type: "password",
-                  "onUpdate:modelValue": $event => ((_ctx.searchKey) = $event),
-                  placeholder: _ctx.search.hasKey ? '已单独存了一把（不回显；要换直接覆盖，留空不改）' : '留空 = 用上面选的那家渠道密钥',
-                  style: {"flex":"1"}
-                }, null, 8 /* PROPS */, _hoisted_71), [
-                  [_vModelText, _ctx.searchKey]
+                _createElementVNode("div", _hoisted_51, [
+                  _cache[14] || (_cache[14] = _createElementVNode("span", { class: "kn" }, "搜索服务", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("select", {
+                    "onUpdate:modelValue": $event => ((_ctx.search.provider) = $event),
+                    style: {"flex":"1 1 220px"}
+                  }, [...(_cache[13] || (_cache[13] = [
+                    _createElementVNode("option", { value: "tavily" }, "Tavily", -1 /* CACHED */),
+                    _createElementVNode("option", { value: "deepseek" }, "DeepSeek", -1 /* CACHED */)
+                  ]))], 8 /* PROPS */, _hoisted_52), [
+                    [_vModelSelect, _ctx.search.provider]
+                  ]),
+                  _cache[15] || (_cache[15] = _createElementVNode("span", { class: "kn" }, "结果数", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    type: "number",
+                    "onUpdate:modelValue": $event => ((_ctx.search.maxResults) = $event),
+                    min: "1",
+                    max: "10",
+                    step: "1",
+                    style: {"width":"70px"}
+                  }, null, 8 /* PROPS */, _hoisted_53), [
+                    [
+                      _vModelText,
+                      _ctx.search.maxResults,
+                      void 0,
+                      { number: true }
+                    ]
+                  ])
                 ]),
-                _createElementVNode("button", {
-                  class: "ghost mini",
-                  disabled: _ctx.searchBusy || !_ctx.search.hasKey,
-                  onClick: $event => (_ctx.clearSearchKey($event))
-                }, "清掉单独存的", 8 /* PROPS */, _hoisted_72)
-              ]),
-              _createElementVNode("div", _hoisted_73, [
-                _createElementVNode("button", {
-                  class: "tool acc",
-                  disabled: _ctx.searchBusy,
-                  onClick: _ctx.saveSearch
-                }, _toDisplayString(_ctx.searchBusy ? '处理中…' : '保存搜索设置'), 9 /* TEXT, PROPS */, _hoisted_74),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": $event => ((_ctx.searchTestQ) = $event),
-                  placeholder: "试搜一句（会真的调用一次）",
-                  style: {"flex":"1 1 240px"},
-                  onKeydown: _withKeys(_ctx.testSearch, ["enter"])
-                }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_75), [
-                  [_vModelText, _ctx.searchTestQ]
+                _createElementVNode("div", _hoisted_54, [
+                  _cache[17] || (_cache[17] = _createElementVNode("span", { class: "kn" }, "密钥来源", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("select", {
+                    "onUpdate:modelValue": $event => ((_ctx.search.credentialSource) = $event),
+                    style: {"flex":"1 1 220px"}
+                  }, [...(_cache[16] || (_cache[16] = [
+                    _createElementVNode("option", { value: "channel" }, "复用渠道密钥", -1 /* CACHED */),
+                    _createElementVNode("option", { value: "manual" }, "单独搜索密钥", -1 /* CACHED */)
+                  ]))], 8 /* PROPS */, _hoisted_55), [
+                    [_vModelSelect, _ctx.search.credentialSource]
+                  ]),
+                  _createElementVNode("span", _hoisted_56, _toDisplayString(_ctx.searchCredText), 1 /* TEXT */)
                 ]),
-                _createElementVNode("button", {
-                  class: "ghost",
-                  disabled: _ctx.searchBusy,
-                  onClick: _ctx.testSearch
-                }, "测试搜索", 8 /* PROPS */, _hoisted_76),
-                _createElementVNode("span", _hoisted_77, _toDisplayString(_ctx.searchMsg), 1 /* TEXT */)
-              ]),
-              (_ctx.searchResults.length)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_78, [
-                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.searchResults, (r) => {
-                      return (_openBlock(), _createElementBlock("div", {
-                        key: r.id,
-                        class: "search-hit"
-                      }, [
-                        _createElementVNode("a", {
-                          href: r.url,
-                          target: "_blank",
-                          rel: "noopener noreferrer"
-                        }, _toDisplayString(r.title), 9 /* TEXT, PROPS */, _hoisted_79),
-                        _createElementVNode("span", _hoisted_80, [
-                          _createTextVNode(_toDisplayString(r.domain), 1 /* TEXT */),
-                          (r.publishedAt)
-                            ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                                _createTextVNode(" · " + _toDisplayString(r.publishedAt), 1 /* TEXT */)
-                              ], 64 /* STABLE_FRAGMENT */))
-                            : _createCommentVNode("v-if", true)
-                        ]),
-                        _createElementVNode("div", _hoisted_81, _toDisplayString(r.snippet), 1 /* TEXT */)
-                      ]))
-                    }), 128 /* KEYED_FRAGMENT */)),
-                    _createElementVNode("button", {
-                      class: "ghost mini",
-                      onClick: _ctx.readFirstSearch
-                    }, "读第一条正文", 8 /* PROPS */, _hoisted_82)
-                  ]))
-                : (_ctx.searchTested)
-                  ? (_openBlock(), _createElementBlock("pre", _hoisted_83, "这一轮没有可显示的结果（原因见上面那一行，不编结果）。"))
-                  : _createCommentVNode("v-if", true),
-              (_ctx.searchRead)
-                ? (_openBlock(), _createElementBlock("pre", _hoisted_84, _toDisplayString(_ctx.searchRead.title) + " — " + _toDisplayString(_ctx.searchRead.url) + "\n    " + _toDisplayString(_ctx.searchRead.text), 1 /* TEXT */))
-                : _createCommentVNode("v-if", true)
-            ], 512 /* NEED_PATCH */), [
-              [_vShow, _ctx.provTabView === 'search']
-            ])
+                _withDirectives(_createElementVNode("div", _hoisted_57, [
+                  _cache[18] || (_cache[18] = _createElementVNode("span", { class: "kn" }, "渠道", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("select", {
+                    ref: "searchChannelEl",
+                    "onUpdate:modelValue": $event => ((_ctx.search.channelId) = $event),
+                    style: {"flex":"1 1 260px"}
+                  }, [
+                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.searchChannelOpts, (p) => {
+                      return (_openBlock(), _createElementBlock("option", {
+                        key: p.id,
+                        value: p.id
+                      }, _toDisplayString(p.name), 9 /* TEXT, PROPS */, _hoisted_59))
+                    }), 128 /* KEYED_FRAGMENT */))
+                  ], 8 /* PROPS */, _hoisted_58), [
+                    [_vModelSelect, _ctx.search.channelId]
+                  ])
+                ], 512 /* NEED_PATCH */), [
+                  [_vShow, _ctx.search.credentialSource === 'channel']
+                ]),
+                _withDirectives(_createElementVNode("div", _hoisted_60, [
+                  _cache[19] || (_cache[19] = _createElementVNode("span", { class: "kn" }, "模型", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": $event => ((_ctx.search.model) = $event),
+                    placeholder: "deepseek-chat",
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_61), [
+                    [_vModelText, _ctx.search.model]
+                  ])
+                ], 512 /* NEED_PATCH */), [
+                  [_vShow, _ctx.search.provider === 'deepseek']
+                ]),
+                _createElementVNode("div", _hoisted_62, [
+                  _cache[20] || (_cache[20] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": $event => ((_ctx.search.baseUrl) = $event),
+                    placeholder: "留空 = 服务默认",
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_63), [
+                    [_vModelText, _ctx.search.baseUrl]
+                  ])
+                ]),
+                _createElementVNode("div", _hoisted_64, [
+                  _cache[21] || (_cache[21] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+                  _withDirectives(_createElementVNode("input", {
+                    type: "password",
+                    "onUpdate:modelValue": $event => ((_ctx.searchKey) = $event),
+                    placeholder: _ctx.search.hasKey ? '已存，留空不改' : '留空 = 复用渠道密钥',
+                    style: {"flex":"1"}
+                  }, null, 8 /* PROPS */, _hoisted_65), [
+                    [_vModelText, _ctx.searchKey]
+                  ]),
+                  _createElementVNode("button", {
+                    class: "ghost mini",
+                    disabled: _ctx.searchBusy || !_ctx.search.hasKey,
+                    onClick: $event => (_ctx.clearSearchKey($event))
+                  }, "清掉", 8 /* PROPS */, _hoisted_66)
+                ]),
+                _createElementVNode("div", _hoisted_67, [
+                  _createElementVNode("button", {
+                    class: "tool acc",
+                    disabled: _ctx.searchBusy,
+                    onClick: _ctx.saveSearch
+                  }, _toDisplayString(_ctx.searchBusy ? '处理中…' : '保存'), 9 /* TEXT, PROPS */, _hoisted_68),
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": $event => ((_ctx.searchTestQ) = $event),
+                    placeholder: "试搜一句",
+                    style: {"flex":"1 1 240px"},
+                    onKeydown: _withKeys(_ctx.testSearch, ["enter"])
+                  }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_69), [
+                    [_vModelText, _ctx.searchTestQ]
+                  ]),
+                  _createElementVNode("button", {
+                    class: "ghost",
+                    disabled: _ctx.searchBusy,
+                    onClick: _ctx.testSearch
+                  }, "测试搜索", 8 /* PROPS */, _hoisted_70),
+                  _createElementVNode("span", _hoisted_71, _toDisplayString(_ctx.searchMsg), 1 /* TEXT */)
+                ]),
+                (_ctx.searchResults.length)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_72, [
+                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.searchResults, (r) => {
+                        return (_openBlock(), _createElementBlock("div", {
+                          key: r.id,
+                          class: "search-hit"
+                        }, [
+                          _createElementVNode("a", {
+                            href: r.url,
+                            target: "_blank",
+                            rel: "noopener noreferrer"
+                          }, _toDisplayString(r.title), 9 /* TEXT, PROPS */, _hoisted_73),
+                          _createElementVNode("span", _hoisted_74, [
+                            _createTextVNode(_toDisplayString(r.domain), 1 /* TEXT */),
+                            (r.publishedAt)
+                              ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                                  _createTextVNode(" · " + _toDisplayString(r.publishedAt), 1 /* TEXT */)
+                                ], 64 /* STABLE_FRAGMENT */))
+                              : _createCommentVNode("v-if", true)
+                          ]),
+                          _createElementVNode("div", _hoisted_75, _toDisplayString(r.snippet), 1 /* TEXT */)
+                        ]))
+                      }), 128 /* KEYED_FRAGMENT */)),
+                      _createElementVNode("button", {
+                        class: "ghost mini",
+                        onClick: _ctx.readFirstSearch
+                      }, "读第一条正文", 8 /* PROPS */, _hoisted_76)
+                    ]))
+                  : (_ctx.searchTested)
+                    ? (_openBlock(), _createElementBlock("pre", _hoisted_77, "没有结果"))
+                    : _createCommentVNode("v-if", true),
+                (_ctx.searchRead)
+                  ? (_openBlock(), _createElementBlock("pre", _hoisted_78, _toDisplayString(_ctx.searchRead.title) + " — " + _toDisplayString(_ctx.searchRead.url) + "\n    " + _toDisplayString(_ctx.searchRead.text), 1 /* TEXT */))
+                  : _createCommentVNode("v-if", true)
+              ], 512 /* NEED_PATCH */)
+            ], 512 /* NEED_PATCH */)
           ]),
+          _createCommentVNode(" 「自定义供应商」那一张表：卡片流末尾那张「添加供应商」卡**自己变成**这张卡，\n                   字段就在这张卡里填（与账号卡同一副壳，没有第二套添加界面）。卡片尺寸不变 ——\n                   这一格也只是卡内那段可滚区里的一列行。\n                   顺序按填一家的顺序走：接口形状 → 名字 → 地址 → 密钥 → **能力档位**（密钥之后，\n                   与卡顶那排能力格同一副图标；可多选）→ 型号。 "),
           _createElementVNode("div", {
-            class: "card card-surface",
+            class: "cus-form",
             ref: "cusCardEl",
             hidden: !_ctx.cusShown
           }, [
-            _cache[42] || (_cache[42] = _createElementVNode("h2", null, "添加自定义供应商（中转站 / 网关 / 企业部署）", -1 /* CACHED */)),
-            _cache[43] || (_cache[43] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("两种接法：①「供应商」选一家内置平台，"),
-              _createElementVNode("b", null, "接口地址自动填好它官网的地址"),
-              _createTextVNode("，贴上密钥点添加； ② 选末尾的「自定义」再挑一个"),
-              _createElementVNode("b", null, "接口形状"),
-              _createTextVNode("（OpenAI 兼容 / H3 兼容…），地址与密钥填你自己的。 建出来的都是独立的一家：不设家数上限。 接口形状真不一样的平台要改 "),
-              _createElementVNode("code", null, "proxy.js"),
-              _createTextVNode(" 的 "),
-              _createElementVNode("code", null, "REGISTRY"),
-              _createTextVNode("，这里不猜字段。")
-            ], -1 /* CACHED */)),
-            (_ctx.cusMineShown)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_86, [
-                  _cache[33] || (_cache[33] = _createElementVNode("span", { class: "kn" }, "已添加", -1 /* CACHED */)),
-                  _createElementVNode("div", _hoisted_87, [
-                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cusMineGroups, (g) => {
-                      return (_openBlock(), _createElementBlock("div", {
-                        class: "cus-mine-g",
-                        key: g.kind
-                      }, [
-                        _createElementVNode("span", _hoisted_88, _toDisplayString(g.zh), 1 /* TEXT */),
-                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(g.items, (e) => {
-                          return (_openBlock(), _createElementBlock("span", {
-                            class: _normalizeClass(["cus-mine-i", { on: e.id === _ctx.cusEditing }]),
-                            key: e.id
-                          }, [
-                            _createElementVNode("span", _hoisted_89, _toDisplayString(e.name), 1 /* TEXT */),
-                            _createElementVNode("span", _hoisted_90, _toDisplayString(e.modelsN) + " 个型号", 1 /* TEXT */),
-                            _createElementVNode("button", {
-                              class: "ghost xs",
-                              onClick: $event => (_ctx.editCus(e.id))
-                            }, "编辑", 8 /* PROPS */, _hoisted_91),
-                            _createElementVNode("button", {
-                              class: "ghost xs danger",
-                              onClick: $event => (_ctx.removeCus(e.id))
-                            }, "删除", 8 /* PROPS */, _hoisted_92)
-                          ], 2 /* CLASS */))
-                        }), 128 /* KEYED_FRAGMENT */))
-                      ]))
-                    }), 128 /* KEYED_FRAGMENT */))
-                  ])
-                ]))
-              : _createCommentVNode("v-if", true),
-            _createElementVNode("div", _hoisted_93, [
-              _cache[34] || (_cache[34] = _createElementVNode("span", { class: "kn" }, "供应商", -1 /* CACHED */)),
-              _withDirectives(_createElementVNode("select", {
-                ref: "cusProvEl",
-                "onUpdate:modelValue": $event => ((_ctx.cusProvSel) = $event),
-                onChange: _ctx.onCusProvChange,
-                style: {"flex":"1 1 auto"}
-              }, [
-                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cusProvOpts, (p) => {
-                  return (_openBlock(), _createElementBlock("option", {
-                    key: p.id,
-                    value: p.id
-                  }, _toDisplayString(p.label), 9 /* TEXT, PROPS */, _hoisted_95))
-                }), 128 /* KEYED_FRAGMENT */))
-              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_94), [
-                [_vModelSelect, _ctx.cusProvSel]
-              ]),
-              _cache[35] || (_cache[35] = _createElementVNode("span", {
-                class: "hint sm",
-                style: {"flex":"1 1 240px"}
-              }, [
-                _createTextVNode("内置那几家"),
-                _createElementVNode("b", null, "照它整套走"),
-                _createTextVNode("（能力声明、上传流程、端点全继承），只换你的地址与密钥 —— 选了就"),
-                _createElementVNode("b", null, "不用再挑接口形状"),
-                _createTextVNode("。最后一项「自定义」= 你跑的是别的厂商的协议。")
-              ], -1 /* CACHED */))
-            ]),
             _createElementVNode("div", {
               class: "krow thin",
               hidden: !_ctx.cusShapeShown
             }, [
-              _cache[36] || (_cache[36] = _createElementVNode("span", { class: "kn" }, "接口形状", -1 /* CACHED */)),
+              _cache[22] || (_cache[22] = _createElementVNode("span", { class: "kn" }, "接口形状", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("select", {
                 ref: "cusShapeEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusShapeSel) = $event),
@@ -1087,44 +971,43 @@ export function render(_ctx, _cache) {
                   return (_openBlock(), _createElementBlock("option", {
                     key: f.id || 'none',
                     value: f.id
-                  }, _toDisplayString(f.label), 9 /* TEXT, PROPS */, _hoisted_98))
+                  }, _toDisplayString(f.label), 9 /* TEXT, PROPS */, _hoisted_82))
                 }), 128 /* KEYED_FRAGMENT */))
-              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_97), [
+              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_81), [
                 [_vModelSelect, _ctx.cusShapeSel]
-              ]),
-              _createElementVNode("span", _hoisted_99, _toDisplayString(_ctx.cusShapeHint), 1 /* TEXT */)
-            ], 8 /* PROPS */, _hoisted_96),
-            _createElementVNode("div", _hoisted_100, [
-              _cache[37] || (_cache[37] = _createElementVNode("span", { class: "kn" }, "显示名", -1 /* CACHED */)),
+              ])
+            ], 8 /* PROPS */, _hoisted_80),
+            _createElementVNode("div", _hoisted_83, [
+              _cache[23] || (_cache[23] = _createElementVNode("span", { class: "kn" }, "显示名", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusNameEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusName) = $event),
-                placeholder: "选内置那一家会自动填它的平台名（型号下拉的分组名认的就是它）· 想叫别的，直接改"
-              }, null, 8 /* PROPS */, _hoisted_101), [
+                placeholder: _ctx.cusNamePh
+              }, null, 8 /* PROPS */, _hoisted_84), [
                 [_vModelText, _ctx.cusName]
               ])
             ]),
-            _createElementVNode("div", _hoisted_102, [
-              _cache[38] || (_cache[38] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_85, [
+              _cache[24] || (_cache[24] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusBaseEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusBase) = $event),
-                placeholder: "选了供应商会自动填它官网的地址 · 换成你自己的中转 / 网关地址也行（https://gw.example.com/api/v1）"
-              }, null, 8 /* PROPS */, _hoisted_103), [
+                placeholder: "https://gw.example.com/api/v1"
+              }, null, 8 /* PROPS */, _hoisted_86), [
                 [_vModelText, _ctx.cusBase]
               ])
             ]),
-            _createElementVNode("div", _hoisted_104, [
-              _cache[39] || (_cache[39] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_87, [
+              _cache[25] || (_cache[25] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusKeyEl",
                 type: _ctx.cusKeyShown ? 'text' : 'password',
                 "onUpdate:modelValue": $event => ((_ctx.cusKey) = $event),
-                placeholder: "这一家自己的密钥（存 sk_key_，不进那份平台清单）"
-              }, null, 8 /* PROPS */, _hoisted_105), [
+                placeholder: "这一家的密钥"
+              }, null, 8 /* PROPS */, _hoisted_88), [
                 [_vModelDynamic, _ctx.cusKey]
               ]),
-              _createElementVNode("span", _hoisted_106, [
+              _createElementVNode("span", _hoisted_89, [
                 _createElementVNode("button", {
                   class: "ghost eye",
                   type: "button",
@@ -1133,15 +1016,22 @@ export function render(_ctx, _cache) {
                 }, [
                   _createElementVNode("span", {
                     innerHTML: _ctx.cusKeyShown ? _ctx.icEyeOff : _ctx.icEye
-                  }, null, 8 /* PROPS */, _hoisted_108)
-                ], 8 /* PROPS */, _hoisted_107)
+                  }, null, 8 /* PROPS */, _hoisted_91)
+                ], 8 /* PROPS */, _hoisted_90)
               ])
             ]),
-            _createElementVNode("div", _hoisted_109, [
-              _cache[40] || (_cache[40] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_110, [
+            _createCommentVNode(" 能力档位：与卡顶那排能力格同一副图标（.capcell），可多选；第一个选中的是主档，\n                     其余按「手动声明」记在这一家上（见 settings.js 的 pickCusCap / addCus）。 "),
+            _createElementVNode("div", _hoisted_92, [
+              _cache[26] || (_cache[26] = _createElementVNode("span", { class: "kn" }, "能力档位", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_93, null, 512 /* NEED_PATCH */)
+            ]),
+            _createElementVNode("div", _hoisted_94, [
+              _cache[27] || (_cache[27] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
+              _createElementVNode("div", {
+                class: _normalizeClass(["cus-models mlist", { empty: !_ctx.cusModelRows.length }])
+              }, [
                 (!_ctx.cusModelRows.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_111, _toDisplayString(_ctx.cusModelsEmpty), 1 /* TEXT */))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_95, _toDisplayString(_ctx.cusModelsEmpty), 1 /* TEXT */))
                   : (_openBlock(true), _createElementBlock(_Fragment, { key: 1 }, _renderList(_ctx.cusModelRows, (x) => {
                       return (_openBlock(), _createElementBlock("label", {
                         class: "mlist-row",
@@ -1151,137 +1041,177 @@ export function render(_ctx, _cache) {
                           type: "checkbox",
                           checked: !_ctx.cusOff.has(x.id),
                           onChange: $event => (_ctx.onCusModelToggle(x.id, $event))
-                        }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_112),
+                        }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_96),
                         _createElementVNode("span", null, [
                           _createTextVNode(_toDisplayString(x.name) + " ", 1 /* TEXT */),
                           _createElementVNode("code", null, _toDisplayString(x.id), 1 /* TEXT */)
                         ]),
-                        _createElementVNode("span", _hoisted_113, _toDisplayString(x.tagZh), 1 /* TEXT */)
+                        _createElementVNode("span", _hoisted_97, _toDisplayString(x.tagZh), 1 /* TEXT */)
                       ]))
                     }), 128 /* KEYED_FRAGMENT */))
-              ])
+              ], 2 /* CLASS */)
             ]),
-            _createElementVNode("div", _hoisted_114, [
-              _cache[41] || (_cache[41] = _createElementVNode("span", { class: "kn" }, "自己填 id", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_98, [
+              _cache[28] || (_cache[28] = _createElementVNode("span", { class: "kn" }, "自己填 id", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusExtraEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusExtra) = $event),
                 onInput: _ctx.rebuildCusModels,
-                placeholder: "逗号分隔（这一类没有型号列表接口时才用）"
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_115), [
+                placeholder: "逗号分隔"
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_99), [
                 [_vModelText, _ctx.cusExtra]
               ]),
-              _createElementVNode("span", _hoisted_116, [
+              _createElementVNode("span", _hoisted_100, [
                 _createElementVNode("button", {
                   class: "ghost xs",
                   disabled: _ctx.cusFetchBusy,
                   onClick: _ctx.fetchCusModels,
-                  title: "用上面填的地址与密钥，问一次它自己的型号列表（只读，不花钱、不建任务）"
-                }, _toDisplayString(_ctx.cusFetchBusy ? '获取中…' : '获取型号列表'), 9 /* TEXT, PROPS */, _hoisted_117)
+                  title: "只读，不花钱"
+                }, _toDisplayString(_ctx.cusFetchBusy ? '获取中…' : '获取型号列表'), 9 /* TEXT, PROPS */, _hoisted_101)
               ])
             ]),
-            _createElementVNode("div", _hoisted_118, [
+            _createElementVNode("div", _hoisted_102, [
               _createElementVNode("button", {
                 class: "tool acc",
                 onClick: _ctx.addCus
-              }, _toDisplayString(_ctx.cusAddText), 9 /* TEXT, PROPS */, _hoisted_119),
+              }, _toDisplayString(_ctx.cusAddText), 9 /* TEXT, PROPS */, _hoisted_103),
               _withDirectives(_createElementVNode("button", {
                 class: "ghost",
                 onClick: _ctx.cancelCus
-              }, "取消编辑", 8 /* PROPS */, _hoisted_120), [
+              }, "取消编辑", 8 /* PROPS */, _hoisted_104), [
                 [_vShow, _ctx.cusCancelShown]
               ]),
-              _createElementVNode("span", _hoisted_121, _toDisplayString(_ctx.cusCount), 1 /* TEXT */),
+              _createElementVNode("span", _hoisted_105, _toDisplayString(_ctx.cusCount), 1 /* TEXT */),
               _createElementVNode("span", {
                 class: _normalizeClass(["okmsg", _ctx.cusMsgCls])
               }, _toDisplayString(_ctx.cusMsg), 3 /* TEXT, CLASS */)
             ]),
-            _cache[44] || (_cache[44] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("地址只收"),
-              _createElementVNode("b", null, "公网 https"),
-              _createTextVNode("（回环、内网、明文 http 都会被代理拒绝）。 这一家的密钥"),
-              _createElementVNode("b", null, "不会"),
-              _createTextVNode("回退到 "),
-              _createElementVNode("code", null, ".env"),
-              _createTextVNode(" 里的内置密钥。 添加与删除"),
-              _createElementVNode("b", null, "当场落盘"),
-              _createTextVNode("，和这一页其它项一样不用等保存。")
-            ], -1 /* CACHED */))
-          ], 8 /* PROPS */, _hoisted_85)
+            (_ctx.cusMineShown)
+              ? (_openBlock(), _createElementBlock("div", _hoisted_106, [
+                  _cache[29] || (_cache[29] = _createElementVNode("span", { class: "kn" }, "已添加", -1 /* CACHED */)),
+                  _createElementVNode("div", _hoisted_107, [
+                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cusMineGroups, (g) => {
+                      return (_openBlock(), _createElementBlock("div", {
+                        class: "cus-mine-g",
+                        key: g.kind
+                      }, [
+                        _createElementVNode("span", _hoisted_108, _toDisplayString(g.zh), 1 /* TEXT */),
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(g.items, (e) => {
+                          return (_openBlock(), _createElementBlock("span", {
+                            class: _normalizeClass(["cus-mine-i", { on: e.id === _ctx.cusEditing }]),
+                            key: e.id
+                          }, [
+                            _createElementVNode("span", _hoisted_109, _toDisplayString(e.name), 1 /* TEXT */),
+                            _createElementVNode("span", _hoisted_110, _toDisplayString(e.modelsN) + " 个型号", 1 /* TEXT */),
+                            _createElementVNode("button", {
+                              class: "ghost xs",
+                              onClick: $event => (_ctx.editCus(e.id))
+                            }, "编辑", 8 /* PROPS */, _hoisted_111),
+                            _createElementVNode("button", {
+                              class: "ghost xs danger",
+                              onClick: $event => (_ctx.removeCus(e.id))
+                            }, "删除", 8 /* PROPS */, _hoisted_112)
+                          ], 2 /* CLASS */))
+                        }), 128 /* KEYED_FRAGMENT */))
+                      ]))
+                    }), 128 /* KEYED_FRAGMENT */))
+                  ])
+                ]))
+              : _createCommentVNode("v-if", true)
+          ], 8 /* PROPS */, _hoisted_79)
         ]),
-        _createElementVNode("section", _hoisted_122, [
-          _cache[51] || (_cache[51] = _createElementVNode("h2", { class: "set-group-h" }, "界面与列表", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_123, [
-            _createElementVNode("h2", _hoisted_124, [
+        _createElementVNode("section", _hoisted_113, [
+          _cache[35] || (_cache[35] = _createElementVNode("h2", { class: "set-group-h" }, "界面与列表", -1 /* CACHED */)),
+          _createElementVNode("div", _hoisted_114, [
+            _createElementVNode("h2", _hoisted_115, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icRefresh
-              }, null, 8 /* PROPS */, _hoisted_125),
-              _cache[46] || (_cache[46] = _createTextVNode("网络与刷新", -1 /* CACHED */))
+              }, null, 8 /* PROPS */, _hoisted_116),
+              _cache[31] || (_cache[31] = _createTextVNode("网络与刷新", -1 /* CACHED */))
             ]),
             _createCommentVNode(" 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 "),
-            _createElementVNode("div", _hoisted_126, null, 512 /* NEED_PATCH */)
+            _createElementVNode("div", _hoisted_117, null, 512 /* NEED_PATCH */)
           ]),
+          _createElementVNode("div", _hoisted_118, [
+            _createElementVNode("h2", _hoisted_119, [
+              _createElementVNode("span", {
+                class: "card-ic",
+                innerHTML: _ctx.icList
+              }, null, 8 /* PROPS */, _hoisted_120),
+              _cache[32] || (_cache[32] = _createTextVNode("列表分页", -1 /* CACHED */))
+            ]),
+            _cache[33] || (_cache[33] = _createElementVNode("div", { class: "sub" }, "滚到底自动续拉。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_121, null, 512 /* NEED_PATCH */)
+          ]),
+          _createElementVNode("div", _hoisted_122, [
+            _createElementVNode("h2", _hoisted_123, [
+              _createElementVNode("span", {
+                class: "card-ic",
+                innerHTML: _ctx.icSun
+              }, null, 8 /* PROPS */, _hoisted_124),
+              _cache[34] || (_cache[34] = _createTextVNode("外观与界面", -1 /* CACHED */))
+            ]),
+            _createElementVNode("div", _hoisted_125, null, 512 /* NEED_PATCH */)
+          ])
+        ]),
+        _createElementVNode("section", _hoisted_126, [
+          _cache[68] || (_cache[68] = _createElementVNode("h2", { class: "set-group-h" }, "生成与助手", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_127, [
             _createElementVNode("h2", _hoisted_128, [
               _createElementVNode("span", {
                 class: "card-ic",
-                innerHTML: _ctx.icList
+                innerHTML: _ctx.icFolder
               }, null, 8 /* PROPS */, _hoisted_129),
-              _cache[47] || (_cache[47] = _createTextVNode("列表分页", -1 /* CACHED */))
+              _cache[36] || (_cache[36] = _createTextVNode("产物存放", -1 /* CACHED */))
             ]),
-            _cache[48] || (_cache[48] = _createElementVNode("div", { class: "sub" }, "「动态加载」= 滚到列表底部自动续拉，不再有「加载更多」按钮。", -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_130, null, 512 /* NEED_PATCH */)
+            _cache[37] || (_cache[37] = _createElementVNode("div", { class: "sub" }, "第三项要前两项都开着才生效。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_130, null, 512 /* NEED_PATCH */),
+            _createCommentVNode(" 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 "),
+            _createElementVNode("div", _hoisted_131, null, 512 /* NEED_PATCH */)
           ]),
-          _createElementVNode("div", _hoisted_131, [
-            _createElementVNode("h2", _hoisted_132, [
+          _createElementVNode("div", _hoisted_132, [
+            _createElementVNode("h2", _hoisted_133, [
               _createElementVNode("span", {
                 class: "card-ic",
-                innerHTML: _ctx.icSun
-              }, null, 8 /* PROPS */, _hoisted_133),
-              _cache[49] || (_cache[49] = _createTextVNode("外观与界面", -1 /* CACHED */))
+                innerHTML: _ctx.icUsers
+              }, null, 8 /* PROPS */, _hoisted_134),
+              _cache[38] || (_cache[38] = _createTextVNode("素材库", -1 /* CACHED */))
             ]),
-            _cache[50] || (_cache[50] = _createElementVNode("div", { class: "sub" }, "界面长什么样、列表默认怎么摆，跟着数据文件走（换台机器还在）。 改完就自动存进本机；主题与左栏当场跟着变。", -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_134, null, 512 /* NEED_PATCH */)
-          ])
-        ]),
-        _createElementVNode("section", _hoisted_135, [
-          _cache[86] || (_cache[86] = _createElementVNode("h2", { class: "set-group-h" }, "生成与助手", -1 /* CACHED */)),
+            _cache[39] || (_cache[39] = _createElementVNode("div", { class: "sub" }, "页内换的型号与张数只管那一次，不写回这里。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_135, null, 512 /* NEED_PATCH */)
+          ]),
           _createElementVNode("div", _hoisted_136, [
             _createElementVNode("h2", _hoisted_137, [
               _createElementVNode("span", {
                 class: "card-ic",
-                innerHTML: _ctx.icFolder
+                innerHTML: _ctx.icBrain
               }, null, 8 /* PROPS */, _hoisted_138),
-              _cache[52] || (_cache[52] = _createTextVNode("产物存放", -1 /* CACHED */))
+              _cache[40] || (_cache[40] = _createTextVNode("AI 助手", -1 /* CACHED */))
             ]),
-            _cache[53] || (_cache[53] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("生成完的产物"),
-              _createElementVNode("b", null, "留在哪、优先从哪读、列表里要不要只显示本机有的"),
-              _createTextVNode("。三项连着看：关掉「自动存本机」后， 新产物只剩平台外链，而外链过一阵会过期 —— 那时卡片就变成裂图了。第三项要前两项都开着才生效， 前两项没开着时这一行"),
-              _createElementVNode("b", null, "整个收起来"),
-              _createTextVNode("（画着却不生效等于骗人去勾）。")
-            ], -1 /* CACHED */)),
+            _cache[41] || (_cache[41] = _createElementVNode("div", { class: "sub" }, "读不用问；动手先确认。", -1 /* CACHED */)),
+            _createCommentVNode(" 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 "),
             _createElementVNode("div", _hoisted_139, null, 512 /* NEED_PATCH */),
-            _createCommentVNode(" 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 "),
-            _createElementVNode("div", _hoisted_140, null, 512 /* NEED_PATCH */)
+            _cache[42] || (_cache[42] = _createStaticVNode("<div class=\"pb-tip\">关掉只是不装，记录都留着。</div><div class=\"pb-tip\">勾上后自动执行，不再确认。</div><div class=\"pb-tip\">不随云同步。</div><details class=\"ref\"><summary>通知授权</summary><div class=\"ref-body\"> 拒绝过就去地址栏左侧「网站设置」里放开。</div></details>", 4))
           ]),
-          _createElementVNode("div", _hoisted_141, [
-            _createElementVNode("h2", _hoisted_142, [
+          _createElementVNode("div", _hoisted_140, [
+            _createElementVNode("h2", _hoisted_141, [
               _createElementVNode("span", {
                 class: "card-ic",
-                innerHTML: _ctx.icUsers
-              }, null, 8 /* PROPS */, _hoisted_143),
-              _cache[54] || (_cache[54] = _createTextVNode("素材库", -1 /* CACHED */))
+                innerHTML: _ctx.icPencil
+              }, null, 8 /* PROPS */, _hoisted_142),
+              _cache[43] || (_cache[43] = _createTextVNode("润色行为", -1 /* CACHED */))
             ]),
-            _cache[55] || (_cache[55] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("这一张卡管「素材库」那一页的"),
-              _createElementVNode("b", null, "默认"),
-              _createTextVNode("：默认生图型号、默认语音型号、默认一次出几张候选、默认一次出几条语音。 素材库页面上不再有「本页默认」面板，但"),
-              _createElementVNode("b", null, "每一处生成位仍能当场换型号与张数"),
-              _createTextVNode(" —— 换的那一次只管那一处，不写回这里 （写回来就变成「按上次那个跑」了）。下面两颗开关管的是界面上的说法与真的发给文字 AI 的参数同一个。")
-            ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_144, null, 512 /* NEED_PATCH */)
+            _cache[46] || (_cache[46] = _createElementVNode("div", { class: "sub" }, "正文由 Skill 提供，这里只管反问开关。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_143, [
+              _cache[44] || (_cache[44] = _createElementVNode("div", { class: "pb-head" }, [
+                _createElementVNode("b", null, "润色前要不要先反问"),
+                _createElementVNode("span", { class: "used" }, "用于润色入口")
+              ], -1 /* CACHED */)),
+              _createCommentVNode(" 那一格下拉的行由 SET_ROWS 声明。 "),
+              _createElementVNode("div", _hoisted_144, null, 512 /* NEED_PATCH */),
+              _cache[45] || (_cache[45] = _createElementVNode("div", { class: "pb-tip" }, "「AI 判断」：AI 自己决定先反问还是直接润色。", -1 /* CACHED */))
+            ])
           ]),
           _createElementVNode("div", _hoisted_145, [
             _createElementVNode("h2", _hoisted_146, [
@@ -1289,88 +1219,36 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icBrain
               }, null, 8 /* PROPS */, _hoisted_147),
-              _cache[56] || (_cache[56] = _createTextVNode("AI 助手", -1 /* CACHED */))
+              _cache[47] || (_cache[47] = _createTextVNode("Skill", -1 /* CACHED */))
             ]),
-            _cache[57] || (_cache[57] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("右下角那个悬浮球 / 右侧抽屉（"),
-              _createElementVNode("code", null, "Ctrl + /"),
-              _createTextVNode(" 开合）。它"),
-              _createElementVNode("b", null, "读"),
-              _createTextVNode("本机数据不用问； "),
-              _createElementVNode("b", null, "动手"),
-              _createTextVNode("（提交一次生成、改一项设置）默认要你在卡片上点「执行」。")
-            ], -1 /* CACHED */)),
-            _createCommentVNode(" 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 "),
-            _createElementVNode("div", _hoisted_148, null, 512 /* NEED_PATCH */),
-            _cache[58] || (_cache[58] = _createStaticVNode("<div class=\"pb-tip\">关掉只是<b>不装</b>这一层：对话记录、附件身份、你提交过的那几条任务都原样留着， 重新勾上就全部回来。<b>改完刷新一下页面才生效</b> —— 助手是页面加载时装上的。</div><div class=\"pb-tip\">勾上之后助手<b>校验完就立刻执行</b>，不等你点确认。一次生成在平台那边就是一条真任务， <b>没把握就别勾</b>。改素材库那一步仍会单独再问一次（它会直接落盘）；改设置则照这条总开关走。</div><div class=\"pb-tip\">「吸住」与「任务提醒」还有这个总开关都是<b>本机窗口</b>的事，<b>不跟着云同步</b>、不参与整包备份。</div><details class=\"ref\"><summary>系统通知的授权怎么做</summary><div class=\"ref-body\"> 球上的数字不需要授权；<b>系统通知</b>要浏览器点头，所以有上面那颗「现在授权」。 拒过一次浏览器就不再问，得去地址栏左边的「网站设置」里手动放开。 它只提醒助手替你提交的那几条 —— 你在页面上自己点的任务由那一页的列表接着刷。</div></details>", 4))
-          ]),
-          _createElementVNode("div", _hoisted_149, [
-            _createElementVNode("h2", _hoisted_150, [
-              _createElementVNode("span", {
-                class: "card-ic",
-                innerHTML: _ctx.icPencil
-              }, null, 8 /* PROPS */, _hoisted_151),
-              _cache[59] || (_cache[59] = _createTextVNode("润色行为", -1 /* CACHED */))
-            ]),
-            _cache[62] || (_cache[62] = _createElementVNode("div", { class: "sub" }, "提示词正文由 Skill 提供（见下面「Skill」那一栏）；这里只留「润色前要不要先反问」这一个行为开关。", -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_152, [
-              _cache[60] || (_cache[60] = _createElementVNode("div", { class: "pb-head" }, [
-                _createElementVNode("b", null, "润色前要不要先反问"),
-                _createElementVNode("span", { class: "used" }, "用于：三个「AI 润色 / 帮我完善」入口（要 JSON 的那几条不走反问）")
-              ], -1 /* CACHED */)),
-              _createCommentVNode(" 那一格下拉的行由 SET_ROWS 声明。 "),
-              _createElementVNode("div", _hoisted_153, null, 512 /* NEED_PATCH */),
-              _cache[61] || (_cache[61] = _createElementVNode("div", { class: "pb-tip" }, [
-                _createTextVNode("「AI 判断」= 先让文字 AI 读一遍你的描述，"),
-                _createElementVNode("b", null, "它自己决定"),
-                _createTextVNode("是先反问几个问题、还是直接润色 （按「补上这些会不会明显改变成片效果」判断，不按字数）。你答完的答案会当"),
-                _createElementVNode("b", null, "硬约束"),
-                _createTextVNode("写进润色。")
-              ], -1 /* CACHED */))
-            ])
-          ]),
-          _createElementVNode("div", _hoisted_154, [
-            _createElementVNode("h2", _hoisted_155, [
-              _createElementVNode("span", {
-                class: "card-ic",
-                innerHTML: _ctx.icBrain
-              }, null, 8 /* PROPS */, _hoisted_156),
-              _cache[63] || (_cache[63] = _createTextVNode("Skill", -1 /* CACHED */))
-            ]),
-            _cache[84] || (_cache[84] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("Skill 是「某类任务该按什么写」的可加载说明（提示词润色、分镜、配音稿…）。 "),
-              _createElementVNode("b", null, "左边是使用场景"),
-              _createTextVNode("：选一个场景，右边告诉你这一步会拿到哪些项目上下文、现在用的是哪一份 Skill、你能怎么接管。 Skill 只补充写法，"),
-              _createElementVNode("b", null, "输出格式与禁止项由机器契约管，Skill 改不了它"),
-              _createTextVNode("。")
-            ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_157, [
+            _cache[66] || (_cache[66] = _createElementVNode("div", { class: "sub" }, "按场景加载的写法说明；输出格式由契约管。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_148, [
               _createCommentVNode(" 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），\n                       行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 "),
-              _createElementVNode("aside", _hoisted_158, [
-                _createElementVNode("div", _hoisted_159, [
+              _createElementVNode("aside", _hoisted_149, [
+                _createElementVNode("div", _hoisted_150, [
                   _createElementVNode("input", {
                     type: "search",
                     class: "sk-search",
                     value: _ctx.skillQ,
                     onInput: _ctx.onSkillSearch,
                     placeholder: "搜场景 / Skill 名 / id"
-                  }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_160),
+                  }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_151),
                   _createElementVNode("button", {
                     class: "ghost mini",
                     id: "skAllBtn",
                     type: "button",
                     disabled: _ctx.skillBusy,
                     onClick: _ctx.openSkillAll
-                  }, "全部 Skill " + _toDisplayString(_ctx.skillItems.length), 9 /* TEXT, PROPS */, _hoisted_161)
+                  }, "全部 Skill " + _toDisplayString(_ctx.skillItems.length), 9 /* TEXT, PROPS */, _hoisted_152)
                 ]),
-                _createElementVNode("div", _hoisted_162, [
+                _createElementVNode("div", _hoisted_153, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillTree, (g) => {
                     return (_openBlock(), _createElementBlock(_Fragment, {
                       key: g.id
                     }, [
-                      _createElementVNode("div", _hoisted_163, [
-                        _createElementVNode("span", _hoisted_164, _toDisplayString(g.name), 1 /* TEXT */),
-                        _createElementVNode("span", _hoisted_165, _toDisplayString(g.scenes.length), 1 /* TEXT */)
+                      _createElementVNode("div", _hoisted_154, [
+                        _createElementVNode("span", _hoisted_155, _toDisplayString(g.name), 1 /* TEXT */),
+                        _createElementVNode("span", _hoisted_156, _toDisplayString(g.scenes.length), 1 /* TEXT */)
                       ]),
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(g.scenes, (sc) => {
                         return (_openBlock(), _createElementBlock("button", {
@@ -1383,91 +1261,87 @@ export function render(_ctx, _cache) {
                           _createElementVNode("span", {
                             class: _normalizeClass(["sk-lamp", 'lit-' + _ctx.skillSceneState(sc).lamp])
                           }, null, 2 /* CLASS */),
-                          _createElementVNode("span", _hoisted_167, _toDisplayString(sc.label), 1 /* TEXT */),
+                          _createElementVNode("span", _hoisted_158, _toDisplayString(sc.label), 1 /* TEXT */),
                           _createElementVNode("span", {
                             class: _normalizeClass(["sk-s-r", { err: _ctx.skillSceneState(sc).lamp === 'conflict' }])
                           }, _toDisplayString(_ctx.skillSceneState(sc).text), 3 /* TEXT, CLASS */)
-                        ], 10 /* CLASS, PROPS */, _hoisted_166))
+                        ], 10 /* CLASS, PROPS */, _hoisted_157))
                       }), 128 /* KEYED_FRAGMENT */))
                     ], 64 /* STABLE_FRAGMENT */))
                   }), 128 /* KEYED_FRAGMENT */)),
                   (!_ctx.skillTree.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_168, "没有匹配的场景。"))
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_159, "没有匹配的场景。"))
                     : _createCommentVNode("v-if", true)
                 ]),
-                _cache[64] || (_cache[64] = _createStaticVNode("<div class=\"sk-legend\"><span class=\"sk-lg\"><span class=\"sk-lamp lit-mine\"></span>我的一份在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-builtin\"></span>内置的在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-empty\"></span>空档 · 用内置默认正文</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-conflict\"></span>两份都启用了</span></div>", 1))
+                _cache[48] || (_cache[48] = _createStaticVNode("<div class=\"sk-legend\"><span class=\"sk-lg\"><span class=\"sk-lamp lit-mine\"></span>我的一份在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-builtin\"></span>内置的在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-empty\"></span>空档 · 用内置默认正文</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-conflict\"></span>两份都启用了</span></div>", 1))
               ]),
               _createCommentVNode(" 右：详情。三个形态：场景详情 / 全部 Skill / 新建（编辑）Skill "),
-              _createElementVNode("section", _hoisted_169, [
+              _createElementVNode("section", _hoisted_160, [
                 _createCommentVNode(" ① 场景详情 "),
                 (_ctx.skillMode === 'scene' && _ctx.skillScene)
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                      _createElementVNode("div", _hoisted_170, [
-                        _createElementVNode("div", _hoisted_171, [
-                          _createElementVNode("h3", _hoisted_172, _toDisplayString(_ctx.skillScene.label), 1 /* TEXT */),
-                          _createElementVNode("div", _hoisted_173, _toDisplayString(_ctx.skillScene.used), 1 /* TEXT */),
-                          _createElementVNode("div", _hoisted_174, [
-                            _createElementVNode("code", _hoisted_175, _toDisplayString(_ctx.skillScene.contract || '（不占固定位）'), 1 /* TEXT */),
+                      _createElementVNode("div", _hoisted_161, [
+                        _createElementVNode("div", _hoisted_162, [
+                          _createElementVNode("h3", _hoisted_163, _toDisplayString(_ctx.skillScene.label), 1 /* TEXT */),
+                          _createElementVNode("div", _hoisted_164, _toDisplayString(_ctx.skillScene.used), 1 /* TEXT */),
+                          _createElementVNode("div", _hoisted_165, [
+                            _createElementVNode("code", _hoisted_166, _toDisplayString(_ctx.skillScene.contract || '（不占固定位）'), 1 /* TEXT */),
                             (_ctx.skillSceneNow.conflict)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_176, "contract 冲突 · 两份都启用了"))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_167, "contract 冲突"))
                               : (_ctx.skillSceneNow.active)
-                                ? (_openBlock(), _createElementBlock("span", _hoisted_177, "正在生效：" + _toDisplayString(_ctx.skillSceneNow.active.name), 1 /* TEXT */))
-                                : (_openBlock(), _createElementBlock("span", _hoisted_178, "空档 · 用内置默认正文")),
-                            _createElementVNode("span", _hoisted_179, "这个场景里 " + _toDisplayString(_ctx.skillSceneNow.list.length) + " 份 Skill", 1 /* TEXT */)
+                                ? (_openBlock(), _createElementBlock("span", _hoisted_168, "正在生效：" + _toDisplayString(_ctx.skillSceneNow.active.name), 1 /* TEXT */))
+                                : (_openBlock(), _createElementBlock("span", _hoisted_169, "空档")),
+                            _createElementVNode("span", _hoisted_170, _toDisplayString(_ctx.skillSceneNow.list.length) + " 份 Skill", 1 /* TEXT */)
                           ])
                         ]),
-                        _createElementVNode("div", _hoisted_180, [
+                        _createElementVNode("div", _hoisted_171, [
                           _createElementVNode("button", {
                             class: "pri",
                             id: "skNewBtn",
                             type: "button",
                             disabled: _ctx.skillBusy,
                             onClick: _ctx.openSkillNew
-                          }, "添加新 Skill", 8 /* PROPS */, _hoisted_181)
+                          }, "添加新 Skill", 8 /* PROPS */, _hoisted_172)
                         ])
                       ]),
-                      _createElementVNode("div", _hoisted_182, [
-                        _cache[70] || (_cache[70] = _createElementVNode("div", { class: "sk-sec-h" }, [
-                          _createElementVNode("b", null, "这一步会拿到什么"),
-                          _createElementVNode("span", { class: "hint" }, "程序在发请求前按当前项目把下面这些位置填上真实内容")
+                      _createElementVNode("div", _hoisted_173, [
+                        _cache[52] || (_cache[52] = _createElementVNode("div", { class: "sk-sec-h" }, [
+                          _createElementVNode("b", null, "这一步会拿到什么")
                         ], -1 /* CACHED */)),
                         (_ctx.skillSceneVars.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_183, [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_174, [
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillSceneVars, (v) => {
                                 return (_openBlock(), _createElementBlock("div", {
                                   class: "sk-vrow",
                                   key: v.name
                                 }, [
-                                  _createElementVNode("code", _hoisted_184, _toDisplayString('{' + v.name + '}'), 1 /* TEXT */),
-                                  _createElementVNode("span", _hoisted_185, _toDisplayString(v.from), 1 /* TEXT */),
-                                  _createElementVNode("span", _hoisted_186, _toDisplayString(v.desc), 1 /* TEXT */)
+                                  _createElementVNode("code", _hoisted_175, _toDisplayString('{' + v.name + '}'), 1 /* TEXT */),
+                                  _createElementVNode("span", _hoisted_176, _toDisplayString(v.from), 1 /* TEXT */),
+                                  _createElementVNode("span", _hoisted_177, _toDisplayString(v.desc), 1 /* TEXT */)
                                 ]))
                               }), 128 /* KEYED_FRAGMENT */)),
-                              _cache[65] || (_cache[65] = _createElementVNode("div", { class: "sk-vnote" }, "填得上的填，填不上的原样留着（AI 会知道那是要它自己补的位子）。这张表跟着「场景」走，不跟着某一份 Skill 走 —— 换一份写法，喂料方式不变。", -1 /* CACHED */))
+                              _cache[49] || (_cache[49] = _createElementVNode("div", { class: "sk-vnote" }, "填不上的留给 AI 补。", -1 /* CACHED */))
                             ]))
-                          : (_openBlock(), _createElementBlock("div", _hoisted_187, "这一步不需要项目上下文 —— 它只读你写的那句话（你在输入框里打的那段描述），不读角色表、不读素材库、不读分镜。")),
+                          : (_openBlock(), _createElementBlock("div", _hoisted_178, "不需要项目上下文。")),
                         (_ctx.skillSceneUnknown.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_188, [
-                              _cache[69] || (_cache[69] = _createElementVNode("span", null, "!", -1 /* CACHED */)),
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_179, [
+                              _cache[51] || (_cache[51] = _createElementVNode("span", null, "!", -1 /* CACHED */)),
                               _createElementVNode("span", null, [
-                                _cache[66] || (_cache[66] = _createTextVNode("正在生效的「", -1 /* CACHED */)),
-                                _createElementVNode("b", null, _toDisplayString(_ctx.skillActive ? _ctx.skillActive.name : ''), 1 /* TEXT */),
-                                _cache[67] || (_cache[67] = _createTextVNode("」正文里还用了 ", -1 /* CACHED */)),
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillSceneUnknown, (n) => {
                                   return (_openBlock(), _createElementBlock("code", { key: n }, _toDisplayString('{' + n + '}'), 1 /* TEXT */))
                                 }), 128 /* KEYED_FRAGMENT */)),
-                                _cache[68] || (_cache[68] = _createTextVNode("， 但这个场景的说明里没有登记它 —— 程序不会填这个位置，AI 会当成要自己补的空位。", -1 /* CACHED */))
+                                _cache[50] || (_cache[50] = _createTextVNode(" 未登记，不会被填。", -1 /* CACHED */))
                               ])
                             ]))
                           : _createCommentVNode("v-if", true)
                       ]),
-                      _createElementVNode("div", _hoisted_189, [
-                        _cache[73] || (_cache[73] = _createElementVNode("div", { class: "sk-sec-h" }, [
+                      _createElementVNode("div", _hoisted_180, [
+                        _cache[55] || (_cache[55] = _createElementVNode("div", { class: "sk-sec-h" }, [
                           _createElementVNode("b", null, "这个场景的 Skill"),
                           _createElementVNode("span", { class: "hint" }, "同一时刻只有一份生效")
                         ], -1 /* CACHED */)),
                         (!_ctx.skillSceneNow.list.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_190, "这个场景还没有任何 Skill —— 现在用的是产品内置的默认正文。"))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_181, "还没有 Skill。"))
                           : _createCommentVNode("v-if", true),
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillSceneNow.list, (s) => {
                           return (_openBlock(), _createElementBlock("div", {
@@ -1475,21 +1349,21 @@ export function render(_ctx, _cache) {
                             class: _normalizeClass(["sk-item", { on: _ctx.isSceneActive(s), off: !s.enabled }]),
                             "data-skill-id": s.id
                           }, [
-                            _cache[72] || (_cache[72] = _createElementVNode("span", { class: "sk-bar" }, null, -1 /* CACHED */)),
-                            _createElementVNode("div", _hoisted_192, [
-                              _createElementVNode("div", _hoisted_193, [
-                                _createElementVNode("b", _hoisted_194, _toDisplayString(s.name), 1 /* TEXT */),
-                                _createElementVNode("span", _hoisted_195, _toDisplayString(s.id) + " · v" + _toDisplayString(s.version || 1), 1 /* TEXT */)
+                            _cache[54] || (_cache[54] = _createElementVNode("span", { class: "sk-bar" }, null, -1 /* CACHED */)),
+                            _createElementVNode("div", _hoisted_183, [
+                              _createElementVNode("div", _hoisted_184, [
+                                _createElementVNode("b", _hoisted_185, _toDisplayString(s.name), 1 /* TEXT */),
+                                _createElementVNode("span", _hoisted_186, _toDisplayString(s.id) + " · v" + _toDisplayString(s.version || 1), 1 /* TEXT */)
                               ]),
-                              _createElementVNode("div", _hoisted_196, _toDisplayString(s.description), 1 /* TEXT */),
-                              _createElementVNode("div", _hoisted_197, [
+                              _createElementVNode("div", _hoisted_187, _toDisplayString(s.description), 1 /* TEXT */),
+                              _createElementVNode("div", _hoisted_188, [
                                 (_ctx.isSceneActive(s))
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_198, "正在生效"))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_189, "正在生效"))
                                   : _createCommentVNode("v-if", true),
                                 (s.conflict)
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_199, "contract 冲突"))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_190, "contract 冲突"))
                                   : _createCommentVNode("v-if", true),
-                                _createElementVNode("span", _hoisted_200, _toDisplayString(s.source === 'builtin' ? '内置（只读）' : '我的 Skill'), 1 /* TEXT */),
+                                _createElementVNode("span", _hoisted_191, _toDisplayString(s.source === 'builtin' ? '内置（只读）' : '我的 Skill'), 1 /* TEXT */),
                                 _createElementVNode("span", {
                                   class: _normalizeClass(["ui-tag", { ok: s.enabled }])
                                 }, _toDisplayString(s.enabled ? '已启用' : '已停用'), 3 /* TEXT, CLASS */),
@@ -1507,14 +1381,14 @@ export function render(_ctx, _cache) {
                                 }), 128 /* KEYED_FRAGMENT */))
                               ])
                             ]),
-                            _createElementVNode("div", _hoisted_201, [
+                            _createElementVNode("div", _hoisted_192, [
                               _createElementVNode("button", {
                                 class: "ghost mini sk-toggle",
                                 type: "button",
                                 "data-skill-id": s.id,
                                 disabled: _ctx.skillBusy,
                                 onClick: $event => (_ctx.toggleSkillEnabled(s.id))
-                              }, _toDisplayString(s.enabled ? '停用' : '启用'), 9 /* TEXT, PROPS */, _hoisted_202),
+                              }, _toDisplayString(s.enabled ? '停用' : '启用'), 9 /* TEXT, PROPS */, _hoisted_193),
                               (s.source !== 'builtin')
                                 ? (_openBlock(), _createElementBlock("button", {
                                     key: 0,
@@ -1523,7 +1397,7 @@ export function render(_ctx, _cache) {
                                     "data-skill-id": s.id,
                                     disabled: _ctx.skillBusy,
                                     onClick: $event => (_ctx.openSkillEdit(s.id))
-                                  }, "编辑正文", 8 /* PROPS */, _hoisted_203))
+                                  }, "编辑正文", 8 /* PROPS */, _hoisted_194))
                                 : _createCommentVNode("v-if", true),
                               (s.source !== 'builtin')
                                 ? (_openBlock(), _createElementBlock("button", {
@@ -1532,7 +1406,7 @@ export function render(_ctx, _cache) {
                                     type: "button",
                                     disabled: _ctx.skillBusy,
                                     onClick: $event => (_ctx.pickSkillFile('update', s.id))
-                                  }, "导入同 id 更新", 8 /* PROPS */, _hoisted_204))
+                                  }, "导入同 id 更新", 8 /* PROPS */, _hoisted_195))
                                 : _createCommentVNode("v-if", true),
                               _createElementVNode("button", {
                                 class: "ghost mini danger sk-remove",
@@ -1540,18 +1414,18 @@ export function render(_ctx, _cache) {
                                 "data-skill-id": s.id,
                                 disabled: _ctx.skillBusy || s.source === 'builtin',
                                 onClick: $event => (_ctx.removeSkill(s.id, $event))
-                              }, "卸载", 8 /* PROPS */, _hoisted_205),
+                              }, "卸载", 8 /* PROPS */, _hoisted_196),
                               _createElementVNode("button", {
                                 class: "ghost mini sk-open-btn",
                                 type: "button",
                                 "data-skill-id": s.id,
                                 onClick: $event => (_ctx.toggleSkillOpen(s.id))
-                              }, _toDisplayString(_ctx.skillSelId === s.id ? '收起正文' : '查看正文'), 9 /* TEXT, PROPS */, _hoisted_206)
+                              }, _toDisplayString(_ctx.skillSelId === s.id ? '收起正文' : '查看正文'), 9 /* TEXT, PROPS */, _hoisted_197)
                             ]),
                             (_ctx.skillSelId === s.id)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_207, [
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_198, [
                                   (_ctx.skillFiles.length)
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_208, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_199, [
                                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillFiles, (f) => {
                                           return (_openBlock(), _createElementBlock("button", {
                                             key: f.path,
@@ -1559,17 +1433,17 @@ export function render(_ctx, _cache) {
                                             type: "button",
                                             onClick: $event => (_ctx.openSkillFile(f.path))
                                           }, [
-                                            _createElementVNode("span", _hoisted_210, _toDisplayString(f.path), 1 /* TEXT */),
-                                            _createElementVNode("span", _hoisted_211, _toDisplayString(_ctx.fmtSkillSize(f.size)), 1 /* TEXT */)
-                                          ], 10 /* CLASS, PROPS */, _hoisted_209))
+                                            _createElementVNode("span", _hoisted_201, _toDisplayString(f.path), 1 /* TEXT */),
+                                            _createElementVNode("span", _hoisted_202, _toDisplayString(_ctx.fmtSkillSize(f.size)), 1 /* TEXT */)
+                                          ], 10 /* CLASS, PROPS */, _hoisted_200))
                                         }), 128 /* KEYED_FRAGMENT */))
                                       ]))
                                     : _createCommentVNode("v-if", true),
-                                  _createElementVNode("div", _hoisted_212, [
-                                    _createElementVNode("div", _hoisted_213, [
-                                      _createElementVNode("span", _hoisted_214, _toDisplayString(_ctx.skillFilePath || '（选左边文件）'), 1 /* TEXT */),
-                                      _cache[71] || (_cache[71] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
-                                      _createElementVNode("span", _hoisted_215, _toDisplayString(_ctx.skillFileNote), 1 /* TEXT */)
+                                  _createElementVNode("div", _hoisted_203, [
+                                    _createElementVNode("div", _hoisted_204, [
+                                      _createElementVNode("span", _hoisted_205, _toDisplayString(_ctx.skillFilePath || '（选左边文件）'), 1 /* TEXT */),
+                                      _cache[53] || (_cache[53] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+                                      _createElementVNode("span", _hoisted_206, _toDisplayString(_ctx.skillFileNote), 1 /* TEXT */)
                                     ]),
                                     _createElementVNode("pre", {
                                       class: "sk-pre",
@@ -1579,162 +1453,159 @@ export function render(_ctx, _cache) {
                                   ])
                                 ]))
                               : _createCommentVNode("v-if", true)
-                          ], 10 /* CLASS, PROPS */, _hoisted_191))
+                          ], 10 /* CLASS, PROPS */, _hoisted_182))
                         }), 128 /* KEYED_FRAGMENT */))
                       ]),
-                      _cache[74] || (_cache[74] = _createElementVNode("div", { class: "sk-foot" }, "Skill 只补充写法，输出格式与禁止项由机器契约管，Skill 改不了它。启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。", -1 /* CACHED */))
+                      _cache[56] || (_cache[56] = _createElementVNode("div", { class: "sk-foot" }, "启用 / 停用下一轮生效。", -1 /* CACHED */))
                     ], 64 /* STABLE_FRAGMENT */))
                   : (_ctx.skillMode === 'all')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
                         _createCommentVNode(" ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） "),
-                        _createElementVNode("div", _hoisted_216, [
-                          _cache[75] || (_cache[75] = _createElementVNode("div", { class: "sk-d-l" }, [
-                            _createElementVNode("h3", { class: "sk-d-title" }, "全部 Skill"),
-                            _createElementVNode("div", { class: "sk-used" }, "原来的全量清单退到这里：按来源/状态查一份 Skill，或者找一份还没归位的。它不再与「使用场景」并排出现 —— 那就是重复的来源。")
+                        _createElementVNode("div", _hoisted_207, [
+                          _cache[57] || (_cache[57] = _createElementVNode("div", { class: "sk-d-l" }, [
+                            _createElementVNode("h3", { class: "sk-d-title" }, "全部 Skill")
                           ], -1 /* CACHED */)),
-                          _createElementVNode("div", _hoisted_217, [
+                          _createElementVNode("div", _hoisted_208, [
                             _createElementVNode("button", {
                               class: "ghost",
                               type: "button",
                               onClick: _ctx.closeSkillAll
-                            }, "回到场景", 8 /* PROPS */, _hoisted_218),
+                            }, "回到场景", 8 /* PROPS */, _hoisted_209),
                             _createElementVNode("button", {
                               class: "ghost",
                               id: "skImportBtn",
                               type: "button",
                               disabled: _ctx.skillBusy,
                               onClick: $event => (_ctx.pickSkillFile('import'))
-                            }, "导入 .md / .zip", 8 /* PROPS */, _hoisted_219)
+                            }, "导入 .md / .zip", 8 /* PROPS */, _hoisted_210)
                           ])
                         ]),
-                        _createElementVNode("div", _hoisted_220, [
-                          _createElementVNode("div", _hoisted_221, [
-                            _createElementVNode("span", _hoisted_222, null, 512 /* NEED_PATCH */),
+                        _createElementVNode("div", _hoisted_211, [
+                          _createElementVNode("div", _hoisted_212, [
+                            _createElementVNode("span", _hoisted_213, null, 512 /* NEED_PATCH */),
                             _createElementVNode("input", {
                               type: "search",
                               class: "sk-search",
                               value: _ctx.skillAllQ,
                               onInput: _ctx.onSkillAllSearch,
                               placeholder: "名称 / id / 描述 / 触发词"
-                            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_223),
-                            _createElementVNode("span", _hoisted_224, _toDisplayString(_ctx.skillCntText), 1 /* TEXT */)
+                            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_214),
+                            _createElementVNode("span", _hoisted_215, _toDisplayString(_ctx.skillCntText), 1 /* TEXT */)
                           ]),
-                          _createElementVNode("div", _hoisted_225, [
+                          _createElementVNode("div", _hoisted_216, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillAllFiltered, (s) => {
                               return (_openBlock(), _createElementBlock("div", {
                                 key: s.id,
                                 class: "sk-allrow",
                                 "data-skill-id": s.id
                               }, [
-                                _createElementVNode("div", _hoisted_227, [
-                                  _createElementVNode("div", _hoisted_228, [
-                                    _createElementVNode("b", _hoisted_229, _toDisplayString(s.name), 1 /* TEXT */),
-                                    _createElementVNode("span", _hoisted_230, _toDisplayString(s.id), 1 /* TEXT */)
+                                _createElementVNode("div", _hoisted_218, [
+                                  _createElementVNode("div", _hoisted_219, [
+                                    _createElementVNode("b", _hoisted_220, _toDisplayString(s.name), 1 /* TEXT */),
+                                    _createElementVNode("span", _hoisted_221, _toDisplayString(s.id), 1 /* TEXT */)
                                   ]),
-                                  _createElementVNode("div", _hoisted_231, _toDisplayString(s.description), 1 /* TEXT */)
+                                  _createElementVNode("div", _hoisted_222, _toDisplayString(s.description), 1 /* TEXT */)
                                 ]),
-                                _createElementVNode("div", _hoisted_232, [
-                                  _createElementVNode("span", _hoisted_233, _toDisplayString(_ctx.skillSceneNameOf(s.contract)), 1 /* TEXT */),
-                                  _createElementVNode("span", _hoisted_234, _toDisplayString(s.source === 'builtin' ? '内置' : '我的'), 1 /* TEXT */),
+                                _createElementVNode("div", _hoisted_223, [
+                                  _createElementVNode("span", _hoisted_224, _toDisplayString(_ctx.skillSceneNameOf(s.contract)), 1 /* TEXT */),
+                                  _createElementVNode("span", _hoisted_225, _toDisplayString(s.source === 'builtin' ? '内置' : '我的'), 1 /* TEXT */),
                                   _createElementVNode("span", {
                                     class: _normalizeClass(["ui-tag", { ok: s.enabled }])
                                   }, _toDisplayString(s.enabled ? '已启用' : '已停用'), 3 /* TEXT, CLASS */)
                                 ]),
-                                _createElementVNode("div", _hoisted_235, [
+                                _createElementVNode("div", _hoisted_226, [
                                   _createElementVNode("button", {
                                     class: "ghost mini sk-toggle",
                                     type: "button",
                                     "data-skill-id": s.id,
                                     disabled: _ctx.skillBusy,
                                     onClick: $event => (_ctx.toggleSkillEnabled(s.id))
-                                  }, _toDisplayString(s.enabled ? '停用' : '启用'), 9 /* TEXT, PROPS */, _hoisted_236)
+                                  }, _toDisplayString(s.enabled ? '停用' : '启用'), 9 /* TEXT, PROPS */, _hoisted_227)
                                 ])
-                              ], 8 /* PROPS */, _hoisted_226))
+                              ], 8 /* PROPS */, _hoisted_217))
                             }), 128 /* KEYED_FRAGMENT */)),
                             (!_ctx.skillAllFiltered.length)
-                              ? (_openBlock(), _createElementBlock("div", _hoisted_237, "没有匹配的 Skill。"))
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_228, "没有匹配的 Skill。"))
                               : _createCommentVNode("v-if", true)
                           ])
                         ])
                       ], 64 /* STABLE_FRAGMENT */))
                     : (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
                         _createCommentVNode(" ③ 新建 / 编辑：在浏览器里直接写一份 SKILL.md "),
-                        _createElementVNode("div", _hoisted_238, [
-                          _createElementVNode("div", _hoisted_239, [
-                            _createElementVNode("h3", _hoisted_240, _toDisplayString(_ctx.skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill'), 1 /* TEXT */),
-                            _createElementVNode("div", _hoisted_241, _toDisplayString(_ctx.skillForm.mode === 'edit'
-                            ? '改的是「' + _ctx.skillForm.id + '」这一份 —— 保存后下一轮生效。'
-                            : '在浏览器里直接写一份：下面几格是它的身份，最下面那格是正文（也就是喂给 AI 的那份写法）。'), 1 /* TEXT */),
-                            _createElementVNode("div", _hoisted_242, [
-                              _createElementVNode("code", _hoisted_243, "contract：" + _toDisplayString(_ctx.skillForm.contract), 1 /* TEXT */),
-                              _cache[76] || (_cache[76] = _createElementVNode("span", { class: "sk-cnt" }, "同一个 contract 同一时刻只能有一份生效 —— 装上去时原来那份内置的会让位", -1 /* CACHED */))
+                        _createElementVNode("div", _hoisted_229, [
+                          _createElementVNode("div", _hoisted_230, [
+                            _createElementVNode("h3", _hoisted_231, _toDisplayString(_ctx.skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill'), 1 /* TEXT */),
+                            _createElementVNode("div", _hoisted_232, _toDisplayString(_ctx.skillForm.mode === 'edit' ? '保存后下一轮生效。' : ''), 1 /* TEXT */),
+                            _createElementVNode("div", _hoisted_233, [
+                              _createElementVNode("code", _hoisted_234, "contract：" + _toDisplayString(_ctx.skillForm.contract), 1 /* TEXT */),
+                              _cache[58] || (_cache[58] = _createElementVNode("span", { class: "sk-cnt" }, "同一 contract 只有一份生效。", -1 /* CACHED */))
                             ])
                           ]),
-                          _createElementVNode("div", _hoisted_244, [
+                          _createElementVNode("div", _hoisted_235, [
                             _createElementVNode("button", {
                               class: "ghost",
                               type: "button",
                               onClick: _ctx.cancelSkillNew
-                            }, "返回场景", 8 /* PROPS */, _hoisted_245),
+                            }, "返回场景", 8 /* PROPS */, _hoisted_236),
                             _createElementVNode("button", {
                               class: "pri",
                               id: "skSaveBtn",
                               type: "button",
                               disabled: _ctx.skillBusy,
                               onClick: _ctx.saveSkillNew
-                            }, "保存", 8 /* PROPS */, _hoisted_246)
+                            }, "保存", 8 /* PROPS */, _hoisted_237)
                           ])
                         ]),
-                        _createElementVNode("div", _hoisted_247, [
-                          _createElementVNode("div", _hoisted_248, [
-                            _createElementVNode("label", _hoisted_249, [
-                              _cache[77] || (_cache[77] = _createElementVNode("span", { class: "sk-label" }, "id", -1 /* CACHED */)),
+                        _createElementVNode("div", _hoisted_238, [
+                          _createElementVNode("div", _hoisted_239, [
+                            _createElementVNode("label", _hoisted_240, [
+                              _cache[59] || (_cache[59] = _createElementVNode("span", { class: "sk-label" }, "id", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFId",
                                 class: "sk-input",
                                 "onUpdate:modelValue": $event => ((_ctx.skillForm.id) = $event),
                                 disabled: _ctx.skillForm.mode === 'edit',
-                                placeholder: "小写字母 / 数字 / 连字符，例如 my-video-prompt"
-                              }, null, 8 /* PROPS */, _hoisted_250), [
+                                placeholder: "小写字母 / 数字 / 连字符"
+                              }, null, 8 /* PROPS */, _hoisted_241), [
                                 [_vModelText, _ctx.skillForm.id]
                               ])
                             ]),
-                            _createElementVNode("label", _hoisted_251, [
-                              _cache[78] || (_cache[78] = _createElementVNode("span", { class: "sk-label" }, "名字", -1 /* CACHED */)),
+                            _createElementVNode("label", _hoisted_242, [
+                              _cache[60] || (_cache[60] = _createElementVNode("span", { class: "sk-label" }, "名字", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFName",
                                 class: "sk-input",
                                 "onUpdate:modelValue": $event => ((_ctx.skillForm.name) = $event),
                                 placeholder: "给人看的名字"
-                              }, null, 8 /* PROPS */, _hoisted_252), [
+                              }, null, 8 /* PROPS */, _hoisted_243), [
                                 [_vModelText, _ctx.skillForm.name]
                               ])
                             ]),
-                            _createElementVNode("label", _hoisted_253, [
-                              _cache[79] || (_cache[79] = _createElementVNode("span", { class: "sk-label" }, "它管什么", -1 /* CACHED */)),
+                            _createElementVNode("label", _hoisted_244, [
+                              _cache[61] || (_cache[61] = _createElementVNode("span", { class: "sk-label" }, "它管什么", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFDesc",
                                 class: "sk-input",
                                 "onUpdate:modelValue": $event => ((_ctx.skillForm.description) = $event),
-                                placeholder: "一句话说清这份 Skill 负责哪类活儿"
-                              }, null, 8 /* PROPS */, _hoisted_254), [
+                                placeholder: "一句话说清"
+                              }, null, 8 /* PROPS */, _hoisted_245), [
                                 [_vModelText, _ctx.skillForm.description]
                               ])
                             ]),
-                            _createElementVNode("label", _hoisted_255, [
-                              _cache[80] || (_cache[80] = _createElementVNode("span", { class: "sk-label" }, "触发词", -1 /* CACHED */)),
+                            _createElementVNode("label", _hoisted_246, [
+                              _cache[62] || (_cache[62] = _createElementVNode("span", { class: "sk-label" }, "触发词", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFTrig",
                                 class: "sk-input",
                                 "onUpdate:modelValue": $event => ((_ctx.skillForm.triggers) = $event),
-                                placeholder: "用顿号或逗号隔开，例如 视频、提示词"
-                              }, null, 8 /* PROPS */, _hoisted_256), [
+                                placeholder: "顿号或逗号隔开"
+                              }, null, 8 /* PROPS */, _hoisted_247), [
                                 [_vModelText, _ctx.skillForm.triggers]
                               ])
                             ]),
-                            _createElementVNode("div", _hoisted_257, [
-                              _cache[81] || (_cache[81] = _createElementVNode("span", { class: "sk-label" }, "页面", -1 /* CACHED */)),
-                              _createElementVNode("div", _hoisted_258, [
+                            _createElementVNode("div", _hoisted_248, [
+                              _cache[63] || (_cache[63] = _createElementVNode("span", { class: "sk-label" }, "页面", -1 /* CACHED */)),
+                              _createElementVNode("div", _hoisted_249, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillPages, (p) => {
                                   return (_openBlock(), _createElementBlock("label", {
                                     class: "sk-page",
@@ -1744,7 +1615,7 @@ export function render(_ctx, _cache) {
                                       type: "checkbox",
                                       value: p,
                                       "onUpdate:modelValue": $event => ((_ctx.skillForm.pages) = $event)
-                                    }, null, 8 /* PROPS */, _hoisted_259), [
+                                    }, null, 8 /* PROPS */, _hoisted_250), [
                                       [_vModelCheckbox, _ctx.skillForm.pages]
                                     ]),
                                     _createElementVNode("span", null, _toDisplayString(p), 1 /* TEXT */)
@@ -1752,24 +1623,20 @@ export function render(_ctx, _cache) {
                                 }), 128 /* KEYED_FRAGMENT */))
                               ])
                             ]),
-                            _createElementVNode("label", _hoisted_260, [
-                              _cache[82] || (_cache[82] = _createElementVNode("span", { class: "sk-label" }, "正文", -1 /* CACHED */)),
+                            _createElementVNode("label", _hoisted_251, [
+                              _cache[64] || (_cache[64] = _createElementVNode("span", { class: "sk-label" }, "正文", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("textarea", {
                                 id: "skFBody",
                                 class: "sk-textarea",
                                 "onUpdate:modelValue": $event => ((_ctx.skillForm.body) = $event),
                                 rows: "14",
-                                placeholder: "这份 Skill 要告诉 AI 怎么写。可以用 {变量} 占位，程序会按当前项目填进去。"
-                              }, null, 8 /* PROPS */, _hoisted_261), [
+                                placeholder: "可用 {变量} 占位"
+                              }, null, 8 /* PROPS */, _hoisted_252), [
                                 [_vModelText, _ctx.skillForm.body]
                               ])
                             ])
                           ]),
-                          _cache[83] || (_cache[83] = _createElementVNode("div", { class: "sk-vnote" }, [
-                            _createTextVNode("正文里的 "),
-                            _createElementVNode("code", null, "{变量}"),
-                            _createTextVNode(" 由程序按当前项目填料 —— 这个场景能拿到哪些变量，看上面「这一步会拿到什么」那一张表。填不上的原样留着，AI 会知道那是要它自己补的位子。")
-                          ], -1 /* CACHED */))
+                          _cache[65] || (_cache[65] = _createElementVNode("div", { class: "sk-vnote" }, "{变量} 按当前项目填，填不上留给 AI 补。", -1 /* CACHED */))
                         ])
                       ], 64 /* STABLE_FRAGMENT */))
               ])
@@ -1780,121 +1647,117 @@ export function render(_ctx, _cache) {
               accept: ".md,.zip,application/zip",
               hidden: "",
               onChange: _ctx.onImportSkillFile
-            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_262),
-            _cache[85] || (_cache[85] = _createElementVNode("div", { class: "sk-hint" }, "启用 / 停用在下一轮助手请求里生效，当前这一轮不会热替换。导入只接受 .md / .zip：单文件 1MB、整包 5MB / 50 个文件；脚本与其他二进制一律拒收。内置 Skill 只读 —— 要改就自己「添加新 Skill」写一份自己的。", -1 /* CACHED */)),
+            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_253),
+            _cache[67] || (_cache[67] = _createElementVNode("div", { class: "sk-hint" }, "导入只接受 .md / .zip；内置 Skill 只读。", -1 /* CACHED */)),
             (_ctx.skillMsg)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_263, _toDisplayString(_ctx.skillMsg), 1 /* TEXT */))
+              ? (_openBlock(), _createElementBlock("div", _hoisted_254, _toDisplayString(_ctx.skillMsg), 1 /* TEXT */))
               : _createCommentVNode("v-if", true)
           ])
         ]),
-        _createElementVNode("section", _hoisted_264, [
-          _cache[104] || (_cache[104] = _createElementVNode("h2", { class: "set-group-h" }, "数据与同步", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_265, [
-            _createElementVNode("h2", _hoisted_266, [
+        _createElementVNode("section", _hoisted_255, [
+          _cache[86] || (_cache[86] = _createElementVNode("h2", { class: "set-group-h" }, "数据与同步", -1 /* CACHED */)),
+          _createElementVNode("div", _hoisted_256, [
+            _createElementVNode("h2", _hoisted_257, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icUpload
-              }, null, 8 /* PROPS */, _hoisted_267),
-              _cache[87] || (_cache[87] = _createTextVNode("数据与同步", -1 /* CACHED */))
+              }, null, 8 /* PROPS */, _hoisted_258),
+              _cache[69] || (_cache[69] = _createTextVNode("数据与同步", -1 /* CACHED */))
             ]),
-            _cache[94] || (_cache[94] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("开启后数据会同时写一份到本机项目目录的 "),
+            _cache[76] || (_cache[76] = _createElementVNode("div", { class: "sub" }, [
+              _createTextVNode("数据同时写进项目 "),
               _createElementVNode("code", null, ".data/"),
-              _createTextVNode("（普通 JSON 文件），可备份、可同步到你自己的网盘。")
+              _createTextVNode("。")
             ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_268, [
-              _createElementVNode("div", _hoisted_269, [
-                _createElementVNode("span", _hoisted_270, [
-                  _createElementVNode("span", { innerHTML: _ctx.icFolder }, null, 8 /* PROPS */, _hoisted_271)
+            _createElementVNode("div", _hoisted_259, [
+              _createElementVNode("div", _hoisted_260, [
+                _createElementVNode("span", _hoisted_261, [
+                  _createElementVNode("span", { innerHTML: _ctx.icFolder }, null, 8 /* PROPS */, _hoisted_262)
                 ]),
-                _cache[88] || (_cache[88] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
+                _cache[70] || (_cache[70] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
                 _createElementVNode("span", {
                   class: "dir-name",
                   title: _ctx.dataInfoTitle
-                }, _toDisplayString(_ctx.dataInfo), 9 /* TEXT, PROPS */, _hoisted_272),
+                }, _toDisplayString(_ctx.dataInfo), 9 /* TEXT, PROPS */, _hoisted_263),
                 _createElementVNode("button", {
                   class: "ghost mini wide",
                   disabled: _ctx.dataBusy.copy,
                   onClick: _ctx.copyDataDir
-                }, "复制路径", 8 /* PROPS */, _hoisted_273),
+                }, "复制路径", 8 /* PROPS */, _hoisted_264),
                 _createElementVNode("button", {
                   class: "ghost mini wide",
                   onClick: _ctx.reloadDataInfo
-                }, "刷新", 8 /* PROPS */, _hoisted_274)
+                }, "刷新", 8 /* PROPS */, _hoisted_265)
               ]),
-              _createElementVNode("div", _hoisted_275, [
-                _createElementVNode("span", _hoisted_276, [
-                  _createElementVNode("span", { innerHTML: _ctx.icClock }, null, 8 /* PROPS */, _hoisted_277)
+              _createElementVNode("div", _hoisted_266, [
+                _createElementVNode("span", _hoisted_267, [
+                  _createElementVNode("span", { innerHTML: _ctx.icClock }, null, 8 /* PROPS */, _hoisted_268)
                 ]),
-                _cache[89] || (_cache[89] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
-                _createElementVNode("span", _hoisted_278, _toDisplayString(_ctx.persistInfo), 1 /* TEXT */),
+                _cache[71] || (_cache[71] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
+                _createElementVNode("span", _hoisted_269, _toDisplayString(_ctx.persistInfo), 1 /* TEXT */),
                 _withDirectives(_createElementVNode("button", {
                   class: "ghost mini wide",
                   onClick: _ctx.askPersist
-                }, "申请持久化", 8 /* PROPS */, _hoisted_279), [
+                }, "申请持久化", 8 /* PROPS */, _hoisted_270), [
                   [_vShow, !_ctx.persistGranted]
                 ])
               ])
             ]),
-            _createElementVNode("div", _hoisted_280, [
+            _createElementVNode("div", _hoisted_271, [
               _createElementVNode("button", {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.push,
                 onClick: _ctx.pushData
-              }, "↑ 本机 → 数据文件", 8 /* PROPS */, _hoisted_281),
+              }, "↑ 本机 → 数据文件", 8 /* PROPS */, _hoisted_272),
               _createElementVNode("button", {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.pull,
                 onClick: _ctx.pullData
-              }, "↓ 数据文件 → 本机", 8 /* PROPS */, _hoisted_282),
+              }, "↓ 数据文件 → 本机", 8 /* PROPS */, _hoisted_273),
               _createElementVNode("button", {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.exp,
                 onClick: _ctx.exportAll
-              }, [...(_cache[90] || (_cache[90] = [
+              }, [...(_cache[72] || (_cache[72] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "download",
                   "data-size": "13"
                 }, null, -1 /* CACHED */),
                 _createTextVNode(" 导出整包备份", -1 /* CACHED */)
-              ]))], 8 /* PROPS */, _hoisted_283),
+              ]))], 8 /* PROPS */, _hoisted_274),
               _createElementVNode("button", {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.imp,
                 onClick: _ctx.pickImportAll
-              }, [...(_cache[91] || (_cache[91] = [
+              }, [...(_cache[73] || (_cache[73] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "upload",
                   "data-size": "13"
                 }, null, -1 /* CACHED */),
                 _createTextVNode(" 导入整包备份", -1 /* CACHED */)
-              ]))], 8 /* PROPS */, _hoisted_284),
+              ]))], 8 /* PROPS */, _hoisted_275),
               _createElementVNode("input", {
                 type: "file",
                 ref: "impAllFileEl",
                 accept: ".json,application/json",
                 style: {"display":"none"},
                 onChange: _ctx.onImportAllFile
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_285),
-              _createElementVNode("span", _hoisted_286, _toDisplayString(_ctx.dataMsg), 1 /* TEXT */)
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_276),
+              _createElementVNode("span", _hoisted_277, _toDisplayString(_ctx.dataMsg), 1 /* TEXT */)
             ]),
-            _cache[95] || (_cache[95] = _createElementVNode("label", {
+            _cache[77] || (_cache[77] = _createElementVNode("label", {
               class: "plabel",
               style: {"margin-top":"var(--sp-14)"}
             }, "云同步（WebDAV）", -1 /* CACHED */)),
-            _cache[96] || (_cache[96] = _createElementVNode("div", {
+            _cache[78] || (_cache[78] = _createElementVNode("div", {
               class: "pb-tip",
               style: {"margin-bottom":"var(--sp-8)"}
-            }, [
-              _createTextVNode("坚果云请在「账户信息 → 安全选项」里生成"),
-              _createElementVNode("b", null, "应用密码"),
-              _createTextVNode("，不要填登录密码。")
-            ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_287, [
-              _createElementVNode("span", _hoisted_288, [
-                _createElementVNode("span", { innerHTML: _ctx.icLink }, null, 8 /* PROPS */, _hoisted_289)
+            }, "坚果云要填应用密码，不是登录密码。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_278, [
+              _createElementVNode("span", _hoisted_279, [
+                _createElementVNode("span", { innerHTML: _ctx.icLink }, null, 8 /* PROPS */, _hoisted_280)
               ]),
               _withDirectives(_createElementVNode("input", {
                 id: "cloudUrl",
@@ -1902,13 +1765,13 @@ export function render(_ctx, _cache) {
                 onChange: _ctx.saveCloud,
                 placeholder: "https://dav.jianguoyun.com/dav/ai-workbench/",
                 style: {"flex":"1"}
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_290), [
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_281), [
                 [_vModelText, _ctx.cloudUrl]
               ])
             ]),
-            _createElementVNode("div", _hoisted_291, [
-              _createElementVNode("span", _hoisted_292, [
-                _createElementVNode("span", { innerHTML: _ctx.icKey }, null, 8 /* PROPS */, _hoisted_293)
+            _createElementVNode("div", _hoisted_282, [
+              _createElementVNode("span", _hoisted_283, [
+                _createElementVNode("span", { innerHTML: _ctx.icKey }, null, 8 /* PROPS */, _hoisted_284)
               ]),
               _withDirectives(_createElementVNode("input", {
                 id: "cloudUser",
@@ -1916,7 +1779,7 @@ export function render(_ctx, _cache) {
                 onChange: _ctx.saveCloud,
                 placeholder: "账号（邮箱）",
                 style: {"flex":"1"}
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_294), [
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_285), [
                 [_vModelText, _ctx.cloudUser]
               ]),
               _withDirectives(_createElementVNode("input", {
@@ -1926,164 +1789,152 @@ export function render(_ctx, _cache) {
                 onChange: _ctx.saveCloud,
                 placeholder: "应用密码",
                 style: {"flex":"1"}
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_295), [
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_286), [
                 [_vModelText, _ctx.cloudPass]
               ])
             ]),
-            _createElementVNode("div", _hoisted_296, [
+            _createElementVNode("div", _hoisted_287, [
               _createElementVNode("button", {
                 class: "ghost wide",
                 onClick: $event => (_ctx.cloudBusy.test ? _ctx.cloudAbort('test') : _ctx.cloudCall('test'))
-              }, _toDisplayString(_ctx.cloudBusy.test ? '中止这次' : '测试连接'), 9 /* TEXT, PROPS */, _hoisted_297),
+              }, _toDisplayString(_ctx.cloudBusy.test ? '中止这次' : '测试连接'), 9 /* TEXT, PROPS */, _hoisted_288),
               _createElementVNode("button", {
                 class: "ghost wide",
                 onClick: $event => (_ctx.cloudBusy.push ? _ctx.cloudAbort('push') : _ctx.cloudPush())
-              }, _toDisplayString(_ctx.cloudBusy.push ? '中止这次' : '↑ 上传到云端'), 9 /* TEXT, PROPS */, _hoisted_298),
+              }, _toDisplayString(_ctx.cloudBusy.push ? '中止这次' : '↑ 上传到云端'), 9 /* TEXT, PROPS */, _hoisted_289),
               _createElementVNode("button", {
                 class: "ghost wide",
                 onClick: $event => (_ctx.cloudBusy.pull ? _ctx.cloudAbort('pull') : _ctx.cloudPull())
-              }, _toDisplayString(_ctx.cloudBusy.pull ? '中止这次' : '↓ 从云端下载'), 9 /* TEXT, PROPS */, _hoisted_299),
+              }, _toDisplayString(_ctx.cloudBusy.pull ? '中止这次' : '↓ 从云端下载'), 9 /* TEXT, PROPS */, _hoisted_290),
               _createElementVNode("button", {
                 class: "ghost wide",
                 onClick: $event => (_ctx.cloudBusy.sync ? _ctx.cloudAbort('sync') : _ctx.cloudSync()),
-                title: "两边都看：本机新的传上去、云端新的拉下来；两边都改过的列为冲突，由你选一边"
-              }, _toDisplayString(_ctx.cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步'), 9 /* TEXT, PROPS */, _hoisted_300),
-              _createElementVNode("label", _hoisted_301, [
+                title: "冲突由你选一边"
+              }, _toDisplayString(_ctx.cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步'), 9 /* TEXT, PROPS */, _hoisted_291),
+              _createElementVNode("label", _hoisted_292, [
                 _withDirectives(_createElementVNode("input", {
                   type: "checkbox",
                   id: "cloudKeys",
                   "onUpdate:modelValue": $event => ((_ctx.cloudKeys) = $event),
                   onChange: _ctx.saveCloud
-                }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_302), [
+                }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_293), [
                   [_vModelCheckbox, _ctx.cloudKeys]
                 ]),
-                _cache[92] || (_cache[92] = _createTextVNode(" 连密钥一起同步（默认否）", -1 /* CACHED */))
+                _cache[74] || (_cache[74] = _createTextVNode(" 连密钥一起同步", -1 /* CACHED */))
               ]),
-              _createElementVNode("label", _hoisted_303, [
+              _createElementVNode("label", _hoisted_294, [
                 _withDirectives(_createElementVNode("input", {
                   type: "checkbox",
                   id: "cloudPrompts",
                   "onUpdate:modelValue": $event => ((_ctx.cloudPrompts) = $event),
                   onChange: _ctx.saveCloud
-                }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_304), [
+                }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_295), [
                   [_vModelCheckbox, _ctx.cloudPrompts]
                 ]),
-                _cache[93] || (_cache[93] = _createTextVNode(" 连提示词归档一起（默认否）", -1 /* CACHED */))
+                _cache[75] || (_cache[75] = _createTextVNode(" 连提示词归档一起", -1 /* CACHED */))
               ]),
-              _createElementVNode("span", _hoisted_305, _toDisplayString(_ctx.cloudMsg), 1 /* TEXT */)
+              _createElementVNode("span", _hoisted_296, _toDisplayString(_ctx.cloudMsg), 1 /* TEXT */)
             ]),
-            _createElementVNode("div", _hoisted_306, [
-              _createElementVNode("span", _hoisted_307, _toDisplayString(_ctx.cloudState), 1 /* TEXT */)
+            _createElementVNode("div", _hoisted_297, [
+              _createElementVNode("span", _hoisted_298, _toDisplayString(_ctx.cloudState), 1 /* TEXT */)
             ]),
             _createCommentVNode(" 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 "),
-            _createElementVNode("div", _hoisted_308, null, 512 /* NEED_PATCH */),
+            _createElementVNode("div", _hoisted_299, null, 512 /* NEED_PATCH */),
             _createCommentVNode(" 备份：每次云端覆盖本机之前留的那一份，可一键恢复 "),
-            _createElementVNode("div", _hoisted_309, null, 512 /* NEED_PATCH */)
+            _createElementVNode("div", _hoisted_300, null, 512 /* NEED_PATCH */)
           ]),
-          _createElementVNode("div", _hoisted_310, [
-            _cache[97] || (_cache[97] = _createElementVNode("h2", { class: "card-h" }, [
+          _createElementVNode("div", _hoisted_301, [
+            _cache[79] || (_cache[79] = _createElementVNode("h2", { class: "card-h" }, [
               _createElementVNode("span", { class: "card-ic empty" }),
               _createTextVNode("提示词归档")
             ], -1 /* CACHED */)),
-            _cache[98] || (_cache[98] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_311, [
-              _createElementVNode("span", _hoisted_312, [
-                _createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_313)
+            _cache[80] || (_cache[80] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_302, [
+              _createElementVNode("span", _hoisted_303, [
+                _createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_304)
               ]),
               _withDirectives(_createElementVNode("input", {
                 id: "promptDir",
                 ref: "promptDirEl",
                 "onUpdate:modelValue": $event => ((_ctx.promptDir) = $event),
                 onChange: _ctx.onPromptDirChange,
-                placeholder: "留空 = 默认（下载\\拾帧\\提示词）",
+                placeholder: "留空 = 默认",
                 style: {"flex":"1"}
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_314), [
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_305), [
                 [_vModelText, _ctx.promptDir]
               ]),
               _createElementVNode("span", {
                 id: "promptDirInfo",
                 title: _ctx.promptInfoTitle,
                 style: {"flex":"0 0 auto"}
-              }, _toDisplayString(_ctx.promptInfo), 9 /* TEXT, PROPS */, _hoisted_315)
+              }, _toDisplayString(_ctx.promptInfo), 9 /* TEXT, PROPS */, _hoisted_306)
             ]),
-            _cache[99] || (_cache[99] = _createElementVNode("div", { class: "pb-tip" }, [
-              _createTextVNode("支持 "),
-              _createElementVNode("code", null, "~"),
-              _createTextVNode(" 开头（用户主目录）与绝对路径，目录不存在会自动创建；这一项不参与云同步。")
-            ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_316, [
+            _cache[81] || (_cache[81] = _createElementVNode("div", { class: "pb-tip" }, "~ 开头或绝对路径；不参与云同步。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_307, [
               _createElementVNode("button", {
                 class: "ghost wide",
                 disabled: _ctx.promptOpenBusy,
                 onClick: _ctx.openPromptDir
-              }, "打开目录", 8 /* PROPS */, _hoisted_317),
+              }, "打开目录", 8 /* PROPS */, _hoisted_308),
               _createElementVNode("button", {
                 class: "ghost wide",
                 onClick: _ctx.promptRefresh
-              }, "刷新清单", 8 /* PROPS */, _hoisted_318),
-              _createElementVNode("span", _hoisted_319, _toDisplayString(_ctx.promptMsg), 1 /* TEXT */)
+              }, "刷新清单", 8 /* PROPS */, _hoisted_309),
+              _createElementVNode("span", _hoisted_310, _toDisplayString(_ctx.promptMsg), 1 /* TEXT */)
             ]),
-            _createElementVNode("div", _hoisted_320, null, 512 /* NEED_PATCH */)
+            _createElementVNode("div", _hoisted_311, null, 512 /* NEED_PATCH */)
           ]),
           _createCommentVNode(" 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 "),
-          _createElementVNode("div", _hoisted_321, [
-            _createElementVNode("h2", _hoisted_322, [
+          _createElementVNode("div", _hoisted_312, [
+            _createElementVNode("h2", _hoisted_313, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icFolderDoc
-              }, null, 8 /* PROPS */, _hoisted_323),
-              _cache[100] || (_cache[100] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
+              }, null, 8 /* PROPS */, _hoisted_314),
+              _cache[82] || (_cache[82] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
             ]),
-            _cache[103] || (_cache[103] = _createElementVNode("div", { class: "sub" }, [
-              _createTextVNode("上面每一栏改完就自动存进本机，这里三项管的都是"),
-              _createElementVNode("b", null, "整份设置"),
-              _createTextVNode("：导出成一个 JSON（可换电脑导入）、从 JSON 恢复、清回出厂状态。 导出默认不含密钥，选了含密钥那份文件里就是明文，别外传。 "),
-              _createElementVNode("b", null, "这份文件只含设置"),
-              _createTextVNode("：素材库（角色 / 场景 / 道具）、生成历史、收藏与导演台工作区都是数据， 不在这里面 —— 要整份带走请用上面「数据与同步」那一栏的「导出整包备份」。")
-            ], -1 /* CACHED */)),
-            _createElementVNode("div", _hoisted_324, [
+            _cache[85] || (_cache[85] = _createElementVNode("div", { class: "sub" }, "只管整份设置；导出默认不含密钥。", -1 /* CACHED */)),
+            _createElementVNode("div", _hoisted_315, [
               _createElementVNode("button", {
                 class: "ghost",
-                onClick: _ctx.exportSetup,
-                title: "把当前设置导出成 JSON（可换电脑导入）"
-              }, [...(_cache[101] || (_cache[101] = [
+                onClick: _ctx.exportSetup
+              }, [...(_cache[83] || (_cache[83] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "download",
                   "data-size": "13"
                 }, null, -1 /* CACHED */),
                 _createTextVNode(" 导出设置", -1 /* CACHED */)
-              ]))], 8 /* PROPS */, _hoisted_325),
+              ]))], 8 /* PROPS */, _hoisted_316),
               _createElementVNode("button", {
                 class: "ghost",
-                onClick: _ctx.pickImportSetup,
-                title: "从导出的 JSON 恢复设置"
-              }, [...(_cache[102] || (_cache[102] = [
+                onClick: _ctx.pickImportSetup
+              }, [...(_cache[84] || (_cache[84] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "upload",
                   "data-size": "13"
                 }, null, -1 /* CACHED */),
                 _createTextVNode(" 导入设置", -1 /* CACHED */)
-              ]))], 8 /* PROPS */, _hoisted_326),
+              ]))], 8 /* PROPS */, _hoisted_317),
               _createElementVNode("button", {
                 class: "ghost danger",
                 onClick: _ctx.resetSetup,
-                title: "清空密钥、接口地址、目录、分页与润色指令"
-              }, "恢复默认", 8 /* PROPS */, _hoisted_327),
+                title: "清空密钥等全部设置"
+              }, "恢复默认", 8 /* PROPS */, _hoisted_318),
               _createElementVNode("input", {
                 type: "file",
                 ref: "impSetFileEl",
                 accept: ".json,application/json",
                 style: {"display":"none"},
                 onChange: _ctx.onImportSetupFile
-              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_328)
+              }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_319)
             ])
           ])
         ]),
         _createCommentVNode(" 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，\n                 键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 "),
-        _createElementVNode("section", _hoisted_329, [
-          _cache[123] || (_cache[123] = _createElementVNode("h2", { class: "set-group-h" }, [
+        _createElementVNode("section", _hoisted_320, [
+          _cache[105] || (_cache[105] = _createElementVNode("h2", { class: "set-group-h" }, [
             _createElementVNode("button", {
               class: "tool fold-toggle",
               type: "button",
@@ -2093,144 +1944,122 @@ export function render(_ctx, _cache) {
               _createElementVNode("span", { class: "fold-txt" }, "展开")
             ])
           ], -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_330, [
-            _createElementVNode("div", _hoisted_331, [
-              _createElementVNode("h2", _hoisted_332, [
+          _createElementVNode("div", _hoisted_321, [
+            _createElementVNode("div", _hoisted_322, [
+              _createElementVNode("h2", _hoisted_323, [
                 _createElementVNode("span", {
                   class: "card-ic",
                   innerHTML: _ctx.icGear
-                }, null, 8 /* PROPS */, _hoisted_333),
-                _cache[105] || (_cache[105] = _createTextVNode("本机环境", -1 /* CACHED */))
+                }, null, 8 /* PROPS */, _hoisted_324),
+                _cache[87] || (_cache[87] = _createTextVNode("本机环境", -1 /* CACHED */))
               ]),
-              _cache[107] || (_cache[107] = _createElementVNode("div", { class: "sub" }, [
-                _createTextVNode("问的是"),
-                _createElementVNode("b", null, "这台机器现在能不能干活"),
-                _createTextVNode("：代理版本、这个浏览器出不出得了成片（WebCodecs / H.264 / AAC）、三个落盘目录能不能写。 全部现读，"),
-                _createElementVNode("b", null, "一个字节都不写"),
-                _createTextVNode("。")
-              ], -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_334, [...(_cache[106] || (_cache[106] = [
+              _cache[89] || (_cache[89] = _createElementVNode("div", { class: "sub" }, "只读检查，不写盘。", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_325, [...(_cache[88] || (_cache[88] = [
                 _createElementVNode("span", { class: "hint sm" }, "体检中…", -1 /* CACHED */)
               ]))], 512 /* NEED_PATCH */),
-              _createElementVNode("div", _hoisted_335, [
+              _createElementVNode("div", _hoisted_326, [
                 _createElementVNode("button", {
                   class: "ghost wide",
                   disabled: _ctx.sysBusy,
                   onClick: _ctx.recheckSys
-                }, "重新体检", 8 /* PROPS */, _hoisted_336),
+                }, "重新体检", 8 /* PROPS */, _hoisted_327),
                 _createElementVNode("button", {
                   class: "ghost wide",
                   disabled: _ctx.sysCopyDisabled,
                   onClick: _ctx.copySys,
-                  title: _ctx.sysCopyDisabled ? '还没读到体检结果（代理没在运行，或它是加这一项之前启动的旧版）' : '把上面这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'
-                }, "复制体检结果", 8 /* PROPS */, _hoisted_337),
-                _createElementVNode("span", _hoisted_338, _toDisplayString(_ctx.sysMsg), 1 /* TEXT */)
+                  title: _ctx.sysCopyDisabled ? '还没读到结果' : '复制成文字'
+                }, "复制体检结果", 8 /* PROPS */, _hoisted_328),
+                _createElementVNode("span", _hoisted_329, _toDisplayString(_ctx.sysMsg), 1 /* TEXT */)
               ]),
-              _cache[108] || (_cache[108] = _createElementVNode("div", { class: "pb-tip" }, "「重新体检」会重新读一遍代理的现况、并重新问一次这个浏览器的编码能力：换过浏览器、改过目录权限时用这一颗，不用重启代理。", -1 /* CACHED */))
+              _cache[90] || (_cache[90] = _createElementVNode("div", { class: "pb-tip" }, "换浏览器、改目录权限后用，不用重启代理。", -1 /* CACHED */))
+            ]),
+            _createElementVNode("div", _hoisted_330, [
+              _createElementVNode("h2", _hoisted_331, [
+                _createElementVNode("span", {
+                  class: "card-ic",
+                  innerHTML: _ctx.icLayers
+                }, null, 8 /* PROPS */, _hoisted_332),
+                _cache[91] || (_cache[91] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
+              ]),
+              _cache[93] || (_cache[93] = _createElementVNode("div", { class: "sub" }, "只读检查，不写不删。", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_333, [...(_cache[92] || (_cache[92] = [
+                _createElementVNode("span", { class: "hint sm" }, "数盘中…", -1 /* CACHED */)
+              ]))], 512 /* NEED_PATCH */),
+              _createElementVNode("div", _hoisted_334, [
+                _createElementVNode("button", {
+                  class: "ghost wide",
+                  disabled: _ctx.usageBusy,
+                  onClick: _ctx.recountUsage
+                }, "重新数一遍", 8 /* PROPS */, _hoisted_335),
+                _createElementVNode("button", {
+                  class: "ghost wide",
+                  disabled: _ctx.usageCopyDisabled,
+                  onClick: _ctx.copyUsage,
+                  title: _ctx.usageCopyDisabled ? '还没读到结果' : '复制成文字'
+                }, "复制这份读数", 8 /* PROPS */, _hoisted_336),
+                _createElementVNode("span", _hoisted_337, null, 512 /* NEED_PATCH */),
+                _createElementVNode("span", _hoisted_338, _toDisplayString(_ctx.usageMsg), 1 /* TEXT */)
+              ]),
+              _cache[94] || (_cache[94] = _createElementVNode("div", { class: "pb-tip" }, "这里只统计；清理在缓存那一栏。", -1 /* CACHED */))
             ]),
             _createElementVNode("div", _hoisted_339, [
               _createElementVNode("h2", _hoisted_340, [
                 _createElementVNode("span", {
                   class: "card-ic",
-                  innerHTML: _ctx.icLayers
-                }, null, 8 /* PROPS */, _hoisted_341),
-                _cache[109] || (_cache[109] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
-              ]),
-              _cache[111] || (_cache[111] = _createElementVNode("div", { class: "sub" }, [
-                _createTextVNode("本机存下来的图片 / 视频 / 语音占多大地方、"),
-                _createElementVNode("b", null, "同一件有没有压了好几份"),
-                _createTextVNode("、这块盘还剩多少。 全部现读，"),
-                _createElementVNode("b", null, "一个字节都不写不删"),
-                _createTextVNode("。")
-              ], -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_342, [...(_cache[110] || (_cache[110] = [
-                _createElementVNode("span", { class: "hint sm" }, "数盘中…", -1 /* CACHED */)
-              ]))], 512 /* NEED_PATCH */),
-              _createElementVNode("div", _hoisted_343, [
-                _createElementVNode("button", {
-                  class: "ghost wide",
-                  disabled: _ctx.usageBusy,
-                  onClick: _ctx.recountUsage
-                }, "重新数一遍", 8 /* PROPS */, _hoisted_344),
-                _createElementVNode("button", {
-                  class: "ghost wide",
-                  disabled: _ctx.usageCopyDisabled,
-                  onClick: _ctx.copyUsage,
-                  title: _ctx.usageCopyDisabled ? '还没读到用量（代理没在运行，或它是加这一项之前启动的旧版）' : '把这几行连原因一起复制成一段文字，贴给别人排查时不用再截图'
-                }, "复制这份读数", 8 /* PROPS */, _hoisted_345),
-                _createElementVNode("span", _hoisted_346, null, 512 /* NEED_PATCH */),
-                _createElementVNode("span", _hoisted_347, _toDisplayString(_ctx.usageMsg), 1 /* TEXT */)
-              ]),
-              _cache[112] || (_cache[112] = _createElementVNode("div", { class: "pb-tip" }, [
-                _createTextVNode("「重新数一遍」真的要把目录翻一遍（内容级判重一次有字节预算，读不完的那一些会照实说还有几份没验）。 能安全清掉的是"),
-                _createElementVNode("b", null, "缓存"),
-                _createTextVNode("，在「清理缓存」那一栏 —— 这一栏不动文件。")
-              ], -1 /* CACHED */))
-            ]),
-            _createElementVNode("div", _hoisted_348, [
-              _createElementVNode("h2", _hoisted_349, [
-                _createElementVNode("span", {
-                  class: "card-ic",
                   innerHTML: _ctx.icTrash
-                }, null, 8 /* PROPS */, _hoisted_350),
-                _cache[113] || (_cache[113] = _createTextVNode("清理缓存", -1 /* CACHED */))
+                }, null, 8 /* PROPS */, _hoisted_341),
+                _cache[95] || (_cache[95] = _createTextVNode("清理缓存", -1 /* CACHED */))
               ]),
-              _cache[122] || (_cache[122] = _createElementVNode("div", { class: "sub" }, [
-                _createTextVNode("这四项都是"),
-                _createElementVNode("b", null, "能自己重新生成的缓存"),
-                _createTextVNode("，清掉不会少任何作品（图片 / 视频 / 语音、提示词归档、收藏、历史一律不动）。 "),
-                _createElementVNode("b", null, "换密钥、平台改了参数又不想干等过期"),
-                _createTextVNode("时用这一栏最快。")
-              ], -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_351, [
-                _createElementVNode("div", _hoisted_352, [
-                  _cache[114] || (_cache[114] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
-                  _cache[115] || (_cache[115] = _createElementVNode("span", { class: "sub-line" }, "平台返回的列表 / 任务详情 / 产物地址 / 能力表 / 报价的副本。换了密钥或平台改了参数时清它，下次打开重新拉。", -1 /* CACHED */)),
+              _cache[104] || (_cache[104] = _createElementVNode("div", { class: "sub" }, "只清能重新生成的缓存，作品不动。", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_342, [
+                _createElementVNode("div", _hoisted_343, [
+                  _cache[96] || (_cache[96] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
+                  _cache[97] || (_cache[97] = _createElementVNode("span", { class: "sub-line" }, "平台返回数据的副本。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.api,
                     onClick: _ctx.clearApiCache
-                  }, _toDisplayString(_ctx.cacheBusy.api ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_353)
+                  }, _toDisplayString(_ctx.cacheBusy.api ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_344)
                 ]),
-                _createElementVNode("div", _hoisted_354, [
-                  _cache[116] || (_cache[116] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
-                  _cache[117] || (_cache[117] = _createElementVNode("span", { class: "sub-line" }, "每个文字型号「能不能识图」的判定（缓存 12 小时）。换了文字型号、或某个型号突然支持识图了就清它，下次润色时重新判。", -1 /* CACHED */)),
+                _createElementVNode("div", _hoisted_345, [
+                  _cache[98] || (_cache[98] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
+                  _cache[99] || (_cache[99] = _createElementVNode("span", { class: "sub-line" }, "型号识图判定缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.meta,
                     onClick: _ctx.clearMetaCache
-                  }, _toDisplayString(_ctx.cacheBusy.meta ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_355)
+                  }, _toDisplayString(_ctx.cacheBusy.meta ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_346)
                 ]),
-                _createElementVNode("div", _hoisted_356, [
-                  _cache[118] || (_cache[118] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
-                  _cache[119] || (_cache[119] = _createElementVNode("span", { class: "sub-line" }, "视频首帧与图片小图的本地副本，加上上传前的体积测量（存 IndexedDB）。清了下次看列表会重新抽帧，视频多时 CPU 忙一会儿。", -1 /* CACHED */)),
+                _createElementVNode("div", _hoisted_347, [
+                  _cache[100] || (_cache[100] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
+                  _cache[101] || (_cache[101] = _createElementVNode("span", { class: "sub-line" }, "缩略图与体积测量缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.thumb,
                     onClick: _ctx.clearThumbCache
-                  }, _toDisplayString(_ctx.cacheBusy.thumb ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_357)
+                  }, _toDisplayString(_ctx.cacheBusy.thumb ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_348)
                 ]),
-                _createElementVNode("div", _hoisted_358, [
-                  _cache[120] || (_cache[120] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
-                  _cache[121] || (_cache[121] = _createElementVNode("span", { class: "sub-line" }, "哪些任务的提示词在本机归档里找不到（免得反复去问同一个任务号，只在本标签页有效）。手工补过归档文件或换过归档目录后清它。", -1 /* CACHED */)),
+                _createElementVNode("div", _hoisted_349, [
+                  _cache[102] || (_cache[102] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
+                  _cache[103] || (_cache[103] = _createElementVNode("span", { class: "sub-line" }, "归档缺失标记缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.missed,
                     onClick: _ctx.clearMissedCache
-                  }, _toDisplayString(_ctx.cacheBusy.missed ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_359)
+                  }, _toDisplayString(_ctx.cacheBusy.missed ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_350)
                 ])
               ]),
-              _createElementVNode("div", _hoisted_360, null, 512 /* NEED_PATCH */),
-              _createElementVNode("div", _hoisted_361, _toDisplayString(_ctx.cacheUsage), 1 /* TEXT */),
-              _createElementVNode("div", _hoisted_362, _toDisplayString(_ctx.cacheMsg), 1 /* TEXT */)
+              _createElementVNode("div", _hoisted_351, null, 512 /* NEED_PATCH */),
+              _createElementVNode("div", _hoisted_352, _toDisplayString(_ctx.cacheUsage), 1 /* TEXT */),
+              _createElementVNode("div", _hoisted_353, _toDisplayString(_ctx.cacheMsg), 1 /* TEXT */)
             ])
           ])
         ])
       ], 512 /* NEED_PATCH */),
       _createCommentVNode(" 钉在底下的一行：现在在第几项 + 改没改（自动保存的回执只在这一格说话） "),
-      _createElementVNode("div", _hoisted_363, [
-        _createElementVNode("span", _hoisted_364, _toDisplayString(_ctx.navPos), 1 /* TEXT */),
-        _cache[125] || (_cache[125] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+      _createElementVNode("div", _hoisted_354, [
+        _createElementVNode("span", _hoisted_355, _toDisplayString(_ctx.navPos), 1 /* TEXT */),
+        _cache[107] || (_cache[107] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
         _createElementVNode("span", {
           class: _normalizeClass(["set-save", _ctx.saveKind])
         }, _toDisplayString(_ctx.saveText), 3 /* TEXT, CLASS */)

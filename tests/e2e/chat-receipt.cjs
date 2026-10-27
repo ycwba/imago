@@ -5,8 +5,9 @@
    2) 这一轮用过的 Skill 挂在折叠卡外面，芯片写名字与版本；点开能读正文。
       库里改过之后，旧回合的芯片标「下一轮生效」。
    不花钱：TextAI.chatStream 固定回包；唯一的真实写入是探针工程一镜的字幕。
-   试验台是导演台的 subtitle_update：返回 changedIds（镜头号）、桥上有 locate ——
-   回执卡片、执行后闪、定位选中这条链正好每一环都验得到，且不需要真的媒体字节。 */
+   试验台是导演台的 set_clip（改画面段音量）：返回 changedIds（块 id）、桥上有 locate ——
+   回执卡片、执行后闪、定位选中这条链正好每一环都验得到，且不需要真的媒体字节。
+   新剪辑核里 locate 落的是**轨道上的那一块**：先点进剪辑态把板画出来再验闪与选中。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -21,7 +22,12 @@ const project = { id: 'pr_rc', name: '回执探针', rev: 0, scenes: [{ id: 'sc_
   selId: 'v_rc_1', refImages: [], keyframes: [],
   candidates: [{ vid: 'v_rc_1', provider: 'probe', status: 'succeeded', progress: 100,
     url: '/asset/receipt-probe', local: false, duration: 2, shotId: 'sh_rc' }],
-}] }] };
+}] }],
+  /* 成片里一段画面：写动作（改音量）与「定位」都对着它演（块 id = c_rc）。 */
+  film: { clips: [{ id: 'c_rc', kind: 'video', shotId: 'sh_rc', candId: 'v_rc_1', name: '镜头 1',
+    src: '/asset/receipt-probe', sourceStart: 0, sourceDuration: 2, mediaDuration: 2,
+    duration: 2, playbackRate: 1, volume: 1, muted: false, ln: 0 }],
+    voices: [], pending: [], captions: [], markers: [], tracks: { visibility: {}, locks: {} } } };
 
 let n = 0;
 function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不成立：' + msg); }
@@ -75,22 +81,25 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     });
     const ctx = () => page.eval(() => {
       const c = window.WBBridge.get('director').context();
-      return { revision: c.revision, 字幕: (c.字幕 && c.字幕.条数) || 0 };
+      return { 可撤销: c.可撤销, 字幕: (c.字幕 && c.字幕.条数) || 0 };
     });
+    /* 点进剪辑态：`.tl-clip` 只在这块板上画出来（生成态里板是隐着的）。 */
+    must(await page.eval(() => { const t = document.getElementById('trimBtn'); if (!t) return false; if (!t.classList.contains('on')) t.click(); return true; }), '没有 #trimBtn 那颗剪辑开关');
+    await until('!!document.querySelector(' + JSON.stringify('.tl-clip[data-clip="c_rc"]') + ')', 20000, '剪辑态没有画出画面块');
 
     /* ---------- 1) 真实写动作：执行完卡片留 changedIds，镜头自己闪 ---------- */
     const before = await ctx();
-    await page.eval(() => { window.__nextRun = 'RUN: subtitle_update {"entries":[{"startMs":0,"endMs":1500,"text":"回执探针"}]}'; });
-    await turnDone(page.eval(() => AiChat.ask('给这一镜写一条字幕')), '写字幕');
+    await page.eval(() => { window.__nextRun = 'RUN: set_clip {"kind":"clip","id":"c_rc","volume":0.4}'; });
+    await turnDone(page.eval(() => AiChat.ask('把这一段的原声压到四成')), '改音量');
     must(await page.eval(() => { const a = [...document.querySelectorAll('.ac-run')]; const last = a[a.length - 1];
-      return !!last && [...last.querySelectorAll('button')].some(b => b.textContent === '执行'); }), '写字幕卡片没出来：' + await lastCard());
+      return !!last && [...last.querySelectorAll('button')].some(b => b.textContent === '执行'); }), '改音量卡片没出来：' + await lastCard());
     must(await page.eval(() => { const a = [...document.querySelectorAll('.ac-run')];
       const b = [...a[a.length - 1].querySelectorAll('button')].find(x => x.textContent === '执行');
       if (!b) return false; b.click(); return true; }), '卡片上没有「执行」');
     await page.waitFor(() => { const a = [...document.querySelectorAll('.ac-run')];
       return a.length && ![...a[a.length - 1].querySelectorAll('button')].some(x => x.textContent === '执行'); }, 30000, 120);
     const after = await ctx();
-    must(after.字幕 === before.字幕 + 1, '字幕没写进去：' + JSON.stringify({ 前: before, 后: after }));
+    must(after.可撤销 === before.可撤销 + 1, '写动作没进历史：' + JSON.stringify({ 前: before, 后: after }));
 
     const row = await page.eval(() => {
       const a = [...document.querySelectorAll('.ac-run')];
@@ -98,23 +107,23 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
       return c ? { text: c.innerText, ids: [...c.querySelectorAll('.ac-loc')].map(b => b.dataset.changedId) } : null;
     });
     must(!!row && /改动了 1 处/.test(row.text), '卡片上没写「改动了 N 处」：' + JSON.stringify(row) + ' / ' + await lastCard());
-    must(row.ids.length === 1 && row.ids[0] === 'sh_rc', '「定位」没带上是哪一镜：' + JSON.stringify(row));
+    must(row.ids.length === 1 && row.ids[0] === 'c_rc', '「定位」没带上改了哪一块：' + JSON.stringify(row));
 
-    /* 执行完那一下只闪，不抢视图：当前镜没被挪走（本来就停在它上面），闪完之后 class 要自己摘掉。 */
-    const shotSel = '.shot-item[data-sid="sh_rc"]';
-    await until('!!document.querySelector(' + JSON.stringify(shotSel + '.flash') + ')', 8000, '执行完没有闪一下');
-    await until('!document.querySelector(' + JSON.stringify(shotSel + '.flash') + ')', 8000, '闪完之后 flash 没摘掉');
+    /* 执行完那一下只闪，不抢视图：块自己闪一下，闪完 class 要自己摘掉。 */
+    const blockSel = '.tl-clip[data-clip="c_rc"]';
+    await until('!!document.querySelector(' + JSON.stringify(blockSel + '.flash') + ')', 8000, '执行完没有闪一下');
+    await until('!document.querySelector(' + JSON.stringify(blockSel + '.flash') + ')', 8000, '闪完之后 flash 没摘掉');
 
-    /* ---------- 2) 点「定位」：滚到那一镜、再闪；定位是视图操作，不涨修订 ---------- */
+    /* ---------- 2) 点「定位」：选中那一块、再闪；定位是视图操作，不产生新的历史 ---------- */
     must(await page.eval(() => typeof window.WBBridge.get('director').locate === 'function'), '桥上没有 locate');
-    const revBefore = (await ctx()).revision;
+    const undoBeforeLocate = (await ctx()).可撤销;
     must(await page.eval(() => { const a = [...document.querySelectorAll('.ac-run')];
       const b = [...a[a.length - 1].querySelectorAll('.ac-loc')][0];
       if (!b) return false; b.click(); return true; }), '「定位」按钮点不到');
-    await until('!!document.querySelector(' + JSON.stringify(shotSel + '.flash') + ')', 8000, '定位后没有闪');
-    await until('!!document.querySelector(' + JSON.stringify(shotSel + '.sel') + ')', 8000, '定位后没有停在这一镜');
-    const revAfter = (await ctx()).revision;
-    must(revAfter === revBefore, '定位是视图操作，不该涨修订：' + revBefore + ' → ' + revAfter);
+    await until('!!document.querySelector(' + JSON.stringify(blockSel + '.flash') + ')', 8000, '定位后没有闪');
+    await until('!!document.querySelector(' + JSON.stringify(blockSel + '.is-selected') + ')', 8000, '定位后没有选中那一块');
+    const undoAfterLocate = (await ctx()).可撤销;
+    must(undoAfterLocate === undoBeforeLocate, '定位是视图操作，不该往历史里记一步：' + undoBeforeLocate + ' → ' + undoAfterLocate);
 
     /* ---------- 3) Skill 芯片：本轮用过的写法挂在折叠卡外面，点开读正文 ---------- */
     await page.eval(() => { window.__nextRun = ''; });

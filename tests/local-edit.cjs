@@ -17,7 +17,8 @@ const frag = require('./support.cjs').engineLayer();
 ok('spa-director 注入 EditorMedia', /EditorMedia\s*=\s*createEditorMedia/.test(sd));
 ok('候选轨道地址走 EditorMedia.previewSrc', /EditorMedia[\s\S]{0,80}previewSrc/.test(frag));
 ok('导出地址走 EditorMedia.exportSrc', /exportSrc\(cand|exportSrc\(c\)/.test(frag));
-ok('配音导出地址走 EditorMedia.exportSrc', /EditorMedia\.exportSrc\(\{ src: v\.src \}\)/.test(frag));
+ok('配音导出地址走 EditorMedia.exportSrc', /src: outSrcOf\(v\.src\)/.test(frag)
+  && /function outSrcOf\(raw\)/.test(frag) && /EditorMedia\.exportSrc\(\{ src: s \}\)/.test(frag));
 const tl = frag.slice(frag.indexOf('async function tlClipSrc'), frag.indexOf('async function buildRenderClips'));
 ok('tlClipSrc 不再裸返回 cand.url', !/return\s+cand\.url\b/.test(tl));
 ok('本机优先解析器唯一', fs.existsSync(path.join(root, 'web/director/media.js')));

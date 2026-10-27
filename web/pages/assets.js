@@ -99,6 +99,10 @@ export default {
     /* 大类型 + 搜索这一行的唯一生成者（搜索框、芯片、按钮、计数都出自 Wb.filterBar）。
        AI 检索按钮与 AI 芯片是这一页私有内容，作为 extraHTML 插进同一条行里。 */
     let searchFb = null;
+    /* 类型筛选走公共件 Wb.kindFilter（与生成工作台、收藏页同一副）；
+       计数放在这一份 Map 里 —— 公共件的 count 回调读它。 */
+    let kindFb = null;
+    const kindCounts = new Map();
     const searchInput = () => (searchFb ? searchFb.input : null);
     let doneTimer = null;
     let REG = { providers: [] };
@@ -147,7 +151,7 @@ export default {
       const bits = Object.keys(loadErrors).map(k => window.esc(String(k)) + ' 加载失败：' + window.esc(String(loadErrors[k])));
       const err = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-6) 0">' + bits.join('；') + '</div>' : '';
       const hide = (!listEmpty && hiddenCloud > 0)
-        ? '<div class="hint sm">已按「不显示云端任务」藏起 ' + hiddenCloud + ' 条本机还没有那份字节的产物。</div>' : '';
+        ? '<div class="hint sm">已隐藏 ' + hiddenCloud + ' 条</div>' : '';
       box.innerHTML = err + hide;
     }
 
@@ -266,8 +270,8 @@ export default {
     function assetsBulkFavRemove() {
       if (!started) return;
       const n = assetsMulti().favRemove();
-      if (!n) { window.Toast.warn('选中的这些都不在收藏里'); return; }
-      window.Toast.receipt('已从收藏移出 ' + n + ' 条');
+      if (!n) { window.Toast.warn('都不在收藏里'); return; }
+      window.Toast.receipt('已取消 ' + n + ' 条收藏');
       renderGrid();
     }
 
@@ -479,7 +483,7 @@ export default {
       return (window.icon ? window.icon(on ? 'starFill' : 'star', 12) : '') + (on ? ' 已收藏' : ' 收藏');
     }
     function favBtnHTML(a) {
-      return '<button class="ghost favbtn' + (window.Fav && window.Fav.isEntry(a) ? ' on' : '') + '" title="加入 / 移出我的收藏">'
+      return '<button class="ghost favbtn' + (window.Fav && window.Fav.isEntry(a) ? ' on' : '') + '">'
         + favLabel(a) + '</button>';
     }
     function bindFavBtn(el, a) {
@@ -491,7 +495,7 @@ export default {
         const on = window.Fav.toggleEntry(a);
         fb.classList.toggle('on', on);
         fb.innerHTML = favLabel(a);
-        if (on !== before) window.Toast.ok(on ? '已加入我的收藏' : '已移出我的收藏');   // 星标自己会亮，归安静档
+        if (on !== before) window.Toast.ok(on ? '已收藏' : '已取消收藏');   // 星标自己会亮，归安静档
       };
     }
     function noPromptText(a) {
@@ -548,13 +552,10 @@ export default {
     function expActsHTML(a) {
       if (a.kind !== 'asset') return '';
       const b = [];
-      b.push('<button class="ghost cureuse" title="在生成工作台的图像 / 视频那一栏里带着这条提示词与素材继续创作">复用</button>');
+      b.push('<button class="ghost cureuse" title="带去生成工作台">复用</button>');
       b.push('<span class="sp"></span>');
       if (a.localAsset) {
-        b.push('<button class="ghost danger delbtn" title="' + (a.mirror
-          ? '本机这份是副本（.assets 目录）：删掉只腾磁盘，平台那份仍在，以后能回源'
-          : '它存在本机 .assets 目录：删掉释放磁盘，平台侧素材不受影响') + '">'
-          + (a.mirror ? '删除本机副本' : '删除本机这一份') + '</button>');
+        b.push('<button class="ghost danger delbtn">' + (a.mirror ? '删除本机副本' : '删除本机这一份') + '</button>');
       }
       return b.join('');
     }
@@ -843,10 +844,8 @@ export default {
           if (delb) delb.onclick = e => {
             e.stopPropagation();
             const hideAfter = !!(window.AssetLocal && AssetLocal.localOnly && AssetLocal.localOnly());
-            const tail = hideAfter
-              ? '；按当前「不显示云端任务」，这张卡随后会从列表里藏起来（平台那份仍在，重新存回或关掉那一项就能再看到）'
-              : '；卡片会留着';
-            const note = (a.mirror ? '只删本机这一份副本（平台那边的素材不动）' : '本机这一份会删掉（平台那边的素材不动）') + tail;
+            const tail = hideAfter ? '；卡会隐藏（平台仍在）' : '；卡片会留着';
+            const note = (a.mirror ? '只删本机副本' : '删本机文件') + tail;
             if (window.Confirm.arm(delb, '确认删掉', { note })) return;
             deleteLocalAsset(a, delb);
           };
@@ -899,8 +898,7 @@ export default {
       const err = loadErrorsText();
       if (err) return err;
       if (hiddenCloud) {
-        return window.Wb.emptyHTML('这一屏的 ' + hiddenCloud + ' 条本机还没有那份字节，'
-          + '按「不显示云端任务」藏起来了。要看它们就在设置页关掉这一项（它们还在平台那边）。',
+        return window.Wb.emptyHTML(hiddenCloud + ' 条已按设置隐藏',
         window.GoPage.btn('settings.html', '去设置页'));
       }
       const why = filterWhy();
@@ -909,8 +907,7 @@ export default {
           '<button class="tool mini" data-clearf="1">清掉这些条件</button>');
       }
       if (!assets.length) {
-        return window.Wb.emptyHTML(['还没有取回任何产物：这一页只列各平台已经给出来的任务与产物，它自己不生成东西。',
-          '点工具条上的「刷新」重新取一次列表，或先生成一条。'],
+        return window.Wb.emptyHTML(['还没有产物'],
         window.GoPage.btn('studio.html?t=video', '去生成工作台')
           + window.GoPage.btn('chars.html', '去素材库'));
       }
@@ -998,12 +995,7 @@ export default {
       try {
         const r = await removeEntry(a);
         refreshProviderChips(); renderGrid();
-        const hideNow = !!(window.AssetLocal && AssetLocal.localOnly && AssetLocal.localOnly());
-        window.Toast.receipt(r && r.kept
-          ? (hideNow
-            ? '已删掉本机副本；当前「不显示云端任务」会把它从列表藏起来（平台仍在，可重新存回）'
-            : '已删掉本机这一份副本（平台那边的素材没动，这张卡片还会留着）')
-          : '已删除这条本地素材');
+        window.Toast.receipt(r && r.kept ? '已删掉本机副本' : '已删除');
       } catch (e2) {
         btn.disabled = false; btn.textContent = label;
         window.Toast.err('删除失败：' + window.errText(e2));
@@ -1087,11 +1079,24 @@ export default {
       /* 类型：每一档带条数。条数跟着**其它**筛选条件走（页头三档同理）——
          点一下就得到这个数，数字不会对不上。 */
       if (asTypeEl.value) {
+        /* 类型（带条数）：公共件 Wb.kindFilter —— 与生成工作台、收藏页同一副分段控件
+           （以前这一处走 Chips.render 的芯片行，三页三副样子）。
+           条数跟着**其它**筛选条件走（页头三档同理）—— 点一下就得到这个数，数字不会对不上。 */
         const pool = applyFilters({ noBucket: true });
-        window.Chips.render(asTypeEl.value, ['全部', '图片', '视频', '音频'], F.type, v => {
-          F.type = v;
-          renderFilters(); renderGrid();
-        }, { count: v => (v === '全部' ? pool.length : pool.filter(a => typeKey(a.type) === typeKey(v)).length) });
+        kindCounts.clear();
+        kindCounts.set('全部', pool.length);
+        ['图片', '视频', '音频'].forEach(t => kindCounts.set(t, pool.filter(a => typeKey(a.type) === typeKey(t)).length));
+        if (!kindFb) {
+          kindFb = Wb.kindFilter.bind(asTypeEl.value, {
+            kinds: [['全部', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频']],
+            allKey: '全部',
+            value: F.type,
+            count: v => Number(kindCounts.get(v) || 0),
+            onPick: v => { F.type = v; renderFilters(); renderGrid(); },
+          });
+        }
+        kindFb.setCounts(v => Number(kindCounts.get(v) || 0));
+        kindFb.setValue(F.type);
       }
       /* 平台：从一个下拉走。平台涨到十几家时，一行十几颗芯片会把整行撑开。 */
       if (asProvEl.value) {
@@ -1107,9 +1112,11 @@ export default {
       renderSum();
     }
 
-    /* 页头三档：在制 / 失败 / 结果未知。
+    /* 页头上下文三档：在制 / 失败 / 结果未知。
        每一档带条数、点一下把列表筛到那一档；**计数为 0 的那一档不画**
-       （库里没有失败的时候，页头不该挂着一颗「失败 0」）。 */
+       （库里没有失败的时候，页头不该挂着一颗「失败 0」）。
+       用公共的 .phead-chip（页头唯一一份实现），状态点带信息：实心琥珀=在跑 /
+       空心琥珀=结果未知 / 实心红=失败。 */
     function renderSum() {
       const box = asSumEl.value;
       if (!box) return;
@@ -1118,7 +1125,7 @@ export default {
       pool.forEach(a => { const b = bucketOf(a); if (b) n[b]++; });
       box.innerHTML = BUCKETS.map(b => {
         if (!n[b.key]) return '';
-        return '<button class="as-sum-i' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
+        return '<button class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
           + ' title="只看这一档（再点一下取消）"><i class="dot ' + b.dot + '"></i>'
           + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
       }).join('');
@@ -1203,7 +1210,7 @@ export default {
       const box = searchInput();
       const q = ((box && box.value) || '').trim();
       const gateWhy = window.AiFind.shortWhy(q, 'AI 检索');
-      if (gateWhy) { cntText.value = gateWhy; if (box) box.focus(); return; }
+      if (gateWhy) { cntText.value = gateWhy; if (box) window.focusQuiet(box); return; }
       const v = { q };
       if (!window.TextAI) { window.Toast.err('文字 AI 没加载出来：刷新页面再试'); return; }
       const favAllN = window.Fav ? window.Fav.list().length : 0;
@@ -1336,8 +1343,8 @@ export default {
         headHTML: '<span class="flabel">搜索</span>',
         inputId: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
         onSearch: v => { F.q = String(v == null ? '' : v).trim().toLowerCase(); renderGrid(); },
-        extraHTML: '<button class="ghost" id="searchBtn" title="立即按当前关键词筛选（输入时也会自动筛）" style="flex:0 0 auto">搜索</button>'
-          + '<button class="ghost" id="aiSearchBtn" title="按左边搜索框里写的描述做 AI 检索（翻译成筛选条件就地过滤）" style="flex:0 0 auto">AI 检索</button>'
+        extraHTML: '<button class="ghost" id="searchBtn" style="flex:0 0 auto">搜索</button>'
+          + '<button class="ghost" id="aiSearchBtn" style="flex:0 0 auto">AI 检索</button>'
           + '<span data-fb="aiChip"></span>',
         cnt: false,
       });

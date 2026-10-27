@@ -22,13 +22,29 @@
 .wb-split i { display: block; width: 2px; height: 100%; border-radius: var(--radius-2); background: var(--line);
   transition: background var(--dur-180), width var(--dur-120); }
 .wb-split:hover i, .wb-split.on i { background: var(--acc); width: 3px; }
-.wb-split.hide { display: none; }
+/* 藏起来用 visibility，不用 display：三条把手都**绝对定位、不占布局**，两种写法几何上等价，
+   但 display:none 在藏/显那一帧会让那条栏连带走一次重排，而被拖的那一栏正被 Wb.split 的
+   ResizeObserver 看着 —— 同帧里又来一次尺寸变化，浏览器就报
+   「ResizeObserver loop completed with undelivered notifications」，页面照实弹一条红色「脚本错误」。
+   visibility:hidden 同样看不见、点不到，尺寸纹丝不动，循环也就没了。 */
+.wb-split.hide { visibility: hidden; }
 body.wb-splitting { cursor: col-resize; user-select: none; }
 body.wb-splitting * { user-select: none !important; }
 
 /* 上下那条（导演台底栏轨道坞）：**同一份外观**，只是方向翻了 ——
-   同样是「平时透明、悬停显出一条细线、按下变主色、双击复位」，线从竖的变成横的。 */
-.wb-split-y { position: relative; width: 100%; height: 10px; margin: 0; cursor: ns-resize;
+   同样是「平时透明、悬停显出一条细线、按下变主色、双击复位」，线从竖的变成横的。
+   绝对定位、横跨整条上沿、正骑在被拖那一栏的上边线上（定位祖先是那一栏自己：
+   导演台的 `.tl-dock` 有 `position:relative`，针层与它同一个祖先）。
+   占布局的写法做不出这件事：它成了 flex 子项，**可被压缩**（悬停光标只剩几像素、
+   真正的上沿反倒点不到），而且它住在卡片**里面**，看着不像「这一栏和上面那一栏之间的那道缝」——
+   与左右栏那两条「贴在缝正中、整条都能起手」的手感就差在这儿。
+   `z-index: 90` 压过工具条那一行的 80：把手要能被点着，不是被工具条盖住。
+   `flex: 0 0 auto` 是它万一被放回文档流（没有定位祖先的宿主）时也不许被压缩。 */
+.wb-split-y { position: absolute; left: 0; right: 0; top: calc(-1 * var(--sp-5)); height: var(--sp-10);
+  /* `left:0/right:0` 要真的通长：基类 `.wb-split` 那一条 `width: 10px` 是**左右**把手的宽度，
+     上下把手把宽度也一起继承了 → 整条只剩最左 10px 能抓（用户点名的「底栏拖不动」）。 */
+  width: auto;
+  flex: 0 0 auto; z-index: 90; margin: 0; cursor: ns-resize;
   display: flex; align-items: center; justify-content: center; touch-action: none; background: none; border: 0; }
 .wb-split-y i { display: block; width: 36px; height: 2px; border-radius: var(--radius-2); background: var(--line);
   transition: background var(--dur-180), height var(--dur-120); }
@@ -1186,8 +1202,9 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 /* ============================================================
    共享表面 / 骨架基元（令牌收敛）：卡片、页面壳、页面标题、加载、空态。
    这是新页面与后续迁移的唯一规格；各页现有同类规则已逐条对齐到同一令牌
-   （卡片圆角 --radius-10 + hover --shadow-2 + translateY(-1px)、h1 --fs-24、页面留白统一）。
-   需要模板挂类才吃到这份的（.card-surface / .page-shell / .page-h1），列在报告交给模板会话。 */
+   （卡片圆角 --radius-10 + hover --shadow-2 + translateY(-1px)、页面留白统一）。
+   页面标题走下面那一份 .phead（七个页面共用，跨页宽、粘顶）。
+   需要模板挂类才吃到这份的（.card-surface / .page-shell / .phead），列在报告交给模板会话。 */
 .card-surface { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
   transition: border-color var(--dur-180), box-shadow var(--dur-180), transform var(--dur-120); }
 .card-surface:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
@@ -1198,11 +1215,76 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
    多一条滚动条、某一页少一圈留白（AGENTS.md §3.4.3 的「两种外壳」）。
    导演台是**作用域岛**，它不吃这一份的留白（内部 .page-main 是整屏高的列），那份另在 spa-director.css。 */
 .page-shell { position: absolute; inset: 0; overflow: auto; box-sizing: border-box;
-  padding: var(--sp-24) var(--sp-32) var(--sp-60); }
+  --shell-px: var(--sp-32);
+  padding: 0 var(--shell-px) var(--sp-60); }
 .page-shell * { box-sizing: border-box; }
-@media (max-width: 760px) { .page-shell { padding: var(--sp-16) var(--sp-14) var(--sp-40); } }
-.page-h1 { font-family: var(--font-ui); font-size: var(--fs-24); margin: 0 0 var(--sp-8);
-  display: flex; align-items: center; gap: var(--sp-8); }
+@media (max-width: 760px) { .page-shell { --shell-px: var(--sp-14); padding: 0 var(--shell-px) var(--sp-40); } }
+
+/* ============================================================
+   公共页头 .phead（全站唯一一份）—— 七个页面共用这一条横带。
+   四个槽，位置不挪（页与页之间变的只是槽里装了什么）：
+     A 身份    .phead-id    标题（**不带图标**）      每页都有
+     B 上下文  .phead-meta  计数 / 状态 / 当前项目   按页
+     C 说明    .phead-sub   一句话：这页在干嘛         按页
+     D 动作    .phead-acts  页面级动作（≤3 个）       按页
+   横带跨页宽、**粘顶**：滚到一半标题还在原地 —— 切页不再丢名字。
+   壳的 padding-top 归零（--shell-px 只管左右），上留白由 .phead 自己给：
+   吸顶时页头已经在 scrollport 顶上，没有「从 24px 跳到 0」的位移。
+   背景不透明（桌面应用滚动频繁，毛玻璃每帧重算不划算）。 */
+.phead {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--sp-12);
+  padding: var(--sp-13) var(--shell-px) var(--sp-11);
+  background: var(--bg);
+  border-bottom: var(--hair) solid var(--line);
+}
+/* A 身份：标题本体。
+   ⚠ 这里**不再有图标铭牌**（2026-10-27 撤）：原来那枚 26px 强调色方块（.phead-ic）
+   七页各挂一枚 → 切页时标题旁边多一格、强调色也多一个落点，标题本身反而不突出
+   （用户点名：移除图标）。现在页头是全站唯一被强调色着色的元素那条约定作废。 */
+.phead-id { display: flex; align-items: center; gap: var(--sp-10); flex: 0 0 auto; min-width: 0; }
+.phead-h1 { font-family: var(--font-ui); font-size: var(--fs-20); font-weight: 700; margin: 0;
+  line-height: 1.25; color: var(--txt); white-space: nowrap; }
+/* B 上下文 */
+.phead-meta { display: flex; align-items: center; gap: var(--sp-6); flex: 0 0 auto; }
+.phead-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-6);
+  height: 24px; padding: 0 var(--sp-10);
+  border-radius: var(--radius-999);
+  border: var(--hair) solid var(--line); background: var(--panel);
+  color: var(--txt); font-size: var(--fs-12); white-space: nowrap;
+  font-family: var(--font-ui);
+}
+.phead-chip b { font-variant-numeric: tabular-nums; color: var(--sub); font-weight: 600; }
+button.phead-chip { cursor: pointer; font-size: var(--fs-12); }
+button.phead-chip:hover { border-color: var(--acc); color: var(--acc); }
+button.phead-chip:hover b { color: var(--acc); }
+.phead-chip.on { background: var(--acc-tint-10); border-color: var(--acc-line-32); color: var(--acc); }
+.phead-chip.on b { color: var(--acc); }
+.phead-chip.warn { background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.phead-chip.warn b { color: var(--warn); }
+/* 上下文槽里的状态点：形状也带信息 —— 实心琥珀=在跑 / 空心琥珀=结果未知 / 实心红=失败 */
+.phead-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+  display: inline-block; flex: 0 0 auto; }
+.phead-chip .dot.live { background: var(--warn); animation: blink var(--dur-1200) infinite; }
+.phead-chip .dot.unc { background: var(--warn); box-shadow: inset 0 0 0 var(--hair-2) var(--panel); }
+.phead-chip .dot.fail { background: var(--err); }
+/* C 说明 */
+.phead-sub { font-size: var(--fs-12-5); color: var(--sub); margin: 0; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* D 动作
+   ⚠ 这里**不能**写 margin-left:auto —— auto margin 会抢在 flex-grow 之前吃掉剩余空间，
+   把说明槽压成 0 宽（min-width:0 + overflow:hidden → 那一句话被整个裁掉，看着像没渲染）。
+   说明槽（.phead-sub）自己 flex-grow 吃满剩下，动作区就自然落在最右；
+   没有说明的页面也要留一个空的 .phead-sub（素材库 / 资产库 / 导演台都留着）。 */
+.phead-acts { display: flex; align-items: center; gap: var(--sp-8); flex: 0 0 auto; }
+/* 窄屏：说明让位，动作留前两个 */
+@media (max-width: 760px) {
+  .phead { flex-wrap: wrap; row-gap: var(--sp-8); }
+  .phead-sub { display: none; }
+  .phead-acts > *:nth-child(n+3) { display: none; }
+}
 /* 空态：一种字号两档密度 —— .empty 整块（13px/60px），.empty.sm 行内/局部。 */
 .empty.sm { font-size: var(--fs-12-5); padding: var(--sp-12) var(--sp-8); }
 /* 统一键盘焦点环：把散落的「只改边框、outline:none」补回可见 :focus-visible。 */

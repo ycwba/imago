@@ -20,7 +20,7 @@
 | 场景分组（在哪个工作台做） | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES` |
 | 变量表（`{what}` `{cast}` … 从哪填 / 填什么） | `web/domain/text-ai.js` 的 `SKILL_VARS` |
 | 12 份 Skill（id / 名字 / 描述 / 触发词 / 页面 / 字符数） | `skills/<id>/SKILL.md` 的 frontmatter |
-| 「同一 contract 只能有一份生效」 | `server/skills-store.js` 的 `setEnabled` / `conflict` |
+| 「同一 contract 只能有一份生效」 | `server/skills-store.js` 的 `displaceSameContract` / `setEnabled` / `conflict` |
 
 「我的 Skill」那三条是样例（真机上没有），用来演示三种状态：**我的在用** / **已停用** /
 **正文用了场景说明里没登记的占位符**。
@@ -158,6 +158,10 @@
 ## 6. 这一稿没做的事
 
 - 没改 Skill 的加载与匹配逻辑（`web/ui/skills.js` 的 `match` / `activeFor` / `prime` 一行没动）。
-- 没动服务端那套 contract 互斥与启用状态机（只改了报错文案）。
+- ⚠ **2026-10-26 补记（超出本稿范围）**：服务端那套 contract 互斥状态机后来改了 ——
+  「启第二份「我的」会被拒」改成**让位**（`displaceSameContract`：启一份就把同 contract 的原来那份
+  直接停掉，服务端把让位的那几份 id 回传 `displaced`，前端点名说清「哪一份停了」）。
+  理由：报错拒绝要求人先关掉再开，而内置那份一直就是「自动让位」，两套体验不一致。
+  本稿的灯与「冲突」口径不变（冲突只剩老版本状态文件 / 手改才会出现）。
 - 没**单独设计**夜间版 —— 夜间档是同一份稿子切 `data-theme="dark"` 自动派生出来的。
 - 没做「导入向导」与「正文编辑器」以外的编辑能力（比如多文件管理、references 的增删）。

@@ -41,12 +41,19 @@ export function createApply(E, document, window) {
     feedScenePics,
     placeScenesInto,
     reportScenePics,
-    lineLandedNote,
     boardEstimate,
     renderAll,
     switchProject,
     setStatus,
   } = E;
+
+/* AI 拆分镜 / 改分镜带回台词时那句「出路」只有一份：两处报数共用同一个串。
+   台词一落地就会自动上「待生成」轨（Edit 域的 syncPending 按台词现写块，不用人搬），
+   所以这里指路指向那两处入口；话里不写「已合成」—— 那一次一个计费请求都没发，
+   合成只在「合成并加到这一轨」那一下。 */
+function lineLandedNote(n) {
+  return '、' + n + ' 镜带上了台词';
+}
 
 /* ---------- 拆分镜 / 改分镜的「AI 反问」那一轮（与润色同一套两段式）----------
    过程状态存 splitUI：编辑器整列会被反复重画（任务轮询 3 秒一次），面板内容由重画钩子

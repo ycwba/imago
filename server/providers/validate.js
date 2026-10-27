@@ -4,6 +4,10 @@
    v13 起清单归平台接口，声明里只剩「文档写过什么」，任何一种都算说清了这一家的型号从哪来。 */
 'use strict';
 const KINDS = new Set(['image', 'video', 'audio', 'text']);
+/* 「这家还会做哪些不在 kind 里的档」：语音识别（OpenAI 兼容 /audio/transcriptions）
+   与联网搜索（能给出网址的对话模型）。拼错一个字母不会报错，只会让设置页少一格 ——
+   所以这里按白名单查，值错了当场红。 */
+const EXTRA_CAPS = new Set(['asr', 'search']);
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/i;
 
 function hasModelSource(p) {
@@ -62,6 +66,13 @@ function validateProviders(providers) {
     if (!p || !p.name) errs.push('缺少 name');
     if (p && p.kind !== 'text' && !hasModelSource(p)) errs.push('缺少型号来源（models / modelDocs / newModelDefaults / endpoints.models）');
     if (p && p.kind === 'text' && !(p.endpoints && p.endpoints.chat)) errs.push('文字供应商缺少 endpoints.chat');
+    if (p && p.extraCaps != null) {
+      if (!Array.isArray(p.extraCaps)) errs.push('extraCaps 必须是数组（asr / search）：' + p.extraCaps);
+      else {
+        p.extraCaps.forEach(c => { if (!EXTRA_CAPS.has(c)) errs.push('extraCaps 里有未登记的档：' + c); });
+        if (p.kind !== 'text') errs.push('extraCaps 只能声明在文字供应商上（这一家的 kind 是 ' + p.kind + '）');
+      }
+    }
     if (p && p.endpoints && typeof p.endpoints !== 'object') errs.push('endpoints 必须是对象');
     /* 声明了输入槽位（inputRoles）就必须有把它放进提交体的模板：
        槽位照声明画得出来、提交那一刻却因为「没有模板」被整个丢掉 ——

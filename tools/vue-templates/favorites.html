@@ -1,8 +1,26 @@
 
-    <div class="page-main fav-page page-shell">
-      <h1 class="page-h1"><span v-html="starIcon"></span>我的收藏</h1>
+    <div class="page-main fav-page page-shell" ref="rootEl">
+      <!-- 统一页头（全站唯一一份 .phead）：身份 + 上下文（总数）+ 说明 + 页面级动作。
+           筛选与视图切换留在下面那两行 —— 页头放「这页能干什么」，工具条放「怎么看这页」。 -->
+      <header class="phead">
+        <div class="phead-id">
+          <h1 class="phead-h1">我的收藏</h1>
+        </div>
+        <div class="phead-meta"><span class="phead-chip" v-show="favTotal">{{ favTotal }} 条</span></div>
+        <div class="phead-acts">
+          <button class="ghost" id="multiBtn" :class="{ active: multiMode }" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
+          <button class="ghost" :disabled="uploading" @click="pickFiles" v-html="uploadHtml"></button>
+          <input type="file" multiple hidden ref="fileEl" @change="onFiles">
+        </div>
+      </header>
 
-      <!-- 筛选行：类型（带条数）+ 搜索 + AI 找素材（公共件 Wb.filterBar） -->
+      <!-- 类型筛选（带条数）：公共件 Wb.kindFilter —— 与生成工作台、资产库同一副分段控件。
+           独立一行放在工具条上面：类型档在上、搜索行在下（工作台也是这个次序）。 -->
+      <div class="fav-kinds">
+        <div class="ui-seg" ref="kindEl" role="group" aria-label="按类型筛选"></div>
+      </div>
+
+      <!-- 筛选行：搜索 + AI 找素材（公共件 Wb.filterBar） -->
       <div class="toolbar" ref="toolbarEl"></div>
 
       <!-- 平台 + 时间（与资产库一样的两种）+ 摆法 -->
@@ -18,10 +36,7 @@
           </select></label>
         <span class="sp" style="flex:1"></span>
         <span class="viewtoggle" ref="viewEl"></span>
-        <button class="ghost" ref="pullBtn" @click="pullLocal" title="把当前筛选里「本机还没有那份字节」的收藏存回本机"></button>
-        <button class="ghost" id="multiBtn" :class="{ active: multiMode }" title="进入多选：点卡片勾选，可批量下载、移出收藏" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-        <button class="ghost" :disabled="uploading" @click="pickFiles" v-html="uploadHtml"></button>
-        <input type="file" multiple hidden ref="fileEl" @change="onFiles">
+        <button class="ghost" ref="pullBtn" @click="pullLocal"></button>
       </div>
 
       <!-- 多选条：与资产库同一套公共件（.bulkbar）。「移出收藏」这种破坏性动作
@@ -37,8 +52,8 @@
         <button class="ghost" id="multiExit" @click="exitMulti">退出多选</button>
       </div>
 
-      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
-      <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 正在读取收藏…</div>
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div>
+      <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 加载中…</div>
       <div v-else class="grid" ref="grids" :class="'view-' + view">
         <div v-if="!viewItems.length" class="empty">{{ emptyWhy }}</div>
         <!-- 显式分行：紧凑档（网格）里展开的内容要插在**它那一行的下面**，
@@ -51,7 +66,7 @@
               @dragstart="onCardDragStart($event, it)" @dragend="onCardDragEnd($event)">
               <!-- 多选框：与资产库同一件（.pick），勾选后走批量条 -->
               <div v-if="multiMode" class="pick" :class="{ on: favPicked(it) }" role="checkbox" tabindex="0"
-                :aria-checked="favPicked(it) ? 'true' : 'false'" aria-label="勾选这条（批量下载 / 移出收藏）"
+                :aria-checked="favPicked(it) ? 'true' : 'false'" aria-label="勾选这条"
                 @click.stop="togglePick(it)" @keydown="onPickKey($event, it)"></div>
               <div class="thumb card-shell-media" @click="openLb(it)" v-html="thumbHtml(it)"></div>
               <div class="body card-shell-body">
@@ -59,28 +74,20 @@
                      所以它在标题**上面**，做成一条带子；没写的留一条虚线空位。 -->
                 <div class="note">
                   <textarea :value="it.note || ''" rows="1" @input="onNote(it, $event)" @blur="flushNote(it)" @click.stop
-                    placeholder="＋ 写备注（这条素材是干什么用的）"></textarea>
+                    placeholder="＋ 写备注"></textarea>
                 </div>
                 <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>
                 <div class="m">{{ metaOf(it) }}</div>
                 <div class="acts card-shell-actions">
-                  <button v-if="canReuse(it)" class="ghost" :title="'带着这条素材去' + reuseTabZh(it.type) + '那一栏'" @click.stop="reuse(it)">复用</button>
+                  <button v-if="canReuse(it)" class="ghost" @click.stop="reuse(it)">复用</button>
                   <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
                   <button class="ghost fav-open" @click.stop="toggleFavDetail(it)">{{ openKey === it.key ? '收起' : '详情' }}</button>
-                  <!-- 移出收藏：卡面上就有一颗（用户要的就是「看得见、点得到」）。
-                       展开区里那一颗是同一件事的另一个入口，不是第二套实现。 -->
-                  <button class="ghost danger fav-drop" @click.stop="dropItem(it)">移出收藏</button>
+                  <button class="ghost danger fav-drop" @click.stop="dropItem(it)">取消收藏</button>
                 </div>
                 <!-- 详情就地展开（公共件 .exp）：清单档里那张卡自己长高，
                      紧凑档里它落在下面那条带子上（.band）。 -->
                 <div class="exp"><div class="exp-in"><div class="exp-body">
                   <div class="cdet"></div>
-                  <div class="exp-acts">
-                    <button v-if="canReuse(it)" class="ghost" @click.stop="reuse(it)">复用</button>
-                    <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
-                    <span class="sp"></span>
-                    <button class="ghost danger" @click.stop="dropItem(it)">移出收藏</button>
-                  </div>
                 </div></div></div>
               </div>
             </div>
@@ -95,12 +102,6 @@
                 <button class="ghost fav-open" @click.stop="closeDetail">收起</button>
               </div>
               <div class="cdet"></div>
-              <div class="exp-acts">
-                <button v-if="canReuse(bandItem(row))" class="ghost" @click.stop="reuse(bandItem(row))">复用</button>
-                <button class="ghost" :disabled="!!dlBusy[bandItem(row).key]" @click.stop="download(bandItem(row))">{{ dlMsg[bandItem(row).key] || '下载' }}</button>
-                <span class="sp"></span>
-                <button class="ghost danger" @click.stop="dropItem(bandItem(row))">移出收藏</button>
-              </div>
             </div>
           </div>
         </template>

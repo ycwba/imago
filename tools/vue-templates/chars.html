@@ -1,11 +1,22 @@
 
     <div class="page-main chars-page page-shell" ref="rootEl">
+      <!-- 统一页头（全站唯一一份 .phead）：标题从左轨提到顶排 —— 页面身份是整页的事，
+           不该由左边那一栏承担。左轨改写「目录」，它管的是分组与筛选。 -->
+      <header class="phead">
+        <div class="phead-id">
+          <h1 class="phead-h1">素材库</h1>
+        </div>
+        <div class="phead-acts">
+          <button class="pri" type="button" ref="btnNewEl" v-html="newBtnHtml" @click="newChar"></button>
+        </div>
+      </header>
+
       <div class="mat" ref="matEl" :class="{ 'has-insp': !!inspId, 'rail-open': railOpen }">
 
         <!-- ① 目录轨：类型 / 还缺什么 / 分组 —— 取代原来的筛选芯片行 + 三行工具条 + 体检面板 -->
         <aside class="mat-rail">
           <div class="rail-top">
-            <div class="rail-h1"><span v-html="ticHtml"></span>素材库</div>
+            <div class="rail-h1">目录</div>
             <div class="rail-sub" ref="railSubEl"></div>
           </div>
           <div class="rail-scroll" ref="railScrollEl"></div>
@@ -18,7 +29,6 @@
             <div class="toolbar" ref="toolbarEl"></div>
             <span class="viewtoggle" ref="viewEl"></span>
             <button class="ghost" type="button" ref="btnMultiEl" @click="toggleMulti">{{ multi ? '退出多选' : '多选' }}</button>
-            <button class="pri" type="button" ref="btnNewEl" v-html="newBtnHtml" @click="newChar"></button>
           </header>
 
           <div class="mat-scroll" ref="matScrollEl">
@@ -26,7 +36,7 @@
                  用 v-show 而不是 v-if：多选态那一行要一直挂在那儿，
                  底下两个型号下拉才有地方落（ref 拿得到）。 -->
             <div class="bulkbar" v-show="multi">
-              <span class="bk-cnt">已选 {{ batchCount }} 条</span>
+              <span class="bk-cnt">已选 {{ batchCount }} 项</span>
               <button class="tool" type="button" :disabled="!batchCount || batchBusy" @click="batchFillPics">补预览图</button>
               <button class="tool" type="button" :disabled="!batchCount || batchBusy" @click="batchFillAssets">补角色资产</button>
               <button class="tool" type="button" :disabled="!batchCount || batchBusy" @click="batchFillVoices">AI 定声音</button>
@@ -34,7 +44,7 @@
               <button class="ghost" type="button" :disabled="!batchCount || batchBusy" @click="batchSetGroup">应用分组</button>
               <span class="sp"></span>
               <span class="bk-tip">{{ batchText }}</span>
-              <button class="ghost danger" type="button" :disabled="!batchCount || batchBusy" @click="batchRemove">删掉所选</button>
+              <button class="ghost danger" type="button" :disabled="!batchCount || batchBusy" @click="batchRemove">删除</button>
               <!-- 这一批用哪两个型号：默认取设置页「素材库」那张卡里的默认，当场换的只管这一批。 -->
               <div class="bk-gen">
                 <span class="bk-gen-l">出图</span><span class="bk-gen-sel" ref="bkImgPickEl"></span>
@@ -42,8 +52,8 @@
               </div>
             </div>
 
-            <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" type="button" @click="retryLoad">重新加载本页</button></div>
-            <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 正在读取素材库…</div>
+            <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" type="button" @click="retryLoad">重试</button></div>
+            <div v-else-if="!ready" class="empty"><span class="spin-dot"></span> 加载中…</div>
 
             <div class="mat-grid" ref="gridEl" v-show="ready && !failed"
               @click="onGridClick" @dragstart="onGridDragStart" @dragend="onGridDragEnd">

@@ -17,14 +17,21 @@
   color: var(--txt);
   font-family: var(--font-ui);
   /* 这一页自己管三栏的滚动：外壳那一层的整页滚动换成「每列各滚各的」。 */
-  padding: 0;
+  /* 横向留白跟全站同一枚（--shell-px = 32px）：页面身份那一行（公共 .phead）也用它，
+     标题与下面三栏的左缘因此对齐（以前这一页横向留白是 0 → 标题 32、三栏 0，对不齐）。 */
+  padding: 0 var(--shell-px);
   overflow: hidden;
+  /* 顶部那条统一页头 .phead 通栏，三栏骨架（.mat）在它下面占满剩下的一屏。
+     这一层是纵向的：页头（自己那一份高）→ .mat（flex:1）。 */
+  display: flex; flex-direction: column;
 }
 html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
 
 /* ══ 三栏骨架 ══════════════════════════════════════════════════════════════ */
+/* .mat 不再绝对定位铺满整屏：上面让出一条通栏页头（.phead），这里占满剩下那一屏。 */
 .chars-page .mat {
-  position: absolute; inset: 0;
+  position: relative; inset: auto;
+  flex: 1 1 auto; min-height: 0;
   display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr);
 }
 .chars-page .mat.has-insp { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--insp-w); }
@@ -35,7 +42,8 @@ html[data-theme="dark"] .chars-page { --pri: #9d8bff; }
   background: var(--panel); border-right: var(--hair) solid var(--line);
 }
 .chars-page .rail-top { padding: var(--sp-16) var(--sp-14) var(--sp-10); }
-.chars-page .rail-h1 { font-size: var(--fs-20); font-weight: 700; line-height: 1.3; }
+/* 左轨顶部那一行是**轨的标题**（目录），不是页面名 —— 页面名在顶排的 .phead 里，只说一次。 */
+.chars-page .rail-h1 { font-size: var(--fs-13); font-weight: 600; line-height: 1.3; color: var(--txt); }
 .chars-page .rail-sub { margin-top: var(--sp-4); font-size: var(--fs-11-5); color: var(--sub); line-height: 1.5; }
 .chars-page .rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 var(--sp-8) var(--sp-12); }
 .chars-page .rail-sec { margin-top: var(--sp-14); }

@@ -4,7 +4,7 @@
    引擎状态一律经 createGen(E) 递进来的访问器读写；短片的身份（proj / WS / REG）每次现读，
    不在这一份里缓存 —— 切换短片、清缓存、导入工程都会换掉它们。 */
 import { hasTailFrame, quoteKeyOf, sumQuotes, runWithDeps } from '../chain.js';
-import { candidateBase, voiceBase, shotCtxOf, candidateIndex, voiceIndex } from '../naming.js';
+import { candidateBase, voiceBase, shotCtxOf, candidateIndex } from '../naming.js';
 
 export function createGen(E) {
   const {
@@ -15,6 +15,7 @@ export function createGen(E) {
     shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
     shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
     updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid, videoPlanOf,
+    setSelectedCandidate,
   } = E;
 let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变
 /* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部）。
@@ -95,7 +96,7 @@ function voiceAssetBase(v, shRef) {
     }
   } else owner = shotOwnerOf(sh);
   const ctx = sh && owner ? shotCtxOf(owner, sh) : null;
-  return ctx ? voiceBase(ctx, voiceIndex(owner, v)) : '';
+  return ctx ? voiceBase(ctx) : '';
 }
 function announceAssetDone(c, shRef) {
   if (!c || c._mirrorAnnounced) return;
@@ -167,7 +168,7 @@ function pollOne(t) {
         c.url = p.url;
       }
       if (p.done || p.failed) {
-        if (!sh.selId && p.done) { sh.selId = c.vid; }   // 第一条成功的自动选用
+        if (!sh.selId && p.done) { setSelectedCandidate(sh, c); }   // 第一条成功的自动选用
         if (p.done) announceAssetDone(c, sh);            // 自动镜像的入口（见 announceAssetDone）
         p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
       }

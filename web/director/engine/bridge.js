@@ -1,42 +1,48 @@
-/* 导演台Bridge域：由 engine.js 按域机械搬出（AGENTS.md §17：内部保持命令式、按域拆模块，
-   engine.js 只留状态与接线）。区间内的代码逐字保留，只有点名的几处引擎可变状态改经访问器读，
-   区间外的名字一律由 createBridge(E) 递进来 —— 这一份里不留第二套工程数据。
+/* 导演台 Bridge域：助手的唯一写入桥（web/core/bridges.js 装成 WBBridge.director）。
+   时间口径只有**成片秒**（proj.film 的 start/end 都是它）；两个点名例外写在参数名里：
+   srcStart / srcEnd 是素材自己的源秒。写只有三条出口 —— Edit.patch（画面段 / 配音 / 待生成）、
+   Edit.toolAction（切开 / 删 / 复制 / 融合，与工具条同一批函数）、Caption.*（字幕一族）；
+   桥自己不碰 proj.film 的字段、不留第二份剪辑账，check 与 run 两次解析之间靠**身份**对账
+   （工程 id + 块 id），不靠修订号。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { round1, spdTxt } from '../util.js';
-import { segLen, segVol, segSpd, segFilmLen, segsOf, segsWrite, picLnOf } from '../segments.js';
-import { chosenCandOf, currentOf, entriesFromShot, setStyle, srtParse, srtSerialize, resegment, filmOf, mapToFilm, mapToShot, mapFromFilm, filmEntriesOf, filmSpanOf } from '../subtitles.js';
+import { escHTML, num, round1, round2, ctxClip, spdTxt } from '../util.js';
+import {
+  LANE_MAX, MIN_CAPTION_SECONDS, MIN_CLIP_SECONDS,
+  captionHighlighted, captionPositions, captionStyleOf, clamp, deriveTimeline,
+  itemLocked, normalizeTransition, pos, rateOf, shiftTimed, srcHeadOf, srcLenOf,
+  srcUsedOf, transitionNameOf, visibleCaptions, withPlaybackRate,
+} from '../film.js';
+import { canMergeClips } from '../tl-cut.js';
+import {
+  followCaptions, rollClipsBoundary, slipClip, slideClip,
+  trimClipLeft, trimClipRight, trimVoiceLeft, trimVoiceRight,
+} from '../tl-resize.js';
+import { compactLanes, dropIndexAt, moveClipToLane, moveTimedToLane, reorderClips } from '../tl-reorder.js';
+import { rippleDeltaOf } from '../tl-ripple.js';
 
 export function createBridge(E, document, window) {
   const {
     ExportFormats,
-    TlPlay,
+    Timeline,
+    Edit,
+    Caption,
     projOf,
+    filmOf,
     allShots,
     curScene,
     curShot,
-    fmtDur,
     undoStack,
     redoStack,
     UNDO_MAX_BYTES,
     UNDO_MAX_COUNT,
     undoBytesOf,
     undoSkipWhyOf,
-    lastUndoLabelOf,
-    beginEdit,
+    newestHistoryLabelOf,
     undo,
     redo,
     candDur,
-    voicesEnsure,
-    reanchorVoices,
-    cutSegs,
-    rowLockWhy,
-    tlSyncFromShots,
-    renderStatus,
-    filmEdited,
-    shotFilmAt,
-    filmRowsForSubtitles,
-    subWriteData,
+    setSelectedCandidate,
     candTrackSrc,
     mediaInfo,
     renderAll,
@@ -47,19 +53,22 @@ export function createBridge(E, document, window) {
 (function () {
   const READY = () => { try { return !!(projOf() && projOf().scenes && allShots().length); } catch (e) { return false; } };
   /* 前台判据只有公共层那一份（core/activity.js，外壳挂在 window.__spaActivity）。
-     这里原来只看路由：整个标签页切到后台时照样为真，助手就能在用户看不见的时候动时间线。 */
+     只看路由的话，整个标签页切到后台时照样为真，助手就能在用户看不见的时候动时间线。 */
   const ACTIVE = () => {
     try { return window.__spaActivity.visible('director.html'); }
     catch (e) { return true; }
   };
   const capTxt = (s, n) => { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
   const loose = msg => ({ ok: false, err: msg });
-  const dirLockOf = seg => {
-    try {
-      const why = rowLockWhy('pic', picLnOf(seg));
-      return why ? (why + '：这一段所在的行锁着，助手不改。先在导演台解锁再试。') : '';
-    } catch (e) { return ''; }
-  };
+  /* 成片秒的读数写法：一律一位小数（0.1 秒是这一页的最短计量）。 */
+  const sec = v => (Math.round(Math.max(0, num(v)) * 10) / 10).toFixed(1);
+  const sgn = v => { const x = Math.round(num(v) * 10) / 10; return (x > 0 ? '+' : '') + x.toFixed(1); };
+  const KIND_TRACK = { clip: 'image', voice: 'voice', pending: 'voice', cap: 'caption' };
+  const KIND_ZH = { clip: '画面段', voice: '配音块', pending: '待生成块', cap: '字幕' };
+  const FIELD_ZH = { speed: '倍速', volume: '音量', muted: '静音', lane: '行', start: '起点', end: '终点',
+    srcStart: '源窗口', srcEnd: '源窗口', slip: '滑移', roll: '滚动切点', slide: '滑动', moveTo: '挪位',
+    transition: '转场', fadeIn: '淡入', fadeOut: '淡出' };
+  const POS_ZH = { top: '顶部', middle: '居中', bottom: '底部' };
   function shotOf(a) {
     a = a || {};
     if (a.shotId != null && a.shotId !== '') {
@@ -111,6 +120,65 @@ export function createBridge(E, document, window) {
     if (xi >= 0) projOf().curShot = xi;
     if (ci != null) projOf().curCand = Math.max(0, Math.min(ci, (sh.candidates || []).length - 1));
   }
+
+  /* ---------- 块定位：三种指法（id / at 成片秒 / index 第几块）只有这一份 ----------
+     返回统一的 { item, index, start, end }：画面段按 deriveTimeline 累加出 start/end，
+     字幕按 start 排序，配音 / 待生成按 start + duration。 */
+  function blocksOf(kind) {
+    const f = filmOf();
+    if (kind === 'clip') {
+      return deriveTimeline(f.clips).rows.map(r => ({ item: r.clip, index: r.index, start: num(r.start), end: num(r.end) }));
+    }
+    if (kind === 'cap') {
+      return (f.captions || []).slice().sort((x, y) => num(x.start) - num(y.start))
+        .map((c, i) => ({ item: c, index: i, start: num(c.start), end: num(c.end) }));
+    }
+    const list = kind === 'voice' ? (f.voices || []) : kind === 'pending' ? (f.pending || []) : [];
+    return list.map((v, i) => ({ item: v, index: i, start: num(v.start), end: num(v.start) + num(v.duration) }));
+  }
+  const lockWhy = (kind, item) => (itemLocked(filmOf().tracks, KIND_TRACK[kind], kind === 'clip' ? num(item.ln) : num(item.lane))
+    ? '这一块所在的行锁着：先在轨道左列把锁打开再试' : '');
+  function pick(a, kind) {
+    a = a || {};
+    const blocks = blocksOf(kind);
+    if (!blocks.length) {
+      return loose('成片里现在没有' + KIND_ZH[kind] + (kind === 'clip' ? '：先在候选卡上点「用这条」选用几条' : ''));
+    }
+    if (a.id != null && a.id !== '') {
+      const at = blocks.findIndex(b => String(b.item.id) === String(a.id));
+      if (at < 0) return loose(KIND_ZH[kind] + '里没有 id「' + a.id + '」：先用 context / subtitle_list 看现存的块');
+      return blocks[at];
+    }
+    if (a.at != null) {
+      const t = num(a.at);
+      const at = blocks.findIndex(b => t >= b.start - 0.001 && t < b.end - 0.001);
+      return blocks[at >= 0 ? at : blocks.length - 1];
+    }
+    if (a.index != null) {
+      const n = Number(a.index);
+      if (!Number.isInteger(n) || n < 1 || n > blocks.length) {
+        return loose('index 是第几块（1–' + blocks.length + '），给的是「' + a.index + '」');
+      }
+      return blocks[n - 1];
+    }
+    const f = Edit.focusOf();
+    if (f && f.kind === kind && f.id) {
+      const at = blocks.findIndex(b => String(b.item.id) === String(f.id));
+      if (at >= 0) return blocks[at];
+    }
+    const t = num(Timeline.playhead());
+    const at = blocks.findIndex(b => t >= b.start - 0.001 && t < b.end - 0.001);
+    if (at >= 0) return blocks[at];
+    return loose('指哪一块要说清：id（块 id）/ at（成片第几秒）/ index（第几块，1 起）。都不给就取播放头压着的那一块，现在播放头没有压在任何' + KIND_ZH[kind] + '上');
+  }
+  /* 一次写入前压一份撤销快照（多字段合并成一条历史），收尾时补一次重画与「成片变过」；
+     select 走 setSelectedCandidate（那一侧不带快照），所以也包在窗里。 */
+  function undoWindow(label, fn) {
+    if (!Edit.openUndoWindow(label)) return loose('上一步编辑还没收尾，等一下再试');
+    try { return fn(); } finally { Edit.closeUndoWindow(); }
+  }
+
+  /* ---------- select：把一条候选选进成片 ---------- */
   function selectPlan(a) {
     a = a || {};
     const s = shotOf(a); if (s.err) return s;
@@ -121,105 +189,515 @@ export function createBridge(E, document, window) {
     }
     return { sc: s.sc, sh: s.sh, c: q.c, i: q.i, already: s.sh.selId === q.c.vid };
   }
-  const WAY_ZH = { split: '切开', left: '切掉插针左边', right: '切掉插针右边', drop: '删成黑场', merge: '融合相邻两段' };
+
+  /* ---------- cut：切开 / 剪头 / 剪尾 / 删段 / 复制 / 融合 ----------
+     split / remove / duplicate / merge 与工具条同一批函数（选段 + 播放头 + toolAction），
+     left / right 是「从 at 裁到段头 / 段尾」，走 tl-resize 的两把剪子直接落。 */
+  const WAY_ZH = {
+    split: '切开', left: '剪掉这一段开头那截', right: '剪掉这一段末尾那截',
+    remove: '删掉这一段', duplicate: '复制这一段', merge: '与下一段融合',
+  };
   function cutPlan(a) {
     a = a || {};
-    const s = shotOf(a); if (s.err) return s;
-    const q = candOf(s.sh, a, 'selected'); if (q.err) return q;
-    if (!hasPic(q.c)) return loose('「' + s.sh.name + '」第 ' + (q.i + 1) + ' 条还没出画面（状态：' + (q.c.status || '未知') + '），剪不了');
-    const total = candDur(q.c, s.sh);
-    const segs = segsOf(q.c, total);
-    if (!segs.length) return loose('这一条现在一段画面都没有：先在导演台按 Ctrl+Z 退回剪切之前，或换一条候选');
     const way = String(a.way || '').trim();
-    if (!WAY_ZH[way]) return loose('way 只能是 split / left / right / drop / merge');
-    let at = null, segNo = null;
-    if (a.seg != null) {
-      const n = Number(a.seg);
-      if (!Number.isInteger(n) || n < 1 || n > segs.length) return loose('seg 是第几段（1–' + segs.length + '），给的是「' + a.seg + '」');
-      segNo = n; at = (Number(segs[n - 1].in) + Number(segs[n - 1].out)) / 2;
-    } else if (a.at != null) {
-      at = Number(a.at);
-      if (!Number.isFinite(at)) return loose('at 要是秒数（源视频的第几秒）');
-    } else if (way === 'drop' || way === 'merge') {
-      const n = Math.min(segs.length, Math.max(1, (Number(projOf().cutSeg) || 0) + 1));
-      segNo = n; at = (Number(segs[n - 1].in) + Number(segs[n - 1].out)) / 2;
-    } else {
-      return loose('切哪一秒要说清：给 at（源视频的第几秒）或 seg（第几段）');
+    if (!WAY_ZH[way]) return loose('way 只能是 split / left / right / remove / duplicate / merge');
+    const b = pick(a, 'clip'); if (b.err) return b;
+    const lock = lockWhy('clip', b.item); if (lock) return loose(lock);
+    if (way === 'merge' && !canMergeClips(b.item, filmOf().clips[b.index + 1])) {
+      return loose('相邻两段接不上（不同素材，或中间动过）：融合只对同一素材、源窗口首尾相接的两段有效');
     }
-    /* 尺子的右端不是 `total`：图片段与图片区空段排在视频源秒之后，各占自己的虚拟秒
-       （见 image-seg.js）。拿 `total` 去夹，落在图片段上的那几秒会被推回视频末尾 ——
-       `seg` 取中点的那条路（图片段的中点必然 > total）会直接报「at 要在 0–N 秒之间」，
-       于是助手永远剪不到图片段。与 `cutPin` 的夹法同一份边界。 */
-    const pan = round1(segs.reduce((m, s) => Math.max(m, Number(s.b) || 0), total));
-    if (at < 0 || at > pan) return loose('at 要在 0–' + pan + ' 秒之间（这一条视频 ' + round1(total) + ' 秒'
-      + (pan > total + 0.05 ? '，图片段 / 空段另占虚拟秒' : '') + '）');
-    at = round1(Math.max(0, Math.min(pan, at)));
-    let i = segs.findIndex(x => at >= x.in && at < x.out);
-    if (i < 0) i = segs.reduce((b, x, k) => (Math.abs(x.in - at) < Math.abs(segs[b].in - at) ? k : b), 0);
-    const lock = dirLockOf(segs[i]);
-    if (lock) return loose(lock);
-    const r = cutSegs(q.c, total, at, way);
-    if (r.err) return loose(r.err);
-    return { sc: s.sc, sh: s.sh, c: q.c, i: q.i, segNo, seg: segs[i], segs, at, way, total, out: r };
+    let at = null;
+    if (way === 'split' || way === 'left' || way === 'right') {
+      at = a.at != null ? num(a.at) : num(Timeline.playhead());
+      if (!(at > b.start + MIN_CLIP_SECONDS) || !(b.end - at > MIN_CLIP_SECONDS)) {
+        return loose('at（' + sec(at) + ' 秒）要落在这一段里面（' + sec(b.start) + '–' + sec(b.end)
+          + ' 秒），离两头都要留出最短时长（' + MIN_CLIP_SECONDS + ' 秒）');
+      }
+    }
+    return { way, block: b, at: round2(at) };
   }
-  function cutResultText(p, newSegs, moved) {
-    const after = newSegs.reduce((a, s) => a + segFilmLen(s), 0);
-    const inFilm = p.sh.selId === p.c.vid;
-    const what = p.way === 'split' ? '在 ' + p.at + ' 秒处切开'
-      : p.way === 'left' ? '把插针左边切掉'
-      : p.way === 'right' ? '把插针右边切掉'
-      : p.way === 'drop' ? (p.out.back ? '把这一段画面放回来' : '把这一段画面删成黑场（格子留在原位）')
-      : '把相邻两段融合回一段';
-    return '已在「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选上' + what
-      + '：现在 ' + newSegs.length + ' 段、这一条共 ' + round1(after) + ' 秒'
-      + (inFilm ? '（这一条正被选用，成片跟着变）' : '（这一条还没被选用，成片仍按选用的那条算）')
-      + (moved ? '；有 ' + moved + ' 句配音正好被切掉，已挪到紧随其后的那段开头' : '')
-      + '。要退回就说「撤销最近一步」。';
+  /* toolAction 吃掉动作自己的布尔值，回执靠「段数 / 总长」对账：没变成预期形状就照实说没切成。 */
+  function cutDelegated(p) {
+    const id = p.block.item.id;
+    if (!Edit.selectItem('clip', id)) return loose('这一段已经不在了：重新读 context 再来');
+    const before = filmOf().clips.length;
+    if (p.way === 'split') {
+      Timeline.seekTo(p.at, { playNow: false });
+      Edit.toolAction('cut');
+    } else {
+      Edit.toolAction(p.way === 'remove' ? 'delete' : p.way);
+    }
+    const after = filmOf().clips.length;
+    const expect = { split: before + 1, duplicate: before + 1, remove: before - 1, merge: before - 1 }[p.way];
+    if (after !== expect) {
+      return { ok: false, err: '执行了但时间线没有变（看导演台状态行说的原因）：重新读 context 再试' };
+    }
+    const rows = deriveTimeline(filmOf().clips).rows;
+    const name = Edit.describeItem('clip', id);
+    let text = '';
+    if (p.way === 'split') {
+      const also = ['voice', 'pending', 'cap'].map(kind => (blocksOf(kind).some(bl => p.at > bl.start + 0.0005 && p.at < bl.end - 0.0005) ? KIND_ZH[kind] : '')).filter(Boolean);
+      text = '已在 ' + sec(p.at) + ' 秒处切开' + name + '：现在 ' + rows.length + ' 段'
+        + (also.length ? '，同一时刻压着的' + also.join('、') + '也一并切开' : '');
+    } else if (p.way === 'remove') {
+      text = '已删掉' + name + '：成片现在 ' + rows.length + ' 段、共 ' + sec(rows.length ? rows[rows.length - 1].end : 0) + ' 秒';
+    } else if (p.way === 'duplicate') {
+      text = '已复制' + name + '，副本排在它后面';
+    } else {
+      text = '已把相邻两段融合成一段：成片现在 ' + rows.length + ' 段';
+    }
+    return { ok: true, text: text + '。要退回就说「撤销最近一步」。' };
+  }
+
+  /* ---------- set：改一块的属性 / 位置 / 源窗口 ----------
+     几何改动（start / end / 源窗口 / slip / roll / slide / moveTo）一次只做一处；
+     非几何的（speed / volume / muted / lane / transition / fadeIn / fadeOut）可以一起给。 */
+  const GEO_KEYS = ['startAt', 'endAt', 'window', 'slip', 'roll', 'slide', 'moveTo'];
+  function windowClip(a, it, kind) {
+    const rate = rateOf(it);
+    const head = srcHeadOf(it), used = srcUsedOf(it);
+    const hi = Math.max(srcLenOf(it), head + used);
+    if (!(hi > 0)) return { err: '这一块读不到素材原长（mediaDuration 是 0），改不了源窗口：先在素材上重新取一次信息' };
+    const minSrc = MIN_CLIP_SECONDS * rate;
+    const na = clamp(pos(a.srcStart != null ? a.srcStart : head), 0, Math.max(0, hi - minSrc));
+    const nb = clamp(pos(a.srcEnd != null ? a.srcEnd : head + used), na + minSrc, hi);
+    const clamped = (a.srcStart != null && Math.abs(pos(a.srcStart) - na) > 0.001)
+      || (a.srcEnd != null && Math.abs(pos(a.srcEnd) - nb) > 0.001);
+    return { na: round2(na), nb: round2(nb), hi, clamped };
   }
   function setPlan(a) {
     a = a || {};
-    const s = shotOf(a); if (s.err) return s;
-    const q = candOf(s.sh, a, 'selected'); if (q.err) return q;
-    if (!hasPic(q.c)) return loose('「' + s.sh.name + '」第 ' + (q.i + 1) + ' 条还没出画面，改不了');
-    const total = candDur(q.c, s.sh);
-    const segs = segsOf(q.c, total);
-    if (!segs.length) return loose('这一条现在一段画面都没有，改不了');
-    let i;
-    if (a.seg != null) {
-      const n = Number(a.seg);
-      if (!Number.isInteger(n) || n < 1 || n > segs.length) return loose('seg 是第几段（1–' + segs.length + '）');
-      i = n - 1;
-    } else if (a.at != null) {
-      const at = Number(a.at);
-      i = segs.findIndex(x => at >= x.in && at < x.out);
-      if (i < 0) return loose('at 不在任何一段里（这一条 0–' + round1(total) + ' 秒）');
-    } else {
-      i = Math.max(0, Math.min(segs.length - 1, Number(projOf().cutSeg) || 0));
-    }
-    const lock = dirLockOf(segs[i]);
-    if (lock) return loose(lock);
+    const kind = String(a.kind || '');
+    if (kind === 'subtitle') return subPlan(a);
+    if (!KIND_ZH[kind]) return loose('kind 只能是 clip / voice / pending / subtitle');
+    const b = pick(a, kind); if (b.err) return b;
+    const lock = lockWhy(kind, b.item); if (lock) return loose(lock);
+    const it = b.item;
     const next = {};
-    if (a.speed != null) {
-      const v = Number(a.speed);
-      if (!Number.isFinite(v) || v < 0.25 || v > 4) return loose('speed 要在 0.25–4 之间（1 = 原速）');
-      next.speed = Math.round(v * 100) / 100;
+    if (kind === 'clip') {
+      if (a.speed != null) {
+        if (it.kind === 'image') return loose('图片段没有倍速（图片没有源窗口可伸缩）');
+        const v = Number(a.speed);
+        if (!Number.isFinite(v) || v < 0.25 || v > 4) return loose('speed 要在 0.25–4 之间（1 = 原速）');
+        next.speed = Math.round(v * 100) / 100;
+      }
+      if (a.volume != null) {
+        const v = Number(a.volume);
+        if (!Number.isFinite(v) || v < 0 || v > 4) return loose('volume 要在 0–4 之间（1 = 原声，百分比请除以 100）');
+        next.volume = Math.round(v * 100) / 100;
+      }
+      if (a.muted != null) {
+        if (it.kind === 'image') return loose('图片段没有原声，静不了音');
+        next.muted = !!a.muted;
+      }
+      if (a.lane != null) {
+        const n = Number(a.lane);
+        if (!Number.isInteger(n) || n < 0 || n >= LANE_MAX) return loose('lane 要是 0–' + (LANE_MAX - 1) + ' 的整数（画在第几行）');
+        next.lane = n;
+      }
+      if (a.start != null) {
+        const at = num(a.start);
+        if (at <= b.start + 0.0005) return loose('画面段的起点是从上一段累加出来的，不能往左挪：start 只能往后裁（把开头裁掉），要整体挪位置用 moveTo');
+        if (!(at < b.end - MIN_CLIP_SECONDS)) return loose('start 裁得太狠：段的末尾至少要留 ' + MIN_CLIP_SECONDS + ' 秒');
+        next.startAt = at;
+      }
+      if (a.end != null) {
+        const at = num(a.end);
+        if (!(at > b.start + MIN_CLIP_SECONDS)) return loose('end 太靠前：段的开头至少要留 ' + MIN_CLIP_SECONDS + ' 秒');
+        next.endAt = at;
+      }
+      if (a.srcStart != null || a.srcEnd != null) {
+        if (it.kind === 'image') return loose('图片段没有源窗口：srcStart / srcEnd 只对视频段有效');
+        const w = windowClip(a, it, kind); if (w.err) return loose(w.err);
+        next.window = w;
+      }
+      if (a.slip != null) {
+        if (it.kind === 'image') return loose('图片段滑不动（没有源窗口）');
+        next.slip = num(a.slip);
+      }
+      if (a.roll != null) {
+        if (!(b.index + 1 < filmOf().clips.length)) return loose('这一段是最后一段：roll 平移的是它与下一段之间的切点，后面得有下一段');
+        next.roll = num(a.roll);
+      }
+      if (a.slide != null) {
+        if (!(b.index > 0 && b.index + 1 < filmOf().clips.length)) return loose('滑动要左右两段都有邻居：首尾两段滑不动');
+        next.slide = num(a.slide);
+      }
+      if (a.moveTo != null) {
+        if (!(num(a.moveTo) >= 0)) return loose('moveTo 要是成片第几秒（0 起）');
+        next.moveTo = num(a.moveTo);
+      }
+      if (a.transition !== undefined && a.transition !== null) {
+        if (!(b.index + 1 < filmOf().clips.length)) return loose('转场挂在一段与下一段之间：这是最后一段，没有下一段可接');
+        next.transition = typeof a.transition === 'string' ? { id: a.transition } : a.transition;
+      }
+    } else {
+      const noAudio = '待生成块还没有音频：speed / volume / fadeIn / fadeOut / srcStart / srcEnd 都改不了';
+      if (a.speed != null) {
+        if (kind === 'pending') return loose(noAudio);
+        const v = Number(a.speed);
+        if (!Number.isFinite(v) || v < 0.25 || v > 4) return loose('speed 要在 0.25–4 之间（1 = 原速）');
+        next.speed = Math.round(v * 100) / 100;
+      }
+      if (a.volume != null) {
+        if (kind === 'pending') return loose(noAudio);
+        const v = Number(a.volume);
+        if (!Number.isFinite(v) || v < 0 || v > 4) return loose('volume 要在 0–4 之间（1 = 原声，百分比请除以 100）');
+        next.volume = Math.round(v * 100) / 100;
+      }
+      if (a.fadeIn != null || a.fadeOut != null) {
+        if (kind === 'pending') return loose(noAudio);
+        if (a.fadeIn != null) {
+          const v = Math.max(0, num(a.fadeIn));
+          if (v > num(it.duration) / 2) return loose('fadeIn 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间（不能超过这一块的一半）');
+          next.fadeIn = round2(v);
+        }
+        if (a.fadeOut != null) {
+          const v = Math.max(0, num(a.fadeOut));
+          if (v > num(it.duration) / 2) return loose('fadeOut 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间（不能超过这一块的一半）');
+          next.fadeOut = round2(v);
+        }
+      }
+      if (a.muted != null) return loose(KIND_ZH[kind] + '没有「静音」这一项：要它不出声用 volume: 0');
+      if (a.lane != null) {
+        const n = Number(a.lane);
+        if (!Number.isInteger(n) || n < 0 || n >= LANE_MAX) return loose('lane 要是 0–' + (LANE_MAX - 1) + ' 的整数（画在第几行）');
+        next.lane = n;
+      }
+      if (a.start != null) {
+        if (!(num(a.start) >= 0)) return loose('start 要是成片第几秒（0 起）');
+        next.startAt = num(a.start);
+      }
+      if (a.end != null) {
+        const at = num(a.end);
+        if (!(at > b.start + MIN_CLIP_SECONDS)) return loose('end 太靠前：块的开头至少要留 ' + MIN_CLIP_SECONDS + ' 秒');
+        if (kind === 'pending' && at > b.end + 0.0005) return loose('待生成块还没有音频，拉不长：end 只能往里裁');
+        next.endAt = at;
+      }
+      if (a.srcStart != null || a.srcEnd != null) {
+        if (kind === 'pending') return loose(noAudio);
+        const w = windowClip(a, it, kind); if (w.err) return loose(w.err);
+        next.window = w;
+      }
+      const clipOnly = ['slip', 'roll', 'slide', 'moveTo'].find(k => a[k] != null);
+      if (clipOnly) return loose(KIND_ZH[kind] + '没有「' + clipOnly + '」：这些只对画面段有效');
+      if (a.transition !== undefined) return loose(KIND_ZH[kind] + '没有转场：转场挂在画面段与下一段之间');
     }
-    if (a.volume != null) {
-      const v = Number(a.volume);
-      if (!Number.isFinite(v) || v < 0 || v > 2) return loose('volume 要在 0–2 之间（1 = 原声，百分比请除以 100）');
-      next.volume = Math.round(v * 100) / 100;
+    const fields = Object.keys(next);
+    if (!fields.length) {
+      return loose('要改什么没说：' + (kind === 'clip'
+        ? 'speed / volume / muted / lane / start / end / srcStart·srcEnd / slip / roll / slide / moveTo / transition 至少给一项'
+        : 'speed / volume / fadeIn / fadeOut / lane / start / end / srcStart·srcEnd 至少给一项'));
     }
-    if (a.gray != null) next.gray = !!a.gray;
-    if (!Object.keys(next).length) return loose('要改什么没说：speed（0.25–4）/ volume（0–2）/ gray（true=黑场）至少给一项');
-    return { sc: s.sc, sh: s.sh, c: q.c, i: q.i, segs, seg: segs[i], total, next };
+    const geo = fields.filter(k => GEO_KEYS.includes(k));
+    if (geo.length > 1 || (geo.length === 1 && fields.length > 1)) {
+      return loose('几何改动（start / end / srcStart·srcEnd / slip / roll / slide / moveTo）一次只做一处，也不与别的字段混给：每处都是一次独立的编辑');
+    }
+    return { kind, block: b, it, next, fields };
   }
-  function setResultText(p, segNo, seg) {
-    const bits = [];
-    if (p.next.speed != null) bits.push('倍速 ' + spdTxt(segSpd(seg)));
-    if (p.next.volume != null) bits.push('原声 ' + Math.round(segVol(seg) * 100) + '%');
-    if (p.next.gray != null) bits.push(seg.off ? '这一段是黑场' : '这一段有画面');
-    return '已改「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选的第 ' + segNo
-      + ' 段：' + bits.join(' · ') + '（这一条现在 ' + p.segs.length + ' 段）。要退回就说「撤销最近一步」。';
+  function setRun(p, a) {
+    if (p.kind === 'subtitle') return subRun(p, a);
+    const { kind, block, it, next, fields } = p;
+    const id = it.id;
+    const desc = Edit.describeItem(kind, id);
+    const multi = fields.length > 1;
+    const w = multi ? undoWindow('AI 改' + KIND_ZH[kind] + '（' + fields.map(k => FIELD_ZH[k] || k).join('、') + '）', () => null) : null;
+    if (w && w.err) return w;
+    try {
+      const bits = [];
+      /* muted 走编辑器自己的 toggleMute（它的标签就是「静音 / 恢复 … 的原声」）；
+         状态确实变了才调，别的字段照常走同一次 patch。 */
+      if (next.muted != null && !!block.item.muted !== next.muted) {
+        if (!Edit.toggleMute(id)) return loose('静音没改成（图片段没有原声）');
+        bits.push(next.muted ? '原声静音' : '取消静音');
+      }
+      const f = filmOf();
+      const key = kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : 'pending';
+      const list = (f[key] || []).slice();
+      const idx = list.findIndex(x => x && x.id === id);
+      if (idx < 0) return loose('这一块已经不在了：重新读 context 再来');
+      let cur = list[idx];
+      let patchData = null;
+      let label = '';
+      if (kind === 'clip') {
+        if (next.speed != null) { cur = withPlaybackRate(cur, next.speed); bits.push('倍速 → ' + spdTxt(next.speed)); }
+        if (next.volume != null) { cur = { ...cur, volume: next.volume }; bits.push('原声 → ' + Math.round(next.volume * 100) + '%'); }
+        if (next.transition !== undefined) {
+          const t = next.transition ? normalizeTransition(next.transition, cur, list[idx + 1] || null) : null;
+          cur = { ...cur, transition: t || null };
+          const wanted = next.transition && next.transition.duration;
+          bits.push('转场 → ' + (t ? transitionNameOf(t.id) + ' ' + sec(t.duration) + ' 秒'
+            + (wanted != null && Math.abs(num(wanted) - num(t.duration)) > 0.001 ? '（时长按两段的长度夹到这里）' : '') : '无'));
+        }
+        if (next.lane != null) {
+          const r = moveClipToLane(list.map(x => (x && x.id === id ? cur : x)), id, next.lane);
+          if (!r.moved) bits.push('行不变（已经在第 ' + (num(cur.ln) + 1) + ' 行）');
+          else { bits.push('挪到第 ' + (next.lane + 1) + ' 行'); patchData = { clips: r.clips }; }
+        }
+        if (!patchData) patchData = { clips: list.map(x => (x && x.id === id ? cur : x)) };
+        label = '把' + desc + '的' + fields.map(k => FIELD_ZH[k] || k).join('、') + '改掉（' + bits.join(' · ') + '）';
+      } else {
+        if (next.speed != null) { cur = withPlaybackRate(cur, next.speed); bits.push('倍速 → ' + spdTxt(next.speed) + '（折回成片里占 ' + sec(srcUsedOf(cur) / rateOf(cur)) + ' 秒）'); }
+        if (next.volume != null) { cur = { ...cur, volume: next.volume }; bits.push('音量 → ' + Math.round(next.volume * 100) + '%'); }
+        if (next.fadeIn != null) { cur = { ...cur, fadeIn: next.fadeIn }; bits.push('淡入 → ' + sec(next.fadeIn) + ' 秒'); }
+        if (next.fadeOut != null) { cur = { ...cur, fadeOut: next.fadeOut }; bits.push('淡出 → ' + sec(next.fadeOut) + ' 秒'); }
+        if (next.lane != null) {
+          const merged = moveTimedToLane([...(f.voices || []), ...(f.pending || [])], id, next.lane);
+          if (!merged.moved) return loose('就在第 ' + (next.lane + 1) + ' 行：没有要挪的');
+          const byId = new Map(compactLanes(merged.items).items.map(x => [x.id, Math.max(0, Math.round(pos(x.lane)))]));
+          patchData = {
+            voices: (f.voices || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x)),
+            pending: (f.pending || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x)),
+          };
+          bits.push('挪到第 ' + (byId.get(id) + 1) + ' 行（同一行的其它块跟着让位）');
+        }
+        if (!patchData) patchData = { [key]: list.map(x => (x && x.id === id ? cur : x)) };
+        label = '把' + desc + '的' + fields.map(k => FIELD_ZH[k] || k).join('、') + '改掉（' + bits.join(' · ') + '）';
+      }
+      Edit.patch(patchData, label);
+      return { ok: true, text: '已改' + desc + '：' + bits.join(' · ') + '。要退回就说「撤销最近一步」。' };
+    } finally { if (multi) Edit.closeUndoWindow(); }
+  }
+  /* 几何改动各走各的（一次一处），每一处都是一次独立的 commit 与一条历史。 */
+  function setGeo(p, a) {
+    const { kind, block, it, next, fields } = p;
+    const id = it.id;
+    const desc = Edit.describeItem(kind, id);
+    const f = filmOf();
+    const key = kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : 'pending';
+    const list = (f[key] || []).slice();
+    const idx = list.findIndex(x => x && x.id === id);
+    if (idx < 0) return loose('这一块已经不在了：重新读 context 再来');
+    const cur = list[idx];
+    const replace = out => ({ [key]: list.map(x => (x && x.id === id ? out : x)) });
+    if (next.window) {
+      const w = next.window;
+      const rate = rateOf(cur), head = srcHeadOf(cur), used = srcUsedOf(cur);
+      const mid = (kind === 'clip' ? trimClipLeft(cur, (w.na - head) / rate) : trimVoiceLeft(cur, (w.na - head) / rate)) || cur;
+      const out = (kind === 'clip' ? trimClipRight(mid, (w.nb - srcHeadOf(mid) - srcUsedOf(mid)) / rate)
+        : trimVoiceRight(mid, (w.nb - srcHeadOf(mid) - srcUsedOf(mid)) / rate)) || mid;
+      if (pos(out.sourceStart) === pos(cur.sourceStart) && pos(out.sourceDuration) === pos(cur.sourceDuration)
+        && pos(out.start) === pos(cur.start) && pos(out.duration) === pos(cur.duration)) {
+        return { ok: true, text: '源窗口没有变化，没有动任何数据' };
+      }
+      let label = '把' + desc + '的保留片段改成素材 ' + round1(pos(out.sourceStart)) + '–'
+        + round1(pos(out.sourceStart) + pos(out.sourceDuration)) + ' 源秒';
+      if (w.clamped) label += '（已按这一条素材能用的范围 0–' + round1(w.hi) + ' 秒截断）';
+      const data = replace(out);
+      if (kind === 'voice') data.captions = followCaptions(f.captions || [], id, cur, out);
+      Edit.patch(data, label);
+      return { ok: true, text: '已把' + desc + '的保留片段改成素材 ' + round1(pos(out.sourceStart)) + '–'
+        + round1(pos(out.sourceStart) + pos(out.sourceDuration)) + ' 源秒'
+        + (w.clamped ? '（按素材能用的范围截过）' : '') + '。要退回就说「撤销最近一步」。' };
+    }
+    if (next.startAt != null) {
+      if (kind === 'clip') {
+        const d = round2(next.startAt - block.start);
+        const out = trimClipLeft(cur, d);
+        if (!out) return loose('这一刀裁不下去（剩下的不足最短时长）');
+        Edit.patch(replace(out), '把' + desc + '开头 ' + sec(d) + ' 秒裁掉');
+        return { ok: true, text: '已把' + desc + '的开头裁掉 ' + sec(d) + ' 秒：现在从 ' + sec(block.start) + ' 不变、到 ' + sec(block.start + num(out.duration)) + ' 秒。要退回就说「撤销最近一步」。' };
+      }
+      const d = round2(next.startAt - block.start);
+      if (!d) return { ok: true, text: 'start 就是现在的位置，没有动任何数据' };
+      const out = shiftTimed(cur, d);
+      const data = replace(out);
+      data.captions = followCaptions(f.captions || [], id, cur, out);
+      Edit.patch(data, '把' + desc + '挪到 ' + sec(next.startAt) + ' 秒处');
+      return { ok: true, text: '已把' + desc + '挪到 ' + sec(next.startAt) + ' 秒处（长 ' + sec(num(out.duration)) + ' 秒）。要退回就说「撤销最近一步」。' };
+    }
+    if (next.endAt != null) {
+      const d = round2(next.endAt - block.end);
+      const out = kind === 'clip' ? trimClipRight(cur, d) : trimVoiceRight(cur, d);
+      if (!out) {
+        return loose(d > 0 ? '拉不长：' + (kind === 'clip' ? '素材原长就到这里' : '这条配音的素材原长就到这里') + '（或最少要留 ' + MIN_CLIP_SECONDS + ' 秒）'
+          : '裁不下去：剩下的不足最短时长（' + MIN_CLIP_SECONDS + ' 秒）');
+      }
+      let label = '把' + desc + (d > 0 ? '拉长' : '裁短') + '到 ' + sec(block.start) + '–' + sec(next.endAt) + ' 秒';
+      let data = replace(out);
+      let ripple = null;
+      if (kind === 'clip') {
+        ripple = { boundary: block.end, delta: rippleDeltaOf(block.end, block.start + num(out.duration)) };
+      } else {
+        data.captions = followCaptions(f.captions || [], id, cur, out);
+      }
+      Edit.patch(data, label, ripple);
+      return { ok: true, text: '已把' + desc + (d > 0 ? '拉长' : '裁短') + '到 ' + sec(block.start) + '–' + sec(block.start + num(out.duration)) + ' 秒。要退回就说「撤销最近一步」。' };
+    }
+    if (next.slip != null) {
+      const r = slipClip(cur, next.slip);
+      if (!r.delta) return loose('滑不动：源窗口能滑的范围是 ' + sgn(r.bounds.minimum) + ' 到 ' + sgn(r.bounds.maximum) + ' 秒');
+      Edit.patch(replace(r.clip), '把' + desc + '的源窗口滑移 ' + sgn(r.delta) + ' 秒');
+      return { ok: true, text: '已把' + desc + '的源窗口滑移 ' + sgn(r.delta) + ' 秒（画面出现在成片的时刻不变，换的是素材里的哪一段）。要退回就说「撤销最近一步」。' };
+    }
+    if (next.roll != null) {
+      const r = rollClipsBoundary(list, idx + 1, next.roll);
+      if (!r.delta) return loose('切点推不动：能动的范围是 ' + sgn(r.bounds.minimum) + ' 到 ' + sgn(r.bounds.maximum) + ' 秒');
+      const rightName = Edit.describeItem('clip', list[idx + 1] && list[idx + 1].id);
+      Edit.patch({ clips: r.clips }, '把' + desc + '与' + rightName + '之间的切点平移 ' + sgn(r.delta) + ' 秒');
+      const rows = deriveTimeline(filmOf().clips).rows;
+      const L = rows[idx], R = rows[idx + 1];
+      return { ok: true, text: '已把' + desc + '与' + rightName + '之间的切点平移 ' + sgn(r.delta) + ' 秒：左边一段现在 '
+        + sec(L.start) + '–' + sec(L.end) + ' 秒、右边一段 ' + sec(R.start) + '–' + sec(R.end) + ' 秒。要退回就说「撤销最近一步」。' };
+    }
+    if (next.slide != null) {
+      const r = slideClip(list, idx, next.slide);
+      if (!r.delta) return loose('滑不动：能动的范围由左右两段的长度决定（' + sgn(r.bounds.minimum) + ' 到 ' + sgn(r.bounds.maximum) + ' 秒）');
+      Edit.patch({ clips: r.clips }, '把' + desc + '在时间线上滑动 ' + sgn(r.delta) + ' 秒');
+      const rows = deriveTimeline(filmOf().clips).rows;
+      return { ok: true, text: '已把' + desc + '滑到 ' + sec(rows[idx].start) + '–' + sec(rows[idx].end) + ' 秒'
+        + '（这一段的长度与内容都不变，前后两段跟着换位）。要退回就说「撤销最近一步」。' };
+    }
+    if (next.moveTo != null) {
+      const time = round2(num(next.moveTo));
+      const rows = deriveTimeline(list).rows;
+      const to = dropIndexAt(rows, time, idx);
+      const r = reorderClips(list, idx, to);
+      if (r.index === idx) return { ok: true, text: '落点就在原位（第 ' + (idx + 1) + ' 位），没有动任何数据' };
+      const outRows = deriveTimeline(r.clips).rows;
+      const self = outRows[outRows.findIndex(x => x.clip && x.clip.id === id)];
+      Edit.patch({ clips: r.clips }, '把' + desc + '挪到 ' + sec(time) + ' 秒处（第 ' + (self.index + 1) + ' 位）');
+      return { ok: true, text: '已把' + desc + '从第 ' + (idx + 1) + ' 位挪到第 ' + (self.index + 1) + ' 位：现在占 '
+        + sec(self.start) + '–' + sec(self.end) + ' 秒（这一段本身没被剪）。要退回就说「撤销最近一步」。' };
+    }
+    return loose('没有落到的几何分支');
+  }
+
+  /* ---------- set 的字幕分支：单条（id + 字段）与整轨（entries / SRT / 重切 / 补齐） ----------
+     字幕的时间就是成片秒（film.captions 的 start/end），没有第二把尺子；
+     单条可多字段一起给（一个撤销窗一条历史），整轨内容改动一次只做一样。 */
+  const SUB_FIELDS = ['text', 'start', 'end', 'position', 'highlight', 'remove'];
+  function subPlan(a) {
+    a = a || {};
+    if (a.id != null && a.id !== '') {
+      const b = pick({ id: a.id }, 'cap'); if (b.err) return b;
+      const fields = SUB_FIELDS.filter(k => a[k] !== undefined && a[k] !== null);
+      if (!fields.length) return loose('改这一条字幕的什么没说：text / start / end / position（top·middle·bottom）/ highlight / remove 至少给一项');
+      if (a.remove != null && fields.length > 1) return loose('remove 是把这一条删掉：不要与别的字段一起给');
+      const next = {};
+      for (const k of fields) {
+        if (k === 'text') {
+          const v = String(a.text == null ? '' : a.text);
+          if (!v.trim()) return loose('text 不能是空串（要删掉这一条用 remove: true）');
+          next.text = v;
+        } else if (k === 'start' || k === 'end') {
+          const v = num(a[k]);
+          if (!(v >= 0)) return loose(k + ' 要是成片第几秒（0 起），给的是「' + a[k] + '」');
+          next[k] = v;
+        } else if (k === 'position') {
+          if (!POS_ZH[a.position]) return loose('position 只能是 top / middle / bottom');
+          next.position = a.position;
+        } else if (k === 'highlight') next.highlight = !!a.highlight;
+        else next.remove = !!a.remove;
+      }
+      return { kind: 'subtitle', mode: 'targeted', target: b.item, next, fields };
+    }
+    const content = [];
+    if (a.entries !== undefined) content.push('entries');
+    if (a.text != null && a.text !== '') content.push('text');
+    if (a.maxChars !== undefined) content.push('maxChars');
+    if (a.regenerate !== undefined) content.push('regenerate');
+    if (!content.length) {
+      return loose('要改字幕的什么没说：单条给 id + text/start/end/position/highlight/remove；'
+        + '整轨给 entries（成片秒条目）/ text（SRT 文本）/ maxChars（按字数重切）/ regenerate（按配音补齐）其中一样');
+    }
+    if (content.length > 1) return loose('整轨的内容改动一次只做一样：entries / text（SRT）/ maxChars / regenerate 互斥');
+    const mode = content[0];
+    if (mode === 'entries') {
+      const rows = a.entries;
+      if (!Array.isArray(rows) || !rows.length) return loose('entries 要是非空数组：[{text, start, end, position?}]，时间是成片秒');
+      if (rows.length > 5000) return loose('字幕一次最多 5000 条');
+      for (let i = 0; i < rows.length; i++) {
+        const e = rows[i] || {};
+        if (!String(e.text == null ? '' : e.text).trim()) return loose('第 ' + (i + 1) + ' 条字幕没有文字');
+        const s = num(e.start), t = num(e.end);
+        if (!Number.isFinite(s) || !Number.isFinite(t)) return loose('第 ' + (i + 1) + ' 条的 start/end 要是成片秒的数字');
+        if (t <= s) return loose('第 ' + (i + 1) + ' 条的 end 必须大于 start');
+        if (e.position != null && !POS_ZH[e.position]) return loose('第 ' + (i + 1) + ' 条的 position 只能是 top / middle / bottom');
+      }
+    } else if (mode === 'text') {
+      if (String(a.text).indexOf('-->') < 0) return loose('这段不像 SRT：时间行要写成 00:00:00,000 --> 00:00:02,000（改单条的字用 id + text）');
+    } else if (mode === 'maxChars') {
+      const n = Number(a.maxChars);
+      if (!Number.isInteger(n) || n < 1 || n > 500) return loose('maxChars 是每行最多几个字（1–500 的整数）');
+    }
+    return { kind: 'subtitle', mode, arg: a };
+  }
+  function subRun(p) {
+    if (p.mode === 'targeted') {
+      const id = p.target.id;
+      const name = Edit.describeItem('cap', id);
+      const bits = [];
+      const wrap = p.fields.length > 1;
+      if (wrap && !Edit.openUndoWindow('AI 改字幕' + name)) return loose('上一步编辑还没收尾，等一下再试');
+      try {
+        for (const k of p.fields) {
+          let ok = false;
+          if (k === 'text') { ok = Caption.capSetText(id, p.next.text); if (ok) bits.push('文字 → 「' + ctxClip(p.next.text, 20) + '」'); }
+          else if (k === 'start') { ok = Caption.capSetTime(id, 'start', p.next.start); if (ok) bits.push('起点 → ' + sec(p.next.start) + ' 秒'); }
+          else if (k === 'end') { ok = Caption.capSetTime(id, 'end', p.next.end); if (ok) bits.push('终点 → ' + sec(p.next.end) + ' 秒'); }
+          else if (k === 'position') {
+            ok = Caption.capSetStyle(id, { position: p.next.position }, '位置改成「' + POS_ZH[p.next.position] + '」');
+            if (ok) bits.push('位置 → ' + POS_ZH[p.next.position]);
+          } else if (k === 'highlight') {
+            ok = Caption.capSetStyle(id, { style: captionStyleOf(p.next.highlight) }, (p.next.highlight ? '加上' : '去掉') + '高亮底');
+            if (ok) bits.push(p.next.highlight ? '加上高亮底' : '去掉高亮底');
+          } else if (k === 'remove') { ok = Caption.capDelete(id); if (ok) bits.push('删掉这一条'); }
+        }
+        if (!bits.length) return { ok: true, text: '这些字段本来就是那个值，没有动任何数据' };
+        return { ok: true, text: '已改字幕' + name + '：' + bits.join(' · ') + '。要退回就说「撤销最近一步」。' };
+      } finally { if (wrap) Edit.closeUndoWindow(); }
+    }
+    if (p.mode === 'entries') {
+      const r = Caption.capAddEntries(p.arg.entries);
+      if (!r.ok) return loose(r.why || '没有写进任何字幕');
+      return { ok: true, text: '已新增 ' + r.count + ' 条字幕（全片现在 ' + r.total + ' 条）：时间是成片秒，直接对着整条时间线写 start/end。要退回就说「撤销最近一步」。' };
+    }
+    if (p.mode === 'text') {
+      const r = Caption.capImportSrtText(p.arg.text, p.arg.name || '助手导入');
+      if (!r.ok) return loose(r.why || 'SRT 没有导入');
+      return { ok: true, text: '已导入 SRT：并入 ' + r.count + ' 条、全片现在 ' + r.total + ' 条（文件里的时间按成片秒直接用）。要退回就说「撤销最近一步」。' };
+    }
+    if (p.mode === 'maxChars') {
+      const n = Number(p.arg.maxChars);
+      const before = (filmOf().captions || []).length;
+      if (!Caption.capResegment(n)) {
+        return loose('没有切出更多条：字幕轨是空的，或每行已经不超过 ' + Math.max(8, Math.min(120, n)) + ' 个字');
+      }
+      const after = (filmOf().captions || []).length;
+      return { ok: true, text: '已按每行 ' + n + ' 字把长字幕重切：' + before + ' 条 → ' + after + ' 条（内容不变，时间按字数比例分）。要退回就说「撤销最近一步」。' };
+    }
+    const before = (filmOf().captions || []).length;
+    if (!Caption.capGenerate()) {
+      return loose('没有补出新的字幕：配音轨与待生成轨上都没有带字的块，或每一句都已经有字幕挂着（要改字给 id 单条改）');
+    }
+    const after = (filmOf().captions || []).length;
+    return { ok: true, text: '已按配音与待生成补出 ' + (after - before) + ' 条字幕（全片现在 ' + after
+      + ' 条）：每条接在自己那句上，之后块挪位字幕跟着走。要退回就说「撤销最近一步」。' };
+  }
+
+  /* ---------- 只读口：字幕清单 / SRT 文本 / 撤销栈 ---------- */
+  function subtitleInfo(a) {
+    a = a || {};
+    const f = filmOf();
+    const got = visibleCaptions(f);
+    let rows = got.list;
+    if (a.id != null && a.id !== '') rows = rows.filter(c => String(c.id) === String(a.id));
+    if (a.voiceId != null && a.voiceId !== '') rows = rows.filter(c => String(c.voiceId || '') === String(a.voiceId));
+    const out = {
+      时间基准: 'film',
+      全轨: (f.captions || []).length,
+      条数: rows.length,
+      跳过: { 被眼睛藏掉: (got.skipped && got.skipped.hidden) || 0, 没有字: (got.skipped && got.skipped.empty) || 0 },
+      条目: rows.slice(0, 200).map((c, i) => ({ 序: i + 1, id: c.id, start: num(c.start), end: num(c.end),
+        text: c.text, 位置: c.position || 'bottom', 高亮: (c.style || 'default') !== 'plain', 挂着: c.voiceId || '' })),
+    };
+    if (rows.length > 200) out.说明 = '只列出前 200 条（共 ' + rows.length + ' 条）：用 id 过滤看单条';
+    return out;
+  }
+  function srtOut() {
+    const got = Caption.capSrtText({ bom: false, crlf: false });
+    return { ok: true, 条数: got.条数, 跳过: got.跳过, 时间基准: 'film', text: got.text };
   }
   function undoPlan(a) {
     a = a || {};
@@ -227,289 +705,165 @@ export function createBridge(E, document, window) {
     const steps = Math.max(1, Math.min(5, Number(a.steps) || 1));
     const n = mode === 'redo' ? redoStack.length : undoStack.length;
     if (!n) {
-      return loose(mode === 'redo' ? '没有可重做的操作' : ('可撤销的已经用完了' + (undoSkipWhyOf() ? '（' + undoSkipWhyOf() + '）' : '')));
+      return loose(mode === 'redo' ? '没有可重做的操作'
+        : ('可撤销的已经用完了' + (undoSkipWhyOf() ? '（' + undoSkipWhyOf() + '）' : '')));
     }
-    return { mode, steps: Math.min(steps, n), n };
+    return { kind: 'undo', mode, steps: Math.min(steps, n), n };
   }
 
-  /* ---------- 字幕：桥这一侧的 check / run（数据层仍是 sh.subtitle 那一份源秒） ----------
-     `set {kind:'subtitle'}` 三个内容档互斥：entries（源秒条目）/ text（SRT 成片秒）/
-     maxChars（按字数重切）；style 可以与其中任意一档同时给。所有入口都落回
-     `subWriteData` → `filmEdited`，不另写一份字幕账。 */
-  const SUB_STYLE_KEYS = ['fontFamily', 'fontSize', 'color', 'position', 'maxCharsPerEntry', 'highlight'];
-  const SUB_POS = ['bottom', 'middle', 'top'];
-  const HEX6 = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-  function stylePatchOf(raw) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      return { err: 'style 要是一个对象：{fontSize, color, position, maxCharsPerEntry, highlight, fontFamily}' };
-    }
-    const patch = {};
-    for (const k of Object.keys(raw)) {
-      if (!SUB_STYLE_KEYS.includes(k)) return { err: 'style 里不认识「' + k + '」；能改的只有 ' + SUB_STYLE_KEYS.join(' / ') };
-    }
-    if (raw.fontSize != null) {
-      const v = Number(raw.fontSize);
-      if (!Number.isFinite(v) || v < 12 || v > 300) return { err: 'fontSize 要在 12–300 之间（1080p 下的像素）' };
-      patch.fontSize = Math.round(v);
-    }
-    if (raw.color != null) {
-      if (!HEX6.test(String(raw.color).trim())) return { err: 'color 要是 #RRGGBB 或 #RGB' };
-      patch.color = String(raw.color).trim().toUpperCase();
-    }
-    if (raw.position != null) {
-      if (!SUB_POS.includes(raw.position)) return { err: 'position 只能是 bottom / middle / top' };
-      patch.position = raw.position;
-    }
-    if (raw.maxCharsPerEntry != null) {
-      const v = Number(raw.maxCharsPerEntry);
-      if (!Number.isInteger(v) || v < 8 || v > 120) return { err: 'maxCharsPerEntry 要在 8–120 之间（整数）' };
-      patch.maxCharsPerEntry = v;
-    }
-    if (raw.highlight != null) patch.highlight = !!raw.highlight;
-    if (raw.fontFamily != null) {
-      const v = String(raw.fontFamily).replace(/\s+/g, ' ').trim();
-      if (!v) return { err: 'fontFamily 不能是空串' };
-      patch.fontFamily = v.slice(0, 60);
-    }
-    return { patch };
-  }
-  /* 助手给的 entries 一律是**候选源秒**（startMs/endMs）；也接受 start/end 秒数写法，
-     但只在这两个字段缺省时兜底 —— 不拿「看起来像秒」去猜毫秒。 */
-  function subEntriesIn(list, total) {
-    if (!Array.isArray(list)) return { err: 'entries 要是数组：[{startMs,endMs,text}]，时间是候选源秒' };
-    if (list.length > 5000) return { err: '字幕一次最多 5000 条' };
-    const out = [];
-    let last = -Infinity;
-    for (let i = 0; i < list.length; i++) {
-      const e = list[i];
-      if (!e || typeof e !== 'object' || Array.isArray(e)) return { err: '第 ' + (i + 1) + ' 条字幕不是对象' };
-      const text = String(e.text == null ? '' : e.text).replace(/\r\n?/g, '\n').trim();
-      if (!text) return { err: '第 ' + (i + 1) + ' 条字幕没有文字' };
-      if (text.length > 2000) return { err: '第 ' + (i + 1) + ' 条字幕超过 2000 字（这么长的一行在画面上放不下）' };
-      let a = e.startMs, b = e.endMs;
-      if (a == null && e.start != null) a = Number(e.start) * 1000;
-      if (b == null && e.end != null) b = Number(e.end) * 1000;
-      a = Number(a); b = Number(b);
-      if (!Number.isFinite(a) || !Number.isFinite(b)) return { err: '第 ' + (i + 1) + ' 条字幕的 startMs/endMs 不是数字' };
-      if (b <= a) return { err: '第 ' + (i + 1) + ' 条字幕的 endMs 必须大于 startMs' };
-      if (a < 0 || b > total * 1000 + 1) {
-        return { err: '第 ' + (i + 1) + ' 条字幕落在候选源时间轴之外（这一条 0–' + round1(total) + ' 秒，源秒不是成片秒）' };
-      }
-      if (a < last) return { err: '字幕要按 startMs 从小到大排（第 ' + (i + 1) + ' 条比上一条更早）' };
-      last = a;
-      const rec = { startMs: Math.round(a), endMs: Math.round(b), text, src: e.src === 'asr' ? 'asr' : 'manual' };
-      if (e.seg != null) {
-        const sg = Number(e.seg);
-        if (Number.isInteger(sg) && sg >= 1) rec.seg = sg - 1;
-      }
-      if (e.voiceKey != null) rec.voiceKey = String(e.voiceKey).slice(0, 120);
-      out.push(rec);
-    }
-    return { entries: out };
-  }
-  function subClampWarn(sh, c, total, entries) {
-    const segs = segsOf(c, total);
-    const inSeg = sec => segs.some(s => sec >= (Number(s.in) || 0) - 0.001 && sec <= (Number(s.out) || 0) + 0.001);
-    let n = 0;
-    entries.forEach(e => {
-      if (!inSeg((Number(e.startMs) || 0) / 1000) || !inSeg((Number(e.endMs) || 0) / 1000)) n++;
-    });
-    return n ? ['有 ' + n + ' 条字幕落在已经剪掉的源区间上，预览/导出时会夹到最近的画面边界'] : [];
-  }
-  function subPlan(a) {
-    a = a || {};
-    const s = shotOf(a); if (s.err) return s;
-    const sh = s.sh;
-    if (a.take != null) {
-      const q = candOf(sh, a, 'selected'); if (q.err) return q;
-      if (q.c.vid !== sh.selId) {
-        return loose('字幕跟着「选用」的那条候选走：先把「' + capTxt(sh.name, 30) + '」第 ' + (q.i + 1) + ' 条设为选用，再改字幕');
-      }
-    }
-    const c = chosenCandOf(sh);
-    if (!c) return loose('「' + capTxt(sh.name, 30) + '」还没有选用候选：字幕的源秒/成片秒都要按选用那条换算，先在导演台选一条');
-    const total = candDur(c, sh);
-    const cur = currentOf(sh, voicesRead());
-    const wantEntries = a.entries !== undefined;
-    const wantText = typeof a.text === 'string' && !!a.text.trim();
-    const wantReseg = a.maxChars !== undefined;
-    if ((wantEntries ? 1 : 0) + (wantText ? 1 : 0) + (wantReseg ? 1 : 0) > 1) {
-      return loose('一次只做一件内容改动：entries / text（SRT）/ maxChars 三选一（style 可以同时给）');
-    }
-    let stylePatch = null;
-    if (a.style !== undefined) {
-      const r = stylePatchOf(a.style);
-      if (r.err) return loose(r.err);
-      stylePatch = r.patch;
-    }
-    let entries = null, source = '', mode = '', warnings = [], maxChars = null;
-    if (wantText) {
-      const parsed = srtParse(a.text);
-      if (!parsed.length) return loose('这段 SRT 没解析出字幕（检查时间行是不是 00:00:00,000 --> 00:00:02,000）');
-      if (parsed.length > 5000) return loose('这段 SRT 有 ' + parsed.length + ' 条，超过 5000 条上限');
-      const shotAt = shotFilmAt(sh);
-      if (shotAt == null) return loose('「' + capTxt(sh.name, 30) + '」还没进成片（没有选用候选 / 画面全被剪掉），SRT 的成片秒折不回源秒');
-      const span = filmSpanOf(sh, shotAt, c);
-      const inSpan = parsed.filter(e => {
-        const at = (Number(e.startMs) || 0) / 1000;
-        return at >= shotAt - 0.001 && at < shotAt + span + 0.001;
-      });
-      if (!inSpan.length) {
-        return loose('这段 SRT 里没有落在本镜的字幕（本镜在成片里是 ' + fmtDur(shotAt) + '–' + fmtDur(shotAt + span) + '）');
-      }
-      const mapped = mapFromFilm(sh, shotAt, inSpan, { cand: c });
-      if (!mapped.length) return loose('落在本镜的那 ' + inSpan.length + ' 条折回源秒后是空的');
-      entries = mapped; source = 'manual'; mode = 'import_srt';
-      if (inSpan.length < parsed.length) warnings.push((parsed.length - inSpan.length) + ' 条不在本镜，没有导入');
-      if (parsed.skipped) warnings.push(parsed.skipped + ' 块格式不对，已跳过');
-    } else if (wantEntries) {
-      const r = subEntriesIn(a.entries, total);
-      if (r.err) return loose(r.err);
-      entries = r.entries;
-      if (a.source === 'asr') source = 'asr';
-      else if (a.source != null && a.source !== 'manual') return loose('source 只能是 manual / asr（line+voice 用 source:"line+voice" 且不要给 entries，让编辑器按台词重新派生）');
-      else source = 'manual';
-      mode = 'update';
-    } else if (wantReseg) {
-      const lim = Number(a.maxChars);
-      if (!Number.isInteger(lim) || lim < 1 || lim > 500) return loose('maxChars 是每行最多几个字（1–500 的整数）');
-      const base = a.source === 'line+voice' ? entriesFromShot(sh, voicesRead(), c) : cur.entries;
-      if (!base.length) return loose('「' + capTxt(sh.name, 30) + '」现在没有字幕可重切：先用 entries 更新或导入 SRT');
-      entries = resegment(base, lim).map(e => Object.assign({}, e, { src: 'manual' }));
-      source = 'manual'; mode = 'resegment'; maxChars = lim;
-    } else if (a.source === 'line+voice') {
-      entries = entriesFromShot(sh, voicesRead(), c);
-      if (!entries.length) return loose('这一镜没有可派生字幕的台词或配音：先写台词，或在配音轨上合成一句');
-      source = 'line+voice'; mode = 'generate';
-    } else if (!stylePatch) {
-      return loose('要改字幕的什么没说：entries（源秒条目）/ style（样式）/ maxChars（按字数重切）/ text（SRT），或 source:"line+voice" 重新生成');
-    } else {
-      mode = 'style';
-    }
-    if (entries) warnings = warnings.concat(subClampWarn(sh, c, total, entries));
-    if (cur.stale && (mode === 'update' || mode === 'import_srt')) {
-      warnings.push('这一镜的台词/配音或选用候选已经变过（旧字幕标着 stale），这次写入会以你给的这一份为准');
-    }
-    return { sc: s.sc, sh, c, total, cur, entries, stylePatch, source, mode, warnings, maxChars };
-  }
-  function subResultText(p, sub) {
-    const n = p.entries ? p.entries.length : p.cur.entries.length;
-    let text = '';
-    if (p.mode === 'import_srt') text = '已把 SRT 导入「' + capTxt(p.sh.name, 30) + '」：' + n + ' 条（成片秒已折回候选源秒）';
-    else if (p.mode === 'resegment') text = '已把「' + capTxt(p.sh.name, 30) + '」的字幕按每行 ' + p.maxChars + ' 字重切成 ' + n + ' 条';
-    else if (p.mode === 'generate') text = '已按台词/配音在「' + capTxt(p.sh.name, 30) + '」重新生成 ' + n + ' 条字幕';
-    else if (p.mode === 'update') text = '已更新「' + capTxt(p.sh.name, 30) + '」的字幕：现在 ' + n + ' 条';
-    else text = '已改「' + capTxt(p.sh.name, 30) + '」的字幕样式';
-    if (p.stylePatch) text += '（样式：' + Object.keys(p.stylePatch).join(' / ') + '）';
-    text += '，数据层是候选源秒';
-    if (sub && sub.source === 'line+voice') text += '；这一份跟台词/配音走，之后它们变了会自动跟着重派生';
-    text += '。要退回就说「撤销最近一步」。';
-    return text;
+  /* left / right 不走工具条（工具条的剪子认播放头）：直接用 tl-resize 那两把剪子裁这一段。
+     剪尾带波纹（后面开跑的定时块跟着挪），剪头不带（起点是累加出来的，前面没有「边界之后」）。 */
+  function cutTrim(p) {
+    const b = p.block, it = b.item;
+    const name = Edit.describeItem('clip', it.id);
+    const d = round2(p.way === 'left' ? p.at - b.start : b.end - p.at);
+    const out = p.way === 'left' ? trimClipLeft(it, d) : trimClipRight(it, d);
+    if (!out) return loose('这一刀裁不下去（剩下的不足最短时长 ' + MIN_CLIP_SECONDS + ' 秒）');
+    const f = filmOf();
+    const data = { clips: (f.clips || []).map(x => (x && x.id === it.id ? out : x)) };
+    let ripple = null;
+    if (p.way === 'right') ripple = { boundary: b.end, delta: rippleDeltaOf(b.end, b.start + num(out.duration)) };
+    Edit.patch(data, '把' + name + (p.way === 'left' ? '开头 ' : '末尾 ') + sec(d) + ' 秒裁掉', ripple);
+    return { ok: true, changedIds: [it.id],
+      text: '已把' + name + (p.way === 'left' ? '的开头裁掉 ' : '的末尾裁掉 ') + sec(d) + ' 秒：这一段现在 '
+        + sec(b.start) + '–' + sec(b.start + num(out.duration)) + ' 秒。要退回就说「撤销最近一步」。' };
   }
 
-  /* 修订号 CAS：写动作必须带 expectedRevision（助手在计划生成时冻结的那一份），
-     run 时再验一次 —— 用户在两颗按钮之间改了工程就当场拒掉，不拿旧计划去盖。
-     同一次批量里后续 op 不验（revision 由引擎自己推进），只验第一条。 */
-  function subBatch(a) {
-    const b = a && a._batch;
-    return b && typeof b === 'object' ? b : null;
+  /* ---------- check / run：身份对账（不再有修订号） ----------
+     check 把「这一次要动谁」按身份记在 lastCheck；run 先按同一份参数再解析一遍 plan，
+     两边的目标对不上（换工程 / 块被删或换了）就当场拒掉，让模型按新状态重读。
+     用户批准的是那一块，不是「第几块」—— 下标是活的，id 才是身份。 */
+  let lastCheck = null;
+  function targetOf(p) {
+    if (!p || p.err) return null;
+    if (p.kind === 'select') return ['select', (p.sh && p.sh.id) || '', (p.c && p.c.vid) || ''];
+    if (p.kind === 'cut') return ['cut', (p.block && p.block.item && p.block.item.id) || ''];
+    if (p.kind === 'subtitle') return ['subtitle', p.mode === 'targeted' ? ((p.target && p.target.id) || '') : p.mode];
+    if (p.kind === 'undo') return ['undo'];
+    return ['set', p.kind, (p.it && p.it.id) || ''];
   }
-  function batchOf(a) {
-    const b = subBatch(a);
-    return { inBatch: !!b, first: !!(b && b.first), last: !!(b && b.last) };
+  const sameTarget = (x, y) => JSON.stringify(x || null) === JSON.stringify(y || null);
+  function planOf(op, a) {
+    if (op === 'select') return selectPlan(a);
+    if (op === 'cut') return cutPlan(a);
+    if (op === 'set') return setPlan(a);
+    if (op === 'undo') return undoPlan(a);
+    return loose('不认识的时间线动作：' + op);
   }
-  /* 批量只在第一条前压一次撤销快照、最后一条后重画一次；中间每一步照常改内存，
-     后一条的 `*Plan` 读得到前一条的结果。任一条失败由助手侧调 undo（带 `_rollback`）回滚整批。 */
-  function editBegin(a, label) {
-    const b = batchOf(a);
-    if (!b.inBatch || b.first) beginEdit(label);
-    return b;
+  function dirCheck(op, a) {
+    if (!ACTIVE()) return loose('当前不在导演台：切到导演台再让我动时间线（别切走之后让我盲改）');
+    if (!READY()) return loose('导演台还没加载完，等这一页画出来再说');
+    try {
+      const p = planOf(op, a);
+      if (p.err) { lastCheck = null; return p; }
+      lastCheck = { op, target: targetOf(p) };
+      if (op === 'select') {
+        return { ok: true,
+          text: '把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选设为选用' + (p.already ? '（现在已经是）' : ''),
+          lines: ['镜头：' + capTxt(p.sh.name, 40) + (p.sc ? '（' + capTxt(p.sc.name, 20) + '）' : ''),
+            '候选：第 ' + (p.i + 1) + ' / ' + (p.sh.candidates || []).length + ' 条 · ' + round1(candDur(p.c, p.sh)) + ' 秒',
+            '状态：' + (p.c.status || '未知'),
+            '动作：设为选用 —— 成片里这一镜的片段换成这一条' + (p.already ? '（已经是，执行不会改任何东西）' : '')] };
+      }
+      if (op === 'cut') {
+        const b = p.block;
+        const delta = { split: 1, remove: -1, duplicate: 1, merge: -1 }[p.way] || 0;
+        const keep = p.way === 'left' ? '保留：从 ' + sec(p.at) + ' 到 ' + sec(b.end) + ' 秒'
+          : p.way === 'right' ? '保留：从 ' + sec(b.start) + ' 到 ' + sec(p.at) + ' 秒'
+          : '这一段正压着成片的这一截，剪它成片就变';
+        return { ok: true,
+          text: WAY_ZH[p.way] + '：' + (Edit.describeItem('clip', b.item.id) || KIND_ZH.clip),
+          lines: ['这一段：' + sec(b.start) + '–' + sec(b.end) + ' 秒',
+            '剪法：' + WAY_ZH[p.way] + (p.way === 'split' || p.way === 'left' || p.way === 'right' ? '（在 ' + sec(p.at) + ' 秒处）' : ''),
+            keep,
+            '剪完：成片 ' + (filmOf().clips.length + delta) + ' 段'] };
+      }
+      if (op === 'set') {
+        if (p.kind === 'subtitle') {
+          if (p.mode === 'targeted') {
+            return { ok: true,
+              text: '改字幕' + (Edit.describeItem('cap', p.target.id) || '（一条）') + '：' + p.fields.map(k => FIELD_ZH[k] || k).join('、'),
+              lines: ['这一条：' + sec(num(p.target.start)) + '–' + sec(num(p.target.end)) + ' 秒 · 「' + ctxClip(p.target.text, 30) + '」',
+                '改成：' + p.fields.map(k => (k === 'position' ? '位置 → ' + POS_ZH[p.next.position]
+                  : k === 'highlight' ? (p.next.highlight ? '加上高亮底' : '去掉高亮底')
+                  : k === 'text' ? '文字 → 「' + ctxClip(p.next.text, 20) + '」'
+                  : k === 'remove' ? '删掉这一条'
+                  : k + ' → ' + sec(p.next[k]) + ' 秒')).join(' · ')] };
+          }
+          const zh = { entries: '新增 ' + (p.arg.entries || []).length + ' 条字幕（成片秒）',
+            text: '导入一段 SRT（时间按成片秒直接用）',
+            maxChars: '按每行 ' + p.arg.maxChars + ' 字重切长字幕',
+            regenerate: '按配音与待生成补齐缺字幕的句子' };
+          return { ok: true, text: '整轨字幕改动：' + zh[p.mode],
+            lines: ['现在全轨：' + (filmOf().captions || []).length + ' 条', '动作：' + zh[p.mode]] };
+        }
+        return { ok: true,
+          text: '改' + KIND_ZH[p.kind] + '（' + (Edit.describeItem(p.kind, p.it.id) || KIND_ZH[p.kind]) + '）的' + p.fields.map(k => FIELD_ZH[k] || k).join('、'),
+          lines: ['这一块：' + (p.kind === 'clip'
+              ? sec(p.block.start) + '–' + sec(p.block.end) + ' 秒'
+              : sec(num(p.it.start)) + '–' + sec(num(p.it.start) + num(p.it.duration)) + ' 秒'),
+            '改成：' + p.fields.map(k => {
+              if (k === 'speed') return '倍速 → ' + spdTxt(p.next.speed);
+              if (k === 'volume') return '音量 → ' + Math.round(p.next.volume * 100) + '%';
+              if (k === 'muted') return p.next.muted ? '原声静音' : '取消静音';
+              if (k === 'lane') return '行 → 第 ' + (p.next.lane + 1) + ' 行';
+              if (k === 'transition') return '转场 → ' + (p.next.transition ? p.next.transition.id : '无');
+              return k + ' → ' + p.next[k];
+            }).join(' · ')] };
+      }
+      return { ok: true, text: (p.mode === 'redo' ? '重做 ' : '撤销 ') + p.steps + ' 步',
+        lines: [(p.mode === 'redo' ? '可重做：' : '可撤销：') + p.n + ' 步', '这次做 ' + p.steps + ' 步'] };
+    } catch (e) { lastCheck = null; return loose(errText(e)); }
   }
-  function editEnd(a, b) {
-    if (!b.inBatch || b.last) filmEdited();
-  }
-  function revNow() { return Number(projOf() && projOf().rev) || 0; }
-  /* 只读路径用的配音清单：不建 proj.voices 字段（voicesEnsure 会往工程里写一个空数组，
-     桥上的纯读也就改了工程 —— 快照变、下一次保存多压一步撤销）。 */
-  const voicesRead = () => (Array.isArray(projOf().voices) ? projOf().voices : []);
-  function revGate(a, op) {
-    /* `_rollback` 只认 undo 那一条（批量失败时助手侧的整批回滚，chat-tools.js 的
-       timelineApplyRun）：模型往 select / cut / set 的参数里塞一个 _rollback:true
-       就能把 revision 校验整个绕过去 —— 参数对象是原样递进来的，得在这里按 op 收口。 */
-    if (a && a._rollback && op === 'undo') return null;
-    const b = subBatch(a);
-    if (b && !b.first) return null;
-    const exp = a && a.expectedRevision;
-    if (exp == null || exp === '') {
-      return loose('写动作缺少 expectedRevision：先用 timeline_get 读一次当前 revision，再原样带上');
-    }
-    if (Number(exp) !== revNow()) {
-      return { ok: false, code: 'revision_mismatch',
-        err: '工程在你读取之后又改过（你拿的是 revision ' + Number(exp) + '，现在是 ' + revNow()
-          + '）。为避免盖掉你刚做的编辑，这次没有执行：先重新读 timeline_get，再按新状态来一次' };
-    }
-    return null;
-  }
-  /* 只读：某一镜的字幕账（源秒 + 成片秒 + 样式 + stale）。`subtitle.list` 与
-     `context().字幕` 都读它，不在助手侧另算一套。 */
-  function subtitleInfo(a) {
-    const s = shotOf(a || {}); if (s.err) return s;
-    const sh = s.sh, c = chosenCandOf(sh);
-    const cur = currentOf(sh, voicesRead());
-    const shotAt = shotFilmAt(sh);
-    const list = (sh.candidates || []);
-    const ci = c ? list.findIndex(x => x.vid === c.vid) : -1;
-    const rows = cur.entries.map(e => {
-      const m = shotAt != null ? filmOf(sh, shotAt, e) : null;
-      return {
-        index: e.index, startMs: e.startMs, endMs: e.endMs, text: e.text, src: e.src,
-        段: (Number(e.seg) || 0) + 1,
-        成片起: m ? Math.round(m.filmStart * 1000) / 1000 : null,
-        成片止: m ? Math.round(m.filmEnd * 1000) / 1000 : null,
-        夹过: m ? !!(m.clampedStart || m.clampedEnd) : false,
-      };
-    });
-    const out = {
-      镜头: capTxt(sh.name, 30), 镜头id: sh.id,
-      候选: ci >= 0 ? ('第 ' + (ci + 1) + ' / ' + list.length + ' 条') : '未选用',
-      时间基准: 'source',  // startMs/endMs 是候选源秒；成片起/成片止 是成片秒
-      来源: cur.source, 条数: rows.length, 过时: cur.stale, 过时原因: cur.staleWhy || '',
-      样式: cur.style, 源指纹: cur.sourceHash,
-      在成片里: shotAt != null,
-      成片起点: shotAt != null ? round1(shotAt) : null,
-      条目: rows.slice(0, 200),
-      revision: revNow(),
-    };
-    if (rows.length > 200) out.说明 = '只列出前 200 条（共 ' + rows.length + ' 条）';
-    return out;
-  }
-  /* 只读：字幕 → SRT 文本。不给 shotId 就是全片（成片秒）；给了就只出那一镜
-     （进了成片用成片秒，没进成片用本镜甲板秒，`时间基准` 里写明）。下载仍由页面/助手 UI 完成。 */
-  function subtitleSrt(a) {
-    const sid = a && a.shotId;
-    if (sid != null && sid !== '') {
-      const sh = allShots().find(x => String(x.id) === String(sid));
-      if (!sh) return loose('没有这个镜头：' + sid);
-      const cur = currentOf(sh, voicesRead());
-      const shotAt = shotFilmAt(sh);
-      const mapped = shotAt != null ? mapToFilm(sh, shotAt, cur.entries) : mapToShot(sh, cur.entries);
-      const entries = mapped.map(e => {
-        const a0 = e.filmStart != null ? e.filmStart : e.shotStart;
-        const b0 = e.filmEnd != null ? e.filmEnd : e.shotEnd;
-        return Object.assign({}, e, { startMs: Math.round(a0 * 1000), endMs: Math.round(b0 * 1000) });
-      });
-      return { ok: true, 镜头: capTxt(sh.name, 30), 条数: entries.length,
-        时间基准: shotAt != null ? 'film' : 'shot', 在成片里: shotAt != null,
-        text: srtSerialize(entries, { bom: false, crlf: false }), revision: revNow() };
-    }
-    const { rows } = filmRowsForSubtitles();
-    const got = filmEntriesOf(rows, allShots(), voicesRead());
-    return {
-      ok: true,
-      条数: got.entries.length,
-      未进成片的镜头: got.missing.map(x => ({ 镜头: capTxt(x.shot.name, 30), 条数: x.count, 原因: x.why === 'nocand' ? '没有选用候选' : '没进成片' })),
-      时间基准: 'film', text: srtSerialize(got.entries, { bom: false, crlf: false }), revision: revNow(),
-    };
+  function dirRun(op, a) {
+    if (!ACTIVE()) return loose('当前不在导演台：切到导演台再让我动时间线');
+    if (!READY()) return loose('导演台还没加载完');
+    const prior = lastCheck;
+    lastCheck = null;
+    if (!prior || prior.op !== op) return loose('执行之前要先 check 同一个动作（先校验、给用户过目、再执行）');
+    try {
+      const p = planOf(op, a);
+      if (p.err) return p;
+      if (!sameTarget(prior.target, targetOf(p))) {
+        return loose('check 与 run 之间时间线变过了（要动的那一块已经不在或换了）：重新读 timeline_get，再 check 一次');
+      }
+      if (op === 'select') {
+        if (p.already) return { ok: true, text: '它本来就是选用的那条，数据没动', changedIds: [] };
+        const w = undoWindow('AI 选片：把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条设为选用', () => null);
+        if (w && w.err) return w;
+        try {
+          focus(p.sc, p.sh, p.i);
+          setSelectedCandidate(p.sh, p.c);
+        } finally { Edit.closeUndoWindow(); }
+        const rows = deriveTimeline(filmOf().clips).rows;
+        const text = '已把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条设为选用：成片现在 ' + rows.length
+          + ' 段、共 ' + sec(rows.length ? rows[rows.length - 1].end : 0) + ' 秒。要退回就说「撤销最近一步」。';
+        setStatus('<span class="ok">✓ ' + escHTML(text) + '</span>');
+        return { ok: true, text, changedIds: [p.sh.id] };
+      }
+      if (op === 'cut') {
+        const r = (p.way === 'left' || p.way === 'right') ? cutTrim(p) : cutDelegated(p);
+        if (r.ok && !r.changedIds) r.changedIds = [p.block.item.id];
+        if (r.ok) setStatus('<span class="ok">✓ ' + escHTML(r.text) + '</span>');
+        return r;
+      }
+      if (op === 'set') {
+        const r = p.kind === 'subtitle' ? subRun(p)
+          : (Object.keys(p.next).some(k => GEO_KEYS.includes(k)) ? setGeo(p, a) : setRun(p, a));
+        if (r && r.ok && !r.changedIds) r.changedIds = [(p.it && p.it.id) || (p.target && p.target.id) || ''].filter(Boolean);
+        if (r && r.ok) setStatus('<span class="ok">✓ ' + escHTML(r.text) + '</span>');
+        return r;
+      }
+      let done = 0;
+      for (let k = 0; k < p.steps; k++) {
+        if (p.mode === 'redo') { if (!redoStack.length) break; redo(); }
+        else { if (!undoStack.length) break; undo(); }
+        done++;
+      }
+      if (!done) return loose('一步都没有退成：撤销栈已经空了');
+      return { ok: true, changedIds: [], text: (p.mode === 'redo' ? '已重做 ' : '已撤销 ') + done
+        + ' 步（还能撤销 ' + undoStack.length + ' 步 · 可重做 ' + redoStack.length + ' 步）' };
+    } catch (e) { return loose(errText(e)); }
   }
 
   /* ---------- 媒体 / 转写 / 导出：助手入口（都复用页面已有的那一条实现） ---------- */
@@ -625,7 +979,7 @@ export function createBridge(E, document, window) {
     } catch (e) { return loose('读不到转写任务：' + errText(e)); }
   }
 
-  /* 助手发起的导出：仍调用页面同一套导出函数（不另写渲染管线），这里只做记录与状态查询。 */
+  /* ---------- 导出：助手发起的导出仍调用页面同一套导出函数（不另写渲染管线），这里只做记录与状态查询 ---------- */
   const expJobs = new Map();
   let expSeq = 0;
   function expNew(format) {
@@ -663,8 +1017,7 @@ export function createBridge(E, document, window) {
     const fmt = String(a.format || ExportFormats.ids()[0]);
     const f = ExportFormats.of(fmt);
     if (!f) return loose('format 只能是 ' + ExportFormats.hint());
-    const tl = tlSyncFromShots();
-    if (!tl.clips.length) return loose('现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面');
+    if (!(filmOf().clips || []).length) return loose('现在成片里一段画面都没有：先选用几条候选（候选卡上的「用这条」），或者先生成画面');
     if (f.renders && Export.isRendering()) return loose('已有导出任务在进行中，等这一轮结束或先取消');
     const rec = expNew(fmt);
     const settle = r => expSettle(rec, !!(r && r.ok), r);
@@ -708,8 +1061,8 @@ export function createBridge(E, document, window) {
     return { ok: true, jobs: [...expJobs.values()].sort((a, b) => b.at - a.at).map(expView) };
   }
   /* 助手侧「最近导出」：本次页面会话里发起的那几笔。
-     服务端的导出记录随渲染管线一起删了（浏览器内合成没有代理账本）——
-     刷新之后就没有「最近导出」可查，要文件就再导一次或去下载目录找。 */
+     服务端没有渲染账本（导出在浏览器内合成）—— 刷新之后就没有「最近导出」可查，
+     要文件就再导一次或去下载目录找。 */
   async function exportRecent(a) {
     return { ok: true, 助手发起的: exportList().jobs, 说明: '只有本次页面会话里的记录（导出在浏览器内合成，代理不留账本）' };
   }
@@ -727,7 +1080,7 @@ export function createBridge(E, document, window) {
     if (!name) return loose('没说要存哪一份：给 name（最近导出里的文件名），或先导出一份成片');
     try {
       /* 成片字节在会话缓存里（这一轮刚合成的那份）—— 直接把字节交给资产库，
-         不再走「服务端渲染目录里复制一份」那条路（渲染目录已经删了）。 */
+         不再走「服务端渲染目录里复制一份」那条路。 */
       const blob = Export.filmBlobOf ? Export.filmBlobOf(name) : null;
       if (!blob) return loose('这一份字节不在本次会话里（刷新过就没了）：再点一次「导出成片」，导完立刻存');
       const b64 = await new Promise((res, rej) => {
@@ -746,260 +1099,105 @@ export function createBridge(E, document, window) {
     } catch (e) { return loose('存进资产库失败：' + errText(e)); }
   }
 
-  function dirCheck(op, a) {
-    if (!ACTIVE()) return loose('当前不在导演台：切到导演台再让我动时间线（别切走之后让我盲改）');
-    if (!READY()) return loose('导演台还没加载完，等这一页画出来再说');
-    try {
-      if (op === 'select' || op === 'cut' || op === 'set' || op === 'undo') {
-        const gate = revGate(a, op);
-        if (gate) return gate;
-      }
-      if (op === 'select') {
-        const p = selectPlan(a); if (p.err) return p;
-        /* pid/vid = 这一次读到的**身份**（哪一部短片、哪一条候选）：check 与 run 之间
-           用户可能切了短片、候选可能被轮询重排（「已出片」的往前排）——
-           run 时身份对不上就拒掉，让模型按新状态重读；下标是活的，身份才是用户批准的那一条。 */
-        return { ok: true, pid: projOf().id, vid: p.c.vid,
-          text: '把「' + capTxt(p.sh.name, 30) + '」第 ' + (p.i + 1) + ' 条候选设为选用' + (p.already ? '（现在已经是）' : ''),
-          lines: ['镜头：' + capTxt(p.sh.name, 40) + (p.sc ? '（' + capTxt(p.sc.name, 20) + '）' : ''),
-            '候选：第 ' + (p.i + 1) + ' / ' + (p.sh.candidates || []).length + ' 条 · ' + capTxt(p.c.vid, 40),
-            '状态：' + (p.c.status || '未知') + ' · ' + round1(candDur(p.c, p.sh)) + ' 秒',
-            '动作：设为选用 —— 成片这一镜按这一条算' + (p.already ? '（已经是，执行不会改任何东西）' : '')] };
-      }
-      if (op === 'cut') {
-        const p = cutPlan(a); if (p.err) return p;
-        const after = p.out.segs.reduce((x, s) => x + segFilmLen(s), 0);
-        return { ok: true, pid: projOf().id, vid: p.c.vid,
-          text: WAY_ZH[p.way] + '：' + capTxt(p.sh.name, 30) + ' 第 ' + (p.i + 1) + ' 条',
-          lines: ['镜头：' + capTxt(p.sh.name, 40),
-            '候选：第 ' + (p.i + 1) + ' 条 · ' + round1(p.total) + ' 秒',
-            '剪法：' + WAY_ZH[p.way] + (p.way === 'split' || p.way === 'left' || p.way === 'right' ? '（插针 ' + p.at + ' 秒）' : ''),
-            '剪完：' + p.out.segs.length + ' 段 · 这一条共 ' + round1(after) + ' 秒',
-            '这一条' + (p.sh.selId === p.c.vid ? '正被选用，成片跟着变' : '还没被选用，成片仍按选用的那条算')] };
-      }
-      if (op === 'set') {
-        if (a && a.kind === 'subtitle') {
-          const p = subPlan(a); if (p.err) return p;
-          const n = p.entries ? p.entries.length : p.cur.entries.length;
-          const what = p.mode === 'import_srt' ? '把 SRT 里的 ' + n + ' 条导入「' + capTxt(p.sh.name, 30) + '」（成片秒折回候选源秒）'
-            : p.mode === 'resegment' ? '把「' + capTxt(p.sh.name, 30) + '」的字幕按每行 ' + p.maxChars + ' 字重切成 ' + n + ' 条'
-            : p.mode === 'generate' ? '按台词/配音给「' + capTxt(p.sh.name, 30) + '」重新生成 ' + n + ' 条字幕'
-            : p.mode === 'update' ? '把「' + capTxt(p.sh.name, 30) + '」的字幕改成 ' + n + ' 条（源秒）'
-            : '改「' + capTxt(p.sh.name, 30) + '」的字幕样式（条目不动）';
-          const lines = ['镜头：' + capTxt(p.sh.name, 40),
-            '候选：第 ' + ((p.sh.candidates || []).findIndex(x => x.vid === p.c.vid) + 1) + ' 条 · ' + round1(p.total) + ' 秒',
-            '时间基准：候选源秒（' + (p.mode === 'import_srt' ? '导入的 SRT 按成片秒解释' : '预览/导出再折成成片秒') + '）',
-            '字幕：' + n + ' 条' + (p.mode === 'style' ? '（只改样式）' : '')]
-            .concat(p.stylePatch ? ['样式：' + Object.keys(p.stylePatch).join(' / ')] : [])
-            .concat(p.warnings.map(w => '注意：' + w));
-          return { ok: true, pid: projOf().id, vid: p.c.vid, text: what, lines, subtitleCount: n, stale: p.cur.stale };
-        }
-        const p = setPlan(a); if (p.err) return p;
-        const bits = [];
-        if (p.next.speed != null) bits.push('倍速 → ' + spdTxt(p.next.speed));
-        if (p.next.volume != null) bits.push('原声 → ' + Math.round(p.next.volume * 100) + '%');
-        if (p.next.gray != null) bits.push(p.next.gray ? '删成黑场' : '恢复画面');
-        return { ok: true, pid: projOf().id, vid: p.c.vid,
-          text: '改第 ' + (p.i + 1) + ' 条候选的第 ' + (p.segs.indexOf(p.seg) + 1) + ' 段：' + bits.join(' · '),
-          lines: ['镜头：' + capTxt(p.sh.name, 40),
-            '候选：第 ' + (p.i + 1) + ' 条（共 ' + p.segs.length + ' 段）',
-            '这一段的现在：' + round1(segLen(p.seg)) + ' 秒源 · 倍速 ' + spdTxt(segSpd(p.seg)) + ' · 原声 ' + Math.round(segVol(p.seg) * 100) + '%',
-            '改成：' + bits.join(' · ')] };
-      }
-      if (op === 'undo') {
-        if (subBatch(a)) return loose('撤销不能放进批量：它是整批失败时的回滚方式');
-        const p = undoPlan(a); if (p.err) return p;
-        return { ok: true, text: (p.mode === 'redo' ? '重做 ' : '撤销 ') + p.steps + ' 步',
-          lines: [(p.mode === 'redo' ? '可重做：' : '可撤销：') + p.n + ' 步', '这次做 ' + p.steps + ' 步'] };
-      }
-      return loose('不认识的时间线动作：' + op);
-    } catch (e) { return loose(errText(e)); }
-  }
-  function dirRun(op, a) {
-    const chk = dirCheck(op, a);
-    if (!chk.ok) return chk;
-    /* check 与 run 是两次独立的纯读：中间状态没变时结果一致；万一变了（用户在等确认时
-       自己又点了一下轨道），run 照**当下**这份重算，不拿卡片上那份旧计划去写。
-       但「重算」只对**纯计算的参数**成立 —— 用户批准的是那一条候选 / 那一部短片（身份），
-       不是那个下标：候选重排（轮询把已出片的往前挪）或切了短片之后照下标执行，
-       改的就是另一条 / 另一部。pid 在这里一次判完；vid 由各 op 分支在重算出 plan 之后
-       与 chk.vid 比（plan 认镜认候选用的是同一份参数，跨镜 / 跨候选都不会比错对象）。 */
-    if (op === 'select' || op === 'cut' || op === 'set') {
-      if (chk.pid && projOf().id && chk.pid !== projOf().id) {
-        return loose('工程在你读取之后换了一部短片（读取时是 ' + chk.pid + '，现在是 ' + projOf().id
-          + '）。这次没有执行：重新读 timeline_get，确认短片后再来一次');
-      }
-    }
-    const vidGate = p => {
-      if (chk.vid && p && p.c && p.c.vid && p.c.vid !== chk.vid) {
-        return loose('候选在你读取之后重排过（你批准的是 ' + chk.vid + '，现在解析到的是 ' + p.c.vid
-          + '）。这次没有执行：重新读 timeline_get，按候选 id（candId）再来一次');
-      }
-      return null;
-    };
-    if (op === 'select') {
-      const p = selectPlan(a); if (p.err) return p;
-      const vg = vidGate(p); if (vg) return vg;
-      if (p.already && !batchOf(a).inBatch) {
-        renderAll();
-        setStatus('这一条<b>已经是</b>选用的那条了；没有改任何数据');
-        return { ok: true, text: chk.text + '。它本来就是选用的那条，数据没动',
-          revision: revNow(), changedIds: [], warnings: [] };
-      }
-      const b = editBegin(a, 'AI 选片');
-      focus(p.sc, p.sh, p.i);
-      if (!p.already) p.sh.selId = p.c.vid;
-      editEnd(a, b);
-      setStatus('<span class="ok">✓ ' + esc(chk.text) + '（成片按这一条算）</span>');
-      return { ok: true, text: chk.text + (p.already ? '。它本来就是选用的那条，数据没动' : '。已保存到本地工作区'),
-        revision: revNow(), changedIds: p.already ? [] : [p.sh.id], warnings: [] };
-    }
-    if (op === 'cut') {
-      const p = cutPlan(a); if (p.err) return p;
-      const vg = vidGate(p); if (vg) return vg;
-      const b = editBegin(a, 'AI 切段');
-      const newSegs = segsWrite(p.c, p.total, p.out.segs);
-      projOf().cutSeg = Math.max(0, Math.min(newSegs.length - 1, Number(p.out.at) || 0));
-      projOf().cutAt = p.at;
-      focus(p.sc, p.sh, p.i);
-      const moved = reanchorVoices(p.sh, p.c, p.segs, newSegs);
-      editEnd(a, b);
-      const text = cutResultText(p, newSegs, moved);
-      setStatus('<span class="ok">✓ ' + esc(text) + '</span>');
-      return { ok: true, text, revision: revNow(), changedIds: [p.sh.id], warnings: [] };
-    }
-    if (op === 'set') {
-      if (a && a.kind === 'subtitle') {
-        const p = subPlan(a); if (p.err) return p;
-        const vg = vidGate(p); if (vg) return vg;
-        const b = editBegin(a, 'AI 改字幕');
-        if (p.stylePatch) {
-          if (!p.sh.subtitle || typeof p.sh.subtitle !== 'object') p.sh.subtitle = {};
-          setStyle(p.sh, p.stylePatch);
-        }
-        /* 只改样式时不动条目：`sh.subtitle` 里只有 style，currentOf 仍按台词/配音现派生。 */
-        if (p.entries) subWriteData(p.sh, p.entries, p.source);
-        const ci = (p.sh.candidates || []).findIndex(x => x.vid === p.c.vid);
-        focus(p.sc, p.sh, Math.max(0, ci));
-        editEnd(a, b);
-        const cur = currentOf(p.sh, voicesRead());
-        const text = subResultText(p, cur);
-        setStatus('<span class="ok">✓ ' + esc(text) + '</span>');
-        return { ok: true, text, revision: revNow(), changedIds: [p.sh.id], warnings: p.warnings,
-          subtitleCount: cur.entries.length, stale: cur.stale,
-          unexported: !projOf().merged || !Export.filmIsCurrent(projOf().merged) };
-      }
-      const p = setPlan(a); if (p.err) return p;
-      const vg0 = vidGate(p); if (vg0) return vg0;
-      const segNo = p.segs.indexOf(p.seg) + 1;
-      const seg = p.segs[segNo - 1];
-      const b = editBegin(a, 'AI 改片段');
-      if (p.next.speed != null) { if (p.next.speed === 1) delete seg.spd; else seg.spd = p.next.speed; }
-      if (p.next.volume != null) { if (p.next.volume === 1) delete seg.vol; else seg.vol = p.next.volume; }
-      if (p.next.gray != null) { if (p.next.gray) seg.off = 1; else delete seg.off; }
-      const newSegs = segsWrite(p.c, p.total, p.segs);
-      projOf().cutSeg = Math.max(0, Math.min(newSegs.length - 1, segNo - 1));
-      focus(p.sc, p.sh, p.i);
-      editEnd(a, b);
-      const text = setResultText(p, segNo, newSegs[segNo - 1] || seg);
-      setStatus('<span class="ok">✓ ' + esc(text) + '</span>');
-      return { ok: true, text, revision: revNow(), changedIds: [p.sh.id], warnings: [] };
-    }
-    if (op === 'undo') {
-      const p = undoPlan(a); if (p.err) return p;
-      let done = 0;
-      for (let k = 0; k < p.steps; k++) {
-        if (p.mode === 'redo') { if (!redoStack.length) break; redo(); }
-        else { if (!undoStack.length) break; undo(); }
-        done++;
-      }
-      return { ok: true, text: (p.mode === 'redo' ? '已重做 ' : '已撤销 ') + done + ' 步（还能撤销 '
-        + undoStack.length + ' 步 · 可重做 ' + redoStack.length + ' 步）',
-        revision: revNow(), changedIds: [], warnings: [] };
-    }
-    return loose('不认识的时间线动作：' + op);
-  }
-  /* 结果定位（助手回执里的 changedIds 都是镜头 id）：显式点「定位」才切镜头并滚到那一格；
-     执行完那一下只闪、不切视图。页不在前台就拒绝 —— 不做自动跳页，免得抢走用户当前的视图。 */
-  function locateShots(ids, opts) {
+  /* ---------- 定位：changedIds 是块 id（画面段 id / 配音块 id / 字幕 id；select 动作给镜头 id） ----------
+     显式点「定位」才把播放头带过去并选中那一块；执行完那一下只闪、不切视图。
+     页不在前台就拒绝 —— 不做自动跳页，免得抢走用户当前的视图。 */
+  function locateItems(ids, opts) {
     if (!READY()) return { ok: false, reason: '导演台还没加载完' };
     if (!ACTIVE()) return { ok: false, reason: '导演台现在不在前台：切回导演台再点「定位」' };
     const o = opts || {};
     const list = (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean);
+    const f = filmOf();
     const hits = [];
-    projOf().scenes.forEach(sc => (sc.shots || []).forEach(sh => {
-      if (list.includes(String(sh.id))) hits.push({ sc, sh });
-    }));
-    if (!hits.length) return { ok: false, reason: '这份工程里已经没有这几镜了（可能刚被删掉）' };
-    const flash = () => hits.forEach(h => {
-      const el = document.querySelector('.shot-item[data-sid="' + h.sh.id + '"]');
-      if (!el) return;
-      el.classList.remove('flash');
-      void el.offsetWidth;
-      el.classList.add('flash');
-      setTimeout(() => el.classList.remove('flash'), 2400);
+    /* 画面段：块 id 优先，也认镜头 id（select 动作的回执给镜头 id）。 */
+    (deriveTimeline(f.clips).rows || []).forEach(r => {
+      if (list.includes(String(r.clip.id)) || list.includes(String(r.clip.shotId))) hits.push(r.clip);
     });
+    [...(f.voices || []), ...(f.pending || [])].forEach(v => { if (list.includes(String(v.id))) hits.push(v); });
+    (f.captions || []).forEach(c => { if (list.includes(String(c.id))) hits.push(c); });
+    if (!hits.length) return { ok: false, reason: '成片里已经没有这几块了（可能刚被删掉）' };
+    const sel = (kind, item) => { try { Edit.selectItem(kind, item.id); } catch (e) { /* 选中失败不拦定位 */ } };
+    /* 闪是渲染层的一份状态（见 timeline.js 的 flashBlocks）：写入 / 定位之后板还要再重画，
+       直接加在节点上的 class 会被那次重画换掉，用户看到的就是「点了执行 / 定位，什么都没闪」。 */
+    const flash = () => Timeline.flashBlocks(hits.map(it => it.id));
+    const first = hits[0];
+    const kind = (f.captions || []).includes(first) ? 'cap'
+      : (f.voices || []).includes(first) ? 'voice' : (f.pending || []).includes(first) ? 'pending' : 'clip';
     if (o.focus !== false) {
-      focus(hits[0].sc, hits[0].sh);
+      sel(kind, first);
+      Timeline.seekTo(num(first.start), { playNow: false });
       renderAll();
-      const el = document.querySelector('.shot-item[data-sid="' + hits[0].sh.id + '"]');
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       requestAnimationFrame(() => requestAnimationFrame(flash));
-    } else flash();
+    } else {
+      /* 执行完那一下只闪、不切视图：但写入刚把板重画过，闪在**旧节点**上就跟着一起被换掉。
+         等这一轮重画落定（两帧）再闪，用户看到的就是新块亮一下。 */
+      requestAnimationFrame(() => requestAnimationFrame(flash));
+    }
     return { ok: true, found: hits.length,
-      label: hits.length === 1 ? (hits[0].sh.name || '这一镜') : hits.length + ' 个镜头' };
+      label: hits.length === 1 ? (Edit.describeItem(kind, first.id) || KIND_ZH[kind]) : hits.length + ' 块' };
   }
+
   /* 唯一写入桥：只读快照 + check + run，装进 `WBBridge`（web/core/bridges.js）。
      助手侧只认这一个名字，不再往 window 上挂页面专用全局。 */
   if (window.WBBridge && typeof window.WBBridge.install === 'function') window.WBBridge.install('director', {
-    version: 2,
+    version: 3,
     ready: () => ACTIVE() && READY(),
-    /* 只读历史摘要（首期）：条数 + 最近一次编辑的标签。
-       不给「撤销到第 N 步」这类入口 —— 快照栈没有条目 id，按位置回退会在中间插入新编辑后错位。 */
     history: () => ({
       可撤销: undoStack.length,
       可重做: redoStack.length,
       上限: UNDO_MAX_COUNT,
-      最近: undoStack.length ? (lastUndoLabelOf() || '编辑') : '',
+      最近: newestHistoryLabelOf(),
       占内存: window.fmtBytes(undoBytesOf()) + ' / ' + window.fmtBytes(UNDO_MAX_BYTES),
     }),
-    locate: (ids, opts) => locateShots(ids, opts),
+    locate: (ids, opts) => locateItems(ids, opts),
     context: () => {
       if (!READY()) return { 导演台: '还没加载完' };
-      const sc = curScene(), sh = curShot();
-      if (!sh) return {};
-      const list = sh.candidates || [];
-      const ci = Math.max(0, Math.min(list.length - 1, Number(projOf().curCand) || 0));
-      const c = list[ci] || null;
-      const total = c ? candDur(c, sh) : 0;
-      const segs = c ? segsOf(c, total) : [];
-      return {
+      const f = filmOf();
+      const tl = deriveTimeline(f.clips).rows;
+      const total = tl.length ? num(tl[tl.length - 1].end) : 0;
+      const caps = visibleCaptions(f);
+      const out = {
         项目: capTxt(projOf().name, 40),
-        场景: sc ? capTxt(sc.name, 30) : '',
-        镜头: capTxt(sh.name, 30),
-        镜头id: sh.id,
-        选用: (() => { const k = list.findIndex(x => x.vid === sh.selId); return k >= 0 ? ('第 ' + (k + 1) + ' 条') : '未选用'; })(),
-        当前候选: list.length ? ('第 ' + (ci + 1) + ' / ' + list.length + ' 条') : '还没有候选',
-        候选: list.slice(0, 12).map((x, k) => ({ 序号: k + 1, id: x.vid, 状态: x.status || '', 秒: round1(candDur(x, sh)), 选用: x.vid === sh.selId, 当前: k === ci })),
-        这一条: c ? { 总秒: round1(total), 段数: segs.length,
-          成片秒: round1(segs.reduce((a, s) => a + segFilmLen(s), 0)),
-          段: segs.slice(0, 12).map((s, k) => ({ 第: k + 1, in: s.in, out: s.out, 倍速: segSpd(s), 音量: Math.round(segVol(s) * 100) + '%', 黑场: !!s.off })) } : null,
-        插针: round1(Number(projOf().cutAt) || 0),
-        选中段: segs.length ? Math.min(segs.length, Math.max(1, (Number(projOf().cutSeg) || 0) + 1)) : 0,
-        播放头: TlPlay.plan.length ? round1(TlPlay.t) : null,
-        字幕: (() => {
-          const cur = currentOf(sh, voicesRead());
-          return { 条数: cur.entries.length, 来源: cur.source, 过时: cur.stale,
-            过时原因: cur.staleWhy || '', 在成片里: shotFilmAt(sh) != null };
-        })(),
-        成片: projOf().merged ? (Export.filmIsCurrent(projOf().merged) ? '已导出（当前）' : '已导出（旧）') : '未导出',
-        revision: revNow(),
+        场景: curScene() ? capTxt(curScene().name, 30) : '',
+        成片: {
+          段数: tl.length,
+          总秒: round1(total),
+          播放头: tl.length ? round1(num(Timeline.playhead())) : null,
+          段: tl.slice(0, 12).map(r => ({
+            第: r.index + 1, id: r.clip.id, start: round1(num(r.start)), end: round1(num(r.end)),
+            素材: capTxt(r.clip.name || r.clip.shotId || '', 20),
+            倍速: spdTxt(r.clip.rate), 音量: Math.round(num(r.clip.volume, 1) * 100) + '%',
+            转场: r.clip.transition ? transitionNameOf(r.clip.transition) : '',
+          })),
+          行可见: f.tracks && f.tracks.visibility ? Object.keys(f.tracks.visibility).length : 0,
+          行锁定: f.tracks && f.tracks.locks ? Object.keys(f.tracks.locks).length : 0,
+        },
+        配音: (f.voices || []).length,
+        待生成: (f.pending || []).length,
+        字幕: { 条数: caps.list.length, 藏掉: caps.skipped.hidden, 没字: caps.skipped.empty },
+        标记: (f.markers || []).slice(0, 12).map(m => ({
+          id: m.id, 类型: m.type, 秒: round1(num(m.time)), 标题: capTxt(m.title, 20),
+          ...(m.type === 'range' ? { 到: round1(num(m.endTime)) } : {}),
+        })),
+        焦点: Edit.focusOf() || null,
         可撤销: undoStack.length,
         可重做: redoStack.length,
       };
+      const sh = curShot();
+      if (sh) {
+        const list = sh.candidates || [];
+        const k = list.findIndex(x => x.vid === sh.selId);
+        out.当前镜头 = capTxt(sh.name, 30);
+        out.镜头id = sh.id;
+        out.选用 = k >= 0 ? ('第 ' + (k + 1) + ' 条') : '未选用';
+        out.候选 = list.slice(0, 12).map((x, i) => ({
+          序号: i + 1, id: x.vid, 状态: x.status || '', 秒: round1(candDur(x, sh)), 选用: x.vid === sh.selId,
+        }));
+      }
+      return out;
     },
     subtitle: a => subtitleInfo(a),
-    srt: a => subtitleSrt(a),
+    srt: () => srtOut(),
     mediaInfo: a => mediaCheck(a),
     mediaFrames: a => mediaFrames(a),
     asrStart: a => asrStart(a),

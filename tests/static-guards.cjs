@@ -53,13 +53,11 @@ const G2_CREATE_NO_GUARD = [
    原因同一句话（「空 catch 里混着真错误」），只有例外原因不同的才单独写。 */
 const G3_EMPTY_CATCH = [
   { file: 'web/media-backend.js', max: 2, why: '新增：统一取帧器的 dispose / 兜底失败吞错（解码器释放失败不影响结果）' },
-  { file: 'web/director/engine/lanes.js', max: 1, why: '新增：预览轴取帧失败吞错（不显示预览图，轴线照常）' },
   { file: 'web/features/chat.js', max: 39, why: '存量：助手外壳（会话 / 渲染 / 发送）吞错的一批；工具循环与动作表已拆去 chat-tools.js' },
   { file: 'web/features/chat-tools.js', max: 7, why: '存量：随工具循环与动作表搬过来的一批（拆文件不改行为，逐处补原因或显式处理）' },
   { file: 'web/domain/assetlib.js', max: 7, why: '存量：AssetLib 列表归一化吞错的一批（拆出后只剩列表层与费用）' },
   { file: 'web/pages/settings.js', max: 21, why: '存量：设置页读盘/探测吞错的一批' },
   { file: 'web/pages/studio.js', max: 23, why: '存量：工作台吞错的一批' },
-  { file: 'web/director/playback.js', max: 24, why: '存量：播放时间轴吞 DOM 异常的一批' },
   { file: 'web/ui/workbench.js', max: 21, why: '存量：灯箱/工作台吞错的一批' },
   { file: 'web/ui/forms.js', max: 12, why: '存量：随表单族从 ui.js 原样搬来的一批（拆文件不改行为，逐处补原因或显式处理）' },
   { file: 'web/domain/local.js', max: 15, why: '存量：本机资产读盘吞错的一批' },
@@ -97,7 +95,7 @@ const G3_EMPTY_CATCH = [
 const G4_BARE_HEX = [
   { file: 'web/domain/asset-transfer.js', max: 1, why: 'canvas 导出前置底色 fillStyle="#fff"（asset-transfer.js:21）：2D 上下文拿不到 var()，要的是「导出必须白底」这个事实' },
   { file: 'web/ui/workbench.js', max: 1, why: '缩略图铺底 fillStyle="#000"（workbench.js:1055）：同上，canvas 不认 CSS 变量' },
-  { file: 'web/director/subtitles.js', max: 1, why: "ASS 字幕默认色 '#FFFFFF'（subtitles.js:17）：那是字幕文件的字段格式（&H…/RGB），不是页面样式" },
+  { file: 'web/media-export.js', max: 2, why: '离线导出的 canvas 2D：闪白转场的 fillStyle 与字幕描边的 fillStyle（canvas 拿不到 var()，导出的画面字节必须与主题无关）' },
 ];
 
 /* G5 `_ddRebuild`：Dropdowns 的私有物，页面侧一次都不该用。现状 0 处 —— 表必须是空的，

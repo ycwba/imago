@@ -141,8 +141,9 @@ const h = require('./harness.cjs');
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.goto(proxy.base + '/shell.html#settings.html');
-    await page.waitFor(() => !!(document.querySelector('#provTabs button[data-tab="search"]') && document.querySelector('#provTabs button[data-tab="asr"]')), 15000);
-    await page.eval(() => document.querySelector('#provTabs button[data-tab="search"]').click());
+    /* 联网搜索那一份表单住在账号卡流里（有哪家顶着这一档就在那张卡上，否则通栏在网格下面），
+       「切到那一档」的分段开关已经撤掉 —— 直接等它画出来。 */
+    await page.waitFor(() => !!document.querySelector('#searchCard'), 15000);
     await page.waitFor(() => {
       const c = document.querySelector('#searchCard');
       return !!(c && c.offsetParent !== null);

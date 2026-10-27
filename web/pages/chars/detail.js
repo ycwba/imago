@@ -152,9 +152,9 @@ export function createDetail(ctx) {
     const hero = pic
       ? '<div class="md-hero">' + ctx.thumbImg(pic) + '</div>'
       : '<div class="md-hero"><div class="none"><b>还没有预览图</b><span>' + (D.isSceneItem(c)
-        ? '场景图照着下面那段描述出，先把地方的样子写清楚。'
-        : D.isPropItem(c) ? '道具图照着下面那段描述出。'
-          : '先写清长什么样，出图会照着那一句来；也可以自己传一张。') + '</span></div></div>';
+        ? '照下面描述出图。'
+        : D.isPropItem(c) ? '照下面描述出图。'
+          : '写清长什么样，或传一张。') + '</span></div></div>';
     /* 这一处（预览图）现在用哪个型号：这一行挑的 → 设置页那个默认。 */
     const picModel = gens.pic.model || ctx.defImgModel();
     const cap = capOf('image', picModel);
@@ -182,7 +182,7 @@ export function createDetail(ctx) {
     /* 身份锚点：认人最准的那一张 */
     const anchors = faces.length > 1
       ? '<div class="md-mrow"><div class="md-mt">身份锚点</div>'
-        + '<div class="ui-hint">锚点是「认人最准的那一张」：出图、出角色资产与导演台取参考图时优先用它。</div>'
+        + '<div class="ui-hint">出图与参考优先用它。</div>'
         + '<div class="md-anchors">' + faces.map((f, i) => {
           const on = f.src === c.anchor;
           return '<button class="md-anchor' + (on ? ' on' : '') + '" type="button" data-d-act="setanchor" data-src="' + esc(f.src) + '">'
@@ -211,15 +211,15 @@ export function createDetail(ctx) {
       const rg = rowGens[a.id] || {};
       return '<div class="ui-asset" data-aid="' + esc(a.id) + '">'
         + '<span class="ui-cand" data-a="zoom" data-src="' + esc(a.src) + '" data-label="' + esc((c.name || '') + ' · ' + lab) + '">' + ctx.thumbImg(a.src) + '</span>'
-        + '<input class="ui-inp" data-a="assetrename" data-id="' + esc(a.id) + '" maxlength="24" value="' + esc(lab) + '" title="这一张叫什么（改了立刻存）">'
+        + '<input class="ui-inp" data-a="assetrename" data-id="' + esc(a.id) + '" maxlength="24" value="' + esc(lab) + '" title="这一张叫什么">'
         /* 这一行重出用**这一行自己的**型号与数量（记在 rowGens 里，重出时读它） */
         + '<span class="md-row-gen"><span class="md-row-gen-l">重出</span>'
         + modelHTML('image', 'text_to_image', rg.model || gens.asset.model, a.id)
         + countHTML(cap, rg.count || 1, '张', a.id) + '</span>'
-        + '<button class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '" title="照着同一个提示词再出一张，换掉这一张">重出这一张</button>'
-        + '<button class="ui-linkbtn" data-a="reuse" data-src="' + esc(a.src || '') + '" data-name="' + esc(lab) + '" title="带着这一张去生成工作台，放进参考图那一栏">拿去生成</button>'
+        + '<button class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
+        + '<button class="ui-linkbtn" data-a="reuse" data-src="' + esc(a.src || '') + '" data-name="' + esc(lab) + '" title="去生成工作台">拿去生成</button>'
         + '<button class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
-        + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">素材库里还没有道具，点右上「新建素材」加一条（类型选「道具」）</span>')
+        + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
         + '</div>';
     }).join('');
     /* 加一张：名字 / 模板 / 自定义描述 / 型号 / 张数 —— 五样各管一件事。
@@ -227,17 +227,16 @@ export function createDetail(ctx) {
     const bar = genBar({
       site: 'asset', label: '加一张', kind: 'image', mode: 'text_to_image', cap: cap, def: 1,
       act: 'AI 出这一张',
-      why: '照「' + shortLab(ctx.kindFields(c).look.lab) + '」这一句画 · 拿预览图这一张当参考图 · 出完是追加，不顶掉已经选中的那张',
-      extra: '<input class="ui-inp md-asset-name" data-a="assetname" maxlength="24" value="' + esc(dr.name) + '" placeholder="叫什么（填了就按它画）">'
+      why: '照「' + shortLab(ctx.kindFields(c).look.lab) + '」这一句画',
+      extra: '<input class="ui-inp md-asset-name" data-a="assetname" maxlength="24" value="' + esc(dr.name) + '" placeholder="叫什么">'
         + '<select class="ui-inp md-asset-tpl" data-a="assettpl">' + tpls.map(k => '<option value="' + esc(k) + '"' + (k === drTpl ? ' selected' : '') + '>' + esc(D.Cast.assetLabel(c, k) || k) + '</option>').join('') + '</select>'
         + '<button class="ghost" type="button" data-d-act="assetpick">' + (window.icon ? window.icon('upload', 12) : '') + '自己传一张</button>',
       extra2: '<label class="md-what"><span>选「自定义」时要画什么</span>'
         + '<input class="ui-inp" data-a="assetwhat" maxlength="60" value="' + esc(dr.what) + '" placeholder="例：雨天造型、侧脸特写"></label>',
     });
-    return '<section class="md-sec"><div class="md-sec-t">角色资产<span class="md-sec-n">' + list.length + ' 张 · 拍摄时作参考图发出去</span></div>'
+    return '<section class="md-sec"><div class="md-sec-t">角色资产<span class="md-sec-n">' + list.length + ' 张</span></div>'
       + bar
       + (rows ? '<div class="ui-assets">' + rows + '</div>' : '')
-      + '<div class="ui-hint" style="margin-top:var(--sp-8)">出图要一张预览图当参考 —— 没有预览图就只能凭文字重画一个样子。</div>'
       + '</section>';
   }
 
@@ -250,9 +249,9 @@ export function createDetail(ctx) {
     const bar = genBar({
       site: 'voice', label: '声音', kind: 'audio', mode: 'text_to_speech', cap: cap, unit: '条', def: def,
       act: '出 ' + n + ' 条试听',
-      why: '照「' + shortLab(ctx.kindFields(c).bio.lab) + '」这一句定音色 · 这一处单独选，不动本页其它地方',
+      why: '照「' + shortLab(ctx.kindFields(c).bio.lab) + '」这一句定音色',
     });
-    return '<section class="md-sec"><div class="md-sec-t">声音<span class="md-sec-n">这一位说话的声音</span></div>'
+    return '<section class="md-sec"><div class="md-sec-t">声音</div>'
       + bar
       + D.Cast.voiceRowHTML(ctx.REG, o, c, { waiting: ctx.genMsg('voicecands', c.id) })
       + '</section>';
@@ -277,15 +276,14 @@ export function createDetail(ctx) {
 
     out.push('<section class="md-sec"><div class="md-sec-t">描述</div>'
       + '<label class="md-field"><span>' + esc(kf.look.lab) + '</span>'
-      + '<textarea class="ui-ta" data-f="look" rows="3" placeholder="' + esc(kf.look.ph) + '">' + esc(c.look || c.desc || '') + '</textarea>'
-      + '<div class="md-fhint">这一句是出图的依据 —— 预览图与角色资产都照着它来。</div></label>'
+      + '<textarea class="ui-ta" data-f="look" rows="3" placeholder="' + esc(kf.look.ph) + '">' + esc(c.look || c.desc || '') + '</textarea></label>'
       + (D.isSceneItem(c)
         ? '<label class="md-field"><span>' + esc(kf.time.lab) + '</span><select class="ui-inp" data-f="time" style="max-width:220px">' + D.Cast.timeOptsHTML(c) + '</select></label>'
         : '')
       + '<label class="md-field"><span>' + esc(kf.bio.lab) + '</span>'
       + '<input class="ui-inp" data-f="bio" value="' + esc(c.bio || '') + '" placeholder="' + esc(kf.bio.ph) + '"></label>'
-      + (vo ? '<div class="ui-hint">这一位是「只出声」：不出画面，所以预览图与角色资产的入口都不给它摆（想让它出镜就取消上面那个勾）。</div>' : '')
-      + (D.isPropItem(c) ? '<div class="ui-hint">道具只有这一张图：没有角色资产，也不出声。生成某一镜时它的图会作为参考图发给视频 AI，名字与描述进这一段的提示词。</div>' : '')
+      + (vo ? '<div class="ui-hint">只出声，不出画面。</div>' : '')
+      + (D.isPropItem(c) ? '<div class="ui-hint">道具只有这一张图。</div>' : '')
       + '</section>');
 
     if (isActor && !vo) out.push(assetSectionHTML(c));
@@ -403,7 +401,7 @@ export function createDetail(ctx) {
     setanchor: (c, el) => {
       c.anchor = el.dataset.src;
       saveItem(c);
-      Toast.receipt('身份锚点已设为这一张：之后出图 / 出资产 / 导演台取参考图都优先用它');
+      Toast.receipt('锚点已设为这一张');
       paint();
     },
     usecand: (c, el) => useCand(c, el.dataset.k || ctx.mainKind(c), el.dataset.src),
@@ -767,7 +765,7 @@ export function createDetail(ctx) {
   async function del(c) {
     const yes = await Confirm.ask({
       title: '删掉「' + (c.name || '这条素材') + '」？',
-      body: '会从素材库里删掉这一条（本机存的参考音频一起删）；导演台里已经写下的 @名字 不会自动清理，改好的镜头不受影响。',
+      body: '会从素材库删掉这条；已写的 @名字 不受影响。',
       okLabel: '删掉', danger: true,
     });
     if (!yes) return;

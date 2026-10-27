@@ -20,6 +20,7 @@ export function parseJsonLoose(txt) {
   return null;
 }
 
+export const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 export const round1 = v => Math.round((Number(v) || 0) * 10) / 10;
 /* 0.01 秒的取整，只给切片采样点用（采样点兼作帧缓存键）。 */
 export const round2 = v => Math.round((Number(v) || 0) * 100) / 100;

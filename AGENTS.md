@@ -63,7 +63,7 @@
 │  ├─ app.js                    Vue 外壳：hash 路由 + KeepAlive 页面池 + 生命周期
 │  ├─ shell-boot.js             主题与“在外壳里”旗标（外部脚本，避免内联脚本）
 │  ├─ boot-assistant.js         空闲时加载 AI 助手（`ai_chat_off` 命中就整个不下载）
-│  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report / scroll-guard
+│  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 web/director/index.js）
 │  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
 │  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output；成片与素材都走它）
@@ -100,6 +100,9 @@
 ├─ design/materials-detail/    设计稿（新建 / 编辑一条素材那一版：整屏层 + 每个生成位自带型号与数量）。
 │                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
 │                               已于 2026-10-25 落到真品
+├─ design/provider-matrix/     设计稿（设置页「供应商与密钥」那一版：账号卡流 + 能力格 + 型号面板 +
+│                               手动加一档能力）。纯静态、不进运行时；决策记录见其中的 DESIGN.md。
+│                               已于 2026-10-27 落到真品（§5.2）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
@@ -193,7 +196,13 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | ①b 两档一致的固定色 | `--on-acc` `--media-bg` `--chart-1..12` | 不跟（反白字、媒体黑底、图表色两档该同值） |
 | ② 派生色 | `--acc-tint-*` `--acc-line-32` `--warn-tint` | **跟**（由 ① 现算） |
 | ③ 固定中性色 | `--pal-gray*` `--pal-slate*` `--pal-scrim` | 不跟（只给**深底浮层**用：灯箱、缩略图上的播放钮遮罩） |
-| ④ 导演台深底配色 | `--dir-ink-*` `--dir-fog-*` `--dir-cyan` `--dir-green` … | **不跟**：导演台轨道区天生深底。前缀 `--dir-*` 就是「这族不跟主题走」的标记 |
+| ③b 导演台标记色 | `--mark-cut` `--mark-ready` `--mark-mute` `--mark-loud` | **跟**：轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深浅两档各一套 |
+
+- **导演台不再有独立深底作用域**（2026-10-25 收口）：以前它有整整一族 `--dir-*`
+  （深底表面 `--dir-ink-*`、深底浅字 `--dir-fog-*`、一串标记色），两档主题下都是黑的。
+  现在它的底色 / 文字 / 描边一律取 ① 段（`--bg` / `--panel` / `--panel2` / `--txt` /
+  `--sub` / `--line`），**跟其他页面一样切主题**；只留下 ③b 那四枚功能标记色。
+  判据：`tokens.css` 里 `--dir-` 必须 0 命中（`tests/doc-contract.cjs`）。
 
 - 共享界面的文字 / 描边 / 底色 / 状态**一律取 ① 段**（`--err` / `--warn` / `--ok` / `--acc` / `--acc2`），
   **不许再挑固定色** —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
@@ -223,6 +232,31 @@ frame-ancestors 'none'; worker-src 'self' blob:
   差一个像素就是某一页多一条滚动条、某一页少一圈留白。`.wb` 是工作台那一份（定位与盒模型同源，
   滚法不同：整页不滚，两栏各自滚）。**导演台是作用域岛，它不吃 `.page-shell` 的留白**
   （内部 `.page-main` 是整屏高的列），那一份另在 `web/styles/spa-director.css`。
+- **页头只有这一份**（2026-10-25 收口，2026-10-27 去图标）：`.phead` 是各页面共用的那条横带 —— 跨页宽、**粘顶**，
+  四个槽按需留空、位置不挪：`A 身份`（标题，**每页都有**）/ `B 上下文`
+  （计数 / 状态 / 当前项目）/ `C 说明`（一句话：这页在干嘛）/ `D 动作`（页面级动作 ≤3 个）。
+  三条硬规矩：
+  ① **页面名只说一次** —— 素材库左轨不再重复写「素材库」，那里改成「目录」；
+  ② **筛选与视图切换不进页头** —— 页头放「这一页能干什么」，下面那行工具条放「怎么看这一页」；
+  ③ **标题不带图标** —— 那枚 26px 强调色铭牌（`.phead-ic`）已经撤掉：七页各挂一枚，
+  切页时标题旁边多一格、强调色也多一个落点，标题本身反而不突出（用户点名移除）。
+  `.phead-id` 就是标题容器，**不要再往里加图形 / 徽记 / 装饰**。
+- **标题左缘 = 该页内容列的左缘，内容列离内容区左缘一律 32px**（`--shell-px: var(--sp-32)`）：
+  七个页面各读同一枚变量，切页时标题不再左右跳。以前是五套（素材库 32 而下方三栏 0 /
+  资产库等 32 / 设置 24 / 导演台 20 / 工作台「居中块 + 22」）。760 以下全站一起收到 `--sp-14`。
+  判据 `tests/e2e/page-head.cjs` 直接比「标题左缘」与「内容列左缘」（±1px）。
+- **两个「块」必须同宽同起点**：页头那条与页面主体那块（`.wb .layout` / 导演台 `.layout` /
+  设置页的网格）读同一套定宽口径 —— 页头宽、主体窄或反过来，标题就与下面的内容对不齐。
+  ⚠ 工作台那块尤其要写死宽度（`width: 100%`）：`.wb` 是 flex 列，子项带 `margin: 0 auto`
+  会按**内容**定宽，而内容宽度里含着左栏那一轨 → 拖一下分栏，页面两端的空白跟着变。
+  `.page-shell` 的 `padding-top` 归零（`--shell-px` 只管左右），上留白由 `.phead` 自己给 ——
+  吸顶时页头已在 scrollport 顶上，没有「从 24px 跳到 0」的位移。
+  素材库与工作台是**整屏不滚**的外壳：页头是它们的第一行，下面那层占满剩下（`.chars-page .mat` /
+  `.wb .layout` 各改一行定位即可），所以那两页的页头不吸顶（没有可滚的容器），但形状与别的页一致。
+  **导演台也是这一副契约**（`web/director/template.html` 的 `<header class="phead">`）：
+  它不再自己一套 header —— 身份（导演台）+ 上下文（当前项目：短片数 / 项目名 / 已保存）
+  + 动作（导出）；导演台整页不滚，所以它的页头也不吸顶。它的横向留白也从 `.page-main`
+  上的 `--shell-px` 取（页头与三栏同一枚）。
 - **页面自己的差异**（卡片网格、提示词区、素材槽…）留在各自的 `web/styles/spa-<id>.css` 里，
   且**必须挂在该页根类下**（`.chars-page .card`）；**不许**在页面补丁里顶层定义公共类（判据 G20）。
 - **卡片列宽只有两档**：`--sz-card`（268px）与 `--sz-card-sm`（200px，紧凑视图 / 窄窗）。
@@ -286,9 +320,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 | 角色 | 公共类 |
 | --- | --- |
+| 页面页头（跨页宽、粘顶） | `.phead` + `.phead-id`（标题，**不带图标**）/ `.phead-meta`（上下文）/ `.phead-sub`（说明）/ `.phead-acts`（动作）/ `.phead-chip`（上下文胶囊）—— **各页面共用这一条**，见 §3.4.3 |
+| 文件类型筛选（图片/视频/音频） | `Wb.kindFilter`（分段控件 `.ui-seg` + 每档计数 `.seg-n`）—— 工作台 / 收藏 / 资产库**三页共用**；档位表、每档条数、点完之后做什么由页面给（见 §7） |
 | 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item`（竖排卡片的壳：`.card-shell-media` / `.card-shell-body` / `.card-shell-actions` —— 收藏的媒体卡与素材库的角色卡共用这一副，页面只留自己的差异：图多高、怎么裁、字距多少；横排的任务卡走 `.task` 那一组） |
 | 卡片公共件（状态牌 / 就地展开 / 账条 / 诊断块 / 展开带子） | `.plate`（+ `.plate--*`） `.exp` `.led` `.why` `.diag` `.exp-acts` `.band`（+ `.band-tether`）—— **资产库与收藏页共用同一副**（`web/styles/ui.css`）；接线是 `Wb.expand` / `Wb.close` / `Wb.closeAll` / `Wb.anchor`（`web/ui/workbench.js`）。**展开不许另起一层**（右检 / 抽屉 / 浮层都不算）：在原界面里把那张卡自己打开 |
-| 按钮 | `.pri`（主） `.ghost`（次） `.tool`（磁贴） `.ui-linkbtn` |
+| 按钮 | `.pri`（主） `.ghost`（次） `.tool`（磁贴） `.ui-linkbtn`（文字链式小动作）—— **新建按钮先读 §3.4.5 的四步**（`type="button"` / 重画走 `viewport.keep` / focus 走 `focusQuiet` / 跳页走 `GoPage`） |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
 | 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.pinl` |
@@ -312,10 +348,28 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 所有可交互元素至少覆盖 `hover` / `focus-visible` / `active` / `disabled` / busy；
   `ui.css` 末尾有一份全站兜底，页面不要重复写同一份焦点样式。
-- **程序性 focus 不许抢视口**：拿 `focus()` 只是为了「把光标续上」时一律带
-  `{ preventScroll: true }`（`web/ui/workbench.js` 的焦点锚恢复就是这一处）——
+- **程序性 focus 不许抢视口**：拿 `focus()` 只是为了「把光标续上」时一律走
+  `window.focusQuiet(el)`（`web/ui/ui.js`，它带 `{ preventScroll: true }`；全站唯一一份）——
   不带的话浏览器会把那一格滚进视野，用户明明在看别处，视角却被拽走。
-  真要「把某处滚过来」，走滚动那一族（设置页的 `scrollToEl`），别拿 focus 当滚动用。
+  真要「把某处滚过来」，走滚动那一族（设置页的 `scrollToEl` / `scrollIntoView`），别拿 focus 当滚动用。
+
+**加一颗按钮要走的四步**（2026-10-27 立；前三条就是「点一颗按钮，页面跳回最上面」那一族的防线，
+判据 `tests/e2e/viewport-keep.cjs`）：
+
+1. **元素**：用 `<button type="button">`，**永远不用 `<a href="#">`**。`href="#"` 会产生一次
+   fragment 导航 —— 即使 `preventDefault` 挡住了，中键点击 / 键盘回车 / 「在新标签打开」都还留着那条路；
+   而 `<button>` 在 `form` / `dialog` 里默认是 `submit`，**`type="button"` 必须写**（漏写就是一次提交 + 页面跳走）。
+   外观只用公共类（`.pri` 主 / `.ghost` 次 / `.tool` 磁贴 / `.ui-linkbtn` 文字链式小动作），不另写一份样式；
+   带图标时用 `icon('xxx', 13)` 或 `data-icon` + `fillIcons`，**不许用 `textContent` 改字**（会把图标冲掉）。
+2. **它换不换 DOM**：点完会**整片重画**一块「里面装着滚动容器」的区域时，那次重画必须包在
+   `Wb.viewport.keep(el, fn)` 里 —— `el` 是那块要重画的**外层**（不是按钮），公共件按**锚点**在重画后
+   把容器里的滚动位还回去（锚点以上的内容变高变矮都不漂）。列表刷新不用页面操心：`Wb.cards.paint`
+   内部已经套了；`Wb.filterBar` / `Wb.kindFilter` 是就地改文本、不整片重画。
+3. **它 focus 谁**：要让光标落进某格输入框 → `window.focusQuiet(el)`；真想让那一格进视野，另写一句
+   `scrollIntoView({ block: 'nearest' })`。**别拿 focus 当滚动用**。
+4. **它跳不跳页**：站内跳页只走 `GoPage.go('xxx.html')`，不写 `location.href`、不手拼 `location.hash`。
+
+自检三问：**这颗按钮会不会换掉某块 `innerHTML`？换了套 `keep` 了吗？它会 focus 谁、带 `preventScroll` 了吗？**
 
 #### 3.4.6 验证：四把尺子
 
@@ -437,12 +491,54 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 内置平台也要先“添加一次”才进「供应商与密钥」卡；用官方地址添加自己是正常路径。
 - 类型档：`image / video / audio / text`；文字 AI 的供应方、密钥、地址、型号、识图开关
   都在「文字」档里，一家一张卡。类型名与顺序只有 `ui.js` 的 `provKindZh` / `provKinds` 一份。
+- **「供应商与密钥」是账号卡流**（2026-10-27 收口，设计稿 `design/provider-matrix/`）：
+  · 归并按 `keyId`（`provGroups()`）：**一个账号一张卡**，卡顶那一排能力格只画这家会的几档
+    （`.capcell`：实心 = 主位 / 淡底 = 在用 / 白底 = 备用 / 压暗 = 停用），一档一行
+    （`.crow`：能力名 · 状态牌 · 文字档那一个型号下拉 + 测试 / 其余档「型号 n/m」就地展开清单）。
+  · **等高竖排**：列宽 `--sz-acct-w`（`auto-fill` 铺满），卡高 `--sz-acct`，卡内 `.acct-mid`
+    自己滚 —— 展开密钥行、展开型号面板都**不改卡的外形**（外形一变，整片重画后手指底下的位置就跳）。
+  · **密钥默认收着**，开关是名字右边那颗 `.keytoggle`；名字本身链官网（↗）；
+    **接口地址不在卡上改**（预设那几家一律走官方地址，中转站 / 网关加成自定义供应商）。
+  · 型号面板按**槽**（`keyId:档`）存「展开的是哪一格 / 刚取回的那一份」，两档同时开着不会串档；
+    落盘仍是账号级（`sk_model_<keyId>`、`.data/sk_model_prefs.json` 的 `typed` / `off` / `got`），
+    面板里那一行 hint 照实说「按账号存」。**没有「每档默认型号」这一层**。
+  · 添加供应商 = 卡片流末尾那张虚线卡，**两个形态、同一张卡**：常态列预设那几家（点「添加」把它请进界面
+    并摊开密钥行，**什么都没写盘**；填了密钥才由自动保存落 `sk_key_<keyId>`）；
+    点「＋ 自定义」这张卡自己变成「添加自定义供应商」（标题换了、右上角是「返回预设」），
+    字段就在卡里填 —— **没有第二套添加界面、没有另一个表头、没有「收起」**。
+    **卡片尺寸不变**（等高是这一页的规矩）：那十几行字段在卡内 `.acct-mid` 里滚。
+    自定义那张表只收：接口形状 → 显示名 → 地址 → 密钥 → **能力档位**（密钥之后，与卡顶那排能力格
+    同一副 `.capcell` 图标、**可多选**：第一个是主档，决定接口形状与这条自定义条目的 kind；
+    其余记成 `sk_caps_<id>` 的「手动声明」）→ 型号。**没有「供应商」那一格**（要接内置那几家，
+    上面那张卡的预设清单里点「添加」）。
+  · **手动加一档能力**（`.capadd` / `MANUAL_OK`）：注册表里没写这家能做的那一档，可以在卡里自己声明 ——
+    存 `sk_caps_<keyId>`（一个 JSON 数组），`provGroups()` 把它并在 `caps` 后面，`capProv()` 给这一档
+    合成一条**只用于界面**的伪声明（`manual: true`，`endpoints` 空 → 型号面板没有「取一次」，只剩「自己填」）。
+    那一行挂「手动」标记、可以「撤掉」。⚠ 只有 `image / video / audio / asr / search` 能手动加：
+    生成三档加完只是**声明**（真能出图还要注册表里一条端点声明，行里写明）；识别 / 搜索走这家自己的
+    地址与密钥，加完就能用；**文字对话不在这里加**（`TextAI` 按 `kind: 'text'` 筛，加在别家身上不生效）。
+  · 按档筛的芯片（数字 = **账号数**）+ 摘要条 + 排序（主位 / 在用 → 备用 → 没接上）。
+  · 那一排「图片 / 视频 / 语音 / 文字」分段开关与它的 `sk_prov_tab` **已撤**（`ui.js` 的
+    `LEGACY_KEYS` 负责清盘）—— 一家账号一张卡之后，「当前哪一档」这个状态本身不存在。
 - **语音识别**（`asr`）与**联网搜索**（`search`）与四类平台**同一层级**，但不是一类平台 ——
   是另外两种接法：表单由设置页持有、设置存服务端 `.data/asr.json` / `.data/search.json`；
   容器 id 仍是 `#asrCard` / `#searchCard`。
-  ⚠ 它们是「供应商与密钥」那张卡的**第 5、6 档**（`VIRTUAL_TABS`：图片 / 视频 / 语音 / 文字 之后），
-  **不是另两张卡** —— 产品自己的文案就是这么写的：「最后两档不是供应商：语音识别与联网搜索和它们同一层级，
-  各自一份设置」。左侧目录轨只索引「卡」，这两档在轨上**不另占行**。
+  ⚠ 它们是账号卡流里的**两档能力**（`EXTRA_CAPS`：图片 / 视频 / 语音 / 文字之后），
+  **不是另两张卡**：表单画在**这一档所在**那张卡里那一行下面（`placeForms` 把 Vue 节点搬进
+  `[data-formslot]`）。「所在」由 `hostKidOf` 定：识别看 `asr.service.providerId`、搜索看
+  `search.channelId`，渠道没选 / 指的那家没接进来时落到**第一个能当文字 AI 的账号**。
+  **没有通栏兜底那一块**（`.acct-extra` 已删）：与图片 / 视频一样，能力在哪张卡上、设置就在哪张卡里 ——
+  以前「没哪家顶着」时表单整块挂到网格下面，等于这一档又变回了一张独立的卡。
+  表单自己也**没有标题与整段说明**（不再有 `.incard-h` / 那段「三条路…」），只有键值行。
+  左侧目录轨只索引「卡」，这两档在轨上**不另占行**。
+  ⚠ **这两档跟着「文字对话」一起来**（2026-10-27 收口）：凡能当文字 AI 的账号，卡上就有「识」「搜」两格 ——
+  与图片 / 视频同一套显示规则（这家有这一档就画这一行）。判据是**这家有 `kind:'text'` 那一条**
+  （两档走的都是它的 base + 密钥 + 一个 OpenAI 兼容端点 / 一个能联网的对话模型）。
+  注册表的 `extraCaps`（`['asr','search']`，白名单与「只能挂在文字供应商上」在 `server/providers/validate.js`）
+  现在只是**旁注**：声明过的说明上游确实提供那个端点，没声明的行里挂一枚「未声明」——
+  以前它还是显示门槛，于是同一件「有文字档」的事实被拆成三种表现（有文字的家只画「字」，
+  声明过的那几处才有「识 / 搜」），一张卡上看不出这家人到底能干什么。
+  `serviceProvOpts(cap)` 因此列**所有文字账号**，声明过的排前面、没声明的名字后面注明一句。
 - 显示名按「类型 + 编号」预填；同名会让型号下拉分组与收藏筛选项分不开。
 - 自定义条目没有环境密钥回退，也不认 `x-up-base`（防止把 A 的密钥发到 B）。
 
@@ -562,7 +658,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | 页面尺寸 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS` |
 | 侧栏（导航项与它们的文案） | `web/core/routes.js` 的 `WB_ROUTES.pages`：每一页一行，`label` 是全名（满形态显示、悬停名牌念它、读屏 `aria-label` 用它），`short` 是**两字短标签**（窄形态压在图标下面）—— **侧栏不许另抄一份**（改了页面名忘了改短标签，侧栏上就出现两个名字） |
-| 可拖动分栏 | `Wb.split.enable`（把手 DOM 与落盘都在这一份；工作台两栏与导演台三栏共用，键分别是 `wb_split` / `dir_split`；`axis:'y'` 是**上下**那条 —— 导演台底栏轨道坞走它，键 `dir_dock`，高度落在 `.page-main` 的 `--dock-h`） |
+| 可拖动分栏 | `Wb.split.enable`（把手 DOM 与落盘都在这一份；工作台两栏与导演台三栏共用，键分别是 `wb_split` / `dir_split`；`axis:'y'` 是**上下**那条 —— 导演台底栏轨道坞走它，键 `dir_dock`，高度落在 `.page-main` 的 `--dock-h`；⚠ **变量名 = CSS 里的名字**：`varName:'dock-h'` 写出的是 `--dock-h`，写成 `dock_h` 就落到 `--dock_h` 上，CSS 读不到 —— 把手看着能拖、面板纹丝不动） |
 | 批量下载 | `Wb.downloadList`（资产库 / 生成工作台共用一份：逐条下载 + 进度 + 成功失败计数） |
 | 多选 | `Wb.multi`（资产库 / 生成工作台共用一份：勾选集合 + 全选/取消全选 + 批量条那三处读数；页面只给 `keyOf` / `visible` / `onChange` / `mode`） |
 | 跳页 | `GoPage.go`（同文档走 `window.appShow`） |
@@ -577,7 +673,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 视频取帧 / 媒体信息 | `web/media-backend.js` 的 `MediaBackend`（mediabunny 主档 + `<video>` 兜底；`info` / `frame` / `thumbs` / `probe`）。**`createElement('video')` 只许出现在这一份里**，`Wb.vframe` 只是转发壳 |
 | 浏览器内导出 | `web/media-export.js` 的 `MediaExport`（帧计划 / 合成 / 混音 / mediabunny `Output`；成片、素材、参考视频补音轨 `ensureAudioTrack` 都走它）。服务端没有 ffmpeg |
 | 导出目录 | `web/domain/export-dir.js` 的 `ExportDir`（File System Access 句柄管理） |
-| 主轨联动 | `web/director/links.js`（哪一轨跟哪一轨、变黑场才联动，判据只有这一份） |
+| 成片模型（时间真相） | `web/director/film.js`（顺序 clips / 定时配音与待生成 / 字幕成片秒 / 标记 / 转场 / 行打包 / 行列眼睛与锁 / 进片闸 / 台词行；折算口 `rateOf` / `srcHeadOf` / `srcUsedOf` / `srcLenOf`；判据 `tests/director-film.mjs`） |
+| 时间线编辑纯件 | `web/director/tl-cut.js` / `tl-resize.js` / `tl-ripple.js` / `tl-reorder.js` / `tl-snap.js` / `tl-scale.js` / `tl-peaks.js` / `tl-markers.js` / `tl-autoscroll.js`（切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 比例尺刻度 / 波形 / 标记；判据 `tests/director-tl-edit.mjs`） |
+| 胶片条与取帧 | `web/director/tl-filmstrip.js`（显示层帧计划）+ `web/director/slice.js`（数据层帧索引预算）+ `engine/frames.js`（解码 / 缓存 / 退避）；判据 `tests/director-strip.mjs`、`tests/director-slice.mjs` |
 | 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `promptsRoot` / `AUTOSAVE_TOP_DIR`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
 | 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\拾帧`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— ⚠ **那份的正文就是 localStorage 原值**：字符串类的键走 `window.LS.set`，落盘是**裸文本**（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
 | 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，外面不许再 readdir 一遍） |
@@ -592,8 +690,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 收藏 | `web/domain/fav.js` 的 `Fav` |
 | 素材库 | `web/domain/chars.js` 的 `Chars`（`Lib` / `Pipe` / `SET`） |
 | 语义检索 | `web/domain/semantic.js` 的 `SemanticSearch.rank` |
-| 导演台台词面板 | `web/director/lines.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档两段共用；镜头编辑右栏没有第二份） |
+| 导演台台词面板 | `web/director/film.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档与配音列表共用；镜头编辑右栏没有第二份） |
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
+| 字幕 SRT | `web/director/srt.js`（`srtParse` / `srtSerialize` / `resegment`；时间一律成片秒，判据 `tests/fcpxml-client.mjs` 与 `tests/e2e/editing-assistant.cjs`） |
 | 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
 | 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
 | 场景镜头命名 | `web/director/naming.js` 的 `sceneShotBase` / `candidateBase` / `voiceBase` / `clipLabel` / `stripExt` / `withExt` / `uniqueName`（本机素材名与 FCPXML 包内名同源） |
@@ -606,6 +705,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
 | Skill 的使用场景（设置页一级菜单） | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES`（分组 + 场景；场景名与「用在哪」沿用 `PROMPTS`，变量说明在 `SKILL_VARS`，三处同源不许各抄一份） |
 | 设置页的目录轨（组 / 栏 / 当前值） | `web/pages/settings.js` 的 `groupEls` / `cardsOf` / `navTitleOf` / `NAV_VALUE`（**全部从 DOM 现读**：组名读 `.set-group[data-group]`，栏目标题读 `.card[data-nav]`，当前值读 `UI_PREFS` / `PAGE_TARGETS` / `Net.NUMS` / `SET_ROWS` / 注册表 / 体检与用量 —— JS 里不许有第二份清单，也不许另存一份状态；轨上一行 = 一张卡，**卡里的档位不另占行**） |
+| 设置页「供应商与密钥」的账号卡流 | `web/pages/settings.js` 的 `provGroups`（按 `keyId` 归并出账号 + `caps`）/ `capProv` / `capState` / `hostKidOf`（这一档的设置住在哪张卡）/ `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `placeForms`（把那三块 Vue 节点搬进这一档所在的卡）/ `manualCapsOf` / `setManualCaps`（`sk_caps_<keyId>`：手动加的一档）；型号面板的槽名 `slotKey` / `provBySlot` 也只在这一份里 |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf` |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
@@ -617,7 +717,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单，判据 `tests/settings-schema.cjs`） |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码，不各写一套判据） |
 | 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（`fatal` / `warn` → `POST /client-error` → 代理健康账） |
-| 视口不许被重画甩回顶 | `web/core/scroll-guard.js` 的 `installScrollGuard`（外壳一份；罩住所有 `innerHTML` / `outerHTML` 的整片重画，把里面滚动容器的位置放回去 —— **「点一颗按钮，视角跳到最上面」就是这一族**；判据 `tests/e2e/scroll-guard.cjs`） |
+| 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport.keep(host, fn)`（重画点自己调：按**锚点**（第一个可见子元素 + 它的稳定键或下标）在重画后把容器里那只滚动位还回去，锚点以上内容变高也不会漂；外壳不再猴补 `Element.prototype.innerHTML` —— 那种写法罩不住「重画后内容变短被夹回顶」，还在全局原型上动手脚。**「点一颗按钮，视角跳到最上面」就是这一族**；判据 `tests/e2e/viewport-keep.cjs`） |
+| 程序性 focus 不抢视口 | `web/ui/ui.js` 的 `window.focusQuiet(el)`（`focus({ preventScroll: true })`）。拿 `focus()` 只是为了「把光标续上」时一律走它；真要「把某处滚过来」走滚动那一族（`scrollIntoView`），别拿 focus 当滚动用（§3.4.5） |
+| 文件类型筛选（图片/视频/音频） | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位表 / 每档条数 / 点完之后做什么由页面给；**档位集合不变时不重建 DOM**，计数只改文本与 `.on` / `hidden`；计数为 0 且非当前档的那一颗不画）。工作台 / 收藏 / 资产库三处共用，判据 `tests/e2e/kind-filter.cjs` |
 | 本机索引写入口 | `server/index-store.js` 的 `update(fn)` 串行队列 + `putInto` / `dropFrom`（跨 await 的读-改-写只能走这一处） |
 | 一行素材的身份键 | `AssetLib.entryKey`（页面与缓存）；裸工作台任务记录用 `Wb.taskKey` |
 
@@ -661,42 +763,63 @@ frame-ancestors 'none'; worker-src 'self' blob:
   每一枚 `createX(E, document, window)` 只收 engine 递进来的访问器与函数（`document` / `window` 用参数名遮蔽，
   作用域岛递进来的两份代理继续生效）。engine.js 继续持有工程数据与可变状态，模块里不留第二份
   （**E 装配漏名字是运行到才炸的错**：模块解构出 `undefined`，语法档与 vm 自检都看不见 ——
-  新增域模块时，engine 里那份 E 名单要与模块顶部解构逐名对着改，director-sublane 判据抓过一回）：
+  新增域模块时，engine 里那份 E 名单要与模块顶部解构逐名对着改，`tests/director-e-deps.cjs` 当场数这两份名单）：
   - `gen.js`：分镜提交、平台任务轮询、自动镜像投递与「生成全部分镜」的依赖式批量调度
-  - `track.js`：画面轨/全片轨的时长与候选折算、拖动把手的三处共用一套手势
-  - `lanes.js`：时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染
-  - `frames.js`：切片取帧、帧缓存与退避重试（`fillSlices` / `sliceForgetFail` / `sliceUserTouch`）
-  - `mid.js`：中间栏整列渲染（预览甲板 + 候选条）与**剪辑态轨道坞**（`#tlDock`：工具条 + 两排轨道 +
-    顶部拖高把手，铺满页面宽度的底栏）与三秒重建时的滚动还原
+  - `frames.js`：取帧、帧缓存与退避重试（`sliceKey` 稳定键 / `SLICE_FAIL_TTL` / `sliceRetryIn` /
+    `fillSlices` / `sliceForgetFail`）；数据层帧索引来自 `slice.js`，显示层格数来自 `tl-filmstrip.js`
+  - `timeline.js`：时间轴板（`.tl-board`）的渲染与比例尺 —— `#tlTools` 工具条就地刷、`#tlRuler*` 刻度、
+    `#tlPlayhead` 针层、`#tlScroll > #tlContent` 视口与内容层、`.tl-lane` / `.tl-track` / `.tl-strip` /
+    `.tl-clip` / `.tl-junction` / `.tl-marker` / `.tl-voice` / `.tl-cap` 的排布、缩放（`#tlZoomVal`）与
+    三秒重建时的滚动还原
+  - `strip.js`：一条画面段的胶片格绘制（`.tl-strip` + `i.tl-fr` 定宽磁贴，图片段平铺、缺帧斜纹占位、
+    同一排地址不重画）与 `.tl-cap` 的字幕块内容
+  - `edit.js`：板上交互（点选 / 六档选择工具 / 拖把手 / 换序换行 / 吸附 / 波纹 / 标记面板 / 右键菜单 /
+    工具条全量动作）与写 film 的唯一出口 `commit` / `patchFilm`（都经 `beginEdit` 压快照）
+  - `play.js`：预览播放核（双甲板接力、转场窗口、字幕按起止进出、配音起播、主时钟对齐、片尾停住）
+  - `caption.js`：字幕域（右栏清单、SRT 入出、浏览器内识别入口、重切、`capSetText` / `capSetTime` /
+    `capSetStyle` / `capDelete` / `capAddEntries` 这几个写口）
+  - `voice.js`：配音的数据侧（时长、音色方式、位置、登记）与右栏配音列（`#vcTabs` 六档 + 入出点两框）
+  - `mid.js`：中间栏整列渲染（预览甲板 + 候选条 + 动作行 + 总长）与剪辑 / 生成两态的切换。
+    候选条右侧的展开 / 翻条 / 「1 / 2」是**浮在缩略图右缘的一枚小控件**（绝对定位，不占排版宽度，
+    缩略图给右端留出滚动走位）；剪辑态预览与生成态**同一副尺寸**（同一条 56vh / 16:9 的盒子）。
+    中栏是 `#midCol > #midBody（整片重画）+ #shotStripHost（常驻的镜头顺序条）`：
+    顺序条**只属于生成态**（剪辑态里由轨道板接手，和左右两栏一样两态各有一套栏），
+    它的高度走 `--strip-h`（Wb.split 的 `dir_strip`）；剪辑态播放器与生成态同一条尺寸规则，
+    不够高时中栏自己滚（轨道坞也能拖矮），播放控件跟着画面走。
   - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）
-  - `voice.js`：配音的数据侧（时长、音色方式、位置、登记与右栏配音列渲染）
-  - `voice-lane.js`：声音轨行 HTML、轨道侧栏同步、孤儿配音认领、试听与块拖动绑定
-  - `sub-lane.js`：字幕的三个画点（右栏清单 / 本镜轨 / 全片轨）与两排字幕拖动（块体 + 左右把手）、
-    右栏起止精确输入 `subSetTime`（成片秒 ↔ 源秒唯一折算口）；本镜块带 `data-src`（源秒）、
-    全片块带 `data-axis`（框轴秒），写盘只有一个出口 engine 的 `subWrite`
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）；
     拆分镜 / 改稿**前**的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 +
     `renderSplitPanel` 重画钩子，宿主与润色面板同为 `#polishInline`）
-  - `export.js`：成片指纹、导出成片（**浏览器内合成**，`MediaExport`）、FCPXML / 媒体包与
+  - `export.js`：**渲染计划唯一组表** `buildRenderPlan()`（段顺序与起点、进片闸后的配音与字幕、
+    每句在哪一行、本机优先地址）、导出成片（**浏览器内合成**，`MediaExport`）、FCPXML / 媒体包与
     送到剪映 / 达芬奇（`Export.resolve` / `Export.jianying` / 助手分派走 `Export.nle({app, silent})`，
     silent 不弹结果弹窗）；服务端没有渲染任务账
-  - `lanes.js` 的三段式画面格（B）：上 = 名称行（名字+段号 · 成片时长 · 静音钮）、中 = 切片、下 = 原声波纹带（canvas 条形，`waveform.js` 的 `drawSegWave`；配音句卡仍是 `waveformSVG`，各管各的）
-  - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，见 §9.3）
+  - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，按身份对账，见 §9.3）
 - 纯算法按域拆开，engine 只调用：
-  - `segments.js`：段模型 / `segsOf` / `segsWrite` / 四件搬运
-  - `timeline.js`：框、轴秒、灰场、`filmFrames`
-  - `voice-layout.js`：配音框/选区、灰场跳过、全片轴与原因码
-  - `voice-block.js`：配音块标记
-  - `voice-lanes.js`：配音分轨 / 合轨的行规划（按谁在说 → 音色 → 素材分组、超出 12 行报数、只写 `ln`）
-  - `line-point.js`：台词落点（第几段 + 段内源秒）的唯一读写口 `linePointOf` / `linePointSet` / `linePointClamp`；
-    缺省 = 第一段起点且不占键，读到剪过一刀之后的旧落点要夹回来
-  - `lines.js`：台词行渲染（说话人 → 素材库缩略图 / 占位、本镜与全片两个时间读数）
+  - `film.js`：**成片模型**（`proj.film` 的唯一数据层）—— 顺序 clips / 定时配音与待生成 / 字幕成片秒 /
+    标记 / 转场 / 行打包 / 行列眼睛与锁 / 进片闸（`audibleVoices` / `visibleCaptions`）/ 台词行；
+    两把尺子的唯一折算口（`rateOf` / `srcHeadOf` / `srcUsedOf` / `srcLenOf`）；判据 `tests/director-film.mjs`
+  - `slice.js`：**数据层帧索引预算**（`frameIndexPlan` / `frameIndexTimes`，按素材时长分档、封顶 480 帧）——
+    只回答「解多密」，摆几格是 `tl-filmstrip.js` 的事；判据 `tests/director-slice.mjs`
+  - `tl-filmstrip.js`：**显示层帧计划**（`frameCountFor` 格宽 84px 档 / `planFrameTimes` 采样在格子中心 /
+    `missingFrameTimes` ±0.06s 合并 / `frameCoverage` 缺口）；判据 `tests/director-strip.mjs`
+  - `tl-cut.js`：切刀与融合（`splitClipAt` / `splitVoiceAt` / `splitCaptionAt` / `canMergeClips` /
+    `mergeClipsAt` / `removeClipAt` / `duplicateClipAt`；源窗口 / 胶片格 / 波形按比例分家，转场归右半）
+  - `tl-resize.js`：裁剪（`trimClipLeft` / `trimClipRight` / `trimVoiceLeft` / `trimVoiceRight` /
+    `trimCaptionLeft` / `trimCaptionRight`）与精细编辑（`slipClip` / `rollClipsBoundary` / `slideClip`，
+    边界 `filmSlipBounds` / `filmBoundaryBounds` / `filmSlideBounds`）与字幕跟随 `followCaptions`
+  - `tl-ripple.js`：波纹（边界之后开跑的定时块整体平移，锁住的按行跳过并计数，标记不动）
+  - `tl-reorder.js`：拖动重排与跨行（`reorderClips` / `dropIndexAt` / `moveClipToLane` /
+    `moveTimedToLane` 中间行 ±1 收缩 / `compactLanes` / `newLaneBelow` / `shiftGroupStart`）
+  - `tl-snap.js`：吸附（点集 `collectTimelineSnapPoints`、就近 `findClosestTimelineSnap`、
+    单值 / 范围 `snapTimelineValue` / `snapTimelineRange`、引导线 `createTimelineSnapGuide`；阈值是像素）
+  - `tl-scale.js`：时间轴比例尺（`tlVisible` / `tlZoomForVisible` / `tlRulerScale` / `tlTicks` /
+    `tlPxPerSec` / `tlAnchoredScroll` / `tlFollowScroll`；像素 ↔ 秒只有这一份）
+  - `tl-peaks.js`：波形 peaks（每秒 48 根、RMS 与峰值取大后归一化、`slicePeaks` 按比例切、重采样）
+  - `tl-markers.js`：标记四类五色（`createMarker` / `markerClock` / `markerSnapPoints` / `markerCounts`）
+  - `tl-autoscroll.js`：拖到视口边缘的自动滚动（与 `tl-scale` 的像素换算同源）
+  - `srt.js`：SRT 解析 / 序列化 / 按字数重切（`srtParse` / `srtSerialize` / `resegment`；时间一律成片秒）
   - `script.js`：剧本视图（分镜现算成稿；改稿只写回 `prompt`，台词不在那份稿子里）
-  - `waveform.js`：解码 / 包络 / SVG
-  - `playback.js`：双甲板接力、黑场、配音起播
-  - `plan.js`：本镜 / 全片播放计划
-  - `projection.js`：镜头顺序与 clips 派生
-  - `slice.js`：切片几何与采样
   - `board.js` / `split-assets.js`：拆分镜
   - `board-assets.js`：拆分镜的「新素材」（AI 判哪些角色/场景/物品要建档出图、占位符词法、建档落点）
   - `board-vars.js`：Skill 正文里那些**变量占位符**该填什么（角色表 / 选中素材 / 现有分镜 / 时长区间）
@@ -705,7 +828,6 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - `chain.js`：接续拆分镜与依赖式批量生成（顺序 / 依赖原因码 / 长镜头拆分 / 型号选型 / 报价键与合计 / 调度器）
   - `naming.js`：场景镜头命名（本机素材名、候选 / 配音后缀、FCPXML 片段名与去重）
   - `media.js`：候选身份 → 预览 / 导出地址（本机号只走 `AssetLocal.localAssetIdOf`，画面段、配音、切片、FCPXML 都只问这一份）
-  - `subtitles.js`：字幕轨（台词/配音派生、SRT 导入导出、烧录与 FCPXML 都读 `currentOf`）
   - `fcpxml.js`：导出（单文件 / 媒体包 / 送到剪映 / 达芬奇同一份拼装器；第三方 FCPXML 的**读回已撤**）
   - `asr-text.js`：浏览器内 ASR 的纯算法面（`wavToPcm` / `groupWords` / `normalizeAsrWhitespace` /
     `applyChineseReplacements` / `isSuspiciousChineseTranscript`）—— `asr-worker.js` 与 `tests/director-asr-text.mjs`
@@ -718,160 +840,88 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ### 9.2 时间线硬约束
 
-- 数据层一律**源秒**；画出来才折算成轴秒（框 ÷ 倍速）。
-- 段只在候选身上存一份 `c.segs`；本镜与全片两排读同一份，剪一刀两处同时变。
-- 一段 = 框 `[a,b]` + 选区 `[in,out]`；拖把手只改框内灰遮罩，不改框、不改别的格。
-- 台词面板全站只有一处：剪辑右栏「台词」那一档（本镜那一句 + 其余每一句，一行只出现一次）。
-  写完的台词**自动**上本镜 / 全片两条待生成轨（判据只有 `pendingLineOf` 一份），点轨道占位与点那一行
-  是同一个出口 `openPendingVoice`；改台词要 `beginEdit()` 压快照、松手 `filmEdited()`（字幕按台词派生、会烧进成片）。
-- 台词与提示词互不带动：`sh.line` / `sh.lineWho` 与 `sh.prompt` 各写各的，剧本视图只写 `prompt`；
-  AI 拆分镜仍按画面生成台词并落进同一份字段（那是生成，不是同步）。
-- 切片按框取帧；缓存键走稳定身份；缩放只重排、不整列重画。
-- **画面段的空段只有一个来处**：把某一格**左右拖走**（段体横拖重排，原位自动空出一段同长空段、
-  虚拟区带 `vc` 标记；拖的是空段本身则摘掉），竖拖 = 换行。旧「空一段 / 摘掉空段」两把剪法与按钮已撤。
-  画面段的段格 = 一条切片带 + 三枚覆盖件（`.seg-name` 名称盖左上、`.seg-dur` 时长徽标钉右下、
-  `.seg-mute` 静音钮钉右上），**没有**画面轨自己的波纹带（原声波形只在配音轨那排；
-  段音量在右栏那张「这一段 / 这一句」卡上调）。
-- 剪辑态布局：轨道坞（`#tlDock`）与三栏 `.layout` 平级、铺满页面宽度；剪辑 / 生成两态切换时
-  三栏形状与视频栏（**固定的标准横屏 16:9**：宽 = `56vh × 16/9`，居中，左右栏与下栏拖动时
-  一个像素不动）一个像素不变。剪辑态里**候选条与
-  「用这条 / 锁定 / 删除」整排不画**（换候选回生成态点）。轨道坞底下那一行是**读数行 + 入出点行**
-  （`#tlT0`/`#tlT1` 与 `#trimS`/`#trimE`/`#trimApply`/`#trimNote`）：那两个秒数框是**唯一**能直接写
-  秒数的入口（块上把手只能拖着走），指着配音时调的是**这一句**的保留片段（`paintTrimRow` 写行标，
-  宿主是坞不是中栏）。
-- 导演台**四块的分工**（2026-10 用户点名「左右栏功能区分」后重划）：
-  · **左栏 = 在哪一镜 + 项目级动作**：分镜列表两态都在（剪的时候也要能换镜），
-    **剪辑态那份列表只列「已选用的候选」镜头**（判据 `shotReady`：这一镜选的那条已经出画面，
-    也就是它进了成片的那一份账；没选用的那一镜在剪辑态不画，空场景整个不画；生成态照旧列全部镜头），
-    表头住着「剧本 / 拆分镜 / 导入」三颗项目级动作（「导入视频 / 素材」全站只剩这一处入口 ——
-    以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口）；**剪辑态不画生成态那几颗**
-    （剧本 / 拆分镜 / 加一个场景 / 生成全部分镜 / 场景图 / 新建镜头 / 删除场景 /
-    镜头行的抓手·复制·删除 —— 剪辑态左栏答的是「这一镜剪到哪了」，
-    不是「下一批生成什么」；「导入」是项目级动作，留着。
-    这几颗是**不画**（不是画了藏起来）：处理器跟着一起不绑，画出来却点不动是最坏的一种）；
-    剪辑态左栏**底部**多一块折叠的
-    「历史编辑记录」（原生 `details`，读撤销栈本身：`undoStack` + `undoLabels`/`undoTimes`），
-    以前它占掉左栏整列，剪的时候连分镜列表都看不见。
-  · **中栏 = 看片**：播放器 + 候选条 + 顺序条；它是**唯一不套卡片外框**的一栏（两侧是编辑器，
-    中间是看片台，三栏同底同边同角的时候得靠猜哪一栏是什么）。
-  · **右栏 = 这一镜的属性**：生成态是「怎么生成」（提示词 / 槽位 / 参数 + 钉底动作行），
-    剪辑态是「这一镜在轨道上的属性」（六档：这一段画面 / 这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕），
-    **档位条常驻**（指着画面段时那排也留着，「这一段画面」那枚亮着 —— 整排藏掉之后右栏就没有导航了）。
-  · **底栏 = 剪什么**：轨道坞，铺满页宽，高度由公共件拖出来（`--dock-h`），拖它真的把上面三栏顶矮。
-- **剪辑态左栏点一行**（用户点名）：**本镜档** = 切到那一镜（针落到那一镜自己那一秒，
-  走 `setPin` —— 针的唯一写入口）；**全片档** = 剪辑针跳到那一镜在成片里的对应位置
-  （走 `filmApplyAt` —— 焦点 / 针 / 播放器 / 那句报数都归它管）。
-  两处都不自己折算秒数：成片秒与源秒是两把尺子，各有各的折算口（`filmFrames` / `shotPinT`），
-  在这里再写一份就是第二本账 —— 针与格子迟早对不上。
-- 「顺序 / 剪辑」是**一枚分段开关**（公共 `.ui-seg`，选中态类名 `on`），住在中栏顶上 ——
-  它切的是这一屏的两种形态，不是两颗各自高亮的按钮。
-- 剪辑态右栏的「生成这一镜」动作行（`.ed-footer`）钉在 `#edCol` 底部（在 `.ed-body` 滚动区之外）。
-- 轨道坞的形状：**行数只由内容决定**（`track.js` 的 `laneRowsOf` = 最高块行 +1）—— 加行的唯一途径是
-  「把段 / 素材上下拖到新行」（行号写在块身上，重画时行自己长出来），那一行空了重画即自动消失；
-  拖到最后一行之下就是「新建一行」（拖动中先说一句「松手就在下面新建一行」，落定后回执写明
-  「新开的一行」）；左列是**眼睛 + 锁 + 名字**（照参考项目 track-labels：状态键在前、名字吃剩余宽度；
-  ＋/× 与音量滑块已撤，段音量在右栏那张卡上调）。
-  左列那一格轨名必须与右列那一排轨道**逐行对齐**（画面 / 配音 / 待生成 / 字幕四类，
-  行高只从 `--tlh-pic` / `--tlh-voice` 取）：差一格就等于「这个名字指着哪一轨」是假话，
-  插针与刻度尺也会错开。**网格现在住在轨道坞里**（`#tlDock`），所以按右列反查网格
-  （`bar.closest('.tl-grid')`），别再问中栏要 `.tl-side` —— 问错地方的后果是整列不更新
-  （加出来的行不出现、眼睛与锁的状态永远不刷新）。
-- **轨道坞的三段**（2026-10 收口）：`#tlDockTools`（工具条，常驻顶上）、`#tlRulerLane`（**刻度尺自己一道**）、
-  `#tlDockBody`（轨道区，竖着滚）。工具条与刻度尺**都在滚动区外面** ——
-  以前刻度尺住在内容层里、用 `sticky` 浮在轨道**上面**，一滚动就压在画面轨中间（用户点名）。
-  现在它竖着不动（轨道从它下面滚过去）、横着跟轨道一起走（跟着 `#tlBar` 的 `scrollLeft` 平移，
-  `placeRuler` 一处写），与剪映 / PR 一样，尺是固定的一条道。
-  眼睛「隐藏」**不收窄行高**：整条轨（或单行）变灰（压暗 + 去饱和），块还画在原行号与位置上，
-  手势层用 `rowHidden` 拒绝编辑。轨道区超高时**纵向滚**且不显滚动条（`.tl-scroll`），
-  顶部把手用**公共件 `Wb.split` 的上下轴**（与左右栏同一套把手外观 / 悬停光标 / 双击复位 / 落盘，
-  键 `dir_dock`，高度落在 `.page-main` 的 `--dock-h`）—— 以前那根手写的 `.dock-grip` 已撤。
-- **剪辑针能拎着走**（剪辑软件里针是能拖的）：按住针头左右拖 = 把「剪在哪一秒」搬过去。
-  量尺子 / 折轴秒 / 写针**仍然只走放针那一个出口**（lanes 的 `pinAtX`），不许在拖动里再折一遍；
-  拖动**不换目标轨**（传当前那一轨：针搬的是「剪在哪」，不是「现在改画面还是改声音」）；
-  松手后紧跟的那一下 click 由 `pinDragged()` 作废（否则又会按「点到哪一格」把目标改掉）。
-  全片档的针**不拎**（那一档的针是「跳到这一秒」，拎它会跟跳转抢方向）。
-- 字幕行三个画点（右栏清单 / 本镜轨 / 全片轨）与两排拖动只有 `sub-lane.js` 一份：块体拖 = 挪出现
-  （长度不变）、把手 = 改起止（0.1s 最短）、写盘只有 engine 的 `subWrite`。**两排两把尺子**：
-  本镜块带 `data-src`（源秒，按框轴摆位）、全片块带 `data-axis`（框轴秒）；右栏起止输入按右栏自己的尺子
-  （进成片的镜走 `mapFromFilm` 零长探针折算成片秒 → 源秒，探针条目必须带非空 text ——
-  normalizeEntries 会丢没字的条目）；点全片块跳转喂的是轴秒（`filmApplyAt`），成片秒进错量纲就是三处一起歪。
-- 取帧失败按**退避**记账并自己重试：轨道没有定时重画，一次解码超时若只压进一张长 TTL 表，
-  界面就是一直斜纹（用户不动一下好不了）；8 秒起、逐次翻倍、最久 5 分钟，到点由 `sliceRetryIn`
-  那条定时器照着还活着的栏目再排一遍活。
-- 播放不渲染：剪辑态实时播，导出才逐帧合成（`MediaExport`，整条在浏览器里跑）。播放器控制条只有 `pbBarHTML` 一份。
-- 合并/导出只从页头入口触发；任何会改变成片内容的编辑必须先 `filmEdited()`。
-- 导出成片前先判 `filmIsCurrent()`；404/空文件要作废 `proj.merged` 并让用户再点一次导出。
-- 本地优先：预览遵守 `sk_media_prefer`，**导出始终本机优先**；有本机副本不碰上游。
-- FCPXML 只读当前时间线：素材优先真实本机文件，缺失仍建离线 asset，不许静默丢段；
-  配音按 `at / 画面倍速` 挂到对应段，黑场写 `<gap>`。
-- 接续镜（`linkPrev === 'tail'`）的「上一镜是谁」只在 `chain.shotPlacement` 按全片顺序算，跨场景连续；
-  用户显式给了 `firstFrame` 就优先，不再自动取尾帧。上一镜没画面时 `ensureChainModel` 只从支持首帧的
-  型号里选；用户手改型号后 `modelAuto` 清空，接不了首帧就由 `shotBlockReason` 拦住，不偷偷换回去。
-- 长镜头只在**没有任何型号能覆盖整段时长**时才由 `splitLongShots` 拆；拆完总秒数守恒、每段整数且落在
-  型号区间内，第二段起 `chain:'tail'`，台词 / 说话人只留第一段；拆不成合法片段照实报 `impossible`，
-  不许悄悄截短。拆不了而超上限的，落盘后仍由 `clampShotDurations` 收短。
-- 「生成全部分镜」的依赖与报价共用 `genAllPlan()`：等待只等上一镜（本批或在跑），依赖失败级联标
-  `blocked`，并发名额只包住提交窗口、等待不占名额；切走短片立即停止并唤醒等待。报价缺金额 / 只报最低
-  消费 / 多币种都照实标注，**绝不当 0**；没有金额时不许显示「预计 0」。
-- 本机素材名与 FCPXML 媒体包名同源：`naming.sceneShotBase` 带场景与镜头序号，`stripExt` / `withExt`
-  只留恰好一个扩展名；本体落进库根时用的就是索引里那个 `name`（`newBodyPlace`），FCPXML 的片段名同源。
-  服务端遇到重名直接 400，不静默追加 `-2` 让 XML 引用对不上。旧素材不重命名。
-- FCPXML「送到剪映 / 达芬奇」= 持久工程目录 + 启动软件（找得到才启动）+ 打开目录 + 导入说明；
-  没有可靠的命令行导入协议，不许写成「全自动导入」。`pruneRenders` 不清 `fcpxml-import` 顶层目录，
-  导入路由自己只留最近 20 个。
-- **项目组**（`groups.js`）：一个组下挂多个短片；`WS.groups` 与 `project.groupId` 存在工作区那一份里。
-  组名**就是素材组名** —— 同一个组下的短片，拆分镜建出来的新素材自动落进素材库的那个同名组。
-  删组只把组内短片退回未分组（**不删短片**）；组改名**不自动改**素材库那一组（那是用户数据，要问过才动）。
-  老工程没有 `groups` / `groupId` 时全部落未分组，**零迁移**。
-- **拆分镜的新素材**（`board-assets.js`）：AI 判「谁会重复出现」→ 程序数一遍（**按镜头数**、
-  最长优先）→ 重复出现的才建。素材刚建档时还没有图，提示词里先写占位符 `@待建:名字`；
-  素材出图后（`Chars.setPic` 投 `wb:char-pic`）占位符换成真名并把图补进引用它的镜头。
-  出图**不自动发**（要花钱，按 §6.2），建档与占位是同一段落盘里的事。
-- **拆分镜 / 改分镜的两段式反问**（2026-10，与「AI 润色」同一套）：
-  生成轮之前先走一轮 `TextAI.askPolish`（AI 自己判断这段料值不值得先问；设置 `sk_polish_ask`
-  选「从不问」整轮不发，focus 一句按任务点名值得问的缺口 —— SPLIT_ASK_FOCUS / EDIT_ASK_FOCUS）。
-  问了就在 `#polishInline` 出问答面板（候选点选 + 每题一个自由输入框），回答经 `TextAI.answersNote`
-  随生成轮的正文交上去当**硬约束**（split 要求 10 / board_edit 要求 12 写明），一趟只问一次
-  （「重新规划」按同一份回答重跑，不重新问）。规矩：
-  · 反问轮与生成轮的 sys / user **同源**（apply 域的 `sysOfRun` / `userOfRun` / `varsOf`）——
-    问出来的问题才贴着这一次的料，不会问系统提示里已经写明的事；
-  · 反问**不进 Skill 正文**：split / board_edit 仍在 `NO_ASK`（正文永远是「只返回 JSON」的生成指令），
-    问答契约由 askPolish 在那一轮临时拼上；
-  · 过程状态在 apply 域的 `splitUI`（loading / ask / stream 三相），编辑器整列重画后由
-    `renderSplitPanel` 拼回来（panel.js 的 renderEditor 尾部、紧跟 renderPolishPanel 之后调）；
-    **空项目（还没有任何镜头）时编辑器整栏是空的、连宿主都没有**，画家自己补一块
-    `#polishInline` 当宿主 —— 「拆一份新的」恰恰常从空项目发起；
-  · 挑素材（`ensureStaged`）与「新素材判定」（`stageAssetsOf`）两段也进过程面板；
-    生成轮的流式面板归 `AiStream` 自管（push 时自愈），`splitUI` 只挂 busy 档住「拆分镜」重入；
-  · **确认弹窗里还有「按这句再改」**（PromptReview 的 `onFollow`，`web/ui/forms.js` 的 mountFollow，
-    分组 / 平铺两种审阅共用；流式就地画在弹窗里，可中止）：对着**弹窗里此刻这份**（含手改）
-    说一句，AI 在它上面再改一轮 —— 拆新 / 追加档走 `split_follow` 契约（`skills/split-follow/`，
-    输出改后的**完整方案**整份替换，方案变了待建素材判定跟着重问）；改稿档把这句话并进修改要求
-    整轮重跑（成功过的那几句进 `followAsks`，之后的重新规划也带着）。
-    「重新规划」= 从头重拆，「按这句再改」= 在这版上改，是两条路；两者都在跑时互相让路（一轮一个）。
-- **发送前的请求预览**（`board-preview.js` + `Api.preview`）：预览 = **纯算**，一个网络请求都不发；
-  要上传的素材槽位用**占位符**代替（真发时才上传，预览不能触发）。
-  预览与实发共用 `Api.buildBody` —— 两边各拼一次的话，预览里显示的体与真发的体迟早不一样，
-  而那正是这个功能唯一的价值所在。
-- **Skill 正文里的变量**（项目引用规则）：拆分镜 / 改分镜 / 新素材判定三处发请求前，
-  都把 Skill 正文里的 `{变量}` 按这一次的料填上（`TplVars.fill` + `board-vars.js`）。
-  ⚠ **内置 Skill 正文与 `TextAI.DEF[kind]` 必须逐字相同**（判据：tests/e2e/smoke.cjs 的
-  「内置 Skill 正文与 TextAI.DEF 漂开了」；split / board_edit 两条另有快档版
-  tests/director-split-ask.mjs，不开浏览器）—— 同一份提示词两处维护，改一处就要同步另一处。
+- **数据真相只有 `proj.film`**（`web/director/film.js`）：主画面是一列**顺序存储**的 clip
+  （没有 start，成片总长 = Σ `duration`）；配音 / 待生成是定时条目（成片秒 `start` / `duration`）；
+  字幕存成片秒 `start` / `end`；标记钉在成片秒；`tracks` 存行列的眼睛与锁。
+  旧那套 `c.segs` / `proj.timeline` / `proj.filmOrder` / `sh.lineSeg` 等键**一行都不读**。
+- **两把尺子只有两个折算口**：成片秒与源秒。折算只走 `film.js` 的 `rateOf` / `srcHeadOf` /
+  `srcUsedOf` / `srcLenOf`；裁剪、切开、滑移、播放取帧、FCPXML 都问同一个口，任何一处另算一遍就是第二本账。
+- **写 film 只有一个出口**：`engine/edit.js` 的 `commit` / `patchFilm`（都经 `beginEdit` 压快照、
+  `filmEdited()` 落盘）。右栏卡片、工具条、助手写入桥（§9.3）都走它，不许直接改 `WS` 里的 film。
+- **历史是只追加的日志 + 当前状态指针**（`historyLog` / `historyCursor`）：`beginEdit(label)` **当场**追加一条
+  （状态先记改动前那一版，500ms 落盘时换成改完之后那一版）；回退 = 指针往回挪一条 + 在末尾追一条
+  「回退到 xxx」（不删任何记录），重做走同一条路；上限 30 条 / 24 MB，超了从最旧一头丢。
+  `可撤销` / `可重做` 是视图：可撤销 = **起点那一版** + 指针之前那几条；可重做只数 `edit` 记录
+  （回退 / 重做是流水记录，不是一版状态）—— 一次编辑之后撤销栈读数是 1，不许是 0。
+- **转场挂在每一段的连接点上**：`clip.transition = { id, duration }` 表示「本段 → 下一段」；
+  窗 = `[本段末 − dur, 本段末)`，`dur ≤ min(2 秒, 两段各一半)`。预览每帧与导出逐帧都读
+  `transitionWindow` / `transitionAtTime`（同一道夹算）；FCPXML 不写转场，但要在文件头按处报数。
+- **主画面只有一轨（成片那一轨）**：没有「本镜 / 全片」两档；针、读数、剪子、缩放只有一把尺子（成片秒）。
+  生成态的候选条与顺序条照旧，换候选回生成态点。
+- **工具条上的动作全走 `Edit.toolAction`**：六档选择工具（左选 / 右选 / 编辑点 / 滑移 / 滑动 / 选择）、
+  切刀 / 剪头剪尾 / 删除 / 复制 / 融合 / 新增一段 / 摘掉一段 / 缩短 / 加长 / 缩放三颗 / 回到播放头 /
+  撤销 / 重做 / 吸附开关 / 波纹开关 / 关联 / 标记面板。按钮只派发动作名，动作本体只有一份。
+- **拖播放头**：针立刻跟手（`Timeline.setPlayhead` 纯视图），画面按 ~40ms 一档追、松手补一次精确 seek ——
+  每次 pointermove 都 `video.currentTime = t` 会把在途 seek 取消掉，解码永远追不上指针。
+- **轨道坞能拖到最底下**（`--dock-h` 下限 48）：允许把轨道整块盖住，只剩上沿那条抓手；
+  `.tl-board[data-split-fixed]` 必须带 `min-height: 0`，否则内容会把板子撑在 234 拖不下去。
+- **候选条展开只换行**：卡片尺寸与不展开时逐像素相同（展开是把同一排摊成几行，不是换一副大卡）。
+- **触控板 / 滚轮**（`Timeline.onWheel`）：两指横滑（`deltaX`）与普通竖向滚动（`deltaY`）都当**横向滚动**
+  （时间线本来就是横的）；按住 Ctrl/⌘ 的 wheel（触控板捏合会自己带 `ctrlKey`）才是缩放，
+  锚在指针底下那一秒；竖着翻行走 Alt 或把指针放到左边标签列。
+- **吸附**（`tl-snap.js`）：吸附点 = 时间线 0 与末尾、播放头、各轨块边缘、各标记边缘；
+  阈值是**像素**（`TL_SNAP_PX`），换算成秒只在手势层一处；Alt 绕过在 `engine/edit.js`。
+- **波纹**（`tl-ripple.js`）：边界之后**开跑**的定时块整体平移；整轨 / 行锁住的按行跳过并计数；
+  挂在被移动配音块上的字幕跟着走，没挂链接的字幕按自己的 start 判；**标记不动**。
+  画面轨自己不参与平移（顺序存储，删一段后面的自然前移）。
+- **标记四类五色**（`tl-markers.js`）：钉在成片秒、不随剪辑搬移；面板与轨道读同一份数组。
+- **轨道板的形状**：`#tlBoard > #tlBoardBody`（模板里的静态壳）→ 运行时 `Timeline.render()` 画
+  `#tlTools`（工具条就地刷）、`#tlRulerInner` / `#tlRulerHead`（刻度尺）、`#tlPlayhead`（针层）、
+  `#tlScroll > #tlContent`（视口与内容层），里面是 `.tl-lane` / `.tl-track` / `.tl-strip`（`i.tl-fr`
+  胶片格）/ `.tl-clip` / `.tl-junction`（转场 ◇）/ `.tl-marker` / `.tl-voice` / `.tl-cap`。
+  三秒重建由 `Timeline.render` 自己收滚动位；同一排地址不重画（`__stripSig`）。
+  标记条收起时左列那一行**整条不画**（没有留下孤零零的「标记」两个字），展开走工具条那颗旗子；
+  轨道坞的拖高把手是通长的一条（`Wb.split` 的上下把手不能沿用左右把手的 10px 宽）。
+- **取帧分两层**：数据层「解多密」只有 `slice.js` 的 `frameIndexPlan` / `frameIndexTimes`
+  （按素材时长分档、封顶 480 帧）；显示层「摆几格」只有 `tl-filmstrip.js` 的 `frameCountFor` /
+  `planFrameTimes`（格宽 84px、采样在格子中心、±0.06s 合并）。取帧本身在 `engine/frames.js`
+  （`sliceKey` 稳定键；失败退避 8 秒起逐次翻倍、最久 5 分钟；用户主动 seek 放行一次）。
+- **播放不渲染**：剪辑态实时播（`engine/play.js`：双甲板接力、转场窗口、字幕叠层按起止进出、
+  配音按主时钟对齐、片尾停住），导出才逐帧合成（`MediaExport`）。
+- **导出组表只有一份**：`engine/export.js` 的 `buildRenderPlan()` —— 段顺序与起点、进片的配音与字幕
+  （`audibleVoices` / `visibleCaptions` 两道闸）、每句在哪一行、本机优先地址都在它那一侧算完；
+  FCPXML（`fcpxml.js`）只翻译同一张表，不再自己累加起点或 pack 一遍行。
+- **本机优先**：预览遵守 `sk_media_prefer`，**导出始终本机优先**；有本机副本不碰上游。
+- **片段之间可以留空**（`clip.gap`）：空记在**后面那一段**身上（这一段前面留几秒），
+  `deriveTimeline` 把空算进 start 与总长；空里 `rowAtTime` 给 `null` —— 预览放**黑**、
+  导出画黑帧 + 静音、FCPXML 写 `<gap>`。切一刀的右半与复制出来的副本 `gap = 0`（紧接左半 / 原段）。
+  拖动画面段往右丢会把这截空写进历史（「前面留出 X 秒空」）；往左丢贴住上一段末尾，空自动收掉。
+- **拖动画面段的预览**：被拖的那一组钉在指针那一秒、带一条跟手的胶片浮层（`.tl-drag-ghost`），
+  其余的段按换序后的座位让开（`.tl-board.is-dragging` 下有 120ms 过渡）——「挤开」看得见；
+  跨行拖动时目标行当场高亮，行号的更改在松手那一下落盘。
+- **三个可拖分栏，一套公共件**（`Wb.split`）：`dir_split`（三栏占比）/ `dir_dock`（轨道坞高度，
+  `--dock-h`）/ `dir_strip`（生成态顺序条高度，`--strip-h`）。⚠ `handles[].resize` 是**列下标**，
+  `0` 是合法值（轨道坞与顺序条都拖第 0 栏）。
+- **黑场只有「删掉」一种**（`off`）：这一格占时不变、后面的段不前移，画面变黑的同时音频跳过那几秒；
+  「空段」不再新建（老工程里存下的空段照样渲染，左右拖走即摘掉）。静音 ≠ 删画面
+  （段级静音只把音量切 0，画面照样进成片）。
 
-### 9.2.1 本轮的语义补充（A / B / C）
+### 9.2.1 语义补充
 
-- **空段（`gap`）**：视频段之间插空余 = 黑场且**不吃源**；与 `off`（删掉画面出黑场）是两件事，
-  名称行分别写「空段」/「黑场」。
-- **主轨联动只覆盖「变黑场」**：剪短 / 删画面 / 插空才联动，改音量与倍速不联动（判据在 `links.js`）。
-- **静音 ≠ 删画面**：段级静音只把 `segVol` 切到 0（记住 `mutePrev`），画面照样进成片。
+- **黑场 / 静音**：`off`（删掉）占时不变、画面黑、音频跳过；段级静音只把音量切 0，画面照样进成片。
+- **单轨联动的旧判据（`links.js`）已随旧模型整族删除**：现在的「跟着走」只有波纹（§9.2 那一条）
+  与字幕跟随（`tl-resize.js` 的 `followCaptions`）。
 
 ### 9.3 助手写入桥
 
-- 唯一写入桥是 `WBBridge.director`（`web/core/bridges.js`）：`check(op,arg)` 纯读校验，
-  `run(op,arg)` 执行；op 为 `select` / `cut` / `set` / `undo`。
-- 只有导演台在前台可用；切段走编辑器自己的 `cutSegs → segsWrite → reanchorVoices`；
-  写入前 `beginEdit()` 压撤销快照；行锁/状态/越界在 check 阶段拦。
+- 唯一写入桥是 `WBBridge.director`（`web/director/engine/bridge.js`）：`check(op,arg)` 纯读校验并记下
+  「这一次要动谁」的身份（`targetOf`），`run(op,arg)` 按同一份参数再解析一遍 plan —— 两边对不上
+  （换工程 / 块被删或换了）当场拒，让模型重新读 context。**没有修订号 CAS**：凭据是块 id，不是「第几块」。
+- 只有导演台在前台可用；op 只有 `select` / `cut` / `set` / `undo` 四个。`cut` 与工具条同一批函数
+  （`Edit.selectItem` + `Edit.toolAction`，或 `cutTrim` 走 `tl-resize` 的两把剪子）；`set` 走
+  `Edit.patchFilm`；`undo` 只挪历史指针。选中不依赖 DOM（生成态里板是隐着的也能剪）。
+- 写入前由 `Edit.openUndoWindow` 压一份快照（一个动作一条历史），收尾统一重画。
+- 批量 `timeline_apply` 每条 op 各占一个撤销条目（失败逐条退回），桥的 op 不新增第五个。
 - 助手动作 `select_take` / `cut_timeline` / `set_clip` / `undo_edit` 只做转发；
   绝不让模型用 `click` 去点轨道按钮。
 
@@ -924,6 +974,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
   · **两栏两滚**（2026-10-25）：左边 `.set-rail` 是目录轨（5 组 15 行，每行带**当前值**），
     右边 `.set-doc-scroll` 是 15 张卡排成的一条**连续文档**（组标题钉顶、状态行钉底）；
     **页面自己不滚**。滚法与「滚动只有一个出口」见 §3.4.3。
+  · **两栏的宽度只从一枚令牌来**（`--setrail-w` = 272px）：网格列与轨本身都读它，
+    轨不许比它那一列宽 —— 宽出去就压在右栏那条文档上（轨的值速记被切、卡的左缘被盖）。
+    设置页的目录轨**不共用**素材库那枚 `--rail-w`（208px）：它每行还带一个「当前值」速记，
+    比那根宽。两页各用各的宽度令牌，别让一根轨两个宽度（判据 `tests/e2e/settings-nav.cjs` 量这条）。
   · 卡内那些行**标签列定宽 164px**（`.krow > .kn`）—— 控件都从同一条竖线开始；
     这一页的行**不再两列并排**（`.kcols` 改回一块）：左轨占掉 272px 之后右栏只剩 900px 上下，
     两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行。
@@ -932,11 +986,18 @@ frame-ancestors 'none'; worker-src 'self' blob:
   —— 换一份写法，喂料方式不变）② 这个场景的 Skill（这一 contract 下的每一份、谁在生效、有没有冲突）。
   全量清单退到「全部 Skill」一个**二级**入口 —— 原来它与一级菜单并排，是那处重复的来源。
   槽位灯说的是「这个 contract 槽现在被谁占着」：紫=我的、灰=内置、虚线=空档（用内置默认正文）、
-  红=两份都启用（`skills-store` 的口径：同一 contract 第一个启用的算数，后面那份算冲突）。
+  红=两份都启用（`skills-store` 的口径：同一 contract 里**都启用**时，被标 `conflict` 的那份不算数 ——
+  运行时与界面都取**没被标冲突**的那份，所以用户那份优先于内置那份；**已停用的那份不算冲突**）。
+- **同一个 contract 同一时刻只留一份启用的（2026-10-26 改）**：启一份就把同 contract 的**别的直接停掉**
+  —— 不报错、不让人先关掉再开（`server/skills-store.js` 的 `displaceSameContract`，启停与安装两条路共用）。
+  内置那份同样让位（用户的顶上去，内置的自动停，这条一直如此）；**用户那份之间也改成让位**，
+  以前是抛「同一个 contract 只能启用一个 Skill」。
+  ⚠ 让位的那几份 id 由服务端回传（`displaced`），前端**要点名说清「哪一份停了」**，不许让人自己猜；
+  界面上停用那一行当场变成「已停用」（清单回填，不靠手动刷新）。
 - **新建 / 编辑一份 Skill 在浏览器里做**（设置页场景详情里的「添加新 Skill」/「编辑正文」）：
   frontmatter 由表单生成、正文自己敲，落盘走 `POST /skills/install`（新建）或 `/skills/:id/update`（改）。
   ⚠ **内置 Skill 只读**：改不了内置那一份，要改就自己新建一份占同一个 contract
-  （服务端会把同 contract 的内置那份自动停用）。「复制为我的 Skill」与「导出」两条**已整族删除**
+  （服务端会把同 contract 的原来那份自动停用）。「复制为我的 Skill」与「导出」两条**已整族删除**
   （前端函数、`web/ui/skills.js` 的 `exportOne`、服务端 `/skills/:id/export` 路由都没了）。
 - 查询结果按 `estimateTokens` 预算；发出前 `redactSecrets` 抹密钥形状。
 - 设置项只有白名单（`ADJUST` + `PAGE_TARGETS` + `sk_model_<kid>` + `Chars.SET`）；
@@ -1078,8 +1139,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 样式秒级 | `node tools/tokenize-css.cjs` + `node tools/check-vars.cjs` | 动了样式 / 令牌后 | <1s |
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 | ~3s |
-| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 5 条（4 路并发）~2 分钟 |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 48 条 e2e 串行（浏览器档共 50 条，另含 perf/boot 与 static-encoding --live），十几分钟级 |
+| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2.5 分钟 |
+| 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 4 条 + `director-core` 一次装配的冒烟（约 35s） |
+| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 47 条 e2e 串行（另含 perf/boot 与 static-encoding --live），二十几分钟级 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1106,21 +1168,33 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 列表页的翻页一行：`pager-row`（资产库 / 收藏 / 角色库 / 生成工作台四页都得把翻页行**画出来**：
   宿主登记了、行看得见、上一/下一页两颗在 —— 上一轮「翻页组件不显示」就是工作台那一处
   宿主 `stPgRow` 从未登记，整行从未填过；翻页之后的行为由 `favorites-pager` 盯）。
+- 页面的页头：`page-head`（各页都得是**公共那一条** `.phead`：标题在 `.phead-h1` 里且文本对得上、
+  **不带图标铭牌**、标题左缘与内容列左缘对齐（±1px）、四个槽（身份 / 上下文 / 说明 / 动作）都在 ——
+  防止下一轮又长出第八种页头。导演台是作用域岛（满屏三栏、页头在 `template.html` 里），不在这条站内页头的名单里）。
+- 工作台左右两栏可拖：`wb-split`（把手在**本页**的 `.layout` 里 —— 文档级选择器会命中页面池里
+  别的页；拖得动且跟手；**拖动全程页面两端的空白不变**；值落盘 `wb_split.sp0`；双击复位；
+  站内切页再切回不丢）。
+- 文件类型筛选：`kind-filter`（收藏 / 工作台 / 资产库三页共用 `Wb.kindFilter`：分段控件 + 每档计数、
+  点一下换档、计数为 0 且非当前档的那一颗不画）。
+- 视口不许被重画甩回顶：`viewport-keep`（裸重画确实丢位是对照；`Wb.viewport.keep` 按锚点还原；
+  `Wb.cards.paint` 整箱重画也不吃位。⚠ 不碰导演台：它的重画点在 `Timeline.render` / `renderEditor` 自己的 `Wb.viewport.keep` 里）。
 - 「存回本机」存的是**多选勾选的那几条**：`pull-selected`（工作台 / 资产库两页：那颗按钮住在
   多选条里、多选之后才出现、点下去只排勾选的那些；工作台的翻页行住在右栏顶上 ——
   搜索那一排下面；顺带盯「多选时勾选框看得见」，勾选框隐形的话「存选中的」就是盲存）。
-- 浏览器档分两级：`--e2e:fast` 只跑冒烟 5 条（smoke / ui-contract / ui-shared / director-perf / lock，
-  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 条（含 harness），
+- 浏览器档分两级：`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / director-core / lock，
+  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 个文件（47 条判据 + harness），
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
   （后者是同一份判据的「线上那一半」，要起隔离实例）。
 `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
+- **剪辑核的日常验证不要跑全量 e2e**：`npm run test:director` 是纯件 4 条 + `director-core` 的**一次装配**冒烟
+  （板 / 切一刀 / 撤销 / 转场 ◇ / 标记 / 字幕块 / 缩放 / 工具条就地刷 / 历史，约 35 秒）；
+  `director-edit` / `director-history` / `director-playback` 这些重交互档只在出包前跑。
 
 视觉基线更新（只在有意改版后）：
 
 ```bash
 UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs                    # 全部画面
 UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=studio node tests/e2e/ui-visual.cjs   # 只补点名的那一页
-PARITY_WRITE=1 node tests/e2e/parity.cjs
 ```
 
 ### 13.2 写入型验证只跑隔离实例
@@ -1258,7 +1332,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 | 新导演台 DOM 交互 | `web/director/engine.js` 或已有域模块 | 不许在页面层另写编辑算法；必须走 `beginEdit` / `filmEdited` |
 | 新助手动作 | `web/features/chat-tools.js` 的 `ACTS` + `ACTION_META` | 策略一行：`effect` / `route` 必填、`undo` 有意不给=真退不掉；花钱动作 cancel；补 e2e（见 §14.4） |
 | 新 Skill | `skills/<id>/SKILL.md` | frontmatter（id/name/triggers/pages/contract）；内置正文与 `TextAI.DEF` 同源 |
-| 新导出/导入格式 | `web/director/*` 或 `web/domain/*` 的纯拼装模块 | 缺失素材报数；补 golden/parity |
+| 新导出/导入格式 | `web/director/*` 或 `web/domain/*` 的纯拼装模块 | 缺失素材报数；导出组表只有 `buildRenderPlan()` 一份（判据 `tests/fcpxml-client.mjs`） |
 | 新测试 | 单元 `tests/<name>.mjs|cjs`；浏览器 `tests/e2e/<name>.cjs` | 加到 `tests/all.cjs`；断言失败要能指出落点 |
 | 新视觉基线 | `tests/fixtures/visual/` | 只允许 `UI_VISUAL_WRITE=1` 更新；实际截图走 gitignore |
 
@@ -1271,10 +1345,11 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 **「项目引用规则」**（Skill 正文里的变量占位符 `{cast}` `{what}` `{board}` …）=
 `web/domain/gen-forms.js` 的 `window.TplVars`（唯一一份填法）+ `web/director/board-vars.js`（填什么）；
 NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`，持久目录
-`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）；台词落点 `web/director/line-point.js`；剪辑态轨道坞与左栏编辑态在 `engine/mid.js` +
-`template.html`（`.tl-dock` / `#editLeft` / `.dock-grip`）；页头导出拆分按钮在 `engine.js` 的
-页头装配段（`#exportFcpMore` / `#exportFcpMenu`）；
-配音分轨 / 合轨的行规划 `web/director/voice-lanes.js`；拖素材的引用载荷 `web/domain/asset-ref.cjs`
+`RENDER_DIR/fcpxml-import/`（`pruneRenders` 跳过这一层）；剪辑核的模型 `web/director/film.js`、
+交互 `engine/edit.js`、板与刻度 `engine/timeline.js` / `engine/strip.js`、播放 `engine/play.js` 与
+纯件 `web/director/tl-*.js` / `srt.js`；左栏「历史编辑记录」在 `engine/mid.js` + `template.html`
+（`#editLeft`）；页头导出拆分按钮在 `engine.js` 的页头装配段（`#exportFcpMore` / `#exportFcpMenu`）；
+拖素材的引用载荷 `web/domain/asset-ref.cjs`
 （**必须是 .cjs**：`web/package.json` 的 type:module 会把 .js 当 ESM，UMD 的 `module.exports` 分支不会走，
 经典脚本与 Node 判据两头都读同一份）。
 
@@ -1322,8 +1397,9 @@ npm run build:check         # 校验模板与生成物一致
 npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s）
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
 npm run test                # 合并档：常驻判据全量（并发池，~3s）
-npm run test:all            # 全量档：常驻池 + e2e 冒烟 5 条（4 路并发，~2 分钟）
-npm run test:e2e            # 浏览器档：48 条 e2e 全量串行（含视觉回归、性能、parity）
+npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2.5 分钟）
+npm run test:director       # 剪辑核日常档：纯件 4 条 + 一次装配的核冒烟（约 35s）
+npm run test:e2e            # 浏览器档：47 条 e2e 全量串行（含视觉回归与性能）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
 node tools/tokenize-css.cjs            # 样式秒级档：裸值体检（只读；--write 机械替换 / --map 映射 / --collapse 收敛影响面）
 node tools/check-vars.cjs              # 令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）
@@ -1339,8 +1415,9 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
 以下是**当前有效的决定**，不是待办；改之前先确认能否同时守住行为与热路径预算：
 
 - **导演台编辑器内部保持命令式**：候选条、轨道、切片、播放与拖动不走 Vue 组件化。
-  `DirectorView` 是 Vue 页面壳；内部按域拆成纯模块（segments / timeline / voice-layout /
-  playback / plan / projection / slice / board / split-assets / media / subtitles / fcpxml）。
+  `DirectorView` 是 Vue 页面壳；内部按域拆成纯模块（film / tl-cut / tl-resize / tl-ripple /
+  tl-reorder / tl-snap / tl-scale / tl-peaks / tl-markers / tl-filmstrip / slice / srt / script /
+  board / split-assets / media / fcpxml）。
   原因：这些 DOM 节点被缓存、拖拽、切片帧、插针与撤销逻辑大量引用；改成 Vue 组件会改变
   节点身份与更新时机，直接破坏“切页不丢状态 / 不重解码 / 拖动中途不重建”这些既有判据。
   剪辑交互与预览引擎同样明确不重写。因此 `engine.js` 仍是全站最大的文件（工程数据 + 可变状态 + 接线），
@@ -1358,8 +1435,10 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
 - **令牌名 = 值，不回退到「序号 = 档位」**：序号写法要人记「--sp-3 是几像素」，
   而且同一档里两套命名并存时必然漂开（`--fs-1` 与 `--fs-12` 是两个完全不同的字号）。
   改名的成本在令牌化那一轮一次付清（718 处），之后新增一律按值命名。
-- **主题色与固定色分家**：`tokens.css` ① 段跟主题走、③ 段与 ④ 段（`--dir-*` 导演台深底）
-  不跟。共享界面一律取语义色 —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
+- **主题色与固定色分家**：`tokens.css` ① 段跟主题走、③ 段（固定中性色）不跟；③b 段
+  （导演台标记色 `--mark-cut` / `--mark-ready` / `--mark-mute` / `--mark-loud`）**跟** ——
+  那四枚是轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深浅两档各一套。
+  共享界面一律取语义色 —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
   加主题色必须连深色档一起加（判据 G19）。
 - **页面外壳只有两种**（`.page-shell` / `.wb`），工作台那套两栏骨架的**唯一一份**在
   `web/styles/wb.css`：以前 ui.css 那份是给老工作台页的死代码、SPA 那份是逐条照抄，

@@ -218,8 +218,10 @@ class CDP {
 }
 
 class Page {
-  constructor(cdp) {
+  constructor(cdp, info = {}) {
     this.cdp = cdp;
+    this.targetId = info.targetId || '';
+    this.browserCdp = info.browserCdp || null;
     this.errors = [];
     /* 只记 text 会得到一句「Uncaught」，真错在 exception.description（含调用栈首行）。 */
     cdp.on('Runtime.exceptionThrown', p => {
@@ -303,7 +305,36 @@ class Page {
   async setSize(width, height) {
     await this.cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   }
-  close() { this.cdp.close(); }
+  /* 清掉这台浏览器里某个源的本机存储（IndexedDB + localStorage）。
+     只能在**这个源还没有任何文档装载**时调（新标签停在 about:blank 就行）：
+     装载中的页面握着 IndexedDB 连接，删除要等它让出版本，那一句 CDP 会一直悬到超时。 */
+  async clearStorage(origin) {
+    await this.cdp.send('Storage.clearDataForOrigin', { origin, storageTypes: 'local_storage,indexeddb' });
+  }
+  /* 开机对账（DataSync.boot）在「本地空 + 数据文件里有」时会把它拉回 localStorage，
+     拉到东西就整页刷新一次（600ms 后，见 web/ui/datasync.js）。同一台代理连着跑几档开局时，
+     上一档留在 .data 里的界面偏好（吸附 / 波纹 / 分栏…）会让下一档在装完探针之后被那次刷新连锅端走。
+     要测**界面**（不是测对账）的多档判据在 goto 之前调这一句：把本会话标成「已同步」，
+     DataSync.boot 整段跳过 —— 探针与刚装好的界面状态不再被页面自己那次刷新抹掉。
+     要测对账本身的判据（cloud-sync 那一类）不要调它。 */
+  async skipDataSyncBoot() {
+    await this.addInitScript(() => {
+      try {
+        const seg = location.pathname.split('/').pop() || 'shell.html';
+        sessionStorage.setItem('__synced_' + seg, '1');
+      } catch (e) { /* 拿不到 sessionStorage 就照常对账：判据自己会看出来 */ }
+    });
+  }
+  /* 只断开 CDP 连接的话标签页还活着：页面里的定时器、落盘和关标签那一次 flush 照跑，
+     同一台代理 + 同一个 profile 的下一档开局读到的就是上一档留下的那一份。
+     所以 close 真的把这张标签关掉（等效于用户点关闭）；关不掉（比如拦在离开上的弹窗）
+     也要把连接断了继续跑，不能把整条判据卡在 close 上。 */
+  async close() {
+    if (this.browserCdp && this.targetId) {
+      await this.browserCdp.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {});
+    }
+    this.cdp.close();
+  }
 }
 
 class Browser {
@@ -316,7 +347,9 @@ class Browser {
     const proc = cp.spawn(exe, [
       '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       '--disable-background-networking', '--disable-sync', '--disable-extensions',
-      '--remote-debugging-port=0', '--user-data-dir=' + userDir, 'about:blank',
+      '--remote-debugging-port=0', '--user-data-dir=' + userDir,
+      ...(Array.isArray(opts.args) ? opts.args : []),
+      'about:blank',
     ], { stdio: 'ignore' });
     const portFile = path.join(userDir, 'DevToolsActivePort');
     const until = Date.now() + 20000;
@@ -339,7 +372,7 @@ class Browser {
     const target = Array.isArray(r) ? r[0] : r;
     if (!target || !target.webSocketDebuggerUrl) throw new Error('创建页面失败');
     const cdp = await CDP.connect(target.webSocketDebuggerUrl);
-    const page = new Page(cdp);
+    const page = new Page(cdp, { targetId: target.id, browserCdp: this.cdp });
     await page.init();
     return page;
   }

@@ -103,6 +103,40 @@ const h = require('./harness.cjs');
     await page.waitFor(() => /停用/.test((document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]') || {}).textContent || ''), 12000);
     let state = await call('/skills');
     if (!(state.json.items || []).some(x => x.id === 'e2e-skill' && x.enabled)) throw new Error('点启用后服务端状态没变');
+
+    /* ⑥b 同一个 contract 同一时刻只留一份：这份的 contract 是 polish.image，
+       启它 → 同 contract 的内置那份**直接停掉**，并且：
+         ① 前端当场显示停（那一行变成「已停用」，不靠手动刷新）；
+         ② 回执点名「哪一份停了」（不许让人自己猜）；
+         ③ 服务端状态确实是那一份停了。 */
+    const takeover = await page.eval(() => {
+      const row = document.querySelector('.sk-item[data-skill-id="image-prompt"]');
+      const tags = row ? [...row.querySelectorAll('.sk-tags .ui-tag')].map(t => t.textContent.trim()) : [];
+      return {
+        builtinTags: tags,
+        builtinBtn: (row ? row.querySelector('.sk-toggle') : null) ? row.querySelector('.sk-toggle').textContent.trim() : '',
+        msg: (document.querySelector('.sk-msg') || {}).textContent || '',
+        mineTags: [...(document.querySelector('.sk-item[data-skill-id="e2e-skill"]') || { querySelectorAll: () => [] })
+          .querySelectorAll('.sk-tags .ui-tag')].map(t => t.textContent.trim()),
+      };
+    });
+    if (!takeover.builtinTags.includes('已停用')) {
+      throw new Error('启了这一份，同 contract 的内置那份在前端没有自动显示停：' + JSON.stringify(takeover.builtinTags));
+    }
+    if (takeover.builtinTags.indexOf('contract 冲突') >= 0) {
+      throw new Error('已停用的那份还挂着「contract 冲突」标签（停着的那份不参与，不算冲突）：' + JSON.stringify(takeover.builtinTags));
+    }
+    if (takeover.builtinBtn !== '启用') throw new Error('内置那一行的按钮没变成「启用」：' + takeover.builtinBtn);
+    if (!takeover.mineTags.includes('正在生效')) throw new Error('刚启的这一份没有标「正在生效」：' + JSON.stringify(takeover.mineTags));
+    if (takeover.msg.indexOf('image-prompt') < 0) throw new Error('回执没点名是哪一份让了位：' + takeover.msg);
+    const img = (state.json.items || []).filter(x => x.contract === 'polish.image');
+    if (!img.some(x => x.id === 'image-prompt' && !x.enabled)) {
+      throw new Error('服务端没把同 contract 的内置那份停掉：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
+    }
+    if (img.filter(x => x.enabled).length !== 1) {
+      throw new Error('同一个 contract 还有多份启用着：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
+    }
+
     await page.eval(() => document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]').click());
     await page.waitFor(() => /启用/.test((document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]') || {}).textContent || ''), 12000);
     state = await call('/skills');

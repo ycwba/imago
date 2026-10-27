@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-/* 剪辑引擎里那几段**纯函数**的常驻回归：切片就近落格、热区排序。
-   跑法：`node tests/editing.cjs`（不启动浏览器，也不碰真实数据）。 */
+/* 剪辑引擎里那几段**纯函数**的常驻回归：取帧块的排队顺序、语义检索排序。
+   跑法：`node tests/editing.cjs`（不启动浏览器，也不碰真实数据）。
+   磁贴「就近落格」那一档已随取帧管线换成 strip 的就近顶上（`frameAtTime`），
+   判据搬进 tests/director-strip.mjs（显示层帧计划那一份）。 */
 const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
 /* 剪辑与导出的纯函数现在分在 engine 那一层的两份以上：engine.js 自己（热区）与
-   engine/frames.js（切片几何）、engine/export.js（成片秒命名 / 配音区间），往后还会继续按域搬。
+   engine/frames.js（取帧块）、engine/export.js（成片计划），往后还会继续按域搬。
    判据按名字找函数体，所以语料是**整层**而不是点名的几份文件 —— 搬家不需要同步改这里，
    也不会出现「函数搬走了、判据还在老地方找、找不到就当没这回事」那种静默失效。 */
 const engineDir = path.join(root, 'web/director/engine');
@@ -29,13 +31,12 @@ function fn(name) {
 
 const ctx = { console, Math, Number, Date, URL: { revokeObjectURL() {} } };
 vm.createContext(ctx);
-vm.runInContext([fn('tileFrames'), fn('chunkHot')].join('\n'), ctx);
+vm.runInContext(fn('chunkHot'), ctx);
 
-const got = new Map([[0, 'a'], [1, 'b'], [2, 'c']]);
-const tiles = ctx.tileFrames(got, [0.1, 1.1, 2.1], 0, 3, 1);
-ok('切片就近落格', tiles[0] === 'a' && tiles[1] === 'b' && tiles[2] === 'c', JSON.stringify(tiles));
 const hot = ctx.chunkHot([[0, 1], [5, 6], [10, 11]], 6.4);
 ok('热区块排到队头', hot[0][0] === 5, JSON.stringify(hot));
+ok('没有热区时块序不动', ctx.chunkHot([[0, 1], [5, 6], [10, 11]], -1)[0][0] === 0);
+ok('只有一块时原样返回', ctx.chunkHot([[2, 3]], 2)[0][0] === 2);
 
 const sem = { window: {} };
 vm.createContext(sem);

@@ -691,7 +691,7 @@ window.AssetPicker = {
         const why = AiFind.shortWhy(q, 'AI 检索');
         if (why) {
           cnt.textContent = why;
-          search.focus();
+          window.focusQuiet(search);
           return;
         }
         cnt.textContent = 'AI 正在理解检索需求…';
@@ -744,7 +744,7 @@ window.AssetPicker = {
           }
           /* 「音色描述」只可能写在素材身上，资产库 / 收藏 / 本机上传里根本没有这一类：
              那一档不必等注册表、也不必取资产库，取回来一个都用不上。 */
-          if (charsOnly) { try { search.focus(); } catch {} return; }
+          if (charsOnly) { try { window.focusQuiet(search); } catch {} return; }
           /* 先用资产库页写下的列表缓存画一版底：列表在几十秒内几乎不变，
              而联网那 3 页要等一两秒 —— 以前这段时间弹窗里只有转圈，用户以为没打开。
              缓存只当底稿，真数据到了 take() 会整份覆盖（onBatch 每批都给全量）。 */
@@ -776,7 +776,7 @@ window.AssetPicker = {
             onBatch: take,
           });
           take((res && res.entries) || []);
-          try { search.focus(); } catch {}
+          try { window.focusQuiet(search); } catch {}
           /* 列表覆盖不到的收藏：按任务号现场回源换新鲜地址（签名过期的 /getv 会 403）。
              放后台跑，别让它拖住列表；限量与并发都在 Fav.resignSome 里。 */
           if (!window.Fav) return;

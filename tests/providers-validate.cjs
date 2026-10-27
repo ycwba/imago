@@ -27,6 +27,12 @@ assert.ok(r.invalid.some(x => x.id === 'b' && x.errors.some(e => /kind/.test(e))
 assert.equal(validateProviders([good, equiv1, equiv2, docOnly, text]).ok, true);
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'video', relay: '/x' }]).ok, false, '没有型号来源要报错');
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'text', relay: '/x' }]).ok, false, '文字缺 chat 要报错');
+/* extraCaps（语音识别 / 联网搜索）：拼错一个字母不会报错、只会让设置页少一格 —— 值必须按白名单查，
+   而且只能挂在文字供应商上（只有它们才有 /audio/transcriptions 与对话模型）。 */
+assert.equal(validateProviders([{ ...text, id: 'x1', relay: '/textai/x1', extraCaps: ['asr', 'search'] }]).ok, true, 'asr / search 是登记过的档');
+assert.equal(validateProviders([{ ...text, id: 'x2', relay: '/textai/x2', extraCaps: ['asrr'] }]).ok, false, '拼错的 extraCaps 要红');
+assert.equal(validateProviders([{ ...text, id: 'x3', relay: '/textai/x3', extraCaps: 'asr' }]).ok, false, 'extraCaps 不是数组要红');
+assert.equal(validateProviders([{ ...good, id: 'x4', relay: '/x4', extraCaps: ['asr'] }]).ok, false, '图片供应商声明 asr 要红');
 /* 多段 relay（/textai/<id> 这种一段家族名 + 一段 id）是合法形状 */
 assert.equal(validateProviders([{ ...good, id: 'p1', relay: '/textai/p1' }]).ok, true, '多段 relay 要认');
 /* 声明了输入槽位（inputRoles）就必须有 create.inputTemplates 把它放进提交体 ——

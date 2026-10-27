@@ -88,7 +88,9 @@ const panelSrc = read('web/director/engine/panel.js');
 assert.ok(panelSrc.includes('    renderSplitPanel,\n'), 'panel.js 没解构 renderSplitPanel');
 assert.ok(/renderPolishPanel\(sh\);[\s\S]{0,400}?renderSplitPanel\(\);/.test(panelSrc),
   'renderEditor 尾部没在润色面板之后拼拆分镜面板');
-assert.ok(/col\.innerHTML = '';\s*\n\s*\/\*[\s\S]*?\*\/\s*\n\s*renderSplitPanel\(\);/.test(panelSrc),
+/* 空态分支只认「没有镜头那一条路里调了 renderSplitPanel」：
+   那一行外层现在套的是公共件（重画不吃滚动位），把写法钉死就变成盯着壳子测接线。 */
+assert.ok(/if \(!sh\) \{[\s\S]{0,400}?renderSplitPanel\(\);/.test(panelSrc),
   'renderEditor 的空态分支（空项目）没接 renderSplitPanel —— 拆一份新的从空项目发起时问答面板没有落点');
 
 /* ---- 设置页那一档的文案覆盖拆分镜 ---- */

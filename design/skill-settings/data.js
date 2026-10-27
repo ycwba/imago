@@ -128,7 +128,7 @@
     { id: 'my-video-prompt', name: '我的视频提示词', desc: '一镜到底优先的写法', triggers: ['视频', '提示词'], pages: ['studio.html'], contract: 'polish.video', version: 1, source: 'user', enabled: false, chars: 640, placeholders: ['what'] },
     /* 冲突是真实存在的状态（服务端 skills-store 专门算这一条，界面上今天也有「contract 冲突」那一枚）：
        同一个 contract 下有两份都启用了 —— 常见于老版本留下的副本或手改过的启用状态。
-       这时程序按「第一份」算数，另一份形同虚设，界面必须把这件事说出来。 */
+       这时程序按「**没被标 conflict 的那份**」算数（被标的那份形同虚设），界面必须把这件事说出来。 */
     { id: 'my-follow-edit', name: '我的接着改（老副本）', desc: '老版本留下的同名副本', triggers: ['再改'], pages: ['studio.html'], contract: 'polish.follow', version: 1, source: 'user', enabled: true, chars: 300, placeholders: ['what'] },
   ];
 

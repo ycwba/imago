@@ -123,8 +123,6 @@ export default {
            不再用 new Function 执行字符串；Vue 模板已在开发期预编译（严格 CSP 不需要 unsafe-eval）。 */
         engineApi = await engineP;
         engineApi.mount(env.docProxy, env.winProxy);
-        /* 从生成工作台点「加到时间线」过来的那一张图：mount 之前引擎还没有落点，取不走。 */
-        try { engineApi.consumeAddedImage(); } catch (e) { console.warn('[director] 跨页图片没放进去：', e); }
         if (window.fillIcons) window.fillIcons(host.value);
         if (window.Dropdowns) window.Dropdowns.build(host.value);
         /* 导演台自己的「换背景」只改 documentElement + localStorage，不知道外壳侧栏那张图标；
@@ -153,8 +151,6 @@ export default {
       active.value = true;
       try { if (window.__directorSlicePause) window.__directorSlicePause(false); } catch (e) {}
       if (styleEl && !styleEl.isConnected) document.head.appendChild(styleEl);
-      /* 每次激活都取一次：从生成工作台点「加到时间线」跳过来时，导演台只是被 KeepAlive 放回前台。 */
-      try { if (engineApi) engineApi.consumeAddedImage(); } catch (e) { console.warn('[director] 跨页图片没放进去：', e); }
       /* 隐藏期间可能改过窗口尺寸；放回文档后让导演台自己重排一次（它的 resize 监听在隐藏时是放行的）。 */
       setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 0);
     });

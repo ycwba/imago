@@ -1,7 +1,15 @@
 
     <div class="page-main usage-page page-shell" ref="rootEl">
-      <h1 class="page-h1"><span v-html="chartIcon"></span> 用量与余额</h1>
-      <div class="desc">只统计<b>已配置密钥</b>的平台。生成平台的花费取自接口返回的真实积分/价格；文字 AI 不折算金额，只统计消耗的 tokens。</div>
+      <!-- 统一页头（全站唯一一份 .phead）：身份 + 说明。动作与上下文这一页用不上，就不留空位。 -->
+      <header class="phead">
+        <div class="phead-id">
+          <h1 class="phead-h1">用量与余额</h1>
+        </div>
+        <p class="phead-sub">各平台的积分与 tokens。</p>
+        <div class="phead-acts"></div>
+      </header>
+
+      <div class="desc">只统计已配置密钥的平台。</div>
 
       <div class="bar">
         <button class="ghost" id="reload" style="padding:var(--sp-8) var(--sp-15)" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
@@ -9,16 +17,16 @@
         <span class="upd" id="upd">{{ upd }}</span>
       </div>
 
-      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div>
 
       <div class="ub-layout">
         <div class="ub-left">
           <div class="cards" id="balances">
             <div v-if="balanceLoading" class="empty">加载中…</div>
             <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn)' : ''">
-              <template v-if="balanceTip.kind === 'proxy'">读不到本机代理{{ balanceTip.why ? '（' + balanceTip.why + '）' : '' }}：这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。<br>先跑一次项目目录里的「启动.bat」（或 <code>node proxy.js</code>），再点右上「刷新」。</template>
-              <template v-else-if="balanceTip.kind === 'warn'">读不到平台配置：本地代理（proxy.js）可能没在运行。<br>请用「启动.bat」启动后点右上角「刷新」。</template>
-              <template v-else>还没有配置任何平台的密钥，请先到「设置」里填写</template>
+              <template v-if="balanceTip.kind === 'proxy'">代理未启动，跑启动.bat 再刷新。</template>
+              <template v-else-if="balanceTip.kind === 'warn'">代理未启动，跑启动.bat 再刷新。</template>
+              <template v-else>还没有配置密钥</template>
             </div>
             <div v-for="b in balanceCards" :key="b.kid || b.name" class="bal">
               <div class="hd"><span class="ic" v-html="b.ic"></span><span>{{ b.name }}</span></div>
@@ -98,7 +106,7 @@
                   </tr>
                 </tbody>
               </table>
-              <div v-else-if="aiLoaded" class="empty">还没有按型号的用量：调用一次文字 AI（润色 / 分镜 / 检索）之后，这里会按型号分开记。</div>
+              <div v-else-if="aiLoaded" class="empty">还没有用量</div>
             </div>
             <h2 class="sect-mini">按日用量</h2>
             <div id="aiDaily">
@@ -110,7 +118,7 @@
                   </tr>
                 </tbody>
               </table>
-              <div v-else-if="aiLoaded" class="empty">还没有文字 AI 调用记录：用文字 AI 润色或分镜之后，这里会按天记下次数与 tokens。</div>
+              <div v-else-if="aiLoaded" class="empty">还没有调用记录</div>
             </div>
           </div>
         </div>
@@ -131,13 +139,13 @@
               </select></div>
               <input id="fQ" v-model="fQ" @input="onQInput" placeholder="搜索提示词 / 型号 / ID…">
             </div>
-            <button class="ghost" id="expBills" title="把当前筛选出的账单导出成 CSV（Excel 可直接打开）" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
+            <button class="ghost" id="expBills" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
             <div id="billNote" @click="onBillNoteClick" v-html="billNoteHtml"></div>
             <div class="upd" id="billCnt" style="margin-bottom:var(--sp-8)">{{ billCntText }}</div>
             <div id="bills">
               <div v-if="billDownHtml" v-html="billDownHtml"></div>
               <div v-else-if="billLoading" class="empty">加载中…</div>
-              <div v-else-if="!billRows.length" class="empty">这个筛选下没有账单：把时间范围放宽或换个平台看看；一条都没有的话，多半是还没在「设置」里填平台密钥。</div>
+              <div v-else-if="!billRows.length" class="empty">没有账单</div>
               <table v-else>
                 <thead><tr><th>时间</th><th>平台</th><th class="w">明细</th><th class="num">花费 / 用量</th></tr></thead>
                 <tbody>

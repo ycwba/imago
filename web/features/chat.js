@@ -491,7 +491,7 @@
       return v;
     };
     const raw = (pc && typeof pc === 'object') ? pc : {};
-    const PRI = ['页面', '项目', '场景', '镜头', '镜头id', '选用', '当前候选', '这一条', '可撤销', '可重做', '候选', '插针'];
+    const PRI = ['页面', '项目', '场景', '当前镜头', '镜头id', '选用', '成片', '候选', '焦点', '字幕', '标记', '可撤销', '可重做'];
     const o = {};
     PRI.forEach(k => { if (raw[k] !== undefined && raw[k] !== '') o[k] = val(raw[k], 0); });
     Object.keys(raw).forEach(k => { if (o[k] === undefined && raw[k] !== '' && raw[k] != null) o[k] = val(raw[k], 0); });
@@ -1005,7 +1005,7 @@
       const b = el.ta.selectionEnd == null ? v.length : el.ta.selectionEnd;
       const pre = a > 0 && v.charAt(a - 1) !== '\n' ? '\n' : '';
       el.ta.setRangeText(pre + mark, a, b, 'end');
-      el.ta.focus();
+      if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus();
     }
     paintRefMarks();
     if (dropped.length) note('引用最多留 ' + REFS_MAX + ' 条，挤掉了最早的：' + dropped.join('、') + '。要留它们就先发一轮。', 'warn');
@@ -1335,7 +1335,7 @@
   /* 真的执行这一张卡片。校验在画卡片之前就全做完了（见 send 里RUN 那一支），
      所以「不用确认」只是省掉那一下点击 —— 一张卡片只认一次执行这条不能省：
      重复提交 = 平台那边多一条任务（没有幂等键的家尤其如此）。 */
-  /* 卡片执行完，把结果回填到回合里的动作条目（state / revision / changedIds / undo）。
+  /* 卡片执行完，把结果回填到回合里的动作条目（state / changedIds / undo）。
      回合是刷新后仍能看到「这一轮到底动了什么」的唯一结构化账；卡片本身只是气泡。 */
   function turnActionPatch(m, patch) {
     const t = turnOf(m && m.turnId);
@@ -1343,7 +1343,6 @@
     const a = (t.actions || []).find(x => x.id === (m && m.aid));
     if (!a) return;
     Object.assign(a, patch || {});
-    if (patch && patch.revision) t.changed.revision = patch.revision;
     if (patch && Array.isArray(patch.changedIds) && patch.changedIds.length) {
       const key = /^(select_take|cut_timeline|set_clip|undo_edit|timeline_apply)$/.test(m.act) ? 'clips'
         : /^subtitle_/.test(m.act) ? 'subtitles' : '';
@@ -1403,7 +1402,6 @@
       acts.push({ 动作: m.act, 结果: m.st === 'err' ? '失败' : '成功', 说明: cap(m.out, 300), at: Date.now() });
       turnActionPatch(m, {
         state: m.st === 'err' ? 'error' : 'ok', resultText: cap(m.out, 500),
-        revision: Number(r && r.revision) || 0,
         changedIds,
         undo: (r && r.undo) || actUndo(m.act) || '',
       });
@@ -2178,7 +2176,7 @@
         try { el.ta.value = m.again; } catch (e) {}
         if (m.files && m.files.length) restoreFiles(m.files);
         openPanel();
-        el.ta.focus();
+        if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus();
       };
       ft2.appendChild(ag);
       d.appendChild(ft2);
@@ -2511,7 +2509,7 @@
     } catch (e) {}
     return {
       route, projectId: String(pick('项目id', '项目') || ''), shotId: String(pick('镜头id', '镜头') || ''),
-      readOnly: !!(pc && typeof pc === 'object' && pc.只读), revision: Number(pick('revision', '修订号', '修订')) || 0,
+      readOnly: !!(pc && typeof pc === 'object' && pc.只读),
       bridge, tools: visibleTools(route), skills: [], budget: { webSearch: 5 }, createdAt: Date.now(),
     };
   }
@@ -2638,7 +2636,7 @@
       user: { text: q, attachments: shot.map(f => ({ name: f.name || '', kind: f.kind || '' })),
         refs: refShot.map(r => ({ name: r.name || '', type: r.type || '', assetId: r.assetId || '', taskId: r.taskId || '' })), skillIds: [] },
       skills: [], assistant: { text: '' }, tools: [], actions: [],
-      changed: { nodes: [], edges: [], clips: [], subtitles: [], revision: 0 },
+      changed: { nodes: [], edges: [], clips: [], subtitles: [] },
       sources: [], status: 'ok', error: '',
     };
     turns.push(turn);
@@ -2798,7 +2796,7 @@
             continue;
           }
           const m = push('run', chk.说明, { act: ins.name, arg: ins.arg, 人话: chk.人话, st: '', 钉: chk.钉, planId: planId, turnId: turn.id, opId: opId });
-          /* 回合里的动作条目：提案时是 awaiting，执行后由 execRun 回填 state/revision/changedIds。
+          /* 回合里的动作条目：提案时是 awaiting，执行后由 execRun 回填 state/changedIds。
              operationId 让同一意图在 24 小时内重复执行时直接返回上次结果（注册表去重）。 */
           const aIdx = turn.actions.length;
           turn.actions.push({
@@ -2806,7 +2804,7 @@
             /* 取不到登记时按「写了东西」记账，不按只读：这一行是给收据与轮次账本用的，
                念错方向的代价是「明明改了数据却说没改」，宁可说重。 */
             effect: actMeta(ins.name).effect || 'write',
-            expectedRevision: ctx.scope.revision, revision: 0, state: 'awaiting',
+            state: 'awaiting',
             resultText: '', changedIds: [], undo: actUndo(ins.name),
           });
           m.aid = turn.actions[aIdx].id;
@@ -2985,10 +2983,10 @@
     }
     applyDock();
     if (!v) {
-      try { if (el.ball) el.ball.focus(); } catch (e) {}
+      try { if (el.ball) { if (window.focusQuiet) window.focusQuiet(el.ball); else el.ball.focus(); } } catch (e) {}
       return;
     }
-    if (el.ta) el.ta.focus();
+    if (el.ta) { if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus(); }
     /* 面板收起时量不到矩形（宽高为 0），展开后补画一次引用高亮 */
     try { requestAnimationFrame(() => paintRefMarks()); } catch (e) { /* 收起态量不到矩形，这一次画不了就等下一次展开再补 */ }
     if (el.body) el.body.scrollTop = el.body.scrollHeight;
@@ -3503,7 +3501,7 @@
       if (!canLeave()) return;
       newSession(); paint(true); paintHist();
       closeHist();
-      try { el.ta.focus(); } catch (e) {}
+      try { if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus(); } catch (e) {}
       note('新会话已开（上一段在「历史会话」里）');
     };
     el.hist.onclick = () => {

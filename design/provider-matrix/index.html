@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 设计稿独立页：只开同源静态资源，脚本一律外部文件（跟产品的 CSP 规矩一致） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'self'">
+<title>拾帧 · 设置 › 账户与密钥（设计稿 A · 账户优先）</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<!-- 设计稿外壳：只在稿子里存在，产品界面里没有这一条 -->
+<div class="demo-chrome">
+  <div class="demo-chrome-l">
+    <span class="demo-chrome-t">拾帧 · 设置 › 账户与密钥 —— 设计稿 A「账户优先」</span>
+    <span class="demo-chrome-note">一家供应商 = 一个账号 = 一把密钥 · 一张竖排的卡 · 语音识别与联网搜索用同一副表单骨架</span>
+  </div>
+  <div class="demo-chrome-r">
+    <button class="btn xs" id="themeBtn" type="button">深色（自动派生）</button>
+  </div>
+</div>
+
+<main class="app">
+  <!-- 左：目录轨（索引，不是另一套页面） -->
+  <aside class="rail" id="rail" aria-label="目录轨"></aside>
+
+  <!-- 右：一条连续的文档 -->
+  <div class="doc">
+    <header class="phead">
+      <span class="phead-ic">⚙</span>
+      <h1 class="phead-h1">设置</h1>
+      <p class="phead-sub">密钥、目录、分页与 Skill，都在本机改。</p>
+    </header>
+
+    <div class="doc-body">
+      <section class="group">
+        <h2 class="group-h">账户与密钥</h2>
+        <p class="group-note">
+          谁在替你干活：接进来的平台各一把密钥 —— 现在按「账户」排，一家供应商一张竖排的卡。
+        </p>
+
+        <!-- 一张卡片流：供应商卡 + 「添加供应商」卡（挑完变成那家供应商） -->
+        <div id="acctBody"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="data.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

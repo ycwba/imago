@@ -86,7 +86,7 @@ for (const f of comps) {
 
 /* ---------- 4. 共享层与外壳接线 ---------- */
 group('§4 共享层与外壳');
-for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.cjs', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/playback.js', 'web/director/segments.js', 'web/director/timeline.js', 'web/director/voice-layout.js', 'web/director/plan.js', 'web/director/waveform.js', 'web/director/projection.js', 'web/director/voice-block.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
+for (const f of ['web/ui/ui.js', 'web/ui/forms.js', 'web/ui/net.js', 'web/ui/datasync.js', 'web/ui/store.js', 'web/ui/kv.js', 'web/ui/toast.js', 'web/domain/api.js', 'web/domain/assetlib.js', 'web/domain/gen-forms.js', 'web/domain/asset-transfer.js', 'web/domain/local.js', 'web/domain/capabilities.js', 'web/domain/text-ai.js', 'web/domain/fav.js', 'web/domain/prompt-log.js', 'web/domain/asset-picker.js', 'web/domain/ai-find.js', 'web/ui/workbench.js', 'web/domain/chars.js', 'web/domain/ident.cjs', 'web/core/routes.js', 'web/core/bridges.js', 'web/shell-boot.js', 'web/boot-assistant.js', 'web/app.js', 'shell.html', 'web/director/index.js', 'web/director/engine.js', 'web/director/fcpxml.js', 'web/director/util.js', 'web/director/board.js', 'web/director/split-assets.js', 'web/director/slice.js', 'web/director/film.js', 'web/director/srt.js', 'web/director/naming.js', 'web/director/tl-scale.js', 'web/director/tl-cut.js', 'web/director/tl-resize.js', 'web/director/tl-ripple.js', 'web/director/tl-reorder.js', 'web/director/tl-snap.js', 'web/director/tl-peaks.js', 'web/director/tl-filmstrip.js', 'web/director/tl-markers.js', 'web/director/tl-autoscroll.js', 'web/core/page-context.js', 'web/core/report.js', 'web/domain/semantic.js']) {
   ok(f + ' 仍在', fs.existsSync(path.join(root, f)));
 }
 const shell = read('shell.html');
@@ -119,7 +119,7 @@ ok('助手在 compose 里自动带当前界面', /【当前界面/.test(read('we
 ok('助手有本地语义检索工具', /find\s*:\s*\{/.test(read('web/features/chat-tools.js')) && /SemanticSearch/.test(read('web/features/chat-tools.js')));
 ok('语义检索模块有 rank', /SemanticSearch\s*=\s*\{\s*norm/.test(read('web/domain/semantic.js')) && /function\s+rank/.test(read('web/domain/semantic.js')));
 ok('切片缓存用稳定键 / 失败 TTL / 同图不重绘', /function\s+sliceKey/.test(EL)
-  && /SLICE_FAIL_TTL/.test(EL) && /__frsSig/.test(EL));
+  && /SLICE_FAIL_TTL/.test(EL) && /__stripSig/.test(EL));
 ok('本机/云端标识有开关', /sk_media_badge/.test(read('web/ui/ui.js')) && /showBadge/.test(read('web/domain/local.js')));
 ok('Vue 页面可交未保存状态', /__spaFlush/.test(core) && /__spaDirty/.test(core));
 
@@ -166,22 +166,31 @@ const frag = EL;
 const chat = read('web/features/chat.js') + '\n' + read('web/features/chat-tools.js');
 ok('时间线写入桥只有一份', (frag.match(/WBBridge\.install\('director'/g) || []).length === 1
   && !/__directorActions/.test(frag));
-ok('桥的切段走编辑器自己的函数', /cutSegs\(q\.c, total, at, way\)/.test(frag)
-  && /segsWrite\(p\.c, p\.total, p\.out\.segs\)/.test(frag) && /reanchorVoices\(p\.sh/.test(frag));
-ok('写入前当场压撤销快照', /function beginEdit\(/.test(frag) && /!undoPushed/.test(frag)
-  && /if \(!b\.inBatch \|\| b\.first\) beginEdit\(label\)/.test(frag)
-  && (frag.match(/const b = editBegin\(a, '/g) || []).length === 4);
+ok('桥的切段走编辑器自己的函数', /function cutDelegated\(/.test(frag)
+  && /Edit\.selectItem\('clip', id\)/.test(frag) && /Edit\.toolAction\('cut'\)/.test(frag)
+  && /function cutTrim\(/.test(frag));
+/* 「写入前当场压撤销快照」这一条盯机制在不在（不钉某个变量叫什么）：
+   ① `beginEdit` 仍是压快照的唯一入口；
+   ② 桥的每一次写入都包在 `undoWindow` 里（多字段合并成一条历史，收尾补重画与「成片变过」）；
+   ③ select 走的那一侧自己不带快照，所以它也必须在窗里（`openUndoWindow` / `closeUndoWindow` 成对）。
+   换了实现就要有人确认「去重这件事还在」，否则助手动作压过之后又压一份，撤销栈里全是重复步。 */
+ok('写入前当场压撤销快照', /function beginEdit\(/.test(frag)
+  && /function undoWindow\(/.test(frag)
+  && /Edit\.openUndoWindow\(label\)/.test(frag) && /Edit\.closeUndoWindow\(\)/.test(frag));
 ok('助手接了十一个时间线动作', ['select_take', 'cut_timeline', 'set_clip', 'undo_edit', 'timeline_apply',
   'subtitle_update', 'subtitle_resegment', 'subtitle_import_srt', 'media_transcribe', 'export_start',
   'export_save_to_assets'].every(k => chat.includes(k + ': {')) && /WBBridge\.get\('director'\)/.test(chat));
 ok('剪辑只读面走桥不重算', ['timeline_get', 'timeline_history', 'subtitle_list', 'subtitle_export_srt',
   'media_info', 'media_frames', 'media_transcription', 'export_status', 'export_list']
   .every(k => chat.includes(k + ': {')) && /dirRead\(/.test(chat));
-ok('写动作带修订号 CAS，缺凭据当场拒', /function revGate\(/.test(frag) && /expectedRevision/.test(frag)
-  && /revision_mismatch/.test(frag) && /stampWrite/.test(chat));
-ok('批量剪辑不新增桥 op（仍只有四个）', (frag.match(/if \(op === '(select|cut|set|undo)'\)/g) || []).length >= 4
-  && !/if \(op === 'apply'\)/.test(frag) && /_batch/.test(frag) && /function applyOps\(/.test(chat));
-ok('整批失败不留半截工程', /_rollback/.test(frag) && /A\.run\('undo'/.test(chat) && /整批退回/.test(chat));
+/* 写动作的凭据是**身份**而不是修订号：check 把「这一次要动谁」记下来，run 按同一份参数再解析一遍，
+   目标对不上就当场拒（换工程 / 块被删或换了）。旧模型的 `proj.rev` / 修订号 CAS 已随模型整族删除。 */
+ok('写动作按身份对账，目标变了当场拒', /let lastCheck = null/.test(frag) && /function targetOf\(/.test(frag)
+  && /sameTarget\(prior\.target, targetOf\(p\)\)/.test(frag) && !/expectedRevision|revision_mismatch/.test(chat));
+ok('批量剪辑不新增桥 op（仍只有四个）', /const APPLY_OPS = \['select', 'cut', 'set'\]/.test(chat)
+  && !/if \(op === 'apply'\)/.test(frag) && /function applyOps\(/.test(chat));
+ok('整批失败不留半截工程', /const rollback = why/.test(chat) && /A\.check\('undo'/.test(chat)
+  && /工程没有留在半截状态/.test(chat));
 ok('字幕写入走 set 的 subtitle 分支', /kind === 'subtitle'/.test(frag) && /function subPlan\(/.test(frag)
   && /subArgs/.test(chat));
 ok('取帧只走 Wb.vframe 一份', /Wb\.vframe\.dataURL\(q\.src/.test(frag) && !/document\.createElement\('video'\)/.test(frag));
@@ -249,14 +258,16 @@ ok('FCPXML 两档：裸 XML 与带素材的媒体包', /button: 'exportFcpBundle
   && /Export\.fcp\(\{ bundle: !!f\.bundle \}\)/.test(frag)
   && /runFcpExport\(fcpCtx\(\), opts/.test(read('web/director/engine/export.js'))
   && /\/fcpxml\/bundle/.test(fcp) && /bundleAssets/.test(fcp));
-ok('导出只读当前时间线', /export async function buildFCPXML/.test(fcp)
-  && /tlSyncFromShots\(\)/.test(fcp.split('export async function buildFCPXML')[1] || '')
+/* 起点与行长只有一张表：`buildRenderPlan()`（engine/export.js）按成片顺序摊出来，
+   FCPXML 只翻译，不再自己累加一遍 —— 两处各算一次，导出的 XML 与片子迟早对不上。 */
+ok('导出只读当前时间线（起点与行长读同一份渲染计划）', /export async function buildFCPXML/.test(fcp)
+  && /const plan = await buildRenderPlan\(\)/.test(fcp) && /plan\.rows/.test(fcp)
   && /export async function exportFCPXML/.test(fcp)
   && /buildFCPXML\(/.test(fcp.split('export async function exportFCPXML')[1] || ''));
 ok('本机素材走真实文件、缺失素材保留离线引用（路径编码只有 encodePath 一份）', /localFileOf/.test(fcp)
   && /encodePath\(name\)/.test(fcp) && /missing\.push/.test(fcp));
-ok('倍速写成 timeMap / 配音带偏移', /<timeMap>/.test(fcp) && /lane="-/.test(fcp));
-ok('黑场与缺素材不会静默丢段', /<gap /.test(fcp) && /本机没有可用文件的素材/.test(fcp));
+ok('倍速写成 timeMap / 配音带行偏移', /<timeMap>/.test(fcp) && /lane="' \+ \(1 \+ v\.lane\)/.test(fcp));
+ok('缺素材不静默丢段（写 <gap> 补时长并点名）', /<gap name=/.test(fcp) && /本机没有可用文件的素材/.test(fcp));
 
 /* ---------- 10. 自动镜像 / 常驻页面生命周期 ---------- */
 group('§10 自动镜像与常驻页面生命周期');

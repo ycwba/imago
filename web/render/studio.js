@@ -8,16 +8,18 @@ const _hoisted_1 = {
 
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
-    _cache[0] || (_cache[0] = _createElementVNode("div", { class: "layout" }, [
+    _createCommentVNode(" 统一页头（全站唯一一份 .phead）：这一页以前标题缩在左栏顶部、字号还独一份，\n           左栏一滚标题就跟着走了。现在提到全宽顶排，左栏顶部让给类型切换与型号下拉。 "),
+    _cache[0] || (_cache[0] = _createElementVNode("header", { class: "phead" }, [
+      _createElementVNode("div", { class: "phead-id" }, [
+        _createElementVNode("h1", { class: "phead-h1" }, "生成工作台")
+      ]),
+      _createElementVNode("div", { class: "phead-acts" })
+    ], -1 /* CACHED */)),
+    _cache[1] || (_cache[1] = _createElementVNode("div", { class: "layout" }, [
       _createElementVNode("div", {
         class: "col-left",
         "data-r": "leftCol"
       }, [
-        _createCommentVNode(" 页面标题：其余五页都有 .page-h1，这一页以前只有类型切换器 ——\n               切到这页看不出「这是生成工作台」。 "),
-        _createElementVNode("div", { class: "st-brand" }, [
-          _createElementVNode("h1", { class: "page-h1" }, "生成工作台"),
-          _createElementVNode("p", { class: "desc" }, "左栏写、右栏看：左边选类型与参数，右边看这一台的生成结果。")
-        ]),
         _createElementVNode("div", { class: "st-top" }, [
           _createElementVNode("div", {
             class: "ui-seg",
@@ -50,7 +52,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("button", {
               class: "tool acc",
               "data-r": "polishBtn",
-              title: "调用文字 AI 改写提示词（密钥在「设置」配置）"
+              title: "文字 AI 改写提示词"
             }, [
               _createElementVNode("span", {
                 class: "ic",
@@ -63,7 +65,7 @@ export function render(_ctx, _cache) {
               class: "tool",
               "data-r": "splitBtn",
               hidden: "",
-              title: "把这段描述拆成几张图的提示词，确认后逐条提交（每条都是一条真任务）"
+              title: "拆成多张图的提示词"
             }, [
               _createElementVNode("span", {
                 class: "ic",
@@ -76,7 +78,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("button", {
               class: "tool danger",
               "data-r": "clearAll",
-              title: "清空提示词、素材与参数（会先问你一次）"
+              title: "清空提示词、素材与参数"
             }, [
               _createElementVNode("span", {
                 class: "ic",
@@ -96,14 +98,14 @@ export function render(_ctx, _cache) {
             hidden: ""
           }, [
             _createElementVNode("div", { class: "pinl-hd" }, [
-              _createElementVNode("span", { class: "pinl-tt" }, "拆分片段批量生成"),
-              _createElementVNode("span", { class: "pinl-note" }, "每张是一条独立任务（逐条提交、各自计费）；下方槽里的参考图会一起带去")
+              _createElementVNode("span", { class: "pinl-tt" }, "拆分片段生成"),
+              _createElementVNode("span", { class: "pinl-note" }, "每张独立计费。")
             ]),
             _createElementVNode("div", { class: "split-opts" }, [
               _createElementVNode("label", null, [
                 _createTextVNode("张数 "),
                 _createElementVNode("select", { "data-r": "splitCount" }, [
-                  _createElementVNode("option", { value: "" }, "自动（AI 按内容定 2–6 张）"),
+                  _createElementVNode("option", { value: "" }, "自动"),
                   _createElementVNode("option", null, "2"),
                   _createElementVNode("option", null, "3"),
                   _createElementVNode("option", null, "4"),
@@ -114,7 +116,7 @@ export function render(_ctx, _cache) {
               _createElementVNode("label", null, [
                 _createTextVNode("拆分维度 "),
                 _createElementVNode("select", { "data-r": "splitDim" }, [
-                  _createElementVNode("option", { value: "" }, "自动（AI 选最自然的）"),
+                  _createElementVNode("option", { value: "" }, "自动"),
                   _createElementVNode("option", null, "按时间顺序"),
                   _createElementVNode("option", null, "按场景变化"),
                   _createElementVNode("option", null, "按动作或状态阶段"),
@@ -128,7 +130,7 @@ export function render(_ctx, _cache) {
                 _createElementVNode("input", {
                   "data-r": "splitDimCustom",
                   maxlength: "60",
-                  placeholder: "例：按主角情绪变化 / 按道具出现的先后顺序"
+                  placeholder: "例：按主角情绪变化"
                 })
               ]),
               _createElementVNode("span", { class: "sp" }),
@@ -149,19 +151,17 @@ export function render(_ctx, _cache) {
           }, [
             _createElementVNode("label", null, [
               _createTextVNode("风格 / 音色描述 "),
-              _createElementVNode("span", { style: {"color":"var(--err)"} }, "*"),
-              _createTextVNode("（音色设计型号必填）")
+              _createElementVNode("span", { style: {"color":"var(--err)"} }, "*")
             ]),
             _createElementVNode("input", {
               "data-r": "style",
               class: "ui-inp",
-              placeholder: "例：一位温柔的年轻女声，语速偏慢，适合睡前故事"
+              placeholder: "例：温柔女声，语速偏慢"
             }),
             _createElementVNode("div", { style: {"margin-top":"var(--sp-6)"} }, [
               _createElementVNode("button", {
                 class: "ghost",
-                "data-r": "stylePick",
-                title: "从素材库挑一位，把它身上写的那段音色描述填到这里"
+                "data-r": "stylePick"
               }, "取一位素材的音色描述")
             ])
           ]),
@@ -272,7 +272,7 @@ export function render(_ctx, _cache) {
           _createElementVNode("button", {
             class: "ghost",
             "data-r": "winAll",
-            title: "默认只看最近 30 天；点这里看全部"
+            title: "默认只看最近 30 天"
           }, "查看全部")
         ]),
         _createElementVNode("div", { class: "tasks-head" }, [
@@ -286,8 +286,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("button", {
               class: "ghost",
               id: "multiBtn",
-              "data-r": "multiBtn",
-              title: "进入多选：点卡片勾选，可批量下载、存回本机"
+              "data-r": "multiBtn"
             }, [
               _createElementVNode("span", {
                 "data-icon": "checkBox",
@@ -298,7 +297,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("button", {
               class: "ghost",
               "data-r": "sync",
-              title: "重新从各平台取回这一屏列表"
+              title: "重新取回列表"
             }, [
               _createElementVNode("span", {
                 "data-icon": "refresh",
@@ -363,8 +362,7 @@ export function render(_ctx, _cache) {
             class: "ghost",
             id: "stBulkFavAdd",
             "data-r": "bulkFavAdd",
-            disabled: "",
-            title: "把勾选的那些产物加入「我的收藏」"
+            disabled: ""
           }, [
             _createElementVNode("span", {
               "data-icon": "star",
@@ -376,8 +374,7 @@ export function render(_ctx, _cache) {
             class: "ghost",
             id: "stBulkFavRemove",
             "data-r": "bulkFavRemove",
-            disabled: "",
-            title: "把勾选的那些从「我的收藏」里移出"
+            disabled: ""
           }, [
             _createElementVNode("span", {
               "data-icon": "starFill",
@@ -389,8 +386,7 @@ export function render(_ctx, _cache) {
           _createElementVNode("button", {
             class: "ghost",
             id: "stPullLocal",
-            "data-r": "pullLocalBtn",
-            title: "把勾选的那些产物取回本机资产库（外链过期不再是破图，「优先用本机文件」才有东西可用）"
+            "data-r": "pullLocalBtn"
           }, [
             _createElementVNode("span", { class: "ic" }, [
               _createElementVNode("span", {
@@ -404,7 +400,7 @@ export function render(_ctx, _cache) {
           _createElementVNode("span", {
             class: "bk-tip",
             "data-r": "bulkTip"
-          }, "点卡片即可勾选"),
+          }, "点卡片勾选"),
           _createElementVNode("span", {
             class: "sp",
             style: {"flex":"1"}

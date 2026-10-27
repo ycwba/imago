@@ -1,7 +1,8 @@
 /* Skill 的唯一解析 / 校验 / 安装实现（server 侧）。
    - 内置 skills/ 只读；用户 .skills/ 可写；启用状态存 DATA_DIR/skills.json
    - frontmatter 只支持受限子集：key: value、[a, b]、字符串/数字/布尔
-   - 一个 contract 只允许一个启用 Skill；用户 Skill 用 replaces 覆盖内置
+   - 同一个 contract 同一时刻只留一份启用的：启一份就把同 contract 的**别的直接停掉**
+     （不报错、不让人先关掉再开 —— 用户的这份顶上去，内置那份也让位）
    - 安装先写临时目录再原子替换；zip 解压在路由层完成并只提交文本文件 */
 'use strict';
 const fs = require('fs');
@@ -110,7 +111,10 @@ function createSkillsStore(opts) {
       id: x.id, name: x.name || x.id, description: x.description || '', triggers: x.triggers || [],
       pages: x.pages || [], tools: x.tools || [], contract: x.contract || '', version: x.version || 1,
       source: x.source, enabled: !!x.enabled, replaces: x.replaces || '',
-      conflict: !!(x.contract && byContract.get(x.contract) && byContract.get(x.contract).id !== x.id),
+      /* 冲突 = **两份都启用**、同占一个 contract。⚠ 自己已停用的那份**不算冲突**：
+         停着的那份压根不参与，让位之后它就该安安静静地显示「已停用」，
+         再挂一枚「冲突」红标签是白喊（页面与运行时都会把它当回事）。 */
+      conflict: !!(x.enabled && x.contract && byContract.get(x.contract) && byContract.get(x.contract).id !== x.id),
       /* 「素材范围优先」：一份 Skill 可以声明「这个项目优先用哪几个素材组」。
          拆分镜那一路的「素材范围」下拉会把这些组**排在前面**（不排除其它组）。
          ⚠ 这**不是**「项目引用规则」：项目引用规则指的是**正文里的变量占位符**
@@ -119,18 +123,28 @@ function createSkillsStore(opts) {
     }));
   };
   const enabled = () => all().filter(x => x.enabled);
-  const sameContract = (contract, exceptId) => enabled().find(x => x.contract === contract && x.id !== exceptId) || null;
+  /* 同一个 contract 同一时刻只留一份：启一份就把**别的直接停掉**（不报错、不让人先关掉再开）。
+     内置那份同样让位 —— 用户的这份顶上去，内置那份自动停（这一直是这个行为）。
+     ⚠ 不占固定位的 Skill（没有 contract）不参与这条规则：它由助手按触发词自己挑。
+     返回被让位的那几份 id —— 前端要当场说清「哪一份停了」，不能让人猜。 */
+  const displaceSameContract = (st, contract, exceptId) => {
+    const out = [];
+    if (!contract) return out;
+    for (const o of enabled()) {
+      if (o.id === exceptId || o.contract !== contract) continue;
+      st.enabled[o.id] = false;
+      out.push(o.id);
+    }
+    return out;
+  };
   const setEnabled = (id, on) => {
     const x = get(id);
     if (!x) throw new Error('没有这个 Skill：' + id);
     const st = loadState();
-    if (on) {
-      const other = sameContract(x.contract, id);
-      if (other && other.source === 'builtin') st.enabled[other.id] = false;
-      else if (other) throw new Error('同一个 contract 只能启用一个 Skill：' + other.id + ' 已启用');
-    }
+    const displaced = on ? displaceSameContract(st, x.contract, id) : [];
     st.enabled[id] = !!on;
     saveState();
+    return displaced;
   };
   const safeFiles = files => {
     if (!Array.isArray(files) || !files.length) throw new Error('没有文件');
@@ -163,10 +177,7 @@ function createSkillsStore(opts) {
     if (pages.some(p => !/^[a-z0-9-]+\.html$/.test(p))) throw new Error('pages 必须是页面文件名');
     const cur = get(id);
     if (cur && cur.contract && meta.contract && cur.contract !== meta.contract && cur.enabled) throw new Error('已启用的 Skill 不能换 contract');
-    if (opts2.enable !== false) {
-      const other = sameContract(String(meta.contract || ''), id);
-      if (other && other.source !== 'builtin') throw new Error('同一个 contract 只能启用一个 Skill：' + other.id + ' 已启用');
-    }
+    /* 同 contract 的原来那份**不拦**：装上去就等于「启用这一份」，让位由下面的状态写入一步做掉。 */
     const dst = path.join(userDir, id);
     const tmp = dst + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8);
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -198,15 +209,17 @@ function createSkillsStore(opts) {
         throw new Error('Skill 目录换不到位（' + ((e && e.code) || '') + ' ' + ((e && e.message) || e) + '）：' + id + ' 已保持原样');
       }
       const st = loadState();
+      let displaced = [];
       if (!opts2.keepState) {
         if (opts2.enable !== false) {
-          const other = sameContract(String(meta.contract || ''), id);
-          if (other && other.source === 'builtin') st.enabled[other.id] = false;
+          /* 装上去就等于「启用这一份」：同 contract 的原来那份**直接让位**（不报错、不拦着）。
+             让位的是哪几份要报给前端 —— 界面上得说清「哪一份停了」。 */
+          displaced = displaceSameContract(st, String(meta.contract || ''), id);
           st.enabled[id] = true;
         }
         saveState();
       }
-      return get(id);
+      return { skill: get(id), displaced };
     } finally {
       /* 任何一步抛出（写文件失败 / 旧版挪不动 / 换位失败）都把本次临时目录收掉：
          以前失败就留在 .skills/ 里，堆积的 .tmp-* 还会被当成坏 Skill 逐个读一遍。 */
@@ -280,7 +293,7 @@ function createSkillsStore(opts) {
       throw e;
     }
     const next = install(files, { enable: !!x.enabled, keepState: true });
-    return { skill: next, hash: skillHash(id) };
+    return { skill: next.skill, hash: skillHash(id) };
   };
   const importBundle = (files, opts2 = {}) => install(files, opts2);
   return { parseFrontmatter, list, all, get, enabled, setEnabled, install, remove, readRef,

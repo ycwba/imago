@@ -3,53 +3,30 @@
    区间外的名字一律由 createMid(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { round1 } from '../util.js';
-import { SEG_MIN, segCarry, segsOf, segsWrite, laneClamp } from '../segments.js';
-import { voiceRateOf, voiceFrameOf, roundVoice } from '../voice-layout.js';
-import { linksOf, setLinks } from '../links.js';
+import { filmOf, filmTotal, candidateWindow, srcHeadOf, srcUsedOf } from '../film.js';
 
 export function createMid(E, document, window) {
   const {
     $,
     playSafe,
-    TlPlay,
+    Play,
     projOf,
     allShots,
     curScene,
     curShot,
     fmtDur,
     shotDurText,
-    trimStatus,
     shotReady,
-    totalDur,
-    candDur,
-    filmFrames,
-    shotFrames,
-    shotPinT,
-    shotAxTotal,
-    cutSegIdx,
     dragBusy,
-    reanchorVoices,
-    tlCutTarget,
-    laneHidden,
-    rowFlagToggle,
-    bindLaneRowDrag,
-    tlSyncFromShots,
-    setLaneVol,
-    laneToggle,
-    runCut,
-    setTrackVol,
-    syncTlTools,
     filmEdited,
     scheduleSave,
+    scheduleSaveQuiet,
     thumbKey,
     shotStatusOf,
     candThumbInner,
     candPlaceholder,
     candAddTile,
     midCandExpandOf,
-    tlPlayheadOf,
-    bindTlPlay,
     bindPbFull,
     fullscreenHold,
     playerMediaOf,
@@ -62,35 +39,16 @@ export function createMid(E, document, window) {
     sortCandidates,
     renderScenesSoon,
     midEditTrimOf,
-    isFilmMode,
-    midOrderOf,
     setTrimMode,
+    importMedia,
     curDraftCand,
-    paintPin,
-    setPin,
-    paintTrimRow,
-    tlVoiceHit,
-    voiceMin,
-    laneRowCtlHTML,
-    laneRowBtnsHTML,
-    tlScrollWantOf,
-    tlZoomBy,
-    tlZoomWheel,
-    tlZoomAuto,
-    tlZoomSetPos,
-    tlZoomCommit,
-    renderTimeline,
-    shotAxText,
-    filmApplyAt,
+    Timeline,
+    Edit,
     syncGenGate,
     syncAtBack,
     renderEditor,
-    openLibDlg,
     renderAll,
     setStatus,
-    setTlPlayhead,
-    setMidOrder,
-    setTlScrollWant,
   } = E;
 
 function promptTextOf(sh) {
@@ -149,6 +107,19 @@ function updateArBadge(media) {
 /* 撤销 / 重做那两颗按钮已删（2026-10 用户点名）：它们埋在候选条下面那一排里，
    笔记本 / 外接键盘没有 Ctrl 的场景用不上，而剪辑态左栏的「历史编辑记录」本来就能点着退回去。
    快捷键（Ctrl+Z / Ctrl+Y）与那一处历史都还在。 */
+/* 顺序条的高度可拖（与左右栏、轨道坞同一套 Wb.split，键 dir_strip）：
+   host 是静态壳里那一块，整片重画只换 `.mid-body`，所以这一套只接一次。 */
+function ensureStripSplit(col) {
+  const host = col.querySelector('#shotStripHost');
+  if (!host || col.__stripSplit || !(window.Wb && window.Wb.split)) return;
+  col.__stripSplit = true;
+  window.Wb.split.enable({
+    box: col, axis: 'y', key: 'dir_strip',
+    cols: [{ el: '#shotStripHost' }],
+    handles: [{ left: 0, right: 0, resize: 0, varName: 'strip-h', min: 96, max: 360 }],
+    handleHost: '#shotStripHost',
+  });
+}
 /* 拖动中途被推迟的那一次中栏重建（见 renderMid 开头那一条）：只留一个待补的定时器 */
 let midDeferT = 0;
 function renderMid() {
@@ -162,48 +133,46 @@ function renderMid() {
     return;
   }
   const col = $('midCol');
+  const body = col ? col.querySelector('#midBody') : null;
+  if (!col || !body) return;
+  col.classList.toggle('is-trim', midEditTrimOf());
   /* 全屏正开着 → 这一轮欠着，退出那一刻补画（判据与理由在 `fullscreenHold`）。
      必须排在 `dragBusy()` 后面、`col.innerHTML =` 那一族任何写操作之前 —— 早退得越靠前，
      少做的副作用越多（下面那几行会改 `proj.curCand`、`tlScrollWant`、`keepBox` 的记账）。 */
   if (fullscreenHold(col)) return;
   const sc = curScene(), sh = curShot();
-  if (!sh) { col.innerHTML = window.Wb.emptyHTML('左侧添加场景和镜头开始创作'); return; }
+  if (!sh) {
+    body.innerHTML = window.Wb.emptyHTML('左侧添加场景和镜头开始创作');
+    const hs = col.querySelector('#shotStripHost');
+    if (hs) hs.hidden = true;
+    return;
+  }
   /* 记住播放器状态：整列会被重建（轮询每 3 秒一次），同一 src 时接着播，不再打断预览。
      剪辑态记的是「成片第几秒」而不是甲板的 currentTime —— 后者是**段内**秒，
      剪成几段之后拿它当进度接回去，会跳到另一段上去。 */
   const oldPl = col.querySelector('#player');
   const keepPlay = midEditTrimOf()
-    ? (TlPlay.plan.length ? { t: TlPlay.t, paused: !TlPlay.playing } : null)
+    ? (Play.plan.length ? { t: Play.t, paused: !Play.playing } : null)
     : (oldPl ? { src: oldPl.getAttribute('src'), t: oldPl.currentTime, paused: oldPl.paused } : null);
   const idx = allShots().indexOf(sh) + 1;
   sortCandidates(sh);                              // 有片的排前面、排队/生成中的排后面（顺序变了当前条会跟着走）
   const cands = sh.candidates;
   if (cands.length) projOf().curCand = Math.max(0, Math.min(Number(projOf().curCand) || 0, cands.length - 1));
-  const filmMode = isFilmMode();
   const cur = cands[projOf().curCand] || cands[0];
   const sel = sh.candidates.find(c => c.vid === sh.selId);
   // 候选条的横向滚动位置也要保留：新增候选 / 轮询刷新后不再自动跳回第一条
   const oldThumbBox = col.querySelector('#candThumbs');
   const keepThumbScroll = oldThumbBox ? oldThumbBox.scrollLeft : 0;
-  /* 时间轴滚到哪儿了也要记住：整列每 3 秒重建一次，不还原的话每 3 秒被弹回最左边 ——
-     片子一长（轨道比屏幕宽）这件事就变成「根本没法看后面那几段」。 */
-  /* 轨道坞（#tlDock）与中栏平级：重建前从旧的那一只里把横向滚动位置收走。 */
-  const dockOld = document.getElementById('tlDock');
-  const oldTlBar = dockOld ? dockOld.querySelector('#tlBar') : null;
-  if (oldTlBar && oldTlBar.scrollLeft > 0) {
-    setTlScrollWant(oldTlBar.scrollLeft);
-  }
-  /* 纵向也一样要记：`col.innerHTML =` 是「先把子节点清空、再插新的」，那一栏的滚动位置在清空
-     那一刻被夹回 0 —— 与上面两处（候选条 scrollLeft / 轨道 scrollLeft）是同一族，只是从前只补了横的。
-     表现是「正看着时间轴那一排调剪辑，一次重建就弹回栏顶」。窄窗（≤900px）时滚动的是整页而不是
+  /* 纵向也要记：`col.innerHTML =` 是「先把子节点清空、再插新的」，那一栏的滚动位置在清空
+     那一刻被夹回 0 —— 与候选条 scrollLeft 同一族，只是从前只补了横的。
+     表现是「正看着中栏那一排调剪辑，一次重建就弹回栏顶」。窄窗（≤900px）时滚动的是整页而不是
      这一栏（`body{overflow:auto}` 那一条媒体查询），所以两处都记、两处都还。 */
-  const keepY = col.scrollTop, keepWinY = window.scrollY || 0;
-  const dock = document.getElementById('tlDock');
+  const keepY = body.scrollTop, keepWinY = window.scrollY || 0;
   /* 整列重建会把播放区那一只 `.player-box` 一起换掉（新节点要重新加载素材、重新 seek，
      画面黑一下 —— 每 3 秒一次）。能保住就摘下来、画完塞回原处：节点不动就没有「闪」。
      什么时候保（两种「不保」都比闪更糟）：
-     · **剪辑态**：这一轮画的还是一只播放器、旧的那只**确实是剪辑态那对甲板**（有 `#playerB`），
-       且 `TlPlay` 手里有计划。以前只在「正在播」时保 —— 暂停状态照样每 3 秒销毁重建，
+     · **剪辑态**：这一轮画的还是一只播放器、旧的那只**确实是剪辑态的预览面**（有静止层），
+       且 `Play` 手里有成片可播。以前只在「正在播」时保 —— 暂停状态照样每 3 秒销毁重建，
        而「我只是看着暂停的画面改剪辑」正是最常走的那一条。
      · **不剪辑**：新画的这只放的**还是同一条素材**才保。换了候选 / 换了镜头，src 不是一个，
        保着旧节点等于显示另一条视频。
@@ -215,21 +184,17 @@ function renderMid() {
     const pm = playerMediaOf(sh);
     if (!old2) { /* 这一轮本来就没有播放器可保（空态 / 还没候选） */ }
     else if (pm && oldPl && oldPl.getAttribute('src') === pm.src) { keepBox = old2; old2.remove(); }
-    else if (midEditTrimOf() && old2.querySelector('#playerB') && TlPlay.plan.length) { keepBox = old2; old2.remove(); }
+    else if (midEditTrimOf() && old2.querySelector('#playerStill') && Play.plan.length) { keepBox = old2; old2.remove(); }
   }
-  col.innerHTML = `
+  body.innerHTML = `
     <div class="mid-head">
       <span class="no">${String(idx).padStart(2, '0')}</span>
       <input class="sname" value="${esc(sh.name)}">
       <span class="meta">${esc(sc.name)} · ${shotDurText(sh)} · ${sel ? '已选用' : '未选用'}</span>
       <span class="sp"></span>
-      <!-- 工作模式：顺序 / 剪辑 是这一屏的两种形态 —— 放在中栏顶上，紧挨着它要换的那一栏。
-           做成**一枚分段开关**（公共 .ui-seg）：两态互斥，本来就是一枚开关，
-           不该画成两颗各自高亮的按钮（用户点名：这两颗的组件设计）。
-           「‹ › 撤销 重做 撤销 N/M」那一整簇已删（2026-10 用户点名）：
-           撤销 / 重做走 Ctrl+Z / Ctrl+Y，剪辑态左栏的「历史编辑记录」也能点着退回去。 -->
+      <!-- 工作模式只剩「剪辑」一枚开关（用户点名去掉「顺序」）：镜头顺序条已经常驻在栏底，
+           不再需要先点开才看得到。撤销 / 重做走 Ctrl+Z / Ctrl+Y 与剪辑态左栏的历史记录。 -->
       <span class="ui-seg mid-mode" id="midMode" role="tablist" aria-label="工作模式">
-        <button type="button" class="${midOrderOf() ? 'on' : ''}" id="ordBtn" role="tab" aria-selected="${midOrderOf() ? 'true' : 'false'}">${icon('list', 13)} 顺序</button>
         <button type="button" class="${midEditTrimOf() ? 'on' : ''}" id="trimBtn" role="tab" aria-selected="${midEditTrimOf() ? 'true' : 'false'}">${icon('scissors', 13)} 剪辑</button>
       </span>
     </div>
@@ -240,21 +205,21 @@ function renderMid() {
     <div class="cand-strip${midCandExpandOf() ? ' expanded' : ''}">
       <div class="thumbs" id="candThumbs">${cands.length ? cands.map((c, i) => candThumbInner(c, i === projOf().curCand)).join('') + candAddTile() : candPlaceholder()}</div>
       ${cands.length ? `<span class="cand-pager">
-        <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}<span class="tx">${midCandExpandOf() ? '收起' : '展开'}</span></button>
+        <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}</button>
         <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
         <span class="cand-count" title="第 ${projOf().curCand + 1} 条候选，共 ${cands.length} 条（左右两颗切换）">${projOf().curCand + 1} / ${cands.length}</span>
         <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
       </span>` : ''}
     </div>
-    <div class="cand-acts" id="candActs" style="padding: 0 var(--sp-16) var(--sp-6);justify-content:flex-end">
+    <div class="cand-acts" id="candActs">
+      <!-- 导入是项目级动作，但这一屏最常用 —— 跟「用这条 / 锁定 / 删除」同一排（用户点名搬到这儿）。 -->
+      <button class="ghost" id="importMid" title="导入视频 / 素材：视频成为这一镜的新候选，图片成为静态段">${icon('box', 13)} 导入</button>
+      <span class="sp"></span>
       ${candActsHTML(sh)}
     </div>`}
-    <!-- 「导入视频 / 素材」**收成一处**：它是项目级动作（跟剧本、拆分镜同族），
-         以前中栏一颗、剪辑态左栏一颗，同一个函数两个入口（用户点名）。现在它在左栏表头。 -->
     <div class="mid-tools">
-      <span class="total">全片 ${fmtDur(totalDur())}</span>
-    </div>
-        ${midOrderOf() ? '<div class="shot-strip" id="shotStrip"></div>' : ''}`;
+      <span class="total">${fmtDur(filmTotal(filmOf(projOf()).clips))}</span>
+    </div>`;
   if (keepBox) {
     const nb = col.querySelector('.player-box');
     if (nb) nb.replaceWith(keepBox);
@@ -262,8 +227,8 @@ function renderMid() {
   /* 还原纵向滚动位置 —— 与上面那两处（候选条 scrollLeft / 轨道 scrollLeft）同一族、同一立场：
      重建不许改「用户正看到哪儿」。这一栏在宽窗时自己是滚动容器（`.col{overflow-y:auto}`），
      窄窗（≤900px）时那一档被媒体查询放开成整页滚，所以两处都记、两处都还。
-     少了这一句的表现就是「点一下切页签 / 一次后台轮询，画面弹回栏顶」。 */
-  if (col.scrollTop !== keepY) col.scrollTop = keepY;
+     少了这一句的表现就是「点一下切档 / 一次后台轮询，画面弹回栏顶」。 */
+  if (body.scrollTop !== keepY) body.scrollTop = keepY;
   if (Math.abs(window.scrollY - keepWinY) > 1) window.scrollTo(0, keepWinY);
   // 事件
   col.querySelector('.sname').oninput = e => { sh.name = e.target.value; renderScenesSoon(); scheduleSave('改镜头名'); };
@@ -285,46 +250,44 @@ function renderMid() {
     const box = col.querySelector('#candThumbs');
     if (box && keepThumbScroll) box.scrollLeft = keepThumbScroll;
   }
-  // 顺序 / 剪辑：互斥——点开一个会自动关掉另一个，再点自己则关闭
-  const ord = col.querySelector('#ordBtn');
-  ord.onclick = () => {
-    const on = !midOrderOf();
-    setMidOrder(on);
-    /* 打开顺序模式要顺带关掉剪辑（两排互斥）：还是走 setTrimMode 那一个出口，
-       不在这里裸写 `midEditTrim = false; TlPlay.destroy();` —— 那是第二份「关剪辑」的账。 */
-    if (on) setTrimMode(false);
-    else { renderMid(); renderEditor(); }
-    setStatus(on ? '拖动下面的镜头缩略图可调整顺序，点一下切到该镜头' : '已退出顺序模式');
-  };
+  // 导入入口跟着这一排走（每一轮重建都要重绑）
+  const impBtn = col.querySelector('#importMid');
+  if (impBtn) impBtn.onclick = () => importMedia();
   col.querySelector('#trimBtn').onclick = () => {
     const on = !midEditTrimOf();
     setTrimMode(on);
-    setStatus(on ? '剪辑模式：调本镜入出点，或切到「全片」合并整片' : '已退出剪辑模式');
+    setStatus(on ? '剪辑模式：调这一段的入出点、拖轨道上的块' : '已退出剪辑模式');
   };
-  /* 导入入口只剩左栏表头那一处（libImportLeft，engine.js 里绑），中栏那颗已撤。 */
-  /* 剪辑态轨道坞（#tlDock）：铺满页面宽度的底栏，工具条 / 轨道网格 / 入出点全在坞里；
-     播放器与候选条仍在中栏 —— 两种模式切换时中栏那几块一个像素不动。
-     工具条一组（剪子）+ 页签（本镜 / 全片）+ 缩放一组，同一行排开（照参考项目 timeline-tools）。 */
-  if (midEditTrimOf() && dock) {
-    dock.hidden = false;
-    const body = dock.querySelector('#tlDockBody');
-    const toolsEl = dock.querySelector('#tlDockTools');
-    if (toolsEl) toolsEl.innerHTML = tlDockToolsHTML();
-    body.innerHTML = tlDockBodyHTML(sh, cur);
-    bindTlDock(dock, col, sh, cur);
-    renderTimeline(body, sh, cur);
-    /* 入出点那一行（正在调谁、起止几秒）在**轨道坞**里，而坞每 3 秒随整栏重画一次 ——
-       重画会把那一行的字清空，所以每次建完坞都要再点一次名（否则「正在调谁」会停在上一句）。 */
-    paintTrimRow(dock);
-    /* 轨道行拖动重排（左右两列一起平移让位，松手才写数据）。绑在 renderTimeline 之后：
-       行是这一刻才画出来的；委托在 `.tl-side` 上，syncLaneSide 重建 extra 行不丢监听。 */
-    bindLaneRowDrag(body);
-  } else if (dock) { dock.hidden = true; dock.querySelector('#tlDockBody').innerHTML = ''; }
-  if (midOrderOf()) renderShotStrip(col);
+  /* 剪辑态时间线板（`.tl-board`，铺满页宽）与三栏平级：生成态整块 hidden，剪辑态画出来。
+     播放器仍在中栏 —— 两种模式切换时中栏那几块一个像素不动。
+     板的接线只做一次（`Timeline.bind` 把处理器委托在板上），之后每次重建只重画内容；
+     滚动位置由 `Timeline.render()` 自己收着，不靠这边记账。 */
+  const board = document.getElementById('tlBoard');
+  const boardBody = board ? board.querySelector('#tlBoardBody') : null;
+  if (midEditTrimOf() && boardBody) {
+    board.hidden = false;
+    if (!boardBody.__bound) { Timeline.bind(boardBody); boardBody.__bound = true; }
+    else Timeline.render();
+    if (!boardBody.__boundEdit) { Edit.bind(boardBody); boardBody.__boundEdit = true; }
+  } else if (board) {
+    board.hidden = true;
+    /* 生成态里那块板看不见，板上没有手势可言，Edit 那一份**文档级**键盘监听更要摘掉 ——
+       否则 Delete / M / 空格 会在「正在写提示词」的那一栏后面剪到一条看不见的轨道。
+       摘掉之后 `__bound` 仍然留着（Timeline 那一份不挂文档级监听，重画时接着用）。 */
+    if (boardBody && boardBody.__boundEdit) { Edit.unbind(); boardBody.__boundEdit = false; }
+  }
+  /* 镜头顺序条是**生成态**那一侧的东西（与候选条同族）：剪辑态里它让位给轨道板 ——
+     和左右两栏一样，两种模式各有自己的栏，不把生成态那一套留在剪辑屏上（用户点名）。
+     生成态里它常显（不再由「顺序」开关决定），可点可拖排序。 */
+  {
+    const hs = col.querySelector('#shotStripHost');
+    if (hs) hs.hidden = !!midEditTrimOf();
+    if (!midEditTrimOf()) { ensureStripSplit(col); renderShotStrip(col); }
+  }
   // 自制播放控件：只有播放 / 暂停（原生控件已移除，时间跳转只在剪辑里插针）
   const pl = col.querySelector('#player'), pb = col.querySelector('#pbBtn');
   /* 自制控件与播放约束那两段都要挂监听，所以可摘接线只有这一份：`pl.__pbCtl` 是**现读**的，
-     谁建了句柄就归谁摘（剪辑态由 `bindTlPlay` 接线，这里没有句柄就照旧直接挂）。
+     谁建了句柄就归谁摘（剪辑态由播放核接线，这里没有句柄就照旧直接挂）。
      mm:ss 读数只有 workbench.js 的 Wb.fmtClock 一份（这一处、候选播放器那一处、插针跳转那一处以前各写一份） */
   const onPl = (ev, fn, opt) => {
     const ctl = pl && pl.__pbCtl;
@@ -332,7 +295,8 @@ function renderMid() {
     if (pl) pl.addEventListener(ev, fn, o);
   };
   if (pl && pb && midEditTrimOf()) {
-    bindTlPlay(col, keepPlay, Wb.fmtClock, keepBox);
+    /* 剪辑态：主时钟、媒体对齐、配音与转场全在播放核里；这一句只是把新的预览面接上去。 */
+    Play.bind(col, keepPlay, keepBox);
   } else if (pl && pb) {
     bindPbFull(col.querySelector('.player-box'));
     if (pl.readyState >= 1) updateArBadge(pl);
@@ -376,14 +340,19 @@ function renderMid() {
     pb.onclick = e => { e.stopPropagation(); if (pl.paused) playSafe(pl); else pl.pause(); sync(); };
     pl.onclick = () => { if (pl.paused) playSafe(pl); else pl.pause(); sync(); };
     pl.onplay = sync; pl.onpause = sync; pl.onended = sync;
-    // 视频元数据到手后回填真实时长（有些数据源不带 duration 字段）——全片模式不适用
+    // 视频元数据到手后回填真实时长（有些数据源不带 duration 字段）
     pl.onloadedmetadata = () => {
-      if (filmMode) return;
       const d = pl.duration;
       if (isFinite(d) && d > 0 && cur && (!cur.duration || Math.abs(cur.duration - d) > 0.3)) {
+        const had = Number(cur.duration) > 0;
         cur.duration = Math.round(d * 10) / 10;
         if (cur.trimE == null) cur.trimE = cur.duration;
-        scheduleSave();
+        /* 这一格时长是从视频元数据学来的，不是用户写的，所以按「原来有没有值」分开结算
+           （与右栏参数回写同一把尺子）：原来是空 = 程序第一次填 → 静默落盘，
+           不占撤销步数、不推进助手的修订号（开机只是打开一页就多一枚「编辑」是假账）；
+           原来存过值且差过 0.3 秒 = 动的确实是工程里那份数 → 进撤销栈并写明是谁改的。 */
+        if (had) scheduleSave('时长按视频元数据收正');
+        else scheduleSaveQuiet();
         renderMid();
       }
     };
@@ -400,75 +369,30 @@ function renderMid() {
       else onPl('loadedmetadata', resume, { once: true });
     }
   }
-  // 播放裁剪约束 + 插针跟随播放进度
-  if (pl && cur) {
-    const lo = cur.trimS || 0, hi = cur.trimE;
-    const isFilm = (projOf().tlTab || 'shot') === 'film';
-    /* 播放进度就是插针位置：所以「剪哪一段」= 「正在放哪一段」，
-       跟着播放自动挪 proj.cutSeg，四把剪子与入出点那一行、工具条那行小字一起跟上（都走 setPin）。
-       正在输入框里打秒数时只挪针、不改写那两个框，否则打着字数字就跳。
-       全片页签走另一条：播放器放的是**合成后的整片**，currentTime 就是成片秒 ——
-       针按成片秒挪，同时把焦点与剪刀带到那一格（filmApplyAt 的 quiet 分支，不重画整栏）。
-       入出点的钳制**只在本镜档**做：全片档放的是已经剪好的成片，拿焦点候选的 trimE
-       去夹它会把整片拦腰截断（那一档以前就是这样跳的，本轮一并收掉）。 */
-    /* 「现在播到哪」：剪辑态由 TlPlay 给（它按剪完的时间轴走，甲板的 currentTime 是段内秒，
-       不是成片秒；本镜档再折算回**源秒**（TlPlay.srcT），全片档折算回**框基秒**（TlPlay.frameT）
-       —— 后者正是全片那一排插针所在的轴，播放头因此只走真正进成片的画面，灰块会被跳过）。 */
-    const nowT = () => (!midEditTrimOf() ? pl.currentTime : isFilm ? TlPlay.frameT() : TlPlay.srcT());
-    const syncPlayhead = () => {
-      if (!midEditTrimOf()) return;
-      if (isFilm) {
-        const tl = tlSyncFromShots();
-        if (!tl.clips.length) return;
-        /* 不再自己算 total：`filmApplyAt` 内部按**框基**现算（两条轨的时间基只有一处口径） */
-        filmApplyAt(dock || col, tl, nowT(), { quiet: true });
-        return;
-      }
-      const total = candDur(cur, sh);
-      /* 针与尺子读的是**轴秒**，而 `nowT()` / `proj.cutAt` 是数据层的**源秒** —— 画之前折一次，
-         只走 `shotPinT` 这一处口径（漏折就是「倍速一上，针比格子偏左一截」）。
-         `setPin` 那一路自己也会折（它收的还是源秒），所以焦点、入出点那两框一个字节不改。 */
-      const sg = shotFrames(segsOf(cur, total));
-      const ax = shotAxTotal(sg, total);
-      const ae = document.activeElement;
-      if (ae && (ae.id === 'trimS' || ae.id === 'trimE')) paintPin(col, shotPinT(sg, nowT()), ax);
-      /* **没在播就不重算焦点**：整栏重画会重建播放器，而 `TlPlay.seek()` 开头无条件 emit 一次
-         （新建那一只时递来的是 0 秒），于是「我刚切一刀，剪刀又指回第一段」——
-         焦点只该跟着用户的手与播放头走。与全片档 `filmApplyAt` 的 quiet 分支同一立场，
-         针仍画回数据里那一秒（`proj.cutAt`），只是不拿它去改写 `cutSeg`。 */
-      else if (!TlPlay.playing) paintPin(col, shotPinT(sg, round1(Math.max(0, Math.min(total, Number(projOf().cutAt) || 0)))), ax);
-      else setPin(col, sh, cur, total, nowT());
-    };
-    /* 剪辑态的进度不再挂在甲板的 timeupdate 上（那段会被换掉、也会重复触发），
-       由 TlPlay 的 onTime 一处回调 —— 与「插针跟着播放走」是同一件事的两条路，别各走一条。 */
-    setTlPlayhead(syncPlayhead);
-    if (!midEditTrimOf()) {
-      onPl('timeupdate', () => {
-        if (!isFilm) {
-          /* 按**段**播，不是按「[第一段的头, 最后一段的尾]」播：
-             把一条剪成三段、中间那段删掉时，[lo,hi] 这个区间会把被删掉的那一段**照样放过去**
-             —— 用户报的「被剪掉的还是会播放」就是它（进剪辑模式走的是另一条播放器，
-             那里按时间线调度，不受影响）。落在任何一段之外就跳到紧随其后的那一段开头；
-             后面没有段了就停在最后一段末尾、暂停。 */
-          const segs = segsOf(cur, candDur(cur, sh));
-          if (segs.length) {
-            const t = pl.currentTime;
-            const inside = segs.some(s => t >= s.in - 0.05 && t <= s.out + 0.02);
-            if (!inside) {
-              const next = segs.find(s => s.in > t);
-              const last = segs[segs.length - 1];
-              if (next) { try { pl.currentTime = next.in + 0.01; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
-              else if (t > last.out) {
-                try { pl.currentTime = last.out; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ }
-                pl.pause(); if (pb) pb.innerHTML = icon('play', 15);
-              } else { try { pl.currentTime = segs[0].in; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
-            }
-          } else if (hi != null && pl.currentTime > hi) { pl.pause(); if (pb) pb.innerHTML = icon('play', 15); }
-        }
-        syncPlayhead();
-      });
-      ['seeking', 'seeked', 'play', 'pause', 'loadedmetadata'].forEach(ev => onPl(ev, syncPlayhead));
-    }
+  // 生成态：播放裁剪约束（剪掉的那一截不放）
+  if (pl && cur && !midEditTrimOf()) {
+    /* 保留窗按**成片那一份**算：这一镜已提升的片段在素材里各占一段源窗口（剪辑态改过刀
+       这里就跟着改）；还没提升时退候选自己的裁剪窗（`candidateWindow` 与 promoteCandidate
+       同一份）。按**窗**播，不是按「[第一段的头, 最后一段的尾]」播：中间剪掉的那一截
+       不会照样放过去。落在任何一窗之外就跳到紧随其后的那窗开头；
+       后面没有窗了就停在最后一窗末尾、暂停。 */
+    const kept = (filmOf(projOf()).clips || [])
+      .filter(c => c && c.shotId === sh.id && c.candId === cur.vid && c.kind !== 'image')
+      .map(c => [srcHeadOf(c), srcHeadOf(c) + srcUsedOf(c)])
+      .sort((a, b) => a[0] - b[0]);
+    if (!kept.length) { const w = candidateWindow(cur); kept.push([w.sourceStart, w.sourceStart + w.sourceDuration]); }
+    onPl('timeupdate', () => {
+      const t = pl.currentTime;
+      const inside = kept.some(([a, b]) => t >= a - 0.05 && t <= b + 0.02);
+      if (inside) return;
+      const next = kept.find(([a]) => a > t);
+      const last = kept[kept.length - 1];
+      if (next) { try { pl.currentTime = next[0] + 0.01; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
+      else if (t > last[1]) {
+        try { pl.currentTime = last[1]; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ }
+        pl.pause(); if (pb) pb.innerHTML = icon('play', 15);
+      } else { try { pl.currentTime = kept[0][0]; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
+    });
   }
   if (window.Dropdowns) Dropdowns.build(col);   // 中栏参数条重建后重新包装下拉
 }
@@ -543,245 +467,6 @@ function renderShotStrip(col) {
     });
     wrap.appendChild(it);
   });
-}
-
-/* ============================================================================
-   剪辑态轨道坞（#tlDock）—— 铺满页面宽度的底栏
-   ----------------------------------------------------------------------------
-   工具条（剪子一组 + 本镜/全片页签 + 缩放一组）一行排开，下面是读数行、配音文字行、
-   轨道网格（左轨名列 + 右滚动轨）与入出点那一行。之前这些全塞在中栏里（.timeline-wrap），
-   于是轨道只有中栏那么宽、视频栏被挤得换一次模式变一次大小；现在与三栏平级铺满整行。 */
-function tlDockToolsHTML() {
-  return `
-    <div class="tl-dock-tools">
-      <span class="ui-seg tl-tabs" role="tablist" aria-label="时间线范围">
-        <button type="button" class="${(projOf().tlTab || 'shot') === 'shot' ? 'on' : ''}" data-tab="shot" role="tab" aria-selected="${(projOf().tlTab || 'shot') === 'shot' ? 'true' : 'false'}">本镜</button>
-        <button type="button" class="${projOf().tlTab === 'film' ? 'on' : ''}" data-tab="film" role="tab" aria-selected="${projOf().tlTab === 'film' ? 'true' : 'false'}">全片</button>
-      </span>
-      <span class="tl-sep" aria-hidden="true"></span>
-      <!-- 统一剪辑条：这一排只有一个目标（画面段或配音句，见 syncTlTools），两组剪子同一份语义。
-           「空一段 / 摘掉空段」两颗已撤：空段不再靠按钮插 —— 把某一格左右拖走，原位自动空出一段。 -->
-      <div class="tl-tools" id="tlTools">
-        <button class="tool mini" data-cut="play" id="tlListen" hidden>${icon('play', 12)} 试听</button>
-        <button class="tool mini" data-cut="split" title="在插针处把这一段切成两段">${icon('scissors', 13)} 切开</button>
-        <button class="tool mini" data-cut="left" data-ic="arrowLeft" title="丢掉插针左边的画面（这一段从插针开始）">${icon('arrowLeft', 13)} 向左切</button>
-        <button class="tool mini" data-cut="right" data-ic="arrowRight" title="丢掉插针右边的画面（这一段到插针为止）">${icon('arrowRight', 13)} 向右切</button>
-        <button class="tool mini danger" data-cut="drop" title="删掉插针所在的那一段（格子不消失，原地变黑场，后面的段不前移）">${icon('trash', 13)} 删掉</button>
-        <button class="tool mini" data-cut="merge" title="把插针这一段与它旁边挨着的那一段合回一段（只对「一刀切开、没再动过」的两段有效）">${icon('link', 13)} 融合</button>
-      </div>
-      <span class="tl-sep" aria-hidden="true"></span>
-      <span class="sp"></span>
-      <!-- 时间轴缩放（与剪映一致：时间长了整条比屏幕宽，左右拖；Ctrl+滚轮也行）。「自适应」= 短片子正好铺满、
-           长片子铺到 12px/秒 就停并开始左右滚动；手动缩小没有下限，可以缩到比轨道还短（见 tlMinPps）。 -->
-      <span class="tl-zoom" title="时间轴缩放：放大看细节，缩小看全局（Ctrl + 滚轮也行）">
-        <button type="button" id="tlZoomOut" title="缩小（看全局，能缩到比这条轨道还短）">${icon('minus', 13)}</button>
-        <input type="range" id="tlZoomRange" min="0" max="1000" step="1" value="0" aria-label="时间轴缩放（像素/秒，对数）" title="拖动无极调节像素/秒（对数刻度）">
-        <button type="button" id="tlZoomIn" title="放大（看细节）">${icon('plus', 13)}</button>
-        <span class="tl-zval" id="tlZoomVal">自适应</span>
-        <!-- 这颗钮写的是**动作**（铺满），不是状态：状态由左边那个读数说（「自适应」/ 多少 px/秒）。
-             以前读数与按钮都写「自适应」，一排里出现两个一样的词（用户点名）。 -->
-        <button type="button" id="tlZoomAuto" title="回到自适应" disabled>铺满</button>
-      </span>
-    </div>`;
-}
-/* 轨道区的内容（**不含工具条**）：工具条与刻度尺都在滚动区外面 ——
-   工具条常驻顶上、刻度尺自己一道，两样都不该被轨道压住。 */
-function tlDockBodyHTML(sh, cur) {
-  return `
-    <!-- 只读这一句配音的文字（选中配音块时露出；paintVoiceLine 一处翻 hidden） -->
-    <div class="tl-vline" id="tlVoiceLine" hidden>
-      <span class="vl-chip">配音</span>
-      <b class="vl-who" id="tlVoiceWho"></b>
-      <span class="vl-text" id="tlVoiceText"></span>
-      <span class="vl-time" id="tlVoiceTime"></span>
-    </div>
-    <div class="tl-hint" id="tlHint"></div>
-    <div class="tl-grid${(laneHidden('pic') ? ' hid-pic' : '') + (laneHidden('voice') ? ' hid-voice' : '')}" id="tlGrid">
-      <div class="tl-side">
-        <div class="tl-hrow pic">${laneRowCtlHTML('pic', 0)}${laneRowBtnsHTML('pic')}</div>
-        <div class="tl-hrow voice">${laneRowCtlHTML('voice', 0)}${laneRowBtnsHTML('voice')}</div>
-      </div>
-      <div class="tl-bar" id="tlBar"></div>
-    </div>
-    <!-- 读数那一行 + 入出点那一行：跟着工具条一起搬进轨道坞（原先在中栏里，中栏现在只放播放器）。
-         ⚠ 这两行不许省：上面那把尺子的终点读数（#tlT1）与那两个秒数框是**唯一**能直接写秒数的入口，
-         块上的把手只能拖着走。少了它们，「这一句配音留 1–3 秒」这件事就只剩拖，没有填的余地。 -->
-    <div class="tl-time"><span id="tlT0">0:00.0</span><span id="tlT1" title="${(projOf().tlTab || 'shot') === 'shot' ? '这一排按每段**进成片的那一截** ÷ 它自己的倍速摊开，右边就是它的总长（剪掉的头尾不占地方；整格黑场照样占）' : '全片轨按各段自己的长度排（黑场那一格不进画面、照样占时间），右边括号里才是成片真实时长'}">${(projOf().tlTab || 'shot') === 'shot' ? shotAxText(cur, sh) : (fmtDur(filmFrames(tlSyncFromShots()).total) + '（成片 ' + fmtDur(totalDur()) + '）')}</span></div>
-    ${cur ? `
-    <div class="trim-editor">
-      <span id="trimSegLab"></span>
-      从 <input type="number" id="trimS" step="0.1" min="0" max="${cur.duration || 15}">
-      到 <input type="number" id="trimE" step="0.1" min="0" max="${cur.duration || 15}">
-      秒 <button class="ghost" id="trimApply">应用</button>
-      <span id="trimNote">这是源视频里的秒数；也可以直接拖动格子两端的把手</span>
-    </div>` : ''}
-`;
-}
-/* 轨道坞那一块的接线（每次重建都重绑一遍；坞本身是常驻节点，只有 innerHTML 换血）。
-   `col` 仍是中栏 —— 播放器相关的那几件按中栏查，其余全在 `dock` 里。 */
-function bindTlDock(dock, col, sh, cur) {
-  dock.querySelectorAll('#tlTools [data-cut]').forEach(b => {
-    b.onclick = () => {
-      if (b.dataset.cut === 'drop') {
-        /* 删的是用户看得见的一段画面 / 一句配音：走就地二次确认（全站那一份 Confirm.arm）。
-           两种落点要做的是两件不同的事，那句 note 就得说两句 —— 指着配音写「这一段画面会去掉」
-           是一句页面上不会发生的话。 */
-        if (Confirm.arm(b, '确认删掉？', {
-          note: tlCutTarget() === 'voice' ? '只删这一句配音，画面不动'
-            : '插针那一段原地变成黑场：格子还在原位、时长不变，后面的段一个都不前移（这一段上的配音照放）' })) return;
-      }
-      runCut(b.dataset.cut);
-    };
-  });
-  /* 缩放这一族接线（按钮一步约 1.15 倍 / 滑块无极调 / Ctrl+滚轮连续折算）**跟着工具条搬进轨道坞**：
-     之前它挂在中栏那一列上，工具条搬走以后按钮还留在坞里、却没有人接 —— 点「＋」毫无反应，
-     滑块拖不动、Ctrl+滚轮也不缩放。接线要认**坞**（`dock`），不是中栏。 */
-  {
-    const zin = dock.querySelector('#tlZoomIn'), zout = dock.querySelector('#tlZoomOut');
-    if (zin) zin.onclick = e => { e.stopPropagation(); tlZoomBy(1); };
-    if (zout) zout.onclick = e => { e.stopPropagation(); tlZoomBy(-1); };
-    /* 滑块的绝对值入口。「自适应」是独立一颗按钮（已在自适应档时 disabled，不是看着能点、点了不做事）。 */
-    const zr = dock.querySelector('#tlZoomRange');
-    if (zr) {
-      zr.oninput = e => { tlZoomSetPos(parseFloat(e.target.value), false); };
-      zr.onchange = () => { tlZoomCommit(); };
-    }
-    const zauto = dock.querySelector('#tlZoomAuto');
-    if (zauto) zauto.onclick = e => { e.stopPropagation(); tlZoomAuto(); };
-    const tbar = dock.querySelector('#tlBar');
-    if (tbar) tbar.addEventListener('wheel', e => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      /* 触摸板的捏合就是带 ctrlKey 的 wheel：不拦下浏览器会同时做整页缩放（画面跟着一起糊）。 */
-      e.preventDefault();
-      tlZoomWheel(e);
-    }, { passive: false });
-  }
-  const gridEl = dock.querySelector('#tlGrid');
-  if (gridEl) gridEl.addEventListener('click', e => {
-    /* 音量图标那颗是静音开关 —— 它自己一节，不落进 data-lane-act 那几颗里：
-       那几颗管的是行 / 轨的显隐锁定，静音是另一种状态（不改任何一级音量）。 */
-    const b = e.target.closest('[data-lane-act]');
-    if (!b) return;
-    const act = b.dataset.laneAct;
-    const k = b.dataset.lane, ln = laneClamp(b.dataset.ln);
-    if (act === 'links') { openLinksDlg(); return; }
-    else if (act === 'rhide') rowFlagToggle(k, ln, 'hides', dock);
-    else if (act === 'rlock') rowFlagToggle(k, ln, 'locks', dock);
-    else laneToggle(k, act);
-  });
-  /* 联动设置弹层（主轨 = 画面轨第 0 行）：勾上的类型在主轨段变黑场时挪到下一段还有画面的段。
-     字幕不给 checkbox —— 派生字幕跟着配音走，manual/asr 只有 startMs/endMs、定位不到段，
-     给一个点了没用的勾就是假承诺。改 links 不改成片内容 → 只 scheduleSave，不 filmEdited。 */
-  function openLinksDlg() {
-    const cur2 = linksOf(projOf());
-    const OPTS = [['voice', '语音'], ['line', '台词'], ['pending', '待生成']];
-    let bodyEl = null;
-    UiDialog.open({
-      title: '主轨联动',
-      sub: '勾上的类型在主轨段变黑场时会挪到下一段还有画面的段；没勾的留在原地（成片里被跳过）。',
-      body(el) {
-        bodyEl = el;
-        el.innerHTML = OPTS.map(([v, label]) =>
-          '<label class="dlg-line"><input type="checkbox" data-link="' + v + '"' + (cur2.indexOf(v) >= 0 ? ' checked' : '') + '> ' + label + '</label>').join('')
-          + '<div class="dlg-hint">字幕不单独勾：派生字幕跟着配音走；手动 / ASR 字幕按源秒定位，不动。</div>';
-      },
-      actions: [
-        { label: '取消', value: null },
-        { label: '保存', value: 'go', primary: true },
-      ],
-    }).then(v => {
-      if (v !== 'go' || !bodyEl) return;
-      const picked = [];
-      bodyEl.querySelectorAll('[data-link]').forEach(x => { if (x.checked) picked.push(x.dataset.link); });
-      setLinks(projOf(), picked);
-      scheduleSave();
-      renderTimeline(dock.querySelector('#tlDockBody'), sh, cur);
-      setStatus('<span class="ok">✓ 联动已更新：' + (picked.length ? picked.map(p2 => ({ voice: '语音', line: '台词', pending: '待生成' }[p2])).join('、') + ' 会在主轨段变黑场时挪走' : '全部关闭（变黑场时留在原地）') + '</span>');
-    });
-  }
-  /* 页签只认带 data-tab 的那两颗：工具行里还住着缩放那几颗，不筛就会把它们的 onclick 换成切页签。 */
-  dock.querySelectorAll('.tl-tabs button[data-tab]').forEach(b => b.onclick = () => {
-    projOf().tlTab = b.dataset.tab;
-    renderMid();
-  });
-  /* 入出点那两框调的是「剪辑界面指着的那一段 / 那一句」，不是整条候选的并集：
-     切开之后一格就是一段，写并集等于界面画四格、数据改一整条。
-     这一段跟着工具条搬进轨道坞以后，宿主从「中栏」换成了「坞」—— 查元素一律按 dock 查。 */
-  const ta = dock.querySelector('#trimApply');
-  paintTrimRow(dock);
-  const applyTrimFromInputs = () => {
-    /* 指着一句配音时，这两框调的是**它的**保留片段（画面的账一个字节不动）：
-       `at` 在源秒上量（相对这一段选区起点），`dur`/`off` 在音频文件秒上量（÷ 自己那档倍速才是源长）。
-       夹取与块上两根把手**同一套**（voice-lane.js 那一份）：左端退不出框左沿、退不到音频第 0 秒之前；
-       右端上界取「框右沿」与「音频内容尽头」里更宽的那头，越过了就把框撑到那儿 ——
-       少这一道，输入 0–999 会把 off 写成负、dur 写出文件尾，预览与合成各错各的。 */
-    const v = tlVoiceHit();
-    if (v) {
-      const own = voiceRateOf(v);
-      const at0 = Math.max(0, Number(v.at) || 0);
-      const dur0 = Math.max(voiceMin(), Number(v.dur) || 0);
-      const off0 = Math.max(0, Number(v.off) || 0);
-      const fr = voiceFrameOf(v);
-      const content = Number(v.srcDur) > 0 ? Math.max(voiceMin(), Number(v.srcDur) - off0) : dur0;
-      const lim = Math.max(fr.fb, at0 + content / own);
-      const minSpan = voiceMin() / own;          // 最短保留 = VOICE_MIN（音频文件秒）折回源秒
-      let na = parseFloat(dock.querySelector('#trimS').value);
-      let ne = parseFloat(dock.querySelector('#trimE').value);
-      if (!isFinite(na)) na = at0;
-      if (!isFinite(ne)) ne = at0 + dur0 / own;
-      const lo = Math.max(fr.fa, at0 - off0 / own);
-      na = Math.max(lo, Math.min(na, lim - minSpan));
-      ne = Math.max(na + minSpan, Math.min(ne, lim));
-      if (Math.abs(na - at0) < 0.05 && Math.abs(ne - (at0 + dur0 / own)) < 0.05) { paintTrimRow(dock); return; }
-      const grew = na < fr.fa - 0.05 || ne > fr.fb + 0.05;
-      const d = na - at0;
-      v.at = na; v.off = off0 + d * own; v.dur = (ne - na) * own;
-      if (ne > fr.fb) v.fb = ne;
-      roundVoice(v);
-      setStatus('这一句配音改为 ' + round1(na) + '–' + round1(ne) + ' 秒' + (grew ? '（框跟着撑到新的保留范围）' : '')
-        + '；音频从第 ' + round1(v.off) + ' 秒起、放 ' + round1(v.dur) + ' 秒' + (own !== 1 ? '（×' + own + ' 倍速）' : ''));
-      filmEdited();
-      return;
-    }
-    if (!cur) return;
-    const total = candDur(cur, sh);
-    const segs = segsOf(cur, total);
-    if (!segs.length) { setStatus('<span class="err">这一段已经没有了：按 Ctrl+Z 退回剪切之前，再调入出点</span>'); return; }
-    const i = Math.min(segs.length - 1, cutSegIdx());
-    const s0 = segs[i];
-    /* 能写的范围 = 这一格左右**没有邻居**的那一块（第一格到 0、最后一格到片尾）。
-       不是「整条候选」：写超出就把隔壁那一格的画面抢过来了，两格会叠在一起。 */
-    const lo = i > 0 ? segs[i - 1].b : 0;
-    const hi = i < segs.length - 1 ? segs[i + 1].a : total;
-    let s2 = parseFloat(dock.querySelector('#trimS').value);
-    let e2 = parseFloat(dock.querySelector('#trimE').value);
-    if (!isFinite(s2)) s2 = s0.in;
-    if (!isFinite(e2)) e2 = s0.out;
-    const clamped = !!(s2 > hi || e2 > hi || s2 < lo || e2 < lo);
-    s2 = Math.max(lo, Math.min(s2, hi));
-    e2 = Math.max(lo, Math.min(e2, hi));
-    if (e2 - s2 < SEG_MIN) {
-      e2 = Math.min(hi, s2 + SEG_MIN);
-      if (e2 - s2 < SEG_MIN) s2 = Math.max(lo, e2 - SEG_MIN);
-    }
-    /* 整段替换而不是只写 in/out：框（a/b）与这一段**自己身上**的四件事都得跟着走。
-       以前这里写的是 `{ in, out }` 两个字面字段 —— 一格调完入出点，框塌回收区（把手再也拖不回
-       原来那一块）、音量被抹回 100%，正是「同一个东西两份账」里更坏的那种（改 A 悄悄清了 B）。
-       框只向外扩（用户明确要的画面范围），永不越过邻居。 */
-    segs[i] = segCarry(s0, { in: round1(s2), out: round1(e2),
-      a: round1(Math.max(lo, Math.min(s0.a, s2))), b: round1(Math.min(hi, Math.max(s0.b, e2))) });
-    const moved = reanchorVoices(sh, cur, segsOf(cur, total), segs);
-    segsWrite(cur, total, segs);
-    setStatus(trimStatus(sh, cur, (clamped ? `已按这一格能用的范围 ${fmtDur(lo)}–${fmtDur(hi)} 截断` : '')
-      + (moved ? '；有 ' + moved + ' 句配音被切到段外，已挪到下一段开头' : '')));
-    filmEdited();
-  };
-  if (ta) ta.onclick = applyTrimFromInputs;
-  ['trimS', 'trimE'].forEach(id2 => {
-    const el2 = dock.querySelector('#' + id2);
-    if (el2) el2.addEventListener('change', applyTrimFromInputs);
-  });
-  syncTlTools();
 }
 
   return {

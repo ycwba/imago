@@ -41,7 +41,8 @@ export function candidateBase(ctx, n) {
   const k = num(n) || 1;
   return sceneShotBase(Object.assign({}, ctx || {}, k > 1 ? { tag: '候选' + k } : null));
 }
-export function voiceBase(ctx, n) {
+/* 配音的本体名：与它所属镜头同名（不带「配音N」—— 一句配音对应一镜，序号在那条镜头的名字里已经够了）。 */
+export function voiceBase(ctx) {
   return sceneShotBase(ctx || {});
 }
 /* 时间线里一段画面的显示名（写进 `<asset-clip name>`）：场景与镜头都在，片段序号也在。 */
@@ -109,12 +110,6 @@ export function shotCtxOf(proj, shot) {
 export function candidateIndex(sh, cand) {
   const list = (sh && sh.candidates) || [];
   const i = list.indexOf(cand);
-  return i >= 0 ? i + 1 : 1;
-}
-/* 配音在全片配音表里的序号（1 起）；同一句同时出现多次时取第一条。 */
-export function voiceIndex(proj, voice) {
-  const list = (proj && proj.voices) || [];
-  const i = list.indexOf(voice);
   return i >= 0 ? i + 1 : 1;
 }
 

@@ -11,7 +11,6 @@ import { render as AppShellRender } from './render/app-shell.js';
 import { createHooks } from './core/hooks.js';
 import { createActivity } from './core/activity.js';
 import { preloadModule } from './core/page-css.js';
-import { installScrollGuard } from './core/scroll-guard.js';
 
 const R = window.WB_ROUTES;
 const LAST = 'sb_last_page';
@@ -221,10 +220,13 @@ window.addEventListener('beforeunload', e => {
 });
 
 const app = createApp(App);
-/* 全站一份：整片重画（innerHTML / outerHTML）不许把滚动位吃掉 ——
-   「点一颗按钮，视角就跳回最上面」就是这一族（web/core/scroll-guard.js 有完整说明）。
-   装在挂载之前：页面是按需 import 的，第一屏重画时这一份已经在位。 */
-installScrollGuard();
+/* 「点一颗按钮，视角就跳回最上面」这一族**不再由外壳兜着**：
+   以前外壳装一份 web/core/scroll-guard.js（猴补 Element.prototype.innerHTML /
+   outerHTML / replaceChildren），那只罩得住「整片重画把滚动容器换掉」，
+   罩不住「重画后内容变短被夹回顶」，而且它在全局原型上动手脚。
+   现在改成**在实际代码里防**：重画点走公共件 Wb.viewport.keep（按锚点还视口，
+   实现在 web/ui/workbench.js）；程序性 focus 只为了续上光标时一律带 preventScroll，
+   要「把某处滚过来」走滚动那一族，别拿 focus 当滚动用（AGENTS §3.4.5）。 */
 app.config.errorHandler = (err, instance, info) => {
   console.error('[spa]', info, err);
   try { if (window.Toast) Toast.err('页面出错：' + String(errText(err))); } catch (e) {}

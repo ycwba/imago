@@ -761,6 +761,27 @@ window.ICONS = {
   /* 「详情 / 说明」这一档以前是字符 ⓘ：不同字体里有的空心有的实心、宽度还不一样，
      按钮里的字跟着左右跳。只用这一个几何。 */
   info: '<circle cx="8" cy="8" r="5.4"/><path d="M8 7.2v3.4M8 5.1h.01"/>',
+  /* ---- 时间线那一族（工具栏、标记四类、六种选择工具、吸附 / 波纹 / 断链 / 回播放头）----
+     形状取自 LPS 那一套的常见画法：一眼分得出「旗 / 章节 / 便签 / 磁铁 / 波纹」，
+     不靠文字标签认。重做 = 撤销的镜像（x → 16−x），一对图标必须成对。 */
+  flag: '<path d="M3.4 14V2.6"/><path d="M3.4 3.2h8.2l-1.7 2.6 1.7 2.6H3.4z"/>',
+  chapter: '<path d="M3.2 2.6h9.6v10.8H3.2z"/><path d="M5.6 5.4h4.8M5.6 8h4.8M5.6 10.6h3"/>',
+  note: '<path d="M2.8 3.4h10.4v6.4l-3 3H2.8z"/><path d="M10.2 12.8v-3h3"/>',
+  redo: '<path d="M9.8 3.4 13.2 6.6l-3.4 3.2"/><path d="M13.2 6.6h-7a4 4 0 0 0 0 8h3.2"/>',
+  magnet: '<path d="M3.2 2.8h3.2v6.4a1.6 1.6 0 0 0 3.2 0V2.8h3.2v6.4a4.8 4.8 0 0 1-9.6 0z"/><path d="M3.2 6.2h3.2M9.6 6.2h3.2"/>',
+  ripple: '<path d="M2.2 8a2.2 2.2 0 0 1 2.2-2.2"/><path d="M2.2 8a2.2 2.2 0 0 0 2.2 2.2"/><path d="M13.8 8a2.2 2.2 0 0 0-2.2-2.2"/><path d="M13.8 8a2.2 2.2 0 0 1-2.2 2.2"/><path d="M8 4.6v6.8"/>',
+  select: '<path d="M4.2 2.8 12 8.4l-3.6.8 2 3.4-1.8 1-2-3.4-2.4 2.6z"/>',
+  selectEdge: '<path d="M6.6 2.8 12.6 8l-2.8.7 1.6 2.7-1.4.8-1.6-2.7-1.8 2z"/><path d="M3.2 2.8v10.4"/><path d="M2.2 8h2"/>',
+  slip: '<rect x="2.6" y="5.2" width="10.8" height="5.6" rx="1.2"/><path d="M5.2 8h5.6M6.8 6.6 5.2 8l1.6 1.4M9.2 6.6l1.6 1.4-1.6 1.4"/>',
+  slide: '<rect x="2.6" y="5.2" width="6.4" height="5.6" rx="1.2"/><path d="M11.4 8h2.4M12.6 6.8 13.8 8l-1.2 1.2"/>',
+  linkBreak: '<path d="M6.4 9.6a2.4 2.4 0 0 0 3.3 0l1.7-1.7a2.4 2.4 0 0 0-3.3-3.4l-.8.8"/><path d="M9.6 6.4a2.4 2.4 0 0 0-3.3 0L4.6 8.1a2.4 2.4 0 0 0 3.3 3.4l.8-.8"/><path d="M2.6 2.6l10.8 10.8"/>',
+  skipBack: '<path d="M3.2 3.4v9.2"/><path d="M13 4.2 5.8 8 13 11.8z" fill="currentColor" stroke-linejoin="round"/>',
+  /* 轨道工具条那四颗（时间线里「一段」的形状：一块圆角矩形）。
+     新增 / 摘掉一段 = 同一块上加减号；缩短 / 加长 = 同一块两侧内向与外向的箭头。 */
+  segAdd: '<rect x="2.4" y="5" width="7.4" height="6" rx="1.2"/><path d="M11.6 8h3.6M13.4 6.2v3.6"/>',
+  segRemove: '<rect x="2.4" y="5" width="7.4" height="6" rx="1.2"/><path d="M11.6 8h3.6"/>',
+  shorten: '<rect x="5.6" y="5" width="4.8" height="6" rx="1"/><path d="M4.4 8H1.8M3.2 6.6 1.8 8l1.4 1.4M11.6 8h2.6M12.8 6.6 14.2 8l-1.4 1.4"/>',
+  lengthen: '<rect x="5.6" y="5" width="4.8" height="6" rx="1"/><path d="M1.8 8h2.6M3.2 6.6 1.8 8l1.4 1.4M14.2 8h-2.6M12.8 6.6l-1.4 1.4 1.4 1.4"/>',
 };
 window.icon = function icon(name, size) {
   const b = window.ICONS[name];
@@ -1516,6 +1537,9 @@ const LEGACY_KEYS = [
      画布的文档本体在 IndexedDB（canvas_db），那边跟着「清站点数据」走，不在这里清。
      索引键要在这里点名的原因和其它旧键一样：不删的话下次 boot 会从服务器镜像恢复回来。 */
   'canvas_index',
+  /* 供应商那一排「按类型分档」的分段开关撤掉（2026-10-27）：一家账号一张卡，卡里列着它能开的每一档，
+     所以「当前哪一档」这个状态本身没有了。不在这里点掉的话，那份镜像会在下次 boot 把它恢复回来。 */
+  'sk_prov_tab',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
@@ -1572,4 +1596,19 @@ window.StorageBus = {
     window.addEventListener('storage', h);
     return () => window.removeEventListener('storage', h);
   },
+};
+
+/* ---------- 程序性 focus 不许抢视口（全站只此一份） ----------
+   拿 focus() 只是为了「把光标续上」时，浏览器会把那一格**滚进视野** ——
+   用户明明在看别处，视角却被拽走（用户报过：点一颗按钮，页面就跳回最上面）。
+   规矩（AGENTS §3.4.5）：一律带 { preventScroll: true }；
+   真要「把某处滚过来」走滚动那一族（scrollIntoView），别拿 focus 当滚动用。
+   页面与公共件都调它，不各写一遍 try/catch。 */
+window.focusQuiet = function focusQuiet(el) {
+  if (!el || typeof el.focus !== 'function') return false;
+  try { el.focus({ preventScroll: true }); return true; }
+  catch (e) {
+    /* 老浏览器不认 preventScroll：这时宁可别抢视口，也别把整页拽走 */
+    try { el.focus(); return true; } catch (e2) { return false; }
+  }
 };

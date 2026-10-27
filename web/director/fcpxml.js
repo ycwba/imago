@@ -1,36 +1,49 @@
-/* FCPXML 导出：把当前时间线写成 Final Cut Pro / 达芬奇可导入的 XML，或 project.fcpxml + media/ 和
-   subtitles.srt 的媒体包。只读：不修改任何工程数据。时间线相关的函数与状态由引擎按 ctx 传进来。
+/* FCPXML 导出：把**当前成片**写成 Final Cut Pro / 达芬奇可导入的 XML，或 project.fcpxml + media/ +
+   subtitles.srt 的媒体包。只读：不修改任何工程数据。
    三条出口共用同一份拼装（buildFCPXML）：下载 .fcpxml、下载媒体包 zip、送到剪映 / 达芬奇。
-   素材名与「存回本机」同一个来源（web/director/naming.js + 本机索引里的 name）：
-   素材名与本机索引里的 name 同一个来源（web/director/naming.js + 库根落点用的那一份）：
+   ----------------------------------------------------------------------------
+   组表人不是这里：这一份读的是 engine/export.js 的 `buildRenderPlan()` —— 与浏览器内导出成片
+   **同一张表**（段顺序与起点、进片的配音与字幕、每句在哪一行、素材地址本机优先都已经在它那侧算完）。
+   这里只把那张表翻译成 FCPXML 的形状；再自己累加一遍起点或再 pack 一遍行，迟早和成片各说各话。
+   段与段之间那一窗转场**不写进 XML**：FCPXML 的 `<transition>` 会把两帖叠起来（导入后的时间线
+   比这一条片子短 dur 秒），而我们的转场不吃时长 —— 两边对不上。文件开头的注释与回执都点名报数，
+   不假装导出了转场，也不静默丢。
+   素材名与「存回本机」同一个来源（naming.js + 本机索引里的 name）：
    本机索引名 = 库根上那个文件的文件名 = 媒体包里的 media/<名> = `<asset name>`；
    同一份素材在多段里复用只进包一次，XML 引用同一个 `media/<名>`。 */
-import { fcpxmlTitles, BASIC_TITLE_UID } from './subtitles.js';
 import { escHTML } from './util.js';
-import { candidateBase, voiceBase, clipLabel, shotCtxOf, candidateIndex, voiceIndex, stripExt, withExt, uniqueName } from './naming.js';
+import { TL_FPS } from './film.js';
+import { srtSerialize } from './srt.js';
+import { candidateBase, voiceBase, clipLabel, shotCtxOf, candidateIndex, stripExt, withExt, uniqueName } from './naming.js';
+
+/* FCP 内置标题效果（Basic Title）与它的「位置」参数键：只有导出器用得到，就住在这里。 */
+const BASIC_TITLE_UID = '.../Titles.localized/Basic Title.localized/Basic Title.moti';
+const SUB_POSITION_KEY = '9999/999166631/999166633/1/100/101';
+/* 字幕的字号与画幅比例：与预览叠层 `.sub-ov` / 烧录那一份同一个数（54/1080）。 */
+const TITLE_FONT = 'PingFang SC';
+const TITLE_SIZE_RATIO = 54 / 1080;
 
 /* 只拼装、不落盘：导出文件 / 媒体包 / 送到 NLE 三条出口都读这一份结果。
    `opts.bundle` 决定媒体引用写相对路径（media/<名>）还是本机真实文件路径。
    返回 ok:false 只表示「现在没有可导出的东西」；其余失败照常抛给调用方。 */
 export async function buildFCPXML(ctx, opts) {
   const bundle = !!(opts && opts.bundle);
-  const { tlSyncFromShots, healStaleUrls, filmSize, setStatus, tlClipDur, tlClipSrc, allShots, tlCandidateOf, candDur, voicesEnsure, voiceVolOf, styleOf, AssetLocal, Api } = ctx;
-  const proj = ctx.proj;
-  const tl = tlSyncFromShots();
-  if (!tl.clips.length) {
-    setStatus('<span class="err">现在一个可用镜头都没有：先在候选卡上点「用这条」选用，或者先生成画面</span>');
-    return { ok: false, quiet: true, err: '没有可用镜头' };
-  }
-  await healStaleUrls().catch(() => 0);
+  const { proj, buildRenderPlan, clipNameOf, filmSize, setStatus, AssetLocal, Api } = ctx;
+  if (!proj) { setStatus('<span class="err">还没有打开的短片：先建一份工程再导出</span>'); return { ok: false, quiet: true, err: '没有打开的短片' }; }
   /* 镜像指针可能还在 IndexedDB 里读回来（localStorage 只是暖缓存）：
      FCPXML 要把本地素材写成真实文件路径，先等它一下，别把明明有的文件标成缺失。 */
   if (window.AssetLocal && AssetLocal.ready) {
-    try { await Promise.race([AssetLocal.ready(), new Promise(r => setTimeout(r, 1200))]); } catch (e) {}
+    try { await Promise.race([AssetLocal.ready(), new Promise(r => setTimeout(r, 1200))]); } catch (e) { /* 等不到就按「本机没有」记，不卡住导出 */ }
+  }
+  const plan = await buildRenderPlan();
+  if (!plan.rows.length) {
+    setStatus('<span class="err">成片还没有画面</span>');
+    return { ok: false, quiet: true, err: '成片里一段画面都没有' };
   }
   const sys = window.Api && Api.sysStatus ? await Api.sysStatus().catch(() => null) : null;
   const assetsDir = String((sys && sys.目录 && sys.目录.资产 && sys.目录.资产.路径) || '');
   const size = filmSize();
-  const FR = 30;
+  const FR = TL_FPS;
   const t = sec => { const n = Math.max(0, Math.round((Number(sec) || 0) * FR)); return n ? n + '/' + FR + 's' : '0s'; };
   const xe = escHTML;      // 转义只有 util.js 那一份（字符表与页面的 window.esc 逐字相同）
   const noteSafe = s => String(s || '').replace(/--/g, '—');
@@ -47,7 +60,9 @@ export async function buildFCPXML(ctx, opts) {
     return s;
   };
   const mediaHref = name => 'media/' + encodePath(name);
-  const missing = [], grayVoices = [], bundleAssets = [];
+
+  const missing = [];
+  const bundleAssets = [];
   const assets = new Map();
   /* 名字按 media.key 只定一次：同一条素材在后面几段里重用时，`<asset name>` 与 `media/` 里的
      文件名必须还是第一次那个；撞名由 naming.uniqueName 插 `-2` 解决，不再交给服务端静默改名
@@ -61,6 +76,8 @@ export async function buildFCPXML(ctx, opts) {
     return nm;
   }
   let nextRid = 2;
+  /* 一条地址 → 资源（asset）那一份描述：`kind` 只认 video / image / audio，
+     名字四级优先（本机索引名 > 图片自带的名字 > 场景镜头名 > 段名），与原地址的取法同源。 */
   function mediaOf(src, kind, info) {
     const it = info || {};
     const isAudio = kind === 'audio';
@@ -68,24 +85,22 @@ export async function buildFCPXML(ctx, opts) {
     const sh = it.shot || null;
     const cand = it.cand || null;
     const clip = it.clip || null;
-    const voice = it.voice || null;
     const sctx = sh ? shotCtxOf(proj, sh) : null;
     const fallback = isAudio
       ? ((String(src || '').match(/\.(wav|mp3|m4a|aac|ogg|flac)(?:\?|$)/i) || [])[1] || 'wav')
       : isImage
         ? (((String(src || '').match(/\.(png|jpe?g|webp|gif|bmp|avif|heic)(?:\?|$)/i) || [])[1] || 'png').toLowerCase())
-        : ((String((cand && cand.format) || (clip && clip.format) || '').match(/^(mp4|mov|webm|mkv)$/i) || [])[1] || 'mp4');
+        : ((String((cand && cand.format) || '').match(/^(mp4|mov|webm|mkv)$/i) || [])[1] || 'mp4');
     const f = window.AssetLocal && AssetLocal.localFileOf ? AssetLocal.localFileOf(src) : null;
     const la = (f && f.id) || ((/^\/asset\/(la_[A-Za-z0-9_-]+)/.exec(String(src || '')) || [])[1]);
     /* 本机索引里的名字就是「存回本机」写下的文件名，优先于场景镜头名：两边必须是同一个名字。
        旧素材的名字可能带扩展名，stripExt + withExt 保证只留恰好一个。 */
     const idxBase = f && f.name ? stripExt(f.name) : '';
     const sceneBase = sctx
-      ? (isAudio ? voiceBase(sctx, voiceIndex(proj, voice)) : candidateBase(sctx, candidateIndex(sh, cand)))
+      ? (isAudio ? voiceBase(sctx) : candidateBase(sctx, candidateIndex(sh, cand)))
       : '';
-    /* 图片段的场景镜头名对它没意义（它不在那条候选的源时间轴上），素材自己的名字优先：
-       拖进来的那张图叫什么，包里就叫什么。 */
-    const stillName = isImage && clip && clip.imgName ? (window.fileSafe(clip.imgName, 48) || '') : '';
+    /* 图片段的名字对它没意义（它不在那条候选的源时间轴上）：拖进来的那张图叫什么就叫什么。 */
+    const stillName = isImage && clip && clip.name ? (window.fileSafe(clip.name, 48) || '') : '';
     const base = idxBase || stillName || sceneBase
       || (window.fileSafe((clip && clip.name) || ((isAudio ? '配音' : '素材') + '-' + ((Number(it.idx) || 0) + 1)), 48) || '素材');
     if (la && assetsDir) {
@@ -95,7 +110,6 @@ export async function buildFCPXML(ctx, opts) {
       if (bundle) return { key, name, local: false, bundleSrc: Api.assetSrc(la), href: mediaHref(name) };
       /* 单文件那一档给 FCP 的是 file:// 绝对路径：本体的真实落点是
          <库根>\<类型>\<规范名>.<ext>（账里的 file 字段，localFileOf 递过来的 path）。
-         以前拿本机号 la_xxx 当文件名直接拼在库根下 —— 导入 FCP / 达芬奇后全部离线。
          path 没学到（老索引还没刷新）就照实记「本机没有」，不编一个必然断链的地址。 */
       const rel = String((f && f.path) || '').replace(/\\/g, '/').replace(/^\/+/, '');
       if (rel) return { key, name, local: true, href: fileUrl(assetsDir.replace(/[\\/]+$/, '') + '/' + rel) };
@@ -106,7 +120,7 @@ export async function buildFCPXML(ctx, opts) {
     const name = mediaNameOf(key, base, fallback);
     const canFetch = /^(?:https?:|\/(?:asset|getv|fetch)\b)/i.test(String(src || ''));
     /* 不在本机索引里的素材：单文件 FCPXML 导入后是离线素材，媒体包里由代理按地址取；
-       取不到时服务端会写进 missing.txt —— 这里先按「本机没有」记一条，界面照实报数。 */
+       取不到时服务端会写 missing.txt —— 这里先按「本机没有」记一条，界面照实报数。 */
     missing.push({ name, src: String(src || '') });
     return { key, name, local: false, bundleSrc: bundle && canFetch ? String(src || '') : '', href: mediaHref(name) };
   }
@@ -120,74 +134,64 @@ export async function buildFCPXML(ctx, opts) {
     if (bundle && media.bundleSrc) bundleAssets.push({ src: media.bundleSrc, name: media.name });
     return id;
   }
-  const shots = allShots();
-  const rows = [];
-  let at = 0;
-  for (let i = 0; i < tl.clips.length; i++) {
-    const c = tl.clips[i];
-    const dur = tlClipDur(c);
-    const sh = shots.find(x => x.id === c.shotId) || null;
-    const row = { c, at, dur, voices: [], sctx: sh ? shotCtxOf(proj, sh) : null };
-    if (!c.gray && c.img) {
-      /* 图片段：素材是那一张静态图本身，不是它底下的候选视频。地址同样走导出本机优先口径，
-         写进 FCPXML 的仍是一条 still 引用（`<asset hasVideo>` + `start="0s"`、没有 timeMap）。 */
-      const still = window.EditorMedia ? window.EditorMedia.exportSrc({ src: c.img }) : c.img;
-      if (still) {
-        const media = mediaOf(still, 'image', { shot: sh, clip: c, idx: i });
-        row.ref = assetFor(media, Math.max(0.1, dur), 'image');
-        row.media = media;
-        row.still = 1;
-      } else {
-        missing.push({ name: (c.imgName || c.name || ('第 ' + (i + 1) + ' 段')) + '（没有可用的图片）', src: c.img || '' });
-      }
-    } else if (!c.gray) {
-      const src = await tlClipSrc(c);
-      if (src) {
-        const cand = sh ? tlCandidateOf(sh, c.candId) : null;
-        const srcDur = cand ? candDur(cand, sh) : Math.max(Number(c.out) || 0, 0.1);
-        const media = mediaOf(src, 'video', { shot: sh, cand, clip: c, idx: i });
-        row.ref = assetFor(media, srcDur, 'video');
-        row.media = media;
-      } else {
-        missing.push({ name: (c.name || ('第 ' + (i + 1) + ' 段')) + '（没有可用素材）', src: '' });
-      }
-    }
-    proj.voices = voicesEnsure();
-    for (const v of proj.voices) {
-      if (v.shotId !== c.shotId || v.candId !== c.candId || (v.seg == null ? 0 : v.seg) !== (c.seg == null ? 0 : c.seg)) continue;
-      const span = Math.max(0.1, (Number(c.out) || 0) - (Number(c.in) || 0));
-      const start = Math.max(0, Number(v.at) || 0);
-      if (!v.src || start >= span) continue;
-      const sp = Math.max(0.25, Math.min(4, Number(c.speed) || 1));
-      const own = Math.max(0.25, Math.min(4, Number(v.spd) || 1));
-      const vr = sp * own;
-      if (!row.ref) { grayVoices.push({ v: v, absAt: row.at + start / sp, sp: sp, own: own, vr: vr }); continue; }
-      const media = mediaOf(v.src, 'audio', { shot: sh, voice: v, idx: rows.length * 10 + row.voices.length });
-      const ref = assetFor(media, (Number(v.off) || 0) + (Number(v.dur) || 0) + 1, 'audio');
-      row.voices.push({
-        ref, media,
-        offset: start / sp,
-        start: Math.max(0, Number(v.off) || 0),
-        srcDur: Math.max(0.1, Number(v.dur) || 0),
-        dur: Math.max(0.1, (Number(v.dur) || 0) / vr),
-        vol: voiceVolOf(v),
-        name: v.text || v.name || '配音',
-      });
-    }
-    rows.push(row);
-    at += dur;
-  }
-  /* 字幕与画面共用同一份 rows（每镜第一格的 `at` 就是这一镜的成片起点）；
-     黑场行也挂在 gap 里 —— 黑场只是没有画面，字幕照样要出现。 */
-  const sub = fcpxmlTitles({ rows, shots, styleOf, size, t, xe, voices: voicesEnsure() });
+
+  /* ---------------- 画面段 ----------------
+     起点与行长直接拿 plan 里那一列（deriveTimeline 摊出来的，不再自己累加）。 */
+  const rows = plan.rows.map(row => {
+    const clip = row.clip;
+    const out = { index: row.index, row, clip, ref: '', media: null, still: clip.kind === 'image', label: clipNameOf(clip) };
+    if (!row.src) { out.noSrc = true; return out; }
+    out.media = mediaOf(row.src, out.still ? 'image' : 'video', { shot: row.shot, cand: row.cand, clip, idx: row.index });
+    /* asset 的时长 = 素材原长（源秒）：`start` 是这一段的入点，FCP 要能在素材里走到出点之后。 */
+    const srcDur = out.still ? Math.max(0.1, row.duration)
+      : Math.max(Number(clip.sourceDuration) || 0.1, Number(clip.mediaDuration) || 0);
+    out.ref = assetFor(out.media, srcDur, out.still ? 'image' : 'video');
+    return out;
+  });
+  /* 地址没取到的那几段：写 `<gap>` 保持时间线连续（时长照旧），并在名单里点名 —— 不静默丢段。 */
+  plan.missing.forEach(m => missing.push({
+    name: '第 ' + (m.index + 1) + ' 段「' + (m.name || '画面段') + '」（没有可用素材地址）', src: '',
+  }));
+
+  /* ---------------- 配音：spine 上的独立 asset-clip ----------------
+     新模型里配音是**定时条目**（绝对成片秒 + 打包行号），不挂在某一段画面底下 ——
+     所以它们不再嵌套进 asset-clip，而是各自占一条 lane，offset 用它自己的成片秒。 */
+  const voices = plan.voices.map((v, i) => {
+    const sh = v.shotId ? (plan.rows.find(r => r.shot && r.shot.id === v.shotId) || {}).shot : null;
+    const media = mediaOf(v.src, 'audio', { shot: sh, idx: i });
+    return {
+      ...v, media,
+      ref: assetFor(media, Math.max(0.1, Number(v.sourceStart) + Number(v.duration) + 1), 'audio'),
+      label: String(v.name || '配音'),
+    };
+  });
+  const voiceLanes = voices.reduce((a, v) => Math.max(a, v.lane + 1), 0);
+
+  /* ---------------- 字幕：spine 上的 title ----------------
+     一条字幕就是一条绝对成片秒的窗（旧那套「按镜折算 / 挂到那一格的 offset」没了），
+     lane 排在所有配音行之上。 */
+  const titles = plan.captions.map((c, i) => ({ ...c, order: i, name: '字幕 ' + (i + 1) }));
+
   const dbOf = vol => {
     const v = Math.max(0, Number(vol) || 0);
     return v <= 0 ? '-96dB' : (20 * Math.log10(v)).toFixed(1) + 'dB';
   };
+  const warnings = [];
+  if (plan.transitions.length) {
+    warnings.push(plan.transitions.length + ' 处转场没写进 XML（导入后硬切）。位置：'
+      + plan.transitions.slice(0, 8).map(x => t2s(x.start) + ' → ' + x.id).join('、')
+      + (plan.transitions.length > 8 ? ' 等' : ''));
+  }
+  if (titles.some(x => x.highlight)) warnings.push('高亮底色不进 FCPXML。');
+  if (titles.length) warnings.push('字幕一律按 ' + TITLE_FONT + ' 与画幅等比字号写出；本机没这个字体会被替换');
+  /* SRT 与 XML 同一份表：包里的 subtitles.srt 就是 plan.captions 那几条。 */
+  const srt = srtSerialize(titles, { bom: true, crlf: true });
+  function t2s(sec) { return Math.round((Number(sec) || 0) * 10) / 10 + ' 秒'; }
+
   const out = [];
   out.push('<?xml version="1.0" encoding="UTF-8"?>');
   out.push('<!DOCTYPE fcpxml>');
-  out.push('<!-- 导出拾帧「' + noteSafe((proj && proj.name) || '未命名短片') + '」时间线 · '
+  out.push('<!-- 导出拾帧「' + noteSafe(proj.name || '未命名短片') + '」成片 · '
     + new Date().toLocaleString('zh-CN') + ' -->');
   if (missing.length) {
     out.push('<!-- 本机没有可用文件的素材（导入 FCP 后会显示离线；请补到与 FCPXML 同级的 media/ 目录，或重新链接）：');
@@ -195,27 +199,16 @@ export async function buildFCPXML(ctx, opts) {
     if (missing.length > 60) out.push('     …另有 ' + (missing.length - 60) + ' 条');
     out.push('-->');
   }
-  /* 黑场上的配音：FCPXML 的 gap 不能挂子元素 → 把每句写成独立的 <asset-clip lane="1">，
-     offset 用它在成片时间线上的绝对秒，落在 gap 上方（导入后位置不变）。 */
-  const grayClips = [];
-  grayVoices.forEach(gv => {
-    const v = gv.v;
-    const media = mediaOf(v.src, 'audio', { shot: null, voice: v, idx: grayClips.length });
-    const ref = assetFor(media, (Number(v.off) || 0) + (Number(v.dur) || 0) + 1, 'audio');
-    const dur = Math.max(0.1, (Number(v.dur) || 0) / (gv.vr || 1));
-    grayClips.push({ ref, media, absAt: gv.absAt, start: Math.max(0, Number(v.off) || 0),
-      srcDur: Math.max(0.1, Number(v.dur) || 0), dur, vol: voiceVolOf(v), name: v.text || v.name || '配音' });
-  });
-  if (sub.warnings.length) {
-    out.push('<!-- 字幕提醒（一条都没有静默丢：下面逐条写明原因）：');
-    sub.warnings.forEach(w => out.push('     - ' + noteSafe(w)));
+  if (warnings.length) {
+    out.push('<!-- 导出提醒（一条都没有静默丢：下面逐条写明原因）：');
+    warnings.forEach(w => out.push('     - ' + noteSafe(w)));
     out.push('-->');
   }
   out.push('<fcpxml version="1.10">');
   out.push('  <resources>');
   out.push('    <format id="r1" name="FFVideoFormat' + size.w + 'x' + size.h + 'p' + FR + '" frameDuration="1/' + FR
     + 's" width="' + size.w + '" height="' + size.h + '"/>');
-  if (sub.counts.titles) out.push('    <effect id="r_title" name="Basic Title" uid="' + BASIC_TITLE_UID + '"/>');
+  if (titles.length) out.push('    <effect id="r_title" name="Basic Title" uid="' + BASIC_TITLE_UID + '"/>');
   assets.forEach(a => {
     const m = a.media;
     /* 静态图也走视频轨（still）：hasVideo 有、hasAudio 没有，时长由 asset-clip 决定。 */
@@ -231,71 +224,73 @@ export async function buildFCPXML(ctx, opts) {
   out.push('  </resources>');
   out.push('  <library>');
   out.push('    <event name="拾帧导出">');
-  out.push('      <project name="' + xe((proj && proj.name) || '未命名短片') + '">');
-  out.push('        <sequence format="r1" duration="' + t(at) + '" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">');
+  out.push('      <project name="' + xe(proj.name || '未命名短片') + '">');
+  out.push('        <sequence format="r1" duration="' + t(plan.duration) + '" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">');
   out.push('          <spine>');
-  rows.forEach((row, i) => {
-    const c = row.c;
-    const titles = sub.byRow.get(i) || [];
-    if (!row.ref) {
-      const gname = '黑场' + (c.name ? ' · ' + xe(c.name) : '');
-      if (!titles.length) {
-        out.push('            <gap name="' + gname + '" offset="' + t(row.at) + '" duration="' + t(row.dur) + '"/>');
-      } else {
-        out.push('            <gap name="' + gname + '" offset="' + t(row.at) + '" duration="' + t(row.dur) + '">');
-        titles.forEach(x => out.push(x));
-        out.push('            </gap>');
-      }
+  /* 片段之间允许留空（clip.gap）：spine 要连续，空出来的那几秒写成 <gap>。 */
+  let cursor = 0;
+  rows.forEach(r => {
+    if (r.row.start > cursor + 0.0005) {
+      out.push('            <gap name="空隙" offset="' + t(cursor) + '" duration="' + t(r.row.start - cursor) + '"/>');
+    }
+    cursor = Math.max(cursor, r.row.end);
+    if (!r.ref) {
+      const gname = (r.noSrc ? '素材没取到' : '画面段') + ' · 第 ' + (r.index + 1) + ' 段'
+        + (r.label ? '「' + r.label + '」' : '');
+      out.push('            <gap name="' + xe(gname) + '" offset="' + t(r.row.start) + '" duration="' + t(r.row.duration) + '"/>');
       return;
     }
-    const srcDur = Math.max(0.1, (Number(c.out) || 0) - (Number(c.in) || 0));
-    const sp = Math.max(0.25, Math.min(4, Number(c.speed) || 1));
-    /* 图片段：`in/out` 是虚拟坐标，写进 FCPXML 没有意义 —— still 的起点恒为 0、整段就是这一张图，
-       也就没有倍速（没有 timeMap）与原声音量。 */
-    const still = !!row.still;
-    /* 片段显示名带场景与镜头（与素材文件名同源）：FCP / 达芬奇的时间线里一眼看得出是哪一镜。 */
-    const label = row.sctx ? clipLabel(row.sctx, (Number(c.seg) || 0) + 1) : (c.name || ('镜头 ' + (i + 1)));
-    out.push('            <asset-clip ref="' + row.ref + '" name="' + xe(still && c.imgName ? c.imgName : label)
-      + '" offset="' + t(row.at) + '" start="' + t(still ? 0 : c.in) + '" duration="' + t(row.dur) + '" tcFormat="NDF">');
-    if (!still && Math.abs(sp - 1) > 0.001) {
+    const clip = r.clip;
+    /* 段显示名带场景与镜头（与素材文件名同源）：FCP / 达芬奇的时间线里一眼看得出是哪一镜。 */
+    const sctx = r.row.shot ? shotCtxOf(proj, r.row.shot) : null;
+    const label = sctx ? clipLabel(sctx, r.index + 1) : (clip.name || ('第 ' + (r.index + 1) + ' 段'));
+    const rate = Math.max(0.25, Math.min(4, Number(r.row.payload.playbackRate) || 1));
+    out.push('            <asset-clip ref="' + r.ref + '" name="' + xe(label)
+      + '" offset="' + t(r.row.start) + '" start="' + t(r.still ? 0 : clip.sourceStart) + '" duration="' + t(r.row.duration) + '" tcFormat="NDF">');
+    /* 图片段：起点恒为 0、整段就是这一张图，也就没有倍速（没有 timeMap）与原声音量。 */
+    if (!r.still && Math.abs(rate - 1) > 0.001) {
       out.push('              <timeMap>');
       out.push('                <timept time="0s" value="0s" interp="linear"/>');
-      out.push('                <timept time="' + t(row.dur) + '" value="' + t(srcDur) + '" interp="linear"/>');
+      out.push('                <timept time="' + t(r.row.duration) + '" value="' + t(clip.sourceDuration) + '" interp="linear"/>');
       out.push('              </timeMap>');
     }
-    const pv = Number(c.volume == null ? 1 : c.volume);
-    if (!still && Math.abs(pv - 1) > 0.001) out.push('              <adjust-volume amount="' + dbOf(pv) + '"/>');
-    row.voices.forEach((v, k) => {
-      out.push('              <asset-clip ref="' + v.ref + '" lane="-' + (1 + (k % 4)) + '" name="' + xe(v.name)
-        + '" offset="' + t(v.offset) + '" start="' + t(v.start) + '" duration="' + t(v.dur)
-        + '" audioRole="dialogue" tcFormat="NDF">');
-      if (Math.abs(v.srcDur - v.dur) > 0.01) {
-        out.push('                <timeMap>');
-        out.push('                  <timept time="0s" value="0s" interp="linear"/>');
-        out.push('                  <timept time="' + t(v.dur) + '" value="' + t(v.srcDur) + '" interp="linear"/>');
-        out.push('                </timeMap>');
-      }
-      if (Math.abs(Number(v.vol) - 1) > 0.001) out.push('                <adjust-volume amount="' + dbOf(v.vol) + '"/>');
-      out.push('              </asset-clip>');
-    });
-    /* 字幕挂在这一镜的 asset-clip 里：offset 相对这一格的起点，lane 从正 1 起算 */
-    titles.forEach(x => out.push(x));
+    if (!r.still) {
+      const pv = clip.muted ? 0 : Number(clip.volume == null ? 1 : clip.volume);
+      if (Math.abs(pv - 1) > 0.001) out.push('              <adjust-volume amount="' + dbOf(pv) + '"/>');
+    }
     out.push('            </asset-clip>');
   });
-  /* 黑场上的配音作为独立 asset-clip 挂在 lane="1"（正数 lane = 在主轨上方）：
-     FCPXML 的 gap 不能挂子元素，这样写导入后位置不变。 */
-  grayClips.forEach((gv, gi) => {
-    out.push('            <asset-clip ref="' + gv.ref + '" lane="1" name="' + xe(gv.name)
-      + '" offset="' + t(gv.absAt) + '" start="' + t(gv.start) + '" duration="' + t(gv.dur)
+  voices.forEach(v => {
+    out.push('            <asset-clip ref="' + v.ref + '" lane="' + (1 + v.lane) + '" name="' + xe(v.label)
+      + '" offset="' + t(v.start) + '" start="' + t(v.sourceStart) + '" duration="' + t(v.duration)
       + '" audioRole="dialogue" tcFormat="NDF">');
-    if (Math.abs(gv.srcDur - gv.dur) > 0.01) {
+    const srcDur = Math.max(0.1, Number(v.sourceDuration) || Number(v.duration) || 0.1);
+    if (Math.abs(srcDur - v.duration) > 0.01) {
       out.push('              <timeMap>');
       out.push('                <timept time="0s" value="0s" interp="linear"/>');
-      out.push('                <timept time="' + t(gv.dur) + '" value="' + t(gv.srcDur) + '" interp="linear"/>');
+      out.push('                <timept time="' + t(v.duration) + '" value="' + t(srcDur) + '" interp="linear"/>');
       out.push('              </timeMap>');
     }
-    if (Math.abs(Number(gv.vol) - 1) > 0.001) out.push('              <adjust-volume amount="' + dbOf(gv.vol) + '"/>');
+    if (Math.abs(Number(v.volume) - 1) > 0.001) out.push('              <adjust-volume amount="' + dbOf(v.volume) + '"/>');
+    if (Number(v.fadeIn) > 0 || Number(v.fadeOut) > 0) {
+      out.push('              <adjust-fades fadeInDuration="' + t(v.fadeIn) + '" fadeOutDuration="' + t(v.fadeOut) + '"/>');
+    }
     out.push('            </asset-clip>');
+  });
+  titles.forEach((x, n) => {
+    const fs = Math.max(12, Math.min(300, Math.round(TITLE_SIZE_RATIO * (Number(size && size.h) || 1080))));
+    const py = x.position === 'top' ? 420 : x.position === 'middle' ? 0 : -420;
+    const yy = Math.round(py * (Number(size && size.h) || 1080) / 1080);
+    const dur = Math.max(1 / FR, Number(x.end) - Number(x.start));
+    out.push('            <title ref="r_title" lane="' + (1 + voiceLanes + x.lane) + '" name="' + xe(x.name)
+      + '" offset="' + t(x.start) + '" duration="' + t(dur) + '">');
+    out.push('              <param name="Position" key="' + SUB_POSITION_KEY + '" value="0 ' + yy + '"/>');
+    out.push('              <text><text-style ref="ts' + (n + 1) + '">' + xe(x.text) + '</text-style></text>');
+    out.push('              <text-style-def id="ts' + (n + 1) + '">');
+    out.push('                <text-style font="' + xe(TITLE_FONT) + '" fontSize="' + fs
+      + '" fontColor="1.0000 1.0000 1.0000 1.0000" alignment="center"/>');
+    out.push('              </text-style-def>');
+    out.push('            </title>');
   });
   out.push('          </spine>');
   out.push('        </sequence>');
@@ -304,15 +299,18 @@ export async function buildFCPXML(ctx, opts) {
   out.push('  </library>');
   out.push('</fcpxml>');
   const xml = out.join('\n');
-  const vCount = rows.reduce((a, r) => a + r.voices.length, 0);
-  return { ok: true, xml, srt: sub.srt, subtitles: sub.counts.titles, warnings: sub.warnings,
-    bundleAssets, missing, grayVoices, rows: rows.length, voices: vCount };
+  const gapRows = rows.filter(r => !r.ref).length;
+  return {
+    ok: true, xml, srt, subtitles: titles.length, warnings, bundleAssets, missing,
+    rows: rows.length, gapRows, voices: voices.length, transitions: plan.transitions.length,
+    duration: plan.duration,
+  };
 }
 
 /* 下载 .fcpxml 或媒体包 zip。按钮禁用与状态行都在这一层收口。 */
 export async function exportFCPXML(ctx, opts) {
   const bundle = !!(opts && opts.bundle);
-  const { setStatus, el, Net } = ctx;
+  const { setStatus, el } = ctx;
   const btn = el(bundle ? 'exportFcpBundle' : 'exportFcp');
   const btn2 = el(bundle ? 'exportFcp' : 'exportFcpBundle');
   if (btn) btn.disabled = true;
@@ -320,37 +318,39 @@ export async function exportFCPXML(ctx, opts) {
   try {
     const r = await buildFCPXML(ctx, { bundle });
     if (!r || !r.ok) return r;
-    const baseName = window.fileSafe((ctx.proj && ctx.proj.name) || '时间线', 60) + '-FCPXML-' + window.fileStamp();
+    const baseName = window.fileSafe((ctx.proj && ctx.proj.name) || '成片', 60) + '-FCPXML-' + window.fileStamp();
     const extra = (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条' : '')
-      + (r.grayVoices.length ? ' · ' + r.grayVoices.length + ' 句压在黑场上的配音没带（gap 挂不了音频）' : '')
-      + (r.warnings.length ? ' · 字幕提醒 ' + r.warnings.length + ' 条（文件开头有注释）' : '');
+      + (r.transitions ? ' · 转场 ' + r.transitions + ' 处（XML 里不写，文件头有说明）' : '')
+      + (r.gapRows ? ' · ' + r.gapRows + ' 段没有素材地址，写成 gap' : '')
+      + (r.warnings.length ? ' · 提醒 ' + r.warnings.length + ' 条（文件开头有注释）' : '');
     if (bundle) {
       setStatus('<span class="hint">正在打包 FCPXML 与素材…</span>');
-      const zip = await Net.blob('/fcpxml/bundle', {
+      const zip = await ctx.Net.blob('/fcpxml/bundle', {
         method: 'POST', timeout: 10 * 60 * 1000, retry: 0,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fcpxml: r.xml, srt: r.subtitles ? r.srt : '', assets: r.bundleAssets }),
       });
       await window.Net.save(zip, baseName + '-媒体包.zip');
       /* 这里的 missing 是**客户端预测**（不在本机索引里的那些），不是服务端实数：
-       代理会按原地址回源取，真取不到才往包里写 missing.txt —— 包里没有这个文件就是全取到了。
-       以前按预测数写「N 处取不到本机文件，名单在 missing.txt」，而包其实是齐的，名单根本不存在。 */
+         代理会按原地址回源取，真取不到才往包里写 missing.txt —— 包里没有这个文件就是全取到了。
+         按预测数写「N 处取不到，名单在 missing.txt」是假话：包其实是齐的，名单根本不存在。 */
       setStatus('<span class="ok">✓ 已导出媒体包：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音 · '
-        + r.bundleAssets.length + ' 份素材（zip 里是 project.fcpxml + media/，换台机器直接导入）'
-        + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条（时间线标题 + subtitles.srt）' : '')
-        + (r.missing.length ? ' · 有 ' + r.missing.length + ' 处素材不在本机索引里，由代理按原地址回源取；真取不到的才记在包里的 missing.txt（包里没有这个文件 = 全取到了）' : '')
+        + r.bundleAssets.length + ' 份素材'
+        + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条' : '')
+        + (r.missing.length ? ' · ' + r.missing.length + ' 处素材由代理回源取' : '')
         + extra + '</span>');
-      return { ok: true, bundle: true, rows: r.rows, voices: r.voices,
-        subtitles: r.subtitles, assets: r.bundleAssets.length,
-        missing: r.missing.length, grayVoices: r.grayVoices.length, warnings: r.warnings };
+      return { ok: true, bundle: true, rows: r.rows, voices: r.voices, gapRows: r.gapRows,
+        subtitles: r.subtitles, transitions: r.transitions, assets: r.bundleAssets.length,
+        missing: r.missing.length, duration: r.duration, warnings: r.warnings };
     }
     await window.Net.save(new Blob([r.xml], { type: 'application/xml' }), baseName + '.fcpxml');
-    setStatus('<span class="ok">✓ 已导出 FCPXML：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音'
+    setStatus('<span class="ok">✓ 已导出 FCPXML：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音 · '
+      + window.fmtDur(r.duration)
       + (r.missing.length ? ' · ' + r.missing.length + ' 处本机没有文件（清单在文件开头，补到 media/ 或重新链接）' : '')
       + extra + '</span>');
-    return { ok: true, bundle: false, rows: r.rows, voices: r.voices,
-      subtitles: r.subtitles, missing: r.missing.length,
-      grayVoices: r.grayVoices.length, warnings: r.warnings };
+    return { ok: true, bundle: false, rows: r.rows, voices: r.voices, gapRows: r.gapRows,
+      subtitles: r.subtitles, transitions: r.transitions, missing: r.missing.length,
+      duration: r.duration, warnings: r.warnings };
   } catch (e) {
     const msg = typeof errText === 'function' ? errText(e) : String(e);
     setStatus('<span class="err">导出 FCPXML 失败：' + msg + '</span>');

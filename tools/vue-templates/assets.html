@@ -1,33 +1,37 @@
 
     <div class="page-main assets-page page-shell" ref="pageEl">
-      <!-- ══ 页头 ══
-           标题 + **状态三档**（在制 / 失败 / 结果未知：每一档带条数，点一下就筛；
-           计数为 0 的那一档不画）+ 找东西 + 换档。
-           状态从筛选行提到页头，是这一稿的核心：它不是「第五颗筛选项」，
+      <!-- ══ 统一页头（全站唯一一份 .phead）══
+           身份（图标铭牌 + 标题）+ **上下文**（在制 / 失败 / 结果未知：每一档带条数，
+           点一下就筛；计数为 0 的那一档不画）+ 页面级动作（刷新 / 多选 / 取消全部）。
+           状态放在上下文槽而不是筛选项里：它不是「第五颗筛选项」，
            是「这批东西现在怎么样」的第一眼事实。 -->
-      <header class="as-head">
-        <div class="as-head-1">
-          <h1 class="page-h1">资产库</h1>
-          <div class="as-sum" id="asSum" ref="asSumEl" role="group" aria-label="按任务状态筛选"></div>
+      <header class="phead">
+        <div class="phead-id">
+          <h1 class="phead-h1">资产库</h1>
         </div>
-        <div class="as-head-2">
-          <div class="as-head-tools" ref="headToolsEl"></div>
-          <span class="sp" style="flex:1"></span>
-          <span class="as-head-acts">
-            <span class="viewtoggle" id="fView" ref="viewEl" role="group" aria-label="展示样式切换"></span>
-            <button class="ghost" id="multiBtn" :class="{ active: multiMode }" title="进入多选：点卡片勾选，可批量下载、存回本机" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-            <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
-            <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" title="取消所有排队/生成中的任务" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
-          </span>
+        <div class="phead-meta" id="asSum" ref="asSumEl" role="group" aria-label="按任务状态筛选"></div>
+        <span class="phead-sub"></span>
+        <div class="phead-acts">
+          <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+          <button class="ghost" id="multiBtn" :class="{ active: multiMode }" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
+          <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
         </div>
       </header>
+
+      <!-- ══ 工具条 ══ 找东西 + 换档（视图切换）。筛选与视图属于「怎么看这一页」，不进页头。 -->
+      <div class="as-tools">
+        <div class="as-head-tools" ref="headToolsEl"></div>
+        <span class="sp" style="flex:1"></span>
+        <span class="viewtoggle" id="fView" ref="viewEl" role="group" aria-label="展示样式切换"></span>
+      </div>
 
       <!-- ══ 一行筛选 ══
            类型（带条数）+ 平台 + 时间。
            平台从一个下拉走（平台涨到十几家时，一行十几颗芯片会把整行撑开）；
            时间也是一个下拉（预设），选「自定义区间」时后面才露出起止日期。 -->
       <div class="as-filters">
-        <span class="chips" id="asType" ref="asTypeEl" role="group" aria-label="按类型筛选"></span>
+        <!-- 类型（带条数）：公共件 Wb.kindFilter —— 与生成工作台、收藏页同一副分段控件 -->
+        <div class="ui-seg" id="asType" ref="asTypeEl" role="group" aria-label="按类型筛选"></div>
         <label class="as-sel"><span>平台</span>
           <select class="ui-inp" id="asProv" ref="asProvEl" aria-label="按平台筛选"></select></label>
         <label class="as-sel"><span>时间</span>
@@ -62,15 +66,15 @@
         <button class="ghost" id="bulkAll" :disabled="bulkAllDisabled" @click="bulkAll">{{ bulkAllText }}</button>
         <button class="ghost" id="bulkClear" @click="bulkClear">取消选择</button>
         <button class="ghost" id="bulkDown" :disabled="bulkDownDisabled" @click="bulkDownload"><span data-icon="download" data-size="13"></span> 批量下载</button>
-        <button class="ghost" id="bulkFavAdd" :disabled="bulkFavAddDisabled" title="把勾选的那些产物加入「我的收藏」" @click="assetsBulkFavAdd"><span data-icon="star" data-size="13"></span> 收藏</button>
-        <button class="ghost" id="bulkFavRemove" :disabled="bulkFavRemoveDisabled" title="把勾选的那些从「我的收藏」里移出" @click="assetsBulkFavRemove"><span data-icon="starFill" data-size="13"></span> 取消收藏</button>
-        <button class="ghost" ref="pullLocalBtn" id="pullLocalBtn" title="把勾选的那些产物存回本机（「优先用本机文件」才有东西可用，外链过期也不再是破图）" @click="pullLocalPage"></button>
+        <button class="ghost" id="bulkFavAdd" :disabled="bulkFavAddDisabled" @click="assetsBulkFavAdd"><span data-icon="star" data-size="13"></span> 收藏</button>
+        <button class="ghost" id="bulkFavRemove" :disabled="bulkFavRemoveDisabled" @click="assetsBulkFavRemove"><span data-icon="starFill" data-size="13"></span> 取消收藏</button>
+        <button class="ghost" ref="pullLocalBtn" id="pullLocalBtn" @click="pullLocalPage"></button>
         <span class="bk-tip" id="bulkTip">{{ bulkTipText }}</span>
         <span class="sp" style="flex:1"></span>
         <button class="ghost" id="multiExit" @click="exitMulti">退出多选</button>
       </div>
 
-      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重新加载本页</button></div>
+      <div v-if="failed" class="empty">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div>
       <div class="grid" id="grid" ref="gridEl" v-show="!failed"><div class="empty">加载中…</div></div>
       <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
       <!-- 翻页行在**页底**（收藏 / 素材库 / 工作台同一处）：以前它挤在顶部那条筛选行里，

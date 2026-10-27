@@ -51,6 +51,13 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
         railH: Math.round(rr.height),
         railTop: Math.round(rr.top),
         docTop: Math.round(dr.top),
+        /* 两栏不许打架：轨的右缘不许越过文档列的左缘。
+           以前轨写死 272px、网格列用 --rail-w（208px）—— 轨宽出去 64px，
+           压在右栏上（轨的值速记被切、卡的左缘被盖），这一条就是那道防线。 */
+        railRight: Math.round(rr.right),
+        docLeft: Math.round(dr.left),
+        railW: Math.round(rr.width),
+        trackW: Math.round(parseFloat(getComputedStyle(root).gridTemplateColumns.split(' ')[0]) || 0),
         anchor: getComputedStyle(doc).getPropertyValue('--setanchor').trim(),
         railRows: document.querySelectorAll('.set-rail-i').length,
         groups: document.querySelectorAll('.set-rail-g').length,
@@ -61,6 +68,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       };
     });
     must(!shell.pageScrolls, '页面自己在滚（整页高度 ' + shell.docH + 'px）—— 这一页是「两栏两滚」：页面不滚，滚的是目录轨与右栏那条文档');
+    must(shell.railRight <= shell.docLeft, '左轨压住了右栏（轨右缘 ' + shell.railRight + ' > 文档左缘 ' + shell.docLeft + '）：两栏的宽度只从一枚令牌来');
+    must(Math.abs(shell.railW - shell.trackW) <= 1, '左轨（' + shell.railW + 'px）比它那一列（' + shell.trackW + 'px）宽/窄：轨填满自己那一列，不许自己写一份宽度');
     must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：15 张卡排成一条，就得能一路滚到底');
     must(shell.railRows === 15, '目录轨只有 ' + shell.railRows + ' 行（5 组 15 张卡：一张卡一行）');
     must(shell.groups === 5, '目录轨不是 5 组：' + shell.groups);
@@ -107,29 +116,55 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(decl.railTitles.indexOf('语音识别（ASR）') < 0 && decl.railTitles.indexOf('联网搜索') < 0,
       '轨上多出了「语音识别」「联网搜索」两行（它们是供应商那张卡里的档位，轨上只索引卡）');
 
-    /* ---------- B1b：语音识别 / 联网搜索是供应商那张卡里的两档（与图片 / 视频同一层级） ---------- */
-    const tabJump = await page.eval(async () => {
-      const tabs = () => [...document.querySelectorAll('#provTabs [data-tab]')].map(b => b.textContent.trim());
-      const on = () => (document.querySelector('#provTabs [data-tab].on') || {}).textContent || '';
-      const asrVisible = () => document.querySelector('#asrCard').offsetParent !== null;
-      const before = { tabs: tabs(), on: on(), asrVisible: asrVisible() };
-      /* 点卡里那排档位的「语音识别」 */
-      const b = [...document.querySelectorAll('#provTabs [data-tab]')].find(x => x.textContent.indexOf('语音识别') === 0);
-      if (b) b.click();
-      await new Promise(r => setTimeout(r, 700));
-      return {
-        before,
-        after: { tabs: tabs(), on: on(), asrVisible: asrVisible() },
+    /* ---------- B1b：六档能力在同一排芯片上（按档筛账号），语音识别 / 联网搜索也在其中 ---------- */
+    const capJump = await page.eval(async () => {
+      const chips = () => [...document.querySelectorAll('.acct-tools .fchip')].map(b => (b.querySelector('span') || {}).textContent || '');
+      const sum = () => (document.querySelector('.acct-tools [data-fsum]') || {}).textContent || '';
+      const allC = [...document.querySelectorAll('.acct-tools .fchip')];
+      const before = { chips: chips(), sum: sum(), cards: document.querySelectorAll('.acct-grid .acct:not(.add-tile)').length };
+      const b = allC.find(x => (x.querySelector('span') || {}).textContent === '语音识别');
+      if (!b) return { before, missing: true };
+      b.click();
+      await new Promise(r => setTimeout(r, 500));
+      const asr = {
+        on: [...document.querySelectorAll('.acct-tools .fchip.on')].map(x => (x.querySelector('span') || {}).textContent),
+        sum: sum(),
+        cards: document.querySelectorAll('.acct-grid .acct:not(.add-tile)').length,
         railOn: (document.querySelector('.set-rail-i.on .set-rail-n') || {}).textContent || '',
       };
+      /* 「被筛的那一格在能力条上圈出来」：挑一颗**有账号**的档（探针实例可能一家中有文字的都没接，
+         语音识别那一片就只能是 0 家 —— 那一条不硬要求画出卡来）。
+         ⚠ 每次点完芯片整条工具条都重画过，旧引用已经是脱离文档的节点 —— 这里必须重新查一遍。 */
+      const withCards = [...document.querySelectorAll('.acct-tools .fchip')].find(x => {
+        const t = (x.querySelector('span') || {}).textContent || '';
+        const n = (x.querySelector('.n') || {}).textContent || '0';
+        return t !== '全部' && t !== '语音识别' && Number(n) > 0;
+      });
+      let hit = null, hitCards = 0, hitName = '';
+      if (withCards) {
+        hitName = (withCards.querySelector('span') || {}).textContent || '';
+        withCards.click();
+        await new Promise(r => setTimeout(r, 400));
+        const cards = [...document.querySelectorAll('.acct-grid .acct:not(.add-tile)')];
+        hitCards = cards.length;
+        hit = cards.every(c => !!c.querySelector('.capcell.hit'));
+      }
+      return { before, missing: false, asr, hit, hitCards, hitName };
     });
-    must(tabJump.before.tabs.length === 6, '供应商那张卡只有 ' + tabJump.before.tabs.length + ' 档（图片 / 视频 / 语音 / 文字 + 语音识别 + 联网搜索，一共六档）');
-    must(tabJump.before.tabs[4].indexOf('语音识别') === 0 && tabJump.before.tabs[5].indexOf('联网搜索') === 0,
-      '语音识别 / 联网搜索不在同一排档位上：' + tabJump.before.tabs.join(' / '));
-    must(!tabJump.before.asrVisible, '语音识别那一档一开始就是开着的（默认停在第一档）');
-    must(tabJump.after.asrVisible, '点卡里「语音识别」那一档，语音识别那一段没有画出来');
-    must(tabJump.after.on.indexOf('语音识别') >= 0, '点卡里那一档，档位没切过去（现在在 ' + tabJump.after.on + '）');
-    must(tabJump.railOn.indexOf('供应商') >= 0, '切档之后轨上亮的不是那张卡（亮的是「' + tabJump.railOn + '」—— 轨上索引的是卡，不是卡里的档）');
+    must(!capJump.missing, '按档筛的芯片里没有「语音识别」这一颗');
+    must(capJump.before.chips.length === 7, '按档筛的芯片一共 ' + capJump.before.chips.length + ' 颗（全部 + 图片 / 视频 / 语音 / 文字 / 语音识别 / 联网搜索，七颗）');
+    must(capJump.before.chips[5] === '语音识别' && capJump.before.chips[6] === '联网搜索',
+      '语音识别 / 联网搜索不在同一排芯片上：' + capJump.before.chips.join(' / '));
+    must(capJump.asr.on.length === 1 && capJump.asr.on[0] === '语音识别', '点「语音识别」那一颗之后，亮着的不是它：' + capJump.asr.on.join(' / '));
+    must(/做「语音识别」的 \d+ 家/.test(capJump.asr.sum), '点完之后摘要条没换成「做「语音识别」的 N 家」：' + capJump.asr.sum);
+    must(capJump.hit === null || (capJump.hitCards >= 1 && capJump.hit),
+      '按「' + (capJump.hitName || '某一档') + '」筛过之后画出来的账号卡没有把那一格圈出来');
+    must(capJump.asr.railOn.indexOf('供应商') >= 0, '筛档之后轨上亮的不是那张卡（亮的是「' + capJump.asr.railOn + '」—— 轨上索引的是卡，不是卡里的档）');
+    await page.eval(() => {
+      const all = [...document.querySelectorAll('.acct-tools .fchip')].find(x => (x.querySelector('span') || {}).textContent === '全部');
+      if (all) all.click();
+      return true;
+    });
 
     /* ---------- B1 + B6：点一行 → 右栏滚到那一栏，当场就亮、落定不回跳 ---------- */
     const jump = await page.eval(async () => {

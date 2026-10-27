@@ -3,11 +3,9 @@
    区间外的名字一律由 createPanel(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { speakerOf, lineTimeOf, lineRowHTML } from '../lines.js';
+import { speakerOf, lineTimeOf, lineRowHTML } from '../film.js';
+import { num } from '../util.js';
 import { createBoardPreview } from '../board-preview.js';
-import { segsOf } from '../segments.js';
-import { lineEstSec, lineSpanAt } from '../voice-layout.js';
-import { linePointOf } from '../line-point.js';
 
 export function createPanel(E, document, window) {
   const {
@@ -18,10 +16,7 @@ export function createPanel(E, document, window) {
     allShots,
     curShot,
     beginEdit,
-    candDur,
-    filmFrames,
-    shotFrames,
-    tlSyncFromShots,
+    filmOf,
     chainModelList,
     ensureChainModel,
     chainModelWhy,
@@ -30,6 +25,7 @@ export function createPanel(E, document, window) {
     filmEdited,
     renderSoft,
     scheduleSave,
+    scheduleSaveQuiet,
     assetStoreId,
     sameAssetSpace,
     loadCredits,
@@ -45,7 +41,6 @@ export function createPanel(E, document, window) {
     renderVoiceCol,
     applyRefSyntax,
     pickRefMedia,
-    polishUIOf,
     setPolishUI,
     renderPolishPanel,
     renderSplitPanel,
@@ -53,7 +48,6 @@ export function createPanel(E, document, window) {
     toDataURL,
     uploadImageDataUrl,
     openPickDlg,
-    kfQOf,
     setKfQ,
     kfArOf,
     setKfAr,
@@ -1299,11 +1293,11 @@ async function pickMention(sh, c, pick) {
   const caret = insertToken(ta, token, st && st.range);
   hideMention();
   ta.dispatchEvent(new Event('input'));
-  if (c.kind !== 'lib') { ta.focus(); try { ta.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } return; }
+  if (c.kind !== 'lib') { window.focusQuiet(ta); try { ta.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } return; }
   const r = addLibPicToShot(sh, c.entry, pick);
   renderEditor(); scheduleSave();
   const ta2 = $('edPrompt');
-  if (ta2) { ta2.focus(); try { ta2.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } }
+  if (ta2) { window.focusQuiet(ta2); try { ta2.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } }
   if (r.ok && !r.dup) setStatus('<span class="ok">✓ 已把《' + esc(token) + '》加进参考图</span>');
   else if (r.dup) setStatus('《' + esc(token) + '》已经在参考图里了');
   else setStatus('<span class="warn">提示词里的 ' + esc(token) + ' 已经写上；' + esc(r.why) + '</span>');
@@ -1347,63 +1341,46 @@ function bindModeChips(sh) {
   if (!row) return;
   row.querySelectorAll('.ui-pill').forEach(b => { b.onclick = () => setShotCombo(sh, b.dataset.cid); });
 }
-/* 每一镜的两把尺子（本镜第一段保留区 / 全片第一格）现算一次就留在这张表里：
-   台词行本身不改变几何 —— 打字时只照着它把那两个读数补一遍（`paintLineWhen`），
-   不必为一次击键把整片时间线重算。清单每次重画都重建这张表。 */
+/* 每一镜的台词块窗口（成片秒）现算一次就留在这张表里：台词行本身不改变几何 ——
+   打字时只照着它把那个读数补一遍（`paintLineWhen`），不必为一次击键把整片账重算。
+   清单每次重画都重建这张表。 */
 let lineGeoCache = new Map();
-function lineTimeFor(geo, line, fromSrc) {
-  const est = lineEstSec(line);
-  /* 落点秒存在 geo 上（linePanelRows 算好）：打字时的就地重算（paintLineWhen，两参调用）
-     与整份重画（三参调用）读的是同一个数 —— 不存的话，打字那一路会退回「段起点」，
-     两个读数在一呼一吸之间来回跳。 */
-  const src = fromSrc != null ? fromSrc : (geo && geo.at);
-  return lineTimeOf({
-    shot: geo.r0 ? lineSpanAt(geo.r0, src != null ? src : (geo.r0.s || {}).in, est, false) : null,
-    film: geo.fr ? lineSpanAt(geo.fr, geo.fr.cl.in, est, true) : null,
-  });
+function lineTimeFor(geo) {
+  /* geo = 这一句在成片上的那一块（待生成占位 / 配音）的 [start, duration]；
+     没有块（这一镜还没进成片）传 null，读数照实写「成片 —」。 */
+  return lineTimeOf(geo || null);
 }
 /* 台词那一档的每一行：一行 = 一镜的一句台词，读的是 sh.line / sh.lineWho 这一份数据，
-   与轨道上那两个待生成占位同一个判据 `pendingLineOf`（界面里不存在第二份「有没有配过音」的账）。
-   两个时间读数各走自己那一排的尺子（`lineSpanAt`，与占位符同一把）：
-     · 本镜 —— 落点所在那一段、从落点那一秒起的**轴秒**；
-     · 全片 —— 落点所在那一格在**成片**里的起点起的成片秒。
-   全片那一排先按「镜头 + 段号」归一次：`filmFrames` 的缓存认的是 tl 的对象引用，而 `tlSyncFromShots`
-   每次都造新对象，逐行现算就是每一行把全片几何重算一遍。
-   `includeEmptyMine`：当前这一镜即使还没台词也留一行，否则「在本镜台词里写第一句」指向一片空气。 */
+   与轨道上那个待生成占位同一份账（`proj.film.pending` / `proj.film.voices` 里的定时块，
+   块由 Edit 域的 syncPending 按台词现写）。时间读数 = 那一块的 [start, start+duration]，
+   「行上写的秒」与「块占的那一截」永远是同一个数。
+   `includeEmptyMine`：当前这一镜即使还没台词也留一行，否则「给这一镜写第一句台词」指向一片空气。 */
 function linePanelRows(curSh, opts) {
   const includeEmptyMine = !!(opts && opts.includeEmptyMine);
   const lib = (window.Chars && window.Chars.Lib && window.Chars.Lib.list()) || [];
-  const filmRow = new Map();
-  filmFrames(tlSyncFromShots()).rows.forEach(r => {
-    const cl = r.cl;
-    /* 按「镜头 + 段号」记格：台词落点可能在任何一段上，两个读数要落在**那一段**的格子上
-       （以前一律取这一镜第一格，落点挪到第二段之后读数就停在段首）。 */
-    if (cl && cl.kind === 'shot' && !filmRow.has(cl.shotId + ':' + (Number(cl.seg) || 0))) {
-      filmRow.set(cl.shotId + ':' + (Number(cl.seg) || 0), r);
-    }
+  const film = filmOf();
+  /* 一镜一句台词一个块：待生成占位先占（它就是这一句台词本身），还没有占位的镜头
+     退到这一镜已有的配音块 —— 一句已经合成过的台词读数跟着配音走。 */
+  const blockOf = new Map();
+  (film.pending || []).forEach(p => {
+    if (p && p.shotId && !blockOf.has(p.shotId)) blockOf.set(p.shotId, { start: num(p.start), duration: num(p.duration) });
+  });
+  (film.voices || []).forEach(v => {
+    if (v && v.shotId && !blockOf.has(v.shotId)) blockOf.set(v.shotId, { start: num(v.start), duration: num(v.duration) });
   });
   lineGeoCache = new Map();
   const rows = allShots().map((x, i) => ({ x: x, no: i + 1 }))
     .filter(o => (includeEmptyMine && o.x === curSh) || String((o.x && o.x.line) || '').trim())
     .map(o => {
-      const cands = o.x.candidates || [];
-      const c = cands.find(y => y.vid === o.x.selId) || cands[0] || null;
-      const segs = c ? segsOf(c, candDur(c, o.x)) : [];
-      const srows = segs.length ? shotFrames(segs).rows : [];
-      /* 落点（第几段 + 段内哪一秒）才是这句台词真正的位置 —— 与轨道占位、合成同一份
-         （line-point.js 的唯一读写口）。没有落点时 linePointOf 回落第一段起点，与从前逐字相同。 */
-      const pt = segs.length ? linePointOf(o.x, segs) : null;
-      const r0 = pt ? srows[Math.min(srows.length - 1, pt.seg)] : null;
-      const fr = pt ? filmRow.get(o.x.id + ':' + pt.seg) || null : null;
-      const geo = { r0, fr, at: pt ? pt.at : null };
+      const geo = blockOf.get(o.x.id) || null;
       lineGeoCache.set(o.x.id, geo);
       const text = String(o.x.line || '');
       return {
-        sh: o.x, no: o.no,
+        id: o.x.id, sh: o.x, no: o.no,
         text,
         who: String(o.x.lineWho || ''),
         speaker: speakerOf(o.x.lineWho, lib),
-        time: lineTimeFor(geo, text, pt ? pt.at : null),
+        time: lineTimeFor(geo),
         pending: !!pendingLineOf(o.x),
         empty: !text.trim(),
         mine: o.x === curSh,
@@ -1417,7 +1394,7 @@ function lineWhoDatalistHTML() {
     .map(x => String((x && x.name) || '').trim()).filter((v, i, a) => v && a.indexOf(v) === i)
     .map(n => '<option value="' + esc(n) + '"></option>').join('') + '</datalist>';
 }
-/* 两段共用的行渲染：一行 = 一镜一句台词（说话人缩略图 / 名字 + 镜号 + 本镜与全片两个时间读数）。 */
+/* 两段共用的行渲染：一行 = 一镜一句台词（说话人缩略图 / 名字 + 镜号 + 这一句在轨道上的时间读数）。 */
 function lineRowsHTML(rows) {
   return rows.map(r => lineRowHTML(r, {
     esc: esc, icon: icon, mediaSrc: Api.mediaSrc,
@@ -1441,30 +1418,30 @@ function paintLineWho(row, x) {
   const inp = row.querySelector('.lr-name');
   if (inp) inp.title = '填素材库里同名的素材，音色会自动取过来' + (sp.empty ? '' : (sp.inLib ? '' : '（素材库里没有「' + sp.name + '」）'));
 }
-/* 只补一行右边那两个时间：字数变了，这一句在本镜轨与全片轨上占多宽就变了。
-   几何照清单上次渲染时那份（`lineGeoCache`）—— 台词自己不动时间线。 */
+/* 只补一行右边那个时间：字数变了，待生成块要等多下一次重画才按新字数重写（syncPending），
+   这里照着清单上次渲染时那份块窗口（`lineGeoCache`）就地换读数 —— 台词自己不动时间线。 */
 function paintLineWhen(row, x) {
   const geo = row && lineGeoCache.get(x.id);
   if (!geo) return;
-  const t = lineTimeFor(geo, x.line);
+  const t = lineTimeFor(geo);
   const sp = row.querySelectorAll('.lr-when span');
-  if (sp.length < 3) return;
-  sp[1].textContent = t.shotText;
-  sp[2].textContent = t.filmText;
+  if (sp.length < 2) return;
+  sp[1].textContent = t.whenText;
 }
 /* 台词就地编辑（这一档两段共用这一份 binder）。
    **不重画整栏**：重画会把正在敲的那一格换掉、光标跳走 —— 所以 `input` 只改数据 + 这一行的状态徽章
-   与右边那两个时间 + 两段表头读数，`change`（松手 / 失焦）才 `filmEdited()`：台词**自己就上待生成那一轨**
+   与右边那个时间 + 两段表头读数，`change`（松手 / 失焦）才 `filmEdited()`：台词**自己就上待生成那一轨**
    （占位由 renderAll 现算），而字幕按台词派生、会烧进成片，所以这一改必须标脏成片并推进修订号。
    撤销快照在第一个字落下之前压（`beginEdit` 拍的是改**之前**那一份）。
    改台词一个字节都不动 `sh.prompt`：提示词改了台词不动，台词改了提示词也不动。 */
 function bindLineEditors(root, curSh) {
   if (!root) return;
   /* 一行两件控件（台词在 textarea 的 data-line-text，说话人在 input 的 data-line-who），
-     认镜头靠的是行上的 data-lineshot —— 只读一件的 dataset 会让另一件写不进数据。 */
+     认镜头靠的是行上的 data-lineid（film.js 的 lineRowHTML 写的那一枚）——
+     只读一件的 dataset 会让另一件写不进数据。 */
   const of = el => {
     const row = el.closest('.line-row');
-    const id = (row && row.dataset.lineshot) || el.dataset.lineText || el.dataset.lineWho || '';
+    const id = (row && row.dataset.lineid) || el.dataset.lineText || el.dataset.lineWho || '';
     return allShots().find(s2 => s2.id === id);
   };
   root.querySelectorAll('[data-line-text]').forEach(ta => {
@@ -1510,7 +1487,7 @@ function bindLineEditors(root, curSh) {
   root.querySelectorAll('.line-row.edit').forEach(row => {
     const jump = e => {
       if (e.target.closest('textarea, input, button, a, .lr-ta')) return;
-      const x = allShots().find(s2 => s2.id === row.dataset.lineshot);
+      const x = allShots().find(s2 => s2.id === row.dataset.lineid);
       if (x) openPendingVoice(x);
     };
     const head = row.querySelector('.lr-top');
@@ -1542,7 +1519,7 @@ function renderEditor() {
   hideAtPeek();                                   // 悬停小卡同理
   const sh = curShot();
   if (!sh) {
-    col.innerHTML = '';
+    Wb.viewport.keep(col, () => { col.innerHTML = ''; });
     /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起（拆一份新的），
        问答 / 过程面板的宿主由 renderSplitPanel 自己补一块（splitUI 在跑才有），重画后也在这里拼回来。 */
     renderSplitPanel();
@@ -1552,7 +1529,14 @@ function renderEditor() {
      晚一步换型号就会画出「没有首帧槽、按钮却要带首帧」的一屏。 */
   const modelBefore = sh.model;
   ensureChainModel(sh);
-  if (modelBefore !== sh.model) scheduleSave();
+  /* 与下面的参数回写同一把尺子：原来没存过型号 = 程序第一次挑一个能收首帧的填上，静默落盘；
+     原来是用户选的那一型号被换掉 = 真的动了他的数据，进撤销栈、推进修订号，标签写明为什么换。
+     以前两种都走无标签的普通 scheduleSave：接续镜一打开就先欠一枚「编辑」，Ctrl+Z 退回去
+     只是把型号变回从来没选过。 */
+  if (modelBefore !== sh.model) {
+    if (modelBefore === undefined || modelBefore === null || modelBefore === '') scheduleSaveQuiet();
+    else scheduleSave('接续型号按能力收正');
+  }
   const idx = allShots().indexOf(sh) + 1;
   const chainOn = sh.linkPrev === 'tail';
   const chainSlot = chainOn && !sh.firstFrame;
@@ -1563,23 +1547,33 @@ function renderEditor() {
   const vk = vp.kinds;
   /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
      duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。
-     回写发生漂移（存的值不在新型号声明里，被 plan 的回落收正）时不再静默：
-     照实落盘（scheduleSave 带标签 → 进撤销栈、推进修订号）并说一句收正了什么 ——
-     以前渲染函数改了工程数据却不落盘不推进 rev，CAS 与撤销都「看不见」这一次改写。 */
+     「存的值不在声明里、被 plan 的回落收正」与「这一档从来没存过值」是两件事，分开结算：
+     · 收正（原来有值）——真的动了用户存过的数据：照旧落盘、进撤销栈、推进修订号，并报清收正了什么；
+     · 补齐（原来是空）——程序第一次把型号声明的默认填进来，用户一个字节都没改过：
+       静默落盘（scheduleSaveQuiet），不占撤销步数、不推进助手的修订号。
+       以前它走普通 scheduleSave：打开一页谁都没碰，撤销栈里就多了一枚「编辑」，
+       Ctrl+Z 退回去只是把字段变回空白，助手的 CAS 也凭空看见一次「工程又改过」。 */
   const drift = [];
-  if (vk.tier.list.length && sh.tier !== vk.tier.value) { drift.push('档位 ' + sh.tier + ' → ' + vk.tier.value); sh.tier = vk.tier.value; }
-  if (vk.resolution.list.length && sh.res !== vk.resolution.value) { drift.push('分辨率 ' + sh.res + ' → ' + vk.resolution.value); sh.res = vk.resolution.value; }
-  if (vk.aspect_ratio.list.length && sh.ar !== vk.aspect_ratio.value) { drift.push('画幅 ' + sh.ar + ' → ' + vk.aspect_ratio.value); sh.ar = vk.aspect_ratio.value; }
+  const fill = [];
+  const empty = v => v === undefined || v === null || v === '';
+  const put = (key, next, name, asNumber) => {
+    const cur = sh[key];
+    if (cur === (asNumber ? Number(next) : next)) return;
+    (empty(cur) ? fill : drift).push(name + ' ' + (cur === undefined ? '（没存过）' : cur) + ' → ' + next);
+    sh[key] = asNumber ? Number(next) : next;
+  };
+  if (vk.tier.list.length) put('tier', vk.tier.value, '档位');
+  if (vk.resolution.list.length) put('res', vk.resolution.value, '分辨率');
+  if (vk.aspect_ratio.list.length) put('ar', vk.aspect_ratio.value, '画幅');
   /* size 是「宽x高」那一族平台用的画幅写法（SiliconFlow 的 image_size / OpenAI 兼容的 size），
      与 ar（比例）是两种字段 —— 声明了才回写、才发，没声明的这一档一个字都不带。 */
-  if (vk.size.list.length && sh.size !== vk.size.value) { drift.push('尺寸 ' + sh.size + ' → ' + vk.size.value); sh.size = vk.size.value; }
-  if (vk.duration.list.length && Number(sh.duration) !== Number(vk.duration.value)) { drift.push('时长 ' + sh.duration + ' → ' + vk.duration.value + ' 秒'); sh.duration = Number(vk.duration.value); }
-  if (vk.count.list.length && Number(sh.draw) !== Number(vk.count.value)) { drift.push('条数 ' + sh.draw + ' → ' + vk.count.value); }
-  sh.draw = vk.count.list.length ? Number(vk.count.value) : 1;
+  if (vk.size.list.length) put('size', vk.size.value, '尺寸');
+  if (vk.duration.list.length) put('duration', vk.duration.value, '时长', true);
+  put('draw', vk.count.list.length ? vk.count.value : 1, '条数', true);
   if (drift.length) {
     scheduleSave('参数按型号声明收正');
     setStatus('「' + (sh.name || '这一镜') + '」的部分参数不在当前型号的声明里，已收正：' + drift.join('；') + '（可 Ctrl+Z 退回）');
-  }
+  } else if (fill.length) scheduleSaveQuiet();
   /* 剪辑模式打开时右栏整片换成「声音栏」（用户点名的形状：像生成工作台那样合成一句配音，
      加的是剪辑那一轨）。镜头编辑器不画：两套控件同屏只会互相抢同一颗按钮。
      放在**参数回写之后**：那一串回写读的是中栏参数条的活控件，跳过它会让「改时长」在剪辑模式下静默失效。 */
@@ -1624,7 +1618,9 @@ function renderEditor() {
   const slotAttrs = (key, ok, blocked, stray, zh) =>
     (ok ? ` data-slot="${key}"` : '')
     + (stray ? ` title="${esc(strayNote(zh))}"` : blocked ? ' title="与已选素材互斥，不能同时使用"' : '');
-  col.innerHTML = `
+  /* 这一栏是整片重画的：里面 .ed-body 是一只滚动容器，重画会把它连同位置一起换掉
+     （以前靠外壳那份全局猴补兜着，现已撤掉）→ 走公共件 Wb.viewport.keep，按锚点还视口。 */
+  const edHtml = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
       <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" title="从素材库 / 这一镜已有的参考图里挑一条写进提示词（也可以直接在框里打 @）">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
@@ -1785,6 +1781,7 @@ function renderEditor() {
       <span class="est" id="estTxt">估价中…</span>
       <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
     </div>`;
+  Wb.viewport.keep(col, () => { col.innerHTML = edHtml; });
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
@@ -1921,7 +1918,7 @@ function renderEditor() {
     const ta0 = $('edPrompt');
     if (!ta0) return;
     const caret = insertToken(ta0, '@' + b.dataset.mat, null);
-    ta0.focus();
+    window.focusQuiet(ta0);
     try { ta0.setSelectionRange(caret, caret); } catch (e2) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ }
     ta0.dispatchEvent(new Event('input'));
   });

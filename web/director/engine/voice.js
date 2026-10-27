@@ -3,73 +3,30 @@
    区间外的名字一律由 createVoice(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { round1, spdTxt } from '../util.js';
+import { round1, spdTxt, num } from '../util.js';
 import { voiceBase, shotCtxOf } from '../naming.js';
-import { SEG_MIN, segLen, segFilmLen, segsOf } from '../segments.js';
-import { VOICE_SPD_MIN, VOICE_SPD_MAX } from '../voice-layout.js';
-import { styleOf } from '../subtitles.js';
-import { linePointOf } from '../line-point.js';
+import { createVoiceClip, createPending, deriveTimeline, packVoiceLanes, filmTotal, filmId, withPlaybackRate, rateOf, pos, clamp, srcHeadOf, srcUsedOf, srcLenOf, LANE_MAX, MIN_CLIP_SECONDS } from '../film.js';
+import { trimVoiceLeft, trimVoiceRight, trimClipLeft, trimClipRight, followCaptions } from '../tl-resize.js';
+import { moveClipToLane, moveTimedToLane, compactLanes } from '../tl-reorder.js';
 
 export function createVoice(E, document, window) {
   const {
     projOf,
     REGOf,
-    uid,
     allShots,
     curShot,
     fmtDur,
     candDur,
-    voiceFilmWhy,
-    cutSegIdx,
-    candSelected,
-    voicesEnsure,
-    shotVoices,
-    voiceLn,
-    voiceLanePlan,
-    addLaneRow,
-    tlVoiceHit,
-    voiceVolOf,
-    setLaneVol,
-    setCutVol,
-    setCutLane,
-    voiceSplitByMaterial,
-    voiceMergeAll,
-    cutSpdSeg,
-    setCutSpd,
-    segLenText,
-    voiceLenText,
-    setVoiceSpd,
-    setTrackSpd,
-    setTrackVoiceSpd,
-    setTrackVol,
-    paintTlGroups,
-    syncTlTools,
-    filmEdited,
-    subAsrBusyOf,
-    shotFilmAt,
-    chosenCandOf,
-    subCurrent,
-    subStyleWrite,
-    subGenerate,
-    subResegment,
-    subExportSrt,
-    subImportSrt,
-    subAsr,
-    subAddAtPin,
-    subDelete,
-    subSetText,
-    subRowsHTML,
-    subSetTime,
+    filmOf,
+    Timeline,
+    Edit,
+    capPanelHTML,
+    bindCapPanel,
     scheduleSave,
     midEditTrimOf,
-    voiceElOf,
-    playVoicePreview,
-    orphanVoicesOf,
-    adoptWhy,
-    adoptOrphanVoices,
-    selectVoice,
     voiceDraftOf,
     vcTabOf,
+    setVcTab,
     polishVoiceText,
     linePanelRows,
     lineWhoDatalistHTML,
@@ -81,7 +38,6 @@ export function createVoice(E, document, window) {
     autoLocalize,
     setStatus,
     GenOf,
-    setVcTab,
   } = E;
 
 
@@ -129,26 +85,343 @@ function audioDurOf(src) {
     setTimeout(fin, 8000);
   });
 }
-/* 这一句落在哪：段号 + 段内偏移。**先读这一句自己的落点**（点 / 拖轨道上那个「待生成」占位
-   写下的 `sh.lineAt` / `sh.lineSeg`），没有落点的镜头才按插针现算 —— 老工程（从没点过占位符）
-   「点空白轨道、在针处合成」那一条工作流逐字不变。
-   两条都是源秒口径；`v.at` 记的是**相对段起点**的偏移，所以落点要减掉 `s.in`。 */
-function voiceTarget(sh, c) {
-  if (!c) return null;
-  const total = candDur(c, sh);
-  const segs = segsOf(c, total);
-  if (!segs.length) return null;
-  const hasPt = !!sh && sh.lineAt != null && sh.lineAt !== '' && isFinite(Number(sh.lineAt));
-  const pt = hasPt ? linePointOf(sh, segs) : null;
-  /* 没有落点时**只有针真的落在本镜这一条候选上**才用针（setPin 记的 cutShot/cutCand）：
-     针是全局一枚，上一镜 / 上一条候选留下的段号与秒数，对本候选的段列表没有意义 ——
-     两组段来自两段不同的视频，拿来索引就是串台。那一档回落第一段起点。 */
-  const pinMine = pt ? false : (projOf().cutShot === sh.id && projOf().cutCand === c.vid);
-  const si = pt ? pt.seg : (pinMine ? Math.min(segs.length - 1, cutSegIdx()) : 0);
-  const s = segs[si];
-  const src = pt ? pt.at : (pinMine ? (Number(projOf().cutAt) || 0) : 0);
-  const at = round1(Math.max(0, Math.min(Math.max(0, segLen(s) - SEG_MIN), src - s.in)));
-  return { si, s, at, segs, total };
+/* 这一句落在成片第几秒：**成片秒**直接定位（新模型里配音与待生成都不跟着镜头剪辑自动重锚）。
+   先认这一镜自己那块「待生成」占位 —— 点它 / 拖它写下的就是这一句的落点；
+   没有占位才落在播放头此刻（夹进成片长度内：针甩到片尾之外时不把音频放到画面之外）。 */
+function voicePlaceOf(sh) {
+  const f = filmOf();
+  const pend = (f.pending || []).find(p => p && p.shotId === sh.id) || null;
+  if (pend) return { start: Math.max(0, Number(pend.start) || 0), pend };
+  return { start: clamp(Number(Timeline.playhead()) || 0, 0, filmTotal(f.clips || [])), pend: null };
+}
+const LANE_PROBE = '__lane_probe__';
+/* 落在第几行：问的是轨道打包那同一把尺子（`packVoiceLanes` 按 start/duration 找第一条不重叠的行，
+   放不下就新开一行，超过 LANE_MAX 那一行不在返回的 lanes 里 → 报「放不下」，不静默挤进最后一行）。
+   `dropIds` = 这一句替掉的那块占位：它马上就要不在轨道上了，不该再占着一个行号。
+   `lane` = 占位自己那一行：用户把它拖到第几行，合成回来的这一句就该还在第几行
+   （那一行在这个时间窗里被别的句子占了才另找空行）。 */
+function voiceLaneOf({ start, duration, dropIds = [], lane }) {
+  const f = filmOf();
+  const others = [...(f.voices || []), ...(f.pending || [])].filter(x => x && x.id && dropIds.indexOf(x.id) < 0);
+  const probe = { id: LANE_PROBE, start, duration };
+  if (Number.isInteger(lane)) probe.lane = Math.max(0, lane);
+  const { lanes } = packVoiceLanes(others.concat(probe));
+  const hit = lanes.find(l => l.items.some(x => x.id === LANE_PROBE));
+  return { lane: hit ? hit.lane : -1, rows: LANE_MAX };
+}
+/* 这一镜在成片里的那几句配音（按成片秒排）：轨道画块、清单列行、删与试听读的都是这一份。
+   排序按 `start` 而不是按数组下标 —— 清单要说「这一镜第 1 句、第 2 句」，那一句在前由它落在第几秒定。 */
+const shotFilmVoices = shotId => (filmOf().voices || []).filter(v => v && v.shotId === shotId)
+  .slice().sort((a, b) => pos(a.start) - pos(b.start));
+/* 这一句**画在第几行**：行号存的是「首选行」，真正画在哪一行由打包函数按时间重叠现算 ——
+   所以卡片与清单那一行不能直接念 `v.lane`（压着别的句子时它自己会挪到下一条空行，念首选就是假话）。
+   与轨道那一排（engine/timeline.js 的行表）问的是同一个函数、同一批条目。 */
+function drawnLaneOf(id) {
+  const f = filmOf();
+  const timed = [...(f.voices || []), ...(f.pending || [])];
+  const { lanes } = packVoiceLanes(timed);
+  const hit = lanes.find(l => l.items.some(x => x.id === id));
+  const self = timed.find(x => x && x.id === id);
+  return hit ? hit.lane : Math.max(0, Math.round(self ? pos(self.lane) : 0));
+}
+/* ---------------- 右栏那张「指着谁就改谁」的卡 ----------------
+   目标只有一个来源：`Edit.focusOf()`（轨道上点/拖出来的那一条）。卡片不留第二份「我在改哪一段」，
+   否则轨道与卡片迟早各说一件事。所有写入都经 `Edit.patch` —— 于是撤销、波纹、落盘、重画与手势同一套，
+   历史里那句描述由 `Edit.describeItem` 点名（「镜头一」第 2 段（3.2–8.0 秒））。 */
+const FOCUS_LABEL = { clip: '这一段画面', voice: '这一句配音', pending: '那一句待生成', cap: '那一条字幕', marker: '那一枚标记' };
+/* 焦点 → 卡片读数：kind / id / 那一条本身 / 它在成片里的区间 / 所在行。 */
+function cardTarget() {
+  const f = Edit.focusOf();
+  const kind = f.kind === 'marker' ? '' : f.kind;
+  const it = kind ? (filmOf()[kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : kind === 'pending' ? 'pending' : 'captions'] || [])
+    .find(x => x && x.id === f.id) : null;
+  if (!it) return { kind: '', id: '', it: null, start: 0, end: 0, lane: 0 };
+  if (kind === 'clip') {
+    const clips = filmOf().clips || [];
+    const row = deriveTimeline(clips).rows[clips.findIndex(c => c.id === it.id)] || {};
+    return { kind, id: it.id, it, start: pos(row.start), end: pos(row.end), lane: Math.max(0, Math.round(pos(it.ln))) };
+  }
+  return { kind, id: it.id, it, start: pos(it.start), end: kind === 'cap' ? pos(it.end) : pos(it.start) + pos(it.duration),
+    lane: kind === 'cap' ? 0 : drawnLaneOf(it.id) };
+}
+/* 档位由焦点定（判据只在这一处）：指着画面段 → 「这一段画面」；指着一句配音/待生成 → 「音量与倍速」；
+   指着字幕 → 「字幕」。用户自己挑过的「台词 / 生成配音 / 字幕 / 这一镜上的配音」不被轨道上的点击抢走
+   —— 只有从画面段换到声音块那种「目标真的变了」才回到参数那一档。 */
+const VOICE_TABS = ['list', 'gen', 'lines', 'sub'];
+function tabForFocus() {
+  const cur = vcTabOf();
+  const t = cardTarget();
+  if (t.kind === 'clip') return 'pic';
+  if (t.kind === 'cap') return 'sub';
+  if (t.kind === 'voice' || t.kind === 'pending') return VOICE_TABS.indexOf(cur) >= 0 ? cur : 'adj';
+  return VOICE_TABS.indexOf(cur) >= 0 ? cur : 'list';
+}
+/* 「这一句念多久」与「这一段占多久」：都写成 成片秒 = 源秒 ÷ 倍速 那一条等式的两边，
+   用户调倍速时看得见它把哪一头换了（改倍速不动源窗口，动的是它在成片里占多宽）。
+   `rateOv` 只给拖动中的那一枚滑块用：手已经拖过去了，这句还在念旧倍速就是两个数互相打架。 */
+function durationLine(t, rateOv) {
+  if (t.kind === 'clip') {
+    if (t.it.kind === 'image') return '这一张图在成片里占 ' + round1(t.end - t.start) + ' 秒（图片没有源窗口，倍速不适用）';
+    const r = rateOv || rateOf(t.it);
+    const used = srcUsedOf(t.it);
+    return '这一段在成片里占 ' + round1(used / r) + ' 秒 ＝ 素材里 ' + round1(used)
+      + ' 秒 ÷ ' + spdTxt(r) + '（改倍速只换成片里占多宽，素材窗口那一段不动）';
+  }
+  if (t.kind === 'pending') return '待生成：这一格按台词字数估了 ' + round1(t.end - t.start) + ' 秒，合成回来才按真实音频定宽';
+  const r = rateOv || rateOf(t.it);
+  const used = srcUsedOf(t.it);
+  return '这一句在成片里念 ' + round1(used / r) + ' 秒 ＝ 音频里 ' + round1(used)
+    + ' 秒 ÷ ' + spdTxt(r) + '（配音自己的倍速，与画面段的倍速各乘各的）';
+}
+/* 入出点那一行的那句说明：把「源里用掉多少秒」与「因此在成片里占多少秒」一起说出来 ——
+   两框填的是素材秒，用户看着轨道上的块（成片秒）敲数，中间只差一枚倍速，这句话就是那枚倍数。 */
+function trimHint(used, rate, srcLen) {
+  const r = rate || 1;
+  return '两框是素材里的秒数（头 → 尾）：现在用掉 ' + round1(used) + ' 秒，倍速 ' + spdTxt(r)
+    + '，所以在成片里占 ' + round1(used / r) + ' 秒'
+    + (srcLen > 0 ? '（素材原长 ' + round1(srcLen) + ' 秒，两头最多拉到那儿）'
+      : '（素材原长未知：只能往里裁，拉不出没有的那一段）')
+    + '。也可以直接拖块两端的把手。';
+}
+/* 卡片就地刷（不重建这一栏：正在敲的「要念的话」不能因为拖了一下滑块就被换掉）。
+   画与不画由这唯一一处决定：档位条上哪枚亮、六格里哪格 hidden、卡上那几个数是多少。 */
+function paintVcCard() {
+  const adj = document.getElementById('tlAdj');
+  if (!adj) return;
+  const tab = tabForFocus();
+  setVcTab(tab);
+  /* 「这一段画面」那一枚是**亮灯**不是按钮：它跟着焦点亮，点了没有意义（焦点在轨道上）。
+     其余五枚才是用户自己挑的档，`.on` 只由这一处写。 */
+  document.querySelectorAll('#vcTabs [data-vctab]').forEach(b => b.classList.toggle('on', b.dataset.vctab === tab));
+  const showGrp = (id, on) => { const el = document.getElementById(id); if (el) el.hidden = !on; };
+  showGrp('tlAdj', tab === 'pic' || tab === 'adj');
+  showGrp('grpLines', tab === 'lines');
+  showGrp('grpVoiceAdd', tab === 'gen');
+  showGrp('grpSub', tab === 'sub');
+  showGrp('grpVoiceList', tab === 'list');
+  const t = cardTarget();
+  const isClip = t.kind === 'clip';
+  const isVoice = t.kind === 'voice' || t.kind === 'pending';
+  const lab = document.getElementById('adjTarget');
+  if (lab) lab.textContent = t.kind ? (FOCUS_LABEL[t.kind] + ' · 成片 ' + round1(t.start) + '–' + round1(t.end) + ' 秒') : '轨道上还没有选中任何东西';
+  const row = id => adj.querySelector('#' + id);
+  const has = t.kind !== '';
+  const isCap = t.kind === 'cap';
+  const isPending = t.kind === 'pending';
+  const isImage = isClip && t.it.kind === 'image';
+  /* 六行只在「指着的那一类用得上」时画：字幕只有一条时间区间（没有增益、没有倍速、行由重叠现算），
+     待生成块还没有音频可改（宽度按台词字数估，合成回来才定）。 */
+  const gain = has && !isCap && !isPending;
+  showGrp('rowVol', gain);
+  showGrp('rowVolTrack', gain);
+  showGrp('rowSpd', gain && !isImage);
+  showGrp('rowSpdTrack', gain && !isImage);
+  showGrp('rowFade', t.kind === 'voice');
+  showGrp('rowMute', isClip && !isImage);
+  showGrp('rowLane', isClip || isVoice);
+  /* 入出点那一行只对**有素材窗口**的那一类画：图片段没有源可裁，待生成块还没有音频，字幕只有成片区间。 */
+  showGrp('tlTrimRow', (isClip && !isImage) || t.kind === 'voice');
+  const setVal = (id, v) => { const el = row(id); if (el) el.value = v; };
+  const setTextVal = (id, v) => { const el = row(id); if (el) el.textContent = v; };
+  const volPct = t.it ? Math.round(pos(t.it.volume) * 100) : 100;
+  setVal('adjVol', String(volPct)); setTextVal('adjVolVal', volPct + '%');
+  setTextVal('adjVolLab', isClip ? '这一段音量' : '这一句音量');
+  const trackVol = () => {
+    const list = (isClip ? filmOf().clips : (filmOf().voices || [])).filter(x => !isClip || x.kind !== 'image');
+    if (!list.length) return 100;
+    return Math.round(list.reduce((a, x) => a + pos(x.volume), 0) / list.length * 100);
+  };
+  setVal('adjVolTrack', String(trackVol())); setTextVal('adjVolTrackVal', trackVol() + '%');
+  const rate = t.it ? rateOf(t.it) : 1;
+  setVal('adjSpd', String(rate)); setTextVal('adjSpdVal', spdTxt(rate));
+  setTextVal('adjSpdLab', isClip ? '这一段倍速' : '这一句倍速');
+  const trackSpd = () => {
+    const list = (isClip ? filmOf().clips : (filmOf().voices || [])).filter(x => isClip ? x.kind !== 'image' : true);
+    if (!list.length) return 1;
+    return list.reduce((a, x) => a + rateOf(x), 0) / list.length;
+  };
+  setVal('adjSpdTrack', String(Math.round(trackSpd() * 100) / 100)); setTextVal('adjSpdTrackVal', spdTxt(trackSpd()));
+  const mb = row('adjMute'); if (mb && isClip) mb.checked = !!t.it.muted;
+  /* 渐变的天花板是这一句自己的长度：淡入 5 秒的一句填 8 秒，播起来等于整句都在斜坡里（听感是「没有声音」）。
+     min/max 由这一处写，控件不自己猜。 */
+  const len = Math.max(0, round1(t.end - t.start));
+  ['adjFadeIn', 'adjFadeOut'].forEach(id => { const el = row(id); if (el) el.max = String(len); });
+  setVal('adjFadeIn', String(round1(t.it ? t.it.fadeIn : 0)));
+  setVal('adjFadeOut', String(round1(t.it ? t.it.fadeOut : 0)));
+  setTextVal('cutLaneRow', '第 ' + (t.lane + 1) + ' 行');
+  setTextVal('tlAdjLen', has ? durationLine(t) : '点轨道上的一块，这里就改它的音量、倍速与入出点。');
+  const sEl = row('trimS'); const eEl = row('trimE');
+  const head = t.it ? srcHeadOf(t.it) : 0;
+  const used = t.it ? srcUsedOf(t.it) : 0;
+  const srcLen = t.it ? srcLenOf(t.it) : 0;
+  const rateNow = t.it ? rateOf(t.it) : 1;
+  const minSrc = MIN_CLIP_SECONDS * rateNow;
+  if (sEl) {
+    sEl.value = String(round1(head));
+    /* 素材原长知道才给边界：不知道时 max 会算成 0，反而把正常的那个数标成越界。
+       「应用」那一刀自己夹，界外填法兜不住它。 */
+    if (srcLen > 0) sEl.max = String(round1(Math.max(0, srcLen - minSrc))); else sEl.removeAttribute('max');
+  }
+  if (eEl) {
+    eEl.value = String(round1(head + used));
+    if (srcLen > 0) { eEl.min = String(round1(Math.min(srcLen, head + minSrc))); eEl.max = String(round1(srcLen)); }
+    else eEl.removeAttribute('min');
+  }
+  const tl = row('trimT'); if (tl) tl.textContent = FOCUS_LABEL[t.kind] || '入出点';
+  const note = row('trimNote');
+  if (note) note.textContent = trimHint(used, rateNow, srcLen);
+}
+/* ---------------- 卡片那几枚控件的写入 ----------------
+   唯一出口是 `Edit.patch`：波纹、快照、落盘、重画与轨道上的手势同一套（同一个 commit），
+   卡片这里不留第二份改法，也不留第二份「我在改哪一段」的状态（焦点只从 Edit.focusOf 读）。
+   历史里那句描述走 `Edit.describeItem` 点名 —— 与轨道上拖把手写进历史的同一把尺子。 */
+const LIST_KEY = { clip: 'clips', voice: 'voices', pending: 'pending', cap: 'captions' };
+/* 卡片能指着改的两类：画面段与配音句（待生成块没有增益 / 倍速 / 源窗口可改，字幕只有成片区间）。
+   行号、整轨写入的清单名都跟着它走，判据只在这一处。 */
+const cardKind = t => (t.kind === 'clip' ? 'clip' : t.kind === 'voice' ? 'voice' : '');
+const volOf = v => clamp(num(v) / 100, 0, 4);                     // 滑杆上是百分数（0–400%），数据里是线性增益
+const rateOfSlider = v => clamp(Math.round(num(v) * 100) / 100, 0.25, 4);
+
+/* 改一条块身上的几个数（别的清单一个字节不动）。填进去的数与现在完全一样 = 什么都没改：不打快照。 */
+function patchItem(kind, id, fields, label) {
+  const key = LIST_KEY[kind];
+  const list = filmOf()[key] || [];
+  const cur = list.find(x => x && x.id === id);
+  if (!cur) return false;
+  if (Object.keys(fields).every(k => (typeof fields[k] === 'number' ? pos(cur[k]) === pos(fields[k]) : cur[k] === fields[k]))) return false;
+  return Edit.patch({ [key]: list.map(x => (x && x.id === id ? { ...x, ...fields } : x)) }, label);
+}
+/* 改倍速只走 `withPlaybackRate`（源窗口不动、只换它在成片里占多宽）—— 全站只有这一处折算口。 */
+function writeRate(kind, id, rate) {
+  const key = LIST_KEY[kind];
+  const list = filmOf()[key] || [];
+  const cur = list.find(x => x && x.id === id);
+  if (!cur || rateOf(cur) === rate) return false;
+  const label = '把 ' + Edit.describeItem(kind, id) + ' 的倍速设成 ' + spdTxt(rate)
+    + '（素材窗口不动，折回成片里占 ' + round1(srcUsedOf(cur) / rate) + ' 秒）';
+  return Edit.patch({ [key]: list.map(x => (x && x.id === id ? withPlaybackRate(x, rate) : x)) }, label);
+}
+/* 「整轨」那两枚：一次改这一排每一条。图片段不吃倍速（没有源窗口），也不该被整排盖掉，所以剔出写入名单。
+   `map` 原样交回表示这一条不用改；一条都没变就不打快照（拖到同一档又松手，不该多一条记录）。 */
+function writeTrack(kind, map, label) {
+  const key = LIST_KEY[kind];
+  const list = filmOf()[key] || [];
+  let n = 0;
+  const out = list.map(x => {
+    if (!x || (kind === 'clip' && x.kind === 'image')) return x;
+    const w = map(x);
+    if (w !== x) n++;
+    return w;
+  });
+  if (!n) return false;
+  return Edit.patch({ [key]: out }, label(n));
+}
+/* 换行：与轨道上「竖着拖到新行」走同一对纯件（tl-reorder 的 moveClipToLane / moveTimedToLane + compactLanes）——
+   中间行的收缩与空行重编号只在那一处算，卡片这里只把「上一行 / 下一行」折成目标行号。
+   只改画在哪一行：进成片的时间与顺序一个字不动。 */
+function moveRow(dir) {
+  const t = cardTarget();
+  const wanted = clamp(Math.round(t.lane) + dir, 0, LANE_MAX - 1);
+  if (t.kind === 'clip') {
+    const r = moveClipToLane(filmOf().clips || [], t.id, wanted);
+    if (!r.moved) { setStatus(dir < 0 ? '这一格已经在第 1 行' : '下面没有更多行（一屏最多 ' + LANE_MAX + ' 行）'); return; }
+    Edit.patch({ clips: r.clips }, '把 ' + Edit.describeItem('clip', t.id) + ' 挪到第 ' + (wanted + 1) + ' 行');
+    return;
+  }
+  if (t.kind !== 'voice' && t.kind !== 'pending') return;
+  const f = filmOf();
+  const moved = moveTimedToLane([...(f.voices || []), ...(f.pending || [])], t.id, wanted);
+  if (!moved.moved) { setStatus(dir < 0 ? '这一句已经在第 1 行' : '下面没有更多行（一屏最多 ' + LANE_MAX + ' 行）'); return; }
+  /* 配音与待生成共用同一串行空间，所以整批重排之后再按号分回两份清单。 */
+  const byId = new Map(compactLanes(moved.items).items.map(x => [x.id, Math.max(0, Math.round(pos(x.lane)))]));
+  const back = key => (f[key] || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x));
+  const rows = Math.max(...[...byId.values()]) + 1;
+  Edit.patch({ voices: back('voices'), pending: back('pending') }, '把 ' + Edit.describeItem(t.kind, t.id)
+    + ' 挪到第 ' + ((byId.get(t.id) || 0) + 1) + ' 行' + (wanted >= rows - 1 ? '（新开的一行，现在一共 ' + rows + ' 行）' : ''));
+}
+/* 入出点那两框的「应用」：两框是**素材秒**（这一条素材窗口的头 → 尾），落回 tl-resize 那四把剪子。
+   先把两个数夹进这一条素材能用的范围（头最多退到 0、尾最多拉到素材原长；原长未知就只许往里裁），
+   再把「头、尾各自的位移」按**左缘先、右缘后**交出去 —— 左缘那一刀不动右缘在源里的位置，
+   所以两笔增量都能按改之前那一份算，不用折第二遍。
+   配音句改保留片段会挪它在成片里的起点，挂在它身上的字幕跟着走（`followCaptions` 与轨道拖动同一份）。
+   夹完四个数一个都没变 = 这一下什么都没改：不打快照，只把两框重画回夹取后的值。 */
+function applyTrimCard() {
+  const t = cardTarget();
+  const kind = cardKind(t);
+  if (!kind) return;
+  const adj = document.getElementById('tlAdj');
+  if (!adj) return;
+  const it = t.it;
+  const rate = rateOf(it);
+  const head = srcHeadOf(it);
+  const used = srcUsedOf(it);
+  const srcLen = srcLenOf(it);
+  const hi = srcLen > 0 ? srcLen : head + used;
+  const minSrc = MIN_CLIP_SECONDS * rate;          // 最短保留（成片秒）折回素材秒
+  let na = parseFloat(adj.querySelector('#trimS').value);
+  let nb = parseFloat(adj.querySelector('#trimE').value);
+  if (!isFinite(na)) na = head;
+  if (!isFinite(nb)) nb = head + used;
+  const clamped = na < 0 || nb > hi || nb - na < minSrc;
+  na = clamp(na, 0, Math.max(0, hi - minSrc));
+  nb = clamp(nb, na + minSrc, hi);
+  const mid = (kind === 'clip' ? trimClipLeft(it, (na - head) / rate) : trimVoiceLeft(it, (na - head) / rate)) || it;
+  const out = (kind === 'clip' ? trimClipRight(mid, (nb - srcHeadOf(mid) - srcUsedOf(mid)) / rate)
+    : trimVoiceRight(mid, (nb - srcHeadOf(mid) - srcUsedOf(mid)) / rate)) || mid;
+  if (pos(out.sourceStart) === pos(it.sourceStart) && pos(out.sourceDuration) === pos(it.sourceDuration)
+      && pos(out.start) === pos(it.start)) { paintVcCard(); return; }
+  const key = LIST_KEY[kind];
+  const patchData = { [key]: (filmOf()[key] || []).map(x => (x && x.id === it.id ? out : x)) };
+  let label = '把 ' + Edit.describeItem(kind, it.id) + ' 的保留片段改成素材 ' + round1(pos(out.sourceStart)) + '–'
+    + round1(pos(out.sourceStart) + pos(out.sourceDuration)) + ' 秒';
+  if (clamped) label += '（已按这一条素材能用的范围 0–' + round1(hi) + ' 秒截断）';
+  if (kind === 'voice') {
+    const caps = filmOf().captions || [];
+    patchData.captions = followCaptions(caps, it.id, it, out);
+    if (patchData.captions.some((c, i) => c !== caps[i])) label += '；挂在它上面的字幕跟着挪';
+  }
+  Edit.patch(patchData, label);
+}
+/* 本机字节回来了 → 把这一句的 `src` 换成本机地址。这是一次「同一份声音的更好读法」，不是用户的一步编辑：
+   不压快照、不追历史行、不标脏（换地址不改成片里任何一秒的声音）。
+   写的是轨道此刻真正拿着的那一条 —— 每次写入都过 `normalizeFilm` 重造对象，所以按 id 找，不认引用。 */
+function adoptLocalVoiceSrc(id, url) {
+  const f = filmOf();
+  const at = (f.voices || []).findIndex(x => x && x.id === id);
+  if (at < 0 || !url || f.voices[at].src === url) return;
+  f.voices[at] = { ...f.voices[at], src: url };
+  scheduleSave();
+}
+/* 试听：只放这一句自己那一条音频（不发请求、不计费），从它保留片段的头播起 ——
+   听到的就是留在成片里的那一段。播放核（engine/play.js）管的是成片，不是「单句试听」，
+   所以这一份留在本模块；再点同一句 = 停。 */
+let prevEl = null;
+let prevId = '';
+function stopPrev() {
+  if (!prevEl) return;
+  try { prevEl.pause(); } catch (e) { /* 本来就停着，没有需要停的 */ }
+  prevEl = null; prevId = '';
+}
+function playPrev(id) {
+  const v = (filmOf().voices || []).find(x => x && x.id === id);
+  if (prevId === id) { stopPrev(); setStatus('试听停了'); return; }
+  if (!v) return;
+  if (!v.src) { setStatus('<span class="err">这一句没有可用的音频地址（当时没落成本机文件），回「生成配音」重新合成一句</span>'); return; }
+  stopPrev();
+  const el = new Audio();
+  prevEl = el; prevId = id;
+  el.src = Api.mediaSrc(v.src);
+  try { el.currentTime = pos(v.sourceStart); } catch (e) { /* 起播点设不上就从头配，不中断这一句 */ }
+  /* 增益与倍速都按这一句现在的档位播：Audio 的音量上限是 1，所以 >100% 的那一截只在成片里生效。
+     试听永远用 100% / 原速，用户拖完那两枚滑块听不出区别，就又回到「调了没反应」那一类。 */
+  try { el.volume = Math.min(1, pos(v.volume)); } catch (e) { /* 拒设音量就保持原音量，不打断播放 */ }
+  try { el.playbackRate = rateOf(v); } catch (e) { /* 元素未就绪就按当前速度播 */ }
+  el.onended = () => { if (prevId === id) { prevEl = null; prevId = ''; } };
+  el.onerror = () => { stopPrev(); setStatus('<span class="err">这一句的字节取不到：先把它「存回本机」或回语音台重新合成</span>'); };
+  const p = el.play();
+  if (p && p.catch) p.catch(() => { /* 浏览器拦住自动播放：没响不算错，用户就在试听这一行的旁边 */ });
+  setStatus('试听「' + esc(String(v.who || v.text || '这一句').slice(0, 14)) + '」：'
+    + round1(srcUsedOf(v)) + ' 秒音频 ÷ ' + spdTxt(rateOf(v)) + '，增益 ' + Math.round(pos(v.volume) * 100) + '%');
 }
 function voiceWayOf(REG, key) {
   /* 「这一句按哪种方式定音色」的判据在公共层（`Chars.Pipe.ttsWayOfChosen`），和工作台语音栏同一份：
@@ -186,52 +459,22 @@ function voiceLenWhy(way, draft, tts) {
 }
 function voiceSynthWhy(way, draft, tts) { return voiceWayWhy(way, draft) || voiceLenWhy(way, draft, tts); }
 /* 右栏那句「这一句会落在哪」：**只此一份**（整栏渲染与插针挪动后的就地刷新都读它）。
-   各写一遍就会出现「右栏写着 +1.5 秒，真发出去落在插针现在的 0 秒」——
+   各写一遍就会出现「右栏写着 12.5 秒，真发出去落在插针现在的 9 秒」——
    而按钮上写着的就是「合成并加到这一轨」，落点说明是它唯一的依据。 */
-function voicePosLine(sh, c) {
-  const t = voiceTarget(sh, c);
-  if (t) return '这一句的落点：第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒（源里 ' + round1(t.s.in + t.at) + ' 秒）'
-    + '。要换地方就点 / 拖轨道上那个「待生成」占位 —— 它的位置、插针与合成落点读的是同一个数。';
-  return '落点：' + (c ? '这一镜一段画面都没留：按 Ctrl+Z 退回剪切之前'
-    : '这一镜还没有候选：先生成或导入一条视频');
+function voicePosLine(sh) {
+  const p = voicePlaceOf(sh);
+  return '这一句的落点：成片 ' + round1(p.start) + ' 秒'
+    + (p.pend ? '（就是轨道上那块「待生成」占位此刻的位置）' : '（播放头此刻，这一镜还没有占位）')
+    + '。要换地方就点 / 拖轨道上那块「待生成」占位 —— 它的位置与合成落点读的是同一个数。';
 }
 /* 插针一动就只换这一行，不重画整栏 —— 整栏重画会把正在敲的配音文本换掉、焦点也跟着跳。
-   挂在 paintSegFocus 那一串联动里（点轨道 / 拖播放进度都走 setPin）。 */
-/* 这一镜有没有「该进成片却进不了」的配音，说出来的一句话（空串 = 没有，那块整个不画）。
-   原因只问 `voiceFilmWhy` 那一份判据，不在这里复述是哪一种（换候选 / 候选没了 / 段被剪了）。 */
-function voiceOrphanNote(sh) {
-  const list = sh ? orphanVoicesOf(sh.id) : [];
-  if (!list.length) return '';
-  return '这一镜有 ' + list.length + ' 句配音没进成片：' + voiceFilmWhy(list[0])
-    + (list.length > 1 ? '（其余 ' + (list.length - 1) + ' 句同理）' : '') + '。';
-}
-/* 与 `voicePos` 同一批就地重画：插针一动、拖完一块、锁一轨，都只换这一格的文案与按钮的暗，
-   不重画整栏（整栏重画会把正在敲的「要念的话」换掉）。 */
-function paintVoiceOrphan() {
-  const box = document.getElementById('voiceOrphan');
-  if (!box) return;
-  const sh = curShot();
-  const txt = voiceOrphanNote(sh);
-  box.hidden = !txt;
-  const t = document.getElementById('voiceOrphanTxt');
-  if (t) t.textContent = txt;
-  const btn = document.getElementById('voiceAdopt');
-  if (btn) {
-    const why = adoptWhy(sh);
-    btn.disabled = !!why;
-    btn.title = why ? '搬不了：' + why
-      : '把这些句子的锚点换到「用这条」选中的那一镜候选上（只换锚点，音频与时长都不动，改完成片跟着变）';
-  }
-}
+   挂在 paintSegFocus 那一串联动里（点轨道 / 拖播放进度都走放针那一个出口）。 */
 function paintVoicePos() {
   const el = document.getElementById('voicePos');
   if (!el) return;
   const sh = curShot();
   if (!sh) return;
-  const cands = sh.candidates || [];
-  const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
-  el.textContent = voicePosLine(sh, c);
-  paintVoiceOrphan();
+  el.textContent = voicePosLine(sh);
 }
 /* 语音平台与型号：与语音工作台**同一份判据** —— 注册声明兜底，各家的 /models 现拉
    （MiMo 声明的 modelsFilter:'-tts' 也照它走），拉到的按 id 与声明合并能力。
@@ -306,7 +549,6 @@ function renderVoiceCol(col, sh) {
   }
   const cands = sh.candidates || [];
   const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
-  const t = voiceTarget(sh, c);
   /* 平台与型号走「注册声明 + 各家 /models 现拉」这一份（voiceReg），与语音工作台同一判据；
      取回后它会自己重画一次这一栏（见 loadVoiceModels 末尾） */
   const VREG = voiceReg();
@@ -315,27 +557,12 @@ function renderVoiceCol(col, sh) {
   const preset = way.mode === 'preset' ? Chars.Pipe.voices(VREG, { ttsModel: way.chosen.key }, 'preset') : [];
   if (way.mode === 'preset' && !preset.some(v => v.id === voiceDraftOf().voice)) voiceDraftOf().voice = preset.length ? preset[0].id : '';
   const tts = (way.chosen && way.chosen.prov && way.chosen.prov.tts) || {};
-  const n = shotVoices(sh.id, c && c.vid).length;
+  const mine = shotFilmVoices(sh.id);
+  const n = mine.length;
   /* 分轨 / 合轨是**全片**动作：句数按整条配音轨数，不是这一镜的 n（那一镜空着也要能合轨）。 */
-  const nAll = voicesEnsure().length;
-  /* 字幕那一格：数据从 currentOf 来（唯一出口），显示时间经 mapToFilm；
-     这一镜没进成片时退回源秒并把原因写在时间旁边（不拿 0 冒充成片起点）。 */
-  const subCur = subCurrent(sh);
-  const subSt = styleOf(sh);
-  const subAt = shotFilmAt(sh);
-  /* 字幕那几行只认**选用候选**的几何（数据层契约）：正在查看另一条候选时，
-     c 是查看那条 —— 拿它折字幕的成片秒会整体漂（sub-lane.js 的本镜轨同一道闸）。 */
-  const subC = chosenCandOf(sh) || c;
-  const subSpan = subC ? segsOf(subC, candDur(subC, sh)).reduce((a, s) => a + segFilmLen(s), 0) : 0;
-  const subWhere = subAt == null
-    ? '这一镜还没进成片：显示的是源秒（选用候选并留在成片里之后，时间会折成成片秒）'
-    : '这一镜在成片里从 ' + fmtDur(subAt) + ' 开始，长 ' + fmtDur(subSpan) + '；下面显示的是成片秒';
-  const subStaleTxt = subCur.stale
-    ? (subCur.staleWhy === 'cand' ? '字幕是按旧候选的源时间做的，换成现在这条候选后没有重映射'
-      : subCur.staleWhy === 'nocand' ? '这一镜现在没有选用候选，字幕没有可映射的成片时间'
-        : '台词 / 配音已经变过，字幕是按上一版生成的（手改 / 识别结果不会被覆盖）')
-    : '';
-  const subRows = subRowsHTML(sh, subCur, subC);
+  const nAll = (filmOf().voices || []).length;
+  /* 字幕那一格：全片一份数据（`proj.film.captions`，时间就是成片秒），
+     清单与那些动作都在 Caption 域里画 / 绑 —— 这一栏只把那一格放进卡里。 */
   /* 「台词」那一档两段的数据：本镜那一句（还没写也留一行，那是写作入口）与其余每一句。
      一行只出现一次 —— 本镜那一行不在「全片」里重复一遍，否则同一个字段两格输入框，
      敲其中一格另一格还是旧字（本项目反复要拦的那一类）。 */
@@ -365,12 +592,14 @@ function renderVoiceCol(col, sh) {
   if (fmts.length) advBits.push('<div><label>输出格式</label><select id="voiceFmt">'
     + window.TtsAdv.formatOptionsHTML(fmts, voiceDraftOf().format) + '</select></div>');
   if (tb.count) advBits.push(tb.html);
-  col.innerHTML = `
-    <div class="ed-head"><b id="edTitle">加一句配音</b><span class="no">第 ${idx} 镜 · <span id="edLane">配音轨</span></span></div>
+  /* 这一栏整片重画：里面 .ed-body 是滚动容器，重画会把它连同位置一起换掉
+     （以前靠外壳那份全局猴补兜着，现已撤掉）→ 走公共件 Wb.viewport.keep，按锚点还视口。 */
+  const voiceHtml = `
+    <div class="ed-head"><b id="edTitle">${esc(sh.name || '这一镜')}</b><span class="no">第 ${idx} 镜 · <span id="edLane">配音轨</span></span></div>
     <div class="ed-body">
       <!-- 「这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕」五档：一排分段按钮，
            一次只露一格。点中轨上一句 → 音量与倍速；点台词 / 待生成占位 → 生成配音；
-           点字幕块 → 字幕；谁都没点过 → 这一镜上的配音。显隐由 paintTlGroups 一处翻 hidden。
+           点字幕块 → 字幕；谁都没点过 → 这一镜上的配音。显隐由 paintVcCard 一处翻 hidden。
            **档位条常驻**：指着画面段时它也留在那儿（那一档点亮「这一段画面」）——
            右栏在剪辑态任何时候都有导航，不至于突然变成一张没有路标的空白卡。 -->
       <div class="ui-seg vc-tabs" id="vcTabs" role="tablist">
@@ -381,127 +610,118 @@ function renderVoiceCol(col, sh) {
         <button type="button" data-vctab="gen" role="tab">生成配音</button>
         <button type="button" data-vctab="sub" role="tab">字幕</button>
       </div>
-      <!-- 「指着哪一段 / 哪一句，就改它的参数」这一张卡：音量与倍速两枚无级滑块，
-           再加画面轨 / 配音轨两枚「行」音量（与段上那枚是乘算：那一行压到 60% 时，那一段调到 100% 进成片仍是 60%）
-           与一颗把芯片指着的那一段（或那一句）挪上/挪下一行的出口（行只决定画在哪一条横带里，时间与顺序一个字不动）。
-           判据不在这里 —— 目标、取值、锁定与读数全部由 syncTlTools() 一处写（与轨道上面那排剪子同一个出口），
-           写点的唯一性见 setCutVol / setCutSpd / setLaneVol / setVoiceSpd。 -->
+      <!-- 「指着哪一段 / 哪一句，就改它的参数」这一张卡：目标、读数、哪一行该画出来，
+           全部由 paintVcCard() 一处写 —— 它和轨道上的手势读同一个焦点（Edit.focusOf()），
+           卡片自己不留第二份「我在改哪一段」。写入只有一个出口（Edit.patch），
+           于是撤销、波纹、落盘与重画和拖把手那一路完全同一套。
+           音量是 0–400%（模型里 volume 就是 0–4 的线性增益，200% = 两倍振幅）；
+           倍速 0.25–4；淡入淡出只对配音（画面段的渐变归转场那枚 ◇）；静音只对画面段的原声。
+           ⚠ 这段注释里的函数名一律不加反引号：它在一个模板字符串里面，加反引号就是把字符串当场截断。 -->
       <div class="tl-adj" id="tlAdj">
         <div class="adj-row">
-          <span class="lab" id="tlVolLab">这一段音量</span>
-          <span class="tl-vol" id="tlVolBox" title="这一段 / 这一句自己的音量（0–200%，无级）：进成片还要乘所在那一行的基数">
+          <span class="lab">改谁</span>
+          <span class="cnt" id="adjTarget">轨道上还没有选中任何东西</span>
+        </div>
+        <!-- 入出点那两框住在这张卡里（剪辑软件里入出点归片段检视器，不该压在时间线底下）：
+             两框是**素材里的秒数**（源窗口的头 → 尾），不是轨道上那块有多宽 —— 中间差一枚倍速，
+             下面那句说明把这笔账念出来。「应用」把两个数折成左缘与右缘各自的增量，
+             落回 tl-resize 那四把剪子 —— 边界能推多少由素材窗口与最短时长定，这里不自己判。 -->
+        <div class="trim-editor" id="tlTrimRow">
+          <span id="trimT"></span>
+          从 <input type="number" id="trimS" step="0.1" min="0">
+          到 <input type="number" id="trimE" step="0.1" min="0">
+          秒 <button class="ghost mini" id="trimApply">应用</button>
+          <span id="trimNote"></span>
+        </div>
+        <div class="adj-row" id="rowVol">
+          <span class="lab" id="adjVolLab">这一段音量</span>
+          <span class="tl-vol" title="指着的那一段 / 那一句自己的增益（0–400%，线性：200% 就是两倍振幅）">
             ${icon('speaker', 12)}
-            <input type="range" id="tlVol" min="0" max="200" step="0.1" value="100" aria-label="音量">
-            <span class="vv" id="tlVolVal">100%</span>
+            <input type="range" id="adjVol" min="0" max="400" step="1" value="100" aria-label="音量">
+            <span class="vv" id="adjVolVal">100%</span>
           </span>
         </div>
-        <!-- 「整轨音量」与上面那枚各调各的（用户点名要分开的两件事之一）：上面那枚只管芯片指着的那一个，
-             这一枚一次把这一排此刻画出来的每一段 / 每一句自己的音量都设成这一档。
-             它不是「那一行的基数」（基数是乘在每一份之上的那一个数，这一枚改的是那一些数本身），
-             跟着目标走：指着配音就改句，指着画面就改段。 -->
-        <div class="adj-row">
+        <!-- 「整轨音量」与上面那枚各调各的（用户点名要分开的两件事）：上面那枚只管指着的那一个，
+             这一枚一次把这一排每一段 / 每一句的增益都设成这一档。跟着目标走：指着配音改句，指着画面改段。 -->
+        <div class="adj-row" id="rowVolTrack">
           <span class="lab">整轨音量</span>
-          <span class="tl-vol" id="tlVolTrackBox" title="把这一排每一段 / 每一句自己的音量都设成这一档（0–200%，无级）：与上面那枚各调各的，进成片照样乘所在那一行的基数">
+          <span class="tl-vol" title="一次把这一排每一段 / 每一句的增益都设成这一档（0–400%）：与上面那枚各调各的">
             ${icon('layers', 12)}
-            <input type="range" id="tlVolTrack" min="0" max="200" step="0.1" value="100" aria-label="整轨音量">
-            <span class="vv" id="tlVolTrackVal">100%</span>
+            <input type="range" id="adjVolTrack" min="0" max="400" step="1" value="100" aria-label="整轨音量">
+            <span class="vv" id="adjVolTrackVal">100%</span>
           </span>
         </div>
-        <!-- 下面这几块按「此刻指着哪一轨」分组显隐（syncTlTools → paintTlGroups 一处翻 hidden）：
-             点画面轨只看见倍速 / 画面轨行，点配音轨只看见配音轨行与加一句配音。
-             grpVoiceAdd 那一块在「这一镜还没有配音」时不收 —— 音轨上没有一个块可点，收掉就等于第一句永远加不上。 -->
-        <div class="grp" id="grpPic">
-        <div class="adj-row">
-          <span class="lab" id="tlSpdLab">这一段倍速</span>
-          <span class="tl-vol" id="tlSpdBox" title="这一段画面的倍速（0.25–4，无级）：改的是它在轨道上占多宽，源秒与入出点不动">
+        <!-- 下面几行按「此刻指着哪一类」显隐（paintVcCard 一处翻 hidden，判据只在那一处）：
+             字幕与标记没有增益与倍速，待生成块还没有音频可改；淡入淡出只对配音一句，
+             静音只对画面段的原声。 grpVoiceAdd 那一块在「这一镜还没有配音」时不收 ——
+             音轨上没有一个块可点，收掉就等于第一句永远加不上。 -->
+        <div class="adj-row" id="rowSpd">
+          <span class="lab" id="adjSpdLab">这一段倍速</span>
+          <span class="tl-vol" title="指着的那一段 / 那一句自己的倍速（0.25–4）：改的是它在成片里占多宽，素材窗口那一段不动">
             ${icon('chart', 12)}
-            <input type="range" id="tlSpd" min="0.25" max="4" step="0.05" value="1" aria-label="这一段倍速">
-            <span class="vv" id="tlSpdVal">×1</span>
+            <input type="range" id="adjSpd" min="0.25" max="4" step="0.05" value="1" aria-label="倍速">
+            <span class="vv" id="adjSpdVal">×1</span>
           </span>
         </div>
-        <!-- 「整轨倍速」是一枚自己独立的滑块（以前它只是「把上面那枚此刻的档对着清单各调一遍」的一颗按钮，
-             于是想「整排 ×2、这一句仍 ×1」就做不到：先把拇指拖到 ×2 那一步已经把指着的那一句改成 ×2 了）。
-             两枚各读各的、各写各的；这一枚写完之后上面那枚跟着现算（syncTlTools），不会各说一件事。
-             ⚠ 这段注释里的函数名一律不加反引号：它在一个模板字符串里面，加反引号就是把字符串当场截断。 -->
-        <div class="adj-row">
+        <!-- 「整轨倍速」是一枚自己独立的滑块：它读的是此刻这一排每一条的平均档、写的是这一排每一条。
+             与上面那枚各调各的 —— 想「整排 ×2、这一句仍 ×1」就先把整排拖到 ×2，再把这一句拖回 ×1。 -->
+        <div class="adj-row" id="rowSpdTrack">
           <span class="lab">整轨倍速</span>
-          <span class="tl-vol" id="tlSpdTrackBox" title="把这一排每一段的倍速都设成这一档：整排一起缩 / 放，源秒与入出点不动（与上面那枚各调各的）">
+          <span class="tl-vol" title="一次把这一排每一段 / 每一句的倍速都设成这一档（0.25–4）：与上面那枚各调各的">
             ${icon('layers', 12)}
-            <input type="range" id="tlSpdTrack" min="0.25" max="4" step="0.05" value="1" aria-label="整轨倍速">
-            <span class="vv" id="tlSpdTrackVal">×1</span>
+            <input type="range" id="adjSpdTrack" min="0.25" max="4" step="0.05" value="1" aria-label="整轨倍速">
+            <span class="vv" id="adjSpdTrackVal">×1</span>
           </span>
         </div>
-        <div class="adj-row">
-          <span class="lab">画面轨这一行</span>
-          <span class="tl-vol" id="lanePicBox" title="画面轨这一行的基数音量（0–200%，无级）：这一行每一段的原声跟着变，段上那一枚在它之上再乘">
-            ${icon('film', 12)}
-            <input type="range" id="laneVolPic" min="0" max="200" step="0.1" value="100" aria-label="画面轨这一行的音量">
-            <span class="vv" id="laneVolPicVal">100%</span>
+        <!-- 渐变只对配音一句（画面段的入出渐变归块之间那一枚 ◇ 转场，段上没有第二份 fade 字段）：
+             两枚都是「秒」，上限由卡片按这一句有多长当场写进 max。 -->
+        <div class="adj-row" id="rowFade">
+          <span class="lab">淡入 / 淡出</span>
+          <span class="tl-vol" title="这一句开头淡入的秒数（0 – 这一句的长度）：只改音量斜坡，起点与时长不动">
+            <input type="number" id="adjFadeIn" min="0" step="0.1" value="0" aria-label="淡入秒数">
+            <span class="vv">秒淡入</span>
           </span>
-          <span class="cnt" id="lanePicRow">第 1 行</span>
-        </div>
-        </div>
-        <div class="grp" id="grpVoice">
-        <div class="adj-row">
-          <span class="lab">配音轨这一行</span>
-          <span class="tl-vol" id="laneVoiceBox" title="配音轨这一行的基数音量（0–200%，无级）：这一行每一句配音跟着变，句上那一枚在它之上再乘">
-            ${icon('speaker', 12)}
-            <input type="range" id="laneVolVoice" min="0" max="200" step="0.1" value="100" aria-label="配音轨这一行的音量">
-            <span class="vv" id="laneVolVoiceVal">100%</span>
-          </span>
-          <span class="cnt" id="laneVoiceRow">第 1 行</span>
-        </div>
-        <div class="adj-row">
-          <span class="lab" id="tlVoiceSpdLab">这一句倍速</span>
-          <!-- 这一枚是「配音自己」的倍速：它乘在「那一段画面的倍速」之上，
-               1 = 就跟画面一起变。放在 grpVoice 里而不是 grpPic，是因为 grpPic/grpVoice 互斥 ——
-               指着配音时画面那枚整块收起，这里不留第二枚「看着都在调速度」的滑块。 -->
-          <span class="tl-vol" id="tlVoiceSpdBox" title="这一句配音的倍速（0.25–4，无级）：只改这一句念多快，起点与时长不动">
-            ${icon('chart', 12)}
-            <input type="range" id="tlVoiceSpd" min="0.25" max="4" step="0.05" value="1" aria-label="这一句配音倍速">
-            <span class="vv" id="tlVoiceSpdVal">×1</span>
+          <span class="tl-vol" title="这一句结尾淡出的秒数（0 – 这一句的长度）：只改音量斜坡，起点与时长不动">
+            <input type="number" id="adjFadeOut" min="0" step="0.1" value="0" aria-label="淡出秒数">
+            <span class="vv">秒淡出</span>
           </span>
         </div>
-        <div class="adj-row">
-          <span class="lab">整轨倍速</span>
-          <span class="tl-vol" id="tlVoiceSpdTrackBox" title="把这一排每一句的倍速都设成这一档：每一块一起缩 / 放，各句起点与时长不动（与上面那枚各调各的）">
-            ${icon('layers', 12)}
-            <input type="range" id="tlVoiceSpdTrack" min="0.25" max="4" step="0.05" value="1" aria-label="整轨倍速">
-            <span class="vv" id="tlVoiceSpdTrackVal">×1</span>
-          </span>
+        <!-- 静音与音量是两个字段：这一枚只切「这一段的原声进不进成片」，
+             上面那枚调好的数一个字节不动 —— 压进同一个数就恢复不了用户原来调好的那一档。 -->
+        <div class="adj-row" id="rowMute">
+          <span class="lab">这一段原声</span>
+          <label class="tl-vol" title="静音只切「进不进成片」，音量数值不动">
+            <input type="checkbox" id="adjMute" aria-label="静音这一段原声"> 静音
+          </label>
         </div>
-        <!-- 换行：管的还是芯片指着的那一个东西（配音句 / 画面段），与上面两枚滑块「按行」是同一份行号。
-             轨道上直接上下拖也能换行（手势在 bindSegDrag / bindVoiceLane 里），这两颗是给拖不准的人的出口。 -->
-        <div class="adj-row">
+        <!-- 换行：管的还是此刻指着的那一个东西（配音句 / 画面段）。画面段的行号是真的画在第几行
+             （行表按 clip.ln 排行），配音那句的 lane 是**首选行** —— 行表由打包函数按时间重叠现算，
+             压着别的句子时它会自己找第一条空行。两颗按钮只改画在哪一行，进成片的时间与顺序一个字不动；
+             轨道上直接上下拖也能换行，这两颗是给拖不准的人的出口。 -->
+        <div class="adj-row" id="rowLane">
           <span class="lab">所在行</span>
           <span class="cnt" id="cutLaneRow">第 1 行</span>
-          <button class="tool mini" id="laneUp" title="把芯片指着的这一段 / 这一句挪到上一行（只改画在哪一行，进成片的时间与顺序一个字不变）">${icon('arrowUp', 12)} 上一行</button>
-          <button class="tool mini" id="laneDown" title="把芯片指着的这一段 / 这一句挪到下一行（只改画在哪一行，进成片的时间与顺序一个字不变）">${icon('arrowDown', 12)} 下一行</button>
+          <button class="tool mini" id="laneUp" title="把此刻指着的那一段 / 那一句挪到上一行（只改画在哪一行，进成片的时间与顺序一个字不变）">${icon('arrowUp', 12)} 上一行</button>
+          <button class="tool mini" id="laneDown" title="把此刻指着的那一段 / 那一句挪到下一行（只改画在哪一行，进成片的时间与顺序一个字不变）">${icon('arrowDown', 12)} 下一行</button>
         </div>
         <div class="hint" id="tlAdjLen"></div>
-      </div>
       </div>
       <div class="grp" id="grpLines">
       <!-- 台词：全站唯一的台词面板（镜头编辑右栏那一份已删）。写的仍是 sh.line / sh.lineWho 那一份数据，
            AI 拆分镜时按画面带回来的那一句也落在同一字段上；它与提示词各改各的，互不带动。
-           写完它自己就上本镜 / 全片那两条「待生成配音」轨（判据只有 pendingLineOf 一份）：
+           写完它自己就上「待生成」那一轨（判据只有 pendingLineOf 一份）：
            点这一行左边的头像或轨道上的斜纹占位，都把这一句填进「生成配音」，一个计费请求都不发。 -->
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>本镜台词</span><span class="cnt" id="lineCntMine">${esc(lCnt.mine)}</span></div>
       <div class="line-list one" id="lineListMine">${lineRowsHTML(lMine)}</div>
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>全片台词</span><span class="cnt" id="lineCntAll">${esc(lCnt.all)}</span></div>
-      <div class="hint">每一行左边是说话人在素材库里的样子（对不上画占位图，名字照留），右边那两个数是这一句在本镜轨与全片轨上的位置。</div>
+      <div class="hint">每一行左边是说话人在素材库里的样子（对不上画占位图，名字照留），右边那个数是这一句在成片轨道上的位置。</div>
       <div class="line-list" id="lineListAll">${lAll.length ? lineRowsHTML(lAll) : '<div class="hint">除本镜以外还没有别的台词。</div>'}</div>
       ${lineWhoDatalistHTML()}
       </div>
       <div class="grp" id="grpVoiceAdd">
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>落在哪</span><span class="cnt">${n ? '这一镜已有 ' + n + ' 句' : '这一镜还没有配音'}</span></div>
-      <div class="hint" id="voicePos">${esc(voicePosLine(sh, c))}</div>
-      <!-- 本镜有配音而全片那一轨空着时，原因说在这一格（两条轨问的是同一份 voiceFilmGap）。
-           节点固定在这一处、由 paintVoiceOrphan 就地换文案与暗，不随整栏重画销毁。 -->
-      <div class="ui-note" id="voiceOrphan"${voiceOrphanNote(sh) ? '' : ' hidden'} style="margin-top: var(--sp-8)">
-        <span id="voiceOrphanTxt">${esc(voiceOrphanNote(sh))}</span>
-        <button class="tool mini" id="voiceAdopt" style="margin-left: var(--sp-6)">搬回选用的这一镜</button>
-      </div>
+      <div class="hint" id="voicePos">${esc(voicePosLine(sh))}</div>
+      <!-- 合成出来的那一句直接落在这个数上：块在轨道上的位置、这里说的落点与播放头读的是同一份成片秒。 -->
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>语音平台与型号</span><span class="cnt">${way.chosen ? esc(String((way.chosen.prov.displayName || way.chosen.prov.id || ''))) : ''}</span></div>
       ${Chars.Pipe.modelSelectHTML(VREG, { kind: 'audio', mode: 'text_to_speech', id: 'voiceModel', value: way.chosen ? way.chosen.key : '',
         emptyText: '注册表里没有配好密钥的语音平台 —— 到设置页「语音」那一档填一家' })}
@@ -560,40 +780,7 @@ function renderVoiceCol(col, sh) {
       ${window.RawRequest ? RawRequest.liveHTML('dir:voice:' + sh.id) : ''}
       </div>
       <div class="grp" id="grpSub">
-      <!-- 「字幕」：entries 是候选源秒，显示与导出都走 mapToFilm。
-           台词仍是唯一来源（sh.line）；手改 / 导入 / 识别出来的字幕是快照，不会反写台词。 -->
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>字幕</span><span class="cnt">${subCur.entries.length} 条 · ${subCur.derived ? '按台词/配音现派生' : subCur.source === 'asr' ? '自动识别' : subCur.source === 'manual' ? '手改/导入' : '按台词/配音'}</span></div>
-      <div class="hint">${esc(subWhere)}</div>
-      ${subStaleTxt ? `<div class="ui-note warn" style="margin-top: var(--sp-6)">${esc(subStaleTxt)}</div>` : ''}
-      ${subCur.lineMismatch ? '<div class="ui-note warn" style="margin-top: var(--sp-6)">配音文本与台词不是同一句：字幕目前按配音来（要按台词重新生成，点下面「从台词生成字幕」）</div>' : ''}
-      ${subRows.length ? subRows : '<div class="hint">这一镜还没有字幕。可以从台词 / 配音生成，导入一段 SRT，或对这条素材自动识别。</div>'}
-      <div class="btn-row" style="margin-top: var(--sp-8)">
-        <button class="tool acc" id="subGen" title="按这一镜的台词与已合成配音重新派生字幕（会替换现在这一份，可 Ctrl+Z 退回）">${icon('sparkles', 14)} 从台词生成字幕</button>
-        <button class="tool" id="subAdd" title="在插针指着的那一秒加一条手写字幕（2 秒，右栏里改字）">${icon('plus', 14)} 在插针处加一条</button>
-      </div>
-      <div class="btn-row">
-        <button class="tool" id="subImport" title="导入 .srt：文件里的时间按成片秒解释，落在本镜的那几条会折回源秒">${icon('upload', 14)} 导入 SRT</button>
-        <button class="tool" id="subExport" title="把全片字幕导出成 .srt（时间是成片秒；这一步不依赖渲染）">${icon('download', 14)} 导出 SRT</button>
-        <button class="tool" id="subAsr" title="${subAsrBusyOf() ? '再点一下就不等了：掐掉在途的这一次识别（浏览器里整只 worker 终止，代理那一单补一次取消），这一镜的字幕不会改动' : '用语音识别把这条素材里的话变成字幕（会真跑一次识别；结果不会反改台词与配音）。走浏览器内 Whisper 时首次要先经代理下载模型，可能等几分钟'}">${icon('mic', 14)} ${subAsrBusyOf() ? '取消识别' : '自动识别'}</button>
-      </div>
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>样式</span><span class="cnt">预览 / 烧录 / FCPXML 共用这一份</span></div>
-      <div class="adv-grid" id="subStyle">
-        <div><label>字号（1080p 设计）</label><input type="number" id="subFontSize" min="12" max="300" step="1" value="${subSt.fontSize}"></div>
-        <div><label>颜色</label><input type="color" id="subColor" value="${subSt.color}"></div>
-        <div><label>位置</label><select id="subPos">
-          <option value="bottom"${subSt.position === 'bottom' ? ' selected' : ''}>底部</option>
-          <option value="middle"${subSt.position === 'middle' ? ' selected' : ''}>居中</option>
-          <option value="top"${subSt.position === 'top' ? ' selected' : ''}>顶部</option>
-        </select></div>
-        <div><label>每行字数</label><input type="number" id="subMaxChars" min="8" max="120" step="1" value="${subSt.maxCharsPerEntry}"></div>
-      </div>
-      <label class="hint" style="display:flex;align-items:center;gap: var(--sp-6);margin-top: var(--sp-6)">
-        <input type="checkbox" id="subHl"${subSt.highlight ? ' checked' : ''}> 高亮背景（只在预览与烧录里生效；FCPXML 标题不写这个样式）
-      </label>
-      <div class="btn-row" style="margin-top: var(--sp-8)">
-        <button class="tool" id="subReseg" title="按「每行字数」把长字幕切成几条：内容不变，时间按字数比例分">${icon('rows', 14)} 按每行字数重切</button>
-      </div>
-      <div class="hint">导出成片时会自动烧录字幕（每条栅格化成与成片同宽高的 PNG）；FCPXML 里写成标题，媒体包另带 subtitles.srt。这些样式在 FCP 标题里只能表达字号 / 颜色 / 位置，背景与高亮只在预览和烧录里生效。</div>
+      ${capPanelHTML()}
       </div>
       <div class="grp" id="grpVoiceList">
       <!-- 分轨 / 合轨是**全片**动作，所以按钮放在 n ? … : … 三元之外：
@@ -604,106 +791,98 @@ function renderVoiceCol(col, sh) {
         <button class="tool mini" id="voiceMerge"${nAll ? '' : ' disabled'} title="把全片所有配音合到第 1 条轨道（只改排版，不改成片；同一轨里可能有重叠，成片里会一起响）${nAll ? '' : ' —— 全片还没有配音，先合成一句'}">${icon('merge', 14)} 合轨</button>
       </div>
       ${n ? `
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>这一镜上的配音</span><span class="cnt">${n} 句</span></div>
-      <div class="vc-list">${shotVoices(sh.id, c && c.vid).map(v => {
-        const s = t ? t.segs[Math.min(t.segs.length - 1, Math.max(0, Number(v.seg) || 0))] : null;
-        return `<div class="vc-row" data-vid="${esc(v.id)}" title="点这一行选中它（右栏换到音量与倍速那一格）">
-          <b>${esc(String(v.name || v.text || '配音').slice(0, 14))}</b>
-          <span>${s ? '第 ' + (t.segs.indexOf(s) + 1) + ' 段 +' + round1(v.at) + 's' : '段不在了'} · ${round1(Number(v.dur) || 0)}s${Number(v.vol == null ? 1 : v.vol) !== 1 ? ' · 音量 ' + Math.round(Number(v.vol) * 100) + '%' : ''}${Number(v.spd) === 1 ? '' : Number(v.spd) ? ' · 倍速 ' + spdTxt(Number(v.spd)) : ''}</span>
-          <button class="ghost mini" data-vplay="${esc(v.id)}" title="试听这一句">${icon('play', 11)}</button>
-          <button class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音">${icon('trash', 11)}</button>
+      <div class="vc-list">${mine.map(v => {
+        const vol = Math.round(pos(v.volume) * 100);
+        const rate = rateOf(v);
+        return `<div class="vc-row" data-vid="${esc(v.id)}" title="点这一行选中它（卡片换到「音量与倍速」那一档，改的就是这一句）">
+          <b>${esc(String(v.who || v.text || '配音').slice(0, 14))}</b>
+          <span>成片 ${round1(pos(v.start))} 秒起 · 念 ${round1(pos(v.duration))} 秒 · 第 ${drawnLaneOf(v.id) + 1} 行${vol === 100 ? '' : ' · 音量 ' + vol + '%'}${rate === 1 ? '' : ' · 倍速 ' + spdTxt(rate)}</span>
+          <button class="ghost mini" data-vplay="${esc(v.id)}" title="在本机试听这一句（放那条音频，不发请求、不计费）">${icon('play', 11)}</button>
+          <button class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音（只带走它自己挂在配音轨上的那一份，可 Ctrl+Z 退回）">${icon('trash', 11)}</button>
         </div>`;
       }).join('')}</div>` : `
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>这一镜上的配音</span><span class="cnt">还没有</span></div>
-      <div class="hint">这一镜还没有配音。切到「生成配音」自己写一句（或从台词那一轨点一个待生成的占位），合成后它会作为块出现在这一条配音轨上。</div>`}
+      <div class="hint">这一镜还没有配音。切到「生成配音」自己写一句（或从台词那一档点一个待生成的占位），合成后它会作为块出现在配音轨上。</div>`}
       </div>
     </div>`;
-  /* 这一段音量 / 画面倍速 / 配音倍速 / 两条轨按行的音量这几枚滑块：每一枚都是它那个值的唯一出口
-     （0–200% / 0.25–4，步进 0.1 与 0.05 = 无级）。`input` 里只改读数与正在响的声音，松手（`change`）
-     才写数据 + 落盘 —— 逐像素写盘会把 filmEdited 的那一串重渲染打成一片，而正在拖的那只手底下的节点会被换掉。 */
-  const sv = col.querySelector('#tlVol');
-  if (sv) {
-    sv.addEventListener('input', () => {
-      const rd = col.querySelector('#tlVolVal');
-      if (rd) rd.textContent = Math.round(Number(sv.value) || 0) + '%';
-      const vv = tlVoiceHit();
-      /* 拖动预览也走 `voiceVolOf`（句音量 × 行基数）：以前这里用滑块裸值，
-         这一行压到 60% 时拖到 100% 会当场听到 100%，松手又跳回 60% —— 听感在松手那一刻变一次。 */
-      if (vv && voiceElOf() && !voiceElOf().paused) {
-        try { voiceElOf().volume = Math.max(0, Math.min(1, voiceVolOf(Object.assign({}, vv, { vol: Number(sv.value) / 100 })))); } catch (e) { /* 播放器此刻拒设音量就保持原音量，不打断播放 */ }
-      }
-    });
-    sv.addEventListener('change', () => setCutVol(Math.max(0, Math.min(2, Number(sv.value) / 100))));
-  }
-  const spSl = col.querySelector('#tlSpd');
-  if (spSl) {
-    spSl.addEventListener('input', () => {
-      /* 主读数与最下面那句「源 X 秒 → 成片 Y 秒」跟着手一起走（问的是同一份 `segLenText`）：
-         只改主读数就是「拇指已经拖过去，那一格在成片里占多久还在说旧数」。 */
-      const r = Number(spSl.value) || 1;
-      const rd2 = col.querySelector('#tlSpdVal');
-      if (rd2) rd2.textContent = spdTxt(r);
-      const w = cutSpdSeg();
-      const ln2 = col.querySelector('#tlAdjLen');
-      if (w && ln2) ln2.textContent = segLenText(w.segs[w.i], r);
-    });
-    spSl.addEventListener('change', () => setCutSpd(Number(spSl.value)));
-  }
-  /* 配音那一枚倍速：与画面那枚同一套两拍（`input` 只改读数与正在响的那一句，`change` 才写数据 + 落盘）。
-     正在试听的那一句当场跟着变 —— 拖完听不出区别就又回到「调了没反应」那一类。 */
-  const vspSl = col.querySelector('#tlVoiceSpd');
-  if (vspSl) {
-    vspSl.addEventListener('input', () => {
-      const r = Number(vspSl.value) || 1;
-      const vv = tlVoiceHit();
-      /* 两处读数一起跟着手走：主读数、最下面那句「这一句念几秒」。
-         从前 `input` 只改主读数，界面上就是「×1.5」配一句还写着 ×1 / 念 1 秒的旧账（用户点名的
-         配音倍速显示错误），非要松手、整栏重画才改口 —— 同一个组件里两个数互相打架。 */
-      const rd3 = col.querySelector('#tlVoiceSpdVal');
-      if (rd3) rd3.textContent = spdTxt(r);
-      const ln3 = col.querySelector('#tlAdjLen');
-      if (vv && ln3) ln3.textContent = voiceLenText(vv, r);
-      if (vv && voiceElOf() && !voiceElOf().paused && voiceElOf().__vid === vv.id) {
-        try { voiceElOf().playbackRate = Math.max(VOICE_SPD_MIN, Math.min(VOICE_SPD_MAX, r)); } catch (e) { /* 倍速设不上（元素未就绪）就按当前速度播 */ }
-      }
-    });
-    vspSl.addEventListener('change', () => setVoiceSpd(Number(vspSl.value)));
-  }
-  /* 三枚「整轨」滑块：与段 / 句那几枚各调各的，同一套两拍（`input` 只改**自己这一格**的读数、
-     `change` 才对着清单批量写数据 + 落盘）。拖动中途不改指着那一段的读数 —— 它管的是整排，
-     把手底下的那一枚数值算进某一段就是「一句读数同时说两件事」。 */
-  const trackSlOn = (id, rdId, fmt, write) => {
+  Wb.viewport.keep(col, () => { col.innerHTML = voiceHtml; });
+  /* 卡片那几枚滑块：`input` 只改读数，松手（`change`）才写数据 + 落盘 —— 逐像素写盘会把 filmEdited
+     那一串重渲染打成一片，而正在拖的那只手底下的节点会被换掉。目标只从 `Edit.focusOf` 现读（卡片不留
+     第二份「我在改哪一段」），写入全部走 Edit.patch 那一对出口。 */
+  const tgt = () => cardTarget();
+  const slOn = (id, rdId, fmt, write, followLen) => {
     const el = col.querySelector('#' + id);
     if (!el) return;
     el.addEventListener('input', () => {
       const rd = col.querySelector('#' + rdId);
       if (rd) rd.textContent = fmt(el.value);
+      /* 单条那枚倍速：最下面那句「在成片里占多久」跟着手一起走（同一份 durationLine，
+         只是把倍速换成手里的数）。「整轨」两枚在拖动中途**不改**指着那一条的读数 ——
+         它管的是整排，把手底下那一枚算进某一段就是「一句读数同时说两件事」。 */
+      if (!followLen) return;
+      const ln = col.querySelector('#tlAdjLen');
+      if (ln && cardKind(tgt())) ln.textContent = durationLine(tgt(), rateOfSlider(el.value));
     });
-    el.addEventListener('change', () => write(el.value));
+    el.addEventListener('change', () => { write(el.value); paintVcCard(); });
   };
-  trackSlOn('tlSpdTrack', 'tlSpdTrackVal', x => spdTxt(Number(x) || 1), val => setTrackSpd(Number(val)));
-  trackSlOn('tlVoiceSpdTrack', 'tlVoiceSpdTrackVal', x => spdTxt(Number(x) || 1), val => setTrackVoiceSpd(Number(val)));
-  trackSlOn('tlVolTrack', 'tlVolTrackVal', x => Math.round(Number(x) || 0) + '%', val => setTrackVol(Number(val) / 100));
-  /* 那两枚「按行的音量」（画面轨 / 配音轨）：同一套 `input` 只改读数、`change` 才写数据。
-     调的是**芯片所指那一段/那一句所在那一行**的基数（`paintTlAdjust` 每次重画都把行号写进 `data-ln`），
-     不是整条轨 —— 多行之后「整轨」那一个数会把用户刚在第二行调好的音量盖掉。 */
-  const laneSl = (id, rdId, k) => {
-    const el = col.querySelector('#' + id);
+  slOn('adjVol', 'adjVolVal', v => Math.round(num(v) || 0) + '%', v => {
+    const t = tgt(); const kind = cardKind(t);
+    if (!kind) return;
+    patchItem(kind, t.id, { volume: volOf(v) },
+      '把 ' + Edit.describeItem(kind, t.id) + ' 的音量调到 ' + Math.round(volOf(v) * 100) + '%');
+  }, false);
+  slOn('adjVolTrack', 'adjVolTrackVal', v => Math.round(num(v) || 0) + '%', v => {
+    const t = tgt(); const kind = cardKind(t);
+    if (!kind) return;
+    const gain = volOf(v);
+    writeTrack(kind, x => (pos(x.volume) === gain ? x : { ...x, volume: gain }),
+      n => '把' + (kind === 'clip' ? '画面' : '配音') + '轨 ' + n + ' 条的音量都调到 ' + Math.round(gain * 100) + '%');
+  }, false);
+  slOn('adjSpd', 'adjSpdVal', v => spdTxt(rateOfSlider(v)), v => {
+    const t = tgt(); const kind = cardKind(t);
+    if (kind) writeRate(kind, t.id, rateOfSlider(v));
+  }, true);
+  slOn('adjSpdTrack', 'adjSpdTrackVal', v => spdTxt(rateOfSlider(v)), v => {
+    const t = tgt(); const kind = cardKind(t);
+    if (!kind) return;
+    const r = rateOfSlider(v);
+    writeTrack(kind, x => (rateOf(x) === r ? x : withPlaybackRate(x, r)),
+      n => '把' + (kind === 'clip' ? '画面' : '配音') + '轨 ' + n + ' 条的倍速都设成 ' + spdTxt(r));
+  }, false);
+  /* 渐变只对配音那一句（画面段的入出渐变归块之间那一枚 ◇ 转场）：上限是它自己的长度 ——
+     淡入 5 秒的一句填 8 秒，播起来等于整句都在斜坡里（听感是「没有声音」）。 */
+  [['fadeIn', '#adjFadeIn', '淡入'], ['fadeOut', '#adjFadeOut', '淡出']].forEach(pair => {
+    const el = col.querySelector(pair[1]);
     if (!el) return;
-    el.addEventListener('input', () => {
-      const rd = col.querySelector('#' + rdId);
-      if (rd) rd.textContent = Math.round(Number(el.value) || 0) + '%';
+    el.addEventListener('change', () => {
+      const t = tgt();
+      if (t.kind !== 'voice') return;
+      const v = clamp(round1(num(el.value)), 0, Math.max(0, round1(t.end - t.start)));
+      patchItem('voice', t.id, { [pair[0]]: v },
+        '把 ' + Edit.describeItem('voice', t.id) + ' 的' + pair[2] + '改成 ' + round1(v) + ' 秒');
+      paintVcCard();
     });
-    el.addEventListener('change', () => setLaneVol(k, Number(el.value) / 100, Number(el.dataset.ln) || 0));
-  };
-  laneSl('laneVolPic', 'laneVolPicVal', 'pic');
-  laneSl('laneVolVoice', 'laneVolVoiceVal', 'voice');
-  const lUp = col.querySelector('#laneUp'); if (lUp) lUp.onclick = () => setCutLane(-1);
-  const lDn = col.querySelector('#laneDown'); if (lDn) lDn.onclick = () => setCutLane(1);
-  /* 卡片建好之后立刻跟着现算一次：中栏那一排在**这一栏之前**就调过 syncTlTools，
-     那时这张卡还不存在（那里全部是 getElementById 的守卫，所以它什么都不写也不报错）。
+  });
+  /* 静音与音量是两个字段：这一枚只切「这一段的原声进不进成片」，上面那枚调好的数一个字节不动 ——
+     压进同一个数就恢复不了用户原来调好的那一档。 */
+  const mb = col.querySelector('#adjMute');
+  if (mb) mb.onchange = () => { const t = tgt(); if (t.kind === 'clip') Edit.toggleMute(t.id); };
+  const lUp = col.querySelector('#laneUp'); if (lUp) lUp.onclick = () => moveRow(-1);
+  const lDn = col.querySelector('#laneDown'); if (lDn) lDn.onclick = () => moveRow(1);
+  /* 入出点那两框：点「应用」、按回车、改完移开焦点三条路都算（同一出口，值没变就什么都不写）。
+     这一栏每次重画都换新节点，所以接线跟着重画重绑。 */
+  const trApply = col.querySelector('#trimApply');
+  if (trApply) trApply.onclick = applyTrimCard;
+  ['#trimS', '#trimE'].forEach(q => {
+    const el = col.querySelector(q);
+    if (!el) return;
+    el.addEventListener('change', applyTrimCard);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyTrimCard(); } });
+  });
+  /* 卡片建好之后立刻跟着现算一次：中栏那一排在**这一栏之前**就画完了，那时这张卡还不存在
+     （那里全部是 getElementById 的守卫，所以它什么都不写也不报错）。
      不补这一句就是「滑块画在 100%，而芯片指着的那一段其实调到了 30%」。 */
-  syncTlTools();
+  paintVcCard();
   const sync = el => { if (window.Dropdowns) Dropdowns.sync(el); };
   const vm = col.querySelector('#voiceModel');
   if (vm) vm.onchange = () => {
@@ -822,16 +1001,6 @@ function renderVoiceCol(col, sh) {
   };
   const vbg = col.querySelector('#voiceBalGo');
   if (vbg) vbg.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.href = 'usage.html'));
-  /* 孤句搬回选用的那一条：只换锚点，不动音频文件本身，所以不重复计费、也不新建任务。
-     拒绝的那几条（锁着 / 没有选用候选 / 没有画面段）由 `adoptWhy` 说清，按钮一开始就压暗。 */
-  const vop = col.querySelector('#voiceAdopt');
-  if (vop) vop.onclick = () => {
-    const r = adoptOrphanVoices(curShot());
-    if (!r.ok) { setStatus('<span class="err">搬不了：' + esc(r.why) + '</span>'); paintVoiceOrphan(); return; }
-    setStatus('<span class="ok">已把 ' + r.n + ' 句配音搬到「用这条」选中的那一条上，全片那一轨跟着有了</span>');
-    filmEdited();
-  };
-  paintVoiceOrphan();
   /* 那张牌上原来的「仍然再试一次」撤了：拦截本身已经取消，再摆一颗「再试」只会让人以为默认不给试。 */
   const add = col.querySelector('#voiceAdd');
   if (add) add.onclick = () => {
@@ -853,89 +1022,86 @@ function renderVoiceCol(col, sh) {
     let src = String(it.src || it.url || '');
     if (it.fromLocal && it.file) {
       /* blob: 不是「记得住的」地址（刷新即没，而这一条 src 要活到下一次导出成片）→ 先转存本机资产。
-         与语音台那条同一立场：写进 proj.voices 的地址必须下次还能取到字节。 */
+         与语音台那条同一立场：写进 film.voices 的地址必须下次还能取到字节。 */
       try { src = await localAudioAsset(it.file); }
       catch (e) { setStatus('<span class="err">这条本机音频没能存进本机：' + esc(e.message) + '（轨道上不留它）</span>'); return; }
     }
     if (!src || /^blob:/.test(src)) { setStatus('<span class="err">这一条没有能长期记住的地址：换一条，或先把它「存回本机」</span>'); return; }
-    await addVoiceEntry(src, sh, c, { name: it.name || it.prompt || '', text: '', provider: '本机', model: '', voice: '' });
+    await addVoiceEntry(src, sh, { provider: '本机' });
   };
-  /* 分轨 / 合轨：批量改几十行，误点一次不轻，所以两枚都要二次确认。
-     真正的判据、回执与「一步可撤销」在 track.js 的同名函数里（这里只转发）。 */
+  /* 分轨 / 合轨：批量改几十行，误点一次不轻，所以两枚都要二次确认（点第二下才执行）。
+     两枚改的只有「画在第几行」这一件事：进成片的时间、时长、音量一个字节不动，所以成片听起来一模一样。
+     分轨按声音来源分组（谁在说 → 音色 → 那条音频的地址），同一组的首选同一行；
+     压住了由 packVoiceLanes 自己找空行，超上限的句数照实报，不静默挤进最后一行。 */
   const vsp = col.querySelector('#voiceSplit');
   if (vsp) vsp.onclick = () => {
     if (Confirm.arm(vsp, '确认把全片配音分轨？', { note: '只改画在第几行，时间、时长、音量一个字不动；一步可撤销' })) return;
-    voiceSplitByMaterial();
+    const f = filmOf();
+    const list = (f.voices || []).filter(v => v && typeof v === 'object');
+    if (!list.length) { setStatus('全片还没有配音：先合成一句再分轨'); return; }
+    /* 「同一组」的判据只在这一处：先认说话人，其次认这一句用的音色，最后认那条音频本身
+       （同一份字节的两句是同一个嗓子，即使谁在说那一栏没填）。 */
+    const groupKeyOf = v => String(v.who || '').trim() || String(v.voice || '').trim()
+      || (window.Api && Api.mediaKey ? Api.mediaKey(String(v.src || '')) : String(v.src || '')) || v.id;
+    const order = [];
+    list.forEach(v => { const k = groupKeyOf(v); if (order.indexOf(k) < 0) order.push(k); });
+    const groups = Math.min(order.length, LANE_MAX);
+    const next = (f.voices || []).map(v => (v ? { ...v, lane: Math.min(order.indexOf(groupKeyOf(v)), LANE_MAX - 1) } : v));
+    const plan = packVoiceLanes([...next, ...(f.pending || [])]);
+    const same = next.every((v, i) => v === (f.voices || [])[i]);
+    if (same) { setStatus('已经按声音来源分好了：' + groups + ' 组 · ' + plan.lanes.length + ' 行'); return; }
+    Edit.patch({ voices: next }, '把全片 ' + list.length + ' 句配音按声音来源分到 ' + plan.lanes.length + ' 行（'
+      + groups + ' 组' + (plan.overflow ? ' · ' + plan.overflow + ' 句放不下，一屏最多 ' + LANE_MAX + ' 行' : '') + '）');
   };
   const vmg = col.querySelector('#voiceMerge');
   if (vmg) vmg.onclick = () => {
     if (Confirm.arm(vmg, '确认把全片配音合到一条轨？', { note: '只改排版，不改成片；同一行里重叠的几句会一起响；一步可撤销' })) return;
-    voiceMergeAll();
+    const f = filmOf();
+    const timed = [...(f.voices || []), ...(f.pending || [])].filter(x => x && typeof x === 'object');
+    if (!timed.length) { setStatus('全片还没有配音或待生成的句子'); return; }
+    if (!timed.some(x => Math.round(pos(x.lane)) !== 0)) { setStatus('已经都在第 1 行'); return; }
+    /* 首选全写回第 1 行；时间上真的重叠的那几句由打包函数自己找空行 —— 回执按画出来的行数说。 */
+    const plan = packVoiceLanes(timed.map(x => ({ ...x, lane: 0 })));
+    Edit.patch({
+      voices: (f.voices || []).map(v => (v ? { ...v, lane: 0 } : v)),
+      pending: (f.pending || []).map(p => (p ? { ...p, lane: 0 } : p)),
+    }, '把全片 ' + timed.length + ' 条定时块合到第 1 行'
+      + (plan.lanes.length > 1 ? '（时间重叠的几句仍占 ' + plan.lanes.length + ' 行，成片里一起响）' : ''));
   };
-  col.querySelectorAll('[data-vplay]').forEach(b => b.onclick = () => playVoicePreview(b.dataset.vplay));
-  /* 三档小选项：只翻 hidden（paintTlGroups 一处），不重建这一栏 —— 重建会把正在敲的那格换掉、光标跳走。 */
+  /* 试听：放这一句自己那一条音频（不发请求、不计费），再点同一句 = 停。 */
+  col.querySelectorAll('[data-vplay]').forEach(b => b.onclick = () => playPrev(b.dataset.vplay));
+  /* 档位条：只翻 hidden（paintVcCard 一处），不重建这一栏 —— 重建会把正在敲的那格换掉、光标跳走。
+     「这一段画面」那一枚跟着焦点亮，用户点它就是把卡切回参数那一档（焦点还在轨道上）。 */
   col.querySelectorAll('#vcTabs [data-vctab]').forEach(b => {
     b.onclick = () => {
       const k = b.dataset.vctab;
       if (!k || k === vcTabOf()) return;
       setVcTab(k);
-      paintTlGroups();
+      paintVcCard();
     };
   });
   /* 「台词」那一档两段：改字直接写 sh.line / sh.lineWho（松手后成片标脏、待生成轨跟着重画）；
      点缩略图 / 标题 = 切到那一镜、把这一句填进合成框（与轨道占位同一个出口）。 */
   bindLineEditors(col, sh);
-  /* 清单里点一行 = 选中这一句（与轨道上点这一块同一个出口 `selectVoice`，右栏跟着换到音量与倍速）。 */
+  /* 清单里点一行 = 选中这一句：与轨道上点那一块**同一个出口**（Edit.selectItem），
+     于是焦点、高亮、卡片读数只有一套 —— 卡片跟着换到「音量与倍速」那一档，改的就是这一句。 */
   col.querySelectorAll('.vc-row').forEach(r => {
     r.onclick = e => {
       if (e.target.closest('[data-vplay]') || e.target.closest('[data-vdel]')) return;
-      selectVoice(r.dataset.vid);
+      Edit.selectItem('voice', r.dataset.vid);
     };
   });
+  /* 删这一句：先选中它，再走工具条那一颗「删除」—— 挂在它身上的字幕、多选时的整组
+     都由那一份账处理，这里不写第二遍。 */
   col.querySelectorAll('.vc-row [data-vdel]').forEach(b => b.onclick = e => {
     e.stopPropagation();
-    if (Confirm.arm(b, '确认删掉？', { note: '只删这一句配音，画面不动' })) return;
-    projOf().voices = voicesEnsure().filter(v => v.id !== b.dataset.vdel);
-    if (projOf().curVoice === b.dataset.vdel) projOf().curVoice = '';
-    setStatus('<span class="ok">✓ 已删掉那一句配音（画面没动，成片时长不变）</span>');
-    filmEdited();
+    if (Confirm.arm(b, '确认删掉？', { note: '只删这一句配音，画面不动；可 Ctrl+Z 退回' })) return;
+    if (!Edit.selectItem('voice', b.dataset.vdel)) { setStatus('这一句已经不在轨道上了'); return; }
+    Edit.toolAction('delete');
   });
-  /* 字幕那一格：每个入口都先 beginEdit（可撤销）再写，写完全走 filmEdited。 */
-  const sg = col.querySelector('#subGen');
-  if (sg) sg.onclick = () => subGenerate(sh);
-  const sAdd = col.querySelector('#subAdd');
-  if (sAdd) sAdd.onclick = () => subAddAtPin(sh);
-  const sImp = col.querySelector('#subImport');
-  if (sImp) sImp.onclick = () => subImportSrt(sh);
-  const sExp = col.querySelector('#subExport');
-  if (sExp) sExp.onclick = () => subExportSrt();
-  const sAsr = col.querySelector('#subAsr');
-  if (sAsr) sAsr.onclick = () => subAsr(sh);
-  const sRes = col.querySelector('#subReseg');
-  if (sRes) sRes.onclick = () => subResegment(sh);
-  col.querySelectorAll('[data-subtext]').forEach(ta => {
-    ta.onchange = () => subSetText(sh, Number(ta.dataset.subtext), ta.value);
-  });
-  /* 每条字幕的起止两框（subRowsHTML 画的）：输入的秒数按**右栏自己那把尺子**落回源秒 ——
-     已进成片的一镜走 mapFromFilm（成片秒 → 源秒），还没进成片的按源秒直写；
-     换算只有一个出口（subSetTime），这里不另拼一份折算。 */
-  col.querySelectorAll('[data-subt]').forEach(inp => {
-    inp.onchange = () => subSetTime(sh, Number(inp.dataset.subi), inp.dataset.subt, parseFloat(inp.value));
-  });
-  col.querySelectorAll('[data-subdel]').forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    subDelete(sh, Number(b.dataset.subdel));
-  });
-  const sfs = col.querySelector('#subFontSize');
-  if (sfs) sfs.onchange = () => subStyleWrite(sh, { fontSize: Number(sfs.value) || 54 }, '改字幕字号');
-  const sCol = col.querySelector('#subColor');
-  if (sCol) sCol.onchange = () => subStyleWrite(sh, { color: sCol.value }, '改字幕颜色');
-  const sPos = col.querySelector('#subPos');
-  if (sPos) sPos.onchange = () => subStyleWrite(sh, { position: sPos.value }, '改字幕位置');
-  const sMc = col.querySelector('#subMaxChars');
-  if (sMc) sMc.onchange = () => subStyleWrite(sh, { maxCharsPerEntry: Number(sMc.value) || 24 }, '改字幕每行字数');
-  const sHl = col.querySelector('#subHl');
-  if (sHl) sHl.onchange = () => subStyleWrite(sh, { highlight: !!sHl.checked }, '改字幕高亮');
+  /* 字幕那一格（清单 + 那几颗按钮）由 Caption 域自己画、自己绑：
+     写入走 Edit.patch、点名走 Edit.describeItem，这一边不碰字幕数据。 */
+  bindCapPanel(col);
   if (window.RawRequest) RawRequest.bind(col);
   /* 声音栏画完算一次「这一句将要发出什么」：用户还没点合成就能看到实际会发什么。 */
   refreshVoicePreview(sh);
@@ -970,78 +1136,78 @@ async function localAudioAsset(file) {
     meta: { provider: '本机', prompt: '' } });
   return saved.url || Api.assetSrc(saved.assetId || saved.id);
 }
-/* 合成一句 → 量时长 → 存进 proj.voices（锚在插针那一段）→ 重画。
-   三个入口（ preset 合成 / design 合成 / 本机音频）都从这里进，所以「加了但没进轨」不可能出现。 */
-async function addVoiceEntry(src, sh, c, extra) {
-  /* 落点与写入的 `shotId` 用**同一个** sh：以前落点问 `curShot()`、写的是传进来的 sh，
+/* 一句声音 → 一条 VoiceClip 落进 `film.voices` → 写盘 + 重画。
+   两个入口（平台合成 / 铺一条本机音频）都从这里进，所以「加了但没进轨」不可能出现。
+   落点与行号问的都是轨道那同一把尺子：**成片秒直接定位**（配音不再跟着镜头剪辑自动重锚 ——
+   这一句落在哪一秒由这块占位说了算，以后再把画面剪两刀，它还在那一秒）。
+   这一镜要是还有一块「待生成」占位，就**原位替换**它：id 保持不变，挂在它身上的字幕
+   （`Caption.voiceId`）一个链接都不用改。 */
+async function addVoiceEntry(src, sh, extra) {
+  /* 落点与写入的 `shotId` 用同一个 sh：以前落点问 `curShot()`、写的是传进来的 sh，
      两者在「切镜头的那一瞬间又落了音」时不是同一个镜头，配音会挂到别人身上。 */
-  const t = voiceTarget(sh, c);
-  if (!t) { setStatus('<span class="err">现在没有可放的位置：这一镜还没有候选（或这一条一段画面都没留）</span>'); return; }
-  const dur = await audioDurOf(src);
-  const v = Object.assign({ id: uid(), shotId: sh.id, candId: c.vid, seg: t.si, at: t.at, dur, vol: 1, src }, extra || {});
-  v.name = v.name || String(v.text || '配音').replace(/\s+/g, ' ').trim().slice(0, 12);
-  /* 说话人跟着这一镜的台词走（`sh.lineWho`）：分轨时「同一角色归一行」靠它。
-     空串不占键 —— 老工程没有这个字段，读的一侧照样落到音色 / 素材那一级。 */
-  const who = String((sh && sh.lineWho) || v.who || '').trim();
-  if (who) v.who = who;
-  /* 落哪一行：目标时间窗内没被占的行里取行号最小的；全被占就新开一行。
-     行满 12 时 `voiceLanePlan` 自己给 -1 —— 拿到 -1 就一个字节都不落，
-     但声音已经生成出来了，落不下必须说清音频在哪（不静默吞）。 */
-  const plan = voiceLanePlan(v);
-  let newRow = false;
-  if (plan.ln < 0) {
-    setStatus('<span class="err">配音轨的 ' + plan.rows + ' 行在这个位置都被占了（已到上限），这一句放不下：'
-      + '先收掉一行、或把这一句换个落点再合成。音频已经生成：' + esc(src) + '</span>');
-    return;
+  const p = voicePlaceOf(sh);
+  const dur = await audioDurOf(src);                       // 音频真实秒数 = 这一句的源窗口
+  const place = voiceLaneOf({ start: p.start, duration: dur,
+    dropIds: p.pend ? [p.pend.id] : [], lane: p.pend ? Math.round(pos(p.pend.lane)) : null });
+  /* 12 行在这个时间窗里全被占了：一个字节都不落 —— 但声音已经生成出来了，
+     落不下必须说清音频在哪（那条地址就是这一句的全部），不静默吞。 */
+  if (place.lane < 0) {
+    setStatus('<span class="err">配音轨的 ' + LANE_MAX + ' 行在成片 ' + round1(p.start) + ' 秒这一处都被占了（已到上限），这一句放不下：'
+      + '先把别处收掉一行、或把落点换个位置再合成。音频已经生成：' + esc(src) + '</span>');
+    return null;
   }
-  if (plan.needNewRow) {
-    /* 行**不再单独开**：行数由内容决定（`laneRowsOf` = 最高那一行 + 1），
-       把这句写到新行号上，重画时那一行自己长出来。
-       以前这里调 `addLaneRow`（左栏「＋」按钮那一条路），那条路随左栏精简一起撤了，
-       调用点却还留着 —— 铺一条音频当场 TypeError，这一句就永远落不下。 */
-    v.ln = plan.ln;
-    newRow = true;
-  } else if (plan.ln > 0) {
-    v.ln = plan.ln;
-  }
-  voicesEnsure().push(v);
-  /* 这一条音频若还是第三方外链（导入的 FCPXML / 平台返回的临时地址），顺手存一份到本机：
-     配音导出与 waveform 解码都读得到字节，不靠会过期的链接。 */
+  const f = filmOf();
+  const id = p.pend ? p.pend.id : filmId('voice');
+  const v = createVoiceClip({
+    id, start: p.start, sourceDuration: dur, lane: place.lane,
+    /* 要念的话：这一句是自己写的（本机音频没有词）还是从占位继承的（那块占位就是这句台词）。 */
+    text: String((extra && extra.text) || (p.pend && p.pend.text) || '').trim(),
+    /* 说话人跟着这一镜的台词走：分轨时「同一角色归一行」靠它。空串不占键。 */
+    who: String((extra && extra.who) || (p.pend && p.pend.who) || (sh && sh.lineWho) || '').trim(),
+    shotId: sh.id, src,
+    provider: (extra && extra.provider) || '', model: (extra && extra.model) || '',
+    voice: (extra && extra.voice) || '',
+  });
+  const replaced = (f.voices || []).some(x => x && x.id === id);
+  const label = (replaced ? '把「' + (sh.name || '这一镜') + '」那块「待生成」占位合成成配音：成片 '
+    : '给「' + (sh.name || '这一镜') + '」加一句配音：成片 ')
+    + round1(v.start) + '–' + round1(v.start + v.duration) + ' 秒（长 ' + round1(v.duration)
+    + ' 秒，第 ' + (place.lane + 1) + ' 行）';
+  Edit.patch({
+    voices: replaced ? (f.voices || []).map(x => (x && x.id === id ? v : x)) : [...(f.voices || []), v],
+    pending: (f.pending || []).filter(x => !x || x.id !== id),
+  }, label);
+  /* 这一条音频若还是会过期的第三方地址（平台临时链接 / 导入的外链）：顺手存一份到本机 ——
+     试听与导出合成都读得到字节，不靠明天就失效的地址。 */
   if (needsLocal(v.src)) {
-    const nm = GenOf().voiceAssetBase(v) || v.name || '配音';
+    const nm = GenOf().voiceAssetBase(v) || '配音';
     autoLocalize([{
       entry: { kind: 'asset', provider: v.provider || 'remote', src: v.src, name: nm },
       name: nm,
-      apply: url => { v.src = url; scheduleSave(); },
+      apply: url => adoptLocalVoiceSrc(id, url),
     }]);
   }
-  /* 走 selectVoice 而不是裸写 `proj.curVoice`：加完这一句，上面那一排剪子与滑块就该指着它
-     （目标是「最后点的那一轨」，而「刚加了一句」正是最后碰的是声音轨）。 */
-  selectVoice(v.id);
-  setStatus('<span class="ok">✓ 已加到第 ' + (t.si + 1) + '/' + t.segs.length + ' 段的 +' + t.at + ' 秒处，长 ' + dur + ' 秒'
-    + '；落在' + (newRow ? '新开的' : '') + '第 ' + (voiceLn(v) + 1) + ' 条配音轨（'
-    + (newRow ? '原来那些行在这个时间窗里已经有别的语音' : '这一行在这个时间窗里是空的') + '）'
-    + (candSelected(sh, c) ? '；这一条已选用，合并成片会带上' : '；这一条还没被选用，换成它或点「用这条」才进成片') + '</span>');
-  filmEdited();
+  /* 加完这一句，右栏那张卡就该指着它：走 Edit.selectItem（与轨道上点那一块同一个出口），
+     于是焦点、高亮、卡片读数只有一套。 */
+  Edit.selectItem('voice', id);
+  return v;
 }
 async function addVoiceAtPin() {
   const sh = curShot();
   if (!sh) { setStatus('<span class="err">先挑一个镜头</span>'); return; }
-  const cands = sh.candidates || [];
-  const c = cands[projOf().curCand] || cands.find(x => x.vid === sh.selId);
-  const t = voiceTarget(sh, c);
-  if (!t) { setStatus('<span class="err">没有可放的位置：这一镜还没有候选（或这一条一段画面都没留，按 Ctrl+Z 退回剪切之前）</span>'); return; }
-  /* 花钱之前先问一句「放得下吗」：还不知道这一句多长，所以只问目标左沿那一秒 ——
+  const p = voicePlaceOf(sh);
+  /* 花钱之前先问一句「放得下吗」：还不知道这一句多长，所以只问落点那一秒 ——
      12 行都占着这一秒就当场拒绝，一个请求都不发。长度已知之后 `addVoiceEntry` 会再判一次
-     （同一份 `voiceLanePlan`），那次更准，两次不冲突。 */
-  const plan0 = voiceLanePlan({ shotId: sh.id, candId: c.vid, seg: t.si, at: t.at, dur: 0 }, true);
-  if (plan0.ln < 0) {
-    setStatus('<span class="err">配音轨 ' + plan0.rows + ' 行都占着这个位置了：先收掉一行（或把这句换个落点）再合成'
-      + ' —— 这一次没有发请求、没有计费</span>');
+     （同一份 `voiceLaneOf`），那次更准，两次不冲突。 */
+  const try0 = voiceLaneOf({ start: p.start, duration: 0, dropIds: p.pend ? [p.pend.id] : [],
+    lane: p.pend ? Math.round(pos(p.pend.lane)) : null });
+  if (try0.lane < 0) {
+    setStatus('<span class="err">配音轨 ' + LANE_MAX + ' 行都占着成片 ' + round1(p.start) + ' 秒这一处了：'
+      + '先把别处收掉一行（或把这句换个落点）再合成 —— 这一次没有发请求、没有计费</span>');
     return;
   }
-  const text = String(voiceDraftOf().text || '').trim();
-  if (!text) { setStatus('<span class="err">先写上要念的话</span>'); return; }
+  const sayText = String(voiceDraftOf().text || '').trim();
+  if (!sayText) { setStatus('<span class="err">先写上要念的话</span>'); return; }
   const way = voiceWayOf(voiceReg(), projOf().voiceModel || '');
   const tts2 = (way.target && way.target.prov && way.target.prov.tts) || {};
   /* 花钱前的最后一道闸：与右栏那颗按钮同三个函数（`voiceSynthWhy` = 这一档缺必填 + 字数区间）。
@@ -1071,13 +1237,13 @@ async function addVoiceAtPin() {
         catch (e) { setStatus('<span class="err">这条参考音频取不到字节：' + esc(String(errText(e))) + '（换一条或先在资产库里把它存回本机）</span>'); return; }
       }
       r = await AiGen.synthTts(target.prov, {
-        model: target.model.id || target.model.name, text,
+        model: target.model.id || target.model.name, text: sayText,
         snapTag: 'dir:voice:' + sh.id, snapLabel: sh.name || '',
         /* 落盘名与画面素材同一套（场景 + 镜头），`synthTts` 只补扩展名：
            FCPXML 媒体包里的配音文件因此与本机素材库里的是同一个名字。 */
         name: (() => {
           const vctx = shotCtxOf(projOf(), sh);
-          return vctx ? voiceBase(vctx, ((projOf().voices || []).length + 1)) : '';
+          return vctx ? voiceBase(vctx) : '';
         })(),
         style: way.mode === 'design' ? String(voiceDraftOf().design || '').trim() : '',
         voice: voiceValue, format: voiceDraftOf().format,
@@ -1105,10 +1271,11 @@ async function addVoiceAtPin() {
     /* 合成成了：把「这一家刚报过余额不足」那笔账清掉，声音栏那张牌也收起来 */
     if (pid && window.Api) Api.balOut.clear(pid);
     if (voiceBalOut) { voiceBalOut = ''; }
-    await addVoiceEntry(r.url, sh, c, {
-      text, provider: target.prov.id, model: target.model.id || target.model.name,
+    await addVoiceEntry(r.url, sh, {
+      text: sayText, provider: target.prov.id, model: target.model.id || target.model.name,
       voice: way.mode === 'preset' ? voiceDraftOf().voice
         : (way.mode === 'clone' ? '按参考音频复刻' : '按描述定音色'),
+      who: String(voiceDraftOf().who || '').trim(),
     });
     return;
   }
@@ -1124,14 +1291,14 @@ function voicePreviewBody() {
   const way = voiceWayOf(voiceReg(), projOf().voiceModel || '');
   if (!way || !way.target || !way.target.prov) return null;
   const target = way.target;
-  const text = String(voiceDraftOf().text || '').trim();
-  if (!text) return null;
+  const sayText = String(voiceDraftOf().text || '').trim();
+  if (!sayText) return null;
   /* 复刻那一档的参考音频是 base64（几百 KB）：预览里换一句占位说明，
      否则整段塞进 DOM 会把页面拖死（`Api.snapOf` 也会压，但先压一次更省）。 */
   const voiceValue = way.mode === 'preset' ? (voiceDraftOf().voice || '')
     : (way.mode === 'clone' ? '<参考音频（发送时才交给平台）>' : '');
   const pv = AiGen.previewTts(target.prov, {
-    model: target.model.id || target.model.name, text,
+    model: target.model.id || target.model.name, text: sayText,
     style: way.mode === 'design' ? String(voiceDraftOf().design || '').trim() : '',
     voice: voiceValue, format: voiceDraftOf().format,
     bools: window.TtsAdv.read(target.prov, { mode: '', intent: '', caps: null }, voiceDraftOf().tb).topBools,
@@ -1155,6 +1322,7 @@ function refreshVoicePreview(sh) {
     audioDurOf,
     voiceWayOf,
     paintVoicePos,
+    paintVcCard,
     voiceReg,
     renderVoiceCol,
   };

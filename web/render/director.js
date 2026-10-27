@@ -21,18 +21,18 @@ export function render(_ctx, _cache) {
     (_ctx.loading)
       ? (_openBlock(), _createElementBlock("div", _hoisted_1, [...(_cache[0] || (_cache[0] = [
           _createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
-          _createElementVNode("span", null, "正在打开导演台…", -1 /* CACHED */)
+          _createElementVNode("span", null, "加载中…", -1 /* CACHED */)
         ]))]))
       : _createCommentVNode("v-if", true),
     _createElementVNode("div", _hoisted_2, null, 512 /* NEED_PATCH */),
     (_ctx.failed)
       ? (_openBlock(), _createElementBlock("div", _hoisted_3, [
           _createElementVNode("div", _hoisted_4, [
-            _createTextVNode("导演台没有启动：" + _toDisplayString(_ctx.failed) + "。如果一直失败，看控制台里那一条 [director] 报错。 ", 1 /* TEXT */),
+            _createTextVNode("导演台未启动：" + _toDisplayString(_ctx.failed) + " ", 1 /* TEXT */),
             _createElementVNode("button", {
               class: "ghost mini",
               onClick: _ctx.retryLoad
-            }, "重新加载本页", 8 /* PROPS */, _hoisted_5)
+            }, "重试", 8 /* PROPS */, _hoisted_5)
           ])
         ]))
       : _createCommentVNode("v-if", true)

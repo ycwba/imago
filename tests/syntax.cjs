@@ -104,7 +104,10 @@ function parseCode(code, name, file) {
     if (!err) return { ok: true, mode: fn === asModule ? 'module' : 'script' };
     errs.push(err);
   }
-  return { ok: false, error: errs[errs.length - 1] };
+  /* 报**第一种模式**的那条错：一个有顶层 import 的文件真错在括号没配上时，
+     按脚本模式再试一次只会得到「Cannot use import statement outside a module」——
+     那句话不是这个文件的病，照着它去找就找错了地方。 */
+  return { ok: false, error: errs[0] };
 }
 
 /* HTML 里的内联 <script>：严格 CSP 不该有它们（spa.cjs 管那条），

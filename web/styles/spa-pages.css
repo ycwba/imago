@@ -2,9 +2,13 @@
    不进 iframe 的那批旧页面不受影响。 */
 
 
-/* 首屏留白由 .page-shell 的 padding-top 统一给（24px）—— 页面自己再压一份 margin-top
-   就叠成 44px，与资产库（24px）、设置页（24px）不一致；切页时上边距会跳。 */
-.fav-page .toolbar { margin: 0 0 var(--sp-6); }
+/* 首屏留白由公共的 .phead 接管：那条通栏页头自己带上边距与分隔线，
+   下面这几行只管自己的间距 —— 页面不再压一份 margin-top（否则叠成两倍，切页时上边距会跳）。 */
+.fav-page .toolbar { margin: var(--sp-14) 0 var(--sp-6); }
+/* 类型筛选（图片/视频/音频）：公共件 Wb.kindFilter 的分段控件，独立一行放在工具条上面
+   —— 与生成工作台、资产库同一副控件（用户点名：这几页的文件类型筛选该用工作台那一副）。 */
+.fav-page .fav-kinds { margin: var(--sp-14) 0 var(--sp-2); }
+.fav-page .fav-kinds .ui-seg { display: inline-flex; }
 .fav-page .toolbar input[type=search] { flex: 0 1 320px; }
 .fav-page .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 

@@ -314,7 +314,7 @@ export default {
       // 计数写清楚「只显示了前 N 条」「还有几页没读」
       billCntText.value = `${rows.length} 条`
         + (rows.length > LIMIT ? `（表格只列出前 ${LIMIT} 条，导出 CSV 含已加载的全部）` : '')
-        + (billMore.value ? ' · 各平台还有更多页没加载（这里只读最近 2 页，数量与积分不是完整账目）' : '')
+        + (billMore.value ? ' · 只读了最近 2 页' : '')
         + ` · 积分 ${ROUND(scSum)}`
         + (yuanSum ? ' · 金额 ¥' + yuanSum.toFixed(4) : '')
         + (tkSum ? ' · 文字 AI ' + tkSum.toLocaleString() + ' tokens' : '')
@@ -488,9 +488,7 @@ export default {
     /* ---------- 代理没起来时的这一页该长什么样 ----------
        读不到注册表就当场把三块面板换成一句能照做的话，状态行也照实说。 */
     function showProxyDown(why) {
-      const tip = window.Wb.emptyHTML(['读不到本机代理' + (why ? '（' + why + '）' : '') + '：'
-        + '这一页的余额、曲线与账单都要问代理，它没起来就什么都取不到。',
-        '先跑一次项目目录里的「启动.bat」（或 node proxy.js），再点右上「刷新」。']);
+      const tip = window.Wb.emptyHTML(['代理未启动，跑启动.bat 再刷新。']);
       balanceLoading.value = false;
       balanceCards.value = [];
       balanceTip.value = { kind: 'proxy', why: why || '' };
@@ -562,7 +560,6 @@ export default {
     function onRangeChange(e) { fRange.value = e.target.value; renderBills(); }
     function onQInput(e) { fQ.value = e.target.value; renderBills(); }
 
-    const chartIcon = window.icon ? window.icon('chart', 18) : '';
     const refreshIcon = window.icon ? window.icon('refresh', 13) : '';
 
     onMounted(async () => {
@@ -603,7 +600,7 @@ export default {
       bills, billMore, billErrs, billErr, billLoading, billDownHtml, billNoteHtml, billCntText, billRows, curBillRows,
       platformOptions, fPlatform, fRange, fQ,
       reloadAll, renderBills, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
-      fmtWhen: window.fmtWhen, chartIcon, refreshIcon,
+      fmtWhen: window.fmtWhen, refreshIcon,
     };
   },
   render,

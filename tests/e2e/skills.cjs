@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Skill 路由：清单 / 全文 / 安装 / 启停 / 删除 / contract 冲突 / 路径拒绝。 */
+/* Skill 路由：清单 / 全文 / 安装 / 启停 / 删除 / 同 contract 让位 / 路径拒绝。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -31,8 +31,18 @@ const skill = (id, contract, name) => ({
     r = await call(proxy, 'GET', '/skills');
     if (!r.json.items.some(x => x.id === 'my-video' && x.source === 'user')) throw new Error('用户 Skill 未出现');
 
+    /* 同 contract 第二个**不再被拒**：装上去就把原来那份直接停掉，并报出谁让了位 */
     r = await call(proxy, 'POST', '/skills/install', { files: [skill('my-video-2', 'polish.image')] });
-    if (r.status === 200) throw new Error('同 contract 第二个应被拒绝');
+    if (r.status !== 200) throw new Error('同 contract 第二个应被接受（让位，不该被拒）：' + r.text);
+    if (!r.json.displaced || r.json.displaced.indexOf('my-video') < 0) {
+      throw new Error('安装回包没报出「谁让了位」：' + r.text);
+    }
+    r = await call(proxy, 'GET', '/skills');
+    const img = r.json.items.filter(x => x.contract === 'polish.image');
+    if (!img.some(x => x.id === 'my-video' && !x.enabled)) throw new Error('原来那份没被停掉：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
+    if (img.filter(x => x.enabled).length !== 1) throw new Error('同一个 contract 还有多份启用着：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
+    if (img.some(x => !x.enabled && x.conflict)) throw new Error('已停用的那份不该标冲突：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled, conflict: x.conflict }))));
+
     r = await call(proxy, 'POST', '/skills/install', { files: [{ path: '../evil/SKILL.md', text: 'x' }] });
     if (r.status === 200) throw new Error('路径穿越应被拒绝');
 

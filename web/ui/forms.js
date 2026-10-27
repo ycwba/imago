@@ -7,6 +7,16 @@
    window 面调用；共享的转义与图标仍读 ui.js 的 window.esc / window.icon。
    加载顺序：ui.js → forms.js（见 shell.html），两者都排在页面模块之前。
    ========================================================================== */
+/* ---------- 重画弹窗正文时把视口放回去 ----------
+   弹窗正文（.pr-body）自己会滚；整片重画它（重新规划 / 正在润色… / 换一版）会让那一栏的
+   滚动位被浏览器夹回上限（=0）—— 用户看着就是「点一颗按钮，视角跳回最上面」。
+   公共件 Wb.viewport.keep 是唯一实现（在 web/ui/workbench.js，按锚点还视口）；
+   这一份文件比 workbench.js 先加载，所以取的时候要判它有没有到位 ——
+   没到位就照原样做，**不在这里自己写第二份**。 */
+function keepBodyScroll(el, fn) {
+  if (window.Wb && Wb.viewport && Wb.viewport.keep) return Wb.viewport.keep(el, fn);
+  return fn();
+}
 /* ============================================================================
    InlinePolish —— 就地润色面板（不弹窗，展开在提示词输入框下方）
      · InlinePolish.loading(host, text)          占位：显示「正在润色…」
@@ -225,7 +235,7 @@
           const askTxt = String(finp.value || '').trim();
           if (!askTxt) {
             noteEl.textContent = '先在上面那一格写一句要怎么改（写完按回车，或点右边那颗按钮）';
-            finp.focus();
+            window.focusQuiet(finp);
             return;
           }
           if (typeof AbortController === 'function') ab = new AbortController();
@@ -336,7 +346,7 @@
         if (otherChip) otherChip.onclick = () => {
           state[i].pick = '';
           sync();
-          inp.focus();                 // 「其他」= 就地打字，焦点直接送过去；打了字这个芯片就高亮
+          window.focusQuiet(inp);        // 「其他」= 就地打字，焦点直接送过去；打了字这个芯片就高亮
         };
         inp.oninput = () => { state[i].own = inp.value; if (state[i].own) state[i].pick = ''; sync(); count(); };
         inp.value = state[i].own;
@@ -528,7 +538,7 @@
     const run = async () => {
       if (busy) { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经收尾的话再 abort 无害，兜住就好 */ } } return; }   // 跑着时这一颗是「停止」
       const askText = String(inp.value || '').trim();
-      if (!askText) { fnote('先在上面那一格写一句要怎么改（写完按回车）', true); inp.focus(); return; }
+      if (!askText) { fnote('先在上面那一格写一句要怎么改（写完按回车）', true); window.focusQuiet(inp); return; }
       if (typeof AbortController === 'function') ab = new AbortController();
       setBusy(true);
       fnote('', false);
@@ -664,11 +674,13 @@
     function paint() {
       /* 「待建素材」那块在镜头清单**上面** —— 它决定的是「这一镜引用谁」，
          放在下面会被镜头那一大堆挤到看不见。 */
-      body.innerHTML = assetRowsHTML() + (rows.length
-        ? sceneGroups().map(g => `<div class="pr-grp" data-scene="${esc(g.scene)}">
-            <div class="gh"><b>${esc(g.scene)}</b><span class="gn">${g.items.length} 镜</span></div>
-            ${g.items.map(rowHTML).join('')}</div>`).join('')
-        : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头，请点「重新规划」或取消')}</div>`);
+      keepBodyScroll(body, () => {
+        body.innerHTML = assetRowsHTML() + (rows.length
+          ? sceneGroups().map(g => `<div class="pr-grp" data-scene="${esc(g.scene)}">
+              <div class="gh"><b>${esc(g.scene)}</b><span class="gn">${g.items.length} 镜</span></div>
+              ${g.items.map(rowHTML).join('')}</div>`).join('')
+          : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头，请点「重新规划」或取消')}</div>`);
+      });
       okBtn.disabled = !rows.length;
       bindRows();
       bindAssets();
@@ -966,13 +978,16 @@
         okBtn.textContent = o.applyLabel || '采用这段提示词';
         dlg.querySelector('#prHint').textContent = o.hint || '右侧内容可以直接编辑';
         const paint = after => {
-          body.innerHTML = `<div class="pr-cols">
-            <div class="pr-col"><h4>原始内容</h4><div class="ro" id="prBefore"></div></div>
-            <div class="pr-col"><h4>AI 润色后（可编辑）</h4><textarea id="prAfter"></textarea></div>
-          </div>`;
+          keepBodyScroll(body, () => {
+            body.innerHTML = `<div class="pr-cols">
+              <div class="pr-col"><h4>原始内容</h4><div class="ro" id="prBefore"></div></div>
+              <div class="pr-col"><h4>AI 润色后（可编辑）</h4><textarea id="prAfter"></textarea></div>
+            </div>`;
+          });
           body.querySelector('#prBefore').textContent = o.before || '(空)';
           body.querySelector('#prAfter').value = after;
-          body.querySelector('#prAfter').focus();
+          /* 焦点送进输入框是为了「光标接着打」，**不是**为了把视角拽过去 → preventScroll */
+          if (window.focusQuiet) window.focusQuiet(body.querySelector('#prAfter'));
         };
         paint(o.after || '');
         okBtn.onclick = () => close(dlg, (body.querySelector('#prAfter').value || '').trim() || null, resolve);
@@ -982,7 +997,7 @@
         if (o.retry) {
           retry.onclick = async () => {
             retry.disabled = true; retry.textContent = '润色中…';
-            body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新润色…</div>';
+            keepBodyScroll(body, () => { body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新润色…</div>'; });
             try { paint(await o.retry()); } catch (e) { paint(''); body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新润色失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新润色';
           };
@@ -1008,11 +1023,13 @@
         const paint = () => {
           /* `it.sub` 是可选的一行小字（只给人看「这一条会改什么」，如「原：… · 时长 5→8 秒」），
              不参与编辑 —— 要改的正文在右边的 textarea 里。 */
-          body.innerHTML = items.length ? items.map((it, i) => `<div class="pr-row" data-i="${i}">
-              <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
-              <textarea data-i="${i}">${esc(it.text || '')}</textarea>
-              <button class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
-            </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面，请点「重新润色」或取消')}</div>`;
+          keepBodyScroll(body, () => {
+            body.innerHTML = items.length ? items.map((it, i) => `<div class="pr-row" data-i="${i}">
+                <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
+                <textarea data-i="${i}">${esc(it.text || '')}</textarea>
+                <button class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
+              </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面，请点「重新润色」或取消')}</div>`;
+          });
           okBtn.disabled = !items.length;
           body.querySelectorAll('textarea').forEach(ta => ta.oninput = () => { items[+ta.dataset.i].text = ta.value; });
           body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { items.splice(+b.dataset.del, 1); paint(); });
@@ -1035,7 +1052,7 @@
           retry.onclick = async () => {
             if (follow.busy()) return;             // 「按这句再改」在跑：让它跑完
             retry.disabled = true; retry.textContent = '规划中…';
-            body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>';
+            keepBodyScroll(body, () => { body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>'; });
             try { items = (await o.retry()).map(x => ({ ...x, label: x.label, text: x.text })); }
             catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新规划失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新规划';
@@ -1071,7 +1088,7 @@
   const shut = (dlg, resolve, v) => {
     const opener = dlg.__opener;
     try { dlg.close(); } catch {} dlg.remove();
-    if (opener && opener.isConnected && typeof opener.focus === 'function') { try { opener.focus(); } catch {} }
+    if (opener && opener.isConnected && typeof opener.focus === 'function') { try { if (window.focusQuiet) window.focusQuiet(opener); else opener.focus(); } catch {} }
     resolve(v);
   };
   /* 就地二次确认（Confirm.arm）当前那个「确认中」的按钮。
@@ -1134,7 +1151,7 @@
         dlg.addEventListener('cancel', e => { e.preventDefault(); shut(dlg, resolve, false); });
         /* 危险操作把焦点放在「取消」：Enter 是「取消」而不是「执行删除」。
            普通确认仍然聚焦「确定」，不改那一类的顺手程度。 */
-        (o.danger ? no : yes).focus();
+        window.focusQuiet(o.danger ? no : yes);
       });
     },
     choose(o) {
@@ -1166,7 +1183,7 @@
         no.onclick = () => shut(dlg, resolve, null);
         dlg.addEventListener('cancel', e => { e.preventDefault(); shut(dlg, resolve, null); });
         const first = box.querySelector('.cf-opt');
-        if (first) first.focus();
+        if (first) window.focusQuiet(first);
       });
     },
 
@@ -1275,7 +1292,7 @@
            不然按 Esc 收起弹窗后焦点落在 body 上，键盘用户得从页面头重新 Tab 一遍。 */
         const close = v => {
           try { dlg.close(); } catch {} dlg.remove();
-          if (opener && opener.isConnected && typeof opener.focus === 'function') { try { opener.focus(); } catch {} }
+          if (opener && opener.isConnected && typeof opener.focus === 'function') { try { if (window.focusQuiet) window.focusQuiet(opener); else opener.focus(); } catch {} }
           resolve(v);
         };
         if (typeof o.body === 'function') o.body(body, close); else if (o.html) body.innerHTML = o.html;
@@ -1287,7 +1304,7 @@
         if (typeof o.onOpen === 'function') o.onOpen(body, close);
         /* 首焦点避开 danger 那颗：一排按钮里第一颗是「删掉」时，顺手按 Enter 就直接执行了。 */
         const first = foot.querySelector('button:not(.danger)') || foot.querySelector('button');
-        if (first) first.focus();
+        if (first) window.focusQuiet(first);
       });
     },
   };
@@ -1427,7 +1444,7 @@
         }
         const done = out => {
           try { dlg.close(); } catch {} dlg.remove();
-          if (pfOpener && pfOpener.isConnected && typeof pfOpener.focus === 'function') { try { pfOpener.focus(); } catch {} }
+          if (pfOpener && pfOpener.isConnected && typeof pfOpener.focus === 'function') { try { if (window.focusQuiet) window.focusQuiet(pfOpener); else pfOpener.focus(); } catch {} }
           resolve(out);
         };
         dlg.querySelector('#pfCancel').onclick = () => done(null);
@@ -1468,7 +1485,7 @@
           dlg.querySelector('#pfOk').click();
         });
         const first = dlg.querySelector('textarea,input,select');
-        if (first) setTimeout(() => first.focus(), 60);
+        if (first) setTimeout(() => window.focusQuiet(first), 60);
       });
     },
   };

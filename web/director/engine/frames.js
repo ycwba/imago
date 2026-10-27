@@ -3,7 +3,7 @@
    区间外的名字一律由 createFrames(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { SLICE_N_MAX, sliceTimes, frameIndexTimes, FRAME_INDEX_MAX } from '../slice.js';
+import { frameIndexTimes, FRAME_INDEX_MAX } from '../slice.js';
 import { packFrames, unpackFrames } from '../slice-pack.js';
 
 /* 切片帧的持久层走代理的 /cache/slices（与浏览器 origin 无关的一份；换端口不再各攒一份）。
@@ -28,13 +28,16 @@ export function createFrames(E, document, window) {
     assetStoreId,
     sameAssetSpace,
     freshUrl,
+    healStaleUrls,
+    mediaSrc,
+    stripRepaint,
   } = E;
 
 /* ---------------- 轨道上的切片图 ----------------
    一条素材一份帧表（「稳定键 → {时刻: 图片}」），主链是 mediabunny 的批量取帧
    （`MediaBackend.frames`：一趟解出一条**稠密帧索引**，密度口径在 slice.js 的
    frameIndexPlan），兜底才是 <video> 池逐块 seek。取到的帧全进同一张表：剪辑每拖一下
-   都重画整条轨道，命中（或就近顶上，见 tileFrames）就不再解码。
+   块每次重画都按格序问一遍（strip.js），命中（或就近顶上）就不再解码。
    取不到帧不算错（格子里留占位，画面照样能剪）。
    主链兜底共用同一条流水线（slicePump）：同一条素材一次只有一趟活，全页同时在解的
    不超过 SLICE_GLOBAL 趟 —— 十几条候选各开各的解码器，只会把中栏正在播的那条拖慢。 */
@@ -82,10 +85,10 @@ function sliceBadFresh(key, t) {
   const r = m && m.get(t);
   return !!r && Date.now() - r.at < sliceBackoff(r.n);
 }
-/* 退避到点自己再排一遍活：格子只有等下一次重画（切镜头、剪一刀）才会被再问一遍，
-   页面静静摊着时一次解码超时（元数据 20 秒 / 定位 15 秒）就把整排钉成斜纹五分钟。
-   只重跑还挂在页面上的那几栏 —— 缓存里已有的帧一格都不重解，`fillSlices` 那一遍就是纯排活。 */
-const sliceRoots = new Set();
+/* 退避到点自己再排一遍活：块只有等下一次重画（切镜头、剪一刀、缩放落定）才会被再问一遍，
+   页面静静摊着时一次解码超时（元数据 20 秒 / 定位 15 秒）就把整条带子钉成斜纹五分钟。
+   到点那一次不再走重画整板，只把胶片格重新问一遍帧（strip 那条路：paint → ensureFrames，
+   退避已过期的时刻当场重新排活），已解到的帧一格都不重解。 */
 let sliceRetryTick = 0, sliceRetryAt = 0;
 function sliceRetryIn(ms) {
   const at = Date.now() + Math.max(0, Math.round(Number(ms) || 0));
@@ -98,33 +101,28 @@ function sliceResume() { slicePump(); if (sliceRetryAt) sliceRetryRun(); }
 function sliceRetryRun() {
   if (sliceRetryTick) { clearTimeout(sliceRetryTick); sliceRetryTick = 0; }
   sliceRetryAt = 0;
-  Array.from(sliceRoots).forEach(r => {
-    if (!r.isConnected) sliceRoots.delete(r);
-    else fillSlices(r);
-  });
+  if (stripRepaint) stripRepaint();
 }
+/* 取帧失败 ⇒ 先怀疑「地址过期了」：平台产物多是签名外链（只管一天），过期后取帧必然失败，
+   而格子上只剩一道斜纹 —— 看着像「这一段没有画面」，其实是**地址不新鲜了**。
+   这里当场换一轮新地址（`healStaleUrls` 走 `Api.healMedia` 按平台批量回源 ✓），
+   退避到点再取就是新的了 —— 格子留着，画面回来（用户点名：有镜头就修取帧，别撤画面段）。
+   换地址要发请求，节流一次（十秒一趟）：失败往往成片地来（整条素材的每个时刻都失败）。 */
+let sliceHealAt = 0;
 function noteSliceFail(key, times) {
   let wait = SLICE_FAIL_TTL;
   times.forEach(t => { const w = sliceFail(key, t); if (w < wait) wait = w; });
   sliceRetryIn(wait);
+  const now = Date.now();
+  if (now - sliceHealAt > 10000) {
+    sliceHealAt = now;
+    try { const p = healStaleUrls(); if (p && p.catch) p.catch(() => 0); } catch (e) { /* 换不到新地址就照旧退避重试 */ }
+  }
 }
 /* 退避只拦「没人动」的自动轮询。用户 seek / 缩放 / 切段就是明确的重试信号 --
-   把当前几栏上那几条素材的失败记录放行一次；不清空整表，别的素材照旧退避。 */
-function sliceForgetFail() {
-  const keys = new Set();
-  Array.from(sliceRoots).forEach(r => {
-    if (!r.isConnected) { sliceRoots.delete(r); return; }
-    r.querySelectorAll('[data-frs]').forEach(t => {
-      const s = t.getAttribute('data-frs');
-      if (s) keys.add(sliceKey(s));
-    });
-  });
-  keys.forEach(k => sliceFailed.delete(k));
-}
-function sliceUserTouch() {
-  sliceForgetFail();
-  if (!slicePaused) sliceRetryRun();
-}
+   放行一次：整表清掉，下一次 ensureFrames 把刚才失败的几个时刻照常重新排活
+   （退避表本来就只记「几秒内别再试」，没有别的状态可丢）。 */
+function sliceForgetFail() { sliceFailed.clear(); }
 /* seeked 之后画面未必已经换（解码器还没把这一帧画出来），不等就抓可能抓到上一格。
    有 requestVideoFrameCallback 就等一帧真画面；没有（老浏览器）或超时就照旧抓，
    宁可偶尔旧一帧，也不能把整排格子卡死。
@@ -462,40 +460,6 @@ function sliceAsk(key, src, times, hit, hot, vis, onFrame) {
    其余全是斜纹，而解码排在队上要一两秒，界面上看到的仍是「放大一下画面轨又转一遍」。
    所以还空着的格子再退**一档**：拿整段里离它最近的那一张，容差放宽到两格（`tol2`）。
    这一档宁可贴一张「差半秒」的画面，也不留一排斜纹骗眼睛；真帧回来时逐张换掉，不改张数与宽度。 */
-function tileFrames(got, ts, a, b, step) {
-  const out = ts.map(() => '');
-  if (!got || !got.size || !ts.length) return out;
-  const span = Math.max(0.01, Number(step) > 0 ? Number(step)
-    : (Math.max(0, Number(b) || 0) - Math.max(0, Number(a) || 0)) / ts.length);
-  const tol = Math.max(0.04, span * 1.05);
-  const tol2 = Math.max(tol, span * 2.05);
-  const dist = ts.map(() => Infinity);
-  got.forEach((u, t) => {
-    const k = Math.round((t - a) / span);
-    if (k < 0 || k >= ts.length) return;
-    const d = Math.abs(ts[k] - t);
-    if (d > tol || d >= dist[k]) return;
-    dist[k] = d; out[k] = u;
-  });
-  /* ② 只处理还空着的那些格：把缓存的时刻排好序，对每格二分取最近的一张 */
-  if (out.some(u => !u)) {
-    const ks = Array.from(got.keys()).filter(t => Number.isFinite(t)).sort((x, y) => x - y);
-    for (let k = 0; k < ts.length; k++) {
-      if (out[k]) continue;
-      let lo = 0, hi = ks.length;            // 第一个 >= ts[k] 的下标
-      while (lo < hi) { const m = (lo + hi) >> 1; if (ks[m] < ts[k]) lo = m + 1; else hi = m; }
-      const cands = [ks[lo - 1], ks[lo]];    // 左右两个邻居里挑近的
-      let best = '', bd = Infinity;
-      for (const t of cands) {
-        if (!Number.isFinite(t)) continue;
-        const d = Math.abs(t - ts[k]);
-        if (d < bd) { bd = d; best = got.get(t); }
-      }
-      if (best && bd <= tol2) out[k] = best;
-    }
-  }
-  return out;
-}
 /* 哪一块先解：离**插针**近的那一块先（用户盯的就是那一秒附近的画面），其余按块序补。
    块内仍然时间递增 —— 顺序 seek 比来回跳快得多，这一条不为了优先级破坏。 */
 function chunkHot(chunks, hot) {
@@ -506,7 +470,7 @@ function chunkHot(chunks, hot) {
 /* 主链：mediabunny 批量取帧。一次向它要一个**稠密帧索引**（按素材时长分档、上限 480 张，
    口径在 slice.js 的 frameIndexPlan/frameIndexTimes），外加这一排格子真正要的那几个时刻 ——
    出来的帧全部进同一张帧表，往后无论怎么缩放重画，用的都是这一份
-   （磁贴对格的落点由 tileFrames 就近顶上，新格子不用等自己的那一帧解回来）。
+   （格子对帧的落点由 strip 就近顶上，新格子不用等自己的那一帧解回来）。
    返回 true = 主链接住了活（它判「没有缺的」或解完都算）；false = 退 videoPass。
    调用方（slicePump）保证同一素材一次只有一趟活，job.hit 只归这一趟写。 */
 async function indexPass(job) {
@@ -557,7 +521,7 @@ async function indexPass(job) {
   }
   if (r.mode === 'stream') {
     /* 整段流式出来的是真实包时刻，与栅格时刻对不齐（差零点几秒是常态），
-       靠 tileFrames 就近顶上。 */
+       靠 strip 的就近顶上。 */
   } else if (planned) {
     noteSliceFail(job.key, planned.filter(t => !job.hit.has(t)));
   }
@@ -586,140 +550,6 @@ async function videoPass(job) {
   } catch (e) { noteSliceFail(job.key, job.times); }
   finally { if (v1) Wb.vframe.release(v); else sliceVideoIdle(job.key); }
 }
-/* 铺好格子 → 后台把帧填进去（重画时先画占位，绝不为了缩略图把整栏卡住） */
-async function fillSlices(root) {
-  /* 记下「这一栏还要出图」：退避到点那一次就照着它再排一遍活（见 sliceRetryIn）。
-     整栏重画会把旧行节点换掉，攒多了就顺手把已经不在树上的清掉。 */
-  sliceRoots.add(root);
-  if (sliceRoots.size > 32) Array.from(sliceRoots).forEach(r => { if (!r.isConnected) sliceRoots.delete(r); });
-  /* 一次收集：读**此刻**挂在栏上的那些格子，连带它们要的几个时刻。
-     抽成函数是因为填完帧还要再走一遍 —— 期间整栏可能又重画过一次，
-     把帧填进第一次那批已经孤立的节点里，等于取到了却上不了屏。 */
-  const collect = () => {
-    const bySrc = new Map();
-    Array.prototype.slice.call(root.querySelectorAll('[data-frs]')).forEach(t => {
-      const src = t.getAttribute('data-frs') || '';
-      if (!src) { t.innerHTML = '<i class="fr none whole"></i>'; return; }
-      const a = Number(t.getAttribute('data-in')) || 0;
-      const b = Number(t.getAttribute('data-out')) || Math.max(a + 0.5, a);
-      const n = Math.max(1, Math.min(SLICE_N_MAX, Number(t.getAttribute('data-n')) || 1));
-      /* 一张磁贴跨几秒源与「几张」出自同一处（`sliceGeom`），所以它由渲染那一遍一起写在格子上：
-         这里要是再按 `(b-a)/n` 自己算一遍，放大时 `n×step` 是大于框的（那正是「裁掉半张」的来处），
-         两种算法会差出几十秒 —— 采样点跑到框外面，界面上就是一整排斜纹。 */
-      const step = Number(t.getAttribute('data-step')) || 0;
-      const pin = Number(t.getAttribute('data-pin'));
-      const key = sliceKey(src);
-      /* 同一个稳定键可能同时有「本机 /asset/」与「签名 /getv」两张地址：
-         解码用本机那条（不会过期、也不用回源）；已有记录不是本机时才让位。 */
-      const rankSrc = u => /^\/asset\//.test(u) || /^blob:/.test(u) ? 2 : /^\/getv\?/.test(u) ? 1 : 0;
-      if (!bySrc.has(key)) bySrc.set(key, { key, src, plans: [] });
-      else if (rankSrc(src) > rankSrc(bySrc.get(key).src)) bySrc.get(key).src = src;
-      bySrc.get(key).plans.push({ t, ts: sliceTimes(a, b, n, step), a, b, step, pin: Number.isFinite(pin) ? pin : -1 });
-    });
-    return bySrc;
-  };
-  /* 画一格：`got` 是「时刻 → 图片地址」的表，缺哪个就留一道占位斜纹。
-     同步那一遍与异步那一遍共用它 —— 两处各拼一次 innerHTML，迟早一处改了另一处没改。 */
-  const paintTiles = (plans, got) => plans.forEach(({ t, ts, a, b, step }) => {
-    if (!t.isConnected) return;                      // 期间又重画过一次：别把帧填进孤立的格子
-    const urls = tileFrames(got, ts, a, b, step);
-    /* 同一批地址就一个字节都不动：整条轨道每 3 秒重画一次，没有这一行时
-       innerHTML 会把几十张已经解码好的图全部拆掉重建 —— 观感就是「切片一直在重载」。
-       签名里带上张数，换比例尺后张数变了仍会重画。 */
-    const sig = ts.length + '|' + urls.join('|');
-    if (t.__frsSig === sig) return;
-    t.__frsSig = sig;
-    t.innerHTML = ts.map((x, i) => urls[i]
-      ? '<i class="fr" style="background-image:url(' + urls[i] + ')"></i>'
-      : '<i class="fr gap"></i>').join('');
-  });
-  const draw = byKey => byKey.forEach(rec => {
-    touchFrameSrc(rec.key);                                 // 读命中也算摸到：别把在看的素材淘汰掉
-    paintTiles(rec.plans, frameCache.get(rec.key) || EMPTY_HITS);
-  });
-  /* ① **同步**先把已经取到过的那批贴上去（纯读缓存，一次解码都不做）。
-     以前不管命中与否，都先画一排占位、再等异步回来填 —— 每次重画（每 3 秒轮询、
-     每剪一刀、每次切镜头）都完整重演一遍「先空后填」，看着就是「每次都重新加载」。
-     命中率高的场景下（同一个镜头来回剪）这一遍就等于当场画好了。 */
-  const first = collect();
-  draw(first);
-  /* ② 只剩「缓存没有、这一条素材上也没人在取、而且不是已经确认取不到」的那些格子去解码。
-     不同素材之间不再各开一份并发：活全排进 sliceAsk 那条流水线，全页同时在解的就是 SLICE_GLOBAL 趟。 */
-  const jobs = [];
-  /* 排活之前先按**看得见的**排一下：放大之后一屏只装得下一两条候选，而文档顺序解码时
-     屏幕外那几条会把看得见的这条挤到队尾 —— 用户盯着的那一块要等好几秒才出图。
-     只是把「有格子在视野附近」的素材提到前面，其余的照旧排队跟着补，不丢一格。 */
-  const barEl = document.getElementById('tlBar');
-  const barRect = barEl ? barEl.getBoundingClientRect() : null;
-  /* 可见性按**行**算 —— 一栏最多三条行轨（本镜 / 全片 / 配音），每行取一次矩形，
-     别对每格各来一次 getBoundingClientRect（一次重画 40-200 次强制布局）。
-     全片那一排的行是 `.tl-film`（不是 `.tl-vrow`）：漏了它，全片页签的可见性
-     恒为「看得见」，屏外的素材与屏内同优先级排队 —— 那道「可见性优先」就白立了。 */
-  const rowRects = new Map();
-  if (barRect) {
-    root.querySelectorAll('.tl-vrow, .tl-film').forEach(r => rowRects.set(r, r.getBoundingClientRect()));
-    if (root.classList && (root.classList.contains('tl-vrow') || root.classList.contains('tl-film'))) {
-      rowRects.set(root, root.getBoundingClientRect());
-    }
-  }
-  const rowRectOf = el => {
-    if (!el || !el.closest) return null;
-    const row = el.closest('.tl-vrow') || el.closest('.tl-film');
-    return row ? (rowRects.get(row) || null) : null;
-  };
-  const items = Array.from(first.values()).map(rec => {
-    return {
-      key: rec.key, src: rec.src, plans: rec.plans,
-      vis: barRect ? rec.plans.some(p => {
-        const r = rowRectOf(p.t);
-        return !r || (r.right > barRect.left - 320 && r.left < barRect.right + 320);
-      }) : true
-    };
-  });
-  items.sort((a, b) => (b.vis ? 1 : 0) - (a.vis ? 1 : 0));
-  /* 每块解码回来就补画一次，但同一拍里几块一起回来只画一次：
-     一次重排几十格，每格都触发一遍整条轨道的重排会把主线程按住。
-     用 setTimeout 不用 requestAnimationFrame —— 后台标签页里 rAF 根本不跑，
-     探针（jsdom）里也没有，那一遍补画就永远不落。 */
-  let tick = 0, painted = false;
-  const redrawSoon = () => {
-    if (tick) return;
-    tick = setTimeout(() => {
-      tick = 0; painted = true;
-      if (root.isConnected) draw(collect());
-    }, painted ? 80 : 0);      // 第一块回来立刻上屏：首格不该再等一次防抖
-  };
-  /* 看得见的那几条、加上文档顺序最前面两条（打开工程第一眼就是轨道开头那两段，
-     哪怕这一屏没露出来）先问一次持久缓存（命中就当场贴；没命中只是一次 IndexedDB 查询）。
-     屏幕外的边解边补 —— 不让十几条候选各等一次磁盘读。 */
-  const warmItems = items.filter((x, i) => x.vis || i < 2);
-  if (warmItems.length) {
-    await Promise.all(warmItems.map(x => hydrateFrameSrc(x.key)));
-    if (root.isConnected) draw(collect());
-  }
-  items.filter(x => !warmItems.includes(x)).forEach(x => hydrateFrameSrc(x.key).then(redrawSoon));
-  items.forEach(({ key, src, plans, vis }) => {
-    const marks = new Set();
-    let hot = -1;
-    plans.forEach(p => {
-      p.ts.forEach(x => marks.add(x));
-      /* 热区只认「这一条素材上看得见的、而且针真指着的」那一格：
-         针在别的镜上时不该决定这一条先解哪一块。 */
-      if (hot < 0 && p.pin >= 0 && (vis || !barRect)) hot = p.pin;
-    });
-    const warm = frameCache.get(key) || EMPTY_HITS;
-    const need = Array.from(marks)
-      .filter(t => !warm.has(t) && !sliceBadFresh(key, t))
-      .sort((x, y) => x - y);
-    if (need.length) sliceAsk(key, src, need, frameCacheOf(key), hot, vis, redrawSoon).forEach(p => { jobs.push(p); p.then(redrawSoon); });
-  });
-  if (jobs.length) {
-    await Promise.all(jobs);
-    if (tick) { clearTimeout(tick); tick = 0; }
-    if (root.isConnected) draw(collect());      // 按**此刻**栏上的格子再画一遍，不回填孤立节点
-  }
-}
-
 /* 导演台切走时停掉切片解码；切回来再从原队列继续（已经取到的帧都在 frameCache 里）。 */
 window.addEventListener('spa:page', e => {
   const d = e && e.detail;
@@ -764,10 +594,60 @@ async function tlClipSrc(c) {
   return Api.assetSrc(aid);
 }
 
+/* ---------------- 新时间线的胶片格：按源秒要帧 ----------------
+   clip.src 存的是平台原地址（可能带过期签名），解码前过一道 mediaSrc —— 与页面别处同一条出口，
+   本机有副本就用本机那份，缓存键也跟着稳定（sliceKey 认的就是归一化之后的身份）。
+   `ensureFrames` 返回与入参**等长**的地址表：取不到的那一格给空串，调用方照旧按格序贴
+   （缺的由 strip 就近顶上），不会因为中间一帧失败把后面的画面整体错位。 */
+  const frameSrcOf = clip => {
+    const raw = String((clip && clip.src) || '');
+    if (!raw) return '';
+    try { return (mediaSrc ? mediaSrc(raw) : raw) || raw; } catch (e) { return raw; }
+  };
+  function framePeek(clip, times, tol = 0.4) {
+    const list = (Array.isArray(times) ? times : []).map(Number).filter(Number.isFinite);
+    const src = frameSrcOf(clip);
+    if (!src || !list.length) return list.map(t => ({ t, url: '' }));
+    const hit = frameCache.get(sliceKey(src));
+    if (!hit || !hit.size) return list.map(t => ({ t, url: '' }));
+    const keys = Array.from(hit.keys()).filter(Number.isFinite).sort((a, b) => a - b);
+    const limit = Math.max(0.04, Number(tol) || 0.4);
+    return list.map(t => {
+      if (hit.has(t)) return { t, url: hit.get(t) };
+      let lo = 0, hi = keys.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (keys[m] < t) lo = m + 1; else hi = m; }
+      let best = '', bd = Infinity;
+      for (const k of [keys[lo - 1], keys[lo]]) {
+        if (!Number.isFinite(k)) continue;
+        const d = Math.abs(k - t);
+        if (d < bd && d <= limit) { bd = d; best = hit.get(k) || ''; }
+      }
+      return { t, url: best };
+    });
+  }
+  async function ensureFrames(clip, times) {
+    const list = (Array.isArray(times) ? times : []).map(Number).filter(Number.isFinite);
+    const src = frameSrcOf(clip);
+    if (!src || !list.length || (clip && clip.kind === 'image')) return list.map(t => ({ t, url: '' }));
+    const key = sliceKey(src);
+    await hydrateFrameSrc(key);
+    touchFrameSrc(key);
+    const hit = frameCacheOf(key);
+    const need = Array.from(new Set(list.filter(t => !hit.has(t) && !sliceBadFresh(key, t))));
+    if (need.length) await Promise.all(sliceAsk(key, src, need, hit, -1, true, () => {}));
+    /* 回来的是**整个文件里真实存在的帧时刻**（流式那条路给的是包时刻，与请求的栅格差零点几秒是常态），
+       所以按「相邻两格跨多远」定容差取最近的一张 —— 按 0.04 秒死抠的话，一张都对不上，
+       整条带子会一直停在占位斜纹上。 */
+    const span = list.length > 1
+      ? (list[list.length - 1] - list[0]) / (list.length - 1)
+      : 0.5;
+    return framePeek(clip, list, Math.max(0.041, span * 0.55));
+  }
+
   return {
     sliceForgetFail,
-    sliceUserTouch,
-    fillSlices,
     tlClipSrc,
+    ensureFrames,
+    framePeek,
   };
 }

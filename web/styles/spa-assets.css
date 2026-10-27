@@ -76,40 +76,17 @@
 .assets-page .task .meta2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .assets-page .task .acts { flex-wrap: nowrap; }
 /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
-/* ---------- 页头：标题 + 状态三档 + 找东西 + 换档 ----------
-   状态三档不是「又一颗筛选项」：它回答的是「这批东西现在怎么样」——
-   在制（还在跑）/ 失败 / 结果未知（可能已被受理，钱可能已经扣了）。
-   每一档带条数、点一下就把列表筛到那一档；**计数为 0 的那一档不画**
-   （库里没有失败的时候，页头不该挂着一颗「失败 0」）。 */
-.assets-page .as-head { display: flex; flex-direction: column; gap: var(--sp-10); margin-bottom: var(--sp-12); }
-.assets-page .as-head-1 { display: flex; align-items: center; gap: var(--sp-16); flex-wrap: wrap; }
-.assets-page .as-head-1 .page-h1 { margin: 0; }
-.assets-page .as-head-2 { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; }
+/* ---------- 工具条：找东西 + 换档（视图切换）----------
+   页头那一层是公共的 .phead（全站唯一一份）；这一行只管「怎么看这一页」：
+   搜索框、类型标签、视图切换。状态三档在页头的上下文槽里，用公共 .phead-chip。 */
+.assets-page .as-tools { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap;
+  margin: var(--sp-12) 0 var(--sp-10); }
 .assets-page .as-head-tools { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
 .assets-page .as-head-tools .flabel { font-size: var(--fs-12); color: var(--sub); }
 .assets-page .as-head-tools input[type="search"] { width: 260px; height: 32px; padding: 0 var(--sp-12);
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel);
   color: var(--txt); font-size: var(--fs-12-5); outline: none; font-family: inherit; }
 .assets-page .as-head-tools input[type="search"]:focus { border-color: var(--acc); }
-.assets-page .as-head-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
-
-.assets-page .as-sum { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
-.assets-page .as-sum-i { display: inline-flex; align-items: center; gap: var(--sp-6); height: var(--sz-ctl);
-  padding: 0 var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-8);
-  background: var(--panel); color: var(--sub); font-family: inherit; font-size: var(--fs-12-5);
-  cursor: pointer; white-space: nowrap;
-  transition: border-color var(--dur-120), background var(--dur-120), color var(--dur-120); }
-.assets-page .as-sum-i:hover { border-color: var(--acc); color: var(--txt); }
-.assets-page .as-sum-i.on { border-color: var(--acc); background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
-.assets-page .as-sum-i b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-13);
-  color: var(--txt); font-weight: 600; }
-.assets-page .as-sum-i.on b { color: var(--acc); }
-/* 状态点：形状也带信息 —— 实心琥珀=在跑 / 空心琥珀=结果未知 / 实心红=失败 */
-.assets-page .as-sum-i .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
-  display: inline-block; flex: 0 0 auto; }
-.assets-page .as-sum-i .dot.live { background: var(--warn); animation: blink var(--dur-1200) infinite; }
-.assets-page .as-sum-i .dot.unc { background: var(--warn); box-shadow: inset 0 0 0 var(--hair-2) var(--panel); }
-.assets-page .as-sum-i .dot.fail { background: var(--err); }
 
 /* ---------- 一行筛选：类型（带条数）+ 平台 + 时间 ----------
    平台从一个下拉走：平台涨到十几家时，一行十几颗芯片会把整行撑开。

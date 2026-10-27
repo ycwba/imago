@@ -1,6 +1,6 @@
 /* 分镜结构化纯函数：快照 / 给 AI 的清单 / changes 对账 / 唯一落盘点。
    从 web/director/engine.js 拆出；镜头工厂、时长夹取、场景图与状态判据由 createBoardTools 注入。 */
-import { ctxClip, BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from './util.js';
+import { ctxClip, BOARD_CTX_PROMPT } from './util.js';
 
 export function createBoardTools(ctx) {
   const { durWritable, nameKey, newShot, setShotDur, removeShot, uid, Wb, feedScenePics, clampShotDurations } = ctx;

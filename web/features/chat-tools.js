@@ -875,9 +875,9 @@
        桥没挂或不在前台时明确说「先切到导演台」，不返回空对象让模型据此编一份时间线。 */
     timeline_get: {
       arg: '无参数',
-      doc: '导演台此刻这一镜的完整账：项目/场景/镜头、选用哪条候选、候选清单、每段 {第, in, out, 倍速, 音量, 黑场}、'
-        + '总秒与成片秒、插针位置、选中段、播放头、字幕摘要（条数/来源/是否过时）、成片导出状态、revision。'
-        + '要动时间线先读它；写动作的 expectedRevision 由助手按它补，不用自己填',
+      doc: '导演台此刻的完整账：成片（段数/总秒/播放头/每段 {第,id,start,end,素材,倍速,音量,转场}）、'
+        + '配音与待生成块数、字幕摘要（条数/藏掉/没字）、标记、当前焦点块、当前镜头与候选清单、可撤销/可重做。'
+        + '要动时间线先读它；写动作按这里的块 id 点名，动手前先 check（桥会拿身份对账）',
       async run() { return dirRead('context', {}); },
     },
     timeline_history: {
@@ -887,17 +887,17 @@
       async run() { return dirRead('history', {}); },
     },
     subtitle_list: {
-      arg: '{ "shotId": "可选：镜头 id", "shot": 1, "take": 1 }',
-      doc: '读某一镜（默认当前镜）的字幕账：条数、来源（line+voice / manual / asr）、是否过时（台词或选用候选变过）、'
-        + '样式、源指纹，以及每条的 startMs/endMs（**候选源秒**）和换算后的成片秒。'
-        + '时间基准写明在返回里，不许把源秒当播放器秒',
+      arg: '{ "id": "可选：单条字幕 id", "voiceId": "可选：只看挂在哪条配音上的" }',
+      doc: '读全片字幕轨：条数、被眼睛藏掉几条、没字几条，以及每条的 id / start / end（**成片秒**，'
+        + '时间基准写在返回的「时间基准」里）/ 文本 / 位置（top/middle/bottom）/ 高亮 / 挂着哪条配音。'
+        + '要动单条就按 id 点名走 subtitle_update',
       async run(a) { return dirRead('subtitle', a || {}); },
     },
     subtitle_export_srt: {
-      arg: '{ "shotId": "可选：只出这一镜" }',
-      doc: '把字幕导出成 SRT 文本。不给 shotId 就是全片（成片秒）；给了只出那一镜（没进成片时按本镜甲板秒）。'
-        + '只回文本、不写文件，也不改工程；要落成 .srt 由用户在导演台字幕面板下载',
-      async run(a) { return dirRead('srt', a || {}); },
+      arg: '无参数（整条字幕轨就是全片的）',
+      doc: '把字幕轨导出成 SRT 文本（成片秒，整条轨）。只回文本、不写文件，也不改工程；'
+        + '要落成 .srt 由用户在导演台字幕面板下载',
+      async run() { return dirRead('srt', {}); },
     },
     media_info: {
       arg: '{ "take": 1, "shot": 1, "shotId": "可选", "assetId": "可选", "src": "可选" }',
@@ -1547,7 +1547,7 @@
       }
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      try { el.focus(); } catch (e) {}
+      try { if (window.focusQuiet) window.focusQuiet(el); else el.focus(); } catch (e) {}
       if (typeof pin === 'function') pin();
       return { ok: true, text: '已经填好「' + cap(labelOf(el), 30) + '」：' + cap(value, 60)
         + '（没有提交 —— 要生效请自己按那颗按钮）' };
@@ -1619,10 +1619,10 @@
 
   /* ---------- 导演台时间线（唯一写入桥 `WBBridge.director`）----------
      助手不靠点轨道上的按钮来剪辑：那需要「先找按钮 → 再点」两步，而按钮指向的是
-     用户此刻指着的那一段。桥把编辑器自己的函数（cutSegs / segsWrite / reanchorVoices）
-     包成 check（纯读）与 run（写入 + 撤销快照），动作表只转发。
-     `check` 在卡片画出来之前跑完；它和 run 是两次独立纯读，中间用户自己动过轨道时
-     run 会按**当下**重算，不拿卡片上那份旧计划去写。 */
+     用户此刻指着的那一块。桥把编辑器自己的三条写出口（Edit.patch / Edit.toolAction /
+     Caption.*）包成 check（纯读）与 run（写入 + 撤销快照），动作表只转发。
+     `check` 在卡片画出来之前跑完并记下这一次的**身份**；run 前按同样的参数重算，
+     身份对不上就拒 —— 中间用户动过轨道时不拿旧计划盖新编辑。 */
   function directorBridge() {
     const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('director') : null;
     return (A && typeof A.check === 'function' && typeof A.run === 'function') ? A : null;
@@ -1650,24 +1650,15 @@
     return r;
   }
   const dirRead = (method, a) => bridgeRead('导演台', 'director', method, a);
-  /* 写动作的修订号从哪来：**在画卡片的那一刻现读桥**，而不是让模型自己填一个数。
-     模型填的话它要么抄上一轮的旧值（每次都是「工程改过」），要么编一个（当场拒）。
-     现读之后 check 与 run 之间还有一次 CAS：用户在「执行 / 取消」之间自己动过轨道，
-     run 那一次就会 mismatch 当场拒掉，绝不拿旧计划盖新编辑。
-     `operationId` 同理由助手生成（注册表按它做 24 小时去重，同一意图不会跑两遍）。 */
+  /* 写动作的 operationId 由助手生成（注册表按它做 24 小时去重，同一意图不会跑两遍）。
+     check 与 run 之间还有一道**身份对账**（桥按块 id 现对）：用户在「执行 / 取消」之间自己动过轨道，
+     run 那一次就会因身份对不上当场拒掉，绝不拿旧计划盖新编辑 ——
+     所以每一次 run 之前必须紧跟一次同参 check（directorCheck 画卡片、directorRun 执行，各自都这么走）。 */
   const DIR_WRITE = ['select_take', 'cut_timeline', 'set_clip', 'undo_edit', 'timeline_apply',
     'subtitle_update', 'subtitle_resegment', 'subtitle_import_srt'];
   function stampWrite(name, arg, scope, opId) {
     if (!arg || typeof arg !== 'object') return arg;
     if (!DIR_WRITE.includes(name)) return arg;
-    if (arg.expectedRevision == null) {
-      let rev = null;
-      /* 读的是导演台那份快照里的修订号（工程 revision）。桥不在（用户已经切走）就退回本轮上下文里那一个数。 */
-      const A = directorBridge();
-      try { if (A && typeof A.context === 'function') rev = Number(A.context().revision); } catch (e) { rev = null; }
-      if (!Number.isFinite(rev)) rev = Number(scope && scope.revision);
-      arg.expectedRevision = Number.isFinite(rev) ? rev : 0;
-    }
     if (arg.operationId == null && opId) arg.operationId = String(opId);
     return arg;
   }
@@ -1681,8 +1672,6 @@
     try { r = A.check(op, a); } catch (e) { r = { ok: false, err: errText(e) }; }
     if (!r || r.ok === false) return { err: dirErr(r, '导演台拒绝了这次操作') };
     const lines = r.lines || [r.text || ''];
-    if (r.subtitleCount != null) lines.push('字幕：这次写完是 ' + r.subtitleCount + ' 条' + (r.stale ? '（旧的那一份已经过时，以这份为准）' : ''));
-    if (r.stale) lines.push('这一镜的台词/配音或选用候选变过：写完会重新派生，未导出的成片要重新导出');
     return { 说明: r.text || '时间线操作', 人话: lines, 钉: null };
   }
   function directorRun(op, a) {
@@ -1695,22 +1684,15 @@
       throw e;
     }
     const out = { ok: true, text: r.text || '做完了' };
-    if (r.revision != null) out.revision = Number(r.revision) || 0;
     if (Array.isArray(r.changedIds)) out.changedIds = r.changedIds;
-    const w = Array.isArray(r.warnings) ? r.warnings.filter(Boolean) : [];
-    if (w.length) out.text += '（注意：' + w.join('；') + '）';
-    if (r.subtitleCount != null) out.subtitleCount = r.subtitleCount;
-    if (r.stale != null) out.stale = !!r.stale;
-    if (r.unexported != null) out.unexported = !!r.unexported;
-    if (out.unexported || w.length) out.text += '；这一下改的是成片内容，要重新导出才是新的那一份';
     return out;
   }
 
   /* ---------- 批量剪辑：ActionRegistry 层的编排，**不是新的桥 op** ----------
-     先把 ops 全部走一遍 `A.check`（任一条不合法就整批当场拒绝），再按顺序 `A.run`。
-     引擎靠 `_batch:{first,last}` 把整批包成「一次撤销快照 + 一次重画 + 一次 revision 推进」，
-     所以中途某一条真的失败了（校验过了、运行时撞坏）时，助手补一次带 `_rollback` 的 undo
-     就能退回这批开始前的那份快照 —— 不留「前三条改了、第四条没改」的半截工程。
+     先把 ops 全部走一遍 `A.check`（任一条不合法就整批当场拒绝），再按顺序「check → run」。
+     桥的每次 run 都自带自己的撤销窗（一次 run = 一个撤销条目），所以中途某一条真的失败了
+     （校验过了、运行时撞坏）时，助手对**已完成的每一条**补一次 undo，就能逐条退回 ——
+     不留「前三条改了、第四条没改」的半截工程。
      桥上的 op 仍然只有 select / cut / set / undo 四个（AGENTS §9.3）。 */
   const APPLY_OPS = ['select', 'cut', 'set'];
   const APPLY_MAX = 20;
@@ -1731,15 +1713,10 @@
       const src = (o.arg && typeof o.arg === 'object') ? o.arg : o;
       const arg = Object.assign({}, src);
       delete arg.op; delete arg.arg;
-      delete arg._rollback;             // 内部回滚旗标只认助手侧 undo 那一条：模型塞进 op 参数里不许生效
-      if (op === 'cut' && !String(arg.way || '')) return { err: '第 ' + (i + 1) + ' 条 cut 没写 way（split / left / right / drop / merge）' };
-      if (op === 'set' && ['speed', 'volume', 'gray'].every(k => arg[k] == null)) {
-        return { err: '第 ' + (i + 1) + ' 条 set 什么都没要改：speed / volume / gray 至少给一项' };
-      }
-      arg._batch = { first: i === 0, last: i === ops.length - 1 };
-      if (i === 0) {
-        if (a.expectedRevision != null) arg.expectedRevision = a.expectedRevision;
-        if (a.operationId != null) arg.operationId = a.operationId;
+      if (op === 'cut' && !String(arg.way || '')) return { err: '第 ' + (i + 1) + ' 条 cut 没写 way（split / left / right / remove / duplicate / merge）' };
+      if (op === 'set' && !Object.keys(arg).some(k => ['kind', 'id', 'at', 'index', 'speed', 'volume', 'muted', 'lane',
+        'start', 'end', 'srcStart', 'srcEnd', 'slip', 'roll', 'slide', 'moveTo', 'transition', 'fadeIn', 'fadeOut'].includes(k))) {
+        return { err: '第 ' + (i + 1) + ' 条 set 什么都没要改：至少给 kind + 一个要改的字段' };
       }
       norm.push({ op, arg });
     }
@@ -1758,7 +1735,7 @@
       lines.push((i + 1) + '. ' + (r.text || '时间线操作'));
       (r.lines || []).forEach(L => lines.push('　' + L));
     }
-    return { 说明: '批量剪辑 ' + n.ops.length + ' 条（算一次编辑，一次撤销整批退回）', 人话: lines, 钉: null };
+    return { 说明: '批量剪辑 ' + n.ops.length + ' 条（每条一个撤销条目，失败了逐条退回）', 人话: lines, 钉: null };
   }
   async function timelineApplyRun(a) {
     const A = directorBridge();
@@ -1766,40 +1743,46 @@
     const n = applyOps(a);
     if (n.err) throw new Error(n.err);
     const done = [], ids = [];
-    let rev = 0, warn = [];
+    const rollback = why => {
+      /* 逐条退回：一条 run = 一个撤销条目，所以退 done.length 次。
+         桥的 run 只认「同一次 check」跟在后面，退回那条 undo 也要先 check 一次。 */
+      for (let k = 0; k < done.length; k++) {
+        try { A.check('undo', { mode: 'undo', steps: 1 }); A.run('undo', { mode: 'undo', steps: 1 }); }
+        catch (e) { /* 退不动就照实说 */ }
+      }
+      throw new Error(why + '（前面 ' + done.length + ' 条已经逐条退回，工程没有留在半截状态）');
+    };
     for (let i = 0; i < n.ops.length; i++) {
       const o = n.ops[i];
+      /* check 紧挨着 run：桥靠「check 记身份 → run 对身份」拦掉中途被改过的写入。 */
+      let c = null;
+      try { c = A.check(o.op, o.arg); } catch (e) { c = { ok: false, err: errText(e) }; }
+      if (!c || c.ok === false) rollback('第 ' + (i + 1) + ' 条动手前身份对不上了：' + dirErr(c, '导演台拒绝了这一条'));
       let r = null;
       try { r = A.run(o.op, o.arg); } catch (e) { r = { ok: false, err: errText(e) }; }
-      if (!r || r.ok === false) {
-        try { A.run('undo', { mode: 'undo', steps: 1, _rollback: true }); } catch (e) {}
-        throw new Error('第 ' + (i + 1) + ' 条失败：' + dirErr(r, '导演台拒绝了这一条')
-          + '（前面 ' + i + ' 条已经整批退回，工程没有留在半截状态）');
-      }
+      if (!r || r.ok === false) rollback('第 ' + (i + 1) + ' 条失败：' + dirErr(r, '导演台拒绝了这一条'));
       done.push(r.text || '做了');
       if (Array.isArray(r.changedIds)) r.changedIds.forEach(x => ids.push(x));
-      if (Array.isArray(r.warnings)) warn = warn.concat(r.warnings.filter(Boolean));
-      if (r.revision != null) rev = Number(r.revision) || rev;
     }
     const uniq = [...new Set(ids)];
-    return { ok: true, revision: rev, changedIds: uniq,
+    return { ok: true, changedIds: uniq,
       text: '批量剪辑完成 ' + n.ops.length + ' 条：' + cap(done.join('；'), 500)
-        + (warn.length ? '（注意：' + cap(warn.join('；'), 240) + '）' : '')
-        + '；这一下改的是成片内容，要重新导出才是新的那一份。要退回就说「撤销最近一步」。' };
+        + '；这一下改的是成片内容，要重新导出才是新的那一份。要退回就说「撤销最近一步」（退几步就是几条）。' };
   }
   /* ---------- 字幕三条写动作：都走桥的 `set` + `kind:'subtitle'` 那一条分支 ----------
-     数据层始终是候选源秒；条目有序、end>start、落在源时间轴内、candId 与选用一致这些校验
-     全在引擎的 subPlan 里（唯一一份），助手侧只负责「哪条动作能带哪些字段」这道分流。 */
+     字幕挂在整份成片上（film.captions 的 start/end 就是成片秒），没有「按镜头」的第二份账：
+     单条改动按 id 点名（引擎的 subPlan 是唯一一份校验），整轨内容改动一次只做一样。 */
   function subArgs(a, fix) { return Object.assign({}, a || {}, fix, { kind: 'subtitle' }); }
   const subCheckWith = (fix, a) => directorCheck('set', subArgs(a, fix));
   const subRunWith = (fix, a) => directorRun('set', subArgs(a, fix));
-  const SUB_KEYS = ['entries', 'style', 'source', 'text', 'maxChars'];
   function subtitleUpdateCheck(a) {
     const q = a || {};
-    if (typeof q.text === 'string' && q.text.trim()) return { err: '贴 SRT 正文导入用的是 subtitle_import_srt，这一条只改条目 / 样式 / 来源' };
     if (q.maxChars !== undefined) return { err: '按字数重切段用的是 subtitle_resegment' };
-    if (!['entries', 'style', 'source'].some(k => q[k] !== undefined)) {
-      return { err: '要改字幕的什么没说：entries（源秒条目）/ style（样式）/ source:"line+voice"（按台词与配音重新生成）至少给一样' };
+    if (typeof q.text === 'string' && q.text.trim() && q.id == null) return { err: '贴 SRT 正文导入用的是 subtitle_import_srt；改单条的字给 id + text' };
+    if (q.id != null && q.id !== '') return subCheckWith({}, q);
+    if (!['entries', 'regenerate'].some(k => q[k] !== undefined)) {
+      return { err: '要改字幕的什么没说：单条给 id + text/start/end/position（top·middle·bottom）/highlight/remove；'
+        + '整轨给 entries（成片秒条目）/ regenerate:true（按配音与待生成补齐还没挂字幕的块）其中一样' };
     }
     return subCheckWith({}, q);
   }
@@ -1807,8 +1790,9 @@
     const q = a || {};
     const lim = Number(q.maxChars);
     if (!Number.isInteger(lim) || lim < 1 || lim > 500) return { err: 'maxChars 是每行最多几个字（1–500 的整数），现在给的是「' + q.maxChars + '」' };
-    const extra = SUB_KEYS.filter(k => k !== 'maxChars' && k !== 'source' && q[k] !== undefined);
-    if (extra.length) return { err: '重切段这一次只动段：除 maxChars' + (q.source !== undefined ? ' 和 source' : '') + ' 之外别的一概不带（多了的是 ' + extra.join(' / ') + '）' };
+    /* `operationId` 是管线现读现补的幂等键（见 stampWrite），模型不会写它 —— 别把它算成「多带了字段」。 */
+    const extra = Object.keys(q).filter(k => k !== 'maxChars' && k !== 'operationId');
+    if (extra.length) return { err: '重切段这一次只动段：除 maxChars 之外别的一概不带（多了的是 ' + extra.join(' / ') + '）' };
     return subCheckWith({}, q);
   }
   /* SRT 从哪来：模型贴的 text，或本机资产库/收藏里那一份 .srt（assetId）。
@@ -1929,9 +1913,9 @@
       check: clickCheck, run: runClick,
     },
     /* ---------- 导演台时间线：写入走编辑器自己的那一条桥 ----------
-       `take` / `seg` / `shot` 都是从 1 开始的名次（用户嘴里的「第二条」「第三段」），
-       `shotId` / `candId` 是精确身份。**绝不让模型用 click 去点轨道**：
-       轨道上那排按钮指向的是「用户此刻指着的那一段」，模型看不见那个焦点。 */
+       块按 id 点名（timeline_get 里拿），名次类指法（index 第几段 / at 第几秒）也能现找；
+       select_take 仍按镜头 + 第几条候选点名。**绝不让模型用 click 去点轨道**：
+       轨道上那排控件指向的是「用户此刻指着的那一块」，模型看不见那个焦点。 */
     select_take: {
       arg: '{ "take": 2, "shot": 1, "shotId": "可选：镜头 id", "scene": 1 }',
       title: '选一条候选进成片（导演台）',
@@ -1940,19 +1924,25 @@
       check: a => directorCheck('select', a), run: a => directorRun('select', a),
     },
     cut_timeline: {
-      arg: '{ "way": "split|left|right|drop|merge", "at": 4.2, "seg": 1, "take": 1, "shot": 1 }',
-      title: '剪时间线（导演台）',
-      doc: '在导演台剪某一镜的一条候选：split 在 at 秒切开；left / right 以 at 为界切掉左/右；'
-        + 'drop 把第 seg 段删成黑场（再执行一次恢复画面）；merge 把第 seg 段与相邻段融合。'
-        + 'at 是**源视频秒数**，seg 是第几段（从 1 开始）。不写 take 就用这一镜选用的那条；'
-        + '切开/左右切必须给 at 或 seg，不能猜。剪坏了用 undo_edit，别用 click 点轨道按钮。',
+      arg: '{ "way": "split|left|right|remove|duplicate|merge", "id": "可选：画面段 id", "at": 4.2, "index": 1 }',
+      title: '剪成片时间线（导演台）',
+      doc: '在导演台剪成片上的某一段画面：split 在成片第 at 秒切开；left / right 以 at 为界剪掉开头/末尾那截；'
+        + 'remove 整段删掉（后面的段前移，格子原地变黑场用不到——那是「删掉」的语义）；duplicate 复制一份紧跟其后；'
+        + 'merge 把这一段与下一段融合。at 是**成片秒**（不是素材源秒）。'
+        + '目标段按 id 点名，或按 index（第几段，从 1）/ at（落在哪一秒里）现找；不写就用当前焦点段。'
+        + '切开/左右切必须给 at。剪坏了用 undo_edit，别用 click 点轨道按钮。',
       check: a => directorCheck('cut', a), run: a => directorRun('cut', a),
     },
     set_clip: {
-      arg: '{ "seg": 1, "speed": 2, "volume": 0.8, "gray": false, "take": 1, "shot": 1 }',
-      title: '改这一段的倍速 / 音量（导演台）',
-      doc: '改导演台某一段画面的倍速（0.25–4，1=原速）、原声音量（0–2，1=原声，百分比要先除以 100）'
-        + '或黑场（gray:true 删成黑场 / false 恢复画面）。speed / volume / gray 至少给一项。',
+      arg: '{ "kind": "clip|voice|pending", "id": "块 id", "speed": 2, "volume": 0.8, "muted": false, "lane": 0, "start": 3.2, "end": 8, "srcStart": 0, "srcEnd": 4.8, "slip": 1.5, "roll": -1, "slide": 2, "moveTo": 10, "transition": { "id": "crossfade", "duration": 0.5 } }',
+      title: '改某一块的属性（导演台）',
+      doc: '改成片上某一块的属性。kind：clip=画面段、voice=配音块、pending=待生成块；块按 id 点名（先 timeline_get 拿 id）。'
+        + '画面段可改：speed（0.25–4，1=原速）、volume（0–4，1=原声）、muted、lane（第几行）、start/end（成片秒，start 只能往后裁）、'
+        + 'srcStart/srcEnd（素材源秒的窗口）、slip（源窗口平移）、roll（与下一段的切点平移）、slide（整体滑动，要左右邻居）、'
+        + 'moveTo（挪到成片第几秒）、transition（与下一段之间的转场，给 {id,duration} 或 null 摘掉）。'
+        + '配音块可改：speed / volume / fadeIn / fadeOut（秒）/ lane / start / end / srcStart / srcEnd；'
+        + '待生成块可改：lane / start / end（只能往里裁）。'
+        + '几何改动（start / end / srcStart·srcEnd / slip / roll / slide / moveTo）一次只做一处、不与别的字段混给。',
       check: a => directorCheck('set', a), run: a => directorRun('set', a),
     },
     undo_edit: {
@@ -1960,44 +1950,44 @@
       title: '撤销 / 重做最近一步（导演台）',
       doc: '撤销或重做导演台最近的时间线编辑（与 Ctrl+Z / Ctrl+Y 是同一份撤销栈），steps 最多 5。'
         + '助手刚改过时间线、或用户在导演台改坏了，都用这一条退回去 —— 不要去点侧栏或刷新页面。'
-        + '一次批量剪辑（timeline_apply）整批只算一步，所以一次 undo 就能全退。',
+        + '一次批量剪辑（timeline_apply）每条 op 各占一个撤销条目，要整批退回就把 steps 给到条数。',
       check: a => directorCheck('undo', a), run: a => directorRun('undo', a),
     },
     /* ---------- 批量剪辑：编排现有四个桥 op，不新增桥 op ----------
-       模型只需要「一次把这条链做完」；一次撤销快照、一次重画、一次 revision 推进都由
-       引擎的 `_batch` 标记保证。任一条不合法在画卡片之前就整批拒绝。 */
+       模型只需要「一次把这条链做完」；每次 run 自带撤销窗（一条 = 一个撤销条目），
+       中途失败时助手逐条 undo 退回。任一条不合法在画卡片之前就整批拒绝。 */
     timeline_apply: {
-      arg: '{ "ops": [ { "op": "select|cut|set", ...那一条 op 自己的参数 }, … ], "expectedRevision": "助手自动补" }',
+      arg: '{ "ops": [ { "op": "select|cut|set", ...那一条 op 自己的参数 }, … ] }',
       title: '一次做完一串剪辑（导演台）',
       doc: '把多条剪辑合成一次提交：ops 里每条的 op 只能是 select / cut / set（字幕改动不进来，走 subtitle_*）。'
-        + 'cut 要带 way（split/left/right/drop/merge，split/left/right 还要 at）；set 要带 seg 且 speed/volume/gray 至少一项。'
-        + '整批先全部校验，有一条不对就一条都不做；通过后算**一个撤销条目**（undo_edit 一步整批退回）。'
+        + 'cut 要带 way（split/left/right/remove/duplicate/merge，split/left/right 还要 at）；'
+        + 'set 要带 kind 与要改的字段。整批先全部校验，有一条不对就一条都不做；'
+        + '通过后逐条执行，每条一个撤销条目（undo_edit 退一步是一条）。'
         + '典型用法：先 cut 切开，再对后半段 set speed。',
       check: timelineApplyCheck, run: timelineApplyRun,
     },
     /* ---------- 字幕三条写动作：都落桥的 set + kind:'subtitle' ----------
-       时间基准始终是候选源秒（引擎唯一一份账）；成片秒只在展示与导出时折算。 */
+       字幕挂在整份成片上，时间就是成片秒（与 SRT / 导出同一把尺子）。 */
     subtitle_update: {
-      arg: '{ "shotId": "可选", "shot": 1, "take": 1, "entries": [ { "startMs": 0, "endMs": 2400, "text": "…" } ], "style": { "字号": 48 }, "source": "manual|asr|line+voice" }',
-      title: '改这一镜的字幕（导演台）',
-      doc: '写某一镜的字幕：entries 是**候选源秒**的毫秒（startMs<endMs、落在这一条画面时长内、按时间有序），'
-        + 'source:"line+voice" 且不带 entries 就是按台词与配音重新生成整份。style 可以一起给。'
-        + '贴 SRT 用 subtitle_import_srt，按字数重切用 subtitle_resegment。改完先看 stale 再决定要不要重新导出。',
+      arg: '{ "id": "可选：单条字幕 id", "text": "可选", "start": 0.5, "end": 2.4, "position": "top|middle|bottom", "highlight": true, "remove": false, "entries": [ { "text": "…", "start": 0, "end": 2.4, "position": "可选" } ], "regenerate": true }',
+      title: '改字幕（导演台）',
+      doc: '改字幕：单条给 id + 要改的字段（text / start / end / position / highlight / remove，时间都是**成片秒**，多字段一起给算一次编辑）；'
+        + '整轨给 entries（[{text,start,end,position?}]，成片秒，整份替换）或 regenerate:true（按配音与待生成补齐**还没挂字幕**的块，'
+        + '已挂的不动）。贴 SRT 用 subtitle_import_srt，按字数重切用 subtitle_resegment。改完要重新导出才是新的那一份。',
       check: subtitleUpdateCheck, run: a => subRunWith({}, a),
     },
     subtitle_resegment: {
-      arg: '{ "shotId": "可选", "shot": 1, "maxChars": 14, "source": "可选 line+voice" }',
+      arg: '{ "maxChars": 14 }',
       title: '按每行字数重切字幕（导演台）',
-      doc: '把这一镜现有字幕按每行最多 maxChars 个字重新分段（保留源时间与文本内容，只改切法）。'
-        + '想要「先按台词重新派生再切」就同时给 source:"line+voice"。除 maxChars 与 source 外不要带别的字段。',
+      doc: '把成片现有字幕按每行最多 maxChars 个字重新分段（内容不变，时间按字数比例分）。'
+        + '除 maxChars 外不要带别的字段。',
       check: subtitleResegCheck, run: a => subRunWith({}, a),
     },
     subtitle_import_srt: {
-      arg: '{ "shotId": "可选", "text": "整份 SRT 正文", "assetId": "可选：本机那份 .srt 的资产号" }',
-      title: '导入 SRT 到这一镜（导演台）',
-      doc: '把一份 SRT 灌进某一镜的字幕：正文里的时间是**成片秒**，引擎按这一镜在成片里的起点折回候选源秒；'
-        + '落在别的时间段的条目会照实报「没有导入」。上限 2MB / 5000 条。'
-        + 'text 直接贴正文，或给本机资产号 assetId 让页面去读那一份。',
+      arg: '{ "text": "整份 SRT 正文", "assetId": "可选：本机那份 .srt 的资产号" }',
+      title: '导入 SRT（导演台）',
+      doc: '把一份 SRT 灌进成片字幕：正文里的时间就是**成片秒**（与轨道、导出同一把尺子）。'
+        + 'text 直接贴正文，或给本机资产号 assetId 让页面去读那一份。上限 2MB / 5000 条。',
       check: subtitleImportCheck, run: subtitleImportRun,
     },
     /* ---------- 转写（花钱/长任务）与导出（长任务 / 写资产库）---------- */
@@ -2083,8 +2073,8 @@
       query: { type: 'string' }, limit: { type: 'integer', min: 1, max: 8 },
       site: { type: 'string' }, freshness: { type: 'string', enum: ['day', 'week', 'month', 'year'] } } },
     web_read: { type: 'object', properties: { url: { type: 'string' }, maxChars: { type: 'integer', min: 500, max: 20000 } } },
-    subtitle_list: { type: 'object', properties: { shot: { type: 'integer', min: 1 }, take: { type: 'integer', min: 1 }, shotId: { type: 'string' } } },
-    subtitle_export_srt: { type: 'object', properties: { shotId: { type: 'string' } } },
+    subtitle_list: { type: 'object', properties: { id: { type: 'string' }, voiceId: { type: 'string' } } },
+    subtitle_export_srt: { type: 'object', properties: {} },
     media_info: { type: 'object', properties: { assetId: { type: 'string' }, src: { type: 'string' }, shot: { type: 'integer', min: 1 }, take: { type: 'integer', min: 1 }, shotId: { type: 'string' } } },
     media_frames: { type: 'object', properties: { assetId: { type: 'string' }, src: { type: 'string' },
       shot: { type: 'integer', min: 1 }, take: { type: 'integer', min: 1 }, shotId: { type: 'string' },
@@ -2112,26 +2102,38 @@
     const r = actRoute(k);
     return r === '*' || !route || r === route;
   });
-  /* 写动作的参数形状：`expectedRevision` / `operationId` **不放进 schema** ——
-     它们由助手在画卡片那一刻现读桥补上（见 stampWrite）。
-     让模型填这两个数，结果只有两种：抄上一轮的旧值（每次都是「改过」），或编一个（当场被拒）。 */
+  /* 写动作的参数形状：`operationId` **不放进 schema** ——
+     它由助手在画卡片那一刻生成补上（见 stampWrite）。
+     让模型填这个 id，结果只有两种：抄上一轮的旧值（每次都是「同一意图」），或编一个（当场被拒）。 */
   const SHOTREF = { shot: { type: 'integer', min: 1 }, shotId: { type: 'string' },
-    take: { type: 'integer', min: 1 }, scene: { type: 'integer', min: 1 } };
+    take: { type: 'integer', min: 1 }, candId: { type: 'string' }, scene: { type: 'integer', min: 1 } };
   const SUBENTRY = { type: 'object', properties: {
-    startMs: { type: 'integer', min: 0 }, endMs: { type: 'integer', min: 1 }, text: { type: 'string' } } };
+    text: { type: 'string' }, start: { type: 'number', min: 0 }, end: { type: 'number', min: 0.1 },
+    position: { type: 'string', enum: ['top', 'middle', 'bottom'] } } };
   Object.assign(TOOL_INPUT, {
     select_take: { type: 'object', properties: SHOTREF },
-    cut_timeline: { type: 'object', properties: Object.assign({ way: { type: 'string', enum: ['split', 'left', 'right', 'drop', 'merge'] },
-      at: { type: 'number', min: 0 }, seg: { type: 'integer', min: 1 } }, SHOTREF) },
-    set_clip: { type: 'object', properties: Object.assign({ seg: { type: 'integer', min: 1 },
-      speed: { type: 'number', min: 0.25, max: 4 }, volume: { type: 'number', min: 0, max: 2 }, gray: { type: 'boolean' } }, SHOTREF) },
+    cut_timeline: { type: 'object', properties: {
+      way: { type: 'string', enum: ['split', 'left', 'right', 'remove', 'duplicate', 'merge'] },
+      id: { type: 'string' }, at: { type: 'number', min: 0 }, index: { type: 'integer', min: 1 } } },
+    set_clip: { type: 'object', properties: {
+      kind: { type: 'string', enum: ['clip', 'voice', 'pending', 'subtitle'] }, id: { type: 'string' },
+      speed: { type: 'number', min: 0.25, max: 4 }, volume: { type: 'number', min: 0, max: 4 },
+      muted: { type: 'boolean' }, lane: { type: 'integer', min: 0 },
+      start: { type: 'number', min: 0 }, end: { type: 'number', min: 0 },
+      srcStart: { type: 'number', min: 0 }, srcEnd: { type: 'number', min: 0 },
+      slip: { type: 'number' }, roll: { type: 'number' }, slide: { type: 'number' },
+      moveTo: { type: 'number', min: 0 },
+      transition: { type: 'object' }, fadeIn: { type: 'number', min: 0 }, fadeOut: { type: 'number', min: 0 } } },
     undo_edit: { type: 'object', properties: { mode: { type: 'string', enum: ['undo', 'redo'] }, steps: { type: 'integer', min: 1, max: 5 } } },
     timeline_apply: { type: 'object', properties: { ops: { type: 'array', minItems: 1, maxItems: APPLY_MAX } }, required: ['ops'] },
-    subtitle_update: { type: 'object', properties: Object.assign({ entries: { type: 'array', items: SUBENTRY },
-      source: { type: 'string', enum: ['manual', 'asr', 'line+voice'] } }, SHOTREF) },
-    subtitle_resegment: { type: 'object', properties: Object.assign({ maxChars: { type: 'integer', min: 1, max: 500 },
-      source: { type: 'string', enum: ['line+voice'] } }, SHOTREF) },
-    subtitle_import_srt: { type: 'object', properties: Object.assign({ text: { type: 'string' }, assetId: { type: 'string' } }, SHOTREF) },
+    subtitle_update: { type: 'object', properties: {
+      id: { type: 'string' }, text: { type: 'string' },
+      start: { type: 'number', min: 0 }, end: { type: 'number', min: 0 },
+      position: { type: 'string', enum: ['top', 'middle', 'bottom'] }, highlight: { type: 'boolean' },
+      remove: { type: 'boolean' },
+      entries: { type: 'array', items: SUBENTRY }, regenerate: { type: 'boolean' } } },
+    subtitle_resegment: { type: 'object', properties: { maxChars: { type: 'integer', min: 1, max: 500 } }, required: ['maxChars'] },
+    subtitle_import_srt: { type: 'object', properties: { text: { type: 'string' }, assetId: { type: 'string' } } },
     media_transcribe: { type: 'object', properties: Object.assign({ language: { type: 'string' },
       route: { type: 'string', enum: ['auto', 'browser', 'local', 'service'] }, assetId: { type: 'string' }, src: { type: 'string' } }, SHOTREF) },
     export_start: { type: 'object', properties: {

@@ -44,6 +44,9 @@ export default {
     const viewItems = ref([]);
     const urls = ref({});
     const cntText = ref('');
+    const rootEl = ref(null);
+    /* 收藏总数（页头上下文槽用）：**总数**，不是筛选后的条数 —— 筛选条数在下面那行工具条上。 */
+    const favTotal = ref(0);
     const pagerTick = ref(0);
     const pagerVisible = ref(false);
     const aiText = ref('');
@@ -52,6 +55,7 @@ export default {
     const pullBtn = ref(null);
     const grids = ref(null);
     const toolbarEl = ref(null);
+    const kindEl = ref(null);
     const viewEl = ref(null);
     const favProvEl = ref(null);
     const favTimeEl = ref(null);
@@ -116,14 +120,24 @@ export default {
       pagerTick.value++;
     }
 
-    function paintChips() {
-      if (!toolbarFb) return;
+    /* 类型筛选（图片/视频/音频）：公共件 Wb.kindFilter —— 与生成工作台、资产库同一副
+       （以前这一页走 filterBar 的芯片行，三页三副样子；用户点名：统一成工作台那副）。
+       计数口径照原来那一份：这一屏里这一档有多少条。 */
+    let kindFb = null;
+    function paintKinds() {
+      if (!kindFb) return;
       const items = Fav.list();
-      toolbarFb.setChips(TYPES, filter.value, v => {
-        filter.value = v;
-        resetPaging();
-        render();
-      }, { count: v => items.filter(x => byType(x, v)).length });
+      kindFb.setCounts(v => items.filter(x => byType(x, v)).length);
+      kindFb.setValue(filter.value);
+    }
+    function bindKindFilter() {
+      if (!kindEl.value) return;
+      kindFb = Wb.kindFilter.bind(kindEl.value, {
+        kinds: TYPES,
+        value: filter.value,
+        count: () => 0,
+        onPick: v => { filter.value = v; resetPaging(); render(); },
+      });
     }
 
     function paintAiChip() {
@@ -149,13 +163,13 @@ export default {
     function bindFavToolbar() {
       if (!toolbarEl.value) return;
       toolbarFb = Wb.filterBar.bind(toolbarEl.value, {
-        chips: TYPES,
+        chips: null,
         value: filter.value,
         q: q.value,
         placeholder: '搜索名称 / 提示词 / 备注',
         onFilter: v => { filter.value = v; resetPaging(); render(); },
         onSearch: v => { q.value = v; resetPaging(); render(); },
-        extraHTML: '<button class="tool acc" title="' + window.esc('在收藏里找：把搜索框里那句话交给文字 AI，按名称 / 类型 / 备注挑出收藏') + '">'
+        extraHTML: '<button class="tool acc" title="AI 挑收藏">'
           + ((window.icon ? icon('sparkles', 14) : '') + ' AI 找素材') + '</button>'
           + '<span data-fb="aiChip"></span>',
         /* 过期图回源那一句是提醒，不是计数：留在计数右边，别混进 setCount 里。 */
@@ -236,8 +250,8 @@ export default {
         /* 守卫型的这一句要用 warn 档：安静档吞掉 ok/info 之后，按钮看起来就是「坏了」——
            「你点了，但事实没发生」正是必须看见的那一类。 */
         Toast.warn(viewItems.value.some(x => x.kind !== 'local')
-          ? '这一屏要存的本机都已经有了（本地上传的那一批不算，它的字节本来就在浏览器里）'
-          : '这一屏只有本地上传的文件，字节本来就在浏览器里，不用存');
+          ? '本机已有'
+          : '本地文件不用存');
         return;
       }
       AssetLocal.pullStart(btn);
@@ -277,21 +291,23 @@ export default {
     async function render() {
       if (!ready.value) return;
       const seq = ++renderSeq;
-      paintChips();
+      paintKinds();
       paintAiChip();
       viewToggle && viewToggle.apply();
       renderProvSelect();
       const query = q.value.trim();
-      const items = orderItems((query ? Fav.search(query) : Fav.list())
+      const all = Fav.list();
+      favTotal.value = all.length;
+      const items = orderItems((query ? Fav.search(query) : all)
         .filter(x => byType(x, filter.value) && (!aiPick || aiPick.has(x.key))
           && (fProv.value === '全部' || provOf(x) === fProv.value)
           && inTimeWindow(x)));
       viewItems.value = items;
       if (items.length) emptyWhy.value = '';
-      else if (query) emptyWhy.value = '没有匹配「' + query + '」的收藏：换个词，或清空搜索框看全部。';
-      else if (aiPick) emptyWhy.value = 'AI 挑的这一批里没有收藏：点掉上面那枚条件芯片，或重新挑一次。';
-      else if (filter.value !== 'all') emptyWhy.value = '这个筛选条件下没有收藏：把芯片切回「全部」就能看到。';
-      else emptyWhy.value = '还没有收藏。去「资产库」或工作台的产物上点 ☆，收藏就会出现在这里。';
+      else if (query) emptyWhy.value = '没有匹配「' + query + '」';
+      else if (aiPick) emptyWhy.value = 'AI 没挑到收藏';
+      else if (filter.value !== 'all') emptyWhy.value = '没有收藏';
+      else emptyWhy.value = '还没有收藏';
       paintPullBtn();
       setFavCnt(items.length ? '共 ' + items.length + ' 项' : '');
       pagerVisible.value = items.length > 0;
@@ -335,7 +351,7 @@ export default {
       });
       if (seq !== renderSeq) return;
       const left = Math.max(0, staleN - (Number(done) || 0));
-      setHeal(left ? '还有 ' + left + ' 条过期的图这次没换回来（下次打开会再试）' : '');
+      setHeal(left ? '还有 ' + left + ' 条没换回来' : '');
     }
 
     function openLb(it) { Wb.lightbox.open(it); }
@@ -357,8 +373,8 @@ export default {
     async function dropItem(it) {
       const isLocal = it.kind === 'local';
       const ok = await Confirm.ask({
-        title: '移出收藏？', danger: true, okLabel: '移出',
-        body: isLocal ? '这是本地上传的文件，移出后文件本体也会从浏览器里删除，不可恢复。' : '只从「我的收藏」移出，资产库里的素材不受影响。',
+        title: '取消收藏？', danger: true, okLabel: '取消收藏',
+        body: isLocal ? '本地文件会一起删除。' : '资产库素材不受影响。',
       });
       if (!ok) return;
       Fav.remove(it.key);
@@ -446,10 +462,10 @@ export default {
     }
     async function bulkDrop() {
       const sel = favMulti().selected();
-      if (!sel.length) { window.Toast.warn('先勾选要移出的收藏'); return; }
+      if (!sel.length) { window.Toast.warn('先勾选'); return; }
       const ok = await window.Confirm.ask({
-        title: '移出 ' + sel.length + ' 条收藏？', danger: true, okLabel: '移出',
-        body: '只从「我的收藏」移出，资产库里的素材不受影响。',
+        title: '取消 ' + sel.length + ' 条收藏？', danger: true, okLabel: '取消收藏',
+        body: '资产库素材不受影响。',
       });
       if (!ok) return;
       /* 移出收藏走公共件那一份收藏动作（Wb.multi 的 fav 那一族）：
@@ -457,7 +473,7 @@ export default {
       const n = favMulti().favRemove();
       favMulti().clear();
       render();
-      if (n) window.Toast.receipt('已从收藏移出 ' + n + ' 条');
+      if (n) window.Toast.receipt('已取消 ' + n + ' 条收藏');
     }
 
     /* ---------- 筛选：平台 + 时间（与资产库一样的两种） ---------- */
@@ -606,7 +622,7 @@ export default {
       btn: () => aiBtnEl,
       ask: () => q.value,
       focus: () => { if (toolbarFb) toolbarFb.focus(); },
-      emptyMsg: '还没有收藏：在资产库或工作台的产物上点 ☆',
+      emptyMsg: '还没有收藏',
       get noneMsg() {
         const n = Fav.list().length;
         return 'AI 没找到合适的收藏（换个说法再试）' + (n > 100 ? '；我这次只看了最近 100 条' : '');
@@ -726,9 +742,14 @@ export default {
         return;
       }
       ready.value = true;
+      /* 模板里那些静态 `<span data-icon>`（页头铭牌那颗星）：ui.js 的 fillIcons 只在外壳
+         DOMContentLoaded 跑过一次，那时本页还没挂载 —— 不在这里补一遍，页头图标是空的。 */
+      await nextTick();
+      if (rootEl.value) window.fillIcons(rootEl.value);
       /* 网格 / 分页行是 v-else 分支，要等这一帧渲染完才存在；
          在这里 initWb 拿到的是 null，视图开关会静默不创建。 */
       await nextTick();
+      bindKindFilter();
       bindFavToolbar();
       initWb();
       window.addEventListener('fav-change', onFavChange);
@@ -769,9 +790,9 @@ export default {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      ready, failed, q, filter, viewItems, cntText, pagerVisible, aiText, emptyWhy,
-      uploadHtml, uploading, fileEl,
-      pullBtn, grids, toolbarEl, viewEl, favProvEl, favTimeEl, gridEnd, pagerRow,
+      ready, failed, q, filter, viewItems, cntText, favTotal, pagerVisible, aiText, emptyWhy,
+      uploadHtml, uploading, fileEl, rootEl,
+      pullBtn, grids, toolbarEl, kindEl, viewEl, favProvEl, favTimeEl, gridEnd, pagerRow,
       dlBusy, dlMsg, pageItems, titleOf, metaOf, thumbHtml, openLb, onNote, flushNote,
       dropItem, download, reuse, canReuse, reuseTabZh, pullLocal, pickFiles, onFiles,
       /* 多选 */
@@ -785,7 +806,7 @@ export default {
       /* 详情（就地展开） */
       toggleFavDetail, closeDetail, bandItem, rows, view,
       onCardDragStart, onCardDragEnd,
-      runAiFind, clearAiPick, starIcon: window.icon ? icon('star', 20) : '',
+      runAiFind, clearAiPick,
       aiBtnHtml: (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材',
     };
   },

@@ -39,7 +39,7 @@
     },
     'settings.html': root => {
       const o = {};
-      add(o, '当前类型档', txt(root, '.settings-page #provTabs button.on'));
+      add(o, '账号筛选', txt(root, '.settings-page .acct-tools .fchip.on span'));
       add(o, '筛选', val(root, '.settings-page input[type=search]'));
       add(o, '栏目数', qa(root, '.settings-page .card').length || '');
       add(o, '保存状态', txt(root, '.settings-page .set-nav-sum'));
@@ -77,7 +77,7 @@
         add(o, '当前镜', txt(sel, '.sname') || '第 ' + (txt(sel, '.num') || '?') + ' 镜');
         add(o, '这一镜', txt(sel, '.smeta'));
       }
-      add(o, '剪辑轨', q(root, '#tlBar') ? '已打开' : '未打开');
+      add(o, '剪辑轨', q(root, '#tlBoard') ? '已打开' : '未打开');
       add(o, '保存状态', txt(root, '#saveState'));
       /* 助手要改时间线就得知道**候选与段**（序号、状态、选用哪条、几段、倍速），
          这些不在 DOM 的可见文字里，读 `WBBridge.director.context()` 那份现算的只读快照。

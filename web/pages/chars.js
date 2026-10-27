@@ -89,7 +89,6 @@ export default {
     const batchBusy = ref(false);
     const batchText = ref('');
     const batchGroup = ref('');
-    const ticHtml = window.icon ? icon('layers', 20) : '';
     const newBtnHtml = (window.icon ? icon('plus', 13) : '') + ' 新建素材';
     const aiBtnHtml = (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材';
 
@@ -366,7 +365,7 @@ export default {
           : pic ? pw + '：点一下看大图'
             : '还没有' + pw + '：点这里打开详情，挑一张或让 AI 出一张'}">
           ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
-            : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="身份锚点：出图、出资产与导演台参考图优先用它">锚点</span>' : '')
+            : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="出图优先用它">锚点</span>' : '')
               : `<div class="none"><b>还没有${esc(pw)}</b><i>点这里自己挑一张</i></div>`}
           ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}</div>`;
       const pickedNow = sel.value.has(c.id);
@@ -693,7 +692,7 @@ export default {
       const filling = genHas('fill', null);
       const fillWhy = !REG ? '正在读平台能力声明…'
         : (!D.Pipe.pickProvModel(REG, 'image', fillModel(), 'text_to_image')
-          ? '现在没有可用的生图平台：到设置页「供应商与密钥」填一把密钥，或在设置页「素材库」那张卡里选一个默认型号'
+          ? '没有可用的生图平台，去设置页配置'
           : (fill.tasks
             ? '这一档里 ' + fill.face + ' 条还缺预览图／道具图、' + fill.three + ' 位角色还缺三视图：每一条发一次生图请求，一次出一张'
             : (fill.usable ? '这一档里的预览图与三视图都齐了，没有要补的' : '这一档里没有素材')));
@@ -701,8 +700,8 @@ export default {
         + '<div class="rail-sec"><div class="rail-st">还缺什么<span class="rail-acts">'
         + '<button class="rail-fix" type="button" data-rail="fill" title="' + esc(fillWhy) + '"' + (filling || !fill.tasks ? ' disabled' : '') + '>'
         + (filling ? '正在出齐…' : '出齐') + '</button>'
-        + '<button class="rail-fix" type="button" data-rail="local" title="把这一档里「本机还没有那份字节」的图与参考音频存回本机">存本机</button>'
-        + (filling ? '<button class="rail-fix" type="button" data-rail="stop" title="不再开新的任务（已经发出去的那些收不回来）">停下</button>' : '')
+        + '<button class="rail-fix" type="button" data-rail="local" title="存回本机">存本机</button>'
+        + (filling ? '<button class="rail-fix" type="button" data-rail="stop" title="不再开新任务">停下</button>' : '')
         + '</span></div>' + gapRows
         + '</div>'
         + '<div class="rail-sec"><div class="rail-st">分组</div>'
@@ -803,7 +802,7 @@ export default {
       if (!REG || !D.Pipe.pickProvModel(REG, 'image', batchModel(), 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在批量条上挑一个型号');
       if (!await window.Confirm.ask({
         title: '给选中的 ' + items.length + ' 条补预览图',
-        body: '每一条发一次生图请求（一次出一张），会花钱；中途可以按「停下」，但已经发出去的那些收不回来。'
+        body: '逐条生图，会花钱；已发出的收不回。'
           + '用的型号：' + (modelLabel('image', 'text_to_image', batchModel()) || '（没有可用平台）') + '。',
         okLabel: '开始补图',
       })) return;
@@ -1700,6 +1699,9 @@ export default {
         return;
       }
       await nextTick();
+      /* 模板里那些静态 `<span data-icon>`（页头铭牌那几层）：ui.js 的 fillIcons 只在外壳
+         DOMContentLoaded 跑过一次，那时本页还没挂载 —— 不在这里补一遍，页头图标是空的。 */
+      if (rootEl.value) window.fillIcons(rootEl.value);
       try {
         initModules();
         makeDetail();
@@ -1753,7 +1755,7 @@ export default {
       gridEl, gridEndEl, pagerRowEl,
       ready, failed, cards, inspId, railOpen, q, cntText, busyText,
       pagerVisible, emptyHtml,
-      ticHtml, newBtnHtml, aiBtnHtml,
+      newBtnHtml, aiBtnHtml,
       multi, batchCount, batchText, batchGroup, isPicked,
       runAiFind, newChar,
       onGridClick, onGridDragStart, onGridDragEnd,

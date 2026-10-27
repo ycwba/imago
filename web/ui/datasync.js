@@ -6,7 +6,7 @@
   const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
   /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建）与一次性的 sk_reuse */
   const SYNCABLE = [
-    'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_vision', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
+    'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_caps_', 'sk_text_vision', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
     /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走。
        `sk_text_models_` 在 v13 起已经改成一份 `sk_model_prefs`（见 gen-forms.js 的 ModelPrefs），
        这一条**先留着**：迁移是把旧键删掉的，键不在名单里就轮不到 `syncable()`，那次删除
@@ -23,9 +23,6 @@
        而且没有任何报错。（旧的 `sk_autosave` 是「按三类分别另存到哪」，那一族已撤，
        清理在 ui.js 的 LEGACY_KEYS。） */
     'sk_local_dir',
-    /* 设置页「供应商与密钥」开的是哪一类（图片 / 视频 / 语音）。和 dir_theme、视图档位同一档：
-       用户调出来的界面，换台机器不该回到第一类重开一次。恢复默认不清它（见设置页 RESET_KEEP）。 */
-    'sk_prov_tab',
     'ai_usage', 'sparkcine_gallery', 'audio_tasks', 'fav_items',   // 视频台不再有本地任务（卡片来自接口）
     'page_mode_', 'page_size_',
     /* 界面布局偏好里**不属于 UI_PREFS** 的那几项：分栏比例（三个工作台 + 语音台共用 wb_split、导演台 dir_split）、

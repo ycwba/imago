@@ -37,7 +37,7 @@ const aVals = [...tokens.matchAll(/--a-([\d.]+)\s*:/g)].map(m => m[1]);
 ok(aVals.length === 21, '透明度阶梯应为 21 档，实际 ' + aVals.length);
 ok(!/--sp-17\s*:|--sp-21\s*:|--sp-23\s*:|--sp-25\s*:/.test(tokens), '间距档位里出现了没登记的值');
 
-/* ---------- 主题分段：①主题色 / ①b固定 / ②派生 / ③固定中性 / ④导演台 ----------
+/* ---------- 主题分段：①主题色 / ①b固定 / ②派生 / ③固定中性 / ③b导演台标记色 ----------
    段标题本身是注释，所以**先按标题切、再在段内剥注释**（顺序反了段就没了）。 */
 const tokensRaw = read('web/styles/tokens.css');
 const section = (from, to) => {
@@ -49,9 +49,9 @@ const section = (from, to) => {
 const s1 = section('① 主题色', '①b');
 const s1b = section('①b', '② 派生色');
 const s2 = section('② 派生色', '③ 固定中性色');
-const s3 = section('③ 固定中性色', '④ 导演台');
-const s4 = section('④ 导演台', '尺寸档位：组件尺寸');
-ok(s1 && s1b && s2 && s3 && s4, 'tokens.css 的五段标题（①/①b/②/③/④）都在');
+const s3 = section('③ 固定中性色', '③b 导演台标记色');
+const s3b = section('③b 导演台标记色', '尺寸档位：组件尺寸');
+ok(s1 && s1b && s2 && s3 && s3b, 'tokens.css 的五段标题（①/①b/②/③/③b）都在');
 for (const t of ['--bg', '--panel', '--line', '--txt', '--sub', '--acc', '--acc2', '--ok', '--warn', '--err', '--pri', '--input', '--thumbbg', '--atbg', '--scroll']) {
   ok(new RegExp('\\' + t + '\\s*:').test(s1), '① 主题色段里没有 ' + t);
 }
@@ -64,12 +64,25 @@ for (const t of ['--acc-tint-10', '--acc-line-32', '--warn-tint']) {
 for (const t of ['--pal-gray', '--pal-slate', '--pal-scrim']) {
   ok(new RegExp('\\' + t + '\\s*:').test(s3), '③ 固定中性色段里没有 ' + t);
 }
-ok(/--dir-ink-0\s*:/.test(s4) && /--dir-cyan\s*:/.test(s4), '④ 导演台深底段里没有 --dir-ink-0 / --dir-cyan');
-/* 深色档里出现的名字必须属于 ①（语义色）或阴影 —— 拼错的会静默失效 */
+/* 导演台不再有独立深底作用域：那族「不跟主题走」的固定深底配色必须整体消失，
+   深底表面归主题面板色，轨道上的功能标记归 ③b 的 --mark-*（跟主题走）。 */
+ok(!/--dir-/.test(tokensRaw), 'tokens.css 里还有导演台那族固定深底配色（导演台不再有独立深底作用域）');
+for (const t of ['--mark-cut', '--mark-ready', '--mark-mute', '--mark-loud']) {
+  ok(new RegExp('\\' + t + '\\s*:').test(s3b), '③b 导演台标记色段里没有 ' + t);
+}
+/* 深色档里出现的名字必须属于 ①（语义色）/ ③b（标记色）或阴影 —— 拼错的会静默失效 */
 const dark = (tokensRaw.split('html[data-theme="dark"] {')[1] || '').split('}')[0];
 const s1Names = new Set([...s1.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+const s3bNames = new Set([...s3b.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
 for (const m of dark.matchAll(/(--[\w-]+)\s*:/g)) {
-  ok(s1Names.has(m[1]) || /^--shadow-/.test(m[1]), '深色档里的 ' + m[1] + ' 不在 ① 主题色段里（拼错会静默失效）');
+  ok(s1Names.has(m[1]) || s3bNames.has(m[1]) || /^--shadow-/.test(m[1]),
+    '深色档里的 ' + m[1] + ' 不在 ① 主题色段 / ③b 标记色段里（拼错会静默失效）');
+}
+/* ③b 的四枚标记色必须在深色档成对覆盖：跟 ① 段主题色一个待遇，
+   不成对覆盖就是切到夜间时它们悄悄沿用浅色档的值（浅色下读不出来的那几枚）。 */
+const darkNames = new Set([...dark.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+for (const t of ['--mark-cut', '--mark-ready', '--mark-mute', '--mark-loud']) {
+  ok(darkNames.has(t), '深色档没覆盖标记色 ' + t + '（切主题时它会静默沿用浅色档的值）');
 }
 
 /* ---------- 布局：两种外壳 ---------- */
@@ -125,6 +138,8 @@ for (const g of ['G18', 'G19', 'G20', 'G21', 'G22']) {
 const nVis = Object.keys(JSON.parse(read('tests/fixtures/visual/fingerprints.json')).screens).length;
 ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
+/* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
+   文档里的条数也得跟着改 —— 「文档不许说谎」（§14 的规矩）。 */
 ok(nE2e === 48, 'e2e 应为 48 条，实际 ' + nE2e);
 
 /* ---------- §6.5 的远端地址必须与实际远端一致 ----------

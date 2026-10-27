@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Skill Hub 判据：
-   - skills-store：安装 / 同 contract 互斥 / expectedHash 409 / id 一致性 / 根目录读取上限
+   - skills-store：安装 / 同 contract 只留一份（启一份 → 别的直接停）/ expectedHash 409 / id 一致性 / 根目录读取上限
    - zip 只在浏览器内存里解：store/deflate 两种方式、路径穿越 / 可执行文件 / 超量拒绝
    不碰真实 .skills / .data：全部在临时目录。 */
 import fs from 'node:fs';
@@ -28,18 +28,33 @@ const sk = (id, contract, extra = {}) => [{
   text: '---\nid: ' + id + '\nname: ' + (extra.name || id) + '\ndescription: 测试用\ntriggers: ["测试"]\npages: ["assets.html"]\ncontract: ' + contract + '\nversion: 1\n---\n\n# 测试\n' + (extra.body || ''),
 }];
 
-/* 安装 + 同 contract 互斥：内置会被自动停用，用户之间则报错 */
+/* 安装 + 同 contract 只留一份：启一份就把原来那份**直接停掉**（不报错、不拦着） */
 const a = store.install(sk('my-a', 'polish.image'), { enable: true });
-assert.equal(a.id, 'my-a');
+assert.equal(a.skill.id, 'my-a');
 assert.equal(store.get('my-a').enabled, true);
 assert.equal(store.get('builtin-a').enabled, false, '启用用户 Skill 时应自动停用同 contract 的内置');
+assert.deepEqual(a.displaced, ['builtin-a'], '装上去时应报出「谁让了位」');
 let items = store.list();
 assert.ok(items.some(x => x.id === 'my-a' && x.source === 'user'));
 assert.ok(items.some(x => x.id === 'my-a' && !x.conflict));
-assert.throws(() => store.install(sk('my-b', 'polish.image'), { enable: true }), /只能启用一个/);
+/* 第二份「我的」不再被拒：装上去就把 my-a 直接停掉 */
+const b = store.install(sk('my-b', 'polish.image'), { enable: true });
+assert.equal(b.skill.id, 'my-b');
+assert.equal(store.get('my-b').enabled, true);
+assert.equal(store.get('my-a').enabled, false, '装第二份时原来那份应被直接停掉');
+assert.deepEqual(b.displaced, ['my-a']);
+assert.equal(store.list().filter(x => x.enabled && x.contract === 'polish.image').length, 1,
+  '同一 contract 同一时刻只该有一份启用');
+/* 启停这一路也一样：启一份 → 同 contract 的别的直接停，并报出谁停了 */
+const dis = store.setEnabled('my-a', true);
+assert.equal(store.get('my-a').enabled, true);
+assert.equal(store.get('my-b').enabled, false, '启一份时同 contract 的另一份应被直接停掉');
+assert.deepEqual(dis, ['my-b']);
 store.setEnabled('my-a', false);
 store.install(sk('my-b', 'polish.image'), { enable: true });
-assert.throws(() => store.setEnabled('my-a', true), /只能启用一个/);
+store.setEnabled('my-a', true);
+assert.equal(store.get('my-b').enabled, false, '再启一份时又一份让位');
+assert.equal(store.get('my-a').enabled, true);
 store.remove('my-b');
 store.setEnabled('my-a', true);
 

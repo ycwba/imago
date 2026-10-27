@@ -516,7 +516,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .seg-block .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg-block .du { font-family: var(--font-mono); margin-left: auto; }
 .seg-block.sel { border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); color: var(--txt); }
-.seg-block.voice { background: color-mix(in srgb, var(--dir-green) var(--a-16), transparent); border-color: color-mix(in srgb, var(--dir-green) var(--a-40), transparent); color: var(--txt); }
+.seg-block.voice { background: color-mix(in srgb, var(--mark-ready) var(--a-16), transparent); border-color: color-mix(in srgb, var(--mark-ready) var(--a-40), transparent); color: var(--txt); }
 .seg-block.wait { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--pri) var(--a-14), transparent) 0 6px, transparent 6px 12px); border-style: dashed; border-color: color-mix(in srgb, var(--pri) var(--a-34), transparent); color: var(--txt); }
 .seg-block.sub { background: color-mix(in srgb, var(--pri) var(--a-18), transparent); border-color: color-mix(in srgb, var(--pri) var(--a-34), transparent); color: var(--txt); }
 /* 剪切点：斜切标记（剪辑师的语言） */

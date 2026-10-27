@@ -4,7 +4,7 @@
    这里钉四件事：序号补零与空名回落、截断吃不掉后缀、扩展名恰好一个、撞名插序号。 */
 import assert from 'node:assert/strict';
 import { sceneShotBase, candidateBase, voiceBase, clipLabel,
-  stripExt, withExt, uniqueName, shotCtxOf, candidateIndex, voiceIndex, assetBase } from '../web/director/naming.js';
+  stripExt, withExt, uniqueName, shotCtxOf, candidateIndex, assetBase } from '../web/director/naming.js';
 
 /* 浏览器里 safe() / pad2() 直接用 ui.js 的 fileSafe / pad2；Node 单测没有它们，这里补同规则的桩，
    让「非法字符被洗掉、后缀仍在」「序号补零」这两条也能在这里判。 */
@@ -20,7 +20,7 @@ assert.equal(sceneShotBase(ctx), '场景01-雨夜街头_镜头03-推门');
    第 1 条保持干净。配音仍不加后缀。 */
 assert.equal(candidateBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '第 1 条候选不带后缀');
 assert.equal(candidateBase(ctx, 2), '场景01-雨夜街头_镜头03-推门_候选2', '第 2 条起带「候选N」后缀');
-assert.equal(voiceBase(ctx, 1), '场景01-雨夜街头_镜头03-推门', '不加「配音N」后缀');
+assert.equal(voiceBase(ctx), '场景01-雨夜街头_镜头03-推门', '不加「配音N」后缀');
 assert.equal(clipLabel(ctx, 1), '场景01 雨夜街头 · 镜头03 推门 · 片段1');
 assert.equal(sceneShotBase({ sceneIndex: 1, shotIndex: 0 }), '场景02_镜头01',
   '空名只留序号，不凭空造「未命名」');
@@ -57,16 +57,15 @@ assert.equal(uniqueName('场景01_镜头01_候选1.mp4', 'mp4', used), '场景01
 assert.equal(uniqueName('场景01_镜头01_候选1', 'mp4', used), '场景01_镜头01_候选1-3.mp4');
 assert.equal(uniqueName('x', 'wav', new Set(['x.wav', 'x-2.wav'])), 'x-3.wav');
 
-/* 镜头位置：跨场景按工程顺序找，找不到返回 null；候选 / 配音序号从 1 起。 */
+/* 镜头位置：跨场景按工程顺序找，找不到返回 null；候选序号从 1 起。 */
 const s1 = { id: 's1', name: '推门', candidates: [{ id: 'c1' }, { id: 'c2' }] };
 const s2 = { id: 's2', name: '回头', candidates: [] };
-const proj = { scenes: [{ name: '雨夜街头', shots: [s1] }, { name: '清晨', shots: [s2] }], voices: [{ id: 'v1' }, { id: 'v2' }] };
+const proj = { scenes: [{ name: '雨夜街头', shots: [s1] }, { name: '清晨', shots: [s2] }] };
 const at = shotCtxOf(proj, s2);
 assert.deepEqual([at.sceneIndex, at.shotIndex, at.sceneName, at.shotName], [1, 0, '清晨', '回头']);
 assert.equal(shotCtxOf(proj, { id: 'nope' }), null, '找不到不许编一个序号');
 assert.equal(candidateIndex(s1, s1.candidates[1]), 2);
 assert.equal(candidateIndex(s1, { id: 'nope' }), 1, '索引里没有就按第一条算');
-assert.equal(voiceIndex(proj, proj.voices[1]), 2);
 
 /* ── assetBase：§0.5 统一命名规范 ────────────────────────────── */
 /* 全段齐全：定位 → 语义 → 时间 → 来源 */

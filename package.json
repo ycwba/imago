@@ -10,6 +10,7 @@
     "test": "node tests/all.cjs",
     "test:fast": "npm run check && node tests/map.cjs --changed --run",
     "test:all": "node tests/all.cjs --e2e:fast",
+    "test:director": "node tests/director-film.mjs && node tests/director-strip.mjs && node tests/director-tl-edit.mjs && node tests/director-slice.mjs && node tests/director-e-deps.cjs && node tests/e2e/director-core.cjs",
     "test:e2e": "node tests/all.cjs --e2e",
     "test:watch": "node tests/watch.cjs"
   },

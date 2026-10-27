@@ -240,8 +240,43 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
       收藏项 = fromEntry），页面只给「这一条能不能收」与「按钮长什么样」。
       卡面上那颗 ★ 与三页批量条上的「收藏 / 取消收藏」都走它。
       fav.js 是首屏常驻的取数底座（收藏是全站共用的数据层），挪不到按需去。
-      实跑 29 枚 / 843038 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 843038;
+      实跑 29 枚 / 843038 字节。
+     ·  +1.8KB（2026-10-27，时间线工具条那一族图标）：枚数不变，涨的是 `web/ui/ui.js` 的 `ICONS` ——
+       标记四类 / 重做 / 吸附 / 波纹 / 六种选择工具 / 断链 / 回播放头共 12 枚（16×16 几何）。
+       图标只有 `window.icon()` 这一张表（AGENTS §3.4.4），导演台的时间线工具条也从它取；
+       另起一张导演台私有图标表就是第二份实现，所以留在这张表里。
+       同一笔里也含着 `web/ui/skills.js` 的两行（install / update 的返回值）与另一处正在改首屏那几份的工作，
+       按同一口径记账。实跑 29 枚 / 844835 字节。
+     ·  +0.7KB（2026-10-27，轨道工具条那四颗「一段」的动作图标）：枚数不变，涨的还是 `web/ui/ui.js` 的 `ICONS` ——
+       上一笔记下 12 枚，这一轮把「加一段 / 摘一段 / 缩短 / 加长」也补进同一张表（各一枚 16×16 几何）。
+       这四颗是时间线工具条上的动作，画的是「一段」这个形状加加减号与箭头；图标只有 `window.icon()`
+       这一张表（AGENTS §3.4.4），导演台从它取，另起一张私有表就是第二份实现。
+       实跑 29 枚 / 845542 字节。
+     · +0.3KB（2026-10-27，「点一颗按钮，视角跳回最上面」那份保护从外壳挪进公共件）：枚数不变，
+       涨的是 `web/app.js` —— 外壳那份 `web/core/scroll-guard.js`（猴补 Element.prototype 的
+       innerHTML / outerHTML / replaceChildren）整族删掉：它在全局原型上动手脚，只罩得住
+       「整片重画把滚动容器换掉」，罩不住「重画后内容变短被夹回上限」。现在由重画点自己调
+       公共件 `Wb.viewport.keep`（`web/ui/workbench.js`，按锚点还原，导演台右栏 renderEditor 已在用）。
+       这一份不能按需：它是外壳里那几行说明与公共件的注册点，且 keep 落在页面自己的重画里。
+       判据 `tests/e2e/viewport-keep.cjs`（裸重画必须丢位 = 对照，套 keep 必须还回原位 = 机制，
+       再加导演台右栏点按钮那一档实景）。实跑 29 枚 / 845837 字节。
+     · +2.2KB（2026-10-27，标题去图标 + 视口与 focus 两份公共件收口）：枚数不变，涨的是三份常驻件 ——
+       ① `web/ui/ui.js` 加 `window.focusQuiet`（`focus({ preventScroll: true })`，全站唯一一份；
+          约 40 处裸 `.focus()` 改成调它，那些调用点都不具备「等它按需加载」的条件 ——
+          点按钮就要续光标）；② `web/ui/forms.js` 的弹窗正文重画走 `Wb.viewport.keep`
+          （`keepBodyScroll` 小件 + 三处重画点，forms.js 是首屏常驻的表单族）；
+       ③ `web/app.js` 删掉外壳那份 `web/core/scroll-guard.js` 的 import 与安装，
+          那几行说明改写成指向新公共件（净涨一点）。
+       标题去图标（`.phead-ic` 整族删）落在 ui.css 与模板，不进首屏脚本；`Wb.kindFilter` /
+       `Wb.viewport.keep` 落在 `web/ui/workbench.js`（按页补载，不常驻）。
+       实跑 29 枚 / 848096 字节。
+     · +2 字节（2026-10-27，剪辑核重构收尾按实跑重登记）：枚数不变，是同一批首屏件在这轮重构里的净漂移，
+       没有新增脚本，也没有把新的导演台纯件（film.js / tl-*.js / engine/*.js）挂进首屏 ——
+       它们由导演台页按需 import，不占 `<script>`。
+       同一工作树里另一条正在进行的工作还在改首屏那几份（ui.js / datasync.js / page-context.js），
+       登记值留约 1.5KB 余量：那批改动定稿后由它自己按实跑再登记回来。
+       实跑 29 枚 / 848411 字节（登记上限 850000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 850000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);
