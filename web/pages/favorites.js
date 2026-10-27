@@ -588,7 +588,7 @@ export default {
         try { await Fav.addLocalFile(f); ok++; }
         catch (err) { fail.push((f && f.name ? f.name : '文件') + '：' + (err && err.message ? err.message : '未知错误')); }
       }
-      if (fail.length) Toast.err(`有 ${fail.length} 个文件没能加入收藏：` + fail.slice(0, 3).join('；') + (fail.length > 3 ? ' 等' : ''));
+      if (fail.length) Toast.err(`有 ${fail.length} 个文件没收藏上：` + fail.slice(0, 3).join('；') + (fail.length > 3 ? ' 等' : ''));
       else if (ok) Toast.receipt('已加入 ' + ok + ' 个文件');
       uploading.value = false;
       uploadHtml.value = (window.icon ? icon('upload', 13) : '') + ' 上传本地文件';

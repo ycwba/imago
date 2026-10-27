@@ -660,7 +660,7 @@ function keepBodyScroll(el, fn) {
           </div></div>`
         : textCell;
       const chain = r.chain === 'tail'
-        ? '<span class="bchain" title="生成时自动截上一镜的尾帧当这一镜的首帧">接上一镜</span>' : '';
+        ? '<span class="bchain" title="尾帧接首帧">接上一镜</span>' : '';
       return `<div class="pr-row brow${r.edited ? ' pin' : ''}" data-u="${r.u}" data-scene="${esc(r.scene)}">
         <span class="grip" draggable="true" title="按住这里在本场景内上下拖动排序">${icon('list', 12)}</span>
         <span class="no">${r.no}</span>

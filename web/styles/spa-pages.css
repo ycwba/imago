@@ -48,7 +48,7 @@
   background: transparent; color: var(--txt); font-family: inherit; outline: none; }
 .fav-page .card .note textarea:focus { background: var(--acc-tint-10); }
 .fav-page .card .note textarea::placeholder { color: var(--sub); opacity: .75; }
-.fav-page .card .note.empty::before { content: "＋ 写备注（这条素材是干什么用的）";
+.fav-page .card .note.empty::before { content: "＋ 写备注";
   display: block; font-size: var(--fs-11-5); color: var(--sub);
   border-left: var(--hair) dashed var(--line); padding: var(--sp-1) var(--sp-8); }
 .fav-page .card .note.empty textarea { position: absolute; inset: 0; height: 100%; opacity: 0; cursor: text; }

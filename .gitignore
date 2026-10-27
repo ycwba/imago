@@ -46,3 +46,6 @@ tests/fixtures/visual/actual/
 
 # Superdesign 设计上下文：正文（init/ 设计系统/ 报告/ 证据图）留仓，临时 HTML 不进历史
 .superdesign/tmp/
+
+# 视觉/端到端测试截图产物（本地生成，不进历史）
+.shots/

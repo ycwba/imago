@@ -255,7 +255,7 @@ export default {
       const out = [];
       billMore.value = false; billErrs.value = {}; billErr.value = '';
       try {
-        upd.value = '正在读取生成记录…';
+        upd.value = '加载中…';
         /* 只拉最近 2 页（每平台各 100 条）；hasMore / errors 必须接住 */
         const res = await window.AssetLib.load({ pages: 2 });
         billMore.value = !!res.hasMore;

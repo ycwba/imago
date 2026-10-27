@@ -18,7 +18,7 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     page = await browser.newPage();
     await page.goto(proxy.base + '/shell.html#favorites.html');
     await page.waitFor('!!window.Fav && !!document.querySelector(".fav-page")', 25000);
-    await page.waitFor(() => !!document.querySelector('.fav-page') && !/正在读取收藏/.test(document.querySelector('.fav-page').innerText), 20000);
+    await page.waitFor(() => !!document.querySelector('.fav-page') && !/加载中…/.test(document.querySelector('.fav-page').innerText), 20000);
 
     /* 先在收藏里放一条，页面上才有「卡片」可拖。 */
     const seeded = await page.eval(() => {

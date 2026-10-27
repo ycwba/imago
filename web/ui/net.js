@@ -152,7 +152,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           const writing = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
           lastErr = new Error(writing
             ? '与本地代理的连接在提交过程中中断了（代理可能刚重启，或长连接被掐断）。'
-              + '「这次提交可能已经到达平台」：先刷新列表核对有没有这条任务，确认没有再用「重试」，避免重复提交／重复扣费。'
+              + '提交可能已到达平台，先刷新核对。'
             : '与本地代理的连接中断了（代理可能刚重启，或长连接被掐断）：重试一次通常就好。');
           lastErr.maybeSubmitted = writing;
         }

@@ -264,7 +264,7 @@ export default {
       if (!started) return;
       const n = assetsMulti().favAdd();
       if (!n) { window.Toast.warn('选中的这些都已经在收藏里了'); return; }
-      window.Toast.receipt('已加入收藏 ' + n + ' 条');
+      window.Toast.receipt('已收藏 ' + n + ' 条');
       renderGrid();
     }
     function assetsBulkFavRemove() {

@@ -3046,7 +3046,7 @@ const StudioView = {
       function studioBulkFavAdd() {
         const n = taskMulti().favAdd();
         if (!n) { Toast.warn('选中的这些都已经在收藏里了'); return; }
-        Toast.receipt('已加入收藏 ' + n + ' 条');
+        Toast.receipt('已收藏 ' + n + ' 条');
         renderAll();
       }
       function studioBulkFavRemove() {

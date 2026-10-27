@@ -160,7 +160,7 @@ const h = require('./harness.cjs');
         num.value = '4';
         num.dispatchEvent(new Event('input', { bubbles: true }));
       }
-      const btn = [...card.querySelectorAll('button')].find(b => /保存搜索设置/.test(b.textContent || ''));
+      const btn = [...card.querySelectorAll('button')].find(b => /^保存$/.test(b.textContent || ''));
       if (btn) btn.click();
       const until = Date.now() + 8000;
       while (Date.now() < until) {

@@ -605,7 +605,7 @@
     return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
       + (busy ? ' title="产物自动存本机正在跑，字节落盘之后这里会变成本机已存 N 份"' : '')
       + (bad ? ' title="最后一次没存成：' + window.esc(s2.lastErr) + '（下一轮列表刷新时会再试一次）"' : '')
-      + (busy || s2.on ? '' : ' title="「产物自动存本机」关着：新生成的产物只留平台地址，地址过期后卡片会变成裂图（已存的本机文件不会被删，只是不再新增）"')
+      + (busy || s2.on ? '' : ' title="自动存本机关着，新产物只留平台地址。"')
       + '>' + head
       + '<div class="l2">' + l2 + '</div>' + mirrorMoreHTML(s2) + dl + '</div>';
   }

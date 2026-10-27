@@ -1358,22 +1358,17 @@ window.UI_PREFS = {
         '做完的事界面上看得见，一排绿色对勾会把真正该看的错误淹掉。' },
     { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES,
-      hint: '这三行只管各页进去时的默认摆法，进了那一页右上角随时还能换。' },
+      hint: '只管默认摆法，页内还能换。' },
     { key: 'dir_char_view', group: 'list', name: '素材库', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES },
     { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES },
     { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']],
-      hint: '生成完的视频 / 图像 / 音频当场把字节存进本机资产库，任务详情（参数、费用、耗时、状态）一并留底。'
-        + '开着这一项，收藏、素材库、资产库、生成工作台里的产物**也会自动存回本机**（新不新旧按「自动存本机要存哪一档」定）。'
-        + '那几页的「存回本机」是**立刻取回**用的 —— 想马上要就点它。'
-        + '关掉就退回到只留平台外链 —— 那些地址过期后卡片会变成裂图。已存的文件不会被删，只是不再新增。' },
+      hint: '生成完存进本机资产库；各页产物也会自动存回。关掉只留平台外链，过期会裂图。' },
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']],
-      hint: '开 = 卡片直接读本机副本（平台挂了也照样能看、用、传给别人）；'
-        + '关 = 仍然直连平台地址（平台 CDN 更快，代价是地址一过期就什么都没有）。'
-        + '本机文件被删了会自动回源平台，平台那边也没了会明写「已丢失」。' },
+      hint: '开 = 读本机副本；关 = 直连平台地址。文件没了会回源。' },
     /* 第三档依附前两档：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」，
        所以它只在两者都开着时才画出来（`needs` 由 settings.html 的渲染处现判），
        而**真生效**的判据在 assetlib.js 的 AssetLocal.localOnly —— 页面不许自己再拼一次「三个开关都开着」。
@@ -1381,12 +1376,10 @@ window.UI_PREFS = {
        那样起名会被它顺带命中（同一类的坑在下面的 NOT_SYNC 注释里点名过）。 */
     { key: 'sk_media_badge', group: 'store', name: '卡片显示「本机 / 云端」标识', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '显示'], ['off', '不显示']],
-      hint: '开 = 资产卡上标出这一份是「本机」「云端」还是两边都有；只影响显示，不改变取哪一份字节，也不影响列表筛选。' },
+      hint: '卡上标出本机 / 云端，只影响显示。' },
     { key: 'sk_media_cloud_hide', group: 'store', name: '不显示云端任务', kind: 'bool', keep: 1,
       needs: ['sk_media_local', 'sk_media_prefer'],
-      hint: '勾上 = 生成工作台与资产库的列表里只留本机有这份字节的产物，还没落到本机的那一条条不再出现。'
-        + '在跑的、排队中的、失败的不藏（藏了就等于把「点了生成没反应」和失败原因一起弄丢）。'
-        + '这一项要上面两项都开着才生效：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」。' },
+      hint: '列表只留本机有的。在跑的与失败的不藏。要上面两项都开着。' },
   ],
   /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
      只有这一份读法，设置页判「该不该画」与别处判「生效没」都走它，别各自 getItem 一遍。 */

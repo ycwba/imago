@@ -203,7 +203,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `web/domain/api.js`、`web/ui/sidebar.js` 与 `web/render/app-error.js` ——
        ① 空 hash 落「上次页」+ hash 里多余 `#` 只取路由本体（app.js 的 parse 重写）；
        ② 按需脚本失败不再永久缓存（routes.js 的 pending 失败删键 + 旧标签分支清定时器）；
-       ③ 页面失败块给「重新加载本页」按钮（app-error 模板 + ViewError.setup）；
+       ③ 页面失败块给「重试」按钮（app-error 模板 + ViewError.setup）；
        ④ createBody 按型号能力校验取值集合 / 模板族 topBools 过 fieldState（api.js）；
        ⑤ 侧栏设置入口读路由表 label/short（sidebar.js）。这些都在外壳与取数底座上，没有按需的落点。
        实跑 29 枚 / 830572 字节。
