@@ -235,12 +235,13 @@
       }
       try { src.start(t0); scheduled++; } catch (e) { /* 收尾清理，失败也要往下走 */ }
     };
-    /* 每段的原声：图片段没有原声；静音 = 增益 0（画面照样进成片，别把段整条跳掉） */
+    /* 每段的原声：图片段没有原声；`volume` 已由渲染计划按 gainOf 算过（静音 = 0），
+       这里不再重判 muted —— 两处各判一次，屏幕上静着、导出来却有声就是从这里开始的。 */
     for (const cl of (opts.clips || [])) {
       if (cl.kind === 'image') continue;
       const sp = clampN(Number(cl.playbackRate) || 1, 0.25, 4);
       const f0 = Math.max(0, Number(cl.start) || 0);
-      const vol = cl.muted ? 0 : (cl.volume == null ? 1 : Number(cl.volume));
+      const vol = cl.volume == null ? 1 : Number(cl.volume);
       if (cl.src && vol > 0) {
         const from = Math.max(0, Number(cl.sourceStart) || 0);
         const to = from + Math.max(0.05, Number(cl.sourceDuration) || 0);

@@ -25,10 +25,18 @@ function noStore(res) {
 }
 
 /* 请求体 → JSON：readBody 负责大小上限与超时，这里只把「读失败」与「不是合法 JSON」分开。
-   asr 与 search 两条路由以前各抄一份同样的八行。 */
+   asr 与 search 两条路由以前各抄一份同样的八行。
+   ⚠ readBody 超上限时是**自己 writeHead(413) 之后**才 resolve(null) 的（server/app.js 的 readBody），
+   所以「拿到 null」不等于「还没答过」——这里抛的这一条带 `alreadyReplied`，
+   调用方的 catch 认它就必须收口：再 writeHead 一次是 ERR_HTTP_HEADERS_SENT，
+   那条异常从 catch 里逃到外面，健康账记一笔「请求出错」，而用户其实已经拿到正确的 413。 */
 async function readJsonBody(readBody, req, res, limit) {
   const b = await readBody(req, res, limit);
-  if (b == null) throw new Error('请求体读取失败');
+  if (b == null) {
+    const e = new Error('请求体读取失败');
+    e.alreadyReplied = true;
+    throw e;
+  }
   return JSON.parse(b.toString('utf8'));
 }
 

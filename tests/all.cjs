@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 一键测试 —— 跑法：`node tests/all.cjs`（浏览器档：加 `--e2e` 全量 / `--e2e:fast` 冒烟档 / ALL_E2E=1 同 --e2e）
-   顺序：常驻测试（并发池，含语法）→（按需）浏览器 e2e（全量串行 / 冒烟档 4 路并发）。
+   顺序：常驻测试（并发池，含语法）→（按需）浏览器 e2e（全量分道 / 冒烟档 4 路并发）。
    作为重构与回归的固定入口。日常不必整包跑这一份：`npm run check`（<3 秒）与 `npm run test:fast`
    （按改动挑判据）才是提交前的常手，这一份是合并前的全量（三档流程的第三档）。
    语法判据不在这里重写：与 `npm run check` 共用 `tests/syntax.cjs` 那一份。它进池跑
@@ -16,10 +16,11 @@
         常驻判据实测全部只写 os.tmpdir 的 mkdtemp 探针目录，白名单先登记 data-snapshot 防今后误加）。
      测试用 Node 选型：判据子进程优先用系统 node（NODE 环境变量可指定，拿不到回落 execPath），
         与 map.cjs / watch.cjs 共用同一份 resolveNode（不另存第二张选型表）。
-     e2e 分档：--e2e:fast 只跑冒烟档 5 个（清单见 FAST_E2E），--e2e 全量。
-        冒烟档走**限 4 路的并发**（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
-        带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）；
-        全量档保持串行（四十多条 e2e 一起起 Chrome 内存吃不消）。共享 batch 入口这轮没动。
+     e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
+        两条档都靠**隔离实例**并发（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
+        带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）。
+        冒烟档限 4 路并发；全量档先跑读数型那 4 条（截图指纹 / 帧预算 / 实时播放对齐 / 冷启动，
+        并发负载会让读数失真），其余（含 7 条不起 Chrome 的服务端链路）再走 4 路并发。共享 batch 入口这轮没动。
    判据进程内打包与 harness 共享 batch 入口这两件没做，待主线导演台 e2e 拆分收口后再接，
    这里不留半截实现。
    注意：tests/map.cjs 的 registry() 按源码文本现读本文件的登记行（run 首参 'tests/<名字>.cjs'）与
@@ -54,7 +55,7 @@ let bad = 0;
 
 /* run() 保持与旧串行版同样的调用形状（name/cmd/args/env），map.cjs 的登记表照读得动；
    差别只有一条：不再当场 spawnSync，而是排队，最后由并发池统一跑。
-   浏览器档在 --e2e:fast 时只留 FAST_E2E 挑中的 5 条（登记行仍逐条在源码里，map.cjs 照数得到全量）。 */
+   浏览器档在 --e2e:fast 时只留 FAST_E2E 挑中的 6 条（登记行仍逐条在源码里，map.cjs 照数得到全量）。 */
 const run = (name, cmd, args, opts = {}) => {
   const isBrowser = opts.tier === 'browser' || /^tests\/e2e\//.test(name);
   if (isBrowser && FAST_ONLY && !fastPick(name)) return;
@@ -63,7 +64,7 @@ const run = (name, cmd, args, opts = {}) => {
 /* 浏览器判据的挑选：--e2e 全量，--e2e:fast 只跑冒烟档。 */
 const FULL_E2E = process.argv.includes('--e2e') || process.env.ALL_E2E === '1';
 const FAST_ONLY = process.argv.includes('--e2e:fast') && !FULL_E2E;
-/* 冒烟档 5 个（验收：3 分钟以内）：smoke 兜「各页都能加载、控制台无错」，
+/* 冒烟档 6 个（验收：3 分钟以内）：smoke 兜「各页都能加载、控制台无错」，
    ui-contract / ui-shared 兜公共件契约与列表页，director-perf 兜导演台热路径预算，
    lock 兜单实例锁（最便宜的一条代理判据）。 */
 const FAST_E2E = ['smoke', 'ui-contract', 'ui-shared', 'director-perf', 'director-core', 'lock'];
@@ -88,7 +89,7 @@ function spawnBuffered(task) {
     const errs = [];
     child.stdout.on('data', b => chunks.push(b));
     child.stderr.on('data', b => errs.push(b));
-    const limit = task.opts.timeout || (/e2e/.test(task.name) ? E2E_TIMEOUT_MS : TIMEOUT_MS);
+    const limit = task.opts.timeout || (task.opts.tier === 'browser' || /e2e/.test(task.name) ? E2E_TIMEOUT_MS : TIMEOUT_MS);
     const timer = setTimeout(() => {
       killed = '超时 ' + limit + 'ms，已杀掉子进程（pid ' + child.pid + '）';
       /* Windows：SIGKILL 只杀直接子进程，e2e 自己拉起的 proxy/Chrome 孙进程会成孤儿（AGENTS §13.2 的清理闸）。
@@ -143,32 +144,46 @@ async function flushResident() {
     + ' 条），墙钟 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
 }
 
-/* e2e 一律串行（每条自起隔离 proxy + headless Chrome；共享 batch 入口这轮没动），
-   输出直接继承父 stdio（本来就没有并发交错问题）。 */
-function flushBrowser() {
+/* 全量 e2e 分两道跑：
+   ① 读数型判据（画面指纹 / 帧预算 / 冷启动 / 实时播放的媒体对齐）先单独串行 ——
+      并发负载会让截图、耗时读数与媒体元素的归位速度失真（播放对齐读到的会是「正在归位途中」的瞬时值）；
+   ② 其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。每条判据自起隔离 proxy + 独立探针目录，
+      并发互不写脏（AGENTS §13.2）；输出与常驻池一样按完成顺序整块打印、带每条耗时。 */
+const E2E_SOLO = ['e2e/ui-visual', 'e2e/director-perf', 'e2e/director-playback', 'perf/boot'];
+const e2eIdOf = name => String(name).replace(/^tests\//, '').replace(/\.(cjs|mjs)$/, '');
+const e2eRowOf = r => r.task.name.replace(/^tests\/(e2e\/)?/, '') + ' ' + Math.round(r.ms / 1000) + 's'
+  + (r.status === 0 && !r.killed ? '' : ' ✗');
+
+async function flushBrowser() {
   const t0 = Date.now();
+  const solo = browserQueue.filter(t => E2E_SOLO.includes(e2eIdOf(t.name)));
+  const pool = browserQueue.filter(t => !E2E_SOLO.includes(e2eIdOf(t.name)));
   const rows = [];
-  for (const task of browserQueue) {
-    const g0 = Date.now();
-    console.log('\n=== ' + task.name + ' ===');
-    const cmd = task.cmd === process.execPath ? NODE : task.cmd;
-    const r = cp.spawnSync(cmd, task.args, {
-      cwd: root, stdio: 'inherit',
-      env: { ...process.env, ...(task.opts.env || {}) },
-      timeout: task.opts.timeout || E2E_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
-    });
-    const ms = Date.now() - g0;
-    let red = '';
-    if (r.error) { console.log('✗ ' + task.name + ' —— ' + r.error.message); bad++; red = '（挂死/起不来）'; }
-    else if (r.status !== 0) { console.log('✗ ' + task.name + '（退出码 ' + r.status + '）'); bad++; red = '✗'; }
-    rows.push(task.name.replace(/^tests\/(e2e\/)?/, '') + ' ' + Math.round(ms / 1000) + 's' + red);
+  console.log('\n全量 e2e：独跑 ' + solo.length + ' 项 → 并发 ' + pool.length + ' 项（4 路）');
+  for (const task of solo) {
+    console.log('\n=== ' + task.name + '（独跑）===');
+    const r = await spawnBuffered(task);
+    report(r);
+    rows.push(e2eRowOf(r));
   }
-  console.log('\ne2e（串行）：' + browserQueue.length + ' 项，墙钟 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+  const lanes = Math.min(4, CONCURRENCY, pool.length);
+  let next = 0;
+  const workers = [];
+  const worker = async () => {
+    while (next < pool.length) {
+      const r = await spawnBuffered(pool[next++]);
+      report(r);
+      rows.push(e2eRowOf(r));
+    }
+  };
+  for (let i = 0; i < lanes; i++) workers.push(worker());
+  await Promise.all(workers);
+  console.log('\ne2e（全量）：' + browserQueue.length + ' 项（独跑 ' + solo.length + '，并发 ' + lanes + ' 路），墙钟 '
+    + ((Date.now() - t0) / 1000).toFixed(1) + 's');
   if (rows.length) console.log('  逐条耗时：' + rows.join(' ｜ '));
 }
 
-/* 冒烟档：限 4 路并发（5 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
+/* 冒烟档：限 4 路并发（6 条各起一套 Chrome，8 路同开内存吃不住；4 路是耗时与噪音的折中）。
    输出与常驻池一样按完成顺序整块打印、带每条耗时；每条自起隔离 proxy + 独立探针目录，互不写脏。 */
 async function flushBrowserFast() {
   const lanes = Math.min(4, CONCURRENCY, browserQueue.length);
@@ -395,7 +410,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/sidebar-balance.cjs', process.execPath, ['tests/e2e/sidebar-balance.cjs'], { tier: 'browser' });
   run('tests/e2e/lock.cjs', process.execPath, ['tests/e2e/lock.cjs'], { tier: 'browser' });
 } else {
-  console.log('\n=== 浏览器 e2e ===\n  - 跳过（加 --e2e 全量 / --e2e:fast 冒烟档 5 个 / ALL_E2E=1）');
+  console.log('\n=== 浏览器 e2e ===\n  - 跳过（加 --e2e 全量 / --e2e:fast 冒烟档 6 个 / ALL_E2E=1）');
 }
 
 (async () => {
@@ -410,7 +425,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   await flushResident();
   if (browserQueue.length) {
     if (FAST_ONLY) await flushBrowserFast();
-    else flushBrowser();
+    else await flushBrowser();
   }
   console.log('\n' + (bad ? '✗ ' + bad + ' 项失败' : '✓ 全部通过'));
   process.exitCode = bad ? 1 : 0;

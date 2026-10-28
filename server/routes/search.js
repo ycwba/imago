@@ -172,51 +172,67 @@ function createSearchRoutes(ctx) {
     return out;
   }
 
+  /* 取一页的字节：与 postJson 同一条出站路（ctx.anyRequest + channel-cred 的 collect）。
+     为什么不能用全局 fetch：
+     · 系统 / 环境代理那一路是 CONNECT 隧道（见 AGENTS §4.3），anyRequest 才会挑出
+       ProxyTunnelAgent —— 直连 fetch 在一台「只有代理才出得去」的机器上条条失败，
+       而搜索与读网页恰好是唯一需要出公网的两条；
+     · guardOutboundUrl 自己解析一次 DNS、undici 再独立解析一次，中间换 IP 就是
+       DNS rebinding 的口子；anyRequest 注入的是同一份 guardedLookup，解析只发生一次；
+     · collect 是登记在案的那一份「带上限收字节」（见 server/channel-cred.js），
+       自己写一份 reader 循环就是第五份，而且漏掉重定向那一跳的 body（不 cancel 就是一条不回收的 socket）。 */
+  function getPage(url) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const rejectOnce = e => { if (settled) return; settled = true; reject(e); };
+      const netErr = e => {
+        if (e && e.kind) return e;
+        const m = String((e && e.message) || e || '');
+        return httpError(/timeout|超时/i.test(m) ? 'timeout' : 'network', '取网页失败：' + clean(m, 300));
+      };
+      let req;
+      try {
+        req = ctx.anyRequest(url, {
+          method: 'GET',
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; wb-search/1.0)', 'Accept': 'text/html,application/xhtml+xml,text/plain' },
+        }, res => {
+          const status = res.statusCode;
+          const headers = res.headers;
+          if ([301, 302, 303, 307, 308].includes(status)) {
+            res.resume();                    // 那一小段跳转页丢掉，连接才能回收
+            resolve({ status, headers, redirect: headers.location });
+            return;
+          }
+          const len = Number(headers['content-length'] || 0);
+          if (len && len > READ_MAX) { res.resume(); rejectOnce(httpError('upstream', '网页超过 2MB，已拒绝')); return; }
+          collect(res, READ_MAX)
+            .then(text => { if (!settled) { settled = true; resolve({ status, headers, text }); } })
+            .catch(e => rejectOnce(/超过/.test(String((e && e.message) || e))
+              ? httpError('upstream', '网页超过 2MB，已截断读取') : netErr(e)));
+        });
+      } catch (e) { rejectOnce(netErr(e)); return; }
+      req.setTimeout(READ_TIMEOUT, () => req.destroy(httpError('timeout', '取网页超时（' + Math.round(READ_TIMEOUT / 1000) + ' 秒）')));
+      req.on('error', e => rejectOnce(netErr(e)));
+      req.end();
+    });
+  }
+
   async function readPage(url) {
     let cur = String(url || '');
     for (let hops = 0; hops <= 3; hops++) {
       await ctx.guardOutboundUrl(cur);
-      let r;
-      try {
-        r = await fetch(cur, {
-          redirect: 'manual',
-          signal: AbortSignal.timeout(READ_TIMEOUT),
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; wb-search/1.0)', 'Accept': 'text/html,application/xhtml+xml,text/plain' },
-        });
-      } catch (e) {
-        if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw httpError('timeout', '取网页超时（15 秒）');
-        throw httpError('network', '取网页失败：' + ((e && e.message) || e));
-      }
-      if ([301, 302, 303, 307, 308].includes(r.status)) {
-        const loc = r.headers.get('location');
-        if (!loc) throw httpError('upstream', '网页重定向没有给出地址（HTTP ' + r.status + '）');
-        try { cur = new URL(loc, cur).toString(); } catch (e) { throw httpError('upstream', '网页重定向地址非法'); }
+      const r = await getPage(cur);
+      if (r.redirect !== undefined) {
+        if (!r.redirect) throw httpError('upstream', '网页重定向没有给出地址（HTTP ' + r.status + '）');
+        try { cur = new URL(r.redirect, cur).toString(); } catch (e) { throw httpError('upstream', '网页重定向地址非法'); }
         continue;
       }
-      if (!r.ok) throw httpError('upstream', '网页返回 HTTP ' + r.status);
-      const ct = String(r.headers.get('content-type') || '').toLowerCase();
+      if (r.status < 200 || r.status >= 300) throw httpError('upstream', '网页返回 HTTP ' + r.status);
+      const ct = String(r.headers['content-type'] || '').toLowerCase();
       if (!/text\/html|application\/xhtml|text\/plain/.test(ct)) {
         throw httpError('upstream', '这不是网页（Content-Type: ' + (ct || '未知') + '），只读 HTML / 纯文本');
       }
-      const len = Number(r.headers.get('content-length') || 0);
-      if (len && len > READ_MAX) throw httpError('upstream', '网页超过 2MB，已拒绝');
-      if (!r.body) throw httpError('upstream', '网页没有返回内容');
-      const reader = r.body.getReader();
-      let size = 0;
-      const chunks = [];
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.length;
-          if (size > READ_MAX) { try { await reader.cancel(); } catch (e) {} throw httpError('upstream', '网页超过 2MB，已截断读取'); }
-          chunks.push(Buffer.from(value));
-        }
-      } catch (e) {
-        if (e && e.kind) throw e;
-        throw httpError('network', '读网页失败：' + ((e && e.message) || e));
-      }
-      const raw = Buffer.concat(chunks).toString('utf8');
+      const raw = r.text || '';
       if (/text\/plain/.test(ct)) {
         const truncated = raw.length > READ_TEXT_MAX;
         return { title: domainOf(cur), url: cur, domain: domainOf(cur), text: truncated ? raw.slice(0, READ_TEXT_MAX) : raw, truncated };
@@ -280,6 +296,9 @@ function createSearchRoutes(ctx) {
       sendJson(res, 404, { error: '不认识的搜索路由' });
       return true;
     } catch (e) {
+      /* 请求体太大 / 连接中断由 readBody 自己答过了（server/app.js），再回一次就是
+         ERR_HTTP_HEADERS_SENT —— 异常逃到健康账上记成「请求出错」，而用户已经拿到正确的 413。 */
+      if (e && e.alreadyReplied) return true;
       const kind = (e && e.kind) || 'bad-request';
       const code = kind === 'disabled' || kind === 'not-configured' ? 400
         : kind === 'upstream' ? 502 : kind === 'timeout' ? 504 : kind === 'network' ? 502 : 400;

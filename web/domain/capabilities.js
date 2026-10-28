@@ -965,6 +965,10 @@ window.Capabilities = {
     }
     return src.note || '按平台声明兜底';
   },
+  /* 能力清单整体落定没有：load() 把在用的平台全试完（成或败都算）才置真，新的一轮 load() 先翻回假。
+     清单是逐家到货的，落定之前「清单里没有某个型号」只说明那一家还没回来 ——
+     「下架、换型号」这种动了用户数据的结论只许落定之后下（chain.js 的 chainModelRepick）。 */
+  settled: false,
   /* 启动时把所有平台的能力拉一遍（保持原签名；失败静默，界面用 registry 兜底）
      **并发限流，不是一个一个来**：注册表里十几家平台，每家一次请求、各自最多 25 秒超时，
      串行的话慢的那一家就把「能力声明还没回来」这件事拖到几十秒 —— 各页首屏因此会长时间
@@ -972,6 +976,7 @@ window.Capabilities = {
      4 路并发：既能把这段时间压到几秒，又不至于把上游打出限流。
      结果按模型 id 汇总（byId 是字典，合并顺序不影响结果），与串行版完全等价。 */
   async load(REG, opts) {
+    this.settled = false;
     const byId = {};
     this.sources = {};
     /* 只向**本机已经在用**的平台问能力，判据只有一份：`Api.provUsable`
@@ -1023,6 +1028,7 @@ window.Capabilities = {
     if (n) console.log('[Capabilities] 已取得 ' + n + ' 个模型的能力：', Object.keys(byId).join(', '));
     else console.warn('[Capabilities] 未取得模型能力（平台可能没有能力接口），使用 registry 兜底声明');
     this.models = byId;
+    this.settled = true;
     return byId;
   },
 };

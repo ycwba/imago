@@ -255,7 +255,7 @@ export async function buildFCPXML(ctx, opts) {
       out.push('              </timeMap>');
     }
     if (!r.still) {
-      const pv = clip.muted ? 0 : Number(clip.volume == null ? 1 : clip.volume);
+      const pv = Number(r.row.payload.volume);
       if (Math.abs(pv - 1) > 0.001) out.push('              <adjust-volume amount="' + dbOf(pv) + '"/>');
     }
     out.push('            </asset-clip>');

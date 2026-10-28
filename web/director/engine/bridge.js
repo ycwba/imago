@@ -10,7 +10,7 @@ import { escHTML, num, round1, round2, ctxClip, spdTxt } from '../util.js';
 import {
   LANE_MAX, MIN_CAPTION_SECONDS, MIN_CLIP_SECONDS,
   captionHighlighted, captionPositions, captionStyleOf, clamp, deriveTimeline,
-  itemLocked, normalizeTransition, pos, rateOf, shiftTimed, srcHeadOf, srcLenOf,
+  filmLaneOf, itemLocked, normalizeTransition, pos, rateOf, shiftTimed, srcHeadOf, srcLenOf,
   srcUsedOf, transitionNameOf, visibleCaptions, withPlaybackRate,
 } from '../film.js';
 import { canMergeClips } from '../tl-cut.js';
@@ -136,8 +136,13 @@ export function createBridge(E, document, window) {
     const list = kind === 'voice' ? (f.voices || []) : kind === 'pending' ? (f.pending || []) : [];
     return list.map((v, i) => ({ item: v, index: i, start: num(v.start), end: num(v.start) + num(v.duration) }));
   }
-  const lockWhy = (kind, item) => (itemLocked(filmOf().tracks, KIND_TRACK[kind], kind === 'clip' ? num(item.ln) : num(item.lane))
-    ? '这一块所在的行锁着：先在轨道左列把锁打开再试' : '');
+  /* 行号按打包口径现算：存下来的 `item.lane` 只是偏好，真正画在第几行由打包说了算。 */
+  const lockWhy = (kind, item) => {
+    const f = filmOf();
+    const lane = filmLaneOf(f, kind, item && item.id);
+    return lane >= 0 && itemLocked(f.tracks, KIND_TRACK[kind], lane)
+      ? '这一块所在的行锁着：先在轨道左列把锁打开再试' : '';
+  };
   function pick(a, kind) {
     a = a || {};
     const blocks = blocksOf(kind);

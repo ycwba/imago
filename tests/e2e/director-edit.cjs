@@ -615,7 +615,7 @@ async function boot3(proxy, browser) {
   must(await page.eval(() => window.__P.tool('markers')), '③：没有标记条那颗');
   r = await st();
   must(!r.markers.length, '③：收起之后标记条不该再画块');
-  must(r.labels.some(l => l.row === 'markers' && /is-folded/.test(l.cls)), '③：轨名上要看得出「收起」：' + JSON.stringify(r.labels));
+  must(!r.labels.some(l => l.row === 'markers'), '③：收起之后左列那一行该整条不画：' + JSON.stringify(r.labels));
   await page.eval(() => window.__P.tool('markers'));
   eq((await st()).markers.length, 2, '③：再点一次该把标记条画回来');
 

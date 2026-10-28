@@ -2,7 +2,7 @@
 /* 接续拆分镜的纯算法（web/director/chain.js）：顺序、依赖、选型、拆分、报价键与合计。
    这些规则一旦错，表现分别是「接错上一镜」「长镜头被悄悄截短」「预计价当 0」，都很难从界面看出来。 */
 import assert from 'node:assert/strict';
-import { shotPlacement, hasTailFrame, isRunning, chainDeps, pickChainModel,
+import { shotPlacement, hasTailFrame, isRunning, chainDeps, pickChainModel, chainModelRepick,
   splitLongShots, quoteKeyOf, sumQuotes } from '../web/director/chain.js';
 
 /* ---------- 全片顺序：跨场景连续，上一镜就是排在它前面的那一镜 ---------- */
@@ -59,6 +59,21 @@ assert.equal(pickChainModel([mNoFirst, mFirstOnly], 'nofirst').id, 'first', '当
 assert.equal(pickChainModel([mFirstOnly], '', 25, m => m.max >= 25), null, '时长覆盖不了就不选');
 assert.equal(pickChainModel([mFirstOnly, mMaybe()], '', 25, m => m.max >= 25).id, 'maybe');
 function mMaybe() { return { id: 'maybe', name: '够长', min: 1, max: 26, first: true, last: false }; }
+
+/* ---------- 接续型号落点：清单没到齐时「找不到」不算下架 ----------
+   能力清单是逐家到货的（Capabilities.load 每家落定广播一次）；落定之前清单里没有
+   某个型号只说明那一家还没回来。这时把存过的型号重挑掉，一份参数全合法的工程
+   开机就会被记成改过一次（判据 tests/e2e/director-boot-quiet.cjs 的 B 档）。 */
+const repick = (model, modelAuto, list, settled) => chainModelRepick({ model, modelAuto }, list, settled);
+assert.equal(repick('big', '', [mBothBig], true), null, '存过的型号能接首帧就不动');
+assert.equal(repick('nofirst', '', [mNoFirst, mFirstOnly], true), null, '用户挑的型号明确不支持首帧：只拦不改');
+assert.equal(repick('nofirst', 'chain', [mNoFirst, mFirstOnly], true).id, 'first', '程序挑的型号不支持首帧 → 重挑');
+assert.equal(repick('gone', 'chain', [mBothBig], true).id, 'big', '清单落定后还找不到 = 下架，重挑');
+assert.equal(repick('gone', 'chain', [mBothBig], false), null, '清单没到齐时「找不到」只是没到货，不下架、不重挑');
+assert.equal(repick('gone', '', [mBothBig], false), null, '用户存的型号同理：没到齐不下结论');
+assert.equal(repick('', '', [mBothBig], false).id, 'big', '型号槽是空的没有存档要保护，到货几家先挑几家');
+assert.equal(repick('auto', '', [mBothBig], false).id, 'big', '「auto」同上');
+assert.equal(repick('gone', '', [], true), null, '清单落定但是空的：没有可挑的，保持现状');
 
 /* ---------- 拆长镜头：能一口吃下就不拆；必须拆时总秒数守恒 ---------- */
 const items = [{ key: 'k1', scene: '场一', name: '长镜头', dur: 30,
@@ -142,4 +157,4 @@ assert.equal(none.total, 0);
 assert.equal(none.priced, 0);
 assert.equal(none.unpriced, 1, '一笔都没报出金额时 priced=0，不能冒出一个 0 元的总价');
 
-console.log('✓ 接续拆分：顺序 / 依赖原因码 / 选型优先级 / 拆分守恒与台词只留首段 / 报价键 / 缺金额不当 0');
+console.log('✓ 接续拆分：顺序 / 依赖原因码 / 选型优先级 / 落点（清单没到齐不下架）/ 拆分守恒与台词只留首段 / 报价键 / 缺金额不当 0');

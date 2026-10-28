@@ -468,7 +468,6 @@
       for (const k of keep) {
         const el = this._byPath(root, k.path);
         if (!el || !el.isConnected) continue;
-        if (el.scrollTop > 4) continue;        /* 位置没丢，不动它 */
         try {
           let node = null;
           if (k.key) {
@@ -2737,7 +2736,9 @@
             el.addEventListener('pointerup', up);
             el.addEventListener('pointercancel', up);
           });
-          el.addEventListener('dblclick', () => { clear(h); layout(); });
+          /* 复位是一次性动作，不属于「拖拽期间防抖那一串」：当场落定（与松手那条 flush 同理），
+             否则双击之后立刻关标签页，复位还没写进去，下次开页又读回旧的那一档。 */
+          el.addEventListener('dblclick', () => { clear(h); flush(); layout(); });
           return { h, el };
         });
         /* 拖拽条贴在两栏之间那条缝的正中：位置完全按实际渲染结果算，

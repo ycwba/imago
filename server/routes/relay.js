@@ -337,13 +337,19 @@ function createRelayRoutes(ctx) {
         const timedOut = (g, ms) => {
           const say = '本地转发闸：' + g.name + ' 排队 ' + Math.round(ms / 1000) + ' 秒没轮到（这一条没有发出去，没有扣费）。'
             + '稍等再点一次就会轮到它；想放宽就在 .env 里改 RELAY_MAX_INFLIGHT / RELAY_QUEUE_MAX / RELAY_QUEUE_TIMEOUT_MS 并重启。';
-          for (const w of [res].concat(inflightWaiters())) {
+          const ws = inflightWaiters();
+          for (const w of [res].concat(ws)) {
             if (w.headersSent || w.writableEnded) continue;
             try {
               w.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '1' });
               w.end(JSON.stringify({ error: { message: say, code: 'relay_queue_timeout' } }));
             } catch {}
           }
+          /* 排队超时这一条出口也必须摘掉在途表：发完 429 就 return，本请求再也不会走到
+             那段「把结果写给等待者」。不摘的话条目一直留在表里（数组里全是不是已了结的响应），
+             后来同 key 的请求在开头那句 `if (waiters) { waiters.push(res); return; }` 上挂进去，
+             再也没有人 fulfill 它 —— 上游一次 504 就把这一个详情页钉死到代理重启。 */
+          dropInflight();
         };
         if (!relayTake(gate, r => { releaseSlot = r; relayIssue(r); }, { alive, timedOut })) {
           relayRefused(res, gate);

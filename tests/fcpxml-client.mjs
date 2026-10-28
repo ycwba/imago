@@ -47,12 +47,12 @@ const mkClip = o => Object.assign({
 }, o || {});
 const plan = {
   rows: [
-    { index: 0, start: 0, duration: 2, clip: mkClip(), shot, cand, src: '/asset/la_pic?dl=1', payload: { playbackRate: 2 } },
-    { index: 1, start: 2, duration: 1, clip: mkClip(), shot, cand, src: '/asset/la_pic?dl=1', payload: { playbackRate: 1 } },
+    { index: 0, start: 0, duration: 2, clip: mkClip(), shot, cand, src: '/asset/la_pic?dl=1', payload: { playbackRate: 2, volume: 2 } },
+    { index: 1, start: 2, duration: 1, clip: mkClip(), shot, cand, src: '/asset/la_pic?dl=1', payload: { playbackRate: 1, volume: 1 } },
     { index: 2, start: 3, duration: 2,
       clip: mkClip({ kind: 'image', name: '封面', shotId: '', candId: '', sourceStart: 0, sourceDuration: 0, mediaDuration: 0 }),
-      shot: null, cand: null, src: '/asset/la_still?dl=1', payload: { playbackRate: 1 } },
-    { index: 3, start: 5, duration: 1, clip: mkClip(), shot, cand, src: '', payload: { playbackRate: 1 } },
+      shot: null, cand: null, src: '/asset/la_still?dl=1', payload: { playbackRate: 1, volume: 1 } },
+    { index: 3, start: 5, duration: 1, clip: mkClip(), shot, cand, src: '', payload: { playbackRate: 1, volume: 1 } },
   ],
   missing: [{ index: 3, name: '镜一' }],
   transitions: [{ id: 'fade', start: 1.5, end: 2, duration: 0.5, to: 1 }],
@@ -118,6 +118,10 @@ assert.ok(/ name="封面\.png"/.test(stillAsset), '静态图的本机索引名�
 assert.ok(/ hasVideo="1"/.test(stillAsset) && !/hasAudio/.test(stillAsset), '静态图只有视频轨属性');
 assert.ok(built.xml.includes('src="media/' + encodeURIComponent(stillName) + '"'), '媒体包里的图片路径与 asset name 同源');
 assert.ok(built.bundleAssets.some(a => a.name === stillName && /la_still/.test(a.src)), '图片也要真的进媒体包');
+
+/* 画面段音量取渲染计划的 payload.volume（预览 / 导出一把尺子；静音在计划里已折成 0） */
+const firstVideoClip = (built.xml.match(/<asset-clip ref="r\d+" name="[^"]*片段1"[^>]*>[\s\S]*?<\/asset-clip>/) || [])[0] || '';
+assert.ok(/<adjust-volume amount="6\.0dB"\/>/.test(firstVideoClip), '计划里 volume 2 → +6dB');
 
 /* 配音：spine 上独立 asset-clip，lane 1 起；源与成片长度不同 → timeMap；音量与淡入 */
 const voiceClip = (built.xml.match(/<asset-clip ref="r\d+" lane="1"[^>]*>[\s\S]*?<\/asset-clip>/) || [])[0] || '';

@@ -113,7 +113,11 @@ function createCacheRoutes(ctx) {
     if (req.method === 'PUT') {
       if (!key) return fail(res, 400, '缺 key 查询参数');
       const body = await readBody(req, res, 32 * 1024 * 1024);
-      if (!body || !body.length) return fail(res, 400, '空字节');
+      /* readBody 返回 null 的两种情况（超上限 413 / 连接中断 400）都由它自己答过了
+         —— server/app.js 里那两条出口都先 writeHead 再 resolve(null)。所以这里只收口，
+         再 fail 一次就是 ERR_HTTP_HEADERS_SENT。真正「传了零字节」才是这条路由要拒的。 */
+      if (body == null) return true;
+      if (!body.length) return fail(res, 400, '空字节');
       fs.mkdirSync(dirOf(t), { recursive: true });
       const id = sha1(key);
       fs.writeFileSync(path.join(dirOf(t), id + '.bin'), body);

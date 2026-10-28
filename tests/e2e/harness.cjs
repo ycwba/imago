@@ -37,8 +37,11 @@ function getCookie(res) {
   return raw.map(x => String(x).split(';')[0]).join('; ');
 }
 
-async function httpText(url, cookie = '') {
-  const res = await fetch(url, { headers: cookie ? { cookie } : {} });
+/* timeout>0 时给整次请求（含读 body）兜一个硬上限：机器被几条 Chrome 一起压住时，
+   一次卡住的连接会把调用方的等待窗口整个绕过去（就绪探测那种「20 秒内每 150ms 试一次」
+   的循环挂在一次 fetch 上就永远走不到下一次判断）。 */
+async function httpText(url, cookie = '', timeout = 0) {
+  const res = await fetch(url, { headers: cookie ? { cookie } : {}, signal: timeout ? AbortSignal.timeout(timeout) : undefined });
   return { status: res.status, text: await res.text(), cookie: getCookie(res) || cookie, headers: res.headers };
 }
 
@@ -62,15 +65,29 @@ async function startProxy(opts = {}) {
   proc.stdout.on('data', b => log.push(b.toString()));
   proc.stderr.on('data', b => log.push(b.toString()));
   const base = 'http://127.0.0.1:' + port;
+  /* 起不来时**必须**先把子进程杀掉再抛：它的 stdout/stderr 管道是本进程的事件循环句柄，
+     不杀就等于「判据已经打印过「未就绪」了，却还挂在那里」—— 外层只好等 600 秒超时才 SIGKILL，
+     端口与四个探针目录也跟着白占十分钟。 */
+  const abort = async () => {
+    try { proc.kill(); } catch (e) {}
+    await sleep(150);
+    /* Windows 上刚被杀的进程可能还握着目录句柄，rmSync 会 EBUSY —— 一次失败就静默留一组
+       `.data-probe-*` 在仓库根下（攒到十几组才会有人发现）。多试几次再放弃。 */
+    for (const d of [dataDir, assetsDir, renderDir, skillsDir]) {
+      for (let i = 0; i < 4; i++) {
+        try { fs.rmSync(d, { recursive: true, force: true }); break; } catch (e) { if (i === 3) break; await sleep(150); }
+      }
+    }
+  };
   let cookie = '';
   let status = null;
   const until = Date.now() + 20000;
   while (Date.now() < until) {
-    if (proc.exitCode !== null) throw new Error('proxy 提前退出：\n' + log.join(''));
+    if (proc.exitCode !== null) { await abort(); throw new Error('proxy 提前退出：\n' + log.join('')); }
     try {
-      const home = await httpText(base + '/', cookie);
+      const home = await httpText(base + '/', cookie, 3000);
       cookie = home.cookie || cookie;
-      const r = await httpText(base + '/sys-status', cookie);
+      const r = await httpText(base + '/sys-status', cookie, 3000);
       if (r.status === 200) {
         status = JSON.parse(r.text);
         const got = status && status['目录'] && status['目录']['数据'] && status['目录']['数据']['路径'];
@@ -80,11 +97,12 @@ async function startProxy(opts = {}) {
         break;
       }
     } catch (e) {
-      if (/答话的不是本探针实例/.test(e.message)) throw e;
+      if (/答话的不是本探针实例/.test(e.message)) { await abort(); throw e; }
     }
     await sleep(150);
   }
   if (!status) {
+    await abort();
     /* 就绪探测打的就是 `/sys-status`，所以「路由里抛了未声明的变量」在这一层的表象是
        「proxy 未就绪」—— 不点名日志里的异常，下一步就会去查端口、查进程，白绕一圈。 */
     const f = logFaults(log);
@@ -95,11 +113,7 @@ async function startProxy(opts = {}) {
   let stopped = false;
   const stop = async () => {
     if (stopped) return; stopped = true;
-    try { proc.kill(); } catch (e) {}
-    await sleep(100);
-    for (const d of [dataDir, assetsDir, renderDir, skillsDir]) {
-      try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {}
-    }
+    await abort();
   };
   return { base, port, dataDir, assetsDir, renderDir, skillsDir, proc, log, status, cookie, stop };
 }

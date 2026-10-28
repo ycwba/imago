@@ -87,22 +87,10 @@
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
-├─ design/skill-settings/       设计稿（设置页 Skill 卡那一版：场景轨 + 场景详情）。
-│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md
-├─ design/settings-layout/      设计稿（设置页整体重排那一版：目录轨 + 连续文档）。
-│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
-│                               已于 2026-10-25 落到真品（§3.4.3 的「两栏两滚」）
-├─ design/assets-layout/        设计稿（资产库重排那一版：在制台 + 问题台 + 按天分槽的片墙）。
-│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md
-├─ design/materials-layout/    设计稿（素材库页三栏那一版：目录轨 + 素材台 + 检查器）。
-│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
-│                               已于 2026-10-25 落到真品
-├─ design/materials-detail/    设计稿（新建 / 编辑一条素材那一版：整屏层 + 每个生成位自带型号与数量）。
-│                               纯静态、不进运行时；决策记录见其中的 DESIGN.md。
-│                               已于 2026-10-25 落到真品
-├─ design/provider-matrix/     设计稿（设置页「供应商与密钥」那一版：账号卡流 + 能力格 + 型号面板 +
-│                               手动加一档能力）。纯静态、不进运行时；决策记录见其中的 DESIGN.md。
-│                               已于 2026-10-27 落到真品（§5.2）
+├─ design/pages-demo/           设计稿（七个页面的样式总览 demo：一页看全站长相）。
+│                               直接外链 web/styles/ 十份真样式表，每个页面示意挂在真实根类下，
+│                               深浅主题与真品同源（不复制任何样式值）。纯静态、不进运行时；
+│                               决策记录见其中的 DESIGN.md
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
@@ -500,7 +488,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 内置平台也要先“添加一次”才进「供应商与密钥」卡；用官方地址添加自己是正常路径。
 - 类型档：`image / video / audio / text`；文字 AI 的供应方、密钥、地址、型号、识图开关
   都在「文字」档里，一家一张卡。类型名与顺序只有 `ui.js` 的 `provKindZh` / `provKinds` 一份。
-- **「供应商与密钥」是账号卡流**（2026-10-27 收口，设计稿 `design/provider-matrix/`）：
+- **「供应商与密钥」是账号卡流**（2026-10-27 收口）：
   · 归并按 `keyId`（`provGroups()`）：**一个账号一张卡**，卡顶那一排能力格只画这家会的几档
     （`.capcell`：实心 = 主位 / 淡底 = 在用 / 白底 = 备用 / 压暗 = 停用），一档一行
     （`.crow`：能力名 · 状态牌 · 文字档那一个型号下拉 + 测试 / 其余档「型号 n/m」就地展开清单）。
@@ -703,7 +691,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
 | 字幕 SRT | `web/director/srt.js`（`srtParse` / `srtSerialize` / `resegment`；时间一律成片秒，判据 `tests/fcpxml-client.mjs` 与 `tests/e2e/editing-assistant.cjs`） |
 | 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
-| 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
+| 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `chainModelRepick`（动不动、换成谁；能力清单没落定时「找不到」不下架）/ `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
 | 场景镜头命名 | `web/director/naming.js` 的 `sceneShotBase` / `candidateBase` / `voiceBase` / `clipLabel` / `stripExt` / `withExt` / `uniqueName`（本机素材名与 FCPXML 包内名同源） |
 | 导演台项目组 | `web/director/groups.js` 的 `list` / `groupOf` / `assetGroupName` / `ensure` / `rename` / `remove` / `assign` / `tree`（**组名即素材组名**；老工程零迁移） |
 | 拆分镜的新素材 | `web/director/board-assets.js` 的 `plan` / `stage` / `repeatCounts` / `pendingIn` / `resolve` / `shotsPending` / `libSpec`（重复出现才建、占位符词法、建档落点） |
@@ -1141,19 +1129,25 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ## 13. 测试与验证
 
-### 13.1 必跑（分档口径）
+### 13.1 分档口径（什么时候跑哪一档）
 
 | 档 | 命令 | 场景 | 耗时（本机实测） |
 | --- | --- | --- | --- |
 | 秒级 | `npm run check` | 每次保存后 | ~0.5s |
 | 样式秒级 | `node tools/tokenize-css.cjs` + `node tools/check-vars.cjs` | 动了样式 / 令牌后 | <1s |
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3-8s；映射条数多则按比例上涨 |
-| 合并 | `npm run test` | 批末回归 | ~3s |
-| 全量 | `npm run test:all` | 合并前 / 改动面大时 | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~2.5 分钟 |
+| 合并 | `npm run test` | 批末回归 / **提交与推送前** | ~3s |
+| 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 4 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 动浏览器相关、出包前 | 47 条 e2e 串行（另含 perf/boot 与 static-encoding --live），二十几分钟级 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（**不是提交与推送的前置条件**） | 49 项：读数型 4 条先独跑 + 其余 45 条 4 路并发（另含 perf/boot 与 static-encoding --live），实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
+
+**提交与推送前只跑 `npm run check` + `npm run test`**（秒级 + 常驻判据全量，几秒）。
+**e2e 不再是前置条件**（2026-10-28 定）：浏览器档要起隔离 proxy 与独立 Chrome、单次十来分钟，
+把它挡在提交前面，只会让人干脆把整档跳过去 —— 那比少跑一次更亏。
+想跑就按需手动跑 `npm run test:e2e`（或 `npm run test:all` 连冒烟一起），
+红了自己负责；改动面大时用 `npm run test:fast`（按 `tests/map.cjs` 的映射挑相关判据）就够。
 
 `node tests/all.cjs` 的常驻判据走并发池（并发 min(8, CPU 核数)，输出按完成顺序整块打印、带每条耗时；
 超时 SIGKILL 不死锁）；会写共享 `.data` / `.renders` / `.skills` 或**库根本体**的判据一律进串行白名单（§13.2）。
@@ -1191,20 +1185,25 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 「存回本机」存的是**多选勾选的那几条**：`pull-selected`（工作台 / 资产库两页：那颗按钮住在
   多选条里、多选之后才出现、点下去只排勾选的那些；工作台的翻页行住在右栏顶上 ——
   搜索那一排下面；顺带盯「多选时勾选框看得见」，勾选框隐形的话「存选中的」就是盲存）。
-- 浏览器档分两级：`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / director-core / lock，
-  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量串行，`tests/e2e/` 48 个文件（47 条判据 + harness），
+- 浏览器档分两级（**按需手动跑**，不是提交前置）：`--e2e:fast` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / director-core / lock，
+  4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量分两道 —— **读数型先独跑**
+  （`ui-visual` / `director-perf` / `director-playback` / `perf/boot` 四条：并发负载会让截图指纹、帧预算
+  与播放对齐这类读数失真 —— 实时播放量到的配音偏移是归位途中的瞬时值），其余（含 7 条不起 Chrome
+  的服务端链路）走 4 路并发，`tests/e2e/` 48 个文件（47 条判据 + harness），
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
-  （后者是同一份判据的「线上那一半」，要起隔离实例）。
+  （后者是同一份判据的「线上那一半」，要起隔离实例）。16 核 / 17 GB 本机实测全量约 10 分钟（串行版是 20 分钟级）；
+  单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例（开机静默探针独跑 3/3 绿、满载必红那种）。
 `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 --e2e。
 - **剪辑核的日常验证不要跑全量 e2e**：`npm run test:director` 是纯件 4 条 + `director-core` 的**一次装配**冒烟
   （板 / 切一刀 / 撤销 / 转场 ◇ / 标记 / 字幕块 / 缩放 / 工具条就地刷 / 历史，约 35 秒）；
-  `director-edit` / `director-history` / `director-playback` 这些重交互档只在出包前跑。
+  `director-edit` / `director-history` / `director-playback` 这些重交互档按需手动跑。
 
 视觉基线更新（只在有意改版后）：
 
 ```bash
 UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs                    # 全部画面
 UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=studio node tests/e2e/ui-visual.cjs   # 只补点名的那一页
+UI_VISUAL_SAVE=1 node tests/e2e/ui-visual.cjs                     # 只留底不改基线：逐张写进 actual/（排障用）
 ```
 
 ### 13.2 写入型验证只跑隔离实例
@@ -1234,6 +1233,9 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - 只跑 headless；测试脚本自己起隔离代理与 Chrome。
 - 页面 e2e 必须检查控制台错误（CSP 违规、未捕获异常、404）。
 - `tests/e2e/harness.cjs` 是唯一的启动/取 Cookie/打开页面入口，别每个脚本各写一套。
+- 起代理的就绪探测每一跳都带 3 秒上限、总窗口 20 秒；**起不来时先把子进程杀掉、四个探针目录清掉再抛**
+  —— 代理的 stdout/stderr 管道就是判据进程的事件循环句柄，不杀的话「未就绪」已经打印出来了，
+  进程还要挂到外层 600 秒超时才被 SIGKILL，端口与目录白占十分钟（`stop()` 与失败路径共用同一份收尾）。
 
 ## 14. 编码与新增功能清单
 
@@ -1379,7 +1381,7 @@ NLE 一键导入在 `server/routes/fcpxml.js` 的 `/fcpxml/import|reveal|launch`
 3. 只写这一页自己的布局；颜色/间距/字号/圆角/阴影/动效只取 `tokens.css`。
 4. 键盘焦点、禁用、busy、空态、加载态、深浅主题、1024/1440 都要过一遍。
 5. 有 AI 文案 / 用户文案进 `innerHTML` 必须 `esc`；有图标按钮不许 `textContent` 改字。
-6. 改完跑 `npm run build:check`、`node tests/all.cjs --e2e`；有意改版才更新视觉基线。
+6. 改完跑 `npm run build:check`、`npm run test`；e2e 按需手动跑、不挡提交；有意改版才更新视觉基线。
 
 ## 15. 已知平台事实（当前有效的部分）
 
@@ -1406,10 +1408,10 @@ npm run build               # 模板 → web/render/*.js
 npm run build:check         # 校验模板与生成物一致
 npm run check               # 秒级档：模板一致 + 全部 JS 语法（<1s）
 npm run test:fast           # 迭代档：check + 按改动映射跑判据（map.cjs，报每条耗时）
-npm run test                # 合并档：常驻判据全量（并发池，~3s）
-npm run test:all            # 全量档：常驻池 + e2e 冒烟 6 条（4 路并发，~2.5 分钟）
+npm run test                # 合并档：常驻判据全量（并发池，~3s）—— 提交与推送前跑这一档
+npm run test:all            # 全量档（按需）：常驻池 + e2e 冒烟 6 条（4 路并发，共 ~75s）
 npm run test:director       # 剪辑核日常档：纯件 4 条 + 一次装配的核冒烟（约 35s）
-npm run test:e2e            # 浏览器档：47 条 e2e 全量串行（含视觉回归与性能）
+npm run test:e2e            # 浏览器档（按需，非前置）：49 项 —— 读数型 4 条独跑 + 其余 4 路并发（含视觉回归与性能）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
 node tools/tokenize-css.cjs            # 样式秒级档：裸值体检（只读；--write 机械替换 / --map 映射 / --collapse 收敛影响面）
 node tools/check-vars.cjs              # 令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）

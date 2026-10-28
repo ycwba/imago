@@ -2,7 +2,6 @@
 /* 浏览器冒烟：隔离代理 + headless Chrome，确认外壳可加载、七个页面能切、无控制台异常。
    跑法：`node tests/e2e/smoke.cjs`（或 `node tests/all.cjs --e2e`） */
 'use strict';
-const path = require('path');
 const h = require('./harness.cjs');
 
 const PAGES = [
@@ -54,7 +53,6 @@ const PAGES = [
       if (route === 'director.html') {
         await page.waitFor(() => !!(window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready()), 15000)
           .catch(() => {});
-        await page.screenshot(path.join(__dirname, '../fixtures/golden/smoke-director.png'));
         const wired = await page.eval(() => ({
           media: !!(window.EditorMedia && typeof window.EditorMedia.exportSrc === 'function' && typeof window.EditorMedia.previewSrc === 'function'),
           engine: !!(window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready()),

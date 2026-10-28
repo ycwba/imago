@@ -71,7 +71,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     /* ---------- 共享列表件：整箱重画也走 keep ----------
        Wb.cards.paint 是全站「列表重画」的唯一一份（工作台右栏 / 收藏 / 资产库都经它），
        它自己调了 Wb.viewport.keep —— 这里用一个探针箱照同一份 API 走一遍：
-       60 条 → 滚到中段 → 换一批（40 条换掉尾部 20 条、高度也随之变）→ 位置必须还在。 */
+       60 条 → 滚到中段 → 换一批（40 条换掉尾部 20 条、每条还从 40px 变成 44px）→ 位置必须还在。
+       ⚠ 「还在」的量法是**锚点**（第一个可见的那一条仍停在原来的视口偏移上），不是 scrollTop 的像素值：
+       锚点以上的内容变高了，scrollTop 本来就该跟着变大（仍按 600 复位的写法会让锚点往上漂 60px）——
+       全站契约见 AGENTS §3.4.5 / `web/ui/workbench.js` 的 viewport.keep。
+       浏览器自己的 scroll anchoring 也会动一次，keep 负责把残差按锚点抹平。 */
     const listOk = await page.eval(() => {
       const host = document.createElement('div');
       host.id = 'probeCardsHost';
@@ -87,21 +91,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         box: box, keyOf: it => it.key, sigOf: it => it.key + ':' + it.h,
         htmlOf: it => '<div style="height:' + it.h + 'px">' + it.key + '</div>',
       });
+      /* 第一个可见的那一条：它的**视口偏移**才是「我原来在看哪儿」。 */
+      const anchorOf = () => {
+        const er = box.getBoundingClientRect();
+        for (const k of box.children) {
+          if (k.getBoundingClientRect().bottom > er.top + 1) {
+            return { key: k.getAttribute('data-tkey'), off: Math.round(k.getBoundingClientRect().top - er.top) };
+          }
+        }
+        return null;
+      };
       api.paint(listA);
       box.scrollTop = 600;
-      const before = Math.round(box.scrollTop);
+      const before = { top: Math.round(box.scrollTop), anchor: anchorOf() };
       /* 顶部那几条高度变了 + 尾部换掉一批：锚点以上的高度动了，按像素还原会漂。 */
       const listB = listA.slice(0, 40).map(it => ({ key: it.key, h: 44 }))
         .concat([{ key: 'n1', h: 40 }, { key: 'n2', h: 40 }]);
       api.paint(listB);
-      const after = Math.round(box.scrollTop);
-      const out = { before: before, after: after };
+      const after = { top: Math.round(box.scrollTop), anchor: anchorOf() };
       host.remove();
-      return out;
+      return { before: before, after: after };
     });
-    must(listOk.before > 400, '列表探针没滚下去（探针本身坏了）：' + JSON.stringify(listOk));
-    must(Math.abs(listOk.after - listOk.before) <= 12,
-      'Wb.cards 整箱重画把列表滚动位吃掉了：' + JSON.stringify(listOk) + '（paint 里没走 Wb.viewport.keep）');
+    must(listOk.before.top > 400, '列表探针没滚下去（探针本身坏了）：' + JSON.stringify(listOk));
+    must(listOk.after.top > 400, 'Wb.cards 整箱重画把列表甩回了顶上：' + JSON.stringify(listOk));
+    must(listOk.after.anchor && listOk.after.anchor.key === listOk.before.anchor.key,
+      '重画之后第一个可见的条目换了（锚点没找回来）：' + JSON.stringify(listOk));
+    must(Math.abs(listOk.after.anchor.off - listOk.before.anchor.off) <= 2,
+      'Wb.cards 整箱重画把锚点漂了：' + JSON.stringify(listOk) + '（paint 里没走 Wb.viewport.keep）');
 
     if (page.errors && page.errors.length) {
       console.error('页面异常：\n' + page.errors.slice(0, 5).join('\n'));

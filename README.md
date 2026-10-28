@@ -139,6 +139,13 @@ create / inputRoles / inputTemplates / uploadFields / pricing），页面不改�
 
 ```bash
 npm run build:check
+npm run test
+```
+
+改完跑这两条就够（模板一致 + 常驻判据全量，几秒）。
+浏览器档（`node tests/all.cjs --e2e`）**不是提交与推送的前置条件**，要跑再手动跑：
+
+```bash
 node tests/all.cjs --e2e
 ```
 

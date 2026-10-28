@@ -339,19 +339,22 @@ function createLocalAssets(ctx) {
           + '关掉占着它的程序再删一次。');
         return;
       }
-      /* 整组一次写回：串行队列里一趟走完，不留「文件没了、账还剩一半」那个窗口。 */
-      try { localIndexUpdate(list => group.forEach(r => localIndexDrop(list, r.id))); }
-      catch (e) {
+      /* 整组一次写回：串行队列里一趟走完，不留「文件没了、账还剩一半」那个窗口。
+         ⚠ 这一条是**排队**的（见 server/index-store.js 的 update）：同步 try/catch 罩不住它，
+         写盘失败会在几十年后的微任务里 reject —— 那时这句已经回完 200，
+         用户看见「已删除」而账还留着，下一轮列表又把这一条补成一张卡（AGENTS §6.3 那条「删了又回来」）。
+         所以出口挂在 then/catch 上，不靠 try/catch。 */
+      localIndexUpdate(list => group.forEach(r => localIndexDrop(list, r.id))).then(() => {
+        invalidateScan();
+        log(`[local-assets] 已删除 ${id}（一张卡：${group.length} 条账、${paths.length} 份字节）`);
+        sendJson(res, 200, { ok: true, id, files: paths.length, rows: group.length });
+      }).catch(e => {
         /* 文件已经删掉了，但索引没写回去：这一条会「复活」成一条指向不存在文件的记录，
            下次打开会显示成「已丢失」。如实说，别回「已删除」——那会让用户以为干净了。 */
         log('[local-assets] 文件已删、索引未更新：' + e.message);
         failMsg(res, 500, '文件已经删掉了，但索引没能更新（' + e.message
           + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。');
-        return;
-      }
-      invalidateScan();
-      log(`[local-assets] 已删除 ${id}（一张卡：${group.length} 条账、${paths.length} 份字节）`);
-      sendJson(res, 200, { ok: true, id, files: paths.length, rows: group.length });
+      });
       return;
     }
     if (dataPath === '/local-assets' && req.method === 'GET') {

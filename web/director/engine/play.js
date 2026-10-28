@@ -14,7 +14,7 @@
 
 import {
   deriveTimeline, coversTime, itemVisible, voiceLaneMap, captionLaneMap,
-  fadeGain, clamp, transitionAtTime, captionPosition, captionHighlighted,
+  gainOf, fadeGain, transitionAtTime, captionPosition, captionHighlighted,
 } from '../film.js';
 
 /* 界面读数节流：主时钟每帧都走，画读数 / 转场进度只按这个间隔。 */
@@ -114,10 +114,10 @@ export function createPlay(E, document, window) {
     if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume().catch(() => ZERO);
     return ctx;
   }
-  /* 主画面的增益：静音 = 0，正常 = clip.volume（上限 4）。 */
+  /* 主画面的增益：预览总静音或这一段静音 = 0；否则走 gainOf（与导出同一把尺子）。 */
   function applyMainGain(clip) {
     if (!video) return;
-    const gain = muted || !clip ? 0 : clamp(num(clip.volume, 1), 0, 4);
+    const gain = muted || !clip ? 0 : gainOf(clip);
     if (ctx && video.__pvWiredGain !== ctx) {
       try {
         if (!mainNode || mainNode.mediaElement !== video) {
@@ -287,6 +287,7 @@ export function createPlay(E, document, window) {
     trState.key = '';
     trState.owner = null;
     trState.incoming = null;
+    trHoldUntil = 0;
     trLayer.hidden = true;
     trLayer.innerHTML = '';
     /* 撤层时把「是哪一种转场、走到几成」一起清掉：留着的话界面下一次读到的是
@@ -302,11 +303,13 @@ export function createPlay(E, document, window) {
       if (!trState.key) return;
       /* 窗口刚走完：主画面这时才换到下一段，换源那一两百毫秒是黑的 ——
          转场层里放的**正是下一段的画面**，等主画面真有了帧再撤层，别把黑底露出来。
-         超过 900ms 还没就绪（素材取不到 / 解码失败）就照常撤，不无限挂着一层旧画面。 */
+         超过 900ms 还没就绪（素材取不到 / 解码失败）就照常撤，不无限挂着一层旧画面。
+         ⚠ 这个「等一等」只在播放中成立（主时钟每帧会再来问一次）；暂停里没有人再来问，
+         挂着就是永不撤层（针已经出窗，那一层却一直盖着）—— 停着的定位一律当场撤。 */
       const row = rowAt(t);
       const ready = !row || row.clip.kind === 'image'
         || (video && video.dataset.clip === row.clip.id && video.readyState >= 2);
-      if (ready) hideTransition();
+      if (ready || !playing) hideTransition();
       else if (!trHoldUntil) trHoldUntil = now() + 900;
       else if (now() > trHoldUntil) hideTransition();
       return;
@@ -409,7 +412,7 @@ export function createPlay(E, document, window) {
       const inBlock = coversTime(v, t);
       const visible = itemVisible(f.tracks, 'voice', laneOf.get(v.id));
       const gain = (!muted && inBlock && visible)
-        ? clamp(num(v.volume, 1), 0, 4) * fadeGain(v, t - num(v.start))
+        ? gainOf(v) * fadeGain(v, t - num(v.start))
         : 0;
       const shouldPlay = playing && gain > 0.0001;
       if (!shouldPlay) {

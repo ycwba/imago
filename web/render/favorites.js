@@ -107,6 +107,7 @@ export function render(_ctx, _cache) {
           [_vShow, _ctx.favTotal]
         ])
       ]),
+      _cache[2] || (_cache[2] = _createElementVNode("span", { class: "phead-sub" }, null, -1 /* CACHED */)),
       _createElementVNode("div", _hoisted_4, [
         _createElementVNode("button", {
           class: _normalizeClass(["ghost", { active: _ctx.multiMode }]),
@@ -143,19 +144,19 @@ export function render(_ctx, _cache) {
     _createCommentVNode(" 平台 + 时间（与资产库一样的两种）+ 摆法 "),
     _createElementVNode("div", _hoisted_11, [
       _createElementVNode("label", _hoisted_12, [
-        _cache[2] || (_cache[2] = _createElementVNode("span", null, "平台", -1 /* CACHED */)),
+        _cache[3] || (_cache[3] = _createElementVNode("span", null, "平台", -1 /* CACHED */)),
         _createElementVNode("select", _hoisted_13, null, 512 /* NEED_PATCH */)
       ]),
       _createElementVNode("label", _hoisted_14, [
-        _cache[4] || (_cache[4] = _createElementVNode("span", null, "时间", -1 /* CACHED */)),
-        _createElementVNode("select", _hoisted_15, [...(_cache[3] || (_cache[3] = [
+        _cache[5] || (_cache[5] = _createElementVNode("span", null, "时间", -1 /* CACHED */)),
+        _createElementVNode("select", _hoisted_15, [...(_cache[4] || (_cache[4] = [
           _createElementVNode("option", { value: "0" }, "全部时间", -1 /* CACHED */),
           _createElementVNode("option", { value: "1" }, "今天", -1 /* CACHED */),
           _createElementVNode("option", { value: "7" }, "近 7 天", -1 /* CACHED */),
           _createElementVNode("option", { value: "30" }, "近 30 天", -1 /* CACHED */)
         ]))], 512 /* NEED_PATCH */)
       ]),
-      _cache[5] || (_cache[5] = _createElementVNode("span", {
+      _cache[6] || (_cache[6] = _createElementVNode("span", {
         class: "sp",
         style: {"flex":"1"}
       }, null, -1 /* CACHED */)),
@@ -185,7 +186,7 @@ export function render(_ctx, _cache) {
         id: "bulkDown",
         disabled: _ctx.bulkDownDisabled,
         onClick: _ctx.bulkDownload
-      }, [...(_cache[6] || (_cache[6] = [
+      }, [...(_cache[7] || (_cache[7] = [
         _createElementVNode("span", {
           "data-icon": "download",
           "data-size": "13"
@@ -197,7 +198,7 @@ export function render(_ctx, _cache) {
         id: "bulkDrop",
         disabled: _ctx.bulkFavRemoveDisabled,
         onClick: _ctx.bulkDrop
-      }, [...(_cache[7] || (_cache[7] = [
+      }, [...(_cache[8] || (_cache[8] = [
         _createElementVNode("span", {
           "data-icon": "starFill",
           "data-size": "13"
@@ -205,7 +206,7 @@ export function render(_ctx, _cache) {
         _createTextVNode(" 取消收藏", -1 /* CACHED */)
       ]))], 8 /* PROPS */, _hoisted_23),
       _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.bulkTipText), 1 /* TEXT */),
-      _cache[8] || (_cache[8] = _createElementVNode("span", {
+      _cache[9] || (_cache[9] = _createElementVNode("span", {
         class: "sp",
         style: {"flex":"1"}
       }, null, -1 /* CACHED */)),
@@ -226,7 +227,7 @@ export function render(_ctx, _cache) {
           }, "重试", 8 /* PROPS */, _hoisted_27)
         ]))
       : (!_ctx.ready)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_28, [...(_cache[9] || (_cache[9] = [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_28, [...(_cache[10] || (_cache[10] = [
             _createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
             _createTextVNode(" 加载中…", -1 /* CACHED */)
           ]))]))
@@ -311,7 +312,7 @@ export function render(_ctx, _cache) {
                           }, "取消收藏", 8 /* PROPS */, _hoisted_43)
                         ]),
                         _createCommentVNode(" 详情就地展开（公共件 .exp）：清单档里那张卡自己长高，\n                     紧凑档里它落在下面那条带子上（.band）。 "),
-                        _cache[10] || (_cache[10] = _createElementVNode("div", { class: "exp" }, [
+                        _cache[11] || (_cache[11] = _createElementVNode("div", { class: "exp" }, [
                           _createElementVNode("div", { class: "exp-in" }, [
                             _createElementVNode("div", { class: "exp-body" }, [
                               _createElementVNode("div", { class: "cdet" })
@@ -329,17 +330,17 @@ export function render(_ctx, _cache) {
                       class: "band",
                       "data-for": _ctx.bandItem(row).key
                     }, [
-                      _cache[13] || (_cache[13] = _createElementVNode("span", { class: "band-tether" }, null, -1 /* CACHED */)),
+                      _cache[14] || (_cache[14] = _createElementVNode("span", { class: "band-tether" }, null, -1 /* CACHED */)),
                       _createElementVNode("div", _hoisted_45, [
                         _createElementVNode("div", _hoisted_46, [
                           _createElementVNode("span", _hoisted_47, _toDisplayString(_ctx.bandItem(row).prompt || _ctx.bandItem(row).name), 1 /* TEXT */),
-                          _cache[11] || (_cache[11] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+                          _cache[12] || (_cache[12] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
                           _createElementVNode("button", {
                             class: "ghost fav-open",
                             onClick: _withModifiers(_ctx.closeDetail, ["stop"])
                           }, "收起", 8 /* PROPS */, _hoisted_48)
                         ]),
-                        _cache[12] || (_cache[12] = _createElementVNode("div", { class: "cdet" }, null, -1 /* CACHED */))
+                        _cache[13] || (_cache[13] = _createElementVNode("div", { class: "cdet" }, null, -1 /* CACHED */))
                       ])
                     ], 8 /* PROPS */, _hoisted_44))
                   : _createCommentVNode("v-if", true)

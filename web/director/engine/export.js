@@ -117,7 +117,7 @@ async function buildRenderPlan() {
         start: round2(row.start), duration: round2(clipDurationOf(clip)),
         sourceStart: round2(clip.sourceStart),
         sourceDuration: round2(clip.kind === 'image' ? 0 : clip.sourceDuration),
-        playbackRate: rateOf(clip), volume: gainOf(clip), muted: !!clip.muted,
+        playbackRate: rateOf(clip), volume: gainOf(clip),
       },
     };
   });
@@ -357,7 +357,7 @@ function filmFingerprint() {
       ? c.transition.id + ':' + round2(c.transition.duration) : '';
     return [i, c.kind, c.shotId || '', c.candId || '', c.assetId || '', c.src || '',
       round2(row.start), round2(clipDurationOf(c)), round2(c.sourceStart), round2(c.sourceDuration),
-      rateOf(c), c.muted ? 'm' : round2(gainOf(c)), tr].join('~');
+      rateOf(c), round2(gainOf(c)), tr].join('~');
   }).join('|');
   const voicePart = audibleVoices(film).list.map(v => [round2(v.start), round2(v.duration),
     round2(v.sourceStart), round2(v.sourceDuration), rateOf(v), round2(gainOf(v)),

@@ -55,7 +55,20 @@ function createModelsRoutes(ctx) {
      mirror 顺序在入口（handleModels）读好传进来，会话本身不认请求参数。 */
   function startDownload(key, parsed, mirror) {
     const clients = new Set();
-    const session = { done: false, aborted: false, res: null };
+    const session = { done: false, aborted: false, res: null, stream: null };
+    /* 收摊：先关掉那一份还开着的 .part 写句柄，句柄 close 之后才删文件。
+       为什么不能直接 unlinkSync：Windows 上句柄没关时删是**静默失败**的（cleanupPart 整个包在
+       try/catch 里，看不见也报不出），残下的那几百 MB 既删不掉也认不出来，下一轮 attempt
+       又在同一个路径上开第二个句柄 —— 下载越失败越占盘。
+       上游连接不在这里掐：那由调用方按「是不是要换镜像」决定（这里掐会触发 req 的 error → 又起一次下载）。 */
+    const dropPart = () => {
+      const st = session.stream;
+      session.stream = null;
+      if (!st || st.destroyed) { cleanupPart(key); return; }
+      st.once('close', () => cleanupPart(key));
+      try { st.destroy(); } catch (e) { cleanupPart(key); }
+    };
+    session.dropPart = dropPart;
     let settled = false;
     const promise = new Promise(resolve => {
       const finishOk = bytes => {
@@ -68,7 +81,7 @@ function createModelsRoutes(ctx) {
       const fail = why => {
         if (settled || session.aborted) return;
         settled = true;
-        cleanupPart(key);
+        dropPart();
         /* 已经发过头的客户端只能断流收场；没发过头的不动 —— downloadAndServe 会给它们补一句干净的 502。 */
         for (const cl of clients) { try { if (cl.headersSent) cl.destroy(new Error(why)); } catch (e) { /* 已经断了 */ } }
         clients.clear();
@@ -110,6 +123,7 @@ function createModelsRoutes(ctx) {
             const part = localOf(key) + '.part';
             try { fs.mkdirSync(path.dirname(part), { recursive: true }); } catch (e) { return fail('建模型目录失败：' + ((e && e.message) || e)); }
             const out = fs.createWriteStream(part);
+            session.stream = out;
             let got = 0;
             res.on('data', c => {
               got += c.length;
@@ -153,7 +167,7 @@ function createModelsRoutes(ctx) {
         if (!h.session.done && !h.session.aborted && h.clients.size === 0) {
           h.session.aborted = true;
           try { if (h.session.res) h.session.res.destroy(new Error('客户端全部断开')); } catch (e) {}
-          cleanupPart(key);
+          h.session.dropPart();
         }
       };
       req.on('aborted', drop);

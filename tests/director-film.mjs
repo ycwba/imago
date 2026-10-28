@@ -13,7 +13,7 @@ import {
   createVoiceClip, createPending, createCaption, captionForTimed,
   normalizeFilm, filmOf, deriveTimeline, filmTotal, clipBoundary,
   chosenCandOf, candidateWindow, promoteCandidate, demoteShot,
-  packVoiceLanes, packCaptionLanes, laneOfItem, voiceLaneMap, captionLaneMap,
+  packVoiceLanes, packCaptionLanes, voiceLaneMap, captionLaneMap, filmLaneOf,
   rowVisible, rowLocked, rowSet, itemVisible, itemLocked,
   captionPosition, captionPositions, captionHighlighted, captionStyleOf,
   audibleVoices, visibleCaptions, speakerOf, lineTimeOf, lineRowHTML,
@@ -287,9 +287,17 @@ assert.equal(vMap.get(v0.id), 0);
 assert.equal(vMap.get(v1.id), 1);                                // 重叠的两条分两行
 const capMap = captionLaneMap({ captions: [mkCap(0, 2), mkCap(1, 3)] });
 assert.deepEqual([...capMap.values()], [0, 1]);
-assert.equal(laneOfItem([{ id: 'a', start: 0, duration: 2 }, { id: 'b', start: 0, duration: 2 }], 'b'), 1);   // 重叠 → 分行
-assert.equal(laneOfItem([{ id: 'a', start: 0, duration: 1 }, { id: 'b', start: 2, duration: 1 }], 'b'), 0);   // 不重叠 → 同行
-assert.equal(laneOfItem([{ id: 'a', start: 0, duration: 1 }], 'nope'), -1);
+const laneFilm = {
+  clips: [createClip({ id: 'lc1', ln: 2 }), createClip({ id: 'lc2' })],
+  voices: [v0, v1], pending: [createPending({ start: 6 })],
+  captions: [mkCap(0, 2), mkCap(1, 3)],
+};
+assert.equal(filmLaneOf(laneFilm, 'voice', v0.id), 0);
+assert.equal(filmLaneOf(laneFilm, 'voice', v1.id), 1);            // 重叠 → 打包到第二行
+assert.equal(filmLaneOf(laneFilm, 'cap', laneFilm.captions[1].id), 1);
+assert.equal(filmLaneOf(laneFilm, 'clip', 'lc1'), 2);             // 画面看 clip.ln
+assert.equal(filmLaneOf(laneFilm, 'clip', 'lc2'), 0);
+assert.equal(filmLaneOf(laneFilm, 'voice', 'nope'), -1);
 
 /* ---------- 行级眼睛 / 锁 ---------- */
 assert.equal(rowVisible(null, 'voice'), true);          // 没记 = 可见
@@ -399,6 +407,8 @@ assert.equal(coversTime({ start: 1, duration: 2 }, 3), false);
 assert.equal(gainOf({ volume: 2 }), 2);
 assert.equal(gainOf({ volume: 9 }), 4);
 assert.equal(gainOf({}), 1);
+assert.equal(gainOf({ volume: 2, muted: true }), 0);     // 静音压过音量（取消静音恢复原值）
+assert.equal(gainOf({ volume: 2, muted: false }), 2);
 
 assert.equal(fadeGain({ duration: 10, fadeIn: 2, fadeOut: 4 }, 1), 0.5);
 assert.equal(fadeGain({ duration: 10, fadeIn: 2, fadeOut: 4 }, 2), 1);

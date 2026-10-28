@@ -383,10 +383,9 @@ export function createTimeline(E, document, window) {
     </div>`;
   }
 
-  function voiceHTML(item, pps, film, isPending) {
+  function voiceHTML(item, pps, film, isPending, lane) {
     const w = Math.max(2, Math.round(tlXOfTime(item.duration, pps) * 100) / 100);
     const x = Math.round(tlXOfTime(item.start, pps) * 100) / 100;
-    const lane = Number.isInteger(item.lane) ? item.lane : 0;
     const locked = itemLocked(film.tracks, 'voice', lane);
     const visible = itemVisible(film.tracks, 'voice', lane);
     const cls = ['tl-voice', isPending ? 'is-pending' : '', locked ? 'is-locked' : '', visible ? '' : 'is-off'].filter(Boolean).join(' ') + flashClsOf(item.id);
@@ -399,11 +398,10 @@ export function createTimeline(E, document, window) {
     </div>`;
   }
 
-  function captionHTML(cap, pps, film) {
+  function captionHTML(cap, pps, film, lane) {
     const dur = Math.max(0.05, num(cap.end) - num(cap.start));
     const w = Math.max(2, Math.round(tlXOfTime(dur, pps) * 100) / 100);
     const x = Math.round(tlXOfTime(cap.start, pps) * 100) / 100;
-    const lane = Number.isInteger(cap.lane) ? cap.lane : 0;
     const locked = itemLocked(film.tracks, 'caption', lane);
     const visible = itemVisible(film.tracks, 'caption', lane);
     const cls = ['tl-cap', locked ? 'is-locked' : '', visible ? '' : 'is-off'].filter(Boolean).join(' ') + flashClsOf(cap.id);
@@ -455,10 +453,10 @@ export function createTimeline(E, document, window) {
       body = row.items.map(r => clipHTML(r.clip, r.start, pps, film)).join('');
       if (!film.clips.length) body = '<span class="tl-lane-hint">在右栏点「用这条」，画面就落到这一轨</span>';
     } else if (row.kind === 'voice') {
-      body = row.items.map(item => voiceHTML(item, pps, film, item.__kind === 'pending')).join('');
+      body = row.items.map(item => voiceHTML(item, pps, film, item.__kind === 'pending', row.lane)).join('');
       if (!film.voices.length && !film.pending.length) body = '<span class="tl-lane-hint">配音与待生成的句子会排在这一轨</span>';
     } else if (row.kind === 'caption') {
-      body = row.items.map(cap => captionHTML(cap, pps, film)).join('');
+      body = row.items.map(cap => captionHTML(cap, pps, film, row.lane)).join('');
       if (!film.captions.length) body = '<span class="tl-lane-hint">字幕会排在这一轨（按台词生成）</span>';
     }
     return `<div class="${cls}" data-row="${row.key}" data-lane="${row.lane == null ? 0 : row.lane}">${body}</div>`;

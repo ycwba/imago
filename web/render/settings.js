@@ -28,7 +28,7 @@ const _hoisted_12 = ["onClick"]
 const _hoisted_13 = {
   class: "set-group",
   "data-group": "keys",
-  "data-note": ""
+  "data-note": "平台账号与两条通道"
 }
 const _hoisted_14 = {
   class: "card card-surface",
@@ -190,7 +190,7 @@ const _hoisted_112 = ["onClick"]
 const _hoisted_113 = {
   class: "set-group",
   "data-group": "ui",
-  "data-note": ""
+  "data-note": "查看、翻页与外观"
 }
 const _hoisted_114 = {
   class: "card card-surface",
@@ -225,7 +225,7 @@ const _hoisted_125 = {
 const _hoisted_126 = {
   class: "set-group",
   "data-group": "gen",
-  "data-note": ""
+  "data-note": "产物存放与 AI 行为"
 }
 const _hoisted_127 = {
   class: "card card-surface",
@@ -434,7 +434,7 @@ const _hoisted_254 = {
 const _hoisted_255 = {
   class: "set-group",
   "data-group": "data",
-  "data-note": ""
+  "data-note": "云端同步与备份"
 }
 const _hoisted_256 = {
   class: "card card-surface",
@@ -522,7 +522,7 @@ const _hoisted_320 = {
   class: "set-group foldable",
   "data-group": "maint",
   "data-fold-key": "set_fold_maint",
-  "data-note": ""
+  "data-note": "本机环境、用量与清理"
 }
 const _hoisted_321 = { class: "fold-body" }
 const _hoisted_322 = {

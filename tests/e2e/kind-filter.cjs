@@ -71,12 +71,12 @@ const PIX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABA
     must(fav.count === 1, '收藏页该有且只有一处文件类型筛选：' + JSON.stringify(fav));
     must(/ui-seg/.test(fav.cls), '收藏页的文件类型筛选该是分段控件（.ui-seg）：' + fav.cls);
     const favTabs = fav.tabs.reduce((m, t) => (m[t.k] = t, m), {});
-    must(favTabs['全部'], '收藏页缺「全部」那一档：' + JSON.stringify(fav.tabs));
-    must(Number(favTabs['全部'].n) === 3, '「全部」该是 3 条：' + JSON.stringify(fav.tabs));
+    must(favTabs['all'], '收藏页缺「全部」那一档（键 all）：' + JSON.stringify(fav.tabs));
+    must(Number(favTabs['all'].n) === 3, '「全部」该是 3 条：' + JSON.stringify(fav.tabs));
     must(Number(favTabs['图片'].n) === 1, '「图片」该是 1 条：' + JSON.stringify(fav.tabs));
     must(Number(favTabs['视频'].n) === 1, '「视频」该是 1 条：' + JSON.stringify(fav.tabs));
     must(Number(favTabs['音频'].n) === 1, '「音频」该是 1 条：' + JSON.stringify(fav.tabs));
-    must(favTabs['全部'].on, '默认该是「全部」亮着：' + JSON.stringify(fav.tabs));
+    must(favTabs['all'].on, '默认该是「全部」亮着：' + JSON.stringify(fav.tabs));
 
     /* ── ② 点一档 → 当前档亮、列表按那一档筛 ────────────────────────── */
     await page.eval(() => {
@@ -92,7 +92,7 @@ const PIX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABA
 
     /* 筛到没有条数的那一档：那一档**不画**（当前档除外，否则回不去）。 */
     await page.eval(() => {
-      const b = document.querySelector('[data-kind-filter] button[data-k="全部"]');
+      const b = document.querySelector('[data-kind-filter] button[data-k="all"]');
       if (b) b.click();
     });
     await sleep(500);

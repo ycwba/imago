@@ -149,9 +149,30 @@ function createAsrRoutes(ctx) {
   }
   function routeNow(bodyRoute) {
     const s = ctx.store.rawSettings();
-    const want = ['local', 'service'].includes(bodyRoute) ? bodyRoute : s.route;
+    /* browser 也算「显式给了」：AGENTS §12 那一条要求 /asr/transcribe 收到 browser 当场 400。
+       把它和 local/service 分开对待的话，客户端显式声明「这一路在我自己的 worker 里跑」
+       却被本机设置（service）顶掉 —— 页面以为没花钱，账上却记了一笔在线转写。 */
+    const want = ['browser', 'local', 'service'].includes(bodyRoute) ? bodyRoute : s.route;
     if (want !== 'auto') return want;
     return localAsrState(ctx.root).available ? 'local' : 'service';
+  }
+
+  /* 名额必须**同步**占住：work() 排在 setImmediate 里，只在那里面 running.set 的话，
+     同一 tick 进来的两单都过得了上面那道 `running.size >= RUN_MAX`（那会儿表还是空的），
+     上限就成了摆设 —— 同时开 N 个 whisper-cli，或同时开 N 单在线转写（后者是直接扣钱）。
+     这一条把「判满」与「占位」收进同一个同步块；work() 认的就是这一份 rt，不留第二张表。 */
+  function claim(id, meta) {
+    if (running.size >= RUN_MAX) return false;
+    running.set(id, { canceled: false, child: null, req: null, dir: '' });
+    pending.set(id, meta);
+    return true;
+  }
+  /* 名额占了、任务还没交给 work() 就失败（落账写盘失败 / 临时目录收拾不完）：
+     两个表一起还回去。只回一句 500 而不还名额的话，running 上留一条永远跑不完的记录，
+     几单之后 RUN_MAX 就再也进不来 —— 这一次提交失败会变成整台机器再也不能转写。 */
+  function dropSlot(id) {
+    running.delete(id);
+    pending.delete(id);
   }
 
   async function prepareSource(body, dir) {
@@ -384,8 +405,17 @@ function createAsrRoutes(ctx) {
           sourceHash: '', route: 'local', language, engine: '', media,
           createdAt: Date.now(), updatedAt: Date.now(),
         };
-        ctx.store.putJob(job);
-        pending.set(id, { pcmFile: file, pcmDir: dir, media, pcmHash: got.hash });
+        /* 先占名额再落账：占不到就把刚建的临时目录收掉，一个字节都不留在系统临时目录里。 */
+        if (!claim(id, { pcmFile: file, pcmDir: dir, media, pcmHash: got.hash })) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {}
+          sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
+          return true;
+        }
+        try { ctx.store.putJob(job); } catch (e) {
+          dropSlot(id);
+          try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {}
+          throw e;
+        }
         setImmediate(() => { work(id).catch(e => ctx.log('[asr] 任务异常 ' + id + '：' + ((e && e.message) || e))); });
         sendJson(res, 200, { jobId: id, state: 'queued', route: 'local', language });
         return true;
@@ -426,8 +456,12 @@ function createAsrRoutes(ctx) {
           sourceHash: '', route, language, engine: '', media: '',
           createdAt: Date.now(), updatedAt: Date.now(),
         };
-        ctx.store.putJob(job);
-        pending.set(id, { assetId: body && body.assetId, src: body && body.src });
+        /* 与 /asr/pcm 同一句：占名额与判满在同一个同步块里，见 claim。 */
+        if (!claim(id, { assetId: body && body.assetId, src: body && body.src })) {
+          sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
+          return true;
+        }
+        try { ctx.store.putJob(job); } catch (e) { dropSlot(id); throw e; }
         setImmediate(() => { work(id).catch(e => ctx.log('[asr] 任务异常 ' + id + '：' + ((e && e.message) || e))); });
         sendJson(res, 200, { jobId: id, state: 'queued', route, language });
         return true;
@@ -505,6 +539,9 @@ function createAsrRoutes(ctx) {
       sendJson(res, 404, { error: '不认识的 ASR 路由' });
       return true;
     } catch (e) {
+      /* 请求体太大 / 连接中断：readBody 已经当场答过 413 或 400 了（见 server/app.js），
+         这里再 sendJson 一次是 ERR_HTTP_HEADERS_SENT，异常从 catch 逃到健康账上变成一句「请求出错」。 */
+      if (e && e.alreadyReplied) return true;
       sendJson(res, e.status || 400, { error: clean((e && e.message) || e, 800) });
       return true;
     }

@@ -1,5 +1,5 @@
 /* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/studio.html 编译，别手改。 */
-import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
+import { createCommentVNode as _createCommentVNode, createElementVNode as _createElementVNode, createTextVNode as _createTextVNode, createStaticVNode as _createStaticVNode, openBlock as _openBlock, createElementBlock as _createElementBlock } from "../../vue.runtime.esm-browser.prod.js"
 
 const _hoisted_1 = {
   class: "page-main studio-page wb",
@@ -9,12 +9,7 @@ const _hoisted_1 = {
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createCommentVNode(" 统一页头（全站唯一一份 .phead）：这一页以前标题缩在左栏顶部、字号还独一份，\n           左栏一滚标题就跟着走了。现在提到全宽顶排，左栏顶部让给类型切换与型号下拉。 "),
-    _cache[0] || (_cache[0] = _createElementVNode("header", { class: "phead" }, [
-      _createElementVNode("div", { class: "phead-id" }, [
-        _createElementVNode("h1", { class: "phead-h1" }, "生成工作台")
-      ]),
-      _createElementVNode("div", { class: "phead-acts" })
-    ], -1 /* CACHED */)),
+    _cache[0] || (_cache[0] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">生成工作台</h1></div><span class=\"phead-sub\"></span><div class=\"phead-acts\"></div></header>", 1)),
     _cache[1] || (_cache[1] = _createElementVNode("div", { class: "layout" }, [
       _createElementVNode("div", {
         class: "col-left",

@@ -470,13 +470,6 @@ export function packCaptionLanes(captions, maxLanes = LANE_MAX) {
   };
 }
 
-/* 条目所在行（打包口径）：找不到就 -1。 */
-export function laneOfItem(items, id) {
-  const { lanes } = packVoiceLanes(items);
-  for (const l of lanes) if (l.items.some(x => x.id === id)) return l.lane;
-  return -1;
-}
-
 /* 「这一条定时块画在第几行」的 id → 行号表（预览与导出共用的一张）。
    两处各 pack 一遍就会各漂一次：眼睛关掉的到底是屏幕上那一行还是片子里那一行，
    只有同一张表才答得准。待生成块与配音共用同一组打包行，所以一起 pack。 */
@@ -491,6 +484,19 @@ export function captionLaneMap(film) {
   const map = new Map();
   pack.lanes.forEach(l => l.items.forEach(c => map.set(c.id, l.lane)));
   return map;
+}
+
+/* 「这一块画在第几行」（打包口径）：画面看 `clip.ln`，配音 / 待生成与字幕看打包后的行号。
+   锁判据、助手写入桥与「板上没画出来时」的选中都读这一处 —— 存下来的 `item.lane` 只是偏好，
+   真正画在第几行是打包算出来的，两把尺混用就会锁错行。找不到条目返回 -1。 */
+export function filmLaneOf(film, kind, id) {
+  if (!film || !id) return -1;
+  if (kind === 'clip') {
+    const clip = (film.clips || []).find(c => c && c.id === id);
+    return clip ? Math.max(0, Math.round(num(clip.ln))) : -1;
+  }
+  const map = kind === 'cap' ? captionLaneMap(film) : voiceLaneMap(film);
+  return map.has(id) ? map.get(id) : -1;
 }
 
 /* ---------------- 行级眼睛 / 锁（参考 projectTrackState） ---------------- */
@@ -631,8 +637,9 @@ export const windowOf = item => ({ start: num(item && item.start), end: num(item
 /* 条目在成片秒某处是否正在播（配音 / 待生成 / 字幕共用）。 */
 export const coversTime = (item, t) => t >= num(item.start) - 0.0005 && t < num(item.start) + num(item.duration) - 0.0005;
 
-/* 音量增益（导出 / 预览共用）：>1 交给 WebAudio 增益，元素音量封顶 1。 */
-export const gainOf = item => clamp(num(item && item.volume, 1), 0, 4);
+/* 音量增益（导出 / 预览共用）：静音 = 0（`muted` 不动存下来的音量，取消静音就恢复原值）；
+   >1 交给 WebAudio 增益，元素音量封顶 1。 */
+export const gainOf = item => (item && item.muted ? 0 : clamp(num(item && item.volume, 1), 0, 4));
 
 /* fade 包络：块内相对秒 → 增益系数（参考 audio clip 的 fadeIn / fadeOut，各夹到有效时长一半）。 */
 export function fadeGain(item, relSec) {

@@ -6,7 +6,7 @@
    几何换算只走 Timeline 的 timeAtClientX / geometry —— 秒数不在这里再折第二遍。 */
 import {
   deriveTimeline, normalizeFilm, createClip, createPending, createCaption, filmId,
-  itemLocked, coversTime, estimateSpeechSeconds, clipDurationOf,
+  itemLocked, coversTime, estimateSpeechSeconds, clipDurationOf, filmLaneOf,
   MIN_CAPTION_SECONDS, IMAGE_SEGMENT_SECONDS, MAX_FILM_SECONDS,
 } from '../film.js';
 import {
@@ -133,15 +133,21 @@ export function createEdit(E, document, window) {
     return `「${name}」（${fmtTenth(start)}–${fmtTenth(end)} 秒）`;
   }
   /* ---------------- 锁定 / 隐藏 ---------------- */
+  /* 行号三档取法：描述符自己带的（DOM 上读到的，点在哪一行就是哪一行）> 节点 > 打包口径。
+     存下来的 `item.lane` 只是偏好，落到第几行由打包说了算 —— 拿它判锁会锁错行。 */
   function laneLocked(d, el) {
     const f = filmOf();
-    if (d.kind === 'clip') return itemLocked(f.tracks, 'image', (filmItemOf('clip', d.id) || {}).ln);
-    if (d.kind === 'cap') return itemLocked(f.tracks, 'caption', laneOfEl(el));
-    return itemLocked(f.tracks, 'voice', laneOfEl(el));
+    const lane = d.kind === 'clip'
+      ? filmLaneOf(f, 'clip', d.id)
+      : (Number.isInteger(d.lane) ? d.lane : (el ? laneOfEl(el) : filmLaneOf(f, d.kind, d.id)));
+    if (lane < 0) return false;
+    const track = d.kind === 'clip' ? 'image' : d.kind === 'cap' ? 'caption' : 'voice';
+    return itemLocked(f.tracks, track, lane);
   }
   const rowKeyOf = (kind, lane) => (kind === 'clip' ? `image-${lane}` : kind === 'cap' ? `caption-${lane}` : `voice-${lane}`);
   function refuse(d) {
-    if (setStatus) setStatus(`${rowKeyOf(d.track === 'image' ? 'clip' : d.track, d.lane || 0)} 已锁定，先解锁再编辑`);
+    const kind = d.kind === 'clip' ? 'clip' : d.kind === 'cap' ? 'cap' : 'voice';
+    if (setStatus) setStatus(`${rowKeyOf(kind, Math.max(0, d.lane || 0))} 已锁定，先解锁再编辑`);
   }
 
   /* ---------------- 吸附 ---------------- */
@@ -271,7 +277,8 @@ export function createEdit(E, document, window) {
     const it = filmItemOf(kind, id);
     if (!it) return false;
     const track = kind === 'clip' ? 'image' : kind === 'cap' ? 'caption' : kind === 'marker' ? 'markers' : 'voice';
-    setSel([selKey(kind, id)], { kind, id, track, lane: num(kind === 'clip' ? it.ln : it.lane) });
+    const lane = kind === 'marker' ? 0 : Math.max(0, filmLaneOf(filmOf(), kind, id));
+    setSel([selKey(kind, id)], { kind, id, track, lane });
     return true;
   }
   const selectedByKind = kind => {
@@ -286,14 +293,13 @@ export function createEdit(E, document, window) {
       if (kind === 'marker') return;
       const it = filmItemOf(kind, id);
       if (!it) return;
-      /* 有节点就用节点上读到的行（待生成与配音共用一组打包行，行号只有画出来那一刻最准）；
-         没有节点（生成态里板是隐着的，助手仍会从桥上选中一块再剪）就按数据里的行号算 ——
-         块在不在不取决于板画没画，判据也不该依赖 DOM。 */
+      /* 有节点就用节点上读到的行（打包后的行号）；没有节点（生成态里板是隐着的，助手仍会从桥上
+         选中一块再剪）就按打包口径现算 —— 块在不在不取决于板画没画，判据也不该依赖 DOM。 */
       const el = nodeOf(kind, id);
       const track = kind === 'clip' ? 'image' : kind === 'cap' ? 'caption' : 'voice';
       out.push(el
         ? { kind, id, track: describeEl(el).track, lane: laneOfEl(el) }
-        : { kind, id, track, lane: num(kind === 'clip' ? it.ln : it.lane) });
+        : { kind, id, track, lane: Math.max(0, filmLaneOf(filmOf(), kind, id)) });
     });
     return out;
   };
@@ -1139,26 +1145,39 @@ export function createEdit(E, document, window) {
     if (!ids.length) { if (setStatus) setStatus('先选中要删的块'); return false; }
     let clips = w.clips.slice(), voices = w.voices.slice(), pending = w.pending.slice(), captions = w.captions.slice();
     const gone = [];
+    let locked = 0, skipped = 0;
+    /* 按当前下标从大到小删：删后面的不动前面的下标，`clips.findIndex` 与时间线的行始终对得上。 */
     ids.sort((a, b) => indexOfItem(b.kind, b.id) - indexOfItem(a.kind, a.id)).forEach(d => {
       const it = filmItemOf(d.kind, d.id, w);
       if (!it) return;
+      if (laneLocked(d)) { locked++; return; }
       const rowForDesc = d.kind === 'clip' ? deriveTimeline(w.clips).rows[indexOfItem('clip', d.id)] : null;
       gone.push(rowForDesc ? clipDesc(it, num(rowForDesc.start), num(rowForDesc.end)) : timedLabel(it, d.kind));
       if (d.kind === 'clip') {
         const i = clips.findIndex(c => c.id === d.id);
         if (i < 0) return;
         const row = deriveTimeline(clips).rows[i];
-        const r = removeClipAt(clips, i);
-        clips = r.clips;
-        if (Timeline.rippleOn()) captions = applyTimelineRipple({ ...w, voices, pending, captions }, num(row.end), -clipDurationOf(it)).film.captions;
-        voices = applyTimelineRipple({ ...w, clips, voices, pending, captions }, num(row.end), -clipDurationOf(it)).film.voices;
-        pending = applyTimelineRipple({ ...w, clips, voices, pending, captions }, num(row.end), -clipDurationOf(it)).film.pending;
+        clips = removeClipAt(clips, i).clips;
+        /* 波纹开着时删掉这一段：边界之后的定时块一起前移（配音 / 待生成 / 字幕一次算完，
+           锁住的行由它自己跳过并报数）—— 不开波纹就一个定时块都不动。 */
+        if (Timeline.rippleOn()) {
+          const rr = applyTimelineRipple({ ...w, clips, voices, pending, captions }, num(row.end), -clipDurationOf(it));
+          voices = rr.film.voices; pending = rr.film.pending; captions = rr.film.captions;
+          skipped += rr.skipped;
+        }
       } else if (d.kind === 'voice') voices = voices.filter(v => v.id !== d.id);
       else if (d.kind === 'pending') pending = pending.filter(p => p.id !== d.id);
       else captions = captions.filter(c => c.id !== d.id);
     });
+    if (!gone.length) {
+      if (setStatus) setStatus(locked ? '选中的块所在的行锁着，先解锁再删' : '先选中要删的块');
+      return false;
+    }
     /* 配音删掉之后挂在它身上的字幕不删，只是断开链接（normalizeFilm 会把断掉的写进记忆位）。 */
-    return commit({ ...w, clips, voices, pending, captions }, `删除 ${gone.length} 块：${gone.join('、')}`.slice(0, 200));
+    let label = `删除 ${gone.length} 块：${gone.join('、')}`;
+    if (skipped) label += `（波纹：跳过锁定 ${skipped} 条）`;
+    if (locked) label += `（${locked} 块所在的行锁着，没删）`;
+    return commit({ ...w, clips, voices, pending, captions }, label.slice(0, 200));
   }
 
   function duplicateSelected() {
@@ -1166,15 +1185,20 @@ export function createEdit(E, document, window) {
     const ids = selectedDescriptors();
     if (!ids.length) { if (setStatus) setStatus('先选中要复制的块'); return false; }
     let clips = w.clips.slice(), voices = w.voices.slice(), pending = w.pending.slice(), captions = w.captions.slice();
-    const names = [];
-    ids.forEach(d => {
+    const names = [], ripples = [];
+    let locked = 0, skipped = 0;
+    /* 从大到小处理：插进去的副本总在当前下标之后，前面那几块的下标不受影响。 */
+    ids.sort((a, b) => indexOfItem(b.kind, b.id) - indexOfItem(a.kind, a.id)).forEach(d => {
       const it = filmItemOf(d.kind, d.id, w);
       if (!it) return;
+      if (laneLocked(d)) { locked++; return; }
       if (d.kind === 'clip') {
         const i = clips.findIndex(c => c.id === d.id);
+        if (i < 0) return;
         const row = deriveTimeline(w.clips).rows[i];
-        const r = duplicateClipAt(clips, i);
-        clips = r.clips;
+        clips = duplicateClipAt(clips, i).clips;
+        /* 副本插在原段之后：波纹开着时，边界之后的定时块一起后移这一段的时间。 */
+        if (row) ripples.push({ boundary: num(row.end), delta: clipDurationOf(it) });
         names.push(row ? clipDesc(it, num(row.start), num(row.end)) : clipTitle(it));
         return;
       }
@@ -1186,11 +1210,22 @@ export function createEdit(E, document, window) {
       else captions = [...captions, copy];
       names.push(ctxClip(it.text || '这一块', 12));
     });
-    const boundary = deriveTimeline(clips).total;
-    const delta = clips.length - w.clips.length;
-    return commit({ ...w, clips, voices, pending, captions },
-      `复制 ${names.length} 块：${names.join('、')}`,
-      delta ? { boundary, delta: 0 } : null);
+    if (!names.length) {
+      if (setStatus) setStatus(locked ? '选中的块所在的行锁着，先解锁再复制' : '先选中要复制的块');
+      return false;
+    }
+    /* 多段一起复制时从后往前落波纹：靠后的边界先移，靠前的边界再把整段（含已移过的）一起推。 */
+    if (Timeline.rippleOn() && ripples.length) {
+      ripples.sort((a, b) => b.boundary - a.boundary).forEach(rp => {
+        const rr = applyTimelineRipple({ ...w, clips, voices, pending, captions }, rp.boundary, rp.delta);
+        voices = rr.film.voices; pending = rr.film.pending; captions = rr.film.captions;
+        skipped += rr.skipped;
+      });
+    }
+    let label = `复制 ${names.length} 块：${names.join('、')}`;
+    if (skipped) label += `（波纹：跳过锁定 ${skipped} 条）`;
+    if (locked) label += `（${locked} 块所在的行锁着，没复制）`;
+    return commit({ ...w, clips, voices, pending, captions }, label.slice(0, 200));
   }
 
   /* 段上那颗静音钮（strip.js 画的 `data-mute`）：只写 `clip.muted`，音量数值一个字节都不动 ——
@@ -1216,18 +1251,23 @@ export function createEdit(E, document, window) {
     const what = [];
     const clipTargets = ids.filter(d => d.kind === 'clip');
     const row = g().tl.rowAtTime(t);
-    const clipIdx = clipTargets.length ? indexOfItem('clip', clipTargets[0].id) : (row ? row.index : -1);
+    const clipTarget = clipTargets.length ? clipTargets[0] : (row ? { kind: 'clip', id: row.clip.id } : null);
+    const clipIdx = clipTarget ? indexOfItem('clip', clipTarget.id) : -1;
     if (clipIdx >= 0) {
-      const before = deriveTimeline(clips).rows[clipIdx];
-      const r = splitClipAt(clips, clipIdx, t);
-      if (r.ok) { clips = r.clips; done++; if (before) what.push(clipDesc(before.clip, num(before.start), num(before.end))); }
-      else reason = r.reason;
+      if (laneLocked(clipTarget)) reason = '这一块所在的行锁着，先解锁再切';
+      else {
+        const before = deriveTimeline(clips).rows[clipIdx];
+        const r = splitClipAt(clips, clipIdx, t);
+        if (r.ok) { clips = r.clips; done++; if (before) what.push(clipDesc(before.clip, num(before.start), num(before.end))); }
+        else reason = r.reason;
+      }
     }
     const timedTargets = ids.filter(d => d.kind === 'voice' || d.kind === 'pending');
     const cover = timedTargets.length ? timedTargets : liveTimed(w).filter(x => coversTime(x, t)).map(x => ({ kind: x.status === 'pending' ? 'pending' : 'voice', id: x.id }));
     cover.forEach(d => {
       const it = filmItemOf(d.kind, d.id, { ...w, voices, pending });
       if (!it || !coversTime(it, t)) return;
+      if (laneLocked(d)) { if (!reason) reason = timedLabel(it, d.kind) + '所在的行锁着，先解锁再切'; return; }
       const list = d.kind === 'voice' ? voices : pending;
       const r = splitVoiceAt(list, it.id, t);
       if (r.ok) {
@@ -1235,11 +1275,13 @@ export function createEdit(E, document, window) {
         done++; what.push(timedLabel(it, d.kind));
       } else if (!reason) reason = r.reason;
     });
-    const capTargets = ids.filter(d => d.kind === 'cap').map(d => d.id);
-    const caps = capTargets.length ? capTargets : (w.captions || []).filter(c => t > num(c.start) + 0.0005 && t < num(c.end) - 0.0005).map(c => c.id);
-    caps.forEach(id => {
-      const before = filmItemOf('cap', id, { ...w, captions });
-      const r = splitCaptionAt(captions, id, t);
+    const capTargets = ids.filter(d => d.kind === 'cap');
+    const caps = capTargets.length ? capTargets
+      : (w.captions || []).filter(c => t > num(c.start) + 0.0005 && t < num(c.end) - 0.0005).map(c => ({ kind: 'cap', id: c.id }));
+    caps.forEach(d => {
+      if (laneLocked(d)) { if (!reason) reason = '字幕所在的行锁着，先解锁再切'; return; }
+      const before = filmItemOf('cap', d.id, { ...w, captions });
+      const r = splitCaptionAt(captions, d.id, t);
       if (r.ok) { captions = r.captions; done++; if (before) what.push(timedLabel(before, 'cap')); }
       else if (!reason) reason = r.reason;
     });
@@ -1270,6 +1312,12 @@ export function createEdit(E, document, window) {
     if (i < 0) { if (setStatus) setStatus('先选中要融合的画面段'); return false; }
     const left = w.clips[i], right = w.clips[i + 1];
     if (!canMergeClips(left, right)) { if (setStatus) setStatus('相邻两段接不上（不同素材，或中间动过）'); return false; }
+    const f = filmOf();
+    const locked = [left, right].some(c => {
+      const ln = filmLaneOf(f, 'clip', c.id);
+      return ln >= 0 && itemLocked(f.tracks, 'image', ln);
+    });
+    if (locked) { if (setStatus) setStatus('相邻两段所在的行锁着，先解锁再融合'); return false; }
     const r = mergeClipsAt(w.clips, i);
     const rows = deriveTimeline(w.clips).rows;
     const oldEnd = num(g().tl.rows[i].end);

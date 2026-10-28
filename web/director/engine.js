@@ -22,7 +22,7 @@ import { scriptTextOf, parseScript, applyScript } from './script.js';
 
 import { createBoardTools } from './board.js';
 
-import { chainDeps, splitLongShots, pickChainModel, hasTailFrame, isRunning } from './chain.js';
+import { chainDeps, splitLongShots, chainModelRepick, hasTailFrame, isRunning } from './chain.js';
 
 import { createSplitAssets } from './split-assets.js';
 
@@ -819,16 +819,12 @@ function chainModelList() {
 function ensureChainModel(sh) {
   if (!sh) return null;
   if (sh.linkPrev !== 'tail' || sh.firstFrame) return resolvedModel(sh);
-  const list = chainModelList();
-  const cur = sh.model && sh.model !== 'auto' ? list.find(m => m.id === sh.model) : null;
-  /* 当前型号能接首帧就留着 —— 用户挑过的那一型不因为接续被换掉。 */
-  if (cur && cur.first) return resolvedModel(sh);
-  /* 型号不认识（下架 / 换平台）或本来就是程序为接续挑的：按接续能力重挑一个。 */
-  /* 手选的具体型号明确不支持首帧：不偷偷换回去，由 `chainModelWhy` 把那句话说出来。 */
-  if (cur && !cur.first && sh.modelAuto !== 'chain') return resolvedModel(sh);
-  const pick = pickChainModel(list, '', 0, null);
-  if (!pick) return resolvedModel(sh);
-  if (pick.id !== sh.model) { sh.model = pick.id; sh.modelAuto = 'chain'; }
+  /* 动不动、换成谁都在 chain.js 的 chainModelRepick（纯判定，判据 tests/director-chain.mjs）；
+     这里只照判定落盘。Capabilities 缺位时清单只剩 registry 声明那一份静态的，
+     没有「还没到货」可言，按落定算。 */
+  const settled = !window.Capabilities || window.Capabilities.settled !== false;
+  const pick = chainModelRepick(sh, chainModelList(), settled);
+  if (pick && pick.id !== sh.model) { sh.model = pick.id; sh.modelAuto = 'chain'; }
   return resolvedModel(sh);
 }
 /* 手选型号接不了首帧时那一句（空串 = 没有这回事）。

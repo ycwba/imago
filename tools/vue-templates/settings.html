@@ -34,7 +34,7 @@
 
             <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div></div>
 
-            <section class="set-group" data-group="keys" data-note="">
+            <section class="set-group" data-group="keys" data-note="平台账号与两条通道">
               <h2 class="set-group-h">账户与密钥</h2>
 
               <div class="card card-surface" data-nav="providers">
@@ -239,7 +239,7 @@
               </div>
             </section>
 
-            <section class="set-group" data-group="ui" data-note="">
+            <section class="set-group" data-group="ui" data-note="查看、翻页与外观">
               <h2 class="set-group-h">界面与列表</h2>
 
               <div class="card card-surface" data-nav="network">
@@ -260,7 +260,7 @@
               </div>
             </section>
 
-            <section class="set-group" data-group="gen" data-note="">
+            <section class="set-group" data-group="gen" data-note="产物存放与 AI 行为">
               <h2 class="set-group-h">生成与助手</h2>
 
               <div class="card card-surface" data-nav="storage">
@@ -501,7 +501,7 @@
               </div>
             </section>
 
-            <section class="set-group" data-group="data" data-note="">
+            <section class="set-group" data-group="data" data-note="云端同步与备份">
               <h2 class="set-group-h">数据与同步</h2>
 
               <div class="card card-surface" data-nav="sync">
@@ -594,7 +594,7 @@
 
             <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，
                  键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 -->
-            <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint" data-note="">
+            <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint" data-note="本机环境、用量与清理">
               <h2 class="set-group-h">
                 <button class="tool fold-toggle" type="button" aria-expanded="false"><span class="fold-title">本机维护</span><span class="fold-txt">展开</span></button>
               </h2>

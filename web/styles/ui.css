@@ -1237,6 +1237,11 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   background: var(--bg);
   border-bottom: var(--hair) solid var(--line);
 }
+/* 普通页的壳（.page-shell）自己已经按 --shell-px 留了左右白，页头长在壳里，
+   再补一份就成了双份：标题比内容列右移 32px（page-head 判据直接量这两条左缘）。
+   壳里的页头只管上下，左右交给壳 —— 工作台（.wb）不吃这条：它的壳不留白，
+   页头与两栏块各自按 --shell-px 对齐。 */
+.page-shell > .phead { padding-left: 0; padding-right: 0; }
 /* A 身份：标题本体。
    ⚠ 这里**不再有图标铭牌**（2026-10-27 撤）：原来那枚 26px 强调色方块（.phead-ic）
    七页各挂一枚 → 切页时标题旁边多一格、强调色也多一个落点，标题本身反而不突出

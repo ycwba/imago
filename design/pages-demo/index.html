@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="拾帧，属于你的 AI 电影创作室。独立交互设计预览。">
+  <title>拾帧 · 电影创作室</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233267e3'/%3E%3Cpath d='M8 12V8h6m4 0h6v4m0 8v4h-6m-4 0H8v-4' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="../../web/styles/tokens.css">
+  <link rel="stylesheet" href="demo.css">
+  <script src="demo.js" defer></script>
+</head>
+<body class="demo-shell">
+  <a class="skip-link" href="#workspace">跳到内容</a>
+  <header class="app-header">
+    <button class="brand" type="button" id="toggleNav" aria-label="展开导航" aria-expanded="false">
+      <span class="brand-mark"><i></i><i></i><i></i><i></i><b></b></span>
+      <span class="brand-word">拾帧<span>SHIZHEN STUDIO</span></span>
+    </button>
+    <div class="breadcrumbs"><span>个人工作空间</span><i data-icon="chevron-right"></i><button type="button" data-action="projects">雨停之前 <i data-icon="chevron-down"></i></button></div>
+    <div class="header-tools">
+      <button class="search-trigger" type="button" data-action="search"><i data-icon="search"></i><span>搜索工作空间</span><kbd>Ctrl K</kbd></button>
+      <span class="preview-badge">设计预览</span><span class="header-divider"></span>
+      <span class="local-status"><i></i>本地工作空间</span><button class="avatar" type="button" data-go="settings" aria-label="打开个人设置">Y</button>
+    </div>
+  </header>
+  <aside class="app-nav" aria-label="主导航">
+    <nav>
+      <button class="nav-item active" type="button" data-go="director" aria-current="page"><i data-icon="film"></i><span>导演台</span></button>
+      <button class="nav-item" type="button" data-go="chars"><i data-icon="layers"></i><span>素材库</span></button>
+      <button class="nav-item" type="button" data-go="studio"><i data-icon="sparkles"></i><span>生成台</span></button>
+      <span class="nav-divider"></span>
+      <button class="nav-item" type="button" data-go="favorites"><i data-icon="bookmark"></i><span>收藏</span></button>
+      <button class="nav-item" type="button" data-go="assets"><i data-icon="folder"></i><span>资产库</span></button>
+      <button class="nav-item" type="button" data-go="usage"><i data-icon="chart"></i><span>用量</span></button>
+    </nav>
+    <div class="nav-bottom">
+      <button class="nav-item" type="button" data-go="settings"><i data-icon="settings"></i><span>设置</span></button>
+      <button class="nav-item" type="button" id="themeToggle" aria-label="切换深色主题"><i data-icon="moon"></i><span>深色</span></button>
+      <button class="nav-help" type="button" data-action="help" aria-label="预览说明"><i data-icon="help"></i></button>
+    </div>
+  </aside>
+  <main id="workspace" class="workspace" tabindex="-1">
+    <section class="view director-view" data-view="director" aria-labelledby="directorTitle">
+      <header class="page-heading">
+        <div><div class="eyebrow">THE DIRECTOR'S ROOM</div><div class="heading-line"><h1 id="directorTitle">导演台</h1><span class="heading-desc">让故事，一帧帧发生。</span></div></div>
+        <div class="heading-actions"><button class="button secondary" type="button" data-action="projects"><i data-icon="folder"></i>我的项目</button><button class="button primary" type="button" data-action="export"><i data-icon="export"></i>导出作品</button></div>
+      </header>
+      <div class="director-layout">
+        <div class="cutting-room panel">
+          <div class="project-header">
+            <div class="project-name"><span class="project-monogram">雨</span><div><h2 id="projectTitle">雨停之前<span class="project-tag">短片</span></h2><p><span class="status-dot"></span>已保存到本机 <span class="dot-separator">·</span> 3 个场景 <span class="dot-separator">·</span> <span id="projectShotCount">6</span> 个分镜</p></div></div>
+            <div class="seg mode-switch" aria-label="编辑视图"><button type="button" data-mode="storyboard" class="active" aria-pressed="true"><i data-icon="grid"></i>分镜</button><button type="button" data-mode="timeline" aria-pressed="false"><i data-icon="timeline"></i>剪辑</button></div>
+          </div>
+          <div class="scene-bar"><div class="scene-tabs" aria-label="场景"><button type="button" data-scene="0" class="active" aria-pressed="true"><span>01</span> 雨夜街头</button><button type="button" data-scene="1" aria-pressed="false"><span>02</span> 不期而遇</button><button type="button" data-scene="2" aria-pressed="false"><span>03</span> 雨后告别</button></div><button class="icon-button" type="button" data-action="addScene" aria-label="新增场景"><i data-icon="plus"></i></button></div>
+          <div class="screen-wrap"><div class="cinema-screen" id="cinemaScreen">
+            <img id="mainFrame" src="assets/rain-street.jpg" alt="雨夜的城市街头，霓虹倒映在潮湿的路面上" fetchpriority="high">
+            <div class="frame-top"><span class="frame-label"><i class="record-dot"></i><span id="frameShot">SCENE 01 / SHOT 01</span></span><span class="frame-quality">预览 · 1080P</span></div>
+            <span class="frame-corner corner-tl"></span><span class="frame-corner corner-tr"></span><span class="frame-corner corner-bl"></span><span class="frame-corner corner-br"></span>
+            <button class="screen-play" type="button" data-action="play" aria-label="播放分镜预览"><i data-icon="play"></i></button>
+            <div class="frame-bottom"><div><span class="frame-eyebrow">BEFORE THE RAIN ENDS</span><span class="frame-caption" id="frameCaption">一场雨，让城市慢了下来。</span></div><span class="frame-aspect">16 : 9</span></div>
+          </div></div>
+          <div class="transport"><div class="transport-buttons"><button class="icon-button" type="button" data-action="previousShot" aria-label="上一镜"><i data-icon="skip-back"></i></button><button class="icon-button play-control" type="button" data-action="play" aria-label="播放分镜预览"><i data-icon="play"></i></button><button class="icon-button" type="button" data-action="nextShot" aria-label="下一镜"><i data-icon="skip-forward"></i></button></div><span class="timecode" id="playTime">00:00</span><input id="playRange" class="play-range" type="range" min="0" max="39" step="0.1" value="0" aria-label="预览进度"><span class="timecode muted">00:39</span><span class="transport-divider"></span><button class="icon-button" type="button" data-action="preview" aria-label="放大预览"><i data-icon="expand"></i></button></div>
+          <div class="storyboard" id="storyboardPanel"><div class="section-heading"><h3>分镜序列 <span id="sequenceCount">6 镜 / 39 秒</span></h3><button class="text-button" type="button" data-action="addShot"><i data-icon="plus"></i>添加分镜</button></div><div class="shot-list" id="shotList"></div></div>
+          <div class="timeline-panel" id="timelinePanel" hidden><div class="section-heading"><h3>时间线 <span>39 秒 / 24 FPS</span></h3><span class="tiny-label">拖动播放进度预览</span></div><div class="timeline-ruler"><span>00:00</span><span>00:10</span><span>00:20</span><span>00:30</span><span>00:39</span></div><div class="timeline-track"><span class="track-name"><i data-icon="film"></i>画面</span><div class="track-clips" id="timelineClips"></div></div><div class="timeline-track"><span class="track-name"><i data-icon="audio"></i>环境音</span><div class="waveform-track">雨声 · 城市的呼吸</div></div></div>
+        </div>
+        <aside class="inspector panel" aria-label="镜头设置">
+          <div class="inspector-heading"><h2>镜头设置</h2><span class="tiny-label" id="inspectorIndex">01 / 06</span></div>
+          <div class="inspector-body">
+            <div class="shot-title-line"><span class="overline" id="shotOrdinal">SHOT 01</span><span class="status-tag success" id="shotStatus">已就绪</span></div>
+            <h3 id="shotTitle">雨中的街口</h3>
+            <div class="field"><label for="shotPrompt">画面描述 <button class="text-button" type="button" data-action="polish"><i data-icon="sparkles"></i>润色</button></label><textarea id="shotPrompt" rows="5">雨夜的城市街头，霓虹灯映在湿漉漉的路面上。行人撑伞走过，镜头缓慢向前推进，冷蓝色调，电影质感。</textarea></div>
+            <div class="field"><label>参考素材 <span class="tiny-label">2 / 3</span></label><div class="reference-list"><button class="reference" type="button" data-asset="portrait"><img src="assets/portrait.jpg" alt="角色参考"><span>林晚</span></button><button class="reference" type="button" data-asset="street"><img src="assets/rain-street.jpg" alt="场景参考"><span>雨夜街头</span></button><button class="reference reference-add" type="button" data-action="pickAsset" aria-label="添加参考素材"><i data-icon="plus"></i></button></div></div>
+            <div class="field"><label for="shotModel">生成型号</label><div class="select-wrap"><i data-icon="sparkles"></i><select id="shotModel"><option>可灵 2.6</option><option>Seedance 1.5 Pro</option><option>Veo 3.1</option></select></div></div>
+            <div class="field-pair"><div class="field"><label for="shotDuration">镜头时长</label><select id="shotDuration"><option value="6">6 秒</option><option value="5">5 秒</option><option value="8">8 秒</option><option value="10">10 秒</option></select></div><div class="field"><label for="shotRatio">画面比例</label><select id="shotRatio"><option>16:9</option><option>9:16</option><option>1:1</option></select></div></div>
+            <div class="setting-inline"><span><i data-icon="audio"></i>生成环境音</span><button class="switch active" type="button" role="switch" aria-checked="true" aria-label="生成环境音"></button></div>
+          </div>
+          <div class="inspector-footer"><button class="button primary generate-button" type="button" id="generateShot"><i data-icon="sparkles"></i><span>重新生成这一镜</span><i data-icon="arrow-right"></i></button><p><i data-icon="info"></i>演示生成，不发起请求或扣费</p></div>
+        </aside>
+      </div>
+      <footer class="page-foot"><span><span class="status-dot"></span>所有灵感，都留在你这里。</span><span>1920 × 1080 <b>·</b> 24 FPS <b>·</b> 本地优先</span></footer>
+    </section>
+    <section class="view" data-view="chars" aria-labelledby="charsTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">YOUR STORY'S BUILDING BLOCKS</div><div class="heading-line"><h1 id="charsTitle">素材库</h1><span class="heading-desc">故事里的人、地点与物件。</span></div></div><button class="button primary" type="button" data-action="newAsset"><i data-icon="plus"></i>新建素材</button></header>
+      <div class="collection-layout">
+        <aside class="collection-rail panel"><div class="rail-heading">项目目录 <i data-icon="folder"></i></div><button class="rail-item active" type="button" data-collection="all"><i data-icon="layers"></i>全部素材<span>8</span></button><div class="rail-label">项目</div><button class="rail-item" type="button" data-collection="rain"><span class="project-dot blue"></span>雨停之前<span>6</span></button><button class="rail-item" type="button" data-collection="coast"><span class="project-dot green"></span>海岸来信<span>2</span></button><div class="rail-note"><i data-icon="link"></i><h3>一次创作，多处引用</h3><p>素材与镜头保持关联。</p></div></aside>
+        <div class="collection-main"><div class="collection-toolbar"><div class="filter-tabs" data-filter-group="chars"><button type="button" class="active" data-filter="all">全部 <span>8</span></button><button type="button" data-filter="角色">角色 <span>3</span></button><button type="button" data-filter="场景">场景 <span>4</span></button><button type="button" data-filter="物品">物品 <span>1</span></button></div><label class="search-field"><i data-icon="search"></i><input type="search" data-search="chars" placeholder="搜索素材" aria-label="搜索素材"></label></div><div class="asset-grid" id="charsGrid"></div><div class="empty-state" id="charsEmpty" hidden><i data-icon="search"></i><h3>没有匹配的素材</h3><button class="text-button" type="button" data-reset="chars">清除筛选</button></div><div class="collection-footer"><span id="charsCount">8 条素材</span><span>灵感的积累，也是故事的开始。</span></div></div>
+      </div>
+    </section>
+    <section class="view" data-view="studio" aria-labelledby="studioTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">MAKE THE IMAGINED, REAL</div><div class="heading-line"><h1 id="studioTitle">生成工作台</h1><span class="heading-desc">把脑海中的画面，带到眼前。</span></div></div><span class="soft-badge"><span class="status-dot"></span>演示模式 · 无费用</span></header>
+      <div class="studio-layout"><form class="compose-panel panel" id="studioForm"><div class="seg studio-types" aria-label="生成类型"><button type="button" class="active" data-gen-type="视频"><i data-icon="film"></i>视频</button><button type="button" data-gen-type="图片"><i data-icon="image"></i>图片</button><button type="button" data-gen-type="语音"><i data-icon="audio"></i>语音</button></div><div class="compose-body"><div class="field"><label for="studioPrompt" id="studioPromptLabel">你想创造什么？</label><textarea id="studioPrompt" rows="7" required placeholder="描述画面、镜头运动和氛围…">深夜的便利店，暖黄色灯光透过玻璃，门外的雨渐渐小了。一个人安静地等着雨停。固定镜头，胶片色彩。</textarea></div><button class="upload-zone" type="button" data-action="pickAsset"><i data-icon="image-plus"></i><b>添加参考素材</b><span>从素材库选取</span></button><div class="field"><label for="studioModel">生成型号</label><select id="studioModel"><option>可灵 2.6</option><option>Seedance 1.5 Pro</option><option>Veo 3.1</option></select></div><div class="field-pair" id="studioVideoOptions"><div class="field"><label for="studioRatio">画面比例</label><select id="studioRatio"><option>16:9</option><option>9:16</option><option>1:1</option></select></div><div class="field"><label for="studioDuration">时长</label><select id="studioDuration"><option>5 秒</option><option>10 秒</option></select></div></div></div><div class="compose-footer"><button class="button primary" type="submit" id="studioGenerate"><i data-icon="sparkles"></i><span>开始生成</span><i data-icon="arrow-right"></i></button><p>交互演示 · 不调用真实型号</p></div></form><div class="studio-results"><div class="section-heading"><h2>创作记录 <span id="resultCount">3 个作品</span></h2><span class="tiny-label">本次工作空间</span></div><div id="studioResults" class="result-grid"></div></div></div>
+    </section>
+    <section class="view" data-view="favorites" aria-labelledby="favoritesTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">A PLACE FOR INSPIRATION</div><div class="heading-line"><h1 id="favoritesTitle">我的收藏</h1><span class="heading-desc">留住让你停下来的那一帧。</span></div></div><button class="button secondary" type="button" data-go="chars"><i data-icon="layers"></i>浏览素材</button></header>
+      <div class="favorites-intro"><div><span class="overline">MOODBOARD / 雨停之前</span><h2>雨夜，霓虹，未说出口的话。</h2><p>关于这部短片的视觉灵感。</p></div><span class="mood-swatches" aria-label="灵感配色"><i></i><i></i><i></i><i></i></span></div>
+      <div class="collection-toolbar"><div class="filter-tabs" data-filter-group="favorites"><button type="button" class="active" data-filter="all">全部收藏</button><button type="button" data-filter="图片">图片</button><button type="button" data-filter="视频">视频</button></div><label class="search-field"><i data-icon="search"></i><input type="search" data-search="favorites" placeholder="搜索收藏" aria-label="搜索收藏"></label></div><div class="favorites-grid" id="favoritesGrid"></div><div class="empty-state" id="favoritesEmpty" hidden><i data-icon="bookmark"></i><h3>没有匹配的收藏</h3><button class="text-button" type="button" data-reset="favorites">清除筛选</button></div>
+    </section>
+    <section class="view" data-view="assets" aria-labelledby="assetsTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">EVERY FRAME, IN GOOD HANDS</div><div class="heading-line"><h1 id="assetsTitle">资产库</h1><span class="heading-desc">你的作品，有迹可循。</span></div></div><button class="button primary" type="button" data-action="import"><i data-icon="upload"></i>导入文件</button><input type="file" id="assetFile" accept="image/*,video/*,audio/*" hidden></header>
+      <div class="storage-overview panel"><span class="storage-icon"><i data-icon="hard-drive"></i></span><div class="storage-title"><h2>本机作品库 <span class="status-tag success">已同步</span></h2><p>下载 / 拾帧 / 作品</p></div><div class="storage-stat"><strong id="localAssetCount">6</strong><span>个作品</span></div><div class="storage-stat"><strong>1.28 <small>GB</small></strong><span>本机存储</span></div><div class="storage-meter"><div><span>可用空间</span><b>236 GB</b></div><span><i></i></span></div></div>
+      <div class="collection-toolbar"><div class="filter-tabs" data-filter-group="assets"><button type="button" class="active" data-filter="all">全部作品</button><button type="button" data-filter="视频">视频</button><button type="button" data-filter="图片">图片</button><button type="button" data-filter="音频">音频</button></div><div class="toolbar-right"><label class="search-field"><i data-icon="search"></i><input type="search" data-search="assets" placeholder="搜索作品" aria-label="搜索作品"></label><div class="seg view-switch"><button class="active" type="button" data-assets-view="grid" aria-label="卡片视图" aria-pressed="true"><i data-icon="grid"></i></button><button type="button" data-assets-view="list" aria-label="列表视图" aria-pressed="false"><i data-icon="list"></i></button></div></div></div><div class="date-heading"><h3>今天 <span>10 月 28 日</span></h3><span>所有文件均为演示样例</span></div><div class="asset-grid" id="assetsGrid"></div><div class="empty-state" id="assetsEmpty" hidden><i data-icon="folder"></i><h3>没有匹配的作品</h3><button class="text-button" type="button" data-reset="assets">清除筛选</button></div>
+    </section>
+    <section class="view" data-view="usage" aria-labelledby="usageTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">MORE CLARITY, MORE CREATIVITY</div><div class="heading-line"><h1 id="usageTitle">用量与余额</h1><span class="heading-desc">每一次创作，都心中有数。</span></div></div><select id="usagePeriod" aria-label="用量统计时段"><option value="14">近 14 天</option><option value="7">近 7 天</option></select></header>
+      <div class="metric-grid"><div class="metric-card panel"><span>创作消费 <i data-icon="wallet"></i></span><strong><small>¥</small><span id="totalCost">48.60</span></strong><p>按已完成任务统计</p></div><div class="metric-card panel"><span>生成作品 <i data-icon="sparkles"></i></span><strong><span id="totalWorks">36</span><small>个</small></strong><p>视频 18 · 图片 12 · 语音 6</p></div><div class="metric-card panel"><span>平均每件 <i data-icon="chart"></i></span><strong><small>¥</small>1.35</strong><p>把预算用在好故事上</p></div></div>
+      <div class="usage-layout"><div class="chart-panel panel"><div class="section-heading"><h2>创作趋势</h2><span class="chart-legend"><i></i>每日消费 / 元</span></div><div class="chart-area"><div class="chart-axis"><span>12</span><span>8</span><span>4</span><span>0</span></div><div class="bar-chart" id="usageChart"></div></div><div class="chart-dates"><span>10 月 15 日</span><span>10 月 21 日</span><span>10 月 28 日</span></div></div><div class="balance-panel panel"><div class="section-heading"><h2>供应商余额</h2><button class="icon-button" type="button" data-action="refreshBalance" aria-label="刷新演示余额"><i data-icon="refresh"></i></button></div><div class="balance-row"><span class="provider-logo blue">K</span><div><b>可灵</b><span>视频生成</span></div><strong>¥ 128.50</strong></div><div class="balance-row"><span class="provider-logo green">S</span><div><b>Seedance</b><span>视频 · 图像</span></div><strong>¥ 86.00</strong></div><div class="balance-row"><span class="provider-logo purple">D</span><div><b>DeepSeek</b><span>文字创作</span></div><strong>¥ 32.80</strong></div><p class="balance-note"><i data-icon="info"></i>示例数据，不关联真实账户</p></div></div>
+      <div class="ledger panel"><div class="section-heading"><h2>最近账单</h2><button class="text-button" type="button" data-action="exportBill"><i data-icon="download"></i>导出明细</button></div><div class="table-scroll"><table><thead><tr><th>创作内容</th><th>类型</th><th>型号</th><th>时间</th><th>费用</th><th>状态</th></tr></thead><tbody><tr><td>雨停之前 · 雨中的街口</td><td>视频</td><td>可灵 2.6</td><td>今天 14:32</td><td>¥ 2.40</td><td><span class="status-tag success">已完成</span></td></tr><tr><td>林晚 · 角色定妆</td><td>图片</td><td>Seedream 4.0</td><td>今天 14:18</td><td>¥ 0.20</td><td><span class="status-tag success">已完成</span></td></tr><tr><td>雨停之前 · 分镜脚本</td><td>文字</td><td>DeepSeek V3</td><td>今天 13:56</td><td>¥ 0.08</td><td><span class="status-tag success">已完成</span></td></tr></tbody></table></div></div>
+    </section>
+    <section class="view" data-view="settings" aria-labelledby="settingsTitle" hidden>
+      <header class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><div class="heading-line"><h1 id="settingsTitle">设置</h1><span class="heading-desc">适合你的，才是好工具。</span></div></div><span class="save-status" id="settingsStatus"><span class="status-dot"></span>偏好仅保存在此预览</span></header>
+      <div class="settings-layout"><nav class="settings-nav" aria-label="设置目录"><a class="active" href="#appearance" data-setting-nav="appearance"><i data-icon="sun"></i>外观与体验</a><a href="#providers" data-setting-nav="providers"><i data-icon="key"></i>供应商</a><a href="#defaults" data-setting-nav="defaults"><i data-icon="sliders"></i>创作偏好</a><a href="#storage" data-setting-nav="storage"><i data-icon="hard-drive"></i>本机存储</a><span class="settings-version">SHIZHEN STUDIO<br>DESIGN PREVIEW / 2026</span></nav><div class="settings-document">
+        <section class="settings-card panel" id="appearance"><div class="section-heading"><h2>外观与体验</h2><i data-icon="sun"></i></div><div class="settings-description">为专注的创作，留一个舒适的空间。</div><div class="theme-options"><button class="theme-card active" type="button" data-theme-choice="light" aria-pressed="true"><span class="theme-mini light-mini"><i></i><b></b><em></em></span><span>日光 <i data-icon="check"></i></span><small>明亮、清晰，适合日间创作</small></button><button class="theme-card" type="button" data-theme-choice="dark" aria-pressed="false"><span class="theme-mini dark-mini"><i></i><b></b><em></em></span><span>夜幕 <i data-icon="check"></i></span><small>沉静、柔和，留给夜间灵感</small></button></div><div class="settings-row"><div><b>减少动态效果</b><p>降低界面切换与悬停动效</p></div><button class="switch" type="button" role="switch" aria-checked="false" aria-label="减少动态效果" id="reduceMotion"></button></div></section>
+        <section class="settings-card panel" id="providers"><div class="section-heading"><h2>供应商</h2><span class="soft-badge">演示连接</span></div><p class="settings-description">此预览不收集密钥。</p><div class="provider-settings-row"><span class="provider-logo blue">K</span><div><b>可灵</b><p>视频生成</p></div><span class="status-tag success">已连接</span><button class="text-button" type="button" data-action="provider">查看</button></div><div class="provider-settings-row"><span class="provider-logo green">S</span><div><b>Seedance</b><p>视频 · 图像</p></div><span class="status-tag success">已连接</span><button class="text-button" type="button" data-action="provider">查看</button></div><button class="button secondary add-provider" type="button" data-action="provider"><i data-icon="plus"></i>添加供应商</button></section>
+        <section class="settings-card panel" id="defaults"><div class="section-heading"><h2>创作偏好</h2><i data-icon="sliders"></i></div><div class="settings-row"><div><b>默认画面比例</b><p>应用到新建的镜头</p></div><select id="defaultRatio" aria-label="默认画面比例"><option>16:9</option><option>9:16</option><option>1:1</option></select></div><div class="settings-row"><div><b>自动保存作品</b><p>生成完成后保留本机副本</p></div><button class="switch active" type="button" role="switch" aria-checked="true" aria-label="自动保存作品"></button></div></section>
+        <section class="settings-card panel" id="storage"><div class="section-heading"><h2>本机存储</h2><i data-icon="hard-drive"></i></div><div class="settings-row"><div><b>作品位置</b><p>下载 / 拾帧 / 作品</p></div><button class="button secondary" type="button" data-go="assets">查看作品</button></div><div class="privacy-note"><i data-icon="shield"></i><span>本地优先。创作与灵感，由你掌握。</span></div></section>
+      </div></div>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog class="app-dialog" id="appDialog" aria-labelledby="dialogTitle"><div class="dialog-heading"><h2 id="dialogTitle"></h2><button class="icon-button" type="button" id="closeDialog" aria-label="关闭弹窗"><i data-icon="close"></i></button></div><div id="dialogBody"></div></dialog>
+</body>
+</html>

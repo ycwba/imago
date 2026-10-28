@@ -281,17 +281,23 @@ function wav(seconds = 0.2) {
     const ui = await page.eval(() => {
       const card = document.querySelector('#asrCard');
       const routeSel = card.querySelector('select');
+      const rows = [...card.querySelectorAll('.krow > .kn')].map(e => e.textContent.trim());
       return {
-        asrTitle: card.innerText.slice(0, 40),
+        rows,
+        /* 这一档没有选渠道 / 那家没接进来时落到第一个能当文字 AI 的账号 —— 无论如何都必须在某张账号卡里 */
+        inAcct: !!card.closest('.acct.fcard'),
         route: routeSel ? routeSel.value : '',
         keyShown: [...card.querySelectorAll('input')].some(i => /sk-asr-e2e/.test(i.value || '')),
-        localText: card.innerText.includes('本机运行包'),
       };
     });
-    if (!/语音识别/.test(ui.asrTitle)) throw new Error('设置页没有 ASR 卡：' + ui.asrTitle);
+    /* 这一块表单没有自己的标题（AGENTS §5.2：与图片 / 视频一样，设置住在卡里那一行下面），
+       所以「这是识别那一档的表单」由它画了哪几行来认，不是由一个已经不存在的标题来认。 */
+    for (const want of ['本机运行包', '浏览器内模型', '走哪条路']) {
+      if (!ui.rows.includes(want)) throw new Error('设置页 ASR 表单缺了「' + want + '」这一行，实画：' + ui.rows.join('、'));
+    }
+    if (!ui.inAcct) throw new Error('ASR 表单没搬进任何一张账号卡（它不该再有自己的容器）');
     if (ui.route !== 'service') throw new Error('设置页没读回 route=service：' + ui.route);
     if (ui.keyShown) throw new Error('设置页把密钥回显出来了');
-    if (!ui.localText) throw new Error('设置页没有画「本机运行包」这一行');
 
     /* 浏览器内 Whisper 这一档：路线里有得选、模型状态行照 /models/status 画（探针实例没有模型 → 照实说还没下载） */
     const browserOpt = await page.eval(() => {

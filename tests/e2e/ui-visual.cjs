@@ -21,6 +21,9 @@ const ROOT = path.resolve(__dirname, '../..');
 const BASE_FILE = path.join(ROOT, 'tests/fixtures/visual/fingerprints.json');
 const ACTUAL_DIR = path.join(ROOT, 'tests/fixtures/visual/actual');
 const WRITE = process.env.UI_VISUAL_WRITE === '1';
+/* 逐张留底（`UI_VISUAL_SAVE=1`，进的是 gitignore 的 actual/）：只凭指纹分不清
+   「画面真的改了」与「同一页两档主题各拍在两种版式上」，留底能直接看。 */
+const SAVE_ALL = process.env.UI_VISUAL_SAVE === '1';
 /* 点名只跑这几页（按 PAGES 里的那个名字）。加一页时不必为其余画面重跑一遍，
    更不必拿这一页的一次截图去赌另外十九档在这一刻还是不是准的。
    两种写法等价：`UI_VISUAL_PAGES=studio` 与 `--pages=studio`（后者在 Windows 的 cmd 里也能直接粘）。
@@ -404,30 +407,22 @@ function diff(a, b) {
              「正在取回…」与稳定读数之间来回变指纹 —— 那是探针在赌机器快慢，不是画面改版。 */
           await page.waitFor(() => {
             const t = document.body.innerText;
-            const note = document.getElementById('histNote');
+            const note = document.querySelector('.studio-page [data-r="histNote"]');
             return !t.includes('加载中…') && !t.includes('正在读取生成记录…')
               && (!note || !/正在取回/.test(note.textContent))
               && !document.querySelector('.spa-frame-loading');
           }, 15000).catch(() => {});
           /* 只等 body 有字不够：外壳侧栏先有字，studio 页可能还没挂上 —— 那样会拍到
              「请选择」和半截设置区，接着历史那一栏才慢悠悠地回填。等型号真选上、
-             历史注脚真画出来再往下走（三档共用一个页面根）。 */
+             历史注脚真画出来再往下走（三档共用一个页面根）。
+             ⚠ 这两处是**页面的 data-r 登记名**（web/pages/studio.js 的 `$()` 读的是它），
+             不是 DOM id —— 按 id 找会永远找不到，每条画面白等满 30 秒超时。 */
           if (name.startsWith('studio-')) {
             await page.waitFor(() => {
               const page = document.querySelector('.studio-page');
-              const sel = document.getElementById('model');
-              const note = document.getElementById('histNote');
+              const sel = document.querySelector('.studio-page [data-r="model"]');
+              const note = document.querySelector('.studio-page [data-r="histNote"]');
               return !!page && !!sel && !!sel.value && !!note && !/正在取回/.test(note.textContent);
-            }, 30000).catch(() => {});
-          }
-          /* 素材库页目录轨「出齐用」那一行：型号下拉里的选项是**能力接口一家一家回来
-             才长出来的**（`Capabilities` 把型号并进 `prov.models`，落定就广播 `wb:cap-ready`，
-             页面据此补画）。不等它，拍到的就是「没配生图平台」那句占位 —— 同一档两次拍会差一格。
-             与 studio 那一档同理：等型号真选上再往下走。 */
-          if (name.startsWith('chars')) {
-            await page.waitFor(() => {
-              const sel = document.querySelector('.chars-page .rail-gen select');
-              return !!sel && !!sel.value;
             }, 30000).catch(() => {});
           }
           let label = '';
@@ -435,15 +430,16 @@ function diff(a, b) {
           await new Promise(r => setTimeout(r, 700));
           /* 固定等待之后再看一眼：历史栏的回填可能恰好在这一段里才开始。 */
           await page.waitFor(() => {
-            const note = document.getElementById('histNote');
-            const sel = document.getElementById('model');
-            const rail = document.querySelector('.chars-page .rail-gen select');
-            const onChars = !!document.querySelector('.chars-page');
-            return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value)
-              && (!onChars || (!!rail && !!rail.value));
+            const note = document.querySelector('.studio-page [data-r="histNote"]');
+            const sel = document.querySelector('.studio-page [data-r="model"]');
+            return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value);
           }, 15000).catch(() => {});
           const shot = await page.cdp.send('Page.captureScreenshot', { format: 'png' });
           const buf = Buffer.from(shot.data, 'base64');
+          if (SAVE_ALL) {
+            fs.mkdirSync(ACTUAL_DIR, { recursive: true });
+            fs.writeFileSync(path.join(ACTUAL_DIR, key.replace(/[|?]/g, '_') + '.png'), buf);
+          }
           const fp = fingerprint(buf);
           next.screens[key] = fp;
           const want = baseline.screens[key];

@@ -82,6 +82,7 @@ export function render(_ctx, _cache) {
       _cache[0] || (_cache[0] = _createElementVNode("div", { class: "phead-id" }, [
         _createElementVNode("h1", { class: "phead-h1" }, "素材库")
       ], -1 /* CACHED */)),
+      _cache[1] || (_cache[1] = _createElementVNode("span", { class: "phead-sub" }, null, -1 /* CACHED */)),
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("button", {
           class: "pri",
@@ -99,7 +100,7 @@ export function render(_ctx, _cache) {
       _createCommentVNode(" ① 目录轨：类型 / 还缺什么 / 分组 —— 取代原来的筛选芯片行 + 三行工具条 + 体检面板 "),
       _createElementVNode("aside", _hoisted_5, [
         _createElementVNode("div", _hoisted_6, [
-          _cache[1] || (_cache[1] = _createElementVNode("div", { class: "rail-h1" }, "目录", -1 /* CACHED */)),
+          _cache[2] || (_cache[2] = _createElementVNode("div", { class: "rail-h1" }, "目录", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_7, null, 512 /* NEED_PATCH */)
         ]),
         _createElementVNode("div", _hoisted_8, null, 512 /* NEED_PATCH */)
@@ -158,7 +159,7 @@ export function render(_ctx, _cache) {
               disabled: !_ctx.batchCount || _ctx.batchBusy,
               onClick: _ctx.batchSetGroup
             }, "应用分组", 8 /* PROPS */, _hoisted_22),
-            _cache[4] || (_cache[4] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+            _cache[5] || (_cache[5] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
             _createElementVNode("span", _hoisted_23, _toDisplayString(_ctx.batchText), 1 /* TEXT */),
             _createElementVNode("button", {
               class: "ghost danger",
@@ -168,9 +169,9 @@ export function render(_ctx, _cache) {
             }, "删除", 8 /* PROPS */, _hoisted_24),
             _createCommentVNode(" 这一批用哪两个型号：默认取设置页「素材库」那张卡里的默认，当场换的只管这一批。 "),
             _createElementVNode("div", _hoisted_25, [
-              _cache[2] || (_cache[2] = _createElementVNode("span", { class: "bk-gen-l" }, "出图", -1 /* CACHED */)),
+              _cache[3] || (_cache[3] = _createElementVNode("span", { class: "bk-gen-l" }, "出图", -1 /* CACHED */)),
               _createElementVNode("span", _hoisted_26, null, 512 /* NEED_PATCH */),
-              _cache[3] || (_cache[3] = _createElementVNode("span", { class: "bk-gen-l" }, "声音", -1 /* CACHED */)),
+              _cache[4] || (_cache[4] = _createElementVNode("span", { class: "bk-gen-l" }, "声音", -1 /* CACHED */)),
               _createElementVNode("span", _hoisted_27, null, 512 /* NEED_PATCH */)
             ])
           ], 512 /* NEED_PATCH */), [
@@ -186,7 +187,7 @@ export function render(_ctx, _cache) {
                 }, "重试", 8 /* PROPS */, _hoisted_29)
               ]))
             : (!_ctx.ready)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_30, [...(_cache[5] || (_cache[5] = [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_30, [...(_cache[6] || (_cache[6] = [
                   _createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
                   _createTextVNode(" 加载中…", -1 /* CACHED */)
                 ]))]))

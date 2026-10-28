@@ -77,6 +77,27 @@ export function pickChainModel(models, currentModel, duration, supportsDuration)
   return only[0] || null;
 }
 
+/* 接续挂着、又没显式首帧时，这一镜该不该换型号、换成谁（null = 保持现状）。
+   与 pickChainModel 的分工：这里管「动不动」，pickChainModel 管「换成谁」。
+   · 存过的型号在清单里且能接首帧 → 不动（用户挑过的那一型不因为接续被换掉）；
+   · 存过的型号明确不支持首帧、又不是程序挑的 → 不动（由界面 chainModelWhy 把那句话说出来）；
+   · 清单里找不到存过的型号 = 下架 / 换平台，按接续能力重挑 —— 但只在 `settled`
+     （能力清单整体落定）之后才许下这个结论：清单是逐家到货的，没落定时「找不到」
+     多半只是那一家还没回来，这时重挑会把一份合法存档型号悄悄换掉、再记一次
+     「接续型号按能力收正」（判据 tests/e2e/director-boot-quiet.cjs）。
+   型号槽是空的 / 「auto」时没有存档要保护，到货几家就先挑几家。 */
+export function chainModelRepick(sh, list, settled) {
+  if (!sh) return null;
+  const stored = sh.model && sh.model !== 'auto' ? (list || []).find(m => m.id === sh.model) : null;
+  if (stored) {
+    if (stored.first) return null;
+    if (sh.modelAuto !== 'chain') return null;
+  } else if (sh.model && sh.model !== 'auto' && !settled) {
+    return null;
+  }
+  return pickChainModel(list || [], '', 0, null);
+}
+
 /* 按句号 / 问号 / 分号 / 换行切句；句子不够分段时按字符数切。
    每段只拿自己那一截，**不把整段提示词重复发给每一段**。 */
 function splitText(text, n, durs) {
