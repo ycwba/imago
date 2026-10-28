@@ -95,19 +95,12 @@
 .studio-page .hist-filters { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-10); flex-wrap: wrap; }
 .studio-page .hist-filters .sp { flex: 1; }
 .studio-page .hist-filters > .ui-seg { flex: 0 0 auto; }
-/* 卡片改成「画面在上、信息在下」的竖版网格（ui.css 的 .task 是给列表用的横版） */
-.studio-page.wb .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card), 1fr));
-  gap: var(--sp-12); align-content: start; }
-/* 多选勾选框是绝对定位的（ui.css 的 .task .pick）：卡片自己得是定位祖先，
-   否则所有卡片的勾选框会叠到容器左上角。
-   勾选框占住卡片左上角 → 多选时给卡片顶那行让出位置（不然压住「图片 / 视频」那一枚类型标）。 */
-.studio-page.wb .col-right #result .task { position: relative; }
-.studio-page.wb .col-right #result.multi .task .card-top { padding-left: var(--sp-26); }
-.studio-page.wb .col-right #result .task { flex-direction: column; gap: var(--sp-8); margin-bottom: 0; padding: var(--sp-10); }
-.studio-page.wb .col-right #result .task .timg { width: 100%; height: auto; aspect-ratio: 16 / 9; cursor: default; align-self: stretch; }
-.studio-page.wb .col-right #result .task .timg img,
-.studio-page.wb .col-right #result .task .timg video { width: 100%; height: 100%; object-fit: cover; }
-.studio-page.wb .col-right #result .task .timg.sound { aspect-ratio: 16 / 7; }
+.studio-page.wb .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sz-card-sm)), 1fr));
+  grid-auto-rows: max-content; gap: var(--sp-10); align-content: start; }
+.studio-page.wb .col-right #result > .task > .tmain { flex: 1 0 auto; }
+.studio-page.wb .col-right #result .task .date { display: none; }
+.studio-page.wb .col-right #result .task .timg { cursor: default; }
+.studio-page.wb .col-right #result .task .tprompt { cursor: pointer; }
 .studio-page.wb .col-right #result .task .timg audio { width: 100%; }
 /* 卡片内的播放按钮：视频 / 音频共用一套（bindCardPlay 接线）。播放中淡出，鼠标移回画面才回来 */
 .studio-page #result .timg.playable { position: relative; }
@@ -116,20 +109,15 @@
   color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) 68%, transparent); box-shadow: var(--shadow-8);
   transition: opacity var(--dur-180), transform var(--dur-180); }
 .studio-page #result .timg.playable .tplay:hover { transform: scale(1.08); }
-.studio-page #result .timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); fill: currentColor; margin-left: var(--sp-2); }
-.studio-page #result .timg.playable .tplay svg rect { margin-left: calc(-1 * var(--sp-2)); }
+.studio-page #result .timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); }
 .studio-page #result .timg.playable.playing .tplay { opacity: 0; pointer-events: none; }
 .studio-page #result .timg.playable:hover.playing .tplay { opacity: 1; pointer-events: auto; }
 /* 音频卡：一个大音频符号做背景（不是空白占位），播放器叠在上面 */
 .studio-page #result .timg.sound { background: var(--panel2); justify-content: center; }
 .studio-page #result .timg.sound .tbg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--line); pointer-events: none; }
-.studio-page #result .timg.sound .tbg svg { width: 46px; height: 46px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+.studio-page #result .timg.sound .tbg svg { width: 46px; height: 46px; }
 .studio-page #result .timg.sound audio { position: relative; z-index: 2; width: 100%; margin-top: var(--sp-14); }
-.studio-page.wb .col-right #result .task .tmain { gap: var(--sp-5); }
-.studio-page.wb .col-right #result .task .tprompt { max-height: 2.9em; overflow: hidden; }
-.studio-page.wb .col-right #result .task .meta2 { overflow-wrap: anywhere; }
-.studio-page.wb .col-right #result .task .acts { margin-top: var(--sp-2); }
 /* 拖拽提示：卡片可拖到左栏当参考素材 */
 .studio-page.wb .col-right #result .task { cursor: grab; }
 .studio-page.wb .col-right #result .task.dragging { opacity: .45; }
@@ -137,10 +125,6 @@
 .studio-page.wb .col-right #result .task .tdetail,
 .studio-page.wb .col-right #result .task .timg video,
 .studio-page.wb .col-right #result .task .timg audio { cursor: auto; }
-.studio-page .card-badge { display: inline-flex; align-items: center; gap: var(--sp-5); }
-.studio-page .card-badge .ui-tag { margin: 0; }
-.studio-page #result .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
-.studio-page #result .card-top .date { font-size: var(--fs-11-5); color: var(--sub); white-space: nowrap; }
 .studio-page.wb .col-right #result > .list-note,
 .studio-page.wb .col-right #result > .empty { grid-column: 1 / -1; }
 
@@ -149,5 +133,4 @@
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
   .studio-page .st-top .st-model .dd { max-width: none; }
-  .studio-page.wb .col-right #result { grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); }
 }

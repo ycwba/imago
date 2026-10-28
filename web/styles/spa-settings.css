@@ -35,7 +35,7 @@
   display: grid;
   grid-template-columns: var(--setrail-w) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--sp-16);
+  gap: var(--sp-20);
   align-items: stretch;
 }
 .settings-page > .phead { grid-column: 1 / -1; grid-row: 1; }
@@ -63,7 +63,13 @@
    两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行（以前放得下是因为没有左轨）。
    一列一列排反而把整栏对齐了：标签列定宽，控件都从同一条竖线开始。 */
 .settings-page .kcols { display: block; }
-.settings-page .desc { font-size: var(--fs-13); color: var(--sub); margin-bottom: var(--sp-24); }
+.settings-page .set-intro { display: flex; align-items: center; gap: var(--sp-8);
+  max-width: 1040px; margin-bottom: var(--sp-20); padding: var(--sp-10) var(--sp-14);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel2);
+  font-size: var(--fs-12-5); color: var(--sub); line-height: 1.6; }
+.settings-page .set-intro-ic { display: inline-flex; flex: 0 0 auto; color: var(--acc); }
+.settings-page .set-intro-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
+.settings-page .set-intro code { color: var(--txt); font-family: var(--font-mono); font-size: var(--fs-11-5); }
 /* 「说明 / 读数」那一族的基字号：`.hint` 在全站没有基样式（各页各自给），
    这一页以前也没给 —— 于是所有 `.hint` 都继承到 16px，跟正文一样大，
    「服务端环境密钥（.env）」这种读数看着像小标题。这里给这一页定一次。 */
@@ -71,9 +77,10 @@
 /* 卡片**皮肤**用公共那一件（.card-surface：底色 / 描边 / 圆角 / 悬停），
    页面只留排版（内边距与间距）—— 以前这一页自己写了一份卡片皮肤（radius-8 + shadow-1、无悬停），
    全站两套卡片长得不一样（用户点名：整页重新设计）。 */
-.settings-page .card { position: relative; padding: var(--sp-16) var(--sp-24); margin-bottom: var(--sp-16); }
-.settings-page .card h2 { font-size: var(--fs-15); margin-bottom: var(--sp-4); }
-.settings-page .card .sub { font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-12); }
+.settings-page .card { position: relative; padding: var(--sp-20) var(--sp-24) var(--sp-22); margin-bottom: var(--sp-16);
+  border-radius: var(--radius-14); }
+.settings-page .card h2 { font-size: var(--fs-16); margin-bottom: var(--sp-4); }
+.settings-page .card .sub { font-size: var(--fs-12-5); color: var(--sub); margin-bottom: var(--sp-16); max-width: 74ch; line-height: 1.6; }
 /* 卡内的分组小标题（「导出目录」「本机资产库」）：以前只有 class 没有样式，
    渲染出来跟正文一样，读起来像漏了标题。这里给它一条底线，跟组标题同族、小一号。 */
 .settings-page .sect-t { display: block; font-size: var(--fs-13); font-weight: 600; color: var(--txt);
@@ -88,8 +95,9 @@
 .settings-page .krow > .kicon + .kn { flex: 0 0 136px; }
 /* 行与行之间一条发丝线：一栏读下来是一排等距的行，不是一堆散件。 */
 .settings-page .kcols > .krow.thin { border-radius: 0; border-bottom-color: var(--line); }
-.settings-page .krow input { flex: 1; min-width: 240px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-12-5); font-family: monospace; outline: none; }
-.settings-page .krow input:focus { border-color: var(--acc); }
+.settings-page .krow input { flex: 1 1 320px; min-width: 0; max-width: 560px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); color: var(--txt); font-size: var(--fs-12-5); font-family: var(--font-ui); outline: none; }
+.settings-page .krow input:focus { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
+.settings-page .krow input.mono, .settings-page .dir-name { font-family: var(--font-mono); }
 /* .krow input 那条规则会把「输入框」撑成 240px 宽；复选框与单选框（侧栏余额勾选、
    供应商卡里的「作用文字 AI」）也写在 .krow 里，会被同一条撑成一条 240px 的横杠 ——
    表现是单选框孤零零杵在行中间，文字被甩到另一头。两种一起压回原形。 */
@@ -103,15 +111,20 @@
 .settings-page .krow.tight { gap: var(--sp-8); flex-wrap: wrap; }
 /* 自定义下拉（ui.js 的 Dropdowns 会在 select 外面包一层 .dd）也要参与伸缩 ——
    不然它在 flex 行里会缩成一小条（供应方 / 识图能力那两行就是这个毛病）。 */
-.settings-page .krow .dd { flex: 1 1 240px; min-width: 200px; max-width: 460px; }
+.settings-page .krow .dd { flex: 1 1 320px; min-width: 200px; max-width: 560px; }
 .settings-page .krow .dd-btn { height: var(--sz-ctl); }
 .settings-page .krow input { height: var(--sz-ctl); }
 /* 一行里的动作按钮：顶到行尾、同一基线，不再跟着输入框排下去 */
 .settings-page .krow .acts { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .krow .acts button { height: var(--sz-ctl); white-space: nowrap; }
-.settings-page .plabel { display: flex; align-items: baseline; gap: 0; flex-wrap: wrap; }
+.settings-page .plabel { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
+  margin: var(--sp-20) 0 var(--sp-8); padding-top: var(--sp-14);
+  border-top: var(--hair) solid var(--line);
+  font-size: var(--fs-12); font-weight: 600; color: var(--txt); }
+.settings-page .plabel::before { content: ''; width: var(--hair-2); height: var(--sp-12); border-radius: var(--radius-99);
+  background: var(--acc); flex: 0 0 auto; }
 /* ---------- 账号卡流：一家账号一张卡，卡里列着它能开通的每一档 ----------
-   设计口径见 design/provider-matrix 的 DESIGN.md：等高竖排（卡高 --sz-acct），卡内中段自己滚 ——
+   设计口径：等高竖排（卡高 --sz-acct），卡内中段自己滚 ——
    展开密钥行、展开某一档的型号面板都不改卡的外形（外形一变，整片重画后手指底下的位置就跳）。 */
 .settings-page .caplegend { display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap;
   margin: var(--sp-12) 0 var(--sp-8); }
@@ -347,20 +360,22 @@
    （`.card` 的 `position: relative` 在上面那一条一份就够，这里不再重复定义同一个类。） */
 /* 标题行：图标位 + 标题。右侧**不再恒留一段空位**（--card-h-pad 92px 没有一张卡真的用得上，
    只是让十六张卡的标题右缘看着齐 —— 齐的是空地，不是内容）。 */
-.settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-8); }
+.settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-10); margin-bottom: var(--sp-4); }
 .settings-page .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
-  flex: 0 0 auto; width: 16px; height: 16px; color: var(--sub); }
-.settings-page .card > h2.card-h .card-ic svg { width: var(--sz-ico); height: var(--sz-ico); fill: none; stroke: currentColor;
-  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  flex: 0 0 auto; width: var(--sp-28); height: var(--sp-28); border-radius: var(--radius-8);
+  background: var(--acc-tint-10); color: var(--acc); }
+.settings-page .card > h2.card-h .card-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
 .settings-page .card > h2.card-h .card-ic.empty { /* 没对应图标的栏：占位对齐，里面不留白 */ visibility: hidden; }
 /* ---------- 五个组 ----------
    组标题**钉在顶上**：这一页现在是一条 8000px 的连续文档，组标题是「我在哪」的锚 ——
    滚到哪一组，标题就换成哪一组（不透明的底 + 一条发丝线，内容从它底下过去不透底）。 */
-.settings-page .set-group { margin-bottom: var(--sp-24); }
+.settings-page .set-group { margin-bottom: var(--sp-24); max-width: 1040px; }
 .settings-page .set-group > .set-group-h { display: flex; align-items: center; gap: var(--sp-8);
   position: sticky; top: 0; z-index: 5; background: var(--bg);
   font-size: var(--fs-14); font-weight: 600; color: var(--txt);
-  margin-bottom: var(--sp-12); padding-bottom: var(--sp-4); border-bottom: var(--hair) solid var(--line); }
+  margin-bottom: var(--sp-12); padding-bottom: var(--sp-8); border-bottom: var(--hair) solid var(--line); }
+.settings-page .set-group > .set-group-h::before { content: ''; width: var(--hair-2); height: var(--sp-14);
+  border-radius: var(--radius-99); background: var(--acc); flex: 0 0 auto; }
 .settings-page .set-group > .card:last-child, .settings-page .set-group > .fold-body > .card:last-child { margin-bottom: 0; }
 /* 筛选时整组都不含命中的，连组标题一起收起来（组里有命中的才留着）。 */
 .settings-page .set-group.set-off { display: none; }
@@ -408,14 +423,15 @@
      现在一个宽度只从令牌来，轨填满自己那一列。 */
   width: 100%; min-width: 0; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
-  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  box-shadow: var(--shadow-1); padding: var(--sp-12) var(--sp-10) var(--sp-10);
+  padding: var(--sp-4) var(--sp-4) 0;
 }
+.settings-page .set-rail-h { flex: 0 0 auto; padding: 0 var(--sp-12) var(--sp-10);
+  font-size: var(--fs-12); font-weight: 600; color: var(--sub); letter-spacing: .08em; }
 .settings-page .set-rail-top { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); }
-.settings-page .set-rail-top input[type=search] { flex: 1 1 auto; min-width: 0; height: var(--sp-32);
-  padding: 0 var(--sp-10); background: var(--input); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
-.settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); }
+.settings-page .set-rail-top input[type=search] { flex: 1 1 auto; min-width: 0; height: var(--sp-34);
+  padding: 0 var(--sp-12); background: var(--panel2); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-8); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
+.settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
 .settings-page .set-rail-top .ghost { flex: 0 0 auto; padding: var(--sp-5) var(--sp-10); font-size: var(--fs-12); }
 /* 筛选时的那句解释（命中几行、按回车跳到第一处）—— 只在筛选期间占位，平时不留空带。 */
 .settings-page .set-rail-note { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); line-height: 1.6;
@@ -428,24 +444,30 @@
 .settings-page .set-rail-scroll::-webkit-scrollbar-track { background: transparent; }
 .settings-page .set-rail-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
 .settings-page .set-rail-foot { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-6);
-  border-top: var(--hair) solid var(--line); margin-top: var(--sp-8);
-  padding: var(--sp-8) var(--sp-8) var(--sp-2); font-size: var(--fs-11); color: var(--sub); }
+  margin-top: var(--sp-8); padding: var(--sp-8) var(--sp-10) var(--sp-2);
+  border-top: var(--hair) solid var(--line);
+  font-size: var(--fs-11); color: var(--sub); }
 .settings-page .set-rail-foot .dot { width: var(--sp-6); height: var(--sp-6); border-radius: var(--radius-99);
   background: var(--ok); flex: 0 0 auto; }
 /* 轨上的树：组 → 每一项（名字 + 引点 + 值速记）。 */
-.settings-page .set-rail-g { display: flex; align-items: baseline; gap: var(--sp-6);
-  margin-top: var(--sp-10); padding: var(--sp-4) var(--sp-8) var(--sp-2); }
+.settings-page .set-rail-g { display: flex; align-items: center; gap: var(--sp-6);
+  margin-top: var(--sp-16); padding: var(--sp-4) var(--sp-8) var(--sp-2); }
 .settings-page .set-rail-g .t { font-size: var(--fs-11-5); font-weight: 600; color: var(--sub); }
-.settings-page .set-rail-g .n { font-size: var(--fs-10); color: var(--sub); opacity: .8; font-variant-numeric: tabular-nums; }
+.settings-page .set-rail-g .n { margin-left: auto; padding: 0 var(--sp-5); border-radius: var(--radius-99);
+  background: var(--panel2); font-size: var(--fs-10); color: var(--sub); font-variant-numeric: tabular-nums; }
 /* 组说明（这一组管什么）写在 <section data-note> 里，现读。 */
 .settings-page .set-rail-scroll .set-rail-note { padding: 0 var(--sp-8) var(--sp-4); }
-.settings-page .set-rail-i { display: flex; align-items: baseline; gap: var(--sp-5);
-  padding: var(--sp-5) var(--sp-8); border-radius: var(--radius-6); cursor: pointer;
+.settings-page .set-rail-i { display: flex; align-items: center; gap: var(--sp-10);
+  min-height: 38px; padding: var(--sp-6) var(--sp-9); border-radius: var(--radius-8); cursor: pointer;
   color: var(--txt); text-decoration: none; position: relative; }
+.settings-page .set-rail-ic { display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: var(--sp-18); height: var(--sp-18); color: var(--sub); }
+.settings-page .set-rail-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
 .settings-page .set-rail-i:hover { background: var(--panel2); }
 .settings-page .set-rail-i:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
 .settings-page .set-rail-i.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
-.settings-page .set-rail-i.on::before { content: ''; position: absolute; left: 0; top: var(--sp-5); bottom: var(--sp-5);
+.settings-page .set-rail-i.on .set-rail-ic { color: var(--acc); }
+.settings-page .set-rail-i.on::before { content: ''; position: absolute; left: 0; top: var(--sp-6); bottom: var(--sp-6);
   width: var(--hair-2); border-radius: var(--radius-1); background: var(--acc); }
 .settings-page .set-rail-i.dim { opacity: .45; }
 .settings-page .set-rail-n { flex: 0 0 auto; font-size: var(--fs-12-5); white-space: nowrap; }
@@ -454,7 +476,7 @@
 .settings-page .set-rail-lead { flex: 1 1 auto; align-self: baseline; height: 0;
   border-bottom: var(--hair) dotted var(--line); margin: 0 var(--sp-2); transform: translateY(var(--sp-3)); }
 .settings-page .set-rail-i.on .set-rail-lead { border-bottom-color: var(--acc-line-32); }
-.settings-page .set-rail-v { flex: 0 0 auto; font-size: var(--fs-10-5); font-variant-numeric: tabular-nums;
+.settings-page .set-rail-v { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-10-5); font-variant-numeric: tabular-nums;
   color: var(--sub); white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .settings-page .set-rail-i.on .set-rail-v { color: var(--acc); opacity: .85; }
 
@@ -469,10 +491,13 @@
 .settings-page .set-doc-scroll::-webkit-scrollbar { width: var(--sz-scroll); }
 .settings-page .set-doc-scroll::-webkit-scrollbar-track { background: transparent; }
 .settings-page .set-doc-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
-.settings-page .set-status { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-12);
-  padding: var(--sp-8) var(--sp-4) 0; border-top: var(--hair) solid var(--line);
-  font-size: var(--fs-11-5); color: var(--sub); }
+.settings-page .set-status { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12);
+  margin-top: var(--sp-10); padding: var(--sp-8) var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel);
+  box-shadow: var(--shadow-1); font-size: var(--fs-11-5); color: var(--sub); }
 .settings-page .set-status .sp { flex: 1 1 auto; }
+.settings-page .set-save::before { content: ''; display: inline-block; width: var(--sp-6); height: var(--sp-6);
+  margin-right: var(--sp-6); border-radius: var(--radius-99); background: currentColor; vertical-align: middle; }
 .settings-page .set-save.ok { color: var(--ok); }
 .settings-page .set-save.wait { color: var(--warn); }
 .settings-page .set-save.err { color: var(--err); }
@@ -703,6 +728,52 @@
 @media (max-width: 760px) {
   .settings-page .sk-item { grid-template-columns: var(--accent-bar) minmax(0, 1fr); }
   .settings-page .sk-item .sk-acts { grid-column: 2; justify-content: flex-start; }
+}
+
+/* ≤900：目录轨变成一条横向索引，文档占满整行。
+   两栏两滚在这一档仍然成立（页面不滚，文档自己滚），只是索引从「左侧长树」改成「顶部横条」，
+   否则 390px 下左轨会把正文挤成一条细缝。 */
+@media (max-width: 900px) {
+  .settings-page.page-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: var(--sp-10);
+  }
+  .settings-page > .phead { grid-column: 1; grid-row: 1; }
+  .settings-page > .set-rail { grid-column: 1; grid-row: 2; display: block; height: auto; max-height: none;
+    padding: var(--sp-8) var(--sp-10); border: var(--hair) solid var(--line); border-radius: var(--radius-12);
+    background: var(--panel); }
+  .settings-page .set-rail-h { display: none; }
+  .settings-page > .set-doc { grid-column: 1; grid-row: 3; }
+  .settings-page .set-rail-top { margin-bottom: var(--sp-6); }
+  .settings-page .set-rail-top input[type=search] { height: var(--sp-32); }
+  .settings-page .set-rail-scroll { display: flex; align-items: center; gap: var(--sp-4);
+    margin: 0; padding: var(--sp-2) 0; overflow-x: auto; overflow-y: hidden; }
+  .settings-page .set-rail-scroll .set-rail-g { display: none; }
+  .settings-page .set-rail-scroll .set-rail-note { display: none; }
+  .settings-page .set-rail-i { flex: 0 0 auto; align-items: center; padding: var(--sp-5) var(--sp-10);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-99); background: var(--panel2); }
+  .settings-page .set-rail-i .set-rail-lead,
+  .settings-page .set-rail-i .set-rail-v { display: none; }
+  .settings-page .set-rail-i.on { border-color: var(--acc-line-32); background: var(--acc-tint-10); }
+  .settings-page .set-rail-i.on::before { display: none; }
+  .settings-page .set-rail-foot { display: none; }
+  .settings-page .set-rail-note { font-size: var(--fs-11); padding: 0 var(--sp-8) var(--sp-6); }
+  .settings-page .set-doc-scroll { padding-right: 0; }
+  .settings-page .set-status { margin-top: var(--sp-8); }
+}
+@media (max-width: 760px) {
+  .settings-page .card { padding: var(--sp-16); }
+  .settings-page .card > h2.card-h { font-size: var(--fs-15); }
+  .settings-page .card .sub { margin-bottom: var(--sp-12); }
+  .settings-page .set-doc .kcols > .krow,
+  .settings-page .set-doc .card > .krow { align-items: flex-start; gap: var(--sp-6); }
+  .settings-page .set-doc .kcols > .krow > .kn,
+  .settings-page .set-doc .card > .krow > .kn { flex: 1 1 100%; font-size: var(--fs-12); color: var(--sub); }
+  .settings-page .set-doc .krow input,
+  .settings-page .set-doc .krow .dd { flex: 1 1 100%; max-width: none; min-width: 0; }
+  .settings-page .set-doc .krow .acts { margin-left: 0; }
+  .settings-page .set-status { font-size: var(--fs-11); }
 }
 
 /* 减弱动效那一档：命中行的闪烁也一起停（底色还在，定位靠的是滚动不是动画）。 */

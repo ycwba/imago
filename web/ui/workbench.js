@@ -1854,16 +1854,16 @@
         this.sync(card);
         return want;
       },
-      /* 按钮上的字跟着状态走：「详情」↔「收起」。
-         「详情」那颗带一颗 chevron：文字装在 .tx 里、图标装在 .ic 里，
-         改字只能改 .tx 那一截（textContent 会把图标一起抹掉）。 */
+      /* 按钮上的字跟着状态走：「展开详情」↔「收起详情」。
+         文字装在 .tx 里、chevron 装在 .ic 里，改字与 aria-expanded 都在这一处；
+         chevron 的朝向由 aria-expanded 的样式规则翻转。 */
       sync(card) {
         const btn = card && card.querySelector('[data-kit-toggle]');
         if (!btn) return;
-        const on = card.classList.contains('is-open');
-        const tx = btn.querySelector('.tx');
-        if (tx) tx.textContent = on ? '收起' : '详情';
-        else btn.textContent = on ? '收起' : '详情';
+        const on = card.classList.contains('is-open') || card.classList.contains('open')
+          || card.classList.contains('is-band');
+        window.btnText(btn, on ? '收起详情' : '展开详情');
+        btn.setAttribute('aria-expanded', String(on));
       },
       close(card) {
         if (!card) return;
@@ -1885,61 +1885,52 @@
     },
 
     /* ---------- 卡片动作区：三台同一套按钮、同一套顺序 ---------- */
-    /* o = { preview, previewLabel, download, cancel, retry, remove, removeFile,
-            hasMedia, extraHTML }
-       这一排只建模「任务卡」那一族（详情 / 预览 / 下载 / 取消 / 重试 / 删除）。页面自己那点
-       不一样的动作（收藏、删本机那份、拿去复用……）写在 `extraHTML` 里、接线写在 `extraBind` 里，
-       公共件原样接在后面 —— 这样标准那几颗的显隐判据（平台能不能取消、结果未知不能画成普通重试）
-       只有一份，而页面不必为了两颗私有按钮整排重写。
-       「详情」那一颗的文字会在展开/收起时变（详情 → 收起），而它带着一颗 chevron：
-       页面用 ui.js 的 iconSet / btnText 各管一头（textContent = … 会把图标一起抹掉），
-       所以这个按钮的文字必须装在 .tx 里、图标装在 .ic 里 —— 结构就固定成下面这样。
-       `o.items` 是「这一排不是任务卡、但仍然是卡片动作条」的那一档（画布库、素材库）：
-       传 [{ act, label, danger, mini, title, disabled }]，结构、danger 色与转义都还是这一份，
-       页面只给自己的私有动作起名字（`o.attr` 选 data-a / data-x 供页面事件委托），
-       不再各自手拼 `<div class="acts"><button class="ghost …">`。 */
+    taskHTML(o) {
+      return o.mediaHTML + '<div class="tmain">'
+        + '<div class="card-top"><div class="card-badge">'
+        + (o.type ? '<span class="task-kind">' + esc(o.type) + '</span>' : '')
+        + '<span class="task-status ' + esc(o.tone || '') + '">' + esc(o.status) + '</span>'
+        + (o.badgeHTML || '') + '</div><span class="date">' + esc(o.date) + '</span></div>'
+        + '<div class="tprompt" title="' + esc(o.prompt) + '">' + esc(o.prompt || '(无提示词)') + '</div>'
+        + (o.error ? '<div class="terr" title="' + esc(o.error) + '">' + esc(o.error) + '</div>' : '')
+        + '<div class="meta2" title="' + esc(o.meta) + '">' + esc(o.meta) + '</div>'
+        + '<div class="acts">' + o.actionsHTML + '</div>' + o.detailHTML + '</div>';
+    },
+    /* o = { preview, previewLabel, download, cancel, retry, remove, removeFile, hasMedia }
+       标准那一族（详情 / 预览 / 下载 / 取消 / 重试 / 删除）的显隐判据只在这里；
+       页面私有动作走 `o.items`（`o.attr` 选事件委托属性）或 `extraHTML` + `extraBind`。
+       文字在 .tx、图标在 .ic：换字只走 btnText，换图标只走 iconSet。 */
     actsHTML(t, o = {}) {
-      if (o.items) {
-        const attr = o.attr || 'data-a';
-        const extraAttrs = d => Object.keys(d || {})
-          .map(k => ' data-' + k + '="' + esc(d[k]) + '"').join('');
-        return o.items.map(it => '<button class="ghost'
-          + (it.danger ? ' danger' : '') + (it.mini ? ' mini' : '') + (it.cls ? ' ' + it.cls : '') + '" '
-          + attr + '="' + esc(it.act) + '"' + extraAttrs(it.data)
-          + (it.title ? ' title="' + esc(it.title) + '"' : '')
-          + (it.disabled ? ' disabled' : '') + '>' + it.label + '</button>').join('') + (o.extraHTML || '');
-      }
+      const button = it => '<button type="button" class="ghost card-act'
+        + (it.danger ? ' danger' : '') + (it.mini ? ' mini' : '') + (it.primary ? ' card-act-primary' : '')
+        + (it.cls ? ' ' + esc(it.cls) : '') + '"'
+        + (it.act !== undefined ? ' ' + (o.attr || 'data-a') + '="' + esc(it.act) + '"' : '')
+        + Object.entries(it.data || {}).map(([k, v]) => ' data-' + k + '="' + esc(v) + '"').join('')
+        + (it.title ? ' title="' + esc(it.title) + '"' : '')
+        + (it.expanded === undefined ? '' : ' aria-expanded="' + !!it.expanded + '"')
+        + (it.pressed === undefined ? '' : ' aria-pressed="' + !!it.pressed + '"')
+        + (it.busy ? ' data-busy="1" aria-busy="true"' : '')
+        + (it.disabled || it.busy ? ' disabled' : '') + '>'
+        + (it.icon ? '<span class="ic">' + icon(it.icon, 15) + '</span>' : '')
+        + '<span class="tx">' + esc(it.label) + '</span></button>';
+      if (o.items) return o.items.map(button).join('') + (o.extraHTML || '');
       const run = this.isRunning(t), failed = this.isFailed(t), unc = this.isUncertain(t);
-      /* 有产物才画下载。`preview` 是「有预览那颗按钮」，`hasMedia` 是「这条已经有真字节了」：
-         资产库的产物格不画预览（点缩略图就是灯箱），但必须有下载。 */
-      const hasMedia = !!(o.preview || o.hasMedia);
-      const B = [];
-      B.push('<button class="ghost dt" data-kit-toggle><span class="ic">' + icon('chevronDown', 13) + '</span><span class="tx">详情</span></button>');
-      /* afterDetailHTML：页面自己的按钮插在「详情」之后（资产库那颗「收藏」就在这一档）。
-         它是**页面私有**的，公共件只管插在哪一档 —— 顺序与显隐判据仍由页面自己写。 */
+      const B = [button({ cls: 'dt', icon: 'chevronDown', label: '展开详情', expanded: false, data: { 'kit-toggle': '' } })];
       if (o.afterDetailHTML) B.push(o.afterDetailHTML);
-      /* 「预览」只在页面**要**它的时候才画（o.preview）：资产库的产物格点缩略图就是灯箱，
-         再挂一颗「预览」是同一件事说两遍（这一排以前跟着 hasMedia 走，资产库因此多出一颗）。 */
-      if (o.preview) B.push('<button class="ghost pv"><span class="ic">' + icon('play', 12) + '</span> ' + esc(o.previewLabel || '预览') + '</button>');
-      if (hasMedia && o.download !== false) {
-        B.push('<button class="ghost dl2" title="用浏览器默认方式下载">下载</button>');
+      if (o.preview) B.push(button({ cls: 'pv', icon: 'expand', label: o.previewLabel || '预览' }));
+      if ((o.preview || o.hasMedia) && o.download !== false) {
+        B.push(button({ cls: 'dl2', icon: 'download', label: '下载', primary: true }));
       }
-      if (run && o.cancel) B.push('<button class="ghost danger cx">取消</button>');
-      /* 平台没声明 cancel 端点时不画一颗点了只报错的按钮（AGENTS.md §2「界面要跟着能力显隐 / 禁用」)：
-         画一颗压暗的、把原因写在 title 上 —— 找不到「怎么停掉它」的人需要的是答案，不是一个消失的按钮。
-         判据在 Api.canCancel 一份，那句话在 Wb.cancelWhyNot 一份；两颗都只在「这一条还在跑」时才画（run 在这里判），
-         页面只决定给不给那句话 —— 否则一条已经完成的卡上也挂颗「取消不了」。 */
-      else if (run && o.cancelWhy) B.push('<button class="ghost danger cx" disabled title="' + esc(o.cancelWhy) + '">取消</button>');
-      /* retryLabel：页面自己算出来的**带代价的字样**（「重试（会再扣 6 积分）」）。
-         不给就是原来那两个字。写明代价是为了让人在点之前就知道要花多少。 */
-      if (failed && o.retry) B.push('<button class="ghost rt"><span class="ic">' + icon('refresh', 12) + '</span> ' + esc(o.retryLabel || '重试') + '</button>');
-      /* 「结果未知」不能写成普通重试：那条提交可能已经被平台受理，重发就是第二次扣费。
-         出路还是要给（同步合成这类根本没有任务号可核对），但字样写明后果，点下去先过一道确认。 */
-      else if (unc && o.retry) B.push('<button class="ghost rt warn"><span class="ic">' + icon('refresh', 12) + '</span> ' + esc(o.retryLabel || '重发（可能再扣一次费）') + '</button>');
-      /* 平台已经出活、只是本机没存下：这一颗给的是「不用再花钱」的那条路。 */
-      if (o.saveLocal) B.push('<button class="ghost sv">再存一次本机</button>');
-      if (o.remove) B.push('<button class="ghost danger del">删除记录</button>');
-      if (o.removeFile) B.push('<button class="ghost danger delfile" title="删除本机文件（上游没有资产存储）">删除文件</button>');
+      if (run && (o.cancel || o.cancelWhy)) {
+        B.push(button({ cls: 'cx', icon: 'stop', label: '取消', danger: true, disabled: !o.cancel, title: o.cancelWhy }));
+      }
+      if ((failed || unc) && o.retry) {
+        B.push(button({ cls: 'rt' + (unc ? ' warn' : ''), icon: 'refresh',
+          label: o.retryLabel || (unc ? '重发（可能再扣一次费）' : '重试') }));
+      }
+      if (o.saveLocal) B.push(button({ cls: 'sv', icon: 'download', label: '再存一次本机' }));
+      if (o.remove) B.push(button({ cls: 'del', icon: 'trash', label: '删除记录', danger: true }));
+      if (o.removeFile) B.push(button({ cls: 'delfile', icon: 'trash', label: '删除文件', danger: true, title: '删除本机文件（上游没有资产存储）' }));
       return B.join('') + (o.extraHTML || '');
     },
     /* 给动作区接线。回调都由页面提供，但「取消 / 删除」的确认、报错、按钮忙碌态在这里统一处理 */
@@ -1951,10 +1942,15 @@
       on('.pv', () => o.onPreview && o.onPreview());
       const busy = async (btn, busyText, fn) => {
         const old = btn.innerHTML;
-        btn.disabled = true; btn.textContent = busyText;
+        btn.disabled = true;
+        btn.dataset.busy = '1'; btn.setAttribute('aria-busy', 'true');
+        window.btnText(btn, busyText);
         try { await fn(); }
         catch (e) { window.Toast.err(errText(e)); }
-        finally { btn.disabled = false; btn.innerHTML = old; }
+        finally {
+          btn.disabled = false; btn.innerHTML = old;
+          delete btn.dataset.busy; btn.removeAttribute('aria-busy');
+        }
       };
       on('.dl2', btn => busy(btn, '下载中…', () => this.save(o.dlUrl || t.dl || t.media, o.fileName || 'download')));
 
@@ -1987,14 +1983,18 @@
       async function retry(btn) {
         if (btn.disabled) return;                       // 同步上锁：等 await 再锁就晚了，连点会发出去两次
         const old = btn.innerHTML;
-        btn.disabled = true; btn.textContent = '重试中…';
+        btn.disabled = true;
+        btn.dataset.busy = '1'; btn.setAttribute('aria-busy', 'true');
+        window.btnText(btn, '重试中…');
         let uncertain = false;
         try { if (o.onRetry) await o.onRetry(t); }
         catch (e) {
           uncertain = !!Api.maybeSubmitted(e);
-          btn.textContent = uncertain ? '结果未知 · 先去核对' : '重试失败';
+          window.btnText(btn, uncertain ? '结果未知 · 先去核对' : '重试失败');
           if (uncertain) window.Toast.warn('这次重试的提交结果没核对清楚：平台上可能已经建了新任务（已扣费）。先刷新列表核对，别急着再发一次。');
           else window.Toast.err(e);
+        } finally {
+          delete btn.dataset.busy; btn.removeAttribute('aria-busy');
         }
         setTimeout(() => {
           if (!btn.isConnected || uncertain) return;
@@ -2602,9 +2602,7 @@
        vt.value 取当前档；坏值 / 旧值一律回落到第一档；vt.apply() 把当前档贴到 target 容器上
        （整块重画之后再问一次，容器节点被换掉时类不会丢）。样式（.viewtoggle）在 ui.css。 */
     viewToggle: {
-      ROWS: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="1" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="5.4" width="12.8" height="3.2" rx="1.2"/><rect x="0.6" y="9.8" width="12.8" height="3.2" rx="1.2"/></svg>',
-      GRID: '<svg width="15" height="15" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="0.6" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="0.6" width="5.6" height="5.6" rx="1.4"/><rect x="0.6" y="7.8" width="5.6" height="5.6" rx="1.4"/><rect x="7.8" y="7.8" width="5.6" height="5.6" rx="1.4"/></svg>',
-      iconOf(v) { return v === 'compact' ? this.GRID : v === 'list' ? this.ROWS : ''; },
+      iconOf(v) { return v === 'compact' ? icon('grid', 15) : v === 'list' ? icon('list', 15) : ''; },
       create(o) {
         const el = typeof o.el === 'string' ? document.getElementById(o.el) : o.el;
         if (!el) return null;

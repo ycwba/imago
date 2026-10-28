@@ -187,9 +187,15 @@ export function render(_ctx, _cache) {
           }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_19),
           _createElementVNode("span", {
             class: _normalizeClass(["dp-face", { ph: !_ctx.F.from }])
-          }, _toDisplayString(_ctx.faceFrom), 3 /* TEXT, CLASS */)
+          }, [
+            _createTextVNode(_toDisplayString(_ctx.faceFrom), 1 /* TEXT */),
+            _cache[9] || (_cache[9] = _createElementVNode("span", {
+              class: "ic",
+              "data-icon": "calendar"
+            }, null, -1 /* CACHED */))
+          ], 2 /* CLASS */)
         ], 8 /* PROPS */, _hoisted_18),
-        _cache[9] || (_cache[9] = _createElementVNode("span", { class: "dsep" }, "→", -1 /* CACHED */)),
+        _cache[11] || (_cache[11] = _createElementVNode("span", { class: "dsep" }, "→", -1 /* CACHED */)),
         _createElementVNode("span", {
           class: "datepick",
           onClick: $event => (_ctx.openDatePicker('to', $event))
@@ -203,7 +209,13 @@ export function render(_ctx, _cache) {
           }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_21),
           _createElementVNode("span", {
             class: _normalizeClass(["dp-face", { ph: !_ctx.F.to }])
-          }, _toDisplayString(_ctx.faceTo), 3 /* TEXT, CLASS */)
+          }, [
+            _createTextVNode(_toDisplayString(_ctx.faceTo), 1 /* TEXT */),
+            _cache[10] || (_cache[10] = _createElementVNode("span", {
+              class: "ic",
+              "data-icon": "calendar"
+            }, null, -1 /* CACHED */))
+          ], 2 /* CLASS */)
         ], 8 /* PROPS */, _hoisted_20),
         _createElementVNode("button", {
           class: "ghost",
@@ -212,7 +224,7 @@ export function render(_ctx, _cache) {
       ], 512 /* NEED_PATCH */), [
         [_vShow, _ctx.timeMode === 'custom']
       ]),
-      _cache[10] || (_cache[10] = _createElementVNode("span", {
+      _cache[12] || (_cache[12] = _createElementVNode("span", {
         class: "sp",
         style: {"flex":"1"}
       }, null, -1 /* CACHED */))
@@ -237,7 +249,7 @@ export function render(_ctx, _cache) {
         id: "bulkDown",
         disabled: _ctx.bulkDownDisabled,
         onClick: _ctx.bulkDownload
-      }, [...(_cache[11] || (_cache[11] = [
+      }, [...(_cache[13] || (_cache[13] = [
         _createElementVNode("span", {
           "data-icon": "download",
           "data-size": "13"
@@ -249,7 +261,7 @@ export function render(_ctx, _cache) {
         id: "bulkFavAdd",
         disabled: _ctx.bulkFavAddDisabled,
         onClick: _ctx.assetsBulkFavAdd
-      }, [...(_cache[12] || (_cache[12] = [
+      }, [...(_cache[14] || (_cache[14] = [
         _createElementVNode("span", {
           "data-icon": "star",
           "data-size": "13"
@@ -261,7 +273,7 @@ export function render(_ctx, _cache) {
         id: "bulkFavRemove",
         disabled: _ctx.bulkFavRemoveDisabled,
         onClick: _ctx.assetsBulkFavRemove
-      }, [...(_cache[13] || (_cache[13] = [
+      }, [...(_cache[15] || (_cache[15] = [
         _createElementVNode("span", {
           "data-icon": "starFill",
           "data-size": "13"
@@ -275,7 +287,7 @@ export function render(_ctx, _cache) {
         onClick: _ctx.pullLocalPage
       }, null, 8 /* PROPS */, _hoisted_31),
       _createElementVNode("span", _hoisted_32, _toDisplayString(_ctx.bulkTipText), 1 /* TEXT */),
-      _cache[14] || (_cache[14] = _createElementVNode("span", {
+      _cache[16] || (_cache[16] = _createElementVNode("span", {
         class: "sp",
         style: {"flex":"1"}
       }, null, -1 /* CACHED */)),
@@ -296,7 +308,7 @@ export function render(_ctx, _cache) {
           }, "重试", 8 /* PROPS */, _hoisted_35)
         ]))
       : _createCommentVNode("v-if", true),
-    _withDirectives(_createElementVNode("div", _hoisted_36, [...(_cache[15] || (_cache[15] = [
+    _withDirectives(_createElementVNode("div", _hoisted_36, [...(_cache[17] || (_cache[17] = [
       _createElementVNode("div", { class: "empty" }, "加载中…", -1 /* CACHED */)
     ]))], 512 /* NEED_PATCH */), [
       [_vShow, !_ctx.failed]

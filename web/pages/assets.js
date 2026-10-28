@@ -478,13 +478,10 @@ export default {
     /* 卡面上那颗星（★ 收藏 / ★ 已收藏）：与「详情」同一排，不用展开就能收 / 拿。
        **收 / 拿的动作**在 domain/fav.js（Fav.toggleEntry —— 身份与落盘都在那一层），
        这里只画那颗按钮、切完把字与亮灭改回来。 */
-    function favLabel(a) {
-      const on = !!(window.Fav && window.Fav.isEntry(a));
-      return (window.icon ? window.icon(on ? 'starFill' : 'star', 12) : '') + (on ? ' 已收藏' : ' 收藏');
-    }
     function favBtnHTML(a) {
-      return '<button class="ghost favbtn' + (window.Fav && window.Fav.isEntry(a) ? ' on' : '') + '">'
-        + favLabel(a) + '</button>';
+      const on = !!(window.Fav && window.Fav.isEntry(a));
+      return window.Wb.actsHTML(null, { items: [{ act: 'favorite', cls: 'favbtn',
+        icon: on ? 'starFill' : 'star', label: on ? '已收藏' : '收藏', pressed: on }] });
     }
     function bindFavBtn(el, a) {
       const fb = el.querySelector('.favbtn');
@@ -493,8 +490,9 @@ export default {
         e.stopPropagation();
         const before = window.Fav.isEntry(a);
         const on = window.Fav.toggleEntry(a);
-        fb.classList.toggle('on', on);
-        fb.innerHTML = favLabel(a);
+        fb.setAttribute('aria-pressed', String(on));
+        window.iconSet(fb, on ? 'starFill' : 'star', 15);
+        window.btnText(fb, on ? '已收藏' : '收藏');
         if (on !== before) window.Toast.ok(on ? '已收藏' : '已取消收藏');   // 星标自己会亮，归安静档
       };
     }
@@ -545,17 +543,13 @@ export default {
     }
 
     /* 展开区里**多出来的**动作：卡面上已经有「详情 / 收藏 / 下载」（任务卡多留 取消 / 重试）。
-       复用 / 删除本机这一份 —— 尤其最后那颗红框的 —— 收在这一行：
-       破坏性动作不该是每张卡上最显眼的那颗按钮。 */
+       只留删除本机这一份 —— 破坏性动作收在展开区里，不该是每张卡上最显眼的那颗按钮。 */
     function expActsHTML(a) {
       if (a.kind !== 'asset') return '';
-      const b = [];
-      b.push('<button class="ghost cureuse" title="带去生成工作台">复用</button>');
-      b.push('<span class="sp"></span>');
-      if (a.localAsset) {
-        b.push('<button class="ghost danger delbtn">' + (a.mirror ? '删除本机副本' : '删除本机这一份') + '</button>');
-      }
-      return b.join('');
+      const items = [];
+      if (a.localAsset) items.push({ act: 'delete', cls: 'delbtn', icon: 'trash', danger: true,
+        label: a.mirror ? '删除本机副本' : '删除本机这一份' });
+      return items.length ? window.Wb.actsHTML(null, { items }) : '';
     }
 
     /* ---------- 卡片 ----------
@@ -646,17 +640,16 @@ export default {
       const cost = (bad || unc) ? costText(a) : '';
       const meta = [a.providerName, a.type, a.kind === 'asset' ? (a.format || '').toUpperCase() : '',
         a.duration ? a.duration + 's' : '', cost].filter(Boolean).join(' · ');
-      return media + `
-      <div class="tmain">
-        <div class="meta1"><span class="dot${run ? ' run' : bad ? ' fail' : ''}"></span><span>${a.kind === 'task' ? (lateDone ? '已完成' : window.Wb.stText(a.status)) : '已完成'}</span>${assetBadge(a)}<span class="date">${date}</span></div>
-        <div class="tprompt" title="${window.esc(a.prompt || '')}">${window.esc(a.prompt || noPromptText(a))}</div>
-        <div class="meta2" title="${window.esc(meta)}">${window.esc(meta)}</div>
-        <div class="acts">${window.Wb.actsHTML(a, actsOpts(a))}</div>
-        <div class="exp"><div class="exp-in"><div class="exp-body">
-          <div class="cdet"></div>
-          ${expActsHTML(a) ? `<div class="exp-acts">${expActsHTML(a)}</div>` : ''}
-        </div></div></div>
-      </div>`;
+      const extra = expActsHTML(a);
+      return window.Wb.taskHTML({
+        mediaHTML: media, type: a.type,
+        status: a.kind === 'task' ? (lateDone ? '已完成' : window.Wb.stText(a.status)) : '已完成',
+        tone: run ? 'run' : unc ? 'warn' : bad ? (CALMED_ST.includes(String(a.status).toLowerCase()) ? '' : 'err') : 'ok',
+        badgeHTML: assetBadge(a), date, prompt: a.prompt || noPromptText(a), meta,
+        actionsHTML: window.Wb.actsHTML(a, actsOpts(a)),
+        detailHTML: '<div class="exp"><div class="exp-in"><div class="exp-body"><div class="cdet"></div>'
+          + (extra ? '<div class="exp-acts">' + extra + '</div>' : '') + '</div></div></div>',
+      });
     }
 
     function bindCardThumb(d, a) {
@@ -687,7 +680,10 @@ export default {
       bandKey = '';
       if (k && cardList && cardList.el) {
         const c = cardList.el(k);
-        if (c) c.classList.remove('is-band');
+        if (c) {
+          c.classList.remove('is-band');
+          window.Wb.expand.sync(c);
+        }
       }
     }
 
@@ -730,6 +726,7 @@ export default {
       bandEl = band;
       bandKey = assetKeyOf(a);
       d.classList.add('is-band');
+      window.Wb.expand.sync(d);
       const host = band.querySelector('.cdet');
       if (host) window.Wb.detail.render(a, host);
       const cb = band.querySelector('[data-act="closeband"]');
@@ -810,7 +807,7 @@ export default {
       /* 标准那一排（详情 / 下载 / 取消 / 重试）整排交给公共件接线：确认框、忙碌态、报错、
          「这一家没有撤单接口」那道闸，还有「结果未知不许当普通重试」的核对与扣费提醒，
          都在 Wb.bindActs 一份（以前这里自己写了一套，那两道闸都没跟上）。
-         这一页只剩三颗私有按钮：收藏 / 删本机那一份 / 复用（都在展开区里）。 */
+         这一页只剩两颗私有按钮：收藏 / 删本机那一份（都在展开区里）。 */
       window.Wb.bindActs(d, a, Object.assign(actsOpts(a), {
         onDetail: () => toggleDetail(d, a),
         onCancel: async () => {
@@ -829,8 +826,6 @@ export default {
         extraBind: el => {
           /* 收藏那颗（★/☆）的接线：收 / 拿在 domain/fav.js 一份，这里只把字与亮灭改回来。 */
           bindFavBtn(el, a);
-          const ru = el.querySelector('.cureuse');
-          if (ru) ru.onclick = e => { e.stopPropagation(); reuseAsset(a); };
           const delb = el.querySelector('.delbtn');
           if (delb) delb.onclick = e => {
             e.stopPropagation();
@@ -1057,12 +1052,6 @@ export default {
     /* ---------- 文件名（下载走公共件 Wb.save，这一页只决定叫什么名） ---------- */
     function fileNameOf(a) {
       return window.fileStamp(a.ts) + ' ' + window.fileSafe(a.prompt || '素材', 24) + '.' + window.fileExtOf(a);
-    }
-
-    function reuseAsset(a) {
-      if (a.kind !== 'asset') { window.Toast.warn('只有已完成的素材可以复用（进行中/失败的任务没有可用的文件）'); return; }
-      window.Wb.reuse.go({ from: 'assets', type: a.type,
-        assetId: a.assetId || a.id, src: a.src, dl: a.dl, prompt: a.prompt || '' });
     }
 
     /* ---------- 筛选行：类型（带条数）+ 平台 + 时间；状态三档在页头 ---------- */

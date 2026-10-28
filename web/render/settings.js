@@ -578,9 +578,10 @@ const _hoisted_355 = { class: "set-pos" }
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createCommentVNode(" 统一页头（全站唯一一份 .phead）：以前标题在右栏那条连续文档的最上面，\n           往下一滚名字就没了。现在提到通栏顶部钉住；左边的目录轨与右边的文档各滚各的。 "),
-    _cache[108] || (_cache[108] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">设置</h1></div><p class=\"phead-sub\">全部设置都在本机改。</p><div class=\"phead-acts\"></div></header>", 1)),
+    _cache[109] || (_cache[109] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">设置</h1></div><p class=\"phead-sub\">全部设置都在本机改。</p><div class=\"phead-acts\"></div></header>", 1)),
     _createCommentVNode(" 左：目录轨（索引，不是另一套页面）。\n           点哪一行 → 右栏平滑滚到那一栏；右栏滚到哪一栏 → 轨上那一行亮起来。\n           每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，\n           就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 "),
     _createElementVNode("aside", _hoisted_2, [
+      _cache[1] || (_cache[1] = _createElementVNode("div", { class: "set-rail-h" }, "目录", -1 /* CACHED */)),
       _createElementVNode("div", _hoisted_3, [
         _withDirectives(_createElementVNode("input", {
           ref: "setQEl",
@@ -615,10 +616,17 @@ export function render(_ctx, _cache) {
     _createCommentVNode(" 右：一条**连续的文档**。5 组 15 张卡从上到下排成一条 ——\n           滚到哪一栏就接着滚到下一栏，卡与卡之间没有黑屏、没有跳。\n           组标题钉在顶上，状态行钉在底下，中间那条就是全部设置。 "),
     _createElementVNode("div", _hoisted_8, [
       _createElementVNode("div", _hoisted_9, [
-        _cache[106] || (_cache[106] = _createElementVNode("div", { class: "desc" }, [
-          _createTextVNode("密钥存本机；留空则用本地代理 "),
-          _createElementVNode("code", null, ".env"),
-          _createTextVNode(" 里的密钥。")
+        _cache[107] || (_cache[107] = _createElementVNode("div", { class: "set-intro" }, [
+          _createElementVNode("span", {
+            class: "set-intro-ic",
+            "data-icon": "key",
+            "data-size": "15"
+          }),
+          _createElementVNode("span", null, [
+            _createTextVNode("密钥存本机；留空则用本地代理 "),
+            _createElementVNode("code", null, ".env"),
+            _createTextVNode(" 里的密钥。")
+          ])
         ], -1 /* CACHED */)),
         (_ctx.failed)
           ? (_openBlock(), _createElementBlock("div", _hoisted_10, [
@@ -632,14 +640,14 @@ export function render(_ctx, _cache) {
             ]))
           : _createCommentVNode("v-if", true),
         _createElementVNode("section", _hoisted_13, [
-          _cache[30] || (_cache[30] = _createElementVNode("h2", { class: "set-group-h" }, "账户与密钥", -1 /* CACHED */)),
+          _cache[31] || (_cache[31] = _createElementVNode("h2", { class: "set-group-h" }, "账户与密钥", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_14, [
             _createElementVNode("h2", _hoisted_15, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icKey
               }, null, 8 /* PROPS */, _hoisted_16),
-              _cache[1] || (_cache[1] = _createTextVNode("供应商与密钥", -1 /* CACHED */))
+              _cache[2] || (_cache[2] = _createTextVNode("供应商与密钥", -1 /* CACHED */))
             ]),
             _createCommentVNode(" 图例教一次「哪个字是哪一档」（卡顶那排小方格是这一页独有的图形语言）。 "),
             _createElementVNode("div", _hoisted_17, null, 512 /* NEED_PATCH */),
@@ -653,7 +661,7 @@ export function render(_ctx, _cache) {
             _createElementVNode("div", _hoisted_21, [
               _createElementVNode("div", _hoisted_22, [
                 _createElementVNode("div", _hoisted_23, [
-                  _cache[2] || (_cache[2] = _createElementVNode("span", { class: "kn" }, "本机运行包", -1 /* CACHED */)),
+                  _cache[3] || (_cache[3] = _createElementVNode("span", { class: "kn" }, "本机运行包", -1 /* CACHED */)),
                   _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.asrLocalText), 1 /* TEXT */),
                   _createElementVNode("button", {
                     class: "ghost mini",
@@ -662,15 +670,15 @@ export function render(_ctx, _cache) {
                   }, "重新检查", 8 /* PROPS */, _hoisted_25)
                 ]),
                 _createElementVNode("div", _hoisted_26, [
-                  _cache[3] || (_cache[3] = _createElementVNode("span", { class: "kn" }, "浏览器内模型", -1 /* CACHED */)),
+                  _cache[4] || (_cache[4] = _createElementVNode("span", { class: "kn" }, "浏览器内模型", -1 /* CACHED */)),
                   _createElementVNode("span", _hoisted_27, _toDisplayString(_ctx.asrBrowserText), 1 /* TEXT */)
                 ]),
                 _createElementVNode("div", _hoisted_28, [
-                  _cache[5] || (_cache[5] = _createElementVNode("span", { class: "kn" }, "走哪条路", -1 /* CACHED */)),
+                  _cache[6] || (_cache[6] = _createElementVNode("span", { class: "kn" }, "走哪条路", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("select", {
                     "onUpdate:modelValue": $event => ((_ctx.asr.route) = $event),
                     style: {"flex":"1 1 300px"}
-                  }, [...(_cache[4] || (_cache[4] = [
+                  }, [...(_cache[5] || (_cache[5] = [
                     _createElementVNode("option", { value: "auto" }, "自动", -1 /* CACHED */),
                     _createElementVNode("option", { value: "browser" }, "浏览器内 Whisper", -1 /* CACHED */),
                     _createElementVNode("option", { value: "local" }, "本地 whisper.cpp", -1 /* CACHED */),
@@ -680,7 +688,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_30, [
-                  _cache[6] || (_cache[6] = _createElementVNode("span", { class: "kn" }, "语言", -1 /* CACHED */)),
+                  _cache[7] || (_cache[7] = _createElementVNode("span", { class: "kn" }, "语言", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((_ctx.asr.language) = $event),
                     placeholder: "留空 = 自动",
@@ -690,13 +698,13 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_32, [
-                  _cache[8] || (_cache[8] = _createElementVNode("span", { class: "kn" }, "在线服务商", -1 /* CACHED */)),
+                  _cache[9] || (_cache[9] = _createElementVNode("span", { class: "kn" }, "在线服务商", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("select", {
                     ref: "asrProvEl",
                     "onUpdate:modelValue": $event => ((_ctx.asr.service.providerId) = $event),
                     style: {"flex":"1 1 260px"}
                   }, [
-                    _cache[7] || (_cache[7] = _createElementVNode("option", { value: "" }, "手动填接口地址", -1 /* CACHED */)),
+                    _cache[8] || (_cache[8] = _createElementVNode("option", { value: "" }, "手动填接口地址", -1 /* CACHED */)),
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.asrProvOpts, (p) => {
                       return (_openBlock(), _createElementBlock("option", {
                         key: p.id,
@@ -708,7 +716,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_35, [
-                  _cache[9] || (_cache[9] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
+                  _cache[10] || (_cache[10] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((_ctx.asr.service.model) = $event),
                     placeholder: "whisper-1",
@@ -718,7 +726,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_37, [
-                  _cache[10] || (_cache[10] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+                  _cache[11] || (_cache[11] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((_ctx.asr.service.baseUrl) = $event),
                     placeholder: "留空 = 默认地址",
@@ -728,7 +736,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_39, [
-                  _cache[11] || (_cache[11] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+                  _cache[12] || (_cache[12] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     type: "password",
                     "onUpdate:modelValue": $event => ((_ctx.asrKey) = $event),
@@ -769,21 +777,21 @@ export function render(_ctx, _cache) {
                     }, null, 8 /* PROPS */, _hoisted_50), [
                       [_vModelCheckbox, _ctx.search.enabled]
                     ]),
-                    _cache[12] || (_cache[12] = _createTextVNode(" 启用联网搜索", -1 /* CACHED */))
+                    _cache[13] || (_cache[13] = _createTextVNode(" 启用联网搜索", -1 /* CACHED */))
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_51, [
-                  _cache[14] || (_cache[14] = _createElementVNode("span", { class: "kn" }, "搜索服务", -1 /* CACHED */)),
+                  _cache[15] || (_cache[15] = _createElementVNode("span", { class: "kn" }, "搜索服务", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("select", {
                     "onUpdate:modelValue": $event => ((_ctx.search.provider) = $event),
                     style: {"flex":"1 1 220px"}
-                  }, [...(_cache[13] || (_cache[13] = [
+                  }, [...(_cache[14] || (_cache[14] = [
                     _createElementVNode("option", { value: "tavily" }, "Tavily", -1 /* CACHED */),
                     _createElementVNode("option", { value: "deepseek" }, "DeepSeek", -1 /* CACHED */)
                   ]))], 8 /* PROPS */, _hoisted_52), [
                     [_vModelSelect, _ctx.search.provider]
                   ]),
-                  _cache[15] || (_cache[15] = _createElementVNode("span", { class: "kn" }, "结果数", -1 /* CACHED */)),
+                  _cache[16] || (_cache[16] = _createElementVNode("span", { class: "kn" }, "结果数", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     type: "number",
                     "onUpdate:modelValue": $event => ((_ctx.search.maxResults) = $event),
@@ -801,11 +809,11 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_54, [
-                  _cache[17] || (_cache[17] = _createElementVNode("span", { class: "kn" }, "密钥来源", -1 /* CACHED */)),
+                  _cache[18] || (_cache[18] = _createElementVNode("span", { class: "kn" }, "密钥来源", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("select", {
                     "onUpdate:modelValue": $event => ((_ctx.search.credentialSource) = $event),
                     style: {"flex":"1 1 220px"}
-                  }, [...(_cache[16] || (_cache[16] = [
+                  }, [...(_cache[17] || (_cache[17] = [
                     _createElementVNode("option", { value: "channel" }, "复用渠道密钥", -1 /* CACHED */),
                     _createElementVNode("option", { value: "manual" }, "单独搜索密钥", -1 /* CACHED */)
                   ]))], 8 /* PROPS */, _hoisted_55), [
@@ -814,7 +822,7 @@ export function render(_ctx, _cache) {
                   _createElementVNode("span", _hoisted_56, _toDisplayString(_ctx.searchCredText), 1 /* TEXT */)
                 ]),
                 _withDirectives(_createElementVNode("div", _hoisted_57, [
-                  _cache[18] || (_cache[18] = _createElementVNode("span", { class: "kn" }, "渠道", -1 /* CACHED */)),
+                  _cache[19] || (_cache[19] = _createElementVNode("span", { class: "kn" }, "渠道", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("select", {
                     ref: "searchChannelEl",
                     "onUpdate:modelValue": $event => ((_ctx.search.channelId) = $event),
@@ -833,7 +841,7 @@ export function render(_ctx, _cache) {
                   [_vShow, _ctx.search.credentialSource === 'channel']
                 ]),
                 _withDirectives(_createElementVNode("div", _hoisted_60, [
-                  _cache[19] || (_cache[19] = _createElementVNode("span", { class: "kn" }, "模型", -1 /* CACHED */)),
+                  _cache[20] || (_cache[20] = _createElementVNode("span", { class: "kn" }, "模型", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((_ctx.search.model) = $event),
                     placeholder: "deepseek-chat",
@@ -845,7 +853,7 @@ export function render(_ctx, _cache) {
                   [_vShow, _ctx.search.provider === 'deepseek']
                 ]),
                 _createElementVNode("div", _hoisted_62, [
-                  _cache[20] || (_cache[20] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+                  _cache[21] || (_cache[21] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((_ctx.search.baseUrl) = $event),
                     placeholder: "留空 = 服务默认",
@@ -855,7 +863,7 @@ export function render(_ctx, _cache) {
                   ])
                 ]),
                 _createElementVNode("div", _hoisted_64, [
-                  _cache[21] || (_cache[21] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+                  _cache[22] || (_cache[22] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
                   _withDirectives(_createElementVNode("input", {
                     type: "password",
                     "onUpdate:modelValue": $event => ((_ctx.searchKey) = $event),
@@ -938,7 +946,7 @@ export function render(_ctx, _cache) {
               class: "krow thin",
               hidden: !_ctx.cusShapeShown
             }, [
-              _cache[22] || (_cache[22] = _createElementVNode("span", { class: "kn" }, "接口形状", -1 /* CACHED */)),
+              _cache[23] || (_cache[23] = _createElementVNode("span", { class: "kn" }, "接口形状", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("select", {
                 ref: "cusShapeEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusShapeSel) = $event),
@@ -956,7 +964,7 @@ export function render(_ctx, _cache) {
               ])
             ], 8 /* PROPS */, _hoisted_80),
             _createElementVNode("div", _hoisted_83, [
-              _cache[23] || (_cache[23] = _createElementVNode("span", { class: "kn" }, "显示名", -1 /* CACHED */)),
+              _cache[24] || (_cache[24] = _createElementVNode("span", { class: "kn" }, "显示名", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusNameEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusName) = $event),
@@ -966,7 +974,7 @@ export function render(_ctx, _cache) {
               ])
             ]),
             _createElementVNode("div", _hoisted_85, [
-              _cache[24] || (_cache[24] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
+              _cache[25] || (_cache[25] = _createElementVNode("span", { class: "kn" }, "接口地址", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusBaseEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusBase) = $event),
@@ -976,7 +984,7 @@ export function render(_ctx, _cache) {
               ])
             ]),
             _createElementVNode("div", _hoisted_87, [
-              _cache[25] || (_cache[25] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
+              _cache[26] || (_cache[26] = _createElementVNode("span", { class: "kn" }, "密钥", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusKeyEl",
                 type: _ctx.cusKeyShown ? 'text' : 'password',
@@ -1000,11 +1008,11 @@ export function render(_ctx, _cache) {
             ]),
             _createCommentVNode(" 能力档位：与卡顶那排能力格同一副图标（.capcell），可多选；第一个选中的是主档，\n                     其余按「手动声明」记在这一家上（见 settings.js 的 pickCusCap / addCus）。 "),
             _createElementVNode("div", _hoisted_92, [
-              _cache[26] || (_cache[26] = _createElementVNode("span", { class: "kn" }, "能力档位", -1 /* CACHED */)),
+              _cache[27] || (_cache[27] = _createElementVNode("span", { class: "kn" }, "能力档位", -1 /* CACHED */)),
               _createElementVNode("div", _hoisted_93, null, 512 /* NEED_PATCH */)
             ]),
             _createElementVNode("div", _hoisted_94, [
-              _cache[27] || (_cache[27] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
+              _cache[28] || (_cache[28] = _createElementVNode("span", { class: "kn" }, "型号", -1 /* CACHED */)),
               _createElementVNode("div", {
                 class: _normalizeClass(["cus-models mlist", { empty: !_ctx.cusModelRows.length }])
               }, [
@@ -1030,7 +1038,7 @@ export function render(_ctx, _cache) {
               ], 2 /* CLASS */)
             ]),
             _createElementVNode("div", _hoisted_98, [
-              _cache[28] || (_cache[28] = _createElementVNode("span", { class: "kn" }, "自己填 id", -1 /* CACHED */)),
+              _cache[29] || (_cache[29] = _createElementVNode("span", { class: "kn" }, "自己填 id", -1 /* CACHED */)),
               _withDirectives(_createElementVNode("input", {
                 ref: "cusExtraEl",
                 "onUpdate:modelValue": $event => ((_ctx.cusExtra) = $event),
@@ -1066,7 +1074,7 @@ export function render(_ctx, _cache) {
             ]),
             (_ctx.cusMineShown)
               ? (_openBlock(), _createElementBlock("div", _hoisted_106, [
-                  _cache[29] || (_cache[29] = _createElementVNode("span", { class: "kn" }, "已添加", -1 /* CACHED */)),
+                  _cache[30] || (_cache[30] = _createElementVNode("span", { class: "kn" }, "已添加", -1 /* CACHED */)),
                   _createElementVNode("div", _hoisted_107, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cusMineGroups, (g) => {
                       return (_openBlock(), _createElementBlock("div", {
@@ -1099,14 +1107,14 @@ export function render(_ctx, _cache) {
           ], 8 /* PROPS */, _hoisted_79)
         ]),
         _createElementVNode("section", _hoisted_113, [
-          _cache[35] || (_cache[35] = _createElementVNode("h2", { class: "set-group-h" }, "界面与列表", -1 /* CACHED */)),
+          _cache[36] || (_cache[36] = _createElementVNode("h2", { class: "set-group-h" }, "界面与列表", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_114, [
             _createElementVNode("h2", _hoisted_115, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icRefresh
               }, null, 8 /* PROPS */, _hoisted_116),
-              _cache[31] || (_cache[31] = _createTextVNode("网络与刷新", -1 /* CACHED */))
+              _cache[32] || (_cache[32] = _createTextVNode("网络与刷新", -1 /* CACHED */))
             ]),
             _createCommentVNode(" 这三格的取值区间不写在标记里：min / max 与这一行本身都由 SET_ROWS 声明。 "),
             _createElementVNode("div", _hoisted_117, null, 512 /* NEED_PATCH */)
@@ -1117,9 +1125,9 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icList
               }, null, 8 /* PROPS */, _hoisted_120),
-              _cache[32] || (_cache[32] = _createTextVNode("列表分页", -1 /* CACHED */))
+              _cache[33] || (_cache[33] = _createTextVNode("列表分页", -1 /* CACHED */))
             ]),
-            _cache[33] || (_cache[33] = _createElementVNode("div", { class: "sub" }, "滚到底自动续拉。", -1 /* CACHED */)),
+            _cache[34] || (_cache[34] = _createElementVNode("div", { class: "sub" }, "滚到底自动续拉。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_121, null, 512 /* NEED_PATCH */)
           ]),
           _createElementVNode("div", _hoisted_122, [
@@ -1128,22 +1136,22 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icSun
               }, null, 8 /* PROPS */, _hoisted_124),
-              _cache[34] || (_cache[34] = _createTextVNode("外观与界面", -1 /* CACHED */))
+              _cache[35] || (_cache[35] = _createTextVNode("外观与界面", -1 /* CACHED */))
             ]),
             _createElementVNode("div", _hoisted_125, null, 512 /* NEED_PATCH */)
           ])
         ]),
         _createElementVNode("section", _hoisted_126, [
-          _cache[68] || (_cache[68] = _createElementVNode("h2", { class: "set-group-h" }, "生成与助手", -1 /* CACHED */)),
+          _cache[69] || (_cache[69] = _createElementVNode("h2", { class: "set-group-h" }, "生成与助手", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_127, [
             _createElementVNode("h2", _hoisted_128, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icFolder
               }, null, 8 /* PROPS */, _hoisted_129),
-              _cache[36] || (_cache[36] = _createTextVNode("产物存放", -1 /* CACHED */))
+              _cache[37] || (_cache[37] = _createTextVNode("产物存放", -1 /* CACHED */))
             ]),
-            _cache[37] || (_cache[37] = _createElementVNode("div", { class: "sub" }, "第三项要前两项都开着才生效。", -1 /* CACHED */)),
+            _cache[38] || (_cache[38] = _createElementVNode("div", { class: "sub" }, "第三项要前两项都开着才生效。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_130, null, 512 /* NEED_PATCH */),
             _createCommentVNode(" 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 "),
             _createElementVNode("div", _hoisted_131, null, 512 /* NEED_PATCH */)
@@ -1154,9 +1162,9 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icUsers
               }, null, 8 /* PROPS */, _hoisted_134),
-              _cache[38] || (_cache[38] = _createTextVNode("素材库", -1 /* CACHED */))
+              _cache[39] || (_cache[39] = _createTextVNode("素材库", -1 /* CACHED */))
             ]),
-            _cache[39] || (_cache[39] = _createElementVNode("div", { class: "sub" }, "页内换的型号与张数只管那一次，不写回这里。", -1 /* CACHED */)),
+            _cache[40] || (_cache[40] = _createElementVNode("div", { class: "sub" }, "页内换的型号与张数只管那一次，不写回这里。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_135, null, 512 /* NEED_PATCH */)
           ]),
           _createElementVNode("div", _hoisted_136, [
@@ -1165,12 +1173,12 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icBrain
               }, null, 8 /* PROPS */, _hoisted_138),
-              _cache[40] || (_cache[40] = _createTextVNode("AI 助手", -1 /* CACHED */))
+              _cache[41] || (_cache[41] = _createTextVNode("AI 助手", -1 /* CACHED */))
             ]),
-            _cache[41] || (_cache[41] = _createElementVNode("div", { class: "sub" }, "读不用问；动手先确认。", -1 /* CACHED */)),
+            _cache[42] || (_cache[42] = _createElementVNode("div", { class: "sub" }, "读不用问；动手先确认。", -1 /* CACHED */)),
             _createCommentVNode(" 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 "),
             _createElementVNode("div", _hoisted_139, null, 512 /* NEED_PATCH */),
-            _cache[42] || (_cache[42] = _createStaticVNode("<div class=\"pb-tip\">关掉只是不装，记录都留着。</div><div class=\"pb-tip\">勾上后自动执行，不再确认。</div><div class=\"pb-tip\">不随云同步。</div><details class=\"ref\"><summary>通知授权</summary><div class=\"ref-body\"> 拒绝过就去地址栏左侧「网站设置」里放开。</div></details>", 4))
+            _cache[43] || (_cache[43] = _createStaticVNode("<div class=\"pb-tip\">关掉只是不装，记录都留着。</div><div class=\"pb-tip\">勾上后自动执行，不再确认。</div><div class=\"pb-tip\">不随云同步。</div><details class=\"ref\"><summary>通知授权</summary><div class=\"ref-body\"> 拒绝过就去地址栏左侧「网站设置」里放开。</div></details>", 4))
           ]),
           _createElementVNode("div", _hoisted_140, [
             _createElementVNode("h2", _hoisted_141, [
@@ -1178,17 +1186,17 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icPencil
               }, null, 8 /* PROPS */, _hoisted_142),
-              _cache[43] || (_cache[43] = _createTextVNode("润色行为", -1 /* CACHED */))
+              _cache[44] || (_cache[44] = _createTextVNode("润色行为", -1 /* CACHED */))
             ]),
-            _cache[46] || (_cache[46] = _createElementVNode("div", { class: "sub" }, "正文由 Skill 提供，这里只管反问开关。", -1 /* CACHED */)),
+            _cache[47] || (_cache[47] = _createElementVNode("div", { class: "sub" }, "正文由 Skill 提供，这里只管反问开关。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_143, [
-              _cache[44] || (_cache[44] = _createElementVNode("div", { class: "pb-head" }, [
+              _cache[45] || (_cache[45] = _createElementVNode("div", { class: "pb-head" }, [
                 _createElementVNode("b", null, "润色前要不要先反问"),
                 _createElementVNode("span", { class: "used" }, "用于润色入口")
               ], -1 /* CACHED */)),
               _createCommentVNode(" 那一格下拉的行由 SET_ROWS 声明。 "),
               _createElementVNode("div", _hoisted_144, null, 512 /* NEED_PATCH */),
-              _cache[45] || (_cache[45] = _createElementVNode("div", { class: "pb-tip" }, "「AI 判断」：AI 自己决定先反问还是直接润色。", -1 /* CACHED */))
+              _cache[46] || (_cache[46] = _createElementVNode("div", { class: "pb-tip" }, "「AI 判断」：AI 自己决定先反问还是直接润色。", -1 /* CACHED */))
             ])
           ]),
           _createElementVNode("div", _hoisted_145, [
@@ -1197,9 +1205,9 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icBrain
               }, null, 8 /* PROPS */, _hoisted_147),
-              _cache[47] || (_cache[47] = _createTextVNode("Skill", -1 /* CACHED */))
+              _cache[48] || (_cache[48] = _createTextVNode("Skill", -1 /* CACHED */))
             ]),
-            _cache[66] || (_cache[66] = _createElementVNode("div", { class: "sub" }, "按场景加载的写法说明；输出格式由契约管。", -1 /* CACHED */)),
+            _cache[67] || (_cache[67] = _createElementVNode("div", { class: "sub" }, "按场景加载的写法说明；输出格式由契约管。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_148, [
               _createCommentVNode(" 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），\n                       行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 "),
               _createElementVNode("aside", _hoisted_149, [
@@ -1251,7 +1259,7 @@ export function render(_ctx, _cache) {
                     ? (_openBlock(), _createElementBlock("div", _hoisted_159, "没有匹配的场景。"))
                     : _createCommentVNode("v-if", true)
                 ]),
-                _cache[48] || (_cache[48] = _createStaticVNode("<div class=\"sk-legend\"><span class=\"sk-lg\"><span class=\"sk-lamp lit-mine\"></span>我的一份在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-builtin\"></span>内置的在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-empty\"></span>空档 · 用内置默认正文</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-conflict\"></span>两份都启用了</span></div>", 1))
+                _cache[49] || (_cache[49] = _createStaticVNode("<div class=\"sk-legend\"><span class=\"sk-lg\"><span class=\"sk-lamp lit-mine\"></span>我的一份在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-builtin\"></span>内置的在用</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-empty\"></span>空档 · 用内置默认正文</span><span class=\"sk-lg\"><span class=\"sk-lamp lit-conflict\"></span>两份都启用了</span></div>", 1))
               ]),
               _createCommentVNode(" 右：详情。三个形态：场景详情 / 全部 Skill / 新建（编辑）Skill "),
               _createElementVNode("section", _hoisted_160, [
@@ -1283,7 +1291,7 @@ export function render(_ctx, _cache) {
                         ])
                       ]),
                       _createElementVNode("div", _hoisted_173, [
-                        _cache[52] || (_cache[52] = _createElementVNode("div", { class: "sk-sec-h" }, [
+                        _cache[53] || (_cache[53] = _createElementVNode("div", { class: "sk-sec-h" }, [
                           _createElementVNode("b", null, "这一步会拿到什么")
                         ], -1 /* CACHED */)),
                         (_ctx.skillSceneVars.length)
@@ -1298,23 +1306,23 @@ export function render(_ctx, _cache) {
                                   _createElementVNode("span", _hoisted_177, _toDisplayString(v.desc), 1 /* TEXT */)
                                 ]))
                               }), 128 /* KEYED_FRAGMENT */)),
-                              _cache[49] || (_cache[49] = _createElementVNode("div", { class: "sk-vnote" }, "填不上的留给 AI 补。", -1 /* CACHED */))
+                              _cache[50] || (_cache[50] = _createElementVNode("div", { class: "sk-vnote" }, "填不上的留给 AI 补。", -1 /* CACHED */))
                             ]))
                           : (_openBlock(), _createElementBlock("div", _hoisted_178, "不需要项目上下文。")),
                         (_ctx.skillSceneUnknown.length)
                           ? (_openBlock(), _createElementBlock("div", _hoisted_179, [
-                              _cache[51] || (_cache[51] = _createElementVNode("span", null, "!", -1 /* CACHED */)),
+                              _cache[52] || (_cache[52] = _createElementVNode("span", null, "!", -1 /* CACHED */)),
                               _createElementVNode("span", null, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillSceneUnknown, (n) => {
                                   return (_openBlock(), _createElementBlock("code", { key: n }, _toDisplayString('{' + n + '}'), 1 /* TEXT */))
                                 }), 128 /* KEYED_FRAGMENT */)),
-                                _cache[50] || (_cache[50] = _createTextVNode(" 未登记，不会被填。", -1 /* CACHED */))
+                                _cache[51] || (_cache[51] = _createTextVNode(" 未登记，不会被填。", -1 /* CACHED */))
                               ])
                             ]))
                           : _createCommentVNode("v-if", true)
                       ]),
                       _createElementVNode("div", _hoisted_180, [
-                        _cache[55] || (_cache[55] = _createElementVNode("div", { class: "sk-sec-h" }, [
+                        _cache[56] || (_cache[56] = _createElementVNode("div", { class: "sk-sec-h" }, [
                           _createElementVNode("b", null, "这个场景的 Skill"),
                           _createElementVNode("span", { class: "hint" }, "同一时刻只有一份生效")
                         ], -1 /* CACHED */)),
@@ -1327,7 +1335,7 @@ export function render(_ctx, _cache) {
                             class: _normalizeClass(["sk-item", { on: _ctx.isSceneActive(s), off: !s.enabled }]),
                             "data-skill-id": s.id
                           }, [
-                            _cache[54] || (_cache[54] = _createElementVNode("span", { class: "sk-bar" }, null, -1 /* CACHED */)),
+                            _cache[55] || (_cache[55] = _createElementVNode("span", { class: "sk-bar" }, null, -1 /* CACHED */)),
                             _createElementVNode("div", _hoisted_183, [
                               _createElementVNode("div", _hoisted_184, [
                                 _createElementVNode("b", _hoisted_185, _toDisplayString(s.name), 1 /* TEXT */),
@@ -1420,7 +1428,7 @@ export function render(_ctx, _cache) {
                                   _createElementVNode("div", _hoisted_203, [
                                     _createElementVNode("div", _hoisted_204, [
                                       _createElementVNode("span", _hoisted_205, _toDisplayString(_ctx.skillFilePath || '（选左边文件）'), 1 /* TEXT */),
-                                      _cache[53] || (_cache[53] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+                                      _cache[54] || (_cache[54] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
                                       _createElementVNode("span", _hoisted_206, _toDisplayString(_ctx.skillFileNote), 1 /* TEXT */)
                                     ]),
                                     _createElementVNode("pre", {
@@ -1434,13 +1442,13 @@ export function render(_ctx, _cache) {
                           ], 10 /* CLASS, PROPS */, _hoisted_182))
                         }), 128 /* KEYED_FRAGMENT */))
                       ]),
-                      _cache[56] || (_cache[56] = _createElementVNode("div", { class: "sk-foot" }, "启用 / 停用下一轮生效。", -1 /* CACHED */))
+                      _cache[57] || (_cache[57] = _createElementVNode("div", { class: "sk-foot" }, "启用 / 停用下一轮生效。", -1 /* CACHED */))
                     ], 64 /* STABLE_FRAGMENT */))
                   : (_ctx.skillMode === 'all')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
                         _createCommentVNode(" ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） "),
                         _createElementVNode("div", _hoisted_207, [
-                          _cache[57] || (_cache[57] = _createElementVNode("div", { class: "sk-d-l" }, [
+                          _cache[58] || (_cache[58] = _createElementVNode("div", { class: "sk-d-l" }, [
                             _createElementVNode("h3", { class: "sk-d-title" }, "全部 Skill")
                           ], -1 /* CACHED */)),
                           _createElementVNode("div", _hoisted_208, [
@@ -1515,7 +1523,7 @@ export function render(_ctx, _cache) {
                             _createElementVNode("div", _hoisted_232, _toDisplayString(_ctx.skillForm.mode === 'edit' ? '保存后下一轮生效。' : ''), 1 /* TEXT */),
                             _createElementVNode("div", _hoisted_233, [
                               _createElementVNode("code", _hoisted_234, "contract：" + _toDisplayString(_ctx.skillForm.contract), 1 /* TEXT */),
-                              _cache[58] || (_cache[58] = _createElementVNode("span", { class: "sk-cnt" }, "同一 contract 只有一份生效。", -1 /* CACHED */))
+                              _cache[59] || (_cache[59] = _createElementVNode("span", { class: "sk-cnt" }, "同一 contract 只有一份生效。", -1 /* CACHED */))
                             ])
                           ]),
                           _createElementVNode("div", _hoisted_235, [
@@ -1536,7 +1544,7 @@ export function render(_ctx, _cache) {
                         _createElementVNode("div", _hoisted_238, [
                           _createElementVNode("div", _hoisted_239, [
                             _createElementVNode("label", _hoisted_240, [
-                              _cache[59] || (_cache[59] = _createElementVNode("span", { class: "sk-label" }, "id", -1 /* CACHED */)),
+                              _cache[60] || (_cache[60] = _createElementVNode("span", { class: "sk-label" }, "id", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFId",
                                 class: "sk-input",
@@ -1548,7 +1556,7 @@ export function render(_ctx, _cache) {
                               ])
                             ]),
                             _createElementVNode("label", _hoisted_242, [
-                              _cache[60] || (_cache[60] = _createElementVNode("span", { class: "sk-label" }, "名字", -1 /* CACHED */)),
+                              _cache[61] || (_cache[61] = _createElementVNode("span", { class: "sk-label" }, "名字", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFName",
                                 class: "sk-input",
@@ -1559,7 +1567,7 @@ export function render(_ctx, _cache) {
                               ])
                             ]),
                             _createElementVNode("label", _hoisted_244, [
-                              _cache[61] || (_cache[61] = _createElementVNode("span", { class: "sk-label" }, "它管什么", -1 /* CACHED */)),
+                              _cache[62] || (_cache[62] = _createElementVNode("span", { class: "sk-label" }, "它管什么", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFDesc",
                                 class: "sk-input",
@@ -1570,7 +1578,7 @@ export function render(_ctx, _cache) {
                               ])
                             ]),
                             _createElementVNode("label", _hoisted_246, [
-                              _cache[62] || (_cache[62] = _createElementVNode("span", { class: "sk-label" }, "触发词", -1 /* CACHED */)),
+                              _cache[63] || (_cache[63] = _createElementVNode("span", { class: "sk-label" }, "触发词", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("input", {
                                 id: "skFTrig",
                                 class: "sk-input",
@@ -1581,7 +1589,7 @@ export function render(_ctx, _cache) {
                               ])
                             ]),
                             _createElementVNode("div", _hoisted_248, [
-                              _cache[63] || (_cache[63] = _createElementVNode("span", { class: "sk-label" }, "页面", -1 /* CACHED */)),
+                              _cache[64] || (_cache[64] = _createElementVNode("span", { class: "sk-label" }, "页面", -1 /* CACHED */)),
                               _createElementVNode("div", _hoisted_249, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.skillPages, (p) => {
                                   return (_openBlock(), _createElementBlock("label", {
@@ -1601,7 +1609,7 @@ export function render(_ctx, _cache) {
                               ])
                             ]),
                             _createElementVNode("label", _hoisted_251, [
-                              _cache[64] || (_cache[64] = _createElementVNode("span", { class: "sk-label" }, "正文", -1 /* CACHED */)),
+                              _cache[65] || (_cache[65] = _createElementVNode("span", { class: "sk-label" }, "正文", -1 /* CACHED */)),
                               _withDirectives(_createElementVNode("textarea", {
                                 id: "skFBody",
                                 class: "sk-textarea",
@@ -1613,7 +1621,7 @@ export function render(_ctx, _cache) {
                               ])
                             ])
                           ]),
-                          _cache[65] || (_cache[65] = _createElementVNode("div", { class: "sk-vnote" }, "{变量} 按当前项目填，填不上留给 AI 补。", -1 /* CACHED */))
+                          _cache[66] || (_cache[66] = _createElementVNode("div", { class: "sk-vnote" }, "{变量} 按当前项目填，填不上留给 AI 补。", -1 /* CACHED */))
                         ])
                       ], 64 /* STABLE_FRAGMENT */))
               ])
@@ -1625,23 +1633,23 @@ export function render(_ctx, _cache) {
               hidden: "",
               onChange: _ctx.onImportSkillFile
             }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_253),
-            _cache[67] || (_cache[67] = _createElementVNode("div", { class: "sk-hint" }, "导入只接受 .md / .zip；内置 Skill 只读。", -1 /* CACHED */)),
+            _cache[68] || (_cache[68] = _createElementVNode("div", { class: "sk-hint" }, "导入只接受 .md / .zip；内置 Skill 只读。", -1 /* CACHED */)),
             (_ctx.skillMsg)
               ? (_openBlock(), _createElementBlock("div", _hoisted_254, _toDisplayString(_ctx.skillMsg), 1 /* TEXT */))
               : _createCommentVNode("v-if", true)
           ])
         ]),
         _createElementVNode("section", _hoisted_255, [
-          _cache[86] || (_cache[86] = _createElementVNode("h2", { class: "set-group-h" }, "数据与同步", -1 /* CACHED */)),
+          _cache[87] || (_cache[87] = _createElementVNode("h2", { class: "set-group-h" }, "数据与同步", -1 /* CACHED */)),
           _createElementVNode("div", _hoisted_256, [
             _createElementVNode("h2", _hoisted_257, [
               _createElementVNode("span", {
                 class: "card-ic",
                 innerHTML: _ctx.icUpload
               }, null, 8 /* PROPS */, _hoisted_258),
-              _cache[69] || (_cache[69] = _createTextVNode("数据与同步", -1 /* CACHED */))
+              _cache[70] || (_cache[70] = _createTextVNode("数据与同步", -1 /* CACHED */))
             ]),
-            _cache[76] || (_cache[76] = _createElementVNode("div", { class: "sub" }, [
+            _cache[77] || (_cache[77] = _createElementVNode("div", { class: "sub" }, [
               _createTextVNode("数据同时写进项目 "),
               _createElementVNode("code", null, ".data/"),
               _createTextVNode("。")
@@ -1651,7 +1659,7 @@ export function render(_ctx, _cache) {
                 _createElementVNode("span", _hoisted_261, [
                   _createElementVNode("span", { innerHTML: _ctx.icFolder }, null, 8 /* PROPS */, _hoisted_262)
                 ]),
-                _cache[70] || (_cache[70] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
+                _cache[71] || (_cache[71] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
                 _createElementVNode("span", {
                   class: "dir-name",
                   title: _ctx.dataInfoTitle
@@ -1670,7 +1678,7 @@ export function render(_ctx, _cache) {
                 _createElementVNode("span", _hoisted_267, [
                   _createElementVNode("span", { innerHTML: _ctx.icClock }, null, 8 /* PROPS */, _hoisted_268)
                 ]),
-                _cache[71] || (_cache[71] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
+                _cache[72] || (_cache[72] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
                 _createElementVNode("span", _hoisted_269, _toDisplayString(_ctx.persistInfo), 1 /* TEXT */),
                 _withDirectives(_createElementVNode("button", {
                   class: "ghost mini wide",
@@ -1695,7 +1703,7 @@ export function render(_ctx, _cache) {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.exp,
                 onClick: _ctx.exportAll
-              }, [...(_cache[72] || (_cache[72] = [
+              }, [...(_cache[73] || (_cache[73] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "download",
@@ -1707,7 +1715,7 @@ export function render(_ctx, _cache) {
                 class: "ghost wide",
                 disabled: _ctx.dataBusy.imp,
                 onClick: _ctx.pickImportAll
-              }, [...(_cache[73] || (_cache[73] = [
+              }, [...(_cache[74] || (_cache[74] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "upload",
@@ -1724,11 +1732,11 @@ export function render(_ctx, _cache) {
               }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_276),
               _createElementVNode("span", _hoisted_277, _toDisplayString(_ctx.dataMsg), 1 /* TEXT */)
             ]),
-            _cache[77] || (_cache[77] = _createElementVNode("label", {
+            _cache[78] || (_cache[78] = _createElementVNode("label", {
               class: "plabel",
               style: {"margin-top":"var(--sp-14)"}
             }, "云同步（WebDAV）", -1 /* CACHED */)),
-            _cache[78] || (_cache[78] = _createElementVNode("div", {
+            _cache[79] || (_cache[79] = _createElementVNode("div", {
               class: "pb-tip",
               style: {"margin-bottom":"var(--sp-8)"}
             }, "坚果云要填应用密码，不是登录密码。", -1 /* CACHED */)),
@@ -1797,7 +1805,7 @@ export function render(_ctx, _cache) {
                 }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_293), [
                   [_vModelCheckbox, _ctx.cloudKeys]
                 ]),
-                _cache[74] || (_cache[74] = _createTextVNode(" 连密钥一起同步", -1 /* CACHED */))
+                _cache[75] || (_cache[75] = _createTextVNode(" 连密钥一起同步", -1 /* CACHED */))
               ]),
               _createElementVNode("label", _hoisted_294, [
                 _withDirectives(_createElementVNode("input", {
@@ -1808,7 +1816,7 @@ export function render(_ctx, _cache) {
                 }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_295), [
                   [_vModelCheckbox, _ctx.cloudPrompts]
                 ]),
-                _cache[75] || (_cache[75] = _createTextVNode(" 连提示词归档一起", -1 /* CACHED */))
+                _cache[76] || (_cache[76] = _createTextVNode(" 连提示词归档一起", -1 /* CACHED */))
               ]),
               _createElementVNode("span", _hoisted_296, _toDisplayString(_ctx.cloudMsg), 1 /* TEXT */)
             ]),
@@ -1821,11 +1829,11 @@ export function render(_ctx, _cache) {
             _createElementVNode("div", _hoisted_300, null, 512 /* NEED_PATCH */)
           ]),
           _createElementVNode("div", _hoisted_301, [
-            _cache[79] || (_cache[79] = _createElementVNode("h2", { class: "card-h" }, [
+            _cache[80] || (_cache[80] = _createElementVNode("h2", { class: "card-h" }, [
               _createElementVNode("span", { class: "card-ic empty" }),
               _createTextVNode("提示词归档")
             ], -1 /* CACHED */)),
-            _cache[80] || (_cache[80] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
+            _cache[81] || (_cache[81] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_302, [
               _createElementVNode("span", _hoisted_303, [
                 _createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_304)
@@ -1845,7 +1853,7 @@ export function render(_ctx, _cache) {
                 style: {"flex":"0 0 auto"}
               }, _toDisplayString(_ctx.promptInfo), 9 /* TEXT, PROPS */, _hoisted_306)
             ]),
-            _cache[81] || (_cache[81] = _createElementVNode("div", { class: "pb-tip" }, "~ 开头或绝对路径；不参与云同步。", -1 /* CACHED */)),
+            _cache[82] || (_cache[82] = _createElementVNode("div", { class: "pb-tip" }, "~ 开头或绝对路径；不参与云同步。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_307, [
               _createElementVNode("button", {
                 class: "ghost wide",
@@ -1867,14 +1875,14 @@ export function render(_ctx, _cache) {
                 class: "card-ic",
                 innerHTML: _ctx.icFolderDoc
               }, null, 8 /* PROPS */, _hoisted_314),
-              _cache[82] || (_cache[82] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
+              _cache[83] || (_cache[83] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
             ]),
-            _cache[85] || (_cache[85] = _createElementVNode("div", { class: "sub" }, "只管整份设置；导出默认不含密钥。", -1 /* CACHED */)),
+            _cache[86] || (_cache[86] = _createElementVNode("div", { class: "sub" }, "只管整份设置；导出默认不含密钥。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_315, [
               _createElementVNode("button", {
                 class: "ghost",
                 onClick: _ctx.exportSetup
-              }, [...(_cache[83] || (_cache[83] = [
+              }, [...(_cache[84] || (_cache[84] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "download",
@@ -1885,7 +1893,7 @@ export function render(_ctx, _cache) {
               _createElementVNode("button", {
                 class: "ghost",
                 onClick: _ctx.pickImportSetup
-              }, [...(_cache[84] || (_cache[84] = [
+              }, [...(_cache[85] || (_cache[85] = [
                 _createElementVNode("span", {
                   class: "ic",
                   "data-icon": "upload",
@@ -1910,7 +1918,7 @@ export function render(_ctx, _cache) {
         ]),
         _createCommentVNode(" 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，\n                 键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 "),
         _createElementVNode("section", _hoisted_320, [
-          _cache[105] || (_cache[105] = _createElementVNode("h2", { class: "set-group-h" }, [
+          _cache[106] || (_cache[106] = _createElementVNode("h2", { class: "set-group-h" }, [
             _createElementVNode("button", {
               class: "tool fold-toggle",
               type: "button",
@@ -1927,10 +1935,10 @@ export function render(_ctx, _cache) {
                   class: "card-ic",
                   innerHTML: _ctx.icGear
                 }, null, 8 /* PROPS */, _hoisted_324),
-                _cache[87] || (_cache[87] = _createTextVNode("本机环境", -1 /* CACHED */))
+                _cache[88] || (_cache[88] = _createTextVNode("本机环境", -1 /* CACHED */))
               ]),
-              _cache[89] || (_cache[89] = _createElementVNode("div", { class: "sub" }, "只读检查，不写盘。", -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_325, [...(_cache[88] || (_cache[88] = [
+              _cache[90] || (_cache[90] = _createElementVNode("div", { class: "sub" }, "只读检查，不写盘。", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_325, [...(_cache[89] || (_cache[89] = [
                 _createElementVNode("span", { class: "hint sm" }, "体检中…", -1 /* CACHED */)
               ]))], 512 /* NEED_PATCH */),
               _createElementVNode("div", _hoisted_326, [
@@ -1947,7 +1955,7 @@ export function render(_ctx, _cache) {
                 }, "复制体检结果", 8 /* PROPS */, _hoisted_328),
                 _createElementVNode("span", _hoisted_329, _toDisplayString(_ctx.sysMsg), 1 /* TEXT */)
               ]),
-              _cache[90] || (_cache[90] = _createElementVNode("div", { class: "pb-tip" }, "换浏览器、改目录权限后用，不用重启代理。", -1 /* CACHED */))
+              _cache[91] || (_cache[91] = _createElementVNode("div", { class: "pb-tip" }, "换浏览器、改目录权限后用，不用重启代理。", -1 /* CACHED */))
             ]),
             _createElementVNode("div", _hoisted_330, [
               _createElementVNode("h2", _hoisted_331, [
@@ -1955,10 +1963,10 @@ export function render(_ctx, _cache) {
                   class: "card-ic",
                   innerHTML: _ctx.icLayers
                 }, null, 8 /* PROPS */, _hoisted_332),
-                _cache[91] || (_cache[91] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
+                _cache[92] || (_cache[92] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
               ]),
-              _cache[93] || (_cache[93] = _createElementVNode("div", { class: "sub" }, "只读检查，不写不删。", -1 /* CACHED */)),
-              _createElementVNode("div", _hoisted_333, [...(_cache[92] || (_cache[92] = [
+              _cache[94] || (_cache[94] = _createElementVNode("div", { class: "sub" }, "只读检查，不写不删。", -1 /* CACHED */)),
+              _createElementVNode("div", _hoisted_333, [...(_cache[93] || (_cache[93] = [
                 _createElementVNode("span", { class: "hint sm" }, "数盘中…", -1 /* CACHED */)
               ]))], 512 /* NEED_PATCH */),
               _createElementVNode("div", _hoisted_334, [
@@ -1976,7 +1984,7 @@ export function render(_ctx, _cache) {
                 _createElementVNode("span", _hoisted_337, null, 512 /* NEED_PATCH */),
                 _createElementVNode("span", _hoisted_338, _toDisplayString(_ctx.usageMsg), 1 /* TEXT */)
               ]),
-              _cache[94] || (_cache[94] = _createElementVNode("div", { class: "pb-tip" }, "这里只统计；清理在缓存那一栏。", -1 /* CACHED */))
+              _cache[95] || (_cache[95] = _createElementVNode("div", { class: "pb-tip" }, "这里只统计；清理在缓存那一栏。", -1 /* CACHED */))
             ]),
             _createElementVNode("div", _hoisted_339, [
               _createElementVNode("h2", _hoisted_340, [
@@ -1984,13 +1992,13 @@ export function render(_ctx, _cache) {
                   class: "card-ic",
                   innerHTML: _ctx.icTrash
                 }, null, 8 /* PROPS */, _hoisted_341),
-                _cache[95] || (_cache[95] = _createTextVNode("清理缓存", -1 /* CACHED */))
+                _cache[96] || (_cache[96] = _createTextVNode("清理缓存", -1 /* CACHED */))
               ]),
-              _cache[104] || (_cache[104] = _createElementVNode("div", { class: "sub" }, "只清能重新生成的缓存，作品不动。", -1 /* CACHED */)),
+              _cache[105] || (_cache[105] = _createElementVNode("div", { class: "sub" }, "只清能重新生成的缓存，作品不动。", -1 /* CACHED */)),
               _createElementVNode("div", _hoisted_342, [
                 _createElementVNode("div", _hoisted_343, [
-                  _cache[96] || (_cache[96] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
-                  _cache[97] || (_cache[97] = _createElementVNode("span", { class: "sub-line" }, "平台返回数据的副本。", -1 /* CACHED */)),
+                  _cache[97] || (_cache[97] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
+                  _cache[98] || (_cache[98] = _createElementVNode("span", { class: "sub-line" }, "平台返回数据的副本。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.api,
@@ -1998,8 +2006,8 @@ export function render(_ctx, _cache) {
                   }, _toDisplayString(_ctx.cacheBusy.api ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_344)
                 ]),
                 _createElementVNode("div", _hoisted_345, [
-                  _cache[98] || (_cache[98] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
-                  _cache[99] || (_cache[99] = _createElementVNode("span", { class: "sub-line" }, "型号识图判定缓存。", -1 /* CACHED */)),
+                  _cache[99] || (_cache[99] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
+                  _cache[100] || (_cache[100] = _createElementVNode("span", { class: "sub-line" }, "型号识图判定缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.meta,
@@ -2007,8 +2015,8 @@ export function render(_ctx, _cache) {
                   }, _toDisplayString(_ctx.cacheBusy.meta ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_346)
                 ]),
                 _createElementVNode("div", _hoisted_347, [
-                  _cache[100] || (_cache[100] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
-                  _cache[101] || (_cache[101] = _createElementVNode("span", { class: "sub-line" }, "缩略图与体积测量缓存。", -1 /* CACHED */)),
+                  _cache[101] || (_cache[101] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
+                  _cache[102] || (_cache[102] = _createElementVNode("span", { class: "sub-line" }, "缩略图与体积测量缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.thumb,
@@ -2016,8 +2024,8 @@ export function render(_ctx, _cache) {
                   }, _toDisplayString(_ctx.cacheBusy.thumb ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_348)
                 ]),
                 _createElementVNode("div", _hoisted_349, [
-                  _cache[102] || (_cache[102] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
-                  _cache[103] || (_cache[103] = _createElementVNode("span", { class: "sub-line" }, "归档缺失标记缓存。", -1 /* CACHED */)),
+                  _cache[103] || (_cache[103] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
+                  _cache[104] || (_cache[104] = _createElementVNode("span", { class: "sub-line" }, "归档缺失标记缓存。", -1 /* CACHED */)),
                   _createElementVNode("button", {
                     class: "ghost mini wide",
                     disabled: _ctx.cacheBusy.missed,
@@ -2035,7 +2043,7 @@ export function render(_ctx, _cache) {
       _createCommentVNode(" 钉在底下的一行：现在在第几项 + 改没改（自动保存的回执只在这一格说话） "),
       _createElementVNode("div", _hoisted_354, [
         _createElementVNode("span", _hoisted_355, _toDisplayString(_ctx.navPos), 1 /* TEXT */),
-        _cache[107] || (_cache[107] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+        _cache[108] || (_cache[108] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
         _createElementVNode("span", {
           class: _normalizeClass(["set-save", _ctx.saveKind])
         }, _toDisplayString(_ctx.saveText), 3 /* TEXT, CLASS */)

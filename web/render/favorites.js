@@ -79,17 +79,13 @@ const _hoisted_35 = { class: "note" }
 const _hoisted_36 = ["value", "onInput", "onBlur", "onClick"]
 const _hoisted_37 = ["onClick"]
 const _hoisted_38 = { class: "m" }
-const _hoisted_39 = { class: "acts card-shell-actions" }
-const _hoisted_40 = ["onClick"]
-const _hoisted_41 = ["disabled", "onClick"]
-const _hoisted_42 = ["onClick"]
-const _hoisted_43 = ["onClick"]
-const _hoisted_44 = ["data-for"]
-const _hoisted_45 = { class: "band-in" }
-const _hoisted_46 = { class: "band-hd" }
-const _hoisted_47 = { class: "t" }
-const _hoisted_48 = ["onClick"]
-const _hoisted_49 = {
+const _hoisted_39 = ["onClick", "innerHTML"]
+const _hoisted_40 = ["data-for"]
+const _hoisted_41 = { class: "band-in" }
+const _hoisted_42 = { class: "band-hd" }
+const _hoisted_43 = { class: "t" }
+const _hoisted_44 = ["onClick"]
+const _hoisted_45 = {
   id: "gridEnd",
   ref: "gridEnd",
   style: {"height":"1px"}
@@ -289,28 +285,11 @@ export function render(_ctx, _cache) {
                           onClick: $event => (_ctx.openLb(it))
                         }, _toDisplayString(_ctx.titleOf(it)), 9 /* TEXT, PROPS */, _hoisted_37),
                         _createElementVNode("div", _hoisted_38, _toDisplayString(_ctx.metaOf(it)), 1 /* TEXT */),
-                        _createElementVNode("div", _hoisted_39, [
-                          (_ctx.canReuse(it))
-                            ? (_openBlock(), _createElementBlock("button", {
-                                key: 0,
-                                class: "ghost",
-                                onClick: _withModifiers($event => (_ctx.reuse(it)), ["stop"])
-                              }, "复用", 8 /* PROPS */, _hoisted_40))
-                            : _createCommentVNode("v-if", true),
-                          _createElementVNode("button", {
-                            class: "ghost",
-                            disabled: !!_ctx.dlBusy[it.key],
-                            onClick: _withModifiers($event => (_ctx.download(it)), ["stop"])
-                          }, _toDisplayString(_ctx.dlMsg[it.key] || '下载'), 9 /* TEXT, PROPS */, _hoisted_41),
-                          _createElementVNode("button", {
-                            class: "ghost fav-open",
-                            onClick: _withModifiers($event => (_ctx.toggleFavDetail(it)), ["stop"])
-                          }, _toDisplayString(_ctx.openKey === it.key ? '收起' : '详情'), 9 /* TEXT, PROPS */, _hoisted_42),
-                          _createElementVNode("button", {
-                            class: "ghost danger fav-drop",
-                            onClick: _withModifiers($event => (_ctx.dropItem(it)), ["stop"])
-                          }, "取消收藏", 8 /* PROPS */, _hoisted_43)
-                        ]),
+                        _createElementVNode("div", {
+                          class: "acts card-acts card-shell-actions",
+                          onClick: $event => (_ctx.onCardAction($event, it)),
+                          innerHTML: _ctx.cardActsHTML(it)
+                        }, null, 8 /* PROPS */, _hoisted_39),
                         _createCommentVNode(" 详情就地展开（公共件 .exp）：清单档里那张卡自己长高，\n                     紧凑档里它落在下面那条带子上（.band）。 "),
                         _cache[11] || (_cache[11] = _createElementVNode("div", { class: "exp" }, [
                           _createElementVNode("div", { class: "exp-in" }, [
@@ -324,30 +303,31 @@ export function render(_ctx, _cache) {
                   }), 128 /* KEYED_FRAGMENT */))
                 ]),
                 _createCommentVNode(" 紧凑档的展开带子：整行宽，插在它那一行的下面，一根连线指回那个格子 "),
-                (_ctx.bandItem(row))
+                (_ctx.view === 'compact' && _ctx.bandItem(row))
                   ? (_openBlock(), _createElementBlock("div", {
                       key: 0,
                       class: "band",
                       "data-for": _ctx.bandItem(row).key
                     }, [
                       _cache[14] || (_cache[14] = _createElementVNode("span", { class: "band-tether" }, null, -1 /* CACHED */)),
-                      _createElementVNode("div", _hoisted_45, [
-                        _createElementVNode("div", _hoisted_46, [
-                          _createElementVNode("span", _hoisted_47, _toDisplayString(_ctx.bandItem(row).prompt || _ctx.bandItem(row).name), 1 /* TEXT */),
+                      _createElementVNode("div", _hoisted_41, [
+                        _createElementVNode("div", _hoisted_42, [
+                          _createElementVNode("span", _hoisted_43, _toDisplayString(_ctx.bandItem(row).prompt || _ctx.bandItem(row).name), 1 /* TEXT */),
                           _cache[12] || (_cache[12] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
                           _createElementVNode("button", {
+                            type: "button",
                             class: "ghost fav-open",
                             onClick: _withModifiers(_ctx.closeDetail, ["stop"])
-                          }, "收起", 8 /* PROPS */, _hoisted_48)
+                          }, "收起", 8 /* PROPS */, _hoisted_44)
                         ]),
                         _cache[13] || (_cache[13] = _createElementVNode("div", { class: "cdet" }, null, -1 /* CACHED */))
                       ])
-                    ], 8 /* PROPS */, _hoisted_44))
+                    ], 8 /* PROPS */, _hoisted_40))
                   : _createCommentVNode("v-if", true)
               ], 64 /* STABLE_FRAGMENT */))
             }), 128 /* KEYED_FRAGMENT */))
           ], 2 /* CLASS */)),
-    _createElementVNode("div", _hoisted_49, null, 512 /* NEED_PATCH */),
+    _createElementVNode("div", _hoisted_45, null, 512 /* NEED_PATCH */),
     _createElementVNode("div", {
       class: "pager-row",
       id: "pagerRow",

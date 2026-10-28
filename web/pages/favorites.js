@@ -102,7 +102,6 @@ export default {
       if (it.kind === 'local' && it.name) return it.name;
       return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.name || '素材', 24) + '.' + window.fileExtOf(it);
     };
-    const canReuse = it => it.kind === 'asset' || !!it.fileKey;
 
     const aiRankOf = it => (aiRank && aiRank.has(it.key) ? aiRank.get(it.key) : Number.MAX_SAFE_INTEGER);
     const orderItems = items => (aiRank ? items.slice().sort((a, b) => aiRankOf(a) - aiRankOf(b)) : items);
@@ -395,10 +394,24 @@ export default {
       setTimeout(() => { dlBusy[it.key] = false; delete dlMsg[it.key]; }, 1800);
     }
 
-    function reuse(it) {
-      Wb.reuse.go(it.kind === 'local'
-        ? { from: 'favorites', type: it.type, fileKey: it.fileKey, name: it.name, prompt: it.prompt || '' }
-        : { from: 'favorites', type: it.type, assetId: it.assetId, src: urls.value[it.key] || '', prompt: it.prompt || '' });
+    function cardActsHTML(it) {
+      const expanded = openKey.value === it.key;
+      const items = [{ act: 'detail', cls: 'fav-open', icon: 'chevronDown',
+        label: expanded ? '收起详情' : '展开详情', expanded, data: { 'kit-toggle': '' } }];
+      items.push({ act: 'download', icon: 'download', label: dlMsg[it.key] || '下载',
+        busy: !!dlBusy[it.key], primary: true });
+      items.push({ act: 'drop', cls: 'fav-drop', icon: 'star', label: '取消收藏', danger: true });
+      return Wb.actsHTML(null, { attr: 'data-fav-act', items });
+    }
+
+    function onCardAction(e, it) {
+      const btn = e.target.closest('[data-fav-act]');
+      if (!btn || btn.disabled) return;
+      e.stopPropagation();
+      const act = btn.dataset.favAct;
+      if (act === 'detail') toggleFavDetail(it);
+      else if (act === 'download') download(it);
+      else if (act === 'drop') dropItem(it);
     }
 
     /* ---------- 多选：状态与操作在公共件 `Wb.multi`（资产库与生成工作台同一份） ----------
@@ -792,8 +805,8 @@ export default {
       ready, failed, viewItems, favTotal, pagerVisible, emptyWhy,
       uploadHtml, uploading, fileEl, rootEl,
       pullBtn, grids, toolbarEl, kindEl, viewEl, favProvEl, favTimeEl, gridEnd, pagerRow,
-      dlBusy, dlMsg, titleOf, metaOf, thumbHtml, openLb, onNote, flushNote,
-      dropItem, download, reuse, canReuse, pullLocal, pickFiles, onFiles,
+      titleOf, metaOf, thumbHtml, openLb, onNote, flushNote,
+      cardActsHTML, onCardAction, pullLocal, pickFiles, onFiles,
       /* 多选 */
       multiMode, openKey, favPicked, togglePick, onPickKey,
       bulkCountText, bulkAllText, bulkAllDisabled, bulkDownDisabled, bulkTipText, bulkFavRemoveDisabled,

@@ -79,12 +79,7 @@
                 </div>
                 <div class="t" @click="openLb(it)">{{ titleOf(it) }}</div>
                 <div class="m">{{ metaOf(it) }}</div>
-                <div class="acts card-shell-actions">
-                  <button v-if="canReuse(it)" class="ghost" @click.stop="reuse(it)">复用</button>
-                  <button class="ghost" :disabled="!!dlBusy[it.key]" @click.stop="download(it)">{{ dlMsg[it.key] || '下载' }}</button>
-                  <button class="ghost fav-open" @click.stop="toggleFavDetail(it)">{{ openKey === it.key ? '收起' : '详情' }}</button>
-                  <button class="ghost danger fav-drop" @click.stop="dropItem(it)">取消收藏</button>
-                </div>
+                <div class="acts card-acts card-shell-actions" @click="onCardAction($event, it)" v-html="cardActsHTML(it)"></div>
                 <!-- 详情就地展开（公共件 .exp）：清单档里那张卡自己长高，
                      紧凑档里它落在下面那条带子上（.band）。 -->
                 <div class="exp"><div class="exp-in"><div class="exp-body">
@@ -94,13 +89,13 @@
             </div>
           </div>
           <!-- 紧凑档的展开带子：整行宽，插在它那一行的下面，一根连线指回那个格子 -->
-          <div v-if="bandItem(row)" class="band" :data-for="bandItem(row).key">
+          <div v-if="view === 'compact' && bandItem(row)" class="band" :data-for="bandItem(row).key">
             <span class="band-tether"></span>
             <div class="band-in">
               <div class="band-hd">
                 <span class="t">{{ bandItem(row).prompt || bandItem(row).name }}</span>
                 <span class="sp"></span>
-                <button class="ghost fav-open" @click.stop="closeDetail">收起</button>
+                <button type="button" class="ghost fav-open" @click.stop="closeDetail">收起</button>
               </div>
               <div class="cdet"></div>
             </div>

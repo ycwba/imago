@@ -15,6 +15,7 @@
            每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，
            就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 -->
       <aside class="set-rail">
+        <div class="set-rail-h">目录</div>
         <div class="set-rail-top">
           <input ref="setQEl" type="search" v-model="setQ" @input="syncNav" @keydown="onNavKey"
             placeholder="找一项设置" autocomplete="off" spellcheck="false">
@@ -30,7 +31,7 @@
            组标题钉在顶上，状态行钉在底下，中间那条就是全部设置。 -->
       <div class="set-doc">
         <div class="set-doc-scroll" ref="setDocEl">
-            <div class="desc">密钥存本机；留空则用本地代理 <code>.env</code> 里的密钥。</div>
+            <div class="set-intro"><span class="set-intro-ic" data-icon="key" data-size="15"></span><span>密钥存本机；留空则用本地代理 <code>.env</code> 里的密钥。</span></div>
 
             <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div></div>
 

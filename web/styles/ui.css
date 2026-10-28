@@ -149,7 +149,7 @@ body.wb-splitting-y * { user-select: none !important; }
 .toolbar .cnt { color: var(--sub); font-size: var(--fs-13); }
 /* 卡片右下角那一排小动作按钮（角色库 / 收藏逐字相同）。列表档与紧凑档怎么排是各页自己的事，
    只有按钮本身这一条两边一样 —— .card .acts .tool 留在角色库那边（那边有个恒为空的 genBtns 预留位）。 */
-.card .acts .ghost { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-11-5); }
+.ui-icon { display: inline-block; flex: 0 0 auto; vertical-align: middle; pointer-events: none; }
 /* 「列表」展示档把网格压成竖排（开关本体在 workbench.js 的 Wb.viewToggle，资产库用的是另一套类名）。
    只搬共同的那一条：缩略图尺寸、两页各自不同（角色库 150px / 收藏 168px），留在页面里。 */
 .grid.view-list { display: flex; flex-direction: column; gap: var(--sp-10); }
@@ -181,32 +181,76 @@ body.wb-splitting-y * { user-select: none !important; }
    那个 6px 与 280ms 是另抄的一份数，改样式时看不到它。 */
 @keyframes cardIn { from { opacity: 0; transform: translateY(var(--sp-6)); } to { opacity: 1; transform: translateY(0); } }
 .card-enter { animation: cardIn var(--dur-280) ease-out; }
-.task { display: flex; gap: var(--sp-13); background: var(--panel); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-10); padding: var(--sp-12); margin-bottom: var(--sp-12);
-  transition: border-color var(--dur-180), box-shadow var(--dur-180), transform var(--dur-120); }
-.task:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
-.task .timg { width: var(--sz-tile); height: var(--sz-thumb-h); border-radius: var(--radius-6); overflow: hidden; flex: 0 0 auto;
-  background: var(--panel2); border: var(--hair) solid var(--line); cursor: zoom-in;
+.task { position: relative; display: flex; gap: var(--sp-16); min-width: 0;
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-14);
+  padding: var(--sp-16); margin-bottom: var(--sp-12);
+  transition: border-color var(--dur-180), box-shadow var(--dur-180); }
+.task:hover, .task:focus-within { border-color: var(--acc-line-32); box-shadow: var(--shadow-1); }
+.task.open, .task.is-open { border-color: var(--acc); }
+.task .timg { position: relative; width: var(--sz-tile); height: var(--sz-thumb-h); border-radius: var(--radius-10);
+  overflow: hidden; flex: 0 0 auto; background: var(--panel2); cursor: zoom-in;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  color: var(--sub); font-size: var(--fs-11); align-self: flex-start; }
+  color: var(--sub); font-size: var(--fs-12); align-self: flex-start; }
 .task .timg img, .task .timg video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.task .meta1 { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); color: var(--sub); }
-.task .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
-.task .dot.run { background: var(--warn); animation: blink var(--dur-1200) infinite; }
-.task .dot.fail { background: var(--err); }
+.task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.task .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); flex-wrap: wrap; }
+.task .card-badge { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+.task .task-kind { font-size: var(--fs-12); color: var(--sub); }
+.task .task-status { display: inline-flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-12); color: var(--sub); }
+.task .task-status::before { content: ''; width: var(--sp-6); height: var(--sp-6); border-radius: var(--radius-99); background: currentColor; }
+.task .task-status.ok { color: var(--ok); }
+.task .task-status.run, .task .task-status.warn { color: var(--warn); }
+.task .task-status.err { color: var(--err); }
+.task .task-status.run::before { animation: blink var(--dur-1200) infinite; }
+:where(.task-grid, .view-compact) .task { flex-direction: column; gap: 0; padding: 0; margin-bottom: 0; overflow: hidden; }
+:where(.task-grid, .view-compact) .task > .timg { width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: 0; }
+:where(.task-grid, .view-compact) .task > .tmain { flex: 1 0 auto; padding: var(--sp-12); }
+:where(.task-grid, .view-compact) .task .tprompt { min-height: 3em; }
 @keyframes blink { 50% { opacity: .3; } }
 .spin-dot { width: 18px; height: 18px; border: var(--hair-2) solid var(--line); border-top-color: var(--acc);
   border-radius: 50%; animation: rot var(--dur-800) linear infinite; display: inline-block; margin-bottom: var(--sp-4); }
 @keyframes rot { to { transform: rotate(360deg); } }
-.task .date { margin-left: auto; }
-.task .tprompt { font-size: var(--fs-13); line-height: 1.5; margin: var(--sp-5) 0; color: var(--txt);
+.task .date { margin-left: auto; font-size: var(--fs-11); color: var(--sub); white-space: nowrap; }
+.task .tprompt { font-size: var(--fs-14); font-weight: 500; line-height: 1.5; margin: 0; color: var(--txt);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   overflow-wrap: anywhere; }
 .task .tprompt:hover { color: var(--acc); }
-.task .meta2 { font-size: var(--fs-12); color: var(--sub); overflow-wrap: anywhere; }
-.task .acts { margin-top: auto; display: flex; gap: var(--sp-8); justify-content: flex-end; flex-wrap: wrap; }
-.task .acts .ghost { padding: var(--sp-5) var(--sp-13); border-radius: var(--radius-6); }
+.task .meta2 { font-size: var(--fs-12); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task .terr { color: var(--err); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.task .acts, .card-acts { margin-top: auto; padding-top: var(--sp-12); border-top: var(--hair) solid var(--line);
+  display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.acts .card-act.ghost { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-6);
+  min-height: var(--sz-ctl); max-width: 100%; padding: var(--sp-6) var(--sp-8); border-radius: var(--radius-6);
+  font-size: var(--fs-12); line-height: 1.5; color: var(--txt); border-color: transparent; background: transparent; }
+.acts .card-act .tx { overflow-wrap: anywhere; }
+.acts .card-act .ic { opacity: .72; }
+.acts .card-act:hover .ic, .acts .card-act[aria-expanded="true"] .ic, .acts .card-act[aria-pressed="true"] .ic { opacity: 1; }
+.acts .card-act.ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--line); background: var(--panel2); }
+.acts .card-act.ghost:active:not(:disabled) { transform: translateY(var(--hair)); }
+.acts .card-act.ghost.card-act-primary { color: var(--acc); background: var(--acc-tint-10); }
+.acts .card-act.ghost.card-act-primary:hover:not(:disabled), .acts .card-act.ghost[aria-pressed="true"],
+.acts .card-act.ghost[aria-expanded="true"] { color: var(--acc); background: var(--acc-tint-10); border-color: var(--acc-line-32); }
+.acts .card-act.ghost.danger { color: var(--err); }
+.acts .card-act.ghost.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err) var(--a-8), transparent);
+  border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
+.acts .card-act.ghost.warn { color: var(--warn); }
+.acts .card-act.ghost:disabled { opacity: .45; cursor: not-allowed; }
+.acts .card-act .ic { position: relative; flex: 0 0 auto; transition: transform var(--dur-180); }
+.acts .card-act[data-kit-toggle][aria-expanded="true"] .ic { transform: rotate(180deg); }
+.acts .card-act[data-busy="1"] .ic svg { visibility: hidden; }
+.acts .card-act[data-busy="1"] .ic::after { content: ''; position: absolute; inset: 0; border: var(--hair-2) solid currentColor;
+  border-right-color: transparent; border-radius: var(--radius-99); animation: rot var(--dur-800) linear infinite; }
+.task-grid .task .acts,
+.view-compact .task .acts,
+.view-compact .card-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.task-grid .task .acts .card-act:last-child:nth-child(odd),
+.view-compact .task .acts .card-act:last-child:nth-child(odd),
+.view-compact .card-acts .card-act:last-child:nth-child(odd) { grid-column: span 2; }
+@media (max-width: 520px) {
+  .task { flex-direction: column; padding: var(--sp-12); }
+  .task > .timg { width: 100%; height: auto; aspect-ratio: 16 / 10; }
+  :where(.task-grid, .view-compact) .task { padding: 0; }
+}
 .empty { color: var(--sub); font-size: var(--fs-13); text-align: center; padding: var(--sp-60) 0; grid-column: 1/-1; }
 
 /* ---------- 筛选芯片 ---------- */
@@ -319,7 +363,7 @@ html[data-embedded] #lightbox { inset: 0; }
   cursor: pointer; transition: border-color var(--dur-180), background var(--dur-180); user-select: none; }
 .dd-btn:hover { border-color: var(--acc); background: var(--panel2); }
 .dd.open .dd-btn { border-color: var(--acc); }
-.dd-btn .arw { transition: transform var(--dur-180); flex: 0 0 auto; color: var(--sub); }
+.dd-btn .arw { display: inline-flex; transition: transform var(--dur-180); flex: 0 0 auto; color: var(--sub); }
 .dd.open .dd-btn .arw { transform: rotate(180deg); }
 .dd-btn .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 面板宽度按**选项的自然宽度**来，不跟着窄按钮一起缩：

@@ -1,10 +1,4 @@
-/* 资产库（Vue 迁移版）—— assets.html 里那段 <style> 的等价物。
-   外壳同时引了 ui.css（公共 .task / .chip / .bulkbar / .viewtoggle / .pginfo 都在那边），
-   这里只放「这一页自己的排版」；每一条都挂在 .assets-page 下，不碰别的页面。
-   注意 --dp-cal 的值里带着一个 data:image/svg+xml —— 里面有分号也有逗号，
-   所以它必须整条写在一行里（拆成多行会被「按分号切声明」的处理弄断，日历图标当场变没）。 */
 .assets-page {
-  --dp-cal: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.2' y='3.5' width='11.6' height='10.3' rx='1.7'/%3E%3Cpath d='M2.2 6.7h11.6M5.5 2.2v2.6M10.5 2.2v2.6'/%3E%3C/svg%3E");
   margin: 0;
   color: var(--txt);
   font-family: var(--font-ui);
@@ -37,25 +31,18 @@
 .assets-page #grid { display: flex; flex-direction: column; gap: var(--sp-10); }
 .assets-page #grid .task { margin-bottom: 0; }                 /* 间距统一由容器 gap 控制 */
 .assets-page #grid .task { content-visibility: auto; contain-intrinsic-size: auto 120px; }   /* 视口外的卡片跳过布局绘制，长列表更快 */
+.assets-page .view-compact .task .date { display: none; }
+.assets-page .exp-acts .delbtn { margin-left: auto; }
 /* 多选框是绝对定位的（ui.css 的 #grid .task .pick）；卡片自己必须是定位祖先，
    否则它会跑到 .assets-page 的左上角，所有卡片的勾选框叠在一起。 */
 .assets-page #grid .task { position: relative; }
 /* ---------- 展示样式：列表（默认，横条一行一条，与素材库/收藏同一档名） ---------- */
 .assets-page #grid.view-list { display: flex; flex-direction: column; gap: var(--sp-12); }
 /* ---------- 展示样式：紧凑（方块网格） ---------- */
-.assets-page #grid.view-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sz-card-sm), 1fr)); gap: var(--sp-10); align-items: stretch; }
-.assets-page .view-compact .task { display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-10); }
-.assets-page .view-compact .task .timg { width: 100%; height: 124px; border-radius: 0; border: 0; border-bottom: var(--hair) solid var(--line); }
-.assets-page .view-compact .task .tmain { padding: var(--sp-8) var(--sp-9) var(--sp-9); flex: 1 1 auto; }
-.assets-page .view-compact .task .meta1 { font-size: var(--fs-10); }
-.assets-page .view-compact .task .date { display: none; }
-.assets-page .view-compact .task .tprompt { font-size: var(--fs-12); margin: var(--sp-3) 0 0; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; min-height: 3em; }
+.assets-page #grid.view-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sz-card-sm)), 1fr));
+  grid-auto-rows: max-content; gap: var(--sp-10); align-items: stretch; }
 /* 网格档里格子不展开：展开的内容落在行下面那条带子上（.band）。 */
 .assets-page .view-compact .task .cdet { display: none; }
-.assets-page .view-compact .task:hover { transform: translateY(-1px); }
-.assets-page .task .timg { width: var(--sz-tile); height: var(--sz-thumb-h); border-radius: var(--radius-6); overflow: hidden; flex: 0 0 auto;
-  background: var(--panel2); cursor: zoom-in; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; color: var(--sub); font-size: var(--fs-11); align-self: flex-start; }
 /* 音频资产：音符方块（点击在灯箱里播放） */
 .assets-page .task .timg.audio { background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), transparent), color-mix(in srgb, var(--acc2) var(--a-16), transparent)); color: var(--acc); }
 
@@ -65,16 +52,6 @@
    这里只留与公共不同的那几条。重复写一遍不会更好，只会两边慢慢漂掉 ——
    以前这一页把 .meta1 / .dot / .tprompt / .meta2 又抄了一遍，
    结果公共那份后来加的（.dot.run 的闪、.tprompt:hover、.meta2 的长词折行）在这页全都没了。 */
-/* ---------- 卡面四行定高：状态 / 提示词 / 那一行信息 / 动作 ----------
-   以前卡面上还有两行「有才有」的行（平台原话、★ 收藏备注），
-   再加上提示词会折行、meta2 会折行、动作那排被长文案撑成两行 ——
-   高度就参差不齐了。现在每一行的高度都是固定的：
-   · 提示词：两行（3em = 行高 1.5 × 2），一行提示词也占两行的位置；
-   · meta2：一行，省略号（全文在 title 里）；
-   · 动作：一行，不换行（按钮文案短了：「重试」两个字，代价写在悬停里）。 */
-.assets-page .task .tprompt { min-height: 3em; }
-.assets-page .task .meta2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.assets-page .task .acts { flex-wrap: nowrap; }
 /* 详情展开：中性描边小卡片（样式来自 ui.css 公共规则，这里只覆盖字号） */
 /* ---------- 工具条：找东西 + 换档（视图切换）----------
    页头那一层是公共的 .phead（全站唯一一份）；这一行只管「怎么看这一页」：
@@ -105,13 +82,7 @@
 .assets-page .as-range .datepick .dp-face { pointer-events: none; display: flex; align-items: center; gap: var(--sp-6);
   width: 100%; padding: 0 var(--sp-9); font-size: var(--fs-12-5); color: var(--txt); white-space: nowrap; }
 .assets-page .as-range .datepick .dp-face.ph { color: var(--sub); }
-.assets-page .as-range .datepick .dp-face::after {
-  content: ''; margin-left: auto; flex: 0 0 14px; width: 14px; height: 14px;
-  background: currentColor; opacity: .55;
-  -webkit-mask: var(--dp-cal) center / 14px 14px no-repeat;
-  mask: var(--dp-cal) center / 14px 14px no-repeat;
-}
-.assets-page .as-range .datepick:hover .dp-face::after { opacity: .85; }
+.assets-page .as-range .datepick .dp-face .ic { margin-left: auto; display: inline-flex; }
 
 /* 详情展开：就地展开（公共件 .exp / .is-open）——
    展开区里那一份详情（Wb.detail 的 .det-* 结构）不再套一层灰盒子：

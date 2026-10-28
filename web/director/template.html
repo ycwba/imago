@@ -154,16 +154,21 @@
   /* 项目组头：组名 + 几部短片 + 改名 / 删组。组里的短片在下面缩进一格。
      「未分组」那一档没有组操作（它不是组，只是没归组的那些）。 */
   .pm-group { display: flex; align-items: center; gap: var(--sp-7); padding: var(--sp-6) var(--sp-9) var(--sp-4); margin-top: var(--sp-4);
-    font-size: var(--fs-12); color: var(--sub); border-top: var(--hair) solid var(--line); }
+    font-size: var(--fs-12); color: var(--sub); border-top: var(--hair) solid var(--line); cursor: pointer; }
   .pm-group:first-of-type { margin-top: 0; border-top: none; }
   .pm-group.none { color: var(--sub); opacity: .85; }
   .pm-gname { color: var(--txt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pm-group.none .pm-gname { font-weight: 400; }
   .pm-group .pm-ops { visibility: hidden; }
   .pm-group:hover .pm-ops { visibility: visible; }
-  /* 组里的短片缩进一格，让「谁属于哪一组」一眼看得出来。 */
-  .pm-group + .pm-row { margin-left: var(--sp-10); }
-  .pm-row.pm-in-group { border-left: var(--hair-2) solid var(--line); }
+  /* 项目组可展开 / 收起：收起时不画组内短片行，组头与条数仍在。 */
+  .pm-gfold { display: inline-flex; align-items: center; justify-content: center; width: var(--sp-18); height: var(--sp-18);
+    padding: 0; border: 0; border-radius: var(--radius-4); background: none; color: var(--sub); cursor: pointer; }
+  .pm-gfold:hover { background: var(--panel2); color: var(--acc); }
+  .pm-gfold svg { width: var(--sz-ico); height: var(--sz-ico); }
+  .pm-group.folded .pm-gname { color: var(--sub); }
+  /* 组里的每一部短片都缩进一格，让「谁属于哪一组」一眼看得出来。 */
+  .pm-row.pm-in-group { margin-left: var(--sp-10); border-left: var(--hair-2) solid var(--line); }
 
   .left-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-13) var(--sp-14); border-bottom: var(--hair) solid var(--line); }
   .left-head b { font-size: var(--fs-14); }

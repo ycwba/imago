@@ -4,7 +4,7 @@
 
    迁移方式：组件只负责「这一屏长什么样」（一份静态模板 + 一个根 ref），页面原来那一整段脚本
    原样搬进 `runPage()`，在挂载之后执行一次。这样每一条既有判据（能力驱动、AdvExtras、
-   输入模式、拆分片段、轮询器、卡片、分页、复用、存回本机）都逐字保留，不被「重写一遍」漂开。
+   输入模式、拆分片段、轮询器、卡片、分页、存回本机）都逐字保留，不被「重写一遍」漂开。
    与其他已迁移页一致：数据与副作用全部走公共层（Api / Capabilities / AssetLib / AssetLocal /
    Wb / TextAI / InlinePolish / Dropdowns / Toast …），这里不出现第二份实现。
 
@@ -2464,25 +2464,20 @@ const StudioView = {
           it.format ? String(it.format).toUpperCase() : '',
           it.size ? Wb.fmtSize(it.size) : '',
           it.priceText ? '费用 ' + it.priceText : '', it.usageText || ''].filter(Boolean).join(' · ');
-        return '<div class="card-top"><span class="card-badge">'
-          + (it.mtype ? '<span class="ui-tag">' + window.esc(it.mtype) + '</span>' : '')
-          + '<span class="ui-tag ' + (Wb.isRunning(it) ? 'run' : bad ? 'err' : unc ? 'warn' : 'ok') + '">' + window.esc(Wb.stText(it.status) || '') + '</span>'
-          + srcBadgeOf(it)
-          + '</span><span class="date">' + window.esc(window.fmtWhen(it.ts)) + '</span></div>'
-          + mediaBox(it)
-          + '<div class="tmain">'
-          + '<div class="tprompt" title="' + window.esc(it.prompt) + '">' + (window.esc(it.prompt) || '(无提示词)') + '</div>'
-          + ((bad || unc) && it.error ? '<div class="terr" title="' + window.esc(String(it.error)) + '">' + window.esc(String(it.error)) + '</div>' : '')
-          + '<div class="meta2">' + window.esc(meta) + '</div>'
-          + '<div class="acts">' + Wb.actsHTML(it, {
+        return Wb.taskHTML({
+          mediaHTML: mediaBox(it), type: it.mtype, status: Wb.stText(it.status),
+          tone: run ? 'run' : unc ? 'warn' : bad ? 'err' : 'ok',
+          badgeHTML: srcBadgeOf(it), date: window.fmtWhen(it.ts), prompt: it.prompt,
+          error: (bad || unc) && it.error ? String(it.error) : '', meta,
+          actionsHTML: Wb.actsHTML(it, {
             preview: !!it.media, previewLabel: '放大', cancel: canCx,
             cancelWhy: (run && cxProv && !canCx) ? Wb.cancelWhyNot(cxProv) : '',
             retry: (bad || unc) && !it.noResend && !!(it.prompt || it.local),
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
-          }) + '</div>'
-          + '<div class="tdetail" hidden></div>'
-          + '</div>';
+          }),
+          detailHTML: '<div class="tdetail" hidden></div>',
+        });
       }
       function fileNameOf(it) {
         return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.mtype || '素材') + '.' + window.fileExtOf(it);
@@ -2493,7 +2488,7 @@ const StudioView = {
         const setOpen = now => {
           det.hidden = !now;
           d.classList.toggle('open', now);
-          if (dtBtn) { iconSet(dtBtn, now ? 'chevronUp' : 'chevronDown', 13); btnText(dtBtn, now ? '收起' : '详情'); }
+          Wb.expand.sync(d);
           if (now) { openDetail.add(itemKey(it)); renderDetail(it, det); }
           else openDetail.delete(itemKey(it));
         };
@@ -2758,12 +2753,6 @@ const StudioView = {
           ['错误', it.error],
           ['任务ID', it.taskId || (it.assetId ? it.assetId : '（本机记录，无任务号）')],
         ],
-        actions: it => (it.media ? '<button class="ghost" data-act="reuse" title="填进左栏">'
-          + icon('reuse', 12) + ' 复用这次创作</button>' : ''),
-        bindActions: (host, it) => {
-          const b = host.querySelector('[data-act="reuse"]');
-          if (b) b.onclick = async e => { e.stopPropagation(); b.disabled = true; try { await reuseInto(it); } finally { b.disabled = false; } };
-        },
       };
       const LB_CFG = {
         list: browseList,

@@ -210,8 +210,8 @@ ok('查询结果预算按 tokens 估算', /chat\/text-util\.js/.test(chat) && /e
 ok('发给模型前抹掉密钥形状', /chat\/text-util\.js/.test(chat) && /redactSecrets/.test(chat) && /redactOf\(out\)/.test(chat));
 ok('当前界面快照带时间线只读上下文', /WBBridge\.get\('director'\)/.test(read('web/core/page-context.js')));
 
-/* ---------- 8. 素材库：体检 / 批量 / 锚点 / 视觉相似 ---------- */
-group('§8 素材库（缺口档 / 批量 / 锚点 / 相似）');
+/* ---------- 8. 素材库：批量 / 锚点 / 视觉相似 ---------- */
+group('§8 素材库（批量 / 锚点 / 相似）');
 const charsJs = read('web/domain/chars.js');
 const charsPage = read('web/pages/chars.js');
 /* 详情层（新建 / 编辑一条素材）是素材库页的一部分，单独一个文件 —— 判据要连它一起读。 */
@@ -221,8 +221,14 @@ ok('身份锚点只有一份读法 refPicOf', /function refPicOf\(/.test(charsJs
 ok('出资产与重出预览都走锚点', /const base = refPicOf\(item\)/.test(charsJs)
   && /const anchor = String\(item\.anchor/.test(charsJs) && /inputEntries: inputEntries/.test(charsJs));
 ok('导演台取参考图也走锚点', /refPicOf/.test(frag));
-ok('素材库有「还缺什么」缺口档与「还没有描述」', /rail-st/.test(charsPage)
-  && /还缺什么/.test(charsPage) && /nodesc/.test(charsPage));
+const charsTpl = read('tools/vue-templates/chars.html');
+const charsCss = read('web/styles/spa-chars.css');
+ok('素材库只剩紧凑网格（视图开关与列表档已撤）',
+  !/viewEl|viewToggle|dir_char_view|view-list/.test(charsPage + charsTpl + charsCss)
+  && /mat-grid/.test(charsTpl) && /mat-grid/.test(charsCss));
+ok('素材库不再有待完善面板与导入导出',
+  !/rail-gaps|GAP_ROWS|gapFilter|一键补齐|存回本机|exportLibJson|importLibJson|onLibImport/.test(charsPage + charsTpl)
+  && !/type="file"/.test(charsTpl));
 ok('多选批量五件事都在', ['batchFillPics', 'batchFillAssets', 'batchFillVoices', 'batchSetGroup', 'batchRemove']
   .every(k => charsPage.includes(k)));
 ok('视觉相似在本机算 dHash', /function imgHash/.test(charsPage) && /function findSimilar/.test(charsPage));

@@ -14,7 +14,6 @@
         只是被隐藏，改用 .dd 组件渲染，观感与图片工作台一致。
    ========================================================================== */
 (function () {
-  const ARW = '<svg class="arw" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
   /* 下拉浮层**挂到容器外面用 fixed 定位**（挂在哪一个容器见下面的 `hostFor`），不留在 <select> 原来的位置上。
      以前是原地展开（.dd-list 是 .dd 的子节点），于是任何祖先的 overflow 都会把它裁掉：
      生成工作台的高级设置面板 .adv 是 overflow:hidden、左右两栏是 overflow-y:auto、外层
@@ -127,7 +126,7 @@
     btn.className = 'dd-btn';
     const lbl = document.createElement('span');
     lbl.className = 'lbl';
-    btn.append(lbl, fromHTML(ARW));
+    btn.append(lbl, fromHTML('<span class="arw">' + window.icon('chevronDown', 14) + '</span>'));
     const list = document.createElement('div');
     list.className = 'dd-list';
 
@@ -662,125 +661,91 @@ window.esc = function esc(s) {
   };
 })();
 
-/* ============================================================================
-   ICONS —— 线性 SVG 图标集（统一 1.5 描边、跟随文字颜色，替代 emoji）
-   icon('trash')            → 默认 14px
-   icon('film', 18)         → 指定尺寸
-   <span class="ic">${icon('coin')}</span>
-   ========================================================================== */
 window.ICONS = {
-  film: '<rect x="1.9" y="3" width="12.2" height="10" rx="1.5"/><path d="M4.7 3v10M11.3 3v10M1.9 8h12.2"/>',
-  image: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="6.6" r="1.1"/><path d="M3 11.6l3.2-3 2.6 2.4 2.2-2 2 1.9"/>',
-  video: '<rect x="1.9" y="3.4" width="8.7" height="9.2" rx="1.5"/><path d="M10.6 8l3.5-2.2v4.4L10.6 8z"/>',
-  mic: '<rect x="6.2" y="2.3" width="3.6" height="6.6" rx="1.8"/><path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0M8 11.8V14M5.9 14h4.2"/>',
-  box: '<path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"/><path d="M2.5 5L8 8l5.5-3M8 8v6"/>',
-  chart: '<path d="M2.6 13.4V2.6M2.6 13.4h10.8"/><path d="M5.6 11V7.4M8.2 11V4.8M10.8 11V8.8"/>',
-  gear: '<circle cx="8" cy="8" r="2.1"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1 1M11.1 11.1l1 1M12.1 3.9l-1 1M4.9 11.1l-1 1"/>',
-  sun: '<circle cx="8" cy="8" r="3"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/>',
-  moon: '<path d="M13 9.6A5.2 5.2 0 0 1 6.4 3 5.4 5.4 0 1 0 13 9.6z"/>',
-  coin: '<circle cx="8" cy="8" r="5.4"/><path d="M10 6.2c-.4-.7-1.1-1-2-1-1.1 0-1.9.5-1.9 1.3 0 .9.8 1.2 1.9 1.4 1.2.2 2 .6 2 1.5s-.9 1.4-2 1.4c-1 0-1.7-.4-2.1-1.1M8 3.8v8.4"/>',
-  sparkles: '<path d="M6.3 2.2l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z"/><path d="M11.8 8.6l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z"/>',
-  upload: '<path d="M8 10.6V3.2M5.2 6L8 3.2 10.8 6M3.4 12.4h9.2"/>',
-  download: '<path d="M8 2.6v7.4M5.2 7.2L8 10l2.8-2.8M3.4 12.6h9.2"/>',
-  refresh: '<path d="M13 8a5 5 0 1 1-1.7-3.8"/><path d="M13 2.6V6h-3.4"/>',
-  /* 垃圾桶：三条线就够 —— 盖沿（比桶身宽，这一截才让人一眼认出是垃圾桶）、
-     提手（圆角 U 形）、微微收口的桶身（底部圆角）。
-     **里面那两条竖线删掉了**：这个图标实际只画 12~14px，两条竖线在这个尺寸上会糊成一片，
-     整只桶看上去就是一团脏点（就是它「丑」的来源）。细节留给大尺寸，小尺寸只要轮廓清楚。 */
-  trash: '<path d="M2.6 4.4h10.8"/><path d="M6.3 4.4V3.3a.9.9 0 0 1 .9-.9h1.6a.9.9 0 0 1 .9.9v1.1"/><path d="M4.4 4.4l.5 8.2a1.1 1.1 0 0 0 1.1 1.1h4a1.1 1.1 0 0 0 1.1-1.1l.5-8.2"/>',
-  lock: '<rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4"/><path d="M5.7 7V5.4a2.3 2.3 0 0 1 4.6 0V7"/>',
-  scissors: '<circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="12" r="1.8"/><path d="M5.7 10.7L12 2.6M10.3 10.7L4 2.6"/>',
-  list: '<path d="M5.6 4h8M5.6 8h8M5.6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01"/>',
-  /* 播放 / 暂停 / 声音这三个**必须实心**（用户点名要重画的就是它们）。
-     icon() 给的默认是 fill="none" + stroke，所以按描边画出来的是：播放三角一个空心框、
-     暂停两条空心竖条、喇叭一个空心壳 —— 在 14–15px 上几乎只剩几根线，看着像图标坏了。
-     这几个是**实心符号**（三角/两块条/喇叭本体），所以各自显式 fill="currentColor"；
-     只有声波那两道弧继续用描边 —— 弧本来就是线。 */
-  play: '<path d="M5.1 3.5 12.5 8l-7.4 4.5z" fill="currentColor" stroke-linejoin="round"/>',
-  pause: '<rect x="4.4" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/><rect x="8.9" y="3.3" width="2.7" height="9.4" rx="1" fill="currentColor"/>',
-  /* 喇叭本体实心（梯形 + 前面的方块），右边两道声波弧仍走描边 —— 一实一虚，一眼分得出「在响」 */
-  speaker: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.4 6.2a2.9 2.9 0 0 1 0 3.6"/><path d="M12.2 4.5a5.3 5.3 0 0 1 0 7"/>',
-  speakerOff: '<path d="M2.4 6.1h2.5l3-2.6v9L4.9 9.9H2.4z" fill="currentColor" stroke-linejoin="round"/><path d="M10.6 6.6l3.4 2.8M14 6.6l-3.4 2.8"/>',
-  /* 全屏：四个角各一撇，中间留空 —— 与「展开/放大画面」的通识形状一致（描边，不是实心符号） */
-  expand: '<path d="M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10"/>',
-  eye: '<path d="M1.8 8S4.1 4.3 8 4.3 14.2 8 14.2 8 11.9 11.7 8 11.7 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.8"/>',
-  eyeOff: '<path d="M3.3 5.5C2.3 6.4 1.8 8 1.8 8s2.3 3.7 6.2 3.7c.9 0 1.7-.2 2.4-.6M6.7 4.6c.4-.1.9-.2 1.3-.2 3.9 0 6.2 3.6 6.2 3.6s-.5 1-1.5 1.9"/><path d="M2.8 2.8l10.4 10.4"/>',
-  key: '<circle cx="5.4" cy="10.6" r="2.6"/><path d="M7.5 8.5l4.9-4.9M10 5.9l1.6 1.6 1.7-1.7-1.6-1.6"/>',
-  brain: '<path d="M8 2.6v10.8"/><path d="M5.4 3.9A2.6 2.6 0 0 0 3.9 8.4 2.6 2.6 0 0 0 5.4 13M10.6 3.9a2.6 2.6 0 0 1 1.5 4.5A2.6 2.6 0 0 1 10.6 13"/>',
-  /* speaker / speakerOff 已挪到上面 play / pause 那一组（跟着「实心那一批」放在一起）。
-     原来这里还各留着一份描边版，后面那份会静默覆盖前面刚写的 —— 同一个 key 写两遍，
-     改新的那一处根本看不出改动没生效（这一轮就踩了）。图标几何只允许有一份。 */
-  pencil: '<path d="M11.4 2.7l1.9 1.9L6 12l-2.6.6L4 10z"/>',
-  reuse: '<path d="M12.8 6.6A5.1 5.1 0 0 0 4 4.8"/><path d="M12.8 2.8v3.8H9"/><rect x="4.4" y="9" width="5.6" height="4.4" rx="1.1"/>',
-  plus: '<path d="M8 3.4v9.2M3.4 8h9.2"/>',
-  minus: '<path d="M3.4 8h9.2"/>',
-  star: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z"/>',
-  starFill: '<path d="M8 2.6l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.3l-3.4 1.8.7-3.8L2.5 6.6l3.8-.5z" fill="currentColor"/>',
-  /* 以下 11 个是页面里已经在用、但这里原先漏掉的几何：写不出来的格子会渲染成空方块 */
-  search: '<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 14 14"/>',
-  link: '<path d="M6.6 9.4a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-1 1"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l1-1"/>',
-  clock: '<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2V8l2 1.4"/>',
-  folder: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
-  folderDoc: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M6 8.6h4M6 10.6h3"/>',
-  layers: '<path d="M8 2.4 14 5.6 8 8.8 2 5.6z"/><path d="M2 8.6 8 11.8l6-3.2"/><path d="M2 11.4 8 14.6l6-3.2"/>',
-  docTab: '<path d="M3.4 2.6h6l3.2 3.2v7.6a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1V3.6a1 1 0 0 1 1-1z"/><path d="M9.4 2.6v3.2h3.2M5.4 9.4h5.2M5.4 11.6h3.4"/>',
-  /* 固定到右侧：一个窗口 + 右边那条分栏 —— 一眼看出「面板占右边、内容让到左边」 */
-  panelRight: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.4"/><path d="M9.6 3v10"/>',
-  checkBox: '<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="2"/><path d="M5.6 8.2 7.2 9.8l3.2-3.4"/>',
-  stop: '<rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/>',
-  wand: '<path d="M3 13 10.6 5.4"/><path d="M12 2.2l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z"/><path d="M4.6 2.4l.3 1 1 .3-1 .3-.3 1-.3-1-1-.3 1-.3z"/>',
-  users: '<circle cx="6.1" cy="5.5" r="2.4"/><path d="M2.2 13.1c0-2.2 1.8-3.7 3.9-3.7s3.9 1.5 3.9 3.7"/><path d="M10.6 3.4a2.3 2.3 0 0 1 0 4.3"/><path d="M11.7 9.8c1.6.5 2.7 1.8 2.7 3.3"/>',
-  /* ---- 以下是「把 emoji 换成 SVG」那轮补的（原来各页手打 🗑 ▶ ⏮ ⬇ ✧ ⧉ 📷 ♪ ━ 这些字符）----
-     方向、chevron、关闭、复制、上下箭头这些「操作类」符号以前没有几何可复用，
-     写不出来的格子会渲染成空方块（比 emoji 更糟 —— 看着像图标坏了）。 */
-  close: '<path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>',
-  check: '<path d="M3.4 8.4 6.4 11.4l6.2-6.6"/>',
-  chevronDown: '<path d="M4.2 6.4 8 10.2l3.8-3.8"/>',
-  chevronUp: '<path d="M4.2 9.6 8 5.8l3.8 3.8"/>',
-  arrowLeft: '<path d="M12.8 8H3.4"/><path d="M7 3.8 3.2 8 7 12.2"/>',
-  /* 撤销：向左的回勾箭头 + 一段回折的弧。全站「退回去」的都读这一颗（清空之后的撤销窗口也是）。 */
-  undo: '<path d="M6.2 3.4 2.8 6.6l3.4 3.2"/><path d="M2.8 6.6h7a4 4 0 0 1 0 8H6.6"/>',
-  arrowUp: '<path d="M8 12.8V3.6"/><path d="M4.4 7.2 8 3.6l3.6 3.6"/>',
-  arrowDown: '<path d="M8 3.2v9.2"/><path d="M11.6 8.8 8 12.4 4.4 8.8"/>',
-  copy: '<rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.4"/><path d="M10.6 5.4V4a1.4 1.4 0 0 0-1.4-1.4H4a1.4 1.4 0 0 0-1.4 1.4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>',
-  /* 上一段 / 下一段：左边一根竖条 + 三角形，和 play 区分得开（用户要看得出是「切段」不是「播」） */
-  stepBack: '<path d="M3.4 3.6v8.8"/><path d="M12.8 4 6.4 8l6.4 4z"/>',
-  stepNext: '<path d="M12.6 3.6v8.8"/><path d="M3.2 4 9.6 8l-6.4 4z"/>',
-  /* 融合相邻段：两个盒子中间只留一道缝 —— 那道缝就是「一刀切开」的位置，融合就是把它去掉。
-     别拿 link（链环）代替：链环说的是「绑在一起」，不是「合成一段」（两件事在剪辑里差别很大）。 */
-  merge: '<rect x="2.4" y="4.6" width="5.6" height="6.8" rx="1.2"/><rect x="8" y="4.6" width="5.6" height="6.8" rx="1.2"/>',
-  /* 拖动抓手：两列点（镜头的拖动把手）。以前这里是文本 `⠿`，字体换一个就变形。 */
-  grip: '<path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01"/>',
-  /* 「详情 / 说明」这一档以前是字符 ⓘ：不同字体里有的空心有的实心、宽度还不一样，
-     按钮里的字跟着左右跳。只用这一个几何。 */
-  info: '<circle cx="8" cy="8" r="5.4"/><path d="M8 7.2v3.4M8 5.1h.01"/>',
-  /* ---- 时间线那一族（工具栏、标记四类、六种选择工具、吸附 / 波纹 / 断链 / 回播放头）----
-     形状取自 LPS 那一套的常见画法：一眼分得出「旗 / 章节 / 便签 / 磁铁 / 波纹」，
-     不靠文字标签认。重做 = 撤销的镜像（x → 16−x），一对图标必须成对。 */
-  flag: '<path d="M3.4 14V2.6"/><path d="M3.4 3.2h8.2l-1.7 2.6 1.7 2.6H3.4z"/>',
-  chapter: '<path d="M3.2 2.6h9.6v10.8H3.2z"/><path d="M5.6 5.4h4.8M5.6 8h4.8M5.6 10.6h3"/>',
-  note: '<path d="M2.8 3.4h10.4v6.4l-3 3H2.8z"/><path d="M10.2 12.8v-3h3"/>',
-  redo: '<path d="M9.8 3.4 13.2 6.6l-3.4 3.2"/><path d="M13.2 6.6h-7a4 4 0 0 0 0 8h3.2"/>',
-  magnet: '<path d="M3.2 2.8h3.2v6.4a1.6 1.6 0 0 0 3.2 0V2.8h3.2v6.4a4.8 4.8 0 0 1-9.6 0z"/><path d="M3.2 6.2h3.2M9.6 6.2h3.2"/>',
-  ripple: '<path d="M2.2 8a2.2 2.2 0 0 1 2.2-2.2"/><path d="M2.2 8a2.2 2.2 0 0 0 2.2 2.2"/><path d="M13.8 8a2.2 2.2 0 0 0-2.2-2.2"/><path d="M13.8 8a2.2 2.2 0 0 1-2.2 2.2"/><path d="M8 4.6v6.8"/>',
-  select: '<path d="M4.2 2.8 12 8.4l-3.6.8 2 3.4-1.8 1-2-3.4-2.4 2.6z"/>',
-  selectEdge: '<path d="M6.6 2.8 12.6 8l-2.8.7 1.6 2.7-1.4.8-1.6-2.7-1.8 2z"/><path d="M3.2 2.8v10.4"/><path d="M2.2 8h2"/>',
-  slip: '<rect x="2.6" y="5.2" width="10.8" height="5.6" rx="1.2"/><path d="M5.2 8h5.6M6.8 6.6 5.2 8l1.6 1.4M9.2 6.6l1.6 1.4-1.6 1.4"/>',
-  slide: '<rect x="2.6" y="5.2" width="6.4" height="5.6" rx="1.2"/><path d="M11.4 8h2.4M12.6 6.8 13.8 8l-1.2 1.2"/>',
-  skipBack: '<path d="M3.2 3.4v9.2"/><path d="M13 4.2 5.8 8 13 11.8z" fill="currentColor" stroke-linejoin="round"/>',
-  /* 轨道工具条那四颗（时间线里「一段」的形状：一块圆角矩形）。
-     新增 / 摘掉一段 = 同一块上加减号；缩短 / 加长 = 同一块两侧内向与外向的箭头。 */
-  segAdd: '<rect x="2.4" y="5" width="7.4" height="6" rx="1.2"/><path d="M11.6 8h3.6M13.4 6.2v3.6"/>',
-  segRemove: '<rect x="2.4" y="5" width="7.4" height="6" rx="1.2"/><path d="M11.6 8h3.6"/>',
-  shorten: '<rect x="5.6" y="5" width="4.8" height="6" rx="1"/><path d="M4.4 8H1.8M3.2 6.6 1.8 8l1.4 1.4M11.6 8h2.6M12.8 6.6 14.2 8l-1.4 1.4"/>',
-  lengthen: '<rect x="5.6" y="5" width="4.8" height="6" rx="1"/><path d="M1.8 8h2.6M3.2 6.6 1.8 8l1.4 1.4M14.2 8h-2.6M12.8 6.6l-1.4 1.4 1.4 1.4"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  video: '<rect x="3" y="5" width="12" height="14" rx="2"/><path d="m15 10 6-4v12l-6-4"/>',
+  mic: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>',
+  box: '<path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/>',
+  chart: '<path d="M3 3v18h18M8 16v-5M13 16V6M18 16v-8"/>',
+  gear: '<path d="m10 3-.6 2.4-2.1 1.2L5 6l-2 3.5 1.7 1.8v2.4L3 15.5 5 19l2.3-.6 2.1 1.2L10 22h4l.6-2.4 2.1-1.2 2.3.6 2-3.5-1.7-1.8v-2.4L21 9.5 19 6l-2.3.6-2.1-1.2L14 3z"/><circle cx="12" cy="12.5" r="3"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/>',
+  moon: '<path d="M20.8 13A9 9 0 0 1 11 3.2 9 9 0 1 0 20.8 13Z"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 8.5H10.5a2 2 0 0 0 0 4h3a2 2 0 0 1 0 4H9M12 6v13"/>',
+  sparkles: '<path d="m10 3 2.5 6.5L19 12l-6.5 2.5L10 21l-2.5-6.5L1 12l6.5-2.5zM19 2v4M17 4h4M20 17v4M18 19h4"/>',
+  upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  download: '<path d="M12 3v13m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  refresh: '<path d="M20 7a9 9 0 1 0 1 8M20 3v5h-5"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-13"/>',
+  lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8 8 13 13M8 16 21 3"/>',
+  list: '<path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  // 播放控制保留实心主体，缩到按钮尺寸仍能辨认。
+  play: '<path d="m8 4 13 8-13 8z" fill="currentColor" stroke="none"/>',
+  pause: '<rect x="5" y="4" width="5" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="5" height="16" rx="1" fill="currentColor" stroke="none"/>',
+  speaker: '<path d="M3 9h4l5-5v16l-5-5H3z" fill="currentColor" stroke="none"/><path d="M16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/>',
+  speakerOff: '<path d="M3 9h4l5-5v16l-5-5H3z" fill="currentColor" stroke="none"/><path d="m16 9 6 6M22 9l-6 6"/>',
+  expand: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="m3 3 18 18M10.5 5.1 12 5c6.5 0 10 7 10 7a19 19 0 0 1-3 4M6 6a22 22 0 0 0-4 6s3.5 7 10 7c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  key: '<circle cx="8" cy="15" r="5"/><path d="m11.5 11.5 9-9M16 7l3 3 3-3-3-3"/>',
+  brain: '<path d="M12 5a3 3 0 0 0-5.8-1A4 4 0 0 0 4 11a4 4 0 0 0 1 7 3.5 3.5 0 0 0 7 0V5Zm0 0a3 3 0 0 1 5.8-1A4 4 0 0 1 20 11a4 4 0 0 1-1 7 3.5 3.5 0 0 1-7 0M8 9l4 3 4-3M8 16l4-2 4 2"/>',
+  pencil: '<path d="m16 3 5 5L8 21H3v-5zM13 6l5 5"/>',
+  reuse: '<path d="M7 7h10a4 4 0 0 1 4 4v2M17 3l4 4-4 4M17 17H7a4 4 0 0 1-4-4v-2M7 13l-4 4 4 4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>',
+  starFill: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z" fill="currentColor"/>',
+  search: '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
+  link: '<path d="m10 13 4-4M8 16l-1 1a4.2 4.2 0 0 1-6-6l4-4a4.2 4.2 0 0 1 6 0M13 8l1-1a4.2 4.2 0 0 1 6 6l-4 4a4.2 4.2 0 0 1-6 0" transform="translate(1 0)"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 11h18M7 15h2M15 15h2"/>',
+  folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  folderDoc: '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM8 12h8M8 16h5"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5"/>',
+  docTab: '<path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/>',
+  panelRight: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  checkBox: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m7 12 3 3 7-7"/>',
+  stop: '<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/>',
+  wand: '<path d="m3 17 14-14 4 4L7 21zM12 8l4 4M5 3v4M3 5h4M19 17v4M17 19h4"/>',
+  users: '<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M17 3a4 4 0 0 1 0 8M22 21v-2a7 7 0 0 0-4-6"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  check: '<path d="m4 12 5 5L20 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronUp: '<path d="m6 15 6-6 6 6"/>',
+  arrowLeft: '<path d="M20 12H4m7-7-7 7 7 7"/>',
+  undo: '<path d="M3 9h11a7 7 0 0 1 0 14M8 4 3 9l5 5" transform="translate(0 -1)"/>',
+  arrowUp: '<path d="M12 20V4m-7 7 7-7 7 7"/>',
+  arrowDown: '<path d="M12 4v16m-7-7 7 7 7-7"/>',
+  copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+  stepBack: '<path d="M4 4v16M20 4 8 12l12 8z"/>',
+  stepNext: '<path d="M20 4v16M4 4l12 8-12 8z"/>',
+  merge: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M12 6v3M12 15v3M7 12h10"/>',
+  grip: '<path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01" stroke-width="3"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+  flag: '<path d="M4 22V3h15l-3 5 3 5H4"/>',
+  chapter: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 3v18M13 8h3M13 12h3"/>',
+  note: '<path d="M3 3h18v12l-6 6H3zM15 21v-6h6M7 8h10M7 12h6"/>',
+  redo: '<path d="M21 9H10a7 7 0 0 0 0 14M16 4l5 5-5 5" transform="translate(0 -1)"/>',
+  magnet: '<path d="M4 3h5v10a3 3 0 0 0 6 0V3h5v10a8 8 0 0 1-16 0zM4 8h5M15 8h5"/>',
+  ripple: '<path d="M12 5v14M8 8a5 5 0 0 0 0 8M16 8a5 5 0 0 1 0 8M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16"/>',
+  select: '<path d="m4 3 16 10-7 1 4 6-3 2-4-7-5 5z"/>',
+  selectEdge: '<path d="M3 3v18M7 3l14 9-6 1 3 5-3 2-3-6-4 4z"/>',
+  slip: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 12h10M9 9l-3 3 3 3M15 9l3 3-3 3"/>',
+  slide: '<rect x="3" y="5" width="10" height="14" rx="2"/><path d="M16 12h6M19 9l3 3-3 3"/>',
+  skipBack: '<path d="M4 4v16"/><path d="m20 4-12 8 12 8z" fill="currentColor" stroke="none"/>',
+  segAdd: '<rect x="2" y="6" width="11" height="12" rx="2"/><path d="M16 12h6M19 9v6"/>',
+  segRemove: '<rect x="2" y="6" width="11" height="12" rx="2"/><path d="M16 12h6"/>',
+  shorten: '<rect x="9" y="6" width="6" height="12" rx="1"/><path d="M2 12h5M4 9l3 3-3 3M22 12h-5M20 9l-3 3 3 3"/>',
+  lengthen: '<rect x="9" y="6" width="6" height="12" rx="1"/><path d="M7 12H2M5 9l-3 3 3 3M17 12h5M19 9l3 3-3 3"/>',
 };
 window.icon = function icon(name, size) {
   const b = window.ICONS[name];
   if (!b) return '';
   const s = size || 14;
-  return '<svg viewBox="0 0 16 16" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor"'
-    + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto">' + b + '</svg>';
+  return '<svg class="ui-icon" viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + b + '</svg>';
 };
 
 /* HTML 静态标记里的图标：写 <span class="ic" data-icon="sparkles" data-size="17"></span>，
@@ -1351,8 +1316,6 @@ window.UI_PREFS = {
     { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES,
       hint: '只管默认摆法，页内还能换。' },
-    { key: 'dir_char_view', group: 'list', name: '素材库', kind: 'seg', def: 'list', keep: 1,
-      opts: window.VIEW_MODES },
     { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES },
     { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
@@ -1535,6 +1498,9 @@ const LEGACY_KEYS = [
      「提示说会、其实没发」那一条禁令所禁止的形状）。
      `dr_ai_voice` 是 2026-10 换前缀之前的旧名，`char_ai_voice` 是换到前缀之后的名字，两份都清。 */
   'dr_ai_voice', 'char_ai_voice',
+  /* 素材库的「紧凑 / 列表」视图开关撤掉（2026-10-28）：这一页只剩紧凑网格。
+     `dir_char_view` 是那个开关的偏好，不再有人读；镜像里那份也要一起清。 */
+  'dir_char_view',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

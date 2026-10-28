@@ -87,10 +87,6 @@
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面/触发词加载）
-├─ design/pages-demo/           设计稿（七个页面的样式总览 demo：一页看全站长相）。
-│                               直接外链 web/styles/ 十份真样式表，每个页面示意挂在真实根类下，
-│                               深浅主题与真品同源（不复制任何样式值）。纯静态、不进运行时；
-│                               决策记录见其中的 DESIGN.md
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器

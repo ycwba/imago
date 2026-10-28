@@ -3937,6 +3937,22 @@ async function renameAssetGroup(oldName, newName) {
   if (r && r.why) { Toast.warn(r.why); return; }
   if (r && r.n) setStatus('<span class="ok">✓ 项目组已改名为「' + esc(newName) + '」，素材库那一组 ' + r.n + ' 条也改了</span>');
 }
+/* 项目组的展开 / 收起是界面状态，不写进工程数据：按组 id 记在本机，
+   组名改掉、短片移走都不影响它。未分组用 __none 这个键。 */
+const K_PROJ_FOLD = 'dir_proj_fold';
+let foldedProjGroups = new Set();
+try {
+  const saved = window.LS.json(K_PROJ_FOLD, []);
+  if (Array.isArray(saved)) foldedProjGroups = new Set(saved.map(String));
+} catch (e) { /* 读不到就全部展开 */ }
+function saveProjFold() {
+  try { window.LS.setJson(K_PROJ_FOLD, [...foldedProjGroups]); } catch (e) { /* 写不进去，本次会话仍然有效 */ }
+}
+function toggleProjFold(key) {
+  if (foldedProjGroups.has(key)) foldedProjGroups.delete(key); else foldedProjGroups.add(key);
+  saveProjFold();
+  renderProjMenu();
+}
 function renderProjMenu() {
   const menu = $('projMenu');
   const tree = Groups.tree(WS);
@@ -3957,18 +3973,29 @@ function renderProjMenu() {
     return row;
   };
   tree.forEach(g => {
-    /* 组头：组名 + 几部短片 + 改名 / 删组。
+    /* 组头：折叠 + 组名 + 几部短片 + 改名 / 删组。
        删组只把组内的短片退回未分组，**不删短片** —— 删组是整理，不是删作品。 */
+    const key = g.kind === 'none' ? '__none' : g.id;
+    const folded = foldedProjGroups.has(key);
     const head = document.createElement('div');
-    head.className = 'pm-group' + (g.kind === 'none' ? ' none' : '');
-    head.innerHTML = `<span class="pm-gname">${esc(g.name)}</span>
+    head.className = 'pm-group' + (g.kind === 'none' ? ' none' : '') + (folded ? ' folded' : '');
+    head.innerHTML = (g.items.length
+      ? `<button class="pm-gfold" type="button" data-gfold="${esc(key)}" aria-expanded="${!folded}" title="${folded ? '展开这个项目组' : '收起这个项目组'}">${icon(folded ? 'chevronDown' : 'chevronUp', 12)}</button>`
+      : '<span class="pm-gfold" aria-hidden="true"></span>')
+      + `<span class="pm-gname">${esc(g.name)}</span>
       <span class="pm-cnt">· ${g.items.length} 部</span>
       <span class="pm-ops">
         ${g.kind === 'none' ? '' : `<button class="pm-btn" data-grename="${g.id}" title="重命名这个项目组">${icon('pencil', 13)}</button>
         <button class="pm-btn danger" data-gdel="${g.id}" title="删掉这个项目组（组里的短片退回未分组，不会被删）">${icon('trash', 13)}</button>`}
       </span>`;
+    head.onclick = e => {
+      if (!g.items.length || e.target.closest('.pm-btn') || e.target.closest('[data-gfold]')) return;
+      toggleProjFold(key);
+    };
+    const fold = head.querySelector('[data-gfold]');
+    if (fold) fold.onclick = e => { e.stopPropagation(); toggleProjFold(key); };
     menu.appendChild(head);
-    g.items.forEach(it => menu.appendChild(projRow(it.p, g.kind !== 'none')));
+    if (!folded) g.items.forEach(it => menu.appendChild(projRow(it.p, g.kind !== 'none')));
   });
   /* 移到组：短片那一行的「文件夹」按钮。 */
   menu.querySelectorAll('[data-move]').forEach(b => b.onclick = async e => {

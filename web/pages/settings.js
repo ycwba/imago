@@ -2781,7 +2781,7 @@ const SettingsView = {
       ...SET_ROWS.filter(r => r.key).map(r => r.key),
       ...((window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [])
     ];
-    const DATA_KEYS = ['char_lib'];
+    const DATA_KEYS = ['char_lib', 'char_groups'];
     const isSettingKey = k => !DATA_KEYS.includes(k) && EXPORTABLE.some(p => k === p || k.startsWith(p));
     const RESET_KEEP = ['sk_local_dir',
       /* 在这台机器上关掉助手是一次有意图的选择：「恢复默认」不该顺手把那颗悬浮球装回来。 */
@@ -4447,8 +4447,11 @@ const SettingsView = {
           const id = c.dataset.nav;
           const hits = cardHits.get(c) || [];
           const on = id === curNavId;
+          const icEl = c.querySelector('.card-h .card-ic');
+          const ico = (icEl && icEl.innerHTML) || window.icon('folder', 16);
           html += '<a class="set-rail-i' + (on ? ' on' : '') + (filtering && !hits.length ? ' dim' : '')
             + '" href="#" data-nav="' + window.esc(id) + '" title="' + window.esc(navTitleOf(c)) + '">'
+            + '<span class="set-rail-ic">' + ico + '</span>'
             + '<span class="set-rail-n">' + window.esc(navTitleOf(c)) + '</span>'
             + '<span class="set-rail-lead"></span>'
             + '<span class="set-rail-v">' + window.esc(navValueOf(id)) + '</span></a>';
@@ -4481,6 +4484,13 @@ const SettingsView = {
       box.querySelectorAll('.set-rail-i').forEach(el => {
         el.classList.toggle('on', el.getAttribute('data-nav') === id);
       });
+      /* 窄屏目录轨是横向条：当前项要跟着滚到能看见的位置。
+         只动 scrollLeft，不调 scrollIntoView —— 这一页的滚动出口仍然只有 scrollToEl。 */
+      const cur = box.querySelector('.set-rail-i.on');
+      if (cur && box.scrollWidth > box.clientWidth + 2) {
+        const br = box.getBoundingClientRect(), cr = cur.getBoundingClientRect();
+        box.scrollLeft += (cr.left - br.left) - (box.clientWidth - cr.width) / 2;
+      }
     }
     /* 底部那一行：现在在第几项（在一条 8000px 的文档里，「我在哪」得一直看得见）。 */
     function updatePos() {

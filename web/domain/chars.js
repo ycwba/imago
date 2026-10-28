@@ -23,6 +23,9 @@ window.Chars = (function () {
   /* ---------- 存储键（都在 ui.js 的 SYNCABLE 白名单里，跟着云同步走）----------
      本模块只认新名；旧名的兼容与搬运全在 ui.js 那一站，别在这里再加一层回退。 */
   const K_CHARS = 'char_lib';           // 素材库
+  /* 空分组名单。素材条目自己带 group，名单原本只从条目里现算；新建组时还没有条目，
+     所以另存一份「用户建过的组名」，groups() 把两边并起来。char_ 前缀在 DataSync 白名单里。 */
+  const K_GROUPS = 'char_groups';
   /* 一份素材身上最多留几张候选图（预览图与各类设定图共用这一条上限）：
      这是**本机留着挑的张数**，不是平台一次能出几张 —— 一次出几张看设置里的「候选张数」与
      `max_outputs` 声明（previewCap）。上限取 8：设置页那一档最大就是 8，
@@ -237,6 +240,16 @@ window.Chars = (function () {
     return '';
   }
   function libBroken() { return brokenOf(K_CHARS, '素材库数据'); }
+  /* 空分组名单的读写：只存组名，不存条目。读坏时拒绝写，别拿默认空数组把旧名单洗掉。 */
+  function readStoredGroups() {
+    const why = brokenOf(K_GROUPS, '素材分组');
+    if (why) return { names: [], why };
+    const arr = read(K_GROUPS, []);
+    const names = (Array.isArray(arr) ? arr : [])
+      .map(x => String(x || '').trim().slice(0, 20)).filter(Boolean);
+    return { names, why: '' };
+  }
+  function writeStoredGroups(names) { return write(K_GROUPS, names); }
 
   /* ============================================================================
      三、素材库
@@ -404,7 +417,8 @@ window.Chars = (function () {
     ['hayOf(c)', '把一条拼成可搜索的一串文本（配合 SEARCH_FIELDS）'],
     ['SEARCH_FIELDS', '搜索覆盖哪几个字段（一份表，页面不要自己再列一遍）'],
     ['broken()', '这一份读得出来吗（空串 = 没问题）；读坏了时任何写入都会被拒'],
-    ['groups()', '分组名单与每组条数（按名字排，未分组不进来；组名按 nameKey 合并）'],
+    ['groups()', '分组名单与每组条数（按名字排，未分组不进来；组名按 nameKey 合并；用户建过的空组也在）'],
+    ['addGroup(name)', '新建一个空分组（按 nameKey 去重，已存在时返回 existing:true）'],
     ['groupMatch(x, want)', '这一条算不算在这一组（__none = 未分组 / 组名按 nameKey 比）；筛组与数条数共用这一份'],
     ['groupNameOf(x)', '这一条落在名单里的哪一组（返回名单那种写法；没分组返回空串）'],
     ['Chars.toEpisodeChar(src)', '库里那一条 → 剧侧角色对象（唯一的字段映射，外部不要自己拼）'],
@@ -535,6 +549,11 @@ window.Chars = (function () {
         const hit = m.get(k);
         if (hit) hit.n++; else m.set(k, { name: g, n: 1 });
       }
+      /* 用户亲手建过的空组也在名单里（0 条），否则建完组还没放素材，它就从目录里消失了。 */
+      for (const g of readStoredGroups().names) {
+        const k = window.nameKey(g);
+        if (!m.has(k)) m.set(k, { name: g, n: 0 });
+      }
       return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
     },
     /* 「这一条算不算在 `want` 这一组里」全站只这一份：素材库页筛组、数「未分组有几条」、
@@ -580,15 +599,41 @@ window.Chars = (function () {
       if (window.nameKey(o) === window.nameKey(nw)) return { n: 0, why: '' };
       const lb = libBroken();
       if (lb) return { n: 0, why: '这一组没改：' + lb + '。已停手，磁盘上原来的数据一个字没动。' };
+      const stored = readStoredGroups();
+      if (stored.why) return { n: 0, why: '这一组没改：' + stored.why + '。已停手。' };
       const list = Lib.list();
       /* 按 `groupMatch` 认这一组（含近名变体），不是按字面比。 */
       const hit = list.filter(c => c && Lib.groupMatch(c, o));
-      if (!hit.length) return { n: 0, why: '' };
-      const next = list.map(c => (c && Lib.groupMatch(c, o)) ? Object.assign({}, c, { group: nw }) : c);
-      writeLib(next);
-      const e = Lib.writeError();
-      if (e) return { n: 0, why: '这一组没改掉：' + e };
+      const storedHit = stored.names.some(n => window.nameKey(n) === window.nameKey(o));
+      if (!hit.length && !storedHit) return { n: 0, why: '' };
+      if (hit.length) {
+        const next = list.map(c => (c && Lib.groupMatch(c, o)) ? Object.assign({}, c, { group: nw }) : c);
+        writeLib(next);
+        const e = Lib.writeError();
+        if (e) return { n: 0, why: '这一组没改掉：' + e };
+      }
+      if (storedHit) {
+        const names = stored.names.map(n => window.nameKey(n) === window.nameKey(o) ? nw : n);
+        const r = writeStoredGroups(names.filter((n, i) => names.findIndex(x => window.nameKey(x) === window.nameKey(n)) === i));
+        if (!r || !r.ok) return { n: hit.length, why: '素材已改名，但空组名单没写进去' };
+      }
       return { n: hit.length, why: '' };
+    },
+    /* 新建一个空分组（用户点左栏「新建组」时走这里）。组名按 nameKey 去重；
+       已存在的组不新建，返回 existing:true，让页面直接选中它。 */
+    addGroup(name) {
+      const nw = String(name || '').trim().slice(0, 20);
+      if (!nw) return { ok: false, why: '组名不能是空的' };
+      if (nw === '__none') return { ok: false, why: '这个组名不能用' };
+      const hit = Lib.groups().find(g => window.nameKey(g.name) === window.nameKey(nw));
+      if (hit) return { ok: true, name: hit.name, existing: true };
+      const stored = readStoredGroups();
+      if (stored.why) return { ok: false, why: stored.why };
+      const names = stored.names.concat(nw)
+        .filter((n, i, arr) => arr.findIndex(x => window.nameKey(x) === window.nameKey(n)) === i);
+      const r = writeStoredGroups(names);
+      if (!r || !r.ok) return { ok: false, why: (r && r.error) || '写不进本机存储' };
+      return { ok: true, name: nw, existing: false };
     },
     remove(id) {
       /* 删之前先问一次「这一份读得出来吗」：下面拿的正是 `Lib.list()` 的结果当写入底座，

@@ -45,12 +45,12 @@
         <span class="as-range" v-show="timeMode === 'custom'">
           <span class="datepick" @click="openDatePicker('from', $event)">
             <input type="date" ref="dFromEl" title="起始日期" :value="F.from" @change="onDateChange('from')">
-            <span class="dp-face" :class="{ ph: !F.from }">{{ faceFrom }}</span>
+            <span class="dp-face" :class="{ ph: !F.from }">{{ faceFrom }}<span class="ic" data-icon="calendar"></span></span>
           </span>
           <span class="dsep">→</span>
           <span class="datepick" @click="openDatePicker('to', $event)">
             <input type="date" ref="dToEl" title="结束日期" :value="F.to" @change="onDateChange('to')">
-            <span class="dp-face" :class="{ ph: !F.to }">{{ faceTo }}</span>
+            <span class="dp-face" :class="{ ph: !F.to }">{{ faceTo }}<span class="ic" data-icon="calendar"></span></span>
           </span>
           <button class="ghost" @click="clearDates">清除日期</button>
         </span>

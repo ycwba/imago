@@ -404,6 +404,7 @@ export function render(_ctx, _cache) {
         ]),
         _createElementVNode("div", {
           id: "result",
+          class: "task-grid",
           "data-r": "result"
         })
       ])
