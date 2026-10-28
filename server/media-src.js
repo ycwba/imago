@@ -162,7 +162,7 @@ function createMediaSrc(deps) {
     return size;
   }
 
-  return { assetUrlCache, assetInfoOf, resolveSrc, downloadTo, pickPath };
+  return { assetUrlCache, assetInfoOf, resolveSrc, downloadTo };
 }
 
 module.exports = { createMediaSrc, DOWNLOAD_MAX };

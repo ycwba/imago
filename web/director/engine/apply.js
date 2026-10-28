@@ -613,7 +613,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       if (!sc.sceneLibId && String(sc.name || '').trim() === nm) sc.sceneLibId = e.id;
     });
   });
-  const pendingMarked = markPendingTokens(allShots, landed.saved);
+  markPendingTokens(allShots, landed.saved);
   const assetNote = landed.saved.length
     ? '，新建素材 ' + landed.saved.length + ' 条（'
       + (landed.group ? '组「' + landed.group + '」' : '未分组') + '，出图后自动补进参考图）'

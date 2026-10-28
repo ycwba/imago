@@ -21,7 +21,7 @@
 
       <div class="ub-layout">
         <div class="ub-left">
-          <div class="cards" id="balances">
+          <div class="cards">
             <div v-if="balanceLoading" class="empty">加载中…</div>
             <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn)' : ''">
               <template v-if="balanceTip.kind === 'proxy'">代理未启动，跑启动.bat 再刷新。</template>
@@ -38,13 +38,13 @@
 
           <div class="panel">
             <h2>近 14 天每日消费</h2>
-            <div class="chart-units" id="chartUnits" ref="chartUnitsEl"></div>
+            <div class="chart-units" ref="chartUnitsEl"></div>
             <div id="chart" v-html="chartHtml"></div>
           </div>
 
-          <div class="panel" id="voicePanel">
+          <div class="panel">
             <h2>语音用量</h2>
-            <div class="stat" id="voiceStat">
+            <div class="stat">
               <template v-if="voiceStat">
                 <div>调用次数<b>{{ voiceStat.count }}</b></div>
                 <div>累计字数<b>{{ voiceStat.chars.toLocaleString() }}</b></div>
@@ -55,7 +55,7 @@
               </template>
               <div v-else-if="voiceEmpty" class="empty">{{ voiceEmpty }}</div>
             </div>
-            <div id="voiceByModel">
+            <div>
               <table v-if="voiceModelRows.length">
                 <thead><tr><th>型号 / 音色</th><th>次数</th><th>字数</th><th>tokens</th><th class="num">时长</th></tr></thead>
                 <tbody>
@@ -68,7 +68,7 @@
               </table>
             </div>
             <h2 class="sect-mini">最近生成</h2>
-            <div id="voiceRecent">
+            <div>
               <table v-if="voiceRecentRows.length">
                 <thead><tr><th>时间</th><th class="w">内容</th><th>时长</th><th class="num">tokens</th></tr></thead>
                 <tbody>
@@ -95,7 +95,7 @@
               </template>
             </div>
             <div class="hint" id="aiPriceNote" style="margin:var(--sp-2) 0 var(--sp-12)">{{ aiPriceNote }}</div>
-            <div id="aiByModel">
+            <div>
               <table v-if="aiModelRows.length">
                 <thead><tr><th>型号</th><th>次数</th><th>输入 tokens</th><th>输出 tokens</th><th class="num">合计 tokens</th></tr></thead>
                 <tbody>
@@ -109,7 +109,7 @@
               <div v-else-if="aiLoaded" class="empty">还没有用量</div>
             </div>
             <h2 class="sect-mini">按日用量</h2>
-            <div id="aiDaily">
+            <div>
               <table v-if="aiDailyRows.length">
                 <thead><tr><th>日期</th><th>调用次数</th><th class="num">tokens</th></tr></thead>
                 <tbody>
@@ -139,8 +139,8 @@
               </select></div>
               <input id="fQ" v-model="fQ" @input="onQInput" placeholder="搜索提示词 / 型号 / ID…">
             </div>
-            <button class="ghost" id="expBills" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
-            <div id="billNote" @click="onBillNoteClick" v-html="billNoteHtml"></div>
+            <button class="ghost" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
+            <div @click="onBillNoteClick" v-html="billNoteHtml"></div>
             <div class="upd" id="billCnt" style="margin-bottom:var(--sp-8)">{{ billCntText }}</div>
             <div id="bills">
               <div v-if="billDownHtml" v-html="billDownHtml"></div>

@@ -73,10 +73,7 @@ const _hoisted_35 = {
   class: "mat-insp",
   ref: "inspEl"
 }
-const _hoisted_36 = {
-  id: "grpList",
-  ref: "grpListEl"
-}
+const _hoisted_36 = { ref: "grpListEl" }
 
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [

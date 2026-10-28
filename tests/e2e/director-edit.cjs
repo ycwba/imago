@@ -262,15 +262,6 @@ function byId(list, id) { return list.filter(x => x.id === id)[0] || null; }
 const durSum = list => list.reduce((a, c) => a + c.dur, 0);
 
 async function status(page) { await sleep(120); return page.eval(() => window.__P.txt('#opState')); }
-async function waitRows(page, n) {
-  const until = Date.now() + 10000;
-  while (Date.now() < until) {
-    const r = await page.eval(() => window.__P.hist());
-    if (r.length >= n) return r;
-    await sleep(200);
-  }
-  return page.eval(() => window.__P.hist());
-}
 async function rowCount(page) { return (await page.eval(() => window.__P.hist())).length; }
 async function noNewRow(page) {
   const before = await rowCount(page);

@@ -596,7 +596,7 @@
         const ok = await usableMap(r), pf = provFlags(r);
         const off = (r.providers || []).filter(p => pf.off(p)).map(p => p.id);
         const out = {
-          代理: { 在线: true, 注册表版本: r.version || 0, 版本太旧: (Api.oldProxyNotice ? Api.oldProxyNotice(r.version) : '') || '不旧' },
+          代理: { 在线: true, 注册表版本: r.version || 0, 版本太旧: Api.oldProxyNotice(r.version) || '不旧' },
           平台: window.provKinds().map(k => {
             const all = (r.providers || []).filter(p => p.kind === k);
             const on = all.filter(p => !pf.off(p));
@@ -1069,10 +1069,6 @@
     if (en.asset) return (/^la_/.test(String(en.asset)) ? '本机资产 ' : '平台资产 ') + cap(String(en.asset), 40);
     if (en.url) return '本机地址 ' + cap(String(en.url), 60);
     return '第 ' + idx + ' 项（没写来源）';
-  }
-  function optList(o, key) {
-    const v = o[key];
-    return Array.isArray(v) ? v : (v == null ? null : [v]);
   }
   /* --------------------------------------------------------------------------
      工序的中文短名 —— 界面上给用户看的那一份。
@@ -1656,7 +1652,7 @@
      所以每一次 run 之前必须紧跟一次同参 check（directorCheck 画卡片、directorRun 执行，各自都这么走）。 */
   const DIR_WRITE = ['select_take', 'cut_timeline', 'set_clip', 'undo_edit', 'timeline_apply',
     'subtitle_update', 'subtitle_resegment', 'subtitle_import_srt'];
-  function stampWrite(name, arg, scope, opId) {
+  function stampWrite(name, arg, opId) {
     if (!arg || typeof arg !== 'object') return arg;
     if (!DIR_WRITE.includes(name)) return arg;
     if (arg.operationId == null && opId) arg.operationId = String(opId);
@@ -2223,7 +2219,7 @@
 
       return {
         TOOLS, ACTS, ACTION_META, TOOL_INPUT, visibleActs, visibleTools, regClosed,
-        DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh,
+        TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh,
         registry: () => actionReg, regError: () => actionRegErr, ready: () => actionRegReady,
       };
     },

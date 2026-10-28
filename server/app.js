@@ -2,23 +2,14 @@
 // 所有生成平台都走 REGISTRY 声明的 relay 前缀转发（见下方 REGISTRY）：
 // 页面只认 /registry 里的声明，不认具体厂商，所以接入新平台不用改页面。
 const http = require('http');
-const { request: httpsRequest, Agent: HttpsAgent } = require('https');
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const os = require('os');
-const dns = require('dns');
-const zlib = require('zlib');
-const tls = require('tls');
 const net = require('net');   // 只用来验 .env 里那个 BIND_HOST 是不是一个真的 IP 字面量
-/* 素材身份判据（浏览器那边 assetlib.js 用的是同一个文件的同一份，见 ident.cjs 顶部）。
-   这里 require 而不是抄一份：落盘闸要判断「这份产物本机有没有存过」，
-   而浏览器要算缓存键与跨页去重 —— 同一件事，两处各写一份就一定会漂。 */
-const MediaId = require('../web/domain/ident.cjs');
 /* 出站地址护栏（SSRF / DNS rebinding）已拆到 server/security.js；这里保持原有调用名。 */
-const { isPrivateHost, safeOutboundUrl, baseKeyOf, guardOutboundUrl } = require('./security.js');
-const { UP_TIMEOUT, outboundProxy, upRequest, failUpstream, anyRequest, destroyAgents, startProxyWatcher } = require('./outbound.js');
-const { createIndexStore } = require('./index-store.js');
+const { safeOutboundUrl, baseKeyOf, guardOutboundUrl } = require('./security.js');
+const { outboundProxy, upRequest, failUpstream, anyRequest, destroyAgents, startProxyWatcher } = require('./outbound.js');
 const { createHealth } = require('./health.js');
 const { acquire: acquireInstanceLock } = require('./lock.js');
 const { createSkillsStore } = require('./skills-store.js');
@@ -47,7 +38,7 @@ const { handleStatic } = require('./routes/static.js');
    这里只留组合根本该做的事：构造配置与依赖、接线、分发。 */
 const { REGISTRY, createRegistryConfig, resolveAssetStore } = require('./registry-config.js');
 const { createLocalAssetsStore } = require('./local-assets-store.js');
-const { defaultLocalDir, createLocalRoot } = require('./local-root.js');
+const { createLocalRoot } = require('./local-root.js');
 const { fileSafe } = require('./file-safe.js');
 const { createMediaSrc } = require('./media-src.js');
 const { createRelayGate } = require('./relay-gate.js');
@@ -279,19 +270,17 @@ function passthroughHeaders(upH, o) {
   if (upH['content-range']) h['Content-Range'] = upH['content-range'];
   if (upH['content-length'] && !bad) h['Content-Length'] = upH['content-length'];
   if (o.disposition) h['content-disposition'] = o.disposition;
-  return { st, bad, h };
+  return { st, h };
 }
 
 /* 出站响应流 → 客户端：上游中途断开（RST / 空闲超时）时不能只让 pipe 抛错 ——
    以前几处 pipe 没有 error 监听：上游一断，代理这边刷未捕获异常，客户端拿到一个永远不结束的响应。
-   统一入口：响应还没发头 → 502 + 可读原因；已经发过头 → 直接断开连接。 */
-/* 把上游的字节转发给客户端。`total` 参数**刻意不再使用**：
-   先前这一版想在流里回写 `X-Bytes-Sent` 头透出「上游那一段下到哪了」，但那是死代码 ——
-   `pipe` 的第一次 flush 就把响应头发出去了，之后再 `setHeader` 在 Node 里是**静默空操作**，
-   而浏览器侧 fetch 也要等头部到达才拿得到 `r.headers`，两边都永远读不到中途的值。
-   下载进度由客户端自己算（`AssetTransfer.readBlobWithProgress` 数 chunk）：
-   代理 → 上游、上游 → 代理、代理 → 浏览器三段是同一条 TCP 链，回环那一段攒不出整个缓冲，
-   背压会让客户端看到的速率≈上游速率，不需要额外把头塞进流里。 */
+   统一入口：响应还没发头 → 502 + 可读原因；已经发过头 → 直接断开连接。
+   响应头里没有「下到哪儿了」这类进度信息：`pipe` 的第一次 flush 就把响应头发出去了，
+   之后再 `setHeader` 在 Node 里是**静默空操作**，浏览器侧 fetch 也要等头部到达才拿得到
+   `r.headers`，中途的值两边都读不到。下载进度由客户端自己算（`AssetTransfer.readBlobWithProgress`
+   数 chunk）：代理 → 上游、上游 → 代理、代理 → 浏览器三段是同一条 TCP 链，背压会让客户端
+   看到的速率≈上游速率，不需要额外把头塞进流里。 */
 function pipeUpstream(ur, res, tag) {
   ur.on('error', e => failUpstream(res, e.message, tag || '上游中断'));
   ur.pipe(res);
@@ -440,9 +429,7 @@ function ensureSession(req, res) {
 /* 落盘目录：默认就是用户翻得到的 下载\拾帧（产物本体按类型落 图片\ / 视频\ / 音频\，
    索引不在这里，在 .data\local-assets\ —— 那个点号开头的目录是应用自己的账，不是用户的作品）。
    根怎么算只有 server/local-root.js 一份（含 ASSETS_DIR 指到别处那一档：隔离验证实例必须指出去，
-   否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目）。
-   这一枚 LOCAL_DIR 只是「读不到 localRoot 时」的兜底常量，真正的动态读法在下面的 localRoot。 */
-const LOCAL_DIR = defaultLocalDir(ROOT);
+   否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目）。 */
 /* FCPXML 媒体包的落盘目录（routes/fcpxml.js 的 bundle / .trash-* 都写这里）。
    渲染任务域已删（浏览器内合成），但这个目录还要活 —— 名字沿用旧的 .renders。 */
 const RENDER_DIR = path.resolve(ROOT, process.env.RENDER_DIR || '.renders');
@@ -478,11 +465,6 @@ const envFrom = name => process.env['__fromEnvFile_' + name] ? '.env' : (/^\d+$/
    整包上限刻意只到 3 GiB：留出 zip 结构本身的余量，配到 4 GiB 以上必然撞 ZIP64。 */
 const FCPXML_MAX_ASSET_MB = envInt('FCPXML_MAX_ASSET_MB', 512, 1, 2048);
 const FCPXML_MAX_BUNDLE_MB = envInt('FCPXML_MAX_BUNDLE_MB', 2048, 16, 3072);
-const envFromStr = name => {
-  const raw = String(process.env[name] === undefined ? '' : process.env[name]).trim();
-  if (!raw) return '默认';
-  return process.env['__fromEnvFile_' + name] ? '.env' : '环境变量';
-};
 
 /* 监听地址：默认**只绑回环**（那份「后端可完善清单」里与安全有关的两条之一，难度低、影响面全网）。
    以前是 `server.listen(PORT)` —— 不写 host 时 Node 绑 `::`，等于这台机器**每一块网卡**都在听；
@@ -574,7 +556,7 @@ const detailInflight = new Map();   // cacheKey → [res, …]（正在回源的
    ========================================================================== */
 /* /data 的落盘、备份与路由在 server/data-store.js；云同步那一侧读同一份导出。 */
 const dataStore = createDataStore({ root: ROOT, log, readBody, safeDecode });
-const { DATA_KEY_RE, dataDirPath, dataFileOf, dataList, keepDataBackup, dataWriteRaw } = dataStore;
+const { dataDirPath, dataFileOf, dataList, dataWriteRaw } = dataStore;
 /* 注册表的两份本机覆盖读的就是 .data 里的文件，所以在 dataStore 之后装配。 */
 const registryConfig = createRegistryConfig({ dataFileOf, safeOutboundUrl });
 const {
@@ -584,11 +566,11 @@ const {
    账本在 .data\local-assets\，本体在库根的类型子目录（下载\拾帧\图片\ 那一层）——
    换库根只动 `localRoot` 那一个读数，账不跟着作品走。 */
 const localStore = createLocalAssetsStore({
-  LOCAL_DIR, MIME, dataDirPath, log, spawnSync, localRoot, fileSafe,
+  MIME, dataDirPath, log, spawnSync, localRoot, fileSafe,
 });
 const {
   bodyDirOf, bodyDirNameOf,
-  newBodyPlace, mintAssetId, localAdopt, invalidateScan, entryAbsOf, localSigOf, fileFidOf,
+  newBodyPlace, mintAssetId, localAdopt, invalidateScan, localSigOf, fileFidOf,
   whyNoSpace, sweepStaleTmp, localIndexRead, localIndexUpsert, localIndexUpdate,
   localIndexPut, localAssetEntry, localAssetRepair, localAssetPaths, localMediaType,
   localAssetWhen, localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
@@ -801,7 +783,7 @@ const promptsStore = createPromptsStore({
   root: ROOT, log, readBody, localAssetEntry, fileSafe, dirStamp, timeText,
 });
 const cloudStore = createCloudStore({
-  log, anyRequest, guardOutboundUrl, safeOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw, keepDataBackup,
+  log, anyRequest, guardOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw,
   promptCloudDir: promptsStore.promptCloudDir, promptFileList: promptsStore.promptFileList,
 });
 const { cloudState, cloudStateLoad } = cloudStore;
@@ -932,7 +914,7 @@ const localAssets = createLocalAssets({
   localAssetSiblings, localIndexDrop,
   whyNoSpace, localAssetFile, localAssetPaths, localMediaType, localAssetWhen, localFileFromEntry,
   /* 落点与身份的唯一口径都在存储层：路由只递名字，不自己拼路径、不自己算哈希。 */
-  entryAbsOf, localSigOf, fileFidOf, newBodyPlace, bodyDirOf, bodyDirNameOf, mintAssetId,
+  localSigOf, fileFidOf, newBodyPlace, bodyDirOf, bodyDirNameOf, mintAssetId,
   localAdopt, invalidateScan, localRootDir: localRoot, MIME,
 });
 

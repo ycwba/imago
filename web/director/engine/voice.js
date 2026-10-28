@@ -595,7 +595,7 @@ function renderVoiceCol(col, sh) {
   /* 这一栏整片重画：里面 .ed-body 是滚动容器，重画会把它连同位置一起换掉
      （以前靠外壳那份全局猴补兜着，现已撤掉）→ 走公共件 Wb.viewport.keep，按锚点还视口。 */
   const voiceHtml = `
-    <div class="ed-head"><b id="edTitle">${esc(sh.name || '这一镜')}</b><span class="no">第 ${idx} 镜 · <span id="edLane">配音轨</span></span></div>
+    <div class="ed-head"><b id="edTitle">${esc(sh.name || '这一镜')}</b><span class="no">第 ${idx} 镜 · <span>配音轨</span></span></div>
     <div class="ed-body">
       <!-- 「这一镜上的配音 / 音量与倍速 / 台词 / 生成配音 / 字幕」五档：一排分段按钮，
            一次只露一格。点中轨上一句 → 音量与倍速；点台词 / 待生成占位 → 生成配音；
@@ -712,10 +712,10 @@ function renderVoiceCol(col, sh) {
            写完它自己就上「待生成」那一轨（判据只有 pendingLineOf 一份）：
            点这一行左边的头像或轨道上的斜纹占位，都把这一句填进「生成配音」，一个计费请求都不发。 -->
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>本镜台词</span><span class="cnt" id="lineCntMine">${esc(lCnt.mine)}</span></div>
-      <div class="line-list one" id="lineListMine">${lineRowsHTML(lMine)}</div>
+      <div class="line-list one">${lineRowsHTML(lMine)}</div>
       <div class="ed-label" style="margin-top: var(--sp-14)"><span>全片台词</span><span class="cnt" id="lineCntAll">${esc(lCnt.all)}</span></div>
       <div class="hint">每一行左边是说话人在素材库里的样子（对不上画占位图，名字照留），右边那个数是这一句在成片轨道上的位置。</div>
-      <div class="line-list" id="lineListAll">${lAll.length ? lineRowsHTML(lAll) : '<div class="hint">除本镜以外还没有别的台词。</div>'}</div>
+      <div class="line-list">${lAll.length ? lineRowsHTML(lAll) : '<div class="hint">除本镜以外还没有别的台词。</div>'}</div>
       ${lineWhoDatalistHTML()}
       </div>
       <div class="grp" id="grpVoiceAdd">

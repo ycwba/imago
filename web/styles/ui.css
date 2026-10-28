@@ -34,7 +34,7 @@ body.wb-splitting * { user-select: none !important; }
 /* 上下那条（导演台底栏轨道坞）：**同一份外观**，只是方向翻了 ——
    同样是「平时透明、悬停显出一条细线、按下变主色、双击复位」，线从竖的变成横的。
    绝对定位、横跨整条上沿、正骑在被拖那一栏的上边线上（定位祖先是那一栏自己：
-   导演台的 `.tl-dock` 有 `position:relative`，针层与它同一个祖先）。
+   导演台的 `.tl-board` 有 `position:relative`，针层与它同一个祖先）。
    占布局的写法做不出这件事：它成了 flex 子项，**可被压缩**（悬停光标只剩几像素、
    真正的上沿反倒点不到），而且它住在卡片**里面**，看着不像「这一栏和上面那一栏之间的那道缝」——
    与左右栏那两条「贴在缝正中、整条都能起手」的手感就差在这儿。
@@ -112,7 +112,7 @@ body.wb-splitting-y * { user-select: none !important; }
 .toolbar { display: flex; align-items: center; gap: var(--sp-10); flex-wrap: wrap; }
 /* 公共筛选工具条（Wb.filterBar）插在别人已有的 flex 行里时用这一格：
    display:contents 让里头的 chips / input / 按钮直接当外层那一行的子项，
-   不额外多出一层盒子（工作台的 .pgroup、画布的 .cv-lib-bar 都靠它）。 */
+   不额外多出一层盒子（工作台搜索那一排：.pgroup 里套的就是这一格）。 */
 .fb-host { display: contents; }
 .toolbar input[type="number"] { width: 74px; height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12-5); }
 .toolbar .info { font-size: var(--fs-12-5); color: var(--sub); }
@@ -141,7 +141,7 @@ body.wb-splitting-y * { user-select: none !important; }
 /* 工具行里的零件（角色库 / 收藏两页原本各抄一份）：搜索胶囊、弹性间隔、计数。
    宽度（flex: 0 1 300px / 320px）两页不一样 —— 角色库是卡片网格、收藏是横条列表，
    窄一点宽一点都说得通，所以那一条留给页面自己写，这里只放两边逐字相同的那部分。 */
-.toolbar .sp, .toolbar2 .sp { flex: 1; }
+.toolbar .sp { flex: 1; }
 .toolbar input[type="search"], .search { min-width: 150px; height: 32px; padding: 0 var(--sp-12); border: var(--hair) solid var(--line);
   border-radius: var(--radius-999); background: var(--panel); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
 .toolbar input[type="search"]:focus, .search:focus { border-color: var(--acc); }
@@ -1175,7 +1175,6 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .md-copy:hover { color: var(--acc); border-color: var(--acc); }
 .md-copy[disabled] { cursor: default; opacity: .75; }
 
-
 /* 本机 / 云端卡片标识（资产库与收藏共用一个开关 sk_media_badge；只在开关打开时由页面输出） */
 .srcbadge{display: inline-block;font-size: var(--fs-10);line-height: 1.5;padding: 0 var(--sp-5);border-radius: var(--radius-3);margin-right: var(--sp-6);vertical-align: 1px;white-space:nowrap;border: var(--hair) solid transparent}
 .srcbadge.local{color: var(--ok);background: color-mix(in srgb, var(--ok) var(--a-10), transparent);border-color: color-mix(in srgb, var(--ok) var(--a-28), transparent)}
@@ -1333,8 +1332,6 @@ button.phead-chip:hover b { color: var(--acc); }
 /* 预览态：还没发出去时那一栏用强调色标一下，用户一眼知道哪一份是「还没发」。 */
 .raw-req.live.waiting > summary { opacity: .75; }
 
-
-
 /* ════════════════════════════════════════════════════════════════════════════
    卡片公共件：状态牌 / 就地展开 / 账条 / 诊断块 / 展开带子
 
@@ -1387,35 +1384,20 @@ button.phead-chip:hover b { color: var(--acc); }
    `.led` 本身是排版骨架；**行**仍由页面自己的结构给出（资产库与收藏页各是那一段详情）。 */
 .led { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: var(--sp-10) var(--sp-18); }
-.led-i { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
-.led-i .k { font-size: var(--fs-11); color: var(--sub); letter-spacing: .06em; }
-.led-i .v { font-size: var(--fs-12-5); color: var(--txt); word-break: break-all; }
+
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* ── 平台原话 ──
    机器的话用等宽，不翻译、不改写；放不下就截断（完整版在展开区里）。 */
 .why { display: flex; align-items: baseline; gap: var(--sp-8); margin: var(--sp-2) 0 var(--sp-4); }
-.why-k { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); letter-spacing: .08em; }
-.why-t { font-family: var(--font-mono); font-size: var(--fs-11-5); color: var(--txt);
-  background: var(--panel2); border: var(--hair) solid var(--line); border-radius: var(--radius-5);
-  padding: var(--sp-1) var(--sp-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.why-t.err { color: var(--err); }
-.why-t.warn { color: var(--warn); }
 
 /* ── 诊断块 ──
    出了什么事 + 代价 + 动作。资产库的失败条目、收藏页的「只剩外链」共用这一件。 */
 .diag { border: var(--hair) solid color-mix(in srgb, var(--err) var(--a-30), transparent);
   background: color-mix(in srgb, var(--err) var(--a-8), transparent);
   border-radius: var(--radius-8); padding: var(--sp-11) var(--sp-12); margin-bottom: var(--sp-16); }
-.diag--warn { border-color: color-mix(in srgb, var(--warn) var(--a-35), transparent);
-  background: color-mix(in srgb, var(--warn) var(--a-8), transparent); }
+
 .diag .why { margin: 0 0 var(--sp-9); }
-.diag .why-t { white-space: normal; display: block; }
-.diag-cost { font-size: var(--fs-12-5); color: var(--txt); }
-.diag-cost b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.diag-cost .warn { color: var(--warn); }
-.diag-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-10); }
-.diag-acts .ghost { font-size: var(--fs-11-5); padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-6); }
 
 /* ── 展开后的动作行 ── */
 .exp-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
@@ -1423,7 +1405,6 @@ button.phead-chip:hover b { color: var(--acc); }
 .exp-acts .ghost { font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-11); border-radius: var(--radius-6); }
 .exp-acts .sp { flex: 1 1 auto; }
 .exp-acts .danger { color: var(--err); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
-.exp-hint { font-size: var(--fs-11-5); color: var(--sub); align-self: center; }
 
 /* ── 网格档的展开带子 ──
    格子长高会把同一行别的格子底下留出空洞 —— 网格最怕这种。

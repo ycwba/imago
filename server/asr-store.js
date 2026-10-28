@@ -31,12 +31,6 @@ function isHttpUrl(v) {
     return (u.protocol === 'https:' || u.protocol === 'http:') && !!u.hostname && String(v).length <= 500;
   } catch { return false; }
 }
-function isLoopbackUrl(v) {
-  try {
-    const h = new URL(v).hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    return h === 'localhost' || h === '::1' || /^127\./.test(h);
-  } catch { return false; }
-}
 function srtTime(sec) {
   const t = Math.max(0, Number(sec) || 0);
   const h = Math.floor(t / 3600);

@@ -50,7 +50,7 @@ export function detailStat(D, c) {
  * 建一层。ctx 由素材库页交过来（页面里那些写库 / 出图 / 记账的出口都在那边）。
  * ctx = {
  *   D, REG（getter）, refUse, DRAFT,
- *   libSave, errSet, genRun, genHas, genSet, genClear, onTaskHook, aiPanel,
+ *   libSave, errSet, genRun, genHas, genSet, genClear, onTaskHook,
  *   dramaWith(model), optsWith(model, count),
  *   defImgModel(), defTtsModel(), effKey(kind, mode, key),
  *   picWord, mainKind, candCount(modelKey), durablePic, thumbImg, errText,
@@ -407,8 +407,6 @@ export function createDetail(ctx) {
     usecand: (c, el) => useCand(c, el.dataset.k || ctx.mainKind(c), el.dataset.src),
     canddel: (c, el) => dropCand(c, el.dataset.k || ctx.mainKind(c), el.dataset.src),
     zoom: (c, el) => ctx.openZoom(c, el.dataset.label || el.dataset.name || '图', el.dataset.src),
-    assetgen: (c) => genAsset(c),
-    assetpick2: (c) => pickAsset(c),
     assetregen: (c, el) => regenAsset(c, el.dataset.id),
     assetclear: (c, el) => clearAsset(c, el.dataset.id, el.dataset.label),
     assetprop: (c, el) => pickAssetProps(c, el),
@@ -618,19 +616,6 @@ export function createDetail(ctx) {
       const s2 = await ctx.durablePic(got[0], (c.name || '素材') + '-资产');
       if (s2) { D.Cast.addAsset(c, { name: currentName(), tpl: currentTpl(), src: s2 }); saveItem(c); paint(); }
     }
-  }
-  async function genAsset(c) {
-    const tpl = currentTpl();
-    const what = currentWhat();
-    if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
-    const cap = capOf('image', gens.asset.model || ctx.defImgModel());
-    const n = siteCountOf('asset', cap, 1);
-    const lab = D.Cast.assetLabel(c, tpl) || '这张角色资产';
-    const drama = ctx.dramaWith(gens.asset.model || ctx.defImgModel());
-    const ok = await ctx.genRun('asset#new:' + tpl, c.id, c, '正在出「' + (c.name || '') + '」的' + lab + '…',
-      () => D.Pipe.drawCharAsset(ctx.REG, drama, c, tpl, { count: n, name: currentName(), what: what, onTask: ctx.onTaskHook }), false, lab);
-    if (ok && ctx.DRAFT) ctx.DRAFT.set(c.id, { name: '', tpl: tpl, what: '' });
-    paint();
   }
   async function moreCands(c, kind) {
     const model = gens.pic.model || ctx.defImgModel();

@@ -546,8 +546,8 @@
     },
     /* 播放器上那行 mm:ss。导演台三处各抄过一份同样的 padStart 式子（剪辑甲板 / 候选播放器 / 插针跳转后
        的读数），一处改成就同时显示 1:05 与 01:05 两种写法。
-       函数体**不许用 `this`**：导演台把它当函数引用递给 `bindTlPlay(col, keepPlay, Wb.fmtClock, …)`，
-       脱离对象调用时 `this` 是 undefined（拿对象方法当裸函数调的那一类坑）。 */
+       函数体**不许用 `this`**：导演台把它包成 `fmtClock: (...a) => Wb.fmtClock(...a)`（engine.js 递给
+       play / timeline 那一层的依赖表），脱离对象调用时 `this` 是 undefined（拿对象方法当裸函数调的那一类坑）。 */
     fmtClock(t) {
       const v = (!isFinite(t) || t < 0) ? 0 : Number(t);
       /* 这一行刻意保留 `padStart(2, '0') + ':' + padStart(2, '0')` 那个原始形状（不抽 `p2`）：
@@ -1285,21 +1285,6 @@
              （`_attach` 自己认「已入队/在跑就不重复」，多条卡片同一 key 也不会抽两遍）。 */
           if (this._inView(wrap)) this._attach(wrap);
         });
-      },
-      /* 抽帧：只抽同源视频（跨域画进 canvas 会污染），失败静默（不影响播放） */
-      _capture(video, key) {
-        key = this.keyOf(key);
-        if (!key || !video) return '';
-        if (this._map.has(key)) return this._map.get(key);
-        const shown = video.getAttribute('src') || video.currentSrc || '';
-        try {
-          const url = new URL(shown, location.href);
-          if (!shown || (!/^(data:|blob:)$/.test(url.protocol) && url.origin !== location.origin)) return '';
-          if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return '';
-          const frame = this._shrink(video, video.videoWidth, video.videoHeight, true);
-          if (frame) this._save(key, frame);
-          return frame;
-        } catch (e) { return ''; } // 失败保持占位，绝不退回外链
       },
       /* 缩略图规格：图片与视频首帧共用同一套尺寸 / 编码参数 / 存储上限 —— 「不同地方的
          视频和图片缩略图走同一套缓存」的前提是它们长一个样，否则同一张网格里清晰度会打架。

@@ -72,7 +72,6 @@ window.Chars = (function () {
      设置页也照这张表渲染控件（AGENTS §5 能力驱动）。
      键名一律带 char_ 前缀（2026-10 由 dr_ 改过来）。搬运见 ui.js 的 migrateRenamedKeys()。 */
   const SET = {
-    aiVoice: { key: 'char_ai_voice', kind: 'bool', def: '1', label: '让 AI 给角色定音色（性格 → 音色描述 / 复刻）' },
     /* 音色方式（2026-10 用户要求：「不应该使用固定音色的模型让我选择音色」）：
        默认 auto = 自动挑**这一家最好的那一种**，顺序是生成音色 > 音色复刻 > 预设音色。
        换一家只有预设型号的语音平台时，auto 落到预设上并照实说明，
@@ -132,8 +131,6 @@ window.Chars = (function () {
     try { raw = localStorage.getItem(it.key); } catch { return it.def; }
     return raw == null || raw === '' ? it.def : raw;
   }
-  const flagOn = id => setting(id) !== '0';
-  const aiVoiceOn = () => flagOn('aiVoice');
   const candN = () => { const n = Number(setting('candN')); return Number.isFinite(n) && n >= 1 ? Math.round(n) : Number(SET.candN.def); };
   /* 语音候选的条数：与图那项分开设（`char_voice_n`），读法与 `candN` 同一套。 */
   const voiceN = () => { const n = Number(setting('voiceN')); return Number.isFinite(n) && n >= 1 ? Math.round(n) : Number(SET.voiceN.def); };
@@ -2341,8 +2338,8 @@ window.Chars = (function () {
      这一族以前有三份换法（这里换下划线、页面那两处换连字符、assetlib 那份直接删字符），
      而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
   return {
-    /* ---- 设置项：设置页照 SET 这张表渲染控件，页面读 setting / aiVoiceOn / candCount ---- */
-    SET, setting, aiVoiceOn, candN, voiceN, candCount, previewCap,
+    /* ---- 设置项：设置页照 SET 这张表渲染控件，页面读 setting / candN / candCount ---- */
+    SET, setting, candN, voiceN, candCount, previewCap,
     /* 一份素材身上最多留几张候选图：页面在「认领切页前没等完的出图」时要把新图并进 faces，
        上限必须与 drawPreview 用的**同一个数**，所以把它导出去（页面别自己写一个 8）。 */
     FACE_CAP,

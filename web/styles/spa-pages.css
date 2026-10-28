@@ -1,7 +1,6 @@
 /* 已迁到 Vue 的页面样式。外壳文档里的类名是全站共享的，所以一律挂在页面根类下，
    不进 iframe 的那批旧页面不受影响。 */
 
-
 /* 首屏留白由公共的 .phead 接管：那条通栏页头自己带上边距与分隔线，
    下面这几行只管自己的间距 —— 页面不再压一份 margin-top（否则叠成两倍，切页时上边距会跳）。 */
 .fav-page .toolbar { margin: var(--sp-14) 0 var(--sp-6); }
@@ -10,7 +9,6 @@
 .fav-page .fav-kinds { margin: var(--sp-14) 0 var(--sp-2); }
 .fav-page .fav-kinds .ui-seg { display: inline-flex; }
 .fav-page .toolbar input[type=search] { flex: 0 1 320px; }
-.fav-page .toolbar2 { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
 
 /* 平台 + 时间（与资产库一样的两种）+ 摆法 */
 .fav-page .fav-filters { display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap; margin: 0 0 var(--sp-14); }

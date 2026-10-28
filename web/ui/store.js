@@ -37,7 +37,7 @@ const ok = () => { try { localStorage.setItem('__t', '1'); localStorage.removeIt
         const msg = `${opts.label || '本地记录'}保存失败：数据里有无法序列化的内容（${e.message}）`;
         if (window.Toast) window.Toast.err(msg);
         console.warn('[Store] 序列化失败 ' + key + '：', e);
-        return { ok: false, error: e, serialize: true };
+        return { ok: false, error: e };
       }
       try {
         localStorage.setItem(key, body);

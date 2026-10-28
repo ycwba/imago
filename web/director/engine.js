@@ -409,11 +409,6 @@ function historyGoTo(i, kind, verb) {
   historySync();
   return true;
 }
-/* 按 id 找日志里那一行（面板上点一行 = 回退到它） */
-function historyRowById(id) {
-  for (let i = 0; i < historyLog.length; i++) if (historyLog[i].id === id) return { i: i, e: historyLog[i] };
-  return null;
-}
 // 快照剔除轮询的瞬态字段（进度/排队位置），避免自动轮询污染撤销栈
 function snapOf() {
   /* 游标不进快照。`curScene` / `curShot` / `curCand` 是「我现在在看哪一个」，
@@ -672,21 +667,6 @@ const Edit = createEdit({
    中栏每 3 秒那一次重建要问的是「现在能不能重画」。 */
 const dragBusy = () => Edit.dragBusy();
 
-
-
-/* 读 JSON：接口不存在（如服务未重启）时给出可操作提示，而不是 “not valid JSON” */
-async function readJsonSafe(r, what) {
-  const x = await Net.readRes(r);
-  if (x.d == null) {
-    const plain = (x.txt || '').trim();
-    if (x.status === 404 || /not found/i.test(plain)) {
-      throw new Error(`${what}：本地服务没有这个接口，请重启一次服务（启动.bat → [3] 重启项目）后再试`);
-    }
-    throw new Error(`${what}：返回了非 JSON 内容（HTTP ${x.status}）${plain ? '：' + plain.slice(0, 80) : ''}`);
-  }
-  if (!x.ok) throw new Error(`${what}：${x.d.error || x.d.err || ('HTTP ' + x.status)}`);
-  return x.d;
-}
 /* ============================================================================
    LLM 辅助：「一键分镜」那一路要的两个助手（宽松 JSON 解析 + 共用约束）。
    约定不变：LLM 只输出 JSON → 本地校验夹取 → 人确认（PromptReview）→ 应用。
@@ -701,8 +681,6 @@ const splitSysOf = () => TextAI.prompt('split');
 /* 「修改现有分镜」（board_edit）的指令取法同理：用户改过的优先，没有就用内置默认。
    它也在 NO_ASK 名单里（要的是 JSON —— 先反问一句，parseJsonLoose 解出来就是空）。 */
 const boardEditSysOf = () => TextAI.prompt('board_edit');
-
-/* 时间线 → 给 LLM 的上下文摘要（连同 tlContextForLLM 一起已移除：从未被调用） */
 
 
 /* ---------------- ④ AI 分镜：拆新 / 改现有 / 加镜头（2026-10 扩成三件事） ----------------
@@ -4438,14 +4416,14 @@ $('importMediaFile').onchange = e => {
 
 /* ---------- 灯箱：DOM 与翻页/键盘/关闭/信息条全在 Wb.lightbox（见 AGENTS.md §3），页面只声明怎么取地址 ---------- */
 Wb.lightbox.init({
-  list: () => [],                                  // 本页没有列表视图，翻页范围由 openLightbox 的第二个参数给
+  /* 本页没有列表视图：翻页范围由打开灯箱那一次自己带（`Wb.lightbox.open(item, pages)`）。 */
+  list: () => [],
   keyOf: it => (it && it.src) || '',
   srcOf: it => (it && it.src) || '',
   kindOf: it => (it && it.video ? 'video' : 'image'),
   nameOf: it => window.fileSafe((it && it.label) || 'merged', 60) + '.mp4',
   info: it => [(it && it.label) || ''],
 });
-function openLightbox(pages, idx) { Wb.lightbox.open(pages[idx], pages); }
 
 /* ---------- 数据消毒：修复中途写入的不完整工作区 ---------- */
 function sanitize() {

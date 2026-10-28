@@ -1216,8 +1216,6 @@ function keepBodyScroll(el, fn) {
       if (opts.note && window.Toast) window.Toast.err(opts.note, ms);
       return true;
     },
-    /* 只读判据：调用方要自己拼 label / note 时用它（绝大多数地方直接用 arm 即可） */
-    isArmed(el) { return !!(armed && armed.el === el); },
     /* 重画之后把武装态按 key 挂回新节点（**必须带 key 的 arm 才有效**）。
        传 `find(key) → 按钮`。找不到就不动 —— 那一行多半真被删了，
        让 disarm 按原来的时限自己收尾就行。 */
@@ -1232,8 +1230,6 @@ function keepBodyScroll(el, fn) {
       const left = Math.max(1200, a.deadline - Date.now());
       a.timer = setTimeout(disarm, left);
     },
-    /* 还原（页面整块重画后不需要 —— 那个按钮已经不在文档里了） */
-    disarm,
   };
 
   /* 「再点一下就真删」这句话只在原地成立：人一挪开注意力就该自动撤销，

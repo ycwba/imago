@@ -43,7 +43,6 @@ function validateAssetStore(reg) {
    api.deepseek.com）。所以共用同一段前缀只允许**等价声明**：base、keyEnv、endpoints
    三样完全一致（sparkcine 两家是同一上游同一套端点，合法）；差任何一样都当场红。
    声明等价时（同 keyId / 同 base / 同端点）取到哪一家行为都一样，闸与 create 判定也不会串。 */
-function relayKey(p) { return String(p.keyId || p.id); }
 function relayEquivalent(a, b) {
   return a.base === b.base && (a.keyEnv || '') === (b.keyEnv || '')
     && JSON.stringify(a.endpoints || null) === JSON.stringify(b.endpoints || null);
@@ -129,7 +128,6 @@ function validateProviders(providers) {
   });
   return {
     ok: errors.length === 0,
-    valid: list.filter(p => p && !invalid.some(x => x.id === p.id)),
     invalid, errors,
     sharedRelays,
   };

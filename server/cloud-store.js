@@ -17,7 +17,6 @@ function createCloudStore(opts) {
   const dataFileOf = opts.dataFileOf;
   const dataList = opts.dataList;
   const dataWriteRaw = opts.dataWriteRaw;
-  const keepDataBackup = opts.keepDataBackup;
   const promptCloudDir = opts.promptCloudDir;
   const promptFileList = opts.promptFileList;
 

@@ -9,10 +9,10 @@
         <div class="phead-id">
           <h1 class="phead-h1">资产库</h1>
         </div>
-        <div class="phead-meta" id="asSum" ref="asSumEl" role="group" aria-label="按任务状态筛选"></div>
+        <div class="phead-meta" ref="asSumEl" role="group" aria-label="按任务状态筛选"></div>
         <span class="phead-sub"></span>
         <div class="phead-acts">
-          <button class="ghost" id="reloadBtn" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+          <button class="ghost" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
           <button class="ghost" id="multiBtn" :class="{ active: multiMode }" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
           <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
         </div>
@@ -31,28 +31,28 @@
            时间也是一个下拉（预设），选「自定义区间」时后面才露出起止日期。 -->
       <div class="as-filters">
         <!-- 类型（带条数）：公共件 Wb.kindFilter —— 与生成工作台、收藏页同一副分段控件 -->
-        <div class="ui-seg" id="asType" ref="asTypeEl" role="group" aria-label="按类型筛选"></div>
+        <div class="ui-seg" ref="asTypeEl" role="group" aria-label="按类型筛选"></div>
         <label class="as-sel"><span>平台</span>
-          <select class="ui-inp" id="asProv" ref="asProvEl" aria-label="按平台筛选"></select></label>
+          <select class="ui-inp" ref="asProvEl" aria-label="按平台筛选"></select></label>
         <label class="as-sel"><span>时间</span>
-          <select class="ui-inp" id="asTime" ref="asTimeEl" aria-label="按时间筛选">
+          <select class="ui-inp" ref="asTimeEl" aria-label="按时间筛选">
             <option value="0">全部时间</option>
             <option value="1">今天</option>
             <option value="7">近 7 天</option>
             <option value="30">近 30 天</option>
             <option value="custom">自定义区间</option>
           </select></label>
-        <span class="as-range" id="asRange" v-show="timeMode === 'custom'">
+        <span class="as-range" v-show="timeMode === 'custom'">
           <span class="datepick" @click="openDatePicker('from', $event)">
-            <input type="date" id="dFrom" ref="dFromEl" title="起始日期" :value="F.from" @change="onDateChange('from')">
-            <span class="dp-face" :class="{ ph: !F.from }" id="dpFromFace">{{ faceFrom }}</span>
+            <input type="date" ref="dFromEl" title="起始日期" :value="F.from" @change="onDateChange('from')">
+            <span class="dp-face" :class="{ ph: !F.from }">{{ faceFrom }}</span>
           </span>
           <span class="dsep">→</span>
           <span class="datepick" @click="openDatePicker('to', $event)">
-            <input type="date" id="dTo" ref="dToEl" title="结束日期" :value="F.to" @change="onDateChange('to')">
-            <span class="dp-face" :class="{ ph: !F.to }" id="dpToFace">{{ faceTo }}</span>
+            <input type="date" ref="dToEl" title="结束日期" :value="F.to" @change="onDateChange('to')">
+            <span class="dp-face" :class="{ ph: !F.to }">{{ faceTo }}</span>
           </span>
-          <button class="ghost" id="dClear" @click="clearDates">清除日期</button>
+          <button class="ghost" @click="clearDates">清除日期</button>
         </span>
         <span class="sp" style="flex:1"></span>
       </div>

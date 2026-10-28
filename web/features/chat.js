@@ -72,7 +72,6 @@
   const RESULT_MAX = 8 * 1024;           // 超过这个字节的查询结果落 chatResults，turn 只存 id/大小/预览
   const RESULT_PAGE = 6000;              // tool_result_read 一页的字数
   const RESULT_KEEP = 40;                // 每个会话最多保留几份长结果（旧的先删）
-  const STEP_CN = { 1: '讲故事', 2: '认角色', 3: '看预演', 4: '拍成片' };
   /* 本机那份「首屏缓存」有两处：生成工作台合并成一张页之后是 `studio_tasks_cache_v1` 一份，
      资产库（与导演台的素材目录）另写 `assets_cache_v1` 一份。两个都要报，
      否则助手说「本机只有 N 条历史」而资产库明明开着几百条。 */
@@ -137,7 +136,6 @@
   const cap = (v, n) => { const s = String(v == null ? '' : v); return s.length > n ? s.slice(0, n) + '…（共 ' + s.length + ' 字，截断了）' : s; };
   const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
   const when = t => window.fmtWhen(Number(t) || 0);
-  function jdump(o) { return cap(typeof o === 'string' ? o : JSON.stringify(o, null, 1), TOOL_OUT); }
   function $(id) { return document.getElementById(id); }
 
   /* ---------- 这一页 / 脚下那一页 ---------- */
@@ -594,8 +592,7 @@
       + SYS_MID + '\n'
       + '可用动作（要点是「用户点执行才真做」，卡片上会写清做什么）：\n'
       + (a.length ? a.map(k => '· ' + k + ' ' + ACTS[k].arg + ' —— ' + ACTS[k].doc).join('\n')
-        : '（这一页这次没有可用的写入动作；只回答与查询，不要提 RUN。）')
-      + (scope && scope.toolNote ? '\n' + scope.toolNote : '');
+        : '（这一页这次没有可用的写入动作；只回答与查询，不要提 RUN。）');
   }
 
   /* ---------- 记录：多会话 ---------- */
@@ -1878,18 +1875,6 @@
     return d;
   }
 
-  /* 工序的分组名：以前「工具活动」那张折叠卡按它分段落（资产/本机、剪辑、字幕…）。
-     现在工序收成一条**脊**（连续的一串节点），分组会打断那条线，所以这一族退役了 ——
-     工具的中文短名走 chat-tools.js 的 TOOL_ZH（那里是工具表的家）。 */
-  const TOOL_GROUP = name => {
-    if (/^(timeline|cut|set_clip|select_take|undo_edit)/.test(name)) return '剪辑';
-    if (/^subtitle/.test(name)) return '字幕';
-    if (/^media/.test(name)) return '媒体';
-    if (/^export/.test(name)) return '导出';
-    if (/^web_/.test(name)) return '搜索';
-    if (name === 'skill') return 'Skill';
-    return '资产 / 本机';
-  };
   /* ---------- 本轮 Skill 芯片 ----------
      正文不复制进回合（只存了元数据），点开时现读；读不到就说读不到。
      库里那份与本轮快照的版本或内容哈希不同，说明这一轮带的是旧写法 —— Skill 每轮开跑前
@@ -2497,20 +2482,8 @@
     const route = page();
     let pc = null;
     try { pc = hostCtx(); } catch (e) { pc = null; }
-    const pick = (...ks) => {
-      for (const k of ks) if (pc && typeof pc === 'object' && pc[k] != null && pc[k] !== '') return pc[k];
-      return '';
-    };
-    let bridge = null;
-    try {
-      if (window.WBBridge && WBBridge.get) {
-        if (route === DIRECTOR && WBBridge.get('director')) bridge = 'director';
-      }
-    } catch (e) {}
     return {
-      route, projectId: String(pick('项目id', '项目') || ''), shotId: String(pick('镜头id', '镜头') || ''),
-      readOnly: !!(pc && typeof pc === 'object' && pc.只读),
-      bridge, tools: visibleTools(route), skills: [], budget: { webSearch: 5 }, createdAt: Date.now(),
+      route, readOnly: !!(pc && typeof pc === 'object' && pc.只读), skills: [],
     };
   }
   function turnOf(id) {
@@ -2560,9 +2533,6 @@
     const limit = Math.max(200, Math.min(RESULT_PAGE * 2, Number(a && a.limit) || RESULT_PAGE));
     const next = offset + limit < text.length ? offset + limit : null;
     return { resultId: id, 工具: rec.tool, 总字数: text.length, offset, next, 内容: text.slice(offset, offset + limit) };
-  }
-  function turnFailed(t) {
-    return !!(t && (t.status === 'error' || (t.tools || []).some(x => x && x.state === 'error')));
   }
   function pushTurnCard(turn) {
     if (!turn) return;
@@ -2782,7 +2752,7 @@
           }
           let chk = null, planId = '', opId = uid('op_');
           /* 导演台写动作的 CAS 凭据在这一处现读现补（模型不填、也填不对）。 */
-          const arg = stampWrite(ins.name, ins.arg || {}, ctx.scope, opId);
+          const arg = stampWrite(ins.name, ins.arg || {}, opId);
           ins.arg = arg;
           try {
             const p = await CHAT_TOOLS.registry().plan(ins.name, arg, { route: page(), operationId: opId });
@@ -3004,7 +2974,6 @@
   /* 不叫 open/close：模块里 shadow 掉全局 open 以后，谁再想 window.open 一下就被无声改道 */
   function openPanel() {
     paintHint().catch(e => { if (el.hint) el.hint.textContent = '读不到当前文字 AI 设置：' + errText(e); });
-    paintCtx();
     if (!isOpen()) setOpen(true);   // 「开的时候落到最新一条」在 setOpen 里，这里不再刷一遍
     if (el.histBox && !el.histBox.hidden) paintHist();
   }
@@ -3089,7 +3058,8 @@
      **浮窗不再能脱离球**：它只能随球一起挪（拖标题栏挪的就是球，见 mount 里那段）。
      以前拖过浮窗会记 `ai_chat_fxy` 表示「已脱离，此后不再跟球」——
      那个状态是自相矛盾的（球在左下、浮窗在右上，两者再无关系），
-     而用户要的正是「一组东西一起动」。那个键已作废，旧的残留在 mount() 里清掉。 */
+     而用户要的正是「一组东西一起动」。那个键已作废，盘上残留由 `web/ui/ui.js` 的
+     `sweepLegacyKeys()`（LEGACY_KEYS 名单）在 boot 时清掉 —— 这里不写它，也不读它。 */
   const FLOAT_GAP = 8;
   let floatX = 0, floatY = 0;
   /* 用 offsetWidth/offsetHeight 而不是 getBoundingClientRect：收起态的浮窗带 scale(.96)，
@@ -3288,10 +3258,6 @@
 
   function mount() {
     if (document.getElementById('acPanel')) return;
-    /* 旧的「浮窗被拖走」标记（`ai_chat_fxy`）作废了：浮窗不再能脱离球，
-       它只能随球一起挪（拖标题栏挪的是球）。留着那个键没有害处，
-       但它会让旧机器以为浮窗还停在别处 —— 一次性的残留，读到就删。 */
-    try { localStorage.removeItem('ai_chat_fxy'); } catch (e) { /* 无痕 / 禁存储：删不掉也不影响（已经没人读它了） */ }
     /* 这一层的样式在 web/styles/chat.css（外壳统一挂载），不再在运行时插一段 <style>。
        球的直径读 --ac-ball —— 常量 BALL 是唯一出处，由这里写到 documentElement。 */
     document.documentElement.style.setProperty('--ac-ball', BALL + 'px');
@@ -3702,15 +3668,8 @@
   }
   function syncHere() {
     if (el.here) el.here.textContent = '在 ' + pageZh();
-    paintCtx();
     if (el.body) paint();
   }
-  /* 页面上那几项「此刻是什么」：这一族**不再画在助手上方**了。
-     它装的是**宿主页面的状态快照**（hostCtx()：类型 / 型号 / 素材槽那一类），
-     助手每轮本来就自动带着这份快照进系统提示词 —— 界面上再摆一遍只是重复，
-     而且摆的是「你脚下那一页现在是什么」，跟「这一轮助手在干什么」没关系。
-     那一行现在只留顶栏的「在 XX」（产品的 ac-here）。 */
-  function paintCtx() { /* 故意留空：上下文带已退役，宿主页面的快照仍照旧发给模型 */ }
 
   /* ---------- 快捷键：Ctrl/⌘ + / 开合（在输入框里不抢按键）；Esc 收抽屉 ---------- */
   document.addEventListener('keydown', e => {
@@ -3748,7 +3707,7 @@
     getREG: () => REG,
   });
   const { TOOLS, ACTS, ACTION_META, visibleActs, visibleTools,
-    DIRECTOR, TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite } = CHAT_TOOLS;
+    TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite } = CHAT_TOOLS;
   function boot() { if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount, { once: true }); }
   boot();
 
@@ -3767,12 +3726,10 @@
       msgs = []; acts = []; save(); paint(true); paintHist();
       return true;
     },
-    /* 助手能力的只读出口 —— **只给查询与校验，不给 run**。
-       为什么要有：`page_state` 的定位判据（按可见文字找控件）与三个原语的 `check`
-       是这一层最容易写坏、又最难一眼看出来的地方（改坏了只是「点不到」，不会报错）。
-       挂出来就能在浏览器里直接验，也方便页面自己问一句「这一页有哪些能点的按钮」。
-       run 一律不给：写动作的唯一入口仍然是「用户在卡片上点执行」那道闸。 */
+    /* 助手能力目录的只读出口：`tests/e2e/actions.cjs` 与 `tests/e2e/editing-assistant.cjs`
+       按名字数这两张表（策略表 ACT_META 与「这一页可用哪几条」visibleActs 也一起给），
+       页面与探针都从这里读，不许再抄一份动作清单。
+       这里只给目录与查询，不单独挂 run：写动作的唯一入口仍然是「用户在卡片上点执行」那道闸。 */
     TOOLS, ACTS, ACT_META: ACTION_META, visibleActs,
-    ui: { inventory: uiInventory, find: findUI, label: labelOf, zone: zoneOf },
   };
 })();

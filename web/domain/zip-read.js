@@ -115,5 +115,5 @@
     return { files: out, bytes: sum };
   }
 
-  window.ZipRead = { read: read, MAX_FILES: MAX_FILES, MAX_TOTAL: MAX_TOTAL, MAX_ONE: MAX_ONE, MAX_LINES: MAX_LINES };
+  window.ZipRead = { read: read };
 })();

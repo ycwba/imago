@@ -244,7 +244,6 @@ const FAKES = {
   dataDir: () => () => tmpDir('data'),
   dataList: () => () => [],
   dataWriteRaw: () => (async () => true),
-  keepDataBackup: () => () => {},
   dirStamp: () => () => 'probe',
   timeText: () => () => '00:00',
   httpError: () => (kind, message) => { const e = new Error(String(message || kind)); e.kind = kind; return e; },
@@ -364,7 +363,6 @@ const FAKES = {
   newBodyPlace: () => () => ({ abs: path.join(tmpDir('save'), 'probe.png') }),
   invalidateScan: () => () => {},
   localAdopt: () => () => ({ added: [], skipped: 0 }),
-  entryAbsOf: () => () => '',
   localSigOf: () => () => '',
   /* fid 由存储层现算（fileFidOf）：冒烟里不 stat 真文件，给一个固定号即可。 */
   fileFidOf: () => () => '0:0',
@@ -391,14 +389,12 @@ const FAKES = {
   customNotice: () => ({ reason: '', dropped: [] }),
   modelPrefsNotice: () => ({ reason: '', notice: [] }),
   MODEL_PREFS_KEY: () => 'sk_model_prefs',
-  LOCAL_DIR: () => tmpDir('assets'),
   RENDER_DIR: () => tmpDir('renders'),
   root: () => tmp,
   ROOT: () => tmp,
   MIME: () => MIME_MAP,
   mime: () => MIME_MAP,
   LOCAL_INDEX_MAX: () => 100,
-  VOICE_MAX: () => 40,
   renderDir: () => tmpDir('renders'),
   maxAssetBytes: () => 5 * 1024 * 1024,
   maxBundleBytes: () => 20 * 1024 * 1024,
@@ -914,7 +910,7 @@ function freeConfigAudit() {
         if (/^[A-Za-z_$][\w$]*$/.test(t)) known.add(t);
       }
     }
-    /* 「用了它」必须是**裸标识符**：`deps.LOCAL_DIR` 是属性访问（读的就是注入进来的那一份），
+    /* 「用了它」必须是**裸标识符**：`deps.<名>` 这种属性访问读的是注入进来的那一份，
        不是自由变量。`\b` 挡不住这一点 —— 点不在 \w 里，所以 `deps.` 后面照样算一个词边界。 */
     const free = names.filter(n => known.has(n) === false
       && new RegExp('(?:^|[^$.\\w])' + n + '\\b').test(src));

@@ -34,8 +34,6 @@ const EXTS = new Set(['.js', '.html', '.css']);
 const BIG_FILES = [
   { file: 'web/director/engine.js', max: 5389, why: 'AGENTS.md §17 已决定：剪辑交互与预览引擎保持命令式，engine.js 是全站最大文件（「单文件 < 3k」不适用于它）。十一块热路径已按域搬到 web/director/engine/<域>.js，这里只剩状态、接线与 DOM 装配；5389 是画面格三段式、图片段、字幕 ASR 与拖素材进轨这几处接到 engine 之后的实测，再涨一行要说明为什么不能进已有域模块' },
   { file: 'web/director/engine/panel.js', max: 2116, why: '从 engine.js 整块搬出的右栏（剪辑/生成/字幕/台词四档 + 弹层接线），搬时不改逻辑，所以体积原样保留；2116 是音色档与字幕精确起止加进来之后。要收就得把每一档拆成一张表' },
-  { file: 'web/director/engine/track.js', max: 1938, why: '从 engine.js 搬出的轨道渲染与拖动（候选条 / 两条待生成轨 / 把手拖动外壳）。1938 行里含把手拖动那份（本镜与全片两排字幕也共用同一套手势）与待生成轨自己那套拖影；dup-guard 登记的另两份（chat.js / workbench.js）向它收敛之后这里也该跟着薄' },
-  { file: 'web/director/engine/lanes.js', max: 1512, why: '时间轴比例尺（pxPerSec）、刻度、缩放与两排轨道渲染都在这一份，三段式画面格（名称行 + 切片 + 原声波纹带）也落在它里面。刚过 1500 线：再涨先想清楚这一段是不是属于「渲染」而不是「几何」' },
   { file: 'web/features/chat.js', max: 3817, why: '曾经的巨型闭包之一（助手）：工具循环与动作目录已拆去 chat-tools.js，这里只剩外壳 / 会话 / 渲染 / 发送循环；3817 是球旁浮窗、拖素材引用队列与只读工具接线之后。再涨就先把会话存储与发送循环拆开' },
   { file: 'web/features/chat-tools.js', max: 2208, why: '从 chat.js 拆出的工具循环与动作目录（TOOLS / ACTS / 形状表 / 注册表装配）；2208 是画布动作整族删除之后的实测，含 task_detail / asset_open / export_list 几条只读工具与两张形状表。再拆就按「生成 / 素材 / 时间线」各自成表' },
   { file: 'web/domain/api.js', max: 1893, why: '按 window 面拆开的取数层：Api + 媒体地址/状态归类/统一取数的顶层函数。1893 是「发送前的请求预览」（buildBody / preview，与 create 同源）与 exportCaps（成片环境现探）落在这一层、「按类型另存」那几条撤走之后；再拆就把「媒体地址」单独切一块（workbench 也读它）' },

@@ -102,7 +102,6 @@ export default {
       if (it.kind === 'local' && it.name) return it.name;
       return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.name || '素材', 24) + '.' + window.fileExtOf(it);
     };
-    const reuseTabZh = t => ({ video: '视频', image: '图像', audio: '音频' })[window.mediaKindOf(t)];
     const canReuse = it => it.kind === 'asset' || !!it.fileKey;
 
     const aiRankOf = it => (aiRank && aiRank.has(it.key) ? aiRank.get(it.key) : Number.MAX_SAFE_INTEGER);
@@ -790,11 +789,11 @@ export default {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      ready, failed, q, filter, viewItems, cntText, favTotal, pagerVisible, aiText, emptyWhy,
+      ready, failed, viewItems, favTotal, pagerVisible, emptyWhy,
       uploadHtml, uploading, fileEl, rootEl,
       pullBtn, grids, toolbarEl, kindEl, viewEl, favProvEl, favTimeEl, gridEnd, pagerRow,
-      dlBusy, dlMsg, pageItems, titleOf, metaOf, thumbHtml, openLb, onNote, flushNote,
-      dropItem, download, reuse, canReuse, reuseTabZh, pullLocal, pickFiles, onFiles,
+      dlBusy, dlMsg, titleOf, metaOf, thumbHtml, openLb, onNote, flushNote,
+      dropItem, download, reuse, canReuse, pullLocal, pickFiles, onFiles,
       /* 多选 */
       multiMode, openKey, favPicked, togglePick, onPickKey,
       bulkCountText, bulkAllText, bulkAllDisabled, bulkDownDisabled, bulkTipText, bulkFavRemoveDisabled,
@@ -806,8 +805,6 @@ export default {
       /* 详情（就地展开） */
       toggleFavDetail, closeDetail, bandItem, rows, view,
       onCardDragStart, onCardDragEnd,
-      runAiFind, clearAiPick,
-      aiBtnHtml: (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材',
     };
   },
   render,

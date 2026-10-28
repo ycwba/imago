@@ -63,7 +63,6 @@ export default {
     const railToggleEl = ref(null);
     const bkImgPickEl = ref(null);
     const bkTtsPickEl = ref(null);
-    const aiLiveEl = ref(null);
     const gridEl = ref(null);
     const gridEndEl = ref(null);
     const pagerRowEl = ref(null);
@@ -233,8 +232,6 @@ export default {
       return saved;
     }
     function setBusy(m) { busyMsg = m; paintBusy(); }
-
-    const aiPanel = () => window.AiStream.panel(aiLiveEl.value, { title: 'AI 正在写…' });
 
     function paintBusy() {
       busyText.value = genLine() || busyMsg;
@@ -421,7 +418,6 @@ export default {
       cards.value[i] = { id: c.id, html: safeCardHTML(c) };
       await nextTick();
       if (!alive) return;
-      const nx = cardEl(c.id);
       bindCardDom();
       back();
     }
@@ -561,7 +557,7 @@ export default {
         D,
         get REG() { return REG; },
         refUse, DRAFT,
-        libSave, errSet, genRun, genHas, genSet, genClear, genMsg, onTaskHook, aiPanel,
+        libSave, errSet, genRun, genHas, genSet, genClear, genMsg, onTaskHook,
         dramaWith, optsWith, defImgModel, defTtsModel, effKey,
         picWord, mainKind, candCount, durablePic, thumbImg, errText,
         saveField, queueFieldSave, syncDraft, draftOf,
@@ -731,13 +727,6 @@ export default {
       resetPaging();
       render();
     }
-    function jumpFilter(f) {
-      kindFilter.value = 'all';
-      gapFilter.value = f || '';
-      resetPaging();
-      render();
-    }
-
     function selectedItems() {
       const ids = sel.value;
       return D ? D.Lib.list().filter(c => c && ids.has(c.id)) : [];
@@ -1097,13 +1086,6 @@ export default {
         return '';
       }
     }
-    /* 改完一条之后的收尾：写库 → 重画卡面与检查器（详情层开着就让它自己重画）。 */
-    function keep(c, keepOpen) {
-      libSave(c);
-      setBusy('');
-      if (inspId.value === c.id) { paintCard(c); paintInsp(); }
-      else render();
-    }
     /* 检查器：点一张卡就开（再点同一张 = 收）。 */
     async function toggleInsp(id, force) {
       const on = force == null ? inspId.value !== id : !!force;
@@ -1278,16 +1260,6 @@ export default {
       if (n) Toast.receipt('改名完成：' + n + ' 处引用已跟着改');
       return n;
     }
-    function renameAsset(c, inp) {
-      const nm = String(inp.value || '').trim();
-      const a = D.Cast.assetById(c, inp.dataset.id);
-      if (!a) return;
-      if (!nm) { inp.value = D.Cast.assetName(a); Toast.err('名字不能是空的：这是角色资产，没名字就分不清是哪一张'); return; }
-      if (nm === D.Cast.assetName(a)) return;
-      D.Cast.setAssetName(c, a.id, nm); keep(c, true);
-      Toast.receipt('这一张改叫「' + nm + '」');
-    }
-
     /* ---------- AI 找素材 ---------- */
     const AI = {
       label: 'AI 找素材',
@@ -1751,15 +1723,15 @@ export default {
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
       rootEl, matEl, toolbarEl, railScrollEl, railSubEl, grpListEl, viewEl, inspEl,
-      btnNewEl, btnMultiEl, railToggleEl, bkImgPickEl, bkTtsPickEl, aiLiveEl,
+      btnNewEl, btnMultiEl, railToggleEl, bkImgPickEl, bkTtsPickEl,
       gridEl, gridEndEl, pagerRowEl,
-      ready, failed, cards, inspId, railOpen, q, cntText, busyText,
+      ready, failed, cards, inspId, railOpen,
       pagerVisible, emptyHtml,
-      newBtnHtml, aiBtnHtml,
+      newBtnHtml,
       multi, batchCount, batchText, batchGroup, isPicked,
-      runAiFind, newChar,
+      newChar,
       onGridClick, onGridDragStart, onGridDragEnd,
-      toggleMulti, toggleInsp,
+      toggleMulti,
       batchFillPics, batchFillAssets, batchFillVoices, batchSetGroup, batchRemove,
     };
   },

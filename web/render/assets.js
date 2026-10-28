@@ -8,7 +8,6 @@ const _hoisted_1 = {
 const _hoisted_2 = { class: "phead" }
 const _hoisted_3 = {
   class: "phead-meta",
-  id: "asSum",
   ref: "asSumEl",
   role: "group",
   "aria-label": "按任务状态筛选"
@@ -32,7 +31,6 @@ const _hoisted_10 = {
 const _hoisted_11 = { class: "as-filters" }
 const _hoisted_12 = {
   class: "ui-seg",
-  id: "asType",
   ref: "asTypeEl",
   role: "group",
   "aria-label": "按类型筛选"
@@ -40,21 +38,16 @@ const _hoisted_12 = {
 const _hoisted_13 = { class: "as-sel" }
 const _hoisted_14 = {
   class: "ui-inp",
-  id: "asProv",
   ref: "asProvEl",
   "aria-label": "按平台筛选"
 }
 const _hoisted_15 = { class: "as-sel" }
 const _hoisted_16 = {
   class: "ui-inp",
-  id: "asTime",
   ref: "asTimeEl",
   "aria-label": "按时间筛选"
 }
-const _hoisted_17 = {
-  class: "as-range",
-  id: "asRange"
-}
+const _hoisted_17 = { class: "as-range" }
 const _hoisted_18 = ["onClick"]
 const _hoisted_19 = ["value", "onChange"]
 const _hoisted_20 = ["onClick"]
@@ -122,7 +115,6 @@ export function render(_ctx, _cache) {
       _createElementVNode("div", _hoisted_4, [
         _createElementVNode("button", {
           class: "ghost",
-          id: "reloadBtn",
           disabled: _ctx.reloadDisabled,
           title: _ctx.reloadTitle,
           onClick: _ctx.reload
@@ -188,15 +180,13 @@ export function render(_ctx, _cache) {
         }, [
           _createElementVNode("input", {
             type: "date",
-            id: "dFrom",
             ref: "dFromEl",
             title: "起始日期",
             value: _ctx.F.from,
             onChange: $event => (_ctx.onDateChange('from'))
           }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_19),
           _createElementVNode("span", {
-            class: _normalizeClass(["dp-face", { ph: !_ctx.F.from }]),
-            id: "dpFromFace"
+            class: _normalizeClass(["dp-face", { ph: !_ctx.F.from }])
           }, _toDisplayString(_ctx.faceFrom), 3 /* TEXT, CLASS */)
         ], 8 /* PROPS */, _hoisted_18),
         _cache[9] || (_cache[9] = _createElementVNode("span", { class: "dsep" }, "→", -1 /* CACHED */)),
@@ -206,20 +196,17 @@ export function render(_ctx, _cache) {
         }, [
           _createElementVNode("input", {
             type: "date",
-            id: "dTo",
             ref: "dToEl",
             title: "结束日期",
             value: _ctx.F.to,
             onChange: $event => (_ctx.onDateChange('to'))
           }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_21),
           _createElementVNode("span", {
-            class: _normalizeClass(["dp-face", { ph: !_ctx.F.to }]),
-            id: "dpToFace"
+            class: _normalizeClass(["dp-face", { ph: !_ctx.F.to }])
           }, _toDisplayString(_ctx.faceTo), 3 /* TEXT, CLASS */)
         ], 8 /* PROPS */, _hoisted_20),
         _createElementVNode("button", {
           class: "ghost",
-          id: "dClear",
           onClick: _ctx.clearDates
         }, "清除日期", 8 /* PROPS */, _hoisted_22)
       ], 512 /* NEED_PATCH */), [

@@ -8,7 +8,6 @@ import { estimateTokens, redactSecrets } from '../web/domain/chat/text-util.js';
 
 /* activity */
 let route = { file: 'director.html' };
-let pageVisible = true;
 const doc = { hidden: false, addEventListener() {}, removeEventListener() {} };
 const A = createActivity({ getRoute: () => route, doc });
 assert.equal(A.visible('director.html'), true);

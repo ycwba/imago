@@ -95,12 +95,6 @@
    表现是单选框孤零零杵在行中间，文字被甩到另一头。两种一起压回原形。 */
 .settings-page .krow input[type=checkbox], .settings-page .krow input[type=radio] {
   flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; margin: 0; accent-color: var(--acc); }
-.settings-page .krow .sbshow { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-11-5);
-  color: var(--sub); cursor: pointer; white-space: nowrap; }
-.settings-page .krow .sbshow:hover { color: var(--acc); }
-/* 这家没声明余额端点：入口照样给，但压暗一档，让「为什么勾了没反应」在界面上先看出来一点。 */
-.settings-page .krow .sbshow.dim { opacity: .62; }
-.settings-page .krow .sbshow.dim:hover { opacity: 1; }
 .settings-page .krow .eye { flex: 0 0 auto; padding: var(--sp-8) var(--sp-10); line-height: 1; }
 .settings-page .krow .clr { flex: 0 0 auto; padding: var(--sp-8) var(--sp-10); line-height: 1; }
 /* 重复出现的小样式档位（以前是几十处行内 style）：按钮一档、说明一行、勾选一行 */
@@ -352,9 +346,8 @@
    否则十二栏的标题会随着有没有图标左右跳。不需要图标的地方（如页面大标题）不加这个位。
    （`.card` 的 `position: relative` 在上面那一条一份就够，这里不再重复定义同一个类。） */
 /* 标题行：图标位 + 标题。右侧**不再恒留一段空位**（--card-h-pad 92px 没有一张卡真的用得上，
-   只是让十六张卡的标题右缘看着齐 —— 齐的是空地，不是内容）。真有动作就放 .card-h-acts。 */
+   只是让十六张卡的标题右缘看着齐 —— 齐的是空地，不是内容）。 */
 .settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-8); }
-.settings-page .card > h2.card-h .card-h-acts { margin-left: auto; display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: 16px; height: 16px; color: var(--sub); }
 .settings-page .card > h2.card-h .card-ic svg { width: var(--sz-ico); height: var(--sz-ico); fill: none; stroke: currentColor;
@@ -502,8 +495,6 @@
 .settings-page .okmsg { color: var(--ok); font-size: var(--fs-12-5); align-self: center; }
 /* 空提示不占位（否则会留下一条空灰条，看着像坏掉的组件） */
 .settings-page .hint:empty, .settings-page .sub:empty, .settings-page .pb-tip:empty { display: none; }
-/* 注册表读不到时那一行要看得出来是「出错了」而不是普通说明 */
-.settings-page .hint.kerr { color: var(--err); }
 /* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
    用原生 <details>（不引任何依赖），summary 做成一行小字。 */
 .settings-page .ref { margin: var(--sp-6) 0 var(--sp-2); font-size: var(--fs-11-5); color: var(--sub); line-height: 1.6; }
@@ -549,9 +540,10 @@
 /* ---------- 左：场景轨 ---------- */
 .settings-page .sk-rail { border: var(--hair) solid var(--line); border-radius: var(--radius-8); background: var(--panel);
   padding: var(--sp-12); display: flex; flex-direction: column; gap: var(--sp-10);
-  /* 吸附边跟**动态**的导航高度走（--setnavh 是这一页实测写进来的）：
-     写死一个 --sp-60 的话，导航一变高，轨的上半截就藏到导航底下（用户点名：吸顶打架）。 */
-  position: sticky; top: calc(var(--setnavh) + var(--sp-6)); max-height: calc(100vh - var(--setnavh) - var(--sp-24)); overflow: auto; }
+  /* 吸附边跟**动态**的组标题高度走（--setanchor 由 settings.js 量出来写进来）：
+     组标题钉在这条文档顶上（z-index 5），轨跟着吸顶就要在它底下停住；
+     写死一个 --sp-60 的话，组标题一变高，轨的上半截就藏到组标题底下（用户点名：吸顶打架）。 */
+  position: sticky; top: calc(var(--setanchor) + var(--sp-6)); max-height: calc(100vh - var(--setanchor) - var(--sp-24)); overflow: auto; }
 .settings-page .sk-rail-top { display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .sk-search { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--sp-12);
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--input);
@@ -578,7 +570,7 @@
 .settings-page .sk-lamp.lit-builtin { background: color-mix(in srgb, var(--txt) var(--a-26), transparent); border-color: transparent; }
 .settings-page .sk-lamp.lit-empty { background: transparent; border-style: dashed; }
 .settings-page .sk-lamp.lit-conflict { background: color-mix(in srgb, var(--err) var(--a-18), transparent); border-color: var(--err); }
-.settings-page .sk-lamp.lit-asst { border-radius: var(--radius-99); border-style: dotted; }
+
 .settings-page .sk-s-l { flex: 1 1 auto; min-width: 0; font-size: var(--fs-12-5); font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-page .sk-s-r { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); white-space: nowrap; }

@@ -91,7 +91,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
 
   window.Net = {
-    reloadConfig,        // 设置页改完超时/重试后调用
     /* 「网络与刷新」那三个数字的唯一读法（名字是 timeout / retry / poll，不是键名 ——
        键名只在这张表里出现一次，页面与设置页都不许再写 `'sk_net_timeout'` 这种字面量）：
          num(name)         存过的值（夹过），没存过退回默认 —— 运行层用这个
@@ -160,7 +159,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       throw lastErr || new Error('请求失败');
     },
     /* 一次响应读成「原文 + 试解析出来的 JSON」这一步，全站只此一份。
-       json() / assetlib 的 rawFetch 与 respBody / PromptLog 的 req / 导演台的 readJsonSafe 五处
+       json() / api.js 的 rawFetch 与 respBody / prompt-log.js 的 req 这几处
        都要先做这两步再各判各的错误，以前各抄一遍：其中 PromptLog 那一份把解析失败吞进
        `catch (e) {}`，代理回了半截 JSON 时它拿到 null，报出来的是「HTTP 200」而不是「没读出来」。
        只读一次 text()：不能先 r.json() 再 r.text() —— 响应体只能读一遍，

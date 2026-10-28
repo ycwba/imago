@@ -117,7 +117,7 @@ function createRegistryRoutes(ctx) {
        纯前端做不到 —— 浏览器的 `<input type=file webkitdirectory>` **只给文件夹名不给全路径**，
        File System Access API 给的是句柄、不是字符串、也存不下来。老老实实只留一个输入框
        是把平台的限制原样甩给用户，所以这条路由让**本机代理**去弹系统自带的那个对话框
-       （和 `/pick-dir` 弹文件夹选择框、`/local-assets/open` 开资源管理器是同一类：只有本机进程能弹）。
+       （与 `/fcpxml/reveal` 打开导入目录是同一类：只有本机进程能弹）。
     
        **用哪个 PowerShell 决定弹出来的是哪个框**（实测，两者不是同一个东西）：
          · `pwsh`（PowerShell 7，.NET 8 的 WinForms，程序集在 `Program Files\PowerShell\7\`）

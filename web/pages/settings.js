@@ -125,7 +125,6 @@ const SettingsView = {
     const cloudBackupsEl = ref(null);
 
     /* ---------- 公共层（求值期不抓，用到时现取） ---------- */
-    const win = window;
     const ic = (n, s) => (window.icon ? window.icon(n, s) : '');
     const q = sel => (rootEl.value ? rootEl.value.querySelector(sel) : null);
     const qa = sel => (rootEl.value ? [...rootEl.value.querySelectorAll(sel)] : []);
@@ -1143,7 +1142,6 @@ const SettingsView = {
     let cusAutoName = '';
     let cusAutoBase = '';
 
-    const cusHost = u => { try { return new URL(u).host; } catch (e) { return String(u || ''); } };
     /* 档 → 接口形状那一族。语音识别 / 联网搜索没有自己的接口族：它们跑在文字那一套上。 */
     const shapeKindOf = cap => (cap === 'asr' || cap === 'search') ? 'text' : cap;
     const cusKind = () => shapeKindOf(cusCaps.value[0] || 'image');
@@ -3004,7 +3002,6 @@ const SettingsView = {
       r.onload = async () => {
         try {
           const pack = JSON.parse(r.result);
-          const nP = (pack.prompts && pack.prompts.files && pack.prompts.files.length) || 0;
           const ok = await Confirm.ask({ title: '导入整包备份？', danger: true, okLabel: '导入并刷新',
             body: '会覆盖当前数据并自动刷新。覆盖前会自动备份到下载目录。' });
           if (!ok) return;
@@ -4821,22 +4818,20 @@ const SettingsView = {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      rootEl, failed, ready,
+      rootEl, failed,
       setRailEl, setDocEl, setQEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
       navSumShort, navPos,
       saveText, saveKind,
       capLegendEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
-      asrFormEl, searchFormEl, openCus, hideCus,
+      asrFormEl, searchFormEl,
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,
-      cusCapEl, cusCaps, pickCusCap, cusNamePh,
+      cusCapEl, cusNamePh,
       cusShapeEl, cusShapeSel, cusShapeOpts, cusShapeShown, onCusShapeChange,
       cusNameEl, cusName, cusBaseEl, cusBase, cusKeyEl, cusKey, cusKeyShown,
       cusExtraEl, cusExtra, rebuildCusModels, cusModelRows, cusOff, onCusModelToggle, cusModelsEmpty,
       cusFetchBusy, fetchCusModels, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,
-      net,
       pageBoxEl, uiPrefsBoxEl, storePrefsBoxEl, charsBoxEl,
-      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl, markChanged,
-      askNotice, paintNoticeState,
+      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl,
       dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
       impAllFileEl,
@@ -4847,24 +4842,23 @@ const SettingsView = {
       cacheBusy, clearApiCache, clearMetaCache, clearThumbCache, clearMissedCache, histBoxEl, cacheUsage, cacheMsg,
       promptDir, promptDirEl, onPromptDirChange, promptInfo, promptInfoTitle, promptMsg, promptRefresh,
       openPromptDir, promptOpenBusy, promptRecentEl,
-      skillItems, skillReady, skillMsg, skillBusy, skillFileEl, skillChipsEl, skillPreEl,
-      skillSceneKey, skillMode, skillTree, skillScene, skillSceneNow, skillSceneVars, skillSceneUnknown,
+      skillItems, skillMsg, skillBusy, skillFileEl, skillChipsEl,
+      skillMode, skillTree, skillScene, skillSceneNow, skillSceneVars, skillSceneUnknown,
       skillSceneState, isSceneActive, pickSkillScene, openSkillAll, closeSkillAll, skillSceneNameOf,
-      skillQ, skillAllQ, skillAllFilter, skillAllFiltered, skillSelId, skillActive,
+      skillQ, skillAllQ, skillAllFiltered, skillSelId,
       skillFiles, skillFilePath, skillFileNote, skillCntText, skillPages,
-      paintSkillChips, onSkillSearch, onSkillAllSearch, reloadSkills, toggleSkillOpen, setSkillPreEl,
+      onSkillSearch, onSkillAllSearch, toggleSkillOpen, setSkillPreEl,
       openSkillFile, toggleSkillEnabled, pickSkillFile, onImportSkillFile, removeSkill, fmtSkillSize,
       skillForm, openSkillNew, openSkillEdit, saveSkillNew, cancelSkillNew,
-      asr, asrKey, asrLocal, asrLocalText, asrBrowser, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
+      asr, asrKey, asrLocalText, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,
       searchChannelOpts, searchChannelEl, searchCredText, saveSearch, clearSearchKey, testSearch, readFirstSearch,
       exportSetup, pickImportSetup, onImportSetupFile, resetSetup, impSetFileEl,
       icGear: ic('gear', 18), icKey: ic('key', 15), icRefresh: ic('refresh', 15), icList: ic('list', 15),
       icSun: ic('sun', 15), icFolder: ic('folder', 15), icUsers: ic('users', 15), icBrain: ic('brain', 15),
-      icPencil: ic('pencil', 15), icUpload: ic('upload', 15), icPlus: ic('plus', 13), icClock: ic('clock', 15), icLink: ic('link', 15),
+      icPencil: ic('pencil', 15), icUpload: ic('upload', 15), icClock: ic('clock', 15), icLink: ic('link', 15),
       icLayers: ic('layers', 15), icTrash: ic('trash', 15), icFolderDoc: ic('folderDoc', 15),
-      icMic: ic('mic', 15), icSearch: ic('search', 15),
       icEye: ic('eye', 13), icEyeOff: ic('eyeOff', 13),
     };
   },

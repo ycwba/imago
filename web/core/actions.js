@@ -206,5 +206,5 @@ export function createActionRegistry(opts = {}) {
     return [...defs.values()].filter(d => (d.route === '*' || d.route === route) && typeof d.context === 'function')
       .map(d => { try { return { id: d.id, context: d.context() }; } catch (e) { return null; } }).filter(Boolean);
   }
-  return { register, list, describe, check, plan, run, runNow, contexts, has: id => defs.has(id), size: () => defs.size, _plans: plans, _ops: ops };
+  return { register, list, describe, check, plan, run, runNow, contexts, has: id => defs.has(id), size: () => defs.size };
 }

@@ -114,12 +114,6 @@ export function createPlay(E, document, window) {
     if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume().catch(() => ZERO);
     return ctx;
   }
-  function audioReady() {
-    if (!ctx) return false;
-    if (ctx.state === 'suspended' && ctx.resume) ctx.resume().catch(() => ZERO);
-    return ctx.state === 'running' || ctx.state === 'suspended';
-  }
-
   /* 主画面的增益：静音 = 0，正常 = clip.volume（上限 4）。 */
   function applyMainGain(clip) {
     if (!video) return;
@@ -689,14 +683,6 @@ export function createPlay(E, document, window) {
     if (setStatus) setStatus(muted ? '预览已静音' : '预览声音已开启');
   }
 
-  /* ---------------- 旧两轴口径（导出 / 剪刀的过渡期读法） ---------------- */
-  /* `srcT()` = 播放头在**这一格素材的源秒**上；`frameT()` = 播放头在**成片秒**上。 */
-  function srcT() {
-    const row = rowAt(pos);
-    if (!row || row.clip.kind === 'image') return 0;
-    return sourceTimeAt(row.clip, row.start, pos);
-  }
-
   function planEntries() {
     return timelineOf().rows.map(r => ({
       fs: r.start, fd: r.end - r.start, start: r.start, end: r.end,
@@ -715,8 +701,6 @@ export function createPlay(E, document, window) {
     toggle,
     seek,
     setMuted,
-    srcT,
-    frameT: () => pos,
     get plan() { return planEntries(); },
     get starts() { return timelineOf().rows.map(r => r.start); },
     get t() { return pos; },

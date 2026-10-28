@@ -92,16 +92,16 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-live-tip{flex:0 0 auto;margin-top:var(--sp-4);font-size:var(--fs-11);color:var(--sub);
   border-top:var(--hair) dashed var(--line);padding-top:var(--sp-4)}
 .ac-m{display:flex;flex-direction:column;gap:var(--sp-3)}
-.ac-ai{align-items:flex-start}.ac-me{align-items:flex-end}.ac-err{align-items:flex-start}.ac-note{align-items:flex-start}
+.ac-ai{align-items:flex-start}.ac-note{align-items:flex-start}
 .ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-12-5);line-height:1.62;padding:var(--sp-8) var(--sp-10);border-radius:var(--radius-8);max-width:100%}
 /* markdown 那几条气泡改回 normal：pre-wrap 是给纯文本准备的，而 Md 产出的是块级元素 ——
    块与块之间本来就有结构，再让容器把换行也当一次换行，段落之间就多出一截空行。
    行内的换行由 Md 自己转成 <br>（约定③），所以版式不丢。
    写 .ac-bd.md 而不是靠加载顺序压过 .ac-bd：这份样式是运行时注入的，与 ui.css 同权重。 */
 .ac-bd.md{white-space:normal}
-.ac-me .ac-bd{background:var(--acc-tint-18);color:var(--txt)}
+
 .ac-ai .ac-bd{background:var(--panel2);border:var(--hair) solid var(--line);color:var(--txt)}
-.ac-err .ac-bd{background:color-mix(in srgb, var(--err) var(--a-8), transparent);border:var(--hair) solid color-mix(in srgb, var(--err) var(--a-24), transparent);color:var(--err)}
+
 /* 助手自己那条「任务出结果了」的通知气泡：不是用户问出来的，所以要和问答区分开（虚线边 + 强调色） */
 .ac-note .ac-bd{background:var(--panel2);border:var(--hair) dashed var(--acc);color:var(--txt)}
 /* ---------- 工单卡：动了手的那一轮，卡左缘一条状态色带 ---------- */
@@ -110,10 +110,9 @@ html:not(.ac-dock) .ac-ta{resize:none}
   padding:var(--sp-12) var(--sp-14) var(--sp-11) var(--sp-14);box-shadow:var(--shadow-6)}
 .ac-job::before{content:'';position:absolute;left:0;top:var(--sp-10);bottom:var(--sp-10);
   width:var(--accent-bar);border-radius:0 var(--radius-3) var(--radius-3) 0;background:var(--line)}
-.ac-job.s-done::before{background:var(--ok)}
+
 .ac-job.s-gate::before{background:var(--warn)}
-.ac-job.s-failed::before{background:var(--err)}
-.ac-job.s-running::before{background:var(--acc)}
+
 /* 卡里的结论不再是左右对齐的独立气泡：卡本身就是那一侧的容器，正文在卡内满宽。 */
 .ac-job .ac-m{align-items:stretch;width:100%}
 .ac-job .ac-ai .ac-bd{background:transparent;border:0;padding:0;max-width:100%}
@@ -141,9 +140,6 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-sp-toggle{border:0;background:transparent;cursor:pointer;font:inherit;font-size:var(--fs-10);
   color:var(--sub);padding:var(--sp-2) 0;text-align:left;align-self:flex-start}
 .ac-sp-toggle:hover{color:var(--acc)}
-/* ---------- 你发出去的那条：右对齐、淡紫底（与产品的 .ac-me .ac-bd 同一形状） ---------- */
-.ac-m.ac-me{align-items:flex-end;max-width:100%}
-.ac-me .ac-bd{background:var(--acc-tint-18);color:var(--txt);max-width:100%}
 /* 消息里的引用：正文里的一段高亮文字（跟输入框那一个同款手法）。
    底色按所在容器翻过来 —— 紫底上用白底 + accent 描边，不然高亮与气泡糊在一起。 */
 .ac-mref{background:var(--panel);color:var(--acc);box-shadow:inset 0 0 0 var(--hair) var(--acc-line-32);

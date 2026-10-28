@@ -60,7 +60,7 @@ window.AssetPicker = {
         </div>
         <div class="ap-types" id="apTypes" hidden></div>
         ${o.note ? `<div class="ap-sub">${o.note}</div>` : ''}
-        ${(cap || ruleText) ? `<div class="ap-ruleline" id="apRule">${
+        ${(cap || ruleText) ? `<div class="ap-ruleline">${
           /* 本次还能加几个 vs 这个槽位一共能收几个，是两件事，分开写清楚
              （页面上已经选了一半时，只写「最多 4 个」会让人以为这个槽位只收 4 个） */
           (total && cap && total > cap ? ['本槽位最多 ' + total + ' 个', '还能加 ' + cap + ' 个'] : (cap ? ['最多选 ' + cap + ' 个'] : (total ? ['最多 ' + total + ' 个'] : [])))

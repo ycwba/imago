@@ -11,8 +11,6 @@ let n = 0;
 const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项不成立：' + msg); };
 
 const SEED_N = 30;
-/* 1×1 PNG：缩略图只要有一个能画出来的地址就够判「取到了」，不发网络请求。 */
-const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 (async () => {
   let proxy, browser, page;

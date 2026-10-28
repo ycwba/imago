@@ -225,7 +225,6 @@ const check = (name, cond, detail) => {
       const hd = document.querySelector('#sbBalance .sb-bal-body > .sb-mirror .l1');
       if (!hd) return 0; hd.click(); return 1;
     });
-    const setPref = v => page.eval(x => { localStorage.setItem('sb_bal_exp', x); return true; }, v);
     const expPref = () => page.eval(() => localStorage.getItem('sb_bal_exp'));
 
     /* ---------- 档一：1440x900 满形态（232px）---------- */

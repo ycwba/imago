@@ -534,11 +534,9 @@ export default {
         cancel: isTask && !!a.genId && canCx,
         cancelWhy: isTask && !canCx ? window.Wb.cancelWhyNot(prov) : '',
         retry: isTask && !!a.prompt,
-        /* 「再点一下要花多少」写在**悬停提示**里，按钮上只留两个字 ——
-           长文案（「重试（会再扣 ¥0.1000）」）会把这一排撑成两行，
+        /* 按钮上只留两个字 —— 长文案（「重试（会再扣 ¥0.1000）」）会把这一排撑成两行，
            卡片高度就参差了（紧凑档一格 200px，一行放不下）。 */
         retryLabel: retryLabelOf(a),
-        retryTitle: retryTitleOf(a),
         /* 收藏那颗（★ 收藏 / ★ 已收藏）插在「详情」之后 —— 公共件只管它插在哪一档，
            按钮本身是这一页的（收 / 拿的动作在 domain/fav.js 一份）。 */
         afterDetailHTML: a.kind === 'asset' ? favBtnHTML(a) : '',
@@ -579,16 +577,9 @@ export default {
       if (c.cost == null || c.cost === '') return '';
       return c.unit === '元' ? ('¥' + Number(c.cost).toFixed(4)) : (c.cost + ' ' + c.unit);
     }
-    /* 「再点一下要花多少」写在**悬停提示**里；按钮上只留两个字（长文案会把这一排撑成两行）。 */
+    /* 按钮只留两个字（长文案会把这一排撑成两行）。 */
     function retryLabelOf(a) {
       return window.Wb.isUncertain(a.status) ? '重发' : '重试';
-    }
-    function retryTitleOf(a) {
-      const money = costText(a);
-      const unc = window.Wb.isUncertain(a.status);
-      if (!money) return unc ? '再发一次：上一次提交可能已经被平台受理（可能已经扣费）' : '再跑一次';
-      return unc ? ('再发一次：可能再扣一次 ' + money + '（上一次提交可能已经被受理）')
-        : ('再跑一次：会再扣 ' + money);
     }
 
     /* 状态牌：这一格没有画面、但有话要说。 */
@@ -1571,8 +1562,8 @@ export default {
       isPageMode: PAGE_MODE === 'page', pagerReady,
       F, faceFrom, faceTo,
       pageEl, gridEl, gridEndEl, loadErrEl, headToolsEl, asTypeEl, asProvEl, asTimeEl, asSumEl, viewEl,
-      aiSearchBtn, aiChipEl, dFromEl, dToEl, pullLocalBtn, cancelAllBtn, gotoPageEl, pagerBtnsEl,
-      onSearchClick, runAiSearch, openDatePicker, onDateChange, clearDates, onTimeChange, onSumClick, timeMode,
+      dFromEl, dToEl, pullLocalBtn, cancelAllBtn, gotoPageEl, pagerBtnsEl,
+      openDatePicker, onDateChange, clearDates, timeMode,
       toggleMulti: () => assetsMulti().setMode(!multiMode.value),
       exitMulti: () => assetsMulti().setMode(false),
       bulkAll: () => {

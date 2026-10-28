@@ -39,7 +39,6 @@ const HELPERS = {
   /* syntax 现在是 all.cjs 池里的普通一条（run 登记行在），不再是「require 进程内跑」的helper。 */
   harness: '浏览器判据唯一的启动 / 取 Cookie / 打开页面入口（AGENTS.md §13.4），自己不是一条判据',
   watch: 'watch 模式入口：常驻前台跑，触发本文件的 --changed --run，自己不是一条判据',
-  anchordry: '素材库锚点的一次性体检，要带参数，不常驻',
   'data-snapshot': '写入型基线：要对真实 .data/.assets 比，只手工跑（AGENTS.md §13.3）',
 };
 /* 是真判据，但由别处代跑（代跑关系写死在这一份里，不再靠人记）。

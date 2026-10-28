@@ -188,7 +188,7 @@ async function exportFilm(opts) {
   if (cached) {
     const saved = saveBlob(prev.name, cached);
     setStatus('<span class="ok">' + saved.msg + '（' + window.fmtBytes(cached.size) + ' · 这一轮刚合成的那份）</span>');
-    return { ok: true, shortcut: true, out: prev.name, clips: film.clips.length };
+    return { ok: true, out: prev.name, clips: film.clips.length };
   }
   const size = filmSize();
   const btn = $('exportFilm');   // 页头那颗「导出成片」
@@ -392,8 +392,5 @@ function stampName(ext) {
     /* 助手「把刚导出的成片存进资产库」读这一枚：它只看成片字节缓存（同内容再点直接给的那份），
        与已撤的「最近导出」弹窗无关。 */
     filmBlobOf: name => filmBlobCache.get(String(name || '')) || null,
-    buildRenderPlan,
-    filmFingerprint,
-    filmIsCurrent,
   };
 }

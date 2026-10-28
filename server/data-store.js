@@ -191,7 +191,7 @@ function createDataStore(opts) {
     return false;
   }
 
-  return { DATA_KEY_RE, dataDirPath, dataFileOf, dataList, keepDataBackup, dataWriteRaw, handleData };
+  return { DATA_KEY_RE, dataDirPath, dataFileOf, dataList, dataWriteRaw, handleData };
 }
 
 module.exports = { createDataStore, DATA_KEY_RE };

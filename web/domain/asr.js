@@ -215,6 +215,5 @@
     cache: () => cached,
     local: () => localState,
     available: () => !!(localState && localState.available),
-    srtOf: j => String((j && j.srt) || ''),
   };
 })();

@@ -597,9 +597,9 @@ export default {
       chartHtml,
       voiceStat, voiceEmpty, voiceModelRows, voiceRecentRows,
       aiLoaded, aiStat, aiPriceNote, aiModelRows, aiDailyRows,
-      bills, billMore, billErrs, billErr, billLoading, billDownHtml, billNoteHtml, billCntText, billRows, curBillRows,
+      billLoading, billDownHtml, billNoteHtml, billCntText, billRows,
       platformOptions, fPlatform, fRange, fQ,
-      reloadAll, renderBills, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
+      reloadAll, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
       fmtWhen: window.fmtWhen, refreshIcon,
     };
   },

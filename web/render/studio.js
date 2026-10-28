@@ -347,7 +347,6 @@ export function render(_ctx, _cache) {
           }, "取消选择"),
           _createElementVNode("button", {
             class: "ghost",
-            id: "stBulkDown",
             "data-r": "bulkDown",
             disabled: ""
           }, [
@@ -360,7 +359,6 @@ export function render(_ctx, _cache) {
           _createCommentVNode(" 收藏那两颗：把勾选的产物收进「我的收藏」/ 从里面拿出来（与资产库同一套公共件） "),
           _createElementVNode("button", {
             class: "ghost",
-            id: "stBulkFavAdd",
             "data-r": "bulkFavAdd",
             disabled: ""
           }, [
@@ -372,7 +370,6 @@ export function render(_ctx, _cache) {
           ]),
           _createElementVNode("button", {
             class: "ghost",
-            id: "stBulkFavRemove",
             "data-r": "bulkFavRemove",
             disabled: ""
           }, [

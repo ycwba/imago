@@ -19,10 +19,7 @@ const _hoisted_6 = {
 const _hoisted_7 = ["onClick"]
 const _hoisted_8 = { class: "ub-layout" }
 const _hoisted_9 = { class: "ub-left" }
-const _hoisted_10 = {
-  class: "cards",
-  id: "balances"
-}
+const _hoisted_10 = { class: "cards" }
 const _hoisted_11 = {
   key: 0,
   class: "empty"
@@ -39,103 +36,92 @@ const _hoisted_17 = { class: "ex" }
 const _hoisted_18 = { class: "panel" }
 const _hoisted_19 = {
   class: "chart-units",
-  id: "chartUnits",
   ref: "chartUnitsEl"
 }
 const _hoisted_20 = ["innerHTML"]
-const _hoisted_21 = {
-  class: "panel",
-  id: "voicePanel"
-}
-const _hoisted_22 = {
-  class: "stat",
-  id: "voiceStat"
-}
+const _hoisted_21 = { class: "panel" }
+const _hoisted_22 = { class: "stat" }
 const _hoisted_23 = {
   key: 1,
   class: "empty"
 }
-const _hoisted_24 = { id: "voiceByModel" }
-const _hoisted_25 = { key: 0 }
-const _hoisted_26 = { class: "num" }
-const _hoisted_27 = { id: "voiceRecent" }
-const _hoisted_28 = { key: 0 }
-const _hoisted_29 = ["title"]
-const _hoisted_30 = { class: "t" }
-const _hoisted_31 = {
+const _hoisted_24 = { key: 0 }
+const _hoisted_25 = { class: "num" }
+const _hoisted_26 = { key: 0 }
+const _hoisted_27 = ["title"]
+const _hoisted_28 = { class: "t" }
+const _hoisted_29 = {
   class: "w",
   style: {"color":"var(--sub)"}
 }
-const _hoisted_32 = { class: "num" }
-const _hoisted_33 = { class: "panel" }
-const _hoisted_34 = {
+const _hoisted_30 = { class: "num" }
+const _hoisted_31 = { class: "panel" }
+const _hoisted_32 = {
   class: "stat",
   id: "aiStat"
 }
-const _hoisted_35 = {
+const _hoisted_33 = {
   class: "hint",
   id: "aiPriceNote",
   style: {"margin":"var(--sp-2) 0 var(--sp-12)"}
 }
-const _hoisted_36 = { id: "aiByModel" }
+const _hoisted_34 = { key: 0 }
+const _hoisted_35 = { class: "num" }
+const _hoisted_36 = {
+  key: 1,
+  class: "empty"
+}
 const _hoisted_37 = { key: 0 }
-const _hoisted_38 = { class: "num" }
-const _hoisted_39 = {
+const _hoisted_38 = { class: "t" }
+const _hoisted_39 = { class: "num" }
+const _hoisted_40 = {
   key: 1,
   class: "empty"
 }
-const _hoisted_40 = { id: "aiDaily" }
-const _hoisted_41 = { key: 0 }
-const _hoisted_42 = { class: "t" }
-const _hoisted_43 = { class: "num" }
-const _hoisted_44 = {
-  key: 1,
-  class: "empty"
-}
-const _hoisted_45 = { class: "ub-right" }
-const _hoisted_46 = { class: "panel bills-panel" }
-const _hoisted_47 = { class: "filters" }
-const _hoisted_48 = { class: "ddwrap" }
-const _hoisted_49 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_50 = ["value"]
-const _hoisted_51 = { class: "ddwrap" }
-const _hoisted_52 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_53 = ["onUpdate:modelValue", "onInput"]
-const _hoisted_54 = ["onClick"]
-const _hoisted_55 = ["onClick", "innerHTML"]
-const _hoisted_56 = {
+const _hoisted_41 = { class: "ub-right" }
+const _hoisted_42 = { class: "panel bills-panel" }
+const _hoisted_43 = { class: "filters" }
+const _hoisted_44 = { class: "ddwrap" }
+const _hoisted_45 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_46 = ["value"]
+const _hoisted_47 = { class: "ddwrap" }
+const _hoisted_48 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_49 = ["onUpdate:modelValue", "onInput"]
+const _hoisted_50 = ["onClick"]
+const _hoisted_51 = ["onClick", "innerHTML"]
+const _hoisted_52 = {
   class: "upd",
   id: "billCnt",
   style: {"margin-bottom":"var(--sp-8)"}
 }
-const _hoisted_57 = { id: "bills" }
-const _hoisted_58 = ["innerHTML"]
-const _hoisted_59 = {
+const _hoisted_53 = { id: "bills" }
+const _hoisted_54 = ["innerHTML"]
+const _hoisted_55 = {
   key: 1,
   class: "empty"
 }
-const _hoisted_60 = {
+const _hoisted_56 = {
   key: 2,
   class: "empty"
 }
-const _hoisted_61 = { key: 3 }
-const _hoisted_62 = ["title"]
-const _hoisted_63 = { class: "t" }
-const _hoisted_64 = { class: "p" }
-const _hoisted_65 = {
+const _hoisted_57 = { key: 3 }
+const _hoisted_58 = ["title"]
+const _hoisted_59 = { class: "t" }
+const _hoisted_60 = { class: "p" }
+const _hoisted_61 = {
   class: "w",
   style: {"color":"var(--sub)"}
 }
-const _hoisted_66 = {
+const _hoisted_62 = {
   key: 1,
   style: {"font-size":"var(--fs-10)"}
 }
-const _hoisted_67 = {
+const _hoisted_63 = {
   key: 2,
   style: {"color":"var(--err)"}
 }
-const _hoisted_68 = { class: "num" }
-const _hoisted_69 = {
+const _hoisted_64 = { class: "num" }
+const _hoisted_65 = {
   key: 1,
   title: "平台这次没返回价格，不是 0"
 }
@@ -258,9 +244,9 @@ export function render(_ctx, _cache) {
                 ? (_openBlock(), _createElementBlock("div", _hoisted_23, _toDisplayString(_ctx.voiceEmpty), 1 /* TEXT */))
                 : _createCommentVNode("v-if", true)
           ]),
-          _createElementVNode("div", _hoisted_24, [
+          _createElementVNode("div", null, [
             (_ctx.voiceModelRows.length)
-              ? (_openBlock(), _createElementBlock("table", _hoisted_25, [
+              ? (_openBlock(), _createElementBlock("table", _hoisted_24, [
                   _cache[9] || (_cache[9] = _createElementVNode("thead", null, [
                     _createElementVNode("tr", null, [
                       _createElementVNode("th", null, "型号 / 音色"),
@@ -277,7 +263,7 @@ export function render(_ctx, _cache) {
                         _createElementVNode("td", null, _toDisplayString(v.cnt), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(v.chars.toLocaleString()), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(v.tokens ? v.tokens.toLocaleString() : '—'), 1 /* TEXT */),
-                        _createElementVNode("td", _hoisted_26, _toDisplayString(v.secs ? v.secs.toFixed(1) + 's' : '—'), 1 /* TEXT */)
+                        _createElementVNode("td", _hoisted_25, _toDisplayString(v.secs ? v.secs.toFixed(1) + 's' : '—'), 1 /* TEXT */)
                       ]))
                     }), 128 /* KEYED_FRAGMENT */))
                   ])
@@ -285,9 +271,9 @@ export function render(_ctx, _cache) {
               : _createCommentVNode("v-if", true)
           ]),
           _cache[12] || (_cache[12] = _createElementVNode("h2", { class: "sect-mini" }, "最近生成", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_27, [
+          _createElementVNode("div", null, [
             (_ctx.voiceRecentRows.length)
-              ? (_openBlock(), _createElementBlock("table", _hoisted_28, [
+              ? (_openBlock(), _createElementBlock("table", _hoisted_26, [
                   _cache[10] || (_cache[10] = _createElementVNode("thead", null, [
                     _createElementVNode("tr", null, [
                       _createElementVNode("th", null, "时间"),
@@ -302,20 +288,20 @@ export function render(_ctx, _cache) {
                         key: i,
                         title: r.desc || ''
                       }, [
-                        _createElementVNode("td", _hoisted_30, _toDisplayString(_ctx.fmtWhen(r.ts) || '—'), 1 /* TEXT */),
-                        _createElementVNode("td", _hoisted_31, _toDisplayString(r.platform || '') + " · " + _toDisplayString((r.desc || '').slice(0, 70)), 1 /* TEXT */),
+                        _createElementVNode("td", _hoisted_28, _toDisplayString(_ctx.fmtWhen(r.ts) || '—'), 1 /* TEXT */),
+                        _createElementVNode("td", _hoisted_29, _toDisplayString(r.platform || '') + " · " + _toDisplayString((r.desc || '').slice(0, 70)), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(r.duration ? r.duration + 's' : '—'), 1 /* TEXT */),
-                        _createElementVNode("td", _hoisted_32, _toDisplayString(r.tokens ? Number(r.tokens).toLocaleString() : '—'), 1 /* TEXT */)
-                      ], 8 /* PROPS */, _hoisted_29))
+                        _createElementVNode("td", _hoisted_30, _toDisplayString(r.tokens ? Number(r.tokens).toLocaleString() : '—'), 1 /* TEXT */)
+                      ], 8 /* PROPS */, _hoisted_27))
                     }), 128 /* KEYED_FRAGMENT */))
                   ])
                 ]))
               : _createCommentVNode("v-if", true)
           ])
         ]),
-        _createElementVNode("div", _hoisted_33, [
+        _createElementVNode("div", _hoisted_31, [
           _cache[20] || (_cache[20] = _createElementVNode("h2", null, "文字 AI 用量", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_34, [
+          _createElementVNode("div", _hoisted_32, [
             (_ctx.aiStat)
               ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
                   _createElementVNode("div", null, [
@@ -341,10 +327,10 @@ export function render(_ctx, _cache) {
                 ], 64 /* STABLE_FRAGMENT */))
               : _createCommentVNode("v-if", true)
           ]),
-          _createElementVNode("div", _hoisted_35, _toDisplayString(_ctx.aiPriceNote), 1 /* TEXT */),
-          _createElementVNode("div", _hoisted_36, [
+          _createElementVNode("div", _hoisted_33, _toDisplayString(_ctx.aiPriceNote), 1 /* TEXT */),
+          _createElementVNode("div", null, [
             (_ctx.aiModelRows.length)
-              ? (_openBlock(), _createElementBlock("table", _hoisted_37, [
+              ? (_openBlock(), _createElementBlock("table", _hoisted_34, [
                   _cache[18] || (_cache[18] = _createElementVNode("thead", null, [
                     _createElementVNode("tr", null, [
                       _createElementVNode("th", null, "型号"),
@@ -361,19 +347,19 @@ export function render(_ctx, _cache) {
                         _createElementVNode("td", null, _toDisplayString(v.calls), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(v.pt.toLocaleString()), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(v.ct.toLocaleString()), 1 /* TEXT */),
-                        _createElementVNode("td", _hoisted_38, _toDisplayString((v.pt + v.ct).toLocaleString()), 1 /* TEXT */)
+                        _createElementVNode("td", _hoisted_35, _toDisplayString((v.pt + v.ct).toLocaleString()), 1 /* TEXT */)
                       ]))
                     }), 128 /* KEYED_FRAGMENT */))
                   ])
                 ]))
               : (_ctx.aiLoaded)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_39, "还没有用量"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_36, "还没有用量"))
                 : _createCommentVNode("v-if", true)
           ]),
           _cache[21] || (_cache[21] = _createElementVNode("h2", { class: "sect-mini" }, "按日用量", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_40, [
+          _createElementVNode("div", null, [
             (_ctx.aiDailyRows.length)
-              ? (_openBlock(), _createElementBlock("table", _hoisted_41, [
+              ? (_openBlock(), _createElementBlock("table", _hoisted_37, [
                   _cache[19] || (_cache[19] = _createElementVNode("thead", null, [
                     _createElementVNode("tr", null, [
                       _createElementVNode("th", null, "日期"),
@@ -384,24 +370,24 @@ export function render(_ctx, _cache) {
                   _createElementVNode("tbody", null, [
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.aiDailyRows, (d, i) => {
                       return (_openBlock(), _createElementBlock("tr", { key: i }, [
-                        _createElementVNode("td", _hoisted_42, _toDisplayString(d.day), 1 /* TEXT */),
+                        _createElementVNode("td", _hoisted_38, _toDisplayString(d.day), 1 /* TEXT */),
                         _createElementVNode("td", null, _toDisplayString(d.calls), 1 /* TEXT */),
-                        _createElementVNode("td", _hoisted_43, _toDisplayString(d.tokens.toLocaleString()), 1 /* TEXT */)
+                        _createElementVNode("td", _hoisted_39, _toDisplayString(d.tokens.toLocaleString()), 1 /* TEXT */)
                       ]))
                     }), 128 /* KEYED_FRAGMENT */))
                   ])
                 ]))
               : (_ctx.aiLoaded)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_44, "还没有调用记录"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_40, "还没有调用记录"))
                 : _createCommentVNode("v-if", true)
           ])
         ])
       ]),
-      _createElementVNode("aside", _hoisted_45, [
-        _createElementVNode("div", _hoisted_46, [
+      _createElementVNode("aside", _hoisted_41, [
+        _createElementVNode("div", _hoisted_42, [
           _cache[26] || (_cache[26] = _createElementVNode("h2", null, "账单明细", -1 /* CACHED */)),
-          _createElementVNode("div", _hoisted_47, [
-            _createElementVNode("div", _hoisted_48, [
+          _createElementVNode("div", _hoisted_43, [
+            _createElementVNode("div", _hoisted_44, [
               _withDirectives(_createElementVNode("select", {
                 id: "fPlatform",
                 ref: "fPlatformEl",
@@ -413,13 +399,13 @@ export function render(_ctx, _cache) {
                   return (_openBlock(), _createElementBlock("option", {
                     key: p,
                     value: p
-                  }, _toDisplayString(p), 9 /* TEXT, PROPS */, _hoisted_50))
+                  }, _toDisplayString(p), 9 /* TEXT, PROPS */, _hoisted_46))
                 }), 128 /* KEYED_FRAGMENT */))
-              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_49), [
+              ], 40 /* PROPS, NEED_HYDRATION */, _hoisted_45), [
                 [_vModelSelect, _ctx.fPlatform]
               ])
             ]),
-            _createElementVNode("div", _hoisted_51, [
+            _createElementVNode("div", _hoisted_47, [
               _withDirectives(_createElementVNode("select", {
                 id: "fRange",
                 "onUpdate:modelValue": $event => ((_ctx.fRange) = $event),
@@ -429,7 +415,7 @@ export function render(_ctx, _cache) {
                 _createElementVNode("option", { value: "7" }, "近 7 天", -1 /* CACHED */),
                 _createElementVNode("option", { value: "30" }, "近 30 天", -1 /* CACHED */),
                 _createElementVNode("option", { value: "0" }, "全部时间", -1 /* CACHED */)
-              ]))], 40 /* PROPS, NEED_HYDRATION */, _hoisted_52), [
+              ]))], 40 /* PROPS, NEED_HYDRATION */, _hoisted_48), [
                 [_vModelSelect, _ctx.fRange]
               ])
             ]),
@@ -438,13 +424,12 @@ export function render(_ctx, _cache) {
               "onUpdate:modelValue": $event => ((_ctx.fQ) = $event),
               onInput: _ctx.onQInput,
               placeholder: "搜索提示词 / 型号 / ID…"
-            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_53), [
+            }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_49), [
               [_vModelText, _ctx.fQ]
             ])
           ]),
           _createElementVNode("button", {
             class: "ghost",
-            id: "expBills",
             onClick: _ctx.exportBills
           }, [...(_cache[24] || (_cache[24] = [
             _createElementVNode("span", {
@@ -453,24 +438,23 @@ export function render(_ctx, _cache) {
               "data-size": "13"
             }, null, -1 /* CACHED */),
             _createTextVNode(" 导出 CSV", -1 /* CACHED */)
-          ]))], 8 /* PROPS */, _hoisted_54),
+          ]))], 8 /* PROPS */, _hoisted_50),
           _createElementVNode("div", {
-            id: "billNote",
             onClick: _ctx.onBillNoteClick,
             innerHTML: _ctx.billNoteHtml
-          }, null, 8 /* PROPS */, _hoisted_55),
-          _createElementVNode("div", _hoisted_56, _toDisplayString(_ctx.billCntText), 1 /* TEXT */),
-          _createElementVNode("div", _hoisted_57, [
+          }, null, 8 /* PROPS */, _hoisted_51),
+          _createElementVNode("div", _hoisted_52, _toDisplayString(_ctx.billCntText), 1 /* TEXT */),
+          _createElementVNode("div", _hoisted_53, [
             (_ctx.billDownHtml)
               ? (_openBlock(), _createElementBlock("div", {
                   key: 0,
                   innerHTML: _ctx.billDownHtml
-                }, null, 8 /* PROPS */, _hoisted_58))
+                }, null, 8 /* PROPS */, _hoisted_54))
               : (_ctx.billLoading)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_59, "加载中…"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_55, "加载中…"))
                 : (!_ctx.billRows.length)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_60, "没有账单"))
-                  : (_openBlock(), _createElementBlock("table", _hoisted_61, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_56, "没有账单"))
+                  : (_openBlock(), _createElementBlock("table", _hoisted_57, [
                       _cache[25] || (_cache[25] = _createElementVNode("thead", null, [
                         _createElementVNode("tr", null, [
                           _createElementVNode("th", null, "时间"),
@@ -485,9 +469,9 @@ export function render(_ctx, _cache) {
                             key: i,
                             title: _ctx.billRowTitle(b)
                           }, [
-                            _createElementVNode("td", _hoisted_63, _toDisplayString(_ctx.fmtWhen(b.ts) || '—'), 1 /* TEXT */),
-                            _createElementVNode("td", _hoisted_64, _toDisplayString(b.platform || ''), 1 /* TEXT */),
-                            _createElementVNode("td", _hoisted_65, [
+                            _createElementVNode("td", _hoisted_59, _toDisplayString(_ctx.fmtWhen(b.ts) || '—'), 1 /* TEXT */),
+                            _createElementVNode("td", _hoisted_60, _toDisplayString(b.platform || ''), 1 /* TEXT */),
+                            _createElementVNode("td", _hoisted_61, [
                               _createTextVNode(_toDisplayString(b.what), 1 /* TEXT */),
                               (b.desc)
                                 ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
@@ -495,19 +479,19 @@ export function render(_ctx, _cache) {
                                   ], 64 /* STABLE_FRAGMENT */))
                                 : _createCommentVNode("v-if", true),
                               (b.genId)
-                                ? (_openBlock(), _createElementBlock("code", _hoisted_66, _toDisplayString(b.genShort), 1 /* TEXT */))
+                                ? (_openBlock(), _createElementBlock("code", _hoisted_62, _toDisplayString(b.genShort), 1 /* TEXT */))
                                 : _createCommentVNode("v-if", true),
                               (b.status && b.status !== 'succeeded')
-                                ? (_openBlock(), _createElementBlock("span", _hoisted_67, _toDisplayString(b.status), 1 /* TEXT */))
+                                ? (_openBlock(), _createElementBlock("span", _hoisted_63, _toDisplayString(b.status), 1 /* TEXT */))
                                 : _createCommentVNode("v-if", true)
                             ]),
-                            _createElementVNode("td", _hoisted_68, [
+                            _createElementVNode("td", _hoisted_64, [
                               (b.tokens != null)
                                 ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
                                     _createTextVNode(_toDisplayString(b.tokens.toLocaleString()) + " tokens", 1 /* TEXT */)
                                   ], 64 /* STABLE_FRAGMENT */))
                                 : (b.cost == null)
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_69, "平台未提供价格"))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_65, "平台未提供价格"))
                                   : (b.unit === '元')
                                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
                                         _createTextVNode("¥" + _toDisplayString(Number(b.cost).toFixed(4)), 1 /* TEXT */)
@@ -516,7 +500,7 @@ export function render(_ctx, _cache) {
                                         _createTextVNode(_toDisplayString(b.cost) + " " + _toDisplayString(b.unit), 1 /* TEXT */)
                                       ], 64 /* STABLE_FRAGMENT */))
                             ])
-                          ], 8 /* PROPS */, _hoisted_62))
+                          ], 8 /* PROPS */, _hoisted_58))
                         }), 128 /* KEYED_FRAGMENT */))
                       ])
                     ]))

@@ -650,14 +650,6 @@ window.Capabilities = {
   /* 声明里的 `when: { mode, intent }` 与**这一次的形状**匹不匹配 —— 判据只有这一份，
      提交体、报价体（`pricing.noQuote.when`）与界面三处都问它；页面不许自己比字符串。 */
   whenMatches,
-  /* 上游 models 响应**不是**「parameters 对象」那种形状时的归一化：注册表用 `modelsShape:'<键>'` 点名。
-     内置形状在本文件顶层的 NORM_SHAPES 里；新增一种形状（新平台、新响应结构）在这里注册，
-     不必再回 api.js 里塞一张表 —— 归一化本来就是能力层的事。 */
-  registerShape(key, fn) {
-    if (!key || typeof fn !== 'function') return false;
-    NORM_SHAPES[String(key)] = fn;
-    return true;
-  },
   /* ---- 「这一次的那一行」：逐行能力 ----
      VGENV 把 turbo 与 2x 超分写在 (tier × 这一批素材组合) 上，实测同一个模式里：
      带参考视频的那几种组合 turbo 一律 false；enhanced 档没有 2x；而 quality 档与换人档又给 turbo。

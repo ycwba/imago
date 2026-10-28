@@ -233,8 +233,8 @@
   window.WbSkills = { list: list, full: full, readFile: readFile, files: files,
     install: install, importBundle: importBundle, update: update, setEnabled: setEnabled,
     remove: remove,
-    match: match, activeFor: activeFor, prime: prime, invalidate: invalidate, refRule: refRule, TTL: TTL,
-    estTokens: estTokens, SKILL_BUDGET: SKILL_BUDGET, ON_DEMAND_BUDGET: ON_DEMAND_BUDGET };
+    match: match, activeFor: activeFor, refRule: refRule,
+    estTokens: estTokens, ON_DEMAND_BUDGET: ON_DEMAND_BUDGET };
   window.__skillBodies = window.__skillBodies || {};
   /* shell 里紧跟 ui.js 加载；不抢首屏，但要在第一次润色之前把正文备好。 */
   setTimeout(function () { prime(); }, 700);

@@ -13,7 +13,6 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, '.data');
-const SKILLS = process.env.SKILLS_DIR ? path.resolve(process.env.SKILLS_DIR) : path.join(root, '.skills');
 const KEEP = 'sk_polish_ask';
 const dry = !process.argv.includes('--yes');
 

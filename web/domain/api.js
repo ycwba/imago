@@ -388,21 +388,8 @@ function topBoolValue(decl, on) {
     })();
     return _capsP;
   }
-  function exportCapsLines(c) {
-    const x = c || { chip: '没读到', why: '还没有探测结果', cls: 'warn', items: [] };
-    const out = ['成片导出（浏览器内）：' + x.chip + ' —— ' + (x.why || '')];
-    (x.items || []).forEach(it => out.push('  · ' + it.name + '：' + (it.ok ? '能用' : '不能用') + ' —— ' + (it.detail || '')));
-    return out;
-  }
   function sysStatus(fresh) {
     return window.Net.json('/sys-status' + (fresh ? '?fresh=1' : ''), { timeout: 20000, retry: 0 });
-  }
-  /* 一个探测项 → {芯片, 原因, cls}。「没读到」是黄的而不是红的：旧代理根本没这个接口，
-     标成「坏了」会把人引去重装一个本来就装好的东西。 */
-  function sysTool(t, name) {
-    if (!t) return { name: name, chip: '没读到', why: '', cls: 'warn' };
-    if (t.ok) return { name: name, chip: '能用', why: t.版本 || '', cls: 'ok' };
-    return { name: name, chip: '不能用', why: t.why || '代理没说原因', cls: 'err' };
   }
   /* 目录：芯片只留「可写 / 还没建 / 写不进去」，括号里的原因单独给 —— 同一件事不要连着说两遍 */
   function sysDir(d) {
@@ -708,7 +695,7 @@ function topBoolValue(decl, on) {
     assetDlSrc,                     // 已经是 /asset/ 地址 → 同一地址的下载写法（取字节那两条路用它）
     mediaKey,                       // 素材身份（host+path+稳定 query）：缓存键、去重、比对都用它
     innerMedia,                     // /getv?url=… 或 /fetch?url=…&dl=1 里取出内层外链
-    signedExpiry, mediaExpired,     // 签名外链的过期时刻（毫秒）/ 是否已过期（不发请求）
+    mediaExpired,                   // 签名外链是否已过期（不发请求）
     healMedia,                      // 一批过期地址按平台回源换新（onFresh 里由调用方落盘）
     classifyStatus,                 // 上游状态串 → done / queued / running / failed（唯一判据，页面别自己认词）
     /* 型号清单响应 → 数组（字段表读注册表顶层 modelList.fields；服务端 modelRowsOf 同一份声明） */
@@ -818,14 +805,13 @@ function topBoolValue(decl, on) {
     },
     /* 跑着的代理是不是旧版由 warnOldProxy 在取注册表时顺手提醒，界面不需要单独读版本号 */
     oldProxyNotice,
-    warnProxyDown,
     /* 本机环境（/sys-status）只有一份取法与一份说法：设置页那一栏、
        助手的 doctor 三边都要问，各写一遍就会出现「设置页说能用、助手说不能用」。 */
-    sysStatus, sysTool, sysDir, sysHealth, sysFaultLines, relayLines, sysStatusLines, SYS_WHY,
+    sysStatus, sysDir, sysHealth, sysFaultLines, relayLines, sysStatusLines, SYS_WHY,
     /* 浏览器内导出的能力：设置页那一栏与助手 doctor 读这同一份（不为了体检去下解码包）。 */
-    exportCaps, exportCapsLines,
+    exportCaps,
     /* 本机资产库用量（/assets-usage）同一族：设置页那一栏与复制文本读这同一份。 */
-    assetsUsage, usageLines, usageBytes, usageWhen, USAGE_WHY,
+    assetsUsage, usageLines,
     providers() { return (_reg && _reg.providers) || []; },
     /* 按 id / keyId / kind / relay 找平台 */
     prov(ref) {
@@ -884,7 +870,6 @@ function topBoolValue(decl, on) {
         return this.envKnown() ? this.provUsable(p, _env) : true;
       });
     },
-    forKind(kind) { return this.pickable(this.providers().filter(p => p.kind === kind)); },
     /* ---- 设置页「添加自定义供应商」那一份清单（键 sk_custom，JSON 数组）----
        页面只存「照哪一家的接口形状 + 地址 + 型号 id + 显示名」，条目怎么拼成完整声明
        全在 proxy.js 的 buildCustom 里（endpoints / create / list 都取自模板）。
@@ -1844,7 +1829,6 @@ function topBoolValue(decl, on) {
       const st = classifyStatus(spec, rawStatus);
       const isDone = st === 'done';
       const isFail = st === 'failed';
-      const isLive = !isDone && !isFail;
       /* 产物落本机：**放在 parseItem 里**（唯一被所有轮询路径共用的那一份解析），不在
          pollTask / pollMany / 各页各写一遍 —— 少一个入口就意味着「某个平台的产物永远不落盘」。
          offer 只是入队（真正下载在队列里异步做），所以同步这里调它不影响返回速度。 */

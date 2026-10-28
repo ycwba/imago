@@ -21,7 +21,6 @@
 :where(.studio-page, .studio-page *, .studio-page *::before, .studio-page *::after) { box-sizing: border-box; }
 :where(.studio-page, .studio-page *) { margin: 0; padding: 0; }
 
-
 /* ---------- 右栏顶上那一行：翻页 ---------- */
 /* 页面根**不再**改成竖排：以前页底有一行页脚（.ver），根是 flex 竖排、页脚另占一条，
    两栏就被顶矮一截。页脚撤掉后根回到普通块盒，.layout 由 wb.css 那一份 height:100% 吃满。

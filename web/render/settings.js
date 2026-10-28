@@ -209,7 +209,6 @@ const _hoisted_118 = {
 const _hoisted_119 = { class: "card-h" }
 const _hoisted_120 = ["innerHTML"]
 const _hoisted_121 = {
-  id: "pageSettings",
   class: "kcols",
   ref: "pageBoxEl"
 }
@@ -220,7 +219,6 @@ const _hoisted_122 = {
 const _hoisted_123 = { class: "card-h" }
 const _hoisted_124 = ["innerHTML"]
 const _hoisted_125 = {
-  id: "uiPrefs",
   class: "kcols",
   ref: "uiPrefsBoxEl"
 }
@@ -236,7 +234,6 @@ const _hoisted_127 = {
 const _hoisted_128 = { class: "card-h" }
 const _hoisted_129 = ["innerHTML"]
 const _hoisted_130 = {
-  id: "storePrefs",
   class: "kcols",
   ref: "storePrefsBoxEl"
 }
@@ -251,7 +248,6 @@ const _hoisted_132 = {
 const _hoisted_133 = { class: "card-h" }
 const _hoisted_134 = ["innerHTML"]
 const _hoisted_135 = {
-  id: "charsSet",
   class: "kcols",
   ref: "charsBoxEl"
 }
@@ -267,8 +263,7 @@ const _hoisted_139 = {
 }
 const _hoisted_140 = {
   class: "card card-surface",
-  "data-nav": "polish",
-  id: "polishCard"
+  "data-nav": "polish"
 }
 const _hoisted_141 = { class: "card-h" }
 const _hoisted_142 = ["innerHTML"]
@@ -490,10 +485,7 @@ const _hoisted_295 = ["onUpdate:modelValue", "onChange"]
 const _hoisted_296 = { class: "hint sm" }
 const _hoisted_297 = { class: "krow tight" }
 const _hoisted_298 = { class: "hint sm" }
-const _hoisted_299 = {
-  id: "cloudConflicts",
-  ref: "cloudConflictsEl"
-}
+const _hoisted_299 = { ref: "cloudConflictsEl" }
 const _hoisted_300 = {
   id: "cloudBackups",
   ref: "cloudBackupsEl"
@@ -512,14 +504,12 @@ const _hoisted_308 = ["disabled", "onClick"]
 const _hoisted_309 = ["onClick"]
 const _hoisted_310 = { class: "hint sm" }
 const _hoisted_311 = {
-  id: "promptRecent",
   ref: "promptRecentEl",
   class: "prompt-recent"
 }
 const _hoisted_312 = {
   class: "card card-surface",
-  "data-nav": "backup",
-  id: "ioCard"
+  "data-nav": "backup"
 }
 const _hoisted_313 = { class: "card-h" }
 const _hoisted_314 = ["innerHTML"]
@@ -541,10 +531,7 @@ const _hoisted_322 = {
 }
 const _hoisted_323 = { class: "card-h" }
 const _hoisted_324 = ["innerHTML"]
-const _hoisted_325 = {
-  id: "sysRows",
-  ref: "sysRowsEl"
-}
+const _hoisted_325 = { ref: "sysRowsEl" }
 const _hoisted_326 = { class: "krow tight" }
 const _hoisted_327 = ["disabled", "onClick"]
 const _hoisted_328 = ["disabled", "onClick", "title"]
@@ -555,17 +542,11 @@ const _hoisted_330 = {
 }
 const _hoisted_331 = { class: "card-h" }
 const _hoisted_332 = ["innerHTML"]
-const _hoisted_333 = {
-  id: "usageRows",
-  ref: "usageRowsEl"
-}
+const _hoisted_333 = { ref: "usageRowsEl" }
 const _hoisted_334 = { class: "krow tight" }
 const _hoisted_335 = ["disabled", "onClick"]
 const _hoisted_336 = ["disabled", "onClick", "title"]
-const _hoisted_337 = {
-  id: "usageGoSlot",
-  ref: "usageGoSlotEl"
-}
+const _hoisted_337 = { ref: "usageGoSlotEl" }
 const _hoisted_338 = { class: "hint sm" }
 const _hoisted_339 = {
   class: "card card-surface",
@@ -582,10 +563,7 @@ const _hoisted_347 = { class: "krow tight" }
 const _hoisted_348 = ["disabled", "onClick"]
 const _hoisted_349 = { class: "krow tight" }
 const _hoisted_350 = ["disabled", "onClick"]
-const _hoisted_351 = {
-  id: "histClearRows",
-  ref: "histBoxEl"
-}
+const _hoisted_351 = { ref: "histBoxEl" }
 const _hoisted_352 = {
   class: "hint sm cache-line",
   id: "cacheUsage"
@@ -1473,7 +1451,6 @@ export function render(_ctx, _cache) {
                             }, "回到场景", 8 /* PROPS */, _hoisted_209),
                             _createElementVNode("button", {
                               class: "ghost",
-                              id: "skImportBtn",
                               type: "button",
                               disabled: _ctx.skillBusy,
                               onClick: $event => (_ctx.pickSkillFile('import'))
@@ -1864,7 +1841,6 @@ export function render(_ctx, _cache) {
                 [_vModelText, _ctx.promptDir]
               ]),
               _createElementVNode("span", {
-                id: "promptDirInfo",
                 title: _ctx.promptInfoTitle,
                 style: {"flex":"0 0 auto"}
               }, _toDisplayString(_ctx.promptInfo), 9 /* TEXT, PROPS */, _hoisted_306)

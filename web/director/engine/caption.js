@@ -415,6 +415,6 @@ export function createCaptionDomain(E, document, window) {
   return {
     capPanelHTML, bindCapPanel, capGenerate, capResegment, capAddAtPin, capExportSrt, capImportSrt,
     capSrtText, capImportSrtText, capAddEntries,
-    capAsr, capAsrBusyOf: () => asrBusy, capSetText, capSetTime, capSetStyle, capDelete, list: captionList,
+    capAsr, capSetText, capSetTime, capSetStyle, capDelete, list: captionList,
   };
 }

@@ -121,7 +121,8 @@ ok('语义检索模块有 rank', /SemanticSearch\s*=\s*\{\s*norm/.test(read('web
 ok('切片缓存用稳定键 / 失败 TTL / 同图不重绘', /function\s+sliceKey/.test(EL)
   && /SLICE_FAIL_TTL/.test(EL) && /__stripSig/.test(EL));
 ok('本机/云端标识有开关', /sk_media_badge/.test(read('web/ui/ui.js')) && /showBadge/.test(read('web/domain/local.js')));
-ok('Vue 页面可交未保存状态', /__spaFlush/.test(core) && /__spaDirty/.test(core));
+ok('Vue 页面可交未保存状态', /__spaRegister\s*=/.test(core) && /hooks\.runAll\(\)/.test(core)
+  && /window\.__spaFlush/.test(read('web/director/engine.js')) && /window\.__spaDirty/.test(read('web/pages/settings.js')));
 
 /* ---------- 5. 关键机制仍只有一份 ---------- */
 group('§5 唯一实现');
@@ -140,7 +141,7 @@ ok('身份判据 mirrorOf 恰好一层实现', (al.match(/function\s+mirrorOf\s*
 ok('decorate 与 twinOf 都走 mirrorOf', /mirrorOf\(e,\s*!!\(opts && opts\.allowGen\)\)/.test(al)
   && /mirrorOf\(e,\s*false\)/.test(al));
 ok('本机/云端状态只有 stateOf 一份出口', /function\s+stateOf\s*\(/.test(al)
-  && /hasLocal,\s*hasCloud,\s*stateOf/.test(al));
+  && /\n\s*stateOf,\n/.test(al) && !/hasLocal,\s*hasCloud/.test(al));
 /* 画「本机 / 云端」徽标的页（资产库 / 工作台）都读 stateOf —— 那一档的身份只有一份出口。
    收藏页**不画**这一档徽标（那一页不显示本机 / 云端 / 只剩外链），所以它不读 stateOf。 */
 ok('画本机/云端徽标的两页都读 stateOf（收藏页不画这一档）',

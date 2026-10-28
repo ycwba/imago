@@ -26,14 +26,12 @@ const _hoisted_11 = { class: "fav-filters" }
 const _hoisted_12 = { class: "fav-sel" }
 const _hoisted_13 = {
   class: "ui-inp",
-  id: "favProv",
   ref: "favProvEl",
   "aria-label": "按平台筛选"
 }
 const _hoisted_14 = { class: "fav-sel" }
 const _hoisted_15 = {
   class: "ui-inp",
-  id: "favTime",
   ref: "favTimeEl",
   "aria-label": "按收藏时间筛选"
 }

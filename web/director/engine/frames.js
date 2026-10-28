@@ -42,7 +42,6 @@ export function createFrames(E, document, window) {
    主链兜底共用同一条流水线（slicePump）：同一条素材一次只有一趟活，全页同时在解的
    不超过 SLICE_GLOBAL 趟 —— 十几条候选各开各的解码器，只会把中栏正在播的那条拖慢。 */
 const frameCache = new Map();
-const EMPTY_HITS = new Map();         // 这一条素材还没建缓存表时给读数用的空表（免得每处各 new 一份）
 const slicePending = new Map();       // 稳定键 → 已排进队列、还没出图的格子
 const sliceFailed = new Map();        // 稳定键 → Map(时刻 → { 失败时间, 连着失败几次 })：退避一阵后要自己再试
 const sliceJobs = [];                 // 全页共用的一条解码流水线上的活：{ key, src, times, hit, res, prio, hot, onFrame }

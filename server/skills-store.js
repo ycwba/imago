@@ -74,10 +74,6 @@ function createSkillsStore(opts) {
        而调用方只会看到「启停没生效」。 */
     atomicWrite(statePath, JSON.stringify(loadState(), null, 2));
   };
-  const dirs = () => [
-    { source: 'builtin', dir: builtinDir, readOnly: true },
-    { source: 'user', dir: userDir, readOnly: false },
-  ];
   const readSkillDir = (dir, source) => {
     const out = [];
     if (!fs.existsSync(dir)) return out;

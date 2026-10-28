@@ -42,7 +42,6 @@ function createLocalAssets(ctx) {
   const localMediaType = ctx.localMediaType;
   const localAssetWhen = ctx.localAssetWhen;
   const localFileFromEntry = ctx.localFileFromEntry;
-  const entryAbsOf = ctx.entryAbsOf;
   const localSigOf = ctx.localSigOf;
   /* fid 只由存储层算（那一份算法与磁盘对账共用，见 server/local-assets-store.js 的 fileFidOf）。 */
   const fileFidOf = ctx.fileFidOf;
@@ -379,41 +378,6 @@ function createLocalAssets(ctx) {
         items.push(x);
       }
       sendJson(res, 200, { object: 'list', data: items, has_more: false, next_cursor: null, duplicates: dups });
-      return;
-    }
-    /* GET /local-assets/stats：本机资产库的占用读数（条数 / 总字节 / 重复数 / 总量闸）——
-       设置页那一行「本机已存 N 个产物，共 X」从这里取（不自己数，与列表同一份索引）。
-       总量闸：默认上限 2 GB（.env 的 LOCAL_TOTAL_MAX_GB，服务端读）——
-       超了**只报数不删**（删的是用户产物原文件，该由用户决定）；报出「可清理最旧的 N 个」。 */
-    if (dataPath === '/local-assets/stats' && req.method === 'GET') {
-      const all = localIndexRead();
-      let bytes = 0, dups = 0;
-      const seenUp = new Set(), seenSig = new Set();
-      all.forEach(x => {
-        try { const p = entryAbsOf(x); if (p) bytes += fs.statSync(p).size; } catch (e) { /* 文件不在了不计字节 */ }
-        const k = localUpKey(x.upstream);
-        const s = String(x.sig || '');
-        if ((k && seenUp.has(k)) || (s && seenSig.has(s))) { dups++; return; }
-        if (k) seenUp.add(k);
-        if (s) seenSig.add(s);
-      });
-      const maxGb = Math.max(0.1, Number(process.env.LOCAL_TOTAL_MAX_GB) || 2);
-      const maxBytes = Math.round(maxGb * 1024 * 1024 * 1024);
-      /* 「可清理最旧的 N 个」：按 created_at 从老到新累计到掉到上限以下要删几条 —— 只报数不动手。 */
-      let cleanable = 0;
-      if (bytes > maxBytes) {
-        const oldest = all.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
-        let freed = 0;
-        for (const x of oldest) {
-          if (bytes - freed <= maxBytes) break;
-          let s = 0;
-          try { const p = entryAbsOf(x); if (p) s = fs.statSync(p).size; } catch (e) { /* 落不了地就按账上的估 */ }
-          freed += s || Number(x.byte_length) || 0;
-          cleanable++;
-        }
-      }
-      sendJson(res, 200, { count: all.length, bytes, duplicates: dups, dir: path.resolve(localRootDir()),
-        cap: { maxBytes, usedBytes: bytes, over: bytes > maxBytes, cleanableCount: cleanable, autoClean: false } });
       return;
     }
     return false;

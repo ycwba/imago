@@ -722,7 +722,6 @@ window.ICONS = {
   clock: '<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2V8l2 1.4"/>',
   folder: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
   folderDoc: '<path d="M2.4 12.6V4.2a1 1 0 0 1 1-1h2.9l1.3 1.7h4.9a1 1 0 0 1 1 1v6.7a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M6 8.6h4M6 10.6h3"/>',
-  robot: '<rect x="3.2" y="5.6" width="9.6" height="7.2" rx="1.8"/><path d="M8 2.4v3.2M1.8 9.2v1.6M14.2 9.2v1.6M5.6 9.2h1.2M9.2 9.2h1.2M6.4 11.4h3.2"/>',
   layers: '<path d="M8 2.4 14 5.6 8 8.8 2 5.6z"/><path d="M2 8.6 8 11.8l6-3.2"/><path d="M2 11.4 8 14.6l6-3.2"/>',
   docTab: '<path d="M3.4 2.6h6l3.2 3.2v7.6a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1V3.6a1 1 0 0 1 1-1z"/><path d="M9.4 2.6v3.2h3.2M5.4 9.4h5.2M5.4 11.6h3.4"/>',
   /* 固定到右侧：一个窗口 + 右边那条分栏 —— 一眼看出「面板占右边、内容让到左边」 */
@@ -739,17 +738,11 @@ window.ICONS = {
   chevronDown: '<path d="M4.2 6.4 8 10.2l3.8-3.8"/>',
   chevronUp: '<path d="M4.2 9.6 8 5.8l3.8 3.8"/>',
   arrowLeft: '<path d="M12.8 8H3.4"/><path d="M7 3.8 3.2 8 7 12.2"/>',
-  /* 右箭头 = 左箭头的镜像（x → 16 − x）：「向左切 / 向右切」是一对，图标也得成对。 */
-  arrowRight: '<path d="M3.2 8h9.4"/><path d="M9 3.8 12.8 8 9 12.2"/>',
   /* 撤销：向左的回勾箭头 + 一段回折的弧。全站「退回去」的都读这一颗（清空之后的撤销窗口也是）。 */
   undo: '<path d="M6.2 3.4 2.8 6.6l3.4 3.2"/><path d="M2.8 6.6h7a4 4 0 0 1 0 8H6.6"/>',
   arrowUp: '<path d="M8 12.8V3.6"/><path d="M4.4 7.2 8 3.6l3.6 3.6"/>',
   arrowDown: '<path d="M8 3.2v9.2"/><path d="M11.6 8.8 8 12.4 4.4 8.8"/>',
   copy: '<rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.4"/><path d="M10.6 5.4V4a1.4 1.4 0 0 0-1.4-1.4H4a1.4 1.4 0 0 0-1.4 1.4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>',
-  camera: '<path d="M2.2 5.4h2.3l1-1.6h5l1 1.6h2.3v7.4H2.2z"/><circle cx="8" cy="9.1" r="2.4"/>',
-  music: '<path d="M6.2 12.3V3.7l7.4-1.2v8.4"/><circle cx="4.4" cy="12.4" r="1.7"/><circle cx="11.8" cy="11" r="1.7"/>',
-  /* 「整组加入这一集」：箭头落进一个托盘里，与 upload（出）/ download（入文件）分得开 */
-  importInto: '<path d="M8 2.6v5.8M5.4 5.8 8 8.4l2.6-2.6"/><path d="M2.8 11.2v2.4h10.4v-2.4"/>',
   /* 上一段 / 下一段：左边一根竖条 + 三角形，和 play 区分得开（用户要看得出是「切段」不是「播」） */
   stepBack: '<path d="M3.4 3.6v8.8"/><path d="M12.8 4 6.4 8l6.4 4z"/>',
   stepNext: '<path d="M12.6 3.6v8.8"/><path d="M3.2 4 9.6 8l-6.4 4z"/>',
@@ -774,7 +767,6 @@ window.ICONS = {
   selectEdge: '<path d="M6.6 2.8 12.6 8l-2.8.7 1.6 2.7-1.4.8-1.6-2.7-1.8 2z"/><path d="M3.2 2.8v10.4"/><path d="M2.2 8h2"/>',
   slip: '<rect x="2.6" y="5.2" width="10.8" height="5.6" rx="1.2"/><path d="M5.2 8h5.6M6.8 6.6 5.2 8l1.6 1.4M9.2 6.6l1.6 1.4-1.6 1.4"/>',
   slide: '<rect x="2.6" y="5.2" width="6.4" height="5.6" rx="1.2"/><path d="M11.4 8h2.4M12.6 6.8 13.8 8l-1.2 1.2"/>',
-  linkBreak: '<path d="M6.4 9.6a2.4 2.4 0 0 0 3.3 0l1.7-1.7a2.4 2.4 0 0 0-3.3-3.4l-.8.8"/><path d="M9.6 6.4a2.4 2.4 0 0 0-3.3 0L4.6 8.1a2.4 2.4 0 0 0 3.3 3.4l.8-.8"/><path d="M2.6 2.6l10.8 10.8"/>',
   skipBack: '<path d="M3.2 3.4v9.2"/><path d="M13 4.2 5.8 8 13 11.8z" fill="currentColor" stroke-linejoin="round"/>',
   /* 轨道工具条那四颗（时间线里「一段」的形状：一块圆角矩形）。
      新增 / 摘掉一段 = 同一块上加减号；缩短 / 加长 = 同一块两侧内向与外向的箭头。 */
@@ -1446,7 +1438,6 @@ const KEY_RENAME = {
   /* 素材库本体（几百条角色 / 场景 / 道具）—— 唯一一份不能丢的 */
   'drama_chars': 'char_lib',
   /* 素材库那一页的设置项 */
-  'dr_ai_voice': 'char_ai_voice',
   'dr_tts_mode': 'char_tts_mode',
   'dr_cand_n': 'char_cand_n',
 };
@@ -1495,8 +1486,10 @@ async function migrateRenamedKeys() {
      · drama_ 那一族（2026-10 拍短剧页删除）——
        `dramas` / `drama_active` 是短剧本体（剧本、每一段的每一次拍摄）；
        `dr_adv_open` / `dr_story_open` 是那个页两个折叠面板的开合偏好。
-       素材库那一侧（drama_chars / dr_* / sk_polish_drama_*）**不在这里** ——
-       它们要留着数据，`migrateRenamedKeys()` 搬过去。
+       素材库那一侧（`drama_chars` 与 `dr_ai_voice` / `dr_tts_mode` / `dr_cand_n`）**不在这里** ——
+       那几份数据还要用，`migrateRenamedKeys()` 搬到 char_ 前缀的新键。
+       提示词正文那一族（`sk_polish_*`，含改名前的 sk_polish_drama_image / _voice）也不再读：
+       正文现在只来自启用的 Skill 与 TextAI.DEF，盘上残留由 tools/migrate-skills.cjs 备份后删除。
      · sk_polish_drama_story / _split / _prop / _video / _open / _subshot / _retouch /
        _camera / _look / _scenedesc / _propdesc —— 那 11 条是拍短剧页的 AI 指令，
        页面删了之后指令本身也从 TextAI.DEF 里删了，设置页那一张卡不再列它们。
@@ -1533,6 +1526,15 @@ const LEGACY_KEYS = [
   /* 供应商那一排「按类型分档」的分段开关撤掉（2026-10-27）：一家账号一张卡，卡里列着它能开的每一档，
      所以「当前哪一档」这个状态本身没有了。不在这里点掉的话，那份镜像会在下次 boot 把它恢复回来。 */
   'sk_prov_tab',
+  /* 浮窗「被拖走、此后不再跟球」的标记作废（见 AGENTS §10：浮窗只能随球挪）。
+     它要在这一张表里点名，而不是谁开机顺手 removeItem 一下：`ai_chat` 那一条前缀在 SYNCABLE 名单里，
+     服务器上那份镜像不会被一次 localStorage 删除带走，下次对账又把它拉回来。 */
+  'ai_chat_fxy',
+  /* 「让 AI 给角色定音色」那一枚设置项整族作废（2026-10-27）：这一条从来没有被任何一处生成
+     路径读过 —— 界面上画了一颗能点的勾选框，扣下去什么也不会变（正是 chars.js 顶部注释
+     「提示说会、其实没发」那一条禁令所禁止的形状）。
+     `dr_ai_voice` 是 2026-10 换前缀之前的旧名，`char_ai_voice` 是换到前缀之后的名字，两份都清。 */
+  'dr_ai_voice', 'char_ai_voice',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

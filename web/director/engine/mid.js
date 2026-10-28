@@ -194,7 +194,7 @@ function renderMid() {
       <span class="sp"></span>
       <!-- 工作模式只剩「剪辑」一枚开关（用户点名去掉「顺序」）：镜头顺序条已经常驻在栏底，
            不再需要先点开才看得到。撤销 / 重做走 Ctrl+Z / Ctrl+Y 与剪辑态左栏的历史记录。 -->
-      <span class="ui-seg mid-mode" id="midMode" role="tablist" aria-label="工作模式">
+      <span class="ui-seg mid-mode" role="tablist" aria-label="工作模式">
         <button type="button" class="${midEditTrimOf() ? 'on' : ''}" id="trimBtn" role="tab" aria-selected="${midEditTrimOf() ? 'true' : 'false'}">${icon('scissors', 13)} 剪辑</button>
       </span>
     </div>

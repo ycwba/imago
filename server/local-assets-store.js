@@ -1,7 +1,7 @@
 /* 本机落盘的存储层：磁盘余量口径 + 本机资产库那一份「账」与读文件。
    2026-10-20 从 server/app.js 原样搬出：这里只有业务助手与落盘口径，
    请求解析与响应在 server/routes/local-assets.js、server/routes/usage.js。
-   目录（LOCAL_DIR）、dataDirPath、log、MIME、spawnSync、fileSafe、localRoot 由 app 组合根注入 ——
+   库根（localRoot）、dataDirPath、log、MIME、spawnSync、fileSafe 由 app 组合根注入 ——
    路径口径全站只有那一处（path.resolve，绝对路径要能直接用），这里不重复算。
    ---------------------------------------------------------------------------
    一句话说清这一层的立场：**盘上的文件是本体，索引只是它的一份账**。
@@ -51,7 +51,7 @@ function isDocExt(fmt) {
 function createLocalAssetsStore(deps) {
   const { MIME, dataDirPath, log, spawnSync, localRoot, fileSafe } = deps;
   /* 库根：每次现读（设置页改了不必重启）。 */
-  const DIR = () => (localRoot ? localRoot() : deps.LOCAL_DIR);
+  const DIR = () => localRoot();
   /* 账本不在库根里：根是用户翻得到的 下载\拾帧，里面只放产物本体。
      账放 .data\local-assets\，于是「换根」只是换个本体堆，账一直跟着应用走。 */
   const INDEX_DIR = () => path.resolve(dataDirPath(), 'local-assets');
@@ -829,11 +829,12 @@ function createLocalAssetsStore(deps) {
 
   /* 交出去的是「组合根要用的那些」，一份不多：落点、认回、账、用量与读文件。
      只在层内用的那一些（类型表 MEDIA_KIND_ZH、目录对账快照 dirScan、账本句柄 indexStore、
-     单条读账 localIndexEntry、文件名去重 saveUniqueName、用量那一档的 productKindOfName）
+     单条读账 localIndexEntry、一条账对应的绝对路径 entryAbsOf、文件名去重 saveUniqueName、
+     用量那一档的 productKindOfName）
      不挂在这里 —— 挂出去就有人在外面再拼一份落点、再扫一遍盘。 */
   return {
     bodyDirOf, bodyDirNameOf,
-    newBodyPlace, mintAssetId, localAdopt, invalidateScan, entryAbsOf, localSigOf, fileFidOf,
+    newBodyPlace, mintAssetId, localAdopt, invalidateScan, localSigOf, fileFidOf,
     whyNoSpace, sweepStaleTmp,
     localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localIndexDrop,
     localAssetEntry, localAssetRepair, localAssetPaths, localMediaType, localAssetWhen,

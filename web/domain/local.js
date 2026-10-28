@@ -1501,13 +1501,13 @@ function info() {
   }
 
   window.AssetLocal = {
-    saveOn, preferLocal, showBadge, offer, scan, announce, decorate, watch, pullMany, pullSummaryText,
+    showBadge, offer, scan, announce, decorate, watch, pullMany, pullSummaryText,
     pullPlan, pullBar, offerAll,
     /* 等镜像指针从 IndexedDB 读回来（列表加载前等一小会儿，避免首屏用暖启动缓存判漏）。 */
     ready: () => { read(); return bootMirrorIndex(); },
-    pullBusy, pullStart, pullEnd, pullBtn, pullBtnTitle, pullReceipt,
+    pullBusy, pullStart, pullEnd, pullBtn, pullReceipt,
     /* 「补不补历史产物」那一档 + 判据：页面与设置页都读它，不要自己按时间戳判一遍。 */
-    saveScope, markSaveOn, wantSave, saveSince,
+    saveScope, markSaveOn, wantSave,
     /* 侧栏那两块各自显示与否（设置页勾）。判据各一份，sidebar.js 直接调。 */
     sbBalOn, sbMirrorOn,
     /* 「正在存 / 存成了几份 / 失败原因」—— 页面据此把「开了没反应」变成看得见的实况。
@@ -1523,12 +1523,13 @@ function info() {
     localFileOf,
     /* 「本机 / 云端」的**唯一**判据（徽标、存回本机的范围、列表去重、助手的读数都读它）。
        页面不许自己拼 localAsset / hasLocalAddr / assetId —— 那三种形状各拼一遍，
-       就会出现「卡片写着本机、存回本机却把它算进 N 条」这种自相矛盾的界面。 */
-    hasLocal, hasCloud, stateOf,
+       就会出现「卡片写着本机、存回本机却把它算进 N 条」这种自相矛盾的界面。
+       hasLocal / hasCloud 是这一枚内部的判据，不外挂：外面拿到两枚就会自己拼状态。 */
+    stateOf,
     /* 给测试 / 诊断用：按同一份身份判据查镜像记录（返回 { k, rec } 或 null）。 */
     mirrorKeyOf: e => { const hit = mirrorOf(e, true); return hit ? hit.k : ''; },
     /* 「不显示云端任务」：一个开关的生效条件（localOnly）与它唯一的判据（hideAsCloud）。
-       页面只许调这两个，不许自己拼「有没有本机副本」—— 见上面的 hasLocal / hasLocalAddr。 */
+       页面只许调这两个，「有没有本机副本」一律问 stateOf。 */
     localOnly, hideAsCloud, hasLocalAddr,
     /* 「现在就把这一条存回本机」—— 收藏 / 素材库那两颗「自动下载」用的入口。
        走的是后台自动镜像同一条落盘链（同一份索引、同一道去重、同一个规范名落点），

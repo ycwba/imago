@@ -12,45 +12,20 @@ const fs = require('fs');
 const path = require('path');
 const L = require('./token-lib.cjs');
 
-/* 运行时写在 DOM 行内样式上的令牌：CSS 里查不到是正常的，查一下 JS 里有没有真的写。
-   分栏比例那几枚（--sp0 / --sp1）由 Wb.split 用**拼出来的名字**写上去
-   （box.style.setProperty('--' + h.varName, …)），静态扫不到，所以在这里登记成「运行时令牌」。 */
-const RUNTIME_VARS = {
-  '--sp0': 'web/ui/workbench.js',
-  '--sp1': 'web/ui/workbench.js',
-  '--sp2': 'web/ui/workbench.js',
-  '--sbw': 'web/ui/sidebar.js',
-  '--setnavh': 'web/pages/settings.js',
-  '--frs-w': 'web/director/engine/lanes.js',
-  '--tlh-voice': 'web/director/template.html',
-  '--tlh-inset': 'web/director/template.html',
-  '--tlh-gap': 'web/director/template.html',
-  '--tlh-pad': 'web/director/template.html',
-  '--tlh-ruler': 'web/director/template.html',
-  '--tlh-pic': 'web/director/template.html',
-  '--tlh-min': 'web/director/template.html',
-  '--seg-lab-h': 'web/director/template.html',
-  '--seg-wv-h': 'web/director/template.html',
-  '--tl-step-px': 'web/director/engine/lanes.js',
-  '--film-ar': 'web/director/engine.js',
-  '--ac-w': 'web/features/chat.js',
-  '--ac-h': 'web/features/chat.js',
-  '--ac-top': 'web/features/chat.js',
-  '--ac-left': 'web/features/chat.js',
-  '--ac-to': 'web/features/chat.js',
-  '--ac-ball': 'web/features/chat.js',
-  '--dp-cal': 'web/styles/spa-assets.css',
-};
-
 /** 定义：tokens.css 里的 `--x:`，以及任何 CSS / 模板 <style> 里的局部自定义属性
     （`.foo { --bar: 10px }` 作用域内有效），以及 JS 里 setProperty 写到 DOM 上的。
-    三类都算「有定义」，否则局部变量会被误报成 bug。 */
+    三类都算「有定义」，否则局部变量会被误报成 bug。
+    第四类是分栏那一路**拼出来**的名字（`box.style.setProperty('--' + h.varName, …)`，
+    `web/ui/workbench.js` 的 Wb.split）：静态扫不到字面量，所以把登记表里的 varName 也算上。
+    以前这里是一张手写的「运行时令牌」白名单，`if (RUNTIME_VARS[name]) continue` 直接放行 ——
+    那种豁免不会被任何东西检查，令牌删了、名字拼错了，行还留在表里，把下一处静默失效继续盖住。 */
 function definedVars(files) {
   const def = new Set();
   for (const f of files) {
     const src = L.maskCommentsKeepLength(fs.readFileSync(f, 'utf8'));
     for (const m of src.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)) def.add(m[1]);
     for (const m of src.matchAll(/setProperty\(\s*['"](--[a-zA-Z0-9-]+)['"]/g)) def.add(m[1]);
+    for (const m of src.matchAll(/varName:\s*['"]([a-zA-Z0-9-]+)['"]/g)) def.add('--' + m[1]);
   }
   return def;
 }
@@ -75,7 +50,6 @@ for (const f of scanFiles) {
       if (!used.has(name)) used.set(name, []);
       used.get(name).push(`${rel}:${i + 1}`);
       if (def.has(name)) continue;
-      if (RUNTIME_VARS[name]) continue;          // 运行时由 JS 写上去的令牌
       bad.push({ name, at: `${rel}:${i + 1}` });
     }
   });

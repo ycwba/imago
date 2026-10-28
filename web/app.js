@@ -202,21 +202,14 @@ document.addEventListener('click', e => {
 }, true);
 
 /* 关标签 / 刷新前：多个常驻页面都要能交保存与未落盘状态。
-   注册表只有 core/hooks.js 一份；`__spaFlush`/`__spaDirty` 是旧页面留下的单函数钩子，
-   只给「没注册进注册表」的那几页兜底（裸页面 / 探针）——同一枚函数两边都挂时只跑注册表那遍。 */
+   注册表只有 core/hooks.js 一份，页面挂载时经 `__spaRegister` 交进来（导演台与设置页都这么挂）。 */
 window.__spaRegister = (flush, dirty) => hooks.register(flush, dirty);
 /* 「重新加载本页」的唯一出口：模块没起来 / 初始化失败的那几页，失败块里只写过一句
    「刷新页面重试」却没有可点的按钮 —— 键盘用户与移动端就此没有出路。
    刷新前照 beforeunload 那样先把各页的保存交出去，reload 也会走那一趟，这里是双保险。 */
 window.__spaReload = () => { try { hooks.runAll(); } catch (e) {} location.reload(); };
 window.addEventListener('beforeunload', e => {
-  const dirty = hooks.runAll();
-  /* 旧单函数钩子只给「没进注册表」的那几页兜底（裸页面 / 探针）；同一枚函数已经注册过
-     就不再补跑 —— 不然导演台与设置页的 flush 每次关标签各跑两遍。 */
-  let legacy = '';
-  try { if (typeof window.__spaFlush === 'function' && !hooks.has(window.__spaFlush)) window.__spaFlush(); } catch (err) {}
-  try { if (typeof window.__spaDirty === 'function' && !hooks.has(window.__spaDirty) && window.__spaDirty()) legacy = '1'; } catch (err) {}
-  if (dirty || legacy) { e.preventDefault(); e.returnValue = ''; }
+  if (hooks.runAll()) { e.preventDefault(); e.returnValue = ''; }
 });
 
 const app = createApp(App);

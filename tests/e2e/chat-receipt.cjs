@@ -56,7 +56,6 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     await page.goto(proxy.base + '/shell.html#director.html');
     await page.waitFor('window.WBBridge && window.WBBridge.get("director") && window.WBBridge.get("director").ready()', 25000);
 
-    const click = sel => page.eval(s => { const el = document.querySelector(s); if (!el) return false; el.click(); return true; }, sel);
     const has = sel => '!!document.querySelector(' + JSON.stringify(sel) + ')';
     const until = async (expr, ms, note) => {
       try { return await page.waitFor(expr, ms || 15000, 80); }

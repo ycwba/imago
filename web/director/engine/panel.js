@@ -277,7 +277,6 @@ function shotPreviewBody(sh) {
   const p = String((sh && sh.prompt) || '').trim();
   const ctxAdv = shotAdvCtx(sh);
   const ex = shotAdvExtras(sh);
-  const cbAdv = shotCombo(sh);
   const ic = shotInputCaps(sh);
   /* 参考语法转换（`@小雅` → 平台认的写法）与真发那条链**同一份**：
      预览里显示的必须是转换之后的样子，否则用户看到的是一份平台压根不认的正文。 */
@@ -601,7 +600,7 @@ function promptLimitWhy(sh) {
 function promptLimitNote(sh) {
   const PL = promptLimitOf(sh);
   if (!PL) return '';
-  return `<span class="cnt" id="pLim" title="提交前按 ${esc(PL.who)} 的声明拦长度；不够长时生成按钮会禁用">${esc(window.CharLimits.range(PL))} 字</span>`;
+  return `<span class="cnt" title="提交前按 ${esc(PL.who)} 的声明拦长度；不够长时生成按钮会禁用">${esc(window.CharLimits.range(PL))} 字</span>`;
 }
 let edPromptTouched = false;      // 用户在这个镜的提示词框里动过手没有（决定底部那行要不要刷屏）
 /* 换型号那一次要「按新声明的默认值」重画型号布尔那一排（用户点过的保住，没点过的跟声明走）。
@@ -1692,7 +1691,7 @@ function renderEditor() {
           <div class="adv-grid" id="kfBoolRows" style="margin-top: var(--sp-10)" hidden></div>
           <div class="adv-grid" id="kfTopBools" style="margin-top: var(--sp-10)" hidden></div>
           <div class="adv-grid" id="kfShapeFields" style="margin-top: var(--sp-10)" hidden></div>
-          <div class="hint" id="kfRefHint" style="margin-top: var(--sp-8)">${esc(kfRefLine)}</div>
+          <div class="hint" style="margin-top: var(--sp-8)">${esc(kfRefLine)}</div>
         </div>
       </div>` : ''}
       ${/* 接上一镜：开着且没有显式首帧时，提交那一刻自动取上一镜的结尾当首帧。

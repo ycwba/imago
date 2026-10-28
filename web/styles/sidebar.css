@@ -135,7 +135,7 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
 .sb-bal-sum-sep { height: var(--hair); background: var(--line); margin: var(--sp-6) var(--sp-4) var(--sp-5); }
 /* 落盘进度：窄形态是一条 3px 的进度条 + 份数（满形态在卡里，同一条） */
 .sb-bal-sum-mirror { display: flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-4) var(--sp-4); }
-.sb-bal-sum-mirror .sb-mirror-bar { flex: 1 1 auto; margin-top: 0; }
+
 .sb-bal-sum-mirror .sb-mirror-n { flex: 0 0 auto; font-size: var(--fs-9-5); color: var(--sub);
   font-variant-numeric: tabular-nums; }
 

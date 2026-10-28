@@ -271,7 +271,5 @@
     CODES, STD, whyNot, checkParam,
     /* 形状差集也挂出去：黄条那一行与提交前那一句必须读同一份（页面自己再算一遍就是第二份判据）。 */
     gaps: gapsFor,
-    /* 参数取值这一条给助手复用：查完判据还要拿**归一化后的值**（768 → '768p' 那种）。 */
-    paramZhKey(key) { return STD[key] || key; },
   };
 })();

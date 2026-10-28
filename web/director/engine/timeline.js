@@ -5,7 +5,7 @@
 
    与参考项目同一条路子（components/Timeline.jsx 的骨架）：
      · 一条横滚容器 = 内容层，刻度尺、标记条、轨道、播放头**共用同一次 scrollLeft**；
-     · 缩放只有一个标量（tl-scale.js），像素换算只有 timeAtClientX / clientXOfTime 两处；
+     · 缩放只有一个标量（tl-scale.js），往外给的像素换算只有 timeAtClientX 一处；
      · 轨道左列（眼睛 / 锁 / 名字）与右列逐行对齐 —— 两边由同一张 rows 表画出来。 */
 import {
   deriveTimeline, packVoiceLanes, packCaptionLanes, rowVisible, rowSet,
@@ -263,7 +263,7 @@ export function createTimeline(E, document, window) {
         ${tb('zoom-fit', 'expand', '自适应：整部铺满这一栏')}
         ${tb('zoom-in', 'plus', '放大（视野更短）')}
       </div>
-      <span class="tl-total" id="tlTotal" title="成片总长">${secText(deriveTimeline(film.clips).total)}</span>
+      <span class="tl-total" title="成片总长">${secText(deriveTimeline(film.clips).total)}</span>
     </div>`;
   }
 
@@ -496,7 +496,7 @@ export function createTimeline(E, document, window) {
     return `${toolsHTML()}
       ${rulerRowHTML()}
       <div class="tl-body">
-        <div class="tl-labels" id="tlLabels">
+        <div class="tl-labels">
           <div class="tl-labels-inner" id="tlLabelsInner">
             ${table.rows.filter(r => r.kind !== 'markers' || markersOpen).map(r => labelHTML(film, r)).join('')}
           </div>
@@ -772,7 +772,6 @@ export function createTimeline(E, document, window) {
     popIndex = -1;
     if (popEl) { popEl.hidden = true; popEl.innerHTML = ''; }
   }
-  const popoverOpen = () => popIndex >= 0;
 
   /* ---------------- 选择工具菜单 ---------------- */
   function openSelMenu() {
@@ -939,12 +938,6 @@ export function createTimeline(E, document, window) {
     const g = geometry();
     return Math.max(0, Math.min(g.navTotal, tlTimeAtX(clientX - rect.left + scrollEl.scrollLeft, g.pps)));
   }
-  function clientXOfTime(time) {
-    if (!scrollEl) return 0;
-    const rect = scrollEl.getBoundingClientRect();
-    const g = geometry();
-    return rect.left + tlXOfTime(time, g.pps) - scrollEl.scrollLeft;
-  }
 
   function handleScroll() {
     if (!scrollEl) return;
@@ -1000,10 +993,8 @@ export function createTimeline(E, document, window) {
   return {
     bind,
     render,
-    refresh: render,
     geometry,
     timeAtClientX,
-    clientXOfTime,
     scrollToTime,
     setPlayhead,
     seekTo,
@@ -1011,31 +1002,20 @@ export function createTimeline(E, document, window) {
     playbackSync,
     playbackStop,
     playhead: playheadAt,
-    playheadX: t => playheadX(t == null ? playhead : t),
     follow,
     showSnap,
     hideSnap,
-    applyZoom,
     zoomIn,
     zoomOut,
-    zoomFit,
     zoom: zoomNow,
     setMode,
     mode: modeNow,
     snapOn: () => snapOn,
     rippleOn: () => rippleOn,
-    setRipple: v => { rippleOn = !!v; },
     markersOpen: () => markersOpen,
-    openPopover,
-    closePopover,
-    popoverOpen,
-    toggleRowFlag,
     paintTimelineTools,
     flashBlocks,
-    paintPlayhead,
-    syncScroll,
     layoutBoard,
-    paintRuler,
     stripRefresh: () => { if (contentEl) strip.paint(contentEl, filmNow()); },
   };
 }

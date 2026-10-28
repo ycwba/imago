@@ -169,7 +169,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
   | 档 | 主档（新代码优先用） | 补档（收容现存值） |
   | --- | --- | --- |
   | 间距 `--sp-*` | 4 / 8 / 12 / 16 / 24 / 32 | 1–3、5–7、9–11、13–15、18–20、22、26、28、34、40、42、54、60 |
-  | 字号 `--fs-*` | 12 / 13 / 14 / 16 / 20 / 24 | 其余（8.5–11.5、12.5、13.5、14.5、15、17、18、19、26、42） |
+  | 字号 `--fs-*` | 12 / 13 / 14 / 16 / 20 / 24 | 其余（8.5–11.5、12.5、13.5、14.5、15、17、18、19、42） |
   | 圆角 `--radius-*` | 6 / 10 / 14 | 其余（1–5、7–9、12、20、99、999） |
   | 组件尺寸 `--sz-*` | 角色命名：`--sz-ico` `--sz-ctl` `--sz-tile` `--sz-thumb-h` `--sz-card` `--sz-scroll` `--sz-wb` | — |
 
@@ -725,7 +725,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 文件名 | `fileSafe` / `fileStamp`（浏览器与 Node 各一份，是登记在案的例外） |
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单，判据 `tests/settings-schema.cjs`） |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码，不各写一套判据） |
-| 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（`fatal` / `warn` → `POST /client-error` → 代理健康账） |
+| 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（页面主动报只有 `pageFail`；`fatal` / `warn` 两种 kind 由这一处的两个 window 监听器发出 → `POST /client-error` → 代理健康账） |
 | 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport.keep(host, fn)`（重画点自己调：按**锚点**（第一个可见子元素 + 它的稳定键或下标）在重画后把容器里那只滚动位还回去，锚点以上内容变高也不会漂；外壳不再猴补 `Element.prototype.innerHTML` —— 那种写法罩不住「重画后内容变短被夹回顶」，还在全局原型上动手脚。**「点一颗按钮，视角跳到最上面」就是这一族**；判据 `tests/e2e/viewport-keep.cjs`） |
 | 程序性 focus 不抢视口 | `web/ui/ui.js` 的 `window.focusQuiet(el)`（`focus({ preventScroll: true })`）。拿 `focus()` 只是为了「把光标续上」时一律走它；真要「把某处滚过来」走滚动那一族（`scrollIntoView`），别拿 focus 当滚动用（§3.4.5） |
 | 文件类型筛选（图片/视频/音频） | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位表 / 每档条数 / 点完之后做什么由页面给；**档位集合不变时不重建 DOM**，计数只改文本与 `.on` / `hidden`；计数为 0 且非当前档的那一颗不画）。工作台 / 收藏 / 资产库三处共用，判据 `tests/e2e/kind-filter.cjs` |
@@ -960,7 +960,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 动作默认直接执行、不强制过程可见：结果回执 + 撤销必须可见；跨页给“去看看”，定位按需。
 - 内容写动作必须有 `undo` 或显式 `irreversible`；花钱动作声明 `cancel`。
 - Skill：`skills/<id>/SKILL.md`；按页面 + 触发词自动加载（最多 2 个），未命中的由 `skill`
-  工具按需加载。内置 Skill 正文由 `TextAI.DEF` 同源生成；用户手改的 `sk_polish_*` 仍最优先。
+  工具按需加载。内置 Skill 正文由 `TextAI.DEF` 同源生成；正文只有「启用的 Skill → 内置默认」两级，
+  设置页不改正文（`sk_polish_ask` 那一档管的是「动手前要不要先反问」）。
 - **项目引用规则 = Skill 正文里的**变量占位符**（`{cast}` `{what}` `{board}` `{assets}` `{dur}` `{style}` …）：
   程序在发请求前按**当前项目**把实际内容填进去（`window.TplVars.fill`，唯一一份填法）。
   填不上的**原样留着**（AI 看到 `{cast}` 三个字也知道那是要它自己补的位子；留空会让它以为「这一段没有内容」）。
@@ -977,7 +978,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **设置页的布局骨架**（2026-10 重划，2026-10-25 再改一次）：
   · 卡片**皮肤用公共那一件** `.card-surface`（底色 / 描边 / 圆角 / 悬停）—— 页面只留排版
     （内边距与间距）；以前这一页自己写了一份卡片皮肤（radius-8 + shadow-1、无悬停），全站两套卡片。
-  · 卡标题行 = 图标位 + 标题（真要有动作就放 `.card-h-acts`），**不再恒留 92px 空位**
+  · 卡标题行 = 图标位 + 标题，**不再恒留 92px 空位**
     （那一段空位没有一张卡真的用得上，齐的是空地不是内容）。
   · 卡内的分组小标题是 `.sect-t`（**必须有样式**：以前只有 class 没有样式，渲染出来跟正文一样）。
   · **两栏两滚**（2026-10-25）：左边 `.set-rail` 是目录轨（5 组 15 行，每行带**当前值**），

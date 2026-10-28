@@ -210,11 +210,6 @@ function templateFiles() {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter(f => f.endsWith('.html')).map(f => path.join(dir, f));
 }
-function namedAbsFilter(list) {
-  if (!named.length) return list;
-  const want = new Set(named.map(f => path.resolve(f)));
-  return list.filter(p => want.has(p));
-}
 
 /* ---------------------------------------------------------------------------
    三、改写

@@ -3,7 +3,7 @@
    关联族（接上 / 解除 / 全部关联认回记忆位 / 对齐到音频）与待生成块的上轨。
    画归 engine/timeline.js（整块重画）与 engine/strip.js（块里画什么），时钟归 engine/play.js；
    这一份只改 `proj.film` 的数据，改完一律 beginEdit(精确描述) → 落盘 → filmEdited()。
-   几何换算只走 Timeline 的 timeAtClientX / clientXOfTime / geometry —— 秒数不在这里再折第二遍。 */
+   几何换算只走 Timeline 的 timeAtClientX / geometry —— 秒数不在这里再折第二遍。 */
 import {
   deriveTimeline, normalizeFilm, createClip, createPending, createCaption, filmId,
   itemLocked, coversTime, estimateSpeechSeconds, clipDurationOf,
@@ -1771,7 +1771,5 @@ export function createEdit(E, document, window) {
     focusOf: () => focus,
     selectItem, toggleMute,
     syncPending,
-    panelOpen: () => panelOpen,
-    setPanel: v => { panelOpen = !!v; paintPanel(); },
   };
 }

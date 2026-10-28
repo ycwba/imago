@@ -251,12 +251,12 @@
               <div class="card card-surface" data-nav="paging">
                 <h2 class="card-h"><span class="card-ic" v-html="icList"></span>列表分页</h2>
                 <div class="sub">滚到底自动续拉。</div>
-                <div id="pageSettings" class="kcols" ref="pageBoxEl"></div>
+                <div class="kcols" ref="pageBoxEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="appearance">
                 <h2 class="card-h"><span class="card-ic" v-html="icSun"></span>外观与界面</h2>
-                <div id="uiPrefs" class="kcols" ref="uiPrefsBoxEl"></div>
+                <div class="kcols" ref="uiPrefsBoxEl"></div>
               </div>
             </section>
 
@@ -266,7 +266,7 @@
               <div class="card card-surface" data-nav="storage">
                 <h2 class="card-h"><span class="card-ic" v-html="icFolder"></span>产物存放</h2>
                 <div class="sub">第三项要前两项都开着才生效。</div>
-                <div id="storePrefs" class="kcols" ref="storePrefsBoxEl"></div>
+                <div class="kcols" ref="storePrefsBoxEl"></div>
                 <!-- 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 -->
                 <div class="kcols" ref="storeRowsEl"></div>
               </div>
@@ -274,7 +274,7 @@
               <div class="card card-surface" data-nav="chars">
                 <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
                 <div class="sub">页内换的型号与张数只管那一次，不写回这里。</div>
-                <div id="charsSet" class="kcols" ref="charsBoxEl"></div>
+                <div class="kcols" ref="charsBoxEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="assistant">
@@ -289,7 +289,7 @@
                   拒绝过就去地址栏左侧「网站设置」里放开。</div></details>
               </div>
 
-              <div class="card card-surface" data-nav="polish" id="polishCard">
+              <div class="card card-surface" data-nav="polish">
                 <h2 class="card-h"><span class="card-ic" v-html="icPencil"></span>润色行为</h2>
                 <div class="sub">正文由 Skill 提供，这里只管反问开关。</div>
                 <div class="polish-block">
@@ -419,7 +419,7 @@
                         </div>
                         <div class="sk-acts">
                           <button class="ghost" type="button" @click="closeSkillAll">回到场景</button>
-                          <button class="ghost" id="skImportBtn" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
+                          <button class="ghost" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
                         </div>
                       </div>
                       <div class="sk-sec">
@@ -557,7 +557,7 @@
                   <span class="hint sm">{{ cloudState }}</span>
                 </div>
                 <!-- 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 -->
-                <div id="cloudConflicts" ref="cloudConflictsEl"></div>
+                <div ref="cloudConflictsEl"></div>
                 <!-- 备份：每次云端覆盖本机之前留的那一份，可一键恢复 -->
                 <div id="cloudBackups" ref="cloudBackupsEl"></div>
               </div>
@@ -568,7 +568,7 @@
                 <div class="krow">
                   <span class="kicon"><span v-html="icFolderDoc"></span></span>
                   <input id="promptDir" ref="promptDirEl" v-model="promptDir" @change="onPromptDirChange" placeholder="留空 = 默认" style="flex:1">
-                  <span id="promptDirInfo" :title="promptInfoTitle" style="flex:0 0 auto">{{ promptInfo }}</span>
+                  <span :title="promptInfoTitle" style="flex:0 0 auto">{{ promptInfo }}</span>
                 </div>
                 <div class="pb-tip">~ 开头或绝对路径；不参与云同步。</div>
                 <div class="krow tight">
@@ -576,11 +576,11 @@
                   <button class="ghost wide" @click="promptRefresh">刷新清单</button>
                   <span class="hint sm">{{ promptMsg }}</span>
                 </div>
-                <div id="promptRecent" ref="promptRecentEl" class="prompt-recent"></div>
+                <div ref="promptRecentEl" class="prompt-recent"></div>
               </div>
 
               <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
-              <div class="card card-surface" data-nav="backup" id="ioCard">
+              <div class="card card-surface" data-nav="backup">
                 <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
                 <div class="sub">只管整份设置；导出默认不含密钥。</div>
                 <div class="krow tight">
@@ -602,7 +602,7 @@
                 <div class="card card-surface" data-nav="env">
                   <h2 class="card-h"><span class="card-ic" v-html="icGear"></span>本机环境</h2>
                   <div class="sub">只读检查，不写盘。</div>
-                  <div id="sysRows" ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
+                  <div ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
                   <div class="krow tight">
                     <button class="ghost wide" :disabled="sysBusy" @click="recheckSys">重新体检</button>
                     <button class="ghost wide" :disabled="sysCopyDisabled" @click="copySys"
@@ -615,12 +615,12 @@
                 <div class="card card-surface" data-nav="disk">
                   <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>资产库磁盘用量</h2>
                   <div class="sub">只读检查，不写不删。</div>
-                  <div id="usageRows" ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
+                  <div ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
                   <div class="krow tight">
                     <button class="ghost wide" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
                     <button class="ghost wide" :disabled="usageCopyDisabled" @click="copyUsage"
                       :title="usageCopyDisabled ? '还没读到结果' : '复制成文字'">复制这份读数</button>
-                    <span id="usageGoSlot" ref="usageGoSlotEl"></span>
+                    <span ref="usageGoSlotEl"></span>
                     <span class="hint sm">{{ usageMsg }}</span>
                   </div>
                   <div class="pb-tip">这里只统计；清理在缓存那一栏。</div>
@@ -651,7 +651,7 @@
                       <button class="ghost mini wide" :disabled="cacheBusy.missed" @click="clearMissedCache">{{ cacheBusy.missed ? '清理中…' : '清空' }}</button>
                     </div>
                   </div>
-                  <div id="histClearRows" ref="histBoxEl"></div>
+                  <div ref="histBoxEl"></div>
                   <div class="hint sm cache-line" id="cacheUsage">{{ cacheUsage }}</div>
                   <div class="hint sm cache-line" id="cacheMsg">{{ cacheMsg }}</div>
                 </div>

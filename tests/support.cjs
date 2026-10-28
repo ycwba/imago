@@ -2,13 +2,12 @@
 /* tests/support.cjs —— 判据脚本共用的几件小事（只给 tests/ 内部用，不是运行时代码）。
    为什么要有这一份：routes-smoke / providers-validate / static-guards 都要
      · 扫源码（web/ 与 server/，排除生成物与 vendor）
-     · 「找到某个东西住在哪儿」的适配层（REGISTRY、路由 ctx 的注入点都在被拆分搬运中）
+     · 「找到某个东西住在哪儿」的适配层（路由 ctx 的注入点按域拆在 server/ 顶层，名字会挪）
      · 例外登记表（违例只许减不许增）的同一套比对语义
    同一套判据写两份就一定漂移，所以住这里。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 const rel = p => path.relative(root, p).split(path.sep).join('/');
@@ -183,40 +182,6 @@ function objectKeys(src, openIdx) {
   }
   push();
   return [...new Set(keys)];
-}
-
-/* REGISTRY 落点适配层。
-   ⚠ 注册表的数据在 server/registry-config.js（2026-10-20 从 app.js 搬出）。
-   本适配层先试「独立文件（module.exports 里的 REGISTRY / registry / providers）」，
-   没有再退回从 app.js 源码里取那段对象字面量。
-   搬完之后这条判据不用改；但如果两边都没有，测试会直接红（那才是真事故）。 */
-function loadRegistry() {
-  const candidates = ['server/registry-config.js', 'server/registry.js', 'server/providers/registry.js'];
-  for (const f of candidates) {
-    if (!fs.existsSync(abs(f))) continue;
-    try {
-      const mod = require(abs(f));
-      const r = mod.REGISTRY || mod.registry || (mod.providers ? { version: mod.version || 0, providers: mod.providers } : null);
-      if (r && Array.isArray(r.providers)) return { registry: r, from: f, mode: 'module' };
-    } catch (e) { /* 模块加载不动就退回源码取法 */ }
-  }
-  const appFile = 'server/app.js';
-  if (!fs.existsSync(abs(appFile))) return { error: '既没有 registry-config 落点也没有 server/app.js', from: null, mode: 'none' };
-  const src = read(appFile);
-  const i = src.search(/\b(?:const|let|var)\s+REGISTRY\s*=\s*\{/);
-  if (i < 0) return { error: 'server/app.js 里找不到 `const REGISTRY = {`（搬走了就补一个候选落点）', from: appFile, mode: 'none' };
-  const open = src.indexOf('{', i);
-  const close = matchBrace(src, open);
-  if (close < 0) return { error: 'REGISTRY 字面量括号没配平（源码语法坏了）', from: appFile, mode: 'none' };
-  const lit = src.slice(open, close + 1);
-  const sandbox = { process, require, console, JSON, Object, Array, String, Number, Boolean, Math, Date, RegExp, Error, Set, Map };
-  try {
-    const registry = vm.runInNewContext('(' + lit + ')', sandbox, { timeout: 8000 });
-    if (!registry || !Array.isArray(registry.providers)) return { error: 'REGISTRY 字面量里没有 providers 数组', from: appFile, mode: 'literal' };
-    return { registry, from: appFile, mode: 'literal' };
-  } catch (e) {
-    return { error: 'REGISTRY 字面量求值失败：' + ((e && e.message) || e), from: appFile, mode: 'none' };
-  }
 }
 
 /* 路由 ctx 的注入点：`createXxxRoutes({ a, b, c })` 里那一份键清单。
@@ -412,6 +377,6 @@ function printTable(current, note, opts = {}) {
 
 module.exports = { root, rel, asRel, abs, read, exists, walk, webSources, serverSources, serverTopLevel,
   engineFiles, engineLayer,
-  matchBrace, objectKeys, loadRegistry, findWiring, ratchet, printTable,
+  matchBrace, objectKeys, findWiring, ratchet, printTable,
   literals, functionsIn, enclosingFunction,
   LAYER_FORBIDDEN, LAYER_EXCEPTIONS, UI_INFRA_FACES, isInfra, layerOf, stripComments, globalFaces, faceReads, layerViolations };

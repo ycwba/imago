@@ -58,7 +58,7 @@
   align-items: center; justify-content: center; color: var(--sub); font-size: var(--fs-11); align-self: flex-start; }
 /* 音频资产：音符方块（点击在灯箱里播放） */
 .assets-page .task .timg.audio { background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), transparent), color-mix(in srgb, var(--acc2) var(--a-16), transparent)); color: var(--acc); }
-.assets-page .task .timg.audio .note-ic { font-size: var(--fs-26); line-height: 1; }
+
 .assets-page .task .timg.audio .dur { font-size: var(--fs-10-5); color: var(--sub); margin-top: var(--sp-4); }
 @media (max-width: 760px) { .assets-page .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }
 /* .task 这一组的基础样式统一在 ui.css（缩略图尺寸、状态点、日期、按钮排都在那儿），
