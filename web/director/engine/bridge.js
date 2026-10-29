@@ -1,6 +1,6 @@
 /* 导演台 Bridge域：助手的唯一写入桥（web/core/bridges.js 装成 WBBridge.director）。
    时间口径只有**成片秒**（proj.film 的 start/end 都是它）；两个点名例外写在参数名里：
-   srcStart / srcEnd 是素材自己的源秒。写只有三条出口 —— Edit.patch（画面段 / 配音 / 待生成）、
+   srcStart / srcEnd 是素材自己的源秒。写只有两条出口 —— Edit.patch（画面段 / 配音）、
    Edit.toolAction（切开 / 删 / 复制 / 融合，与工具条同一批函数）、Caption.*（字幕一族）；
    桥自己不碰 proj.film 的字段、不留第二份剪辑账，check 与 run 两次解析之间靠**身份**对账
    （工程 id + 块 id），不靠修订号。
@@ -63,8 +63,8 @@ export function createBridge(E, document, window) {
   /* 成片秒的读数写法：一律一位小数（0.1 秒是这一页的最短计量）。 */
   const sec = v => (Math.round(Math.max(0, num(v)) * 10) / 10).toFixed(1);
   const sgn = v => { const x = Math.round(num(v) * 10) / 10; return (x > 0 ? '+' : '') + x.toFixed(1); };
-  const KIND_TRACK = { clip: 'image', voice: 'voice', pending: 'voice', cap: 'caption' };
-  const KIND_ZH = { clip: '画面段', voice: '配音块', pending: '待生成块', cap: '字幕' };
+  const KIND_TRACK = { clip: 'image', voice: 'voice', cap: 'caption' };
+  const KIND_ZH = { clip: '画面段', voice: '配音块', cap: '字幕' };
   const FIELD_ZH = { speed: '倍速', volume: '音量', muted: '静音', lane: '行', start: '起点', end: '终点',
     srcStart: '源窗口', srcEnd: '源窗口', slip: '滑移', roll: '滚动切点', slide: '滑动', moveTo: '挪位',
     transition: '转场', fadeIn: '淡入', fadeOut: '淡出' };
@@ -123,7 +123,7 @@ export function createBridge(E, document, window) {
 
   /* ---------- 块定位：三种指法（id / at 成片秒 / index 第几块）只有这一份 ----------
      返回统一的 { item, index, start, end }：画面段按 deriveTimeline 累加出 start/end，
-     字幕按 start 排序，配音 / 待生成按 start + duration。 */
+     字幕按 start 排序，配音按 start + duration。 */
   function blocksOf(kind) {
     const f = filmOf();
     if (kind === 'clip') {
@@ -133,7 +133,7 @@ export function createBridge(E, document, window) {
       return (f.captions || []).slice().sort((x, y) => num(x.start) - num(y.start))
         .map((c, i) => ({ item: c, index: i, start: num(c.start), end: num(c.end) }));
     }
-    const list = kind === 'voice' ? (f.voices || []) : kind === 'pending' ? (f.pending || []) : [];
+    const list = kind === 'voice' ? (f.voices || []) : [];
     return list.map((v, i) => ({ item: v, index: i, start: num(v.start), end: num(v.start) + num(v.duration) }));
   }
   /* 行号按打包口径现算：存下来的 `item.lane` 只是偏好，真正画在第几行由打包说了算。 */
@@ -241,7 +241,7 @@ export function createBridge(E, document, window) {
     const name = Edit.describeItem('clip', id);
     let text = '';
     if (p.way === 'split') {
-      const also = ['voice', 'pending', 'cap'].map(kind => (blocksOf(kind).some(bl => p.at > bl.start + 0.0005 && p.at < bl.end - 0.0005) ? KIND_ZH[kind] : '')).filter(Boolean);
+      const also = ['voice', 'cap'].map(kind => (blocksOf(kind).some(bl => p.at > bl.start + 0.0005 && p.at < bl.end - 0.0005) ? KIND_ZH[kind] : '')).filter(Boolean);
       text = '已在 ' + sec(p.at) + ' 秒处切开' + name + '：现在 ' + rows.length + ' 段'
         + (also.length ? '，同一时刻压着的' + also.join('、') + '也一并切开' : '');
     } else if (p.way === 'remove') {
@@ -274,7 +274,7 @@ export function createBridge(E, document, window) {
     a = a || {};
     const kind = String(a.kind || '');
     if (kind === 'subtitle') return subPlan(a);
-    if (!KIND_ZH[kind]) return loose('kind 只能是 clip / voice / pending / subtitle');
+    if (!KIND_ZH[kind]) return loose('kind 只能是 clip / voice / subtitle');
     const b = pick(a, kind); if (b.err) return b;
     const lock = lockWhy(kind, b.item); if (lock) return loose(lock);
     const it = b.item;
@@ -337,21 +337,17 @@ export function createBridge(E, document, window) {
         next.transition = typeof a.transition === 'string' ? { id: a.transition } : a.transition;
       }
     } else {
-      const noAudio = '待生成块还没有音频：speed / volume / fadeIn / fadeOut / srcStart / srcEnd 都改不了';
       if (a.speed != null) {
-        if (kind === 'pending') return loose(noAudio);
         const v = Number(a.speed);
         if (!Number.isFinite(v) || v < 0.25 || v > 4) return loose('speed 要在 0.25–4 之间（1 = 原速）');
         next.speed = Math.round(v * 100) / 100;
       }
       if (a.volume != null) {
-        if (kind === 'pending') return loose(noAudio);
         const v = Number(a.volume);
         if (!Number.isFinite(v) || v < 0 || v > 4) return loose('volume 要在 0–4 之间（1 = 原声，百分比请除以 100）');
         next.volume = Math.round(v * 100) / 100;
       }
       if (a.fadeIn != null || a.fadeOut != null) {
-        if (kind === 'pending') return loose(noAudio);
         if (a.fadeIn != null) {
           const v = Math.max(0, num(a.fadeIn));
           if (v > num(it.duration) / 2) return loose('fadeIn 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间（不能超过这一块的一半）');
@@ -376,11 +372,9 @@ export function createBridge(E, document, window) {
       if (a.end != null) {
         const at = num(a.end);
         if (!(at > b.start + MIN_CLIP_SECONDS)) return loose('end 太靠前：块的开头至少要留 ' + MIN_CLIP_SECONDS + ' 秒');
-        if (kind === 'pending' && at > b.end + 0.0005) return loose('待生成块还没有音频，拉不长：end 只能往里裁');
         next.endAt = at;
       }
       if (a.srcStart != null || a.srcEnd != null) {
-        if (kind === 'pending') return loose(noAudio);
         const w = windowClip(a, it, kind); if (w.err) return loose(w.err);
         next.window = w;
       }
@@ -417,7 +411,7 @@ export function createBridge(E, document, window) {
         bits.push(next.muted ? '原声静音' : '取消静音');
       }
       const f = filmOf();
-      const key = kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : 'pending';
+      const key = kind === 'clip' ? 'clips' : 'voices';
       const list = (f[key] || []).slice();
       const idx = list.findIndex(x => x && x.id === id);
       if (idx < 0) return loose('这一块已经不在了：重新读 context 再来');
@@ -447,12 +441,11 @@ export function createBridge(E, document, window) {
         if (next.fadeIn != null) { cur = { ...cur, fadeIn: next.fadeIn }; bits.push('淡入 → ' + sec(next.fadeIn) + ' 秒'); }
         if (next.fadeOut != null) { cur = { ...cur, fadeOut: next.fadeOut }; bits.push('淡出 → ' + sec(next.fadeOut) + ' 秒'); }
         if (next.lane != null) {
-          const merged = moveTimedToLane([...(f.voices || []), ...(f.pending || [])], id, next.lane);
+          const merged = moveTimedToLane((f.voices || []), id, next.lane);
           if (!merged.moved) return loose('就在第 ' + (next.lane + 1) + ' 行：没有要挪的');
           const byId = new Map(compactLanes(merged.items).items.map(x => [x.id, Math.max(0, Math.round(pos(x.lane)))]));
           patchData = {
             voices: (f.voices || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x)),
-            pending: (f.pending || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x)),
           };
           bits.push('挪到第 ' + (byId.get(id) + 1) + ' 行（同一行的其它块跟着让位）');
         }
@@ -469,7 +462,7 @@ export function createBridge(E, document, window) {
     const id = it.id;
     const desc = Edit.describeItem(kind, id);
     const f = filmOf();
-    const key = kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : 'pending';
+    const key = kind === 'clip' ? 'clips' : 'voices';
     const list = (f[key] || []).slice();
     const idx = list.findIndex(x => x && x.id === id);
     if (idx < 0) return loose('这一块已经不在了：重新读 context 再来');
@@ -674,10 +667,10 @@ export function createBridge(E, document, window) {
     }
     const before = (filmOf().captions || []).length;
     if (!Caption.capGenerate()) {
-      return loose('没有补出新的字幕：配音轨与待生成轨上都没有带字的块，或每一句都已经有字幕挂着（要改字给 id 单条改）');
+      return loose('没有补出新的字幕：配音轨上没有带字的块，或每一句都已经有字幕挂着（要改字给 id 单条改）');
     }
     const after = (filmOf().captions || []).length;
-    return { ok: true, text: '已按配音与待生成补出 ' + (after - before) + ' 条字幕（全片现在 ' + after
+    return { ok: true, text: '已按配音补出 ' + (after - before) + ' 条字幕（全片现在 ' + after
       + ' 条）：每条接在自己那句上，之后块挪位字幕跟着走。要退回就说「撤销最近一步」。' };
   }
 
@@ -798,7 +791,7 @@ export function createBridge(E, document, window) {
           const zh = { entries: '新增 ' + (p.arg.entries || []).length + ' 条字幕（成片秒）',
             text: '导入一段 SRT（时间按成片秒直接用）',
             maxChars: '按每行 ' + p.arg.maxChars + ' 字重切长字幕',
-            regenerate: '按配音与待生成补齐缺字幕的句子' };
+            regenerate: '按配音补齐缺字幕的句子' };
           return { ok: true, text: '整轨字幕改动：' + zh[p.mode],
             lines: ['现在全轨：' + (filmOf().captions || []).length + ' 条', '动作：' + zh[p.mode]] };
         }
@@ -1118,7 +1111,7 @@ export function createBridge(E, document, window) {
     (deriveTimeline(f.clips).rows || []).forEach(r => {
       if (list.includes(String(r.clip.id)) || list.includes(String(r.clip.shotId))) hits.push(r.clip);
     });
-    [...(f.voices || []), ...(f.pending || [])].forEach(v => { if (list.includes(String(v.id))) hits.push(v); });
+    (f.voices || []).forEach(v => { if (list.includes(String(v.id))) hits.push(v); });
     (f.captions || []).forEach(c => { if (list.includes(String(c.id))) hits.push(c); });
     if (!hits.length) return { ok: false, reason: '成片里已经没有这几块了（可能刚被删掉）' };
     const sel = (kind, item) => { try { Edit.selectItem(kind, item.id); } catch (e) { /* 选中失败不拦定位 */ } };
@@ -1127,7 +1120,7 @@ export function createBridge(E, document, window) {
     const flash = () => Timeline.flashBlocks(hits.map(it => it.id));
     const first = hits[0];
     const kind = (f.captions || []).includes(first) ? 'cap'
-      : (f.voices || []).includes(first) ? 'voice' : (f.pending || []).includes(first) ? 'pending' : 'clip';
+      : (f.voices || []).includes(first) ? 'voice' : 'clip';
     if (o.focus !== false) {
       sel(kind, first);
       Timeline.seekTo(num(first.start), { playNow: false });
@@ -1178,7 +1171,6 @@ export function createBridge(E, document, window) {
           行锁定: f.tracks && f.tracks.locks ? Object.keys(f.tracks.locks).length : 0,
         },
         配音: (f.voices || []).length,
-        待生成: (f.pending || []).length,
         字幕: { 条数: caps.list.length, 藏掉: caps.skipped.hidden, 没字: caps.skipped.empty },
         标记: (f.markers || []).slice(0, 12).map(m => ({
           id: m.id, 类型: m.type, 秒: round1(num(m.time)), 标题: capTxt(m.title, 20),

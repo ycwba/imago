@@ -139,7 +139,7 @@
     return cjk + Math.ceil((t.length - cjk) / 4);
   }
   var SKILL_BUDGET = 2000;
-  /* 预算拆两份额度（§13.4）：预载那份走系统提示词（最多 2 份，SKILL_BUDGET 是它的 token 总闸）；
+  /* 预算拆两份额度：预载那份走系统提示词（最多 2 份，SKILL_BUDGET 是它的 token 总闸）；
      回合内按需读的走工具结果，另有 ON_DEMAND_BUDGET —— 不拆的话预载两份就把额度占满，
      助手自己选的那份根本拿不到预算。 */
   var ON_DEMAND_BUDGET = 1000;

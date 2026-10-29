@@ -1,6 +1,6 @@
 /* 导演台生成域：分镜的提交、平台任务轮询、自动镜像投递与「生成全部分镜」的
    依赖式批量调度（报价 / 接续等待 / 并发窗口 / 实时进度）。engine.js 只留状态与接线
-   （AGENTS.md §17：内部保持命令式、按域拆模块）。
+   （内部保持命令式、按域拆模块）。
    引擎状态一律经 createGen(E) 递进来的访问器读写；短片的身份（proj / WS / REG）每次现读，
    不在这一份里缓存 —— 切换短片、清缓存、导入工程都会换掉它们。 */
 import { hasTailFrame, quoteKeyOf, sumQuotes, runWithDeps } from '../chain.js';
@@ -13,7 +13,7 @@ export function createGen(E) {
     updateMidLive, sortCandidates, provById, saveScheduleSoft, renderScenesSoon, curDraftCand,
     applyRefSyntax, refTokenize, resolvedModel, ROLE_ZH, comboLabel, shotUsedRoles, shotCombo,
     shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
-    shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
+    shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
     updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid, videoPlanOf,
     setSelectedCandidate,
   } = E;
@@ -146,7 +146,7 @@ function pollOne(t) {
   let p2done = false;
   /* 统一走 Api.pollTask：它认 registry 的 pollVia:'list'。以前这里自己按 endpoints.detail 拼请求，
      而 VGENV 的 /v2/videos/{id} 是 404 空壳 —— 在跑的任务会被判成「平台上找不到这条任务」，
-     界面裂成假失败卡 + 列表里真实的完成卡，用户重试就是重复扣费（AGENTS.md：只走 Api.pollTask 这类统一入口）。 */
+     界面裂成假失败卡 + 列表里真实的完成卡，用户重试就是重复扣费（只走 Api.pollTask 这类统一入口）。 */
   return Api.pollTask(prov, c.vid).then(r => {
     const v = (r && r.raw) || null;
     const p = r && r.p;
@@ -217,7 +217,7 @@ function pollOne(t) {
     }
   });
 }
-/* 「什么时候问、问多密、连续失败怎么办」交回公共轮询器 Wb.poller（与生成工作台、资产库同一台）：
+/* 「什么时候问、问多密、连续失败怎么办」交回公共轮询器 Wb.poller（与工作台、资产库同一台）：
    ① 间隔听设置页那一项「任务刷新间隔」（以前这里写死 3 秒 setInterval，那项设置对导演台形同虚设）；
    ② 整轮失败会指数退避、同一条连续三次会单独说一句（以前只 console.warn）；
    ③ 切走标签页自动暂停、回到前台立刻补一次（以前是本页自己抄的一份 visibilitychange）；
@@ -278,7 +278,7 @@ async function submitCandidate(sh, ph) {
   const kfs = shotKeyframes(sh);
   /* @名字 → @参考图N → 平台声明的引用语法。归档那一份存的是**原始**描述（还是 @名字，
      人看得懂、复用也方便），只有真正发出去的 body 用转换后的。 */
-  const pApi = applyRefSyntax(refTokenize(sh, p), prov);
+  const pApi = applyRefSyntax(refTokenize(sh, p, icSub), prov);
   /* 高级设置那一读要**在归档之前**做完：摘要里写的是「这一次真的发出去了哪些顶层开关」，
      先拼好文案才不会出现「归档写着平台润色、提交体里根本没有」这种自相矛盾的存档。 */
   const ex = shotAdvExtras(sh);
@@ -317,7 +317,7 @@ async function submitCandidate(sh, ph) {
           kfs.length ? kfs.length + ' 关键帧' : '',
           (sh.refImages || []).length ? sh.refImages.length + ' 参考图' : '',
           sh.refVideo ? '参考视频' : '', sh.refAudio ? '参考音频' : ''].filter(Boolean).join(' / ') } };
-      /* 提交体完全交给 `Api.createBody` + registry 声明（与生成工作台同一条路）：
+      /* 提交体完全交给 `Api.createBody` + registry 声明（与工作台同一条路）：
          标准字段往哪个上游字段名映射、哪些要嵌进 parameters、顶层开关与形状字段怎么过滤、
          素材按什么形状进请求体，全是声明里的事，页面不抄第二份。 */
       const v = await Api.request(prov, 'create', { method: 'POST', log: log2,
@@ -337,7 +337,7 @@ async function submitCandidate(sh, ph) {
       /* 三种「上游说没成」的形状都要认（`Api.request` 返回的是上游原始响应体）：
          `{error:{message}}`（SparkCine 那一族与照它克隆的中转）、
          顶层 `statusCode >= 400`（VGENV 那一族）、
-         以及只回一个业务 `code` 而没有任务号（ MiniMax / 智谱那一族）。
+         以及只回一个业务 `code` 而没有任务号（如 MiniMax / 智谱那一族）。
          少认一种就是把一个真失败当成「任务已建」，卡片会一直转圈等一条不存在的任务。 */
       if (v.error) throw new Error(v.error.message || '创建失败');
       if (Number(v.statusCode) >= 400) throw new Error(v.message || v.code || '创建失败');
@@ -566,63 +566,30 @@ async function genAllQuote(plan, opts) {
     groups: groups.size,
   };
 }
-/* 按钮下那一行估价文案：没有金额时**绝不说「预计 0」**；多币种不合计。 */
-function genAllEstLine(plan, q) {
-  const n = plan.ok.length + plan.wait.length;
-  const cands = plan.ok.concat(plan.wait).reduce((a, sh) => a + Math.max(1, Number(sh.draw) || 1), 0);
-  const bits = ['可生成 ' + n + ' 镜' + (cands > n ? '（' + cands + ' 条）' : '')];
-  if (!q) bits.push('报价中…');
-  else if (q.sum.mixed) bits.push('多币种不合计：' + q.sum.byCurrency.map(x => (x.currency || '?') + ' ' + x.amount).join(' / '));
-  else if (q.sum.priced) bits.push('预计 ' + q.sum.total + (q.sum.currencies[0] ? ' ' + q.sum.currencies[0] : ''));
-  else bits.push('<span class="warn">报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '</span>');
-  if (q && q.unpriced) bits.push('<span class="warn">另有 ' + q.unpriced + ' 镜报价不可用</span>');
-  if (plan.wait.length) bits.push('等待上一镜 ' + plan.wait.length + ' 镜');
-  if (plan.bad.length) bits.push('<span class="warn">不能生成 ' + plan.bad.length + ' 镜</span>');
-  return bits.join(' · ');
-}
-/* 常驻那一行：600ms 去抖、只在前台问、旧答案按序号作废；批量跑着时让位给实时进度。 */
-let gaEstTimer = null, gaEstSeq = 0;
+/* 「生成全部分镜」按钮的文案与可用状态跟生成计划**同一份**（genAllPlan）：计划一变，两处一起变，
+   不会出现「写着可生成 2 镜，按钮却说是全部」。600ms 去抖、只在前台改。
+   状态区只有进度条，不写文案：不能生成的原因与条数都放进按钮的 title。 */
+let gaEstTimer = null;
 function dirForeground() {
   try { return window.__spaActivity.visible('director.html'); } catch (e) { return true; }
 }
-function refreshGenAllEst() {
+function refreshGenAllBtn() {
   if (genAllRun) return;
   clearTimeout(gaEstTimer);
-  gaEstTimer = setTimeout(async () => {
+  gaEstTimer = setTimeout(() => {
     gaEstTimer = null;
-    const my = ++gaEstSeq;
-    const el = $('genAllEst');
     const btn = $('genAll');
-    if (!el || !dirForeground()) return;
+    if (!btn || !dirForeground()) return;
     const plan = genAllPlan();
-    /* 按钮与估价行**同一份计划**（genAllPlan）：计划一变，按钮的文案与可用状态一起变。
-       以前按钮永远是「生成全部分镜」，旁边那行写着「可生成 2 镜 · 不能生成 1 镜」——
-       同一件事两套说法，按钮也不知道自己该不该点。 */
     const can = plan.ok.length + plan.wait.length;
-    if (btn) {
-      btn.textContent = can ? ('生成 ' + can + ' 个分镜') : '生成全部分镜';
-      btn.disabled = !can;
-      btn.title = can
-        ? ('这一轮会提交 ' + can + ' 个分镜' + (plan.bad.length ? '，另有 ' + plan.bad.length + ' 镜现在不能生成' : ''))
-        : '现在没有能生成的分镜（原因见下面那一行）';
-    }
-    if (!can) {
-      el.hidden = false;
-      if (!allShots().length) {
-        el.innerHTML = '<span class="dim">还没有分镜 —— 先加一个场景与镜头</span>';
-      } else if (!plan.bad.length) {
-        el.innerHTML = '<span class="dim">全部镜头都已有生成结果 —— 要重跑先删掉那一镜的候选</span>';
-      } else {
-        el.innerHTML = '<span class="warn">' + plan.bad.length + ' 镜现在不能生成：'
-          + esc((plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0])) + '</span>';
-      }
-      return;
-    }
-    el.hidden = false;
-    el.innerHTML = genAllEstLine(plan, null);
-    const q = await genAllQuote(plan);
-    if (my !== gaEstSeq || genAllRun) return;
-    el.innerHTML = genAllEstLine(plan, q);
+    btn.textContent = can ? ('生成 ' + can + ' 个分镜') : '生成全部分镜';
+    btn.disabled = !can;
+    btn.title = can
+      ? ('这一轮会提交 ' + can + ' 个分镜' + (plan.bad.length ? '，另有 ' + plan.bad.length + ' 镜现在不能生成' : ''))
+      : !allShots().length ? '还没有分镜'
+      : !plan.bad.length ? '全部镜头已生成，要重跑先删掉那一镜的候选'
+      : (plan.bad.length + ' 镜不能生成：'
+        + (plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0]));
   }, 600);
 }
 let genAllRun = null;            // 正在跑的那一批（切换短片 / 收尾时读它）
@@ -635,30 +602,14 @@ function abortGenAll(why) {
   chainWaits.forEach(w => { try { w.resolve(false); } catch (e) { /* resolve 本身不会失败，见上 */ } });
   chainWaits.clear();
 }
-function updateGenAllLive() {
-  const run = genAllRun, el = $('genAllEst');
-  if (!run || !el) return;
-  /* 切走了就不动 DOM，但**定时器留着**：回到这一页下一秒自己补上。
-     「批量在跑」时 refreshGenAllEst 会让位给这里，所以清掉计时器等于切回来永远停在旧的那一句。 */
-  if (!dirForeground()) return;
-  const waited = run.waitSince.size;
-  const secs = waited ? Math.max(...[...run.waitSince.values()].map(t => Math.round((Date.now() - t) / 1000))) : 0;
-  el.hidden = false;
-  el.innerHTML = '提交中… 已完成 ' + run.doneShots + '/' + run.targets.length + ' 镜'
-    + (waited ? ' · <span class="warn">等待上一镜 ' + waited + ' 镜（已等 ' + secs + ' 秒）</span>' : '');
-}
 async function runGenAll(plan) {
   const runProj = projOf();
-  const run = { runProj, abort: '', startedAt: Date.now(), waitSince: new Map(),
-    doneShots: 0, submittedCands: 0, targets: plan.ok.concat(plan.wait), timer: 0 };
+  const run = { runProj, abort: '', waitSince: new Map(), targets: plan.ok.concat(plan.wait) };
   genAllRun = run;
   const alive = () => !run.abort && projOf() === runProj && wsOf().curId === runProj.id;
   const submitted = new Set();
-  const failedCands = [];
   /* 本批里的依赖目标先挂好 deferred：依赖方开始等的时候，它可能还没轮到提交（状态是 todo）。 */
   plan.deps.forEach(prev => armChainWait(prev));
-  updateGenAllLive();
-  run.timer = setInterval(updateGenAllLive, 1000);
   let outs = [];
   try {
     outs = await runWithDeps({
@@ -699,19 +650,17 @@ async function runGenAll(plan) {
               }
               throw stopErr;
             }
-            try { await submitCandidate(sh, phs[i]); okN++; run.submittedCands++; submitted.add(sh); }
-            catch (e) { firstErr = firstErr || e; failedCands.push({ sh, e }); }
+            try { await submitCandidate(sh, phs[i]); okN++; submitted.add(sh); }
+            catch (e) { firstErr = firstErr || e; }
           }
           if (!okN) throw firstErr || new Error('没有提交成功任何一条');
           return okN;
         } finally {
-          run.doneShots++;
           settleShot(sh);           // 提交失败 / 全部失败的那一镜立刻唤醒等它的镜头
         }
       },
     });
   } finally {
-    clearInterval(run.timer);
     chainWaits.clear();
     genAllRun = null;
   }
@@ -720,19 +669,7 @@ async function runGenAll(plan) {
     Toast.warn('生成全部分镜已停止：' + (run.abort || '切换了短片'));
     return;
   }
-  const blocked = outs.filter(r => r && r.blocked).length;
   const failedShots = outs.filter(r => r && !r.ok && !r.blocked).length;
-  const doneNow = run.targets.filter(sh => chainStateOf(sh) === 'done').length;
-  const parts = [];
-  if (submitted.size) parts.push('✓ 已提交 ' + submitted.size + ' 镜（' + run.submittedCands + ' 条）'
-    + (doneNow ? '，其中 ' + doneNow + ' 镜已出画面' : ''));
-  if (blocked) parts.push('<span class="warn">' + blocked + ' 镜因为上一镜没出画面没有提交</span>');
-  if (failedShots) parts.push('提交失败 ' + failedShots + ' 镜（' + failedCands.length + ' 条）'
-    + (failedCands[0] ? '：' + (failedCands[0].sh.name || '未命名') + '：' + ((failedCands[0].e && failedCands[0].e.message) || '未知错误') : ''));
-  if (plan.bad.length) parts.push('跳过 ' + plan.bad.length + ' 镜：'
-    + plan.bad.slice(0, 3).map(sh => (sh.name || '未命名') + '（' + plan.badWhy.get(sh) + '）').join('、')
-    + (plan.bad.length > 3 ? ' 等' : ''));
-  setGenAllMsg(parts.join('；') || '这一批没有提交任何一条');
   loadCredits();
   /* 这一批真发出去的请求体：按镜头逐条折叠列在结果下面（RawRequest 那一条会话内存快照）。 */
   const raw = $('genAllRaw');
@@ -783,7 +720,7 @@ async function genAllConfirm(plan, q) {
     voiceAssetBase, announceDoneCandidates, submitCandidate, drawShot, shotHasVideo, genBtnLabel,
     spawnCandidateShot, pollKick: () => poller.kick(),
     /* 接续与批量：状态、计划、报价、执行与停止；genAllRun 只以「有没有在跑」出去，批次对象不外泄 */
-    chainStateOf, genAllPlan, genAllQuote, genAllConfirm, runGenAll, refreshGenAllEst,
+    chainStateOf, genAllPlan, genAllQuote, genAllConfirm, runGenAll, refreshGenAllBtn,
     abortGenAll, genAllRunning: () => !!genAllRun,
   };
 }

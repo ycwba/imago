@@ -91,6 +91,8 @@ for (const [file, want] of [
   ['skills/split-script/SKILL.md', ['cast', 'assets', 'what', 'board', 'dur']],
   ['skills/board-edit/SKILL.md', ['board', 'cast', 'assets', 'what', 'dur']],
   ['skills/board-assets/SKILL.md', ['board', 'cast', 'assets']],
+  ['skills/video-prompt/SKILL.md', ['duration', 'mode', 'model', 'ar', 'assets']],
+  ['skills/image-prompt/SKILL.md', ['model', 'ar', 'assets']],
 ]) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   const names = TV.names(text);

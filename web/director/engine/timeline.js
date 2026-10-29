@@ -43,7 +43,6 @@ export function createTimeline(E, document, window) {
     toolAction,
     toolState,
     strip,
-    beforeRender,
     onBoardRender,
     dblClickEmpty,
     seekRequest,
@@ -136,8 +135,7 @@ export function createTimeline(E, document, window) {
   }
 
   /* ---------------- 行表（标签列与轨道列共用的一张） ---------------- */
-  /* 行键与 film.tracks 的键一致：`image` / `voice` / `voice-N` / `caption` / `caption-N`。
-     待生成与配音共用同一组打包行（同一副 lane 语义），行键都写 `voice-N`。 */
+  /* 行键与 film.tracks 的键一致：`image` / `voice` / `voice-N` / `caption` / `caption-N`。 */
   function rowsOf(film) {
     const tl = deriveTimeline(film.clips);
     const imageLanes = [];
@@ -147,12 +145,7 @@ export function createTimeline(E, document, window) {
       imageLanes[lane].push(row);
     });
     if (!imageLanes.length) imageLanes.push([]);
-    const pendingById = new Map(film.pending.map(p => [p.id, p]));
-    const timed = [
-      ...film.voices.map(v => ({ ...v, __kind: 'voice' })),
-      ...film.pending.map(p => ({ ...p, __kind: 'pending' })),
-    ];
-    const voicePack = packVoiceLanes(timed);
+    const voicePack = packVoiceLanes(film.voices);
     const capPack = packCaptionLanes(film.captions);
     const voiceLanes = voicePack.lanes.length ? voicePack.lanes : [{ lane: 0, items: [] }];
     const capLanes = capPack.lanes.length ? capPack.lanes : [{ lane: 0, items: [] }];
@@ -169,7 +162,7 @@ export function createTimeline(E, document, window) {
       kind: 'caption', key: `caption-${l.lane}`, lane: l.lane, items: l.items,
       label: l.lane ? `字幕 ${l.lane + 1}` : '字幕',
     }));
-    return { tl, rows, voiceOverflow: voicePack.overflow, capOverflow: capPack.overflow, pendingById };
+    return { tl, rows, voiceOverflow: voicePack.overflow, capOverflow: capPack.overflow };
   }
 
   const rowOff = (film, row) => row.kind !== 'markers' && (!rowVisible(film.tracks, row.kind) || !rowVisible(film.tracks, row.key));
@@ -383,17 +376,17 @@ export function createTimeline(E, document, window) {
     </div>`;
   }
 
-  function voiceHTML(item, pps, film, isPending, lane) {
+  function voiceHTML(item, pps, film, lane) {
     const w = Math.max(2, Math.round(tlXOfTime(item.duration, pps) * 100) / 100);
     const x = Math.round(tlXOfTime(item.start, pps) * 100) / 100;
     const locked = itemLocked(film.tracks, 'voice', lane);
     const visible = itemVisible(film.tracks, 'voice', lane);
-    const cls = ['tl-voice', isPending ? 'is-pending' : '', locked ? 'is-locked' : '', visible ? '' : 'is-off'].filter(Boolean).join(' ') + flashClsOf(item.id);
-    const attr = isPending ? `data-pending="${esc(item.id)}"` : `data-voice="${esc(item.id)}"`;
+    const cls = ['tl-voice', locked ? 'is-locked' : '', visible ? '' : 'is-off'].filter(Boolean).join(' ') + flashClsOf(item.id);
+    const attr = `data-voice="${esc(item.id)}"`;
     return `<div class="${cls}" ${attr} data-start="${item.start}" data-dur="${item.duration}" data-lane="${lane}"
       style="left:${x}px;width:${w}px"
-      title="${esc(item.text || (isPending ? '待生成' : '配音'))} · ${secText(item.duration)}">
-      <div class="tl-block-in">${isPending ? strip.pendingBody(item) : strip.voiceBody(item)}</div>
+      title="${esc(item.text || '配音')} · ${secText(item.duration)}">
+      <div class="tl-block-in">${strip.voiceBody(item)}</div>
       ${locked ? '' : '<i class="tl-h is-start" data-handle="start"></i><i class="tl-h is-end" data-handle="end"></i>'}
     </div>`;
   }
@@ -453,8 +446,8 @@ export function createTimeline(E, document, window) {
       body = row.items.map(r => clipHTML(r.clip, r.start, pps, film)).join('');
       if (!film.clips.length) body = '<span class="tl-lane-hint">在右栏点「用这条」，画面就落到这一轨</span>';
     } else if (row.kind === 'voice') {
-      body = row.items.map(item => voiceHTML(item, pps, film, item.__kind === 'pending', row.lane)).join('');
-      if (!film.voices.length && !film.pending.length) body = '<span class="tl-lane-hint">配音与待生成的句子会排在这一轨</span>';
+      body = row.items.map(item => voiceHTML(item, pps, film, row.lane)).join('');
+      if (!film.voices.length) body = '<span class="tl-lane-hint">配音会排在这一轨</span>';
     } else if (row.kind === 'caption') {
       body = row.items.map(cap => captionHTML(cap, pps, film, row.lane)).join('');
       if (!film.captions.length) body = '<span class="tl-lane-hint">字幕会排在这一轨（按台词生成）</span>';
@@ -515,8 +508,6 @@ export function createTimeline(E, document, window) {
   /* ---------------- 整块重画 ---------------- */
   function render() {
     if (!host) return;
-    /* 台词有没有变成待生成块 —— 重画之前先问一次（syncPending 自己只在真的变了才落盘）。 */
-    if (beforeRender) beforeRender();
     const film = filmNow();
     const keep = scrollEl ? { left: scrollEl.scrollLeft, top: scrollEl.scrollTop } : { left: 0, top: 0 };
     host.innerHTML = boardHTML(film);

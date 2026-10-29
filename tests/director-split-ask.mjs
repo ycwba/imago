@@ -21,7 +21,11 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 
 /* ---- 在 vm 里加载 text-ai.js（浏览器脚本，只需一个 window 壳）---- */
 const ctx = { window: { LS: { get: k => (k === 'sk_model_probe' ? 'probe-model' : '') },
-    Store: { read: () => [], write: () => {} }, Api: { errorMessage: () => 'err' } },
+    Store: { read: () => [], write: () => {} }, Api: { errorMessage: () => 'err' },
+    TplVars: { fill: (tpl, vals) => String(tpl == null ? '' : tpl).replace(/\{(\w+)\}/g, (m, k) => {
+      const v = vals && vals[k];
+      return (v == null || v === '') ? m : String(v);
+    }) } },
   console };
 vm.createContext(ctx);
 vm.runInContext(read('web/domain/text-ai.js'), ctx);
@@ -121,5 +125,39 @@ assert.ok((applySrc.match(/onFollow: async \(askText, ctl/g) || []).length === 2
   'apply.js 的拆新与改稿两路都要接 onFollow');
 assert.ok(/const itemsOfDraft = j =>/.test(applySrc), 'apply.js 缺 itemsOfDraft（生成轮与再改轮共用解析）');
 assert.ok(/TextAI\.prompt\('split_follow'\)/.test(applySrc), '拆新档的再改轮没走 split_follow 契约');
+
+/* ---- 润色 Skill 的请求条件变量：正文写了，设置页的说明表也得列 ---- */
+for (const [contract, want] of [
+  ['polish.video', ['duration', 'mode', 'model', 'ar', 'assets']],
+  ['polish.image', ['model', 'ar', 'assets']],
+]) {
+  const names = (TextAI.SKILL_VARS[contract] || []).map(v => v.name);
+  for (const n of want) assert.ok(names.includes(n), contract + ' 的 SKILL_VARS 缺 ' + n);
+}
+assert.ok(TextAI.DEF.video.includes('{duration}') && TextAI.DEF.video.includes('{assets}'),
+  '视频 Skill 正文没写 {duration} / {assets}：程序填了也进不去');
+assert.ok(TextAI.DEF.img.includes('{assets}'), '图片 Skill 正文没写 {assets}');
+assert.equal(bodyOf('skills/line-write/SKILL.md'), TextAI.DEF.line_write,
+  'skills/line-write/SKILL.md 与 TextAI.DEF.line_write 漂开了');
+assert.equal(TextAI.SKILL_CONTRACT.line_write, 'line_write.json', 'line_write 没登记 SKILL_CONTRACT');
+assert.ok((TextAI.SKILL_VARS['line_write.json'] || []).some(v => v.name === 'duration'),
+  'line_write.json 缺 SKILL_VARS 说明');
+const filled = TextAI.prompt('video', false, {
+  duration: '8 秒', mode: '首尾帧', model: 'MiniMax-H3（MiniMax）', ar: '16:9',
+  assets: '- @参考图1 首帧\n- @视频1 参考视频',
+});
+assert.ok(filled.includes('成片时长：8 秒') && filled.includes('- @视频1 参考视频'),
+  'TextAI.prompt 没把 {duration} / {assets} 填进 Skill 正文');
+assert.ok(!filled.includes('{duration}') && !filled.includes('{assets}'), '填过之后不该还留着占位符');
+
+/* ---- 联网搜索的接入点：统一由 TextAI 把结果接到系统提示词，同一份 opts 不重复搜 ---- */
+const realSearch = ctx.window.Search;
+ctx.window.Search = { context: async q => '【搜】' + q };
+const searchOpts = { search: { query: '赛博朋克 雨夜' } };
+const withSearch = await TextAI.withSearch('SYS', searchOpts);
+assert.ok(withSearch.includes('SYS') && withSearch.includes('【搜】赛博朋克 雨夜'),
+  'TextAI.withSearch 没把搜索结果接到系统提示词');
+assert.equal(await TextAI.withSearch(withSearch, searchOpts), withSearch, '同一份 opts 不该重复搜索');
+ctx.window.Search = realSearch;
 
 console.log('✓ director-split-ask：Skill 同步 / 问答契约 / NO_ASK / focus 拼装 / 接线 / 再改契约 全部就位');

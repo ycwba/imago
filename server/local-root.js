@@ -2,7 +2,7 @@
    代理与磁盘对账（tests/data-snapshot.cjs）读的必须是同一个口径：
    算错根就等于去读一个代理根本不写的地方，界面上的现象是「资产库空了」。
 
-   优先级（AGENTS §1）：
+   优先级：
      ① ASSETS_DIR 环境变量 —— 隔离验证实例靠它指出去，否则 headless 探针生成的素材会直接写进用户那份；
      ② .data/sk_local_dir.json —— 设置页「本机资产库」那一格配的（页面写 localStorage，DataSync 镜像到盘上）；
      ③ 默认 = 系统下载\拾帧（路径本身在 server/user-dirs.js，全站唯一）。

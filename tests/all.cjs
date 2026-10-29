@@ -11,14 +11,14 @@
      常驻判据并发执行：run() 从串行 spawnSync 改为「排队 + 并发池」，默认并发 min(8, CPU 核数)。
         每条判据的输出**整块缓冲、按完成顺序一次性打**（不交错、看得出谁红的）；池里任一条红，
         退出码就非 0；子进程挂住有 per-task 超时（ALL_TIMEOUT_MS / ALL_E2E_TIMEOUT_MS 可改）直接杀掉。
-        **写入型判据只跑隔离实例（AGENTS §13.2）**：凡写共享 .data/.assets/.renders/.skills 的
-        一律进 SERIAL_WRITE 串行白名单、不进并发池（data-snapshot 本就不在这里跑，见 AGENTS §13.3 手工档；
+        **写入型判据只跑隔离实例**：凡写共享 .data/.assets/.renders/.skills 的
+        一律进 SERIAL_WRITE 串行白名单、不进并发池（data-snapshot 本就不在这里跑，属手工档；
         常驻判据实测全部只写 os.tmpdir 的 mkdtemp 探针目录，白名单先登记 data-snapshot 防今后误加）。
      测试用 Node 选型：判据子进程优先用系统 node（NODE 环境变量可指定，拿不到回落 execPath），
         与 map.cjs / watch.cjs 共用同一份 resolveNode（不另存第二张选型表）。
      e2e 分档：--e2e:fast 只跑冒烟档 6 个（清单见 FAST_E2E），--e2e 全量。
         两条档都靠**隔离实例**并发（每条自起隔离 proxy + 独立 Chrome：harness 用 freePort 与
-        带 pid 的独立探针目录，并发互不踩 —— AGENTS §13.2 的写入隔离天然满足）。
+        带 pid 的独立探针目录，并发互不踩 —— 写入隔离天然满足）。
         冒烟档限 4 路并发；全量档先跑读数型那 4 条（截图指纹 / 帧预算 / 实时播放对齐 / 冷启动，
         并发负载会让读数失真），其余（含 7 条不起 Chrome 的服务端链路）再走 4 路并发。共享 batch 入口这轮没动。
    判据进程内打包与 harness 共享 batch 入口这两件没做，待主线导演台 e2e 拆分收口后再接，
@@ -42,11 +42,11 @@ const CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.ALL_CONCURRENCY) 
 /* 超时：常驻 120s、e2e 600s（冒烟档里 smoke 单条约 35s）。挂住的子进程直接 SIGKILL，名额照还。 */
 const TIMEOUT_MS = Number(process.env.ALL_TIMEOUT_MS || 120000);
 const E2E_TIMEOUT_MS = Number(process.env.ALL_E2E_TIMEOUT_MS || 600000);
-/* 写入型串行白名单（AGENTS §13.2）：会写共享 .data/.assets/.renders/.skills 的判据不进并发池。
+/* 写入型串行白名单：会写共享 .data/.assets/.renders/.skills 的判据不进并发池。
    每条都要有原因；常驻判据目前没有一个写共享目录（都落 os.tmpdir 的 mkdtemp），这一档是给
    data-snapshot 一类「要对着真实目录比」的判据留的闸 —— 谁把它们加进 all.cjs，就在这里登记。 */
 const SERIAL_WRITE = [
-  'tests/data-snapshot.cjs',   // 对真实 .data/.renders 与库根本体比基线（AGENTS §13.3），并发跑会读到别的判据的中间态
+  'tests/data-snapshot.cjs',   // 对真实 .data/.renders 与库根本体比基线，并发跑会读到别的判据的中间态
 ];
 
 const residentQueue = [];
@@ -92,7 +92,7 @@ function spawnBuffered(task) {
     const limit = task.opts.timeout || (task.opts.tier === 'browser' || /e2e/.test(task.name) ? E2E_TIMEOUT_MS : TIMEOUT_MS);
     const timer = setTimeout(() => {
       killed = '超时 ' + limit + 'ms，已杀掉子进程（pid ' + child.pid + '）';
-      /* Windows：SIGKILL 只杀直接子进程，e2e 自己拉起的 proxy/Chrome 孙进程会成孤儿（AGENTS §13.2 的清理闸）。
+      /* Windows：SIGKILL 只杀直接子进程，e2e 自己拉起的 proxy/Chrome 孙进程会成孤儿（清理闸）。
          有 taskkill 就整树端掉；没有（*nix / 端不掉）回落 SIGKILL，名额照样归还。 */
       let treeKilled = false;
       if (process.platform === 'win32' && child.pid) {
@@ -148,7 +148,7 @@ async function flushResident() {
    ① 读数型判据（画面指纹 / 帧预算 / 冷启动 / 实时播放的媒体对齐）先单独串行 ——
       并发负载会让截图、耗时读数与媒体元素的归位速度失真（播放对齐读到的会是「正在归位途中」的瞬时值）；
    ② 其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。每条判据自起隔离 proxy + 独立探针目录，
-      并发互不写脏（AGENTS §13.2）；输出与常驻池一样按完成顺序整块打印、带每条耗时。 */
+      并发互不写脏；输出与常驻池一样按完成顺序整块打印、带每条耗时。 */
 const E2E_SOLO = ['e2e/ui-visual', 'e2e/director-perf', 'e2e/director-playback', 'perf/boot'];
 const e2eIdOf = name => String(name).replace(/^tests\//, '').replace(/\.(cjs|mjs)$/, '');
 const e2eRowOf = r => r.task.name.replace(/^tests\/(e2e\/)?/, '') + ' ' + Math.round(r.ms / 1000) + 's'
@@ -226,6 +226,9 @@ run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
 /* 库根那一条算法：盘上那一格（.data/sk_local_dir.json，正文就是 localStorage 原值）必须真被读出来，
    否则现象是「设置页改了位置、产物还往老地方写」，而且一句错都不报。 */
 run('tests/local-root.cjs', process.execPath, ['tests/local-root.cjs']);
+/* 本机有一份、云端没了：地址层要退回本机副本（按账里的来源地址 / 平台产物号认，不靠页面那份镜像索引）。
+   治的是「卡片写着本机+云端，画面却是一张破图」—— 平台把资产清掉 / 签名过期之后本机那份照样要看得见。 */
+run('tests/local-fallback.cjs', process.execPath, ['tests/local-fallback.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);
@@ -233,6 +236,8 @@ run('tests/local-edit.cjs', process.execPath, ['tests/local-edit.cjs']);
 run('tests/fcpxml-client.mjs', process.execPath, ['tests/fcpxml-client.mjs']);
 run('tests/director-util.mjs', process.execPath, ['tests/director-util.mjs']);
 run('tests/director-board.mjs', process.execPath, ['tests/director-board.mjs']);
+/* 素材计划：编号与发送顺序同源 / 上限只夹参考图 / 切片去重 / @ 标记与平台引用语法。 */
+run('tests/director-ref-plan.mjs', process.execPath, ['tests/director-ref-plan.mjs']);
 run('tests/director-split-assets.mjs', process.execPath, ['tests/director-split-assets.mjs']);
 /* 拆分镜的「新素材」：重复出现才建 / 名字对不上不建 / 占位符词法 / 建档落点。 */
 run('tests/director-board-assets.mjs', process.execPath, ['tests/director-board-assets.mjs']);
@@ -245,6 +250,8 @@ run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']
 run('tests/raw-preview.mjs', process.execPath, ['tests/raw-preview.mjs']);
 /* 项目引用规则：Skill 正文里的变量占位符（{cast} {what} …）按项目填料。 */
 run('tests/skill-refvars.mjs', process.execPath, ['tests/skill-refvars.mjs']);
+/* 联网搜索接给文字 AI：总开关 / 查询词清洗 / 结果拼装 / 失败回执。 */
+run('tests/search-context.mjs', process.execPath, ['tests/search-context.mjs']);
 /* 接续拆分镜的纯算法：顺序 / 依赖原因码 / 选型 / 拆分守恒 / 报价键与合计。 */
 run('tests/director-chain.mjs', process.execPath, ['tests/director-chain.mjs']);
 /* 依赖式批量调度：等上一镜、失败级联、等待不占提交名额。 */
@@ -288,7 +295,7 @@ run('tests/routes-smoke.cjs', process.execPath, ['tests/routes-smoke.cjs']);
    裸 #RRGGBB、页面侧碰 Dropdowns 私有物、裸 localStorage、第二处 createElement('link')、
    同一条 CSS 规则写两遍。存量违例登记在案，只许减不许增。 */
 run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
-/* 文档契约：AGENTS.md §3.4 那份设计规范（令牌名 / 主题分段 / 两种外壳 / 公共类 /
+/* 文档契约： 那份设计规范（令牌名 / 主题分段 / 两种外壳 / 公共类 /
    断点档 / 判据条数 / 画面档数）必须与代码一致 —— 文档不许说谎，
    代码改了而文档没改，下一个人就照着过期文档写。 */
 run('tests/doc-contract.cjs', process.execPath, ['tests/doc-contract.cjs']);
@@ -302,7 +309,7 @@ run('tests/scope-guards.cjs', process.execPath, ['tests/scope-guards.cjs']);
 /* 按域搬线那一层的名单纪律：域模块顶上 `const { … } = E` 点名的每一位，engine.js 那只接线对象里必须真有的。
    漏一位不是报错，是那条分支解构出 undefined 才炸（抓到过：预览轴那一位漏 → 悬停取帧整条静默失效）。 */
 run('tests/director-e-deps.cjs', process.execPath, ['tests/director-e-deps.cjs']);
-/* 同一实现别写第二份（AGENTS §7 唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
+/* 同一实现别写第二份（唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
 /* metrics：本地只打印差值，CI 用 --strict 让「膨胀 / 单文件超长」真的能红。 */
@@ -318,7 +325,7 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.arg
 run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs', '--live'], { tier: 'browser' });
   run('tests/e2e/cloud-sync.cjs', process.execPath, ['tests/e2e/cloud-sync.cjs'], { tier: 'browser' });
   /* 本机资产一条链：落点/双身份（fid + 采样签名）/改名挪目录认回/重复下载并成一张卡/删一张卡带走 altPaths
-     /磁盘对账只补一次。两条都不开 Chrome，只起隔离实例（AGENTS §13.2）。 */
+     /磁盘对账只补一次。两条都不开 Chrome，只起隔离实例。 */
   run('tests/e2e/local-chain.cjs', process.execPath, ['tests/e2e/local-chain.cjs'], { tier: 'browser' });
   run('tests/e2e/asr.cjs', process.execPath, ['tests/e2e/asr.cjs'], { tier: 'browser' });
   run('tests/e2e/search.cjs', process.execPath, ['tests/e2e/search.cjs'], { tier: 'browser' });
@@ -395,7 +402,7 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
      接住 → 又写日志 → 再抛一次，无限自旋（实测一个实例 1.6 小时烧掉 800 多秒 CPU，
      端口在听却不回话）。它起隔离实例，不开 Chrome。 */
   run('tests/e2e/proxy-stdout.cjs', process.execPath, ['tests/e2e/proxy-stdout.cjs'], { tier: 'browser' });
-  /* 「存回本机」只存**多选勾选的那几条**（工作台 / 资产库两页）：那颗按钮住在多选条里，
+  /* 「存回本机」只存**多选勾选的那几条**（工作台 / 资产库 / 收藏三页）：那颗按钮住在多选条里，
      多选之后才出现；点下去只排勾选的那些。工作台的翻页行住在右栏顶上（搜索那一排下面）。
      顺带盯「多选时勾选框看得见」—— 勾选框隐形的话，「存选中的」就是盲存。 */
   run('tests/e2e/pull-selected.cjs', process.execPath, ['tests/e2e/pull-selected.cjs'], { tier: 'browser' });

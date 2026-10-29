@@ -4,7 +4,7 @@
    `renameSync` 当场报 EPERM / EBUSY / EACCES。以前这些错误直接冒到调用方，
    用户看到的是「设置没保存」「索引写坏了」，而重试一次就好。
    断电那一半靠 fsync：tmp 写完不落盘就 rename，掉电后可能留下一个 0 字节的目标文件。
-   本文件是**服务端唯一的原子覆盖写实现**（AGENTS.md §7）：data-store / index-store /
+   本文件是**服务端唯一的原子覆盖写实现**：data-store / index-store /
    cloud-store / asr-store / search-store / skills-store 都调这里，别再各写一份 .tmp + rename。 */
 'use strict';
 const fs = require('fs');

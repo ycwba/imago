@@ -34,6 +34,7 @@ const { createCacheRoutes } = require('./routes/cache.js');
 const { createUsageRoutes } = require('./routes/usage.js');
 const { validateProviders, validateAssetStore, validateInterfaceShapes } = require('./providers/validate.js');
 const { handleStatic } = require('./routes/static.js');
+const { warmStatic } = require('./static.js');
 /* 四个域从组合根搬出去：注册表、本机存储层、渲染任务、转发闸。
    这里只留组合根本该做的事：构造配置与依赖、接线、分发。 */
 const { REGISTRY, createRegistryConfig, resolveAssetStore } = require('./registry-config.js');
@@ -232,8 +233,10 @@ function readBody(req, res, limit) {
 /* 「把 ?url= 解出来 → 过完整护栏 → 过不去就 400 并写明原因」只这一份。
    /getfile、/s3put、/fetch、/getv 四条通道以前各抄一遍（连 400 的响应头都写成了两样），
    而这类样板漂移的方向是坏的：少抄一道护栏就等于「任意本机网页可以借代理打内网」。
-   返回 null 表示已经替调用方把 400 回掉了，调用方直接 return。 */
-async function takeOutboundUrl(req, res, prefix, tag) {
+   返回 null 表示已经替调用方把 400 回掉了，调用方直接 return。
+   onReject：护栏把地址挡下来之前先给调用方一次「本机有没有这份产物」的机会
+   （/getv、/fetch 用；云端域名已经解析不了的时候正走这一支）。返回 true = 已经回过响应。 */
+async function takeOutboundUrl(req, res, prefix, tag, onReject) {
   try {
     /* 四条通道的 rest = 「编码过的目标地址」+ 本地附加参数（&dl=1 …）。目标地址本身编码过
        （encodeURIComponent 把 & 变成 %26），所以裸 & 一定是本地参数的分隔符 —— 只取第一段，
@@ -245,6 +248,7 @@ async function takeOutboundUrl(req, res, prefix, tag) {
     return await guardOutboundUrl(safeDecode(raw));
   } catch (e) {
     log(`[${tag}] 拒绝出站：` + e.message);
+    if (onReject && onReject()) return null;
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('bad url: ' + e.message);
     return null;
@@ -404,7 +408,23 @@ const { spawn, spawnSync } = require('child_process');
    于是任意本机进程（curl / 别的脚本）都能直接读 /data、/env-status。Cookie 只有真正加载过
    本工作台页面的浏览器才有，同源之外的页面也拿不到（SameSite=Strict + 跨站已在同源检查里拒）。 */
 const SESSION_COOKIE = 'wb_session';
-const SESSION_TOKEN = require('crypto').randomBytes(24).toString('hex');
+/* 令牌跟着数据目录走、**跨重启不变**：页面是常驻的（切页不刷新），以前每次启动随机一串，
+   代理重启一次，没刷新过的页面在刷新之前所有本机路由都 401 —— 图片与视频被界面判成
+   「已丢失」、列表读不出来，而库根里的文件一份没少。落盘在 <数据目录>/.session，
+   读坏了（或写不进去）就退回「每次启动生成一份」，与以前的行为一致。 */
+const SESSION_TOKEN = (() => {
+  const file = path.resolve(ROOT, process.env.DATA_DIR || '.data', '.session');
+  try {
+    const v = fs.readFileSync(file, 'utf8').trim();
+    if (/^[0-9a-f]{48}$/.test(v)) return v;
+  } catch (e) { /* 第一次跑 / 还没有这个文件：往下生成 */ }
+  const v = require('crypto').randomBytes(24).toString('hex');
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, v);
+  } catch (e) { /* 写不进去就退化成每次启动一份，不影响本机可用性 */ }
+  return v;
+})();
 function cookieValue(req, name) {
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
@@ -574,7 +594,7 @@ const {
   whyNoSpace, sweepStaleTmp, localIndexRead, localIndexUpsert, localIndexUpdate,
   localIndexPut, localAssetEntry, localAssetRepair, localAssetPaths, localMediaType,
   localAssetWhen, localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
-  localAssetSiblings, localIndexDrop,
+  localAssetSiblings, localIndexDrop, localEntryByUpstream, localEntryByPlatformId,
   localUsageScan, serveLocalFile,
 } = localStore;
 /* 资产下载地址从哪一家换：注册表顶层的 assetStore 声明（registry-config.js）。
@@ -586,7 +606,9 @@ const assetStore = resolveAssetStore(REGISTRY);
    FCPXML 媒体包、/asset/<id>、ASR 与本机补存都走这一份。 */
 const mediaSrc = createMediaSrc({
   assetStore, upRequest, cacheSweep: null, guardOutboundUrl, anyRequest, keyOf,
-  localAssetFile: localStore.localAssetFile, PORT, SESSION_COOKIE, SESSION_TOKEN, safeDecode, log,
+  localAssetFile: localStore.localAssetFile,
+  localEntryByUpstream, localEntryByPlatformId,
+  PORT, SESSION_COOKIE, SESSION_TOKEN, safeDecode, log,
 });
 const { resolveSrc, downloadTo, assetInfoOf, assetUrlCache } = mediaSrc;
 const skillsStore = createSkillsStore({ root: ROOT, dataDir: dataDirPath(), userDir: process.env.SKILLS_DIR || '', log });
@@ -879,6 +901,7 @@ const outboundRoutes = createOutboundRoutes({
   takeOutboundUrl, log, upRequest, failUpstream, pipeUpstream, passthroughHeaders,
   guardOutboundUrl, safeOutboundUrl, keyOf, assetInfoOf, assetStore,
   localAssetEntry, localAssetRepair, localFileFromEntry, serveLocalFile, s3putStream,
+  localEntryByUpstream, localEntryByPlatformId,
 });
 
 /* 缓存淘汰（列表 / 详情 / 资产签名地址共用）：先按 TTL 过期，再按条数封顶；给了 maxBytes 时再按字节封顶。
@@ -1093,6 +1116,44 @@ process.on('exit', () => { try { if (instanceLock) instanceLock.release(); } cat
    事件循环按住最长 3 秒，渲染进度、媒体流、健康检查一起停。 */
 startProxyWatcher();
 
+/* ---------- 静态文本的开机预热 ----------
+   首屏要 40 多份文本资源，冷启动时每一份都在请求路径上现压 brotli（每份 25–100ms，
+   12 份实测 740ms；第二次请求走缓存只要 151ms）。浏览器连上来之前先把它们算好塞进缓存，
+   第一次请求就只剩读缓存 + 发字节。名单从 shell.html 现读（它引了哪几份就是首屏那几份），
+   再补 web/ 子树里其余的 .js/.css/.html（切页才用到的页面组件、render 函数、样式）。
+   web/vendor 不热：媒体解码器与 21MB 的 ORT wasm 是几 MB 的二进制，按需取。 */
+function frontendWarmList() {
+  const list = [], seen = new Set();
+  const add = rel => {
+    const full = path.resolve(ROOT, String(rel || '').replace(/^\.?\//, ''));
+    if (!full.startsWith(ROOT + path.sep) || seen.has(full)) return;
+    seen.add(full); list.push(full);
+  };
+  add('shell.html');
+  add('vue.runtime.esm-browser.prod.js');     // web/app.js 静态 import 的那一份，首屏最大的一笔
+  try {
+    const html = fs.readFileSync(path.join(ROOT, 'shell.html'), 'utf8');
+    const re = /\b(?:src|href)\s*=\s*["']([^"']+)["']/g;
+    let m;
+    while ((m = re.exec(html))) {
+      const ref = m[1];
+      if (/^(?:[a-z]+:|\/\/|#)/i.test(ref)) continue;      // data: / http(s): / 页内锚点
+      add(ref.split('#')[0].split('?')[0]);
+    }
+  } catch (e) { /* 读不到 shell.html：只剩下面 web/ 那一批，照常热 */ }
+  const walk = dir => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const d of ents) {
+      const full = path.join(dir, d.name);
+      if (d.isDirectory()) { if (d.name !== 'vendor') walk(full); }
+      else if (/\.(?:js|css|html)$/i.test(d.name)) add(path.relative(ROOT, full));
+    }
+  };
+  walk(path.join(ROOT, 'web'));
+  return list;
+}
+
 /* 第二个参数（地址）才是「只绑回环」这一档的实质落点：`listen(PORT)` 不写 host 时
    Node 绑的是 `::`，等于所有网卡都在听，上面那份默认就整条失效。 */
 server.listen(PORT, BIND.hosts[0], () => {
@@ -1122,6 +1183,13 @@ server.listen(PORT, BIND.hosts[0], () => {
     });
   });
   envWarns.forEach(w => log('[警告] ' + w));
+  /* 预热排在磁盘对账之前：对账要扫库根（只 readdir + stat，但是在主线程上串着走），
+     预热一开跑就走线程池压字节 —— 两边互不排队，用户打开页面时那批静态文本已经在算了。
+     只热 br（浏览器实际都发它）、只热文本，预算 4 秒，超了剩下的按需压 ——
+     它是抢在用户前面做的，不是把 CPU 占住不放。 */
+  warmStatic(frontendWarmList(), { budgetMs: 4000, concurrency: 4 })
+    .then(r => { if (r && r.warmed) log(`[静态] 预热 ${r.warmed} 份文本资源（brotli ${r.ms} ms）`); })
+    .catch(() => {});
   /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，
      在开机这一刻就是纯垃圾（年龄闸只保护**别的实例正在写**的那一个）。 */
   try {

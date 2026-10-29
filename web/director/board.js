@@ -40,7 +40,7 @@ function boardListText(snap) {
   });
   return out.join('\n');
 }
-/* 把 AI 回的 changes 翻成一份对账，opt = {style}。
+/* 把 AI 回的 changes 翻成一份对账。
    每条 item 带着 op 与目标 id（shotId / sceneId + afterId）—— 审查弹窗里用户能改正文、能删条目，
    落盘只按这些 id 找，不会再拿序号回查一遍（那时序号已经会漂）。
    返回 {items, skipped, noop}：两个计数是「AI 交的东西没全采纳」的原因账，
@@ -49,10 +49,7 @@ function boardListText(snap) {
    默默压掉不列出来，以前 `sbSec` 拿一份全站都没有的 2–15 把 AI 的秒数「洗」成合法 ——
    洗过的值落进镜头、再进提交体，界面上那句「2–15」就成了假话。现在 AI 给多少条就列多少条，
    秒数原样带着，越界由落盘后的 `clampShotDurations` 按**这一镜自己的型号**夹回去并报数。 */
-function boardPlanOf(changes, snap, opt) {
-  const o = opt || {};
-  const wantStyle = String(o.style || '').trim();
-  const withStyle = t => (!wantStyle || String(t).indexOf(wantStyle) >= 0) ? t : (String(t) + '，' + wantStyle).trim();
+function boardPlanOf(changes, snap) {
   /* 原样取 AI 的秒数（只认「是个正数」），整数化一下就停：夹区间是落盘那一步按型号做的事。
      而**一家都没声明区间时这条链压根没有能判合法的依据** —— 当「这一项没给」处理，
      并由 sub 那句话照实说清（不是默默丢掉，用户看得见这一条没写入时长）。 */
@@ -133,7 +130,7 @@ function boardPlanOf(changes, snap, opt) {
         patch: { name: nameChg, duration: durChg, line: lineChg, who: whoChg, chain: chainChg },   // 空串 / null = 这一项没改，落盘时跳过
         label: '改 · ' + S.name + ' · 镜头 ' + t.n,
         sub: bits.join(' · '),
-        text: pChg ? withStyle(raw) : t.prompt,
+        text: pChg ? raw : t.prompt,
         keep: !pChg,                                        // 只改名字 / 时长 / 台词时正文可以本来就是空的
       });
       return;
@@ -150,7 +147,7 @@ function boardPlanOf(changes, snap, opt) {
       const nsc = String(ch.newScene == null ? '' : ch.newScene).trim().slice(0, 12);
       if (nsc) {
         put({ op: 'insert', newScene: nsc, patch, label: '新增 · 新场景「' + nsc + '」',
-          sub: '新建一场放在最后 · ' + durSub(dur), text: withStyle(raw) });
+          sub: '新建一场放在最后 · ' + durSub(dur), text: raw });
         return;
       }
       const S = sceneOf(ch.scene);
@@ -162,7 +159,7 @@ function boardPlanOf(changes, snap, opt) {
       else if (aRaw <= 0) { afterId = null; where = '开头'; }   // 0 = 插在这一场的开头
       else { afterId = S.shots[aRaw - 1].sh.id; where = '第 ' + aRaw + ' 镜之后'; }
       put({ op: 'insert', sceneId: S.sc.id, afterId, patch,
-        label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur), text: withStyle(raw) });
+        label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur), text: raw });
       return;
     }
     /* 删镜头与挪顺序。序号在这里就翻成 id（与 update / insert 同一立场）——
@@ -216,10 +213,10 @@ function boardPlanOf(changes, snap, opt) {
    delete 走左栏那颗「×」摘出来的同一份 `removeShot`；move 先把那一条从数组里摘出来（**不**回收地址、
    **不**删空场景，它马上要被放回去），再交给同一套 head / after 分组放回去 —— 落点算式只有一份。
    还在生成的那一条不许删（`Wb.stLive`），单独计 `busy` 照实报数：这一路没有按钮上的就地二次确认，
-   而任务号一落盘就等于一次已付的钱（AGENTS §6.2）。
+   而任务号一落盘就等于一次已付的钱。
    返回 {upd, add, newScenes, skipped, del, mov, busy, lined, pics, at, clamped}：pics 是新镜头认领场景图的结果，
    at 指回第一个被落笔的镜头（调用方把光标放过去），clamped 是这一次夹回的时长有几镜（报数用），
-   lined 是这一次真的写上台词的有几镜（报数用 —— 「带上了台词」与「点哪儿去合成」是同一句话的两半）。 */
+   lined 是这一次真的写上台词的有几镜（报数用 ——「带上了台词」与「点哪儿去合成」是同一句话的两半）。 */
 function applyBoardPlan(items, scenes) {
   const list = scenes || [];
   const findShot = id => {

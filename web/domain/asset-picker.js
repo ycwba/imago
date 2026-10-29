@@ -40,7 +40,7 @@ window.AssetPicker = {
       const charsOnly = o.chars === 'note' || o.chars === 'audio';
       let view = charsOnly ? 'char' : 'lib';
       let typeTab = '全部';
-      let aiCond = null;                         // AI 检索条件（{keywords, after, order, limit}）
+      let aiCond = null;                         // AI 搜索给出的筛选条件（{keywords, after, order, limit}）
 
       const $ = id => dlg.querySelector('#' + id);
       const esc = s => window.esc(s);        // 属性与正文用同一份转义（漏转 < 的那一族以前会在这里注入）
@@ -49,7 +49,7 @@ window.AssetPicker = {
       dlg.id = 'apDlg';
       dlg.innerHTML = `<div class="ap-head"><b>${esc(o.title)}</b>
         <input id="apSearch" placeholder="搜索提示词 / 描述要找的素材…" value="${esc(o.search || '')}" disabled>
-        ${o.aiSearch ? `<button class="chip" id="apAiBtn" title="按左边搜索框里写的描述，用 AI 在这堆素材里挑（不用另外填表）">${window.icon ? window.icon('sparkles', 12) : ''} AI 检索</button><span id="apAiChip"></span>` : ''}
+        ${o.aiSearch ? AiFind.btnHTML('apAiBtn') + '<span id="apAiChip"></span>' : ''}
       </div>
         <!-- 来源档与类型档都用全站那一份芯片几何（.chip）；「本地上传」是动作按钮，不带选中态 -->
         <div class="ap-chips" id="apChips">
@@ -669,32 +669,33 @@ window.AssetPicker = {
         inp.click();
       };
 
-      /* ---------- AI 检索：把一句自然语言变成筛选条件（只筛现有条目，不生成） ---------- */
+      /* ---------- AI 搜索：把一句自然语言变成筛选条件（只筛现有条目，不生成） ---------- */
       const paintAiChip = () => {
-        /* AI 检索出来的那句话要写在 chip 上而不是计数条上：paint() 每次重画都会覆盖 #apCnt，
-           放那里的话「检索成功」这条信息一闪就没了（看起来像点了没反应）。 */
+        /* AI 挑出来的那句话要写在 chip 上而不是计数条上：paint() 每次重画都会覆盖 #apCnt，
+           放那里的话「挑成功了」这条信息一闪就没了（看起来像点了没反应）。 */
         const sum = aiCond ? String(aiCond.summary || '') : '';
         window.AiChip.show('apAiChip', aiCond ? {
           cls: 'ap-aitag', clearId: 'apAiClear', iconSize: 11, tip: sum,
-          text: window.AiChip.text(['AI 检索', sum.slice(0, 18)]),
-          clearTitle: '清除 AI 条件',
+          text: window.AiChip.text([AiFind.LABEL, sum.slice(0, 18)]),
           onClear: () => { aiCond = null; paintAiChip(); paint(); },
         } : { on: false });
       };
       const runAiSearch = async () => {
         if (!window.TextAI) { cnt.textContent = '文字 AI 没加载出来：刷新页面再试'; return; }
-        /* 检索词就是上面搜索框里的文字：不再另外弹一个「输入需求」的窗口（两个框填同一件事，
+        /* 要找的话就是上面搜索框里的文字：不再另外弹一个「输入需求」的窗口（两个框填同一件事，
            用户要在两处来回切换）。框里没写东西就当场说清楚并把光标送回去。 */
         const q = search.value.trim();
         /* 这一句与素材库 / 收藏 / 资产库那三处同一个字、同一个字数（公共层 `AiFind.shortWhy`），
            写在这里的副本以前还带一个「上面」—— 弹窗里本来就只有一个搜索框，指不着别的。 */
-        const why = AiFind.shortWhy(q, 'AI 检索');
+        const why = AiFind.shortWhy(q);
         if (why) {
           cnt.textContent = why;
           window.focusQuiet(search);
           return;
         }
-        cnt.textContent = 'AI 正在理解检索需求…';
+        const btn = $('apAiBtn');
+        window.aiBtnState(btn, true);
+        cnt.textContent = AiFind.BUSY;
         try {
           const reg = await Api.registry();
           const names = base.slice(0, 200).map(e => ({
@@ -706,14 +707,16 @@ window.AssetPicker = {
             '你是素材检索助手，只返回 JSON，不要解释或代码块标记。把需求翻译成：{"keywords":["关键词"],"after":"YYYY-MM-DD 或 null","order":"asc|desc","limit":30,"summary":"一句话"}',
             JSON.stringify({ 需求: q, 素材: names }));
           const j = TextAI.parseJson(txt);
-          if (!j) throw new Error('AI 没有给出可用的检索条件');
+          if (!j) throw new Error('AI 没有给出可用的条件');
           aiCond = j;
           paintAiChip(); paint();
-          /* paint() 会重写计数条，所以这句要放在它后面，否则「AI 检索：…」一闪就没了 */
-          cnt.textContent = 'AI 检索：' + String(j.summary || q).slice(0, 46);
+          /* paint() 会重写计数条，所以这句要放在它后面，否则「AI 搜索：…」一闪就没了 */
+          cnt.textContent = AiFind.LABEL + '：' + String(j.summary || q).slice(0, 46);
         } catch (e) {
-          cnt.innerHTML = '<span style="color:var(--err)">检索失败：' + esc(window.errText(e))
+          cnt.innerHTML = '<span class="err">' + esc(AiFind.failText(e))
             + ' —— 改一下搜索框里的说法再试</span>';
+        } finally {
+          window.aiBtnState(btn, false);
         }
       };
       const aiBtn = $('apAiBtn');

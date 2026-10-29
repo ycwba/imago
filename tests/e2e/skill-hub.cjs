@@ -6,7 +6,7 @@
    - 「添加新 Skill」：在浏览器里写一份新的 → 装上 → 同一 contract 的内置那份自动让位
    - 「编辑正文」：同一张表单改自己那一份
    ⚠「复制为我的 Skill」「导出」两条已整族删除：界面上不许再出现这两个按钮。
-   只写 harness 的 .skills-probe-* / .data-probe-*。 */
+   只写 harness 在系统临时目录里建的 skills / data 探针目录。 */
 'use strict';
 const h = require('./harness.cjs');
 

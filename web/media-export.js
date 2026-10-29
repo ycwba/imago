@@ -434,7 +434,7 @@
   }
 
   /* 兜底取帧要借 media-backend.js 的 <video> 原语；这一页还没加载它就补一次。
-     AGENTS §7：`createElement('video')` 只许出现在那一份里，导出这层只调它的口。 */
+     `createElement('video')` 只许出现在那一份里，导出这层只调它的口。 */
   async function mediaBackend() {
     if (window.MediaBackend && window.MediaBackend.seekIter) return window.MediaBackend;
     if (typeof window.__spaLoadScript === 'function') {

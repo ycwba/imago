@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-/* 「存回本机」只存**多选勾选的那几条** + 生成工作台的翻页行住在右栏顶上。
+/* 「存回本机」只存**多选勾选的那几条** + 工作台的翻页行住在右栏顶上。
    跑法：node tests/e2e/pull-selected.cjs
    用户 2026-10-25 定的两条：
      · 工作台的翻页组件在**右栏的上方**（搜索那一排下面、结果区上面）—— 右栏自己滚，
        翻页塞在页底要一路滚到底才找得到；
      · 「存回本机」是**多选之后才出现**的一颗，存的是**勾选的那几条** ——
-       不多选就点它等于「把这一屏都存一遍」，那不是用户的意思（工作台与资产库两页都是）。
+       不多选就点它等于「把这一屏都存一遍」，那不是用户的意思（工作台 / 资产库 / 收藏三页都是）。
    判据不碰网络：平台清单由 AssetLib.load 的假数据顶上（两条「只有平台那份、本机还没有字节」
    的产物）；落盘那一段（AssetLocal.pullMany）换成记账版，只记「点了要存哪几条」。 */
 'use strict';
@@ -80,35 +80,37 @@ const STUB_LOAD = `
     /* 自动存本机这一档关掉：探针造的那两条没有真字节，让自动补存去下就是让判据去碰网络。 */
     await page.eval(() => { localStorage.clear(); localStorage.setItem('sk_media_local', 'off'); });
 
-    /* ---------- 生成工作台 ---------- */
+    /* ---------- 工作台 ---------- */
     await page.eval(() => { location.hash = '#studio.html'; });
     await page.waitFor(() => !!document.querySelector('.studio-page'), 25000);
     const got = await readWhen(() => document.querySelectorAll('#result .task').length >= 2 ? true : null, 25000);
-    must(got, '生成工作台没画出那两条假产物（假数据没接上）');
+    must(got, '工作台没画出那两条假产物（假数据没接上）');
 
-    /* ① 翻页行住在右栏里，排在搜索那一排下面、结果区上面 */
+    /* ① 翻页（上一页 / 第几页 / 下一页 / 跳页 / 跳转）与搜索 / 多选 / 刷新并排，
+          一起住在右栏的头上、结果区上面 —— 不再单独占一行 */
     const geo = await page.eval(() => {
       const col = document.querySelector('.studio-page .col-right');
       const kids = col ? [...col.children] : [];
       const at = pred => kids.findIndex(k => pred(k));
+      const head = col && col.querySelector('.tasks-head');
       return {
         hasCol: !!col,
         iHead: at(k => (k.className || '').split(' ').includes('tasks-head')),
-        iPager: at(k => (k.className || '').split(' ').includes('wb-pager')),
         iResult: at(k => k.id === 'result'),
-        inCol: !!(col && col.querySelector(':scope > .wb-pager')),
-        atPageBottom: !!document.querySelector('.studio-page > .wb-pager'),
-        headHasSearch: !!(col && col.querySelector('.tasks-head .fb-host')),
+        pagerInGroup: !!(head && head.querySelector('.pgroup #stPgRow')),
+        pagerBtnsInGroup: !!(head && head.querySelector('.pgroup #stPgPrev') && head.querySelector('.pgroup #stPgNext')),
+        gotoInGroup: !!(head && head.querySelector('.pgroup #stGotoPage') && head.querySelector('.pgroup [data-r="gotoBtn"]')),
+        headHasSearch: !!(head && head.querySelector('.fb-host')),
+        headHasAi: !!(head && head.querySelector('.fb-host .fb-ai')),
+        standalone: !!document.querySelector('.studio-page .wb-pager'),
       };
     });
-    must(geo.hasCol, '生成工作台没有右栏（.col-right）');
-    must(geo.inCol, '工作台的翻页行不在右栏里');
-    must(!geo.atPageBottom, '工作台的翻页行还留在页底');
-    must(geo.headHasSearch, '右栏那一排里没有搜索框（.fb-host）');
-    must(geo.iHead >= 0 && geo.iPager > geo.iHead,
-      '翻页行没有排在搜索那一排下面（头 ' + geo.iHead + ' / 翻页 ' + geo.iPager + '）');
-    must(geo.iResult > geo.iPager,
-      '翻页行没有排在结果区上面（翻页 ' + geo.iPager + ' / 结果 ' + geo.iResult + '）');
+    must(geo.hasCol, '工作台没有右栏（.col-right）');
+    must(geo.pagerInGroup && geo.pagerBtnsInGroup && geo.gotoInGroup,
+      '工作台的翻页没有并进搜索那一排：' + JSON.stringify(geo));
+    must(geo.headHasSearch && geo.headHasAi, '右栏那一排里没有搜索框或 AI 搜索：' + JSON.stringify(geo));
+    must(!geo.standalone, '工作台的翻页还单独占一行（.wb-pager）');
+    must(geo.iHead >= 0 && geo.iResult > geo.iHead, '右栏的头（搜索 + 翻页）没有排在结果区上面');
 
     /* ② 「存回本机」住在多选条里，不在搜索那一排；没进多选时看不见 */
     const btn0 = await page.eval(() => {
@@ -229,8 +231,80 @@ const STUB_LOAD = `
       '资产库点「存回本机」排了 ' + (apulled ? apulled.length : 0) + ' 条（应当只有勾选的那一条）');
     must(apulled[0].id === 'probe_a1', '资产库存的不是勾选的那一条：' + JSON.stringify(apulled));
 
-    console.log('✓ 工作台翻页行在右栏顶上（搜索那一排下面）· 资产库翻页行仍在页底');
-    console.log('✓ 「存回本机」多选之后才出现，存的是勾选的那几条（工作台 / 资产库）');
+    /* ---------- 收藏 ---------- */
+    /* 种两条「有外链、本机没有字节」的收藏。走 Fav.add 而不是直写 localStorage：
+       Fav.list() 有 3 秒缓存，直写不会让同一文档里的缓存失效 —— 页面挂载时读到的还是空数组。 */
+    await page.eval(() => {
+      const now = Date.now();
+      window.Fav.add({ key: 'a:probe:f1', kind: 'asset', provider: 'probe', providerName: '探针',
+        assetId: 'probe_f1', type: '图片', prompt: '探针收藏一', src: '/asset/probe_f1', format: 'png', ts: now });
+      window.Fav.add({ key: 'a:probe:f2', kind: 'asset', provider: 'probe', providerName: '探针',
+        assetId: 'probe_f2', type: '图片', prompt: '探针收藏二', src: '/asset/probe_f2', format: 'png', ts: now - 1000 });
+      return true;
+    });
+    await page.eval(() => { location.hash = '#favorites.html'; });
+    await page.waitFor(() => !!document.querySelector('.fav-page'), 25000);
+    const gotF = await readWhen(() => document.querySelectorAll('.fav-page .card[data-key]').length >= 2 ? true : null, 25000);
+    must(gotF, '收藏页没画出那两条假收藏（假数据没接上）');
+
+    const fbtn0 = await page.eval(() => {
+      const b = document.querySelector('#favPullLocal');
+      const bar = document.querySelector('#bulkBar');
+      return {
+        inBar: !!(b && bar && bar.contains(b)),
+        inFilters: !!(b && b.closest('.fav-filters')),
+        visible: !!(b && b.getBoundingClientRect().height > 0),
+      };
+    });
+    must(fbtn0.inBar, '收藏的「存回本机」不在多选条里');
+    must(!fbtn0.inFilters, '收藏的「存回本机」还留在筛选那一排里');
+    must(!fbtn0.visible, '没进多选时收藏的「存回本机」就露出来了');
+
+    await page.eval(() => { document.querySelector('.fav-page #multiBtn').click(); });
+    await readWhen(() => {
+      const b = document.querySelector('#favPullLocal');
+      return !!(b && b.getBoundingClientRect().height > 0);
+    }, 8000);
+    const fpick = await page.eval(() => {
+      const p = document.querySelector('.fav-page .card[data-key] .pick');
+      if (!p) return { exists: false };
+      return { exists: true, display: getComputedStyle(p).display, h: Math.round(p.getBoundingClientRect().height) };
+    });
+    must(fpick.exists && fpick.display !== 'none' && fpick.h > 0,
+      '收藏多选时勾选框看不见：' + JSON.stringify(fpick));
+    await page.eval(() => {
+      const cards = [...document.querySelectorAll('.fav-page .card[data-key]')];
+      const want = cards.find(c => ((c.querySelector('.t') || {}).textContent || '').includes('探针收藏一')) || cards[0];
+      const p = want && want.querySelector('.pick');
+      if (p) p.click();
+      return true;
+    });
+    const flabel = await readWhen(() => {
+      const b = document.querySelector('#favPullLocal');
+      const tx = b && b.querySelector('.tx');
+      const t = (tx || b || {}).textContent || '';
+      return /（1）/.test(t) ? t : null;
+    }, 8000);
+    must(flabel, '收藏勾了一条之后按钮上的数不是 1：' + flabel);
+
+    await page.eval(() => {
+      window.__pulled = [];
+      window.AssetLocal.pullMany = async (jobs) => {
+        for (const j of jobs || []) {
+          const e = j.entry || j;
+          window.__pulled.push({ id: e.assetId || e.id || '', prompt: e.prompt || '' });
+        }
+        return { ok: 0, kept: 0, busy: 0, cant: 0, skip: 0, fails: [], total: (jobs || []).length };
+      };
+    });
+    await page.eval(() => { document.querySelector('#favPullLocal').click(); });
+    const fpulled = await readWhen(() => (window.__pulled && window.__pulled.length ? window.__pulled : null), 8000);
+    must(fpulled && fpulled.length === 1,
+      '收藏点「存回本机」排了 ' + (fpulled ? fpulled.length : 0) + ' 条（应当只有勾选的那一条）');
+    must(fpulled[0].id === 'probe_f1', '收藏存的不是勾选的那一条：' + JSON.stringify(fpulled));
+
+    console.log('✓ 工作台翻页与搜索同一排、在结果区上面 · 资产库翻页行仍在页底');
+    console.log('✓ 「存回本机」多选之后才出现，存的是勾选的那几条（工作台 / 资产库 / 收藏）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

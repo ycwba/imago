@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-/* 重复实现零新增（AGENTS §7：同一个功能只应有一份实现）。
+/* 重复实现零新增（同一个功能只应有一份实现）。
    跑法：`node tests/dup-guard.mjs`；收口之后重打基线：`node tests/dup-guard.mjs --write`。
 
    数的是「同一个名字在几个文件里定义」：函数声明、顶格 const 箭头 / function、`window.X = fn`。
-   AGENTS §7 已经点名的共享件（fmtWhen / pad2 / errText / blobExtOf / mediaKindFrom / mirrorOf …）
+    已经点名的共享件（fmtWhen / pad2 / errText / blobExtOf / mediaKindFrom / mirrorOf …）
    要求恰好 1 份；其余同名函数是收口前的存量（局部短名 put / render / esc 之类），
    登记在 tests/fixtures/dup-baseline.json 里，**只许减不许增**。
    新长出一份同名定义（两个文件都定义 `foo`）就是新的第二份实现：判据当场红。 */
@@ -35,7 +35,7 @@ const DEFS = [
   /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\b/gm,
   /\bwindow\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/g,
 ];
-/* 导演台 engine 层算**一个文件**：G1 正在把 engine.js 按域机械拆进 engine/*.js（AGENTS §9/§17，
+/* 导演台 engine 层算**一个文件**：engine.js 按域机械拆进 engine/*.js（按域拆开，
    只搬函数不改逻辑）。搬出去一份就计一份新的，等于「拆得越干净越有罪」—— 数的是重复实现，
    不是文件数。层**内部**真长出第二份由 tests/scope-guards.cjs 与人工走查管，这一条只守跨层。 */
 const bucketOf = rel => rel.startsWith('web/director/engine/') ? 'web/director/engine.js' : rel;
@@ -69,7 +69,7 @@ if (WRITE) {
 }
 
 const lines = [];
-/* ① §7 点名的共享件：恰好一份 */
+/* ① 已点名的共享件：恰好一份 */
 for (const [name, want] of Object.entries(base.single || {})) {
   const n = map.has(name) ? map.get(name).size : 0;
   if (n !== want) {
@@ -98,7 +98,7 @@ for (const [name, n] of Object.entries(dup)) {
     + ' —— 要么收成一份，要么在基线里登记原因');
 }
 
-console.log('重复实现判据（' + files.length + ' 个源码文件 · 同名 ' + Object.keys(dup).length + ' 组 · §7 单份 '
+console.log('重复实现判据（' + files.length + ' 个源码文件 · 同名 ' + Object.keys(dup).length + ' 组 · 单份 '
   + Object.keys(base.single || {}).length + ' 项）');
 for (const l of lines) console.log(l);
 console.log(bad ? '\n✗ ' + bad + ' 处重复实现越界' : '\n✓ 没有新增重复实现');

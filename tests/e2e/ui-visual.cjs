@@ -8,7 +8,6 @@
    有差异时把实际截图写到 tests/fixtures/visual/actual/（gitignore）。 */
 'use strict';
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const h = require('./harness.cjs');
@@ -50,7 +49,7 @@ const KINDS = { 'studio.html': ['video', 'image', 'audio'] };
 const PAGES = ROUTES.pages
   .flatMap(p => (KINDS[p.file] || ['']).map(k => [p.file + (k ? '?t=' + k : ''), p.id + (k ? '-' + k : '')]))
   .concat([
-    ['director.html', 'director-sub', { prep: prepSubtitles, needFfmpeg: true }],
+    ['director.html', 'director-sub', { prep: prepSubtitles }],
     ['settings.html', 'chat-src', { prep: prepChatSources, panel: true }],
   ]);
 const uncovered = ROUTES.pages.filter(p => !PAGES.some(e => String(e[0]).split('?')[0] === p.file)).map(p => p.file);
@@ -96,19 +95,13 @@ function tilesFilled() {
   return document.querySelectorAll('.tl-board .tl-strip i.tl-fr.gap').length === 0
     && document.querySelectorAll('.tl-board .tl-strip i.tl-fr[style]').length >= 1;
 }
-let clipFile = '';
 async function prepSubtitles(page) {
-  if (!h.hasFfmpeg()) throw new Error('本机没有 ffmpeg：造不出可选用的视频，字幕编辑区这一档喂不出状态');
   const hasClip = await page.eval(() => {
     const c = window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').context();
     return !!(c && c.候选 && c.候选.some(x => x.状态 === 'succeeded'));
   });
   if (!hasClip) {
-    if (!clipFile) {
-      fs.mkdirSync(os.tmpdir(), { recursive: true });
-      clipFile = h.makeClip(fs.mkdtempSync(path.join(os.tmpdir(), 'aii-vis-clip-')));
-    }
-    await page.setFile('#importMediaFile', clipFile);
+    await page.setFile('#importMediaFile', h.clipFixture());
     await page.waitFor(() => {
       const c = window.WBBridge.get('director').context();
       return !!(c && c.候选 && c.候选.some(x => x.状态 === 'succeeded'));
@@ -355,27 +348,19 @@ function diff(a, b) {
     /* 只点名跑几页时，其余画面的旧基线要原样留着：这一份文件是全站的历史，不是这一次的草稿。 */
     const next = { version: 1, at: new Date().toISOString(), screens: Object.assign({}, baseline.screens) };
     let bad = 0, checked = 0;
-    /* 没有 ffmpeg 就拍不出「字幕编辑区」那一档（要一段可选用的真视频）：整档跳过，
-       而不是拿一张没有字幕的画面去冒充基线。 */
-    const screens = PAGES.filter(e => {
-      if (e[2] && e[2].needFfmpeg && !h.hasFfmpeg()) {
-        console.log('- 跳过 ' + e[1] + '：本机没有 ffmpeg，造不出可选用的视频');
-        return false;
-      }
-      return true;
-    });
-    for (const entry of screens) {
+    for (const entry of PAGES) {
       const [route, name, opts] = [entry[0], entry[1], entry[2] || {}];
       if (!wanted(name)) continue;
       for (const [w, hgt] of SIZES) {
         for (const theme of THEMES) {
           const key = name + '|' + w + '|' + theme;
           await page.setSize(w, hgt);
-          await page.goto(proxy.base + '/shell.html#' + route);
           /* 工作室右栏会去各平台拉历史：真网慢，30 秒超时后拍出一块「没取回来」的错误横幅，
              同一档两次是两种画面。视觉档只看版式，把这份跨平台读口换成空清单
-             （本机自己的任务记录仍照常画）—— 这一条必须在页面挂载前打上，
-             且只打工作室三档：别的页的本机资产清单还要照常读。 */
+             （本机自己的任务记录仍照常画）—— 只打工作室三档：别的页的本机资产清单还要照常读。
+             ⚠ 必须在**切页之前**打：页面模块是预取过的，切页后 onMounted 可能先于这次 eval
+             跑完，真的历史请求就发出去了 —— 那时同一份代码一次拍出「全部 0」、
+             一次拍出真网络回来的「全部 196」，画面取决于机器快慢。 */
           if (name.startsWith('studio-')) {
             await page.eval(() => {
               const L = window.AssetLib;
@@ -387,6 +372,7 @@ function diff(a, b) {
               return true;
             });
           }
+          await page.goto(proxy.base + '/shell.html#' + route);
           await page.waitFor(() => document.body && document.body.innerText.trim().length > 20, 15000);
           /* 抽屉默认冻住不拍（每一档都一样）；只有「来源卡片」这一档把它放行。 */
           const hide = opts.panel ? '#acBall,.toast-box' : '#acBall,#acPanel,.toast-box';

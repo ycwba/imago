@@ -129,7 +129,7 @@ const _hoisted_65 = {
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createCommentVNode(" 统一页头（全站唯一一份 .phead）：身份 + 说明。动作与上下文这一页用不上，就不留空位。 "),
-    _cache[27] || (_cache[27] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">用量与余额</h1></div><p class=\"phead-sub\">各平台的积分与 tokens。</p><div class=\"phead-acts\"></div></header><div class=\"desc\">只统计已配置密钥的平台。</div>", 2)),
+    _cache[27] || (_cache[27] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">用量与余额</h1></div><p class=\"phead-sub\">只统计已配置密钥的平台。</p><div class=\"phead-acts\"></div></header>", 1)),
     _createElementVNode("div", _hoisted_2, [
       _createElementVNode("button", {
         class: "ghost",

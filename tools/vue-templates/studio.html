@@ -4,7 +4,7 @@
            左栏一滚标题就跟着走了。现在提到全宽顶排，左栏顶部让给类型切换与型号下拉。 -->
       <header class="phead">
         <div class="phead-id">
-          <h1 class="phead-h1">生成工作台</h1>
+          <h1 class="phead-h1">工作台</h1>
         </div>
         <span class="phead-sub"></span>
         <div class="phead-acts"></div>
@@ -22,8 +22,10 @@
             <textarea data-r="prompt" spellcheck="false"></textarea>
             <div class="prompt-hint" data-r="promptHint" hidden></div>
             <div class="btn-row">
-              <button class="tool acc" data-r="polishBtn" title="文字 AI 改写提示词"><span class="ic" data-icon="sparkles" data-size="14"></span>AI 润色</button>
-              <button class="tool" data-r="splitBtn" hidden title="拆成多张图的提示词"><span class="ic" data-icon="sparkles" data-size="14"></span>拆分片段生成</button>
+              <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
+                   模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
+              <span class="btn-host" data-r="polishHost"></span>
+              <span class="btn-host" data-r="splitHost"></span>
               <span class="sp"></span>
               <button class="tool danger" data-r="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span><span class="tx">一键清空</span></button>
             </div>
@@ -100,15 +102,14 @@
               <span class="pgsep"></span>
               <button class="ghost" id="multiBtn" data-r="multiBtn"><span data-icon="checkBox" data-size="13"></span> 多选</button>
               <button class="ghost" data-r="sync" title="重新取回列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+              <span class="pgsep"></span>
+              <!-- 搜索 / 多选 / 刷新与翻页（上一页 · 第几页 · 下一页 · 跳页 · 跳转）并成同一排：
+                   都只影响这一屏列表。这一组按「尽量一行」设计，右栏被拖窄时才自己换行。
+                   收藏 / 素材库 / 资产库三页的翻页仍在页底（整页滚，页底是全站统一的位置）。 -->
+              <span class="pgrow" id="stPgRow" data-r="stPgRow"></span>
+              <input type="number" id="stGotoPage" data-r="stGotoPage" min="1" placeholder="跳页">
+              <button class="ghost" data-r="gotoBtn">跳转</button>
             </span>
-          </div>
-          <!-- 翻页行在**右栏的上方**（搜索那一排下面）：翻页是「看这一屏」的动作，
-               放在结果区顶上，翻到第几页一眼就看得见；以前它塞在页底，右栏滚到底才找得到。
-               收藏 / 素材库 / 资产库三页仍在页底（整页滚，页底那一处是全站统一的位置）。 -->
-          <div class="wb-pager">
-            <span class="pgrow" id="stPgRow" data-r="stPgRow"></span>
-            <input type="number" id="stGotoPage" data-r="stGotoPage" min="1" placeholder="跳页">
-            <button class="ghost" data-r="gotoBtn">跳转</button>
           </div>
           <!-- 多选条（与资产库同一套公共件：.bulkbar / .bk-cnt / .bk-tip） -->
           <div class="bulkbar" id="stBulkBar" data-r="bulkBar" hidden>

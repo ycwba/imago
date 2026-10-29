@@ -67,7 +67,7 @@ assert.equal(shotCtxOf(proj, { id: 'nope' }), null, '找不到不许编一个序
 assert.equal(candidateIndex(s1, s1.candidates[1]), 2);
 assert.equal(candidateIndex(s1, { id: 'nope' }), 1, '索引里没有就按第一条算');
 
-/* ── assetBase：§0.5 统一命名规范 ────────────────────────────── */
+/* ── assetBase： 统一命名规范 ────────────────────────────── */
 /* 全段齐全：定位 → 语义 → 时间 → 来源 */
 const ab1 = assetBase({ sceneIndex: 0, shotIndex: 2, prompt: '王八在水中缓慢移动', detail: { created: '2026-10-19T10:42:13Z' }, provider: 'sparkcine' });
 assert.ok(ab1.startsWith('场景01-镜头03-（王八在水中缓慢移动）_'), '全段齐全：定位+语义在前');

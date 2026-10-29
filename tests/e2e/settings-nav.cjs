@@ -13,7 +13,7 @@
      B5 一行声明即渲染 + 写盘：改清单里的一行（sb_bal_on）→ 值落进 localStorage，改回去也落；
      保存回执：这一页没有「保存」按钮，「改完就存本机」那句话必须还在（状态行里）；
      滚动只有一个出口：这一页不许有第二处裸 `scrollIntoView`。
-   只跑隔离实例（harness 自建 .data-probe-*），浏览器档位干净，不动用户 LS。 */
+   只跑隔离实例（harness 在系统临时目录自建探针目录），浏览器档位干净，不动用户 LS。 */
 'use strict';
 const h = require('./harness.cjs');
 const fs = require('fs');
@@ -111,10 +111,10 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       '目录轨上的组名与模板标题对不上（组名只许声明一处，两边读同一份 DOM）：' + JSON.stringify(decl.railGroups) + ' vs ' + JSON.stringify(decl.secTitles));
     must(decl.railTitles.length === decl.destTitles.length && decl.railTitles.every((t, i) => t === decl.destTitles[i]),
       '目录轨上的标题与文档里那处对不上（标题只许声明一处）：' + JSON.stringify(decl.railTitles) + ' vs ' + JSON.stringify(decl.destTitles));
-    /* 「语音识别」「联网搜索」是供应商那张卡里的两档（与图片 / 视频 / 语音 / 文字同一层级）——
-       轨上只索引「卡」，这两档不另占行（卡里那排档位就是它们的入口）。 */
-    must(decl.railTitles.indexOf('语音识别（ASR）') < 0 && decl.railTitles.indexOf('联网搜索') < 0,
-      '轨上多出了「语音识别」「联网搜索」两行（它们是供应商那张卡里的档位，轨上只索引卡）');
+    /* 「语音识别」「联网搜索」是供应商账号卡里的两档能力（与图片 / 视频 / 语音 / 文字同一层级），
+       不另占一张卡 —— 轨上只索引账号卡，能力行的入口在卡里。 */
+    must(decl.railTitles.indexOf('语音识别') < 0 && decl.railTitles.indexOf('联网搜索') < 0,
+      '轨上多出了「语音识别」「联网搜索」两行（它们是账号卡里的能力行，不是独立的卡）：' + JSON.stringify(decl.railTitles));
 
     /* ---------- B1b：六档能力在同一排芯片上（按档筛账号），语音识别 / 联网搜索也在其中 ---------- */
     const capJump = await page.eval(async () => {

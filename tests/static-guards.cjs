@@ -146,7 +146,7 @@ const G10_LINK_CREATE = [
 
 /* G11 同一条 CSS 规则只许定义一处：同一**完整选择器 + 同一规则体**。
    只按类名数会把 `.chars-page .card` 与 `.fav-page .card` 也当成重复 —— 那是各页在
-   自己根类下的覆盖，AGENTS §3.4 允许；真正的坏法是整块规则被复制到第二个文件
+   自己根类下的覆盖，允许；真正的坏法是整块规则被复制到第二个文件
    （改一处另一处不变），或同一文件里一字不差写两遍。@keyframes 的 from/to/% 不算选择器。 */
 const G11_DUP_CSS = [];
 /* G14 助手附件不落本机资产库：chat.js 里 Api.saveLocalAsset 的调用数登记为 0
@@ -254,7 +254,7 @@ function mayBeRegex(last) {
    真实代码里的 `catch {}` 与裸 `localStorage` 会被当成「注释里的例子」跳过，
    注释里的反例又会被当真违例数进来。同一份代码数出两个数，判据就没人信了。
    规则：模板正文整段遮掉；遇到 `${` 进代码态并压一层花括号深度，花括号配平的那个 `}` 回到模板态。 */
-function nonCodeMask(src) {
+function nonCodeMask(src, comments) {
   const mask = new Uint8Array(src.length);
   const set = (a, b) => { for (let k = a; k < b && k < src.length; k++) mask[k] = 1; };
   const isWord = c => /[A-Za-z0-9_$]/.test(c);
@@ -269,8 +269,15 @@ function nonCodeMask(src) {
       set(i, i + 1); i++; continue;
     }
     if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
-    if (c === '/' && src[i + 1] === '/') { const s = i; while (i < src.length && src[i] !== '\n') i++; set(s, i); continue; }
-    if (c === '/' && src[i + 1] === '*') { const s = i; i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; set(s, i); continue; }
+    if (c === '/' && src[i + 1] === '/') {
+      const s = i; while (i < src.length && src[i] !== '\n') i++;
+      set(s, i); if (comments) comments.push([s, i]); continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const s = i; i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2;
+      const e = Math.min(i, src.length);
+      set(s, e); if (comments) comments.push([s, e]); continue;
+    }
     if (c === '"' || c === "'") {
       const s = i; i++;
       while (i < src.length) { if (src[i] === '\\') { i += 2; continue; } if (src[i] === c) break; i++; }
@@ -703,6 +710,39 @@ function detectBreakpoint(file, src) {
   return out;
 }
 
+/* G23 代码注释只解释功能本身，不写文档引用：文档名 / 章节号 / 报告 / 方案 / 任务号 / 缺陷号 /
+   提交号，也不写「指向某文档」这类指路。代码文件、判据文件、函数名不算文档引用 —— 那是读代码的人
+   当场能核对的事实，指出来不算偷懒。
+   现状 0 处：这条是守住现状的栏杆，不是清存量。 */
+const G23_COMMENT_REF = [];
+const COMMENT_REF = [
+  { why: '文档名', re: /AGENTS(?:\.md)?/ },
+  { why: '章节号', re: /§\s*[\d一二三四五六七八九十]/ },
+  { why: '指路', re: /(?:详见|参见|参阅|另见|见(?:上文|下文|前文|后文))/ },
+  { why: '编号', re: /(?:批次|任务|缺陷|问题|报告|方案)\s*(?:号|[#＃])\s*\d+/ },
+  { why: '外部单号', re: /(?:issue|commit|PR)\s*[#＃]?\s*[0-9a-f]{4,}/i },
+];
+function detectCommentRef(file, src) {
+  const out = {};
+  const ranges = [];
+  nonCodeMask(src, ranges);
+  for (const [a, b] of ranges) {
+    const text = String(src).slice(a, b);
+    for (const p of COMMENT_REF) {
+      const m = p.re.exec(text);
+      if (!m) continue;
+      const snippet = text.replace(/\s+/g, ' ').slice(0, 80);
+      out[file + '#' + p.why + ' ' + JSON.stringify(m[0]) + '：' + snippet] = 1;
+      break;
+    }
+  }
+  return out;
+}
+/* 注释的射程是全部人写的源码（web / server / tests / tools / proxy.js），不只是 web。 */
+function commentSources() {
+  return [...S.webSources(), ...S.serverSources(), ...S.walk(S.abs('tests')), ...S.walk(S.abs('tools')), S.abs('proxy.js')];
+}
+
 /* G18 的探测器：规则表复用 tools/token-lib.cjs（值→令牌的映射只有一份），
    这里只负责把「哪些声明算裸值」的结果变成判据的条目。 */
 const T = require('../tools/token-lib.cjs');
@@ -847,6 +887,10 @@ const GUARDS = [
     sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
     sample: `@media (max-width: 999px) { .demo-a { color: var(--pri); } }`,
     ok: `@media (max-width: 760px) { .demo-a { color: var(--pri); } }` },
+  { key: 'G23', title: '代码注释里不许出现文档引用（只注释功能本身）', table: G23_COMMENT_REF, kind: 'entries', detect: detectCommentRef,
+    sources: commentSources, sampleFile: 'tests/synthetic.cjs', okFile: 'tests/synthetic.cjs',
+    sample: `/* 见 AGENTS §7「格式化」：这一族只走 pad2 */\nconst pad2 = n => n;`,
+    ok: `/* 这一族只走 pad2：手拼 mm:ss 会让各处读数各写一种 */\nconst pad2 = n => n;` },
 ];
 
 /* ============================ 跑 ============================ */

@@ -228,7 +228,7 @@ window.ModelPrefs = {
    Fav —— 我的收藏（跨页面共用）
      · 收藏资产库文件：{ key:'a:<provider>:<assetId>', kind:'asset', provider, providerName,
                         assetId, type, prompt, src, dl, format, duration, ts }
-     · 收藏本地文件：  { key:'l:<fileKey>', kind:'local', fileKey, name, mime, type, size, ts }
+     · 收藏本地文件：{ key:'l:<fileKey>', kind:'local', fileKey, name, mime, type, size, ts }
        文件本体存在 IndexedDB（fav_db / files），显示时取 blob URL
      · 页面用 Fav.list() 画列表；收藏按钮用 Fav.toggle(...)；变化时派发 'fav-change' 事件
    ========================================================================== */
@@ -289,9 +289,9 @@ window.AiGen = {
     return btoa(s);
   },
   /* 语音合成这一整条链（提交 → 按 tts 声明解码 → pcm16 封 WAV → 存成能播能导的本机资产）。
-     全站只有这一份：生成工作台的语音栏与导演台剪辑的声音轨都要「合成一句话、拿回一个地址」，
-     各写一遍的结局是「声明 encoding=hex 却按 base64 处理」这类偏差只修好一边（AGENTS §3「同一个功能只应有一份实现」）。
-     「这一家怎么定音色」（预设 / 描述 / 参考音频）是页面自己的事，所以 `voice` 由调用方算好递进来。
+     全站只有这一份：工作台的语音栏与导演台剪辑的声音轨都要「合成一句话、拿回一个地址」，
+     各写一遍的结局是「声明 encoding=hex 却按 base64 处理」这类偏差只修好一边（「同一个功能只应有一份实现」）。
+「这一家怎么定音色」（预设 / 描述 / 参考音频）是页面自己的事，所以 `voice` 由调用方算好递进来。
      o = { model, text, style, voice, format, bools, name, meta } → { assetId, url, format, bytes, usage } */
   /* 语音合成的**发送前预览**：算出「这一次将要发给平台的请求体」，**一个网络请求都不发**。
      字段组装与 `synthTts` 那一段**逐字同源**（同一个 o 的同一批键）——
@@ -400,7 +400,7 @@ window.AiGen = {
          调用方给的是 AssetTransfer.entryFor 出来的 { role, assetId|url }。没传就不带这个字段。 */
       inputEntries: o.inputEntries,
       /* 高级设置那三排「AdvParams 四档之外」的声明驱动项（型号布尔 / create.topBools / create.shapeFields）：
-         与生成工作台图像栏同一份读法（AdvExtras.read 的产物），原样转给 Api.createBody，
+         与工作台图像栏同一份读法（AdvExtras.read 的产物），原样转给 Api.createBody，
          由它按 hide / need / from 声明决定哪些真的进提交体。不带 = 这一家声明的顶层开关一个都不发，
          于是同一个平台在工作台能勾「平台提示词优化」，在导演台的画面生成里连控件都没有。 */
       params: o.params, shape: o.shape,
@@ -481,7 +481,7 @@ window.AiGen = {
 };
 
 /* ============================================================================
-   AdvParams —— 「高级设置里那几档参数」的取值口径，只有一份（生成工作台 + 导演台共用）
+   AdvParams —— 「高级设置里那几档参数」的取值口径，只有一份（工作台 + 导演台共用）
      为什么要有这一块：同一件事以前有四份实现 ——
        · 工作台图像栏 `renderImageParams` + `fillSel`（选项现读声明、回落看「用户点过没有」）
        · 工作台视频栏 `renderVideoParams`（同一套判据，另写一遍）
@@ -666,7 +666,7 @@ window.AdvParams = {
            · create.topBools      提交体**顶层**的布尔开关（SparkCine 的平台自动润色 / VGENV 的 Turbo）
            · create.shapeFields   提交体**顶层**的非布尔字段（成片超分档 / 随机种子 / 换人的动作起点）
      为什么要收成这一份：这三排的**判据**本来就在公共层（Capabilities.fieldState / shapeFieldState /
-     shapeState），可**画法与取值**只有生成工作台写过一份 —— 于是导演台整块没有这三排：
+     shapeState），可**画法与取值**只有工作台写过一份 —— 于是导演台整块没有这三排：
      同一个平台在工作台上能勾「Turbo 加速档」，在导演台上一个字都不发（界面没画、提交体也没有，
      用户以为两处走的是同一套参数）。页面各自再抄一份 innerHTML 迟早和工作台漂开，所以这里连**标记**
      也一起给出（`html.*`），工作台与导演台都只把它塞进自己的容器，读回来走 `read()` 同一处。
@@ -809,7 +809,7 @@ window.AdvExtras = {
        · shapeState    页面那份顶层**非布尔**字段状态 —— 与上面是两个口径，合成一个对象迟早互相踩
                        （布尔按 `!!` 判、非布尔按取值与越界判，重名时更会直接盖）。
        · bools         页面自己读完的 `options.bools`（**故意不在这里读**：那一排是型号能力里的布尔，
-         画不画由页面按类型决定 —— 生成工作台只在视频台画它，图像台没有这些控件；
+         画不画由页面按类型决定 —— 工作台只在视频台画它，图像台没有这些控件；
          公共层去 DOM 里扫 `data-bool` 会把上一个类型留下的旧控件当成这一条任务的参数发出去。）
      · params  = 递进 Api.createBody 的 `params`（bools 与顶层开关/字段同名混在一起没关系：
        createBody 按声明决定哪一项走顶层、哪一项进嵌套）。
@@ -889,7 +889,7 @@ window.AdvExtras = {
 
 /* ============================================================================
    TtsAdv —— 语音那一栏「合成设置」的取值口径与画法，只有一份
-     生成工作台的语音栏与导演台「加一句配音」以前各画一套：
+     工作台的语音栏与导演台「加一句配音」以前各画一套：
        · 输出格式：工作台读 `model.options.formats` 再回落到 `tts.formats`，导演台只读 `tts.formats`
          —— 于是「这一家某个型号多给一种格式」在工作台上能选、在导演台上一个字都不提。
        · 音色：工作台带 `lang` / `gender` 两个后缀，导演台只带 `lang`。
@@ -957,7 +957,7 @@ window.TtsAdv = {
     return { topBools: ex.topBools, summary: ex.summary, bad: ex.bad };
   },
   /* 「这一档定音色必填的那样东西缺了没有」那句 —— 两页一份措辞。
-     AGENTS 早就写着「工作台 submitBlockReason 的语音分支同一套」，可以前两边各写一句：
+      工作台 submitBlockReason 的语音分支走同一套判断，措辞却不指名某一栏：
      导演台说「「音色设计」型号要先写一段声音描述（上面那个声音描述框）」，
      工作台说「「音色设计」型号必须填写风格 / 音色描述」—— 同一个缺陷两种说法，
      而括号里那句指的路径在两页也不同名，所以换成不指着某一栏的说法。
@@ -1056,7 +1056,7 @@ window.CharLimits = {
      const list = await AssetPicker.open({ types: ['图片'], multiple: true, limit: 9, title: '选择参考图' });
      返回 AssetLib 同构条目数组（含 assetId / src / dl / type / prompt / duration …）。
      三个入口在同一套界面里：资产库 / 我的收藏 / 本地上传。
-       · aiSearch:true —— 显示「AI 检索」入口（只在素材堆里挑，不生成）
+       · aiSearch:true —— 显示「AI 搜索」入口（只在素材堆里挑，不生成）
        · chars:'audio' —— 再加**第四个来源「素材库」**：素材身上挂着的参考音频（音色复刻取料处）。
          名单与取字节都在 `chars.js` 的 `Pipe.libVoiceEntries`，这一层只认条目上的 `getSrc` / `getBlob`，
          不认识库里那一列叫什么名字。
@@ -1072,7 +1072,7 @@ window.CharLimits = {
 
 /* ============================================================================
    VoiceNote —— 「取一位素材的音色描述，填进面前这一格」整链（唯一一份）
-     2026-10-17 从导演台 design 档与生成工作台「风格 / 音色描述」那两处逐字副本收成。
+     2026-10-17 从导演台 design 档与工作台「风格 / 音色描述」那两处逐字副本收成。
      两份副本漂开的第一处永远是**措辞**（弹窗标题、那句「那一位身上没有描述」的出路、
      覆盖前那一句问话），而第二处是**顺序**：先问空不空、再问覆盖，反过来就变成
      「用户点了覆盖、结果填进去一个空串」。所以链留在这里，页面只给三个口子：
@@ -1146,7 +1146,7 @@ window.VoiceNote = {
    收成之前素材库与收藏各写一份：同样两道闸、同一个按钮 busy 态、同一份 JSON 契约、
    同一套「集合 + 名次 + 理由」记账。两份漂开的第一处**不是文案，是说出去的那一格** ——
    素材库那两道闸走 `Toast.err`（一定弹），收藏走 `Toast.info`（默认被 `sk_quiet_ok` 静音）：
-   「搜索框里没写字就点 AI 找素材」在一页会说一句，在另一页**按了什么都没发生**（按钮转完圈自己复位，
+   「搜索框里没写字就点 AI 搜索」在一页会说一句，在另一页**按了什么都没发生**（按钮转完圈自己复位，
    列表也没动，而那句解释一个字都没显示）。这与「拿静音档当唯一出口等于一个字都没说出去」是同一条。
    公共层因此**不再让页面自选提示通道**：闸门那句由 `needMsg` 拼一次，交回 `o.say`（两页都写进按钮旁边那行读数，
    就地、不静音），并且排在 `o.done()` 之后 —— 那一趟重画会重写同一行，先写的被顶掉。
@@ -1211,7 +1211,7 @@ window.AiStream = {
     const host = opt.host || null;
     /* 没有容器、也没人要 onChunk：退回普通 chat（行为与以前一致，不摆一个看不见的面板） */
     if (!host && typeof opt.onChunk !== 'function') {
-      return await window.TextAI.chat(REG, sys, user, { images: opt.images });
+      return await window.TextAI.chat(REG, sys, user, { images: opt.images, search: opt.search });
     }
     const ctl = new AbortController();
     const live = this.panel(host, {
@@ -1219,7 +1219,7 @@ window.AiStream = {
     });
     try {
       const txt = await window.TextAI.chatStream(REG, sys, user,
-        { images: opt.images, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
+        { images: opt.images, search: opt.search, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
       live.done();
       /* 面板在最后会把「正在接收…」收掉；返回值优先用 chatStream 的正规返回，
          它为空（某家只吐片段不给收尾包）时用我们攒的那一份兜底。 */

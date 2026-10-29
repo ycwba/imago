@@ -3,7 +3,7 @@
    · 默认收起，点开后摘要与请求体就地更新；
    · 导演台整栏每 3 秒 / 切镜重画时展开状态不丢（openTags 记的是 tag，不是那枚 DOM）；
    · 展示的请求体经过脱敏：没有 headers / 授权 / Cookie，dataURL 只留摘要，长提示词截断；
-   · 导演台与生成工作台三型都挂上了自己的标签（tag 跟镜头 / 类型走，不串台）。
+   · 导演台与工作台三型都挂上了自己的标签（tag 跟镜头 / 类型走，不串台）。
    全部用合成事件与假快照，不发一次真实生成请求、不扣费。 */
 'use strict';
 const h = require('./harness.cjs');
@@ -104,7 +104,7 @@ const h = require('./harness.cjs');
     if (snap.deep.a.b.c.d.e !== '…（层级更深，已省略）') throw new Error('对象深度没有封顶');
     if ('cookie' in snap) throw new Error('Cookie 字段没有被剔除');
 
-    /* 生成工作台三型各挂各的标签。 */
+    /* 工作台三型各挂各的标签。 */
     for (const t of ['video', 'image', 'audio']) {
       await page.goto(proxy.base + '/shell.html#studio.html?t=' + t);
       const sel = '[data-raw-host] details.raw-req[data-raw-tag="studio:' + t + '"]';

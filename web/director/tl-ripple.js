@@ -1,6 +1,6 @@
 /* 波纹剪辑（纯件，无 DOM）—— 参考 lib/timelineRipple.js：
    画面轨的边界一变（删除 / 切开改长 / 裁剪 / 复制 / 加一段），边界之后**开跑的定时块**整体平移 delta。
-   · 配音与待生成块：按行锁跳过（整轨 `voice` 或行 `voice-N` 锁了就不动，报进 skipped）；
+   · 配音块：按行锁跳过（整轨 `voice` 或行 `voice-N` 锁了就不动，报进 skipped）；
    · 字幕：挂在被移动的配音块上的跟着走（成组），没挂链接的按自己的 start 判、按字幕行锁跳过；
    · 标记**不动**：它钉在成片秒，不随剪辑搬移（参考 markersAbsoluteHint 的原则）。
    主画面轨自己不参与平移 —— 它是顺序存储，删一段后面的自然前移，没有「边界之后」这回事。 */
@@ -31,7 +31,6 @@ export function applyTimelineRipple(film, boundary, delta) {
   });
 
   const voices = shiftList(f.voices, 'voice');
-  const pending = shiftList(f.pending, 'voice');
 
   const captions = (Array.isArray(f.captions) ? f.captions : []).map(c => {
     if (!c) return c;
@@ -47,7 +46,7 @@ export function applyTimelineRipple(film, boundary, delta) {
   });
 
   return {
-    film: { ...f, voices, pending, captions },
+    film: { ...f, voices, captions },
     moved: movedIds.length,
     skipped: skippedIds.length,
     movedIds,

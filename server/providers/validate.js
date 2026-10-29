@@ -4,11 +4,50 @@
    v13 起清单归平台接口，声明里只剩「文档写过什么」，任何一种都算说清了这一家的型号从哪来。 */
 'use strict';
 const KINDS = new Set(['image', 'video', 'audio', 'text']);
-/* 「这家还会做哪些不在 kind 里的档」：语音识别（OpenAI 兼容 /audio/transcriptions）
-   与联网搜索（能给出网址的对话模型）。拼错一个字母不会报错，只会让设置页少一格 ——
-   所以这里按白名单查，值错了当场红。 */
+/* 「这家还会做哪些不在 kind 里的档」：语音识别与联网搜索。拼错一个字母不会报错，
+   只会让设置页少一格 —— 所以这里按白名单查，值错了当场红。
+   两档都要同时有两样东西：`extraCaps` 里的一项（画不画）与一份端点声明（怎么调）——
+   只有前者会在界面上多一行、点下去才失败；只有后者会没人看得见。 */
 const EXTRA_CAPS = new Set(['asr', 'search']);
+const ASR_STYLES = new Set(['openai', 'chat-audio']);
+const SEARCH_STYLES = new Set(['api', 'chat']);
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/i;
+
+function validateExtraCaps(p, errs) {
+  const caps = Array.isArray(p.extraCaps) ? p.extraCaps : [];
+  caps.forEach(c => {
+    if (!EXTRA_CAPS.has(c)) return;
+    const d = p[c];
+    if (!d || typeof d !== 'object' || Array.isArray(d)) {
+      errs.push('extraCaps 声明了 ' + c + '，但没有 ' + c + ' 端点声明（只有一行界面、点下去必失败）');
+      return;
+    }
+    if (!/^\/[^\s]*$/.test(String(d.path || ''))) errs.push(c + '.path 必须以 / 开头：' + d.path);
+    if (c === 'asr') {
+      if (!ASR_STYLES.has(d.style)) errs.push('asr.style 只能是 openai / chat-audio：' + d.style);
+      if (!String(d.model || '')) errs.push('asr.model 不能为空（默认型号只在声明里写一次）');
+      if (d.language != null && !['form', 'header', 'body', 'none'].includes(d.language)) {
+        errs.push('asr.language 只能是 form / header / body / none：' + d.language);
+      }
+      if (d.models != null && !Array.isArray(d.models)) errs.push('asr.models 必须是数组');
+    } else {
+      if (!SEARCH_STYLES.has(d.style)) errs.push('search.style 只能是 api / chat：' + d.style);
+      if (d.style === 'api') {
+        if (!d.body || !d.body.query) errs.push('search.body.query 必须写明「我们的搜索词放到上游哪个字段」');
+        if (!d.results) errs.push('search.results 必须写明结果数组在响应的哪个字段');
+        if (!d.fields || !d.fields.url) errs.push('search.fields.url 必须写明网址落在结果的哪个字段');
+      }
+      if (d.style === 'chat' && !(d.tool && d.tool.type)) {
+        errs.push('search.tool.type 必须写明对话接口里怎么开联网（如 openrouter:web_search）');
+      }
+    }
+  });
+  ['asr', 'search'].forEach(c => {
+    if (p[c] != null && !caps.includes(c)) {
+      errs.push('声明了 ' + c + ' 端点，但 extraCaps 里没有它（界面不会画这一档，等于白写）');
+    }
+  });
+}
 
 function hasModelSource(p) {
   if (Array.isArray(p.models) || Array.isArray(p.modelDocs)) return true;
@@ -70,6 +109,21 @@ function validateProviders(providers) {
       else {
         p.extraCaps.forEach(c => { if (!EXTRA_CAPS.has(c)) errs.push('extraCaps 里有未登记的档：' + c); });
         if (p.kind !== 'text') errs.push('extraCaps 只能声明在文字供应商上（这一家的 kind 是 ' + p.kind + '）');
+      }
+    }
+    if (p) validateExtraCaps(p, errs);
+    /* refSyntax：素材引用语法（H3 那一族用 <Picture {n}> / <Video {n}> / <Audio {n}>）。
+       少了 {n} 的模板会把每一张素材都写成同一个标签，编号只在正文里、平台那边全指第一项。 */
+    if (p && p.refSyntax != null) {
+      const map = typeof p.refSyntax === 'string' ? { picture: p.refSyntax } : p.refSyntax;
+      if (!map || typeof map !== 'object' || Array.isArray(map)) errs.push('refSyntax 必须是字符串或 { picture, video, audio } 对象');
+      else {
+        const allowed = new Set(['picture', 'video', 'audio']);
+        Object.keys(map).forEach(k => {
+          if (!allowed.has(k)) errs.push('refSyntax 里有未登记的档：' + k);
+          const v = map[k];
+          if (v != null && !/\{n\}/.test(String(v))) errs.push('refSyntax.' + k + ' 缺少 {n} 占位：' + v);
+        });
       }
     }
     if (p && p.endpoints && typeof p.endpoints !== 'object') errs.push('endpoints 必须是对象');

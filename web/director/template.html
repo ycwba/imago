@@ -24,6 +24,8 @@
      仍按页头动作区的 flex + gap 排，不因为多包一层而改变间距。 */
   #exportBtns { display: contents; }
   header input.pname { width: 260px; padding: var(--sp-6) var(--sp-10); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); }
+  /* 项目切换钮（「我的短片」）与「多选 / 刷新」那种按钮同一档圆角，不再是胶囊。 */
+  header .phead-chip { border-radius: var(--radius-6); }
   header .phead-chip b { color: var(--acc); }
   header .saved { color: var(--ok); font-size: var(--fs-12); white-space: nowrap; }
   /* 顶部那行操作提示：低调的小字，出现几秒后自己淡出，不打断操作 */
@@ -324,23 +326,15 @@
   #editLeft .hint { margin-top: 0; }
   .gen-all { margin-top: auto; padding: var(--sp-12); border-top: var(--hair) solid var(--line); }
   .gen-all button { width: 100%; padding: var(--sp-11); font-size: var(--fs-14); }
-  .gen-all .note { text-align: center; font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-7); }
-  .gen-all .note .ok { color: var(--ok); }
-  .gen-all .note .err { color: var(--err); }
-  .gen-all .gen-all-est { margin-top: var(--sp-6); font-size: var(--fs-11-5); line-height: 1.5; text-align: center; color: var(--sub); }
-  .gen-all .gen-all-est .warn { color: var(--warn); }
-  .gen-all .gen-all-est .ok { color: var(--ok); }
-  .gen-all .gen-all-est .err { color: var(--err); }
-  .gen-all .gen-all-est .dim { color: var(--sub); }
-  /* 进度条：已完成 K / N 个分镜（这一行只讲进度，不讲估价） */
-  .gen-all .gen-all-prog { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-9);
-    font-size: var(--fs-11); color: var(--sub); }
+  /* 状态区只有一条进度条（填充 = 已完成 / 全部），不写文案；空态与常态的面板高度同一份。
+     flex 收住子项的 margin：否则条收起时 9px 外边距跟着消失，面板会矮一截。 */
+  .gen-all .gen-all-status { display: flex; align-items: flex-end; height: calc(var(--sp-9) + var(--sp-16)); }
+  .gen-all .gen-all-prog { display: flex; align-items: center; width: 100%; height: var(--sp-16); }
   .gen-all .gen-all-prog[hidden] { display: none; }
   .gen-all .gen-all-prog > i { flex: 1 1 auto; height: var(--sp-4); border-radius: var(--radius-2);
     background: var(--panel2); border: var(--hair) solid var(--line); overflow: hidden; }
   .gen-all .gen-all-prog > i > b { display: block; height: 100%; width: 0; background: var(--acc);
     transition: width var(--dur-250); }
-  .gen-all .gen-all-prog > span { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 
   /* 中栏 */
   .mid-head { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-13) var(--sp-16); border-bottom: var(--hair) solid var(--line); flex-wrap: wrap; }
@@ -581,7 +575,7 @@
   .vc-row b { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
   .vc-row span { color: var(--sub); font-size: var(--fs-11); margin-left: auto; white-space: nowrap; }
   /* 剪辑右栏「台词」那一档的两段清单：一行 = 一镜的一句台词（说话人缩略图 / 名字 + 镜号 + 两个时间读数）。
-     待生成 / 已生成按 `pendingLineOf` 现判（不是另记一份状态）。
+     已生成 / 未生成按这一镜有没有同句配音现判（不是另记一份状态）。
      `.one` 那一格只装当前这一镜的一行：那是写作入口，不该留一条会滚动的空匣子。 */
   .line-list { display: flex; flex-direction: column; gap: var(--sp-4); max-height: 220px; overflow: auto; padding-right: var(--sp-2); }
   .line-list.one { max-height: none; overflow: visible; }
@@ -613,7 +607,6 @@
   .line-row .lr-name::placeholder { color: var(--sub); font-weight: 400; }
   .line-row .lr-top em { margin-left: auto; font-style: normal; font-size: var(--fs-10); padding: 0 var(--sp-5);
     border-radius: var(--radius-3); flex: none; }
-  .line-row .lr-top em.pend { color: var(--mark-ready); background: color-mix(in srgb, var(--mark-ready) var(--a-14), transparent); }
   .line-row .lr-top em.done { color: var(--sub); background: color-mix(in srgb, var(--pal-gray) var(--a-12), transparent); }
   .line-row .lr-top em.none { color: var(--sub); background: transparent; border: var(--hair) dashed var(--line); }
   /* 剪辑态那一格的状态说明整块已删（镜头统计那一行 + 成片陈旧那句长提示）；
@@ -658,7 +651,7 @@
   #advBox .dur-num input[type="number"]::-webkit-outer-spin-button,
   #advBox .dur-num input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   #advBox .dur-num span { font-size: var(--fs-12); color: var(--sub); white-space: nowrap; }
-  /* .ed-label 本体与 .cnt 已提到 ui.css（生成工作台素材区共用同一份），这里只留本页独有的 .mini */
+  /* .ed-label 本体与 .cnt 已提到 ui.css（工作台素材区共用同一份），这里只留本页独有的 .mini */
   .ed-label .mini { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-9); border-radius: var(--radius-3); }
   #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-10) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
   #edPrompt:focus { border-color: var(--acc); }
@@ -729,9 +722,9 @@
   .mchip .peek img { width: 132px; height: 132px; object-fit: cover; border-radius: var(--radius-4); display: block; background: var(--thumbbg); }
   .mchip .peek b { display: block; margin-top: var(--sp-5); font-size: var(--fs-12); color: var(--txt); font-weight: 600; }
   .mchip .peek i { display: block; font-style: normal; font-size: var(--fs-10-5); color: var(--sub); }
-  .polish { font-size: var(--fs-12); color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-8), transparent); border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-30), transparent); border-radius: var(--radius-4); padding: var(--sp-6) var(--sp-12); cursor: pointer; margin-bottom: var(--sp-12); }
-  /* 提示词下方那行动作按钮用 ui.css 的 .btn-row / .tool（与三个工作台同一套），这里不再另立一套 */
-  /* 素材槽位的样式（.assets-grid / .asset-slot / .rvthumb / 互斥禁用）已收进 ui.css，生成工作台同用 */
+  /* 提示词与画面素材那两行的动作按钮都用 ui.css 的 .btn-row / .tool（与三个工作台同一套，
+     AI 那几颗的画法在 window.aiBtnHTML / InlinePolish.btnHTML），这里不再另立一套 */
+  /* 素材槽位的样式（.assets-grid / .asset-slot / .rvthumb / 互斥禁用）已收进 ui.css，工作台同用 */
   /* 动作行钉在 #edCol 底部（在 .ed-body 之外、不再随正文滚动）：底色与栏一致、上缘一道分隔线，
      悬浮固定但不遮正文 —— 正文滚到头也接在这条线下面。 */
   .ed-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-10);
@@ -756,8 +749,9 @@
   .asset-slot .chain-ops { display: flex; gap: var(--sp-4); margin-top: var(--sp-4); }
   .asset-slot .chain-ops .mini { padding: var(--sp-2) var(--sp-6); font-size: var(--fs-10-5); }
   .hint { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-8); }
-  /* 导出拆分按钮：主钮（导出 FCPXML）+ 尾部 chevron，点开列达芬奇 / 剪映两项。
-     浮层挂在按钮组自己的 absolute 容器里（不是 body）：页头是常驻 DOM，不会被重建冲掉。 */
+  /* 导出拆分按钮：主钮（导出成片）+ 尾部 chevron，点开列其余去向
+     （FCPXML / 媒体包 / 达芬奇 / 剪映）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
+     页头是常驻 DOM，不会被重建冲掉。 */
   .exp-split { display: inline-flex; align-items: stretch; position: relative; flex: 0 0 auto; }
   .exp-split > .ghost:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .exp-split > .exp-more { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-6); }
@@ -1000,7 +994,7 @@
     display: inline-flex; color: var(--on-acc); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent);
     border-radius: var(--radius-3); padding: var(--sp-1); }
 
-  /* ---------------- 配音 / 待生成 ---------------- */
+  /* ---------------- 配音 ---------------- */
   .tl-board .tl-voice { position: absolute; top: var(--sp-3); bottom: var(--sp-3);
     border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
@@ -1010,15 +1004,6 @@
   .tl-board .tl-voice:active { cursor: grabbing; }
   .tl-board .tl-voice.is-selected { border-color: var(--acc);
     box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-50), transparent); }
-  .tl-board .tl-voice.is-pending { border-style: dashed;
-    border-color: color-mix(in srgb, var(--warn) var(--a-50), transparent);
-    background: color-mix(in srgb, var(--warn) var(--a-10), var(--panel)); }
-  /* 待生成块**拎得动**（左右拖 = 挪这一句的出现，竖拖 = 换一行），点它 = 把这一句填进右栏「生成配音」：
-     手势与配音块同一套（edit.js 的 startBlock），所以光标也一样是 grab，不是 default。 */
-  .tl-board .tl-voice.is-pending.is-selected { border-color: var(--warn);
-    box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--warn) var(--a-50), transparent); }
-  .tl-board .tl-voice.is-pending .tl-block-in { display: flex; align-items: center; gap: var(--sp-4);
-    padding: 0 var(--sp-6); }
   .tl-board .tl-voice.is-locked { cursor: default; }
   .tl-board .tl-wave { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex;
     align-items: center; gap: var(--sp-1); padding: var(--sp-3) var(--sp-4); opacity: .5; pointer-events: none; }
@@ -1026,8 +1011,6 @@
   .tl-board .tl-voice-txt { position: absolute; left: var(--sp-6); right: var(--sp-6); top: 50%; z-index: 2;
     transform: translateY(-50%); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     font-size: var(--fs-10-5); color: var(--txt); pointer-events: none; }
-  .tl-board .tl-voice.is-pending .tl-voice-txt { position: static; transform: none; min-width: 0; }
-  .tl-board .tl-pend-ic { display: inline-flex; flex: 0 0 auto; color: var(--warn); }
 
   /* ---------------- 字幕 ---------------- */
   .tl-board .tl-cap { position: absolute; top: var(--sp-2); bottom: var(--sp-2);
@@ -1213,8 +1196,8 @@
     <!-- 普通提示就写在这行小字里，几秒后淡出：不再每点一下都弹浮层 -->
     <span class="opstate" id="opState"></span>
     <!-- 导出入口只剩中栏的「导入视频 / 素材」（同一份 AssetPicker）。
-         导出出口（成片 / FCPXML / 媒体包 / NLE）由 web/domain/export-formats.js 那张表现画现绑；
-         「导出 FCPXML」是主钮，达芬奇 / 剪映收在它旁边的拆分菜单里。
+         导出出口（成片 / FCPXML / 媒体包 / NLE）由 web/domain/export-formats.js 那张表现画现绑：
+         一颗拆分按钮 —— 主钮「导出成片」，尾部 chevron 的浮层里收其余四种去向。
          这里只有**导出**，没有任何「播放」：看效果走剪辑态那条轨的实时预览。 -->
     <span id="exportBtns"></span>
   </div>
@@ -1235,12 +1218,12 @@
     <button class="add-scene" id="addScene">＋ 加一个场景</button>
     <div class="gen-all">
       <button class="pri" id="genAll">生成全部分镜</button>
-      <!-- 左栏状态区：进度条（已完成 K/N）+ 估价行（可生成 N 镜 · 预计 ¥ · 不能生成 M 镜）。
-           按钮的文案与可用状态跟估价行**同一份计划**（genAllPlan）—— 计划一变，两处一起变，
+      <!-- 左栏状态区只有一条进度条：完成量看条的填充，不写文案。
+           按钮的文案与可用状态跟生成计划**同一份**（genAllPlan）—— 计划一变，两处一起变，
            不会出现「写着可生成 2 镜，按钮却说是全部」。 -->
-      <div class="gen-all-prog" id="genAllProg" hidden><i><b></b></i><span id="genAllProgTxt"></span></div>
-      <div class="gen-all-est" id="genAllEst" hidden></div>
-      <div class="note" id="genAllNote"></div>
+      <div class="gen-all-status">
+        <div class="gen-all-prog" id="genAllProg" hidden><i><b></b></i></div>
+      </div>
       <div id="genAllRaw" hidden></div>
     </div>
   </div>

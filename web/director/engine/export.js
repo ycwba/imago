@@ -1,5 +1,5 @@
 /* 导演台导出域：成片计划（`proj.film` → 浏览器内导出那一份契约）、成片指纹、导出成片、
-   FCPXML / 媒体包、送到剪映 / 达芬奇。engine.js 只留状态与接线（AGENTS.md §17：内部保持命令式、按域拆模块）。
+   FCPXML / 媒体包、送到剪映 / 达芬奇。engine.js 只留状态与接线（内部保持命令式、按域拆模块）。
    引擎状态一律经 createExport(E) 递进来的访问器读写；这里不放第二份工程数据。 */
 import { exportFCPXML as runFcpExport, sendToNle as runSendNle } from '../fcpxml.js';
 import {

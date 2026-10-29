@@ -27,7 +27,7 @@ const project = { id: 'pr_rc', name: '回执探针', rev: 0, scenes: [{ id: 'sc_
   film: { clips: [{ id: 'c_rc', kind: 'video', shotId: 'sh_rc', candId: 'v_rc_1', name: '镜头 1',
     src: '/asset/receipt-probe', sourceStart: 0, sourceDuration: 2, mediaDuration: 2,
     duration: 2, playbackRate: 1, volume: 1, muted: false, ln: 0 }],
-    voices: [], pending: [], captions: [], markers: [], tracks: { visibility: {}, locks: {} } } };
+    voices: [], captions: [], markers: [], tracks: { visibility: {}, locks: {} } } };
 
 let n = 0;
 function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不成立：' + msg); }

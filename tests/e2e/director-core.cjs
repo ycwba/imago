@@ -32,7 +32,7 @@ function seed() {
       }] }],
       film: {
         clips: [clip('c1', 0), clip('c2', 2)],
-        voices: [], pending: [], captions: [], markers: [],
+        voices: [], captions: [], markers: [],
         tracks: { visibility: {}, locks: {} },
       },
     }],
@@ -146,7 +146,13 @@ function seed() {
     must(hist.length >= 3, '历史面板里的条目太少：' + JSON.stringify(hist));
     must(hist.every(x => x && x !== '编辑'), '历史条目的名字是空的「编辑」：' + JSON.stringify(hist));
 
-    /* ⑩ 零控制台错误 */
+    /* ⑩ 台词面板：AI 写台词 / 按角色生成语音两颗入口都在；没台词时后者禁用 */
+    await page.eval(() => { const b = document.querySelector('#vcTabs [data-vctab="lines"]'); if (b) b.click(); });
+    must(await page.eval(() => !!document.getElementById('lineGenAi')), '台词面板没有「AI 生成台词」按钮');
+    must(await page.eval(() => !!document.getElementById('lineGenVoice')), '台词面板没有「生成语音」按钮');
+    must(await page.eval(() => { const b = document.getElementById('lineGenVoice'); return !!b && b.disabled; }), '没有台词时「生成语音」该禁用');
+
+    /* ⑪ 零控制台错误 */
     await h.sleep(300);
     if (page.errors.length) throw new Error('控制台错误：' + page.errors.slice(0, 5).join(' | '));
 

@@ -2,8 +2,8 @@
 /* 用户数据基线 —— 跑法：`node tests/data-snapshot.cjs [--write]`
    只记录每个目录的文件数 / 总字节 / 聚合 SHA，不记录文件名，避免把用户数据带进仓库。
    --write 写 tests/data-baseline.json；不带参数时与基线比对（只读，不修改）。
-   ⚠ 写入型 / 读真实 .data/.renders 与库根本体的判据：不进 all.cjs 的并发池（AGENTS §13.2 的
-   串行白名单点名了这一份），只手工跑（AGENTS §13.3）。
+   ⚠ 写入型 / 读真实 .data/.renders 与库根本体的判据：不进 all.cjs 的并发池
+   （串行白名单点名了这一份），只手工跑。
    以前 2.3s，慢点在「一个线程逐文件 readFileSync + sha256」——真实资产库 ~800MB
    就是 CPU 墙。现在逐文件的读与哈希分给 worker_threads 池（默认 min(4, 核数)），主线程只按
    **原来的顺序**（路径排序）把 per-file 摘要喂进聚合哈希 —— 聚合口径一字未动，产出的 sha256
@@ -23,8 +23,8 @@ const WRITE = process.argv.includes('--write');
      · `.renders` —— FCPXML 媒体包；
      · 库根那一份**产物本体**（默认 系统下载\拾帧，在仓库外）—— 基线里只记「库根」这一个标签，
        不把用户的绝对路径写进仓库（这一份文件是要提交的）。
-   以前第三块是项目里的 `.assets\`：本体现在住在库根的类型子目录里（AGENTS §1），
-   所以盯的必须是搬完之后的那一个根 —— 「整目录没了」在这里照红，那是用户产物消失的信号。 */
+   以前第三块是项目里的 `.assets\`：本体现在住在库根的类型子目录里，
+   所以盯的必须是搬完之后的那一个根 ——「整目录没了」在这里照红，那是用户产物消失的信号。 */
 const { localRootOf } = require('../server/local-root.js');
 const LIB_LABEL = '库根';
 const DIRS = new Map([

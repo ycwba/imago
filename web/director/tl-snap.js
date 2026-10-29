@@ -23,7 +23,7 @@ export function collectTimelineSnapPoints(o = {}) {
     out.push({ time: num(row.start), kind: 'start', id: row.clip.id });
     out.push({ time: num(row.end), kind: 'end', id: row.clip.id });
   });
-  const timed = [].concat(Array.isArray(o.voices) ? o.voices : [], Array.isArray(o.pending) ? o.pending : []);
+  const timed = Array.isArray(o.voices) ? o.voices : [];
   timed.forEach(it => {
     if (!it || it.id === excludeId) return;
     out.push({ time: num(it.start), kind: 'start', id: it.id });

@@ -86,25 +86,25 @@ export function createCaptionDomain(E, document, window) {
   }
 
   /* ---------------- 批量：按配音补字幕 / 重切 ---------------- */
-  /* 只补「还没有字幕挂着」的那些定时块（配音与待生成同一副定时形状）——已经存在的字幕一条都不覆盖：
+  /* 只补「还没有字幕挂着」的那些配音块 —— 已经存在的字幕一条都不覆盖：
      用户手改过的字、导入的 SRT、识别出来的结果都是他的数据。整条重做走 Ctrl+Z 或先删。 */
   function capGenerate() {
     const f = filmOf();
-    const timed = [...(f.voices || []), ...(f.pending || [])].filter(x => x && String(x.text || '').trim());
+    const timed = (f.voices || []).filter(x => x && String(x.text || '').trim());
     if (!timed.length) {
-      if (setStatus) setStatus('<span class="err">配音轨与待生成轨上都没有带字的块：先在「生成配音」里合成一句，或在「台词」里写一句（写完自动上待生成轨）</span>');
+      if (setStatus) setStatus('<span class="err">配音轨上还没有带字的块：先在「台词」里写一句，或切到「生成配音」合成一句</span>');
       return false;
     }
     const linked = new Set((f.captions || []).map(c => c && c.voiceId).filter(Boolean));
     const fresh = timed.filter(x => !linked.has(x.id)).map(captionForTimed).filter(c => c.text);
     if (!fresh.length) {
-      if (setStatus) setStatus(`<span class="meta">这 ${timed.length} 句配音 / 待生成都已经各有字幕挂着（全片 ${(f.captions || []).length} 条）——要改字在上面的清单里改</span>`);
+      if (setStatus) setStatus(`<span class="meta">这 ${timed.length} 句配音都已经各有字幕挂着（全片 ${(f.captions || []).length} 条）——要改字在上面的清单里改</span>`);
       return false;
     }
     const before = (f.captions || []).length;
     const ok = patchCaps([...(f.captions || []), ...fresh],
-      `按配音与待生成补出 ${fresh.length} 条字幕（时间是块自己的成片秒；之后块挪位与变长，字幕跟着走）`);
-    if (ok && setStatus) setStatus(`<span class="ok">✓ 新增 ${fresh.length} 条字幕（全片现在 ${before + fresh.length} 条）：每条接在自己那句配音 / 待生成上</span>`);
+      `按配音补出 ${fresh.length} 条字幕（时间是块自己的成片秒；之后块挪位与变长，字幕跟着走）`);
+    if (ok && setStatus) setStatus(`<span class="ok">✓ 新增 ${fresh.length} 条字幕（全片现在 ${before + fresh.length} 条）：每条接在自己那句配音上</span>`);
     return ok;
   }
 
@@ -348,14 +348,14 @@ export function createCaptionDomain(E, document, window) {
       : '';
     const rows = list.length
       ? '<div class="sub-list">' + list.map(c => captionRowHTML(c, t >= num(c.start) && t < num(c.end))).join('') + '</div>'
-      : '<div class="hint">字幕轨还是空的。可以按配音与待生成补出来、导入一段 SRT，或对播放头指着的那一段素材自动识别。</div>';
+      : '<div class="hint">字幕轨还是空的。可以按配音补出来、导入一段 SRT，或对播放头指着的那一段素材自动识别。</div>';
     const busy = !!asrBusy;
     return `<div class="ed-label" style="margin-top: var(--sp-14)"><span>字幕</span><span class="cnt">全片 ${list.length} 条 · 时间是成片秒</span></div>
       <div class="hint">字幕排在成片时间线上（整片 ${tenth(total)} 秒）：改出现时间与安全边在轨道上拖那一块，改字、起止、位置在这里。</div>
       ${note}
       ${rows}
       <div class="btn-row" style="margin-top: var(--sp-8)">
-        <button class="tool acc" id="capGen" title="给还没有字幕挂着的那几句配音 / 待生成各补一条字幕（已有的字幕一条都不覆盖；之后块挪位与变长，字幕跟着走）">${icon('sparkles', 14)} 按配音补字幕</button>
+        ${window.aiBtnHTML({ id: 'capGen', label: '按配音补字幕', title: '给还没有字幕挂着的那几句配音各补一条字幕（已有的字幕一条都不覆盖；之后块挪位与变长，字幕跟着走）' })}
         <button class="tool" id="capAdd" title="在播放头指着的那一秒加一条手写字幕（${CAP_ADD_SECONDS} 秒，字在上面的清单里改）">${icon('plus', 14)} 在播放头加一条</button>
       </div>
       <div class="btn-row">

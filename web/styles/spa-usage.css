@@ -7,9 +7,7 @@
 .usage-page {
   background: var(--bg); color: var(--txt);
 }
-.usage-page .desc { font-size: var(--fs-13-5); color: var(--sub); line-height: 1.7; max-width: 860px;
-  margin: var(--sp-14) 0 var(--sp-12); }
-.usage-page .bar { display: flex; align-items: center; gap: var(--sp-10); margin: 0 0 var(--sp-16); flex-wrap: wrap; }
+.usage-page .bar { display: flex; align-items: center; gap: var(--sp-10); margin: var(--sp-14) 0 var(--sp-16); flex-wrap: wrap; }
 .usage-page .bar .sp { flex: 1; }
 .usage-page .upd { font-size: var(--fs-12); color: var(--sub); }
 .usage-page .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-14); }

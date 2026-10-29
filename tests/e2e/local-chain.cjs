@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 本机资产「一份本体 + 双身份」的读写全链路判据（隔离实例，AGENTS §13.2）。
+/* 本机资产「一份本体 + 双身份」的读写全链路判据（隔离实例）。
    跑法：node tests/e2e/local-chain.cjs
    覆盖的都是「搬错了就再也找不回」的那几件事：
      · 落点：本体在 <库根>\<类型>\<规范名>.<ext>，账在 .data\local-assets\（库根与账分家）；
@@ -11,7 +11,8 @@
      · 删除按「卡」不按「条」：一条卡背后可能是两条账两份字节（同内容、来源地址不同），
        整组一起收 —— 只收一条就留下「删了又回来」的那一条；
      · 磁盘对账：盘上多出一份没记账的成品会补进账，但**只补一次**；用户手删文件不偷偷裁条目（回源外链与那笔费用还在）。
-   ⚠ 三个根全部由 harness 指到 .*-probe-* 目录：这台机器上真正的 下载\拾帧 里是用户成品，探针一个字节都不许碰。 */
+   ⚠ 三个根全部由 harness 指到系统临时目录里的探针父目录：这台机器上真正的 下载\拾帧 里是用户成品，
+     探针一个字节都不许碰。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -42,9 +43,11 @@ const png = extra => (extra ? Buffer.concat([PNG, Buffer.from(String(extra))]) :
 
 async function main() {
   /* AUTOSAVE_DIR 把整个「下载」基座指走（server/user-dirs.js 的探针口）：
-     不设的话 下载\拾帧 就是默认库根与旧落点，这一条判据就成在动用户成品了。 */
-  const dlBase = path.resolve(__dirname, '../..', '.downloads-probe-' + process.pid);
-  const proxy = await h.startProxy({ env: { AUTOSAVE_DIR: dlBase } });
+     不设的话 下载\拾帧 就是默认库根与旧落点，这一条判据就成在动用户成品了。
+     它落在 harness 的探针父目录里，收尾跟着父目录整组删。 */
+  const probeRoot = h.tempDir('local-chain');
+  const dlBase = path.join(probeRoot, 'downloads');
+  const proxy = await h.startProxy({ probeRoot, env: { AUTOSAVE_DIR: dlBase } });
   const LIB = proxy.assetsDir, DATA = proxy.dataDir, BASE = proxy.base, cookie = proxy.cookie;
   const req = async (p, opt = {}) => {
     const r = await fetch(BASE + p, Object.assign({}, opt, { headers: Object.assign({ cookie }, opt.headers || {}) }));
@@ -175,7 +178,38 @@ async function main() {
     say('删一条「文件已不在」的能删干净（files 0）', delLost.status === 200 && delLost.json && delLost.json.files === 0, JSON.stringify(delLost.json));
     say('账里也收掉了', !ledger(DATA).find(x => x.id === lost.id), '');
 
-    /* ⑩ 采样签名为什么是「头 + 尾」而不是整份：一条几百 MB 的片子每轮对账都全量读一遍，
+    /* ⑩ 云端被清理 / 签名过期，而本机那一份还在：地址层要退回本机字节。
+       实况是「卡片写着本机+云端，画面却是一张破图」—— 浏览器那份镜像索引按源分家，
+       丢了或指到死号时认不出这条外链，而代理账里明明记着「这个来源地址的字节就在库根」。 */
+    const deadUp = 'https://gone.invalid/results/cloud-gone.png?Expires=1793188433&Signature=old';
+    const deadRow = await mirror('云端清掉后仍在.png', 'keep',
+      { upstream: deadUp, detail: { asset: 'asset_cloud_gone', task: 'job_cloud_gone' } });
+    const deadId = deadRow.json && deadRow.json.id;
+    const deadBytes = png('keep');
+    say('带来源与平台产物号的镜像落账',
+      !!deadId && ledger(DATA).some(x => x.id === deadId && x.upstream === deadUp),
+      JSON.stringify(deadRow.json && { id: deadId }));
+    const gvGone = await bytesOf('/getv?url=' + encodeURIComponent(deadUp));
+    say('/getv 云端取不到时退回本机字节', gvGone.status === 200 && gvGone.buf.equals(deadBytes),
+      '状态 ' + gvGone.status + ' · ' + gvGone.buf.length + '/' + deadBytes.length);
+    const rangeRes = await fetch(BASE + '/getv?url=' + encodeURIComponent(deadUp),
+      { headers: { cookie, range: 'bytes=0-7' } });
+    const rangeBuf = Buffer.from(await rangeRes.arrayBuffer());
+    say('/getv 退回本机时 Range 仍生效', rangeRes.status === 206 && rangeBuf.equals(deadBytes.slice(0, 8)),
+      '状态 ' + rangeRes.status + ' · ' + rangeBuf.length);
+    const fetchGone = await bytesOf('/fetch?url=' + encodeURIComponent(deadUp) + '&dl=1');
+    say('/fetch 云端取不到时退回本机字节', fetchGone.status === 200 && fetchGone.buf.equals(deadBytes),
+      '状态 ' + fetchGone.status);
+    const byAssetId = await bytesOf('/asset/asset_cloud_gone');
+    say('/asset/<平台产物号> 按账认回本机那份', byAssetId.status === 200 && byAssetId.buf.equals(deadBytes),
+      '状态 ' + byAssetId.status);
+    const byJobId = await bytesOf('/asset/job_cloud_gone');
+    say('/asset/<只出一份的任务号> 也认得出', byJobId.status === 200 && byJobId.buf.equals(deadBytes),
+      '状态 ' + byJobId.status);
+    const miss = await req('/getv?url=' + encodeURIComponent('https://gone.invalid/别的产物.png'));
+    say('不是这一份产物时照常失败（不拿别的文件顶替）', miss.status >= 400, '状态 ' + miss.status);
+
+    /* ⑪ 采样签名为什么是「头 + 尾」而不是整份：一条几百 MB 的片子每轮对账都全量读一遍，
        盘吃不消；但中段不同的两份字节必须判成两份（否则删一张卡会带走另一张的本体）。 */
     const head = png('same-head');
     const bigA = Buffer.concat([head, Buffer.alloc(2 * 1024 * 1024, 1), head]);
@@ -190,7 +224,6 @@ async function main() {
     say('判据跑通', false, ((e && e.code) ? e.code + ' ' : '') + ((e && e.message) || e));
   } finally {
     await proxy.stop();
-    try { fs.rmSync(dlBase, { recursive: true, force: true }); } catch {}
     console.log('本机资产读写链路：✓ 通过 ' + ok.length + ' 项');
     ok.forEach(x => console.log('   · ' + x));
     if (bad.length) { console.log('✗ 未通过 ' + bad.length + ' 项'); bad.forEach(x => console.log('   ! ' + x)); }

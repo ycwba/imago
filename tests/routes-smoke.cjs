@@ -300,6 +300,8 @@ const FAKES = {
   /* --- 本机资产：索引 / 落盘全部指向探针目录，条目一律「查无此资产」 --- */
   localAssetFile: () => () => '',
   localAssetEntry: () => () => null,
+  localEntryByUpstream: () => () => null,
+  localEntryByPlatformId: () => () => null,
   localFileFromEntry: () => () => '',
   localMediaType: () => () => 'image',
   localAssetWhen: () => () => 0,

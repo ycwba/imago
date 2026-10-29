@@ -46,10 +46,31 @@ function keepBodyScroll(el, fn) {
            页面愿意流式就把 ctl.push 接到 TextAI.chatStream 的 onDelta、把 ctl.signal 传进 opts，
            不接也完全可以（面板照旧显示「正在润色…」）。
      · InlinePolish.clear(host)                  收起面板（纯 DOM 清理，不触发 onClose）
+     · InlinePolish.btnHTML(o)                   那一颗「AI 润色」按钮（全站唯一一副画法与唯一一句名字）
+         o.id      按钮 id（页面接线用）
+         o.scope   改的是哪一段字（「这一镜的提示词」/「这一句配音」）——只有说明句跟着变，按钮名不变
+         o.extra   说明句末尾再补一句（例如「只改字，不合成」）
+         o.busyOn / o.disabled  当前是不是在跑 / 是否禁用
+       忙与闲由页面切：`window.aiBtnState(btn, true|false)`（只换 `.tx` 那一行字，图标原样留着）。
    ========================================================================== */
 (function () {
   const esc = s => window.esc(s);
   window.InlinePolish = {
+    /* ---------- 那一颗「AI 润色」按钮（名字、说明句、忙时那一句话都只在这一处）----------
+       三个入口做的是同一件事：工作台改提示词、导演台右栏改这一镜的提示词、导演台配音那一行
+       改这一句要念的话 —— 所以按钮名与外壳只这一份，作用域的差异只写进说明句，按钮上那一行字不动。
+       忙与闲也只换 `.tx` 那一行（window.aiBtnState），不重写整副 innerHTML：重写会丢掉 `.ic` 那一层，
+       图标一会儿是强调色、一会儿跟字同色，还原之后就成了另一副样子。 */
+    btnHTML(o) {
+      const opt = o || {};
+      const what = '文字 AI 改写' + (opt.scope || '这一版提示词');
+      return window.aiBtnHTML({ id: opt.id, disabled: opt.disabled, label: 'AI 润色', busy: '润色中…',
+        busyOn: opt.busyOn,
+        title: what + (opt.extra ? '；' + opt.extra : '') + '（密钥在「设置」配置）' });
+    },
+    /* 「按这句再改」那一行的两颗状态：结果面板（这份文件上面）与审阅弹窗（下面那一份）画的是
+       同一件事，话只写这一处，两处都读它。 */
+    FOLLOW: { again: '按这句再改', stop: '停止这一轮' },
     clear(host) {
       if (!host) return;
       host.innerHTML = '';
@@ -132,7 +153,7 @@ function keepBodyScroll(el, fn) {
         <div class="pinl-talk" hidden></div>
         ${o.onFollow ? `<div class="pinl-chat">
           <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？写完按回车')}">
-          <button class="ghost" data-act="follow">${icon('sparkles', 13)} 按这句再改</button>
+          <button class="ghost" data-act="follow">${icon('sparkles', 13)} ${InlinePolish.FOLLOW.again}</button>
         </div>` : ''}
         <div class="pinl-ft">
           <button class="pri" data-act="apply">${esc(o.applyLabel || '替换原提示词')}</button>
@@ -167,8 +188,8 @@ function keepBodyScroll(el, fn) {
         applyBtn.disabled = on; retry.disabled = on;
         if (fbtn) {
           fbtn.disabled = false;                     // 「停止」在跑的时候必须能点
-          fbtn.innerHTML = on ? icon('stop', 13) + ' 停止这一轮'
-            : icon('sparkles', 13) + ' 按这句再改';
+          fbtn.innerHTML = on ? icon('stop', 13) + ' ' + InlinePolish.FOLLOW.stop
+            : icon('sparkles', 13) + ' ' + InlinePolish.FOLLOW.again;
         }
         ta.readOnly = on;
       };
@@ -509,7 +530,7 @@ function keepBodyScroll(el, fn) {
       <div class="pr-followrow">
         <input class="pr-followin" type="text" spellcheck="false"
           placeholder="${window.esc(o.followPlaceholder || '还要怎么改？写一句，AI 在当前这份上再改一轮（写完按回车）')}">
-        <button class="ghost pr-followbtn">${icon('sparkles', 13)} 按这句再改</button>
+        <button class="ghost pr-followbtn">${icon('sparkles', 13)} ${window.InlinePolish.FOLLOW.again}</button>
       </div>`;
     foot.parentNode.insertBefore(wrap, foot);
     const talk = wrap.querySelector('.pr-talk');
@@ -533,7 +554,8 @@ function keepBodyScroll(el, fn) {
       busy = on;
       okBtn.disabled = on || blocked();
       if (retryBtn) retryBtn.disabled = on;
-      btn.innerHTML = on ? icon('stop', 13) + ' 停止这一轮' : icon('sparkles', 13) + ' 按这句再改';
+      btn.innerHTML = on ? icon('stop', 13) + ' ' + window.InlinePolish.FOLLOW.stop
+        : icon('sparkles', 13) + ' ' + window.InlinePolish.FOLLOW.again;
     };
     const run = async () => {
       if (busy) { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经收尾的话再 abort 无害，兜住就好 */ } } return; }   // 跑着时这一颗是「停止」

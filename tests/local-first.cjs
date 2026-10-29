@@ -254,8 +254,31 @@ const IDX = {
     AL.decorate(e, { allowGen: false });
     ok('自动存本机关着：指针维护照样跑（死号接回活号）', e.mirror && e.mirror.a === 'la_z', JSON.stringify(e.mirror && e.mirror.a));
     const recs = JSON.parse(ls.getItem('sk_local_mirror') || '{}').m || {};
-    ok('自动存本机关着：没为新号建镜像记录（表里只有原来那一条）',
-      Object.keys(recs).length === 1 && recs['p|a:x'], JSON.stringify(Object.keys(recs)));
+    ok('自动存本机关着：账里已有的那一条照样建指针（它不下载字节）',
+      Object.keys(recs).length === 2 && recs['p|a:x'] && recs['local|f:la_z'], JSON.stringify(Object.keys(recs)));
+  }
+  /* ⑪c 浏览器索引整份丢了 + 自动存本机关着：账里的本机行仍要被认回来。
+     这一条治的是「卡片写着本机+云端，云端一清理就全变已丢失，而库根里文件一份没少」——
+     换端口 / 清站点数据 / 换机器之后正是这个状态；开关管的是「要不要为新产物取回字节」，
+     不是「已经在本机的那些还认不认得」。 */
+  {
+    const { AL } = boot({ index: { v: 1, m: {}, a: {} }, prefs: { sk_media_local: 'off', sk_media_prefer: 'on' } });
+    AL.learn({ id: 'la_lib', provider: 'vgenv', format: 'mp4', name: '王八.mp4', byte_length: 40,
+      upstream: '', detail: { task: 'job_lib' } });
+    await new Promise(r => setTimeout(r, 10));
+    const e = { kind: 'asset', provider: 'vgenv', genId: 'job_lib', outCount: 1, src: '/getv?url=' + encodeURIComponent('https://v.vgenv.com/x/job_lib/a.mp4?signature=n') };
+    AL.decorate(e, { allowGen: true });
+    ok('索引丢了、自动存本机关着：账里的本机行仍认得出（本机+云端）',
+      e.mirror && e.mirror.a === 'la_lib' && e.src === '/asset/la_lib?v=2', JSON.stringify({ m: e.mirror && e.mirror.a, src: e.src }));
+    const off = boot({ index: { v: 1, m: {}, a: {} }, prefs: { sk_media_local: 'off', sk_media_prefer: 'off' } });
+    off.AL.learn({ id: 'la_lib', provider: 'vgenv', format: 'mp4', name: '王八.mp4', byte_length: 40,
+      upstream: '', detail: { task: 'job_lib' } });
+    await new Promise(r => setTimeout(r, 10));
+    const e2 = { kind: 'asset', provider: 'vgenv', genId: 'job_lib', outCount: 1, src: '/getv?url=' + encodeURIComponent('https://v.vgenv.com/x/job_lib/a.mp4?signature=n') };
+    off.AL.decorate(e2, { allowGen: true });
+    ok('关掉「优先用本机文件」时地址仍走平台（身份还是两边都有）',
+      e2.src === '/getv?url=' + encodeURIComponent('https://v.vgenv.com/x/job_lib/a.mp4?signature=n') && off.AL.stateOf(e2).state === 'both',
+      JSON.stringify({ src: e2.src, st: off.AL.stateOf(e2) }));
   }
 
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');

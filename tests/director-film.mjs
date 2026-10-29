@@ -10,7 +10,7 @@ import {
   TRANSITIONS, transitionNameOf, transitionMax, normalizeTransition, transitionOf,
   transitionWindow, transitionAtTime,
   createClip, clipDurationOf, rateOf, srcHeadOf, srcUsedOf, srcLenOf, withPlaybackRate,
-  createVoiceClip, createPending, createCaption, captionForTimed,
+  createVoiceClip, createCaption, captionForTimed,
   normalizeFilm, filmOf, deriveTimeline, filmTotal, clipBoundary,
   chosenCandOf, candidateWindow, promoteCandidate, demoteShot,
   packVoiceLanes, packCaptionLanes, voiceLaneMap, captionLaneMap, filmLaneOf,
@@ -204,7 +204,7 @@ assert.equal(dem.removed, 1);
 assert.equal(dem.clips.length, 2);
 assert.equal(demoteShot([a1], 'nope').removed, 0);
 
-/* ---------- 配音 / 待生成 / 字幕工厂 ---------- */
+/* ---------- 配音 / 字幕工厂 ---------- */
 const vc = createVoiceClip({ text: '你好', start: 1, sourceDuration: 4, playbackRate: 2 });
 assert.ok(vc.id.startsWith('voice-'));
 assert.equal(vc.duration, 2);
@@ -212,26 +212,21 @@ assert.equal(vc.start, 1);
 assert.equal(vc.status, 'done');
 assert.equal(createVoiceClip({}).duration, MIN_CLIP_SECONDS);   // 下限
 
-const pd = createPending({ text: '待念', start: 3, duration: 1.5 });
-assert.ok(pd.id.startsWith('pend-'));
-assert.equal(pd.status, 'pending');
-assert.equal(createPending({}).duration, 0.6);                  // 缺省估读半句的底
 
 const cap = createCaption({ text: '字幕', start: 1 });
 assert.ok(cap.id.startsWith('cap-'));
 assert.equal(cap.end, 3);                                       // 缺省 2s 长
 assert.equal(createCaption({ start: 1, end: 1 }).end, 1.2);     // 最短 MIN_CAPTION_SECONDS
-const capFor = captionForTimed(pd);
-assert.equal(capFor.text, '待念');
-assert.equal(capFor.start, 3);
-assert.equal(capFor.end, 4.5);
-assert.equal(capFor.voiceId, pd.id);
+const capFor = captionForTimed(vc);
+assert.equal(capFor.text, '你好');
+assert.equal(capFor.start, 1);
+assert.equal(capFor.end, 3);
+assert.equal(capFor.voiceId, vc.id);
 
 /* ---------- 整份规整 ---------- */
 const empty = normalizeFilm(null);
 assert.deepEqual(empty.clips, []);
 assert.deepEqual(empty.voices, []);
-assert.deepEqual(empty.pending, []);
 assert.deepEqual(empty.captions, []);
 assert.deepEqual(empty.markers, []);
 assert.deepEqual(empty.tracks, { visibility: {}, locks: {} });
@@ -242,7 +237,6 @@ const nf = normalizeFilm({
   clips: [null, 'x', { src: '/a', sourceDuration: 1, transition: { id: 'fade', duration: 2 } },
           { src: '/b', sourceDuration: 1, transition: { id: 'nope' } }],
   voices: [{ id: 'voice-x', text: 'v', start: 0 }],
-  pending: [{ text: 'p', start: 1 }],
   captions: [{ text: '连着的', start: 0, voiceId: 'voice-x' },
              { text: '断了的', start: 2, voiceId: 'voice-dead', detachedVoiceId: 'voice-old' }],
   markers: [{ type: 'chapter', time: 1 }],
@@ -282,14 +276,14 @@ assert.deepEqual(capPack.lanes[1].items.map(c => c.start), [1, 3.5]);
 assert.equal(packCaptionLanes([mkCap(0, 2), mkCap(0.5, 1), mkCap(0.2, 3)], 1).overflow, 2);
 
 const v0 = mkVoice(0, 5, 0), v1 = mkVoice(0, 5, 0);
-const vMap = voiceLaneMap({ voices: [v0, v1], pending: [createPending({ start: 6 })] });
+const vMap = voiceLaneMap({ voices: [v0, v1] });
 assert.equal(vMap.get(v0.id), 0);
 assert.equal(vMap.get(v1.id), 1);                                // 重叠的两条分两行
 const capMap = captionLaneMap({ captions: [mkCap(0, 2), mkCap(1, 3)] });
 assert.deepEqual([...capMap.values()], [0, 1]);
 const laneFilm = {
   clips: [createClip({ id: 'lc1', ln: 2 }), createClip({ id: 'lc2' })],
-  voices: [v0, v1], pending: [createPending({ start: 6 })],
+  voices: [v0, v1],
   captions: [mkCap(0, 2), mkCap(1, 3)],
 };
 assert.equal(filmLaneOf(laneFilm, 'voice', v0.id), 0);
@@ -339,7 +333,7 @@ assert.equal(captionStyleOf(false), 'plain');
 const gv1 = { ...mkVoice(0, 5, 0), id: 'gv1', src: '/1' };
 const gv2 = { ...mkVoice(0, 5, 0), id: 'gv2', src: '/2' };
 const gv3 = { id: 'gv3', start: 9, duration: 1 };                       // 没字节
-const gateFilm = { voices: [gv1, gv2, gv3], pending: [], tracks: { visibility: { 'voice-1': false } } };
+const gateFilm = { voices: [gv1, gv2, gv3], tracks: { visibility: { 'voice-1': false } } };
 let aud = audibleVoices(gateFilm);
 assert.deepEqual(aud.list.map(v => v.id), ['gv1']);
 assert.deepEqual(aud.skipped, { hidden: 1, noSrc: 1 });
@@ -370,17 +364,17 @@ assert.equal(lineTimeOf({}).whenText, '成片 —');
 assert.equal(lineTimeOf(null).whenText, '成片 —');
 
 const escId = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
-const rowBase = { id: 'r1', sh: sh1, no: '3', who: '小明', text: '你好', pending: true, mine: true,
+const rowBase = { id: 'r1', sh: sh1, no: '3', who: '小明', text: '你好', voiced: true, mine: true,
   speaker: speakerOf('小明', lib), time: lineTimeOf({ start: 1, duration: 2 }) };
 const html = lineRowHTML(rowBase, { esc: escId, icon: () => '<i-u>', mediaSrc: x => x });
 assert.match(html, /data-lineid="r1"/);
 assert.match(html, /class="line-row edit on"/);                          // mine 点亮
-assert.match(html, /<em class="pend">待生成<\/em>/);
+assert.match(html, /<em class="done">已生成<\/em>/);
 assert.match(html, /data-line-who="r1"/);
 assert.match(html, /data-line-text="r1"/);
 assert.match(html, /<img src="\/a\.png"/);                               // 素材库头像
 assert.match(html, /成片 1–3 秒/);                                       // 行内时间读数
-const htmlEmpty = lineRowHTML({ ...rowBase, no: '', text: '  ', pending: false, mine: false,
+const htmlEmpty = lineRowHTML({ ...rowBase, no: '', text: '  ', voiced: false, mine: false,
   speaker: speakerOf('路人', lib), time: lineTimeOf({}) },
   { esc: escId, icon: () => '<i-u>', mediaSrc: x => x });
 assert.match(htmlEmpty, /<em class="none">未写<\/em>/);

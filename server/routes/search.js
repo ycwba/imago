@@ -6,7 +6,7 @@
 'use strict';
 const fs = require('fs');
 const { sendJson, readJsonBody } = require('./http');
-const { channelKey, channelBase, loopback, collect } = require('../channel-cred.js');
+const { channelKey, collect, postJson } = require('../channel-cred.js');
 
 const CACHE_TTL = 10 * 60 * 1000;
 const CACHE_MAX = 50;
@@ -65,10 +65,49 @@ function htmlToText(html) {
 
 function createSearchRoutes(ctx) {
   const cache = new Map();
-  function resolveCred() {
-    const s = ctx.store.raw();
-    const key = s.credentialSource === 'manual' ? s.key : (channelKey(ctx, s.channelId) || s.key);
-    return { s, key };
+  /* 哪些供应商会做「联网搜索」：注册表里同时有 extraCaps 与 search 端点声明的那几家。
+     设置页的下拉与这里读的是同一份声明，页面不再自己维护一份「tavily / deepseek」名单。 */
+  function searchProviders() {
+    try {
+      return (ctx.providers() || []).filter(p => p.kind === 'text' && p.search
+        && (p.extraCaps || []).indexOf('search') >= 0);
+    } catch { return []; }
+  }
+  function providerById(id) {
+    try {
+      const want = String(id || '');
+      return (ctx.providers() || []).find(p => p.id === want || p.keyId === want) || null;
+    } catch { return null; }
+  }
+  /* 这次走谁：
+     · auto —— 第一家「声明了搜索接口、并且拿得到密钥」的供应商；都没有时退回单独填的 Tavily 密钥；
+     · tavily —— 独立搜索接口，只认单独填的那把（不拿任何供应商的密钥去调它）；
+     · 供应商 id —— 用这家自己的搜索接口；密钥默认取渠道那家，credentialSource = manual 时取单独那把。 */
+  function resolveEngine(s) {
+    const list = searchProviders();
+    let pid = String(s.provider || '');
+    if (!pid || pid === 'auto') {
+      const usable = list.filter(p => channelKey(ctx, p.id));
+      /* 接口型优先：chat 那一族（OpenRouter）还要一个对话型号，自动挑它等于留下一个空必填项。 */
+      const hit = usable.find(p => p.search.style === 'api') || usable[0];
+      if (hit) pid = hit.id;
+      else if (s.key) pid = 'tavily';
+      else throw httpError('not-configured',
+        '没有可用的搜索服务：先接一家支持联网搜索的供应商并配好密钥，或在「联网搜索」里单独填一把 Tavily 密钥');
+    }
+    if (pid === 'tavily') {
+      if (!s.key) throw httpError('not-configured', 'Tavily 要单独填一把搜索密钥（它不认其他供应商的密钥）');
+      return { id: 'tavily', style: 'tavily', base: s.baseUrl || 'https://api.tavily.com/search', key: s.key };
+    }
+    const p = providerById(pid);
+    if (!p || !p.search || (p.extraCaps || []).indexOf('search') < 0) {
+      throw httpError('not-configured', '「' + pid + '」没有注册搜索接口 —— 在设置里换一家支持联网搜索的供应商');
+    }
+    const key = s.credentialSource === 'manual' && s.key ? s.key : channelKey(ctx, p.id);
+    if (!key) {
+      throw httpError('not-configured', '「' + (p.name || p.id) + '」还没有密钥：先给这家配一把，或在下面单独填一把搜索密钥');
+    }
+    return { id: p.id, style: p.search.style, decl: p.search, base: s.baseUrl || p.base || '', key, name: p.name || p.id };
   }
   function cacheGet(k) {
     const hit = cache.get(k);
@@ -84,35 +123,18 @@ function createSearchRoutes(ctx) {
     cache.set(k, { at: Date.now(), val });
   }
 
-  async function postJson(url, bodyObj, headers, timeoutMs) {
-    if (/^https:/i.test(url)) await ctx.guardOutboundUrl(url);
-    else if (!loopback(url)) throw httpError('upstream', '搜索接口只允许 https（本机回环可用 http）');
+  /* 与语音识别的 chat-audio 那一族共用 channel-cred 的 postJson：同一份出站护栏、
+     同一条系统代理隧道、同一份带上限收字节。这里只补搜索自己的头与超时。 */
+  function postSearchJson(url, bodyObj, headers, timeoutMs) {
     const body = Buffer.from(JSON.stringify(bodyObj));
-    const h = {
-      'Content-Type': 'application/json',
-      'Content-Length': body.length,
-      'Accept': 'application/json',
-      ...(headers || {}),
-    };
-    return await new Promise((resolve, reject) => {
-      const cb = res => collect(res, JSON_MAX).then(text => resolve({ status: res.statusCode || 0, text }), reject);
-      /* 连接层失败要归到 network / timeout（502 / 504），不能落到默认的 bad-request（400）：
-         「上游连不上」与「你参数填错了」是两件事，前端与用户看到的下一句话完全不同。 */
-      const fail = e => {
-        if (e && e.kind) return reject(e);
-        const m = (e && e.message) || String(e || '');
-        reject(httpError(/timeout|超时/i.test(m) ? 'timeout' : 'network', '搜索请求失败：' + clean(m, 300)));
-      };
-      let req;
-      try {
-        /* 两条分支都走出站层：以前 http（本机回环）那条直接 http.request，
-           不带 DNS 闸也不带统一的连接处理；多一套出站实现就多一处会忘了加护栏。 */
-        req = ctx.anyRequest(url, { method: 'POST', headers: h }, cb);
-        req.setTimeout(timeoutMs, () => req.destroy(httpError('timeout', '搜索请求超时（' + Math.round(timeoutMs / 1000) + ' 秒）')));
-      } catch (e) { fail(e); return; }
-      req.on('error', fail);
-      req.write(body);
-      req.end();
+    return postJson(ctx, {
+      url, body, timeoutMs, maxBytes: JSON_MAX,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': body.length,
+        Accept: 'application/json',
+        ...(headers || {}),
+      },
     });
   }
   function upstreamError(r) {
@@ -124,6 +146,13 @@ function createSearchRoutes(ctx) {
     } catch (e) { msg = clean(r.text, 300); }
     return httpError('upstream', '上游拒绝（HTTP ' + r.status + '）' + (msg ? '：' + clean(msg, 400) : ''));
   }
+  function joinUrl(base, p) {
+    const b = String(base || '').replace(/\/+$/, '');
+    const s = String(p || '');
+    if (!s) return b;
+    if (/^https?:\/\//i.test(s)) return s;
+    return b + (s.charAt(0) === '/' ? s : '/' + s);
+  }
 
   async function tavilySearch(s, key, q, limit, site, freshness) {
     const base = (s.baseUrl || 'https://api.tavily.com/search').replace(/\/+$/, '');
@@ -131,50 +160,69 @@ function createSearchRoutes(ctx) {
     const query = q + (site ? ' site:' + site : '');
     const body = { api_key: key, query, max_results: limit, include_answer: false, include_raw_content: false };
     if (freshness) body.days = freshness === 'day' ? 1 : freshness === 'week' ? 7 : freshness === 'month' ? 30 : 365;
-    const r = await postJson(url, body, {}, 20000);
+    const r = await postSearchJson(url, body, {}, 20000);
     if (r.status < 200 || r.status >= 300) throw upstreamError(r);
     let j = null;
     try { j = JSON.parse(r.text); } catch (e) { throw httpError('upstream', '上游没有返回 JSON'); }
     return normResults(j.results, limit);
   }
 
-  async function deepseekSearch(s, key, q, limit, site, freshness) {
-    const base = (s.baseUrl || channelBase(ctx, s.channelId) || 'https://api.deepseek.com').replace(/\/+$/, '');
-    const url = /\/chat\/completions$/i.test(base) ? base : base + '/chat/completions';
-    const model = s.model || 'deepseek-chat';
-    const scope = (site ? ' 只找站点 ' + site + ' 上的内容。' : '')
-      + (freshness ? ' 时间范围：最近' + (freshness === 'day' ? '一天' : freshness === 'week' ? '一周' : freshness === 'month' ? '一个月' : '一年') + '。' : '');
-    const body = {
-      model, stream: false, temperature: 0.2,
-      messages: [
-        { role: 'system', content: '你是联网搜索助手。根据检索请求给出真实可访问的网页结果。只输出一个 JSON 对象：'
-          + '{"results":[{"title":"","url":"","snippet":"","publishedAt":""}]}，最多 ' + limit + ' 条；'
-          + '不要输出解释、不要编造网址。' },
-        { role: 'user', content: q + scope },
-      ],
-    };
-    const r = await postJson(url, body, { 'Authorization': 'Bearer ' + key }, 45000);
+  /* 专用搜索接口（DeepSeek / 智谱 / Kimi）：请求体与结果字段全按注册表声明映射，
+     解析只有这一份 —— 加一家只加一条声明，不在路由里写 if (prov === …)。
+     拿不到带网址的结果就报失败：以前这里是让对话模型「给出网址」，回的是一串编造的链接。 */
+  async function apiSearch(eng, q, limit, site) {
+    const d = eng.decl;
+    const body = { ...(d.extra || {}) };
+    const map = d.body || {};
+    if (map.query) body[map.query] = q + (site ? ' site:' + site : '');
+    if (map.limit) body[map.limit] = limit;
+    const r = await postSearchJson(joinUrl(eng.base, d.path), body,
+      { Authorization: 'Bearer ' + eng.key }, 30000);
     if (r.status < 200 || r.status >= 300) throw upstreamError(r);
     let j = null;
     try { j = JSON.parse(r.text); } catch (e) { throw httpError('upstream', '上游没有返回 JSON'); }
-    if (j.error) throw httpError('upstream', '上游拒绝：' + clean(j.error.message || j.error, 400));
-    let content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-    content = String(content || '').replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    let parsed = null;
-    try { parsed = JSON.parse(content); } catch (e) {
-      const m = /\[[\s\S]*\]/.exec(content) || /\{[\s\S]*\}/.exec(content);
-      if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-    }
-    if (!parsed) throw httpError('upstream', '模型没有返回可解析的搜索结果（换一个能联网的模型，或改用 Tavily）');
-    const list = Array.isArray(parsed) ? parsed : parsed.results;
-    const out = normResults(list, limit);
-    if (!out.length) throw httpError('upstream', '模型没有给出带网址的结果（换一个能联网的模型，或改用 Tavily）');
+    if (j && j.error) throw httpError('upstream', '上游拒绝：' + clean(j.error.message || j.error, 400));
+    const arr = j && (d.results ? j[d.results] : null);
+    const f = d.fields || {};
+    const rows = (Array.isArray(arr) ? arr : []).map(x => ({
+      title: x && x[f.title], url: x && x[f.url], snippet: x && x[f.snippet], publishedAt: x && x[f.publishedAt],
+    }));
+    const out = normResults(rows, limit);
+    if (!out.length) throw httpError('upstream', '上游没有返回带网址的结果');
+    return out;
+  }
+
+  /* 对话接口里开联网（OpenRouter 的 server tool）：搜索结果以 url_citation annotations 返回。
+     解析不到引用就是这次没联网 —— 报失败，不拿正文冒充搜索。 */
+  async function chatSearch(eng, q, limit, model) {
+    const d = eng.decl;
+    const m = String(model || d.model || '').trim();
+    if (!m) throw httpError('bad-request', '这家联网搜索要一个对话型号：在「联网搜索」里填一个能联网的型号');
+    const body = {
+      model: m, stream: false, temperature: 0.2,
+      messages: [{ role: 'user', content: '联网搜索并回答（最多参考 ' + limit + ' 条结果）：' + q }],
+      tools: [d.tool],
+    };
+    const r = await postSearchJson(joinUrl(eng.base, d.path || '/chat/completions'), body,
+      { Authorization: 'Bearer ' + eng.key }, 60000);
+    if (r.status < 200 || r.status >= 300) throw upstreamError(r);
+    let j = null;
+    try { j = JSON.parse(r.text); } catch (e) { throw httpError('upstream', '上游没有返回 JSON'); }
+    if (j && j.error) throw httpError('upstream', '上游拒绝：' + clean(j.error.message || j.error, 400));
+    const msg = (j && j.choices && j.choices[0] && j.choices[0].message) || {};
+    const anns = Array.isArray(msg.annotations) ? msg.annotations : [];
+    const rows = anns.map(a => {
+      const c = (a && (a.url_citation || a.citation)) || {};
+      return { title: c.title, url: c.url, snippet: c.content || c.snippet };
+    });
+    const out = normResults(rows, limit);
+    if (!out.length) throw httpError('upstream', '上游没有返回搜索引用（这个型号没有执行联网搜索）');
     return out;
   }
 
   /* 取一页的字节：与 postJson 同一条出站路（ctx.anyRequest + channel-cred 的 collect）。
      为什么不能用全局 fetch：
-     · 系统 / 环境代理那一路是 CONNECT 隧道（见 AGENTS §4.3），anyRequest 才会挑出
+     · 系统 / 环境代理那一路是 CONNECT 隧道，anyRequest 才会挑出
        ProxyTunnelAgent —— 直连 fetch 在一台「只有代理才出得去」的机器上条条失败，
        而搜索与读网页恰好是唯一需要出公网的两条；
      · guardOutboundUrl 自己解析一次 DNS、undici 再独立解析一次，中间换 IP 就是
@@ -255,7 +303,18 @@ function createSearchRoutes(ctx) {
       }
       if (part[0] === 'settings' && method === 'PUT') {
         const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
-        const s = ctx.store.patch(body && body.settings ? body.settings : body);
+        const patch = body && body.settings ? body.settings : body;
+        /* 「搜索服务」只能选 auto / tavily / 真有一条 search 声明的供应商：
+           这里先判一次（注册表是动态的，store 那一层看不到它），免得存进一个点下去必失败的 id。 */
+        const pid = patch && patch.provider;
+        if (pid != null && pid !== 'auto' && pid !== 'tavily') {
+          const p = providerById(pid);
+          if (!p || !p.search || (p.extraCaps || []).indexOf('search') < 0) {
+            sendJson(res, 400, { error: '「' + String(pid) + '」没有注册搜索接口（只能选声明了联网搜索的供应商，或 Tavily）', kind: 'bad-request' });
+            return true;
+          }
+        }
+        const s = ctx.store.patch(patch);
         sendJson(res, 200, { ok: true, settings: s, revision: s.revision });
         return true;
       }
@@ -272,21 +331,23 @@ function createSearchRoutes(ctx) {
         const site = clean(body && body.site, 100);
         if (site && !/^[A-Za-z0-9.-]+$/.test(site)) throw httpError('bad-request', 'site 只填域名（例如 example.com）');
         const freshness = ['day', 'week', 'month', 'year'].includes(body && body.freshness) ? body.freshness : '';
-        const cred = resolveCred();
-        if (!cred.key) throw httpError('not-configured', '没有可用的搜索密钥（选一个已配密钥的渠道，或在设置里单填一把）');
-        const ck = [s.provider, s.model, s.baseUrl, q, limit, site, freshness].join('|');
+        const eng = resolveEngine(s);
+        const ck = [eng.id, eng.style, s.model, eng.base, q, limit, site, freshness].join('|');
         const hit = cacheGet(ck);
-        if (hit) { sendJson(res, 200, { results: hit.val, cached: true, provider: s.provider }); return true; }
-        const results = s.provider === 'deepseek'
-          ? await deepseekSearch(s, cred.key, q, limit, site, freshness)
-          : await tavilySearch(s, cred.key, q, limit, site, freshness);
+        if (hit) { sendJson(res, 200, { results: hit.val, cached: true, provider: eng.id }); return true; }
+        const results = eng.style === 'tavily'
+          ? await tavilySearch(s, eng.key, q, limit, site, freshness)
+          : eng.style === 'api' ? await apiSearch(eng, q, limit, site)
+            : await chatSearch(eng, q, limit, s.model);
         if (!results.length) throw httpError('upstream', '上游没有返回结果');
         cacheSet(ck, results);
-        sendJson(res, 200, { results, cached: false, provider: s.provider });
+        sendJson(res, 200, { results, cached: false, provider: eng.id });
         return true;
       }
       if (part[0] === 'read' && method === 'POST') {
         const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
+        const s = ctx.store.raw();
+        if (!s.enabled) throw httpError('disabled', '联网搜索没有启用（设置 → 联网搜索）');
         const u = clean(body && body.url, 2000);
         if (!u) throw httpError('bad-request', '没有给 url');
         const page = await readPage(u);

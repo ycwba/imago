@@ -31,8 +31,6 @@
            组标题钉在顶上，状态行钉在底下，中间那条就是全部设置。 -->
       <div class="set-doc">
         <div class="set-doc-scroll" ref="setDocEl">
-            <div class="set-intro"><span class="set-intro-ic" data-icon="key" data-size="15"></span><span>密钥存本机；留空则用本地代理 <code>.env</code> 里的密钥。</span></div>
-
             <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div></div>
 
             <section class="set-group" data-group="keys" data-note="平台账号与两条通道">
@@ -40,110 +38,114 @@
 
               <div class="card card-surface" data-nav="providers">
                 <h2 class="card-h"><span class="card-ic" v-html="icKey"></span>供应商与密钥</h2>
-                <!-- 图例教一次「哪个字是哪一档」（卡顶那排小方格是这一页独有的图形语言）。 -->
-                <div class="caplegend" ref="capLegendEl"></div>
                 <!-- 芯片（按档筛）+ 摘要条：数字是**账号数**，不是 provider 条数。 -->
                 <div class="acct-tools" ref="acctToolsEl"></div>
                 <!-- 一条卡片流：账号卡 + 末尾那张「添加供应商」卡（等高竖排，卡内中段可滚）。 -->
                 <div class="acct-grid" ref="provListEl"></div>
                 <!-- 注册表那一类的报错（旧代理丢了哪几家 / 型号偏好读不出来）：通栏一条，不进卡片网格。 -->
                 <div class="acct-err" ref="provErrEl"></div>
-
-                <!-- 两块「全局项」表单住在这里，**不在上面那个网格里** —— 网格每次都是整片重画，
-                     而这两块是 Vue 绑定的节点。画完网格后把它们搬进**这一档所在的账号**那张卡里
-                     那一行下面（placeForms 认 hostKidOf：谁是这个渠道，就住谁那张卡；都没选时落到
-                     第一个能当文字 AI 的账号）。没有「通栏兜底」那一块 —— 与图片 / 视频一样，
-                     能力在哪张卡上，设置就在哪张卡里。 -->
+                <!-- 语音识别 / 联网搜索的表单停在这里（网格每次整片重画，Vue 节点不能被冲掉）：
+                     画完网格由 placeForms 搬进**声明了这一档的那一家**账号卡里那一行下面。
+                     没有哪家声明这一档时它们留在格子外（hidden），屏幕上没有 —— 不再往
+                     没这项能力的账号卡里硬塞。 -->
                 <div class="acct-park" hidden ref="acctParkEl">
                   <div class="incard" id="asrCard" ref="asrFormEl">
-                  <div class="krow thin">
-                    <span class="kn">本机运行包</span>
-                    <span class="sub-line">{{ asrLocalText }}</span>
-                    <button class="ghost mini" :disabled="asrBusy" @click="loadAsr">重新检查</button>
-                  </div>
-                  <div class="krow thin">
-                    <span class="kn">浏览器内模型</span>
-                    <span class="sub-line">{{ asrBrowserText }}</span>
-                  </div>
-                  <div class="krow thin">
-                    <span class="kn">走哪条路</span>
-                    <select v-model="asr.route" style="flex:1 1 300px">
-                      <option value="auto">自动</option>
-                      <option value="browser">浏览器内 Whisper</option>
-                      <option value="local">本地 whisper.cpp</option>
-                      <option value="service">在线服务</option>
-                    </select>
-                  </div>
-                  <div class="krow thin">
-                    <span class="kn">语言</span>
-                    <input v-model="asr.language" placeholder="留空 = 自动" style="flex:1">
-                  </div>
+                  <div class="hint sm">{{ asrProviderText }}</div>
+                  <div class="hint sm" v-if="asr.route === 'browser' || asr.route === 'local'">当前走「本机 / 浏览器内」，这一块不生效。</div>
                   <div class="krow thin">
                     <span class="kn">在线服务商</span>
-                    <select ref="asrProvEl" v-model="asr.service.providerId" style="flex:1 1 260px">
-                      <option value="">手动填接口地址</option>
+                    <select ref="asrProvEl" v-model="asr.service.providerId" @change="onAsrProvChange" style="flex:1 1 260px">
+                      <option value="">自动（第一家已配密钥的）</option>
                       <option v-for="p in asrProvOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
                     </select>
                   </div>
                   <div class="krow thin">
                     <span class="kn">型号</span>
-                    <input v-model="asr.service.model" placeholder="whisper-1" style="flex:1">
+                    <input v-model="asr.service.model" :placeholder="asrModelPh" style="flex:1">
                   </div>
                   <div class="krow thin">
                     <span class="kn">接口地址</span>
-                    <input v-model="asr.service.baseUrl" placeholder="留空 = 默认地址" style="flex:1">
+                    <input v-model="asr.service.baseUrl" placeholder="留空 = 这一家的默认地址" style="flex:1">
                   </div>
                   <div class="krow thin">
                     <span class="kn">密钥</span>
-                    <input type="password" v-model="asrKey" :placeholder="asr.service.hasKey ? '已存，留空不改' : '留空 = 复用渠道密钥'" style="flex:1">
+                    <input type="password" v-model="asrKey" :placeholder="asr.service.hasKey ? '已存，留空不改' : '留空 = 用这家账号的密钥'" style="flex:1">
                     <button class="ghost mini" :disabled="asrBusy || !asr.service.hasKey" @click="clearAsrKey($event)">清掉</button>
                   </div>
                   <div class="krow tight">
                     <button class="tool acc" :disabled="asrBusy" @click="saveAsr">{{ asrBusy ? '处理中…' : '保存' }}</button>
-                    <button class="ghost" @click="testAsr">{{ asrBusy ? '取消识别' : '测试识别' }}</button>
+                    <button class="ghost" :disabled="asrBusy" @click="testAsr">测试识别</button>
                     <span class="hint sm">{{ asrMsg }}</span>
                   </div>
                   <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
                 </div>
-                <!-- 联网搜索：同一档，表单只画在「这一档所在」那家的卡里 -->
-                <div class="incard" id="searchCard" ref="searchFormEl">
+                  <!-- 本机 / 浏览器内识别那张常驻账号卡的表单：不需要任何云供应商 -->
+                  <div class="incard" id="asrLocalCard" ref="asrLocalFormEl">
+                    <div class="krow thin">
+                      <span class="kn">走哪条路</span>
+                      <select v-model="asr.route" @change="onAsrRouteChange" style="flex:1 1 260px">
+                        <option value="auto">自动</option>
+                        <option value="browser">浏览器内 Whisper</option>
+                        <option value="local">本地 whisper.cpp</option>
+                        <option value="service">在线服务</option>
+                      </select>
+                    </div>
+                    <div class="krow thin">
+                      <span class="kn">语言</span>
+                      <input v-model="asr.language" placeholder="留空 = 自动" style="flex:1">
+                    </div>
+                    <div class="krow thin">
+                      <span class="kn">本机运行包</span>
+                      <span class="sub-line">{{ asrLocalText }}</span>
+                      <button class="ghost mini" :disabled="asrBusy" @click="loadAsr">重新检查</button>
+                    </div>
+                    <div class="krow thin">
+                      <span class="kn">浏览器内模型</span>
+                      <span class="sub-line">{{ asrBrowserText }}</span>
+                    </div>
+                    <div class="krow tight">
+                      <button class="ghost" @click="testAsr">{{ asrBusy ? '取消识别' : '测试识别' }}</button>
+                      <span class="hint sm">{{ asrMsg }}</span>
+                    </div>
+                    <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
+                    <div class="hint sm" v-if="(asr.route === 'service' || asr.route === 'auto') && !asrOnlineReady">先接一家支持语音识别的供应商。</div>
+                    <div class="hint sm">浏览器内首次识别会经代理下载模型（约 250–500MB）；本机运行包放在 tools/whisper/，或用 WHISPER_BIN / WHISPER_MODEL 指定。</div>
+                  </div>
+                  <!-- 联网搜索：同样只住在声明了搜索接口的那一家的账号卡里 -->
+                  <div class="incard" id="searchCard" ref="searchFormEl">
                   <div class="krow thin">
                     <label class="crow" style="flex:1"><input type="checkbox" v-model="search.enabled"> 启用联网搜索</label>
+                    <span class="hint sm">{{ searchEngineName }}</span>
                   </div>
                   <div class="krow thin">
                     <span class="kn">搜索服务</span>
-                    <select v-model="search.provider" style="flex:1 1 220px">
-                      <option value="tavily">Tavily</option>
-                      <option value="deepseek">DeepSeek</option>
+                    <select ref="searchChannelEl" v-model="search.provider" @change="onSearchProvChange" style="flex:1 1 220px">
+                      <option value="auto">自动（第一家已配密钥的）</option>
+                      <option value="tavily">Tavily（独立搜索接口）</option>
+                      <option v-for="p in searchChannelOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
                     </select>
                     <span class="kn">结果数</span>
                     <input type="number" v-model.number="search.maxResults" min="1" max="10" step="1" style="width:70px">
                   </div>
-                  <div class="krow thin">
+                  <div class="krow thin" v-show="search.provider !== 'tavily'">
                     <span class="kn">密钥来源</span>
                     <select v-model="search.credentialSource" style="flex:1 1 220px">
-                      <option value="channel">复用渠道密钥</option>
-                      <option value="manual">单独搜索密钥</option>
+                      <option value="channel">用这家账号的密钥</option>
+                      <option value="manual">单独一把搜索密钥</option>
                     </select>
                     <span class="hint sm">{{ searchCredText }}</span>
                   </div>
-                  <div class="krow thin" v-show="search.credentialSource === 'channel'">
-                    <span class="kn">渠道</span>
-                    <select ref="searchChannelEl" v-model="search.channelId" style="flex:1 1 260px">
-                      <option v-for="p in searchChannelOpts" :key="p.id" :value="p.id">{{ p.name }}</option>
-                    </select>
-                  </div>
-                  <div class="krow thin" v-show="search.provider === 'deepseek'">
-                    <span class="kn">模型</span>
-                    <input v-model="search.model" placeholder="deepseek-chat" style="flex:1">
+                  <div class="krow thin" v-show="searchNeedsModel">
+                    <span class="kn">型号</span>
+                    <input v-model="search.model" placeholder="这家联网搜索用的对话型号" style="flex:1">
                   </div>
                   <div class="krow thin">
                     <span class="kn">接口地址</span>
-                    <input v-model="search.baseUrl" placeholder="留空 = 服务默认" style="flex:1">
+                    <input v-model="search.baseUrl" placeholder="留空 = 这一家的默认地址" style="flex:1">
                   </div>
-                  <div class="krow thin">
+                  <div class="krow thin" v-show="search.provider === 'tavily' || search.credentialSource === 'manual' || search.hasKey">
                     <span class="kn">密钥</span>
-                    <input type="password" v-model="searchKey" :placeholder="search.hasKey ? '已存，留空不改' : '留空 = 复用渠道密钥'" style="flex:1">
+                    <input type="password" v-model="searchKey" @input="onSearchKeyInput" :placeholder="search.provider === 'tavily' ? 'Tavily 搜索密钥' : (search.hasKey ? '已存，留空不改' : '填了就切到「单独一把」')" style="flex:1">
                     <button class="ghost mini" :disabled="searchBusy || !search.hasKey" @click="clearSearchKey($event)">清掉</button>
                   </div>
                   <div class="krow tight">
@@ -165,7 +167,7 @@
     {{ searchRead.text }}</pre>
                 </div>
                 </div>
-                </div>
+              </div>
 
               <!-- 「自定义供应商」那一张表：卡片流末尾那张「添加供应商」卡**自己变成**这张卡，
                    字段就在这张卡里填（与账号卡同一副壳，没有第二套添加界面）。卡片尺寸不变 ——
@@ -274,7 +276,7 @@
 
               <div class="card card-surface" data-nav="chars">
                 <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
-                <div class="sub">页内换的型号与张数只管那一次，不写回这里。</div>
+                <div class="sub">页内换的型号与张数只管那一次。</div>
                 <div class="kcols" ref="charsBoxEl"></div>
               </div>
 
@@ -297,13 +299,13 @@
                   <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于润色入口</span></div>
                   <!-- 那一格下拉的行由 SET_ROWS 声明。 -->
                   <div class="kcols" ref="polishBoxEl"></div>
-                  <div class="pb-tip">「AI 判断」：AI 自己决定先反问还是直接润色。</div>
+                  <div class="pb-tip">「AI 判断」：AI 自己决定要不要先反问。</div>
                 </div>
               </div>
 
               <div class="card card-surface" data-nav="skill" id="skillCard">
                 <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
-                <div class="sub">按场景加载的写法说明；输出格式由契约管。</div>
+                <div class="sub">按场景加载；输出格式由契约管。</div>
 
                 <div class="sk-scenes">
                   <!-- 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），

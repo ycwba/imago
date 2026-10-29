@@ -89,7 +89,7 @@
 
   window.AssetTransfer = {
     MAX_BYTES,
-    /* File/Blob → dataURL：导演台与生成工作台以前各写一份 fileToDataURL（同一个 FileReader 配方逐字重复，
+    /* File/Blob → dataURL：导演台与工作台以前各写一份 fileToDataURL（同一个 FileReader 配方逐字重复，
        改一处要记得改两处）。放这儿是因为它就是 blobOf 的下一步 —— 取回字节 → 变成 dataURL 交给上游。 */
     toDataURL(fileOrBlob) {
       return new Promise((res, rej) => {

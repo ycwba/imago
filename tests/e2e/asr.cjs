@@ -37,7 +37,9 @@ function wav(seconds = 0.2) {
 (async () => {
   let proxy, browser, page, fake;
   try {
-    proxy = await h.startProxy();
+    /* 给 OpenAI 一把假密钥：它是声明了语音识别的一家，接进来之后设置页才有
+       「识」那一行、表单也才有地方摆（能力在哪家、设置就在哪家）。 */
+    proxy = await h.startProxy({ env: { OPENAI_API_KEY: 'sk-openai-probe' } });
     let upstreamHits = 0;
     let hold = false;
     let big = false;
@@ -263,54 +265,62 @@ function wav(seconds = 0.2) {
     if ((jBig.segments || []).length) throw new Error('超限的回答不能被当成结果收下：' + (jBig.segments || []).length + ' 段');
     if (upstreamHits - hitsCap !== 1) throw new Error('这一单只该打上游一次，实际 ' + (upstreamHits - hitsCap));
 
-    /* 设置页：两张卡都画出来，密钥不回显 */
+    /* 设置页：在线识别那一块在 OpenAI 卡里；本机 / 浏览器内是一张**独立的常驻账号卡** */
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.goto(proxy.base + '/shell.html#settings.html');
-    /* 语音识别 / 联网搜索这两份表单没有「切到那一档」的开关了：它们住在账号卡流里
-       （有哪家顶着这一档就搬进那张卡，否则通栏摆在网格下面），一份都在 DOM 里、看得见。 */
-    await page.waitFor(() => !!document.querySelector('#asrCard'), 15000);
+    await page.waitFor(() => !!document.querySelector('#asrCard') && !!document.querySelector('#asrLocalCard'), 15000);
     await page.waitFor(() => {
       const c = document.querySelector('#asrCard');
-      return !!(c && c.offsetParent !== null);
+      const l = document.querySelector('#asrLocalCard');
+      return !!(c && c.offsetParent !== null && l && l.offsetParent !== null);
     }, 10000);
+    /* 等设置读回来（route 那一格在本机识别那张卡里） */
     await page.waitFor(() => {
-      const s = document.querySelector('#asrCard select');
-      return s && s.value === 'service';
+      const l = document.querySelector('#asrLocalCard');
+      const s = l && l.querySelector('select');
+      return !!(s && s.value === 'service');
     }, 10000);
     const ui = await page.eval(() => {
       const card = document.querySelector('#asrCard');
-      const routeSel = card.querySelector('select');
-      const rows = [...card.querySelectorAll('.krow > .kn')].map(e => e.textContent.trim());
+      const local = document.querySelector('#asrLocalCard');
+      const routeSel = local.querySelector('select');
+      const hostOf = el => {
+        const a = el.closest('.acct.fcard');
+        return a && a.dataset ? a.dataset.acct : '';
+      };
       return {
-        rows,
-        /* 这一档没有选渠道 / 那家没接进来时落到第一个能当文字 AI 的账号 —— 无论如何都必须在某张账号卡里 */
-        inAcct: !!card.closest('.acct.fcard'),
+        rows: [...card.querySelectorAll('.krow > .kn')].map(e => e.textContent.trim()),
+        localRows: [...local.querySelectorAll('.krow > .kn')].map(e => e.textContent.trim()),
+        onlineHost: hostOf(card),
+        localHost: hostOf(local),
         route: routeSel ? routeSel.value : '',
         keyShown: [...card.querySelectorAll('input')].some(i => /sk-asr-e2e/.test(i.value || '')),
       };
     });
-    /* 这一块表单没有自己的标题（AGENTS §5.2：与图片 / 视频一样，设置住在卡里那一行下面），
-       所以「这是识别那一档的表单」由它画了哪几行来认，不是由一个已经不存在的标题来认。 */
-    for (const want of ['本机运行包', '浏览器内模型', '走哪条路']) {
-      if (!ui.rows.includes(want)) throw new Error('设置页 ASR 表单缺了「' + want + '」这一行，实画：' + ui.rows.join('、'));
+    for (const want of ['在线服务商', '型号', '接口地址', '密钥']) {
+      if (!ui.rows.includes(want)) throw new Error('设置页在线识别那一块缺了「' + want + '」这一行，实画：' + ui.rows.join('、'));
     }
-    if (!ui.inAcct) throw new Error('ASR 表单没搬进任何一张账号卡（它不该再有自己的容器）');
+    for (const want of ['走哪条路', '语言', '本机运行包', '浏览器内模型']) {
+      if (!ui.localRows.includes(want)) throw new Error('本机识别那张卡缺了「' + want + '」这一行，实画：' + ui.localRows.join('、'));
+    }
+    if (ui.onlineHost !== 'openai') throw new Error('在线识别那一块没住在 OpenAI 卡里（实际挂在「' + ui.onlineHost + '」）');
+    if (ui.localHost !== '__local_asr__') throw new Error('本机 / 浏览器内没有自己的账号卡（实际挂在「' + ui.localHost + '」）');
     if (ui.route !== 'service') throw new Error('设置页没读回 route=service：' + ui.route);
     if (ui.keyShown) throw new Error('设置页把密钥回显出来了');
 
     /* 浏览器内 Whisper 这一档：路线里有得选、模型状态行照 /models/status 画（探针实例没有模型 → 照实说还没下载） */
     const browserOpt = await page.eval(() => {
-      const card = document.querySelector('#asrCard');
+      const local = document.querySelector('#asrLocalCard');
       return {
-        row: card.innerText.includes('浏览器内模型'),
-        opt: !!card.querySelector('option[value="browser"]'),
+        row: local.innerText.includes('浏览器内模型'),
+        opt: !!local.querySelector('option[value="browser"]'),
       };
     });
-    if (!browserOpt.row) throw new Error('设置页没有画「浏览器内模型」这一行');
+    if (!browserOpt.row) throw new Error('本机识别那张卡没有画「浏览器内模型」这一行');
     if (!browserOpt.opt) throw new Error('「走哪条路」里没有浏览器内 Whisper 这一档');
     await page.waitFor(() => {
-      const c = document.querySelector('#asrCard');
+      const c = document.querySelector('#asrLocalCard');
       if (!(c && /还没下载|缺 \d+ 个文件/.test(c.innerText))) {
         throw new Error('浏览器内模型状态行没照 /models/status 画出来（探针实例没有模型，应说「还没下载」）');
       }

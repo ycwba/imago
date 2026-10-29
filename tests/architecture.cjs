@@ -166,7 +166,7 @@ function selfCheck() {
   else if (!keys.some(k => /__synthetic_probe\.js → Api \[domain\]$/.test(k))) {
     line.push('A5 探测器报了，但报的不是那一条：' + keys.join(' ; '));
   }
-  /* 反向：正确的写法不该被报（domain 读全站基础设施面 Net 是 AGENTS §7 唯一实现的正确用法） */
+  /* 反向：正确的写法不该被报（domain 读全站基础设施面 Net 是正确的用法） */
   const OK_FILE = 'web/domain/__synthetic_ok.js';
   const OK_SRC = `window.__SyntheticOk = { go() { return Net.get('/x'); } };\n`;
   const okHit = S.layerViolations({ faces, files: [OK_FILE], read: () => OK_SRC });

@@ -1,5 +1,5 @@
 /* ============================================================================
-   workbench.js —— 三个生成工作台（图片 / 视频 / 语音）的公共任务层
+   workbench.js —— 三个工作台（图片 / 视频 / 语音）的公共任务层
    ---------------------------------------------------------------------------
    为什么要有这个文件：这三个页面 80% 的行为是同一件事 —— 拉任务、轮询状态、
    渲染卡片、取消 / 重试 / 删除、保存产物、分页搜索、本地历史。以前每个页面各写
@@ -211,10 +211,13 @@
               o.chips === null 时整格芯片不画（画布库那种只有搜索框的档）。
      bind(host, o) 把 html 生成物灌进 host 并接线，返回把手：
               setChips(list, value, onPick, opt) / setCount(text) / setQuery(text, run) /
-              setPlaceholder(text) / value() / focus() / destroy()
+              setPlaceholder(text) / value() / focus() / markApplied(text) / destroy()
      o 的搜索项：q（初始文字）、placeholder、inputId / inputClass / inputAttrs、
-              onSearch(q)、searchDelay（默认 250ms，0 = 同步回调；画布本地筛选要同步）、
-              onEscape、onKey。
+              onSearch(q)、onEscape、onKey。
+     搜索只有这三条出口，不另画「搜索」按钮：回车 = 搜 / 失焦（点到框外）= 搜 /
+     清空输入框 = 当场取消筛选。AI 搜索那颗由调用方放进 extraHTML（AiFind.btnHTML）。
+     markApplied(text)：AI 已经把这句话消化成条件 / 挑选集合时由调用方登记 ——
+     之后失焦不会再把同一句当普通搜索跑一遍（那样会把 AI 的结果当场冲掉）。
      计数不算芯片：o.cnt:false 表示这一行没有计数（studio 搜索框那一组）。 */
   const filterBar = {
     html(o = {}) {
@@ -251,32 +254,40 @@
       const input = el.querySelector('input[type="search"]');
       const cntEl = el.querySelector('.cnt');
       let onFilter = oo.onFilter || null;
-      let delay = Number(oo.searchDelay);
-      if (!isFinite(delay) || delay < 0) delay = 250;
-      let timer = 0;
-      const fireSearch = () => {
-        clearTimeout(timer); timer = 0;
-        if (input && oo.onSearch) oo.onSearch(input.value);
+      /* 上一次真正跑过的词：失焦时拿它判「变没变」，AI 消化过的那句由调用方 markApplied 登记。 */
+      let lastQ = input ? String(input.value || '') : '';
+      if (input && oo.q != null) { input.value = String(oo.q); lastQ = input.value; }
+      const applyQ = v => {
+        const s = v == null ? '' : String(v);
+        lastQ = s;
+        if (oo.onSearch) oo.onSearch(s);
       };
-      const later = () => {
-        clearTimeout(timer);
-        if (!oo.onSearch) return;
-        if (delay > 0) timer = setTimeout(fireSearch, delay);
-        else fireSearch();
+      /* 清空输入框 = 取消筛选（普通词与 AI 条件一起收回）：不等回车，也不等失焦。 */
+      const onInputEvt = () => {
+        if (!input || input.value !== '' || lastQ === '') return;
+        applyQ('');
       };
       const onSearchKey = e => {
-        if (e.key === 'Enter' && oo.onSearch) { e.preventDefault(); fireSearch(); }
+        if (e.key === 'Enter' && oo.onSearch) { e.preventDefault(); if (input) applyQ(input.value); }
         else if (e.key === 'Escape' && oo.onEscape) {
-          e.preventDefault(); clearTimeout(timer); timer = 0;
+          e.preventDefault();
           if (input) input.value = '';
           oo.onEscape(e);
         }
         if (oo.onKey) oo.onKey(e);
       };
+      /* 失焦 = 普通搜索（用户点去了别处）。焦点落在组内（AI 搜索按钮、芯片的 ✕）时不算离开；
+         词没变就不重跑：翻到后面的页再点卡片，不该被弹回第一页。 */
+      const onBlur = () => {
+        setTimeout(() => {
+          if (!input || el.contains(document.activeElement)) return;
+          if (input.value !== lastQ) applyQ(input.value);
+        }, 0);
+      };
       if (input) {
-        input.addEventListener('input', later);
+        input.addEventListener('input', onInputEvt);
         input.addEventListener('keydown', onSearchKey);
-        if (oo.q != null) input.value = String(oo.q);
+        input.addEventListener('blur', onBlur);
       }
       const api = {
         el, input, chipsEl, cntEl,
@@ -290,16 +301,21 @@
         },
         setQuery(text, run) {
           if (input) input.value = text == null ? '' : String(text);
-          if (run) fireSearch();
+          if (run) applyQ(input ? input.value : '');
           return api;
         },
         setPlaceholder(text) { if (input) input.placeholder = text == null ? '' : String(text); return api; },
         value() { return input ? input.value : ''; },
+        /* AI 已经把这句话消化掉了：登记成「跑过的词」，失焦时不再当普通搜索重跑。 */
+        markApplied(text) { lastQ = text == null ? '' : String(text); return api; },
         /* 焦点送进搜索框只是为了「光标接着打」→ 不许抢视口（window.focusQuiet） */
         focus() { if (input) { if (window.focusQuiet) window.focusQuiet(input); else input.focus(); } return api; },
         destroy() {
-          clearTimeout(timer); timer = 0;
-          if (input) { input.removeEventListener('input', later); input.removeEventListener('keydown', onSearchKey); }
+          if (input) {
+            input.removeEventListener('input', onInputEvt);
+            input.removeEventListener('keydown', onSearchKey);
+            input.removeEventListener('blur', onBlur);
+          }
         },
       };
       if (chipsEl && oo.chips) api.setChips(oo.chips, oo.value, oo.onFilter);
@@ -550,7 +566,7 @@
     fmtClock(t) {
       const v = (!isFinite(t) || t < 0) ? 0 : Number(t);
       /* 这一行刻意保留 `padStart(2, '0') + ':' + padStart(2, '0')` 那个原始形状（不抽 `p2`）：
-         播放器读数是全站唯一一份手拼 mm:ss（AGENTS §7「格式化」），形状保持一眼认得出。 */
+         播放器读数是全站唯一一份手拼 mm:ss（「格式化」），形状保持一眼认得出。 */
       return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(Math.floor(v % 60)).padStart(2, '0');
     },
     /* 实测某个媒体文件的体积 —— 上游接口基本都不返回体积（实测 VGENV / SparkCine 都没有），
@@ -669,7 +685,7 @@
         });
         return this._mb;
       },
-      /* 解码器只看 media-backend.js 那一份（AGENTS §7：`createElement('video')` 只许出现在那里）。
+      /* 解码器只看 media-backend.js 那一份：`createElement('video')` 只许出现在那里。
          这一层只留转发；那一份没就位就照实报错，不再自己造第二只 <video>。
          调用方拿这些原语的路径（导演台切片）都在取活之前 await 过 `_mbReady()`。 */
       _video() {
@@ -1670,7 +1686,7 @@
       return { ok: true };
     },
 
-    /* 批量下载：资产库 / 生成工作台共用这一份（逐条下载 + 进度 + 成功/失败数）。
+    /* 批量下载：资产库 / 工作台共用这一份（逐条下载 + 进度 + 成功/失败数）。
        items: [{ url, name }]（也认 { dl } / { src } 两个别名 —— 任务条目的地址就叫这两个）。
        nameOf: 可选，自己给文件名（不传就用条目上的 name，再不传就叫 download）。 */
     async downloadList(items, nameOf) {
@@ -1697,7 +1713,7 @@
       return { ok, fail };
     },
 
-    /* 多选：一份状态 + 一套操作（资产库与生成工作台共用这一份）。
+    /* 多选：一份状态 + 一套操作（资产库与工作台共用这一份）。
        勾选框 `.pick`、批量条 `.bulkbar` 是公共样式；这里管的是「哪些条目被勾中了」这一份状态。
        两页的差别只有三处，别的都一样：条目身份（keyOf）、当前这一屏看得见的条目（visible）、
        改完之后怎么重画（onChange）与怎么切多选态（onMode）。 */
@@ -1812,7 +1828,7 @@
           const l = list || visible();
           return api.allOn(l) ? '取消全选' : ('全选当前列表' + (l.length ? '（' + l.length + ' 项）' : ''));
         },
-        /* 批量条：两页的批量条长得不一样（资产库是 Vue 绑的，生成工作台是 DOM 节点），
+        /* 批量条：两页的批量条长得不一样（资产库是 Vue 绑的，工作台是 DOM 节点），
            写的却是同一件事 —— 页面给一组 setter，判据与文案只有这一份。 */
         paintBar(bar) {
           if (!bar) return;
@@ -2516,7 +2532,7 @@
       },
     },
 
-    /* ---------- 跨页「拿去生成工作台继续」：载荷与跳转只在这里点一次名 ----------
+    /* ---------- 跨页「拿去工作台继续」：载荷与跳转只在这里点一次名 ----------
        资产库 / 收藏 / 素材库三页都要「带着这一条素材跳到工作台对应那一栏」。以前三页各拼一份
        载荷、各写一遍地址，而**消费端只认资产号**：素材库里的一张图只有本机地址、收藏里的本地文件
        只有 IndexedDB 号，两边都没有平台资产号 —— 递过去的是 `assetId: undefined`，工作台那头

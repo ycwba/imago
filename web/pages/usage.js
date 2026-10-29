@@ -4,9 +4,6 @@
    组件只负责「这一屏长什么样」，Dropdowns / Chips / Wb.loadNote / Net.save 仍是全站那一份实现。 */
 import { ref, reactive, computed, onMounted, nextTick } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/usage.js';
-import { ensureCss } from '../core/page-css.js';
-
-ensureCss('web/styles/spa-usage.css');
 
 const ROUND = v => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -432,7 +429,7 @@ export default {
         };
       } else {
         voiceStat.value = null;
-        voiceEmpty.value = '还没有语音记录（去「生成工作台」的语音栏生成一条就会出现在这里）';
+        voiceEmpty.value = '还没有语音记录';
       }
       // 按模型/音色汇总
       const byModel = new Map();

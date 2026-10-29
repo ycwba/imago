@@ -2,10 +2,12 @@
 /* 联网搜索端到端：
    - 本机路由要 wb_session Cookie；关闭时 query 回 disabled，不碰上游
    - 设置只回 hasKey、不回明文；非法服务 / 结果数当场 400
-   - Tavily 形状的假上游：结果归一、10 分钟缓存（同问第二次 cached，不再打上游）
+   - 假上游同时演 Tavily / DeepSeek / 智谱 / OpenRouter 四种搜索形状：
+     请求字段与结果字段按注册表声明映射、10 分钟缓存（同问第二次 cached，不再打上游）
+   - 没有声明搜索接口的供应商不能存成搜索服务（400）
    - 上游连不上归到 502 network；/search/read 拒绝回环与明文 http
    - 设置页真的读回设置；改结果数并点保存后落盘
-   不碰真实 .data：全部落在 harness 的 .data-probe-*。 */
+   不碰真实 .data：全部落在 harness 的临时探针目录。 */
 'use strict';
 const http = require('http');
 const h = require('./harness.cjs');
@@ -15,8 +17,17 @@ const h = require('./harness.cjs');
   try {
     proxy = await h.startProxy();
     let hits = 0, reads = 0, lastKey = '';
+    let lastAuth = '', lastBody = null;
+    const sendJson = (res, o) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(o));
+    };
+    /* 一台假上游同时演四种搜索接口的形状：Tavily（api_key + results）、
+       DeepSeek（/v1/tools/search + query/count）、智谱（/web_search + search_query/search_result）、
+       OpenRouter（chat/completions + url_citation annotations）。
+       字段名照各家官方文档写 —— 解析一改错就会在这里露出来。 */
     fake = http.createServer((req, res) => {
-      if (req.method !== 'POST' || !/^\/search/.test(req.url)) {
+      if (req.method !== 'POST' || !/^\/search|^\/v1\/tools\/search$|^\/web_search$|^\/chat\/completions$|^\/api\/paas\/v4\/web_search$/.test(req.url)) {
         reads++;
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end('<title>probe</title><p>should never be fetched</p>');
@@ -28,14 +39,30 @@ const h = require('./harness.cjs');
         hits++;
         let body = {};
         try { body = JSON.parse(raw); } catch (e) {}
+        lastBody = body;
+        lastAuth = String(req.headers.authorization || '');
+        if (/\/v1\/tools\/search$/.test(req.url)) {
+          return sendJson(res, { results: [
+            { title: 'DeepSeek 官方搜索', url: 'https://example.com/ds', snippet: '自研搜索引擎', date: '2026-10-19' },
+          ] });
+        }
+        if (/(?:^|\/)web_search$/.test(req.url)) {
+          return sendJson(res, { search_result: [
+            { title: '智谱网络搜索', link: 'https://example.com/zp', content: '搜索结果摘要', publish_date: '2026-10-18' },
+          ] });
+        }
+        if (/\/chat\/completions$/.test(req.url)) {
+          return sendJson(res, { choices: [{ message: { annotations: [
+            { type: 'url_citation', url_citation: { url: 'https://example.com/or', title: 'OpenRouter 引用', content: '联网引用正文' } },
+          ] } }] });
+        }
         lastKey = body.api_key || '';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendJson(res, {
           results: [
             { title: '本地优先的 AI 工作台', url: 'https://example.com/a', content: '把数据留在本机。', published_date: '2026-10-01' },
             { title: 'Tavily 文档', url: 'https://example.com/b', content: 'Search API.', published_date: '2026-09-20' },
           ],
-        }));
+        });
       });
     });
     await new Promise(r => fake.listen(0, '127.0.0.1', r));
@@ -106,6 +133,72 @@ const h = require('./harness.cjs');
     });
     if (q2.status !== 200 || q2.json.cached !== true) throw new Error('同问第二次应当命中缓存：' + q2.status + ' ' + q2.text);
     if (hits !== 1) throw new Error('命中缓存却又打了上游：' + hits);
+
+    /* 专用搜索接口（style: api）：请求字段与结果字段照注册表声明映射。
+       DeepSeek 的官方 Search API 是 /v1/tools/search + query/count + 结果里的 snippet/date。 */
+    const putDs = await call('/search/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, provider: 'deepseek', credentialSource: 'manual',
+        baseUrl: 'http://127.0.0.1:' + fakePort, key: 'sk-ds-e2e' }),
+    });
+    if (putDs.status !== 200) throw new Error('切到 DeepSeek 搜索接口失败：' + putDs.status + ' ' + putDs.text);
+    const ds = await call('/search/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '官方搜索', limit: 2 }),
+    });
+    if (ds.status !== 200 || ds.json.provider !== 'deepseek') throw new Error('DeepSeek 搜索接口没走通：' + ds.status + ' ' + ds.text);
+    if (ds.json.results[0].url !== 'https://example.com/ds' || ds.json.results[0].publishedAt !== '2026-10-19') {
+      throw new Error('DeepSeek 结果字段没映射对：' + JSON.stringify(ds.json.results[0]));
+    }
+    if (!lastBody || lastBody.query !== '官方搜索' || lastBody.count !== 2) {
+      throw new Error('DeepSeek 请求体没按声明映射（query / count）：' + JSON.stringify(lastBody));
+    }
+    if (lastAuth !== 'Bearer sk-ds-e2e') throw new Error('DeepSeek 请求没带这把密钥：' + lastAuth);
+
+    /* 智谱：/web_search + search_query/count + search_engine，结果是 search_result / link / content */
+    const putZp = await call('/search/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'zhipu', credentialSource: 'manual',
+        baseUrl: 'http://127.0.0.1:' + fakePort + '/api/paas/v4', key: 'sk-zp-e2e' }),
+    });
+    if (putZp.status !== 200) throw new Error('切到智谱搜索接口失败：' + putZp.status + ' ' + putZp.text);
+    const zp = await call('/search/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '智谱搜索', limit: 1 }),
+    });
+    if (zp.status !== 200 || zp.json.provider !== 'zhipu') throw new Error('智谱搜索接口没走通：' + zp.status + ' ' + zp.text);
+    if (zp.json.results[0].url !== 'https://example.com/zp' || zp.json.results[0].snippet !== '搜索结果摘要') {
+      throw new Error('智谱结果字段（link / content）没映射对：' + JSON.stringify(zp.json.results[0]));
+    }
+    if (!lastBody || lastBody.search_query !== '智谱搜索' || lastBody.count !== 1 || lastBody.search_engine !== 'search_std') {
+      throw new Error('智谱请求体没按声明映射（search_query / count / search_engine）：' + JSON.stringify(lastBody));
+    }
+
+    /* OpenRouter：chat/completions + openrouter:web_search server tool，结果在 url_citation annotations */
+    const putOr = await call('/search/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'openrouter', credentialSource: 'manual', model: 'probe/model',
+        baseUrl: 'http://127.0.0.1:' + fakePort, key: 'sk-or-e2e' }),
+    });
+    if (putOr.status !== 200) throw new Error('切到 OpenRouter 搜索接口失败：' + putOr.status + ' ' + putOr.text);
+    const or = await call('/search/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'OpenRouter 搜索', limit: 1 }),
+    });
+    if (or.status !== 200 || or.json.provider !== 'openrouter') throw new Error('OpenRouter 搜索接口没走通：' + or.status + ' ' + or.text);
+    if (or.json.results[0].url !== 'https://example.com/or' || or.json.results[0].snippet !== '联网引用正文') {
+      throw new Error('OpenRouter 的 url_citation 没解析对：' + JSON.stringify(or.json.results[0]));
+    }
+    if (!lastBody || lastBody.model !== 'probe/model' || !lastBody.tools || lastBody.tools[0].type !== 'openrouter:web_search') {
+      throw new Error('OpenRouter 请求体没带 server tool：' + JSON.stringify(lastBody));
+    }
+
+    /* 没有声明搜索接口的家不能存进「搜索服务」（存进去点下去必失败） */
+    const noSearch = await call('/search/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'openai' }),
+    });
+    if (noSearch.status !== 400) throw new Error('没有搜索接口的供应商应当 400：HTTP ' + noSearch.status);
 
     const badSite = await call('/search/query', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

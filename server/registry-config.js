@@ -148,16 +148,21 @@ const REGISTRY = {
      也各占一段（/siliconflow/image、/minimax/tts…）。以前八家共用 /textai，转发按前缀取「排在最前的那家」，
      非 DeepSeek 的密钥会被原样发给 api.deepseek.com（功能全坏 + 密钥外泄）。同一段前缀只允许
      「base / keyEnv / endpoints 完全一致」的等价声明共用（sparkcine 两家），判据在 providers/validate.js。
-     v20：provider 级 `extraCaps`（目前两种取值：`asr` / `search`）—— 语音识别与联网搜索这两档
-     的**旁注**：声明了说明这一家上游确实提供那个端点（前者要 OpenAI 兼容的 /audio/transcriptions，
-     后者要一个真能给出网址的对话模型）。
-     ⚠ v20 当时它还是**显示门槛**（没有这一格就不画），2026-10-27 起不是了：那两档跟着「文字对话」一起来，
-     与图片 / 视频同一套规则（这家有这一档就画一行），没声明的行里挂一枚「未声明」。
-     理由：同一件「这家能当文字 AI」的事实被拆成三种表现（有文字档的家只画「字」、声明过的那几处才有
-     「识 / 搜」），一张卡上根本看不出这家人到底能干什么；而「能不能用」本来就该按上游实测来判断。
-     字段本身留着（校验仍在 providers/validate.js），只是不再决定画不画。
+     v20：provider 级 `extraCaps`（`asr` / `search`）—— 语音识别与联网搜索这两档的**显示门槛**：
+     声明了才在账号卡上画「识 / 搜」那一行，没声明的不画。
+     ⚠ 2026-10-27 曾一度改成「凡文字供应商都画、只挂旁注」，2026-10-29 又收回：
+     没有那个端点的家画上去点下去必失败，用户只会以为是自己密钥填错了。
+     现在按能力真值判：`extraCaps` 与端点声明（`asr` / `search`）两样都要，校验在 providers/validate.js。
+     v21：provider 级 `refSyntax` —— 客户端提交前把正文里的 @参考图N / @视频N / @音频N
+     换成平台认的引用标签（H3 这一族是 <Picture N> / <Video N> / <Audio N>）；编号与真正发出去的
+     content[] / inputs[] 顺序同源。
+     v22：`extraCaps` 恢复成**显示门槛**，并各带一份端点声明：`asr`（style / path / model /
+     models 的返回格式 / language 怎么传）与 `search`（style / path / 字段映射 / chat 工具的 type）。
+     没声明的家不再画「识 / 搜」两行 —— 画上去只会让用户在一家没有那个端点的平台上白试一次。
+     旧代理（v21）不读这两个对象：设置页会把「自动」当成一个不存在的供应商，
+     所以 PROXY_VERSION_MIN 一起升到 22，让页面先要求重启代理。
      改注册表结构时顺手 +1。 */
-  version: 20,
+  version: 22,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -515,6 +520,9 @@ const REGISTRY = {
         // 上传接口的字段命名（VGENV 用驼峰，SparkCine 是下划线）
         uploadFields: { fileName: 'fileName', contentType: 'contentType', sizeBytes: 'sizeBytes' },
       },
+      /* 这一家的视频型号是 minimax/h3（base / cinematic / origin 三档都是 H3）：
+         提示词里的素材引用按 <Picture N> / <Video N> / <Audio N> 指内容数组的第 N 项。 */
+      refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' },
       balance: { style: 'micros' },
     },
     {
@@ -542,6 +550,9 @@ const REGISTRY = {
         reference_image: { max: 9, group: 'ref' },
         reference_audio: { max: 1, group: 'ref' },
       },
+      /* 这一家的视频型号是 h3-video-*，用的是 H3 的提示词格式：
+         正文里的素材引用按 <Picture N> / <Video N> / <Audio N> 指内容数组的第 N 项。 */
+      refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' },
       // 与 sparkcine 生图同一个上游接口：list 声明保持一致（relay 相同 → 客户端只拉一次）
       list: {
         dataField: 'data', cursorField: 'next_cursor', cursorParam: 'cursor', limitParam: 'limit', limit: 100,
@@ -709,6 +720,15 @@ const REGISTRY = {
         credits: '/credits',
       },
       balance: { style: 'openrouter-credits' },
+      /* 联网搜索：chat/completions 的 server tool（tools: [{ type: 'openrouter:web_search' }]），
+         结果以 url_citation annotations 返回。这是官方现在的写法；旧 plugins:[{id:'web'}] 已弃用。
+         要一个能联网的对话型号 —— 型号仍由设置页自己选（model 空着时用卡片里填的那个）。 */
+      extraCaps: ['search'],
+      search: {
+        style: 'chat',
+        path: '/chat/completions',
+        tool: { type: 'openrouter:web_search' },
+      },
       /* **这里不声明型号清单** —— 清单归它自己的 GET /api/v1/models（设置页点一次「获取型号列表」，
          拉回来的落进 .data/sk_model_prefs.json，清单与型号下拉都是那一份）。
          下面这段是 `modelDocs`：**不是清单**，只是「文档里写过这个 id、支持什么」的表，
@@ -744,10 +764,18 @@ const REGISTRY = {
         credits: '/user/balance',
       },
       balance: { style: 'deepseek-balance' },
-      /* 联网搜索：设置页「联网搜索」那一档的对话模型渠道就是照这一家写的
-         （服务端 /search/query 的对话搜索带默认型号 deepseek-chat）。
-         声明这一档 = 上游真能给出网址；没声明的文字供应商卡上照样有「搜」那一格（只是挂「未声明」）。 */
+      /* 联网搜索：官方 Search API（POST /v1/tools/search，自研搜索引擎）。
+         以前这一档是把「请给出网址」丢给对话模型 —— 模型没有联网，回的是一串编造的网址；
+         现在按官方接口取结构化结果，拿不到结果就照实报失败，不再拿模型正文冒充搜索。
+         body 是「我们的字段 → 上游字段」的映射，解析口径在 routes/search.js 一处。 */
       extraCaps: ['search'],
+      search: {
+        style: 'api',
+        path: '/v1/tools/search',
+        body: { query: 'query', limit: 'count' },
+        results: 'results',
+        fields: { title: 'title', url: 'url', snippet: 'snippet', publishedAt: 'date' },
+      },
       modelDocs: [
         { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', modes: ['text'] },
         { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', modes: ['text'] },
@@ -767,9 +795,24 @@ const REGISTRY = {
       base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', baseEditable: true,
       site: 'https://platform.openai.com',
       endpoints: { chat: '/chat/completions', models: '/models' },
-      /* 在线语音识别：OpenAI 自己的 POST /audio/transcriptions（默认型号 whisper-1）。
-         声明这一档 = 上游确实有这个端点；没声明的文字供应商卡上照样有「识」那一格（挂「未声明」）。 */
+      /* 在线语音识别：官方 POST /audio/transcriptions（multipart）。
+         whisper-1 支持 verbose_json（带分段），gpt-4o-transcribe 这一族只回 json 整段文本 ——
+         每个型号的返回格式写在 asr.models 里，服务端按**这次发的型号**取，不按全家的默认值猜。 */
       extraCaps: ['asr'],
+      asr: {
+        style: 'openai',
+        path: '/audio/transcriptions',
+        model: 'whisper-1',
+        responseFormat: 'json',
+        language: 'form',
+        models: [
+          { id: 'whisper-1', responseFormat: 'verbose_json' },
+          { id: 'gpt-4o-transcribe', responseFormat: 'json' },
+          { id: 'gpt-4o-mini-transcribe', responseFormat: 'json' },
+        ],
+      },
+      /* 联网搜索官方在 Responses API 的 web_search 工具上（chat 这一族只有搜索专用型号那一档）；
+         代理还没有 responses 形状，先不画「搜」—— 没声明就不画，比画出来点下去失败好。 */
       /* OpenAI 没有公开的余额 API（/dashboard/billing 要网页登录态，API key 问不了）—— 不声明，
          设置页照样画出「侧栏余额」勾选框并写明「这家没提供余额接口」。 */
       modelDocs: [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', modes: ['text'], vision: true }],
@@ -786,6 +829,16 @@ const REGISTRY = {
         credits: '/users/me/balance',
       },
       balance: { style: 'moonshot-balance' },
+      /* 联网搜索：官方工具接口 POST /v1/tools/search_pro（返回 search_results，
+         每条带 title / url / snippet / date）。不是把搜索请求塞进对话模型。 */
+      extraCaps: ['search'],
+      search: {
+        style: 'api',
+        path: '/tools/search_pro',
+        body: { query: 'text_query', limit: 'limit' },
+        results: 'search_results',
+        fields: { title: 'title', url: 'url', snippet: 'snippet', publishedAt: 'date' },
+      },
       modelDocs: [{ id: 'kimi-k2.6', name: 'Kimi K2.6', modes: ['text'] }],
     },
     {
@@ -793,6 +846,27 @@ const REGISTRY = {
       base: 'https://open.bigmodel.cn/api/paas/v4', keyEnv: 'ZHIPUAI_API_KEY', baseEditable: true,
       site: 'https://open.bigmodel.cn',
       endpoints: { chat: '/chat/completions', models: '/models' },
+      /* 语音识别：POST /api/paas/v4/audio/transcriptions（multipart，model + file，
+         回 { text }；没有 response_format / language 两个字段，别照 OpenAI 那一套多塞）。
+         联网搜索：POST /api/paas/v4/web_search（search_engine = search_std），
+         结果是 search_result 数组，网址在 link、正文摘要在 content。 */
+      extraCaps: ['asr', 'search'],
+      asr: {
+        style: 'openai',
+        path: '/audio/transcriptions',
+        model: 'glm-asr-2512',
+        responseFormat: '',
+        language: 'none',
+        models: [{ id: 'glm-asr-2512' }],
+      },
+      search: {
+        style: 'api',
+        path: '/web_search',
+        body: { query: 'search_query', limit: 'count' },
+        extra: { search_engine: 'search_std' },
+        results: 'search_result',
+        fields: { title: 'title', url: 'link', snippet: 'content', publishedAt: 'publish_date' },
+      },
       modelDocs: [{ id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', modes: ['text'] }],
     },
     {
@@ -800,6 +874,19 @@ const REGISTRY = {
       base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', keyEnv: 'DASHSCOPE_API_KEY', baseEditable: true,
       site: 'https://bailian.console.aliyun.com',
       endpoints: { chat: '/chat/completions', models: '/models' },
+      /* 语音识别：qwen3-asr-flash 走 OpenAI 兼容 chat/completions 的 input_audio
+         （data 收公网地址或 data: 开头的 base64；不是 /audio/transcriptions 那条 multipart）。
+         返回的是 assistant 正文，没有分段。 */
+      extraCaps: ['asr'],
+      asr: {
+        style: 'chat-audio',
+        path: '/chat/completions',
+        model: 'qwen3-asr-flash',
+        language: 'body',
+        models: [{ id: 'qwen3-asr-flash' }],
+      },
+      /* 联网搜索要开 enable_search（真检索），但 OpenAI 兼容接口不返回来源字段（官方文档明说），
+         拿不到网址就不算「搜索接口」—— 不声明，别让用户以为点了这颗就是真的在搜。 */
       modelDocs: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', modes: ['text'] }],
     },
     {
@@ -812,9 +899,18 @@ const REGISTRY = {
         /* 余额：GET /v1/user/info → { data: { totalBalance, chargeBalance, … } }（解析见 text-ai.js）。 */
         credits: '/user/info',
       },
-      /* 在线语音识别：这一家也提供 OpenAI 兼容的 POST /audio/transcriptions（SenseVoice 那一族，
-         型号名不是 whisper-1 —— 设置页那一格自己填）。 */
+      /* 在线语音识别：官方 POST /audio/transcriptions（OpenAI 兼容的 multipart），
+         型号是 SenseVoice / TeleSpeech 那一族；官方只回 { text }，没有分段，
+         所以别发 response_format —— 多发一个不认识的字段只会被上游拒。 */
       extraCaps: ['asr'],
+      asr: {
+        style: 'openai',
+        path: '/audio/transcriptions',
+        model: 'FunAudioLLM/SenseVoiceSmall',
+        responseFormat: '',
+        language: 'none',
+        models: [{ id: 'FunAudioLLM/SenseVoiceSmall' }, { id: 'TeleAI/TeleSpeechASR' }],
+      },
       /* 硅基流动一个 key 覆盖 200+ 模型（DeepSeek / Qwen / GLM / MiniMax 都有），
          型号名是「厂商/型号」带斜杠的那种 —— 写死一份清单只会过期得更快。 */
       modelDocs: [{ id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3', modes: ['text'] }],
@@ -824,6 +920,8 @@ const REGISTRY = {
       base: 'https://ark.cn-beijing.volces.com/api/v3', keyEnv: 'ARK_API_KEY', baseEditable: true,
       site: 'https://console.volcengine.com/ark',
       endpoints: { chat: '/chat/completions', models: '/models' },
+      /* 联网搜索在 /api/v3/responses 的 web_search 工具上（不是 chat/completions 的字段）；
+         代理还没有 responses 形状，先不声明这一档。 */
       modelDocs: [{ id: 'doubao-seed-1-6-251015', name: '豆包 Seed 1.6', modes: ['text'] }],
     },
     {
@@ -831,6 +929,17 @@ const REGISTRY = {
       base: 'https://api.minimax.io/v1', keyEnv: 'MINIMAX_API_KEY', baseEditable: true,
       site: 'https://platform.minimax.io',
       endpoints: { chat: '/chat/completions', models: '/models' },
+      /* 语音识别：POST /v1/speech_to_text（multipart，model=asr-1.0），
+         语言走请求头 language，不走表单字段；verbose_json 回 text + segments。 */
+      extraCaps: ['asr'],
+      asr: {
+        style: 'openai',
+        path: '/speech_to_text',
+        model: 'asr-1.0',
+        responseFormat: 'verbose_json',
+        language: 'header',
+        models: [{ id: 'asr-1.0' }],
+      },
       modelDocs: [{ id: 'MiniMax-M3', name: 'MiniMax M3', modes: ['text'] }],
     },
     {
@@ -990,6 +1099,9 @@ const REGISTRY = {
            不写在 body 里（上游不接受平铺的 prompt 字段）。 */
         textItem: { to: 'content', key: 'prompt', type: 'text' },
       },
+      /* H3 提示词用 <Picture N> / <Video N> / <Audio N> 指内容数组里的第 N 项。
+         客户端提交前把正文里的 @参考图N / @视频N / @音频N 换成这一族；编号与 content[] 同源。 */
+      refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' },
       /* ⚠ 这一份**不是型号清单**（v13 起）：MiniMax 的 GET /v1/models 列的是**对话**模型
          （MiniMax-M3 / M2.7 / M2.5 那一批），里面没有视频型号 —— 接上去只会让视频台下拉变成一堆聊天模型，
          所以这一家既没有现取的路，也不自动列型号：型号来自设置页手填。
@@ -1154,8 +1266,10 @@ function createRegistryConfig(deps) {
      pricing 也摘：单价是各家自己的事，照抄内置那一份会报出假价格（用量与预估都不该骗人）。 */
   const CUSTOM_STRIP = ['id', 'keyId', 'relay', 'base', 'keyEnv', 'defaultKey', 'site',
     'name', 'displayName', 'kind', 'models', 'mediaProviders', 'pricing', 'custom', 'customShape',
-    /* `extraCaps` **不摘**：自定义那几家照的是模板那一套接口形状（文字档 = OpenAI 兼容对话），
-       形状一样、能力就一样 —— 摘掉的话用户自己架的网关永远进不了「联网搜索」的渠道下拉。 */
+    /* `extraCaps` / `asr` / `search` 一律摘掉：那一族声明的是**内置那一家**的端点
+       （/v1/tools/search、/paas/v4/web_search…），照模板克隆一份会把这些地址安到用户自己的网关上。
+       自定义账号要识别 / 搜索，由设置页「手动加一档能力」当场声明（识别走这家自己的
+       OpenAI 兼容 /audio/transcriptions；搜索没有可通用的接口形状，不提供手加）。 */
     /* default：内置「没显式选过时首选哪家」的旗标不能跟着复制 —— 照 OpenRouter 克隆一家，
        表现就成了「凭空多了一家默认」，润色打到用户的网关上。
        baseEditable：这一家的地址本来就是用户自己填的（就在 sk_custom 里），

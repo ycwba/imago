@@ -12,8 +12,6 @@
    跑的是产品自己的界面（点轨道空处 seek、点播放键开播），不直接调模块。 */
 'use strict';
 const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const h = require('./harness.cjs');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -37,9 +35,7 @@ const mmss = t => {
 };
 
 (async () => {
-  if (!h.hasFfmpeg()) { console.log('- 跳过播放核判据（本机没有 ffmpeg，造不出一段能解码的视频）'); return; }
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-play-'));
-  const clipFile = h.makeClip(work, 2);
+  const clipFile = h.clipFixture();
   const mp4 = 'data:video/mp4;base64,' + fs.readFileSync(clipFile).toString('base64');
   const wav = wavDataUrl(1, 8000);
   let proxy, browser, page;
@@ -66,7 +62,6 @@ const mmss = t => {
         ],
         voices: [{ id: 'vo1', text: '这一句要念出来', who: '', start: 0.5, duration: 1,
           sourceStart: 0, sourceDuration: 1, mediaDuration: 1, src: wav, status: 'done' }],
-        pending: [],
         captions: [{ id: 'cp1', text: '探针字幕', start: 0.2, end: 1.2, position: 'bottom', style: 'default' }],
         markers: [{ id: 'mk1', type: 'marker', time: 0.8, title: '探针标记', color: 'cyan' }],
         tracks: { visibility: {}, locks: {} },
@@ -310,6 +305,5 @@ const mmss = t => {
     try { if (page) page.close(); } catch (e) {}
     try { if (browser) await browser.close(); } catch (e) {}
     try { if (proxy) await proxy.stop(); } catch (e) {}
-    try { fs.rmSync(work, { recursive: true, force: true }); } catch (e) {}
   }
 })();

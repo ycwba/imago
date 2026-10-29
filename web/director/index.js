@@ -4,7 +4,7 @@
      · 导演台对 DOM 的读写全部落在自己的 `.director-page` 根里（document 代理），
        不会去碰别的页面；键盘 / 指针这类 document/window 监听在页面不可见时直接放行；
      · 页面样式只在可见时挂上，并用 `@scope` 圈在自己的根里，不会染到侧栏与其它页。
-   等这一岛的边界稳定下来，再把内部一块块换成 Vue 组件（见 AGENTS §10）。 */
+   等这一岛的边界稳定下来，再把内部一块块换成 Vue 组件。 */
 import { ref, onMounted, onActivated, onDeactivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { createEditorMedia } from './media.js';
 import { render } from '../render/director.js';
@@ -25,7 +25,7 @@ export default {
     let styleEl = null;
     let active = { value: true };
     let installed = false;
-    let engineApi = null;   // 挂载后才有：生成工作台递过来的那张图要在 mount 之后才取得走
+    let engineApi = null;   // 挂载后才有：工作台递过来的那张图要在 mount 之后才取得走
     const listeners = [];   // { target, type, fn, wrapped }
 
     function add(target, type, fn, opts) {
@@ -89,7 +89,7 @@ export default {
                而 mount 照旧等到模板上完 DOM 才调 —— 提前取模块只是提前取字节。
            no-cache = 每次向本地代理复验 ETag（304 就不重下），改了模板也能立刻生效。
            媒体后端也要在 mount 之前到位：切片的 <video> 只在 media-backend.js 里造
-           （AGENTS §7），那一条链没有自己的兜底可退。 */
+，那一条链没有自己的兜底可退。 */
         const scriptsP = Promise.all([
           window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
           window.__spaLoadScript('web/media-backend.js', () => window.MediaBackend),

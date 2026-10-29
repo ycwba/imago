@@ -1,11 +1,12 @@
-/* 导演台Panel域：由 engine.js 按域机械搬出（AGENTS.md §17：内部保持命令式、按域拆模块，
+/* 导演台Panel域：由 engine.js 按域机械搬出（内部保持命令式、按域拆模块，
    engine.js 只留状态与接线）。区间内的代码逐字保留，只有点名的几处引擎可变状态改经访问器读，
    区间外的名字一律由 createPanel(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
-import { speakerOf, lineTimeOf, lineRowHTML } from '../film.js';
+import { speakerOf, lineTimeOf, lineRowHTML, deriveTimeline, estimateSpeechSeconds } from '../film.js';
 import { num } from '../util.js';
 import { createBoardPreview } from '../board-preview.js';
+import { shotRefPlanOf } from '../ref-plan.js';
 
 export function createPanel(E, document, window) {
   const {
@@ -36,10 +37,11 @@ export function createPanel(E, document, window) {
     curDraftCand,
     promptTextOf,
     renderMid,
-    pendingLineOf,
-    openPendingVoice,
+    lineVoicedOf,
+    openLineVoice,
     renderVoiceCol,
     applyRefSyntax,
+    refTokenize,
     pickRefMedia,
     setPolishUI,
     renderPolishPanel,
@@ -110,7 +112,7 @@ function resolvedModel(sh) {
 
 /* 编辑器槽位名 → 模型声明的输入 role（互斥 / 提交都按 role 判断） */
 const SLOT_ROLE = { first: 'first_frame', last: 'last_frame', ref: 'reference_image', refVideo: 'reference_video', refAudio: 'reference_audio' };
-/* 输入素材的中文名只在公共层点一次名（`Capabilities.ROLE_ZH`），与生成工作台同一份：
+/* 输入素材的中文名只在公共层点一次名（`Capabilities.ROLE_ZH`），与工作台同一份：
    这一页原来抄的是一份短名表（首帧 / 尾帧），而模式名那句现拼读的是长名（首帧图 / 尾帧图），
    同一个 role 在两个页面上叫两个名字；清单和数值都是数据，抄一遍就会各自漂。 */
 const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
@@ -118,7 +120,7 @@ const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
    归一化那边给的是整档语义名，页面按 role 现拼根本读不到它。 */
 const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';
 /* 「这一档收哪些」（说明行）与那一排芯片的画法同样只有一份（`comboScopeNote` / `comboChipsHTML`）：
-   这一页与生成工作台画的是同一排，措辞与 min/max 的写法抄两遍迟早和声明漂开。
+   这一页与工作台画的是同一排，措辞与 min/max 的写法抄两遍迟早和声明漂开。
    指针名字故意避开公共层那两个（dup-guard 判据把页面里同名的 `function` 定义当第二份实现）。 */
 const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
 const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
@@ -152,7 +154,7 @@ function shotUsedRoles(sh) {
 
 /* ---- 「输入模式」= 这一镜这一次请求的形状 ----
    判据全在公共层（`Capabilities.combos` / `comboRoles` / `comboGaps` / `fallbackCombo`），
-   与生成工作台同一套 —— 导演台原来整套模式判据都没接：同一个平台在工作台能选「视频换人」，
+   与工作台同一套 —— 导演台原来整套模式判据都没接：同一个平台在工作台能选「视频换人」，
    在这一镜上连入口都没有，而手上放了 9 张参考图去提交换人档时页面一片绿灯、平台回一句 422。
    没有这种声明的家 `combos()` 是空数组：那一排芯片一个都不画，槽位回到原来的「互斥就置灰」，
    行为与加它之前逐字相同。 */
@@ -191,7 +193,13 @@ function shotRoleCounts(sh) {
        否则「视频换人」这类要求首帧的档会被判成缺料，按钮怎么点都不亮。 */
     first_frame: (sh.firstFrame || sh.linkPrev === 'tail') ? 1 : 0,
     last_frame: sh.lastFrame ? 1 : 0,
-    reference_image: (sh.refImages || []).filter(Boolean).length + shotKeyframes(sh).length,
+    /* 画面切片的图也会被加进 refImages（生成画面那一步）；同一张只算一次，
+       否则「切片 3 张 + 参考图 3 张」在限 1 张的那一档会被虚报成 6。 */
+    reference_image: (() => {
+      const refs = (sh.refImages || []).filter(Boolean);
+      const kfSrc = new Set(shotKeyframes(sh).map(k => Api.assetSrc(k.assetId)));
+      return shotKeyframes(sh).length + refs.filter(src => !kfSrc.has(src)).length;
+    })(),
     reference_video: sh.refVideo ? 1 : 0,
     reference_audio: sh.refAudio ? 1 : 0,
   };
@@ -259,6 +267,11 @@ function shotInputCaps(sh) {
   return caps;
 }
 
+/* 接上一镜尾帧：只有真的有上一镜、而且没有显式首帧时才占第 1 张图的位置。 */
+function chainPendingOf(sh) {
+  return !!(sh && sh.linkPrev === 'tail' && !sh.firstFrame && allShots().indexOf(sh) > 0);
+}
+
 /* ==================== 发送前的请求预览（dry-run） ====================
    「这一镜按生成会发出什么」—— 用户要的是**发送前**就能看到实际发出的提示词与配置。
    拼体完全交给 `Api.preview`（与 `Api.create` 同一段 `buildBody`，不会走岔）；
@@ -278,16 +291,16 @@ function shotPreviewBody(sh) {
   const ctxAdv = shotAdvCtx(sh);
   const ex = shotAdvExtras(sh);
   const ic = shotInputCaps(sh);
-  /* 参考语法转换（`@小雅` → 平台认的写法）与真发那条链**同一份**：
+  /* 参考语法转换（`@小雅` → `@参考图N` → 平台认的写法）与真发那条链**同一份**：
      预览里显示的必须是转换之后的样子，否则用户看到的是一份平台压根不认的正文。 */
-  const pApi = applyRefSyntax(p, prov);
+  const pApi = applyRefSyntax(refTokenize(sh, p, ic), prov);
   return BoardPreview.shotPreview(sh, prov, {
     model: rm.id, prompt: pApi, tier: sh.tier, duration: sh.duration || undefined,
     res: sh.res, ar: sh.ar, size: sh.size,
     note: sh.name || '',
     creation_intent: ctxAdv.intent,
     shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps }, params: ex.params,
-  }, ic);
+  }, ic, { chainPending: chainPendingOf(sh) });
 }
 /* 刷新这一镜的预览（去抖 + 防乱序由 RawRequest.schedule 管）。
    `catch` 里什么都不做：预览算不出来时**保持上一份**，
@@ -308,7 +321,7 @@ function refreshShotPreview(sh) {
 }
 
 /* ==================== 三排「AdvParams 那几档之外」的声明驱动参数 ====================
-   判据与画法都在 `gen-forms.js` 的 `AdvExtras`，与生成工作台共用同一份：
+   判据与画法都在 `gen-forms.js` 的 `AdvExtras`，与工作台共用同一份：
      · 型号能力里的布尔参数（`options.bools`，进嵌套 parameters）
      · 提交体**顶层**的布尔开关（`create.topBools`，如 SparkCine 的「平台自动润色」、VGENV 的「Turbo 加速档」）
      · 提交体**顶层**的非布尔字段（`create.shapeFields`，如成片超分档、随机种子）
@@ -320,7 +333,7 @@ function shotAdvState(sh) {
   return sh.adv;
 }
 /* 「这一次的那一行能力」：按这一镜选中的**输入模式 + 已放的素材 + 档位**问公共层那一份逐行判据
-   （ Turbo 给不给、超分有哪些档）。以前这里 combo 传 null、mode / intent 是空串 ——
+   （如 Turbo 给不给、超分有哪些档）。以前这里 combo 传 null、mode / intent 是空串 ——
    于是换人档明明没有 2x 超分、带参考视频那一行明明不给 Turbo，界面照样把开关画出来、提交照样发出去。 */
 function shotShapeCaps(sh) {
   const rm = resolvedModel(sh) || {};
@@ -433,7 +446,7 @@ function shotAdvBools(sh) {
   return out;
 }
 /* 时长范围 / 一次生成的条数上限 / 分辨率 / 档位 / 比例：**判据在 `gen-forms.js` 的 `AdvParams.plan`**
-   （与生成工作台视频栏同一份），这里只写导演台自己的 DOM 与「把回落后的值记回这一镜」。
+   （与工作台视频栏同一份），这里只写导演台自己的 DOM 与「把回落后的值记回这一镜」。
    以前模板串里是 `t === sh.tier ? 'selected' : ''`，**完全没有回落** —— 存的档位被平台下架之后
    浏览器默默显示第一项，而发出去的还是那个下架的值（界面写着 A、提交体是 B）。
    取值范围与上限仍然**只**来自模型声明（durations / max_outputs），以前各留了一个兜底数
@@ -479,7 +492,7 @@ async function shotPlatformUrl(src) {
 }
 /* 这一镜的素材 → `Api.createBody` 的 inputEntries（每项 { role, url? | assetId? }）。
    每一项交 url 还是交资产号，完全按 registry 的 `create.inputTemplates[role].needsUpload` 决定，
-   与生成工作台 `buildInputEntries` 是同一个口径。以前这里在页面里把两家的**请求体形状**各抄了一遍
+   与工作台 `buildInputEntries` 是同一个口径。以前这里在页面里把两家的**请求体形状**各抄了一遍
    （inputs 数组 vs reference_images / frame_images 顶层字段，字段名、嵌套、数组与否全写死），
    于是接第三家（MiniMax 的 content[]）时拼出去的是上游不认的字段名，
    而且「界面按能力把素材画出来了、提交体却把它发错地方」这种问题只在扣费之后才暴露。
@@ -515,28 +528,37 @@ async function shotInputEntries(sh, prov, ic, chainFrame) {
       out.push({ role, url });
     }
   };
-  const kfs = shotKeyframes(sh);
-  const refs = sh.refImages || [];
-  /* 显式首帧优先；没有时用接续帧（上一镜尾帧，由 submitCandidate 在提交那一刻解析好递进来）。 */
-  const firstSrc = sh.firstFrame || (chainFrame && chainFrame.src) || '';
-  const frames = [['first_frame', firstSrc, '首帧'], ['last_frame', sh.lastFrame, '尾帧']].filter(x => x[1]);
-  needSlot('first_frame', '首帧', firstSrc ? 1 : 0);
-  needSlot('last_frame', '尾帧', sh.lastFrame ? 1 : 0);
-  needSlot('reference_image', '参考图', (kfs.length + refs.length) ? 1 : 0);
-  for (const [role, src, name] of frames) await add(role, src, name, null);
+  /* 素材顺序与编号只有一份：与提示词里的 @参考图N、界面芯片、预览完全同源。 */
+  const plan = shotRefPlanOf(sh, ic, {
+    firstFrame: sh.firstFrame || (chainFrame && chainFrame.src) || '',
+    lastFrame: sh.lastFrame || '',
+    chainPending: false,
+  }, id => Api.assetSrc(id));
+  needSlot('first_frame', '首帧', plan.pictures.some(p => p.role === 'first_frame') ? 1 : 0);
+  needSlot('last_frame', '尾帧', plan.pictures.some(p => p.role === 'last_frame') ? 1 : 0);
+  /* 手上有没有参考素材与「计划里有没有」是两件事：能力把这一档的参考图收窄掉时，
+     计划会为空，但请求里明明带着用户放进去的素材 —— 仍然要走 needSlot 把「这一家没声明怎么收」说出来。 */
+  needSlot('reference_image', '参考图',
+    (shotKeyframes(sh).length || (sh.refImages || []).some(Boolean)) ? 1 : 0);
   /* 读不出字节 / 超上限的那几张不能闷着不发：提交前状态条会被「已提交」覆盖，所以要用 Toast 说。 */
-  const maxRef = Math.max(1, ic.maxRef);
-  let got = 0, failed = 0, over = 0;
-  const pushRef = async (src, name, asset) => {
-    if (got >= maxRef) { over++; return; }
-    try { await add('reference_image', src, name, asset); got++; }
-    catch (e) { failed++; console.warn('[director] ' + name + '没交出去：', e); }
-  };
-  /* 画面切片 = 导演台自己的生图产物，存的是 `/asset/<id>` 那一份本机资产 */
-  for (const k of kfs) await pushRef('', '画面切片', { id: k.assetId });
-  for (const img of refs) await pushRef(img, '参考图', null);
-  if (failed || over) {
-    const why = [failed ? failed + ' 个读不出来（可能已过期）' : '', over ? over + ' 个超出这个型号的上限 ' + maxRef : '']
+  let failed = 0;
+  for (const p of plan.pictures) {
+    if (p.role === 'first_frame' || p.role === 'last_frame') {
+      await add(p.role, p.src, p.label, null);
+      continue;
+    }
+    try {
+      /* 画面切片 = 导演台自己的生图产物，存的是 `/asset/<id>` 那一份本机资产 */
+      if (p.kind === 'keyframe') await add('reference_image', '', '画面切片', { id: p.assetId });
+      else await add('reference_image', p.src, p.label || '参考图', null);
+    } catch (e) {
+      failed++;
+      console.warn('[director] ' + (p.label || '参考图') + '没交出去：', e);
+    }
+  }
+  if (failed || plan.refOver) {
+    const why = [failed ? failed + ' 个读不出来（可能已过期）' : '',
+      plan.refOver ? plan.refOver + ' 个超出这个型号的上限 ' + plan.maxRef : '']
       .filter(Boolean).join('，');
     setStatus('<span class="warn">有参考素材本次没带上：' + why + '</span>');
     Toast.warn('少了参考素材：' + why);
@@ -561,7 +583,7 @@ async function shotInputEntries(sh, prov, ic, chainFrame) {
 }
 
 /* 素材与模式说不通的那一句：人话由公共层拼好（`comboGaps().lines`，缺料 / 超料 / 这一档不收 / 互斥
-   四种一次列全），这一页与生成工作台读的是同一份 —— 两页各写一遍措辞就会各说各的。
+   四种一次列全），这一页与工作台读的是同一份 —— 两页各写一遍措辞就会各说各的。
    这里只补「另一组还空着、但被已选的那一组挡住」那一句：它讲的是「这一格现在点不动」，
    与「已经放好的素材有错」是两件事，合成一句反而把出路说没了。 */
 function conflictNote(ic) {
@@ -604,7 +626,7 @@ function promptLimitNote(sh) {
 }
 let edPromptTouched = false;      // 用户在这个镜的提示词框里动过手没有（决定底部那行要不要刷屏）
 /* 换型号那一次要「按新声明的默认值」重画型号布尔那一排（用户点过的保住，没点过的跟声明走）。
-   与生成工作台那个 `modelChanged` 参数同一语义，只是导演台的重绘入口在这里。 */
+   与工作台那个 `modelChanged` 参数同一语义，只是导演台的重绘入口在这里。 */
 let edModelChanged = false;
 /* 画面生成（生图型号）那一路的同一个旗标：换生图型号那一次，型号布尔按新声明的默认值重画。 */
 let kfModelChanged = false;
@@ -623,13 +645,13 @@ function shotBlockReason(sh, ic) {
   if (chainModel) return chainModel;
   const caps = ic || shotInputCaps(sh);
   /* 「这一档要求带却没带够 / 带超了 / 这一档不收 / 互斥两组都用了」四种说不通一次判全，
-     判据与文案都在公共层那一份（与生成工作台同一个读数）。
+     判据与文案都在公共层那一份（与工作台同一个读数）。
      以前这里只查互斥与「型号不支持」两头，于是选了「视频换人」而手上只有 9 张参考图、
      一条参考视频都没放，按钮是亮的，点下去才拿到平台那句 422。 */
   const g = caps.gaps || shotGaps(sh);
   if (g.lines && g.lines.length) return g.lines.join('；');
   if (!resolvedModel(sh)) return '没有支持这组素材的型号';
-  /* 高级设置里越界或非数的那一项（种子、超分档那种）：与生成工作台同一个判据、同一处拦。
+  /* 高级设置里越界或非数的那一项（种子、超分档那种）：与工作台同一个判据、同一处拦。
      不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
   const bad = shotAdvExtras(sh).bad;
   if (bad.length) return bad.join('、');
@@ -828,12 +850,25 @@ function mentionCands(sh, q) {
   const D = window.Chars;
   const kw = String(q || '').toLowerCase();
   const out = [];
-  (sh.refImages || []).forEach((src, i) => {
-    const nm = '参考图' + (i + 1);
-    if (kw && nm.toLowerCase().indexOf(kw) < 0) return;
-    const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
-    out.push({ kind: 'ref', name: nm, idx: i, pic: src, meta: '本镜素材' + (lb ? ' · ' + lb : '') });
+  /* 本镜素材按**真实发送顺序**列出来：首帧 / 尾帧 / 画面切片 / 参考图 / 参考视频 / 参考音频。
+     名字优先用给人看的那一个（`小雅` / `首帧`），没有来源标签的才退回 `参考图N`。 */
+  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
+  const addRow = (name, meta, pic, extra) => {
+    if (kw && name.toLowerCase().indexOf(kw) < 0 && meta.toLowerCase().indexOf(kw) < 0) return;
+    out.push(Object.assign({ kind: 'ref', name, pic, meta }, extra));
+  };
+  plan.pictures.forEach(p => {
+    const tok = p.token.replace(/^@/, '');
+    const nm = p.kind === 'ref' && p.label ? p.label
+      : p.kind === 'first_frame' ? '首帧'
+        : p.kind === 'last_frame' ? '尾帧'
+          : p.kind === 'chain' ? '接上一镜尾帧'
+            : tok;
+    const pic = p.src || (p.assetId ? Api.assetSrc(p.assetId) : '');
+    addRow(nm, '本镜素材 · ' + tok + (p.label ? ' · ' + p.label : ''), pic);
   });
+  plan.videos.forEach(v => addRow(v.token.replace(/^@/, ''), '本镜素材 · 参考视频', (sh.refVideo && sh.refVideo.thumb) || '', { ic: 'film' }));
+  plan.audios.forEach(a => addRow(a.token.replace(/^@/, ''), '本镜素材 · 参考音频', '', { ic: 'mic' }));
   const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
   lib.forEach(c => {
     const nm = String((c && c.name) || '');
@@ -851,17 +886,36 @@ function mentionCands(sh, q) {
   });
   return out.slice(0, MENTION_MAX);
 }
-/* 这一镜「提到」的素材 = 它的参考图（每张一枚芯片）。
-   芯片上写的就是提示词里那个 token（`@小雅` / `@小雅·三视图`）—— refMeta.label 一份数据，
-   输入栏、芯片、提交前的 refTokenize 三处共用，所以永远对得上。
-   不限于「用 @ 引来的那些」：手动传的、切片生成的参考图也是这一镜的素材。 */
-function mentionedMats(sh) {
-  const meta = Array.isArray(sh.refMeta) ? sh.refMeta : [];
-  return (sh.refImages || []).map((src, i) => ({
-    n: i + 1,
-    src: src,
-    label: String((meta[i] && meta[i].label) || '').trim(),
+/* 这一镜「提到」的素材：按真实发送顺序列出首帧 / 尾帧 / 画面切片 / 参考图 / 参考视频 / 参考音频。
+   芯片上写的是提示词里能用的那个 token（`@小雅` / `@首帧` / `@参考图3` / `@视频1` / `@音频1`），
+   与 refTokenize、提交体的编号同源；手动传的、切片生成的也在里面。 */
+function mentionedMats(sh, ic, chainPending) {
+  const plan = shotRefPlanOf(sh, ic, { chainPending: !!chainPending }, id => Api.assetSrc(id));
+  const out = plan.pictures.map(p => {
+    const tok = p.token.replace(/^@/, '');
+    const display = p.kind === 'ref' && p.label ? p.label
+      : p.kind === 'first_frame' ? '首帧'
+        : p.kind === 'last_frame' ? '尾帧'
+          : p.kind === 'chain' ? '接上一镜尾帧'
+            : tok;
+    return {
+      kind: p.kind, n: p.n, token: tok, display,
+      label: p.label, src: p.src || (p.assetId ? Api.assetSrc(p.assetId) : ''),
+      media: 'image', pending: !!p.pending,
+      note: '第 ' + p.n + ' 张图' + (p.label ? ' · ' + p.label : ''),
+    };
+  });
+  plan.videos.forEach(v => out.push({
+    kind: 'video', n: 1, token: v.token.replace(/^@/, ''), display: v.token.replace(/^@/, ''),
+    /* 芯片画的是图片缩略图：只有选素材时顺手存下的那一帧小图能用；
+       没有再退回图标，不能把视频地址塞进 <img>。 */
+    label: '参考视频', src: (sh.refVideo && sh.refVideo.thumb) || '', media: 'video', note: '参考视频',
   }));
+  plan.audios.forEach(a => out.push({
+    kind: 'audio', n: 1, token: a.token.replace(/^@/, ''), display: a.token.replace(/^@/, ''),
+    label: '参考音频', src: '', media: 'audio', note: '参考音频',
+  }));
+  return out;
 }
 /* ============================ 提示词里的 @素材：高亮 + 悬停信息 ============================
    textarea 自己没法给某几个字上色，所以下面铺一层**镜像层**（同字号同内边距的副本），
@@ -893,10 +947,26 @@ function atNames(sh) {
       if (an) s.add(nm + '·' + an);
     });
   });
-  (sh.refImages || []).forEach((src, i) => {
-    s.add('参考图' + (i + 1));
-    const lb = String((Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '').trim();
-    if (lb) s.add(lb);
+  /* 这一镜真实会发出去的素材：编号、首帧 / 尾帧、视频 / 音频的写法都要认。
+     超出上限的参考图不在计划里，也就不高亮 —— 它本来就不会发给平台。 */
+  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
+  plan.pictures.forEach(p => {
+    s.add(p.token.replace(/^@/, ''));
+    s.add('图片' + p.n);
+    if (p.label) s.add(p.label);
+    if (p.kind === 'first_frame') { s.add('首帧'); s.add('开头画面'); }
+    if (p.kind === 'last_frame') { s.add('尾帧'); s.add('结尾画面'); }
+    if (p.kind === 'chain') s.add('接上一镜尾帧');
+  });
+  plan.videos.forEach(v => {
+    s.add('视频' + v.n);
+    s.add('参考视频');
+    s.add('参考视频' + v.n);
+  });
+  plan.audios.forEach(a => {
+    s.add('音频' + a.n);
+    s.add('参考音频');
+    s.add('参考音频' + a.n);
   });
   return s;
 }
@@ -946,48 +1016,42 @@ function hoverAt(sh, e) {
   const D = window.Chars;
   const lib = ((D && D.Lib) ? (D.Lib.list() || []) : []);
   const kindZhOf = x => (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(x)]) || '素材';
-  let pic = '', meta = '';
-  /* 四种写法都要认（与 atNames 收进来的那三种一一对应）：
-       ① `名字·资产名` —— 二级菜单里挑的角色资产，图就是那一张；
-       ② 素材名          —— 预览图；
-       ③ 本镜已有的来源标签（老数据里可能有对不上库的名字）；
-       ④ `参考图N`       —— 手动传的、切片生成的。
-     顺序有讲究：`名字·资产名` 必须先试，否则会先被「素材名」那一支拦下（`小雅·三视图`
-     既不等于 `小雅`，所以其实不会撞；但把最具体的放前面，以后加新写法时不容易踩到）。 */
-  const sepAt = nm.indexOf('·');
-  const host = sepAt > 0 ? lib.find(x => x && x.name === nm.slice(0, sepAt)) : null;
-  const assetHit = host ? (D.Cast.assetsOf(host) || []).find(a => a && a.src
-    && ((String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim()) === nm.slice(sepAt + 1))) : null;
-  const ri = (sh.refImages || []).findIndex((src, i) => {
-    const lb = String((Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '').trim();
-    return lb && lb === nm;
-  });
-  if (assetHit) {
-    pic = assetHit.src;
-    meta = kindZhOf(host) + ' · ' + nm.slice(sepAt + 1) + '（' + (host.name || '') + ' 的角色资产）';
-  } else if (ri >= 0) {
-    pic = sh.refImages[ri];
-    meta = '本镜素材 · 参考图 ' + (ri + 1);
+  let pic = '', meta = '', ico = 'image';
+  /* 先认这一镜真实会发出去的素材（编号与提交体同源）：
+       ① `小雅` / `首帧` / `参考图3` / `视频1` / `音频1`；
+       ② 库里的 `名字·资产名` 与素材名 —— 提示词里写了但还没加进参考图的引用。 */
+  const mat = mentionedMats(sh, shotInputCaps(sh), chainPendingOf(sh))
+    .find(x => x.token === nm || x.display === nm || x.label === nm
+      || (x.kind !== 'video' && x.kind !== 'audio' && nm === '图片' + x.n)
+      || (x.kind === 'first_frame' && nm === '开头画面')
+      || (x.kind === 'last_frame' && nm === '结尾画面')
+      || (x.kind === 'video' && nm === '参考视频' + x.n)
+      || (x.kind === 'audio' && nm === '参考音频' + x.n));
+  if (mat) {
+    pic = mat.src || '';
+    ico = mat.media === 'video' ? 'film' : mat.media === 'audio' ? 'mic' : 'image';
+    meta = mat.pending ? '本镜素材 · 接上一镜尾帧（提交时取）' : '本镜素材 · ' + mat.note;
   } else {
-    const c = lib.find(x => x && x.name === nm);
-    if (c) {
-      pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
-      meta = kindZhOf(c);
-      if (String(c.group || '').trim()) meta += ' · ' + String(c.group).trim();
-      if (!pic) meta += ' · 还没有预览图';
+    const sepAt = nm.indexOf('·');
+    const host = sepAt > 0 ? lib.find(x => x && x.name === nm.slice(0, sepAt)) : null;
+    const assetHit = host ? (D.Cast.assetsOf(host) || []).find(a => a && a.src
+      && ((String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim()) === nm.slice(sepAt + 1))) : null;
+    if (assetHit) {
+      pic = assetHit.src;
+      meta = kindZhOf(host) + ' · ' + nm.slice(sepAt + 1) + '（' + (host.name || '') + ' 的角色资产）';
     } else {
-      const m = /^参考图(\d+)$/.exec(nm);
-      const i = m ? Number(m[1]) - 1 : -1;
-      if (i >= 0 && sh.refImages && sh.refImages[i]) {
-        pic = sh.refImages[i];
-        const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
-        meta = '本镜素材' + (lb ? ' · ' + lb : '');
+      const c = lib.find(x => x && x.name === nm);
+      if (c) {
+        pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
+        meta = kindZhOf(c);
+        if (String(c.group || '').trim()) meta += ' · ' + String(c.group).trim();
+        if (!pic) meta += ' · 还没有预览图';
       }
     }
   }
   const box = atPeekEl();
   box.hidden = false;
-  box.innerHTML = '<span class="pk-t">' + (pic ? '<img src="' + esc(Api.mediaSrc(pic)) + '" alt="">' : icon('image', 15)) + '</span>'
+  box.innerHTML = '<span class="pk-t">' + (pic ? '<img src="' + esc(Api.mediaSrc(pic)) + '" alt="">' : icon(ico, 15)) + '</span>'
     + '<span><span class="pk-n">@' + esc(nm) + '</span><br><span class="pk-k">' + esc(meta) + '</span></span>';
   const r = hit.getBoundingClientRect();
   const w = box.offsetWidth || 200, h = box.offsetHeight || 52;
@@ -1111,7 +1175,7 @@ function showMention(sh, cands, range, rect) {
   box.innerHTML = cands.length
     ? cands.map((c, i) => {
       const pic = c.pic ? Api.mediaSrc(c.pic) : '';
-      const t = pic ? '<img src="' + esc(pic) + '" alt="" loading="lazy">' : icon('image', 15);
+      const t = pic ? '<img src="' + esc(pic) + '" alt="" loading="lazy">' : icon(c.ic || 'image', 15);
       return '<div class="mt-i' + (i === 0 ? ' on' : '') + (c.off ? ' off' : '') + (c.sub ? ' has-sub' : '') + '" data-mi="' + i + '">'
         + '<span class="mt-t">' + t + '</span>'
         + '<span class="mt-n">@' + esc(c.name) + '</span>'
@@ -1320,7 +1384,7 @@ document.addEventListener('mousedown', e => {
   hideMention();
 }, true);
 
-/* 画「输入模式」那一排（与生成工作台同一份判据、同一套画法，样式在 ui.css 的 .mode-row / .ui-pill）：
+/* 画「输入模式」那一排（与工作台同一份判据、同一套画法，样式在 ui.css 的 .mode-row / .ui-pill）：
    · 没有模式声明的家整块不出现 —— 与「这一排存在但一个芯片都没有」是两件事，后者让人以为功能坏了；
    · 只有一档时**不画芯片**（点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件），
      但说明行照旧留着：它讲得清这一档收哪几类素材，用户知道自己被限定成了什么形状。 */
@@ -1328,7 +1392,7 @@ function modeChipsHTML(sh) {
   const list = shotCombos(sh);
   if (!list.length) return '';
   const cb = shotCombo(sh);
-  /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与生成工作台同一份）；
+  /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与工作台同一份）；
      这一页只负责把它们包进自己的容器（整块编辑器每次重绘都重建这一段）。 */
   const chips = comboChips(list, sh.combo);
   return '<div class="ed-label" style="margin-top: var(--sp-12)"><span>输入模式</span><span class="cnt">'
@@ -1345,42 +1409,43 @@ function bindModeChips(sh) {
    清单每次重画都重建这张表。 */
 let lineGeoCache = new Map();
 function lineTimeFor(geo) {
-  /* geo = 这一句在成片上的那一块（待生成占位 / 配音）的 [start, duration]；
-     没有块（这一镜还没进成片）传 null，读数照实写「成片 —」。 */
+  /* geo = 这一句在成片上的那一块（已有配音，或这一镜画面段的起点）的 [start, duration]；
+     这一镜还没进成片就传 null，读数照实写「成片 —」。 */
   return lineTimeOf(geo || null);
 }
-/* 台词那一档的每一行：一行 = 一镜的一句台词，读的是 sh.line / sh.lineWho 这一份数据，
-   与轨道上那个待生成占位同一份账（`proj.film.pending` / `proj.film.voices` 里的定时块，
-   块由 Edit 域的 syncPending 按台词现写）。时间读数 = 那一块的 [start, start+duration]，
-   「行上写的秒」与「块占的那一截」永远是同一个数。
+/* 台词那一档的每一行：一行 = 一镜的一句台词，读的是 sh.line / sh.lineWho 这一份数据。
+   时间读数优先用这一句已有的配音块，没有配音时用这一镜画面段的起点 + 一句的估算时长 ——
+   用户写台词时就能看见它将落在成片哪一秒。
    `includeEmptyMine`：当前这一镜即使还没台词也留一行，否则「给这一镜写第一句台词」指向一片空气。 */
 function linePanelRows(curSh, opts) {
   const includeEmptyMine = !!(opts && opts.includeEmptyMine);
   const lib = (window.Chars && window.Chars.Lib && window.Chars.Lib.list()) || [];
   const film = filmOf();
-  /* 一镜一句台词一个块：待生成占位先占（它就是这一句台词本身），还没有占位的镜头
-     退到这一镜已有的配音块 —— 一句已经合成过的台词读数跟着配音走。 */
+  /* 一镜一句台词：读数跟着这一镜已有的配音块走；还没配音时只显示「未生成」。 */
   const blockOf = new Map();
-  (film.pending || []).forEach(p => {
-    if (p && p.shotId && !blockOf.has(p.shotId)) blockOf.set(p.shotId, { start: num(p.start), duration: num(p.duration) });
-  });
   (film.voices || []).forEach(v => {
     if (v && v.shotId && !blockOf.has(v.shotId)) blockOf.set(v.shotId, { start: num(v.start), duration: num(v.duration) });
+  });
+  const clipStart = new Map();
+  deriveTimeline(film.clips || []).rows.forEach(r => {
+    const sid = r && r.clip && r.clip.shotId;
+    if (sid && !clipStart.has(sid)) clipStart.set(sid, num(r.start));
   });
   lineGeoCache = new Map();
   const rows = allShots().map((x, i) => ({ x: x, no: i + 1 }))
     .filter(o => (includeEmptyMine && o.x === curSh) || String((o.x && o.x.line) || '').trim())
     .map(o => {
-      const geo = blockOf.get(o.x.id) || null;
-      lineGeoCache.set(o.x.id, geo);
       const text = String(o.x.line || '');
+      const geo = blockOf.get(o.x.id)
+        || (clipStart.has(o.x.id) ? { start: clipStart.get(o.x.id), duration: estimateSpeechSeconds(text) } : null);
+      lineGeoCache.set(o.x.id, geo);
       return {
         id: o.x.id, sh: o.x, no: o.no,
         text,
         who: String(o.x.lineWho || ''),
         speaker: speakerOf(o.x.lineWho, lib),
         time: lineTimeFor(geo),
-        pending: !!pendingLineOf(o.x),
+        voiced: !!lineVoicedOf(o.x),
         empty: !text.trim(),
         mine: o.x === curSh,
       };
@@ -1417,7 +1482,7 @@ function paintLineWho(row, x) {
   const inp = row.querySelector('.lr-name');
   if (inp) inp.title = '填素材库里同名的素材，音色会自动取过来' + (sp.empty ? '' : (sp.inLib ? '' : '（素材库里没有「' + sp.name + '」）'));
 }
-/* 只补一行右边那个时间：字数变了，待生成块要等多下一次重画才按新字数重写（syncPending），
+/* 只补一行右边那个时间：字数变了，估算时长要等下一次重画才按新字数重算，
    这里照着清单上次渲染时那份块窗口（`lineGeoCache`）就地换读数 —— 台词自己不动时间线。 */
 function paintLineWhen(row, x) {
   const geo = row && lineGeoCache.get(x.id);
@@ -1429,7 +1494,7 @@ function paintLineWhen(row, x) {
 }
 /* 台词就地编辑（这一档两段共用这一份 binder）。
    **不重画整栏**：重画会把正在敲的那一格换掉、光标跳走 —— 所以 `input` 只改数据 + 这一行的状态徽章
-   与右边那个时间 + 两段表头读数，`change`（松手 / 失焦）才 `filmEdited()`：台词**自己就上待生成那一轨**
+   与右边那个时间 + 两段表头读数，`change`（松手 / 失焦）才 `filmEdited()`：台词改了，
    （占位由 renderAll 现算），而字幕按台词派生、会烧进成片，所以这一改必须标脏成片并推进修订号。
    撤销快照在第一个字落下之前压（`beginEdit` 拍的是改**之前**那一份）。
    改台词一个字节都不动 `sh.prompt`：提示词改了台词不动，台词改了提示词也不动。 */
@@ -1458,9 +1523,9 @@ function bindLineEditors(root, curSh) {
         const em = lrow.querySelector('.lr-top em');
         if (em) {
           const empty = !String(x.line || '').trim();
-          const pend = !empty && !!pendingLineOf(x);
-          em.className = empty ? 'none' : (pend ? 'pend' : 'done');
-          em.textContent = empty ? '未写' : (pend ? '待生成' : '已生成');
+          const voiced = !empty && !!lineVoicedOf(x);
+          em.className = empty ? 'none' : (voiced ? 'done' : 'none');
+          em.textContent = empty ? '未写' : (voiced ? '已生成' : '未生成');
         }
         paintLineWhen(lrow, x);
       }
@@ -1481,13 +1546,13 @@ function bindLineEditors(root, curSh) {
       scheduleSave();
     };
   });
-  /* 点缩略图 / 标题 = 切到那一镜并把这一句填进合成框（与点轨道上那个待生成占位同一个出口，
+  /* 点缩略图 / 标题 = 切到那一镜并把这一句填进合成框（与点轨道上那句配音同一个出口，
      一个计费请求都不发：合成只在「合成并加到这一轨」那一下）。 */
   root.querySelectorAll('.line-row.edit').forEach(row => {
     const jump = e => {
       if (e.target.closest('textarea, input, button, a, .lr-ta')) return;
       const x = allShots().find(s2 => s2.id === row.dataset.lineid);
-      if (x) openPendingVoice(x);
+      if (x) openLineVoice(x);
     };
     const head = row.querySelector('.lr-top');
     const th = row.querySelector('.lr-thumb');
@@ -1495,15 +1560,14 @@ function bindLineEditors(root, curSh) {
     if (th) th.onclick = jump;
   });
 }
-/* 两段表头读数现算（不重画清单）：只数**有字**的行，判据仍是 `pendingLineOf` ——
-   与轨道上那些斜纹占位同一个口径，两处不会一个说「待生成」一个说「已生成」。
+/* 两段表头读数现算（不重画清单）：只数**有字**的行，配音判据仍只有 `lineVoicedOf` 一份。
    本镜那一句还没写时直说「还没写」：拿「0 句」读数去报一个写作入口，读起来像控件坏了。 */
 function lineCntTexts(sh) {
   const rows = allShots().filter(x => String((x && x.line) || '').trim());
   const mine = String((sh && sh.line) || '').trim();
   return {
-    mine: mine ? mine.length + ' 字 · ' + (pendingLineOf(sh) ? '待生成' : '已生成') : '还没写',
-    all: rows.length + ' 句 · 待生成 ' + rows.filter(x => !!pendingLineOf(x)).length,
+    mine: mine ? mine.length + ' 字 · ' + (lineVoicedOf(sh) ? '已生成' : '未生成') : '还没写',
+    all: rows.length + ' 句 · 未生成 ' + rows.filter(x => !lineVoicedOf(x)).length,
   };
 }
 function paintLineCnts(sh) {
@@ -1541,7 +1605,7 @@ function renderEditor() {
   const chainSlot = chainOn && !sh.firstFrame;
   const hasPrevShot = allShots().indexOf(sh) > 0;
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
-  const mats = mentionedMats(sh);                    // 「提到素材」那排芯片（= 带来源标签的参考图）
+  const mats = mentionedMats(sh, ic, chainPendingOf(sh));   // 「提到素材」那排芯片（按真实发送顺序编号）
   const vp = videoPlanOf(sh);
   const vk = vp.kinds;
   /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
@@ -1573,7 +1637,7 @@ function renderEditor() {
     scheduleSave('参数按型号声明收正');
     setStatus('「' + (sh.name || '这一镜') + '」的部分参数不在当前型号的声明里，已收正：' + drift.join('；') + '（可 Ctrl+Z 退回）');
   } else if (fill.length) scheduleSaveQuiet();
-  /* 剪辑模式打开时右栏整片换成「声音栏」（用户点名的形状：像生成工作台那样合成一句配音，
+  /* 剪辑模式打开时右栏整片换成「声音栏」（用户点名的形状：像工作台那样合成一句配音，
      加的是剪辑那一轨）。镜头编辑器不画：两套控件同屏只会互相抢同一颗按钮。
      放在**参数回写之后**：那一串回写读的是中栏参数条的活控件，跳过它会让「改时长」在剪辑模式下静默失效。 */
   if (midEditTrimOf()) { renderVoiceCol(col, sh); return; }
@@ -1630,35 +1694,43 @@ function renderEditor() {
         <div class="ta-back" id="edPromptBack" aria-hidden="true"></div>
         <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…（打 @ 可以引用素材库）">${esc(promptTextOf(sh))}</textarea>
       </div>
-      ${/* 「提到素材」：这一镜的参考图，每张一枚芯片，写的是提交时会被平台认的 `@参考图N`
-           （与参考图角标、refTokenize 同一份编号）。点一下写进提示词；鼠标移上去弹预览
-           （素材名 + 图片）。⚠ 这段注释在模板串里，一个反引号都不能有。 */
+      ${/* 「提到素材」：这一镜真实会发出去的每一张图 / 一段视频 / 一段音频各一枚芯片，
+           编号与提交前的 refTokenize、真正发出去的 content[] 同一份。
+           点一下写进提示词；鼠标移上去弹预览（素材名 + 官方编号）。⚠ 这段注释在模板串里，一个反引号都不能有。 */
         mats.length ? `
         <div class="ed-label" style="margin-top: var(--sp-10)"><span>提到素材</span><span class="cnt">点一下写进提示词</span></div>
         <div class="mchips">${mats.map(m => {
-          /* 芯片上写**提示词里那个 token**：`@小雅` / `@小雅·三视图`。
-             没有来源标签的（自己传的、切片生成的）才退回 `@参考图N`。
-             点一下写进提示词的也是**芯片上这同一个写法**（显示与动作一致）。 */
-          const tok = m.label || ('参考图' + m.n);
-          const full = '@' + tok + '（第 ' + m.n + ' 张参考图）';
-          return `<button class="mchip" type="button" data-mat="${esc(tok)}" title="${esc(full)}"><img src="${esc(Api.mediaSrc(m.src))}" alt="" loading="lazy"><span class="mn">@${esc(tok)}</span><span class="peek"><img src="${esc(Api.mediaSrc(m.src))}" alt=""><b>${esc(m.label || ('参考图 ' + m.n))}</b><i>@参考图${m.n}</i></span></button>`;
+          /* 有来源标签的写 `@小雅`（提交前会换成 @参考图N）；没有标签的写规范编号。
+             首帧 / 尾帧 / 视频 / 音频各有自己的写法，点一下插入的就是芯片上这同一个 token。 */
+          const tok = m.display || m.token;
+          const full = '@' + m.token + (m.display && m.display !== m.token ? '（' + m.display + '）' : '') + ' · ' + m.note;
+          const thumb = m.src
+            ? `<img src="${esc(Api.mediaSrc(m.src))}" alt="" loading="lazy">`
+            : `<span class="ic">${icon(m.media === 'video' ? 'film' : m.media === 'audio' ? 'mic' : m.pending ? 'link' : 'image', 14)}</span>`;
+          const peek = m.src
+            ? `<span class="peek"><img src="${esc(Api.mediaSrc(m.src))}" alt=""><b>${esc(m.display || m.label || tok)}</b><i>@${esc(m.token)} · ${esc(m.note)}</i></span>`
+            : `<span class="peek"><b>${esc(m.display || m.label || tok)}</b><i>@${esc(m.token)} · ${esc(m.note)}</i></span>`;
+          return `<button class="mchip" type="button" data-mat="${esc(tok)}" title="${esc(full)}">${thumb}<span class="mn">@${esc(tok)}</span>${peek}</button>`;
         }).join('')}</div>` : ''}
       <!-- 用法提示已经并进「@ 素材」那颗按钮的 title 与输入框 placeholder，这里不再重复一句 -->
       <!-- 润色按钮固定在提示词输入框左下方；结果就地展开在这行下面（不弹窗） -->
       <div class="btn-row">
-        <!-- AI 润色：与三个工作台同一套动作按钮（ui.css 的 .btn-row / .tool），结果就地展开在这行下面（不弹窗） -->
-        <button class="tool acc" id="polishBtn" title="调用文字 AI 改写提示词（密钥在「设置」配置）"><span class="ic">${icon('sparkles', 14)}</span>AI 润色</button>
+        <!-- 与三个工作台同一颗按钮：名字、外观与忙时那一句话都取自公共层 InlinePolish.btnHTML，
+             这里只说清「改的是这一镜的提示词」。 -->
+        ${InlinePolish.btnHTML({ id: 'polishBtn', scope: '这一镜的提示词' })}
       </div>
       <div id="polishInline" hidden></div>
       ${/* 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
            这一排就按那份声明出现或消失。只有把素材分成互斥几档的平台才画它；没有这种声明的家
-           整块不出现，槽位沿用原来的互斥置灰（与生成工作台同一套判据、同一份画法）。
+           整块不出现，槽位沿用原来的互斥置灰（与工作台同一套判据、同一份画法）。
            排在「画面素材」那一格标签**之前**：它管的是下面这些槽位一次收哪几类，
-           放在标签后面就读成了「画面素材的一种设置」（生成工作台也是这个顺序）。 */
+           放在标签后面就读成了「画面素材的一种设置」（工作台也是这个顺序）。 */
         modeChipsHTML(sh)}
       <div class="ed-label" style="margin-top: var(--sp-16)"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
       ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-6)">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
-      <button class="polish" id="kfGenBtn"${kfRunOf() ? ' disabled' : ''}>${icon('sparkles', 13)} ${kfRunOf() ? '生成中…' : '按描述生成这一镜的画面'}</button>
+      <div class="btn-row">
+        ${window.aiBtnHTML({ id: 'kfGenBtn', label: '按描述生成这一镜的画面', busy: '生成中…', busyOn: kfRunOf() })}
+      </div>
       <!-- 规划那一轮的流式面板（公共 InlinePolish.live）。它必须留在 DOM 里：
            整列每 3 秒重画一次，面板会被重新拼出来的这一块带走 —— AiStream 每次 push 前
            会确认面板还在宿主里、不在就重画一块并补回已收到的字（见那一块说明）。
@@ -1687,7 +1759,7 @@ function renderEditor() {
             ${advSel(kp.kinds.output_format)}
           </div>
           ${/* 三排「AdvParams 四档之外」的声明驱动控件：画法与判据都在 gen-forms.js 的 AdvExtras，
-               与上面视频那一面、与生成工作台图像栏都是同一一份。容器常驻，内容由 paintKfAdv 现画。 */ ''}
+               与上面视频那一面、与工作台图像栏都是同一一份。容器常驻，内容由 paintKfAdv 现画。 */ ''}
           <div class="adv-grid" id="kfBoolRows" style="margin-top: var(--sp-10)" hidden></div>
           <div class="adv-grid" id="kfTopBools" style="margin-top: var(--sp-10)" hidden></div>
           <div class="adv-grid" id="kfShapeFields" style="margin-top: var(--sp-10)" hidden></div>
@@ -1764,7 +1836,7 @@ function renderEditor() {
             </div>
           </div>` : ''}
           ${/* 三排「AdvParams 那几档之外」的声明驱动控件（型号布尔参数 / 提交体顶层开关 / 提交体顶层非布尔字段）。
-               画法与判据都在 gen-forms.js 的 AdvExtras，与生成工作台是同一一份 ——
+               画法与判据都在 gen-forms.js 的 AdvExtras，与工作台是同一一份 ——
                导演台以前整块没有它们，于是同一个平台在工作台能勾「Turbo 加速档」「平台自动润色」，
                在这一镜上连控件都不画、提交体里一个字都不发。容器常驻，内容由 paintShotAdv 现画。 */ ''}
           <div class="adv-grid" id="edBoolRows" style="margin-top: var(--sp-10)" hidden></div>

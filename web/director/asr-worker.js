@@ -1,6 +1,6 @@
 /* 浏览器内 ASR 的 module worker：transformers.js（Whisper q8）全在这里跑，主线程取消 = 整只 terminate()，
    绝不回落主线程再转一遍。模型文件经 env.localModelPath 走代理的 /models/ 代下载（本机没有时
-   代理自己去镜像拉），allowRemoteModels 关死 —— 页面不直连任何外部域名（§4.1），
+   代理自己去镜像拉），allowRemoteModels 关死 —— 页面不直连任何外部域名，
    ORT 的 wasm 路径也覆写到同源 vendor 目录（默认指 CDN，CSP connect-src 'self' 下必死）。
    协议：进 { type:'run', wav:Blob, language } → 出 { type:'progress' | 'result' | 'error' }
    （progress 两种：transformers.js 的取数进度带 file，worker 自己报 decode / transcribe 阶段）。

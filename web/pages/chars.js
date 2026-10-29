@@ -23,12 +23,8 @@ import { createDetail, detailDots, detailStat } from './chars/detail.js';
 const PAGE_MODE = window.pageModeOf('chars');
 const PAGE_SIZE = window.pageSizeOf('chars');
 /* 三种类型各一档（与库里那三种平级，道具是 2026-10 加的）—— 目录轨「类型」那一节。 */
-import { ensureCss } from '../core/page-css.js';
 
 const KIND_ROWS = [['all', '全部', 'layers'], ['actor', '角色', 'users'], ['scene', '场景', 'image'], ['prop', '道具', 'box']];
-/* 这一份样式单独放在 spa-chars.css，打开这一页时由 `ensureCss` 按需挂上
-   （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
-ensureCss('web/styles/spa-chars.css', 'spa-chars');
 
 export default {
   name: 'CharsView',
@@ -84,7 +80,6 @@ export default {
     const batchText = ref('');
     const batchGroup = ref('');
     const newBtnHtml = (window.icon ? icon('plus', 13) : '') + ' 新建素材';
-    const aiBtnHtml = (window.icon ? icon('sparkles', 14) : '') + ' AI 找素材';
 
     /* ---------- 数据层与本地记账 ---------- */
     let D = window.Chars || null;
@@ -104,6 +99,7 @@ export default {
       KIND_ROWS.find(r => r[0] === kindFilter.value)[1] + '素材',
     ].filter(Boolean).join(' · '));
     let aiPick = null, aiWhy = '', aiRank = null;
+    let aiAsked = false;   // 正在问 AI：回包落定时要把「这句话已经消化过」登记给公共搜索条
     let busyMsg = '';
     let renderSeq = 0;
     const viewItems = [];             // 当前视图的素材（灯箱翻页范围）
@@ -369,7 +365,7 @@ export default {
       const acts = window.Wb.actsHTML(c, {
         items: [
           { act: 'edit', icon: 'pencil', label: '编辑', title: '打开这一条的详情：改描述、出图、配声音' },
-          pic ? { act: 'reuse', icon: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去生成工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
+          pic ? { act: 'reuse', icon: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
           pic ? { act: 'similar', icon: 'search', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
           { act: 'del', icon: 'trash', label: '删除', danger: true },
         ].filter(Boolean),
@@ -476,7 +472,12 @@ export default {
         clearId: 'charsAiClear', onClear: clearAiPick,
       });
     }
-    function clearAiPick() { window.AiFind.clear(AI); }
+    /* 收掉 AI 结果 = 回到完整列表：框里那句原话一起清掉（否则它立刻变成普通搜索词，结果还是被筛着）。 */
+    function clearAiPick() {
+      q.value = '';
+      if (toolbarFb) { toolbarFb.setQuery(''); toolbarFb.markApplied(''); }
+      window.AiFind.clear(AI);
+    }
     function setCnt(text) {
       cntText.value = text;
       if (toolbarFb) toolbarFb.setCount(text);
@@ -951,6 +952,8 @@ export default {
       const c = D.Lib.get(id);
       if (!c) return Toast.warn('这一条已经不在了');
       kindFilter.value = 'all'; group.value = ''; q.value = ''; aiPick = null; aiWhy = ''; aiRank = null;
+      /* 程序性清空也要把框里的字与「跑过的词」一起收回：否则失焦时旧词会被当成普通搜索再跑一遍。 */
+      if (toolbarFb) { toolbarFb.setQuery(''); toolbarFb.markApplied(''); }
       inspId.value = id;
       resetPaging();
       await render();
@@ -1049,7 +1052,7 @@ export default {
       /* 点缩略图看大图（灯箱）：预览图与角色资产共用那一份。 */
       zoom: async (c, el) => { openZoom(c, el.dataset.label || el.dataset.name || picWord(c), el.dataset.src); },
       zoomface: async (c, el) => { openZoom(c, picWord(c), el.dataset.src || D.picOf(c)); },
-      /* 「拿去生成」：带着这张去生成工作台，放进参考图那一栏。 */
+      /* 「拿去生成」：带着这张去工作台，放进参考图那一栏。 */
       reuse: (c, el) => {
         const s2 = el.dataset.src || D.picOf(c);
         if (!s2) return Toast.err('这一条还没有图，先在详情里挑一张或让 AI 出一张');
@@ -1200,37 +1203,59 @@ export default {
       if (n) Toast.receipt('改名完成：' + n + ' 处引用已跟着改');
       return n;
     }
-    /* ---------- AI 找素材 ---------- */
+    /* ---------- AI 搜索 ---------- */
+    /* 素材 id 是 20 位随机串：让模型原样抄，错一个字符就整批对不上（看起来就是「搜了没反应」）。
+       所以给模型看的是名单里的**编号**（1..N），收回时再换算成 id；也兼容它回原 id 或名字。 */
+    const aiCharOf = x => {
+      const xs = String(x == null ? '' : x).trim();
+      const list = D.Lib.list();
+      const n = Number(xs);
+      if (Number.isInteger(n) && n >= 1 && n <= list.length) return list[n - 1];
+      return D.Lib.get(xs) || list.find(c => c && c.name === xs) || null;
+    };
+    const aiCharId = x => { const c = aiCharOf(x); return c ? c.id : ''; };
     const AI = {
-      label: 'AI 找素材',
       btn: () => aiFindBtn.value,
-      ask: () => q.value,
+      /* 问 AI 的那句话从**输入框**现读：现在只有回车 / 失焦 / 清空才同步 q，打字过程中 q 还是旧值。 */
+      ask: () => (toolbarFb ? toolbarFb.value() : q.value),
       focus: () => { if (toolbarFb) toolbarFb.focus(); },
-      emptyMsg: '还没有素材 —— 点「新建素材」，或去导演台用「拆分镜」自动建档',
+      emptyMsg: '还没有素材',
       noneMsg: 'AI 没挑到合适的（换个说法再试）',
       roster: () => D.Lib.list(),
       field: 'ids',
-      known: x => !!D.Lib.get(x),
+      known: x => !!aiCharOf(x),
       payload: (query, all) => ({
         需求: query,
-        素材库: all.map(c => ({
-          id: c.id, 名字: c.name, 类型: D.LIB_KINDS[D.libKindOf(c)], 分组: c.group || '', 人设: c.bio || '', 描述: c.look || '',
+        素材库: all.map((c, i) => ({
+          编号: i + 1, 名字: c.name, 类型: D.LIB_KINDS[D.libKindOf(c)], 分组: c.group || '', 人设: c.bio || '', 描述: c.look || '',
         })),
       }),
       sys: '你是选角导演：用户会用一句话描述需求，你要从他收藏的素材里挑最合适的几条。\n'
-        + '规则：\n1. 只输出 JSON，不要解释、不要 markdown：{"ids":["素材ID"],"summary":"一句话说明按什么挑的"}\n'
-        + '2. 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
-        + '3. 宁缺毋滥：没有合适的就返回空数组。\n4. summary 说清你的理解，界面会显示给用户。',
-      apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
-      onPick: () => {
-        q.value = '';
-        kindFilter.value = 'all';
-        if (toolbarFb) toolbarFb.setQuery('');
+        + '规则：\n1. 只输出 JSON，不要解释、不要 markdown：{"ids":["编号"],"summary":"一句话说明按什么挑的"}\n'
+        + '2. ids 写名单里那一行开头的「编号」（数字），不要返回名字或其它字段。\n'
+        + '3. 优先级：外貌/描述 > 一句话人设/用途 > 类型（角色出镜、场景是地方不是人、道具是物件）。\n'
+        + '4. 宁缺毋滥：没有合适的就返回空数组。\n5. summary 说清你的理解，界面会显示给用户。',
+      apply: s => {
+        /* 把 AI 回的编号 / id / 名字统一换成素材 id（认不到的直接丢）。 */
+        const ids = s.pick ? [...s.pick].map(aiCharId).filter(Boolean) : [];
+        aiPick = ids.length ? new Set(ids) : null;
+        aiRank = (s.rank && ids.length)
+          ? new Map([...s.rank].map(([x, n]) => [aiCharId(x), n]).filter(([k]) => k))
+          : null;
+        aiWhy = s.why;
+        /* 这句话已经交给 AI 了：登记成「跑过的词」，失焦时不再当普通搜索重跑一遍。 */
+        if (aiAsked && toolbarFb) toolbarFb.markApplied(toolbarFb.value());
       },
-      done: () => { resetPaging(); render(); },
-      say: t => { setCnt(t); },
+      /* AI 挑的是跨类型的一批：类型档放回「全部」才看得全；框里那句话留着（用户还要改）。 */
+      onPick: () => { kindFilter.value = 'all'; },
+      done: () => { resetPaging(); return render(); },
+      /* 回执同时进计数行与 toast：失败 / 没挑到在素材库这种大网格里很容易被当成「点了没反应」。 */
+      say: t => { setCnt(t); if (t) window.Toast.warn(t); },
     };
-    const runAiFind = () => window.AiFind.run(AI);
+    const runAiFind = async () => {
+      aiAsked = true;
+      try { await window.AiFind.run(AI); } finally { aiAsked = false; }
+    };
 
     async function loadRefUse() {
       if (Date.now() - refUseAt < 5000) return refUse;
@@ -1316,7 +1341,8 @@ export default {
       syncSel();
       const seq = ++renderSeq;
       paintCharsRail(); paintAiChip(); paintGroups(); paintBatchPicks();
-      const qv = q.value.trim();
+      /* AI 挑着的时候，框里那句话已经变成挑选集合，不再参与字面 / 语义过滤。 */
+      const qv = aiPick ? '' : q.value.trim();
       const all = D.Lib.list();
       let items = all.filter(c => c && matchKind(c) && matchGroup(c)
         && (!aiPick || aiPick.has(c.id)));
@@ -1459,7 +1485,8 @@ export default {
     }
 
     /* 顶部主工具条只在这里建一次：结构与接线归 Wb.filterBar（搜索防抖、芯片渲染、计数都在那一份），
-       这一页只把「AI 找素材」按钮与它的条件芯片作为 extraHTML 传进去，再捎回节点接自己的行为。 */
+       这一页只把「AI 搜索」按钮（画法与文案在公共层 AiFind.btnHTML）与它的条件芯片作为
+       extraHTML 传进去，再捎回节点接自己的行为。 */
     function bindToolbar() {
       if (!toolbarEl.value) return;
       toolbarFb = window.Wb.filterBar.bind(toolbarEl.value, {
@@ -1468,18 +1495,18 @@ export default {
         q: q.value,
         placeholder: searchPh.value,
         ariaLabel: '搜索素材',
-        onSearch: v => { q.value = v; resetPaging(); render(); },
-        /* Esc 清掉搜索框与 AI 条件（与旧页同一个出口：清完由 AI 的 done 重画一次）。 */
-        onEscape: () => {
-          q.value = '';
-          resetPaging();
-          clearAiPick();
+        /* 普通搜索 = 一次新的搜索：AI 挑过的那批先收回（换词就按词筛，不再叠 AI 的名次与集合）。 */
+        onSearch: v => {
+          q.value = v;
+          if (aiPick) { aiPick = null; aiRank = null; aiWhy = ''; }
+          resetPaging(); render();
         },
-        extraHTML: '<button class="tool acc" type="button" title="按描述查找素材">'
-          + aiBtnHtml + '</button><span data-fb="aiChip"></span>',
+        /* Esc 清掉搜索框与 AI 条件（清完由 AI 的 done 重画一次）。 */
+        onEscape: () => clearAiPick(),
+        extraHTML: window.AiFind.btnHTML() + '<span data-fb="aiChip"></span>',
       });
       if (!toolbarFb) return;
-      aiFindBtn.value = toolbarFb.el.querySelector('.tool.acc');
+      aiFindBtn.value = toolbarFb.el.querySelector('.fb-ai');
       aiChipEl.value = toolbarFb.el.querySelector('[data-fb="aiChip"]');
       if (aiFindBtn.value) aiFindBtn.value.onclick = runAiFind;
     }
@@ -1522,8 +1549,11 @@ export default {
 
     onMounted(async () => {
       try {
-        await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
-        await window.__spaLoadScript('web/domain/chars.js', () => window.Chars);
+        /* 两份互不依赖（chars.js 求值时不读 Wb），一起取 */
+        await Promise.all([
+          window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
+          window.__spaLoadScript('web/domain/chars.js', () => window.Chars),
+        ]);
       } catch (e) {
         failed.value = '公共模块没有加载起来：' + errText(e);
         if (window.PageReport) PageReport.pageFail('素材库', failed.value, e);

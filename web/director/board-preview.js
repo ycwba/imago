@@ -10,6 +10,8 @@
    与 Api.preview 的关系：请求体的拼装完全交给 Api.buildBody（与 create 同源），
    这里只负责「这一镜手上有什么素材、每个槽位会交成什么形状」这一段。 */
 
+import { shotRefPlanOf } from './ref-plan.js';
+
 export function createBoardPreview(ctx) {
   const { nameKey, shotKeyframes, Api, ROLE_ZH } = ctx;
 
@@ -29,37 +31,31 @@ export function createBoardPreview(ctx) {
   };
 
   /* 这一镜手上的素材 → 预览用的 inputEntries（**不上传**）。
-     与 `shotInputEntries` 同一份口径：首帧 / 尾帧 / 关键帧 / 参考图 / 参考视频 / 参考音频，
-     同样按型号声明的 maxRef 截断、同样按 inputTemplates 决定交 url 还是交资产号。 */
-  function entriesPlan(sh, prov, ic) {
+     与 `shotInputEntries` 同一份计划表：首帧 / 尾帧 / 画面切片 / 参考图 / 参考视频 / 参考音频，
+     同样按 maxRef 截断、按地址去重、按 inputTemplates 决定交 url 还是交资产号。 */
+  function entriesPlan(sh, prov, ic, opts) {
     const out = [];
     const tplOf = r => (Api && Api.inputTemplate) ? Api.inputTemplate(prov, r) : null;
-    const maxRef = Math.max(1, (ic && ic.maxRef) || 1);
-    let refN = 0;
-    const pushRef = (name, src) => {
-      if (refN >= maxRef) return;               // 超出上限的那些不画（真发时也一样不带）
-      const t = tplOf('reference_image');
-      const e = slotEntry('reference_image', name, prov, t, src);
-      if (e) { out.push(e); refN++; }
-    };
-    /* 首帧 / 尾帧：接续镜的首帧要等上一镜跑完才知道，预览里只标「接上一镜尾帧」。 */
-    const firstSrc = sh.firstFrame || '';
-    const frames = [['first_frame', firstSrc, '首帧'], ['last_frame', sh.lastFrame, '尾帧']].filter(x => x[1]);
-    frames.forEach(([role, src, name]) => {
-      const e = slotEntry(role, name, prov, tplOf(role), src);
+    const plan = shotRefPlanOf(sh, ic, {
+      firstFrame: sh.firstFrame || '',
+      lastFrame: sh.lastFrame || '',
+      chainPending: !!(opts && opts.chainPending),
+    }, id => '/asset/' + id);
+    plan.pictures.forEach(p => {
+      /* 接上一镜尾帧：预览里不知道上一镜那一刻的字节，只标一句，真发时才解析。 */
+      if (p.kind === 'chain') { out.push({ role: 'first_frame', placeholder: '<接上一镜尾帧>' }); return; }
+      const e = slotEntry(p.role, p.label, prov, tplOf(p.role), p.src || (p.assetId ? '/asset/' + p.assetId : ''));
       if (e) out.push(e);
     });
-    (shotKeyframes(sh) || []).forEach(k => pushRef('画面切片', k.assetId ? ('/asset/' + k.assetId) : ''));
-    (sh.refImages || []).forEach(() => pushRef('参考图', ''));
     /* 参考视频 / 参考音频：与真发同一份角色名（registry 的 inputTemplates）。 */
-    if (ic && ic.refVideo && sh.refVideo) {
-      const e = slotEntry('reference_video', '参考视频', prov, tplOf('reference_video'), sh.refVideo.src || '');
+    plan.videos.forEach(v => {
+      const e = slotEntry('reference_video', '参考视频', prov, tplOf('reference_video'), v.src || (v.assetId ? '/asset/' + v.assetId : ''));
       if (e) out.push(e);
-    }
-    if (ic && ic.refAudio && sh.refAudio) {
-      const e = slotEntry('reference_audio', '参考音频', prov, tplOf('reference_audio'), sh.refAudio.src || '');
+    });
+    plan.audios.forEach(a => {
+      const e = slotEntry('reference_audio', '参考音频', prov, tplOf('reference_audio'), a.src || (a.assetId ? '/asset/' + a.assetId : ''));
       if (e) out.push(e);
-    }
+    });
     return out;
   }
 
@@ -67,9 +63,9 @@ export function createBoardPreview(ctx) {
      `fields` 由 engine 备好（提示词、型号、档位、时长、画幅、参考语法转换后的正文…）。
      算不出来就**抛**（engine 把原因显示出来），不返回空 JSON —— 空 JSON 会被读成
      「这次没有请求体」，那是骗人。 */
-  function shotPreview(sh, prov, fields, ic) {
+  function shotPreview(sh, prov, fields, ic, opts) {
     const body = Api.createBody(prov, Object.assign({}, fields, {
-      inputEntries: entriesPlan(sh, prov, ic),
+      inputEntries: entriesPlan(sh, prov, ic, opts),
     }));
     return Api.snapOf(body);
   }

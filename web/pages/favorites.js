@@ -3,10 +3,6 @@
    组件只负责「这一屏长什么样」；分页、灯箱、详情、缩略图缓存仍是全站那一份实现。 */
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, inject, watch } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/favorites.js';
-import { ensureCss } from '../core/page-css.js';
-
-/* 页面样式跟着页面组件走：第一次打开这一页才挂，切页不重复插。 */
-ensureCss('web/styles/spa-pages.css');
 
 const PAGE_MODE = window.pageModeOf('favorites');
 const PAGE_SIZE = window.pageSizeOf('favorites');
@@ -65,7 +61,7 @@ export default {
     const dlBusy = reactive({});
     const dlMsg = reactive({});
     const noteTimers = new Map();
-    /* 多选：状态与操作在公共件 `Wb.multi`（资产库与生成工作台同一份）。
+    /* 多选：状态与操作在公共件 `Wb.multi`（资产库与工作台同一份）。
        这一页只提供三件事：条目身份（keyOf）、当前这一屏看得见的条目、改完之后怎么重画。 */
     const multiMode = ref(false);
     const selected = new Set();
@@ -88,6 +84,7 @@ export default {
     let aiPick = null;
     let aiRank = null;
     let aiWhy = '';
+    let aiAsked = false;   // 正在问 AI：回包落定时要把「这句话已经消化过」登记给公共搜索条
     /* 工具条结构（chips / 搜索框 / AI 按钮 / AI 条件芯片 / 计数）全部由 Wb.filterBar 生成，
        这一页只留「点完之后做什么」。以下是在 bind 之后取回的几颗节点，页面自己接线。 */
     let toolbarFb = null;
@@ -118,7 +115,7 @@ export default {
       pagerTick.value++;
     }
 
-    /* 类型筛选（图片/视频/音频）：公共件 Wb.kindFilter —— 与生成工作台、资产库同一副
+    /* 类型筛选（图片/视频/音频）：公共件 Wb.kindFilter —— 与工作台、资产库同一副
        （以前这一页走 filterBar 的芯片行，三页三副样子；用户点名：统一成工作台那副）。
        计数口径照原来那一份：这一屏里这一档有多少条。 */
     let kindFb = null;
@@ -166,21 +163,29 @@ export default {
         q: q.value,
         placeholder: '搜索名称 / 提示词 / 备注',
         onFilter: v => { filter.value = v; resetPaging(); render(); },
-        onSearch: v => { q.value = v; resetPaging(); render(); },
-        extraHTML: '<button class="tool acc" title="AI 挑收藏">'
-          + ((window.icon ? icon('sparkles', 14) : '') + ' AI 找素材') + '</button>'
-          + '<span data-fb="aiChip"></span>',
+        /* 普通搜索 = 一次新的搜索：AI 挑过的那批先收回（换词就按词筛，不再叠 AI 的名次与集合）。 */
+        onSearch: v => {
+          q.value = v;
+          if (aiPick) { aiPick = null; aiRank = null; aiWhy = ''; }
+          resetPaging(); render();
+        },
+        extraHTML: window.AiFind.btnHTML() + '<span data-fb="aiChip"></span>',
         /* 过期图回源那一句是提醒，不是计数：留在计数右边，别混进 setCount 里。 */
         tailHTML: '<span class="cnt" data-fb="heal" style="color:var(--warn)"></span>',
       });
       if (!toolbarFb) return;
-      aiBtnEl = toolbarFb.el.querySelector('.tool.acc');
+      aiBtnEl = toolbarFb.el.querySelector('.fb-ai');
       if (aiBtnEl) aiBtnEl.onclick = runAiFind;
       aiChipHost = toolbarFb.el.querySelector('[data-fb="aiChip"]');
       healEl = toolbarFb.el.querySelector('[data-fb="heal"]');
     }
 
-    function clearAiPick() { window.AiFind.clear(AI); }
+    /* 收掉 AI 结果 = 回到完整列表：框里那句原话一起清掉（否则它立刻变成普通搜索词，结果还是被筛着）。 */
+    function clearAiPick() {
+      q.value = '';
+      if (toolbarFb) { toolbarFb.setQuery(''); toolbarFb.markApplied(''); }
+      window.AiFind.clear(AI);
+    }
 
     function thumbHtml(it) {
       const kind = favKind(it);
@@ -232,24 +237,33 @@ export default {
       it.duration ? it.duration + 's' : '',
     ].filter(Boolean).join(' · ');
 
+    /* ---------- 存回本机：范围 = 多选里勾选的那几条 ----------
+       这颗按钮住在**多选条里**（不在筛选行那一排）：它存的就是勾选的那些，
+       不多选就点它等于「把这一屏都存一遍」—— 那不是用户的意思。
+       本机 / 去重 / 去空地址的判据在 AssetLocal.pullPlan 那一份（与卡片徽标同一份）。 */
     function paintPullBtn() {
       if (!pullBtn.value) return;
-      AssetLocal.pullBar(pullBtn.value, pullScope(), { what: '收藏', more: '本地上传的那一批不算。' });
+      const picked = favMulti().selected();
+      AssetLocal.pullBar(pullBtn.value, pullScope(), {
+        what: '收藏', zone: '选中的',
+        empty: picked.length ? '选中的这些本机都已经有了' : '先勾选要存回本机的收藏',
+      });
     }
 
     function pullScope() {
-      return AssetLocal.pullPlan(viewItems.value.filter(it => it.key), { keyOf: it => it.key });
+      return AssetLocal.pullPlan(favMulti().selected(), { keyOf: it => it.key });
     }
 
     async function pullLocal() {
-      const todo = pullScope();
       const btn = pullBtn.value;
+      const picked = favMulti().selected();
+      if (!picked.length) {
+        Toast.warn('先勾选要存回本机的收藏');
+        return;
+      }
+      const todo = pullScope();
       if (!todo.length) {
-        /* 守卫型的这一句要用 warn 档：安静档吞掉 ok/info 之后，按钮看起来就是「坏了」——
-           「你点了，但事实没发生」正是必须看见的那一类。 */
-        Toast.warn(viewItems.value.some(x => x.kind !== 'local')
-          ? '本机已有'
-          : '本地文件不用存');
+        Toast.warn(picked.every(it => it.kind === 'local') ? '本地文件不用存' : '选中的这些本机都已经有了');
         return;
       }
       AssetLocal.pullStart(btn);
@@ -261,7 +275,7 @@ export default {
       paintPullBtn();
       await nextTick();
       bindThumbs();
-      AssetLocal.pullReceipt(s, { nothing: '这一屏没有需要存的收藏' });
+      AssetLocal.pullReceipt(s, { nothing: '选中的这些没有需要存的收藏' });
     }
 
     /* 平台下拉：从收藏里现取（平台涨到十几家时，一行十几颗芯片会把整行撑开）。 */
@@ -293,7 +307,8 @@ export default {
       paintAiChip();
       viewToggle && viewToggle.apply();
       renderProvSelect();
-      const query = q.value.trim();
+      /* AI 挑着的时候，框里那句话已经不参与过滤：它已经变成 AI 的挑选集合与名次。 */
+      const query = aiPick ? '' : q.value.trim();
       const all = Fav.list();
       favTotal.value = all.length;
       const items = orderItems((query ? Fav.search(query) : all)
@@ -333,7 +348,7 @@ export default {
       /* 开着的那条详情：重画换了卡里的内容，展开区要重新填一次。 */
       paintOpenDetail();
       /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。
-         判据用 wantSave 那一份；「存回本机」按钮仍是「立刻取回」用的。 */
+         判据用 wantSave 那一份；多选条里那颗「存回本机」仍是「立刻取回勾选的那几条」用的。 */
       try { AssetLocal.offerAll(shown, { keyOf: it => it.key }); } catch (e) { /* 补存失败不影响列表 */ }
       resignSome(shown, seq).catch(e => console.warn('[fav] 过期回源失败', e));
     }
@@ -414,7 +429,7 @@ export default {
       else if (act === 'drop') dropItem(it);
     }
 
-    /* ---------- 多选：状态与操作在公共件 `Wb.multi`（资产库与生成工作台同一份） ----------
+    /* ---------- 多选：状态与操作在公共件 `Wb.multi`（资产库与工作台同一份） ----------
        这一页只提供三件事：条目身份（keyOf）、当前这一屏看得见的条目、改完之后怎么重画。 */
     let multiInst = null;
     const favMulti = () => multiInst || (multiInst = window.Wb.multi({
@@ -456,13 +471,16 @@ export default {
     function paintFavBulkBar() {
       if (!multiMode.value) return;
       /* 批量条那三处读数（已选几项 / 全选那颗的文案 / 下载键能不能点）由公共件算：
-         资产库与生成工作台写的是同一句，这里不另写一份。 */
+         资产库与工作台写的是同一句，这里不另写一份。 */
       favMulti().paintRefs({
         count: bulkCountText, all: bulkAllText, canDown: bulkDownDisabled, allDisabled: bulkAllDisabled,
         favRemoveDisabled: bulkFavRemoveDisabled,
       });
       const tip = favMulti().favTip();
       bulkTipText.value = tip ? ('点卡片即可勾选 · ' + tip) : '点卡片即可勾选';
+      /* 「存回本机」那颗也是「勾了哪几条」的函数：不跟勾选一起重画，按钮上就一直挂着
+         上一次那个数（点下去的范围却已经变了）。 */
+      paintPullBtn();
     }
     async function bulkDownload() {
       const sel = favMulti().selected();
@@ -630,9 +648,9 @@ export default {
 
     const aiScope = () => Fav.list().slice(0, 100);
     const AI = {
-      label: 'AI 找素材',
       btn: () => aiBtnEl,
-      ask: () => q.value,
+      /* 问 AI 的那句话从**输入框**现读：现在只有回车 / 失焦 / 清空才同步 q，打字过程中 q 还是旧值。 */
+      ask: () => (toolbarFb ? toolbarFb.value() : q.value),
       focus: () => { if (toolbarFb) toolbarFb.focus(); },
       emptyMsg: '还没有收藏',
       get noneMsg() {
@@ -649,17 +667,21 @@ export default {
         + '2. 优先级：备注（备注写的是用途）> 名称/描述 > 类型。\n'
         + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
         + '4. summary 说清你按什么理解的需求，界面会显示给用户看。',
-      apply: s => { aiPick = s.pick; aiRank = s.rank; aiWhy = s.why; },
-      onPick: () => {
-        q.value = '';
-        filter.value = 'all';
-        if (toolbarFb) toolbarFb.setQuery('');
+      apply: s => {
+        aiPick = s.pick; aiRank = s.rank; aiWhy = s.why;
+        /* 这句话已经交给 AI 了：登记成「跑过的词」，失焦时不再当普通搜索重跑一遍。 */
+        if (aiAsked && toolbarFb) toolbarFb.markApplied(toolbarFb.value());
       },
-      done: () => { resetPaging(); render(); },
+      /* AI 挑的是跨类型的一批：类型档放回「全部」才看得全；框里那句话留着（用户还要改）。 */
+      onPick: () => { filter.value = 'all'; },
+      done: () => { resetPaging(); return render(); },
       say: t => { setFavCnt(t); },
     };
 
-    function runAiFind() { window.AiFind.run(AI); }
+    async function runAiFind() {
+      aiAsked = true;
+      try { await window.AiFind.run(AI); } finally { aiAsked = false; }
+    }
 
     function onFavChange() { render(); }
     function onStorage() { render(); }

@@ -90,11 +90,11 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        新的预览是**页面主动算**的（`RawRequest.schedule` → `Api.preview` 的纯算，不发网络请求），
        不再依赖「事件在请求发出的那一刻就投」；「已发送」那一份仍然收 `wb:raw-request` 事件，
        但那件事发生在用户点生成之后 —— 那时页面早就加载完了，不会漏。
-       所以 `raw-request.js` 改成**按需补载**（导演台 / 生成工作台两页各自 `__spaLoadScript`），
+       所以 `raw-request.js` 改成**按需补载**（导演台 / 工作台两页各自 `__spaLoadScript`），
        首屏少一枚 11.6KB 的脚本。
      ·  +4.7KB：同一天补的三样东西都落在**必须常驻**的那几份里，按需加载反而更贵：
        `api.js` 的 `buildBody` / `preview`（请求体拼装的唯一出口 —— 预览与实发共用它才保证
-       「预览的体 = 真发的体」，拆出去就要在两份之间同步，迟早走岔）；
+「预览的体 = 真发的体」，拆出去就要在两份之间同步，迟早走岔）；
        `chars.js` 的 `renameGroup`（写素材库的唯一出口，页面侧再抄一份就是第二份写库口径）
        与 `setPic` 投的那枚 `wb:char-pic`（素材出图 → 导演台自动补参考图的那条链）；
        `forms.js` 的「待建素材」块（弹窗的唯一实现，拆出去就成第二套弹窗）。
@@ -105,7 +105,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `chars.js` 与 `asset-picker.js` 都是**按需补载**的（只有素材库页与导演台要），
        所以这一笔**不进首屏**；进首屏的是 `gen-forms.js` 的 `VoiceNote.runClone`
        （约 1.1KB，与 `VoiceNote.run` 同一族：拿素材库里的料填进面前那一格）。
-     ·  +0.6KB：`skills.js` 的 `WbSkills.refRule` —— 「素材范围优先」的读法只有这一处
+     ·  +0.6KB：`skills.js` 的 `WbSkills.refRule` ——「素材范围优先」的读法只有这一处
        （取已启用的那些 Skill 声明的素材组）。它住在 Skill 的唯一客户端里，
        拆到导演台去就得在页面侧再抄一份读法。
      ·  +1.6KB：`gen-forms.js` 的 `window.TplVars` —— **Skill 正文里的变量占位符**
@@ -115,7 +115,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      ·  +5.2KB：`text-ai.js` 的 `TextAI.DEF` 多了三份正文（拆分镜 / 改分镜 / 新素材判定），
        都改成**带变量占位符**的那一份，并把 `board_assets` 那一族补上。
        ⚠ `DEF` 与 `skills/` 里那份 SKILL.md **必须逐字相同**（判据 tests/e2e/smoke.cjs 守着
-       「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
+「内置 Skill 正文与 TextAI.DEF 漂开了」）—— 同一份提示词两处维护，改一处就要同步另一处。
        所以这一笔省不掉：变量机制要进正文，正文要进 `DEF`，`DEF` 在首屏。
      ·  +2.1KB（2026-10-21）：导出素材的取消态（rendering / assetsExporting / cancelled 收尾一行不落）、
        关键帧入口重入锁与按钮按运行态渲染、清空三处提示词、失败镜过滤 draft 占位 ——
@@ -140,10 +140,10 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `chunk`（导演台的 engine.js 由 index.js 挂载时才 `import()`，modulepreload 只走静态图，看不见这一层）
        与 `needAll`（全站 `needs` 的并集，从上面那张表现算；空闲兜底改读它，boot-assistant 不再抄一份
        src→全局 的名单，那张对照表只剩 routes.js 的 NEED_GLOBAL 一处）。涨的这 775 字节买的是把
-       「等 needs → 取页面 → 页面再取引擎」三段串并成一段。实跑 27 枚 / 795298 字节。
+「等 needs → 取页面 → 页面再取引擎」三段串并成一段。实跑 27 枚 / 795298 字节。
      ·  +0.9KB（2026-10-21，侧栏余额外壳收拢）：枚数不变，涨的只有 `sidebar.js` 一处 ——
        弹层（余额详情）里手抄的那一整套余额外壳收拢回公共件：新增 `balWrap`（区域容器一份）与
-       `balCardsHTML`（卡列表 + 「一家都没有 / 一张摆不下」那两种空态说法一份），侧栏与弹层各调同一份；
+       `balCardsHTML`（卡列表 +「一家都没有 / 一张摆不下」那两种空态说法一份），侧栏与弹层各调同一份；
        `paintBal` 多一个 `full` 档（全量摆、不截断、不写摘要行那三个读数、不挂本机行订阅）。
        这是 dup-guard 判据 ③「表外新增重复」当场报出来的那一处（`paint` 在两个文件各一份），
        收口的代价就是这份公共件；把它拆成按需反而要让每个开弹层的页面补载侧栏。
@@ -155,13 +155,13 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `tests/e2e/asset-requests.cjs`（首屏「取列表」≤12 笔 / load 轮数 ≤4 / 计数不许从空游标起 /
        同参数第二次 load 0 笔 / 有缓存时选择器 ≤300ms）。实跑 27 枚 / 796884 字节。
      ·  +4.4KB（2026-10-21 下午，用户复验左栏两处）：枚数不变，涨的是 `sidebar.js` —— 余额区
-       「展开全部 N 家」就地展开（`.bal-exp`）与本机产物明细行，按用户的原话做成**不跳页**；
-       侧栏本来就是外壳顶层文档里的经典脚本（AGENTS §11.1），这份交互逻辑没有第二个落点。
+「展开全部 N 家」就地展开（`.bal-exp`）与本机产物明细行，按用户的原话做成**不跳页**；
+       侧栏本来就是外壳顶层文档里的经典脚本，这份交互逻辑没有第二个落点。
        另有 api.js / capabilities.js / engine.js 几十行注释与 X15 的按家补画监听。实跑 27 枚 / 801362 字节。
      ·  +7.7KB（2026-10-22，拖素材到球的引用载荷）：+1 枚 `web/domain/asset-ref.cjs`（UMD .cjs，
        与 ident.cjs 同一套写法）—— 四个拖动源（素材库 / 收藏 / 资产库 / 工作台）与球 / 抽屉两个落点
        都要在 dragstart 那一刻写同一份载荷，而 dragstart 是同步事件，等到拖起来再补载已经晚了；
-       字段白名单与引用标签只有这一份（AGENTS §7 的「拖素材的引用载荷」）。实跑 28 枚 / 809273 字节。
+       字段白名单与引用标签只有这一份（「拖素材的引用载荷」）。实跑 28 枚 / 809273 字节。
      ·  +2.2KB（2026-10-22，导出目录）：+1 枚 `web/domain/export-dir.js` —— 浏览器 File System Access
        的句柄管理（选目录 / 写产物 / 清除），设置页与成片导出两处都要它；导出是**用户手势触发**的
        当下动作，句柄又存 IndexedDB（`Kv.at('dirs')`），补载那一下的等待会卡在「点导出」的正中间，
@@ -173,7 +173,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        实跑 29 枚 / 814346 字节。
      ·  +1.1KB（2026-10-23，成片环境现探）：枚数不变，涨的是 `api.js` 的 `exportCaps()` ——
        代理不再转码（没有渲染队列可问），成片能不能导只能由页面问 WebCodecs；设置页与助手的
-       「成片环境」读同一份探测结果，而 api.js 本来就在首屏（余额与列表都在它上面）。
+「成片环境」读同一份探测结果，而 api.js 本来就在首屏（余额与列表都在它上面）。
        实跑 29 枚 / 815511 字节。
      ·  +0.5KB（2026-10-23，导出选容器）：枚数不变，涨的还是 `api.js` 的 `exportCaps` 读数 ——
        导出按探针选容器（avc → mp4 / 只有 vp9 → webm，`MediaExport.pickCodec`），
@@ -220,7 +220,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
       实跑 29 枚 / 840222 字节。
      ·  +1.6KB（2026-10-25，本机条目删不掉 + 归属挂错名字）：枚数不变，涨的是 `web/domain/assetlib.js` ——
        ① remove() 给「条目即本机资产」的行（localSelf）直连 DELETE /local-assets：索引里 provider 只是
-          「谁生成的」注记（语音产物写平台 id，导入 / 盘上补账写「本机」/ 'local'），以前当平台 id 查注册表，
+「谁生成的」注记（语音产物写平台 id，导入 / 盘上补账写「本机」/ 'local'），以前当平台 id 查注册表，
           'local' /「本机」查不到任何一家，这批卡（老版字幕烧录落下的 subtitle-*.png、导入的视频、
           盘上对账补的账）的删除键一点就抛「找不到平台」，永远删不掉；
        ② 归属显示：provider 注记解析不到平台时写「本机」，不再挂来源那家语音平台的 displayName
@@ -236,26 +236,26 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        实跑 29 枚 / 842180 字节。
     ·  +0.9KB（2026-10-25，收藏动作下沉到 domain 层）：枚数不变，涨的是 `web/domain/fav.js` ——
       新增 `isEntry` / `addEntry` / `removeEntry` / `toggleEntry` 四个入口：
-      「把一条产物收进 / 拿出收藏」这一件事**只有这一份实现**（身份 = assetKey，
+「把一条产物收进 / 拿出收藏」这一件事**只有这一份实现**（身份 = assetKey，
       收藏项 = fromEntry），页面只给「这一条能不能收」与「按钮长什么样」。
       卡面上那颗 ★ 与三页批量条上的「收藏 / 取消收藏」都走它。
       fav.js 是首屏常驻的取数底座（收藏是全站共用的数据层），挪不到按需去。
       实跑 29 枚 / 843038 字节。
      ·  +1.8KB（2026-10-27，时间线工具条那一族图标）：枚数不变，涨的是 `web/ui/ui.js` 的 `ICONS` ——
        标记四类 / 重做 / 吸附 / 波纹 / 六种选择工具 / 断链 / 回播放头共 12 枚（16×16 几何）。
-       图标只有 `window.icon()` 这一张表（AGENTS §3.4.4），导演台的时间线工具条也从它取；
+       图标只有 `window.icon()` 这一张表，导演台的时间线工具条也从它取；
        另起一张导演台私有图标表就是第二份实现，所以留在这张表里。
        同一笔里也含着 `web/ui/skills.js` 的两行（install / update 的返回值）与另一处正在改首屏那几份的工作，
        按同一口径记账。实跑 29 枚 / 844835 字节。
      ·  +0.7KB（2026-10-27，轨道工具条那四颗「一段」的动作图标）：枚数不变，涨的还是 `web/ui/ui.js` 的 `ICONS` ——
        上一笔记下 12 枚，这一轮把「加一段 / 摘一段 / 缩短 / 加长」也补进同一张表（各一枚 16×16 几何）。
        这四颗是时间线工具条上的动作，画的是「一段」这个形状加加减号与箭头；图标只有 `window.icon()`
-       这一张表（AGENTS §3.4.4），导演台从它取，另起一张私有表就是第二份实现。
+       这一张表，导演台从它取，另起一张私有表就是第二份实现。
        实跑 29 枚 / 845542 字节。
      · +0.3KB（2026-10-27，「点一颗按钮，视角跳回最上面」那份保护从外壳挪进公共件）：枚数不变，
        涨的是 `web/app.js` —— 外壳那份 `web/core/scroll-guard.js`（猴补 Element.prototype 的
        innerHTML / outerHTML / replaceChildren）整族删掉：它在全局原型上动手脚，只罩得住
-       「整片重画把滚动容器换掉」，罩不住「重画后内容变短被夹回上限」。现在由重画点自己调
+「整片重画把滚动容器换掉」，罩不住「重画后内容变短被夹回上限」。现在由重画点自己调
        公共件 `Wb.viewport.keep`（`web/ui/workbench.js`，按锚点还原，导演台右栏 renderEditor 已在用）。
        这一份不能按需：它是外壳里那几行说明与公共件的注册点，且 keep 落在页面自己的重画里。
        判据 `tests/e2e/viewport-keep.cjs`（裸重画必须丢位 = 对照，套 keep 必须还回原位 = 机制，
@@ -281,8 +281,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        跟随系统、__themeApply / __sbThemeIcon 两个口；它必须同步跑在样式表之前（否则先闪一帧浅色），
        挪不到按需。`web/ui/ui.js` 是「主题配色 / 日间夜间」两行设置项（取值表与设置页、助手同源），
        `web/ui/sidebar.js` 是那颗日 / 夜按钮改调 __themeApply 并补图标回调。
-       这一笔之后实跑 29 枚 / 838250 字节（登记上限 840000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 840000;
+       这一笔之后实跑 29 枚 / 838250 字节（登记上限 840000）。
+     · 按实跑重登记（2026-10-29，页面加载提速）：枚数不变（仍是 29 枚），三份首屏件各长了几百字节 ——
+       `web/core/routes.js` 每页多一格 `css`（页面样式表的唯一出处：挂载 / 预取都读它，页面组件里
+       那些 ensureCss 调用因此删掉）；`web/ui/sidebar.js` 的导航项补上悬停 / 聚焦预取；
+       `web/boot-assistant.js` 改成几份互不依赖的脚本一起取（chat.js 仍排最后）。
+       这一笔省掉的是**往返**而不是首屏字节：没有新挂脚本，也没有把按需件挪进来。
+       实跑 29 枚 / 841569 字节（登记上限 844000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 844000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);
@@ -290,18 +296,25 @@ ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed
 const bootJs = read('web/boot-assistant.js');
 /* 「关着不下载」必须是一条**结构**判据，不是文字顺序判据：注释里写了 ai_chat_off 也算出现，
    按先后排的判据会把「无条件清单 + 注释里提了一句」这种写法放过去（变异验证过：把 chat.js
-   塞回 `var files = [...]`，文字顺序判据照旧绿）。看三件事：
-     · 无条件那份清单里没有 chat.js；
-     · chat.js 是被一条 `if (!<闸>) files.push('web/features/chat.js')` 加进来的；
+   塞回 `var files = [...]`，文字顺序判据照旧绿）。看四件事：
+     · 无条件那份清单里没有 chat.js / chat-tools.js；
+     · chat-tools.js 是被一条 `if (!<闸>) files.push('web/features/chat-tools.js')` 加进来的；
+     · chat.js 是被同一条闸下的 `if (!<闸>) one('web/features/chat.js')` 取回来的
+       （几份互不依赖的脚本一起取之后，chat.js 不再跟在 files 里排最后，而是单排在这一步）；
      · 那道闸的变量名就出现在读 `localStorage.getItem('ai_chat_off')` 的那一行上。 */
 const bootList = (bootJs.match(/var files = \[[^\]]*\]/) || [''])[0];
-const bootGate = bootJs.match(/if\s*\(!([A-Za-z_$][\w$]*)\)\s*files\.push\(\s*'web\/features\/chat-tools\.js'\s*,\s*'web\/features\/chat\.js'\s*\)/);
-const bootGateVar = bootGate ? bootGate[1] : '';
+const bootGateChat = bootJs.match(/if\s*\(!([A-Za-z_$][\w$]*)\)\s*one\(\s*'web\/features\/chat\.js'\s*\)/);
+const bootGateTools = bootJs.match(/if\s*\(!([A-Za-z_$][\w$]*)\)\s*files\.push\(\s*'web\/features\/chat-tools\.js'\s*\)/);
+const bootGateVar = bootGateChat ? bootGateChat[1] : '';
 ok('外壳空闲补载 chat.js 走 ai_chat_off 那道闸（关着不下载那一份）',
-  !!bootGate && !/features\/chat\.js/.test(bootList)
+  !!bootGateChat && !!bootGateTools && bootGateTools[1] === bootGateVar
+  && !/features\/chat\.js/.test(bootList) && !/features\/chat-tools\.js/.test(bootList)
   && bootJs.split(/\r?\n/).some(l => l.includes(bootGateVar) && /ai_chat_off/.test(l)),
-  bootGate ? '闸的变量 ' + bootGateVar + ' 没连着读 ai_chat_off，或 chat.js 仍在无条件清单里'
-    : '找不到 `if (!<闸>) files.push(\'web/features/chat-tools.js\', \'web/features/chat.js\')` 这一条 —— 关着也照下 389KB');
+  bootGateChat && bootGateTools
+    ? (bootGateTools[1] === bootGateVar && bootGateVar
+      ? '闸的变量 ' + bootGateVar + ' 没连着读 ai_chat_off，或 chat.js / chat-tools.js 仍在无条件清单里'
+      : 'chat.js 与 chat-tools.js 不是同一道闸管的')
+    : '找不到 `if (!<闸>) one(\'web/features/chat.js\')` 与 `if (!<闸>) files.push(\'web/features/chat-tools.js\')` 这两条 —— 关着也照下 389KB');
 
 const sb = read('web/ui/sidebar.js');
 ok('侧栏页面清单来自 WB_ROUTES', /WB_ROUTES[\s\S]{0,80}\.pages/.test(sb));
@@ -383,7 +396,7 @@ for (const c of components) {
   ok(f + ' 从本地 vue runtime 引入', /from\s+'(?:\.\.\/\.\.\/|\.\/)vue\.runtime\.esm-browser\.prod\.js'/.test(src));
   ok(f + ' 有默认导出组件', /export\s+default\b/.test(src));
   /* 只拦「会真去取外部字节」的写法；`/^https?:\/\//` 校验、输入框 placeholder 与
-     用户自填的网关模板都不是请求（§1 管的是请求，不是字符串里出现 https）。 */
+     用户自填的网关模板都不是请求（这条管的是请求，不是字符串里出现 https）。 */
   ok(f + ' 不直连外部地址',
     !/\b(?:fetch|import|src|href)\s*\(?\s*['"]https?:\/\//i.test(src) &&
     !/<script[^>]+src=["']https?:/i.test(src));

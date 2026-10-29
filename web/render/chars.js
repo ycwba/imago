@@ -102,7 +102,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("span", _hoisted_4, _toDisplayString(_ctx.libraryCount) + " 项素材", 1 /* TEXT */)
       ]),
-      _cache[1] || (_cache[1] = _createElementVNode("span", { class: "phead-sub" }, "让角色、场景与道具各就其位", -1 /* CACHED */)),
+      _cache[1] || (_cache[1] = _createElementVNode("span", { class: "phead-sub" }, null, -1 /* CACHED */)),
       _createElementVNode("div", _hoisted_5, [
         _createElementVNode("button", {
           class: "pri",

@@ -1,4 +1,4 @@
-/* 生成工作台（Vue 3，无构建）—— 由 studio.html 整页迁来。
+/* 工作台（Vue 3，无构建）—— 由 studio.html 整页迁来。
    视频 / 图像 / 语音三合一：左栏一套表单按类型换内容，右栏是三类型合并的「这一台的生成历史」
    （它不是侧栏那个「资产库」—— 那一页读的是本机存下来的字节，这一栏读的是平台任务记录）。
 
@@ -16,11 +16,6 @@
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
 import { ref, inject, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/studio.js';
-import { ensureCss } from '../core/page-css.js';
-
-/* 页面样式单独一份，打开这一页时由 `ensureCss` 按需挂上
-   （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
-ensureCss('web/styles/spa-studio.css', 'spa-studio');
 
 /* 每一档只点一次名：`zh` 既画在分段开关上，也拼进提交按钮那一句（`生成` + `zh`）。 */
 const TYPES = {
@@ -98,6 +93,20 @@ const StudioView = {
       const box = R.advBody;
       if (!box) return;
       box.querySelectorAll('[id]').forEach(n => { R[n.id] = n; });
+    }
+    /* 两颗 AI 按钮由公共层画（外观、那一行字、忙时那句话都只有一份），模板里只留宿主。
+       灌完按 id 登记进 R，下面的接线照旧用 `$('polishBtn')` / `$('splitBtn')`。 */
+    function paintAiBtns() {
+      const ph = R.polishHost;
+      if (ph) {
+        ph.innerHTML = InlinePolish.btnHTML({ id: 'polishBtn' });
+        R.polishBtn = ph.firstElementChild;
+      }
+      const sh = R.splitHost;
+      if (sh) {
+        sh.innerHTML = window.aiBtnHTML({ id: 'splitBtn', label: '拆分片段生成', title: '拆成多张图的提示词' });
+        R.splitBtn = sh.firstElementChild;
+      }
     }
 
     /* `?t=` / `reuse=1` 在 SPA 里挂在 hash 上（#studio.html?t=image）；直接打开旧地址时退回 search。 */
@@ -247,7 +256,7 @@ const StudioView = {
         if (typeof v === 'string') return v;
         try { const raw = localStorage.getItem(k); return raw == null ? d : raw; } catch (e) { return d; }
       }
-      function writeLS(k, v) { Store.write(k, v, { label: '生成工作台记住的内容' }); }
+      function writeLS(k, v) { Store.write(k, v, { label: '工作台记住的内容' }); }
       const PICK_KEY = 'studio_pick';
       /* 型号按类型各记一份，整包是一个对象：交给 Store 存信封（旧值是裸 JSON，同样先摸一次） */
       function loadPicks() {
@@ -260,7 +269,7 @@ const StudioView = {
       function savePick(type, val) {
         const all = loadPicks();
         all[type] = val;
-        Store.write(PICK_KEY, all, { label: '生成工作台记住的型号' });
+        Store.write(PICK_KEY, all, { label: '工作台记住的型号' });
       }
 
       /* ============================ ③ 注册表与型号 ============================ */
@@ -396,7 +405,7 @@ const StudioView = {
         const lead = [];
         if (TYPE === 'audio') {
           const all = Api.pickable((REG.providers || []).filter(p => p.kind === 'audio'));
-          if (all.length > 1 && prov) lead.push('当前这一家：' + (prov.displayName || prov.name) + '（共 ' + all.length + ' 家，在上面的型号下拉里换）');
+          if (all.length > 1 && prov) lead.push('当前这一家：' + (prov.displayName || prov.name) + '（共 ' + all.length + ' 家）');
         }
         let txt = lead.join(' · ');
         if (prov) {
@@ -1339,9 +1348,17 @@ const StudioView = {
         const out = [];
         const m = inputs();
         if (TYPE === 'audio') return out;
-        (m.image || []).forEach((it, i) => { const s = srcOf(it); if (s) out.push({ label: '参考图 ' + (i + 1), src: s }); });
-        (m.frame_first || []).forEach(it => { const s = srcOf(it); if (s) out.push({ label: '首帧（开头画面）', src: s }); });
-        (m.frame_last || []).forEach(it => { const s = srcOf(it); if (s) out.push({ label: '尾帧（结尾画面）', src: s }); });
+        /* 编号与真正发出去的顺序一致：参考图 → 首帧 → 尾帧（提交时 SLOT_DEF 就是这个顺序）。 */
+        let n = 0;
+        const add = (it, role, note) => {
+          const s = srcOf(it);
+          if (!s) return;
+          n += 1;
+          out.push({ label: '参考图' + n + (note ? ' · ' + note : ''), src: s, token: '@参考图' + n, role });
+        };
+        (m.image || []).forEach(it => add(it, 'reference_image'));
+        (m.frame_first || []).forEach(it => add(it, 'first_frame', '首帧'));
+        (m.frame_last || []).forEach(it => add(it, 'last_frame', '尾帧'));
         return out;
       }
       function polishMaterials() {
@@ -1349,17 +1366,16 @@ const StudioView = {
         if (TYPE === 'audio') {
           const n = (m.audio || []).length;
           const items = [];
-          for (let i = 0; i < n; i++) items.push({ label: '参考音频' + (n > 1 ? ' ' + (i + 1) : ''), kind: '音频', sent: false, hint: '按这个音色来念' });
+          for (let i = 0; i < n; i++) items.push({ label: '参考音频' + (n > 1 ? ' ' + (i + 1) : ''), token: '@音频' + (i + 1), role: 'reference_audio', kind: '音频', sent: false, hint: '按这个音色来念' });
           return items;
         }
-        const items = polishImageList().map(x => ({ label: x.label, kind: '图片', sent: true }));
+        const items = polishImageList().map(x => ({ label: x.label, token: x.token, role: x.role, kind: '图片', sent: true }));
         const nVid = (m.video || []).length, nAud = (m.audio || []).length;
-        for (let i = 0; i < nVid; i++) items.push({ label: '参考视频' + (nVid > 1 ? ' ' + (i + 1) : ''), kind: '视频', sent: false, hint: '沿用它的运镜和节奏' });
-        for (let i = 0; i < nAud; i++) items.push({ label: '参考音频' + (nAud > 1 ? ' ' + (i + 1) : ''), kind: '音频', sent: false, hint: '沿用它的节奏' });
+        for (let i = 0; i < nVid; i++) items.push({ label: '参考视频' + (nVid > 1 ? ' ' + (i + 1) : ''), token: '@视频' + (i + 1), role: 'reference_video', kind: '视频', sent: false, hint: '沿用它的运镜和节奏' });
+        for (let i = 0; i < nAud; i++) items.push({ label: '参考音频' + (nAud > 1 ? ' ' + (i + 1) : ''), token: '@音频' + (i + 1), role: 'reference_audio', kind: '音频', sent: false, hint: '沿用它的节奏' });
         return items;
       }
       const POLISH_SYS = { video: 'video', image: 'img', audio: 'audio' };
-      const POLISH_IDLE = '<span class="ic">' + icon('sparkles', 17) + '</span>AI 润色';
       $('polishBtn').onclick = async () => {
         const ta = $('prompt');
         /* 忙标位同样在入口第一行同步置上（与「拆分片段」同一条判据）：
@@ -1367,33 +1383,65 @@ const StudioView = {
            后回来的那份覆盖先回来的，白花一轮 tokens。 */
         const btn = $('polishBtn');
         if (btn.disabled) return;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>准备中…';
-        const release = () => { btn.disabled = false; btn.innerHTML = POLISH_IDLE; };
+        /* 忙与闲只切状态（公共层 aiBtnState）：那一行字与图标各归哪一格由画法那一份管，
+           页面不另存「闲时那句话」的副本 —— 副本一漂，按钮还原后就成了另一副样子。 */
+        window.aiBtnState(btn, true);
+        const release = () => window.aiBtnState(btn, false);
         const refused = t => { release(); setStatus(t); };
         const original = ta.value.trim();
         if (original.length < 2) { refused('<span class="err">先写几个字再润色</span>'); return; }
         if (!TextAI.prov(REG)) { refused('<span class="err">没有可用的文字 AI</span>'); return; }
         if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
-        const sysBase = TextAI.prompt(POLISH_SYS[TYPE]);
         const host = $('polishInline');
         $('splitInline').hidden = true;
         const imgList = () => polishImageList();
-        const materials = () => polishMaterials();
         let images = [];
+        const materials = () => {
+          const list = polishMaterials();
+          if (TYPE === 'audio') return list;
+          /* 只有真的随消息附上的那几张才算 sent（识图没开或某张读不出来时不写「已附上」）。 */
+          const sent = new Set(images.map(x => x.label));
+          return list.map(x => (x.kind === '图片' ? Object.assign({}, x, { sent: sent.has(x.label) }) : x));
+        };
         const call = (sys, user, ctl) => ctl
-          ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
-          : TextAI.chat(REG, sys, user, { images });
-        const prep = async () => { const p = await TextAI.polishImages(REG, imgList(), { max: 6 }); images = p.images; return p; };
+          ? TextAI.chatStream(REG, sys, user, { images, search: { query: original }, signal: ctl.signal }, ctl.push)
+          : TextAI.chat(REG, sys, user, { images, search: { query: original } });
+        const prep = async () => { const p = await TextAI.polishImages(REG, imgList()); images = p.images; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
+        /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
+           工作台知道这一次选的型号、时长、画幅与手上的素材，按当前控件值填进正文。 */
+        const studioVarsNow = () => {
+          const cm = currentModel();
+          let payload = {};
+          try {
+            if ((TYPE === 'video' || TYPE === 'image') && cm && cm.model) {
+              payload = advPlan(cm.model, TYPE === 'image' ? 'image' : 'video').payload;
+            }
+          } catch (e) { payload = {}; }
+          const provName = (cm && cm.prov) ? (cm.prov.displayName || cm.prov.name || '') : '';
+          const list = materials();
+          return {
+            duration: TYPE === 'video'
+              ? (Number(payload.duration) > 0 ? Number(payload.duration) + ' 秒' : '按型号声明的默认时长')
+              : '',
+            mode: TYPE === 'video' ? (comboLabel(comboNow()) || '纯文字') : '',
+            model: (cm && cm.model) ? String(cm.model.id || '') + (provName ? '（' + provName + '）' : '') : '未选型号',
+            ar: payload.ar || payload.size || '按型号声明的默认画幅',
+            assets: list.length ? TextAI.materialNote(list) : '这一次没有参考素材',
+          };
+        };
+        /* 变量里的「附上了几张」取决于 prep 的结果，所以系统提示词在 prep 之后现拼。 */
+        const studioSysNow = () => TextAI.prompt(POLISH_SYS[TYPE], undefined, studioVarsNow());
+        /* 音频那一档没有 {assets} 变量，素材清单仍走 polishExtra 那句话。 */
+        const extraMaterials = () => (TYPE === 'audio' ? materials() : undefined);
         const run = async (answers, ctl) => {
           const picked = await prep();
-          const sys = TextAI.polishSys(sysBase, TextAI.polishExtra({ images, materials: materials(), answers, text: original }));
+          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ images, materials: extraMaterials(), answers, text: original }));
           return { after: await call(sys, TextAI.polishUser(taskWord, original), ctl), note: picked.note };
         };
         const ask = async () => {
           const picked = await prep();
-          const sys = TextAI.polishSys(sysBase, TextAI.polishExtra({ images, materials: materials(), stage: 'ask' }));
+          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ images, materials: extraMaterials(), stage: 'ask' }));
           return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }), { images });
         };
         const follow = async (askText, current, ctl, ctx) => {
@@ -1402,7 +1450,6 @@ const StudioView = {
           const p = TextAI.followPrompt({ what: taskWord, ask: askText, current, extra });
           return { after: await call(p.sys, p.user, ctl), note: picked.note };
         };
-        btn.innerHTML = '<span class="ic">' + icon('sparkles', 17) + '</span>润色中…';
         try {
           await InlinePolish.interactive(host, {
             ask: TextAI.shouldAsk() ? ask : null, run, before: original,
@@ -1465,10 +1512,11 @@ const StudioView = {
         if (pm.length) user += '\n' + TextAI.materialNote(pm);
         user += '\n只返回 JSON。';
         let images = [];
-        try { images = (await TextAI.polishImages(REG, polishImageList(), { max: 6 })).images; }
+        try { images = (await TextAI.polishImages(REG, polishImageList())).images; }
         catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
         const txt = await AiStream.text(REG, TextAI.prompt('img_split'), user,
-          { images: images, host: $('polishInline'), title: 'AI 正在拆分片段…' });
+          { images: images, host: $('polishInline'), title: 'AI 正在拆分片段…',
+            search: { query: src } });
         const segs = parseSegs(txt);
         if (!segs.length) throw new Error('文字 AI 没有给出可用的拆分方案，换一条描述或再试一次');
         return segs;
@@ -2067,6 +2115,11 @@ const StudioView = {
       let serverChain = Promise.resolve(), serverLoading = 0, serverErrs = {};
       let audioTasks = [];
       let searchQ = '', filterKind = 'all', showAll = false;
+      /* AI 搜索挑出来的那一批：集合 / 名次 / 它给的那句理由。三个字段一起由 AiFind.state 给，
+         清空也走它 —— 只清一半会让列表按一句已经作废的话排序。 */
+      let aiPick = null, aiRank = null, aiWhy = '';
+      let aiChipHost = null, aiBtnEl = null;
+      let aiAsked = false;   // 正在问 AI：回包落定时要把「这句话已经消化过」登记给公共搜索条
       const RECENT_MS = 30 * 24 * 3600 * 1000;
       function loadAudioTasks() {
         audioTasks = Wb.History.read('audio');
@@ -2168,9 +2221,14 @@ const StudioView = {
         return true;
       }
       function filteredItems() {
-        return mergedItems()
-          .filter(it => matched(it) && (filterKind === 'all' || it.mtype === filterKind) && !AssetLocal.hideAsCloud(it))
-          .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        const items = mergedItems()
+          .filter(it => matched(it) && (filterKind === 'all' || it.mtype === filterKind)
+            && !AssetLocal.hideAsCloud(it) && (!aiPick || aiPick.has(itemKey(it))));
+        /* AI 挑过就按它给的名次排（跨类型的一批，时间序会把它的语义顺序打散）。 */
+        return aiRank
+          ? items.sort((a, b) => (aiRank.get(itemKey(a)) ?? Number.MAX_SAFE_INTEGER)
+            - (aiRank.get(itemKey(b)) ?? Number.MAX_SAFE_INTEGER))
+          : items.sort((a, b) => (b.ts || 0) - (a.ts || 0));
       }
       let kindOrder = [];
       function kindTabs() {
@@ -2650,9 +2708,11 @@ const StudioView = {
         keyOf: it => itemKey(it),
         sigOf: it => cardSig(it),
         paint: (d, it) => paintCard(d, it),
-        emptyHTML: () => (hiddenCloud
-          ? Wb.emptyHTML(hiddenCloud + ' 条已按设置隐藏')
-          : Wb.emptyHTML('还没有历史素材')),
+        emptyHTML: () => (aiPick
+          ? Wb.emptyHTML('AI 没挑到合适的历史素材')
+          : hiddenCloud
+            ? Wb.emptyHTML(hiddenCloud + ' 条已按设置隐藏')
+            : Wb.emptyHTML('还没有历史素材')),
         notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
         /* 新卡片入场：走公共的 .card-enter（时长与位移在 ui.css 里，都取令牌），
            不在 JS 里另抄一份 6px / 280ms。 */
@@ -2666,6 +2726,7 @@ const StudioView = {
           const items = pager.slice(all);
           pager.update();
           paintCounts();
+          paintAi();
           cardList.paint(items);
           paintPullBtn();
           taskMulti().paintBar(bulkEls);
@@ -2701,6 +2762,10 @@ const StudioView = {
         const floor = Math.max(1, need) * PAGE_SIZE;
         while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
       }
+      /* 翻页 = 换一屏：翻完要回到这一屏的顶上（用户点名的那一条）。
+         只在页码真的变了时滚，续拉（more 档）不动视口。 */
+      let lastPagerPage = 0;
+      function scrollResultTop() { const box = $('result'); if (box) box.scrollTop = 0; }
       const pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE,
         pgPrevId: 'stPgPrev', pgNextId: 'stPgNext', pgInfoId: 'stPgInfo', gotoPage: 'stGotoPage',
@@ -2708,7 +2773,10 @@ const StudioView = {
         hasMore: () => serverHasMore,
         total: () => tally.value(),
         searchQ: () => searchQ,
-        render: () => renderAll(),
+        render: () => {
+          if (pager.page !== lastPagerPage) { lastPagerPage = pager.page; scrollResultTop(); }
+          renderAll();
+        },
         fill: fillPages,
       });
       $('result').addEventListener('click', e => {
@@ -2898,18 +2966,96 @@ const StudioView = {
       }
 
       /* ---------- 右栏控件 ---------- */
-      /* 搜索框与「搜索」按钮由公共 Wb.filterBar 生成（.pgroup 里的那一格由它填）。
-         onSearch 是输入防抖与回车/按钮共用的唯一出口；按钮只是把当前词立刻跑一遍。 */
+      /* 搜索框 /「搜索」/ AI 搜索都由公共 Wb.filterBar 生成（.pgroup 里的那一格由它填）。
+         onSearch 是输入防抖与回车/按钮共用的唯一出口；那颗按钮是公共件的 go 档。
+         AI 那颗按钮与它的条件芯片是这一页的额外件（画法与文案在公共层 AiFind.btnHTML），
+         以 extraHTML 插进同一格，bind 之后再捎回节点接自己的行为。 */
       const searchHost = $('searchHost');
       const searchFb = searchHost ? Wb.filterBar.bind(searchHost, {
         cls: '', chips: null, cnt: false, q: searchQ,
         placeholder: '搜索提示词 / ID',
         inputAttrs: { autocomplete: 'off', spellcheck: 'false' },
-        onSearch: v => { searchQ = String(v == null ? '' : v).trim().toLowerCase(); pager.setPage(0); renderAll(); },
-        extraHTML: '<button class="ghost" data-fb="go">搜索</button>',
+        /* 普通搜索 = 一次新的搜索：AI 挑过的那批先收回（换词就按词筛，不再叠 AI 的名次与集合）。 */
+        onSearch: v => {
+          searchQ = String(v == null ? '' : v).trim().toLowerCase();
+          if (aiPick) { aiPick = null; aiRank = null; aiWhy = ''; }
+          pager.setPage(0);
+          renderAll();
+        },
+        extraHTML: window.AiFind.btnHTML() + '<span data-fb="aiChip"></span>',
       }) : null;
-      const searchGo = searchFb && searchFb.el.querySelector('[data-fb="go"]');
-      if (searchGo) searchGo.onclick = () => searchFb.setQuery(searchFb.value(), true);
+      if (searchFb) {
+        aiBtnEl = searchFb.el.querySelector('.fb-ai');
+        if (aiBtnEl) aiBtnEl.onclick = async () => {
+          aiAsked = true;
+          try { await window.AiFind.run(AI); } finally { aiAsked = false; }
+        };
+        aiChipHost = searchFb.el.querySelector('[data-fb="aiChip"]');
+        paintAi();
+      }
+
+      /* ---------- AI 搜索（公共件 AiFind，与素材库 / 收藏 / 资产库同一套） ----------
+         搜索框里那句话交给文字 AI，它从这一栏已取回的历史里挑几条；挑中的集合与名次由
+         AiFind.state 给，页面只把它们并进 filteredItems 的筛选与排序。 */
+      function paintAi() {
+        if (!aiChipHost) return;
+        window.AiChip.show(aiChipHost, {
+          on: !!aiPick, picked: aiPick && aiPick.size, why: aiWhy,
+          clearId: 'stAiClear',
+          /* 收掉 AI 结果 = 回到完整列表：框里那句原话一起清掉（留着会变成普通搜索词）。 */
+          onClear: () => {
+            searchQ = '';
+            if (searchFb) { searchFb.setQuery(''); searchFb.markApplied(''); }
+            window.AiFind.clear(AI);
+          },
+        });
+      }
+      /* 给 AI 看的那一屏只算**现在真能看见的**（时间窗与「隐藏云端任务」都算上），
+         最多 100 条（与收藏页同一档）。当前搜索词与类型档不传 —— 那句话本身才是需求。 */
+      const aiRoster = () => mergedItems().filter(it => inWindow(it) && !AssetLocal.hideAsCloud(it)).slice(0, 100);
+      const AI = {
+        btn: () => aiBtnEl,
+        ask: () => (searchFb ? searchFb.value() : ''),
+        focus: () => { if (searchFb) searchFb.focus(); },
+        emptyMsg: '还没有历史素材',
+        get noneMsg() {
+          const all = mergedItems().length;
+          return 'AI 没找到合适的历史素材（换个说法再试）' + (all > 100 ? '；这次只看了最近 100 条' : '');
+        },
+        roster: aiRoster,
+        field: 'keys',
+        known: k => aiRoster().some(x => itemKey(x) === k),
+        payload: (query, roster) => ({
+          需求: query,
+          历史素材: roster.map(it => ({
+            ID: itemKey(it), 类型: it.mtype,
+            提示词: String(it.prompt || '').slice(0, 90),
+            平台: it.providerName || it.provider || '', 型号: it.model || '',
+            状态: Wb.stText(it.status) || '',
+            日期: it.ts ? new Date(it.ts).toISOString().slice(0, 10) : '',
+          })),
+        }),
+        sys: '你是素材检索助手：用户会用一句话描述需求，你要从他「生成历史」清单里挑出最合适的若干条。\n'
+          + '规则：\n'
+          + '1. 只输出 JSON，不要任何解释、不要 markdown 代码块。格式：{"keys":["历史ID"],"summary":"一句话说明挑了什么"}\n'
+          + '2. 优先级：提示词 > 类型 / 平台 / 型号 > 日期；状态失败的那几条不要挑。\n'
+          + '3. 宁缺毋滥：确实没有合适的就返回空数组，不要硬凑。\n'
+          + '4. summary 说清你按什么理解的需求，界面会显示给用户看。',
+        apply: s => {
+          aiPick = s.pick; aiRank = s.rank; aiWhy = s.why;
+          /* 这句话已经交给 AI 了：登记成「跑过的词」，失焦时不再当普通搜索重跑一遍。 */
+          if (aiAsked && searchFb) searchFb.markApplied(searchFb.value());
+        },
+        onPick: () => {
+          /* 原话已经翻译成号了，不再当普通词过滤（searchQ 清空，框里的字留着给用户改）；
+             类型档同理 —— AI 挑的是跨类型的一批，档还锁着就看不见。 */
+          searchQ = '';
+          filterKind = 'all';
+          pager.setPage(0);
+        },
+        done: () => { pager.setPage(0); renderAll(); },
+        say: t => { const el = $('histNote'); if (el) el.textContent = t; },
+      };
       function pullScope() {
         /* 范围 = **勾选的那几条**（不是整屏）：「存回本机」是多选条里的一颗，
            它存的就是选中的那些 —— 不多选就点它等于「把这一屏都存一遍」，那不是用户的意思。
@@ -2924,7 +3070,7 @@ const StudioView = {
         const picked = taskMulti().selected();
         AssetLocal.pullBar(btn, pullScope(), {
           what: '产物', zone: '选中的',
-          empty: picked.length ? '选中的这些本机都已经有了，不用再存' : '先勾选要存回本机的产物',
+          empty: picked.length ? '选中的这些本机都已经有了' : '先勾选要存回本机的产物',
         });
       }
       $('pullLocalBtn').onclick = async () => {
@@ -2933,7 +3079,7 @@ const StudioView = {
         const todo = pullScope();
         if (!picked.length) {
           /* 守卫型那一句走 warn 档：ok/info 默认被安静档吞掉，按钮看起来就是「点了没反应」。 */
-          Toast.warn('先勾选要存回本机的产物（多选之后点卡片即可）');
+          Toast.warn('先勾选要存回本机的产物');
           return;
         }
         if (!todo.length) {
@@ -2968,7 +3114,8 @@ const StudioView = {
       };
       $('gotoBtn').onclick = async () => {
         if (PAGE_MODE === 'page') { pager.gotoInput('gotoPage'); return; }
-        /* 动态加载档：跳页 = 把第 N 页之前的内容都取回来（与资产库同一份语义） */
+        /* 动态加载档：跳页 = 把第 N 页之前的内容都取回来（与资产库同一份语义）。
+           这一档不滚回顶上：用户是要把后面的内容取进来接着看，弹回开头就等于白取。 */
         const n = Math.max(1, Math.floor(Number($('stGotoPage').value) || 1));
         $('stGotoPage').value = '';
         await fillPages(n);
@@ -3317,11 +3464,16 @@ const StudioView = {
     onMounted(async () => {
       if (!pageEl.value) return;
       collectMain();
+      paintAiBtns();
       try {
-        await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
-        await window.__spaLoadScript('web/domain/chars.js', () => window.Chars);
-        /* 原始请求面板（不常驻在 shell.html）。 */
-        await window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest);
+        /* 三份互不依赖（都是往 window 上挂自己的那一面），一起取：
+           以前逐份 await，谁也没等谁，白串三条往返。 */
+        await Promise.all([
+          window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
+          window.__spaLoadScript('web/domain/chars.js', () => window.Chars),
+          /* 原始请求面板（不常驻在 shell.html）。 */
+          window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest),
+        ]);
       } catch (e) {
         const st = pageEl.value.querySelector('[data-r="status"]');
         if (st) st.innerHTML = '<span class="err">公共模块没有加载起来：' + window.esc(window.errText(e)) + '</span>';
@@ -3329,7 +3481,7 @@ const StudioView = {
       }
       if (!window.Wb || !window.Api || !window.AssetLocal || !window.AssetLib) {
         const st = pageEl.value.querySelector('[data-r="status"]');
-        if (st) st.innerHTML = '<span class="err">生成工作台依赖的公共模块没有就绪（workbench.js / assetlib.js）</span>';
+        if (st) st.innerHTML = '<span class="err">工作台依赖的公共模块没有就绪（workbench.js / assetlib.js）</span>';
         return;
       }
       if (disposed) return;

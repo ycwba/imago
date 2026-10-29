@@ -212,8 +212,7 @@ assert.deepEqual(followCaptions(null, 'v1', { start: 1 }, { start: 2 }), []);
 /* ================= 波纹 ================= */
 const rippleFilm = {
   clips: [],
-  voices: [{ id: 'v1', start: 1, duration: 1, lane: 0 }, { id: 'v2', start: 5, duration: 1, lane: 0 }],
-  pending: [{ id: 'p1', start: 6, duration: 1, lane: 0 }],
+  voices: [{ id: 'v1', start: 1, duration: 1, lane: 0 }, { id: 'v2', start: 5, duration: 1, lane: 0 }, { id: 'p1', start: 6, duration: 1, lane: 0 }],
   captions: [
     { id: 'k1', voiceId: 'v2', start: 6, end: 7 },
     { id: 'k2', voiceId: '', start: 6.5, end: 7.5 },
@@ -223,14 +222,13 @@ const rippleFilm = {
   tracks: { visibility: {}, locks: {} },
 };
 const rip = applyTimelineRipple(rippleFilm, 3, 2);
-assert.deepEqual(rip.film.voices.map(v => v.start), [1, 7]);       // 边界之后的整体后移
-assert.deepEqual(rip.film.pending.map(p => p.start), [8]);
+assert.deepEqual(rip.film.voices.map(v => v.start), [1, 7, 8]);    // 边界之后的整体后移
 assert.deepEqual(rip.film.captions.map(c => c.start), [8, 8.5, 1]); // 挂链接的跟着块走
 assert.deepEqual(rip.film.markers, rippleFilm.markers);            // 标记不动
-assert.equal(rip.moved, 3);                              // 挂链接的字幕跟着块走，不单独计数
+assert.equal(rip.moved, 3);                              // 两条配音 + 一条没挂链接的字幕；挂链接的字幕跟着块走，不单独计数
 assert.equal(rip.skipped, 0);
 const ripLocked = applyTimelineRipple({ ...rippleFilm, tracks: { visibility: {}, locks: { voice: true } } }, 3, 2);
-assert.deepEqual(ripLocked.film.voices.map(v => v.start), [1, 5]); // 锁住的块不动
+assert.deepEqual(ripLocked.film.voices.map(v => v.start), [1, 5, 6]); // 锁住的块不动
 assert.equal(ripLocked.skipped, 2);
 assert.equal(ripLocked.moved, 1);                                   // 只有那条没挂链接的字幕走
 const ripCapLock = applyTimelineRipple({ ...rippleFilm, tracks: { visibility: {}, locks: { caption: true } } }, 3, 2);
@@ -275,7 +273,6 @@ const snapPts = collectTimelineSnapPoints({
   total: 10, playhead: 3,
   rows: [{ clip: { id: 'c1' }, start: 0, end: 4 }],
   voices: [{ id: 'v1', start: 1, duration: 2 }],
-  pending: [],
   captions: [{ id: 'k1', start: 2, end: 3 }],
   markers: [{ id: 'm1', time: 5 }, { id: 'm2', type: 'range', time: 6, endTime: 8 }],
   exclude: { clipId: 'c1' },

@@ -72,7 +72,7 @@ window.Chars = (function () {
   window.addEventListener('storage', e => { if (!e.key || e.key === K_CHARS) { _libCache = null; _libAt = 0; } });
   /* ---------- 素材库的设置项：默认值与取值只在这里点一次名 ----------
      界面上的文案与**真的发给 AI 的那份参数**必须同一份判据 —— 各写一份就会出现「提示说会、其实没发」。
-     设置页也照这张表渲染控件（AGENTS §5 能力驱动）。
+     设置页也照这张表渲染控件（能力驱动）。
      键名一律带 char_ 前缀（2026-10 由 dr_ 改过来）。搬运见 ui.js 的 migrateRenamedKeys()。 */
   const SET = {
     /* 音色方式（2026-10 用户要求：「不应该使用固定音色的模型让我选择音色」）：
@@ -175,7 +175,7 @@ window.Chars = (function () {
       voiceMode: o.voiceMode || '',             // 这一位用哪种方式定声音：'' = 跟界面上选中的语音型号，preset/design/clone
       voiceBy: o.voiceBy || '',                 // 'ai' = 这一位的声音是「让 AI 定音色」写上的（界面要标出来，人可以直接改）
       refAudio: o.refAudio || '',               // 参考音频（本机资产地址，clone 型号用它做音色复刻）
-      refAudioId: o.refAudioId || '',           // 稳定身份（§14.1-7）：素材 id 或本机资产 id —— 地址只作兜底
+      refAudioId: o.refAudioId || '',           // 稳定身份：素材 id 或本机资产 id —— 地址只作兜底
       refAudioName: o.refAudioName || '',
       voiceCands: Array.isArray(o.voiceCands) ? o.voiceCands : [],   // 一次合成几条候选试听：[{voice, name, src, dur}]，挑中才写 voice
       /* 自动定音色的两条留痕（`autoVoice` 写）：`voiceErr` 是**没定成的原因**，
@@ -685,7 +685,7 @@ window.Chars = (function () {
           /* 预览图**在建档这一步就能配**（用户要求）：不靠生成，直接从资产库 / 我的收藏 /
              本机文件里拿一张现成的。留空也行 —— 存好之后还能出图或再挑。
              选来的那张会先落成本机资产（本地上传的 blob: 地址一刷新就没了，
-             生成工作台与资产库那边也认不出它）。 */
+             工作台与资产库那边也认不出它）。 */
           { key: 'pic', label: '预览图（可留空）', type: 'pic', pickLabel: '挑一张',
             hint: '从资产库 / 我的收藏 / 本机文件里挑一张现成的；留空也行，存好后还能按描述出图',
             pick: async api => {
@@ -727,7 +727,7 @@ window.Chars = (function () {
       }
       /* 场景也带上那句说明：`newScene` 是给剧侧用的（那边场景只有描述 / 图 / 时段三项，没有这一栏），
          而**库里**这一条的 bio 有人读 —— 关键词搜索（`Lib.SEARCH_FIELDS` 的「人设」）、
-         素材库页的「AI 找素材」、以及描述空时 `descOf` 的退路。所以在这里补这一项，
+         素材库页的「AI 搜索」、以及描述空时 `descOf` 的退路。所以在这里补这一项，
          不动剧侧的对象：那一集里根本不存在放它的地方，硬加字段只会多一个没人读的键。 */
       /* 「先出后选」那条路要**只填不建**：`onlyFields` 为真时这里只做校验（名字 / 重名）与归一，
          把表单值原样交回去，由页面拿它去出图出声、让用户挑完再调 `commitForm` 建档。
@@ -872,7 +872,8 @@ window.Chars = (function () {
     /* 熔断中就不问了：再问一次的结果和上一次一样，只是又让用户等满一个超时。 */
     if (!aiOk()) return plain;
     try {
-      const one = await TextAI.chat(REG, fillTpl(tpl, vals), '请写出这张图的提示词。', {});
+      const one = await TextAI.chat(REG, fillTpl(tpl, vals), '请写出这张图的提示词。',
+        { search: { query: [vals.name, vals.what, vals.look].filter(Boolean).join(' ') } });
       aiMarkOk();
       const t = String(one || '').trim().replace(/^["'「]|["'」]$/g, '');
       return t.length >= 8 ? t : plain;
@@ -894,10 +895,10 @@ window.Chars = (function () {
      卡片上可以摆一张更好看的，而送去当参考的必须是用户指定的那张正脸。 */
   function refPicOf(x) { return (x && (x.anchor || x.face || x.img)) || ''; }
   /* 写预览图。**只有一个入口**（素材库页与导演台都走它），所以这里顺手投一个事件：
-     「这条素材现在有图了」—— 导演台靠它把拆分镜写下的 `@待建:名字` 占位符换成真名，
+「这条素材现在有图了」—— 导演台靠它把拆分镜写下的 `@待建:名字` 占位符换成真名，
      并把那张图补进引用它的镜头（=「生成完自动显示图片」那一条）。
      用普通事件而不是 `window.__*` 钩子：后者是跨脚本层的私有通道，
-     AGENTS §8 的 G8 判据数着它们，新增一枚要登记理由 —— 这里不需要那种特权。 */
+     G8 判据数着它们，新增一枚要登记理由 —— 这里不需要那种特权。 */
   function setPic(x, src) {
     if (x && 'face' in x) x.face = src; else x.img = src;
     try {
@@ -1456,6 +1457,45 @@ window.Chars = (function () {
     return { found: true, name: who, refName: '', note: '', blob: null, why: '' };
   }
 
+  /* 这一句台词该用哪种方式、哪个型号：按说话人同名素材身上已有的料 + 这一家能提供的型号选。
+     优先级：角色显式 voiceMode（且料齐、这一家有那个型号）> 有参考音频就复刻 > 有音色描述就设计 > 预设。
+     返回 { ok, char, mode, target, note, blob, voice, why }；导演台「生成语音」按钮直接用这一份，
+     不再只按全项目选中的那个型号硬套。 */
+  async function voicePlanOf(REG, opts, name) {
+    const nm = String(name || '').trim();
+    if (!nm) return { ok: false, why: '台词里没写说话人：先写说话人，或去「生成配音」手挑音色' };
+    const kOf = window.nameKey || (x => String(x || '').trim().toLowerCase());
+    const key = kOf(nm);
+    const ch = key ? Lib.list().find(x => x && kOf(x.name) === key) : null;
+    if (!ch) return { ok: false, why: '说话人「' + nm + '」在素材库里没有同名素材：先补一位同名素材，或去「生成配音」手挑音色' };
+    const ways = ttsWays(REG, opts);
+    if (!ways.ok) return { ok: false, why: ways.why };
+    const note = String(ch.voiceNote || '').trim();
+    const hasRef = !!String(ch.refAudio || '').trim();
+    const want = String(ch.voiceMode || '');
+    let mode = '';
+    if (want === 'clone' && ways.clone && hasRef) mode = 'clone';
+    else if (want === 'design' && ways.design && note) mode = 'design';
+    else if (hasRef && ways.clone) mode = 'clone';
+    else if (note && ways.design) mode = 'design';
+    else if (ways.preset.length) mode = 'preset';
+    else return { ok: false, why: '「' + ch.name + '」没有可用的音色料：挂一段参考音频、写一句音色描述，或让这一家给出预设音色' };
+    const target = ttsOf(REG, opts, mode);
+    if (!target || ttsModeOf(target.model) !== mode) {
+      return { ok: false, why: '这一家没有「' + (mode === 'clone' ? '音色复刻' : mode === 'design' ? '声音描述' : '预设音色') + '」那一档型号：换一家语音平台，或换一种音色方式' };
+    }
+    let blob = null;
+    if (mode === 'clone') {
+      blob = await refAudioBlob(ch.refAudio);
+      if (!blob) return { ok: false, why: refAudioMiss() };
+    }
+    return {
+      ok: true, char: ch, mode: mode, target: target, note: mode === 'design' ? note : '',
+      blob: blob, voice: mode === 'preset' ? voiceOf(REG, { opts: opts }, ch).id : '',
+      fellback: !!(want && want !== mode), why: '',
+    };
+  }
+
   function libVoiceEntries(way) {
     const out = [];
     for (const c of Lib.list()) {
@@ -1574,9 +1614,10 @@ window.Chars = (function () {
       preset: ways.preset.length ? ways.preset.map(v => '- ' + v.id + '｜' + [v.name, v.lang, v.gender].filter(Boolean).join(' ')).join('\n') : '（没有预设音色清单）',
       cast: cast,
     });
+    const chatOpts = Object.assign({}, o, { search: { query: pick.map(c => c.name + ' ' + (c.bio || c.look || '')).join(' ') } });
     const txt = o.onDelta
-      ? await TextAI.chatStream(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', o, o.onDelta)
-      : await TextAI.chat(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', o);
+      ? await TextAI.chatStream(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', chatOpts, o.onDelta)
+      : await TextAI.chat(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', chatOpts);
     const j = TextAI.parseJson(txt);
     const rows = (j && (j.roles || j.characters)) || [];
     if (!Array.isArray(rows) || !rows.length) throw new Error('文字 AI 没给出可用的音色方案（换个说法再试一次）');
@@ -1619,9 +1660,10 @@ window.Chars = (function () {
     /* 与 `assignVoices` 同一份写法：调用方给了 `onDelta` 就边收边显（那里是页面上的流式面板），
        没给就还是普通一次性调用 —— 判据不在这里拍，看调用方要不要过程。 */
     try {
+      const chatOpts = Object.assign({}, o, { search: { query: c.name + ' ' + who } });
       txt = o.onDelta
-        ? await TextAI.chatStream(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', o, o.onDelta)
-        : await TextAI.chat(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', o);
+        ? await TextAI.chatStream(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', chatOpts, o.onDelta)
+        : await TextAI.chat(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', chatOpts);
     }
     catch (e) { return { ok: false, why: '定音色没成：' + errText(e) }; }
     const j = TextAI.parseJson(txt);
@@ -1843,7 +1885,7 @@ window.Chars = (function () {
       }
     }
     char.refAudio = src;
-    /* 稳定身份（§14.1-7）：这里源是「自己合成过的那条」的本机资产地址 ——
+    /* 稳定身份：这里源是「自己合成过的那条」的本机资产地址 ——
        从地址里认出 la 资产号记进 refAudioId；地址将来变了（换端口 / 文件搬迁）按它找得回来。 */
     char.refAudioId = ((/^\/asset\/([A-Za-z0-9_-]+)/.exec(src) || [])[1]) || '';
     char.refAudioName = String(name || cand.name || '生成的那一条').slice(0, 40);
@@ -1878,7 +1920,7 @@ window.Chars = (function () {
         + window.fmtBytes(rule.maxBytes) };
     }
     char.refAudio = src;
-    /* 稳定身份（§14.1-7）：源是素材库里另一位 —— 记它的**素材 id**，地址只作兜底。
+    /* 稳定身份：源是素材库里另一位 —— 记它的**素材 id**，地址只作兜底。
        素材改名 / 音频文件搬迁都不断这层绑定（谁引用谁 = id，与 refMeta / sceneId 同口径）。 */
     char.refAudioId = String((entry && entry.id) || '');
     char.refAudioName = String((entry && entry.name) || '参考音频').slice(0, 40) + ' 的声音';
@@ -1914,7 +1956,7 @@ window.Chars = (function () {
      ----------------------------------------------------------------------------
      以前只长在拍短剧页里：声音那一块要按**当前语音型号怎么定音色**渲染
      （preset 一排胶囊 / design 一个描述输入框 / clone 上传参考音频 / none 明说没配），
-     素材库页要复用就只能整段抄走 —— 抄一份就会慢慢走样（AGENTS.md「发现重复实现就收敛」）。
+     素材库页要复用就只能整段抄走 —— 抄一份就会慢慢走样（「发现重复实现就收敛」）。
      这一层**只产字符串**：点击动作仍由各页自己绑（data-act 的名字两边一致），
      因为「画完之后要不要重拍、要不要写进某一集」是页面自己的事。
      ========================================================================== */
@@ -2051,7 +2093,7 @@ window.Chars = (function () {
   /* 场景「时段」那一列的选项。时间基准只有 `TIME_OFS` 一份，但**存着的值未必在里面**：
      AI 会写「傍晚」「凌晨」，素材库里那条也可能是人自己敲的。选项里没有它时整个 select
      一项 selected 都没有 → 浏览器默认显示第一项「深夜」，于是下拉写着深夜、
-     提示词里却是那个真时段（AGENTS.md「每个 `<select>` 都得有兜底项」）。
+     提示词里却是那个真时段（「每个 `<select>` 都得有兜底项」）。
      所以：不在表里的值**照实列出来并选中**，既不骗人，也让用户能直接改回表里的档。
      以前这一段只长在拍短剧页里，素材库页要画同一个下拉就只能再抄一份。 */
   function timeOptsHTML(item) {
@@ -2408,7 +2450,7 @@ window.Chars = (function () {
       cloneFromLibEntry,
       /* 「素材库里有哪几位能拿来定声音」那份名单（统一选择器第四个来源读它）：
          库里那一列叫什么只有这一层知道，页面与选择器都不认字段名。 */
-      libVoiceEntries, refAudioMiss, voicePrefillOf,
+      libVoiceEntries, refAudioMiss, voicePrefillOf, voicePlanOf,
       /* 把一段音色描述写回素材库那一位（导演台声音栏「存回素材库」）。 */
       saveVoiceNote,
       saveRefAudio, clearRefAudio },

@@ -1,12 +1,12 @@
 /* 导演台Edit域（engine/edit.js）：块上的手势与工具条动作 —— 搓擦放针、拖动换序 / 换行、裁边、
    切刀、复制删除、增删段与长短微调、吸附与波纹、六档选择工具与组拖、标记（加 / 拖 / 面板）、
-   关联族（接上 / 解除 / 全部关联认回记忆位 / 对齐到音频）与待生成块的上轨。
+   关联族（接上 / 解除 / 全部关联认回记忆位 / 对齐到音频）。
    画归 engine/timeline.js（整块重画）与 engine/strip.js（块里画什么），时钟归 engine/play.js；
    这一份只改 `proj.film` 的数据，改完一律 beginEdit(精确描述) → 落盘 → filmEdited()。
    几何换算只走 Timeline 的 timeAtClientX / geometry —— 秒数不在这里再折第二遍。 */
 import {
-  deriveTimeline, normalizeFilm, createClip, createPending, createCaption, filmId,
-  itemLocked, coversTime, estimateSpeechSeconds, clipDurationOf, filmLaneOf,
+  deriveTimeline, normalizeFilm, createClip, createCaption, filmId,
+  itemLocked, coversTime, clipDurationOf, filmLaneOf,
   MIN_CAPTION_SECONDS, IMAGE_SEGMENT_SECONDS, MAX_FILM_SECONDS,
 } from '../film.js';
 import {
@@ -38,12 +38,11 @@ const fmtTenth = v => (Math.round(Math.max(0, num(v)) * 10) / 10).toFixed(1);
 /* 写回 `data-start` / `data-dur`：layoutBoard 现读这两个属性，精度只到毫秒足够。 */
 const attr = v => String(Math.round(Math.max(0, num(v)) * 1000) / 1000);
 const selKey = (kind, id) => `${kind}:${id}`;
-const normText = s => String(s == null ? '' : s).replace(/\s+/g, '').trim().toLowerCase();
 
 export function createEdit(E, document, window) {
   const {
     filmOf, icon, esc, setStatus, beginEdit, filmEdited, scheduleSaveQuiet,
-    Timeline, Play, addMarkerAt, shotLines, openPendingBlock, onFocus, sliceForgetFail,
+    Timeline, Play, addMarkerAt, shotLines, onFocus, sliceForgetFail,
   } = E;
 
   let host = null;              // #tlBoardBody：Timeline 每次重画换掉它的孩子
@@ -59,7 +58,7 @@ export function createEdit(E, document, window) {
      （刚拖完一段，去点轨名上的锁，那点下去没反应）。 */
   let suppUntil = 0;
   let suppAt = null;
-  const sel = new Set();        // 'clip:xxx' / 'voice:xxx' / 'pending:xxx' / 'cap:xxx' / 'marker:xxx'
+  const sel = new Set();        // 'clip:xxx' / 'voice:xxx' / 'cap:xxx' / 'marker:xxx'
   let anchor = '';
   let focus = { track: 'image', kind: 'clip', id: '', lane: 0 };
   let panelOpen = false;
@@ -77,20 +76,16 @@ export function createEdit(E, document, window) {
   const nodeOf = (kind, id) => {
     if (!host || !id) return null;
     const attrName = kind === 'clip' ? 'data-clip' : kind === 'voice' ? 'data-voice'
-      : kind === 'pending' ? 'data-pending' : kind === 'cap' ? 'data-cap' : 'data-marker';
+      : kind === 'cap' ? 'data-cap' : 'data-marker';
     const escId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(String(id)) : String(id);
     return host.querySelector(`[${attrName}="${escId}"]`);
   };
 
-  /* DOM 上那一块 ↔ 数据里那一条：kind 只认 clip / voice / pending / cap。 */
+  /* DOM 上那一块 ↔ 数据里那一条：kind 只认 clip / voice / cap。 */
   function describeEl(el) {
     if (!el || !el.classList) return null;
     if (el.classList.contains('tl-clip')) return { kind: 'clip', id: el.getAttribute('data-clip') || '', track: 'image' };
-    if (el.classList.contains('tl-voice')) {
-      const p = el.getAttribute('data-pending');
-      return p ? { kind: 'pending', id: p, track: 'voice' }
-        : { kind: 'voice', id: el.getAttribute('data-voice') || '', track: 'voice' };
-    }
+    if (el.classList.contains('tl-voice')) return { kind: 'voice', id: el.getAttribute('data-voice') || '', track: 'voice' };
     if (el.classList.contains('tl-cap')) return { kind: 'cap', id: el.getAttribute('data-cap') || '', track: 'caption' };
     return null;
   }
@@ -100,14 +95,14 @@ export function createEdit(E, document, window) {
   function filmItemOf(kind, id, work) {
     const src = work || filmOf();
     const list = kind === 'clip' ? src.clips : kind === 'voice' ? src.voices
-      : kind === 'pending' ? src.pending : kind === 'cap' ? src.captions : src.markers;
+      : kind === 'cap' ? src.captions : src.markers;
     const found = (Array.isArray(list) ? list : []).find(x => x && x.id === id);
     return found || null;
   }
   const indexOfItem = (kind, id, work) => {
     const src = work || filmOf();
     const list = kind === 'clip' ? src.clips : kind === 'voice' ? src.voices
-      : kind === 'pending' ? src.pending : src.captions;
+      : src.captions;
     return (Array.isArray(list) ? list : []).findIndex(x => x && x.id === id);
   };
 
@@ -128,7 +123,7 @@ export function createEdit(E, document, window) {
   }
   function timedLabel(item, kind) {
     const name = kind === 'clip' ? clipTitle(item)
-      : ctxClip(String(item && item.text || (kind === 'pending' ? '待生成' : kind === 'cap' ? '字幕' : '配音')), 14);
+      : ctxClip(String(item && item.text || (kind === 'cap' ? '字幕' : '配音')), 14);
     const start = num(item.start), end = kind === 'cap' ? num(item.end) : num(item.start) + num(item.duration);
     return `「${name}」（${fmtTenth(start)}–${fmtTenth(end)} 秒）`;
   }
@@ -155,7 +150,7 @@ export function createEdit(E, document, window) {
     const gg = g(); const f = filmOf();
     return collectTimelineSnapPoints({
       total: gg.total, playhead: Timeline.playhead(), rows: gg.tl.rows,
-      voices: f.voices, pending: f.pending, captions: f.captions, markers: f.markers,
+      voices: f.voices, captions: f.captions, markers: f.markers,
       exclude: { clipId: excludeId || '', itemId: excludeId || '', skipPlayhead: !!skipPlayhead },
     });
   }
@@ -172,14 +167,14 @@ export function createEdit(E, document, window) {
   function currentWork() {
     const f = filmOf();
     return {
-      clips: (f.clips || []).slice(), voices: (f.voices || []).slice(), pending: (f.pending || []).slice(),
+      clips: (f.clips || []).slice(), voices: (f.voices || []).slice(),
       captions: (f.captions || []).slice(), markers: (f.markers || []).slice(), tracks: f.tracks,
     };
   }
   function writeFilm(next) {
     const f = filmOf();
     const clean = normalizeFilm(next);
-    f.clips = clean.clips; f.voices = clean.voices; f.pending = clean.pending;
+    f.clips = clean.clips; f.voices = clean.voices;
     f.captions = clean.captions; f.markers = clean.markers; f.tracks = clean.tracks;
   }
   /* 波纹开着就把「边界之后的定时块」一起平移，回执里点名移动了几条、跳过了几条锁定。 */
@@ -241,7 +236,6 @@ export function createEdit(E, document, window) {
     const live = new Set([
       ...(f.clips || []).map(c => selKey('clip', c.id)),
       ...(f.voices || []).map(v => selKey('voice', v.id)),
-      ...(f.pending || []).map(p => selKey('pending', p.id)),
       ...(f.captions || []).map(c => selKey('cap', c.id)),
       ...(f.markers || []).map(m => selKey('marker', m.id)),
     ]);
@@ -344,7 +338,7 @@ export function createEdit(E, document, window) {
     const f = filmOf();
     if (d.kind === 'clip') return f.clips;
     if (d.kind === 'cap') return (f.captions || []).slice().sort((a, b) => num(a.start) - num(b.start));
-    const list = d.kind === 'voice' ? f.voices : f.pending;
+    const list = f.voices;
     return (list || []).slice().sort((a, b) => num(a.start) - num(b.start));
   }
 
@@ -593,7 +587,7 @@ export function createEdit(E, document, window) {
   const setHint = txt => { const el = selText('#tlHint'); if (el) el.textContent = txt; };
 
   /* 把一份数组里第 index 条换成 next（不改变别的条目）。 */
-  const listKey = kind => (kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : kind === 'pending' ? 'pending' : 'captions');
+  const listKey = kind => (kind === 'clip' ? 'clips' : kind === 'voice' ? 'voices' : 'captions');
   const indexOfList = (w, kind, id) => (w[listKey(kind)] || []).findIndex(x => x && x.id === id);
   function listWith(w, kind, index, next) {
     const k = listKey(kind);
@@ -884,7 +878,7 @@ export function createEdit(E, document, window) {
     return [...rest.slice(0, at), ...picked, ...rest.slice(at)];
   }
 
-  /* 配音 / 待生成 / 字幕：横着拖 = 改出现时刻，竖着拖 = 换行（字幕的行由重叠自动排）。 */
+  /* 配音 / 字幕：横着拖 = 改出现时刻，竖着拖 = 换行（字幕的行由重叠自动排）。 */
   function timedMovePreview(rec, p, originals, d) {
     const t = snapTime(originals[0].start + p.dx, d.id, p.alt);
     const applied = t - originals[0].start;
@@ -896,7 +890,7 @@ export function createEdit(E, document, window) {
     previewGroup(originals.map((o, i) => ({ d: o, start: num(shifted.starts[i]), dur: o.dur })));
     setHint(target.isNew && d.kind !== 'cap' ? '松手就在下面新建一行' : `${fmtTenth(t)}s 起 · 移动 ${fmtTenth(shifted.delta)}s`);
   }
-  const timedAll = w => [...(w.voices || []), ...(w.pending || [])];
+  const timedAll = w => (w.voices || []);
   function timedMoveCommit(rec, originals, d) {
     const st = rec.state;
     if (!st || !st.delta) {
@@ -904,13 +898,12 @@ export function createEdit(E, document, window) {
       return false;
     }
     const w = rec.work;
-    let voices = w.voices.slice(), pending = w.pending.slice();
+    let voices = w.voices.slice();
     let captions = w.captions.slice();
     const ids = originals.map(o => o.id);
     originals.forEach((o, i) => {
       const next = { ...o.it, start: round2(Math.max(0, num(st.starts[i]))) };
       if (o.kind === 'voice') voices = voices.map(v => (v.id === o.id ? next : v));
-      else if (o.kind === 'pending') pending = pending.map(v => (v.id === o.id ? next : v));
       else {
         const dur = o.dur;
         captions = captions.map(c => (c.id === o.id ? { ...c, start: round2(Math.max(0, num(st.starts[i]))), end: round2(Math.max(0, num(st.starts[i])) + dur) } : c));
@@ -923,12 +916,12 @@ export function createEdit(E, document, window) {
     const to = originals.map((o, i) => fmtTenth(num(st.starts[i]))).join('、');
     const moved = ids.length === 1 ? `把${timedLabel(originals[0].it, d.kind)}从 ${fmtTenth(originals[0].start)} 秒挪到 ${fmtTenth(num(st.starts[0]))} 秒`
       : `整组移动 ${fmtTenth(st.delta)} 秒（${ids.length} 条：${from} → ${to}）`;
-    return commit({ ...w, voices, pending, captions }, moved, null);
+    return commit({ ...w, voices, captions }, moved, null);
   }
   function laneOnlyCommit(rec, originals, d, st) {
     const w = rec.work;
     const ids = originals.map(o => o.id);
-    const withLane = (w.voices || []).concat(w.pending || []).map(x => {
+    const withLane = (w.voices || []).map(x => {
       return { ...x, lane: ids.includes(x.id) ? st.lane : num(x.lane) };
     });
     const moved = moveTimedToLane(withLane, originals[0].id, st.lane);
@@ -941,7 +934,7 @@ export function createEdit(E, document, window) {
       if (!laneById.has(x.id)) return x;
       return { ...x, lane: laneById.get(x.id) };
     });
-    return commit({ ...w, voices: numberLanes(w.voices), pending: numberLanes(w.pending) },
+    return commit({ ...w, voices: numberLanes(w.voices) },
       `把${timedLabel(originals[0].it, d.kind)}挪到第 ${st.lane + 1} 行${st.isNew ? '（新开的一行）' : ''}`);
   }
 
@@ -1045,7 +1038,7 @@ export function createEdit(E, document, window) {
   }
 
   /* ---------------- 关联族 ---------------- */
-  const liveTimed = f => [...(f.voices || []), ...(f.pending || [])];
+  const liveTimed = f => (f.voices || []);
   const timedById = f => new Map(liveTimed(f).map(x => [x.id, x]));
   /* 「认回记忆位 → 否则找重叠最多的」—— 与参考项目 findCaptionAudioLinkTarget 同一条判据。 */
   function linkTargetFor(cap, f) {
@@ -1110,8 +1103,8 @@ export function createEdit(E, document, window) {
       return commit({ ...w, captions: caps.map(c => (c.id === cap.id ? { ...c, start: round2(num(target.start)), end: round2(num(target.start) + num(target.duration)) } : c)) },
         `把字幕「${ctxClip(cap.text, 12)}」对齐到配音（${fmtTenth(target.start)}–${fmtTenth(num(target.start) + num(target.duration))} 秒）`);
     }
-    const vid = (focus.kind === 'voice' || focus.kind === 'pending') ? focus.id : (ctxInfo && ctxInfo.id) || '';
-    if (!vid) { if (setStatus) setStatus('先点一块配音或待生成，再做关联'); return false; }
+    const vid = focus.kind === 'voice' ? focus.id : (ctxInfo && ctxInfo.id) || '';
+    if (!vid) { if (setStatus) setStatus('先点一块配音，再做关联'); return false; }
     const mine = captionsOfVoice(w, vid);
     if (!mine.length) { if (setStatus) setStatus('这一段配音身上没有字幕'); return false; }
     const item = timedById(w).get(vid);
@@ -1143,7 +1136,7 @@ export function createEdit(E, document, window) {
     const w = currentWork();
     const ids = selectedDescriptors();
     if (!ids.length) { if (setStatus) setStatus('先选中要删的块'); return false; }
-    let clips = w.clips.slice(), voices = w.voices.slice(), pending = w.pending.slice(), captions = w.captions.slice();
+    let clips = w.clips.slice(), voices = w.voices.slice(), captions = w.captions.slice();
     const gone = [];
     let locked = 0, skipped = 0;
     /* 按当前下标从大到小删：删后面的不动前面的下标，`clips.findIndex` 与时间线的行始终对得上。 */
@@ -1158,15 +1151,14 @@ export function createEdit(E, document, window) {
         if (i < 0) return;
         const row = deriveTimeline(clips).rows[i];
         clips = removeClipAt(clips, i).clips;
-        /* 波纹开着时删掉这一段：边界之后的定时块一起前移（配音 / 待生成 / 字幕一次算完，
+        /* 波纹开着时删掉这一段：边界之后的定时块一起前移（配音 / 字幕一次算完，
            锁住的行由它自己跳过并报数）—— 不开波纹就一个定时块都不动。 */
         if (Timeline.rippleOn()) {
-          const rr = applyTimelineRipple({ ...w, clips, voices, pending, captions }, num(row.end), -clipDurationOf(it));
-          voices = rr.film.voices; pending = rr.film.pending; captions = rr.film.captions;
+          const rr = applyTimelineRipple({ ...w, clips, voices, captions }, num(row.end), -clipDurationOf(it));
+          voices = rr.film.voices; captions = rr.film.captions;
           skipped += rr.skipped;
         }
       } else if (d.kind === 'voice') voices = voices.filter(v => v.id !== d.id);
-      else if (d.kind === 'pending') pending = pending.filter(p => p.id !== d.id);
       else captions = captions.filter(c => c.id !== d.id);
     });
     if (!gone.length) {
@@ -1177,14 +1169,14 @@ export function createEdit(E, document, window) {
     let label = `删除 ${gone.length} 块：${gone.join('、')}`;
     if (skipped) label += `（波纹：跳过锁定 ${skipped} 条）`;
     if (locked) label += `（${locked} 块所在的行锁着，没删）`;
-    return commit({ ...w, clips, voices, pending, captions }, label.slice(0, 200));
+    return commit({ ...w, clips, voices, captions }, label.slice(0, 200));
   }
 
   function duplicateSelected() {
     const w = currentWork();
     const ids = selectedDescriptors();
     if (!ids.length) { if (setStatus) setStatus('先选中要复制的块'); return false; }
-    let clips = w.clips.slice(), voices = w.voices.slice(), pending = w.pending.slice(), captions = w.captions.slice();
+    let clips = w.clips.slice(), voices = w.voices.slice(), captions = w.captions.slice();
     const names = [], ripples = [];
     let locked = 0, skipped = 0;
     /* 从大到小处理：插进去的副本总在当前下标之后，前面那几块的下标不受影响。 */
@@ -1202,11 +1194,10 @@ export function createEdit(E, document, window) {
         names.push(row ? clipDesc(it, num(row.start), num(row.end)) : clipTitle(it));
         return;
       }
-      const copy = { ...it, id: filmId(d.kind === 'cap' ? 'cap' : d.kind === 'pending' ? 'pend' : 'voice') };
+      const copy = { ...it, id: filmId(d.kind === 'cap' ? 'cap' : 'voice') };
       if (d.kind === 'cap') { copy.start = round2(num(it.end) + 0.05); copy.end = round2(copy.start + Math.max(MIN_CAPTION_SECONDS, num(it.end) - num(it.start))); }
       else { copy.start = round2(num(it.start) + num(it.duration)); delete copy.transition; }
       if (d.kind === 'voice') voices = [...voices, copy];
-      else if (d.kind === 'pending') pending = [...pending, copy];
       else captions = [...captions, copy];
       names.push(ctxClip(it.text || '这一块', 12));
     });
@@ -1217,15 +1208,15 @@ export function createEdit(E, document, window) {
     /* 多段一起复制时从后往前落波纹：靠后的边界先移，靠前的边界再把整段（含已移过的）一起推。 */
     if (Timeline.rippleOn() && ripples.length) {
       ripples.sort((a, b) => b.boundary - a.boundary).forEach(rp => {
-        const rr = applyTimelineRipple({ ...w, clips, voices, pending, captions }, rp.boundary, rp.delta);
-        voices = rr.film.voices; pending = rr.film.pending; captions = rr.film.captions;
+        const rr = applyTimelineRipple({ ...w, clips, voices, captions }, rp.boundary, rp.delta);
+        voices = rr.film.voices; captions = rr.film.captions;
         skipped += rr.skipped;
       });
     }
     let label = `复制 ${names.length} 块：${names.join('、')}`;
     if (skipped) label += `（波纹：跳过锁定 ${skipped} 条）`;
     if (locked) label += `（${locked} 块所在的行锁着，没复制）`;
-    return commit({ ...w, clips, voices, pending, captions }, label.slice(0, 200));
+    return commit({ ...w, clips, voices, captions }, label.slice(0, 200));
   }
 
   /* 段上那颗静音钮（strip.js 画的 `data-mute`）：只写 `clip.muted`，音量数值一个字节都不动 ——
@@ -1245,7 +1236,7 @@ export function createEdit(E, document, window) {
     const t = Timeline.playhead();
     const w = currentWork();
     const ids = selectedDescriptors();
-    let clips = w.clips.slice(), voices = w.voices.slice(), pending = w.pending.slice(), captions = w.captions.slice();
+    let clips = w.clips.slice(), voices = w.voices.slice(), captions = w.captions.slice();
     let done = 0, reason = '';
     /* 历史里要点名「切的是哪一镜的哪一段」：切之前先记下每一块自己的描述（切完就没那个段号了）。 */
     const what = [];
@@ -1262,16 +1253,16 @@ export function createEdit(E, document, window) {
         else reason = r.reason;
       }
     }
-    const timedTargets = ids.filter(d => d.kind === 'voice' || d.kind === 'pending');
-    const cover = timedTargets.length ? timedTargets : liveTimed(w).filter(x => coversTime(x, t)).map(x => ({ kind: x.status === 'pending' ? 'pending' : 'voice', id: x.id }));
+    const timedTargets = ids.filter(d => d.kind === 'voice');
+    const cover = timedTargets.length ? timedTargets : liveTimed(w).filter(x => coversTime(x, t)).map(x => ({ kind: 'voice', id: x.id }));
     cover.forEach(d => {
-      const it = filmItemOf(d.kind, d.id, { ...w, voices, pending });
+      const it = filmItemOf(d.kind, d.id, { ...w, voices });
       if (!it || !coversTime(it, t)) return;
       if (laneLocked(d)) { if (!reason) reason = timedLabel(it, d.kind) + '所在的行锁着，先解锁再切'; return; }
-      const list = d.kind === 'voice' ? voices : pending;
+      const list = voices;
       const r = splitVoiceAt(list, it.id, t);
       if (r.ok) {
-        if (d.kind === 'voice') voices = r.voices; else pending = r.voices;
+        voices = r.voices;
         done++; what.push(timedLabel(it, d.kind));
       } else if (!reason) reason = r.reason;
     });
@@ -1294,7 +1285,7 @@ export function createEdit(E, document, window) {
       if (k && !keys.includes(k)) keys.unshift(k);
     }
     setSel(keys, focus);
-    return commit({ ...w, clips, voices, pending, captions }, `把${what.join('、')}在 ${fmtTenth(t)} 秒处切开`);
+    return commit({ ...w, clips, voices, captions }, `把${what.join('、')}在 ${fmtTenth(t)} 秒处切开`);
   }
 
   function mergeSelected() {
@@ -1611,51 +1602,6 @@ export function createEdit(E, document, window) {
     if (btn) btn.click();
   }
 
-  /* ---------------- 待生成块的上轨（台词写了就占一格） ---------------- */
-  /* 只在真的变了时写盘：这一条从 Timeline.render() 顶上进来，落一次就会再多一次重画。 */
-  function syncPending() {
-    const f = filmOf();
-    const lines = shotsOf().filter(s => s && String(s.line || '').trim());
-    const clipStart = new Map();
-    deriveTimeline(f.clips).rows.forEach(r => {
-      const sid = r.clip.shotId;
-      if (sid && !clipStart.has(sid)) clipStart.set(sid, num(r.start));
-    });
-    const nextPending = [];
-    let changed = false;
-    lines.forEach(l => {
-      const text = String(l.line).trim();
-      const voiced = (f.voices || []).some(v => v && v.shotId === l.id && normText(v.text) === normText(text));
-      if (voiced) return;
-      const keep = (f.pending || []).find(p => p && p.shotId === l.id && normText(p.text) === normText(text));
-      if (keep) {
-        const fixed = keep.text === text ? keep : { ...keep, text, who: l.who || keep.who || '' };
-        if (fixed !== keep) changed = true;
-        nextPending.push(fixed);
-        return;
-      }
-      const sameShot = (f.pending || []).find(p => p && p.shotId === l.id);
-      if (sameShot && clipStart.has(l.id)) {
-        nextPending.push({ ...sameShot, text, who: l.who || '' });
-        changed = true;
-        return;
-      }
-      if (!clipStart.has(l.id)) return;      // 这一镜还没进成片，块没有落点
-      nextPending.push(createPending({
-        start: clipStart.get(l.id), duration: estimateSpeechSeconds(text), lane: 0,
-        shotId: l.id, text, who: l.who || '',
-      }));
-      changed = true;
-    });
-    if (!changed && nextPending.length === (f.pending || []).length) return false;
-    const before = (f.pending || []).map(p => p.id).join('|');
-    const after = nextPending.map(p => p.id).join('|');
-    f.pending = nextPending;
-    if (before !== after) pruneSelection();
-    scheduleSaveQuiet();
-    return true;
-  }
-
   /* ---------------- 事件 ---------------- */
   function onPointerDownCapture(e) {
     if (e.pointerType === 'mouse' && e.button === 2) return;
@@ -1699,14 +1645,9 @@ export function createEdit(E, document, window) {
       d.lane = laneOfEl(block);
       const it = filmItemOf(d.kind, d.id);
       if (t.closest('[data-mute]')) { toggleMute(d.id); return; }
-      if (d.kind === 'pending' && !(e.ctrlKey || e.metaKey || e.shiftKey)) {
-        setSel([selKey('pending', d.id)], d);
-        if (openPendingBlock) openPendingBlock(d.id);
-        return;
-      }
       applyClickSelection(d, e);
       const f = filmOf();
-      if (it && (d.kind === 'voice' || d.kind === 'pending') && captionsOfVoice(f, d.id).length) {
+      if (it && d.kind === 'voice' && captionsOfVoice(f, d.id).length) {
         if (setStatus) setStatus(`这一块配音身上挂着 ${captionsOfVoice(f, d.id).length} 条字幕`);
       }
       return;
@@ -1797,7 +1738,6 @@ export function createEdit(E, document, window) {
     sel.clear();
   }
   const onBoardRender = () => { paintSelection(); if (panelOpen) paintPanel(); };
-  const beforeRender = () => { syncPending(); };
   const clearSelection = () => { sel.clear(); paintSelection(); };
 
   /* 工具条上那三处状态（选中几条 / 关联是不是全连着 / 面板开没开）现读同一份真相，
@@ -1812,12 +1752,11 @@ export function createEdit(E, document, window) {
   }
 
   return {
-    bind, unbind, beforeRender, onBoardRender, dragBusy, toolAction, toolState,
+    bind, unbind, onBoardRender, dragBusy, toolAction, toolState,
     addSegmentAt, commit, patch: patchFilm, describeItem,
     openUndoWindow, closeUndoWindow,
     selected: () => Array.from(sel), clearSelection,
     focusOf: () => focus,
     selectItem, toggleMute,
-    syncPending,
   };
 }

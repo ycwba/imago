@@ -54,7 +54,7 @@ function outsideVars(value, fn) {
   return splitVars(value).map(p => (p.isVar ? p.text : fn(p.text))).join('');
 }
 
-/** var(--x, 兜底) → var(--x)：兜底值本身就是第二份会漂移的数（AGENTS.md §3.4）。 */
+/** var(--x, 兜底) → var(--x)：兜底值本身就是第二份会漂移的数。 */
 function stripFallbacks(value, stats) {
   return splitVars(value).map(p => {
     if (!p.isVar) return p.text;

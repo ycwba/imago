@@ -11,9 +11,10 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { localAsrState } = require('../asr-store.js');
 const { sendJson, readJsonBody } = require('./http');
-const { channelKey, channelBase, loopback, collect } = require('../channel-cred.js');
+const { providerOf, channelKey, channelBase, loopback, collect, postJson } = require('../channel-cred.js');
 
 const MAX_BYTES = 200 * 1024 * 1024;
+const MAX_CHAT_AUDIO = 24 * 1024 * 1024;   // chat-audio 要把字节转成 base64 塞进请求体
 const MAX_PCM_BYTES = 320 * 1024 * 1024;   // 16k mono 16-bit ≈ 32KB/s → 约 2.8 小时
 const MAX_ONLINE_RESPONSE = 8 * 1024 * 1024;
 const MAX_SEGMENTS = 20000;
@@ -55,8 +56,9 @@ function guessMime(file) {
 function joinEndpoint(base, tailPath) {
   const b = String(base || '').replace(/\/+$/, '');
   if (!b) return '';
-  if (/\/audio\/transcriptions$/i.test(b)) return b;
-  return b + tailPath;
+  const p = String(tailPath || '');
+  if (/^https?:\/\//i.test(p)) return p;
+  return b + (p.charAt(0) === '/' ? p : '/' + p);
 }
 /* 页面在浏览器里把音轨解成 16k mono WAV 再传上来，代理只落盘与核对头。
    文件按流写、边写边算 hash（去重口径与在线路线同一处 findByHash）。 */
@@ -141,15 +143,40 @@ function spawnTool(bin, args, opts) {
 function createAsrRoutes(ctx) {
   const running = new Map();     // jobId → { child, req, canceled, dir }
   const pending = new Map();     // jobId → 提交时的 { assetId, src }（任务跑起来前只留在内存）
+  /* 在线转写走哪一家、用哪个型号、请求长什么样，全部来自注册表这一家的 `asr` 声明：
+     `openai` 是 multipart /audio/transcriptions 那一族；`chat-audio` 是把音频塞进
+     chat/completions 的 input_audio（百炼 qwen3-asr-flash）。
+     没选供应商时自动挑第一家「声明了 asr 且拿得到密钥」的 —— 设置页打开就能用，
+     不用先在一个空白下拉里猜该选谁。 */
+  function asrProviders() {
+    try {
+      return (ctx.providers() || []).filter(p => p.kind === 'text' && p.asr
+        && (p.extraCaps || []).indexOf('asr') >= 0);
+    } catch { return []; }
+  }
   function resolveService() {
     const s = ctx.store.rawSettings();
-    const key = s.service.key || channelKey(ctx, s.service.providerId) || '';
-    const base = s.service.baseUrl || channelBase(ctx, s.service.providerId) || '';
-    return { key, base, model: s.service.model || 'whisper-1', providerId: s.service.providerId };
+    let p = s.service.providerId ? providerOf(ctx, s.service.providerId) : null;
+    if (!p && !s.service.providerId && !s.service.baseUrl) {
+      p = asrProviders().find(x => channelKey(ctx, x.id)) || null;
+    }
+    /* 没有声明的那一家（手动填地址 / 手动声明识别）按最常见的 OpenAI 兼容形状走：
+       旧行为也是 verbose_json（带分段），换掉只会让手填的服务少掉时间戳。 */
+    const decl = (p && p.asr) || { style: 'openai', path: '/audio/transcriptions', responseFormat: 'verbose_json', language: 'form' };
+    const key = s.service.key || (p ? channelKey(ctx, p.id) : '') || '';
+    const base = s.service.baseUrl || (p ? (channelBase(ctx, p.id) || p.base || '') : '') || '';
+    const model = s.service.model || decl.model || 'whisper-1';
+    const hitModel = (decl.models || []).find(m => m && m.id === model) || {};
+    const responseFormat = hitModel.responseFormat != null ? hitModel.responseFormat : (decl.responseFormat || '');
+    return {
+      key, base, model, providerId: p ? p.id : s.service.providerId,
+      style: decl.style || 'openai', path: decl.path || '/audio/transcriptions',
+      responseFormat, language: decl.language || 'form',
+    };
   }
   function routeNow(bodyRoute) {
     const s = ctx.store.rawSettings();
-    /* browser 也算「显式给了」：AGENTS §12 那一条要求 /asr/transcribe 收到 browser 当场 400。
+    /* browser 也算「显式给了」：/asr/transcribe 收到 browser 当场 400。
        把它和 local/service 分开对待的话，客户端显式声明「这一路在我自己的 worker 里跑」
        却被本机设置（service）顶掉 —— 页面以为没花钱，账上却记了一笔在线转写。 */
     const want = ['browser', 'local', 'service'].includes(bodyRoute) ? bodyRoute : s.route;
@@ -228,42 +255,49 @@ function createAsrRoutes(ctx) {
     return { segments: segsOf(parsed), engine: 'whisper.cpp · ' + path.basename(st.model) };
   }
 
-  async function runOnline(job, media, rt) {
-    const svc = resolveService();
-    if (!svc.key) throw new Error('在线转写没有可用密钥：在设置 → 语音识别里填，或先给供应商配一把密钥');
-    if (!svc.base) throw new Error('在线转写没有接口地址：先选供应商，或手动填一个 OpenAI 兼容地址');
-    const url = joinEndpoint(svc.base, '/audio/transcriptions');
-    /* 在线转写的地址与 /search 用**同一份**出站判据：除了「必须是 https」，还要真的解析一次域名，
-       拦住 `inner.example.com` 这种「看着是公网、AAAA/A 记录指回 127.0.0.1」的地址。
-       这一条尤其要紧：asr.json 会被云同步写进本机（.data/asr.json），
-       一份被改过的云端设置就等于让别人替我们选了一个出站目标 —— 而这一跳还带着密钥（Authorization）。
-       明文 http 仍然只允许本机回环（自建 whisper-server 那条路）。 */
+  /* 出站地址的判据与 /search 相同：除了「必须是 https」，还要真的解析一次域名
+     （拦住 `inner.example.com` 这种看着是公网、A/AAAA 指回 127.0.0.1 的地址）。
+     asr.json 会被云同步写进本机，一份被改过的云端设置就等于让别人替我们选了一个出站目标 ——
+     而这一跳还带着密钥（Authorization）。明文 http 只允许本机回环（自建 whisper-server 那条路）。 */
+  async function checkedUrl(url) {
     if (/^https:/i.test(url)) {
       try { await ctx.guardOutboundUrl(url); }
       catch (e) { throw new Error('在线转写地址没进出站护栏：' + ((e && e.message) || e)); }
     } else if (!(/^http:/i.test(url) && loopback(url))) {
       throw new Error('在线转写只允许 https（本机回环地址可以用 http）');
     }
+    return url;
+  }
+  function langOf(job) {
+    return ctx.store.rawSettings().language || job.language || '';
+  }
+
+  /* 那一族 multipart /audio/transcriptions：模型 / 返回格式 / 语言放哪儿全按声明，
+     不照 OpenAI 的样子硬塞（智谱没有 response_format、MiniMax 的语言在请求头）。 */
+  async function runOnlineMultipart(svc, media, rt, job) {
+    const url = await checkedUrl(joinEndpoint(svc.base, svc.path));
     const size = fs.statSync(media).size;
     if (size > MAX_BYTES) throw new Error('音频超过 200MB，先切小再转写');
     const boundary = '----wbasr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    const lang = ctx.store.rawSettings().language || job.language;
-    const fields = { model: svc.model, response_format: 'verbose_json' };
-    if (lang) fields.language = lang;
+    const lang = langOf(job);
+    const fields = { model: svc.model };
+    if (svc.responseFormat) fields.response_format = svc.responseFormat;
+    if (lang && svc.language === 'form') fields.language = lang;
     const head = Buffer.concat(Object.keys(fields).map(k => Buffer.from(
       '--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n')));
     const fileHead = Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="'
       + path.basename(media).replace(/["\r\n]/g, '_') + '"\r\nContent-Type: ' + guessMime(media) + '\r\n\r\n');
     const tailBuf = Buffer.from('\r\n--' + boundary + '--\r\n');
-    ctx.store.patchJob(job.id, { state: 'running', progress: 0.2, engine: 'openai-asr' });
+    ctx.store.patchJob(job.id, { state: 'running', progress: 0.2, engine: 'online · ' + svc.model });
+    const headers = {
+      'Authorization': 'Bearer ' + svc.key,
+      'Content-Type': 'multipart/form-data; boundary=' + boundary,
+      'Content-Length': head.length + fileHead.length + size + tailBuf.length,
+    };
+    if (lang && svc.language === 'header') headers.language = lang;
+    /* 走出站层（本机回环的 http 也走同一份）：以前这里自己 http/https.request，
+       既不带 DNS 闸，也就多了一套会忘记加护栏的出站实现。 */
     const text = await new Promise((resolve, reject) => {
-      const headers = {
-        'Authorization': 'Bearer ' + svc.key,
-        'Content-Type': 'multipart/form-data; boundary=' + boundary,
-        'Content-Length': head.length + fileHead.length + size + tailBuf.length,
-      };
-      /* 走出站层（本机回环的 http 也走同一份）：以前这里自己 http/https.request，
-         既不带 DNS 闸，也就多了一套会忘记加护栏的出站实现。 */
       const req = ctx.anyRequest(url, { method: 'POST', headers }, res => {
         collect(res, MAX_ONLINE_RESPONSE).then(resolve, reject);
       });
@@ -276,15 +310,71 @@ function createAsrRoutes(ctx) {
       st.on('end', () => req.end(tailBuf));
       st.pipe(req, { end: false });
     });
+    return parseOnlineText(text, svc);
+  }
+
+  /* chat-audio 那一族（百炼 qwen3-asr-flash）：音频以 data:base64 塞进 input_audio，
+     回的是 assistant 正文、没有分段。代理与上游之间没有外链可递，只能把字节带上；
+     上限单列：一次请求里塞几十 MB base64 会先把内存吃掉。 */
+  async function runOnlineChatAudio(svc, media, rt, job) {
+    const url = await checkedUrl(joinEndpoint(svc.base, svc.path));
+    const size = fs.statSync(media).size;
+    if (size > MAX_CHAT_AUDIO) {
+      throw new Error('这一家走 chat/completions 收音频，单次最多 ' + Math.round(MAX_CHAT_AUDIO / 1048576)
+        + 'MB（这条 ' + Math.round(size / 1048576) + 'MB）：先切小，或改用 /audio/transcriptions 那一族');
+    }
+    const dataUri = 'data:' + guessMime(media) + ';base64,' + fs.readFileSync(media).toString('base64');
+    const lang = langOf(job);
+    const body = {
+      model: svc.model, stream: false,
+      messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: dataUri } }] }],
+    };
+    if (lang && svc.language === 'body') body.asr_options = { language: lang };
+    ctx.store.patchJob(job.id, { state: 'running', progress: 0.2, engine: 'online · ' + svc.model });
+    const buf = Buffer.from(JSON.stringify(body));
+    const r = await postJson(ctx, {
+      url, body: buf, timeoutMs: 15 * 60 * 1000, maxBytes: MAX_ONLINE_RESPONSE,
+      headers: {
+        'Authorization': 'Bearer ' + svc.key,
+        'Content-Type': 'application/json',
+        'Content-Length': buf.length,
+        'Accept': 'application/json',
+      },
+      onReq: req => { rt.req = req; },
+    });
+    if (r.status < 200 || r.status >= 300) {
+      throw new Error('上游拒绝（HTTP ' + r.status + '）：' + clean(r.text, 400));
+    }
+    return parseOnlineText(r.text, svc);
+  }
+  function parseOnlineText(text, svc) {
     let parsed = null;
     try { parsed = JSON.parse(text); }
     catch (e) { throw new Error('上游没有返回 JSON：' + clean(text, 300)); }
     if (parsed && parsed.error) {
       throw new Error('上游拒绝：' + clean(parsed.error.message || parsed.error, 400));
     }
+    /* chat 那一族：正文可能是字符串，也可能是 [{type:'text', text}] 的分段数组。 */
+    const msg = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message;
+    if (msg && msg.content != null) {
+      const contentText = c => (typeof c === 'string' ? c
+        : Array.isArray(c) ? c.map(x => (x && (x.text || x.content)) || '').join('') : '');
+      const out = contentText(msg.content);
+      const segments = clean(out, 200000) ? [{ start: 0, end: 0, text: clean(out, 200000) }] : [];
+      if (segments.length) return { segments, engine: 'online · ' + svc.model };
+    }
     const segments = segsOf(parsed);
-    if (!segments.length) throw new Error('上游返回里没有转写内容（可能是格式不支持 verbose_json）');
+    if (!segments.length) throw new Error('上游返回里没有转写内容（可能是这个型号不支持所选返回格式）');
     return { segments, engine: 'online · ' + svc.model };
+  }
+
+  async function runOnline(job, media, rt) {
+    const svc = resolveService();
+    if (!svc.key) throw new Error('在线转写没有可用密钥：在设置 → 语音识别里填，或先给供应商配一把密钥');
+    if (!svc.base) throw new Error('在线转写没有接口地址：先选供应商，或手动填一个接口地址');
+    return svc.style === 'chat-audio'
+      ? runOnlineChatAudio(svc, media, rt, job)
+      : runOnlineMultipart(svc, media, rt, job);
   }
 
   async function work(jobId) {

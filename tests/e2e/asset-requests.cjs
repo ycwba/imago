@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-/* 资产库取数这一路的四个门槛数字（AGENTS §7「列表首屏缓存只有一份」）：
+/* 资产库取数这一路的四个门槛数字（「列表首屏缓存只有一份」）：
      ① 首屏（画到第一张卡片为止）「取列表」的请求数：以前 assets.js 连发两次 fetchMore(1) +
         tally.run(true)（每个来源最多翻 10 页）+ 每批之后逐来源 liveKeys，实测 40+；
         现在两次合成一次 fetchMore(2)、计数延到空闲，门槛 12 以内。
      ② 后台数总数**不许重回第 1 页**：countAll 必须收到页面已有的游标（assets.js 的 tallyFrom），
         且从首屏到数完，整页最多三轮 load（首屏一轮 + 哨兵续拉 + 计数续翻）。
         这一条是结构性判据，不随上游有没有数据变化 —— 少这一条，「首屏 12 笔」迟早又被
-        「计数从第 1 页重走一遍」吃回去，而那时首屏那一档还是绿的。
+「计数从第 1 页重走一遍」吃回去，而那时首屏那一档还是绿的。
      ③ 同参数第二次 `AssetLib.load`：命中结果级短缓存，一条上游列表请求都不许再发。
      ④ 有缓存时选择器打开到「首屏可选」：先用 listCache 画底，不等联网那三页（300ms 以内）。
    ①② 只数「把卡片取回来」的那几笔（各来源声明的 list 端点 / 本机资产清单 / 提示词索引），
@@ -20,7 +20,7 @@
        全站默认值只留 Net.NUMS 一份，设置页那一格（`sk_net_retry`）才真正管住页面取数。
    实测数字用 `PERF_WRITE=1 node tests/e2e/asset-requests.cjs` 写进 `tests/fixtures/perf-baseline.json`
    的 `assets` 一节（与切片基线同一份文件、同一个开关）；判据本身只按门槛红，不看基线。
-   写入型验证只碰 .data-probe-* 等隔离目录（harness 负责创建与清理），不写用户数据。 */
+   写入型验证只碰 harness 在系统临时目录里建的探针目录（负责创建与清理），不写用户数据。 */
 'use strict';
 const path = require('path');
 const h = require('./harness.cjs');

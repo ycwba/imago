@@ -1,4 +1,4 @@
-/* 导演台Frames域：由 engine.js 按域机械搬出（AGENTS.md §17：内部保持命令式、按域拆模块，
+/* 导演台Frames域：由 engine.js 按域机械搬出（内部保持命令式、按域拆模块，
    engine.js 只留状态与接线）。区间内的代码逐字保留，只有点名的几处引擎可变状态改经访问器读，
    区间外的名字一律由 createFrames(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
@@ -397,7 +397,7 @@ function sliceVideoIdle(key) {
 let sliceMbWait = false;
 function slicePump() {
   if (slicePaused) return;
-  /* 切片的解码器只在 media-backend.js 里造（AGENTS §7），这一层没有第二份可退。
+  /* 切片的解码器只在 media-backend.js 里造，这一层没有第二份可退。
      那一份还没到位就先不排活，等它加载完自己再来一遍；加载不起来就停在这里（格子保持占位）。 */
   if (!(window.MediaBackend && window.MediaBackend._video)) {
     if (!sliceMbWait && Wb.vframe) {

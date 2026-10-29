@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /* 剪辑闭环：导入本机视频 → 入轨 → 剪 → 改倍速 → 写字幕 → 导出成片 →
    存进资产库，全程在同一个页面里跑完，不换页、不刷新。
-   成片在页面里逐帧合成（MediaExport / WebCodecs），产品侧不需要 ffmpeg；
-   ffmpeg 只用来造这一段 2 秒的输入视频 —— 本机没有就跳过并报明，
-   浏览器没有 H.264 编码器时同样跳过（成片导不出来，不是这一页坏了）。 */
+   成片在页面里逐帧合成（MediaExport / WebCodecs）；输入素材是入库的那段
+   2 秒样本视频（tests/fixtures/media/probe-clip.mp4），不依赖本机转码工具。
+   浏览器没有 H.264 编码器时跳过（成片导不出来，不是这一页坏了）。 */
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -20,9 +20,8 @@ function pickFilm(dir) {
 }
 
 (async () => {
-  if (!h.hasFfmpeg()) { console.log('- 跳过剪辑闭环（本机没有 ffmpeg，造不出这颗 2 秒的输入视频；产品导出本身不用它）'); return; }
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-edit-'));
-  const clip = h.makeClip(work);
+  const clip = h.clipFixture();
   const dlDir = path.join(work, 'dl');
   fs.mkdirSync(dlDir);
   let proxy, browser, page;

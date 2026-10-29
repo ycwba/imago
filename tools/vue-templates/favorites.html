@@ -15,13 +15,13 @@
         </div>
       </header>
 
-      <!-- 类型筛选（带条数）：公共件 Wb.kindFilter —— 与生成工作台、资产库同一副分段控件。
+      <!-- 类型筛选（带条数）：公共件 Wb.kindFilter —— 与工作台、资产库同一副分段控件。
            独立一行放在工具条上面：类型档在上、搜索行在下（工作台也是这个次序）。 -->
       <div class="fav-kinds">
         <div class="ui-seg" ref="kindEl" role="group" aria-label="按类型筛选"></div>
       </div>
 
-      <!-- 筛选行：搜索 + AI 找素材（公共件 Wb.filterBar） -->
+      <!-- 筛选行：搜索 + AI 搜索（公共件 Wb.filterBar） -->
       <div class="toolbar" ref="toolbarEl"></div>
 
       <!-- 平台 + 时间（与资产库一样的两种）+ 摆法 -->
@@ -37,17 +37,18 @@
           </select></label>
         <span class="sp" style="flex:1"></span>
         <span class="viewtoggle" ref="viewEl"></span>
-        <button class="ghost" ref="pullBtn" @click="pullLocal"></button>
       </div>
 
       <!-- 多选条：与资产库同一套公共件（.bulkbar）。「移出收藏」这种破坏性动作
-           收在这一行里，不在每张卡上喊。 -->
+           收在这一行里，不在每张卡上喊。「存回本机」同理：存的是**勾选的那几条**，
+           不多选就点它，等于「把这一屏都存一遍」。 -->
       <div class="bulkbar" id="bulkBar" v-show="multiMode">
         <span class="bk-cnt" id="bulkCnt">{{ bulkCountText }}</span>
         <button class="ghost" id="bulkAll" :disabled="bulkAllDisabled" @click="bulkAll">{{ bulkAllText }}</button>
         <button class="ghost" id="bulkClear" @click="bulkClear">取消选择</button>
         <button class="ghost" id="bulkDown" :disabled="bulkDownDisabled" @click="bulkDownload"><span data-icon="download" data-size="13"></span> 批量下载</button>
         <button class="ghost danger" id="bulkDrop" :disabled="bulkFavRemoveDisabled" @click="bulkDrop"><span data-icon="starFill" data-size="13"></span> 取消收藏</button>
+        <button type="button" class="ghost" ref="pullBtn" id="favPullLocal" @click="pullLocal"></button>
         <span class="bk-tip" id="bulkTip">{{ bulkTipText }}</span>
         <span class="sp" style="flex:1"></span>
         <button class="ghost" id="multiExit" @click="exitMulti">退出多选</button>

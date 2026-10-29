@@ -6,12 +6,6 @@ import { render } from '../render/assets.js';
 
 const PAGE_MODE = window.pageModeOf('assets');
 const PAGE_SIZE = window.pageSizeOf('assets');
-import { ensureCss } from '../core/page-css.js';
-
-
-/* 这一份样式单独放在 spa-assets.css，打开这一页时由 `ensureCss` 按需挂上
-   （外壳只引 tokens / ui / sidebar / spa-director，不引任何页面样式）。 */
-ensureCss('web/styles/spa-assets.css', 'spa-assets');
 
 export default {
   name: 'AssetsView',
@@ -67,7 +61,6 @@ export default {
     const dFromEl = ref(null);
     const dToEl = ref(null);
     const pullLocalBtn = ref(null);
-    const cancelAllBtn = ref(null);
     const gotoPageEl = ref(null);
     const pagerBtnsEl = ref(null);
 
@@ -97,9 +90,10 @@ export default {
        所以给 pager 传 onState，让它把「能不能点 / 第几页 / 共几页」算好递回来。 */
     let pager = null;
     /* 大类型 + 搜索这一行的唯一生成者（搜索框、芯片、按钮、计数都出自 Wb.filterBar）。
-       AI 检索按钮与 AI 芯片是这一页私有内容，作为 extraHTML 插进同一条行里。 */
+       AI 搜索按钮与 AI 芯片是这一页私有内容（按钮的画法与文案取自公共层 AiFind.btnHTML），
+       作为 extraHTML 插进同一条行里。 */
     let searchFb = null;
-    /* 类型筛选走公共件 Wb.kindFilter（与生成工作台、收藏页同一副）；
+    /* 类型筛选走公共件 Wb.kindFilter（与工作台、收藏页同一副）；
        计数放在这一份 Map 里 —— 公共件的 count 回调读它。 */
     let kindFb = null;
     const kindCounts = new Map();
@@ -160,7 +154,7 @@ export default {
        这一把比卡片多一维供应商：同一个号在两家平台是两份不同的东西，勾掉一个不该把另一个也取消。 */
     const selKeyOf = a => (a.provider || '') + '|' + window.AssetLib.entryKey(a);
 
-    /* 多选：状态与操作在公共件 `Wb.multi` 里（生成工作台同一份，不许各写一套）。
+    /* 多选：状态与操作在公共件 `Wb.multi` 里（工作台同一份，不许各写一套）。
        这一页只提供三件事：哪几个字段算同一条、当前这一屏看得见哪些、改完之后怎么重画。
        ⚠ workbench.js 是这一页**异步补载**的（onMounted 里 await），所以实例要等它到了再拿 ——
        在 setup 里就建它会拿到 undefined（页面一开就白屏）。 */
@@ -205,7 +199,7 @@ export default {
       const picked = assetsMulti().selected();
       window.AssetLocal.pullBar(btn, pullScope(), {
         what: '产物', zone: '选中的',
-        empty: picked.length ? '选中的这些本机都已经有了，不用再存' : '先勾选要存回本机的产物',
+        empty: picked.length ? '选中的这些本机都已经有了' : '先勾选要存回本机的产物',
       });
     }
     /* 首屏数据回来之前按钮上写的是静态那一版（与旧页面标记逐字相同）：
@@ -223,7 +217,7 @@ export default {
       const todo = pullScope();
       if (!picked.length) {
         /* 「你点了，但什么都没发生」必须看得见：这一类用 warn 档（ok/info 默认静音） */
-        window.Toast.warn('先勾选要存回本机的产物（多选之后点卡片即可）');
+        window.Toast.warn('先勾选要存回本机的产物');
         return;
       }
       if (!todo.length) {
@@ -392,13 +386,15 @@ export default {
 
     function applyFilters(opts) {
       const keepHidden = !!(opts && opts.includeHidden);
-      /* 算页头那三档的条数时要看「除这一档以外」的所有条件 ——
-         点一下就得到这个数，数字不会对不上。 */
+      /* 某一档的条数只看「除这一档以外」的所有条件 —— 点一下就得到这个数，数字不会对不上。
+         noBucket 给页头三档用；noType 给类型那一排用：带着类型条件算，选中一档之后
+         别的档条数全变 0，公共件会按「计数为 0 且不是当前档」把它们一起藏掉。 */
       const noBucket = !!(opts && opts.noBucket);
+      const noType = !!(opts && opts.noType);
       if (!keepHidden) hiddenCloud = 0;
       let all = assets.filter(a => {
         if (window.AssetLocal.hideAsCloud(a)) { if (!keepHidden) { hiddenCloud++; return false; } }
-        if (!(F.type === '全部' || typeKey(a.type) === typeKey(F.type))) return false;
+        if (!noType && !(F.type === '全部' || typeKey(a.type) === typeKey(F.type))) return false;
         if (F.provider !== '全部' && a.providerName !== F.provider) return false;
         if (!noBucket && F.bucket && bucketOf(a) !== F.bucket) return false;
         if (!F.q) return true;
@@ -875,7 +871,7 @@ export default {
       F.type = '全部'; F.provider = '全部'; F.bucket = ''; F.q = '';
       F.from = ''; F.to = ''; F.time = '0';
       FAI = null; aiAsc = 0;
-      if (searchFb) searchFb.setQuery('');
+      if (searchFb) { searchFb.setQuery(''); searchFb.markApplied(''); }
       if (dFromEl.value) dFromEl.value.value = '';
       if (dToEl.value) dToEl.value.value = '';
       renderFilters(); paintAiChip(); renderGrid();
@@ -894,11 +890,10 @@ export default {
       }
       if (!assets.length) {
         return window.Wb.emptyHTML(['还没有产物'],
-        window.GoPage.btn('studio.html?t=video', '去生成工作台')
+        window.GoPage.btn('studio.html?t=video', '去工作台')
           + window.GoPage.btn('chars.html', '去素材库'));
       }
-      return window.Wb.emptyHTML(['这一屏里还没有已完成的产物（排队与生成中的那些还没有字节）。',
-        '要看进行中的，把状态那一档切到「生成中」或「排队中」。']);
+      return window.Wb.emptyHTML(['还没有已完成的产物']);
     }
     /* 空态里那两枚按钮是每次重画现写的 DOM：委托绑不住（GoPage.bind 只认当场存在的节点），
        所以每次画完空态补绑一次。 */
@@ -1056,13 +1051,14 @@ export default {
 
     /* ---------- 筛选行：类型（带条数）+ 平台 + 时间；状态三档在页头 ---------- */
     function renderFilters() {
-      /* 类型：每一档带条数。条数跟着**其它**筛选条件走（页头三档同理）——
+      /* 类型：每一档带条数。条数跟着**其它**筛选条件走 ——
          点一下就得到这个数，数字不会对不上。 */
       if (asTypeEl.value) {
-        /* 类型（带条数）：公共件 Wb.kindFilter —— 与生成工作台、收藏页同一副分段控件
-           （以前这一处走 Chips.render 的芯片行，三页三副样子）。
-           条数跟着**其它**筛选条件走（页头三档同理）—— 点一下就得到这个数，数字不会对不上。 */
-        const pool = applyFilters({ noBucket: true });
+        /* 类型（带条数）：公共件 Wb.kindFilter —— 与工作台、收藏页同一副分段控件。
+           计数池必须摘掉类型条件本身（noType）：带着类型条件算的话，选中一档之后别的档
+           全是 0，数字就成了「按当前筛选算的」，点一下才发现对不上。
+           页头那三档仍按 noBucket 摘掉（切换状态档不重画这一排，带上它数字会停在旧的一档）。 */
+        const pool = applyFilters({ noBucket: true, noType: true });
         kindCounts.clear();
         kindCounts.set('全部', pool.length);
         ['图片', '视频', '音频'].forEach(t => kindCounts.set(t, pool.filter(a => typeKey(a.type) === typeKey(t)).length));
@@ -1071,6 +1067,9 @@ export default {
             kinds: [['全部', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频']],
             allKey: '全部',
             value: F.type,
+            /* 四档恒在：资产是分几批到的（本机账 → 各平台列表），按「计数为 0 就不画」
+               会让音频那一档过一会儿才冒出来，整排也跟着左右挪。条数照旧跟着筛选现算。 */
+            hideEmpty: false,
             count: v => Number(kindCounts.get(v) || 0),
             onPick: v => { F.type = v; renderFilters(); renderGrid(); },
           });
@@ -1157,14 +1156,7 @@ export default {
       window.DatePicker.open(holder, inp, { onPick: () => { renderFilters(); renderGrid(); } });
     }
 
-    /* ---------- 搜索 ---------- */
-    /* 输入与「搜索」按钮都交给 searchFb：按钮按的也是同一个回调，防抖在公共件里。 */
-    function onSearchClick() {
-      if (!searchFb) return;
-      searchFb.setQuery(searchFb.value(), true);
-    }
-
-    /* ---------- AI 检索 ---------- */
+    /* ---------- AI 搜索（这一页产出的是筛选条件） ---------- */
     function paintAiChip() {
       if (!aiChipEl.value) return;
       const seen = FAI && FAI.seen;
@@ -1176,10 +1168,11 @@ export default {
       window.AiChip.show(aiChipEl.value, {
         text: FAI ? window.AiChip.text([String(FAI.desc).slice(0, 22), FAI.cond.summary,
           aiAsc === 1 ? '最早的在前' : ''].concat(scope.filter(Boolean))) : '',
-        clearTitle: '清除 AI 条件',
         clearId: 'assetsAiClear',
         onClear: () => {
-          FAI = null; aiAsc = 0;
+          /* 收掉 AI 条件 = 退回不筛：框里那句原话一并清掉（留着会被当成普通词再筛一遍）。 */
+          FAI = null; aiAsc = 0; F.q = '';
+          if (searchFb) { searchFb.setQuery(''); searchFb.markApplied(''); }
           paintAiChip(); renderFilters(); renderGrid();
         },
       });
@@ -1189,7 +1182,7 @@ export default {
       if (!started) return;
       const box = searchInput();
       const q = ((box && box.value) || '').trim();
-      const gateWhy = window.AiFind.shortWhy(q, 'AI 检索');
+      const gateWhy = window.AiFind.shortWhy(q);
       if (gateWhy) { cntText.value = gateWhy; if (box) window.focusQuiet(box); return; }
       const v = { q };
       if (!window.TextAI) { window.Toast.err('文字 AI 没加载出来：刷新页面再试'); return; }
@@ -1214,22 +1207,23 @@ export default {
         + '4. 可用素材里带了「资产ID / 任务ID」：用户给的是 ID 时，把该 ID 原样放进 keywords。\n'
         + '5. summary 用一句话说明你把需求理解成了什么（界面会显示给用户看）。';
       const btn = aiSearchBtn.value;
-      const old = btn ? btn.textContent : '';
-      if (btn) { btn.disabled = true; btn.textContent = '检索中…'; }
+      window.aiBtnState(btn, true);
       try {
         const reg = await window.Api.registry();
         const out = await window.TextAI.chat(reg, sys, JSON.stringify({ 需求: v.q, 可用素材样例: idx, 我的收藏: favs }));
         const j = window.TextAI.parseJson(out);
-        if (!j) throw new Error('AI 没有给出可用的检索条件');
+        if (!j) throw new Error('AI 没有给出可用的条件');
         FAI = { desc: v.q, cond: j, seen };
         aiAsc = j.order === 'asc' ? 1 : (j.order === 'desc' ? -1 : 0);
-        if (searchFb) searchFb.setQuery(''); else if (box) box.value = '';
+        /* 原话留在框里（用户还要改），但不再当普通词过滤：F.q 清空；这句话登记成「已跑过」，
+           点到别处时不会又被当成普通搜索跑一遍、把 AI 的条件冲掉。 */
         F.q = '';
-        window.Toast.receipt('AI 检索条件已生效（原话：' + v.q.slice(0, 24) + '），清空条件点下面的 ✕');
+        if (searchFb) searchFb.markApplied(v.q);
+        window.Toast.receipt('已按 AI 给的条件筛好（原话：' + v.q.slice(0, 24) + '）；清空搜索框或点条件上的 ✕ 取消');
       } catch (e) {
-        window.Toast.err('AI 检索失败：' + window.errText(e));
+        window.Toast.err(window.AiFind.failText(e));
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = old; }
+        window.aiBtnState(btn, false);
       }
       renderFilters();
       renderGrid();
@@ -1316,16 +1310,19 @@ export default {
     /* ---------- 启动 ---------- */
     function initWb() {
       LIST_CACHE = window.AssetLib.listCache('assets_cache_v1');
-      /* 「搜索」这一格在**页头**（公共件 Wb.filterBar：搜索框 + 防抖 + Enter 即搜 + AI 芯片宿主），
-         类型芯片在下面那一行筛选里（公共件 Chips.render，带条数）。 */
+      /* 「搜索」这一格在**页头**（公共件 Wb.filterBar：搜索框 + 回车 / 失焦即搜 + 清空即取消
+         + AI 搜索按钮与芯片宿主），类型芯片在下面那一行筛选里（公共件 Chips.render，带条数）。
+         普通搜索是一次新的搜索：如果列表正被 AI 条件筛着，先把那组条件收回（换词 = 重新找）。 */
       searchFb = window.Wb.filterBar.bind(headToolsEl.value, {
         cls: '', chips: null, value: F.q,
         headHTML: '<span class="flabel">搜索</span>',
         inputId: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
-        onSearch: v => { F.q = String(v == null ? '' : v).trim().toLowerCase(); renderGrid(); },
-        extraHTML: '<button class="ghost" id="searchBtn" style="flex:0 0 auto">搜索</button>'
-          + '<button class="ghost" id="aiSearchBtn" style="flex:0 0 auto">AI 检索</button>'
-          + '<span data-fb="aiChip"></span>',
+        onSearch: v => {
+          if (FAI) { FAI = null; aiAsc = 0; paintAiChip(); }
+          F.q = String(v == null ? '' : v).trim().toLowerCase();
+          renderGrid();
+        },
+        extraHTML: window.AiFind.btnHTML('aiSearchBtn') + '<span data-fb="aiChip"></span>',
         cnt: false,
       });
       /* 页头三档（状态）：点一下把列表筛到那一档 */
@@ -1334,8 +1331,6 @@ export default {
       if (asTimeEl.value) asTimeEl.value.addEventListener('change', onTimeChange);
       /* 平台下拉的浮层由 load() 里那一次 Dropdowns.build 建（这一页是后挂上来的），
          options 换过之后由 renderFilters 里的 sync 通知。 */
-      const searchBtn = searchFb.el.querySelector('#searchBtn');
-      if (searchBtn) searchBtn.onclick = onSearchClick;
       aiSearchBtn.value = searchFb.el.querySelector('#aiSearchBtn');
       if (aiSearchBtn.value) aiSearchBtn.value.onclick = runAiSearch;
       aiChipEl.value = searchFb.el.querySelector('[data-fb="aiChip"]');
@@ -1425,29 +1420,10 @@ export default {
 
     async function bulkDownload() {
       if (!started) return;
-      /* 批量下载是公共件（Wb.downloadList）：资产库与生成工作台同一份实现，
+      /* 批量下载是公共件（Wb.downloadList）：资产库与工作台同一份实现，
          进度条与成功/失败计数也只在那里一份。 */
       await window.Wb.downloadList(
         assetsMulti().selected().filter(a => a.dl || a.src).map(a => ({ url: a.dl || a.src, name: fileNameOf(a) })));
-    }
-
-    async function cancelAll() {
-      if (!started) return;
-      const btn = cancelAllBtn.value;
-      const live = assets.filter(a => a.kind === 'task' && window.Wb.stLive(a.status));
-      if (!live.length) { window.Toast.warn('没有进行中的任务：这一屏里没有正在排队或正在跑的任务'); return; }
-      const rs = live.filter(a => { const p = window.Api.provOf(a.provider); return p && window.Api.canCancel(p); });
-      const dim = live.length - rs.length;
-      if (!rs.length) { window.Toast.warn('这些任务所在的平台没有提供撤单接口，只能等平台那边自己结束'); return; }
-      if (window.Confirm.arm(btn, '确认取消 ' + rs.length + ' 个？' + (dim ? '（另有 ' + dim + ' 个的平台没有撤单接口）' : ''))) return;
-      const rr = await Promise.allSettled(rs.map(a => window.Wb.cancelTask(window.Api.provOf(a.provider), a.genId || a.id)));
-      const nf = rr.filter(r => r.status === 'rejected').length;
-      /* 撤单只有一份实现（Wb.cancelTask：认平台、认这一家到底有没有取消接口），
-         而且结果要按条数报：一条都没撤掉时说「已取消」，用户就会以为那些任务停了、不再计费。 */
-      if (!nf) window.Toast.receipt('已取消 ' + rs.length + ' 条：平台上这些任务已撤单');
-      else if (nf === rs.length) window.Toast.warn('这 ' + rs.length + ' 条一条都没撤掉：它们可能还在跑、继续计费。刷新后仍在的请再试一次');
-      else window.Toast.warn('已取消 ' + (rs.length - nf) + ' 条，另有 ' + nf + ' 条没撤掉（可能还在跑并计费）');
-      await refreshKeepPage();
     }
 
     /* ---------- 带进来的「就是这一条」 ----------
@@ -1551,7 +1527,7 @@ export default {
       isPageMode: PAGE_MODE === 'page', pagerReady,
       F, faceFrom, faceTo,
       pageEl, gridEl, gridEndEl, loadErrEl, headToolsEl, asTypeEl, asProvEl, asTimeEl, asSumEl, viewEl,
-      dFromEl, dToEl, pullLocalBtn, cancelAllBtn, gotoPageEl, pagerBtnsEl,
+      dFromEl, dToEl, pullLocalBtn, gotoPageEl, pagerBtnsEl,
       openDatePicker, onDateChange, clearDates, timeMode,
       toggleMulti: () => assetsMulti().setMode(!multiMode.value),
       exitMulti: () => assetsMulti().setMode(false),
@@ -1563,7 +1539,7 @@ export default {
       },
       bulkClear: () => assetsMulti().clear(),
       bulkDownload, assetsBulkFavAdd, assetsBulkFavRemove,
-      pullLocalPage, reload, cancelAll, gotoPageInput,
+      pullLocalPage, reload, gotoPageInput,
     };
   },
   render,

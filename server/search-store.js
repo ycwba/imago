@@ -6,16 +6,16 @@ const fs = require('fs');
 const path = require('path');
 const { writeJsonWithBak } = require('./fs-atomic.js');
 
-const PROVIDERS = new Set(['tavily', 'deepseek']);
+/* `provider` 是搜索**引擎**：'auto'（挑第一家声明了 search 且配了密钥的供应商）/
+   'tavily'（独立搜索接口，只认单独填的那把密钥）/ 供应商 id（deepseek、zhipu、moonshot…）。
+   不在这一层校验 id 是否存在 —— 注册表是动态的，未知 id 由 /search/query 按「这家没有搜索接口」报。 */
 const SOURCES = new Set(['channel', 'manual']);
-
 const def = () => ({
   revision: 1,
   enabled: false,
-  provider: 'tavily',
+  provider: 'auto',
   maxResults: 5,
   credentialSource: 'channel',
-  channelId: 'deepseek',
   model: '',
   baseUrl: '',
   key: '',
@@ -45,10 +45,9 @@ function createSearchStore(opts) {
     cur = {
       revision: Number(raw.revision) || 1,
       enabled: raw.enabled === true,
-      provider: PROVIDERS.has(raw.provider) ? raw.provider : d.provider,
+      provider: clean(raw.provider, 60) || d.provider,
       maxResults: Math.max(1, Math.min(10, Number(raw.maxResults) || d.maxResults)),
       credentialSource: SOURCES.has(raw.credentialSource) ? raw.credentialSource : d.credentialSource,
-      channelId: clean(raw.channelId, 60) || d.channelId,
       model: clean(raw.model, 120),
       baseUrl: clean(raw.baseUrl, 500),
       key: clean(raw.key, 500),
@@ -70,7 +69,7 @@ function createSearchStore(opts) {
     return {
       revision: s.revision, enabled: s.enabled, provider: s.provider,
       maxResults: s.maxResults, credentialSource: s.credentialSource,
-      channelId: s.channelId, model: s.model, baseUrl: s.baseUrl,
+      model: s.model, baseUrl: s.baseUrl,
       hasKey: !!s.key, updatedAt: s.updatedAt,
     };
   };
@@ -79,8 +78,11 @@ function createSearchStore(opts) {
     const s = load();
     if (o.enabled != null) s.enabled = o.enabled === true;
     if (o.provider != null) {
-      if (!PROVIDERS.has(o.provider)) throw new Error('搜索服务只支持 tavily / deepseek');
-      s.provider = o.provider;
+      const id = clean(o.provider, 60);
+      if (id && id !== 'auto' && id !== 'tavily' && !/^[A-Za-z0-9_-]+$/.test(id)) {
+        throw new Error('搜索服务只能是 auto / tavily / 供应商 id');
+      }
+      s.provider = id || 'auto';
     }
     if (o.maxResults != null) {
       const n = Math.round(Number(o.maxResults));

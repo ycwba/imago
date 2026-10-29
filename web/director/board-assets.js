@@ -216,7 +216,9 @@ export function createBoardAssets(ctx) {
     if (!String(text).trim()) return { raw: [], plan: [], skipped: [] };
     const chat = c.TextAI && c.TextAI.chat;
     if (!chat) return { raw: [], plan: [], skipped: [] };
-    const j = c.parseJsonLoose ? c.parseJsonLoose(await chat(reg, sys, text)) : null;
+    /* 这一处能不能联网由调用方按「导演台拆分镜」那一档开关给；没给就是纯本地判定。 */
+    const opts = c.search ? { search: c.search } : {};
+    const j = c.parseJsonLoose ? c.parseJsonLoose(await chat(reg, sys, text, opts)) : null;
     const raw = (j && (j.newAssets || j.assets || j.new)) || [];
     const r = plan(Array.isArray(raw) ? raw : [], shots, existing);
     return { raw: Array.isArray(raw) ? raw : [], plan: r.plan, skipped: r.skipped };

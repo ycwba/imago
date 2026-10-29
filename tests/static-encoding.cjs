@@ -2,11 +2,11 @@
 /* 静态预压缩判据：brotli 优先 → gzip → 原文，三档共用同一套 ETag 与同一份缓存。
    两层跑法各有看不见的那一半：
      ① 进程内直接驱动 server/static.js（假 req/res）：协商表、ETag 口径、缓存命中计数、
-        「压不动就退下一档」这几件只有现调才看得见 —— 走 HTTP 只能看到结果，看不到压了几次。
-     ② 真起一个隔离代理实例（harness，AGENTS §13.2 / §13.4）：验响应头与字节数真的到了线上，
+「压不动就退下一档」这几件只有现调才看得见 —— 走 HTTP 只能看到结果，看不到压了几次。
+     ② 真起一个隔离代理实例（harness）：验响应头与字节数真的到了线上，
         并实测同一份文件在 原文 / gzip / br 三档下的体积与二次请求的耗时。
    ① 是常驻档（不起实例，几十毫秒）；② 只在 `--live` 下跑，由 tests/all.cjs 的 e2e 档点名 ——
-   为一份响应头多起一个 proxy 会把常驻池拖回 §12 要压下去的那个数字。
+   为一份响应头多起一个 proxy 会把常驻档的耗时拖过预算线。
    服务端判据不碰浏览器件（没有 localStorage、没有页面）。 */
 'use strict';
 const assert = require('assert');
@@ -215,7 +215,7 @@ const sentOf = (b, br) => {
   assert.equal(zlib.brotliDecompressSync(rEdit2.body).toString('utf8'),
     fs.readFileSync(fullEdit, 'utf8'), '文件变了却还在发缓存里那一份');
 
-  /* ---------- ③ 真起一个隔离代理实例（AGENTS §13.2）---------- */
+  /* ---------- ③ 真起一个隔离代理实例 ---------- */
   if (!LIVE) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* 临时目录清不掉不算判据失败 */ }
     console.log('✓ 静态预压缩判据通过（协商、ETag 口径、304/HEAD、压不动退档、缓存命中；线上响应加 --live）');

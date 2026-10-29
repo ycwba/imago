@@ -16,7 +16,7 @@
 /* 「这一次请求的形状」（Capabilities 的 combo：{mode, intent}）决定某个声明字段成不成立。
    判据只有这一份，界面画不画、默认值取哪一边、提交体发不发、报价体带不带都问它 ——
    声明里写 `when: { intent: 'person_replacement' }`，值拿去和这一次的形状比，
-   所以页面与代理都不需要 `if (平台 id)`（AGENTS.md §2）。
+   所以页面与代理都不需要 `if (平台 id)`。
    没有形状声明的平台（combos 为空 → 这里收到 null / 空对象）一律「不隐藏、用普通默认值」，
    行为与加这一档之前逐字相同。 */
 function whenMatches(when, ctx) {
@@ -60,7 +60,7 @@ function shapeRolesKey(roles) {
       上游根本没列过）→ 说「还看不出来」；
    ③ 这一行确实没有这一项 → 才是「平台没给」。
    把 ② 说成 ③ 就是替平台下结论：用户看到的是一句「这一档不支持」，
-   而真要做的事是把素材放齐 —— 与 AGENTS.md「能力声明回来之前不许说你没配」是同一类毛病。
+   而真要做的事是把素材放齐 —— 与「能力声明回来之前不许说你没配」是同一类毛病。
    两处判据（topBoolState / shapeFieldState）共用这一份，别再各写一套按键名取文案的分支。 */
 function whyNote(caps, d, missKey, unkKey, noKey) {
   const k = !caps ? missKey : (caps.known === false ? unkKey : noKey);

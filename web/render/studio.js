@@ -9,7 +9,7 @@ const _hoisted_1 = {
 export function render(_ctx, _cache) {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createCommentVNode(" 统一页头（全站唯一一份 .phead）：这一页以前标题缩在左栏顶部、字号还独一份，\n           左栏一滚标题就跟着走了。现在提到全宽顶排，左栏顶部让给类型切换与型号下拉。 "),
-    _cache[0] || (_cache[0] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">生成工作台</h1></div><span class=\"phead-sub\"></span><div class=\"phead-acts\"></div></header>", 1)),
+    _cache[0] || (_cache[0] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">工作台</h1></div><span class=\"phead-sub\"></span><div class=\"phead-acts\"></div></header>", 1)),
     _cache[1] || (_cache[1] = _createElementVNode("div", { class: "layout" }, [
       _createElementVNode("div", {
         class: "col-left",
@@ -44,31 +44,15 @@ export function render(_ctx, _cache) {
             hidden: ""
           }),
           _createElementVNode("div", { class: "btn-row" }, [
-            _createElementVNode("button", {
-              class: "tool acc",
-              "data-r": "polishBtn",
-              title: "文字 AI 改写提示词"
-            }, [
-              _createElementVNode("span", {
-                class: "ic",
-                "data-icon": "sparkles",
-                "data-size": "14"
-              }),
-              _createTextVNode("AI 润色")
-            ]),
-            _createElementVNode("button", {
-              class: "tool",
-              "data-r": "splitBtn",
-              hidden: "",
-              title: "拆成多张图的提示词"
-            }, [
-              _createElementVNode("span", {
-                class: "ic",
-                "data-icon": "sparkles",
-                "data-size": "14"
-              }),
-              _createTextVNode("拆分片段生成")
-            ]),
+            _createCommentVNode(" 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                   模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
+            _createElementVNode("span", {
+              class: "btn-host",
+              "data-r": "polishHost"
+            }),
+            _createElementVNode("span", {
+              class: "btn-host",
+              "data-r": "splitHost"
+            }),
             _createElementVNode("span", { class: "sp" }),
             _createElementVNode("button", {
               class: "tool danger",
@@ -299,27 +283,26 @@ export function render(_ctx, _cache) {
                 "data-size": "13"
               }),
               _createTextVNode(" 刷新")
-            ])
+            ]),
+            _createElementVNode("span", { class: "pgsep" }),
+            _createCommentVNode(" 搜索 / 多选 / 刷新与翻页（上一页 · 第几页 · 下一页 · 跳页 · 跳转）并成同一排：\n                   都只影响这一屏列表。这一组按「尽量一行」设计，右栏被拖窄时才自己换行。\n                   收藏 / 素材库 / 资产库三页的翻页仍在页底（整页滚，页底是全站统一的位置）。 "),
+            _createElementVNode("span", {
+              class: "pgrow",
+              id: "stPgRow",
+              "data-r": "stPgRow"
+            }),
+            _createElementVNode("input", {
+              type: "number",
+              id: "stGotoPage",
+              "data-r": "stGotoPage",
+              min: "1",
+              placeholder: "跳页"
+            }),
+            _createElementVNode("button", {
+              class: "ghost",
+              "data-r": "gotoBtn"
+            }, "跳转")
           ])
-        ]),
-        _createCommentVNode(" 翻页行在**右栏的上方**（搜索那一排下面）：翻页是「看这一屏」的动作，\n               放在结果区顶上，翻到第几页一眼就看得见；以前它塞在页底，右栏滚到底才找得到。\n               收藏 / 素材库 / 资产库三页仍在页底（整页滚，页底那一处是全站统一的位置）。 "),
-        _createElementVNode("div", { class: "wb-pager" }, [
-          _createElementVNode("span", {
-            class: "pgrow",
-            id: "stPgRow",
-            "data-r": "stPgRow"
-          }),
-          _createElementVNode("input", {
-            type: "number",
-            id: "stGotoPage",
-            "data-r": "stGotoPage",
-            min: "1",
-            placeholder: "跳页"
-          }),
-          _createElementVNode("button", {
-            class: "ghost",
-            "data-r": "gotoBtn"
-          }, "跳转")
         ]),
         _createCommentVNode(" 多选条（与资产库同一套公共件：.bulkbar / .bk-cnt / .bk-tip） "),
         _createElementVNode("div", {

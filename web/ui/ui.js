@@ -9,14 +9,14 @@
      2) 静态下拉：DOM 就绪后 Dropdowns.build(document)；
         动态重建的下拉：重建 HTML 之后再 Dropdowns.build(容器)
      3) 页面代码改完 <select> 的 <option> 后调用 Dropdowns.sync(sel)
-        （`sel._ddRebuild` 是组件内部的事，页面不碰：AGENTS.md §7 只认 Dropdowns 这一个面）
+        （`sel._ddRebuild` 是组件内部的事，页面不碰： 只认 Dropdowns 这一个面）
    说明：原生 <select> 仍作为唯一数据源（保留 value / change 事件 / 表单行为），
         只是被隐藏，改用 .dd 组件渲染，观感与图片工作台一致。
    ========================================================================== */
 (function () {
   /* 下拉浮层**挂到容器外面用 fixed 定位**（挂在哪一个容器见下面的 `hostFor`），不留在 <select> 原来的位置上。
      以前是原地展开（.dd-list 是 .dd 的子节点），于是任何祖先的 overflow 都会把它裁掉：
-     生成工作台的高级设置面板 .adv 是 overflow:hidden、左右两栏是 overflow-y:auto、外层
+     工作台的高级设置面板 .adv 是 overflow:hidden、左右两栏是 overflow-y:auto、外层
      .layout 还是 overflow:hidden —— 一个下拉要穿过三层裁剪，表现就是「点开了但只露出一条边」。
      逐个容器去改 overflow 等于把同一个毛病抄 N 份（而且 `overflow:visible` 常常会让布局更难看），
      浮层脱离文档流之后裁剪与层叠都不再受祖先影响。 */
@@ -307,7 +307,7 @@
 
   /* DOM 就绪时自动包一遍全页的 <select>（不等到异步数据回来）。
      以前只有各页在自己的渲染链路里调 Dropdowns.build —— 而那条链要等 /registry、
-     能力声明回来才跑（生成工作台首屏几百毫秒到几秒），于是每次切页都先画出
+     能力声明回来才跑（工作台首屏几百毫秒到几秒），于是每次切页都先画出
      一排**原生控件**、等数据回来才整批换成公共样式（「基础组件闪一下再变样」）。
      build 本身幂等（_ddBuilt），页面后来的 build/sync 只剩「补增量新节点」一件事。
      包早了不怕选项没填：lbl 退回「请选择」，页面填完 options 照旧要调 sync。 */
@@ -363,9 +363,9 @@ window.PickSel = function PickSel(o) {
     add: addOne,
     addMany(list) { let n = 0; for (const e of list || []) if (addOne(e)) n++; if (n) sync(); return n; },
     /* 列表重画：锚点之前那一段没变就留着，变了才作废。
-       「一次画 200 条、滚到底再追加 200 条」时前面顺序一个字没动 —— 作废的表现是
+「一次画 200 条、滚到底再追加 200 条」时前面顺序一个字没动 —— 作废的表现是
        Shift 连选忽然退成单选，用户以为连选坏了；而真换了筛选 / 档位、或者锚点那一张
-       已经不在列表里时，这一串键必然跟着变，照样作废（AGENTS 里那条「顺序变了锚点作废」守的就是这个）。 */
+       已经不在列表里时，这一串键必然跟着变，照样作废（那条「顺序变了锚点作废」守的就是这个）。 */
     reflow(order) {
       const arr = order || [];
       if (anchor >= 0 && keysUpTo(arr, anchor) === sig) return;
@@ -507,7 +507,7 @@ window.esc = function esc(s) {
         块级判定跑在**原文**上，所以 `>` / `-` 这些标记在代码里照写，不用变成转义后的样子。
         本模块不认原始 HTML —— 用户要贴一段 HTML，出来就是字面量，本地工具该是这个行为。
      ② 图片降级成一行文字、不出 <img>：本项目的字节一律走本机代理，
-        一个外链 <img> 就是页面自己在直连外部域名（见 AGENTS.md「统一路由」）。
+        一个外链 <img> 就是页面自己在直连外部域名（「统一路由」）。
      ③ 单换行当换行。聊天里另起一行通常是作者刻意的（列步骤、列参数），折成一段就丢了。
    用法：Md.html(text) → HTML 字符串；Md.mount(el, text) → 写进元素（流式时用这个）。
    ========================================================================== */
@@ -789,6 +789,43 @@ window.btnText = function btnText(el, txt) {
   el.textContent = txt;
 };
 
+/* ---------------------------------------------------------------------------
+   AI 动作按钮的唯一一副画法：`.tool.acc` + sparkles 14（mini 那一档 13）+ `.tx` 那一行字。
+   「让 AI 干一件事」这颗按钮以前在七处是七副样子：图标各挑 12 / 13 / 14 / 17，外壳是 .chip、
+   是没有图标的 .ghost、是 .tool、是导演台自己写的 .polish；忙的时候把整副 innerHTML 重写一遍 ——
+   于是一会儿有 .ic 包一层一会儿没有，图标一会儿是强调色一会儿跟字同色，
+   而「闲时那句话」在页面里另存了一份副本，可以各自漂开。
+   现在两句话都只写在画的那一刻（`data-idle` / `data-busy` 跟着节点走，整栏重画也不丢），
+   页面上线后只切状态：`aiBtnState(btn, true|false)`。
+   o = { label（必填）, busy（忙时那一句话）, busyOn（当前是不是忙）, title, id, mini, disabled }
+   --------------------------------------------------------------------------- */
+window.aiBtnHTML = function aiBtnHTML(o) {
+  const oo = o || {};
+  const label = String(oo.label || '');
+  const busy = String(oo.busy || '');
+  const on = !!oo.busyOn && !!busy;
+  return '<button class="tool acc' + (oo.mini ? ' mini' : '') + '" type="button"'
+    + (oo.id ? ' id="' + window.esc(oo.id) + '"' : '')
+    + (oo.title ? ' title="' + window.esc(oo.title) + '"' : '')
+    + ' data-idle="' + window.esc(label) + '"' + (busy ? ' data-busy="' + window.esc(busy) + '"' : '')
+    + ((oo.disabled || on) ? ' disabled' : '')
+    + '><span class="ic">' + window.icon('sparkles', oo.mini ? 13 : 14) + '</span>'
+    + '<span class="tx">' + window.esc(on ? busy : label) + '</span></button>';
+};
+/* 忙 / 闲只换 `.tx` 那一行字，顺带把 disabled 一起切了（一颗写着「正在跑」却能连点的按钮，
+   双击就是两轮并行请求、双倍扣费）。取不到 `.tx`（那颗按钮本来只有图标没有字）时一个字都不动 ——
+   不许把图标抹掉。没有 `data-busy`（画的时候没登记忙话）就只切 disabled。 */
+window.aiBtnState = function aiBtnState(el, on) {
+  if (!el || !el.querySelector) return;
+  el.disabled = !!on;
+  const tx = el.querySelector('.tx');
+  if (!tx) return;
+  const idle = el.getAttribute('data-idle');
+  if (idle == null) return;
+  const busy = el.getAttribute('data-busy');
+  tx.textContent = (on && busy) ? busy : idle;
+};
+
 /* ============================================================================
    GoPage —— 「跳到另一页」只有这一份
    页面都住在同一份文档里（web/app.js 的 hash 路由 + KeepAlive 页面池），所以换页必须
@@ -892,7 +929,7 @@ window.copyText = async function copyText(txt) {
      **放在 ui.js 而不是 workbench.js**：用量页与外壳不加载 workbench.js，而每一页都加载 ui.js
      （与上面 fmtBytes 同一层的理由一模一样）。
      ⚠ 这一族不许写成 `String(…).padStart(2, '0') + ':' + String(…).padStart(2, '0')` 那个形状 ——
-       播放器读数那一份（workbench.js 的 Wb.fmtClock）是全站唯一的手拼 mm:ss（AGENTS §7「格式化」），
+       播放器读数那一份（workbench.js 的 Wb.fmtClock）是全站唯一的手拼 mm:ss，
        所以这里走 pad2。
      「没值显示什么」（空串 / '—' / 「还没同步过」）是各个界面自己的事，这一族只管有值时怎么拼。 */
   const pad2 = n => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0');
@@ -932,7 +969,7 @@ window.copyText = async function copyText(txt) {
        · 非法字符名单：有的带控制字符（页面那三处写 \x00-\x1f）、有的不带（assetlib 那两处、代理那份带）；
        · 换法：换成 -（资产库 / 工作台 / 导演台成片）、换成 _（素材库 / 转存本机）、直接删掉（assetlib 的 nameOf）；
        · 截断：20 / 24 / 60 / 80 各一份；兜底名：file / asset / 素材 / merged / 未命名 各一份。
-     于是同一张图从资产库下载与从生成工作台下载出来的文件名不一样，而「结尾的点与空格会被 Windows
+     于是同一张图从资产库下载与从工作台下载出来的文件名不一样，而「结尾的点与空格会被 Windows
      悄悄去掉」「名字里有换行会被截断成两半」这两条只有素材库那一份处理过。
      收成两块**读法**：`fileSafe` 洗一个字、`fileStamp` 拼一个「年月日-时分秒」。
      **各页那个 `fileNameOf` 留着** —— 它决定「这一页的文件名长什么样」（前缀、标签、扩展名从哪个字段取），
@@ -1134,10 +1171,10 @@ window.copyText = async function copyText(txt) {
    ErrBanner —— 顶部那条「出错了」横幅，全站只有一份（样式在 ui.css 的 #banner）
      ErrBanner.show(那句话的 html, 'err' | 'warn')
    为什么要收成公共这一份：以前只有导演台接了（<head> 里内联的 window.onerror +
-   unhandledrejection 两段），生成工作台另写一份（把错误打进 #status 那一行小字），
+   unhandledrejection 两段），工作台另写一份（把错误打进 #status 那一行小字），
    **其余八页什么都没接** —— 页面初始化是一条长链（注册表 → 能力 → 列表 → 渲染），
-   任何一步抛错后面全都不跑，而界面上只剩「空白」；这一页又装在 iframe 里、
-   浏览器控制台只看得到外壳（AGENTS.md §5 同一条），于是「打开就是空的」根本查不动。
+   任何一步抛错后面全都不跑，而界面上只剩「空白」；页面脚本的错误又只落在浏览器控制台，
+   于是「打开就是空的」根本查不动。
    干净 profile 第一次进导演台就是撞上这一类（加载期竞态抛 TypeError），
    当时能看出来正是因为导演台有这条横幅。现在引了 ui.js 的页面自动都有，
    全局那两个错误监听器在 web/core/report.js（全站只装一次，页面里不要再写第二份），
@@ -1252,7 +1289,7 @@ window.copyText = async function copyText(txt) {
 window.PAGE_TARGETS = {
   rows: [
     /* 三个工作台合并成 studio.html 之后只有一行：类型在页面里切，分页是整个右栏一起翻 */
-    { key: 'studio', name: '生成工作台', defMode: 'more', defSize: 24 },
+    { key: 'studio', name: '工作台', defMode: 'more', defSize: 24 },
     { key: 'assets', name: '资产库', defMode: 'more', defSize: 24 },
     { key: 'favorites', name: '我的收藏', defMode: 'page', defSize: 24 },
     { key: 'chars', name: '素材库', defMode: 'page', defSize: 18 },
@@ -1445,9 +1482,9 @@ async function migrateRenamedKeys() {
      · video_tasks —— 视频台的卡片改成从接口取，本机不再留任务副本。
        **audio_tasks 还在用**（workbench.js 的历史仓），别顺手一起删。
      · dir_studio_sort / dir_asset_sort / dir_fav_sort / dir_char_sort —— 2026-10 把四页
-       （生成工作台右栏 / 资产库 / 收藏 / 素材库）那一排排序芯片全去掉了，公共的 window.SortBy
+       （工作台右栏 / 资产库 / 收藏 / 素材库）那一排排序芯片全去掉了，公共的 window.SortBy
        也整块删除：那是个纯显示偏好，换台机器要重配，而「找最早的那一张」在资产库有日期筛选、
-       在收藏与素材库有「AI 找素材」（AI 给的名次照样生效，只是不再是可挑的档位）。
+       在收藏与素材库有「AI 搜索」（AI 给的名次照样生效，只是不再是可挑的档位）。
        那份「档位:方向」从此再没有读者。
      · drama_ 那一族（2026-10 拍短剧页删除）——
        `dramas` / `drama_active` 是短剧本体（剧本、每一段的每一次拍摄）；
@@ -1492,7 +1529,7 @@ const LEGACY_KEYS = [
   /* 供应商那一排「按类型分档」的分段开关撤掉（2026-10-27）：一家账号一张卡，卡里列着它能开的每一档，
      所以「当前哪一档」这个状态本身没有了。不在这里点掉的话，那份镜像会在下次 boot 把它恢复回来。 */
   'sk_prov_tab',
-  /* 浮窗「被拖走、此后不再跟球」的标记作废（见 AGENTS §10：浮窗只能随球挪）。
+  /* 浮窗「被拖走、此后不再跟球」的标记作废：浮窗只能随球挪，没有「拖走就不再跟」这一档。
      它要在这一张表里点名，而不是谁开机顺手 removeItem 一下：`ai_chat` 那一条前缀在 SYNCABLE 名单里，
      服务器上那份镜像不会被一次 localStorage 删除带走，下次对账又把它拉回来。 */
   'ai_chat_fxy',
@@ -1504,6 +1541,9 @@ const LEGACY_KEYS = [
   /* 素材库的「紧凑 / 列表」视图开关撤掉（2026-10-28）：这一页只剩紧凑网格。
      `dir_char_view` 是那个开关的偏好，不再有人读；镜像里那份也要一起清。 */
   'dir_char_view',
+  /* 余额卡「就地展开」那一档偏好撤掉（2026-10-29）：卡列表现在恒为全量、定高三张自己滚，
+     不再有「展开 / 收起」这个状态。`sb_bal_exp` 不再有人读，留着只会在盘上攒一串死数据。 */
+  'sb_bal_exp',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
@@ -1565,7 +1605,7 @@ window.StorageBus = {
 /* ---------- 程序性 focus 不许抢视口（全站只此一份） ----------
    拿 focus() 只是为了「把光标续上」时，浏览器会把那一格**滚进视野** ——
    用户明明在看别处，视角却被拽走（用户报过：点一颗按钮，页面就跳回最上面）。
-   规矩（AGENTS §3.4.5）：一律带 { preventScroll: true }；
+   规矩：一律带 { preventScroll: true }；
    真要「把某处滚过来」走滚动那一族（scrollIntoView），别拿 focus 当滚动用。
    页面与公共件都调它，不各写一遍 try/catch。 */
 window.focusQuiet = function focusQuiet(el) {

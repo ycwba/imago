@@ -159,7 +159,7 @@
   /* ============================ 唯一入口 ============================
      `whyNot(input)` → `{ code, args }` | `null`（null = 可以提交）。
      input（缺哪样就是那条判据不适用，不猜）：
-       surface    'page'（生成工作台/导演台：能提交语音） | 'assistant'（助手：只提交图与视频）
+       surface    'page'（工作台/导演台：能提交语音） | 'assistant'（助手：只提交图与视频）
        prov / provider   平台对象，或注册表里的 id / keyId
        kind     不传就按 prov.kind
        model    型号对象，或型号 id / 显示名

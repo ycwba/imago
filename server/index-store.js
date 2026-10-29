@@ -30,6 +30,9 @@ function createIndexStore(opts) {
   let ops = 0;
   let journalSkipped = 0;
   let lastCompact = Date.now();
+  /* 每次真写盘 +1：外面按账建的反查表（来源地址 / 平台产物号 → 条目）靠它判缓存过期。
+     条数不变的那种改法（同 id 换字段）长度看不出来，只有这个计数认得出来。 */
+  let rev = 0;
 
   const atomic = (file, text) => {
     const { fsyncWhy } = atomicWrite(file, text, { dir });
@@ -139,6 +142,7 @@ function createIndexStore(opts) {
       cache = next;
       byId = null;
       persisted = nextMap;
+      rev++;
       ops += lines.length;
       const need = ops >= COMPACT_EVERY || Date.now() - lastCompact >= COMPACT_MS;
       if (need && !journalSkipped) compact();       // 有坏行时不压：journal 得留在盘上供人工找回
@@ -197,7 +201,7 @@ function createIndexStore(opts) {
     chain = next.then(() => true, () => true);
     return next;
   };
-  return { read, entry, write, upsert, remove, update, putInto, dropFrom, compact, snapshotPath, journalPath, max };
+  return { read, entry, write, upsert, remove, update, putInto, dropFrom, compact, snapshotPath, journalPath, max, version: () => rev };
 }
 
 module.exports = { createIndexStore, DEFAULT_MAX };

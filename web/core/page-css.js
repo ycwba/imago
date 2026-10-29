@@ -25,11 +25,16 @@ export function ensureCss(href, tag) {
 /* 已发过预取的地址（绝对 URL）。href 属性会被浏览器归一成绝对地址，选择器比不回来时的相对写法，
    所以这一份只按「实际发出去的 URL」去重。 */
 const preloaded = new Set();
+/* 路由表的 `src` / `chunk` 是相对 `web/app.js` 写的（见 routes.js），动态 import() 也按那个基准解析。
+   预取必须用同一个基准：按文档地址（外壳在根上）直接解析会得到 `/pages/x.js` —— 那个地址不存在，
+   预取取回 404，真正切页时仍要按原地址再取一遍。`web/app.js` 在任何外壳地址下都落在同一处
+   （外壳只从根上取，见 server/static.js 的放行范围）。 */
+const APP_BASE = new URL('web/app.js', document.baseURI);
 /* 让这一份模块与它的静态依赖图现在就下载、解析，但不执行 —— 执行时机仍由真正的 import() 决定。 */
 export function preloadModule(href) {
   if (typeof document === 'undefined' || !href) return;
   let url = String(href);
-  try { url = new URL(url, document.baseURI).href; } catch (e) { return; }
+  try { url = new URL(url, APP_BASE).href; } catch (e) { return; }
   if (preloaded.has(url)) return;
   preloaded.add(url);
   try {

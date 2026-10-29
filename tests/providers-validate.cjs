@@ -28,11 +28,32 @@ assert.equal(validateProviders([good, equiv1, equiv2, docOnly, text]).ok, true);
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'video', relay: '/x' }]).ok, false, '没有型号来源要报错');
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'text', relay: '/x' }]).ok, false, '文字缺 chat 要报错');
 /* extraCaps（语音识别 / 联网搜索）：拼错一个字母不会报错、只会让设置页少一格 —— 值必须按白名单查，
-   而且只能挂在文字供应商上（只有它们才有 /audio/transcriptions 与对话模型）。 */
-assert.equal(validateProviders([{ ...text, id: 'x1', relay: '/textai/x1', extraCaps: ['asr', 'search'] }]).ok, true, 'asr / search 是登记过的档');
+   而且只能挂在文字供应商上（只有它们才有 /audio/transcriptions 与对话模型）。
+   两档还必须各带一份端点声明：只有 extraCaps 会在界面上多一行、点下去必失败；
+   只有端点声明会没人看得见。 */
+const asrDecl = { style: 'openai', path: '/audio/transcriptions', model: 'whisper-1' };
+const searchDecl = { style: 'api', path: '/tools/search', body: { query: 'query', limit: 'count' },
+  results: 'results', fields: { url: 'url' } };
+assert.equal(validateProviders([{ ...text, id: 'x1', relay: '/textai/x1', extraCaps: ['asr', 'search'], asr: asrDecl, search: searchDecl }]).ok, true,
+  '有 extraCaps + 端点声明才合法');
 assert.equal(validateProviders([{ ...text, id: 'x2', relay: '/textai/x2', extraCaps: ['asrr'] }]).ok, false, '拼错的 extraCaps 要红');
 assert.equal(validateProviders([{ ...text, id: 'x3', relay: '/textai/x3', extraCaps: 'asr' }]).ok, false, 'extraCaps 不是数组要红');
 assert.equal(validateProviders([{ ...good, id: 'x4', relay: '/x4', extraCaps: ['asr'] }]).ok, false, '图片供应商声明 asr 要红');
+assert.equal(validateProviders([{ ...text, id: 'x8', relay: '/textai/x8', extraCaps: ['asr'] }]).ok, false,
+  '只有 extraCaps 没有端点声明要红（界面上画得出来、请求一定失败）');
+assert.equal(validateProviders([{ ...text, id: 'x9', relay: '/textai/x9', asr: asrDecl }]).ok, false,
+  '有端点声明但 extraCaps 里没有它要红（界面不会画，等于白写）');
+assert.equal(validateProviders([{ ...text, id: 'x10', relay: '/textai/x10', extraCaps: ['asr'], asr: { ...asrDecl, style: 'nope' } }]).ok, false,
+  'asr.style 不认识要红');
+assert.equal(validateProviders([{ ...text, id: 'x11', relay: '/textai/x11', extraCaps: ['search'], search: { ...searchDecl, results: '' } }]).ok, false,
+  '搜索没有 results 字段要红');
+assert.equal(validateProviders([{ ...text, id: 'x12', relay: '/textai/x12', extraCaps: ['search'], search: { style: 'chat', path: '/chat/completions' } }]).ok, false,
+  '对话式搜索没有 tool.type 要红');
+/* refSyntax（素材引用语法）：H3 那一族是 <Picture {n}> / <Video {n}> / <Audio {n}>；
+   少了 {n} 的模板会把每一张素材都写成同一个标签。 */
+assert.equal(validateProviders([{ ...good, id: 'x5', relay: '/x5', refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' } }]).ok, true, '合法的 refSyntax 要认');
+assert.equal(validateProviders([{ ...good, id: 'x6', relay: '/x6', refSyntax: { picture: '<Picture>' } }]).ok, false, 'refSyntax 少了 {n} 要红');
+assert.equal(validateProviders([{ ...good, id: 'x7', relay: '/x7', refSyntax: { image: '<Picture {n}>' } }]).ok, false, 'refSyntax 档名拼错要红');
 /* 多段 relay（/textai/<id> 这种一段家族名 + 一段 id）是合法形状 */
 assert.equal(validateProviders([{ ...good, id: 'p1', relay: '/textai/p1' }]).ok, true, '多段 relay 要认');
 /* 声明了输入槽位（inputRoles）就必须有 create.inputTemplates 把它放进提交体 ——

@@ -342,7 +342,7 @@ function createLocalAssets(ctx) {
       /* 整组一次写回：串行队列里一趟走完，不留「文件没了、账还剩一半」那个窗口。
          ⚠ 这一条是**排队**的（见 server/index-store.js 的 update）：同步 try/catch 罩不住它，
          写盘失败会在几十年后的微任务里 reject —— 那时这句已经回完 200，
-         用户看见「已删除」而账还留着，下一轮列表又把这一条补成一张卡（AGENTS §6.3 那条「删了又回来」）。
+         用户看见「已删除」而账还留着，下一轮列表又把这一条补成一张卡（那条「删了又回来」）。
          所以出口挂在 then/catch 上，不靠 try/catch。 */
       localIndexUpdate(list => group.forEach(r => localIndexDrop(list, r.id))).then(() => {
         invalidateScan();

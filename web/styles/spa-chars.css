@@ -46,7 +46,7 @@
 .chars-page .mat-stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .chars-page .mat-head { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-12); padding: var(--sp-8) 0 var(--sp-16); }
 .chars-page .mat-head .toolbar { flex: 1 1 auto; min-width: 0; gap: var(--sp-12); }
-.chars-page .mat-head input[type="search"] { flex: 1 1 200px; min-width: 0; height: 42px; border-radius: var(--radius-10); padding: 0 var(--sp-16); }
+.chars-page .mat-head input[type="search"] { flex: 1 1 200px; min-width: 0; height: 42px; border-radius: var(--radius-6); padding: 0 var(--sp-16); }
 .chars-page .mat-head .tool { height: 42px; padding: 0 var(--sp-16); border-radius: var(--radius-10); flex-shrink: 0; }
 .chars-page .mat-head [data-fb="aiChip"]:empty { display: none; }
 .chars-page .mat-head [data-fb="aiChip"]:not(:empty) { flex-basis: 100%; }

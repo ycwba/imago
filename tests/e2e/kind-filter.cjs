@@ -97,8 +97,23 @@ const PIX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABA
     });
     await sleep(500);
 
+    /* 资产库的类型档要从真条目里数出条数，而探针没有平台来源：
+       先往首屏缓存里放三条（图片 / 视频 / 音频各一条），打开资产库时按缓存画。
+       顺手关掉自动存本机：这三条是 data: 地址，不下发任何镜像请求。 */
+    await page.eval(px => {
+      try { localStorage.setItem('sk_media_local', 'off'); } catch (e) {}
+      const mk = (id, type) => ({ provider: 'probe', providerName: '探针', kind: 'asset', assetId: id,
+        type, prompt: id, name: id, src: px, ts: Date.now() });
+      try {
+        localStorage.setItem('assets_cache_v1', JSON.stringify({
+          ts: Date.now(),
+          entries: [mk('probe-img', '图片'), mk('probe-vid', '视频'), mk('probe-aud', '音频')],
+        }));
+      } catch (e) {}
+    }, PIX);
+
     /* ── ③ 工作台与资产库：同一副契约 ────────────────────────────────── */
-    for (const p of [{ hash: 'studio.html', root: '.studio-page', nm: '生成工作台' },
+    for (const p of [{ hash: 'studio.html', root: '.studio-page', nm: '工作台' },
                      { hash: 'assets.html', root: '.assets-page', nm: '资产库' }]) {
       await page.goto(proxy.base + '/shell.html#' + p.hash);
       await page.waitFor(sel => !!document.querySelector(sel), 30000, 100, p.root);
@@ -116,9 +131,55 @@ const PIX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABA
       must(f.tabs.some(t => t.on), p.nm + '总有一档亮着：' + JSON.stringify(f.tabs));
     }
 
+    /* ── ④ 资产库：选中一档之后，别的类型档不许跟着消失 ────────────────
+       计数池要是带着类型条件算，点「图片」之后视频 / 音频的条数会全变 0，
+       公共件按「计数为 0 且不是当前档」把它们整颗藏掉 —— 只剩「图片」与「全部」。
+       正确口径：每一档的条数只看「除类型以外」的条件，选中一档不影响别的档。 */
+    const asTabsOf = f => f.tabs.reduce((m, t) => (m[t.k] = t, m), {});
+    const asBefore = asTabsOf(await readFilter());
+    must(Number(asBefore['全部'].n) === 3, '资产库「全部」该是 3 条：' + JSON.stringify(asBefore));
+    must(Number(asBefore['图片'].n) === 1 && Number(asBefore['视频'].n) === 1 && Number(asBefore['音频'].n) === 1,
+      '资产库图片 / 视频 / 音频各 1 条：' + JSON.stringify(asBefore));
+    await page.eval(() => {
+      const b = document.querySelector('[data-kind-filter] button[data-k="图片"]');
+      if (b) b.click();
+    });
+    await sleep(700);
+    const asAfter = asTabsOf(await readFilter());
+    must(asAfter['图片'] && asAfter['图片'].on, '点「图片」之后该是它亮着：' + JSON.stringify(asAfter));
+    must(asAfter['全部'] && !asAfter['全部'].hidden, '选中一档之后「全部」仍该在：' + JSON.stringify(asAfter));
+    must(asAfter['视频'] && !asAfter['视频'].hidden,
+      '选中「图片」之后「视频」那一档不许消失：' + JSON.stringify(asAfter));
+    must(asAfter['音频'] && !asAfter['音频'].hidden,
+      '选中「图片」之后「音频」那一档不许消失：' + JSON.stringify(asAfter));
+    must(Number(asAfter['视频'].n) === 1 && Number(asAfter['音频'].n) === 1,
+      '别的档条数不该因为选中一档变 0：' + JSON.stringify(asAfter));
+    const asCards = await page.eval(() => document.querySelectorAll('.assets-page .task').length);
+    must(asCards === 1, '筛到「图片」之后该只剩 1 张卡（实测 ' + asCards + ' 张）');
+
+    /* ── ⑤ 资产库：某一档此刻 0 条也要在 ─────────────────────────────
+       资产是分几批到的（本机账 → 各平台列表）：按「计数为 0 就不画」会让音频那一档
+       过一会儿才冒出来、整排跟着左右挪。资产库这一页四档恒在（别的页不受影响）。 */
+    await page.eval(() => {
+      try {
+        const c = JSON.parse(localStorage.getItem('assets_cache_v1') || '{}');
+        c.entries = (c.entries || []).filter(e => e.type === '图片');
+        localStorage.setItem('assets_cache_v1', JSON.stringify(c));
+      } catch (e) {}
+      location.reload();
+    });
+    await page.waitFor(() => !!document.querySelector('.assets-page'), 30000, 100);
+    await sleep(1200);
+    const zero = await readFilter();
+    const zeroTabs = (zero && zero.tabs || []).reduce((m, t) => (m[t.k] = t, m), {});
+    must(zeroTabs['音频'] && !zeroTabs['音频'].hidden && Number(zeroTabs['音频'].n) === 0,
+      '资产库「音频」此刻 0 条也该留着（不许过一会儿才冒出来）：' + JSON.stringify(zero && zero.tabs));
+    must(zeroTabs['视频'] && !zeroTabs['视频'].hidden && zeroTabs['图片'] && !zeroTabs['图片'].hidden,
+      '四档都画着：' + JSON.stringify(zero && zero.tabs));
+
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 文件类型筛选：收藏 / 工作台 / 资产库共用同一副公共件（分段 + 每档计数 · 点一下换档 · 空档不画）');
+    console.log('✓ 文件类型筛选：收藏 / 工作台 / 资产库共用同一副公共件（分段 + 每档计数 · 点一下换档 · 资产库四档恒在）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

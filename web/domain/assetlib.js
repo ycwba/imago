@@ -259,7 +259,7 @@
   }
 
   /* 按任务号 / 产物号反查本机缓存里的那一条。两份缓存都要扫
-     （`assets_cache_v1` 资产库 / `studio_tasks_cache_v1` 生成工作台），同一份产物出现两次时取 ts 较新的。
+     （`assets_cache_v1` 资产库 / `studio_tasks_cache_v1` 工作台），同一份产物出现两次时取 ts 较新的。
      找不到返回 null（**不抛**）：调用方要把它翻成一句照实说的话。 */
   function findCached(kind, id, providerId) {
     const want = String(id == null ? '' : id).trim();
@@ -745,7 +745,7 @@
     },
     /* 任务详情：走 Api.pollTask（统一入口，认 registry 的 pollVia:'list'，详情页不可用时退回列表按 id 找）。
        以前这里直打 Api.detail —— VGENV 的详情端点是 404 空壳，资产库的轮询每轮都 reject，
-       任务卡停在「生成中」再也不收敛（AGENTS.md：页面/模块只用 Api.pollTask 这类统一入口）。
+       任务卡停在「生成中」再也不收敛（页面/模块只用 Api.pollTask 这类统一入口）。
        返回值按 list.map 解析后的 p（含 status / error / genId…），调用方形状不变。 */
     async generationDetail(genId, providerId) {
       if (!genId) return null;
@@ -927,7 +927,7 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       const qk = (prov && prov.id ? prov.id : String(ep)) + '|' + ep;
       if (quoteDead(qk)) return { ok: false, reason: '该平台未开放报价接口' };
       /* 报价可以声明成 **POST + JSON 体**（VGENV 的 /v3/videos/quote 就是），
-         默认仍是 GET + 查询串。判据读声明，页面不按平台 id 分支（AGENTS.md §2）。
+         默认仍是 GET + 查询串。判据读声明，页面不按平台 id 分支。
          请求体的字段映射也从声明来：`body: { 上游字段名: 本地参数名 }`，
          取值与 create.body 同一套本地参数名（model/prompt/tier/duration/res/resolution/ar）。 */
       const method = String(pr.method || 'GET').toUpperCase();

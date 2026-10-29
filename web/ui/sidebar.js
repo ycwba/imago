@@ -1,5 +1,5 @@
 /* 全局侧边栏：只在外壳页（shell.html）里渲染。
-   内容页（导演台 / 生成工作台 / 拍短剧 / 素材库 / 收藏 / 资产库 / 用量 / 设置）跑在外壳的 iframe 里，
+   内容页（导演台 / 工作台 / 拍短剧 / 素材库 / 收藏 / 资产库 / 用量 / 设置）跑在外壳的 iframe 里，
    自己不再画侧栏；万一被直接打开（顶层窗口），就转到外壳，避免出现两套左栏。 */
 (function () {
   // ① 在 iframe 里的内容页：什么都不做（侧栏由外层提供，也不注入给页面留左边距的样式）
@@ -25,8 +25,8 @@
 
   const sb = document.createElement('div');
   sb.className = 'sidebar';
-  /* 设置这一行也读路由表（label / short）：以前「设置」两个字在这里手抄了一份，
-     窄形态又没有 short —— 路由表补了 short 之后，这里跟导航项同一套读法。 */
+  /* 设置这一行读路由表的 label（以前「设置」两个字在这里手抄了一份）。
+     窄形态只留那颗齿轮：这一行是横排的（图标 + 全名），没有导航项那种「图标在上、短标签在下」的位子。 */
   const setPg = (window.WB_ROUTES && window.WB_ROUTES.byFile && window.WB_ROUTES.byFile['settings.html']) || {};
   sb.innerHTML =
     '<div class="sb-brand"><span class="sb-logo" title="点击收起 / 展开侧边栏">AI</span>'
@@ -39,7 +39,7 @@
       + `<span class="lb">${i.label}</span><span class="sh">${i.short || ''}</span></a>`
     ).join('') + '</nav>'
     + '<div class="sb-bottom" id="sbBalance"></div>'
-    + '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set" aria-label="' + window.esc(setPg.label || '设置') + '"><span class="ic">' + svgIc('gear') + '</span><span class="lb">' + window.esc(setPg.label || '设置') + '</span><span class="sh">' + window.esc(setPg.short || '') + '</span></a>'
+    + '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set" aria-label="' + window.esc(setPg.label) + '"><span class="ic">' + svgIc('gear') + '</span><span class="lb">' + window.esc(setPg.label) + '</span></a>'
     + '<button class="sb-set" id="sbTheme" title="切换亮色 / 暗色背景"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
 
   /* 点导航：不跳转整页，只让 web/app.js 切内容页（侧栏保持不动）；
@@ -98,6 +98,12 @@
        两处各写一个字符串迟早一处改了另一处没改（浮标写着「资产库」、侧栏里写着「素材库」）。 */
     const lb = a.querySelector('.lb');
     sbTip.on(a, (lb && lb.textContent) || a.dataset.page || '');
+    /* 悬停 / 键盘聚焦就把这一页的加载链提前发出去（app.js 的 __spaPrefetch）：
+       从「想点」到「点下去」通常有一两百毫秒，够入口模块与样式跑到一半；
+       空闲预取没走到这一页时，这一下就是它最先被想起来的机会。 */
+    const pre = () => { try { if (window.__spaPrefetch) window.__spaPrefetch(a.dataset.page); } catch (e) {} };
+    a.addEventListener('mouseenter', pre);
+    a.addEventListener('focus', pre);
     a.onclick = e => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;   // 允许新标签打开
       e.preventDefault();
@@ -112,15 +118,21 @@
   };
   sbTip.on(sb.querySelector('#sbTheme'), '换背景（亮 / 暗）');
   const setLink = sb.querySelector('a.sb-set[data-page="settings.html"]');
-  sbTip.on(setLink, '设置');
-  if (setLink) setLink.dataset.page = 'settings.html';
-  /* 「账户余额」那一行现在是满形态那张卡里的抬头（paintBal 画）——
-     窄形态那张卡放不下它，所以窄形态另有自己的抬头。两处都从 balShown 现算，不另写一份。 */
-
+  sbTip.on(setLink, setPg.label);
+  if (setLink) {
+    setLink.dataset.page = 'settings.html';
+    const preSet = () => { try { if (window.__spaPrefetch) window.__spaPrefetch('settings.html'); } catch (e) {} };
+    setLink.addEventListener('mouseenter', preSet);
+    setLink.addEventListener('focus', preSet);
+  }
+  /* 「账户余额」那一行是满形态那张卡里的抬头（paintBal 画）；窄形态与矮窗里那一块是
+     压缩版（家数 + 状态点 + 落盘进度），点它开气泡。两处都从 balShown 现算，不另写一份。 */
 
   // head 里加载时 body 尚不存在，等 DOM 就绪再挂载
   function mount() {
     document.body.prepend(sb);
+    /* 挂上之后补量一次卡列表的高度：首次 paintBal 可能在挂载之前就跑过（量到 0）。 */
+    requestAnimationFrame(() => fitBalCards(sb.querySelector('#sbBalance')));
   }
 
   /* 自适应：宽度 ≤1100px 算窄窗口 —— 用户想展开仍然可以展开，但那是浮层（不改 --sbw，
@@ -131,16 +143,13 @@
   const SLIM_W = 56;    /* 窄形态 */
   const narrow = () => window.innerWidth <= NARROW_W;
   const wantOpen = () => window.LS.get('sb_open') === '1';
-  /* 收起 ↔ 展开这一刻要重画余额区：摘要行写不写「存 N/M」、它排在区域头还是区域尾，
-     取决于 balCap0 那一档（见下面 paintBal）—— 而 balCap0 只在展开态成立。
-     sbOpenLast 只记「上一次画的是哪一态」，同一态里反复 resize 不重画。
-     首画由 refreshBalance 负责，所以 prev === null（第一次 apply）时不补这一刀；
-     顺带也避开「在 let 声明之前就读余额那几个变量」。 */
+  /* 收起态点开的那只气泡（余额 + 本机产物）：全站只有这一份，开 / 关都走下面那一族函数。
+     它在 apply() 之前先声明：apply() 在余额区那一段之前就会跑一次。 */
+  let balBubble = null;
+  /* sbOpenLast 只记「上一次画的是哪一态」：同一态里反复 resize 不重做收尾。
+     收起 / 展开时那张卡从藏到显（或反过来），换场之后要重新量一次卡列表的高度；
+     气泡是贴着压缩块摆的，压缩块没了（展开）它就该收掉 —— 不然会停在一条已经变宽的侧栏旁边。 */
   let sbOpenLast = null;
-  function repaintBal() {
-    const box = sb.querySelector('#sbBalance');
-    if (box && balShown !== null) paintBal(box, balRows.length ? '' : '正在读取…');
-  }
   function apply() {
     const o = wantOpen();
     const n = narrow();
@@ -149,7 +158,10 @@
     r.toggle('sb-open', o);
     const prev = sbOpenLast;
     sbOpenLast = o;
-    if (prev !== o && prev !== null) setTimeout(repaintBal, 0);
+    if (prev !== o && prev !== null) {
+      closeBalBubble();
+      setTimeout(() => fitBalCards(sb.querySelector('#sbBalance')), 0);
+    }
     sbTip.hide();          // 展开 ↔ 收起的瞬间把浮标收掉：留着会停在刚变过宽度的位置上
     document.documentElement.style.setProperty('--sbw', (o && !n) ? OPEN_W + 'px' : SLIM_W + 'px');
     /* 收起 ↔ 展开改的是左边那一条带的宽度，而悬浮球只有 z=56、侧栏 90 —— 球停在被让出/占掉的那一条里
@@ -208,11 +220,6 @@
 
   /* ---------- 账户余额（按 API 分类显示，路由驱动；显示哪几个接口由设置页勾选） ---------- */
   const BAL_KEY = 'sb_bal_cache';
-  /* 「这一档摆不下」的出路是**就地展开**，不是把人往用量页送（展开态只有卡列表那一格会滚，
-     导航与本机产物行都不跟着滚）。展开是显示偏好，与 sb_open 同一类，落 localStorage。 */
-  const EXP_KEY = 'sb_bal_exp';
-  const balExpOn = () => window.LS.get(EXP_KEY) === '1';
-  const setBalExp = v => { window.LS.set(EXP_KEY, v ? '1' : '0'); };
   /* 缓存里除了余额行，还存着**上一轮要问哪几家**（kids）。
      为什么连这份名单也要留：第一次勾上「左栏显示余额」时本机没有任何缓存，
      而「要问哪几家」得等 /registry + /env-status 回来才知道 —— 那之前整块是空的。
@@ -272,55 +279,25 @@
       || { kid: k, name: names.get(k) || k, pending: true });
     return window.SbBal ? SbBal.filter(list) : list;
   }
-  /* ---------- 区域摆几张卡（「导航优先，余额区定高」）----------
-     默认态容器不再有 max-height 与内滚动，所以「定高」只能靠**内容条数**：本机产物一行
-     + 最多 3 张卡 + 一行按钮（展开/收起与刷新同一行）。档位的分界线全按 .tmp 探针实测出来的
-     高度算的（不是拍的数）：
-     六家全开 + 传输中时，区域自己占 437（三张）/ 365（两张）/ 293（一张）/ 221（不摆卡），
-     而同一列里固定的那一坨（brand 56 + 两条分组标题 54 + 底部两块 94 = 204）和导航的自然高 298
-     都得先留着 —— 437 + 204 + 298 = 939，所以三张卡要 966 的高才不挤导航（第一档）。
-     ≤780 那一档 CSS 把行高整列压过一轮（固定块 188、导航 270、一张卡 74、不摆卡 190），
-     所以 720..780 之间还能摆一张；再往下 661..719 一张都塞不进 —— 不摆卡，
-     只留「本机行 + 一行按钮」，传输状态照旧摆最上面。
-     ≤660（文档点名的 640 那一档，实测要到 660 才真放得下摘要行）：整区退成一行摘要，
-     点开弹层看全量，不堆卡。
-     ⚠ 这一批数是**两排按钮**那时代测的；按钮收成一行后每档多出约一行的高度，
-       所以这几条线由 `tests/e2e/sidebar-balance.cjs` 的高度扫描现管（摆出来的卡数与导航是否
-       被裁都当场判），改表之前先跑它。
-     ⚠ 尺寸判据只有两处：CSS 的 media query 与下面这张表，读的是同一批数。
-     ⚠ 显示哪几张按「有金额 → 还在取 → 取失败」排（失败的卡不是信息，是噪音），
-       但**渲染顺序仍按 balList 那一份**：一家回来就地换掉它自己那张，不重排别的卡。 */
-  const BAL_CAPS = [
-    ['(min-height: 966px)', 3],
-    ['(min-height: 894px)', 2],
-    ['(min-height: 822px)', 1],
-    /* ≤780 那一档 CSS 把行高整列压过一轮（导航 270、固定块 188、卡 68），
-       所以 720..780 之间一张卡又塞得下了 —— 这一条是同一个实测结论的另一半。 */
-    ['(min-height: 720px) and (max-height: 780px)', 1],
-  ];
-  const balCap = () => {
-    if (!window.matchMedia) return 3;
-    for (const [q, n] of BAL_CAPS) if (matchMedia(q).matches) return n;
-    return 0;   // 661..719：不摆卡；≤660 由 CSS 收成摘要行
-  };
-  const balCapNote = n => (n > 0 ? '左栏只摆前 ' + n + ' 家' : '左栏这一档放不下余额卡');
-  const balRankOf = r => (r.pending ? 1 : (r.failed ? 2 : 0));
-  function balSplit(shown) {
-    /* 展开态：整份名单都摆出来（这一格自己滚，见 sidebar.css 的 `.bal-exp` 那一段）。 */
-    if (balExpOn()) return { head: shown, extra: 0 };
-    const keys = shown.slice().sort((a, b) => balRankOf(a) - balRankOf(b)).slice(0, balCap())
-      .map(r => String(r.kid));
-    const head = shown.filter(r => keys.indexOf(String(r.kid)) >= 0);
-    return { head, extra: shown.length - head.length };
+  /* ---------- 卡列表定高「三家」 ----------
+     这一块的高度只按**三张余额行**算：窗口再高也只摆三张，第四家起在卡列表里自己滚；
+     滚动条藏掉（CSS 的 `scrollbar-width:none` + 一条 webkit 规则），不占那一列的宽度。
+     高度不写死在 CSS 里，而是量第一张卡再乘三 —— 矮窗（≤780）那一档内边距会变小，
+     写死一个像素值迟早切掉半行。量不到（侧栏收着 / 还没挂上）就不限高，
+     真正可见的那一态由 apply() 或下一次重画补量。 */
+  function fitBalCards(host) {
+    if (!host) return;
+    const wrap = host.querySelector('.sb-bal-cards');
+    if (!wrap) return;
+    const card = wrap.querySelector('.sb-bal-card');
+    const h = card ? card.getBoundingClientRect().height : 0;
+    if (h > 0) wrap.style.maxHeight = (h * 3) + 'px';
+    else wrap.style.removeProperty('max-height');
   }
   /* 摘要行要的两个数：余额几家 / 还有几家没摆出来。由 paintBal 现填，
      落盘事件重画摘要时不必再问一次 balList（数据没变，只有本机的数在变）。
      balShown = null 表示「余额那一整块被设置页关掉了」，摘要只报本机那一段、也不可点开。 */
-  let balShown = null, balExtra = 0, mirrorInfo = null;
-  /* balCap0：展开态里一张卡都摆不下（BAL_CAPS 落到 0 的那一带，661..821px）。
-     这一带摘要行也得露出来 —— 它是「点开看全量」唯一的入口；但它只报余额家数，
-     「存本机」那一段藏掉：区域没收，本机那一行就在它底下摆着，同一件事不写两遍。 */
-  let balCap0 = false;
+  let balShown = null, mirrorInfo = null;
   /* 本机那一段的读数：**只读 mirrorBarHTML() 刚问过的那一份**（AssetLocal.info 的调用点不加，
      判据仍只有 local.js 一处），所以 paintBal 里必须先算 mirror 再算摘要。 */
   function balSto() {
@@ -334,10 +311,10 @@
         : ('本机已存 ' + s.count + ' 份 · ' + (window.fmtBytes(s.bytes) || '0 KB')),
     };
   }
-  /* 一行摘要 ——「余额 3 家 · 存 2/5」。展开但窗口矮时还能带单位与「点开」，
-     收起态（66px）只留「图标 + 数字」，单位与说明文字由 CSS 藏掉。 */
+  /* 一行摘要 ——「余额 3 家 · 存 2/5」。收起态（56px）与矮窗（≤660px）看它，
+     点它开气泡看全量卡；满形态里它由 CSS 藏掉。 */
   function balSumHTML() {
-    const sto = balCap0 ? null : balSto();
+    const sto = balSto();
     if (balShown === null && !sto) return '';
     /* 窄形态这一块是「同一份内容的压缩版」：家数 + 每家一个状态点 + 落盘进度。
        56px 里放不下三个平台名，但放得下三个「各家怎么样了」——
@@ -365,182 +342,157 @@
       : '<div class="sb-bal-sum-mirror" title="' + window.esc(sto.tip) + '">'
         + '<span class="sb-mirror-n">' + (s2.count || 0) + ' 份</span></div>') : '';
     const t = [];
-    if (balShown !== null) t.push('账户余额 ' + balShown + ' 家' + (balExtra ? '（' + balCapNote(balCap()) + '）' : ''));
+    if (balShown !== null) t.push('账户余额 ' + balShown + ' 家');
     if (sto) t.push(sto.tip);
-    if (balShown !== null) t.push('点击看全部');
+    if (balShown !== null) t.push('点击看详情');
     return '<div class="sb-bal-sum" title="' + window.esc(t.join(' · ')) + '">'
       + (balShown !== null
-        ? '<div class="p"><span class="ic">' + svgIc('coin', 11) + '</span><b>' + balShown + '</b><span class="u">家余额</span></div>'
+        ? '<div class="p"><b>' + balShown + '</b><span class="u">家余额</span></div>'
         : '')
       + dots
       + (dots || mirror ? '<div class="sb-bal-sum-sep"></div>' : '')
       + mirror + '</div>';
   }
-  /* ---------- 按钮族：公共件 .ghost mini + icon() ----------
-     以前「刷新余额」是一行自拼的 div（`asButton` 补 role 才能点），「去设置」是 `.l2` 里一个
-     自拼的 `<a>` —— 两处都不是 AGENTS §3.4 组件表里的东西。现在 `data-bal` 是这一族按钮的唯一出口：
-     区域里、详情弹层里都靠它接点击（重画一次就重绑一次）。
-     ⚠ 这一族里**不再有跳转钮**：「还有 N 家，去用量页」换成就地展开（`expand`），
-       「去设置」撤掉（左下角那颗「设置」入口本来就在，同一件事不另给一条捷径）。 */
-  const balBtnHTML = (act, ic, label, title) => '<button type="button" class="ghost mini" data-bal="' + act
-    + '" title="' + window.esc(title) + '"><span class="ic">' + svgIc(ic, 12) + '</span>' + label + '</button>';
-  /* 展开 / 收起与刷新排在**同一行**：这一行是这一区唯一的动作行，省下来的高度留给卡。
-     弹层（full）本来就是全量，那两枚对它没有意义 —— 弹层里只留「刷新余额」。
-     箭头：展开朝上、收起朝下。 */
-  const balActsHTML = (total, extra, full) => {
-    let t = '';
-    if (!full) {
-      t = balExpOn()
-        ? balBtnHTML('collapse', 'chevronDown', '收起', '只摆这一档放得下的前几张')
-        : (extra > 0 ? balBtnHTML('expand', 'chevronUp', '展开',
-          balCapNote(balCap()) + '：就地摆出全部 ' + total + ' 家（只有卡这一格滚，导航与本机产物行不动）') : '');
-    }
-    return '<div class="sb-bal-acts">' + t
-      + balBtnHTML('refresh', 'refresh', '刷新余额', '重新取一次余额') + '</div>';
-  };
-  /* 一处绑定管两族就地开关：`[data-bal]`（展开 / 收起 / 刷新）与 `[data-mirror]`（本机产物明细）。
-     传 onRefreshed 的是详情弹层（点完要重画弹层那一份），不传的就是侧栏区域自己。
-     本机那个开关两边都要重画 —— `mirrorExp` 是一份全局状态，只画一处就是两份界面说两种话。 */
-  function bindBal(root, onRefreshed) {
-    if (!root || !root.querySelectorAll) return;
-    const repaintSidebar = () => {
-      const b2 = sb.querySelector('#sbBalance');
-      if (b2) paintBal(b2, balRows.length ? '' : '正在读取…');
-    };
-    root.querySelectorAll('[data-bal], [data-mirror]').forEach(b => {
-      const actOn = () => {
-        const exp = b.getAttribute('data-mirror');
-        if (exp !== null) {
-          mirrorExp = exp === '1';
-          if (onRefreshed) onRefreshed();
-          repaintSidebar();
-          return;
-        }
-        const act = b.getAttribute('data-bal');
-        if (act === 'refresh') {
-          const p = refreshBalance();
-          /* 弹层里点刷新：侧栏区域自己会重画，弹层那一份要另画一次（否则停在旧数上） */
-          if (onRefreshed && p && typeof p.then === 'function') p.then(() => { if (root.isConnected) onRefreshed(); });
-          return;
-        }
-        if (act === 'expand' || act === 'collapse') { setBalExp(act === 'expand'); repaintSidebar(); }
-      };
-      b.onclick = e => { e.stopPropagation(); actOn(); };
-      b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); actOn(); } };
-    });
-  }
-  /* 摘要行点开：全量卡 + 本机那一行 + 同一族按钮，走公共弹窗（UiDialog），不在侧栏里堆卡。 */
-  function openBalDetail() {
-    if (!window.UiDialog) return;
-    UiDialog.open({
-      title: '账户余额与本机产物',
-      sub: balCapNote(balCap()) + '，这里是全量（' + balList().length + ' 家）',
-      body: box => {
-        /* 每次现问 balList()：弹窗里点「刷新余额」要看到新数，不能念着打开那一刻的旧名单。
-           画法与侧栏那一块共用 paintBal（full 档：全量、不碰侧栏自己的读数状态）。 */
-        const full = () => paintBal(box, '还没有取到余额 —— 先在设置页把平台加上、密钥填好', true);
-        full();
-      },
-      actions: [{ label: '关闭', value: true }],
-    });
+  /* ---------- 点开 / 收起：抬头刷新、压缩块开气泡 ----------
+     这一区不再有按钮行：刷新由**抬头**接管（点「账户余额」重取一次），
+     收起态与矮窗里由压缩块开一只气泡（每开一次自动重取一遍）。
+     气泡贴在压缩块右边、点页面别处或按 Esc 就关 —— 它只在「卡摆不下」的那两档出现。 */
+  function bindBalTitle(box) {
+    const t = box.querySelector('.sb-now-t');
+    if (t) asButton(t, refreshBalance);
   }
   /* 摘要行的点击与键盘：余额块关着时它只是一行状态，不扮成按钮。 */
   function bindBalSum(box) {
     const el = box && box.querySelector('.sb-bal-sum');
     if (!el) return;
-    if (balShown === null) { el.removeAttribute('role'); el.removeAttribute('tabindex'); el.onclick = null; el.onkeydown = null; return; }
-    asButton(el, openBalDetail);
+    el.removeAttribute('role'); el.removeAttribute('tabindex'); el.onclick = null; el.onkeydown = null;
+    if (balShown === null) return;
+    asButton(el, toggleBalBubble);
+  }
+  /* 余额卡的骨架（侧栏那张卡与气泡共用）：抬头 + 卡列表。
+     侧栏里的抬头是刷新入口；气泡里的抬头只是标题 —— 气泡每开一次已经取过一轮，
+     里面不再放第二颗「刷新」。卡列表都包在 `.sb-bal-cards` 里：定高、自己滚、滚动条藏掉。 */
+  function balBodyHTML(note, pop) {
+    const shown = balList();
+    const cards = balCardsHTML(shown, shown.length ? ''
+      : (note || (balRows.length ? '要显示哪几家在设置页「供应商与密钥」那张卡上勾「侧栏余额」' : '正在读取…')));
+    const head = '<div class="sb-now-t"' + (pop ? '' : ' title="点击刷新"')
+      + '>账户余额 <span class="n">' + shown.length + ' 家</span></div>';
+    return '<div class="sb-bal">' + head
+      + (cards ? '<div class="sb-bal-cards">' + cards + '</div>' : '') + '</div>';
   }
   /* 区域 = 摘要行 + 详情块（两块都画出来，哪一块可见**只由 CSS 判**：收起态与 ≤660px 矮窗看摘要，
      其余看详情 —— 窗口尺寸只有一套判据，JS 不重复判一遍）。
-     balCap0 那一带是例外：详情块照旧在，摘要行只是补一个「点开看全量」的把手，
-     所以这一档把它排到**区域末尾**，「传输状态摆最上面」才不被它顶下去。 */
-  /* 本机产物行在卡**底**：窄形态的压缩块也是「余额在上、落盘在下」，
-     两个形态读起来是同一件事。它仍然不跟着卡列表滚（滚的是 .sb-bal-cards 那一格）。 */
+     本机产物行在卡**底**：压缩块也是「余额在上、落盘在下」，两处读起来是同一件事。
+     它不跟着卡列表滚（滚的是 .sb-bal-cards 那一格）。 */
   function balWrap(body, mirror) { return '<div class="sb-bal-body">' + body + mirror + '</div>'; }
-  function balRegionHTML(mirror, body) {
-    const sum = balSumHTML();
-    const detail = balWrap(body, mirror);
-    return balCap0 ? detail + sum : sum + detail;
+  function balRegionHTML(mirror, body) { return balSumHTML() + balWrap(body, mirror); }
+  /* ---------- 气泡（收起态 / 矮窗里那一块压缩块的详情）----------
+     位置贴着压缩块右边、底边对齐；窗口里放不下就往里夹回来。
+     开 = 重取一次余额（用户点它就是为了看新数）；关 = 点别处 / Esc / 侧栏换形态 / 窗口尺寸变。 */
+  function paintBubble(note) {
+    if (!balBubble) return;
+    balBubble.innerHTML = '<div class="sb-bal-body">'
+      + (balOn() ? balBodyHTML(note, true) : '') + mirrorBarHTML() + '</div>';
+    fitBalCards(balBubble);
+    placeBalBubble();
   }
-  /* 卡片族与「一张都没有」时那一行说明：侧栏区域与弹层详情共用（whyEmpty 为空串就是「有 N 家但摆不下」
-     那一档，不补废话）。 */
+  function placeBalBubble() {
+    if (!balBubble) return;
+    const trig = sb.querySelector('#sbBalance .sb-bal-sum');
+    const r = (trig || sb).getBoundingClientRect();
+    const w = balBubble.offsetWidth, h = balBubble.offsetHeight;
+    const left = Math.max(8, Math.min(r.right + 10, window.innerWidth - w - 8));
+    const top = Math.max(8, Math.min(r.bottom - h, window.innerHeight - h - 8));
+    balBubble.style.left = Math.round(left) + 'px';
+    balBubble.style.top = Math.round(top) + 'px';
+    /* 小箭头对着压缩块的中线（气泡是贴着它长出来的一块，不是随便浮在屏幕上的卡） */
+    balBubble.style.setProperty('--pop-arrow',
+      Math.round(Math.max(12, Math.min(h - 12, r.top + r.height / 2 - top))) + 'px');
+  }
+  function onBalDocDown(e) {
+    if (!balBubble) return;
+    const t = e.target;
+    if (balBubble.contains(t)) return;
+    const trig = sb.querySelector('#sbBalance .sb-bal-sum');
+    if (trig && trig.contains(t)) return;   // 点回压缩块 = 收起，由它自己 toggle
+    closeBalBubble();
+  }
+  function onBalKey(e) { if (e.key === 'Escape') closeBalBubble(); }
+  function closeBalBubble() {
+    if (!balBubble) return;
+    balBubble.remove();
+    balBubble = null;
+    document.removeEventListener('pointerdown', onBalDocDown, true);
+    document.removeEventListener('keydown', onBalKey, true);
+    window.removeEventListener('resize', closeBalBubble);
+  }
+  function openBalBubble() {
+    closeBalBubble();
+    const el = document.createElement('div');
+    el.className = 'sb-bal-pop';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', '账户余额与本机产物');
+    document.body.appendChild(el);
+    balBubble = el;
+    paintBubble();
+    document.addEventListener('pointerdown', onBalDocDown, true);
+    document.addEventListener('keydown', onBalKey, true);
+    window.addEventListener('resize', closeBalBubble);
+    refreshBalance();
+  }
+  function toggleBalBubble() { if (balBubble) closeBalBubble(); else openBalBubble(); }
+  /* 卡片族与「一张都没有」时那一行说明：侧栏区域与气泡共用。 */
   function balCardsHTML(list, whyEmpty) {
     if (list.length) return list.map(balCardHTML).join('');
     return whyEmpty ? '<div class="sb-bal-note">' + window.esc(whyEmpty) + '</div>' : '';
   }
   /* 一家回来就换掉它那一张卡（不整块重画）：整块重画会把用户正在看的其他卡也抖一遍，
-     而这一轮可能还有几家在路上。找不到那张卡（还没画 / 已经被整块重画掉了）才退回整块。 */
+     而这一轮可能还有几家在路上。找不到那张卡（还没画 / 已经被整块重画掉了）才退回整块。
+     气泡开着时那一张也换掉（不重画整只气泡，卡列表的滚动位不跳）。 */
   function upsertBal(row) {
     const i = balRows.findIndex(r => r && String(r.kid) === String(row.kid));
     if (i >= 0) balRows[i] = row; else balRows.push(row);
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
-    const old = [...box.querySelectorAll('.sb-bal-card')].find(c => String(c.dataset.kid) === String(row.kid));
-    if (!old) { paintBal(box); return; }
-    const tmp = document.createElement('div');
-    tmp.innerHTML = balCardHTML(row);
-    old.replaceWith(tmp.firstElementChild);
+    const swap = host => {
+      if (!host) return false;
+      const old = [...host.querySelectorAll('.sb-bal-card')].find(c => String(c.dataset.kid) === String(row.kid));
+      if (!old) return false;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = balCardHTML(row);
+      old.replaceWith(tmp.firstElementChild);
+      return true;
+    };
+    const done = swap(box);
+    if (balBubble) {
+      if (swap(balBubble)) placeBalBubble(); else paintBubble();
+    }
+    if (!done) paintBal(box);
   }
   /* 「余额那一块显示不显示」只有这一份判据（设置页勾的那颗，写在别的键上）：
      paintBal 画不画卡片、`__sbApplyBalance` 要不要去取数，两处都问它 ——
      各写一遍 `AssetLocal.sbBalOn && !AssetLocal.sbBalOn()` 就是两条会走岔的判据。 */
   const balOn = () => !(window.AssetLocal && AssetLocal.sbBalOn && !AssetLocal.sbBalOn());
-  /* 侧栏那一块与「点开看全量」的弹层共用这一份画法。`full` 只改三件事：卡片不截断（看全量）、
-     不写 balShown/balExtra/balCap0 那三份**侧栏自己的**读数（导航角标与摘要行靠它们），
-     以及不挂摘要行/本机行的实时订阅。其余外壳、说明行、按钮族都从同一处拼。 */
-  function paintBal(box, note, full) {
+  /* 侧栏那张卡与气泡共用这一份画法：摘要行照旧画（收起态 / 矮窗看它），详情块照旧画
+     （满形态看它，两块哪块可见只由 CSS 判）。 */
+  function paintBal(box, note) {
     const mirror = mirrorBarHTML();   // 产物进度那一行**与余额开关无关**（见下面那两段）
     /* 整个余额区关掉（设置页勾）：**余额卡片不画**。
-       以前只有「按平台勾选」，没有「一块都不要」这一档 ——
-       于是用户只能把每一家都取消勾，而「刷新余额」那颗按钮还留在那儿点不动。
        ⚠ 这里早退的是**余额卡片**，不是整个盒子：「左栏显示本机产物」是另一个独立的开关，
        而那一行以前就塞在余额区里，于是「关掉余额」会顺手把「显示本机产物」也一起关掉
-       （两个开关共用一个容器，这一句 return 之后 mirrorBarHTML 根本没机会跑）。
-       它自带标题（产物存本机），所以余额关掉时连分组标题也一起藏掉，不留一句说错的「账户余额」。
-       这一行现在固定在**区域顶部**（详情块的第一块），不再跟余额卡挤在同一个内滚动容器里。 */
+       （两个开关共用一个容器）。它自带标题（产物存本机），所以余额关掉时连分组标题也一起藏掉，
+       不留一句说错的「账户余额」。这一行固定在**卡底**（详情块的最后一块），不跟卡列表一起滚。 */
     const on = balOn();
-    if (!on) {
-      /* 关掉余额时摘要行点不开（bindBalSum 摘掉把手），弹层根本到不了这里；真到了也不画半截。 */
-      if (full) return;
-      balShown = null; balExtra = 0; balCap0 = false;
-      box.classList.remove('cap0');
-      box.innerHTML = balRegionHTML(mirror, '');
-      bindBalSum(box);
-      mountMirrorBar(box);
-      return;
-    }
-    const shown = balList();
-    const sel = full ? { head: shown, extra: 0 } : balSplit(shown);
-    if (!full) {
-      balShown = shown.length; balExtra = sel.extra;
-      balCap0 = balCap() === 0 && shown.length > 0;
-      /* `.bal-exp` 只在「真的还有没摆出来的」时挂：展开态要换的是这一列的高度分配
-         （导航退回自然高、余额区可缩、卡列表自己滚），全都摆得着时不该动它。 */
-      sb.classList.toggle('bal-exp', balExpOn() && shown.length > balCap());
-    }
-    /* 一张卡都画不出来时的两种情况：
-       ① 一家都没有（正在读 / 接口读不到 / 平台压根没有余额接口 / 全被勾掉了）→ 一句说明，
-          「正在读取…」这一档必须有：没取到数的那一小段时间里，界面上要有一行字说明它在动，
-          不能是一整块空白。指路那一句写成一行话（勾在哪一栏），不再放跳转钮。
-       ② 有 N 家但**一张都摆不下**（窗口矮到余额区只剩「本机行 + 一行按钮」的余地）→
-          不摆卡也不补一句废话，靠下面那行「展开全部 N 家」与摘要行说话。 */
-    const cards = balCardsHTML(sel.head, shown.length ? ''
-      : (note || (balRows.length ? '要显示哪几家在设置页「供应商与密钥」那张卡上勾「侧栏余额」' : '正在读取…')));
-    /* 卡包进 `.sb-bal-cards` 这一格：展开态滚的是它，本机产物行与按钮行都不跟着滚。
-       弹层（full）里不包 —— 那一份是两列网格，多一层容器就把网格拆了。 */
-    const list = (full || !cards) ? cards : '<div class="sb-bal-cards">' + cards + '</div>';
-    /* 满形态那张卡的抬头：「账户余额 · N 家」。N 是**总数**（这一档只摆得下前几张，
-       多的那几家由下面的「展开」就地摆出来）。弹层里不摆这一行（弹层自己有标题）。 */
-    const head = (!full && sel.head.length)
-      ? '<div class="sb-now-t">账户余额 <span>' + shown.length + ' 家</span></div>' : '';
-    const inner = '<div class="sb-bal' + (full ? ' pop' : '') + '">'
-      + head + list + balActsHTML(shown.length, sel.extra, full) + '</div>';
-    box.innerHTML = full ? balWrap(inner, mirror) : balRegionHTML(mirror, inner);
-    if (full) { bindBal(box, () => paintBal(box, note, true)); return; }   // 弹层里点刷新要看到新数
+    balShown = on ? balList().length : null;
+    const body = on ? balBodyHTML(note) : '';
+    /* 两块都关着时什么都不画：留一个空卡面（描边 + 淡底，二十来像素高）是一块没人认领的方块。 */
+    box.innerHTML = (body || mirror) ? balRegionHTML(mirror, body) : '';
     bindBalSum(box);
-    bindBal(box);
-    mountMirrorBar(box);
+    bindBalTitle(box);
+    mountMirrorBar();
+    fitBalCards(box);
+    paintBubble(note);
   }
   /* ---------- 「产物正在存进本机 / 本机已存多少」这一行 ----------
      读数一律来自 AssetLocal.info（local.js 那一份判据），侧栏不自己数。
@@ -548,20 +500,12 @@
      以前自动存一关这一行整个消失，而勾着「显示本机产物」的人想看的恰恰是「存了多少、它在不在干活」；
      关掉只是不再新增，已存的本机文件一个没少，把整行藏掉等于把唯一的实况入口也关了。
      所以关着时照常报存量，并在 l2 里明说「自动存已关」（界面说的话要等于事实）。 */
-  /* 「产物存本机」那一行的明细：`info()` 里一直白放着两个读数（本次会话存成几份、最后一次
-     落盘是什么时候）。点开标题行就地展开 —— 与余额那一样式子：要看更多就展开，不跳转。
-     展开状态是会话内的（跟卡数一样不写盘：它说的是「这一会儿我想看细节」，不是偏好）。
-     箭头：展开朝上、收起朝下。 */
-  let mirrorExp = false;
-  const mirrorMoreHTML = s2 => {
-    if (!mirrorExp) return '';
-    return '<div class="l3">本次会话存成 <b>' + (s2.ok || 0) + '</b> 份 · '
-      + (s2.lastAt && window.fmtWhen ? '上次存成 ' + window.esc(window.fmtWhen(s2.lastAt)) : '这次还没有存成过东西')
-      + '</div>';
-  };
+  /* 「产物存本机」的明细常驻（本次会话存成几份、最后一次落盘在什么时候）：
+     `info()` 里本来就有这两个读数，这一区不再有开关 —— 一行小字比一个要点才知道的状态更省事，
+     文案只留最短的形态。 */
   function mirrorBarHTML() {
     /* 这一块要能单独关掉（设置页勾）：侧栏是**全局**的，一个不需要看它的人
-       （比如只用生成工作台、从不进资产库）不该被它占掉三行。这是**唯一**的显隐闸。 */
+       （比如只用工作台、从不进资产库）不该被它占掉三行。这是**唯一**的显隐闸。 */
     mirrorInfo = null;
     if (window.AssetLocal && AssetLocal.sbMirrorOn && !AssetLocal.sbMirrorOn()) return '';
     const s2 = window.AssetLocal && AssetLocal.info ? AssetLocal.info() : null;
@@ -582,31 +526,29 @@
       const pct = Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal)));
       /* 行距不在这里写 inline style：`.sb-mirror .l2` 一条规则统着（sidebar.css），
          行内 `style="margin-top: var(--sp-3)"` 那种写法是一份没人管的裸值。 */
-      dl = '<div class="dlbar" title="' + window.esc(String(s2.dlName || '')) + '"><i style="width:' + pct + '%"></i></div>'
-        + '<div class="l2">正在下这一份 <b>' + pct + '%</b>'
-        + (s2.dlName ? '（' + window.esc(String(s2.dlName).slice(0, 18)) + '）' : '')
-        + ' · 已 ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal) + '</div>';
+      /* 文件名与已下 / 总量都不摆在行面上（一长串会把这一行挤成两截）—— 全都进 title。 */
+      dl = '<div class="dlbar" title="' + window.esc(String(s2.dlName || '') + ' · ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal))
+        + '"><i style="width:' + pct + '%"></i></div>'
+        + '<div class="l2">正在下这一份 <b>' + pct + '%</b></div>';
     } else if (busy && s2.dlName) {
-      dl = '<div class="l2">正在下这一份…（' + window.esc(String(s2.dlName).slice(0, 18)) + '）</div>';
+      dl = '<div class="l2" title="' + window.esc(String(s2.dlName)) + '">正在下这一份…</div>';
     }
     const l2 = busy
-      ? '正在存 <b>' + s2.inFlight + '</b> 份' + (s2.on ? '（产物完成后自动开始）' : '')
+      ? '正在存 <b>' + s2.inFlight + '</b> 份'
       : (!s2.on
-        ? '产物自动存本机已关；本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+        ? '自动存已关 · 已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
         : (bad ? window.esc(s2.lastErr)
-          : '本机已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
-            + (s2.fail ? ' · 累计没存成 ' + s2.fail + ' 份' : '')));
-    const head = '<div class="l1" role="button" tabindex="0" data-mirror="' + (mirrorExp ? '0' : '1')
-      + '" title="' + (mirrorExp ? '收起明细' : '展开：本次会话存成几份、最后一次落盘在什么时候') + '">'
-      + '<span class="ic">' + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
-      + '</span><span class="nm">产物存本机</span>'
-      + '<span class="ic chev">' + svgIc(mirrorExp ? 'chevronDown' : 'chevronUp', 12) + '</span></div>';
+          : '已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+            + (s2.fail ? ' · 失败 ' + s2.fail + ' 份' : '')));
+    const more = '本次 <b>' + (s2.ok || 0) + '</b> 份'
+      + (s2.lastAt && window.fmtWhen ? ' · 上次 ' + window.esc(window.fmtWhen(s2.lastAt)) : '');
+    const head = '<div class="l1"><span class="ic">' + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
+      + '</span><span class="nm">产物存本机</span></div>';
     return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
-      + (busy ? ' title="产物自动存本机正在跑，字节落盘之后这里会变成本机已存 N 份"' : '')
-      + (bad ? ' title="最后一次没存成：' + window.esc(s2.lastErr) + '（下一轮列表刷新时会再试一次）"' : '')
+      + (bad ? ' title="最后一次没存成：' + window.esc(s2.lastErr) + '"' : '')
       + (busy || s2.on ? '' : ' title="自动存本机关着，新产物只留平台地址。"')
       + '>' + head
-      + '<div class="l2">' + l2 + '</div>' + mirrorMoreHTML(s2) + dl + '</div>';
+      + '<div class="l2">' + l2 + '</div><div class="l3">' + more + '</div>' + dl + '</div>';
   }
   /* 订阅一次就够：AssetLocal.onInfo 每次落盘事件都推一遍，这里只改那一行。
      没有这一层的话「正在存 N 份」永远停在 0 —— 而那正是用户判断开关有没有生效的那句话。
@@ -619,24 +561,26 @@
      （开了显示本机产物、一有东西要存那一行就没了，下载中更是全程不显示）；
      如今形参整个收掉（连误传的入口都不留），读数一律现问 AssetLocal.info()（同一份判据，且带 on）。 */
   let mirrorUnsub = null;
-  function mountMirrorBar(box) {
+  /* 只换「本机产物」那一块本身：它固定在卡底（`.sb-bal-body` 的最后一块），不跟卡列表一起滚。
+     气泡里那一份同样换（两块是同一份读数，只画一处就是两处界面说两种话）。 */
+  function patchMirror(host) {
+    if (!host) return;
+    const body = host.querySelector('.sb-bal-body');
+    if (!body) return;
+    const old = body.querySelector('.sb-mirror');
+    const want = mirrorBarHTML();
+    if (!want) { if (old) old.remove(); return; }
+    if (old) { const tmp = document.createElement('div'); tmp.innerHTML = want; old.replaceWith(tmp.firstElementChild); }
+    else body.insertAdjacentHTML('beforeend', want);
+  }
+  function mountMirrorBar() {
     const A = window.AssetLocal;
     if (!A || !A.onInfo || mirrorUnsub) return;
     const repaint = () => {
       const b2 = sb.querySelector('#sbBalance');
+      patchMirror(b2);
+      if (balBubble) { patchMirror(balBubble); placeBalBubble(); }
       if (!b2) return;
-      const old = b2.querySelector('.sb-bal-body > .sb-mirror');
-      const want = mirrorBarHTML();
-      /* 这一行固定在**卡底**（`.sb-bal-body` 的最后一块），不跟卡列表一起滚。
-         两块都关着时 want 必然是空（上面已经 return），但仍判一下 host，
-         别让一个 null 抛在订阅回调里被静默吞掉。 */
-      const host = b2.querySelector('.sb-bal-body');
-      if (!want) { if (old) old.remove(); }
-      else if (old) { const tmp = document.createElement('div'); tmp.innerHTML = want; old.replaceWith(tmp.firstElementChild); }
-      else if (host) host.insertAdjacentHTML('afterend', want);
-      /* 换掉的那一块里有「产物存本机」这一行的开关（[data-mirror]），旧节点上的处理跟着没了 ——
-         重画一次就重绑一次，否则落盘之后这一行只是长得对，点了没反应。 */
-      bindBal(b2);
       /* 摘要行的「存 N/M」也吃这一份读数：落盘一次就要跟着变，不然收起态念的是旧数。 */
       const sum = b2.querySelector('.sb-bal-sum');
       const next = balSumHTML();
@@ -725,7 +669,7 @@
     }
     /* 用户把这几家**全取消勾选**了 → 取数阶段就短路：以前 `SbBal.filter` 只在
        paintBal 里过滤**渲染**，取数照跑，于是「设置里全不勾」照样每分钟去取它们的钱。
-       这里复用同一份 filter（AGENTS §7「同一个功能只应有一份实现」），不新写一份判据。
+       这里复用同一份 filter（「同一个功能只应有一份实现」），不新写一份判据。
        全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
     const wanted = window.SbBal ? SbBal.filter(usable) : usable;
     if (!wanted.length) {
@@ -774,20 +718,15 @@
       if (balOn() && Date.now() - ts > 60000) refreshBalance();
     } catch (e) {}
   };
-  /* 跨过 balCap() 那几条线时区域能摆的卡数变了，照实重画一次：
-     展开钮的 title 里那个总家数要一直对得上（差一家就是假话）。
-     尺寸判据只有 CSS 与这一处，读的是同一批 media query。 */
-  let balCapLast = -1, balCapTimer = 0;
-  const balCheckCap = () => {
-    const c = balCap();
-    if (c === balCapLast) return;
-    balCapLast = c;
-    const box = sb.querySelector('#sbBalance');
-    if (box && balShown !== null) paintBal(box, balRows.length ? '' : '正在读取…');
-  };
+  /* 跨过 780 那条线时矮窗那一档会改卡片内边距，三张卡的高度跟着变：
+     重新量一次（只量不改内容，不动别的节点）。 */
+  let balFitTimer = 0;
   window.addEventListener('resize', () => {
-    clearTimeout(balCapTimer);
-    balCapTimer = setTimeout(balCheckCap, 150);
+    clearTimeout(balFitTimer);
+    balFitTimer = setTimeout(() => {
+      fitBalCards(sb.querySelector('#sbBalance'));
+      fitBalCards(balBubble);
+    }, 150);
   });
 
   window.__sbBalanceDrop = (kid) => {

@@ -63,7 +63,7 @@ export function splitClipAt(clips, index, atTime) {
   return { ok: true, clips: list, index, left, right };
 }
 
-/* 配音 / 待生成块切一刀：源窗口与波形按比例分家；左半保留原 id（挂在它身上的字幕不动）。 */
+/* 配音块切一刀：源窗口与波形按比例分家；左半保留原 id（挂在它身上的字幕不动）。 */
 export function splitVoiceAt(voices, id, atTime) {
   const list = Array.isArray(voices) ? voices.slice() : [];
   const at = list.findIndex(v => v && v.id === id);

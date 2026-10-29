@@ -52,7 +52,7 @@ function parsePayload(ctx, body) {
   const xml = String((body && body.fcpxml) || '');
   if (!xml.trim()) throw httpError(400, '缺少 fcpxml');
   /* 一单几条：超出上限的那部分以前是被 slice 静默切掉的 —— zip 里没有、missing.txt 里也没有，
-     用户以为素材齐了。现在照 AGENTS §14.5 记数：一条不落、一条不闷。 */
+     用户以为素材齐了。现在照实记数：一条不落、一条不闷。 */
   const wantAssets = Array.isArray(body.assets) ? body.assets : [];
   const assets = wantAssets.slice(0, ASSETS_MAX);
   /* 字幕：与客户端 SRT 导出同一份文本（BOM + CRLF 由客户端决定），这里只验体量与条数。 */
@@ -183,7 +183,7 @@ async function writeBundle(ctx, spec) {
     }
   }
   /* 一单条数封顶之外多递的那几条：以前 slice 一刀切掉，zip 里没有、missing.txt 里也没有，
-     用户以为齐了 —— 按 AGENTS §14.5「缺失一律报数」在这里补一行总数与名单（名单只列前 20 条）。 */
+     用户以为齐了 —— 按「缺失一律报数」在这里补一行总数与名单（名单只列前 20 条）。 */
   if (wantAssets.length > assets.length) {
     const dropped = wantAssets.slice(ASSETS_MAX);
     const shown = dropped.slice(0, 20).map((a, j) => assetNameOf(ctx.fileSafe, a && a.name, ASSETS_MAX + j)).join('、');

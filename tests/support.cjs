@@ -32,8 +32,8 @@ function webSources() {
     .filter(p => !/[\\/]render[\\/]/.test(p) && !/[\\/]vendor[\\/]/.test(p) && !/vue\.runtime/.test(p))
     .sort();
 }
-/* 导演台 engine 层的文件清单：engine.js（状态与接线）+ engine/<域>.js（按域搬出去的函数，
-   AGENTS.md §17）。备份文件 `.pre-<域>` 不是源码，不进这一份。 */
+/* 导演台 engine 层的文件清单：engine.js（状态与接线）+ engine/<域>.js（按域搬出去的函数）。
+   备份文件 `.pre-<域>` 不是源码，不进这一份。 */
 function engineFiles() {
   const dir = abs('web/director/engine');
   const mods = fs.existsSync(dir)
@@ -44,8 +44,7 @@ function engineFiles() {
 /* 钉「engine 这一层只有一份实现」的文本判据读这一份，不读裸 engine.js —— 函数搬进域模块之后
    还是同一层的代码，判据不跟着走，每搬一块就凭空红一片（那是判据的位置错了，不是实现错了）。 */
 function engineLayer() { return engineFiles().map(read).join('\n'); }
-/* 传给判据的既可能是绝对路径（webSources 给的），也可能是**内存里合成的**相对路径
-   （architecture.cjs 的自检造的假文件）。假的不能拿去 cwd 拼绝对路径 —— 直接当仓库相对路径用。 */
+/* 传给判据的既可能是绝对路径（webSources 给的），也可能是**内存里合成的**相对路径（architecture.cjs 的自检造的假文件）。假的不能拿去 cwd 拼绝对路径 —— 直接当仓库相对路径用。 */
 function asRel(p) {
   return typeof p === 'string' && !path.isAbsolute(p) ? p.split(path.sep).join('/') : rel(p);
 }
@@ -204,7 +203,7 @@ function findWiring(factoryName) {
 }
 
 /* ---------- 分层矩阵与「公共面」（架构判据与公共件目录判据共用这一份） ---------- */
-/* 分层方向（AGENTS.md §7 的「唯一实现清单」加上 §14.7 的落点规则）：
+/* 分层方向（下层不许读上层）：
    下层不许读上层 —— core / ui / domain 互不横向依赖，features 不许碰页面与导演台，
    server 不许出现在前端模块的 import 里。页面与导演台在最上层，读谁都行。 */
 const LAYER_FORBIDDEN = {
@@ -245,8 +244,8 @@ function stripComments(src) {
   }
   return out;
 }
-/* web/ui/ 里那六个是「全站基础设施」，不是组件：AGENTS.md §7 的唯一实现清单里它们各自的
-   行就写着「网络 / 本地存储 / IndexedDB / 提示 / 数据同步 / 跳页 —— 唯一实现在 web/ui/*.js」。
+/* web/ui/ 里那六个是「全站基础设施」，不是组件：
+   网络 / 本地存储 / IndexedDB / 提示 / 数据同步 / 跳页各只有一份实现。
    任何一层要用只有一份实现的东西，就该用它 —— 把它们算成「ui 组件依赖」会把
    「assetlib 里所有 fetch 都走 Net」这种正确写法报成违例，判据就没人当真了。
    组件面（Dropdowns / Confirm / UiDialog / Chips / Wb / AssetPicker …）不在这里：
@@ -257,7 +256,7 @@ function stripComments(src) {
 const UI_INFRA_FACES = new Set(['Net', 'Store', 'Kv', 'Toast', 'DataSync', 'GoPage', 'ErrBanner', 'LS']);
 function isInfra(name, layer) { return layer === 'ui' && UI_INFRA_FACES.has(name); }
 
-/* 公共面 = `window.<首字母大写> = …`（AGENTS.md §14.7：浏览器经典脚本挂一个 window.<Name> 面）。
+/* 公共面 = `window.<首字母大写> = …`（浏览器经典脚本挂一个 window.<Name> 面）。
    `__*` 那些后门不算：它们是外壳与页面之间的钩子，
    不是某一层的实现；小写的（esc / icon / toast / fmtBytes）是别名，也不是一层对另一层的依赖。 */
 /* 默认扫真实仓库；architecture.cjs 的自检要拿一段**内存里的**合成源码验证「这条判据真会红」，
@@ -306,12 +305,12 @@ const LAYER_EXCEPTIONS = [
   { id: 'web/ui/workbench.js → AssetLib [domain]', max: 3, why: '历史/详情面板读资产库缓存：与 Api 同批收敛' },
   { id: 'web/ui/workbench.js → AssetLocal [domain]', max: 1, why: '另一个反例：卡片自己拼本机身份。改法是只读 stateOf 的订阅，别在 ui 层算' },
   { id: 'web/ui/workbench.js → PromptLog [domain]', max: 2, why: '卡片详情显示归档提示词，走的是 domain 的读接口：等 workbench 拆薄' },
-  { id: 'web/ui/sidebar.js → Api [domain]', max: 6, why: '侧栏余额与注册表都从 Api 取（AGENTS.md §2 把侧栏算 ui 层）：改成外壳注入一份 store' },
+  { id: 'web/ui/sidebar.js → Api [domain]', max: 6, why: '侧栏余额与注册表都从 Api 取（把侧栏算 ui 层）：改成外壳注入一份 store' },
   { id: 'web/ui/sidebar.js → AssetLocal [domain]', max: 10, why: '侧栏徽标数字读本机身份：与上一条同一处装配问题' },
   { id: 'web/ui/forms.js → Api [domain]', max: 3, why: '表单族里有几处直接问 Api（润色面板的供应方/型号文案）：把表单族切去 forms.js 时原样搬过来，待抽成注入' },
   { id: 'web/ui/datasync.js → PromptLog [domain]', max: 4, why: '导入导出要带提示词归档，于是读了 domain 的 store：等 prompts 层自己导出一个片段' },
   { id: 'web/ui/datasync.js → ModelPrefs [domain]', max: 2, why: '导设置时带上型号偏好：同上，属跨层读数据' },
-  { id: 'web/ui/skills.js → TextAI [domain]', max: 1, why: '内置 Skill 正文与 TextAI.DEF 同源（AGENTS.md §10），读的是同一份文案定义' },
+  { id: 'web/ui/skills.js → TextAI [domain]', max: 1, why: '内置 Skill 正文与 TextAI.DEF 同源，读的是同一份文案定义' },
 ];
 
 /* 把「现在的违例」算成 id → 条数。id 形如 `文件 → 面名 [层]`，不带行号。 */

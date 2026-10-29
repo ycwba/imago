@@ -1,4 +1,4 @@
-/* 导演台Apply域：由 engine.js 按域机械搬出（AGENTS.md §17：内部保持命令式、按域拆模块，
+/* 导演台Apply域：由 engine.js 按域机械搬出（内部保持命令式、按域拆模块，
    engine.js 只留状态与接线）。区间内的代码逐字保留，只有点名的几处引擎可变状态改经访问器读，
    区间外的名字一律由 createApply(E) 递进来 —— 这一份里不留第二套工程数据。
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
@@ -48,11 +48,16 @@ export function createApply(E, document, window) {
   } = E;
 
 /* AI 拆分镜 / 改分镜带回台词时那句「出路」只有一份：两处报数共用同一个串。
-   台词一落地就会自动上「待生成」轨（Edit 域的 syncPending 按台词现写块，不用人搬），
+   台词一落地，右栏就能按这句台词和说话人素材直接生成语音；不再自动往轨道上放占位块，
    所以这里指路指向那两处入口；话里不写「已合成」—— 那一次一个计费请求都没发，
    合成只在「合成并加到这一轨」那一下。 */
 function lineLandedNote(n) {
   return '、' + n + ' 镜带上了台词';
+}
+/* 「发给 AI 的备注」只有这一句拼法（拆新 / 往下拆 / 改稿三条链共用）：
+   它只进这一次请求的正文，不落到任何镜头的提示词上。 */
+function userNoteLine(v) {
+  return v.note ? '\n\n用户备注：' + v.note : '';
 }
 
 /* ---------- 拆分镜 / 改分镜的「AI 反问」那一轮（与润色同一套两段式）----------
@@ -252,7 +257,8 @@ async function aiStoryboard() {
     value: SplitAssets.last(), options: scopes,
     hint: '先让 AI 从这份清单里挑相关的那几条，再把挑中那几条的完整描述喂给分镜；'
       + '写进提示词的 @名字 在确认写入时挂成参考图（选「不导入素材」就一个字也不喂）' });
-  fields.push({ key: 'style', type: 'text', label: '风格提示词后缀（可选）', placeholder: '例：电影感，35mm，柔和自然光' });
+  fields.push({ key: 'note', type: 'text', label: '发给 AI 的备注（可选）',
+    placeholder: '例：整体偏冷色 · 节奏快一点', hint: '只给 AI 看，不进提示词' });
   const v = await PromptForm.open({
     title: 'AI 分镜（拆新 / 改现有 / 加镜头）',
     sub: '贴一段剧本拆一份新的；或者对着现有分镜说一句话让它改 / 接着往下拆',
@@ -348,7 +354,6 @@ async function aiBoardSplit(v) {
      · `{assets}` —— 这一次选中的那批素材（完整描述）
      · `{board}`  —— 现有分镜清单（往下拆 / 改分镜那一路才有）
      · `{dur}`    —— 时长区间那句
-     · `{style}`  —— 风格后缀
      末尾那两句（约束 + 素材规则）**保留**：Skill 没写变量时（内置那份就没写）行为与从前一样；
      写了变量的 Skill 则由 Skill 自己决定这些料摆在哪儿 —— 程序不再替它硬塞。 */
   const varsOf = (boardText, what) => BoardVars.vars({
@@ -357,7 +362,6 @@ async function aiBoardSplit(v) {
     assets: BoardVars.assetsOf(staged ? staged.picked : [], x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
     board: boardText,
     dur: boardDurNote(),
-    style: v.style || '',
   });
   /* 第 4 段：问「这份方案里有哪些主体要新建素材」。ask() 首趟与
      「重新规划（新素材）」那颗共用 —— 后者只调它，不重跑拆分那一段。 */
@@ -371,6 +375,7 @@ async function aiBoardSplit(v) {
         reg: REGOf(), shots: out, existing: SplitAssets.named(),
         sys: fillSkillVars(TextAI.prompt('board_assets'), av),
         text: boardListOfItems(out),
+        search: { query: boardListOfItems(out).slice(0, 200) },
         TextAI: window.TextAI, parseJsonLoose,
       });
     } catch (e) {
@@ -389,7 +394,7 @@ async function aiBoardSplit(v) {
   const sysOfRun = () => `${TL_SYS_COMMON}
 ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().scenes)) : ''))}
 约束：由你决定拆几个镜头、每一镜多长。${boardDurNote()}${staged.rule}`;
-  const userOfRun = () => `剧本/文案：\n${v.script}` + (v.style ? `\n风格要求：${v.style}` : '')
+  const userOfRun = () => `剧本/文案：\n${v.script}` + userNoteLine(v)
     + (append ? ('\n\n当前已有分镜（接着往下拆：沿用合适的场景名与画风、别重复已有的镜头）:\n'
       + boardListText(snapBoard(projOf().scenes))) : '');
   /* AI 回的那份 JSON → 审阅条目（生成轮与「按这句再改」两路共用同一份解析）：
@@ -445,7 +450,8 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
        与「AI 润色」共用那一块地方；两边都是用户手点的，不会同时开着）。 */
     splitUI = { phase: 'stream', busy: true, kind: 'split' };   // busy 档住「拆分镜」重入；面板本体归 AiStream 管
     const txt = await AiStream.text(REGOf(), sys, userOfRun() + (an ? '\n\n' + an : ''),
-      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…' });
+      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…',
+        search: { query: v.script } });
     splitUI = null;
     draft = parseJsonLoose(txt);
     const items = itemsOfDraft(draft);
@@ -522,8 +528,10 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
 ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current), askText))}`;
       const msg = '当前这份分镜方案（就在屏幕上，你要在**这一份**上改）:\n' + boardListOfItems(current)
         + '\n\n调整要求：' + askText
+        + userNoteLine(v)
         + (answers ? '\n\n' + TextAI.answersNote(answers) : '');
-      const txt = await TextAI.chatStream(REGOf(), sys, msg, { signal: ctl.signal }, ctl.push);
+      const txt = await TextAI.chatStream(REGOf(), sys, msg,
+        { signal: ctl.signal, search: { query: askText } }, ctl.push);
       draft = parseJsonLoose(txt);
       let next = itemsOfDraft(draft);
       if (!next.length) throw new Error('AI 的调整结果里没有镜头');
@@ -579,7 +587,6 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
        第 1 段若退回别的型号，落盘后的夹取会把「总秒数守恒」拆掉。 */
     if (row.chainModel) { sh3.model = String(row.chainModel); sh3.modelAuto = 'chain'; }
     if (sh3.linkPrev) ensureChainModel(sh3);
-    if (v.style) sh3.prompt = (sh3.prompt + '，' + v.style).trim();
     sc.shots.push(sh3);
   });
   /* 写入期兜底：批量生成走 genAll → submitCandidate，提交体发的是
@@ -599,7 +606,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
      素材那几张带不上时会照实报「参考图最多 N 张」，而不是静默少带几张。 */
   /* ---- 新素材（用户认下的那几条）：建档 + 占位符 ----
      建档落在**当前短片所在的项目组**同名素材组里（组名即素材组名）。
-     出图**不在这里自动发**：出图要花钱，按 AGENTS §6.2「任务号一落盘就等于一次已付的钱」，
+     出图**不在这里自动发**：出图要花钱，按「任务号一落盘就等于一次已付的钱」，
      留给用户在素材库里点「生成素材图」—— 这里只把档建好、把提示词里的占位符写上。 */
   const allShots = newScenes.flatMap(sc => sc.shots || []);
   const assetGroup = Groups.assetGroupName(WSOf(), projOf());
@@ -677,21 +684,21 @@ async function aiBoardEdit(v) {
   /* 同样支持 Skill 正文里的变量（项目引用规则）：
      `{what}` = 这一次的修改要求、`{board}` = 现有分镜清单、
      `{cast}` = 本项目素材库里的角色 / 场景 / 物品、`{assets}` = 这次选中的素材、
-     `{dur}` = 时长区间那句、`{style}` = 风格后缀。 */
+     `{dur}` = 时长区间那句。 */
   const varsOf = whatText => BoardVars.vars({
     what: whatText === undefined ? want : whatText,
     cast: BoardVars.castOf(SplitAssets.named()),
     assets: BoardVars.assetsOf(staged ? staged.picked : [], x => (window.Chars && Chars.descOf) ? Chars.descOf(x) : ''),
     board: boardListText(snap),
     dur: boardDurNote(),
-    style: v.style || '',
   });
   /* 反问轮与生成轮同一份拼法（同 aiBoardSplit 的 sysOfRun / userOfRun）。 */
   const sysOfRun = whatText => `${TL_SYS_COMMON}
 ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
 约束：改几处、加几镜由你决定，不必凑数。${boardDurNote()}${staged.rule}`;
   const userOfRun = whatText => '当前分镜清单（下面的序号就是改动要用的序号）:\n' + boardListText(snap)
-    + '\n\n修改要求：' + (whatText || '（没有具体说改哪里）把写得不够好的提示词整体优化一遍');
+    + '\n\n修改要求：' + (whatText || '（没有具体说改哪里）把写得不够好的提示词整体优化一遍')
+    + userNoteLine(v);
   const ask = async (ctl, extraAsk) => {
     await ensureStaged();
     const wt = wantAll(extraAsk);
@@ -702,14 +709,15 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     splitUI = { phase: 'stream', busy: true, kind: 'edit' };
     /* 带 ctl = 审查弹窗里「按这句再改」那一轮：流式画进弹窗（ctl.push，可中止）；
        不带 = 首轮与「重新规划」：还是右栏那块流式面板。 */
+    const search = { query: wt };
     const txt = await (ctl
-      ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal }, ctl.push)
-      : AiStream.text(REGOf(), sys, body, { host: $('polishInline'), title: 'AI 正在修改分镜…' }));
+      ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal, search }, ctl.push)
+      : AiStream.text(REGOf(), sys, body, { host: $('polishInline'), title: 'AI 正在修改分镜…', search }));
     splitUI = null;
     const j = parseJsonLoose(txt);
     const changes = (j && (j.changes || j.edits)) || null;
     if (!changes || !changes.length) throw new Error('AI 没有给出可用的修改');
-    const plan = boardPlanOf(changes, snap, { style: v.style });
+    const plan = boardPlanOf(changes, snap);
     if (!plan.items.length) throw new Error(plan.skipped
       ? 'AI 给的修改对不上现有镜头（对不上的有 ' + plan.skipped + ' 条）'
       : 'AI 给的修改和现状一样，没有可改的');

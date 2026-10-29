@@ -10,7 +10,7 @@ import { buildFCPXML, exportFCPXML, sendToNle } from '../web/director/fcpxml.js'
 
 let saved = null, status = '';
 /* path = 账里「相对库根的落点」（<类型子目录>\<规范名>.<ext>）：单文件 FCPXML 的 file://
-   绝对路径从它拼 —— 本机号 la_xxx 不是文件名（AGENTS §6.3：本体在 <库根>\视频\<规范名>.mp4）。 */
+   绝对路径从它拼 —— 本机号 la_xxx 不是文件名（本体在 <库根>\视频\<规范名>.mp4）。 */
 const localFiles = {
   '/asset/la_pic?dl=1': { id: 'la_pic', format: 'mp4', name: '场景01-雨夜街头_镜头01-推门.mp4', path: '视频/场景01-雨夜街头_镜头01-推门.mp4' },
   '/asset/la_voice?dl=1': { id: 'la_voice', format: 'wav', name: '场景01-雨夜街头_镜头01-推门.wav', path: '音频/场景01-雨夜街头_镜头01-推门.wav' },

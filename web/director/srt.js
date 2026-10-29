@@ -9,7 +9,7 @@ import { MIN_CAPTION_SECONDS } from './film.js';
 /* 一行最多几个字（重切的缺省档）：调用方给数字就用调用方的，没给就用这一档。 */
 export const RESEGMENT_DEFAULT_CHARS = 24;
 /* 文件头的 BOM：Windows 记事本与不少字幕工具按本地编码猜，没有它中文全乱。
-   写成码点而不是裸字符 —— 源码里不许出现不可见控制字符（AGENTS §14.1）。 */
+   写成码点而不是裸字符 —— 源码里不许出现不可见控制字符。 */
 const BOM = String.fromCharCode(0xFEFF);
 
 const secOf = ms => Math.max(0, Number(ms) || 0) / 1000;

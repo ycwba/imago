@@ -2,7 +2,7 @@
 /* 浏览器内 ASR 的纯算法面（web/director/asr-text.js）：worker 与这里的判据读同一份。
    WAV 拆 PCM / 词级成段（断句、时长、字数三把尺）/ 中文转写清理与可疑判定。
    另有一条静态档：vendor 四件在场、worker 只走同源地址且 allowRemoteModels 关死 ——
-   模型与 wasm 从 CDN 直取是 CSP（§4.1）下必死的坏法，要在起进程之前拦住。 */
+   模型与 wasm 从 CDN 直取是 CSP 下必死的坏法，要在起进程之前拦住。 */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -109,7 +109,7 @@ for (const f of ['transformers.min.js', 'ort.bundle.min.mjs', 'ort-wasm-simd-thr
 }
 
 const workerSrc = fs.readFileSync(path.join(root, 'web', 'director', 'asr-worker.js'), 'utf8');
-assert.match(workerSrc, /allowRemoteModels\s*=\s*false/, 'worker 关死远程模型（§4.1：页面不直连外部域名）');
+assert.match(workerSrc, /allowRemoteModels\s*=\s*false/, 'worker 关死远程模型（页面不直连外部域名）');
 assert.match(workerSrc, /env\.localModelPath\s*=\s*'\/models\/'/, '模型只走代理同源的 /models/');
 assert.match(workerSrc, /const WASM_DIR\s*=\s*'\/web\/vendor\/asr\/'/, 'ORT wasm 指到同源 vendor（默认 CDN 在 CSP 下必死）');
 assert.match(workerSrc, /wasmPaths\s*=\s*WASM_DIR/, 'wasmPaths 吃的就是这份同源常量');

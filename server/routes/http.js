@@ -2,7 +2,7 @@
    - sendJson(res, code, obj, headers)：写一个 JSON 对象；默认 no-store，调用方显式给了
      Cache-Control 就照它说的来。
    - fail(res, code, msg, extra)：错误回包 `{ error: String(msg), ...extra }`，一律 no-store
-     （4xx/5xx 不许被缓存 —— 见 AGENTS §4.3）。
+     （4xx/5xx 不许被缓存）。
    - noStore(res)：给即将用别的 Content-Type 写出（zip / 视频流 / 手写 JSON）的响应补上 no-store。
    这里不做业务判断：谁该回多少、错误文案是什么，仍由各个 routes/*.js 决定。 */
 'use strict';

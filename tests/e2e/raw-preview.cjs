@@ -4,8 +4,8 @@
    用法与 harness 文档一致：page.eval(fn) / page.waitFor(fn) / page.addInitScript(fn)。
    这一档判的是「上游通了以后预览对不对」：那一栏要算得出请求体，先得有型号清单
    （`Capabilities.modelsFor` 只认平台 /models 落回来的那些型号）。上游不通时那一栏本来就画不出东西 ——
-   那是「能不能连上平台」那一档的事，这里等不到清单就**整档跳过并报明**（与 AGENTS §3.4
-   「本机没有 ffmpeg 就整档跳过并报明」同一口径），既不判绿也不判红。 */
+   那是「能不能连上平台」那一档的事，这里等不到清单就**整档跳过并报明**
+   既不判绿也不判红。 */
 'use strict';
 const h = require('./harness.cjs');
 

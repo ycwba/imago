@@ -6,33 +6,18 @@
    TextAI.chatStream 被换成固定回包，所以不花钱、不碰真实模型。 */
 'use strict';
 const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const cp = require('child_process');
 const h = require('./harness.cjs');
 
-function hasFfmpeg() {
-  try { cp.execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch (e) { return false; }
-}
-function makeClip(dir) {
-  const f = path.join(dir, 'probe-src.mp4');
-  cp.execFileSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', 'testsrc=size=128x72:rate=12:duration=2',
-    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart', f], { stdio: 'pipe' });
-  return f;
-}
 /* 成片秒直接用；正文 15 个汉字，按 8 字重切一定切得出多条（capResegment 的下限是 8）。 */
 const SRT = '1\n00:00:00,500 --> 00:00:01,400\n助手导进来的一句台词再长一点点\n';
 
 (async () => {
-  if (!hasFfmpeg()) { console.log('- 跳过剪辑助手（本机没有 ffmpeg，造不出测试素材）'); return; }
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-aedit-'));
   let proxy, browser, page;
   try {
     proxy = await h.startProxy();
     const srcId = (await (await fetch(proxy.base + '/local-assets', {
       method: 'POST', headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'probe-src.mp4', data: fs.readFileSync(makeClip(work)).toString('base64'),
+      body: JSON.stringify({ name: 'probe-src.mp4', data: fs.readFileSync(h.clipFixture()).toString('base64'),
         format: 'mp4', mime: 'video/mp4', media_type: 'video', meta: {} }),
     })).json()).id;
     if (!srcId) throw new Error('探针素材没建出来');
@@ -52,7 +37,7 @@ const SRT = '1\n00:00:00,500 --> 00:00:01,400\n助手导进来的一句台词再
         clips: [clip('c1', 0), clip('c2', 0)],
         voices: [{ id: 'vw_1', shotId: 'sh_1', text: '第一句', start: 0.2, duration: 1.5, sourceStart: 0, sourceDuration: 1.5,
           playbackRate: 1, volume: 1, fadeIn: 0, fadeOut: 0, lane: 0, status: 'done', src }],
-        pending: [], captions: [], markers: [],
+        captions: [], markers: [],
         tracks: { visibility: {}, locks: {} },
       } };
     const put = await fetch(proxy.base + '/data/workspace', {
@@ -211,6 +196,5 @@ const SRT = '1\n00:00:00,500 --> 00:00:01,400\n助手导进来的一句台词再
     if (page) page.close();
     if (browser) await browser.close();
     if (proxy) await proxy.stop();
-    try { fs.rmSync(work, { recursive: true, force: true }); } catch (e) {}
   }
 })();

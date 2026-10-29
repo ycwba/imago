@@ -37,9 +37,9 @@ const HELPERS = {
   map: '本文件：改动→必跑的映射',
   support: '判据脚本共用的件（层表 / 例外登记比对），由别的判据 require',
   /* syntax 现在是 all.cjs 池里的普通一条（run 登记行在），不再是「require 进程内跑」的helper。 */
-  harness: '浏览器判据唯一的启动 / 取 Cookie / 打开页面入口（AGENTS.md §13.4），自己不是一条判据',
+  harness: '浏览器判据唯一的启动 / 取 Cookie / 打开页面入口，自己不是一条判据',
   watch: 'watch 模式入口：常驻前台跑，触发本文件的 --changed --run，自己不是一条判据',
-  'data-snapshot': '写入型基线：要对真实 .data/.assets 比，只手工跑（AGENTS.md §13.3）',
+  'data-snapshot': '写入型基线：要对真实 .data/.assets 比，只手工跑',
 };
 /* 是真判据，但由别处代跑（代跑关系写死在这一份里，不再靠人记）。
    2026-10-21：spa 不再是「由 selfcheck 代跑」—— selfcheck 里那条同步
@@ -333,7 +333,7 @@ function main() {
     if (row.rows.length) console.log('    表：' + row.rows.join(' ｜ '));
     if (row.derived.length) console.log('    反查：' + row.derived.join(', '));
   }
-  if (unmapped.length) console.log('  （以下文件没有命中映射表，按文档表补一行）\n    ' + unmapped.join('\n    '));
+  if (unmapped.length) console.log('（以下文件没有命中映射表，按文档表补一行）\n    ' + unmapped.join('\n    '));
   console.log('\n快（常驻判据，无需浏览器）：' + (p.picked.length ? p.picked.join(', ') : '（无）'));
   console.log('慢（浏览器 e2e）：' + (p.browserPicked.length ? p.browserPicked.join(', ') : '（无）'));
   /* 样式改动要把页名带到 ui-visual 上：改一个页面的 CSS 不必把 12 档 × 2 尺寸 × 2 主题全拍一遍。 */

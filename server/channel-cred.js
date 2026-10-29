@@ -38,14 +38,23 @@ function mirrored(ctx, kind, kid) {
   return text;
 }
 
+/* 密钥 / 地址按**存密钥的那一格**（keyId）读：一条 provider 的 id 可能只是它的一档
+   （minimax-text 的密钥存在 sk_key_minimax、siliconflow-image 的存在 sk_key_siliconflow），
+   拿 id 去拼文件读不到，会悄悄退化到 .env —— 设置页里明明填了一把，页面上却当没填。 */
 function channelKey(ctx, kid) {
   const p = providerOf(ctx, kid);
-  return mirrored(ctx, 'sk_key_', kid) || (p && p.keyEnv ? ctx.keyOf(p.keyEnv) : '');
+  const store = (p && p.keyId) || kid;
+  return mirrored(ctx, 'sk_key_', store)
+    || (store !== kid ? mirrored(ctx, 'sk_key_', kid) : '')
+    || (p && p.keyEnv ? ctx.keyOf(p.keyEnv) : '');
 }
 
 function channelBase(ctx, kid) {
   const p = providerOf(ctx, kid);
-  return mirrored(ctx, 'sk_base_', kid) || (p && p.base) || '';
+  const store = (p && p.keyId) || kid;
+  return mirrored(ctx, 'sk_base_', store)
+    || (store !== kid ? mirrored(ctx, 'sk_base_', kid) : '')
+    || (p && p.base) || '';
 }
 
 /* 是不是本机回环。先确认 hostname **是 IP 字面量**再看前缀：
@@ -59,6 +68,57 @@ function loopback(u) {
     if (net.isIP(h) === 6) return h === '::1';
     return false;
   } catch { return false; }
+}
+
+/* 发一次 JSON POST 并收回整段响应（上限 maxBytes）。
+   搜索的几套接口与语音识别的 chat-audio 那一族共用这一份：两条路都必须在发之前过
+   guardOutboundUrl（异步，含 DNS），并走 ctx.anyRequest 那一条出站（系统代理的 CONNECT 隧道
+   只有它会挑），自己再写一份就会漏掉其中一样。
+   连接层失败归到 network / timeout ——「上游连不上」与「参数填错了」在页面上是两句话。 */
+function postJson(ctx, arg) {
+  const a = arg || {};
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = e => {
+      if (settled) return;
+      settled = true;
+      if (e && e.kind) return reject(e);
+      const m = (e && e.message) || String(e || '');
+      const err = new Error('请求失败：' + String(m).slice(0, 300));
+      err.kind = /timeout|超时/i.test(m) ? 'timeout' : 'network';
+      reject(err);
+    };
+    const dispatch = () => {
+      let req;
+      try {
+        req = ctx.anyRequest(a.url, { method: 'POST', headers: a.headers || {} }, res => {
+          collect(res, a.maxBytes || 4 * 1024 * 1024)
+            .then(text => { if (!settled) { settled = true; resolve({ status: res.statusCode || 0, text }); } }, fail);
+        });
+      } catch (e) { fail(e); return; }
+      if (a.timeoutMs) {
+        req.setTimeout(a.timeoutMs, () => req.destroy(new Error('超时（' + Math.round(a.timeoutMs / 1000) + ' 秒）')));
+      }
+      if (typeof a.onReq === 'function') { try { a.onReq(req); } catch (e) { /* 调用点自己的记账失败不该打断请求 */ } }
+      req.on('error', fail);
+      req.write(a.body || Buffer.alloc(0));
+      req.end();
+    };
+    const u = String(a.url || '');
+    if (/^https:/i.test(u)) ctx.guardOutboundUrl(u).then(dispatch, e => {
+      if (settled) return;
+      settled = true;
+      const err = new Error('地址没通过出站护栏：' + String((e && e.message) || e || ''));
+      reject(err);
+    });
+    else if (loopback(u)) dispatch();
+    else {
+      settled = true;
+      const err = new Error('只允许 https（本机回环可用 http）');
+      err.kind = 'upstream';
+      reject(err);
+    }
+  });
 }
 
 /* 收一段上游响应，超过 max 字节当场断掉（不先把整段吞进内存）。 */
@@ -81,4 +141,4 @@ function collect(res, max) {
   });
 }
 
-module.exports = { providerOf, mirrored, channelKey, channelBase, loopback, collect };
+module.exports = { providerOf, mirrored, channelKey, channelBase, loopback, collect, postJson };

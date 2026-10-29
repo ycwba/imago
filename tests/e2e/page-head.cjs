@@ -10,7 +10,7 @@
      · **标题的左缘 = 本页内容列的左缘**（内容列离内容区左缘一律 32px：
        以前是五套：32 / 24 / 20 / 居中块+22 / 32-above-0 → 切页时标题左右跳）
      · 页头横带是 flex 容器（四个槽并排），高度够一条横带
-   路由：素材库 / 生成工作台 / 收藏 / 资产库 / 用量 / 设置（导演台正在重构，暂不在这一条里） */
+   路由：素材库 / 工作台 / 收藏 / 资产库 / 用量 / 设置（导演台正在重构，暂不在这一条里） */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -23,7 +23,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
    （接回来时补一行 `{ hash: 'director.html', root: '.director-page', nm: '导演台', col: '.col-left' }`）。 */
 const PAGES = [
   { hash: 'chars.html', root: '.chars-page', nm: '素材库', col: '.mat-rail' },
-  { hash: 'studio.html', root: '.studio-page', nm: '生成工作台', col: '.col-left' },
+  { hash: 'studio.html', root: '.studio-page', nm: '工作台', col: '.col-left' },
   { hash: 'favorites.html', root: '.fav-page', nm: '我的收藏', col: '.toolbar' },
   { hash: 'assets.html', root: '.assets-page', nm: '资产库', col: '.as-tools' },
   { hash: 'usage.html', root: '.usage-page', nm: '用量与余额', col: '.desc' },

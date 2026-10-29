@@ -1,4 +1,4 @@
-/* 生成工作台（Vue 版）—— 由 studio.html 的 <style> 迁来，全部挂在 .studio-page 下。
+/* 工作台（Vue 版）—— 由 studio.html 的 <style> 迁来，全部挂在 .studio-page 下。
    外壳文档与其它已迁移页面共用，所以这里一条都不许裸写全局选择器。 */
 
 /* ---------- 页面根：铺满外壳内容区，背景与 body 原来那一份一致 ---------- */
@@ -21,16 +21,16 @@
 :where(.studio-page, .studio-page *, .studio-page *::before, .studio-page *::after) { box-sizing: border-box; }
 :where(.studio-page, .studio-page *) { margin: 0; padding: 0; }
 
-/* ---------- 右栏顶上那一行：翻页 ---------- */
+/* ---------- 右栏顶上那一排：搜索 / 多选 / 刷新 + 翻页 ---------- */
 /* 页面根**不再**改成竖排：以前页底有一行页脚（.ver），根是 flex 竖排、页脚另占一条，
    两栏就被顶矮一截。页脚撤掉后根回到普通块盒，.layout 由 wb.css 那一份 height:100% 吃满。
    ⚠ 要在这一页加页脚之类的兄弟节点，先想清楚：.wb 是固定高 + overflow:hidden 的壳。 */
-/* 翻页行是**右栏的一格**（搜索那一排下面、结果区上面）：翻页是「看这一屏」的动作，
-   放在结果区顶上，翻到第几页一眼就看得见；以前它在页底，右栏滚到底才找得到。 */
-.studio-page .wb-pager { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8);
-  margin-bottom: var(--sp-12); }
-.studio-page .wb-pager .pgrow { display: inline-flex; align-items: center; gap: var(--sp-8); }
-.studio-page .wb-pager input[type="number"] { width: 76px; }
+/* 翻页（上一页 · 第几页 · 下一页 · 跳页 · 跳转）与搜索 / 多选 / 刷新住在同一排 .pgroup 里 ——
+   都只影响这一屏列表。pgrow 只负责排位，按钮高度跟组内控件一致（直接写 .pgroup > button
+   匹配不到孙子这一层）。动态加载档整行藏起来，hidden 要压过下面的 display。 */
+.studio-page .pgroup .pgrow { display: inline-flex; align-items: center; gap: var(--sp-5); }
+.studio-page .pgroup .pgrow[hidden] { display: none; }
+.studio-page .pgroup .pgrow > .ghost { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
 
 /* ---------- 左栏顶部：类型切换（左） + 模型下拉（右） ----------
    页面标题已提到全宽顶排（公共 .phead），左栏顶部让给类型切换与型号下拉。 */

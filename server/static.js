@@ -9,7 +9,9 @@ const zlib = require('zlib');
    档位字段三种状态：Buffer 是压好了；false 是压过但不采用（压不动 / 压完更大 / 不在这一档的
    适用区间），留着它下次不再白压一遍；字段不存在是还没试过。 */
 const staticEnc = new Map();
-const STATIC_ENC_MAX = 64;            // 只留最近若干份，避免无界（静态文件本来就那十几个）
+/* 只留最近若干份，避免无界。开机预热会一次填进全站文本资源（约一百来份，压完一两 MB），
+   上限必须盖得住它 —— 否则预热压到最后几份时把最前面的首屏那几份挤掉，等于白热。 */
+const STATIC_ENC_MAX = 192;
 /* 档位是量出来的，不是拍的（本机 node 24，仓库里 120 份 .js/.css/.html 各压一遍）：
      统一 q9  ：相对 gzip 省 12.7% ｜ 累计 1.0 s ｜ 最慢单份 engine.js 33 ms
      统一 q10 ：相对 gzip 省 15.9% ｜ 累计 2.7 s ｜ 最慢单份 engine.js 326 ms
@@ -36,6 +38,78 @@ const encodingOf = repr => ENCODINGS.find(e => e.repr === repr);
 /* 只给判据看「第二次请求有没有真命中缓存」与「一共压了几次」，不参与任何回话逻辑。 */
 const ENC_STATS = { hits: 0, encodes: 0 };
 const staticCacheStats = () => ({ entries: staticEnc.size, hits: ENC_STATS.hits, encodes: ENC_STATS.encodes });
+
+/* ---------- brotli 压缩的唯一一只入口（请求路径与开机预热共用） ----------
+   同一份文件同一时刻只压一次：开机预热正在压那一份时，先到的请求挂上去等同一份结果，
+   不再自己压一遍（两次都压就是冷启动最贵的那一段被做两遍）。 */
+const pendingBr = new Map();
+const brKeyOf = (full, entry) => full + '|' + entry.mtimeMs + '|' + entry.size;
+
+function compressBrCached(full, entry, raw, cb) {
+  const key = brKeyOf(full, entry);
+  const list = pendingBr.get(key);
+  if (list) { list.push(cb); return; }
+  pendingBr.set(key, [cb]);
+  ENC_STATS.encodes++;
+  zlib.brotliCompress(raw, {
+    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: brQuality(raw.length), [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length },
+  }, (err, buf) => {
+    const ok = !err && buf && buf.length && buf.length < raw.length;
+    /* 压的这段时间里文件可能被换掉：换掉了就不往旧 entry 上写结果（下一次按新 mtime 重来）。 */
+    if (staticEnc.get(full) === entry) entry.br = ok ? buf : false;
+    const waiters = pendingBr.get(key) || [];
+    pendingBr.delete(key);
+    for (const fn of waiters) { try { fn(ok ? buf : false); } catch (e) {} }
+  });
+}
+
+/* ---------- 开机预热 ----------
+   冷启动第一屏要 40+ 份文本资源，每份现压 brotli 约 25–100ms（libuv 线程池 4 条），
+   串起来就是首屏多出来的那半秒到一秒（实测 12 份计 740ms）。开机后先把这些档算好塞进缓存，
+   浏览器第一次来时就只剩读缓存 + 发字节。只热 br —— 浏览器实际都发它；gzip 仍按需压。
+   有预算就停：预热是抢在用户前面做的，不是把 CPU 占住不放。 */
+function warmStaticFile(full, done) {
+  fs.stat(full, (err, st) => {
+    if (err || !st.isFile()) return done();
+    let entry = staticEnc.get(full);
+    if (!entry || entry.mtimeMs !== st.mtimeMs || entry.size !== st.size) {
+      entry = { mtimeMs: st.mtimeMs, size: st.size };
+      staticEnc.set(full, entry);
+      if (staticEnc.size > STATIC_ENC_MAX) {
+        const oldest = staticEnc.keys().next().value;
+        if (oldest !== full) staticEnc.delete(oldest);
+      }
+    }
+    if (Buffer.isBuffer(entry.br) || entry.br === false) return done();
+    fs.readFile(full, (err2, raw) => {
+      if (err2) return done();
+      if (raw.length < ENCODINGS[0].min || raw.length > ENCODINGS[0].max) { entry.br = false; return done(); }
+      compressBrCached(full, entry, raw, () => done());
+    });
+  });
+}
+
+/* files 是按优先级排好的绝对路径（调用方负责去重与筛选）；超预算就停手，剩下的按需压。 */
+function warmStatic(files, opts = {}) {
+  const list = Array.isArray(files) ? files : [];
+  const budgetMs = opts.budgetMs > 0 ? opts.budgetMs : 4000;
+  const conc = Math.max(1, Math.min(6, opts.concurrency || 3));
+  const started = Date.now();
+  let i = 0, active = 0;
+  return new Promise(resolve => {
+    const runQueue = () => {
+      while (active < conc && i < list.length && Date.now() - started < budgetMs) {
+        active++;
+        warmStaticFile(list[i++], () => { active--; runQueue(); });
+      }
+      if (i >= list.length || Date.now() - started >= budgetMs) {
+        if (active === 0) resolve({ warmed: i, ms: Date.now() - started });
+        return;
+      }
+    };
+    runQueue();
+  });
+}
 
 /* Accept-Encoding → 客户端能收的那几一档（按 ENCODINGS 的顺序回，最省的在前）。
    · q=0 是「明确不要这一档」，当它没有；把它当接受会让 br 永远抢在前面。
@@ -121,6 +195,14 @@ function serveStatic(req, res, full, ext, mime) {
           tryRepr(i + 1);
           return;
         }
+        if (repr === 'br') {
+          /* 走公共那一只入口：开机预热正在压这一份时挂上去等同一份结果（计入 encodes 也在那一份里）。 */
+          compressBrCached(full, entry, raw, buf => {
+            if (buf) respond(buf, 'br');
+            else tryRepr(i + 1);                              // 压不动 / 压完不更短：往下退，不重试、不报错
+          });
+          return;
+        }
         ENC_STATS.encodes++;
         e.compress(raw, (err3, buf) => {
           if (!err3 && buf && buf.length && buf.length < raw.length) { entry[repr] = buf; respond(buf, repr); return; }
@@ -132,4 +214,4 @@ function serveStatic(req, res, full, ext, mime) {
     });
   });
 }
-module.exports = { serveStatic, acceptedEncodings, encodingOf, staticCacheStats, brQuality, BR_QUALITY };
+module.exports = { serveStatic, acceptedEncodings, encodingOf, staticCacheStats, brQuality, BR_QUALITY, warmStatic };

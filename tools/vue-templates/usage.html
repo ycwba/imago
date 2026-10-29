@@ -5,11 +5,9 @@
         <div class="phead-id">
           <h1 class="phead-h1">用量与余额</h1>
         </div>
-        <p class="phead-sub">各平台的积分与 tokens。</p>
+        <p class="phead-sub">只统计已配置密钥的平台。</p>
         <div class="phead-acts"></div>
       </header>
-
-      <div class="desc">只统计已配置密钥的平台。</div>
 
       <div class="bar">
         <button class="ghost" id="reload" style="padding:var(--sp-8) var(--sp-15)" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>

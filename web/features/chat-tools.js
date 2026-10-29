@@ -220,8 +220,8 @@
               body: hit.body, truncated: !!hit.truncated, chars: hit.chars, truncatedChars: hit.truncatedChars };
           }
         }
-        /* §13.4 放开「必须用户点名」：助手可以自己判断要哪一份（清单本来就在系统提示词里）。
-           「同一轮前后依据不一致」用两道闸化解：回合内按需最多 2 份（份数封顶）+
+        /*  放开「必须用户点名」：助手可以自己判断要哪一份（清单本来就在系统提示词里）。
+「同一轮前后依据不一致」用两道闸化解：回合内按需最多 2 份（份数封顶）+
            按需总额度 ON_DEMAND_BUDGET（预算算总量，不许绕开）。 */
         const onDemand = ((turn && turn.skills) || []).filter(x => x && x.onDemand);
         if (onDemand.length >= 2) {
@@ -388,7 +388,7 @@
       doc: '素材库（角色 / 场景 / 道具）：类型、分组、预览图 / 设定图、声音、人设与描述、场景的时段。q 与素材库页搜索框同一套判据（名字 / 人设 / 描述 / 分组 / 时段 / 设定图名 / 声音）',
       async run(a) {
         const rows = charRows();
-        if (!rows.length) return '素材库还是空的。到「素材库」页新建一条（角色 / 场景 / 道具都行），它会被导演台与生成工作台一起复用。';
+        if (!rows.length) return '素材库还是空的。到「素材库」页新建一条（角色 / 场景 / 道具都行），它会被导演台与工作台一起复用。';
         const q = String(a.q || a.name || '').toLowerCase();
         /* 「算不算这一组」全站只有 `Lib.groupMatch` 一把尺子（素材库页的整组筛选、导演台的素材范围都问它）。
            以前这里按字面 `c.group === g` 比，而组名是自由文本：名单把「校园篇」与「校园篇 」合成一组
@@ -723,8 +723,8 @@
       },
     },
     go: {
-      arg: '{ "page": "chars.html" }（生成工作台可带类型：studio.html?t=video|image|audio）',
-      doc: '带你跳到左栏里的某个页面（只是跳转，不改任何数据）。「生成工作台」是图片/视频/语音合并的一页，用 ?t= 指定落在哪一栏',
+      arg: '{ "page": "chars.html" }（工作台可带类型：studio.html?t=video|image|audio）',
+      doc: '带你跳到左栏里的某个页面（只是跳转，不改任何数据）。「工作台」是图片/视频/语音合并的一页，用 ?t= 指定落在哪一栏',
       async run(a) {
         const kids = navItems();
         if (!kids.length) return '这一页没套外壳（左栏不在），跳不了。直接用浏览器地址栏打开。';
@@ -877,7 +877,7 @@
     timeline_get: {
       arg: '无参数',
       doc: '导演台此刻的完整账：成片（段数/总秒/播放头/每段 {第,id,start,end,素材,倍速,音量,转场}）、'
-        + '配音与待生成块数、字幕摘要（条数/藏掉/没字）、标记、当前焦点块、当前镜头与候选清单、可撤销/可重做。'
+        + '配音块数、字幕摘要（条数/藏掉/没字）、标记、当前焦点块、当前镜头与候选清单、可撤销/可重做。'
         + '要动时间线先读它；写动作按这里的块 id 点名，动手前先 check（桥会拿身份对账）',
       async run() { return dirRead('context', {}); },
     },
@@ -1123,7 +1123,7 @@
           + can.map(x => x.id + '（' + window.provKindZh(x.kind) + '）').join(' / ');
       }
       case 'kind-text': return '文字 AI 是助手自己对话用的，不是提交生成任务的地方';
-      case 'kind-audio': return '语音是同步合成、上游没有任务号可跟，合成与落盘那套管子在生成工作台的音频那一栏里（含音色复刻的参考音频处理），助手不另写一份。要合成请去生成工作台（go {"page":"studio.html?t=audio"}）';
+      case 'kind-audio': return '语音是同步合成、上游没有任务号可跟，合成与落盘那套管子在工作台的音频那一栏里（含音色复刻的参考音频处理），助手不另写一份。要合成请去工作台（go {"page":"studio.html?t=audio"}）';
       case 'key-not-configured': return '「' + (A.name || '') + '」还没配密钥，提交一定失败（设置页配好再来）';
       /* 停用是**本机**的开关（sk_off_<kid>，各页下拉按它过滤），不在注册表里也不在白名单里：
          助手能替你提交、却不能替你把它重新启用 —— 那就照实拦下来并说清去哪开。 */
@@ -1208,7 +1208,7 @@
       return rec ? { slot: i, idx, name: String(rec.name || ''), src: String(rec.src || '') } : null;
     }).filter(Boolean);
     const 素材行 = ins.map((en, i) => en.role + ' ← ' + inputNote(en, i));
-    const 页 = '生成工作台';
+    const 页 = '工作台';
     return {
       说明: '提交到「' + (p.name || p.id) + '」（' + p.id + '）· 型号 ' + m.id + ' · ' + 参数行.length + ' 个参数 · ' + 素材行.length + ' 个素材',
       人话: ['平台：' + (p.name || p.id) + '（' + p.id + '，' + window.provKindZh(p.kind) + '）',
@@ -1243,8 +1243,8 @@
     const 状态 = p.status ? String(p.status) : (raw && raw.id ? '已受理' : '已提交');
     const lines = ['已提交到 ' + (chk.prov.name || chk.prov.id) + ' · ' + chk.model.id,
       '任务号：' + (p.genId || (raw && raw.id) || '（接口没回任务号）'),
-      '状态：' + 状态 + '（后面由生成工作台的统一轮询接着刷）',
-      '去看：生成工作台 · ' + 页 + '（go {"page":"studio.html?t=' + t + '"}）'];
+      '状态：' + 状态 + '（后面由工作台的统一轮询接着刷）',
+      '去看：工作台 · ' + 页 + '（go {"page":"studio.html?t=' + t + '"}）'];
     if (p.error) lines.push('接口同时报了：' + cap(String(p.error), 200));
     /* 有任务号才挂等待：接口没回号（或直接判失败）就没有可跟的东西，别挂一条永远问不出结果的等待 */
     const taskId = p.genId || (raw && raw.id) || '';
@@ -1400,7 +1400,7 @@
     try { const w = frameWin(); if (w && w.__charsChanged) w.__charsChanged(); } catch (e) {}
     return { ok: true, text: (chk.是更新 ? '已更新' : '已存进素材库') + '：' + saved.name
       + '（' + (CHAR_KINDS[fields.kind] || '角色') + (saved.group ? ' · ' + saved.group : '') + '）。'
-      + '图片与音色还是空的话，到素材库那一页点「AI 出预览图」与「AI 定音色」' };
+      + '图片与音色还是空的话，到素材库那一页勾选后点「补预览图」与「AI 定声音」' };
   }
   function chkRemoveChar(a) {
     try { needDRA(); } catch (e) { return { err: e.message }; }
@@ -1416,7 +1416,7 @@
     return { 说明: '从素材库删掉「' + name + '」',
       人话: ['类型：' + (CHAR_KINDS[D.libKindOf(hit[0])] || '角色'),
         '本机存的图片与音频文件不会被删（只是从素材库里摘掉这一条）',
-        '导演台与生成工作台里正在用这一位的参考图会跟着失效',
+        '导演台与工作台里正在用这一位的参考图会跟着失效',
         '删除不可撤销 —— 真的要删才点执行'],
       危险: true };
   }
@@ -1694,7 +1694,7 @@
      桥的每次 run 都自带自己的撤销窗（一次 run = 一个撤销条目），所以中途某一条真的失败了
      （校验过了、运行时撞坏）时，助手对**已完成的每一条**补一次 undo，就能逐条退回 ——
      不留「前三条改了、第四条没改」的半截工程。
-     桥上的 op 仍然只有 select / cut / set / undo 四个（AGENTS §9.3）。 */
+     桥上的 op 仍然只有 select / cut / set / undo 四个。 */
   const APPLY_OPS = ['select', 'cut', 'set'];
   const APPLY_MAX = 20;
   function applyOps(a) {
@@ -1783,7 +1783,7 @@
     if (q.id != null && q.id !== '') return subCheckWith({}, q);
     if (!['entries', 'regenerate'].some(k => q[k] !== undefined)) {
       return { err: '要改字幕的什么没说：单条给 id + text/start/end/position（top·middle·bottom）/highlight/remove；'
-        + '整轨给 entries（成片秒条目）/ regenerate:true（按配音与待生成补齐还没挂字幕的块）其中一样' };
+        + '整轨给 entries（成片秒条目）/ regenerate:true（按配音补齐还没挂字幕的块）其中一样' };
     }
     return subCheckWith({}, q);
   }
@@ -1935,14 +1935,13 @@
       check: a => directorCheck('cut', a), run: a => directorRun('cut', a),
     },
     set_clip: {
-      arg: '{ "kind": "clip|voice|pending", "id": "块 id", "speed": 2, "volume": 0.8, "muted": false, "lane": 0, "start": 3.2, "end": 8, "srcStart": 0, "srcEnd": 4.8, "slip": 1.5, "roll": -1, "slide": 2, "moveTo": 10, "transition": { "id": "crossfade", "duration": 0.5 } }',
+      arg: '{ "kind": "clip|voice", "id": "块 id", "speed": 2, "volume": 0.8, "muted": false, "lane": 0, "start": 3.2, "end": 8, "srcStart": 0, "srcEnd": 4.8, "slip": 1.5, "roll": -1, "slide": 2, "moveTo": 10, "transition": { "id": "crossfade", "duration": 0.5 } }',
       title: '改某一块的属性（导演台）',
-      doc: '改成片上某一块的属性。kind：clip=画面段、voice=配音块、pending=待生成块；块按 id 点名（先 timeline_get 拿 id）。'
+      doc: '改成片上某一块的属性。kind：clip=画面段、voice=配音块；块按 id 点名（先 timeline_get 拿 id）。'
         + '画面段可改：speed（0.25–4，1=原速）、volume（0–4，1=原声）、muted、lane（第几行）、start/end（成片秒，start 只能往后裁）、'
         + 'srcStart/srcEnd（素材源秒的窗口）、slip（源窗口平移）、roll（与下一段的切点平移）、slide（整体滑动，要左右邻居）、'
         + 'moveTo（挪到成片第几秒）、transition（与下一段之间的转场，给 {id,duration} 或 null 摘掉）。'
-        + '配音块可改：speed / volume / fadeIn / fadeOut（秒）/ lane / start / end / srcStart / srcEnd；'
-        + '待生成块可改：lane / start / end（只能往里裁）。'
+        + '配音块可改：speed / volume / fadeIn / fadeOut（秒）/ lane / start / end / srcStart / srcEnd。'
         + '几何改动（start / end / srcStart·srcEnd / slip / roll / slide / moveTo）一次只做一处、不与别的字段混给。',
       check: a => directorCheck('set', a), run: a => directorRun('set', a),
     },
@@ -1973,7 +1972,7 @@
       arg: '{ "id": "可选：单条字幕 id", "text": "可选", "start": 0.5, "end": 2.4, "position": "top|middle|bottom", "highlight": true, "remove": false, "entries": [ { "text": "…", "start": 0, "end": 2.4, "position": "可选" } ], "regenerate": true }',
       title: '改字幕（导演台）',
       doc: '改字幕：单条给 id + 要改的字段（text / start / end / position / highlight / remove，时间都是**成片秒**，多字段一起给算一次编辑）；'
-        + '整轨给 entries（[{text,start,end,position?}]，成片秒，整份替换）或 regenerate:true（按配音与待生成补齐**还没挂字幕**的块，'
+        + '整轨给 entries（[{text,start,end,position?}]，成片秒，整份替换）或 regenerate:true（按配音补齐**还没挂字幕**的块，'
         + '已挂的不动）。贴 SRT 用 subtitle_import_srt，按字数重切用 subtitle_resegment。改完要重新导出才是新的那一份。',
       check: subtitleUpdateCheck, run: a => subRunWith({}, a),
     },
@@ -2117,7 +2116,7 @@
       way: { type: 'string', enum: ['split', 'left', 'right', 'remove', 'duplicate', 'merge'] },
       id: { type: 'string' }, at: { type: 'number', min: 0 }, index: { type: 'integer', min: 1 } } },
     set_clip: { type: 'object', properties: {
-      kind: { type: 'string', enum: ['clip', 'voice', 'pending', 'subtitle'] }, id: { type: 'string' },
+      kind: { type: 'string', enum: ['clip', 'voice', 'subtitle'] }, id: { type: 'string' },
       speed: { type: 'number', min: 0.25, max: 4 }, volume: { type: 'number', min: 0, max: 4 },
       muted: { type: 'boolean' }, lane: { type: 'integer', min: 0 },
       start: { type: 'number', min: 0 }, end: { type: 'number', min: 0 },

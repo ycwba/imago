@@ -39,7 +39,7 @@ const plan = tools.boardPlanOf([
   { action: 'update', scene: 1, shot: 1, prompt: '新提示词', duration: 8 },
   { action: 'insert', scene: 1, after: 1, prompt: '插入的一镜', duration: 4 },
   { action: 'delete', scene: 1, shot: 2 },
-], snap, { style: '' });
+], snap);
 assert.equal(plan.items.length, 3);
 assert.equal(plan.skipped, 0);
 

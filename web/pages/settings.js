@@ -15,21 +15,18 @@ import { render } from '../render/settings.js';
 
 const SAVE_DEBOUNCE_MS = 400;
 
-import { ensureCss } from '../core/page-css.js';
-
-/* 外壳只引了 tokens / ui / sidebar / spa-director，不引任何页面样式；
-   这一页的样式自己挂一次 —— 无构建步骤，也不要求别人记得在 shell.html 里补一行。
-   与 spa-chars / spa-studio / spa-assets 同一套：已经由别处引过时不再插第二张。 */
-ensureCss('web/styles/spa-settings.css', 'spa-settings');
-
 /* ---------- 六档能力（一张账号卡里「这一家会做什么」的那一排） ----------
    前四档是「一类平台」（图片 / 视频 / 语音合成 / 文字对话），名字、顺序与取值都现读
-   ui.js 的 provKinds() / provKindZh()（AGENTS §5.2 那份唯一清单）—— 这里不抄第二份名单。
+   ui.js 的 provKinds() / provKindZh()（那份唯一清单）—— 这里不抄第二份名单。
    后两档（语音识别 / 联网搜索）与四类平台**同一层级**，但不是「一类平台」：它们是另外两种接法，
    住在「有文字对话档」的那几家卡里（谁能当在线识别 / 搜索的渠道，就是那几家文字账号 ——
    与 serviceProvOpts() 的判据同一份）。 */
 const EXTRA_CAPS = [['asr', '语音识别'], ['search', '联网搜索']];
-/* 卡顶那一格里的一个字：图 / 视 / 音 / 字 / 识 / 搜（图例那一行就是用来教这一次的）。 */
+/* 「本机 / 浏览器内识别」这一家的账号 id：它不是注册表里的云供应商，是设置页合成的
+   一张常驻账号卡（永远可用、不用密钥）。本机运行包与浏览器内模型都归它，
+   云供应商卡里只留在线识别。 */
+const LOCAL_ASR_KID = '__local_asr__';
+/* 卡顶那一格里的一个字：图 / 视 / 音 / 字 / 识 / 搜。 */
 const CAP_GLYPH = { image: '图', video: '视', audio: '音', text: '字', asr: '识', search: '搜' };
 const capZh = id => (EXTRA_CAPS.find(kv => kv[0] === id) || [])[1]
   || (window.provKindZh ? window.provKindZh(id) : String(id || ''));
@@ -88,15 +85,18 @@ const SettingsView = {
   setup() {
     /* ---------- 容器（全部走 ref；组件里不出现 document.getElementById） ---------- */
     const rootEl = ref(null);
+    /* 账号卡片流每次重画 +1：那几个「自动挑哪一家」的读数（识别 / 搜索）靠它重算 ——
+       lastAcctAll 是普通数组，Vue 不会替它做依赖追踪。 */
+    const provEpoch = ref(0);
     const setRailEl = ref(null);   /* 左：目录轨的清单（JS 现画） */
     const setDocEl = ref(null);    /* 右：那条文档 —— 这一页的滚动容器 */
     const setQEl = ref(null);
-    const capLegendEl = ref(null);
     const acctToolsEl = ref(null);
     const provListEl = ref(null);
     const provErrEl = ref(null);
     const acctParkEl = ref(null);
     const asrFormEl = ref(null);
+    const asrLocalFormEl = ref(null);
     const searchFormEl = ref(null);
     const cusCardEl = ref(null);
     const cusNameEl = ref(null);
@@ -168,6 +168,7 @@ const SettingsView = {
     const keyCleared = new Set();       // 点了「清除」、还没落盘的 keyId
     const acctOffSet = new Map();       // keyId → 点了「暂时不用 / 取消」、还没落盘
     const provRows = new Map();         // keyId → 归并后的那一条（验证要用它认出这一家）
+    let lastAcctAll = [];               // 最近一次归并出来的全部账号（自动挑渠道时读它）
     let acctSumPainter = null;
 
     const keyFor = id => window.LS.get('sk_key_' + id) || '';
@@ -195,36 +196,95 @@ const SettingsView = {
       const p = (REG.providers || []).find(x => x.id === id);
       return p ? String(p.keyId || p.id) : '';
     };
+    /* 「自动」时是哪一家顶着：按注册表顺序挑第一家**声明了这一档、并且已经接上**的账号。
+       设置页只读它来画主位，不改服务端那份设置（真正挑哪一家在 /asr、/search 里同一口径）。 */
+    function autoServiceKid(cap) {
+      const list = (REG.providers || []).filter(p => p.kind === 'text'
+        && (p.extraCaps || []).indexOf(cap) >= 0 && (cap === 'asr' ? p.asr : p.search));
+      const seen = new Set();
+      const hit = [];
+      for (const p of list) {
+        const kid = String(p.keyId || p.id);
+        if (seen.has(kid)) continue;
+        seen.add(kid);
+        const m = lastAcctAll.find(x => x.keyId === kid);
+        if (m && provUsable(m)) hit.push({ p, kid });
+      }
+      /* 搜索的「自动」优先选**接口型**那几家（DeepSeek / 智谱 / Kimi）：
+         chat 那一族（OpenRouter）还要一个对话型号，自动选中它等于还要用户再填一格。 */
+      if (cap === 'search') {
+        const api = hit.find(x => x.p.search && x.p.search.style === 'api');
+        if (api) return api.kid;
+      }
+      return hit.length ? hit[0].kid : '';
+    }
+    /* 识别这一档**实际**走哪条路：auto 先看浏览器内模型在不在、再看本机运行包，
+       都不可用才落到在线（与 web/domain/asr.js 的 pickRoute 同一顺序）。 */
+    function asrEffectiveRoute() {
+      const r = asr.route;
+      if (r !== 'auto') return r;
+      if (asrBrowser.value && asrBrowser.value.complete) return 'browser';
+      if (asrLocal.value && asrLocal.value.available) return 'local';
+      return 'service';
+    }
     function priKidOf(cap) {
       if (cap === 'text') return kidOfProv(curTextId());
       if (cap === 'asr') {
-        /* 只有真的会走到在线那一路才算「有哪家顶着」：route = 只走浏览器内 / 只走本机时
-           providerId 是备着用的，说它是主位就是假话。 */
-        const route = asr.route;
-        if (route !== 'service' && !(route === 'auto' && asr.service.providerId)) return '';
-        return kidOfProv(asr.service.providerId);
+        /* 走浏览器内 / 本机时，顶着这一档的是那家合成的「本机识别」账号；
+           只有真的会走到在线那一路，才算某一家云供应商顶着。 */
+        const route = asrEffectiveRoute();
+        if (route === 'browser' || route === 'local') return LOCAL_ASR_KID;
+        const pid = asr.service.providerId;
+        return kidOfProv(pid) || autoServiceKid('asr');
       }
       if (cap === 'search') {
-        if (!search.enabled || search.provider !== 'deepseek' || search.credentialSource !== 'channel') return '';
-        return kidOfProv(search.channelId);
+        if (!search.enabled) return '';
+        const pid = String(search.provider || '');
+        if (pid === 'tavily') return '';            // Tavily 不是供应商账号，没有主位
+        if (!pid || pid === 'auto') return autoServiceKid('search');
+        return kidOfProv(pid);
       }
       return '';
     }
 
+    /* 这一档的设置摆在**哪张账号卡**里：一定是「这一家声明了这一档」那一张；
+       一家都没声明就不摆（留空 = 不画表单，也不往没这项能力的卡里硬塞）。
+       与「谁顶着」是两件事：识别看 providerId / 搜索看 provider，没选时用自动那一家。 */
+    function hostKidOf(cap) {
+      if (cap === 'text') return kidOfProv(curTextId());
+      if (cap !== 'asr' && cap !== 'search') return '';
+      /* 在线识别只找云供应商；本机识别有一张自己的常驻卡，不参与这里的选择。 */
+      const list = listedAccounts(lastAcctAll).filter(m => m.caps.indexOf(cap) >= 0 && !m.local);
+      if (!list.length) return '';
+      let want = '';
+      if (cap === 'asr') {
+        want = kidOfProv(asr.service.providerId);
+        if (!want) want = autoServiceKid('asr');
+      } else {
+        const pid = String(search.provider || '');
+        if (pid && pid !== 'auto' && pid !== 'tavily') want = kidOfProv(pid);
+        else if (!pid || pid === 'auto') want = autoServiceKid('search');
+      }
+      if (want && list.some(m => m.keyId === want)) return want;
+      const usable = list.find(m => provUsable(m));
+      return (usable || list[0]).keyId;
+    }
+
     /* ---------- 手动加一档能力（这一家其实还做某一档，只是注册表没写） ----------
-       注册表里「这家会哪几档」是**声明出来的**（provider 的 kind；语音识别 / 联网搜索两档跟着
-       文字档一起来，见 provGroups 里那段说明）—— 平台后来支持了新的一档、或者这一家其实是中转站
+       注册表里「这家会哪几档」是**声明出来的**（provider 的 kind，以及 extraCaps + asr/search
+       端点声明；见 provGroups 里那段说明）—— 平台后来支持了新的一档、或者这一家其实是中转站
        而上游还有别的档时，界面上原来没有地方表达，只能改 proxy.js 的 REGISTRY 再重启代理。
        这里补一份**本机声明**：
          sk_caps_<keyId> = ["video","asr"]（与「自己填的型号」「暂时不用」同属「这一家的事」）
        它只声明「这一档在界面里存在」，型号也由你自己填（sk_model_prefs 那份清单本来就按账号存）。
        ⚠ **真能生成**还要注册表那边有一条端点声明 —— 生成三档（图片 / 视频 / 语音合成）手动加进来时，
        那一行必须把这句话写在脸上（见 capRowHTML 的 manual-note），不能让人以为加完就能出图。
-       语音识别 / 联网搜索两档不一样：它们走的是这名账号自己的 base + 密钥 + 一个 OpenAI 兼容端点，
-       手动声明之后确实能用（渠道就是这一家）。
+       语音识别也一样：手动声明之后走的是这名账号自己的 base + 密钥 + OpenAI 兼容的
+       /audio/transcriptions（这一族的形状是通用的）。**搜索不加**：每家搜索接口的端点与返回字段
+       都不一样，没有一条能通用的形状 —— 手动加进来只会得到一次对不上的失败。
        **不提供手动加「文字对话」**：那一档必须是注册表里 `kind: 'text'` 的那一条（TextAI 按 kind 筛，
        不是按 keyId 认），加在别家身上点了也不会生效 —— 要另接一家文字供应商走「添加供应商」里的自定义。 */
-    const MANUAL_OK = ['image', 'video', 'audio', 'asr', 'search'];
+    const MANUAL_OK = ['image', 'video', 'audio', 'asr'];
     const manualCapsOf = kid => {
       try {
         const arr = JSON.parse(window.LS.get('sk_caps_' + kid) || '[]');
@@ -266,21 +326,15 @@ const SettingsView = {
         const kinds = window.provKinds().filter(k => m.byKind.has(k));
         const extra = [...m.byKind.keys()].filter(k => kinds.indexOf(k) < 0);
         const plat = kinds.concat(extra);
-        /* 语音识别 / 联网搜索不是「有文字档就等于会」：前者要一堆 OpenAI 兼容的
-           /audio/transcriptions，后者要一个真能给出网址的对话模型 —— 两样都由 provider
-           自己声明 `extraCaps`。没声明的家不画这两档（画上去再点，用户只会得到一次对不上的失败）。 */
-        /* 语音识别 / 联网搜索与图片、视频**同一套显示规则**：这家有这一档就画这一行。
-           「有没有」的判据是**这家能当文字 AI**（两档走的都是它的 base + 密钥 + 一个
-           OpenAI 兼容端点 / 一个能联网的对话模型）—— 以前还要注册表再声明一道 `extraCaps`，
-           于是同一件「有文字档」的事实被拆成三种表现：有文字档的家只画「字」，
-           声明过的那几处才有「识 / 搜」，用户在一张卡上根本看不出这家人到底能干什么。
-           `extraCaps` 现在只当**旁注**：声明过的说明上游确实提供那个端点，没声明的在行里说一句。 */
+        /* 语音识别 / 联网搜索不是「有文字档就等于会」：前者要一个真的收音频的转写端点，
+           后者要一套真的返回网址的搜索接口。两样都由 provider 自己声明 `extraCaps` +
+           一份端点声明（`asr` / `search`）；没声明的家**不画**这两档 ——
+           画上去再点，用户只会得到一次对不上的失败，还会以为是自己密钥填错了。 */
         const hasText = m.byKind.has('text');
         const extras = new Set();
         [...m.byKind.values()].forEach(p => (p.extraCaps || []).forEach(c => extras.add(c)));
-        const chatCaps = hasText ? EXTRA_CAPS.map(kv => kv[0]) : [];
+        const chatCaps = hasText ? EXTRA_CAPS.map(kv => kv[0]).filter(c => extras.has(c)) : [];
         const declared = plat.concat(chatCaps);
-        m.declaredExtra = extras;
         /* 本机手动声明的那几档排在有声明的那几档后面（它们不在注册表里，是这家「其实还做」的） */
         const manual = manualCapsOf(m.keyId)
           .filter(c => allCaps().indexOf(c) >= 0 && declared.indexOf(c) < 0);
@@ -289,16 +343,28 @@ const SettingsView = {
         m.kindLabel = m.caps.map(capZh).join('+');
         m.prov = capProv(m, m.caps[0]) || m.prov;
       });
+      /* 本机 / 浏览器内识别：设置页合成的**常驻账号**（不是注册表里的云供应商）。
+         它永远有一档语音识别、永远可用、不需要密钥；本机运行包与浏览器内模型都归它 ——
+         云供应商卡里只留在线识别，两者不再混在一张卡上。 */
+      all.push({
+        keyId: LOCAL_ASR_KID, names: ['本机 / 浏览器内识别'], name: '本机 / 浏览器内识别',
+        byKind: new Map(), caps: ['asr'], kindLabel: '语音识别', local: true,
+        credits: null, site: '', base: '', custom: false, shapeName: '', manualCaps: new Set(),
+        prov: { id: LOCAL_ASR_KID, keyId: LOCAL_ASR_KID, kind: 'text', name: '本机 / 浏览器内识别',
+          base: '', endpoints: {}, extraCaps: ['asr'], local: true },
+      });
       return all;
     }
     /* 这一档在这家对应的 provider 声明（型号清单 / 端点都按它算）。
        语音识别 / 联网搜索两档没有自己的 kind：它们是**文字那家**的两种用途，
-       所以取这一家的文字那一条（以前按 `extraCaps` 声明找，于是「能当文字 AI」还不够，
-       还得注册表再点一次头；现在与图片/视频一样：有这一档就画）。
+       所以取这一家的文字那一条（这一档本身由 extraCaps + asr/search 声明确认过）。
        手动声明的那一档（m.manualCaps）在注册表里没有对应条目 —— 借这一家自己的身份
        （id / keyId / relay / base / keyEnv）合成一条**只用于界面**的声明：endpoints 空着，
-       于是型号面板不会画「取一次」（真的没有那个接口），只剩「自己填」。 */
+       于是型号面板不会画「取一次」（真的没有那个接口），只剩「自己填」。
+       手动声明只留语音识别（走这家自己的 OpenAI 兼容 /audio/transcriptions）；
+       搜索没有可通用的接口形状，不提供手加 —— 加进来也只会得到一次对不上的失败。 */
     function capProv(m, cap) {
+      if (m.local) return m.prov;
       if (cap === 'asr' || cap === 'search') {
         const hit = m.byKind.get('text');
         if (hit) return hit;
@@ -323,20 +389,22 @@ const SettingsView = {
         || m.byKind.get('text') || list[0] || m.prov;
     }
     function keyState(m) {
+      if (m.local) return '无需密钥';
       if (draftKey(m.keyId)) return '已填密钥';
       if ((envInfo[m.keyId] || {}).hasEnv) return '用服务端密钥';
       return '还没填密钥';
     }
     function provUsable(m) {
+      if (m.local) return true;
       return (window.Api && Api.provUsable) ? Api.provUsable({ keyId: m.keyId, id: m.prov.id, custom: m.custom }, envInfo)
         : (!!m.custom || keyState(m) !== '还没填密钥');
     }
     /* 这一家被「暂时不用」停掉了没有：sk_off_ 按 keyId 存，所以一停就是这一家**所有**档一起停。
        acctOffSet 是「点了但还没落盘」那一档 —— 状态行那一句自动存本机是防抖之后才写的，
        不先读它，重画的一刻会按盘上的旧值把卡片弹回原样（点一下没反应）。 */
-    const acctOff = m => acctOffSet.has(m.keyId)
+    const acctOff = m => m.local ? false : (acctOffSet.has(m.keyId)
       ? acctOffSet.get(m.keyId)
-      : (window.Api ? Api.isOff(m.prov) : false);
+      : (window.Api ? Api.isOff(m.prov) : false));
     /* 一张卡里某一档此刻的状态牌：
        · 多选档（图片 / 视频 / 语音合成）没有「主位」，只有 在用 / 停用；
        · 单选档（文字对话 / 语音识别 / 联网搜索）多两态 —— 顶着的那家 = 主位，
@@ -445,51 +513,36 @@ const SettingsView = {
         return;
       }
       if (cap === 'asr') {
+        if (m.local) {
+          /* 本机识别这一家 = 浏览器内 / 本机两条路：模型已就绪优先浏览器内，
+             本机运行包可用就用本机，都没有就选浏览器内（首次识别会去下模型）。 */
+          asr.route = (asrBrowser.value && asrBrowser.value.complete) ? 'browser'
+            : (asrLocal.value && asrLocal.value.available) ? 'local' : 'browser';
+          markChanged();
+          renderProv();
+          Toast.receipt('语音识别改走「本机 / 浏览器内」', 'ok');
+          return;
+        }
         asr.service.providerId = (p && p.id) || '';
-        const was = asr.route;
-        /* 「只走浏览器内 / 只走本机」这两条锁死的路根本不经过任何一家 —— 不把它们放开，
-           点了这一格只是把渠道换个名字，界面照旧亮不起来（那就是假话）。 */
-        if (was === 'browser' || was === 'local') asr.route = 'auto';
+        /* 换了一家就把型号清回「用这一家的默认值」：上一家的型号（比如 whisper-1）
+           被原样发给一家根本没有这个型号的上游，只会得到一次 400。 */
+        asr.service.model = '';
+        /* 点的是云供应商 = 这次要在线识别；不改成 service 的话，自动模式会先被
+           浏览器内 / 本机截走，点了看起来没反应。 */
+        asr.route = 'service';
         markChanged();
         renderProv();
-        Toast.receipt('在线识别的渠道改成「' + m.name + '」'
-          + (was === 'browser' || was === 'local' ? '；「走哪条路」原本锁在「' + (window.Asr ? Asr.routeLabel(was) : was) + '」，已改成「自动」——否则这一档不会走到在线那一路' : ''), 'ok');
+        Toast.receipt('在线识别的渠道改成「' + m.name + '」', 'ok');
         return;
       }
-      search.channelId = (p && p.id) || '';
-      const wasP = search.provider;
+      /* 搜索服务 = 这家自己的搜索接口（不是把渠道换个名字）；密钥默认用这家账号那把。 */
+      search.provider = (p && p.id) || 'auto';
       if (!search.enabled) search.enabled = true;
-      /* Tavily 没有「渠道」这一说（它认自己那一把搜索密钥）：要让这一家顶搜索档，
-         搜索服务必须一起切到 DeepSeek —— 不一起切，点了这格还是走 Tavily。 */
-      if (wasP !== 'deepseek') search.provider = 'deepseek';
       if (search.credentialSource !== 'channel') search.credentialSource = 'channel';
       markChanged();
       renderProv();
+      syncServiceProvs();
       Toast.receipt('联网搜索改走「' + m.name + '」', 'ok');
-    }
-
-    /* 这一档的**设置住在哪张卡**（与「谁顶着」是两件事）：
-       · 文字对话 —— 就是作用文字 AI 那家（与真品一致）；
-       · 语音识别 / 联网搜索 —— 看渠道（asr.service.providerId / search.channelId）；
-         渠道没选时落到**第一个能用的文字账号**，这样设置永远有地方摆，不需要「通栏兜底」。
-       注意它**不看** search.enabled 与 asr.route：那两项是「用不用」，不是「设置摆哪儿」——
-       以前拿「顶着」判，于是一关掉联网搜索，它的表单就整块消失了。 */
-    function hostKidOf(cap) {
-      if (cap === 'text') return kidOfProv(curTextId());
-      if (cap === 'asr' || cap === 'search') {
-        const want = kidOfProv(cap === 'asr' ? asr.service.providerId : search.channelId);
-        const list = listedAccounts(lastAcctAll);
-        /* 渠道指向的那一家**没接进来 / 已被筛掉**时也回落到第一个文字账号 ——
-           否则那两张表单又没地方摆，只能退回「通栏兜底」那一块（正是要去掉的东西）。 */
-        if (want && list.some(m => m.keyId === want)) return want;
-        return firstTextKid();
-      }
-      return '';
-    }
-    function firstTextKid() {
-      const list = listedAccounts(lastAcctAll);
-      const hit = list.find(m => m.caps.indexOf('text') >= 0 && provUsable(m)) || list.find(m => m.caps.indexOf('text') >= 0);
-      return hit ? hit.keyId : '';
     }
     /* 一档一行：能力名 · 状态牌 ·（只有文字档带着那一个型号下拉 = 全站润色在用的 sk_model_<keyId>，
        不是「每档一个默认型号」那种新东西）·「型号 n/m」就地展开这一档的清单。
@@ -501,8 +554,15 @@ const SettingsView = {
       const st = capState(m, cap);
       const open = panelOpen.has(slotKey(m.keyId, cap));
       const chan = cap === 'asr' || cap === 'search';
-      const model = cap === 'asr' ? asr.service.model : cap === 'search' ? search.model : '';
-      const isManual = !!(p.manual);
+      /* 识别这一档读「实际会发的型号」：设置里没填就按这家声明的默认型号；
+         本机识别那一张读的是当前路线；搜索只有 chat 那一族要型号（OpenRouter）。 */
+      const asrRoute = asrEffectiveRoute();
+      const model = m.local
+        ? (asrRoute === 'browser' ? '浏览器内 Whisper' : asrRoute === 'local' ? '本机 whisper.cpp' : '在线服务')
+        : cap === 'asr' ? (asr.service.model || (p.asr && p.asr.model) || 'whisper-1')
+          : cap === 'search' ? ((p.search && p.search.style === 'chat') ? (search.model || '未填型号') : '接口默认')
+            : '';
+      const isManual = !!(p.manual || (m.manualCaps && m.manualCaps.has(cap)));
       return '<div class="crow' + (st === 'off' ? ' dim' : '') + '" data-crow="' + es + '">'
         + '<span class="cn"><span class="cg">' + capGlyph(cap) + '</span>' + window.esc(capZh(cap))
           + (isManual ? '<i class="manual" title="手动加的">手动</i>' : '')
@@ -510,10 +570,8 @@ const SettingsView = {
         + '<button class="st st-btn ' + st + '" type="button" data-cap-toggle="' + es + '"'
           + ' title="' + window.esc(plateTitle(m, cap, st)) + '">' + CAP_STATE_ZH[st] + '</button>'
         + (chan
-          ? '<span class="hint sm">'
-            + '型号 <code>' + window.esc(model || '—') + '</code></span>'
-            + (m.declaredExtra && m.declaredExtra.has(cap) ? ''
-              : '<span class="hint sm" title="注册表未声明">未声明</span>')
+          ? '<span class="hint sm" title="' + window.esc(cap === 'asr' ? '这一档实际发出去的型号' : '搜索接口由这家自己的端点执行') + '">'
+            + (cap === 'asr' ? '型号 ' : '') + '<code>' + window.esc(model || '默认') + '</code></span>'
           : '<button class="ghost xs' + (open ? ' active' : '') + '" type="button" data-panel="' + es + '"'
             + ' title="' + (open ? '收起型号清单' : '展开型号清单') + '">'
             + (open ? '收起型号 ' : '型号 ') + '<b data-mcount="' + es + '"></b></button>')
@@ -537,9 +595,9 @@ const SettingsView = {
           ? '<div class="manual-note">走这家自己的地址与密钥。</div>'
           : '');
     }
-    /* 这一档的全局项：识图（文字档）+ 语音识别 / 联网搜索的表单。
-       画在**这一档所在**那张卡里（hostKidOf：文字 = 作用文字 AI；识别 / 搜索 = 渠道那家，
-       没选渠道就落到第一个能当文字 AI 的账号）—— 表单本体是 Vue 节点，画完网格由 placeForms 搬进来。 */
+    /* 账号卡里那一项的设置：文字档的识图、以及**这一家声明了的**语音识别 / 联网搜索。
+       两档与图片 / 视频同一套规则：能力在哪家，设置就在那家卡里那一行下面；
+       没有声明这一档的家不画、也不往它的卡里搬表单。 */
     function priFormHTML(m, cap) {
       if (cap === 'text') {
         const kid = window.esc(m.keyId);
@@ -555,7 +613,11 @@ const SettingsView = {
           + '<div class="pb-tip" data-vtip="' + kid + '"></div>'
           + '</div>';
       }
-      return '<div class="formslot" data-formslot="' + cap + '"></div>';
+      if (cap === 'asr') {
+        return '<div class="formslot" data-formslot="' + (m.local ? 'asrLocal' : 'asr') + '"></div>';
+      }
+      if (cap === 'search') return '<div class="formslot" data-formslot="search"></div>';
+      return '';
     }
     function modelPanelHTML(m, cap) {
       const slot = slotKey(m.keyId, cap);
@@ -634,9 +696,26 @@ const SettingsView = {
     }
     function keyBadge(m) {
       const s = keyState(m);
-      return { cls: s === '已填密钥' ? 'ok' : s === '用服务端密钥' ? 'on' : 'alt', zh: s };
+      return { cls: s === '已填密钥' ? 'ok' : (s === '用服务端密钥' || s === '无需密钥') ? 'on' : 'alt', zh: s };
+    }
+    /* 「本机 / 浏览器内识别」那一张常驻卡：没有密钥、余额、停用这些字段，
+       只有一档语音识别与它的路线 / 本机运行包 / 浏览器内模型。 */
+    function localAccountCardHTML(m) {
+      const kid = window.esc(m.keyId);
+      return '<div class="acct fcard local-asr" data-acct="' + kid + '">'
+        + '<div class="fcard-h"><span class="fcard-ic">本</span>'
+          + '<div class="fcard-tt"><div class="fcard-t"><span>本机 / 浏览器内识别</span></div>'
+            + '<div class="fcard-d">不经过任何云供应商</div></div>'
+          + '<span class="fcard-badge"><span class="st on">无需密钥</span></span></div>'
+        + capStripHTML(m)
+        + '<div class="acct-mid">'
+          + m.caps.map(cap => capRowHTML(m, cap) + priFormHTML(m, cap)).join('')
+        + '</div>'
+        + '<div class="fcard-acts"><span class="hint sm">路线在下面选；本机运行包放 tools/whisper/</span></div>'
+        + '</div>';
     }
     function accountCardHTML(m) {
+      if (m.local) return localAccountCardHTML(m);
       const kid = window.esc(m.keyId);
       const off = acctOff(m);
       const kb = keyBadge(m);
@@ -649,7 +728,7 @@ const SettingsView = {
         : '';
       const mid = (open ? keyRowHTML(m) : '')
         + m.caps.map(cap => capRowHTML(m, cap)
-          + (hostKidOf(cap) === m.keyId ? priFormHTML(m, cap) : '')
+          + (((cap === 'asr' && m.local) || hostKidOf(cap) === m.keyId) ? priFormHTML(m, cap) : '')
           + (panelOpen.has(slotKey(m.keyId, cap)) ? modelPanelHTML(m, cap) : '')).join('')
         + capAddHTML(m);
       return '<div class="acct fcard' + (off ? ' acct-off' : '') + (m.custom ? ' cus' : '')
@@ -715,23 +794,13 @@ const SettingsView = {
           ? '<div class="acct-mid"><div class="formslot" data-formslot="cus"></div></div>'
           : '<div class="acct-mid">'
             + (rest.length ? rest.map(presetRowHTML).join('')
-              : '<div class="mlist-empty">注册表里的都请进来了 —— 还可以添加自己的中转站。</div>')
+              : '<div class="mlist-empty">注册表里的都请进来了。</div>')
             + '<button class="ghost wide" type="button" data-cus-open="1">＋ 自定义（中转站 / 网关 / 企业部署）</button>'
             + '</div>')
         + '</div>';
     }
 
-    /* ---------- 图例 / 芯片 / 摘要条 ---------- */
-    function paintLegend() {
-      const el = capLegendEl.value;
-      if (!el) return;
-      el.innerHTML = '<span class="cl-t">卡顶那一排能力格只画这一家<b>会的</b>那几档</span>'
-        + allCaps().map(c => '<span class="cl-item"><i class="cl-g">' + capGlyph(c) + '</i><b>'
-          + window.esc(capZh(c)) + '</b></span>').join('')
-        + '<span class="cl-hint">实心 = 主位 · 淡底 = 在用 · 白底 = 备用 · 压暗 = 停用 / 还没接上；'
-        + '单选档同时只有一家顶着。</span>';
-    }
-    let lastAcctAll = [];
+    /* ---------- 芯片 / 摘要条 ---------- */
     let lastAcctShown = [];
     function paintSumLine() {
       const el = q('[data-fsum]');
@@ -743,11 +812,15 @@ const SettingsView = {
         return;
       }
       const cap = acctFilter.value;
-      const noKey = all.filter(m => !provUsable(m)).length;
+      /* 本机识别那一张是合成的常驻账号：算账号数，但不参与「密钥配了几家」。 */
+      const cloud = all.filter(m => !m.local);
+      const noKey = cloud.filter(m => !provUsable(m)).length;
+      const localN = all.length - cloud.length;
       if (cap === 'all') {
         el.className = 'fsum';
         el.innerHTML = '<b>' + all.length + ' 家账号</b><span class="hint sm">密钥已经配上 '
-          + (all.length - noKey) + ' 家' + (noKey ? ' · 还差密钥 ' + noKey + ' 家（在末尾那张「添加供应商」里）' : '')
+          + (cloud.length - noKey) + ' 家' + (noKey ? ' · 还差密钥 ' + noKey + ' 家' : '')
+          + (localN ? ' · 本机 ' + localN + ' 家（无需密钥）' : '')
           + '</span>';
         return;
       }
@@ -845,9 +918,9 @@ const SettingsView = {
     function renderProv() {
       if (!provListEl.value) return;
       lastAcctAll = provGroups();
+      provEpoch.value++;
       provRows.clear();
       lastAcctAll.forEach(m => provRows.set(m.keyId, m));
-      paintLegend();
       lastAcctShown = filteredAccounts();
       paintTools();
       paintRegErr();
@@ -872,6 +945,8 @@ const SettingsView = {
       placeForms();
       wireAcct();
       if (window.Dropdowns && provListEl.value) Dropdowns.build(provListEl.value);
+      /* 手加 / 撤掉一档语音识别之后，「在线服务商」那份候选要跟着变。 */
+      syncServiceProvs();
     }
 
     /* ---------- 卡片流里的动作：一次绑定、整片重画后不用补绑 ----------
@@ -902,14 +977,12 @@ const SettingsView = {
       else if (u > 0) mid.scrollTop -= u + 8;
     }
 
-    /* ---------- 两块表单往哪摆（语音识别 / 联网搜索 / 自定义供应商） ----------
-       它们是 Vue 绑定的节点，网格每次整片重画会把它们冲掉 —— 所以本体一直住在 .acct-park
-       （hidden：不画，但节点一直在原地活着），画完网格由这里搬进**这一档所在的那张卡**里那一行下面。
-       「所在」= hostKidOf：识别看 asr.service.providerId、搜索看 search.channelId；
-       两者都没选时落到**第一个能当文字 AI 的账号**（两档本来就是文字账号的两种用途）。
-       **没有通栏兜底那一块**：与图片 / 视频一样，能力在哪张卡上，设置就在哪张卡里 ——
-       以前「没哪家顶着」时表单整块挂到网格下面，等于这一档又变回了一张独立的卡。 */
-    const MOVERS = () => [['asr', asrFormEl.value], ['search', searchFormEl.value], ['cus', cusCardEl.value]];
+    /* 三块 Vue 表单往哪摆：语音识别 / 联网搜索 → 声明了这一档的那张账号卡里那一行下面；
+       自定义供应商 → 「添加供应商」卡展开时的那一格。网格每次 innerHTML 重来，
+       所以每次画完都要再搬一次；没有落点（没有哪家声明 / 卡没展开）就回到 hidden 的停靠格，
+       屏幕上不画 —— 不往不相干的卡里硬塞。 */
+    const MOVERS = () => [['asr', asrFormEl.value], ['asrLocal', asrLocalFormEl.value],
+      ['search', searchFormEl.value], ['cus', cusCardEl.value]];
     function placeForms() {
       MOVERS().forEach(([cap, el]) => {
         if (!el) return;
@@ -4059,7 +4132,8 @@ const SettingsView = {
     const searchChannelEl = ref(null);
     const asr = reactive({
       route: 'auto', language: '',
-      service: { providerId: '', model: 'whisper-1', baseUrl: '', hasKey: false },
+      /* 型号空着 = 用这一家声明里的默认型号（whisper-1 / glm-asr-2512 / FunAudioLLM/SenseVoiceSmall…） */
+      service: { providerId: '', model: '', baseUrl: '', hasKey: false },
     });
     const asrKey = ref('');
     const asrLocal = ref(null);
@@ -4069,8 +4143,8 @@ const SettingsView = {
     const asrTestText = ref('');
     const asrProvOpts = ref([]);
     const search = reactive({
-      enabled: false, provider: 'tavily', maxResults: 5,
-      credentialSource: 'channel', channelId: 'deepseek', model: '', baseUrl: '', hasKey: false,
+      enabled: false, provider: 'auto', maxResults: 5,
+      credentialSource: 'channel', model: '', baseUrl: '', hasKey: false,
     });
     const searchKey = ref('');
     const searchChannelOpts = ref([]);
@@ -4094,39 +4168,111 @@ const SettingsView = {
       if (!b.files || !b.files.length) return '还没下载（选「只走浏览器内 Whisper」后首次转写时经代理下载，约 250–500MB）';
       return '缺 ' + b.missing.length + ' 个文件（已有 ' + mbOf(b.bytes || 0) + '）：再跑一次浏览器内识别会接着补齐';
     });
+    const searchEngineName = computed(() => {
+      provEpoch.value;
+      const id = String(search.provider || '');
+      if (id === 'tavily') return 'Tavily';
+      if (!id || id === 'auto') {
+        const kid = autoServiceKid('search');
+        const m = lastAcctAll.find(x => x.keyId === kid);
+        if (m) return '自动 · ' + m.name;
+        /* 一家渠道都没有、但单独存了一把搜索密钥：服务端会退回 Tavily（它只认这一把）。 */
+        return search.hasKey ? '自动 · Tavily' : '自动（还没有能用的搜索服务）';
+      }
+      const p = (REG.providers || []).find(x => x.id === id);
+      return p ? p.name : id;
+    });
     const searchCredText = computed(() => {
-      if (search.hasKey) return '已单独存了一把搜索密钥（不会回显）';
-      if (search.credentialSource === 'channel') return '用渠道那把密钥：' + (search.channelId || '（还没选）');
+      if (search.provider === 'tavily') return search.hasKey ? '已单独存了一把 Tavily 密钥' : 'Tavily 要单独填一把搜索密钥';
+      if ((!search.provider || search.provider === 'auto') && !autoServiceKid('search')) {
+        return search.hasKey ? '自动 · 用单独那把 Tavily 密钥' : '还没有能用的搜索服务';
+      }
+      if (search.hasKey && search.credentialSource !== 'manual') {
+        return '单独那把当前不用（渠道密钥生效）；切到「单独一把」才用它';
+      }
+      if (search.hasKey && search.credentialSource === 'manual') return '已单独存了一把搜索密钥（不会回显）';
+      if (search.credentialSource === 'channel') return '用这家账号那把密钥：' + searchEngineName.value;
       return '还没填密钥';
     });
+    /* 当前选中的搜索引擎是不是 chat 那一族（OpenRouter）：只有它需要「对话型号」这一格 */
+    const searchNeedsModel = computed(() => {
+      provEpoch.value;
+      const id = String(search.provider || '');
+      let p = null;
+      if (id && id !== 'tavily' && id !== 'auto') p = (REG.providers || []).find(x => x.id === id) || null;
+      else if (!id || id === 'auto') {
+        const kid = autoServiceKid('search');
+        p = kid ? (REG.providers || []).find(x => String(x.keyId || x.id) === kid) || null : null;
+      }
+      return !!(p && p.search && p.search.style === 'chat');
+    });
+    /* 识别这一档现在会落到谁：选了哪家就是哪家；选「自动」就是第一家声明了 asr 且接上的账号。
+       型号框空着时，placeholder 用这家声明里的默认型号 —— 用户能看见「不发这一格会发什么」。 */
+    const asrProvider = computed(() => {
+      provEpoch.value;
+      const id = String(asr.service.providerId || '');
+      if (id) return (REG.providers || []).find(p => p.id === id || p.keyId === id) || null;
+      /* 手填了接口地址 = 不用任何一家的声明（服务端也是这么判的），别在提示里点错名。 */
+      if (String(asr.service.baseUrl || '').trim()) return null;
+      const kid = autoServiceKid('asr');
+      return kid ? (REG.providers || []).find(p => String(p.keyId || p.id) === kid) || null : null;
+    });
+    const asrModelPh = computed(() => (asrProvider.value && asrProvider.value.asr && asrProvider.value.asr.model) || 'whisper-1');
+    /* 在线识别有没有落点：没有的话，本机识别卡里的「在线服务 / 自动」要说明先接一家云供应商。 */
+    const asrOnlineReady = computed(() => {
+      provEpoch.value;
+      return !!hostKidOf('asr');
+    });
+    const asrProviderText = computed(() => {
+      provEpoch.value;
+      const p = asrProvider.value;
+      if (!p) {
+        if (String(asr.service.baseUrl || '').trim()) return '手填的接口地址（不走供应商声明）';
+        const names = (REG.providers || []).filter(x => x.kind === 'text' && x.asr)
+          .map(x => x.name).slice(0, 4).join(' / ');
+        return names
+          ? '这几家已经声明语音识别，但都还没配密钥：' + names
+          : '还没有一家支持语音识别的供应商';
+      }
+      const name = p.name + (p.custom ? '（我的）' : '');
+      return asr.service.providerId ? ('在线服务走「' + name + '」') : ('自动 · 在线服务走「' + name + '」');
+    });
 
-    /* 语音识别 / 联网搜索各自的「在线服务商」候选：列**所有能当文字 AI 的账号**（判据与能力格同一条：
-       有文字档就带这两档 —— 两档走的都是这家的 base + 密钥 + 一个 OpenAI 兼容端点 / 一个能联网的对话模型）。
-       注册表里**明确声明过**这一档（`extraCaps`）的排在前面；没声明的照列，但名字后面注明一句，
-       否则用户会在一个根本没有那个端点的家上试半天。
-       存着的那一家即便已经不在注册表里，也照样列出来 —— 藏掉它的话下拉会空着、而请求仍在用它。 */
+    /* 语音识别 / 联网搜索各自的「在线服务商」候选：只列注册表里**同时**声明了
+       extraCaps 与端点声明（asr / search）的那几档 —— 与能力格、服务端转发读的是同一份声明。
+       手加的那一档（只有语音识别可以手加）排在最后，名字后面写清「手动声明」。
+       存着的那一家即便已经不在这份清单里，也照样列出来并写明原因 —— 藏掉它的话下拉会空着，
+       而请求仍在用它；用户看不出该改哪儿。 */
     function serviceProvOpts(cap, curId) {
       const seen = new Set();
-      const all = (REG.providers || []).filter(p => p.kind === 'text').filter(p => {
-        const k = p.keyId || p.id;
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
+      const list = [];
+      (REG.providers || []).forEach(p => {
+        if (p.kind !== 'text') return;
+        if ((p.extraCaps || []).indexOf(cap) < 0) return;
+        if (!(cap === 'asr' ? p.asr : p.search)) return;
+        const kid = String(p.keyId || p.id);
+        if (seen.has(kid)) return;
+        seen.add(kid);
+        list.push({ id: p.id, name: p.name + (p.custom ? '（我的）' : '') });
       });
-      const declared = p => (p.extraCaps || []).indexOf(cap) >= 0;
-      const list = all.slice()
-        .sort((a, b) => (declared(a) === declared(b) ? 0 : (declared(a) ? -1 : 1)))
-        .map(p => ({ id: p.id, name: p.name + (p.custom ? '（我的）' : '') + (declared(p) ? '' : '（没声明这一档，上游可能不支持）') }));
-      const cur = String(curId || '');
+      if (cap === 'asr') {
+        (REG.providers || []).filter(p => p.kind === 'text').forEach(p => {
+          const kid = String(p.keyId || p.id);
+          if (seen.has(kid) || manualCapsOf(kid).indexOf('asr') < 0) return;
+          seen.add(kid);
+          list.push({ id: p.id, name: p.name + '（手动声明）' });
+        });
+      }
+      const cur = ['auto', 'tavily'].includes(String(curId || '')) ? '' : String(curId || '');
       if (cur && !list.some(x => x.id === cur)) {
         const p = (REG.providers || []).find(x => x.id === cur);
-        list.unshift({ id: cur, name: (p ? p.name : cur) + '（没声明这一档，上游可能不支持）' });
+        list.unshift({ id: cur, name: (p ? p.name : cur) + '（没有注册这一档，改选一个）' });
       }
       return list;
     }
     function syncServiceProvs() {
       asrProvOpts.value = serviceProvOpts('asr', asr.service.providerId);
-      searchChannelOpts.value = serviceProvOpts('search', search.channelId);
+      searchChannelOpts.value = serviceProvOpts('search', search.provider);
       nextTick(() => {
         [asrProvEl.value, searchChannelEl.value].forEach(el => {
           if (el && window.Dropdowns) Dropdowns.sync(el);
@@ -4141,7 +4287,7 @@ const SettingsView = {
     const asrSig = () => JSON.stringify([asr.route, asr.language, asr.service.providerId,
       asr.service.model, asr.service.baseUrl, String(asrKey.value || '').trim()]);
     const searchSig = () => JSON.stringify([search.enabled, search.provider, search.maxResults,
-      search.credentialSource, search.channelId, search.model, search.baseUrl, String(searchKey.value || '').trim()]);
+      search.credentialSource, search.model, search.baseUrl, String(searchKey.value || '').trim()]);
     let asrSavedSig = '';
     let searchSavedSig = '';
     /* 两组各自那一条在途 POST：手动按钮与页脚自动保存撞在一起时第二条等第一条（见 saveAsr / saveSearch）。 */
@@ -4156,7 +4302,7 @@ const SettingsView = {
         asr.route = s.route || 'auto';
         asr.language = s.language || '';
         asr.service.providerId = (s.service && s.service.providerId) || '';
-        asr.service.model = (s.service && s.service.model) || 'whisper-1';
+        asr.service.model = (s.service && s.service.model) || '';
         asr.service.baseUrl = (s.service && s.service.baseUrl) || '';
         asr.service.hasKey = !!(s.service && s.service.hasKey);
         asrKey.value = '';
@@ -4164,11 +4310,12 @@ const SettingsView = {
         asrMsg.value = '';
         asrSavedSig = asrSig();
       } catch (e) { asrMsg.value = '读不到语音识别设置：' + errText(e); }
+      syncServiceProvs();
       /* 浏览器内模型的状态单独问（/models/status）：它不属于 asr.json，读不到也不影响上面那一组 */
       if (window.Asr && window.Asr.browserStatus) {
         window.Asr.browserStatus()
-          .then(st => { asrBrowser.value = st; })
-          .catch(() => { asrBrowser.value = null; });
+          .then(st => { asrBrowser.value = st; renderProv(); })
+          .catch(() => { asrBrowser.value = null; renderProv(); });
       }
     }
     async function saveAsr() {
@@ -4264,16 +4411,16 @@ const SettingsView = {
         const d = await window.Search.settings();
         const s = d.settings || {};
         search.enabled = !!s.enabled;
-        search.provider = s.provider || 'tavily';
+        search.provider = s.provider || 'auto';
         search.maxResults = Number(s.maxResults) || 5;
         search.credentialSource = s.credentialSource || 'channel';
-        search.channelId = s.channelId || 'deepseek';
         search.model = s.model || '';
         search.baseUrl = s.baseUrl || '';
         search.hasKey = !!s.hasKey;
         searchKey.value = '';
         searchMsg.value = '';
         searchSavedSig = searchSig();
+        syncServiceProvs();
       } catch (e) { searchMsg.value = '读不到联网搜索设置：' + errText(e); }
     }
     async function saveSearch() {
@@ -4285,7 +4432,7 @@ const SettingsView = {
         try {
           const p = {
             enabled: search.enabled, provider: search.provider, maxResults: search.maxResults,
-            credentialSource: search.credentialSource, channelId: search.channelId,
+            credentialSource: search.credentialSource,
             model: search.model, baseUrl: search.baseUrl,
           };
           if (String(searchKey.value || '').trim()) p.key = searchKey.value.trim();
@@ -4299,6 +4446,25 @@ const SettingsView = {
         finally { searchBusy.value = false; searchSaving = null; }
       })();
       return searchSaving;
+    }
+    /* 换在线服务商 = 型号回到这一家的默认值（placeholder 里写着）；
+       表单本身也搬到新那家的账号卡里（能力在哪家、设置就在哪家）。 */
+    function onAsrProvChange() {
+      asr.service.model = '';
+      asr.route = 'service';
+      renderProv();
+    }
+    /* 语音识别路线（本机识别那张卡里）：换路线会改变「谁顶着这一档」，重画一次状态牌。 */
+    function onAsrRouteChange() {
+      renderProv();
+    }
+    function onSearchProvChange() {
+      renderProv();
+    }
+    /* 在「用这家账号的密钥」那一档往框里打字，就是要单独用这一把 ——
+       不暗示这一下，「填了却不生效」会看起来像坏了。 */
+    function onSearchKeyInput() {
+      if (String(searchKey.value || '').trim() && search.provider !== 'tavily') search.credentialSource = 'manual';
     }
     async function clearSearchKey(ev) {
       if (searchBusy.value || !window.Search) return;
@@ -4369,8 +4535,8 @@ const SettingsView = {
     }
     function navCards() { return groupEls().flatMap(cardsOf); }
     /* 目录轨上的行 = **每一张卡**（一张卡一行）。
-       「语音识别」「联网搜索」是供应商那张卡里的两档（与图片 / 视频 / 语音 / 文字同一层级），
-       它们不另占行 —— 那一排档位在卡里，轨上不重复列一遍。 */
+       语音识别 / 联网搜索各有自己的一张卡（通道设置不属于任何一家供应商），
+       所以它们与别的卡一样各占一行；供应商卡里只留能力行，不再把这两张表单塞进账号卡。 */
     function navRows() { return navCards().filter(c => c.dataset && c.dataset.nav); }
     /* 卡标题里只认文字：命中数那枚 .set-hcnt 是自己塞进去的，读数前先摘掉。 */
     function navTitleOf(c) {
@@ -4401,13 +4567,24 @@ const SettingsView = {
       /* 账号卡流：接进来几家（用得上 = 有密钥 / 自定义 / .env 配了），再给出各档各几家 ——
          轨道那一行只有一小格，给「N 家」与最常看的两档就够，别的进卡里看。 */
       providers: () => {
-        const on = provGroups().filter(m => provUsable(m));
+        /* 这一行是「供应商与密钥」：本机识别那一张没有密钥，不混进这个数。 */
+        const on = provGroups().filter(m => provUsable(m) && !m.local);
         if (!on.length) return '还没接';
         const by = cap => on.filter(m => m.caps.indexOf(cap) >= 0).length;
         return on.length + ' 家 · 图 ' + by('image') + ' / 视 ' + by('video');
       },
-      /* 语音识别 / 联网搜索是供应商那张卡里的两档，轨上不另占行 → 它们的当前值
-         也不进值速记（那一栏跟着卡走，看卡就知道）。 */
+      /* 语音识别 / 联网搜索各有自己的一张卡，所以轨上也各占一行、各给一句当前值。 */
+      asr: () => {
+        const route = asr.route || 'auto';
+        const zh = ['local', 'browser', 'service'].includes(route)
+          ? (window.Asr && Asr.routeLabel ? Asr.routeLabel(route).replace(/（.*$/, '') : route)
+          : '自动';
+        const p = asrProvider.value;
+        return zh + (p && route !== 'browser' && route !== 'local' ? (' · ' + p.name) : '');
+      },
+      search: () => (search.enabled
+        ? (searchEngineName.value + ' · ' + search.maxResults + ' 条')
+        : '已关'),
       appearance: () => {
         /* 缺省配色（海洋）在轨上不占字；换了配色才把那一段加在最前（「莓果 · 浅色 · 列表」）。 */
         const pal = uiPrefLabel('dir_palette');
@@ -4655,19 +4832,14 @@ const SettingsView = {
       if (setQEl.value) window.focusQuiet(setQEl.value);
     }
     /* 回车滚到第一处**画得出来的**命中，再短暂亮一下（底色本来就在，闪的是「就是这一行」）。
-       命中可能落在**屏幕上没有的那一份表单**里（语音识别 / 联网搜索：没有哪一家账号顶着对应那一档时，
-       它们停在网格外那一只 hidden 的格子里）：字在 DOM 里、屏幕上没有，滚过去看不见 ——
-       那种不跳，改成点名说清是哪一份表单，并指左边目录轨上「账户与密钥」那一行。 */
+       命中落在收着的那一组里时屏幕上没有：计数照实算，跳转只滚到画得出来的第一处 ——
+       一处都画不出来就说明白是「收着的那一组」，不假装跳过去了。 */
     function gotoFirstHit() {
       const all = qa('.set-hit');
       const first = all.filter(painted)[0];
       if (!first) {
-        if (all.length) {
-          const names = [...new Set(all.map(hitSecName).filter(Boolean))];
-          Toast.warn('这一轮命中的 ' + all.length + ' 行在屏幕上没有的那一份表单里：'
-            + (names.join(' / ') || '收着的那一段')
-            + ' —— 点左边目录轨上「账户与密钥」那一行，让它顶在某张卡上就能看见');
-        } else if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
+        if (all.length) Toast.warn('这一轮命中的 ' + all.length + ' 行在收起的那一组里 —— 先展开那一组再按回车');
+        else if ((setQ.value || '').trim()) Toast.warn('这一轮没有命中行，改一两个字再试');
         return;
       }
       scrollToEl(first, 'center');
@@ -4686,17 +4858,6 @@ const SettingsView = {
     /* 画不出来的行（hidden 的那一块）不算命中点 —— 按回车跳到那样一行时落点被夹回页面顶，
        用户看见的是「什么都没发生」。口径：计数照实算，跳转只滚到**画得出来的第一处**。 */
     const painted = el => !!el && el.offsetParent !== null;
-    /* 命中行在哪一份「停在网格外面」的表单里（语音识别 / 联网搜索本体住在 .acct-park，
-       由 placeForms 搬进顶着那一档的卡；没搬进去时整块 hidden，屏幕上没有）。 */
-    function hitSecName(el) {
-      /* 这两块表单现在没有自己的标题（与图片 / 视频一样，设置就在卡里那一行下面）——
-         名字按容器 id 认，别再去找已经不存在的 .incard-h。 */
-      const box = el.closest ? el.closest('.incard') : null;
-      if (!box) return '';
-      if (box.id === 'asrCard') return '语音识别';
-      if (box.id === 'searchCard') return '联网搜索';
-      return '';
-    }
     /* 滚到哪儿，目录轨就亮哪一项：拿视口上三分之一那条线当锚点 ——
        锚点落在哪张卡里就亮哪张；正好在两张卡之间（组标题那一段）就亮刚过去的那张。
        滚到底了：最后一张卡算当前（否则最后一栏永远亮不到）。 */
@@ -4784,8 +4945,11 @@ const SettingsView = {
       paintSaveState();
       /* 「这里缺脚本」要说明白，而不是整页空白。 */
       try {
-        await window.__spaLoadScript('web/ui/workbench.js', () => window.Wb);
-        await window.__spaLoadScript('web/domain/chars.js', () => window.Chars);
+        /* 两份互不依赖，一起取 */
+        await Promise.all([
+          window.__spaLoadScript('web/ui/workbench.js', () => window.Wb),
+          window.__spaLoadScript('web/domain/chars.js', () => window.Chars),
+        ]);
       } catch (e) {
         console.warn('[settings] 公共模块没就绪：', e && e.message);
       }
@@ -4855,8 +5019,8 @@ const SettingsView = {
       setRailEl, setDocEl, setQEl, setQ, syncNav, onNavKey, navHasFilter, clearNav, navSum, navSumErr,
       navSumShort, navPos,
       saveText, saveKind,
-      capLegendEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
-      asrFormEl, searchFormEl,
+      acctToolsEl, provListEl, provErrEl, acctParkEl,
+      asrFormEl, asrLocalFormEl, searchFormEl,
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,
       cusCapEl, cusNamePh,
       cusShapeEl, cusShapeSel, cusShapeOpts, cusShapeShown, onCusShapeChange,
@@ -4884,9 +5048,11 @@ const SettingsView = {
       openSkillFile, toggleSkillEnabled, pickSkillFile, onImportSkillFile, removeSkill, fmtSkillSize,
       skillForm, openSkillNew, openSkillEdit, saveSkillNew, cancelSkillNew,
       asr, asrKey, asrLocalText, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
+      asrModelPh, asrProviderText, asrOnlineReady, onAsrProvChange, onAsrRouteChange,
       loadAsr, saveAsr, clearAsrKey, testAsr,
       search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,
-      searchChannelOpts, searchChannelEl, searchCredText, saveSearch, clearSearchKey, testSearch, readFirstSearch,
+      searchChannelOpts, searchChannelEl, searchCredText, searchEngineName, searchNeedsModel,
+      saveSearch, clearSearchKey, onSearchKeyInput, onSearchProvChange, testSearch, readFirstSearch,
       exportSetup, pickImportSetup, onImportSetupFile, resetSetup, impSetFileEl,
       icGear: ic('gear', 18), icKey: ic('key', 15), icRefresh: ic('refresh', 15), icList: ic('list', 15),
       icSun: ic('sun', 15), icFolder: ic('folder', 15), icUsers: ic('users', 15), icBrain: ic('brain', 15),

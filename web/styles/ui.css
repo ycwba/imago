@@ -58,7 +58,7 @@ body.wb-splitting-y * { user-select: none !important; }
    收藏的媒体卡与素材库的角色卡是**同一副壳**（上面一块图、下面一块字、动作排在下面），
    以前两页各写一遍几何（.thumb / .body / .acts 的排版）—— 壳归公共层，
    页面只留自己的差异：图片多高、图怎么裁、字距多少、动作离正文多远。
-   资产库 / 生成工作台那张任务卡是**横排**的（缩略图在左），它自己那份公共壳在 .task 那一组。 */
+   资产库 / 工作台那张任务卡是**横排**的（缩略图在左），它自己那份公共壳在 .task 那一组。 */
 .card-shell-media { position: relative; height: var(--sz-thumb-h); background: var(--thumbbg);
   display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: zoom-in; }
 .card-shell-media img, .card-shell-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -114,6 +114,16 @@ body.wb-splitting-y * { user-select: none !important; }
    display:contents 让里头的 chips / input / 按钮直接当外层那一行的子项，
    不额外多出一层盒子（工作台搜索那一排：.pgroup 里套的就是这一格）。 */
 .fb-host { display: contents; }
+/* AI 搜索那颗（AiFind.btnHTML）：外壳与搜索组件同一副 —— 与输入框同高、同小圆角、同底色，
+   只有一行字、不带图标。它不是紫色动作按钮：它和输入框是同一件事（框里那句话交给 AI）。
+   .pgroup 里再压成组内那一档（30px / 圆角 6 / --input 底色）。 */
+.fb-ai { display: inline-flex; align-items: center; flex: 0 0 auto;
+  height: 32px; padding: 0 var(--sp-12); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6); background: var(--panel); color: var(--txt);
+  font-size: var(--fs-12-5); white-space: nowrap; cursor: pointer; }
+.fb-ai:hover:not(:disabled) { border-color: var(--acc); color: var(--acc); }
+.fb-ai:disabled { opacity: .6; cursor: default; }
+.pgroup .fb-ai { height: 30px; padding: 0 var(--sp-8); border-radius: var(--radius-6); background: var(--input); font-size: var(--fs-12); }
 .toolbar input[type="number"] { width: 74px; height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12-5); }
 .toolbar .info { font-size: var(--fs-12-5); color: var(--sub); }
 .pgroup { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-5); padding: var(--sp-3) var(--sp-6); border: var(--hair) solid var(--line);
@@ -133,17 +143,18 @@ body.wb-splitting-y * { user-select: none !important; }
 .pgroup input:not([type="number"]) { flex: 0 1 150px; min-width: 96px; width: 150px; height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12-5); }
 .pgroup input[type="number"] { width: 50px; height: 30px; padding: 0 var(--sp-6); font-size: var(--fs-12-5); text-align: center; }
 .pgroup > button, .pgroup > .ghost { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
-/* Wb.filterBar 生成的按钮在 .fb-host 里（DOM 父级是那一格，不是 .pgroup 本身），
-   尺寸仍按组内控件那一档走；不加这条，工作台搜索按钮会比旁边的翻页按钮高出一截。 */
+/* Wb.filterBar 的 extraHTML 按钮在 .fb-host 里（DOM 父级是那一格，不是 .pgroup 本身），
+   尺寸仍按组内控件那一档走；不加这条，AI 搜索那颗会比旁边的翻页按钮高出一截。 */
 .pgroup .fb-host > button, .pgroup .fb-host > .ghost { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
 .pgroup .pginfo { white-space: nowrap; font-size: var(--fs-12); }
 .toolbar > button { white-space: nowrap; }
-/* 工具行里的零件（角色库 / 收藏两页原本各抄一份）：搜索胶囊、弹性间隔、计数。
+/* 工具行里的零件（角色库 / 收藏两页原本各抄一份）：搜索框、弹性间隔、计数。
    宽度（flex: 0 1 300px / 320px）两页不一样 —— 角色库是卡片网格、收藏是横条列表，
    窄一点宽一点都说得通，所以那一条留给页面自己写，这里只放两边逐字相同的那部分。 */
 .toolbar .sp { flex: 1; }
+/* 搜索框全站小圆角（与「多选 / 刷新」那种 .ghost 按钮同一档）：不再用胶囊圆角。 */
 .toolbar input[type="search"], .search { min-width: 150px; height: 32px; padding: 0 var(--sp-12); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-999); background: var(--panel); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
+  border-radius: var(--radius-6); background: var(--panel); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
 .toolbar input[type="search"]:focus, .search:focus { border-color: var(--acc); }
 .toolbar input[type="search"]:focus-visible, .search:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
 .toolbar .cnt { color: var(--sub); font-size: var(--fs-13); }
@@ -372,7 +383,7 @@ html[data-embedded] #lightbox { inset: 0; }
    max-width 封顶免得长型号名把面板撑到屏幕外，超出后面板内部省略号。
    浮层本身**挂在容器外面**（position:fixed，坐标由 ui.js 的 place() 按按钮位置算，
    下方不够就往上开）—— 原来它是 .dd 的子节点、原地 absolute，于是被祖先的 overflow
-   裁掉（生成工作台的 .adv 是 hidden、左右栏是 auto、外层 .layout 还是 hidden）。
+   裁掉（工作台的 .adv 是 hidden、左右栏是 auto、外层 .layout 还是 hidden）。
    挂在**哪一个**由 ui.js 的 `hostFor` 决定：普通页面挂 body，在 `<dialog>` 里的挂那一个 dialog
    自己 —— showModal 的弹窗在 top layer 上，盖过任何 z-index，挂 body 的浮层开在弹窗背面，
    看不见也点不着（界面上一条报错都没有）。dialog 没有 transform，固定元素的包含块仍是视口。
@@ -431,6 +442,9 @@ input[type="number"] { font-family: inherit; }
    整行也窄了一半 —— 方块磁贴会把素材行挤到第二行，图标和文字还分两行看着松散。
    位置规矩：主操作靠左，危险动作（一键清空）用 .sp 顶到行尾，不和主操作并排误点。 */
 .btn-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-2) var(--sp-12); flex-wrap: wrap; }
+/* 公共层画出来的那颗按钮的宿主（页面模板里留一格，挂载时灌进去）：
+   display:contents 让按钮直接成为 .btn-row 的弹性子项 —— 套一层盒子会多出一个排版项，间距就变了。 */
+.btn-host { display: contents; }
 .tool { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-6); height: 30px;
   padding: 0 var(--sp-11); background: var(--panel2);
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); color: var(--sub);
@@ -554,7 +568,7 @@ button.armed { min-width: 4.6em; }
 .ui-pill:hover:not(.on):not(:disabled) { border-color: var(--acc); color: var(--acc); }
 .ui-pill.on { background: var(--pri); border-color: var(--pri); color: var(--on-acc); font-weight: 600; }
 .ui-pill:disabled { opacity: .5; cursor: not-allowed; }
-/* .mode-row 「输入模式」那一排（生成工作台与导演台共用）：单颗胶囊的样式就是上面的 .ui-pill，
+/* .mode-row 「输入模式」那一排（工作台与导演台共用）：单颗胶囊的样式就是上面的 .ui-pill，
    这里只管怎么排 —— 说明句要独占一行，所以最后那条 .why 占满整行宽。 */
 .mode-row { display: flex; flex-wrap: wrap; gap: var(--sp-6); align-items: center; margin: calc(-1 * var(--sp-2)) 0 var(--sp-10); }
 .mode-row .ui-pill { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-10); }
@@ -664,14 +678,14 @@ button.armed { min-width: 4.6em; }
   .tool { height: 28px; padding: 0 var(--sp-9); font-size: var(--fs-11-5); }
 }
 /* 素材缩略图块：一个素材一块（视频工作台的参考图 / 首尾帧 / 参考视频 / 参考音频） */
-/* 素材区栏目标签行（导演台右栏 + 生成工作台左栏共用）：左标题、右说明 */
+/* 素材区栏目标签行（导演台右栏 + 工作台左栏共用）：左标题、右说明 */
 .ed-label { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2) var(--sp-8);
   font-size: var(--fs-12-5); color: var(--sub); margin: var(--sp-12) 0 var(--sp-6); }
 /* 标题那一格不参与压缩：右边那句说明是现读能力声明拼出来的（「这一档收：尾帧图 ≤1 · 首帧图 ≤1 · …」
    可以很长），flex 默认允许收缩就会把「输入模式」压成一列一个字（截图里真出现过）。 */
 .ed-label > span:first-child { flex: none; white-space: nowrap; }
 .ed-label .cnt { color: var(--sub); font-size: var(--fs-11); margin-right: var(--sp-8); line-height: 1.45; flex: 1 1 260px; min-width: 0; }
-/* ---------- 素材槽位（导演台右栏 + 生成工作台左栏共用，全站一份）----------
+/* ---------- 素材槽位（导演台右栏 + 工作台左栏共用，全站一份）----------
    磁贴样式与交互统一：空槽 = 图标 + 名字 + 小字（收什么类型、已有几张，现算）；
    已放素材 = 缩略图 + 右上 × 删除 + 底部角标。
    “智能禁用”（互斥 / 已选满 / 当前型号不支持）也在这里定义一次。 */
@@ -693,7 +707,7 @@ button.armed { min-width: 4.6em; }
 /* 互斥但已经放了素材（换型号留下的）：标红提醒，提交前需清空一组 */
 .asset-slot.conflict { border-style: solid; border-color: var(--err); color: var(--err); }
 /* 当前这一档（或这个型号）**不收**、但已经放好了的素材：照样画出来，标一圈警示色、不给「点击添素材」的入口。
-   把它藏掉 = 黄条指着这条素材、界面上既看不见也删不掉，只能重开工作区（生成工作台用「清空这些素材」那条链接解决同一件事）。 */
+   把它藏掉 = 黄条指着这条素材、界面上既看不见也删不掉，只能重开工作区（工作台用「清空这些素材」那条链接解决同一件事）。 */
 .asset-slot.stray { border-style: solid; border-color: var(--warn); color: var(--warn); cursor: default; }
 .asset-slot.stray:hover { border-color: var(--warn); }
 /* 互斥说明就地高亮（不用顶部横幅）：点被禁用的槽位时闪一下这一行 */
@@ -828,8 +842,7 @@ button.armed { min-width: 4.6em; }
 .ap-chips .chip { flex: 0 0 auto; }
 #apDlg .ap-chips { padding: var(--sp-8) var(--sp-16) 0; }
 #apDlg .ap-types { padding: var(--sp-6) var(--sp-16) 0; }   /* 类型档是 .ui-seg 分段开关，不是芯片行 */
-/* AI 检索命中的条件标记（在标题行右侧，可清除） */
-#apDlg .ap-head .chip { margin-left: var(--sp-6); }
+/* AI 找素材命中的条件标记（在标题行右侧，可清除） */
 #apDlg .ap-aitag { display: inline-flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-11-5); color: var(--acc);
   border: var(--hair) dashed var(--acc); border-radius: var(--radius-4); padding: var(--sp-3) var(--sp-8); max-width: 210px; }
 #apDlg .ap-aitag button { border: 0; background: none; color: inherit; cursor: pointer; font-size: var(--fs-11); padding: 0 0 0 var(--sp-2); }
@@ -1127,7 +1140,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   background: var(--panel); box-shadow: var(--shadow-5); flex-wrap: wrap; }
 .bulkbar .bk-cnt { font-size: var(--fs-12-5); font-weight: 600; color: var(--acc); margin-right: var(--sp-4); }
 
-/* ---------- 卡片上的多选框（资产库 / 生成工作台 / 收藏页共用一份） ----------
+/* ---------- 卡片上的多选框（资产库 / 工作台 / 收藏页共用一份） ----------
    绝对定位在卡片左上角：卡片自己必须是定位祖先（否则勾选框会跑到容器左上角，
    所有卡片的勾选框叠在一起）。`.multi` 是**容器**上的开关类（多选进行中），
    页面给容器加它，卡片上的 .pick 才会露出来。
@@ -1255,7 +1268,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .card-surface.dragging { opacity: .45; }
 /* 页面外壳（**唯一一份**）：定位 + 滚动 + 盒模型 + 留白。
    以前六个页面各抄了一遍 position/inset/overflow/box-sizing —— 差一个像素就是某一页
-   多一条滚动条、某一页少一圈留白（AGENTS.md §3.4.3 的「两种外壳」）。
+   多一条滚动条、某一页少一圈留白（「两种外壳」）。
    导演台是**作用域岛**，它不吃这一份的留白（内部 .page-main 是整屏高的列），那份另在 spa-director.css。 */
 .page-shell { position: absolute; inset: 0; overflow: auto; box-sizing: border-box;
   --shell-px: var(--sp-32);
@@ -1386,7 +1399,7 @@ button.phead-chip:hover b { color: var(--acc); }
 
    这几件**不止一页要用**：资产库（`web/pages/assets.js`）与收藏页
    （`web/pages/favorites.js`）共用同一份，不各写一套
-   （AGENTS §3.4.4：同一个功能只应有一份实现）。
+   （同一个功能只应有一份实现）。
 
      .plate / .plate--*   状态牌：这一格没有画面、但有话要说
      .exp / .is-open      就地展开：卡自己长高，不另起一层

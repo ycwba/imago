@@ -18,7 +18,6 @@
      B 拿 A 补齐出来的那一份原样再开一次 → 每个字段都「存过且合法」，一个字节都不该动；
      C 存了非法分辨率的一镜 → 必须动得有声有色（撤销、标签、修订号、状态行都在）。 */
 'use strict';
-const fs = require('fs');
 const h = require('./harness.cjs');
 
 let n = 0;
@@ -66,10 +65,7 @@ async function bootWith(mutate, tag) {
     return { samples, got };
   } finally {
     if (browser) await browser.close().catch(() => {});
-    try { proxy.stop(); } catch (e) {}
-    for (const d of [proxy.dataDir, proxy.assetsDir, proxy.renderDir, proxy.skillsDir]) {
-      try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {}
-    }
+    await proxy.stop();
   }
 }
 

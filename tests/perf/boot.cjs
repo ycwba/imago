@@ -11,7 +11,7 @@
      node tests/perf/boot.cjs --strict        # 与基线比：首屏脚本字节 +10% 或 TTI ×1.5 即红
      node tests/perf/boot.cjs --soak          # 量完再常驻 30 分钟，GC 前后各取一次 JSHeapUsedSize
      node tests/perf/boot.cjs --soak=1800     # 同上，指定秒数（探针用短时长）
-   写入型验证只碰 .data-probe-* 等隔离目录（harness 负责创建与清理），不写用户数据。 */
+   写入型验证只碰 harness 在系统临时目录里建的探针目录（负责创建与清理），不写用户数据。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');

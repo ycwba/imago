@@ -44,7 +44,7 @@ let s = mk();
 
 let pub = s.settings();
 assert.equal(pub.route, 'auto');
-assert.equal(pub.service.model, 'whisper-1');
+assert.equal(pub.service.model, '');        // 空 = 用这家声明里的默认型号
 assert.equal(pub.service.hasKey, false);
 assert.equal(pub.service.key, undefined);
 

@@ -1,16 +1,34 @@
-/* AiFind — 「写一句话，让文字 AI 在本机这一堆里挑几条」整链（闸门 / JSON 契约 / 记账 / 清原话）。
+/* AiFind — 「写一句话，让文字 AI 在本机这一堆里挑几条」整链（那颗按钮 / 闸门 / JSON 契约 / 记账 / 清原话）。
+   四个入口（素材库、收藏、资产库、统一资源选择器）共用这一份：名字、忙话、说明句、失败回执都只在这一处，
+   入口只接自己的行为 —— 同一件事在各处叫不同名字，用户按上一处记住的名字就找不到下一颗按钮。
    从 web/domain/assetlib.js 拆出；只依赖 window.TextAI / Toast 这些公开面。 */
 window.AiFind = {
-  MIN_Q: 2,          // 少于这个字数，模型拿到的是一句没法理解的「需求」
   WHY_MAX: 40,       // 芯片那一行只放得下这么长一句理由（`AiChip.picked` 的前半截是「AI 挑的 N 条」）
-  /** 闸门上那句「先写字再点」—— 三页（素材库 / 收藏 / 资产库的 AI 检索）共用这一句，只换入口名 */
-  needMsg(label) { return '先在搜索框里写要找什么（至少两个字），再点「' + String(label || 'AI 找素材') + '」'; },
+  LABEL: 'AI 搜索',
+  TITLE: '按搜索框里写的描述，让 AI 筛出最合适的几条',
+  BUSY: 'AI 搜索中…',
+  /** 那颗按钮唯一的一副画法：外壳与**搜索组件**同一副（`.fb-ai`，与输入框同高、同方角、无图标），
+   *  忙 / 闲只换 `.tx` 那一行字（`data-idle` / `data-busy` 跟着节点走，`aiBtnState` 照旧切得动）。
+   *  id 只给「画完还要现取节点接自己行为」的那两处（资产库与统一资源选择器）；素材库 / 收藏 /
+   *  工作台把它作为 extraHTML 交给公共工具条，再按 .fb-ai 取回。 */
+  btnHTML(id) {
+    return '<button class="fb-ai" type="button"'
+      + (id ? ' id="' + window.esc(id) + '"' : '')
+      + ' title="' + window.esc(AiFind.TITLE) + '"'
+      + ' data-idle="' + window.esc(AiFind.LABEL) + '" data-busy="' + window.esc(AiFind.BUSY) + '">'
+      + '<span class="tx">' + window.esc(AiFind.LABEL) + '</span></button>';
+  },
+  /** 失败回执那一句只在这一处拼（「AI 搜索失败：<原因>」）。 */
+  failText(e) { return AiFind.LABEL + '失败：' + errText(e); },
+  /** 闸门上那句「先写字再点」（四个入口共用一句，入口名就是 LABEL）。
+   *  不设字数下限：一个字的说法也直接问模型；只有框里**什么都没写**才拦一下。 */
+  needMsg() { return '先在搜索框里写要找什么，再点「' + AiFind.LABEL + '」'; },
   /** 闸门现算：字不够就返回那句话，够就返回空串（调用方 `if (why) { 就地写出去; return; }`）。
-   *  为什么单独露出来：`run` 之外还有两处「产出的是筛选条件、不是挑选集合」的 AI 检索
+   *  为什么单独露出来：`run` 之外还有两处「产出的是筛选条件、不是挑选集合」的入口
    *  （资产库与统一选择器），它们不走 `run`，可那个 2 与那句话必须还是同一份 ——
    *  页面写一遍 `q.length < 2` 就是把字数与话各存了一份，改公共层的字数时它不会跟着改口。 */
-  shortWhy(q, label) {
-    return String(q || '').trim().length < AiFind.MIN_Q ? AiFind.needMsg(label) : '';
+  shortWhy(q) {
+    return String(q || '').trim() ? '' : AiFind.needMsg();
   },
   /** AI 报回来的那一串号：先丢掉重复的，再丢掉本机不认识的。
    *  重复必须在这儿丢：`rank` 是 `Map`，同一个号出现两次会**取最后一次**的名次，
@@ -39,26 +57,24 @@ window.AiFind = {
     if (oo.done) oo.done();
     return st;
   },
-  /** o = { label, btn, ask, focus, roster, payload, field, known, sys, reg,
-   *        emptyMsg, noneMsg, busyText, apply, onPick, done, say } → `{ picked, state, msg }`
+  /** o = { btn, ask, focus, roster, payload, field, known, sys, reg,
+   *        emptyMsg, noneMsg, apply, onPick, done, say } → `{ picked, state, msg }`
    *  `apply` 只写那三个字段（`clear` 也走它，所以把「放开类型档」这类页面副作用放这儿，
    *  清一下芯片就会顺手把人挑过的档位改掉）；挑中之后要改的那些走 `onPick`。 */
   async run(o) {
     const oo = o || {};
-    const lab = oo.label || 'AI 找素材';
     let msg = '', st = AiFind.state([]);
     const q = String((oo.ask ? oo.ask() : '') || '').trim();
     const roster = (oo.roster ? oo.roster() : []) || [];
     const btn = typeof oo.btn === 'function' ? oo.btn() : oo.btn;
-    const was = btn ? btn.innerHTML : '';
-    const gate = AiFind.shortWhy(q, lab);
+    const gate = AiFind.shortWhy(q);
     if (gate) {
       msg = gate;
       if (oo.focus) oo.focus();
     } else if (!roster.length) {
-      msg = oo.emptyMsg || ('这里还没有可挑的素材，先放几条进来再点「' + lab + '」');
+      msg = oo.emptyMsg || '这里还没有可挑的素材';
     } else {
-      if (btn) { btn.disabled = true; btn.textContent = oo.busyText || 'AI 正在挑…'; }
+      window.aiBtnState(btn, true);
       try {
         const reg = oo.reg || await Api.registry();
         const txt = await TextAI.chat(reg, oo.sys, JSON.stringify(oo.payload(q, roster)));
@@ -74,12 +90,14 @@ window.AiFind = {
         else msg = oo.noneMsg || ('AI 没挑到合适的（换个说法再试）');
       } catch (e) {
         /* 失败**不**交回 `apply`：这一页上一次的挑选还有效，别因为这一次问坏了就替人清掉。 */
-        msg = 'AI 找素材失败：' + errText(e);
+        msg = AiFind.failText(e);
       } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = was; }
+        window.aiBtnState(btn, false);
       }
     }
-    if (oo.done) oo.done();
+    /* 先等页面把列表重画完再写回执：素材库 / 收藏的 render 是异步的，
+       重画尾部会用「N 项」覆盖刚写下的那句 —— 失败 / 没挑到时看起来就像「点了没反应」。 */
+    if (oo.done) { try { await oo.done(); } catch (e) { /* 重画失败不影响这句回执 */ } }
     if (msg && oo.say) oo.say(msg);
     return { picked: !!st.pick, state: st, msg };
   },

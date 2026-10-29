@@ -4,7 +4,7 @@
      ① 选择六档（左选 / 右选 / 编辑点 / 滑移 / 滑动 / 选择）+ 裁边 + 吸附（开关、alt 绕过、贴到切点）；
      ② 波纹（开与关对下游的影响）+ 横向拖换序 + 竖向拖换行（含「松手就在下面新建一行」）+ 锁定 / 隐藏；
      ③ 标记（加、面板、筛选、跳、类型 / 颜色 / 标题 / 起点、拖头 / 拖带 / 拖尾、删、标记条收起）+ 转场（◇ / 9 档预设 / 时长滑块 / 去掉）；
-     ④ 关联族（接上 / 解除 / 对齐到音频 / 全部关联认回记忆位）+ 工具条全量动作（加长 / 缩短 / 融合 / 复制 / 删除 / 切刀 / 新增一段 / 摘掉一段 / 缩放 / 回到播放头 / 撤销重做）+ 待生成块。
+     ④ 关联族（接上 / 解除 / 对齐到音频 / 全部关联认回记忆位）+ 工具条全量动作（加长 / 缩短 / 融合 / 复制 / 删除 / 切刀 / 新增一段 / 摘掉一段 / 缩放 / 回到播放头 / 撤销重做）+ 配音块。
    只走界面：块上的把手、轨名那两颗旗标、工具条、浮层、面板、键盘。读数只看 `#opState`（回执）与 `#tlHint`（拖动中的即时读数）。
    每一步同时核对**历史里那一行的描述**（哪一镜的哪一段、从几秒到几秒）—— 交互与留痕是同一条判据。 */
 'use strict';
@@ -14,7 +14,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cand = (vid, dur, shotId) => ({ vid, provider: 'local', status: 'succeeded', progress: 100, url: '/asset/' + vid, duration: dur, shotId });
 
 /* ---------------- 种子：一条 16 秒的成片，四类轨都有东西 ----------------
-   画面 5 段（镜头一 两段能融合 / 镜头四 是图片段）、配音 2 条、待生成 2 块、字幕 3 条
+   画面 5 段（镜头一 两段能融合 / 镜头四 是图片段）、配音 4 条、字幕 3 条
    （一条连着、一条留着记忆位、一条谁都没接）、标记 2 枚（一枚点、一枚范围）。 */
 function seedFilm() {
   return {
@@ -28,10 +28,8 @@ function seedFilm() {
     voices: [
       { id: 'v-A', shotId: 'sh1', text: '第一句配音', start: 0.5, duration: 2.5, lane: 0, status: 'done' },
       { id: 'v-B', shotId: 'sh2', text: '第二句配音', start: 7, duration: 2, lane: 0, status: 'done' },
-    ],
-    pending: [
-      { id: 'p-A', shotId: 'sh1', text: '第一句台词', start: 0.2, duration: 1.8, lane: 1 },
-      { id: 'p-B', shotId: 'sh2', text: '第二句台词', start: 6.2, duration: 1.4, lane: 1 },
+      { id: 'p-A', shotId: 'sh1', text: '第一句台词', start: 0.2, duration: 1.8, lane: 1, status: 'done', src: '/asset/p-A' },
+      { id: 'p-B', shotId: 'sh2', text: '第二句台词', start: 6.2, duration: 1.4, lane: 1, status: 'done', src: '/asset/p-B' },
     ],
     captions: [
       { id: 'k-A', text: '第一句字幕', start: 0.6, end: 2.9, voiceId: 'v-A' },
@@ -67,7 +65,7 @@ const installProbe = () => {
   const pps = () => { const c = q('#tlBoard .tl-clip'); return c ? parseFloat(c.style.width) / Number(c.getAttribute('data-dur')) : 0; };
   const xOf = t => { const c = q('#tlContent'); return c ? c.getBoundingClientRect().left + t * pps() : 0; };
   const raf = () => new Promise(r => { window.requestAnimationFrame(() => r()); });
-  const idOf = el => el.getAttribute('data-clip') || el.getAttribute('data-voice') || el.getAttribute('data-pending')
+  const idOf = el => el.getAttribute('data-clip') || el.getAttribute('data-voice')
     || el.getAttribute('data-cap') || el.getAttribute('data-marker') || el.getAttribute('data-band') || '';
   const info = el => ({
     id: idOf(el),
@@ -162,7 +160,7 @@ const installProbe = () => {
     await raf();
     fire(window, 'pointerup', x, y, o.mods, 0);
     await raf();
-    /* 真浏览器松手后紧跟一次 click（待生成块那一下靠它跳到那一句；
+    /* 真浏览器松手后紧跟一次 click（配音块那一下靠它跳到那一句；
        选择族靠 eatClick 那 240ms 窗口把它作废）—— 探针不补这一下就不是同一条路。 */
     if (!o.noClick) f.target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
     await raf();
@@ -326,7 +324,7 @@ async function boot(proxy, browser, label) {
   /* 种子对不对：四类轨 + 两枚标记 + 16 秒。 */
   eq(s.clips.map(c => c.id + ':' + c.dur).join(','), seedSig(), label + '：画面段的种子不对');
   eq(s.total, '00:16', label + '：成片总长该是 16 秒');
-  eq(s.voices.length, 4, label + '：配音轨该有 2 条配音 + 2 块待生成');
+  eq(s.voices.length, 4, label + '：配音轨该有四条');
   eq(s.caps.length, 3, label + '：字幕轨该有三条');
   eq(s.markers.length, 2, label + '：标记该有两枚');
   await page.eval(() => window.__P.hist());
@@ -422,7 +420,7 @@ async function boot1(proxy, browser) {
     const P = window.__P;
     const from = (P.state().voices.filter(x => x.id === 'p-A')[0] || {}).start;
     const want = 4.5 - 5 / P.pps();
-    return P.drag({ sel: '[data-pending="p-A"]', dx: want - from, steps: 8, mods: { alt: true } })
+    return P.drag({ sel: '[data-voice="p-A"]', dx: want - from, steps: 8, mods: { alt: true } })
       .then(x => Object.assign({}, x, { want }));
   });
   must(!r.err, '①：' + r.err);
@@ -433,7 +431,7 @@ async function boot1(proxy, browser) {
   re(r.after.status, /^把「第一句台词」（[\d.]+–[\d.]+ 秒）从 0\.2 秒挪到 /, '①：alt 绕过吸附那一下也要留痕');
   near(Number((/挪到 ([\d.]+) 秒$/.exec(r.after.status) || [])[1]), altLanded, '①：留痕里的落点秒数要等于块实际落的秒数');
   /* 再从那里往右 8 像素（指针落在切点右边 3 像素）：吸附必须把它拽回 4.5。 */
-  r = await page.eval(async () => window.__P.drag({ sel: '[data-pending="p-A"]', dxPx: 8, steps: 5 }));
+  r = await page.eval(async () => window.__P.drag({ sel: '[data-voice="p-A"]', dxPx: 8, steps: 5 }));
   must(!r.err, '①：' + r.err);
   must(r.mid.snap.line && r.mid.snap.ruler, '①：吸附起效时轨道与刻度尺那两处都要亮一下：' + JSON.stringify(r.mid.snap));
   eq(byId(r.after.voices, 'p-A').start, 4.5, '①：指针落在切点旁边 3 像素，必须被吸到 4.5');
@@ -644,24 +642,23 @@ async function boot3(proxy, browser) {
   await page.close();
 }
 
-/* ================= ④ 关联族 + 工具条全量动作 + 待生成块 ================= */
+/* ================= ④ 关联族 + 工具条全量动作 + 配音块 ================= */
 async function boot4(proxy, browser) {
   const page = await boot(proxy, browser, '④');
   await page.eval(() => window.__P.tool('snap'));
   re(await status(page), /^吸附已关/, '④：这一档先关吸附');
   const st = async () => page.eval(() => window.__P.state());
 
-  /* —— 待生成块：点它 = 跳到那一句，不做任何编辑 —— */
+  /* —— 配音块：点它 = 跳到那一句，不做任何编辑 —— */
   const n0 = await rowCount(page);
-  let r = await page.eval(async () => window.__P.tap({ sel: '[data-pending="p-B"]' }));
-  eq((await st()).pin, '00:06', '④：点待生成块要把播放头放到那一句');
+  let r = await page.eval(async () => window.__P.tap({ sel: '[data-voice="p-B"]' }));
   await noNewRow(page);
   eq(await rowCount(page), n0, '④：只是点一下，不许往历史里追加');
   /* 拖一下：出现时刻改到 5.2 秒 */
-  r = await page.eval(async () => window.__P.drag({ sel: '[data-pending="p-B"]', dx: -1, steps: 5 }));
+  r = await page.eval(async () => window.__P.drag({ sel: '[data-voice="p-B"]', dx: -1, steps: 5 }));
   must(!r.err, '④：' + r.err);
-  re(r.after.status, /^把「第二句台词」（6\.2–7\.6 秒）从 6\.2 秒挪到 5\.2 秒$/, '④：待生成块拖动要说清从几秒到几秒');
-  eq((await st()).voices.filter(v => /is-pending/.test(v.cls)).length, 2, '④：待生成还是两块');
+  re(r.after.status, /^把「第二句台词」（6\.2–7\.6 秒）从 6\.2 秒挪到 5\.2 秒$/, '④：配音块拖动要说清从几秒到几秒');
+  eq((await st()).voices.length, 4, '④：配音还是四条');
 
   /* —— 关联族：单条解除 / 对齐 / 接上 —— */
   let items = await page.eval(() => window.__P.ctx('[data-cap="k-A"]'));
@@ -821,7 +818,7 @@ async function boot4(proxy, browser) {
     }
     const faults = h.logFaults(proxy.log);
     must(!faults.length, '代理故障：' + faults.slice(0, 3).join(' | '));
-    console.log('✓ 剪辑核交互：选择六档 · 裁边 · 吸附（alt 绕过 / 贴到切点）· 波纹 · 换序 · 换行 · 锁定与隐藏 · 标记（加 / 面板 / 拖 / 改 / 删 / 收起）· 转场（◇ / 九档 / 时长 / 去掉）· 关联族 · 工具条全量动作 · 待生成块 · 撤销重做（共 ' + checks + ' 条判据）');
+    console.log('✓ 剪辑核交互：选择六档 · 裁边 · 吸附（alt 绕过 / 贴到切点）· 波纹 · 换序 · 换行 · 锁定与隐藏 · 标记（加 / 面板 / 拖 / 改 / 删 / 收起）· 转场（◇ / 九档 / 时长 / 去掉）· 关联族 · 工具条全量动作 · 配音块 · 撤销重做（共 ' + checks + ' 条判据）');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

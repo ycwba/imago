@@ -9,7 +9,8 @@
      await page.waitFor(() => document.body.innerText.length > 0);
      await page.screenshot('shot.png');
      await browser.close(); await proxy.stop();
-   所有探针只写 .data-probe-* / .assets-probe-* / .renders-probe-*，跑完删除。 */
+   探针目录落在系统临时目录（`shizhen-probe-*`：一处 mkdtemp 父目录，data / assets / renders /
+   skills 四个根都从它派生），跑完整组删除 —— 仓库根与用户数据目录一个字节都不写。 */
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -45,13 +46,19 @@ async function httpText(url, cookie = '', timeout = 0) {
   return { status: res.status, text: await res.text(), cookie: getCookie(res) || cookie, headers: res.headers };
 }
 
+/* 探针父目录：系统临时目录下一处 mkdtemp。判据进程被硬杀时，留下的空壳落在系统临时目录里、
+   由系统回收 —— 直接建在仓库根就会攒成一片再没人清。`tag` 只用于排障时认出是哪条判据留下的。 */
+function tempDir(tag = 'probe') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'shizhen-' + tag + '-'));
+}
+
 async function startProxy(opts = {}) {
   const port = opts.port || await freePort();
-  const stamp = process.pid + '-' + Math.random().toString(36).slice(2, 8);
-  const dataDir = path.join(root, '.data-probe-' + stamp);
-  const assetsDir = path.join(root, '.assets-probe-' + stamp);
-  const renderDir = path.join(root, '.renders-probe-' + stamp);
-  const skillsDir = path.join(root, '.skills-probe-' + stamp);
+  const probeRoot = opts.probeRoot ? path.resolve(opts.probeRoot) : tempDir('probe');
+  const dataDir = path.join(probeRoot, 'data');
+  const assetsDir = path.join(probeRoot, 'assets');
+  const renderDir = path.join(probeRoot, 'renders');
+  const skillsDir = path.join(probeRoot, 'skills');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(assetsDir, { recursive: true });
   fs.mkdirSync(renderDir, { recursive: true });
@@ -71,12 +78,10 @@ async function startProxy(opts = {}) {
   const abort = async () => {
     try { proc.kill(); } catch (e) {}
     await sleep(150);
-    /* Windows 上刚被杀的进程可能还握着目录句柄，rmSync 会 EBUSY —— 一次失败就静默留一组
-       `.data-probe-*` 在仓库根下（攒到十几组才会有人发现）。多试几次再放弃。 */
-    for (const d of [dataDir, assetsDir, renderDir, skillsDir]) {
-      for (let i = 0; i < 4; i++) {
-        try { fs.rmSync(d, { recursive: true, force: true }); break; } catch (e) { if (i === 3) break; await sleep(150); }
-      }
+    /* Windows 上刚被杀的进程可能还握着目录句柄，rmSync 会 EBUSY —— 多试几次再放弃。
+       实在删不掉也只是系统临时目录里的一组空壳，由系统回收，仓库根不受影响。 */
+    for (let i = 0; i < 4; i++) {
+      try { fs.rmSync(probeRoot, { recursive: true, force: true }); break; } catch (e) { if (i === 3) break; await sleep(150); }
     }
   };
   let cookie = '';
@@ -115,26 +120,16 @@ async function startProxy(opts = {}) {
     if (stopped) return; stopped = true;
     await abort();
   };
-  return { base, port, dataDir, assetsDir, renderDir, skillsDir, proc, log, status, cookie, stop };
+  return { base, port, probeRoot, dataDir, assetsDir, renderDir, skillsDir, proc, log, status, cookie, stop };
 }
 
-/* 本机有没有 ffmpeg（剪辑闭环与「字幕编辑区」那一档画面要一段真视频）。 */
-function hasFfmpeg() {
-  try { cp.execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch (e) { return false; }
-}
-/* 造一段可播放的测试视频（同一份 lavfi 参数每次一样，画面判据才稳）。
-   `seconds` 默认 2 秒；切片性能那条要 20 秒才摆得出二十格。
-   `-g 12` 让每秒都有个关键帧：切片是逐时刻 seek，全挤在一个 GOP 里时量出来的是
-   解码器从头解一遍的耗时，不是切片流水线的耗时（两种都该快，但后者才是被测的东西）。 */
-function makeClip(dir, seconds = 2) {
-  const sec = Math.max(1, Math.min(120, Math.round(Number(seconds) || 2)));
-  const f = path.join(dir, 'probe-clip.mp4');
-  cp.execFileSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', 'testsrc=size=128x72:rate=12:duration=' + sec,
-    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '12',
-    '-movflags', '+faststart', f], { stdio: 'pipe' });
-  if (!fs.existsSync(f) || fs.statSync(f).size < 1024) throw new Error('ffmpeg 没造出测试视频');
-  return f;
+/* 一段 2 秒的样本视频（tests/fixtures/media/probe-clip.mp4：testsrc 128×72 · 12fps ·
+   每秒一个关键帧）。剪辑 / 播放 / 字幕这些判据拿它当输入素材。
+   输入素材入库而不是现场转码：判据只依赖 Node + Chrome，不要求机器上装转码工具。 */
+const CLIP_FIXTURE = path.join(root, 'tests/fixtures/media/probe-clip.mp4');
+function clipFixture() {
+  if (!fs.existsSync(CLIP_FIXTURE)) throw new Error('缺少测试样本视频：tests/fixtures/media/probe-clip.mp4');
+  return CLIP_FIXTURE;
 }
 
 /* 联网搜索的假上游（Tavily 形状）+ 把代理的搜索设置指过去。
@@ -162,7 +157,7 @@ async function startFakeSearch(rows) {
     stop() { try { if (srv.closeAllConnections) srv.closeAllConnections(); } catch (e) {} srv.close(); },
   };
 }
-/* 启用联网搜索并指向这台假上游；密钥只落 .*-probe-* 的 search.json，接口不回显。 */
+/* 启用联网搜索并指向这台假上游；密钥只落探针目录里的 search.json，接口不回显。 */
 async function useFakeSearch(proxy, fake, key) {
   const r = await fetch(proxy.base + '/search/settings', {
     method: 'PUT',
@@ -409,5 +404,5 @@ function logFaults(log) {
   return text.split(/\r?\n/).filter(l => re.test(l)).map(l => l.slice(0, 220));
 }
 
-module.exports = { startProxy, launchBrowser: Browser.launch, Browser, Page, CDP, sleep, root, findBrowser,
-  startFakeSearch, useFakeSearch, hasFfmpeg, makeClip, logFaults };
+module.exports = { startProxy, tempDir, launchBrowser: Browser.launch, Browser, Page, CDP, sleep, root, findBrowser,
+  startFakeSearch, useFakeSearch, clipFixture, logFaults };

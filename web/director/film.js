@@ -1,6 +1,6 @@
 /* 成片模型（`proj.film`）—— 新剪辑核的唯一数据层。
    与参考项目同构：主画面是一列**顺序存储**的 clip（没有 start，成片总长 = Σ duration），
-   配音 / 待生成 / 字幕是定时条目（成片秒直存），标记钉在成片秒。
+   配音 / 字幕是定时条目（成片秒直存），标记钉在成片秒。
    纯函数，不碰 DOM、不问当前镜头；时间线几何在 engine/timeline.js，交互在 engine/edit.js。
 
    时间口径只有两把：**成片秒**（clip 顺序派生的 start、配音 start、字幕 start/end、标记 time）
@@ -19,7 +19,7 @@ export const TRANSITION_MIN_SECONDS = 0.1;
 export const MIN_CAPTION_SECONDS = 0.2;
 /* 画面轨的总长上限（加一段 / 加长到顶那一句回执按它判）。 */
 export const MAX_FILM_SECONDS = 30 * 60;
-/* 没有真实音频时按字数估一句念多久（待生成块的宽度与初始时长；不参与任何计费）。 */
+/* 按字数估一句念完要多久：AI 写台词时用它校验「这句能不能在镜头时长里念完」。 */
 export const LINE_EST_CPS = 4.5;
 export const estimateSpeechSeconds = text => Math.max(1.2, String(text || '').length / LINE_EST_CPS);
 
@@ -197,23 +197,7 @@ export function createVoiceClip(o = {}) {
   };
 }
 
-/* Pending：待生成配音块 —— 和 VoiceClip 同一副定时形状（start/duration/lane），
-   只多一个「没有音频」的状态。生成成功后**原位替换**成 VoiceClip，id 保持不变，
-   于是挂在它身上的字幕链接（Caption.voiceId）一个都不用改。 */
-export function createPending(o = {}) {
-  return {
-    id: o.id || filmId('pend'),
-    start: Math.max(0, round2(num(o.start))),
-    duration: Math.max(MIN_CLIP_SECONDS, round2(o.duration != null ? num(o.duration) : 0.6)),
-    lane: clamp(Math.round(num(o.lane, 0)), 0, LANE_MAX - 1),
-    shotId: o.shotId || '',
-    text: o.text || '',
-    who: o.who || '',
-    status: 'pending',
-  };
-}
-
-/* Caption：字幕直接存成片秒（start/end）。voiceId = 来源定时块（VoiceClip 或 Pending）的 id；
+/* Caption：字幕直接存成片秒（start/end）。voiceId = 来源配音块的 id；
    detachedVoiceId = 解除关联时的记忆位（「全部关联」优先认回它）。 */
 export function createCaption(o = {}) {
   const start = Math.max(0, round2(num(o.start)));
@@ -230,7 +214,7 @@ export function createCaption(o = {}) {
   };
 }
 
-/* 「按配音出字幕」那一步的唯一换算：一条定时块（配音 / 待生成）→ 一条挂在它身上的字幕，
+/* 「按配音出字幕」那一步的唯一换算：一条配音块 → 一条挂在它身上的字幕，
    窗与文字照抄，`voiceId` 记上来源块（之后改块的位置与长度，字幕跟着走 —— `tl-resize.followCaptions`）。 */
 export function captionForTimed(item) {
   const start = num(item && item.start);
@@ -255,12 +239,11 @@ export function normalizeFilm(raw) {
     if (t) c.transition = t; else delete c.transition;
   });
   const voices = (Array.isArray(f.voices) ? f.voices : []).filter(v => v && typeof v === 'object').map(v => createVoiceClip(v));
-  const pending = (Array.isArray(f.pending) ? f.pending : []).filter(p => p && typeof p === 'object').map(p => createPending(p));
   const captions = (Array.isArray(f.captions) ? f.captions : []).filter(c => c && typeof c === 'object').map(c => createCaption(c));
   const markers = normalizeMarkers(f.markers);
   /* 引用自洽：字幕指向一条已经不存在的定时块 → 记进记忆位（detachedVoiceId），链接本身断开。
      不假装还连着（连线画到空气里比断开更糟），也不把这条字幕删掉（用户没让删）。 */
-  const live = new Set([...voices.map(v => v.id), ...pending.map(p => p.id)]);
+  const live = new Set(voices.map(v => v.id));
   captions.forEach(c => {
     if (c.voiceId && !live.has(c.voiceId)) {
       c.detachedVoiceId = c.detachedVoiceId || c.voiceId;
@@ -269,7 +252,7 @@ export function normalizeFilm(raw) {
   });
   const tracks = (f.tracks && typeof f.tracks === 'object') ? f.tracks : {};
   return {
-    clips, voices, pending, captions, markers,
+    clips, voices, captions, markers,
     tracks: {
       visibility: (tracks.visibility && typeof tracks.visibility === 'object') ? { ...tracks.visibility } : {},
       locks: (tracks.locks && typeof tracks.locks === 'object') ? { ...tracks.locks } : {},
@@ -472,9 +455,9 @@ export function packCaptionLanes(captions, maxLanes = LANE_MAX) {
 
 /* 「这一条定时块画在第几行」的 id → 行号表（预览与导出共用的一张）。
    两处各 pack 一遍就会各漂一次：眼睛关掉的到底是屏幕上那一行还是片子里那一行，
-   只有同一张表才答得准。待生成块与配音共用同一组打包行，所以一起 pack。 */
+   只有同一张表才答得准。 */
 export function voiceLaneMap(film) {
-  const pack = packVoiceLanes([...(film && film.voices || []), ...(film && film.pending || [])]);
+  const pack = packVoiceLanes((film && film.voices) || []);
   const map = new Map();
   pack.lanes.forEach(l => l.items.forEach(x => map.set(x.id, l.lane)));
   return map;
@@ -486,7 +469,7 @@ export function captionLaneMap(film) {
   return map;
 }
 
-/* 「这一块画在第几行」（打包口径）：画面看 `clip.ln`，配音 / 待生成与字幕看打包后的行号。
+/* 「这一块画在第几行」（打包口径）：画面看 `clip.ln`，配音与字幕看打包后的行号。
    锁判据、助手写入桥与「板上没画出来时」的选中都读这一处 —— 存下来的 `item.lane` 只是偏好，
    真正画在第几行是打包算出来的，两把尺混用就会锁错行。找不到条目返回 -1。 */
 export function filmLaneOf(film, kind, id) {
@@ -500,7 +483,7 @@ export function filmLaneOf(film, kind, id) {
 }
 
 /* ---------------- 行级眼睛 / 锁（参考 projectTrackState） ---------------- */
-/* 行键：画面 `image` / 配音 `voice` / 配音行 `voice-0` … / 待生成 `pending`（与配音同一组打包） /
+/* 行键：画面 `image` / 配音 `voice` / 配音行 `voice-0` … /
    字幕 `caption` / 字幕行 `caption-0` …。整轨隐藏 = 该轨所有行都藏。 */
 export const rowVisible = (tracks, key) => !(tracks && tracks.visibility && tracks.visibility[key] === false);
 export const rowLocked = (tracks, key) => !!(tracks && tracks.locks && tracks.locks[key] === true);
@@ -510,8 +493,7 @@ export function rowSet(tracks, kind, key, value) {
   if (value == null) delete bag[key]; else bag[key] = value;
 }
 
-/* 条目的可见 / 锁定：整轨（voice / pending / caption / image）与行级（`voice-2`）两道。
-   待生成与配音共用同一组打包行（同一副 lane 语义），所以它们的行键都是 `voice-N`。 */
+/* 条目的可见 / 锁定：整轨（voice / caption / image）与行级（`voice-2`）两道。 */
 export function itemVisible(tracks, track, lane) {
   if (!rowVisible(tracks, track)) return false;
   return lane == null || rowVisible(tracks, `${track}-${lane}`);
@@ -538,7 +520,7 @@ export const captionStyleOf = highlighted => (highlighted ? 'default' : 'plain')
    没有字节的配音块（`src` 空）不进片：它只是「这一句要念」的记录，混音那侧拿不到东西。
    画面轨的眼睛**不在这里**：预览里压暗某一格只是编辑视图的事，那一格照样在片子里。 */
 export function audibleVoices(film) {
-  const f = film || { voices: [], pending: [], tracks: {} };
+  const f = film || { voices: [], tracks: {} };
   const all = f.voices || [];
   const withSrc = all.filter(v => v && v.src);
   const laneOf = voiceLaneMap(f);
@@ -567,7 +549,7 @@ export function visibleCaptions(film) {
 
 /* ---------------- 台词行（speakerOf / lineRowHTML） ----------------
    剪辑右栏「台词」那一档与「生成配音」档共用这一份：一行 = 一句台词（挂在一条定时块上）。
-   `row = { id, sh, no, who, text, speaker, time, mine, pending }` —— 调用方给数据，这里只画。 */
+   `row = { id, sh, no, who, text, speaker, time, mine, voiced }` —— 调用方给数据，这里只画。 */
 const secTxt = v => String(Math.round((Number(v) || 0) * 10) / 10);
 
 /* 说话人 → 素材库那一位（按名字认，与音色描述 / 参考音频同一个判据）。
@@ -605,8 +587,8 @@ export function lineRowHTML(row, o) {
   const name = sp.empty ? '未写说话人' : sp.name;
   const note = sp.empty ? '' : (sp.inLib ? '' : ' · 不在素材库');
   const empty = !String(row.text || '').trim();
-  const state = empty ? 'none' : (row.pending ? 'pend' : 'done');
-  const stateTxt = empty ? '未写' : (row.pending ? '待生成' : '已生成');
+  const state = empty ? 'none' : (row.voiced ? 'done' : 'none');
+  const stateTxt = empty ? '未写' : (row.voiced ? '已生成' : '未生成');
   return `<div class="line-row edit${row.mine ? ' on' : ''}" data-lineid="${esc(row.id)}"
     title="${esc((row.no ? '第 ' + row.no + ' 镜' : '') + (row.time.title ? ' · ' + row.time.title : '') + (o.clickHint ? '。' + o.clickHint : ''))}">
     <div class="lr-thumb${sp.img ? '' : ' ph'}" title="${esc(name + note)}">${thumb}</div>
@@ -634,7 +616,7 @@ export function shiftTimed(item, delta) {
 /* 预览 / 导出用的绝对窗口：`{ start, end }`（成片秒）。 */
 export const windowOf = item => ({ start: num(item && item.start), end: num(item && item.start) + num(item && item.duration) });
 
-/* 条目在成片秒某处是否正在播（配音 / 待生成 / 字幕共用）。 */
+/* 条目在成片秒某处是否正在播（配音 / 字幕共用）。 */
 export const coversTime = (item, t) => t >= num(item.start) - 0.0005 && t < num(item.start) + num(item.duration) - 0.0005;
 
 /* 音量增益（导出 / 预览共用）：静音 = 0（`muted` 不动存下来的音量，取消静音就恢复原值）；

@@ -72,9 +72,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
        Wb.cards.paint 是全站「列表重画」的唯一一份（工作台右栏 / 收藏 / 资产库都经它），
        它自己调了 Wb.viewport.keep —— 这里用一个探针箱照同一份 API 走一遍：
        60 条 → 滚到中段 → 换一批（40 条换掉尾部 20 条、每条还从 40px 变成 44px）→ 位置必须还在。
-       ⚠ 「还在」的量法是**锚点**（第一个可见的那一条仍停在原来的视口偏移上），不是 scrollTop 的像素值：
+       ⚠「还在」的量法是**锚点**（第一个可见的那一条仍停在原来的视口偏移上），不是 scrollTop 的像素值：
        锚点以上的内容变高了，scrollTop 本来就该跟着变大（仍按 600 复位的写法会让锚点往上漂 60px）——
-       全站契约见 AGENTS §3.4.5 / `web/ui/workbench.js` 的 viewport.keep。
+       全站契约 / `web/ui/workbench.js` 的 viewport.keep。
        浏览器自己的 scroll anchoring 也会动一次，keep 负责把残差按锚点抹平。 */
     const listOk = await page.eval(() => {
       const host = document.createElement('div');

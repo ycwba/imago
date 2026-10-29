@@ -25,7 +25,7 @@ const h = require('./harness.cjs');
     page = await browser.newPage();
     await page.goto(proxy.base + '/shell.html#studio.html?t=video');
     await page.waitFor(() => !!(window.__acPageCtx && window.WbSkills && window.AiChat), 15000);
-    await page.waitFor(() => document.body.innerText.includes('生成工作台'), 10000);
+    await page.waitFor(() => document.body.innerText.includes('工作台'), 10000);
     const out = await page.eval(async () => {
       const pc = window.__acPageCtx();
       const sk = await window.WbSkills.activeFor('studio.html', '视频 提示词 镜头 润色');
@@ -50,7 +50,7 @@ const h = require('./harness.cjs');
         leaked: /sk-abcdefghijklmnopqrstuvwxyz|Bearer abcdefghijklmnop/.test(red),
       };
     });
-    if (!out.page || !/生成工作台/.test(out.page)) throw new Error('页面快照没有认出当前页：' + out.page);
+    if (!out.page || !/工作台/.test(out.page)) throw new Error('页面快照没有认出当前页：' + out.page);
     if (out.keys < 2) throw new Error('页面快照字段过少：' + out.keys);
     if (out.brief > 3000) throw new Error('页面快照没有压缩：' + out.brief + ' 字符');
     if (out.skills < 1 || out.skills > 2) throw new Error('Skill 自动加载数量不对：' + out.skills);

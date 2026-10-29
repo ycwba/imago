@@ -1,5 +1,5 @@
 {
-  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。\n2026-10-22 三笔：`set`/`read`/`label`/`isRef` 是 asset-ref.cjs 的公开 API 面（AGENTS §7 点名的「拖素材的引用载荷」唯一实现，UMD 出口就叫这些名字）；`clean`/`grab` 是它内部的白名单过滤与 dataTransfer 取串，两三个局部短名，收进基线与上面存量同一口径。`hit`（voice-lanes 的行命中测试）、`labelOf`（chat 的引用标签）同口径登记。\n2026-10-23 两笔：浏览器内 ASR 一轮新增的局部短名照存量同一口径登记 —— `build`（asr-worker 里包 pipeline 的局部闭包）、`flush`（asr-text groupWords 的收段闭包）、`clean`/`fail`/`walk`/`dirOf`/`drop`（models.js 与相邻路由同一套局部小件）；同名 `E` 来自 vendored ORT 压缩档，web/vendor 整目录退出本判据扫描（第三方代码不是我们的重复实现）。",
+  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。\n2026-10-22 三笔：`set`/`read`/`label`/`isRef` 是 asset-ref.cjs 的公开 API 面（点名的「拖素材的引用载荷」唯一实现，UMD 出口就叫这些名字）；`clean`/`grab` 是它内部的白名单过滤与 dataTransfer 取串，两三个局部短名，收进基线与上面存量同一口径。`hit`（voice-lanes 的行命中测试）、`labelOf`（chat 的引用标签）同口径登记。\n2026-10-23 两笔：浏览器内 ASR 一轮新增的局部短名照存量同一口径登记 —— `build`（asr-worker 里包 pipeline 的局部闭包）、`flush`（asr-text groupWords 的收段闭包）、`clean`/`fail`/`walk`/`dirOf`/`drop`（models.js 与相邻路由同一套局部小件）；同名 `E` 来自 vendored ORT 压缩档，web/vendor 整目录退出本判据扫描（第三方代码不是我们的重复实现）。",
   "names": {
     "__spaDirty": 2,
     "__spaFlush": 2,
@@ -229,6 +229,6 @@
   },
   "singleWhy": {
     "pad2": "ui.js 是唯一实现；naming.js 只是把它绑成本地名字（Node 测试里由 stub 提供），server/app.js 那份是给命令行时间戳用的 Node 侧补零，两边不共享运行时",
-    "fileSafe": "浏览器与 Node 各一份，是 AGENTS §7 登记在案的例外（同一算法，两边各自可用）"
+    "fileSafe": "浏览器与 Node 各一份，是登记在案的例外（同一算法，两边各自可用）"
   }
 }

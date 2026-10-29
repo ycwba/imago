@@ -10,7 +10,7 @@ import { render as ViewErrorRender } from './render/app-error.js';
 import { render as AppShellRender } from './render/app-shell.js';
 import { createHooks } from './core/hooks.js';
 import { createActivity } from './core/activity.js';
-import { preloadModule } from './core/page-css.js';
+import { preloadModule, ensureCss } from './core/page-css.js';
 
 const R = window.WB_ROUTES;
 const LAST = 'sb_last_page';
@@ -69,16 +69,56 @@ const lazy = loader => defineAsyncComponent({ loader, loadingComponent: ViewLoad
    改成挂载前并发补载 —— 既不给别的页面白下，也让这一页的取数与 ESM 图并行。
    补载之前先把这一页自己的 ESM 图发出去（`src` + 路由表点名的 `chunk`）：
    否则三段是串的 —— 等 needs → 取页面 → 页面再取引擎。modulepreload 只取字节不执行，
-   执行时机仍由下面那一次 import() 定，顺序约束一点没动。 */
+   执行时机仍由下面那一次 import() 定，顺序约束一点没动。
+   这一页自己的样式表也从路由表读（`css`）：挂载点只有下面这一处，页面组件里不再各写一句
+   `ensureCss`（路径只存一份，预取与真正切页共用的也是这一格）。 */
 const VIEWS = {};
 for (const p of R.pages || []) {
   if (!p || !p.file || !p.src) continue;
   VIEWS[p.file] = lazy(() => {
     preloadModule(p.src);
     for (const m of p.chunk || []) preloadModule(m);
+    if (p.css) ensureCss(p.css, 'spa-' + p.id);
     return window.__spaNeeds(p.needs).then(() => import(p.src));
   });
 }
+
+/* ---------- 预取：把某一页的整条加载链提前发出去 ----------
+   与真正切页那一路共用同一批去重表（preloadModule / ensureCss / __spaLoadScript）：
+   已经取过的不再发第二遍；失败的那一份由 __spaLoadScript 自己删键，切页时照常重试。
+   `needs` 是经典脚本，取回即执行 —— 它们本来就是全站公共件（空闲兜底那一路也会装），
+   提前装好正好让切页只剩一次 import()。 */
+window.__spaPrefetch = file => {
+  const p = R.byFile[file];
+  if (!p || !p.src) return;
+  preloadModule(p.src);
+  for (const m of p.chunk || []) preloadModule(m);
+  if (p.css) ensureCss(p.css, 'spa-' + p.id);
+  window.__spaNeeds(p.needs).catch(() => {});
+};
+
+/* 首屏完成之后再按固定节奏一页一页预取（当前这一页除外，它正在用）。
+   第一页等 load 之后一小段（让这一页自己的首轮取数先发出去）再等一个空闲时段，
+   后面几页按 250ms 一拍往下排 —— 不逐页等空闲：切页之后页面自己在渲染、缩略图在解码，
+   空闲时段会变得稀少，等着等着就把「提前取」等成了「用户已经点下去」。
+   取回来的只是字节（modulepreload 不解值、样式表按页根类作用域），
+   这一串在回环上通常一两秒就发完了。 */
+const idle = fn => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 1200 }) : setTimeout(fn, 150));
+function schedulePrefetch() {
+  const files = (R.pages || [])
+    .map(p => p && p.file)
+    .filter(f => f && (!state.route || f !== state.route.file));
+  let i = 0;
+  const step = () => {
+    const f = files[i++];
+    if (!f) return;
+    try { window.__spaPrefetch(f); } catch (e) { /* 预取只是提前：出错留给真正切页那一路 */ }
+    setTimeout(step, 250);
+  };
+  idle(step);
+}
+if (document.readyState === 'complete') setTimeout(schedulePrefetch, 600);
+else window.addEventListener('load', () => setTimeout(schedulePrefetch, 600), { once: true });
 
 /* ---------- KeepAlive 里的页面宿主：记 / 还原滚动位置 ---------- */
 const PageFrame = {
@@ -158,7 +198,7 @@ const App = {
     }
     window.appShow = go;
     window.__spaRoute = () => state.route;
-    /* 生成工作台在页内切 ?t= 时通知一次：地址栏 / 上次页跟着走，刷新仍落在同一档。 */
+    /* 工作台在页内切 ?t= 时通知一次：地址栏 / 上次页跟着走，刷新仍落在同一档。 */
     window.__spaStudioType = t => {
       if (t !== 'video' && t !== 'image' && t !== 'audio') return;
       const src = 'studio.html?t=' + t;
@@ -219,7 +259,7 @@ const app = createApp(App);
    罩不住「重画后内容变短被夹回顶」，而且它在全局原型上动手脚。
    现在改成**在实际代码里防**：重画点走公共件 Wb.viewport.keep（按锚点还视口，
    实现在 web/ui/workbench.js）；程序性 focus 只为了续上光标时一律带 preventScroll，
-   要「把某处滚过来」走滚动那一族，别拿 focus 当滚动用（AGENTS §3.4.5）。 */
+   要「把某处滚过来」走滚动那一族，别拿 focus 当滚动用。 */
 app.config.errorHandler = (err, instance, info) => {
   console.error('[spa]', info, err);
   try { if (window.Toast) Toast.err('页面出错：' + String(errText(err))); } catch (e) {}

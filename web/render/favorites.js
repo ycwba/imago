@@ -39,19 +39,19 @@ const _hoisted_16 = {
   class: "viewtoggle",
   ref: "viewEl"
 }
-const _hoisted_17 = ["onClick"]
-const _hoisted_18 = {
+const _hoisted_17 = {
   class: "bulkbar",
   id: "bulkBar"
 }
-const _hoisted_19 = {
+const _hoisted_18 = {
   class: "bk-cnt",
   id: "bulkCnt"
 }
-const _hoisted_20 = ["disabled", "onClick"]
-const _hoisted_21 = ["onClick"]
+const _hoisted_19 = ["disabled", "onClick"]
+const _hoisted_20 = ["onClick"]
+const _hoisted_21 = ["disabled", "onClick"]
 const _hoisted_22 = ["disabled", "onClick"]
-const _hoisted_23 = ["disabled", "onClick"]
+const _hoisted_23 = ["onClick"]
 const _hoisted_24 = {
   class: "bk-tip",
   id: "bulkTip"
@@ -131,11 +131,11 @@ export function render(_ctx, _cache) {
         }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_7)
       ])
     ]),
-    _createCommentVNode(" 类型筛选（带条数）：公共件 Wb.kindFilter —— 与生成工作台、资产库同一副分段控件。\n           独立一行放在工具条上面：类型档在上、搜索行在下（工作台也是这个次序）。 "),
+    _createCommentVNode(" 类型筛选（带条数）：公共件 Wb.kindFilter —— 与工作台、资产库同一副分段控件。\n           独立一行放在工具条上面：类型档在上、搜索行在下（工作台也是这个次序）。 "),
     _createElementVNode("div", _hoisted_8, [
       _createElementVNode("div", _hoisted_9, null, 512 /* NEED_PATCH */)
     ]),
-    _createCommentVNode(" 筛选行：搜索 + AI 找素材（公共件 Wb.filterBar） "),
+    _createCommentVNode(" 筛选行：搜索 + AI 搜索（公共件 Wb.filterBar） "),
     _createElementVNode("div", _hoisted_10, null, 512 /* NEED_PATCH */),
     _createCommentVNode(" 平台 + 时间（与资产库一样的两种）+ 摆法 "),
     _createElementVNode("div", _hoisted_11, [
@@ -156,27 +156,22 @@ export function render(_ctx, _cache) {
         class: "sp",
         style: {"flex":"1"}
       }, null, -1 /* CACHED */)),
-      _createElementVNode("span", _hoisted_16, null, 512 /* NEED_PATCH */),
-      _createElementVNode("button", {
-        class: "ghost",
-        ref: "pullBtn",
-        onClick: _ctx.pullLocal
-      }, null, 8 /* PROPS */, _hoisted_17)
+      _createElementVNode("span", _hoisted_16, null, 512 /* NEED_PATCH */)
     ]),
-    _createCommentVNode(" 多选条：与资产库同一套公共件（.bulkbar）。「移出收藏」这种破坏性动作\n           收在这一行里，不在每张卡上喊。 "),
-    _withDirectives(_createElementVNode("div", _hoisted_18, [
-      _createElementVNode("span", _hoisted_19, _toDisplayString(_ctx.bulkCountText), 1 /* TEXT */),
+    _createCommentVNode(" 多选条：与资产库同一套公共件（.bulkbar）。「移出收藏」这种破坏性动作\n           收在这一行里，不在每张卡上喊。「存回本机」同理：存的是**勾选的那几条**，\n           不多选就点它，等于「把这一屏都存一遍」。 "),
+    _withDirectives(_createElementVNode("div", _hoisted_17, [
+      _createElementVNode("span", _hoisted_18, _toDisplayString(_ctx.bulkCountText), 1 /* TEXT */),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkAll",
         disabled: _ctx.bulkAllDisabled,
         onClick: _ctx.bulkAll
-      }, _toDisplayString(_ctx.bulkAllText), 9 /* TEXT, PROPS */, _hoisted_20),
+      }, _toDisplayString(_ctx.bulkAllText), 9 /* TEXT, PROPS */, _hoisted_19),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkClear",
         onClick: _ctx.bulkClear
-      }, "取消选择", 8 /* PROPS */, _hoisted_21),
+      }, "取消选择", 8 /* PROPS */, _hoisted_20),
       _createElementVNode("button", {
         class: "ghost",
         id: "bulkDown",
@@ -188,7 +183,7 @@ export function render(_ctx, _cache) {
           "data-size": "13"
         }, null, -1 /* CACHED */),
         _createTextVNode(" 批量下载", -1 /* CACHED */)
-      ]))], 8 /* PROPS */, _hoisted_22),
+      ]))], 8 /* PROPS */, _hoisted_21),
       _createElementVNode("button", {
         class: "ghost danger",
         id: "bulkDrop",
@@ -200,7 +195,14 @@ export function render(_ctx, _cache) {
           "data-size": "13"
         }, null, -1 /* CACHED */),
         _createTextVNode(" 取消收藏", -1 /* CACHED */)
-      ]))], 8 /* PROPS */, _hoisted_23),
+      ]))], 8 /* PROPS */, _hoisted_22),
+      _createElementVNode("button", {
+        type: "button",
+        class: "ghost",
+        ref: "pullBtn",
+        id: "favPullLocal",
+        onClick: _ctx.pullLocal
+      }, null, 8 /* PROPS */, _hoisted_23),
       _createElementVNode("span", _hoisted_24, _toDisplayString(_ctx.bulkTipText), 1 /* TEXT */),
       _cache[9] || (_cache[9] = _createElementVNode("span", {
         class: "sp",

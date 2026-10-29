@@ -121,7 +121,7 @@ function mediaSrc(url) {
      还没换到就把旧的给出去（让画面先出来，回源在后台跑）。 */
   return rewrapMedia(out, FRESH.get(mediaKey(out)));
 }
-/* 本机资产地址的唯一拼法（AGENTS.md §6.3「页面不许拿 assetId 自己拼 /asset/<id>」以前只是一句
+/* 本机资产地址的唯一拼法（「页面不许拿 assetId 自己拼 /asset/<id>」以前只是一句
    规定、没有可走的入口，所以全站拼了 36 处，`?v=2` 这种缓存位与 `?dl=1&name=` 的编码各写各的）。
    缓存位 `v` 是这一份实现说了算：资产内容不可变，但同一号可能被重新落盘覆盖一次，
    所以留一个版本号；要按条目失效就把 vOf 换进来。 */
@@ -226,7 +226,7 @@ async function respBody(r) {
 /* 读 OpenAI 风格的 SSE 流（文字 AI 的 stream:true）：一帧 `data: {json}`，收尾一帧 `data: [DONE]`。
    onDelta(片段, 种类) 按到达顺序回调，种类是 'content'（正文）或 'reasoning'（模型的思考过程）。
    返回 { text, reasoning, usage, done }；usage 取流里最后带的那一帧（要请求体带 stream_options 才有）。
-   放在模块作用域、由 TextAI 调用：闭包里定义的函数跨闭包裸调会直接 ReferenceError（见 AGENTS.md §3）。 */
+   放在模块作用域、由 TextAI 调用：闭包里定义的函数跨闭包裸调会直接 ReferenceError。 */
 async function readSseStream(res, onDelta) {
   const out = { text: '', reasoning: '', usage: null, done: false };
   const feed = frame => {
@@ -301,7 +301,7 @@ function topBoolValue(decl, on) {
   /* 跑着的 proxy.js 比这份页面代码旧 → 一次说清，别让「某个选项没出现」变成猜谜。
      （旧代理的能力声明停在老样子：例如生图的输出格式还被 forceOptions 锁成 png，
        界面就整块不显示，看着像功能坏了，其实重启一次就好了。每个标签页只提醒一次。） */
-  const PROXY_VERSION_MIN = 20;
+  const PROXY_VERSION_MIN = 22;
   /* 文案单独做成纯函数：好单测（页面里那条提示本身没什么分支，值不值得测的是这句话写没写清楚）。
       newest 的那一条排在最前面 —— 用户撞上的永远是这一版新加的那些声明没生效，
      从最老的说起等于让他先去找一个和他无关的原因。 */
@@ -757,7 +757,7 @@ function topBoolValue(decl, on) {
       warnOldProxy(_reg);
       warnProxyDown(_reg);
       /* 「这一家配没配密钥」顺带取一次：型号下拉要靠它把**没添加**的那几家筛掉
-         （`pickable` → `provUsable`）。以前只有设置页调 `envStatus()`，于是导演台 / 生成工作台 /
+         （`pickable` → `provUsable`）。以前只有设置页调 `envStatus()`，于是导演台 / 工作台 /
          各页面各自的 `envKnown()` 恒为假 → 判据按「读不到就不筛」处理 → 没配密钥的厂商照样出现在
          下拉里。**不在这里补，就只能每个页面各写一行**，而漏一处就有一页不对。
          刻意不 await：它只影响下拉筛谁，不该让整页等它；失败也无所谓（envKnown 保持假 = 不筛）。 */
@@ -849,7 +849,7 @@ function topBoolValue(decl, on) {
     /* 新任务能用哪几家：**停用的不出现，没添加（没配密钥）的也不出现**。
        以前这里只筛「停用」（sk_off_），于是注册表里声明了型号、但本机压根没配密钥的那几家
        （openai / moonshot / siliconflow / minimax-video …）照样出现在各页面型号下拉里 ——
-       用户在生成工作台的视频下拉里看到的是 minimax/h3、T2V-01-Director 这类
+       用户在工作台的视频下拉里看到的是 minimax/h3、T2V-01-Director 这类
        **本机根本调不通**的型号，而真正配了密钥的 vgenv 反而被挤到看不见。
        「能不能用」直接问 provUsable（**唯一一份判据**：设置页「供应商与密钥」、
        侧栏余额、这里三处共用），不再各写一份。
@@ -1384,7 +1384,7 @@ function topBoolValue(decl, on) {
       const body = spec.template ? this.renderTemplate(spec.template, f) : this.createBody(prov, f);
       /* 模板那一族的提交体只认识模板里写过 `{{…}}` 的那些键，而 `create.topBools` 说的是
          「这一项在**顶层**」—— 声明了却没写进模板，界面照样按声明把开关画出来（导演台那一块与
-         生成工作台那三排都读这一份声明），用户勾了、发出去却没有那一项，等于承诺了一件没做的事。
+         工作台那三排都读这一份声明），用户勾了、发出去却没有那一项，等于承诺了一件没做的事。
          所以调用方真的递了值就按声明摆到顶层；body/nest 那一族不经过这里（createBody 已经放对位置）。 */
       if (spec.template && body && typeof body === 'object' && !Array.isArray(body)) {
         const sctxB = { mode: (f.shape && f.shape.mode) || '', intent: f.creation_intent, caps: (f.shape && f.shape.caps) || null };

@@ -48,7 +48,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     await page.skipDataSyncBoot();
     await page.goto(proxy.base + '/shell.html');
     await page.waitFor(() => !!window.__themeApply && !!window.LS, 30000);
-    /* 全新浏览器档位 + 全新 .data-probe：两个键本来就该是空的。 */
+    /* 全新浏览器档位 + 全新探针数据目录：两个键本来就该是空的。 */
     const clean = await page.eval(() => ({
       storedTheme: localStorage.getItem('dir_theme'),
       storedPalette: localStorage.getItem('dir_palette'),

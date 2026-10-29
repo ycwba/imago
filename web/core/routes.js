@@ -1,34 +1,44 @@
 /* 全站页面路由表（唯一一份）：侧栏、外壳、旧地址别名、页面标题、组件地址 `src`、页面根类 `root`、
-   这一页挂载前必须就位的公共件 `needs`、这一页挂载后还要再 import 一层的 `chunk` 都从这里读。
+   这一页自己的样式表 `css`、这一页挂载前必须就位的公共件 `needs`、这一页挂载后还要再 import 一层的
+   `chunk` 都从这里读。
    `src` 与 `chunk` 都相对 web/app.js 解析（外壳的 import() 与预取同一个基准，不另抄路径）。 */
 (function () {
   /* `needs`：外壳在 import 页面组件之前并发补载（app.js）。这四份不能等「用户点到才补」——
      `Capabilities` 在 engine/panel.js 求值期就被读，`TextAI` 建包时被当对象递进 split-assets，
      `AssetPicker` 由常驻的 gen-forms 直接开弹窗，`DataSync` 第一次落盘镜像就要用。
      收藏 / 用量 / 资产库用不到的那几份整份不下。
+     `css`：这一页私有的那份样式表（挂载与预取都只读这一格；导演台没有 ——
+     它的样式跟着 template.html 一起走作用域岛，spa-director.css 是外壳常驻件）。
      `chunk`：modulepreload 只走静态 import 图，看不见 director/index.js 挂载时才发的那一次动态 import
      （engine.js 那一层）—— 不点名它就是三段串（needs → 页面 → 引擎）。 */
   const C = 'web/domain/capabilities.js', T = 'web/domain/text-ai.js',
-    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js';
+    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js';
   /* `short`：窄形态（56px）下压在图标下面的**两字短标签**。
      窄形态里也要认得出每一项，所以短标签常驻、不靠悬停才知道这一项是什么。
      它必须和 `label` 放在同一张表里 —— 侧栏不许另抄一份（改了页面名忘了改短标签，
-     侧栏上就会出现两个名字）。`label` 是全名（悬停名牌、读屏 aria-label 用它）。 */
+     侧栏上就会出现两个名字）。`label` 是全名（悬停名牌、读屏 aria-label 用它）。
+     不进侧栏的那一行（设置）没有 `short`：它在左下角是一整行横排的「图标 + 全名」，窄形态只留图标。 */
   const pages = [
     { file: 'director.html', id: 'director', label: '导演台', short: '导演', ic: 'film', title: '导演台', src: './director/index.js', root: '.director-page',
       chunk: ['./director/engine.js'],
-      needs: [C, T, P, D] },
+      needs: [C, T, P, D, S] },
     { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
-      needs: [C, T, P, D] },
-    { file: 'studio.html', id: 'studio', label: '生成工作台', short: '生成', ic: 'sparkles', title: '生成工作台', aiLabel: '生成工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
-      needs: [C, T, P, D] },
+      css: 'web/styles/spa-chars.css',
+      needs: [C, T, P, D, S] },
+    { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
+      css: 'web/styles/spa-studio.css',
+      needs: [C, T, P, D, S] },
     { file: 'favorites.html', id: 'favorites', label: '我的收藏', short: '收藏', ic: 'star', title: '我的收藏', src: './pages/favorites.js', root: '.fav-page',
+      css: 'web/styles/spa-pages.css',
       needs: [D] },
     { file: 'assets.html', id: 'assets', label: '资产库', short: '资产', ic: 'box', title: '资产库', src: './pages/assets.js', root: '.assets-page',
+      css: 'web/styles/spa-assets.css',
       needs: [T, D] },
     { file: 'usage.html', id: 'usage', label: '用量与余额', short: '用量', ic: 'chart', title: '用量与余额', src: './pages/usage.js', root: '.usage-page',
+      css: 'web/styles/spa-usage.css',
       needs: [T, D] },
-    { file: 'settings.html', id: 'settings', label: '设置', short: '设置', ic: 'gear', title: '设置', nav: false, src: './pages/settings.js', root: '.settings-page',
+    { file: 'settings.html', id: 'settings', label: '设置', ic: 'gear', title: '设置', nav: false, src: './pages/settings.js', root: '.settings-page',
+      css: 'web/styles/spa-settings.css',
       needs: [C, T, P, D] }
   ];
 

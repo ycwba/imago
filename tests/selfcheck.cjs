@@ -15,7 +15,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const S = require('./support.cjs');            // 数「代码里真有几条」时要先剥注释（§10 那条事件契约判据）
+const S = require('./support.cjs');            // 数「代码里真有几条」时要先剥注释（那条事件契约判据）
 
 const root = path.resolve(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
@@ -33,7 +33,7 @@ function ok(name, cond, detail) {
 function group(t) { console.log('\n' + t); }
 
 /* ---------- 1. SPA 架构判据的落点 ----------
-   旧版这里同步 spawnSync 跑 tests/spa.cjs（外加 §6b 再跑一遍 local-first.cjs）：
+   旧版这里同步 spawnSync 跑 tests/spa.cjs（另外再跑一遍 local-first.cjs）：
    两条子进程启动 + 与 all.cjs 里独立判据的**重复求值**，正是 selfcheck 3.8s 的慢点本体。
    现在 spa.cjs / local-first.cjs 都只作为 all.cjs 并发池里的独立判据各跑一次，
    本文件不再代跑、也不再垫「全绿」那句包装判据 —— 它们红，池子就红，退出码照样拦。
@@ -133,6 +133,54 @@ ok('页面不自己写字节单位表', !/\['B',\s*'KB',\s*'MB'/.test(all));
 ok('页面不自己写缩略图缓存键', !/function\s+thumbKeyOf|function\s+mediaKeyOf/.test(all));
 ok('共享层里仍有 AssetLocal / AiFind / Chips / AdvExtras 的唯一实现',
   ['window.AssetLocal', 'window.AiFind', 'window.Chips', 'window.AdvExtras'].every(k => read('web/domain/assetlib.js').includes(k) || read('web/domain/gen-forms.js').includes(k) || read('web/domain/local.js').includes(k) || read('web/domain/ai-find.js').includes(k) || read('web/ui/ui.js').includes(k)));
+
+/* ---------- 5b. 「让 AI 干一件事」那一族按钮：外壳与名字各只有一份 ----------
+   同一件事在各处叫不同名字、各配一副外壳，用户按上一处记住的名字就找不到下一颗按钮 ——
+   这一族收口的结果由下面几条钉住：外壳只在 ui.js、名字只在各自家族的那一处、
+   忙与闲只换那一行字。旧的写法（页面自己拼 innerHTML、自己改 textContent）不再出现。 */
+group('§5b AI 动作按钮只有一份画法');
+{
+  const tplDir = path.join(root, 'tools/vue-templates');
+  /* 判据扫的是「人写的界面源码」：web/ 下的 js（不含生成物与 vendor，webSources 已经排掉）
+     + 模板源 + 导演台那份 .html（walk 只收 js，这一份要单独点名）。 */
+  const uiSrc = S.webSources().map(p => S.asRel(p)).map(read)
+    .concat(fs.readdirSync(tplDir).filter(f => /\.html$/.test(f)).map(f => read('tools/vue-templates/' + f)))
+    .concat([read('web/director/template.html')]);
+  const join = uiSrc.join('\n');
+  const ui = read('web/ui/ui.js');
+  /* 定义处（ui.js 的 aiBtnHTML 本体）当然写着这一副外壳，扫描时把它排掉。 */
+  const notUi = uiSrc.filter(s => s !== ui);
+  ok('AI 动作按钮的外壳只有 ui.js 的 aiBtnHTML 一份（.tool.acc + .ic sparkles 14 + .tx）',
+    /window\.aiBtnHTML\s*=\s*function/.test(ui) && /window\.aiBtnState\s*=\s*function/.test(ui)
+    && !notUi.some(s => /class="tool acc[^"]*"[^>]*>[\s\S]{0,400}?icon\('sparkles'/.test(s)));
+  ok('忙与闲只经 aiBtnState 切（没有哪一处再重写整副 innerHTML 或裸 textContent）',
+    !/AiFind\.(busy|idle)\(/.test(join) && !/\b(aiBusy|aiIdle)\b/.test(join)
+    && uiSrc.filter(s => /window\.aiBtnState\(/.test(s)).length >= 4);
+  ok('「AI 搜索」那句名字只写在 AiFind.LABEL 一处',
+    /LABEL:\s*'AI 搜索'/.test(read('web/domain/ai-find.js'))
+    && uiSrc.filter(s => /['"]AI 搜索['"]/.test(s)).length === 1);
+  ok('「AI 润色」那颗按钮只由 InlinePolish.btnHTML 画（作用域只进说明句）',
+    /label:\s*'AI 润色'/.test(read('web/ui/forms.js'))
+    && uiSrc.filter(s => /['"]AI 润色['"]/.test(s)).length === 1);
+  /* 曾经叫过的名字不再回来：这几句一旦出现在源码里，就说明某处又开始自己拼按钮了。 */
+  const GONE = ['AI 检索', '检索中…', 'AI 正在理解检索需求', 'AI 润色这一句', 'class="polish"'];
+  ok('旧的按钮名字与那副自写外壳不再出现', !GONE.some(t => join.includes(t)),
+    GONE.filter(t => join.includes(t)).join(' / '));
+  ok('AI 回执写在列表重画之后（异步 render 不会把它覆盖成「N 项」）',
+    /await oo\.done\(\)/.test(read('web/domain/ai-find.js'))
+    && /done: \(\) => \{ resetPaging\(\); return render\(\); \}/.test(read('web/pages/chars.js'))
+    && /done: \(\) => \{ resetPaging\(\); return render\(\); \}/.test(read('web/pages/favorites.js')));
+  ok('AI 搜索那颗与搜索框同壳（.fb-ai），画法只在 AiFind.btnHTML 一处',
+    /class="fb-ai"/.test(read('web/domain/ai-find.js'))
+    && uiSrc.filter(s => /class="fb-ai"/.test(s)).length === 1);
+  ok('搜索条没有单独的「搜索」按钮：回车 / 失焦搜，清空即取消筛选', (() => {
+    const wb = read('web/ui/workbench.js');
+    return !/GO_LABEL/.test(wb) && !/data-fb="go"/.test(wb)
+      && /addEventListener\('blur'/.test(wb) && /applyQ\(''\)/.test(wb)
+      && !['web/pages/assets.js', 'web/pages/studio.js'].some(f => /go:\s*true/.test(read(f)))
+      && !/<button class="ghost"[^>]*>\s*搜索</.test(join);
+  })());
+}
 
 /* ---------- 6. 本机优先 / 云端：身份判据只有一份 ---------- */
 group('§6 本机优先与云端身份');

@@ -31,6 +31,7 @@ import { createGroups } from './groups.js';
 import { createBoardAssets } from './board-assets.js';
 
 import { createBoardVars } from './board-vars.js';
+import { shotRefPlanOf, tokenizeRefPrompt, applyProviderRefSyntax } from './ref-plan.js';
 
 import { normalizeFilm, promoteCandidate, demoteShot, normalizeTransition, transitionNameOf, chosenCandOf, deriveTimeline, createClip, clipDurationOf, pos, IMAGE_SEGMENT_SECONDS, MAX_FILM_SECONDS } from './film.js';
 
@@ -74,7 +75,7 @@ let proj = null;        // 当前短片
 /* 工作区装配完成旗标：boot() 里 `await wsKv.get` → `await DataSync.workspaceFromServer` 之间
    有一整个网络往返的窗口，此时 WS 还是上面那份**空默认值**。关标签/刷新的 flush 与任何顺手
    排上的 scheduleSave 都可能在窗口里跑，写下去的就是「一个工程都没有」——把用户真工作区从
-   IndexedDB 与 .data/workspace.json 一起盖掉（AGENTS §6.2「读不出来绝不等于本来就没有」的同一类）。
+   IndexedDB 与 .data/workspace.json 一起盖掉（「读不出来绝不等于本来就没有」的同一类）。
    所以两份落盘都必须先问这一枚：没装配完就一个字节都不写。 */
 let wsLoaded = false;
 let REG = null;         // /registry：API 注册路由（提供商/模型/能力）
@@ -164,7 +165,7 @@ function newShot(prompt = '') {
     line: '',
     /* 说这句台词的是谁（素材库里的角色名）。有台词才可能有它，且只决定把这一句填进合成框时
        预填哪一位的音色（设计档填 `voiceNote`、克隆档挂 `refAudio`）—— 它不进提示词、
-       不进配音轨、也不是 `proj.film.voices` / `proj.film.pending` 里的字段，
+       不进配音轨、也不是 `proj.film.voices` 里的字段，
        与 `line` 一样是「还没合成的那句话」的附属信息。 */
     lineWho: '',
     note: '',
@@ -488,7 +489,7 @@ function restoreSnap(json) {
 /* 手里这一步「叫什么」：beginEdit 记过名的用它的名，只走 scheduleSave('<名字>') 的那一句算。
    空串 = 没有任何人报过「这一步做了什么」—— 那多半是重画顺手补的字段（画幅组合、
    时长按型号收正、参数默认值、镜像旗标），不是用户的一次编辑。
-   日志里每一条都要说清做了什么（AGENTS §9.2），所以没名字的那一份**不进日志**（字节照旧落盘）。 */
+   日志里每一条都要说清做了什么，所以没名字的那一份**不进日志**（字节照旧落盘）。 */
 function editLabelInFlight() { return pendingEdit ? pendingEdit.label : (saveLabelNext || ''); }
 /* 500ms 合并窗口还没到期的那份改动，先结算成一步可撤销的编辑。
    scheduleSave 的定时器到期才把「改动前」压进撤销栈 —— 窗口没到就按 Ctrl+Z，
@@ -590,7 +591,7 @@ let tlZoom = (() => {
   return Number.isFinite(v) && v > 0 ? v : 1;
 })();
 
-/* Strip域（engine/strip.js）：块里面画什么 —— 画面段的胶片格、配音段与待生成段的波形与文字。
+/* Strip域（engine/strip.js）：块里面画什么 —— 画面段的胶片格、配音段的波形与文字。
    帧解码不在这边：`Frames` 那条流水线出图，这里只算采样点再把回来的图贴进格子。 */
 const Strip = createStrip({
   getZoom: () => tlZoom,
@@ -617,9 +618,7 @@ const Timeline = createTimeline({
   toolAction: (...a) => toolAction(...a),
   strip: Strip,
   seekRequest: (...a) => Play.seek(...a),
-  /* 板上的手势在 Edit 域：重画之前先问一次「台词有没有变成待生成块」，
-     重画之后把选中态与浮层接回去；工具条那排的状态也从 Edit 现读。 */
-  beforeRender: () => Edit.beforeRender(),
+  /* 板上的手势在 Edit 域：重画之后把选中态与浮层接回去；工具条那排的状态也从 Edit 现读。 */
   onBoardRender: () => Edit.onBoardRender(),
   toolState: () => Edit.toolState(),
   dblClickEmpty: t => Edit.addSegmentAt(t),
@@ -657,7 +656,6 @@ const Edit = createEdit({
   Play,
   addMarkerAt: (...a) => addMarkerAt(...a),
   shotLines: () => allShots().map(sh => ({ id: sh.id, name: sh.name, line: sh.line, who: sh.lineWho })),
-  openPendingBlock: (...a) => openPendingBlock(...a),
   /* 焦点变了 → 右栏那张卡（哪一档亮、卡上那几个数）跟着换。Voice 在 Edit 之后才建，
      所以这一位必须是箭头：建包时直接引用会撞 TDZ。 */
   onFocus: () => Voice.paintVcCard(),
@@ -1406,7 +1404,7 @@ function bindCandActs(col) {
     if (cur && sh.selId === cur.vid) notes.push('这一条正被选用：删掉之后全片会少这一段');
     /* 还在跑的这一条要不要说「顺带撤单」，由注册表声明决定（判据只有 Api.canCancel 一份）。
        没有取消接口的那几家（MiniMax / 硅基流动 / 智谱视频）删了本机记录，平台上那条照样跑完 ——
-       原来那句「删掉会顺带撤掉这个任务」在那几家是句假话（AGENTS.md「界面上的承诺要么实现、要么改文案」）。 */
+       原来那句「删掉会顺带撤掉这个任务」在那几家是句假话（「界面上的承诺要么实现、要么改文案」）。 */
     const live = !!cur && (cur.status === 'queued' || cur.status === 'running');
     const cxProv = live ? provById(cur.provider) : null;
     if (live && cxProv && Api.canCancel(cxProv)) notes.push('这一条还在平台上跑：删掉会顺带向平台撤掉这个任务');
@@ -1833,7 +1831,7 @@ function paintSceneThumb(btn, sc) {
     : icon('image', 13);
   if (pic) Wb.thumbs.bind(btn, btn.querySelector('img'), Api.mediaSrc(pic));
 }
-/* 挑一张场景图：右栏那几个槽位用的同一份选择器（资产库 / 收藏 / 本地上传 / AI 检索都在里面）。 */
+/* 挑一张场景图：右栏那几个槽位用的同一份选择器（资产库 / 收藏 / 本地上传 / AI 搜索都在里面）。 */
 function pickScenePic(sc) {
   AssetPicker.open({
     types: ['图片'], multiple: false, limit: 1, aiSearch: true,
@@ -2223,42 +2221,27 @@ function addMarkerAt(time, type) {
   setStatus('<span class="ok">✓ 已在 ' + Wb.fmtClock(m.time) + ' 加一枚标记</span>');
   return m;
 }
-/* ---------------- 「这一镜的台词还没配音」那一族 ----------------
-   三条不能各写一份的口径：
-     ① 判据只有 `pendingLineOf`：台词有字 + 这一镜身上没有任何一条配音的文字与它相同。
-        轨道上那些待生成块由 Edit 域的 `syncPending` 按同一条判据写进 `proj.film.pending`，
-        清单上的徽章与轨道上的斜纹块读的是这里这一个函数；
-     ② 位置只有块自己的 `start`（成片秒）—— 拖它的手势在 Edit 域，这里只读；
-     ③ 点击只有一个出口 `openPendingVoice`，它一个计费请求都不发：合成仍只在
-        「合成并加到这一轨」那一下。 */
+/* ---------------- 「这一镜的台词配过音没有」 ---------------- */
 const lineTrim = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-/* 「同一句话」按去空白后比：台词末尾多一个空格不该让这一句重新变成待生成。 */
+/* 「同一句话」按去空白后比：台词末尾多一个空格不该让这一句重新变成未配音。 */
 const lineSame = (a, b) => String(a == null ? '' : a).replace(/\s+/g, '').trim().toLowerCase()
   === String(b == null ? '' : b).replace(/\s+/g, '').trim().toLowerCase();
-function pendingLineOf(sh) {
+function lineVoicesOf(sh) {
   const text = lineTrim(sh && sh.line);
-  if (!text) return null;
-  const voiced = (ensureFilm().voices || []).some(v => v && v.shotId === sh.id && lineSame(v.text, text));
-  return voiced ? null : { text, who: lineTrim(sh && sh.lineWho) };
+  if (!text) return [];
+  return (ensureFilm().voices || []).filter(v => v && v.shotId === sh.id && lineSame(v.text, text));
 }
-/* 点轨道上那个待生成块（Edit 只报块号）与点台词清单里的一行（那里手上就是镜头本身）
-   是同一个出口 —— 两条路进来的行为必须一模一样。 */
-function openPendingBlock(id) {
-  const p = (ensureFilm().pending || []).find(x => x && x.id === id);
-  const sh = p && allShots().find(x => x.id === p.shotId);
-  if (sh) openPendingVoice(sh);
-}
+const lineVoicedOf = sh => lineVoicesOf(sh).length > 0;
 /* 把焦点切到那一镜、播放头落到这一句自己的块上、台词填进合成框、翻到「生成配音」。
    先画一版（字已经在了），素材库那边取字节回来再补画一次那两格 —— 一条人声可能几 MB，
    为了等它把整个点击拖住不动，用户会以为没点中。 */
-function openPendingVoice(sh) {
+function openLineVoice(sh) {
   if (!sh) return;
   const sc = proj.scenes.find(s2 => s2.shots.includes(sh));
   if (sc) { proj.curScene = proj.scenes.indexOf(sc); proj.curShot = sc.shots.indexOf(sh); }
-  /* 块画在哪、播放头就落在哪、合成将来也在哪；这一镜的台词已经配过音时没有块，针不动
-     （从台词清单点进来只是要看那一镜，那一句的位置由它自己那条配音说着）。 */
-  const pend = (ensureFilm().pending || []).find(p => p && p.shotId === sh.id);
-  if (pend) Timeline.seekTo(Math.max(0, Number(pend.start) || 0), { follow: true });
+  /* 落到这一镜的画面段起点：合成出来的那一句也该落在这儿。这一镜还没进成片时不动针。 */
+  const row = deriveTimeline(ensureFilm().clips || []).rows.find(r => r && r.clip && r.clip.shotId === sh.id);
+  if (row) Timeline.seekTo(Math.max(0, Number(row.start) || 0), { follow: true });
   const p = { text: lineTrim(sh.line), who: lineTrim(sh.lineWho) };
   /* 草稿先认主（shotId），再填内容 —— 右栏配音那一栏只清「别人的」草稿。 */
   voiceDraft.shotId = sh.id;
@@ -2271,7 +2254,7 @@ function openPendingVoice(sh) {
   vcTab = 'gen';
   renderAll();
   /* 焦点 / 播放头 / 草稿都是视图状态（不进工程快照）：静默落盘即可，
-     别在历史里压一步「点了一下待生成占位」。 */
+     别在历史里压一步「点了一下台词行」。 */
   scheduleSaveQuiet();
   prefillVoiceWho(p.who, { keep: sameText, shot: sh }).then(note => {
     if (curShot() !== sh) return;
@@ -2421,6 +2404,8 @@ const Voice = createVoice({
   capPanelHTML: (...a) => Caption.capPanelHTML(...a),
   bindCapPanel: (...a) => Caption.bindCapPanel(...a),
   scheduleSave: (...a) => scheduleSave(...a),
+  filmEdited: (...a) => filmEdited(...a),
+  lineVoicesOf: (...a) => lineVoicesOf(...a),
   midEditTrimOf: () => midEditTrim,
   voiceDraftOf: () => voiceDraft,
   vcTabOf: () => vcTab,
@@ -2446,7 +2431,7 @@ const {
 } = Voice;
 
 /* 润色「要念的话」：走公共 InlinePolish 面板 + 全站同一套朗读稿提示词（TextAI.prompt('audio')）。
-   与生成工作台语音栏那颗「AI 润色」是同一个面板、同一句系统提示词 ——
+   与工作台语音栏那颗「AI 润色」是同一个面板、同一句系统提示词 ——
    这里只多交代一句「这是配画面的一句配音」（要口语、要短、不要解释），
    因为工作台润的是一整段文本，而这一处润的是一句台词。
    润色只改字：不合成、不计费，所以不需要二次确认。 */
@@ -2462,14 +2447,19 @@ async function polishVoiceText(col) {
   host.hidden = false;
   const sysBase = TextAI.prompt('audio');
   /* 这一处特有的一句（工作台润的是一整段文本，这里润的是画面上一句台词：要短、要一口气念完）。
-     其余那几句对模型的交代走公共实现 `TextAI.polishExtra` / `answersNote`，与生成工作台同一份。 */
+     其余那几句对模型的交代走公共实现 `TextAI.polishExtra` / `answersNote`，与工作台同一份。 */
   const hint = '这是要给画面配的一句配音：要口语、要短（一口气能念完），不要写解释、不要写旁白提示、'
     + '不要带引号或表情符号，只返回这一句本身。';
   const taskWord = '配音稿（画面上一句台词）';
-  const run = async answers => ({
-    after: await TextAI.chat(REG,
+  /* 与镜头提示词润色同一套：有 ctl 就把片段灌进 InlinePolish 的面板（流式），
+     没有 ctl 就用 AiStream 自己摆一块；只有反问那一轮仍是短 JSON 一次性调用。 */
+  const call = (sys, user, ctl, query) => ctl
+    ? TextAI.chatStream(REG, sys, user, { signal: ctl.signal, search: { query: query } }, ctl.push)
+    : AiStream.text(REG, sys, user, { host: host, title: 'AI 正在润色这一句配音…', search: { query: query } });
+  const run = async (answers, ctl) => ({
+    after: await call(
       TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ answers })),
-      TextAI.polishUser(taskWord, original)),
+      TextAI.polishUser(taskWord, original), ctl, original),
     note: '',
   });
   const ask = () => TextAI.askPolish(REG,
@@ -2481,12 +2471,11 @@ async function polishVoiceText(col) {
       what: taskWord, ask: askText, current,
       extra: [hint, TextAI.answersNote(ctx && ctx.answers)],
     });
-    return { after: await TextAI.chat(REG, p.sys, p.user), note: '' };
+    return { after: await call(p.sys, p.user, ctl, askText), note: '' };
   };
-  const old = btn.innerHTML;
-  /* 这颗按钮带着图标：`textContent` 会把图标一起抹掉（跑完再恢复就是一次「图标闪一下没了又回来」），
-     所以 busy 文案也走 innerHTML，图标尺寸与静态标记那一颗一致。 */
-  btn.disabled = true; btn.innerHTML = icon('sparkles', 14) + ' 润色中…';
+  /* 忙与闲只切状态：那一行字与图标各归哪一格都由公共层管（`aiBtnState` 只换 `.tx`，
+     不重写整副 innerHTML —— 那样图标一会儿包在 .ic 里、一会儿裸着，颜色跟着漂）。 */
+  window.aiBtnState(btn, true);
   try {
     await InlinePolish.interactive(host, {
       ask: TextAI.shouldAsk() ? ask : null, run: run, before: original,
@@ -2507,7 +2496,7 @@ async function polishVoiceText(col) {
   } catch (e) {
     InlinePolish.clear(host);
     setStatus('<span class="err">润色失败：' + esc(String(errText(e))) + '</span>');
-  } finally { btn.disabled = false; btn.innerHTML = old; }
+  } finally { window.aiBtnState(btn, false); }
 }
 
 /* 「上一镜 / 下一镜」两颗按钮已删（2026-10 用户点名）：切镜走左栏的分镜列表。 */
@@ -2578,29 +2567,23 @@ function filmSize() {
    成片的真实尺寸只由 filmSize() 那一处算（导出与 FCPXML 读它），界面上没有第二个去处。 */
 
 /* ---------- 视频模型与参数：按这一镜的输入推导可用模型 ---------- */
-/* 提示词里的 @参考图N = 引用第 N 张素材图；提交前按平台声明的语法转换（未声明就原样提交） */
-function applyRefSyntax(prompt, prov) {
-  const tpl = prov && prov.refSyntax;
-  if (!tpl) return prompt;
-  return String(prompt).replace(/@参考图\s*(\d+)/g, (_, n) => tpl.replace('{n}', n));
+/* 素材编号与发送顺序的唯一计划表：首帧 → 尾帧 → 画面切片 → 手动参考图 → 参考视频 → 参考音频。
+   芯片、润色附图、提交前的 @ 替换、真正发出去的 inputEntries 都读这一份（见 ref-plan.js）。 */
+function chainSlotOf(sh) {
+  return !!(sh && sh.linkPrev === 'tail' && !sh.firstFrame && allShots().indexOf(sh) > 0);
 }
-/* 提示词里的 `@名字` → `@参考图N`：名字是给人看的，**平台只认「第几张」**。
-   映射来自这一镜的 refMeta（@ 引用时写下的素材名）与 refImages 的下标 —— 与参考图角标、
-   「提到素材」那排芯片读的是同一份数据，所以提示词里写的和第几张图永远对得上。
+/* 规范标记 → 平台声明的引用语法（H3 就是 <Picture N> / <Video N> / <Audio N>）。
+   未声明语法的平台原样提交。 */
+function applyRefSyntax(prompt, prov) {
+  return applyProviderRefSyntax(prompt, prov && prov.refSyntax);
+}
+/* 提示词里的 `@名字` / `@首帧` → 计划里的 `@参考图N`；编号与真正发出去的顺序同源。
    一次正则替换（名字按长度从长到短排），不做逐名 split：后者会在名字互为前缀时连锁改写。 */
-function refTokenize(sh, prompt) {
-  const out = String(prompt == null ? '' : prompt);
-  if (out.indexOf('@') < 0) return out;
-  const meta = Array.isArray(sh.refMeta) ? sh.refMeta : [];
-  const map = new Map();
-  (sh.refImages || []).forEach((src, i) => {
-    const lb = String((meta[i] && meta[i].label) || '').trim();
-    if (lb && !map.has(lb)) map.set(lb, i + 1);      // 同名只认第一张（同一条素材本来也只会加一次）
-  });
-  if (!map.size) return out;
-  const names = [...map.keys()].sort((a, b) => b.length - a.length)
-    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  return out.replace(new RegExp('@(' + names.join('|') + ')', 'g'), (m, n) => '@参考图' + map.get(n));
+function refTokenize(sh, prompt, ic, o) {
+  /* 接续镜的首帧在提交那一刻才解析，但编号现在就得定下来：先按「会接上」占住第 1 张图，
+     真正解析失败时整次提交会中止，不会发出一份编号错位的正文。 */
+  const opt = o || { chainPending: chainSlotOf(sh) };
+  return tokenizeRefPrompt(prompt, shotRefPlanOf(sh, ic, opt, id => Api.assetSrc(id)));
 }
 
 /* Panel域（engine/panel.js）：这一段（7206-9191）搬进模块，这里只留访问器包与一条解构。
@@ -2634,10 +2617,12 @@ const Panel = createPanel({
   curDraftCand: (...a) => curDraftCand(...a),
   promptTextOf: (...a) => promptTextOf(...a),
   renderMid: (...a) => renderMid(...a),
-  pendingLineOf: (...a) => pendingLineOf(...a),
-  openPendingVoice: (...a) => openPendingVoice(...a),
+  lineVoicedOf: (...a) => lineVoicedOf(...a),
+  lineVoicesOf: (...a) => lineVoicesOf(...a),
+  openLineVoice: (...a) => openLineVoice(...a),
   renderVoiceCol: (...a) => renderVoiceCol(...a),
   applyRefSyntax: (...a) => applyRefSyntax(...a),
+  refTokenize: (...a) => refTokenize(...a),
   pickRefMedia: (...a) => pickRefMedia(...a),
   setPolishUI: v => { polishUI = v; },
   renderPolishPanel: (...a) => renderPolishPanel(...a),
@@ -2738,7 +2723,7 @@ function focusImported(hit, why) {
 /* 真实时长 / 尺寸 / 音轨：走 MediaBackend.info（浏览器内 mediabunny 元数据 + <video> 兜底），
    服务端不提供媒体探测。
    失败不要挡住导入本身：拿不到时长就交回 null，播放器会自己量。 */
-/* 候选 → 同源媒体地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环（AGENTS §4.1）；
+/* 候选 → 同源媒体地址：候选的 url 常是上游签名外链，必须先过 Api.mediaSrc 换成同源回环；
    本机已镜像的走 EditorMedia（本机优先）。轨道取帧与助手的媒体检查共用这一份。 */
 const candTrackSrc = c => {
   const src = c && (c.src || c.url);
@@ -2957,18 +2942,18 @@ async function pickRefMedia(sh, kind) {
 }
 
 /* ---------- 润色指令（文字AI）---------- */
-/* 润色要附带的素材图：编号与提示词里的 @参考图N 对齐（参考图 → 首帧 / 尾帧 → 时间切片画面） */
+/* 润色要附带的素材图：编号、顺序与真正发出去的 content[] 完全同源（见 shotRefPlanOf）。
+   合成一张「参考图N」的标签，是为了让文字 AI 在正文里写的 @参考图N 与平台收到的第 N 项对得上。 */
 function polishImageList(sh) {
-  const out = [];
-  (sh.refImages || []).forEach((src, i) => out.push({ label: '参考图 ' + (i + 1), src }));
-  if (sh.firstFrame) out.push({ label: '首帧（开头画面）', src: sh.firstFrame });
-  if (sh.lastFrame) out.push({ label: '尾帧（结尾画面）', src: sh.lastFrame });
-  (sh.keyframes || []).filter(k => k.assetId).forEach(k => {
-    const src = Api.assetSrc(k.assetId);
-    if (out.some(x => x.src === src)) return;          // 已经作为参考图列过就不重复
-    out.push({ label: '时间切片画面（第 ' + k.t + ' 秒）', src });
-  });
-  return out;
+  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
+  return plan.pictures
+    .filter(p => p.src || p.assetId)
+    .map(p => ({
+      label: '参考图' + p.n + (p.label ? ' · ' + p.label : ''),
+      src: p.src || Api.assetSrc(p.assetId),
+      token: p.token,
+      role: p.role,
+    }));
 }
 /* 润色结果的就地状态：编辑器会被反复重渲染，面板内容存这里才不会丢
    { shotId, text, note, loading, run, follow, answersText, talk }
@@ -3054,7 +3039,7 @@ async function polishRun(answers) {
     InlinePolish.clear($('polishInline'));
     setStatus('<span class="err">润色失败：' + e.message + '</span>');
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="ic">' + icon('sparkles', 14) + '</span>AI 润色'; }
+    window.aiBtnState(btn, false);
     renderPolishPanel(curShot());
   }
 }
@@ -3066,42 +3051,68 @@ async function polishPrompt() {
   if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
   if (!TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
-  const sysBase = TextAI.prompt('video');   // 内置默认只有一份（TextAI.DEF，见设置页）
   let images = [];
   /* 流式有两个落点，取决于这一轮是谁发起的：
      · 带着 ctl（「重新润色」与「按这句再改」—— 结果面板此刻就在屏幕上）→ 片段灌进 ctl.push，
        边写边显示在结果框里。这时**不能**再往 `#polishInline` 摆流式面板：那块宿主就是结果面板本身。
      · 不带 ctl（第一次点「AI 润色」，宿主里只有一句转圈）→ 用 AiStream 的面板，这一轮动辄十几秒，
        看得见它写到哪里比只挂一句「正在润色…」有用得多。 */
+  const shotSearch = { query: original };
   const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
+    ? TextAI.chatStream(REG, sys, user, { images, search: shotSearch, signal: ctl.signal }, ctl.push)
     : AiStream.text(REG, sys, user, {
-        images: images, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
+        images: images, search: shotSearch, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
       });
   /* 素材清单：参考图 / 首帧 / 尾帧 / 时间切片会随消息附上；**参考视频与参考音频附不了**，
      但必须写清「有几条、拿来干什么」—— 只说一句「还挂了参考视频」的话，模型既不知道数量
      也不知道内容，只能靠猜（`TextAI.materialNote` 是公共实现，三个工作台共用一份措辞）。 */
   const materials = () => {
-    const items = polishImageList(sh).map(x => ({ label: x.label, kind: '图片', sent: true }));
-    if (sh.refVideo) items.push({ label: '参考视频', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
-    if (sh.refAudio) items.push({ label: '参考音频', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
+    /* 只有真的随消息发出去的那几张才写 sent：识图没开或某张读不出来时，
+       文字 AI 看不到那一张，不能让它以为看见了。 */
+    const sentLabels = new Set(images.map(x => x.label));
+    const items = polishImageList(sh).map(x => ({
+      label: x.label, token: x.token, role: x.role, kind: '图片', sent: sentLabels.has(x.label),
+    }));
+    /* 接续镜的首帧提交时才取得到，润色这一轮附不上；把它的编号与来源说给文字 AI，
+       它才知道这一镜的第 1 张图是上一镜的落幅、正文该从哪里起笔。 */
+    const ic = shotInputCaps(sh);
+    if (chainSlotOf(sh)) items.unshift({ label: '接上一镜尾帧', token: '@参考图1', role: 'first_frame', kind: '图片', sent: false, hint: '提交时自动取上一镜结尾当首帧' });
+    if (ic.refVideo && sh.refVideo) items.push({ label: '参考视频', token: '@视频1', role: 'reference_video', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
+    if (ic.refAudio && sh.refAudio) items.push({ label: '参考音频', token: '@音频1', role: 'reference_audio', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
     return items;
   };
+  /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
+     这些是**这一次请求的条件**，由程序按当前镜头填好；Skill 只决定把它们摆在哪一段。 */
+  const shotVarsNow = () => {
+    const rm = resolvedModel(sh) || {};
+    const cb = shotCombo(sh);
+    const items = materials();
+    const mode = (cb && comboLabel(cb)) || (shotUsedRoles(sh).length ? '参考素材' : '纯文字');
+    return {
+      duration: sh.duration ? sh.duration + ' 秒' : '按型号声明的默认时长',
+      mode: mode,
+      model: rm.id ? String(rm.id) + (rm.name && rm.name !== rm.id ? '（' + rm.name + '）' : '') : '未选型号',
+      ar: sh.ar || '按型号声明的默认画幅',
+      assets: items.length ? TextAI.materialNote(items) : '这一镜没有参考素材',
+    };
+  };
+  /* 变量里的「附上了几张」取决于 prep 的结果（识图开没开、有没有读不出来的），
+     所以系统提示词在 prep 之后现拼。 */
+  const shotSysNow = () => TextAI.prompt('video', undefined, shotVarsNow());
   const prep = async () => {
     // 「随附图片」编号与 @参考图N 一致：参考图 → 首帧 / 尾帧 → 时间切片画面
-    const picked = await TextAI.polishImages(REG, polishImageList(sh), { max: 6 });
+    const picked = await TextAI.polishImages(REG, polishImageList(sh));
     images = picked.images;
     return picked;
   };
-  /* 一次润色 = 准备素材图（识图模型才带）→ 交代素材清单 → 组装提示词 → 调用文字 AI；返回 { after, note }。
+  /* 一次润色 = 准备素材图（识图模型才带）→ 组装提示词 → 调用文字 AI；返回 { after, note }。
      answers 是用户对「AI 先前的追问」的回答（没有追问时是空串）。
-     那几句「对模型的交代」全部出自 `TextAI.polishExtra`（随附图怎么用 / @标记要保留 / 素材清单 /
-     用户的回答，顺序也在那一份里定），与生成工作台、导演台配音那一处同一套 ——
-     以前三处各抄一遍，改契约的人只改自己刚碰的那一处，于是同一段回答在不同页面发给模型的意思不一样。 */
+     素材清单与时长已经由 `shotVarsNow` 填进 Skill 正文的 `{}` 变量；`TextAI.polishExtra` 只补
+     随附图怎么用、@标记要保留、用户的回答 —— 这几句与工作台同一套。 */
   const run = async (answers, ctl) => {
     const picked = await prep();
-    const sys = TextAI.polishSys(sysBase, TextAI.polishExtra({
-      images: images, text: original, materials: materials(), answers: answers,
+    const sys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
+      images: images, text: original, answers: answers,
     }));
     return { after: await call(sys, TextAI.polishUser(POLISH_SHOT_WORD, original), ctl), note: picked.note };
   };
@@ -3122,7 +3133,7 @@ async function polishPrompt() {
   const wantAsk = TextAI.shouldAsk();        // 设置选「从不问」时不发起这一轮
   polishUI = { shotId: sh.id, phase: 'ask', loading: true, loadingText: '正在读这一镜，想想到底要先问什么…',
     run: run, follow: follow, answersText: '', talk: [], note0: '', questions: [], answers: [] };
-  if (btn) { btn.disabled = true; btn.innerHTML = icon('sparkles', 14) + ' 润色中…'; }
+  window.aiBtnState(btn, true);
   /* 先反问：**由 AI 自己判断**值不值得问（need=false 就直接润色）。这一轮同样带素材图与清单 ——
      看过画面再问，问出来的才是画面相关的问题。 */
   let questions = [];
@@ -3131,8 +3142,8 @@ async function polishPrompt() {
     let r = { need: false, questions: [] };
     try {
       const picked = await prep();
-      const askSys = TextAI.polishSys(sysBase, TextAI.polishExtra({
-        images: picked.images, materials: materials(), stage: 'ask',
+      const askSys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
+        images: picked.images, stage: 'ask',
       }));
       r = await TextAI.askPolish(REG, askSys,
         TextAI.askUser(POLISH_SHOT_WORD, original, { count: '2–4', tail: '这一镜挂了哪些素材见系统提示' }), { images });
@@ -3148,7 +3159,7 @@ async function polishPrompt() {
     polishUI.loading = false;
     polishUI.questions = questions;
     polishUI.answers = [];
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="ic">' + icon('sparkles', 14) + '</span>AI 润色'; }
+    window.aiBtnState(btn, false);
     renderPolishPanel(curShot());
     return;
   }
@@ -3298,7 +3309,7 @@ let kfQ = 'standard';   // 时间切片画质选择（编辑器会反复重渲�
    所以这一档默认不变，只是**给了一个出口**：生图型号声明的画幅与视频那一条对得上时自己挑。 */
 let kfAr = '', kfSize = '', kfFormat = '';
 /* 「AdvParams 那四档之外」的三排（型号布尔 / 提交体顶层开关 / 提交体顶层非布尔字段）：
-   判据、画法、读回都在 gen-forms.js 的 AdvExtras，与视频那一面、与生成工作台都是同一份。
+   判据、画法、读回都在 gen-forms.js 的 AdvExtras，与视频那一面、与工作台都是同一份。
    这里只记账：`topBools` / `shape` 与四档一起落盘（切镜头、刷新都不该重挑一遍）。 */
 let kfTopBools = {}, kfShape = {};
 /* 型号布尔那一排的「用户动过没有」账（`bool_<k>` = '1'/'0'）：公共层的 `html.bools` 靠它区分
@@ -3336,7 +3347,7 @@ function kfModelOf() {
   const g0 = groups[0];
   return g0 ? { prov: g0, model: g0.models[0] } : { prov: null, model: null };
 }
-/* ---------- 画面生成的「三排声明驱动控件」（与视频那一面、与生成工作台共用 AdvExtras） ----------
+/* ---------- 画面生成的「三排声明驱动控件」（与视频那一面、与工作台共用 AdvExtras） ----------
    注意型号是**生图型号**：这一路的 caps 按「这一批要带几张参考图」现算，
    不能借视频型号那一份（两家在同一平台上常常给不同的行）。 */
 function kfAdvCtx(sh) {
@@ -3498,7 +3509,7 @@ async function getPriceEstimate(sh) {
   if (estCache.key === key) return estCache.txt;
   const r = await estimateCost(prov, rm, body);
   const name = prov?.name || rm.provider || '未知API';
-  /* `skip` 与「报价失败了」是两件事（与生成工作台同一句区分）：这一档根本没有询价这条路
+  /* `skip` 与「报价失败了」是两件事（与工作台同一句区分）：这一档根本没有询价这条路
      （注册表声明的 `pricing.noQuote` —— VGENV 的动作换人在报价时要求带那段参考视频的字节，
      而报价是纯参数查询，拿不到）。写成「报价不可用（…INVALID）」会让人以为接口坏了，
      而切到「视频换人」之后这一条**每次都会**出现。 */
@@ -3567,7 +3578,7 @@ function assetToDataURL(assetId) {
   /* 取字节统一走 Net.blob（带超时、先判 HTTP 状态），不再裸 fetch */
   return Net.blob(Api.assetDl(assetId), { timeout: 60000 }).then(b => AssetTransfer.toDataURL(b));
 }
-/* 画面生成（时间切片）那几档参数的**判据在 `gen-forms.js` 的 `AdvParams.plan`**（与生成工作台图像栏同一份）：
+/* 画面生成（时间切片）那几档参数的**判据在 `gen-forms.js` 的 `AdvParams.plan`**（与工作台图像栏同一份）：
    选项来自图片模型自己的声明、回落顺序、显示名、摘要、提交体要带哪几项，全在那一处。
    这里只留三件导演台自己的事：① 值存在模块变量里（整块随编辑器重绘，控件不是常驻 DOM），
    ② 「跟随这一镜」这个借用值从 `sh.ar` 来，③ 归档日志的写法。 */
@@ -3697,11 +3708,12 @@ function parseFrames(txt, dur) {
    看不出它在想、卡住、还是连接早就断了 —— 三种状态长得一模一样。
    现在走公共 `AiStream.text`：边收边显示，最后一块字到了才收起面板；返回值与 chat 完全一致，
    所以 `parseFrames` 那一段一个字都不用改。 */
-async function callTextAI(sys, user) {
+async function callTextAI(sys, user, searchQuery) {
   // 供应方与型号都用「设置 → 文字 AI 接口与模型」里当前选中的那一家（AiStream 内部也走 TextAI）
   return await AiStream.text(REG, sys, user, {
     host: document.getElementById('kfPlanInline'),
     title: '文字 AI 正在规划画面切片…',
+    search: { query: searchQuery || user },
   });
 }
 
@@ -3711,7 +3723,7 @@ async function planKeyframes(sh, dur) {
   const user = `镜头描述：${sh.prompt}
 镜头时长：${dur} 秒
 请决定需要几张关键画面（3–8 张，按内容复杂度），并按时间顺序给出每张的时间点与文生图提示词。只返回 JSON。`;
-  const txt = await callTextAI(sys, user);
+  const txt = await callTextAI(sys, user, sh.prompt);
   const frames = parseFrames(txt, dur);
   if (frames.length) return frames;
   // 兜底：文字 AI 没给出结构化结果时，按 2.5 秒切片逐帧润色（保持旧行为可用）
@@ -3720,7 +3732,7 @@ async function planKeyframes(sh, dur) {
   if (times[times.length - 1] !== dur) times.push(dur);
   const out = [];
   for (const t of times) {
-    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
+    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`, sh.prompt);
     if (p) out.push({ t, prompt: p.replace(/^["'`]|["'`]$/g, '').slice(0, 600) });
   }
   return out;
@@ -3791,7 +3803,7 @@ async function generateKeyframes(sh) {
   const kfDur = (Array.isArray(rmv?.options?.durations) ? rmv.options.durations : []).map(Number).filter(Number.isFinite);
   const dur = Number(sh.duration) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
   const btn = $('kfGenBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
+  window.aiBtnState(btn, true);
   try {
     // ① 文字 AI 规划：决定几张 + 每张的切片提示词
     setStatus('文字 AI 正在规划画面切片…');
@@ -3859,7 +3871,7 @@ async function generateKeyframes(sh) {
   } finally {
     kfRun = false;
     sh.keyframes = (sh.keyframes || []).filter(k => !k.deleted);
-    if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 13) + ' 按描述生成这一镜的画面'; }
+    window.aiBtnState(btn, false);
     renderEditor();
   }
 }
@@ -3906,9 +3918,9 @@ function updateProjUI() {
   $('projCount').textContent = WS.projects.length;
   $('projName').value = proj.name;
   refreshEst();
-  /* 按钮下那行「可生成 N 镜 / 预计 X」跟镜头增删、型号、条数一起变：去抖与缓存都在它自己那一份里，
+  /* 「生成全部分镜」的文案与可用状态跟镜头增删、型号、条数一起变：去抖在它自己那一份里，
      重复调用只是排一次定时器。 */
-  Gen.refreshGenAllEst();
+  Gen.refreshGenAllBtn();
 }
 /* 项目菜单：按**项目组**分树（组 → 组内的短片 → 未分组）。
    组名即素材组名（见 web/director/groups.js）。组的判据全在那个模块里，这里只画。 */
@@ -4124,37 +4136,18 @@ function switchProject(id) {
 }
 $('projSwitch').onclick = e => { e.stopPropagation(); renderProjMenu(); $('projMenu').hidden = !$('projMenu').hidden; };
 document.addEventListener('click', e => { if (!$('projMenu').contains(e.target) && e.target !== $('projSwitch')) $('projMenu').hidden = true; });
-/* 进度信息挪到左栏「生成全部分镜」按钮下方的小字（顶部横幅平常不出现） */
-let genAllMsg = null;        // 批量生成的结果/提示：横幅只报错，成功信息在这里留 12 秒
-function setGenAllMsg(html) { genAllMsg = { html, ts: Date.now() }; updateBanner(); }
+/* 左栏「生成全部分镜」下面那条进度条：填充 = 已完成 / 全部。
+   状态区唯一的读数就是它，不配文字 —— 不能生成的原因写在按钮的 title 上。 */
 function updateBanner() {
   const all = allShots();
   const ready = all.filter(shotReady).length;
-  const note = $('genAllNote');
-  /* 进度条与那一行小字是同一份账（已完成 K / N）：两个地方各算一次，迟早差一个。 */
   const progBox = $('genAllProg');
-  if (progBox) {
-    progBox.hidden = !all.length;
-    const fill = progBox.querySelector('b');
-    if (fill) fill.style.width = (all.length ? Math.round(ready / all.length * 100) : 0) + '%';
-    const txt = $('genAllProgTxt');
-    if (txt) txt.textContent = ready + ' / ' + all.length + ' 个分镜已完成';
-  }
-  if (!note) return;
-  /* 「生成中」与批量调度同一份判据（`chainStateOf` 把 `creating` 也算在跑）：
-     只认 queued / running 会让「刚提交、平台还没回任务号」的那一段横幅显示成空闲。 */
-  const running = all.some(sh => Gen.chainStateOf(sh) === 'running');
-  const prog = running ? '⏳ 生成中…（' + ready + '/' + all.length + ' 已完成）' : '';
-  // 刚提交完的结果优先显示 12 秒（和进度并排），之后再回到普通进度文案
-  if (genAllMsg && Date.now() - genAllMsg.ts < 12000) { note.innerHTML = genAllMsg.html + (prog ? '<span style="display:block;margin-top: var(--sp-2)">' + prog + '</span>' : ''); return; }
-  if (running) { note.textContent = prog; return; }
-  /* 进度那一行已经写在进度条旁边了（K / N 个分镜已完成），这里只留「全弄完了」这一句，
-     两处各写一遍就会同屏出现两个「已完成 1/5」。 */
-  note.textContent = ready === all.length && all.length
-    ? `✓ ${ready} 个分镜已完成，可以剪辑与导出了`
-    : '';
+  if (!progBox) return;
+  progBox.hidden = !all.length;
+  const fill = progBox.querySelector('b');
+  if (fill) fill.style.width = (all.length ? Math.round(ready / all.length * 100) : 0) + '%';
 }
-/* 「就地二次确认」全站**只有 web/ui/ui.js 的 Confirm.arm 一份**（AGENTS §7）。
+/* 「就地二次确认」全站**只有 web/ui/ui.js 的 Confirm.arm 一份**。
    这一页以前自建了一个 armConfirm：没有后果说明、Esc 不取消、点别处不取消、窗口只有 2.5 秒，
    而且没有「整页同时只有一个确认中」—— 可以同时点亮两颗删除按钮，
    用户点下第一颗之后才点第二颗，**两颗一起执行**。
@@ -4313,7 +4306,7 @@ const Gen = createGen({
   updateMidLive, sortCandidates, provById, saveScheduleSoft, renderScenesSoon, curDraftCand,
   applyRefSyntax, refTokenize, resolvedModel, ROLE_ZH, comboLabel, shotUsedRoles, shotCombo,
   shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
-  shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI, setGenAllMsg,
+  shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
   updateBanner, setStatus, hasRealCandidate, projOf: () => proj, wsOf: () => WS, regOf: () => REG,
   setForceMid: v => { forceMid = v; }, setSelectedCandidate,
 });
@@ -4341,7 +4334,7 @@ $('genAll').onclick = async () => {
     setStatus('<span class="err">批量生成没能开始：' + esc(errText(e)) + '</span>');
   } finally {
     $('genAll').disabled = false;
-    Gen.refreshGenAllEst();
+    Gen.refreshGenAllBtn();
   }
 };
 /* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 送到 NLE。
@@ -4365,39 +4358,32 @@ const EXPORT_RUN = {
     : f.id === 'jianying' ? () => Export.jianying()
     : () => Export.fcp({ bundle: !!f.bundle }),
 };
-/* 页头导出区：成片 / 媒体包各一颗；FCPXML 是**拆分按钮**（主钮 + 尾部 chevron），
-   达芬奇 / 剪映收在 chevron 的浮层里 —— 同一份 FCPXML 工程的三种去向不用平铺三颗。 */
-$('exportBtns').innerHTML = ExportFormats.list().filter(f => f.id !== 'resolve' && f.id !== 'jianying')
-  .map(f => f.id === 'fcpxml'
-    ? '<span class="exp-split"><button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
-      + icon(f.icon, 13) + ' ' + esc(f.label) + '</button>'
-      + '<button class="ghost exp-more" id="exportFcpMore" title="送到剪辑软件">'
-      + icon('chevronDown', 12) + '</button>'
-      + '<span class="exp-menu" id="exportFcpMenu" hidden></span></span>'
-    : '<button class="ghost" id="' + f.button + '" title="' + esc(f.title) + '">'
-      + icon(f.icon, 13) + ' ' + esc(f.label) + '</button>').join('');
+/* 页头导出区只有一颗**拆分按钮**：主钮「导出成片」（表里第一行），尾部 chevron 的浮层里
+   收其余去向（FCPXML / 媒体包 / 达芬奇 / 剪映）—— 同一份时间线不用平铺五颗按钮。 */
+const expFirst = ExportFormats.list()[0];
+$('exportBtns').innerHTML = '<span class="exp-split">'
+  + '<button class="ghost" id="' + expFirst.button + '" title="' + esc(expFirst.title) + '">'
+  + icon(expFirst.icon, 13) + ' ' + esc(expFirst.label) + '</button>'
+  + '<button class="ghost exp-more" id="exportMore" title="其它导出方式">'
+  + icon('chevronDown', 12) + '</button>'
+  + '<span class="exp-menu" id="exportMenu" hidden></span></span>';
+$('exportMenu').innerHTML = ExportFormats.list().slice(1).map(f =>
+  '<button type="button" id="' + f.button + '" title="' + esc(f.title) + '">'
+  + esc(f.label) + '</button>').join('');
 ExportFormats.list().forEach(f => {
   const b = $(f.button);
   if (b) b.onclick = EXPORT_RUN[f.kind](f);
 });
 {
-  const menu = $('exportFcpMenu');
-  const more = $('exportFcpMore');
-  if (menu && more) {
-    menu.innerHTML = ['resolve', 'jianying'].map(id => {
-      const f = ExportFormats.of(id);
-      return '<button type="button" id="' + f.button + '" title="' + esc(f.title) + '">'
-        + icon(f.icon, 13) + ' ' + esc(f.label) + '</button>';
-    }).join('');
-    const dismissMenu = () => { menu.hidden = true; };
-    more.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
-    menu.addEventListener('click', e => e.stopPropagation());
-    ['resolve', 'jianying'].forEach(id => {
-      const b = $(ExportFormats.of(id).button);
-      if (b) b.onclick = () => { dismissMenu(); EXPORT_RUN.xml(ExportFormats.of(id))(); };
-    });
-    document.addEventListener('click', dismissMenu);
-  }
+  const menu = $('exportMenu');
+  const more = $('exportMore');
+  const dismissMenu = () => { menu.hidden = true; };
+  more.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+  menu.addEventListener('click', e => {
+    e.stopPropagation();
+    if (e.target.closest('button')) dismissMenu();
+  });
+  document.addEventListener('click', dismissMenu);
 }
 $('importMediaFile').onchange = e => {
   const f = e.target && e.target.files && e.target.files[0];
@@ -4429,7 +4415,7 @@ $('importMediaFile').onchange = e => {
   });
 }
 
-/* ---------- 灯箱：DOM 与翻页/键盘/关闭/信息条全在 Wb.lightbox（见 AGENTS.md §3），页面只声明怎么取地址 ---------- */
+/* ---------- 灯箱：DOM 与翻页/键盘/关闭/信息条全在 Wb.lightbox，页面只声明怎么取地址 ---------- */
 Wb.lightbox.init({
   /* 本页没有列表视图：翻页范围由打开灯箱那一次自己带（`Wb.lightbox.open(item, pages)`）。 */
   list: () => [],
@@ -4595,7 +4581,7 @@ if (dirLayout) Wb.split.enable({
    ----------------------------------------------------------------------------
    助手不该靠 DOM 去点轨道上的按钮：那要「先 page_state 找按钮 → 再点」两步，
    而按钮本身还依赖「现在指着哪一块」这种界面态。桥只认**成片秒**（proj.film 的
-   start/end 都是它），写只有三条出口 —— Edit.patch（画面段 / 配音 / 待生成）、
+   start/end 都是它），写只有两条出口 —— Edit.patch（画面段 / 配音）、
    Edit.toolAction（切开 / 删 / 复制 / 融合，与工具条同一批函数）、Caption.*（字幕一族）：
      · select   选一条候选进成片（= 候选上那颗「用这条」）→ setSelectedCandidate
      · cut      切开 / 剪头 / 剪尾 / 删段 / 复制 / 融合 → Edit.toolAction

@@ -62,7 +62,6 @@ export function createBoardVars(ctx) {
       assets: x.assets || '',
       board: x.board || '',
       dur: x.dur || '',
-      style: x.style || '',
       title: x.title || '',
     };
   }

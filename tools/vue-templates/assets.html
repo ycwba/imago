@@ -2,7 +2,7 @@
     <div class="page-main assets-page page-shell" ref="pageEl">
       <!-- ══ 统一页头（全站唯一一份 .phead）══
            身份（图标铭牌 + 标题）+ **上下文**（在制 / 失败 / 结果未知：每一档带条数，
-           点一下就筛；计数为 0 的那一档不画）+ 页面级动作（刷新 / 多选 / 取消全部）。
+           点一下就筛；计数为 0 的那一档不画）+ 页面级动作（刷新 / 多选）。
            状态放在上下文槽而不是筛选项里：它不是「第五颗筛选项」，
            是「这批东西现在怎么样」的第一眼事实。 -->
       <header class="phead">
@@ -14,7 +14,6 @@
         <div class="phead-acts">
           <button class="ghost" :disabled="reloadDisabled" :title="reloadTitle" @click="reload"><span data-icon="refresh" data-size="13"></span> 刷新</button>
           <button class="ghost" id="multiBtn" :class="{ active: multiMode }" @click="toggleMulti"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-          <button class="ghost" id="cancelAllBtn" ref="cancelAllBtn" @click="cancelAll"><span data-icon="stop" data-size="13"></span> 取消全部进行中</button>
         </div>
       </header>
 
@@ -30,7 +29,7 @@
            平台从一个下拉走（平台涨到十几家时，一行十几颗芯片会把整行撑开）；
            时间也是一个下拉（预设），选「自定义区间」时后面才露出起止日期。 -->
       <div class="as-filters">
-        <!-- 类型（带条数）：公共件 Wb.kindFilter —— 与生成工作台、收藏页同一副分段控件 -->
+        <!-- 类型（带条数）：公共件 Wb.kindFilter —— 与工作台、收藏页同一副分段控件 -->
         <div class="ui-seg" ref="asTypeEl" role="group" aria-label="按类型筛选"></div>
         <label class="as-sel"><span>平台</span>
           <select class="ui-inp" ref="asProvEl" aria-label="按平台筛选"></select></label>
@@ -59,7 +58,7 @@
 
       <div ref="loadErrEl" id="loadErr"></div>
 
-      <!-- 多选条（与生成工作台同一套公共件）。「存回本机」是**多选才出现**的动作，
+      <!-- 多选条（与工作台同一套公共件）。「存回本机」是**多选才出现**的动作，
            存的是**勾选的那几条**（不是整屏）：不多选就点它，等于「把这一屏都存一遍」。 -->
       <div class="bulkbar" id="bulkBar" v-show="multiMode">
         <span class="bk-cnt" id="bulkCnt">{{ bulkCountText }}</span>
@@ -78,7 +77,7 @@
       <div class="grid" id="grid" ref="gridEl" v-show="!failed"><div class="empty">加载中…</div></div>
       <div id="gridEnd" ref="gridEndEl" style="height:1px"></div>
       <!-- 翻页行在**页底**（收藏 / 素材库 / 工作台同一处）：以前它挤在顶部那条筛选行里，
-           一排按钮（多选 / 刷新 / 存回本机 / 取消全部）后面还跟着翻页与跳页，跨页时位置全不一样。 -->
+           跟页面动作混成一排，跨页时位置全不一样。 -->
       <div class="assets-pager">
         <span class="pager-row" ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
         <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">

@@ -18,67 +18,84 @@ window.TextAI = {
       + '· 只有在「补上缺失信息会明显改变成片效果」时才问（典型缺口：风格取向、光线与时间、镜头怎么动、画幅、情绪基调）。\n'
       + '· 用户已经写明的不要再问；缺几项就问几项，每一题都要能点选。\n'
       + '· 收到答案后：把每条答案当作**硬约束**落实进结果，不要再自行改动，也不要再反问同一件事。',
-    /* 视频那一条按 **MiniMax H3 官方手册**的公式重构（手册原文：
-       完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明）。
-       另外三条硬规则也来自那份手册的「最常毁掉生成结果的错误」清单：
-       运镜要写具体动作而不是「环绕运镜」；只写看得见的、不写比喻；要一镜到底必须明说
-       （不说模型会自己切镜）；画面内文字与台词必须逐字写出；不要 BGM 就别自相矛盾。
-       项目自己那两条（@参考图N 原样保留、只输出结果）放在最后，位置不变。 */
-    video: '你是资深的 AI 视频提示词工程师，把用户的镜头描述改写成视频生成模型能直接吃的高质量中文提示词。\n\n'
-      + '按 MiniMax H3 官方手册给的公式组织：**完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明**。'
-      + '三块按这个顺序写；可以带【】小标题，也可以写成连贯的几段 —— 内容齐、顺序对就行。\n'
-      + '· 参考素材说明：这一镜挂了参考素材（首帧 / 尾帧 / 参考图 / 参考视频 / 参考音频）才写这一段，'
-      + '没挂就整块不要写。每个素材都要**声明用途**，不能只列编号。用途从这些里挑：人物参考（锁脸）、'
-      + '物体参考（锁道具）、场景参考、关键帧（写明是首帧还是尾帧）、风格参考、构图参考、动作参考、'
-      + '运镜参考、音色参考、音频复用。写法照这个例子：「@参考图1 是人物参考（锁这位女子的脸），'
-      + '@参考图2 是场景参考（锁樱花庭院）」。\n'
-      + '· 核心创意：四件事写全 —— 主体（谁 / 什么）、地点、事件（在做什么）、题材与风格'
-      + '（写实 / 动画 / 电影感 / 广告片，或赛博朋克这类具名风格）。镜头行为也写在这里：'
-      + '要**一镜到底必须明说**（不说它会自己切镜）；要切镜就写清切到什么景别、画面里是哪个角色'
-      + '（跨切镜保持脸一致全靠这一句）。\n'
-      + '· 画面过程说明：按时间轴写发生了什么，例如「0–3 秒：……，3–7 秒：……」；短镜头可以不分段，'
-      + '但动作的先后顺序要读得出来。与素材相关的元素在这里用 @ 挂上。\n\n'
-      + '硬性要求：\n'
-      + '1. 保留用户的主体、动作与场景意图，只在这些维度上补细节；不替换主题，不新增用户没提的剧情。\n'
-      + '2. 运镜写**具体动作**（缓慢推进、truck left + pan right、环绕跟拍、固定长镜头、手持跟随、俯冲…），'
-      + '不要写「环绕运镜」「镜头感很好」这类笼统说法。\n'
-      + '3. 只写镜头**看得见**的东西，不写它意味着什么：「雨水打湿的霓虹倒映在皮夹克上」'
-      + '远胜「一种都市忧郁的氛围」。\n'
-      + '4. 画面里要出现文字就把**原文逐字写出**（招牌、按钮、标题都给确切字样）；台词写原话 —— '
-      + '写「她说了句动人的话」只会生成一团糊。\n'
-      + '5. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。\n'
-      + '6. 用户已经明确给出的风格、光线、时长、画幅、景别要尊重，不要反过来推翻。\n'
-      + '7. 不要自相矛盾：一句话要配乐、另一句话又禁 BGM 是最常见的失败模式；'
-      + '不要音乐就明确写出不要。\n'
-      + '8. 不要编造品牌、台词、具体人名或数字。\n\n'
-      + '输出：只输出润色后的提示词本身。不要引号、不要解释、不要 markdown 代码块、不要给多个方案。',
-    /* 图片那一条按通行的图片提示词公式重构：**用途 → 主体 → 环境 → 动作 → 构图 → 光线 → 风格与媒介 → '
-       + '色彩与材质 → 画幅与限制**。三条最容易犯的错也写进去了：风格自相矛盾、跳过光线、没有构图指引
-       （没有构图指引时模型只会给居中中景的安全构图）。 */
-    img: '你是资深的 AI 图片提示词工程师，把用户的描述改写成文生图模型能直接吃的高质量中文提示词。\n\n'
-      + '按这个顺序组织，每一项只留与结果有关的，别堆形容词：\n'
-      + '1. 用途：这张图拿去干什么（公众号头图 / 商品主图 / 分镜画面 / 角色三视图…）。'
-      + '它决定画幅与留白怎么留；用户没说用途就按画面内容选最合理的一种，不要为此反问，也不必把它写进结果。\n'
-      + '2. 主体：具体到可数、可看（「一个有卷发、神情自信、穿亮黄夹克的年轻女生」远胜「一个女生」）—— '
-      + '数量、外观特征、正在做什么。\n'
-      + '3. 环境与时间：在哪里、什么时间、天气与空间层次。\n'
-      + '4. 构图：景别与机位（远景全场景 / 中景 / 特写 / 俯拍 / 三分法，主体放哪一侧）、留白留在哪一边'
-      + '（要叠字就写清标题安全区）。**不能省**：不写构图，模型只会给居中中景的安全构图。\n'
-      + '5. 光线：光源方向与性质（柔和漫射自然光 / 戏剧性侧光加硬阴影 / 棚拍柔光箱加轮廓光）。'
-      + '**这一段影响最大**，同一个主体换光线就是两张图；只写「光线好」等于没写。\n'
-      + '6. 风格与媒介：落到具体流派或媒介（超写实商业摄影 / 胶片 / 时尚杂志编辑风 / 水彩 / 3D 渲染 / '
-      + '扁平插画），不要只写「高级感」「有质感」。\n'
-      + '7. 色彩与材质：给可执行的配色与材质（低饱和墨绿与银、柔和侧光、材质细节克制）。\n'
-      + '8. 画幅与限制：画幅（16:9 / 9:16 / 1:1）；必须保留什么、必须避免什么，只写最容易出错的三到五项，'
-      + '不要堆一长串互相冲突的否定词。\n\n'
-      + '硬性要求：\n'
-      + '1. 保留主体与意图，只补细节；不替换主题，不新增用户没提的元素。\n'
-      + '2. **一次只选一种视觉语言**：不要同时写「超写实」和「卡通」这类互相打架的风格 —— '
-      + '模型碰到冲突信号会取折中，最后生出一张什么都不像的图。\n'
-      + '3. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。\n'
-      + '4. 用户已给的画幅、画质、光线要尊重，不要反过来推翻。\n'
-      + '5. 不要编造品牌、人物姓名、招牌文字。\n\n'
-      + '输出：只输出润色后的提示词本身。不要标题、不要引号、不要解释、不要 markdown、不要给多个方案。',
+    /* 视频那一条按 MiniMax H3 官方提示词规范写：有参考素材走 Ref2VA 六段式
+       （subject_definitions / summary / retention_analysis / detailed_description /
+       overall_soundscape / non_diegetic_music），只有首尾帧或没有素材走基础三段式
+       （integrated_multimodal_description / overall_soundscape / non_diegetic_music）。
+       正文用英文、台词与画面文字保留原语言；素材标记写 @参考图N，提交前由 ref-plan.js
+       换成平台声明的标签（H3 是 <Picture N> / <Video N> / <Audio N>）。 */
+    video: `你是资深 AI 视频提示词工程师。把用户的镜头描述改写成 MiniMax H3 能直接生成成片的提示词。
+
+先判模式：有参考图 / 参考视频 / 参考音频（不只是首尾帧）→ 用 Ref2VA 六段式；只有首帧 / 尾帧 → 用基础格式并加画面对齐说明；什么都没有 → 用基础格式。
+
+【这一次的请求条件（程序填写，不要原样抄进结果）】
+成片时长：{duration}
+画幅：{ar}
+目标型号：{model}
+输入模式：{mode}
+
+素材清单（引用标记 / 角色 / 用途；程序按这一镜实际挂的素材填）：
+{assets}
+
+【Ref2VA 六段式】字段名保留英文，顺序固定：
+subject_definitions: 每件会被复用的素材单起一行，写清它的标签、所指内容与来源。标签四类：<Subject N>（可复用的可见内容：人物、动物、物体、场景、服装、道具、风格、动作、表情、姿势）、<Picture N>（作为具体帧、构图锚点或分镜参考的图）、<Video N>（整段视频 / 剪辑源 / 续接起点 / 时间结构）、<Audio N>（被复制或参考的音频）。同一素材在全文用同一个标签；一张图只用来定义某个 Subject 时，把 @参考图N 写进那条 Subject 定义里，不要另起一行。示例：<Subject 1> is the young woman in @参考图1, with long dark hair, a blue cardigan and a thin silver necklace.
+summary: 一小段写清目标片与素材关系，开头用方括号写任务类型：[reference generation] / [keyframe completion] / [video editing] / [video continuation] / [audio reuse] / [audio reference]，多个用 + 连接，不重复。只引用前面定义过的标签。
+retention_analysis: 每件素材一行，写它怎么被保留。可见内容用 fully_preserved / partially_preserved / attribute_transfer / weak_reference；音频用 fully_copy / partially_copy / reference / weak_reference。格式：<Subject 1> (appears in [Shot 1], [Shot 3]): fully_preserved - 保留脸部、发型与服装。
+detailed_description: 主体。先用一两句定整体风格与影调，再逐镜写。第一镜写 [Shot 1]，不加时间；后续写 [Shot 2] At 00:03.500, ...，切点必须严格递增并落在时长内。每镜写清构图、主体外观与位置、环境与光线、动作与状态变化、运镜、声音，以及素材在哪个画面 / 哪个时刻起作用。转场用 the camera cuts to / the shot cuts to / the shot transitions to；只是距离或角度微调时用运镜，不要切镜。
+overall_soundscape: 1–4 句英文，汇总全片环境声、动作声与非语言人声（风雨、车流、脚步、布料、碰撞、呼吸、笑、喘）。台词、歌声、画内音乐不写在这里；整片要求完全静音才写 N/A。
+non_diegetic_music: 1–3 句英文，写只有观众听得到的配乐：乐器、速度、节奏、强弱变化；不写抽象情绪与作用。没有就写 N/A。
+
+【基础格式】
+integrated_multimodal_description: 按时间轴写画面、动作、镜头、说话人、台词、歌声与画内声音。第一镜 [Shot 1] 开头先定风格与初始构图；后续镜头用 [Shot N] At MM:SS.mmm, 起步。单镜一镜到底就写成一个 [Shot 1]。
+· 首帧：第一行固定写 For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.，然后从这张图出发写「首帧锚点 → 动作开始 → 连续发展 → 结果或反应」。
+· 首尾帧：第一行固定写 How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video.（S.SS 是时长，两位小数，N 是最后一镜编号），然后写从首帧到尾帧的连续路径；优先一镜到底。
+overall_soundscape: 同 Ref2VA。
+non_diegetic_music: 同 Ref2VA。
+
+全文共享规则：
+1. 正文用英文写；台词、歌词、画面内可见文字保留原语言逐字照抄。
+2. 运镜写成「动作 + 幅度 + 速度」：Zoom In / Zoom Out / Push In / Pull Out / Pan Left / Pan Right / Truck Left / Truck Right / Tilt Up / Tilt Down / Pedestal Up / Pedestal Down / Arc Shot / Tracking Shot / Static Shot / Shake Slightly / Shake Strongly / POV / Roll Clockwise / Roll Counterclockwise；幅度 with small amplitude / with large amplitude；速度 at slow speed / at fast speed。中等幅度与常速通常不写。
+3. 说话人用稳定编号 (S1)(S2)；首次出现时交代能看出身份的信息（年龄、性别、音色、语速、口音）。台词与歌词写成 <d>[Chinese] 原话</d>，<d> 里只放语言标记与原话，逐字不改；同一句台词跨切镜时在两端写 <scenetrans> 并说明声音连续；被片尾截断写 <cutoff>。画外音写 says in an off-screen voiceover，并补一句画内角色嘴唇未动。
+4. 画面内可见的招牌、按钮、字幕、霓虹字用英文双引号包住原文，逐字不改。
+5. 素材引用只用素材清单给的 @参考图N / @视频N / @音频N（程序提交前会换成平台的 <Picture N> / <Video N> / <Audio N>）；可复用内容用 <Subject N> 定义。不要自己发明编号，不要把 @ 改成别的写法。
+6. 时长必须与消息里给的成片时长一致；消息没给就按 4–15 秒（H3 这一档的声明范围）。所有切点落在时长内，不要写超出时长的画面。
+7. 只写看得见、听得见的东西；不写剧情概括、不写「氛围很好」这类抽象评价。
+8. 保留用户的主体、动作、场景与台词意图，只补细节；不替换主题，不新增用户没提的剧情；不编造品牌、台词、具体人名或数字。
+9. 用户已经明确给出的风格、光线、时长、画幅、景别要尊重，不要反过来推翻；不要自相矛盾（要配乐又禁 BGM 是最常见的失败模式）。
+
+输出：只输出最终提示词本身。不要解释、不要引号、不要 markdown 代码块、不要给多个方案。`,
+    /* 图片那一条与视频同构：参考素材说明 → 核心创意 → 画面构成。参考图必须声明用途与保留关系
+       （完整保留 / 部分保留 / 属性迁移 / 弱参考）；构图与光线不能省 —— 不写构图模型只会给居中中景，
+       只写「光线好」等于没写。 */
+    img: `你是资深 AI 图片提示词工程师。把用户的描述改写成文生图模型能直接吃的高质量中文提示词。
+
+按「参考素材说明 → 核心创意 → 画面构成」三段写；只有挂了参考图才写第一段。
+
+【这一次的请求条件（程序填写，不要原样抄进结果）】
+画幅：{ar}
+目标型号：{model}
+
+素材清单（引用标记 / 角色 / 用途；程序按这一张实际挂的素材填）：
+{assets}
+
+· 参考素材说明：每张参考图都要声明用途与保留关系，不能只列编号。用途从这些里挑：人物参考（锁脸）、人物参考（锁服装 / 发型）、物体参考（锁道具）、场景参考（锁环境）、风格参考（锁画风 / 色调）、构图参考（锁机位 / 留白）、材质参考。保留关系写清楚：完整保留 / 部分保留（写明改哪一处）/ 属性迁移（把 A 的什么用到 B 上）/ 弱参考（只要某一种相似）。写法照这个例子：「@参考图1 是人物参考（完整保留脸部、发型与服装），@参考图2 是场景参考（完整保留庭院布局与光线方向）」。
+· 核心创意：四件事写全 —— 主体（谁 / 什么，数量、外观特征、正在做什么）、地点、事件（在做什么）、用途与题材风格（公众号头图 / 商品主图 / 分镜画面 / 角色三视图…；写实 / 动画 / 电影感 / 商业摄影 / 水彩 / 3D 渲染）。用途决定画幅与留白；用户没说就按画面内容选最合理的一种，不要为此反问，也不必把它写进结果。
+· 画面构成：按顺序写 ——
+  1. 构图：景别与机位（远景 / 中景 / 特写 / 俯拍 / 三分法）、主体放哪一侧、留白留在哪一边（要叠字就写清标题安全区）。**不能省**：不写构图，模型只会给居中中景的安全构图。
+  2. 光线：光源方向与性质（柔和漫射自然光 / 戏剧性侧光加硬阴影 / 棚拍柔光箱加轮廓光）。**这一段影响最大**，同一个主体换光线就是两张图；只写「光线好」等于没写。
+  3. 色彩与材质：可执行的配色与材质（低饱和墨绿与银、哑光陶瓷、皮革纹理），细节克制。
+  4. 画幅与限制：画幅（16:9 / 9:16 / 1:1）；必须保留什么、必须避免什么，只写最容易出错的三到五项，不要堆互相冲突的否定词。
+
+硬性要求：
+1. 保留主体与意图，只补细节；不替换主题，不新增用户没提的元素。
+2. **一次只选一种视觉语言**：不要同时写「超写实」和「卡通」这类互相打架的风格 —— 模型碰到冲突信号会取折中，最后生出一张什么都不像的图。
+3. 只写画面**看得见**的东西，不写它意味着什么：「雨水打湿的霓虹倒映在皮夹克上」远胜「一种都市忧郁的氛围」。
+4. 画面里要出现文字就把**原文逐字写出**，并用英文双引号包住；不要编造品牌、人物姓名、招牌文字。
+5. 用户文字里的 @参考图1、@角色名 这类素材引用标记必须**原样保留**，不能改写、不能删。
+6. 用户已给的画幅、画质、光线要尊重，不要反过来推翻。
+7. 不要自相矛盾：一边要「干净背景」一边又写「背景里挤满人群」这类冲突。
+
+输出：只输出润色后的提示词本身。不要标题、不要引号、不要解释、不要 markdown、不要给多个方案。`,
     audio: '你是配音稿编辑，把用户给的文字改写成适合语音合成的口播稿。\n\n改写要求：\n'
       + '1. 口语化：拆成长短句，删掉「此外」「综上所述」「值得注意的是」这类书面语连接词。\n'
       + '2. 数字、百分比、英文缩写、年份写成中文读法（2024 → 二零二四；3.5% → 百分之三点五；GDP → G D P）。\n'
@@ -101,6 +118,29 @@ window.TextAI = {
       + '3. 这句话里读不出来的细节按最常见的做法补，不要反问。\n'
       + '4. 不要编造品牌、人名、台词或数字；用户给的数字与信息量不要丢。\n\n'
       + '输出：只输出改完之后的整稿本身。不要引号、不要解释、不要说明你改了什么、不要 markdown 代码块、不要给多个方案。',
+    line_write: `你是编剧，只写这一镜里人物会说出口的一句台词。
+
+这一镜的画面提示词：
+{prompt}
+
+这一镜时长：
+{duration}
+
+素材库现有的角色（说话人优先从这里选）：
+{cast}
+
+这一镜已有的台词（没有就空着；用户想换一句才调用你）：
+{line}
+
+要求：
+1. 只输出 JSON：{"line":"这一镜要念的台词","speaker":"角色名或旁白"}。
+2. 台词用中文口语，能在这镜时长内用正常语速念完（按每秒约 4.5 个字估，宁短勿长）。
+3. 台词要贴着画面里看得见的人、动作与情境；不要写旁白说明、不要写括号动作、不要写「他说：」。
+4. speaker 从上面的角色名单里选一个最合适的；名单里没有合适的就写「旁白」。
+5. 不编造画面里没有的品牌、人名、数字；这一镜本来不该有人说话就返回空字符串。
+6. 不要解释、不要 markdown。
+
+只输出 JSON。`,
     story: '你是分镜师。根据一个镜头的描述与时长，决定需要几张关键画面，并按时间顺序给出每一张的文生图提示词。\n\n要求：\n'
       + '1. 只返回 JSON，不要任何解释、不要 markdown 代码块。格式：{"frames":[{"t":0,"prompt":"画面提示词"}]}\n'
       + '2. 3–6 张；t 从 0 开始递增、不超过镜头时长、间隔尽量均匀。\n'
@@ -239,7 +279,7 @@ window.TextAI = {
       + '9. **不要**把台词内容写进 `look` 或 `voice`。\n'
       + '10. 判定不出来就返回 `{"newAssets":[]}`，不要凑数。\n\n'
       + '只输出 JSON。',
-    /* 生成工作台图像栏「拆分片段批量生成」：一段描述 → 几张各自独立成片的图片提示词。
+    /* 工作台图像栏「拆分片段批量生成」：一段描述 → 几张各自独立成片的图片提示词。
        与 story（导演台关键帧）的区别：没有镜头时长概念，每张都是一张完整的图，
        拆分维度（时间 / 场景 / 动作阶段）由用户在页面上定，不是按秒切片。 */
     img_split: '你是美术分镜师。把一段画面描述拆成几张**各自独立成片**的图片提示词（每张都是一张完整的图，不是连环画里的格子）。\n\n要求：\n'
@@ -306,10 +346,10 @@ window.TextAI = {
      加一条指令要改四个地方，漏一处就是「设置页列出来了、存盘没存上」或者反过来。
      格式：反引号包起来的会渲染成 <code>，其余按纯文本转义。 */
   PROMPTS: [
-    { id: 'gen', name: '通用润色（生成工作台 / 导演台）',
+    { id: 'gen', name: '通用润色（工作台 / 导演台）',
       note: '这几条是用户点「AI 润色」时用的，改它们影响所有页面。',
       items: [
-        { key: 'video', label: '视频提示词润色', used: '生成工作台「视频」那一栏的「AI 润色」 · 导演台右栏「AI 润色提示词」',
+        { key: 'video', label: '视频提示词润色', used: '工作台「视频」那一栏的「AI 润色」 · 导演台右栏「AI 润色提示词」',
           ref: '这一条按 **MiniMax H3 官方手册**的公式写：`完整提示词 = 参考素材说明 + 核心创意 + 画面过程说明`。'
             + '改它时建议保留这几条 —— 它们都来自那份手册点名的常见失败模式：运镜写具体动作（`truck left + pan right`）而不是「环绕运镜」；'
             + '要一镜到底必须明说（不说模型会自己切镜）；画面内文字与台词逐字写出；不要 BGM 就别自相矛盾。'
@@ -318,7 +358,7 @@ window.TextAI = {
           ref: '这一条按通行的图片提示词公式写：`用途 → 主体 → 环境 → 构图 → 光线 → 风格与媒介 → 色彩与材质 → 画幅与限制`。'
             + '改它时建议保留这三条最常见的坑：一次只选一种视觉语言（同时写「超写实」和「卡通」模型只会取折中）、'
             + '光线不能省（影响最大的单项）、构图不能省（不写只会给居中中景的安全构图）。' },
-        { key: 'audio', label: '配音稿润色', used: '生成工作台「语音」那一栏的「AI 润色」' },
+        { key: 'audio', label: '配音稿润色', used: '工作台「语音」那一栏的「AI 润色」' },
         { key: 'follow', label: '再改一版（润色结果出来之后接着对话）',
           used: '三个工作台与导演台：润色结果面板下面那一行「还要怎么改」，写完按回车就按这句话在当前那一版上再改',
           ref: '这一条不改写整稿的思路，只按用户那一句改，所以「其余原样保留」与「不要反问」两条请留着 —— '
@@ -333,7 +373,7 @@ window.TextAI = {
         { key: 'split_follow', label: '拆分镜再调整（确认弹窗里「按这句再改」）',
           used: '导演台「拆分镜」审查弹窗 → 对着拆好的方案说一句要怎么改，AI 在它上面再改一轮',
           ref: '要求文字 AI `只返回 JSON`（格式与拆分镜同款），但输出的是**改后的完整方案** —— `scenes` 里要有全部镜头（改过的与没改的），程序拿它整份替换。改这条时请保留「只改点名的那几处」与「输出完整方案」两条：少了前者，用户没点名的镜头会被顺手改掉；少了后者，没回的那几条镜头就真丢了。' },
-        { key: 'img_split', label: '图片片段拆分（一段描述 → 几张图的提示词）', used: '生成工作台「图像」栏「拆分片段生成」',
+        { key: 'img_split', label: '图片片段拆分（一段描述 → 几张图的提示词）', used: '工作台「图像」栏「拆分片段生成」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"label":"片段名","prompt":"…"}]}`）。改这条时请保留 JSON 格式要求，否则拆分会直接报「没有给出可用的拆分方案」。' },
       ] },
     { id: 'charpic', name: '素材库 · 出图',
@@ -377,6 +417,7 @@ window.TextAI = {
      没备到（旧页面 / 刚装好还没刷新）就退回下面 DEF 的同源副本，行为不变。 */
   SKILL_CONTRACT: {
     video: 'polish.video', img: 'polish.image', audio: 'polish.voice', follow: 'polish.follow',
+    line_write: 'line_write.json',
     story: 'story.json', split: 'split.json', board_edit: 'board_edit.json', img_split: 'img_split.json',
     /* 拆分镜审查弹窗「按这句再改」那一条：对着已拆好的方案按一句话再改一轮。 */
     split_follow: 'split_follow.json',
@@ -388,10 +429,26 @@ window.TextAI = {
      变量的含义以前只散在正文里，界面上讲不清 —— 这份表是唯一说明来源。
      没有占位符的 contract 也要写空数组（「无」也是说明）。 */
   SKILL_VARS: {
-    'polish.video': [],
-    'polish.image': [],
+    'polish.video': [
+      { name: 'duration', from: '本次请求的成片时长', desc: '秒数；切点与动作要落在里面' },
+      { name: 'mode', from: '输入模式', desc: '纯文字 / 首尾帧 / 参考素材 / 组合档名' },
+      { name: 'model', from: '当前型号', desc: '型号 id 与平台名' },
+      { name: 'ar', from: '画幅', desc: '成片宽高比或尺寸' },
+      { name: 'assets', from: '这一镜挂的参考素材', desc: '每条的引用标记、角色与用途' },
+    ],
+    'polish.image': [
+      { name: 'model', from: '当前型号', desc: '型号 id 与平台名' },
+      { name: 'ar', from: '画幅', desc: '图片宽高比或尺寸' },
+      { name: 'assets', from: '这一张挂的参考素材', desc: '每条的引用标记、角色与用途' },
+    ],
     'polish.voice': [],
     'polish.follow': [{ name: 'what', from: '用户这一轮的修改要求', desc: '跟着改的具体指令' }],
+    'line_write.json': [
+      { name: 'prompt', from: '这一镜的画面提示词', desc: '台词要贴着的画面' },
+      { name: 'duration', from: '这一镜的时长', desc: '台词要能在这段时间里念完' },
+      { name: 'cast', from: '素材库的角色清单', desc: '说话人优先从这里选' },
+      { name: 'line', from: '这一镜已有的台词', desc: '没有就是空' },
+    ],
     'story.json': [],
     'split.json': [
       { name: 'what', from: '用户的创作意图', desc: '要做什么类型的短片' },
@@ -441,7 +498,7 @@ window.TextAI = {
      这里分的是「这一处活儿在哪个工作台做」。 */
   SKILL_SCENE_GROUPS: [
     { id: 'assistant', name: 'AI 助手', note: '按需触发，不占固定位' },
-    { id: 'studio', name: '生成工作台', note: '视频 · 图像 · 语音' },
+    { id: 'studio', name: '工作台', note: '视频 · 图像 · 语音' },
     { id: 'director', name: '导演台', note: '拆分镜 · 分镜 · 成片' },
     { id: 'chars', name: '素材库', note: '角色 · 场景 · 音色' },
   ],
@@ -454,6 +511,8 @@ window.TextAI = {
     { group: 'studio', key: 'img_split' },
     { group: 'studio', key: 'follow' },
     { group: 'director', key: 'story' },
+    { group: 'director', key: 'line_write', label: '按镜头写台词',
+      used: '导演台右栏「台词」里那颗「AI 生成台词」：按这一镜的提示词与时长写一句能念完的台词' },
     { group: 'director', key: 'split' },
     { group: 'director', key: 'board_edit' },
     { group: 'director', key: 'split_follow', label: '拆分镜再调整',
@@ -474,18 +533,21 @@ window.TextAI = {
     return String(all[c]).replace(/\r\n/g, '\n')
       .replace(/^\s*#\s+[^\n]*\r?\n+/, '').replace(/^\n+/, '').replace(/\s+$/, '');
   },
-  defaultPrompt(kind, askNote) {
-    const raw = this.skillBody(kind) || this.DEF[kind] || '';
+  defaultPrompt(kind, askNote, vars) {
+    const raw0 = this.skillBody(kind) || this.DEF[kind] || '';
+    /* Skill 正文里的 `{duration}` `{assets}` … 由调用方按当前页面把值递进来；
+       `TplVars.fill` 的规矩是填不上就原样留着（AI 看到占位符也会自己补）。 */
+    const raw = (vars && window.TplVars && window.TplVars.fill) ? window.TplVars.fill(raw0, vars) : raw0;
     if (this.NO_ASK.indexOf(kind) >= 0) return this.stripAskNote(raw);
     const note = (askNote === false || !this.DEF.ASK_NOTE) ? '' : this.DEF.ASK_NOTE;
     if (!note || raw.indexOf('补充信息') >= 0) return raw;      // 默认自己已经写了就不重复追加
     return raw + '\n\n' + note;
   },
-  prompt(kind, askNote) {
+  prompt(kind, askNote, vars) {
     /* 两级优先：Skill 正文 → 内置默认。旧版设置页手改的 `sk_polish_*` 残留**不再读** ——
        设置页早就不能改提示词正文了（正文在 Skill 里），留着那条读法只会让「改了 Skill 不生效」
        变成常态。NO_ASK 那几条仍要摘掉尾部追问说明（Skill 正文里可能也被污染过）。 */
-    return this.defaultPrompt(kind, askNote);
+    return this.defaultPrompt(kind, askNote, vars);
   },
   /* 只摘**结尾**那一段（我们自动拼的位置）；用户在中间自己写的同样文字不动。 */
   stripAskNote(v) {
@@ -720,26 +782,39 @@ window.TextAI = {
   /* 素材清单 → 一段写给 AI 的话。
      问题：参考图能随消息附上（识图模型），**视频 / 音频附不了**。以前只在提示词里塞一句
      「这次还挂了参考视频（沿用它的运镜与节奏）」—— 模型既不知道有几个、也不知道发的是什么，
-     只能靠猜。这里把**类型 + 数量 + 用途**一次说清，并明确「没附上的别凭空编造」。
-     items: [{ label:'参考图 1', kind:'图片', sent:true }, { label:'参考视频', kind:'视频', sent:false, hint:'沿用它的运镜和节奏' }]
+     只能靠猜。这里把每一条的**引用标记 + 角色 + 用途**一次说清，并明确「没附上的别凭空编造」。
+     items: [{ label:'首帧', token:'@参考图1', role:'first_frame', kind:'图片', sent:true },
+             { label:'参考视频', token:'@视频1', role:'reference_video', kind:'视频', sent:false, hint:'沿用它的运镜和节奏' }]
      返回可直接接在系统提示词后面的一段话。 */
   materialNote(items) {
     const list = (items || []).filter(x => x && x.label);
     if (!list.length) return '';
-    const group = (pred) => {
-      const m = new Map();
-      list.filter(pred).forEach(x => { const k = x.kind || '素材'; m.set(k, (m.get(k) || 0) + 1); });
-      return [...m.entries()].map(([k, n]) => k + ' ×' + n).join('、');
+    const ROLE = { first_frame: '首帧', last_frame: '尾帧', reference_image: '参考图',
+      reference_video: '参考视频', reference_audio: '参考音频' };
+    /* 每一条都带上它自己的引用标记：文字 AI 在正文里写的 @参考图N 必须与真正发出去的
+       第 N 项是同一份东西，只报「图片 ×3」它就只能靠猜。 */
+    const itemText = x => {
+      const token = String(x.token || '').trim();
+      const label = String(x.label || ROLE[x.role] || x.kind || '素材');
+      if (!token) return label;
+      const name = token.replace(/^@/, '');
+      if (label.indexOf(name) === 0) {
+        const rest = label.slice(name.length).replace(/^[\s·（(]+|[\s）)]+$/g, '');
+        return token + (rest ? '（' + rest + '）' : '');
+      }
+      return token + ' ' + label;
     };
     const parts = [];
-    const sent = group(x => x.sent);
-    const notSent = group(x => !x.sent);
-    if (sent) parts.push('用户已随这条消息附上：' + sent + '（图编号见消息末尾的「随附图片」，请按 图N 引用）');
-    if (notSent) {
-      const hints = list.filter(x => !x.sent && x.hint).map(x => x.label + '（' + x.hint + '）');
-      parts.push('用户还有**无法随消息附上**的素材：' + notSent
-        + (hints.length ? '，用途分别是 ' + hints.join('、') : '')
-        + '。你看不到它们的内容，只能按这里的说明理解，**不要凭空编造画面或声音细节**。');
+    const sent = list.filter(x => x.sent);
+    const notSent = list.filter(x => !x.sent);
+    if (sent.length) {
+      parts.push('用户已随这条消息附上：' + sent.map(itemText).join('、')
+        + '。编号就是素材清单里的 @参考图N / @视频N / @音频N；随附图片的「图N」与每条后面的标签对应');
+    }
+    if (notSent.length) {
+      const hints = notSent.map(x => itemText(x) + (x.hint ? '（' + x.hint + '）' : ''));
+      parts.push('用户还有**无法随消息附上**的素材：' + hints.join('、')
+        + '。你看不到它们的内容，只能按这里的说明理解，**不要凭空编造画面或声音细节**');
     }
     return '【用户随这段内容附带的素材】' + parts.join('；') + '。';
   },
@@ -857,7 +932,7 @@ window.TextAI = {
   imageLegend(images) {
     if (!images || !images.length) return '';
     return '【随附图片（按顺序）】' + images.map((it, i) => `图${i + 1} = ${it.label}`).join('；')
-      + '。请结合图片内容润色，并在提示词里按上面的编号指代素材。';
+      + '。图N 与素材清单里的 @参考图N 同号；请结合图片内容润色，并在提示词里按同一编号指代素材。';
   },
   /* 取字节：File/Blob 直接用，跨域链接经本地代理 /fetch */
   async _blob(src) {
@@ -883,11 +958,12 @@ window.TextAI = {
     try { bmp.close && bmp.close(); } catch {}
     return cv.toDataURL('image/jpeg', quality || 0.85);
   },
-  /* 批量压缩（读不出来的素材直接跳过，不影响润色） */
+  /* 批量压缩（读不出来的素材直接跳过，不影响润色）。不按张数截断：
+     少带一张参考图，文字 AI 就可能把那一张上的角色 / 场景写成另一个样子。 */
   async prepImages(list, opts) {
-    const max = (opts && opts.max) || 6, edge = (opts && opts.edge) || 1024;
+    const edge = (opts && opts.edge) || 1024;
     const out = [];
-    for (const it of (list || []).slice(0, max)) {
+    for (const it of (list || [])) {
       try { const url = await this.shrink(it.src, edge); if (url) out.push({ label: it.label, url }); } catch {}
     }
     return out;
@@ -901,10 +977,9 @@ window.TextAI = {
     if (!items.length) return { images: [], note: '' };
     const vis = await this.visionAsync(REG, opts && opts.prov, opts && opts.model);
     if (!vis.ok) return { images: [], note: `当前文字型号（${vis.model}）未启用识图（${vis.why}），本次只按文字润色；可在设置页把「识图能力」设为支持` };
-    const max = (opts && opts.max) || 6;
     const images = await this.prepImages(items, opts);
     if (!images.length) return { images: [], note: '素材图没能读出来（可能已过期或不是图片），本次只按文字润色' };
-    const more = items.length > images.length ? `（素材共 ${items.length} 张，只带了前 ${images.length} 张）` : '';
+    const more = items.length > images.length ? `（素材共 ${items.length} 张，另有 ${items.length - images.length} 张读不出来，本次没带）` : '';
     return { images, note: '已附带 ' + images.length + ' 张素材图供文字 AI 识别：' + images.map((x, i) => '图' + (i + 1) + ' = ' + x.label).join('、') + more };
   },
   _headers(prov) {
@@ -972,6 +1047,22 @@ window.TextAI = {
     if (a < 0 || b <= a) return null;
     try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
   },
+  /* 联网搜索开着时，先把结果取回来接到系统提示词后面。
+     所有 AI 调用（拆分镜 / 润色 / 关键帧 / 素材库）都只传 `opts.search = { query }`，
+     不用各自去拼搜索请求；总开关关着时 `Search.context` 返回空串，主任务照常走。 */
+  async searchBlock(query, o) {
+    const S = window.Search;
+    if (!S || typeof S.context !== 'function') return '';
+    try { return await S.context(query, o); } catch (e) { return ''; }
+  },
+  async withSearch(sys, opts) {
+    const o = opts || {};
+    const s = o.search;
+    if (!s || !s.query || o._searchDone) return sys;
+    o._searchDone = true;
+    const block = await this.searchBlock(s.query, s);
+    return block ? String(sys == null ? '' : sys) + '\n\n' + block : sys;
+  },
   /* 一次对话的请求体只拼一份：chat 与 chatStream 共用（各拼一份的话，
      识图编号、型号来源这两条迟早分叉）。 */
   async _body(REG, prov, sys, user, opts) {
@@ -1013,6 +1104,7 @@ window.TextAI = {
   async chat(REG, sys, user, opts, provIn) {
     const prov = provIn || this.prov(REG);
     if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
+    sys = await this.withSearch(sys, opts);
     const { model, body } = await this._body(REG, prov, sys, user, opts);
     const r = await netFetch(prov.relay + (prov.endpoints?.chat || '/chat/completions'), {
       method: 'POST',
@@ -1049,6 +1141,7 @@ window.TextAI = {
     if (!prov) throw new Error('注册表里没有可用的文字 AI 供应商');
     const o = Object.assign({}, opts || {});
     if (o.stream === false) return await this.chat(REG, sys, user, o, prov);
+    sys = await this.withSearch(sys, o);
     const { model, body } = await this._body(REG, prov, sys, user, o);
     const url = prov.relay + (prov.endpoints?.chat || '/chat/completions');
     const hdr = Object.assign({}, this._headers(prov), { accept: 'text/event-stream' });
@@ -1235,8 +1328,8 @@ window.TextAI = {
         ? '消息末尾附了参考图，请结合图片内容提问。'
         : '消息末尾的「随附图片」列出了每张图对应哪张素材，请结合图片内容润色。');
     }
-    if (opt.text && /@参考图\s*\d+|@[^\s，。；、]+/.test(String(opt.text))) {
-      out.push('提示词里的 @参考图1、@角色名 这类标记是素材引用，必须原样保留，不要改写或删除。');
+    if (opt.text && /@(?:参考图|图片|图|参考视频|视频|参考音频|音频|首帧|尾帧)\s*\d*|@[^\s，。；、]+/.test(String(opt.text))) {
+      out.push('提示词里的 @参考图1、@视频1、@音频1、@首帧、@角色名 这类标记是素材引用，必须原样保留，不要改写或删除。');
     }
     const mn = this.materialNote(opt.materials || []);
     if (mn) out.push(mn);

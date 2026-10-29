@@ -17,7 +17,9 @@ const defSettings = () => ({
   revision: 1,
   route: 'auto',
   language: '',
-  service: { providerId: '', model: 'whisper-1', baseUrl: '', key: '' },
+  /* 型号空着 = 用这一家声明里的默认型号（openai 是 whisper-1、智谱是 glm-asr-2512…）。
+     以前这里写死 whisper-1，换一家之后照样把 whisper-1 发过去 —— 上游直接 400。 */
+  service: { providerId: '', model: '', baseUrl: '', key: '' },
   updatedAt: '',
 });
 
@@ -87,7 +89,7 @@ function createAsrStore(opts) {
       language: cleanStr(raw.language, 32),
       service: {
         providerId: cleanStr(raw.service && raw.service.providerId, 60),
-        model: cleanStr(raw.service && raw.service.model, 120) || d.service.model,
+        model: cleanStr(raw.service && raw.service.model, 120),
         baseUrl: cleanStr(raw.service && raw.service.baseUrl, 500),
         key: cleanStr(raw.service && raw.service.key, 500),
       },
@@ -134,7 +136,7 @@ function createAsrStore(opts) {
       if (id && !/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('供应商 id 不合法');
       s.service.providerId = id;
     }
-    if (svc.model != null) s.service.model = cleanStr(svc.model, 120) || 'whisper-1';
+    if (svc.model != null) s.service.model = cleanStr(svc.model, 120);
     if (svc.baseUrl != null) {
       const base = cleanStr(svc.baseUrl, 500).replace(/\/+$/, '');
       if (!isHttpUrl(base)) throw new Error('接口地址要以 http:// 或 https:// 开头');

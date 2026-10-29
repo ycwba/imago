@@ -63,13 +63,6 @@
    两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行（以前放得下是因为没有左轨）。
    一列一列排反而把整栏对齐了：标签列定宽，控件都从同一条竖线开始。 */
 .settings-page .kcols { display: block; }
-.settings-page .set-intro { display: flex; align-items: center; gap: var(--sp-8);
-  max-width: 1040px; margin-bottom: var(--sp-20); padding: var(--sp-10) var(--sp-14);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel2);
-  font-size: var(--fs-12-5); color: var(--sub); line-height: 1.6; }
-.settings-page .set-intro-ic { display: inline-flex; flex: 0 0 auto; color: var(--acc); }
-.settings-page .set-intro-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
-.settings-page .set-intro code { color: var(--txt); font-family: var(--font-mono); font-size: var(--fs-11-5); }
 /* 「说明 / 读数」那一族的基字号：`.hint` 在全站没有基样式（各页各自给），
    这一页以前也没给 —— 于是所有 `.hint` 都继承到 16px，跟正文一样大，
    「服务端环境密钥（.env）」这种读数看着像小标题。这里给这一页定一次。 */
@@ -126,24 +119,11 @@
 /* ---------- 账号卡流：一家账号一张卡，卡里列着它能开通的每一档 ----------
    设计口径：等高竖排（卡高 --sz-acct），卡内中段自己滚 ——
    展开密钥行、展开某一档的型号面板都不改卡的外形（外形一变，整片重画后手指底下的位置就跳）。 */
-.settings-page .caplegend { display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap;
-  margin: var(--sp-12) 0 var(--sp-8); }
-.settings-page .cl-t { font-size: var(--fs-11-5); color: var(--sub); }
-.settings-page .cl-item { display: inline-flex; align-items: center; gap: var(--sp-4); white-space: nowrap; }
-.settings-page .cl-g { width: var(--sp-18); height: var(--sp-16); border-radius: var(--radius-4);
-  border: var(--hair) solid var(--line); background: var(--panel2); color: var(--sub);
-  font-family: var(--font-mono); font-size: var(--fs-10); font-style: normal;
-  display: inline-flex; align-items: center; justify-content: center; }
-.settings-page .cl-item b { font-weight: 500; font-size: var(--fs-11); color: var(--sub); }
-/* 图例那一行只教两次：哪个字是哪一档（上面那排小格）、四种状态怎么读。
-   状态那句单独占一行小字 —— 塞在同一行里，它会被挤成一片大号灰字（.hint 在这一页没有基字号，
-   继承下来是 16px）。这一条**写死字号**，不靠继承。 */
-.settings-page .cl-hint { flex: 1 1 100%; font-size: var(--fs-11); color: var(--sub); line-height: 1.6; }
-
-/* 芯片（按档筛，数字是账号数）+ 摘要条 + 图例教一次「图 / 视 / 音 / 字 / 识 / 搜」。 */
+/* 芯片（按档筛，数字是账号数）+ 摘要条。 */
 .settings-page .acct-tools { margin-bottom: var(--sp-12); }
 .settings-page .filters { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
-.settings-page .fchip { height: var(--sp-24); padding: 0 var(--sp-10); border-radius: var(--radius-99);
+/* 「全部 / 图片 / 视频 / …」这排按档筛的芯片：与「多选 / 刷新」同档小圆角，不再是胶囊。 */
+.settings-page .fchip { height: var(--sp-24); padding: 0 var(--sp-10); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel); color: var(--txt);
   font-size: var(--fs-11-5); }
 .settings-page .fchip:hover { border-color: var(--acc); color: var(--acc); }
@@ -430,7 +410,7 @@
 .settings-page .set-rail-top { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); }
 .settings-page .set-rail-top input[type=search] { flex: 1 1 auto; min-width: 0; height: var(--sp-34);
   padding: 0 var(--sp-12); background: var(--panel2); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-8); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
+  border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-12-5); outline: none; }
 .settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
 .settings-page .set-rail-top .ghost { flex: 0 0 auto; padding: var(--sp-5) var(--sp-10); font-size: var(--fs-12); }
 /* 筛选时的那句解释（命中几行、按回车跳到第一处）—— 只在筛选期间占位，平时不留空带。 */
@@ -576,7 +556,7 @@
   position: sticky; top: calc(var(--setanchor) + var(--sp-6)); max-height: calc(100vh - var(--setanchor) - var(--sp-24)); overflow: auto; }
 .settings-page .sk-rail-top { display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .sk-search { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--sp-12);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--input);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input);
   color: var(--txt); font-size: var(--fs-12-5); outline: none; }
 .settings-page .sk-search:focus { border-color: var(--acc); }
 .settings-page .sk-search:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }

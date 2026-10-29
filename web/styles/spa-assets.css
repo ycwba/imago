@@ -9,7 +9,6 @@
   .assets-page .as-range { flex-wrap: wrap; }
   .assets-page .as-range .datepick { width: 108px; }
 }
-.assets-page .desc { font-size: var(--fs-13); color: var(--sub); margin: 0 0 var(--sp-18); }
 .assets-page .toolbar { justify-content: flex-end; }   /* 基础形态（flex / 间距 / 控件高度）在 ui.css */
 /* 「跳页」那一格是 .frow 里的 input，但它的尺寸归 .toolbar 那一档（ui.css）。
    这一条把被上面 `.assets-page .frow input` 抬高的优先级按回公共尺寸，不然跳页框会变成 240px 宽。 */
@@ -61,7 +60,7 @@
 .assets-page .as-head-tools { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
 .assets-page .as-head-tools .flabel { font-size: var(--fs-12); color: var(--sub); }
 .assets-page .as-head-tools input[type="search"] { width: 260px; height: 32px; padding: 0 var(--sp-12);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel);
   color: var(--txt); font-size: var(--fs-12-5); outline: none; font-family: inherit; }
 .assets-page .as-head-tools input[type="search"]:focus { border-color: var(--acc); }
 

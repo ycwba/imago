@@ -15,7 +15,10 @@
 <link rel="stylesheet" href="web/styles/spa-director.css">
 <!-- 外壳自己的 ESM 图（web/app.js → 本地 Vue runtime → render/*、core/*）现在就取。
      下面 body 里那 27 枚经典脚本是一段段解析阻塞的，模块脚本排在它们末尾 = 首屏最深的三条腿串行；
-     modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。 -->
+     modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。
+     Vue runtime 单独点名：它是 app.js 的第一层静态依赖，只写 app.js 的话要等它下载并解析完
+     才看得见这一份（首屏最大的一笔，113KB / br 39KB），多出来的正是这一趟往返。 -->
+<link rel="modulepreload" href="vue.runtime.esm-browser.prod.js">
 <link rel="modulepreload" href="web/app.js">
 <style>
   /* 主题变量在 tokens.css（① 别名 + ①a 基色 + 深色推导，全站一份，上面第一份样式表就是它） */
@@ -43,7 +46,7 @@
 <!-- 表单族：InlinePolish / PromptReview / Confirm / UiDialog / PromptForm / DatePicker。
      仍排在 ui.js 之后、其余脚本之前，与原 ui.js 里的求值顺序一致。 -->
 <script src="web/ui/forms.js"></script>
-<!-- 原始请求面板（web/ui/raw-request.js）：**不常驻** —— 只有导演台 / 生成工作台 / 画布这三页
+<!-- 原始请求面板（web/ui/raw-request.js）：**不常驻** —— 只有导演台 / 工作台 / 画布这三页
      用得上（别处打开这一份就是白下一次），那三页各自 __spaLoadScript 补载。 -->
 <script src="web/ui/store.js"></script>
 <script src="web/ui/kv.js"></script>

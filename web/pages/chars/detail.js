@@ -217,7 +217,7 @@ export function createDetail(ctx) {
         + modelHTML('image', 'text_to_image', rg.model || gens.asset.model, a.id)
         + countHTML(cap, rg.count || 1, '张', a.id) + '</span>'
         + '<button class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
-        + '<button class="ui-linkbtn" data-a="reuse" data-src="' + esc(a.src || '') + '" data-name="' + esc(lab) + '" title="去生成工作台">拿去生成</button>'
+        + '<button class="ui-linkbtn" data-a="reuse" data-src="' + esc(a.src || '') + '" data-name="' + esc(lab) + '" title="去工作台">拿去生成</button>'
         + '<button class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
         + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
         + '</div>';

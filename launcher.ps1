@@ -661,7 +661,9 @@ function Invoke-SelfTest {
   New-Item -ItemType Directory -Path $tmp | Out-Null
   # 下面一律用 $script: 赋值：函数里裸写 $EnvFile = … 只会造出一个函数局部变量，
   # Start-Proxy 那一边读到的还是**用户真实的 .env**（第一版就栽在这，自检会去动真实实例）。
-  $script:EnvAdd = @("DATA_DIR=.data-probe", "ASSETS_DIR=.assets-probe", "RENDER_DIR=.renders-probe")
+  # 三个落盘目录放在 $tmp 下（跟着自检收尾一起删）：写成仓库根相对路径的话，自检每跑一次
+  # 就在仓库里留 .data-probe / .assets-probe / .renders-probe 三组空壳，被硬杀时更没人清。
+  $script:EnvAdd = @(('DATA_DIR=' + (Join-Path $tmp 'data-probe')), ('ASSETS_DIR=' + (Join-Path $tmp 'assets-probe')), ('RENDER_DIR=' + (Join-Path $tmp 'renders-probe')))
   $realStateFile = $StateFile
   $realEnvFile = $EnvFile
   $realPort = Read-StatePort

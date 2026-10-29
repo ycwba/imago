@@ -136,7 +136,7 @@ function createLocalAssetsStore(deps) {
      Node 里没有 window，所以这张小表必须在本机各留一份（与 `fileSafe` / `dayKey` 同一类登记在案的例外）。 */
   const MEDIA_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
   const typeLabel = t => MEDIA_KIND_ZH[t] || t;
-  /* 系统「下载」文件夹 / 各个根：口径只有一份，在 server/user-dirs.js（AGENTS §1）——
+  /* 系统「下载」文件夹 / 各个根：口径只有一份，在 server/user-dirs.js——
      prompts-store 也 require 同一份，不许各拼各的「下载」路径。 */
   const userDirs = require('./user-dirs.js');
   const OTHER_DIR_NAME = '其他';
@@ -418,6 +418,62 @@ function createLocalAssetsStore(deps) {
      要补建的入口单独一个 localAssetRepair（见下），由真正要拿文件的操作显式调用。 */
   function localAssetEntry(id) {
     return localIndexEntry(id);
+  }
+  /* ---------- 「这条地址取回来的字节是不是就在库根里」 ----------
+     浏览器那份镜像索引（sk_local_mirror）按源分家：换端口、清浏览器数据、无痕窗口都会空掉，
+     指针也会指到账被重建之前的死号。它只能当缓存 —— 账与字节都在代理这边，
+     所以「云端签名失效 / 平台上被清理之后本机那份还看不看得见」必须在这里能判。
+     两句判据：来源地址剥掉签名参数后的身份（localUpKey，与并卡、去重同一把尺子）、
+     平台产物号（落盘时写下的 detail.asset；任务号只在整条任务只出一份时用，多图任务按它合会认错文件）。 */
+  let byUp = null, byUpRev = -1;
+  function upstreamIndex() {
+    const rev = indexStore.version();
+    if (byUp && byUpRev === rev) return byUp;
+    const m = new Map();
+    for (const x of localIndexRead()) {
+      const k = localUpKey(x && x.upstream);
+      if (!k) continue;
+      const a = m.get(k);
+      if (a) a.push(x); else m.set(k, [x]);
+    }
+    byUp = m; byUpRev = rev;
+    return m;
+  }
+  function localEntryByUpstream(url) {
+    const key = localUpKey(url);
+    if (!key) return null;
+    for (const ent of (upstreamIndex().get(key) || [])) {
+      const file = localFileFromEntry(ent);
+      if (file) return { ent, file };
+    }
+    return null;
+  }
+  let byPlat = null, byPlatRev = -1;
+  function platformIndex() {
+    const rev = indexStore.version();
+    if (byPlat && byPlatRev === rev) return byPlat;
+    const byAsset = new Map(), byTask = new Map();
+    for (const x of localIndexRead()) {
+      const d = (x && x.detail) || null;
+      const aid = String((d && d.asset) || '');
+      const task = String((d && d.task) || '');
+      if (aid) { const a = byAsset.get(aid); if (a) a.push(x); else byAsset.set(aid, [x]); }
+      if (task) { const a = byTask.get(task); if (a) a.push(x); else byTask.set(task, [x]); }
+    }
+    byPlat = { byAsset, byTask }; byPlatRev = rev;
+    return byPlat;
+  }
+  function localEntryByPlatformId(id) {
+    const s = String(id || '');
+    if (!s || /^la_/.test(s)) return null;
+    const idx = platformIndex();
+    const one = idx.byTask.get(s);
+    const rows = idx.byAsset.get(s) || (one && one.length === 1 ? one : []);
+    for (const ent of rows) {
+      const file = localFileFromEntry(ent);
+      if (file) return { ent, file };
+    }
+    return null;
   }
   /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（表在模块层的 LOCAL_KIND_BY_EXT，
      落盘文件名就是 <id>.<格式>，最可靠），再按 mime，最后按调用方给的 media_type
@@ -838,6 +894,7 @@ function createLocalAssetsStore(deps) {
     whyNoSpace, sweepStaleTmp,
     localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localIndexDrop,
     localAssetEntry, localAssetRepair, localAssetPaths, localMediaType, localAssetWhen,
+    localEntryByUpstream, localEntryByPlatformId,
     localUpKey, localFillMissing, localFileFromEntry, localAssetFile, localAssetSiblings,
     localUsageScan, serveLocalFile,
   };

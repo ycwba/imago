@@ -5,7 +5,7 @@
      · asr / asr-jobs / search / render-jobs —— 只对本机有意义（任务指向这台机器上的文件），不许出机器；
      · sk_key_* —— 平台密钥默认不出机器，带 x-cloud-keys: 1 才参与（这一条也要能成立，否则「勾选才传」是假的）。
    云端用只监听 127.0.0.1 的假 WebDAV 顶替：cloudCfg 明写了回环 http 例外，
-   数据只写 harness 起的隔离实例（.data-probe-*），跑完连目录一起删。 */
+   数据只写 harness 起的隔离实例（探针目录在系统临时目录），跑完连目录一起删。 */
 'use strict';
 const fs = require('fs');
 const http = require('http');

@@ -1,4 +1,4 @@
-/* 导演台Strip域（engine/strip.js）：块里面画什么 —— 画面段的胶片格、配音段与待生成段的
+/* 导演台Strip域（engine/strip.js）：块里面画什么 —— 画面段的胶片格、配音段与
    波形与文字、字幕段的文字。块的几何（位置 / 宽度 / 把手 / 选中）在 timeline.js 与 edit.js，
    这一份不碰。
    画面帧不在这边解码：`E.ensureFrames` 走 frames.js 那条全页共用的流水线，
@@ -91,7 +91,7 @@ export function createStrip(E, document, window) {
     }, () => { node.__stripBusy = false; });
   }
 
-  /* ---------------- 配音 / 待生成 / 字幕 ---------------- */
+  /* ---------------- 配音 / 字幕 ---------------- */
   function waveHTML(item) {
     const peaks = Array.isArray(item && item.peaks) ? item.peaks : [];
     if (!peaks.length) return '';
@@ -104,11 +104,6 @@ export function createStrip(E, document, window) {
   function voiceBody(item) {
     const text = item && item.text ? item.text : '配音';
     return `${waveHTML(item)}<span class="tl-voice-txt">${esc(text)}</span>`;
-  }
-
-  function pendingBody(item) {
-    const text = item && item.text ? item.text : '待生成';
-    return `<span class="tl-pend-ic">${icon ? icon('mic', 11) : ''}</span><span class="tl-voice-txt">${esc(text)}</span>`;
   }
 
   function captionBody(cap) {
@@ -150,5 +145,5 @@ export function createStrip(E, document, window) {
     }
   }
 
-  return { paint, clipBody, voiceBody, pendingBody, captionBody };
+  return { paint, clipBody, voiceBody, captionBody };
 }
