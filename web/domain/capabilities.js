@@ -374,12 +374,27 @@ window.Capabilities = {
         const key = i.role + '|' + (i.media_type || '');
         if (seenSpec.has(key)) {
           const hit = specs.find(x => x.role + '|' + x.media === key);
-          if (hit) { hit.max = Math.max(hit.max, i.max || 1); hit.modes = [...new Set([...hit.modes, mode])]; }
+          if (hit) {
+            hit.max = Math.max(hit.max, i.max || 1);
+            hit.min = Math.min(hit.min, i.min || 0);
+            hit.modes = [...new Set([...hit.modes, mode])];
+          }
           return;
         }
         seenSpec.add(key);
         specs.push({ role: i.role, media: i.media_type || '', min: i.min || 0, max: i.max || 1, modes: [mode] });
       });
+    });
+    /* 型号级 `min` 的意思只能是「**每一档请求形状都要求它**」，不是并集：
+       平台把「必须带参考图」写在 image_edit 这一档（min 1），同一型号还有一档 text_to_image
+       一个素材都不收 —— 拿任何一档的 min 当型号级下限，纯文字那一路会被自己人拦住
+       （工作台图片台选这种型号时就是这样：不带参考图就不让生成，而平台明明收纯文字）。
+       某一档没列这个 role、或写了 min 0，都说明存在一种不需要它的请求 → 型号级 min 归 0。
+       `max` 相反：并集回答「最多能收几个」，任取一档的上限都成立。 */
+    specs.forEach(sp => {
+      const requiredInAll = modes0.every(m => (((modes[m] || {}).inputs) || [])
+        .some(x => x && x.role === sp.role && (x.media_type || '') === sp.media && Number(x.min) > 0));
+      if (!requiredInAll) sp.min = 0;
     });
     if (specs.length) cap.inputSpecs = specs;
     let maxRef = 0;

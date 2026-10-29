@@ -241,6 +241,34 @@ for (const fx of FIX) {
 /* 每个 code 都要至少被一条 fixture 跑到：新加判据却没有 fixture = 没人保证两侧一致。 */
 for (const code of CODES) ok(seen.has(code), 'code ' + code + ' 有 fixture 覆盖', '矩阵里没有任何一条落到这个码');
 
+/* ================= ①b 型号级 min：只有「每一档请求形状都要求」才算必须带 =================
+   上游 /models 的 modes 是**请求形状**：图台上的 img-* 一边是 image_edit（min 1，必须带参考图），
+   一边是 text_to_image（一个素材都不收）。型号级 min 若照抄任意一档的下限，纯文字那一路
+   就会被自己人拦住：不必须有参考图的型号，只写提示词也不让生成。三种形状都钉住：
+   有纯文字档 → 放行；只有编辑档 → 照拦；多档都要求时下限取最小，上限仍是并集。 */
+const normOf = (id, defs) => {
+  const cap = sandbox.window.Capabilities.norm({ id: id, modes: defs }, '', {});
+  return { prov: { id: 'p_' + id, name: id, kind: 'image', models: [{ id: id, options: cap }] },
+    model: { id: id, options: cap } };
+};
+const REF_IN = (lo, hi) => ({ inputs: [{ role: 'reference_image', media_type: 'image', min: lo, max: hi }] });
+const MIXED = { image_edit: REF_IN(1, 8), text_to_image: { inputs: [] } };
+const TWO_MINS = { a: REF_IN(2, 8), b: REF_IN(1, 4) };
+const minCases = [
+  { id: '有纯文字档（0 张）', at: normOf('mixed', MIXED), refs: 0, want: '' },
+  { id: '有纯文字档（上限仍是编辑档的 8）', at: normOf('mixed', MIXED), refs: 9, want: 'slot-shape' },
+  { id: '只有编辑档（0 张照拦）', at: normOf('edit-only', { image_edit: REF_IN(1, 8) }), refs: 0, want: 'slot-shape' },
+  { id: '多档都要求（下限取最小，1 张放行）', at: normOf('two-mins', TWO_MINS), refs: 1, want: '' },
+  { id: '多档都要求（0 张照拦）', at: normOf('two-mins', TWO_MINS), refs: 0, want: 'slot-shape' },
+];
+for (const c of minCases) {
+  const v = GenRules.whyNot(mkInput('page', { provider: c.at.prov.id, prov: c.at.prov, model: c.at.model,
+    slots: { reference_image: c.refs } }));
+  const got = (v && v.code) || '';
+  ok(got === c.want, '型号级 min：' + c.id + '（带 ' + c.refs + ' 张）结论 = ' + (c.want || '放行'),
+    '实际 ' + (got || '放行') + '，args=' + JSON.stringify(v && v.args));
+}
+
 /* ================= ② 两侧都必须把判据交出去 ================= */
 const studioFn = fnAt(STUDIO.file, STUDIO.re);
 const chatFn = fnAt(CHAT.file, CHAT.re);
