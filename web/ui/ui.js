@@ -1306,7 +1306,7 @@ window.UI_PREFS = {
   ],
   rows: [
     { key: 'dir_palette', group: 'look', name: '主题配色', kind: 'seg', def: 'ocean', keep: 1,
-      opts: [['violet', '紫罗兰'], ['ocean', '海洋'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']],
+      opts: [['ocean', '海洋'], ['violet', '紫罗兰'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']],
       hint: '只换强调色。' },
     { key: 'dir_theme', group: 'look', name: '日间 / 夜间', kind: 'seg', def: 'light', keep: 1,
       opts: [['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']],
