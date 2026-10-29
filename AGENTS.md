@@ -61,7 +61,7 @@
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
 ├─ web/
 │  ├─ app.js                    Vue 外壳：hash 路由 + KeepAlive 页面池 + 生命周期
-│  ├─ shell-boot.js             主题与“在外壳里”旗标（外部脚本，避免内联脚本）
+│  ├─ shell-boot.js             主题解析（配色 + 日夜两根轴，含跟随系统）与“在外壳里”旗标（外部脚本，避免内联脚本）
 │  ├─ boot-assistant.js         空闲时加载 AI 助手（`ai_chat_off` 命中就整个不下载）
 │  ├─ core/                     routes / bridges / page-context / hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 web/director/index.js）
@@ -144,6 +144,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - `web/styles/tokens.css` 是**唯一**的主题 / 间距 / 字号 / 圆角 / 描边宽 / 组件尺寸 / 阴影 / 动效令牌来源；
   别的样式表与页面 CSS 不许再定义 `:root` 或 `html[data-theme="dark"]` 的第二套变量。
+- **颜色分两层**（2026-10-29）：① 段只有**别名**（`--bg: var(--bg-base)`），浅色那一份真值只在
+  ①a 的 `--<name>-base` 写一次，深色档由基色现算（见 §3.4.2）。加一枚主题色 = ① 段一枚别名
+  + ①a 一枚基色 + 深色档一条推导，三处少一处判据 G19 当场红；深色档里**不许**再写 `*-base`
+  （那是把浅色那份真值盖掉）。
 - **令牌名 = 它的值**：`--sp-14` 就是 14px、`--fs-12-5` 就是 12.5px、`--radius-10` 就是 10px、
   `--acc-tint-18` 就是 18%。早先「序号 = 档位」的写法（`--sp-1:4px` / `--fs-1:12px`）已经全部改成按值命名 ——
   序号写法要人记「--sp-3 是几像素」，而且同一档里两套命名并存时必然漂开（`--fs-1` 与 `--fs-12` 指的是
@@ -170,17 +174,35 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **模板源也在射程里**：`tools/vue-templates/*.html` 预编译进 `web/render/*.js`，等于活代码，
   它的行内 `style=` 同样不许写死。
 
-#### 3.4.2 主题：深浅两档与「固定色」的边界
+#### 3.4.2 主题：两根轴、深浅两档与「固定色」的边界
 
-`tokens.css` 按段分清了三件事 —— **换主题时只动 ① 与深色档**：
+主题是**两根轴**：`html[data-theme]` 只放**解析后**的 `light` / `dark`（永远不写 `system`），
+`html[data-palette]` 放配色名（`ocean` 缺省，另有 `violet` / `teal` / `berry` / `amber`）。
+解析只有一处：`web/shell-boot.js` 的 `window.__themeApply`（启动时同步跑在样式表之前，
+偏好是 `system` 时按 `prefers-color-scheme` 解析、系统档变化时重解析）。侧栏那颗「换背景」、
+设置页两格、助手改设置都只调它，**不许**自己写 `dataset.theme`（那会绕过 `system` 的解析）。
+
+`tokens.css` 按段分清了几件事 —— **换主题时只动 ① / ①a 与深色档，换配色只动配色块**：
 
 | 段 | 内容 | 跟不跟主题走 |
 | --- | --- | --- |
-| ① 主题色 | `--bg` `--panel` `--line` `--txt` `--sub` `--acc` `--acc2` `--ok` `--warn` `--err` `--pri` `--input` `--thumbbg` `--atbg` `--scroll` | **跟**：深浅两档必须成对覆盖（判据 G19） |
+| ① 主题色（只有别名） | `--bg` `--panel` `--panel2` `--line` `--txt` `--sub` `--acc` `--acc2` `--ok` `--warn` `--err` `--pri` `--input` `--thumbbg` `--atbg` `--scroll` —— 值一律是 `var(--<name>-base)` | **跟**：深浅两档必须成对覆盖（判据 G19） |
+| ①a 浅色基色（全站唯一真值） | `--<name>-base` 十六枚 | 不跟（深色档由它们现算，不另写真值） |
 | ①b 两档一致的固定色 | `--on-acc` `--media-bg` `--chart-1..12` | 不跟（反白字、媒体黑底、图表色两档该同值） |
 | ② 派生色 | `--acc-tint-*` `--acc-line-32` `--warn-tint` | **跟**（由 ① 现算） |
 | ③ 固定中性色 | `--pal-gray*` `--pal-slate*` `--pal-scrim` | 不跟（只给**深底浮层**用：灯箱、缩略图上的播放钮遮罩） |
-| ③b 导演台标记色 | `--mark-cut` `--mark-ready` `--mark-mute` `--mark-loud` | **跟**：轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深浅两档各一套 |
+| ③b 导演台标记色 | `--mark-cut` `--mark-ready` `--mark-mute` `--mark-loud`（各自带 `*-base`） | **跟**：轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深色档同样由基色现算 |
+
+- **深色由浅色现算**（2026-10-29）：`html[data-theme="dark"]` 里每个语义色写成
+  `oklch(from var(--x-base) <L> c h)` —— 只换亮度，色相与彩度沿用基色；换一套配色，
+  浅深两档一起换，色相不会在两档之间漂开。深色档里**只许**出现 ① 语义名 / ③b 标记名 /
+  `--shadow-*`（阴影是深底上的另一套，保留字面值），写 `*-base` 就是重设基色（判据 G19）。
+  `--atbg` 是例外：深色档写成 `color-mix(in srgb, var(--txt) var(--a-14), transparent)`
+  （「深底上的浅字」按透明度铺一层）。⚠ 相对色语法要 **Chrome / Edge 119+**（本项目本来就要 118+ 的 `@scope`）。
+- **配色块只换强调色**：文件末尾 `html[data-palette="ocean"|"teal"|"berry"|"amber"]` 各一块，
+  只覆盖 `--acc-base` / `--acc2-base` / `--pri-base`（后两枚指回 `--acc-base`），再靠深色档的推导跟上；
+  块里不写深色版本。⚠ 选择器必须**单挂** `data-palette`（和 `data-theme` 叠写，换配色就只在一档里生效），
+  `violet` 就是 ①a 的基色、没有自己的块（缺省选择是 `ocean`；判据 G19 数这三条）。
 
 - **导演台不再有独立深底作用域**（2026-10-25 收口）：以前它有整整一族 `--dir-*`
   （深底表面 `--dir-ink-*`、深底浅字 `--dir-fog-*`、一串标记色），两档主题下都是黑的。
@@ -190,10 +212,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 共享界面的文字 / 描边 / 底色 / 状态**一律取 ① 段**（`--err` / `--warn` / `--ok` / `--acc` / `--acc2`），
   **不许再挑固定色** —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
-- 加一枚新的主题色时，**深色档必须一起加**（判据 G19）；深色档里拼错的名字不会报错，只是**静默失效**，
-  同一条判据也把它抓住。
-- 换主题的验收方式：切 `html[data-theme]` 后逐屏看 —— 浅/深两档的语义色必须各自成体系，
-  不允许某一档里出现「另一种主题的颜色」。
+- 加一枚新的主题色时，**别名 + 基色 + 深色推导三处一起加**（判据 G19）；深色档里拼错的名字不会报错，
+  只是**静默失效**，同一条判据也把它抓住。
+- 换主题的验收方式：切 `html[data-theme]` 与 `html[data-palette]` 后逐屏看 —— 浅/深两档的语义色
+  必须各自成体系，五套配色的强调色要真有区别、中性色逐字节不动
+  （浏览器判据 `tests/e2e/theme-modes.cjs`）。
 - 页面确有品牌差异时，只在该页根类下覆盖**一个**变量，并写明理由；不许自己另起一套色。
 
 #### 3.4.3 布局：两种页面外壳
@@ -361,7 +384,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | --- | --- | --- |
 | 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--map` 看映射 / `--collapse` 看收敛影响面） |
 | 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
-| 静态判据 | G18 裸值 / G19 主题色成对 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 | `node tests/static-guards.cjs` |
+| 静态判据 | G18 裸值 / G19 主题色深浅两档（基色 + 推导 + 配色块）成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 | `node tests/static-guards.cjs` |
 | 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
 
 - 静态判据的存量表**只许减不许增**（`GUARD_WRITE=1` 重打表，但每条都要补一句原因）。
@@ -708,6 +731,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 格式化 | `Wb.fmtSec` / `fmtClock` / `fmtWhen` / `fmtWhenSec` / `fmtHM` / `fmtHMS`；`ui.js` 的 `dayKey` |
 | 文件名 | `fileSafe` / `fileStamp`（浏览器与 Node 各一份，是登记在案的例外） |
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单，判据 `tests/settings-schema.cjs`） |
+| 主题解析（配色 / 日夜两根轴） | `web/shell-boot.js` 的 `window.__themeApply`（唯一一处把偏好解析成 `data-theme`（只放 light / dark）+ `data-palette`；「跟随系统」听 `matchMedia`；解析完广播 `sb:theme-applied`。侧栏那颗按钮、设置页、助手改设置都只调它，不写 `dataset.theme`） |
+| 侧栏「换背景」的日 / 月图标 | `web/ui/sidebar.js` 的 `window.__sbThemeIcon`（每次解析完成后由 `shell-boot` 回调；按钮点击按**解析后**那一档取反并钉住，不继续跟随系统） |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码，不各写一套判据） |
 | 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（页面主动报只有 `pageFail`；`fatal` / `warn` 两种 kind 由这一处的两个 window 监听器发出 → `POST /client-error` → 代理健康账） |
 | 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport.keep(host, fn)`（重画点自己调：按**锚点**（第一个可见子元素 + 它的稳定键或下标）在重画后把容器里那只滚动位还回去，锚点以上内容变高也不会漂；外壳不再猴补 `Element.prototype.innerHTML` —— 那种写法罩不住「重画后内容变短被夹回顶」，还在全局原型上动手脚。**「点一颗按钮，视角跳到最上面」就是这一族**；判据 `tests/e2e/viewport-keep.cjs`） |
@@ -1135,7 +1160,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 合并 | `npm run test` | 批末回归 / **提交与推送前** | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 4 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（**不是提交与推送的前置条件**） | 49 项：读数型 4 条先独跑 + 其余 45 条 4 路并发（另含 perf/boot 与 static-encoding --live），实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（**不是提交与推送的前置条件**） | 50 项：读数型 4 条先独跑 + 其余 46 条 4 路并发（另含 perf/boot 与 static-encoding --live），实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1176,6 +1201,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
   站内切页再切回不丢）。
 - 文件类型筛选：`kind-filter`（收藏 / 工作台 / 资产库三页共用 `Wb.kindFilter`：分段控件 + 每档计数、
   点一下换档、计数为 0 且非当前档的那一颗不画）。
+- 主题两根轴：`theme-modes`（缺省浅色 + 海洋；设置页两行点一下当场生效并落盘；5 套配色 × 浅/深
+  的强调色两两不同、中性色逐字节不动；`system` 由 CDP 模拟系统深色档现跟；侧栏「换背景」按**解析后**
+  那一档取反并钉住；坏值回落；深色档底 / 字的亮度掉转过来。颜色读的是浏览器算完的像素，不是源码字符串）。
 - 视口不许被重画甩回顶：`viewport-keep`（裸重画确实丢位是对照；`Wb.viewport.keep` 按锚点还原；
   `Wb.cards.paint` 整箱重画也不吃位。⚠ 不碰导演台：它的重画点在 `Timeline.render` / `renderEditor` 自己的 `Wb.viewport.keep` 里）。
 - 「存回本机」存的是**多选勾选的那几条**：`pull-selected`（工作台 / 资产库两页：那颗按钮住在
@@ -1185,7 +1213,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
   4 路并发，每条自起隔离 proxy + 独立 Chrome）；`--e2e` 全量分两道 —— **读数型先独跑**
   （`ui-visual` / `director-perf` / `director-playback` / `perf/boot` 四条：并发负载会让截图指纹、帧预算
   与播放对齐这类读数失真 —— 实时播放量到的配音偏移是归位途中的瞬时值），其余（含 7 条不起 Chrome
-  的服务端链路）走 4 路并发，`tests/e2e/` 48 个文件（47 条判据 + harness），
+  的服务端链路）走 4 路并发，`tests/e2e/` 49 个文件（48 条判据 + harness），
   同一档还跑 `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`
   （后者是同一份判据的「线上那一半」，要起隔离实例）。16 核 / 17 GB 本机实测全量约 10 分钟（串行版是 20 分钟级）；
   单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例（开机静默探针独跑 3/3 绿、满载必红那种）。
@@ -1407,11 +1435,11 @@ npm run test:fast           # 迭代档：check + 按改动映射跑判据（map
 npm run test                # 合并档：常驻判据全量（并发池，~3s）—— 提交与推送前跑这一档
 npm run test:all            # 全量档（按需）：常驻池 + e2e 冒烟 6 条（4 路并发，共 ~75s）
 npm run test:director       # 剪辑核日常档：纯件 4 条 + 一次装配的核冒烟（约 35s）
-npm run test:e2e            # 浏览器档（按需，非前置）：49 项 —— 读数型 4 条独跑 + 其余 4 路并发（含视觉回归与性能）
+npm run test:e2e            # 浏览器档（按需，非前置）：50 项 —— 读数型 4 条独跑 + 其余 4 路并发（含视觉回归与性能）
 npm run test:watch          # 观察档：fs.watch web/ server/ → map.cjs --changed --run
 node tools/tokenize-css.cjs            # 样式秒级档：裸值体检（只读；--write 机械替换 / --map 映射 / --collapse 收敛影响面）
 node tools/check-vars.cjs              # 令牌引用完整性（引了没定义的令牌 → 声明作废且浏览器不报错）
-node tests/static-guards.cjs           # 静态纪律 21 条判据（G18 裸值 / G19 主题色成对 / G20 公共类 / G21 透明度阶梯 / G22 断点）
+node tests/static-guards.cjs           # 静态纪律 21 条判据（G18 裸值 / G19 主题色深浅两档 / G20 公共类 / G21 透明度阶梯 / G22 断点）
 node tests/e2e/ui-visual.cjs           # 视觉回归 44 个画面；重打基线加 UI_VISUAL_WRITE=1
 node tests/data-snapshot.cjs  # 写入型：对真实 .data / .renders 与库根本体比基线（§13.3）
 powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest
@@ -1443,11 +1471,19 @@ set WB_LAUNCHER_DRYRUN=1 && 启动.bat
 - **令牌名 = 值，不回退到「序号 = 档位」**：序号写法要人记「--sp-3 是几像素」，
   而且同一档里两套命名并存时必然漂开（`--fs-1` 与 `--fs-12` 是两个完全不同的字号）。
   改名的成本在令牌化那一轮一次付清（718 处），之后新增一律按值命名。
-- **主题色与固定色分家**：`tokens.css` ① 段跟主题走、③ 段（固定中性色）不跟；③b 段
-  （导演台标记色 `--mark-cut` / `--mark-ready` / `--mark-mute` / `--mark-loud`）**跟** ——
-  那四枚是轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深浅两档各一套。
+- **主题色与固定色分家**：`tokens.css` ① 段（别名）与 ①a 段（浅色基色）跟主题走、③ 段（固定中性色）不跟；
+  ③b 段（导演台标记色 `--mark-cut` / `--mark-ready` / `--mark-mute` / `--mark-loud`，各自带 `*-base`）**跟** ——
+  那四枚是轨道里的功能标记（切点 / 就绪 / 静音 / 音量高），深色档同样由基色现算。
   共享界面一律取语义色 —— 挑固定色的后果是「深色主题里错误色还是浅色的红」。
-  加主题色必须连深色档一起加（判据 G19）。
+  加主题色 = 别名 + 基色 + 深色推导三处一起加（判据 G19）。
+- **5 套配色 + 跟随系统：两轴、深色现算**（2026-10-29）：配色只覆盖 `--acc-base` / `--acc2-base` /
+  `--pri-base`（配色块，`violet` 是 ①a 基色、无块；缺省选择是 `ocean`）；深色档由基色 `oklch(from … <L> c h)` 现算，
+  **不手写第二份深色真值** —— 换配色时浅深两档一起换，色相的深浅对应关系不会漂。
+  「跟随系统」在**解析层**做（`shell-boot.js` 把 system 解析成 light / dark 再进 `data-theme`，
+  并听系统档变化重解析），样式层只认解析后的两档 —— 不写 `html[data-theme="system"]` 那种第二套选择器。
+  代价与边界：① 相对色语法要 Chrome / Edge 119+（本项目本来就要 118+ 的 `@scope`）；
+  ② `shell-boot.js` 必须同步跑在样式表之前（否则先闪一帧浅色），所以它是首屏常驻件，挪不到按需；
+  ③ 深色档里只许出现语义名 / 标记名 / `--shadow-*`，`--atbg` 是 `color-mix` 那一处例外（判据 G19）。
 - **页面外壳只有两种**（`.page-shell` / `.wb`），工作台那套两栏骨架的**唯一一份**在
   `web/styles/wb.css`：以前 ui.css 那份是给老工作台页的死代码、SPA 那份是逐条照抄，
   两份迟早对不上。页面差异留在 `spa-<id>.css` 且必须挂在页面根类下（判据 G20）。

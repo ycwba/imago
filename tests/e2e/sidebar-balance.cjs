@@ -85,6 +85,31 @@ const SNAP = () => {
     return { top: Math.round(r.top - bb.top), bottom: Math.round(bb.bottom - r.bottom), h: Math.round(r.height) }; };
   const logo = document.querySelector('.sb-logo');
   const lrect = logo ? logo.getBoundingClientRect() : null;
+  /* 箭头指向：把 path 解析成绝对顶点（只认 m/M l/L h/H v/V —— 图标表里就这几条，
+     别的命令不猜，返回空）。折线三个顶点里中间那个是尖：尖比起点低 = 朝下。
+     图标在 24×24 网格上用**相对命令**画（`m6 9 6 6 6-6`），把增量当坐标读会把
+     朝上与朝下读成同一个方向。 */
+  const dirOf = p => {
+    const tk = (p ? (p.getAttribute('d') || '') : '').match(/[a-zA-Z]|-?\d+(?:\.\d+)?/g) || [];
+    const pts = [];
+    let cmd = '', x = 0, y = 0, i = 0;
+    while (i < tk.length) {
+      if (/[a-zA-Z]/.test(tk[i])) {
+        cmd = tk[i++];
+        if (!/[mMlLhHvV]/.test(cmd)) return '';
+        continue;
+      }
+      if (!cmd) return '';
+      const rel = cmd === cmd.toLowerCase();
+      if (/[hH]/.test(cmd)) { const v = Number(tk[i++]); x = rel ? x + v : v; }
+      else if (/[vV]/.test(cmd)) { const v = Number(tk[i++]); y = rel ? y + v : v; }
+      else { const a = Number(tk[i++]), b = Number(tk[i++]); x = rel ? x + a : a; y = rel ? y + b : b; }
+      pts.push([x, y]);
+    }
+    if (pts.length < 2) return '';
+    const tip = pts.length >= 3 ? pts[1] : pts[pts.length - 1];
+    return tip[1] < pts[0][1] ? 'up' : (tip[1] > pts[0][1] ? 'down' : '');
+  };
   /* 家数从「状态点那一行」的说明里读（它是 balList() 那一份的投影）——
      **不许写死 6**：探针里真机那几家（.env 里有密钥的）也会进来，家数是环境相关的。 */
   const dotsTitle = (box.querySelector('.sb-bal-dots') || {}).title || '';
@@ -138,22 +163,10 @@ const SNAP = () => {
     acts: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.getAttribute('data-bal')),
     actTexts: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.textContent.replace(/\s+/g, ' ').trim()),
     actTitles: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => b.getAttribute('title') || ''),
-    /* 箭头指向：读 path 的头两点（起点 → 尖），尖在上 = 朝上，在下 = 朝下。不抄图标表。 */
-    actIconDirs: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => {
-      const p = b.querySelector('.ic svg path');
-      const n = p ? (p.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g) : null;
-      if (!n || n.length < 4) return '';
-      const y0 = Number(n[1]), y1 = Number(n[3]);
-      return y1 < y0 ? 'up' : (y1 > y0 ? 'down' : '');
-    }),
+    /* 箭头指向：读 path 的顶点（起点 → 尖），尖在上 = 朝上，在下 = 朝下。不抄图标表。 */
+    actIconDirs: [...box.querySelectorAll('.sb-bal-acts .ghost')].map(b => dirOf(b.querySelector('.ic svg path'))),
     /* 「产物存本机」明细那一枚开关的箭头（同一套：展开朝上、收起朝下）。 */
-    mirIconDir: (() => {
-      const p = document.querySelector('#sbBalance .sb-mirror .l1 .chev svg path');
-      const n = p ? (p.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g) : null;
-      if (!n || n.length < 4) return '';
-      const y0 = Number(n[1]), y1 = Number(n[3]);
-      return y1 < y0 ? 'up' : (y1 > y0 ? 'down' : '');
-    })(),
+    mirIconDir: dirOf(document.querySelector('#sbBalance .sb-mirror .l1 .chev svg path')),
     /* 底部两块（设置 / 换背景）与底边的距离：差得大 = 它们离底边浮起来了。 */
     bottomGap: Math.round(rail.getBoundingClientRect().bottom
       - (document.querySelector('#sbTheme') || { getBoundingClientRect: () => ({ bottom: 0 }) }).getBoundingClientRect().bottom),

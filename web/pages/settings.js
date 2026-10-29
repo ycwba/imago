@@ -2444,10 +2444,11 @@ const SettingsView = {
         }
       }
       const top = window.top || window;
-      try {
-        const th = window.LS.get('dir_theme') || 'light';
-        if (top.__sbApplyTheme) top.__sbApplyTheme(th); else document.documentElement.dataset.theme = th;
-      } catch (e) {}
+      /* 两根轴的偏好（dir_palette / dir_theme）刚才已写进存储；这里只让外壳**重新解析**一次 ——
+         「跟随系统」要先看系统档位，所以不能把值直接写进 dataset.theme。 */
+      try { if (top.__themeApply) top.__themeApply(); } catch (e) {
+        /* 外壳引导脚本没跑起来：主题停在上一档，其余偏好照常保存。 */
+      }
       try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
       try {
         const nowSaveOn = window.LS.get('sk_media_local') !== 'off';
@@ -2462,6 +2463,20 @@ const SettingsView = {
         else if (top.__sbRefresh) top.__sbRefresh();
         if (top.__sbApplyOpen) top.__sbApplyOpen();
       } catch (e) {}
+    }
+    /* 主题两根轴的高亮以**存储**为准重画：解析可能来自别处（侧栏那颗日 / 夜按钮、
+       系统深色档变化），这时两排分段要跟着亮到新档位，而不是停在旧的那一格。 */
+    function syncThemePrefs() {
+      const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
+      for (const key of ['dir_palette', 'dir_theme']) {
+        const r = rows.find(x => x.key === key);
+        const seg = q('.ui-seg[data-ui="' + key + '"]');
+        if (!r || !seg) continue;
+        let cur = window.LS.get(key) || '';
+        if (!r.opts.some(o => o[0] === cur)) cur = r.def;
+        seg.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === cur));
+      }
+      syncNav();
     }
 
     /* ---------- 素材库的设置（控件、默认值、文案全部来自 Chars.SET） ---------- */
@@ -4393,7 +4408,12 @@ const SettingsView = {
       },
       /* 语音识别 / 联网搜索是供应商那张卡里的两档，轨上不另占行 → 它们的当前值
          也不进值速记（那一栏跟着卡走，看卡就知道）。 */
-      appearance: () => (uiPrefLabel('dir_theme') || '浅色') + ' · ' + (uiPrefLabel('dir_asset_view') || '列表'),
+      appearance: () => {
+        /* 缺省配色（海洋）在轨上不占字；换了配色才把那一段加在最前（「莓果 · 浅色 · 列表」）。 */
+        const pal = uiPrefLabel('dir_palette');
+        return (pal && pal !== '海洋' ? pal + ' · ' : '')
+          + (uiPrefLabel('dir_theme') || '浅色') + ' · ' + (uiPrefLabel('dir_asset_view') || '列表');
+      },
       paging: () => '每页 ' + (window.pageSizeOf ? window.pageSizeOf('studio') : 24) + ' 条',
       network: () => net.timeout + ' 秒 · 重试 ' + net.retry + ' 次',
       storage: () => ((window.UI_PREFS && UI_PREFS.isOn('sk_media_local')) ? '自动存本机' : '只留外链'),
@@ -4784,6 +4804,8 @@ const SettingsView = {
       initCloud();
       renderPageSettings();
       renderUiPrefs();
+      /* 主题解析发生在 shell-boot / 侧栏按钮里；每次解析完成都把两排分段的高亮对回来。 */
+      document.addEventListener('sb:theme-applied', syncThemePrefs);
       initPromptArchive();
       initTextForm();
       paintSkillChips();
@@ -4812,6 +4834,7 @@ const SettingsView = {
     });
     onBeforeUnmount(() => {
       if (rootEl.value) rootEl.value.removeEventListener('change', onRootChange);
+      document.removeEventListener('sb:theme-applied', syncThemePrefs);
       if (setDocEl.value) setDocEl.value.removeEventListener('scroll', onScrollNav);
       window.removeEventListener('resize', setDocAnchor);
       if (navRO) { try { navRO.disconnect(); } catch (e) {} navRO = null; }

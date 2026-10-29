@@ -71,7 +71,7 @@ const handCopied = [
 ok('界面偏好的键名没有在名单里再抄一遍', handCopied.length === 0, handCopied.join(', '));
 
 /* ---------- ③ keep 列 = 恢复默认不清的那一批 ---------- */
-const wantKeep = ['dir_theme', 'sb_open', 'dir_asset_view', 'dir_fav_view',
+const wantKeep = ['dir_palette', 'dir_theme', 'sb_open', 'dir_asset_view', 'dir_fav_view',
   'sk_media_local', 'sk_media_prefer', 'sk_media_badge', 'sk_media_cloud_hide'];
 ok('keep 列点名「主题 / 视图档位 / 产物开关」', wantKeep.every(k => rows[k] === true) && keepKeys.length === wantKeep.length,
   'keep=' + keepKeys.join(',') + '（应当恰好是 ' + wantKeep.length + ' 项）');

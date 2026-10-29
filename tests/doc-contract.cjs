@@ -140,7 +140,7 @@ ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
 /* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
    文档里的条数也得跟着改 —— 「文档不许说谎」（§14 的规矩）。 */
-ok(nE2e === 48, 'e2e 应为 48 条，实际 ' + nE2e);
+ok(nE2e === 49, 'e2e 应为 49 条，实际 ' + nE2e);
 
 /* ---------- §6.5 的远端地址必须与实际远端一致 ----------
    远端**别名**随克隆而异（本机叫 origin、另一份工作副本叫 github），

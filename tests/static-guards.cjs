@@ -82,7 +82,6 @@ const G3_EMPTY_CATCH = [
   { file: 'web/director/fcpxml.js', max: 1, why: '存量：FCPXML 导出吞错的一批' },
   { file: 'web/director/split-assets.js', max: 1, why: '存量：拆素材吞错的一批' },
   { file: 'web/domain/asr.js', max: 1, why: '存量：转写吞错的一批' },
-  { file: 'web/shell-boot.js', max: 1, why: '存量：外壳启动吞错的一批' },
   { file: 'web/ui/toast.js', max: 1, why: '存量：提示条吞错的一批' },
 ];
 
@@ -525,24 +524,92 @@ function styleSources() {
   walk(S.abs('tools/vue-templates'), false);
   return out.sort();
 }
-/* G19 主题色深浅两档必须成对覆盖：tokens.css ① 段里的每一枚，深色档都要覆盖；
-   深色档里出现的名字，:root 里也得有 —— 拼错的名字不会报错，只是**静默失效**。
-   换主题时最容易漏的就是这一条：加了一枚新主题色，浅色好看、深色瞎一眼。 */
+/* G19 主题是三层：① 段只放别名（--bg: var(--bg-base)），①a 放全站唯一的浅色真值
+   （--bg-base:#f2f3f9），深色档由基色现算（--bg: oklch(from var(--bg-base) 0.160 c h)）。
+   配色块只覆盖 --acc-base / --acc2-base / --pri-base 三枚，且只能单挂 data-palette。
+   三层各有各的坏法，分开数：
+     · 别名不指基色 / 基色没定义 / 基色没有别名 —— 换色时有一层空转；
+     · 深色档里写 *-base 或写死色值 —— 浅色那份真值被盖掉、深色不再跟着配色走；
+     · 配色块叠上 data-theme / 多写别的语义色 —— 换配色只在一档生效，或带着别的一起漂。
+   拼错的名字不会报错，只是**静默失效**。 */
 const G19_THEME_PAIR = [];
 function detectThemePair(file, src) {
   const out = {};
-  const rootBlock = (src.split(':root {')[1] || '').split('}')[0];
-  const darkBlock = (src.split('html[data-theme="dark"] {')[1] || '').split('}')[0];
-  const sec = /① 主题色[\s\S]*?\*\/([\s\S]*?)\/\* -+/.exec(src);
-  const themeSec = sec ? sec[1] : '';
-  const themeNames = [...themeSec.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]);
-  const darkNames = new Set([...darkBlock.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]));
-  const rootNames = new Set([...rootBlock.matchAll(/(--[\w-]+)\s*:/g)].map(x => x[1]));
-  for (const n of themeNames) {
-    if (!darkNames.has(n)) out[file + '#深色档没覆盖主题色 ' + n] = 1;
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '');
+  const declsOf = block => {
+    const map = new Map();
+    for (const part of block.split(';')) {
+      const i = part.indexOf(':');
+      if (i < 0) continue;
+      const k = part.slice(0, i).trim();
+      if (!/^--[\w-]+$/.test(k)) continue;
+      map.set(k, part.slice(i + 1).trim().replace(/\s+/g, ' '));
+    }
+    return map;
+  };
+  /* ---------- ① 段：别名指回同名基色，基色必须定义且都有别名 ----------
+     段标记写在注释里，所以切片的起点要挪到**那条注释的开头**：从标记处切会把
+     前半条注释留在段里，注释里的示例 `--bg: var(--bg-base)` 就会被当成一条声明
+     （键名带着注释文字、正则不认 → 那枚别名整个消失）。 */
+  const commentOpen = needle => {
+    const i = src.indexOf(needle);
+    return i < 0 ? -1 : src.lastIndexOf('/*', i);
+  };
+  const a = commentOpen('① 主题色');
+  const b = a < 0 ? -1 : commentOpen('①b');
+  const theme = declsOf(a < 0 ? '' : strip(src.slice(a, b > a ? b : undefined)));
+  if (!theme.size) out[file + '#找不到「① 主题色」段（别名 + ①a 基色都在这段里）'] = 1;
+  for (const [name, val] of theme) {
+    if (name.endsWith('-base')) {
+      if (/var\(/.test(val)) out[file + '#' + name + ' 又指回变量（基色要写死值）'] = 1;
+      continue;
+    }
+    if (val !== 'var(' + name + '-base)') {
+      out[file + '#' + name + ' 的值不是 var(' + name + '-base)（① 段只放别名）'] = 1;
+    }
+    if (!theme.has(name + '-base')) out[file + '#①a 里没有 ' + name + '-base（' + name + ' 没有浅色真值）'] = 1;
   }
-  for (const n of darkNames) {
-    if (!rootNames.has(n)) out[file + '#深色档里的 ' + n + ' 在 :root 里没有定义（拼错会静默失效）'] = 1;
+  for (const name of theme.keys()) {
+    if (name.endsWith('-base') && !theme.has(name.slice(0, -5))) {
+      out[file + '#' + name + ' 没有对应的语义别名（死基色）'] = 1;
+    }
+  }
+  /* ---------- 深色档：每枚主题色都要覆盖，且只能是从基色推导 ---------- */
+  const dark = declsOf(strip((src.split('html[data-theme="dark"] {')[1] || '').split('}')[0]));
+  for (const name of theme.keys()) {
+    if (!name.endsWith('-base') && !dark.has(name)) out[file + '#深色档没覆盖主题色 ' + name] = 1;
+  }
+  for (const [name, val] of dark) {
+    if (name.endsWith('-base')) {
+      out[file + '#深色档里重设了基色 ' + name + '（浅色真值只在 ①a）'] = 1;
+      continue;
+    }
+    if (/^--shadow-/.test(name)) continue;                   // 阴影可以写死
+    if (name === '--atbg') {
+      if (!/^color-mix\(in srgb, var\(--txt\) var\(--a-[\d.]+%?\), transparent\)$/.test(val)) {
+        out[file + '#深色档的 --atbg 不是 color-mix(in srgb, var(--txt) var(--a-*), transparent)：' + val.slice(0, 60)] = 1;
+      }
+      continue;
+    }
+    if (!new RegExp('^oklch\\(from var\\(--' + name.slice(2) + '-base\\) [\\d.]+ c h\\)$').test(val)) {
+      out[file + '#深色档的 ' + name + ' 不是 oklch(from var(' + name + '-base) <L> c h)：' + val.slice(0, 60)] = 1;
+    }
+  }
+  /* ---------- 配色块：单挂 data-palette，只覆盖三枚基色 ---------- */
+  for (const m of strip(src).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim().replace(/\s+/g, ' ');
+    if (!sel.includes('data-palette')) continue;
+    const hit = /^html\[data-palette="([\w-]+)"\]$/.exec(sel);
+    if (!hit) { out[file + '#配色块的选择器必须单挂 data-palette：' + sel.slice(0, 60)] = 1; continue; }
+    if (hit[1] === 'violet') out[file + '#violet 就是 ①a 的基色，不该有自己的块'] = 1;
+    const body = declsOf(m[2]);
+    const extra = [...body.keys()].filter(k => !['--acc-base', '--acc2-base', '--pri-base'].includes(k));
+    if (extra.length) out[file + '#' + hit[1] + ' 块里多写了 ' + extra.join(' / ') + '（配色只换强调色）'] = 1;
+    const acc = body.get('--acc-base') || '';
+    if (!/^#[0-9a-fA-F]{6}$/.test(acc)) out[file + '#' + hit[1] + ' 的 --acc-base 不是六位色值：' + acc] = 1;
+    for (const k of ['--acc2-base', '--pri-base']) {
+      if (body.get(k) !== 'var(--acc-base)') out[file + '#' + hit[1] + ' 的 ' + k + ' 必须等于 var(--acc-base)'] = 1;
+    }
   }
   return out;
 }
@@ -764,10 +831,10 @@ const GUARDS = [
     sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
     sample: `.demo-a { padding: 8px; font-size: 12px; border-radius: 6px; color: #ff0000; }`,
     ok: `.demo-a { padding: var(--sp-8); font-size: var(--fs-12); border-radius: var(--radius-6); color: var(--pri); }` },
-  { key: 'G19', title: '主题色深浅两档必须成对覆盖（加主题色别忘了深色档）', table: G19_THEME_PAIR, kind: 'entries', detect: detectThemePair,
+  { key: 'G19', title: '主题色深浅两档（基色 + 推导 + 配色块）必须成对覆盖', table: G19_THEME_PAIR, kind: 'entries', detect: detectThemePair,
     sources: () => ['web/styles/tokens.css'], sampleFile: 'web/styles/tokens.css', okFile: 'web/styles/tokens.css',
-    sample: `:root { /* ---------- ① 主题色 ---------- */ --bg:#fff; --txt:#000; }\n/* ---------- ② 派生色 ---------- */\nhtml[data-theme="dark"] { --txt:#fff; }`,
-    ok: `:root { /* ---------- ① 主题色 ---------- */ --bg:#fff; --txt:#000; }\n/* ---------- ② 派生色 ---------- */\nhtml[data-theme="dark"] { --bg:#111; --txt:#fff; }` },
+    sample: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: #000; --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: #111; --txt: oklch(from var(--txt-base) 0.955 c h); }\nhtml[data-theme="dark"][data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }`,
+    ok: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: var(--txt-base); --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: oklch(from var(--bg-base) 0.160 c h); --txt: oklch(from var(--txt-base) 0.955 c h); --shadow-1:0 1px 2px rgba(0,0,0,.35); }\nhtml[data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }` },
   { key: 'G21', title: '透明度只许从 --a-* 阶梯里取（不许自己编百分比）', table: G21_ALPHA, kind: 'counts', detect: detectAlphaLadder,
     sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
     sample: `.demo-a { background: color-mix(in srgb, var(--acc) 7%, transparent); }`,

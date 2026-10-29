@@ -26,8 +26,6 @@ export default {
     let active = { value: true };
     let installed = false;
     let engineApi = null;   // 挂载后才有：生成工作台递过来的那张图要在 mount 之后才取得走
-    let themeObs = null;
-    let lastTheme = '';
     const listeners = [];   // { target, type, fn, wrapped }
 
     function add(target, type, fn, opts) {
@@ -125,16 +123,6 @@ export default {
         engineApi.mount(env.docProxy, env.winProxy);
         if (window.fillIcons) window.fillIcons(host.value);
         if (window.Dropdowns) window.Dropdowns.build(host.value);
-        /* 导演台自己的「换背景」只改 documentElement + localStorage，不知道外壳侧栏那张图标；
-           跟着 data-theme 的变化把外壳那一份也同步一次（lastTheme 防止同值重复写）。 */
-        lastTheme = document.documentElement.dataset.theme || 'light';
-        themeObs = new MutationObserver(() => {
-          const t = document.documentElement.dataset.theme || 'light';
-          if (t === lastTheme) return;
-          lastTheme = t;
-          try { if (window.__sbApplyTheme) window.__sbApplyTheme(t); } catch (e) {}
-        });
-        themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
       } catch (e) {
         console.error('[director] 启动失败：', e);
         failed.value = String(errText(e));
@@ -167,7 +155,6 @@ export default {
         try { x.target.removeEventListener(x.type, x.wrapped, x.opts); } catch (e) {}
       }
       if (styleEl) { try { styleEl.remove(); } catch (e) {} styleEl = null; }
-      if (themeObs) { try { themeObs.disconnect(); } catch (e) {} themeObs = null; }
     });
 
     return { host, failed, loading, retryLoad: () => { if (window.__spaReload) window.__spaReload(); } };

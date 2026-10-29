@@ -180,26 +180,25 @@
   // 换背景（亮 / 暗主题）：全站统一放在左下角
   const themeBtn = sb.querySelector('#sbTheme');
   const themeIcon = dark => svgIc(dark ? 'sun' : 'moon');
-  /* 外壳里别处改了主题（AI 助手的 set_setting）也走这一条：换 data-theme + 同步 iframe + 补图标。
-     图标只有这里知道怎么画，别处再拼一份 svg 就是第二份实现。 */
-  window.__sbApplyTheme = t => {
-    document.documentElement.dataset.theme = t;
-    try { if (themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(t === 'dark'); } catch (e) {}
-    /* 常驻页面池里每一份都是独立文档，主题要一起换 —— 只换当前那一份，
-       切回别的页就是另一个配色。迁移到 Vue 的页面在同一文档里，CSS 变量自动生效。 */
-    document.querySelectorAll('iframe').forEach(f => {
-      try { if (f.contentDocument) f.contentDocument.documentElement.dataset.theme = t; } catch (e) {}
-    });
+  /* 图标只有这里知道怎么画，别处再拼一份 svg 就是第二份实现。
+     解析主题（含「跟随系统」）只有 web/shell-boot.js 的 __themeApply 那一处；
+     这里只负责把当前**解析后**的那一档画成日 / 月图标，每次解析完成后由它回调。 */
+  window.__sbThemeIcon = () => {
+    try { if (themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(document.documentElement.dataset.theme === 'dark'); } catch (e) {
+      /* 图标画不出来不影响切换本身，下一次解析会再试。 */
+    }
   };
   if (themeBtn) themeBtn.onclick = () => {
-    const cur = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem('dir_theme', cur); } catch {}
-    window.__sbApplyTheme(cur);
+    /* 「跟随系统」时按**解析后**的那一档取反，并把它钉成明确的一档 ——
+       点一下就是「我要另一档」，不再继续跟系统。 */
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    window.LS.set('dir_theme', next);
+    window.__themeApply();
   };
   /* 设置页改完「侧栏默认展开」要当场重排一次，不能等下次进页面：
-     栏宽、收起态、悬浮球避让全在 apply() 里算，所以把这个钩子递出去（和 __sbApplyTheme 同一类）。 */
+     栏宽、收起态、悬浮球避让全在 apply() 里算，所以把这个钩子递出去（和 __themeApply 同一类）。 */
   window.__sbApplyOpen = apply;
-  if (document.documentElement.dataset.theme === 'dark' && themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(true);
+  if (themeBtn) window.__sbThemeIcon();
   window.addEventListener('resize', apply);
   apply();
   /* 窄窗口里展开 = 浮层盖在内容上。点内容区要能把它收回去，但内容页的点击不冒泡到外壳，
@@ -755,11 +754,11 @@
      （为了切页/刷新时余额立刻可见），被删掉的那家在缓存里还留着，不先剔掉的话，
      删完看着还是「没删掉」，要等下一次真取数才消失。
      顺带把这一家从隐藏名单里也摘掉（清掉一个再也不存在的 kid），
-     并让外壳立刻重画 —— 设置页在 iframe 里，靠外壳暴露的这个口（与 __sbApplyTheme 同一套路）。 */
+     并让外壳立刻重画 —— 设置页在 iframe 里，靠外壳暴露的这个口（与 __themeApply 同一套路）。 */
   /* 「这两块显示不显示」被设置页改了之后，外壳立刻重画。
      设置页在 iframe 里，它写的是别人的键（sb_bal_on / sb_mirror_on）——
      所以要么它自己拼一遍余额卡与产物行（那就是第二份实现），
-     要么由这里挂一个口出来（与 __sbApplyTheme / __sbApplyOpen 同一套路）。挂口。
+     要么由这里挂一个口出来（与 __themeApply / __sbApplyOpen 同一套路）。挂口。
      `paintBal` 开头会自己判「余额区关没关」，本机产物那块在 `mirrorBarHTML` 里判 ——
      所以这个口只是「重新读一次键、画一次」，不含任何规则。 */
   window.__sbApplyBalance = () => {

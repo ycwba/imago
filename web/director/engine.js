@@ -3184,14 +3184,6 @@ async function restoreLocalBlobs() {
   await Promise.allSettled(jobs);
 }
 
-/* ---------- 主题切换 ---------- */
-function applyTheme(t) {
-  document.documentElement.dataset.theme = t;
-  /* 隐私 / 禁存模式下存不下：主题就只生效这一次（LS 把那类抛错统一变成返回值，不再各写一层 try）。 */
-  window.LS.set('dir_theme', t);
-}
-applyTheme(window.LS.get('dir_theme') || 'light');
-
 /* 素材 → dataURL：支持 dataURL 原样返回、/asset/xx 与相对路径先取回再转 */
 async function toDataURL(src) {
   if (!src) return src;

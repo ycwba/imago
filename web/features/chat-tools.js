@@ -558,7 +558,8 @@
           /* 「侧栏余额」有两个口径，以前这一行把它们混成一条报了：
              `sb_bal_on` 是**整区开不开**，`sb_bal_show` 存的是**隐藏名单**（哪些家不显示，默认全显示）。
              用户问「余额怎么不显示」时，拿隐藏名单当开关读出来的是一个列表，答不到真凶。 */
-          界面: { 主题: window.LS.get('dir_theme') || 'light', 侧栏展开: window.LS.get('sb_open') || '',
+          界面: { 主题: window.LS.get('dir_theme') || 'light', 配色: window.LS.get('dir_palette') || 'ocean',
+            侧栏展开: window.LS.get('sb_open') || '',
             侧栏余额区: window.LS.get('sb_bal_on') === '0' ? '已关掉整区' : '开',
             侧栏余额隐藏了哪几家: (window.SbBal && SbBal.off()) || [] },
           /* 助手自己这一层的开关也报出来：用户问「为什么它刚才自己就提交了」要能答得上。
@@ -1260,7 +1261,6 @@
      sk_key_* 会把密钥写进对话记录（.data/ai_chat.json 跟着云同步出网），
      sk_base_* 容易造成「A 家密钥打到 B 家地址」那种必然失败的组合。 */
   const ADJUST = {
-    dir_theme: { 名: '界面主题', 取值: ['light', 'dark'], 说: '改完外壳和当前页立刻跟着换色' },
     sk_polish_ask: { 名: 'AI 润色前是否反问', 取值: ['ai', 'on', 'off'], 说: 'ai = 由文字 AI 自己判断要不要先问要点' },
     sk_text_vision: { 名: '文字 AI 识图', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明；按型号名猜是禁止的' },
   };
@@ -1471,9 +1471,14 @@
     const chk = await adjustCheck(a);
     if (chk.err) throw new Error(chk.err);
     window.LS.set(chk.键, chk.值);
-    /* 这两项改的是**当前窗口**的样子，只写键要等下次进页面才看不出来：
-       换色与左栏重排各只有一份实现（sidebar.js 挂出来的这两个钩子），别在这里自己算。 */
-    if (chk.键 === 'dir_theme') { try { window.__sbApplyTheme && window.__sbApplyTheme(chk.值); } catch (e) {} }
+    /* 这几项改的是**当前窗口**的样子，只写键要等下次进页面才看不出来：
+       主题两根轴（配色 / 日夜）的解析只有 shell-boot.js 的 __themeApply 一处、
+       左栏重排只有 sidebar.js 挂出来的钩子，别在这里自己算。 */
+    if (chk.键 === 'dir_theme' || chk.键 === 'dir_palette') {
+      try { window.__themeApply && window.__themeApply(); } catch (e) {
+        /* 外壳引导脚本没跑起来：主题停在上一档，键值已经写入。 */
+      }
+    }
     if (chk.键 === 'sb_open') { try { window.__sbApplyOpen && window.__sbApplyOpen(); } catch (e) {} }
     return { ok: true, text: '已改「' + chk.名 + '」：' + (chk.旧 || '（原来没设过）') + ' → ' + chk.值 + '\n' + chk.说
       + '\n这一项和设置页存的是同一份，设置页那边现在改完就自动落盘，切回去会读到新值。' };

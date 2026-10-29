@@ -405,6 +405,9 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/asset-requests.cjs', process.execPath, ['tests/e2e/asset-requests.cjs'], { tier: 'browser' });
   /* 设置页找项这条路（含滚动唯一出口）：组锚点、行级命中、回车落点、Esc 清空、1024 溢出。 */
   run('tests/e2e/settings-nav.cjs', process.execPath, ['tests/e2e/settings-nav.cjs'], { tier: 'browser' });
+  /* 主题两根轴：5 套配色 × 浅/深、跟随系统（CDP 模拟系统深色）、侧栏那颗日/夜按钮、
+     坏值回落。深色由浅色现算 —— 判的是算完以后真的变了（亮度上去了、强调色跟着配色走）。 */
+  run('tests/e2e/theme-modes.cjs', process.execPath, ['tests/e2e/theme-modes.cjs'], { tier: 'browser' });
   /* 左栏余额与导航这一列（含「余额区滚动条 = 0」）：六家全开 + 传输中，
      480–1100 共 8 档 × 展开/收起都不许出现内滚动条，收起态点开走公共弹窗。 */
   run('tests/e2e/sidebar-balance.cjs', process.execPath, ['tests/e2e/sidebar-balance.cjs'], { tier: 'browser' });

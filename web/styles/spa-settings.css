@@ -459,11 +459,16 @@
 .settings-page .set-rail-scroll .set-rail-note { padding: 0 var(--sp-8) var(--sp-4); }
 .settings-page .set-rail-i { display: flex; align-items: center; gap: var(--sp-10);
   min-height: 38px; padding: var(--sp-6) var(--sp-9); border-radius: var(--radius-8); cursor: pointer;
-  color: var(--txt); text-decoration: none; position: relative; }
+  color: var(--txt); text-decoration: none; position: relative;
+  transition: background var(--dur-120) var(--ease), border-color var(--dur-120) var(--ease), color var(--dur-120) var(--ease); }
 .settings-page .set-rail-ic { display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: var(--sp-18); height: var(--sp-18); color: var(--sub); }
 .settings-page .set-rail-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
-.settings-page .set-rail-i:hover { background: var(--panel2); }
+/* 悬停：轨底是 --bg，这里必须用 --panel 才看得出变化（--panel2 与 --bg 在浅色下几乎同色，
+   以前那条 hover 等于没画）。图标与值速记跟着亮一档，扫轨时知道鼠标停在哪一行。 */
+.settings-page .set-rail-i:hover { background: var(--panel); }
+.settings-page .set-rail-i:hover .set-rail-ic { color: var(--acc); }
+.settings-page .set-rail-i:hover .set-rail-v { color: var(--txt); }
 .settings-page .set-rail-i:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
 .settings-page .set-rail-i.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
 .settings-page .set-rail-i.on .set-rail-ic { color: var(--acc); }
@@ -757,6 +762,10 @@
   .settings-page .set-rail-i .set-rail-v { display: none; }
   .settings-page .set-rail-i.on { border-color: var(--acc-line-32); background: var(--acc-tint-10); }
   .settings-page .set-rail-i.on::before { display: none; }
+  /* 窄屏那一档的轨底是 --panel、每行自己是 --panel2 的胶囊：
+     悬停不能再铺 --panel（会跟轨底连成一片、等于消失），改成描边 + 字色亮起。
+     只给**没选中**的行：同特异性下写在 .on 之后，不加这一枚就会把选中胶囊的淡底盖掉。 */
+  .settings-page .set-rail-i:not(.on):hover { background: var(--panel2); border-color: var(--acc-line-32); color: var(--acc); }
   .settings-page .set-rail-foot { display: none; }
   .settings-page .set-rail-note { font-size: var(--fs-11); padding: 0 var(--sp-8) var(--sp-6); }
   .settings-page .set-doc-scroll { padding-right: 0; }

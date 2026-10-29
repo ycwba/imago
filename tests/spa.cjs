@@ -275,8 +275,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        它们由导演台页按需 import，不占 `<script>`。
        同一工作树里另一条正在进行的工作还在改首屏那几份（ui.js / datasync.js / page-context.js），
        登记值留约 1.5KB 余量：那批改动定稿后由它自己按实跑再登记回来。
-       实跑 29 枚 / 848411 字节（登记上限 850000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 850000;
+     · 按实跑重登记（2026-10-29，主题两根轴：5 套配色 + 跟随系统，深色由浅色现算）：枚数不变（仍是 29 枚），
+       涨的是三份首屏件 —— `web/shell-boot.js` 从「读一次 dir_theme 写进 data-theme」变成全站唯一的
+       主题解析点：两根轴（data-theme 只放解析后的 light / dark，data-palette 放配色名）、matchMedia
+       跟随系统、__themeApply / __sbThemeIcon 两个口；它必须同步跑在样式表之前（否则先闪一帧浅色），
+       挪不到按需。`web/ui/ui.js` 是「主题配色 / 日间夜间」两行设置项（取值表与设置页、助手同源），
+       `web/ui/sidebar.js` 是那颗日 / 夜按钮改调 __themeApply 并补图标回调。
+       这一笔之后实跑 29 枚 / 838250 字节（登记上限 840000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 840000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);
@@ -462,8 +468,7 @@ ok('ui.css 不再定义第二套 :root / 深色主题变量',
   !/(^|\n)\s*:root\s*\{/.test(uiCss) && !/html\[data-theme="dark"\]\s*\{/.test(uiCss));
 ok('页面 CSS 不再定义 :root 变量', !/(^|\n)\s*:root\s*\{/.test(pageCss));
 const pageHex = (pageCss.match(/#[0-9a-fA-F]{3,8}\b/g) || []);
-ok('页面 CSS 没有裸色值（品牌覆盖 --pri 除外）',
-  pageHex.every(x => x.toLowerCase() === '#9d8bff'), pageHex.join(', '));
+ok('页面 CSS 没有裸色值', pageHex.length === 0, pageHex.join(', '));
 ok('公共与页面 CSS 至少在用间距/字号/圆角令牌',
   /var\(--sp-/.test(uiCss) && /var\(--fs-/.test(uiCss) && /var\(--radius-/.test(pageCss)
   && /var\(--sp-/.test(pageCss));

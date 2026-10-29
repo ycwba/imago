@@ -18,7 +18,7 @@
      modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。 -->
 <link rel="modulepreload" href="web/app.js">
 <style>
-  /* 主题变量在 ui.css 的 :root / html[data-theme="dark"] 里（全站一份，上面已引） */
+  /* 主题变量在 tokens.css（① 别名 + ①a 基色 + 深色推导，全站一份，上面第一份样式表就是它） */
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); overflow: hidden; }
 
   /* Vue 外壳只占内容区，侧栏由 web/ui/sidebar.js 画在左边。

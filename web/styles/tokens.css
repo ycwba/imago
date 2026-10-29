@@ -9,7 +9,7 @@
      （--fs-1 与 --fs-10 指的是两个完全不同的字号，却看不出差别）。
 
    分档：
-     · 颜色      —— 主题变量 + 由主题色现算的淡底/描边
+     · 颜色      —— 主题别名（①）+ 浅色基色（①a）+ 深色推导 + 由主题色现算的淡底/描边
      · 间距/字号/圆角/描边宽 —— 尺寸档位（名字即值）
      · 阴影/动效 —— 阴影与时长
 
@@ -20,14 +20,28 @@
 
 :root {
   /* ---------- ① 主题色：深浅两档**必须成对覆盖** ----------
-     换主题只动这一段 + 下面那段深色覆盖；其余各段两档刻意一致。
+     这一段只有**别名**（--bg: var(--bg-base)）：语义名不变，取值指到 ①a 的同名基色。
+     浅色那一份真值只在 ①a 写一次；深色那一份在文件末尾**由基色现算**（oklch 只换亮度），
+     换配色只覆盖三枚基色（--acc-base / --acc2-base / --pri-base，见文件末尾的配色块）。
      凡是界面上的「文字 / 描边 / 底色 / 状态」都从这里取，别再挑固定色。 */
-  --bg:#f2f3f9; --panel:#ffffff; --panel2:#f3f4f9; --line:#e4e6f0;
-  --txt:#23262f; --sub:#8a8fa3; --acc:#6957e8; --acc2:#8b5cf6;
-  --ok:#16a34a; --warn:#d97706; --err:#dc2626; --pri:#7c5cff; --input:#f6f7fb;
-  --thumbbg:#e2e5ee;
-  --atbg: rgba(35, 38, 47, .13);
-  --scroll:#c4c9dc;
+  --bg: var(--bg-base); --panel: var(--panel-base); --panel2: var(--panel2-base); --line: var(--line-base);
+  --txt: var(--txt-base); --sub: var(--sub-base); --acc: var(--acc-base); --acc2: var(--acc2-base);
+  --ok: var(--ok-base); --warn: var(--warn-base); --err: var(--err-base); --pri: var(--pri-base); --input: var(--input-base);
+  --thumbbg: var(--thumbbg-base);
+  --atbg: var(--atbg-base);
+  --scroll: var(--scroll-base);
+
+  /* ---------- ①a 基色：全站唯一的浅色真值 ----------
+     深色档不在任何地方写第二份色值：html[data-theme="dark"] 用
+       oklch(from var(--x-base) <L> c h)
+     只换亮度，色相与彩度跟着基色走 —— 换一套配色，深浅两档一起换。
+     ⚠ 相对色语法要 Chrome / Edge 119+（本项目本来就要 118+ 的 @scope）。 */
+  --bg-base:#f2f3f9; --panel-base:#ffffff; --panel2-base:#f3f4f9; --line-base:#e4e6f0;
+  --txt-base:#23262f; --sub-base:#8a8fa3; --acc-base:#6957e8; --acc2-base:#8b5cf6;
+  --ok-base:#16a34a; --warn-base:#d97706; --err-base:#dc2626; --pri-base:#7c5cff; --input-base:#f6f7fb;
+  --thumbbg-base:#e2e5ee;
+  --atbg-base: rgba(35, 38, 47, .13);
+  --scroll-base:#c4c9dc;
 
   /* ---------- ①b 两档一致的固定色：跟主题无关 ----------
      反白字、媒体黑底、图表调色板 —— 它们在深浅两档里都该是同一个值。 */
@@ -59,13 +73,16 @@
   /* ---------- ③b 导演台标记色：轨道里的**功能标记**，不是主题色 ----------
      切点 / 就绪 / 静音 / 音量高 —— 这四个颜色在时间轴上说的是状态，
      混进主题强调色会分不清「选中了」和「这里有一个切点」。
-     深浅两档各一套（跟主题色一样跟档走）：以前导演台的轨道区是固定深底，
-     这几枚不跟档走，浅色主题下会读不出来。
+     与 ① 同一套写法：浅色真值只在 *-base，深色档由基色现算 —— 两档都跟档走。
      命名按**用途**不按色相 —— 用途名才扛得住换色。 */
-  --mark-cut: #0f9e94;    /* 剪切点（轨上那条竖线） */
-  --mark-ready: #16a34a;  /* 已就绪 / 生成成功 */
-  --mark-mute: #dc2626;   /* 静音 */
-  --mark-loud: #d97706;   /* 音量偏高 */
+  --mark-cut: var(--mark-cut-base);      /* 剪切点（轨上那条竖线） */
+  --mark-ready: var(--mark-ready-base);  /* 已就绪 / 生成成功 */
+  --mark-mute: var(--mark-mute-base);    /* 静音 */
+  --mark-loud: var(--mark-loud-base);    /* 音量偏高 */
+  --mark-cut-base: #0f9e94;
+  --mark-ready-base: #16a34a;
+  --mark-mute-base: #dc2626;
+  --mark-loud-base: #d97706;
 
   /* ---------- 透明度阶梯（名字即值）----------
      淡底 / 描边 / 遮罩的透明度只有这一份：color-mix(…, var(--a-10), transparent)。
@@ -169,20 +186,47 @@
   --sbw:56px; --sbw-full:232px;
 }
 
-/* ---------- 深色主题 ----------
-   只改**语义色**；尺寸档位（间距/字号/圆角）深浅两档刻意一致 ——
-   那是同一套排版节奏，不该跟着主题变。 */
+/* ---------- 深色主题：由浅色基色**现算**，不手写第二份色值 ----------
+   `oklch(from var(--x-base) <L> c h)` 只换亮度（L），色相与彩度沿用基色 ——
+   换一套配色，深色档自动跟着换；深浅两档的色相关系不会漂开。
+   尺寸档位（间距/字号/圆角）深浅两档刻意一致：那是同一套排版节奏，不该跟着主题变。
+   这里只许出现 ① 语义名 / ③b 标记名 / --shadow-*；写 *-base 就是在深色档里重设基色，
+   会把浅色那份真值盖掉（判据 G19）。 */
 html[data-theme="dark"] {
-  --bg:#0b0d13; --panel:#141722; --panel2:#191d2b; --line:#262b3d;
-  --txt:#eef0f6; --sub:#8f97ab; --acc:#6c8cff; --acc2:#a06cff;
-  --ok:#4ade80; --warn:#fbbf24; --err:#ff7a7a; --pri:#7c5cff; --input:#0f1219;
-  --thumbbg:#39415a;
-  --atbg: rgba(255, 255, 255, .13);
-  --scroll:#2a3046;
-  /* ③b 标记色：深色档各一枚（浅色档在 :root 的 ③b 段） */
-  --mark-cut:#35ead9; --mark-ready:#4ade80; --mark-mute:#ff7a7a; --mark-loud:#fbbf24;
+  --bg: oklch(from var(--bg-base) 0.160 c h);
+  --panel: oklch(from var(--panel-base) 0.207 c h);
+  --panel2: oklch(from var(--panel2-base) 0.234 c h);
+  --line: oklch(from var(--line-base) 0.293 c h);
+  --txt: oklch(from var(--txt-base) 0.955 c h);
+  --sub: oklch(from var(--sub-base) 0.677 c h);
+  --acc: oklch(from var(--acc-base) 0.660 c h);
+  --acc2: oklch(from var(--acc2-base) 0.660 c h);
+  --ok: oklch(from var(--ok-base) 0.800 c h);
+  --warn: oklch(from var(--warn-base) 0.837 c h);
+  --err: oklch(from var(--err-base) 0.735 c h);
+  --pri: oklch(from var(--pri-base) 0.580 c h);
+  --input: oklch(from var(--input-base) 0.182 c h);
+  --thumbbg: oklch(from var(--thumbbg-base) 0.379 c h);
+  /* 文字底纹：深色档就是「深底上的浅字」按透明度铺一层 */
+  --atbg: color-mix(in srgb, var(--txt) var(--a-14), transparent);
+  --scroll: oklch(from var(--scroll-base) 0.314 c h);
+  /* ③b 标记色：同一条推导（亮度换到深底上读得出来的那一档） */
+  --mark-cut: oklch(from var(--mark-cut-base) 0.847 c h);
+  --mark-ready: oklch(from var(--mark-ready-base) 0.800 c h);
+  --mark-mute: oklch(from var(--mark-mute-base) 0.735 c h);
+  --mark-loud: oklch(from var(--mark-loud-base) 0.837 c h);
   --shadow-1:0 1px 2px rgba(0,0,0,.35); --shadow-2:0 8px 24px rgba(0,0,0,.45);
 }
+
+/* ---------- 配色块：只换强调色，其余语义色不动 ----------
+   violet 就是 ①a 的基色（因此没有自己的块）；缺省选择是 ocean，它的块在下面。
+   换配色只覆盖三枚基色，
+   深色档由上面的推导自动跟上（不需要在块里再写一遍深色）。
+   ⚠ 选择器必须**单挂** data-palette：和 data-theme 叠在一起写，换配色就只在一档里生效。 */
+html[data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="teal"] { --acc-base:#0f766e; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="berry"] { --acc-base:#be185d; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="amber"] { --acc-base:#b45309; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
 
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-100:0ms; --dur-120:0ms; --dur-140:0ms; --dur-150:0ms; --dur-160:0ms;
