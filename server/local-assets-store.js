@@ -48,6 +48,17 @@ function isDocExt(fmt) {
   return DOC_EXTS.has(String(fmt || '').toLowerCase().replace(/^\./, ''));
 }
 
+/* 一条账 / 一份写入声明记的是哪一件平台产物：顶层字段优先，detail 只是老数据的回退。
+   身份必须在账的最上层 —— 浏览器只靠这一层问「这条外链 / 这个产物号在本机有没有副本」，
+   而 detail 是任务详情（展示用的留底），它的形状随平台变，不该承担寻址。 */
+function identityOf(x) {
+  const d = (x && typeof x.detail === 'object' && x.detail) || null;
+  return {
+    assetId: String((x && x.assetId) || (d && d.asset) || ''),
+    taskId: String((x && x.taskId) || (d && d.task) || ''),
+  };
+}
+
 function createLocalAssetsStore(deps) {
   const { MIME, dataDirPath, log, spawnSync, localRoot, fileSafe } = deps;
   /* 库根：每次现读（设置页改了不必重启）。 */
@@ -383,6 +394,73 @@ function createLocalAssetsStore(deps) {
     if (added.length || skipped) log('[local-assets] 磁盘对账：补 ' + added.length + ' 条账，' + skipped + ' 份并到已有条目或跳过');
     return { added: added.length, skipped };
   }
+  /* ---------- 一次性重建：旧账与旧本体整体搬进库根的回收站 ----------
+     为什么要有这一步：旧账里的身份是靠浏览器镜像逐条「学」回来的，镜像一丢（换端口、清站点数据、
+     换机器）那些行就只剩路径与字节，按平台产物号 / 来源地址都查不到 —— 云端签名一过期，
+     界面就说「已丢失」，而文件明明还在。修法不是继续修补旧账，而是把旧账与旧本体一起收走，
+     之后由平台列表重新生成一份**每条都带产物号**的新账。
+     三条口径：
+     ① **搬，不删**：整批移动到 `库根\.trash\rebuild-<时刻>\`，保留原来的相对路径；
+        用户后悔时整目录搬回来即可。只搬媒体扩展名认得出的文件，笔记 / 字幕 / 其它文档不动；
+        提示词归档与 `.trash` 自身不扫。
+     ② 账清空之后才写标记（`<数据目录>\local-assets\rebuild.json`）：标记是「这次重建已经做完」
+        的唯一凭据，写早了会让没清掉的账再也等不到下一次机会。
+     ③ 只在启动时跑一次；失败不拦启动（启动日志照实报搬了几份、几份没搬动）。 */
+  const REBUILD_MARK = 'rebuild.json';
+  function rebuildBodiesOnce() {
+    const markPath = path.join(INDEX_DIR(), REBUILD_MARK);
+    if (fs.existsSync(markPath)) return { skipped: true, moved: 0, failed: 0, cleared: 0, trash: '' };
+    /* 账本来就是空的 = 没有要重建的东西（新机器 / 刚清过数据）：这时候把一份存在多年的库根
+       搬进回收站只会让用户的作品凭空消失一趟。标记照写，这一趟到此为止。 */
+    if (!localIndexRead().length) {
+      try {
+        fs.mkdirSync(INDEX_DIR(), { recursive: true });
+        fs.writeFileSync(markPath, JSON.stringify({ v: 2, at: new Date().toISOString(), trash: '', moved: 0, failed: 0, cleared: 0 }));
+      } catch (e) { log('[local-assets] 重建标记没写成：' + e.message); }
+      return { skipped: true, moved: 0, failed: 0, cleared: 0, trash: '' };
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '-').slice(0, 19);
+    const trashRoot = path.join(DIR(), '.trash', 'rebuild-' + stamp);
+    let moved = 0;
+    const failed = [];
+    const moveTree = (dir, rel) => {
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch { return; }
+      for (const name of names) {
+        if (rel === '' && SKIP_DIR_NAMES.has(name)) continue;
+        const abs = path.join(dir, name);
+        const relPath = rel ? rel + path.sep + name : name;
+        let st;
+        try { st = fs.statSync(abs); } catch { continue; }
+        if (st.isDirectory()) { moveTree(abs, relPath); continue; }
+        if (!st.isFile()) continue;
+        const fmt = (path.extname(name).slice(1) || '').toLowerCase();
+        if (!LOCAL_KIND_BY_EXT[fmt]) continue;      // 只搬产物本体；用户自己的文档原样留着
+        try {
+          const to = path.join(trashRoot, relPath);
+          fs.mkdirSync(path.dirname(to), { recursive: true });
+          fs.renameSync(abs, to);
+          moved++;
+        } catch (e) {
+          failed.push(relPath + '（' + (e.code || e.message) + '）');
+        }
+      }
+    };
+    moveTree(DIR(), '');
+    const cleared = localIndexRead().length;
+    indexStore.write([]);                            // 写不成会抛 indexWrite，标记因此不写，下次开机重试
+    invalidateScan();
+    try {
+      fs.mkdirSync(INDEX_DIR(), { recursive: true });
+      fs.writeFileSync(markPath, JSON.stringify({
+        v: 2, at: new Date().toISOString(), trash: trashRoot, moved, failed: failed.length, cleared,
+      }));
+    } catch (e) {
+      log('[local-assets] 重建标记没写成（下次开机会再跑一遍，库根已空时不会重复搬）：' + e.message);
+    }
+    if (failed.length) log('[local-assets] 重建时这几份没搬进回收站（原样留在库根）：' + failed.join('、'));
+    return { skipped: false, moved, failed: failed.length, cleared, trash: trashRoot };
+  }
   /* ---------- 一条产物该落在哪、叫什么：唯一出处 ----------
      规范名 = 人类可读名（调用方给的 `name`，导演台是「场景+镜头+候选」，别的页是提示词前缀）
      洗过之后的那一段 + 恰好一个扩展名；同名不覆盖，加 -2 / -3。
@@ -420,8 +498,8 @@ function createLocalAssetsStore(deps) {
     return localIndexEntry(id);
   }
   /* ---------- 「这条地址取回来的字节是不是就在库根里」 ----------
-     浏览器那份镜像索引（sk_local_mirror）按源分家：换端口、清浏览器数据、无痕窗口都会空掉，
-     指针也会指到账被重建之前的死号。它只能当缓存 —— 账与字节都在代理这边，
+     浏览器那一份别名表只活在当前会话、按源（端口）分家：换端口、清浏览器数据、无痕窗口都会清空。
+     它是缓存 —— 账与字节都在代理这边，
      所以「云端签名失效 / 平台上被清理之后本机那份还看不看得见」必须在这里能判。
      两句判据：来源地址剥掉签名参数后的身份（localUpKey，与并卡、去重同一把尺子）、
      平台产物号（落盘时写下的 detail.asset；任务号只在整条任务只出一份时用，多图任务按它合会认错文件）。 */
@@ -454,11 +532,9 @@ function createLocalAssetsStore(deps) {
     if (byPlat && byPlatRev === rev) return byPlat;
     const byAsset = new Map(), byTask = new Map();
     for (const x of localIndexRead()) {
-      const d = (x && x.detail) || null;
-      const aid = String((d && d.asset) || '');
-      const task = String((d && d.task) || '');
-      if (aid) { const a = byAsset.get(aid); if (a) a.push(x); else byAsset.set(aid, [x]); }
-      if (task) { const a = byTask.get(task); if (a) a.push(x); else byTask.set(task, [x]); }
+      const { assetId, taskId } = identityOf(x);
+      if (assetId) { const a = byAsset.get(assetId); if (a) a.push(x); else byAsset.set(assetId, [x]); }
+      if (taskId) { const a = byTask.get(taskId); if (a) a.push(x); else byTask.set(taskId, [x]); }
     }
     byPlat = { byAsset, byTask }; byPlatRev = rev;
     return byPlat;
@@ -474,6 +550,72 @@ function createLocalAssetsStore(deps) {
       if (file) return { ent, file };
     }
     return null;
+  }
+  /* ---------- 浏览器那份别名字典的唯一来源 ----------
+     浏览器这一侧不存索引：按源分家的一份缓存（换端口、清浏览器数据、无痕窗口都会空掉）只会让
+     同一份产物被重新下载、界面显示「已丢失」而库根里文件一份没少。
+     字节与身份都只住在代理这边，浏览器每次开机问一次「哪个平台产物 → 本机哪个号」，
+     问到的只是指针（不下载字节），丢了再问一次即可 —— 它不再是一份需要备份、迁移、修复的持久状态。
+     `rev` 是账本版本，浏览器拿它判「这份快照是不是比本地刚补的那几条旧」。 */
+  function aliasRowOf(x) {
+    if (!x || !x.id) return null;
+    const { assetId, taskId } = identityOf(x);
+    const up = localUpKey(x.upstream);
+    /* 没有身份的账行也要交出去：浏览器拿这份快照当「本机有哪些文件」的全集
+       （条数 / 字节 / 落点 / 格式）。少掉裸行，资产库统计会比盘上少一截，
+       而裸行本身仍要能被 /local-assets/<id> 取到 —— 只是按身份查不到它。 */
+    return {
+      id: String(x.id), assetId, taskId, up,
+      upstream: String(x.upstream || ''),
+      format: String(x.format || ''), name: String(x.name || ''),
+      byte_length: Number(x.byte_length) || 0,
+      media_type: String(x.media_type || ''), created_at: String(x.created_at || ''),
+      file: String(x.file || ''),
+    };
+  }
+  function localAliases() {
+    const rows = [];
+    for (const x of localIndexRead()) {
+      const row = aliasRowOf(x);
+      if (!row) continue;
+      /* 文件不在了就不许替它报「本机有」：否则界面会一直画着「本机+云端」，
+         点开却是一条断链。认回（改名 / 挪目录 / 换盘）会在这里顺手把新落点写回账。 */
+      if (!localFileFromEntry(x)) continue;
+      row.file = String(x.file || '');
+      rows.push(row);
+    }
+    return { rev: indexStore.version(), rows };
+  }
+  /* 批量问「这几件平台产物在本机是哪一份」。判据与 localEntryByPlatformId / localEntryByUpstream
+     同一把尺：产物号 → 任务号（只在整条任务只出一份时）→ 来源地址（剥签名）。
+     调用方（资产列表）先拿到结果再决定卡片上的地址，所以这里**只读、不补建、不下载**；
+     文件仍在才算命中，同一个号的几份重复副本取第一条还在地的。 */
+  function localLocateBatch(queries) {
+    const plat = platformIndex();
+    const ups = upstreamIndex();
+    const out = [];
+    for (const q of (Array.isArray(queries) ? queries : [])) {
+      const aid = String((q && q.assetId) || '');
+      const task = String((q && q.taskId) || '');
+      const url = String((q && (q.url || q.upstream)) || '');
+      const allowGen = !!(q && q.allowGen);
+      let ent = null;
+      if (aid && !/^la_/.test(aid)) {
+        for (const x of (plat.byAsset.get(aid) || [])) { if (localFileFromEntry(x)) { ent = x; break; } }
+      }
+      /* 任务号只在**这一条任务恰好只有一份产物**时才算数：多图任务按任务号认，
+         四张卡会一起指向同一个本机文件（比不合更糟）。 */
+      if (!ent && allowGen && task) {
+        const list = plat.byTask.get(task) || [];
+        if (list.length === 1 && localFileFromEntry(list[0])) ent = list[0];
+      }
+      if (!ent && url) {
+        const key = localUpKey(url);
+        if (key) for (const x of (ups.get(key) || [])) { if (localFileFromEntry(x)) { ent = x; break; } }
+      }
+      out.push(ent ? aliasRowOf(ent) : null);
+    }
+    return out;
   }
   /* 本机资产的大类型（图片 / 视频 / 音频）：先看扩展名（表在模块层的 LOCAL_KIND_BY_EXT，
      落盘文件名就是 <id>.<格式>，最可靠），再按 mime，最后按调用方给的 media_type
@@ -518,13 +660,13 @@ function createLocalAssetsStore(deps) {
     return ok ? raw : ((x && x.created_at) || '');
   }
   /* 一份产物在本机资产库里的**身份**：来源外链的 host + path（+ 非易变的 query），签名参数一律不参与。
-     为什么判据要放在代理这一层：镜像键 `sk_local_mirror` 存在浏览器 localStorage 里，而
-     localStorage 是**按端口分家**的（5175 / 5199 / 6200 是三个源），换端口、清浏览器数据、开无痕
-     都把那份索引一起清零 —— 于是每一次开页面都把**同一份产物**重新下载、重新落盘一份新文件。
+     为什么判据要放在代理这一层：浏览器那一份别名表只在当前会话、按源（端口）分家，挡重复下载
+     只能挡住同一个源；换端口、清浏览器数据、开无痕都会让它整份重建 ——
+     于是每一次开页面都把**同一份产物**重新下载、重新落盘一份新文件。
      实测这台机器的索引里 290 行只对应 83 份产物（最多的一份重复 15 次，落盘时刻散在七个不同的
      会话里），磁盘 0.45 GB 中真正在用的只有 0.08 GB；而资产库 / 素材选择器看到的就是
-     「同一个视频重复出现 N 张卡」。浏览器那一份只能挡同一个源，挡不住换源。
-     「剥掉哪些签名参数」这条判据在 ident.js 里只有一份（浏览器那边 assetlib.js require 同一个文件）——
+     「同一个视频重复出现 N 张卡」。
+     「剥掉哪些签名参数」这条判据在 ident.cjs 里只有一份（浏览器当脚本引、Node 侧 require 同一份）——
      以前这里是本文件自己抄的正则，注释写着「两边必须一致」却没有任何东西保证它一致，
      漂一次就是上面那个数字重新涨一遍。 */
   function localUpKey(u) {
@@ -536,7 +678,7 @@ function createLocalAssetsStore(deps) {
   }
   /* 索引里没有的字段才用新到的那份补上 —— 外链每次镜像的签名参数不同，但提示词 / 任务详情
      是同一件事；把已有非空值覆盖成空值等于「后到的那份把先到的信息弄丢了」。 */
-  const LOCAL_FILL_FIELDS = ['prompt', 'model', 'voice', 'priceText', 'upstream'];
+  const LOCAL_FILL_FIELDS = ['prompt', 'model', 'voice', 'priceText', 'upstream', 'assetId', 'taskId'];
   function localFillMissing(old, inc) {
     let changed = false;
     for (const f of LOCAL_FILL_FIELDS) {
@@ -891,13 +1033,13 @@ function createLocalAssetsStore(deps) {
   return {
     bodyDirOf, bodyDirNameOf,
     newBodyPlace, mintAssetId, localAdopt, invalidateScan, localSigOf, fileFidOf,
-    whyNoSpace, sweepStaleTmp,
+    whyNoSpace, sweepStaleTmp, rebuildBodiesOnce,
     localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localIndexDrop,
     localAssetEntry, localAssetRepair, localAssetPaths, localMediaType, localAssetWhen,
-    localEntryByUpstream, localEntryByPlatformId,
+    localEntryByUpstream, localEntryByPlatformId, localAliases, localLocateBatch,
     localUpKey, localFillMissing, localFileFromEntry, localAssetFile, localAssetSiblings,
     localUsageScan, serveLocalFile,
   };
 }
 
-module.exports = { createLocalAssetsStore, isMediaExt, isDocExt };
+module.exports = { createLocalAssetsStore, isMediaExt, isDocExt, identityOf };

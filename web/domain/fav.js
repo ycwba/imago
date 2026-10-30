@@ -245,8 +245,18 @@
     async urlOf(item) {
       if (!item) return '';
       if (item.kind === 'local') return await this.localUrl(item.fileKey);
+      const src = String(item.src || '');
+      /* 收藏里存着 /asset/la_xxx，而本机那一份已经不在了（索引重建 / 文件被删）：
+         退回平台产物号或来源地址；都没有就返回空串（卡片画空态，不去撞 404）。 */
+      const AL = window.AssetLocal;
+      if (/^\/asset\/la_/.test(src) && AL && AL.localAssetIdOf && !AL.localAssetIdOf(src)) {
+        const aid = String(item.assetId || '');
+        if (item.rawSrc) return mediaSrc(item.rawSrc);
+        if (aid && !/^la_/.test(aid)) return mediaSrc(Api.assetSrc(aid));
+        return '';
+      }
       // 老收藏里可能存着外链 src：这里统一换成 /getv 本地路由（显示与取字节都同源）
-      return mediaSrc(item.src || item.dl || '');
+      return mediaSrc(src || item.dl || '');
     },
     /* 这条地址是不是「签名已过期」的外链（只看地址里的 Expires，不发请求）。
        页面首屏一律先给旧地址画出来，过期的那份放后台按任务号回源换新再局部重画 ——

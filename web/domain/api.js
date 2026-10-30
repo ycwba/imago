@@ -104,7 +104,7 @@ function mediaSrc(url) {
      「优先用本机文件」的开关只管得着资产库那张列表 —— 收藏、导演台里存着的
      还是当年的签名外链，第二天 403，表现就是「视频没有预览图、点开只回一句 Format error」，
      而本机明明有那一个文件。勾了「优先用本机」却照打外链 = 开关在骗人。
-     认 http(s)、/getv 包装与 /asset/<平台产物号>（这一路 localAssetIdOf 走 aids 表认得出
+     认 http(s)、/getv 包装与 /asset/<平台产物号>（这一路 localAssetIdOf 走别名表认得出
      本机副本；/asset/la_ 本身就是本机地址，换了也是它自己，白问但不伤）。/fetch 的下载语义、
      本机地址都不用再换。 */
   if (/^(https?:|\/getv\?|\/asset\/)/i.test(u)) {

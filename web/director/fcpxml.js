@@ -30,7 +30,7 @@ export async function buildFCPXML(ctx, opts) {
   const bundle = !!(opts && opts.bundle);
   const { proj, buildRenderPlan, clipNameOf, filmSize, setStatus, AssetLocal, Api } = ctx;
   if (!proj) { setStatus('<span class="err">还没有打开的短片：先建一份工程再导出</span>'); return { ok: false, quiet: true, err: '没有打开的短片' }; }
-  /* 镜像指针可能还在 IndexedDB 里读回来（localStorage 只是暖缓存）：
+  /* 本机别名表要等一次代理的取表往返（资产库首屏也是同一份）：
      FCPXML 要把本地素材写成真实文件路径，先等它一下，别把明明有的文件标成缺失。 */
   if (window.AssetLocal && AssetLocal.ready) {
     try { await Promise.race([AssetLocal.ready(), new Promise(r => setTimeout(r, 1200))]); } catch (e) { /* 等不到就按「本机没有」记，不卡住导出 */ }

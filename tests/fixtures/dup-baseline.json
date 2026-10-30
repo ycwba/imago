@@ -219,12 +219,11 @@
     "errText": 1,
     "blobExtOf": 1,
     "mediaKindFrom": 1,
-    "mirrorOf": 1,
+    "rowOfEntry": 1,
     "promptKeyOf": 1,
     "emptyHTML": 1,
     "fileSafe": 2,
     "fileStamp": 1,
-    "mirrorIdOf": 1,
     "nameRefOf": 1
   },
   "singleWhy": {

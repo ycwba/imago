@@ -591,11 +591,12 @@ const localStore = createLocalAssetsStore({
 const {
   bodyDirOf, bodyDirNameOf,
   newBodyPlace, mintAssetId, localAdopt, invalidateScan, localSigOf, fileFidOf,
-  whyNoSpace, sweepStaleTmp, localIndexRead, localIndexUpsert, localIndexUpdate,
+  whyNoSpace, sweepStaleTmp, rebuildBodiesOnce,
+  localIndexRead, localIndexUpsert, localIndexUpdate,
   localIndexPut, localAssetEntry, localAssetRepair, localAssetPaths, localMediaType,
   localAssetWhen, localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
   localAssetSiblings, localIndexDrop, localEntryByUpstream, localEntryByPlatformId,
-  localUsageScan, serveLocalFile,
+  localAliases, localLocateBatch, localUsageScan, serveLocalFile,
 } = localStore;
 /* 资产下载地址从哪一家换：注册表顶层的 assetStore 声明（registry-config.js）。
    `/asset/<id>`、渲染素材解析、本机补存三处都只问这一份 —— 以前它们各自写死
@@ -935,6 +936,7 @@ const localAssets = createLocalAssets({
   localUpKey, extInUrl, extOfMime, withLocalSaveLock,
   localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localFillMissing,
   localAssetSiblings, localIndexDrop,
+  localAliases, localLocateBatch,
   whyNoSpace, localAssetFile, localAssetPaths, localMediaType, localAssetWhen, localFileFromEntry,
   /* 落点与身份的唯一口径都在存储层：路由只递名字，不自己拼路径、不自己算哈希。 */
   localSigOf, fileFidOf, newBodyPlace, bodyDirOf, bodyDirNameOf, mintAssetId,
@@ -1196,6 +1198,17 @@ server.listen(PORT, BIND.hosts[0], () => {
     const swept = sweepStaleTmp();
     if (swept) log(`[清理] 删掉 ${swept} 个崩溃残留的临时写入文件（.data / 资产库里那种 .tmp-<pid>-<串>）`);
   } catch (e) { log('[清理] 启动清扫跳过：' + (e.code || e.message)); }
+  /* 一次性重建（只跑一次，标记落盘后永不重复）：旧的账是靠浏览器镜像逐条「学」出来的，
+     镜像一丢那些行就只剩路径与字节 —— 按产物号 / 来源地址都查不到，云端签名一过期就显示「已丢失」。
+     旧账与旧本体整批搬进 库根\.trash\rebuild-<时刻>\（搬，不删；提示词归档与用户文档不动），
+     之后由平台列表重新生成一份每条都带产物号的新账。 */
+  try {
+    const rb = rebuildBodiesOnce();
+    if (!rb.skipped) {
+      log(`[资产库] 重建：旧账 ${rb.cleared} 条已清空，${rb.moved} 份本体搬到 ${rb.trash}`
+        + (rb.failed ? `（${rb.failed} 份没搬动，原样留着）` : '') + '，接下来从平台列表重新取回');
+    }
+  } catch (e) { log('[资产库] 重建跳过（账与本体都原样留着）：' + (e.code || e.message)); }
   /* 开机先做一次磁盘对账（只 readdir + stat，不读内容；要分辨同字节数的那几个才现算采样签名）。
      为什么放在开机而不是只放在列表前：用户在文件管理器里改了名、把整堆作品挪到另一块盘、
      或者代理崩在半路留下了一份没记账的成品 —— 账本只是文件的一份账，不是文件的出处。

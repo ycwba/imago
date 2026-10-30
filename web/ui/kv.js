@@ -81,10 +81,6 @@ const conns = new Map();                     // 库名 -> Promise<IDBDatabase>�
     ws: { db: 'director_db', store: 'kv', label: '导演台工作区与本地视频', backup: true },
     fav: { db: 'fav_db', store: 'files', label: '收藏的本地文件', backup: true },
     blobs: { db: 'wb_blobs', store: 'blobs', label: '音色复刻的参考音频', backup: true },
-    /* 本机镜像指针（哪条产物存在 .assets）。20k 条放进 localStorage 会顶到 5MB 配额，
-       把设置/素材库一起挤掉；本体放 IndexedDB，localStorage 只留最近 2000 条的暖启动缓存。
-       它不是用户作品，丢了能从代理的 /local-assets 重建，所以不进整包备份。 */
-    mirror: { db: 'mirror_db', store: 'kv', label: '本机镜像指针（能从资产库重建）', backup: false },
     /* 助手长结果：turn 里只留 resultId/size/preview，正文按 offset 分页读；随会话备份，
        否则整包备份恢复后 turn 里的 resultId 会悬空。清理在写入新结果时按会话/时间做。 */
     chatResults: { db: 'chat_db', store: 'results', label: '助手长结果（随会话）', backup: true },

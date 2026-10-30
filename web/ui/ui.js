@@ -1011,6 +1011,27 @@ window.copyText = async function copyText(txt) {
     return s === '视频' ? 'video' : isAudioType(s) ? 'audio' : 'image';
   }
   window.mediaKindOf = mediaKindOf;
+  /* 「文件类型筛选」那一排的档位与顺序全站只有这一份：全部 → 视频 → 图片 → 音频。
+     以前四个入口各排各的：收藏与资产库写「图片 视频 音频」，工作台按「这一屏出现过的类型」现攒 ——
+     于是音频那一档要等第一条音频到账才冒出来，整排跟着左右挪；同一排 chips 在四页顺序还不一样。
+     档位与顺序是用户看着记的东西，不跟着数据到达顺序漂。 */
+  const MEDIA_KIND_ORDER = ['视频', '图片', '音频'];
+  /* 「全部」那一颗的内部键两页不同（工作台与收藏用 all，资产库用 全部），都算档首。
+     三档之外的档名排在末尾，靠稳定排序保持页面自己给它们的相对顺序 —— 不硬塞进三档里的哪一档。 */
+  const MEDIA_ALL_KEYS = ['all', '全部'];
+  function mediaKindRank(t) {
+    const s = String(t || '');
+    if (MEDIA_ALL_KEYS.includes(s)) return -1;
+    const i = MEDIA_KIND_ORDER.indexOf(s);
+    return i < 0 ? MEDIA_KIND_ORDER.length : i;
+  }
+  /* 一整排档位表：`[内部键, 显示名]` 的数组，直接交给 Wb.kindFilter 的 kinds。
+     四档一次给全 —— 「这一档现在 0 条」不是少画一颗的理由。 */
+  function mediaKindTabs(allKey) {
+    const all = allKey != null ? String(allKey) : 'all';
+    return [[all, '全部']].concat(MEDIA_KIND_ORDER.map(k => [k, k]));
+  }
+  window.mediaKindRank = mediaKindRank; window.mediaKindTabs = mediaKindTabs;
   /* 一份「东西」属于哪一类媒体（image / video / audio），认不出给空串。
      与 mediaKindOf 的分工：那个按**素材条目的类型名**决定画哪种播放器，认不出按图片；
      这个按**来源**判（扩展名 / MIME / 类型名 / 上传的 File），认不出就是认不出 ——
@@ -1544,6 +1565,11 @@ const LEGACY_KEYS = [
   /* 余额卡「就地展开」那一档偏好撤掉（2026-10-29）：卡列表现在恒为全量、定高三张自己滚，
      不再有「展开 / 收起」这个状态。`sb_bal_exp` 不再有人读，留着只会在盘上攒一串死数据。 */
   'sb_bal_exp',
+  /* 浏览器那份「本机镜像指针」撤掉（2026-10-30）：哪条产物在本机改由代理的别名表说了算
+     （`/local-assets/aliases` / `/local-assets/locate`），页面只留一份内存表。
+     `sk_local_mirror` 是那张表在 localStorage 的暖缓存，盘上那份留着没人读；
+     库本体 `mirror_db` 由 LEGACY_IDB 整库删。 */
+  'sk_local_mirror',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
@@ -1559,8 +1585,9 @@ async function sweepLegacyKeys() {
 
 /* IndexedDB 里的同一类残留：整库随页作废的（画布页删除后的 canvas_db），不再进 Kv 登记表，
    登记表读不到它，只能在这里点名 deleteDatabase。库没有活跃连接时立即删掉，
-   有连接时浏览器等连接关了再删（画布页已删，不会再有连接）；删不掉就下次 boot 再来一遍，幂等。 */
-const LEGACY_IDB = ['canvas_db'];
+   有连接时浏览器等连接关了再删（画布页已删，不会再有连接）；删不掉就下次 boot 再来一遍，幂等。
+   `mirror_db` 是同一类：本机镜像指针改由代理别名表承担，浏览器这一份整库作废。 */
+const LEGACY_IDB = ['canvas_db', 'mirror_db'];
 function sweepLegacyDbs() {
   if (typeof indexedDB === 'undefined') return;
   for (const name of LEGACY_IDB) {

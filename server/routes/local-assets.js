@@ -13,7 +13,7 @@ const { renameWithRetry, fsyncPath, atomicWrite } = require('../fs-atomic.js');
 const { sendJson, fail } = require('./http');
 /* 类别闸直接连存储层的那张表（LOCAL_KIND_BY_EXT → isMediaExt）：落点、对账、用量与这道闸
    必须读同一份名单；它是纯函数、不碰实例状态，所以走模块导出，不经组合根的注入清单转发。 */
-const { isMediaExt, isDocExt } = require('../local-assets-store.js');
+const { isMediaExt, isDocExt, identityOf } = require('../local-assets-store.js');
 
 function createLocalAssets(ctx) {
   const readBody = ctx.readBody;
@@ -36,6 +36,8 @@ function createLocalAssets(ctx) {
   const localIndexDrop = ctx.localIndexDrop;
   const localAssetSiblings = ctx.localAssetSiblings;
   const localFillMissing = ctx.localFillMissing;
+  const localAliases = ctx.localAliases;
+  const localLocateBatch = ctx.localLocateBatch;
   const whyNoSpace = ctx.whyNoSpace;
   const localAssetFile = ctx.localAssetFile;
   const localAssetPaths = ctx.localAssetPaths;
@@ -64,6 +66,12 @@ function createLocalAssets(ctx) {
 
   /* 一条账缺的字段用新到的那份补上、然后落账 —— 三条复用分支同一句，别各写一遍。 */
   const fillAndSave = (twin, patch) => { if (localFillMissing(twin, patch)) localIndexUpsert(twin); };
+  /* 平台身份从声明里提出来写到账的最上层：`assetId` / `taskId` 是寻址字段，
+     `detail` 里那份是任务详情的留底。老客户端只递 detail 时同样认得出。 */
+  const identOfMeta = meta => identityOf({
+    assetId: meta && meta.assetId, taskId: meta && meta.taskId,
+    detail: meta && meta.detail,
+  });
 
   function handleLocalAssets(req, res, urlObj) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];
@@ -74,6 +82,7 @@ function createLocalAssets(ctx) {
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
         if (!spec || !spec.url) return failMsg(res, 400, '缺少 url');
         const meta = (spec.meta && typeof spec.meta === 'object') ? spec.meta : {};
+        const ident = identOfMeta(meta);
         let target = '';
         try { target = await resolveSrc(String(spec.url), assetStore ? keyOf(assetStore.keyEnv) : ''); }
         catch (e) { return failMsg(res, 400, e.message); }
@@ -107,7 +116,8 @@ function createLocalAssets(ctx) {
               fillAndSave(twin, { prompt: meta.prompt || '', model: meta.model || '',
                 voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
                 credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
-                usage: meta.usage || null, detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
+                usage: meta.usage || null, assetId: ident.assetId, taskId: ident.taskId,
+                detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
               return { ...twin, status: 'succeeded', url: '/asset/' + twin.id, reused: true };
             }
             /* 落点先算目录（类型只由扩展名与 mime 决定，这时候两个都已知），字节先落在**同一个目录**里：
@@ -130,6 +140,27 @@ function createLocalAssets(ctx) {
               } else {
                 size = await downloadTo(target, tmp);
               }
+              /* 按字节认回：磁盘对账补建的那一族裸行（没有 upstream、没有 detail）按平台产物号、
+                 按来源地址都查不到 —— 于是「文件明明在盘上，卡片却一直加载不出来」。
+                 这一份的字节与那一行同签名时，把身份（来源地址 + 任务号 / 产物号）写到那一行上，
+                 不再落第二份字节、不再开第二条账：「存回本机」因此兼是修复，坏掉那一张按一次就认回来。
+                 只认「两头都没有身份」的那一行 —— 已经有号的可能是同内容的另一份产物，
+                 把这一份的身份盖上去会把它那张卡换掉（接错比不接更糟）。 */
+              const itemSig = localSigOf(tmp, size);
+              const bare = itemSig ? localIndexRead().find(x => x && x.sig === itemSig
+                && !String(x.upstream || '').trim()
+                && !identityOf(x).assetId && !identityOf(x).taskId) : null;
+              if (bare) {
+                try { fs.unlinkSync(tmp); } catch {}
+                invalidateScan();               // 落点目录里刚多出又少掉一个 .tmp，那份快照不能留给下一轮列表
+                fillAndSave(bare, { prompt: meta.prompt || '', model: meta.model || '',
+                  voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
+                  credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
+                  usage: meta.usage || null, upstream: up, assetId: ident.assetId, taskId: ident.taskId,
+                  detail: (meta.detail && typeof meta.detail === 'object') ? Object.assign({}, meta.detail, { bytes: size }) : null });
+                log('[local-assets] 按字节认回 ' + bare.id + '（' + bare.file + '，裸行补上身份，不重存字节）');
+                return { ...bare, status: 'succeeded', url: '/asset/' + bare.id, reused: true };
+              }
               /* 内容指纹兜底：upstream 算不出键时按 sha256 找同内容的那条 ——
                  找到就复用（扔掉刚下载的 tmp，不新开、不重写文件），治「同一份产物存两遍」。 */
               if (!upKey && !localId) {
@@ -140,7 +171,8 @@ function createLocalAssets(ctx) {
                   fillAndSave(twin2, { prompt: meta.prompt || '', model: meta.model || '',
                     voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
                     credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
-                    usage: meta.usage || null, detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
+                    usage: meta.usage || null, assetId: ident.assetId, taskId: ident.taskId,
+                    detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
                   log('[local-assets] 内容指纹命中 ' + twin2.id + '（同内容已存过，不新开）');
                   return { ...twin2, status: 'succeeded', url: '/asset/' + twin2.id, reused: true };
                 }
@@ -164,6 +196,9 @@ function createLocalAssets(ctx) {
               credits: meta.credits ?? null, priceText: meta.priceText || '',
               chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
               usage: meta.usage || null, upstream: up,
+              /* 平台身份写在账的最上层：来源地址与产物号 / 任务号是两种独立凭据 ——
+                 外链会过期，产物号不会；列表里那一条带的是产物号，本机这一份也必须有。 */
+              assetId: ident.assetId, taskId: ident.taskId,
               /* 双身份：fid 挡同卷改名 / 移动，采样签名挡跨盘、跨机、被同步盘重写的那几种。
                  用户改文件名、把整堆挪到别的盘，下一轮磁盘对账就靠这两个把它认回来。 */
               fid: fileFidOf(place.abs), sig: localSigOf(place.abs, size),
@@ -208,6 +243,7 @@ function createLocalAssets(ctx) {
             '本机资产库只收图片 / 视频 / 音频；字幕 / 文本请放下载或提示词目录（这一份认出的格式是 ' + fmt + '）');
           const mime = spec.mime || (MIME['.' + fmt] || 'application/octet-stream');
           const meta = spec.meta || {};
+          const ident = identOfMeta(meta);
           // WAV 头里能直接算出时长（字节率），不用客户端再解析
           let duration = meta.duration || null;
           if (fmt === 'wav' && buf.length > 44 && buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WAVE') {
@@ -220,7 +256,8 @@ function createLocalAssets(ctx) {
           const patch = { prompt: meta.prompt || '', model: meta.model || '',
             voice: meta.voice || '', priceText: meta.priceText || '', duration, credits: meta.credits ?? null,
             chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
-            usage: meta.usage || null, detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null };
+            usage: meta.usage || null, assetId: ident.assetId, taskId: ident.taskId,
+            detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null };
           /* 来源外链先算出来：它是「这份产物本机有没有存过」的凭据（见 localUpKey）。
              算不出键（upstream 为空 —— base64 直传的附件就走这条）再用内容指纹兜底：
              懒算一次 sha256 去索引找同内容的那条，找到就复用不新开。 */
@@ -278,6 +315,8 @@ function createLocalAssets(ctx) {
             credits: meta.credits ?? null, priceText: meta.priceText || '',
             chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
             usage: meta.usage || null,
+            /* 平台身份写在账的最上层：外链会过期，产物号 / 任务号不会。 */
+            assetId: ident.assetId, taskId: ident.taskId,
             /* 镜像回源用：这份文件是从哪个外链取回来的字节。
                /asset/<id> 在**本地文件被删掉**时靠它回源（见 /asset 那段），这是三级回退的中间一级 ——
                以前本地文件一没就只剩 404，界面据此判成「已删除」，其实上游那份可能还能取。 */
@@ -304,6 +343,24 @@ function createLocalAssets(ctx) {
             : e.message;
           failMsg(res, 500, msg);
         }
+      });
+      return;
+    }
+    /* 浏览器那份「平台产物 → 本机哪一份」的字典改由这里现问：代理手里有账与字节，
+       外链过期、换端口、清站点数据之后答案都还在。只读，不下载、不补建。 */
+    if (dataPath === '/local-assets/aliases' && req.method === 'GET') {
+      sendJson(res, 200, localAliases());
+      return;
+    }
+    /* 批量问「这几件平台产物在本机是哪一份」：资产列表先拿结果再决定卡片上的地址。
+       条数封顶 2000：一屏列表最多也就几百条，超出的请求是异常调用，不替它扫全表。 */
+    if (dataPath === '/local-assets/locate' && req.method === 'POST') {
+      readBody(req, res, 4 * 1024 * 1024).then(raw => {
+        if (raw == null) return;
+        let spec = null;
+        try { spec = JSON.parse(raw.toString('utf8')); } catch {}
+        const items = (spec && Array.isArray(spec.items)) ? spec.items.slice(0, 2000) : [];
+        sendJson(res, 200, { rows: localLocateBatch(items) });
       });
       return;
     }

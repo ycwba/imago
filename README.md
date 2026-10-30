@@ -114,7 +114,7 @@ npm run build:check  # 校验生成物
 
 ## 本机优先
 
-- 产物身份只有一份判据：`AssetLib` 的 `mirrorOf`。
+- 产物身份只有一份判据：`AssetLocal` 的 `rowOfEntry`（查的是代理现给的别名表：`/local-assets/aliases` + `/local-assets/locate`）。
 - 本机 / 云端状态只有 `AssetLocal.stateOf(entry)`。
 - 自动镜像由 `wb:asset-done` 事件触发，字节由代理流式落盘进**本机资产库根**的类型子目录
   （默认 `下载\拾帧\图片|视频|音频|其他\`，设置页可改；一条产物只有一份本体，文件名按「场景+镜头+候选」规范名，撞名加 `-2`）。

@@ -317,7 +317,7 @@ const SettingsView = {
         if (!m.site && p.site) m.site = p.site;
         if (!m.base && p.base) m.base = p.base;
         if (!m.byKind.has(p.kind)) m.byKind.set(p.kind, p);
-        if (p.endpoints && p.endpoints.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits };
+        if (p.endpoints && p.endpoints.credits && !m.credits) m.credits = { relay: p.relay, ep: p.endpoints.credits, p };
       });
       const all = [...merged.values()];
       all.forEach(m => {
@@ -714,6 +714,46 @@ const SettingsView = {
         + '<div class="fcard-acts"><span class="hint sm">路线在下面选；本机运行包放 tools/whisper/</span></div>'
         + '</div>';
     }
+    /* 卡底右侧那枚余额：取数 / 解析 / 缓存都在外壳那一份（`window.SbBalance`，与侧栏「账户余额」
+       同一个口），这里只画。那本「侧栏余额」勾选只管左侧栏显示，这张卡上始终显示这一家的余额；
+       没有余额接口的账号不画这一枚（勾选框那一行已经说明了为什么）。 */
+    function balChipHTML(m) {
+      if (!m.credits || !window.SbBalance) return '';
+      const r = SbBalance.rowOf(m.keyId);
+      const unit = r ? String(r.unit || '').trim() : '';
+      const body = !r ? '<b>…</b>'
+        : r.failed ? '<b>读取失败</b>'
+          : '<b>' + window.esc(r.avail) + '</b>' + (unit ? '<span class="u">' + window.esc(unit) + '</span>' : '');
+      const tip = !r ? '正在查这一家的余额…'
+        : r.failed ? String(r.why || '查询失败')
+          : '可用 ' + r.avail + (unit ? ' ' + unit : '') + ' · 冻结 ' + r.frozen + (unit ? ' ' + unit : '');
+      return '<span class="balnow' + (r && r.failed ? ' err' : '') + '" data-balnow="' + window.esc(m.keyId) + '"'
+        + ' title="' + window.esc(tip) + '"><span class="k">余额</span>' + body + '</span>';
+    }
+    /* 余额换了（外壳取回一轮 / 某一家刚补问回来）就地换掉这几枚，不整片重画卡片。 */
+    function paintAccountBalances() {
+      qa('[data-balnow]').forEach(el => {
+        const m = provRows.get(el.dataset.balnow);
+        if (!m) return;
+        const box = document.createElement('span');
+        box.innerHTML = balChipHTML(m);
+        if (box.firstElementChild) el.replaceWith(box.firstElementChild);
+      });
+    }
+    /* 缓存里还没有的那几家补问一次：默认全勾时侧栏每一轮都问过，这里一个请求都不发。
+       间隔按分钟级闸住，不跟着每一次重画反复问；失败的行不在这一份里重试（侧栏那一轮会重问）。 */
+    let balAskAt = 0, balAsking = false;
+    function ensureBalances() {
+      const S = window.SbBalance;
+      if (!S || !S.fetchRows || balAsking) return;
+      if (Date.now() - balAskAt < 60000) return;
+      const want = lastAcctShown.filter(m => m.credits && m.credits.p && !S.rowOf(m.keyId));
+      if (!want.length) return;
+      balAskAt = Date.now();
+      balAsking = true;
+      S.fetchRows(want.map(m => ({ kid: m.keyId, name: m.name, p: m.credits.p })))
+        .then(paintAccountBalances).catch(() => {}).then(() => { balAsking = false; });
+    }
     function accountCardHTML(m) {
       if (m.local) return localAccountCardHTML(m);
       const kid = window.esc(m.keyId);
@@ -761,6 +801,7 @@ const SettingsView = {
               + '<button class="ghost xs danger" type="button" data-cdel="' + kid + '">删除</button>'
             : '')
           + '<span class="hint sm" data-acctmsg="' + kid + '"></span>'
+          + balChipHTML(m)
         + '</div></div>';
     }
     /* 「添加供应商」那张卡：**两个形态、同一张卡**。
@@ -947,6 +988,7 @@ const SettingsView = {
       if (window.Dropdowns && provListEl.value) Dropdowns.build(provListEl.value);
       /* 手加 / 撤掉一档语音识别之后，「在线服务商」那份候选要跟着变。 */
       syncServiceProvs();
+      ensureBalances();
     }
 
     /* ---------- 卡片流里的动作：一次绑定、整片重画后不用补绑 ----------
@@ -4970,6 +5012,8 @@ const SettingsView = {
       renderUiPrefs();
       /* 主题解析发生在 shell-boot / 侧栏按钮里；每次解析完成都把两排分段的高亮对回来。 */
       document.addEventListener('sb:theme-applied', syncThemePrefs);
+      /* 外壳那一轮余额取回来 → 卡底那几枚余额就地换新（不整片重画卡片）。 */
+      window.addEventListener('sb-balance-updated', paintAccountBalances);
       initPromptArchive();
       initTextForm();
       paintSkillChips();
@@ -4999,6 +5043,7 @@ const SettingsView = {
     onBeforeUnmount(() => {
       if (rootEl.value) rootEl.value.removeEventListener('change', onRootChange);
       document.removeEventListener('sb:theme-applied', syncThemePrefs);
+      window.removeEventListener('sb-balance-updated', paintAccountBalances);
       if (setDocEl.value) setDocEl.value.removeEventListener('scroll', onScrollNav);
       window.removeEventListener('resize', setDocAnchor);
       if (navRO) { try { navRO.disconnect(); } catch (e) {} navRO = null; }

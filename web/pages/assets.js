@@ -139,14 +139,11 @@ export default {
     }
     const loadFailed = () => Object.keys(loadErrors || {}).length > 0;
 
-    function paintLoadErrors(listEmpty) {
+    function paintLoadErrors() {
       const box = loadErrEl.value;
       if (!box) return;
       const bits = Object.keys(loadErrors).map(k => window.esc(String(k)) + ' 加载失败：' + window.esc(String(loadErrors[k])));
-      const err = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-6) 0">' + bits.join('；') + '</div>' : '';
-      const hide = (!listEmpty && hiddenCloud > 0)
-        ? '<div class="hint sm">已隐藏 ' + hiddenCloud + ' 条</div>' : '';
-      box.innerHTML = err + hide;
+      box.innerHTML = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-6) 0">' + bits.join('；') + '</div>' : '';
     }
 
     /* ---------- 多选 ---------- */
@@ -922,12 +919,12 @@ export default {
       paintBulkBar();
       paintPullBtn();
       if (!list.length) {
-        paintLoadErrors(true);
+        paintLoadErrors();
         cardList.paint([]);
         bindEmptyBox();
         return;
       }
-      paintLoadErrors(false);
+      paintLoadErrors();
       cardList.paint(list);
       /* 网格档那条展开带子：重画会把卡片挪一遍，带子要跟着回到它那一行的下面
          （Wb.cards 只认卡片，带子是插在容器里的另一个孩子）。 */
@@ -941,7 +938,6 @@ export default {
       const key = assetKeyOf(a);
       const r = await window.AssetLib.remove(a);
       if (r && r.mirrorGone) {
-        window.AssetLib.forgetMirror && window.AssetLib.forgetMirror(a);
         assets = assets.map(x => {
           if (assetKeyOf(x) !== key) return x;
           const c = Object.assign({}, x);
@@ -1059,17 +1055,14 @@ export default {
            全是 0，数字就成了「按当前筛选算的」，点一下才发现对不上。
            页头那三档仍按 noBucket 摘掉（切换状态档不重画这一排，带上它数字会停在旧的一档）。 */
         const pool = applyFilters({ noBucket: true, noType: true });
+        const tabs = window.mediaKindTabs('全部');
         kindCounts.clear();
         kindCounts.set('全部', pool.length);
-        ['图片', '视频', '音频'].forEach(t => kindCounts.set(t, pool.filter(a => typeKey(a.type) === typeKey(t)).length));
+        tabs.slice(1).forEach(([t]) => kindCounts.set(t, pool.filter(a => typeKey(a.type) === typeKey(t)).length));
         if (!kindFb) {
           kindFb = Wb.kindFilter.bind(asTypeEl.value, {
-            kinds: [['全部', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频']],
-            allKey: '全部',
+            kinds: tabs,
             value: F.type,
-            /* 四档恒在：资产是分几批到的（本机账 → 各平台列表），按「计数为 0 就不画」
-               会让音频那一档过一会儿才冒出来，整排也跟着左右挪。条数照旧跟着筛选现算。 */
-            hideEmpty: false,
             count: v => Number(kindCounts.get(v) || 0),
             onPick: v => { F.type = v; renderFilters(); renderGrid(); },
           });
@@ -1401,6 +1394,9 @@ export default {
       if (window.Dropdowns) window.Dropdowns.build(pageEl.value || document);
       renderFilters();
       if (!REG.providers.length) await loadReg();
+      /* 别名表先就位再读首屏缓存：缓存里那几条带着上次的镜像字段，
+         表没回来就 decorate 不出本机地址，先画出来再跳一下反而更晃眼。 */
+      try { if (window.AssetLocal && AssetLocal.ready) await AssetLocal.ready(); } catch (e) { /* 表取不回来就按「本机没有」先画，回头 locate 再补 */ }
       if (!assets.length) {
         const cached = LIST_CACHE.read();
         if (cached.length) { assets = cached; refreshProviderChips(); renderGrid(); }

@@ -287,8 +287,25 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        那些 ensureCss 调用因此删掉）；`web/ui/sidebar.js` 的导航项补上悬停 / 聚焦预取；
        `web/boot-assistant.js` 改成几份互不依赖的脚本一起取（chat.js 仍排最后）。
        这一笔省掉的是**往返**而不是首屏字节：没有新挂脚本，也没有把按需件挪进来。
-       实跑 29 枚 / 841569 字节（登记上限 844000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 844000;
+       实跑 29 枚 / 841569 字节（登记上限 844000）。
+     · 按实跑重登记（2026-10-30，本机资产索引改由代理说了算）：枚数不变（仍是 29 枚），净减约 17KB ——
+       `web/domain/local.js` 整份重写（−19KB）：浏览器那套 localStorage + IndexedDB 镜像索引
+       （按源分家、要备份 / 迁移 / 修复）删掉，只留当前会话的内存别名表（代理的
+       `/local-assets/aliases` 快照 + 批量 locate + 落盘回执 + 列表学习四路）；`assetlib.js`
+       每页批次后先 locate 再落卡，`datasync.js` / `kv.js` 同步摘掉 `sk_local_mirror` 与 `mirror_db`。
+       同一笔里 ui.js / assetlib.js / sidebar.js 的别名表接线与角标多出约 6.5KB。
+       没有新挂脚本，也没有把按需件挪进来。实跑 29 枚 / 824101 字节（登记上限 827000）。
+     · 按实跑重登记（2026-10-30，旧本机身份不再冒充「本机」 + 设置页账号卡显示余额）：枚数不变（仍是 29 枚），
+       两笔都落在首屏常驻件上，没有新挂脚本，也没有把按需件挪进来：
+       ① `web/domain/local.js` / `assetlib.js` / `fav.js` —— 别名表取回来之后，缓存里留着的上一天本机号
+          （`/asset/la_*`、`mirrorKey`、自产条目的 assetId）按账复核：账里没有那一行就不再算「本机」，
+          地址退回平台 / 来源外链，自产条目在进界面前摘掉（`staleSelf`）。这三份是首屏取数底座
+          （列表缓存、收藏地址、卡片徽标都经它们），挪不到按需；
+       ② `web/ui/sidebar.js` —— 余额多两个口：`SbBalance.rowOf` / `fetchRows`（设置页账号卡上的余额
+          读同一份缓存、走同一份取数），以及取回一轮后的 `sb-balance-updated` 广播。侧栏是外壳同步脚本，
+          余额缓存与取数本来就在它里面。
+       实跑 29 枚 / 831073 字节（登记上限 833000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 833000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

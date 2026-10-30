@@ -179,8 +179,8 @@ async function main() {
     say('账里也收掉了', !ledger(DATA).find(x => x.id === lost.id), '');
 
     /* ⑩ 云端被清理 / 签名过期，而本机那一份还在：地址层要退回本机字节。
-       实况是「卡片写着本机+云端，画面却是一张破图」—— 浏览器那份镜像索引按源分家，
-       丢了或指到死号时认不出这条外链，而代理账里明明记着「这个来源地址的字节就在库根」。 */
+       实况是「卡片写着本机+云端，画面却是一张破图」—— 浏览器那份别名表只在当前会话、
+       按源分家，认不出这条外链，而代理账里明明记着「这个来源地址的字节就在库根」。 */
     const deadUp = 'https://gone.invalid/results/cloud-gone.png?Expires=1793188433&Signature=old';
     const deadRow = await mirror('云端清掉后仍在.png', 'keep',
       { upstream: deadUp, detail: { asset: 'asset_cloud_gone', task: 'job_cloud_gone' } });

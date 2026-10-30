@@ -214,9 +214,20 @@ body.wb-splitting-y * { user-select: none !important; }
 .task .task-status.err { color: var(--err); }
 .task .task-status.run::before { animation: blink var(--dur-1200) infinite; }
 :where(.task-grid, .view-compact) .task { flex-direction: column; gap: 0; padding: 0; margin-bottom: 0; overflow: hidden; }
-:where(.task-grid, .view-compact) .task > .timg { width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: 0; }
-:where(.task-grid, .view-compact) .task > .tmain { flex: 1 0 auto; padding: var(--sp-12); }
+/* 网格卡的高度预算：缩略图占满卡宽，它是整张卡最大的一块 —— 268 宽的列里 2/1 是 134 高。
+   回到 16/9 要多出 25（那一格是 cover 裁切，比例改的是裁掉多少，不把图压扁），
+   而正文两行与动作两行都已各自钉死，动不了。 */
+:where(.task-grid, .view-compact) .task > .timg { width: 100%; height: auto; aspect-ratio: 2 / 1; border-radius: 0; }
+:where(.task-grid, .view-compact) .task > .tmain { flex: 1 0 auto; padding: var(--sp-8); gap: var(--sp-4); }
 :where(.task-grid, .view-compact) .task .tprompt { min-height: 3em; }
+:where(.task-grid, .view-compact) .task .acts { padding-top: var(--sp-8); }
+/* 失败原因那一格留一行高（clamp 1 + min-height 1.5em，em = 自己的字号）：
+   卡片列里它是唯一随内容长矮的正文块 —— 有原因 / 没原因、一行 / 三行会把同一屏的卡片
+   撑成三种高度，所以这一格由 taskHTML 照样画出来（没原因时空着），每张卡占同一段高度。
+   两行是 36px、一行 18px：绝大多数卡没有失败原因，为它留两行等于给整列每张卡都加 18px。
+   截掉的那句全文在 title 里。 */
+:where(.task-grid, .view-compact) .task .terr { display: -webkit-box; -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical; overflow: hidden; line-height: 1.5; min-height: 1.5em; }
 @keyframes blink { 50% { opacity: .3; } }
 .spin-dot { width: 18px; height: 18px; border: var(--hair-2) solid var(--line); border-top-color: var(--acc);
   border-radius: 50%; animation: rot var(--dur-800) linear infinite; display: inline-block; margin-bottom: var(--sp-4); }
@@ -253,13 +264,22 @@ body.wb-splitting-y * { user-select: none !important; }
   border-right-color: transparent; border-radius: var(--radius-99); animation: rot var(--dur-800) linear infinite; }
 .task-grid .task .acts,
 .view-compact .task .acts,
-.view-compact .card-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.view-compact .card-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 动作区一律占满两行（行高 = .card-act 的 min-height 同一枚令牌）：在跑的那一张只有「展开详情 / 取消」
+     两颗按钮，塌成一行就比出图那一张矮 38 像素 —— 与失败那一格合起来，同一屏的卡片有三种高度。
+     第三行只有本机语音那种五颗按钮的卡才排得下。 */
+  grid-template-rows: repeat(2, var(--sz-ctl)); grid-auto-rows: var(--sz-ctl); }
+/* 定高行里按钮不许换行：换一行就顶穿这一档行高，卡片高度又跟着内容漂。
+   截掉的字样在 title 里（actsHTML 没给 title 时补按钮文字本身）。 */
+:where(.task-grid, .view-compact) .acts .card-act { min-width: 0; }
+:where(.task-grid, .view-compact) .acts .card-act .tx { min-width: 0; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
 .task-grid .task .acts .card-act:last-child:nth-child(odd),
 .view-compact .task .acts .card-act:last-child:nth-child(odd),
 .view-compact .card-acts .card-act:last-child:nth-child(odd) { grid-column: span 2; }
 @media (max-width: 520px) {
   .task { flex-direction: column; padding: var(--sp-12); }
-  .task > .timg { width: 100%; height: auto; aspect-ratio: 16 / 10; }
+  .task > .timg { width: 100%; height: auto; aspect-ratio: 16 / 9; }
   :where(.task-grid, .view-compact) .task { padding: 0; }
 }
 .empty { color: var(--sub); font-size: var(--fs-13); text-align: center; padding: var(--sp-60) 0; grid-column: 1/-1; }

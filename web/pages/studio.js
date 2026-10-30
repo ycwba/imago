@@ -2142,7 +2142,7 @@ const StudioView = {
       function entryToItem(e) {
         const isAsset = e.kind === 'asset';
         const aid = e.assetId || (isAsset ? (e.id || '') : '');
-        return {
+        const it = {
           mtype: e.type || '', provider: e.provider || '', providerName: e.providerName || '', model: e.model || '',
           status: isAsset ? 'succeeded' : (e.status || ''), kind: isAsset ? 'asset' : 'task',
           prompt: e.prompt || '',
@@ -2154,6 +2154,11 @@ const StudioView = {
           voice: e.voice, durationSec: e.duration, credits: e.credits, size: e.byteLength,
           priceText: priceTextOf(e), error: e.failMsg || '', local: false, localAsset: !!e.localAsset,
         };
+        /* 轮询把一条在跑的任务升级成产物时，改动必须落回**这一条的来源条目**：
+           卡片每一轮都从这里现取一个新对象，只改新对象的话下一次派生又回到「生成中」——
+           表现为一张永远转圈的卡片（而平台那边早就出图了）。`_e` 只给这一条链用，不进签名、不渲染。 */
+        it._e = e;
+        return it;
       }
       function localAudioItem(t) {
         const lp = (window.Api && Api.prov && Api.prov(t.provider)) || null;
@@ -2185,14 +2190,22 @@ const StudioView = {
           if (!it.mtype) continue;
           out.push(it); byKey.set(itemKey(it), it);
         }
-        const srvTask = new Set(serverEntries.map(e => String(e.id || e.taskId || '')).filter(Boolean));
-        const srvAsset = new Set(serverEntries.map(e => String(e.assetId || '')).filter(Boolean));
+        /* 服务端这批条目露出的**全部**生成身份：任务号 + 产物号。
+           占位条目手上只有任务号，而一次生成出图之后列表给的是 `kind:'asset'` 的行 ——
+           任务号只留在 `genId` 上（`id` 是产物号、`taskId` 是提示词归档的问讯号），
+           少认这一枚就少删一条占位：同一任务同时挂着「一张一直转圈的空白卡」与
+           「一张已经出图的卡」（`mergeEntries` 还把平台那条 kind:'task' 的行收了，
+           覆盖关系于是彻底断掉）。 */
+        const srvIds = new Set();
+        for (const e of serverEntries) for (const v of [e.id, e.genId, e.assetId]) {
+          const s = String(v || ''); if (s) srvIds.add(s);
+        }
         for (let i = adoptBuf.length - 1; i >= 0; i--) {
           const a = adoptBuf[i];
           const k = itemKey(a);
           const covered = byKey.has(k)
-            || (a.taskId && srvTask.has(String(a.taskId)))
-            || (a.assetId && srvAsset.has(String(a.assetId)));
+            || (a.taskId && srvIds.has(String(a.taskId)))
+            || (a.assetId && srvIds.has(String(a.assetId)));
           if (covered) { adoptBuf.splice(i, 1); continue; }
           out.unshift(a); byKey.set(k, a);
         }
@@ -2220,9 +2233,12 @@ const StudioView = {
         }
         return true;
       }
+      /* 一条任务归哪一档：平台声明里音频那一族有「音频」「音乐」两种写法，
+         选择器与档位表只认「音频」这一个名字（isAudioType 是全站那一份读法）。 */
+      const kindTabOf = it => (window.isAudioType(it.mtype) ? '音频' : it.mtype || '');
       function filteredItems() {
         const items = mergedItems()
-          .filter(it => matched(it) && (filterKind === 'all' || it.mtype === filterKind)
+          .filter(it => matched(it) && (filterKind === 'all' || kindTabOf(it) === filterKind)
             && !AssetLocal.hideAsCloud(it) && (!aiPick || aiPick.has(itemKey(it))));
         /* AI 挑过就按它给的名次排（跨类型的一批，时间序会把它的语义顺序打散）。 */
         return aiRank
@@ -2230,17 +2246,10 @@ const StudioView = {
             - (aiRank.get(itemKey(b)) ?? Number.MAX_SAFE_INTEGER))
           : items.sort((a, b) => (b.ts || 0) - (a.ts || 0));
       }
-      let kindOrder = [];
-      function kindTabs() {
-        const seen = new Set();
-        mergedItems().forEach(it => { if (it.mtype) seen.add(it.mtype); });
-        const next = kindOrder.filter(t => seen.has(t));
-        for (const t of seen) if (!next.includes(t)) next.push(t);
-        kindOrder = next;
-        return next;
-      }
       /* 类型筛选走公共件 Wb.kindFilter（全站一份：工作台 / 收藏页 / 资产库三处共用）。
-         档位表是这一页自己算的（这一屏出现过的类型），公共件只吃「档位表 + 每档条数 + 点完之后做什么」。 */
+         档位表是 ui.js 的 mediaKindTabs 那一副（全部 → 视频 → 图片 → 音频），四档恒在 ——
+         以前这一页按「这一屏出现过的类型」现攒，音频那一档要等第一条音频到账才冒出来，
+         整排跟着左右挪；顺序也不跟着数据到达顺序漂。 */
       let kindFilterApi = null;
       const kindCounts = new Map();
       function paintCounts() {
@@ -2249,27 +2258,23 @@ const StudioView = {
         hiddenCloud = passable.length - matched_.length;
         const total = mergedItems().length;
         const c = new Map();
-        matched_.forEach(it => { if (it.mtype) c.set(it.mtype, (c.get(it.mtype) || 0) + 1); });
-        const kinds = kindTabs();
-        if (filterKind !== 'all' && !kinds.includes(filterKind)) kinds.push(filterKind);
+        matched_.forEach(it => { const k = kindTabOf(it); if (k) c.set(k, (c.get(k) || 0) + 1); });
         kindCounts.clear();
         c.forEach((n, k) => kindCounts.set(k, n));
         kindCounts.set('all', matched_.length);
         if (!kindFilterApi) {
           kindFilterApi = Wb.kindFilter.bind($('histFilter'), {
-            kinds: [['all', '全部']],
+            kinds: window.mediaKindTabs('all'),
             value: filterKind,
             count: v => Number(kindCounts.get(v) || 0),
             onPick: v => { filterKind = v; pager.setPage(0); renderAll(); },
           });
         }
-        kindFilterApi.setKinds([['all', '全部']].concat(kinds.map(k => [k, k])));
         kindFilterApi.setValue(filterKind);
         const note = $('histNote');
         const hidden = total - matched_.length - hiddenCloud;
         note.textContent = (showAll ? '全部时间范围' : '最近 30 天')
           + (hidden > 0 ? ' · 另有 ' + hidden + ' 条更早的没显示' : '')
-          + (hiddenCloud > 0 ? ' · ' + hiddenCloud + ' 条已隐藏' : '')
           + (serverLoading ? ' · 正在取回…' : '');
       }
       $('winAll').onclick = () => {
@@ -2403,7 +2408,13 @@ const StudioView = {
       function upsertItem(it) {
         if (!it || !it.taskId) return;
         const k = itemKey(it);
-        const i = adoptBuf.findIndex(x => itemKey(x) === k);
+        /* 同一任务的两种键形状必须认成同一条：占位那一份手上只有任务号（键 `i:任务号`），
+           轮询回来的那一份已经带上产物号（键 `i:产物号`）。只按键找一定找不到，
+           adoptBuf 就同时留着「一条还没加载出来的」与「一条已经出图的」——
+           界面看到的正是同一个任务两张卡。 */
+        const i = adoptBuf.findIndex(x => itemKey(x) === k
+          || (x.taskId && it.taskId && String(x.taskId) === String(it.taskId))
+          || (x.assetId && it.assetId && String(x.assetId) === String(it.assetId)));
         if (i >= 0) adoptBuf[i] = Object.assign(adoptBuf[i], it);
         else adoptBuf.push(it);
       }
@@ -2431,6 +2442,27 @@ const StudioView = {
           priceText: it.priceText || '', created: it.ts ? new Date(it.ts).toISOString() : '',
         }]);
       }
+      /* 轮询读到的那一版写回**来源条目**：卡片每一轮都由条目现派生一份新对象，
+         只改卡片那一份副本的话，下一次派生又回到旧状态 —— 表现是「平台早就出图了，
+         卡片还在转圈」。条目字段与卡片字段不同名（`src` / `genId` / `failMsg` / `duration`），
+         所以映射只写这一份。 */
+      function writeThroughEntry(it, upd) {
+        const e = it && it._e;
+        if (!e) return;
+        const done = upd.kind === 'asset';
+        e.kind = done ? 'asset' : 'task';
+        e.status = done ? 'done' : (upd.status || e.status);
+        if (upd.assetId) { e.assetId = String(upd.assetId); e.id = e.assetId; }
+        if (done) e.src = e.assetId ? Api.assetSrc(e.assetId) : (upd.raw || e.src || '');
+        if (upd.raw && /^https?:/i.test(String(upd.raw))) e.rawSrc = upd.raw;
+        if (upd.dl) e.dl = upd.dl;
+        if (!done && upd.error) e.failMsg = String(upd.error);
+        for (const [k, v] of [['prompt', upd.prompt], ['model', upd.model], ['tier', upd.tier],
+          ['res', upd.res], ['ar', upd.ar], ['format', upd.format], ['voice', upd.voice]]) {
+          if (!e[k] && v) e[k] = v;
+        }
+        if (upd.dur != null && e.duration == null) e.duration = upd.dur;
+      }
       async function pollOne(it) {
         const prov = provById(it.provider);
         if (!prov || !it.taskId) return;
@@ -2439,14 +2471,31 @@ const StudioView = {
           const msg = String((hit.error && hit.error.message) || hit.error);
           const gone = hit.error && hit.error.status === 404 || /不存在|未找到|not\s*found/i.test(msg);
           const miss = missAdd(it);
-          if (gone && miss >= 3) { it.status = 'failed'; it.error = '平台上找不到这条任务（可能已被清理或过期），可重试或重新提交'; it.taskId = ''; missClear(it); }
+          if (gone && miss >= 3) {
+            /* 只写「失败 + 原因」，任务号必须留着：清掉它等于把这张卡的身份抹了 ——
+               itemKey 退化成「平台+时间+提示词」那一族，与列表里同一条产物再也对不上，
+               界面上就是同一任务两张卡（一张空白、一张有图）。 */
+            const why = '平台上找不到这条任务（可能已被清理或过期），可重试或重新提交';
+            Object.assign(it, { status: 'failed', error: why });
+            writeThroughEntry(it, { kind: 'task', status: 'failed', error: why });
+            missClear(it);
+          }
           throw hit.error;
         }
         const p = hit.p;
-        if (!p) { const miss = missAdd(it); if (miss >= 3) { it.status = 'failed'; it.error = '平台这次问不到这条任务了，可重试或重新提交'; } throw new Error('no item'); }
+        if (!p) {
+          const miss = missAdd(it);
+          if (miss >= 3) {
+            const why = '平台这次问不到这条任务了，可重试或重新提交';
+            Object.assign(it, { status: 'failed', error: why });
+            writeThroughEntry(it, { kind: 'task', status: 'failed', error: why });
+          }
+          throw new Error('no item');
+        }
         missClear(it);
         const upd = itemFromPoll(prov, p);
         Object.assign(it, upd, { taskId: it.taskId, ts: it.ts || upd.ts, local: false });
+        writeThroughEntry(it, upd);
         if (upd.media && !Wb.isRunning(it)) announceMirror(it);
         missSweep();
       }
@@ -3380,6 +3429,8 @@ const StudioView = {
         if (bootStopped) return;
         if (window.Api) Api.setRegistry(REG);
         renderModelOptions();
+        /* 同资产库：别名表先就位，首屏缓存里的条目才 decorate 得出本机地址。 */
+        try { if (window.AssetLocal && AssetLocal.ready) await AssetLocal.ready(); } catch (e) { /* 表取不回来就按「本机没有」先画，回头 locate 再补 */ }
         if (!serverEntries.length) {
           const cached = LIST_CACHE.read();
           if (cached.length) serverEntries = cached;

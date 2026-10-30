@@ -3,7 +3,7 @@
    跑法：`node tests/dup-guard.mjs`；收口之后重打基线：`node tests/dup-guard.mjs --write`。
 
    数的是「同一个名字在几个文件里定义」：函数声明、顶格 const 箭头 / function、`window.X = fn`。
-    已经点名的共享件（fmtWhen / pad2 / errText / blobExtOf / mediaKindFrom / mirrorOf …）
+    已经点名的共享件（fmtWhen / pad2 / errText / blobExtOf / mediaKindFrom / rowOfEntry …）
    要求恰好 1 份；其余同名函数是收口前的存量（局部短名 put / render / esc 之类），
    登记在 tests/fixtures/dup-baseline.json 里，**只许减不许增**。
    新长出一份同名定义（两个文件都定义 `foo`）就是新的第二份实现：判据当场红。 */

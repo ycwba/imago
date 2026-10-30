@@ -226,9 +226,12 @@ run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
 /* 库根那一条算法：盘上那一格（.data/sk_local_dir.json，正文就是 localStorage 原值）必须真被读出来，
    否则现象是「设置页改了位置、产物还往老地方写」，而且一句错都不报。 */
 run('tests/local-root.cjs', process.execPath, ['tests/local-root.cjs']);
-/* 本机有一份、云端没了：地址层要退回本机副本（按账里的来源地址 / 平台产物号认，不靠页面那份镜像索引）。
+/* 本机有一份、云端没了：地址层要退回本机副本（按账里的来源地址 / 平台产物号认，不靠浏览器会话里的别名表）。
    治的是「卡片写着本机+云端，画面却是一张破图」—— 平台把资产清掉 / 签名过期之后本机那份照样要看得见。 */
 run('tests/local-fallback.cjs', process.execPath, ['tests/local-fallback.cjs']);
+/* 磁盘对账补的裸行没有来源地址也没有平台号，按平台产物号查不到 → 字节在盘上、卡片却加载不出来。
+   「存回本机」取回的字节签名对上时，把身份补写到已有那一行：不重落字节、不新开账、不抢别人那张卡的身份。 */
+run('tests/local-byte-reclaim.cjs', process.execPath, ['tests/local-byte-reclaim.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);
@@ -418,6 +421,10 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 左栏余额与导航这一列（含「余额区滚动条 = 0」）：六家全开 + 传输中，
      480–1100 共 8 档 × 展开/收起都不许出现内滚动条，收起态点开走公共弹窗。 */
   run('tests/e2e/sidebar-balance.cjs', process.execPath, ['tests/e2e/sidebar-balance.cjs'], { tier: 'browser' });
+  /* 工作台右栏一次生成一张卡、且不空转：四条探针任务号各盯一个「列表与详情对不上」的真实形状
+     （列表先出图 / 详情先出图 / 详情一直 404 / 详情一直答在跑），整个分歧窗口逐档采样。
+     上游由页面里的状态机答复 + 代理再叠一层「指到一个没人听的端口」，一次真请求都不发。 */
+  run('tests/e2e/task-cards.cjs', process.execPath, ['tests/e2e/task-cards.cjs'], { tier: 'browser' });
   run('tests/e2e/lock.cjs', process.execPath, ['tests/e2e/lock.cjs'], { tier: 'browser' });
 } else {
   console.log('\n=== 浏览器 e2e ===\n  - 跳过（加 --e2e 全量 / --e2e:fast 冒烟档 6 个 / ALL_E2E=1）');

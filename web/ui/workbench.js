@@ -23,6 +23,7 @@
    ========================================================================== */
 (function () {
   const esc = s => window.esc(s);          // 唯一实现在 ui.js
+  const kindRank = t => window.mediaKindRank(t);   // 文件类型档位顺序的唯一实现在 ui.js
 
   /* ---------- 状态：三台共用同一套文案与判定 ----------
      文案表尽量把各家平台的措辞都收进来（succeeded / success / completed、queued / pending / waiting…），
@@ -324,7 +325,7 @@
     },
   };
 
-  /* 文件类型筛选（图片/视频/音频）：全站一份 —— 工作台 / 收藏页 / 资产库三处共用。
+  /* 文件类型筛选（全部 / 视频 / 图片 / 音频）：全站一份 —— 工作台 / 收藏页 / 资产库三处共用。
      形状照工作台原来那副：.ui-seg 分段控件 + 每档一枚计数芯片（.seg-n）。
      以前三页三副样子：工作台自己拼 innerHTML、收藏页走 filterBar 的芯片行、资产库走 Chips.render 的芯片行
      —— 用户点名：这几页的「文件类型筛选」该用工作台那一副。先把它收成公共件，三页共用。
@@ -334,14 +335,18 @@
 
      行为照搬工作台原来那份（studio.js 的 paintCounts），别另发明：
        · 档位集合不变时**不重建 DOM**（照 dataset.kinds 那套口径）—— 每次重画都重建会闪、丢焦点；
-       · 计数刷新只改文本 + .on + hidden，不重排；
-       · **计数为 0 且不是当前档的那一颗不画**；「全部」档恒显；当前档即使 0 也留着（否则回不去）。
+       · 计数刷新只改文本 + .on，不重排；
+       · **页面给的每一档恒画**：「这一档现在 0 条」不许多藏一颗 —— 资产是分几批到的（本机账 → 各平台列表），
+         藏掉会让音频那一档过一会儿才冒出来、整排跟着左右挪。
+       · **顺序在这里定一次**：按 ui.js 的 mediaKindRank 排（全部 → 视频 → 图片 → 音频），
+         页面给数组的顺序不作数；三档之外的档名落到末尾并保持页面自己的相对顺序。
      选中态统一 .on（与 Chips.render 同一枚 class，不分两派）。 */
   const kindFilter = {
     normKinds(list) {
       return (list || []).map(k => (Array.isArray(k)
         ? [String(k[0]), k[1] != null ? String(k[1]) : String(k[0])]
-        : [String(k), String(k)]));
+        : [String(k), String(k)]))
+        .sort((a, b) => kindRank(a[0]) - kindRank(b[0]));
     },
     html(o = {}) {
       const oo = o || {};
@@ -360,8 +365,6 @@
       let value = oo.value != null ? String(oo.value) : (kinds.length ? kinds[0][0] : '');
       let countFn = typeof oo.count === 'function' ? oo.count : null;
       let onPick = oo.onPick || null;
-      const allKey = oo.allKey != null ? String(oo.allKey) : 'all';
-      const hideEmpty = oo.hideEmpty !== false;
 
       const rebuild = () => {
         const want = kinds.map(k => k[0]).join('|');
@@ -373,11 +376,9 @@
         rebuild();
         el.querySelectorAll('button[data-k]').forEach(b => {
           const k = b.dataset.k || '';
-          const n = countFn ? Number(countFn(k) || 0) : 0;
           const segN = b.querySelector('.seg-n');
-          if (segN) segN.textContent = n;
+          if (segN) segN.textContent = countFn ? Number(countFn(k) || 0) : 0;
           b.classList.toggle('on', k === value);
-          b.hidden = hideEmpty && k !== allKey && k !== value && !n;
         });
       };
       const onClick = e => {
@@ -393,7 +394,6 @@
         el,
         value() { return value; },
         setValue(v) { value = v == null ? '' : String(v); paint(); },
-        setKinds(list) { kinds = kindFilter.normKinds(list); paint(); },
         setCounts(fn) { countFn = typeof fn === 'function' ? fn : null; paint(); },
         paint,
         destroy() { el.removeEventListener('click', onClick); },
@@ -1346,10 +1346,10 @@
       _imgQ: [], _imgBusy: false, _imgSeen: new Set(),
       _watchImg(b) {
         /* 图片取不到字节的兜底**不在这里，也不在任何页面**：一份全局捕获阶段的 error 监听
-           （local.js 的 onMediaError → AssetLocal.watch）先按索引换地址回退一次（本机 ↔ 外链），
-           两边都不通才插「已丢失」角标。以前三个页面各自往 `<img>` 上塞 `onerror="…"` 内联属性，
-           严格 CSP（`script-src 'self'`）把内联处理器整条拦掉 —— 那三份兜底一次都没生效过，
-           画面上留下的只有浏览器那枚碎图标。 */
+           （local.js 的 onMediaError → AssetLocal.watch）先按别名表换地址回退一次（本机 ↔ 外链，
+           内存没命中再问一次代理），两边都不通才插「已丢失」角标。以前三个页面各自往 `<img>` 上塞
+           `onerror="…"` 内联属性，严格 CSP（`script-src 'self'`）把内联处理器整条拦掉 ——
+           那三份兜底一次都没生效过，画面上留下的只有浏览器那枚碎图标。 */
         if (this.get(b.key) || b.armed) return;
         b.armed = true;
         const m = b.media;
@@ -1901,14 +1901,18 @@
     },
 
     /* ---------- 卡片动作区：三台同一套按钮、同一套顺序 ---------- */
+    /* 失败原因那一行**永远画**（没有就空着）：卡片列是一格一格的网格，
+       有那一行与没有那一行差两行字的高度，同一屏就会出现高一片矮一片的卡片。
+       样式那边把这一格钉成固定两行（ui.css 的 .terr），所以空着与写满占的位置一样。 */
     taskHTML(o) {
+      const err = String(o.error || '');
       return o.mediaHTML + '<div class="tmain">'
         + '<div class="card-top"><div class="card-badge">'
         + (o.type ? '<span class="task-kind">' + esc(o.type) + '</span>' : '')
         + '<span class="task-status ' + esc(o.tone || '') + '">' + esc(o.status) + '</span>'
         + (o.badgeHTML || '') + '</div><span class="date">' + esc(o.date) + '</span></div>'
         + '<div class="tprompt" title="' + esc(o.prompt) + '">' + esc(o.prompt || '(无提示词)') + '</div>'
-        + (o.error ? '<div class="terr" title="' + esc(o.error) + '">' + esc(o.error) + '</div>' : '')
+        + '<div class="terr"' + (err ? ' title="' + esc(err) + '"' : '') + '>' + esc(err) + '</div>'
         + '<div class="meta2" title="' + esc(o.meta) + '">' + esc(o.meta) + '</div>'
         + '<div class="acts">' + o.actionsHTML + '</div>' + o.detailHTML + '</div>';
     },
@@ -1922,7 +1926,9 @@
         + (it.cls ? ' ' + esc(it.cls) : '') + '"'
         + (it.act !== undefined ? ' ' + (o.attr || 'data-a') + '="' + esc(it.act) + '"' : '')
         + Object.entries(it.data || {}).map(([k, v]) => ' data-' + k + '="' + esc(v) + '"').join('')
-        + (it.title ? ' title="' + esc(it.title) + '"' : '')
+        /* 窄列里的定高按钮会把长文字截断（ui.css 的 .tx），所以没写 title 的那一颗把整句文字放进 title ——
+           截掉的半句只在 hover 时才看得见，没有第二处出处。 */
+        + ((it.title || it.label) ? ' title="' + esc(it.title || it.label) + '"' : '')
         + (it.expanded === undefined ? '' : ' aria-expanded="' + !!it.expanded + '"')
         + (it.pressed === undefined ? '' : ' aria-pressed="' + !!it.pressed + '"')
         + (it.busy ? ' data-busy="1" aria-busy="true"' : '')

@@ -14,8 +14,9 @@ const PAGE_SIZE = window.pageSizeOf('favorites');
    去掉的是**那一颗筛选芯片**，不是本地上传这个入口：**上传本地文件仍然在**
    （工具行那颗按钮 + 拖文件进窗口），用户机器上已有的那批本地上传收藏也照样显示得出来。
    上传进来的图片 / 视频 / 音频按扩展名分到对应那一档；其余（真的没有扩展名 / 认不出的）
-   归到「其它」那一档内部值 `文件`，只是不再给它单独一颗芯片。 */
-const TYPES = [['all', '全部'], ['图片', '图片'], ['视频', '视频'], ['音频', '音频']];
+   归到「其它」那一档内部值 `文件`，只是不再给它单独一颗芯片。
+   档位表与顺序不在这一页写：ui.js 的 mediaKindTabs 一份（全部 → 视频 → 图片 → 音频），
+   工作台 / 资产库 / 素材选择器读同一份。 */
 
 export default {
   name: 'FavoritesView',
@@ -115,7 +116,7 @@ export default {
       pagerTick.value++;
     }
 
-    /* 类型筛选（图片/视频/音频）：公共件 Wb.kindFilter —— 与工作台、资产库同一副
+    /* 类型筛选：公共件 Wb.kindFilter —— 与工作台、资产库同一副
        （以前这一页走 filterBar 的芯片行，三页三副样子；用户点名：统一成工作台那副）。
        计数口径照原来那一份：这一屏里这一档有多少条。 */
     let kindFb = null;
@@ -128,7 +129,7 @@ export default {
     function bindKindFilter() {
       if (!kindEl.value) return;
       kindFb = Wb.kindFilter.bind(kindEl.value, {
-        kinds: TYPES,
+        kinds: window.mediaKindTabs('all'),
         value: filter.value,
         count: () => 0,
         onPick: v => { filter.value = v; resetPaging(); render(); },

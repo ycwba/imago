@@ -115,7 +115,7 @@ const SNAP = () => {
     mirL3: mir ? (mir.querySelector('.l3').textContent || '').replace(/\s+/g, ' ').trim() : '',
     mirChev: mir ? mir.querySelectorAll('.chev').length : 0,
     mirToggle: mir ? mir.querySelectorAll('[data-mirror], [role="button"]').length : 0,
-    mirDl: mir ? ([...mir.querySelectorAll('.l2')].pop().textContent || '').replace(/\s+/g, ' ').trim() : '',
+    mirH: mir ? Math.round(mir.getBoundingClientRect().height) : 0,
     mirDlTitle: mir ? ((mir.querySelector('.dlbar') || {}).title || '') : '',
     acts: box.querySelectorAll('[data-bal]').length + box.querySelectorAll('.sb-bal-acts').length,
     pop: pop ? {
@@ -222,13 +222,23 @@ const check = (name, cond, detail) => {
     const mir = '本机产物行';
     check(mir + '：标题行不是开关（没有 data-mirror / role=button、没有箭头）',
       s.mirToggle === 0 && s.mirChev === 0, { toggle: s.mirToggle, chev: s.mirChev });
-    check(mir + '：明细常驻（本次会话 + 上次落盘）', /本次 3 份 · 上次 \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s.mirL3), { mirL3: s.mirL3 });
     check(mir + '：状态行是精简后的「正在存 2 份」', s.mirL2 === '正在存 2 份', { mirL2: s.mirL2 });
-    check(mir + '：下载进度不把文件名与字节数塞进行面（全文在 title 里）',
-      s.mirDl === '正在下这一份 42%' && /probe-clip\.mp4 · 420 B \/ 1000 B/.test(s.mirDlTitle),
-      { mirDl: s.mirDl, title: s.mirDlTitle });
+    check(mir + '：下载进度只占一行（文件名与字节数在 title 里）',
+      s.mirL3 === '正在下这一份 42%' && /probe-clip\.mp4 · 420 B \/ 1000 B/.test(s.mirDlTitle),
+      { mirL3: s.mirL3, title: s.mirDlTitle });
     check(mir + '：在卡底（余额在上、落盘在下）', await page.eval(() =>
       document.querySelector('#sbBalance .sb-bal-body').lastElementChild.classList.contains('sb-mirror')), {});
+    /* 空闲那一行写本次会话，且整块与在途等高 —— 这一块在卡底，长高就会把导航压矮。 */
+    const busyMirH = s.mirH;
+    await page.eval(() => {
+      window.AssetLocal.info = () => ({ on: true, inFlight: 0, count: 5, bytes: 1234567890, fail: 0, ok: 3,
+        lastAt: Date.now() - 95000, lastErr: '' });
+      return true;
+    });
+    await repaint(400);
+    s = await page.eval(SNAP);
+    check(mir + '：空闲时那一行写「本次 3 份」', s.mirL3 === '本次 3 份', { mirL3: s.mirL3 });
+    check(mir + '：空闲 / 在途高度一致', Math.abs(s.mirH - busyMirH) <= 1, { busy: busyMirH, idle: s.mirH });
 
     /* ---------- 档二：1440x900 窄形态（56px）---------- */
     s = await open(1440, 900, false);
@@ -265,7 +275,7 @@ const check = (name, cond, detail) => {
     check(popTag + '：里面是全量卡（六家）', s.pop.cards === 6, { cards: s.pop.cards });
     check(popTag + '：里面没有展开 / 刷新按钮', s.pop.btns === 0 && s.pop.nowIcon === 0,
       { btns: s.pop.btns, nowIcon: s.pop.nowIcon });
-    check(popTag + '：本机产物明细也在这里', /本次 3 份/.test(s.pop.mirL3), { mirL3: s.pop.mirL3 });
+    check(popTag + '：本机产物进度也在这里', /正在下这一份 42%/.test(s.pop.mirL3), { mirL3: s.pop.mirL3 });
     check(popTag + '：每开一次自动重取一轮余额', s.calls >= before + 6, { before, after: s.calls });
     /* 点里面不关 */
     await page.eval(() => {

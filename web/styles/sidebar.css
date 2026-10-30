@@ -147,11 +147,14 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
   font-variant-numeric: tabular-nums; }
 
 /* ---------- 产物存本机（满形态在卡里，气泡里同一份）----------
-   明细常驻（不再有展开开关）：标题一行、状态一行、本次会话一行；有进度时再加一条进度轨。 */
+   明细常驻（不再有展开开关）：标题一行、状态一行、会话 / 进度一行，下面那条进度轨固定占位。
+   空闲时第三行写「本次 N 份」、轨道不画（`.dl-idle` 保留那 3px 版位）——
+   下载开始 / 结束时这一块高度不动。 */
 .sb-mirror { border-radius: var(--radius-6); padding: 0; background: none; }
+/* 标题行给一个定高：图标行盒与转点行盒不一样高，不定住的话一在途标题行就长 2px。 */
 .sb-mirror .l1 { display: flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-11-5);
-  color: var(--txt); font-weight: 600; }
-.sb-mirror .l1 .spin-dot { width: var(--sp-8); height: var(--sp-8); }
+  color: var(--txt); font-weight: 600; min-height: var(--sp-20); }
+.sb-mirror .l1 .spin-dot { width: var(--sp-8); height: var(--sp-8); margin-bottom: 0; }
 .sb-mirror .l1 .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 两行明细都单行、放不下才省略号（全文在 title 里）—— 折行会把这一块撑出卡底。 */
 .sb-mirror .l2 { margin-top: var(--sp-3); font-size: var(--fs-10-5); color: var(--sub); line-height: 1.5;
@@ -167,6 +170,8 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
   background: var(--line); overflow: hidden; }
 .sb-mirror .dlbar i, .sb-bal-sum-mirror .dlbar i { display: block; height: 100%; background: var(--acc);
   border-radius: var(--radius-6); transition: width var(--dur-180); }
+/* 空闲时进度轨不画（visibility 保留那 3px 版位，不读给读屏）：下载开始 / 结束时高度一致。 */
+.sb-mirror .dl-idle { visibility: hidden; }
 /* 正在取数的那一张：转点跟在「正在读取…」前面（它比一句静态说明更像「在动」）。 */
 .sb-bal-card .l2 .spin-dot { display: inline-block; width: var(--sp-10); height: var(--sp-10); vertical-align: -1px; }
 

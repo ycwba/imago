@@ -185,9 +185,9 @@ group('§5b AI 动作按钮只有一份画法');
 /* ---------- 6. 本机优先 / 云端：身份判据只有一份 ---------- */
 group('§6 本机优先与云端身份');
 const al = read('web/domain/assetlib.js') + '\n' + read('web/domain/local.js');
-ok('身份判据 mirrorOf 恰好一层实现', (al.match(/function\s+mirrorOf\s*\(/g) || []).length === 1);
-ok('decorate 与 twinOf 都走 mirrorOf', /mirrorOf\(e,\s*!!\(opts && opts\.allowGen\)\)/.test(al)
-  && /mirrorOf\(e,\s*false\)/.test(al));
+ok('身份判据 rowOfEntry 恰好一层实现', (al.match(/function\s+rowOfEntry\s*\(/g) || []).length === 1);
+ok('decorate 与 twinOf 都走 rowOfEntry', /rowOfEntry\(e,\s*opts && opts\.allowGen != null/.test(al)
+  && /rowOfEntry\(e,\s*false\)/.test(al));
 ok('本机/云端状态只有 stateOf 一份出口', /function\s+stateOf\s*\(/.test(al)
   && /\n\s*stateOf,\n/.test(al) && !/hasLocal,\s*hasCloud/.test(al));
 /* 画「本机 / 云端」徽标的页（资产库 / 工作台）都读 stateOf —— 那一档的身份只有一份出口。
@@ -333,8 +333,8 @@ ok('代理有流式 from-url 通道且同源单飞', /dataPath === '\/local-asse
    不许被这一条误伤（少了那对括号，判据就变成「不许有任何本机写入」）。 */
 ok('镜像写入浏览器侧只走 from-url，第二份「另存」整族已撤', /saveLocalFromUrl/.test(al)
   && !/Api\.saveLocal\(/.test(al) && !/Api\.saveToDir\(/.test(al));
-ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey = d\.a\[r\.id\]/.test(al)
-  && /const key = oldKey \|\| k/.test(al));
+ok('同一个本机号只留一行（落盘回执按 la 号就地替换）', /function putRow\(/.test(al)
+  && /rows\.set\(row\.id, row\)/.test(al));
 /* 「生成完成 → 自动镜像」这条链：三处生产者各自
    `dispatchEvent(new CustomEvent(...))` 的年代已经收掉；字段集合各不相同，消费方只能逐字段容错。
    判据钉的是反面：**事件名只许出现在 local.js 那一处生产点**，三个生产点必须都改调
@@ -359,8 +359,8 @@ ok('复用代理返回的旧键（一个 la 只挂一个键）', /const oldKey =
     + '；没改调 announce 的：' + (notWired.join(', ') || '无'));
 }
 ok('待镜像清单跨刷新 + 失败退避', /sk_local_pending/.test(al) && /replayPending/.test(al) && /pendSkip/.test(al));
-ok('镜像指针本体在 IndexedDB、localStorage 只留暖缓存', /mirror: \{ db: 'mirror_db'/.test(read('web/ui/kv.js'))
-  && /\.at\('mirror'\)/.test(al) && /LOCAL_CACHE_MAX = 2000/.test(al));
+ok('别名表由代理现给（开机快照 + 列表批量问），浏览器不留持久副本', /Net\.json\('\/local-assets\/aliases'/.test(al)
+  && /Net\.json\('\/local-assets\/locate'/.test(al) && !/sk_local_mirror/.test(al) && !/\.at\('mirror'\)/.test(al));
 /* 轮询器要写明自己属于哪一页（公共件按路由判前台，切走就停）。这一页的路由文件名已经
    收成一个常量，两种写法都算「点了名」。 */
 ok('轮询器按路由可见性暂停', /page: 'director\.html'/.test(frag) && /page:\s*('studio\.html'|PAGE_FILE)/.test(read('web/pages/studio.js'))

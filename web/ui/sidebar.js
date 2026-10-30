@@ -520,19 +520,21 @@
        一个 200MB 的视频从 0% 到 100% 在界面上长得一模一样，人只能干等
        （「自动存本机看起来没反应」剩下的那一半 —— 另一半是根本不知道它在跑）。
        百分比来自 AssetLocal.info（它读的是响应头里的总量与已发送字节）。
-       **拿不到总量就不摆条**（只显示「正在下这一份…」）：拿 0 当分母算出来的进度是假的。 */
-    let dl = '';
-    if (busy && s2.dlTotal > 0) {
-      const pct = Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal)));
-      /* 行距不在这里写 inline style：`.sb-mirror .l2` 一条规则统着（sidebar.css），
-         行内 `style="margin-top: var(--sp-3)"` 那种写法是一份没人管的裸值。 */
-      /* 文件名与已下 / 总量都不摆在行面上（一长串会把这一行挤成两截）—— 全都进 title。 */
-      dl = '<div class="dlbar" title="' + window.esc(String(s2.dlName || '') + ' · ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal))
-        + '"><i style="width:' + pct + '%"></i></div>'
-        + '<div class="l2">正在下这一份 <b>' + pct + '%</b></div>';
-    } else if (busy && s2.dlName) {
-      dl = '<div class="l2" title="' + window.esc(String(s2.dlName)) + '">正在下这一份…</div>';
-    }
+       **拿不到总量就不摆条**（只显示「正在下这一份…」）：拿 0 当分母算出来的进度是假的。
+       状态下面那一行始终只有一行字（空闲写「本次 N 份」，下载时写进度），进度轨也始终占着
+       那 3px 版位：这一块长在侧栏底部那张卡里，一在途就长高会把导航压矮、卡自己往上跳。 */
+    const pct = (busy && s2.dlTotal > 0)
+      ? Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal))) : -1;
+    const dl = '<div class="dlbar' + (pct < 0 ? ' dl-idle' : '') + '"'
+      + (pct < 0 ? '' : ' title="' + window.esc(String(s2.dlName || '') + ' · ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal)) + '"')
+      + '>'
+      + (pct < 0 ? '' : '<i style="width:' + pct + '%"></i>')
+      + '</div>';
+    const line = pct >= 0
+      ? '正在下这一份 <b>' + pct + '%</b>'
+      : (busy && s2.dlName
+        ? '<span title="' + window.esc(String(s2.dlName)) + '">正在下这一份…</span>'
+        : '本次 <b>' + (s2.ok || 0) + '</b> 份');
     const l2 = busy
       ? '正在存 <b>' + s2.inFlight + '</b> 份'
       : (!s2.on
@@ -540,15 +542,13 @@
         : (bad ? window.esc(s2.lastErr)
           : '已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
             + (s2.fail ? ' · 失败 ' + s2.fail + ' 份' : '')));
-    const more = '本次 <b>' + (s2.ok || 0) + '</b> 份'
-      + (s2.lastAt && window.fmtWhen ? ' · 上次 ' + window.esc(window.fmtWhen(s2.lastAt)) : '');
     const head = '<div class="l1"><span class="ic">' + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
       + '</span><span class="nm">产物存本机</span></div>';
     return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
       + (bad ? ' title="最后一次没存成：' + window.esc(s2.lastErr) + '"' : '')
       + (busy || s2.on ? '' : ' title="自动存本机关着，新产物只留平台地址。"')
       + '>' + head
-      + '<div class="l2">' + l2 + '</div><div class="l3">' + more + '</div>' + dl + '</div>';
+      + '<div class="l2">' + l2 + '</div><div class="l3">' + line + '</div>' + dl + '</div>';
   }
   /* 订阅一次就够：AssetLocal.onInfo 每次落盘事件都推一遍，这里只改那一行。
      没有这一层的话「正在存 N 份」永远停在 0 —— 而那正是用户判断开关有没有生效的那句话。
@@ -589,10 +589,10 @@
       bindBalSum(b2);
     };
     mirrorUnsub = A.onInfo(repaint);
-    /* 本地那张指针表只是缓存，盘上那份索引才是本体 —— 挂上之后异步认一遍再重画这一行。
+    /* 浏览器那份别名表只是当前会话的缓存，盘上那份账才是本体 —— 挂上之后异步认一遍再重画这一行。
        没这一步，换端口 / 清过浏览器数据 / 无痕窗口里这一行会写「本机已存 0 份」，
        而 .assets 里明明躺着一摞（设置页那一行同款理由、走的也是同一份 syncStats，
-       侧栏不许自己再数一种）。认回来顺带把索引补全，别处的「优先用本机文件」也跟着受益。 */
+       侧栏不许自己再数一种）。认回来顺带把别名表补全，别处的「优先用本机文件」也跟着受益。 */
     if (A.syncStats) A.syncStats().then(repaint).catch(() => {});
   }
   /* 单取一家：请求头与余额解析都不在这份里写第二遍 ——
@@ -614,6 +614,39 @@
         why: '查询失败：' + (errText(e)|| '未知原因'), frozen: '-', unit: '' };
     }
   }
+  /* 余额变了就广播一声：侧栏自己重画，设置页那几张账号卡上的余额也跟着换新 ——
+     两边读的是同一份缓存，不各存一份。 */
+  function notifyBal() {
+    try { window.dispatchEvent(new Event('sb-balance-updated')); } catch (e) {}
+  }
+  /* 把新取回的行并进缓存（按 kid 覆盖），不整份替换：设置页为了画账号卡上的余额，
+     会补问「侧栏没勾选、这一轮不在想取名单里」的那几家 —— 整份换掉会把它们抹掉。 */
+  function mergeBalRows(rows) {
+    const cur = readBalCache();
+    const byKid = new Map(cur.rows.map(r => [String(r.kid), r]));
+    (rows || []).forEach(r => { if (r && r.kid) byKid.set(String(r.kid), r); });
+    const next = [...byKid.values()];
+    try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: next, kids: cur.kids })); } catch {}
+    balRows = next;
+    notifyBal();
+    return next;
+  }
+  /* 设置页的账号卡也显示余额：单取（请求头 / 解析 / 失败原因）只有 balRowOf 一份，
+     缓存只有 BAL_KEY 一份。设置页只补「缓存里还没有的那几家」——
+     默认全勾时侧栏每一轮都问过，那边一个请求都不多发。 */
+  window.SbBalance = {
+    rowOf(kid) {
+      const k = String(kid);
+      return balRows.find(r => String(r.kid) === k) || null;
+    },
+    async fetchRows(list) {
+      const rows = await Promise.all((Array.isArray(list) ? list : [])
+        .filter(m => m && m.kid && m.p)
+        .map(m => balRowOf(m)));
+      if (rows.length) mergeBalRows(rows);
+      return rows;
+    },
+  };
   async function refreshBalance() {
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
@@ -665,6 +698,7 @@
       try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: [], kids: [] })); } catch {}
       balRows = []; balKids = [];
       paintBal(box, '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
+      notifyBal();
       return;
     }
     /* 用户把这几家**全取消勾选**了 → 取数阶段就短路：以前 `SbBal.filter` 只在
@@ -689,8 +723,9 @@
       return row;
     }));
     balPending = null;
-    try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows, kids: balKids })); } catch {}
-    balRows = rows;
+    /* 与缓存里已有的行合（按 kid 覆盖）：这一轮只问「勾选的这几家」，
+       设置页补问过的没勾那几家不能因此从缓存里消失。 */
+    mergeBalRows(rows);
     paintBal(box);
   }
   /* 设置页删掉一家自定义平台 → **这一家的余额卡要当场消失**，不等这一轮 60 秒。
@@ -753,6 +788,7 @@
     const box = sb.querySelector('#sbBalance');
     if (box && balRows.length) paintBal(box);
     else refreshBalance();
+    notifyBal();
   };
   /* 设置页在 iframe 里改勾选 → 同源的 storage 事件送到外壳：直接按缓存重画，不用重取余额 */
   window.addEventListener('storage', e => {

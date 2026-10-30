@@ -173,9 +173,12 @@ window.AssetPicker = {
          所以这一层不替它编一份兜底措辞。 */
       const missWhy = () => window.Chars.Pipe.refAudioMiss();
       const okType = t => o.types.includes(t) || (isAudio(t) && o.types.some(isAudio));
-      /* 类型筛选只在真的要选两类以上时出现（音乐/音频算同一类） */
+      /* 类型筛选只在真的要选两类以上时出现（音乐/音频算同一类）。
+         出现的那几颗按全站那一副顺序排（视频 → 图片 → 音频，ui.js 的 mediaKindRank）；
+         档位**只列这一槽收的类型** —— 配音槽摆一颗「视频」不是「一次给全」，是点下去选不出东西。 */
       const typeTabs = (() => {
-        const t = [...new Set(o.types.map(x => isAudio(x) ? '音频' : x))];
+        const t = [...new Set(o.types.map(x => isAudio(x) ? '音频' : x))]
+          .sort((a, b) => window.mediaKindRank(a) - window.mediaKindRank(b));
         return t.length > 1 ? ['全部'].concat(t) : [];
       })();
 

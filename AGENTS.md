@@ -301,6 +301,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
   · 这一页没有「保存」按钮，所以「改完就存本机 · 刚刚存过」那句回执必须在状态行里（`.set-save`）。
 - **页面自己的差异**留在各自的 `web/styles/spa-<id>.css` 里，且必须挂在该页根类下（`.chars-page .card`）。
 - **卡片列宽只有两档**：`--sz-card`（268px）与 `--sz-card-sm`（200px，紧凑视图 / 窄窗）。
+- **竖排网格卡的高度只有一档**：缩略图 `2 / 1` + 正文两行（提示词 / 失败原因各占定高）+ 动作两行（`--sz-ctl`）；
+  等高靠「把会变高的格子钉住」实现，不靠行自适应。判据 `tests/e2e/task-cards.cjs` 既数档数（必须 1 档）也数上限。
 - **翻页行一处一套，位置按外壳分**：普通页（收藏 / 素材库 / 资产库）在页面底部；
   工作台并进右栏那一排（搜索 / AI 搜索 / 多选 / 刷新 / 上一页 / 第几页 / 下一页 / 跳页 / 跳转
   同一个 `.pgroup`，在结果区上面）—— 工作台是「两栏各自滚」，页底那一行要滚到最下面才看得见，
@@ -503,6 +505,11 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     生成三档加完只是声明（真能出图还要注册表里一条端点声明，行里写明）；识别加完就能用（走这家自己的
     OpenAI 兼容 `/audio/transcriptions`）；搜索没有可通用的接口形状，不能手动加；
     文字对话不在这里加（`TextAI` 按 `kind: 'text'` 筛）。
+  · 卡底右侧那枚余额与左侧栏「账户余额」是同一份：取数 / 解析 / `sb_bal_cache` 缓存只有 `sidebar.js` 的
+    `balRowOf` 一份（设置页经 `window.SbBalance.rowOf` / `fetchRows` 读与补问），取回一轮广播
+    `sb-balance-updated`，设置页只就地换那几枚。只有声明了 `endpoints.credits` 的账号有这一枚；
+    「侧栏余额」那颗勾选只管左侧栏，不影响卡上这一枚。设置页只补问缓存里还没有的那几家 ——
+    默认全勾时侧栏每一轮都问过，这边一个请求都不多发。
   · 按档筛的芯片（数字 = 账号数）+ 摘要条 + 排序（主位 / 在用 → 备用 → 没接上）。
   · 供应商那一排「图片 / 视频 / 语音 / 文字」分段开关已不存在；`sk_prov_tab` 只在 `LEGACY_KEYS` 里清盘，
     不要加回来 —— 一家账号一张卡之后，「当前哪一档」这个状态本身不存在。
@@ -570,8 +577,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### 本机资产身份
 
-- 「同一份产物」只有 `web/domain/local.js` 的 `mirrorOf` 一处：平台产物号优先，其次「任务号且只出一份」，
-  再次来源地址（剥签名）与本机号。
+- 「同一份产物」只有 `web/domain/local.js` 的 `rowOfEntry` 一处：平台产物号优先，其次「任务号且整条任务只出一份」，
+  再次本机号与来源地址（剥签名）。它查的是浏览器那张**当前会话的别名表**（`la_xxx` → 一行），
+  表由代理现给：`GET /local-assets/aliases` 开机快照 + `POST /local-assets/locate` 批量补问
+  （`server/local-assets-store.js` 的 `localAliases` / `localLocateBatch`，两边同一把尺子）。
 - **双身份**（`server/local-assets-store.js`）：`fid` = `<dev>:<ino>`（必须按 bigint 取，普通 statSync
   把 64 位 ino 塞进 double，超过 2^53 就丢精度）+ 采样签名 `sig` = `<字节数>:<头尾各 1MB 的 sha1 前 16 位>`
   （imohash 那一族做法）。采样只用来认回，不用来证明「这两份是同一份东西所以可以删掉其中一份」。
@@ -589,13 +598,19 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - 「本机 / 云端」的读法只有 `AssetLocal.stateOf(entry)`；页面不许自己拼 `localAsset || hasLocalAddr(src)`。
 - 自动镜像由应用级事件触发：`wb:asset-done`；`AssetLocal.watch` 统一接住并 scan。
   字节由代理流式落盘：`Api.saveLocalFromUrl` → `POST /local-assets/from-url`，不要 base64 大文件。
-- 浏览器侧镜像索引指到死号时自愈（`web/domain/local.js` 的 `learn`，判据 `tests/local-first.cjs`）：
-  账行带身份（upstream / detail）就按键改指；账被整份重建、补出来的是裸行（无身份字段）时，
-  按「文件名 + 字节数」把死记录接回当前账 —— 两边各自唯一才接（接错比不接更糟），
-  旧号的指针留着给 `onMediaError` 那一跳换活号。
-  **账里有、指针表里没有的那些行，无论「自动存本机」开没开都要建指针**（它记的是已经在库根里的字节，
-  一个字节都不下载）—— 以前这一句被开关挡住，索引一丢（换端口 / 清站点数据 / 换机器）就再也认不回来，
-  云端一清理全变「已丢失」，而库根里 348 份文件一份没少。开关只管 `scan` / `offer` 要不要为新产物取回字节。
+- **浏览器只留当前会话的别名表（内存），代理那一份账说了算**（`web/domain/local.js`，判据 `tests/local-first.cjs`）：
+  开机取一次别名快照，列表加载时把没命中的那几条批量问一次代理；落盘回执与本机资产库列表就地补行。
+  没有 localStorage / IndexedDB 副本 —— 那份按源（端口）分家的指针表换端口、清站点数据、换机器就整份失效，
+  表现是「库根里文件明明在、卡上写着已丢失」。
+  取表期间才落盘的行按发出时刻保住；服务端快照里没有的行被抹掉（账是真相）。
+  磁盘对账补的裸行（无 `upstream`、无 `detail`）被 `offer` 按来源地址认出来时当场补上产物号 / 任务号，
+  下一轮按产物号直接命中。开关只管 `scan` / `offer` 要不要为新产物取回字节。
+- **表取回来之后，账里没有的本机身份不再算「本机」**（`local.js` 的 `libraryKnown` / `staleSelf`）：
+  页面缓存（`assets_cache_v1` / `studio_tasks_cache_v1`）、收藏项与任务记录里都可能留着上一天的本机号
+  （`/asset/la_*`、`mirrorKey`、自产条目的 assetId）。索引重建 / 本机文件被删之后这些号在别名表里查不到 ——
+  `decorate` 把这一条退回平台地址，自产条目由 `staleSelf` 在进界面前摘掉，`/asset/la_*` 也不再算本机地址；
+  否则卡上写着「本机+云端」、点开却是 404。表还没取回来（离线 / 开机第一帧）时「查不到」不等于「没有」，
+  仍按条目自己带的标记算。
 - 过期签名外链由公共层负责：`Api.mediaExpired` / `Api.healMedia` / `Api.mediaSrc`；
   页面不许自己判过期，也不许拿 assetId 拼 `/asset/<id>`。
 - **云端取不到时由代理退回本机那一份**：`/getv`、`/fetch` 在上游 4xx/5xx、域名解析不了时，
@@ -604,8 +619,14 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   本机（任务号只在整条任务只出一份时认）。`resolveSrc`（FCPXML / ASR / 补存）同样本机优先。
   判据在 `server/local-assets-store.js` 的 `localEntryByUpstream` / `localEntryByPlatformId`
   （`tests/local-fallback.cjs` 常驻 + `tests/e2e/local-chain.cjs` 线上那一半）——
-  浏览器镜像索引是按源分家的缓存（换端口 / 清浏览器数据 / 换机器都会空），
+  浏览器别名表只是当前会话的缓存（换端口 / 清浏览器数据 / 换机器都会空），
   它不是「本机有没有这份字节」的唯一凭据，云端被清理后画面不能跟着坏。
+- **磁盘对账补的那一族裸行按字节认回**：`localAdopt` 建出来的行没有 `upstream`、没有 `detail`，
+  按来源地址与按平台产物号两头都查不到 —— 字节明明在库根里，卡片仍判成「没存过」。
+  `POST /local-assets/from-url` 在取回字节之后、落新文件之前，按采样签名找**两头都没有身份**的那一行，
+  把来源地址与平台号补写到它上面（回 `reused:true`，不落第二份字节、不开第二条账）：
+  「存回本机」因此兼是修复，坏掉那一张按一次就认回来。已经有 `detail.asset` / `detail.task` 的那一行不许盖 ——
+  同内容的另一份产物不是同一件事，接错比不接更糟。判据 `tests/local-byte-reclaim.cjs`（装真路由，取字节换成探针）。
 - **「已丢失」角标只许盖住它自己那一张图**（`web/domain/local.js` 的 `lostTip`）：
   `.lost-tip` 是 `position:absolute; inset:0`，铺开的是最近的定位祖先 —— 灯箱的舞台、检查器那格大图、
   详情层候选排那一格都不是定位容器，不管就变成「点一下素材卡，整屏一块已丢失」。
@@ -682,7 +703,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\拾帧`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— 那份的正文就是 localStorage 原值：字符串类的键走 `window.LS.set`，落盘是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
 | 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，外面不许再 readdir 一遍） |
 | 一张「卡」背后那几条账 | `server/local-assets-store.js` 的 `localAssetSiblings`（与列表并卡同一把尺子：`localUpKey` 或 `sig`） |
-| 云端取不到时的本机回退 | `server/local-assets-store.js` 的 `localEntryByUpstream` / `localEntryByPlatformId`（`/getv`、`/fetch`、`/asset` 与 `resolveSrc` 共用；浏览器镜像索引只是按源分家的缓存，不是唯一凭据） |
+| 云端取不到时的本机回退 | `server/local-assets-store.js` 的 `localEntryByUpstream` / `localEntryByPlatformId`（`/getv`、`/fetch`、`/asset` 与 `resolveSrc` 共用；浏览器别名表只是当前会话的缓存，不是唯一凭据） |
+| 本机产物别名（哪条产物在本机是哪一份） | `web/domain/local.js` 的 `rowOfEntry` / `twinOf` / `decorate` + 代理 `/local-assets/aliases` / `/local-assets/locate`（`server/local-assets-store.js` 的 `aliasRowOf` / `localAliases` / `localLocateBatch`）；判据 `tests/local-first.cjs` |
 | 缩略图 / 切片缓存 | `/cache/{thumbs,slices}`（`server/routes/cache.js`；跨 origin 有效，浏览器 IndexedDB 不是持久层） |
 | 能力声明 | `web/domain/capabilities.js` 的 `Capabilities` |
 | 语音识别走哪条路 / 进度与扣费文案 | `web/domain/asr.js` 的 `pickRoute` / `stageText` / `routeLabel`（设置页、导演台、助手回执都只翻译这三枚） |
@@ -711,7 +733,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 设置页的目录轨 | `web/pages/settings.js` 的 `groupEls` / `cardsOf` / `navTitleOf` / `NAV_VALUE`（全部从 DOM 现读；JS 里不许有第二份清单，也不许另存一份状态） |
 | 设置页「供应商与密钥」的账号卡流 | `web/pages/settings.js` 的 `provGroups` / `capProv` / `capState` / `priKidOf` / `autoServiceKid` / `hostKidOf` / `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `placeForms` / `manualCapsOf` / `setManualCaps`；型号面板的槽名 `slotKey` / `provBySlot` 也只在这一份里 |
 | 设置页的两条通道（语音识别 / 联网搜索） | `web/pages/settings.js` 的 `LOCAL_ASR_KID` / `localAccountCardHTML` / `hostKidOf` / `placeForms` / `serviceProvOpts` / `syncServiceProvs` / `asrEffectiveRoute` / `asrProvider` / `asrModelPh` / `searchEngineName` / `searchNeedsModel`；在线表单在 `.acct-park`，画完网格搬进声明了这一档的云供应商卡；本机 / 浏览器内的表单在常驻的本机识别账号卡里；服务端按注册表的 `asr` / `search` 声明调 |
-| 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf` |
+| 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf`、文件类型档的档位与顺序 `mediaKindTabs` / `mediaKindRank`（全部 → 视频 → 图片 → 音频） |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
 | 音色说明 | `window.VoiceNote.run`（取音色描述）/ `window.VoiceNote.runClone`（拿另一位素材的声音克隆） |
@@ -722,11 +744,12 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单） |
 | 主题解析 | `web/shell-boot.js` 的 `window.__themeApply`（唯一一处把偏好解析成 `data-theme` + `data-palette`；「跟随系统」听 `matchMedia`；解析完广播 `sb:theme-applied`） |
 | 侧栏「换背景」的日 / 月图标 | `web/ui/sidebar.js` 的 `window.__sbThemeIcon`（每次解析完成后由 `shell-boot` 回调；按钮点击按解析后那一档取反并钉住） |
+| 账户余额取数 / 缓存 | `web/ui/sidebar.js` 的 `balRowOf` + `BAL_KEY`（`sb_bal_cache`）+ `window.SbBalance.rowOf` / `fetchRows` + `sb-balance-updated` 事件；侧栏余额卡与设置页账号卡同读这一份 |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码） |
 | 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（页面主动报只有 `pageFail`；`fatal` / `warn` 由两个 window 监听器发出 → `POST /client-error` → 代理健康账） |
 | 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport.keep(host, fn)`（按锚点在重画后把容器里的滚动位还回去；「点一颗按钮，视角跳到最上面」就是这一族） |
 | 程序性 focus 不抢视口 | `web/ui/ui.js` 的 `window.focusQuiet(el)`（`focus({ preventScroll: true })`） |
-| 文件类型筛选 | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位集合不变时不重建 DOM；计数为 0 且非当前档的那一颗不画） |
+| 文件类型筛选 | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位集合不变时不重建 DOM；**页面给的每一档恒画**，计数为 0 也不藏；顺序由公共件按 `mediaKindRank` 现排，页面给的数组顺序不作数）。工作台 / 收藏 / 资产库三页的档位表都取 `window.mediaKindTabs(allKey)` —— 四档一次给全，不许按「这一屏出现过的类型」现攒 |
 | 筛选工具条（搜索框 / 芯片 / AI 搜索 / 计数） | `web/ui/workbench.js` 的 `Wb.filterBar`（结构与接线只有 `bind` 这一份；就地改文本、不整片重画）。搜索只有三条出口：回车 / 失焦 = 普通搜索，清空输入框 = 当场取消筛选（普通词与 AI 条件一起收回）；**不画独立的「搜索」按钮**。AI 已经把框里那句消化成条件 / 挑选集合时，页面调 `markApplied(text)` 登记 —— 失焦不会再当普通搜索重跑；页面的普通搜索会把 AI 条件收回（换词 = 重新找） |
 | 本机索引写入口 | `server/index-store.js` 的 `update(fn)` 串行队列 + `putInto` / `dropFrom`（跨 await 的读-改-写只能走这一处） |
 | 一行素材的身份键 | `AssetLib.entryKey`（页面与缓存）；裸工作台任务记录用 `Wb.taskKey` |
@@ -1007,9 +1030,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - **余额行是两行**（名字 + 金额 / 冻结 + 单位）：取不到的那一家不藏，原因直接摆到第二行
   （红色、单行省略，全文在 `title` 里）。金额那一位不许截。
 - **每家一个状态点**：实心紫 = 这一家取到了，空心红圈 = 这一家取不到；点上有 `title` 写清是哪几家。
-- **本机产物行没有开关**：明细常驻（「本次 N 份 · 上次 <fmtWhen>」），状态行与下载进度都单行省略，
-  文件名 / 已下字节在进度条的 `title` 里；读数只用 `AssetLocal.info()`，落盘重画（`wb:mirror-ready`）
-  与整块重画（`sb-balance-refresh`）之后由 `patchMirror` 换那一块本身。
+- **本机产物行没有开关**：明细常驻（状态一行 + 「本次 N 份 / 正在下这一份 x%」一行，单行省略），
+  文件名 / 已下字节在进度条的 `title` 里；第三行与那条 3px 进度轨空闲时也占着版位（轨道不画），
+  下载开始 / 结束时这一块高度不变、导航不被压矮。读数只用 `AssetLocal.info()`，落盘与认回
+  （`onInfo` 订阅）以及整块重画（`sb-balance-refresh`）之后由 `patchMirror` 换那一块本身。
 - 判据 `tests/e2e/sidebar-balance.cjs`：满形态（全量 / 定高三张 / 不画滚动条 / 点抬头重取）/ 窄形态 /
   悬停名牌 / 气泡（右边、无按钮、开就刷新、点外与 Esc 关）/ 矮窗压缩块 / 480–1100 高度扫描 / 来回切形态。
 
@@ -1064,7 +1088,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 5 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 50 项：48 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 4 条先独跑，其余 46 条 4 路并发，实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 51 项：49 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 4 条先独跑，其余 47 条 4 路并发，实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1093,7 +1117,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   4 路并发，每条自起隔离 proxy + 独立 Chrome）。
 - `npm run test:e2e` 全量分两道：读数型先独跑（`ui-visual` / `director-perf` / `director-playback` /
   `perf/boot`：并发负载会让截图指纹、帧预算与播放对齐这类读数失真），其余（含 7 条不起 Chrome 的
-  服务端链路）走 4 路并发。`tests/e2e/` 共 49 个文件（48 条判据 + harness），同一档还跑
+  服务端链路）走 4 路并发。`tests/e2e/` 共 50 个文件（49 条判据 + harness），同一档还跑
   `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`。
   16 核 / 17 GB 本机实测全量约 10 分钟；单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例。
 - `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 `--e2e`。
@@ -1291,8 +1315,8 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - **DOM 代理保留**：`web/director/index.js` 的 document / window 代理是作用域岛边界，
   保证导演台的弹层、拖拽示意与键盘监听不挂到别的常驻页面；去掉它是行为回退。
 - **镜像队列仍在 AssetLocal 的现有队列**：不再引入第二套 `MirrorQueue`；同一份去重 / 退避 /
-  持久化逻辑只保留一处。队列索引在 IndexedDB（`Kv.at('mirror')`），`sk_local_pending` / `sk_local_mirror`
-  只是跨刷新待办与镜像指针的暖缓存。
+  持久化逻辑只保留一处。跨刷新待办是 `sk_local_pending`（条目身份 + 元数据，不带大字段）；
+  「哪条产物在本机」不落浏览器，每次向代理的别名表现问。
 - **会话历史仍存 localStorage**：`ai_chat` 要跟 `DataSync` / 云同步一起走；迁 IndexedDB
   会让对话记录从整包备份与云端消失，收益不抵损失。
 - **撤销仍是项目快照栈**：导演台 `undoStack` 存 JSON 快照，足够覆盖当前编辑粒度；

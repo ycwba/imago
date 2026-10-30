@@ -1,7 +1,7 @@
 /* AssetLocal — 本机镜像：落盘身份、待存队列、自动存本机、状态判据（stateOf / hasLocal / hideAsCloud）。
    从 web/domain/assetlib.js 拆出；mediaKey / mediaSrc / classifyStatus 是 api.js 顶层的全局函数。 */
 (function () {
-  const K_SAVE = 'sk_media_local', K_PREFER = 'sk_media_prefer', K_IDX = 'sk_local_mirror';
+  const K_SAVE = 'sk_media_local', K_PREFER = 'sk_media_prefer';
   const K_BADGE = 'sk_media_badge';   // 卡片上是否显示「本机 / 云端」标识（默认开）
   const K_HIDE_CLOUD = 'sk_media_cloud_hide';
   /* 「补不补历史产物」—— 自动存本机分两档：
@@ -43,7 +43,6 @@
   const K_SB_BAL = 'sb_bal_on', K_SB_MIRROR = 'sb_mirror_on';
   const sbBalOn = () => on(K_SB_BAL, '1') !== '0';
   const sbMirrorOn = () => on(K_SB_MIRROR, '1') !== '0';
-  const IDX_MAX = 20000;                 // 与代理的 LOCAL_INDEX_MAX 对齐：两边都截一半就会出现「存过却取不回」
   /* 单个文件的大小闸。**不是随便定的一个数**：本机镜像走的是 base64 上传
      （`POST /local-assets`），代理那侧的请求体上限是 288 MiB，而 base64 会把字节放大 4/3 ——
      288 × 3/4 = 216 MiB 才是这条链真正传得动的最大值。
@@ -65,343 +64,317 @@
      所以它走 `sk_local_dir`（localStorage → DataSync 镜像成 .data/sk_local_dir.json，
      代理的 localRoot() 现读），不在这里留第二份判据。 */
 
-  let idx = null;
-  let idxMaps = null;   // 镜像索引的反查表（{ up, la, aid, gid }）；write() 时作废
-  /* 记录对象 → 它在索引里的键（内存里那张 WeakMap，不落盘）。
-     `maps()` 与 `learn()` 都会顺手打标：反查表里只存记录对象，而 decorate /
-     forgetMirror 需要知道「这条记录是哪一个键」，否则同一个本机号挂在两个键上时改错一个。 */
-  const recKeys = new WeakMap();
-  function tagRec(rec, k) { if (rec && k) { try { recKeys.set(rec, k); } catch (e) {} } return rec; }
-  /* 反查表的**增量**补写（learn 每认回一行都要用）：整表作废会让一屏几百行变成 O(n²)。
-     产物号 / 任务号优先读记录上的 `p` / `g`，老记录从键上认（与 maps 同一条正则）。 */
-  function noteRecMaps(rec, k) {
-    if (!idxMaps || !rec || !k) return tagRec(rec, k);
-    tagRec(rec, k);
-    if (rec.a) idxMaps.la[rec.a] = k;
-    const u = rec.up ? mediaKey(String(rec.up)) : '';
-    if (u) idxMaps.up[u] = rec;
-    const am = /\|a:(.+)$/.exec(k);
-    const aidv = String(rec.p || (am && am[1]) || '');
-    if (aidv) idxMaps.aid[aidv] = rec;
-    const gm = /\|g:(.+)$/.exec(k);
-    const gidv = String(rec.g || (gm && gm[1]) || '');
-    if (gidv) {
-      const list = idxMaps.gid[gidv] || (idxMaps.gid[gidv] = []);
-      if (list.indexOf(rec) < 0) list.push(rec);
-    }
-    return rec;
+  /* ---------- 本机别名表（哪条产物在本机、对应哪个本机号）----------
+     真相只有代理那一份账（.data/local-assets/）与库根里的字节。浏览器这一份是**当前会话的查表
+     缓存**：开机向 GET /local-assets/aliases 要一份，列表加载时再用 POST /local-assets/locate
+     补问没命中的那几条，落盘回执与本机资产库列表也会就地补行。
+     不再有 localStorage / IndexedDB 副本：那份按源（端口）分家的指针表换端口、清站点数据、
+     换机器就整份失效，表现是「库根里文件明明在、卡上写着已丢失」。
+     行形状与代理 aliasRowOf 同一份：{ id, assetId, taskId, up, upstream, format, name, bytes,
+     file, mediaType, createdAt }；`id` 是本机号 la_xxx，assetId / taskId 是平台身份。 */
+  let rows = new Map();        // la 号 → 行
+  let byAid = new Map();       // 平台产物号 → 行（同一个号多行时先到先得）
+  let byTask = new Map();      // 平台任务号 → 行列表（多图任务一个号多份文件）
+  let byUp = new Map();        // 来源地址剥签名后的键 → 行（先到先得）
+  let readyAt = 0;             // 上一次成功取回别名表的时刻
+  let readying = null;         // 在途的那一次取表：并发调用挂同一只
+  const READY_TTL = 5000;      // 列表加载时最多沿用这么旧的表；超过就用新的一份
+  const LA_ID = s => /^la_/.test(String(s || ''));
+  /* 表有没有被**成功取回来过**：没有（离线 / 开机第一帧）时「表里查不到」不等于
+     「本机没有」，这时仍按条目自己带的标记算；取回来之后账才是唯一真相 ——
+     缓存里留着的上一天本机号（索引重建过 / 文件被删了）不再算「本机有」。 */
+  const libraryKnown = () => readyAt > 0;
+  /* 一条条目自己写着的本机号（la_xxx）：本机资产库那一条的 assetId / id，
+     以及没有平台产物号时退回 genId 的那一族。 */
+  function selfRowId(o) {
+    if (!o) return '';
+    const aid = String(o.assetId || '');
+    if (LA_ID(aid)) return aid;
+    if (LA_ID(o.id)) return String(o.id);
+    if (!aid && LA_ID(o.genId)) return String(o.genId);
+    return '';
   }
-  let writeQueued = false;   // 同一微任务里的多次改动合并成一次落盘（见 queueWrite）
-  /* 镜像指针本体放 IndexedDB（20k 条塞 localStorage 会顶到 5MB 配额，把设置/素材库一起挤掉）。
-     localStorage 只留最近 2000 条的**暖启动缓存**；IndexedDB 读回来之前先用它，
-     读回来之后合并（旧键不丢），随后以 IDB 为准。 */
-  const LOCAL_CACHE_MAX = 2000;
-  let idxBoot = null;
-  function rawIndex() {
+
+  function resetMaps() { byAid = new Map(); byTask = new Map(); byUp = new Map(); }
+  function indexRow(row) {
+    if (row.assetId && !byAid.has(row.assetId)) byAid.set(row.assetId, row);
+    if (row.taskId) {
+      const list = byTask.get(row.taskId);
+      if (list) list.push(row); else byTask.set(row.taskId, [row]);
+    }
+    if (row.up && !byUp.has(row.up)) byUp.set(row.up, row);
+  }
+  function reindex() { resetMaps(); rows.forEach(indexRow); }
+  /* 一行从哪儿来都走这里：别名快照、locate 回复、落盘回执、本机资产库列表。 */
+  function rowOfServer(raw) {
+    if (!raw) return null;
+    const id = String(raw.id || '');
+    if (!LA_ID(id)) return null;
+    const d = (raw.detail && typeof raw.detail === 'object') ? raw.detail : null;
+    const upstream = String(raw.upstream || '');
+    const up = String(raw.up || (upstream && window.MediaId ? mediaKey(upstream) : ''));
+    return {
+      id,
+      assetId: String(raw.assetId || (d && d.asset) || ''),
+      taskId: String(raw.taskId || (d && d.task) || ''),
+      up,
+      upstream,
+      format: String(raw.format || ''),
+      name: String(raw.name || ''),
+      bytes: Number(raw.byte_length) || 0,
+      file: String(raw.file || ''),
+      mediaType: String(raw.media_type || ''),
+      createdAt: String(raw.created_at || (d && (d.created || d.completed)) || ''),
+      at: Date.now(),
+    };
+  }
+  function putRow(raw) {
+    const row = rowOfServer(raw);
+    if (!row) return null;
+    const prev = rows.get(row.id);
+    if (prev) {
+      if (byAid.get(prev.assetId) === prev) byAid.delete(prev.assetId);
+      if (byUp.get(prev.up) === prev) byUp.delete(prev.up);
+      const list = prev.taskId ? byTask.get(prev.taskId) : null;
+      if (list) {
+        const i = list.indexOf(prev);
+        if (i >= 0) list.splice(i, 1);
+        if (!list.length) byTask.delete(prev.taskId);
+      }
+    }
+    rows.set(row.id, row);
+    indexRow(row);
+    return row;
+  }
+  function dropRow(id) {
+    if (!rows.has(id)) return false;
+    rows.delete(id);
+    reindex();                 // 先到先得那两张表要补位，整表重排比逐个维护可靠
+    return true;
+  }
+  /* 平台列表说了产物号 / 任务号，而本机这一行是磁盘对账补的裸行（两头都空）：
+     在本次会话里把身份补上，后续按产物号就能直接命中。落盘那一份身份由代理在补存时写回。 */
+  function adoptIdentity(row, assetId, taskId) {
+    if (!row) return false;
+    let ch = false;
+    if (assetId && !row.assetId) { row.assetId = assetId; ch = true; }
+    if (taskId && !row.taskId) { row.taskId = taskId; ch = true; }
+    if (ch) reindex();
+    return ch;
+  }
+  async function fetchAliases() {
+    /* 请求发出前记时刻：这一段里才落盘的那几条不会被一份**早于它**的快照抹掉。 */
+    const startedAt = Date.now();
+    const d = await window.Net.json('/local-assets/aliases', { cache: 'no-store' });
+    const list = (d && Array.isArray(d.rows)) ? d.rows : null;
+    if (!list) throw new Error('本机别名表格式不对');
+    const next = new Map();
+    for (const raw of list) {
+      const row = rowOfServer(raw);
+      if (!row) continue;
+      row.at = 0;              // 服务端来的行没有「本会话新落盘」的资格
+      next.set(row.id, row);
+    }
+    rows.forEach((r, id) => { if (!next.has(id) && r.at >= startedAt) next.set(id, r); });
+    rows = next;
+    reindex();
+    readyAt = Date.now();
+    infoChanged();
+  }
+  /* 等别名表就位（并发调用共用同一只在途请求）。失败不抛：拿不到表只是「这一轮认不出本机副本」，
+     列表照常显示；下一次 ready 再试。 */
+  function ready(maxAge) {
+    const ttl = maxAge == null ? READY_TTL : Math.max(0, Number(maxAge) || 0);
+    if (readyAt && Date.now() - readyAt < ttl) return Promise.resolve();
+    if (readying) return readying;
+    if (!window.Net || typeof window.Net.json !== 'function') return Promise.resolve();
+    readying = fetchAliases().catch(() => {}).then(() => { readying = null; });
+    return readying;
+  }
+  /* 一次问一批「这几条平台产物在本机是哪一份」。返回与 items 同下标的行数组（没命中是 null）。 */
+  async function locateRows(items) {
+    const list = (Array.isArray(items) ? items : []).filter(Boolean).slice(0, 2000);
+    if (!list.length || !window.Net || typeof window.Net.json !== 'function') return list.map(() => null);
     let d = null;
-    try { d = JSON.parse(localStorage.getItem(K_IDX) || 'null'); } catch (e) {}
-    const out = (d && typeof d === 'object' && d.m) ? d : { v: 1, m: {} };
-    if (!out.a || typeof out.a !== 'object') out.a = {};
-    return out;
+    try {
+      d = await window.Net.json('/local-assets/locate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: list }),
+      });
+    } catch (e) { return list.map(() => null); }
+    const out = (d && Array.isArray(d.rows)) ? d.rows : [];
+    return list.map((_, i) => (out[i] ? putRow(out[i]) : null));
   }
-  function writeLocalCache(d) {
-    /* 不做全表排序（20k 条 × 每次镜像都排一次 = 主线程抖动）；对象插入顺序就是索引顺序，
-       取前 2000 条当暖启动缓存，完整表由 IndexedDB 在 1 秒内接上。 */
-    const cache = { v: 1, m: {}, a: {} };
-    const keys = Object.keys(d.m || {});
-    /* 取**最后** 2000 条（对象插入顺序：旧 → 新），首屏最可能看到的是最近的产物。 */
-    for (let i = Math.max(0, keys.length - LOCAL_CACHE_MAX); i < keys.length; i++) {
-      const k = keys[i], rec = d.m[k];
-      if (!rec) continue;
-      cache.m[k] = rec;
-      if (rec.a) cache.a[rec.a] = k;
+  /* 列表进界面前把这一批里还没命中的条目问一遍服务端，再按结果重新 decorate。
+     allowGen 取**条目自己声明的出图份数**（outCount === 1）：多图任务只镜像了一份时，
+     按任务号认会把四张卡一起指到那一个文件上。 */
+  async function locate(entries) {
+    const list = Array.isArray(entries) ? entries : [];
+    const todo = [];
+    for (const e of list) {
+      if (!e || e.kind !== 'asset') continue;
+      if (e.localSelf || LA_ID(e.assetId) || LA_ID(e.id)) continue;
+      const allowGen = Number(e.outCount) === 1;
+      if (rowOfEntry(e, allowGen)) continue;
+      const assetId = String(e.assetId || '');
+      const taskId = String(e.genId || e.taskId || '');
+      const url = String(e.rawSrc || e.upstreamSrc || '');
+      if (!assetId && !taskId && !url) continue;
+      todo.push({ e, allowGen, item: { assetId, taskId, url, allowGen } });
     }
-    try { localStorage.setItem(K_IDX, JSON.stringify(cache)); } catch (e) {}
-  }
-  function mergeIndex(dst, src) {
-    if (!dst || !src) return dst;
-    const m = dst.m || (dst.m = {});
-    Object.keys(src.m || {}).forEach(k => {
-      const a = src.m[k], b = m[k];
-      if (!b || (Number(a && a.t) || 0) > (Number(b && b.t) || 0)) m[k] = a;
+    if (!todo.length) return 0;
+    const got = await locateRows(todo.map(x => x.item));
+    let n = 0;
+    got.forEach((row, i) => {
+      if (!row) return;
+      decorate(todo[i].e, { allowGen: todo[i].allowGen });
+      n++;
     });
-    const a = {};
-    Object.keys(m).forEach(k => { const rec = m[k]; if (rec && rec.a) a[rec.a] = k; });
-    Object.keys(src.a || {}).forEach(id => { if (!a[id]) a[id] = src.a[id]; });
-    dst.a = a;
-    return dst;
-  }
-  function bootMirrorIndex() {
-    if (idxBoot) return idxBoot;
-    const K = window.Kv;
-    if (!K || typeof K.at !== 'function') { idxBoot = Promise.resolve(); return idxBoot; }
-    idxBoot = (async () => {
-      let stored = null, readOk = true;
-      /* 读失败 ≠ 库里本来没有：读不出来时**不回写** —— 暖缓存最多 2000 条，
-         一次瞬时读失败就把 IDB 里那 2 万条整表盖掉。 */
-      try { stored = await K.at('mirror').get('idx'); } catch (e) { readOk = false; }
-      const mem = idx || rawIndex();
-      if (stored && stored.m && typeof stored.m === 'object') {
-        idx = mergeIndex(stored, mem);
-      } else if (readOk) {
-        idx = mem;
-        await mergeIdxIntoDb(mem);
-      } else {
-        idx = mem;
-      }
-      idxMaps = null;
-      writeLocalCache(idx);
-      try { window.dispatchEvent(new CustomEvent('wb:mirror-ready', { detail: { count: Object.keys(idx.m).length } })); } catch (e) {}
-    })();
-    return idxBoot;
-  }
-  let idxQueued = false;
-  let idxWriteChain = Promise.resolve();
-  /* 跨标签页整表覆盖：写前在**同一个读写事务**里重读一次、与内存合并再写回。
-     每个标签页都持有一份自己的索引，谁后写谁赢的话，另一个标签页这期间新存的产物
-     会被整表抹掉。读失败就**不写**（读不出来 ≠ 本来就没有：宁可这一次不落盘，
-     也不能拿半张表盖掉整张）。同一页的多次写也串行（后一次读到的必须包含前一次刚写的）。 */
-  function mergeIdxIntoDb(d) {
-    const K = window.Kv;
-    if (!K || typeof K.at !== 'function') return Promise.resolve();
-    return K.at('mirror').tx('readwrite', st => {
-      const req = st.get('idx');
-      req.onsuccess = () => {
-        const stored = req.result;
-        if (stored && stored.m && typeof stored.m === 'object') {
-          mergeIndex(d, stored);
-          idx = d;
-          idxMaps = null;
-          writeLocalCache(d);
-        }
-        st.put(d, 'idx');
-      };
-      return req;
-    });
-  }
-  function queueIdxWrite(d) {
-    const K = window.Kv;
-    if (!K || typeof K.at !== 'function' || idxQueued) return;
-    idxQueued = true;
-    Promise.resolve().then(() => {
-      idxQueued = false;
-      idxWriteChain = idxWriteChain.then(() => mergeIdxIntoDb(d)).catch(() => {});
-    });
-  }
-  function read() {
-    if (!idx) idx = rawIndex();
-    bootMirrorIndex();
-    return idx;
-  }
-  function write() {
-    const d = read();
-    const keys = Object.keys(d.m);
-    /* 插入序是旧 → 新：超上限时删**最老的那一头**。
-       以前取 keys.slice(IDX_MAX) 删的是尾部（最新写入的），索引满 2 万条后新产物刚记下就被裁掉。 */
-    if (keys.length > IDX_MAX) for (const k of keys.slice(0, keys.length - IDX_MAX)) {
-      const a = d.m[k] && d.m[k].a;
-      if (a != null && d.a[a] === k) delete d.a[a];   // 反查表里只删真指向这一条的那个键
-      delete d.m[k];
-    }
-    idxMaps = null;                    // 反查表跟着索引作废（下一次用再一次建）
-    writeLocalCache(d);
-    queueIdxWrite(d);
-  }
-  /* 微任务合并落盘。learn() 一直是这么做的，而 runOne / offer 这两条**更频繁**的路径
-     以前每成功一条就独立 write() 一次：批量镜像 N 条新产物 = N 次整表 JSON.stringify + N 次整表
-     写盘，全同步在主线程上（镜像队列并发是 2，一次批量操作很容易攒出几十条）。
-     合并窗口只有一个微任务，所以「合并期内进程被关」的丢数据风险并不存在 —— 同一个任务里就跑完了。 */
-  function queueWrite() {
-    if (writeQueued) return;
-    writeQueued = true;
-    Promise.resolve().then(() => { writeQueued = false; write(); });
+    return n;
   }
 
-  /* 一条产物的稳定身份。**优先用平台给的 id（assetId / 任务号），最后才退到地址** ——
-     签名地址每次列表刷新都换一串，keyed by 地址等于每次都重新镜像一遍。 */
-  function mirrorIdOf(provId, o) {
-    const p = provId || (o && o.provider) || '';
-    if (o && o.assetId) return p + '|a:' + o.assetId;
-    if (o && o.genId) return p + '|g:' + o.genId;
-    const u = o && (o.upstream || o.rawSrc || o.raw || o.url);
-    return u ? p + '|u:' + mediaKey(String(u)) : '';
-  }
-
-  /* ---------- 「这份外链在本机有没有副本」的反查表 ----------
-     镜像记录按**产物身份**存（provider|a:/g:/u:），可页面手上常常只有一个签名外链：
-     收藏（fav_items）、导演台工作区（workspace）、素材库存的都是**当时**那个地址。
-     以前只有 AssetLib.decorate 会按身份去查（它只服务列表条目），所以「优先用本机文件」
-     这个开关只管得着资产库那一张列表 —— 别的页面第二天照旧打过期外链，
-     表现就是「视频没有预览图、点开只回一句 Format error」。
-     按地址查要扫一遍记录（原来 onMediaError 就是 Object.values 扫的），而这些查询现在
-     每次算地址都要跑（一屏几百条），所以一次遍历建两张反查表、索引写入时作废：
-       · up：外链素材身份 → 记录（地址层用，见 localCopyOf）
-       · la：本机资产号 → 镜像键（列表层用，见 twinOf；不靠索引里那份 a 表，
-              老记录里 a 表缺失也能自洽 —— 键与本机号本来就成对存在 m 里） */
-  function maps() {
-    if (idxMaps) return idxMaps;
-    const d = read();
-    const up = {}, la = {}, aid = {}, gid = {};
-    Object.keys(d.m).forEach(k => {
-      const rec = d.m[k];
-      if (!rec || !rec.a) return;
-      tagRec(rec, k);
-      la[rec.a] = k;
-      const u = rec.up ? mediaKey(String(rec.up)) : '';
-      if (u) up[u] = rec;
-      /* 平台产物号 → 记录（第三张表，见 localAssetIdOf 里 /asset/<产物号> 那一路）。
-         产物号优先读记录上的 `p`（新镜像直接写），老记录只能从键上认回来
-         —— 这也是为什么这第三张表必须由 maps 现算而不是落盘。 */
-      const am = /\|a:(.+)$/.exec(k);
-      const aidv = String(rec.p || (am && am[1]) || '');
-      if (aidv) aid[aidv] = rec;
-      /* 任务号 → 记录**列表**：同一任务可能出多张图，一个任务号对应多份文件。
-         列表长度 ≥2 时谁也不能拿它认身份（见 mirrorOf 的用法），只留作「查询」用。 */
-      const gm = /\|g:(.+)$/.exec(k);
-      const gidv = String(rec.g || (gm && gm[1]) || '');
-      if (gidv) (gid[gidv] = gid[gidv] || []).push(rec);
-    });
-    idxMaps = { up, la, aid, gid };
-    return idxMaps;
-  }
-  /* 「这一条对应索引里的哪一条镜像记录」—— **全项目只有这一份身份判据**。
-     decorate / twinOf / hasLocal 都走它，页面不许自己拼 provider+id。
-     按可靠度依次试：主键（平台产物号 > 任务号 > 来源地址） → 平台产物号（跨 provider
-     前缀也认：SparkCine 生图与视频共用一把钥匙、注册表里却是两个 id） → 任务号
-     （**只有整条列表里这个任务只有一份产物时才许用**，多图任务按任务号合会把四张并成一张）
-     → 本机资产号 → 地址反查（镜像索引里记着的上游地址 / 本机号）。
-     `allowGen` 由调用方给：decorate 在整表里数过「这个任务只出了一条」之后才传 true，
-     twinOf / hasLocal 一律不传 ——「合卡」比「换地址」更需要保守。 */
-  function mirrorOf(e, allowGen) {
+  /* 「这一条对应本机哪一份文件」—— **全项目只有这一份身份判据**。
+     decorate / twinOf / hasLocal / 列表合卡都走它，页面不许自己拼 provider+id。
+     按可靠度依次试：平台产物号 → 任务号（只有**表里这个任务恰好只有一份本机文件**时才许用，
+     多图任务按任务号合会把四张并成一张）→ 本机号 → 地址（/asset/la_xxx、剥签名的上游地址）。
+     `allowGen` 由调用方给：decorate 只在条目自己声明 outCount === 1 时为 true；
+     twinOf 一律不给 ——「合卡」比「换地址」更需要保守。 */
+  function rowOfEntry(e, allowGen) {
     if (!e) return null;
-    const d = read();
-    const p = String(e.provider || '');
-    const up0 = e.rawSrc || e.upstreamSrc || e.raw || e.url;
-    const k0 = mirrorIdOf(p, { assetId: e.assetId, genId: e.genId, upstream: up0 });
-    if (k0 && d.m[k0]) return { k: k0, rec: d.m[k0] };
-    const mp = maps();
     const aid = String(e.assetId || '');
-    if (aid && mp.aid[aid]) {
-      const rec = mp.aid[aid], k = recKeys.get(rec);
-      if (k) return { k, rec };
+    if (aid && !LA_ID(aid)) {
+      const row = byAid.get(aid);
+      if (row) return row;
     }
-    if (allowGen && e.genId) {
-      const list = mp.gid[String(e.genId)] || [];
-      if (list.length === 1) {
-        const rec = list[0], k = recKeys.get(rec);
-        if (k) return { k, rec };
-      }
+    if (allowGen) {
+      const tid = String(e.genId || e.taskId || '');
+      const list = tid ? byTask.get(tid) : null;
+      if (list && list.length === 1) return list[0];
     }
-    const selfId = String(e.assetId || e.id || '');
-    if (selfId && mp.la[selfId]) {
-      const k = mp.la[selfId], rec = d.m[k];
-      if (rec) return { k, rec };
+    const self = LA_ID(aid) ? aid : (LA_ID(e.id) ? String(e.id) : '');
+    if (self) {
+      const row = rows.get(self);
+      if (row) return row;
     }
     for (const u of [e.rawSrc, e.upstreamSrc, e.raw, e.url, e.dl, e.src, e.media]) {
-      const la = localAssetIdOf(u);
-      if (la && mp.la[la]) {
-        const k = mp.la[la], rec = d.m[k];
-        if (rec) return { k, rec };
+      const la = laOfAddr(u);
+      if (la) {
+        const row = rows.get(la);
+        if (row) return row;
       }
-      const uu = mediaKey(u);
-      if (uu && mp.up[uu]) {
-        const rec = mp.up[uu], k = recKeys.get(rec);
-        if (k) return { k, rec };
+      const k = mediaKey(u);
+      if (k) {
+        const row = byUp.get(k);
+        if (row) return row;
       }
     }
     return null;
   }
-  /* 有本机镜像时给本机地址（没开「优先用本机文件」/ 查不到都返回空串）。
-     **不去问磁盘上文件还在不在** —— 那是每条地址一个请求。真被删了，代理那一级的
-     回退会按索引里的 upstream 302 回外链，界面上的 error 监听再兜一层（见 onMediaError）。 */
+  /* `/asset/<号>` 这个地址写的是哪一份本机文件：la_ 就是本机号；平台产物号（或任务号）按表反查。
+     任务号只认「恰好一份」—— 与 rowOfEntry 同一条保守规则。
+     ⚠ la_ 那一支也要查表（表取回来之后）：索引重建 / 文件被删之后，缓存与收藏里还留着
+     `/asset/la_xxx`，认得它就会把一条早已没有字节的东西标成「本机」。 */
+  function laOfAddr(u) {
+    const s = String(u == null ? '' : u);
+    const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(s);
+    if (!m) return '';
+    if (LA_ID(m[1])) return !libraryKnown() || rows.has(m[1]) ? m[1] : '';
+    const row = byAid.get(m[1]);
+    if (row) return row.id;
+    const list = byTask.get(m[1]);
+    return list && list.length === 1 ? list[0].id : '';
+  }
+  /* 有本机副本时给本机地址（没开「优先用本机文件」/ 查不到都返回空串）。
+     代理那一级在本机文件不在时会按账里的来源地址回源，界面上的 error 监听再兜一层。 */
   function localCopyOf(u) {
     if (!preferLocal()) return '';
     const la = localAssetIdOf(u);
     return la ? Api.assetSrc(la) : '';
   }
-  /* 这条地址对应**本机镜像的那个资产号**，不看「优先用本机文件」开关。
+  /* 这条地址对应**本机那一份的资产号**，不看「优先用本机文件」开关。
      开关决定的是「画面上用哪个地址」，不是「这是哪一份东西」—— 所以凡是「同一份产物」的判据
      （缩略图缓存键、列表合并、跨页去重）都必须走这一份而不是上面那个。
-     踩过：键跟着开关走，关掉开关之后同一个视频在缓存里成了两份 —— 抽两次帧、存两份小图，
-     而平台那一份外链一过期就永远抽不出来，表现是「开关一关，预览图全没了、滚回去又闪一次」。 */
+     键跟着开关走的话，关掉开关后同一个视频在缓存里成了两份 —— 抽两次帧、存两份小图。 */
   function localAssetIdOf(u) {
     const s = String(u == null ? '' : u);
-    const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(s);          // 已经是本机地址：资产号就在路上
-    if (m) {
-      if (/^la_/.test(m[1])) return m[1];                   // la_ 开头 = 本机文件号，代理按文件名就能取到
-      /* 平台产物号（/asset/<产物号>，代理会用密钥去上游换最新签名地址）：
-         这一路以前**认不出身份** —— 正则只放行 la_ 前缀，up 表又只按签名外链建键，
-         于是「本机明明存过镜像」也查不到 → 同一个产物算两个键 → 抽两次帧，
-         其中一次走公网回源（顺带把一份大文件再下一遍）。产物号在键里（|a:），
-         所以查第三张表 aids（见 maps）。 */
-      const rec = maps().aid[m[1]]
-        || ((maps().gid[m[1]] && maps().gid[m[1]].length === 1) ? maps().gid[m[1]][0] : null);
-      if (rec && rec.a) return String(rec.a);
-    }
+    if (!s) return '';
+    const la = laOfAddr(s);
+    if (la) return la;
     const k = mediaKey(s);                     // mediaKey 自己会拆 /getv 包装（判据只有一份）
     if (!k) return '';
-    const rec = maps().up[k];
-    return rec && rec.a ? String(rec.a) : '';
+    const row = byUp.get(k);
+    return row ? row.id : '';
   }
   /* 「这一条地址对应的本机文件长什么样」：给 FCPXML 这种要**磁盘路径**的出口用。
-     id / 格式 / 名字 / 字节数之外还给 `path`（账里相对库根的落点，单文件 FCPXML 拼绝对路径用）；
-     老索引还没学到那一项时是空串，调用方按「不知道路径」处理，别自己拼一个错地址。
-     索引丢了但地址就是 `/asset/la_x` 时 id 仍认得出，格式给空串（调用方按产物类型兜底）。 */
+     `path` 是账里相对库根的落点；账行没有这一项时是空串，调用方按「不知道路径」处理。 */
   function localFileOf(u) {
     const id = localAssetIdOf(u);
     if (!id) return null;
-    const d = read(), k = maps().la[id], rec = k ? d.m[k] : null;
-    return { id, format: String((rec && rec.f) || ''), name: String((rec && rec.n) || ''),
-      bytes: Number((rec && rec.b) || 0), path: String((rec && rec.fp) || '') };
+    const row = rows.get(id);
+    return { id, format: String((row && row.format) || ''), name: String((row && row.name) || ''),
+      bytes: Number((row && row.bytes) || 0), path: String((row && row.file) || '') };
   }
-  /* 一条产物在镜像索引里的身份。**平台列表那一条**由 decorate 挂上 mirrorKey；
-     **本机资产库那一条**（条目即资产，id 就是 la_xxx）只能按本机号反查。
-     这两条其实是同一个东西 —— 「同一个任务重复出现」与「提示词只有一半卡片上有」
-     都是它造成的，而判据只许有这一处。
-     第三种形状也要认：**收藏 / 工作区里那条既没有 mirrorKey、又不是 la_xxx**
-     （它存的是当初那个平台产物号，或者就是当初那个地址）。只认前两种的话，选择器里
-     「资产库那一条 + 我的收藏那一条」就是同一份文件的两个格子（用户看到的正是「视频任务重复」），
-     所以按产物号 / 按地址各现算一次身份，**只在索引里确有这条镜像时**才算数 ——
-     没有副本的产物各按各的 id 判，不多合并任何东西。
-     产物号那一路只认**带 assetId 的**（`|a:`）：任务号与地址那两种身份对多图任务不唯一 ——
-     同一次生成出来的四张图共用一个任务号，按任务号合一次就把四张并成一张。
-     地址那一路（`localAssetIdOf`）是逐个字节的，天生一份文件一个键，所以两种行都能走，
-     并且它**不看「优先用本机文件」开关** —— 开关管的是取哪个字节，不是「这是哪一份东西」。 */
+  /* 一条产物在本机别名表里的身份（合卡键）。**平台列表那一条**由 decorate 挂上 mirrorKey；
+     **本机资产库那一条**（条目即资产，id 就是 la_xxx）自己就是一份文件，身份就是本机号。
+     收藏 / 工作区里那条既没有 mirrorKey、又不是 la_xxx 的：按产物号 / 地址现算，
+     **只在表里确有那一行时**才算数 —— 没有副本的产物各按各的 id 判，不多合并任何东西。
+     这里刻意不按任务号认：多图任务的一张产物被当成整条任务的镜像，四张卡会指向同一个文件。 */
   function twinOf(e) {
     if (!e) return '';
-    if (e.mirrorKey) return e.mirrorKey;
-    /* 判据只有 mirrorOf 一处（见它上面的说明）。这里刻意**不**允许按任务号认：
-       多图任务的一张产物被当成整条任务的镜像，四张卡上的「本机」就会指向同一个文件。 */
-    const hit = mirrorOf(e, false);
-    return hit && hit.k ? hit.k : '';
+    /* 镜像标记也要对账：缓存里留着上一天的 `la:la_xxx`（索引重建 / 文件被删之后），
+       当它还算同一份的话，一条打不开的旧卡会跟平台那条并成一张，地址也换不回来。 */
+    if (e.mirrorKey) {
+      const id = String(e.mirrorKey).replace(/^la:/, '');
+      if (!libraryKnown() || rows.has(id)) return e.mirrorKey;
+    }
+    if (e.localSelf || LA_ID(e.assetId) || LA_ID(e.id)) {
+      const id = LA_ID(e.assetId) ? String(e.assetId) : String(e.id || '');
+      if (LA_ID(id) && (!libraryKnown() || rows.has(id))) return 'la:' + id;
+    }
+    const row = rowOfEntry(e, false);
+    return row ? 'la:' + row.id : '';
   }
 
-  /* 一条东西在镜像键上的身份，**条目与卡片两种形状算得出同一个**（卡片的 `taskId` = 条目的 `genId`，
-     卡片还多一个 `raw`）。与 offer / decorate / learn 那三处同一个表达式 —— 换一套就会出现
-     「卡片说在队列里、索引说没存过」，藏与不藏就全凭运气。 */
+  /* 一条东西在排队表上的身份，**条目与卡片两种形状算得出同一个**（卡片的 `taskId` = 条目的 `genId`，
+     卡片还多一个 `raw`）。与 offer / hideAsCloud / pullPlan 那三处同一个表达式 —— 换一套就会出现
+     「卡片说在队列里、表里说没存过」，藏与不藏就全凭运气。 */
   function keyFor(o) {
-    return mirrorIdOf(o.provider, {
-      assetId: o.assetId,
-      genId: o.genId || o.taskId || '',
-      upstream: o.rawSrc || o.upstreamSrc || o.raw || o.url,
-    });
+    const p = String((o && o.provider) || '');
+    if (o && o.assetId && !LA_ID(o.assetId)) return p + '|a:' + o.assetId;
+    const g = String((o && (o.genId || o.taskId)) || '');
+    if (g && !LA_ID(g)) return p + '|g:' + g;
+    const u = o && (o.rawSrc || o.upstreamSrc || o.raw || o.url);
+    const k = u ? mediaKey(String(u)) : '';
+    return k ? p + '|u:' + k : '';
   }
   /* 这一条在本机到底有没有字节。**判据只在这一处**，页面不许自己拼 `localAsset` / `mirrorKey` /
      `/asset/` 前缀 —— 那几样分属「decorate 挂上的」「本机资产库那条」「平台列表那一条」三种形状，
      自己拼一定会漏一种。 */
   function hasLocal(o) {
     if (!o) return false;
-    if (o.local || o.localAsset || o.fromLocal || o.kind === 'local' || o.mirrorKey || o.mirror) return true;
+    if (o.local || o.fromLocal || o.kind === 'local') return true;
+    /* 「本机」标记（decorate 挂的 / 本机资产库那条 / 本地任务记录）在表取回来之后要问账：
+       缓存里可能留着上一天的本机标记，索引重建 / 文件被删之后它就成了假话 ——
+       卡片写着「本机+云端」、点开却是 404。 */
+    if (o.localAsset || o.localSelf || o.mirrorKey || o.mirror) {
+      if (!libraryKnown()) return true;
+      const ids = [];
+      if (o.mirrorKey) ids.push(String(o.mirrorKey).replace(/^la:/, ''));
+      if (o.mirror && o.mirror.a) ids.push(String(o.mirror.a));
+      const self = selfRowId(o);
+      if (self) ids.push(self);
+      if (ids.some(id => LA_ID(id) && rows.has(id))) return true;
+    }
     if (twinOf(o)) return true;
-    /* 地址本身就写着本机文件号（`/asset/la_xxx`）也算 —— 这一路不查索引，所以
-       「learn 刚把身份补上、反查表还没作废」的那一轮也不会把用户自己库里的东西当云端藏掉。
+    /* 地址本身就写着本机文件号（`/asset/la_xxx`）也算 —— laOfAddr 会按表核对，
+       表还没取回来时照旧认（离线也要能看自己库里的东西）。
        `media` 是工作台卡片上的地址字段（同一个东西的另一个名字）。 */
     return !!(localAssetIdOf(o.src) || localAssetIdOf(o.rawSrc) || localAssetIdOf(o.dl) || localAssetIdOf(o.media));
   }
   /* 这一条在平台那边存不存在（能不能再从云端取回来）。
      与 hasLocal 分开：本机自产（MiMo 语音、本地上传）只有本机这一份，平台没有可回源的产物；
      而「平台列表那一条 + 本机镜像」两边都有 —— 徽标要写「本机+云端」而不是任选一个。 */
-  const LA_ID = s => /^la_/.test(String(s || ''));
   function hasCloud(o) {
     if (!o || o.kind === 'local' || o.fromLocal) return false;
     if (o.mirrorKey || o.mirror) return true;       // 来自平台列表、且有本机副本
@@ -515,15 +488,15 @@ function onInfo(fn) {
   return () => INFOS.listeners.delete(fn);
 }
 function info() {
-  const s = read();
   /* `queued` 里**含正在跑的那几项**（runOne 结束才 delete），`INFOS.inFlight` 也是它们 ——
      两数相加等于把每一份在途都数了两遍。取较大者：等待中的只在 queued 里，
      跑着的两处都有；哪个口径完整取决于「刚 offer 还没 pump」这一瞬，取 max 两边都不漏。 */
+  let count = 0, bytes = 0;
+  rows.forEach(r => { count++; bytes += Number(r.bytes) || 0; });
   return { inFlight: Math.max(INFOS.inFlight, queued.size), ok: INFOS.ok, fail: INFOS.fail,
     lastErr: INFOS.lastErr, lastAt: INFOS.lastAt,
       dlName: INFOS.dlName, dlTotal: INFOS.dlTotal, dlSent: INFOS.dlSent,
-    count: Object.keys(s.m || {}).length, bytes: Object.values(s.m || {}).reduce((a, r) => a + (Number(r && r.b) || 0), 0),
-    on: saveOn() };
+    count, bytes, on: saveOn() };
 }
 
   async function runOne(job) {
@@ -653,30 +626,18 @@ function info() {
       if (r && r.id) {
         const size = Number(r.byte_length) || (blob && blob.size) || 0;
         ext = r.format || ext;
-        const d = read();
-        /* 一个本机号只许有一个键。代理返回 `reused` 时它已经有旧键了 ——
-           这时必须沿用旧键，不能拿本次算出来的 k 再建一个（那会让同一个 la 挂在两个键上，
-           twinOf 合不到一起，下一次又出现重复卡）。 */
-        const oldKey = d.a[r.id];
-        const key = oldKey || k;
-        const prev = d.m[key] || {};
-        d.m[key] = Object.assign({}, prev, {
-          a: r.id, f: r.format || ext, n: r.name || prev.n, t: Date.now(),
-          b: size || prev.b, up: url,
-          p: String((ent && ent.assetId) || prev.p || ''),
-          g: String((ent && (ent.genId || ent.taskId)) || prev.g || ''),
-        });
-        if (k !== key && d.m[k] && d.m[k].a === r.id) delete d.m[k];
-        d.a[r.id] = key;
-        tagRec(d.m[key], key);
-        queueWrite();
+        /* 落盘回执本身就是一条账行（代理那次写入的结果）：直接收进别名表。
+           代理返回 `reused` 时它给的是已经存在的那一条 —— 收进来同样对，本机号不会换。 */
+        const row = putRow(Object.assign({}, r, {
+          upstream: String(r.upstream || url),
+          byte_length: size,
+        }));
         queued.delete(k);          // 成功也要摘：留在在途表里下一轮就不会再 offer（那份已经存过了）
-        queued.delete(key);
         pendDone(k);
         infoNote(true);
         /* 本机多了一份产物就说一声：别的页面那一张卡还挂在平台外链上（「已存本机」的标记、
            与本机那一条合成一张卡都靠重拉列表时的 decorate / 合表），不重拉就一直停在云端形态。 */
-        try { if (window.Wb && Wb.busEmit) Wb.busEmit('local', { id: r.id, key: key }); } catch (e) {}
+        try { if (window.Wb && Wb.busEmit) Wb.busEmit('local', { id: r.id, key: k, row }); } catch (e) {}
         tell(null, { id: r.id, size: size });
       } else {
         /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
@@ -708,8 +669,7 @@ function info() {
 
   const queued = new Set();
   /* 「试过、超出本机镜像上限、放弃自动重试」的那几个键。
-     以前这条意图只留了一句 `read().skip = String(read().skip || '')` —— 写回同一个值，
-     全项目没有任何一处读它，于是「别再自动重下」实际上靠的是「永远挂在 queued 里」，
+     不单独记这一档的话，「别再自动重下」只能靠「永远挂在 queued 里」，
      代价是在途数与「只看本机」从此失真（一份没存下来的东西永远显示「正在存」）。 */
   const SKIPPED = new Set();
   /* ---------- 待镜像清单（跨页面 / 刷新仍在）----------
@@ -788,31 +748,15 @@ function info() {
       });
     }, 1200);
   }
-  /* 抹掉「这一条本机镜像」的记录 —— 用户刚在资产库点「删除本机文件」之后调它。
-     与 learn / decorate 共用同一张表和同一套反查表（否则删掉了却还有指针指着一个死号，
-     卡片会一直去问一个查无此号的 /asset/<本机号>，拿到 422 之后又重新下载一遍）。
-     **只抹本机索引，不碰平台那份素材，也不把这条从列表里摘掉** —— 那是资产库页的事。 */
-  function forgetMirror(ent) {
-    const k = ent && ent.mirrorKey;
-    if (!k) return false;
-    const d = read();
-    const rec = d.m[k];
-    if (!rec) return false;
-    delete d.m[k];
-    if (rec.a && d.a[rec.a] === k) delete d.a[rec.a];
-    const im = idxMaps;
-    if (im) {
-      if (rec.a) delete im.la[rec.a];
-      for (const u in im.up) { if (im.up[u] === rec || im.up[u] && im.up[u].a === rec.a) delete im.up[u]; }
-      for (const aid in im.aid) { if (im.aid[aid] === rec || im.aid[aid] && im.aid[aid].a === rec.a) delete im.aid[aid]; }
-      for (const g in im.gid) {
-        im.gid[g] = (im.gid[g] || []).filter(x => x !== rec && x && x.a !== rec.a);
-        if (!im.gid[g].length) delete im.gid[g];
-      }
-    }
-    liveSeen.delete(rec.a);
-    queueWrite();
-    return true;
+  /* 抹掉「这一份本机文件」在别名表里的那一行 —— 用户刚在资产库点「删除本机文件」之后调它。
+     不抹的话卡片会一直去问一个查无此号的 /asset/<本机号>，拿到 422 之后又重新下载一遍。
+     **只动别名表，不碰平台那份素材，也不把这条从列表里摘掉** —— 那是资产库页的事。
+     参数收本机号、`la:` 合卡键、`{mirror:{a}}`、`{a}` 四种形状：调用点手上是哪一种都行。 */
+  function forgetMirror(x) {
+    const s = String((x && (x.a || (x.mirror && x.mirror.a))) || x || '');
+    const id = s.replace(/^la:/, '');
+    if (!LA_ID(id)) return false;
+    return dropRow(id);
   }
   /* 提交一条产物去存本机（幂等：已存过 / 正在存 / 关掉了开关都直接跳过）。
      返回这一条的去向，页面据此说话：
@@ -835,47 +779,27 @@ function info() {
     if (!isHttp && !isSameOrigin) return '';
     const url = isHttp ? raw0 : String(window.MediaId.innerMedia(raw0) || raw0);
     if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch|local-assets)\b/.test(url)) return '';
-    const k = mirrorIdOf(provId, { assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', upstream: url });
+    const k = keyFor({ provider: provId, assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', url });
     if (!k) return '';
     const platAsset = String((ent && ent.assetId) || '');
     const taskId = String((ent && (ent.genId || ent.taskId)) || '');
-    /* 记录上补产物号 / 任务号：身份键可能是当初按地址算的（`|u:`），
-       后来的列表带着产物号回来时必须能按产物号认回这一条，否则同一份东西会再下一遍。 */
-    const noteIdentity = rec => {
-      let ch = false;
-      if (platAsset && String(rec.p || '') !== platAsset) { rec.p = platAsset; ch = true; }
-      if (taskId && String(rec.g || '') !== taskId) { rec.g = taskId; ch = true; }
-      if (ch) { tagRec(rec, k); queueWrite(); }
-      return ch;
-    };
-    if (read().m[k]) { noteIdentity(read().m[k]); pendDone(k); if (o.cb) o.cb(null, { id: read().m[k].a, kept: true }); return 'saved'; }
+    /* 表里已经有这一份就别再下一遍（判据只有 rowOfEntry 一份：产物号 → 任务号（唯一）→ 地址）。
+       按任务号那一路只在**条目自己声明只出一份**时才许用 —— 多图任务只镜像了一份时，
+       按任务号认会把第二张也当成「已存过」而跳过。地址那一路补上「签名换了、路径没变」的情况。 */
+    const saved = rowOfEntry(ent, Number(ent && ent.outCount) === 1)
+      || (mediaKey(url) ? byUp.get(mediaKey(url)) : null);
+    if (saved) {
+      /* 这次才知道的产物号 / 任务号补到那一行上：下一轮按产物号就能直接命中。 */
+      adoptIdentity(saved, platAsset, taskId);
+      pendDone(k);
+      if (o.cb) o.cb(null, { id: saved.id, kept: true });
+      return 'saved';
+    }
     /* 试过、太大下不动的那一份不再自动重试（它连字节都没取回来，重来一次还是超大）。
        判据见 SKIPPED 的声明；手动那一路（force）不受影响，用户点了还是要照实回执。 */
     if (SKIPPED.has(k)) { pendBump(k, true); return o.force ? '' : 'skip'; }
     if (!o.force && (pendSkip.get(k) || 0) > Date.now()) return 'skip';
     if (queued.has(k)) return 'busy';
-    /* 产物身份换了写法也要认得同一个文件：键优先按平台产物号（`|a:`），但平台并不每次都给 ——
-       上一次按地址存的那条，这次按任务号算出来是另一个键，于是同一份文件再下一遍。
-       按**来源地址**再查一次反查表，命中就照搬那条记录（本机号 / 字节 / 时间都不用重取）。
-       代理那一道同身份的闸（`POST /local-assets` 的 localUpKey）是最终兜底，这一层只是省一趟下载。
-       **不要**给同一个本机号再建一个键（`d.a` 只允许一号码一键，见 learn 的说明）：
-       命中时把新知道的产物号补到原来那条记录上，下次按产物号就认得到了。 */
-    const byUp = maps().up[mediaKey(url)];
-    if (byUp && byUp.a) {
-      const bk = maps().la[byUp.a];
-      if (bk && read().m[bk]) {
-        const rec = read().m[bk];
-        if (platAsset || taskId) { rec.p = rec.p || platAsset; rec.g = rec.g || taskId; tagRec(rec, bk); queueWrite(); }
-      } else {
-        read().m[k] = { ...byUp };
-        read().a[byUp.a] = k;
-        tagRec(read().m[k], k);
-        queueWrite();
-      }
-      if (o.cb) o.cb(null, { id: byUp.a, kept: true });
-      pendDone(k);
-      return 'saved';
-    }
     queued.add(k);
     pendPut(k, url, ent, o.force);
     INFOS.inFlight++;
@@ -1134,7 +1058,7 @@ function info() {
     for (const raw of list) {
       const n = announceOne(raw);
       if (!n) continue;
-      const k = mirrorIdOf(n.provider, { assetId: n.assetId, genId: n.genId, upstream: n.rawSrc || n.url });
+      const k = keyFor(n);
       const dedupe = k || (n.provider + '|' + n.src);
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
@@ -1145,210 +1069,42 @@ function info() {
     return out.length;
   }
 
-  /* ---------- 从服务端那份索引**认回**镜像身份 ----------
-     本机资产库的列表行自己就带着来源外链与任务号，所以浏览器里那份 `sk_local_mirror` 丢了
-     （换端口 = 换源、清浏览器数据、无痕窗口）也不必把几百份产物重新下载一遍。
-     为什么必须在代理那一份列表里认：磁盘上「同一份产物存了几次」是代理的事，
-     浏览器每个源各记各的键，挡不住另一个源（另一个端口）把同一份再存一遍。
-     只补索引里没有的键，已有的原样留着（它记的是最近一次真镜像）。
-     键的算法与 offer/decorate **完全同一个表达式** —— 换成别的就是第二份判据，
-     会出现「认回来的键与卡片算的键对不上」，表现还是「同一个任务重复出现」。
-     改指与死指针认回（下面两段）只动指针、一个字节都不下载，所以**不问 saveOn**；
-     saveOn 管的只是「要不要为新产物建镜像记录」那一段。 */
-  /* 本次列表里**已经见过**的本机号。改指与死指针认回都拿它判「这份已经不在了」：
-     它是**内存**的（页面一开就空），所以不需要清理，也不会在多标签页之间打架。 */
-  const liveSeen = new Set();
-  /* ---------- 账被整份重建后的死指针认回：名字 + 字节那一座桥 ----------
-     账（.data\local-assets\index.json）整份没了的那一次，磁盘对账会把每一份产物补成一条**裸行**
-     （upstream / detail 全空、本机号全部换新）。浏览器镜像索引里的记录还活着，rec.a 指着的
-     却全是死号；改指要靠账行自己的身份算键，裸行算不出键，永远救不了 —— 卡片一直去问一个
-     查无此号的 /asset/<本机号>，回源外链也过期了，界面上就是「文件明明在、卡上写着已丢失」。
-     还能对得上的硬信息只剩两样：文件名与字节数（镜像那天记下的 rec.n / rec.b，
-     账行叫 name / byte_length）。两边**各自唯一**才接：一组死记录只许配一条账行、
-     一条账行只许配一组死记录 —— 接错比不接更糟（卡片会显示成别的文件）。
-     唯一性在一批里判，批由微任务合并（一页列表的行总是同步 learn 完的，一批就是整份账）。
-     接完 rec.a 换活号、反查表整表作废；死号的旧指针**留着** ——
-     onMediaError 拿着旧地址那一跳还要靠它找到记录、再换到活号（一次多余的 404 换一次自愈）。 */
-  let healBatch = null, healQueued = false;
-  function queueHeal(raw) {
-    if (!healBatch) healBatch = [];
-    healBatch.push(raw);
-    if (healQueued) return;
-    healQueued = true;
-    Promise.resolve().then(() => {
-      healQueued = false;
-      const rows = healBatch;
-      healBatch = null;
-      healDeadPointers(rows);
-    });
-  }
-  function healDeadPointers(rows) {
-    try {
-      const d = read();
-      const byFile = new Map();
-      (rows || []).forEach(r => {
-        const nm = String(r.name || ''), b = Number(r.byte_length) || 0;
-        if (!nm || !b) return;
-        const k2 = nm + '\u0001' + b;
-        const a = byFile.get(k2);
-        if (a) a.push(r); else byFile.set(k2, [r]);
-      });
-      if (!byFile.size) return;
-      const deadByFile = new Map();
-      Object.keys(d.a).forEach(la => {
-        if (liveSeen.has(la)) return;
-        const key = d.a[la], rec = key ? d.m[key] : null;
-        if (!rec) { delete d.a[la]; return; }            // 悬空指针顺手清掉
-        if (String(rec.a || '') !== la) return;          // 已接回活号：旧指针留给 onMediaError 用
-        const k2 = String(rec.n || '') + '\u0001' + (Number(rec.b) || 0);
-        const it = { key, rec };
-        const a = deadByFile.get(k2);
-        if (a) a.push(it); else deadByFile.set(k2, [it]);
-      });
-      let healed = 0;
-      byFile.forEach((rs, k2) => {
-        if (rs.length !== 1) return;                     // 同名同字节的账行不止一条：认不准，不接
-        const dead = deadByFile.get(k2);
-        if (!dead || !dead.length) return;
-        const id = String(rs[0].id || '');
-        if (!id) return;
-        dead.forEach(it => {
-          it.rec.a = id;
-          if (!d.a[id]) d.a[id] = it.key;                // 指针表让给先占住的那个键；这份记录靠 aid / la 表认回
-          healed++;
-        });
-      });
-      if (healed) { idxMaps = null; queueWrite(); }
-    } catch (e) { console.warn('[AssetLocal] 死指针认回没跑成：', e); }
-  }
-  function learn(raw) {
-    if (!raw) return;
-    const id = String(raw.id || '');
-    if (!/^la_/.test(id)) return;
-    liveSeen.add(id);
-    const up = String(raw.upstream || '');
-    const d = read();
-    const det = (raw.detail && typeof raw.detail === 'object') ? raw.detail : null;
-    /* 平台产物号 > 任务号 > 来源地址（与 keyOf 同一优先级）。老镜像的 detail 里没有
-       `asset`（那时落盘只留了任务号），所以下面还留了「按任务号只出一份」的兜底，
-       但**绝不**把「任务号」直接当成多图任务的身份 —— 那会把四张图并成一张。 */
-    const platAsset = String((det && det.asset) || '');
-    const task = String((det && det.task) || '');
-    const k = mirrorIdOf(String(raw.provider || ''), { assetId: platAsset, genId: task, upstream: up });
-    const patch = rec => {
-      let ch = false;
-      if (platAsset && String(rec.p || '') !== platAsset) { rec.p = platAsset; ch = true; }
-      if (task && String(rec.g || '') !== task) { rec.g = task; ch = true; }
-      if (up && String(rec.up || '') !== up) { rec.up = up; ch = true; }
-      // fp = 相对库根的落点（单文件 FCPXML 拼绝对路径用）：老记录没这一项时顺手补上
-      const fp = String(raw.file || '');
-      if (fp && String(rec.fp || '') !== fp) { rec.fp = fp; ch = true; }
-      return ch;
-    };
-    /* ---------- 改指：指针表指的那份已经不在本机资产库里了 ----------
-       指针表是**只补不改**的（下面那句「只补索引里没有的键」），所以它永远不会自己修。
-       什么时候会指到一个死号？代理裁过索引（删掉同一份产物的重复副本）、用户删过本机副本、
-       或从另一台机器同步来一份旧指针。一旦指死了，卡片就一直去问一个查无此号的
-       /asset/<本机号>，拿到 422/404 之后靠 onMediaError 退到外链**重新下载** ——
-       而本机那份明明还在。实测裁掉 207 条重复索引后，一屏就冒出十几个 422。
+  /* 本机资产库列表里的每一行都是账里的真账：收进别名表。
+     它与别名快照同一份读法（rowOfServer），所以同一份文件从哪条路进来都长成同一行。
+     这一步**不问「自动存本机」开关** —— 它记的是已经躺在库根里的字节，一个字节都不下载；
+     那个开关管的是 offer / runOne 要不要为新产物把字节取回来。 */
+  function learn(raw) { return putRow(raw); }
 
-       判据：同一个键已有指针，而那个号**不在本机这次列出来的本机号里** → 改指到当前这条。
-       代理的 /local-assets 已经按身份折过重，一份产物只出一行，所以当前这条就是权威的。
-       `!d.a[id]` 这个前提别去掉：它保证当前这个号没绑在别的键上（绑了就该让旧的那条说了算）。
-
-       **这一段必须排在 `if (d.a[id]) return;` 之前** —— 第一版放在后面，
-       而被裁掉的那些号在 d.a 里全都还在，于是每次都先命中那句 return，
-       改写代码一行都执行不到：症状是「自愈加了、422 一条没少」。 */
-    const old = (k && d.m[k]) ? d.m[k].a : '';
-    if (k && old && old !== id && !d.a[id] && !liveSeen.has(old)) {
-      const rec = d.m[k];
-      Object.assign(rec, {
-        a: id, f: String(raw.format || '') || rec.f,
-        n: String(raw.name || '') || rec.n,
-        b: Number(raw.byte_length || 0) || rec.b,
-        up: up || rec.up,
-      });
-      patch(rec);
-      if (d.a[old] === k) delete d.a[old];
-      d.a[id] = k;
-      if (idxMaps) delete idxMaps.la[old];
-      noteRecMaps(rec, k);
-      queueWrite();
-      return;
+  /* 一条「本机自产」的条目（条目即资产），而账里已经没有它那个本机号 ——
+     索引被重建过 / 本机文件被删了，可首屏缓存里还留着上一天的那一条。
+     它既没有字节、又顶着「本机」标记与平台那条各占一张卡：列表进界面前摘掉
+     （settleEntries），徽标也不许再写「本机」。表还没取回来时一律 false。 */
+  function staleSelf(o) {
+    if (!o || !libraryKnown() || o.kind !== 'asset') return false;
+    if (!o.localSelf && !(o.localAsset && LA_ID(o.assetId))) return false;
+    const id = selfRowId(o);
+    return !!id && !rows.has(id);
+  }
+  /* 地址写着 /asset/la_xxx，而账里那一行已经不在了：卡片不能一直指着一个打不开的地址。
+     按「decorate 记下的平台地址 → 来源外链 → 平台产物号 / 任务号」依次换回去；
+     都没有就保持原样，交给 error 监听标「已丢失」。 */
+  function healDeadSrc(e) {
+    const cur = String(e.src || '');
+    if (!/^\/asset\/la_/.test(cur)) return;
+    for (const c of [e.platSrc, e.rawSrc, e.upstreamSrc]) {
+      const s = String(c || '');
+      if (s && !/^\/asset\/la_/.test(s) && !/^blob:/.test(s)) { e.src = mediaSrc(s); return; }
     }
-    /* 裸行（磁盘对账补建的那一族：没有 upstream、没有 detail）让改指无从算键 ——
-       排进死指针认回的批里，然后照旧往下走（saveOn 开着就该建 |f: 记录）。 */
-    if (!k) queueHeal(raw);
-    /* **先看这个本机号是不是已经绑过身份** —— 绑过就别再来一遍。
-       踩过：`d.a[<本机号>]` 已经指向平台那条的身份（`prov|g:job_1`，offer 落盘时写的），
-       而本机列表这一行自己算不出任何身份，于是又给它建了一个 `prov|f:la_xxx`，
-       把 `d.a[la_xxx]` 覆盖掉了 —— 同一份东西在索引里就有了两个键：
-       平台那条算出 g:job_1、本机那条算出 f:la_xxx，twinOf 合不到一起
-       （表现：同一个视频两张卡、提示词只有一半有、去重那几档全红）。
-       「一个本机号只能有一个身份」是这张表的全部意义，已有的那一条更权威（它带着平台信息）。 */
-    if (d.a[id]) {
-      const key = d.a[id], rec = d.m[key];
-      if (!rec) { delete d.a[id]; }
-      else {
-        /* 老记录当年没有任何身份（`|f:`），现在平台列表把产物号带回来了 → 搬到 `|a:`。
-           不搬的话，平台那条永远认不回这份本机副本（卡片重复、预览没有、
-           「不显示云端任务」还会把它藏掉）。目标键已被占着就不动，保住先到的那份。 */
-        const want = platAsset ? (String(raw.provider || '') + '|a:' + platAsset) : '';
-        if (want && key !== want && /\|f:/.test(key) && !d.m[want]) {
-          delete d.m[key];
-          d.m[want] = rec;
-          d.a[id] = want;
-          patch(rec);
-          idxMaps = null;              // 换键很罕见，整表重建一次比手工维护四张反查表可靠
-          queueWrite();
-          return;
-        }
-        if (patch(rec)) { noteRecMaps(rec, key); queueWrite(); }
-        return;
-      }
-    }
-    /* 到这里是「账里有、指针表里还没有」的一条。它记的是**已经躺在库根里**的那份字节，
-       建一条指针不下载任何字节 —— 所以不受「自动存本机」开关管：那个开关管的是
-       `offer` / `runOne` 要不要为新产物把字节取回来。
-       以前这里有一句 `if (!saveOn()) return;`，于是关掉自动存本机之后，浏览器索引一丢
-       （换端口 / 清站点数据 / 换机器）就再也认不回来：卡片只剩已过期的平台外链，
-       云端一清理全变「已丢失」，而库根里 348 份文件一份没少。 */
-    if (k && d.m[k]) {
-      /* 同一个键已经被另一份本机文件占了。`|g:` 只会在「多图任务共用一个任务号」时撞；
-         这条文件必须有自己的唯一身份，否则它永远进不了索引（删不掉、认不回、
-         抽帧键也算不出来）—— 这就是当年「四张图只有一张有本机副本」的来路。
-         `|a:` / `|u:` 撞上说明代理没去重成功，保留先到的那份，不覆盖。 */
-      if (!/\|g:/.test(k)) return;
-      const fk = String(raw.provider || '') + '|f:' + id;
-      if (d.m[fk]) return;
-      d.m[fk] = { a: id, f: String(raw.format || ''), n: String(raw.name || ''), t: 0,
-        b: Number(raw.byte_length || 0), up, p: platAsset, g: task, fp: String(raw.file || '') };
-      d.a[id] = fk;
-      noteRecMaps(d.m[fk], fk);
-      queueWrite();
-      return;
-    }
-    /* 三种身份一个都算不出来时（既没有产物号/任务号、也没有来源地址），
-       这一条不是「镜像」而是**本机那个文件本身** —— 拿本机号当身份，命名空间 `|f:`
-       （file），与 |a:/|g:/|u: 分开，免得和平台产物号撞在一个桶里。 */
-    const key = k || (String(raw.provider || '') + '|f:' + id);
-    if (d.m[key]) return;
-    d.m[key] = { a: id, f: String(raw.format || ''), n: String(raw.name || ''), t: 0,
-      b: Number(raw.byte_length || 0), up, p: platAsset, g: task, fp: String(raw.file || '') };
-    d.a[id] = key;
-    /* 反查表要**当场**补上这一条，不能等下面那一次 write()：
-       write 是排到微任务里去的，而调用方（normalize → pushEntry → emit）还在同一个同步块里，
-       它马上就要按 la 号 / 按外链反查这一条 —— 表还是旧的那一份就查不到，
-       于是「刚认回来的镜像」在同批里等于没认：早到的平台条目不换本机地址（预览图没有）、
-       两条卡片也塌不到一起（同一个任务重复出现），非要等下一次加载才好。 */
-    noteRecMaps(d.m[key], key);
-    queueWrite();
+    const aid = String(e.assetId || '');
+    const tid = String(e.taskId || e.genId || '');
+    if (aid && !LA_ID(aid)) { e.src = Api.assetSrc(aid); return; }
+    if (tid && !LA_ID(tid)) e.src = Api.assetSrc(tid);
   }
 
   /* 给一条**刚解析出来的条目**挂上本机镜像信息，并把 src 换成该用的那个（第一级回退）。
      在 AssetLib.normalize 里对每个资产条目调一次 —— 全项目只有这一处产生条目，
      所以「哪些页面看得到本机副本」不需要各页自己接一遍。
-     `opts.allowGen`：整表里数过「这个任务只出了一条产物」之后才为 true（见 mirrorOf）。
+     `opts.allowGen`：条目自己声明「这个任务只出了这一份」之后才为 true（见 rowOfEntry）。
      **幂等**：缓存里已经换过地址的那条再跑一遍也会按当前开关重新算 ——
      否则「优先用本机文件」关掉之后，首屏缓存那一眼仍然读 /asset/<本机号>，
      而列表回来才换成平台地址，看着像「开关刚才没生效」。 */
@@ -1361,35 +1117,44 @@ function info() {
        会把缓存里已经换过地址的平台条目也当成自产条目，删掉本机副本之后它就不肯退回平台地址了。 */
     const selfRow = e.localSelf
       || (e.localAsset && (LA_ID(e.assetId) || LA_ID(e.id) || (!e.assetId && LA_ID(e.genId))));
-    if (selfRow) return e;
-    const hit = mirrorOf(e, !!(opts && opts.allowGen));
-    if (hit && hit.rec && hit.rec.a) {
+    if (selfRow) {
+      /* 账里已经没有这一行（索引重建 / 本机文件被删），缓存里却还留着它：
+         不能再顶着 /asset/la_xxx 冒充本机 —— 摘掉本机标记，地址按平台那份补。 */
+      if (staleSelf(e)) { e.localAsset = false; healDeadSrc(e); }
+      return e;
+    }
+    const row = rowOfEntry(e, opts && opts.allowGen != null ? !!opts.allowGen : Number(e.outCount) === 1);
+    if (row) {
       /* 换成本机地址之前把平台那份记下来：删掉本机副本之后要原样退回去，
          否则卡片会一直指着一个已删除的 /asset/la_xxx。 */
       if (!e.platSrc && e.src && !/^\/asset\/la_/.test(String(e.src)) && !/^blob:/.test(String(e.src))) e.platSrc = e.src;
-      e.mirrorKey = hit.k;
-      e.mirror = hit.rec;
+      e.mirrorKey = 'la:' + row.id;
+      /* 页面读的是这一份：`a` 是本机号（删除入口拿它删），其余字段给卡片与按钮用。 */
+      e.mirror = { a: row.id, f: row.format, n: row.name, b: row.bytes,
+        up: row.upstream, p: row.assetId, g: row.taskId, fp: row.file };
       e.localAsset = true;                    // 界面上可以「删除」（删的是本机那份）
-      if (e.byteLength == null && hit.rec.b) e.byteLength = hit.rec.b;
-      if (preferLocal()) e.src = Api.assetSrc(hit.rec.a);
+      if (e.byteLength == null && row.bytes) e.byteLength = row.bytes;
+      if (preferLocal()) e.src = Api.assetSrc(row.id);
       else if (e.platSrc) e.src = e.platSrc;
       return e;
     }
-    /* 索引里已经没有这一条了（用户刚删掉本机副本 / 浏览器数据被清）：
-       把上一次换过的地址退回平台那份，并把「本机」标记摘掉。 */
+    /* 别名表里没有这一条（用户刚删掉本机副本 / 索引重建过 / 表还没取回来）：
+       把上一次换过的地址退回平台那份，并把「本机」标记摘掉。
+       平台那份也没记下来（缓存里存的就是 /asset/la_xxx）时按来源地址 / 平台号补一个。 */
     if (e.platSrc) e.src = e.platSrc;
+    healDeadSrc(e);
     delete e.mirrorKey; delete e.mirror;
     delete e.localAsset;
     return e;
   }
 
-  /* ---- 第三级：两边都没了 → 明写「已丢失」 ------------------------------------
-     用**一个全局捕获阶段的 error 监听**装一次，不在各页各接一遍：
-     error 不冒泡但能被 document 的捕获阶段截到，所以卡片、列表、灯箱、详情面板一次全覆盖。
-     判据全部来自本机索引（element 的地址 → 索引键），不需要页面把条目传进来：
-       · src 是 /asset/<本机号> 挂了 → 索引里那条记着 upstream → 换 /getv?url= 回源（第二级）
-       · src 是平台外链挂了 → 索引里按地址键记着本机副本 → 换 /asset/<本机号>（第一级）
-       · 两边都试过还挂 → 标 lost，插一个「已丢失」角标（而不是留一张裂图让人猜） */
+  /* 一张图 / 一段视频取不到字节时的两级回退（async：内存表没命中要问一次代理）。
+     判据全部来自别名表与代理那一份账，不需要页面把条目传进来：
+       · src 是 /asset/<平台产物号> 挂了 → 问代理「这一条在本机是哪一份」→ 换 /asset/<本机号>
+       · src 是 /asset/<本机号> 挂了 → 账里那条记着来源地址 → 换 /getv?url= 回源
+       · src 是平台外链挂了 → 按地址（剥签名）反查本机副本 → 换 /asset/<本机号>
+       · 两边都试过还挂 → 标 lost，插一个「已丢失」角标（而不是留一张裂图让人猜）
+     每个元素只回退一次：`dataset.fb` 在**同步**那一步就钉住，并发的第二个 error 直接判丢失。 */
   const LB = '文件已丢失（本机副本与平台地址都没了）';
   function lostTip(el) {
     const parent = el.parentElement;
@@ -1425,61 +1190,80 @@ function info() {
       }
     } catch (e) { /* 量不出来就退回「铺满那一格」，总比铺满整屏好 */ }
   }
-  function onMediaError(e) {
-    const el = e && e.target;
-    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
-    if (el.dataset.fb === '1') { el.dataset.lost = '1'; el.style.visibility = 'hidden'; lostTip(el); return; }
-    const d = read();
-    const raw = String(el.getAttribute('src') || el.getAttribute('data-src') || '');
-    const am = raw.match(/^\/asset\/([A-Za-z0-9_-]+)/);
-    if (am && !/^\/asset\/local/.test(raw)) {
-      /* /asset/<平台产物号> 挂了：先问本机有没有它的副本（localAssetIdOf 的 aids 表认得出）。
-         以前这一路只试「按 upstream 回源」，索引里没有 upstream 就直接判丢失 ——
-         而本机明明存着那一份，表现是「云端失效后直接不显示」。 */
-      const la = localAssetIdOf(raw);
-      if (la && raw.indexOf('/asset/' + la) < 0) {
-        el.dataset.fb = '1'; el.dataset.fbLoc = la;
-        el.setAttribute('src', Api.assetSrc(la));
-        return;
-      }
-      /* 记录已经改指 / 被死指针认回接到活号：先换活号再试（旧号那一跳 404 换来的自愈，
-         不用它就直接回源外链 —— 外链多半已过期，一次能救的机缘就浪费了）。 */
-      const rec = d.a[am[1]] ? d.m[d.a[am[1]]] : null;
-      if (rec && rec.a && raw.indexOf('/asset/' + rec.a) < 0) {
-        el.dataset.fb = '1'; el.dataset.fbLoc = String(rec.a);
-        el.setAttribute('src', Api.assetSrc(rec.a));
-        return;
-      }
-      /* 本机那份没了 → 找它是从哪个外链取回来的 */
-      if (rec && rec.up) {
-        el.dataset.fb = '1'; el.dataset.fbUp = rec.up;
-        el.setAttribute('src', '/getv?url=' + encodeURIComponent(rec.up));
-        try { el.load && el.load(); } catch (e2) {}
-        return;
-      }
-    }
-    const upKey = mediaKey(raw);
-    const rec2 = upKey ? maps().up[upKey] : null;
-    if (rec2 && rec2.a && raw.indexOf('/asset/' + rec2.a) < 0) {
-      el.dataset.fb = '1'; el.dataset.fbLoc = rec2.a;
-      el.setAttribute('src', Api.assetSrc(rec2.a));
-      return;
-    }
-    el.dataset.fb = '1'; el.dataset.lost = '1';
+  function markLost(el) {
+    el.dataset.lost = '1';
     el.style.visibility = 'hidden';
     lostTip(el);
   }
+  async function onMediaError(e) {
+    const el = e && e.target;
+    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
+    if (el.dataset.fb === '1') { markLost(el); return; }
+    const raw = String(el.getAttribute('src') || el.getAttribute('data-src') || '');
+    const swapTo = src => {
+      el.dataset.fb = '1';
+      el.setAttribute('src', src);
+      try { el.load && el.load(); } catch (e2) {}
+    };
+    const am = raw.match(/^\/asset\/([A-Za-z0-9_-]+)/);
+    if (am && !/^\/asset\/local/.test(raw)) {
+      const pid = am[1];
+      /* 内存表先认一遍：绝大多数回退命中在这一步（`/asset/<平台产物号>` 与 `/asset/<本机号>` 都认）。 */
+      const la = localAssetIdOf(raw);
+      if (la && raw.indexOf('/asset/' + la) < 0) { el.dataset.fbLoc = la; swapTo(Api.assetSrc(la)); return; }
+      el.dataset.fb = '1';                     // 下面要 await，先钉住「只回退一次」
+      const got = await locateRows([{ assetId: pid, taskId: pid, allowGen: true }]);
+      const row = got[0] || rows.get(pid);
+      if (row && row.id !== pid) {
+        /* 账里记着另一份本机文件：换本机号再试（行是代理按磁盘验过的，不是猜的）。 */
+        el.dataset.fbLoc = row.id;
+        el.setAttribute('src', Api.assetSrc(row.id));
+        try { el.load && el.load(); } catch (e2) {}
+        return;
+      }
+      /* 失效地址本身就是本机号：账里还记着它是从哪个外链取回来的 → 回源那一份。 */
+      if (row && row.upstream) {
+        el.dataset.fbUp = row.upstream;
+        el.setAttribute('src', '/getv?url=' + encodeURIComponent(row.upstream));
+        try { el.load && el.load(); } catch (e2) {}
+        return;
+      }
+      markLost(el);
+      return;
+    }
+    /* 平台外链 / /getv 包装挂了：先按地址反查本机副本（签名剥掉，判据只有 mediaKey 一份）。 */
+    const key = mediaKey(raw);
+    const hit = key ? byUp.get(key) : null;
+    if (hit) {
+      el.dataset.fbLoc = hit.id;
+      swapTo(Api.assetSrc(hit.id));
+      return;
+    }
+    el.dataset.fb = '1';
+    let inner = raw;
+    try { if (window.MediaId) inner = String(window.MediaId.innerMedia(raw) || raw); } catch (e2) {}
+    const got = await locateRows([{ url: inner }]);
+    const row = got[0];
+    if (row) {
+      el.dataset.fbLoc = row.id;
+      el.setAttribute('src', Api.assetSrc(row.id));
+      try { el.load && el.load(); } catch (e2) {}
+      return;
+    }
+    markLost(el);
+  }
   let watching = false;
+  const WAKE_STALE = 30000;
   function watch() {
     if (watching || typeof document === 'undefined') return;
     watching = true;
     document.addEventListener('error', onMediaError, true);
-    /* 别的标签页刚镜像完一份产物 → 本页那份内存里的索引要作废。
-       不作废的话，「优先用本机文件」在生成页之外的标签里永远看不见新存的那一份
-       （地址算出来还是过期外链 → 抽帧失败 → 预览图没有），要刷新整个页面才好。 */
+    /* 别的标签页 / 别的页面刚镜像完一份产物 → 别名表要重新问一次代理。
+       不问的话，「优先用本机文件」在生成页之外的标签里永远看不见新存的那一份
+       （地址算出来还是过期外链 → 抽帧失败 → 预览图没有），要刷新整个页面才好。
+       回到前台时也补一次：跨标签的镜像没有事件可听，而标签在后台时定时器会被节流。 */
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('storage', e => {
-        if (e && e.key === K_IDX) { idx = null; idxMaps = null; idxBoot = null; bootMirrorIndex(); }
         if (e && e.key === K_PENDING) pendCache = null;
         if (e && e.key === K_SAVE) {
           if (!saveOn()) {
@@ -1492,21 +1276,30 @@ function info() {
           } else replayPending();
         }
       });
+      const wake = () => {
+        if (document.hidden) return;
+        if (readyAt && Date.now() - readyAt < WAKE_STALE) return;
+        ready(0);
+      };
+      window.addEventListener('focus', wake);
+      document.addEventListener('visibilitychange', wake);
       /* 生成完成的事件由**本模块的 announce()** 投（四个生产点都走那一条），这一份是唯一消费方：
          自动镜像不再依赖「恰好有个列表页在加载 AssetLib」。 */
       window.addEventListener('wb:asset-done', e => {
         const es = (e && e.detail && e.detail.entries) || [];
         if (Array.isArray(es) && es.length) { try { scan(es); } catch (err) { console.warn('[AssetLocal] 生成完成入库失败：', err); } }
       });
-      window.addEventListener('wb:mirror-ready', () => { try { infoChanged(); } catch (e) {} });
     }
   }
 
   window.AssetLocal = {
     showBadge, offer, scan, announce, decorate, watch, pullMany, pullSummaryText,
     pullPlan, pullBar, offerAll,
-    /* 等镜像指针从 IndexedDB 读回来（列表加载前等一小会儿，避免首屏用暖启动缓存判漏）。 */
-    ready: () => { read(); return bootMirrorIndex(); },
+    /* 等别名表就位（列表加载前调一次：首屏缓存要先按它换成本机地址，否则会先用过期外链画一帧）。
+       并发调用共用同一只在途请求；拿不到表不抛错，列表照常显示。 */
+    ready,
+    /* 列表进界面前把这一批里还没命中的条目问一遍代理，再按结果重新 decorate（见 locate）。 */
+    locate,
     pullBusy, pullStart, pullEnd, pullBtn, pullReceipt,
     /* 「补不补历史产物」那一档 + 判据：页面与设置页都读它，不要自己按时间戳判一遍。 */
     saveScope, markSaveOn, wantSave,
@@ -1516,63 +1309,62 @@ function info() {
        onInfo 返回退订函数；info() 立刻给一份当前读数（订阅时也会回调一次）。 */
     info, onInfo,
     /* 「这条产物在本机有副本吗 / 这是哪一条的镜像」：地址层（mediaSrc）与列表层（去重）都读这两个，
-       索引形状（m / a 两张表）只有本模块认识 */
+       别名表的形状只有本模块认识 */
     localCopyOf, twinOf, learn,
+    /* 「本机资产库那一条在账里已经没有了」：索引重建 / 文件被删之后，首屏缓存里留着的
+       自产条目由 settleEntries 用它摘掉（见 staleSelf）。 */
+    staleSelf,
     /* 「这一条在本机镜像是哪一个资产号」：**不看开关**的身份查法（缩略图缓存键用它，
        见 workbench.js 的 thumbs.keyOf）—— 开关只管画面上用哪个地址，不能管「这是哪一份东西」。 */
     localAssetIdOf,
-    /* FCPXML / 本地路径类出口用：地址 → { id, format, name, bytes }（不给路径）。 */
+    /* FCPXML / 本地路径类出口用：地址 → { id, format, name, bytes, path }。 */
     localFileOf,
     /* 「本机 / 云端」的**唯一**判据（徽标、存回本机的范围、列表去重、助手的读数都读它）。
        页面不许自己拼 localAsset / hasLocalAddr / assetId —— 那三种形状各拼一遍，
        就会出现「卡片写着本机、存回本机却把它算进 N 条」这种自相矛盾的界面。
        hasLocal / hasCloud 是这一枚内部的判据，不外挂：外面拿到两枚就会自己拼状态。 */
     stateOf,
-    /* 给测试 / 诊断用：按同一份身份判据查镜像记录（返回 { k, rec } 或 null）。 */
-    mirrorKeyOf: e => { const hit = mirrorOf(e, true); return hit ? hit.k : ''; },
     /* 「不显示云端任务」：一个开关的生效条件（localOnly）与它唯一的判据（hideAsCloud）。
        页面只许调这两个，「有没有本机副本」一律问 stateOf。 */
     localOnly, hideAsCloud, hasLocalAddr,
     /* 「现在就把这一条存回本机」—— 收藏 / 素材库那两颗「自动下载」用的入口。
-       走的是后台自动镜像同一条落盘链（同一份索引、同一道去重、同一个规范名落点），
+       走的是后台自动镜像同一条落盘链（同一份别名表、同一道去重、同一个规范名落点），
        区别只在绕过开关与逐条回执，见上面的 pull。 */
     pull,
-    /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单。
-       ⚠ 这一份读的是**本地指针表**，换端口 / 清浏览器数据 / 无痕窗口都会是空的 ——
-       所以下面那个 syncStats() 得先把代理那份索引拉回来认一遍，数字才等于事实。 */
+    /* 设置页「已存多少 / 占了多少」用：只算条数与字节，不列清单。表还没取回来时是 0 ——
+       要事实数字就走 syncStats()（它先取表）。 */
     stats() {
-      const rs = Object.values(read().m);
-      return { count: rs.length, bytes: rs.reduce((a, r) => a + (Number(r && r.b) || 0), 0) };
+      let count = 0, bytes = 0;
+      rows.forEach(r => { count++; bytes += Number(r.bytes) || 0; });
+      return { count, bytes };
     },
-    /* 从**代理那份索引**（.data\local-assets\）现算「本机存了多少」，顺带把指针表认回来。
-       为什么必须有这一步：stats() 读的那张表是「哪条产物存在本机」的**缓存**，
-       本体在库根（默认 下载\拾帧）的类型子目录里。表空的时候设置页会写「本机已存 0 个产物，共 0 KB」——
-       而库里其实有 83 份（实测：无痕窗口打开设置页，磁盘上明明有，页面写 0）。
-       界面说的话与事实不符，正是这一页最不能出的那种毛病。
-       走注册表声明的 selfAsset 列表（`local:/local-assets`），不自己拼地址；
-       每一行走 learn() —— 判据还是那一份，指针表当场认回来。 */
+    /* 从**代理那份账**（.data\local-assets\）现算「本机存了多少」。
+       为什么必须有这一步：浏览器这份别名表是当前会话的缓存，本体在库根
+       （默认 下载\拾帧）的类型子目录里；表还没取回来时设置页会写
+       「本机已存 0 个产物，共 0 KB」，而库里其实有几百份 —— 这一页最不能说的话就是假话。
+       先问一次别名快照；再走注册表声明的 selfAsset 列表把每一行认进来
+       （那一份带着人类可读的提示词与模型字段，统计以外还要用）。 */
     async syncStats() {
-      try { await bootMirrorIndex(); } catch (e) {}
+      try { await ready(0); } catch (e) {}
       try {
         const reg = await Api.registry();
         const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
         if (src) {
           const d = await Api.request(src, 'list', { query: 'limit=1000' });
-          const rows = (d && (d.data || d.items)) || [];
-          for (const r of rows) learn(r);
+          const list = (d && (d.data || d.items)) || [];
+          for (const r of list) learn(r);
         }
       } catch (e) { /* 代理没起来就照旧报本地那份数，不要在这一页抛错 */ }
       /* 返回的是 `info()` 那一份（不是 stats()）：设置页那一行还要读在途数与最后一次失败原因，
          两个形状各回各的就会出现「count 更新了、在途数永远是 undefined」。 */
       return info();
     },
-    /* 抹掉一条本机镜像的记录（用户点「删除本机文件」成功之后）。判据与实现都在 learn 那份旁边。 */
+    /* 抹掉一份本机文件在别名表里的那一行（用户点「删除本机文件」成功之后）。 */
     forgetMirror,
-    /* 这里原来还有一个 forget()：全站零调用，却能把整份索引 removeItem 掉。
-       「关掉自动存本机」要清索引的话，正确做法是**让下一次 read() 自然重建**
-       （learn 会按代理那份列表重新认回来，见上），而不是把用户的镜像记录整份删掉 ——
-       一个零调用的接口配一个整份 removeItem，就是一个谁都能踩、踩了不可逆的地雷。已删。 */
   };
   watch();
   replayPending();
+  /* 开机就把别名表取回来：首屏缓存与 mediaSrc 都要按它换地址，晚一步就会先画一帧过期外链。
+     不等它 —— 取不回来也照常启动，列表那一路的 ready() 会再问一次。 */
+  ready();
 })();

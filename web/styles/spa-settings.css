@@ -193,6 +193,16 @@
 .settings-page .acct .msg.err { color: var(--err); }
 .settings-page .fcard-acts .hint.sm.ok { color: var(--ok); }
 .settings-page .fcard-acts .hint.sm.err { color: var(--err); }
+/* 卡底右侧那枚余额：读外壳那一份（与侧栏「账户余额」同一份缓存），旁边那颗勾选只管左侧栏。
+   固定在卡底那一行的右端（换行时也靠右）；取不到时卡面只写「读取失败」，原因挂在 title 上
+   （与侧栏余额卡同一口径）。 */
+.settings-page .balnow { display: inline-flex; align-items: center; gap: var(--sp-5); height: var(--sp-20);
+  margin-left: auto; padding: 0 var(--sp-8); border-radius: var(--radius-5); border: var(--hair) solid var(--line);
+  background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
+.settings-page .balnow b { color: var(--txt); font-weight: 600; font-variant-numeric: tabular-nums; }
+.settings-page .balnow .u { color: var(--sub); }
+.settings-page .balnow.err { border-color: var(--err); }
+.settings-page .balnow.err b { color: var(--err); }
 
 /* 状态牌：实心 = 主位、淡底 = 在用、白底 = 备用、虚线压暗 = 停用。 */
 .settings-page .st { display: inline-flex; align-items: center; gap: var(--sp-4); height: var(--sp-20);

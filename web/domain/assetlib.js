@@ -148,6 +148,11 @@
      而镜像时把提交那一刻的提示词留在了本机索引里 —— 于是以前空白的那张卡其实有话可说。 */
   const AL_TWIN = e => (window.AssetLocal && AssetLocal.twinOf ? AssetLocal.twinOf(e) : '');
   const platSide = e => !!(e && e.mirrorKey);      // decorate 认出来的那条来自平台列表
+  /* 本机那一份删掉之后，浏览器别名表里也要摘掉那一行 —— 不摘的话卡片会一直去问
+     一个查无此号的 /asset/<本机号>，拿到 422 之后又回源重新下载一遍。 */
+  const forgetLocal = id => {
+    try { if (window.AssetLocal && AssetLocal.forgetMirror) AssetLocal.forgetMirror(id); } catch (e) { /* 别名表清不掉顶多下一轮快照再对齐 */ }
+  };
   /* ---------- 结果级短缓存----------
      同一组参数（来源 / 类型 / 页数 / accept）在 30 秒内重复 load，直接用上一份结果：
      首屏两次 fetchMore、选择器每次打开都 3 页、资产库与工作台前后脚打开，都会各拉一遍全量，
@@ -231,12 +236,19 @@
          现在跳过坏条目、记一条可读提示（界面会显示「部分内容加载失败」）。 */
       let skipped = 0;
       const want = (typeof st.accept === 'function') ? st.accept : null;
+      const batch = [];
       items.forEach(raw => {
         try {
-          normalize(prov, spec, raw).forEach(entry => { if (!want || want(entry)) pushEntry(st, entry); });
+          normalize(prov, spec, raw).forEach(entry => { if (!want || want(entry)) batch.push(entry); });
         }
         catch (e) { skipped++; console.warn('[AssetLib] 条目解析失败（已跳过）', e, raw); }
       });
+      /* 这一页里内存别名表没认出来的，问一次代理再定地址（一次请求，最多 2000 条）。
+         列表进界面之前就换成本机地址：晚一步的话页面先画一帧过期外链，再跳成本机那一份。 */
+      if (window.AssetLocal && AssetLocal.locate && batch.length) {
+        try { await AssetLocal.locate(batch); } catch (e) { console.warn('[AssetLib] 本机别名查询失败：', e); }
+      }
+      batch.forEach(entry => pushEntry(st, entry));
       if (skipped) st.errors[key] = '有 ' + skipped + ' 条数据解析失败（已跳过，不影响其它条目）';
       const next = Api.listCursor(prov, d);
       const firstId = items.length ? pickPath(items[0], (spec.map || {}).id || 'id') : null;
@@ -413,9 +425,9 @@
         }
       }
       await Api.registry();
-      /* 镜像指针从 IndexedDB 读回来再开始解析：否则首屏用 localStorage 的暖启动缓存
+      /* 本机别名表先就位再开始解析：否则首屏用 localStorage 的暖启动缓存
          （最近 2000 条）判本机副本，老产物会先显示成「云端」再跳回「本机」。
-         最多等 1.2 秒，读不出来照旧往下走（缓存 + 代理列表还能认回来）。 */
+         最多等 1.2 秒，取不回来照旧往下走（缓存 + 代理那边每页一次的 locate 还能认回来）。 */
       if (window.AssetLocal && AssetLocal.ready) {
         try { await Promise.race([AssetLocal.ready(), new Promise(r => setTimeout(r, 1200))]); } catch (e) {}
       }
@@ -436,7 +448,7 @@
         out: Array.isArray(opts.out) ? opts.out : [],
         /* 已经交给 `AssetLocal.scan` 过的条目。按**对象身份**记而不是按下标：
            `collapseTwins` 会把 out 就地缩短，下标会错位。scan 本身是幂等的
-           （已镜像的条目在 `read().m[k]` 处就 return 'saved'），所以只喂这一批新到的即可 ——
+           （已镜像的条目在 `offer` 那一步按产物号就 return 'saved'），所以只喂这一批新到的即可 ——
            以前每次 emit 都对**整份不断变长的 out** 扫一遍，emit 次数 ≈ 16~24 次，是 O(n²)。
            `st` 每次 load 都是新的（续拉时 opts.out 会重新登记一遍），所以跨轮不会漏扫。 */
         emitted: new WeakSet(),
@@ -598,9 +610,13 @@
        等真列表回来 emit 里一合，就少一张：用户看到的是「卡片先出现、过一会儿又消失」。
        两条路现在都调这一个函数，画出来的第一屏就与之后一致。 */
     settleEntries(list) {
-      const arr = Array.isArray(list) ? list : [];
+      let arr = Array.isArray(list) ? list : [];
       const A = window.AssetLocal;
       if (!A || !A.decorate) return arr;
+      /* 首屏缓存里可能留着**账里已经没有**的本机自产条目（索引被重建 / 文件被删）：
+         它们点不开、又顶着「本机」标记与平台那条各占一张卡。表取回来之后才摘
+         （staleSelf 在表没就位时一律 false，离线仍按缓存画）。 */
+      if (A.staleSelf) arr = arr.filter(e => !A.staleSelf(e));
       /* 先数「这一条的任务出了几份产物」：老镜像文件只留下任务号，
          平台列表那条带着产物号回来时按产物号认不到它。**只有整条列表里这个任务
          只对应一份产物**时，才允许拿任务号把两者认成同一份 —— 多图任务按任务号合，
@@ -683,6 +699,7 @@
         const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
         if (!src) throw new Error('找不到本机资产库这条来源（注册表里没有声明本机端点的平台）');
         await Api.request(src, 'remove', { id: selfId, method: 'DELETE' });
+        forgetLocal(selfId);
         return { localGone: true, id: selfId };
       }
       if (entry && entry.mirror && entry.mirror.a) {
@@ -690,6 +707,7 @@
         const src = (reg.providers || []).find(p => p.list && p.list.selfAsset);
         if (!src) throw new Error('找不到本机资产库这条来源（注册表里没有声明本机端点的平台）');
         await Api.request(src, 'remove', { id: entry.mirror.a, method: 'DELETE' });
+        forgetLocal(entry.mirror.a);
         return { mirrorGone: true, id: entry.mirror.a };
       }
       const prov = Api.prov(entry.provider);
