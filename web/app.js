@@ -198,13 +198,17 @@ const App = {
     }
     window.appShow = go;
     window.__spaRoute = () => state.route;
-    /* 工作台在页内切 ?t= 时通知一次：地址栏 / 上次页跟着走，刷新仍落在同一档。 */
+    /* 工作台在页内切 ?t= 时通知一次：地址栏 / 上次页跟着走，刷新仍落在同一档。
+       动作里那份 state.route 也要换成新的 src：go() 与 hashchange 都按 src 比较，
+       不换的话「切到图像后再点侧栏工作台（默认 video）」会被当成同一次跳转直接早退。 */
     window.__spaStudioType = t => {
       if (t !== 'video' && t !== 'image' && t !== 'audio') return;
       const src = 'studio.html?t=' + t;
       try { localStorage.setItem(LAST, src); } catch (e) {}
-      if (state.route && state.route.file === 'studio.html' && location.hash.slice(1) !== src) {
-        history.replaceState(null, '', '#' + src);
+      if (state.route && state.route.file === 'studio.html') {
+        if (location.hash.slice(1) !== src) history.replaceState(null, '', '#' + src);
+        const r = parse(src);
+        if (r) state.route = r;
       }
     };
 

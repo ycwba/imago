@@ -12,8 +12,10 @@
 .usage-page .upd { font-size: var(--fs-12); color: var(--sub); }
 .usage-page .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-14); }
 
-/* 左右分栏：左＝余额/曲线/文字AI用量，右＝账单明细（较窄） */
-.usage-page .ub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--sp-18); align-items: start; }
+/* 左右分栏：左＝余额/曲线/文字AI用量，右＝账单明细（较窄）。
+   两栏都按整行高度拉伸（不写 align-items:start）：右栏若只有内容高，
+   里面那条 position:sticky 的账单面板没有任何可走的行程，吸顶等于没写。 */
+.usage-page .ub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--sp-18); }
 .usage-page .ub-left { min-width: 0; }
 .usage-page .ub-right { min-width: 0; }
 .usage-page .ub-right .panel { margin-top: 0; }
@@ -44,7 +46,7 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 .usage-page .ub-right th.w, .usage-page .ub-right td.w { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1200px) {
   .usage-page .ub-layout { grid-template-columns: 1fr; }
-  .usage-page .ub-right .filters { flex-direction: row; align-items: center; }
+  .usage-page .ub-right .filters { flex-direction: row; align-items: center; flex-wrap: wrap; }
   .usage-page .ub-right .filters .ddwrap { flex: 0 0 150px; }
   .usage-page .ub-right .filters input { width: auto; flex: 1 1 200px; }
 }

@@ -2953,6 +2953,8 @@
     }
     applyDock();
     if (!v) {
+      /* 历史浮层与遮罩挂在面板外面：面板一收，它们不会跟着走 —— 不收就会一直浮在页面上。 */
+      closeHist();
       try { if (el.ball) { if (window.focusQuiet) window.focusQuiet(el.ball); else el.ball.focus(); } } catch (e) {}
       return;
     }
@@ -2977,7 +2979,7 @@
     if (!isOpen()) setOpen(true);   // 「开的时候落到最新一条」在 setOpen 里，这里不再刷一遍
     if (el.histBox && !el.histBox.hidden) paintHist();
   }
-  function closePanel() { if (isOpen()) setOpen(false); }
+  function closePanel() { if (isOpen()) { closeHist(); setOpen(false); } }
 
   /* ---------- 悬浮球：位置可拖，落在 ai_chat_xy ---------- */
   const BALL = 46;
@@ -3680,6 +3682,8 @@
     if (e.key === 'Escape') {
       if (!isOpen()) return;
       if (document.querySelector('dialog[open]')) return;
+      /* 一层一层退：历史浮层开着时，第一条 Esc 只收它（与点遮罩同一效果），面板留着。 */
+      if (el.histBox && !el.histBox.hidden) { closeHist(); return; }
       closePanel();
       return;
     }

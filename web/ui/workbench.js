@@ -512,12 +512,47 @@
     },
   };
 
+  /* 页头与列表之间的那点几何（普通页 .page-shell 这一族）。
+     · track(root)：量 root 直接子级 .phead 的高度写进 --phead-h —— 多选条也要粘顶
+       （.bulkbar 的 top），不让开就会压在标题上；0px 是「这一页没画页头」，不覆盖已知值。
+     · scrollToList(root, el)：把列表顶落到页头（与开着的多选条）下缘，翻页后回到这一屏的开头。
+       滚动发生在 .page-shell 自己身上，所以按它自己的 rect 算，而不是 window 的。 */
+  const pageHead = {
+    track(root) {
+      if (!root) return null;
+      const head = root.querySelector(':scope > .phead');
+      if (!head) return null;
+      const set = () => {
+        const h = Math.round(head.getBoundingClientRect().height);
+        if (h > 0) root.style.setProperty('--phead-h', h + 'px');
+      };
+      set();
+      if (typeof ResizeObserver !== 'function') {
+        window.addEventListener('resize', set);
+        return () => window.removeEventListener('resize', set);
+      }
+      const ro = new ResizeObserver(set);
+      ro.observe(head);
+      return () => ro.disconnect();
+    },
+    scrollToList(root, el) {
+      if (!root || !el) return;
+      const rr = root.getBoundingClientRect(), er = el.getBoundingClientRect();
+      const head = root.querySelector(':scope > .phead');
+      let top = head ? head.getBoundingClientRect().height : 0;
+      const bar = root.querySelector(':scope > .bulkbar');
+      if (bar && bar.offsetParent !== null) top += bar.getBoundingClientRect().height;
+      root.scrollTop = Math.max(0, root.scrollTop + (er.top - rr.top) - top);
+    },
+  };
+
   window.Wb = {
     ST,
     emptyHTML,
     filterBar,
     kindFilter,
     viewport,
+    pageHead,
     stText(s) { const t = norm(s); return ST[t] || s || ''; },
     /* 活 / 失败的判定只看状态串，页面别再自己列 ['failed','cancelled'] 这种词表
        （少一个同义词就会把已完成的任务画成失败，或者把在跑的任务从轮询集合里漏掉）。 */
@@ -2380,6 +2415,8 @@
         const pages = Math.max(1, Math.ceil((t || n) / size));
         return '第 ' + (cur + 1) + ' 页 / 共 ' + pages + (!t && hasMore ? '+' : '') + ' 页';
       },
+      /* 条件一变就把页码收回第 1 页（实例可能还没建好）。 */
+      reset(p) { if (p) p.reset(); },
       create(o) {
         const mode = o.mode === 'more' ? 'more' : 'page';
         const PAGE_SIZE = Math.max(1, Number(o.pageSize) || 20);
@@ -2391,7 +2428,15 @@
         const all = () => o.items() || [];
         let page = 0;
         let morePages = 1;
+        /* 上一次经 pager 重画的页码：「真翻页才滚回列表顶」由它判 —— 续拉（more 档）
+           页码不动，页面自己的筛选重画也不走这里，那两种都不该动视口。 */
+        let paintedPage = 0;
         let reqSeq = 0;        // 翻页/续拉的代际号：慢的旧请求回来时用它作废
+        const paint = () => {
+          const changed = page !== paintedPage;
+          paintedPage = page;
+          if (o.render) o.render(changed);
+        };
         const shown = n => {
           const t = Math.max(0, Number(n === undefined ? all().length : n) || 0);
           return localMore ? Math.min(t, morePages * PAGE_SIZE) : t;
@@ -2405,8 +2450,10 @@
              算式只留这一处 —— slice() 里面那份 clamp 读的是同一个数。 */
           get lastPage() { return Math.max(0, Math.ceil(all().length / PAGE_SIZE) - 1); },
           shown, hasMore: more,
-          /* 筛选/换档之后回到第一页（两页原来各写一遍「morePages=1 + setPage(0)」） */
-          reset() { page = 0; morePages = 1; },
+          /* 筛选/换档之后回到第一页（两页原来各写一遍「morePages=1 + setPage(0)」）。
+             paintedPage 一并归零：不然「第 2 页 → 改条件回第 1 页 → 再翻第 2 页」
+             会与上一轮页码相等，翻页那一下就不滚回列表顶了。 */
+          reset() { page = 0; morePages = 1; paintedPage = 0; },
           /* 让第 index 条落到可见范围里：返回 true 表示范围变了、页面要重画。
              翻页模式跳页；本地续拉模式放开到覆盖这一条的那一页。
              服务端续拉（工作台右栏）里这一条可能根本没取回来，返回 false 让页面自己决定怎么补。 */
@@ -2491,7 +2538,7 @@
             }
             if (g !== reqSeq) return;
             api.setPage(target);
-            if (o.render) o.render();
+            paint();
           },
           /* 滚到底自动续拉（动态加载模式）：提前量与「拉完还贴着就再拉」都走 pullLeadPx / makePuller
              （与哨兵同一份判据，只是滚动发生在容器自己身上）。
@@ -2513,7 +2560,7 @@
                 const g = ++reqSeq;
                 const step = localMore ? Promise.resolve().then(() => { api.morePage(); })
                   : Promise.resolve(o.fill());
-                return step.then(() => { if (g === reqSeq && o.render) o.render(); });
+                return step.then(() => { if (g === reqSeq) paint(); });
               });
             box._pagerPull = pull;
             box.addEventListener('scroll', () => { pull(); }, { passive: true });

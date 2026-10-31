@@ -80,6 +80,7 @@ export default {
     const urlMap = new Map();
     let pager = null;
     let offStorage = null;
+    let offHead = null;
     let viewToggle = null;
     let renderSeq = 0;
     let aiPick = null;
@@ -787,6 +788,8 @@ export default {
       bindKindFilter();
       bindFavToolbar();
       initWb();
+      /* 页头高度是「多选条粘顶时让开多少」的唯一来路（ui.css 的 --phead-h）。 */
+      offHead = window.Wb.pageHead.track(rootEl.value);
       window.addEventListener('fav-change', onFavChange);
       offStorage = window.StorageBus.on(['fav_items'], onStorage);
       /* 拖文件进窗口 = 上传：登记在 document 上，页面切走时摘掉。 */
@@ -813,6 +816,7 @@ export default {
     onBeforeUnmount(() => {
       window.removeEventListener('fav-change', onFavChange);
       if (offStorage) { offStorage(); offStorage = null; }
+      if (offHead) { offHead(); offHead = null; }
       window.removeEventListener('resize', onFavResize);
       document.removeEventListener('keydown', onFavKey);
       document.removeEventListener('dragover', onDragOver);

@@ -1292,6 +1292,8 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
    导演台是**作用域岛**，它不吃这一份的留白（内部 .page-main 是整屏高的列），那份另在 spa-director.css。 */
 .page-shell { position: absolute; inset: 0; overflow: auto; box-sizing: border-box;
   --shell-px: var(--sp-32);
+  /* 页头高度：由 Wb.pageHead.track 量出来写进这一枚（页头不存在时就是 0）。 */
+  --phead-h: 0px;
   padding: 0 var(--shell-px) var(--sp-60); }
 .page-shell * { box-sizing: border-box; }
 @media (max-width: 760px) { .page-shell { --shell-px: var(--sp-14); padding: 0 var(--shell-px) var(--sp-40); } }
@@ -1319,6 +1321,9 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
    壳里的页头只管上下，左右交给壳 —— 工作台（.wb）不吃这条：它的壳不留白，
    页头与两栏块各自按 --shell-px 对齐。 */
 .page-shell > .phead { padding-left: 0; padding-right: 0; }
+/* 多选条粘顶时要让开页头（两者都 sticky top:0 时会叠在一起，批量条压住标题）。
+   只认 .page-shell 的直接子级：素材库的 bulkbar 在 .mat-scroll 里，那里整块不滚。 */
+.page-shell > .bulkbar { top: var(--phead-h); }
 /* A 身份：标题本体。
    ⚠ 这里**不再有图标铭牌**（2026-10-27 撤）：原来那枚 26px 强调色方块（.phead-ic）
    七页各挂一枚 → 切页时标题旁边多一格、强调色也多一个落点，标题本身反而不突出

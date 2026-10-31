@@ -2267,7 +2267,7 @@ const StudioView = {
             kinds: window.mediaKindTabs('all'),
             value: filterKind,
             count: v => Number(kindCounts.get(v) || 0),
-            onPick: v => { filterKind = v; pager.setPage(0); renderAll(); },
+            onPick: v => { filterKind = v; pager.reset(); renderAll(); },
           });
         }
         kindFilterApi.setValue(filterKind);
@@ -2280,7 +2280,7 @@ const StudioView = {
       $('winAll').onclick = () => {
         showAll = !showAll;
         $('winAll').textContent = showAll ? '只看最近 30 天' : '查看全部';
-        pager.setPage(0);
+        pager.reset();
         renderAll();
       };
       function loadServer(morePages, noCache, stage) {
@@ -2812,8 +2812,7 @@ const StudioView = {
         while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
       }
       /* 翻页 = 换一屏：翻完要回到这一屏的顶上（用户点名的那一条）。
-         只在页码真的变了时滚，续拉（more 档）不动视口。 */
-      let lastPagerPage = 0;
+         页码真的变没变由公共件递进来；续拉（more 档）与筛选重画都不动视口。 */
       function scrollResultTop() { const box = $('result'); if (box) box.scrollTop = 0; }
       const pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE,
@@ -2822,8 +2821,8 @@ const StudioView = {
         hasMore: () => serverHasMore,
         total: () => tally.value(),
         searchQ: () => searchQ,
-        render: () => {
-          if (pager.page !== lastPagerPage) { lastPagerPage = pager.page; scrollResultTop(); }
+        render: changed => {
+          if (changed) scrollResultTop();
           renderAll();
         },
         fill: fillPages,
@@ -2961,7 +2960,13 @@ const StudioView = {
           });
           if (!ok) { setStatus('<span class="warn">已取消：你写的提示词一个字没动</span>'); return; }
         }
-        if (it.prompt) $('prompt').value = it.prompt;
+        if (it.prompt) {
+          $('prompt').value = it.prompt;
+          /* 提示词也是这一型草稿的一部分：只写 textarea 的话，切类型再切回来
+             （setType 从 cur().prompt 回填）这条就丢了。 */
+          cur().prompt = it.prompt;
+          writeLS('studio_prompt_' + TYPE, it.prompt);
+        }
         if (it.model) {
           const g = provGroups().find(p => (p.models || []).some(m => m.id === it.model));
           if (g) { $('model').value = g.id + '::' + it.model; $('model').dispatchEvent(new Event('change')); }
@@ -2985,7 +2990,8 @@ const StudioView = {
         }
         const src = it.src || it.media || it.raw || '';
         const has = !!src || !!it.assetId || !!it.fileKey;
-        const r = (has && it.asMaterial)
+        /* 跨页带过来的这一条就是要接着用：地址带着，就进对应类型的参考槽（不然换了类型却没有素材）。 */
+        const r = has
           ? await refIntoSlot(it.mtype, { src, assetId: it.assetId, dl: it.dl, fileKey: it.fileKey,
             name: it.name || it.prompt }, { autoSwitch: true })
           : null;
@@ -2996,10 +3002,8 @@ const StudioView = {
         if (it.prompt) bits.push('提示词');
         if (it.model) bits.push('型号');
         if (r && r.ok) bits.push('1 个' + it.mtype + '素材');
-        const dropped = (has && !it.asMaterial) ? '（没进参考槽）' : '';
         setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>'
-          + '<span class="warn">　确认后点「生成」。</span>'
-          + (dropped ? '<span class="warn">　' + dropped + '</span>' : ''));
+          + '<span class="warn">　确认后点「生成」。</span>');
       }
       async function applyReuseFromAssets() {
         let p2 = null;
@@ -3028,7 +3032,7 @@ const StudioView = {
         onSearch: v => {
           searchQ = String(v == null ? '' : v).trim().toLowerCase();
           if (aiPick) { aiPick = null; aiRank = null; aiWhy = ''; }
-          pager.setPage(0);
+          pager.reset();
           renderAll();
         },
         extraHTML: window.AiFind.btnHTML() + '<span data-fb="aiChip"></span>',
@@ -3100,9 +3104,9 @@ const StudioView = {
              类型档同理 —— AI 挑的是跨类型的一批，档还锁着就看不见。 */
           searchQ = '';
           filterKind = 'all';
-          pager.setPage(0);
+          pager.reset();
         },
-        done: () => { pager.setPage(0); renderAll(); },
+        done: () => { pager.reset(); renderAll(); },
         say: t => { const el = $('histNote'); if (el) el.textContent = t; },
       };
       function pullScope() {
@@ -3161,7 +3165,9 @@ const StudioView = {
           if (PAGE_MODE === 'more') setTimeout(autoLoadMore, 60);
         }
       };
-      $('gotoBtn').onclick = async () => {
+      /* 跳页只有这一份：点按钮与在输入框里回车走同一条路。
+         more 档的 go() 只改页码不补条目，回车直接走 pager.gotoInput 会「输入框清空了、列表没动」。 */
+      const gotoNow = async () => {
         if (PAGE_MODE === 'page') { pager.gotoInput('gotoPage'); return; }
         /* 动态加载档：跳页 = 把第 N 页之前的内容都取回来（与资产库同一份语义）。
            这一档不滚回顶上：用户是要把后面的内容取进来接着看，弹回开头就等于白取。 */
@@ -3170,7 +3176,12 @@ const StudioView = {
         await fillPages(n);
         renderAll();
       };
-      $('stGotoPage').addEventListener('keydown', e => { if (e.key === 'Enter') pager.gotoInput('gotoPage'); });
+      $('gotoBtn').onclick = gotoNow;
+      $('stGotoPage').addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        gotoNow();
+      });
 
       /* ---------- 多选 + 批量下载（与资产库同一套公共件） ----------
          勾选框 .pick、批量条 .bulkbar、批量下载 Wb.downloadList 三样都是公共件，
@@ -3416,6 +3427,9 @@ const StudioView = {
       /* ============================ ⑪ 启动 ============================ */
       let bootStopped = false;
       async function boot() {
+        /* 入口地址那一份查询串先留住：setType 会把 hash 改写成 `?t=`（reuse=1 就没了），
+           后面再读 pageQuery() 就认不出「这一趟是带着复用载荷进来的」。 */
+        const entryQ = pageQuery() || '';
         TYPE = readTypeFromURL() || readLS('studio_type', '') || 'video';
         if (!TYPES[TYPE]) TYPE = 'video';
         const picks = loadPicks();
@@ -3450,7 +3464,7 @@ const StudioView = {
         renderModelOptions();
         paintLeft();
         refreshCaps();
-        if (/[?&]reuse=1/.test(pageQuery() || '')) {
+        if (/[?&]reuse=1/.test(entryQ)) {
           try { await applyReuseFromAssets(); } catch (e) { setStatus('<span class="err">复用失败：' + window.esc(window.errText(e)) + '</span>'); }
         }
       }

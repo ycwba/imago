@@ -35,7 +35,12 @@ const KINDS = ['视频', '图片', '音频'];
 (async () => {
   let proxy, browser, page;
   try {
-    proxy = await h.startProxy();
+    /* 上游指到没人听的端口（同 asset-requests）：这一条数的是「种进去的那几条怎么分档」，
+       本机 .env 里的真实平台密钥一旦生效，卡片会多出一大把、每一档的计数都不再是探针种的值。
+       PROXY_OFF 显式给 '0'：环境变量比 .env 优先，不然 .env 里的 PROXY_OFF=1 会把这条代理路挡掉。 */
+    proxy = await h.startProxy({ env: {
+      HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', PROXY_OFF: '0',
+    } });
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.setSize(1440, 900);

@@ -4765,6 +4765,10 @@ const SettingsView = {
       const doc = setDocEl.value;
       if (!doc) return;
       doc.style.setProperty('--setanchor', anchorH() + 'px');
+      /* Skill 轨的 max-height 要按**这条文档的滚动口**算：100vh 里还含着页头与状态行，
+         矮窗下按它算出来的轨比滚动口还高，轨底被裁掉。0 是还没排版的读数，不覆盖。 */
+      const h = Math.round(doc.clientHeight);
+      if (h > 0) doc.style.setProperty('--setdoc-h', h + 'px');
     }
     function scrollToEl(el, block) {
       const doc = setDocEl.value;
@@ -4945,6 +4949,8 @@ const SettingsView = {
           doc.querySelectorAll('.set-group-h').forEach(h => {
             try { navRO.observe(h); } catch (e) { /* 观察不了就罢了：停靠位退回初始值 44px */ }
           });
+          /* 文档滚动口自己的高度也跟着窗口 / 状态行变（--setdoc-h 的来路）。 */
+          try { navRO.observe(doc); } catch (e) {}
         }
       }
       window.addEventListener('resize', setDocAnchor);

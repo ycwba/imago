@@ -18,6 +18,8 @@
      · 双击把手复位：行内 --sp0 撤掉、回到弹性默认档
      · 切到别的页再切回来，把手与宽度都还在（KeepAlive 不许把它吃掉）
      · 页头那条与两栏块同宽同起点（标题落在左栏左缘）
+     · 窄屏（≤960）滚动归 .wb .layout（.wb 不许自己滚，否则列表从透明页头下穿过），
+       且标题与内容列的左右留白读同一枚 --shell-px
 
    路由：#studio.html */
 'use strict';
@@ -153,6 +155,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     must(m4.handles === 1 && m4.handleInLayout, '切回工作台后把手该还在本页的 .layout 里：' + JSON.stringify(m4));
     must(Math.abs(m4.leftW - before.leftW) <= 3,
       '切回工作台后左栏宽度该还是那个（' + before.leftW + ' → ' + m4.leftW + '）：' + JSON.stringify(m4));
+
+    /* ── ⑥ 窄屏（≤960）：滚动交给 .layout，标题与内容列同一起点 ──────
+       以前把 .wb 自己变成滚动容器（height:auto + overflow:auto），而页头是透明的 sticky
+       → 列表从标题底下穿过去；≤720 又把 .layout 的左右留白改成 12，标题仍是 32
+       → 窗口变窄时标题比内容左出一截。 */
+    await page.setSize(700, 800);
+    await sleep(500);
+    const narrow = await page.eval(() => {
+      const root = document.querySelector('.studio-page');
+      const title = root.querySelector('.phead-h1');
+      const left = root.querySelector('.col-left');
+      const layout = root.querySelector('.layout');
+      const cs = el => getComputedStyle(el);
+      return {
+        titleLeft: Math.round(title.getBoundingClientRect().left),
+        leftLeft: Math.round(left.getBoundingClientRect().left),
+        wbOverflow: cs(root).overflow,
+        layoutOverflowY: cs(layout).overflowY,
+      };
+    });
+    must(Math.abs(narrow.titleLeft - narrow.leftLeft) <= 1,
+      '窄屏下标题左缘该与内容列左缘对齐（' + narrow.titleLeft + ' vs ' + narrow.leftLeft + '）：' + JSON.stringify(narrow));
+    must(narrow.wbOverflow === 'hidden',
+      '窄屏下 .wb 不该变成滚动容器（列表会从透明页头底下穿过去）：' + JSON.stringify(narrow));
+    must(narrow.layoutOverflowY === 'auto',
+      '窄屏下滚动该落在 .wb .layout 自己身上：' + JSON.stringify(narrow));
 
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));

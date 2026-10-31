@@ -26,7 +26,7 @@ const PAGES = [
   { hash: 'studio.html', root: '.studio-page', nm: '工作台', col: '.col-left' },
   { hash: 'favorites.html', root: '.fav-page', nm: '我的收藏', col: '.toolbar' },
   { hash: 'assets.html', root: '.assets-page', nm: '资产库', col: '.as-tools' },
-  { hash: 'usage.html', root: '.usage-page', nm: '用量与余额', col: '.desc' },
+  { hash: 'usage.html', root: '.usage-page', nm: '用量与余额', col: '.ub-layout' },
   { hash: 'settings.html', root: '.settings-page', nm: '设置', col: '.set-rail' },
 ];
 

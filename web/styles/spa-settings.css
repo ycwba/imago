@@ -23,6 +23,9 @@
   background: var(--bg); color: var(--txt);
   font-family: var(--font-ui);
   --setanchor: 44px;
+  /* 这条文档滚动口的实测高度（settings.js 写进来）：轨的 max-height 按它算，
+     不能用 100vh —— 上面的页头与下面的状态行都不在滚动口里。 */
+  --setdoc-h: 100vh;
 }
 /* 这一页不再用 .page-shell 那份「整页滚 + 上下留白」：留白收在这一层，
    滚动交给右栏那条文档（.set-doc-scroll）—— 否则会出现双滚动条（页面壳 + 文档列）。
@@ -563,7 +566,7 @@
   /* 吸附边跟**动态**的组标题高度走（--setanchor 由 settings.js 量出来写进来）：
      组标题钉在这条文档顶上（z-index 5），轨跟着吸顶就要在它底下停住；
      写死一个 --sp-60 的话，组标题一变高，轨的上半截就藏到组标题底下（用户点名：吸顶打架）。 */
-  position: sticky; top: calc(var(--setanchor) + var(--sp-6)); max-height: calc(100vh - var(--setanchor) - var(--sp-24)); overflow: auto; }
+  position: sticky; top: calc(var(--setanchor) + var(--sp-6)); max-height: calc(var(--setdoc-h) - var(--setanchor) - var(--sp-24)); overflow: auto; }
 .settings-page .sk-rail-top { display: flex; align-items: center; gap: var(--sp-8); }
 .settings-page .sk-search { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--sp-12);
   border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input);

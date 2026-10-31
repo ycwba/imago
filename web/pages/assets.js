@@ -66,6 +66,7 @@ export default {
 
     let started = false;
     let offStorage = null;
+    let offHead = null;
     let assets = [];
     let cursors = {};
     /* 每个来源「到底了没有」：fetchMore 每轮从 res.more 拿，只给后台数总数接着往后翻用（见 tallyFrom） */
@@ -87,7 +88,9 @@ export default {
     let aiHit = { total: 0, shown: 0 };
     let aiAsc = 0;
     /* 页码这一份状态归 `Wb.pager`（下面 initWb 里建的那一份）：这一页的按钮是 Vue 绑的，
-       所以给 pager 传 onState，让它把「能不能点 / 第几页 / 共几页」算好递回来。 */
+       所以给 pager 传 onState，让它把「能不能点 / 第几页 / 共几页」算好递回来。
+       「条件变了回第 1 页」走公共件的 `Wb.pager.reset(pager)`；「页码真变了才滚回列表顶」
+       由 pager 重画时递进来的 changed 判（续拉与筛选重画都不该动视口）。 */
     let pager = null;
     /* 大类型 + 搜索这一行的唯一生成者（搜索框、芯片、按钮、计数都出自 Wb.filterBar）。
        AI 搜索按钮与 AI 芯片是这一页私有内容（按钮的画法与文案取自公共层 AiFind.btnHTML），
@@ -871,6 +874,7 @@ export default {
       if (searchFb) { searchFb.setQuery(''); searchFb.markApplied(''); }
       if (dFromEl.value) dFromEl.value.value = '';
       if (dToEl.value) dToEl.value.value = '';
+      window.Wb.pager.reset(pager);
       renderFilters(); paintAiChip(); renderGrid();
     }
     function emptyStateHTML() {
@@ -1064,7 +1068,7 @@ export default {
             kinds: tabs,
             value: F.type,
             count: v => Number(kindCounts.get(v) || 0),
-            onPick: v => { F.type = v; renderFilters(); renderGrid(); },
+            onPick: v => { F.type = v; window.Wb.pager.reset(pager); renderFilters(); renderGrid(); },
           });
         }
         kindFb.setCounts(v => Number(kindCounts.get(v) || 0));
@@ -1082,6 +1086,14 @@ export default {
       }
       if (asTimeEl.value) asTimeEl.value.value = F.time;
       renderSum();
+    }
+
+    /* 平台下拉：options 每次由 renderFilters 重建，监听挂在 select 上即可跨重建存活。 */
+    function onProvChange() {
+      F.provider = (asProvEl.value && asProvEl.value.value) || '全部';
+      window.Wb.pager.reset(pager);
+      renderFilters();
+      renderGrid();
     }
 
     /* 页头上下文三档：在制 / 失败 / 结果未知。
@@ -1107,6 +1119,7 @@ export default {
       const b = e.target.closest('[data-bucket]');
       if (!b) return;
       F.bucket = F.bucket === b.dataset.bucket ? '' : b.dataset.bucket;
+      window.Wb.pager.reset(pager);
       renderSum(); renderGrid();
     }
 
@@ -1125,6 +1138,7 @@ export default {
       }
       if (dFromEl.value) dFromEl.value.value = F.from;
       if (dToEl.value) dToEl.value.value = F.to;
+      window.Wb.pager.reset(pager);
       renderFilters(); renderGrid();
     }
 
@@ -1132,12 +1146,14 @@ export default {
       if (which === 'from') F.from = dFromEl.value ? dFromEl.value.value : '';
       else F.to = dToEl.value ? dToEl.value.value : '';
       F.time = 'custom';
+      window.Wb.pager.reset(pager);
       renderFilters(); renderGrid();
     }
     function clearDates() {
       F.from = ''; F.to = ''; F.time = '0';
       if (dFromEl.value) dFromEl.value.value = '';
       if (dToEl.value) dToEl.value.value = '';
+      window.Wb.pager.reset(pager);
       renderFilters(); renderGrid();
     }
     function openDatePicker(which, e) {
@@ -1146,7 +1162,7 @@ export default {
       const inp = which === 'from' ? (dFromEl.value || null) : (dToEl.value || null);
       if (!inp || !window.DatePicker) return;
       e.preventDefault();
-      window.DatePicker.open(holder, inp, { onPick: () => { renderFilters(); renderGrid(); } });
+      window.DatePicker.open(holder, inp, { onPick: () => { window.Wb.pager.reset(pager); renderFilters(); renderGrid(); } });
     }
 
     /* ---------- AI 搜索（这一页产出的是筛选条件） ---------- */
@@ -1166,7 +1182,7 @@ export default {
           /* 收掉 AI 条件 = 退回不筛：框里那句原话一并清掉（留着会被当成普通词再筛一遍）。 */
           FAI = null; aiAsc = 0; F.q = '';
           if (searchFb) { searchFb.setQuery(''); searchFb.markApplied(''); }
-          paintAiChip(); renderFilters(); renderGrid();
+          window.Wb.pager.reset(pager); paintAiChip(); renderFilters(); renderGrid();
         },
       });
     }
@@ -1212,6 +1228,7 @@ export default {
            点到别处时不会又被当成普通搜索跑一遍、把 AI 的条件冲掉。 */
         F.q = '';
         if (searchFb) searchFb.markApplied(v.q);
+        window.Wb.pager.reset(pager);
         window.Toast.receipt('已按 AI 给的条件筛好（原话：' + v.q.slice(0, 24) + '）；清空搜索框或点条件上的 ✕ 取消');
       } catch (e) {
         window.Toast.err(window.AiFind.failText(e));
@@ -1313,6 +1330,9 @@ export default {
         onSearch: v => {
           if (FAI) { FAI = null; aiAsc = 0; paintAiChip(); }
           F.q = String(v == null ? '' : v).trim().toLowerCase();
+          window.Wb.pager.reset(pager);
+          /* 每档条数 / 平台 options / 页头状态计数都在 renderFilters 里算，搜完必须一起重画。 */
+          renderFilters();
           renderGrid();
         },
         extraHTML: window.AiFind.btnHTML('aiSearchBtn') + '<span data-fb="aiChip"></span>',
@@ -1320,6 +1340,8 @@ export default {
       });
       /* 页头三档（状态）：点一下把列表筛到那一档 */
       if (asSumEl.value) asSumEl.value.addEventListener('click', onSumClick);
+      /* 平台下拉 */
+      if (asProvEl.value) asProvEl.value.addEventListener('change', onProvChange);
       /* 时间下拉 */
       if (asTimeEl.value) asTimeEl.value.addEventListener('change', onTimeChange);
       /* 平台下拉的浮层由 load() 里那一次 Dropdowns.build 建（这一页是后挂上来的），
@@ -1338,7 +1360,10 @@ export default {
         hasMore: () => hasMore(),
         total: () => (noFilter() && tally ? tally.value() : 0),
         fill: pages => ensureLoaded(pages - 1),
-        render: () => renderGrid(),
+        render: changed => {
+          if (changed) window.Wb.pageHead.scrollToList(pageEl.value, gridEl.value);
+          renderGrid();
+        },
       });
       pager.bindButtons();
       cardList = window.Wb.cards.create({
@@ -1440,6 +1465,7 @@ export default {
       askedQ = q;
       F.q = q;
       if (searchFb) searchFb.setQuery(q);
+      window.Wb.pager.reset(pager);
       renderFilters();
       renderGrid();
       while (!filteredAll().length && hasMore() && !loadFailed() && loadedPages < 40) await fetchMore(2);
@@ -1481,6 +1507,8 @@ export default {
       await nextTick();
       try {
         initWb();
+        /* 页头高度是「多选条粘顶时要让开多少」的唯一来路（见 ui.css 的 --phead-h）。 */
+        offHead = window.Wb.pageHead.track(pageEl.value);
       } catch (e) {
         failed.value = '资产库初始化失败：' + window.errText(e);
         if (window.PageReport) PageReport.pageFail('资产库', failed.value, e);
@@ -1502,6 +1530,7 @@ export default {
     onBeforeUnmount(() => {
       started = false;
       if (offActivity) offActivity();
+      if (offHead) { offHead(); offHead = null; }
       unregisterAdapters();
       window.removeEventListener('fav-change', onFavChange);
       if (offStorage) { offStorage(); offStorage = null; }

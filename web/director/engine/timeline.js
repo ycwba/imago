@@ -748,14 +748,18 @@ export function createTimeline(E, document, window) {
   function positionPopover(anchor) {
     if (!popEl || popEl.hidden || !host) return;
     const hostRect = host.getBoundingClientRect();
+    /* 先给自己一个不超板的可用高度，再按实测尺寸夹位置：
+       宽度 / 高度都不能写死（预置格数与字号会变），否则窄窗下浮层四边会出板。 */
+    popEl.style.maxHeight = Math.max(64, Math.round(hostRect.height - 16)) + 'px';
+    const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
     let x = 40, y = 40;
     if (anchor && anchor.getBoundingClientRect) {
       const r = anchor.getBoundingClientRect();
-      x = r.left - hostRect.left + r.width / 2 - 150;
-      y = r.top - hostRect.top - 240;
+      x = r.left - hostRect.left + r.width / 2 - pw / 2;
+      y = r.top - hostRect.top - ph - 8;
     }
-    popEl.style.left = Math.max(8, Math.min(Math.max(8, hostRect.width - 316), x)) + 'px';
-    popEl.style.top = Math.max(8, Math.min(Math.max(8, hostRect.height - 80), y)) + 'px';
+    popEl.style.left = Math.max(8, Math.min(Math.max(8, hostRect.width - pw - 8), x)) + 'px';
+    popEl.style.top = Math.max(8, Math.min(Math.max(8, hostRect.height - ph - 8), y)) + 'px';
   }
   function closePopover() {
     popIndex = -1;

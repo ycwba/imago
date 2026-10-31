@@ -121,9 +121,9 @@
     header input.pname { width: 100%; order: 9; }
     .layout { padding: var(--sp-8) var(--shell-px); }
   }
-  /* 矮窗口（横向拉长、纵向不够）：先把头部和留白压扁，播放区别把整屏占满 */
+  /* 矮窗口（横向拉长、纵向不够）：先把头部和留白压扁，播放区别把整屏占满。
+     横向留白不跟着压 —— 页头、三栏、轨道底板读同一枚 --shell-px，只压纵向。 */
   @media (max-height: 620px) {
-    .page-main { --shell-px: var(--sp-12); }
     .layout { padding: var(--sp-10) var(--shell-px); }
     .player-box video, .player-empty { max-height: 44vh; }
     .col-left { max-height: 38vh; }
@@ -134,8 +134,9 @@
   /* .ghost / .pri / .lb-btn / #lightbox 等公共组件样式统一来自 ui.css */
 
   /* 左栏 */
-  /* 我的短片下拉：与左栏分镜列表同一套样式 */
-  #projMenu { padding: var(--sp-6); }
+  /* 我的短片下拉：与左栏分镜列表同一套样式。
+     .page-main 是 overflow:hidden，项目一多下半截就没有出路 —— 菜单自己滚。 */
+  #projMenu { padding: var(--sp-6); max-height: 60vh; overflow-y: auto; }
   .pm-head { font-size: var(--fs-11); color: var(--sub); padding: var(--sp-6) var(--sp-9) var(--sp-4); }
   .pm-row { display: flex; align-items: center; gap: var(--sp-9); padding: var(--sp-5) var(--sp-9); border-radius: var(--radius-4); cursor: pointer;
     margin-bottom: var(--sp-3); font-size: var(--fs-12-5); border: var(--hair) solid transparent; border-left: var(--hair-3) solid transparent; }
@@ -792,7 +793,7 @@
   .tl-board { --tl-side-w: 116px; --tlh-tools: 40px; --tlh-ruler: 22px; --tlh-marker: 20px;
     --tlh-image: 54px; --tlh-voice: 40px; --tlh-cap: 30px; --tlh-foot: 26px; --cell: 64px;
     position: relative; display: flex; flex-direction: column; flex: 0 0 auto;
-    min-width: 0; max-height: var(--dock-h); margin: 0 var(--sp-16) var(--sp-12);
+    min-width: 0; max-height: var(--dock-h); margin: 0 var(--shell-px) var(--sp-12);
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
     /* 板子自己不再裁溢出：坞把手是**骑在上沿**的那一条（Wb.split 插进来的），
        裁掉上半截就只剩 5px 可抓 —— 用户点名的「底栏拖不动」有一半是它。
@@ -1066,7 +1067,8 @@
     white-space: nowrap; font-size: var(--fs-11); color: var(--sub); }
 
   /* ---------------- 转场浮层（九个预置 + 时长） ---------------- */
-  .tl-board .tl-pop { position: absolute; z-index: 90; width: 304px; padding: var(--sp-10);
+  .tl-board .tl-pop { position: absolute; z-index: 90; width: 304px; max-width: calc(100% - var(--sp-16));
+    max-height: 60vh; overflow-y: auto; padding: var(--sp-10);
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
     box-shadow: var(--shadow-16); }
   .tl-board .tl-pop[hidden] { display: none; }
