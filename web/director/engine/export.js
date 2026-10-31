@@ -171,7 +171,7 @@ async function exportFilm(opts) {
   const pendNote = warnPendingAssets();
   const film = filmOf();
   if (!film.clips.length) {
-    setStatus('<span class="err">现在成片里一段画面都没有：先回生成态在候选卡上点「用这条」选用，或者先生成画面</span>');
+    setStatus('<span class="err">现在成片里一段画面都没有：先回生成态在候选卡上点「选用」，或者先生成画面</span>');
     return { ok: false, err: '成片里一段画面都没有' };
   }
   /* 没有选用候选的镜头**不进成片**：不在这里数一遍说出来，

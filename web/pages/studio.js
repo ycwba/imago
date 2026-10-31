@@ -772,96 +772,103 @@ const StudioView = {
           ta.title = slots.length ? '可上传素材，或拖素材卡进来'
             : (comboNow() ? '当前模式不带素材' : '当前型号只支持纯文字');
         }
-        area.innerHTML = '';
-        clearSlotOver();
-        const head = $('slotHead'), headNote = $('slotHeadNote');
-        if (head) {
-          head.hidden = false;
-          if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序'
-            : (comboNow() ? '这一档不带参考素材（换上面一档就能加）' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
-        }
-        if (!slots.length) { updateGoState(); return; }
-        const blockedKinds = blockedSlotKinds();
-        const gridSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) >= 0);
-        const wideSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) < 0);
-        if (gridSlots.length) {
-          const box = document.createElement('div');
-          box.className = 'assets-grid';
-          area.appendChild(box);
-          gridSlots.forEach(sl => {
+        /* 重建这一段罩在公共件里。要稳住的容器不是 `#inputArea` 自己：宽窗里滚的是左栏 `.wb .col-left`，
+           ≤960px 那一档 CSS 把左栏放开成 `overflow:visible`、改由 `.wb .layout` 整块滚（滚动容器搬家了，
+           调用点不判窗宽，现问 `Wb.viewport.host`）。`area.innerHTML = ''` 之后逐格 appendChild，
+           上面这一段矮下去时浏览器会把滚动位夹回上限 —— 表现是「点一颗槽位上的 × 移除素材，左栏弹回顶」。
+           移除 / 清空那两路都走这一份，所以只在重建处罩一次。 */
+        Wb.viewport.keep(Wb.viewport.host(area) || area, () => {
+          area.innerHTML = '';
+          clearSlotOver();
+          const head = $('slotHead'), headNote = $('slotHeadNote');
+          if (head) {
+            head.hidden = false;
+            if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序'
+              : (comboNow() ? '这一档不带参考素材（换上面一档就能加）' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
+          }
+          if (!slots.length) return;              // 没有槽位：建完空的一栏就收，收尾那句在下面照旧跑
+          const blockedKinds = blockedSlotKinds();
+          const gridSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) >= 0);
+          const wideSlots = slots.filter(s => GRID_KINDS.indexOf(s.kind) < 0);
+          if (gridSlots.length) {
+            const box = document.createElement('div');
+            box.className = 'assets-grid';
+            area.appendChild(box);
+            gridSlots.forEach(sl => {
+              const items = slotItems(sl.kind);
+              const blocked = blockedKinds.has(sl.kind);
+              items.forEach((it, i) => {
+                const d = document.createElement('div');
+                d.innerHTML = slotTileHTML(sl, it, i, blocked);
+                box.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
+              });
+              if (slotRoom(sl) > 0) {
+                const def = SLOT_DEF[sl.kind];
+                const note = slotNote(sl);
+                const a = document.createElement('div');
+                a.className = 'asset-slot' + (blocked ? ' blocked' : '');
+                a.dataset.slot = sl.kind;
+                const sub = [];
+                if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+                if (note) sub.push(note);
+                a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
+                  + (items.length ? '<span>再加一个</span>' : '<span>' + window.esc(def.label) + '</span>')
+                  + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '');
+                a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
+                  : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
+                    + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
+                a.onclick = e => {
+                  e.stopPropagation();
+                  if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
+                  openSlotPicker(sl);
+                };
+                box.appendChild(a);
+              }
+            });
+          }
+          wideSlots.forEach(sl => {
             const items = slotItems(sl.kind);
             const blocked = blockedKinds.has(sl.kind);
             items.forEach((it, i) => {
               const d = document.createElement('div');
-              d.innerHTML = slotTileHTML(sl, it, i, blocked);
-              box.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
+              d.innerHTML = wideSlotHTML(sl, it, i, blocked);
+              area.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
             });
             if (slotRoom(sl) > 0) {
-              const def = SLOT_DEF[sl.kind];
-              const note = slotNote(sl);
-              const a = document.createElement('div');
-              a.className = 'asset-slot' + (blocked ? ' blocked' : '');
-              a.dataset.slot = sl.kind;
-              const sub = [];
-              if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
-              if (note) sub.push(note);
-              a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
-                + (items.length ? '<span>再加一个</span>' : '<span>' + window.esc(def.label) + '</span>')
-                + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '');
-              a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
-                : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
-                  + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
-              a.onclick = e => {
+              const d = document.createElement('div');
+              d.innerHTML = wideSlotHTML(sl, null, 0, blocked);
+              const t = d.firstElementChild;
+              t.onclick = e => {
                 e.stopPropagation();
-                if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
+                if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (SLOT_DEF[sl.kind].label + '与已选素材互斥，不能同时使用')); return; }
                 openSlotPicker(sl);
               };
-              box.appendChild(a);
+              area.appendChild(t);
             }
           });
-        }
-        wideSlots.forEach(sl => {
-          const items = slotItems(sl.kind);
-          const blocked = blockedKinds.has(sl.kind);
-          items.forEach((it, i) => {
-            const d = document.createElement('div');
-            d.innerHTML = wideSlotHTML(sl, it, i, blocked);
-            area.appendChild(bindSlotTile(d.firstElementChild, sl, it, i, blocked));
-          });
-          if (slotRoom(sl) > 0) {
-            const d = document.createElement('div');
-            d.innerHTML = wideSlotHTML(sl, null, 0, blocked);
-            const t = d.firstElementChild;
-            t.onclick = e => {
-              e.stopPropagation();
-              if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (SLOT_DEF[sl.kind].label + '与已选素材互斥，不能同时使用')); return; }
-              openSlotPicker(sl);
-            };
-            area.appendChild(t);
+          const hint = conflictHint(blockedKinds);
+          if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + window.esc(hint) + '</div>');
+          const gaps = shapeGaps();
+          const gLines = gaps.lines;
+          if (gLines.length) {
+            const badKinds = [...new Set(gaps.rejected.concat(gaps.over).map(x => ROLE_KIND[x.role]))].filter(Boolean);
+            const fit = fitComboFor(heldRoles());
+            const canSwitch = !!(fit && fit.id !== cur().combo);
+            const box2 = document.createElement('div');
+            box2.className = 'conflict-hint';
+            box2.style.color = 'var(--warn)';
+            box2.innerHTML = gLines.map(x => '<div>' + window.esc(x) + '</div>').join('')
+              + (canSwitch ? '<button type="button" class="ui-linkbtn">切到「' + window.esc(comboLabel(fit)) + '」</button>' : '')
+              + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<button type="button" class="ui-linkbtn">清空这些素材</button>' : '')
+              + (!canSwitch && !badKinds.length ? (gaps.missing.length ? '：补上缺的那一类素材，或换一档 / 换型号'
+                : '：换一档或换回支持的型号') : '');
+            const go = box2.querySelector('.ui-linkbtn');
+            if (go) go.onclick = () => setCombo(fit.id);
+            const cl = box2.querySelectorAll('.ui-linkbtn')[1];
+            if (cl) cl.onclick = () => { badKinds.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
+            area.appendChild(box2);
           }
         });
-        const hint = conflictHint(blockedKinds);
-        if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + window.esc(hint) + '</div>');
-        const gaps = shapeGaps();
-        const gLines = gaps.lines;
-        if (gLines.length) {
-          const badKinds = [...new Set(gaps.rejected.concat(gaps.over).map(x => ROLE_KIND[x.role]))].filter(Boolean);
-          const fit = fitComboFor(heldRoles());
-          const canSwitch = !!(fit && fit.id !== cur().combo);
-          const box2 = document.createElement('div');
-          box2.className = 'conflict-hint';
-          box2.style.color = 'var(--warn)';
-          box2.innerHTML = gLines.map(x => '<div>' + window.esc(x) + '</div>').join('')
-            + (canSwitch ? '<button type="button" class="ui-linkbtn">切到「' + window.esc(comboLabel(fit)) + '」</button>' : '')
-            + (badKinds.length ? (canSwitch ? ' 或 ' : '') + '<button type="button" class="ui-linkbtn">清空这些素材</button>' : '')
-            + (!canSwitch && !badKinds.length ? (gaps.missing.length ? '：补上缺的那一类素材，或换一档 / 换型号'
-              : '：换一档或换回支持的型号') : '');
-          const go = box2.querySelector('.ui-linkbtn');
-          if (go) go.onclick = () => setCombo(fit.id);
-          const cl = box2.querySelectorAll('.ui-linkbtn')[1];
-          if (cl) cl.onclick = () => { badKinds.forEach(k => clearSlot(k)); renderInputArea(); updateMode(); };
-          area.appendChild(box2);
-        }
         updateGoState();
       }
       function updateMode() {
@@ -2812,8 +2819,17 @@ const StudioView = {
         while (serverHasMore && guard++ < 20 && filteredItems().length < floor) await loadServer(1);
       }
       /* 翻页 = 换一屏：翻完要回到这一屏的顶上（用户点名的那一条）。
-         页码真的变没变由公共件递进来；续拉（more 档）与筛选重画都不动视口。 */
-      function scrollResultTop() { const box = $('result'); if (box) box.scrollTop = 0; }
+         页码真的变没变由公共件递进来；续拉（more 档）与筛选重画都不动视口。
+         宽窗里滚的是 `#result` 自己，直接归零；≤960px 那一档 CSS 把它放开成 overflow:visible、
+         改由整块布局滚 —— 往一只不滚的盒子写 scrollTop 是空转（不报错，只是没人滚），
+         那一档要把**结果区的顶**落到可视顶，而不是把整块布局滚回表单那一头。 */
+      function scrollResultTop() {
+        const box = $('result');
+        if (!box) return;
+        const c = Wb.viewport.host(box) || box;
+        if (c === box) box.scrollTop = 0;
+        else Wb.pageHead.scrollToList(c, box);
+      }
       const pager = Wb.pager.create({
         mode: PAGE_MODE, pageSize: PAGE_SIZE,
         pgPrevId: 'stPgPrev', pgNextId: 'stPgNext', pgInfoId: 'stPgInfo', gotoPage: 'stGotoPage',
@@ -3409,19 +3425,25 @@ const StudioView = {
         setStatus('<span class="err">' + window.esc(r.why) + (r.code === 'noslot' ? '（换型号或清空已选素材再试）' : '') + '</span>');
       }
 
-      /* ---------- 左栏整块重画（切类型 / 换型号之后） ---------- */
+      /* ---------- 左栏整块重画（切类型 / 换型号之后） ----------
+         这一串里每一处都可能改左栏那一列的高度（型号换了槽位就增删、参数区按声明重画、
+         提示词框自己按内容长高），而左栏整体是一只滚动容器：用户在下面打字，切一次类型
+         不该把视线甩回顶。要稳住的是**当下真正在滚的那一只**（宽窗是 `#leftCol`，
+         ≤960px 那一档 CSS 把它放开成 overflow:visible、改由整块布局滚），所以现问 host。 */
       function paintLeft() {
-        renderModelOptions();
-        slots = modelSlots();
-        $('splitBtn').hidden = TYPE !== 'image';
-        if (TYPE !== 'image') $('splitInline').hidden = true;
-        renderParams();
-        renderInputArea();
-        paintSubNote();
-        updateMode();
-        updateGoState();
-        refreshEst();
-        syncStyleRow();
+        Wb.viewport.keep(Wb.viewport.host($('leftCol')) || $('leftCol'), () => {
+          renderModelOptions();
+          slots = modelSlots();
+          $('splitBtn').hidden = TYPE !== 'image';
+          if (TYPE !== 'image') $('splitInline').hidden = true;
+          renderParams();
+          renderInputArea();
+          paintSubNote();
+          updateMode();
+          updateGoState();
+          refreshEst();
+          syncStyleRow();
+        });
       }
 
       /* ============================ ⑪ 启动 ============================ */

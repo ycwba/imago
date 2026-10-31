@@ -392,9 +392,14 @@
      开 = 重取一次余额（用户点它就是为了看新数）；关 = 点别处 / Esc / 侧栏换形态 / 窗口尺寸变。 */
   function paintBubble(note) {
     if (!balBubble) return;
-    balBubble.innerHTML = '<div class="sb-bal-body">'
-      + (balOn() ? balBodyHTML(note, true) : '') + mirrorBarHTML() + '</div>';
-    fitBalCards(balBubble);
+    /* 卡列表那一格（`.sb-bal-cards`）自己滚：整块重画把它连节点一起换掉，滚到第二屏的人一次余额
+       回执就被弹回第一屏。公共件按锚点还位；量高写高那句（`fitBalCards`）排在还原**之前**，
+       不然定完三张的高度还要再夹一次上限。 */
+    keepPaint(balBubble, () => {
+      balBubble.innerHTML = '<div class="sb-bal-body">'
+        + (balOn() ? balBodyHTML(note, true) : '') + mirrorBarHTML() + '</div>';
+      fitBalCards(balBubble);
+    });
     placeBalBubble();
   }
   function placeBalBubble() {
@@ -474,6 +479,10 @@
      paintBal 画不画卡片、`__sbApplyBalance` 要不要去取数，两处都问它 ——
      各写一遍 `AssetLocal.sbBalOn && !AssetLocal.sbBalOn()` 就是两条会走岔的判据。 */
   const balOn = () => !(window.AssetLocal && AssetLocal.sbBalOn && !AssetLocal.sbBalOn());
+  /* 侧栏是外壳里的常驻经典脚本，`Wb.viewport` 住在那份**按页补载**的 workbench.js 里。
+     公共件还没就位时（开机第一帧、从不进那几页的会话）直接画：那一次卡列表本来就是空的，
+     没有滚动位可丢 —— 这一句判的是加载顺序，不是第二份实现。 */
+  const keepPaint = (el, fn) => (window.Wb && window.Wb.viewport ? window.Wb.viewport.keep(el, fn) : fn());
   /* 侧栏那张卡与气泡共用这一份画法：摘要行照旧画（收起态 / 矮窗看它），详情块照旧画
      （满形态看它，两块哪块可见只由 CSS 判）。 */
   function paintBal(box, note) {
@@ -487,11 +496,13 @@
     balShown = on ? balList().length : null;
     const body = on ? balBodyHTML(note) : '';
     /* 两块都关着时什么都不画：留一个空卡面（描边 + 淡底，二十来像素高）是一块没人认领的方块。 */
-    box.innerHTML = (body || mirror) ? balRegionHTML(mirror, body) : '';
-    bindBalSum(box);
-    bindBalTitle(box);
-    mountMirrorBar();
-    fitBalCards(box);
+    keepPaint(box, () => {
+      box.innerHTML = (body || mirror) ? balRegionHTML(mirror, body) : '';
+      bindBalSum(box);
+      bindBalTitle(box);
+      mountMirrorBar();
+      fitBalCards(box);
+    });
     paintBubble(note);
   }
   /* ---------- 「产物正在存进本机 / 本机已存多少」这一行 ----------

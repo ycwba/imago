@@ -2265,43 +2265,48 @@
     const wasBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
     const lastMine = !!msgs.length && msgs[msgs.length - 1].r === 'me';
     const keep = live ? liveEl : null;
-    box.innerHTML = '';
-    if (!msgs.length) {
-      const w = document.createElement('div');
-      w.className = 'ac-wel';
-      const who = document.createElement('div');
-      who.className = 'ac-who';
-      /* 开场白里那句「你点执行才真做」是这一层的承诺，勾了自动执行就不能再说这句话 */
-      who.textContent = '查询都现查，数字都照结果说。要提交生成任务或改设置，我会先画一张卡片写清「哪一家、哪个型号、什么参数、素材从哪来」，'
-        + (autoRun() ? '设置里勾了「执行前不用确认」，所以卡片会自己提交（校验一项都不省）。'
-          : '你点「执行」才真做 —— 我不点、不替你点，也不重复点。')
-        + '密钥和自定义地址我不碰。';
-      w.appendChild(who);
-      /* 空态的第一颗不是问句，是一颗**能立刻拿到答案**的按钮：
-         新用户点开抽屉看到六颗问句，得自己猜「我该问什么」；
-         而 `doctor` 那份体检（代理在不在线、哪家真能用、这个浏览器能不能出片、云同步配没配）
-         写得很全却只有模型能调 —— 用户没有界面入口。
-         这颗走的是现成那条 send（照样经文字 AI 那条路，拿到的是一份**说人话**的体检结论），
-         不另搭一套：另搭一套就会与 doctor 那份判据走样。 */
-      const dr = document.createElement('button');
-      dr.className = 'ac-qi ac-dr';
-      dr.textContent = '先体检这台机器';
-      dr.title = '一次看完：代理在不在、哪几家平台真能用、导出成片的本机条件齐不齐、云同步配没配';
-      dr.onclick = () => send('先给我做一次这台机器的体检，告诉我缺什么、每样怎么补');
-      w.appendChild(dr);
-      const q = document.createElement('div');
-      q.className = 'ac-q';
-      quickFor().forEach(s => {
-        const b = document.createElement('button');
-        b.className = 'ac-qi';
-        b.textContent = s;
-        b.onclick = () => send(b.textContent);
-        q.appendChild(b);
-      });
-      w.appendChild(q);
-      box.appendChild(w);
-    } else box.appendChild(turnsEl());
-    if (keep && keep.parentNode !== box) box.appendChild(keep);
+    /* 清空 + 逐条重建罩在公共件里：`box.innerHTML = ''` 之后新节点从 0 起，正在往上翻的人
+       会被弹回顶。要不要贴底是**故意的滚动**，判据在上面那两行读（必须排在清空之前量），
+       写在 keep 返回之后 —— 公共件的还原是无条件的，抢在它前面写就会被抹掉。 */
+    Wb.viewport.keep(box, () => {
+        box.innerHTML = '';
+        if (!msgs.length) {
+          const w = document.createElement('div');
+          w.className = 'ac-wel';
+          const who = document.createElement('div');
+          who.className = 'ac-who';
+          /* 开场白里那句「你点执行才真做」是这一层的承诺，勾了自动执行就不能再说这句话 */
+          who.textContent = '查询都现查，数字都照结果说。要提交生成任务或改设置，我会先画一张卡片写清「哪一家、哪个型号、什么参数、素材从哪来」，'
+            + (autoRun() ? '设置里勾了「执行前不用确认」，所以卡片会自己提交（校验一项都不省）。'
+              : '你点「执行」才真做 —— 我不点、不替你点，也不重复点。')
+            + '密钥和自定义地址我不碰。';
+          w.appendChild(who);
+          /* 空态的第一颗不是问句，是一颗**能立刻拿到答案**的按钮：
+             新用户点开抽屉看到六颗问句，得自己猜「我该问什么」；
+             而 `doctor` 那份体检（代理在不在线、哪家真能用、这个浏览器能不能出片、云同步配没配）
+             写得很全却只有模型能调 —— 用户没有界面入口。
+             这颗走的是现成那条 send（照样经文字 AI 那条路，拿到的是一份**说人话**的体检结论），
+             不另搭一套：另搭一套就会与 doctor 那份判据走样。 */
+          const dr = document.createElement('button');
+          dr.className = 'ac-qi ac-dr';
+          dr.textContent = '先体检这台机器';
+          dr.title = '一次看完：代理在不在、哪几家平台真能用、导出成片的本机条件齐不齐、云同步配没配';
+          dr.onclick = () => send('先给我做一次这台机器的体检，告诉我缺什么、每样怎么补');
+          w.appendChild(dr);
+          const q = document.createElement('div');
+          q.className = 'ac-q';
+          quickFor().forEach(s => {
+            const b = document.createElement('button');
+            b.className = 'ac-qi';
+            b.textContent = s;
+            b.onclick = () => send(b.textContent);
+            q.appendChild(b);
+          });
+          w.appendChild(q);
+          box.appendChild(w);
+        } else box.appendChild(turnsEl());
+        if (keep && keep.parentNode !== box) box.appendChild(keep);
+    });
     /* 「贴到底」只在该贴的时候贴：任务出结果、系统通知、切页都会触发整块重画，
      * 而用户常常正在往上翻上一条结果 —— 无条件 scrollHeight 把他刚找到的那一行拽回底部
      * （表现为「往上翻两行它自己跳回去」）。
@@ -3641,14 +3646,18 @@
     if (sum) sum.textContent = q
       ? '找到 ' + items.length + ' / ' + allItems.length + ' 段'
       : allItems.length + ' 段 · 共 ' + msgs.length + ' 条（当前这段）';
-    box.innerHTML = items.map(s => '<button class="ac-hs' + (s.id === SESS.cur ? ' on' : '') + '" data-sid="' + esc(s.id)
-      + '" title="切到这段会话（按 Delete 删除）">'
-      + '<div class="ac-hs-t">' + esc(s.title || '（还没说话）') + '</div>'
-      + '<div class="ac-hs-m">' + esc(when(s.at)) + ' · ' + (s.msgs || []).length + ' 条'
-      + (s.id === SESS.cur ? '<em class="ac-hs-cur">当前</em>' : '') + '</div>'
-      /* ✕ 只是那一点的视觉落点，键盘删由整行的 Delete 负责（见下面 onkeydown）：
-         所以它不再挂 role="button" —— 一个 Tab 不到的按钮角色比没有更难骗过读屏。 */
-      + '<span class="ac-hs-x" data-del="' + esc(s.id) + '" title="删除这段会话" aria-hidden="true">✕</span></button>').join('');
+    /* 会话列表那一格自己滚（`.ac-hist-list`）：按搜索框改一个字就换整列，行数少了浏览器把滚动位
+       夹回上限 —— 表现是「滚到底下那几段会话，输入框里删一个字，列表弹回顶」。 */
+    Wb.viewport.keep(box, () => {
+        box.innerHTML = items.map(s => '<button class="ac-hs' + (s.id === SESS.cur ? ' on' : '') + '" data-sid="' + esc(s.id)
+          + '" title="切到这段会话（按 Delete 删除）">'
+          + '<div class="ac-hs-t">' + esc(s.title || '（还没说话）') + '</div>'
+          + '<div class="ac-hs-m">' + esc(when(s.at)) + ' · ' + (s.msgs || []).length + ' 条'
+          + (s.id === SESS.cur ? '<em class="ac-hs-cur">当前</em>' : '') + '</div>'
+          /* ✕ 只是那一点的视觉落点，键盘删由整行的 Delete 负责（见下面 onkeydown）：
+             所以它不再挂 role="button" —— 一个 Tab 不到的按钮角色比没有更难骗过读屏。 */
+          + '<span class="ac-hs-x" data-del="' + esc(s.id) + '" title="删除这段会话" aria-hidden="true">✕</span></button>').join('');
+    });
     box.querySelectorAll('.ac-hs').forEach(b => {
       b.onclick = ev => {
         if (ev.target.closest('[data-del]')) return;      // 删是另一件事，别顺手切过去

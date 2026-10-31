@@ -1526,7 +1526,9 @@ export function createEdit(E, document, window) {
       el.addEventListener('input', onPanelInput);
       el.addEventListener('change', onPanelInput);
     }
-    el.innerHTML = panelHTML();
+    /* 面板整片重画会把里面那一列（`.tl-mpanel-list` 自己竖滚）连着换掉 → 滚动位从 0 起：
+       滚到列表下半段改一枚标记，面板一刷新就弹回顶部。公共件按锚点还回去。 */
+    Wb.viewport.keep(el, () => { el.innerHTML = panelHTML(); });
   }
   function panelPatch(id, patch, label) {
     const w = currentWork();
@@ -1587,7 +1589,9 @@ export function createEdit(E, document, window) {
     if (el.id === 'mpQ') {
       panelQuery = el.value;
       const list = board.querySelector('#mpList');
-      if (list) list.innerHTML = mpListHTML();
+      /* 搜索框改一个字就换这一列的行：行数变少了，浏览器把 `.tl-mpanel-list` 的滚动位夹回上限，
+         视图整个往上蹿 —— 公共件按锚点把它挪回「当初露着的那一行还在原来那个位置」。 */
+      if (list) Wb.viewport.keep(list, () => { list.innerHTML = mpListHTML(); });
       return;
     }
     if (!id) return;

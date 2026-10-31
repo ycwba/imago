@@ -147,7 +147,7 @@ export function createBridge(E, document, window) {
     a = a || {};
     const blocks = blocksOf(kind);
     if (!blocks.length) {
-      return loose('成片里现在没有' + KIND_ZH[kind] + (kind === 'clip' ? '：先在候选卡上点「用这条」选用几条' : ''));
+      return loose('成片里现在没有' + KIND_ZH[kind] + (kind === 'clip' ? '：先在候选卡上点「选用」接进几条' : ''));
     }
     if (a.id != null && a.id !== '') {
       const at = blocks.findIndex(b => String(b.item.id) === String(a.id));
@@ -1015,7 +1015,7 @@ export function createBridge(E, document, window) {
     const fmt = String(a.format || ExportFormats.ids()[0]);
     const f = ExportFormats.of(fmt);
     if (!f) return loose('format 只能是 ' + ExportFormats.hint());
-    if (!(filmOf().clips || []).length) return loose('现在成片里一段画面都没有：先选用几条候选（候选卡上的「用这条」），或者先生成画面');
+    if (!(filmOf().clips || []).length) return loose('现在成片里一段画面都没有：先选用几条候选（候选卡上的「选用」），或者先生成画面');
     if (f.renders && Export.isRendering()) return loose('已有导出任务在进行中，等这一轮结束或先取消');
     const rec = expNew(fmt);
     const settle = r => expSettle(rec, !!(r && r.ok), r);

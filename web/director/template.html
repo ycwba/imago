@@ -485,9 +485,21 @@
   .cand-thumb .pending.fail { color: var(--err); }
   .cand-thumb .pending.draft { color: var(--acc); border: var(--hair) dashed var(--line); background: none; }
   /* 草稿候选：这条候选自己的描述 */
-  /* 动作行：左边「导入」，右边「用这条 / 取消选用 / 锁定 / 删除」（用户点名把导入挪到这一排）。 */
+  /* 动作行：左边「导入」，右边「选用 / 取消选用 / 锁定 / 删除」（用户点名把导入挪到这一排）。 */
   .cand-acts { display: flex; align-items: center; gap: var(--sp-7); padding: 0 var(--sp-16) var(--sp-6); }
   .cand-acts .sp { flex: 1 1 auto; }
+  /* 尾段容器只当透明包装（display:contents 不生成盒子）：里面的按钮直接参与 .cand-acts
+     的 flex 排版，间隔与对齐跟没包之前一模一样；它的存在只为给快路径圈出可整块替换的范围。 */
+  .cand-acts .rest { display: contents; }
+  /* 取消选用 / 选用是同一格的两面（.faces：grid 同格叠放 + 右对齐）：露出来的那面永远贴着
+     锁定，不在用的那面挂 .off（visibility 隐身，宽度照常撑着这一格）——
+     这一排随轮询重画，按钮一挪，点下去就落在别的键上。 */
+  .cand-acts .faces { display: grid; justify-items: end; }
+  .cand-acts .faces > button { grid-area: 1 / 1; }
+  .cand-acts .off { visibility: hidden; }
+  /* 武装二次确认（取消选用 / 删除两颗，同一副默认画法）在这排里保持 .ghost 的 padding：
+     默认画法会另改 padding，宽了一格就把左边的锁定 / 选用横推开。 */
+  .cand-acts button.armed { padding: var(--sp-5) var(--sp-13); }
   .mid-tools { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-16) var(--sp-8); flex-wrap: wrap; }
   .mid-tools .ghost { display: inline-flex; align-items: center; gap: var(--sp-5); white-space: nowrap; }
   .mid-tools .total { margin-left: auto; color: var(--sub); font-size: var(--fs-12-5); }

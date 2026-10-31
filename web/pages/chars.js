@@ -500,36 +500,41 @@ export default {
       const pic = D.picOf(c);
       const uses = refUse.get(String(c.name || '')) || [];
       const kf = kindF(D.libKindOf(c));
-      el.innerHTML = '<div class="insp-head"><div class="insp-title">'
-        + '<span class="mname">' + esc(c.name || '（无名）') + '</span>'
-        + '<span class="ui-tag">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span>'
-        + (c.group ? '<span class="ui-tag">' + esc(c.group) + '</span>' : '')
-        + '</div><button class="ghost insp-close" type="button" data-insp="close">收起</button></div>'
-        + '<div class="insp-scroll">'
-        + (pic ? '<div class="insp-hero">' + thumbImg(pic) + '</div>' : '')
-        + '<div class="insp-status">' + detailDots(D, c) + detailStat(D, c)
-        + '<span class="insp-refs">' + (uses.length ? '被 ' + uses.length + ' 镜引用' : '还没被用过') + '</span></div>'
-        + '<div class="insp-sec"><div class="insp-st">基本信息</div>'
-        + '<div class="insp-row"><span class="insp-rk">类型</span><span class="insp-rv">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span></div>'
-        + '<div class="insp-row"><span class="insp-rk">分组</span><span class="insp-rv">' + esc(c.group || '未分组') + '</span></div>'
-        + (D.isSceneItem(c) ? '<div class="insp-row"><span class="insp-rk">时段</span><span class="insp-rv">' + esc(c.time || '') + '</span></div>' : '')
-        + '</div>'
-        + '<div class="insp-sec"><div class="insp-st">描述</div>'
-        + '<div class="insp-row"><span class="insp-rk">' + esc(kf.look.lab.split('（')[0]) + '</span></div>'
-        + '<div class="ui-hint">' + esc(D.descOf(c) || '还没写描述') + '</div>'
-        + '<div class="insp-row" style="margin-top:var(--sp-8)"><span class="insp-rk">' + esc(kf.bio.lab.split('（')[0]) + '</span></div>'
-        + '<div class="ui-hint">' + esc(c.bio || '还没写') + '</div>'
-        + '</div>'
-        + (uses.length ? '<div class="insp-sec"><div class="insp-st">使用关系 · ' + uses.length + ' 个镜头</div>'
-          + uses.slice(0, 6).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
-          + '</div>' : '')
-        + '</div>'
-        + '<div class="insp-foot">'
-        + '<button class="pri" type="button" data-insp="open"><span class="ic">' + icon('expand', 15) + '</span><span class="tx">打开详情</span></button>'
-        + (pic ? '<button class="ghost" type="button" data-insp="reuse"><span class="ic">' + icon('reuse', 15) + '</span><span class="tx">拿去生成</span></button>' : '')
-        + (pic ? '<button class="ghost" type="button" data-insp="similar"><span class="ic">' + icon('search', 15) + '</span><span class="tx">找相似</span></button>' : '')
-        + '<button class="ghost danger" type="button" data-insp="del"><span class="ic">' + icon('trash', 15) + '</span><span class="tx">从库里删掉</span></button>'
-        + '</div>';
+      /* 整块重画罩在公共件里：`.insp-scroll` 是这一次字符串里的子节点，换新节点等于从 0 起 ——
+         表现是「检查器滚到描述中段点一颗按钮，那一列弹回顶」。锚点按身份找不到就用下标链，
+         两种都在这一趟里还。 */
+      window.Wb.viewport.keep(el, () => {
+        el.innerHTML = '<div class="insp-head"><div class="insp-title">'
+          + '<span class="mname">' + esc(c.name || '（无名）') + '</span>'
+          + '<span class="ui-tag">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span>'
+          + (c.group ? '<span class="ui-tag">' + esc(c.group) + '</span>' : '')
+          + '</div><button class="ghost insp-close" type="button" data-insp="close">收起</button></div>'
+          + '<div class="insp-scroll">'
+          + (pic ? '<div class="insp-hero">' + thumbImg(pic) + '</div>' : '')
+          + '<div class="insp-status">' + detailDots(D, c) + detailStat(D, c)
+          + '<span class="insp-refs">' + (uses.length ? '被 ' + uses.length + ' 镜引用' : '还没被用过') + '</span></div>'
+          + '<div class="insp-sec"><div class="insp-st">基本信息</div>'
+          + '<div class="insp-row"><span class="insp-rk">类型</span><span class="insp-rv">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span></div>'
+          + '<div class="insp-row"><span class="insp-rk">分组</span><span class="insp-rv">' + esc(c.group || '未分组') + '</span></div>'
+          + (D.isSceneItem(c) ? '<div class="insp-row"><span class="insp-rk">时段</span><span class="insp-rv">' + esc(c.time || '') + '</span></div>' : '')
+          + '</div>'
+          + '<div class="insp-sec"><div class="insp-st">描述</div>'
+          + '<div class="insp-row"><span class="insp-rk">' + esc(kf.look.lab.split('（')[0]) + '</span></div>'
+          + '<div class="ui-hint">' + esc(D.descOf(c) || '还没写描述') + '</div>'
+          + '<div class="insp-row" style="margin-top:var(--sp-8)"><span class="insp-rk">' + esc(kf.bio.lab.split('（')[0]) + '</span></div>'
+          + '<div class="ui-hint">' + esc(c.bio || '还没写') + '</div>'
+          + '</div>'
+          + (uses.length ? '<div class="insp-sec"><div class="insp-st">使用关系 · ' + uses.length + ' 个镜头</div>'
+            + uses.slice(0, 6).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
+            + '</div>' : '')
+          + '</div>'
+          + '<div class="insp-foot">'
+          + '<button class="pri" type="button" data-insp="open"><span class="ic">' + icon('expand', 15) + '</span><span class="tx">打开详情</span></button>'
+          + (pic ? '<button class="ghost" type="button" data-insp="reuse"><span class="ic">' + icon('reuse', 15) + '</span><span class="tx">拿去生成</span></button>' : '')
+          + (pic ? '<button class="ghost" type="button" data-insp="similar"><span class="ic">' + icon('search', 15) + '</span><span class="tx">找相似</span></button>' : '')
+          + '<button class="ghost danger" type="button" data-insp="del"><span class="ic">' + icon('trash', 15) + '</span><span class="tx">从库里删掉</span></button>'
+          + '</div>';
+      });
       /* 检查器里的图也走公共缩略图那一份（缓存命中直接用小图、失败换占位） */
       if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(el);
     }

@@ -444,7 +444,7 @@ export function createTimeline(E, document, window) {
     let body = '';
     if (row.kind === 'image') {
       body = row.items.map(r => clipHTML(r.clip, r.start, pps, film)).join('');
-      if (!film.clips.length) body = '<span class="tl-lane-hint">在右栏点「用这条」，画面就落到这一轨</span>';
+      if (!film.clips.length) body = '<span class="tl-lane-hint">在右栏点「选用」，画面就落到这一轨</span>';
     } else if (row.kind === 'voice') {
       body = row.items.map(item => voiceHTML(item, pps, film, row.lane)).join('');
       if (!film.voices.length) body = '<span class="tl-lane-hint">配音会排在这一轨</span>';
@@ -509,19 +509,20 @@ export function createTimeline(E, document, window) {
   function render() {
     if (!host) return;
     const film = filmNow();
-    const keep = scrollEl ? { left: scrollEl.scrollLeft, top: scrollEl.scrollTop } : { left: 0, top: 0 };
-    host.innerHTML = boardHTML(film);
-    scrollEl = qs('#tlScroll');
-    labelsInner = qs('#tlLabelsInner');
-    rulerInner = qs('#tlRulerInner');
-    contentEl = qs('#tlContent');
-    popEl = qs('#tlPop');
-    menuEl = qs('#tlSelMenu');
-    if (scrollEl) {
-      scrollEl.scrollLeft = keep.left;
-      scrollEl.scrollTop = keep.top;
-      observeScroll();
-    }
+    /* `host.innerHTML =` 会把 `#tlScroll` 换成新节点，两只滚动位（横：轨道长短；竖：行数多少）
+       从 0 起 —— 公共件按锚点还回去。还原排在 keep 返回之后，所以**凡是「读滚动位再写样式」的
+       那几步必须排在它后面**：尺与左列的平移量是从 `#tlScroll` 现读的，先滚后量才对得上。
+       重读节点引用留在这一趟里：还原要找的就是新那只 `#tlScroll`。 */
+    window.Wb.viewport.keep(host, () => {
+      host.innerHTML = boardHTML(film);
+      scrollEl = qs('#tlScroll');
+      labelsInner = qs('#tlLabelsInner');
+      rulerInner = qs('#tlRulerInner');
+      contentEl = qs('#tlContent');
+      popEl = qs('#tlPop');
+      menuEl = qs('#tlSelMenu');
+      if (scrollEl) observeScroll();
+    });
     lastTicksLeft = scrollEl ? scrollEl.scrollLeft : 0;
     syncScroll();
     paintPlayhead();

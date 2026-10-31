@@ -359,7 +359,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   由 `AiFind.btnHTML` 画）；AI 已经消化过的那句由 `Wb.filterBar.markApplied` 登记，
   失焦时不再重跑；反过来，一次普通搜索会把 AI 条件收回（换词 = 重新找）。
 
-**加一颗按钮要走的四步**（判据 `tests/e2e/viewport-keep.cjs`）：
+**加一颗按钮要走的五步**（判据 `tests/e2e/viewport-keep.cjs` 管机制与共享件；
+`tests/e2e/viewport-clicks.cjs` 真点七页的击点量纪律）：
 
 1. **元素**：用 `<button type="button">`，永远不用 `<a href="#">` —— `href="#"` 会产生一次 fragment 导航，
    中键点击 / 键盘回车 / 「在新标签打开」都还留着那条路；而 `<button>` 在 `form` / `dialog` 里默认是
@@ -367,11 +368,19 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
    带图标时用 `icon('xxx', 13)` 或 `data-icon` + `fillIcons`，不许用 `textContent` 改字。
 2. **它换不换 DOM**：点完会整片重画一块「里面装着滚动容器」的区域时，那次重画必须包在
    `Wb.viewport.keep(el, fn)` 里 —— `el` 是那块要重画的外层（不是按钮），公共件按锚点在重画后
-   把容器里的滚动位还回去。列表刷新不用页面操心：`Wb.cards.paint` 内部已经套了；
+   把容器里的滚动位还回去。keep **不自动向上找**（重画路径里常挂着故意滚的那一路，无条件罩祖先会把它们抹掉）：
+   要稳住哪只容器，就把那一只、或它的任一个祖先当 `el` 传进来；「这一页在窄窗里改由外层滚」的
+   加 `opts.outer` 连外面那只在滚的祖先一起稳住。故意的滚动（翻页回页首、会话贴底、跳到某一组）
+   写在 `keep(...)` **返回之后**，别塞进 `fn` 里。列表刷新不用页面操心：`Wb.cards.paint` 内部已经套了；
    `Wb.filterBar` / `Wb.kindFilter` 是就地改文本、不整片重画。
-3. **它 focus 谁**：要让光标落进某格输入框 → `window.focusQuiet(el)`；真想让那一格进视野，
+3. **它就地展开吗**：展开一块嵌在滚动容器里的东西（型号面板、详情块）而**不**整片重画时，
+   调 `Wb.viewport.reveal(块, { pin: 点中的那一行 })` —— 最小滚动把整块带进视野，再用那一行夹住：
+   往下最多滚到「行顶贴容器上缘」，往上最多滚到「行底贴容器下缘」；块比容器还高时，容器里留下
+   「那一行 + 块露出的那一截」，剩下的在容器里滚。绝不许把点中的那一行推出视野，
+   等高卡也不许为了展开变高。它不用 `scrollIntoView` —— 那会把外面那条文档一起滚（页面整个上跳）。
+4. **它 focus 谁**：要让光标落进某格输入框 → `window.focusQuiet(el)`；真想让那一格进视野，
    另写一句 `scrollIntoView({ block: 'nearest' })`。别拿 focus 当滚动用。
-4. **它跳不跳页**：站内跳页只走 `GoPage.go('xxx.html')`，不写 `location.href`、不手拼 `location.hash`。
+5. **它跳不跳页**：站内跳页只走 `GoPage.go('xxx.html')`，不写 `location.href`、不手拼 `location.hash`。
 
 ### 验证
 
@@ -379,7 +388,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | --- | --- | --- |
 | 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--map` 看映射 / `--collapse` 看收敛影响面） |
 | 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
-| 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 | `node tests/static-guards.cjs` |
+| 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 / G24 手写滚动位存取对（滚动位还原只许 `Wb.viewport` 一份） | `node tests/static-guards.cjs` |
 | 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
 
 - 静态判据的存量表只许减不许增（`GUARD_WRITE=1` 重打表，但每条都要补一句原因）。
@@ -488,7 +497,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     （`.capcell`：实心 = 主位 / 淡底 = 在用 / 白底 = 备用 / 压暗 = 停用），一档一行
     （`.crow`：能力名 · 状态牌 · 文字档那一个型号下拉 + 测试 / 其余档「型号 n/m」就地展开清单）。
   · 等高竖排：列宽 `--sz-acct-w`（`auto-fill` 铺满），卡高 `--sz-acct`，卡内 `.acct-mid` 自己滚 ——
-    展开密钥行、展开型号面板都不改卡的外形。
+    展开密钥行、展开型号面板都不改卡的外形。型号面板摊开时钉住点中的那一行
+    （`Wb.viewport.reveal(面板, { pin: 行 })`），多出的高度由 `.acct-mid` 内滚消化。
   · 密钥默认收着，开关是名字右边那颗 `.keytoggle`；名字本身链官网（↗）；
     接口地址不在卡上改（预设那几家一律走官方地址，中转站 / 网关加成自定义供应商）。
   · 型号面板按槽（`keyId:档`）存「展开的是哪一格 / 刚取回的那一份」，两档同时开着不会串档；
@@ -747,7 +757,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 账户余额取数 / 缓存 | `web/ui/sidebar.js` 的 `balRowOf` + `BAL_KEY`（`sb_bal_cache`）+ `window.SbBalance.rowOf` / `fetchRows` + `sb-balance-updated` 事件；侧栏余额卡与设置页账号卡同读这一份 |
 | 「现在能不能按生成」 | `web/domain/gen-rules.js` 的 `window.GenRules`（页面与助手都只翻译它给的原因码） |
 | 客户端错误出口 | `web/core/report.js` 的 `window.PageReport`（页面主动报只有 `pageFail`；`fatal` / `warn` 由两个 window 监听器发出 → `POST /client-error` → 代理健康账） |
-| 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport.keep(host, fn)`（按锚点在重画后把容器里的滚动位还回去；「点一颗按钮，视角跳到最上面」就是这一族） |
+| 视口不许被重画甩回顶 | `web/ui/workbench.js` 的 `Wb.viewport`（`keep(host, fn, opts)` 按锚点在重画后把容器里的滚动位还回去，横向 scrollLeft 同一趟一起还；`opts.outer` 连外面那只在滚的祖先一起稳住；`host(el)` 从一处往上找最近一只真能滚的容器；`reveal(块, { pin })` 就地展开时最小滚动露块、用点中的那一行夹住；「点一颗按钮，视角跳到最上面」就是这一族） |
 | 页头与列表之间的几何 | `web/ui/workbench.js` 的 `Wb.pageHead`（`track(root)` 量直接子级 `.phead` 并写 `--phead-h`，多选条 `.bulkbar` 的粘顶位读它；`scrollToList(root, el)` 给 `.page-shell` 滚到列表顶，扣掉页头与开着的多选条高度。资产库 / 收藏页在挂载时 `track`、卸载时断开） |
 | 程序性 focus 不抢视口 | `web/ui/ui.js` 的 `window.focusQuiet(el)`（`focus({ preventScroll: true })`） |
 | 文件类型筛选 | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位集合不变时不重建 DOM；**页面给的每一档恒画**，计数为 0 也不藏；顺序由公共件按 `mediaKindRank` 现排，页面给的数组顺序不作数）。工作台 / 收藏 / 资产库三页的档位表都取 `window.mediaKindTabs(allKey)` —— 四档一次给全，不许按「这一屏出现过的类型」现攒 |
@@ -1089,7 +1099,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 5 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 52 项：50 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 4 条先独跑，其余 48 条 4 路并发，实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 53 项：51 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 4 条先独跑，其余 49 条 4 路并发，实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1118,7 +1128,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   4 路并发，每条自起隔离 proxy + 独立 Chrome）。
 - `npm run test:e2e` 全量分两道：读数型先独跑（`ui-visual` / `director-perf` / `director-playback` /
   `perf/boot`：并发负载会让截图指纹、帧预算与播放对齐这类读数失真），其余（含 7 条不起 Chrome 的
-  服务端链路）走 4 路并发。`tests/e2e/` 共 51 个文件（50 条判据 + harness），同一档还跑
+  服务端链路）走 4 路并发。`tests/e2e/` 共 52 个文件（51 条判据 + harness），同一档还跑
   `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`。
   16 核 / 17 GB 本机实测全量约 10 分钟；单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例。
 - `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 `--e2e`。

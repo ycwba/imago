@@ -15,6 +15,7 @@
      G12 两处 CSP（shell.html 的 meta / static.js 的响应头）都要放行 `'wasm-unsafe-eval'`
      G13 代理运行时不跑 ffmpeg / ffprobe（转码与取帧都在浏览器里）
      G16 `createElement('video')` 只许出现在 web/media-backend.js
+     G24 公共件之外不许手写「滚动位存取对」（读 scrollTop → 重画 → 原样写回；还原只许 Wb.viewport 一份，表必须空）
    存量违例一律**登记在案**（下面的表），基线只许减不许增：新出现一条身份就直接红。
    表是数据表，不是一堆 `|| true`；`GUARD_WRITE=1 node tests/static-guards.cjs` 会按现状重打表，
    收敛之后照抄粘回来即可。
@@ -743,6 +744,65 @@ function commentSources() {
   return [...S.webSources(), ...S.serverSources(), ...S.walk(S.abs('tests')), ...S.walk(S.abs('tools')), S.abs('proxy.js')];
 }
 
+/* G24 公共件之外不许手写「滚动位存取对」：同一个函数里把 scrollTop/scrollLeft 读进局部变量、
+   又 innerHTML / replaceChildren 整片重画、再把读数原样写回 —— 重画换掉子树之后容器可滚上限
+   已经变了，同步回写会被钳在旧上限上，表现是「点一下按钮，那一格跳回顶部」。
+   要还滚动位走公共件 Wb.viewport.keep(el, fn)（web/ui/workbench.js，锚点还原），
+   它是全站唯一允许这么写的地方。故意的跳位（翻页滚回页首那种「写 0」）没有读、不构成对；
+   贴底跟随（写 scrollHeight）、双块同步滚（A.scrollTop = B.scrollTop）读数不进变量，也不构成对。
+   探测器按函数做词法近似：只认 function 声明与带大括号的箭头函数体；对象字面量里的方法简写
+   与类方法不在射程里；「挂在对象属性里攒着再还」「拆在两个函数里」的存取对这里看不见 ——
+   这两类由浏览器判据 tests/e2e/viewport-clicks.cjs 的真点真量兜住。
+   这张表与 G1 / G5 同族：必须保持为空，出现任何一条都是新的手写复刻。 */
+const G24_SCROLL_PAIR = [];
+const G24_EXEMPT = /(?:^|[\\/])ui[\\/]workbench\.js$/;
+function g24FnRanges(code) {
+  const out = [];
+  const re = /(?:\bfunction\b[^{]*|=>)\s*\{/g;
+  let m;
+  while ((m = re.exec(code))) {
+    let d = 0, end = -1;
+    for (let i = m.index + m[0].length - 1; i < code.length; i++) {
+      if (code[i] === '{') d++;
+      else if (code[i] === '}') { d--; if (!d) { end = i; break; } }
+    }
+    if (end < 0) break;
+    out.push([m.index, end]);
+  }
+  return out;
+}
+function detectScrollPair(file, src) {
+  if (G24_EXEMPT.test(file)) return {};
+  const code = codeOnly(src);
+  const out = {};
+  const ranges = g24FnRanges(code);
+  /* 以「读」为锚：读所在的最小函数区间才算它的家。导演台那类 createX(E, document, window)
+     工厂把几十个嵌套函数包在一个区间里，按「区间里有就算」会把嵌套函数里各不相干的
+     重画与存取对硬凑成一对 —— 读、重画、写回三者必须同住一个最小区间。 */
+  const home = i => {
+    let best = null;
+    for (const [a, b] of ranges) if (a <= i && i <= b && (!best || b - a < best[1] - best[0])) best = [a, b];
+    return best;
+  };
+  /* 读的一侧：LHS 是不被点号带着的简单标识符（排掉 A.scrollTop = B.scrollTop 这类同步滚），
+     RHS 里出现滚动位属性、且那一处本身不是赋值目标。 */
+  const READ_INTO = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*=(?!=)[^;{}\n]*?\.scroll(?:Top|Left)\b(?!\s*(?:\+|-)?=[^=])/g;
+  const WRITE_FROM = n => new RegExp(
+    '\\.scroll(?:Top|Left)\\s*(?:\\+|-)?=\\s*[^;{}\\n]*(?<![\\w$])' + n.replace(/\$/g, '\\$') + '(?![\\w$])');
+  for (const m of code.matchAll(READ_INTO)) {
+    const r = home(m.index);
+    if (!r) continue;
+    /* 读之后、函数体之内：先重画、再原样写回 —— 次序反了（先写后读）构不成那一族。 */
+    const rest = code.slice(m.index + m[0].length - 1, r[1] + 1);
+    if (!/\.innerHTML\s*=|\.replaceChildren\s*\(|\.outerHTML\s*=/.test(rest)) continue;
+    if (WRITE_FROM(m[1]).test(rest)) {
+      out[file + '#手写滚动位存取对：读进 ' + m[1] + ' 又写回（该走 Wb.viewport.keep）'] = 1;
+      break;
+    }
+  }
+  return out;
+}
+
 /* G18 的探测器：规则表复用 tools/token-lib.cjs（值→令牌的映射只有一份），
    这里只负责把「哪些声明算裸值」的结果变成判据的条目。 */
 const T = require('../tools/token-lib.cjs');
@@ -891,6 +951,10 @@ const GUARDS = [
     sources: commentSources, sampleFile: 'tests/synthetic.cjs', okFile: 'tests/synthetic.cjs',
     sample: `/* 见 AGENTS §7「格式化」：这一族只走 pad2 */\nconst pad2 = n => n;`,
     ok: `/* 这一族只走 pad2：手拼 mm:ss 会让各处读数各写一种 */\nconst pad2 = n => n;` },
+  { key: 'G24', title: '公共件之外不许手写「滚动位存取对」（读 scrollTop → 整片重画 → 原样写回）', table: G24_SCROLL_PAIR, kind: 'entries', detect: detectScrollPair,
+    sampleFile: 'web/pages/synthetic.js', okFile: 'web/pages/synthetic.js',
+    sample: `function paintBox(box, html) {\n  const top = box.scrollTop;\n  box.innerHTML = html;\n  box.scrollTop = top;\n}`,
+    ok: `function paintBox(box, html) { Wb.viewport.keep(box, () => { box.innerHTML = html; }); }\nfunction stickBottom(box) { if (box.scrollTop + box.clientHeight >= box.scrollHeight - 40) box.scrollTop = box.scrollHeight; }\nback.innerHTML = render(ta.value); back.scrollTop = ta.scrollTop;\nfunction jumpTop(list) { list.scrollTop = 0; }` },
 ];
 
 /* ============================ 跑 ============================ */

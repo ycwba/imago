@@ -333,11 +333,14 @@ export function createDetail(ctx) {
 
   function paint() {
     if (!host || !live) return;
-    const top = host.scrollTop;
-    host.innerHTML = layerHTML();
-    if (window.Dropdowns) window.Dropdowns.build(host);
-    if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(host);
-    host.scrollTop = top;
+    /* 整片重画罩在公共件里：真正在滚的是这一层里的两块（`.md-media` 与 `.md-doc` 各自 `overflow:auto`），
+       换掉节点之后它们的滚动位从 0 起 —— 表现是「详情里滚到描述中段改一个字，整块弹回顶」。
+       点名 host 而不是那两块的 id：重画之后旧句柄已经脱文档，公共件按路径在新树里找回容器。 */
+    window.Wb.viewport.keep(host, () => {
+      host.innerHTML = layerHTML();
+      if (window.Dropdowns) window.Dropdowns.build(host);
+      if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(host);
+    });
     syncAssetWhat();
     if (!isNew && ctx.measureQuality) ctx.measureQuality(live, host);
   }

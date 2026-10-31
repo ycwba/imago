@@ -402,8 +402,13 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 滚动位：点一颗按钮不该把视口甩回最上面（用户报过「有的页面点击按钮等组件后视角会移动到页面最上方」）。
      根因是「整片重画把滚动容器一起换掉了」—— 公共件 Wb.viewport.keep（web/ui/workbench.js）
      在重画点按锚点把视口还回去；列表那一族由 Wb.cards.paint 统一调用。这一条盯对照（裸重画确实丢位）、
-     机制（套 keep 还原）与共享列表件（整箱重画不吃位）。⚠ 不碰导演台：那一页正在重构。 */
+     机制（套 keep 还原）与共享列表件（整箱重画不吃位）。 */
   run('tests/e2e/viewport-keep.cjs', process.execPath, ['tests/e2e/viewport-keep.cjs'], { tier: 'browser' });
+  /* 真点真量：七页各挑几颗会整片重画的击点**真点一遍**（设置账号卡 / 工作台 / 导演台 / 资产库 /
+     收藏 / 素材库详情 / 侧栏余额卡），量两条纪律 —— 视野不许回到最上面；展开完，点中的那一行
+     还得留在视野里。合成宿主与静态判据够不着的形状（跨函数的存取对、对象属性攒位、
+     嵌套工厂里的间接还原）由这一条的浏览器实测兜住。 */
+  run('tests/e2e/viewport-clicks.cjs', process.execPath, ['tests/e2e/viewport-clicks.cjs'], { tier: 'browser' });
   /* 代理 stdout 断了不许自旋：启动器窗口一关，管道就断；写日志 → 抛 EPIPE → 被「未捕获异常」
      接住 → 又写日志 → 再抛一次，无限自旋（实测一个实例 1.6 小时烧掉 800 多秒 CPU，
      端口在听却不回话）。它起隔离实例，不开 Chrome。 */

@@ -408,24 +408,36 @@
      现在改成**在实际代码里防**：要重画一块
      「含滚动容器的区域」时，走这一份。
 
-     keep(el, fn)：重画前后把视口还回去 ——
-       · 锚点 = 重画前那只滚动容器里**第一个可见的子元素**（连它的键 / 下标一起记下）；
+     keep(el, fn, opts)：重画前后把视口还回去 ——
+       · 锚点 = 重画前那只滚动容器里**第一个露着一点的可见节点**（往下一层是整组 / 整栏那种
+         大壳子就接着钻，直到「一行 / 一张卡」那种尺度；连它的路径与身份一起记下）；
        · 重画后按同一条**路径**找回那只滚动容器（重画可能把容器本身换掉），
-         再按锚点（先找同一颗，找不到就按同一下标）把它挪回原来离容器顶那么远的地方；
+         再按锚点（同一路径，末级身份对不上就在同层里按身份找回）把它挪回原来离容器顶那么远的地方；
        · 锚点没了（那一段被换掉了）就退回原来的 scrollTop（浏览器自己夹上限）；
-       · 只动被点名的那几只滚动容器（含 el 自己），不碰文档滚动。
-     为什么按**锚点**而不是像素偏移：锚点以上的内容高度变了，按偏移还原会漂。 */
+       · 只动**被点名那一棵子树**里的滚动容器（含 el 自己），横向 scrollLeft 同一趟一起还。
+       · opts.outer：连**外面那一层在滚的祖先**一起稳住（只它一只，不展开它的子树）。
+         用在「这一页在窄窗里改由外层滚」的那一种：外层不是重画的那一块，它自己的子节点
+         不会被换掉，所以按锚点还回来就是「外层一格不动」。
+     为什么按**锚点**而不是像素偏移：锚点以上的内容高度变了，按偏移还原会漂。
+     为什么**不**自动往上罩祖先：调用点里常挂着「重画完故意滚一次」的那一路（翻页回页首、
+     会话贴底、设置页跳到某一组），keep 一无条件还原祖先的滚动位就把它们抹掉了；
+     规矩是**点名即罩住** —— 要稳住哪一只容器，就把那一只、或它的任一个祖先当 el 传进来，
+     或者点名要外层兜底就传 opts.outer。
+     容器自己也得有身份（_keyOf 认得出）：卡片流会重排与增删，只按下标链找回会把
+     A 卡的滚动位还到 B 卡上 —— 那种容器要带一枚身份属性（设置页账号卡的 data-mid）。 */
   const viewport = {
-    /* 只认**真的能滚**的容器（scrollHeight > clientHeight）；clientHeight 为 0 的没渲染，跳过。 */
+    /* 只认**真的能滚**的容器（竖或横某一轴超出可视区）；client 为 0 的是还没排版，跳过。 */
+    _scrolls(n) {
+      if (!n || n.nodeType !== 1) return false;
+      if (n.clientHeight > 0 && n.scrollHeight > n.clientHeight + 1) return true;
+      return n.clientWidth > 0 && n.scrollWidth > n.clientWidth + 1;
+    },
     _scrollers(root) {
       const out = [];
       if (!root || root.nodeType !== 1) return out;
-      if (root.clientHeight > 0 && root.scrollHeight > root.clientHeight + 1) out.push(root);
+      if (this._scrolls(root)) out.push(root);
       const all = root.querySelectorAll('*');
-      for (let i = 0; i < all.length; i++) {
-        const n = all[i];
-        if (n.clientHeight > 0 && n.scrollHeight > n.clientHeight + 1) out.push(n);
-      }
+      for (let i = 0; i < all.length; i++) { if (this._scrolls(all[i])) out.push(all[i]); }
       return out;
     },
     /* 子节点在父节点里的下标链（不是 CSS 路径）：重画之后按同一条链找回**新**节点。 */
@@ -444,71 +456,194 @@
       }
       return n === root ? idx : null;
     },
-    _byPath(root, idx) {
+    _byPath(root, idx, key) {
       let n = root;
-      for (const i of idx) {
-        n = n.children[i - 1];
-        if (!n) return null;
+      for (let d = 0; d < idx.length; d++) {
+        const kids = n.children;
+        let next = kids[idx[d] - 1];
+        /* 只有最后一级比对身份：中间每一级是壳（组、卡片的外框），重排也不会换掉它。
+           最后一级被重排过 → 「第 i 格」不是当初那一颗，在同层子节点里按身份找回；
+           整格被这一趟重画**删掉了**（折叠 / 删除那一族）→ 返回 null，让还位退回原像素位
+           （再被夹回新的可滚上限）—— 按下标接别的行，等于把位还到邻行身上。 */
+        if (key && d === idx.length - 1 && (!next || this._keyOf(next) !== key)) {
+          let hit = null;
+          for (let i = 0; i < kids.length; i++) {
+            if (this._keyOf(kids[i]) === key) { hit = kids[i]; break; }
+          }
+          if (!hit) return null;
+          next = hit;
+        }
+        if (!next) return null;
+        n = next;
       }
       return n;
     },
-    /* 锚点的身份：先找稳定键（列表项多半有），没有就按下标。 */
+    /* 锚点的身份：先找稳定键（列表项多半有），没有就按下标。
+       后面那几枚是「就地展开」那一族的行身份：设置页账号卡里的一行（data-crow）、
+       展开出来的那一块（data-mblk）、装它们的那只容器（data-mid）与那张卡（data-acct）；
+       再加导演台左栏/顺序条的镜头行（data-sid）与场景头（data-scid）——
+       卡片流会重排或增删，容器没有身份就只能够「第几格」，还位置时会还到邻卡身上。
+       导演台的历史行（data-hist-i）同理：回退会在日志末尾追加一条，倒序画的新行把整列顶下去。 */
     _keyOf(n) {
       if (!n || !n.getAttribute) return '';
       const d = n.getAttribute('data-key') || n.getAttribute('data-id') || n.getAttribute('data-k')
         || n.getAttribute('data-tkey') || n.getAttribute('data-nav') || n.getAttribute('data-gid')
-        || n.getAttribute('data-task');
+        || n.getAttribute('data-task') || n.getAttribute('data-crow') || n.getAttribute('data-mblk')
+        || n.getAttribute('data-mid') || n.getAttribute('data-acct') || n.getAttribute('data-sid')
+        || n.getAttribute('data-scid') || n.getAttribute('data-hist-i');
       if (d) return 'k:' + d;
       if (n.id) return 'i:' + n.id;
       return '';
     },
+    /* 这一轴上的锚点：第一个「还露着一格」的子元素 + 它离容器起点的偏移。
+       这一轴根本没滚（≤0）的返回 null —— 没滚过的轴本来就不该被还原。
+       往下钻：整屏滚的那一页，滚动容器的直接子节点是一整组 / 一整栏（几千像素高），
+       它的顶边早就不在视野里了 —— 拿它当锚点量不出「用户正看到哪儿」，组里塌掉一截
+       （筛选后少了几张卡、面板收起）界面就整体上移，谁也没还。所以挑中的那一格只要
+       顶边还在容器上缘之上、而且露出的那一截比半屏还高，就钻进它的子节点接着找（最多 4 层，
+       到「一行 / 一张卡」那种尺度就停，再钻就钻到行内文字上了）。
+       钉住的那一格（position:sticky/fixed）永远停在容器上缘，量不出滚动位 —— 不选它也不钻它。 */
+    _anchorOf(el, axis) {
+      const horiz = axis === 'x';
+      const cur = Math.round(horiz ? el.scrollLeft : el.scrollTop);
+      if (cur <= 0) return null;
+      const er = el.getBoundingClientRect();
+      const start = horiz ? er.left : er.top;
+      const half = (horiz ? er.width : er.height) / 2;
+      const along = n => {
+        const r = n.getBoundingClientRect();
+        return [horiz ? r.left : r.top, horiz ? r.right : r.bottom];
+      };
+      const pinned = n => {
+        try { const p = window.getComputedStyle(n).position; return p === 'sticky' || p === 'fixed'; }
+        catch (e) { return false; }
+      };
+      const path = [];
+      let node = el, top = 0, bottom = 0;
+      for (let depth = 0; depth < 4; depth++) {
+        const kids = node.children;
+        let next = null;
+        for (let i = 0; i < kids.length; i++) {
+          if (pinned(kids[i])) continue;
+          const e2 = along(kids[i]);
+          if (e2[1] <= start + 1) continue;
+          next = kids[i]; path.push(i + 1); top = e2[0]; bottom = e2[1]; break;
+        }
+        if (!next) break;
+        node = next;
+        if (top >= start - 1 || bottom <= start + half || !node.children.length) break;
+      }
+      if (node === el) return { cur, key: '', path: null, delta: 0 };
+      return { cur, key: this._keyOf(node), path, delta: top - start };
+    },
     _grab(root) {
       const keep = [];
       for (const el of this._scrollers(root)) {
-        const top = Math.round(el.scrollTop);
-        if (top <= 0) continue;              /* 没滚过的容器本来就不该被还原 */
-        const er = el.getBoundingClientRect();
-        const kids = el.children;
-        let anchor = null, idx = -1, delta = 0;
-        for (let i = 0; i < kids.length; i++) {
-          const r = kids[i].getBoundingClientRect();
-          if (r.bottom > er.top + 1) { anchor = kids[i]; idx = i; delta = r.top - er.top; break; }
-        }
         const path = this._pathOf(el, root);
         if (!path) continue;
-        keep.push({ path, top, key: this._keyOf(anchor), idx, delta });
+        const y = this._anchorOf(el, 'y'), x = this._anchorOf(el, 'x');
+        if (!y && !x) continue;
+        keep.push({ path, skey: this._keyOf(el), y, x });
       }
       return keep;
     },
+    /* 重画之后「这一只容器还是不是原来那一只」：整棵子树里带身份、且真的在滚的节点一张表。
+       卡片流会重排或增删，只按下标链找回会把位还到邻卡身上，所以身份优先、下标兜底。 */
+    _keyMap(root) {
+      const map = new Map();
+      const all = root.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++) {
+        const n = all[i];
+        if (!this._scrolls(n)) continue;
+        const key = this._keyOf(n);
+        if (key && !map.has(key)) map.set(key, n);
+      }
+      return map;
+    },
+    _putAxis(el, a, axis) {
+      if (!a) return;
+      const horiz = axis === 'x';
+      const readPos = () => (horiz ? el.scrollLeft : el.scrollTop);
+      const writePos = v => { if (horiz) el.scrollLeft = v; else el.scrollTop = v; };
+      const node = a.path ? this._byPath(el, a.path, a.key) : null;
+      if (!node) { writePos(a.cur); return; }        /* 锚点整段没了：退回原来的像素位 */
+      const er = el.getBoundingClientRect(), nr = node.getBoundingClientRect();
+      writePos(readPos() + ((horiz ? nr.left : nr.top) - (horiz ? er.left : er.top)) - a.delta);
+    },
     _put(root, keep) {
+      let map = null;
+      const keyed = () => map || (map = this._keyMap(root));
       for (const k of keep) {
-        const el = this._byPath(root, k.path);
-        if (!el || !el.isConnected) continue;
         try {
-          let node = null;
-          if (k.key) {
-            const kids = el.children;
-            for (let i = 0; i < kids.length; i++) {
-              if (this._keyOf(kids[i]) === k.key) { node = kids[i]; break; }
-            }
-          }
-          if (!node && k.idx >= 0 && el.children[k.idx]) node = el.children[k.idx];
-          if (!node) { el.scrollTop = k.top; continue; }
-          const er = el.getBoundingClientRect();
-          const nr = node.getBoundingClientRect();
-          el.scrollTop = el.scrollTop + (nr.top - er.top) - k.delta;
+          const el = (k.skey && keyed().get(k.skey)) || this._byPath(root, k.path);
+          if (!el || !el.isConnected) continue;
+          this._putAxis(el, k.y, 'y');
+          this._putAxis(el, k.x, 'x');
         } catch (e) { /* 放不回去就算了：这一处不许把重画带崩 */ }
       }
     },
-    /* 重画一块**会换掉滚动容器**的区域：前后把视口还回去。 */
-    keep(el, fn) {
-      let keep = null;
+    /* 重画一块**会换掉滚动容器**的区域：前后把视口还回去。
+       opts.outer：这一页在窄窗里改由外层滚（外层是 el 的祖先）—— 连那一只一起稳住。
+       外壳把 html/body 钉成 overflow:hidden，所以「整页滚」在这个产品里永远是某一只元素
+       （导演台的 .director-page、整页滚那些页的 .page-shell），不是文档 —— 用 host 找它。 */
+    keep(el, fn, opts) {
+      const o = opts || {};
+      /* 从 el 的**上一层**起找：el 自己要是就在滚，_grab 那一趟已经把它算进去了。 */
+      const outer = o.outer ? this.host(el && el.parentElement) : null;
+      let keep = null, oy = null, ox = null;
       try { keep = this._grab(el); } catch (e) { keep = null; }
+      if (outer) {
+        try { oy = this._anchorOf(outer, 'y'); ox = this._anchorOf(outer, 'x'); }
+        catch (e) { oy = null; ox = null; }
+      }
       let out;
       try { out = fn(); } finally {
         try { if (keep && keep.length) this._put(el, keep); } catch (e) {}
+        try {
+          if (outer && outer.isConnected) { this._putAxis(outer, oy, 'y'); this._putAxis(outer, ox, 'x'); }
+        } catch (e) {}
       }
       return out;
+    },
+    /* 谁在滚我：从 el（含它自己）往上找最近一只真的竖着能滚的容器，到文档根为止。
+       「重画的那一块」与「该稳住的容器」不是同一只时用它 —— 工作台左栏在窄窗里会把滚动位
+       交还给整块布局，那一种搬家不用调用点自己判窗宽。 */
+    host(el) {
+      let n = (el && el.nodeType === 1) ? el : null;
+      while (n && n !== document.documentElement && n !== document.body) {
+        if (n.clientHeight > 0 && n.scrollHeight > n.clientHeight + 1) return n;
+        n = n.parentElement;
+      }
+      return null;
+    },
+    /* 就地展开一块东西时把它露出来，但**绝不允许把点中的那一行推出视野**：
+       先按「最小滚动把整块带进视野」算，再用点中的那一行夹住 —— 往下最多滚到「那一行的顶
+       贴着容器上缘」，往上最多滚到「它的底贴着容器下缘」。展开块比容器还高时，容器里留下的是
+       「那一行 + 块露出的那一截」，剩下的在容器自己里滚（等高卡不许为了展开而变高）。
+       这里**不用** scrollIntoView：它会把外面那条文档一起滚（页面整个上跳），而就地展开只需要
+       动最近那一只容器；整页那一格的跳转归各页自己的滚动出口。
+       el 已经整个在视野里 → 一格都不动（浏览器自己的 scroll anchoring 补过之后再滚一次是多余）。 */
+    reveal(el, opts) {
+      if (!el || !el.isConnected) return;
+      const o = opts || {};
+      const c = o.in || this.host(el);
+      if (!c || c === document.documentElement || c === document.body) return;
+      const cr = c.getBoundingClientRect();
+      if (cr.height <= 0) return;
+      const pad = o.pad == null ? 8 : o.pad;
+      const r = el.getBoundingClientRect();
+      let want = c.scrollTop;
+      if (r.top < cr.top - 1) want = c.scrollTop - (cr.top - r.top) - pad;
+      else if (r.bottom > cr.bottom + 1) want = c.scrollTop + (r.bottom - cr.bottom) + pad;
+      const pin = o.pin;
+      if (pin && pin.isConnected) {
+        const p = pin.getBoundingClientRect();
+        const hi = c.scrollTop + (p.top - cr.top);
+        const lo = c.scrollTop - (cr.bottom - p.bottom);
+        want = Math.min(Math.max(want, Math.min(lo, hi)), Math.max(lo, hi));
+      }
+      const to = Math.max(0, Math.min(c.scrollHeight - c.clientHeight, Math.round(want)));
+      if (to !== Math.round(c.scrollTop)) c.scrollTop = to;
     },
   };
 
@@ -2285,7 +2420,10 @@
           /* 全量对齐：位置没变就不动 DOM（缩略图不重解码、不闪）。
              这一箱 DOM 动完，**视口要跟着走**（重画不许把视线甩回顶）：
              整片重画这一箱时按锚点把位置放回去 —— 公共件 Wb.viewport.keep
-             （以前靠外壳那份全局猴补，已撤掉）。 */
+             （以前靠外壳那份全局猴补，已撤掉）。
+             `outer` 罩的是**外面那一层在滚的**那一只：同一箱卡片在宽窗里由 `#result` 自己滚，
+             在 ≤960px 那一档 CSS 把它放开成 `overflow:visible`、改由整块布局滚（资产库那页更是
+             从头到尾由页根滚）。列表变短时被夹回上限的是当时真正在滚的那一只，调用点不该各判一次窗宽。 */
           paint(items) {
             const back = anchorCardFocus(box);
             const list = items || [];
@@ -2330,7 +2468,7 @@
                 }
                 ref = nx;
               }
-            });
+            }, { outer: true });
             back();
           },
           clear() { els.clear(); box.innerHTML = ''; },

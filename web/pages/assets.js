@@ -909,32 +909,37 @@ export default {
     function renderGrid() {
       if (!started || !cardList || !gridEl.value) return;
       const list = filtered();
-      viewToggle && viewToggle.apply();
-      updatePager();
-      /* 页头那三档的条数跟着数据走（轮询每 5 秒重画一次，状态变了那三档也要跟着变）。 */
-      renderSum();
-      const sel = [...selected].length;
-      /* 页头这个数和分页条那个数必须同一个口径。以前写的是「共 list.length 项」，而 list 只是
-         **当前这一页**（一页 24 条），分页条上却是筛选后的总数（几百条）—— 同屏两个「共」互相打脸。 */
-      cntText.value = '共 ' + filteredAll().length + ' 项 · 本页 ' + list.length + ' 项'
-        + (sel ? ' · 已选 ' + sel + ' 项' : '');
-      reloadDisabled.value = loadingNow > 0;
-      reloadTitle.value = loadingNow > 0 ? '正在加载…' : '刷新（跳过服务端短缓存）';
-      paintBulkBar();
-      paintPullBtn();
-      if (!list.length) {
+      /* 整页滚的是 `.page-shell` 自己（不是卡片列表），而这一趟要换的 DOM 散在它里面三处：
+         卡片列表、页头那三档计数、顶部那条失败提示带 —— 所以点名页根，不按列表那一只罩。
+         翻页后「滚回这一屏开头」写在调用点、这一句之前：keep 的快照是在那次滚动之后取的，
+         还原还原的就是那个位置，不会把它抹掉。 */
+      Wb.viewport.keep(pageEl.value, () => {
+        viewToggle && viewToggle.apply();
+        updatePager();
+        /* 页头那三档的条数跟着数据走（轮询每 5 秒重画一次，状态变了那三档也要跟着变）。 */
+        renderSum();
+        const sel = [...selected].length;
+        /* 页头这个数和分页条那个数必须同一个口径。以前写的是「共 list.length 项」，而 list 只是
+           **当前这一页**（一页 24 条），分页条上却是筛选后的总数（几百条）—— 同屏两个「共」互相打脸。 */
+        cntText.value = '共 ' + filteredAll().length + ' 项 · 本页 ' + list.length + ' 项'
+          + (sel ? ' · 已选 ' + sel + ' 项' : '');
+        reloadDisabled.value = loadingNow > 0;
+        reloadTitle.value = loadingNow > 0 ? '正在加载…' : '刷新（跳过服务端短缓存）';
+        paintBulkBar();
+        paintPullBtn();
         paintLoadErrors();
-        cardList.paint([]);
-        bindEmptyBox();
-        return;
-      }
-      paintLoadErrors();
-      cardList.paint(list);
-      /* 网格档那条展开带子：重画会把卡片挪一遍，带子要跟着回到它那一行的下面
-         （Wb.cards 只认卡片，带子是插在容器里的另一个孩子）。 */
-      reinsertBand();
+        if (!list.length) {
+          cardList.paint([]);
+          bindEmptyBox();
+          return;
+        }
+        cardList.paint(list);
+        /* 网格档那条展开带子：重画会把卡片挪一遍，带子要跟着回到它那一行的下面
+           （Wb.cards 只认卡片，带子是插在容器里的另一个孩子）。 */
+        reinsertBand();
+      });
       /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
-      try { window.AssetLocal && AssetLocal.offerAll(list); } catch (e) { /* 补存失败不影响列表 */ }
+      if (list.length) try { window.AssetLocal && AssetLocal.offerAll(list); } catch (e) { /* 补存失败不影响列表 */ }
     }
 
     /* ---------- 删除本机素材 ---------- */
@@ -1107,12 +1112,16 @@ export default {
       const pool = applyFilters({ noBucket: true });
       const n = { live: 0, failed: 0, uncertain: 0 };
       pool.forEach(a => { const b = bucketOf(a); if (b) n[b]++; });
-      box.innerHTML = BUCKETS.map(b => {
-        if (!n[b.key]) return '';
-        return '<button class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
-          + ' title="只看这一档（再点一下取消）"><i class="dot ' + b.dot + '"></i>'
-          + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
-      }).join('');
+      /* 计数为 0 的那一档不画 → 这一排矮一行，页头下面整页都往上挪。这一页滚的是 `.page-shell`
+         自己，所以点名页根，让公共件按锚点把视口放回原来那一条。 */
+      Wb.viewport.keep(pageEl.value, () => {
+        box.innerHTML = BUCKETS.map(b => {
+          if (!n[b.key]) return '';
+          return '<button class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
+            + ' title="只看这一档（再点一下取消）"><i class="dot ' + b.dot + '"></i>'
+            + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
+        }).join('');
+      });
     }
 
     function onSumClick(e) {

@@ -53,7 +53,7 @@ if (!ExportFormats) throw new Error('导出格式表没加载：web/domain/expor
 const ST_ZH = Wb.ST;   // 状态文案只有 workbench.js 那一份（含各家平台的同义词）
 /* 这一页自己的候选状态词只有 draft / creating / queued / running / succeeded / failed / cancelled，
    而轮询拿回来的是平台原话（success / completed / done / processing…）。写回之前先归一化：
-   否则「已完成」在这一页会被当成还在跑 —— shotReady、候选排序、缩略图、「用这条」按钮全按
+   否则「已完成」在这一页会被当成还在跑 —— shotReady、候选排序、缩略图、「选用」按钮全按
    'succeeded' 比，表现就是任务明明做完了，界面还写着生成中（要刷新重拉才对上）。
    判据只有 Api.classifyStatus 一份（它认 registry 的 statusMap）。 */
 const canStatus = s => {
@@ -1338,7 +1338,7 @@ function playerAreaHTML(sh) {
     if (!Play.clipCount()) {
       return `<div class="player-empty">
         <div class="pe-t">还没有已选用的镜头</div>
-        <div class="pe-d">先在候选上点「用这条」，这里的剪辑预览就会按剪完的样子播</div>
+        <div class="pe-d">先在候选上点「选用」，这里的剪辑预览就会按剪完的样子播</div>
       </div>`;
     }
     return Play.stageHTML();
@@ -1359,13 +1359,17 @@ function playerAreaHTML(sh) {
     ${playerTaskDetails(sh)}
   </div>`;
 }
-/* 操作行文案（加一条候选 / 用这条 / 取消选用 / 锁定 / 删除） */
+/* 操作行（导入 | 弹性空 | 取消选用/选用 | 锁定 / 删除）：取消选用与选用是同一格的两面 —— .faces
+   把两面叠放在同一格里并各自右对齐，露出来的那面永远贴着锁定，不在用的那面挂 .off
+   （visibility 隐身、宽度照常撑着这一格）—— 这一排随轮询重画，按钮一挪，点下去就落在别的键上。
+   锁定那颗的文案只许等宽短词（锁定 / 解锁）：再长的字串会把右边的删除键横推出去；锁没锁看缩略图右上的角标。 */
 function candActsHTML(sh) {
   const cands = sh.candidates || [];
   const cur = cands[proj.curCand];
-  return `${cur && cur.vid !== sh.selId && cur.status === 'succeeded' && cur.url ? '<button class="ghost" id="usec">✓ 用这条</button>' : ''}
-    ${cur && cur.vid === sh.selId && !cur.locked ? '<button class="ghost" id="unsel">× 取消选用</button>' : ''}
-    <button class="ghost" id="lockc" ${cur ? '' : 'disabled'}>${cur && cur.locked ? icon('lock', 12) + ' 已锁定（点击解锁）' : icon('lock', 12) + ' 锁定'}</button>
+  const picked = !!(cur && cur.vid === sh.selId);
+  const usable = !!(cur && !picked && cur.status === 'succeeded' && cur.url);
+  return `<span class="faces"><button class="ghost${picked ? '' : ' off'}" id="unsel" ${picked && !cur.locked ? '' : 'disabled'}>× 取消选用</button><button class="ghost${picked ? ' off' : ''}" id="usec" ${usable ? '' : 'disabled'}>✓ 选用</button></span>
+    <button class="ghost" id="lockc" ${cur ? '' : 'disabled'}>${icon('lock', 12)} ${cur && cur.locked ? '解锁' : '锁定'}</button>
     <button class="ghost danger" id="delc" ${cur && !cur.locked ? '' : 'disabled'}>${icon('trash', 12)} 删除</button>`;
 }
 /* 操作行的按钮绑定（renderMid 与「切换候选」共用） */
@@ -1386,30 +1390,25 @@ function bindCandActs(col) {
     filmEdited();
   };   // 选用后不自动锁定，可手动加锁（换候选 = 成片内容变了）
   const un = col.querySelector('#unsel');
-  if (un) un.onclick = e => { const b = e.currentTarget;
-    /* note 写清后果：取消选用之后这一镜的成片位置就空出来了 */
-    Confirm.arm(b, '确认取消？', { note: '取消选用后，这一镜不再进成片' })
-      || (beginEdit(`把「${sh.name || '这一镜'}」从成片里撤掉（取消选用第 ${Math.max(1, (sh.candidates || []).findIndex(x => x.vid === sh.selId) + 1)} 条候选）`),
-        setSelectedCandidate(sh, null), filmEdited()); };
+  if (un) un.onclick = () => {
+    /* 就地确认走默认画法：整颗变红换字「确认取消？」，再点一下才真撤（Esc / 点别处自动还原）；
+       红环 / 角标那套装饰是删除那颗的，这里不用 —— 撤选用本来可逆，走 beginEdit 历史。 */
+    if (Confirm.arm(un, '确认取消？')) return;
+    beginEdit(`把「${sh.name || '这一镜'}」从成片里撤掉（取消选用第 ${Math.max(1, (sh.candidates || []).findIndex(x => x.vid === sh.selId) + 1)} 条候选）`);
+    setSelectedCandidate(sh, null);
+    filmEdited();
+  };
   const lk = col.querySelector('#lockc');
   if (lk) lk.onclick = () => { if (cur) { cur.locked = !cur.locked; renderAll(); scheduleSave(); } };
   const dl = col.querySelector('#delc');
   if (dl) dl.onclick = e => {
     const b = e.currentTarget;
-    /* 后果说明只写与这次删除直接相关的两条：
-       ① 这一条正被选用 → 删了全片会少一段（以前完全静默，用户看到的是成片莫名少一镜）；
-       ② 还在平台跑着 → 会顺带撤掉那个任务。
-       「还会连带 N 条」这种与本次无关的一句都不写。 */
-    const notes = [];
-    if (cur && sh.selId === cur.vid) notes.push('这一条正被选用：删掉之后全片会少这一段');
-    /* 还在跑的这一条要不要说「顺带撤单」，由注册表声明决定（判据只有 Api.canCancel 一份）。
-       没有取消接口的那几家（MiniMax / 硅基流动 / 智谱视频）删了本机记录，平台上那条照样跑完 ——
-       原来那句「删掉会顺带撤掉这个任务」在那几家是句假话（「界面上的承诺要么实现、要么改文案」）。 */
+    /* 就地确认走默认画法（与取消选用同一副）：整颗变红换字「确认删除？」，再点一下才真删；
+       不带红环 / 角标 / toast。还在跑的这条撤不撤得了单，由注册表的 cancel 声明决定
+       （判据只有 Api.canCancel 一份）：没有取消接口的那几家删了本机记录，平台上那条照样跑完。 */
     const live = !!cur && (cur.status === 'queued' || cur.status === 'running');
     const cxProv = live ? provById(cur.provider) : null;
-    if (live && cxProv && Api.canCancel(cxProv)) notes.push('这一条还在平台上跑：删掉会顺带向平台撤掉这个任务');
-    else if (live && cxProv) notes.push(cxProv.displayName + ' 没有取消任务的接口：本机删掉之后，平台上那一条还是会跑完');
-    Confirm.arm(b, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
+    Confirm.arm(b, '确认删除？')
       || (() => {
         if (!cur || cur.locked) return;
         if (live && cxProv && Api.canCancel(cxProv)) {   // 还在跑的先取消上游任务
@@ -1468,7 +1467,9 @@ function selectCandidate(at) {
       bindPbFull(pw.querySelector('.player-box'));
     }
   }
-  const ca = col.querySelector('#candActs');
+  /* 只换尾段（#candActsRest）：#candActs 里前面的导入与弹性空是常驻的，
+     整行换会把导入抹掉、三颗按钮失了弹性空挤到左边去 */
+  const ca = col.querySelector('#candActsRest');
   if (ca) { ca.innerHTML = candActsHTML(sh); bindCandActs(col); }
   scheduleSave();
 }
@@ -1576,7 +1577,7 @@ function addCandidateDraft() {
   renderAll(); scheduleSave();
   setTimeout(() => { const ta = $('edPrompt'); if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); ta.select(); } }, 80);   // 描述在右栏写
 }
-/* 生成某一条候选（用这条自己的描述；草稿会原地变成任务） */
+/* 生成某一条候选（按它自己那条描述；草稿会原地变成任务） */
 async function generateCandidate(ph) {
   const sh = curShot();
   if (!sh || !ph) return;
@@ -1892,188 +1893,195 @@ function renderScenes() {
     const b = h.querySelector('[data-act=scpic]');
     if (h.dataset.scid && b) keepPic.set(h.dataset.scid, b);
   });
-  box.innerHTML = '';
-  let n = 0;
-  proj.scenes.forEach((sc, si) => {
-    /* 剪辑态左栏这一列只列**已选用的候选**镜头（`shotReady` = 这一镜选的那条已经出画面，
-       也就是它进了成片的那一份账）；生成态那一列照旧列全部镜头，一个都不少。
-       「列出哪几镜」与「点它会去哪」是一件事：剪辑态点一行 = 剪辑针跳到那一镜在成片里的位置
-       （见 `leftShotPick`）。
-       场景分组留着，一个可用的都没有的空场景在剪辑态整个不画（别占一行空壳）。 */
-    const listed = [];
-    sc.shots.forEach((sh, xi) => { if (!midEditTrim || shotReady(sh)) listed.push([sh, xi]); });
-    if (midEditTrim && !listed.length) return;
-    const blk = document.createElement('div');
-    blk.className = 'scene-block';
-    const head = document.createElement('div');
-    head.className = 'scene-head';
-    /* 收养要有身份可认：按场景号收（不是按第几场 —— 删一场之后下面的场全体上移一格）。
-       老项目里可能没有 id，退到序号，两侧用同一个表达式就仍然对得上。 */
-    head.dataset.scid = sc.id == null ? 'i' + si : String(sc.id);
-    /* 场景图那一格：有图就显示图，没图显示一个虚线空位。
-       右上角那颗 ×「这个场景不再自动带图」，与「换一张」放在同一个格子里 ——
-       分开放要多占一个 flex 子项，而左栏最窄只有 198px，四个按钮加改名框就顶不下了。
-       剪辑态整块不画：场景图管的是「以后新建的镜头带哪张参考图」，
-       属于生成态那一族（用户点名：剪辑态左栏不该带新建删除那些生成态的东西）。
-       留着的是场景名与镜头数 —— 那是这一组的标签，剪的时候还要靠它认场景。 */
-    head.innerHTML = (midEditTrim ? '' : `<button class="sc-thumb" data-act="scpic"></button>`)
-      + `<input value="${esc(sc.name)}" title="点一下可以改场景名">
-      <span class="sc-cnt">${listed.length} 镜</span>`
-      + (midEditTrim ? '' : `<button class="icon-btn add" data-act="addshot" title="在这个场景末尾新建一个镜头">${icon('plus', 14)}</button>
-      <button class="icon-btn del" data-act="delscene" title="删除整个场景（连带里面的镜头）">${TRASH_SVG}</button>`);
-    /* 收养只认「画的是同一张图」这一件事：这一格的媒体可能是从素材库现取的外链，
-       整颗按钮推倒重来就是让它重新走一遍加载（任务轮询每一轮都走 renderSoft 重画左栏，
-       闪的正是这一下）。收养的是整颗按钮 —— 绑定的键是它，不是里面的 <img>。 */
-    const picBtn = head.querySelector('[data-act=scpic]');
-    if (picBtn) {
-      const keptPic = keepPic.get(head.dataset.scid);
-      if (keptPic && scenePicStamp.get(keptPic) === scenePicOf(sc)) picBtn.replaceWith(keptPic);
-      paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
-    }
-    /* 改名要当场重画这一格（素材库里同名那条的图是**按名字**认领的），但不能整片 renderScenes：
-       那会把这个正在打字 input 一起换掉、光标跳走。只换那一颗按钮的内容。 */
-    head.querySelector('input').oninput = e => {
-      sc.name = e.target.value; scheduleSave(); renderMidSoon();
-      if (picBtn) paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
-    };
-    /* 一格两个动作：点图本身 = 换一张，点右上角 × = 这一场不带图。
-       × 不做二次确认 —— 它随时可以反悔（再点一次图挑回来就是原样），
-       而 Confirm.arm 会把按钮文字换成「确认…」，连带抹掉里面那张缩略图。 */
-    if (picBtn) picBtn.onclick = e => {
-      e.stopPropagation();
-      if (e.target.closest('[data-act=scpicclear]')) { clearScenePic(sc); return; }
-      pickScenePic(sc);
-    };
-    if (!midEditTrim) {
-      head.querySelector('[data-act=addshot]').onclick = e => { e.stopPropagation(); addShotToScene(sc); };
-      head.querySelector('[data-act=delscene]').onclick = e => {
-        const b = e.currentTarget;
-        const n = (sc.shots || []).length;
-        Confirm.arm(b, '确认删除？', { note: n ? '这个场景里还有 ' + n + ' 个镜头，会一起删掉' : null })
-          || (releaseSceneUrls(sc),                          // 回收本地视频的 blob 地址，否则一直占内存
-              proj.scenes.splice(si, 1),
-              ensureSceneLeft(),                            // 删到最后一个场景时自动补一个空的，避免项目变成 0 场景
-              proj.curScene = Math.min(proj.curScene, proj.scenes.length - 1),
-              renderAll(), scheduleSave());
+  /* 建列那一整段罩在公共件里（`Wb.viewport.keep`）：`box.innerHTML = ''` 之后从零重建，左栏那一列的滚动位
+     在清空那一刻被夹回 0 —— 而这一列每轮任务轮询都要重画一次，表现是「正看着第 20 镜，一次刷新弹回栏顶」。
+     锚点认镜头行与场景头那两枚身份（`data-sid` / `data-scid`）：删一镜、增一场之后还的是「同一行还在原来
+     那个位置」，不是「同一堆像素」。缩略图与场景图的收养（keepWrap / keepPic）管的是「不重新抽帧」，
+     与滚动位是两件事，照旧留在这里。 */
+  let n = 0;                       // 列出的镜头数（重建那一趟只往上加，画完写给表头）
+  Wb.viewport.keep(box, () => {
+    box.innerHTML = '';
+    proj.scenes.forEach((sc, si) => {
+      /* 剪辑态左栏这一列只列**已选用的候选**镜头（`shotReady` = 这一镜选的那条已经出画面，
+         也就是它进了成片的那一份账）；生成态那一列照旧列全部镜头，一个都不少。
+         「列出哪几镜」与「点它会去哪」是一件事：剪辑态点一行 = 剪辑针跳到那一镜在成片里的位置
+         （见 `leftShotPick`）。
+         场景分组留着，一个可用的都没有的空场景在剪辑态整个不画（别占一行空壳）。 */
+      const listed = [];
+      sc.shots.forEach((sh, xi) => { if (!midEditTrim || shotReady(sh)) listed.push([sh, xi]); });
+      if (midEditTrim && !listed.length) return;
+      const blk = document.createElement('div');
+      blk.className = 'scene-block';
+      const head = document.createElement('div');
+      head.className = 'scene-head';
+      /* 收养要有身份可认：按场景号收（不是按第几场 —— 删一场之后下面的场全体上移一格）。
+         老项目里可能没有 id，退到序号，两侧用同一个表达式就仍然对得上。 */
+      head.dataset.scid = sc.id == null ? 'i' + si : String(sc.id);
+      /* 场景图那一格：有图就显示图，没图显示一个虚线空位。
+         右上角那颗 ×「这个场景不再自动带图」，与「换一张」放在同一个格子里 ——
+         分开放要多占一个 flex 子项，而左栏最窄只有 198px，四个按钮加改名框就顶不下了。
+         剪辑态整块不画：场景图管的是「以后新建的镜头带哪张参考图」，
+         属于生成态那一族（用户点名：剪辑态左栏不该带新建删除那些生成态的东西）。
+         留着的是场景名与镜头数 —— 那是这一组的标签，剪的时候还要靠它认场景。 */
+      head.innerHTML = (midEditTrim ? '' : `<button class="sc-thumb" data-act="scpic"></button>`)
+        + `<input value="${esc(sc.name)}" title="点一下可以改场景名">
+        <span class="sc-cnt">${listed.length} 镜</span>`
+        + (midEditTrim ? '' : `<button class="icon-btn add" data-act="addshot" title="在这个场景末尾新建一个镜头">${icon('plus', 14)}</button>
+        <button class="icon-btn del" data-act="delscene" title="删除整个场景（连带里面的镜头）">${TRASH_SVG}</button>`);
+      /* 收养只认「画的是同一张图」这一件事：这一格的媒体可能是从素材库现取的外链，
+         整颗按钮推倒重来就是让它重新走一遍加载（任务轮询每一轮都走 renderSoft 重画左栏，
+         闪的正是这一下）。收养的是整颗按钮 —— 绑定的键是它，不是里面的 <img>。 */
+      const picBtn = head.querySelector('[data-act=scpic]');
+      if (picBtn) {
+        const keptPic = keepPic.get(head.dataset.scid);
+        if (keptPic && scenePicStamp.get(keptPic) === scenePicOf(sc)) picBtn.replaceWith(keptPic);
+        paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
+      }
+      /* 改名要当场重画这一格（素材库里同名那条的图是**按名字**认领的），但不能整片 renderScenes：
+         那会把这个正在打字 input 一起换掉、光标跳走。只换那一颗按钮的内容。 */
+      head.querySelector('input').oninput = e => {
+        sc.name = e.target.value; scheduleSave(); renderMidSoon();
+        if (picBtn) paintSceneThumb(head.querySelector('[data-act=scpic]'), sc);
       };
-    }
-    blk.appendChild(head);
-    listed.forEach(([sh, xi]) => {
-      n++;
-      const it = document.createElement('div');
-      it.className = 'shot-item' + (si === proj.curScene && xi === proj.curShot ? ' sel' : '');
-      it.dataset.sid = sh.id;
-      it.draggable = false;   // 默认不可拖，按住 ⠿ 抓手才开启拖动
-      const cur = sh.candidates.find(c => c.vid === sh.selId);
-      const rawSrc = cur?.url || sh.firstFrame || '';
-      const sKey = cur?.url ? thumbKey(cur) : Wb.thumbs.keyOf(rawSrc);
-      const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
-        : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
-        : `<div class="sthumb empty"></div>`;
-      // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述
-      const st = shotStatusOf(sh);
-      const runC = st.runC;
-      const statusTxt = st.html;
-      const prog = runC ? Math.max(0, Math.min(100, Number(runC.progress) || 0)) : 0;
-      const pbarHTML = runC ? `<span class="pbar"><i style="width:${prog}%"></i></span>` : '';
-      const durTxt = shotDur(sh) ? ' · ' + fmtDur(shotDur(sh)) : '';   // 还没出片就不写「未生成」，避免「生成中 · 未生成」
-      it.innerHTML = `<span class="num">${String(n).padStart(2, '0')}</span>
-        <div class="sthumb-wrap">${thumb}${pbarHTML}</div>
-        <div class="sinfo"><div class="sname">${esc(sh.name)}</div>
-        <div class="smeta">${statusTxt}${durTxt}</div></div>`
-        /* 抓手 / 复制 / 删除是生成态那三件（改的是分镜表，不是成片）。剪辑态这一列是**看**成片
-           的镜头清单，点一行只做「切镜 / 跳针」，这三颗整个不画 ——
-           以前它们悬停才浮出来，剪的时候一不留神就复制了一镜或删掉了一段。 */
-        + (midEditTrim ? '' : `<div class="ops">
-          <button class="op-btn grip" title="按住拖动排序">${icon('grip', 12)}</button>
-          <button class="op-btn dup" title="复制镜头">${icon('copy', 12)}</button>
-          <button class="op-btn del danger" title="删除镜头">${TRASH_SVG}</button>
-        </div>`);
-      /* 收养旧的那一格缩略图，条件只有「它显示的就是这一镜此刻选用的那一份素材」——
-         按**缩略图身份**认，不按镜头认：换了选用的候选，旧格子里是另一条视频的首帧，
-         留着它界面就在替用户说一件假话（卡片上播着的画面 ≠ 这一镜现在选的那一条）。
-         整块 `.sthumb-wrap` 一起换（不能只换里面的媒体）：`Wb.thumbs._bindings` 是以 wrap 为键的，
-         只换媒体节点会让绑定指向一个已经不在文档里的旧节点。
-         进度条挂在 wrap 里面，所以收养之后要按这一轮的账重贴一次。 */
-      const kept = keepWrap.get(String(sh.id));
-      const keptMedia = kept && kept.querySelector('.sthumb');
-      if (kept && keptMedia && keptMedia.getAttribute('data-thumb-key') === sKey) {
-        it.querySelector('.sthumb-wrap').replaceWith(kept);
-        const oldBar = kept.querySelector('.pbar');
-        if (oldBar) oldBar.remove();
-        if (pbarHTML) kept.insertAdjacentHTML('beforeend', pbarHTML);
-        Wb.thumbs.bind(kept, keptMedia, rawSrc);
-      } else Wb.thumbs.bind(it.querySelector('.sthumb-wrap'), it.querySelector('.sthumb'), rawSrc);
-      /* 点一行：生成态 = 换看哪一镜（老样子，一字不改）；
-         剪辑态 = 剪辑针跳到那一镜在成片里的位置（`leftShotPick`）。 */
-      it.onclick = () => {
-        if (!midEditTrim) { proj.curScene = si; proj.curShot = xi; renderAll(); return; }
-        leftShotPick(sc, sh, xi);
+      /* 一格两个动作：点图本身 = 换一张，点右上角 × = 这一场不带图。
+         × 不做二次确认 —— 它随时可以反悔（再点一次图挑回来就是原样），
+         而 Confirm.arm 会把按钮文字换成「确认…」，连带抹掉里面那张缩略图。 */
+      if (picBtn) picBtn.onclick = e => {
+        e.stopPropagation();
+        if (e.target.closest('[data-act=scpicclear]')) { clearScenePic(sc); return; }
+        pickScenePic(sc);
       };
-      /* 抓手 / 复制 / 删除这一族只挂在生成态上：剪辑态那一列是看成片的清单，
-         改的是分镜表（排序 / 复制 / 删除），与「剪」不是一件事 —— 上一段已经把这三颗
-         整个不画了，这里的处理器也跟着不绑（画出来但点不动是最坏的一种）。 */
       if (!midEditTrim) {
-        const grip = it.querySelector('.grip');
-        grip.addEventListener('mousedown', () => { it.draggable = true; });
-        it.addEventListener('dragend', () => {
-          it.draggable = false;
-          it.classList.remove('dragging');
-          document.querySelectorAll('.shot-item.drag-over').forEach(x => x.classList.remove('drag-over'));
-        });
-        it.addEventListener('dragstart', e => {
-          e.dataTransfer.setData('text/plain', `shot:${si}:${xi}`);
-          e.dataTransfer.effectAllowed = 'move';
-          document.querySelectorAll('.shot-item.dragging').forEach(x => x.classList.remove('dragging'));
-          it.classList.add('dragging');
-        });
-        it.addEventListener('dragover', e => {
-          e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-          if (!it.classList.contains('dragging')) it.classList.add('drag-over');
-        });
-        it.addEventListener('dragleave', () => it.classList.remove('drag-over'));
-        it.addEventListener('drop', e => {
-          e.preventDefault(); e.stopPropagation();
-          const d2 = e.dataTransfer.getData('text/plain');
-          if (!d2.startsWith('shot:')) return;
-          const [ , fsi, fxi ] = d2.split(':').map(Number);
-          if (fsi === si && fxi === xi) return;
-          const moved = proj.scenes[fsi].shots.splice(fxi, 1)[0];
-          /* 目标下标要按「源已被移走之后的数组」来算：同一个场景里往后拖时，splice(fxi,1) 已经把
-             后面那些整体前移了一格，再拿原来的下标插入，落点就比用户放的位置多走一格
-             （表现为「拖到第 3 个位置却落到第 4 个」）。 */
-          const at = (fsi === si && fxi < xi) ? xi - 1 : xi;
-          sc.shots.splice(at, 0, moved);
-          proj.curScene = si; proj.curShot = at;
-          renderAll(); scheduleSave();
-        });
-        it.querySelector('.dup').onclick = e => {
-          e.stopPropagation();
-          const copy = JSON.parse(JSON.stringify(sh));
-          copy.id = uid(); copy.name = sh.name + ' 副本'; copy.candidates = []; copy.selId = null;
-          copy.candidates.push(mkDraftCandidate(copy));
-          sc.shots.splice(xi + 1, 0, copy);
-          renderAll(); scheduleSave();
-        };
-        it.querySelector('.del').onclick = e => {
-          e.stopPropagation();
-          /* 后果只说与这一次删除直接相关的三条：这一镜已被选用 → 成片会少一段；
-             这一镜里还有别的生成结果 → 那些会一起没；删的是最后一个镜头 → 场景也没了。 */
-          const notes = [];
-          if (sh.selId) notes.push('这一镜已经被选用：删掉之后成片会少这一段');
-          const nc = (sh.candidates || []).filter(c => c.status !== 'draft').length;
-          if (nc > 1) notes.push('这一镜里还有 ' + (nc - 1) + ' 条生成结果，会一起删掉');
-          if (sc.shots.length === 1) notes.push('这是最后一个镜头：删掉之后这个场景也会一起没');
-          Confirm.arm(e.currentTarget, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
-            || (() => {
-          removeShot(sc, sh);
-          renderAll(); scheduleSave();
-          })();
+        head.querySelector('[data-act=addshot]').onclick = e => { e.stopPropagation(); addShotToScene(sc); };
+        head.querySelector('[data-act=delscene]').onclick = e => {
+          const b = e.currentTarget;
+          const n = (sc.shots || []).length;
+          Confirm.arm(b, '确认删除？', { note: n ? '这个场景里还有 ' + n + ' 个镜头，会一起删掉' : null })
+            || (releaseSceneUrls(sc),                          // 回收本地视频的 blob 地址，否则一直占内存
+                proj.scenes.splice(si, 1),
+                ensureSceneLeft(),                            // 删到最后一个场景时自动补一个空的，避免项目变成 0 场景
+                proj.curScene = Math.min(proj.curScene, proj.scenes.length - 1),
+                renderAll(), scheduleSave());
         };
       }
-      blk.appendChild(it);
+      blk.appendChild(head);
+      listed.forEach(([sh, xi]) => {
+        n++;
+        const it = document.createElement('div');
+        it.className = 'shot-item' + (si === proj.curScene && xi === proj.curShot ? ' sel' : '');
+        it.dataset.sid = sh.id;
+        it.draggable = false;   // 默认不可拖，按住 ⠿ 抓手才开启拖动
+        const cur = sh.candidates.find(c => c.vid === sh.selId);
+        const rawSrc = cur?.url || sh.firstFrame || '';
+        const sKey = cur?.url ? thumbKey(cur) : Wb.thumbs.keyOf(rawSrc);
+        const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
+          : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
+          : `<div class="sthumb empty"></div>`;
+        // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述
+        const st = shotStatusOf(sh);
+        const runC = st.runC;
+        const statusTxt = st.html;
+        const prog = runC ? Math.max(0, Math.min(100, Number(runC.progress) || 0)) : 0;
+        const pbarHTML = runC ? `<span class="pbar"><i style="width:${prog}%"></i></span>` : '';
+        const durTxt = shotDur(sh) ? ' · ' + fmtDur(shotDur(sh)) : '';   // 还没出片就不写「未生成」，避免「生成中 · 未生成」
+        it.innerHTML = `<span class="num">${String(n).padStart(2, '0')}</span>
+          <div class="sthumb-wrap">${thumb}${pbarHTML}</div>
+          <div class="sinfo"><div class="sname">${esc(sh.name)}</div>
+          <div class="smeta">${statusTxt}${durTxt}</div></div>`
+          /* 抓手 / 复制 / 删除是生成态那三件（改的是分镜表，不是成片）。剪辑态这一列是**看**成片
+             的镜头清单，点一行只做「切镜 / 跳针」，这三颗整个不画 ——
+             以前它们悬停才浮出来，剪的时候一不留神就复制了一镜或删掉了一段。 */
+          + (midEditTrim ? '' : `<div class="ops">
+            <button class="op-btn grip" title="按住拖动排序">${icon('grip', 12)}</button>
+            <button class="op-btn dup" title="复制镜头">${icon('copy', 12)}</button>
+            <button class="op-btn del danger" title="删除镜头">${TRASH_SVG}</button>
+          </div>`);
+        /* 收养旧的那一格缩略图，条件只有「它显示的就是这一镜此刻选用的那一份素材」——
+           按**缩略图身份**认，不按镜头认：换了选用的候选，旧格子里是另一条视频的首帧，
+           留着它界面就在替用户说一件假话（卡片上播着的画面 ≠ 这一镜现在选的那一条）。
+           整块 `.sthumb-wrap` 一起换（不能只换里面的媒体）：`Wb.thumbs._bindings` 是以 wrap 为键的，
+           只换媒体节点会让绑定指向一个已经不在文档里的旧节点。
+           进度条挂在 wrap 里面，所以收养之后要按这一轮的账重贴一次。 */
+        const kept = keepWrap.get(String(sh.id));
+        const keptMedia = kept && kept.querySelector('.sthumb');
+        if (kept && keptMedia && keptMedia.getAttribute('data-thumb-key') === sKey) {
+          it.querySelector('.sthumb-wrap').replaceWith(kept);
+          const oldBar = kept.querySelector('.pbar');
+          if (oldBar) oldBar.remove();
+          if (pbarHTML) kept.insertAdjacentHTML('beforeend', pbarHTML);
+          Wb.thumbs.bind(kept, keptMedia, rawSrc);
+        } else Wb.thumbs.bind(it.querySelector('.sthumb-wrap'), it.querySelector('.sthumb'), rawSrc);
+        /* 点一行：生成态 = 换看哪一镜（老样子，一字不改）；
+           剪辑态 = 剪辑针跳到那一镜在成片里的位置（`leftShotPick`）。 */
+        it.onclick = () => {
+          if (!midEditTrim) { proj.curScene = si; proj.curShot = xi; renderAll(); return; }
+          leftShotPick(sc, sh, xi);
+        };
+        /* 抓手 / 复制 / 删除这一族只挂在生成态上：剪辑态那一列是看成片的清单，
+           改的是分镜表（排序 / 复制 / 删除），与「剪」不是一件事 —— 上一段已经把这三颗
+           整个不画了，这里的处理器也跟着不绑（画出来但点不动是最坏的一种）。 */
+        if (!midEditTrim) {
+          const grip = it.querySelector('.grip');
+          grip.addEventListener('mousedown', () => { it.draggable = true; });
+          it.addEventListener('dragend', () => {
+            it.draggable = false;
+            it.classList.remove('dragging');
+            document.querySelectorAll('.shot-item.drag-over').forEach(x => x.classList.remove('drag-over'));
+          });
+          it.addEventListener('dragstart', e => {
+            e.dataTransfer.setData('text/plain', `shot:${si}:${xi}`);
+            e.dataTransfer.effectAllowed = 'move';
+            document.querySelectorAll('.shot-item.dragging').forEach(x => x.classList.remove('dragging'));
+            it.classList.add('dragging');
+          });
+          it.addEventListener('dragover', e => {
+            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            if (!it.classList.contains('dragging')) it.classList.add('drag-over');
+          });
+          it.addEventListener('dragleave', () => it.classList.remove('drag-over'));
+          it.addEventListener('drop', e => {
+            e.preventDefault(); e.stopPropagation();
+            const d2 = e.dataTransfer.getData('text/plain');
+            if (!d2.startsWith('shot:')) return;
+            const [ , fsi, fxi ] = d2.split(':').map(Number);
+            if (fsi === si && fxi === xi) return;
+            const moved = proj.scenes[fsi].shots.splice(fxi, 1)[0];
+            /* 目标下标要按「源已被移走之后的数组」来算：同一个场景里往后拖时，splice(fxi,1) 已经把
+               后面那些整体前移了一格，再拿原来的下标插入，落点就比用户放的位置多走一格
+               （表现为「拖到第 3 个位置却落到第 4 个」）。 */
+            const at = (fsi === si && fxi < xi) ? xi - 1 : xi;
+            sc.shots.splice(at, 0, moved);
+            proj.curScene = si; proj.curShot = at;
+            renderAll(); scheduleSave();
+          });
+          it.querySelector('.dup').onclick = e => {
+            e.stopPropagation();
+            const copy = JSON.parse(JSON.stringify(sh));
+            copy.id = uid(); copy.name = sh.name + ' 副本'; copy.candidates = []; copy.selId = null;
+            copy.candidates.push(mkDraftCandidate(copy));
+            sc.shots.splice(xi + 1, 0, copy);
+            renderAll(); scheduleSave();
+          };
+          it.querySelector('.del').onclick = e => {
+            e.stopPropagation();
+            /* 后果只说与这一次删除直接相关的三条：这一镜已被选用 → 成片会少一段；
+               这一镜里还有别的生成结果 → 那些会一起没；删的是最后一个镜头 → 场景也没了。 */
+            const notes = [];
+            if (sh.selId) notes.push('这一镜已经被选用：删掉之后成片会少这一段');
+            const nc = (sh.candidates || []).filter(c => c.status !== 'draft').length;
+            if (nc > 1) notes.push('这一镜里还有 ' + (nc - 1) + ' 条生成结果，会一起删掉');
+            if (sc.shots.length === 1) notes.push('这是最后一个镜头：删掉之后这个场景也会一起没');
+            Confirm.arm(e.currentTarget, '确认删除？', notes.length ? { note: notes.join(' · ') } : null)
+              || (() => {
+            removeShot(sc, sh);
+            renderAll(); scheduleSave();
+            })();
+          };
+        }
+        blk.appendChild(it);
+      });
+      box.appendChild(blk);
     });
-    box.appendChild(blk);
   });
   $('scCount').textContent = n;
   updateProjUI();
@@ -2094,7 +2102,7 @@ function leftShotPick(sc, sh, xi) {
   }
   if (inCutMode()) {
     const row = deriveTimeline(ensureFilm().clips || []).rows.find(r => (r.clip || {}).shotId === sh.id);
-    if (!row) { setStatus('这一镜还没进成片：先在生成态给它选一条「用这条」'); renderAll(); return; }
+    if (!row) { setStatus('这一镜还没进成片：先在生成态给它点「选用」'); renderAll(); return; }
     Timeline.seekTo(num(row.start), { follow: true });
     return;
   }
@@ -2111,6 +2119,9 @@ function leftShotPick(sc, sh, xi) {
    这一块做成**折叠区**（原生 details，默认收起）：它平时只是「有没有可退的步骤」这一句，
    展开才是一列记录 —— 以前它占掉左栏整列，剪的时候连分镜列表都看不见了。
    「导入视频 / 素材」已经挪到左栏表头（项目级动作），这里不再重复一个入口。 */
+/* 折叠区的开合存在模块里：这一栏每轮轮询整片重画，`<details>` 是每次新造的节点 ——
+   不留这一份账，用户正展开看历史时一次刷新就把它弹回收起。 */
+let elHistOpen = false;
 function renderEditLeft(box) {
   const rows = [];
   /* 倒序画（最新在最上）：日志本身是正的、只追加。 */
@@ -2126,25 +2137,32 @@ function renderEditLeft(box) {
       + '<span class="hn">' + esc(e.label) + '</span>'
       + '<span class="ht">' + window.fmtHM(e.at) + '</span></button>');
   }
-  box.innerHTML = `
-    <details class="el-hist">
-      <summary><span class="hn">历史编辑记录</span><span class="n">${historyLog.length ? historyLog.length + ' 条 · ' + Math.max(0, historyCursor + 1) + ' 步可退' : '还没有记录'}</span></summary>
-      <div class="el-body">
-        ${rows.length ? '<div class="hist-list">' + rows.join('') + '</div>'
-          : '<div class="hist-empty">还没有记录</div>'}
-      </div>
-    </details>`;
-  box.querySelectorAll('[data-hist-i]').forEach(b => {
-    b.onclick = () => {
-      const i = Number(b.dataset.histI);
-      if (!Number.isFinite(i) || i === historyCursor) return;
-      if (!historyGoTo(i, 'rollback', '回退到')) {
-        setStatus('<span class="err">退不回去：这份快照没能恢复，工作区保持原样</span>');
-        return;
-      }
-      setStatus('<span class="ok">✓ 已回退到「' + esc((historyLog[i] || {}).label || '那一步')
-        + '」那一版（历史里留了一条记录，前面那些一条都没删）</span>');
-    };
+  /* 重画罩在公共件里：这一栏自己滚（`#editLeft{overflow-y:auto}`），`innerHTML =` 把里面整片换掉
+     就把滚动位清零 —— 而每一轮任务轮询都会重画它。折叠区的开合 `keep` 不管（那是节点上的属性，
+     不是滚动位），所以它自己收进模块状态：`elHistOpen`。 */
+  Wb.viewport.keep(box, () => {
+    box.innerHTML = `
+      <details class="el-hist"${elHistOpen ? ' open' : ''}>
+        <summary><span class="hn">历史编辑记录</span><span class="n">${historyLog.length ? historyLog.length + ' 条 · ' + Math.max(0, historyCursor + 1) + ' 步可退' : '还没有记录'}</span></summary>
+        <div class="el-body">
+          ${rows.length ? '<div class="hist-list">' + rows.join('') + '</div>'
+            : '<div class="hist-empty">还没有记录</div>'}
+        </div>
+      </details>`;
+    const det = box.querySelector('.el-hist');
+    if (det) det.ontoggle = () => { elHistOpen = det.open; };
+    box.querySelectorAll('[data-hist-i]').forEach(b => {
+      b.onclick = () => {
+        const i = Number(b.dataset.histI);
+        if (!Number.isFinite(i) || i === historyCursor) return;
+        if (!historyGoTo(i, 'rollback', '回退到')) {
+          setStatus('<span class="err">退不回去：这份快照没能恢复，工作区保持原样</span>');
+          return;
+        }
+        setStatus('<span class="ok">✓ 已回退到「' + esc((historyLog[i] || {}).label || '那一步')
+          + '」那一版（历史里留了一条记录，前面那些一条都没删）</span>');
+      };
+    });
   });
 }
 
@@ -3961,45 +3979,89 @@ function renderProjMenu() {
   const menu = $('projMenu');
   const tree = Groups.tree(WS);
   const gCount = Groups.list(WS).length;
-  menu.innerHTML = '<div class="pm-head">共 ' + WS.projects.length + ' 个短片'
-    + (gCount ? ' · ' + gCount + ' 个项目组' : '') + '</div>';
-  const projRow = (p, inGroup) => {
-    const row = document.createElement('div');
-    row.className = 'pm-row' + (p.id === WS.curId ? ' sel' : '') + (inGroup ? ' pm-in-group' : '');
-    const n = (p.scenes || []).reduce((a, s) => a + (s.shots || []).length, 0);
-    row.innerHTML = `<span class="pm-name">${esc(p.name)} <span class="pm-cnt">· ${n} 镜</span></span>
-      <span class="pm-ops">
-        <button class="pm-btn" data-move="${p.id}" title="移到别的项目组">${icon('folder', 13)}</button>
-        <button class="pm-btn" data-rename="${p.id}" title="重命名这个短片">${icon('pencil', 13)}</button>
-        <button class="pm-btn danger" data-del="${p.id}" title="删除这个短片">${icon('trash', 13)}</button>
-      </span>`;
-    row.onclick = e => { if (e.target.closest('.pm-btn')) return; switchProject(p.id); menu.hidden = true; };
-    return row;
-  };
-  tree.forEach(g => {
-    /* 组头：折叠 + 组名 + 几部短片 + 改名 / 删组。
-       删组只把组内的短片退回未分组，**不删短片** —— 删组是整理，不是删作品。 */
-    const key = g.kind === 'none' ? '__none' : g.id;
-    const folded = foldedProjGroups.has(key);
-    const head = document.createElement('div');
-    head.className = 'pm-group' + (g.kind === 'none' ? ' none' : '') + (folded ? ' folded' : '');
-    head.innerHTML = (g.items.length
-      ? `<button class="pm-gfold" type="button" data-gfold="${esc(key)}" aria-expanded="${!folded}" title="${folded ? '展开这个项目组' : '收起这个项目组'}">${icon(folded ? 'chevronDown' : 'chevronUp', 12)}</button>`
-      : '<span class="pm-gfold" aria-hidden="true"></span>')
-      + `<span class="pm-gname">${esc(g.name)}</span>
-      <span class="pm-cnt">· ${g.items.length} 部</span>
-      <span class="pm-ops">
-        ${g.kind === 'none' ? '' : `<button class="pm-btn" data-grename="${g.id}" title="重命名这个项目组">${icon('pencil', 13)}</button>
-        <button class="pm-btn danger" data-gdel="${g.id}" title="删掉这个项目组（组里的短片退回未分组，不会被删）">${icon('trash', 13)}</button>`}
-      </span>`;
-    head.onclick = e => {
-      if (!g.items.length || e.target.closest('.pm-btn') || e.target.closest('[data-gfold]')) return;
-      toggleProjFold(key);
+  /* 整栏重建罩在公共件里：`#projMenu` 自己就是那只 `max-height:60vh` 的滚动容器，`innerHTML =`
+     之后一路 appendChild 把行重新造一遍，滚动位在清空那一刻夹回 0 —— 表现是「滚到列表底下挑短片，
+     一次改名 / 移组 / 删除之后弹回栏顶」。底下那几排 `querySelectorAll(...)` 的接线不改布局，
+     留在这一趟之外（那几个 await 的对话框里再调 renderProjMenu 时会各自再走一次）。 */
+  Wb.viewport.keep(menu, () => {
+    menu.innerHTML = '<div class="pm-head">共 ' + WS.projects.length + ' 个短片'
+      + (gCount ? ' · ' + gCount + ' 个项目组' : '') + '</div>';
+    const projRow = (p, inGroup) => {
+      const row = document.createElement('div');
+      row.className = 'pm-row' + (p.id === WS.curId ? ' sel' : '') + (inGroup ? ' pm-in-group' : '');
+      /* 行身份给公共件：折叠 / 移组 / 删除会让「第 i 格」换人，只按下标还位会把视野还到别的短片上。 */
+      row.setAttribute('data-id', p.id);
+      const n = (p.scenes || []).reduce((a, s) => a + (s.shots || []).length, 0);
+      row.innerHTML = `<span class="pm-name">${esc(p.name)} <span class="pm-cnt">· ${n} 镜</span></span>
+        <span class="pm-ops">
+          <button class="pm-btn" data-move="${p.id}" title="移到别的项目组">${icon('folder', 13)}</button>
+          <button class="pm-btn" data-rename="${p.id}" title="重命名这个短片">${icon('pencil', 13)}</button>
+          <button class="pm-btn danger" data-del="${p.id}" title="删除这个短片">${icon('trash', 13)}</button>
+        </span>`;
+      row.onclick = e => { if (e.target.closest('.pm-btn')) return; switchProject(p.id); menu.hidden = true; };
+      return row;
     };
-    const fold = head.querySelector('[data-gfold]');
-    if (fold) fold.onclick = e => { e.stopPropagation(); toggleProjFold(key); };
-    menu.appendChild(head);
-    if (!folded) g.items.forEach(it => menu.appendChild(projRow(it.p, g.kind !== 'none')));
+    tree.forEach(g => {
+      /* 组头：折叠 + 组名 + 几部短片 + 改名 / 删组。
+         删组只把组内的短片退回未分组，**不删短片** —— 删组是整理，不是删作品。 */
+      const key = g.kind === 'none' ? '__none' : g.id;
+      const folded = foldedProjGroups.has(key);
+      const head = document.createElement('div');
+      head.className = 'pm-group' + (g.kind === 'none' ? ' none' : '') + (folded ? ' folded' : '');
+      head.setAttribute('data-gid', key);
+      head.innerHTML = (g.items.length
+        ? `<button class="pm-gfold" type="button" data-gfold="${esc(key)}" aria-expanded="${!folded}" title="${folded ? '展开这个项目组' : '收起这个项目组'}">${icon(folded ? 'chevronDown' : 'chevronUp', 12)}</button>`
+        : '<span class="pm-gfold" aria-hidden="true"></span>')
+        + `<span class="pm-gname">${esc(g.name)}</span>
+        <span class="pm-cnt">· ${g.items.length} 部</span>
+        <span class="pm-ops">
+          ${g.kind === 'none' ? '' : `<button class="pm-btn" data-grename="${g.id}" title="重命名这个项目组">${icon('pencil', 13)}</button>
+          <button class="pm-btn danger" data-gdel="${g.id}" title="删掉这个项目组（组里的短片退回未分组，不会被删）">${icon('trash', 13)}</button>`}
+        </span>`;
+      head.onclick = e => {
+        if (!g.items.length || e.target.closest('.pm-btn') || e.target.closest('[data-gfold]')) return;
+        toggleProjFold(key);
+      };
+      const fold = head.querySelector('[data-gfold]');
+      if (fold) fold.onclick = e => { e.stopPropagation(); toggleProjFold(key); };
+      menu.appendChild(head);
+      if (!folded) g.items.forEach(it => menu.appendChild(projRow(it.p, g.kind !== 'none')));
+    });
+    /* 底部两行（新建组 / 新建短片）也在这趟里长出来：keep 还位发生在回调返回那一刻，
+       拖到外面 append 的话还位量到的是「还没有这两行」的高度，夹算就矮了一截。 */
+    const gAdd = document.createElement('div');
+    gAdd.className = 'pm-add';
+    gAdd.textContent = '＋ 新建项目组';
+    gAdd.onclick = async () => {
+      if (!window.PromptForm) { setStatus('<span class="err">表单组件未加载，已取消新建</span>'); return; }
+      const v = await PromptForm.open({
+        title: '新建项目组', okLabel: '建这个组',
+        sub: '组名同时是素材库里的分组名：在这个组下的短片里拆分镜，新建的素材会落进同名的那一组。',
+        fields: [{ key: 'name', label: '项目组名称', type: 'text', placeholder: '例：校园篇' }],
+      });
+      if (!v || !v.name) return;
+      const nm = String(v.name).trim();
+      if (!nm) return;
+      const g = Groups.ensure(WS, nm);
+      if (!g) return;
+      /* 新组默认把当前短片放进去 —— 用户「建一个组」多半就是为了归这一部。 */
+      if (proj && proj.id) Groups.assign(WS, proj.id, g.id);
+      renderProjMenu(); renderAll(); scheduleSave();
+      setStatus('<span class="ok">✓ 已建项目组「' + esc(g.name) + '」' + (proj ? '，当前短片已放进去' : '') + '</span>');
+    };
+    menu.appendChild(gAdd);
+    const addRow = document.createElement('div');
+    addRow.className = 'pm-add';
+    addRow.textContent = '＋ 新建短片';
+    addRow.onclick = () => {
+      const p = { id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] };
+      /* 新短片默认落在**当前短片所在的组**里 —— 同一组的短片才共享素材。 */
+      if (proj && proj.groupId) p.groupId = proj.groupId;
+      WS.projects.push(p);
+      switchProject(p.id);
+      menu.hidden = true;
+    };
+    menu.appendChild(addRow);
   });
   /* 移到组：短片那一行的「文件夹」按钮。 */
   menu.querySelectorAll('[data-move]').forEach(b => b.onclick = async e => {
@@ -4088,40 +4150,6 @@ function renderProjMenu() {
     renderProjMenu();
     setStatus('<span class="ok">✓ 已删除短片「' + pp.name + '」</span>');
   });
-  /* 底部两行：新建组 / 新建短片。 */
-  const gAdd = document.createElement('div');
-  gAdd.className = 'pm-add';
-  gAdd.textContent = '＋ 新建项目组';
-  gAdd.onclick = async () => {
-    if (!window.PromptForm) { setStatus('<span class="err">表单组件未加载，已取消新建</span>'); return; }
-    const v = await PromptForm.open({
-      title: '新建项目组', okLabel: '建这个组',
-      sub: '组名同时是素材库里的分组名：在这个组下的短片里拆分镜，新建的素材会落进同名的那一组。',
-      fields: [{ key: 'name', label: '项目组名称', type: 'text', placeholder: '例：校园篇' }],
-    });
-    if (!v || !v.name) return;
-    const nm = String(v.name).trim();
-    if (!nm) return;
-    const g = Groups.ensure(WS, nm);
-    if (!g) return;
-    /* 新组默认把当前短片放进去 —— 用户「建一个组」多半就是为了归这一部。 */
-    if (proj && proj.id) Groups.assign(WS, proj.id, g.id);
-    renderProjMenu(); renderAll(); scheduleSave();
-    setStatus('<span class="ok">✓ 已建项目组「' + esc(g.name) + '」' + (proj ? '，当前短片已放进去' : '') + '</span>');
-  };
-  menu.appendChild(gAdd);
-  const addRow = document.createElement('div');
-  addRow.className = 'pm-add';
-  addRow.textContent = '＋ 新建短片';
-  addRow.onclick = () => {
-    const p = { id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] };
-    /* 新短片默认落在**当前短片所在的组**里 —— 同一组的短片才共享素材。 */
-    if (proj && proj.groupId) p.groupId = proj.groupId;
-    WS.projects.push(p);
-    switchProject(p.id);
-    menu.hidden = true;
-  };
-  menu.appendChild(addRow);
 }
 function switchProject(id) {
   /* 切走短片 = 这一批不该再往下投：还没开始的镜头直接停，正在提交的那一条按它自己的回包落定。
@@ -4583,7 +4611,7 @@ if (dirLayout) Wb.split.enable({
    而按钮本身还依赖「现在指着哪一块」这种界面态。桥只认**成片秒**（proj.film 的
    start/end 都是它），写只有两条出口 —— Edit.patch（画面段 / 配音）、
    Edit.toolAction（切开 / 删 / 复制 / 融合，与工具条同一批函数）、Caption.*（字幕一族）：
-     · select   选一条候选进成片（= 候选上那颗「用这条」）→ setSelectedCandidate
+     · select   选一条候选进成片（= 候选上那颗「选用」）→ setSelectedCandidate
      · cut      切开 / 剪头 / 剪尾 / 删段 / 复制 / 融合 → Edit.toolAction
      · set      倍速 / 音量 / 静音 / 行 / 起止 / 滑移 / 滚切点 / 滑动 / 挪位 / 转场 / 字幕
      · undo     撤销 / 重做（Ctrl+Z / Ctrl+Y 的同一份栈）

@@ -6,7 +6,7 @@
      ④ 撤销 / 重做走同一套：Ctrl+Z 追一条回退记录，Ctrl+Y 追一条重做记录；
      ⑤ 桥上的 `history().最近` 念的是**日志末尾那一条**（刚做完的事），不是「下一步要退掉的那一条」。
    判据跑的是产品自己的那一行（`.hist-row`）与工具条上那几颗按钮，不绕开界面。
-   走的全是真实路径：点「用这条」把候选接进成片（建段）→ 点尺子放针 → 剪子切一刀 → 复制那一段。 */
+   走的全是真实路径：点「选用」把候选接进成片（建段）→ 点尺子放针 → 剪子切一刀 → 复制那一段。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -77,7 +77,7 @@ const cand = (vid, dur, shotId) => ({ vid, provider: 'local', status: 'succeeded
 
     /* ---------------- ① 把候选接进成片：这一步在日志里叫什么 ---------------- */
     if (!(await page.eval(() => { const b = document.getElementById('usec'); if (!b || b.disabled) return false; b.click(); return true; }))) {
-      throw new Error('生成态没有可点的「用这条」');
+      throw new Error('生成态没有可点的「选用」');
     }
     await sleep(900);
     await page.eval(() => { const t = document.getElementById('trimBtn'); if (t && !t.classList.contains('on')) t.click(); });

@@ -708,7 +708,7 @@ const SettingsView = {
             + '<div class="fcard-d">不经过任何云供应商</div></div>'
           + '<span class="fcard-badge"><span class="st on">无需密钥</span></span></div>'
         + capStripHTML(m)
-        + '<div class="acct-mid">'
+        + '<div class="acct-mid" data-mid="' + kid + '">'
           + m.caps.map(cap => capRowHTML(m, cap) + priFormHTML(m, cap)).join('')
         + '</div>'
         + '<div class="fcard-acts"><span class="hint sm">路线在下面选；本机运行包放 tools/whisper/</span></div>'
@@ -786,7 +786,7 @@ const SettingsView = {
             + '</div>' + (meta ? '<div class="fcard-d">' + meta + '</div>' : '') + '</div>'
           + '<span class="fcard-badge"><span class="st ' + kb.cls + '">' + kb.zh + '</span></span></div>'
         + capStripHTML(m)
-        + '<div class="acct-mid">' + mid + '</div>'
+        + '<div class="acct-mid" data-mid="' + kid + '">' + mid + '</div>'
         + '<div class="fcard-acts">'
           + '<label class="check' + (m.credits ? '' : ' dim') + '" title="'
             + (m.credits ? '勾选后在左侧栏「账户余额」里显示这一家的余额（改完自动存进本机）'
@@ -832,8 +832,8 @@ const SettingsView = {
           : '<span class="fcard-badge"><span class="st alt">待接入 ' + rest.length + '</span></span>')
         + '</div>'
         + (custom
-          ? '<div class="acct-mid"><div class="formslot" data-formslot="cus"></div></div>'
-          : '<div class="acct-mid">'
+          ? '<div class="acct-mid" data-mid="__add__"><div class="formslot" data-formslot="cus"></div></div>'
+          : '<div class="acct-mid" data-mid="__add__">'
             + (rest.length ? rest.map(presetRowHTML).join('')
               : '<div class="mlist-empty">注册表里的都请进来了。</div>')
             + '<button class="ghost wide" type="button" data-cus-open="1">＋ 自定义（中转站 / 网关 / 企业部署）</button>'
@@ -924,22 +924,9 @@ const SettingsView = {
     }
 
     /* 卡片等高（--sz-acct）+ 卡内那一段自己滚：展开密钥行、展开型号面板都不改卡的外形，
-       所以整片重画时唯一要还回去的是「卡里那一段滚到了哪」。 */
-    function midScrolls() {
-      const out = new Map();
-      qa('.acct .acct-mid').forEach(el => {
-        const card = el.closest ? el.closest('.acct') : null;
-        if (card) out.set(card.dataset.acct, el.scrollTop);
-      });
-      return out;
-    }
-    function restoreMidScrolls(map) {
-      qa('.acct .acct-mid').forEach(el => {
-        const card = el.closest ? el.closest('.acct') : null;
-        const v = card ? map.get(card.dataset.acct) : 0;
-        if (v) el.scrollTop = v;
-      });
-    }
+       所以整片重画要还回去的是「那条文档滚到哪儿」加上「每一张卡里那一段滚到哪儿」——
+       两样都由公共件 Wb.viewport.keep 按锚点还（.acct-mid 带 data-mid="<kid>" 当身份，
+       卡片流重排 / 增删时才不会把 A 卡的视口还到 B 卡上）。 */
     function listedAccounts(all) {
       return all.filter(m => provUsable(m) || pendingAdds.has(m.keyId));
     }
@@ -958,34 +945,39 @@ const SettingsView = {
 
     function renderProv() {
       if (!provListEl.value) return;
-      lastAcctAll = provGroups();
-      provEpoch.value++;
-      provRows.clear();
-      lastAcctAll.forEach(m => provRows.set(m.keyId, m));
-      lastAcctShown = filteredAccounts();
-      paintTools();
-      paintRegErr();
-      const keep = midScrolls();
-      provListEl.value.innerHTML = lastAcctShown.map(accountCardHTML).join('') + addTileHTML(lastAcctAll);
-      restoreMidScrolls(keep);
-      /* 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，清掉，保持输入框为空。
-         判据带长度（不止末 4 位）：tail 相同的两把不同密钥概率虽小但不是零；server 的 /env-status 带 len。
-         走 keyCleared 那一套（跟「清除」按钮同一条路）：删除排队进自动保存、顶栏回执照说 ——
-         以前在渲染里直接 LS.del，绕过了「改完就存本机 · 刚刚存过」的状态行。 */
-      lastAcctShown.forEach(m => {
-        if (m.custom || !(envInfo[m.keyId] || {}).hasEnv) return;
-        const lk = keyFor(m.keyId);
-        if (!lk || lk.slice(-4) !== envInfo[m.keyId].tail || lk.length !== envInfo[m.keyId].len) return;
-        keyDraft.delete(m.keyId);
-        keyCleared.add(m.keyId);
-        markChanged();
-        const inp = q('[data-key="' + window.esc(m.keyId) + '"]');
-        if (inp) inp.value = '';
-      });
-      if (textForm) textForm.paint();
-      placeForms();
-      wireAcct();
-      if (window.Dropdowns && provListEl.value) Dropdowns.build(provListEl.value);
+      const repaintGrid = () => {
+        lastAcctAll = provGroups();
+        provEpoch.value++;
+        provRows.clear();
+        lastAcctAll.forEach(m => provRows.set(m.keyId, m));
+        lastAcctShown = filteredAccounts();
+        paintTools();
+        paintRegErr();
+        provListEl.value.innerHTML = lastAcctShown.map(accountCardHTML).join('') + addTileHTML(lastAcctAll);
+        /* 本机存的和服务端内置的是同一把 → 说明是误存的默认密钥，清掉，保持输入框为空。
+           判据带长度（不止末 4 位）：tail 相同的两把不同密钥概率虽小但不是零；server 的 /env-status 带 len。
+           走 keyCleared 那一套（跟「清除」按钮同一条路）：删除排队进自动保存、顶栏回执照说 ——
+           以前在渲染里直接 LS.del，绕过了「改完就存本机 · 刚刚存过」的状态行。 */
+        lastAcctShown.forEach(m => {
+          if (m.custom || !(envInfo[m.keyId] || {}).hasEnv) return;
+          const lk = keyFor(m.keyId);
+          if (!lk || lk.slice(-4) !== envInfo[m.keyId].tail || lk.length !== envInfo[m.keyId].len) return;
+          keyDraft.delete(m.keyId);
+          keyCleared.add(m.keyId);
+          markChanged();
+          const inp = q('[data-key="' + window.esc(m.keyId) + '"]');
+          if (inp) inp.value = '';
+        });
+        if (textForm) textForm.paint();
+        placeForms();
+        wireAcct();
+        if (window.Dropdowns && provListEl.value) Dropdowns.build(provListEl.value);
+      };
+      /* 整片重画那一条文档里的一整块卡流：外层是这一页唯一的文档滚动容器（.set-doc-scroll），
+         卡里那一段（.acct-mid）与型号清单（.mlist）在它下面，公共件一趟全罩住。
+         ⚠ 要「展开面板就把那一格滚进视野」的那些点击，reveal 必须写在 renderProv **之后** ——
+         keep 在重画完就把视口钉回去了，先滚后钉等于没滚。 */
+      window.Wb.viewport.keep(setDocEl.value, repaintGrid);
       /* 手加 / 撤掉一档语音识别之后，「在线服务商」那份候选要跟着变。 */
       syncServiceProvs();
       ensureBalances();
@@ -1007,18 +999,6 @@ const SettingsView = {
       el.className = 'hint sm ' + (cls || '');
       el.textContent = text;
     }
-    /* 卡里那一段（.acct-mid）自己滚：就地展开型号面板时把新出来的那一格滚进视野。
-       这里**不用** scrollIntoView —— 它会把外面那条文档一起滚（页面上跳），而滚卡里那一段
-       只需要动 .acct-mid.scrollTop；这一页滚动的唯一出口仍是 scrollToEl（那一条只管文档）。 */
-    function revealInMid(el) {
-      const mid = el && el.closest ? el.closest('.acct-mid') : null;
-      if (!mid) return;
-      const r = el.getBoundingClientRect(), b = mid.getBoundingClientRect();
-      const d = r.bottom - b.bottom, u = b.top - r.top;
-      if (d > 0) mid.scrollTop += d + 8;
-      else if (u > 0) mid.scrollTop -= u + 8;
-    }
-
     /* 三块 Vue 表单往哪摆：语音识别 / 联网搜索 → 声明了这一档的那张账号卡里那一行下面；
        自定义供应商 → 「添加供应商」卡展开时的那一格。网格每次 innerHTML 重来，
        所以每次画完都要再搬一次；没有落点（没有哪家声明 / 卡没展开）就回到 hidden 的停靠格，
@@ -1095,7 +1075,13 @@ const SettingsView = {
         if (panelOpen.has(slot)) panelOpen.delete(slot);
         else { panelOpen.add(slot); autofetchTried.delete(slot); }
         renderProv();
-        if (panelOpen.has(slot)) revealInMid(q('[data-mblk="' + window.esc(slot) + '"]'));
+        /* 展开完把那一格滚进卡内视野，并把点中的那一行（型号那一排，收起按钮就在它上面）
+           钉在视野里：面板比卡内可视区高，超出的一截留在 .acct-mid 里自己滚。
+           重画换掉了整棵子树，行与块都要重新 q 一次才是在文档里的那一颗。 */
+        if (panelOpen.has(slot)) {
+          window.Wb.viewport.reveal(q('[data-mblk="' + window.esc(slot) + '"]'),
+            { pin: q('[data-crow="' + window.esc(slot) + '"]') });
+        }
         return;
       }
       const co = t.closest && t.closest('[data-cus-open]');
@@ -1120,11 +1106,14 @@ const SettingsView = {
         const kid3 = cad.dataset.capAdd, cap3 = cad.dataset.cap;
         setManualCaps(kid3, manualCapsOf(kid3).concat([cap3]));
         capPickOpen.delete(kid3);
-        renderProv();
-        /* 加完就把这一档的型号面板摊开 —— 型号得自己填，这是下一步唯一要做的事 */
+        /* 加完就把这一档的型号面板摊开 —— 型号得自己填，这是下一步唯一要做的事。
+           摊开要写在重画**之前**：一次点击只许重画一次，两次 keep 会各自抓一份锚点快照，
+           第二次抓到的已经是第一次还完位的那一帧。 */
         panelOpen.add(slotKey(kid3, cap3));
         renderProv();
-        revealInMid(q('[data-mblk="' + window.esc(slotKey(kid3, cap3)) + '"]'));
+        const slot3 = slotKey(kid3, cap3);
+        window.Wb.viewport.reveal(q('[data-mblk="' + window.esc(slot3) + '"]'),
+          { pin: q('[data-crow="' + window.esc(slot3) + '"]') });
         Toast.receipt('已给这一家加上「' + capZh(cap3) + '」—— 型号清单里自己填 id', 'ok');
         return;
       }
@@ -1146,7 +1135,8 @@ const SettingsView = {
         keyOpen.add(kid);
         renderProv();
         const inp = q('[data-key="' + window.esc(kid) + '"]');
-        if (inp) { window.focusQuiet(inp); revealInMid(inp); }
+        /* 摊开的是密钥那一行：reveal 把输入框带进卡内视野，pin 让它所属的那一行不被顶出去。 */
+        if (inp) { window.focusQuiet(inp); window.Wb.viewport.reveal(inp, { pin: inp.closest('.krow') }); }
         Toast.receipt('已把「' + ((provRows.get(kid) || {}).name || kid) + '」请进界面 —— 这一步什么都没写；'
           + '在摊开的那一栏填一把密钥才算接上（改完自动存进本机）', 'ok');
         return;
@@ -1862,9 +1852,15 @@ const SettingsView = {
        文字档是单选（点一行 = 全站润色用它，写的还是 sk_model_<keyId> 那一个值）；
        生成三类是多选（勾选 = 出现在工作台下拉里）。 */
     function renderModelRows(slot) {
-      const kid = slotKid(slot);
       const box = q('[data-tchips="' + window.esc(slot) + '"]');
       if (!box) return;
+      /* 那一格清单自己滚（`.mlist` 有 max-height）：整排行是 innerHTML 换掉的，滚动位会被夹回 0 ——
+         勾一条「展示 / 隐藏」、点一行选文字型号、移除一条自己填的，清单就弹回第一条。
+         容器没被换掉（换的是它的子节点），所以点名 box 自己就够，公共件按行的下标还位。 */
+      window.Wb.viewport.keep(box, () => fillModelRows(box, slot));
+    }
+    function fillModelRows(box, slot) {
+      const kid = slotKid(slot);
       const p = provBySlot(slot);
       if (!p) { box.innerHTML = ''; return; }
       const list = allModelsOf(p);
@@ -3296,8 +3292,11 @@ const SettingsView = {
       const cf = d.conflicts || [];
       const cBox = cloudConflictsEl.value;
       if (cBox) {
-        if (!cf.length) cBox.innerHTML = '';
-        else {
+        /* 整块是 innerHTML 重来的：一份冲突选完，那一行没了（面板可能整块塌掉）——
+           用户就站在这块上面点的手，塌掉的又是他视野上方的东西，得按锚点把那一行钉住。
+           这一页在滚的是右边那条文档，所以点名它。 */
+        window.Wb.viewport.keep(setDocEl.value, () => {
+          if (!cf.length) { cBox.innerHTML = ''; return; }
           cBox.innerHTML = panelBox('冲突待选择（' + cf.length + ' 份）',
             '两边都改过，为避免覆盖你的数据，这里不自动决定。选一边后立即生效。')
             + cf.map(x => '<div class="cloud-row">'
@@ -3331,15 +3330,15 @@ const SettingsView = {
               } catch (e) { Toast.err('解决冲突失败：' + errText(e)); b.disabled = false; }
             };
           });
-        }
+        });
       }
       /* 备份：云端覆盖过本机的那些键，随时可以退回去 */
       let bk = [];
       try { bk = ((await Net.json('/cloud/backups', { timeout: 10000 })).items) || []; } catch (e) {}
       const bBox = cloudBackupsEl.value;
       if (bBox) {
-        if (!bk.length) bBox.innerHTML = '';
-        else {
+        window.Wb.viewport.keep(setDocEl.value, () => {
+          if (!bk.length) { bBox.innerHTML = ''; return; }
           bBox.innerHTML = panelBox('备份（' + bk.length + ' 份）',
             '每次用云端覆盖本机之前，都会把本机那份留在 .data/ 里；恢复后刷新页面即生效。')
             + bk.slice(0, 12).map(x => '<div class="cloud-row">'
@@ -3365,7 +3364,7 @@ const SettingsView = {
               } catch (e) { Toast.err('恢复失败：' + errText(e)); b.disabled = false; }
             };
           });
-        }
+        });
       }
     }
 
@@ -3410,11 +3409,15 @@ const SettingsView = {
       try { s = await Api.sysStatus(fresh); }
       catch (e) {
         lastSys = null; syncSysCopyBtn();
+        /* 「重新体检」这一次点下去，这一格的行数与高度都会变（错误占位比正常那一叠短得多）：
+           用户就站在这张卡上，塌掉的又在他视野上方 —— 点名这一页在滚的那条文档。 */
         if (sysRowsEl.value) {
-          sysRowsEl.value.innerHTML = e && e.status === 404
-            ? '<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
-              + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新体检」。</div>'
-            : '<div class="ui-note err">读不到本机环境：' + window.esc(errText(e)) + '</div>';
+          window.Wb.viewport.keep(setDocEl.value, () => {
+            sysRowsEl.value.innerHTML = e && e.status === 404
+              ? '<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
+                + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新体检」。</div>'
+              : '<div class="ui-note err">读不到本机环境：' + window.esc(errText(e)) + '</div>';
+          });
         }
         return;
       }
@@ -3453,7 +3456,7 @@ const SettingsView = {
       html += dirRow('本机资产目录', dirs.资产);
       html += dirRow('成片目录', dirs.渲染);
       if (old) html += '<div class="ui-note err">' + window.esc(old) + '</div>';
-      if (sysRowsEl.value) sysRowsEl.value.innerHTML = html;
+      if (sysRowsEl.value) window.Wb.viewport.keep(setDocEl.value, () => { sysRowsEl.value.innerHTML = html; });
       sysMsg.value = '上次体检：' + window.fmtHMS(s.at || Date.now())
         + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（换过浏览器或改过目录权限请点「重新体检」）');
     }
@@ -3481,21 +3484,24 @@ const SettingsView = {
     }
     function syncUsageCopyBtn() { usageCopyDisabled.value = !lastUsage; }
     async function refreshUsage() {
+      /* 这一格三条出口都整块 innerHTML 重来（读不到 / 代理太旧 / 真读数，高度差很多）：
+         「重新数一遍」那一下用户就站在这张卡上，所以点名这一页在滚的那条文档还视口。 */
+      const writeRows = html => {
+        if (usageRowsEl.value) window.Wb.viewport.keep(setDocEl.value, () => { usageRowsEl.value.innerHTML = html; });
+      };
       usageMsg.value = '';
       let u = null;
       try { u = await Api.assetsUsage(); }
       catch (e) {
         lastUsage = null; syncUsageCopyBtn();
-        if (usageRowsEl.value) usageRowsEl.value.innerHTML = '<div class="ui-note err">数不出本机资产库：' + window.esc(errText(e)) + '</div>';
+        writeRows('<div class="ui-note err">数不出本机资产库：' + window.esc(errText(e)) + '</div>');
         return;
       }
       lastUsage = u; syncUsageCopyBtn();
       /* 404 → Api.assetsUsage 交回 null：说「这一项旧代理不支持」，不说「0 字节」。 */
       if (!u) {
-        if (usageRowsEl.value) {
-          usageRowsEl.value.innerHTML = '<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
-            + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新数一遍」。</div>';
-        }
+        writeRows('<div class="ui-note info">本地代理的版本太旧，这一项它还不支持。'
+          + '用「启动.bat → 2 停止 → 1 启动」重启一下，回来点「重新数一遍」。</div>');
         return;
       }
       const d = u.目录 || {};
@@ -3503,7 +3509,7 @@ const SettingsView = {
         (u.因由 || []).join(' · ') || '没有要提醒的 —— 这一格只数不删', d.路径 || '');
       html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top: var(--sp-4)">'
         + window.esc(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
-      if (usageRowsEl.value) usageRowsEl.value.innerHTML = html;
+      writeRows(html);
       usageMsg.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
     }
     async function recountUsage() {
@@ -3577,18 +3583,23 @@ const SettingsView = {
       const host = histBoxEl.value;
       if (!host) return;
       const kinds = (window.Wb && Wb.History.kinds()) || [];
-      host.innerHTML = kinds.map(k => {
-        const n = Wb.History.read(k.kind).length;
-        return '<div class="krow" style="gap: var(--sp-8);flex-wrap:wrap;margin-top: var(--sp-10)">'
-          + '<span class="kn">本地任务记录</span>'
-          + '<span class="sub-line">' + window.esc(k.label) + '：本机 ' + n + ' 条。'
-          + (n ? '这不是缓存：清掉后本机存的任务号与提示词就没了（平台上的任务与已生成的文件不受影响），删除还会同步进数据文件与云端。'
-               : '本机没有记录。')
-          + '</span>'
-          + '<button class="ghost mini danger wide" data-hist="' + window.esc(k.kind) + '"'
-          + (n ? '' : ' disabled') + '>清空</button></div>';
-      }).join('');
-      host.querySelectorAll('[data-hist]').forEach(b => { b.onclick = () => clearHist(b.dataset.hist); });
+      const repaint = () => {
+        host.innerHTML = kinds.map(k => {
+          const n = Wb.History.read(k.kind).length;
+          return '<div class="krow" style="gap: var(--sp-8);flex-wrap:wrap;margin-top: var(--sp-10)">'
+            + '<span class="kn">本地任务记录</span>'
+            + '<span class="sub-line">' + window.esc(k.label) + '：本机 ' + n + ' 条。'
+            + (n ? '这不是缓存：清掉后本机存的任务号与提示词就没了（平台上的任务与已生成的文件不受影响），删除还会同步进数据文件与云端。'
+                 : '本机没有记录。')
+            + '</span>'
+            + '<button class="ghost mini danger wide" data-hist="' + window.esc(k.kind) + '"'
+            + (n ? '' : ' disabled') + '>清空</button></div>';
+        }).join('');
+        host.querySelectorAll('[data-hist]').forEach(b => { b.onclick = () => clearHist(b.dataset.hist); });
+      };
+      /* 「清空」按下去之后这一栏的说明会变（有条数 → 「本机没有记录」），
+         旁边还有缓存那一节跟着缩 —— 点名这一页在滚的那条文档。 */
+      window.Wb.viewport.keep(setDocEl.value, repaint);
     }
     async function clearHist(kind) {
       const k = ((Wb.History.kinds() || []).find(x => x.kind === kind)) || { label: kind };
@@ -3620,11 +3631,14 @@ const SettingsView = {
       promptInfo.value = rows.length ? (d.count + ' 份归档') : '还没有归档';
       promptInfoTitle.value = d.dir || '';
       if (!promptRecentEl.value) return;
-      if (!rows.length) { promptRecentEl.value.textContent = '创建任务后，提示词会自动归档到这里。'; return; }
-      promptRecentEl.value.innerHTML = rows.slice(0, 8).map(r => {
-        const t = window.fmtWhenSec(r.ts);
-        return '<div>· <b>' + window.esc(r.t || r.f) + '</b> <span style="color:var(--sub)">' + window.esc(r.k || '') + ' · ' + window.esc(t) + '</span></div>';
-      }).join('') + (rows.length > 8 ? '<div>…共 ' + d.count + ' 份，仅列最近 8 份</div>' : '');
+      /* 最近清单从 8 行缩成一句占位（或反过来）：这一格的高度跟着变，点名这一页在滚的那条文档。 */
+      window.Wb.viewport.keep(setDocEl.value, () => {
+        if (!rows.length) { promptRecentEl.value.textContent = '创建任务后，提示词会自动归档到这里。'; return; }
+        promptRecentEl.value.innerHTML = rows.slice(0, 8).map(r => {
+          const t = window.fmtWhenSec(r.ts);
+          return '<div>· <b>' + window.esc(r.t || r.f) + '</b> <span style="color:var(--sub)">' + window.esc(r.k || '') + ' · ' + window.esc(t) + '</span></div>';
+        }).join('') + (rows.length > 8 ? '<div>…共 ' + d.count + ' 份，仅列最近 8 份</div>' : '');
+      });
     }
     async function refreshPrompt() {
       try { paintPrompt(await PromptLog.list()); }
@@ -4696,24 +4710,29 @@ const SettingsView = {
             + '<span class="set-rail-v">' + window.esc(navValueOf(id)) + '</span></a>';
         });
       });
-      box.innerHTML = html;
-      /* 点哪一行 → 右栏平滑滚到那一张卡（走本页唯一的滚动出口 scrollToEl）。
-         筛选期间点的是没命中的那一行 → 先把筛选撤了再滚过去（否则滚过去看不见）。
-         这一栏在收着的组里（本机维护默认收着）→ 先展开再滚过去；
-         展开这一下**不写盘**（openFold 走的是程序化展开，见 initFolds）。 */
-      box.querySelectorAll('.set-rail-i').forEach(el => {
-        el.onclick = e => {
-          e.preventDefault();
-          const id = el.getAttribute('data-nav') || '';
-          if (el.classList.contains('dim')) { setQ.value = ''; syncNav(); }
-          const doc = setDocEl.value;
-          const card = doc ? doc.querySelector('.card[data-nav="' + id + '"]') : null;
-          setCurNav(id);
-          if (!card) return;
-          const sec = card.closest('.set-group');
-          if (sec) openFold(sec);
-          requestAnimationFrame(() => scrollToEl(card));
-        };
+      /* 整棵树是 innerHTML 重来的，而这一栏自己就是滚动容器（宽窗竖滚 / 窄窗横滚）：
+         筛选时每敲一个字重画一次，滚到下半截的目录轨会被夹回起点。公共件按「第几行」还位。
+         ⚠ 轨上那一行的跳转（scrollToEl）走的是**右边那条文档**，不在这一次重画里，不受影响。 */
+      window.Wb.viewport.keep(box, () => {
+        box.innerHTML = html;
+        /* 点哪一行 → 右栏平滑滚到那一张卡（走本页唯一的滚动出口 scrollToEl）。
+           筛选期间点的是没命中的那一行 → 先把筛选撤了再滚过去（否则滚过去看不见）。
+           这一栏在收着的组里（本机维护默认收着）→ 先展开再滚过去；
+           展开这一下**不写盘**（openFold 走的是程序化展开，见 initFolds）。 */
+        box.querySelectorAll('.set-rail-i').forEach(el => {
+          el.onclick = e => {
+            e.preventDefault();
+            const id = el.getAttribute('data-nav') || '';
+            if (el.classList.contains('dim')) { setQ.value = ''; syncNav(); }
+            const doc = setDocEl.value;
+            const card = doc ? doc.querySelector('.card[data-nav="' + id + '"]') : null;
+            setCurNav(id);
+            if (!card) return;
+            const sec = card.closest('.set-group');
+            if (sec) openFold(sec);
+            requestAnimationFrame(() => scrollToEl(card));
+          };
+        });
       });
     }
     /* 滚动时只换高亮，不重画整棵树（重画会把滚动位置与展开状态弄丢）。 */

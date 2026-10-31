@@ -131,8 +131,8 @@ for (const f of ['tools/tokenize-css.cjs', 'tools/token-lib.cjs', 'tools/check-v
 }
 const guardSrc = read('tests/static-guards.cjs');
 const nGuards = (guardSrc.match(/key: 'G\d+'/g) || []).length;
-ok(nGuards === 22, '静态判据应为 22 条，实际 ' + nGuards);
-for (const g of ['G18', 'G19', 'G20', 'G21', 'G22', 'G23']) {
+ok(nGuards === 23, '静态判据应为 23 条，实际 ' + nGuards);
+for (const g of ['G18', 'G19', 'G20', 'G21', 'G22', 'G23', 'G24']) {
   ok(guardSrc.includes("key: '" + g + "'"), '判据 ' + g + ' 不在了（设计规范点名了它）');
 }
 const nVis = Object.keys(JSON.parse(read('tests/fixtures/visual/fingerprints.json')).screens).length;
@@ -140,7 +140,7 @@ ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
 /* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
    文档里的条数也得跟着改 ——「文档不许说谎」。 */
-ok(nE2e === 51, 'e2e 应为 51 条，实际 ' + nE2e);
+ok(nE2e === 52, 'e2e 应为 52 条，实际 ' + nE2e);
 
 /* ---------- 文档里的远端地址必须与实际远端一致 ----------
    远端**别名**随克隆而异（本机叫 origin、另一份工作副本叫 github），
