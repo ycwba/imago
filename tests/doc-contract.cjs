@@ -6,6 +6,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const S = require('./support.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -94,7 +95,9 @@ for (const f of ['chars', 'assets', 'usage', 'settings', 'favorites']) {
   ok(/page-shell/.test(read('tools/vue-templates/' + f + '.html')), f + '.html 没挂 .page-shell');
 }
 
-/* ---------- 断点：登记的 11 档（媒体查询里不能用变量，只能靠集合 + 判据） ---------- */
+/* ---------- 断点：媒体查询里不能用变量，只能靠「一份名单 + 判据」防漂移 ----------
+   名单住在 tests/support.cjs 的 BREAKPOINTS（静态判据 G22 读的就是它）。
+   这一档数三件事：代码里用到的档位、登记的名单、设计规范里那一行 —— 三者必须同一份。 */
 const bps = new Set();
 for (const dir of ['web', 'tools']) {
   const walk = d => {
@@ -109,12 +112,12 @@ for (const dir of ['web', 'tools']) {
   };
   walk(dir);
 }
-/* 登记在案的那几档断点（代码里 @media (min|max)-width 用到的）。
-   1280 那一档不能加回来：设置页改成两栏两滚之后，右栏那条文档只有 900px 上下，
-   两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行。 */
-const docBp = [520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200];
-ok(bps.size === docBp.length && docBp.every(b => bps.has(b)),
-  '断点档位与文档不一致（文档 ' + docBp.length + ' 档，代码 ' + bps.size + ' 档：' + [...bps].sort((a, b) => a - b).join(' ') + '）');
+ok(bps.size === S.BREAKPOINTS.length && S.BREAKPOINTS.every(b => bps.has(b)),
+  '断点档位与登记的名单不一致（登记 ' + S.BREAKPOINTS.length + ' 档，代码 ' + bps.size + ' 档：' + [...bps].sort((a, b) => a - b).join(' ') + '）');
+const docBp = /当前登记的 (\d+) 档：([\d \/]+)/.exec(doc) || [];
+ok(Number(docBp[1]) === S.BREAKPOINTS.length
+  && (docBp[2] || '').split('/').map(s => Number(s.trim())).join(' ') === S.BREAKPOINTS.join(' '),
+  '设计规范的断点那一行与登记的名单不一致（规范写的是「' + (docBp[2] || '没有那一行') + '」）');
 
 /* ---------- 公共样式类：文档那张表里的类必须真的存在 ---------- */
 for (const c of ['card', 'card-surface', 'task', 'ap-item', 'pri', 'ghost', 'tool', 'ui-linkbtn',

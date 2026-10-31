@@ -694,11 +694,10 @@ function pagePatchFiles() {
 
 /* G22 断点只许用登记的那几档：媒体查询里的 px **不能**用 CSS 变量共享
    （var() 在 @media 里不成立），所以断点值只能靠「集合 + 判据」来防漂移。
-   登记的档位（现状 12 档，多的那几档是历史遗留；布局重构那轮再收成 3–5 档）：
-     520 620 700 720 760 820 900 960 1100 1180 1200 1280
-   新增断点要在下面这行里加进去，并写清为什么不能并到已有档。 */
+   档位名单只有 `tests/support.cjs` 的 BREAKPOINTS 一份（文档契约读同一份），
+   新增断点要在那一行里加进去，并写清为什么不能并到已有档。 */
 const G22_BREAKPOINT = [];
-const BP_ALLOWED = new Set([520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200, 1280]);
+const BP_ALLOWED = new Set(S.BREAKPOINTS);
 function detectBreakpoint(file, src) {
   const out = {};
   const re = /@media\s*\((?:max|min)-width:\s*(\d+)px\)/g;

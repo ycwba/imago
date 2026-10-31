@@ -339,6 +339,14 @@ function layerViolations(opts = {}) {
   return current;
 }
 
+/* ---------- 断点档位（静态判据 G22 与文档契约共用这一份） ---------- */
+/* 媒体查询里的 px 用不了 CSS 变量（var() 在 @media 里不成立），断点只能靠「一份名单 + 两处读它」防漂移：
+   改档位就是改这一行，G22 与文档契约跟着同一份名单判。
+   1280 那一档不能加回来：设置页改成两栏两滚之后，右栏那条文档只有 900px 上下，
+   两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行。
+   档位偏多，布局重构那轮收成 3–5 档。 */
+const BREAKPOINTS = [520, 620, 700, 720, 760, 820, 900, 960, 1100, 1180, 1200];
+
 /* ---------- 例外登记表：违例只许减不许增 ---------- */
 /* 两种登记粒度，都是数据表，不写 `|| true`：
    · entries —— 按「身份字符串」逐条登记（`{ id, why, max }`，id 里带文件与符号，不写行号）
@@ -378,4 +386,5 @@ module.exports = { root, rel, asRel, abs, read, exists, walk, webSources, server
   engineFiles, engineLayer,
   matchBrace, objectKeys, findWiring, ratchet, printTable,
   literals, functionsIn, enclosingFunction,
-  LAYER_FORBIDDEN, LAYER_EXCEPTIONS, UI_INFRA_FACES, isInfra, layerOf, stripComments, globalFaces, faceReads, layerViolations };
+  LAYER_FORBIDDEN, LAYER_EXCEPTIONS, UI_INFRA_FACES, isInfra, layerOf, stripComments, globalFaces, faceReads, layerViolations,
+  BREAKPOINTS };

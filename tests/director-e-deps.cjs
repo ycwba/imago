@@ -7,14 +7,19 @@
 
    这一档只问一件事：**每一位在模块里点了名，就必须在 E 里真有一件东西递进来**。
    E 里多出来的不算错（域模块也能经参数名遮蔽的 document / window 读全局）。
-   解析器用 @babel/parser（随 @vue/compiler-dom 而来，只开发期用，不进运行时）；没有就整档跳过并报明。 */
+   解析器用 @babel/parser（开发期依赖，不进运行时）。装不上就是判据没跑：这一档抓的正是
+   「语法档与 vm 自检全绿、界面也看不出坏过」那一类，报绿跳过等于把它关掉。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
 let parser;
 try { parser = require('@babel/parser'); }
-catch (e) { console.log('  （跳过域接线判据：没有 @babel/parser，先跑一次 npm install）'); process.exit(0); }
+catch (e) {
+  console.error('✗ 域接线判据跑不了：没有 @babel/parser（先跑一次 npm install）。'
+    + '这一档缺了不会报错、只会一路报绿，所以不做静默跳过。');
+  process.exit(1);
+}
 
 const ROOT = path.join(__dirname, '..');
 const ENGINE = path.join(ROOT, 'web', 'director', 'engine.js');

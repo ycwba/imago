@@ -476,12 +476,17 @@ const MODULES = [
   { file: 'server/routes/asr.js', factory: 'createAsrRoutes', fakes: { providers: () => ALL_PROVIDERS } },
   { file: 'server/routes/models.js', factory: 'createModelsRoutes' },
   { file: 'server/routes/search.js', factory: 'createSearchRoutes', fakes: { providers: () => ALL_PROVIDERS } },
+  { file: 'server/routes/cache.js', factory: 'createCacheRoutes' },
   { file: 'server/routes/static.js', standalone: 'handleStatic' },
   { file: 'server/data-store.js', factory: 'createDataStore', handler: 'handleData' },
   { file: 'server/prompts-store.js', factory: 'createPromptsStore', handler: 'handlePrompts' },
   { file: 'server/cloud-store.js', factory: 'createCloudStore', handler: 'handleCloud' },
 ];
 
+/* /cache/{thumbs,slices} 的键就是「剥了签名的地址」本身 —— 带 `/` `?` `:` 与中文，
+   所以走查询参数而不是路径段。这一枚键同时是这一组用例的探针。 */
+const CK = 'https://cdn.example.com/a/b.jpeg?sig=1#缩略图';
+const CKQ = '/cache/thumbs?key=' + encodeURIComponent(CK);
 const HITS = {
   'server/routes/system.js': [
     { url: '/sys-status' }, { url: '/whoami' }, { url: '/env-status' },
@@ -662,6 +667,74 @@ const HITS = {
   'server/cloud-store.js': [
     { url: '/cloud/status' },
     { url: '/cloud/sync', method: 'POST', body: JSON.stringify({}) },
+  ],
+  /* /cache 是 ROUTE_TABLE 上唯一 `match: ANY` 的一条（它自己按 pathname 认家），
+     而代理端那份持久缓存换端口 / 换浏览器 / 无痕窗口都只有这一份 —— 它坏了不报错，
+     表现是「每一屏都重新抽一次帧」加上「404 被中间层存成一整天」。 */
+  'server/routes/cache.js': [
+    { url: CKQ, method: 'PUT', body: 'probe-bytes' },
+    {
+      url: CKQ,
+      check: res => {
+        if (res.statusCode !== 200) return '状态码 ' + res.statusCode + '，存进去的键要取得回来';
+        if (Buffer.concat(res.chunks).toString('utf8') !== 'probe-bytes') return '取回的字节不是存进去的那一份：' + JSON.stringify(res.body);
+        if (!/no-store/.test(String(res.headers['Cache-Control'] || ''))) return '缓存命中也不许被 HTTP 缓存再存一份（回的就是那一份缓存）';
+        return '';
+      },
+    },
+    /* 同一个键再存一次只占一行：索引里留两行，LRU 就把刚存的这条当「最久没碰」删掉。 */
+    { url: CKQ, method: 'PUT', body: 'probe-bytes-2' },
+    {
+      url: '/cache/thumbs',
+      check: res => {
+        let d = null;
+        try { d = JSON.parse(res.body); } catch (e) { return '整表拉回不是 JSON：' + res.body.slice(0, 80); }
+        const rows = (d.items || []).filter(x => x.k === CK);
+        if (rows.length !== 1) return '这一枚键在索引里有 ' + rows.length + ' 行，应该是 1 行';
+        if (rows[0].v !== 'probe-bytes-2') return '整表拉回还带着被覆盖掉的那一份：' + rows[0].v;
+        return '';
+      },
+    },
+    {
+      url: '/cache/thumbs', method: 'PUT', body: 'x',
+      check: res => (res.statusCode === 400 && /no-store/.test(String(res.headers['Cache-Control'] || ''))
+        ? '' : '不带 key 的 PUT 要 400 + no-store，实际 ' + res.statusCode),
+    },
+    {
+      url: '/cache/slices?key=没存过这一条',
+      check: res => {
+        if (res.statusCode !== 404) return '索引里没有的键要 404，实际 ' + res.statusCode;
+        return /no-store/.test(String(res.headers['Cache-Control'] || ''))
+          ? '' : '404 没带 no-store：缓存没命中的那一次被中间层存下来，之后 PUT 进去了也读不回来';
+      },
+    },
+    {
+      url: CKQ, method: 'DELETE',
+      check: res => (/"removed":1/.test(res.body) ? '' : '删一条要报 removed:1，回执是 ' + res.body),
+    },
+    {
+      url: CKQ,
+      check: res => (res.statusCode === 404 ? '' : '删掉的键还读得回来（状态码 ' + res.statusCode + '）—— 索引没跟着裁'),
+    },
+    { url: '/cache/slices?key=清表探针', method: 'PUT', body: 'x' },
+    {
+      url: '/cache/slices', method: 'DELETE',
+      check: res => (/"removed":1/.test(res.body) ? '' : '不带 key 的 DELETE 是设置页那颗「清空切片缓存」，要报删了几条：' + res.body),
+    },
+    {
+      url: '/cache/slices',
+      check: res => {
+        try { return (JSON.parse(res.body).items || []).length === 0 ? '' : '清空之后整表还读得出东西'; }
+        catch (e) { return '清空后的整表不是 JSON：' + res.body.slice(0, 80); }
+      },
+    },
+    {
+      url: CKQ, method: 'PATCH',
+      check: res => (res.statusCode === 405 && /GET, PUT, DELETE/.test(String(res.headers.Allow || ''))
+        ? '' : '不支持的方法要 405 并写明允许哪几种，实际 ' + res.statusCode),
+    },
+    { url: '/cache/other', expect: false },
+    { url: '/cache', expect: false },
   ],
 };
 
@@ -971,6 +1044,39 @@ function freeConfigAudit() {
       await runHit(mod, wiring, handlerName, handler, hit);
     }
   }
+  /* 回包口径这一份（server/routes/http.js）不是一条路由，端点表里点不到它 ——
+     而「4xx/5xx 一律 no-store」是签名过期那一条的命：403 被缓存下来，界面就是「永久 403」。 */
+  {
+    const { sendJson, fail, noStore, readJsonBody } = require(S.abs('server/routes/http.js'));
+    const r1 = mkRes(); fail(r1, 403, '签名过期');
+    ok('fail 回 {error:消息}、403、并硬带 no-store', r1.statusCode === 403
+      && /"error":"签名过期"/.test(r1.body)
+      && String(r1.headers['Cache-Control']) === 'no-store',
+      '状态码 ' + r1.statusCode + ' / 头 ' + JSON.stringify(r1.headers) + ' / 体 ' + r1.body);
+    const r2 = mkRes(); sendJson(r2, 200, { ok: true });
+    ok('sendJson 默认 no-store', String(r2.headers['Cache-Control']) === 'no-store', JSON.stringify(r2.headers));
+    /* 显式给的缓存头照原样走，且不许再补一份默认值 —— 同一枚头写两次，取哪一次由 Node 的内部顺序决定。 */
+    const r3 = mkRes(); sendJson(r3, 200, { ok: true }, { 'cache-control': 'public, max-age=60' });
+    ok('sendJson 认调用方给的小写 cache-control，不再补第二份',
+      r3.headers['cache-control'] === 'public, max-age=60' && !('Cache-Control' in r3.headers),
+      JSON.stringify(r3.headers));
+    const r4 = mkRes(); noStore(r4);
+    ok('noStore 给还没发出的响应补 no-store', r4.headers['Cache-Control'] === 'no-store');
+    const r5 = mkRes(); r5.writeHead(200, {}); noStore(r5);
+    ok('noStore 不碰已经发出的头（写第二次是 ERR_HTTP_HEADERS_SENT）', !('Cache-Control' in r5.headers));
+    /* readJsonBody 的两条出口：读不到字节 = 代理已经答过（413 / 400），调用方必须收口；
+       不是合法 JSON = 还没答过，调用方要自己 fail 一次。这两件事混在一起，
+       要么回包回两次，要么一条坏请求谁都没答。 */
+    let e1 = null;
+    try { await readJsonBody(async () => null, mkReq({ url: '/x' }), mkRes(), 10); } catch (e) { e1 = e; }
+    ok('readJsonBody 把「读不到字节」标成 alreadyReplied', !!e1 && e1.alreadyReplied === true,
+      e1 ? '没标 alreadyReplied：' + e1.message : '压根没抛');
+    let e2 = null;
+    try { await readJsonBody(async () => Buffer.from('这不是 JSON'), mkReq({ url: '/x' }), mkRes(), 10); } catch (e) { e2 = e; }
+    ok('坏 JSON 照常抛但不标 alreadyReplied（调用方还得自己回 400）',
+      !!e2 && e2.alreadyReplied !== true, e2 ? (e2.alreadyReplied === true ? '坏 JSON 也被标成已经答过了' : '') : '压根没抛');
+  }
+
   await selfTest();
   /* ::ffff: 形式的 IPv4 映射地址。以前 zero 判前 6 组、映射位读 g[6]，
      0xffff 实际在下标 5 —— 分支永不进入，映射内网被判公网放行。 */

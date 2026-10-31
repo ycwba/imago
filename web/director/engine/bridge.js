@@ -1080,7 +1080,7 @@ export function createBridge(E, document, window) {
       /* 成片字节在会话缓存里（这一轮刚合成的那份）—— 直接把字节交给资产库，
          不再走「服务端渲染目录里复制一份」那条路。 */
       const blob = Export.filmBlobOf(name);
-      if (!blob) return loose('这一份字节不在本次会话里（刷新过就没了）：再点一次「导出成片」，导完立刻存');
+      if (!blob) return loose('这一份的字节不在本次会话里（缓存只留最近导出的那一份）：再点一次「导出成片」，导完立刻存');
       const b64 = await new Promise((res, rej) => {
         const fr = new FileReader();
         fr.onload = () => res(String(fr.result).split(',')[1] || '');

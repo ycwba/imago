@@ -59,6 +59,8 @@ function ensureMediaExport() {
 try { ensureMediaExport().catch(() => {}); } catch (e) { /* 预热失败不挡引擎；真导出时会再试一次 */ }
 
 /* 成片的会话内字节缓存（文件名 → Blob）：刚导出过的那一份，同内容再点直接给，不再合成一遍。
+   只留最近那一份 —— 一整片是几十到几百 MB 的 Blob，逐份攒着会把标签页吃到内存墙，
+   而「同内容再点」要的从来只有刚合成那一份。
    只活在当前会话（刷新后没有）—— 浏览器里没有第二个持久去处，
    刷新后第一次导出会重新合成，这比在用户盘上悄悄多存一份要干净。 */
 const filmBlobCache = new Map();
@@ -225,7 +227,9 @@ async function exportFilm(opts) {
        名字写成 .mp4 的话资产库与系统都会认错类型。 */
     const outName = stampName(r.ext || 'mp4');
     const saved = saveBlob(outName, blob);
-    filmBlobCache.set(outName, blob);          // 同内容再点直接给
+    /* 同内容再点直接给 —— 只给最近这一份，上一份的字节当场放掉。 */
+    filmBlobCache.clear();
+    filmBlobCache.set(outName, blob);
     /* 导出也是一份成片：记进 proj.merged（带内容指纹，判据就是 filmIsCurrent 那一句）。 */
     projOf().merged = { name: outName, duration: round2(plan.duration), ts: Date.now(),
       clips: plan.clips.length, fp: filmFingerprint(), size: blob.size || 0 };

@@ -7,6 +7,7 @@
     "build": "node tools/precompile-vue.cjs",
     "build:check": "node tools/precompile-vue.cjs --check",
     "check": "node tools/precompile-vue.cjs --check && node tests/syntax.cjs",
+    "static": "node tools/tokenize-css.cjs && node tools/check-vars.cjs && node tests/static-guards.cjs && node tests/doc-contract.cjs",
     "test": "node tests/all.cjs",
     "test:fast": "npm run check && node tests/map.cjs --changed --run",
     "test:all": "node tests/all.cjs --e2e:fast",
@@ -15,6 +16,7 @@
     "test:watch": "node tests/watch.cjs"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.9",
     "@vue/compiler-dom": "3.5.44",
     "pngjs": "^7.0.0"
   }

@@ -525,6 +525,15 @@ function genAllPlan() {
    条数当 `count` 递进去）。缺金额 / 只报最低消费 / 询价失败 → 计入 unpriced，**绝不当 0**；
    币种不同不合计（`sumQuotes` 那一份判据）。 */
 const gaQuoteCache = new Map();
+const GA_QUOTE_TTL = 60 * 1000;
+/* 键里有型号 / 参数 / 条数，导演台每改一次时长就是一项新键 —— 只增不删的 Map 会一直长。
+   写之前清掉过期项，再按插入序把最老的清到上限内（与 `web/domain/assetlib.js` 的 sweepQuoteCache 同一口径）。 */
+const GA_QUOTE_MAX = 200;
+function sweepGaQuoteCache() {
+  const now = Date.now();
+  for (const [k, v] of gaQuoteCache) if (now - v.at >= GA_QUOTE_TTL) gaQuoteCache.delete(k);
+  while (gaQuoteCache.size > GA_QUOTE_MAX) gaQuoteCache.delete(gaQuoteCache.keys().next().value);
+}
 async function genAllQuote(plan, opts) {
   const fresh = !!(opts && opts.fresh);
   const groups = new Map();
@@ -545,7 +554,7 @@ async function genAllQuote(plan, opts) {
   for (const g of groups.values()) {
     const ck = g.key + '|' + g.n;
     const hit = gaQuoteCache.get(ck);
-    if (!fresh && hit && Date.now() - hit.at < 60000) { rows.push(Object.assign({ n: g.n }, hit.r)); continue; }
+    if (!fresh && hit && Date.now() - hit.at < GA_QUOTE_TTL) { rows.push(Object.assign({ n: g.n }, hit.r)); continue; }
     let r;
     try {
       const q = await shotQuote(g.sh, { count: g.n });
@@ -555,6 +564,7 @@ async function genAllQuote(plan, opts) {
         amount: raw.amount,
         currency: (q.prov && q.prov.pricing && q.prov.pricing.currency) || '' };
     } catch (e) { r = { ok: false, reason: errText(e, '询价失败') }; }
+    sweepGaQuoteCache();
     gaQuoteCache.set(ck, { at: Date.now(), r });
     rows.push(Object.assign({ n: g.n }, r));
   }

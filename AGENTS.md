@@ -117,6 +117,8 @@
 │  ├─ core/                     routes / page-css（样式表挂载与 modulepreload）/ bridges / page-context /
 │  │                            hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 director/index.js）
+│  │                            页面里成块的东西搬进 pages/<页>/<块>.js：chars/detail.js（素材页整屏编辑）、
+│  │                            settings/accounts.js（设置页「供应商与密钥」的账号卡流）
 │  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
 │  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output）
 │  ├─ director/                 index + template.html + engine.js + engine/<域>.js + 纯算法模块 / worker
@@ -390,8 +392,11 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
 | 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 / G24 手写滚动位存取对（滚动位还原只许 `Wb.viewport` 一份） | `node tests/static-guards.cjs` |
 | 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
+| 一条命令 | 上面前三行 + 文档契约一起跑 | `npm run static` |
 
 - 静态判据的存量表只许减不许增（`GUARD_WRITE=1` 重打表，但每条都要补一句原因）。
+- 断点档位名单只有 `tests/support.cjs` 的 `BREAKPOINTS` 一份：静态判据 G22 与文档契约都读它，
+  「布局」那一节列出的档位也要跟着它改 —— 改档位而不改规范，文档契约当场红。
 - 视觉回归：七条路由（工作台按视频 / 图像 / 语音分三档 → 九档），再加两档「要喂状态才画得出来」的
   「字幕编辑区 / 助手来源卡片」，共 11 档 × 1024/1440 × 浅 / 深主题 = 44 个画面，24×14 RGB 指纹；
   字幕那一档的输入素材是入库的 `tests/fixtures/media/probe-clip.mp4`（2 秒样本），不依赖本机转码工具。
@@ -741,8 +746,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
 | Skill 的使用场景 | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES`（分组 + 场景；场景名与「用在哪」沿用 `PROMPTS`，变量说明在 `SKILL_VARS`） |
 | 设置页的目录轨 | `web/pages/settings.js` 的 `groupEls` / `cardsOf` / `navTitleOf` / `NAV_VALUE`（全部从 DOM 现读；JS 里不许有第二份清单，也不许另存一份状态） |
-| 设置页「供应商与密钥」的账号卡流 | `web/pages/settings.js` 的 `provGroups` / `capProv` / `capState` / `priKidOf` / `autoServiceKid` / `hostKidOf` / `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `placeForms` / `manualCapsOf` / `setManualCaps`；型号面板的槽名 `slotKey` / `provBySlot` 也只在这一份里 |
-| 设置页的两条通道（语音识别 / 联网搜索） | `web/pages/settings.js` 的 `LOCAL_ASR_KID` / `localAccountCardHTML` / `hostKidOf` / `placeForms` / `serviceProvOpts` / `syncServiceProvs` / `asrEffectiveRoute` / `asrProvider` / `asrModelPh` / `searchEngineName` / `searchNeedsModel`；在线表单在 `.acct-park`，画完网格搬进声明了这一档的云供应商卡；本机 / 浏览器内的表单在常驻的本机识别账号卡里；服务端按注册表的 `asr` / `search` 声明调 |
+| 设置页「供应商与密钥」的账号卡流 | `web/pages/settings/accounts.js` 的 `createAccountCards(deps)`：`provGroups` / `capProv` / `capState` / `priKidOf` / `autoServiceKid` / `hostKidOf` / `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `placeForms` / `manualCapsOf` / `setManualCaps` / `localAccountCardHTML`；型号面板的槽名 `slotKey` / `provBySlot` 与档位名图标 `capZh` / `capGlyph` 也只在这一份里。页面经 deps 递进注册表 / 环境密钥 / 型号面板读写 / 自动保存的现取口，卡片自己的草稿与槽位不在页面留第二份 |
+| 设置页的两条通道（语音识别 / 联网搜索） | 通道自己的状态与选项在 `web/pages/settings.js`：`serviceProvOpts` / `syncServiceProvs` / `asrProvider` / `asrModelPh` / `searchEngineName` / `searchNeedsModel`；「哪张卡收这一档、表单搬到哪」跟着账号卡流住在 `web/pages/settings/accounts.js`（`LOCAL_ASR_KID` / `localAccountCardHTML` / `hostKidOf` / `placeForms` / `asrEffectiveRoute`）。在线表单在 `.acct-park`，画完网格搬进声明了这一档的云供应商卡；本机 / 浏览器内的表单在常驻的本机识别账号卡里；服务端按注册表的 `asr` / `search` 声明调 |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf`、文件类型档的档位与顺序 `mediaKindTabs` / `mediaKindRank`（全部 → 视频 → 图片 → 音频） |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
 | 配音合成设置 | `web/domain/gen-forms.js` 的 `TtsAdv` + `AdvExtras` |
@@ -1094,7 +1099,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 档 | 命令 | 场景 | 耗时（本机实测） |
 | --- | --- | --- | --- |
 | 秒级 | `npm run check` | 每次保存后 | ~0.5s |
-| 样式秒级 | `node tools/tokenize-css.cjs` + `node tools/check-vars.cjs` | 动了样式 / 令牌后 | <1s |
+| 样式秒级 | `npm run static` | 动了样式 / 令牌后 | ~2.5s |
 | 迭代 | `npm run test:fast` | 日常改码后 | 改动小时 3–8s；映射条数多则按比例上涨 |
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
@@ -1175,7 +1180,9 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   以及库根本体（落点由 `server/local-root.js` 现算，不在项目里就照现在这一份盯）。
 - 基线文件里只记标签（`.data` / `.renders` / `库根`）与计数、聚合哈希，不记用户绝对路径 —— 这份要提交。
 - 写入型测试前后都要核对；真实实例上只做只读加载。
-- 迁移类改动做完后要手工 `node tests/data-snapshot.cjs --write` 重打一次基线，别用 `--write` 把日常写入掩盖过去。
+- 迁移类改动做完后要手工 `DATA_SNAPSHOT_WRITE=1 node tests/data-snapshot.cjs --write` 重打一次基线，
+  别用 `--write` 把日常写入掩盖过去。这一份盯的是真实用户数据，所以 `--write` 先打印「哪一块要从几条 /
+  多少字节换成什么」，没带那枚环境变量就拒绝落盘。
 
 ### 浏览器
 

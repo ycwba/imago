@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-/* 用户数据基线 —— 跑法：`node tests/data-snapshot.cjs [--write]`
+/* 用户数据基线 —— 跑法：`node tests/data-snapshot.cjs`（只读比对）
+   重打基线要两条一起：`DATA_SNAPSHOT_WRITE=1 node tests/data-snapshot.cjs --write`。
    只记录每个目录的文件数 / 总字节 / 聚合 SHA，不记录文件名，避免把用户数据带进仓库。
-   --write 写 tests/data-baseline.json；不带参数时与基线比对（只读，不修改）。
+   `--write` 先打印「这一块现在有几条 / 多少字节、将被换成什么」，没点名环境变量就拒绝落盘 ——
+   它盯的是真实 `.data`、`.renders` 与库根本体，一次手滑就把「用户数据没了」写成新的绿。
    ⚠ 写入型 / 读真实 .data/.renders 与库根本体的判据：不进 all.cjs 的并发池
    （串行白名单点名了这一份），只手工跑。
    以前 2.3s，慢点在「一个线程逐文件 readFileSync + sha256」——真实资产库 ~800MB
@@ -18,6 +20,7 @@ const { Worker } = require('worker_threads');
 const root = path.resolve(__dirname, '..');
 const BASE = path.join(__dirname, 'data-baseline.json');
 const WRITE = process.argv.includes('--write');
+const WRITE_OK = process.env.DATA_SNAPSHOT_WRITE === '1';
 /* 盯哪几块数据：
      · `.data` —— 设置、任务记录、本机资产**账**（.data\local-assets\）；
      · `.renders` —— FCPXML 媒体包；
@@ -111,24 +114,49 @@ async function snapshot(label, dir) {
   return { dir: label, files: files.length, bytes, sha256: h.digest('hex') };
 }
 
+function oldDirs() {
+  if (!fs.existsSync(BASE)) return null;
+  try { return JSON.parse(fs.readFileSync(BASE, 'utf8')).dirs; } catch (e) { return null; }
+}
+/* 逐块比对：基线里有没有这一块、这一块现在变没变。两个出口（比对 / 重打）都读它，
+   省得「哪里变了」这套判据在一份文件里写两遍。 */
+function diffRows(old, cur) {
+  return [...DIRS.keys()].map(d => {
+    const a = old && old[d], b = cur[d];
+    return {
+      d, a, b,
+      none: !a,
+      changed: !!a && (a.sha256 !== b.sha256 || a.files !== b.files || a.bytes !== b.bytes),
+    };
+  });
+}
+
 (async () => {
   const entries = await Promise.all([...DIRS].map(async ([label, dir]) => [label, await snapshot(label, dir)]));
   const cur = Object.fromEntries(entries);
   console.log(JSON.stringify(cur, null, 2));
+  const old = oldDirs();
   if (WRITE) {
+    console.log('\n这一份会被换成新的基线：');
+    for (const r of diffRows(old, cur)) {
+      if (r.none) console.log('  + ' + r.d + '：基线里还没有这一块，现在 ' + r.b.files + ' 个文件 / ' + r.b.bytes + ' 字节');
+      else if (r.changed) console.log('  ~ ' + r.d + '：' + r.a.files + '→' + r.b.files + ' 个文件，' + r.a.bytes + '→' + r.b.bytes + ' 字节');
+      else console.log('  = ' + r.d + ' 未变');
+    }
+    if (!WRITE_OK) {
+      console.error('\n✗ 没有落盘：重打基线要显式确认 —— DATA_SNAPSHOT_WRITE=1 node tests/data-snapshot.cjs --write');
+      process.exit(1);
+    }
     fs.writeFileSync(BASE, JSON.stringify({ version: 1, at: new Date().toISOString(), dirs: cur }, null, 2) + '\n');
     console.log('\n已写入 tests/data-baseline.json');
-  } else if (fs.existsSync(BASE)) {
-    let old = null;
-    try { old = JSON.parse(fs.readFileSync(BASE, 'utf8')).dirs; } catch (e) {}
+  } else if (old) {
     let bad = 0;
-    for (const d of DIRS.keys()) {
-      const a = old && old[d], b = cur[d];
-      if (!a) { console.log('  - ' + d + ' 无基线（第一次跑，或这一块是刚纳入盯的）'); continue; }
-      if (a.sha256 !== b.sha256 || a.files !== b.files || a.bytes !== b.bytes) {
+    for (const r of diffRows(old, cur)) {
+      if (r.none) { console.log('  - ' + r.d + ' 无基线（第一次跑，或这一块是刚纳入盯的）'); continue; }
+      if (r.changed) {
         bad++;
-        console.log('  ✗ ' + d + ' 变了：' + a.files + '→' + b.files + ' 个文件，' + a.bytes + '→' + b.bytes + ' 字节');
-      } else console.log('  ✓ ' + d + ' 未变');
+        console.log('  ✗ ' + r.d + ' 变了：' + r.a.files + '→' + r.b.files + ' 个文件，' + r.a.bytes + '→' + r.b.bytes + ' 字节');
+      } else console.log('  ✓ ' + r.d + ' 未变');
     }
     process.exit(bad ? 1 : 0);
   }

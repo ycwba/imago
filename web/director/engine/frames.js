@@ -52,11 +52,8 @@ const SLICE_DPR = (typeof window !== 'undefined' && window.devicePixelRatio) || 
 const SLICE_W = SLICE_DPR >= 1.5 ? 160 : 120;
 const SLICE_CPUS = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
 const SLICE_GLOBAL = Math.max(2, Math.min(6, SLICE_CPUS - 2));
-/* 旧并发行为保留一个版本：「并发单位」已从块改成素材，出问题可以用 ?slice=v1 退回。
-   这一档只影响调度（块并行 / 一素材一解码器），采样与缓存仍是同一份。 */
-const SLICE_V1 = /(?:[?&])slice=v1(?:&|$)/.test(typeof location !== 'undefined' ? location.search : '');
-/* 一个素材只开一只 <video>。以前一块一只，同一素材四块就解析四遍元数据、四份缓冲，
-   `release` 时还要 `load()` 主动丢弃。现在按素材键池化，块在素材内部排队，闲置 5 秒释放。 */
+/* 一个素材只开一只 <video>：同一素材开四只就是解析四遍元数据、四份缓冲，
+   释放时还得 `load()` 主动丢弃解码器。按素材键池化，块在素材内部排队，闲置 5 秒释放。 */
 const SLICE_IDLE = 5000;
 const sliceVideos = new Map();        // 素材键 → { v, src, timer }（忙闲由 sliceActive 把关，不另记）
 const sliceActive = new Set();        // 正在解码的素材键（同一条素材一次只有一趟活）
@@ -409,8 +406,7 @@ function slicePump() {
     }
     return;
   }
-  const limit = SLICE_V1 ? 4 : SLICE_GLOBAL;
-  while (sliceBusy < limit) {
+  while (sliceBusy < SLICE_GLOBAL) {
     const job = sliceNextJob();
     if (!job) return;
     sliceBusy++;
@@ -474,7 +470,7 @@ function chunkHot(chunks, hot) {
    调用方（slicePump）保证同一素材一次只有一趟活，job.hit 只归这一趟写。 */
 async function indexPass(job) {
   const mb = window.MediaBackend;
-  if (!mb || !mb.frames || SLICE_V1) return false;
+  if (!mb || !mb.frames) return false;
   const made = [];
   let saved = 0, planned = null;
   const putMade = () => {
@@ -530,10 +526,9 @@ async function indexPass(job) {
 /* 兜底链：<video> 池逐块 seek（mediabunny 解不动的容器 / 远程且包数装不下的走这条）。
    块序按「离插针近的先」排（chunkHot），块内时间递增 —— 顺序 seek 比来回跳快得多。 */
 async function videoPass(job) {
-  const v1 = SLICE_V1;
   const asc = job.times.slice().sort((x, y) => x - y);
   const chunks = chunkHot(chunkAsc(asc, Math.max(1, Math.min(SLICE_GLOBAL, Math.ceil(asc.length / 3)))), job.hot);
-  const v = v1 ? Wb.vframe.el(job.src) : sliceVideoTake(job.key, job.src);
+  const v = sliceVideoTake(job.key, job.src);
   try {
     const left = chunks.slice();
     while (left.length) {
@@ -541,13 +536,13 @@ async function videoPass(job) {
       const r = await grabChunk(v, ts, job.hit, job.key, job.onFrame);
       noteSliceFail(job.key, r.miss);
       if (r.dead) {
-        if (!v1) sliceVideoDrop(job.key);            // 元数据都拿不到：这只解码器别再留着
+        sliceVideoDrop(job.key);                      // 元数据都拿不到：这只解码器别再留着
         left.forEach(rest => noteSliceFail(job.key, rest));
         break;
       }
     }
   } catch (e) { noteSliceFail(job.key, job.times); }
-  finally { if (v1) Wb.vframe.release(v); else sliceVideoIdle(job.key); }
+  finally { sliceVideoIdle(job.key); }
 }
 /* 导演台切走时停掉切片解码；切回来再从原队列继续（已经取到的帧都在 frameCache 里）。 */
 window.addEventListener('spa:page', e => {

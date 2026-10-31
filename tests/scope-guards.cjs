@@ -13,14 +13,19 @@
    · ESM 文件只看自己的 import 与本文件作用域；
    · 经典脚本顶层的 let/const 进的是页面共享的全词法作用域，另一份经典脚本能裸读，模块不能；
    · `window.X = ` / `globalThis.X = ` 赋过值的名字算全局（本项目跨层就靠这一族）。
-   解析器是 @babel/parser（随 @vue/compiler-dom 而来，只开发期用，不进运行时）；没有就整档跳过并报明。 */
+   解析器是 @babel/parser（开发期依赖，不进运行时）。装不上就是判据没跑：这一档抓的四类错
+   全部「node --check 与 vm 脚本都绿、只有真跑到那一行才炸」，报绿跳过等于把这四把尺子收起来。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
 let parser;
 try { parser = require('@babel/parser'); }
-catch (e) { console.log('  （跳过作用域判据：没有 @babel/parser，先跑一次 npm install）'); process.exit(0); }
+catch (e) {
+  console.error('✗ 作用域判据跑不了：没有 @babel/parser（先跑一次 npm install）。'
+    + '这一档缺了不会报错、只会一路报绿，所以不做静默跳过。');
+  process.exit(1);
+}
 
 const BUILTIN = new Set(['console', 'Math', 'Number', 'String', 'Boolean', 'Date', 'JSON', 'Object', 'Array',
   'Promise', 'Set', 'Map', 'WeakMap', 'WeakSet', 'URL', 'URLSearchParams', 'Blob', 'File', 'FileReader',

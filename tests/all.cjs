@@ -315,9 +315,9 @@ run('tests/director-e-deps.cjs', process.execPath, ['tests/director-e-deps.cjs']
 /* 同一实现别写第二份（唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
-/* metrics：本地只打印差值，CI 用 --strict 让「膨胀 / 单文件超长」真的能红。 */
-run('tests/metrics.cjs', process.execPath,
-  ['tests/metrics.cjs'].concat(process.env.CI ? ['--strict'] : []));
+/* metrics：--strict 恒开。曾经它绑在 process.env.CI 上，而仓库没有 CI —— 结果是「单文件超长必须登记、
+   登记了只许减不许增」这条判据从来没红过，一批文件就这么涨过去。本地跑也按同一把尺子量。 */
+run('tests/metrics.cjs', process.execPath, ['tests/metrics.cjs', '--strict']);
 
 /* ---------- 浏览器（按需；分档。这行 if 的文本是 map.cjs 登记表的分段标记，别改写法） ---------- */
 if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.argv.includes('--e2e:fast')) {

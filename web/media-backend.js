@@ -13,12 +13,20 @@
   'use strict';
 
   const VENDOR = '/web/vendor/mediabunny.min.mjs';
-  let mbPromise = null;                 // mediabunny 模块（按需加载 + 缓存；失败缓存 null，不再重试）
+  /* mediabunny 模块（按需动态 import + 缓存成功那一次）。
+     失败时必须把这只 promise 撤掉：一次首屏网络抖动若被缓存成永久的 null，
+     取帧 / 缩略图 / 抽音轨这一整场就再也不会回到主档，只能一直走 <video> 兜底。
+     在途的那一次由并发调用共用（都挂在同一只 promise 上），不会为同一帧拉好几遍。 */
+  let mbPromise = null;
 
   function loadM() {
     if (mbPromise) return mbPromise;
-    mbPromise = import(VENDOR).catch(() => null);
-    return mbPromise;
+    const p = import(VENDOR).catch(() => {
+      if (mbPromise === p) mbPromise = null;      // 只撤自己这一只，别把后来那一次的重试一起清掉
+      return null;
+    });
+    mbPromise = p;
+    return p;
   }
 
   /* ---------------- 兜底档：<video> + drawImage ----------------
