@@ -25,7 +25,7 @@ prompts-probe*/
 .skills/
 .skills-probe*/
 
-# 历史默认落点（现在默认在系统下载文件夹下的 拾帧\）。
+# 历史默认落点（现在默认在系统下载文件夹下的 成像\）。
 # 仍然忽略：库根由 ASSETS_DIR / .data\sk_local_dir.json 说了算，指回项目内这些老名字时
 # 里面装的是用户的作品，一次 git add -A 就会把几百 MB 媒体推进历史。
 文件/

@@ -68,10 +68,10 @@
 - 纯前端 Vue 3 SPA + 一个本地 Node 代理（`proxy.js` → `server/app.js`，默认 `http://localhost:5175`）。
 - 所有生成平台都经本地代理转发；页面不接触平台密钥，不直连任何外部域名。
 - 数据默认留在本机：`.data/`（结构化数据、云同步基线、本机资产账 `.data/local-assets/`、模型缓存
-  `.data/models/`）、`.skills/`（用户 Skill）；用户可见产物与归档在 `下载\拾帧\` 下按 `图片/` `视频/`
+  `.data/models/`）、`.skills/`（用户 Skill）；用户可见产物与归档在 `下载\成像\` 下按 `图片/` `视频/`
   `音频/` `其他/` 分，提示词归档在 `提示词/`。
 - **一条产物只有一个本体**：落在 `<库根>\<类型>\<规范名>.<ext>`，账在 `.data/local-assets/`，与本体分家；
-  库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\拾帧`。
+  库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`。
 - `.renders/` 只剩 FCPXML 媒体包（浏览器内合成成片，服务端没有 ffmpeg）。
 - 七个页面：导演台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
   路由表只有 `web/core/routes.js` 一份。
@@ -113,7 +113,7 @@
 ├─ web/
 │  ├─ app.js                    Vue 外壳：hash 路由 + KeepAlive 页面池 + 生命周期 + 页面预取（__spaPrefetch）
 │  ├─ shell-boot.js             主题解析（配色 + 日夜两根轴，含跟随系统）与「在外壳里」旗标
-│  ├─ boot-assistant.js         空闲时加载 AI 助手（ai_chat_off 命中就整个不下载）
+│  ├─ boot-assistant.js         首屏收尾后空闲加载 AI 助手（load 事件 + rIC，4s 兜底；ai_chat_off 命中就整个不下载）
 │  ├─ core/                     routes / page-css（样式表挂载与 modulepreload）/ bridges / page-context /
 │  │                            hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 director/index.js）
@@ -182,6 +182,12 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - `启动.bat` 只做环境检查并拉起 `launcher.ps1`；`WB_LAUNCHER_DRYRUN=1` 只打印检查结果。
 - `启动.bat` 里那句 `start ... -WindowStyle Hidden` 必须保留：否则桌面上会多一个控制台，
   关掉它是硬杀进程，服务会成孤儿。隐藏前必须先解析 `launcher.ps1`，否则「双击没反应」。
+- `启动.bat` 的预解析按内容哈希缓存：对 `launcher.ps1` 算 size + SHA1（certutil）写进
+  `%TEMP%\imago-launcher-parse.key`，与上次一致才跳过这次解析；哈希算不出 / 印记缺失 /
+  内容有变都回到必跑解析，解析失败不写印记。不用文件时间戳 —— 分钟粒度会漏检同分钟内的等长改写。
+- `launcher.ps1` 的内嵌 C# 读线程按源码 SHA256 落 DLL 缓存（`%TEMP%\imago-runner-<hash16>.dll`）：
+  命中直接 `Add-Type -Path` 装载；未命中先编到 `<dll>.<PID>.tmp`、挪到正式名再装载（装载会锁文件），
+  任何一步失败回退 `Add-Type -TypeDefinition` 现编 —— 语义与失败降级路径都不变。
 - `launcher.ps1` 的语法用 `[System.Management.Automation.Language.Parser]::ParseFile` 查，
   `node --check` 看不见它。
 - 启动器自检：`powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest`
@@ -660,7 +666,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### Git 远端与推送
 
-- 远端只有一个：`https://github.com/ycwba/shizhen-workbench.git`。它在本地克隆里的别名不固定
+- 远端只有一个：`https://github.com/ycwba/imago.git`。它在本地克隆里的别名不固定
   （本机这份是 `origin`，另一份工作副本里叫 `github`）—— 所以别按远端名写命令：
   `main` 跟踪哪个远端就跑裸 `git push` / `git pull`，那才是稳的。判据 `tests/doc-contract.cjs`
   盯的是地址，不是别名。
@@ -715,7 +721,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | FCPXML / 媒体包拼装 | `web/director/fcpxml.js`（单文件 / 媒体包 / 送到剪映 / 达芬奇同一份拼装器） |
 | 浏览器内 ASR worker | `web/director/asr-worker.js`（module worker，Whisper q8；模型只走同源 `/models/`，`allowRemoteModels` 关死；取消 = `terminate()`，绝不回落主线程） |
 | 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `promptsRoot` / `AUTOSAVE_TOP_DIR`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
-| 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\拾帧`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— 那份的正文就是 localStorage 原值：字符串类的键走 `window.LS.set`，落盘是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
+| 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— 那份的正文就是 localStorage 原值：字符串类的键走 `window.LS.set`，落盘是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
 | 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，外面不许再 readdir 一遍） |
 | 一张「卡」背后那几条账 | `server/local-assets-store.js` 的 `localAssetSiblings`（与列表并卡同一把尺子：`localUpKey` 或 `sig`） |
 | 云端取不到时的本机回退 | `server/local-assets-store.js` 的 `localEntryByUpstream` / `localEntryByPlatformId`（`/getv`、`/fetch`、`/asset` 与 `resolveSrc` 共用；浏览器别名表只是当前会话的缓存，不是唯一凭据） |
@@ -782,9 +788,11 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   挂载后还要再 import 的 `chunk` / 是否进侧栏 `nav` / 旧地址别名都从这里读。外壳的页面组件映射由这张表现搭；
   新增页面只改这一处，不在 `web/app.js` 或页面里另抄一份映射（`tests/spa.cjs` 拦）。
   `src` / `chunk` 相对 `web/app.js` 解析（与动态 `import()` 同基准），`css` 相对外壳文档（根）。
-- **每页的加载链只在 `web/app.js` 的 loader 里拼一次**：先 `preloadModule(src)` + `chunk` + `ensureCss(css)`，
-  再并发补载 `needs`，最后 `import(src)` —— modulepreload 只取字节不执行，执行时机仍由那次 `import()` 定。
-  页面组件里不写 `ensureCss`（路径只在路由表存一份）。
+- **每页的加载链只在 `web/app.js` 的 loader 里拼一次**：`preloadModule(src)` + `chunk` 先发出去取字节
+  （modulepreload 只取字节不执行，执行时机由那次 `import()` 定），`needs` 补载与 `import(src)` 求值
+  **并行走**（`Promise.all`）—— needs 的全局没有一处被页面模块在求值期硬读（导演台右栏的
+  `ROLE_ZH` 由 engine/panel.js 迟取现查；页面运行后才用到的都带 `window.Capabilities &&` 守卫），
+  两侧没有先后依赖。页面组件里不写 `ensureCss`（路径只在路由表存一份）。
 - **预取**（`window.__spaPrefetch(file)`）：把某一页的整条链提前发出去，与切页那一路共用同一批去重表。
   两个入口：`load` 之后按 250ms 一拍一页（当前页除外，`web/app.js` 的 `schedulePrefetch`）；
   侧栏每一项的 `mouseenter` / `focus`（`web/ui/sidebar.js`）。预取失败不落缓存，真正切页时照常重试。
@@ -1152,7 +1160,7 @@ UI_VISUAL_SAVE=1 node tests/e2e/ui-visual.cjs                     # 只留底不
 ### 写入隔离
 
 判据脚本自己起的实例一律由 `tests/e2e/harness.cjs` 的 `startProxy` 现建目录：系统临时目录下的
-`shizhen-probe-*`（一处 `mkdtemp` 父目录，`data` / `assets` / `renders` / `skills` 四个根都从它派生），
+`imago-probe-*`（一处 `mkdtemp` 父目录，`data` / `assets` / `renders` / `skills` 四个根都从它派生），
 收尾整组删除 —— 仓库根不出现 `.data-probe-*` 那一族；进程被硬杀时留下的也只是系统临时目录里的空壳。
 `local-chain` 的 `AUTOSAVE_DIR` 同样落在那个父目录里；`launcher.ps1 -SelfTest` 的三份探针目录在它自己的
 `aii-launcher-*` 临时目录下，跟自检一起清。
@@ -1164,7 +1172,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   SKILLS_DIR=.skills-probe node proxy.js
 ```
 
-- 不给 `ASSETS_DIR` / `RENDER_DIR` 就会写进用户真实库根（默认在 `下载\拾帧`，仓库外）与成片目录。
+- 不给 `ASSETS_DIR` / `RENDER_DIR` 就会写进用户真实库根（默认在 `下载\成像`，仓库外）与成片目录。
 - **另一枚探针口**：`AUTOSAVE_DIR` 把整个「下载」基座指走（`server/user-dirs.js` 读它，
   库根与提示词归档的默认目录都跟着它）；打这两条链路的判据必须一起给，否则探针真的往用户成品目录里写。
 - 自己 spawn 的探针要认领「答话的就是我刚起的那一份」：`/sys-status` 的三个目录都要点名，

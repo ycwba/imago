@@ -265,7 +265,8 @@
     return out.slice(0, 16);
   }
 
-  /* 联网搜索按需加载：shell 不常驻 web/domain/search.js，设置页与助手谁先用谁加载。 */
+  /* 联网搜索按需加载：shell 不常驻 web/domain/search.js，三张生成页由 needs 先补齐，
+     其余场合（收藏 / 用量 / 资产库 / 已加载完才弹出的助手）谁先用谁补。 */
   async function ensureSearchMod() {
     if (window.Search) return window.Search;
     if (typeof window.__spaLoadScript !== 'function') throw new Error('这一层没有按需加载器，联网搜索用不了');

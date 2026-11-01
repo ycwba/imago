@@ -63,7 +63,7 @@ function createLocalAssetsStore(deps) {
   const { MIME, dataDirPath, log, spawnSync, localRoot, fileSafe } = deps;
   /* 库根：每次现读（设置页改了不必重启）。 */
   const DIR = () => localRoot();
-  /* 账本不在库根里：根是用户翻得到的 下载\拾帧，里面只放产物本体。
+  /* 账本不在库根里：根是用户翻得到的 下载\成像，里面只放产物本体。
      账放 .data\local-assets\，于是「换根」只是换个本体堆，账一直跟着应用走。 */
   const INDEX_DIR = () => path.resolve(dataDirPath(), 'local-assets');
 
@@ -130,7 +130,7 @@ function createLocalAssetsStore(deps) {
     return n;
   }
   /* ---------- 库根的布局：本体按类型分子目录，账不在库根里 ----------
-     库根（localRoot()：默认 系统下载\拾帧，设置页「本机资产库」那一格可改）下面固定这几档：
+     库根（localRoot()：默认 系统下载\成像，设置页「本机资产库」那一格可改）下面固定这几档：
        图片\ 视频\ 音频\ —— 产物本体，文件名就是资产库里看到的那个名字（撞名加 -2/-3，不覆盖）
        其他\ —— 扩展名与 mime 都认不出类别的那一份（不替用户编一个类型）
      提示词\ 是 .md 归档（prompts-store），不是产物，所有扫描都跳过它。

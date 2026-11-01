@@ -5,7 +5,7 @@
    优先级：
      ① ASSETS_DIR 环境变量 —— 隔离验证实例靠它指出去，否则 headless 探针生成的素材会直接写进用户那份；
      ② .data/sk_local_dir.json —— 设置页「本机资产库」那一格配的（页面写 localStorage，DataSync 镜像到盘上）；
-     ③ 默认 = 系统下载\拾帧（路径本身在 server/user-dirs.js，全站唯一）。
+     ③ 默认 = 系统下载\成像（路径本身在 server/user-dirs.js，全站唯一）。
    ②③ 每次现读，改位置不必重启代理。
    ⚠ 换根之后旧根里的文件不会自己跟过去：账（.data\local-assets\）跟着应用走，本体留在原来那块盘上，
      于是旧根那些产物在库里读不到文件 —— 代理只扫**当前**根，界面上如实显示「文件不在了」，
@@ -55,7 +55,7 @@ function localRootOf(projectRoot, dataDir) {
   return defaultLocalDir(projectRoot);
 }
 
-/* 默认根 = 环境变量那一份，没有就是 下载\拾帧。 */
+/* 默认根 = 环境变量那一份，没有就是 下载\成像。 */
 function defaultLocalDir(projectRoot) {
   return String(process.env.ASSETS_DIR || '').trim() ? envLocalDir(projectRoot)
     : path.resolve(projectRoot, userDirs.downloadsRoot());

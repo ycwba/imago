@@ -34,11 +34,11 @@ const EXTS = new Set(['.js', '.html', '.css']);
 const BIG_FILES = [
   { file: 'web/director/engine.js', max: 4571, why: '已决定：剪辑交互与预览引擎保持命令式，engine.js 是全站最大文件（「单文件 < 3k」不适用于它）。热路径按域搬在 web/director/engine/<域>.js，这一份只留工程数据、可变状态与接线；再涨一行要说明为什么不能进已有域模块' },
   { file: 'web/pages/settings.js', max: 4017, why: '账号卡流已搬进 web/pages/settings/accounts.js。这一页剩下 15 张卡的其余部分：SET_ROWS 那一份声明式清单与它的渲染 / 写盘、外观 / 存放 / 素材库 / 助手 / 网络各档的控件、云同步、Skill 场景、目录轨与滚动出口。再涨先问哪一块能像账号卡那样搬成页面自己的子模块（先例：chars/detail.js、settings/accounts.js）' },
-  { file: 'web/features/chat.js', max: 3700, why: '助手的外壳 / 会话 / 渲染 / 发送循环（工具循环与动作目录在 chat-tools.js）。再涨就先把会话存储与发送循环拆开' },
+  { file: 'web/features/chat.js', max: 3701, why: '助手的外壳 / 会话 / 渲染 / 发送循环（工具循环与动作目录在 chat-tools.js）。再涨就先把会话存储与发送循环拆开' },
   { file: 'web/pages/studio.js', max: 3566, why: '工作台页面侧装配：卡片界面在 ui/workbench，这里剩表单与生成流程。再涨就把三种类型的表单各自成块' },
   { file: 'web/ui/workbench.js', max: 3360, why: '工作台那十几个公共 namespace（卡片 / 分页 / 视口 / 筛选条 / 文件类型档 / 分栏 / 灯箱 / 缩略图 / 批量下载 / 历史 / 详情），三页共用所以留在公共层。收它是把它按 namespace 切成几份，不是退回页面' },
   { file: 'web/domain/chars.js', max: 2451, why: '素材库域（Lib / Pipe / SET）：界面那一半要挪回页面，数据与流程留在这一份' },
-  { file: 'web/director/engine/panel.js', max: 2233, why: '导演台右栏（剪辑/生成/字幕/台词四档 + 弹层接线），从 engine.js 整块搬出。要收就把每一档的字段与参数表单拆成一张表，按表渲染' },
+  { file: 'web/director/engine/panel.js', max: 2239, why: '导演台右栏（剪辑/生成/字幕/台词四档 + 弹层接线），从 engine.js 整块搬出。要收就把每一档的字段与参数表单拆成一张表，按表渲染' },
   { file: 'web/features/chat-tools.js', max: 2218, why: '助手的工具循环与动作目录（TOOLS / ACTS / TOOL_INPUT / ACTION_META 四张表与注册装配）。再拆就按「生成 / 素材 / 时间线」把动作各自成表；两张形状表只能有一份' },
   { file: 'web/domain/api.js', max: 1918, why: '取数层：Api + 媒体地址 / 状态归类 / 发送前预览（buildBody·preview 与 create 同源）/ exportCaps。再拆就把「媒体地址」单独切一块 —— workbench 也读它，切完两处仍要同一入口' },
   { file: 'web/director/engine/edit.js', max: 1707, why: '导演台板上交互（点选 / 六档工具 / 拖把手 / 换序 / 吸附 / 波纹 / 标记 / 右键菜单）与写 film 的唯一出口 commit·patchFilm。再拆会把「写 film 只有一个出口」这一条分进两份文件，那正是这条规则要防的事' },

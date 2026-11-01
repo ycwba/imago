@@ -86,10 +86,10 @@ assert.equal(normalizeAsrWhitespace('カタ カナ'), 'カタカナ', '日文假
 
 /* 误识表：空表 = 原样；临时塞一条条目要真的替换（试完清掉，不污染别的判据）。 */
 assert.equal(applyChineseReplacements('原样输出'), '原样输出', '空表按原样回');
-CHINESE_ASR_CONTEXT_REPLACEMENTS.push(['拾帧', '识贞']);
-assert.equal(applyChineseReplacements('拾帧工作台'), '识贞工作台', '表目按整词替换');
+CHINESE_ASR_CONTEXT_REPLACEMENTS.push(['成像', '成样']);
+assert.equal(applyChineseReplacements('成像工作台'), '成样工作台', '表目按整词替换');
 CHINESE_ASR_CONTEXT_REPLACEMENTS.length = 0;
-assert.equal(applyChineseReplacements('拾帧工作台'), '拾帧工作台', '清表之后回到原样');
+assert.equal(applyChineseReplacements('成像工作台'), '成像工作台', '清表之后回到原样');
 
 /* ---------- 中文可疑判定 ---------- */
 

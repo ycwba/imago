@@ -1338,7 +1338,7 @@ const SettingsView = {
     }
 
     /* ---------- 本机资产库：产物住在哪儿 ----------
-       产物**只有一份**：库根\类型\<规范名>.<ext>，默认根就是用户翻得到的 下载\拾帧。
+       产物**只有一份**：库根\类型\<规范名>.<ext>，默认根就是用户翻得到的 下载\成像。
        「按类型另存到指定文件夹」那一族（三档开关 + 三格目录 + 补存 + 上次没存成）整块撤掉 ——
        实测一次生成写两遍同样的字节，两份都躺在用户自己的盘上。
        这一卡只做一件事：把库根指到哪儿（只有**一个**目录）。
@@ -1351,7 +1351,7 @@ const SettingsView = {
     const libRootDir = () => String(window.LS.get('sk_local_dir') || '').trim();
     function libRootSet(dir) {
       const v = String(dir || '').trim();
-      /* 空串是「用默认」，不是「没配过」：把键删掉，代理那侧就读回落下载\拾帧。
+      /* 空串是「用默认」，不是「没配过」：把键删掉，代理那侧就读回落下载\成像。
          留一个空字符串在盘上，下次对账会把它当成一份有内容的配置拉回另一台机器。 */
       if (v) window.LS.set('sk_local_dir', v); else window.LS.del('sk_local_dir');
     }
@@ -1377,7 +1377,7 @@ const SettingsView = {
       kn.className = 'kn'; kn.textContent = '位置';
       const inp = document.createElement('input');
       inp.type = 'text'; inp.dataset.libdir = '1';
-      inp.placeholder = '默认：下载\\拾帧（留空就用它）';
+      inp.placeholder = '默认：下载\\成像（留空就用它）';
       inp.value = libRootDir();
       inp.style.minWidth = '260px';
       /* 只有 change 才落盘，没有 oninput：半截路径一旦进盘，那几毫秒里正好存回的产物
@@ -1391,7 +1391,7 @@ const SettingsView = {
       pick.onclick = () => pickLibDir(inp, pick, why);
       const rst = document.createElement('button');
       rst.type = 'button'; rst.className = 'ghost xs'; rst.textContent = '恢复默认';
-      rst.title = '清空这一格 → 产物回到系统「下载」下的 拾帧\\';
+      rst.title = '清空这一格 → 产物回到系统「下载」下的 成像\\';
       rst.onclick = async () => {
         if (Confirm.arm(rst, '确认恢复默认', { key: 'lib-rst', hint: '再点一次就清空这一格目录 · 已经存下的文件一个都不动' })) return;
         inp.value = '';
@@ -2327,7 +2327,7 @@ const SettingsView = {
       return chipRow(label, r.cls, r.chip, (d.路径 || '?') + (r.why ? '（' + r.why + '）' : ''), d.路径);
     }
     function sysText(s) {
-      return ['拾帧 本机环境体检 ' + window.fmtWhen(s.at || Date.now())]
+      return ['成像 本机环境体检 ' + window.fmtWhen(s.at || Date.now())]
         .concat(Api.sysStatusLines(s)).join('\n');
     }
     function syncSysCopyBtn() {
@@ -2409,7 +2409,7 @@ const SettingsView = {
     let lastUsage = null;
     const SHOW_TOP = 3;
     function usageText(u) {
-      return ['拾帧 本机资产库用量 ' + (window.fmtWhen ? window.fmtWhen(u.at || Date.now()) : '')]
+      return ['成像 本机资产库用量 ' + (window.fmtWhen ? window.fmtWhen(u.at || Date.now()) : '')]
         .concat(Api.usageLines(u)).join('\n');
     }
     function syncUsageCopyBtn() { usageCopyDisabled.value = !lastUsage; }
@@ -2587,7 +2587,7 @@ const SettingsView = {
         promptMsg.value = '✗ 归档目录没能存进本机（浏览器存储写满或不允许写入）—— 这一项没改';
         return;
       }
-      promptMsg.value = promptDir.value.trim() ? '✓ 归档目录已改为：' + promptDir.value.trim() : '✓ 已改回默认目录（下载\\拾帧\\提示词）';
+      promptMsg.value = promptDir.value.trim() ? '✓ 归档目录已改为：' + promptDir.value.trim() : '✓ 已改回默认目录（下载\\成像\\提示词）';
       refreshPrompt();
     }
     function promptRefresh() { promptMsg.value = ''; refreshPrompt(); }

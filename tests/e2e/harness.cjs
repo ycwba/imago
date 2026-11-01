@@ -9,7 +9,7 @@
      await page.waitFor(() => document.body.innerText.length > 0);
      await page.screenshot('shot.png');
      await browser.close(); await proxy.stop();
-   探针目录落在系统临时目录（`shizhen-probe-*`：一处 mkdtemp 父目录，data / assets / renders /
+   探针目录落在系统临时目录（`imago-probe-*`：一处 mkdtemp 父目录，data / assets / renders /
    skills 四个根都从它派生），跑完整组删除 —— 仓库根与用户数据目录一个字节都不写。 */
 'use strict';
 const fs = require('fs');
@@ -49,7 +49,7 @@ async function httpText(url, cookie = '', timeout = 0) {
 /* 探针父目录：系统临时目录下一处 mkdtemp。判据进程被硬杀时，留下的空壳落在系统临时目录里、
    由系统回收 —— 直接建在仓库根就会攒成一片再没人清。`tag` 只用于排障时认出是哪条判据留下的。 */
 function tempDir(tag = 'probe') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'shizhen-' + tag + '-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'imago-' + tag + '-'));
 }
 
 async function startProxy(opts = {}) {

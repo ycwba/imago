@@ -114,8 +114,14 @@ function resolvedModel(sh) {
 const SLOT_ROLE = { first: 'first_frame', last: 'last_frame', ref: 'reference_image', refVideo: 'reference_video', refAudio: 'reference_audio' };
 /* 输入素材的中文名只在公共层点一次名（`Capabilities.ROLE_ZH`），与工作台同一份：
    这一页原来抄的是一份短名表（首帧 / 尾帧），而模式名那句现拼读的是长名（首帧图 / 尾帧图），
-   同一个 role 在两个页面上叫两个名字；清单和数值都是数据，抄一遍就会各自漂。 */
-const ROLE_ZH = (window.Capabilities && Capabilities.ROLE_ZH) || {};
+   同一个 role 在两个页面上叫两个名字；清单和数值都是数据，抄一遍就会各自漂。
+   这个模块是求值期挂到引擎里的，不能在顶层把 `Capabilities.ROLE_ZH` 的值抄死 ——
+   needs 与页面模块并行补载后，capabilities 可能还没到；迟取（用时现查），
+   表在哪儿落在哪儿。消费点全是属性读取，没有展开或迭代，Proxy 够用。 */
+const ROLE_ZH = new Proxy({}, {
+  get(t, k) { return (window.Capabilities && Capabilities.ROLE_ZH) ? Capabilities.ROLE_ZH[k] : undefined; },
+  has(t, k) { return !!(window.Capabilities && Capabilities.ROLE_ZH && k in Capabilities.ROLE_ZH); },
+});
 /* 模式名（「智能参考」「视频换人」）也只有一份（`Capabilities.comboLabel`）：
    归一化那边给的是整档语义名，页面按 role 现拼根本读不到它。 */
 const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';

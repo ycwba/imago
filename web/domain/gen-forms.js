@@ -610,7 +610,10 @@ window.AdvParams = {
         note: note,
         text: v => this.label(k, v === undefined ? value : v, m, unit),
       };
-      if (list.length && sent !== undefined && sent !== '') payload[s.field] = sent;
+      /* 数字档（时长 / 条数）交给提交体的是**数**不是字符串：这一层的取值口径全是字符串
+         （下拉要用），原样进 JSON 体会被严格校验的上游整段拒掉 —— VGENV 的报价接口
+         对字符串时长连报「大于 15 / 小于 2 / 必须是整数」三条。 */
+      if (list.length && sent !== undefined && sent !== '') payload[s.field] = s.numeric ? Number(sent) : sent;
     });
     /* 摘要：只列**这一族真会用到的**那几档 —— 画出来的、以及「声明了但只有一个取值、
        所以不摆下拉却照样发出去」的那几档（不列的话折叠状态下那句「发的是什么」就少一项，

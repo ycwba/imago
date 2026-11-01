@@ -100,7 +100,7 @@ const batBuf = fs.readFileSync(path.join(root, '启动.bat'));
 const batTxt = batBuf.toString('utf8');
 ok('启动.bat 是 UTF-8 + chcp 65001，并带干跑自检口',
   !(batBuf[0] === 0xEF && batBuf[1] === 0xBB && batBuf[2] === 0xBF)
-  && /chcp\s+65001/i.test(batTxt) && /WB_LAUNCHER_DRYRUN/.test(batTxt) && /拾帧/.test(batTxt));
+  && /chcp\s+65001/i.test(batTxt) && /WB_LAUNCHER_DRYRUN/.test(batTxt) && /成像/.test(batTxt));
 const psBuf = fs.readFileSync(path.join(root, 'launcher.ps1'));
 const psTxt = psBuf.toString('utf8');
 ok('launcher.ps1 是 UTF-8 带 BOM + CRLF',

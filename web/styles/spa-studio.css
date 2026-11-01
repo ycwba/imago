@@ -102,6 +102,15 @@
 .studio-page.wb .col-right #result .task .timg { cursor: default; }
 .studio-page.wb .col-right #result .task .tprompt { cursor: pointer; }
 .studio-page.wb .col-right #result .task .timg audio { width: 100%; }
+/* 详情展开：就地展开（公共件 .exp / .is-open）——与资产库同一副骨架：
+   详情不再套一层灰盒子（盒子在卡里会把卡撑高），账条横着排多列。 */
+.studio-page #result .cdet { display: block; margin: 0; padding: 0; border: 0; background: none;
+  font-size: var(--fs-12-5); color: var(--sub); }
+.studio-page #result .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-8) var(--sp-16); }
+.studio-page #result .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
+.studio-page #result .cdet .det-row .k { flex: 0 0 auto; }
+.studio-page #result .cdet .det-row > span:last-child { color: var(--txt); }
 /* 卡片内的播放按钮：视频 / 音频共用一套（bindCardPlay 接线）。播放中淡出，鼠标移回画面才回来 */
 .studio-page #result .timg.playable { position: relative; }
 .studio-page #result .timg.playable .tplay { position: absolute; left: var(--sp-8); bottom: var(--sp-8); z-index: 4; width: var(--sz-ctl); height: var(--sz-ctl);
@@ -122,7 +131,7 @@
 .studio-page.wb .col-right #result .task { cursor: grab; }
 .studio-page.wb .col-right #result .task.dragging { opacity: .45; }
 .studio-page.wb .col-right #result .task .acts,
-.studio-page.wb .col-right #result .task .tdetail,
+.studio-page.wb .col-right #result .task .exp,
 .studio-page.wb .col-right #result .task .timg video,
 .studio-page.wb .col-right #result .task .timg audio { cursor: auto; }
 .studio-page.wb .col-right #result > .list-note,

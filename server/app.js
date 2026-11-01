@@ -1,6 +1,9 @@
 // 本地代理：node proxy.js 后访问 http://localhost:5175
 // 所有生成平台都走 REGISTRY 声明的 relay 前缀转发（见下方 REGISTRY）：
 // 页面只认 /registry 里的声明，不认具体厂商，所以接入新平台不用改页面。
+/* 启动耗时埋点的起点：__bootT0 由 proxy.js 在 require 之前落下（直接 node server/app.js 时就地补一枚），
+   这些数只为了回答「双击之后时间花在哪」，最后在启动收尾汇总成一行进 proxy.log。 */
+const BOOT_T0 = typeof globalThis.__bootT0 === 'number' ? globalThis.__bootT0 : (globalThis.__bootT0 = performance.now());
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +46,7 @@ const { createLocalRoot } = require('./local-root.js');
 const { fileSafe } = require('./file-safe.js');
 const { createMediaSrc } = require('./media-src.js');
 const { createRelayGate } = require('./relay-gate.js');
+const BOOT_T_REQ = performance.now();   // require 链走完；「监听」一段从这行算到 server.listen 的回调
 
 /* 端口默认 5175。PORT 也能写在项目目录的 .env 里 —— 所以这一行必须排在 loadEnvFile(true)
    **后面**：以前它排在前面（在 require 之后立刻读），.env 里写的 PORT 根本不生效，
@@ -446,14 +450,14 @@ function ensureSession(req, res) {
      GET  /local-assets      列表（资产库/任务列表直接用 registry 的 list 声明读它）
      GET  /asset/<id>        本地优先：命中本地文件就本地读取（支持 Range），否则回源上游
    这样「语音工作台」生成的音频能像其它资产一样出现在资产库、被资产选择器挑选与复用。 */
-/* 落盘目录：默认就是用户翻得到的 下载\拾帧（产物本体按类型落 图片\ / 视频\ / 音频\，
+/* 落盘目录：默认就是用户翻得到的 下载\成像（产物本体按类型落 图片\ / 视频\ / 音频\，
    索引不在这里，在 .data\local-assets\ —— 那个点号开头的目录是应用自己的账，不是用户的作品）。
    根怎么算只有 server/local-root.js 一份（含 ASSETS_DIR 指到别处那一档：隔离验证实例必须指出去，
    否则 headless 探针生成的素材会直接写进用户那份，资产库里冒出一堆假条目）。 */
 /* FCPXML 媒体包的落盘目录（routes/fcpxml.js 的 bundle / .trash-* 都写这里）。
    渲染任务域已删（浏览器内合成），但这个目录还要活 —— 名字沿用旧的 .renders。 */
 const RENDER_DIR = path.resolve(ROOT, process.env.RENDER_DIR || '.renders');
-/* 本体目录的动态读法在 server/local-root.js（ASSETS_DIR > .data/sk_local_dir.json > 下载\拾帧）：
+/* 本体目录的动态读法在 server/local-root.js（ASSETS_DIR > .data/sk_local_dir.json > 下载\成像）：
    代理这边只注入数据目录的现读法。
    ⚠ 传的是 `() => dataDirPath()` 而不是 `dataDirPath` 本身：这一格排在下面 dataStore 装配之前，
      直接把那个 const 递进去会在初始化前踩到它（TDZ 报错），包一层就只在被调用时才读。
@@ -583,7 +587,7 @@ const {
   CUSTOM_RELAY, customNotice, MODEL_PREFS_KEY, modelPrefsNotice, allProviders,
 } = registryConfig;
 /* 本机存储层：目录与 log / MIME / dataDirPath / spawnSync / 库根读法都在这一行交给它。
-   账本在 .data\local-assets\，本体在库根的类型子目录（下载\拾帧\图片\ 那一层）——
+   账本在 .data\local-assets\，本体在库根的类型子目录（下载\成像\图片\ 那一层）——
    换库根只动 `localRoot` 那一个读数，账不跟着作品走。 */
 const localStore = createLocalAssetsStore({
   MIME, dataDirPath, log, spawnSync, localRoot, fileSafe,
@@ -837,8 +841,36 @@ const systemRoutes = createSystemRoutes({
    那样第二只回环 socket 既没有 clientError 兜底（畸形 HTTP 帧会变成 uncaughtException），
    连接错误也不进「健康」那本账。 */
 const SERVERS = [];
+/* ---------- 启动收尾：清扫 / 重建 / 磁盘对账这三段同步重活不排在 listen 回调里 ----------
+   启动器认「服务已起」的判据是 /whoami 真回话，浏览器又要等它点头才打开；
+   同步对账要扫整个库根（大库上几百毫秒到几秒），排在监听回调里就是把它顶在
+   /whoami 和 shell.html 的首字节后面。所以这三段排进队列，等**第一个请求收尾**之后
+   再一口气跑完 —— setImmediate 不行：check 相位先于下一次 I/O 轮询，排进去等于
+   还压着首个请求。一直没人来请求（headless 工具、防火墙拦了）就由监听回调里
+   的 5 秒兜底放行。对账语义不变：仍然开机跑一次，只是挪了时点。 */
+const bootHeavyQ = [];
+let bootHeavyFlushed = false;
+let firstReqAt = 0;
+function noteFirstRequest(url) {
+  if (firstReqAt) return;
+  firstReqAt = performance.now();
+  log('[启动] 首个请求 ' + Math.round(firstReqAt - BOOT_T0) + ' ms：' + url);
+}
+function runBootHeavy() {
+  if (bootHeavyFlushed) return;
+  bootHeavyFlushed = true;
+  setImmediate(() => {
+    while (bootHeavyQ.length) {
+      try { bootHeavyQ.shift()(); } catch (e) { try { log('[警告] 启动收尾任务失败：' + (e.code || e.message)); } catch {} }
+    }
+  });
+}
+function afterFirstResponse(fn) { if (bootHeavyFlushed) fn(); else bootHeavyQ.push(fn); }
 function makeServer() {
   const s = http.createServer((req, res) => {
+    noteFirstRequest(req.url);
+    /* close 在响应完成与连接中途断开两种情况下都会发 —— 重活让路只认「第一个请求到过」 */
+    res.on('close', runBootHeavy);
     // handleRequest 是 async（出站地址护栏要解析域名），所以这里用 Promise 链兜异常：
     // 同步抛与异步拒绝都走同一个 500 分支，单个请求出错不拖垮整个代理进程。
     Promise.resolve().then(() => handleRequest(req, res)).catch(e => {
@@ -1159,6 +1191,7 @@ function frontendWarmList() {
 /* 第二个参数（地址）才是「只绑回环」这一档的实质落点：`listen(PORT)` 不写 host 时
    Node 绑的是 `::`，等于所有网卡都在听，上面那份默认就整条失效。 */
 server.listen(PORT, BIND.hosts[0], () => {
+  const BOOT_T_LISTEN = performance.now();
   const kids = REGISTRY.providers.map(p => p.keyEnv).filter((v, i, a) => v && a.indexOf(v) === i);
   const missing = kids.filter(k => !keyOf(k));
   log(`proxy 已启动: http://localhost:${PORT}（端口来自 ${PORT_FROM}${envLoaded ? '；已加载 .env，改完自动热加载' : '；未找到 .env，可用环境变量'}）`);
@@ -1185,38 +1218,58 @@ server.listen(PORT, BIND.hosts[0], () => {
     });
   });
   envWarns.forEach(w => log('[警告] ' + w));
-  /* 预热排在磁盘对账之前：对账要扫库根（只 readdir + stat，但是在主线程上串着走），
-     预热一开跑就走线程池压字节 —— 两边互不排队，用户打开页面时那批静态文本已经在算了。
-     只热 br（浏览器实际都发它）、只热文本，预算 4 秒，超了剩下的按需压 ——
-     它是抢在用户前面做的，不是把 CPU 占住不放。 */
+  /* 预热在监听这一刻就开跑：走线程池压字节，不占事件循环 —— 用户打开页面时
+     那批静态文本已经在算了。只热 br（浏览器实际都发它）、只热文本，预算 4 秒，
+     超了剩下的按需压 —— 它是抢在用户前面做的，不是把 CPU 占住不放。 */
   warmStatic(frontendWarmList(), { budgetMs: 4000, concurrency: 4 })
     .then(r => { if (r && r.warmed) log(`[静态] 预热 ${r.warmed} 份文本资源（brotli ${r.ms} ms）`); })
     .catch(() => {});
-  /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，
-     在开机这一刻就是纯垃圾（年龄闸只保护**别的实例正在写**的那一个）。 */
-  try {
-    const swept = sweepStaleTmp();
-    if (swept) log(`[清理] 删掉 ${swept} 个崩溃残留的临时写入文件（.data / 资产库里那种 .tmp-<pid>-<串>）`);
-  } catch (e) { log('[清理] 启动清扫跳过：' + (e.code || e.message)); }
-  /* 一次性重建（只跑一次，标记落盘后永不重复）：旧的账是靠浏览器镜像逐条「学」出来的，
-     镜像一丢那些行就只剩路径与字节 —— 按产物号 / 来源地址都查不到，云端签名一过期就显示「已丢失」。
-     旧账与旧本体整批搬进 库根\.trash\rebuild-<时刻>\（搬，不删；提示词归档与用户文档不动），
-     之后由平台列表重新生成一份每条都带产物号的新账。 */
-  try {
-    const rb = rebuildBodiesOnce();
-    if (!rb.skipped) {
-      log(`[资产库] 重建：旧账 ${rb.cleared} 条已清空，${rb.moved} 份本体搬到 ${rb.trash}`
-        + (rb.failed ? `（${rb.failed} 份没搬动，原样留着）` : '') + '，接下来从平台列表重新取回');
-    }
-  } catch (e) { log('[资产库] 重建跳过（账与本体都原样留着）：' + (e.code || e.message)); }
-  /* 开机先做一次磁盘对账（只 readdir + stat，不读内容；要分辨同字节数的那几个才现算采样签名）。
-     为什么放在开机而不是只放在列表前：用户在文件管理器里改了名、把整堆作品挪到另一块盘、
-     或者代理崩在半路留下了一份没记账的成品 —— 账本只是文件的一份账，不是文件的出处。
-     对账**只写账不碰字节**：不重命名、不移动、不删。 */
-  try {
-    const ad = localAdopt(true);
-    if (ad.added || ad.skipped) log(`[资产库] 磁盘对账：补 ${ad.added} 条账，${ad.skipped} 份并到已有条目或跳过（库根 ${localRoot()}）`);
-  } catch (e) { log('[资产库] 启动对账跳过：' + (e.code || e.message)); }
+  /* 清扫 / 重建 / 对账三段同步重活排在 afterFirstResponse：首个请求（通常是启动器的
+     /whoami）收尾之后再跑，别把它们压在「服务已起」的判据后面 —— 见 makeServer 上方。 */
+  const tHeavy = performance.now();
+  let msSweep = 0;
+  let msRebuild = 0;
+  let msAdopt = 0;
+  let adoptAdded = 0;
+  afterFirstResponse(() => {
+    let t = performance.now();
+    /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，
+       在开机这一刻就是纯垃圾（年龄闸只保护**别的实例正在写**的那一个）。 */
+    try {
+      const swept = sweepStaleTmp();
+      if (swept) log(`[清理] 删掉 ${swept} 个崩溃残留的临时写入文件（.data / 资产库里那种 .tmp-<pid>-<串>）`);
+    } catch (e) { log('[清理] 启动清扫跳过：' + (e.code || e.message)); }
+    msSweep = performance.now() - t;
+    t = performance.now();
+    /* 一次性重建（只跑一次，标记落盘后永不重复）：旧的账是靠浏览器镜像逐条「学」出来的，
+       镜像一丢那些行就只剩路径与字节 —— 按产物号 / 来源地址都查不到，云端签名一过期就显示「已丢失」。
+       旧账与旧本体整批搬进 库根\.trash\rebuild-<时刻>\（搬，不删；提示词归档与用户文档不动），
+       之后由平台列表重新生成一份每条都带产物号的新账。 */
+    try {
+      const rb = rebuildBodiesOnce();
+      if (!rb.skipped) {
+        log(`[资产库] 重建：旧账 ${rb.cleared} 条已清空，${rb.moved} 份本体搬到 ${rb.trash}`
+          + (rb.failed ? `（${rb.failed} 份没搬动，原样留着）` : '') + '，接下来从平台列表重新取回');
+      }
+    } catch (e) { log('[资产库] 重建跳过（账与本体都原样留着）：' + (e.code || e.message)); }
+    msRebuild = performance.now() - t;
+    t = performance.now();
+    /* 开机做一次磁盘对账（只 readdir + stat，不读内容；要分辨同字节数的那几个才现算采样签名）。
+       为什么放在启动收尾而不是只放在列表前：用户在文件管理器里改了名、把整堆作品挪到另一块盘、
+       或者代理崩在半路留下了一份没记账的成品 —— 账本只是文件的一份账，不是文件的出处。
+       对账**只写账不碰字节**：不重命名、不移动、不删。 */
+    try {
+      const ad = localAdopt(true);
+      adoptAdded = ad.added;
+      if (ad.added || ad.skipped) log(`[资产库] 磁盘对账：补 ${ad.added} 条账，${ad.skipped} 份并到已有条目或跳过（库根 ${localRoot()}）`);
+    } catch (e) { log('[资产库] 启动对账跳过：' + (e.code || e.message)); }
+    msAdopt = performance.now() - t;
+    log('[启动] 模块加载 ' + Math.round(BOOT_T_REQ - BOOT_T0) + ' ms · 监听 +' + Math.round(BOOT_T_LISTEN - BOOT_T_REQ)
+      + ' ms · 收尾（清扫 ' + Math.round(msSweep) + ' · 重建 ' + Math.round(msRebuild) + ' · 对账 ' + Math.round(msAdopt)
+      + '，补 ' + adoptAdded + ' 条）共 ' + Math.round(performance.now() - tHeavy) + ' ms');
+  });
+  /* 一直没人发请求（headless 工具只打一两个接口就断、防火墙拦了）重活也要能跑：5 秒兜底 */
+  setTimeout(runBootHeavy, 5000).unref();
   /* 出站代理那一句放在启动信息里：在必须走代理才能出网的环境里，
      「有没有走代理」是第一个要确认的事，而页面上只看得到「转发失败（打到 xxx）」。 */
   const px0 = outboundProxy();

@@ -658,7 +658,12 @@
       return rows;
     },
   };
-  async function refreshBalance() {
+  /* 开机一两秒里这段会被连着叫（外壳求值一轮、导演台 loadCredits 广播一轮、定时器与
+     visibilitychange 各一轮）：「先画缓存」每次照做（切页 / 刷新时余额立刻可见），
+     取数体在途时并船 —— 四路触发方拿同一个 Promise，N 家余额只发一轮；
+     每完成一轮照发一次 sb-balance-updated，监听方语义不变。 */
+  let balInflight = null;
+  function refreshBalance() {
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
     /* **先画一次再发请求**：切页/刷新时余额立刻可见（缓存），第一次勾上开关时也不会空着
@@ -670,10 +675,15 @@
     if (cached.kids.length) balKids = cached.kids;
     balPending = null;
     paintBal(box, balRows.length ? '' : '正在读取…');
+    if (balInflight) return balInflight;
+    balInflight = fetchBalRows(box).finally(() => { balInflight = null; });
+    return balInflight;
+  }
+  async function fetchBalRows(box) {
     let reg;
     // 注册表统一走 Api.registry（带 60 秒缓存，和其它页面共用一份）；api.js 是外壳静态加载的，这一层不再判它在不在
     try { reg = await Api.registry(); }
-    catch { if (!cached.rows.length) paintBal(box, '余额读取失败'); return; }
+    catch { if (!balRows.length) paintBal(box, '余额读取失败'); return; }
     // 按 keyId 合并（如 sparkcine-video 并入 sparkcine）；带出**平台对象**，请求头与余额解析都走 Api 那一份实现
     const map = new Map();
     (reg.providers || []).forEach(p => {

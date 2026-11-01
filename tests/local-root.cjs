@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-/* 库根「本体住在哪儿」那一条算法的常驻回归（纯 Node，不启浏览器，不碰用户任何真实目录）。
-   跑法：`node tests/local-root.cjs`。
+/* 库根「本体住在哪儿」那一条算法的常驻回归（纯 Node，不启浏览器；除「旧库根一次性改名」外
+   不写用户任何真实目录）。跑法：`node tests/local-root.cjs`。
 
    这一条为什么值得单独守着：它坏了**不报错**。设置页那一格填了新目录、代理还算老根，
    现象只是「改了位置、产物还往老地方写」，而账（.data\\local-assets\\）照旧跟着应用走 ——
@@ -57,7 +57,7 @@ try {
   const junk2 = localRootOf(ROOT, withFile(JSON.stringify({ list: [1, 2] })));
   ok('非字符串的 JSON 不当「配过」', junk2 === DEF, 'got ' + junk2);
   /* ⑥ 默认根跟着系统下载文件夹走（不是写死的 HOME\\Downloads） */
-  ok('默认根 = 系统下载\\拾帧', DEF === path.resolve(userDirs.downloadsRoot()), 'got ' + DEF);
+  ok('默认根 = 系统下载\\成像', DEF === path.join(userDirs.systemDownloadsDir(), '成像'), 'got ' + DEF);
   /* ⑦ 环境变量压过镜像：隔离验证实例靠这一条，指错就等于探针写进用户作品 */
   const saved = process.env.ASSETS_DIR;
   try {
@@ -74,6 +74,34 @@ try {
   /* ⑧ 整轮里没有一次算出过 [object —— 那一级是「在项目根下新建一个怪目录」的前置 */
   ok('任何形状都不把根算成 [object Object]',
     !/object Object/i.test(localRootOf(ROOT, withFile(JSON.stringify({ x: 1 })))));
+  /* ⑨ 一次性搬迁：旧根在、新根不在 → 整体改名，文件跟着走。
+     用探针口（AUTOSAVE_DIR）指到临时基座，绝不碰用户的 下载。 */
+  const freshUserDirs = () => {
+    delete require.cache[require.resolve('../server/user-dirs.js')];
+    return require('../server/user-dirs.js');
+  };
+  const savedAutosave = process.env.AUTOSAVE_DIR;
+  try {
+    const oldBase = path.resolve(tmp, '旧基座');
+    fs.mkdirSync(path.join(oldBase, '拾帧', '提示词'), { recursive: true });
+    fs.writeFileSync(path.join(oldBase, '拾帧', '提示词', 'a.md'), 'x', 'utf8');
+    process.env.AUTOSAVE_DIR = oldBase;
+    const moved = freshUserDirs().downloadsRoot();
+    ok('旧根整体迁到 成像', moved === path.join(oldBase, '成像'), 'got ' + moved);
+    ok('迁移后旧根消失、归档文件跟着走',
+      !fs.existsSync(path.join(oldBase, '拾帧'))
+      && fs.readFileSync(path.join(oldBase, '成像', '提示词', 'a.md'), 'utf8') === 'x');
+    /* ⑩ 两个根并存：新根已经有人用，就不动旧根 */
+    const bothBase = path.resolve(tmp, '并存基座');
+    fs.mkdirSync(path.join(bothBase, '拾帧'), { recursive: true });
+    fs.mkdirSync(path.join(bothBase, '成像'), { recursive: true });
+    process.env.AUTOSAVE_DIR = bothBase;
+    const stayed = freshUserDirs().downloadsRoot();
+    ok('两根并存时用新根、不动旧根', stayed === path.join(bothBase, '成像')
+      && fs.existsSync(path.join(bothBase, '拾帧')), 'got ' + stayed);
+  } finally {
+    if (savedAutosave === undefined) delete process.env.AUTOSAVE_DIR; else process.env.AUTOSAVE_DIR = savedAutosave;
+  }
 } catch (e) {
   bad++; console.log('  ✗ 判据本身抛出：' + ((e && e.message) || e));
   if (e && e.stack) console.log(e.stack.split('\n').slice(1, 4).join('\n'));

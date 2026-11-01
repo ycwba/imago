@@ -108,17 +108,19 @@ ok('「关掉助手」这一条恢复默认也不清', literals(keepArr).include
   'RESET_KEEP 里没有 ai_chat_off：一次「恢复默认」会把那颗悬浮球重新装回来');
 
 /* ---------- ⑥ 加载顺序：datasync.js 取 PREF_KEYS 时 ui.js 必须已经求值完 ----------
-   2026-10-21 拆分之后 datasync.js 不在 shell.html 里常驻了：它由路由表的 `needs` 在页面组件
-   `import()` 之前补载（web/core/routes.js 声明、web/app.js 发）。挂法变了，要守的东西没变 ——
-   UI_PREFS 是 ui.js 求值时才挂上 window 的，datasync.js 在求值期现取那张表，早一步就取到空表，
-   那一批界面偏好会静默不同步。两种挂法都验同一件事。 */
+   2026-10-21 拆分之后 datasync.js 不在 shell.html 里常驻了：它由路由表的 `needs` 补载
+   （web/core/routes.js 声明、web/app.js 发；现在与页面模块并行，但补载通道不变）。
+   挂法变了，要守的东西没变 —— UI_PREFS 是 ui.js 求值时才挂上 window 的，datasync.js
+   在求值期现取那张表，早一步就取到空表，那一批界面偏好会静默不同步。
+   ui.js 是壳里的同步经典脚本，任何经 __spaLoadScript 补载的 datasync.js 都排在它之后求值；
+   这里验的是「datasync 确实走的是补载通道，而不是也进了壳」。两种挂法（壳里串着排 / 走 needs）都验同一件事。 */
 const shell = read('shell.html');
 const order = [...shell.matchAll(/<script[^>]+src="([^"]+)"/g)].map(m => m[1]);
 const iUi = order.findIndex(s => s.endsWith('web/ui/ui.js'));
 const iDs = order.findIndex(s => s.endsWith('web/ui/datasync.js'));
 const lazyDs = iDs < 0
   && /web\/ui\/datasync\.js/.test(read('web/core/routes.js'))
-  && /__spaNeeds\([^)]*\)\s*\.then\s*\(/.test(read('web/app.js'));
+  && /__spaNeeds\(/.test(read('web/app.js'));
 ok('ui.js 先于 datasync.js 求值（壳里排在前面，或 datasync 走路由 needs 在页面组件之前补载）',
   iUi >= 0 && (iDs > iUi || lazyDs),
   'ui.js=' + iUi + ' datasync.js=' + iDs + ' 按页补载=' + lazyDs);

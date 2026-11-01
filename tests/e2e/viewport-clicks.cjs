@@ -36,7 +36,7 @@
      · pick-dir / 云同步 / 清缓存 / 导出族（各自起进程或写用户目录）；
      · **翻页 next**：回页首是翻页自己的故意行为（翻页本来就该滚回页首），断言「锚点不变」等于把规矩反向焊死；
      · 导演台的缩放钮：缩放本来就该改视野，不是「重画吃位」。
-   数据全在临时目录与独立浏览器 profile 里（harness 的 shizhen-probe-*），不碰用户库根。
+   数据全在临时目录与独立浏览器 profile 里（harness 的 imago-probe-*），不碰用户库根。
    调试用：VP_ONLY=settings node tests/e2e/viewport-clicks.cjs 只跑点名的那一组（多组用逗号）。
 
    路由：#settings.html（含侧栏余额卡）· #studio.html · #director.html · #assets.html ·

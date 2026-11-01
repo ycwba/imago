@@ -17,7 +17,7 @@ function createPromptsStore(opts) {
   const PROMPT_INDEX = '_index.json';
   const PROMPT_PACK_MAX_FILES = 20000, PROMPT_PACK_MAX_BYTES = 64 * 1024 * 1024;
 
-  /* 归档默认目录 = 下载\拾帧\提示词（与产物本体共用「下载\拾帧」这一个根，根下按类别分子目录）。
+  /* 归档默认目录 = 下载\成像\提示词（与产物本体共用「下载\成像」这一个根，根下按类别分子目录）。
      PROMPTS_DIR 环境变量仍优先（部署口子，不是版本兼容）。
      ⚠ 只认这一个目录 —— 项目内的老 prompts/ 已经搬走并且不存在了，不做双读。 */
   const promptsDefaultDir = () => process.env.PROMPTS_DIR
@@ -30,7 +30,7 @@ function createPromptsStore(opts) {
     const home = process.env.HOME || process.env.USERPROFILE || '';
     const p = (/^~($|[\\/])/.test(s) && home) ? path.join(home, s.slice(1)) : s;
     const abs = path.resolve(p);
-    /* 白名单：项目目录 / 用户目录 / 下载根（拾帧那一族的家）——
+    /* 白名单：项目目录 / 用户目录 / 下载根（成像那一族的家）——
        下载被搬到 D:\下载 时不在 home 之下，不加这一支默认目录自己都进不了白名单。 */
     const roots = [path.resolve(root), path.resolve(userDirs.downloadsRoot())];
     if (home) roots.push(path.resolve(home));

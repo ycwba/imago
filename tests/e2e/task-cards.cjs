@@ -157,7 +157,7 @@ const READ = `(() => {
   let proxy, browser, page;
   try {
     /* AUTOSAVE_DIR 把整个「下载」基座指走：这一条从界面点「生成」，页面会往提示词归档里落一份，
-       不设的话那条链路就写进用户真实库根（下载\拾帧\提示词\）。它落在探针父目录里，
+       不设的话那条链路就写进用户真实库根（下载\成像\提示词\）。它落在探针父目录里，
        proxy.stop() 跟着父目录整组删。 */
     const probeRoot = h.tempDir('task-cards');
     proxy = await h.startProxy({ probeRoot, env: {

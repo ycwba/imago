@@ -59,7 +59,7 @@
      不优先读本机就谈不上「只看本机」—— 只勾第三档时它**等于没勾**（设置页那一项也就不画）。 */
   const localOnly = () => saveOn() && preferLocal() && on(K_HIDE_CLOUD, '') === '1';
 
-  /* 产物只有一份，就住在资产库根的类型子目录里，而那个根默认就是 下载\拾帧 —— 用户翻得到的地方。
+  /* 产物只有一份，就住在资产库根的类型子目录里，而那个根默认就是 下载\成像 —— 用户翻得到的地方。
      库根本身可以在设置页「本机资产库」那一格改，它不是浏览器里的偏好而是**代理要读的那份**，
      所以它走 `sk_local_dir`（localStorage → DataSync 镜像成 .data/sk_local_dir.json，
      代理的 localRoot() 现读），不在这里留第二份判据。 */
@@ -180,6 +180,8 @@
     reindex();
     readyAt = Date.now();
     infoChanged();
+    /* 快照就位：按住的那批自动 offer 现在才判得清「本机有没有」，当场判一遍。 */
+    flushHeld();
   }
   /* 等别名表就位（并发调用共用同一只在途请求）。失败不抛：拿不到表只是「这一轮认不出本机副本」，
      列表照常显示；下一次 ready 再试。 */
@@ -647,7 +649,7 @@ function info() {
       /* 到这里就结束了：**产物只有这一份**。
          以前镜像之后还要再按类型拷一份到用户指定的文件夹，实测一次生成写两遍同样的字节
          （359 份产物里 344 份字节完全相同），两份都躺在用户自己的盘上。
-         库根现在就是用户翻得到的 下载\拾帧\，本体落 图片\ / 视频\ / 音频\ 并用可读的规范名 ——
+         库根现在就是用户翻得到的 下载\成像\，本体落 图片\ / 视频\ / 音频\ 并用可读的规范名 ——
          资产库、播放器、FCPXML 媒体包与用户自己开的那个文件夹是同一份文件，不再第二份。 */
     } catch (e) {
       /* 镜像失败**不打扰界面**：它是锦上添花，产物该显示还是显示。
@@ -672,6 +674,35 @@ function info() {
      不单独记这一档的话，「别再自动重下」只能靠「永远挂在 queued 里」，
      代价是在途数与「只看本机」从此失真（一份没存下来的东西永远显示「正在存」）。 */
   const SKIPPED = new Set();
+  /* ---------- 表还没取回来时按住的自动 offer ----------
+     别名表是「本机有没有这一份」的唯一真相；表取回来之前一条都查不到。拿空表当「没存过」，
+     开机那一屏几百条会全部排进镜像队列 —— 侧栏一路「正在存 N 份」，而绝大多数早就存过了。
+     所以自动那一路（非 force）先按 k 按住，等快照到了再判；手动「存回本机」不经过这里
+     （用户当下点下去的那一条要照常排队、照实回执）。 */
+  const held = new Map();
+  let heldRetryT = 0;
+  function retryHeld() {
+    if (heldRetryT || !held.size || libraryKnown()) return;
+    heldRetryT = setTimeout(() => {
+      heldRetryT = 0;
+      /* 定时器排上之后快照可能自己就回来了（那一路已经 flush 过），别为此再问一次 */
+      if (!held.size || libraryKnown()) return;
+      ready(0).then(() => { if (!libraryKnown()) retryHeld(); });
+    }, 10000);
+  }
+  function holdOffer(k, provId, ent, url, o) {
+    if (held.has(k)) return;
+    held.set(k, { provId, ent, url, o });
+    retryHeld();
+  }
+  function flushHeld() {
+    if (!held.size || !libraryKnown()) return;
+    const list = [...held.values()];
+    held.clear();
+    for (const x of list) {
+      try { offer(x.provId, x.ent, x.url, x.o); } catch (e) { /* 一条坏了不许挡住其余 */ }
+    }
+  }
   /* ---------- 待镜像清单（跨页面 / 刷新仍在）----------
      自动镜像过去只在「某个页面加载了列表」时才开始；导演台单独开着时不触发。
      现在生成完成会投 `wb:asset-done`，同时把还没存完的条目写进 localStorage：
@@ -699,7 +730,9 @@ function info() {
     const out = {};
     ['provider', 'providerName', 'assetId', 'genId', 'taskId', 'id', 'type', 'format', 'prompt', 'model',
       'tier', 'res', 'ar', 'quality', 'count', 'duration', 'credits', 'creditsRaw', 'priceMicros', 'currency',
-      'priceText', 'chars', 'tokens', 'usage', 'gstatus', 'created', 'completed', 'promptLocal', 'byteLength']
+      'priceText', 'chars', 'tokens', 'usage', 'gstatus', 'created', 'completed', 'promptLocal', 'byteLength',
+      /* 回放时「按任务号认本机那一份」要靠它：只有声明一次出一份的条目才许按任务号认 */
+      'outCount']
       .forEach(k => { if (ent[k] != null) out[k] = ent[k]; });
     return Object.assign(out, { kind: 'asset', status: 'done' });
   };
@@ -736,8 +769,12 @@ function info() {
   let pendReplayT = 0;
   function replayPending() {
     if (pendReplayT) return;
-    pendReplayT = setTimeout(() => {
+    pendReplayT = setTimeout(async () => {
       pendReplayT = 0;
+      if (!saveOn()) return;
+      /* 先等别名表：清单里几乎都是上一轮已经存过的条目，表没就位时「查不到」会被当成
+         「没存过」，整份清单开机就重新排一遍。表这次取不回来也不丢 —— offer 会按住它们。 */
+      await ready();
       if (!saveOn()) return;
       const now = Date.now();
       const list = pendRead();
@@ -781,6 +818,9 @@ function info() {
     if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch|local-assets)\b/.test(url)) return '';
     const k = keyFor({ provider: provId, assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', url });
     if (!k) return '';
+    /* 表还没取回来：「本机有没有这一份」这一刻判不出来（表里查不到 ≠ 没存过）。
+       自动那一路按住，等快照到了再判（见 holdOffer / flushHeld）；手动 force 不等。 */
+    if (!o.force && !libraryKnown()) { holdOffer(k, provId, ent, url, o); return 'held'; }
     const platAsset = String((ent && ent.assetId) || '');
     const taskId = String((ent && (ent.genId || ent.taskId)) || '');
     /* 表里已经有这一份就别再下一遍（判据只有 rowOfEntry 一份：产物号 → 任务号（唯一）→ 地址）。
@@ -1272,6 +1312,7 @@ function info() {
             const drop = queue.splice(0);
             drop.forEach(j => { if (!j.force) { queued.delete(j.k); INFOS.inFlight = Math.max(0, INFOS.inFlight - 1); } else queue.push(j); });
             pendWrite([]);
+            held.clear();          // 按住的自动 offer 一并作废：开关关了，它们不该等表回来再排
             infoChanged();
           } else replayPending();
         }
@@ -1340,7 +1381,7 @@ function info() {
     },
     /* 从**代理那份账**（.data\local-assets\）现算「本机存了多少」。
        为什么必须有这一步：浏览器这份别名表是当前会话的缓存，本体在库根
-       （默认 下载\拾帧）的类型子目录里；表还没取回来时设置页会写
+       （默认 下载\成像）的类型子目录里；表还没取回来时设置页会写
        「本机已存 0 个产物，共 0 KB」，而库里其实有几百份 —— 这一页最不能说的话就是假话。
        先问一次别名快照；再走注册表声明的 selfAsset 列表把每一行认进来
        （那一份带着人类可读的提示词与模型字段，统计以外还要用）。 */

@@ -299,12 +299,12 @@ body.wb-splitting-y * { user-select: none !important; }
 .chip:hover { border-color: var(--acc); }
 .chip.on { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); }
 
-/* 卡片内展开的详情：中性描边小卡片（不带强调色元素） */
-.tdetail, .cdet { display: none; margin-top: var(--sp-10); padding: var(--sp-9) var(--sp-12);
+/* 卡片内展开的详情：中性描边小卡片（不带强调色元素）。
+   显隐由 .exp 的 0fr → 1fr 折叠控制（资产库 / 收藏 / 工作台同一副骨架），这里默认藏好。 */
+.cdet { display: none; margin-top: var(--sp-10); padding: var(--sp-9) var(--sp-12);
   border: var(--hair) solid var(--line); background: var(--panel2); border-radius: var(--radius-6);
   font-size: var(--fs-12-5); color: var(--sub); white-space: pre-wrap;
   word-break: break-all; line-height: 1.7; }
-.task.open .tdetail { display: block; }
 /* 详情里的「完整提示词」块（复制按钮放在块内，不与卡片上的操作按钮同级） */
 .det-prompt-hd { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-11-5); color: var(--sub); margin: 0 0 var(--sp-6); }
 .det-prompt-hd .ghost.mini { padding: var(--sp-2) var(--sp-10); font-size: var(--fs-11); border-radius: var(--radius-5); }

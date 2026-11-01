@@ -65,11 +65,12 @@ const ViewError = {
 };
 const lazy = loader => defineAsyncComponent({ loader, loadingComponent: ViewLoading, errorComponent: ViewError, delay: 0, timeout: 30000 });
 /* 页面组件映射由路由表现搭：`src` 相对本文件解析，不在这里另抄一份。
-   `needs` 里那几份公共件（capabilities / text-ai / asset-picker / datasync）不再常驻 shell.html，
-   改成挂载前并发补载 —— 既不给别的页面白下，也让这一页的取数与 ESM 图并行。
-   补载之前先把这一页自己的 ESM 图发出去（`src` + 路由表点名的 `chunk`）：
-   否则三段是串的 —— 等 needs → 取页面 → 页面再取引擎。modulepreload 只取字节不执行，
-   执行时机仍由下面那一次 import() 定，顺序约束一点没动。
+   `needs` 里那几份公共件（capabilities / text-ai / asset-picker / datasync / search）不再常驻 shell.html，
+   切页时与页面模块一起并发补载 —— 既不给别的页面白下，也让这一页的取数与 ESM 图并行。
+   页面自己的 ESM 图（`src` + 路由表点名的 `chunk`）在进 loader 前就先发了：
+   modulepreload 只取字节不执行，执行时机仍由那次 import() 定。needs 补载与 import 求值并行走、
+   没有先后依赖 —— needs 的全局没有一处被页面模块在求值期硬读（导演台右栏那枚 ROLE_ZH
+   由 engine/panel.js 改成迟取，用时现查），页面运行后才用到的都带 `window.Capabilities &&` 守卫。
    这一页自己的样式表也从路由表读（`css`）：挂载点只有下面这一处，页面组件里不再各写一句
    `ensureCss`（路径只存一份，预取与真正切页共用的也是这一格）。 */
 const VIEWS = {};
@@ -79,7 +80,7 @@ for (const p of R.pages || []) {
     preloadModule(p.src);
     for (const m of p.chunk || []) preloadModule(m);
     if (p.css) ensureCss(p.css, 'spa-' + p.id);
-    return window.__spaNeeds(p.needs).then(() => import(p.src));
+    return Promise.all([window.__spaNeeds(p.needs), import(p.src)]).then(a => a[1]);
   });
 }
 
@@ -135,6 +136,10 @@ const PageFrame = {
       if (!host.value || !host.value.isConnected) return;
       for (const el of roots()) {
         if (el.scrollTop || el.scrollLeft) saved.set(el, { t: el.scrollTop, l: el.scrollLeft });
+        /* 回到 0 的容器要把旧账清掉：0 是 falsy，只跳过不删的话，上一次离开时记下的
+           位置会永远赖着 —— 用户明明滚回了顶部，再进来还是被拽回老地方（看起来就是
+           「每次打开都自动跳到最底下」）。 */
+        else if (saved.has(el)) saved.delete(el);
       }
     };
     onDeactivated(save);
@@ -162,7 +167,7 @@ const App = {
     const activeView = computed(() => VIEWS[state.route.file] || null);
 
     function syncChrome(route) {
-      document.title = (route.page.title || route.page.label || 'AI 创作工作台') + ' · 拾帧';
+      document.title = (route.page.title || route.page.label || 'AI 创作工作台') + ' · 成像';
       if (typeof window.__sbSetActive === 'function') window.__sbSetActive(route.page.file);
     }
 

@@ -1,5 +1,6 @@
 /* Search — 联网搜索（设置 / 查询 / 读网页）。只走 Net，不裸 fetch。
-   shell 不常驻加载；设置页与助手首次使用时 __spaLoadScript('web/domain/search.js', () => window.Search)。 */
+   shell 不常驻加载：三张生成页经路由表 needs（routes.js 的 NEED_GLOBAL）先补齐，
+   其余场合（设置页 / 助手首次使用）__spaLoadScript('web/domain/search.js', () => window.Search) 就地补。 */
 (function () {
   let cached = null;
   const errOf = (e, fallback) => window.Api.errOf(e, fallback || '搜索请求失败');

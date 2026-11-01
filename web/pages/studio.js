@@ -2527,7 +2527,6 @@ const StudioView = {
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
         (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-',
         multiMode ? 'M' : '-', (multiMode && selected.has(taskKeyOf(it))) ? 'S' : '-'].join('|');
-      const openDetail = new Set();
       function mediaBox(it) {
         const run = Wb.isRunning(it), bad = Wb.isFailed(it);
         if (run) return '<div class="timg"><span class="spin-dot"></span>' + window.esc(Wb.stText(it.status) || '生成中') + '</div>';
@@ -2590,27 +2589,28 @@ const StudioView = {
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
           }),
-          detailHTML: '<div class="tdetail" hidden></div>',
+          detailHTML: '<div class="exp"><div class="exp-in"><div class="exp-body"><div class="cdet"></div></div></div></div>',
         });
       }
       function fileNameOf(it) {
         return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.mtype || '素材') + '.' + window.fileExtOf(it);
       }
       function bindCard(d, it) {
-        const det = d.querySelector('.tdetail');
+        const det = d.querySelector('.cdet');
         const dtBtn = d.querySelector('.dt');
+        const detailOpen = () => d.classList.contains('is-open');
+        /* 开 / 收走公共件 Wb.expand（与资产库、收藏同一份）：0fr → 1fr 的长高过渡、
+           一次只开一条、按钮字样与 aria-expanded 都归它；这一页只喂内容。 */
         const setOpen = now => {
-          det.hidden = !now;
-          d.classList.toggle('open', now);
-          Wb.expand.sync(d);
-          if (now) { openDetail.add(itemKey(it)); renderDetail(it, det); }
-          else openDetail.delete(itemKey(it));
+          if (window.Wb.expand.open(d, { force: now, scope: $('result') }) && det) renderDetail(it, det);
         };
         d.dataset.tkey = itemKey(it);
-        d._setOpen = setOpen; d._det = det; d._item = it;
-        if (dtBtn) dtBtn.onclick = e => { e.stopPropagation(); setOpen(det.hidden); };
+        d._setOpen = setOpen; d._item = it; d._isOpen = detailOpen;
+        if (dtBtn) dtBtn.onclick = e => { e.stopPropagation(); setOpen(!detailOpen()); };
         const tp = d.querySelector('.tprompt');
-        if (tp) tp.onclick = e => { e.stopPropagation(); setOpen(det.hidden); };
+        if (tp) tp.onclick = e => { e.stopPropagation(); setOpen(!detailOpen()); };
+        /* 重画回来的卡带着 is-open 类：新画的按钮默认是「展开详情」，照类名对齐一次。 */
+        window.Wb.expand.sync(d);
         const pv = d.querySelector('.pv');
         if (pv) pv.onclick = () => openLb(it);
         const imgWrap = d.querySelector('.timg');
@@ -2641,7 +2641,7 @@ const StudioView = {
         Wb.bindActs(d, it, {
           fileName: fileNameOf(it),
           dlUrl: it.dl || it.media || '',
-          onDetail: () => setOpen(det.hidden),
+          onDetail: () => setOpen(!detailOpen()),
           onPreview: () => openLb(it),
           onCancel: async () => { await Wb.cancelTask(provById(it.provider), it.taskId); it.status = 'cancelled'; renderAll(); Toast.receipt('已取消'); },
           onRetry: () => retryItem(it),
@@ -2689,15 +2689,14 @@ const StudioView = {
         const oldKey = old ? (old.getAttribute('data-thumb-key') || '') : '';
         const oldCls = old ? old.className : '';
         if (old) old.remove();
-        const wasOpen = !det0(d).hidden;
+        const wasOpen = d.classList.contains('is-open');
         d.innerHTML = cardHTML(it);
         const now = d.querySelector('.timg video, .timg img');
         if (old && now && oldKey && now.getAttribute('data-thumb-key') === oldKey && now.className === oldCls) now.replaceWith(old);
         bindCard(d, it);
-        if (wasOpen) { const det = d.querySelector('.tdetail'); det.hidden = false; renderDetail(it, det); }
+        if (wasOpen) { const det = d.querySelector('.cdet'); if (det) renderDetail(it, det); }
         return d;
       }
-      const det0 = d => d.querySelector('.tdetail') || { hidden: true };
       /* 左栏已经有用户自己写的东西时，「重试」不许直接把它盖掉 —— 覆盖之前先确认。
          填回之后也不自动点生成：付费任务由用户自己那一下发起。 */
       async function confirmOverwriteDraft() {
@@ -2847,11 +2846,11 @@ const StudioView = {
         const card = e.target.closest('.task');
         if (!card || !card._setOpen) return;
         if (e.target.closest('.dt') || e.target.closest('.tprompt') || e.target.closest('button')) return;
-        if (e.target.closest('.tdetail') || e.target.closest('.acts')) return;
+        if (e.target.closest('.exp') || e.target.closest('.acts')) return;
         if (e.target.closest('video') || e.target.closest('audio')) return;
         /* 多选时点卡片是**勾选**，不是展开详情（与资产库同一套手感） */
         if (multiMode) { if (card._item) taskMulti().toggle(card._item); return; }
-        card._setOpen(card._det.hidden);
+        card._setOpen(!card._isOpen());
       });
       $('result').addEventListener('click', e => {
         const b = e.target.closest('#histRetry');

@@ -11,7 +11,7 @@
      · 删除按「卡」不按「条」：一条卡背后可能是两条账两份字节（同内容、来源地址不同），
        整组一起收 —— 只收一条就留下「删了又回来」的那一条；
      · 磁盘对账：盘上多出一份没记账的成品会补进账，但**只补一次**；用户手删文件不偷偷裁条目（回源外链与那笔费用还在）。
-   ⚠ 三个根全部由 harness 指到系统临时目录里的探针父目录：这台机器上真正的 下载\拾帧 里是用户成品，
+   ⚠ 三个根全部由 harness 指到系统临时目录里的探针父目录：这台机器上真正的 下载\成像 里是用户成品，
      探针一个字节都不许碰。 */
 'use strict';
 const fs = require('fs');
@@ -43,7 +43,7 @@ const png = extra => (extra ? Buffer.concat([PNG, Buffer.from(String(extra))]) :
 
 async function main() {
   /* AUTOSAVE_DIR 把整个「下载」基座指走（server/user-dirs.js 的探针口）：
-     不设的话 下载\拾帧 就是默认库根与旧落点，这一条判据就成在动用户成品了。
+     不设的话 下载\成像 就是默认库根与旧落点，这一条判据就成在动用户成品了。
      它落在 harness 的探针父目录里，收尾跟着父目录整组删。 */
   const probeRoot = h.tempDir('local-chain');
   const dlBase = path.join(probeRoot, 'downloads');

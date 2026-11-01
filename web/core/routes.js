@@ -3,9 +3,12 @@
    `chunk` 都从这里读。
    `src` 与 `chunk` 都相对 web/app.js 解析（外壳的 import() 与预取同一个基准，不另抄路径）。 */
 (function () {
-  /* `needs`：外壳在 import 页面组件之前并发补载（app.js）。这四份不能等「用户点到才补」——
-     `Capabilities` 在 engine/panel.js 求值期就被读，`TextAI` 建包时被当对象递进 split-assets，
-     `AssetPicker` 由常驻的 gen-forms 直接开弹窗，`DataSync` 第一次落盘镜像就要用。
+  /* `needs`：外壳切页时与页面模块一起并发补载（app.js），页面代码一运行就要在的全局
+     不能等「用户点到才补」—— `TextAI` 建包时被当对象递进 split-assets，
+     `AssetPicker` 由常驻的 gen-forms 直接开弹窗，`DataSync` 第一次落盘镜像就要用，
+     `Search` 给 text-ai 的联网搜索供结果（`TextAI.searchBlock` 现查 `window.Search`，
+     缺了它联网搜索就静默不搜）。capabilities 也在这份名单里：它自己有在途并船与 30 秒 TTL，
+     晚到只会让首帧下拉空一拍，`wb:cap-ready` 会补画。
      收藏 / 用量 / 资产库用不到的那几份整份不下。
      `css`：这一页私有的那份样式表（挂载与预取都只读这一格；导演台没有 ——
      它的样式跟着 template.html 一起走作用域岛，spa-director.css 是外壳常驻件）。
@@ -109,15 +112,16 @@
     return p;
   };
 
-  /* 路由级按需补载（`needs`）：外壳在 import 页面组件之前先并发把这一页欠的那几份取回来，
+  /* 路由级按需补载（`needs`）：外壳切页时把这一页欠的那几份与页面模块一起并发取回，
      认「装完应该出现的那个全局」的对照表只在这里一份。
-     四份里唯一在求值期就要读的是 capabilities（engine/panel.js 顶层取 `Capabilities.ROLE_ZH`），
-     所以它必须在 `import()` 之前落地，不能等空闲。 */
+     search.js 是经典脚本（IIFE 挂 `window.Search`）：没这份对照表时 test 为空，
+     `__spaLoadScript` 会当成「已经在了」直接返回 —— 脚本根本不发。 */
   const NEED_GLOBAL = {
     'web/domain/capabilities.js': 'Capabilities',
     'web/domain/text-ai.js': 'TextAI',
     'web/domain/asset-picker.js': 'AssetPicker',
     'web/ui/datasync.js': 'DataSync',
+    'web/domain/search.js': 'Search',
   };
   window.__spaNeeds = function (list) {
     return Promise.all((list || []).map(src => {

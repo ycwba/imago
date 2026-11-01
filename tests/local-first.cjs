@@ -28,7 +28,8 @@ const rowOf = (id, extra) => Object.assign({
 }, extra || {});
 
 /* Net 桩：别名快照与 locate 都是代理的现答。`state.gate` 只在快照那一路生效，
-   用来把「取表期间又落盘了一条」这个窗口拉宽。 */
+   用来把「取表期间又落盘了一条」这个窗口拉宽；`state.saveGate` 把落盘那一跳挂住，
+   用来看「排队之后、字节落地之前」这段窗口里在途的到底有几条。 */
 function netStub(state) {
   const s = state || {};
   const calls = [];
@@ -46,6 +47,18 @@ function netStub(state) {
         return Promise.resolve({ rows });
       }
       return Promise.reject(new Error('探测桩不认识 ' + p));
+    },
+    /* Api.saveLocalFromUrl 走的就是这一跳（Net.read 的返回形状是 { ok, status, d }） */
+    read(p, cfg) {
+      calls.push({ path: p, cfg: cfg || {} });
+      if (p !== '/local-assets/from-url') return Promise.reject(new Error('探测桩不认识 ' + p));
+      let spec = {};
+      try { spec = JSON.parse((cfg && cfg.body) || '{}'); } catch (e) {}
+      const wait = s.saveGate || Promise.resolve();
+      return wait.then(() => ({ ok: true, status: 200, d: {
+        id: 'la_new', assetId: 'asset_new', taskId: 'job_new', upstream: spec.url || '',
+        byte_length: 5, format: 'mp4', name: 'new.mp4', file: '视频/new.mp4',
+      } }));
     },
   };
   return { net, calls };
@@ -78,6 +91,10 @@ function boot(opts) {
     atob: s => Buffer.from(s, 'base64').toString('binary'),
     Blob: class {}, FileReader: class {},
     CustomEvent: class { constructor(t, x) { this.type = t; this.detail = x && x.detail; } },
+    /* 浏览器里这条文案来自 web/ui/net.js；镜像失败那条路会念它（本 VM 不装 net.js） */
+    errText: e => String((e && e.message) || e || ''),
+    /* 名字怎么洗在浏览器里是 ui.js 的 fileSafe；落盘前给文件起名会用到（本 VM 不装 ui.js） */
+    fileSafe: (s, max) => String(s == null ? '' : s).replace(/[\\/:*?"<>|]/g, '-').slice(0, max || 60),
   };
   ctx.window = ctx; ctx.globalThis = ctx; ctx.self = ctx;
   ctx.addEventListener = () => {}; ctx.removeEventListener = () => {}; ctx.dispatchEvent = () => {};
@@ -341,9 +358,14 @@ const g12 = (async () => {
 })();
 
 /* ⑬ 磁盘对账补的裸行（没有产物号 / 任务号）：按来源地址认出之后当场补上身份 */
-{
+const g13 = (async () => {
   const BARE = 'https://cdn.example.com/results/bare.mp4?Expires=1&Signature=y';
-  const { AL } = boot({ rows: [rowOf('la_bare', { upstream: BARE, format: 'mp4', byte_length: 1234 })] });
+  const rows = [rowOf('la_bare', { upstream: BARE, format: 'mp4', byte_length: 1234 })];
+  const { net } = netStub({ rows });
+  const { AL } = boot({ rows, net });
+  /* 自动 offer 只在别名表就位之后才判「本机有没有」（表没取回来时先按住，
+     免得开机就把整屏已存产物当成没存过排进镜像队列）：这里先让快照就位再问。 */
+  await AL.ready(0);
   const ent = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_bare', genId: 'job_bare',
     src: '/asset/asset_bare?v=2', rawSrc: 'https://cdn.example.com/results/bare.mp4?Expires=2&Signature=z' };
   ok('按来源地址认出已存过（不重下）', AL.offer('sparkcine', ent, ent.rawSrc) === 'saved');
@@ -351,7 +373,7 @@ const g12 = (async () => {
     src: '/asset/asset_bare?v=2', rawSrc: ent.rawSrc };
   AL.decorate(e, { allowGen: false });
   ok('裸行当场补上产物号，下一轮直接命中', e.mirrorKey === 'la:la_bare' && e.mirror.a === 'la_bare', JSON.stringify(e.mirrorKey));
-}
+})();
 
 /* ⑭ 地址 → 磁盘落点（FCPXML 这类要路径的出口读它） */
 {
@@ -395,7 +417,40 @@ const g15 = (async () => {
   ok('取不到表时本机地址照旧认', offline.AL.localAssetIdOf('/asset/la_voice?v=2') === 'la_voice');
 })();
 
-Promise.all([g11, g12, g15]).then(() => {
+/* ⑯ 别名表还没取回来时，自动 offer 先按住，不拿空表当「本机一份都没有」排队；
+     快照到了再按表判：已存过的不排，没存过的才排 */
+const g16 = (async () => {
+  const SAVED = 'https://cdn.example.com/results/saved.mp4?Expires=1&Signature=s';
+  const gate = {};
+  gate.p = new Promise(r => { gate.release = r; });
+  const saveGate = {};
+  saveGate.p = new Promise(r => { saveGate.release = r; });
+  const { net } = netStub({
+    rows: [rowOf('la_saved', { assetId: 'asset_saved', taskId: 'job_saved', upstream: SAVED })],
+    gate: gate.p, saveGate: saveGate.p,
+  });
+  const { AL, store } = boot({ net });          // 表里一条都没有：开机快照还没回来
+  const savedEnt = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_saved', genId: 'job_saved',
+    src: '/asset/asset_saved', rawSrc: SAVED };
+  const newEnt = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_new', genId: 'job_new',
+    src: '/asset/asset_new', rawSrc: 'https://cdn.example.com/results/new.mp4?Expires=1&Signature=n' };
+  const rSaved = AL.offer('sparkcine', savedEnt, savedEnt.rawSrc);
+  const rNew = AL.offer('sparkcine', newEnt, newEnt.rawSrc);
+  ok('表没就位时自动 offer 按住，不排镜像队列',
+    rSaved === 'held' && rNew === 'held' && AL.info().inFlight === 0, JSON.stringify([rSaved, rNew, AL.info().inFlight]));
+  gate.release();
+  await AL.ready(0);
+  ok('快照到了之后按表判：已存过的不排，没存过的才排（在途正好一条）',
+    AL.info().inFlight === 1, '在途 ' + AL.info().inFlight);
+  saveGate.release();
+  await new Promise(r => setTimeout(r, 120));
+  ok('真正落盘的也只有没存过的那一条', AL.info().ok === 1 && AL.info().fail === 0,
+    'ok ' + AL.info().ok + ' / fail ' + AL.info().fail + ' / ' + AL.info().lastErr);
+  const pend = JSON.parse(store.get('sk_local_pending') || '[]');
+  ok('存好之后待办清单清空', pend.length === 0, JSON.stringify(pend.map(x => x.k)));
+})();
+
+Promise.all([g11, g12, g13, g15, g16]).then(() => {
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
   process.exit(bad ? 1 : 0);
 }).catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

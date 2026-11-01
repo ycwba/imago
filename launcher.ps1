@@ -1,5 +1,5 @@
 ﻿# ============================================================================
-# launcher.ps1 —— 拾帧 · AI 创作工作台的本机服务启动器（图形界面）
+# launcher.ps1 —— 成像 · AI 创作工作台的本机服务启动器（图形界面）
 #
 # 它是同目录「启动.bat」唯一拉起的东西；也可以右键「使用 PowerShell 运行」。
 # 界面把服务状态、端口来源、启动进度与 proxy.js 的日志放在同一个窗口里，
@@ -868,11 +868,36 @@ public static class WorkbenchRunner {
     }
 }
 '@
-$script:RunnerOk = $true
+# 现编这段 C# 要几百毫秒到两秒（csc.exe），是窗口出现前最重的一项。按源码内容哈希把编译
+# 产物缓存进 %TEMP%，命中直接装载；写盘 / 装载任何一步失败都退回现场编译 —— 缓存只是加速，不是依赖。
+$runnerDll = $null
 try {
-  Add-Type -TypeDefinition $runnerSource -Language CSharp -ErrorAction Stop
-} catch {
-  $script:RunnerOk = $false
+  $runnerDll = Join-Path ([System.IO.Path]::GetTempPath()) (
+    'imago-runner-' + ([BitConverter]::ToString(
+      [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($runnerSource)))).Replace('-', '').ToLower().Substring(0, 16) + '.dll')
+} catch { $runnerDll = $null }
+$script:RunnerOk = $false
+if ($runnerDll -and (Test-Path -LiteralPath $runnerDll)) {
+  try { Add-Type -Path $runnerDll -ErrorAction Stop; $script:RunnerOk = $true } catch { $script:RunnerOk = $false }
+}
+if (-not $script:RunnerOk) {
+  $tmpDll = if ($runnerDll) { "$runnerDll.$PID.tmp" } else { $null }
+  if ($tmpDll) {
+    try {
+      Add-Type -TypeDefinition $runnerSource -Language CSharp -OutputAssembly $tmpDll -ErrorAction Stop
+      # 先挪到正式名再装载：装载会把文件锁住，顺序反了临时名就删不掉。
+      # 挪不动多半是目标已被并发实例装载 —— 内容是同一份，直接读目标那份。
+      try { Move-Item -LiteralPath $tmpDll -Destination $runnerDll -Force -ErrorAction Stop } catch { }
+      if (Test-Path -LiteralPath $runnerDll) {
+        try { Add-Type -Path $runnerDll -ErrorAction Stop; $script:RunnerOk = $true } catch { $script:RunnerOk = $false }
+      }
+      if (Test-Path -LiteralPath $tmpDll) { Remove-Item -LiteralPath $tmpDll -Force -ErrorAction SilentlyContinue }
+    } catch { $script:RunnerOk = $false }
+  }
+  if (-not $script:RunnerOk) {
+    try { Add-Type -TypeDefinition $runnerSource -Language CSharp -ErrorAction Stop; $script:RunnerOk = $true } catch { $script:RunnerOk = $false }
+  }
 }
 
 # 界面和自检都要能碰到这几个类型。放在这里而不是放在界面段里，是因为自检那一档
@@ -935,7 +960,7 @@ $titleFont = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI
 $logFont = New-ScaledFont @('Consolas', 'Lucida Console') 9.5 ([System.Drawing.FontStyle]::Regular)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = '拾帧 · AI 创作工作台 · 本地服务'
+$form.Text = '成像 · AI 创作工作台 · 本地服务'
 $form.Font = $uiFont
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen

@@ -38,6 +38,19 @@
       if (!chatOff) one('web/features/chat.js');
     });
   }
-  if (window.requestIdleCallback) window.requestIdleCallback(load, { timeout: 1200 });
-  else setTimeout(load, 400);
+  /* 等首屏收尾再进空闲队列：window load 出现说明外壳那串脚本与样式表已经走完，
+     空闲档才不会跟首页自己的取数 / 求值抢主线程。load 万一不来（外壳整层失败），
+     4 秒兜底让球照常出现。 */
+  var kicked = false;
+  function kick() {
+    if (kicked) return;
+    kicked = true;
+    if (window.requestIdleCallback) window.requestIdleCallback(load, { timeout: 2500 });
+    else setTimeout(load, 400);
+  }
+  window.addEventListener('load', function once() {
+    window.removeEventListener('load', once);
+    kick();
+  });
+  setTimeout(kick, 4000);
 })();

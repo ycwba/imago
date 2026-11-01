@@ -191,7 +191,7 @@ export async function buildFCPXML(ctx, opts) {
   const out = [];
   out.push('<?xml version="1.0" encoding="UTF-8"?>');
   out.push('<!DOCTYPE fcpxml>');
-  out.push('<!-- 导出拾帧「' + noteSafe(proj.name || '未命名短片') + '」成片 · '
+  out.push('<!-- 导出成像「' + noteSafe(proj.name || '未命名短片') + '」成片 · '
     + new Date().toLocaleString('zh-CN') + ' -->');
   if (missing.length) {
     out.push('<!-- 本机没有可用文件的素材（导入 FCP 后会显示离线；请补到与 FCPXML 同级的 media/ 目录，或重新链接）：');
@@ -223,7 +223,7 @@ export async function buildFCPXML(ctx, opts) {
   });
   out.push('  </resources>');
   out.push('  <library>');
-  out.push('    <event name="拾帧导出">');
+  out.push('    <event name="成像导出">');
   out.push('      <project name="' + xe(proj.name || '未命名短片') + '">');
   out.push('        <sequence format="r1" duration="' + t(plan.duration) + '" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">');
   out.push('          <spine>');

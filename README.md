@@ -1,4 +1,4 @@
-# 拾帧 · AI 创作工作台
+# 成像 · AI 创作工作台
 
 本地优先的 AI 创作工作台：七个页面（导演台 / 素材库 / 工作台 / 收藏 / 资产库 /
 用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node 代理转发与落盘。
@@ -61,10 +61,10 @@ server/
   app.js                      组合根：配置、依赖装配、路由分发
   registry-config.js          供应商注册表（新平台只改这里）
   routes/                     每组本机路由一个模块
-  local-root.js               本机资产库根的唯一算法（ASSETS_DIR > 设置页那一格 > 下载\拾帧）
+  local-root.js               本机资产库根的唯一算法（ASSETS_DIR > 设置页那一格 > 下载\成像）
   local-assets-store.js       资产本体落点、双身份（fid + 采样签名）、磁盘对账
   index-store.js              资产索引（快照 + 追加日志 + 串行写队列），账在 .data\local-assets\
-  user-dirs.js                用户可见目录根（系统下载文件夹 → 下载\拾帧 / 提示词）
+  user-dirs.js                用户可见目录根（系统下载文件夹 → 下载\成像 / 提示词）
   data-store.js               原子写 + .bak + 读坏拒写
   prompts-store.js            提示词归档
   cloud-store.js              云同步与备份
@@ -117,7 +117,7 @@ npm run build:check  # 校验生成物
 - 产物身份只有一份判据：`AssetLocal` 的 `rowOfEntry`（查的是代理现给的别名表：`/local-assets/aliases` + `/local-assets/locate`）。
 - 本机 / 云端状态只有 `AssetLocal.stateOf(entry)`。
 - 自动镜像由 `wb:asset-done` 事件触发，字节由代理流式落盘进**本机资产库根**的类型子目录
-  （默认 `下载\拾帧\图片|视频|音频|其他\`，设置页可改；一条产物只有一份本体，文件名按「场景+镜头+候选」规范名，撞名加 `-2`）。
+  （默认 `下载\成像\图片|视频|音频|其他\`，设置页可改；一条产物只有一份本体，文件名按「场景+镜头+候选」规范名，撞名加 `-2`）。
 - 索引与本体分家：账在 `.data\local-assets\`（快照 + 追加日志），本体在库里。
   每条账带**两个身份**——`fid`（设备+inode，改名认得）与采样内容签名（字节数 + 首尾各 1MB 的哈希，挪盘认得），
   所以手动改名、整目录搬到另一块盘，下一轮磁盘对账还能把账认回来；同一任务重复下载只出一张卡。
@@ -168,7 +168,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
   RENDER_DIR=.renders-probe SKILLS_DIR=.skills-probe node proxy.js
 ```
 
-`ASSETS_DIR` 指的是**库根**（默认在 `下载\拾帧`，仓库外）；打默认目录那两条链路的判据还要 `AUTOSAVE_DIR`
+`ASSETS_DIR` 指的是**库根**（默认在 `下载\成像`，仓库外）；打默认目录那两条链路的判据还要 `AUTOSAVE_DIR`
 （把整个「下载」基座指走，`server/user-dirs.js` 读它），否则探针会往用户真成品目录里写。
 
 `node tests/data-snapshot.cjs` 用来确认真实 `.data`、`.renders` 与库根本体没有被测试改动。
@@ -180,7 +180,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
 - `启动.bat`：UTF-8 + `chcp 65001`。
 - `launcher.ps1`：UTF-8 带 BOM + CRLF（PowerShell 5.1 的要求）。
 - 不要提交 `.env`、`.data/`、`.assets/`、`.renders/`、`文件/`、`.skills/`：后两个是库根可能被指回项目内时的落点，里面是用户作品。
-- 产物本体默认在系统下载文件夹的 `拾帧\` 下，不在仓库里；仓库里的 `.data\local-assets\` 只是账。
+- 产物本体默认在系统下载文件夹的 `成像\` 下，不在仓库里；仓库里的 `.data\local-assets\` 只是账。
 
 ## 第三方
 

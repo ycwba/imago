@@ -15,20 +15,42 @@ const h = require('./harness.cjs');
 
 /* 六家「都开了余额、都在用」的假平台 + 本机正在传输。
    取数链路与刷新逻辑仍走 sidebar.js 那一份（只把 Api / AssetLocal 的读数换成假的），
-   探针不许另写一份余额卡。`__balCalls` 数的是 credits 请求次数（判「点标题 / 开气泡真的重取」）。 */
+   探针不许另写一份余额卡。`__balCalls` 数的是 credits 请求次数（判「点标题 / 开气泡真的重取」）。
+   桩在**导航前**装：页面一加载 sidebar.js 就发第一轮取数，等 goto 回来再补桩，
+   那一轮真请求已经出去了 —— 余额取数是「在途并船」的（刷新在途时并进同一轮），
+   后装的桩轮次会一直并进那轮真请求，六家假平台永远画不出来。
+   Api / AssetLocal 本身是 api.js / local.js 求值时才挂上 window 的，比 init 脚本晚：
+   这里把这两个名字拦下来，真对象一挂上就打补丁 —— 第一轮取数看到的就是假件。 */
 const STUB = () => {
   const kids = [];
   for (let i = 0; i < 6; i++) kids.push({ id: 'probe' + i, keyId: 'probe' + i, name: 'Probe 平台 ' + i + ' 号', endpoints: { credits: '/credits' } });
+  const patchApi = Api => {
+    Api.registry = async () => ({ providers: kids });
+    Api.envStatus = async () => ({});
+    Api.provUsable = () => true;
+    Api.request = async () => { window.__balCalls++; return { available_amount: '1234.5678', frozen_amount: '0' }; };
+    Api.balance = () => ({ available: '1234.5678', frozen: '0', unit: 'credits' });
+    Api.balNum = v => String(v);
+    return Api;
+  };
+  const patchLocal = L => {
+    L.info = () => ({ on: true, inFlight: 2, count: 5, bytes: 1234567890, fail: 0, ok: 3,
+      lastAt: Date.now() - 95000, lastErr: '', dlTotal: 1000, dlSent: 420, dlName: 'probe-clip.mp4' });
+    return L;
+  };
   window.__balCalls = 0;
-  window.Api.registry = async () => ({ providers: kids });
-  window.Api.envStatus = async () => ({});
-  window.Api.provUsable = () => true;
-  window.Api.request = async () => { window.__balCalls++; return { available_amount: '1234.5678', frozen_amount: '0' }; };
-  window.Api.balance = () => ({ available: '1234.5678', frozen: '0', unit: 'credits' });
-  window.Api.balNum = v => String(v);
-  window.AssetLocal.info = () => ({ on: true, inFlight: 2, count: 5, bytes: 1234567890, fail: 0, ok: 3,
-    lastAt: Date.now() - 95000, lastErr: '', dlTotal: 1000, dlSent: 420, dlName: 'probe-clip.mp4' });
-  localStorage.setItem('sb_bal_cache', JSON.stringify({ ts: 0, rows: [], kids: [] }));
+  for (const [name, patch] of [['Api', patchApi], ['AssetLocal', patchLocal]]) {
+    if (window[name]) patch(window[name]);
+    else {
+      let cur;
+      Object.defineProperty(window, name, {
+        configurable: true,
+        get() { return cur; },
+        set(v) { cur = patch(v); },
+      });
+    }
+  }
+  try { localStorage.setItem('sb_bal_cache', JSON.stringify({ ts: 0, rows: [], kids: [] })); } catch (e) {}
   return true;
 };
 
@@ -146,6 +168,13 @@ const check = (name, cond, detail) => {
     proxy = await h.startProxy();
     browser = await h.launchBrowser();
     page = await browser.newPage();
+    /* 桩在**第一次导航前**装（init 脚本只跑这一次：后面各档的 goto 都是同文档导航，
+       不会重跑）—— 页面一加载 sidebar.js 就发第一轮取数，那时 Api / AssetLocal 才刚挂上
+       window，桩晚一步那一轮真请求就出去了；余额取数是「在途并船」的（刷新在途时并进
+       同一轮），后补的桩轮次会一直并进那轮真请求，六家假平台永远画不出来。
+       init 脚本用 defineProperty 拦住这两个名字：真对象一挂上就打补丁，第一轮看到的就是假件。
+       各档开头的重装见 open() 里那句 page.eval(STUB)。 */
+    await page.addInitScript(STUB);
 
     const isOpen = () => page.eval(() => document.documentElement.classList.contains('sb-open'));
     /* 收 / 展就走用户走的那条路：点那块品牌砖。 */
@@ -158,6 +187,10 @@ const check = (name, cond, detail) => {
       await page.setSize(w, ht);
       await page.goto(proxy.base + '/shell.html#studio.html');
       await page.waitFor(() => window.Api && window.AssetLocal && document.querySelector('#sbBalance .sb-bal-sum'), 20000);
+      /* goto 打的是**同一个 hash 地址**：同文档导航，不重载文档，init 脚本也不会重跑 ——
+         整个测试从头到尾就是同一个文档。所以每一档开头都要把桩重新拨回「在途」态：
+         上一档末尾（空闲态那两条）把 AssetLocal.info 换成了空闲版，不拨回去，
+         窄形态的 42% 进度条与气泡里那条就永远是空闲的。计数也归零，各档自己从头数。 */
       await page.eval(STUB);
       if ((await isOpen()) !== expanded) await setOpen(expanded);
       await repaint(500);

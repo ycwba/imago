@@ -1539,7 +1539,7 @@ const LEGACY_KEYS = [
   /* 提示词编辑器整块删除（2026-10）：折叠状态已经没有对应的卡。 */
   'set_fold_polish',
   /* 「按类型另存一份到指定文件夹」整族撤销（2026-10-23）：产物只有一份，就住在资产库根的类型子目录里，
-     而那个根默认就是用户翻得到的 下载\拾帧。`sk_autosave` 是那三档的开关与目录，`sk_autosave_log`
+     而那个根默认就是用户翻得到的 下载\成像。`sk_autosave` 是那三档的开关与目录，`sk_autosave_log`
      是「上一趟另存没成的原因」，两者都再没有读者。库根本身改由 `sk_local_dir` 那**一个**目录承担，
      它是代理要读的那份（localStorage → .data/sk_local_dir.json），不在这里。 */
   'sk_autosave', 'sk_autosave_log',

@@ -316,8 +316,11 @@ const NORM_SHAPES = {
   },
 };
 
-window.Capabilities = {
-  /* 把上游 models 结构归一化成前端用的 options。
+/* load 的在途与 TTL 记号：并发调用共船同一份请求，30s 内重复问直接回上次结果 */
+let capLoadP = null;
+let capLoadAt = 0;
+
+window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 options。
      `shape`：注册表用 `modelsShape` 点名一种**形状**（不是平台 id），
      由下面的 NORM_SHAPES 接住 —— 上游形状不是「parameters 对象」的那种
      （VGENV 的 /v3/models 是 configurations 数组，一项一档组合），
@@ -990,7 +993,18 @@ window.Capabilities = {
      显示「还没配接口 / 一次只能出一张 / 型号下拉空」，而密钥其实好好地配着。
      4 路并发：既能把这段时间压到几秒，又不至于把上游打出限流。
      结果按模型 id 汇总（byId 是字典，合并顺序不影响结果），与串行版完全等价。 */
+  /* 客户端这一层也要去重：导演台 / 素材库 / 工作台各自的 mount 都会调 load，切页来回
+     就是一轮又一轮的 /env-status + 每平台 4 路并发。在途并船；30 秒内直接回上一轮结果
+     （服务端那层还有 60 秒缓存，这里只挡同 mount 风暴）；设置页「获取型号列表」那种
+     明确要新数据的走 opts.force 绕过两层。 */
   async load(REG, opts) {
+    if (opts && opts.force) { capLoadP = null; }
+    else if (capLoadP) return capLoadP;
+    else if (Date.now() - capLoadAt < 30000 && this.models) return this.models;
+    capLoadP = this._loadAll(REG, opts).finally(() => { capLoadAt = Date.now(); capLoadP = null; });
+    return capLoadP;
+  },
+  async _loadAll(REG, opts) {
     this.settled = false;
     const byId = {};
     this.sources = {};

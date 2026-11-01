@@ -304,8 +304,24 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        ② `web/ui/sidebar.js` —— 余额多两个口：`SbBalance.rowOf` / `fetchRows`（设置页账号卡上的余额
           读同一份缓存、走同一份取数），以及取回一轮后的 `sb-balance-updated` 广播。侧栏是外壳同步脚本，
           余额缓存与取数本来就在它里面。
-       实跑 29 枚 / 831073 字节（登记上限 833000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 833000;
+       实跑 29 枚 / 831073 字节（登记上限 833000）。
+     · 按实跑重登记（2026-10-31，启动提速批）：枚数不变（仍是 29 枚），四份首屏件各长了一点 ——
+       `web/ui/sidebar.js` 的余额取数并船（refreshBalance 拆成「先画缓存」与取数体 fetchBalRows，
+       balInflight 在途去重：开机一两秒里四路触发只发一轮请求）；`web/core/routes.js` 的 NEED_GLOBAL
+       补 search.js（联网搜索在三张生成页静默失效的真缺陷 —— 对照表缺这一行时 test 为空，
+       `__spaLoadScript` 当成「已经在了」直接返回，脚本根本不发）；`web/boot-assistant.js`
+       改成 load 事件 + rIC 空闲加载（chat-tools + chat 的解析移出首屏窗口）；
+       `web/app.js` 的 needs 与 import 并行（needs 全局唯一一处求值期硬读 —— 导演台右栏 ROLE_ZH —— 改迟取）。
+       同一工作树里另一条进行中的工作也落在这几份常驻件里（ui.js / forms.js / assetlib.js / gen-forms.js），
+       按同一口径记账。没有新挂脚本，也没有把按需件挪进来。
+       实跑 29 枚 / 833807 字节（登记上限 836000）。
+     · 按实跑重登记（2026-11-01，开机镜像不空转）：枚数不变（仍是 29 枚），
+       这一笔落在首屏常驻件上，没有按需的落点：
+       `web/domain/local.js` —— 自动 offer 在别名表取回来之前先按住，快照到了再按表判
+       （空表当「没存过」会让开机那一屏把已经存过的产物整批重排进镜像队列，侧栏一路「正在存 N 份」）；
+       跨刷新的待办回放也先等表。别名表是首屏取数底座，镜像队列本来就在这一份里。
+       实跑 29 枚 / 836941 字节（登记上限 837000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 837000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

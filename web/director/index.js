@@ -16,6 +16,16 @@ function extractTemplate(html) {
   return { body, style: sm ? sm[1] : '' };
 }
 
+/* 模板在模块求值期就开取：以前排在 boot() 里，要等 needs 补载完、页面挂上 DOM 才发出
+   这一趟 —— 现在它跟 needs、engine 那条模块链并行。no-cache = 每次向本地代理复验
+   ETag（304 就不重下），改了模板也能立刻生效。boot 还没跑时先吞掉拒绝，
+   真失败由 boot 的 try/catch 记报。 */
+const templateP = fetch('web/director/template.html', { cache: 'no-cache' }).then(r => {
+  if (!r.ok) throw new Error('模板取不回来：HTTP ' + r.status);
+  return r.text();
+});
+templateP.catch(() => {});
+
 export default {
   name: 'DirectorView',
   setup() {
@@ -87,7 +97,7 @@ export default {
                `Wb.Blobs`，export-formats 只挂 window.ExportFormats），互不依赖才敢同时插；
              · engine.js 顶层只有 import，整个函数体在 `mount()` 里（`Wb.ST` 那一行也在里面），
                而 mount 照旧等到模板上完 DOM 才调 —— 提前取模块只是提前取字节。
-           no-cache = 每次向本地代理复验 ETag（304 就不重下），改了模板也能立刻生效。
+           模板 HTML 在模块求值期就开取（no-cache，304 不重下），这里等的是同一个 promise。
            媒体后端也要在 mount 之前到位：切片的 <video> 只在 media-backend.js 里造
 ，那一条链没有自己的兜底可退。 */
         const scriptsP = Promise.all([
@@ -98,7 +108,6 @@ export default {
           /* 原始请求面板（不常驻在 shell.html —— 别处打开它就是白下一次）。 */
           window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest),
         ]);
-        const templateP = fetch('web/director/template.html', { cache: 'no-cache' }).then(r => r.text());
         const engineP = import('./engine.js');
         await Promise.all([scriptsP, templateP, engineP]);
         if (!window.Wb || !window.Api || !window.AssetLib || !window.Chars || !window.ExportFormats) {
