@@ -145,11 +145,11 @@ async function flushResident() {
 }
 
 /* 全量 e2e 分两道跑：
-   ① 读数型判据（画面指纹 / 帧预算 / 冷启动 / 实时播放的媒体对齐）先单独串行 ——
+   ① 读数型判据（画面指纹 / 帧预算 / 冷启动 / 实时播放的媒体对齐 / 启动让路的计时窗口）先单独串行 ——
       并发负载会让截图、耗时读数与媒体元素的归位速度失真（播放对齐读到的会是「正在归位途中」的瞬时值）；
    ② 其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。每条判据自起隔离 proxy + 独立探针目录，
       并发互不写脏；输出与常驻池一样按完成顺序整块打印、带每条耗时。 */
-const E2E_SOLO = ['e2e/ui-visual', 'e2e/director-perf', 'e2e/director-playback', 'perf/boot'];
+const E2E_SOLO = ['e2e/ui-visual', 'e2e/director-perf', 'e2e/director-playback', 'perf/boot', 'e2e/boot-heavy'];
 const e2eIdOf = name => String(name).replace(/^tests\//, '').replace(/\.(cjs|mjs)$/, '');
 const e2eRowOf = r => r.task.name.replace(/^tests\/(e2e\/)?/, '') + ' ' + Math.round(r.ms / 1000) + 's'
   + (r.status === 0 && !r.killed ? '' : ' ✗');
@@ -212,6 +212,10 @@ run('tests/editing.cjs', process.execPath, ['tests/editing.cjs']);
 run('tests/local-first.cjs', process.execPath, ['tests/local-first.cjs']);
 /* 列表结果级短缓存：同参数 30 秒内第二次调用 0 次上游请求；续拉 / 数总数 / noCache 不吃缓存。 */
 run('tests/assetlib-cache.cjs', process.execPath, ['tests/assetlib-cache.cjs']);
+/* 能力缓存认的是「哪一个注册表对象」：load(REG) 的产物是**就地改掉那个对象里的 prov.models**，
+   所以设置页取回 / 手填一个型号（invalidateModels 交回全新对象）之后必须重走一轮 ——
+   不认身份就是把新对象当成「30 秒里已经问过」，工作台那一栏的参数档位与价格整块消失 30 秒。 */
+run('tests/capabilities-cache.mjs', process.execPath, ['tests/capabilities-cache.mjs']);
 /* 本机条目删除路由与归属显示：localSelf 行直连 /local-assets（provider 注记 'local'/'本机' 不再当平台 id 查）；
    解析不到平台的本机行显示「本机」（字幕残留 PNG 那一族「删不掉 / 挂语音平台名」的回归）。 */
 run('tests/asset-remove.cjs', process.execPath, ['tests/asset-remove.cjs']);
@@ -226,6 +230,10 @@ run('tests/index-store.cjs', process.execPath, ['tests/index-store.cjs']);
 /* 库根那一条算法：盘上那一格（.data/sk_local_dir.json，正文就是 localStorage 原值）必须真被读出来，
    否则现象是「设置页改了位置、产物还往老地方写」，而且一句错都不报。 */
 run('tests/local-root.cjs', process.execPath, ['tests/local-root.cjs']);
+/* 覆盖前那一份备份：`.bak` 最少留 10 分钟、同内容不留、备份没成就不许覆盖。
+   连续两次误写（第一次是坏数据、第二次把它盖掉）会让界面承诺的「覆盖前会留一份」落空，
+   而那两份正是密钥与识别/搜索设置 —— 所以这三条判据由服务端一处实现、由这一条盯着。 */
+run('tests/fs-atomic.cjs', process.execPath, ['tests/fs-atomic.cjs']);
 /* 本机有一份、云端没了：地址层要退回本机副本（按账里的来源地址 / 平台产物号认，不靠浏览器会话里的别名表）。
    治的是「卡片写着本机+云端，画面却是一张破图」—— 平台把资产清掉 / 签名过期之后本机那份照样要看得见。 */
 run('tests/local-fallback.cjs', process.execPath, ['tests/local-fallback.cjs']);
@@ -330,6 +338,9 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 本机资产一条链：落点/双身份（fid + 采样签名）/改名挪目录认回/重复下载并成一张卡/删一张卡带走 altPaths
      /磁盘对账只补一次。两条都不开 Chrome，只起隔离实例。 */
   run('tests/e2e/local-chain.cjs', process.execPath, ['tests/e2e/local-chain.cjs'], { tier: 'browser' });
+  /* 启动收尾那三段（清扫 / 重建 / 磁盘对账）：有请求在途就让路、让路有 3 秒上限、三段都真跑了。
+     计时判据，独跑（见 E2E_SOLO）。它不开 Chrome，只起一份隔离实例并自己掌握第一笔请求。 */
+  run('tests/e2e/boot-heavy.cjs', process.execPath, ['tests/e2e/boot-heavy.cjs'], { tier: 'browser' });
   run('tests/e2e/asr.cjs', process.execPath, ['tests/e2e/asr.cjs'], { tier: 'browser' });
   run('tests/e2e/search.cjs', process.execPath, ['tests/e2e/search.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-actions.cjs', process.execPath, ['tests/e2e/chat-actions.cjs'], { tier: 'browser' });

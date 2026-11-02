@@ -316,9 +316,16 @@ const NORM_SHAPES = {
   },
 };
 
-/* load 的在途与 TTL 记号：并发调用共船同一份请求，30s 内重复问直接回上次结果 */
+/* load 的在途与 TTL 记号：并发调用共船同一份请求，30s 内重复问直接回上次结果。
+   `capLoadReg` 是这两枚记号的**归属**：一轮富化改的是那一次调用递进来的 REG 里的对象
+   （refreshProvider → apply(REG, provId, …) 按 REG.providers 找那一家、就地写 prov.models），
+   所以「T 时刻富化过」这句只对那一个对象成立。
+   `Api.invalidateModels()` / `Api.setRegistry()` 会换掉那个对象（前者把缓存置空、下一次交回全新的一份），
+   不认身份就照把新 REG 当成「30 秒里已经问过」直接回旧结果 —— 界面上是设置页刚改过型号、
+   工作台那一家的参数档位与价格整块退回静态声明，最长 30 秒，而且一次 `wb:cap-ready` 都不投。 */
 let capLoadP = null;
 let capLoadAt = 0;
+let capLoadReg = null;
 
 window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 options。
      `shape`：注册表用 `modelsShape` 点名一种**形状**（不是平台 id），
@@ -998,11 +1005,19 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
      （服务端那层还有 60 秒缓存，这里只挡同 mount 风暴）；设置页「获取型号列表」那种
      明确要新数据的走 opts.force 绕过两层。 */
   async load(REG, opts) {
-    if (opts && opts.force) { capLoadP = null; }
-    else if (capLoadP) return capLoadP;
-    else if (Date.now() - capLoadAt < 30000 && this.models) return this.models;
-    capLoadP = this._loadAll(REG, opts).finally(() => { capLoadAt = Date.now(); capLoadP = null; });
-    return capLoadP;
+    if (opts && opts.force) { capLoadP = null; capLoadReg = null; }
+    else if (capLoadP && REG === capLoadReg) return capLoadP;
+    else if (REG === capLoadReg && Date.now() - capLoadAt < 30000 && this.models) return this.models;
+    capLoadReg = REG;
+    const p = capLoadP = this._loadAll(REG, opts);
+    /* 收尾那一支只是「记下这一轮什么时候落定、把在途句柄让出来」，不发给调用方：
+       单独挂一条 catch，免得上游失败时这条衍生链自己变成一次没人接的 rejection（健康账会把它记进去）。 */
+    p.finally(() => {
+      /* 只清自己这一轮的句柄：force 已经把 capLoadP 换成新一轮之后，旧轮收尾不该把新轮的在途抹掉
+         （抹掉了后来的并发调用者就既合不上船、又走得到那条陈旧缓分支 —— 同一批请求打上游两次）。 */
+      if (capLoadP === p) { capLoadAt = Date.now(); capLoadP = null; }
+    }).catch(() => {});
+    return p;
   },
   async _loadAll(REG, opts) {
     this.settled = false;
@@ -1056,7 +1071,9 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     const n = Object.keys(byId).length;
     if (n) console.log('[Capabilities] 已取得 ' + n + ' 个模型的能力：', Object.keys(byId).join(', '));
     else console.warn('[Capabilities] 未取得模型能力（平台可能没有能力接口），使用 registry 兜底声明');
-    this.models = byId;
+    /* 一家都没问出来就不留一份空的「成功」：`{}` 是真值，留着它下面那条 30 秒 TTL 会把
+       「全军覆没」当结果直接回给后来的调用方 —— 界面等 30 秒才重试，而这 30 秒里参数档位整块不画。 */
+    this.models = n ? byId : null;
     this.settled = true;
     return byId;
   },

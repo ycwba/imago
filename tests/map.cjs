@@ -101,8 +101,9 @@ const ROWS = [
     why: '页面：外壳接线（spa/selfcheck）+ 公共件没被页面复制第二份（static-guards/ui-shared）' },
   { key: 'web/ui/**', match: p => p.startsWith('web/ui/'),
     resident: ['ui-catalog', 'selfcheck', 'static-guards'],
-    browser: ['ui-shared', 'actions', 'assistant-dock', 'drag-guard'],
-    why: '公共件：目录判据 + 列表页/浮层的浏览器判据（「三个列表页」= 收藏 / 素材库 / 资产库那一类）' },
+    browser: ['ui-shared', 'actions', 'assistant-dock', 'drag-guard', 'sidebar-balance'],
+    why: '公共件：目录判据 + 列表页/浮层的浏览器判据（「三个列表页」= 收藏 / 素材库 / 资产库那一类）；'
+      + 'sidebar-balance 管侧栏余额卡 —— 它是首屏经典脚本，界面只在浏览器里画得出来' },
   { key: 'web/director/**', match: p => p.startsWith('web/director/'),
     resident: ['editing', 'local-edit', 'editor-media', 'fcpxml-client'], browser: ['director-perf'],
     why: '导演台：全部 director-* 单测由反查补齐，这一行保底放四件 + perf' },

@@ -39,33 +39,71 @@ function systemDownloadsDir() {
 
 const AUTOSAVE_TOP_DIR = '成像';
 const LEGACY_TOP_DIR = '拾帧';
-/* 一次性搬迁：库根从 下载\拾帧 整体改名到 下载\成像（同卷 rename，提示词归档跟着走，
-   账里的 fid / 相对路径认回不受影响）。只在「旧根在、新根不在」时动手；
-   两个目录并存时不动旧根；改名没成（目录被占用）就本次继续用旧根并记一笔，下次启动重试——
-   绝不静默指到一个空的新根。所有走默认根的入口都从 downloadsRoot() 过，
-   代理、判据、数据基线读到的是同一份结果。 */
+/* 提示词归档在库根下那一档的名字。只要名字的地方读这一枚，不要为了拿个名字去走 downloadsRoot()
+   —— 那个函数会动盘（见下面的一次性搬迁），只该由「这一份就是默认根」的解析路径调。 */
+const PROMPTS_DIR_NAME = '提示词';
+/* 一次性搬迁：默认库根从 下载\拾帧 整体改名到 下载\成像（同卷 rename，提示词归档跟着走，
+   账里的 fid / 相对路径认回不受影响）。改名没成（目录被占用）就本次继续用旧根并记一笔，
+   下次启动重试 —— 绝不静默指到一个空的新根。
+   ⚠ 这一条会动用户成品所在的目录，所以两种「看起来已经搬完了」的情况必须分开判：
+     · 新根**存在但不是目录**（同步盘留下的占位文件、误建的同名文件）：existsSync 会把它读成
+       「已迁移」，于是整个库根变成一个普通文件 —— 扫得到的是空库，每个 mkdirSync 抛 ENOTDIR，
+       而一句日志都没有。这一档必须认出来；而且**不许拿改名去顶掉它**（Windows 上
+       renameSync(目录, 已存在的文件) 真会替换目标，那是为了搬库根删掉用户盘上的东西）。
+     · 另一个实例刚刚搬完（server/lock.js 只按 DATA_DIR 上锁，两份实例共用同一个「下载」基座时
+       这一步没有闸）：这边 renameSync 抛 ENOENT / EEXIST。按 e.code 一律回退旧根就等于把
+       「别人已经搬完」当成「这一份被占用」，回退到一个已经不存在的目录；随后 mkdirSync 重新建出
+       空的 下载\拾帧，新产物落进被放弃的那一份 —— 一个库裂成两个根。
+   所以判定只看 statSync().isDirectory()，失败后**先重读一遍两个根再决定用谁**。 */
 let resolvedRoot = null;
+function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
+/* 这一次该用哪个根（只判不改名）：新根是目录就用新根；旧根还是目录就退回旧根；
+   两个都不是目录就是「还没建过」，按新根走（下一次 mkdirSync 建它）。 */
+function pickRoot(root, old) {
+  if (isDir(root)) return root;
+  if (isDir(old)) return old;
+  return root;
+}
 function resolveRoot() {
   if (resolvedRoot) return resolvedRoot;
   const root = path.join(systemDownloadsDir(), AUTOSAVE_TOP_DIR);
-  let old = '';
-  try {
-    old = path.join(path.dirname(root), LEGACY_TOP_DIR);
-    if (fs.existsSync(old) && !fs.existsSync(root)) {
-      fs.renameSync(old, root);
-      console.log('[user-dirs] 库根已整体迁到 ' + root);
-    }
-  } catch (e) {
-    console.log('[user-dirs] 旧库根迁移没成（' + ((e && e.code) || e) + '），本次继续用 ' + old);
+  const old = path.join(path.dirname(root), LEGACY_TOP_DIR);
+  if (isDir(root)) { resolvedRoot = root; return resolvedRoot; }
+  if (!isDir(old)) {
+    /* 旧根不在：没有东西要搬。新根那一个若是**文件**，指过去就是上面说的静默空库，
+       但此时旧根也没有产物可救 —— 照实报一句，让写盘那一路去抛它自己的错。 */
+    if (fs.existsSync(root)) console.log('[user-dirs] ' + root + ' 占着但不是目录，库根没建成（先把它挪走再重启）');
+    resolvedRoot = root;
+    return resolvedRoot;
+  }
+  if (fs.existsSync(root)) {
+    /* 旧根有产物、新根却被一个文件占着：这时候**不能**改名 —— Windows 上
+       renameSync(目录, 已存在的文件) 会把那一个文件顶掉，等于为了搬库根删掉用户盘上的东西。
+       本次继续用旧根，界面上什么都没坏；把那一个文件挪走再重启就能迁过去。 */
+    console.log('[user-dirs] ' + root + ' 占着但不是目录，旧库根没改名（把它挪走再重启就能迁过去）');
     resolvedRoot = old;
     return resolvedRoot;
   }
-  resolvedRoot = root;
+  try {
+    fs.renameSync(old, root);
+    console.log('[user-dirs] 库根已整体迁到 ' + root);
+    resolvedRoot = root;
+  } catch (e) {
+    const code = (e && e.code) || e;
+    const now = pickRoot(root, old);
+    if (now === root) {
+      /* 重读发现新根已经是目录了：就是另一个实例搬完的那一种，别把用户往旧根上引。 */
+      console.log('[user-dirs] 旧库根已由别处迁到 ' + root + '（本次改名报 ' + code + '）');
+    } else {
+      console.log('[user-dirs] 旧库根迁移没成（' + code + '），本次继续用 ' + now);
+    }
+    resolvedRoot = now;
+  }
   return resolvedRoot;
 }
-/* 共用根：下载\成像 */
+/* 默认库根（会做上面那一次性搬迁，一个进程只判一次）。 */
 const downloadsRoot = () => resolveRoot();
-/* 归档第四类：下载\成像\提示词（.md 归档不混进媒体堆） */
-const promptsRoot = () => path.join(downloadsRoot(), '提示词');
+/* 归档第四类：成像\提示词（.md 归档不混进媒体堆） */
+const promptsRoot = () => path.join(downloadsRoot(), PROMPTS_DIR_NAME);
 
-module.exports = { systemDownloadsDir, downloadsRoot, promptsRoot, AUTOSAVE_TOP_DIR };
+module.exports = { systemDownloadsDir, downloadsRoot, promptsRoot, AUTOSAVE_TOP_DIR, PROMPTS_DIR_NAME };

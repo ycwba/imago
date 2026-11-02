@@ -80,17 +80,51 @@ function atomicWrite(file, data, opts) {
   }
 }
 
-/* 覆盖写一个 JSON 文件：覆盖前把旧内容留在同名 `.bak.json`（内容相同不留）。
-   备份只是回滚线索 —— 备份写不成不阻挡主写；主写失败照原样抛出。 */
+/* ---------- 覆盖之前那一份备份（「最少 10 分钟」那一句的唯一实现）----------
+   三条判据，一处不落：
+     ① 备份那份自己不再备份；
+     ② 内容一模一样不新增（留了个和正主同字节的 .bak 只是把目录弄脏）；
+     ③ 一份备份至少留 BAK_KEEP_MS：连着几次误写不会把唯一那份好数据顶掉。
+   判据不许在调用方各攒一份：asr.json / search.json 装的是识别与搜索的密钥，
+   少一条窗口就等于两次误写之后唯一那份好密钥也没了。
+   备份写不成时**不许**照覆盖：界面已经承诺「覆盖前会留一份」。
+   抛错 = 这一单没谈拢，调用方中止；返回 true = 备份已就位或本来就不需要。 */
+const BAK_KEEP_MS = 10 * 60 * 1000;
+const bakFileOf = file => String(file).replace(/\.json$/, '.bak.json');
+const absentErr = e => !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR');
+function backupBeforeOverwrite(file, bakFile, nextBuf) {
+  if (bakFile === file || /\.bak\.json$/i.test(file)) return true;
+  let old;
+  try { old = fs.readFileSync(file); }
+  catch (e) {
+    /* 旧文件不存在才叫「无需备份」；读不动（占用 / 权限）时继续覆盖就等于把那份丢掉。 */
+    if (absentErr(e)) return true;
+    throw new Error('覆盖前读不出旧内容 ' + file + '：' + ((e && e.code) || (e && e.message) || e));
+  }
+  const next = nextBuf == null ? null : (Buffer.isBuffer(nextBuf) ? nextBuf : Buffer.from(String(nextBuf)));
+  if (next && next.equals(old)) return true;
+  try {
+    if (fs.existsSync(bakFile)) {
+      if (Date.now() - fs.statSync(bakFile).mtimeMs < BAK_KEEP_MS) return true;
+      if (fs.readFileSync(bakFile).equals(old)) return true;
+    }
+    /* 备份也走原子覆盖：裸 writeFileSync 崩在半路留下的是一份截断的 .bak，
+       而它已经替掉了原来那一份好备份。 */
+    atomicWrite(bakFile, old);
+    return true;
+  } catch (e) {
+    throw new Error('备份没成，已中止覆盖（磁盘满 / 文件被占用）：' + file
+      + '（' + ((e && e.code) || (e && e.message) || e) + '）');
+  }
+}
+
+/* 覆盖写一个 JSON 文件：覆盖前把旧内容留在同名 `.bak.json`（判据见 backupBeforeOverwrite）。
+   备份没成就抛 —— 主写根本不开始。 */
 function writeJsonWithBak(file, obj, opts) {
   const body = JSON.stringify(obj, null, 2);
-  try {
-    if (fs.existsSync(file)) {
-      const old = fs.readFileSync(file, 'utf8');
-      if (old !== body) fs.writeFileSync(file.replace(/\.json$/, '.bak.json'), old);
-    }
-  } catch (e) { /* 备份写不成不阻挡主写；下面那一次才是这一单的正事 */ }
+  backupBeforeOverwrite(file, bakFileOf(file), body);
   return atomicWrite(file, body, opts);
 }
 
-module.exports = { atomicWrite, writeJsonWithBak, fsyncPath, sleepSync, renameWithRetry };
+module.exports = { atomicWrite, writeJsonWithBak, backupBeforeOverwrite, bakFileOf, BAK_KEEP_MS,
+  fsyncPath, sleepSync, renameWithRetry };

@@ -847,9 +847,17 @@ const SERVERS = [];
    /whoami 和 shell.html 的首字节后面。所以这三段排进队列，等**第一个请求收尾**之后
    再一口气跑完 —— setImmediate 不行：check 相位先于下一次 I/O 轮询，排进去等于
    还压着首个请求。一直没人来请求（headless 工具、防火墙拦了）就由监听回调里
-   的 5 秒兜底放行。对账语义不变：仍然开机跑一次，只是挪了时点。 */
+   的 5 秒兜底放行。对账语义不变：仍然开机跑一次，只是挪了时点。
+   抽干是**一个事件循环轮次只跑一项**，且只要还有请求在途就让出一轮：那三段各自是一段
+   同步大段（对账是全库 readdir+stat），跑起来的那一圈里浏览器正在抓外壳与上百份静态文件、
+   SPA 正发第一个 GET —— 一口气跑完就是「首屏正下载时被冻住几百毫秒到几秒」。
+   让路有上限（BOOT_HEAVY_DEADLINE_MS）：页面持续在要东西时不能让重活永远排不上，到点就照跑。 */
 const bootHeavyQ = [];
 let bootHeavyFlushed = false;
+let bootHeavyRunning = false;
+let bootHeavyDeadlineAt = 0;
+let reqInflight = 0;                    // 正在处理的请求数：重活让路只看这一个数
+const BOOT_HEAVY_DEADLINE_MS = 3000;
 let firstReqAt = 0;
 function noteFirstRequest(url) {
   if (firstReqAt) return;
@@ -857,20 +865,31 @@ function noteFirstRequest(url) {
   log('[启动] 首个请求 ' + Math.round(firstReqAt - BOOT_T0) + ' ms：' + url);
 }
 function runBootHeavy() {
-  if (bootHeavyFlushed) return;
-  bootHeavyFlushed = true;
-  setImmediate(() => {
-    while (bootHeavyQ.length) {
-      try { bootHeavyQ.shift()(); } catch (e) { try { log('[警告] 启动收尾任务失败：' + (e.code || e.message)); } catch {} }
+  if (bootHeavyFlushed || bootHeavyRunning) return;
+  bootHeavyRunning = true;
+  bootHeavyDeadlineAt = performance.now() + BOOT_HEAVY_DEADLINE_MS;
+  const drainNext = () => {
+    if (!bootHeavyQ.length) {
+      /* 置位在抽干**之后**：队列还压着任务就说「已经抽过了」，那之后任何注册者都会
+         被 afterFirstResponse 当场执行 —— 排到它本该让路的那些清扫/重建前面去。 */
+      bootHeavyFlushed = true;
+      bootHeavyRunning = false;
+      return;
     }
-  });
+    if (reqInflight > 0 && performance.now() < bootHeavyDeadlineAt) return setImmediate(drainNext);
+    const fn = bootHeavyQ.shift();
+    try { fn(); } catch (e) { try { log('[警告] 启动收尾任务失败：' + (e.code || e.message)); } catch {} }
+    setImmediate(drainNext);
+  };
+  setImmediate(drainNext);
 }
 function afterFirstResponse(fn) { if (bootHeavyFlushed) fn(); else bootHeavyQ.push(fn); }
 function makeServer() {
   const s = http.createServer((req, res) => {
     noteFirstRequest(req.url);
-    /* close 在响应完成与连接中途断开两种情况下都会发 —— 重活让路只认「第一个请求到过」 */
-    res.on('close', runBootHeavy);
+    reqInflight++;
+    /* close 在响应完成与连接中途断开两种情况下都会发 —— 重活让路只认「此刻还有没有人在等」 */
+    res.on('close', () => { if (reqInflight > 0) reqInflight--; runBootHeavy(); });
     // handleRequest 是 async（出站地址护栏要解析域名），所以这里用 Promise 链兜异常：
     // 同步抛与异步拒绝都走同一个 500 分支，单个请求出错不拖垮整个代理进程。
     Promise.resolve().then(() => handleRequest(req, res)).catch(e => {
@@ -1225,14 +1244,16 @@ server.listen(PORT, BIND.hosts[0], () => {
     .then(r => { if (r && r.warmed) log(`[静态] 预热 ${r.warmed} 份文本资源（brotli ${r.ms} ms）`); })
     .catch(() => {});
   /* 清扫 / 重建 / 对账三段同步重活排在 afterFirstResponse：首个请求（通常是启动器的
-     /whoami）收尾之后再跑，别把它们压在「服务已起」的判据后面 —— 见 makeServer 上方。 */
+     /whoami）收尾之后再跑，别把它们压在「服务已起」的判据后面 —— 见 makeServer 上方。
+     三段**各占一个队列条目**：抽干是一个轮次跑一项、有请求在途就让路（见 BOOT_HEAVY_DEADLINE_MS），
+     写成一条就是三段首尾相接的同步大段，让路那条判据只在它们之间才起作用。 */
   const tHeavy = performance.now();
   let msSweep = 0;
   let msRebuild = 0;
   let msAdopt = 0;
   let adoptAdded = 0;
   afterFirstResponse(() => {
-    let t = performance.now();
+    const t = performance.now();
     /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，
        在开机这一刻就是纯垃圾（年龄闸只保护**别的实例正在写**的那一个）。 */
     try {
@@ -1240,7 +1261,9 @@ server.listen(PORT, BIND.hosts[0], () => {
       if (swept) log(`[清理] 删掉 ${swept} 个崩溃残留的临时写入文件（.data / 资产库里那种 .tmp-<pid>-<串>）`);
     } catch (e) { log('[清理] 启动清扫跳过：' + (e.code || e.message)); }
     msSweep = performance.now() - t;
-    t = performance.now();
+  });
+  afterFirstResponse(() => {
+    const t = performance.now();
     /* 一次性重建（只跑一次，标记落盘后永不重复）：旧的账是靠浏览器镜像逐条「学」出来的，
        镜像一丢那些行就只剩路径与字节 —— 按产物号 / 来源地址都查不到，云端签名一过期就显示「已丢失」。
        旧账与旧本体整批搬进 库根\.trash\rebuild-<时刻>\（搬，不删；提示词归档与用户文档不动），
@@ -1253,7 +1276,9 @@ server.listen(PORT, BIND.hosts[0], () => {
       }
     } catch (e) { log('[资产库] 重建跳过（账与本体都原样留着）：' + (e.code || e.message)); }
     msRebuild = performance.now() - t;
-    t = performance.now();
+  });
+  afterFirstResponse(() => {
+    const t = performance.now();
     /* 开机做一次磁盘对账（只 readdir + stat，不读内容；要分辨同字节数的那几个才现算采样签名）。
        为什么放在启动收尾而不是只放在列表前：用户在文件管理器里改了名、把整堆作品挪到另一块盘、
        或者代理崩在半路留下了一份没记账的成品 —— 账本只是文件的一份账，不是文件的出处。

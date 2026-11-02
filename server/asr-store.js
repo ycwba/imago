@@ -76,6 +76,7 @@ function createAsrStore(opts) {
     }
   };
   /* 覆盖写 + `.bak` 备份和写盘纪律都在 fs-atomic（writeJsonWithBak）：
+     同内容不留、一份备份至少留 10 分钟、备份没成就不覆盖（会抛，调用方照实回错）；
      tmp → fsync → rename，被杀软/同步盘占住时退避重试。这里不再自己拼一份。 */
   const atomic = (p, obj) => writeJsonWithBak(p, obj);
 

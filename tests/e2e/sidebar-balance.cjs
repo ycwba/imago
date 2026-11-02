@@ -7,7 +7,9 @@
    ④ 收起态 / 矮窗只画压缩块（家数 + 每家一个状态点 + 落盘进度条），点它开一只气泡：
       里面是同一份卡、没有展开 / 刷新按钮、每开一次自动重取一次，点别处 / Esc 关；
    ⑤ 「产物存本机」的明细常驻（不再有展开开关），文案是精简后的那几句；
-   ⑥ 导航一条不许被挤掉；任何窗口尺寸下 #sbBalance 自己都不长滚动条。
+   ⑥ 导航一条不许被挤掉；任何窗口尺寸下 #sbBalance 自己都不长滚动条；
+   ⑦ 取数在途时点「账户余额」抬头：不并发第二条请求，但那一轮落定后确实补跑一轮，
+      而且补的那一轮用的是**新名单**（刚添加的一家要能画出来）。
    假件只替 Api / AssetLocal 的**读数**（六家平台 + 传输中），取数与刷新链路仍跑 sidebar.js 那一份 ——
    探针不许另写一份余额卡。只跑 headless（harness 起隔离代理），不写视觉基线。 */
 'use strict';
@@ -386,6 +388,55 @@ const check = (name, cond, detail) => {
     check('来回切之后当前项还在（切页没被侧栏重建冲掉）', await page.eval(() =>
       !!document.querySelector('.sidebar nav a.active[data-page="studio.html"]')), {});
     check('来回切之后余额区仍然完整（六张卡）', back.cardTotal === 6, { cards: back.cardTotal });
+
+    /* ---------- 档七：取数在途时点抬头 —— 显式刷新不许被并船吞掉 ----------
+       这一条盯的是合船的那道边界：被动触发（定时器 / visibilitychange / 别的页面广播）合船才对，
+       用户点「账户余额」抬头不合。以前在途时点它一个请求都不发、也没有任何回执；
+       而 `fetchBalRows` 在轮次开始就快照了名单（`Api.provUsable` + `SbBal.filter`），
+       于是「刚在设置页添加一家 / 刚把密钥填上」之后点抬头，画出来的还是旧那几家 —— 表现是点了没反应。
+       现在的做法：在途时不发第二条并发请求（上限照旧 1），记下「这一轮落定还要再跑一轮」，
+       落定后重新走一遍 —— 补的那一轮要拿得到**新的名单**。 */
+    await open(1440, 900, true);
+    await page.eval(() => {
+      const mk = i => ({ id: 'p' + i, keyId: 'p' + i, name: 'Probe 平台 ' + i + ' 号', endpoints: { credits: '/credits' } });
+      window.__balList = [0, 1, 2, 3, 4, 5].map(mk);
+      window.__balRound = [];                 // 每一轮快照到的家数
+      window.__balCalls = 0;
+      Api.registry = async () => { window.__balRound.push(window.__balList.length); return { providers: window.__balList }; };
+      Api.request = async () => {
+        window.__balCalls++;
+        if (window.__balHold) await window.__balHold;   // 按住这一轮：让「在途」这段时间真的存在
+        return { available_amount: '1234.5678', frozen_amount: '0' };
+      };
+      window.__balHold = new Promise(r => { window.__balRelease = r; });
+      try { localStorage.setItem('sb_bal_cache', JSON.stringify({ ts: 0, rows: [], kids: [] })); } catch (e) {}
+      window.dispatchEvent(new Event('sb-balance-refresh'));   // 被动触发：这一轮先跑起来
+      return true;
+    });
+    await h.sleep(400);
+    let inRound = await page.eval(() => ({ calls: window.__balCalls, rounds: window.__balRound.slice() }));
+    check('在途：第一轮已经发出六笔、正被按住', inRound.calls === 6 && inRound.rounds.join() === '6', inRound);
+    /* 这一轮跑到一半，用户添加了第七家（名单换了） */
+    await page.eval(() => { window.__balList.push({ id: 'p6', keyId: 'p6', name: 'Probe 平台 6 号', endpoints: { credits: '/credits' } }); return true; });
+    before = inRound.calls;
+    check('在途期间点得动抬头', (await clickTitle()) === 1, {});
+    await h.sleep(300);
+    let held = await page.eval(() => ({ calls: window.__balCalls, cards: document.querySelectorAll('#sbBalance .sb-bal-card').length }));
+    check('在途期间点抬头不并发第二条请求（上限仍是 1）', held.calls === before, { before, after: held.calls });
+    await page.eval(() => { window.__balRelease(); return true; });
+    await page.waitFor(() => window.__balRound.length >= 2, 15000).catch(() => {});
+    await h.sleep(500);
+    const after = await page.eval(() => ({
+      calls: window.__balCalls, rounds: window.__balRound.slice(),
+      cards: document.querySelectorAll('#sbBalance .sb-bal-card').length,
+    }));
+    console.log('  轮次名单 ' + JSON.stringify(after.rounds) + ' · credits 笔数 ' + after.calls + ' · 卡 ' + after.cards);
+    check('那一轮落定后确实又补跑了一轮', after.rounds.length >= 2 && after.calls > before + 6,
+      { rounds: after.rounds, calls: after.calls, before });
+    check('补的那一轮拿的是新名单（第七家出现在这一轮里）', after.rounds[after.rounds.length - 1] === 7,
+      { rounds: after.rounds });
+    check('第七家真的画出来了', after.cards === 7, { cards: after.cards });
+    await page.eval(() => { window.__balHold = null; return true; });
 
     console.log('\n结论：' + (fails.length ? '未过 ' + fails.length + ' 条：' + fails.join(' / ') : '全部通过'));
   } catch (e) {

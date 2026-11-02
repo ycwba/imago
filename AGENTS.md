@@ -1112,7 +1112,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 5 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 53 项：51 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 4 条先独跑，其余 49 条 4 路并发，实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 54 项：52 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 5 条先独跑，其余 49 条 4 路并发，实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1140,8 +1140,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - `npm run test:all` 只跑冒烟 6 条（smoke / ui-contract / ui-shared / director-perf / director-core / lock，
   4 路并发，每条自起隔离 proxy + 独立 Chrome）。
 - `npm run test:e2e` 全量分两道：读数型先独跑（`ui-visual` / `director-perf` / `director-playback` /
-  `perf/boot`：并发负载会让截图指纹、帧预算与播放对齐这类读数失真），其余（含 7 条不起 Chrome 的
-  服务端链路）走 4 路并发。`tests/e2e/` 共 52 个文件（51 条判据 + harness），同一档还跑
+  `perf/boot` / `boot-heavy`：并发负载会让截图指纹、帧预算、播放对齐与「启动收尾让路」的计时窗口这类读数失真），
+  其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。`tests/e2e/` 共 53 个文件（52 条判据 + harness），同一档还跑
   `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`。
   16 核 / 17 GB 本机实测全量约 10 分钟；单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例。
 - `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 `--e2e`。

@@ -153,7 +153,7 @@ function createLocalAssetsStore(deps) {
   const OTHER_DIR_NAME = '其他';
   /* 库根里**不当产物**的那几档：提示词归档（.md）与回收站（搬东西时留下的空壳）。
      扫描、用量、认回一律跳过 —— 把用户自己放的 .md 说成「一份没登记的产物」是假话。 */
-  const SKIP_DIR_NAMES = new Set([path.basename(userDirs.promptsRoot()), '.trash']);
+  const SKIP_DIR_NAMES = new Set([userDirs.PROMPTS_DIR_NAME, '.trash']);
   /* 某一类本体的目录（绝对路径，按当前库根现算 —— 库根改了不必重启）。 */
   const bodyDirOf = zh => path.join(DIR(), String(zh || OTHER_DIR_NAME));
   /* 一条产物该落哪一档：**只认扩展名表与 mime**，认不出就 其他。

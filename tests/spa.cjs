@@ -320,8 +320,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `web/domain/local.js` —— 自动 offer 在别名表取回来之前先按住，快照到了再按表判
        （空表当「没存过」会让开机那一屏把已经存过的产物整批重排进镜像队列，侧栏一路「正在存 N 份」）；
        跨刷新的待办回放也先等表。别名表是首屏取数底座，镜像队列本来就在这一份里。
-       实跑 29 枚 / 836941 字节（登记上限 837000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 837000;
+       实跑 29 枚 / 836941 字节（登记上限 837000）。
+     · 按实跑重登记（2026-11-01，余额显式刷新不被并船吞掉）：枚数不变（仍是 29 枚），
+       变长的只有 `web/ui/sidebar.js` 一份（归一化换行后 +559 字符，其余 28 枚逐字节没动）——
+       点「账户余额」抬头是这一区的**唯一**刷新入口，在途期间它要记住「这轮落定再补一轮」，
+       并让补的那一轮重新快照一遍可用账号与筛选项（刚加的密钥必须出现在下一轮里）；
+       取数与缓存本来就在这份首屏经典脚本里（设置页经 `window.SbBalance` 读同一份），没有按需的落点。
+       实跑 29 枚 / 837974 字节（登记上限 838000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 838000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

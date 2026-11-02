@@ -87,7 +87,23 @@ async function startProxy(opts = {}) {
   let cookie = '';
   let status = null;
   const until = Date.now() + 20000;
-  while (Date.now() < until) {
+  /* `probe:false` —— 不等就绪探测，改等监听回调自己打的那一行「已启动」。
+     默认那两条探测（`GET /` 与 `GET /sys-status`）**就是这个实例收到的头两个响应**，而启动收尾
+     那三段（清扫 / 重建 / 磁盘对账）排在「第一个响应收尾」之后 —— 用它起实例，等 return 回来时
+     重活已经跑完了，任何「重活有没有给在途请求让路」都无从下手。要自己掌握第一笔请求的判据
+     换这一条出口：只改「怎么确认真的在听」，探针目录、超时先杀子进程再抛、收尾整组删都照旧。 */
+  const readyLine = 'proxy 已启动: http://localhost:' + port;
+  if (opts.probe === false) {
+    while (Date.now() < until && !log.join('').includes(readyLine)) {
+      if (proc.exitCode !== null) { await abort(); throw new Error('proxy 提前退出：\n' + log.join('')); }
+      await sleep(60);
+    }
+    if (!log.join('').includes(readyLine)) {
+      await abort();
+      throw new Error('proxy 起了但 20 秒没打出「已启动」那一行：\n' + log.join(''));
+    }
+  }
+  while (opts.probe !== false && Date.now() < until) {
     if (proc.exitCode !== null) { await abort(); throw new Error('proxy 提前退出：\n' + log.join('')); }
     try {
       const home = await httpText(base + '/', cookie, 3000);
@@ -106,7 +122,7 @@ async function startProxy(opts = {}) {
     }
     await sleep(150);
   }
-  if (!status) {
+  if (opts.probe !== false && !status) {
     await abort();
     /* 就绪探测打的就是 `/sys-status`，所以「路由里抛了未声明的变量」在这一层的表象是
        「proxy 未就绪」—— 不点名日志里的异常，下一步就会去查端口、查进程，白绕一圈。 */

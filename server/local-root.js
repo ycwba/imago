@@ -51,6 +51,9 @@ function localRootOf(projectRoot, dataDir) {
   try { raw = fs.readFileSync(path.join(dataDir, LOCAL_DIR_KEY + '.json'), 'utf8'); }
   catch { /* 文件不在 = 那一格没填；读不出也照没填走，回落默认，绝不因此罢工 */ }
   const dir = mirroredDir(raw);
+  /* ② 命中就直接返回，**不要**顺手去解默认根（user-dirs.downloadsRoot()）：那一个 getter 带着
+     「下载\拾帧 → 下载\成像」的一次性改名，拿它去问一个用不上的默认值，会把用户显式指定的
+     旧根整 Directory 改名搬走 —— 那一格之后指着一个已经不存在的路径。 */
   if (dir) return path.resolve(dir);
   return defaultLocalDir(projectRoot);
 }

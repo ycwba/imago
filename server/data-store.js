@@ -9,10 +9,9 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { atomicWrite } = require('./fs-atomic.js');
+const { atomicWrite, backupBeforeOverwrite } = require('./fs-atomic.js');
 
 const DATA_KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const BAK_KEEP_MS = 10 * 60 * 1000;
 /* 「这份东西本来就不存在」的那两个码：除此之外读失败都不能当作不存在。 */
 const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 const absent = e => Boolean(e && ABSENT_CODES.has(e.code));
@@ -55,36 +54,17 @@ function createDataStore(opts) {
   }
 
   /* 覆盖 / 删除之前把旧内容留一份 <key>.bak.json（设置页「数据与备份」能列出并一键恢复）。
-     一份备份至少留 BAK_KEEP_MS：连着几次误写不会把唯一那份好数据顶掉。 */
+     三条判据（同内容不留 / 一份备份至少留 10 分钟 / 旧内容读不动就不许覆盖）都在
+     fs-atomic 的 backupBeforeOverwrite 那一份里；备份没成就抛，主写根本不开始。 */
   function keepDataBackup(key, nextBuf) {
-    if (/\.bak$/.test(key)) return true;                // 备份本身不再备份
-    /* 备份失败要报出来：调用方据此中止写入。界面已经承诺「覆盖前会留一份」，
-       备份没成还照样覆盖 = 无提示地丢掉用户配置与密钥。 */
-    const cur = dataFileOf(key), bak = dataFileOf(key + '.bak');
-    let old;
-    try { old = fs.readFileSync(cur); }
-    catch (e) {
-      /* 旧文件不存在才叫「无需备份」；读不动（占用 / 权限）时继续覆盖就等于把那份丢掉。 */
-      if (absent(e)) return true;
-      throw new Error('覆盖前读不出旧内容 ' + key + '：' + why(e));
-    }
-    if (nextBuf && nextBuf.equals(old)) return true;    // 内容一模一样 → 没什么可备份的
-    try {
-      if (fs.existsSync(bak)) {
-        if (Date.now() - fs.statSync(bak).mtimeMs < BAK_KEEP_MS) return true;
-        if (fs.readFileSync(bak).equals(old)) return true;
-      }
-      fs.writeFileSync(bak, old);
-      return true;
-    } catch (e) {
-      log('[data] 备份旧内容失败 ' + key + '：' + e.message);
-      return false;
-    }
+    if (/\.bak$/.test(key)) return;                      // 备份本身不再备份
+    try { backupBeforeOverwrite(dataFileOf(key), dataFileOf(key + '.bak'), nextBuf); }
+    catch (e) { log('[data] 备份旧内容失败 ' + key + '：' + e.message); throw e; }
   }
 
   function dataWriteRaw(key, buf) {
     fs.mkdirSync(dataDirPath(), { recursive: true });
-    if (!keepDataBackup(key, buf)) throw new Error('覆盖前备份失败（磁盘满 / 文件被占用），已中止写入：' + key);
+    keepDataBackup(key, buf);
     const { fsyncWhy } = atomicWrite(dataFileOf(key), buf);
     if (fsyncWhy) log('[data] 落盘同步退化 ' + key + '：' + fsyncWhy);
   }
@@ -176,7 +156,7 @@ function createDataStore(opts) {
         if (fs.existsSync(f)) {
           /* 备份没成就别删：删完服务器这份没了、本地那份还在被当成「已同步」，
              数据彻底找不回来，而下一次同步也发现不了。 */
-          if (!nobak && !keepDataBackup(key)) throw new Error('删除前备份失败（磁盘满 / 文件被占用），已中止删除：' + key);
+          if (!nobak) keepDataBackup(key);
           fs.unlinkSync(f);
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });

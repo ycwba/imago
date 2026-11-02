@@ -99,6 +99,63 @@ try {
     const stayed = freshUserDirs().downloadsRoot();
     ok('两根并存时用新根、不动旧根', stayed === path.join(bothBase, '成像')
       && fs.existsSync(path.join(bothBase, '拾帧')), 'got ' + stayed);
+    /* ⑪ 新根那一个存在但**不是目录**（同步盘占位 / 误建的同名文件）：
+       existsSync 会把它读成「已迁移」，整个库根于是变成一个文件 —— 扫得到的是空库、
+       每个 mkdirSync 抛 ENOTDIR，而一句日志都没有。旧根还是目录时必须回旧根。 */
+    const fileBase = path.resolve(tmp, '占位基座');
+    fs.mkdirSync(path.join(fileBase, '拾帧', '图片'), { recursive: true });
+    fs.writeFileSync(path.join(fileBase, '拾帧', '图片', 'a.png'), 'x', 'utf8');
+    fs.writeFileSync(path.join(fileBase, '成像'), '我不是目录', 'utf8');
+    process.env.AUTOSAVE_DIR = fileBase;
+    const fileHit = freshUserDirs().downloadsRoot();
+    ok('新根是文件时不拿它当库根、改用旧根', fileHit === path.join(fileBase, '拾帧'), 'got ' + fileHit);
+    ok('新根那个文件原样留着、旧根没有被改名',
+      fs.readFileSync(path.join(fileBase, '成像'), 'utf8') === '我不是目录'
+      && fs.readFileSync(path.join(fileBase, '拾帧', '图片', 'a.png'), 'utf8') === 'x');
+    /* ⑫ 新根是文件、旧根根本不在：没有产物可救，照实回新根并报一句；
+       关键是**不许**凭空建出一个旧根（那才是「一个库裂成两个根」的起点）。 */
+    const strayBase = path.resolve(tmp, '只有占位基座');
+    fs.mkdirSync(strayBase, { recursive: true });
+    fs.writeFileSync(path.join(strayBase, '成像'), '占位', 'utf8');
+    process.env.AUTOSAVE_DIR = strayBase;
+    const stray = freshUserDirs().downloadsRoot();
+    ok('两个根都没建成时不回退到不存在的旧根', stray === path.join(strayBase, '成像'), 'got ' + stray);
+    ok('这一种不许把 拾帧 建回盘上', !fs.existsSync(path.join(strayBase, '拾帧')));
+    /* ⑬⑭ 改名的两种失败必须按 e.code 之后的**盘面**分岔，不看错误码一律回退旧根：
+       对面实例刚刚搬完（ENOENT）时旧根已经没了，回退 = mkdirSync 重建一个空的旧根。 */
+    const realRename = fs.renameSync;
+    const raceBase = path.resolve(tmp, '竞态基座');
+    fs.mkdirSync(path.join(raceBase, '拾帧', '视频'), { recursive: true });
+    process.env.AUTOSAVE_DIR = raceBase;
+    const busyBase = path.resolve(tmp, '被占用基座');
+    fs.mkdirSync(path.join(busyBase, '拾帧', '视频'), { recursive: true });
+    try {
+      /* ⑬ 假 rename：先把旧根真搬走，再抛 ENOENT —— 就是两个实例撞在一起时的样子 */
+      fs.renameSync = (from, to) => {
+        if (from === path.join(raceBase, '拾帧')) {
+          realRename(from, to);
+          const err = new Error('mock: 对面已经搬完'); err.code = 'ENOENT'; throw err;
+        }
+        return realRename(from, to);
+      };
+      const raced = freshUserDirs().downloadsRoot();
+      ok('改名撞上「对面已搬完」时认新根', raced === path.join(raceBase, '成像'), 'got ' + raced);
+      ok('这一种不许把旧根建回来', !fs.existsSync(path.join(raceBase, '拾帧'))
+        && fs.existsSync(path.join(raceBase, '成像', '视频')));
+      /* ⑭ 真被占用（目录里有句柄）：旧根还在原地，本次继续用它 */
+      fs.renameSync = (from, to) => {
+        if (from === path.join(busyBase, '拾帧')) {
+          const err = new Error('mock: 目录被占用'); err.code = 'EPERM'; throw err;
+        }
+        return realRename(from, to);
+      };
+      process.env.AUTOSAVE_DIR = busyBase;
+      const busy = freshUserDirs().downloadsRoot();
+      ok('改名被占用时回退旧根、旧根原样在', busy === path.join(busyBase, '拾帧')
+        && fs.existsSync(path.join(busyBase, '拾帧', '视频')), 'got ' + busy);
+    } finally {
+      fs.renameSync = realRename;
+    }
   } finally {
     if (savedAutosave === undefined) delete process.env.AUTOSAVE_DIR; else process.env.AUTOSAVE_DIR = savedAutosave;
   }

@@ -359,7 +359,7 @@
      气泡贴在压缩块右边、点页面别处或按 Esc 就关 —— 它只在「卡摆不下」的那两档出现。 */
   function bindBalTitle(box) {
     const t = box.querySelector('.sb-now-t');
-    if (t) asButton(t, refreshBalance);
+    if (t) asButton(t, () => refreshBalance({ force: true }));
   }
   /* 摘要行的点击与键盘：余额块关着时它只是一行状态，不扮成按钮。 */
   function bindBalSum(box) {
@@ -444,7 +444,7 @@
     document.addEventListener('pointerdown', onBalDocDown, true);
     document.addEventListener('keydown', onBalKey, true);
     window.addEventListener('resize', closeBalBubble);
-    refreshBalance();
+    refreshBalance({ force: true });
   }
   function toggleBalBubble() { if (balBubble) closeBalBubble(); else openBalBubble(); }
   /* 卡片族与「一张都没有」时那一行说明：侧栏区域与气泡共用。 */
@@ -661,9 +661,15 @@
   /* 开机一两秒里这段会被连着叫（外壳求值一轮、导演台 loadCredits 广播一轮、定时器与
      visibilitychange 各一轮）：「先画缓存」每次照做（切页 / 刷新时余额立刻可见），
      取数体在途时并船 —— 四路触发方拿同一个 Promise，N 家余额只发一轮；
-     每完成一轮照发一次 sb-balance-updated，监听方语义不变。 */
+     每完成一轮照发一次 sb-balance-updated，监听方语义不变。
+     并船只合**被动触发**。「点抬头」与「开气泡」是真人当下的意思（`{force:true}`），不许被吞掉：
+     在途时仍不发第二条并发请求（上限照旧 1），而是记下「这一轮落定还要再跑一轮」。
+     必须重跑而不能只等这一轮 —— `fetchBalRows` 在轮次开始时就快照了 `Api.provUsable` 与
+     `SbBal.filter`，刚加的密钥、刚改的勾选只有出现在**下一轮**的名单里才可能画出来；
+     跟着这一轮的快照走，用户看到的就是「点了抬头没反应，气泡里还是旧数」。 */
   let balInflight = null;
-  function refreshBalance() {
+  let balRerun = false;
+  function refreshBalance(opts) {
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
     /* **先画一次再发请求**：切页/刷新时余额立刻可见（缓存），第一次勾上开关时也不会空着
@@ -675,8 +681,14 @@
     if (cached.kids.length) balKids = cached.kids;
     balPending = null;
     paintBal(box, balRows.length ? '' : '正在读取…');
-    if (balInflight) return balInflight;
-    balInflight = fetchBalRows(box).finally(() => { balInflight = null; });
+    if (balInflight) {
+      if (opts && opts.force) balRerun = true;
+      return balInflight;
+    }
+    balInflight = fetchBalRows(box).finally(() => {
+      balInflight = null;
+      if (balRerun) { balRerun = false; refreshBalance(); }
+    });
     return balInflight;
   }
   async function fetchBalRows(box) {
@@ -817,7 +829,9 @@
     const box = sb.querySelector('#sbBalance');
     if (box && balRows.length) paintBal(box);
   });
-  window.addEventListener('sb-balance-refresh', refreshBalance);
+  /* 别的页面广播「余额重取」是被动触发：走合船，不占「点抬头」那一档的补轮名额
+     （写成箭头而不直接递函数，免得事件对象被当成 opts 读进去）。 */
+  window.addEventListener('sb-balance-refresh', () => refreshBalance());
   refreshBalance();
   /* 定时器跑在外壳顶层文档，是全会话里活得最久的一个（web/app.js 切页只切 display、外壳不重建），
      所以它必须自己会「停」：
