@@ -2662,6 +2662,11 @@ const Panel = createPanel({
   kfModelIdOf: () => kfModelId,
   setKfModelId: v => { kfModelId = v; },
   kfRunOf: () => kfRun,
+  /* 「拆成几张 / 按什么维度拆」：值与展开态都在这一层（右栏每 3 秒整片重画，DOM 存不住） */
+  kfSplitSel: (...a) => kfSplitSel(...a),
+  kfSplitSet: (...a) => kfSplitSet(...a),
+  kfSplitOpenOf: () => kfSplitOpen,
+  setKfSplitOpen: v => { kfSplitOpen = !!v; },
   kfModelOf: (...a) => kfModelOf(...a),
   paintKfAdv: (...a) => paintKfAdv(...a),
   kfExtrasVisible: (...a) => kfExtrasVisible(...a),
@@ -3334,6 +3339,23 @@ let kfTopBools = {}, kfShape = {};
    「按声明默认」与「保住用户挑的那个」。不落盘 —— 它记的是这一轮的界面状态，
    而声明默认值本身可能随型号变，跨刷新留着反而会把旧型号的意图压到新型号上。 */
 let kfBoolAv = {};
+/* 「拆成几张 / 按什么维度拆」那一排选项（公共层 SplitPlan 的 dir 那一族）：
+   值必须存模块变量 —— 右栏每 3 秒整片重画一次，DOM 里的那一次选择活不过下一次重画。
+   `kfSplitOpen` 是纯界面状态（面板开没开），只当会话变量：刷新后回到收起，
+   落盘的话下一次开机那一排会自己张开，而用户没理由期待它张开。 */
+let kfSplitCount = '', kfSplitDim = '', kfSplitCustom = '', kfSplitOpen = false;
+/* 补全交给公共层（「自定义…」那一档取框里的字这条规则只有一份）；DOM 不在这条路上，
+   所以重画与规划读到的是同一份选择。 */
+function kfSplitSel() {
+  return window.SplitPlan.selOf('dir', { count: kfSplitCount, dimKey: kfSplitDim, custom: kfSplitCustom });
+}
+function kfSplitSet(v) {
+  const s = v || {};
+  kfSplitCount = String(s.count || '');
+  kfSplitDim = String(s.dimKey || '');
+  kfSplitCustom = String(s.custom || '');
+  kfParamsSave();
+}
 /* 两块面板的折叠状态不在这里各存一份模块变量：模板与 AdvParams.fold 都直接读那一个键
    （AdvParams.closed），存成变量的那份迟早和点出来的那一份对不上。 */
 /* 读坏 / 没有都当没有：LS.json 把抛错与坏 JSON 统一变成默认值，装配期因此不会被一枚脏键掀掉。 */
@@ -3345,12 +3367,16 @@ if (kfSaved && typeof kfSaved === 'object') {
   if (kfSaved.fmt !== undefined) kfFormat = String(kfSaved.fmt || '');
   if (kfSaved.tb && typeof kfSaved.tb === 'object') kfTopBools = kfSaved.tb;
   if (kfSaved.sf && typeof kfSaved.sf === 'object') kfShape = kfSaved.sf;
+  if (kfSaved.sc !== undefined) kfSplitCount = String(kfSaved.sc || '');
+  if (kfSaved.sd !== undefined) kfSplitDim = String(kfSaved.sd || '');
+  if (kfSaved.sx !== undefined) kfSplitCustom = String(kfSaved.sx || '');
 }
-/* 四个值一次落盘（一个键）：分四个键就是四次「这算设置项还是算界面状态」的争论，
+/* 高级参数与拆分选项一次落盘（一个键）：分四个键就是四次「这算设置项还是算界面状态」的争论，
    而且换一台机器只带走一半。 */
 function kfParamsSave() {
   window.LS.setJson('sk_kf_params', {
     q: kfQ, ar: kfAr, size: kfSize, fmt: kfFormat, tb: kfTopBools, sf: kfShape,
+    sc: kfSplitCount, sd: kfSplitDim, sx: kfSplitCustom,
   });
 }
 let kfModelId = window.LS.get('sk_kf_model') || '';   // 生成画面用的图片模型（可切换；禁存模式下退回空，再用第一个可用模型）
@@ -3644,6 +3670,8 @@ function kfGenOpts(sh, extra) {
   const ex = kfAdvExtras(sh);
   if (ex.bad.length) throw new Error(ex.bad.join('、'));
   p.params = ex.params;
+  /* 任务号当场落到关键帧上（关机 / 刷新后由 Gen.resumeKeyframes 认回来，不重发、不重复扣费） */
+  if (extra.kf) p.onTask = t => { extra.kf.taskId = t.id; extra.kf.provider = (t.prov && t.prov.id) || ''; scheduleSave(); };
   p.shape = { mode: '', caps: kfAdvCtx(sh).caps };
   const meta = { 镜头: sh.name || '' };
   if (p.quality) meta.画质 = AdvParams.label('quality', p.quality, pl.model);
@@ -3666,31 +3694,28 @@ function kfModelOptions() {
     `<optgroup label="${g.displayName || g.name}">` + (g.models || []).map(m =>
       `<option value="${esc(m.id)}" title="${esc(m.name || '')}" ${cur && m.id === cur.id ? 'selected' : ''}>${esc(m.id)}</option>`).join('') + '</optgroup>').join('');
 }
-/* 时间切片估价：张数随时长变化，价格走统一 estimateCost */
+/* 画面这一路的总价句（面板那一行与审阅弹窗共用）；没型号 / 报不出价返回空串 */
+async function kfEstText(sh, n) {
+  try {
+    const ex = kfAdvExtras(sh), ctx = kfAdvCtx(sh);
+    const r = await estimateCost(kfModelOf().prov, kfModelOf().model, Object.assign(
+      { quality: kfQ, count: n, ar: kfAr || undefined, size: kfSize || undefined, format: kfFormat || undefined, topBools: ex.topBools, caps: ctx.caps }, ex.shapeFields));
+    return (r && r.ok && r.text) ? String(r.text) : '';
+  } catch { return ''; }
+}
+/* 时间切片估价：张数按「挑了哪一档」走，价格走统一 estimateCost */
 async function refreshKfEst() {
   const el = $('kfEst');
   const sh = curShot();
   if (!el || !sh) return;
-  const dur = sh.duration || 5;
-  const n = (sh.keyframes || []).length || 4;   // 张数由文字 AI 决定，未生成前按 4 张估算
-  const pick = kfModelOf();
-  if (!pick.prov || !pick.model) { el.textContent = n + ' 张'; return; }
-  try {
-    /* 顶层那几项也进报价（与视频那一面的 getPriceEstimate 同一个口径）：
-       注册表在 `pricing.body` 里写了映射才带得过去，不递就是「界面勾了档、报价还是原来那个价」。 */
-    const ex = kfAdvExtras(sh);
-    const ctx = kfAdvCtx(sh);
-    const r = await estimateCost(pick.prov, pick.model, Object.assign(
-      { quality: kfQ, count: n, ar: kfAr || undefined, size: kfSize || undefined, format: kfFormat || undefined, topBools: ex.topBools, caps: ctx.caps },
-      ex.shapeFields));
-    el.textContent = (sh.keyframes?.length ? '' : '约 3–8 张 · 按 ') + (r.ok ? `${n} 张 ${r.text}` : `${n} 张（报价不可用）`);
-  } catch { el.textContent = n + ' 张'; }
+  const sel = kfSplitSel();
+  const n = +(sel.count || 0) || (sh.keyframes || []).length || 4;
+  const est = await kfEstText(sh, n);
+  el.textContent = (!sel.count && !(sh.keyframes || []).length ? '张数交给 AI · 按 ' : '按 ')
+    + (est ? `${n} 张 ${est}` : `${n} 张（报价不可用）`);
 }
 /* ============ 按描述生成这一镜的画面 ============
-   流程：① 文字 AI 一次性规划「要几张 + 每张时间点与提示词」（返回 JSON）
-        ② 立刻在右栏建立对应数量的占位图（先出现，再慢慢生成）
-        ③ 逐张调用图片 AI 生成，完成即替换占位
-        ④ 生成好的画面同时加入「参考图」，供视频生成时引用                          */
+   ① 文字 AI 规划张数与时间点 / 提示词 ② 右栏立刻建占位图 ③ 逐张生成、完成原位替换并加入参考图 */
 const storySysOf = () => TextAI.prompt('story');
 
 /* 从文字 AI 的回复里抠出 frames（兼容代码块 / 纯数组 / 单个对象） */
@@ -3735,12 +3760,11 @@ async function callTextAI(sys, user, searchQuery) {
   });
 }
 
-/* ① 规划：先让文字 AI 决定几张、每张什么时间点与提示词 */
+/* ① 规划：张数与拆分维度由那一排选项给出（没选就交给文字 AI），每张的时间点与提示词由它定 */
 async function planKeyframes(sh, dur) {
   const sys = storySysOf();
   const user = `镜头描述：${sh.prompt}
-镜头时长：${dur} 秒
-请决定需要几张关键画面（3–8 张，按内容复杂度），并按时间顺序给出每张的时间点与文生图提示词。只返回 JSON。`;
+镜头时长：${dur} 秒` + window.SplitPlan.userLines(kfSplitSel()) + '\n只返回 JSON。';
   const txt = await callTextAI(sys, user, sh.prompt);
   const frames = parseFrames(txt, dur);
   if (frames.length) return frames;
@@ -3807,8 +3831,7 @@ function addKeyframeToRefs(sh, assetId, kf, i) {
 }
 
 async function generateKeyframes(sh) {
-  /* 入口锁：这一段前面有两处 await，置锁要等到规划完才会发生；期间 renderSoft 会把按钮
-     重建回可点态，连点两次就是两轮并行提交、双倍生图扣费。锁必须在任何 await 之前。 */
+  /* 入口锁必须在任何 await 之前：置锁晚一步，renderSoft 先把按钮重建回可点态，连点就是两轮并行扣费。 */
   if (kfRun) return;
   kfRun = true;
   if (!TextAI.prov(REG)) { kfRun = false; setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
@@ -3820,8 +3843,10 @@ async function generateKeyframes(sh) {
   const rmv = resolvedModel(sh);
   const kfDur = (Array.isArray(rmv?.options?.durations) ? rmv.options.durations : []).map(Number).filter(Number.isFinite);
   const dur = Number(sh.duration) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
-  const btn = $('kfGenBtn');
-  window.aiBtnState(btn, true);
+  /* 选项面板在这一轮开始的那一刻收起：接下来露出来的应该是流式规划面板与占位图，
+     「开始规划」那颗按钮压在它们上面只会挡视线。重画出来的两颗动作按钮都按 kfRun 现画忙态。 */
+  kfSplitOpen = false;
+  renderEditor();
   try {
     // ① 文字 AI 规划：决定几张 + 每张的切片提示词
     setStatus('文字 AI 正在规划画面切片…');
@@ -3829,9 +3854,11 @@ async function generateKeyframes(sh) {
     if (!plan.length) throw new Error('文字 AI 没有给出可用的画面规划');
 
     // ①.5 先把规划结果给用户过一遍（可改文案 / 删掉不想生成的），确认后再出占位图并开始生成
+    const kfEst = await kfEstText(sh, plan.length);
     const reviewed = await PromptReview.openList({
       title: '画面切片规划（文字 AI 出的提示词）',
-      sub: `第 ${allShots().indexOf(sh) + 1} 镜 · 时长 ${dur} 秒 · 共 ${plan.length} 张 · 画质 ${QUALITY_ZH[kfQ] || kfQ || '平台默认'}`,
+      sub: `第 ${allShots().indexOf(sh) + 1} 镜 · 时长 ${dur} 秒 · 共 ${plan.length} 张 · 画质 ${QUALITY_ZH[kfQ] || kfQ || '平台默认'}`
+        + (kfEst ? ' · 预计 ' + kfEst : ''),
       items: plan.map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
       applyLabel: '采用并开始生成',
       hint: '可以逐条修改或删掉；确认后立即出占位图并开始生成',
@@ -3868,7 +3895,7 @@ async function generateKeyframes(sh) {
       kf.status = 'generating'; renderSoft(['edit']);
       try {
         const prompt = kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面');
-        const assetId = await genOneImage(imgProv, imgModel, prompt, kfGenOpts(sh, { inputEntries: kfRefs, at: kf.t }));
+        const assetId = await genOneImage(imgProv, imgModel, prompt, kfGenOpts(sh, { inputEntries: kfRefs, at: kf.t, kf }));
         kf.assetId = assetId;
         kf.status = assetId ? 'done' : 'failed';
         if (assetId) { okN++; if (addKeyframeToRefs(sh, assetId, kf, i)) refN++; }
@@ -3889,7 +3916,6 @@ async function generateKeyframes(sh) {
   } finally {
     kfRun = false;
     sh.keyframes = (sh.keyframes || []).filter(k => !k.deleted);
-    window.aiBtnState(btn, false);
     renderEditor();
   }
 }
@@ -4337,6 +4363,7 @@ const Gen = createGen({
   shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
   updateBanner, setStatus, hasRealCandidate, projOf: () => proj, wsOf: () => WS, regOf: () => REG,
   setForceMid: v => { forceMid = v; }, setSelectedCandidate,
+  renderSoft, addKeyframeToRefs, kfModelOf, Panel, BoardAssetsOf: () => BoardAssets,
 });
 
 $('genAll').onclick = async () => {
@@ -4596,6 +4623,8 @@ if (dirLayout) Wb.split.enable({
   try { Panel.backfillRefMetaIds && Panel.backfillRefMetaIds(allShots()); } catch (e) { /* 补不上不影响启动 */ }
   setTimeout(() => Gen.announceDoneCandidates(), 0);   // 已经出画面但还没镜像的候选：投一次事件（不阻塞首屏）
   Gen.pollKick();             // 首屏立刻问一次在途候选，不等第一轮间隔
+  Gen.resumeKeyframes().catch(() => {});   // 上次没跑完的画面切片：认回任务或如实标失败
+  try { Gen.reconcilePendingPics(); } catch (e) { /* 待建占位补不上不影响启动 */ }
   loadCredits();
   // 后台补齐（都不阻塞首屏）
   Panel.installCapRepaint();   // 一家能力落定就补画一次右栏（实现在 engine/panel.js）

@@ -326,8 +326,26 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        点「账户余额」抬头是这一区的**唯一**刷新入口，在途期间它要记住「这轮落定再补一轮」，
        并让补的那一轮重新快照一遍可用账号与筛选项（刚加的密钥必须出现在下一轮里）；
        取数与缓存本来就在这份首屏经典脚本里（设置页经 `window.SbBalance` 读同一份），没有按需的落点。
-       实跑 29 枚 / 837974 字节（登记上限 838000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 838000;
+       实跑 29 枚 / 837974 字节（登记上限 838000）。
+     · 按实跑重登记（2026-11-02，「拆成几张 / 按什么维度拆」那一排选项升公共件）：枚数不变（仍是 29 枚），
+       变长的只有 `web/ui/forms.js` 一份（+108 行 · 归一化换行后 +6999 字符，其余 28 枚逐字节没动）——
+       新增的是 `window.SplitPlan`（工作台图像栏「拆分片段生成」与导演台右栏「按描述生成这一镜的画面」
+       共用那一排选项与那两行话术）。落 forms.js 而不是新脚本：读它的一家是 ESM 页面、一家是命令式岛，
+       只有 window 面同时够得到两边，而这一族（Confirm / UiDialog / PromptForm / DatePicker）本来就在这一份里；
+       另起一枚首屏脚本要多吃一次请求与解析，把公共件挪到按需则两边都得等它加载完。
+       没有新挂脚本，也没有把按需件挪进来。实跑 29 枚 / 845081 字节（登记上限 846000）。
+     · 按实跑重登记（2026-11-02，两处提交缺陷的修复落在首屏常驻件上）：枚数不变（仍是 29 枚）——
+       `web/domain/api.js` 的 `parseItem` 收「详情端点的对象形产物」（`outputs:[{asset_id}]`；只认列表
+       那种 id 串数组时，走详情的轮询永远拿不到产物号 —— 卡片已完成却没图、拆分占位卡解不了）；
+       `web/domain/gen-forms.js` 的输出格式不再替平台猜（型号没声明 `output_formats` 就不发，
+       SparkCine 的 img-2 硬塞 `output_format` 会被整条拒收），同一份里还修好了 `AiGen.adopt`
+       （原来调用不存在的 `this.providers()`，素材库与导演台两条「认回在途出图」从来没成功过）。
+       两处都在唯一实现里（轮询解析 / 生图提交），没有按需的落点。实跑 29 枚 / 846644 字节（登记上限 847800）。
+     · 同一批继续落在首屏常驻件上（枚数不变，仍是 29 枚）：`workbench.js` 的占位牌 `plateHTML`
+       （资产库与工作台任务态同一套）、全屏观看按钮 `fullBtnHTML`、详情里的进度实时刷新与「完整提示词」全文升级；
+       `gen-forms.js` 的档位排序（清单仍按平台声明动态取，只按「快速→标准→增强→品质」摆顺序）。
+       这几处都是三页共用的唯一实现，没有按需的落点。实跑 29 枚 / 847675 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 847800;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

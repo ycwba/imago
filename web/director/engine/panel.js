@@ -61,6 +61,10 @@ export function createPanel(E, document, window) {
     kfModelIdOf,
     setKfModelId,
     kfRunOf,
+    kfSplitSel,
+    kfSplitSet,
+    kfSplitOpenOf,
+    setKfSplitOpen,
     kfModelOf,
     paintKfAdv,
     kfExtrasVisible,
@@ -1331,10 +1335,8 @@ window.addEventListener('wb:char-pic', e => {
        与手打同一份口径（ta.oninput 同时写两处）：只写 sh.prompt 的话，框里还是
        旧的 @待建:写法，用户在框里动一下键盘就把替换结果覆盖回去了。
        只动**当前镜头**正在看的那条候选 —— 别的镜头的 curCand 下标不是它们的。 */
-    if (sh === curShot()) {
-      const c0 = (sh.candidates || [])[projOf().curCand];
-      if (c0 && c0.prompt) c0.prompt = resolved;
-    }
+    /* 候选那份提示词也是给生成用的（框里显示的就是它）：含占位符的每一条都换 */
+    (sh.candidates || []).forEach(c => { if (c && c.prompt && BoardAssetsOf().isToken(c.prompt)) c.prompt = resolved; });
     touched++;
     const one = addLibPicToShot(sh, item, null);
     if (one.ok) { if (!one.dup) pics++; }
@@ -1675,6 +1677,12 @@ function renderEditor() {
   /* 「四档之外」那三排在这一路上到底画得出几颗（决定整块出不出现）：
      计数判据在公共层（AdvExtras.visibleCount：被形状藏掉的那一项不占数），页面不再自己数一遍。 */
   const kfExtras = kfExtrasVisible(sh);
+  /* 「拆成几张 / 按什么维度拆」那一排：形状、话术与读法都在公共层 SplitPlan（与工作台图像栏
+     「拆分片段生成」同一一份）。值与展开态都从引擎那一层现读再画回去 —— 这一栏每 3 秒整片重画，
+     DOM 里存不住一次选择；`busy` 递进「开始规划」那颗按钮的画法，重画也认得出它在跑。 */
+  const kfSplitHTML = kfSplitOpenOf()
+    ? window.SplitPlan.html('dir', Object.assign(kfSplitSel(), { busy: kfRunOf() }))
+    : '';
   /* 把 plan 算好的一档画进下拉：清单、当前值、显示名、这一档出不出现，全部读 AdvParams 那一份，
      这里只写导演台自己的 DOM（整块随编辑器重绘，与工作台「控件常驻 DOM」是两种画法、同一份数）。 */
   const advSel = (k, o) => (!k || !k.on) ? ''
@@ -1737,6 +1745,8 @@ function renderEditor() {
       <div class="btn-row">
         ${window.aiBtnHTML({ id: 'kfGenBtn', label: '按描述生成这一镜的画面', busy: '生成中…', busyOn: kfRunOf() })}
       </div>
+      ${/* 点上面那颗先摊开这一排（张数 / 拆分维度 / 自定义），「开始规划」才真的问文字 AI。
+             工作台图像栏的「拆分片段生成」是同一副形状。 */ kfSplitHTML}
       <!-- 规划那一轮的流式面板（公共 InlinePolish.live）。它必须留在 DOM 里：
            整列每 3 秒重画一次，面板会被重新拼出来的这一块带走 —— AiStream 每次 push 前
            会确认面板还在宿主里、不在就重画一块并补回已收到的字（见那一块说明）。
@@ -2029,7 +2039,24 @@ function renderEditor() {
      上面那颗润色面板一看 polishUI 为空就把宿主 clear 掉了，这里紧跟着按 splitUI 拼回来；
      两边都没在跑时它什么都不画，宿主保持清空。 */
   renderSplitPanel();
-  $('kfGenBtn').onclick = () => generateKeyframes(sh);
+  /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。
+     跑着的时候它整颗是禁的（busyOn 画进 disabled），所以这里不必再判一次 kfRun。 */
+  $('kfGenBtn').onclick = () => { setKfSplitOpen(!kfSplitOpenOf()); renderEditor(); };
+  const ksId = window.SplitPlan.ids('dir');
+  const ksGet = id => $(id);
+  const ksSel = () => window.SplitPlan.read('dir', ksGet);
+  const ksCount = $(ksId.count), ksDim = $(ksId.dim), ksCustom = $(ksId.custom), ksGo = $(ksId.go);
+  /* 三个控件都不在 DOM 里时（面板收着）一颗都绑不上：以前这里直接 `$('…').onchange =`，
+     面板一收就是 null 赋值抛错，renderEditor 从那一行中断、后面的接线全丢。 */
+  if (ksCount) ksCount.onchange = () => { kfSplitSet(ksSel()); refreshKfEst(); };
+  if (ksDim) ksDim.onchange = () => {
+    window.SplitPlan.syncCustom('dir', ksGet, { focus: window.focusQuiet });
+    kfSplitSet(ksSel()); refreshKfEst();
+  };
+  /* 「自定义…」那格打字只落状态、不刷估价：那一句改的是拆法，张数没动，报价还是同一个数。
+     重画会把光标甩掉，所以这里连 renderEditor 都不走（面板不折叠、值就在 DOM 里）。 */
+  if (ksCustom) ksCustom.oninput = () => { kfSplitSet(ksSel()); };
+  if (ksGo) ksGo.onclick = () => generateKeyframes(sh);
   const clrFailed = $('kfClearFailed');
   if (clrFailed) clrFailed.onclick = () => {
     const keep = [];
@@ -2160,7 +2187,7 @@ function renderEditor() {
         const notes = [];
         const refs = await kfRefEntries(sh, t => notes.push(t));
         if (notes.length) setStatus('<span class="err">' + esc(notes.join('；')) + '</span>');
-        const aid = await genOneImage(pick.prov, pick.model, prompt, kfGenOpts(sh, { inputEntries: refs, at: kf.t }));
+        const aid = await genOneImage(pick.prov, pick.model, prompt, kfGenOpts(sh, { inputEntries: refs, at: kf.t, kf }));
         kf.assetId = aid; kf.status = aid ? 'done' : 'failed';
         if (aid) addKeyframeToRefs(sh, aid, kf, i);
         setStatus('<span class="ok">✓ 画面 ' + (i + 1) + ' 重新生成成功' + (notes.length ? '（' + esc(notes.join('；')) + '）' : '') + '</span>');

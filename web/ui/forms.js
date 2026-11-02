@@ -1609,3 +1609,111 @@ function keepBodyScroll(el, fn) {
     close,
   };
 })();
+
+/* ============================================================================
+   SplitPlan —— 「把一段描述拆成 N 张图」那一排选项（张数 / 拆分维度 / 自定义）
+   ---------------------------------------------------------------------------
+   工作台图像栏的「拆分片段生成」与导演台右栏的「按描述生成这一镜的画面」是同一种控制面：
+   先挑张数与拆法，再点「开始规划」请文字 AI 出这一批提示词。两处共用这一排形状，
+   也共用**拼进用户消息的那两句话的写法**。
+   两份契约仍然分开：工作台发 img_split.json（片段名 + 提示词），导演台发 story.json
+   （每一张还要给一个 t 秒点，且夹在镜头时长里）—— 所以「自动」那两档的话术按家族各写一句，
+   共享的是控制面与那句话的句式，不是输出形状。
+     · FAM[家]                    counts / dims（第一档恒是「自动」那个空值）/ id / 话术 / 那颗「开始」按钮的画法
+     · SplitPlan.ids(fam)         -> { count, dim, custom, customWrap, go, cancel }
+       （那一排外面的壳 —— 工作台的 .pinl、导演台的展开旗子 —— 由调用方自己拿着，件不画）
+     · SplitPlan.html(fam, cur)   -> 那一排 .split-opts 的字符串（排布与密度在 ui.css）
+         cur = { count, dimKey, custom, busy }：当前值由调用方递进来。导演台右栏每 3 秒整片重画，
+         DOM 里存不住选择 —— 谁重画谁负责再给一次（值本身存在调用方那一层）。
+     · SplitPlan.read(fam, get)   -> { fam, count, dimKey, custom, dim }（dim = 真正发出去的那一句：
+         选「自定义…」时取框里的字）。get 是节点取手，件内一个字都不查 DOM ——
+         页面那一层不许出现 document.getElementById，只能交 `id => R[id]` 或 `id => document.getElementById(id)` 进来。
+     · SplitPlan.selOf(fam, v)     同一份补全，v 是已经拿在手的 { count, dimKey, custom }
+        （导演台那一栏每 3 秒整片重画，值存在它自己的模块变量里，DOM 只是那一排选项的一次画法）
+     · SplitPlan.userLines(sel)   -> '\n\n张数：…\n拆分维度：…'（直接接在描述后面）
+     · SplitPlan.isCustom(sel)    选的是不是「自定义…」那一档
+     · SplitPlan.syncCustom(fam, get, o) 「自定义…」那一格的显隐，并把光标续进那一格（o.focus 由调用方给）
+   ========================================================================== */
+(function () {
+  const CUSTOM = '__custom';
+  const FAM = {
+    wb: {
+      ids: { count: 'splitCount', dim: 'splitDim', custom: 'splitDimCustom',
+        customWrap: 'splitDimCustomWrap', go: 'splitGo', cancel: 'splitCancel' },
+      counts: ['', '2', '3', '4', '5', '6'],
+      dims: ['', '按时间顺序', '按场景变化', '按动作或状态阶段', CUSTOM],
+      autoCount: '你按内容复杂度定（2 到 6 张）',
+      autoDim: '你选最自然的（时间先后 / 场景变化 / 动作阶段都行，拆法写进每个片段名）',
+      customPh: '例：按主角情绪变化',
+      acts: () => '<button class="tool acc" type="button" id="splitGo">开始规划</button>'
+        + '<button class="tool" type="button" id="splitCancel">取消</button>',
+    },
+    dir: {
+      ids: { count: 'kfSplitCount', dim: 'kfSplitDim', custom: 'kfSplitDimCustom',
+        customWrap: 'kfSplitDimCustomWrap', go: 'kfSplitGo' },
+      /* 上限 8 与 parseFrames 那一道夹同一条尺子：给到 9 也只会拿到前 8 张，
+         下拉里摆一档点得到却永远少一张的选项，不如不摆。 */
+      counts: ['', '2', '3', '4', '5', '6', '7', '8'],
+      dims: ['', '按时间均匀', '按动作或状态阶段', '按主体或景别变化', CUSTOM],
+      autoCount: '你按内容复杂度定（3 到 6 张）',
+      autoDim: '你选最自然的（时间均匀 / 动作阶段 / 景别变化都行）',
+      customPh: '例：按光线从黄昏到夜里',
+      /* 忙态必须画在按钮自己身上：这一栏每 3 秒重画一次，靠代码改 textContent 的那一份
+         状态活不过下一次重画（aiBtnHTML 把两句话挂在 data-idle / data-busy 上，重画也认）。 */
+      acts: cur => window.aiBtnHTML({ id: 'kfSplitGo', label: '开始规划', busy: '规划中…', busyOn: !!(cur && cur.busy) }),
+    },
+  };
+  function famOf(fam) {
+    const f = FAM[fam];
+    if (!f) throw new Error('SplitPlan 没有「' + fam + '」这一家');
+    return f;
+  }
+  const optHTML = (list, cur) => list.map(v => '<option value="' + window.esc(v) + '"'
+    + (String(cur == null ? '' : cur) === v ? ' selected' : '') + '>'
+    + window.esc(v === '' ? '自动' : v === CUSTOM ? '自定义…' : v) + '</option>').join('');
+
+  window.SplitPlan = {
+    CUSTOM,
+    FAM,
+    ids(fam) { return Object.assign({}, famOf(fam).ids); },
+    html(fam, cur) {
+      const f = famOf(fam), id = f.ids, c = cur || {};
+      const customOn = String(c.dimKey || '') === CUSTOM;
+      return '<div class="split-opts">'
+        + '<label>张数 <select id="' + id.count + '">' + optHTML(f.counts, c.count) + '</select></label>'
+        + '<label>拆分维度 <select id="' + id.dim + '">' + optHTML(f.dims, c.dimKey) + '</select></label>'
+        + '<label id="' + id.customWrap + '"' + (customOn ? '' : ' hidden') + '>'
+        + '<input id="' + id.custom + '" maxlength="60" placeholder="' + window.esc(f.customPh) + '"'
+        + ' value="' + window.esc(c.custom || '') + '"></label>'
+        + '<span class="sp"></span>' + f.acts(c) + '</div>';
+    },
+    read(fam, get) {
+      const id = famOf(fam).ids;
+      const boxVal = k => {
+        const n = get(id[k]);
+        return String((n && n.value) || '').trim();
+      };
+      return window.SplitPlan.selOf(fam, { count: boxVal('count'), dimKey: boxVal('dim'), custom: boxVal('custom') });
+    },
+    selOf(fam, v) {
+      const s = v || {};
+      const dimKey = String(s.dimKey || '').trim(), custom = String(s.custom || '').trim();
+      return { fam, count: String(s.count || '').trim(), dimKey, custom, dim: dimKey === CUSTOM ? custom : dimKey };
+    },
+    isCustom(sel) { return !!sel && sel.dimKey === CUSTOM; },
+    userLines(sel) {
+      const f = famOf(sel && sel.fam ? sel.fam : 'wb');
+      const s = sel || {};
+      return '\n\n张数：' + (s.count ? ('恰好 ' + s.count + ' 张，一张不多一张不少') : f.autoCount)
+        + '\n拆分维度：' + (s.dim || f.autoDim);
+    },
+    syncCustom(fam, get, o) {
+      const id = famOf(fam).ids;
+      const dim = get(id.dim), wrap = get(id.customWrap), box = get(id.custom);
+      const on = !!(dim && dim.value === CUSTOM);
+      if (wrap) wrap.hidden = !on;
+      if (on && box && o && o.focus) { try { o.focus(box); } catch (e) { /* 光标放进去是顺手，不是这一格能不能用的前提 */ } }
+      return on;
+    },
+  };
+})();

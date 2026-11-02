@@ -82,14 +82,6 @@
 .studio-page #inputArea > .slot-wide { margin-top: var(--sp-9); }
 .studio-page #inputArea .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: var(--acc-tint-10);
   box-shadow: 0 0 0 var(--hair-3) color-mix(in srgb, var(--acc) var(--a-16), transparent); }
-.studio-page .split-opts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; font-size: var(--fs-12); color: var(--sub); }
-/* 标签与它那一颗下拉并排（公共 Dropdowns 把原生 select 变成块级的 .dd，
-   不给 label 摆成 inline-flex 的话，「张数」与下拉会各占一行）。 */
-.studio-page .split-opts label { display: inline-flex; align-items: center; gap: var(--sp-6); }
-/* 这一排的下拉也是公共件：密度跟旁边那个输入框一档（padding / 圆角 / 字号只取令牌）。 */
-.studio-page .split-opts .dd-btn { padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-3); font-size: var(--fs-12); }
-.studio-page .split-opts input { padding: var(--sp-4) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-12); width: 212px; }
-.studio-page .split-opts input:focus { outline: none; border-color: var(--acc); }
 
 /* ---------- 右栏：历史资产库 ---------- */
 .studio-page .hist-filters { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-10); flex-wrap: wrap; }
@@ -102,8 +94,8 @@
 .studio-page.wb .col-right #result .task .timg { cursor: default; }
 .studio-page.wb .col-right #result .task .tprompt { cursor: pointer; }
 .studio-page.wb .col-right #result .task .timg audio { width: 100%; }
-/* 详情展开：就地展开（公共件 .exp / .is-open）——与资产库同一副骨架：
-   详情不再套一层灰盒子（盒子在卡里会把卡撑高），账条横着排多列。 */
+/* 详情展开：展开的内容接在那一行卡片下面（公共件 createBand 的 .band），
+   与资产库紧凑档同一副骨架；详情不套灰盒子，账条横着排多列。 */
 .studio-page #result .cdet { display: block; margin: 0; padding: 0; border: 0; background: none;
   font-size: var(--fs-12-5); color: var(--sub); }
 .studio-page #result .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -131,7 +123,6 @@
 .studio-page.wb .col-right #result .task { cursor: grab; }
 .studio-page.wb .col-right #result .task.dragging { opacity: .45; }
 .studio-page.wb .col-right #result .task .acts,
-.studio-page.wb .col-right #result .task .exp,
 .studio-page.wb .col-right #result .task .timg video,
 .studio-page.wb .col-right #result .task .timg audio { cursor: auto; }
 .studio-page.wb .col-right #result > .list-note,
@@ -143,3 +134,10 @@
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
   .studio-page .st-top .st-model .dd { max-width: none; }
 }
+
+/* 拆分生成的占位卡：还没生成出来的那一格画成虚线（点了 × 可移除）；
+   「生成后填入视频栏」的勾选行与导演台拆分面板同一套。 */
+.studio-page #inputArea .asset-slot.is-pending { border-style: dashed; opacity: .8; }
+.studio-page #inputArea .asset-slot.is-pending > .sub { color: var(--acc); }
+.studio-page .fill-video-row { display: flex; align-items: center; gap: var(--sp-8);
+  margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--sub); cursor: pointer; }

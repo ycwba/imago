@@ -15,6 +15,10 @@
      · 按类型各存的提示词在切回来时真的恢复（旧页面只存不读，与它自己那句「切回来不该丢」对不上）；
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
 import { ref, inject, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
+import { createBand } from '../ui/index.js';
+import { createCrossCol } from './studio/cross-col.js';
+import { createSplit } from './studio/split.js';
+import { createVideoFill } from './studio/videofill.js';
 import { render } from '../render/studio.js';
 
 /* 每一档只点一次名：`zh` 既画在分段开关上，也拼进提交按钮那一句（`生成` + `zh`）。 */
@@ -43,22 +47,27 @@ function newState() {
 
 /* 高级设置里三块类型面板的骨架（控件常驻 DOM、换类型只翻 hidden：用户挑过的值原地不动）。 */
 const ADV_BODY_HTML =
+  /* 每一排都要有 `<id>Wrap` 的包裹层：`paintAdv` 只按这个 id 决定「平台声明了才画」。
+     以前这些格子直接挂在 .adv-grid 下、没有包裹 id —— 隐藏那一步永远找不到节点：
+     没声明的平台留下一只**空下拉**（VGENV 视频的「生成条数」、SparkCine 视频的「档位」），
+     而图像栏写死 hidden 的那几排反过来永远出不来（质量 / 比例 / 数量 / 格式连改都不能改）。
+     初始都带 hidden，由第一趟 paintAdv 按声明打开，避免先闪一下空下拉。 */
   '<div class="adv-type" data-t="video">'
   + '<div class="adv-grid">'
-  + '<div><label>档位</label><select id="tier"></select></div>'
-  + '<div><label>画质</label><select id="res"></select></div>'
-  + '<div><label>时长（秒）</label><select id="dur"></select></div>'
-  + '<div><label>画面比例</label><select id="ar"></select></div>'
-  + '</div><div class="adv-grid"><div><label>生成条数</label><select id="draw"></select><div class="sel-hint" id="drawHint"></div></div></div>'
+  + '<div id="tierWrap" hidden><label>档位</label><select id="tier"></select></div>'
+  + '<div id="resWrap" hidden><label>画质</label><select id="res"></select></div>'
+  + '<div id="durWrap" hidden><label>时长（秒）</label><select id="dur"></select></div>'
+  + '<div id="arWrap" hidden><label>画面比例</label><select id="ar"></select></div>'
+  + '</div><div class="adv-grid"><div id="drawWrap" hidden><label>生成条数</label><select id="draw"></select><div class="sel-hint" id="drawHint"></div></div></div>'
   + '<div class="adv-grid" id="boolRows" style="margin-top: var(--sp-10)"></div>'
   + '</div>'
   + '<div class="adv-type" data-t="image" hidden>'
   + '<div class="adv-grid">'
-  + '<div hidden><label>质量</label><select id="quality"></select></div>'
-  + '<div hidden><label>画面比例</label><select id="ratio"></select><div class="sel-hint" id="ratioHint"></div></div>'
-  + '<div hidden><label>尺寸</label><select id="size"></select></div>'
-  + '<div hidden><label>数量</label><select id="count"></select><div class="sel-hint" id="countHint"></div></div>'
-  + '<div hidden><label>格式</label><select id="format"></select><div class="sel-hint" id="formatHint"></div></div>'
+  + '<div id="qualityWrap" hidden><label>质量</label><select id="quality"></select></div>'
+  + '<div id="ratioWrap" hidden><label>画面比例</label><select id="ratio"></select><div class="sel-hint" id="ratioHint"></div></div>'
+  + '<div id="sizeWrap" hidden><label>尺寸</label><select id="size"></select></div>'
+  + '<div id="countWrap" hidden><label>数量</label><select id="count"></select><div class="sel-hint" id="countHint"></div></div>'
+  + '<div id="formatWrap" hidden><label>格式</label><select id="format"></select><div class="sel-hint" id="formatHint"></div></div>'
   + '</div></div>'
   + '<div class="adv-type" data-t="audio" hidden>'
   + '<div class="adv-grid">'
@@ -107,6 +116,15 @@ const StudioView = {
         sh.innerHTML = window.aiBtnHTML({ id: 'splitBtn', label: '拆分片段生成', title: '拆成多张图的提示词' });
         R.splitBtn = sh.firstElementChild;
       }
+    }
+    /* 「拆分片段生成」那一排选项（张数 / 拆分维度 / 自定义 + 两颗按钮）由公共层 SplitPlan 画 ——
+       导演台右栏的「画面切片规划」用的是同一一份（同一副形状、同一句「张数：…／拆分维度：…」）。
+       灌完按 id 登记进 R，下面的接线照旧用 `$('splitCount')`。 */
+    function paintSplitOpts() {
+      const host = R.splitOpts;
+      if (!host) return;
+      host.innerHTML = window.SplitPlan.html('wb');
+      host.querySelectorAll('[id]').forEach(n => { R[n.id] = n; });
     }
 
     /* `?t=` / `reuse=1` 在 SPA 里挂在 hash 上（#studio.html?t=image）；直接打开旧地址时退回 search。 */
@@ -185,10 +203,8 @@ const StudioView = {
         return m ? m[1] : '';
       }
       let TYPE = '';
-      /* 原始请求折叠块：跟着当前类型换标签。
-         **并排两份**：左边「将要发出」（还没发，随表单实时变），右边「已发送」（真发出去的那一次）。
-         用户要确认的就是「实际发出的提示词和配置是怎样的」—— 两份并排，
-         不一致时一眼看得见。 */
+      /* 原始请求折叠块：跟着当前类型换标签。面板里只有**将要发出的那一份请求**，
+         随表单实时变（预览与提交同一份拼装逻辑；素材槽位在预览里是占位说明）。 */
       function paintRawHost() {
         const host = pageEl.value && pageEl.value.querySelector('[data-raw-host]');
         if (!host || !window.RawRequest || !TYPE) return;
@@ -691,6 +707,14 @@ const StudioView = {
         const def = SLOT_DEF[sl.kind];
         const items = slotItems(sl.kind);
         const cap = def.label + (items.length > 1 ? ' ' + (i + 1) : '');
+        if (it.pending) {
+          return '<div class="asset-slot is-pending" data-slot="' + sl.kind + '" data-i="' + i + '"'
+            + ' title="' + window.esc('「' + (it.label || '拆分片段') + '」正在生成，完成后自动填入（点 × 移除）') + '">'
+            + '<span class="ic">' + icon(def.ic, 18) + '</span>'
+            + '<span class="sub">生成中' + (it.label ? ' · ' + window.esc(it.label) : '') + '…</span>'
+            + '<button class="x iconbtn on-dark" title="移除这个占位">' + icon('close', 11) + '</button>'
+            + '<span class="cap">' + window.esc(cap + '占位') + '</span></div>';
+        }
         const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
         const fromVid = it.fromVideo ? '（取自视频《' + it.fromVideo + '》的' + (def.videoFrame === 'first' ? '第一帧' : '最后一帧') + '）' : '';
         const body = window.isAudioType(it.type)
@@ -734,7 +758,14 @@ const StudioView = {
           if (blocked) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return; }
           openSlotPicker(sl);
         };
-        if (it) { const med = t.querySelector('video, img'); if (med) Wb.thumbs.bind(t, med, mediaOf(it)); }
+        if (it) {
+          const med = t.querySelector('video, img');
+          /* 参考视频槽里的缩略图包着 `.rvthumb`：ready 必须加在**它**身上 ——
+             ui.css 的 `.rvthumb:not(.ready) .tph`（特异性更高）否则会让占位层一直盖着首帧，
+             表现就是「参考视频放好了，缩略图却是一片灰」。其它槽位照旧绑在外层格子上。 */
+          const wrap = t.querySelector('.rvthumb') || t;
+          if (med) Wb.thumbs.bind(wrap, med, mediaOf(it));
+        }
         return t;
       }
       function paintPromptHint() {
@@ -1341,7 +1372,7 @@ const StudioView = {
         cur().prompt = ''; cur().style = ''; cur().topBools = {};
         $('prompt').value = ''; $('style').value = '';
         InlinePolish.clear($('polishInline'));
-        renderInputArea(); renderParams(); updateMode(); refreshEst(); setStatus('');
+        renderInputArea(); renderParams(); updateMode(); refreshEst(); refreshPreview(); setStatus('');
         paintPromptHint(); updateGoState();
         clearButtonPaint(true);
         clearTimeout(clearedTimer);
@@ -1465,7 +1496,13 @@ const StudioView = {
             followPlaceholder: TYPE === 'audio'
               ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法（写完按回车）'
               : '还要怎么改？例：运镜写具体动作 / 光线改成正午 / 只留一句（写完按回车）',
-            onApply: v => { ta.value = v; setStatus('<span class="ok">✓ 已替换' + (TYPE === 'audio' ? '文本' : '提示词') + '</span>'); },
+            onApply: v => {
+              ta.value = v;
+              /* 走手打同一条链：草稿 / 闸门 / 估价 / **原始请求预览**都跟着刷新 ——
+                 只写 value 的话，右侧「原始请求」会停在润色前那一句。 */
+              ta.dispatchEvent(new Event('input', { bubbles: true }));
+              setStatus('<span class="ok">✓ 已替换' + (TYPE === 'audio' ? '文本' : '提示词') + '</span>');
+            },
             onStatus: t => setStatus(t),
           });
         } catch (e) { InlinePolish.clear(host); setStatus('<span class="err">润色失败：' + e.message + '</span>'); }
@@ -1480,54 +1517,27 @@ const StudioView = {
         if (on) { try { InlinePolish.clear($('polishInline')); } catch (e) {} }
       };
       $('splitCancel').onclick = () => { $('splitInline').hidden = true; };
-      const DIM_CUSTOM = '__custom';
-      const isCustomDim = () => $('splitDim').value === DIM_CUSTOM;
-      function syncSplitDimCustom() {
-        const on = isCustomDim();
-        $('splitDimCustomWrap').hidden = !on;
-        if (on) { try { window.focusQuiet($('splitDimCustom')); } catch (e) {} }
-      }
-      $('splitDim').addEventListener('change', syncSplitDimCustom);
+      /* 那一排选项的读法与「自定义…」那一格的显隐都在 SplitPlan 里（与导演台同一份），
+         这一页只负责：把节点取手递进去、把自定义那一格的字落到本机。 */
+      const splitSel = () => window.SplitPlan.read('wb', $);
+      $('splitDim').addEventListener('change', () => window.SplitPlan.syncCustom('wb', $, { focus: window.focusQuiet }));
       $('splitDimCustom').addEventListener('input', () => { writeLS('studio_split_dim_custom', $('splitDimCustom').value); });
-      function parseSegs(txt) {
-        let s = String(txt || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-        let v = null;
-        try { v = JSON.parse(s); } catch (e) {
-          const m = s.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-          if (m) { try { v = JSON.parse(m[1]); } catch (e2) {} }
-        }
-        const list = Array.isArray(v) ? v : (v && (v.frames || v.segments || v.shots || v.list));
-        if (!Array.isArray(list)) return [];
-        return list.map((f, i) => {
-          let label = String(f && (f.label || f.name || f.title) || '').trim();
-          if (!label) {
-            const t = f && (f.t ?? f.time);
-            const sec = (t !== undefined && t !== null && t !== '') ? parseFloat(t) : NaN;
-            label = isFinite(sec) ? ('第 ' + sec + ' 秒') : ('片段 ' + (i + 1));
-          }
-          return { label: label.slice(0, 12), prompt: String(f && (f.prompt || f.desc || f.text) || '').trim().slice(0, 600) };
-        }).filter(x => x.prompt).slice(0, 8);
-      }
-      async function planImageSegments() {
-        const src = ($('prompt').value || '').trim();
-        const cnt = ($('splitCount').value || '').trim();
-        const dim = isCustomDim() ? ($('splitDimCustom').value || '').trim() : ($('splitDim').value || '').trim();
-        let user = '把下面这段描述拆成图片提示词：\n' + src;
-        user += '\n\n张数：' + (cnt ? ('恰好 ' + cnt + ' 张，一张不多一张不少') : '你按内容复杂度定（2 到 6 张）');
-        user += '\n拆分维度：' + (dim || '你选最自然的（时间先后 / 场景变化 / 动作阶段都行，拆法写进每个片段名）');
-        const pm = polishMaterials();
-        if (pm.length) user += '\n' + TextAI.materialNote(pm);
-        user += '\n只返回 JSON。';
-        let images = [];
-        try { images = (await TextAI.polishImages(REG, polishImageList())).images; }
-        catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
-        const txt = await AiStream.text(REG, TextAI.prompt('img_split'), user,
-          { images: images, host: $('polishInline'), title: 'AI 正在拆分片段…',
-            search: { query: src } });
-        const segs = parseSegs(txt);
-        if (!segs.length) throw new Error('文字 AI 没有给出可用的拆分方案，换一条描述或再试一次');
-        return segs;
-      }
+      /* 「生成后填入视频栏」：确认拆分方案那一刻先把占位卡填进视频栏，生成完原位换真图。 */
+      const videoFill = createVideoFill({
+        type: () => TYPE, setType,
+        slots: () => slots, slotItems, slotRoom, blockedSlotKinds,
+        renderInputArea, writeLS, readLS, toast: Toast,
+      });
+      $('splitFillVideo').checked = videoFill.pref();
+      $('splitFillVideo').addEventListener('change', () => videoFill.setPref($('splitFillVideo').checked));
+      const split = createSplit({
+        $, setStatus, reg: () => REG,
+        polishImageList, polishMaterials, userLines: () => window.SplitPlan.userLines(splitSel()),
+        inputs,
+        uploadImageRefs, createImageOnce, withCreateRetry, saveSyncImages,
+        adoptTasks, loadServer, tallyRun: () => tally.run(true), maybeSubmitErr: e => maybeSubmitErr(e),
+        updateGoState, modelLimits, val, advPlan, advExtras, topBoolCtx,
+      });
       let splitBusy = false;
       $('splitGo').onclick = async () => {
         /* 忙标位在入口第一行同步置上：以前它排在 await TextAI.canRun 之后，
@@ -1544,65 +1554,55 @@ const StudioView = {
         if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
         const blk = submitBlockReason();
         if (blk) { refused('<span class="err">' + window.esc(blk) + '</span>'); return; }
+        const { prov, model } = currentModel();
+        let fillOn = false;
         try {
           btn.textContent = '规划片段…'; setStatus('正在请文字 AI 拆分片段…');
-          const planned = await planImageSegments();
+          const planned = await split.planImageSegments();
           setStatus('');
+          const est = await split.estimateLine(prov, model,
+            planned.length * Math.max(1, Number(val('count')) || 1));
           const items = await PromptReview.openList({
-            title: '片段拆分方案（文字 AI 出的提示词）', sub: '确认后按当前型号与参数逐条提交生图，每条可改、可删',
-            items: planned.map(sg => ({ label: sg.label, text: sg.prompt })),
+            title: '片段拆分方案（文字 AI 出的提示词）',
+            sub: '按图像栏现在的设置逐条提交：' + split.settingsLine(model) + (est ? ' · ' + est : ''),
+            items: planned.map(sg => ({ label: sg.label, text: sg.prompt, useRef: sg.useRef, sub: split.reviewSub(sg) })),
             applyLabel: '采用并生成这批图',
             hint: '逐条修改或删掉不想生成的片段',
-            retry: async () => (await planImageSegments()).map(sg => ({ label: sg.label, text: sg.prompt })),
+            retry: async () => (await split.planImageSegments()).map(sg =>
+              ({ label: sg.label, text: sg.prompt, useRef: sg.useRef })),
           });
           if (!items) { setStatus(''); return; }
-          const segs = items.map(it => ({ label: String(it.label || '').slice(0, 12), prompt: String(it.text || '').trim() })).filter(x => x.prompt);
+          const segs = items.map(it => ({ label: String(it.label || '').slice(0, 12),
+            prompt: String(it.text || '').trim(), useRef: it.useRef !== false })).filter(x => x.prompt);
           if (!segs.length) { Toast.err('没有可用的片段'); return; }
           $('splitInline').hidden = true;
-          const { prov, model } = currentModel();
-          await submitImageBatch(segs, prov, model);
+          /* 参考图要趁还在图像栏时传好：填占位卡那一步会切到视频栏，
+             之后 inputs() 问的就是视频栏那一份了。 */
+          const refs = segs.some(s => s.useRef)
+            ? (await uploadImageRefs(prov)).map(id => ({ assetId: id })) : [];
+          fillOn = !!($('splitFillVideo') && $('splitFillVideo').checked);
+          /* 设置快照必须趁还在图像栏时取：下面 fill() 会把界面切到视频栏，之后再读
+             高级参数读到的是视频那一栏的声明（图片请求带上 turbo / prompt_optimization 被平台拒收）。 */
+          const batchPlan = split.imageBatchPlan(model);
+          const placed = fillOn ? videoFill.fill(segs) : 0;
+          const fillNote = fillOn && placed < segs.length
+            ? (placed ? '已填 ' + placed + ' / ' + segs.length + ' 张占位卡进视频栏（放不下的照常生成）'
+              : '视频栏没有能收图片的空位，占位卡没填（照常生成）') : '';
+          const msg = await split.submitImageBatch(segs, prov, model, {
+            plan: batchPlan,
+            refs,
+            onTask: (i, taskId) => videoFill.markTask(i, taskId),
+            onSync: (i, saved) => videoFill.resolveSaved(i, saved),
+            onFail: (i, why) => videoFill.fail(i, why),
+          });
+          const orphans = fillOn ? videoFill.sweep() : 0;
+          setStatus(msg + (fillNote ? '；' + fillNote : '')
+            + (orphans ? '；' + orphans + ' 张占位卡没等到任务号，已摘掉' : ''));
         } catch (e) {
+          if (fillOn) videoFill.sweep();
           setStatus(''); Toast.err('拆分片段失败：' + errText(e));
         } finally { release(); }
       };
-      async function submitImageBatch(segs, prov, model) {
-        $('go').disabled = true;
-        try {
-          setStatus('批量生成 ' + segs.length + ' 张：正在上传参考图…');
-          const assetIds = await uploadImageRefs(prov);
-          const created = [];
-          let failed = 0, uncertain = 0, syncN = 0;
-          const failWhy = [];
-          const syncNotes = [];
-          for (let i = 0; i < segs.length; i++) {
-            const sg = segs[i];
-            try {
-              setStatus('批量生成 ' + segs.length + ' 张（' + (i + 1) + '/' + segs.length + '）：' + window.esc(sg.label));
-              const out = await withCreateRetry(() => createImageOnce(prov, model, sg.prompt, assetIds, 1), '第 ' + (i + 1) + ' 张「' + window.esc(sg.label) + '」创建失败，');
-              if (out.taskId) created.push({ provider: prov.id, id: out.taskId, prompt: sg.prompt,
-                extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: Number(val('dur')) || 0, model: (model && model.id) || '' } });
-              else if (out.sync) {
-                const sv = await saveSyncImages(prov, model, sg.prompt, out.sync, val('format'));
-                syncN += sv.length;
-                (sv.notes || []).forEach(n => syncNotes.push('「' + sg.label + '」' + n));
-              }
-            } catch (e) {
-              if (maybeSubmitErr(e)) { uncertain++; console.warn('[拆分] 片段「' + sg.label + '」结果未知：', e.message); }
-              else { failed++; failWhy.push('「' + sg.label + '」' + errText(e)); console.warn('[拆分] 片段「' + sg.label + '」提交失败：', e.message); }
-            }
-          }
-          if (created.length) await adoptTasks(created);
-          try { await loadServer(1); } catch (e) {}
-          tally.run(true);
-          if (uncertain) { try { await loadServer(1, true); } catch (e) {} }
-          const accepted = created.length + syncN;
-          const parts = ['已提交 ' + accepted + ' / ' + segs.length + ' 张' + (accepted ? '（右栏已列出）' : '')];
-          if (failed) parts.push(failed + ' 张失败：' + failWhy.slice(0, 2).join('；') + (failWhy.length > 2 ? ' 等' : ''));
-          if (syncNotes.length) parts.push(syncNotes.length + ' 张没存进资产库：' + syncNotes.slice(0, 2).join('；') + (syncNotes.length > 2 ? ' 等' : ''));
-          if (uncertain) parts.push(uncertain + ' 张当时没等到平台响应（可能已受理，以右栏列表为准，别重复生成）');
-          setStatus(parts.join('；'));
-        } finally { updateGoState(); }
-      }
 
       /* ============================ ⑨ 提交 ============================ */
       const SUBMIT_UI_MS = 12000, RESUBMIT_ARM_MS = 10000;
@@ -1720,6 +1720,7 @@ const StudioView = {
         for (const k of Object.keys(SLOT_DEF)) {
           if (k === 'audio' && TYPE === 'audio') continue;
           for (const x of (m[k] || [])) {
+            if (x.pending) continue;                 // 拆分占位卡还在等图，不发
             const role = SLOT_DEF[k].role;
             const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, role) : null;
             if (tpl && tpl.needsUpload) {
@@ -1748,6 +1749,7 @@ const StudioView = {
         for (const k of Object.keys(SLOT_DEF)) {
           if (k === 'audio' && TYPE === 'audio') continue;
           for (const x of (m[k] || [])) {
+            if (x.pending) continue;                 // 拆分占位卡在预览里也不算素材
             const role = SLOT_DEF[k].role;
             const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, role) : null;
             if (!tpl) continue;
@@ -1794,8 +1796,17 @@ const StudioView = {
           ['quality', 'ar', 'size', 'format'].forEach(k => { if (ap[k] !== undefined) std[k] = ap[k]; });
           const n = Math.max(1, Number(val('count')) || 1);
           if (ap.count !== undefined) std.count = n;
-          const assetIds = (cur().assets || []);
-          if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
+          /* 参考图与实发同一份拼装处：声明了模板的平台走 inputEntries（占位说明代替资产号），
+             没声明的平台才是老的 `inputs` 直传 —— 预览里显示的体要就是真发会发的那一个。 */
+          const refEntries = (inputs().image || []).filter(x => !x.pending && (x.assetId || x.src || x.url));
+          if (refEntries.length) {
+            if (Api.inputTemplate && Api.inputTemplate(prov, 'reference_image')) {
+              std.inputEntries = buildInputEntriesPlan(prov, model);
+            } else {
+              std.inputs = refEntries.map(x => ({ role: 'reference_image',
+                asset_id: (x.assetId && (!window.AssetTransfer || AssetTransfer.isPlatformId(x.assetId))) ? x.assetId : (x.src || x.url) }));
+            }
+          }
           const ex = advExtras();
           std.params = ex.params;
           std.shape = topBoolCtx();
@@ -1851,22 +1862,33 @@ const StudioView = {
         const p = Api.parseItem(prov, d) || {};
         return { taskId: p.genId || d.id || d.task_id || d.requestId || d.job_id || p.assetId, priceText: Api.priceText(prov, p) };
       }
-      async function createImageOnce(prov, model, prompt, assetIds, n) {
+      /* refs：上传好的参考图（字符串资产号或 { assetId }）；plan：拆分批量那份设置快照
+         （批次中途改界面不影响后面几条）。素材输入按 registry 的 inputTemplates 声明拼
+         （与视频那一路同一份拼装处），没声明的平台退回老的 `inputs` 直传写法。 */
+      async function createImageOnce(prov, model, prompt, refs, n, plan) {
+        const refList = (refs || []).map(r => (typeof r === 'string' ? { assetId: r } : r))
+          .filter(r => r && (r.assetId || r.url));
+        const ap = plan ? (plan.payload || {}) : advPlan(model, 'image').payload;
         const inputs2 = [];
-        const ap = advPlan(model, 'image').payload;
         ['quality', 'ar', 'size', 'format'].forEach(k => { if (ap[k] !== undefined) inputs2.push({ k: k, v: ap[k] }); });
         const std = { model: model.id, prompt };
         for (const x of inputs2) std[x.k] = x.v;
         if (ap.count !== undefined) std.count = n;
-        if (assetIds.length) std.inputs = assetIds.map(id => ({ role: 'reference_image', asset_id: id }));
-        const ex = advExtras();
+        if (refList.length) {
+          if (Api.inputTemplate && Api.inputTemplate(prov, 'reference_image')) {
+            std.inputEntries = refList.map(r => ({ role: 'reference_image', assetId: r.assetId || '', url: r.url || '' }));
+          } else {
+            std.inputs = refList.map(r => ({ role: 'reference_image', asset_id: r.assetId || r.url }));
+          }
+        }
+        const ex = plan ? { params: plan.params || {}, topBools: {}, summary: plan.summary || '' } : advExtras();
         std.params = ex.params;
-        std.shape = topBoolCtx();
+        std.shape = plan ? (plan.shape || {}) : topBoolCtx();
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
           snapTag: 'studio:image', snapLabel: model.id || '',
           log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
-            本批张数: n > 1 ? n + ' 张' : '', 参考图: assetIds.length ? assetIds.length + ' 张' : '',
+            本批张数: n > 1 ? n + ' 张' : '', 参考图: refList.length ? refList.length + ' 张' : '',
             顶层参数: ex.summary } },
           body: Api.createBody(prov, std),
         });
@@ -2153,9 +2175,14 @@ const StudioView = {
           mtype: e.type || '', provider: e.provider || '', providerName: e.providerName || '', model: e.model || '',
           status: isAsset ? 'succeeded' : (e.status || ''), kind: isAsset ? 'asset' : 'task',
           prompt: e.prompt || '',
+          /* 归档索引只带前 300 字：带上这个标记，详情面板才会去 /prompts 回源取全文 */
+          promptLocal: !!e.promptLocal,
           raw: e.src || '', media: isAsset ? mediaOf({ src: e.src }) : (e.src ? mediaOf({ src: e.src }) : ''),
           dl: e.dl || (aid ? Api.assetDl(aid) : ''),
           assetId: aid, taskId: isAsset ? '' : (e.genId || ''),
+          /* 已完成产物也要留住生成任务号：详情要按它回源取**全文**提示词
+             （本地归档索引只带前 300 字）、也要按它问平台拿上游参数。 */
+          genId: e.genId || '',
           ts: e.ts ? new Date(e.ts).getTime() : 0,
           tier: e.tier, res: e.res, ar: e.ar, dur: e.duration, quality: e.quality, format: e.format,
           voice: e.voice, durationSec: e.duration, credits: e.credits, size: e.byteLength,
@@ -2290,6 +2317,22 @@ const StudioView = {
         pager.reset();
         renderAll();
       };
+      /* 占位卡在「列表」这一路也要解：图出得快的时候，任务还没被轮询到就先以**已完成产物**
+         进了列表（adoptBuf 里那条任务随即被它顶掉），而轮询器只轮询还在跑的条目 ——
+         不在这里解，那几张占位卡就永远等不到人，回来还是占位状态。 */
+      function resolveFillsFromEntries(list3) {
+        if (!videoFill.pendingCount()) return;
+        for (const e of (list3 || [])) {
+          const tid = e.genId || (e.kind !== 'asset' ? e.id : '');
+          if (!tid) continue;
+          videoFill.resolveByTask(tid, {
+            kind: e.kind === 'asset' ? 'asset' : 'task',
+            assetId: e.assetId || (e.kind === 'asset' ? e.id : '') || '',
+            media: e.kind === 'asset' ? mediaOf({ src: e.src }) : '',
+            status: e.status || '', error: e.failMsg || '',
+          });
+        }
+      }
       function loadServer(morePages, noCache, stage) {
         const gen = serverGen;
         /* `stage`（整栏重取那两条路给的一份临时落点）：这一次取回来的先进 stage，界面上那一份
@@ -2309,11 +2352,12 @@ const StudioView = {
               onBatch: list2 => {
                 if (gen !== serverGen) return;
                 putList(MERGE_SERVER(list(), list2));
-                if (!stage) renderAll();
+                if (!stage) { resolveFillsFromEntries(list2); renderAll(); }
               },
             });
             if (gen !== serverGen) return { ok: false, stale: true, errors: {} };
             putList(MERGE_SERVER(list(), res.entries));
+            if (!stage) resolveFillsFromEntries(res.entries);
             const cursors = res.cursors, hasMore = res.hasMore, errs = res.errors || {};
             if (stage) { stage.cursors = cursors; stage.hasMore = hasMore; stage.errs = errs; }
             else { serverCursors = cursors; serverHasMore = hasMore; serverErrs = errs; }
@@ -2349,6 +2393,7 @@ const StudioView = {
           serverEntries = stage.entries; serverCursors = stage.cursors;
           serverHasMore = stage.hasMore; serverErrs = stage.errs;
           adoptBuf.length = 0;
+          resolveFillsFromEntries(serverEntries);
           LIST_CACHE.write(serverEntries);
         }
         return { ok: !lost, lost, errors: (r && r.errors) || {} };
@@ -2368,9 +2413,11 @@ const StudioView = {
         for (const one of list2) {
           const prov = provById(one.provider) || null;
           if (!prov) continue;
+          const archP = one.prompt ? '' : (Api.promptFor(prov.id, one.id) || '');
           upsertItem(Object.assign({
             mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, {}) : '',
-            provider: prov.id, status: 'queued', prompt: one.prompt || Api.promptFor(prov.id, one.id) || '',
+            provider: prov.id, status: 'queued', prompt: one.prompt || archP || '',
+            promptLocal: !one.prompt && !!archP,
             raw: '', media: '', dl: '', assetId: '', taskId: one.id, ts: Date.now(),
             local: false, localAsset: false,
           }, one.extra || {}));
@@ -2397,18 +2444,27 @@ const StudioView = {
         poller.kick();
       }
       function upgradeItem(prov, p, fallbackPrompt) {
-        upsertItem(Object.assign(itemFromPoll(prov, p), { prompt: (p.prompt || '') || fallbackPrompt || '' }));
+        const it = Object.assign(itemFromPoll(prov, p), { prompt: (p.prompt || '') || fallbackPrompt || '' });
+        upsertItem(it);
+        videoFill.resolveByTask(it.taskId, it);
       }
       function itemFromPoll(prov, p) {
         const done = p.done || p.status === 'succeeded' || p.status === 'done' || p.status === 'completed';
         const aid = p.assetId || '';
+        /* 平台不返回提示词时用本机归档索引兜底 —— 索引里只有前 300 字。
+           标上 promptLocal，详情面板才知道要回源取全文（不然「完整提示词」只到 300 字）。 */
+        const archP = p.prompt ? '' : (Api.promptFor(prov.id, p.id) || '');
         return {
           mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, p) : '',
-          provider: prov.id, model: p.model || '', status: p.status, kind: done ? 'asset' : 'task', prompt: p.prompt || Api.promptFor(prov.id, p.id) || '',
+          provider: prov.id, model: p.model || '', status: p.status, kind: done ? 'asset' : 'task', prompt: p.prompt || archP || '',
+          promptLocal: !p.prompt && !!archP,
           raw: p.url || '', media: done ? (aid ? Api.assetSrc(aid) : Api.mediaSrc(p.url)) : '',
           dl: aid ? Api.assetDl(aid) : (p.url ? '/fetch?url=' + encodeURIComponent(p.url) : ''),
           assetId: aid, taskId: p.id || '', ts: Date.parse(p.created || '') || (p.completed ? Date.parse(p.completed) : 0) || Date.now(),
           tier: p.tier, res: p.res, ar: p.ar, dur: p.duration, durationSec: p.duration,
+          /* 进度只在接口里：带上它，卡片那张状态牌的进度条才会跟着轮询走（签名里也带上，
+             否则卡片不重画、条子永远停在 0） */
+          progress: Number(p.progress) || 0,
           priceText: Api.priceText(prov, p) || '', error: p.error || '', local: false, localAsset: false,
         };
       }
@@ -2503,6 +2559,7 @@ const StudioView = {
         const upd = itemFromPoll(prov, p);
         Object.assign(it, upd, { taskId: it.taskId, ts: it.ts || upd.ts, local: false });
         writeThroughEntry(it, upd);
+        videoFill.resolveByTask(it.taskId, upd);
         if (upd.media && !Wb.isRunning(it)) announceMirror(it);
         missSweep();
       }
@@ -2523,19 +2580,21 @@ const StudioView = {
       const selected = new Set();
       const taskKeyOf = it => itemKey(it);
       const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.model,
-        it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts,
+        it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts, it.progress || 0,
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
         (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-',
         multiMode ? 'M' : '-', (multiMode && selected.has(taskKeyOf(it))) ? 'S' : '-'].join('|');
       function mediaBox(it) {
-        const run = Wb.isRunning(it), bad = Wb.isFailed(it);
-        if (run) return '<div class="timg"><span class="spin-dot"></span>' + window.esc(Wb.stText(it.status) || '生成中') + '</div>';
-        if (bad) return '<div class="timg" style="color:var(--err)">' + window.esc(Wb.stText(it.status) || '生成失败') + '</div>';
+        /* 任务态的占位牌与资产库同一份（Wb.plateHTML）：进行中 / 排队 / 失败 / 结果未知
+           的底色、结构与进度条长一个样，两页不再各画一套。 */
+        const plate = Wb.plateHTML({ kind: 'task', status: it.status, failMsg: it.error, progress: it.progress });
+        if (plate) return plate;
         if (it.mtype === '视频' && it.media) {
           return '<div class="timg playable">' + Wb.thumbs.mediaHTML(it.media, {
             inline: true, videoAttrs: 'playsinline preload=metadata',
-            mediaAttrs: 'title="就地播放；要看大图点下面的「放大」"' })
-            + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
+            mediaAttrs: 'title="就地播放；全屏看右下角那颗"' })
+            + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button>'
+            + Wb.fullBtnHTML() + '</div>';
         }
         if (window.isAudioType(it.mtype) && it.media) {
           return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
@@ -2566,8 +2625,8 @@ const StudioView = {
         if (!AL || !AL.showBadge || !AL.showBadge() || !AL.stateOf) return '';
         return window.badgeHTML(AL.stateOf(it));
       }
-      /* 图片产物 → 导演台画面轨这一条已删（2026-10 用户点名）：任务卡上只留「详情 / 放大 / 下载 / 删除」，
-         要把图放进导演台走资产库（那一页才是本机字节的真相所在）。 */
+      /* 图片产物 → 导演台画面轨这一条链路不走（2026-10 用户点名）：要把图放进导演台走资产库
+         （那一页才是本机字节的真相所在），任务卡上这几颗按钮都不许接回它。 */
       function cardHTML(it) {
         const bad = Wb.isFailed(it), unc = Wb.isUncertain(it);
         const run = running(it), cxProv = run ? provById(it.provider) : null;
@@ -2583,39 +2642,36 @@ const StudioView = {
           badgeHTML: srcBadgeOf(it), date: window.fmtWhen(it.ts), prompt: it.prompt,
           error: (bad || unc) && it.error ? String(it.error) : '', meta,
           actionsHTML: Wb.actsHTML(it, {
-            preview: !!it.media, previewLabel: '放大', cancel: canCx,
+            hasMedia: !!it.media, cancel: canCx,
             cancelWhy: (run && cxProv && !canCx) ? Wb.cancelWhyNot(cxProv) : '',
             retry: (bad || unc) && !it.noResend && !!(it.prompt || it.local),
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
           }),
-          detailHTML: '<div class="exp"><div class="exp-in"><div class="exp-body"><div class="cdet"></div></div></div></div>',
+          detailHTML: '',
         });
       }
       function fileNameOf(it) {
         return window.fileStamp(it.ts) + ' ' + window.fileSafe(it.prompt || it.mtype || '素材') + '.' + window.fileExtOf(it);
       }
       function bindCard(d, it) {
-        const det = d.querySelector('.cdet');
         const dtBtn = d.querySelector('.dt');
-        const detailOpen = () => d.classList.contains('is-open');
-        /* 开 / 收走公共件 Wb.expand（与资产库、收藏同一份）：0fr → 1fr 的长高过渡、
-           一次只开一条、按钮字样与 aria-expanded 都归它；这一页只喂内容。 */
-        const setOpen = now => {
-          if (window.Wb.expand.open(d, { force: now, scope: $('result') }) && det) renderDetail(it, det);
-        };
+        /* 开 / 收走公共件 createBand（与资产库紧凑档同一份）：详情接在那一行的下面，
+           一次只开一条，按钮字样与 aria-expanded 归 Wb.expand。 */
+        const flip = () => band.toggle(d, it);
         d.dataset.tkey = itemKey(it);
-        d._setOpen = setOpen; d._item = it; d._isOpen = detailOpen;
-        if (dtBtn) dtBtn.onclick = e => { e.stopPropagation(); setOpen(!detailOpen()); };
+        d._item = it;
+        if (dtBtn) dtBtn.onclick = e => { e.stopPropagation(); flip(); };
         const tp = d.querySelector('.tprompt');
-        if (tp) tp.onclick = e => { e.stopPropagation(); setOpen(!detailOpen()); };
-        /* 重画回来的卡带着 is-open 类：新画的按钮默认是「展开详情」，照类名对齐一次。 */
+        if (tp) tp.onclick = e => { e.stopPropagation(); flip(); };
+        /* 重画回来的卡带着 is-band 类：新画的按钮默认是「展开详情」，照类名对齐一次。 */
         window.Wb.expand.sync(d);
-        const pv = d.querySelector('.pv');
-        if (pv) pv.onclick = () => openLb(it);
         const imgWrap = d.querySelector('.timg');
         if (imgWrap && !imgWrap.querySelector('video,audio')) imgWrap.onclick = () => openLb(it);
         bindCardPlay(d, imgWrap);
+        /* 视频卡的全屏入口（图片卡点缩略图本身就是灯箱，不再另给按钮）。 */
+        const fullBtn = d.querySelector('.tfull');
+        if (fullBtn) fullBtn.onclick = e => { e.stopPropagation(); openLb(it); };
         const wrap = imgWrap;
         const media = wrap ? wrap.querySelector('video[data-src], video[src], img') : null;
         if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
@@ -2641,8 +2697,7 @@ const StudioView = {
         Wb.bindActs(d, it, {
           fileName: fileNameOf(it),
           dlUrl: it.dl || it.media || '',
-          onDetail: () => setOpen(!detailOpen()),
-          onPreview: () => openLb(it),
+          onDetail: flip,
           onCancel: async () => { await Wb.cancelTask(provById(it.provider), it.taskId); it.status = 'cancelled'; renderAll(); Toast.receipt('已取消'); },
           onRetry: () => retryItem(it),
           onSaveLocal: async () => {
@@ -2689,12 +2744,10 @@ const StudioView = {
         const oldKey = old ? (old.getAttribute('data-thumb-key') || '') : '';
         const oldCls = old ? old.className : '';
         if (old) old.remove();
-        const wasOpen = d.classList.contains('is-open');
         d.innerHTML = cardHTML(it);
         const now = d.querySelector('.timg video, .timg img');
         if (old && now && oldKey && now.getAttribute('data-thumb-key') === oldKey && now.className === oldCls) now.replaceWith(old);
         bindCard(d, it);
-        if (wasOpen) { const det = d.querySelector('.cdet'); if (det) renderDetail(it, det); }
         return d;
       }
       /* 左栏已经有用户自己写的东西时，「重试」不许直接把它盖掉 —— 覆盖之前先确认。
@@ -2720,6 +2773,7 @@ const StudioView = {
           }
           setType('audio', true);
           $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
+          $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
           rec.status = 'creating'; rec.error = ''; rec.noResend = false; saveAudioTasks(); renderAll();
           setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
           updateGoState();
@@ -2738,6 +2792,7 @@ const StudioView = {
         $('model').value = prov.id + '::' + hit.id;
         $('model').dispatchEvent(new Event('change'));
         $('prompt').value = it.prompt || '';
+        $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
         setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
         updateGoState();
       }
@@ -2773,6 +2828,14 @@ const StudioView = {
            不在 JS 里另抄一份 6px / 280ms。 */
         onNew: el => { try { el.classList.add('card-enter'); } catch (e) {} },
       });
+      /* 任务卡的详情接在那一行下面（与资产库紧凑档同一份公共件）。 */
+      const band = createBand({
+        keyOf: it => itemKey(it),
+        cardOf: k => cardList.el(k),
+        hostOf: () => $('result'),
+        renderDetail: (it, host) => renderDetail(it, host),
+        labelOf: it => Wb.stText(it.status),
+      });
       const browseList = () => filteredItems().filter(x => x.media);
       function renderAll() {
         mergedBatch = mergedItems();
@@ -2783,7 +2846,9 @@ const StudioView = {
           paintCounts();
           paintAi();
           cardList.paint(items);
+          band.afterPaint();
           paintPullBtn();
+          paintToVideoBtn();
           taskMulti().paintBar(bulkEls);
           /* 批量条上那句提示：选中的这些里有多少还没收 / 已经收着（公共件算，三页同一句）。 */
           const ftip = taskMulti().favTip();
@@ -2844,13 +2909,16 @@ const StudioView = {
       });
       $('result').addEventListener('click', e => {
         const card = e.target.closest('.task');
-        if (!card || !card._setOpen) return;
+        if (!card || !card._item) return;
         if (e.target.closest('.dt') || e.target.closest('.tprompt') || e.target.closest('button')) return;
-        if (e.target.closest('.exp') || e.target.closest('.acts')) return;
+        if (e.target.closest('.acts')) return;
         if (e.target.closest('video') || e.target.closest('audio')) return;
+        /* 缩略图不是「展开详情」的入口：图片点开是灯箱、视频有播放 / 全屏两颗按钮 ——
+           以前这里漏了 .timg，点一下预览图会同时开灯箱与展开详情。 */
+        if (e.target.closest('.timg')) return;
         /* 多选时点卡片是**勾选**，不是展开详情（与资产库同一套手感） */
-        if (multiMode) { if (card._item) taskMulti().toggle(card._item); return; }
-        card._setOpen(!card._isOpen());
+        if (multiMode) { taskMulti().toggle(card._item); return; }
+        band.toggle(card, card._item);
       });
       $('result').addEventListener('click', e => {
         const b = e.target.closest('#histRetry');
@@ -2869,7 +2937,9 @@ const StudioView = {
         prompt: it => it.prompt,
         status: it => it.status,
         provider: it => provById(it.provider),
-        taskId: it => it.taskId || '',
+        /* 已完成产物没有 taskId（那是给轮询用的），但生成任务号仍在 genId 上：
+           详情的「完整提示词」要按它回源取全文，上游参数也要按它问一次。 */
+        taskId: it => it.taskId || it.genId || '',
         rows: it => [
           ['平台', it.provider ? provLabelFor(it) : ''],
           ['型号', it.model],
@@ -2916,6 +2986,21 @@ const StudioView = {
         for (const p of provGroups()) for (const m of (p.models || [])) if (Capabilities.specs(m).some(sp => arr.includes(sp.role))) return { p, m };
         return null;
       }
+      /* 「哪一家收参考图、一次收几张」只问声明：容量从大到小，被当前已选素材互斥挡掉的那几家不算。
+         换型号那一档要说得出换成哪家、能收几张，不能盲选。 */
+      function bestRefModel() {
+        if (!window.Capabilities || !Capabilities.rule) return null;
+        const role = SLOT_DEF.image.role, held = heldRoles();
+        let best = null;
+        for (const p of provGroups()) for (const m of (p.models || [])) {
+          if (!Capabilities.specs(m).some(sp => sp.role === role)) continue;
+          if (Capabilities.blockedRoles && Capabilities.blockedRoles(m, held).has(role)) continue;
+          const cb = Capabilities.comboCovering ? Capabilities.comboCovering(m, [role]) : null;
+          const max = (Capabilities.rule(m, role, cb && cb.id).max) || 0;
+          if (max > 0 && (!best || max > best.max)) best = { p, m, max };
+        }
+        return best;
+      }
       async function refIntoSlot(mtype, p, o) {
         const auto = !!(o && o.autoSwitch);
         let kind = (o && o.forceKind) || slotKindFor(mtype);
@@ -2943,14 +3028,16 @@ const StudioView = {
           renderInputArea(); updateMode(); updateGoState();
           return { ok: true, kind, name };
         }
-        if (!src && !p.fileKey) return { ok: false, code: 'nosrc', why: '这条素材既没有本机地址也没有本机文件号，取不到字节' };
-        setStatus('正在取回素材字节…');
-        let blob = null;
-        try {
-          blob = p.fileKey ? await Fav.fileOf({ kind: 'local', fileKey: p.fileKey })
-            : await AssetTransfer.blobOf(p.dl || (window.Api && Api.mediaSrc ? Api.mediaSrc(src) : src));
-        } catch (err) {
-          return { ok: false, code: 'nobytes', why: '取回素材失败：' + errText(err) };
+        if (!src && !p.fileKey && !p.file) return { ok: false, code: 'nosrc', why: '这条素材既没有本机地址也没有本机文件号，取不到字节' };
+        let blob = p.file || null;
+        if (!blob) {
+          setStatus('正在取回素材字节…');
+          try {
+            blob = p.fileKey ? await Fav.fileOf({ kind: 'local', fileKey: p.fileKey })
+              : await AssetTransfer.blobOf(p.dl || (window.Api && Api.mediaSrc ? Api.mediaSrc(src) : src));
+          } catch (err) {
+            return { ok: false, code: 'nobytes', why: '取回素材失败：' + errText(err) };
+          }
         }
         if (!blob || !blob.size) return { ok: false, code: 'nobytes', why: '这条素材的字节取不到了（本机文件可能已经不在了）' };
         const f = new File([blob], name + (mtype === '视频' ? '.mp4' : window.isAudioType(mtype) ? '.mp3' : '.png'),
@@ -2977,6 +3064,7 @@ const StudioView = {
         }
         if (it.prompt) {
           $('prompt').value = it.prompt;
+          $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
           /* 提示词也是这一型草稿的一部分：只写 textarea 的话，切类型再切回来
              （setType 从 cur().prompt 回填）这条就丢了。 */
           cur().prompt = it.prompt;
@@ -3020,6 +3108,29 @@ const StudioView = {
         setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>'
           + '<span class="warn">　确认后点「生成」。</span>');
       }
+
+      /* ---------- 两栏联动：视频栏的提示词 → 图像栏 · 图像栏的产物 → 视频栏参考素材 ----------
+         两件事都不新造载荷格式：填提示词走 reuseInto 那三处一起写（节点 + 这一型草稿 + 盘上那份），
+         落素材槽的唯一出口仍是 refIntoSlot（拖放那一路走 AssetRef，两条不许各长一份）。
+         两条「送过去」都住在 pages/studio/cross-col.js —— 一份实现两个方向。 */
+      const cross = createCrossCol({
+        $, type: () => TYPE, st: ST, setType,
+        inputs, slotDef: SLOT_DEF,
+        slots: () => slots, slotItems, slotRoom, blockedSlotKinds, slotTakesType,
+        clearSlot, fitComboFor, setCombo, bestRefModel, refIntoSlot,
+        renderInputArea, updateMode, updateGoState, paintToVideoBtn,
+        confirm: Confirm, toast: Toast, setStatus, writeLS, cur, provGroups,
+      });
+      $('toImageBtn').onclick = () => { cross.promptIntoImage().catch(e => setStatus('<span class="err">' + window.esc(errText(e)) + '</span>')); };
+      /* 多选条上那颗：勾的图片里有才点得动（与「存回本机」同一个范围口径 —— 先勾选才有点的理由）。 */
+      function paintToVideoBtn() {
+        const btn = $('bulkToVideo');
+        if (btn) btn.disabled = !taskMulti().selected().some(it => window.mediaKindOf(it.mtype) === 'image');
+      }
+      $('bulkToVideo').onclick = () => {
+        cross.imagesIntoVideoRef(taskMulti().selected()).catch(e => setStatus('<span class="err">' + window.esc(errText(e)) + '</span>'));
+      };
+
       async function applyReuseFromAssets() {
         let p2 = null;
         try { p2 = JSON.parse(readLS('sk_reuse', '') || 'null'); } catch (e) {}
@@ -3434,6 +3545,7 @@ const StudioView = {
           renderModelOptions();
           slots = modelSlots();
           $('splitBtn').hidden = TYPE !== 'image';
+          $('toImageBtn').hidden = TYPE !== 'video';
           if (TYPE !== 'image') $('splitInline').hidden = true;
           renderParams();
           renderInputArea();
@@ -3480,6 +3592,23 @@ const StudioView = {
         renderAll();
         pager.bindButtons();
         pullMore = pager.bindScroll($('result'));
+        /* 能力清单是**逐家到货**的（每家落定广播一次 wb:cap-ready）：先挂上补画，再发那轮 load。
+           不挂的话，型号下拉与素材槽停在「能力还没回来」的那一帧 —— 整轮 load 要等最慢的那一家
+           （各家并发、每家最长 25 秒），SparkCine 明明几秒就回来了，参考图槽位却一直不出，
+           看起来就是「参考能力加载不出来」。素材库与导演台各自接了同一份广播，这里是工作台那一份。 */
+        let capRepaintTimer = 0;
+        const repaintCaps = () => {
+          if (bootStopped) return;
+          clearTimeout(capRepaintTimer);
+          capRepaintTimer = setTimeout(() => {
+            if (bootStopped) return;
+            renderModelOptions();
+            paintLeft();
+            refreshCaps();
+          }, 250);
+        };
+        window.addEventListener('wb:cap-ready', repaintCaps);
+        disposers.push(() => { clearTimeout(capRepaintTimer); window.removeEventListener('wb:cap-ready', repaintCaps); });
         try { await Capabilities.load(REG); } catch (e) {}
         if (bootStopped) return;
         renderModelOptions();
@@ -3551,6 +3680,7 @@ const StudioView = {
       if (!pageEl.value) return;
       collectMain();
       paintAiBtns();
+      paintSplitOpts();
       try {
         /* 三份互不依赖（都是往 window 上挂自己的那一面），一起取：
            以前逐份 await，谁也没等谁，白串三条往返。 */

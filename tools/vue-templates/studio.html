@@ -26,6 +26,8 @@
                    模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
               <span class="btn-host" data-r="polishHost"></span>
               <span class="btn-host" data-r="splitHost"></span>
+              <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
+              <button class="ghost" type="button" data-r="toImageBtn" title="把这段提示词填进图像栏"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>
               <span class="sp"></span>
               <button class="tool danger" data-r="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span><span class="tx">一键清空</span></button>
             </div>
@@ -35,24 +37,14 @@
                 <span class="pinl-tt">拆分片段生成</span>
                 <span class="pinl-note">每张独立计费。</span>
               </div>
-              <div class="split-opts">
-                <label>张数 <select data-r="splitCount">
-                  <option value="">自动</option>
-                  <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
-                </select></label>
-                <label>拆分维度 <select data-r="splitDim">
-                  <option value="">自动</option>
-                  <option>按时间顺序</option>
-                  <option>按场景变化</option>
-                  <option>按动作或状态阶段</option>
-                  <option value="__custom">自定义…</option>
-                </select></label>
-                <label data-r="splitDimCustomWrap" hidden><input data-r="splitDimCustom" maxlength="60"
-                  placeholder="例：按主角情绪变化"></label>
-                <span class="sp"></span>
-                <button class="tool acc" data-r="splitGo">开始规划</button>
-                <button class="tool" data-r="splitCancel">取消</button>
-              </div>
+              <!-- 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层
+                   window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，
+                   这里只留一块空宿主，页面挂载时灌进去。 -->
+              <div data-r="splitOpts"></div>
+              <label class="fill-video-row">
+                <input type="checkbox" data-r="splitFillVideo">
+                <span>生成后填入视频栏参考素材（生成完自动就位）</span>
+              </label>
             </div>
             <div class="style-row" data-r="styleRow" hidden>
               <label>风格 / 音色描述 <span style="color:var(--err)">*</span></label>
@@ -123,6 +115,9 @@
             <!-- 「存回本机」是**多选才出现**的动作，存的是**勾选的那几条**（不是整屏）：
                  不多选就点它，等于「把这一屏都存一遍」—— 那不是用户的意思。 -->
             <button class="ghost" id="stPullLocal" data-r="pullLocalBtn"><span class="ic"><span data-icon="box" data-size="13"></span></span> <span class="tx">存回本机</span></button>
+            <!-- 勾选的图片送进视频栏的参考素材（只在图像栏 + 勾了图片才点得动）：
+                 视频型号收不收参考图、收几张由能力声明说了算，收不下时当场报数。 -->
+            <button class="ghost" data-r="bulkToVideo" disabled><span data-icon="video" data-size="13"></span> 送进视频栏</button>
             <span class="bk-tip" data-r="bulkTip">点卡片勾选</span>
             <span class="sp" style="flex:1"></span>
             <button class="ghost" data-r="multiExit">退出多选</button>

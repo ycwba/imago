@@ -31,21 +31,20 @@ const h = require('./harness.cjs');
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready(), 25000);
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
 
-    /* 默认收起，且在没有快照时给出「尚未发送」的占位。
-       ⚠ 这一块现在是**并排两栏**（左边「预览 · 还没发」= 发送前预览，右边「实发 · 最近一次」= 真发出去的那一次），
-       所以「请求体」那一栏是**第二个** pre —— 取第一个会读到预览那栏（那是纯算出来的那一份，
-       与投进来的快照不是一回事）。 */
+    /* 默认收起，且在没有快照时给出「尚未算出 / 预览」的占位。
+       ⚠ 这一块现在只有**一栏**：显示的是「本次输入将要发出的那一份」（预览），
+       真发出去的那一份只在单栏快照（`RawRequest.html`）里回看 —— 所以这里只有一个 pre。 */
     const tag = 'dir:shot:sh1';
     await page.waitFor(() => !!document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]'), 15000);
     const before = await page.eval(() => {
       const el = document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]');
-      const ps = el.querySelectorAll('.raw-half pre');
       return { open: el.open, summary: el.querySelector('summary').textContent,
-        halves: ps.length, pre: ps[1] ? ps[1].textContent : (el.querySelector('pre') || {}).textContent };
+        halves: el.querySelectorAll('.raw-half').length, pres: el.querySelectorAll('pre').length,
+        pre: (el.querySelector('pre') || {}).textContent || '' };
     });
     if (before.open) throw new Error('原始请求折叠条默认不该展开');
-    if (!/尚未发送|预览中/.test(before.summary)) throw new Error('没有快照时摘要不对：' + before.summary);
-    if (before.halves !== 2) throw new Error('并排两栏不对：' + before.halves);
+    if (!/尚未算出|预览/.test(before.summary)) throw new Error('没有快照时摘要不对：' + before.summary);
+    if (before.halves !== 0 || before.pres !== 1) throw new Error('预览块应当是单栏：halves=' + before.halves + ' pres=' + before.pres);
 
     /* 合成一份快照：生产路径里 `Api.request` 先把请求体过一遍 `snapOf` 再投事件，这里照做。
        headers / 授权字段必须被剔除，dataURL 压成摘要，长提示词截断。 */
@@ -60,19 +59,31 @@ const h = require('./harness.cjs');
         at: Date.now(),
       } }));
     }, tag);
-    await page.waitFor(() => document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]').classList.contains('has-snap'), 10000);
+    /* 预览块**不看**发出去的那一份：收到快照后，它的正文仍是「将要发」的请求体 */
+    await page.waitFor(() => document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]'), 10000);
     const after = await page.eval(() => {
       const el = document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]');
-      const ps = el.querySelectorAll('.raw-half pre');
       return { open: el.open, summary: el.querySelector('summary').textContent,
-        pre: ps[1] ? ps[1].textContent : (el.querySelector('pre') || {}).textContent };
+        pre: (el.querySelector('pre') || {}).textContent || '' };
     });
     if (after.open) throw new Error('收到快照不该自动展开');
-    if (!/探针平台/.test(after.summary)) throw new Error('摘要没有平台名：' + after.summary);
-    if (!/第一句画面提示词/.test(after.pre) || !/嵌套提示词/.test(after.pre)) throw new Error('请求体没有展示提示词：' + after.pre);
-    if (!/<dataURL image\/png/.test(after.pre)) throw new Error('dataURL 没有压成摘要：' + after.pre.slice(0, 200));
-    if (after.pre.includes('AAAA')) throw new Error('dataURL 原文被塞进了 DOM');
-    if (/secret-token|Authorization|Cookie/i.test(after.pre)) throw new Error('请求体展示了凭据字段：' + after.pre.slice(0, 200));
+    if (/已发送/.test(after.summary)) throw new Error('预览块不该被已发送的快照顶掉标题：' + after.summary);
+    /* 发出去的那一份在单栏快照里（素材库 / 批量结果那一族）：脱敏与摘要只在那一份上看。 */
+    const sent = await page.eval(t => {
+      const host = document.createElement('div');
+      host.innerHTML = window.RawRequest.html(t);
+      window.RawRequest.bind(host);
+      document.body.appendChild(host);
+      const out = { summary: (host.querySelector('summary') || {}).textContent || '',
+        pre: (host.querySelector('pre') || {}).textContent || '' };
+      host.remove();
+      return out;
+    }, tag);
+    if (!/已发送/.test(sent.summary) || !/探针平台/.test(sent.summary)) throw new Error('快照摘要没有说清已发送与平台：' + sent.summary);
+    if (!/第一句画面提示词/.test(sent.pre) || !/嵌套提示词/.test(sent.pre)) throw new Error('请求体没有展示提示词：' + sent.pre);
+    if (!/<dataURL image\/png/.test(sent.pre)) throw new Error('dataURL 没有压成摘要：' + sent.pre.slice(0, 200));
+    if (sent.pre.includes('AAAA')) throw new Error('dataURL 原文被塞进了 DOM');
+    if (/secret-token|Authorization|Cookie/i.test(sent.pre)) throw new Error('请求体展示了凭据字段：' + sent.pre.slice(0, 200));
 
     /* 展开 → 切到另一镜再切回来：整栏重画后仍保持展开（openTags 按 tag 记）。 */
     await page.eval(() => {
@@ -86,11 +97,12 @@ const h = require('./harness.cjs');
     await page.waitFor(() => !!document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]'), 15000);
     const reopened = await page.eval(() => {
       const el = document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]');
-      const ps = el.querySelectorAll('.raw-half pre');
-      return { open: el.open, pre: ps[1] ? ps[1].textContent : (el.querySelector('pre') || {}).textContent };
+      return { open: el.open, summary: el.querySelector('summary').textContent,
+        pre: (el.querySelector('pre') || {}).textContent || '' };
     });
     if (!reopened.open) throw new Error('切镜重画后展开状态被收回去了');
-    if (!/第一句画面提示词/.test(reopened.pre)) throw new Error('重画后请求体丢了');
+    if (!/尚未算出|预览/.test(reopened.summary)) throw new Error('重画后预览块的标题不对：' + reopened.summary);
+    if (!reopened.pre) throw new Error('重画后请求体那一格丢了');
 
     /* Api.snapOf 的独立判据：截断与数组 / 深度封顶。 */
     const snap = await page.eval(() => window.Api.snapOf({
@@ -120,7 +132,7 @@ const h = require('./harness.cjs');
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
-    console.log('✓ 原始请求：默认收起 / 脱敏与摘要 / 展开后重画仍开 / 三型标签各就位');
+    console.log('✓ 原始请求：默认收起 / 单栏预览不被已发送顶掉 / 快照脱敏与摘要 / 展开后重画仍开 / 三型标签各就位');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

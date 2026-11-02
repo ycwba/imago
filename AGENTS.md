@@ -342,7 +342,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 按钮 | `.pri`（主）`.ghost`（次）`.tool`（磁贴）`.ui-linkbtn`（文字链式小动作） |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
-| 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.pinl` |
+| 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.pinl` `.split-opts`（`SplitPlan.html` 画的那一排） |
 | 空态 / 加载 | `.empty` `.ui-wait` |
 | 工具条 / 视图切换 / 分页 | `.toolbar` `.viewtoggle` `.pager-row` `.pginfo` |
 | 浮层 | `.ui-vrow` `.ui-voice` `.ui-cands` |
@@ -690,6 +690,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 弹窗 / 确认 | `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | AI 挑几条 / 就地润色 / 提示词表单 | `AiFind.run` / `InlinePolish` / `PromptForm`（正文六句只在 `TextAI`）；`AiFind.run` 先 **await 页面的重画**再写回执 —— 素材库 / 收藏的 render 是异步的，反过来的话失败 / 没挑到那一句会被「N 项」覆盖，看起来像点了没反应 |
+| 「拆成几张 / 按什么维度拆」那一排选项 | `SplitPlan`（`web/ui/forms.js`）：工作台图像栏「拆分片段生成」与导演台右栏「按描述生成这一镜的画面」共用这一份 —— 张数档与维度档（`FAM[家]`）、那一排的 HTML（`html`）、读 DOM（`read`，节点取手由页面交进来，件内不查 `document`）、发给文字 AI 的「张数：…／拆分维度：…」那两行（`userLines`）都只在这里。两家的契约仍然分开（工作台 `img_split.json`、导演台 `story.json`），共享的是控制面与那两行的写法；当前值由调用方拿着（导演台右栏每 3 秒整片重画，存 DOM 会被抹掉），「自动」那句报的张数范围必须与各家契约正文里的兜底那一条一致（判据 `tests/split-plan.mjs`） |
 | 「让 AI 干一件事」那颗按钮的外观 | `aiBtnHTML` / `aiBtnState`（`web/ui/ui.js`）：页面里的动作按钮外壳只有 `.tool.acc` + `.ic` 图标 + `.tx` 一行字这一种；忙与闲只换 `.tx`，那两句话挂在节点的 `data-idle` / `data-busy` 上，整栏重画（导演台右栏每 3 秒一次）也不会丢当前状态。**名字与说明句在各家族那一份里**：润色类 `InlinePolish.btnHTML`（作用域只写进 title，按钮上那行字全站同一句「AI 润色」）、AI 搜索类 `AiFind.btnHTML`（`LABEL` / `BUSY` / `TITLE` / `failText` 只在那一处；外壳按**搜索组件**画成 `.fb-ai`，与输入框同高、同档小圆角（`--radius-6`，与「多选 / 刷新」一致）、不带图标，不是紫色动作按钮）；页面不许自己拼 `<button class="tool acc">` / `<button class="fb-ai">` 或忙时重写 innerHTML（判据 `tests/selfcheck.cjs` §5b） |
 | 页面尺寸 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS` |
 | 页面样式表挂载 / 模块预取 | `web/core/page-css.js` 的 `ensureCss` / `preloadModule`（全站唯一的 `createElement('link')`；样式表地址按文档根解析，模块地址按 `web/app.js` 解析 —— 与动态 `import()` 同一基准）。样式表路径只在 `WB_ROUTES.pages[].css` 存一份，挂载点在 `web/app.js` 的页面 loader；预取与真正切页共用这两份去重表 |
@@ -835,7 +836,9 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     候选条右侧的展开 / 翻条 / 「1 / 2」是浮在缩略图右缘的一枚小控件（绝对定位，不占排版宽度）；
     剪辑态预览与生成态同一副尺寸。中栏是 `#midCol > #midBody（整片重画）+ #shotStripHost（常驻的镜头顺序条）`：
     顺序条只属于生成态，它的高度走 `--strip-h`（Wb.split 的 `dir_strip`）。
-  - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）
+  - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）；
+    「按描述生成这一镜的画面」那一排张数 / 拆分维度选项由公共件 `SplitPlan`（`dir` 那一族）画，
+    当前值存在 engine 的模块变量里并随高级参数同一枚键落盘 —— 这一栏每 3 秒整片重画，存 DOM 会被抹掉
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）；
     拆分镜 / 改稿前的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 + `renderSplitPanel`
     重画钩子，宿主与润色面板同为 `#polishInline`）
@@ -1007,6 +1010,15 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     `loadCaps` / `onCapReady`，与导演台右栏 `installCapRepaint` 同一套）—— 不接这一下，型号下拉会永远
     停在「没配生图平台」那句假话上。
 - 工作台三类型共用一页：`?t=video|image|audio`；型号与提示词分类型记住；右栏历史三类型合并、按 `assetId` 去重。
+- **视频栏与图像栏的两颗「送过去」只在页面里拼载荷，不新造写入格式**：
+  · 「送进图像栏」把视频栏那句提示词按 `reuseInto` 那三处一起写（节点 + 该型草稿 + `studio_prompt_image`），
+    图像栏已有草稿且不是同一句 → 先 `Confirm.ask` 再替换；写完不自动开始生成。
+  · 「送进视频栏」（卡片一颗 + 多选条一颗，同一个函数）把图片产物落进视频栏的参考素材，
+    唯一出口仍是 `refIntoSlot`（拖放那一路走 `AssetRef`，两条不许各长一份）。
+  · 能力闸必须在 `setType('video')` **之后**现读：`slots` / `currentModel` / `provGroups` 都问当前那一栏，
+    不切过去就量不到视频栏的真相（切栏无损，三栏各留一份草稿）。放不满先问、槽满先问清栏、
+    型号不收参考图或被首尾帧互斥挡住 → `Confirm.choose` 给「换一家会收的型号 / 放进首尾帧那一格 / 不动」，
+    不静默改用户已选的型号，也不假装放成功了。
 - 右栏的「AI 搜索」与素材库 / 收藏 / 资产库同一份 `AiFind.run`：搜索框里那句话交给文字 AI，
   它从这一栏已取回的历史（时间窗与「隐藏云端」都算上，最多 100 条）里挑几条；挑中的集合与名次
   并进 `filteredItems()` 的筛选与排序，清掉芯片就回到完整列表。

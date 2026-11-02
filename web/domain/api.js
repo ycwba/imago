@@ -1815,8 +1815,12 @@ function topBoolValue(decl, on) {
       const spec = (prov && prov.list) || {};
       const m = spec.map || {};
       const g = k => this.pick(raw, m[k]);
-      const outs = g('outputs');
-      const firstOut = Array.isArray(outs) ? outs[0] : null;
+      const outsDecl = g('outputs');
+      /* 产物两种写法：列表行给 output_asset_ids（id 串数组），详情端点给 outputs:[{asset_id}] ——
+         只认声明字段的话，走详情的轮询永远拿不到产物号（卡片已完成却没图，占位卡也解不了）。 */
+      const outsRaw = Array.isArray(outsDecl) ? outsDecl : (Array.isArray(raw.outputs) ? raw.outputs : []);
+      const outIds = outsRaw.map(a => (typeof a === 'string' ? a : (a && (a.asset_id || a.assetId || a.id)) || '')).filter(Boolean);
+      const firstOut = outIds[0] || null;
       const cRaw = g('credits');
       const credits = cRaw == null ? null
         : (typeof cRaw === 'object' ? (cRaw.charged ?? cRaw.held ?? null) : cRaw);
@@ -1846,7 +1850,7 @@ function topBoolValue(decl, on) {
            这里要是把 `/asset/<号>` 整条地址当产物号递过去，算出来的键就是 `|a:/asset/<号>` ——
            同一个文件两份记录，列表加载时再下一遍（表现为「自动存本机存了双份」）。 */
         const srcs = up ? [{ id: firstOut, url: up }]
-          : (Array.isArray(outs) ? outs.filter(Boolean).map(a => ({ id: a, url: assetSrc(a) })) : []);
+          : outIds.map(a => ({ id: a, url: assetSrc(a) }));
         for (const s of srcs) AssetLocal.offer(prov && prov.id, {
           /* provider 要跟着递：runOne 落盘时把它写进本机资产条目（「这条是本机哪一家生成的」
              是资产库列表与筛选的读数）。这一族在任务完成那一刻就先排上镜像，不给 provider 的话

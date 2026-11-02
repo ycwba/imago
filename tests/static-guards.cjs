@@ -74,6 +74,7 @@ const G3_EMPTY_CATCH = [
   { file: 'web/domain/gen-forms.js', max: 8, why: '存量：型号/参数/配音表单族吞错的一批（从 assetlib.js 拆出）' },
   { file: 'web/core/page-context.js', max: 3, why: '存量：页面上下文吞错的一批' },
   { file: 'web/ui/kv.js', max: 3, why: '存量：键值存储吞错的一批' },
+  { file: 'web/pages/studio/split.js', max: 3, why: '拆分片段的兜底解析与列表刷新吞错（拆不出方案另行报错；刷新失败下一轮重拉）' },
   { file: 'web/core/hooks.js', max: 2, why: '存量：生命周期钩子吞错的一批' },
   { file: 'web/domain/asset-transfer.js', max: 2, why: '存量：搬运/转存吞错的一批' },
   { file: 'web/ui/net.js', max: 2, why: '存量：统一网络层吞错的一批' },

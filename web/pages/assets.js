@@ -2,6 +2,7 @@
    数据与副作用全部走已有的公共层（AssetLib / AssetLocal / Wb / Fav / AiFind / AiChip / Chips），
    组件只负责「这一屏长什么样」；卡片复用、缩略图、灯箱、详情、分页、多选、存回本机仍是全站那一份实现。 */
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, inject, watch } from '../../vue.runtime.esm-browser.prod.js';
+import { createBand } from '../ui/index.js';
 import { render } from '../render/assets.js';
 
 const PAGE_MODE = window.pageModeOf('assets');
@@ -572,32 +573,10 @@ export default {
       return window.Wb.isUncertain(a.status) ? '重发' : '重试';
     }
 
-    /* 状态牌：这一格没有画面、但有话要说。 */
+    /* 状态牌：这一格没有画面、但有话要说。牌子本身在公共层 `Wb.plateHTML` ——
+       工作台的任务卡与本页共用同一份底色、结构与短因（以前两页各画一套）。 */
     function plateHTML(a) {
-      if (a.kind !== 'task') return '';
-      const st = String(a.status || '').toLowerCase();
-      const txt = window.Wb.stText(a.status);
-      if (CALMED_ST.includes(st)) {
-        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + window.esc(txt) + '</span></span></div>';
-      }
-      if (window.Wb.isUncertain(a.status)) {
-        return '<div class="timg"><span class="plate plate--unc"><span class="plate-st">' + window.esc(txt) + '</span>'
-          + '<span class="plate-t">可能已扣费</span></span></div>';
-      }
-      if (window.Wb.stBad(a.status)) {
-        /* 短因取平台原话的头一截（429 / 内容审核…），完整原话在下面那一行与展开的详情里。 */
-        const short = String(a.failMsg || '').replace(/\s+/g, ' ').trim().slice(0, 22);
-        return '<div class="timg"><span class="plate plate--fail"><span class="plate-st">' + window.esc(txt) + '</span>'
-          + (short ? '<span class="plate-t">' + window.esc(short) + '</span>' : '') + '</span></div>';
-      }
-      if (st === 'queued') {
-        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + window.esc(txt) + '</span></span></div>';
-      }
-      if (window.Wb.stLive(a.status)) {
-        return '<div class="timg"><span class="plate plate--live"><span class="plate-st">' + window.esc(txt) + '</span>'
-          + '<span class="plate-bar"><i style="width:' + (a.progress || 0) + '%"></i></span></span></div>';
-      }
-      return '';
+      return window.Wb.plateHTML({ kind: a.kind, status: a.status, failMsg: a.failMsg, progress: a.progress });
     }
 
     function assetCardHTML(a) {
@@ -615,7 +594,8 @@ export default {
         media = '<div class="timg"><span class="plate plate--plain"><span class="plate-st">已完成</span>'
           + '<span class="plate-t">正在同步列表…</span></span></div>';
       } else if (a.type === '视频') {
-        media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' }) + '</div>';
+        media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' })
+          + window.Wb.fullBtnHTML() + '</div>';
       } else if (window.isAudioType(a.type)) {
         media = '<div class="timg"><span class="plate plate--audio"><span class="plate-st">'
           + window.esc(window.fileExtOf(a).toUpperCase() || '音频') + '</span>'
@@ -653,6 +633,10 @@ export default {
       if (!wrap) return;
       const media = wrap.querySelector('video[data-src], video[src], img');
       if (media) window.Wb.thumbs.bind(wrap, media, a.src || '');
+      /* 缩略图右下角的「全屏观看」（与工作台同一枚）：视频停在封面上时，
+         点它直接进灯箱播；点封面本身也进灯箱，这颗只是把入口写明。 */
+      const full = wrap.querySelector('.tfull');
+      if (full) full.onclick = e => { e.stopPropagation(); window.Wb.lightbox.open(a); };
     }
 
     /* ---------- 详情：就地展开，不另起一层 ----------
@@ -665,75 +649,20 @@ export default {
       return !!(viewToggle && viewToggle.value === 'compact');
     }
 
-    /* 网格档的展开带子：一次只有一条。 */
-    let bandKey = '';
-    let bandEl = null;
-
-    function closeBand() {
-      const k = bandKey;
-      if (bandEl && bandEl.parentNode) bandEl.parentNode.removeChild(bandEl);
-      bandEl = null;
-      bandKey = '';
-      if (k && cardList && cardList.el) {
-        const c = cardList.el(k);
-        if (c) {
-          c.classList.remove('is-band');
-          window.Wb.expand.sync(c);
-        }
-      }
-    }
-
-    /* 这一行最后一张卡：**量出来的**（同一行的卡 offsetTop 一样），不重排整片网格。 */
-    function rowEndOf(el) {
-      let last = el;
-      let n = el.nextElementSibling;
-      while (n && n.classList && !n.classList.contains('band') && n.offsetTop === el.offsetTop) {
-        last = n; n = n.nextElementSibling;
-      }
-      return last;
-    }
-
-    /* 重画之后把带子放回它那一行的下面：Wb.cards 只挪卡片，带子是插在容器里的另一个孩子，
-       重画一遍它就跑到容器末尾去了。 */
-    function reinsertBand() {
-      if (!bandEl || !bandKey) return;
-      const card = cardList && cardList.el ? cardList.el(bandKey) : null;
-      if (!card) { closeBand(); return; }
-      const rowEnd = rowEndOf(card);
-      if (rowEnd && rowEnd.parentNode) rowEnd.parentNode.insertBefore(bandEl, rowEnd.nextSibling);
-      window.Wb.expand.anchor(bandEl, card);
-    }
-
-    function toggleBand(d, a) {
-      const box = gridEl.value;
-      if (!box) return;
-      if (bandKey === assetKeyOf(a)) { closeBand(); return; }
-      closeBand();
-      const band = document.createElement('div');
-      band.className = 'band';
-      band.innerHTML = '<span class="band-tether"></span>'
-        + '<div class="band-in"><div class="band-hd">'
-        + '<span class="t">' + window.esc(a.kind === 'task' ? window.Wb.stText(a.status) : (a.prompt || '这一条')) + '</span>'
-        + '<span class="sp"></span><button class="ghost" data-act="closeband">收起</button></div>'
-        + '<div class="cdet"></div></div>';
-      const rowEnd = rowEndOf(d);
-      if (rowEnd && rowEnd.parentNode) rowEnd.parentNode.insertBefore(band, rowEnd.nextSibling);
-      else box.appendChild(band);
-      bandEl = band;
-      bandKey = assetKeyOf(a);
-      d.classList.add('is-band');
-      window.Wb.expand.sync(d);
-      const host = band.querySelector('.cdet');
-      if (host) window.Wb.detail.render(a, host);
-      const cb = band.querySelector('[data-act="closeband"]');
-      if (cb) cb.onclick = e => { e.stopPropagation(); closeBand(); };
-      window.Wb.expand.anchor(band, d);
-    }
+    /* 网格档的展开带子：一次只有一条，行为与长相都在公共件 createBand 里
+       （工作台右栏用的是同一份）；这里只交节点取手与那条带子的标题。 */
+    const band = createBand({
+      keyOf: assetKeyOf,
+      cardOf: k => (cardList ? cardList.el(k) : null),
+      hostOf: () => gridEl.value,
+      renderDetail: (a, host) => window.Wb.detail.render(a, host),
+      labelOf: a => (a.kind === 'task' ? window.Wb.stText(a.status) : (a.prompt || '这一条')),
+    });
 
     function toggleDetail(d, a) {
       const detBox = d.querySelector('.cdet');
       if (!detBox) return;
-      if (isGridView()) { toggleBand(d, a); return; }
+      if (isGridView()) { band.toggle(d, a); return; }
       /* 先把内容放进去再打开：`.exp` 的 0fr → 1fr 过渡要有内容才看得出「长出来」。 */
       const open = window.Wb.expand.open(d, { scope: gridEl.value });
       if (open) window.Wb.detail.render(a, detBox);
@@ -936,7 +865,7 @@ export default {
         cardList.paint(list);
         /* 网格档那条展开带子：重画会把卡片挪一遍，带子要跟着回到它那一行的下面
            （Wb.cards 只认卡片，带子是插在容器里的另一个孩子）。 */
-        reinsertBand();
+        band.afterPaint();
       });
       /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
       if (list.length) try { window.AssetLocal && AssetLocal.offerAll(list); } catch (e) { /* 补存失败不影响列表 */ }
@@ -1387,7 +1316,7 @@ export default {
         el: viewEl.value, key: 'dir_asset_view', target: gridEl.value,
         /* 换档时把开着的那些收起来：清单档是「卡自己长高」，紧凑档是「行下面那条带子」，
            两者的展开形状不同，不能带着一条带子切档。 */
-        onPick: () => { closeBand(); window.Wb.expand.closeAll(gridEl.value); },
+        onPick: () => { band.close(); window.Wb.expand.closeAll(gridEl.value); },
       });
       /* 登记这一页那两份配置：公共件只在「登记的这一页正是前台」时才装上，
          所以初始化跑在「用户已经切走」之后（workbench 脚本异步加载）也不会把

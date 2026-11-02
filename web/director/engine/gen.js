@@ -15,7 +15,8 @@ export function createGen(E) {
     shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
     shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
     updateBanner, setStatus, hasRealCandidate, projOf, wsOf, regOf, setForceMid, videoPlanOf,
-    setSelectedCandidate,
+    setSelectedCandidate, renderSoft, addKeyframeToRefs, kfModelOf,
+    Panel, BoardAssetsOf,
   } = E;
 let scenesDirty = false;         // 这一轮轮询里「左栏关心的东西」到底变没变
 /* 活儿清单：**所有短片**里带平台任务号、又没到终态的候选（不只是当前这一部）。
@@ -725,10 +726,92 @@ async function genAllConfirm(plan, q) {
   });
   return v === 'go';
 }
+  /* 上次没跑完的画面切片：任务号在创建那一刻就落在关键帧上（kfGenOpts 的 onTask），
+     开机时把「还在排队 / 生成中」的那几张认回来（AI 生成要几十秒，关页 / 换设备很常见）。
+     没有任务号的几张是「提交还没发出去页面就关了」—— 如实标成失败（右栏可重试），
+     不让它们永远转圈：占位卡不能自动变的那一类，一半就出在这里。 */
+  async function resumeKeyframes() {
+    const jobs = [];
+    let dirty = false;
+    for (const p0 of (wsOf().projects || [])) {
+      for (const sc of (p0.scenes || [])) for (const sh of (sc.shots || [])) {
+        (sh.keyframes || []).forEach((kf, i) => {
+          if (!kf || kf.deleted) return;
+          if (kf.status !== 'queued' && kf.status !== 'generating') return;
+          if (!kf.taskId) { kf.status = 'failed'; kf.err = '上次生成被中断（页面关掉了），可以重试'; dirty = true; return; }
+          jobs.push({ sh: sh, kf: kf, i: i });
+        });
+      }
+    }
+    if (!jobs.length) { if (dirty) { renderSoft(['edit']); scheduleSave(); } return; }
+    if (!window.AiGen || !window.AiGen.adopt) return;
+    let done = 0, failed = 0;
+    for (const job of jobs) {
+      const kf = job.kf;
+      kf.status = 'generating';
+      try {
+        const pick = kfModelOf();
+        const provId = kf.provider || (pick.prov && pick.prov.id) || '';
+        const e = await window.AiGen.adopt(provId, kf.taskId, { want: 1, prompt: kf.imgPrompt || '' });
+        const aid = e && e.assetId;
+        if (!aid) throw new Error('平台没有返回产物号');
+        kf.assetId = aid; kf.status = 'done'; kf.err = null;
+        addKeyframeToRefs(job.sh, aid, kf, job.i);
+        done++;
+      } catch (err) {
+        kf.status = 'failed';
+        kf.err = '上次没等完：' + (window.errText ? window.errText(err) : ((err && err.message) || err));
+        failed++;
+      }
+      renderSoft(['edit']); scheduleSave();
+    }
+    loadCredits();
+    setStatus('<span class="ok">✓ 认回了上次的画面切片 ' + done + ' 张</span>'
+      + (failed ? '<span class="err"> · ' + failed + ' 张没认回来（右栏可重试）</span>' : ''));
+  }
+
+  /* 开机核对「待建素材」占位符：`@待建:名字` 的回填靠 `wb:char-pic` 事件，而那个监听住在
+     导演台模块里 —— 一次会话里从没打开过导演台、先去素材库把素材图出好了，事件就没人接，
+     提示词里的占位符与「图挂进参考图」都不会发生。这里把「占位符还在、库里那条已经有图」
+     的补一遍；判据全走 Panel.addLibPicToShot（能力声明 / 互斥 / 上限 / 去重一处都不重写）。
+     幂等：换成真名之后 pendingIn 就找不到它，下一次开机不再碰。 */
+  function reconcilePendingPics() {
+    if (!window.Chars || !window.Chars.Lib || !Panel || !Panel.addLibPicToShot) return;
+    const B = BoardAssetsOf();
+    if (!B) return;
+    const lib = window.Chars.Lib.list() || [];
+    if (!lib.length) return;
+    let touched = 0, pics = 0;
+    lib.forEach(entry => {
+      const nm = String((entry && entry.name) || '').trim();
+      if (!nm) return;
+      const pic = (window.Chars.refPicOf ? window.Chars.refPicOf(entry)
+        : (window.Chars.picOf ? window.Chars.picOf(entry) : '')) || '';
+      if (!pic) return;                    // 还没出图：占位符照旧留着，等出图那次再补
+      const shots = B.shotsPending(allShots(), nm);
+      shots.forEach(sh => {
+        const resolved = B.resolve(String(sh.prompt || ''), nm, nm);
+        sh.prompt = resolved;
+        /* 与 char-pic 那一路同一条：候选里的提示词也是给生成用的（框里显示的就是它），
+           含占位符的每一条都换 */
+        (sh.candidates || []).forEach(c => {
+          if (c && c.prompt && B.isToken(c.prompt)) c.prompt = B.resolve(String(c.prompt), nm, nm);
+        });
+        touched++;
+        const one = Panel.addLibPicToShot(sh, entry, null);
+        if (one && one.ok && !one.dup) pics++;
+      });
+    });
+    if (!touched) return;
+    renderAll(); scheduleSave();
+    setStatus('<span class="ok">✓ 素材图已就位：' + touched + ' 镜的待建占位已换成真名'
+      + (pics ? '，并补进 ' + pics + ' 个镜头的参考图' : '') + '</span>');
+  }
+
   return {
     /* 轮询与提交 */
     voiceAssetBase, announceDoneCandidates, submitCandidate, drawShot, shotHasVideo, genBtnLabel,
-    spawnCandidateShot, pollKick: () => poller.kick(),
+    spawnCandidateShot, pollKick: () => poller.kick(), resumeKeyframes, reconcilePendingPics,
     /* 接续与批量：状态、计划、报价、执行与停止；genAllRun 只以「有没有在跑」出去，批次对象不外泄 */
     chainStateOf, genAllPlan, genAllQuote, genAllConfirm, runGenAll, refreshGenAllBtn,
     abortGenAll, genAllRunning: () => !!genAllRun,

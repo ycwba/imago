@@ -255,6 +255,9 @@ run('tests/director-board-assets.mjs', process.execPath, ['tests/director-board-
 /* 拆分镜 / 改分镜的「AI 反问」：Skill 与 DEF 逐字一致（快档）/ 回答是硬约束的契约 /
    NO_ASK 不破 / askPolish 的 focus 拼装 / splitUI → renderSplitPanel 四处接线。 */
 run('tests/director-split-ask.mjs', process.execPath, ['tests/director-split-ask.mjs']);
+/* 「拆成几张 / 按什么拆」那一排选项的公共件：两家的表与 id / 那两行的口径 /
+   「自动」那句与契约兜底同一把尺子 / 导演台的值存模块变量并落盘 / story 两份正文 / 样式一份。 */
+run('tests/split-plan.mjs', process.execPath, ['tests/split-plan.mjs']);
 /* 项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 组名即素材组名。 */
 run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']);
 /* 发送前预览（dry-run）：预览与实发同源 / 不发网络请求 / 占位符 / 展示形状。 */

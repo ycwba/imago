@@ -80,6 +80,7 @@ const FACES = [
   { face: 'PromptForm', layer: 'ui', owner: 'web/ui/forms.js', why: '「提示词表单」唯一（正文六句只在 TextAI）' },
   { face: 'PromptReview', layer: 'ui', owner: 'web/ui/forms.js', why: '表单族：拆分镜的润色审阅面板只有这一份（导演台与工作台共用）' },
   { face: 'DatePicker', layer: 'ui', owner: 'web/ui/forms.js', why: '表单族：日期选择弹层只有这一份（替换浏览器原生日历）' },
+  { face: 'SplitPlan', layer: 'ui', owner: 'web/ui/forms.js', why: '表单族：「拆成几张 / 按什么维度拆」那一排选项与那两行话术（工作台图像栏与导演台共用）' },
   { face: 'Api', layer: 'domain', owner: 'web/domain/api.js', why: '「媒体」：mediaSrc / mediaKey / mediaExpired / healMedia 唯一出口' },
   { face: 'AssetLib', layer: 'domain', owner: 'web/domain/assetlib.js', why: '「资产」四件之一' },
   { face: 'AssetLocal', layer: 'domain', owner: 'web/domain/local.js', why: '「本机标识」：徽标判据只在 AssetLocal.stateOf' },

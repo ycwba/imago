@@ -117,14 +117,14 @@ const h = require('./harness.cjs');
       const livePre = () => page.eval(() => {
         const el = document.querySelector('details.raw-req[data-raw-live]');
         if (!el) return null;
-        const ps = el.querySelectorAll('.raw-half pre');
-        return ps && ps[0] ? ps[0].textContent : null;
+        const pre = el.querySelector('pre');
+        return pre ? pre.textContent : null;
       });
       const painted = await page.waitFor(() => {
         const el = document.querySelector('details.raw-req[data-raw-live]');
         if (!el) return false;
-        const ps = el.querySelectorAll('.raw-half pre');
-        const t = ps && ps[0] ? ps[0].textContent : '';
+        const pre = el.querySelector('pre');
+        const t = pre ? pre.textContent : '';
         return !!t && t.indexOf('还没有可预览') < 0;
       }, 30000).catch(() => false);
 
@@ -132,17 +132,17 @@ const h = require('./harness.cjs');
       const hasRaw = await page.eval(() => !!(window.RawRequest && typeof window.RawRequest.liveHTML === 'function'));
       ok(hasRaw, '原始请求面板已按需补载（window.RawRequest 就绪）');
 
-      /* ② 右栏画出了并排那一块 */
+      /* ② 右栏画出了「将要发出」那一块（单栏：只有预览） */
       const live = await page.eval(() => {
         const el = document.querySelector('details.raw-req[data-raw-live]');
         if (!el) return null;
         return { summary: (el.querySelector('summary') || {}).textContent || '',
-          halves: el.querySelectorAll('.raw-half').length };
+          pres: el.querySelectorAll('pre').length, halves: el.querySelectorAll('.raw-half').length };
       });
       ok(!!live, '导演台右栏画出了「原始请求」折叠块');
       if (live) {
-        ok(/预览中|尚未发送/.test(live.summary), '标题说的是「预览中」：' + live.summary);
-        ok(live.halves === 2, '并排两栏（预览 / 实发）：' + live.halves);
+        ok(/预览|尚未算出/.test(live.summary), '标题说的是「预览」：' + live.summary);
+        ok(live.pres === 1 && live.halves === 0, '单栏：只显示将要发出的那一份（pre=' + live.pres + '，旧两栏=' + live.halves + '）');
       }
 
       /* ③ 预览那一栏是真请求体（占位符不算内容） */
@@ -167,8 +167,8 @@ const h = require('./harness.cjs');
       });
       const moved = edited ? await page.waitFor(() => {
         const el = document.querySelector('details.raw-req[data-raw-live]');
-        const ps = el && el.querySelectorAll('.raw-half pre');
-        const t = ps && ps[0] ? ps[0].textContent : '';
+        const pre2 = el && el.querySelector('pre');
+        const t = pre2 ? pre2.textContent : '';
         return !!t && t !== window.__preBefore;
       }, 15000).catch(() => false) : false;
       const after = (await livePre()) || '';

@@ -1813,6 +1813,40 @@
           cell.textContent = window.Wb.fmtSec(sec) + '（进行中）';
         }, 1000);
       },
+      /* 进行中的任务：进度只在接口里 —— 每 5 秒回源一次，只把「进度(%)」那一行原地换掉
+         （整块重画会把展开的参考图、滚到的位置与选中的文字甩掉）。跑完 / 失败再整块重画一次收尾。
+         进度条与状态行的「实时」就靠这一份；关掉面板、切走页面、任务结束都会停表。 */
+      _liveProgress(host, item, g) {
+        if (host._detProgTimer) { clearInterval(host._detProgTimer); host._detProgTimer = null; }
+        if (!g || this._isFinished(g.status)) return;
+        const c = this.cfg;
+        const prov = c.provider ? c.provider(item) : null;
+        const id = c.taskId ? c.taskId(item) : '';
+        if (!prov || !id || !prov.endpoints) return;
+        const seq = host._detSeq;
+        const hidden = el => { for (let n = el; n; n = n.parentElement) { if (n.hidden) return true; } return false; };
+        const stop = () => { clearInterval(host._detProgTimer); host._detProgTimer = null; };
+        const gone = () => !host.isConnected || host._detSeq !== seq || hidden(host) || !host.offsetParent;
+        host._detProgTimer = setInterval(async () => {
+          if (gone()) { stop(); return; }
+          this._cache.delete(prov.id + '|' + id);        // 绕过「进行中 5 秒」那一档缓存，这一轮要的是最新进度
+          let fresh = null;
+          try { fresh = await this._fetch(item); } catch (e) { return; }
+          if (gone()) { stop(); return; }
+          if (!fresh) return;
+          const p = window.Api.parseItem(prov, fresh);
+          const val = (p && p.progress != null) ? p.progress : (fresh.progress != null ? fresh.progress : null);
+          const row = [...host.querySelectorAll('.det-row')].find(r => {
+            const k = r.querySelector('.k');
+            return k && k.textContent === '进度(%)';
+          });
+          if (row && val != null) {
+            const cell = row.lastElementChild;
+            if (cell && cell.textContent !== String(val)) cell.textContent = String(val);
+          }
+          if (!p || p.done || p.failed) { stop(); this.render(item, host); }
+        }, 5000);
+      },
       async render(item, host) {
         if (!host || !item) return;
         /* 一块面板只认「最后一次点开的那一条」。详情与提示词归档都是异步的：
@@ -1840,6 +1874,7 @@
         extra.innerHTML = this._extraHTML(item, g);
         this._bind(host, item, g);
         this._liveDuration(host, item, g);
+        this._liveProgress(host, item, g);
         if (c.onData) { try { c.onData(item, g); } catch (e) {} }
       },
     },
@@ -2074,6 +2109,44 @@
     /* 失败原因那一行**永远画**（没有就空着）：卡片列是一格一格的网格，
        有那一行与没有那一行差两行字的高度，同一屏就会出现高一片矮一片的卡片。
        样式那边把这一格钉成固定两行（ui.css 的 .terr），所以空着与写满占的位置一样。 */
+    /* ---------- 任务卡的「状态牌」占位（资产库与工作台共用这一份） ----------
+       没有画面的那一格用同一套牌子说话：排队 / 进行中（带进度条）/ 失败（带短因）/
+       结果未知（可能已扣费）。以前资产库有这套牌子、工作台自己画一行转圈小字 ——
+       同一类任务在两页的底色、结构与信息量都不一样。 */
+    plateHTML(o) {
+      const it = o || {};
+      if (it.kind !== 'task') return '';
+      const st = String(it.status || '').toLowerCase();
+      const txt = this.stText(it.status);
+      const CALMED = ['cancelled', 'canceled', 'expired', 'invalid', 'aborted', 'rejected'];
+      if (CALMED.includes(st)) {
+        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + esc(txt) + '</span></span></div>';
+      }
+      if (this.isUncertain(it.status)) {
+        return '<div class="timg"><span class="plate plate--unc"><span class="plate-st">' + esc(txt) + '</span>'
+          + '<span class="plate-t">可能已扣费</span></span></div>';
+      }
+      if (this.stBad(it.status)) {
+        /* 短因取平台原话的头一截（429 / 内容审核…），完整原话在下面那一行与展开的详情里。 */
+        const short = String(it.failMsg || '').replace(/\s+/g, ' ').trim().slice(0, 22);
+        return '<div class="timg"><span class="plate plate--fail"><span class="plate-st">' + esc(txt) + '</span>'
+          + (short ? '<span class="plate-t">' + esc(short) + '</span>' : '') + '</span></div>';
+      }
+      if (st === 'queued') {
+        return '<div class="timg"><span class="plate plate--plain"><span class="plate-st">' + esc(txt) + '</span></span></div>';
+      }
+      if (this.stLive(it.status)) {
+        return '<div class="timg"><span class="plate plate--live"><span class="plate-st">' + esc(txt) + '</span>'
+          + '<span class="plate-bar"><i style="width:' + (Number(it.progress) || 0) + '%"></i></span></span></div>';
+      }
+      return '';
+    },
+    /* 预览图右下角的「全屏观看」：工作台与资产库共用这一枚（点开灯箱看这一条）。
+       外观只在 ui.css 的 `.task .timg .tfull`；接线归页面（各有各的翻页列表）。
+       视频卡尤其需要它：视频在卡上就地播放，点缩略图不再是灯箱 —— 全屏要有自己的入口。 */
+    fullBtnHTML() {
+      return '<button type="button" class="tfull" title="全屏观看" aria-label="全屏观看">' + icon('expand', 16) + '</button>';
+    },
     taskHTML(o) {
       const err = String(o.error || '');
       return o.mediaHTML + '<div class="tmain">'

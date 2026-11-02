@@ -53,6 +53,20 @@ export function render(_ctx, _cache) {
               class: "btn-host",
               "data-r": "splitHost"
             }),
+            _createCommentVNode(" 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 "),
+            _createElementVNode("button", {
+              class: "ghost",
+              type: "button",
+              "data-r": "toImageBtn",
+              title: "把这段提示词填进图像栏"
+            }, [
+              _createElementVNode("span", {
+                class: "ic",
+                "data-icon": "image",
+                "data-size": "13"
+              }),
+              _createElementVNode("span", { class: "tx" }, "送进图像栏")
+            ]),
             _createElementVNode("span", { class: "sp" }),
             _createElementVNode("button", {
               class: "tool danger",
@@ -80,47 +94,14 @@ export function render(_ctx, _cache) {
               _createElementVNode("span", { class: "pinl-tt" }, "拆分片段生成"),
               _createElementVNode("span", { class: "pinl-note" }, "每张独立计费。")
             ]),
-            _createElementVNode("div", { class: "split-opts" }, [
-              _createElementVNode("label", null, [
-                _createTextVNode("张数 "),
-                _createElementVNode("select", { "data-r": "splitCount" }, [
-                  _createElementVNode("option", { value: "" }, "自动"),
-                  _createElementVNode("option", null, "2"),
-                  _createElementVNode("option", null, "3"),
-                  _createElementVNode("option", null, "4"),
-                  _createElementVNode("option", null, "5"),
-                  _createElementVNode("option", null, "6")
-                ])
-              ]),
-              _createElementVNode("label", null, [
-                _createTextVNode("拆分维度 "),
-                _createElementVNode("select", { "data-r": "splitDim" }, [
-                  _createElementVNode("option", { value: "" }, "自动"),
-                  _createElementVNode("option", null, "按时间顺序"),
-                  _createElementVNode("option", null, "按场景变化"),
-                  _createElementVNode("option", null, "按动作或状态阶段"),
-                  _createElementVNode("option", { value: "__custom" }, "自定义…")
-                ])
-              ]),
-              _createElementVNode("label", {
-                "data-r": "splitDimCustomWrap",
-                hidden: ""
-              }, [
-                _createElementVNode("input", {
-                  "data-r": "splitDimCustom",
-                  maxlength: "60",
-                  placeholder: "例：按主角情绪变化"
-                })
-              ]),
-              _createElementVNode("span", { class: "sp" }),
-              _createElementVNode("button", {
-                class: "tool acc",
-                "data-r": "splitGo"
-              }, "开始规划"),
-              _createElementVNode("button", {
-                class: "tool",
-                "data-r": "splitCancel"
-              }, "取消")
+            _createCommentVNode(" 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层\n                   window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，\n                   这里只留一块空宿主，页面挂载时灌进去。 "),
+            _createElementVNode("div", { "data-r": "splitOpts" }),
+            _createElementVNode("label", { class: "fill-video-row" }, [
+              _createElementVNode("input", {
+                type: "checkbox",
+                "data-r": "splitFillVideo"
+              }),
+              _createElementVNode("span", null, "生成后填入视频栏参考素材（生成完自动就位）")
             ])
           ]),
           _createElementVNode("div", {
@@ -371,6 +352,18 @@ export function render(_ctx, _cache) {
             ]),
             _createTextVNode(),
             _createElementVNode("span", { class: "tx" }, "存回本机")
+          ]),
+          _createCommentVNode(" 勾选的图片送进视频栏的参考素材（只在图像栏 + 勾了图片才点得动）：\n                 视频型号收不收参考图、收几张由能力声明说了算，收不下时当场报数。 "),
+          _createElementVNode("button", {
+            class: "ghost",
+            "data-r": "bulkToVideo",
+            disabled: ""
+          }, [
+            _createElementVNode("span", {
+              "data-icon": "video",
+              "data-size": "13"
+            }),
+            _createTextVNode(" 送进视频栏")
           ]),
           _createElementVNode("span", {
             class: "bk-tip",

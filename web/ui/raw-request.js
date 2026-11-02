@@ -1,11 +1,11 @@
 /* 原始请求面板：把「真正发给供应商的请求体」摊开给用户看。
-   一块面板，两栏并排：
-     · 预览（还没发）—— 页面用 `RawRequest.schedule` 算出来的那一份（`Api.preview` 与 `Api.create` 同源，
-       素材槽位用占位符：真正要上传的那张图在提交那一刻才传，预览不能触发上传）；
-     · 实发（最近一次）—— 真的发出去的那一次，采集在 `Api.request` 那一处（全站唯一出口，见 api.js）。
-   两栏并排的理由：用户要确认的是「实际发出的提示词和配置是怎样的」，
-   而「我以为要发的」与「真发出去的」不一致时，正是最该被看见的那种情况 ——
-   所以发出去那一刻把**当时的预览**一起存下来，与实发那份逐字比一遍；对不上就在标题上标出来。
+   两种用法、同一套快照：
+     · `liveHTML`（工作台 / 导演台常驻）—— 只显示**本次输入将要发出的那一份请求**：
+       页面用 `RawRequest.schedule` 算（`Api.preview` 与 `Api.create` 同源，
+       素材槽位用占位说明：真正要上传的那张图在提交那一刻才传，预览不能触发上传）。
+       改了提示词 / 参数它就跟着变；按钮收成一小颗药丸，正文吃满整宽。
+     · `html` / `htmlList`（素材库与批量生成的结果）—— 显示**真发出去的那一次**，
+       采集在 `Api.request` 那一处（全站唯一出口，见 api.js），供事后回看。
 
    为什么是一个经典脚本而不是 domain 模块：Api 是经典脚本，页面与纯模块都要在任意时刻画这块，
    而它只用 `esc` 与 DOM。判据：ui 层不 import domain，也不反向依赖页面。
@@ -72,21 +72,26 @@
       + (st.diff ? '<span class="raw-warn" title="平台在提交那一刻改写了请求体（或当时的预览算得不准）">这次发出去的与当时的预览不一致</span>' : '');
   }
 
-  /* ---------- 两栏并排：预览 / 实发 ---------- */
+  /* 预览这一块只显示**本次输入将要发出的那一份**：改了提示词 / 参数它就跟着变。
+     以前这里并排摆两栏（预览 + 实发最近一次），预览被挤成半宽、正文更容易看串行；
+     「真发出去的那一份」只在少数需要回看的落点用单栏快照（`html` / `htmlList`）。 */
   function liveHTML(tag, opts) {
     const t = String(tag == null ? '' : tag);
     const pv = previews.get(t) || null;
-    const sent = snaps.get(t) || null;
     const open = openTags.has('live:' + t) ? ' open' : '';
-    const st = reqStateOf(t);
-    const parts = [];
-    parts.push('<div class="raw-half"><i>预览 · 还没发</i><pre>'
-      + E(pv ? bodyText(pv) : '（还没有可预览的内容：先把提示词与参数填上）') + '</pre></div>');
-    parts.push('<div class="raw-half"><i>实发 · 最近一次</i><pre>'
-      + E(sent ? bodyText(sent) : '（这一格还没发过）') + '</pre></div>');
-    return '<details class="raw-req live raw-both' + (sent || pv ? ' has-snap' : ' waiting') + '"'
+    return '<details class="raw-req live' + (pv ? ' has-snap' : ' waiting') + '"'
       + attrs(t, opts) + ' data-raw-live="1" data-raw-livetag="' + E(t) + '"' + open + '>'
-      + '<summary>' + headHTML(t) + '</summary>' + parts.join('') + '</details>';
+      + '<summary>' + pvHeadHTML(t) + '</summary>'
+      + '<pre>' + E(pv ? bodyText(pv) : '（还没有可预览的内容：先把提示词与参数填上）') + '</pre>'
+      + '</details>';
+  }
+
+  /* 预览块的标题：状态标只说「这是按当前输入算出来的、会发给哪一家」——
+     不写「已发送」，因为正文始终是**将要发**的那一份，不是发出去的那一份。 */
+  function pvHeadHTML(tag) {
+    const pv = previews.get(String(tag == null ? '' : tag)) || null;
+    return '<b class="raw-title">原始请求</b>'
+      + '<span class="raw-chip' + (pv ? ' ok' : '') + '">' + E(pv ? ('预览 · ' + nameOf(pv)) : '尚未算出') + '</span>';
   }
 
   /* 单栏（素材库那一处：那一格只有「发出去的那一次」可看，没有实时预览） */
@@ -152,7 +157,7 @@
     }, wait));
   }
 
-  /* 预览变了：把标题那一行与预览栏一起更新（导演台整栏每 3 秒重画，不必回读 DOM）。 */
+  /* 预览变了：把标题那一行与预览正文一起更新（导演台整栏每 3 秒重画，不必回读 DOM）。 */
   function paintPreviewsOf(tag, snap) {
     try {
       document.querySelectorAll('details.raw-req[data-raw-tag]').forEach(el => {
@@ -160,9 +165,11 @@
         if (t !== tag) return;
         if (!el.dataset.rawLive) return;
         const sum = el.querySelector('summary');
-        if (sum) sum.innerHTML = headHTML(t);
-        const halves = el.querySelectorAll('.raw-half pre');
-        if (halves && halves[0]) halves[0].textContent = snap ? bodyText(snap) : '（还没有可预览的内容：先把提示词与参数填上）';
+        if (sum) sum.innerHTML = pvHeadHTML(t);
+        const pre = el.querySelector('pre');
+        if (pre) pre.textContent = snap ? bodyText(snap) : '（还没有可预览的内容：先把提示词与参数填上）';
+        el.classList.toggle('has-snap', !!snap);
+        el.classList.toggle('waiting', !snap);
       });
     } catch (err) { /* document 已卸载时查不到宿主；快照仍留在内存，下一次渲染会带上 */ }
   }
@@ -179,17 +186,13 @@
     try {
       document.querySelectorAll('details.raw-req[data-raw-tag]').forEach(el => {
         if (el.dataset.rawTag !== tag) return;
+        /* 预览块（live）显示的是**将要发**的那一份，发出去不改它 —— 只有单栏快照那一族要写正文。 */
+        if (el.dataset.rawLive) return;
         const sum = el.querySelector('summary');
         if (sum) sum.innerHTML = headHTML(tag);
-        if (el.dataset.rawLive) {
-          const halves = el.querySelectorAll('.raw-half pre');
-          if (halves && halves[1]) halves[1].textContent = bodyText(snap);
-          el.classList.add('has-snap');
-        } else {
-          const pre = el.querySelector('pre');
-          if (pre) pre.textContent = bodyText(snap);
-          el.classList.add('has-snap');
-        }
+        const pre = el.querySelector('pre');
+        if (pre) pre.textContent = bodyText(snap);
+        el.classList.add('has-snap');
       });
     } catch (err) { /* document 已卸载时查不到宿主；快照仍留在内存，下一次渲染会带上 */ }
   });

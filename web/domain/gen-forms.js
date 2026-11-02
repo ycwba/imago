@@ -386,10 +386,12 @@ window.AiGen = {
      调用方把它落盘；下次打开这一页用 `adopt(provId, id)` 接着等 —— **不重发、不重复花钱**。 */
   async create(o) {
     const prov = o.prov, m = o.model || {};
-    const fmts = (m.options && m.options.output_formats) || ['png'];
-    /* 格式：调用方（导演台的高参设置按平台声明渲染的下拉）选过就照它选的，没选过才退回「优先 png」。
-       选中的值不在这一份清单里也退回默认 —— 那个值可能是上一次那份声明（换过型号 / 平台改口）留下的。 */
-    const fmt = (o.format && fmts.indexOf(o.format) >= 0) ? o.format : (fmts.includes('png') ? 'png' : fmts[0]);
+    /* 输出格式**不替平台猜**：型号没声明 `output_formats` 就是这一家不收这个字段 ——
+       硬塞一个 'png' 会被整条拒收（SparkCine 的 img-2 只收 quality / aspect_ratio /
+       output_count，回的是「output_format is not available for text_to_image」）。
+       声明了才发，且只发清单里的值；清单为空时交空串，createBody 对空值整项省略。 */
+    const fmts = (m.options && m.options.output_formats) || [];
+    const fmt = (o.format && fmts.indexOf(o.format) >= 0) ? o.format : (fmts.includes('png') ? 'png' : (fmts[0] || ''));
     const want = Math.max(1, Number(o.count) || 1);
     const gen = await Api.create(prov, {
       model: m.id, prompt: o.prompt, quality: o.quality, ar: o.ar, count: want, format: fmt,
@@ -470,12 +472,19 @@ window.AiGen = {
   async image(o) { return this.wait(await this.create(o), o); },
   /* 认领一个「切页之前发出去」的任务：只接着等，不重新提交。
      第一参可以给平台对象，也可以给平台 id（落盘时存的是 id，重启后只能按 id 找回来）。 */
-  adopt(provRef, id, o) {
-    const list = this.providers() || [];
+  async adopt(provRef, id, o) {
+    /* 平台清单从 Api 的统一取数口读（带 TTL / 超时 / 重试，不另发一份请求）。
+       以前这里调的是不存在的 `this.providers()` —— 任何一次「认回在途任务」都直接抛
+       TypeError，素材库与导演台那两条恢复路径因此从来没成功过。 */
+    let list = [];
+    try {
+      const reg = (window.Api && Api.registry) ? await Api.registry() : null;
+      list = (reg && reg.providers) || [];
+    } catch (e) { list = []; }
     const prov = (provRef && typeof provRef === 'object') ? provRef
       : list.find(p => p && (p.id === provRef || p.keyId === provRef));
-    if (!prov) return Promise.reject(new Error('这一家平台现在不在注册表里了（可能被删掉或改了 id）'));
-    if (!id) return Promise.reject(new Error('没有任务号'));
+    if (!prov) throw new Error('这一家平台现在不在注册表里了（可能被删掉或改了 id）');
+    if (!id) throw new Error('没有任务号');
     return this.wait({ prov: prov, id: id, want: (o && o.want) || 1, fmt: (o && o.fmt) || 'png', prompt: (o && o.prompt) || '' }, o);
   },
 };
@@ -501,6 +510,10 @@ window.AdvParams = {
   /* 中文名表只在这里有一份。导演台与工作台以前各抄了一份 `TIER_ZH`（一字不差），
      平台新增一个档位时两边都会显示成英文原值，而界面看起来「已经支持了」。 */
   TIER_ZH: { fast: '快速', standard: '标准', enhanced: '增强', quality: '品质' },
+  /* 档位清单**仍按平台声明动态取**（VGENV 是 /v3/models 的 configurations），
+     这里只管**摆的顺序**：认得的四档按「快速 → 标准 → 增强 → 品质」排，
+     平台新增 / 没登记的档位排在后面、保持它自己的原序（不丢、不改名）。 */
+  TIER_ORDER: ['fast', 'standard', 'enhanced', 'quality'],
   RATIO_ZH: { '1:1': '方形 1:1', '16:9': '横屏 16:9', '9:16': '竖屏 9:16', '4:3': '横版 4:3', '3:4': '竖版 3:4',
     '3:2': '横版 3:2', '2:3': '竖版 2:3', '21:9': '超宽 21:9', '4:5': '竖版 4:5' },
   /* 每一档：清单从 `options` 的哪个字段来、默认值从 `defaults` 的哪个键来、
@@ -569,6 +582,18 @@ window.AdvParams = {
         list = (Array.isArray(d) && d.length === 2 && Number(d[1]) >= Number(d[0]) && Number(d[0]) > 0)
           ? Array.from({ length: Number(d[1]) - Number(d[0]) + 1 }, (_, i) => Number(d[0]) + i) : [];
       } else list = (raw[s.opt] || []).map(String);
+      /* 档位只排**顺序**、不增删：平台给什么就是什么，认得的四档按固定偏好排在前面，
+         其余（新档位 / 别家的命名）殿后并保持平台原序 —— 排序稳定，清单不因排序而变。 */
+      if (k === 'tier' && list.length > 1) {
+        const ord = this.TIER_ORDER || [];
+        list = list.map((v, i) => ({ v: v, i: i })).sort((a, b) => {
+          const ia = ord.indexOf(a.v), ib = ord.indexOf(b.v);
+          if (ia < 0 && ib < 0) return a.i - b.i;
+          if (ia < 0) return 1;
+          if (ib < 0) return -1;
+          return ia - ib;
+        }).map(x => x.v);
+      }
       const has = v => v !== undefined && v !== null && v !== '' && list.some(x => String(x) === String(v));
       const dflt = s.def ? defs[s.def] : undefined;
       const prev = cur[k];
@@ -1181,22 +1206,32 @@ window.AiStream = {
     if (!host || !window.InlinePolish) {
       return { push() {}, done() {}, fail() {}, text: () => '' };
     }
-    let p = null, el = null, all = '';
-    const ensure = (kind) => {
+    let p = null, el = null, all = '', think = '';
+    const ensure = () => {
       if (p && el && host.contains(el)) return p;
       p = window.InlinePolish.live(host, { title: opt.title || 'AI 正在写…', onStop: opt.onStop });
       el = host.firstElementChild;
-      if (all) p.push(all, kind || 'content');  // 面板被重画掉了：把已经收到的补回去
+      if (think) p.push(think, 'reasoning');  // 面板被重画掉了：把已经收到的补回去
+      if (all) p.push(all, 'content');
       return p;
     };
     return {
       push(piece, kind) {
         if (!piece) return;
-        if (kind === 'reasoning') { if (p) p.push(piece, 'reasoning'); return; }
+        const before = p;
+        /* 思考片段与正文一样要**开出面板**：推理型号动辄先想几十秒才吐正文，
+           等第一片正文才建面板的话，整个思考期用户只能盯着一行干等的小字 ——
+           看起来就是「点了没反应 / 卡死了」。思考是模型草稿，不进 text()。 */
+        if (kind === 'reasoning') {
+          think += piece;
+          const panel = ensure();
+          if (p !== before) return;   // 重建时 ensure 已把攒下的思考整段补回
+          panel.push(piece, 'reasoning');
+          return;
+        }
         all += piece;
         if (typeof opt.onChunk === 'function') opt.onChunk(piece, all);
-        const before = p;
-        const panel = ensure(kind);
+        const panel = ensure();
         /* 重建时 `ensure` 补回去的那一份**已经含这一片**（`all` 在上面就加了），
            再推一次就是同一段字显示两遍。 */
         if (p !== before) return;

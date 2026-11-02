@@ -266,6 +266,9 @@ const REGISTRY = {
         idempotencyKey: true,     // 平台要求带幂等键（漏了会 400）；带键的 POST 才允许自动重试
         body: { model: 'model', prompt: 'prompt' },
         nest: { parameters: [['quality','quality'], ['aspect_ratio','ar'], ['output_count','count'], ['output_format','format'], ['duration','duration']] },
+        /* 参考图槽（image_edit 档）的提交形状：素材走 inputs 数组、平台只认自己的资产号（与 sparkcine-video 同一套）。
+           不声明的话 createBody 会把 inputEntries 整块丢掉（「没声明模板的 role 不进提交体」）；上限以能力接口为准。 */
+        inputTemplates: { reference_image: { to: 'inputs', many: true, tmpl: { role: 'reference_image', asset_id: '$assetId' }, needsUpload: true } },
         // 上传接口的字段命名（SparkCine 是下划线；AssetTransfer 按这份声明拼请求体）
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },
       },
@@ -593,8 +596,7 @@ const REGISTRY = {
         acceptsNote: true,
         uploadFields: { fileName: 'filename', contentType: 'content_type', sizeBytes: 'byte_length', sha256: 'sha256' },
         /* 素材输入走 inputs 数组：[{ role, asset_id }]，且平台只认自己的资产 id
-           （所以每个 role 都要先上传成资产，needsUpload=true）。
-           以前这里没有声明，等于平台没声明输入形状 → 工作台会把参考素材静默丢掉。 */
+           （每个 role 都要先上传成资产，needsUpload=true；不声明输入形状 → 参考素材被静默丢掉）。 */
         inputTemplates: {
           reference_image: { to: 'inputs', many: true, tmpl: { role: 'reference_image', asset_id: '$assetId' }, needsUpload: true },
           first_frame: { to: 'inputs', many: true, tmpl: { role: 'first_frame', asset_id: '$assetId' }, needsUpload: true },
@@ -1175,10 +1177,8 @@ const REGISTRY = {
       },
       list: {
         map: {
-          /* ⚠ 官方字段是 **task_status**（PROCESSING / SUCCESS / FAIL），没有 `status`。
-             以前这里写成 'status'，取到空串 → classifyStatus 按「没给状态 = 还不知道」
-             一直等 —— 于是任务提交成功、轮询永远转圈、永远不收敛。
-             （下面 statusMap 映射的正是 task_status 的值，说明当初就是笔误。） */
+          /* ⚠ 官方字段是 **task_status**（PROCESSING / SUCCESS / FAIL），没有 `status`：
+             取到空串 → classifyStatus 按「没给状态 = 还不知道」一直等，任务永远不收敛。 */
           id: 'id', status: 'task_status', prompt: 'prompt', model: 'model',
           outputUrl: 'video_result.0.url', error: 'error.message',
         },
@@ -1197,9 +1197,8 @@ const REGISTRY = {
            界面上那一列显示的就是 speed / quality，映射过去才对得上。 */
         body: { model: 'model', prompt: 'prompt', size: 'size', quality: 'tier', duration: 'duration' },
         /* 首尾帧按官方文档直接进提交体顶层（POST /v4/videos/generations 收 first_frame_image /
-           last_frame_image 两个标量字段；首尾帧模式 = 两张都给）。以前这里没声明模板 ——
-           槽位照 inputRoles 画得出来、提交那一刻却因为「没有模板」被整个丢掉：
-           用户放了首尾帧、钱照扣，出的是文生视频。声明补上，槽位才真的发得出去。 */
+           last_frame_image 两个标量字段；首尾帧模式 = 两张都给）。没有模板 = 槽位画得出来、
+           提交那一刻被整块丢掉：钱照扣、出的是文生视频。 */
         inputTemplates: {
           first_frame: { to: 'first_frame_image', many: false, tmpl: '$url' },
           last_frame: { to: 'last_frame_image', many: false, tmpl: '$url' },

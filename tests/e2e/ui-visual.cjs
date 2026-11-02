@@ -420,6 +420,23 @@ function diff(a, b) {
             const sel = document.querySelector('.studio-page [data-r="model"]');
             return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value);
           }, 15000).catch(() => {});
+          /* 导演台右栏有两处异步回填，不定下来同一档两次就是两种画面：
+             ① 型号能力 —— 没回的时候「输入模式」那一排芯片（`#modeRow`）整块不画，
+                于是下面所有内容在右栏里往上挪一截；
+             ② 两处报价 —— 模板里 `#estTxt` 的初值就是「估价中…」、`#kfEst` 是空的，
+                报价回来才换成读数，而右栏每 3 秒整片重画一次，重画又把那两枚初值写回去。
+             所以这一条要**紧贴截图**：轮询命中「两处报价都落定」那一刻就拍，
+             落在重画与报价往返之间就等下一轮（100ms 一跳）。
+             只盯生成态那一族：字幕那一档拍的是剪辑态，右栏这一列本来就不画。 */
+          if (name === 'director') {
+            await page.waitFor(() => {
+              const est = document.getElementById('estTxt');
+              const kf = document.getElementById('kfEst');
+              return !!document.getElementById('modeRow')
+                && !!est && !/估价中/.test(est.textContent)
+                && !!kf && kf.textContent.trim() !== '';
+            }, 15000).catch(() => {});
+          }
           const shot = await page.cdp.send('Page.captureScreenshot', { format: 'png' });
           const buf = Buffer.from(shot.data, 'base64');
           if (SAVE_ALL) {
