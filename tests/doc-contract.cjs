@@ -26,14 +26,14 @@ const wb = stripComments(read('web/styles/wb.css'));
 const pub = ui + '\n' + wb;
 
 /* ---------- 令牌：文档点名的那些必须存在，且不许回退到「序号=档位」 ---------- */
-for (const t of ['--sp-14', '--fs-12-5', '--radius-10', '--acc-tint-18', '--sz-ico', '--sz-ctl', '--sz-tile',
-  '--sz-thumb-h', '--sz-card', '--sz-scroll', '--sz-wb', '--a-10', '--a-90', '--hair', '--shadow-1', '--dur-180']) {
+for (const t of ['--sp-16', '--fs-13', '--radius-10', '--acc-tint-18', '--sz-ico', '--sz-ctl', '--sz-ctl-sm', '--sz-chip',
+  '--sz-tile', '--sz-thumb-h', '--sz-card', '--sz-scroll', '--sz-wb', '--a-10', '--a-90', '--hair', '--shadow-1', '--dur-180']) {
   ok(new RegExp('\\' + t + '\\s*:').test(tokens), '令牌表里没有 ' + t + '（设计规范点名了它）');
 }
 ok(!/--sp-1\s*:\s*4px/.test(tokens) && !/--fs-1\s*:\s*12px/.test(tokens) && !/--radius-1\s*:\s*6px/.test(tokens),
   '令牌表回退到了「序号=档位」的写法（--sp-1:4px 之类）');
 const spVals = [...tokens.matchAll(/--sp-([\d.]+)\s*:/g)].map(m => Number(m[1]));
-ok(spVals.length === 29, '间距档位应为 29 枚（主档 6 + 补档 23），实际 ' + spVals.length);
+ok(spVals.length === 8, '间距档位应为 8 枚（终表 2/4/8/12/16/24/32/64），实际 ' + spVals.length);
 const aVals = [...tokens.matchAll(/--a-([\d.]+)\s*:/g)].map(m => m[1]);
 ok(aVals.length === 21, '透明度阶梯应为 21 档，实际 ' + aVals.length);
 ok(!/--sp-17\s*:|--sp-21\s*:|--sp-23\s*:|--sp-25\s*:/.test(tokens), '间距档位里出现了没登记的值');
