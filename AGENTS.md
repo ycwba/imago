@@ -411,7 +411,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 | 尺子 | 管什么 | 命令 |
 | --- | --- | --- |
-| 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--map` 看映射 / `--collapse` 看收敛影响面） |
+| 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--remap=sp,fs` 档位改名 / `--map` 看映射） |
 | 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
 | 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 / G24 手写滚动位存取对（滚动位还原只许 `Wb.viewport` 一份） | `node tests/static-guards.cjs` |
 | 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
@@ -1377,5 +1377,5 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - **撤销仍是项目快照栈**：导演台 `undoStack` 存 JSON 快照，足够覆盖当前编辑粒度；
   改成命令日志是独立的协作 / 历史功能，不与本轮 UI 收口混做。
 - **样式层不写死，靠四把尺子守**（体检 / 引用完整性 / 五条静态判据 / 视觉回归）。
-  间距与断点暂不收敛：补档是收容位，收敛会改画面 —— 那是布局重构那一轮的设计决定；
-  候选映射与影响面已经备好（`tools/tokenize-css.cjs --collapse`），到时只改 `tokens.css` 一处。
+  档位已全部收敛到终表（间距 8 档、字号 9 档、圆角 5 档、阴影 5 档、时长 5 档、断点 5 档），
+  写裸值由 `tools/tokenize-css.cjs` 的值吸附拉进最近终档；档位名只认终表里的那些。
