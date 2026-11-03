@@ -73,7 +73,10 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
    列表会从标题底下穿过去；而且 .wb 一旦 height:auto 就把整页撑开，页头也不粘了。
    留白一律读 --shell-px（760 以下收到 14），标题与内容列才不会在窗口变窄时错位。 */
 @media (max-width: 1100px) {
-  .wb .layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow-y: auto; overflow-x: hidden; }
+  /* 单列后两行按内容定高、顶对齐：不加 align-content:start，grid 会把两行
+     拉成等高去填满 .layout（flex 撑出来的定高），内容比行高多就溢出到下一列的行盒上叠画。 */
+  .wb .layout { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content;
+    align-content: start; height: auto; overflow-y: auto; overflow-x: hidden; }
   .wb .col-left, .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
 }
 @media (max-width: 760px) { .wb { --shell-px: var(--sp-16); } }
