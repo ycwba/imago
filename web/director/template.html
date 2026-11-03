@@ -213,15 +213,15 @@
   .scene-head .sc-thumb .sp { width: 100%; height: 100%; object-fit: cover; display: block; }
   /* × 平时不占视觉（只有悬停才浮出来）—— 常驻的话每一行右上角都挂一个红叉，左栏会变成一片叉 */
   .scene-head .sc-thumb .sp-x { position: absolute; right: var(--sp-2); top: var(--sp-2); width: 14px; height: 14px; border-radius: var(--radius-4);
-    display: none; align-items: center; justify-content: center; background: color-mix(in srgb, var(--media-bg) 62%, transparent); color: var(--on-acc); cursor: pointer; }
+    display: none; align-items: center; justify-content: center; background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); cursor: pointer; }
   .scene-head .sc-thumb:hover .sp-x { display: inline-flex; }
   .scene-head .sc-thumb .sp-x .ic { line-height: 0; }
   .shot-item { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-16); height: 54px; box-sizing: border-box;
     border-radius: var(--radius-4); cursor: pointer; margin-bottom: var(--sp-4); position: relative; }
   .shot-item:hover { background: var(--panel2); }
   /* 选中：淡紫底从左侧竖条之后才开始铺，圆角不裹住竖条 */
-  .shot-item.sel { background: linear-gradient(to right, color-mix(in srgb, var(--pri) 0%, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-10), transparent) 12px); }
-  .shot-item.sel:hover { background: linear-gradient(to right, color-mix(in srgb, var(--pri) 0%, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-16), transparent) 12px); }
+  .shot-item.sel { background: linear-gradient(to right, color-mix(in srgb, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-10), transparent) 12px); }
+  .shot-item.sel:hover { background: linear-gradient(to right, color-mix(in srgb, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-16), transparent) 12px); }
   /* 独立的选中竖条（自己的圆角，不与行背景连成一体） */
   .shot-item.sel::before { content: ''; position: absolute; left: var(--sp-4); top: var(--sp-8); bottom: var(--sp-8); width: 4px;
     border-radius: var(--radius-4); background: var(--pri); }
@@ -396,7 +396,7 @@
   .pb-btn { width: 32px; height: 32px; flex: none; border: 0; border-radius: 50%; padding: 0;
     background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent); color: var(--on-acc); cursor: pointer;
     display: flex; align-items: center; justify-content: center; transition: background var(--dur-120); }
-  .pb-btn:hover { background: color-mix(in srgb, var(--media-bg) 75%, transparent); }
+  .pb-btn:hover { background: color-mix(in srgb, var(--media-bg) var(--a-72), transparent); }
   /* 播放器浮层（横贯画面下方的一条）：
      左下 = 播放/暂停 + 时长读数；右下 = 声音 + 全屏（**两颗挨着，全屏在最右下角**，用户点名）。
      中间那根 `.sp` 把两边撑开，所以两种播放器共用同一条、同一份标记（`pbBarHTML`）。 */
@@ -475,7 +475,7 @@
     background: color-mix(in srgb, var(--panel) var(--a-90), transparent); color: var(--ok);
     font-size: var(--fs-11); line-height: 14px; padding: 0 var(--sp-4); border-radius: var(--radius-4); font-weight: 600; }
   .cand-thumb .lockbadge { position: absolute; top: var(--sp-4); right: var(--sp-4); z-index: 2; display: flex; align-items: center;
-    padding: var(--sp-2); border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) 45%, transparent); color: var(--on-acc); }
+    padding: var(--sp-2); border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent); color: var(--on-acc); }
   .cand-thumb img, .cand-thumb video { width: 100%; height: 72px; object-fit: contain; display: block; background: transparent; }
   .cand-thumb .tph { position: absolute; left: 0; right: 0; top: 0; height: 72px; background: var(--thumbbg); }
   .cand-thumb.ready .tph { display: none; }
@@ -595,7 +595,7 @@
   .line-row { display: flex; align-items: flex-start; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border: var(--hair) solid var(--line);
     border-radius: var(--radius-6); background: var(--input); cursor: pointer; min-width: 0; }
   .line-row:hover { border-color: var(--acc); }
-  .line-row.on { border-color: color-mix(in srgb, var(--mark-ready) var(--a-55), transparent); background: color-mix(in srgb, var(--mark-ready) 7%, transparent); }
+  .line-row.on { border-color: color-mix(in srgb, var(--mark-ready) var(--a-55), transparent); background: color-mix(in srgb, var(--mark-ready) var(--a-8), transparent); }
   /* 说话人那一格：素材库里对上就画缩略图，对不上画占位图（名字仍照写，见 lines.js 的 speakerOf） */
   .line-row .lr-thumb { flex: none; width: 34px; height: 34px; border-radius: var(--radius-4); overflow: hidden;
     background: var(--thumbbg); display: flex; align-items: center; justify-content: center; }
@@ -642,7 +642,7 @@
   .strip-item .ph { width: 100%; height: 54px; display: flex; align-items: center; justify-content: center;
     background: transparent; font-size: var(--fs-16); color: var(--sub); line-height: 1; opacity: .6; }
   .strip-item .sn { position: absolute; left: var(--sp-4); top: var(--sp-4); font-size: var(--fs-11); padding: 0 var(--sp-4); border-radius: var(--radius-4);
-    background: color-mix(in srgb, var(--media-bg) 65%, transparent); color: var(--on-acc); }
+    background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); }
   .strip-item .st { display: block; font-size: var(--fs-11); color: var(--sub); text-align: center; padding: var(--sp-4) 0; background: var(--panel); }
 
   /* 右栏 */

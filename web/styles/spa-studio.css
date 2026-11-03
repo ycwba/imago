@@ -107,7 +107,7 @@
 .studio-page #result .timg.playable { position: relative; }
 .studio-page #result .timg.playable .tplay { position: absolute; left: var(--sp-8); bottom: var(--sp-8); z-index: 4; width: var(--sz-ctl); height: var(--sz-ctl);
   border-radius: 50%; border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) 68%, transparent); box-shadow: var(--shadow-5);
+  color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) var(--a-72), transparent); box-shadow: var(--shadow-5);
   transition: opacity var(--dur-180), transform var(--dur-180); }
 .studio-page #result .timg.playable .tplay:hover { transform: scale(1.08); }
 .studio-page #result .timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); }

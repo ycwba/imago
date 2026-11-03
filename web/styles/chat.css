@@ -39,7 +39,7 @@ html:not(.ac-dock).ac-open #acPanel{transform:none;opacity:1}
 html.ac-dock #acPanel{box-shadow:none}
 .ac-x.on{color:var(--acc);background:var(--acc-tint-10);border-radius:var(--radius-6)}
 .ac-hd{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-12) var(--sp-12);border-bottom:var(--hair) solid var(--line);
-  background:linear-gradient(180deg, color-mix(in srgb, var(--acc) 9%, transparent), transparent)}
+  background:linear-gradient(180deg, color-mix(in srgb, var(--acc) var(--a-10), transparent), transparent)}
 .ac-hd .ac-tt{display:inline-flex;align-items:center;gap:var(--sp-8);font-size:var(--fs-13);font-weight:700;color:var(--acc)}
 .ac-hd .ac-here{font-size:var(--fs-11);color:var(--sub);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 /* 宽度把手：真产品那根 .ac-grip —— 拖左沿调宽，记在本机（360–760）。

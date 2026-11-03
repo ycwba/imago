@@ -624,14 +624,14 @@ function detectThemePair(file, src) {
 }
 
 /* G21 透明度阶梯：color-mix 的百分比只许从 --a-* 阶梯里取（阶梯本身在 tokens.css）。
-   存量是布局重构前留下的零星百分比，登记在案、只许减不许增 ——
-   新写的淡底不许再自己编一个百分比。 */
+   存量已全部收进阶梯（0% 改 transparent、32% 改 --acc-line-32、其余就近取档），
+   只许保持 0 —— 新写的淡底不许再自己编一个百分比。 */
 const G21_ALPHA = [
-  { file: 'web/director/template.html', max: 34, why: '导演台深底配色那族的淡底/描边透明度（62/45/96/25/6/42/94/70/5/85/40/68/65/7/13/3/78/86/9/88/32/75/92/0 等零星档）：它们是**深底上的自定义强度**，跟阶梯里的档不是同一套语义；等布局重构那轮定了「深底强度」怎么收，再并进阶梯' },
-  { file: 'web/styles/ui.css', max: 9, why: '共享件里的零星档（深底浮层上的遮罩与描边强度）：同理，深底浮层的强度与浅底淡底不是一套；收进阶梯前先留在这里' },
+  { file: 'web/director/template.html', max: 0, why: '深底淡底/描边强度已全部并入 --a-* 阶梯（就近取档）' },
+  { file: 'web/styles/ui.css', max: 0, why: '共享件的零星档已全部并入 --a-* 阶梯' },
   { file: 'web/styles/spa-chars.css', max: 0, why: '素材库重排之后那一页的淡底强度全部收进阶梯了（原两处深底选中环已删）' },
-  { file: 'web/styles/chat.css', max: 1, why: '助手面板的一处深底遮罩强度：同上' },
-  { file: 'web/styles/spa-studio.css', max: 1, why: '工作台缩略图播放钮的一处深底遮罩强度：同上' },
+  { file: 'web/styles/chat.css', max: 0, why: '助手面板的一处深底遮罩强度已并入 --a-10' },
+  { file: 'web/styles/spa-studio.css', max: 0, why: '工作台缩略图播放钮的深底遮罩强度已并入 --a-72' },
 ];
 let alphaLadderCache = null;
 function alphaLadder() {

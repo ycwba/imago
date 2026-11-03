@@ -227,7 +227,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - **`calc()` 里必须写 `var(--x)`**：`calc(-1 * --sp-4)` 是非法 CSS —— 声明整条作废、退回初始值。
   负偏移写成 `calc(-1 * var(--sp-4))`。
 - **透明度只走 `--a-*` 阶梯**：`color-mix(in srgb, var(--基色) var(--a-10), transparent)`。
-  阶梯是「用量 ≥4 次」的 21 档（`--a-4` … `--a-90`）；零星百分比是存量，判据 G21 登记在案，只许减不许增。
+  阶梯是 21 档（`--a-4` … `--a-90`）；零星百分比已全部就近并入阶梯（0% 写 `transparent`），
+  判据 G21 登记在案的是 0 —— 不许再自己编百分比。
 - 页面样式不许再写裸的间距 / 字号 / 圆角 / 描边宽 / 色值 / 时长。
 - **模板源也在射程里**：`tools/vue-templates/*.html` 预编译进 `web/render/*.js`，等于活代码，
   它的行内 `style=` 同样不许写死。
