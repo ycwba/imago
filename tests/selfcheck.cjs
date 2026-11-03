@@ -279,6 +279,10 @@ ok('素材库不再有待完善面板与导入导出',
   && !/type="file"/.test(charsTpl));
 ok('多选批量五件事都在', ['batchFillPics', 'batchFillAssets', 'batchFillVoices', 'batchSetGroup', 'batchRemove']
   .every(k => charsPage.includes(k)));
+ok('改名回填读工作区真源（Kv / 桥），改写规则只有 Chars.renameShotRefs 一份',
+  /Kv\.at\('ws'\)/.test(charsPage) && /libRenameBackfill/.test(charsPage)
+  && /renameShotRefs/.test(charsJs) && /renameShotRefs/.test(charsPage)
+  && !/window\.projAll/.test(charsPage));
 ok('视觉相似在本机算 dHash', /function imgHash/.test(charsPage) && /function findSimilar/.test(charsPage));
 ok('搜索走本地语义排序', /SemanticSearch/.test(charsPage) && /S\.rank/.test(charsPage));
 ok('新建 / 编辑在素材详情那一层（不塞回卡片里）', /createDetail/.test(charsPage)

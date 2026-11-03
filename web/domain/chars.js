@@ -2431,6 +2431,62 @@ window.Chars = (function () {
   /* 下载的文件名不在这里洗：判据全站只有 `ui.js` 的 `fileSafe` 一份。
      这一族以前有三份换法（这里换下划线、页面那两处换连字符、assetlib 那份直接删字符），
      而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
+
+  /* 素材改名回填的**唯一改写规则**（纯函数）：把工程里所有镜头对这一条的引用刷成新名 ——
+     ① prompt 正文的 `@旧名` token；② refMeta 里 id 对得上的 label（老工程没 id 的按 label 认一次）。
+     refMeta.id 一个字不动 —— 身份与名字分开，引用不断。
+     token 边界：`@旧名` 后面是 `·`（`@小雅·三视图` 那种资产 token）只换名字段；后面紧跟别的
+     名字字符（`@小雅雅` 是另一位）不动。边界字符集与 loadRefUse 认名字的那一套一致，但 `·`
+     在这里是名字边界（它后面的「三视图」是资产名，不是名字的一部分）。
+     返回改动过的**镜数**（一镜里多处只算一处，与 loadRefUse 数引用的口径一致）。
+     只改传进来的这份 projects，不碰盘、不弹窗 —— 落盘归调用方（导演台在场走 scheduleSaveQuiet，
+     不在场走 Kv + 镜像）。 */
+  function renameShotRefs(projects, o) {
+    const id = o && o.id;
+    const oldName = String((o && o.oldName) == null ? '' : o.oldName).trim();
+    const newName = String((o && o.newName) == null ? '' : o.newName).trim();
+    if (!id || !oldName || !newName || oldName === newName) return 0;
+    const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const BOUND = '[\\s\\u3000@，。；、,.!?！？：:（）()【\\[\\]「」『』"\']';
+    const re = new RegExp('@' + escRe(oldName) + '(?=·|' + BOUND + '|$)', 'g');
+    /* label 是 `名字` 或 `名字·资产名`（有的老数据带 @ 前缀）—— 只换名字段，@ 与后缀原样留。 */
+    const relabel = (label) => {
+      const raw = String(label == null ? '' : label);
+      const at = raw.charAt(0) === '@';
+      const s = at ? raw.slice(1) : raw;
+      let out = null;
+      if (s === oldName) out = newName;
+      else if (s.indexOf(oldName + '·') === 0) out = newName + s.slice(oldName.length);
+      return out == null ? null : (at ? '@' : '') + out;
+    };
+    let n = 0;
+    ((projects) || []).forEach(p => ((p && p.scenes) || []).forEach(sc => ((sc && sc.shots) || []).forEach(sh => {
+      if (!sh) return;
+      let touched = false;
+      (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
+        if (!rm) return;
+        /* id 对上的全改；没 id 的老条目按 label 兜底认一次（只改 label，不写 id）。 */
+        if (rm.id !== id && rm.id) return;
+        const nl = relabel(rm.label);
+        if (nl != null && nl !== rm.label) { rm.label = nl; touched = true; }
+      });
+      const fix = (txt) => {
+        const t = String(txt == null ? '' : txt);
+        if (t.indexOf('@' + oldName) < 0) return t;
+        return t.replace(re, () => '@' + newName);
+      };
+      const np = fix(sh.prompt);
+      if (np !== String(sh.prompt == null ? '' : sh.prompt)) { sh.prompt = np; touched = true; }
+      (Array.isArray(sh.candidates) ? sh.candidates : []).forEach(cd => {
+        if (!cd) return;
+        const cp = fix(cd.prompt);
+        if (cp !== String(cd.prompt == null ? '' : cd.prompt)) { cd.prompt = cp; touched = true; }
+      });
+      if (touched) n++;
+    })));
+    return n;
+  }
+
   return {
     /* ---- 设置项：设置页照 SET 这张表渲染控件，页面读 setting / candN / candCount ---- */
     SET, setting, candN, voiceN, candCount, previewCap,
@@ -2479,5 +2535,7 @@ window.Chars = (function () {
        壳里那一位必须是这条素材按同一套映射转出来的对象，否则两边字段对不上
        （voiceMode / refAudio 这些只在转的时候拷）。页面不要自己拼那一个壳里的字段。 */
     toEpisodeChar,
+    /* 素材改名 → 工程里 @旧名 与 refMeta.label 刷成新名（唯一改写规则；落盘归调用方）。 */
+    renameShotRefs,
   };
 })();

@@ -377,7 +377,7 @@ export default {
           <div class="mrow"><span class="mname" id="chars-name-${esc(c.id)}">${esc(c.name || '（无名）')}</span>
             ${uses ? '<span class="mrefs">' + uses + ' 镜引用</span>' : ''}</div>
           <p class="mbio">${esc(D.descOf(c) || c.bio || '暂无描述')}</p>
-          <div class="mfoot">${detailDots(D, c)}${detailStat(D, c)}</div>
+          <div class="mfoot"><span class="mstat-pill">${detailDots(D, c)}${detailStat(D, c)}</span></div>
         </div>
         <div class="macts card-shell-actions">${acts}</div>`;
     }
@@ -695,7 +695,7 @@ export default {
       libraryCount.value = all.length;
       if (railSubEl.value) {
         const used = all.filter(c => (refUse.get(String(c.name || '')) || []).length).length;
-        railSubEl.value.innerHTML = esc(used + ' 项已用于导演台')
+        railSubEl.value.innerHTML = '<b>' + used + '</b> 项已用于导演台'
           + (busyText.value ? '<span class="rail-busy">' + esc(busyText.value) + '</span>' : '');
       }
     }
@@ -1133,12 +1133,14 @@ export default {
       }
       const t = e.target.closest('[data-a],[data-act]');
       if (t && root.contains(t)) {
-        const card = t.closest('.card');
-        const c = card && itemOf(card.dataset.id);
-        if (!c) return;
         const name = t.dataset.a || t.dataset.act || '';
         if (!name) return;
         e.stopPropagation();
+        /* 空态那颗「新建」不在卡片里 —— 直接开新建，不走卡片取数。 */
+        if (name === 'newchar') { newChar(); return; }
+        const card = t.closest('.card');
+        const c = card && itemOf(card.dataset.id);
+        if (!c) return;
         invoke(ACTS[name], c, t, card);
         return;
       }
@@ -1172,39 +1174,47 @@ export default {
       const saved = libSave(c);
       if (k === 'name' && saved) {
         c.name = saved.name; el.value = saved.name;
-        /* 改名回填（14.1-3）：按 id 找全片 refMeta 条目 → 刷 label；正文 @旧名 刷成 @新名。
+        /* 改名回填：按 id 找全片 refMeta 条目 → 刷 label；正文 @旧名 刷成 @新名。
            refMeta.id 一个字不动 —— 身份与名字分开。 */
         if (nameBefore && saved.name !== nameBefore) {
-          try { backfillRename(c, nameBefore, saved.name); } catch (e) { /* 回填失败不影响改名本身 */ }
+          try { await backfillRename(c, nameBefore, saved.name); } catch (e) { /* 回填失败不影响改名本身 */ }
         }
         nameBefore = saved.name;
       }
       return k;
     }
-    /* 改名回填：扫全片，把 refMeta.id === c.id 的 label 刷成新名、正文 @旧名 刷成 @新名。
-       回执报「N 处引用已改名」。老工程 refMeta 没 id 的按 label 兜底匹配一次（只读不写 id）。 */
-    function backfillRename(c, oldName, newName) {
+    /* 改名回填：把全片对这一条的引用刷成新名（改写规则只有 `Chars.renameShotRefs` 一份）。
+       落盘分两条路 —— 导演台在场就写它活内存里那份（直写 Kv 会被它下一次整包保存静默冲掉），
+       不在场才自己落 Kv + 镜像。回执报「N 处引用已改名」（N = 实际改动的镜数）。
+       老工程 refMeta 没 id 的按 label 兜底匹配一次（只改 label，不写 id）。 */
+    async function backfillRename(c, oldName, newName) {
+      const id = c && c.id;
+      oldName = String(oldName || '').trim();
+      newName = String(newName || '').trim();
+      if (!id || !oldName || !newName || oldName === newName) return 0;
+      const rewrite = (projects) => {
+        try { return (D && D.renameShotRefs) ? (D.renameShotRefs(projects, { id, oldName, newName }) || 0) : 0; }
+        catch (e) { return 0; }
+      };
       let n = 0;
-      try {
-        const ws = window.Kv && Kv.at ? null : null;   // 同步路径走 D.* 的工程数据
-        const D2 = window.D;
-        if (!D2 || !D2.Lib) return 0;
-        const projects = (window.projAll && window.projAll()) || [];
-        projects.forEach(p => ((p && p.scenes) || []).forEach(sc => ((sc && sc.shots) || []).forEach(sh => {
-          if (!sh) return;
-          /* ① refMeta 按 id 找到这条 → 刷 label */
-          (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
-            if (rm && rm.id === c.id) { rm.label = (rm.label || '').replace(oldName, newName); n++; }
-            else if (!rm && rm.label && rm.label.indexOf(oldName) >= 0) { rm.label = rm.label.replace(oldName, newName); n++; }
-          });
-          /* ② 正文 @旧名 刷成 @新名 */
-          const txt = String(sh.prompt || '');
-          if (txt.indexOf('@' + oldName) >= 0) {
-            sh.prompt = txt.split('@' + oldName).join('@' + newName);
-            n++;
+      /* ① 导演台桥（活内存）：改完它自己排静默落盘。 */
+      const br = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('director') : null;
+      if (br && typeof br.libRenameBackfill === 'function') {
+        try { n = Number(br.libRenameBackfill({ id, oldName, newName })) || 0; } catch (e) { n = 0; }
+      }
+      /* ② 兜底：本会话没装导演台桥 —— 读工作区那份，改完写回去（IndexedDB + 代理镜像）。 */
+      if (!n) {
+        try {
+          const ws = await window.Kv.at('ws').get('workspace');
+          const projects = (ws && ws.projects) || [];
+          n = rewrite(projects);
+          if (n) {
+            const rec = { projects, curId: ws.curId, roles: ws.roles, groups: ws.groups, ts: Date.now() };
+            await window.Kv.at('ws').put('workspace', rec);
+            try { if (window.DataSync) DataSync.mirrorWs(JSON.stringify({ v: 1, data: rec, ts: rec.ts })); } catch (e) { /* 镜像推不动不影响本机那一份已经落下去 */ }
           }
-        })));
-      } catch (e) { /* 工程数据不可达时回填跳过 */ }
+        } catch (e) { /* 工程数据不可达时回填跳过 */ }
+      }
       if (n) Toast.receipt('改名完成：' + n + ' 处引用已跟着改');
       return n;
     }
@@ -1275,7 +1285,13 @@ export default {
             const names = new Set();
             let m;
             re.lastIndex = 0;
-            while ((m = re.exec(txt))) names.add(m[2]);
+            while ((m = re.exec(txt))) {
+              names.add(m[2]);
+              /* 资产 token（`@小雅·三视图`）也是对「小雅」的引用 —— 名字段再记一份，
+                 否则卡上「N 镜引用」与改名确认框都漏掉它（改名回填会换它，口径要一致）。 */
+              const dot = m[2].indexOf('·');
+              if (dot > 0) names.add(m[2].slice(0, dot));
+            }
             names.forEach(n => {
               const list = map.get(n) || [];
               list.push({ pid: p.id || '', pname: p.name || '未命名短片', sid: sc.id || '', sname: sc.name || '', shid: sh.id || '', shname: sh.name || '' });
@@ -1392,7 +1408,10 @@ export default {
           : gname ? '「' + gname + '」还没有素材'
             : group.value === '__none' ? '未分组里还没有素材'
               : all.length ? '暂无匹配素材' : '还没有素材';
-        emptyHtml.value = icon('layers', 40) + '<span>' + esc(emptyText) + '</span>';
+        /* 库真为空且没有筛选时，给一颗「新建」主按钮（按钮是动作，不是说明）。 */
+        const emptyNew = !all.length && !qv && !gname && group.value !== '__none';
+        emptyHtml.value = '<span class="empty-ic">' + icon('layers', 24) + '</span><span>' + esc(emptyText) + '</span>'
+          + (emptyNew ? '<button type="button" class="pri" data-a="newchar">新建素材</button>' : '');
         return;
       }
       emptyHtml.value = '';

@@ -149,8 +149,10 @@ export function createDetail(ctx) {
     const pic = D.picOf(c);
     const kind = ctx.mainKind(c);
     const kf = ctx.kindFields(c);
+    const kindLab = D.LIB_KINDS[D.libKindOf(c)] || '';
     const hero = pic
-      ? '<div class="md-hero">' + ctx.thumbImg(pic) + '</div>'
+      ? '<div class="md-hero">' + ctx.thumbImg(pic)
+        + '<div class="md-hero-cap"><b>' + esc(c.name || '（无名）') + '</b><span>' + esc(kindLab) + '</span></div></div>'
       : '<div class="md-hero"><div class="none"><b>还没有预览图</b><span>' + (D.isSceneItem(c)
         ? '照下面描述出图。'
         : D.isPropItem(c) ? '照下面描述出图。'

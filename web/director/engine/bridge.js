@@ -30,6 +30,8 @@ export function createBridge(E, document, window) {
     projOf,
     filmOf,
     allShots,
+    allProjects,
+    scheduleSaveQuiet,
     curScene,
     curShot,
     undoStack,
@@ -1204,6 +1206,22 @@ export function createBridge(E, document, window) {
     exportList: a => exportRecent(a),
     exportCancel: a => exportCancel(a),
     saveToAssets: a => exportSaveToAssets(a),
+    /* 素材改名回填（素材库页改了名字 → 全片 @旧名 与 refMeta.label 刷成新名）。
+       改写规则只有一份（`Chars.renameShotRefs`，纯函数）；这里只负责把活内存里那份工程
+       交出去改、改完排一次静默落盘。直接写 IndexedDB 会被导演台下一次整包 scheduleSave
+       静默冲掉 —— 所以这条路只在「导演台已装配」时走，不在场时页面自己落 Kv。 */
+    libRenameBackfill: a => {
+      const C = window.Chars;
+      if (!C || !C.renameShotRefs) return 0;
+      const projects = (typeof allProjects === 'function' ? allProjects() : null) || [];
+      if (!projects.length) return 0;
+      let n = 0;
+      try {
+        n = C.renameShotRefs(projects, a) || 0;
+      } catch (e) { return 0; }
+      if (n && typeof scheduleSaveQuiet === 'function') { try { scheduleSaveQuiet(); } catch (e) { /* 排不上保存不影响这次改写已经落进内存 */ } }
+      return n;
+    },
     check: (op, a) => dirCheck(op, a),
     run: (op, a) => dirRun(op, a),
   });

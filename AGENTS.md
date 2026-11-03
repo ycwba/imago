@@ -1348,7 +1348,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   `DirectorView` 是 Vue 页面壳；内部按域拆成纯模块与 `engine/<域>.js`。这些 DOM 节点被缓存、拖拽、
   切片帧、插针与撤销逻辑大量引用；改成 Vue 组件会改变节点身份与更新时机，直接破坏「切页不丢状态 /
   不重解码 / 拖动中途不重建」这些既有判据。剪辑交互与预览引擎同样明确不重写。因此 `engine.js` 仍是
-  全站最大的文件（工程数据 + 可变状态 + 接线），「单文件 < 3k」不适用于它；新增能力继续往纯模块与
+  全站最大的文件（工程数据 + 可变状态 + 接线）；新增能力继续往纯模块与
   域文件里放，不再往 engine.js 加界面代码。
 - **DOM 代理保留**：`web/director/index.js` 的 document / window 代理是作用域岛边界，
   保证导演台的弹层、拖拽示意与键盘监听不挂到别的常驻页面；去掉它是行为回退。

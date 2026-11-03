@@ -260,6 +260,8 @@ run('tests/director-split-ask.mjs', process.execPath, ['tests/director-split-ask
 run('tests/split-plan.mjs', process.execPath, ['tests/split-plan.mjs']);
 /* 项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 组名即素材组名。 */
 run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']);
+/* 素材改名回填：@旧名 → @新名 的 token 边界（整名 / 资产 token 只换名段 / 更长的另一位不动）。 */
+run('tests/chars-rename.mjs', process.execPath, ['tests/chars-rename.mjs']);
 /* 发送前预览（dry-run）：预览与实发同源 / 不发网络请求 / 占位符 / 展示形状。 */
 run('tests/raw-preview.mjs', process.execPath, ['tests/raw-preview.mjs']);
 /* 项目引用规则：Skill 正文里的变量占位符（{cast} {what} …）按项目填料。 */
@@ -326,8 +328,8 @@ run('tests/director-e-deps.cjs', process.execPath, ['tests/director-e-deps.cjs']
 /* 同一实现别写第二份（唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
-/* metrics：--strict 恒开。曾经它绑在 process.env.CI 上，而仓库没有 CI —— 结果是「单文件超长必须登记、
-   登记了只许减不许增」这条判据从来没红过，一批文件就这么涨过去。本地跑也按同一把尺子量。 */
+/* metrics：--strict 恒开。管的是总量基线（M1 基线可读、M2 总行数/代码行不超基线 +5%）；
+   单文件行数只打印不判红。本地跑也按同一把尺子量。 */
 run('tests/metrics.cjs', process.execPath, ['tests/metrics.cjs', '--strict']);
 
 /* ---------- 浏览器（按需；分档。这行 if 的文本是 map.cjs 登记表的分段标记，别改写法） ---------- */

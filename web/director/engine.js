@@ -4661,6 +4661,9 @@ createBridge({
   projOf: () => proj,
   filmOf: () => ensureFilm(),
   allShots: (...a) => allShots(...a),
+  /* 改名回填要扫的是**全部短片**的镜头（loadRefUse 数引用也数全片），不是当前这一部。 */
+  allProjects: () => (WS && WS.projects) || [],
+  scheduleSaveQuiet: () => scheduleSaveQuiet(),
   curScene: (...a) => curScene(...a),
   curShot: (...a) => curShot(...a),
   undoStack: undoStack,
