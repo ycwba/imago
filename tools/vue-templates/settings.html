@@ -19,7 +19,7 @@
         <div class="set-rail-top">
           <input ref="setQEl" type="search" v-model="setQ" @input="syncNav" @keydown="onNavKey"
             placeholder="找一项设置" autocomplete="off" spellcheck="false">
-          <button class="ghost mini" :hidden="!navHasFilter" @click="clearNav">清除</button>
+          <button class="ghost" :hidden="!navHasFilter" @click="clearNav">清除</button>
         </div>
         <div class="set-rail-note" :class="{ err: navSumErr }" v-if="navHasFilter">{{ navSum }}</div>
         <div class="set-rail-scroll" ref="setRailEl"></div>
@@ -312,8 +312,8 @@
                        行首那枚灯说的是「这个槽现在被谁占着」：紫=我的、灰=内置、虚线=空档、红=两份都启用。 -->
                   <aside class="sk-rail">
                     <div class="sk-rail-top">
-                      <input type="search" class="sk-search" :value="skillQ" @input="onSkillSearch" placeholder="搜场景 / Skill 名 / id">
-                      <button class="ghost mini" id="skAllBtn" type="button" :disabled="skillBusy" @click="openSkillAll">全部 Skill {{ skillItems.length }}</button>
+                      <input type="search" class="search sk-search" :value="skillQ" @input="onSkillSearch" placeholder="搜场景 / Skill 名 / id">
+                      <button class="ghost" id="skAllBtn" type="button" :disabled="skillBusy" @click="openSkillAll">全部 Skill {{ skillItems.length }}</button>
                     </div>
                     <div class="sk-groups">
                       <template v-for="g in skillTree" :key="g.id">
@@ -428,7 +428,7 @@
                       <div class="sk-sec">
                         <div class="sk-filters">
                           <span class="chips" ref="skillChipsEl"></span>
-                          <input type="search" class="sk-search" :value="skillAllQ" @input="onSkillAllSearch" placeholder="名称 / id / 描述 / 触发词">
+                          <input type="search" class="search sk-search" :value="skillAllQ" @input="onSkillAllSearch" placeholder="名称 / id / 描述 / 触发词">
                           <span class="sk-cnt">{{ skillCntText }}</span>
                         </div>
                         <div class="sk-alllist">

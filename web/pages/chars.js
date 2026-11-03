@@ -661,9 +661,9 @@ export default {
       const grpRows = gs.map(g => railRow('group', g.name, g.name, grpCount(g.name), group.value === g.name)).join('')
         + (none ? railRow('group', '__none', '未分组', none, group.value === '__none') : '');
       const draftHTML = groupDraft
-        ? '<div class="rail-new"><input class="rail-new-inp" maxlength="20" placeholder="新组名称" autocomplete="off">'
-          + '<button class="ghost mini" type="button" data-rail="newgroup-ok">建组</button>'
-          + '<button class="ghost mini" type="button" data-rail="newgroup-cancel">取消</button></div>'
+        ? '<div class="rail-new"><input class="ui-inp rail-new-inp" maxlength="20" placeholder="新组名称" autocomplete="off">'
+          + '<button class="ghost" type="button" data-rail="newgroup-ok">建组</button>'
+          + '<button class="ghost" type="button" data-rail="newgroup-cancel">取消</button></div>'
         : '';
       window.Wb.viewport.keep(el, () => {
         el.innerHTML = '<div class="rail-sec">' + kindRows + '</div>'

@@ -423,7 +423,7 @@
   padding: 0 var(--sp-12); background: var(--panel2); border: var(--hair) solid var(--line);
   border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-13); }
 .settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
-.settings-page .set-rail-top .ghost { flex: 0 0 auto; padding: var(--sp-4) var(--sp-8); font-size: var(--fs-12); }
+.settings-page .set-rail-top .ghost { flex: 0 0 auto; }
 /* 筛选时的那句解释（命中几行、按回车跳到第一处）—— 只在筛选期间占位，平时不留空带。 */
 .settings-page .set-rail-note { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); line-height: 1.6;
   padding: 0 var(--sp-8) var(--sp-8); }
@@ -565,10 +565,8 @@
      写死一个 --sp-60 的话，组标题一变高，轨的上半截就藏到组标题底下（用户点名：吸顶打架）。 */
   position: sticky; top: calc(var(--setanchor) + var(--sp-8)); max-height: calc(var(--setdoc-h) - var(--setanchor) - var(--sp-24)); overflow: auto; }
 .settings-page .sk-rail-top { display: flex; align-items: center; gap: var(--sp-8); }
-.settings-page .sk-search { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--sp-12);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input);
-  color: var(--txt); font-size: var(--fs-13); }
-.settings-page .sk-search:focus { border-color: var(--acc); }
+/* 搜索框的外形与尺寸走公共的 .search（与工具行那一格逐字相同），这里只管它在轨里怎么占位 */
+.settings-page .sk-search { flex: 1 1 auto; min-width: 0; }
 .settings-page .sk-groups { display: flex; flex-direction: column; gap: var(--sp-2); }
 .settings-page .sk-rg-h { display: flex; align-items: baseline; gap: var(--sp-8);
   padding: var(--sp-8) var(--sp-4) var(--sp-4); border-bottom: var(--hair) solid var(--line); }

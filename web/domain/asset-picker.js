@@ -48,7 +48,7 @@ window.AssetPicker = {
       const dlg = document.createElement('dialog');
       dlg.id = 'apDlg';
       dlg.innerHTML = `<div class="ap-head"><b>${esc(o.title)}</b>
-        <input id="apSearch" placeholder="搜索提示词 / 描述要找的素材…" value="${esc(o.search || '')}" disabled>
+        <input id="apSearch" class="search" placeholder="搜索提示词 / 描述要找的素材…" value="${esc(o.search || '')}" disabled>
         ${o.aiSearch ? AiFind.btnHTML('apAiBtn') + '<span id="apAiChip"></span>' : ''}
       </div>
         <!-- 来源档与类型档都用全站那一份芯片几何（.chip）；「本地上传」是动作按钮，不带选中态 -->

@@ -36,13 +36,11 @@ const _hoisted_11 = {
 }
 const _hoisted_12 = { class: "as-sel" }
 const _hoisted_13 = {
-  class: "ui-inp",
   ref: "asProvEl",
   "aria-label": "按平台筛选"
 }
 const _hoisted_14 = { class: "as-sel" }
 const _hoisted_15 = {
-  class: "ui-inp",
   ref: "asTimeEl",
   "aria-label": "按时间筛选"
 }
@@ -309,6 +307,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("input", {
         type: "number",
         id: "gotoPage",
+        class: "ui-inp",
         ref: "gotoPageEl",
         min: "1",
         placeholder: "跳页",

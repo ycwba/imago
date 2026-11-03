@@ -483,7 +483,7 @@ export function createAccountCards(deps) {
          主行因此只剩「能力名 + 状态牌 + 型号 n/m」，与别的档对齐；下拉拿到整行宽，型号 id 读得全。 */
       + (cap === 'text'
         ? '<div class="crow-sub"><select class="sel" data-tmodel="' + window.esc(m.keyId) + '"></select>'
-          + '<button class="ghost mini" type="button" data-ttest="' + es + '"'
+          + '<button class="ghost" type="button" data-ttest="' + es + '"'
           + ' title="发测试消息">测试</button></div>'
         : '')
       + '</div>'
@@ -540,7 +540,7 @@ export function createAccountCards(deps) {
       + '<div class="mlist" data-tchips="' + es + '"></div>'
       + '<div class="krow thin"><span class="kn">自己填</span>'
         + '<input data-tmnew="' + es + '" placeholder="逗号分隔">'
-        + '<button class="ghost mini" type="button" data-tadd="' + es + '">添加</button></div>'
+        + '<button class="ghost" type="button" data-tadd="' + es + '">添加</button></div>'
       + '<div class="msg" data-pmsg="' + es + '"></div>'
       + '</div>';
   }
@@ -585,9 +585,9 @@ export function createAccountCards(deps) {
     return '<div class="krow thin keyrow"><span class="kn">密钥</span>'
       + '<input type="password" data-key="' + kid + '" value="' + window.esc(draftKey(m.keyId)) + '"'
       + ' placeholder="' + window.esc(ph) + '">'
-      + '<button class="ghost mini" type="button" data-eye="' + kid + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>'
+      + '<button class="ghost eye" type="button" data-eye="' + kid + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>'
       + '<button class="ghost clr" type="button" data-clr="' + kid + '" title="清掉本机密钥">清除</button>'
-      + '<button class="ghost mini" type="button" data-vfy="' + kid + '"'
+      + '<button class="ghost" type="button" data-vfy="' + kid + '"'
       + ' title="只读验证，不扣费">验证</button>'
       + '</div>'
       + '<div class="krow thin"><span class="hint sm" data-ksrc="' + kid + '"'

@@ -421,6 +421,7 @@ export function render(_ctx, _cache) {
             ]),
             _withDirectives(_createElementVNode("input", {
               id: "fQ",
+              class: "ui-inp",
               "onUpdate:modelValue": $event => ((_ctx.fQ) = $event),
               onInput: _ctx.onQInput,
               placeholder: "搜索提示词 / 型号 / ID…"

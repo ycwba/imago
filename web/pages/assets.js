@@ -1264,7 +1264,7 @@ export default {
       searchFb = window.Wb.filterBar.bind(headToolsEl.value, {
         cls: '', chips: null, value: F.q,
         headHTML: '<span class="flabel">搜索</span>',
-        inputId: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
+        inputId: 'search', inputClass: 'search', placeholder: '提示词 / 资产ID / 任务ID…', q: F.q,
         onSearch: v => {
           if (FAI) { FAI = null; aiAsc = 0; paintAiChip(); }
           F.q = String(v == null ? '' : v).trim().toLowerCase();

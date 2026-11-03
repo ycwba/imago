@@ -30,7 +30,7 @@
    匹配不到孙子这一层）。动态加载档整行藏起来，hidden 要压过下面的 display。 */
 .studio-page .pgroup .pgrow { display: inline-flex; align-items: center; gap: var(--sp-4); }
 .studio-page .pgroup .pgrow[hidden] { display: none; }
-.studio-page .pgroup .pgrow > .ghost { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
+.studio-page .pgroup .pgrow > .ghost { height: var(--sz-ctl); padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
 
 /* ---------- 左栏顶部：类型切换（左） + 模型下拉（右） ----------
    页面标题已提到全宽顶排（公共 .phead），左栏顶部让给类型切换与型号下拉。 */

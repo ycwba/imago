@@ -24,7 +24,7 @@
   flex: 0 0 auto; min-width: 0; }
 .usage-page .ub-right .filters .ddwrap { flex: 0 0 auto; width: 100%; min-width: 0; }
 .usage-page .ub-right .filters .dd { width: 100%; min-width: 0; }
-.usage-page .ub-right .filters input { width: 100%; box-sizing: border-box; }
+.usage-page .ub-right .filters .ui-inp { width: 100%; }
 
 /* 账单区域：标题与筛选固定，只有列表本身滚动（独立滚动条，滚动条要看得见）
    scrollbar-width/color 是 Windows 11 上实际生效的通道（会强制经典滚动条、始终可见）；
@@ -84,10 +84,8 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 
 .usage-page .filters { display: flex; gap: var(--sp-8); align-items: center; flex-wrap: wrap; margin-bottom: var(--sp-12); }
 .usage-page .filters .ddwrap { flex: 0 0 150px; }
-.usage-page .filters .dd-btn { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); }
-.usage-page .filters input { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-  background: var(--input); color: var(--txt); outline: none; }
-.usage-page .filters input:focus { border-color: var(--acc); }
+/* 每一格的高度、边框、字号都走公共件（.dd-btn 与 .ui-inp 同一档 --sz-ctl）——
+   这一行以前自己写了一份输入框尺寸（还没写高度），同一排里的下拉是 32、搜索框是浏览器的 21。 */
 
 .usage-page .stat { display: flex; gap: var(--sp-24); flex-wrap: wrap; margin-bottom: var(--sp-8); }
 .usage-page .stat div { font-size: var(--fs-13); color: var(--sub); }

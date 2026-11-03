@@ -32,9 +32,9 @@
         <!-- 类型（带条数）：公共件 Wb.kindFilter —— 与工作台、收藏页同一副分段控件 -->
         <div class="ui-seg" ref="asTypeEl" role="group" aria-label="按类型筛选"></div>
         <label class="as-sel"><span>平台</span>
-          <select class="ui-inp" ref="asProvEl" aria-label="按平台筛选"></select></label>
+          <select ref="asProvEl" aria-label="按平台筛选"></select></label>
         <label class="as-sel"><span>时间</span>
-          <select class="ui-inp" ref="asTimeEl" aria-label="按时间筛选">
+          <select ref="asTimeEl" aria-label="按时间筛选">
             <option value="0">全部时间</option>
             <option value="1">今天</option>
             <option value="7">近 7 天</option>
@@ -80,7 +80,7 @@
            跟页面动作混成一排，跨页时位置全不一样。 -->
       <div class="assets-pager">
         <span class="pager-row" ref="pagerBtnsEl" v-show="isPageMode && pagerReady"></span>
-        <input type="number" id="gotoPage" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
+        <input type="number" id="gotoPage" class="ui-inp" ref="gotoPageEl" min="1" placeholder="跳页" @keydown.enter="gotoPageInput">
         <button class="ghost" id="gotoBtn" :disabled="gotoBusy" @click="gotoPageInput">{{ gotoBtnText }}</button>
         <span id="cnt" class="info">{{ cntText }}</span>
       </div>

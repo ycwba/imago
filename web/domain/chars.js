@@ -2172,10 +2172,10 @@ window.Chars = (function () {
     const libNotes = vm === 'design' ? libVoiceEntries('note') : [];
     const libAudios = vm === 'clone' ? libVoiceEntries('audio') : [];
     const takeNote = libNotes.length
-      ? `<button class="ghost mini" data-act="vnotepick" title="从素材库里挑一位，把他写的那段音色描述填进这一格">${ic('users', 12)} 用素材的音色描述</button>` : '';
+      ? `<button class="ghost" data-act="vnotepick" title="从素材库里挑一位，把他写的那段音色描述填进这一格">${ic('users', 12)} 用素材的音色描述</button>` : '';
     const takeAudio = libAudios.length
       ? `<button class="ghost mini" data-act="vaudiopick" title="从素材库里挑一位，用他挂着的参考音频克隆这一位的声音">${ic('users', 12)} 用素材的声音克隆</button>` : '';
-    if (vm === 'design') return fb + '<input class="ui-in" data-act="voicenote" placeholder="描述这个人的声音：男/女、年纪、清亮还是沙哑、语速快慢、情绪底子" '
+    if (vm === 'design') return fb + '<input class="ui-inp ui-in" data-act="voicenote" placeholder="描述这个人的声音：男/女、年纪、清亮还是沙哑、语速快慢、情绪底子" '
       + 'value="' + esc(c.voiceNote || '') + '">'
       + `<span class="ui-hint">「${mn}」按这段描述出声，写完就能试听${(c.voiceBy === 'ai' && String(c.voiceNote || '').trim()) ? '（这段是 AI 按人设写的，可以直接改）' : ''}`
       /* 说清它会跟着这一位走（用户要求「同一个角色下次用之前的音色提示词」）：

@@ -612,7 +612,7 @@ export function render(_ctx, _cache) {
           [_vModelText, _ctx.setQ]
         ]),
         _createElementVNode("button", {
-          class: "ghost mini",
+          class: "ghost",
           hidden: !_ctx.navHasFilter,
           onClick: _ctx.clearNav
         }, "清除", 8 /* PROPS */, _hoisted_5)
@@ -1235,13 +1235,13 @@ export function render(_ctx, _cache) {
                 _createElementVNode("div", _hoisted_156, [
                   _createElementVNode("input", {
                     type: "search",
-                    class: "sk-search",
+                    class: "search sk-search",
                     value: _ctx.skillQ,
                     onInput: _ctx.onSkillSearch,
                     placeholder: "搜场景 / Skill 名 / id"
                   }, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_157),
                   _createElementVNode("button", {
-                    class: "ghost mini",
+                    class: "ghost",
                     id: "skAllBtn",
                     type: "button",
                     disabled: _ctx.skillBusy,
@@ -1491,7 +1491,7 @@ export function render(_ctx, _cache) {
                             _createElementVNode("span", _hoisted_219, null, 512 /* NEED_PATCH */),
                             _createElementVNode("input", {
                               type: "search",
-                              class: "sk-search",
+                              class: "search sk-search",
                               value: _ctx.skillAllQ,
                               onInput: _ctx.onSkillAllSearch,
                               placeholder: "名称 / id / 描述 / 触发词"

@@ -345,6 +345,13 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 胶囊（`.ui-tag` / `.ui-pill` / `.ai-chip` / `.phead-chip`） | `--radius-999` | `--sz-chip` |
 | 方正内件（`.did` / `.seg-n` / 导演台方正覆盖） | `--radius-4` | 按内容 |
 
+**一行混排控件只许 `--sz-ctl` 一档**：一条 flex / grid 行里摆着两种以上原子控件
+（按钮、输入框、分段、下拉）时，全部取 `--sz-ctl` / `--fs-13` —— 单行输入框的公共配方
+（`.toolbar input[type="search"]` / `.search` / `.ui-inp`）与 `.ghost` / `.dd-btn` / `.ui-seg`
+同高；往隐藏的原生 `<select>` 的 class 里写尺寸是惰性的（画出来的是 `.dd-btn`）。
+`--sz-ctl-sm` 只给**整行都小**的行用（`.ghost.mini` 与同为小号的邻居同排）；
+大号 `--sz-ctl-lg` 只给单独强调的主控件。一行 32 / 28 混排是判据红，不是风格问题。
+
 键盘焦点环只有全站兜底一份（`ui.css` 末尾的 `:focus-visible`）；组件与页面不许再写
 同一圈 outline，也不许用基态 `outline: none` 把它压掉 —— 输入族的鼠标焦点反馈是
 `:focus` 时 `border-color: var(--acc)`。
@@ -359,7 +366,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 按钮 | `.pri`（主）`.ghost`（次）`.tool`（磁贴）`.ui-linkbtn`（文字链式小动作） |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
-| 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.pinl` `.split-opts`（`SplitPlan.html` 画的那一排） |
+| 表单 | `.pgroup` `.dd` `.dd-list` `.dd-btn` `.search` `.ui-inp`（单行输入配方与工具行搜索框同一条）`.ui-in`（只管行内宽度，几何走 `.ui-inp`）`.pinl` `.split-opts`（`SplitPlan.html` 画的那一排） |
 | 空态 / 加载 | `.empty` `.ui-wait` |
 | 工具条 / 视图切换 / 分页 | `.toolbar` `.viewtoggle` `.pager-row` `.pginfo` |
 | 浮层 | `.ui-vrow` `.ui-voice` `.ui-cands` |

@@ -230,7 +230,7 @@ export function createDetail(ctx) {
       act: 'AI 出这一张',
       why: '照「' + shortLab(ctx.kindFields(c).look.lab) + '」这一句画',
       extra: '<input class="ui-inp md-asset-name" data-a="assetname" maxlength="24" value="' + esc(dr.name) + '" placeholder="叫什么">'
-        + '<select class="ui-inp md-asset-tpl" data-a="assettpl">' + tpls.map(k => '<option value="' + esc(k) + '"' + (k === drTpl ? ' selected' : '') + '>' + esc(D.Cast.assetLabel(c, k) || k) + '</option>').join('') + '</select>'
+        + '<select data-a="assettpl">' + tpls.map(k => '<option value="' + esc(k) + '"' + (k === drTpl ? ' selected' : '') + '>' + esc(D.Cast.assetLabel(c, k) || k) + '</option>').join('') + '</select>'
         + '<button class="ghost" type="button" data-d-act="assetpick">' + (window.icon ? window.icon('upload', 12) : '') + '自己传一张</button>',
       extra2: '<label class="md-what"><span>选「自定义」时要画什么</span>'
         + '<input class="ui-inp" data-a="assetwhat" maxlength="60" value="' + esc(dr.what) + '" placeholder="例：雨天造型、侧脸特写"></label>',
@@ -267,7 +267,7 @@ export function createDetail(ctx) {
     out.push('<section class="md-sec"><div class="md-sec-t">基本信息</div>'
       + '<div class="md-row3">'
       + '<label class="md-field"><span>名字</span><input class="ui-inp" data-f="name" value="' + esc(c.name || '') + '" maxlength="20"></label>'
-      + '<label class="md-field"><span>类型</span><select class="ui-inp" data-f="kind">'
+      + '<label class="md-field"><span>类型</span><select data-f="kind">'
       + Object.keys(D.LIB_KINDS).map(k => '<option value="' + k + '"' + (k === D.libKindOf(c) ? ' selected' : '') + '>' + D.LIB_KINDS[k] + '</option>').join('')
       + '</select></label>'
       + '<label class="md-field"><span>分组</span><input class="ui-inp" data-f="group" value="' + esc(c.group || '') + '" maxlength="20" placeholder="例：校园篇主要角色"></label>'
@@ -279,7 +279,7 @@ export function createDetail(ctx) {
       + '<label class="md-field"><span>' + esc(kf.look.lab) + '</span>'
       + '<textarea class="ui-ta" data-f="look" rows="3" placeholder="' + esc(kf.look.ph) + '">' + esc(c.look || c.desc || '') + '</textarea></label>'
       + (D.isSceneItem(c)
-        ? '<label class="md-field"><span>' + esc(kf.time.lab) + '</span><select class="ui-inp" data-f="time" style="max-width:220px">' + D.Cast.timeOptsHTML(c) + '</select></label>'
+        ? '<label class="md-field"><span>' + esc(kf.time.lab) + '</span><select data-f="time">' + D.Cast.timeOptsHTML(c) + '</select></label>'
         : '')
       + '<label class="md-field"><span>' + esc(kf.bio.lab) + '</span>'
       + '<input class="ui-inp" data-f="bio" value="' + esc(c.bio || '') + '" placeholder="' + esc(kf.bio.ph) + '"></label>'

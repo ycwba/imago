@@ -9,18 +9,14 @@
   .assets-page .as-range { flex-wrap: wrap; }
   .assets-page .as-range .datepick { width: 108px; }
 }
-.assets-page .toolbar { justify-content: flex-end; }   /* 基础形态（flex / 间距 / 控件高度）在 ui.css */
-/* 「跳页」那一格是 .frow 里的 input，但它的尺寸归 .toolbar 那一档（ui.css）。
-   这一条把被上面 `.assets-page .frow input` 抬高的优先级按回公共尺寸，不然跳页框会变成 240px 宽。 */
-.assets-page .toolbar input[type="number"] { width: 74px; height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-13); }
 /* 分页读数与计数：与 ui.css 同一份口径（这里显式写一遍是因为本页根类抬高了选择器权重） */
 .assets-page .pginfo { font-size: var(--fs-12); color: var(--sub); min-width: 90px; text-align: center; align-self: center; }
-.assets-page .toolbar .info { font-size: var(--fs-13); color: var(--sub); }
 /* 页底那一行：翻页 + 跳页 + 共几项（与其它页同一处）。 */
 .assets-page .assets-pager { display: flex; align-items: center; justify-content: center; gap: var(--sp-8);
   margin: var(--sp-16) 0 var(--sp-8); }
 .assets-page .assets-pager .info { font-size: var(--fs-13); color: var(--sub); }
-.assets-page .assets-pager input[type="number"] { width: 76px; }
+/* 页底那一行的跳页框走公共的 .ui-inp（上面那条定宽只管宽度，高度/边框/字号是公共那一档） */
+.assets-page .assets-pager .ui-inp { width: 76px; }
 /* 日期区间（自定义时间那一档里露出来的那两个框）：紧凑一组；外观走公共规范
    （描边/圆角/主题色），点击打开站内日期弹层。
    注意：这里不能加 overflow:hidden —— 日期弹层 .dp-pop 就挂在本元素内部定位，裁掉就点不出来了 */
@@ -59,10 +55,8 @@
   margin: var(--sp-12) 0 var(--sp-8); }
 .assets-page .as-head-tools { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
 .assets-page .as-head-tools .flabel { font-size: var(--fs-12); color: var(--sub); }
-.assets-page .as-head-tools input[type="search"] { width: 260px; height: 32px; padding: 0 var(--sp-12);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel);
-  color: var(--txt); font-size: var(--fs-13); outline: none; font-family: inherit; }
-.assets-page .as-head-tools input[type="search"]:focus { border-color: var(--acc); }
+/* 页头那一格搜索框走公共的 .search（尺寸/边框/底色/焦点与全站单行输入同一份），这里只给它定宽 */
+.assets-page .as-head-tools input[type="search"] { width: 260px; }
 
 /* ---------- 一行筛选：类型（带条数）+ 平台 + 时间 ----------
    平台从一个下拉走：平台涨到十几家时，一行十几颗芯片会把整行撑开。
