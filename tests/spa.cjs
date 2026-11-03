@@ -344,8 +344,16 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      · 同一批继续落在首屏常驻件上（枚数不变，仍是 29 枚）：`workbench.js` 的占位牌 `plateHTML`
        （资产库与工作台任务态同一套）、全屏观看按钮 `fullBtnHTML`、详情里的进度实时刷新与「完整提示词」全文升级；
        `gen-forms.js` 的档位排序（清单仍按平台声明动态取，只按「快速→标准→增强→品质」摆顺序）。
-       这几处都是三页共用的唯一实现，没有按需的落点。实跑 29 枚 / 847675 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 847800;
+       这几处都是三页共用的唯一实现，没有按需的落点。实跑 29 枚 / 847675 字节。
+     · 按实跑重登记（2026-11-03，素材库「拿去生成」与「找相似」整族删除）：枚数不变（仍是 29 枚），
+       变长的是 `web/ui/ui.js` 一份 —— 删掉 `ICONS.reuse` 那一行，加进 `LEGACY_KEYS` 的是 `sk_reuse`
+       与 `char_opts` 那两条「为什么这一枚键已作废」的说明（这一族必须把理由写全：不写就会被后人
+       当死代码删掉，盘上那份镜像下次 boot 又把键还回来）；`web/ui/datasync.js` 只是从 `NOT_SYNC`
+       里摘掉 `sk_reuse` 那一个名字和那句旁注，短了几个字节。
+       同批删掉的 `Wb.reuse`（workbench.js）、素材库的 dHash 那一族（pages/chars.js）与工作台那头的
+       消费端（pages/studio.js）都不在这 29 枚里：workbench.js 按页补载、页面组件走模块图。
+       没有新挂脚本，也没有把按需件挪进来。实跑 29 枚 / 848281 字节（登记上限 848500）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 848500;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);
@@ -436,8 +444,6 @@ ok('有全局错误处理', /config\.errorHandler/.test(core));
 group('§4 站内跳转');
 const ui = read('web/ui/ui.js');
 ok('GoPage 优先走同文档 appShow', /host\.appShow\(f,\s*true\)/.test(ui));
-const wbjs = read('web/ui/workbench.js');
-ok('复用跳转不再直接 location.href', !/location\.href\s*=\s*'studio\.html\?t='/.test(wbjs) && /GoPage\.go\(target\)/.test(wbjs));
 
 /* ---------- 5. 已迁移页面与 Vue 组件一一对应 ---------- */
 group('§5 Vue 页面');

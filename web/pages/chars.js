@@ -118,7 +118,8 @@ export default {
        ⚠ 这里**不再有「本页默认」**：默认值在设置页「素材库」那张卡里
        （默认生图型号 / 默认语音型号 / 默认出几张），页面上每一处生成位自己挑、自己改，
        改的只管那一处，**不写回设置页也不写进本机** ——
-       「按上次那个跑」不是这一页该有的行为（旧的本机键 `char_opts` 已停用，见 boot）。 */
+       「按上次那个跑」不是这一页该有的行为（它存过的那个本机键 `char_opts` 已由启动时的
+       旧键清理连盘上那份镜像一起删掉，见 `web/ui/ui.js` 的 `LEGACY_KEYS`）。 */
     const opts = { ratio: '9:16' };
     /* 设置页那一份默认（每次现读：那边改了，这边立刻跟着变）。 */
     const defImgModel = () => String(D.setting('imgModel') || '');
@@ -365,8 +366,6 @@ export default {
       const acts = window.Wb.actsHTML(c, {
         items: [
           { act: 'edit', icon: 'pencil', label: '编辑', title: '打开这一条的详情：改描述、出图、配声音' },
-          pic ? { act: 'reuse', icon: 'reuse', label: '拿去生成', title: '带着这张' + esc(pw) + '去工作台，放进参考图那一栏', data: { src: pic, name: c.name || '' } } : null,
-          pic ? { act: 'similar', icon: 'search', label: '找相似', title: '在本机素材库里按画面指纹找相似的图（不上传、不调模型）' } : null,
           { act: 'del', icon: 'trash', label: '删除', danger: true },
         ].filter(Boolean),
       });
@@ -530,8 +529,6 @@ export default {
           + '</div>'
           + '<div class="insp-foot">'
           + '<button class="pri" type="button" data-insp="open"><span class="ic">' + icon('expand', 15) + '</span><span class="tx">打开详情</span></button>'
-          + (pic ? '<button class="ghost" type="button" data-insp="reuse"><span class="ic">' + icon('reuse', 15) + '</span><span class="tx">拿去生成</span></button>' : '')
-          + (pic ? '<button class="ghost" type="button" data-insp="similar"><span class="ic">' + icon('search', 15) + '</span><span class="tx">找相似</span></button>' : '')
           + '<button class="ghost danger" type="button" data-insp="del"><span class="ic">' + icon('trash', 15) + '</span><span class="tx">从库里删掉</span></button>'
           + '</div>';
       });
@@ -547,8 +544,6 @@ export default {
       const act = t.getAttribute('data-insp');
       if (act === 'close') { toggleInsp(c.id, false); return; }
       if (act === 'open') { openDetail(c.id); return; }
-      if (act === 'reuse') { const s2 = D.picOf(c); if (s2) window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: c.name || '' }); return; }
-      if (act === 'similar') { findSimilar(c, ''); return; }
       if (act === 'del') { invoke(ACTS.del, c, t, null); return; }
     }
 
@@ -566,7 +561,7 @@ export default {
         measureQuality,
         errsHTML,
         render: () => { render(); },
-        findSimilar, openZoom,
+        openZoom,
         hostEl: rootEl.value,
         onClose: () => { inspId.value = ''; render(); },
         onCreated: (saved) => { openDetail(saved.id); },
@@ -595,8 +590,7 @@ export default {
        这一族都读 D.Lib.list() 与 refUse，不另存一份账：
        计数 = 现算覆盖度（每一行的数字只算「别的档不挡着」的那些），
        批量 = 对选中的那几条调同一批单条入口，
-       锚点 = chars.js 的 refPicOf（生成与导演台参考图共用），
-       视觉相似 = dHash 在本机画布上算（不上传、不调模型）。 */
+       锚点 = chars.js 的 refPicOf（生成与导演台参考图共用）。 */
     function matchGroup(c) { return !group.value || D.Lib.groupMatch(c, group.value); }
     function matchKind(c) { return kindFilter.value === 'all' || match(c, kindFilter.value); }
 
@@ -906,100 +900,6 @@ export default {
       el.className = 'anchorq ' + (q && q.ok ? q.level : 'low');
     }
 
-    /* 视觉相似（离线）：dHash 64 位 + 汉明距离。不上传、不调模型、不花钱；
-       只比主图与角色资产，返回同一份素材里的「像」的那几张。 */
-    const DHASH = new Map();
-    const popcnt = x => { let n = 0; while (x) { n += Number(x & 1n); x >>= 1n; } return n; };
-    function imgHash(src) {
-      if (!src) return Promise.resolve(null);
-      if (DHASH.has(src)) return Promise.resolve(DHASH.get(src));
-      return new Promise(res => {
-        const img = new Image();
-        let done = false;
-        const fin = v => { if (!done) { done = true; if (v != null) { if (DHASH.size > 800) DHASH.clear(); DHASH.set(src, v); } res(v); } };
-        const t = setTimeout(() => fin(null), 8000);
-        img.onload = () => {
-          clearTimeout(t);
-          try {
-            const cv = document.createElement('canvas');
-            cv.width = 9; cv.height = 8;
-            const g = cv.getContext('2d', { willReadFrequently: true });
-            g.drawImage(img, 0, 0, 9, 8);
-            const d = g.getImageData(0, 0, 9, 8).data;
-            let bits = 0n;
-            for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-              const i = (y * 9 + x) * 4, j = i + 4;
-              const a = d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114;
-              const b = d[j] * .299 + d[j + 1] * .587 + d[j + 2] * .114;
-              bits = (bits << 1n) | (a > b ? 1n : 0n);
-            }
-            fin(bits);
-          } catch (e) { fin(null); }
-        };
-        img.onerror = () => { clearTimeout(t); fin(null); };
-        img.src = window.Api.mediaSrc(src);
-      });
-    }
-    function libraryImages() {
-      const out = [], seen = new Set();
-      if (!D) return out;
-      const add = x => { if (!x || !x.src || seen.has(x.src)) return; seen.add(x.src); out.push(x); };
-      D.Lib.list().forEach(c => {
-        const pic = D.picOf(c);
-        if (pic) add({ id: c.id, name: c.name || '', src: pic, label: picWord(c) });
-        D.Cast.assetsOf(c).forEach(a => {
-          if (a && a.src) add({ id: c.id, name: c.name || '', src: a.src, label: D.Cast.assetName(a) || '资产' });
-        });
-      });
-      return out;
-    }
-    async function locateItem(id) {
-      const c = D.Lib.get(id);
-      if (!c) return Toast.warn('这一条已经不在了');
-      kindFilter.value = 'all'; group.value = ''; q.value = ''; aiPick = null; aiWhy = ''; aiRank = null;
-      /* 程序性清空也要把框里的字与「跑过的词」一起收回：否则失焦时旧词会被当成普通搜索再跑一遍。 */
-      if (toolbarFb) { toolbarFb.setQuery(''); toolbarFb.markApplied(''); }
-      inspId.value = id;
-      resetPaging();
-      await render();
-      await nextTick();
-      const el = cardEl(id);
-      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
-    async function findSimilar(c, src) {
-      const target = src || (c && (c.anchor || D.picOf(c))) || '';
-      if (!target) return Toast.err('这一条还没有图：先出 / 挑一张预览图再找相似');
-      if (D.Lib.list().length <= 1) return Toast.warn('素材库里只有这一条，没有可比的对象');
-      setBusy('正在按画面指纹找相似（本机比对，不上传）…');
-      try {
-        const th = await imgHash(target);
-        if (!th) { Toast.err('这一张取不到画面，没法比对（地址可能过期了）'); return; }
-        const pool = libraryImages().filter(x => x.src !== target);
-        const hits = [];
-        await D.Pipe.runPool(pool, 4, async x => {
-          const h = await imgHash(x.src);
-          if (!h) return;
-          hits.push(Object.assign({}, x, { d: popcnt(th ^ h) }));
-        });
-        hits.sort((a, b) => a.d - b.d);
-        const top = hits.filter(x => x.d <= 18).slice(0, 24);
-        if (!top.length) { Toast.warn('没有找到明显相似的画面（只比主图与角色资产，纯画面指纹）'); return; }
-        window.UiDialog.open({
-          title: '和这一张相似的素材',
-          sub: '本机离线比对（dHash）· 距离越小越像 · 点一条定位到它',
-          body(el, close) {
-            el.innerHTML = '<div class="sim-src">' + thumbImg(target) + '<span>这一张</span></div>'
-              + '<div class="sim-grid">' + top.map(x => '<button class="sim" data-sim="' + esc(x.id) + '" title="' + esc(x.name + ' · ' + x.label + ' · 距离 ' + x.d) + '">'
-                + thumbImg(x.src)
-                + '<span>' + esc(x.name || '（无名）') + '<i>' + esc(x.label) + ' · ' + x.d + '</i></span></button>').join('') + '</div>';
-            window.Wb.thumbs.bindAll(el);
-            el.querySelectorAll('[data-sim]').forEach(b => { b.onclick = () => { close(null); locateItem(b.dataset.sim); }; });
-          },
-          actions: [{ label: '关闭', value: null }],
-        });
-      } finally { setBusy(''); }
-    }
-
     /* ---------- 自动补存：把这一屏还没落到本机的图排进镜像队列 ---------- */
     function localSlots(c) {
       const out = [];
@@ -1057,14 +957,6 @@ export default {
       /* 点缩略图看大图（灯箱）：预览图与角色资产共用那一份。 */
       zoom: async (c, el) => { openZoom(c, el.dataset.label || el.dataset.name || picWord(c), el.dataset.src); },
       zoomface: async (c, el) => { openZoom(c, picWord(c), el.dataset.src || D.picOf(c)); },
-      /* 「拿去生成」：带着这张去工作台，放进参考图那一栏。 */
-      reuse: (c, el) => {
-        const s2 = el.dataset.src || D.picOf(c);
-        if (!s2) return Toast.err('这一条还没有图，先在详情里挑一张或让 AI 出一张');
-        window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: el.dataset.name || c.name || '' });
-      },
-      /* 「找相似」：在本机按画面指纹找相似的图（不上传、不调模型）。 */
-      similar: (c, el) => findSimilar(c, el.dataset.src || ''),
       /* 「从库里删掉」：这一条从素材库消失（本机存的参考音频一起删）。 */
       del: async (c, el) => {
         const busy = genOn(c);
@@ -1536,10 +1428,6 @@ export default {
     }
 
     async function boot() {
-      /* 旧的「本页默认」没有了 —— 它存过的那个本机键（char_opts）**清掉**：
-         留着是一份没人再读的死数据（还占着本机存储配额）。
-         只清这一个键，别的设置一个不碰。 */
-      try { if (window.LS && LS.del) LS.del('char_opts'); } catch (e) { /* 删不掉也不拦这一页 */ }
       searchPh.value = '搜' + D.Lib.SEARCH_FIELDS.map(f => f[0]).join(' / ');
       bindToolbar();
       try { REG = await window.Api.registry(); } catch (e) { REG = { providers: [] }; Toast.err('读注册表失败：' + e.message); }

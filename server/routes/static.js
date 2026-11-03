@@ -42,8 +42,8 @@ function handleStatic(req, res, ctx) {
     const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     let dest = SPA_REDIRECT[urlPath];
     /* studio 一族只对 t= 做**归一化**（客户端 web/app.js 的语义是「入站查询原样保留」），
-       其余参数（?reuse=1 …）原样跟过去 —— 以前整条查询被丢弃，
-       老书签 / 外部链接 / sidebar.js 那条 location.replace 带进来的载荷就断在这一跳。 */
+       其余参数原样跟过去 —— 以前整条查询被丢弃，老书签 / 外部链接 / sidebar.js 那条 location.replace
+       带进来的载荷就断在这一跳。 */
     if (dest.indexOf('studio.html') === 0) {
       const qs = new URLSearchParams(search.replace(/^\?/, ''));
       const t = qs.get('t');

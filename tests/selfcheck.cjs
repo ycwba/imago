@@ -258,8 +258,8 @@ ok('查询结果预算按 tokens 估算', /chat\/text-util\.js/.test(chat) && /e
 ok('发给模型前抹掉密钥形状', /chat\/text-util\.js/.test(chat) && /redactSecrets/.test(chat) && /redactOf\(out\)/.test(chat));
 ok('当前界面快照带时间线只读上下文', /WBBridge\.get\('director'\)/.test(read('web/core/page-context.js')));
 
-/* ---------- 8. 素材库：批量 / 锚点 / 视觉相似 ---------- */
-group('§8 素材库（批量 / 锚点 / 相似）');
+/* ---------- 8. 素材库：批量 / 锚点 / 型号与张数 ---------- */
+group('§8 素材库（批量 / 锚点 / 默认值）');
 const charsJs = read('web/domain/chars.js');
 const charsPage = read('web/pages/chars.js');
 /* 详情层（新建 / 编辑一条素材）是素材库页的一部分，单独一个文件 —— 判据要连它一起读。 */
@@ -283,7 +283,6 @@ ok('改名回填读工作区真源（Kv / 桥），改写规则只有 Chars.rena
   /Kv\.at\('ws'\)/.test(charsPage) && /libRenameBackfill/.test(charsPage)
   && /renameShotRefs/.test(charsJs) && /renameShotRefs/.test(charsPage)
   && !/window\.projAll/.test(charsPage));
-ok('视觉相似在本机算 dHash', /function imgHash/.test(charsPage) && /function findSimilar/.test(charsPage));
 ok('搜索走本地语义排序', /SemanticSearch/.test(charsPage) && /S\.rank/.test(charsPage));
 ok('新建 / 编辑在素材详情那一层（不塞回卡片里）', /createDetail/.test(charsPage)
   && /export function createDetail/.test(charsDetail));

@@ -127,7 +127,7 @@ const StudioView = {
       host.querySelectorAll('[id]').forEach(n => { R[n.id] = n; });
     }
 
-    /* `?t=` / `reuse=1` 在 SPA 里挂在 hash 上（#studio.html?t=image）；直接打开旧地址时退回 search。 */
+    /* `?t=` 在 SPA 里挂在 hash 上（#studio.html?t=image）；直接打开旧地址时退回 search。 */
     function pageQuery() {
       const h = location.hash || '';
       const i = h.indexOf('?');
@@ -3046,72 +3046,10 @@ const StudioView = {
         if (!n) return { ok: false, code: 'rejected', why: def.label + '没收这条素材（类型或体积不在这一栏的声明里）' };
         return { ok: true, kind, name };
       }
-      async function reuseInto(it) {
-        const wantType = window.mediaKindOf(it.mtype);
-        if (TYPE !== wantType) setType(wantType, true);
-        /* 覆盖当前草稿前先问：这一击的本意是「照这条再来一次」，不是「把我正在写的换掉」。
-           读的是切完类型之后那一条（每型各存一份草稿，要保护的就是即将被写进去的那一栏）。 */
-        const draft = ($('prompt').value || '').trim();
-        const incoming = String(it.prompt || '').trim();
-        if (draft && incoming && draft !== incoming) {
-          const ok = await Confirm.ask({
-            title: '替换左栏正在写的提示词？',
-            body: '这一条会带上它自己的提示词（' + incoming.length + ' 字），替换掉你现在写的 ' + draft.length
-              + ' 字；型号与参数也照这一条改。生成不会自动开始 —— 替换完还要你自己点「生成」。',
-            okLabel: '替换', cancelLabel: '留着我现在写的', danger: true,
-          });
-          if (!ok) { setStatus('<span class="warn">已取消：你写的提示词一个字没动</span>'); return; }
-        }
-        if (it.prompt) {
-          $('prompt').value = it.prompt;
-          $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
-          /* 提示词也是这一型草稿的一部分：只写 textarea 的话，切类型再切回来
-             （setType 从 cur().prompt 回填）这条就丢了。 */
-          cur().prompt = it.prompt;
-          writeLS('studio_prompt_' + TYPE, it.prompt);
-        }
-        if (it.model) {
-          const g = provGroups().find(p => (p.models || []).some(m => m.id === it.model));
-          if (g) { $('model').value = g.id + '::' + it.model; $('model').dispatchEvent(new Event('change')); }
-        }
-        const REUSE_KEYS = ['tier', 'res', 'ar', 'dur', 'quality', 'size'];
-        const want = {};
-        for (const k of REUSE_KEYS) if (it[k] != null && it[k] !== '') want[k] = String(it[k]);
-        if (Object.keys(want).length) {
-          try { renderParams(); } catch (e) {}
-          for (const k of Object.keys(want)) {
-            const el = $(k);
-            if (!el || el.tagName !== 'SELECT') continue;
-            const opts = Array.from(el.options || []).map(o => String(o.value));
-            if (opts.length && opts.indexOf(want[k]) < 0) continue;
-            try {
-              el.value = want[k];
-              if (window.Dropdowns && Dropdowns.sync) Dropdowns.sync(el);
-            } catch (e) {}
-          }
-          try { paintSubNote(); refreshEst(); updateGoState(); } catch (e) {}
-        }
-        const src = it.src || it.media || it.raw || '';
-        const has = !!src || !!it.assetId || !!it.fileKey;
-        /* 跨页带过来的这一条就是要接着用：地址带着，就进对应类型的参考槽（不然换了类型却没有素材）。 */
-        const r = has
-          ? await refIntoSlot(it.mtype, { src, assetId: it.assetId, dl: it.dl, fileKey: it.fileKey,
-            name: it.name || it.prompt }, { autoSwitch: true })
-          : null;
-        renderInputArea(); updateMode(); updateGoState();
-        if (r && !r.ok) { setStatus('<span class="' + (r.code === 'dup' ? 'warn' : 'err') + '">'
-          + window.esc(r.why + (it.prompt ? '（提示词已经填上）' : '')) + '</span>'); return; }
-        const bits = [];
-        if (it.prompt) bits.push('提示词');
-        if (it.model) bits.push('型号');
-        if (r && r.ok) bits.push('1 个' + it.mtype + '素材');
-        setStatus('<span class="ok">✓ 已复用：' + bits.join(' + ') + '</span>'
-          + '<span class="warn">　确认后点「生成」。</span>');
-      }
-
       /* ---------- 两栏联动：视频栏的提示词 → 图像栏 · 图像栏的产物 → 视频栏参考素材 ----------
-         两件事都不新造载荷格式：填提示词走 reuseInto 那三处一起写（节点 + 这一型草稿 + 盘上那份），
-         落素材槽的唯一出口仍是 refIntoSlot（拖放那一路走 AssetRef，两条不许各长一份）。
+         两件事都不新造写入格式：填提示词把三处一起写（textarea 节点 + 这一型草稿 + 盘上那份
+         `studio_prompt_image`），落素材槽的唯一出口仍是 refIntoSlot（拖放那一路走 AssetRef，
+         两条不许各长一份）。
          两条「送过去」都住在 pages/studio/cross-col.js —— 一份实现两个方向。 */
       const cross = createCrossCol({
         $, type: () => TYPE, st: ST, setType,
@@ -3130,19 +3068,6 @@ const StudioView = {
       $('bulkToVideo').onclick = () => {
         cross.imagesIntoVideoRef(taskMulti().selected()).catch(e => setStatus('<span class="err">' + window.esc(errText(e)) + '</span>'));
       };
-
-      async function applyReuseFromAssets() {
-        let p2 = null;
-        try { p2 = JSON.parse(readLS('sk_reuse', '') || 'null'); } catch (e) {}
-        if (!p2) return;
-        window.LS.del('sk_reuse');
-        const mtype = p2.kind === 'video' ? '视频' : p2.kind === 'audio' ? '音频' : '图片';
-        const src = p2.src || (p2.assetId ? Api.assetSrc(p2.assetId) : '');
-        if (!src && !p2.fileKey && !p2.prompt) return;
-        await reuseInto({ mtype, src, assetId: p2.assetId || '', dl: p2.dl || '', fileKey: p2.fileKey || '',
-          name: p2.name || '', prompt: p2.prompt || '', model: '',
-          tier: p2.tier, res: p2.res, ar: p2.ar, dur: p2.dur, quality: p2.quality, size: p2.size });
-      }
 
       /* ---------- 右栏控件 ---------- */
       /* 搜索框 /「搜索」/ AI 搜索都由公共 Wb.filterBar 生成（.pgroup 里的那一格由它填）。
@@ -3560,9 +3485,6 @@ const StudioView = {
       /* ============================ ⑪ 启动 ============================ */
       let bootStopped = false;
       async function boot() {
-        /* 入口地址那一份查询串先留住：setType 会把 hash 改写成 `?t=`（reuse=1 就没了），
-           后面再读 pageQuery() 就认不出「这一趟是带着复用载荷进来的」。 */
-        const entryQ = pageQuery() || '';
         TYPE = readTypeFromURL() || readLS('studio_type', '') || 'video';
         if (!TYPES[TYPE]) TYPE = 'video';
         const picks = loadPicks();
@@ -3614,9 +3536,6 @@ const StudioView = {
         renderModelOptions();
         paintLeft();
         refreshCaps();
-        if (/[?&]reuse=1/.test(entryQ)) {
-          try { await applyReuseFromAssets(); } catch (e) { setStatus('<span class="err">复用失败：' + window.esc(window.errText(e)) + '</span>'); }
-        }
       }
       boot().catch(e => {
         setStatus('<span class="err">启动失败：' + window.esc(window.errText(e)) + '</span>');
@@ -3656,10 +3575,9 @@ const StudioView = {
       disposers.push(() => window.removeEventListener('pagehide', onPageHide));
       if (offSaveHook) disposers.push(offSaveHook);
 
-      /* 外壳那条通道：类型切换与跨页复用（Vue 组件不在 iframe 里，web/app.js 的 iframe 钩子够不着）。 */
+      /* 外壳那条通道：类型切换（Vue 组件不在 iframe 里，web/app.js 的 iframe 钩子够不着）。 */
       window.setType = (t, fromUser) => setType(t, fromUser);
       window.__studioRepaint = () => { paintLeft(); renderAll(); };
-      window.__studioReuse = () => applyReuseFromAssets().catch(e => setStatus('<span class="err">复用失败：' + window.esc(window.errText(e)) + '</span>'));
 
       return () => {
         bootStopped = true;
@@ -3672,7 +3590,6 @@ const StudioView = {
         disposers.forEach(fn => { try { fn(); } catch (e) {} });
         if (window.setType) delete window.setType;
         if (window.__studioRepaint) delete window.__studioRepaint;
-        if (window.__studioReuse) delete window.__studioReuse;
       };
     }
 
@@ -3707,7 +3624,7 @@ const StudioView = {
          那时本组件还没挂载 —— 不在这里补一遍，四颗按钮上的图标全是空的。 */
       if (pageEl.value) window.fillIcons(pageEl.value);
       cleanup = runPage();
-      /* 外壳从地址栏 / 别的页面切到另一档（?t=）时要真的换过去；带 reuse=1 的那次也要消费载荷。 */
+      /* 外壳从地址栏 / 别的页面切到另一档（?t=）时要真的换过去。 */
       if (activeFile) {
         watch(activeFile, f => { if (f === 'studio.html') { try { if (window.__studioRepaint) window.__studioRepaint(); } catch (e) {} } });
       }
@@ -3717,7 +3634,6 @@ const StudioView = {
           const q = src.slice(src.indexOf('?') >= 0 ? src.indexOf('?') : src.length);
           const m = /[?&]t=(video|image|audio)/.exec(q);
           if (m && window.setType) { window.setType(m[1], false); if (window.__studioRepaint) window.__studioRepaint(); }
-          if (/[?&]reuse=1/.test(q) && window.__studioReuse) window.__studioReuse();
         });
       }
     });

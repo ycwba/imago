@@ -2796,40 +2796,6 @@
       },
     },
 
-    /* ---------- 跨页「拿去工作台继续」：载荷与跳转只在这里点一次名 ----------
-       资产库 / 收藏 / 素材库三页都要「带着这一条素材跳到工作台对应那一栏」。以前三页各拼一份
-       载荷、各写一遍地址，而**消费端只认资产号**：素材库里的一张图只有本机地址、收藏里的本地文件
-       只有 IndexedDB 号，两边都没有平台资产号 —— 递过去的是 `assetId: undefined`，工作台那头
-       无条件拼出 `/asset/undefined`，取字节必然 404，而界面只留一句「已复用提示词」，
-       素材根本没进槽这件事在界面上看不出来。
-       载荷只带**工作台真会读的字段**：地址（src）、资产号（assetId，有就带上，能省一次取字节）、
-       本机文件号（fileKey，收藏的本地文件只有这个）、名字、提示词。
-       别把平台 / 时长 / 画幅塞进来充数 —— 工作台一个字都不读，递了就是「界面上说带过去了、其实没带」。 */
-    reuse: {
-      go(o) {
-        const raw = String(o.src || '');
-        /* 地址本身就是本机资产时，号就写在地址里 —— 认出来，页面只递地址也能走「直接引用」那条快路，
-           不必到工作台那头再把字节取一遍。素材库与收藏里的本地文件正是这种情况。 */
-        const m = /^\/asset\/([^/?#]+)/.exec(raw);
-        const aid = String(o.assetId || (m ? decodeURIComponent(m[1]) : ''));
-        const src = raw || (aid ? Api.assetSrc(aid) : '');
-        const kind = o.kind || window.mediaKindOf(o.mtype || o.type);
-        const payload = { from: o.from || '', kind, assetId: aid, src,
-          dl: o.dl || (aid && /^\/asset\//.test(src) ? Api.assetDl(aid) : ''),
-          fileKey: o.fileKey || '', name: String(o.name || o.prompt || '').slice(0, 40), prompt: o.prompt || '',
-          /* 参数也带上：满意某张图的画幅与质量想照着再来一版，复用后全跳回默认、
-             得逐个重选 —— 这些值本来就随条目存在，直接取，不另记一份。
-             只带**页面上真有那个下拉**的那几项（缺的那几个接收端会自己跳过）。 */
-          tier: o.tier || '', res: o.res || '', ar: o.ar || '',
-          dur: o.dur == null ? '' : String(o.dur), quality: o.quality || '', size: o.size || '' };
-        try { localStorage.setItem('sk_reuse', JSON.stringify(payload)); } catch (e) {}
-        /* 换页交给外壳（SPA 不再 reload 整份文档）；直接打开的旧页面才走 href。 */
-        const target = 'studio.html?t=' + kind + '&reuse=1';
-        if (window.GoPage) window.GoPage.go(target);
-        else location.href = target;
-      },
-    },
-
     /* ---------- 后台数总数（三个工作台共用一份） ----------
        平台没有「总条数」接口，要显示精确的「共 N 页」只能自己把游标一路翻到底数。
        这件事**不挡首屏**：页面照常先显示「共 M+ 页」，后台数完了回调里重画列表，

@@ -115,18 +115,6 @@
 .chars-page .macts .ghost .ic { opacity: .72; }
 .chars-page .macts .ghost:hover .ic { opacity: 1; }
 .chars-page .macts [data-a="del"] { margin-left: auto; }
-/* 动作行减重：「拿去生成 / 找相似」平时只留图标（title 常驻），hover / 键盘焦点才亮出文字 ——
-   四颗按钮挤满卡底像工具条，减重后名字与描述成主体。触屏（无 hover）全显。 */
-@media (hover: hover) {
-  .chars-page .macts [data-a="reuse"] .tx,
-  .chars-page .macts [data-a="similar"] .tx {
-    max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
-    transition: max-width var(--dur-180), opacity var(--dur-120); }
-  .chars-page .mcard:hover .macts [data-a="reuse"] .tx,
-  .chars-page .mcard:hover .macts [data-a="similar"] .tx,
-  .chars-page .macts [data-a="reuse"]:focus-visible .tx,
-  .chars-page .macts [data-a="similar"]:focus-visible .tx { max-width: 96px; opacity: 1; }
-}
 .chars-page .mat-grid .mcard.multi .pick { display: block; position: absolute; top: var(--sp-12); left: var(--sp-12); z-index: 6; width: 20px; height: 20px; border-radius: var(--radius-6); border: var(--hair) solid var(--line); background: var(--panel); color: var(--on-acc); font-size: var(--fs-12); line-height: 18px; text-align: center; user-select: none; cursor: pointer; }
 .chars-page .mat-grid .mcard.multi .pick.on { background: var(--acc); border-color: var(--acc); }
 .chars-page .mat-grid .mcard.multi.picked { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--hair)); }

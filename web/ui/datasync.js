@@ -4,7 +4,7 @@
   /* 界面偏好那一批键名只由 ui.js 的 UI_PREFS 给（这张表同时被设置页渲染与助手白名单读），
      这里拿不到就当空表：宁可这几项这次不同步，也不让 DataSync 整块挂掉。顺序判据在 tests/settings-schema.cjs。 */
   const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
-  /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建）与一次性的 sk_reuse */
+  /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建） */
   const SYNCABLE = [
     'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_caps_', 'sk_text_vision', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
     /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走。
@@ -68,7 +68,7 @@
        在一台机器上关掉它，不该顺手把另一台也关了。
      对话记录 ai_chat 照旧同步；助手的供应方/型号只在设置页那一档（sk_text_prov / sk_model_*），
      抽屉里不再有第二份选择。 */
-  const NOT_SYNC = ['_cache_v1', 'sk_reuse', 'sk_model_meta_', 'ai_chat_files', 'ai_chat_auto', 'ai_chat_xy', 'ai_chat_snap', 'ai_chat_watch', 'ai_chat_notice', 'ai_chat_off',
+  const NOT_SYNC = ['_cache_v1', 'sk_model_meta_', 'ai_chat_files', 'ai_chat_auto', 'ai_chat_xy', 'ai_chat_snap', 'ai_chat_watch', 'ai_chat_notice', 'ai_chat_off',
     /* ai_chat_ref_send ——「引用发给助手时带哪些字段」是本机的一份口味：
        换台机器的人可能想全带、也可能只发图片；跟着云同步走会替别人改主意。
        它**进设置导出**（换机器导一次设置带得走），只是不跟着 .data 同步。 */

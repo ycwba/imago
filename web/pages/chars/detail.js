@@ -54,7 +54,7 @@ export function detailStat(D, c) {
  *   dramaWith(model), optsWith(model, count),
  *   defImgModel(), defTtsModel(), effKey(kind, mode, key),
  *   picWord, mainKind, candCount(modelKey), durablePic, thumbImg, errText,
- *   saveField, queueFieldSave, render, findSimilar, openZoom,
+ *   saveField, queueFieldSave, render, openZoom,
  *   hostEl（挂层的那一格）, onClose, onCreated,
  * }
  */
@@ -219,7 +219,6 @@ export function createDetail(ctx) {
         + modelHTML('image', 'text_to_image', rg.model || gens.asset.model, a.id)
         + countHTML(cap, rg.count || 1, '张', a.id) + '</span>'
         + '<button class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
-        + '<button class="ui-linkbtn" data-a="reuse" data-src="' + esc(a.src || '') + '" data-name="' + esc(lab) + '" title="去工作台">拿去生成</button>'
         + '<button class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
         + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
         + '</div>';
@@ -327,9 +326,7 @@ export function createDetail(ctx) {
           + '<button class="pri" type="button" data-d-act="create">' + (window.icon ? window.icon('check', 12) : '') + '建好这一条</button>'
         : '<button class="ghost danger" type="button" data-d-act="del">' + (window.icon ? window.icon('trash', 12) : '') + '从库里删掉</button>'
           + '<span class="sp"></span>'
-          + '<span class="md-foot-tip">改完就地存 · 这一条已经在库里了</span><span class="sp"></span>'
-          + '<button class="ghost" type="button" data-d-act="reuse">' + (window.icon ? window.icon('reuse', 12) : '') + '拿去生成</button>'
-          + '<button class="ghost" type="button" data-d-act="similar">' + (window.icon ? window.icon('eye', 12) : '') + '找相似素材</button>')
+          + '<span class="md-foot-tip">改完就地存 · 这一条已经在库里了</span>')
       + '</footer>';
   }
 
@@ -415,11 +412,6 @@ export function createDetail(ctx) {
     assetregen: (c, el) => regenAsset(c, el.dataset.id),
     assetclear: (c, el) => clearAsset(c, el.dataset.id, el.dataset.label),
     assetprop: (c, el) => pickAssetProps(c, el),
-    reuse: (c, el) => {
-      const s2 = el.dataset.src || D.picOf(c);
-      if (!s2) return Toast.err('这一条还没有图，先出或挑一张');
-      window.Wb.reuse.go({ from: 'chars', mtype: '图片', src: s2, name: el.dataset.name || c.name || '' });
-    },
     voice: (c, el) => {
       c.voice = el.dataset.vid;
       c.voiceName = D.Cast.voiceName(ctx.REG, voiceOpts(), c.voice, c.voiceMode);
@@ -448,7 +440,6 @@ export function createDetail(ctx) {
     refaudio: (c) => pickRefAudio(c),
     refclear: (c) => clearRef(c),
     del: (c) => del(c),
-    similar: (c) => ctx.findSimilar(c, ''),
     create: () => create(false),
     saveonly: () => create(true),
     gen: (c, el) => runGen(el.dataset.site),

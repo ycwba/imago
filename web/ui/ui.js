@@ -692,7 +692,6 @@ window.ICONS = {
   key: '<circle cx="8" cy="15" r="5"/><path d="m11.5 11.5 9-9M16 7l3 3 3-3-3-3"/>',
   brain: '<path d="M12 5a3 3 0 0 0-5.8-1A4 4 0 0 0 4 11a4 4 0 0 0 1 7 3.5 3.5 0 0 0 7 0V5Zm0 0a3 3 0 0 1 5.8-1A4 4 0 0 1 20 11a4 4 0 0 1-1 7 3.5 3.5 0 0 1-7 0M8 9l4 3 4-3M8 16l4-2 4 2"/>',
   pencil: '<path d="m16 3 5 5L8 21H3v-5zM13 6l5 5"/>',
-  reuse: '<path d="M7 7h10a4 4 0 0 1 4 4v2M17 3l4 4-4 4M17 17H7a4 4 0 0 1-4-4v-2M7 13l-4 4 4 4"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>',
@@ -1002,10 +1001,9 @@ window.copyText = async function copyText(txt) {
         不是「是不是声音」的判断。 */
   function isAudioType(t) { return t === '音频' || t === '音乐'; }
   window.isAudioType = isAudioType;
-  /* 「这一条素材按哪种媒体来放」只有三个取值（video / audio / image），而它也是按类型名推的：
-     四处各写了一遍（资产库与收藏的灯箱 kindOf 适配器、工作台的 kindOf、`Wb.reuse.kindOf`）。
-     这四份**今天恰好还一致**（都认「音频」与「音乐」两个名字），所以这一条不是修 bug，
-     是修「平台再多一种类型名时要改四个地方」—— 与上面 isAudioType 同一件事，只留一份读法。 */
+  /* 「这一条素材按哪种媒体来放」只有三个取值（video / audio / image），且是从类型名推出来的：
+     灯箱、工作台、素材挑选器都要问它，所以推法只留这一份 —— 以后多认一种类型名（上面
+     isAudioType 里「音频」与「音乐」并排就是这么加进来的）只改这一处，不必挨个页面找。 */
   function mediaKindOf(t) {
     const s = String(t || '');
     return s === '视频' ? 'video' : isAudioType(s) ? 'audio' : 'image';
@@ -1570,6 +1568,14 @@ const LEGACY_KEYS = [
      `sk_local_mirror` 是那张表在 localStorage 的暖缓存，盘上那份留着没人读；
      库本体 `mirror_db` 由 LEGACY_IDB 整库删。 */
   'sk_local_mirror',
+  /* 「拿去生成」整族删除（2026-11-03）：`sk_reuse` 只是那一次跳转的一次性载荷，写它的人和读它的人
+     同时没了。去工作台只剩工作台自己那两条「送过去」（`pages/studio/cross-col.js`），同一页换栏
+     不需要往本机递载荷。 */
+  'sk_reuse',
+  /* 素材库的「本页默认」作废（默认型号与张数归设置页 `Chars.SET`）：`char_opts` 存的是「上次在这页
+     挑过什么」，而「按上次那个跑」不是这一页该有的行为。chars.js 开页时那一句 `LS.del` 一起删 ——
+     它每开一次页发一次不带 `nobak` 的 `DELETE /data/char_opts`，还挡不住下次 boot 从镜像恢复回来。 */
+  'char_opts',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;
