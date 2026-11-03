@@ -7,15 +7,15 @@
 .usage-page {
   background: var(--bg); color: var(--txt);
 }
-.usage-page .bar { display: flex; align-items: center; gap: var(--sp-10); margin: var(--sp-14) 0 var(--sp-16); flex-wrap: wrap; }
+.usage-page .bar { display: flex; align-items: center; gap: var(--sp-8); margin: var(--sp-16) 0 var(--sp-16); flex-wrap: wrap; }
 .usage-page .bar .sp { flex: 1; }
 .usage-page .upd { font-size: var(--fs-12); color: var(--sub); }
-.usage-page .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-14); }
+.usage-page .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-16); }
 
 /* 左右分栏：左＝余额/曲线/文字AI用量，右＝账单明细（较窄）。
    两栏都按整行高度拉伸（不写 align-items:start）：右栏若只有内容高，
    里面那条 position:sticky 的账单面板没有任何可走的行程，吸顶等于没写。 */
-.usage-page .ub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--sp-18); }
+.usage-page .ub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--sp-16); }
 .usage-page .ub-left { min-width: 0; }
 .usage-page .ub-right { min-width: 0; }
 .usage-page .ub-right .panel { margin-top: 0; }
@@ -41,8 +41,8 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
   .usage-page .bills-panel { position: static; max-height: none; }
   .usage-page .ub-right #bills { max-height: 60vh; }
 }
-.usage-page .ub-right table { font-size: var(--fs-11-5); }
-.usage-page .ub-right th, .usage-page .ub-right td { padding: var(--sp-6) var(--sp-4); }
+.usage-page .ub-right table { font-size: var(--fs-12); }
+.usage-page .ub-right th, .usage-page .ub-right td { padding: var(--sp-8) var(--sp-4); }
 .usage-page .ub-right th.w, .usage-page .ub-right td.w { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1200px) {
   .usage-page .ub-layout { grid-template-columns: 1fr; }
@@ -52,43 +52,43 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 }
 /* 窄窗口：收紧留白 */
 
-.usage-page .bal { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-15) var(--sp-16); }
+.usage-page .bal { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-16) var(--sp-16); }
 .usage-page .bal .hd { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); color: var(--sub); }
 .usage-page .bal .hd .ic { font-size: var(--fs-16); flex: none; }
 /* flex 子项默认 min-width:auto，不给 0 就不会收缩；型号串与错误原文里没有断点，
    anywhere 才断得动 —— 以前整页被顶出一条横向滚动条。 */
 .usage-page .bal .hd > span:last-child { min-width: 0; overflow-wrap: anywhere; }
-.usage-page .bal .v { font-size: var(--fs-24); font-weight: 700; margin: var(--sp-9) 0 var(--sp-4); letter-spacing: .3px; }
-.usage-page .bal .v small { font-size: var(--fs-12-5); font-weight: 400; color: var(--sub); margin-left: var(--sp-6); }
-.usage-page .bal .ex { font-size: var(--fs-11-5); color: var(--sub); min-height: 16px; overflow-wrap: anywhere; }
+.usage-page .bal .v { font-size: var(--fs-24); font-weight: 700; margin: var(--sp-8) 0 var(--sp-4); letter-spacing: .3px; }
+.usage-page .bal .v small { font-size: var(--fs-13); font-weight: 400; color: var(--sub); margin-left: var(--sp-8); }
+.usage-page .bal .ex { font-size: var(--fs-12); color: var(--sub); min-height: 16px; overflow-wrap: anywhere; }
 /* 型号单独一行：混在说明行里既读着像第二句话，又撑得那一行老长 */
-.usage-page .bal .md { font-size: var(--fs-11-5); color: var(--sub); opacity: .85; margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); overflow-wrap: anywhere; }
+.usage-page .bal .md { font-size: var(--fs-12); color: var(--sub); opacity: .85; margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); overflow-wrap: anywhere; }
 
-.usage-page .panel { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-16) var(--sp-18); margin-top: var(--sp-18); }
+.usage-page .panel { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-16) var(--sp-16); margin-top: var(--sp-16); }
 .usage-page .panel h2 { font-size: var(--fs-14); margin-bottom: var(--sp-4); }
 /* 分节小标题（「最近生成」「按日用量」）：比上面的 14px 小一号、上下也留得多一点 */
-.usage-page .panel h2.sect-mini { font-size: var(--fs-13); margin: var(--sp-16) 0 var(--sp-6); }
-.usage-page .panel .hint { font-size: var(--fs-11-5); color: var(--sub); margin-bottom: var(--sp-12); }
+.usage-page .panel h2.sect-mini { font-size: var(--fs-13); margin: var(--sp-16) 0 var(--sp-8); }
+.usage-page .panel .hint { font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-12); }
 
-.usage-page .chart-units { display: flex; gap: var(--sp-8); flex-wrap: wrap; margin-bottom: var(--sp-10); }
-.usage-page .legend { display: flex; gap: var(--sp-16); font-size: var(--fs-11-5); color: var(--sub); padding-top: var(--sp-6); }
-.usage-page .legend i { display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-2); margin-right: var(--sp-5); }
+.usage-page .chart-units { display: flex; gap: var(--sp-8); flex-wrap: wrap; margin-bottom: var(--sp-8); }
+.usage-page .legend { display: flex; gap: var(--sp-16); font-size: var(--fs-12); color: var(--sub); padding-top: var(--sp-8); }
+.usage-page .legend i { display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-2); margin-right: var(--sp-4); }
 
-.usage-page table { width: 100%; border-collapse: collapse; font-size: var(--fs-12-5); }
-.usage-page th, .usage-page td { text-align: left; padding: var(--sp-8) var(--sp-10); border-bottom: var(--hair) solid var(--line); vertical-align: top; }
-.usage-page th { font-size: var(--fs-11-5); color: var(--sub); font-weight: 500; white-space: nowrap; }
+.usage-page table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
+.usage-page th, .usage-page td { text-align: left; padding: var(--sp-8) var(--sp-8); border-bottom: var(--hair) solid var(--line); vertical-align: top; }
+.usage-page th { font-size: var(--fs-12); color: var(--sub); font-weight: 500; white-space: nowrap; }
 .usage-page td.num, .usage-page th.num { text-align: right; white-space: nowrap; font-weight: 600; }
-.usage-page td.t { color: var(--sub); white-space: nowrap; font-size: var(--fs-11-5); }
+.usage-page td.t { color: var(--sub); white-space: nowrap; font-size: var(--fs-12); }
 .usage-page td.p { color: var(--acc); white-space: nowrap; }
 .usage-page tr:hover td { background: var(--panel2); }
 
-.usage-page .filters { display: flex; gap: var(--sp-10); align-items: center; flex-wrap: wrap; margin-bottom: var(--sp-12); }
+.usage-page .filters { display: flex; gap: var(--sp-8); align-items: center; flex-wrap: wrap; margin-bottom: var(--sp-12); }
 .usage-page .filters .ddwrap { flex: 0 0 150px; }
-.usage-page .filters .dd-btn { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-12-5); }
-.usage-page .filters input { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-12-5); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+.usage-page .filters .dd-btn { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); }
+.usage-page .filters input { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
   background: var(--input); color: var(--txt); outline: none; }
 .usage-page .filters input:focus { border-color: var(--acc); }
 
-.usage-page .stat { display: flex; gap: var(--sp-22); flex-wrap: wrap; margin-bottom: var(--sp-8); }
-.usage-page .stat div { font-size: var(--fs-12-5); color: var(--sub); }
-.usage-page .stat b { display: block; font-size: var(--fs-19); color: var(--txt); margin-top: var(--sp-3); }
+.usage-page .stat { display: flex; gap: var(--sp-24); flex-wrap: wrap; margin-bottom: var(--sp-8); }
+.usage-page .stat div { font-size: var(--fs-13); color: var(--sub); }
+.usage-page .stat b { display: block; font-size: var(--fs-20); color: var(--txt); margin-top: var(--sp-4); }

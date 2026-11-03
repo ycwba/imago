@@ -28,13 +28,13 @@
 /* 翻页（上一页 · 第几页 · 下一页 · 跳页 · 跳转）与搜索 / 多选 / 刷新住在同一排 .pgroup 里 ——
    都只影响这一屏列表。pgrow 只负责排位，按钮高度跟组内控件一致（直接写 .pgroup > button
    匹配不到孙子这一层）。动态加载档整行藏起来，hidden 要压过下面的 display。 */
-.studio-page .pgroup .pgrow { display: inline-flex; align-items: center; gap: var(--sp-5); }
+.studio-page .pgroup .pgrow { display: inline-flex; align-items: center; gap: var(--sp-4); }
 .studio-page .pgroup .pgrow[hidden] { display: none; }
 .studio-page .pgroup .pgrow > .ghost { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
 
 /* ---------- 左栏顶部：类型切换（左） + 模型下拉（右） ----------
    页面标题已提到全宽顶排（公共 .phead），左栏顶部让给类型切换与型号下拉。 */
-.studio-page .st-top { display: flex; align-items: center; gap: var(--sp-10); margin-bottom: var(--sp-10); }
+.studio-page .st-top { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); }
 .studio-page .st-top .ui-seg { flex: 0 0 auto; }
 /* 型号下拉走公共件（ui.js 的 Dropdowns：.dd / .dd-btn，原生 select 藏在 .dd 里当数据源）。
    以前这里写的是 `select { width:100%; max-width:340px }` —— 那是**原生**下拉的尺寸，
@@ -44,20 +44,20 @@
 .studio-page .st-top .st-model { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
 .studio-page .st-top .st-model .dd { flex: 1 1 auto; min-width: 0; max-width: 340px; }
 .studio-page .st-top .st-model .dd-btn { width: 100%; }
-.studio-page .st-sub { font-size: var(--fs-11-5); color: var(--sub); margin: 0 var(--sp-2) var(--sp-10); min-height: 15px; }
+.studio-page .st-sub { font-size: var(--fs-12); color: var(--sub); margin: 0 var(--sp-2) var(--sp-8); min-height: 15px; }
 .studio-page .st-sub.warn { color: var(--warn); }
 
 /* ---------- 提示词区 ---------- */
-.studio-page .prompt-box { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-6) var(--sp-6) 0; transition: border-color var(--dur-180); }
+.studio-page .prompt-box { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); padding: var(--sp-8) var(--sp-8) 0; transition: border-color var(--dur-180); }
 .studio-page .prompt-box.over { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-3) color-mix(in srgb, var(--acc) var(--a-12), transparent); }
 /* 只命中工作台自己那个提示词 textarea：用 :not(.pinl-ta) 让位给公共就地润色框，
    否则 (0,1,1) 的特异性会盖过 ui.css 的 .pinl-ta（0,1,0），把公共框拖成透明无边框。 */
 .studio-page textarea:not(.pinl-ta) { width: 100%; min-height: 132px; padding: var(--sp-12); background: transparent; color: var(--txt);
   border: 0; border-radius: var(--radius-8); font-size: var(--fs-14); font-family: inherit; outline: none; resize: vertical; }
-.studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-11-5); line-height: 1.5; color: var(--sub); }
+.studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-12); line-height: 1.5; color: var(--sub); }
 .studio-page .prompt-hint.bad { color: var(--err); }
-.studio-page .style-row { padding: 0 var(--sp-6) var(--sp-10); }
-.studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-5); }
+.studio-page .style-row { padding: 0 var(--sp-8) var(--sp-8); }
+.studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-4); }
 .studio-page .style-row input { width: 100%; }
 
 /* ---------- 高级设置（三种类型共用这一个容器，内容按类型重建） ----------
@@ -66,29 +66,29 @@
    （这张卡在左栏的位置、几块参数区之间的距离），不再给原生 select 写外观 ——
    公共件上来之后原生 select 已经藏进 .dd 里，写给它的规则一律落空。 */
 .studio-page .adv { margin-top: var(--sp-12); overflow: hidden; }
-.studio-page .adv-head h2 { display: flex; align-items: center; gap: var(--sp-6); }
-.studio-page .adv-grid + .adv-grid { margin-top: var(--sp-10); }
+.studio-page .adv-head h2 { display: flex; align-items: center; gap: var(--sp-8); }
+.studio-page .adv-grid + .adv-grid { margin-top: var(--sp-8); }
 .studio-page .adv-grid input { width: 100%; }
 .studio-page .adv-grid .dd { width: 100%; }
-.studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-10); margin-top: var(--sp-12);
-  font-size: var(--fs-12-5); color: var(--sub); flex-wrap: wrap; }
+.studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); margin-top: var(--sp-12);
+  font-size: var(--fs-13); color: var(--sub); flex-wrap: wrap; }
 .studio-page .costbar .note { color: var(--sub); }
-.studio-page .hint { font-size: var(--fs-11-5); color: var(--sub); }
+.studio-page .hint { font-size: var(--fs-12); color: var(--sub); }
 
 /* ---------- 左栏：素材槽磁贴的排布（磁贴长什么样仍只有 ui.css 那一份） ---------- */
 .studio-page #inputArea .assets-grid { grid-template-columns: repeat(auto-fill, minmax(var(--sz-tile), 1fr)); }
 .studio-page #inputArea .asset-slot { min-width: 0; }
 .studio-page #inputArea .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
-.studio-page #inputArea > .slot-wide { margin-top: var(--sp-9); }
+.studio-page #inputArea > .slot-wide { margin-top: var(--sp-8); }
 .studio-page #inputArea .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: var(--acc-tint-10);
   box-shadow: 0 0 0 var(--hair-3) color-mix(in srgb, var(--acc) var(--a-16), transparent); }
 
 /* ---------- 右栏：历史资产库 ---------- */
-.studio-page .hist-filters { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-10); flex-wrap: wrap; }
+.studio-page .hist-filters { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); flex-wrap: wrap; }
 .studio-page .hist-filters .sp { flex: 1; }
 .studio-page .hist-filters > .ui-seg { flex: 0 0 auto; }
 .studio-page.wb .col-right #result { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sz-card-sm)), 1fr));
-  grid-auto-rows: max-content; gap: var(--sp-10); align-content: start; }
+  grid-auto-rows: max-content; gap: var(--sp-8); align-content: start; }
 .studio-page.wb .col-right #result > .task > .tmain { flex: 1 0 auto; }
 .studio-page.wb .col-right #result .task .date { display: none; }
 .studio-page.wb .col-right #result .task .timg { cursor: default; }
@@ -97,7 +97,7 @@
 /* 详情展开：展开的内容接在那一行卡片下面（公共件 createBand 的 .band），
    与资产库紧凑档同一副骨架；详情不套灰盒子，账条横着排多列。 */
 .studio-page #result .cdet { display: block; margin: 0; padding: 0; border: 0; background: none;
-  font-size: var(--fs-12-5); color: var(--sub); }
+  font-size: var(--fs-13); color: var(--sub); }
 .studio-page #result .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--sp-8) var(--sp-16); }
 .studio-page #result .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
@@ -107,7 +107,7 @@
 .studio-page #result .timg.playable { position: relative; }
 .studio-page #result .timg.playable .tplay { position: absolute; left: var(--sp-8); bottom: var(--sp-8); z-index: 4; width: var(--sz-ctl); height: var(--sz-ctl);
   border-radius: 50%; border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) 68%, transparent); box-shadow: var(--shadow-8);
+  color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) 68%, transparent); box-shadow: var(--shadow-5);
   transition: opacity var(--dur-180), transform var(--dur-180); }
 .studio-page #result .timg.playable .tplay:hover { transform: scale(1.08); }
 .studio-page #result .timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); }
@@ -118,7 +118,7 @@
 .studio-page #result .timg.sound .tbg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--line); pointer-events: none; }
 .studio-page #result .timg.sound .tbg svg { width: 46px; height: 46px; }
-.studio-page #result .timg.sound audio { position: relative; z-index: 2; width: 100%; margin-top: var(--sp-14); }
+.studio-page #result .timg.sound audio { position: relative; z-index: 2; width: 100%; margin-top: var(--sp-16); }
 /* 拖拽提示：卡片可拖到左栏当参考素材 */
 .studio-page.wb .col-right #result .task { cursor: grab; }
 .studio-page.wb .col-right #result .task.dragging { opacity: .45; }
@@ -129,7 +129,7 @@
 .studio-page.wb .col-right #result > .empty { grid-column: 1 / -1; }
 
 @media (max-width: 720px) {
-  .studio-page textarea { min-height: 112px; font-size: var(--fs-13-5); }
+  .studio-page textarea { min-height: 112px; font-size: var(--fs-13); }
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
   .studio-page .st-top .st-model .dd { max-width: none; }

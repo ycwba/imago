@@ -344,13 +344,13 @@ export function createCaptionDomain(E, document, window) {
     const sk = vis.skipped || {};
     const t = Math.max(0, num(Timeline.playhead()));
     const note = (sk.hidden || sk.empty)
-      ? `<div class="ui-note warn" style="margin-top: var(--sp-6)">有 ${(sk.hidden || 0) + (sk.empty || 0)} 条不进成片：${sk.hidden ? sk.hidden + ' 条挂在被收起的字幕行上；' : ''}${sk.empty ? sk.empty + ' 条没有字（把字填上就进）' : ''}</div>`
+      ? `<div class="ui-note warn" style="margin-top: var(--sp-8)">有 ${(sk.hidden || 0) + (sk.empty || 0)} 条不进成片：${sk.hidden ? sk.hidden + ' 条挂在被收起的字幕行上；' : ''}${sk.empty ? sk.empty + ' 条没有字（把字填上就进）' : ''}</div>`
       : '';
     const rows = list.length
       ? '<div class="sub-list">' + list.map(c => captionRowHTML(c, t >= num(c.start) && t < num(c.end))).join('') + '</div>'
       : '<div class="hint">字幕轨还是空的。可以按配音补出来、导入一段 SRT，或对播放头指着的那一段素材自动识别。</div>';
     const busy = !!asrBusy;
-    return `<div class="ed-label" style="margin-top: var(--sp-14)"><span>字幕</span><span class="cnt">全片 ${list.length} 条 · 时间是成片秒</span></div>
+    return `<div class="ed-label" style="margin-top: var(--sp-16)"><span>字幕</span><span class="cnt">全片 ${list.length} 条 · 时间是成片秒</span></div>
       <div class="hint">字幕排在成片时间线上（整片 ${tenth(total)} 秒）：改出现时间与安全边在轨道上拖那一块，改字、起止、位置在这里。</div>
       ${note}
       ${rows}
@@ -363,7 +363,7 @@ export function createCaptionDomain(E, document, window) {
         <button class="tool" id="capExport" title="把全片看得见的字幕导出成 .srt（时间是成片秒；这一步不依赖渲染）">${icon('download', 14)} 导出 SRT</button>
         <button class="tool" id="capAsr" title="${busy ? '再点一下就不等了：掐掉在途的这一次识别（浏览器里整只 worker 终止，代理那一单补一次取消），字幕不会改动' : '用语音识别把播放头指着的那一段素材里的话变成字幕（会真跑一次识别；结果不反改台词与配音）。走浏览器内 Whisper 时首次要先经代理下载模型，可能等几分钟'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
       </div>
-      <div class="adv-grid" style="margin-top: var(--sp-10)">
+      <div class="adv-grid" style="margin-top: var(--sp-8)">
         <div><label>每行字数</label><input type="number" id="capMaxChars" min="8" max="120" step="1" value="${RESEGMENT_DEFAULT_CHARS}"></div>
       </div>
       <div class="btn-row">

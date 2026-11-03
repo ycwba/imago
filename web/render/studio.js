@@ -118,7 +118,7 @@ export function render(_ctx, _cache) {
               class: "ui-inp",
               placeholder: "例：温柔女声，语速偏慢"
             }),
-            _createElementVNode("div", { style: {"margin-top":"var(--sp-6)"} }, [
+            _createElementVNode("div", { style: {"margin-top":"var(--sp-8)"} }, [
               _createElementVNode("button", {
                 class: "ghost",
                 "data-r": "stylePick"
@@ -185,7 +185,7 @@ export function render(_ctx, _cache) {
           _createElementVNode("div", {
             class: "hint",
             "data-r": "capHint",
-            style: {"font-size":"var(--fs-11-5)","color":"var(--sub)","margin-top":"var(--sp-10)"}
+            style: {"font-size":"var(--fs-12)","color":"var(--sub)","margin-top":"var(--sp-8)"}
           })
         ]),
         _createElementVNode("div", { class: "costbar" }, [
@@ -212,7 +212,7 @@ export function render(_ctx, _cache) {
         _createElementVNode("div", {
           class: "hint",
           "data-r": "pendingHint",
-          style: {"display":"none","font-size":"var(--fs-11-5)","margin-top":"var(--sp-6)"}
+          style: {"display":"none","font-size":"var(--fs-12)","margin-top":"var(--sp-8)"}
         })
       ]),
       _createElementVNode("div", { class: "col-right" }, [

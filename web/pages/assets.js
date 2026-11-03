@@ -147,7 +147,7 @@ export default {
       const box = loadErrEl.value;
       if (!box) return;
       const bits = Object.keys(loadErrors).map(k => window.esc(String(k)) + ' 加载失败：' + window.esc(String(loadErrors[k])));
-      box.innerHTML = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-6) 0">' + bits.join('；') + '</div>' : '';
+      box.innerHTML = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-8) 0">' + bits.join('；') + '</div>' : '';
     }
 
     /* ---------- 多选 ---------- */

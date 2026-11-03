@@ -10,7 +10,7 @@
       </header>
 
       <div class="bar">
-        <button class="ghost" id="reload" style="padding:var(--sp-8) var(--sp-15)" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
+        <button class="ghost" id="reload" style="padding:var(--sp-8) var(--sp-16)" :disabled="reloading" @click="reloadAll"><span v-html="refreshIcon"></span> 刷新</button>
         <span class="sp"></span>
         <span class="upd" id="upd">{{ upd }}</span>
       </div>
@@ -150,7 +150,7 @@
                   <tr v-for="(b, i) in billRows" :key="i" :title="billRowTitle(b)">
                     <td class="t">{{ fmtWhen(b.ts) || '—' }}</td>
                     <td class="p">{{ b.platform || '' }}</td>
-                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:var(--fs-10)">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
+                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:var(--fs-11)">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
                     <td class="num">
                       <template v-if="b.tokens != null">{{ b.tokens.toLocaleString() }} tokens</template>
                       <template v-else-if="b.cost == null"><span title="平台这次没返回价格，不是 0">平台未提供价格</span></template>

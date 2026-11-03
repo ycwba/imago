@@ -782,7 +782,7 @@ window.AdvExtras = {
       });
       return {
         html: shown.join('')
-          + (muted.length ? '<div class="hint" style="font-size: var(--fs-11-5);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
+          + (muted.length ? '<div class="hint" style="font-size: var(--fs-12);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
         count: decl.length, model: model, decl: decl,
       };
     },
@@ -822,7 +822,7 @@ window.AdvExtras = {
       });
       return {
         html: cells.join('')
-          + (muted.length ? '<div class="hint" style="font-size: var(--fs-11-5);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
+          + (muted.length ? '<div class="hint" style="font-size: var(--fs-12);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
         count: decl.length, shownCount: cells.length, muted: muted,
       };
     },

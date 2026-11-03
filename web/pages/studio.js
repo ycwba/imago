@@ -59,7 +59,7 @@ const ADV_BODY_HTML =
   + '<div id="durWrap" hidden><label>时长（秒）</label><select id="dur"></select></div>'
   + '<div id="arWrap" hidden><label>画面比例</label><select id="ar"></select></div>'
   + '</div><div class="adv-grid"><div id="drawWrap" hidden><label>生成条数</label><select id="draw"></select><div class="sel-hint" id="drawHint"></div></div></div>'
-  + '<div class="adv-grid" id="boolRows" style="margin-top: var(--sp-10)"></div>'
+  + '<div class="adv-grid" id="boolRows" style="margin-top: var(--sp-8)"></div>'
   + '</div>'
   + '<div class="adv-type" data-t="image" hidden>'
   + '<div class="adv-grid">'
@@ -74,8 +74,8 @@ const ADV_BODY_HTML =
   + '<div id="voiceCol"><label>音色</label><select id="voice"></select></div>'
   + '<div><label>输出格式</label><select id="formatA"></select></div>'
   + '</div></div>'
-  + '<div class="adv-grid" id="topBools" style="margin-top: var(--sp-10)" hidden></div>'
-  + '<div class="adv-grid" id="shapeFields" style="margin-top: var(--sp-10)" hidden></div>';
+  + '<div class="adv-grid" id="topBools" style="margin-top: var(--sp-8)" hidden></div>'
+  + '<div class="adv-grid" id="shapeFields" style="margin-top: var(--sp-8)" hidden></div>';
 
 const StudioView = {
   name: 'StudioView',
@@ -2130,7 +2130,7 @@ const StudioView = {
         if (provId) Api.balOut.mark(provId);
         box.hidden = false;
         box.innerHTML = '<div class="ui-note err" style="margin-top: var(--sp-8)">余额不足，先充值。'
-          + '<button class="tool mini" data-balgo style="margin-left: var(--sp-6)">去「用量与余额」</button></div>';
+          + '<button class="tool mini" data-balgo style="margin-left: var(--sp-8)">去「用量与余额」</button></div>';
         const b = box.querySelector('[data-balgo]');
         if (b) b.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.hash = 'usage.html'));
       }

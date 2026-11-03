@@ -797,7 +797,7 @@ function renderVoiceCol(col, sh) {
            AI 拆分镜时按画面带回来的那一句也落在同一字段上；它与提示词各改各的，互不带动。
            点这一行左边的头像把它填进「生成配音」，一个计费请求都不发；右上角两颗按钮分别是
            「AI 生成台词」（按这一镜的提示词写）与「生成语音」（按这句台词和说话人素材直接合成）。 -->
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>本镜台词</span><span class="cnt" id="lineCntMine">${esc(lCnt.mine)}</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>本镜台词</span><span class="cnt" id="lineCntMine">${esc(lCnt.mine)}</span></div>
       <div class="btn-row" style="margin-top: var(--sp-4)">
         ${window.aiBtnHTML({ id: 'lineGenAi', label: 'AI 生成台词', mini: true,
           title: '按这一镜的画面提示词与时长，让文字 AI 写一句能念完的台词' })}
@@ -805,23 +805,23 @@ function renderVoiceCol(col, sh) {
       </div>
       <div id="lineInline" hidden></div>
       <div class="line-list one">${lineRowsHTML(lMine)}</div>
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>全片台词</span><span class="cnt" id="lineCntAll">${esc(lCnt.all)}</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>全片台词</span><span class="cnt" id="lineCntAll">${esc(lCnt.all)}</span></div>
       <div class="hint">每一行左边是说话人在素材库里的样子（对不上画占位图，名字照留），右边那个数是这一句在成片轨道上的位置。</div>
       <div class="line-list">${lAll.length ? lineRowsHTML(lAll) : '<div class="hint">除本镜以外还没有别的台词。</div>'}</div>
       ${lineWhoDatalistHTML()}
       </div>
       <div class="grp" id="grpVoiceAdd">
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>落在哪</span><span class="cnt">${n ? '这一镜已有 ' + n + ' 句' : '这一镜还没有配音'}</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>落在哪</span><span class="cnt">${n ? '这一镜已有 ' + n + ' 句' : '这一镜还没有配音'}</span></div>
       <div class="hint" id="voicePos">${esc(voicePosLine(sh))}</div>
       <!-- 合成出来的那一句直接落在这个数上：块在轨道上的位置、这里说的落点与播放头读的是同一份成片秒。 -->
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>语音平台与型号</span><span class="cnt">${way.chosen ? esc(String((way.chosen.prov.displayName || way.chosen.prov.id || ''))) : ''}</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>语音平台与型号</span><span class="cnt">${way.chosen ? esc(String((way.chosen.prov.displayName || way.chosen.prov.id || ''))) : ''}</span></div>
       ${Chars.Pipe.modelSelectHTML(VREG, { kind: 'audio', mode: 'text_to_speech', id: 'voiceModel', value: way.chosen ? way.chosen.key : '',
         emptyText: '注册表里没有配好密钥的语音平台 —— 到设置页「语音」那一档填一家' })}
       ${way.mode === 'preset' ? `
-        <div class="ed-label" style="margin-top: var(--sp-14)"><span>音色</span><span class="cnt">${preset.length} 个可选（现读这一家的声明）</span></div>
+        <div class="ed-label" style="margin-top: var(--sp-16)"><span>音色</span><span class="cnt">${preset.length} 个可选（现读这一家的声明）</span></div>
         <select id="voicePick">${window.TtsAdv.voiceOptionsHTML(preset, voiceDraftOf().voice)}</select>` : ''}
       ${way.mode === 'design' ? `
-        <div class="ed-label" style="margin-top: var(--sp-14)"><span>声音描述</span><span class="cnt">这一家按描述定音色</span></div>
+        <div class="ed-label" style="margin-top: var(--sp-16)"><span>声音描述</span><span class="cnt">这一家按描述定音色</span></div>
         <!-- 与下面「要念的话」同一只公共类（ui.css 的 .ui-ta）：裸 textarea 吃的是本页那条
              dialog.script textarea 的边框，四个页面四种边框就是这么来的（复用公共件）。 -->
         <textarea id="voiceDesign" class="ui-ta" rows="2" placeholder="例：年轻女声，语速偏慢，带一点沙哑">${esc(voiceDraftOf().design)}</textarea>
@@ -836,7 +836,7 @@ function renderVoiceCol(col, sh) {
           <button class="ghost" id="voiceDesignSave" title="把这一格的声音描述写回素材库里同名的那一位（以后这一位都用它）"${voiceDraftOf().who ? '' : ' disabled'}>${icon('check', 14)} 存回素材库</button>
         </div>` : ''}
       ${way.mode === 'clone' ? `
-        <div class="ed-label" style="margin-top: var(--sp-14)"><span>音色素材（参考音频）</span><span class="cnt">这一家按参考音频复刻音色</span></div>
+        <div class="ed-label" style="margin-top: var(--sp-16)"><span>音色素材（参考音频）</span><span class="cnt">这一家按参考音频复刻音色</span></div>
         <div class="btn-row">
           <button class="tool" id="voiceRefPick">${icon('mic', 14)} ${voiceDraftOf().ref ? '换一条参考音频' : '选参考音频'}</button>
           <button class="tool" id="voiceRefFromLib" title="拿素材库里另一位挂着的参考音频当这一句的嗓子（走公共层 VoiceNote.runClone，与素材库页那一条同一条链）">${icon('users', 14)} 用素材的声音克隆</button>
@@ -845,11 +845,11 @@ function renderVoiceCol(col, sh) {
         <div class="hint" id="voiceRefName" style="margin-top: var(--sp-4)">${voiceDraftOf().ref
           ? '已选：' + esc(voiceDraftOf().ref.name || voiceDraftOf().ref.assetId || '这一条')
           : '还没选：从素材库 / 资产库 / 我的收藏 / 本机文件里挑一条（要几秒到几十秒的干净人声）'}</div>` : ''}
-      <div class="hint err" id="voiceWayWhy" style="margin-top: var(--sp-10)"${wayWhy ? '' : ' hidden'}>${esc(wayWhy)}</div>
+      <div class="hint err" id="voiceWayWhy" style="margin-top: var(--sp-8)"${wayWhy ? '' : ' hidden'}>${esc(wayWhy)}</div>
       ${advBits.length ? `
-        <div class="ed-label" style="margin-top: var(--sp-14)"><span>合成设置</span><span class="cnt">${tb.count ? '格式与平台开关现读声明（与工作台同一份）' : '现读这一家的声明'}</span></div>
+        <div class="ed-label" style="margin-top: var(--sp-16)"><span>合成设置</span><span class="cnt">${tb.count ? '格式与平台开关现读声明（与工作台同一份）' : '现读这一家的声明'}</span></div>
         <div class="adv-grid" id="voiceAdv">${advBits.join('')}</div>` : ''}
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>要念的话</span><span class="cnt" id="voiceCnt">${esc(window.CharLimits.cntLine(voiceDraftOf().text, vB))}</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>要念的话</span><span class="cnt" id="voiceCnt">${esc(window.CharLimits.cntLine(voiceDraftOf().text, vB))}</span></div>
       <!-- 输入框用公共 ui.css 的 .ui-ta（与工作台、素材库那些多行输入同一套边框与圆角），
            不再在这一页另写一条 textarea 规则 —— 四个页面四种边框就是这么来的。 -->
       <textarea id="voiceText" class="ui-ta" rows="3" placeholder="这一句配音要念出来的内容">${esc(voiceDraftOf().text)}</textarea>
@@ -870,7 +870,7 @@ function renderVoiceCol(col, sh) {
       <div id="voicePolish" hidden></div>
       ${voiceBalOut && boolProv && voiceBalOut === boolProv.id ? `
       <div class="ui-note err" style="margin-top: var(--sp-8)">上一次合成这一家回了「余额 / 额度不够」（这只是上一轮的回执，<b>不会拦你</b> —— 再点一次照样真发请求）
-        <button class="tool mini" id="voiceBalGo" style="margin-left: var(--sp-6)">去「用量与余额」</button></div>` : ''}
+        <button class="tool mini" id="voiceBalGo" style="margin-left: var(--sp-8)">去「用量与余额」</button></div>` : ''}
       <div class="hint">合成会真的发一次请求（按这一家的计费走），所以点第二下才确认。合成后它是轨道上的块：点它选中，切头尾与删掉都在那根剪辑条上，音量在那张卡的滑块上。</div>
       ${window.RawRequest ? RawRequest.liveHTML('dir:voice:' + sh.id) : ''}
       </div>
@@ -881,7 +881,7 @@ function renderVoiceCol(col, sh) {
       <!-- 分轨 / 合轨是**全片**动作，所以按钮放在 n ? … : … 三元之外：
            这一镜一句配音都没有时，两颗按钮照样看得见（禁用并写明原因，而不是整块消失）。
            nAll 是整条配音轨的句数，不是这一镜的 n。 -->
-      <div class="btn-row" style="margin-top: var(--sp-14)">
+      <div class="btn-row" style="margin-top: var(--sp-16)">
         <button class="tool mini" id="voiceSplit"${nAll ? '' : ' disabled'} title="按声音来源（谁在说、音色、素材）把全片的配音分到各自的轨道上（只改排版，时间、时长、音量一个字不动；成片里的声音完全一样）${nAll ? '' : ' —— 全片还没有配音，先合成一句'}">${icon('layers', 14)} 分轨${nAll ? ' ' + nAll + ' 句' : ''}</button>
         <button class="tool mini" id="voiceMerge"${nAll ? '' : ' disabled'} title="把全片所有配音合到第 1 条轨道（只改排版，不改成片；同一轨里可能有重叠，成片里会一起响）${nAll ? '' : ' —— 全片还没有配音，先合成一句'}">${icon('merge', 14)} 合轨</button>
       </div>
@@ -896,7 +896,7 @@ function renderVoiceCol(col, sh) {
           <button class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音（只带走它自己挂在配音轨上的那一份，可 Ctrl+Z 退回）">${icon('trash', 11)}</button>
         </div>`;
       }).join('')}</div>` : `
-      <div class="ed-label" style="margin-top: var(--sp-14)"><span>这一镜上的配音</span><span class="cnt">还没有</span></div>
+      <div class="ed-label" style="margin-top: var(--sp-16)"><span>这一镜上的配音</span><span class="cnt">还没有</span></div>
       <div class="hint">这一镜还没有配音。可以在台词那一行点「生成语音」，或切到「生成配音」自己写一句；合成后它会作为块出现在配音轨上。</div>`}
       </div>
     </div>`;

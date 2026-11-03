@@ -1141,9 +1141,9 @@ const SettingsView = {
           + MD.map(m => '<option value="' + m + '" ' + (window.pageModeOf(t.key) === m ? 'selected' : '') + '>'
             + (m === 'page' ? '翻页' : '动态加载（滚动自动加载）') + '</option>').join('')
           + '</select>'
-          + '<span style="font-size: var(--fs-12-5);color:var(--sub)">每页</span>'
+          + '<span style="font-size: var(--fs-13);color:var(--sub)">每页</span>'
           + '<input type="number" min="' + SZ.min + '" max="' + SZ.max + '" data-size="' + window.esc(t.key) + '" value="' + window.pageSizeOf(t.key) + '" style="flex:0 0 90px">'
-          + '<span style="font-size: var(--fs-12-5);color:var(--sub)">条</span>';
+          + '<span style="font-size: var(--fs-13);color:var(--sub)">条</span>';
         box.appendChild(row);
       });
       if (window.Dropdowns) Dropdowns.build(box);
@@ -1546,7 +1546,7 @@ const SettingsView = {
           ctl = '<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="' + id + '"' + (val === '0' ? '' : ' checked') + '> 开启</label>';
         } else if (it.kind === 'num') {
           ctl = '<input type="number" min="0" step="' + window.esc(it.step || '0.5') + '" data-set="' + id + '" value="' + window.esc(val) + '" style="flex:0 0 110px">'
-            + (it.unit ? '<span style="font-size: var(--fs-12-5);color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
+            + (it.unit ? '<span style="font-size: var(--fs-13);color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
         } else if (it.kind === 'model') {
           ctl = modelCtl(id, it, val);
         } else {
@@ -2516,7 +2516,7 @@ const SettingsView = {
       const repaint = () => {
         host.innerHTML = kinds.map(k => {
           const n = Wb.History.read(k.kind).length;
-          return '<div class="krow" style="gap: var(--sp-8);flex-wrap:wrap;margin-top: var(--sp-10)">'
+          return '<div class="krow" style="gap: var(--sp-8);flex-wrap:wrap;margin-top: var(--sp-8)">'
             + '<span class="kn">本地任务记录</span>'
             + '<span class="sub-line">' + window.esc(k.label) + '：本机 ' + n + ' 条。'
             + (n ? '这不是缓存：清掉后本机存的任务号与提示词就没了（平台上的任务与已生成的文件不受影响），删除还会同步进数据文件与云端。'

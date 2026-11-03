@@ -4273,8 +4273,8 @@ function editScript() {
     sub: '当前分镜写成的一份稿子。逐镜一段「画面」；台词不在这里，在剪辑右栏「台词」那一档改。',
     body(el) {
       el.innerHTML = '<textarea class="ui-ta" spellcheck="false" aria-label="剧本正文"'
-        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-12-5);line-height:1.65"></textarea>'
-        + '<div role="alert" style="display:none;color:var(--err);font-size: var(--fs-12);line-height:1.6;margin-top: var(--sp-6)"></div>';
+        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-13);line-height:1.65"></textarea>'
+        + '<div role="alert" style="display:none;color:var(--err);font-size: var(--fs-12);line-height:1.6;margin-top: var(--sp-8)"></div>';
       ta = el.querySelector('textarea');
       errEl = el.querySelector('[role="alert"]');
       ta.value = scriptTextOf(proj.scenes);

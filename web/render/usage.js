@@ -114,7 +114,7 @@ const _hoisted_61 = {
 }
 const _hoisted_62 = {
   key: 1,
-  style: {"font-size":"var(--fs-10)"}
+  style: {"font-size":"var(--fs-11)"}
 }
 const _hoisted_63 = {
   key: 2,
@@ -134,7 +134,7 @@ export function render(_ctx, _cache) {
       _createElementVNode("button", {
         class: "ghost",
         id: "reload",
-        style: {"padding":"var(--sp-8) var(--sp-15)"},
+        style: {"padding":"var(--sp-8) var(--sp-16)"},
         disabled: _ctx.reloading,
         onClick: _ctx.reloadAll
       }, [

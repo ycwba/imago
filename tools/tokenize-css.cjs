@@ -1,5 +1,5 @@
 /* ============================================================================
-   设计令牌：体检 + 机械替换 + 令牌文件生成。
+   设计令牌：体检 + 机械替换 + 令牌文件生成 + 档位收敛改名。
    规则表与共用件在 tools/token-lib.cjs（值→令牌的映射只有那一份）。
 
    用法：
@@ -7,6 +7,8 @@
      node tools/tokenize-css.cjs --quiet         只报总数
      node tools/tokenize-css.cjs --write         机械替换（只动点名的文件；不给名字＝全部样式文件）
      node tools/tokenize-css.cjs --write --js    连 JS 内联 style、HTML 模板源一起改
+     node tools/tokenize-css.cjs --remap         档位收敛：旧档名 → 终档名（连 JS/HTML 一起改）
+     node tools/tokenize-css.cjs --remap=sp,fs   只收某几族（可选 sp/fs/radius/dur/shadow）
      node tools/tokenize-css.cjs --tokens        按当前代码实际用到的值重写 web/styles/tokens.css
      node tools/tokenize-css.cjs --map           打印「值 → 令牌名」映射（给人看）
    ========================================================================== */
@@ -22,6 +24,11 @@ const QUIET = argv.includes('--quiet');
 const WITH_JS = argv.includes('--js');
 const EMIT_TOKENS = argv.includes('--tokens');
 const PRINT_MAP = argv.includes('--map');
+const remapArg = argv.find(a => a === '--remap' || a.startsWith('--remap='));
+const REMAP = !!remapArg;
+const REMAP_FAMS = remapArg && remapArg.includes('=')
+  ? new Set(remapArg.split('=')[1].split(',').map(s => s.trim()).filter(Boolean))
+  : new Set(['sp', 'fs', 'radius', 'dur', 'shadow']);
 const named = argv.filter(a => !a.startsWith('--'));
 
 /* ---------------------------------------------------------------------------
@@ -73,7 +80,9 @@ function stripFallbacks(value, stats) {
   }).join('');
 }
 
-/** 把一条声明的值里的 px 换掉。tier 决定换哪一档。 */
+/** 把一条声明的值里的 px 换掉。tier 决定换哪一档。
+    造出来的名字先过值吸附（snapName）：裸 6px 吸附成 --sp-8，
+    不会造出已删档名 —— 终表之外的档位名不许再出现。 */
 function replacePx(value, tier, stats) {
   return outsideVars(value, seg => seg.replace(/(-?\d*\.?\d+)px\b/g, (all, num) => {
     const n = parseFloat(num);
@@ -82,7 +91,7 @@ function replacePx(value, tier, stats) {
     if (tier === 'hair' && abs > L.HAIR_MAX) return all;
     if (tier === 'sp' && abs > 64) return all;      // 定位/离屏用的巨大偏移不是档位
     stats.replaced++;
-    const name = L.tokName(tier, abs);
+    const name = L.snapName(tier, L.tokName(tier, abs));
     if (n < 0) return `calc(-1 * var(${name}))`;
     return `var(${name})`;
   }));
@@ -133,7 +142,8 @@ function replaceColor(value, stats) {
 }
 
 /* 时长：按**毫秒值**命名（--dur-120 就是 120ms），与尺寸档位同一套规则。
-   只认这几个值 —— 别的时长（各自动画自己的周期）留在定义旁边，不进令牌表。 */
+   认的是历史用过的那一串值 —— 新写的裸值会被吸附到终表五枚
+   （100→120、250→280 这类），终表外的时长（各自动画自己的周期）留在定义旁边，不进令牌表。 */
 const DUR_ALLOWED = new Set([100, 120, 140, 150, 160, 180, 200, 250, 280, 400, 800, 900, 1100, 1200, 1400, 1600]);
 function replaceDur(value, stats) {
   return outsideVars(value, seg => seg.replace(/(\d*\.?\d+)(ms|s)\b/g, (all, num, unit) => {
@@ -141,7 +151,7 @@ function replaceDur(value, stats) {
     const ms = unit === 's' ? Math.round(n * 1000) : n;
     if (!DUR_ALLOWED.has(ms)) return all;
     stats.replaced++;
-    return `var(--dur-${ms})`;
+    return `var(${L.snapName('dur', `--dur-${ms}`)})`;
   }));
 }
 
@@ -230,6 +240,38 @@ function declEdit(prop, value, stats) {
   next = next.replace(/(\d+\.\d{4,})%/g, (m, n) => (Math.round(parseFloat(n) * 1000) / 1000) + '%');
   if (next === value) return null;
   return next.trim();
+}
+
+/* 档位收敛改名：var(--旧名) → var(--终名)。
+   只认 var(...) 形式（散文注释里的裸名字不带 var(，不会被吃）；
+   注释遮罩后再匹配，注释原样保留。shadow-15 特例是**改值**（box-shadow: none）。 */
+function remapSrc(src, stats) {
+  const masked = L.maskCommentsKeepLength(src);
+  const edits = [];
+  const re = /var\(\s*(--(?:sp|fs|radius|dur|shadow)-[\w.-]+)\s*[,)]/g;
+  let m;
+  while ((m = re.exec(masked))) {
+    const oldName = m[1];
+    const fam = /^--([a-z]+)-/.exec(oldName)[1];
+    if (!REMAP_FAMS.has(fam)) continue;
+    const newName = L.remapName(oldName);
+    if (newName === oldName) continue;
+    stats.remap++;
+    const nameStart = m.index + m[0].indexOf('--');
+    if (newName === null) {
+      /* var(--shadow-15) 整个换成 none（零宽环本就不可见） */
+      const varStart = m.index + m[0].indexOf('var(');
+      let depth = 0, j = varStart + 3;
+      for (; j < masked.length; j++) {
+        if (masked[j] === '(') depth++;
+        else if (masked[j] === ')') { depth--; if (depth === 0) break; }
+      }
+      edits.push([varStart, j + 1, 'none']);
+    } else {
+      edits.push([nameStart, nameStart + oldName.length, newName]);
+    }
+  }
+  return applyEdits(src, edits);
 }
 
 /** 按收集到的编辑改写原文（从后往前，索引不失效）。 */
@@ -356,6 +398,35 @@ function main() {
     process.exit(0);
   }
 
+  /* ---- 档位收敛改名：旧档名 → 终档名（连 JS 内联、HTML 模板一起改）---- */
+  if (REMAP) {
+    const stats = { remap: 0 };
+    /* 改名射程比 --write 宽：JS 字符串、HTML 模板里出现的 var(--旧名) 都算活代码。
+       点名了文件就只动点名的那些（与 --write 同一口径）。 */
+    let files2;
+    if (named.length) {
+      files2 = named.map(f => path.resolve(f)).filter(p => fs.existsSync(p) && p !== TOKENS_CSS);
+    } else {
+      const jsAll = L.walkSrc(path.join(ROOT, 'web'), p => /\.(js|mjs|cjs)$/.test(p));
+      const htmlAll = L.walkSrc(path.join(ROOT, 'web'), p => p.endsWith('.html'));
+      const tplDir = path.join(ROOT, 'tools', 'vue-templates');
+      const tplAll = fs.existsSync(tplDir)
+        ? fs.readdirSync(tplDir).filter(f => f.endsWith('.html')).map(f => path.join(tplDir, f)) : [];
+      files2 = [...styleFiles(), ...jsAll, ...htmlAll, ...tplAll];
+    }
+    for (const p of files2) {
+      const src = fs.readFileSync(p, 'utf8');
+      const next = remapSrc(src, stats);
+      if (next !== src) {
+        fs.writeFileSync(p, next);
+        console.log('✓ 已改名 ' + path.relative(ROOT, p).replace(/\\/g, '/'));
+      }
+    }
+    console.log('档位改名计数：', stats);
+    console.log('（模板源改过的话，接着跑 npm run build 同步 web/render/）');
+    process.exit(0);
+  }
+
   if (argv.includes('--collapse')) {
     /* 间距收敛的干跑：只报「哪个补档会收成哪一档、牵动多少处」，不写盘。
        真要收的那天，把 tokens.css 里的档位改掉即可（调用点不用动）。 */
@@ -378,7 +449,7 @@ function main() {
     for (const [k, n, to] of rows) { console.log(`  --sp-${k} → --sp-${to}px   牵动 ${n} 处`); total += n; }
     console.log(`\n合计 ${rows.length} 个补档、${total} 处引用。`);
     console.log('⚠ 这是**候选**，收敛会改画面 —— 属于布局重构那一轮的设计决定；');
-    console.log('  真要收：只改 tokens.css 里的档位值，调用点不用动。');
+    console.log('  真要收：跑 --remap 把调用点改到终档名，再把补档从 tokens.css 删掉。');
     process.exit(0);
   }
 

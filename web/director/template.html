@@ -23,13 +23,13 @@
   /* 导出按钮容器：按钮由 web/domain/export-formats.js 表现画，display:contents 让它们
      仍按页头动作区的 flex + gap 排，不因为多包一层而改变间距。 */
   #exportBtns { display: contents; }
-  header input.pname { width: 260px; padding: var(--sp-6) var(--sp-10); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); }
+  header input.pname { width: 260px; padding: var(--sp-8) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); }
   /* 项目切换钮（「我的短片」）与「多选 / 刷新」那种按钮同一档圆角，不再是胶囊。 */
   header .phead-chip { border-radius: var(--radius-6); }
   header .phead-chip b { color: var(--acc); }
   header .saved { color: var(--ok); font-size: var(--fs-12); white-space: nowrap; }
   /* 顶部那行操作提示：低调的小字，出现几秒后自己淡出，不打断操作 */
-  header .opstate { font-size: var(--fs-12); color: var(--sub); opacity: 0; transition: opacity var(--dur-250);
+  header .opstate { font-size: var(--fs-12); color: var(--sub); opacity: 0; transition: opacity var(--dur-280);
     max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header .opstate.show { opacity: 1; }
   header .opstate.ok { color: var(--ok); }
@@ -39,11 +39,11 @@
      不然 36px 的默认高度会把整行顶高、和旁边的 .ghost 对不齐。 */
   .head-dd { display: inline-flex; width: 106px; flex: 0 0 auto; }
   .head-dd .dd { width: 100%; }
-  .head-dd .dd-btn { height: 30px; padding: 0 var(--sp-9); font-size: var(--fs-12); border-radius: var(--radius-4); }
+  .head-dd .dd-btn { height: 30px; padding: 0 var(--sp-8); font-size: var(--fs-12); border-radius: var(--radius-4); }
   /* 顶部横幅 #banner 的样式在 ui.css（全站那一份），这里不再抄。 */
-  .layout { --sp0: clamp(198px, 19%, 270px); --sp1: clamp(298px, 28%, 400px); display: flex; gap: var(--sp-16); padding: var(--sp-14) var(--shell-px); flex: 1 1 auto; min-height: 0; position: relative; }
+  .layout { --sp0: clamp(198px, 19%, 270px); --sp1: clamp(298px, 28%, 400px); display: flex; gap: var(--sp-16); padding: var(--sp-16) var(--shell-px); flex: 1 1 auto; min-height: 0; position: relative; }
   .col { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4); overflow-y: auto; }
-  .col::-webkit-scrollbar { width: 8px; } .col::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+  .col::-webkit-scrollbar { width: 8px; } .col::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
   /* 三栏占比可拖：拖过之后宽度写死成 --sp0 / --sp1（存在 localStorage 的 dir_split），
      没拖过就用下面这组 clamp 的弹性默认值。min-width 仍然兜着，别拖到内容摆不下。 */
   /* 左栏是**一整块**：表头 / 列表 / 加场景 / 生成全部四段固定在同一张卡里，
@@ -56,7 +56,7 @@
   #scenesBox { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
   #scenesBox::-webkit-scrollbar { width: 8px; }
   #scenesBox::-webkit-scrollbar-track { background: transparent; }
-  #scenesBox::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-5); }
+  #scenesBox::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-6); }
   #scenesBox::-webkit-scrollbar-thumb:hover { background: var(--sub); }
   /* 中栏：flex-basis 写 0（不是 auto）——auto 会让基准尺寸跟着内容走，候选条一变多/变宽，
      三栏占比就跟着飘；basis:0 之后中栏宽度只由容器与两侧栏决定，候选多少都不影响占比。 */
@@ -68,7 +68,7 @@
   /* 正文自己滚（页面不滚）：候选多了也不会把播放器顶出视口，顺序条钉在栏底不动。 */
   .mid-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   .mid-body::-webkit-scrollbar { width: 8px; }
-  .mid-body::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+  .mid-body::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
   /* 顺序条（原来点「顺序」才出现的那一栏）常驻：高度走 --strip-h（Wb.split 的 dir_strip），
      没拖过按内容、封顶；拖过之后写死。条内换行，多了自己滚。 */
   .shot-strip-host { flex: 0 0 auto; max-height: var(--strip-h); display: flex; flex-direction: column;
@@ -101,7 +101,7 @@
     /* 关键：把「一屏高 + 裁掉溢出」的骨架放开，否则堆叠出来的内容被裁掉、页面滚不动 */
     .page-main { height: auto; min-height: 100vh; overflow: visible; }
     /* 三栏摆不下：分镜 + 播放/时间线 并排一行（保留「边看边挑」），编辑区整行放到下面 */
-    .layout { flex-wrap: wrap; padding: var(--sp-10) var(--shell-px); gap: var(--sp-10); }
+    .layout { flex-wrap: wrap; padding: var(--sp-8) var(--shell-px); gap: var(--sp-8); }
     .col { overflow: visible; flex: 0 0 auto; min-width: 0; }
     .col-left { flex: 0 0 clamp(168px, 22%, 226px); max-height: 44vh; overflow-y: auto; }
     .col-mid { flex: 1 1 360px; min-width: 300px; }
@@ -115,7 +115,7 @@
   }
   /* 窄到 760 以下：横向留白跟全站同一枚（--sp-14），页头与三栏一起收 */
   @media (max-width: 760px) {
-    .page-main { --shell-px: var(--sp-14); }
+    .page-main { --shell-px: var(--sp-16); }
   }
   @media (max-width: 700px) {
     header input.pname { width: 100%; order: 9; }
@@ -124,7 +124,7 @@
   /* 矮窗口（横向拉长、纵向不够）：先把头部和留白压扁，播放区别把整屏占满。
      横向留白不跟着压 —— 页头、三栏、轨道底板读同一枚 --shell-px，只压纵向。 */
   @media (max-height: 620px) {
-    .layout { padding: var(--sp-10) var(--shell-px); }
+    .layout { padding: var(--sp-8) var(--shell-px); }
     .player-box video, .player-empty { max-height: 44vh; }
     .col-left { max-height: 38vh; }
   }
@@ -136,27 +136,27 @@
   /* 左栏 */
   /* 我的短片下拉：与左栏分镜列表同一套样式。
      .page-main 是 overflow:hidden，项目一多下半截就没有出路 —— 菜单自己滚。 */
-  #projMenu { padding: var(--sp-6); max-height: 60vh; overflow-y: auto; }
-  .pm-head { font-size: var(--fs-11); color: var(--sub); padding: var(--sp-6) var(--sp-9) var(--sp-4); }
-  .pm-row { display: flex; align-items: center; gap: var(--sp-9); padding: var(--sp-5) var(--sp-9); border-radius: var(--radius-4); cursor: pointer;
-    margin-bottom: var(--sp-3); font-size: var(--fs-12-5); border: var(--hair) solid transparent; border-left: var(--hair-3) solid transparent; }
+  #projMenu { padding: var(--sp-8); max-height: 60vh; overflow-y: auto; }
+  .pm-head { font-size: var(--fs-11); color: var(--sub); padding: var(--sp-8) var(--sp-8) var(--sp-4); }
+  .pm-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-4); cursor: pointer;
+    margin-bottom: var(--sp-4); font-size: var(--fs-13); border: var(--hair) solid transparent; border-left: var(--hair-3) solid transparent; }
   .pm-row:hover { background: var(--panel2); }
   .pm-row.sel { background: color-mix(in srgb, var(--pri) var(--a-8), transparent); border-color: var(--line); border-left: var(--hair-3) solid var(--pri); }
   .pm-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pm-cnt { color: var(--sub); font-size: var(--fs-10-5); }
+  .pm-cnt { color: var(--sub); font-size: var(--fs-11); }
   .pm-ops { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; visibility: hidden; }
   .pm-row:hover .pm-ops, .pm-row.sel .pm-ops { visibility: visible; }
   .pm-btn { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px;
-    padding: 0 var(--sp-5); border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: none; color: var(--sub);
-    font-size: var(--fs-11); line-height: 1; cursor: pointer; transition: all var(--dur-150); }
+    padding: 0 var(--sp-4); border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: none; color: var(--sub);
+    font-size: var(--fs-11); line-height: 1; cursor: pointer; transition: all var(--dur-120); }
   .pm-btn:hover { border-color: var(--acc); color: var(--acc); }
   .pm-btn.danger:hover { border-color: var(--err); color: var(--err); }
-  .pm-add { margin-top: var(--sp-5); padding-top: var(--sp-7); border-top: var(--hair) solid var(--line); font-size: var(--fs-12-5);
-    color: var(--acc); padding: var(--sp-7) var(--sp-9) var(--sp-5); border-radius: var(--radius-4); cursor: pointer; }
+  .pm-add { margin-top: var(--sp-4); padding-top: var(--sp-8); border-top: var(--hair) solid var(--line); font-size: var(--fs-13);
+    color: var(--acc); padding: var(--sp-8) var(--sp-8) var(--sp-4); border-radius: var(--radius-4); cursor: pointer; }
   .pm-add:hover { background: var(--panel2); }
   /* 项目组头：组名 + 几部短片 + 改名 / 删组。组里的短片在下面缩进一格。
      「未分组」那一档没有组操作（它不是组，只是没归组的那些）。 */
-  .pm-group { display: flex; align-items: center; gap: var(--sp-7); padding: var(--sp-6) var(--sp-9) var(--sp-4); margin-top: var(--sp-4);
+  .pm-group { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8) var(--sp-4); margin-top: var(--sp-4);
     font-size: var(--fs-12); color: var(--sub); border-top: var(--hair) solid var(--line); cursor: pointer; }
   .pm-group:first-of-type { margin-top: 0; border-top: none; }
   .pm-group.none { color: var(--sub); opacity: .85; }
@@ -165,66 +165,66 @@
   .pm-group .pm-ops { visibility: hidden; }
   .pm-group:hover .pm-ops { visibility: visible; }
   /* 项目组可展开 / 收起：收起时不画组内短片行，组头与条数仍在。 */
-  .pm-gfold { display: inline-flex; align-items: center; justify-content: center; width: var(--sp-18); height: var(--sp-18);
+  .pm-gfold { display: inline-flex; align-items: center; justify-content: center; width: var(--sp-16); height: var(--sp-16);
     padding: 0; border: 0; border-radius: var(--radius-4); background: none; color: var(--sub); cursor: pointer; }
   .pm-gfold:hover { background: var(--panel2); color: var(--acc); }
   .pm-gfold svg { width: var(--sz-ico); height: var(--sz-ico); }
   .pm-group.folded .pm-gname { color: var(--sub); }
   /* 组里的每一部短片都缩进一格，让「谁属于哪一组」一眼看得出来。 */
-  .pm-row.pm-in-group { margin-left: var(--sp-10); border-left: var(--hair-2) solid var(--line); }
+  .pm-row.pm-in-group { margin-left: var(--sp-8); border-left: var(--hair-2) solid var(--line); }
 
-  .left-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-13) var(--sp-14); border-bottom: var(--hair) solid var(--line); }
+  .left-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); }
   .left-head b { font-size: var(--fs-14); }
   .left-head { flex-wrap: wrap; }
-  .left-head > b { flex: 0 0 auto; font-size: var(--fs-12-5); white-space: nowrap; }
+  .left-head > b { flex: 0 0 auto; font-size: var(--fs-13); white-space: nowrap; }
   .left-head .script-btn { flex: 1 1 0; min-width: 0; height: 28px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: var(--fs-11-5); line-height: 1; color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-14), transparent);
+    font-size: var(--fs-12); line-height: 1; color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-14), transparent);
     border: 0; border-radius: var(--radius-4); padding: 0 var(--sp-8); cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--dur-150); }
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--dur-120); }
   .left-head .script-btn:hover { background: color-mix(in srgb, var(--acc) var(--a-24), transparent); }
   /* 「剧本」是次级入口：与「拆分镜」并排，但只占自己那份宽度（左栏最窄时两枚会换行，不挤没字） */
   .left-head .script-btn.sec { flex: 0 0 auto; color: var(--sub); background: transparent;
     border: var(--hair) solid var(--line); }
   .left-head .script-btn.sec:hover { color: var(--acc); border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
-  .scene-block { padding: var(--sp-8) var(--sp-10) var(--sp-4); }
+  .scene-block { padding: var(--sp-8) var(--sp-8) var(--sp-4); }
   /* 场景之间靠留白分区（照参考图，不画分隔线） */
-  .scene-block + .scene-block { margin-top: var(--sp-6); padding-top: var(--sp-10); }
-  .scene-head { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-7); }
+  .scene-block + .scene-block { margin-top: var(--sp-8); padding-top: var(--sp-8); }
+  .scene-head { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-8); }
   /* min-width:0 是关键：input 默认宽度会把整列顶出横向滚动条 */
-  .scene-head input { flex: 1; min-width: 0; background: transparent; border: var(--hair) solid transparent; border-radius: var(--radius-3);
-    color: var(--txt); font-size: var(--fs-13); font-weight: 600; padding: var(--sp-4) var(--sp-6); }
+  .scene-head input { flex: 1; min-width: 0; background: transparent; border: var(--hair) solid transparent; border-radius: var(--radius-4);
+    color: var(--txt); font-size: var(--fs-13); font-weight: 600; padding: var(--sp-4) var(--sp-8); }
   .scene-head input:hover, .scene-head input:focus { border-color: var(--line); background: var(--input); outline: none; }
-  .scene-head .sc-cnt { flex: 0 0 auto; font-size: var(--fs-10-5); color: var(--sub); font-variant-numeric: tabular-nums; }
+  .scene-head .sc-cnt { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; }
   /* 场景头按钮：纯图标，无边框无底色（悬停才浮出淡底），删除用垃圾桶 */
   .scene-head .icon-btn { flex: 0 0 auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
     border: 0; border-radius: var(--radius-4); background: none; color: var(--sub); cursor: pointer; font-size: var(--fs-14); line-height: 1;
-    transition: background var(--dur-150), color var(--dur-150); }
+    transition: background var(--dur-120), color var(--dur-120); }
   .scene-head .icon-btn:hover { background: var(--panel2); color: var(--acc); }
   .scene-head .icon-btn.del:hover { background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); }
-  .scene-head .icon-btn.armed { width: auto; padding: 0 var(--sp-7); background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); font-size: var(--fs-11); }
+  .scene-head .icon-btn.armed { width: auto; padding: 0 var(--sp-8); background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); font-size: var(--fs-11); }
   /* 场景图那一格：与旁边的图标按钮同宽同高，有图时是一张 24×24 的方图。
      position:relative 是给右上角那颗 × 用的（它绝对定位在这一格里面，不另占布局）。 */
   .scene-head .sc-thumb { position: relative; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; overflow: hidden;
     display: inline-flex; align-items: center; justify-content: center; border: var(--hair) dashed var(--line); border-radius: var(--radius-4);
-    background: none; color: var(--sub); cursor: pointer; transition: border-color var(--dur-150), background var(--dur-150); }
+    background: none; color: var(--sub); cursor: pointer; transition: border-color var(--dur-120), background var(--dur-120); }
   .scene-head .sc-thumb:hover { border-color: var(--acc); color: var(--acc); background: var(--panel2); }
   .scene-head .sc-thumb:not(.none) { border-style: solid; }
   .scene-head .sc-thumb .sp { width: 100%; height: 100%; object-fit: cover; display: block; }
   /* × 平时不占视觉（只有悬停才浮出来）—— 常驻的话每一行右上角都挂一个红叉，左栏会变成一片叉 */
-  .scene-head .sc-thumb .sp-x { position: absolute; right: var(--sp-1); top: var(--sp-1); width: 14px; height: 14px; border-radius: var(--radius-3);
+  .scene-head .sc-thumb .sp-x { position: absolute; right: var(--sp-2); top: var(--sp-2); width: 14px; height: 14px; border-radius: var(--radius-4);
     display: none; align-items: center; justify-content: center; background: color-mix(in srgb, var(--media-bg) 62%, transparent); color: var(--on-acc); cursor: pointer; }
   .scene-head .sc-thumb:hover .sp-x { display: inline-flex; }
   .scene-head .sc-thumb .sp-x .ic { line-height: 0; }
-  .shot-item { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-16); height: 54px; box-sizing: border-box;
-    border-radius: var(--radius-4); cursor: pointer; margin-bottom: var(--sp-3); position: relative; }
+  .shot-item { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-16); height: 54px; box-sizing: border-box;
+    border-radius: var(--radius-4); cursor: pointer; margin-bottom: var(--sp-4); position: relative; }
   .shot-item:hover { background: var(--panel2); }
   /* 选中：淡紫底从左侧竖条之后才开始铺，圆角不裹住竖条 */
   .shot-item.sel { background: linear-gradient(to right, color-mix(in srgb, var(--pri) 0%, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-10), transparent) 12px); }
   .shot-item.sel:hover { background: linear-gradient(to right, color-mix(in srgb, var(--pri) 0%, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-16), transparent) 12px); }
   /* 独立的选中竖条（自己的圆角，不与行背景连成一体） */
-  .shot-item.sel::before { content: ''; position: absolute; left: var(--sp-4); top: var(--sp-6); bottom: var(--sp-6); width: 4px;
-    border-radius: var(--radius-3); background: var(--pri); }
+  .shot-item.sel::before { content: ''; position: absolute; left: var(--sp-4); top: var(--sp-8); bottom: var(--sp-8); width: 4px;
+    border-radius: var(--radius-4); background: var(--pri); }
   .shot-item .num { font-size: var(--fs-12); font-weight: 600; color: var(--txt); opacity: .62; width: 17px; flex: 0 0 17px; text-align: center;
     font-variant-numeric: tabular-nums; }
   /* 方形缩略图：46×46；内容按原比例完整放进框里（不裁切）；出画后才用黑底留白 */
@@ -236,10 +236,10 @@
   .shot-item .sthumb-wrap.ready .tph { display: none; }
   .shot-item .sthumb-wrap.ready .sthumb:not(.empty) { background: var(--media-bg); }
   /* 没有画面的镜头：一块纯灰底（不显示图标）
-     注意：ui.css 里有个全局 .empty{padding: var(--sp-60) 0}，这里必须 padding:0 覆盖掉 */
+     注意：ui.css 里有个全局 .empty{padding: var(--sp-64) 0}，这里必须 padding:0 覆盖掉 */
   .shot-item .sthumb.empty { display: block; padding: 0; background: var(--thumbbg) !important; }
   .shot-item .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--media-bg) var(--a-35), transparent); }
-  .shot-item .pbar i { display: block; height: 100%; background: var(--acc); transition: width var(--dur-400); }
+  .shot-item .pbar i { display: block; height: 100%; background: var(--acc); transition: width var(--dur-280); }
   .shot-item .sinfo { flex: 1; min-width: 0; }
   .shot-item .sname { font-size: var(--fs-13); font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .shot-item .smeta { font-size: var(--fs-11); line-height: 1.35; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -249,11 +249,11 @@
   /* 操作按钮：悬停时浮在行尾的小托盘里（不占布局、不是白底）。
      托盘与图标都走主题色：以前这排行是**深底作用域**，托盘另配了一套深浅两档的固定色；
      现在轨道跟着主题走，托盘就用面板色（悬停那一行本身是 --panel2，托盘压在它上面分得开）。 */
-  .shot-item .ops { display: flex; gap: var(--sp-1); position: absolute; right: var(--sp-6); top: 50%; transform: translateY(-50%);
-    padding: var(--sp-3); border-radius: var(--radius-4); visibility: hidden; background: var(--panel); }
+  .shot-item .ops { display: flex; gap: var(--sp-2); position: absolute; right: var(--sp-8); top: 50%; transform: translateY(-50%);
+    padding: var(--sp-4); border-radius: var(--radius-4); visibility: hidden; background: var(--panel); }
   .shot-item:hover .ops { visibility: visible; }
   .shot-item .ops .op-btn { width: 23px; height: 23px; min-width: 23px; padding: 0; border: 0; background: none;
-    border-radius: var(--radius-3); color: var(--sub); font-size: var(--fs-12); line-height: 1; }
+    border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-12); line-height: 1; }
   .shot-item .ops .op-btn:hover { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-18), transparent); }
   .shot-item .ops .op-btn.danger:hover { color: var(--err); background: color-mix(in srgb, var(--err) var(--a-14), transparent); }
   /* 拖动：只有被拖动的那一行有阴影/高亮；投放位置只画一条细插入线 */
@@ -270,7 +270,7 @@
   /* 拖动浮层：这一段的胶片条原样搬过来跟着手指（元素由 engine/edit.js 现建现删）。 */
   .tl-drag-ghost { position: fixed; z-index: 120; height: 56px; pointer-events: none; overflow: hidden;
     border-radius: var(--radius-4); border: var(--hair-2) solid var(--acc); background: var(--media-bg);
-    box-shadow: var(--shadow-16); opacity: .94; }
+    box-shadow: var(--shadow-4); opacity: .94; }
   .tl-drag-ghost .tl-strip { position: absolute; inset: 0; display: flex; overflow: hidden; }
   .tl-drag-ghost .tl-strip i { flex: 0 0 var(--cell); height: 100%; background-size: cover; background-position: center; }
   .tl-drag-ghost .tl-strip i.gap { background-color: var(--panel2); }
@@ -280,8 +280,8 @@
     box-shadow: 0 0 0 var(--hair) var(--acc), 0 10px 26px color-mix(in srgb, var(--media-bg) var(--a-18), transparent); position: relative; z-index: 5; }
   .shot-item.drag-over { box-shadow: inset 0 2px 0 0 var(--acc); }
   .shot-item[draggable="true"] { cursor: grab; }
-  .add-scene { margin: var(--sp-8) var(--sp-12); width: calc(100% - 24px); padding: var(--sp-9); text-align: center; border: var(--hair) dashed var(--line);
-    border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-12-5); cursor: pointer; background: none; }
+  .add-scene { margin: var(--sp-8) var(--sp-12); width: calc(100% - 24px); padding: var(--sp-8); text-align: center; border: var(--hair) dashed var(--line);
+    border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-13); cursor: pointer; background: none; }
   .add-scene:hover { color: var(--acc); border-color: var(--acc); }
   /* 剪辑态左栏：**分镜列表留着**（剪的时候也要能换镜），但那份列表只列**已选用候选**的镜头；
      生成态那几颗（剧本 / 拆分镜 / 加一个场景 / 生成全部分镜）一律让位 ——
@@ -299,8 +299,8 @@
   .col-left.editing > #editLeft { display: block; flex: 0 0 auto; max-height: 42%; overflow-y: auto; overflow-x: hidden;
     border-top: var(--hair) solid var(--line); background: var(--panel2); }
   #editLeft .el-hist { display: block; }
-  #editLeft .el-hist > summary { display: flex; align-items: center; gap: var(--sp-7); cursor: pointer;
-    padding: var(--sp-9) var(--sp-12); font-size: var(--fs-12-5); color: var(--sub); font-weight: 600;
+  #editLeft .el-hist > summary { display: flex; align-items: center; gap: var(--sp-8); cursor: pointer;
+    padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); color: var(--sub); font-weight: 600;
     list-style: none; user-select: none; }
   #editLeft .el-hist > summary::-webkit-details-marker { display: none; }
   #editLeft .el-hist > summary::before { content: "▸"; font-size: var(--fs-11); color: var(--sub); transition: transform var(--dur-180); }
@@ -310,43 +310,43 @@
   #editLeft .el-hist .n { font-weight: 400; color: var(--sub); }
   #editLeft .el-hist .el-body { padding: 0 var(--sp-12) var(--sp-12); }
   .hist-list { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .hist-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-5) var(--sp-8);
+  .hist-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input);
     cursor: pointer; font-size: var(--fs-12); text-align: left; }
   .hist-row:hover { border-color: var(--acc); }
   /* 「当前生效的那一版」点亮 + 左边一道强调色（日志里一眼看出指针停在哪）。
      `.mark` 是流水记录（回退 / 重做）—— 它们也是一条记录，只是名字前面带一枚小标。 */
   .hist-row.now { border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), var(--input)); }
-  .hist-row .hk { flex: none; font-size: var(--fs-10-5); color: var(--sub); padding: 0 var(--sp-5);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-3); }
+  .hist-row .hk { flex: none; font-size: var(--fs-11); color: var(--sub); padding: 0 var(--sp-4);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-4); }
   .hist-row.now .hk { color: var(--acc); border-color: var(--acc); }
   .hist-row.branch .hn { color: var(--sub); }
   .hist-row .hn { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hist-row .ht { flex: none; font-size: var(--fs-10-5); color: var(--sub); font-variant-numeric: tabular-nums; }
-  .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-6) var(--sp-2); line-height: 1.6; }
+  .hist-row .ht { flex: none; font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; }
+  .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-8) var(--sp-2); line-height: 1.6; }
   #editLeft .hint { margin-top: 0; }
   .gen-all { margin-top: auto; padding: var(--sp-12); border-top: var(--hair) solid var(--line); }
-  .gen-all button { width: 100%; padding: var(--sp-11); font-size: var(--fs-14); }
+  .gen-all button { width: 100%; padding: var(--sp-12); font-size: var(--fs-14); }
   /* 状态区只有一条进度条（填充 = 已完成 / 全部），不写文案；空态与常态的面板高度同一份。
      flex 收住子项的 margin：否则条收起时 9px 外边距跟着消失，面板会矮一截。 */
-  .gen-all .gen-all-status { display: flex; align-items: flex-end; height: calc(var(--sp-9) + var(--sp-16)); }
+  .gen-all .gen-all-status { display: flex; align-items: flex-end; height: calc(var(--sp-8) + var(--sp-16)); }
   .gen-all .gen-all-prog { display: flex; align-items: center; width: 100%; height: var(--sp-16); }
   .gen-all .gen-all-prog[hidden] { display: none; }
-  .gen-all .gen-all-prog > i { flex: 1 1 auto; height: var(--sp-4); border-radius: var(--radius-2);
+  .gen-all .gen-all-prog > i { flex: 1 1 auto; height: var(--sp-4); border-radius: var(--radius-4);
     background: var(--panel2); border: var(--hair) solid var(--line); overflow: hidden; }
   .gen-all .gen-all-prog > i > b { display: block; height: 100%; width: 0; background: var(--acc);
-    transition: width var(--dur-250); }
+    transition: width var(--dur-280); }
 
   /* 中栏 */
-  .mid-head { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-13) var(--sp-16); border-bottom: var(--hair) solid var(--line); flex-wrap: wrap; }
-  .mid-head .no { font-size: var(--fs-18); font-weight: 700; color: var(--acc); flex: 0 0 auto; }
-  .mid-head input.sname { background: transparent; border: var(--hair) solid transparent; border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-15); font-weight: 600; padding: var(--sp-3) var(--sp-8); flex: 0 1 150px; min-width: 90px; }
+  .mid-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); flex-wrap: wrap; }
+  .mid-head .no { font-size: var(--fs-16); font-weight: 700; color: var(--acc); flex: 0 0 auto; }
+  .mid-head input.sname { background: transparent; border: var(--hair) solid transparent; border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-14); font-weight: 600; padding: var(--sp-4) var(--sp-8); flex: 0 1 150px; min-width: 90px; }
   .mid-head input.sname:hover, .mid-head input.sname:focus { border-color: var(--line); background: var(--input); outline: none; }
   /* 一行放不下就整体换行：meta 保持可读宽度（早前被挤成竖排单字），按钮不换行不压缩 */
   .mid-head .meta { color: var(--sub); font-size: var(--fs-12); flex: 1 1 150px; min-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mid-head .sp { flex: 0 0 2px; }
   .mid-head button { flex: 0 0 auto; white-space: nowrap; }
-  .player-wrap { padding: var(--sp-14) var(--sp-16) var(--sp-6); position: relative; }
+  .player-wrap { padding: var(--sp-16) var(--sp-16) var(--sp-8); position: relative; }
   /* 播放区：**固定的标准横屏 16:9**（2026-10 用户点名）。
      宽按高算（`calc(56vh * 16 / 9)`）并居中 —— 左右栏与下栏（轨道坞）拖动时它一个像素不动；
      以前 `width:100%` 跟着列宽走，拖一下栏预览就跟着变形。
@@ -395,17 +395,17 @@
      尺寸 32px：播放/暂停、声音、全屏三颗**同一个大小**，比原来的 40px 小一档。 */
   .pb-btn { width: 32px; height: 32px; flex: none; border: 0; border-radius: 50%; padding: 0;
     background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent); color: var(--on-acc); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; transition: background var(--dur-150); }
+    display: flex; align-items: center; justify-content: center; transition: background var(--dur-120); }
   .pb-btn:hover { background: color-mix(in srgb, var(--media-bg) 75%, transparent); }
   /* 播放器浮层（横贯画面下方的一条）：
      左下 = 播放/暂停 + 时长读数；右下 = 声音 + 全屏（**两颗挨着，全屏在最右下角**，用户点名）。
      中间那根 `.sp` 把两边撑开，所以两种播放器共用同一条、同一份标记（`pbBarHTML`）。 */
   .pb-bar { position: absolute; left: var(--sp-12); right: var(--sp-12); bottom: var(--sp-12); z-index: 4; display: flex; align-items: center; gap: var(--sp-8); }
   .pb-bar .sp { flex: 1 1 auto; }
-  .pb-time { background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent); color: var(--on-acc); font-size: var(--fs-11-5); padding: var(--sp-5) var(--sp-10); border-radius: var(--radius-8);
+  .pb-time { background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent); color: var(--on-acc); font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-6);
     font-variant-numeric: tabular-nums; letter-spacing: .3px; white-space: nowrap; }
   /* 右上角那一格只写**画面尺寸**（剪辑时与不剪辑时同一个样子，见 updateArBadge） */
-  .player-wrap .arbadge { position: absolute; right: var(--sp-28); top: var(--sp-26); z-index: 4; background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-3); }
+  .player-wrap .arbadge { position: absolute; right: var(--sp-32); top: var(--sp-24); z-index: 4; background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-4); }
   /* 全屏：进 `:fullscreen` 的是整块 `.player-box`（见 bindPbFull 那四个落点）。
      UA 只把**这一个盒子**撑满视口并铺黑底，它管不到盒子里的子元素 —— 而上面那条 `.player-box video`
      带着 `height: clamp(…)` 的定高，
@@ -422,10 +422,10 @@
     border-radius: var(--radius-4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); }
   .player-empty .pe-ic { font-size: var(--fs-42); opacity: .5; }
   .player-empty .pe-t { font-size: var(--fs-16); font-weight: 700; color: var(--txt); }
-  .player-empty .pe-d { font-size: var(--fs-12-5); color: var(--sub); }
-  .player-empty .pe-task { margin-top: var(--sp-16); width: min(460px, 86%); display: flex; flex-direction: column; gap: var(--sp-6); }
-  .player-empty .pe-row { display: flex; flex-wrap: wrap; gap: var(--sp-6) var(--sp-10); font-size: var(--fs-12); color: var(--txt);
-    background: var(--panel2); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: var(--sp-8) var(--sp-10); text-align: left; }
+  .player-empty .pe-d { font-size: var(--fs-13); color: var(--sub); }
+  .player-empty .pe-task { margin-top: var(--sp-16); width: min(460px, 86%); display: flex; flex-direction: column; gap: var(--sp-8); }
+  .player-empty .pe-row { display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-8); font-size: var(--fs-12); color: var(--txt);
+    background: var(--panel2); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: var(--sp-8) var(--sp-8); text-align: left; }
   .player-empty .pe-row .k { color: var(--sub); }
   .player-empty .pe-row .v { margin-right: var(--sp-8); font-variant-numeric: tabular-nums; }
   .cand-thumb.addcand { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4);
@@ -434,36 +434,36 @@
   .cand-thumb.addcand.big { width: 168px; height: 84px; }
   .cand-thumb.addcand .plusic { display: flex; }
   .cand-thumb.addcand .pt { font-size: var(--fs-12); }
-  .cand-thumb.addcand .pd { font-size: var(--fs-10-5); opacity: .8; }
+  .cand-thumb.addcand .pd { font-size: var(--fs-11); opacity: .8; }
   /* 候选条：翻页 / 展开那一簇**浮在右缘**（不再占排版宽度，缩略图能多用掉那一百多像素）。
      底下垫一层从左到右的渐隐，滚到边缘的缩略图不会顶到按钮上。 */
   .cand-strip { position: relative; display: flex; align-items: center; gap: var(--sp-12); padding: var(--sp-8) var(--sp-16); }
   .cand-strip .thumbs { display: flex; gap: var(--sp-8); flex: 1; min-width: 0;
-    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: var(--sp-6); }
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: var(--sp-8); }
   /* 展开：换行铺开、瓦片变大，一屏看完所有候选 */
   .cand-strip.expanded { align-items: flex-start; }
   .cand-strip.expanded .thumbs { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
   /* 展开只是**换行**，卡片尺寸与不展开时一模一样（用户点名）：
      放大卡片会让「展开」看起来像换了一副界面，而它要做的只是把同一排摊成几行。 */
   .cand-strip .thumbs::-webkit-scrollbar { height: 8px; }
-  .cand-strip .thumbs::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-8); }
+  .cand-strip .thumbs::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-6); }
   .cand-strip .thumbs > * { flex: 0 0 auto; }
   .cand-thumb .candno { position: absolute; left: var(--sp-4); top: var(--sp-4); z-index: 2; min-width: 18px; height: 18px; padding: 0 var(--sp-4);
-    display: flex; align-items: center; justify-content: center; border-radius: var(--radius-3); background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc);
+    display: flex; align-items: center; justify-content: center; border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc);
     font-size: var(--fs-11); font-weight: 600; font-variant-numeric: tabular-nums; }
   .cand-pager { display: flex; align-items: center; gap: var(--sp-4); margin-left: auto; flex: 0 0 auto; }
   /* 展开 / 翻条 / 条数收成一簇紧凑图标：以前那颗「展开」带文字、四颗之间各留 8px，
      一条候选条右边被吃掉一百多像素（用户点名占地太多）。现在整簇浮在缩略图右缘，
      两枚箭头夹着「1 / 2」，展开是同一簇最后那一颗。 */
-  .cand-pager { position: absolute; right: var(--sp-10); top: 50%; transform: translateY(-50%); z-index: 3;
+  .cand-pager { position: absolute; right: var(--sp-8); top: 50%; transform: translateY(-50%); z-index: 3;
     display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: var(--sp-2) var(--sp-4);
     border: var(--hair) solid var(--line); border-radius: var(--radius-999);
-    background: color-mix(in srgb, var(--panel) var(--a-90), transparent); box-shadow: var(--shadow-4); }
-  .cand-pager .ghost { min-width: 24px; padding: 0 var(--sp-3); border: 0; background: none; }
+    background: color-mix(in srgb, var(--panel) var(--a-90), transparent); box-shadow: var(--shadow-1); }
+  .cand-pager .ghost { min-width: 24px; padding: 0 var(--sp-4); border: 0; background: none; }
   .cand-pager .ghost:hover { background: var(--input); }
   .cand-pager .cand-count { min-width: 34px; text-align: center; font-size: var(--fs-11); }
   /* 缩略图可以滚到控件底下再出来：给右端留出走位，否则最后一条永远被压住 */
-  .cand-strip .thumbs { padding-right: calc(var(--sp-60) * 2); scroll-padding-right: calc(var(--sp-60) * 2); }
+  .cand-strip .thumbs { padding-right: calc(var(--sp-64) * 2); scroll-padding-right: calc(var(--sp-64) * 2); }
   .cand-thumb { position: relative; width: 118px; border-radius: var(--radius-4); overflow: hidden; cursor: pointer; border: var(--hair-2) solid transparent; transition: border-color var(--dur-120); }
   .cand-thumb:hover { border-color: var(--acc); }
   .cand-thumb.cur { border-color: var(--pri); }
@@ -473,20 +473,20 @@
     box-shadow: inset 0 0 0 var(--hair) color-mix(in srgb, var(--mark-ready) var(--a-50), transparent); }
   .cand-thumb.sel::after { content: "✓ 选用"; position: absolute; right: var(--sp-4); bottom: var(--sp-4); z-index: 2;
     background: color-mix(in srgb, var(--panel) var(--a-90), transparent); color: var(--ok);
-    font-size: var(--fs-9-5); line-height: 14px; padding: 0 var(--sp-4); border-radius: var(--radius-3); font-weight: 600; }
+    font-size: var(--fs-11); line-height: 14px; padding: 0 var(--sp-4); border-radius: var(--radius-4); font-weight: 600; }
   .cand-thumb .lockbadge { position: absolute; top: var(--sp-4); right: var(--sp-4); z-index: 2; display: flex; align-items: center;
-    padding: var(--sp-2); border-radius: var(--radius-3); background: color-mix(in srgb, var(--media-bg) 45%, transparent); color: var(--on-acc); }
+    padding: var(--sp-2); border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) 45%, transparent); color: var(--on-acc); }
   .cand-thumb img, .cand-thumb video { width: 100%; height: 72px; object-fit: contain; display: block; background: transparent; }
   .cand-thumb .tph { position: absolute; left: 0; right: 0; top: 0; height: 72px; background: var(--thumbbg); }
   .cand-thumb.ready .tph { display: none; }
   .cand-thumb.ready img, .cand-thumb.ready video { background: var(--media-bg); }
   .cand-thumb .pending { width: 100%; height: 72px; display: flex; align-items: center; justify-content: center;
-    background: var(--input); color: var(--sub); font-size: var(--fs-11-5); line-height: 1; text-align: center; }
+    background: var(--input); color: var(--sub); font-size: var(--fs-12); line-height: 1; text-align: center; }
   .cand-thumb .pending.fail { color: var(--err); }
   .cand-thumb .pending.draft { color: var(--acc); border: var(--hair) dashed var(--line); background: none; }
   /* 草稿候选：这条候选自己的描述 */
   /* 动作行：左边「导入」，右边「选用 / 取消选用 / 锁定 / 删除」（用户点名把导入挪到这一排）。 */
-  .cand-acts { display: flex; align-items: center; gap: var(--sp-7); padding: 0 var(--sp-16) var(--sp-6); }
+  .cand-acts { display: flex; align-items: center; gap: var(--sp-8); padding: 0 var(--sp-16) var(--sp-8); }
   .cand-acts .sp { flex: 1 1 auto; }
   /* 尾段容器只当透明包装（display:contents 不生成盒子）：里面的按钮直接参与 .cand-acts
      的 flex 排版，间隔与对齐跟没包之前一模一样；它的存在只为给快路径圈出可整块替换的范围。 */
@@ -499,34 +499,34 @@
   .cand-acts .off { visibility: hidden; }
   /* 武装二次确认（取消选用 / 删除两颗，同一副默认画法）在这排里保持 .ghost 的 padding：
      默认画法会另改 padding，宽了一格就把左边的锁定 / 选用横推开。 */
-  .cand-acts button.armed { padding: var(--sp-5) var(--sp-13); }
+  .cand-acts button.armed { padding: var(--sp-4) var(--sp-12); }
   .mid-tools { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-16) var(--sp-8); flex-wrap: wrap; }
-  .mid-tools .ghost { display: inline-flex; align-items: center; gap: var(--sp-5); white-space: nowrap; }
-  .mid-tools .total { margin-left: auto; color: var(--sub); font-size: var(--fs-12-5); }
+  .mid-tools .ghost { display: inline-flex; align-items: center; gap: var(--sp-4); white-space: nowrap; }
+  .mid-tools .total { margin-left: auto; color: var(--sub); font-size: var(--fs-13); }
   .mid-tools .ghost.active { color: var(--acc); border-color: var(--acc); }
   /* 入出点那一行（现在住在**右栏**：剪辑软件里数值编辑归片段检视器，不该压在时间线底下）。
      一行装下：一句说明 + 两个秒数框 + 一颗「应用」+ 一句脚注；窄栏里让它换行，不挤成一团。 */
-  .trim-editor { padding: var(--sp-2) 0 var(--sp-10); display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12-5); color: var(--sub); flex-wrap: wrap; }
-  .trim-editor input { width: 64px; padding: var(--sp-5) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-12-5); }
+  .trim-editor { padding: var(--sp-2) 0 var(--sp-8); display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); color: var(--sub); flex-wrap: wrap; }
+  .trim-editor input { width: 64px; padding: var(--sp-4) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); }
   /* 候选条那排的计数：芯片，不再是一句灰字（「第 1 / 5 条」的数字自己会跳）。 */
   .cand-pager .cand-count { font-size: var(--fs-12); color: var(--sub); font-variant-numeric: tabular-nums;
-    padding: var(--sp-3) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+    padding: var(--sp-4) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
     background: var(--input); }
   /* 拖动某一格换顺序时那根「插到这儿」的竖线：只在这一趟拖动里存在，松手就撤。
      画它而不是把格子拖着走 —— 整排在拖动中途重排会把正在拖的那个节点销毁（旧病）。 */
-  .tl-drop { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: var(--radius-2); background: var(--acc);
+  .tl-drop { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: var(--radius-4); background: var(--acc);
     box-shadow: 0 0 0 var(--hair) color-mix(in srgb, var(--media-bg) var(--a-50), transparent); pointer-events: none; z-index: 9; }
-  .tl-drop::before { content: ""; position: absolute; top: calc(-1 * var(--sp-6)); left: calc(-1 * var(--sp-4)); width: 11px; height: 11px;
+  .tl-drop::before { content: ""; position: absolute; top: calc(-1 * var(--sp-8)); left: calc(-1 * var(--sp-4)); width: 11px; height: 11px;
     border-radius: 50%; background: var(--acc); }
   /* 右栏「这一镜上的配音」那三个小选项（用户点名的第 ③ 条）：一排分段按钮，一次只露一格内容。
      开关本体是公共 `.ui-seg`（选中态 `.on` 由 paintTlGroups 一处翻），这里只收满宽、四等分与小一号字。 */
-  .vc-tabs { display: flex; width: 100%; margin: var(--sp-10) 0 var(--sp-2); border-radius: var(--radius-6); }
+  .vc-tabs { display: flex; width: 100%; margin: var(--sp-8) 0 var(--sp-2); border-radius: var(--radius-6); }
   .vc-tabs[hidden] { display: none; }
-  .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: var(--fs-11-5); padding: var(--sp-4) var(--sp-6);
+  .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
     overflow: hidden; text-overflow: ellipsis; }
   /* 「这一段画面」那枚**指示**（不是按钮：画面这一档由轨道上的指针决定，点它没有意义），
      但要跟旁边的档位按钮长得一样 —— 它亮着就说明现在改的是画面那一段。 */
-  .vc-tabs .vc-lit { flex: 1 1 0; min-width: 0; font-size: var(--fs-11-5); padding: var(--sp-4) var(--sp-6);
+  .vc-tabs .vc-lit { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sub);
     display: flex; align-items: center; justify-content: center;
     border-right: var(--hair) solid var(--line); }
@@ -543,35 +543,35 @@
   .sub-ov-top { top: 8%; }
   .sub-ov.hl { background: color-mix(in srgb, var(--media-bg) var(--a-55), transparent); border-radius: var(--radius-6); padding: .18em .45em; }
   /* 右栏「字幕」那一列 */
-  .sub-list { display: flex; flex-direction: column; gap: var(--sp-6); margin-top: var(--sp-6); max-height: 300px; overflow-y: auto; }
-  .sub-row { border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2); padding: var(--sp-5) var(--sp-6); }
-  .sub-meta { display: flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-10-5); color: var(--sub); }
-  .sub-tag { flex: none; padding: 0 var(--sp-5); border-radius: var(--radius-3); background: color-mix(in srgb, var(--pri) var(--a-18), transparent); color: var(--pri); }
+  .sub-list { display: flex; flex-direction: column; gap: var(--sp-8); margin-top: var(--sp-8); max-height: 300px; overflow-y: auto; }
+  .sub-row { border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2); padding: var(--sp-4) var(--sp-8); }
+  .sub-meta { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
+  .sub-tag { flex: none; padding: 0 var(--sp-4); border-radius: var(--radius-4); background: color-mix(in srgb, var(--pri) var(--a-18), transparent); color: var(--pri); }
   /* 起止两框：能直接输数的读数（与轨道把手同一份账，subSetTime 一个出口落回源秒）。 */
-  .sub-t { width: 58px; font-variant-numeric: tabular-nums; font-size: var(--fs-11-5); padding: var(--sp-1) var(--sp-4); }
-  .sub-unit { color: var(--sub); font-size: var(--fs-10-5); }
+  .sub-t { width: 58px; font-variant-numeric: tabular-nums; font-size: var(--fs-12); padding: var(--sp-2) var(--sp-4); }
+  .sub-unit { color: var(--sub); font-size: var(--fs-11); }
   /* 播放头压着的那一条点亮（capRowHTML 的 is-now）：与轨道上那一排高亮读同一段时间覆盖。 */
   .sub-row.is-now { border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
-  .sub-pos { font-size: var(--fs-11); padding: var(--sp-1) var(--sp-4); }
+  .sub-pos { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-4); }
   .sub-hl { display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; cursor: pointer; }
   .sub-row [data-cap-del] { margin-left: auto; }
   .sub-ta { width: 100%; margin-top: var(--sp-4); font-size: var(--fs-12); line-height: 1.35; resize: vertical; min-height: 30px; }
   .player-box:fullscreen .sub-wrap { border-radius: 0; }
   /* 音量：**只此一枚滑块**（0–200%，步进 0.1% = 无级）。上限 200% 与配音同一把尺子，
      超过 100% 的部分只在合并成片时生效（浏览器给 <video>/<audio> 的音量封顶 1）。 */
-  .tl-vol { display: inline-flex; align-items: center; gap: var(--sp-5); padding: 0 var(--sp-8) 0 var(--sp-2);
+  .tl-vol { display: inline-flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-8) 0 var(--sp-2);
     border-left: var(--hair) solid var(--line); }
   .tl-vol input[type=range] { width: 116px; height: 14px; accent-color: var(--pri); cursor: pointer; }
-  .tl-vol .vv { font-size: var(--fs-11-5); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; color: var(--sub); }
+  .tl-vol .vv { font-size: var(--fs-12); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; color: var(--sub); }
   .tl-vol.off { opacity: .45; }
   .tl-vol.off input[type=range] { pointer-events: none; cursor: default; }
   /* 右栏那张「这一段 / 这一句」卡：音量 + 倍速两枚无级滑块。
      滑块以前挂在轨道上面那一排（`.tl-tools`）里，和那一排剪子挤一行 —— 再加一枚倍速就放不下，
      而「指着谁就改谁的参数」这两件事本来就该和右栏那句落点说明在一起（落点 + 参数 = 一件事的两半）。 */
-  .tl-adj { margin-top: var(--sp-12); padding: var(--sp-10) var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  .tl-adj { margin-top: var(--sp-12); padding: var(--sp-8) var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
     background: var(--panel2); display: flex; flex-direction: column; gap: var(--sp-8); }
   .tl-adj .adj-row { display: flex; align-items: center; gap: var(--sp-8); }
-  .tl-adj .adj-row > .lab { flex: none; font-size: var(--fs-11-5); color: var(--sub); min-width: 30px; }
+  .tl-adj .adj-row > .lab { flex: none; font-size: var(--fs-12); color: var(--sub); min-width: 30px; }
   /* 卡片里不复用条上那道左分隔线（`.tl-vol` 自带的 border-left 是给横排那一行分栏用的） */
   .tl-adj .tl-vol { border-left: none; padding: 0; flex: 1; min-width: 0; }
   .tl-adj input[type=range] { flex: 1 1 auto; min-width: 0; max-width: 160px; }
@@ -583,7 +583,7 @@
   .tl-adj .grp[hidden], .ed-body .grp[hidden] { display: none; }
   /* 剪辑右栏「这一条上的配音」那一小列（与轨道上的块是同一批数据，不是第二份账） */
   .vc-list { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .vc-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); padding: var(--sp-4) var(--sp-6);
+  .vc-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input); }
   .vc-row b { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
   .vc-row span { color: var(--sub); font-size: var(--fs-11); margin-left: auto; white-space: nowrap; }
@@ -592,8 +592,8 @@
      `.one` 那一格只装当前这一镜的一行：那是写作入口，不该留一条会滚动的空匣子。 */
   .line-list { display: flex; flex-direction: column; gap: var(--sp-4); max-height: 220px; overflow: auto; padding-right: var(--sp-2); }
   .line-list.one { max-height: none; overflow: visible; }
-  .line-row { display: flex; align-items: flex-start; gap: var(--sp-7); padding: var(--sp-5) var(--sp-7); border: var(--hair) solid var(--line);
-    border-radius: var(--radius-5); background: var(--input); cursor: pointer; min-width: 0; }
+  .line-row { display: flex; align-items: flex-start; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border: var(--hair) solid var(--line);
+    border-radius: var(--radius-6); background: var(--input); cursor: pointer; min-width: 0; }
   .line-row:hover { border-color: var(--acc); }
   .line-row.on { border-color: color-mix(in srgb, var(--mark-ready) var(--a-55), transparent); background: color-mix(in srgb, var(--mark-ready) 7%, transparent); }
   /* 说话人那一格：素材库里对上就画缩略图，对不上画占位图（名字仍照写，见 lines.js 的 speakerOf） */
@@ -602,10 +602,10 @@
   .line-row .lr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .line-row .lr-ph { display: flex; align-items: center; justify-content: center; color: var(--sub); opacity: .65; }
   .line-row .lr-body { flex: 1 1 auto; min-width: 0; }
-  .line-row .lr-top { display: flex; align-items: center; gap: var(--sp-6); font-size: var(--fs-11); min-width: 0; cursor: pointer; }
+  .line-row .lr-top { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-11); min-width: 0; cursor: pointer; }
   /* 两个读数一行摆齐：镜号 + 这一句在成片那一轨上占的那几秒（与轨道上那个斜纹占位同一把尺子 lineSpanAt）。
      数字用等宽字形：拖倍速时那两位一直在变，比例字体会把这一格抖成一跳一跳。 */
-  .line-row .lr-when { display: flex; flex-wrap: wrap; gap: var(--sp-6); margin-top: var(--sp-2); font-size: var(--fs-10-5);
+  .line-row .lr-when { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-2); font-size: var(--fs-11);
     color: var(--sub); font-variant-numeric: tabular-nums; }
   .line-row .lr-thumb { cursor: pointer; }
   .line-row .lr-ta { width: 100%; margin-top: var(--sp-4); min-height: 26px; resize: vertical;
@@ -613,22 +613,22 @@
   /* 说话的人：名字本身就是输入框（不再另挂一条「谁说的」）。
      平时看起来就是那行名字；悬停 / 聚焦才浮出边框，避免每行都像表单。 */
   .line-row .lr-name { flex: 0 1 34%; min-width: 72px; max-width: 150px; height: 22px; margin: 0;
-    padding: 0 var(--sp-4); font-size: var(--fs-11-5); font-weight: 600; color: var(--txt);
+    padding: 0 var(--sp-4); font-size: var(--fs-12); font-weight: 600; color: var(--txt);
     background: transparent; border-color: transparent; }
   .line-row .lr-name:hover { border-color: var(--line); background: var(--input); }
   .line-row .lr-name:focus { border-color: var(--acc); background: var(--input); }
   .line-row .lr-name::placeholder { color: var(--sub); font-weight: 400; }
-  .line-row .lr-top em { margin-left: auto; font-style: normal; font-size: var(--fs-10); padding: 0 var(--sp-5);
-    border-radius: var(--radius-3); flex: none; }
+  .line-row .lr-top em { margin-left: auto; font-style: normal; font-size: var(--fs-11); padding: 0 var(--sp-4);
+    border-radius: var(--radius-4); flex: none; }
   .line-row .lr-top em.done { color: var(--sub); background: color-mix(in srgb, var(--pal-gray) var(--a-12), transparent); }
   .line-row .lr-top em.none { color: var(--sub); background: transparent; border: var(--hair) dashed var(--line); }
   /* 剪辑态那一格的状态说明整块已删（镜头统计那一行 + 成片陈旧那句长提示）；
      合并进度条更早那一轮就删了 —— 合成的进度只写在「导出成片」那颗按钮上 */
   /* 顺序模式的镜头缩略图条：每个镜头一张 */
   .shot-strip { display: flex; flex-wrap: wrap; align-content: flex-start; gap: var(--sp-8);
-    padding: var(--sp-8) var(--sp-16) var(--sp-10); overflow-y: auto; overflow-x: hidden; }
+    padding: var(--sp-8) var(--sp-16) var(--sp-8); overflow-y: auto; overflow-x: hidden; }
   .shot-strip::-webkit-scrollbar { width: 8px; }
-  .shot-strip::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+  .shot-strip::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
   .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: var(--hair-2) solid transparent; border-radius: var(--radius-4);
     overflow: hidden; cursor: pointer; background: var(--input); transition: border-color var(--dur-120), transform var(--dur-120); }
   .strip-item:hover { transform: translateY(-2px); }
@@ -641,112 +641,112 @@
   .strip-item.mready video, .strip-item.mready img { background: var(--media-bg); }
   .strip-item .ph { width: 100%; height: 54px; display: flex; align-items: center; justify-content: center;
     background: transparent; font-size: var(--fs-16); color: var(--sub); line-height: 1; opacity: .6; }
-  .strip-item .sn { position: absolute; left: var(--sp-3); top: var(--sp-3); font-size: var(--fs-10); padding: 0 var(--sp-5); border-radius: var(--radius-3);
+  .strip-item .sn { position: absolute; left: var(--sp-4); top: var(--sp-4); font-size: var(--fs-11); padding: 0 var(--sp-4); border-radius: var(--radius-4);
     background: color-mix(in srgb, var(--media-bg) 65%, transparent); color: var(--on-acc); }
-  .strip-item .st { display: block; font-size: var(--fs-10-5); color: var(--sub); text-align: center; padding: var(--sp-3) 0; background: var(--panel); }
+  .strip-item .st { display: block; font-size: var(--fs-11); color: var(--sub); text-align: center; padding: var(--sp-4) 0; background: var(--panel); }
 
   /* 右栏 */
-  .ed-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-13) var(--sp-16); border-bottom: var(--hair) solid var(--line); }
+  .ed-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); }
   .ed-head b { font-size: var(--fs-14); } .ed-head .no { color: var(--sub); font-size: var(--fs-12); }
   /* 右栏是「表头 + 滚动正文 + 钉底的动作行」三段：#edCol 自己不滚（.col 那条 overflow 归零），
      滚的只是 .ed-body —— 于是「生成这一镜」永远悬在右栏底部，不用把提示词与素材区滚完才够得着。 */
   #edCol { display: flex; flex-direction: column; overflow: hidden; }
   #edCol .ed-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  .ed-body { padding: var(--sp-12) var(--sp-16) var(--sp-20); }
+  .ed-body { padding: var(--sp-12) var(--sp-16) var(--sp-24); }
   /* 生成参数：整块套用图片工作台「高级设置」卡片（结构与样式见 ui.css 的 .adv / .row） */
-  #advBox { margin: 0 0 var(--sp-14); }
+  #advBox { margin: 0 0 var(--sp-16); }
   #advBox .dur-range { width: 100%; accent-color: var(--pri); cursor: pointer; }
-  #advBox .dur-num { display: flex; align-items: center; gap: var(--sp-6); min-width: 96px; }
-  #advBox .dur-num input[type="number"] { width: 100%; padding: var(--sp-8) var(--sp-10); background: var(--input);
+  #advBox .dur-num { display: flex; align-items: center; gap: var(--sp-8); min-width: 96px; }
+  #advBox .dur-num input[type="number"] { width: 100%; padding: var(--sp-8) var(--sp-8); background: var(--input);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); text-align: center; font-size: var(--fs-13);
-    outline: none; transition: border-color var(--dur-150); }
+    outline: none; transition: border-color var(--dur-120); }
   #advBox .dur-num input[type="number"]:focus { border-color: var(--acc); }
   #advBox .dur-num input[type="number"]::-webkit-outer-spin-button,
   #advBox .dur-num input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   #advBox .dur-num span { font-size: var(--fs-12); color: var(--sub); white-space: nowrap; }
   /* .ed-label 本体与 .cnt 已提到 ui.css（工作台素材区共用同一份），这里只留本页独有的 .mini */
-  .ed-label .mini { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-9); border-radius: var(--radius-3); }
-  #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-10) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
+  .ed-label .mini { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-4); }
+  #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
   #edPrompt:focus { border-color: var(--acc); }
   /* 提示词框里的 @素材高亮：镜像层铺在 textarea 底下，只给 @片段 画底。
      字号 / 行高 / 内边距 / 边框宽度必须与 #edPrompt **逐项一致**，否则高亮会错位。 */
   .ta-wrap { position: relative; }
   .ta-back { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none;
     white-space: pre-wrap; word-wrap: break-word; color: transparent;
-    font-family: inherit; font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-10) var(--sp-12); border: var(--hair) solid transparent; }
+    font-family: inherit; font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); border: var(--hair) solid transparent; }
   /* 灰底就够了 —— 底下那条 `inset 0 -2px` 的深色描边在正文里像一条下划线，
      和「@ 是引用」这件事没关系，看着只是脏。底色跟着主题走（见 :root 的 --atbg）。 */
-  .ta-back .ta-at { background: var(--atbg); border-radius: var(--radius-3); }
+  .ta-back .ta-at { background: var(--atbg); border-radius: var(--radius-4); }
   /* 鼠标滑过 @片段 时那张小卡（挂在 body 上、position:fixed，见 hoverAt） */
-  #atPeek { position: fixed; z-index: 61; display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-6) var(--sp-9);
+  #atPeek { position: fixed; z-index: 61; display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8);
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); pointer-events: none; }
   #atPeek .pk-t { width: 40px; height: 40px; flex: 0 0 40px; border-radius: var(--radius-4); overflow: hidden;
     background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
   #atPeek .pk-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #atPeek .pk-n { font-size: var(--fs-12-5); color: var(--txt); font-weight: 600; }
-  #atPeek .pk-k { font-size: var(--fs-10-5); color: var(--sub); }
+  #atPeek .pk-n { font-size: var(--fs-13); color: var(--txt); font-weight: 600; }
+  #atPeek .pk-k { font-size: var(--fs-11); color: var(--sub); }
   /* 提示词里 @ 引用的候选浮层。挂在 body 上、position:fixed —— 右栏编辑器每次重画都换节点，
      挂在编辑器里面会跟着丢；位置按光标（或 `@素材` 那颗按钮）现算，见 mentionPlace / caretXY。 */
   #mentionBox { position: fixed; z-index: 60; width: 328px; max-height: 268px; overflow-y: auto;
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); padding: var(--sp-4); }
   /* 一行 = 缩略图 · @名字 · 右边一列「类型 · 来源」 */
-  #mentionBox .mt-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-6) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
+  #mentionBox .mt-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
   #mentionBox .mt-i.on { background: var(--panel2); }
   #mentionBox .mt-i.off { opacity: .55; }          /* 没有预览图：引用不了，压暗并写明原因 */
   #mentionBox .mt-t { width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--radius-4); overflow: hidden;
     background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
   #mentionBox .mt-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #mentionBox .mt-n { flex: 1; min-width: 0; font-size: var(--fs-12-5); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #mentionBox .mt-k { flex: 0 0 auto; max-width: 52%; font-size: var(--fs-10-5); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mentionBox .mt-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mentionBox .mt-k { flex: 0 0 auto; max-width: 52%; font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 行尾那个 › 是「这一条还有别的图可挑」的提示（悬停会滑出二级菜单） */
-  #mentionBox .mt-i.has-sub::after { content: '›'; margin-left: var(--sp-1); font-size: var(--fs-14); line-height: 1; color: var(--sub); }
-  #mentionBox .mt-empty { padding: var(--sp-10); font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
+  #mentionBox .mt-i.has-sub::after { content: '›'; margin-left: var(--sp-2); font-size: var(--fs-14); line-height: 1; color: var(--sub); }
+  #mentionBox .mt-empty { padding: var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
   /* @ 浮层的二级菜单：鼠标停在某个角色上时，从右边滑出一列「这一位有哪些图」。
      挂在 body 上、position:fixed —— 浮层自己是 overflow-y:auto，放里面会被裁掉。 */
   #mentionSub { position: fixed; z-index: 62; width: 272px; max-height: 300px; overflow-y: auto;
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); padding: var(--sp-4); }
-  #mentionSub .ms-h { padding: var(--sp-5) var(--sp-8) var(--sp-4); font-size: var(--fs-11); color: var(--sub); }
-  #mentionSub .ms-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-5) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
+  #mentionSub .ms-h { padding: var(--sp-4) var(--sp-8) var(--sp-4); font-size: var(--fs-11); color: var(--sub); }
+  #mentionSub .ms-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
   #mentionSub .ms-i:hover { background: var(--panel2); }
   #mentionSub .ms-t { width: 34px; height: 34px; flex: 0 0 34px; border-radius: var(--radius-4); overflow: hidden;
     background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
   #mentionSub .ms-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #mentionSub .ms-n { flex: 1; min-width: 0; font-size: var(--fs-12-5); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #mentionSub .ms-k { flex: 0 0 auto; font-size: var(--fs-10-5); color: var(--sub); }
+  #mentionSub .ms-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mentionSub .ms-k { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); }
 
   /* 输入框右上角那颗 `@素材`：底色加深，一眼看得出是个入口 */
-  .ed-label .at-btn { font-size: var(--fs-12); padding: var(--sp-3) var(--sp-10); margin-right: var(--sp-8); border-radius: var(--radius-12); cursor: pointer;
+  .ed-label .at-btn { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); margin-right: var(--sp-8); border-radius: var(--radius-10); cursor: pointer;
     color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-16), transparent); border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-35), transparent); }
   .ed-label .at-btn:hover { background: color-mix(in srgb, var(--acc) var(--a-28), transparent); }
 
   /* 「提到素材」那排芯片：底色加深；鼠标移上去弹一张预览（名字 + 图片）。
      预览朝**下**弹：编辑器那一列是 `overflow-y: auto`，朝上会被列的上边缘裁掉。 */
-  .mchips { display: flex; flex-wrap: wrap; gap: var(--sp-6); margin-top: var(--sp-6); }
-  .mchip { position: relative; display: inline-flex; align-items: center; gap: var(--sp-6); padding: var(--sp-3) var(--sp-10) var(--sp-3) var(--sp-4);
-    border-radius: var(--radius-12); cursor: pointer; color: var(--acc);
+  .mchips { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-8); }
+  .mchip { position: relative; display: inline-flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-4);
+    border-radius: var(--radius-10); cursor: pointer; color: var(--acc);
     background: color-mix(in srgb, var(--acc) var(--a-16), transparent); border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-34), transparent); }
   .mchip:hover { background: color-mix(in srgb, var(--acc) var(--a-30), transparent); }
   .mchip > img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; display: block; background: var(--thumbbg); }
   .mchip .mn { font-size: var(--fs-12); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mchip .peek { display: none; position: absolute; left: 0; top: calc(100% + var(--sp-6)); z-index: 62; padding: var(--sp-6);
+  .mchip .peek { display: none; position: absolute; left: 0; top: calc(100% + var(--sp-8)); z-index: 62; padding: var(--sp-8);
     border-radius: var(--radius-6); background: var(--panel); border: var(--hair) solid var(--line);
     box-shadow: var(--shadow-2); text-align: center; }
   .mchip:hover .peek { display: block; }
   .mchip .peek img { width: 132px; height: 132px; object-fit: cover; border-radius: var(--radius-4); display: block; background: var(--thumbbg); }
-  .mchip .peek b { display: block; margin-top: var(--sp-5); font-size: var(--fs-12); color: var(--txt); font-weight: 600; }
-  .mchip .peek i { display: block; font-style: normal; font-size: var(--fs-10-5); color: var(--sub); }
+  .mchip .peek b { display: block; margin-top: var(--sp-4); font-size: var(--fs-12); color: var(--txt); font-weight: 600; }
+  .mchip .peek i { display: block; font-style: normal; font-size: var(--fs-11); color: var(--sub); }
   /* 提示词与画面素材那两行的动作按钮都用 ui.css 的 .btn-row / .tool（与三个工作台同一套，
      AI 那几颗的画法在 window.aiBtnHTML / InlinePolish.btnHTML），这里不再另立一套 */
   /* 素材槽位的样式（.assets-grid / .asset-slot / .rvthumb / 互斥禁用）已收进 ui.css，工作台同用 */
   /* 动作行钉在 #edCol 底部（在 .ed-body 之外、不再随正文滚动）：底色与栏一致、上缘一道分隔线，
      悬浮固定但不遮正文 —— 正文滚到头也接在这条线下面。 */
-  .ed-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-10);
-    flex: 0 0 auto; margin: 0 calc(-1 * var(--sp-16)) 0; padding: var(--sp-10) var(--sp-16) var(--sp-12);
+  .ed-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8);
+    flex: 0 0 auto; margin: 0 calc(-1 * var(--sp-16)) 0; padding: var(--sp-8) var(--sp-16) var(--sp-12);
     border-top: var(--hair) solid var(--line); background: var(--panel); border-radius: 0 0 var(--radius-4) var(--radius-4); }
   .ed-footer .can { font-size: var(--fs-12); color: var(--ok); }
   .ed-footer .can.no { color: var(--warn); }
-  .ed-footer .pri { padding: var(--sp-10) var(--sp-20); font-size: var(--fs-14); }
-  .ed-footer .est { font-size: var(--fs-11-5); color: var(--sub); margin-right: auto; }
+  .ed-footer .pri { padding: var(--sp-8) var(--sp-24); font-size: var(--fs-14); }
+  .ed-footer .est { font-size: var(--fs-12); color: var(--sub); margin-right: auto; }
   .ed-raw { margin-top: var(--sp-8); }
   /* 接上一镜尾帧：勾选条与首帧槽里的占位。槽位本体仍用 ui.css 的 .asset-slot，
      这里只加「接续」这一档的边色与两颗小按钮。 */
@@ -760,32 +760,32 @@
   .chain-row input:disabled { cursor: not-allowed; }
   .asset-slot.chain { border-style: solid; border-color: var(--acc); color: var(--acc); }
   .asset-slot .chain-ops { display: flex; gap: var(--sp-4); margin-top: var(--sp-4); }
-  .asset-slot .chain-ops .mini { padding: var(--sp-2) var(--sp-6); font-size: var(--fs-10-5); }
+  .asset-slot .chain-ops .mini { padding: var(--sp-2) var(--sp-8); font-size: var(--fs-11); }
   .hint { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-8); }
   /* 导出拆分按钮：主钮（导出成片）+ 尾部 chevron，点开列其余去向
      （FCPXML / 媒体包 / 达芬奇 / 剪映）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
      页头是常驻 DOM，不会被重建冲掉。 */
   .exp-split { display: inline-flex; align-items: stretch; position: relative; flex: 0 0 auto; }
   .exp-split > .ghost:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-  .exp-split > .exp-more { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-6); }
+  .exp-split > .exp-more { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-8); }
   .exp-menu { position: absolute; right: 0; top: calc(100% + var(--sp-4)); z-index: 80; min-width: 190px;
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4);
-    box-shadow: var(--shadow-16); padding: var(--sp-4); }
+    box-shadow: var(--shadow-4); padding: var(--sp-4); }
   .exp-menu[hidden] { display: none; }
-  .exp-menu > button { display: flex; align-items: center; gap: var(--sp-6); width: 100%; text-align: left;
-    padding: var(--sp-7) var(--sp-9); border: 0; border-radius: var(--radius-4); background: none;
-    color: var(--txt); font-size: var(--fs-12-5); cursor: pointer; white-space: nowrap; }
+  .exp-menu > button { display: flex; align-items: center; gap: var(--sp-8); width: 100%; text-align: left;
+    padding: var(--sp-8) var(--sp-8); border: 0; border-radius: var(--radius-4); background: none;
+    color: var(--txt); font-size: var(--fs-13); cursor: pointer; white-space: nowrap; }
   .exp-menu > button:hover { background: var(--panel2); color: var(--acc); }
   /* #lbCount / #lbBar 的样式统一在 ui.css 的灯箱那一段 */
-  dialog.script { background: var(--panel); color: var(--txt); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: var(--sp-20); width: 520px; max-width: 92vw; margin: auto; }
+  dialog.script { background: var(--panel); color: var(--txt); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: var(--sp-24); width: 520px; max-width: 92vw; margin: auto; }
   dialog.script::backdrop { background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); }
-  dialog.script textarea { width: 100%; height: 200px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-3); color: var(--txt); font-size: var(--fs-13); padding: var(--sp-10); font-family: inherit; resize: vertical; }
-  dialog.script .tip { font-size: var(--fs-11-5); color: var(--sub); margin: var(--sp-8) 0 var(--sp-12); }
+  dialog.script textarea { width: 100%; height: 200px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); padding: var(--sp-8); font-family: inherit; resize: vertical; }
+  dialog.script .tip { font-size: var(--fs-12); color: var(--sub); margin: var(--sp-8) 0 var(--sp-12); }
   .script-row { display: flex; gap: var(--sp-8); justify-content: flex-end; }
   /* 小图标按钮：与图片工作台的 .ghost 同一套观感（透明底 + 细描边 + 悬停主题色） */
-  .op-btn { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 var(--sp-6);
+  .op-btn { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 var(--sp-8);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: none; color: var(--sub);
-    font-size: var(--fs-12); line-height: 1; cursor: pointer; user-select: none; transition: all var(--dur-150); }
+    font-size: var(--fs-12); line-height: 1; cursor: pointer; user-select: none; transition: all var(--dur-120); }
   .op-btn:hover { border-color: var(--acc); color: var(--acc); }
   .op-btn.danger:hover { border-color: var(--err); color: var(--err); }
   .op-btn.armed { border-color: var(--err); color: var(--err); background: color-mix(in srgb, var(--err) var(--a-8), transparent); width: auto; }
@@ -817,8 +817,8 @@
   .tl-board[hidden] { display: none; }
   /* 坞把手：整条通长、14px 的抓取带骑在板子上沿，中间一枚加宽的抓手 ——
      以前那一条只有 36px、还被板子裁掉一半，看着像「没有把手」。 */
-  .tl-board > .wb-split-y { top: calc(-1 * var(--sp-7)); height: var(--sp-14); z-index: 9; }
-  .tl-board > .wb-split-y i { width: var(--sp-54); height: var(--hair-3); }
+  .tl-board > .wb-split-y { top: calc(-1 * var(--sp-8)); height: var(--sp-16); z-index: 9; }
+  .tl-board > .wb-split-y i { width: 54px; height: var(--hair-3); }
   /* 重画只换这一层：拖高把手（Wb.split 插在 .tl-board 上的第一个子节点）住在它外面。 */
   .tl-board-in { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
     overflow: hidden; border-radius: inherit; }
@@ -840,19 +840,19 @@
   .tl-board .tl-zoom { min-width: 52px; padding: 0 var(--sp-4); text-align: center;
     font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tl-board .tl-sep { flex: 0 0 auto; width: var(--hair); align-self: stretch;
-    margin: var(--sp-7) var(--sp-3); background: var(--line); }
+    margin: var(--sp-8) var(--sp-4); background: var(--line); }
   .tl-board .tl-grow { flex: 1 1 auto; }
-  .tl-board .tl-total { padding-right: var(--sp-6); font-size: var(--fs-11-5); color: var(--sub);
+  .tl-board .tl-total { padding-right: var(--sp-8); font-size: var(--fs-12); color: var(--sub);
     font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tl-board .tl-selgroup { position: relative; }
-  .tl-board .tl-selmode { width: auto; gap: var(--sp-4); padding: 0 var(--sp-6); color: var(--txt); }
-  .tl-board .tl-selmode-name { font-size: var(--fs-11-5); }
+  .tl-board .tl-selmode { width: auto; gap: var(--sp-4); padding: 0 var(--sp-8); color: var(--txt); }
+  .tl-board .tl-selmode-name { font-size: var(--fs-12); }
   .tl-board .tl-menu { position: absolute; z-index: 90; top: calc(100% + var(--sp-4)); left: 0;
     min-width: 168px; padding: var(--sp-4); background: var(--panel);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-10); box-shadow: var(--shadow-16); }
+    border: var(--hair) solid var(--line); border-radius: var(--radius-10); box-shadow: var(--shadow-4); }
   .tl-board .tl-menu[hidden] { display: none; }
-  .tl-board .tl-menu-row { display: flex; align-items: center; gap: var(--sp-6); width: 100%;
-    padding: var(--sp-5) var(--sp-8); border: 0; border-radius: var(--radius-6);
+  .tl-board .tl-menu-row { display: flex; align-items: center; gap: var(--sp-8); width: 100%;
+    padding: var(--sp-4) var(--sp-8); border: 0; border-radius: var(--radius-6);
     background: none; color: var(--txt); font-size: var(--fs-12); text-align: left; cursor: pointer; }
   .tl-board .tl-menu-row:hover { background: var(--panel2); }
   .tl-board .tl-menu-row.is-on { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
@@ -862,20 +862,20 @@
     border-bottom: var(--hair) solid var(--line); background: var(--panel2); }
   .tl-board .tl-corner { display: flex; align-items: center; flex: 0 0 var(--tl-side-w); min-width: 0;
     padding: 0 var(--sp-8); border-right: var(--hair) solid var(--line); overflow: hidden; }
-  .tl-board .tl-corner-txt { font-size: var(--fs-10); color: var(--sub); white-space: nowrap; }
+  .tl-board .tl-corner-txt { font-size: var(--fs-11); color: var(--sub); white-space: nowrap; }
   .tl-board .tl-ruler-clip { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; }
   .tl-board .tl-ruler-inner { position: absolute; left: 0; top: 0; height: 100%; will-change: transform; }
   .tl-board .tl-tick { position: absolute; top: 0; bottom: 0; width: var(--hair); background: none; }
   .tl-board .tl-tick::after { content: ""; position: absolute; left: 0; bottom: 0;
     width: var(--hair); height: 6px; background: color-mix(in srgb, var(--sub) var(--a-34), transparent); }
   .tl-board .tl-tick.major::after { height: 9px; background: color-mix(in srgb, var(--sub) var(--a-60), transparent); }
-  .tl-board .tl-tick em { position: absolute; left: var(--sp-4); top: var(--sp-3); font-style: normal;
-    font-size: var(--fs-9-5); line-height: 1; color: var(--sub); white-space: nowrap;
+  .tl-board .tl-tick em { position: absolute; left: var(--sp-4); top: var(--sp-4); font-style: normal;
+    font-size: var(--fs-11); line-height: 1; color: var(--sub); white-space: nowrap;
     font-variant-numeric: tabular-nums; }
-  .tl-board .tl-ruler-head { position: absolute; left: 0; top: 0; bottom: 0; width: var(--hair-2); margin-left: calc(-1 * var(--sp-1));
+  .tl-board .tl-ruler-head { position: absolute; left: 0; top: 0; bottom: 0; width: var(--hair-2); margin-left: calc(-1 * var(--sp-2));
     background: var(--acc); pointer-events: none; will-change: transform; }
   .tl-board .tl-ruler-head::after { content: ""; position: absolute; left: calc(-1 * var(--sp-4)); top: 0;
-    width: 10px; height: 8px; border-radius: 0 0 var(--radius-3) var(--radius-3); background: var(--acc); }
+    width: 10px; height: 8px; border-radius: 0 0 var(--radius-4) var(--radius-4); background: var(--acc); }
   .tl-board .tl-ruler-snap { position: absolute; top: 0; bottom: 0; width: var(--hair);
     background: var(--warn); pointer-events: none; }
   .tl-board .tl-ruler-snap[hidden] { display: none; }
@@ -886,7 +886,7 @@
     border-right: var(--hair) solid var(--line); background: var(--panel); }
   .tl-board .tl-labels-inner { position: absolute; left: 0; top: 0; width: 100%; will-change: transform; }
   .tl-board .tl-label { display: flex; align-items: center; gap: var(--sp-4); min-width: 0;
-    padding: 0 var(--sp-7); border-bottom: var(--hair) solid var(--line); background: var(--panel); }
+    padding: 0 var(--sp-8); border-bottom: var(--hair) solid var(--line); background: var(--panel); }
   .tl-board .tl-label.is-markers { height: var(--tlh-marker); background: var(--panel2); cursor: pointer; }
   .tl-board .tl-label[data-row^="image-"] { height: var(--tlh-image); }
   .tl-board .tl-label[data-row^="voice-"] { height: var(--tlh-voice); }
@@ -897,8 +897,8 @@
     background: none; color: var(--sub); cursor: pointer; }
   .tl-board .tl-flag:hover { background: var(--panel2); color: var(--txt); }
   .tl-board .tl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; font-size: var(--fs-11-5); color: var(--txt); }
-  .tl-board .tl-count { flex: 0 0 auto; font-size: var(--fs-10); color: var(--sub);
+    white-space: nowrap; font-size: var(--fs-12); color: var(--txt); }
+  .tl-board .tl-count { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub);
     font-variant-numeric: tabular-nums; }
   .tl-board .tl-label.is-off .tl-name { color: var(--sub); }
   .tl-board .tl-label.is-off .tl-flag[data-eye] { color: var(--sub); opacity: .7; }
@@ -910,7 +910,7 @@
     scrollbar-color: var(--scroll) transparent; }
   .tl-board .tl-scroll:focus-visible { box-shadow: inset 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-50), transparent); }
   .tl-board .tl-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-  .tl-board .tl-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-8); }
+  .tl-board .tl-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-6); }
   .tl-board .tl-scroll::-webkit-scrollbar-track { background: transparent; }
   .tl-board .tl-content { position: relative; min-height: 100%;
     background-image: linear-gradient(90deg, color-mix(in srgb, var(--line) var(--a-72), transparent) var(--hair), transparent var(--hair));
@@ -918,9 +918,9 @@
 
   /* ---------------- 播放头 / 吸附线 ---------------- */
   .tl-board .tl-playhead { position: absolute; left: 0; top: 0; bottom: 0; z-index: 8; width: var(--hair-2);
-    margin-left: calc(-1 * var(--sp-1)); background: var(--acc); pointer-events: none; will-change: transform; }
+    margin-left: calc(-1 * var(--sp-2)); background: var(--acc); pointer-events: none; will-change: transform; }
   .tl-board .tl-playhead-knob { position: absolute; left: 50%; top: 0; width: 9px; height: 9px;
-    transform: translateX(-50%); border-radius: 0 0 var(--radius-3) var(--radius-3); background: var(--acc); }
+    transform: translateX(-50%); border-radius: 0 0 var(--radius-4) var(--radius-4); background: var(--acc); }
   .tl-board .tl-snap-line { position: absolute; top: 0; bottom: 0; z-index: 7; width: var(--hair);
     background: var(--warn); pointer-events: none; }
   .tl-board .tl-snap-line[hidden] { display: none; }
@@ -928,11 +928,11 @@
   /* ---------------- 标记条（四类 × 五色，颜色落在 --mc 上） ---------------- */
   .tl-board .tl-marker-rail { position: relative; height: var(--tlh-marker);
     border-bottom: var(--hair) solid var(--line); background: var(--panel2); }
-  .tl-board .tl-rail-hint { position: absolute; left: var(--sp-8); top: var(--sp-3);
-    font-size: var(--fs-10); color: var(--sub); white-space: nowrap; }
+  .tl-board .tl-rail-hint { position: absolute; left: var(--sp-8); top: var(--sp-4);
+    font-size: var(--fs-11); color: var(--sub); white-space: nowrap; }
   .tl-board .tl-marker { position: absolute; top: var(--sp-2); z-index: 2; display: inline-flex;
     align-items: center; justify-content: center; width: 17px; height: 16px; transform: translateX(-50%); padding: 0;
-    border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--mc) var(--a-18), transparent);
+    border: 0; border-radius: var(--radius-4); background: color-mix(in srgb, var(--mc) var(--a-18), transparent);
     color: var(--mc); cursor: pointer; }
   .tl-board .tl-marker:hover { background: color-mix(in srgb, var(--mc) var(--a-34), transparent); }
   /* 选中那一枚：与块同一套亮环（强调色描边一圈），标记本身已经染了它自己的颜色，不再改底色。 */
@@ -940,11 +940,11 @@
   /* 范围标记那一条带子是**能拎的**：整条拖 = 挪这一段的起点，右沿那一小截 = 改止点
      （手势在 edit.js：`[data-band]` / `[data-band-tail]`）。带子压在针层下面，
      只让带子自己吃指针，别把整条轨的手势抢走。 */
-  .tl-board .tl-marker-band { position: absolute; top: var(--sp-1); height: 5px; border-radius: var(--radius-2);
+  .tl-board .tl-marker-band { position: absolute; top: var(--sp-2); height: 5px; border-radius: var(--radius-4);
     background: color-mix(in srgb, var(--mc) var(--a-34), transparent); cursor: grab; z-index: 1; }
   .tl-board .tl-marker-band:active { cursor: grabbing; }
-  .tl-board .tl-band-tail { position: absolute; right: calc(-1 * var(--sp-2)); top: calc(-1 * var(--sp-1));
-    width: var(--sp-5); height: 9px; border-radius: var(--radius-2); background: var(--mc); cursor: ew-resize; }
+  .tl-board .tl-band-tail { position: absolute; right: calc(-1 * var(--sp-2)); top: calc(-1 * var(--sp-2));
+    width: var(--sp-4); height: 9px; border-radius: var(--radius-4); background: var(--mc); cursor: ew-resize; }
   .tl-board .tl-band-tail:hover { filter: brightness(1.2); }
   .tl-board .color-cyan { --mc: var(--acc); }
   .tl-board .color-amber { --mc: var(--warn); }
@@ -958,9 +958,9 @@
   .tl-board .tl-lane.is-image { height: var(--tlh-image); background: color-mix(in srgb, var(--panel) var(--a-34), transparent); }
   .tl-board .tl-lane.is-voice { height: var(--tlh-voice); background: color-mix(in srgb, var(--panel) var(--a-20), transparent); }
   .tl-board .tl-lane.is-caption { height: var(--tlh-cap); background: color-mix(in srgb, var(--panel) var(--a-20), transparent); }
-  .tl-board .tl-lane-hint { position: absolute; left: var(--sp-10); top: 50%; transform: translateY(-50%);
+  .tl-board .tl-lane-hint { position: absolute; left: var(--sp-8); top: 50%; transform: translateY(-50%);
     font-size: var(--fs-11); color: var(--sub); white-space: nowrap; pointer-events: none; }
-  .tl-board .tl-overflow { padding: var(--sp-4) var(--sp-10); font-size: var(--fs-10-5); color: var(--warn); }
+  .tl-board .tl-overflow { padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11); color: var(--warn); }
   /* 隐藏 / 锁定：块照画在原位置（收一轨不改行高、不挪别的行），手势层由 edit.js 拒绝编辑 */
   .tl-board .tl-lane.is-off > .tl-clip,
   .tl-board .tl-lane.is-off > .tl-voice,
@@ -974,7 +974,7 @@
     box-shadow: inset 0 0 0 var(--hair) color-mix(in srgb, var(--acc) var(--a-50), transparent); }
 
   /* ---------------- 画面段（胶片带 + 名称 / 倍速 / 静音） ---------------- */
-  .tl-board .tl-clip { position: absolute; top: var(--sp-3); bottom: var(--sp-3);
+  .tl-board .tl-clip { position: absolute; top: var(--sp-4); bottom: var(--sp-4);
     border: var(--hair) solid var(--line); border-radius: var(--radius-6); overflow: hidden;
     background: var(--thumbbg); cursor: grab; user-select: none; transition: border-color var(--dur-120), box-shadow var(--dur-120); }
   .tl-board .tl-clip:hover { border-color: color-mix(in srgb, var(--acc) var(--a-60), transparent); }
@@ -990,25 +990,25 @@
     background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--txt) var(--a-8), transparent) 0 5px, transparent 5px 10px); }
   .tl-board .tl-strip.is-image { display: block; background-size: auto 100%; background-repeat: repeat-x; background-position: left center; }
   .tl-board .tl-clip-top { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex;
-    align-items: center; gap: var(--sp-4); padding: var(--sp-2) var(--sp-6); pointer-events: none;
+    align-items: center; gap: var(--sp-4); padding: var(--sp-2) var(--sp-8); pointer-events: none;
     background: linear-gradient(to bottom, color-mix(in srgb, var(--media-bg) var(--a-55), transparent), transparent); }
   .tl-board .tl-clip-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; font-size: var(--fs-10-5); font-weight: 600; color: var(--on-acc); }
-  .tl-board .tl-spd { flex: 0 0 auto; padding: 0 var(--sp-4); border-radius: var(--radius-3);
+    white-space: nowrap; font-size: var(--fs-11); font-weight: 600; color: var(--on-acc); }
+  .tl-board .tl-spd { flex: 0 0 auto; padding: 0 var(--sp-4); border-radius: var(--radius-4);
     background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc);
-    font-size: var(--fs-9-5); font-variant-numeric: tabular-nums; }
-  .tl-board .tl-mute { position: absolute; right: var(--sp-3); bottom: var(--sp-3); z-index: 3;
+    font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+  .tl-board .tl-mute { position: absolute; right: var(--sp-4); bottom: var(--sp-4); z-index: 3;
     display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
-    border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent);
+    border: 0; border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent);
     color: var(--on-acc); cursor: pointer; }
   .tl-board .tl-mute:hover { background: color-mix(in srgb, var(--media-bg) var(--a-72), transparent); }
   .tl-board .tl-mute.is-on { color: var(--err); }
   .tl-board .tl-lock-ic { position: absolute; left: var(--sp-4); bottom: var(--sp-4); z-index: 3;
     display: inline-flex; color: var(--on-acc); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent);
-    border-radius: var(--radius-3); padding: var(--sp-1); }
+    border-radius: var(--radius-4); padding: var(--sp-2); }
 
   /* ---------------- 配音 ---------------- */
-  .tl-board .tl-voice { position: absolute; top: var(--sp-3); bottom: var(--sp-3);
+  .tl-board .tl-voice { position: absolute; top: var(--sp-4); bottom: var(--sp-4);
     border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
     background: color-mix(in srgb, var(--acc) var(--a-14), var(--panel));
@@ -1019,16 +1019,16 @@
     box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--acc) var(--a-50), transparent); }
   .tl-board .tl-voice.is-locked { cursor: default; }
   .tl-board .tl-wave { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex;
-    align-items: center; gap: var(--sp-1); padding: var(--sp-3) var(--sp-4); opacity: .5; pointer-events: none; }
-  .tl-board .tl-wave > i { flex: 1 1 0; min-width: 1px; border-radius: var(--radius-1); background: var(--acc); }
-  .tl-board .tl-voice-txt { position: absolute; left: var(--sp-6); right: var(--sp-6); top: 50%; z-index: 2;
+    align-items: center; gap: var(--sp-2); padding: var(--sp-4) var(--sp-4); opacity: .5; pointer-events: none; }
+  .tl-board .tl-wave > i { flex: 1 1 0; min-width: 1px; border-radius: var(--radius-4); background: var(--acc); }
+  .tl-board .tl-voice-txt { position: absolute; left: var(--sp-8); right: var(--sp-8); top: 50%; z-index: 2;
     transform: translateY(-50%); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    font-size: var(--fs-10-5); color: var(--txt); pointer-events: none; }
+    font-size: var(--fs-11); color: var(--txt); pointer-events: none; }
 
   /* ---------------- 字幕 ---------------- */
   .tl-board .tl-cap { position: absolute; top: var(--sp-2); bottom: var(--sp-2);
     border: var(--hair) solid color-mix(in srgb, var(--ok) var(--a-34), transparent);
-    border-radius: var(--radius-5); overflow: hidden; cursor: grab; user-select: none;
+    border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
     background: color-mix(in srgb, var(--ok) var(--a-10), var(--panel));
     transition: border-color var(--dur-120), box-shadow var(--dur-120); }
   .tl-board .tl-cap:hover { border-color: color-mix(in srgb, var(--ok) var(--a-72), transparent); }
@@ -1036,16 +1036,16 @@
   .tl-board .tl-cap.is-selected { border-color: var(--ok);
     box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--ok) var(--a-50), transparent); }
   .tl-board .tl-cap.is-locked { cursor: default; }
-  .tl-board .tl-cap-txt { position: absolute; left: var(--sp-6); right: var(--sp-6); top: 50%;
+  .tl-board .tl-cap-txt { position: absolute; left: var(--sp-8); right: var(--sp-8); top: 50%;
     transform: translateY(-50%); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    font-size: var(--fs-10-5); color: var(--txt); pointer-events: none; }
+    font-size: var(--fs-11); color: var(--txt); pointer-events: none; }
 
   /* ---------------- 两端的剪裁把手 ---------------- */
   .tl-board .tl-h { position: absolute; top: 0; bottom: 0; z-index: 4; width: 8px; cursor: ew-resize; }
   .tl-board .tl-h.is-start { left: 0; }
   .tl-board .tl-h.is-end { right: 0; }
   .tl-board .tl-h::after { content: ""; position: absolute; top: 26%; bottom: 26%; width: var(--hair-2);
-    border-radius: var(--radius-1); background: var(--acc); opacity: 0;
+    border-radius: var(--radius-4); background: var(--acc); opacity: 0;
     transition: opacity var(--dur-120); }
   .tl-board .tl-h.is-start::after { left: var(--sp-2); }
   .tl-board .tl-h.is-end::after { right: var(--sp-2); }
@@ -1059,18 +1059,18 @@
     pointer-events: none; }
   .tl-board .tl-junctions[hidden] { display: none; }
   .tl-board .tl-junction { position: absolute; top: 50%; display: inline-flex; align-items: center;
-    justify-content: center; width: 18px; height: 18px; margin: calc(-1 * var(--sp-9)) 0 0 calc(-1 * var(--sp-9));
+    justify-content: center; width: 18px; height: 18px; margin: calc(-1 * var(--sp-8)) 0 0 calc(-1 * var(--sp-8));
     padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; }
   .tl-board .tl-junction-dot { width: 9px; height: 9px; border: var(--hair-1-5) solid var(--sub);
-    border-radius: var(--radius-2); background: var(--panel); transform: rotate(45deg);
+    border-radius: var(--radius-4); background: var(--panel); transform: rotate(45deg);
     box-shadow: var(--shadow-1); transition: border-color var(--dur-120), background var(--dur-120); }
   .tl-board .tl-junction:hover .tl-junction-dot { border-color: var(--acc);
     background: color-mix(in srgb, var(--acc) var(--a-18), var(--panel)); }
   .tl-board .tl-junction.has-tr .tl-junction-dot { border-color: var(--acc); background: var(--acc); }
 
   /* ---------------- 底部读数行 ---------------- */
-  .tl-board .tl-foot { display: flex; align-items: center; gap: var(--sp-6); flex: 0 0 auto;
-    min-height: var(--tlh-foot); padding: 0 var(--sp-10); border-top: var(--hair) solid var(--line);
+  .tl-board .tl-foot { display: flex; align-items: center; gap: var(--sp-8); flex: 0 0 auto;
+    min-height: var(--tlh-foot); padding: 0 var(--sp-8); border-top: var(--hair) solid var(--line);
     background: var(--panel2); }
   .tl-board .tl-read { font-size: var(--fs-11); color: var(--txt); font-variant-numeric: tabular-nums; }
   .tl-board #tlT0 { color: var(--acc); }
@@ -1080,16 +1080,16 @@
 
   /* ---------------- 转场浮层（九个预置 + 时长） ---------------- */
   .tl-board .tl-pop { position: absolute; z-index: 90; width: 304px; max-width: calc(100% - var(--sp-16));
-    max-height: 60vh; overflow-y: auto; padding: var(--sp-10);
+    max-height: 60vh; overflow-y: auto; padding: var(--sp-8);
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-    box-shadow: var(--shadow-16); }
+    box-shadow: var(--shadow-4); }
   .tl-board .tl-pop[hidden] { display: none; }
   .tl-board .tl-pop-head { display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: var(--sp-8); font-size: var(--fs-12-5); color: var(--txt); }
-  .tl-board .tl-pop-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-6); }
+    margin-bottom: var(--sp-8); font-size: var(--fs-13); color: var(--txt); }
+  .tl-board .tl-pop-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-8); }
   .tl-board .tl-pop-preset { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
     padding: var(--sp-4); border: var(--hair) solid transparent; border-radius: var(--radius-6);
-    background: none; color: var(--sub); font-size: var(--fs-10-5); cursor: pointer; }
+    background: none; color: var(--sub); font-size: var(--fs-11); cursor: pointer; }
   .tl-board .tl-pop-preset:hover { background: var(--panel2); color: var(--txt); }
   .tl-board .tl-pop-preset.is-on { border-color: var(--acc); color: var(--acc); background: var(--acc-tint-10); }
   .tl-board .tl-trp { position: relative; display: block; width: 72px; height: 36px; overflow: hidden;
@@ -1098,7 +1098,7 @@
   .tl-board .tl-trp.t-none::before { background: linear-gradient(90deg, var(--acc) 0 49.5%, var(--line) 49.5% 50.5%, var(--sub) 50.5% 100%); }
   .tl-board .tl-trp.t-fade::before { background: linear-gradient(90deg, var(--acc), var(--acc2) 46%, var(--sub) 54%, var(--sub)); }
   .tl-board .tl-trp.t-zoom::before { background: var(--sub); }
-  .tl-board .tl-trp.t-zoom::after { inset: 26% 34%; border-radius: var(--radius-3); background: var(--acc); }
+  .tl-board .tl-trp.t-zoom::after { inset: 26% 34%; border-radius: var(--radius-4); background: var(--acc); }
   .tl-board .tl-trp.t-flash::before { background: linear-gradient(90deg, var(--acc) 0 40%, var(--on-acc) 50%, var(--sub) 60% 100%); }
   .tl-board .tl-trp.t-wipe-left::before { background: var(--sub); }
   .tl-board .tl-trp.t-wipe-left::after { background: linear-gradient(105deg, var(--acc) 0 40%, transparent 40% 100%); }
@@ -1108,8 +1108,8 @@
   .tl-board .tl-trp.t-split::before { background: linear-gradient(90deg, var(--acc) 0 32%, var(--input) 32% 36%, var(--sub) 36% 68%, var(--input) 68% 72%, var(--acc2) 72% 100%); }
   .tl-board .tl-trp.t-glitch::before { background: repeating-linear-gradient(0deg, var(--acc) 0 3px, var(--err) 3px 5px, var(--sub) 5px 9px); }
   .tl-board .tl-trp.t-glitch::after { inset: 40% 0; background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent); }
-  .tl-board .tl-pop-dur { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-10);
-    font-size: var(--fs-11-5); color: var(--sub); }
+  .tl-board .tl-pop-dur { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-8);
+    font-size: var(--fs-12); color: var(--sub); }
   .tl-board .tl-pop-dur.is-off { opacity: .45; }
   .tl-board .tl-pop-dur input[type=range] { flex: 1 1 auto; min-width: 0; accent-color: var(--acc); cursor: pointer; }
   .tl-board .tl-pop-dur em { flex: 0 0 auto; font-style: normal; color: var(--txt);
@@ -1119,8 +1119,8 @@
   /* 「这一片有几枚标记 / 选中了几块」压在按钮右上角：按钮本身要说的是「这是干什么的」，
      数不在那儿读。0 时整块不画（由画它的那一句 hidden 决定），不留一个空圈。 */
   .tl-board .tl-badge { position: absolute; top: calc(-1 * var(--sp-2)); right: calc(-1 * var(--sp-2));
-    min-width: 15px; height: 15px; padding: 0 var(--sp-3); border-radius: var(--radius-99);
-    background: var(--acc); color: var(--on-acc); font-size: var(--fs-9-5); font-weight: 600;
+    min-width: 15px; height: 15px; padding: 0 var(--sp-4); border-radius: var(--radius-999);
+    background: var(--acc); color: var(--on-acc); font-size: var(--fs-11); font-weight: 600;
     line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
   .tl-board .tl-badge[hidden] { display: none; }
 
@@ -1128,11 +1128,11 @@
   /* 挂在板上（不是 body）：它跟着板的位置走，滚动与重画都不用重新算落点；
      绝对定位的 left/top 由 `showCtx` 按点击处现写。 */
   .tl-board .tl-ctx { position: absolute; z-index: 95; min-width: 148px; padding: var(--sp-4);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-8); background: var(--panel);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel);
     box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: var(--sp-2); }
-  .tl-board .tl-ctx-row { display: flex; align-items: center; gap: var(--sp-6); padding: var(--sp-5) var(--sp-8);
+  .tl-board .tl-ctx-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8);
     border: 0; border-radius: var(--radius-6); background: none; color: var(--txt);
-    font-size: var(--fs-11-5); text-align: left; cursor: pointer; }
+    font-size: var(--fs-12); text-align: left; cursor: pointer; }
   .tl-board .tl-ctx-row:hover { background: var(--panel2); }
   .tl-board .tl-ctx-row:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--sp-2)); }
 
@@ -1142,52 +1142,52 @@
   .tl-board .tl-mpanel { position: absolute; z-index: 94; top: var(--sp-8); right: var(--sp-8);
     width: 316px; max-height: calc(100% - var(--sp-16)); display: flex; flex-direction: column;
     border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel);
-    box-shadow: var(--shadow-2); color: var(--txt); font-size: var(--fs-11-5); }
-  .tl-board .tl-mpanel-head { display: flex; align-items: center; gap: var(--sp-6);
-    padding: var(--sp-8) var(--sp-10); border-bottom: var(--hair) solid var(--line); }
-  .tl-board .tl-mpanel-title { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--sp-6);
+    box-shadow: var(--shadow-2); color: var(--txt); font-size: var(--fs-12); }
+  .tl-board .tl-mpanel-head { display: flex; align-items: center; gap: var(--sp-8);
+    padding: var(--sp-8) var(--sp-8); border-bottom: var(--hair) solid var(--line); }
+  .tl-board .tl-mpanel-title { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--sp-8);
     font-weight: 600; color: var(--txt); }
-  .tl-board .tl-mpanel-search { display: flex; align-items: center; gap: var(--sp-6); color: var(--sub);
-    padding: var(--sp-6) var(--sp-10); }
+  .tl-board .tl-mpanel-search { display: flex; align-items: center; gap: var(--sp-8); color: var(--sub);
+    padding: var(--sp-8) var(--sp-8); }
   .tl-board .tl-mpanel-search input { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl);
     padding: 0 var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-    background: var(--input); color: var(--txt); font-size: var(--fs-11-5); }
-  .tl-board .tl-mpanel-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); padding: 0 var(--sp-10) var(--sp-6); }
-  .tl-board .tl-mpanel-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--sp-6) var(--sp-6);
+    background: var(--input); color: var(--txt); font-size: var(--fs-12); }
+  .tl-board .tl-mpanel-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); padding: 0 var(--sp-8) var(--sp-8); }
+  .tl-board .tl-mpanel-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--sp-8) var(--sp-8);
     display: flex; flex-direction: column; gap: var(--sp-2); scrollbar-width: thin; }
-  .tl-board .tl-mpanel-list .empty { padding: var(--sp-10); }
-  .tl-board .tl-mp-row { display: flex; align-items: center; gap: var(--sp-6); width: 100%; padding: var(--sp-5) var(--sp-8);
+  .tl-board .tl-mpanel-list .empty { padding: var(--sp-8); }
+  .tl-board .tl-mp-row { display: flex; align-items: center; gap: var(--sp-8); width: 100%; padding: var(--sp-4) var(--sp-8);
     border: var(--hair) solid transparent; border-radius: var(--radius-6); background: none; color: var(--txt);
-    font-size: var(--fs-11-5); text-align: left; cursor: pointer; }
+    font-size: var(--fs-12); text-align: left; cursor: pointer; }
   .tl-board .tl-mp-row:hover { background: var(--panel2); }
   .tl-board .tl-mp-row.is-on { border-color: var(--acc); background: var(--acc-tint-10); }
   .tl-board .tl-mp-ic { flex: 0 0 auto; display: inline-flex; color: var(--mc); }
   .tl-board .tl-mp-name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .tl-board .tl-mp-time { flex: 0 0 auto; color: var(--sub); font-variant-numeric: tabular-nums; }
-  .tl-board .tl-mpanel-detail { display: flex; flex-direction: column; gap: var(--sp-6);
-    padding: var(--sp-8) var(--sp-10); border-top: var(--hair) solid var(--line); }
-  .tl-board .tl-mp-field { display: flex; align-items: center; gap: var(--sp-6); }
+  .tl-board .tl-mpanel-detail { display: flex; flex-direction: column; gap: var(--sp-8);
+    padding: var(--sp-8) var(--sp-8); border-top: var(--hair) solid var(--line); }
+  .tl-board .tl-mp-field { display: flex; align-items: center; gap: var(--sp-8); }
   .tl-board .tl-mp-field > span { flex: 0 0 44px; color: var(--sub); }
   .tl-board .tl-mp-field input, .tl-board .tl-mp-field textarea { flex: 1 1 auto; min-width: 0;
-    padding: 0 var(--sp-6); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-    background: var(--input); color: var(--txt); font-size: var(--fs-11-5); font-family: inherit; }
+    padding: 0 var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+    background: var(--input); color: var(--txt); font-size: var(--fs-12); font-family: inherit; }
   .tl-board .tl-mp-field input { height: var(--sz-ctl); }
-  .tl-board .tl-mp-field textarea { padding: var(--sp-4) var(--sp-6); resize: vertical; }
+  .tl-board .tl-mp-field textarea { padding: var(--sp-4) var(--sp-8); resize: vertical; }
   .tl-board .tl-mp-field input[type=number] { font-variant-numeric: tabular-nums; }
   .tl-board .tl-mp-types, .tl-board .tl-mp-colors { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center; }
-  .tl-board .tl-mp-chip { display: inline-flex; align-items: center; gap: var(--sp-4); padding: var(--sp-3) var(--sp-8);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-99); background: none; color: var(--sub);
-    font-size: var(--fs-10-5); cursor: pointer; white-space: nowrap; }
+  .tl-board .tl-mp-chip { display: inline-flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-8);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: none; color: var(--sub);
+    font-size: var(--fs-11); cursor: pointer; white-space: nowrap; }
   .tl-board .tl-mp-chip:hover { color: var(--txt); border-color: color-mix(in srgb, var(--acc) var(--a-60), transparent); }
   .tl-board .tl-mp-chip.is-on { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); }
   .tl-board .tl-mp-chip.is-danger:hover { color: var(--err); border-color: var(--err); }
-  .tl-board .tl-mp-color { width: 18px; height: 18px; padding: 0; border-radius: var(--radius-99);
+  .tl-board .tl-mp-color { width: 18px; height: 18px; padding: 0; border-radius: var(--radius-999);
     border: var(--hair) solid var(--line); background: var(--mc); cursor: pointer; }
   .tl-board .tl-mp-color.is-on { box-shadow: 0 0 0 var(--hair-2) var(--acc); }
   .tl-board .tl-mp-acts { display: flex; align-items: center; gap: var(--sp-4); }
   .tl-board .tl-mpanel-foot { display: flex; align-items: center; gap: var(--sp-4);
-    padding: var(--sp-6) var(--sp-10); border-top: var(--hair) solid var(--line); }
-  .tl-board .tl-mp-sum { color: var(--sub); font-size: var(--fs-10-5); white-space: nowrap; }
+    padding: var(--sp-8) var(--sp-8); border-top: var(--hair) solid var(--line); }
+  .tl-board .tl-mp-sum { color: var(--sub); font-size: var(--fs-11); white-space: nowrap; }
 
 </style>
 <body>
@@ -1200,7 +1200,7 @@
   <div class="phead-meta">
     <div style="position:relative">
       <button class="phead-chip" id="projSwitch" style="cursor:pointer"><span data-icon="film" data-size="13"></span> 我的短片 <b id="projCount">1</b> <span data-icon="chevronDown" data-size="11"></span></button>
-      <div id="projMenu" hidden style="position:absolute;top:calc(100% + var(--sp-8));left:0;background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-4);min-width:250px;z-index:80;box-shadow:var(--shadow-16);padding:var(--sp-6)"></div>
+      <div id="projMenu" hidden style="position:absolute;top:calc(100% + var(--sp-8));left:0;background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-4);min-width:250px;z-index:80;box-shadow:var(--shadow-4);padding:var(--sp-8)"></div>
     </div>
     <input class="pname" id="projName" value="新项目">
     <span class="saved" id="saveState">已保存</span>
@@ -1273,7 +1273,7 @@
 …"></textarea>
   <div class="script-row">
     <button class="ghost" id="scriptCancel">取消</button>
-    <button class="pri" id="scriptOk" style="padding:var(--sp-8) var(--sp-18)">拆分</button>
+    <button class="pri" id="scriptOk" style="padding:var(--sp-8) var(--sp-16)">拆分</button>
   </div>
 </dialog>
 

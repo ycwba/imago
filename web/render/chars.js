@@ -83,7 +83,7 @@ const _hoisted_40 = ["aria-labelledby", "onKeydown", "data-id", "innerHTML"]
 const _hoisted_41 = {
   id: "gridEnd",
   ref: "gridEndEl",
-  style: {"height":"var(--sp-1)"}
+  style: {"height":"var(--sp-2)"}
 }
 const _hoisted_42 = ["onClick"]
 const _hoisted_43 = {

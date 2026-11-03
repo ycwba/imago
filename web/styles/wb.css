@@ -30,13 +30,13 @@
 .wb > .phead { width: 100%; max-width: var(--sz-wb); margin: 0 auto; background: transparent; }
 .wb .layout {
   --sp0: clamp(380px, 30%, 520px);
-  display: grid; grid-template-columns: var(--sp0) minmax(0, 1fr); gap: var(--sp-22);
+  display: grid; grid-template-columns: var(--sp0) minmax(0, 1fr); gap: var(--sp-24);
   /* ⚠ width:100% 是这一条的关键（2026-10-27 补）：.wb 是 flex 列，这一块是它的子项
      又带 margin:0 auto —— 按 flex 规则不拉伸，宽度落到 **fit-content**（= 内容的 max-content），
      而那份 max-content 里含着 --sp0 → 拖一下分栏，这块宽度就变 → 因为居中，
      **页面最左最右的空白跟着变**（用户报的那条）。写死宽度后它 = min(内容区宽, --sz-wb)，
      与 --sp0 无关：空白恒定，两栏块的左缘也固定（与上面那条页头对齐）。 */
-  width: 100%; max-width: var(--sz-wb); margin: 0 auto; padding: var(--sp-18) var(--shell-px);
+  width: 100%; max-width: var(--sz-wb); margin: 0 auto; padding: var(--sp-16) var(--shell-px);
   flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; position: relative;
 }
 .wb .col-left { overflow-y: auto; min-height: 0; min-width: 0; padding-right: var(--sp-4); scrollbar-gutter: stable; }
@@ -59,14 +59,14 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
    #goWhy 默认不显示，由 workbench.js 的 Wb.ready 在用户动过手之后才显出来。 */
 .wb button.go {
   margin-top: var(--sp-12); width: 100%; padding: var(--sp-12); border: 0; border-radius: var(--radius-6);
-  background: var(--pri); color: var(--on-acc); font-size: var(--fs-14-5); font-weight: 600;
-  cursor: pointer; transition: filter var(--dur-180), transform var(--dur-100);
+  background: var(--pri); color: var(--on-acc); font-size: var(--fs-14); font-weight: 600;
+  cursor: pointer; transition: filter var(--dur-180), transform var(--dur-120);
 }
 .wb button.go:hover:not(:disabled) { filter: brightness(1.12); }
 .wb button.go:active:not(:disabled) { transform: scale(.99); }
 .wb button.go:disabled { opacity: .5; cursor: not-allowed; }
-.wb #status { margin-top: var(--sp-10); font-size: var(--fs-12-5); color: var(--sub); min-height: 17px; white-space: pre-wrap; }
-.wb #goWhy { display: none; margin-top: var(--sp-6); font-size: var(--fs-11-5); color: var(--warn); }
+.wb #status { margin-top: var(--sp-8); font-size: var(--fs-13); color: var(--sub); min-height: 17px; white-space: pre-wrap; }
+.wb #goWhy { display: none; margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--warn); }
 
 /* 窄窗口：两栏并成单列，由 .layout 自己滚。
    滚动**不能交给 .wb**：页头是透明 sticky（这一页的底是渐变），滚在 .wb 上时
@@ -76,5 +76,5 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
   .wb .layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow-y: auto; overflow-x: hidden; }
   .wb .col-left, .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
 }
-@media (max-width: 760px) { .wb { --shell-px: var(--sp-14); } }
-@media (max-width: 720px) { .wb .layout { padding: var(--sp-12) var(--shell-px); gap: var(--sp-14); } }
+@media (max-width: 760px) { .wb { --shell-px: var(--sp-16); } }
+@media (max-width: 720px) { .wb .layout { padding: var(--sp-12) var(--shell-px); gap: var(--sp-16); } }

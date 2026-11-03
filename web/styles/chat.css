@@ -39,15 +39,15 @@ html:not(.ac-dock).ac-open #acPanel{transform:none;opacity:1}
    它与侧栏一起读 --sbw，侧栏展开/收起时宽度跟着变。窄窗口不挤（见 DOCK_MIN）。 */
 html.ac-dock #acPanel{box-shadow:none}
 .ac-x.on{color:var(--acc);background:var(--acc-tint-10);border-radius:var(--radius-6)}
-.ac-hd{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-11) var(--sp-12);border-bottom:var(--hair) solid var(--line);
+.ac-hd{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-12) var(--sp-12);border-bottom:var(--hair) solid var(--line);
   background:linear-gradient(180deg, color-mix(in srgb, var(--acc) 9%, transparent), transparent)}
-.ac-hd .ac-tt{display:inline-flex;align-items:center;gap:var(--sp-6);font-size:var(--fs-13-5);font-weight:700;color:var(--acc)}
-.ac-hd .ac-here{font-size:var(--fs-10);color:var(--sub);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.ac-hd .ac-tt{display:inline-flex;align-items:center;gap:var(--sp-8);font-size:var(--fs-13);font-weight:700;color:var(--acc)}
+.ac-hd .ac-here{font-size:var(--fs-11);color:var(--sub);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 /* 宽度把手：真产品那根 .ac-grip —— 拖左沿调宽，记在本机（360–760）。
    这一稿把抓手**画出来**：产品那根默认看不见，鼠标摸到才知道能拖。 */
 .ac-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:5;touch-action:none;
   display:flex;align-items:center;justify-content:center}
-.ac-grip::after{content:'';width:var(--hair-3);height:var(--sp-40);border-radius:var(--radius-3);
+.ac-grip::after{content:'';width:var(--hair-3);height:var(--sp-32);border-radius:var(--radius-3);
   background:var(--line);transition:background var(--dur-120) var(--ease)}
 .ac-grip:hover{background:var(--acc-tint-18)}
 .ac-grip:hover::after{background:var(--acc)}
@@ -55,7 +55,7 @@ html.ac-dock #acPanel{box-shadow:none}
    输入框自己也有 resize:vertical —— 浮窗档把它关掉，高度只留面板这一根把手，免得拉到错的那个。 */
 .ac-grip-b{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:row-resize;z-index:5;touch-action:none;
   display:flex;align-items:flex-end;justify-content:center}
-.ac-grip-b::after{content:'';height:var(--hair-3);width:var(--sp-40);border-radius:var(--radius-3);
+.ac-grip-b::after{content:'';height:var(--hair-3);width:var(--sp-32);border-radius:var(--radius-3);
   background:var(--line);transition:background var(--dur-120) var(--ease)}
 .ac-grip-b:hover{background:var(--acc-tint-18)}
 .ac-grip-b:hover::after{background:var(--acc)}
@@ -67,20 +67,20 @@ html:not(.ac-dock) .ac-ta{resize:none}
    助手每轮本来就自动带着这份快照进系统提示词，界面上再摆一遍只是重复；
    而且摆的是「你脚下那一页现在是什么」，跟「这一轮助手在干什么」没关系。
    那一行现在只留顶栏的「在 XX」（产品的 ac-here）。 */
-.ac-x{flex:0 0 auto;border:0;background:transparent;color:var(--sub);font-size:var(--fs-20);line-height:1;cursor:pointer;padding:var(--sp-2) var(--sp-6)}
+.ac-x{flex:0 0 auto;border:0;background:transparent;color:var(--sub);font-size:var(--fs-20);line-height:1;cursor:pointer;padding:var(--sp-2) var(--sp-8)}
 .ac-x:hover{color:var(--txt)}
 /* ---------- 对话区：内容铺底色，每一轮是一条窄列 ---------- */
-.ac-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-14) var(--sp-20) var(--sp-18);
+.ac-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-16) var(--sp-24) var(--sp-16);
   background:var(--bg);display:flex;flex-direction:column;gap:var(--sp-16);overscroll-behavior:contain}
 .ac-turns{display:flex;flex-direction:column;gap:var(--sp-16)}
 /* 一轮 = 你发出去的那条 + 助手的回应。窄列居中放在流里 —— 谁在左谁在右一眼分得清。 */
-.ac-turn{display:flex;flex-direction:column;gap:var(--sp-10);max-width:340px;width:100%;align-self:center}
-.ac-wel{display:flex;flex-direction:column;gap:var(--sp-9)}
-.ac-who{font-size:var(--fs-11-5);line-height:1.6;color:var(--sub);background:var(--panel2);
-  border:var(--hair) solid var(--line);border-radius:var(--radius-8);padding:var(--sp-8) var(--sp-10)}
-.ac-q{display:flex;flex-wrap:wrap;gap:var(--sp-6)}
+.ac-turn{display:flex;flex-direction:column;gap:var(--sp-8);max-width:340px;width:100%;align-self:center}
+.ac-wel{display:flex;flex-direction:column;gap:var(--sp-8)}
+.ac-who{font-size:var(--fs-12);line-height:1.6;color:var(--sub);background:var(--panel2);
+  border:var(--hair) solid var(--line);border-radius:var(--radius-8);padding:var(--sp-8) var(--sp-8)}
+.ac-q{display:flex;flex-wrap:wrap;gap:var(--sp-8)}
 .ac-qi{border:var(--hair) solid var(--line);background:var(--panel);color:var(--txt);
-  border-radius:var(--radius-14);padding:var(--sp-5) var(--sp-10);font-size:var(--fs-11-5);cursor:pointer;white-space:normal;text-align:left}
+  border-radius:var(--radius-14);padding:var(--sp-4) var(--sp-8);font-size:var(--fs-12);cursor:pointer;white-space:normal;text-align:left}
 .ac-qi:hover{border-color:var(--acc);color:var(--acc)}
 /* 「先体检这台机器」：空态第一颗，摆在所有问句之上。
    要显眼一点 —— 它是给「刚打开、还不知道能问什么」的那个人准备的入口，
@@ -91,9 +91,9 @@ html:not(.ac-dock) .ac-ta{resize:none}
    它随那一块一起被替换掉（收尾时整块换成正式气泡），所以不用自己去清。 */
 .ac-live-tip{flex:0 0 auto;margin-top:var(--sp-4);font-size:var(--fs-11);color:var(--sub);
   border-top:var(--hair) dashed var(--line);padding-top:var(--sp-4)}
-.ac-m{display:flex;flex-direction:column;gap:var(--sp-3)}
+.ac-m{display:flex;flex-direction:column;gap:var(--sp-4)}
 .ac-ai{align-items:flex-start}.ac-note{align-items:flex-start}
-.ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-12-5);line-height:1.62;padding:var(--sp-8) var(--sp-10);border-radius:var(--radius-8);max-width:100%}
+.ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-13);line-height:1.62;padding:var(--sp-8) var(--sp-8);border-radius:var(--radius-8);max-width:100%}
 /* markdown 那几条气泡改回 normal：pre-wrap 是给纯文本准备的，而 Md 产出的是块级元素 ——
    块与块之间本来就有结构，再让容器把换行也当一次换行，段落之间就多出一截空行。
    行内的换行由 Md 自己转成 <br>（约定③），所以版式不丢。
@@ -105,10 +105,10 @@ html:not(.ac-dock) .ac-ta{resize:none}
 /* 助手自己那条「任务出结果了」的通知气泡：不是用户问出来的，所以要和问答区分开（虚线边 + 强调色） */
 .ac-note .ac-bd{background:var(--panel2);border:var(--hair) dashed var(--acc);color:var(--txt)}
 /* ---------- 工单卡：动了手的那一轮，卡左缘一条状态色带 ---------- */
-.ac-job{position:relative;width:100%;display:flex;flex-direction:column;gap:var(--sp-10);
+.ac-job{position:relative;width:100%;display:flex;flex-direction:column;gap:var(--sp-8);
   border:var(--hair) solid var(--line);border-radius:var(--radius-10);background:var(--panel);
-  padding:var(--sp-12) var(--sp-14) var(--sp-11) var(--sp-14);box-shadow:var(--shadow-6)}
-.ac-job::before{content:'';position:absolute;left:0;top:var(--sp-10);bottom:var(--sp-10);
+  padding:var(--sp-12) var(--sp-16) var(--sp-12) var(--sp-16);box-shadow:var(--shadow-2)}
+.ac-job::before{content:'';position:absolute;left:0;top:var(--sp-8);bottom:var(--sp-8);
   width:var(--accent-bar);border-radius:0 var(--radius-3) var(--radius-3) 0;background:var(--line)}
 
 .ac-job.s-gate::before{background:var(--warn)}
@@ -117,12 +117,12 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-job .ac-m{align-items:stretch;width:100%}
 .ac-job .ac-ai .ac-bd{background:transparent;border:0;padding:0;max-width:100%}
 /* ---------- 工序脊：一道工序一个节点，节点之间一条线 ---------- */
-.ac-spine{position:relative;display:flex;flex-direction:column;gap:var(--sp-1);padding-left:var(--sp-2)}
-.ac-spine::before{content:'';position:absolute;left:var(--sp-5);top:var(--sp-8);bottom:var(--sp-8);
+.ac-spine{position:relative;display:flex;flex-direction:column;gap:var(--sp-2);padding-left:var(--sp-2)}
+.ac-spine::before{content:'';position:absolute;left:var(--sp-4);top:var(--sp-8);bottom:var(--sp-8);
   width:var(--hair-1-5);background:color-mix(in srgb, var(--txt) var(--a-18), transparent)}
-.ac-sp-row{position:relative;z-index:1;display:grid;grid-template-columns:var(--sp-10) minmax(0,1fr) auto;
-  align-items:center;gap:var(--sp-8);font-size:var(--fs-11-5);padding:var(--sp-2) 0}
-.ac-sp-dot{width:var(--sp-10);height:var(--sp-10);border-radius:50%;background:var(--panel);
+.ac-sp-row{position:relative;z-index:1;display:grid;grid-template-columns:var(--sp-8) minmax(0,1fr) auto;
+  align-items:center;gap:var(--sp-8);font-size:var(--fs-12);padding:var(--sp-2) 0}
+.ac-sp-dot{width:var(--sp-8);height:var(--sp-8);border-radius:50%;background:var(--panel);
   border:var(--hair-2) solid var(--line);box-shadow:0 0 0 var(--hair-2) var(--panel)}
 .ac-sp-row.done .ac-sp-dot{background:var(--ok);border-color:var(--ok)}
 .ac-sp-row.run .ac-sp-dot{background:var(--acc);border-color:var(--acc)}
@@ -132,12 +132,12 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-sp-name{color:var(--txt);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ac-sp-row.wait .ac-sp-name{color:var(--warn)}
 .ac-sp-row.bad .ac-sp-name{color:var(--err)}
-.ac-sp-ms{color:var(--sub);font-size:var(--fs-10);font-variant-numeric:tabular-nums}
-.ac-sp-more{display:none;grid-column:1/-1;font-size:var(--fs-10);color:var(--sub);line-height:1.6;
-  margin:var(--sp-2) 0 var(--sp-4) calc(var(--sp-10) + var(--sp-8));
+.ac-sp-ms{color:var(--sub);font-size:var(--fs-11);font-variant-numeric:tabular-nums}
+.ac-sp-more{display:none;grid-column:1/-1;font-size:var(--fs-11);color:var(--sub);line-height:1.6;
+  margin:var(--sp-2) 0 var(--sp-4) calc(var(--sp-8) + var(--sp-8));
   padding-left:var(--sp-8);border-left:var(--hair) dashed var(--line);overflow-wrap:anywhere}
 .ac-spine.open .ac-sp-more{display:block}
-.ac-sp-toggle{border:0;background:transparent;cursor:pointer;font:inherit;font-size:var(--fs-10);
+.ac-sp-toggle{border:0;background:transparent;cursor:pointer;font:inherit;font-size:var(--fs-11);
   color:var(--sub);padding:var(--sp-2) 0;text-align:left;align-self:flex-start}
 .ac-sp-toggle:hover{color:var(--acc)}
 /* 消息里的引用：正文里的一段高亮文字（跟输入框那一个同款手法）。
@@ -145,59 +145,59 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-mref{background:var(--panel);color:var(--acc);box-shadow:inset 0 0 0 var(--hair) var(--acc-line-32);
   border-radius:var(--radius-3);padding:0 var(--sp-2);cursor:help}
 /* 附件（文件）：单独一排小芯片，它不是正文的一部分。 */
-.ac-mfs{max-width:100%;margin-bottom:var(--sp-4);display:flex;flex-wrap:wrap;gap:var(--sp-5);justify-content:flex-end}
+.ac-mfs{max-width:100%;margin-bottom:var(--sp-4);display:flex;flex-wrap:wrap;gap:var(--sp-4);justify-content:flex-end}
 /* ---------- 历史任务卡片（history 查询画在回答下面的那些） ----------
    图片直接显示、视频就地播、语音给播放器；src 一律是 Api.mediaSrc 换过的本机地址。
    .ac-card-media 上要有 .ready（Wb.thumbs 出画后加的），占位层 .tph 由 ui.css 排版。 */
-.ac-cards{display:flex;flex-direction:column;gap:var(--sp-7);width:100%}
-.ac-cards-hd{font-size:var(--fs-10);line-height:1.5;color:var(--sub)}
+.ac-cards{display:flex;flex-direction:column;gap:var(--sp-8);width:100%}
+.ac-cards-hd{font-size:var(--fs-11);line-height:1.5;color:var(--sub)}
 .ac-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-8);overflow:hidden}
 /* 窄栏里一列，图片给足高度：以前 max-height:220px 压在 420px 的面板里，
    产物是这层的主角，却被压成一张看不清的缩略图。 */
 .ac-card-media{position:relative;background:var(--thumbbg);aspect-ratio:16/9;overflow:hidden}
 .ac-card-media .ac-img{display:block;width:100%;height:100%;object-fit:cover;background:var(--thumbbg)}
 .ac-card-media .ac-vid{display:block;width:100%;height:100%;object-fit:contain;background:var(--media-bg)}
-.ac-aud{display:block;width:100%;padding:var(--sp-6) var(--sp-8)}
-.ac-card-bd{padding:var(--sp-7) var(--sp-9);display:flex;flex-direction:column;gap:var(--sp-4)}
-.ac-card-meta{font-size:var(--fs-10);line-height:1.5;color:var(--sub);overflow-wrap:anywhere}
+.ac-aud{display:block;width:100%;padding:var(--sp-8) var(--sp-8)}
+.ac-card-bd{padding:var(--sp-8) var(--sp-8);display:flex;flex-direction:column;gap:var(--sp-4)}
+.ac-card-meta{font-size:var(--fs-11);line-height:1.5;color:var(--sub);overflow-wrap:anywhere}
 .ac-card-prompt{font-size:var(--fs-12);line-height:1.55;color:var(--txt);overflow-wrap:anywhere;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .ac-card-ft{display:flex;align-items:center;gap:var(--sp-8);flex-wrap:wrap}
-.ac-card-id{font-size:var(--fs-10);line-height:1.5;color:var(--sub);overflow-wrap:anywhere;min-width:0}
+.ac-card-id{font-size:var(--fs-11);line-height:1.5;color:var(--sub);overflow-wrap:anywhere;min-width:0}
 .ac-card-go{border:var(--hair) solid var(--line);background:var(--panel);color:var(--txt);
-  border-radius:var(--radius-6);padding:var(--sp-2) var(--sp-8);font-size:var(--fs-10);line-height:1.5;cursor:pointer;white-space:nowrap}
+  border-radius:var(--radius-6);padding:var(--sp-2) var(--sp-8);font-size:var(--fs-11);line-height:1.5;cursor:pointer;white-space:nowrap}
 .ac-card-go:hover{border-color:var(--acc);color:var(--acc)}
 /* ---------- 选择框（ASK 画的） ----------
    面板本体是 InlinePolish.ask 画的，样式在 ui.css 的 .pinl 那一套 —— 这里只管它在这条消息里的位置。 */
 .ac-ask{width:100%}
-.ac-ask.done{font-size:var(--fs-11);line-height:1.55;color:var(--sub);padding:var(--sp-5) var(--sp-8);
+.ac-ask.done{font-size:var(--fs-11);line-height:1.55;color:var(--sub);padding:var(--sp-4) var(--sp-8);
   background:var(--panel2);border:var(--hair) dashed var(--line);border-radius:var(--radius-6);
   white-space:pre-wrap;overflow-wrap:anywhere}
 /* 球上的计数点：pointer-events:none —— 它盖在球的右上角，不能吃掉球的点击（否则点不动助手就等于弄丢） */
 .ac-dot{position:absolute;top:calc(-1 * var(--sp-4));right:calc(-1 * var(--sp-4));min-width:17px;height:17px;padding:0 var(--sp-4);border-radius:var(--radius-10);
-  background:var(--sub);color:var(--on-acc);font-size:var(--fs-10);font-weight:700;line-height:17px;text-align:center;
+  background:var(--sub);color:var(--on-acc);font-size:var(--fs-11);font-weight:700;line-height:17px;text-align:center;
   border:var(--hair-1-5) solid var(--panel);pointer-events:none}
-.ac-dot.new{background:var(--acc);animation:acPulse var(--dur-1600) ease-in-out infinite}
+.ac-dot.new{background:var(--acc);animation:acPulse var(--dur-1200) ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.ac-dot.new{animation:none}}
-.ac-ft{display:flex;align-items:center;gap:var(--sp-8);font-size:var(--fs-10);color:var(--sub)}
-.ac-ft button{border:0;background:transparent;color:var(--sub);font-size:var(--fs-10);padding:0;cursor:pointer}
+.ac-ft{display:flex;align-items:center;gap:var(--sp-8);font-size:var(--fs-11);color:var(--sub)}
+.ac-ft button{border:0;background:transparent;color:var(--sub);font-size:var(--fs-11);padding:0;cursor:pointer}
 .ac-ft button:hover{color:var(--acc)}
-.ac-step{align-self:flex-start;font-size:var(--fs-10);line-height:1.5;color:var(--sub);
-  background:var(--panel2);border:var(--hair) dashed var(--line);border-radius:var(--radius-6);padding:var(--sp-3) var(--sp-8);max-width:100%;overflow-wrap:anywhere}
+.ac-step{align-self:flex-start;font-size:var(--fs-11);line-height:1.5;color:var(--sub);
+  background:var(--panel2);border:var(--hair) dashed var(--line);border-radius:var(--radius-6);padding:var(--sp-4) var(--sp-8);max-width:100%;overflow-wrap:anywhere}
 /* 「工具活动」那张折叠卡退役了：那一轮的工序现在收成一条**脊**（.ac-spine），
    工序的顺序、状态、耗时在脊上一眼看得见，不必先展开一层。 */
 .ac-src{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-4) var(--sp-8);border:var(--hair) solid var(--line);border-radius:var(--radius-6);background:var(--panel)}
-.ac-src-h{font-size:var(--fs-10);color:var(--sub)}
+.ac-src-h{font-size:var(--fs-11);color:var(--sub)}
 .ac-src-a{font-size:var(--fs-11);line-height:1.5;color:var(--acc);text-decoration:none;overflow-wrap:anywhere}
 .ac-src-a:hover{text-decoration:underline}
-.ac-think{font-size:var(--fs-10);line-height:1.5;color:var(--sub);max-height:64px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.ac-think{font-size:var(--fs-11);line-height:1.5;color:var(--sub);max-height:64px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .ac-live .ac-bd:empty::before{content:'…';color:var(--sub)}
 /* 执行闸：等你点头的那一步 —— 琥珀（要花钱 / 要写盘 / 要覆盖）。
    执行完就回到普通卡：状态在 .ac-run-st 那一行上写着，卡不用一直喊。 */
 .ac-run{width:100%}
 .ac-run-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-8);
-  width:100%;padding:var(--sp-10) var(--sp-12)}
-.ac-run-hd{font-size:var(--fs-11-5);font-weight:700;color:var(--txt);margin-bottom:var(--sp-4)}
+  width:100%;padding:var(--sp-8) var(--sp-12)}
+.ac-run-hd{font-size:var(--fs-12);font-weight:700;color:var(--txt);margin-bottom:var(--sp-4)}
 .ac-run.s-gate .ac-run-card{border-color:color-mix(in srgb, var(--warn) var(--a-34), transparent);background:var(--warn-tint)}
 .ac-run.s-gate .ac-run-hd{color:var(--warn)}
 .ac-run.s-err .ac-run-card{border-color:color-mix(in srgb, var(--err) var(--a-34), transparent)}
@@ -205,9 +205,9 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-run.s-uncertain .ac-run-card{border-color:color-mix(in srgb, var(--warn) var(--a-34), transparent)}
 .ac-run.s-uncertain .ac-run-hd{color:var(--warn)}
 .ac-run.s-cancel{opacity:.72}
-.ac-run-row{font-size:var(--fs-11-5);line-height:1.6;color:var(--txt);white-space:pre-wrap;overflow-wrap:anywhere}
-.ac-run-bd{display:flex;align-items:center;gap:var(--sp-7)}
-.ac-run-st{font-size:var(--fs-11);line-height:1.55;margin-top:var(--sp-5);padding:var(--sp-5) var(--sp-8);border-radius:var(--radius-6);white-space:pre-wrap;overflow-wrap:anywhere;width:100%}
+.ac-run-row{font-size:var(--fs-12);line-height:1.6;color:var(--txt);white-space:pre-wrap;overflow-wrap:anywhere}
+.ac-run-bd{display:flex;align-items:center;gap:var(--sp-8)}
+.ac-run-st{font-size:var(--fs-11);line-height:1.55;margin-top:var(--sp-4);padding:var(--sp-4) var(--sp-8);border-radius:var(--radius-6);white-space:pre-wrap;overflow-wrap:anywhere;width:100%}
 .ac-run-st.ok{background:color-mix(in srgb, var(--ok) var(--a-10), transparent);border:var(--hair) solid color-mix(in srgb, var(--ok) var(--a-26), transparent);color:var(--ok)}
 .ac-run-st.err{background:color-mix(in srgb, var(--err) var(--a-8), transparent);border:var(--hair) solid color-mix(in srgb, var(--err) var(--a-24), transparent);color:var(--err)}
 /* 正在执行的那一会儿不能是绿色：绿色 = 「已经做完了」，而这一行写的是「正在提交…」，
@@ -216,35 +216,35 @@ html:not(.ac-dock) .ac-ta{resize:none}
 /* 「结果未知」用警告色（琥珀）：红色会被读成「没成」，绿色会被读成「成了」——
    这一档的真实含义是「不知道」，所以既不能借用失败色也不能借用成功色。 */
 .ac-run-st.uncertain{background:color-mix(in srgb, var(--warn) var(--a-8), transparent);border:var(--hair) solid color-mix(in srgb, var(--warn) var(--a-28), transparent);color:var(--warn)}
-.ac-run-changed{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-5);margin-top:var(--sp-6);font-size:var(--fs-10);color:var(--sub)}
+.ac-run-changed{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-4);margin-top:var(--sp-8);font-size:var(--fs-11);color:var(--sub)}
 .ac-loc{border:var(--hair) solid var(--line);background:var(--panel2);color:var(--txt);
-  font-size:var(--fs-10);line-height:1.4;padding:var(--sp-1) var(--sp-8);border-radius:var(--radius-10);cursor:pointer}
+  font-size:var(--fs-11);line-height:1.4;padding:var(--sp-2) var(--sp-8);border-radius:var(--radius-10);cursor:pointer}
 .ac-loc:hover{border-color:var(--acc);color:var(--acc)}
 .ac-skills{display:flex;flex-wrap:wrap;gap:var(--sp-4);align-self:flex-start;max-width:100%}
-.ac-skill{display:inline-flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-10);line-height:1.5;
+.ac-skill{display:inline-flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-11);line-height:1.5;
   padding:var(--sp-2) var(--sp-8);border-radius:var(--radius-14);border:var(--hair) solid var(--line);background:var(--panel);
   color:var(--txt);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ac-skill:hover{border-color:var(--acc);color:var(--acc)}
-.ac-skill-tag{font-style:normal;font-size:var(--fs-10);line-height:1.5;padding:0 var(--sp-4);border-radius:var(--radius-6);
+.ac-skill-tag{font-style:normal;font-size:var(--fs-11);line-height:1.5;padding:0 var(--sp-4);border-radius:var(--radius-6);
   background:color-mix(in srgb, var(--warn) var(--a-10), transparent);color:var(--warn);flex:0 0 auto}
 .ac-skill-tag.off{background:var(--panel2);color:var(--sub)}
-.ac-skill-pre{margin:0;padding:var(--sp-2) var(--sp-2) var(--sp-6);font-family:inherit;font-size:var(--fs-11-5);line-height:1.65;
+.ac-skill-pre{margin:0;padding:var(--sp-2) var(--sp-2) var(--sp-8);font-family:inherit;font-size:var(--fs-12);line-height:1.65;
   white-space:pre-wrap;overflow-wrap:anywhere;max-height:52vh;overflow:auto;color:var(--txt)}
-.ac-files{display:flex;flex-wrap:wrap;gap:var(--sp-5)}
-.ac-fi{display:inline-flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-10);line-height:1.4;color:var(--txt);
+.ac-files{display:flex;flex-wrap:wrap;gap:var(--sp-4)}
+.ac-fi{display:inline-flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-11);line-height:1.4;color:var(--txt);
   background:var(--panel2);border:var(--hair) solid var(--line);border-radius:var(--radius-14);padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-8);max-width:100%;overflow-wrap:anywhere}
 .ac-fi.warn{border-color:var(--warn);color:var(--warn)}
 .ac-fi button{border:0;background:transparent;color:var(--sub);font-size:var(--fs-13);line-height:1;cursor:pointer;padding:0 var(--sp-4)}
 .ac-fi button:hover{color:var(--err)}
 /* 用户那条消息下面的附件芯片：与输入框上那排同一套 .ac-fi，只是不可删
    （那是「这一条已经发出去了」的记录，不是草稿）。 */
-.ac-mfs{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-5);margin-bottom:var(--sp-4);
-  max-width:92%;font-size:var(--fs-10);color:var(--sub)}
+.ac-mfs{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-4);margin-bottom:var(--sp-4);
+  max-width:92%;font-size:var(--fs-11);color:var(--sub)}
 .ac-mfs .ac-fi{padding:var(--sp-2) var(--sp-8)}
-.ac-in{flex:0 0 auto;border-top:var(--hair) solid var(--line);padding:var(--sp-9) var(--sp-10);display:flex;flex-direction:column;gap:var(--sp-7)}
+.ac-in{flex:0 0 auto;border-top:var(--hair) solid var(--line);padding:var(--sp-8) var(--sp-8);display:flex;flex-direction:column;gap:var(--sp-8)}
 /* 输入框是「底 + 层 + 字」三层：背景与边框在 wrap（引用高亮画在文字**下面**，
    所以 textarea 自己必须透明）；字体/行高只在这里定义一份，textarea 与量矩形的镜像一起继承。 */
-.ac-ta-wrap{position:relative;width:100%;padding:var(--sp-8) var(--sp-9);font-family:inherit;font-size:var(--fs-12-5);line-height:1.5;
+.ac-ta-wrap{position:relative;width:100%;padding:var(--sp-8) var(--sp-8);font-family:inherit;font-size:var(--fs-13);line-height:1.5;
   color:var(--txt);background:var(--input);border:var(--hair) solid var(--line);
   border-radius:var(--radius-6);display:flex}
 .ac-ta-wrap:focus-within{border-color:var(--acc)}
@@ -259,9 +259,9 @@ html:not(.ac-dock) .ac-ta{resize:none}
    标记本来就是正文里的文字，键盘选中那段删掉就行 —— 删掉 = 这条引用作废（正文是真相）。
    少一个按钮，也少一处「高亮没了但引用还在」的暗坑。 */
 /* 悬停浮层：position:fixed 且挂 body，父级的 overflow 裁不到它（与导演台拖动示意同一手） */
-.ac-ref-tip{position:fixed;z-index:210;max-width:260px;display:flex;align-items:center;gap:var(--sp-7);padding:var(--sp-6);
+.ac-ref-tip{position:fixed;z-index:210;max-width:260px;display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-8);
   background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-10);box-shadow:var(--shadow-2);
-  pointer-events:none;font-size:var(--fs-10);color:var(--txt)}
+  pointer-events:none;font-size:var(--fs-11);color:var(--txt)}
 .ac-ref-tip[hidden]{display:none}
 .ac-ref-tip img{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-6);flex:0 0 auto}
 .ac-ref-tip-b{min-width:0;display:flex;flex-direction:column;gap:var(--sp-2)}
@@ -274,17 +274,17 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-refdl-meta{min-width:0;display:flex;flex-direction:column;gap:var(--sp-4);font-size:var(--fs-11);line-height:1.6}
 .ac-refdl-meta b{font-weight:600;overflow-wrap:anywhere}
 .ac-refdl-meta>div{color:var(--sub);overflow-wrap:anywhere}
-.ac-refdl-src{font-size:var(--fs-10);color:var(--sub);overflow-wrap:anywhere}
-.ac-row{display:flex;align-items:center;gap:var(--sp-7);flex-wrap:wrap}
+.ac-refdl-src{font-size:var(--fs-11);color:var(--sub);overflow-wrap:anywhere}
+.ac-row{display:flex;align-items:center;gap:var(--sp-8);flex-wrap:wrap}
 .ac-row .sp{flex:1 1 auto}
 /* 清空与发送之间拉开一档（危险动作不贴着主操作）；撤销那颗是清空后临时出现的。 */
 #acWipe{margin-right:var(--sp-12)}
-.ac-undo{margin-left:var(--sp-6);color:var(--acc)}
-.ac-hint{font-size:var(--fs-10);line-height:1.5;color:var(--sub)}
+.ac-undo{margin-left:var(--sp-8);color:var(--acc)}
+.ac-hint{font-size:var(--fs-11);line-height:1.5;color:var(--sub)}
 /* 抽屉里那一行**一次性**提示（note() 用）：与上面常驻的 .ac-hint 分两条通道 ——
    合成一句的话「读不到设置」那种要一直挂着的状态会被下一条提示冲掉，
    而「已删除那段会话」会在抽屉底下赖着不走。与 ui.js 的 AssetPicker 计数条同一套形状。 */
-.ac-note{font-size:var(--fs-11);line-height:1.5;margin-top:var(--sp-3);color:var(--sub)}
+.ac-note{font-size:var(--fs-11);line-height:1.5;margin-top:var(--sp-4);color:var(--sub)}
 .ac-note[hidden]{display:none}
 .ac-note.ok{color:var(--ok)}
 .ac-note.warn{color:var(--warn)}
@@ -297,34 +297,34 @@ html:not(.ac-dock) .ac-ta{resize:none}
    ④ 当前项多一个「当前」标（原来只有一条色弱的左边条） */
 .ac-scrim{position:absolute;inset:0;z-index:2;background:color-mix(in srgb, var(--txt) var(--a-10), transparent)}
 .ac-scrim[hidden]{display:none}
-.ac-hist{position:absolute;left:0;right:0;top:var(--sp-42);z-index:3;background:var(--panel);
-  border-bottom:var(--hair) solid var(--line);box-shadow:var(--shadow-11);
+.ac-hist{position:absolute;left:0;right:0;top:var(--sp-32);z-index:3;background:var(--panel);
+  border-bottom:var(--hair) solid var(--line);box-shadow:var(--shadow-3);
   max-height:min(520px,62vh);display:flex;flex-direction:column;overflow:hidden}
 .ac-hist[hidden]{display:none}
-.ac-hist-h{display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-9) var(--sp-12);border-bottom:var(--hair) solid var(--line);
-  font-size:var(--fs-10);color:var(--sub)}
+.ac-hist-h{display:flex;align-items:center;gap:var(--sp-8);padding:var(--sp-8) var(--sp-12);border-bottom:var(--hair) solid var(--line);
+  font-size:var(--fs-11);color:var(--sub)}
 .ac-hist-h b{flex:0 0 auto;font-size:var(--fs-12);font-weight:600;color:var(--txt)}
 .ac-hist-h span{flex:1 1 auto;text-align:right;font-variant-numeric:tabular-nums}
-.ac-hist-qrow{padding:var(--sp-7) var(--sp-12);border-bottom:var(--hair) solid var(--line)}
-.ac-hist-qrow input{width:100%;box-sizing:border-box;padding:var(--sp-5) var(--sp-8);border:var(--hair) solid var(--line);border-radius:var(--radius-6);
-  background:var(--input);color:var(--txt);font:inherit;font-size:var(--fs-11-5);outline:none}
+.ac-hist-qrow{padding:var(--sp-8) var(--sp-12);border-bottom:var(--hair) solid var(--line)}
+.ac-hist-qrow input{width:100%;box-sizing:border-box;padding:var(--sp-4) var(--sp-8);border:var(--hair) solid var(--line);border-radius:var(--radius-6);
+  background:var(--input);color:var(--txt);font:inherit;font-size:var(--fs-12);outline:none}
 .ac-hist-qrow input:focus{border-color:var(--acc)}
 .ac-hist-l{overflow-y:auto;padding:var(--sp-4) var(--sp-8)}
 .ac-hs{position:relative;display:block;width:100%;text-align:left;border:0;background:transparent;
-  border-radius:var(--radius-6);padding:var(--sp-8) var(--sp-34) var(--sp-8) var(--sp-10);cursor:pointer;color:inherit;font:inherit;
+  border-radius:var(--radius-6);padding:var(--sp-8) var(--sp-32) var(--sp-8) var(--sp-8);cursor:pointer;color:inherit;font:inherit;
   border-bottom:var(--hair) solid var(--line)}
 .ac-hs:last-child{border-bottom:0}
 .ac-hs:hover{background:var(--input)}
 .ac-hs.on{background:var(--input);box-shadow:inset 2px 0 0 var(--acc)}
-.ac-hs-t{font-size:var(--fs-12-5);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ac-hs-m{font-size:var(--fs-10);color:var(--sub);margin-top:var(--sp-3);display:flex;align-items:center;gap:var(--sp-7);
+.ac-hs-t{font-size:var(--fs-13);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ac-hs-m{font-size:var(--fs-11);color:var(--sub);margin-top:var(--sp-4);display:flex;align-items:center;gap:var(--sp-8);
   font-variant-numeric:tabular-nums}
 .ac-hs-cur{font-style:normal;color:var(--acc);font-weight:600}
-.ac-hs-x{position:absolute;right:var(--sp-5);top:var(--sp-8);width:var(--sp-20);height:var(--sp-20);
+.ac-hs-x{position:absolute;right:var(--sp-4);top:var(--sp-8);width:var(--sp-24);height:var(--sp-24);
   display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--sub);
   font-size:var(--fs-14);line-height:1;cursor:pointer;padding:0;border-radius:var(--radius-6)}
 .ac-hs-x:hover{color:var(--err);background:var(--panel)}
-.ac-x.ic{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-3)}
+.ac-x.ic{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-4)}
 .ac-x.ic:hover{background:var(--input)}
 .ac-x.on{color:var(--acc);background:var(--input)}
 #acPanel.ac-drop{outline:var(--hair-2) dashed var(--acc);outline-offset:calc(-1 * var(--hair-6))}

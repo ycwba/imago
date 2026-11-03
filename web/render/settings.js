@@ -1755,7 +1755,7 @@ export function render(_ctx, _cache) {
             ]),
             _cache[79] || (_cache[79] = _createElementVNode("label", {
               class: "plabel",
-              style: {"margin-top":"var(--sp-14)"}
+              style: {"margin-top":"var(--sp-16)"}
             }, "云同步（WebDAV）", -1 /* CACHED */)),
             _cache[80] || (_cache[80] = _createElementVNode("div", {
               class: "pb-tip",
