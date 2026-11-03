@@ -16,6 +16,7 @@
      G13 代理运行时不跑 ffmpeg / ffprobe（转码与取帧都在浏览器里）
      G16 `createElement('video')` 只许出现在 web/media-backend.js
      G24 公共件之外不许手写「滚动位存取对」（读 scrollTop → 重画 → 原样写回；还原只许 Wb.viewport 一份，表必须空）
+     G25 样式表里不许有「没有选择器的孤儿声明块」（选择器那一行被删掉 = 整块被 CSS 错误恢复吞掉）
    存量违例一律**登记在案**（下面的表），基线只许减不许增：新出现一条身份就直接红。
    表是数据表，不是一堆 `|| true`；`GUARD_WRITE=1 node tests/static-guards.cjs` 会按现状重打表，
    收敛之后照抄粘回来即可。
@@ -803,6 +804,63 @@ function detectScrollPair(file, src) {
   return out;
 }
 
+/* G25 样式表里不许有「没有选择器的孤儿声明块」：机械改写时把 `.foo {` 那一行整行删掉，
+   剩下那一串 `属性: 值;` 就挂在顶层，末尾多出一只没人配对的 `}`。浏览器按 CSS 错误恢复把
+   整块吞掉，于是这一组类只剩 `:hover`、`.on` 那些**另写成一块**的规则还在生效 —— 屏幕上是没有
+   底色、没有高度、没有圆角的裸文字。体检、check-vars、G18 都看不见：那串声明本身合法、令牌也都在。
+   按花括号深度扫全文（先剥注释；字符串整段跳过；括号里的分号不算一段）：
+     ① 顶层多出一只 `}`；
+     ② 以 `属性: 值` 开头、用 `;` 或 `}` 收尾的片段落在顶层，或落在 @media / @keyframes 这类
+        「块里只该装规则」的 at-rule 底下。
+   选择器一律以 `{` 收尾，所以 `input:focus {` 这种带冒号的选择器不会被当声明；`@font-face`
+   那类块里装的就是声明，不在射程里（本仓样式表只有 @media 与 @keyframes）。同一次事故只计一条
+   （那一串声明与紧随其后的那只收尾括号是同一块）。现状 0 处 —— 这条是守住现状的栏杆，不是清存量。 */
+const G25_ORPHAN_CSS = [];
+const G25_RULE_BLOCKS = /^@(?:media|supports|layer|container|document|scope|keyframes)\b/;
+function detectOrphanCss(file, src) {
+  const text = String(src).replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = {};
+  const isDecl = s => /^\s*[-a-zA-Z][-\w]*\s*:/.test(s);
+  const stack = [];                                   // 每一层花括号是谁开的（它前面的那一段）
+  const checkable = () => !stack.length || (stack.length === 1 && G25_RULE_BLOCKS.test(stack[0]));
+  let seg = '', par = 0, orphan = false;
+  const hit = () => { out[file] = (out[file] || 0) + 1; };
+  const endSeg = term => {
+    const s = seg.trim();
+    seg = '';
+    if (term === '{') { stack.push(s); orphan = false; return; }
+    if (s && isDecl(s) && checkable() && !orphan) { hit(); orphan = true; }
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'") {                     // 字符串整段跳过：里面的括号与分号都不作数
+      let j = i + 1;
+      while (j < text.length) {
+        if (text[j] === '\\') { j += 2; continue; }
+        if (text[j] === c) break;
+        j++;
+      }
+      seg += text.slice(i, Math.min(j + 1, text.length));
+      i = j;
+      continue;
+    }
+    if (c === '(') { par++; seg += c; continue; }
+    if (c === ')') { if (par) par--; seg += c; continue; }
+    if (par) { seg += c; continue; }
+    if (c === ';') { endSeg(';'); continue; }
+    if (c === '{') { endSeg('{'); continue; }
+    if (c === '}') {
+      if (!stack.length) { if (!orphan) hit(); orphan = false; continue; }
+      endSeg('}');
+      stack.pop();
+      orphan = false;
+      continue;
+    }
+    seg += c;
+  }
+  return out;
+}
+
 /* G18 的探测器：规则表复用 tools/token-lib.cjs（值→令牌的映射只有一份），
    这里只负责把「哪些声明算裸值」的结果变成判据的条目。 */
 const T = require('../tools/token-lib.cjs');
@@ -955,6 +1013,10 @@ const GUARDS = [
     sampleFile: 'web/pages/synthetic.js', okFile: 'web/pages/synthetic.js',
     sample: `function paintBox(box, html) {\n  const top = box.scrollTop;\n  box.innerHTML = html;\n  box.scrollTop = top;\n}`,
     ok: `function paintBox(box, html) { Wb.viewport.keep(box, () => { box.innerHTML = html; }); }\nfunction stickBottom(box) { if (box.scrollTop + box.clientHeight >= box.scrollHeight - 40) box.scrollTop = box.scrollHeight; }\nback.innerHTML = render(ta.value); back.scrollTop = ta.scrollTop;\nfunction jumpTop(list) { list.scrollTop = 0; }` },
+  { key: 'G25', title: '样式表里不许有无选择器的孤儿声明块', table: G25_ORPHAN_CSS, kind: 'counts', detect: detectOrphanCss,
+    sources: cssFiles, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
+    sample: `.demo-a { color: var(--pri); }\nheight: var(--sz-chip); border: var(--hair) solid var(--line); }`,
+    ok: `.demo-a { color: var(--pri); }\ninput:focus { border-color: var(--acc); }\n@media (max-width: 760px) { .demo-a { color: var(--acc); } }\n@keyframes demo-spin { from { opacity: 0; } to { opacity: 1; } }\n.demo-b { background: url("data:image/svg+xml;charset=utf8,%3Csvg%3E"); content: "}"; }` },
 ];
 
 /* ============================ 跑 ============================ */

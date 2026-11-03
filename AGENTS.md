@@ -413,7 +413,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | --- | --- | --- |
 | 体检 | 样式层还有没有裸值 | `node tools/tokenize-css.cjs`（`--write` 机械替换 / `--remap=sp,fs` 档位改名 / `--map` 看映射） |
 | 引用完整性 | 有没有引了没定义的令牌（静默失效） | `node tools/check-vars.cjs` |
-| 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 / G24 手写滚动位存取对（滚动位还原只许 `Wb.viewport` 一份） | `node tests/static-guards.cjs` |
+| 静态判据 | G18 裸值 / G19 主题色深浅两档成对覆盖 / G20 页面不顶层定义公共类 / G21 透明度阶梯 / G22 断点登记 / G23 注释不写文档引用 / G24 手写滚动位存取对（滚动位还原只许 `Wb.viewport` 一份）/ G25 无选择器的孤儿声明块（选择器那一行整行没了 = 整块被 CSS 错误恢复吞掉，体检与 check-vars 都看不见） | `node tests/static-guards.cjs` |
 | 视觉回归 | 画面有没有变 | `node tests/e2e/ui-visual.cjs` |
 | 一条命令 | 上面前三行 + 文档契约一起跑 | `npm run static` |
 

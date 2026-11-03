@@ -134,8 +134,8 @@ for (const f of ['tools/tokenize-css.cjs', 'tools/token-lib.cjs', 'tools/check-v
 }
 const guardSrc = read('tests/static-guards.cjs');
 const nGuards = (guardSrc.match(/key: 'G\d+'/g) || []).length;
-ok(nGuards === 23, '静态判据应为 23 条，实际 ' + nGuards);
-for (const g of ['G18', 'G19', 'G20', 'G21', 'G22', 'G23', 'G24']) {
+ok(nGuards === 24, '静态判据应为 24 条，实际 ' + nGuards);
+for (const g of ['G18', 'G19', 'G20', 'G21', 'G22', 'G23', 'G24', 'G25']) {
   ok(guardSrc.includes("key: '" + g + "'"), '判据 ' + g + ' 不在了（设计规范点名了它）');
 }
 const nVis = Object.keys(JSON.parse(read('tests/fixtures/visual/fingerprints.json')).screens).length;

@@ -44,9 +44,9 @@
 .chars-page .rail-new { display: flex; align-items: center; gap: var(--sp-8); margin: var(--sp-4) 0;
   padding: var(--sp-4) var(--sp-8); border: var(--hair) dashed var(--acc-line-32); border-radius: var(--radius-10);
   background: var(--acc-tint-10); }
-height: var(--sz-ctl); padding: 0 var(--sp-8);
+.chars-page .rail-new-inp { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl); padding: 0 var(--sp-8);
   border: var(--hair) solid var(--acc); border-radius: var(--radius-6); background: var(--panel);
-  color: var(--txt); font-family: inherit; font-size: var(--fs-12); outline: none; }
+  color: var(--txt); font-family: inherit; font-size: var(--fs-12); }
 .chars-page .rail-new .ghost { flex: 0 0 auto; padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11); }
 .chars-page .mat-stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .chars-page .mat-head { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-12); padding: var(--sp-8) 0 var(--sp-16); }

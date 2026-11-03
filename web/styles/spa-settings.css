@@ -124,7 +124,7 @@
 .settings-page .acct-tools { margin-bottom: var(--sp-12); }
 .settings-page .filters { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
 /* 「全部 / 图片 / 视频 / …」这排按档筛的芯片：与「多选 / 刷新」同档小圆角，不再是胶囊。 */
-height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
+.settings-page .fchip { height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel); color: var(--txt);
   font-size: var(--fs-12); }
 .settings-page .fchip:hover { border-color: var(--acc); color: var(--acc); }
@@ -179,15 +179,15 @@ height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
 .settings-page .acct-mid::-webkit-scrollbar { width: var(--sz-scroll); }
 
 /* 密钥开关：就在名字右边（收着是常态 —— 地址不再单独可编辑，密钥是这一张卡唯一要填的东西）。 */
-height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
+.settings-page .keytoggle { height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel2); color: var(--sub); font-size: var(--fs-11); }
 .settings-page .keytoggle:hover { border-color: var(--acc); color: var(--acc); }
 .settings-page .keytoggle.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
 /* 卡里的键值行：这一张卡只有 330px 宽，标签列与输入框都窄一档。 */
 .settings-page .acct .krow { gap: var(--sp-8); margin: 0; padding: var(--sp-8) 0; }
 .settings-page .acct .krow > .kn { flex: 0 0 var(--sp-32); }
-height: var(--sz-ctl); font-size: var(--fs-12); }
-height: var(--sz-ctl); }
+.settings-page .acct .krow input { flex: 1 1 0; min-width: 0; height: var(--sz-ctl); font-size: var(--fs-12); }
+.settings-page .acct .krow .eye, .settings-page .acct .krow .clr { padding: 0 var(--sp-8); height: var(--sz-ctl); }
 .settings-page .acct .keyrow { flex-wrap: nowrap; }
 .settings-page .acct .msg { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
 .settings-page .acct .msg.ok { color: var(--ok); }
@@ -197,7 +197,7 @@ height: var(--sz-ctl); }
 /* 卡底右侧那枚余额：读外壳那一份（与侧栏「账户余额」同一份缓存），旁边那颗勾选只管左侧栏。
    固定在卡底那一行的右端（换行时也靠右）；取不到时卡面只写「读取失败」，原因挂在 title 上
    （与侧栏余额卡同一口径）。 */
-height: var(--sz-chip);
+.settings-page .balnow { display: inline-flex; align-items: center; gap: var(--sp-4); height: var(--sz-chip);
   margin-left: auto; padding: 0 var(--sp-8); border-radius: var(--radius-6); border: var(--hair) solid var(--line);
   background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
 .settings-page .balnow b { color: var(--txt); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -206,7 +206,7 @@ height: var(--sz-chip);
 .settings-page .balnow.err b { color: var(--err); }
 
 /* 状态牌：实心 = 主位、淡底 = 在用、白底 = 备用、虚线压暗 = 停用。 */
-height: var(--sz-chip);
+.settings-page .st { display: inline-flex; align-items: center; gap: var(--sp-4); height: var(--sz-chip);
   padding: 0 var(--sp-8); border-radius: var(--radius-6); border: var(--hair) solid var(--line);
   background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
 .settings-page .st.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
@@ -222,7 +222,7 @@ height: var(--sz-chip);
 
 /* 卡顶那一排能力格：只画这家会的几档，点一格 = 切 / 停这一档（语义见 plateTitle）。 */
 .settings-page .capstrip { display: flex; gap: var(--sp-4); flex-wrap: wrap; }
-width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
+.settings-page .capcell { width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel2); color: var(--sub);
   font-family: var(--font-mono); font-size: var(--fs-11); display: flex; align-items: center; justify-content: center; }
 .settings-page button.capcell { cursor: pointer; }
@@ -248,7 +248,7 @@ width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11);
   display: inline-flex; align-items: center; justify-content: center; }
 .settings-page .acct-mid > .crow .dd { flex: 1 1 0; min-width: 0; }
-height: var(--sz-ctl); font-size: var(--fs-12); }
+.settings-page .acct-mid > .crow .dd-btn { width: 100%; height: var(--sz-ctl); font-size: var(--fs-12); }
 .settings-page .acct-mid > .crow > .hint { flex: 1 1 0; min-width: 0; }
 .settings-page .acct-mid > .crow > .hint code { font-size: var(--fs-11); }
 .settings-page .acct-mid > .crow.dim > .cn { color: var(--sub); }
@@ -287,7 +287,7 @@ height: var(--sz-ctl); font-size: var(--fs-12); }
 .settings-page .capadd-h > span:first-child { font-size: var(--fs-12); font-weight: 600; }
 .settings-page .capadd-h .sp { flex: 1 1 auto; }
 .settings-page .pickrow { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
-height: var(--sz-chip); padding: 0 var(--sp-8); }
+.settings-page .pickchip { height: var(--sz-chip); padding: 0 var(--sp-8); }
 .settings-page .pickchip:hover { border-color: var(--acc); color: var(--acc); background: var(--acc-tint-10); }
 /* 手动声明的那一档在能力名后面挂一枚「手动」：它不在注册表里，看到它就该知道是这里加的。 */
 .settings-page .manual { flex: 0 0 auto; padding: var(--hair) var(--sp-4); border-radius: var(--radius-4);
@@ -315,7 +315,7 @@ height: var(--sz-chip); padding: 0 var(--sp-8); }
 /* 添加卡里的「还接着的那几家」：一行一家，点「添加」只把它请进界面，什么都不写。 */
 .settings-page .preset { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) 0; }
 .settings-page .preset + .preset { border-top: var(--hair) solid var(--line); }
-width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
+.settings-page .preset .pg { flex: 0 0 auto; width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11);
   display: flex; align-items: center; justify-content: center; }
 .settings-page .preset .pw { flex: 1 1 auto; min-width: 0; }
@@ -419,7 +419,7 @@ width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
 .settings-page .set-rail-h { flex: 0 0 auto; padding: 0 var(--sp-12) var(--sp-8);
   font-size: var(--fs-12); font-weight: 600; color: var(--sub); letter-spacing: .08em; }
 .settings-page .set-rail-top { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); }
-height: var(--sz-ctl);
+.settings-page .set-rail-top input[type=search] { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl);
   padding: 0 var(--sp-12); background: var(--panel2); border: var(--hair) solid var(--line);
   border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-13); }
 .settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
