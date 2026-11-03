@@ -128,7 +128,7 @@
 .studio-page.wb .col-right #result > .list-note,
 .studio-page.wb .col-right #result > .empty { grid-column: 1 / -1; }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .studio-page textarea { min-height: 112px; font-size: var(--fs-13); }
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }

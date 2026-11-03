@@ -53,7 +53,7 @@
 .settings-page > .phead { padding: var(--sp-12) 0 var(--sp-12); }
 
 /* 窄窗口：收紧留白，键值行允许折行（这一档断点是原来就有的，要保留） */
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .settings-page .krow input, .settings-page .krow select { min-width: 0; }
 }
 /* ≤760 那一档 ui.css 的 `.page-shell` 把左右留白收到 --sp-14，这一页跟着同一档 */

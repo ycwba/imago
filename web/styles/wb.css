@@ -72,9 +72,9 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
    滚动**不能交给 .wb**：页头是透明 sticky（这一页的底是渐变），滚在 .wb 上时
    列表会从标题底下穿过去；而且 .wb 一旦 height:auto 就把整页撑开，页头也不粘了。
    留白一律读 --shell-px（760 以下收到 14），标题与内容列才不会在窗口变窄时错位。 */
-@media (max-width: 960px) {
+@media (max-width: 1100px) {
   .wb .layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow-y: auto; overflow-x: hidden; }
   .wb .col-left, .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
 }
 @media (max-width: 760px) { .wb { --shell-px: var(--sp-16); } }
-@media (max-width: 720px) { .wb .layout { padding: var(--sp-12) var(--shell-px); gap: var(--sp-16); } }
+@media (max-width: 760px) { .wb .layout { padding: var(--sp-12) var(--shell-px); gap: var(--sp-16); } }

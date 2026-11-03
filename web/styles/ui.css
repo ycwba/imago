@@ -709,7 +709,7 @@ button.armed { min-width: 4.6em; }
   border: 0; background: none; padding: 0; line-height: 1.4; }
 .ui-wait.fill i { width: var(--sz-ico); height: var(--sz-ico); flex: 0 0 var(--sz-ico); display: block; }
 @keyframes ui-spin { to { transform: rotate(360deg); } }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .btn-row { gap: var(--sp-8); }
   .tool { height: var(--sz-ctl-sm); padding: 0 var(--sp-8); font-size: var(--fs-12); }
 }

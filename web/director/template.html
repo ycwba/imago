@@ -108,7 +108,7 @@
     .col-right { flex: 1 1 100%; }
     /* 视频栏定高一档（主规则那一条 clamp）：窄窗下候选条与顺序条更要完整可见，不再放宽 */
   }
-  @media (max-width: 620px) {
+  @media (max-width: 760px) {
     /* 很窄：彻底单列，每块整行 */
     .col-left, .col-mid, .col-right { flex: 1 1 100%; max-height: none; }
     .col-left { max-height: 44vh; }
@@ -117,7 +117,7 @@
   @media (max-width: 760px) {
     .page-main { --shell-px: var(--sp-16); }
   }
-  @media (max-width: 700px) {
+  @media (max-width: 760px) {
     header input.pname { width: 100%; order: 9; }
     .layout { padding: var(--sp-8) var(--shell-px); }
   }

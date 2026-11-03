@@ -257,7 +257,7 @@ height: var(--sz-ctl); padding: 0 var(--sp-8);
 .chars-page .why { font-size: var(--fs-12); color: var(--err); line-height: 1.5; }
 .chars-page .rail-toggle, .chars-page .rail-close, .chars-page .mat-scrim { display: none; }
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .chars-page .mat { grid-template-columns: var(--rail-w) minmax(0, 1fr); gap: var(--sp-16); }
   .chars-page .mat-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sz-card-sm)), 1fr)); }
 }
