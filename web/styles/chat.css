@@ -46,7 +46,7 @@ html.ac-dock #acPanel{box-shadow:none}
    这一稿把抓手**画出来**：产品那根默认看不见，鼠标摸到才知道能拖。 */
 .ac-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:5;touch-action:none;
   display:flex;align-items:center;justify-content:center}
-.ac-grip::after{content:'';width:var(--hair-3);height:var(--sp-32);border-radius:var(--radius-3);
+.ac-grip::after{content:'';width:var(--hair-3);height:var(--sp-32);border-radius:var(--radius-4);
   background:var(--line);transition:background var(--dur-120) var(--ease)}
 .ac-grip:hover{background:var(--acc-tint-18)}
 .ac-grip:hover::after{background:var(--acc)}
@@ -54,7 +54,7 @@ html.ac-dock #acPanel{box-shadow:none}
    输入框自己也有 resize:vertical —— 浮窗档把它关掉，高度只留面板这一根把手，免得拉到错的那个。 */
 .ac-grip-b{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:row-resize;z-index:5;touch-action:none;
   display:flex;align-items:flex-end;justify-content:center}
-.ac-grip-b::after{content:'';height:var(--hair-3);width:var(--sp-32);border-radius:var(--radius-3);
+.ac-grip-b::after{content:'';height:var(--hair-3);width:var(--sp-32);border-radius:var(--radius-4);
   background:var(--line);transition:background var(--dur-120) var(--ease)}
 .ac-grip-b:hover{background:var(--acc-tint-18)}
 .ac-grip-b:hover::after{background:var(--acc)}
@@ -108,7 +108,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
   border:var(--hair) solid var(--line);border-radius:var(--radius-10);background:var(--panel);
   padding:var(--sp-12) var(--sp-16) var(--sp-12) var(--sp-16);box-shadow:var(--shadow-2)}
 .ac-job::before{content:'';position:absolute;left:0;top:var(--sp-8);bottom:var(--sp-8);
-  width:var(--accent-bar);border-radius:0 var(--radius-3) var(--radius-3) 0;background:var(--line)}
+  width:var(--accent-bar);border-radius:0 var(--radius-4) var(--radius-4) 0;background:var(--line)}
 
 .ac-job.s-gate::before{background:var(--warn)}
 
@@ -142,7 +142,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
 /* 消息里的引用：正文里的一段高亮文字（跟输入框那一个同款手法）。
    底色按所在容器翻过来 —— 紫底上用白底 + accent 描边，不然高亮与气泡糊在一起。 */
 .ac-mref{background:var(--panel);color:var(--acc);box-shadow:inset 0 0 0 var(--hair) var(--acc-line-32);
-  border-radius:var(--radius-3);padding:0 var(--sp-2);cursor:help}
+  border-radius:var(--radius-4);padding:0 var(--sp-2);cursor:help}
 /* 附件（文件）：单独一排小芯片，它不是正文的一部分。 */
 .ac-mfs{max-width:100%;margin-bottom:var(--sp-4);display:flex;flex-wrap:wrap;gap:var(--sp-4);justify-content:flex-end}
 /* ---------- 历史任务卡片（history 查询画在回答下面的那些） ----------
@@ -253,7 +253,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-ref-layer{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit}
 .ac-ta-mirror{position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;z-index:-1;
   white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;padding:0;border:0}
-.ac-ref-hl{position:absolute;background:color-mix(in srgb, var(--acc) var(--a-14), transparent);border-radius:var(--radius-3);pointer-events:none}
+.ac-ref-hl{position:absolute;background:color-mix(in srgb, var(--acc) var(--a-14), transparent);border-radius:var(--radius-4);pointer-events:none}
 /* 以前高亮右侧有一个 ×（.ac-ref-x）当删除入口，现在去掉了：
    标记本来就是正文里的文字，键盘选中那段删掉就行 —— 删掉 = 这条引用作废（正文是真相）。
    少一个按钮，也少一处「高亮没了但引用还在」的暗坑。 */

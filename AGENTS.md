@@ -335,6 +335,20 @@ frame-ancestors 'none'; worker-src 'self' blob:
 ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` 面）也只经「公共层：唯一实现清单」点名的入口。
 页面不许深路径引用组件，也不许照着公共件再写一份「看起来差不多」的。
 
+**形状与尺寸只有这几种角色**（圆角与控件高都从令牌取，不许再发明中间档）：
+
+| 角色 | 圆角 | 高 |
+| --- | --- | --- |
+| 控件（按钮 / 输入 / 分段 / 下拉按钮） | `--radius-6` | 常规 `--sz-ctl`、小号 `--sz-ctl-sm`、大号 `--sz-ctl-lg` |
+| 容器（表单行 / 参数卡 / 提示条 / 下拉面板 / 小卡） | `--radius-10` | 不锁高 |
+| 大卡 / 弹窗（`.task`、`dialog.ui-dlg` 一族） | `--radius-14` | 弹窗按内容 |
+| 胶囊（`.ui-tag` / `.ui-pill` / `.ai-chip` / `.phead-chip`） | `--radius-999` | `--sz-chip` |
+| 方正内件（`.did` / `.seg-n` / 导演台方正覆盖） | `--radius-4` | 按内容 |
+
+键盘焦点环只有全站兜底一份（`ui.css` 末尾的 `:focus-visible`）；组件与页面不许再写
+同一圈 outline，也不许用基态 `outline: none` 把它压掉 —— 输入族的鼠标焦点反馈是
+`:focus` 时 `border-color: var(--acc)`。
+
 **公共样式类**（`web/styles/ui.css` / `wb.css` 里的公共层）—— 页面只许在自己的根类下改它们：
 
 | 角色 | 公共类 |

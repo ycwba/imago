@@ -134,11 +134,9 @@
   --fs-16:16px; --fs-20:20px; --fs-24:24px;
   --fs-42:42px; --fs-54:54px;
 
-  /* ---------- 尺寸档位：圆角 ----------
-     主档：6 10 14；其余为补档。 */
-  --radius-1:1px; --radius-2:2px; --radius-3:3px; --radius-4:4px; --radius-5:5px;
-  --radius-6:6px; --radius-7:7px; --radius-8:8px; --radius-9:9px; --radius-10:10px;
-  --radius-12:12px; --radius-14:14px; --radius-20:20px; --radius-99:99px; --radius-999:999px;
+  /* ---------- 尺寸档位：圆角（终表 5 档，按角色）----------
+     4 方正内件 / 6 控件 / 10 小容器 / 14 大卡弹窗 / 999 胶囊。 */
+  --radius-4:4px; --radius-6:6px; --radius-10:10px; --radius-14:14px; --radius-999:999px;
 
   /* ---------- 尺寸档位：描边宽 ----------
      1px 是全站最多的描边，给个短名 --hair；其余按值。 */

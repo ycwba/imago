@@ -51,7 +51,7 @@ html.sb-narrow.sb-open .sidebar { box-shadow: var(--shadow-2); }
 /* 当前项：贴着侧栏内边缘的那道强调条（满形态才有 —— 窄形态那一栏窄，
    留给「实心方块」去说「你在哪」，两处都摆就成了两套话）。 */
 .sidebar nav a.active::before { content: ""; position: absolute; left: calc(-1 * var(--sp-8)); top: var(--sp-8);
-  bottom: var(--sp-8); width: 3px; border-radius: 0 var(--radius-3) var(--radius-3) 0; background: var(--acc); }
+  bottom: var(--sp-8); width: 3px; border-radius: 0 var(--radius-4) var(--radius-4) 0; background: var(--acc); }
 .sidebar nav a { position: relative; }
 /* 图标位那一列的盒子（导航 + 设置入口共用一份）：满形态 22px 宽。 */
 .sidebar nav a .ic, .sidebar .sb-set .ic { width: 22px; flex: 0 0 22px; text-align: center; font-size: var(--fs-16);
@@ -73,7 +73,7 @@ html:not(.sb-open) .sidebar nav a .ic { width: 26px; flex: 0 0 26px; height: 26p
 html:not(.sb-open) .sidebar nav a.active { background: none; }
 html:not(.sb-open) .sidebar nav a.active::before { display: none; }
 /* 当前项在窄形态变成**实心方块**：56px 里最认得出的一种「你在哪」。 */
-html:not(.sb-open) .sidebar nav a.active .ic { background: var(--pri); color: var(--on-acc); border-radius: var(--radius-8); }
+html:not(.sb-open) .sidebar nav a.active .ic { background: var(--pri); color: var(--on-acc); border-radius: var(--radius-6); }
 html:not(.sb-open) .sidebar nav a.active .sh { color: var(--acc); font-weight: 700; }
 html:not(.sb-open) .sidebar .sb-brand { padding-right: 0; }
 html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; height: var(--sz-ctl-lg); }
@@ -136,7 +136,7 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
 .sb-bal-sum .p.sto b { color: var(--txt); }
 /* 每家一个点 */
 .sb-bal-dots { display: flex; justify-content: center; gap: var(--sp-4); margin-top: var(--sp-4); }
-.sb-bal-dots i { display: block; width: 5px; height: 5px; border-radius: var(--radius-99); }
+.sb-bal-dots i { display: block; width: 5px; height: 5px; border-radius: var(--radius-999); }
 .sb-bal-dots i.ok { background: var(--acc); }
 .sb-bal-dots i.bad { background: transparent; border: var(--hair-1-5) solid var(--err); }
 .sb-bal-sum-sep { height: var(--hair); background: var(--line); margin: var(--sp-8) var(--sp-4) var(--sp-4); }

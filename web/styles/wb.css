@@ -51,7 +51,7 @@
 .wb .col-left::-webkit-scrollbar-track,
 .wb .col-right #result::-webkit-scrollbar-track { background: transparent; }
 .wb .col-left::-webkit-scrollbar-thumb,
-.wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+.wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
 html[data-theme="dark"] .wb .col-left::-webkit-scrollbar-thumb,
 html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); }
 

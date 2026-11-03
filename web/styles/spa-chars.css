@@ -34,7 +34,7 @@
 /* 选中行左侧的强调条：目录轨里一眼认出「现在在看哪一档」。 */
 .chars-page .rail-row.on::before {
   content: ''; position: absolute; left: 0; top: var(--sp-8); bottom: var(--sp-8);
-  width: var(--sp-2); border-radius: var(--radius-99); background: var(--acc); }
+  width: var(--sp-2); border-radius: var(--radius-999); background: var(--acc); }
 .chars-page .rail-row.on > svg { color: var(--acc); }
 .chars-page .rail-row .n { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-12); color: var(--sub); font-variant-numeric: tabular-nums; }
 .chars-page .rail-row.on .n { color: var(--acc); }
@@ -77,7 +77,7 @@ height: var(--sz-ctl); padding: 0 var(--sp-8);
 /* 锚点徽章：缩略图右上的小胶囊（出图优先用哪一张的身份标记）。 */
 .chars-page .anchorbadge {
   position: absolute; top: var(--sp-8); right: var(--sp-8); z-index: 2;
-  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-99);
+  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-999);
   background: color-mix(in srgb, var(--acc) var(--a-12), transparent);
   color: var(--acc); font-size: var(--fs-11); font-weight: 600; line-height: 1.6; }
 /* 出错原因盖在图底：它就是这张图为什么没出来，看图的地方就要看得到。 */
@@ -90,7 +90,7 @@ height: var(--sz-ctl); padding: 0 var(--sp-8);
 .chars-page .mbody { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-16); min-width: 0; }
 .chars-page .mmeta { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; color: var(--sub); font-size: var(--fs-12); }
 .chars-page .mkind { display: inline-flex; align-items: center; gap: var(--sp-4); flex-shrink: 0;
-  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-99); background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
+  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-999); background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
 .chars-page .mgroup { border-left: var(--hair) solid var(--line); padding-left: var(--sp-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chars-page .mrow { display: flex; align-items: baseline; gap: var(--sp-8); min-width: 0; }
 .chars-page .mname { font-size: var(--fs-16); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -100,12 +100,12 @@ height: var(--sz-ctl); padding: 0 var(--sp-8);
 /* 完备度点阵 + 「缺 N 项 / 齐了」包成一枚状态胶囊，扫卡时归得成类。 */
 .chars-page .mstat-pill {
   display: inline-flex; align-items: center; gap: var(--sp-8);
-  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-99); background: var(--panel2); }
+  padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-999); background: var(--panel2); }
 .chars-page .mstat { font-size: var(--fs-11); color: var(--sub); }
 .chars-page .mstat.is-warn { color: var(--warn); }
 .chars-page .mstat.is-err { color: var(--err); }
 .chars-page .mdots { display: inline-flex; align-items: center; gap: var(--sp-4); }
-.chars-page .mdots i { display: block; width: 6px; height: 6px; border-radius: var(--radius-99); }
+.chars-page .mdots i { display: block; width: 6px; height: 6px; border-radius: var(--radius-999); }
 .chars-page .mdots i.ok { background: var(--ok); }
 .chars-page .mdots i.miss { border: var(--hair) solid var(--warn); background: var(--warn-tint); }
 .chars-page .mdots i.na { width: 6px; height: 2px; background: var(--line); }
@@ -251,7 +251,7 @@ height: var(--sz-ctl); padding: 0 var(--sp-8);
 /* 空态的图标收进一枚圆底，孤零零一行字之外有个落点。 */
 .chars-page .mat-grid > .empty > .empty-ic {
   display: flex; align-items: center; justify-content: center;
-  width: 60px; height: 60px; border-radius: var(--radius-99); background: var(--panel2); color: var(--sub); }
+  width: 60px; height: 60px; border-radius: var(--radius-999); background: var(--panel2); color: var(--sub); }
 .chars-page .mat-grid > .empty > .empty-ic > svg { opacity: .7; }
 .chars-page .busy { font-size: var(--fs-12); color: var(--acc); }
 .chars-page .why { font-size: var(--fs-12); color: var(--err); line-height: 1.5; }

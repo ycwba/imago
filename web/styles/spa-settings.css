@@ -91,7 +91,7 @@
 .settings-page .krow > .kicon + .kn { flex: 0 0 136px; }
 /* 行与行之间一条发丝线：一栏读下来是一排等距的行，不是一堆散件。 */
 .settings-page .kcols > .krow.thin { border-radius: 0; border-bottom-color: var(--line); }
-.settings-page .krow input { flex: 1 1 320px; min-width: 0; max-width: 560px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-8); color: var(--txt); font-size: var(--fs-13); font-family: var(--font-ui); }
+.settings-page .krow input { flex: 1 1 320px; min-width: 0; max-width: 560px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-13); font-family: var(--font-ui); }
 .settings-page .krow input:focus { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
 .settings-page .krow input.mono, .settings-page .dir-name { font-family: var(--font-mono); }
 /* .krow input 那条规则会把「输入框」撑成 240px 宽；复选框与单选框（侧栏余额勾选、
@@ -115,7 +115,7 @@
   margin: var(--sp-24) 0 var(--sp-8); padding-top: var(--sp-16);
   border-top: var(--hair) solid var(--line);
   font-size: var(--fs-12); font-weight: 600; color: var(--txt); }
-.settings-page .plabel::before { content: ''; width: var(--hair-2); height: var(--sp-12); border-radius: var(--radius-99);
+.settings-page .plabel::before { content: ''; width: var(--hair-2); height: var(--sp-12); border-radius: var(--radius-999);
   background: var(--acc); flex: 0 0 auto; }
 /* ---------- 账号卡流：一家账号一张卡，卡里列着它能开通的每一档 ----------
    设计口径：等高竖排（卡高 --sz-acct），卡内中段自己滚 ——
@@ -146,7 +146,7 @@ height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
   gap: var(--sp-12); align-items: start; }
 /* 卡片骨架（账号卡 / 添加卡共用这一副）：卡高固定，中段滚。 */
 .settings-page .fcard { display: flex; flex-direction: column; gap: var(--sp-8);
-  padding: var(--sp-16); border: var(--hair) solid var(--line); border-radius: var(--radius-12); background: var(--panel); }
+  padding: var(--sp-16); border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel); }
 .settings-page .fcard:hover { border-color: var(--acc-line-32); }
 .settings-page .acct { height: var(--sz-acct); box-sizing: border-box; }
 .settings-page .acct-off { opacity: .62; }
@@ -179,7 +179,7 @@ height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
 .settings-page .acct-mid::-webkit-scrollbar { width: var(--sz-scroll); }
 
 /* 密钥开关：就在名字右边（收着是常态 —— 地址不再单独可编辑，密钥是这一张卡唯一要填的东西）。 */
-height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-5);
+height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel2); color: var(--sub); font-size: var(--fs-11); }
 .settings-page .keytoggle:hover { border-color: var(--acc); color: var(--acc); }
 .settings-page .keytoggle.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
@@ -198,7 +198,7 @@ height: var(--sz-ctl); }
    固定在卡底那一行的右端（换行时也靠右）；取不到时卡面只写「读取失败」，原因挂在 title 上
    （与侧栏余额卡同一口径）。 */
 height: var(--sz-chip);
-  margin-left: auto; padding: 0 var(--sp-8); border-radius: var(--radius-5); border: var(--hair) solid var(--line);
+  margin-left: auto; padding: 0 var(--sp-8); border-radius: var(--radius-6); border: var(--hair) solid var(--line);
   background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
 .settings-page .balnow b { color: var(--txt); font-weight: 600; font-variant-numeric: tabular-nums; }
 .settings-page .balnow .u { color: var(--sub); }
@@ -207,7 +207,7 @@ height: var(--sz-chip);
 
 /* 状态牌：实心 = 主位、淡底 = 在用、白底 = 备用、虚线压暗 = 停用。 */
 height: var(--sz-chip);
-  padding: 0 var(--sp-8); border-radius: var(--radius-5); border: var(--hair) solid var(--line);
+  padding: 0 var(--sp-8); border-radius: var(--radius-6); border: var(--hair) solid var(--line);
   background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
 .settings-page .st.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
 .settings-page .st.pri { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600; }
@@ -323,7 +323,7 @@ width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .settings-page .preset .pnote { display: block; font-size: var(--fs-11); color: var(--sub);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.settings-page .preset .pcaps { flex: 0 0 auto; padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-5);
+.settings-page .preset .pcaps { flex: 0 0 auto; padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-6);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11); }
 .settings-page .add-tile .ghost { width: 100%; justify-content: center; margin-top: var(--sp-8); }
 
@@ -353,7 +353,7 @@ width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
    只是让十六张卡的标题右缘看着齐 —— 齐的是空地，不是内容）。 */
 .settings-page .card > h2.card-h { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-4); }
 .settings-page .card > h2.card-h .card-ic { display: inline-flex; align-items: center; justify-content: center;
-  flex: 0 0 auto; width: var(--sz-ctl); height: var(--sz-ctl); border-radius: var(--radius-8);
+  flex: 0 0 auto; width: var(--sz-ctl); height: var(--sz-ctl); border-radius: var(--radius-6);
   background: var(--acc-tint-10); color: var(--acc); }
 .settings-page .card > h2.card-h .card-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
 .settings-page .card > h2.card-h .card-ic.empty { /* 没对应图标的栏：占位对齐，里面不留白 */ visibility: hidden; }
@@ -366,7 +366,7 @@ width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-6);
   font-size: var(--fs-14); font-weight: 600; color: var(--txt);
   margin-bottom: var(--sp-12); padding-bottom: var(--sp-8); border-bottom: var(--hair) solid var(--line); }
 .settings-page .set-group > .set-group-h::before { content: ''; width: var(--hair-2); height: var(--sp-16);
-  border-radius: var(--radius-99); background: var(--acc); flex: 0 0 auto; }
+  border-radius: var(--radius-999); background: var(--acc); flex: 0 0 auto; }
 .settings-page .set-group > .card:last-child, .settings-page .set-group > .fold-body > .card:last-child { margin-bottom: 0; }
 /* 筛选时整组都不含命中的，连组标题一起收起来（组里有命中的才留着）。 */
 .settings-page .set-group.set-off { display: none; }
@@ -433,23 +433,23 @@ height: var(--sz-ctl);
   scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
 .settings-page .set-rail-scroll::-webkit-scrollbar { width: var(--sz-scroll); }
 .settings-page .set-rail-scroll::-webkit-scrollbar-track { background: transparent; }
-.settings-page .set-rail-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+.settings-page .set-rail-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
 .settings-page .set-rail-foot { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8);
   margin-top: var(--sp-8); padding: var(--sp-8) var(--sp-8) var(--sp-2);
   border-top: var(--hair) solid var(--line);
   font-size: var(--fs-11); color: var(--sub); }
-.settings-page .set-rail-foot .dot { width: var(--sp-8); height: var(--sp-8); border-radius: var(--radius-99);
+.settings-page .set-rail-foot .dot { width: var(--sp-8); height: var(--sp-8); border-radius: var(--radius-999);
   background: var(--ok); flex: 0 0 auto; }
 /* 轨上的树：组 → 每一项（名字 + 引点 + 值速记）。 */
 .settings-page .set-rail-g { display: flex; align-items: center; gap: var(--sp-8);
   margin-top: var(--sp-16); padding: var(--sp-4) var(--sp-8) var(--sp-2); }
 .settings-page .set-rail-g .t { font-size: var(--fs-12); font-weight: 600; color: var(--sub); }
-.settings-page .set-rail-g .n { margin-left: auto; padding: 0 var(--sp-4); border-radius: var(--radius-99);
+.settings-page .set-rail-g .n { margin-left: auto; padding: 0 var(--sp-4); border-radius: var(--radius-999);
   background: var(--panel2); font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; }
 /* 组说明（这一组管什么）写在 <section data-note> 里，现读。 */
 .settings-page .set-rail-scroll .set-rail-note { padding: 0 var(--sp-8) var(--sp-4); }
 .settings-page .set-rail-i { display: flex; align-items: center; gap: var(--sp-8);
-  min-height: 38px; padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-8); cursor: pointer;
+  min-height: 38px; padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-6); cursor: pointer;
   color: var(--txt); text-decoration: none; position: relative;
   transition: background var(--dur-120) var(--ease), border-color var(--dur-120) var(--ease), color var(--dur-120) var(--ease); }
 .settings-page .set-rail-ic { display: inline-flex; align-items: center; justify-content: center;
@@ -463,7 +463,7 @@ height: var(--sz-ctl);
 .settings-page .set-rail-i.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
 .settings-page .set-rail-i.on .set-rail-ic { color: var(--acc); }
 .settings-page .set-rail-i.on::before { content: ''; position: absolute; left: 0; top: var(--sp-8); bottom: var(--sp-8);
-  width: var(--hair-2); border-radius: var(--radius-1); background: var(--acc); }
+  width: var(--hair-2); border-radius: var(--radius-4); background: var(--acc); }
 .settings-page .set-rail-i.dim { opacity: .45; }
 .settings-page .set-rail-n { flex: 0 0 auto; font-size: var(--fs-13); white-space: nowrap; }
 /* 引点：名字与「现在是什么」之间用点线连起来 —— 排版手法，不是装饰：
@@ -485,14 +485,14 @@ height: var(--sz-ctl);
   scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
 .settings-page .set-doc-scroll::-webkit-scrollbar { width: var(--sz-scroll); }
 .settings-page .set-doc-scroll::-webkit-scrollbar-track { background: transparent; }
-.settings-page .set-doc-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-3); }
+.settings-page .set-doc-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
 .settings-page .set-status { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12);
   margin-top: var(--sp-8); padding: var(--sp-8) var(--sp-12);
   border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel);
   box-shadow: var(--shadow-1); font-size: var(--fs-12); color: var(--sub); }
 .settings-page .set-status .sp { flex: 1 1 auto; }
 .settings-page .set-save::before { content: ''; display: inline-block; width: var(--sp-8); height: var(--sp-8);
-  margin-right: var(--sp-8); border-radius: var(--radius-99); background: currentColor; vertical-align: middle; }
+  margin-right: var(--sp-8); border-radius: var(--radius-999); background: currentColor; vertical-align: middle; }
 .settings-page .set-save.ok { color: var(--ok); }
 .settings-page .set-save.wait { color: var(--warn); }
 .settings-page .set-save.err { color: var(--err); }
@@ -583,7 +583,7 @@ height: var(--sz-ctl);
   width: var(--hair-2); border-radius: var(--hair-2); background: var(--acc); }
 /* 槽位灯：contract 就是一个插槽，同一时刻只有一份 Skill 占着（服务端硬约束）。 */
 .settings-page .sk-lamp { width: var(--sp-8); height: var(--sp-8); flex: 0 0 auto;
-  border-radius: var(--radius-3); border: var(--hair) solid var(--line); background: transparent; }
+  border-radius: var(--radius-4); border: var(--hair) solid var(--line); background: transparent; }
 .settings-page .sk-lamp.lit-mine { background: var(--acc); border-color: var(--acc); }
 .settings-page .sk-lamp.lit-builtin { background: color-mix(in srgb, var(--txt) var(--a-26), transparent); border-color: transparent; }
 .settings-page .sk-lamp.lit-empty { background: transparent; border-style: dashed; }
@@ -734,7 +734,7 @@ height: var(--sz-ctl);
   }
   .settings-page > .phead { grid-column: 1; grid-row: 1; }
   .settings-page > .set-rail { grid-column: 1; grid-row: 2; display: block; height: auto; max-height: none;
-    padding: var(--sp-8) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-12);
+    padding: var(--sp-8) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
     background: var(--panel); }
   .settings-page .set-rail-h { display: none; }
   .settings-page > .set-doc { grid-column: 1; grid-row: 3; }
@@ -745,7 +745,7 @@ height: var(--sz-ctl);
   .settings-page .set-rail-scroll .set-rail-g { display: none; }
   .settings-page .set-rail-scroll .set-rail-note { display: none; }
   .settings-page .set-rail-i { flex: 0 0 auto; align-items: center; padding: var(--sp-4) var(--sp-8);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-99); background: var(--panel2); }
+    border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel2); }
   .settings-page .set-rail-i .set-rail-lead,
   .settings-page .set-rail-i .set-rail-v { display: none; }
   .settings-page .set-rail-i.on { border-color: var(--acc-line-32); background: var(--acc-tint-10); }
