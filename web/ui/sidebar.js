@@ -330,17 +330,11 @@
             + badRows.map(r => r.name).join('、') + '）' : '')) + '">'
         + list.map(r => '<i class="' + (r.failed ? 'bad' : 'ok') + '"></i>').join('') + '</div>'
       : '';
-    /* 落盘进度：在传就把那一条进度摆出来（百分比来自 AssetLocal.info，同一份读数），
-       空闲时只报「已存 N 份」—— 拿 0 当分母算出来的进度是假的。 */
+    /* 落盘那一段：在途就报「存 在途/已存」，空闲只报份数。
+       字节是代理取的，浏览器这一侧没有进度，所以没有百分比这一说。 */
     const s2 = mirrorInfo || {};
-    const busy = s2.inFlight > 0 && s2.dlTotal > 0;
-    const pct = busy ? Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal))) : 0;
-    const mirror = sto ? (busy
-      ? '<div class="sb-bal-sum-mirror" title="正在存 ' + s2.inFlight + ' 份 · 正在下这一份 ' + pct + '%">'
-        + '<div class="dlbar"><i style="width:' + pct + '%"></i></div>'
-        + '<span class="sb-mirror-n">' + pct + '%</span></div>'
-      : '<div class="sb-bal-sum-mirror" title="' + window.esc(sto.tip) + '">'
-        + '<span class="sb-mirror-n">' + (s2.count || 0) + ' 份</span></div>') : '';
+    const mirror = sto ? '<div class="sb-bal-sum-mirror" title="' + window.esc(sto.tip) + '">'
+      + '<span class="sb-mirror-n">' + (sto.busy ? '存 ' + sto.txt : (s2.count || 0) + ' 份') + '</span></div>' : '';
     const t = [];
     if (balShown !== null) t.push('账户余额 ' + balShown + ' 家');
     if (sto) t.push(sto.tip);
@@ -524,42 +518,40 @@
     /* 摘要行（「存 2/5」）读的就是这同一份读数：侧栏不再为它多问一次 AssetLocal。 */
     mirrorInfo = s2;
     const busy = s2.inFlight > 0;
-    /* 报红只属于「开着自动存却失败了」——关着的时候那条老错误不会再重试，摆红只会误导 */
-    const bad = !busy && s2.on && s2.lastErr;
+    /* 报红只属于「开着自动存却有东西没存上」——关着的时候那条老错误不会再重试，摆红只会误导。
+       `dead`（本机存不下的那几条，跨会话不再重试）比 `lastErr`（最近一次失败的成因，多半还会再试）
+       更该报红：它是「开了却没反应」唯一看得见的解释。 */
+    const bad = !busy && s2.on && (s2.dead > 0 || !!s2.lastErr);
     const sizeOf = b => window.fmtBytes(b) || '0 KB';
-    /* 在途时把「正在下这一份」摆出来：只有「正在存 N 份」的话，
-       一个 200MB 的视频从 0% 到 100% 在界面上长得一模一样，人只能干等
-       （「自动存本机看起来没反应」剩下的那一半 —— 另一半是根本不知道它在跑）。
-       百分比来自 AssetLocal.info（它读的是响应头里的总量与已发送字节）。
-       **拿不到总量就不摆条**（只显示「正在下这一份…」）：拿 0 当分母算出来的进度是假的。
-       状态下面那一行始终只有一行字（空闲写「本次 N 份」，下载时写进度），进度轨也始终占着
-       那 3px 版位：这一块长在侧栏底部那张卡里，一在途就长高会把导航压矮、卡自己往上跳。 */
-    const pct = (busy && s2.dlTotal > 0)
-      ? Math.max(0, Math.min(100, Math.round((s2.dlSent || 0) * 100 / s2.dlTotal))) : -1;
-    const dl = '<div class="dlbar' + (pct < 0 ? ' dl-idle' : '') + '"'
-      + (pct < 0 ? '' : ' title="' + window.esc(String(s2.dlName || '') + ' · ' + sizeOf(s2.dlSent || 0) + ' / ' + sizeOf(s2.dlTotal)) + '"')
-      + '>'
-      + (pct < 0 ? '' : '<i style="width:' + pct + '%"></i>')
-      + '</div>';
-    const line = pct >= 0
-      ? '正在下这一份 <b>' + pct + '%</b>'
-      : (busy && s2.dlName
-        ? '<span title="' + window.esc(String(s2.dlName)) + '">正在下这一份…</span>'
-        : '本次 <b>' + (s2.ok || 0) + '</b> 份');
+    /* 第三行始终只有一行字：在途写「正在下这一份 + 名字」，空闲写「本次 N 份」。
+       名字是 prompt / 标题的前 24 字（`AssetLocal.info` 递出来的那一枚），全文在 title 里；
+       这一块长在侧栏底部那张卡里，换行会把这一块撑出卡底，所以单行省略。 */
+    const line = busy
+      ? (s2.dlName
+        ? '正在下这一份 <b title="' + window.esc(String(s2.dlName)) + '">' + window.esc(String(s2.dlName)) + '</b>'
+        : '正在下这一份…')
+      : '本次 <b>' + (s2.ok || 0) + '</b> 份';
     const l2 = busy
       ? '正在存 <b>' + s2.inFlight + '</b> 份'
       : (!s2.on
         ? '自动存已关 · 已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
-        : (bad ? window.esc(s2.lastErr)
-          : '已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
-            + (s2.fail ? ' · 失败 ' + s2.fail + ' 份' : '')));
+        : (s2.dead
+          ? '已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes) + ' · <b>' + s2.dead + '</b> 份存不下'
+          : (bad ? window.esc(s2.lastErr)
+            : '已存 <b>' + s2.count + '</b> 份 · ' + sizeOf(s2.bytes)
+              + (s2.fail ? ' · 失败 ' + s2.fail + ' 份' : ''))));
     const head = '<div class="l1"><span class="ic">' + (busy ? '<span class="spin-dot"></span>' : svgIc('download', 13))
       + '</span><span class="nm">产物存本机</span></div>';
+    const tip = bad
+      ? (s2.dead
+        ? '有 ' + s2.dead + ' 份存不进本机，已不再重试：' + (String(s2.deadWhy || '') || '原因未知')
+          + '（选中它们按「存回本机」可再试一次）'
+        : '最后一次没存成：' + window.esc(s2.lastErr))
+      : (busy || s2.on ? '' : '自动存本机关着，新产物只留平台地址。');
     return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
-      + (bad ? ' title="最后一次没存成：' + window.esc(s2.lastErr) + '"' : '')
-      + (busy || s2.on ? '' : ' title="自动存本机关着，新产物只留平台地址。"')
+      + (tip ? ' title="' + window.esc(tip) + '"' : '')
       + '>' + head
-      + '<div class="l2">' + l2 + '</div><div class="l3">' + line + '</div>' + dl + '</div>';
+      + '<div class="l2">' + l2 + '</div><div class="l3">' + line + '</div></div>';
   }
   /* 订阅一次就够：AssetLocal.onInfo 每次落盘事件都推一遍，这里只改那一行。
      没有这一层的话「正在存 N 份」永远停在 0 —— 而那正是用户判断开关有没有生效的那句话。

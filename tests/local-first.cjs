@@ -450,7 +450,73 @@ const g16 = (async () => {
   ok('存好之后待办清单清空', pend.length === 0, JSON.stringify(pend.map(x => x.k)));
 })();
 
-Promise.all([g11, g12, g13, g15, g16]).then(() => {
+/* ⑰ 回放待办清单：清单里那一条其实早就在别名表里（盘上有字节）→ 判成「已存过」，
+     一个字节都不再取。发出去就是「明明没什么要存的，每次启动产物存本机都开张」：
+     上一轮已经存好、清单却没清干净的那几行会被整批重下一遍。 */
+const g17 = (async () => {
+  const U = 'https://cdn.example.com/results/replay.mp4?Expires=1&Signature=r';
+  const ent = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_replay', genId: 'job_replay',
+    outCount: 1, src: '/asset/asset_replay', rawSrc: U };
+  /* 先拿一份「排上了的清单行」：回放读的就是这一行，`k` 由 provider + 产物号 + 任务号 + 地址算出，
+     换一次开机（重装一份实例）算出来必须同一个键，所以这里现取而不手拼。 */
+  const stA = { rows: [], saveGate: new Promise(() => {}) };    // 这一份永不落盘：只为要那一行的形状
+  const { net: netA } = netStub(stA);
+  const A = boot({ net: netA, prefs: { sk_media_local: 'on' } });
+  await A.AL.ready(0);
+  const rA = A.AL.offer('sparkcine', ent, U);
+  await new Promise(r => setTimeout(r, 80));                    // pendWrite 有 50ms 防抖
+  const rec = (JSON.parse(A.store.get('sk_local_pending') || '[]') || [])[0] || {};
+  ok('排上队列的那一条进了待办清单', rA === 'queued' && !!rec.k && rec.url === U, JSON.stringify([rA, rec]));
+
+  const stB = { rows: [rowOf('la_replay', { assetId: 'asset_replay', taskId: 'job_replay', upstream: U, byte_length: 40 })] };
+  const { net: netB, calls: callsB } = netStub(stB);
+  const B = boot({ net: netB, prefs: { sk_media_local: 'on', sk_local_pending: JSON.stringify([rec]) } });
+  await B.AL.ready(0);
+  const rB = B.AL.offer('sparkcine', ent, U, { fromPending: true });
+  await new Promise(r => setTimeout(r, 80));
+  const pendB = JSON.parse(B.store.get('sk_local_pending') || '[]') || [];
+  ok('已存过的那一条回放时出表、不再取字节',
+    rB === 'saved' && callsB.filter(c => c.path === '/local-assets/from-url').length === 0 && pendB.length === 0,
+    JSON.stringify([rB, callsB.map(c => c.path), pendB.map(x => x.k)]));
+})();
+
+/* ⑱ 试过六次还没存成的那一条记成**死账留在清单里**：换一次开机也不再从 0 重试。
+     以前 pendBump 直接 splice —— 条目从清单里消失，下次开机看不见它，tries 归零，
+     于是每一份存不下的产物每开一次机都从头撞六遍。 */
+const g18 = (async () => {
+  const U = 'https://cdn.example.com/results/dead.mp4?Expires=1&Signature=d';
+  const ent = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_dead', genId: 'job_dead',
+    outCount: 1, src: '/asset/asset_dead', rawSrc: U };
+  const stA = { rows: [], saveGate: new Promise(() => {}) };
+  const { net: netA } = netStub(stA);
+  const A = boot({ net: netA, prefs: { sk_media_local: 'on' } });
+  await A.AL.ready(0);
+  A.AL.offer('sparkcine', ent, U);
+  await new Promise(r => setTimeout(r, 80));
+  const rec = (JSON.parse(A.store.get('sk_local_pending') || '[]') || [])[0] || {};
+  const dead = Object.assign({}, rec, { tries: 6, dead: true, lastErr: '磁盘余量不够' });
+
+  /* 字节这一跳挂住：-force 那一路只为看「那一行有没有被改写回正常待办」，不看它落不落得成。 */
+  const st = { rows: [], saveGate: new Promise(() => {}) };
+  const { net, calls } = netStub(st);
+  const { AL, store } = boot({ net, prefs: { sk_media_local: 'on', sk_local_pending: JSON.stringify([dead]) } });
+  await AL.ready(0);
+  ok('死账不再自动排（开机重装也不重试）',
+    AL.offer('sparkcine', ent, U, { fromPending: true }) === 'skip'
+    && calls.filter(c => c.path === '/local-assets/from-url').length === 0,
+    JSON.stringify(calls.map(c => c.path)));
+  ok('死账报得出条数与成因', AL.info().dead === 1 && AL.info().deadWhy === '磁盘余量不够',
+    JSON.stringify([AL.info().dead, AL.info().deadWhy]));
+  /* 用户当场按下「存回本机」就照实再试一次：绕过死账，并把那一行改写回正常待办 */
+  ok('按下「存回本机」会清掉死账再试', AL.offer('sparkcine', ent, U, { force: true, cb: () => {} }) === 'queued',
+    JSON.stringify(AL.info().inFlight));
+  await new Promise(r => setTimeout(r, 80));
+  const after = (JSON.parse(store.get('sk_local_pending') || '[]') || [])[0] || {};
+  ok('清掉的是死账本身（tries 归零、不再报「存不下」）',
+    !after.dead && after.tries === 0 && AL.info().dead === 0, JSON.stringify(after));
+})();
+
+Promise.all([g11, g12, g13, g15, g16, g17, g18]).then(() => {
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
   process.exit(bad ? 1 : 0);
 }).catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

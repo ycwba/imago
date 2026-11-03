@@ -43,16 +43,12 @@
   const K_SB_BAL = 'sb_bal_on', K_SB_MIRROR = 'sb_mirror_on';
   const sbBalOn = () => on(K_SB_BAL, '1') !== '0';
   const sbMirrorOn = () => on(K_SB_MIRROR, '1') !== '0';
-  /* 单个文件的大小闸。**不是随便定的一个数**：本机镜像走的是 base64 上传
-     （`POST /local-assets`），代理那侧的请求体上限是 288 MiB，而 base64 会把字节放大 4/3 ——
-     288 × 3/4 = 216 MiB 才是这条链真正传得动的最大值。
-     以前这里写 200 MiB，于是「200–216 MiB 这一档本来能存」也被挡在门外，且理由是编的。
-     再往上不是改一个数字的事：base64 链路本身有 5× 内存放大（raw / utf8 串 / data / 解码结果），
-     真要传 GB 级的文件得把这条链改成代理自己去取字节（流式），风险与改动面都大得多。 */
-  const MIRROR_MAX = 216 * 1024 * 1024;
   const CONCURRENCY = 2;                 // 同时最多镜像几个：一次性下十几个视频会把上行和磁盘都占满
   const on = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch (e) { return def; } };
-  const saveOn = () => on(K_SAVE, 'on') !== 'off';
+  /* 「产物存本机」开关的唯一谓词。设置页、侧栏、镜像队列与资产库列表都只问这一枚：
+     手抄一份 `localStorage.getItem('sk_media_local') !== 'off'` 就是第二套默认值 ——
+     缺省那一边（没存过 = 开）漂了，表现是「界面说开着，队列一条不排」。 */
+  function saveOn() { return on(K_SAVE, 'on') !== 'off'; }
   const preferLocal = () => on(K_PREFER, 'on') !== 'off';
   const showBadge = () => on(K_BADGE, 'on') !== 'off';
   /* 「只看本机有的」真生效的条件是三条都开着：没存本机就永远没有本机副本，
@@ -423,15 +419,6 @@
     return !!st && classifyStatus(null, st) === 'done';
   }
 
-  function blobToB64(blob) {
-    return new Promise((ok, bad) => {
-      const r = new FileReader();
-      r.onload = () => { const s = String(r.result || ''); const i = s.indexOf(','); ok(i >= 0 ? s.slice(i + 1) : s); };
-      r.onerror = () => bad(new Error('读文件失败'));
-      r.readAsDataURL(blob);
-    });
-  }
-  /* 扩展名口径在公共层（`ui.js` 的 `blobExtOf`）：先认条目声明的 format，再认文件名 / MIME。 */
   /* 名字怎么洗归公共那一份（`ui.js` 的 `fileSafe`）。这一处以前自己写了第二份非法字符正则，
      而且是**直接删掉**那些字符（别的页换成 -），于是同一条素材从本机另存与从资产库下载，名字对不上；
      截断也各是一份（这里 20、页面那两处 24）。本函数只管「提示词当前缀 + 扩展名」。 */
@@ -467,13 +454,13 @@
      真失败时（超上限 / 网络断 / 代理没回资产号）更是静默 —— 后台镜像的 tell 明确不回执。
      这不是加一个装饰，是把这个功能唯一的说得清的地方补上。
      onChange 订阅者只用来刷新那一行文案，不参与任何写盘决策。 */
-  /* `dlName/dlTotal/dlSent` 是**当前正在下载的那一份**（用户要看到的不只是「N 份在途」，
-     还要看到「这一份下到多少」—— 一个 200MB 的视频在界面上从 0% 到 100% 长得一模一样时，
-     人只能干等）。三个字段都由 runOne 那一处写，这里只声明（判据不散在别处）。
-     `dlot` 是**占着这条进度的是哪一份**（runOne 里那个 k）：并发两份时只摆一份，
-     不写它就会出现两个文件抢同一条进度、两个数字互相覆盖。 */
+  /* `dlName` 是**当前占着这一格的那一份叫什么**（用户要看到的不只是「N 份在途」，
+     还要知道是哪一个文件卡住了这一轮）。字节是代理取的，浏览器这一侧没有进度可读，
+     所以这里只有名字、没有百分比。
+     `dlot` 是**占着这一格的是哪一份**（runOne 里那个 k）：并发两份时只摆一个名字，
+     不写它就会出现两个文件抢同一行、两个名字互相覆盖。 */
   const INFOS = { inFlight: 0, ok: 0, fail: 0, lastErr: '', lastAt: 0,
-    dlot: '', dlName: '', dlTotal: 0, dlSent: 0, listeners: new Set() };
+    dlot: '', dlName: '', listeners: new Set() };
 function infoChanged() {
   for (const f of INFOS.listeners) { try { f(INFOS); } catch (e) { /* 订阅者出错不许影响落盘 */ } }
 }
@@ -495,10 +482,12 @@ function info() {
      跑着的两处都有；哪个口径完整取决于「刚 offer 还没 pump」这一瞬，取 max 两边都不漏。 */
   let count = 0, bytes = 0;
   rows.forEach(r => { count++; bytes += Number(r.bytes) || 0; });
+  /* `dead` = 本机存不下的那几条（跨会话记着，见 pendBump）；`deadWhy` 是最后一次的成因。
+     侧栏把份数摆在行里、把成因放进 title —— 用户要的是「少了几份、为什么少」，不是日志。 */
+  const dead = pendDead();
   return { inFlight: Math.max(INFOS.inFlight, queued.size), ok: INFOS.ok, fail: INFOS.fail,
-    lastErr: INFOS.lastErr, lastAt: INFOS.lastAt,
-      dlName: INFOS.dlName, dlTotal: INFOS.dlTotal, dlSent: INFOS.dlSent,
-    count, bytes, on: saveOn() };
+    lastErr: INFOS.lastErr, lastAt: INFOS.lastAt, dlName: INFOS.dlName,
+    count, bytes, dead: dead.length, deadWhy: String((dead[dead.length - 1] || {}).lastErr || ''), on: saveOn() };
 }
 
   async function runOne(job) {
@@ -514,24 +503,21 @@ function info() {
       try { job.cb(err || null, res || {}); } catch (e) { console.warn('[AssetLocal] 落盘回执出错：', e); }
     };
     try {
-      /* ---- 这一份的下载进度：侧栏那行「正在下这一份 N%」的全部数据来源 ----
-         ⚠ 这里以前**根本没接**：`blobOf` 是支持 onStage 的（流式读响应体，每 200ms / 每 1% 报一次，
-         总量取 Content-Length，代理在 /getfile 那一支把上游的长度原样透出），
-         这一行却只调了 `blobOf(url)` —— 于是 `INFOS.dlSent/dlTotal/dlName` 三个字段
-         **全项目没有任何一处给它们赋值**，侧栏那段进度条的 HTML 画得挺好，条件却永远不成立
-         （`busy && dlTotal > 0` 里 dlTotal 恒为 0）。用户看到的就是「正在存 N 份」一直不动，
-         一个 200MB 的视频从 0 到 100% 全程没有第二个字。
-         CONCURRENCY=2 时两份同时在下，dl* 只摆一份：**先抢到的那份占着**，直到它下完，
-         免得那条进度在两个文件之间来回跳（比不显示更难读）；它下完后另一份接手。 */
+      /* ---- 侧栏那行「正在下这一份 · 名字」的全部数据来源 ----
+         取字节的是代理（`POST /local-assets/from-url` 边下边落盘），浏览器这一侧没有经过字节流，
+         所以这一格只报得出「正在弄哪一份」，报不出百分比。
+         CONCURRENCY=2 时两份同时在途，名字只摆一份：**先抢到的那份占着**，直到它落盘，
+         免得那一行在两个文件之间来回跳（比只写个数更难读）；它完了另一份接手。 */
       const dlName = String((ent && (ent.prompt || ent.title)) || '').trim().slice(0, 24);
       const claimDl = () => {
         if (INFOS.dlot === k) return true;
         if (INFOS.dlot) return false;                 // 另一份正占着位置
-        INFOS.dlot = k; INFOS.dlName = dlName; INFOS.dlSent = 0; INFOS.dlTotal = 0;
+        INFOS.dlot = k; INFOS.dlName = dlName;
         return true;
       };
       if (claimDl()) infoChanged();                   // 先把「正在存这一份（名字）」摆出来
-      const detailOf = size => ent ? {
+      /* 留在账上的任务详情：只有身份与那笔费用，字节数由代理落盘时自己报（`byte_length`）。 */
+      const detailOf = () => ent ? {
         /* 平台产物号逐条落盘（多图任务里一份产物一行，任务号相同、产物号不同）。
            没有它，本机列表认回来的身份只有 `g:<任务号>`，多图任务就会把四张并成一张；
            平台列表那边按产物号来认时也永远对不上。 */
@@ -543,7 +529,7 @@ function info() {
         credits: (ent && ent.credits) ?? null, priceMicros: (ent && ent.priceMicros) ?? null,
         currency: (ent && ent.currency) || '', gstatus: (ent && ent.gstatus) || '',
         created: (ent && ent.created) || '', completed: (ent && ent.completed) || '',
-        promptLocal: !!(ent && ent.promptLocal), bytes: size,
+        promptLocal: !!(ent && ent.promptLocal),
       } : null;
       const metaBase = {
         prompt: (ent && ent.prompt) || '', model: (ent && ent.model) || '',
@@ -551,9 +537,12 @@ function info() {
         priceText: (ent && ent.priceText) || '', duration: (ent && ent.duration) ?? null,
         upstream: url,
       };
-      /* 新通道：代理按地址流式落盘，浏览器不再把整段字节读进内存再 base64。
-         旧代理没有 `/local-assets/from-url`（404）才退回 blob + base64；这条回退只服务
-         blob:/data: 与旧代理，日常的 http / /asset / /getv 都走新通道。 */
+      /* 只有一条通道：代理按地址把字节流式落盘（`POST /local-assets/from-url`）。
+         浏览器不再「整段读进内存 → base64 → `POST /local-assets`」：那条链有 5× 内存放大
+         （raw / utf8 串 / data / 解码结果），还受代理 288 MiB 请求体上限约束 —— 同一件事，
+         代理自己取字节既没有上限也没有放大。
+         排进队列的地址只有两种形状（`offer` 那三道闸）：http(s) 外链与同源代理路由，
+         两种都由代理取得；`blob:` / `data:` 进不了队列，所以这里不必再按地址分支。 */
       /* 地址 pathname 上认得出的扩展名比「条目声明」大：平台把字幕 / 文本也挂成产物地址时，
          条目那份兜底的 format（缺省 mp4）会替它撒谎 —— 按地址真相送格式，服务端那道
          文档类闸（isDocExt）才拦得住，这份东西就不会进资产库。 */
@@ -568,66 +557,20 @@ function info() {
         || (ent && window.isAudioType && isAudioType(ent.type) ? 'wav' : '')
         || (/\.(wav|mp3|m4a|aac|ogg|flac)(?:\?|$)/i.exec(String(url || '')) || [])[1]
         || 'mp4';
-      let r = null, blob = null, ext = guessExt, b64 = '';
-      const direct = /^(?:https?:|\/(?:asset|getv|fetch)(?:\/|\?|$))/i.test(String(url || ''));
-      if (direct) {
-        try {
-          r = await Api.saveLocalFromUrl({
-            url, name: nameOf(ent, guessExt), mime: '',
-            format: urlExt || (ent && ent.format) || '',
-            meta: Object.assign({}, metaBase, { detail: detailOf(0) }),
-          });
-        } catch (e) {
-          if (!(e && e.status === 404)) throw e;      // 404 = 旧代理没有这条路由，退回旧链
-        } finally {
-          /* 新通道由代理下载，浏览器这一侧没有百分比；把「正在下」收掉，
-             否则侧栏会一直停在上一份（另一个任务也抢不到这个位置）。 */
-          if (INFOS.dlot === k) {
-            INFOS.dlot = ''; INFOS.dlName = ''; INFOS.dlSent = 0; INFOS.dlTotal = 0;
-            infoChanged();
-          }
-        }
-      }
-      if (!r) {
-        try {
-          blob = await AssetTransfer.blobOf(url, (stage, p) => {
-            if (stage !== 'fetch' || !p || !claimDl()) return;
-            INFOS.dlSent = Number(p.sent) || 0;
-            INFOS.dlTotal = Number(p.total) || 0;      // total 为 0 = 上游没给长度，侧栏只显示名字不摆条
-            infoChanged();
-          });
-        } finally {
-          /* 下载这一段一结束就把进度收掉：后面还有转 base64 与写盘，那几秒里挂着一条 100% 的条、
-             还写着「正在下这一份」，是在说一件已经不成立的事。 */
-          if (INFOS.dlot === k) {
-            INFOS.dlot = ''; INFOS.dlName = ''; INFOS.dlSent = 0; INFOS.dlTotal = 0;
-            infoChanged();
-          }
-        }
-        if (!blob || !blob.size) throw new Error('取回字节为空');
-        if (blob.size > MIRROR_MAX) {
-          /* 超上限的这份**放弃自动重试**（记进 SKIPPED），同时把它从在途表里摘掉。
-             「本机镜像的上限」只在 base64 这条旧链上还有意义：新通道由代理流式落盘，
-             不受 288MB 请求体与 5× 内存放大的约束。 */
-          SKIPPED.add(k);
-          queued.delete(k);
-          pendBump(k, true);
-          const tooBig = new Error('这份比本机镜像的上限（' + window.fmtBytes(MIRROR_MAX) + '）还大，没有存');
-          infoNote(false, tooBig);
-          tell(tooBig, { skip: true });
-          return;
-        }
-        ext = window.blobExtOf(blob, urlExt || (ent && ent.format));
-        b64 = await blobToB64(blob);
-        r = await Api.saveLocalAsset({
-          name: nameOf(ent, ext), mime: blob.type || '', format: ext,
-          data: b64,
-          meta: Object.assign({}, metaBase, { detail: detailOf(blob.size) }),
+      let r = null;
+      try {
+        r = await Api.saveLocalFromUrl({
+          url, name: nameOf(ent, guessExt), mime: '',
+          format: urlExt || (ent && ent.format) || '',
+          meta: Object.assign({}, metaBase, { detail: detailOf() }),
         });
+      } finally {
+        /* 这一跳由代理下载，浏览器这一侧没有字节流；一回来就把「正在下这一份」收掉
+           （抛错也收），否则侧栏会一直停在上一份，另一个任务也抢不到这个位置。 */
+        if (INFOS.dlot === k) { INFOS.dlot = ''; INFOS.dlName = ''; infoChanged(); }
       }
       if (r && r.id) {
-        const size = Number(r.byte_length) || (blob && blob.size) || 0;
-        ext = r.format || ext;
+        const size = Number(r.byte_length) || 0;
         /* 落盘回执本身就是一条账行（代理那次写入的结果）：直接收进别名表。
            代理返回 `reused` 时它给的是已经存在的那一条 —— 收进来同样对，本机号不会换。 */
         const row = putRow(Object.assign({}, r, {
@@ -656,24 +599,20 @@ function info() {
          也不把失败写进索引 —— 下一轮列表刷新还会再 offer 一次（成功为止）。
          所以要把这一条从在途表里摘掉：以前失败的那一条永远留在表里，
          「再 offer 一次」根本不会发生，用户再点一次「自动下载」也是一颗死按钮。 */
+      const err = e instanceof Error ? e : new Error(String(errText(e) || '存不进本机'));
       queued.delete(k);
-      pendBump(k, false);
-      const err = e instanceof Error ? e : new Error(String(errText(e)|| '存不进本机'));
+      pendBump(k, err);
       infoNote(false, err);
       tell(err);
     } finally {
-      /* 在途计数在 finally 里减：runOne 里的每一条出口（成功 / 超上限 / 抛错）
-         都要走它一次，而在这些出口上分别写一遍减法就会漏。 */
+      /* 在途计数在 finally 里减：runOne 里的成功与抛错两条出口都要走它一次，
+         而在这些出口上分别写一遍减法就会漏。 */
       INFOS.inFlight = Math.max(0, INFOS.inFlight - 1);
       infoChanged();
     }
   }
 
   const queued = new Set();
-  /* 「试过、超出本机镜像上限、放弃自动重试」的那几个键。
-     不单独记这一档的话，「别再自动重下」只能靠「永远挂在 queued 里」，
-     代价是在途数与「只看本机」从此失真（一份没存下来的东西永远显示「正在存」）。 */
-  const SKIPPED = new Set();
   /* ---------- 表还没取回来时按住的自动 offer ----------
      别名表是「本机有没有这一份」的唯一真相；表取回来之前一条都查不到。拿空表当「没存过」，
      开机那一屏几百条会全部排进镜像队列 —— 侧栏一路「正在存 N 份」，而绝大多数早就存过了。
@@ -741,6 +680,9 @@ function info() {
     const list = pendRead();
     const at = list.findIndex(x => x.k === k);
     const prev = at >= 0 ? list[at] : null;
+    /* force = 用户当场按下的那颗「存回本机 / 自动下载」：tries 归零、死账一起清掉，
+       这一条照实再试一次（清不掉的话 offer 在 dead 那一问就 return，按钮按下去一个字不回）。
+       非 force 那一路走不到这里 —— offer 先在 dead 那一问拦住了。 */
     const rec = { k, url, ent: liteEnt(ent), tries: force ? 0 : (prev && prev.tries || 0), nextAt: force ? 0 : (prev && prev.nextAt || 0) };
     if (at >= 0) list[at] = rec; else list.push(rec);
     pendWrite(list);
@@ -753,15 +695,25 @@ function info() {
     const next = list.filter(x => x.k !== k);
     if (next.length !== list.length) pendWrite(next);
   }
-  function pendBump(k, permanent) {
+  /* 清单里这一条的记录（没有 = 这一轮还没为它排过队）。 */
+  function pendOf(k) { return k ? (pendRead().find(x => x.k === k) || null) : null; }
+  /* 「本机存不下」的那几条（`dead`）：份数与最后一次的成因一起报给侧栏那一行。 */
+  function pendDead() { return pendRead().filter(x => x.dead); }
+  /* 一次失败：退避加倍；六次之后把这一条记成**死账留在清单里**（不再 splice 掉）。
+     以前这里是 `splice` —— 条目从清单里消失，下次开机 `replayPending` 看不见它，`tries` 从 0 重来，
+     一份真存不下的产物（上游清了 / 签名过期 / 代理取不动）于是每次开机都重排一遍：
+     表现就是「明明没什么要存的，每次启动产物存本机都开张」。
+     留着记录才是「跨会话别再自动试」；而它仍在这份清单里 = 仍算「本机还没有这一份」，
+     不假装存好了，也不从「已存 N 份」的数字里偷偷少掉一份。 */
+  function pendBump(k, err) {
     if (!k) return;
     const list = pendRead();
     const i = list.findIndex(x => x.k === k);
     if (i < 0) return;
-    if (permanent) { list.splice(i, 1); pendWrite(list); pendSkip.delete(k); return; }
     const rec = list[i];
     rec.tries = (rec.tries || 0) + 1;
-    if (rec.tries >= 6) { list.splice(i, 1); pendWrite(list); pendSkip.delete(k); return; }
+    rec.lastErr = String(errText(err) || '存不进本机').slice(0, 160);
+    if (rec.tries >= 6) { rec.dead = true; pendSkip.delete(k); pendWrite(list); return; }
     rec.nextAt = Date.now() + Math.min(10 * 60 * 1000, 15000 * Math.pow(2, rec.tries));
     pendSkip.set(k, rec.nextAt);
     pendWrite(list);
@@ -798,9 +750,12 @@ function info() {
   /* 提交一条产物去存本机（幂等：已存过 / 正在存 / 关掉了开关都直接跳过）。
      返回这一条的去向，页面据此说话：
        'saved' 索引里已经有了（或按来源地址认出同一条）· 'busy' 后台那一轮正在存
-       'queued' 排上了 · '' 这一条存不了（开关没开、或手里根本没有一条外链）。
+       'queued' 排上了 · 'held' 别名表还没取回来，先按住（表到了自动接回）
+       'skip' 这一轮不该再自动试它（退避没到 / 已记成存不下的死账）
+       '' 这一条存不了（开关没开、或手里根本没有一条取得到字节的地址）。
      opts.force：绕过「自动存本机」开关 —— 收藏与素材库那两颗「自动下载」是用户**当下点下去**的，
        开关没开就什么都不做等于一颗死按钮（别让一个「看着能点、其实什么都不做」的控件留在界面上）。
+       它还绕过退避与死账：用户按了就照实再试一次。
      opts.cb(err, {id})：只对 force 那一批有意义（见 runOne 上的 tell），后台自动镜像照旧静默。 */
   function offer(provId, ent, upstream, opts) {
     const o = opts || {};
@@ -810,12 +765,14 @@ function info() {
        而界面上一句回执都没有。
        **同源路由也要收**（/asset/<id>、/getv?url=…、/fetch?url=…&dl=1）：代理自己就能下这些，
        而「平台返回产物 id」那一族只有它们（见 byteSrcOf 的注释）——
-       只收 https 时这一族永远排不上队列，「自动存本机」看起来就是没开张。 */
+       只收 https 时这一族永远排不上队列，「自动存本机」看起来就是没开张。
+       这三条就是 `server/media-src.js` 的 `resolveSrc` 取得到字节的全部同源路由（代理里
+       只有 `/local-assets` 那一族**不**发字节：它写账、列表与删，不供文件），闸门与它对齐。 */
     const isHttp = /^https?:/i.test(raw0);
-    const isSameOrigin = /^\/(?:asset|getv|fetch|local-assets)\b/.test(raw0);
+    const isSameOrigin = /^\/(?:asset|getv|fetch)\b/.test(raw0);
     if (!isHttp && !isSameOrigin) return '';
     const url = isHttp ? raw0 : String(window.MediaId.innerMedia(raw0) || raw0);
-    if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch|local-assets)\b/.test(url)) return '';
+    if (!/^https?:/i.test(url) && !/^\/(?:asset|getv|fetch)\b/.test(url)) return '';
     const k = keyFor({ provider: provId, assetId: ent && ent.assetId, genId: (ent && (ent.genId || ent.taskId)) || '', url });
     if (!k) return '';
     /* 表还没取回来：「本机有没有这一份」这一刻判不出来（表里查不到 ≠ 没存过）。
@@ -835,9 +792,10 @@ function info() {
       if (o.cb) o.cb(null, { id: saved.id, kept: true });
       return 'saved';
     }
-    /* 试过、太大下不动的那一份不再自动重试（它连字节都没取回来，重来一次还是超大）。
-       判据见 SKIPPED 的声明；手动那一路（force）不受影响，用户点了还是要照实回执。 */
-    if (SKIPPED.has(k)) { pendBump(k, true); return o.force ? '' : 'skip'; }
+    /* 已经试过六次还没存成的那一份（死账）不再自动排 —— 判据与原因写在 pendBump 上。
+       手动那一路（force）例外：pendPut 当场清掉死账、tries 归零，用户按下去就照实再试一次。 */
+    const pend = pendOf(k);
+    if (pend && pend.dead && !o.force) return 'skip';
     if (!o.force && (pendSkip.get(k) || 0) > Date.now()) return 'skip';
     if (queued.has(k)) return 'busy';
     queued.add(k);
@@ -1029,7 +987,7 @@ function info() {
       /* 本机资产库那一份自己有字节了，别再存一遍（decorate 会打 localAsset，
          但它可能在 scan 之后才跑 —— 这里再判一次 `queued`，两头都挡住）。 */
       if (/^https?:/i.test(s)) return s;
-      if (/^\/(?:asset|getv|fetch|local-assets)\b/.test(s) && s.indexOf('?dl=1') >= 0) return s;
+      if (/^\/(?:asset|getv|fetch)\b/.test(s) && s.indexOf('?dl=1') >= 0) return s;
       if (/^\/asset\//.test(s)) return s.replace(/\?.*$/, '') + '?dl=1';
     }
     return '';
@@ -1342,8 +1300,9 @@ function info() {
     /* 列表进界面前把这一批里还没命中的条目问一遍代理，再按结果重新 decorate（见 locate）。 */
     locate,
     pullBusy, pullStart, pullEnd, pullBtn, pullReceipt,
-    /* 「补不补历史产物」那一档 + 判据：页面与设置页都读它，不要自己按时间戳判一遍。 */
-    saveScope, markSaveOn, wantSave,
+    /* 「产物存本机」开关的唯一谓词（saveOn）+「补不补历史产物」那一档与判据：
+       页面与设置页都读它们，不要自己抄一遍 `localStorage.getItem('sk_media_local') !== 'off'`。 */
+    saveOn, saveScope, markSaveOn, wantSave,
     /* 侧栏那两块各自显示与否（设置页勾）。判据各一份，sidebar.js 直接调。 */
     sbBalOn, sbMirrorOn,
     /* 「正在存 / 存成了几份 / 失败原因」—— 页面据此把「开了没反应」变成看得见的实况。

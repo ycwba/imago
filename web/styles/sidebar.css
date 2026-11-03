@@ -140,16 +140,16 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
 .sb-bal-dots i.ok { background: var(--acc); }
 .sb-bal-dots i.bad { background: transparent; border: var(--hair-1-5) solid var(--err); }
 .sb-bal-sum-sep { height: var(--hair); background: var(--line); margin: var(--sp-8) var(--sp-4) var(--sp-4); }
-/* 落盘进度：窄形态是一条 3px 的进度条 + 份数（满形态在卡里，同一条） */
+/* 落盘那一段：窄形态只有一枚份数（满形态在卡里，同一份读数） */
 .sb-bal-sum-mirror { display: flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-4) var(--sp-4); }
 
 .sb-bal-sum-mirror .sb-mirror-n { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub);
   font-variant-numeric: tabular-nums; }
 
 /* ---------- 产物存本机（满形态在卡里，气泡里同一份）----------
-   明细常驻（不再有展开开关）：标题一行、状态一行、会话 / 进度一行，下面那条进度轨固定占位。
-   空闲时第三行写「本次 N 份」、轨道不画（`.dl-idle` 保留那 3px 版位）——
-   下载开始 / 结束时这一块高度不动。 */
+   明细常驻（不再有展开开关）：标题一行、状态一行、本次 / 正在下的那一份一行。
+   字节由代理取，浏览器看不到进度，所以这一块没有进度轨；
+   两行都定成单行，在途与空闲换的只是字，高度不变（长高会把导航压矮）。 */
 .sb-mirror { border-radius: var(--radius-6); padding: 0; background: none; }
 /* 标题行给一个定高：图标行盒与转点行盒不一样高，不定住的话一在途标题行就长 2px。 */
 .sb-mirror .l1 { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12);
@@ -164,14 +164,6 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-mirror .l3 b { color: var(--txt); }
 .sb-mirror.bad .l2 { color: var(--err); }
-/* 下载进度条：一条细轨（3px 那道缝是结构尺寸），跟「正在存 N 份」那一行连着读。
-   满形态（卡里那一条）与窄形态（压缩块那一条）是同一条。 */
-.sb-mirror .dlbar, .sb-bal-sum-mirror .dlbar { height: 3px; border-radius: var(--radius-6);
-  background: var(--line); overflow: hidden; }
-.sb-mirror .dlbar i, .sb-bal-sum-mirror .dlbar i { display: block; height: 100%; background: var(--acc);
-  border-radius: var(--radius-6); transition: width var(--dur-180); }
-/* 空闲时进度轨不画（visibility 保留那 3px 版位，不读给读屏）：下载开始 / 结束时高度一致。 */
-.sb-mirror .dl-idle { visibility: hidden; }
 /* 正在取数的那一张：转点跟在「正在读取…」前面（它比一句静态说明更像「在动」）。 */
 .sb-bal-card .l2 .spin-dot { display: inline-block; width: var(--sp-8); height: var(--sp-8); vertical-align: -1px; }
 

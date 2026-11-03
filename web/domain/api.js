@@ -624,7 +624,8 @@ function topBoolValue(decl, on) {
      页面里的 <img>/<video>/fetch 只碰本地地址，字节由代理取回（/getv 支持 Range，
      播放、抽帧、量体积、下载都能用）。这样「所有外部访问都经过本地路由」这条规则没有例外，
      也不会因为上游没给 CORS 头而抽不出帧。
-     已经是本地路由的（/asset/、/getv?、/fetch?、/local-assets/）与 data:/blob: 原样返回。 */
+     已经是本地路由的（取字节那三条 /asset/、/getv?、/fetch?，与只写账 / 列表 / 删的 /local-assets/）
+     与 data:/blob: 原样返回。 */
   /* 请求：统一走 Net（带超时 + 退避重试 + 可读错误）。
      HTTP 状态先判、非 JSON 给可读提示；重试次数就是设置页「网络重试」那一格
      （Net 的 NUMS.retry，默认 1）—— 这里不再自设第二份默认值，设置页改 0 立刻生效。
@@ -1857,6 +1858,11 @@ function topBoolValue(decl, on) {
              本机那一条就是空平台名，而列表那一路（scan）递的条目本来带 provider —— 两边口径得一致。 */
           provider: (prov && prov.id) || '',
           assetId: s.id, genId: g('id'), url: s.url, model: g('model'),
+          /* 这一次请求出了几份产物 —— 镜像那一边要靠它判「能不能按任务号认本机那一份」：
+             多图任务（outCount>1）按任务号认会把第二张也当成「已存过」而永远不再排。
+             列表那一路（assetlib 的 normalize）早就带着这枚字段，轮询这一路以前没带，
+             于是「刚生成完就存本机」的那几条在下次开机时认不回身份，整份重排一遍。 */
+          outCount: outIds.length || 1,
           prompt: g('prompt') || (window.Api ? window.Api.promptFor(prov && prov.id, g('id')) : ''),
           duration: g('duration') ?? null, tier: g('tier'), res: g('res'), ar: g('ar'),
           count: g('count'), quality: g('quality'), format: g('format'),

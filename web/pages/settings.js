@@ -1472,7 +1472,9 @@ const SettingsView = {
       el.style.color = isErr ? 'var(--err)' : '';
     }
     function saveUiPrefs() {
-      const __wasSaveOn = window.LS.get('sk_media_local') !== 'off';
+      /* 开关读的是 AssetLocal 那一份谓词（缺省「没存过 = 开」）：这里手抄一次 `LS.get(...) !== 'off'`
+         就是第二套默认值，两边漂开的表现是「界面说开着，队列一条不排」。 */
+      const __wasSaveOn = AssetLocal.saveOn();
       for (const r of ((window.UI_PREFS && UI_PREFS.rows) || [])) {
         const el = q('[data-ui="' + r.key + '"]');
         if (!el) continue;
@@ -1490,10 +1492,8 @@ const SettingsView = {
         /* 外壳引导脚本没跑起来：主题停在上一档，其余偏好照常保存。 */
       }
       try { if (top.__sbApplyOpen) top.__sbApplyOpen(); } catch (e) {}
-      try {
-        const nowSaveOn = window.LS.get('sk_media_local') !== 'off';
-        if (nowSaveOn && !__wasSaveOn && window.AssetLocal && AssetLocal.markSaveOn) AssetLocal.markSaveOn();
-      } catch (e) {}
+      /* 刚把这颗开关从关拨到开：记下开启时刻，「只存新产物」那一档据此划界。 */
+      if (AssetLocal.saveOn() && !__wasSaveOn) AssetLocal.markSaveOn();
       /* 「自动存档位 / 左栏两块开关」以前在这里手抄三份 LS.set —— 现在它们是 SET_ROWS 里的行，
          由自动保存那一趟的 saveManifestRows 统一落盘（一处声明，写盘只有一条路）。 */
       syncUiNeeds();
@@ -3579,7 +3579,7 @@ const SettingsView = {
       },
       paging: () => '每页 ' + (window.pageSizeOf ? window.pageSizeOf('studio') : 24) + ' 条',
       network: () => net.timeout + ' 秒 · 重试 ' + net.retry + ' 次',
-      storage: () => ((window.UI_PREFS && UI_PREFS.isOn('sk_media_local')) ? '自动存本机' : '只留外链'),
+      storage: () => (AssetLocal.saveOn() ? '自动存本机' : '只留外链'),
       chars: () => {
         /* 「素材库」那张卡现在管的是**默认**：出图张数、语音条数与两个默认型号。 */
         if (!window.Chars || !Chars.setting) return '';

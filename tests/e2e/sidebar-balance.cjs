@@ -36,8 +36,9 @@ const STUB = () => {
     return Api;
   };
   const patchLocal = L => {
+    /* 浏览器这一侧看不到字节：`dlName` 是「正在下哪一份」，没有总量 / 已发字节。 */
     L.info = () => ({ on: true, inFlight: 2, count: 5, bytes: 1234567890, fail: 0, ok: 3,
-      lastAt: Date.now() - 95000, lastErr: '', dlTotal: 1000, dlSent: 420, dlName: 'probe-clip.mp4' });
+      lastAt: Date.now() - 95000, lastErr: '', dlName: 'probe-clip.mp4' });
     return L;
   };
   window.__balCalls = 0;
@@ -97,7 +98,6 @@ const SNAP = () => {
   const dots = [...box.querySelectorAll('.sb-bal-dots i')];
   const sumMirror = box.querySelector('.sb-bal-sum-mirror');
   const sumMirrorN = sumMirror ? sumMirror.querySelector('.sb-mirror-n') : null;
-  const sumMirrorBar = sumMirror ? sumMirror.querySelector('.dlbar i') : null;
   const vis = el => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0;
   const links = [...nav.querySelectorAll('a')];
   const nb = nav.getBoundingClientRect();
@@ -121,7 +121,7 @@ const SNAP = () => {
     sumVis: vis(sum),
     sumRole: sum ? sum.getAttribute('role') : '',
     sumMirrorN: sumMirrorN ? sumMirrorN.textContent.trim() : '',
-    sumMirrorFill: sumMirrorBar ? sumMirrorBar.style.width : '',
+    barN: box.querySelectorAll('.dlbar').length,
     sumIconN: sum ? sum.querySelectorAll('.p .ic').length : 0,
     bodyVis: vis(body),
     wrapVis: vis(wrap),
@@ -134,13 +134,14 @@ const SNAP = () => {
     nowRole: nowT ? nowT.getAttribute('role') : '',
     nowIcon: nowT ? nowT.querySelectorAll('.ic svg').length : 0,
     mirVis: vis(mir),
+    mirTitle: mir ? (mir.getAttribute('title') || '') : '',
     mirL1: mir ? (mir.querySelector('.l1').textContent || '').replace(/\s+/g, ' ').trim() : '',
     mirL2: mir ? (mir.querySelector('.l2').textContent || '').replace(/\s+/g, ' ').trim() : '',
     mirL3: mir ? (mir.querySelector('.l3').textContent || '').replace(/\s+/g, ' ').trim() : '',
     mirChev: mir ? mir.querySelectorAll('.chev').length : 0,
     mirToggle: mir ? mir.querySelectorAll('[data-mirror], [role="button"]').length : 0,
     mirH: mir ? Math.round(mir.getBoundingClientRect().height) : 0,
-    mirDlTitle: mir ? ((mir.querySelector('.dlbar') || {}).title || '') : '',
+    mirL3Title: mir ? ((mir.querySelector('.l3 b') || {}).title || '') : '',
     acts: box.querySelectorAll('[data-bal]').length + box.querySelectorAll('.sb-bal-acts').length,
     pop: pop ? {
       exists: true,
@@ -258,21 +259,25 @@ const check = (name, cond, detail) => {
     check(mir + '：标题行不是开关（没有 data-mirror / role=button、没有箭头）',
       s.mirToggle === 0 && s.mirChev === 0, { toggle: s.mirToggle, chev: s.mirChev });
     check(mir + '：状态行是精简后的「正在存 2 份」', s.mirL2 === '正在存 2 份', { mirL2: s.mirL2 });
-    check(mir + '：下载进度只占一行（文件名与字节数在 title 里）',
-      s.mirL3 === '正在下这一份 42%' && /probe-clip\.mp4 · 420 B \/ 1000 B/.test(s.mirDlTitle),
-      { mirL3: s.mirL3, title: s.mirDlTitle });
+    check(mir + '：在途那一份的名字直接摆在行面上（字节由代理取，没有百分比可报）',
+      s.mirL3 === '正在下这一份 probe-clip.mp4' && s.mirL3Title === 'probe-clip.mp4' && s.barN === 0,
+      { mirL3: s.mirL3, title: s.mirL3Title, barN: s.barN });
     check(mir + '：在卡底（余额在上、落盘在下）', await page.eval(() =>
       document.querySelector('#sbBalance .sb-bal-body').lastElementChild.classList.contains('sb-mirror')), {});
     /* 空闲那一行写本次会话，且整块与在途等高 —— 这一块在卡底，长高就会把导航压矮。 */
     const busyMirH = s.mirH;
     await page.eval(() => {
       window.AssetLocal.info = () => ({ on: true, inFlight: 0, count: 5, bytes: 1234567890, fail: 0, ok: 3,
-        lastAt: Date.now() - 95000, lastErr: '' });
+        lastAt: Date.now() - 95000, lastErr: '', dead: 1, deadWhy: '磁盘余量不够' });
       return true;
     });
     await repaint(400);
     s = await page.eval(SNAP);
     check(mir + '：空闲时那一行写「本次 3 份」', s.mirL3 === '本次 3 份', { mirL3: s.mirL3 });
+    /* 「开了却没反应」唯一看得见的解释：存不下的那几条要报出来，成因进 title（行面单行省略）。 */
+    check(mir + '：空闲时报出「存不下」的那几条，成因在 title 里',
+      /已存 5 份 · .* · 1 份存不下/.test(s.mirL2) && /磁盘余量不够/.test(s.mirTitle || ''),
+      { mirL2: s.mirL2, title: s.mirTitle });
     check(mir + '：空闲 / 在途高度一致', Math.abs(s.mirH - busyMirH) <= 1, { busy: busyMirH, idle: s.mirH });
 
     /* ---------- 档二：1440x900 窄形态（56px）---------- */
@@ -292,7 +297,8 @@ const check = (name, cond, detail) => {
     check('窄形态：压缩块不画图标（只留家数）', s.sumIconN === 0, { sumIconN: s.sumIconN });
     check('窄形态：每家一个状态点（点数 = 家数）', s.total > 0 && s.dots === s.total && s.dotsOk + s.dotsBad === s.total,
       { dots: s.dots, ok: s.dotsOk, bad: s.dotsBad, total: s.total });
-    check('窄形态：落盘进度条画出来了（满 42% 的那一条）', s.sumMirrorFill === '42%', { fill: s.sumMirrorFill });
+    check('窄形态：落盘那一段报「存 在途/已存」（没有进度条）',
+      s.sumMirrorN === '存 2/5' && s.barN === 0, { sumMirrorN: s.sumMirrorN, barN: s.barN });
     check('窄形态：压缩块是按钮（role=button）', s.sumRole === 'button', { role: s.sumRole });
 
     /* ---------- 档三：点压缩块 → 气泡 ---------- */
@@ -310,7 +316,7 @@ const check = (name, cond, detail) => {
     check(popTag + '：里面是全量卡（六家）', s.pop.cards === 6, { cards: s.pop.cards });
     check(popTag + '：里面没有展开 / 刷新按钮', s.pop.btns === 0 && s.pop.nowIcon === 0,
       { btns: s.pop.btns, nowIcon: s.pop.nowIcon });
-    check(popTag + '：本机产物进度也在这里', /正在下这一份 42%/.test(s.pop.mirL3), { mirL3: s.pop.mirL3 });
+    check(popTag + '：本机产物那一份的名字也在这里', /正在下这一份 probe-clip\.mp4/.test(s.pop.mirL3), { mirL3: s.pop.mirL3 });
     check(popTag + '：每开一次自动重取一轮余额', s.calls >= before + 6, { before, after: s.calls });
     /* 点里面不关 */
     await page.eval(() => {
