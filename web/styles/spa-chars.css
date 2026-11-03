@@ -42,9 +42,9 @@
 .chars-page .rail-new-btn { display: inline-flex; align-items: center; gap: var(--sp-4);
   margin-left: auto; padding: var(--sp-2) var(--sp-4); font-size: var(--fs-12); }
 .chars-page .rail-new { display: flex; align-items: center; gap: var(--sp-8); margin: var(--sp-4) 0;
-  padding: var(--sp-4) var(--sp-8); border: var(--hair) dashed var(--acc-line-32); border-radius: var(--radius-8);
+  padding: var(--sp-4) var(--sp-8); border: var(--hair) dashed var(--acc-line-32); border-radius: var(--radius-10);
   background: var(--acc-tint-10); }
-.chars-page .rail-new-inp { flex: 1 1 auto; min-width: 0; height: var(--sp-32); padding: 0 var(--sp-8);
+height: var(--sz-ctl); padding: 0 var(--sp-8);
   border: var(--hair) solid var(--acc); border-radius: var(--radius-6); background: var(--panel);
   color: var(--txt); font-family: inherit; font-size: var(--fs-12); outline: none; }
 .chars-page .rail-new .ghost { flex: 0 0 auto; padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11); }
@@ -66,7 +66,6 @@
 .chars-page .mcard { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; cursor: pointer;
   transition: transform var(--dur-180), box-shadow var(--dur-180), border-color var(--dur-120); }
 .chars-page .mcard.sel { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-18); }
-.chars-page .mcard:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair-2); }
 .chars-page .mcard:hover { transform: translateY(calc(-1 * var(--sp-2))); box-shadow: var(--shadow-2); }
 .chars-page .mthumb { position: relative; height: auto; flex-shrink: 0; aspect-ratio: 4 / 3; background: var(--panel2); overflow: hidden; }
 .chars-page .mthumb img { object-position: center 22%; transition: transform var(--dur-180); }

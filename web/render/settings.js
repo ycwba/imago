@@ -1070,7 +1070,7 @@ export function render(_ctx, _cache) {
               ]),
               _createElementVNode("span", _hoisted_106, [
                 _createElementVNode("button", {
-                  class: "ghost xs",
+                  class: "ghost mini",
                   disabled: _ctx.cusFetchBusy,
                   onClick: _ctx.fetchCusModels,
                   title: "只读，不花钱"
@@ -1111,11 +1111,11 @@ export function render(_ctx, _cache) {
                             _createElementVNode("span", _hoisted_115, _toDisplayString(e.name), 1 /* TEXT */),
                             _createElementVNode("span", _hoisted_116, _toDisplayString(e.modelsN) + " 个型号", 1 /* TEXT */),
                             _createElementVNode("button", {
-                              class: "ghost xs",
+                              class: "ghost mini",
                               onClick: $event => (_ctx.editCus(e.id))
                             }, "编辑", 8 /* PROPS */, _hoisted_117),
                             _createElementVNode("button", {
-                              class: "ghost xs danger",
+                              class: "ghost mini danger",
                               onClick: $event => (_ctx.removeCus(e.id))
                             }, "删除", 8 /* PROPS */, _hoisted_118)
                           ], 2 /* CLASS */))
@@ -1711,17 +1711,17 @@ export function render(_ctx, _cache) {
             ]),
             _createElementVNode("div", _hoisted_277, [
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 disabled: _ctx.dataBusy.push,
                 onClick: _ctx.pushData
               }, "↑ 本机 → 数据文件", 8 /* PROPS */, _hoisted_278),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 disabled: _ctx.dataBusy.pull,
                 onClick: _ctx.pullData
               }, "↓ 数据文件 → 本机", 8 /* PROPS */, _hoisted_279),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 disabled: _ctx.dataBusy.exp,
                 onClick: _ctx.exportAll
               }, [...(_cache[74] || (_cache[74] = [
@@ -1733,7 +1733,7 @@ export function render(_ctx, _cache) {
                 _createTextVNode(" 导出整包备份", -1 /* CACHED */)
               ]))], 8 /* PROPS */, _hoisted_280),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 disabled: _ctx.dataBusy.imp,
                 onClick: _ctx.pickImportAll
               }, [...(_cache[75] || (_cache[75] = [
@@ -1801,19 +1801,19 @@ export function render(_ctx, _cache) {
             ]),
             _createElementVNode("div", _hoisted_293, [
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 onClick: $event => (_ctx.cloudBusy.test ? _ctx.cloudAbort('test') : _ctx.cloudCall('test'))
               }, _toDisplayString(_ctx.cloudBusy.test ? '中止这次' : '测试连接'), 9 /* TEXT, PROPS */, _hoisted_294),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 onClick: $event => (_ctx.cloudBusy.push ? _ctx.cloudAbort('push') : _ctx.cloudPush())
               }, _toDisplayString(_ctx.cloudBusy.push ? '中止这次' : '↑ 上传到云端'), 9 /* TEXT, PROPS */, _hoisted_295),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 onClick: $event => (_ctx.cloudBusy.pull ? _ctx.cloudAbort('pull') : _ctx.cloudPull())
               }, _toDisplayString(_ctx.cloudBusy.pull ? '中止这次' : '↓ 从云端下载'), 9 /* TEXT, PROPS */, _hoisted_296),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 onClick: $event => (_ctx.cloudBusy.sync ? _ctx.cloudAbort('sync') : _ctx.cloudSync()),
                 title: "冲突由你选一边"
               }, _toDisplayString(_ctx.cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步'), 9 /* TEXT, PROPS */, _hoisted_297),
@@ -1877,12 +1877,12 @@ export function render(_ctx, _cache) {
             _cache[83] || (_cache[83] = _createElementVNode("div", { class: "pb-tip" }, "~ 开头或绝对路径；不参与云同步。", -1 /* CACHED */)),
             _createElementVNode("div", _hoisted_313, [
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 disabled: _ctx.promptOpenBusy,
                 onClick: _ctx.openPromptDir
               }, "打开目录", 8 /* PROPS */, _hoisted_314),
               _createElementVNode("button", {
-                class: "ghost wide",
+                class: "ghost",
                 onClick: _ctx.promptRefresh
               }, "刷新清单", 8 /* PROPS */, _hoisted_315),
               _createElementVNode("span", _hoisted_316, _toDisplayString(_ctx.promptMsg), 1 /* TEXT */)
@@ -1964,12 +1964,12 @@ export function render(_ctx, _cache) {
               ]))], 512 /* NEED_PATCH */),
               _createElementVNode("div", _hoisted_332, [
                 _createElementVNode("button", {
-                  class: "ghost wide",
+                  class: "ghost",
                   disabled: _ctx.sysBusy,
                   onClick: _ctx.recheckSys
                 }, "重新体检", 8 /* PROPS */, _hoisted_333),
                 _createElementVNode("button", {
-                  class: "ghost wide",
+                  class: "ghost",
                   disabled: _ctx.sysCopyDisabled,
                   onClick: _ctx.copySys,
                   title: _ctx.sysCopyDisabled ? '还没读到结果' : '复制成文字'
@@ -1992,12 +1992,12 @@ export function render(_ctx, _cache) {
               ]))], 512 /* NEED_PATCH */),
               _createElementVNode("div", _hoisted_340, [
                 _createElementVNode("button", {
-                  class: "ghost wide",
+                  class: "ghost",
                   disabled: _ctx.usageBusy,
                   onClick: _ctx.recountUsage
                 }, "重新数一遍", 8 /* PROPS */, _hoisted_341),
                 _createElementVNode("button", {
-                  class: "ghost wide",
+                  class: "ghost",
                   disabled: _ctx.usageCopyDisabled,
                   onClick: _ctx.copyUsage,
                   title: _ctx.usageCopyDisabled ? '还没读到结果' : '复制成文字'

@@ -496,6 +496,7 @@ function keepBodyScroll(el, fn) {
     document.querySelectorAll('dialog#prDlg').forEach(d => { try { d.close(); } catch (e) { /* 已经关掉了，接着摘节点 */ } d.remove(); });
     const dlg = document.createElement('dialog');
     dlg.id = 'prDlg';
+    dlg.className = 'ui-dlg';
     dlg.innerHTML = `<div class="pr-head"><b>${window.esc(title)}</b>${sub ? `<div class="sub">${window.esc(sub)}</div>` : ''}</div>
       <div class="pr-body" id="prBody"></div>
       <div class="pr-foot"><button class="ghost" id="prRetry">${icon('refresh', 13)} 重新润色</button>
@@ -1095,6 +1096,7 @@ function keepBodyScroll(el, fn) {
   function shell(title, sub) {
     const dlg = document.createElement('dialog');
     dlg.id = 'cfDlg';
+    dlg.className = 'ui-dlg';
     dlg.innerHTML = `<div class="pr-head"><b>${window.esc(title)}</b>${sub ? `<div class="sub">${window.esc(sub)}</div>` : ''}</div>
       <div class="pr-body" id="cfBody"></div>
       <div class="pr-foot" id="cfFoot"></div>`;
@@ -1367,6 +1369,7 @@ function keepBodyScroll(el, fn) {
         document.querySelectorAll('dialog#pfDlg').forEach(d => { try { d.close(); } catch (e) {} d.remove(); });
         const dlg = document.createElement('dialog');
         dlg.id = 'pfDlg';
+        dlg.className = 'ui-dlg';
         /* 开窗前记下触发它的那个节点：关掉之后还给它的焦点（见下面 done）。
            必须在这里记 —— 关窗那一刻 activeElement 已经是弹窗里的按钮了。 */
         const pfOpener = document.activeElement;

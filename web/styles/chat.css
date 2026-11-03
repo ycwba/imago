@@ -15,7 +15,6 @@
   box-shadow:var(--shadow-2);transition:filter var(--dur-120) var(--ease)}
 #acBall:hover{filter:brightness(1.08)}
 #acBall.drag{cursor:grabbing;transition:none}
-#acBall:focus-visible{outline:var(--hair-2) solid var(--acc);outline-offset:var(--hair-2)}
 /* 固定档面板占住右边一条时球才让位；悬浮档的浮窗就贴着球，球是它的锚点，也是「还有几条没看」的入口。 */
 html.ac-dock.ac-open #acBall{display:none}
 /* 收起态除了 translateX 还要 visibility:hidden（配 transition 延迟）——
@@ -31,7 +30,7 @@ html.ac-open #acPanel{transform:none;pointer-events:auto;box-shadow:var(--shadow
 html:not(.ac-dock) #acPanel{top:var(--ac-top);left:var(--ac-left);right:auto;bottom:auto;
   box-sizing:border-box;
   height:var(--ac-h);max-height:calc(100vh - 24px);
-  border:var(--hair) solid var(--line);border-radius:var(--radius-8);
+  border:var(--hair) solid var(--line);border-radius:var(--radius-10);
   transform:scale(.96);transform-origin:var(--ac-to);opacity:0;
   transition:transform var(--dur-180) var(--ease),opacity var(--dur-180) var(--ease),visibility var(--dur-180) var(--ease)}
 html:not(.ac-dock).ac-open #acPanel{transform:none;opacity:1}
@@ -77,7 +76,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
 .ac-turn{display:flex;flex-direction:column;gap:var(--sp-8);max-width:340px;width:100%;align-self:center}
 .ac-wel{display:flex;flex-direction:column;gap:var(--sp-8)}
 .ac-who{font-size:var(--fs-12);line-height:1.6;color:var(--sub);background:var(--panel2);
-  border:var(--hair) solid var(--line);border-radius:var(--radius-8);padding:var(--sp-8) var(--sp-8)}
+  border:var(--hair) solid var(--line);border-radius:var(--radius-10);padding:var(--sp-8) var(--sp-8)}
 .ac-q{display:flex;flex-wrap:wrap;gap:var(--sp-8)}
 .ac-qi{border:var(--hair) solid var(--line);background:var(--panel);color:var(--txt);
   border-radius:var(--radius-14);padding:var(--sp-4) var(--sp-8);font-size:var(--fs-12);cursor:pointer;white-space:normal;text-align:left}
@@ -93,7 +92,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
   border-top:var(--hair) dashed var(--line);padding-top:var(--sp-4)}
 .ac-m{display:flex;flex-direction:column;gap:var(--sp-4)}
 .ac-ai{align-items:flex-start}.ac-note{align-items:flex-start}
-.ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-13);line-height:1.62;padding:var(--sp-8) var(--sp-8);border-radius:var(--radius-8);max-width:100%}
+.ac-bd{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-13);line-height:1.62;padding:var(--sp-8) var(--sp-8);border-radius:var(--radius-10);max-width:100%}
 /* markdown 那几条气泡改回 normal：pre-wrap 是给纯文本准备的，而 Md 产出的是块级元素 ——
    块与块之间本来就有结构，再让容器把换行也当一次换行，段落之间就多出一截空行。
    行内的换行由 Md 自己转成 <br>（约定③），所以版式不丢。
@@ -151,7 +150,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
    .ac-card-media 上要有 .ready（Wb.thumbs 出画后加的），占位层 .tph 由 ui.css 排版。 */
 .ac-cards{display:flex;flex-direction:column;gap:var(--sp-8);width:100%}
 .ac-cards-hd{font-size:var(--fs-11);line-height:1.5;color:var(--sub)}
-.ac-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-8);overflow:hidden}
+.ac-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-10);overflow:hidden}
 /* 窄栏里一列，图片给足高度：以前 max-height:220px 压在 420px 的面板里，
    产物是这层的主角，却被压成一张看不清的缩略图。 */
 .ac-card-media{position:relative;background:var(--thumbbg);aspect-ratio:16/9;overflow:hidden}
@@ -195,7 +194,7 @@ html:not(.ac-dock) .ac-ta{resize:none}
 /* 执行闸：等你点头的那一步 —— 琥珀（要花钱 / 要写盘 / 要覆盖）。
    执行完就回到普通卡：状态在 .ac-run-st 那一行上写着，卡不用一直喊。 */
 .ac-run{width:100%}
-.ac-run-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-8);
+.ac-run-card{background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-10);
   width:100%;padding:var(--sp-8) var(--sp-12)}
 .ac-run-hd{font-size:var(--fs-12);font-weight:700;color:var(--txt);margin-bottom:var(--sp-4)}
 .ac-run.s-gate .ac-run-card{border-color:color-mix(in srgb, var(--warn) var(--a-34), transparent);background:var(--warn-tint)}

@@ -216,7 +216,7 @@
                 <div class="krow thin">
                   <span class="kn">自己填 id</span>
                   <input ref="cusExtraEl" v-model="cusExtra" @input="rebuildCusModels" placeholder="逗号分隔">
-                  <span class="acts"><button class="ghost xs" :disabled="cusFetchBusy" @click="fetchCusModels"
+                  <span class="acts"><button class="ghost mini" :disabled="cusFetchBusy" @click="fetchCusModels"
                     title="只读，不花钱">{{ cusFetchBusy ? '获取中…' : '获取型号列表' }}</button></span>
                 </div>
                 <div class="cus-acts">
@@ -233,8 +233,8 @@
                       <span class="cus-mine-i" v-for="e in g.items" :key="e.id" :class="{ on: e.id === cusEditing }">
                         <span class="t">{{ e.name }}</span>
                         <span class="hint sm">{{ e.modelsN }} 个型号</span>
-                        <button class="ghost xs" @click="editCus(e.id)">编辑</button>
-                        <button class="ghost xs danger" @click="removeCus(e.id)">删除</button>
+                        <button class="ghost mini" @click="editCus(e.id)">编辑</button>
+                        <button class="ghost mini danger" @click="removeCus(e.id)">删除</button>
                       </span>
                     </div>
                   </div>
@@ -526,10 +526,10 @@
                   </div>
                 </div>
                 <div class="krow tight">
-                  <button class="ghost wide" :disabled="dataBusy.push" @click="pushData">↑ 本机 → 数据文件</button>
-                  <button class="ghost wide" :disabled="dataBusy.pull" @click="pullData">↓ 数据文件 → 本机</button>
-                  <button class="ghost wide" :disabled="dataBusy.exp" @click="exportAll"><span class="ic" data-icon="download" data-size="13"></span> 导出整包备份</button>
-                  <button class="ghost wide" :disabled="dataBusy.imp" @click="pickImportAll"><span class="ic" data-icon="upload" data-size="13"></span> 导入整包备份</button>
+                  <button class="ghost" :disabled="dataBusy.push" @click="pushData">↑ 本机 → 数据文件</button>
+                  <button class="ghost" :disabled="dataBusy.pull" @click="pullData">↓ 数据文件 → 本机</button>
+                  <button class="ghost" :disabled="dataBusy.exp" @click="exportAll"><span class="ic" data-icon="download" data-size="13"></span> 导出整包备份</button>
+                  <button class="ghost" :disabled="dataBusy.imp" @click="pickImportAll"><span class="ic" data-icon="upload" data-size="13"></span> 导入整包备份</button>
                   <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
                   <span class="hint sm">{{ dataMsg }}</span>
                 </div>
@@ -545,10 +545,10 @@
                   <input id="cloudPass" type="password" v-model="cloudPass" @change="saveCloud" placeholder="应用密码" style="flex:1">
                 </div>
                 <div class="krow tight">
-                  <button class="ghost wide" @click="cloudBusy.test ? cloudAbort('test') : cloudCall('test')">{{ cloudBusy.test ? '中止这次' : '测试连接' }}</button>
-                  <button class="ghost wide" @click="cloudBusy.push ? cloudAbort('push') : cloudPush()">{{ cloudBusy.push ? '中止这次' : '↑ 上传到云端' }}</button>
-                  <button class="ghost wide" @click="cloudBusy.pull ? cloudAbort('pull') : cloudPull()">{{ cloudBusy.pull ? '中止这次' : '↓ 从云端下载' }}</button>
-                  <button class="ghost wide" @click="cloudBusy.sync ? cloudAbort('sync') : cloudSync()"
+                  <button class="ghost" @click="cloudBusy.test ? cloudAbort('test') : cloudCall('test')">{{ cloudBusy.test ? '中止这次' : '测试连接' }}</button>
+                  <button class="ghost" @click="cloudBusy.push ? cloudAbort('push') : cloudPush()">{{ cloudBusy.push ? '中止这次' : '↑ 上传到云端' }}</button>
+                  <button class="ghost" @click="cloudBusy.pull ? cloudAbort('pull') : cloudPull()">{{ cloudBusy.pull ? '中止这次' : '↓ 从云端下载' }}</button>
+                  <button class="ghost" @click="cloudBusy.sync ? cloudAbort('sync') : cloudSync()"
                     title="冲突由你选一边">{{ cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步' }}</button>
                   <label class="crow">
                     <input type="checkbox" id="cloudKeys" v-model="cloudKeys" @change="saveCloud"> 连密钥一起同步</label>
@@ -575,8 +575,8 @@
                 </div>
                 <div class="pb-tip">~ 开头或绝对路径；不参与云同步。</div>
                 <div class="krow tight">
-                  <button class="ghost wide" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
-                  <button class="ghost wide" @click="promptRefresh">刷新清单</button>
+                  <button class="ghost" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
+                  <button class="ghost" @click="promptRefresh">刷新清单</button>
                   <span class="hint sm">{{ promptMsg }}</span>
                 </div>
                 <div ref="promptRecentEl" class="prompt-recent"></div>
@@ -607,8 +607,8 @@
                   <div class="sub">只读检查，不写盘。</div>
                   <div ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
                   <div class="krow tight">
-                    <button class="ghost wide" :disabled="sysBusy" @click="recheckSys">重新体检</button>
-                    <button class="ghost wide" :disabled="sysCopyDisabled" @click="copySys"
+                    <button class="ghost" :disabled="sysBusy" @click="recheckSys">重新体检</button>
+                    <button class="ghost" :disabled="sysCopyDisabled" @click="copySys"
                       :title="sysCopyDisabled ? '还没读到结果' : '复制成文字'">复制体检结果</button>
                     <span class="hint sm">{{ sysMsg }}</span>
                   </div>
@@ -620,8 +620,8 @@
                   <div class="sub">只读检查，不写不删。</div>
                   <div ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
                   <div class="krow tight">
-                    <button class="ghost wide" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
-                    <button class="ghost wide" :disabled="usageCopyDisabled" @click="copyUsage"
+                    <button class="ghost" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
+                    <button class="ghost" :disabled="usageCopyDisabled" @click="copyUsage"
                       :title="usageCopyDisabled ? '还没读到结果' : '复制成文字'">复制这份读数</button>
                     <span ref="usageGoSlotEl"></span>
                     <span class="hint sm">{{ usageMsg }}</span>

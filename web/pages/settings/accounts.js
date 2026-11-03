@@ -472,18 +472,18 @@ export function createAccountCards(deps) {
       + (chan
         ? '<span class="hint sm" title="' + window.esc(cap === 'asr' ? '这一档实际发出去的型号' : '搜索接口由这家自己的端点执行') + '">'
           + (cap === 'asr' ? '型号 ' : '') + '<code>' + window.esc(model || '默认') + '</code></span>'
-        : '<button class="ghost xs' + (open ? ' active' : '') + '" type="button" data-panel="' + es + '"'
+        : '<button class="ghost mini' + (open ? ' active' : '') + '" type="button" data-panel="' + es + '"'
           + ' title="' + (open ? '收起型号清单' : '展开型号清单') + '">'
           + (open ? '收起型号 ' : '型号 ') + '<b data-mcount="' + es + '"></b></button>')
       + (isManual
-        ? '<button class="ghost xs" type="button" data-cap-rm="' + es + '"'
+        ? '<button class="ghost mini" type="button" data-cap-rm="' + es + '"'
           + ' title="撤掉这份声明">撤掉</button>'
         : '')
       /* 文字档的型号下拉 + 测试放在**主行之后**（.crow-sub 独占一整行）：
          主行因此只剩「能力名 + 状态牌 + 型号 n/m」，与别的档对齐；下拉拿到整行宽，型号 id 读得全。 */
       + (cap === 'text'
         ? '<div class="crow-sub"><select class="sel" data-tmodel="' + window.esc(m.keyId) + '"></select>'
-          + '<button class="ghost xs" type="button" data-ttest="' + es + '"'
+          + '<button class="ghost mini" type="button" data-ttest="' + es + '"'
           + ' title="发测试消息">测试</button></div>'
         : '')
       + '</div>'
@@ -529,7 +529,7 @@ export function createAccountCards(deps) {
       + '<div class="mpanel-h"><span class="t">型号清单 · ' + window.esc(capZh(cap)) + '</span>'
         + '<span class="st alt" data-mfetch="' + es + '">还没取过</span><span class="sp"></span>'
         + (canFetch
-          ? '<button class="ghost xs" type="button" data-tfetch="' + es + '"'
+          ? '<button class="ghost mini" type="button" data-tfetch="' + es + '"'
             + ' title="只读，不花钱">取一次型号清单</button>'
           : '<span class="hint sm">没有型号接口，自己填 id</span>')
       + '</div>'
@@ -540,7 +540,7 @@ export function createAccountCards(deps) {
       + '<div class="mlist" data-tchips="' + es + '"></div>'
       + '<div class="krow thin"><span class="kn">自己填</span>'
         + '<input data-tmnew="' + es + '" placeholder="逗号分隔">'
-        + '<button class="ghost xs" type="button" data-tadd="' + es + '">添加</button></div>'
+        + '<button class="ghost mini" type="button" data-tadd="' + es + '">添加</button></div>'
       + '<div class="msg" data-pmsg="' + es + '"></div>'
       + '</div>';
   }
@@ -556,14 +556,14 @@ export function createAccountCards(deps) {
       return open ? '' : '<div class="capadd"><span class="hint">这一家能手动加的那几档都加上了</span></div>';
     }
     if (!open) {
-      return '<div class="capadd"><button class="ghost xs" type="button" data-cap-pick="' + es + '">'
+      return '<div class="capadd"><button class="ghost mini" type="button" data-cap-pick="' + es + '">'
         + '＋ 手动加一档能力</button>'
         + '<span class="hint">型号自己填</span></div>';
     }
     return '<div class="capadd capadd-open">'
       + '<div class="capadd-h"><span>手动加一档能力</span><span class="sp"></span>'
-        + '<button class="ghost xs" type="button" data-cap-pick="' + es + '">收起</button></div>'
-      + '<div class="pickrow">' + miss.map(c => '<button class="ghost xs pickchip" type="button"'
+        + '<button class="ghost mini" type="button" data-cap-pick="' + es + '">收起</button></div>'
+      + '<div class="pickrow">' + miss.map(c => '<button class="ghost mini pickchip" type="button"'
         + ' data-cap-add="' + es + '" data-cap="' + window.esc(c) + '">'
         + capGlyph(c) + ' ' + window.esc(capZh(c)) + '</button>').join('') + '</div>'
       + '<span class="hint">只是声明；生成类需 REGISTRY 补端点。</span>'
@@ -585,9 +585,9 @@ export function createAccountCards(deps) {
     return '<div class="krow thin keyrow"><span class="kn">密钥</span>'
       + '<input type="password" data-key="' + kid + '" value="' + window.esc(draftKey(m.keyId)) + '"'
       + ' placeholder="' + window.esc(ph) + '">'
-      + '<button class="ghost xs" type="button" data-eye="' + kid + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>'
+      + '<button class="ghost mini" type="button" data-eye="' + kid + '" title="显示 / 隐藏密钥">' + ic('eye', 13) + '</button>'
       + '<button class="ghost clr" type="button" data-clr="' + kid + '" title="清掉本机密钥">清除</button>'
-      + '<button class="ghost xs" type="button" data-vfy="' + kid + '"'
+      + '<button class="ghost mini" type="button" data-vfy="' + kid + '"'
       + ' title="只读验证，不扣费">验证</button>'
       + '</div>'
       + '<div class="krow thin"><span class="hint sm" data-ksrc="' + kid + '"'
@@ -697,8 +697,8 @@ export function createAccountCards(deps) {
           + '<input type="checkbox" data-off="' + kid + '"' + (off ? ' checked' : '') + '>暂时不用</label>'
         + '<span class="sp"></span>'
         + (m.custom
-          ? '<button class="ghost xs" type="button" data-cedit="' + kid + '">编辑</button>'
-            + '<button class="ghost xs danger" type="button" data-cdel="' + kid + '">删除</button>'
+          ? '<button class="ghost mini" type="button" data-cedit="' + kid + '">编辑</button>'
+            + '<button class="ghost mini danger" type="button" data-cdel="' + kid + '">删除</button>'
           : '')
         + '<span class="hint sm" data-acctmsg="' + kid + '"></span>'
         + balChipHTML(m)
@@ -718,7 +718,7 @@ export function createAccountCards(deps) {
       + '<span class="pnote">' + window.esc(m.kindLabel) + ' · ' + window.esc(m.base)
       + ((envOf()[m.keyId] || {}).hasEnv ? ' · <code>.env</code> 里已有密钥' : '') + '</span></div>'
       + '<span class="pcaps" title="' + window.esc(m.kindLabel) + '">' + glyphs + '</span>'
-      + '<button class="ghost xs" type="button" data-preset="' + window.esc(m.keyId) + '">添加</button></div>';
+      + '<button class="ghost mini" type="button" data-preset="' + window.esc(m.keyId) + '">添加</button></div>';
   }
   function addTileHTML(all) {
     const rest = presetAccounts(all);
@@ -728,7 +728,7 @@ export function createAccountCards(deps) {
         + '<div class="fcard-tt"><div class="fcard-t"><span>'
           + (custom ? '添加自定义供应商' : '添加供应商') + '</span></div></div>'
       + (custom
-        ? '<span class="fcard-badge"><button class="ghost xs" type="button" data-cus-close="1">返回预设</button></span>'
+        ? '<span class="fcard-badge"><button class="ghost mini" type="button" data-cus-close="1">返回预设</button></span>'
         : '<span class="fcard-badge"><span class="st alt">待接入 ' + rest.length + '</span></span>')
       + '</div>'
       + (custom
@@ -736,7 +736,7 @@ export function createAccountCards(deps) {
         : '<div class="acct-mid" data-mid="__add__">'
           + (rest.length ? rest.map(presetRowHTML).join('')
             : '<div class="mlist-empty">注册表里的都请进来了。</div>')
-          + '<button class="ghost wide" type="button" data-cus-open="1">＋ 自定义（中转站 / 网关 / 企业部署）</button>'
+          + '<button class="ghost" type="button" data-cus-open="1">＋ 自定义（中转站 / 网关 / 企业部署）</button>'
           + '</div>')
       + '</div>';
   }
@@ -774,7 +774,7 @@ export function createAccountCards(deps) {
       + '<span class="hint sm">在用 ' + on + ' 家' + (alt ? ' · 备用 ' + alt + ' 家' : '')
       + (off ? ' · 没接上 ' + off + ' 家' : '') + ' —— 按「在用 → 备用 → 没接上」排，'
       + '同档里能力多的在前；被筛的那一格在能力条上圈了出来。</span>'
-      + '<span class="sp"></span><button class="ghost xs" type="button" data-fchip="all">看全部 '
+      + '<span class="sp"></span><button class="ghost mini" type="button" data-fchip="all">看全部 '
       + all.length + ' 家</button>';
   }
   let toolsWired = false;

@@ -804,7 +804,7 @@ const SettingsView = {
         const id2 = window.esc(x.id);
         const src = x.typed ? '自己填的' : (x.api ? '接口给的' : '本机记的');
         const del = x.typed
-          ? '<button class="ghost xs" title="移除这个型号（只清本机记录，平台那边不受影响）"'
+          ? '<button class="ghost mini" title="移除这个型号（只清本机记录，平台那边不受影响）"'
             + ' data-tdel="' + id2 + '" data-tkid="' + es + '">' + ic('close', 10) + '</button>' : '';
         if (text) {
           const on = x.id === cur;
@@ -1281,7 +1281,7 @@ const SettingsView = {
       btn.className = 'tool';
       const clr = document.createElement('button');
       clr.type = 'button';
-      clr.className = 'ghost xs';
+      clr.className = 'ghost mini';
       clr.textContent = '清除';
       const why = document.createElement('span');
       why.className = 'hint sm';
@@ -1390,7 +1390,7 @@ const SettingsView = {
       pick.title = '弹出系统自带的文件夹选择框';
       pick.onclick = () => pickLibDir(inp, pick, why);
       const rst = document.createElement('button');
-      rst.type = 'button'; rst.className = 'ghost xs'; rst.textContent = '恢复默认';
+      rst.type = 'button'; rst.className = 'ghost mini'; rst.textContent = '恢复默认';
       rst.title = '清空这一格 → 产物回到系统「下载」下的 成像\\';
       rst.onclick = async () => {
         if (Confirm.arm(rst, '确认恢复默认', { key: 'lib-rst', hint: '再点一次就清空这一格目录 · 已经存下的文件一个都不动' })) return;
