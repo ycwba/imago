@@ -6,8 +6,8 @@
   /* `needs`：外壳切页时与页面模块一起并发补载（app.js），页面代码一运行就要在的全局
      不能等「用户点到才补」—— `TextAI` 建包时被当对象递进 split-assets，
      `AssetPicker` 由常驻的 gen-forms 直接开弹窗，`DataSync` 第一次落盘镜像就要用，
-     `Search` 给 text-ai 的联网搜索供结果（`TextAI.searchBlock` 现查 `window.Search`，
-     缺了它联网搜索就静默不搜）。capabilities 也在这份名单里：它自己有在途并船与 30 秒 TTL，
+     `Search` 是 TextAI 联网工具循环的执行层（首次生成时 `_toolsEnabled` 会现查；
+     这里先补齐，省掉第一次生成前的一次动态加载）。capabilities 也在这份名单里：它自己有在途并船与 30 秒 TTL，
      晚到只会让首帧下拉空一拍，`wb:cap-ready` 会补画。
      收藏 / 用量 / 资产库用不到的那几份整份不下。
      `css`：这一页私有的那份样式表（挂载与预取都只读这一格；导演台没有 ——

@@ -375,7 +375,6 @@ async function aiBoardSplit(v) {
         reg: REGOf(), shots: out, existing: SplitAssets.named(),
         sys: fillSkillVars(TextAI.prompt('board_assets'), av),
         text: boardListOfItems(out),
-        search: { query: boardListOfItems(out).slice(0, 200) },
         TextAI: window.TextAI, parseJsonLoose,
       });
     } catch (e) {
@@ -450,8 +449,7 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
        与「AI 润色」共用那一块地方；两边都是用户手点的，不会同时开着）。 */
     splitUI = { phase: 'stream', busy: true, kind: 'split' };   // busy 档住「拆分镜」重入；面板本体归 AiStream 管
     const txt = await AiStream.text(REGOf(), sys, userOfRun() + (an ? '\n\n' + an : ''),
-      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…',
-        search: { query: v.script } });
+      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…' });
     splitUI = null;
     draft = parseJsonLoose(txt);
     const items = itemsOfDraft(draft);
@@ -531,7 +529,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
         + userNoteLine(v)
         + (answers ? '\n\n' + TextAI.answersNote(answers) : '');
       const txt = await TextAI.chatStream(REGOf(), sys, msg,
-        { signal: ctl.signal, search: { query: askText } }, ctl.push);
+        { signal: ctl.signal }, ctl.push);
       draft = parseJsonLoose(txt);
       let next = itemsOfDraft(draft);
       if (!next.length) throw new Error('AI 的调整结果里没有镜头');
@@ -709,10 +707,9 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     splitUI = { phase: 'stream', busy: true, kind: 'edit' };
     /* 带 ctl = 审查弹窗里「按这句再改」那一轮：流式画进弹窗（ctl.push，可中止）；
        不带 = 首轮与「重新规划」：还是右栏那块流式面板。 */
-    const search = { query: wt };
     const txt = await (ctl
-      ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal, search }, ctl.push)
-      : AiStream.text(REGOf(), sys, body, { host: $('polishInline'), title: 'AI 正在修改分镜…', search }));
+      ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal }, ctl.push)
+      : AiStream.text(REGOf(), sys, body, { host: $('polishInline'), title: 'AI 正在修改分镜…' }));
     splitUI = null;
     const j = parseJsonLoose(txt);
     const changes = (j && (j.changes || j.edits)) || null;

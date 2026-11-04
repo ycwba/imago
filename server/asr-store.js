@@ -34,11 +34,14 @@ function isHttpUrl(v) {
   } catch { return false; }
 }
 function srtTime(sec) {
-  const t = Math.max(0, Number(sec) || 0);
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const s = Math.floor(t % 60);
-  const ms = Math.round((t - Math.floor(t)) * 1000);
+  /* 先整体取整到毫秒再拆位：`Math.round(小数部分 * 1000)` 在 1.9996 这种值上会算出 1000，
+     拼出来是 `00:00:01,1000` —— 那不是合法 SRT 时间（毫秒只有 000–999），
+     导进别的软件会当场报错。整体取整还会自然进位到下一秒。 */
+  const total = Math.max(0, Math.round((Number(sec) || 0) * 1000));
+  const h = Math.floor(total / 3600000);
+  const m = Math.floor((total % 3600000) / 60000);
+  const s = Math.floor((total % 60000) / 1000);
+  const ms = total % 1000;
   const p = (n, w) => String(n).padStart(w, '0');
   return p(h, 2) + ':' + p(m, 2) + ':' + p(s, 2) + ',' + p(ms, 3);
 }
@@ -124,7 +127,12 @@ function createAsrStore(opts) {
      要清掉得显式 clearKey（与设置页「清空密钥」那条路一致）。 */
   const patchSettings = patch => {
     const p = patch && typeof patch === 'object' ? patch : {};
-    const s = loadSettings();
+    const base = loadSettings();
+    /* 先在副本上改、全部校验通过再落回缓存对象：以前中途抛错（例如接口地址非法）时，
+       前面几项已经改在内存里、磁盘却没写 —— 运行中的设置成了「半截新半截旧」，
+       重启才复原，而这中间每一单转写都按那份半截配置走。 */
+    const s = { ...base, service: { ...base.service } };
+    const prevProvider = s.service.providerId;
     if (ROUTES.has(p.route)) s.route = p.route;
     if (p.language != null) {
       const lang = cleanStr(p.language, 32);
@@ -139,12 +147,21 @@ function createAsrStore(opts) {
     }
     if (svc.model != null) s.service.model = cleanStr(svc.model, 120);
     if (svc.baseUrl != null) {
-      const base = cleanStr(svc.baseUrl, 500).replace(/\/+$/, '');
-      if (!isHttpUrl(base)) throw new Error('接口地址要以 http:// 或 https:// 开头');
-      s.service.baseUrl = base;
+      const url = cleanStr(svc.baseUrl, 500).replace(/\/+$/, '');
+      if (!isHttpUrl(url)) throw new Error('接口地址要以 http:// 或 https:// 开头');
+      s.service.baseUrl = url;
     }
     if (p.clearKey === true) s.service.key = '';
     else if (svc.key != null && String(svc.key).trim()) s.service.key = cleanStr(svc.key, 500);
+    /* 换在线服务商：接口地址 / 型号 / 单独那把密钥都属于「上一家」，一并作废。
+       不清的话，上一家的密钥会带着 Authorization 发到新那家的地址上，
+       上一家的自定义地址也会顶掉新那家声明的默认端点。同一趟显式给了新值就以新值为准。 */
+    if (s.service.providerId !== prevProvider) {
+      if (!String(svc.baseUrl == null ? '' : svc.baseUrl).trim()) s.service.baseUrl = '';
+      if (svc.model == null) s.service.model = '';
+      if (p.clearKey !== true && !String(svc.key == null ? '' : svc.key).trim()) s.service.key = '';
+    }
+    Object.assign(base, s);
     return saveSettings();
   };
 
@@ -163,6 +180,9 @@ function createAsrStore(opts) {
       route: cleanStr(j.route, 20),
       language: cleanStr(j.language, 32),
       engine: cleanStr(j.engine, 120),
+      /* 「这份结果是谁出的」：local:<模型> / service:<供应商>/<型号> / browser。
+         去重要连它一起比 —— 同一份音频换个在线模型再转一次，本来就是为了不同的结果。 */
+      engineKey: cleanStr(j.engineKey, 160),
       media: cleanStr(j.media, 300),
       createdAt: Number(j.createdAt) || Date.now(),
       updatedAt: Number(j.updatedAt) || Date.now(),
@@ -218,10 +238,13 @@ function createAsrStore(opts) {
     persistJobs();
     return true;
   };
-  const findByHash = (hash, route, language) => {
+  /* 去重：同一份媒体 + 同一路线 + 同一语言 + 同一个引擎（`engineKey`）。
+     engineKey 缺省时退回旧口径（只看前三样），旧账本里没有这个字段的条目仍可被复用。 */
+  const findByHash = (hash, route, language, engineKey) => {
     const all = Object.values(loadJobs());
     return all.find(j => j.state === 'done' && j.sourceHash === hash
-      && j.route === route && j.language === (language || '')) || null;
+      && j.route === route && j.language === (language || '')
+      && (!engineKey || j.engineKey === engineKey)) || null;
   };
   const listJobs = () => Object.values(loadJobs()).sort((a, b) => b.createdAt - a.createdAt);
 
@@ -241,7 +264,10 @@ function localAsrState(root) {
   const envBin = String(process.env.WHISPER_BIN || '').trim();
   if (envBin) candidates.push(envBin);
   for (const n of LOCAL_NAMES) candidates.push(path.join(toolDir, n));
-  const bin = candidates.find(p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || '';
+  let bin = candidates.find(p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || '';
+  /* 相对路径一律按「启动代理时的工作目录」解析成绝对路径：runLocal 起子进程时
+     cwd 是那一单的临时目录，相对路径到那里就找不到了。 */
+  if (bin && !path.isAbsolute(bin)) bin = path.resolve(bin);
   let model = String(process.env.WHISPER_MODEL || '').trim();
   if (!model) {
     const dirs = [path.join(toolDir, 'models'), toolDir];
@@ -252,6 +278,7 @@ function localAsrState(root) {
       } catch (e) {}
     }
   }
+  if (model && !path.isAbsolute(model)) model = path.resolve(model);
   let bytes = 0;
   if (model) { try { bytes = fs.statSync(model).size; } catch (e) { bytes = 0; } }
   const why = !bin ? '没找到 whisper-cli（放到 tools/whisper/ 或在 .env 里设 WHISPER_BIN）'
@@ -259,7 +286,10 @@ function localAsrState(root) {
     : !bytes ? '模型文件读不到：' + model : '';
   return {
     available: !!(bin && model && bytes),
-    bin, model: model ? path.basename(model) : '', bytes, why,
+    bin,
+    /* `model` 是给界面看的短名（basename）；真正传给 whisper-cli `-m` 的必须是 `modelPath`
+       这一份绝对路径 —— 以前调用点拿的是 basename，而工作目录是临时目录，模型永远找不到。 */
+    model: model ? path.basename(model) : '', modelPath: model, bytes, why,
   };
 }
 

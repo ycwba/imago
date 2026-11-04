@@ -1442,8 +1442,8 @@ const StudioView = {
           return list.map(x => (x.kind === '图片' ? Object.assign({}, x, { sent: sent.has(x.label) }) : x));
         };
         const call = (sys, user, ctl) => ctl
-          ? TextAI.chatStream(REG, sys, user, { images, search: { query: original }, signal: ctl.signal }, ctl.push)
-          : TextAI.chat(REG, sys, user, { images, search: { query: original } });
+          ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
+          : TextAI.chat(REG, sys, user, { images });
         const prep = async () => { const p = await TextAI.polishImages(REG, imgList()); images = p.images; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
         /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：

@@ -18,6 +18,9 @@ const { createAsrStore, toSrt, normSegments, srtTime } = require('../server/asr-
 assert.equal(srtTime(0), '00:00:00,000');
 assert.equal(srtTime(3661.5), '01:01:01,500');
 assert.equal(srtTime(-3), '00:00:00,000');
+/* 毫秒不能拼出 ,1000：1.9996 秒要进位成 2 秒整，而不是 `00:00:01,1000`（非法 SRT） */
+assert.equal(srtTime(1.9996), '00:00:02,000');
+assert.equal(srtTime(59.9999), '00:01:00,000');
 
 const srt = toSrt([
   { start: 0, end: 1.2, text: '第一句' },
@@ -73,6 +76,19 @@ assert.throws(() => s.patchSettings({ language: '中文！' }), /语言/);
 assert.throws(() => s.patchSettings({ service: { baseUrl: 'ftp://x' } }), /http/);
 assert.throws(() => s.patchSettings({ service: { providerId: 'a b' } }), /供应商/);
 
+/* 换在线服务商：上一家的接口地址 / 型号 / 单独密钥一起作废（否则会带着旧密钥发到新地址） */
+s.patchSettings({ service: { key: 'sk-old-provider' } });
+pub = s.patchSettings({ service: { providerId: 'moonshot' } });
+assert.equal(pub.service.hasKey, false, '换服务商要清掉上一家的单独密钥');
+assert.equal(pub.service.baseUrl, '', '换服务商要清掉上一家的接口地址');
+assert.equal(pub.service.model, '', '换服务商要清掉上一家的型号');
+
+/* 校验中途失败不能留下半截改动：以前 route / providerId 已经改进内存，磁盘却没写 */
+const snap = s.settings();
+assert.throws(() => s.patchSettings({ route: 'auto', service: { providerId: 'openai', baseUrl: 'ftp://x' } }), /http/);
+assert.equal(s.settings().route, snap.route, '失败的保存不能改掉路线');
+assert.equal(s.settings().service.providerId, snap.service.providerId, '失败的保存不能改掉服务商');
+
 /* 覆盖前留 .bak.json；第二次写入后它应存在且内容是上一版 */
 assert.ok(fs.existsSync(path.join(dir, 'asr.bak.json')));
 
@@ -88,6 +104,11 @@ assert.match(j1.srt, /00:00:00,000 --> 00:00:01,000/);
 assert.ok(s.findByHash('abc123', 'service', 'zh'));
 assert.equal(s.findByHash('abc123', 'local', 'zh'), null);
 assert.equal(s.findByHash('abc123', 'service', 'en'), null);
+/* 同一份音频换个模型/供应商再转，不能复用上一个模型的结果 */
+s.putJob({ id: 'j1b', state: 'done', route: 'service', language: 'zh', sourceHash: 'abc123',
+  engineKey: 'service:openai/whisper-1', segments: [{ start: 0, end: 1, text: '新结果' }] });
+assert.ok(s.findByHash('abc123', 'service', 'zh', 'service:openai/whisper-1'));
+assert.equal(s.findByHash('abc123', 'service', 'zh', 'service:moonshot/other'), null);
 
 s.putJob({ id: 'j2', state: 'running', progress: 0.4, route: 'local', media: 'b.wav' });
 assert.equal(s.job('j2').state, 'running');

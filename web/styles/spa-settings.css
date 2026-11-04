@@ -185,8 +185,13 @@
 .settings-page .keytoggle.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
 /* 卡里的键值行：这一张卡只有 330px 宽，标签列与输入框都窄一档。 */
 .settings-page .acct .krow { gap: var(--sp-8); margin: 0; padding: var(--sp-8) 0; }
-.settings-page .acct .krow > .kn { flex: 0 0 var(--sp-32); }
-.settings-page .acct .krow input { flex: 1 1 0; min-width: 0; height: var(--sz-ctl); font-size: var(--fs-12); }
+/* 标签贴着自己的文字走：「走哪条路 / 本机运行包 / 浏览器内模型」这些 4–6 字的标签
+   在 32px 定宽列里会竖着折成两三行；短标签（密钥 / 语言）仍由 min-width 托底对齐。 */
+.settings-page .acct .krow > .kn { flex: 0 0 auto; min-width: var(--sp-32); white-space: nowrap; }
+/* 这条输入框配方不收复选框 / 单选框：卡里「启用联网搜索」的勾选框会吃到 flex:1 1 0
+   与 32px 高（同特异性、写在全局 14px 复选框规则之后），被拉成一块 56×32 的白方块；
+   勾选框的原形按全局那条 14px 的走。 */
+.settings-page .acct .krow input:not([type=checkbox], [type=radio]) { flex: 1 1 0; min-width: 0; height: var(--sz-ctl); font-size: var(--fs-12); }
 .settings-page .acct .krow .eye, .settings-page .acct .krow .clr { padding: 0 var(--sp-8); height: var(--sz-ctl); }
 .settings-page .acct .keyrow { flex-wrap: nowrap; }
 .settings-page .acct .msg { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
@@ -252,6 +257,9 @@
 .settings-page .acct-mid > .crow > .hint { flex: 1 1 0; min-width: 0; }
 .settings-page .acct-mid > .crow > .hint code { font-size: var(--fs-11); }
 .settings-page .acct-mid > .crow.dim > .cn { color: var(--sub); }
+/* 能力行里那两枚控件同高一档：这一行没有 32px 的大控件，整行都小 ——
+   状态牌 24 与「型号 n/m」28 并排差着 4px，看着就像没对齐。 */
+.settings-page .acct-mid > .crow > .st-btn { height: var(--sz-ctl-sm); }
 .settings-page .acct .ghost.mini { flex: 0 0 auto; }
 
 /* 某一档的全局项（识图 / 语音识别 / 联网搜索）：画在顶着这一档那张卡里、那一行下面。 */
@@ -325,7 +333,9 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .settings-page .preset .pcaps { flex: 0 0 auto; padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-6);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11); }
-.settings-page .add-tile .ghost { width: 100%; justify-content: center; margin-top: var(--sp-8); }
+/* 这一格只管卡底那颗「＋ 自定义」：写成 .add-tile .ghost 会把预设行里的「添加」
+   也拉成整行宽，同一行的名字块被挤成 0 宽竖排 —— 行内按钮的自然宽就是它的尺寸。 */
+.settings-page .add-tile .acct-mid > .ghost { width: 100%; justify-content: center; margin-top: var(--sp-8); }
 
 .settings-page .dir-name { font-size: var(--fs-13); color: var(--sub); flex: 1; }
 .settings-page .crow { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); }

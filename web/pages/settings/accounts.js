@@ -715,7 +715,9 @@ export function createAccountCards(deps) {
     const glyphs = m.caps.map(capGlyph).join('');
     return '<div class="preset"><span class="pg">' + window.esc((m.name || '?').slice(0, 1).toUpperCase()) + '</span>'
       + '<div class="pw"><span class="pn">' + window.esc(m.name) + '</span>'
-      + '<span class="pnote">' + window.esc(m.kindLabel) + ' · ' + window.esc(m.base)
+      /* 能力只由右侧那枚标识说（悬停才展开成文字）；说明句只留地址，
+         再写一遍「图片+视频+文字+…」就是同一份能力的第二种说法。 */
+      + '<span class="pnote">' + window.esc(m.base)
       + ((envOf()[m.keyId] || {}).hasEnv ? ' · <code>.env</code> 里已有密钥' : '') + '</span></div>'
       + '<span class="pcaps" title="' + window.esc(m.kindLabel) + '">' + glyphs + '</span>'
       + '<button class="ghost mini" type="button" data-preset="' + window.esc(m.keyId) + '">添加</button></div>';

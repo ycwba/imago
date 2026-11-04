@@ -146,7 +146,7 @@
                   <div class="krow thin" v-show="search.provider === 'tavily' || search.credentialSource === 'manual' || search.hasKey">
                     <span class="kn">密钥</span>
                     <input type="password" v-model="searchKey" @input="onSearchKeyInput" :placeholder="search.provider === 'tavily' ? 'Tavily 搜索密钥' : (search.hasKey ? '已存，留空不改' : '填了就切到「单独一把」')" style="flex:1">
-                    <button class="ghost mini" :disabled="searchBusy || !search.hasKey" @click="clearSearchKey($event)">清掉</button>
+                    <button class="ghost" :disabled="searchBusy || !search.hasKey" @click="clearSearchKey($event)">清掉</button>
                   </div>
                   <div class="krow tight">
                     <button class="tool acc" :disabled="searchBusy" @click="saveSearch">{{ searchBusy ? '处理中…' : '保存' }}</button>

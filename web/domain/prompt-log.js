@@ -86,7 +86,7 @@
           + '概括画面主体与场景，不要写「一段视频」「生成图片」这类废话，不要标点。\n'
           + '只输出标题本身：不要引号、不要书名号、不要解释、不要多个方案。';
         const out = await Promise.race([
-          TextAI.chat(REG, sys, k),
+          TextAI.chat(REG, sys, k, { noTools: true }),
           new Promise((_, rej) => setTimeout(() => rej(new Error('起标题超时')), 12000)),
         ]);
         return cleanTitle(out);

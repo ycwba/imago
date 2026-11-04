@@ -558,7 +558,6 @@ async function generateShotLine(sh) {
   try {
     const txt = await AiStream.text(REGOf(), sys, '请给这一镜写一句台词。', {
       host: host, title: 'AI 正在按这一镜的提示词写台词…',
-      search: { query: prompt },
     });
     const j = TextAI.parseJson(txt) || {};
     const line = String(j.line != null ? j.line : txt).trim().replace(/^["'「]|["'」]$/g, '');

@@ -266,8 +266,6 @@ run('tests/chars-rename.mjs', process.execPath, ['tests/chars-rename.mjs']);
 run('tests/raw-preview.mjs', process.execPath, ['tests/raw-preview.mjs']);
 /* 项目引用规则：Skill 正文里的变量占位符（{cast} {what} …）按项目填料。 */
 run('tests/skill-refvars.mjs', process.execPath, ['tests/skill-refvars.mjs']);
-/* 联网搜索接给文字 AI：总开关 / 查询词清洗 / 结果拼装 / 失败回执。 */
-run('tests/search-context.mjs', process.execPath, ['tests/search-context.mjs']);
 /* 接续拆分镜的纯算法：顺序 / 依赖原因码 / 选型 / 拆分守恒 / 报价键与合计。 */
 run('tests/director-chain.mjs', process.execPath, ['tests/director-chain.mjs']);
 /* 依赖式批量调度：等上一镜、失败级联、等待不占提交名额。 */

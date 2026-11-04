@@ -1,7 +1,7 @@
 /* 联网搜索路由：设置 / 搜索 / 读网页。
    - Tavily：POST https://api.tavily.com/search；DeepSeek：走对话模型（需模型本身能联网）；
    - 结果只在内存缓存 10 分钟，失败不自动重试，不编结果；
-   - /search/read 是唯一主动出站取网页的读路由：只允许公网 https，逐跳过 guardOutboundUrl，
+   - /search/read 是唯一主动出站取网页的读路由（独立于「启用联网搜索」开关）：只允许公网 https，逐跳过 guardOutboundUrl，
      15 秒超时、≤2MB、不带 Cookie、不执行 JS，HTML 转纯文本后返回。 */
 'use strict';
 const fs = require('fs');
@@ -194,13 +194,15 @@ function createSearchRoutes(ctx) {
 
   /* 对话接口里开联网（OpenRouter 的 server tool）：搜索结果以 url_citation annotations 返回。
      解析不到引用就是这次没联网 —— 报失败，不拿正文冒充搜索。 */
-  async function chatSearch(eng, q, limit, model) {
+  async function chatSearch(eng, q, limit, model, site) {
     const d = eng.decl;
     const m = String(model || d.model || '').trim();
     if (!m) throw httpError('bad-request', '这家联网搜索要一个对话型号：在「联网搜索」里填一个能联网的型号');
     const body = {
       model: m, stream: false, temperature: 0.2,
-      messages: [{ role: 'user', content: '联网搜索并回答（最多参考 ' + limit + ' 条结果）：' + q }],
+      /* site 与另外两族同一口径（追在查询词后面）：以前这一族把 site 静默丢了，
+         助手传了 site 也当没传。 */
+      messages: [{ role: 'user', content: '联网搜索并回答（最多参考 ' + limit + ' 条结果）：' + q + (site ? ' site:' + site : '') }],
       tools: [d.tool],
     };
     const r = await postSearchJson(joinUrl(eng.base, d.path || '/chat/completions'), body,
@@ -315,6 +317,9 @@ function createSearchRoutes(ctx) {
           }
         }
         const s = ctx.store.patch(patch);
+        /* 换了引擎 / 接口地址 / 密钥之后，旧结果不能还按同一个 key 命中 10 分钟：
+           用户会以为「新密钥没生效」。 */
+        cache.clear();
         sendJson(res, 200, { ok: true, settings: s, revision: s.revision });
         return true;
       }
@@ -327,27 +332,32 @@ function createSearchRoutes(ctx) {
         if (String(body.query || '').trim().length > 200) throw httpError('bad-request', '搜索词最多 200 字');
         let limit = Math.round(Number(body && body.limit) || s.maxResults);
         if (!Number.isFinite(limit) || limit < 1) limit = 1;
-        if (limit > 8) limit = 8;
+        /* 与设置页 / search-store 的上限（1–10）对齐：以前这里截到 8，
+           用户把「结果数」设成 10 只回 8 条，界面上看不出被截过。 */
+        if (limit > 10) limit = 10;
         const site = clean(body && body.site, 100);
         if (site && !/^[A-Za-z0-9.-]+$/.test(site)) throw httpError('bad-request', 'site 只填域名（例如 example.com）');
         const freshness = ['day', 'week', 'month', 'year'].includes(body && body.freshness) ? body.freshness : '';
         const eng = resolveEngine(s);
+        /* 时效过滤只有 Tavily 的 days 参数认；api / chat 两族没有等价字段。
+           不静默丢：回执里带一句，助手才知道「这不是只搜了最近一天」。 */
+        const freshnessIgnored = !!freshness && eng.style !== 'tavily';
         const ck = [eng.id, eng.style, s.model, eng.base, q, limit, site, freshness].join('|');
         const hit = cacheGet(ck);
-        if (hit) { sendJson(res, 200, { results: hit.val, cached: true, provider: eng.id }); return true; }
+        if (hit) { sendJson(res, 200, { results: hit.val, cached: true, provider: eng.id, freshnessIgnored }); return true; }
         const results = eng.style === 'tavily'
           ? await tavilySearch(s, eng.key, q, limit, site, freshness)
           : eng.style === 'api' ? await apiSearch(eng, q, limit, site)
-            : await chatSearch(eng, q, limit, s.model);
+            : await chatSearch(eng, q, limit, s.model, site);
         if (!results.length) throw httpError('upstream', '上游没有返回结果');
         cacheSet(ck, results);
-        sendJson(res, 200, { results, cached: false, provider: eng.id });
+        sendJson(res, 200, { results, cached: false, provider: eng.id, freshnessIgnored });
         return true;
       }
       if (part[0] === 'read' && method === 'POST') {
         const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
-        const s = ctx.store.raw();
-        if (!s.enabled) throw httpError('disabled', '联网搜索没有启用（设置 → 联网搜索）');
+        /* 读网页不归「启用联网搜索」管：它是「打开一个用户给的公网 https 页面」，
+           与搜索渠道、密钥都无关。以前跟着总开关一起关，用户关掉搜索后连自己给的网址都读不了。 */
         const u = clean(body && body.url, 2000);
         if (!u) throw httpError('bad-request', '没有给 url');
         const page = await readPage(u);

@@ -2471,13 +2471,13 @@ async function polishVoiceText(col) {
   const taskWord = '配音稿（画面上一句台词）';
   /* 与镜头提示词润色同一套：有 ctl 就把片段灌进 InlinePolish 的面板（流式），
      没有 ctl 就用 AiStream 自己摆一块；只有反问那一轮仍是短 JSON 一次性调用。 */
-  const call = (sys, user, ctl, query) => ctl
-    ? TextAI.chatStream(REG, sys, user, { signal: ctl.signal, search: { query: query } }, ctl.push)
-    : AiStream.text(REG, sys, user, { host: host, title: 'AI 正在润色这一句配音…', search: { query: query } });
+  const call = (sys, user, ctl) => ctl
+    ? TextAI.chatStream(REG, sys, user, { signal: ctl.signal }, ctl.push)
+    : AiStream.text(REG, sys, user, { host: host, title: 'AI 正在润色这一句配音…' });
   const run = async (answers, ctl) => ({
     after: await call(
       TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ answers })),
-      TextAI.polishUser(taskWord, original), ctl, original),
+      TextAI.polishUser(taskWord, original), ctl),
     note: '',
   });
   const ask = () => TextAI.askPolish(REG,
@@ -2489,7 +2489,7 @@ async function polishVoiceText(col) {
       what: taskWord, ask: askText, current,
       extra: [hint, TextAI.answersNote(ctx && ctx.answers)],
     });
-    return { after: await call(p.sys, p.user, ctl, askText), note: '' };
+    return { after: await call(p.sys, p.user, ctl), note: '' };
   };
   /* 忙与闲只切状态：那一行字与图标各归哪一格都由公共层管（`aiBtnState` 只换 `.tx`，
      不重写整副 innerHTML —— 那样图标一会儿包在 .ic 里、一会儿裸着，颜色跟着漂）。 */
@@ -3080,11 +3080,10 @@ async function polishPrompt() {
        边写边显示在结果框里。这时**不能**再往 `#polishInline` 摆流式面板：那块宿主就是结果面板本身。
      · 不带 ctl（第一次点「AI 润色」，宿主里只有一句转圈）→ 用 AiStream 的面板，这一轮动辄十几秒，
        看得见它写到哪里比只挂一句「正在润色…」有用得多。 */
-  const shotSearch = { query: original };
   const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(REG, sys, user, { images, search: shotSearch, signal: ctl.signal }, ctl.push)
+    ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
     : AiStream.text(REG, sys, user, {
-        images: images, search: shotSearch, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
+        images: images, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
       });
   /* 素材清单：参考图 / 首帧 / 尾帧 / 时间切片会随消息附上；**参考视频与参考音频附不了**，
      但必须写清「有几条、拿来干什么」—— 只说一句「还挂了参考视频」的话，模型既不知道数量
@@ -3751,12 +3750,11 @@ function parseFrames(txt, dur) {
    看不出它在想、卡住、还是连接早就断了 —— 三种状态长得一模一样。
    现在走公共 `AiStream.text`：边收边显示，最后一块字到了才收起面板；返回值与 chat 完全一致，
    所以 `parseFrames` 那一段一个字都不用改。 */
-async function callTextAI(sys, user, searchQuery) {
+async function callTextAI(sys, user) {
   // 供应方与型号都用「设置 → 文字 AI 接口与模型」里当前选中的那一家（AiStream 内部也走 TextAI）
   return await AiStream.text(REG, sys, user, {
     host: document.getElementById('kfPlanInline'),
     title: '文字 AI 正在规划画面切片…',
-    search: { query: searchQuery || user },
   });
 }
 
@@ -3765,7 +3763,7 @@ async function planKeyframes(sh, dur) {
   const sys = storySysOf();
   const user = `镜头描述：${sh.prompt}
 镜头时长：${dur} 秒` + window.SplitPlan.userLines(kfSplitSel()) + '\n只返回 JSON。';
-  const txt = await callTextAI(sys, user, sh.prompt);
+  const txt = await callTextAI(sys, user);
   const frames = parseFrames(txt, dur);
   if (frames.length) return frames;
   // 兜底：文字 AI 没给出结构化结果时，按 2.5 秒切片逐帧润色（保持旧行为可用）
@@ -3774,7 +3772,7 @@ async function planKeyframes(sh, dur) {
   if (times[times.length - 1] !== dur) times.push(dur);
   const out = [];
   for (const t of times) {
-    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`, sh.prompt);
+    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
     if (p) out.push({ t, prompt: p.replace(/^["'`]|["'`]$/g, '').slice(0, 600) });
   }
   return out;

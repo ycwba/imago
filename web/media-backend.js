@@ -388,6 +388,17 @@
     const rate = 16000;
     const maxSec = Math.max(10, Number(o.maxSec) || 2 * 60 * 60);
     const onProgress = typeof o.onProgress === 'function' ? o.onProgress : null;
+    /* 取消要能真的停下解码：只在 asr.js 那边 race 一个 abort 不会让后台的
+       AudioBufferSink 继续抽完整条音轨。每块之前查一次，abort 就跳出 for-await，
+       finally 里照常 dispose。 */
+    const signal = o.signal || null;
+    const throwIfAborted = () => {
+      if (!signal || !signal.aborted) return;
+      const e = new Error('已取消');
+      e.name = 'AbortError';
+      throw e;
+    };
+    throwIfAborted();
     const input = new M.Input({ source: new M.UrlSource(sameSrc(src)), formats: M.ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
@@ -417,6 +428,7 @@
       let nextPos = 0, base = 0, prev = 0, t0 = null;
       const sink = new M.AudioBufferSink(track);
       for await (const { buffer, timestamp } of sink.buffers()) {
+        throwIfAborted();
         const len = buffer.length;
         if (!len) continue;
         if (t0 == null) t0 = Number(timestamp) || 0;
@@ -446,6 +458,7 @@
         if (outCount >= capSamples) break;
       }
       flushChunk();
+      throwIfAborted();
       if (outCount < rate * 0.05) throw new Error('这一份里没有可识别的音轨（音频是空的）');
       const dataLen = parts.reduce((n, p) => n + p.byteLength, 0);
       const blob = new Blob([wavHead(rate, 1, 16, dataLen)].concat(parts), { type: 'audio/wav' });

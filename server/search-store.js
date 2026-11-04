@@ -75,7 +75,11 @@ function createSearchStore(opts) {
   };
   const patch = p => {
     const o = p && typeof p === 'object' ? p : {};
-    const s = load();
+    const base = load();
+    /* 先在副本上改、全部校验通过再落回缓存：以前中途抛错（例如结果数填 50）时，
+       前面几项已经改在内存里、磁盘却没写，运行中的搜索就按一份半截配置走。 */
+    const s = { ...base };
+    const prevProvider = s.provider;
     if (o.enabled != null) s.enabled = o.enabled === true;
     if (o.provider != null) {
       const id = clean(o.provider, 60);
@@ -93,11 +97,6 @@ function createSearchStore(opts) {
       if (!SOURCES.has(o.credentialSource)) throw new Error('凭据来源只支持 channel / manual');
       s.credentialSource = o.credentialSource;
     }
-    if (o.channelId != null) {
-      const id = clean(o.channelId, 60);
-      if (id && !/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('渠道 id 不合法');
-      s.channelId = id;
-    }
     if (o.model != null) s.model = clean(o.model, 120);
     if (o.baseUrl != null) {
       const base = clean(o.baseUrl, 500).replace(/\/+$/, '');
@@ -106,6 +105,16 @@ function createSearchStore(opts) {
     }
     if (o.clearKey === true) s.key = '';
     else if (o.key != null && String(o.key).trim()) s.key = clean(o.key, 500);
+    /* 换搜索服务：接口地址 / 对话型号 / 单独那把密钥都属于「上一家」，一并作废。
+       不清的话，上一家的密钥会被发到新那家的域名上（Tavily 与供应商两个方向都会漏），
+       上一家的接口地址也会顶掉新那家声明的默认地址。同一趟显式给了新值就以新值为准。 */
+    if (s.provider !== prevProvider) {
+      if (!String(o.baseUrl == null ? '' : o.baseUrl).trim()) s.baseUrl = '';
+      if (o.model == null) s.model = '';
+      if (o.clearKey !== true && !String(o.key == null ? '' : o.key).trim()) s.key = '';
+      if (o.credentialSource == null) s.credentialSource = 'channel';
+    }
+    Object.assign(base, s);
     return persist();
   };
   return { file, settings: pub, raw: load, patch };

@@ -150,14 +150,84 @@ assert.ok(filled.includes('成片时长：8 秒') && filled.includes('- @视频1
   'TextAI.prompt 没把 {duration} / {assets} 填进 Skill 正文');
 assert.ok(!filled.includes('{duration}') && !filled.includes('{assets}'), '填过之后不该还留着占位符');
 
-/* ---- 联网搜索的接入点：统一由 TextAI 把结果接到系统提示词，同一份 opts 不重复搜 ---- */
-const realSearch = ctx.window.Search;
-ctx.window.Search = { context: async q => '【搜】' + q };
-const searchOpts = { search: { query: '赛博朋克 雨夜' } };
-const withSearch = await TextAI.withSearch('SYS', searchOpts);
-assert.ok(withSearch.includes('SYS') && withSearch.includes('【搜】赛博朋克 雨夜'),
-  'TextAI.withSearch 没把搜索结果接到系统提示词');
-assert.equal(await TextAI.withSearch(withSearch, searchOpts), withSearch, '同一份 opts 不该重复搜索');
-ctx.window.Search = realSearch;
+/* ---- 联网工具循环：模型自己 CALL、结果回灌；CALL 那一轮不进流式面板 ---- */
+const parsedCall = TextAI._parseToolCall('CALL: web_search {"query":"1999 香港","limit":2}');
+assert.equal(parsedCall.name, 'web_search');
+assert.equal(parsedCall.arg.query, '1999 香港');
+assert.equal(parsedCall.arg.limit, 2);
+assert.equal(TextAI._parseToolCall('画面描述'), null);
+assert.equal(TextAI._parseToolCall('CALL: web_search {"query":oops}'), null);
 
-console.log('✓ director-split-ask：Skill 同步 / 问答契约 / NO_ASK / focus 拼装 / 接线 / 再改契约 全部就位');
+const seen = [];
+const gate = TextAI._callGate(p => seen.push(p));
+gate.push('CALL: web_', 'content');
+gate.push('search {"query":"x"}', 'content');
+gate.finish();
+assert.equal(seen.join(''), '', 'CALL 那一轮不该出现在流式面板里');
+const seen2 = [];
+const gate2 = TextAI._callGate(p => seen2.push(p));
+gate2.push('画', 'content');
+gate2.push('面', 'content');
+gate2.finish();
+assert.equal(seen2.join(''), '画面', '普通正文不能被吞');
+
+/* 总开关关着：请求里连工具说明都不加 */
+ctx.window.Search = { state: async () => ({ enabled: false }), search: async () => ({ results: [] }), read: async () => ({}) };
+TextAI._toolOnAt = 0;
+let bodyOff = null;
+ctx.netFetch = async (url, opts) => {
+  bodyOff = JSON.parse(opts.body);
+  return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+};
+assert.equal(await TextAI.chat(REG, 'SYS', '写一句台词', {}), 'ok');
+assert.ok(!JSON.stringify(bodyOff).includes('web_search'), '总开关关着时不该加工具说明');
+
+/* noTools：助手自己的工具循环 / 纯协议调用退出这一层 */
+let bodyNo = null;
+ctx.netFetch = async (url, opts) => {
+  bodyNo = JSON.parse(opts.body);
+  return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+};
+await TextAI.chat(REG, 'SYS', '只回复 ok', { noTools: true });
+assert.ok(!JSON.stringify(bodyNo).includes('web_search'), 'noTools 仍然加了工具说明');
+
+/* 开着：模型先 CALL，执行后回灌，再出最终结果 */
+let searchCalls = 0;
+ctx.window.Search = {
+  state: async () => ({ enabled: true }),
+  search: async () => { searchCalls++; return { results: [{ title: '1999 年的香港', url: 'https://e.com/a', snippet: '背景资料' }] }; },
+  read: async () => ({ title: '', url: '', text: '' }),
+};
+TextAI._toolOnAt = 0;
+const bodies = [];
+ctx.netFetch = async (url, opts) => {
+  const b = JSON.parse(opts.body);
+  bodies.push(b);
+  const content = bodies.length === 1 ? 'CALL: web_search {"query":"1999 香港"}' : '最终分镜';
+  return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
+};
+const final = await TextAI.chat(REG, 'SYS', '把剧本改成 1999 年的香港', {});
+assert.equal(final, '最终分镜');
+assert.equal(searchCalls, 1, 'CALL 没有真的执行搜索');
+assert.ok(bodies[0].messages[0].content.includes('web_search'), '第一轮没带工具说明');
+assert.ok(bodies[1].messages.some(m => /web_search 结果/.test(String(m.content))), '搜索结果没有回灌给模型');
+assert.equal(bodies[1].messages[0].content, bodies[0].messages[0].content, '工具说明不该在第二轮重复追加');
+
+/* 流式那一轮同样把 CALL 藏起来，只把最终结果交给面板 */
+let sseRound = 0;
+ctx.readSseStream = async (res, onPiece) => {
+  sseRound++;
+  const text = sseRound === 1 ? 'CALL: web_search {"query":"1999 香港"}' : '最终分镜';
+  onPiece(text, 'content');
+  return { text, reasoning: '', usage: {} };
+};
+ctx.netFetch = async () => ({ ok: true, headers: { get: () => 'text/event-stream' } });
+TextAI._toolOnAt = 0;
+const deltas = [];
+const streamed = await TextAI.chatStream(REG, 'SYS', '把剧本改成 1999 年的香港', {}, p => deltas.push(p));
+assert.equal(streamed, '最终分镜');
+assert.ok(!deltas.join('').includes('CALL'), 'CALL 那一轮漏进了流式面板');
+assert.ok(deltas.join('').includes('最终分镜'), '最终结果没有流到面板');
+assert.equal(sseRound, 2, '流式工具循环应当两轮');
+
+console.log('✓ director-split-ask：Skill 同步 / 问答契约 / NO_ASK / focus 拼装 / 联网工具循环 / 再改契约 全部就位');

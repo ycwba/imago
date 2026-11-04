@@ -22,6 +22,11 @@ const RUN_MAX = 2;
 const STDOUT_TAIL = 4000;
 
 const clean = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+/* 回给页面的本机运行包状态：`modelPath` 是本机绝对路径，只给服务端起进程用，不往外回。
+   （`bin` 一直是绝对路径，页面只拿来显示，沿用旧形状不动。） */
+function localView(st) {
+  return { available: !!st.available, bin: st.bin, model: st.model, bytes: st.bytes, why: st.why };
+}
 function tail(s) { const t = String(s || ''); return t.length > STDOUT_TAIL ? t.slice(-STDOUT_TAIL) : t; }
 function parseTs(s) {
   const m = /(\d+):(\d+):(\d+)[,.](\d+)/.exec(String(s || ''));
@@ -79,8 +84,10 @@ function readPcmTo(req, dest) {
       if (got > MAX_PCM_BYTES) {
         const e = new Error('音频超过 320MB（16k 单声道约 2.8 小时），先切小再转写');
         e.status = 413;
+        /* 不在这里 destroy：那会让下面的 413 没有 socket 可写，客户端只看到连接被掐断。
+           先停住上传、把错误交回 handler，响应写完之后再由它收连接（见 /asr/pcm 的 catch）。 */
+        try { req.pause(); } catch (err) {}
         fail(e);
-        try { req.destroy(); } catch (err) {}
         return;
       }
       h.update(c);
@@ -181,7 +188,9 @@ function createAsrRoutes(ctx) {
        却被本机设置（service）顶掉 —— 页面以为没花钱，账上却记了一笔在线转写。 */
     const want = ['browser', 'local', 'service'].includes(bodyRoute) ? bodyRoute : s.route;
     if (want !== 'auto') return want;
-    return localAsrState(ctx.root).available ? 'local' : 'service';
+    /* 这个 JSON 入口接不了本地路线（本地必须先由页面抽 16k WAV 走 /asr/pcm）：
+       auto 在这里直接落 service。先判成 local 再回 400，对直接调 API 的人等于「看起来没配置」。 */
+    return 'service';
   }
 
   /* 名额必须**同步**占住：work() 排在 setImmediate 里，只在那里面 running.set 的话，
@@ -240,8 +249,10 @@ function createAsrRoutes(ctx) {
     if (size < 1000) throw new Error('这一份里没有可识别的音轨（抽出来的音频是空的）');
     ctx.store.patchJob(job.id, { state: 'running', progress: 0.35, engine: 'whisper.cpp' });
     const out = path.join(dir, 'out');
-    const args = ['-m', st.model, '-f', wav, '-oj', '-of', out, '-np'];
-    const lang = ctx.store.rawSettings().language || job.language;
+    const args = ['-m', st.modelPath, '-f', wav, '-oj', '-of', out, '-np'];
+    /* 这一单显式带的语言优先于设置里的默认值：设置那一格是「没给时用什么」，
+       不是「一律盖掉调用方」。job.language 提交时已经按「请求值 || 设置值」落过账。 */
+    const lang = job.language || ctx.store.rawSettings().language || '';
     if (lang) args.push('-l', lang);
     await spawnTool(st.bin, args, {
       what: '本地识别（whisper-cli）', timeoutMs: 2 * 60 * 60 * 1000, cwd: dir,
@@ -268,8 +279,10 @@ function createAsrRoutes(ctx) {
     }
     return url;
   }
+  /* 这一单要用的语言：job.language 在提交时已经落成「请求值 || 当时的设置值」，
+     这里再读设置只作兜底 —— 反过来（设置优先）会让调用方显式传的 language 永远不生效。 */
   function langOf(job) {
-    return ctx.store.rawSettings().language || job.language || '';
+    return job.language || ctx.store.rawSettings().language || '';
   }
 
   /* 那一族 multipart /audio/transcriptions：模型 / 返回格式 / 语言放哪儿全按声明，
@@ -384,6 +397,9 @@ function createAsrRoutes(ctx) {
     let source = null;
     try {
       const p = pending.get(jobId) || {};
+      /* 排队期间就被取消（DELETE 只把 rt.canceled 立起来）：这一单还没开始，直接收尾。
+         以前缺少这一道，取消之后仍然会下载素材、发起在线转写 —— 用户点了取消，账照扣。 */
+      if (rt.canceled) return;
       if (p.pcmFile) {
         /* 页面已经把音频抽好了：临时目录与文件都是提交那一刻建的，不再 prepareSource */
         dir = p.pcmDir;
@@ -399,10 +415,20 @@ function createAsrRoutes(ctx) {
       const hash = p.pcmHash || await hashFile(source.file);
       const mine = ctx.store.job(jobId);
       if (!mine) return;
-      const lang = ctx.store.rawSettings().language || mine.language || '';
+      /* 去重口径与实际转写口径必须是同一个语言：判在这里读设置优先的话，
+         显式传了 en 的一单会拿 zh 去找旧结果（找到了就直接复用一段语言不对的文本）。 */
+      const lang = langOf(mine);
       const route = mine.route;
-      ctx.store.patchJob(jobId, { sourceHash: hash, media: source.media });
-      const hit = ctx.store.findByHash(hash, route, lang);
+      /* 去重还要看「谁出的结果」：同一份音频换在线模型再转一次，本来就是为了不一样的结果，
+         只看哈希 + 语言会把上一次的文本直接复用回来。 */
+      let engineKey = '';
+      if (route === 'local') engineKey = 'local:' + (localAsrState(ctx.root).model || '');
+      else if (route === 'service') {
+        const svc = resolveService();
+        engineKey = 'service:' + (svc.providerId || '') + '/' + (svc.model || '');
+      }
+      ctx.store.patchJob(jobId, { sourceHash: hash, media: source.media, engineKey });
+      const hit = ctx.store.findByHash(hash, route, lang, engineKey);
       if (hit && hit.id !== jobId) {
         ctx.store.patchJob(jobId, {
           state: 'done', progress: 1, sourceHash: hash, segments: hit.segments, srt: hit.srt,
@@ -410,6 +436,9 @@ function createAsrRoutes(ctx) {
         });
         return;
       }
+      /* 取素材可能要几十秒（在线路线要先下载）：取消也要在这一步之后、发上游之前再判一次，
+         否则「下载途中取消」仍然会打一次按次计费的转写。 */
+      if (rt.canceled) return;
       const res = route === 'local' ? await runLocal(mine, source.file, dir, rt)
         : await runOnline(mine, source.file, rt);
       if (rt.canceled) return;
@@ -441,20 +470,20 @@ function createAsrRoutes(ctx) {
       if (!part.length && method === 'GET') {
         sendJson(res, 200, {
           settings: ctx.store.settings(),
-          local: localAsrState(ctx.root),
+          local: localView(localAsrState(ctx.root)),
           revision: ctx.store.settings().revision,
         });
         return true;
       }
       if (part[0] === 'settings' && method === 'GET') {
         const s = ctx.store.settings();
-        sendJson(res, 200, { settings: s, local: localAsrState(ctx.root), revision: s.revision });
+        sendJson(res, 200, { settings: s, local: localView(localAsrState(ctx.root)), revision: s.revision });
         return true;
       }
       if (part[0] === 'settings' && method === 'PUT') {
         const body = await readJsonBody(ctx.readBody, req, res, 64 * 1024);
         const s = ctx.store.patchSettings(body && body.settings ? body.settings : body);
-        sendJson(res, 200, { ok: true, settings: s, local: localAsrState(ctx.root), revision: s.revision });
+        sendJson(res, 200, { ok: true, settings: s, local: localView(localAsrState(ctx.root)), revision: s.revision });
         return true;
       }
       if (part[0] === 'pcm' && method === 'POST') {
@@ -471,7 +500,9 @@ function createAsrRoutes(ctx) {
         }
         const declared = Number(req.headers['content-length']) || 0;
         if (declared > MAX_PCM_BYTES) {
-          req.resume();
+          /* 与 readPcmTo 超限同一种收法：先把 413 写出去，响应写完再断连接，
+             不把客户端正在上传的几百 MB 先读完。 */
+          try { res.once('finish', () => { try { req.destroy(); } catch (err) {} }); } catch (err) {}
           sendJson(res, 413, { error: '音频超过 320MB（16k 单声道约 2.8 小时），先切小再转写' });
           return true;
         }
@@ -487,6 +518,11 @@ function createAsrRoutes(ctx) {
           if (got.bytes < 1000) throw new Error('这一份里没有可识别的音轨（上传的音频是空的）');
         } catch (e) {
           try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {}
+          /* 超限是「拒绝这次上传」：先把 413 写出去，响应写完再断连接（见 readPcmTo）。
+             以前在读到超限的那一刻就 destroy，客户端拿到的只有连接被掐断。 */
+          if (e && e.status === 413) {
+            try { res.once('finish', () => { try { req.destroy(); } catch (err) {} }); } catch (err) {}
+          }
           sendJson(res, e.status || 400, { error: clean((e && e.message) || e, 800) });
           return true;
         }
@@ -559,11 +595,9 @@ function createAsrRoutes(ctx) {
       if (part[0] === 'browser-result' && method === 'POST') {
         /* 浏览器内 Whisper 跑完的那一单：转写本身在页面 worker 里完成，
            代理只负责把结果落成一条与 whisper-cli / 在线同形的任务账（SRT 在这里按同一份 toSrt 出）。
-           同一份音频哈希同一种语言已有一单 done 的 → 直接回旧单（与本地 / 在线的去重同口径）。 */
-        if (running.size >= RUN_MAX) {
-          sendJson(res, 429, { error: '已经有 ' + RUN_MAX + ' 单在转写，等一单跑完再提交' });
-          return true;
-        }
+           同一份音频哈希同一种语言已有一单 done 的 → 直接回旧单（与本地 / 在线的去重同口径）。
+           **不占 running 名额**：这一路代理不跑任何进程，识别早在页面里做完了；
+           以前沿用 RUN_MAX 那道闸，另一单正在转写时，刚跑完几分钟的浏览器结果会被 429 直接丢掉。 */
         const body = await readJsonBody(ctx.readBody, req, res, 8 * 1024 * 1024);
         const segments = ctx.store.normSegments(body && body.segments);
         if (!segments.length) {
@@ -572,7 +606,7 @@ function createAsrRoutes(ctx) {
         }
         const language = clean(body && body.language, 32) || ctx.store.rawSettings().language || '';
         const hash = clean(body && body.sourceHash, 40);
-        const hit = hash ? ctx.store.findByHash(hash, 'browser', language) : null;
+        const hit = hash ? ctx.store.findByHash(hash, 'browser', language, 'browser') : null;
         if (hit) {
           sendJson(res, 200, {
             id: hit.id, jobId: hit.id, state: hit.state, progress: 1, segments: hit.segments, srt: hit.srt,
@@ -587,7 +621,7 @@ function createAsrRoutes(ctx) {
         const job = {
           id: 'asr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
           state: 'done', progress: 1, segments, srt: ctx.store.toSrt(segments),
-          error: '', sourceHash: hash, route: 'browser', language, engine,
+          error: '', sourceHash: hash, route: 'browser', language, engine, engineKey: 'browser',
           media: clean(body && body.media, 140) || 'audio.wav',
           createdAt: Date.now(), updatedAt: Date.now(),
         };

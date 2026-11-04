@@ -959,10 +959,12 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   工具循环与动作目录在 `web/features/chat-tools.js`（`TOOLS` / `ACTS` / `TOOL_INPUT` / `ACTION_META`），
   由 `window.AiChatTools.build(C)` 取共享函数，加载顺序 chat-tools → chat。
   会话记录、Skill 自动加载、上下文预算、密钥脱敏都在 chat.js。
-- **联网搜索接在所有 AI 调用上，但按需触发**：`web/domain/search.js` 的 `Search.context` 是唯一入口；`Search.needed` 先判「这段内容是否真的需要外部资料」（明确检索词 / 网址 / 年份 / 实时事实），纯创作提示词不搜；
-  `TextAI.chat` / `chatStream` 的 `opts.search = { query }` 把结果接到系统提示词（`AiStream.text` 透传）。
-  导演台拆分镜 / 关键帧 / 各页 AI 润色 / 素材库 AI 都走这一份；设置页只保留联网搜索总开关与渠道，
-  总开关关着时 `Search.context` 返回空串，主任务照常走。助手自己的 `web_search` / `web_read` 仍是工具式搜索。
+- **联网搜索是 TextAI 的工具循环，不是预注入**：总开关打开时，`TextAI.chat` / `chatStream` 把
+  `CALL: web_search {...}` / `CALL: web_read {...}` 的工具说明接进系统提示词；模型自己决定调不调，
+  结果只回灌给模型（**不画来源卡片、不显示引用**），最终输出仍是原样的正文 / JSON。
+  所有文字 AI 调用默认可用；助手自己的工具循环与纯协议调用（反问 JSON / 看图说明 / 起标题 / 设置探针）
+  传 `noTools: true` 退出。总开关关着时连工具说明都不加。旧的 `withSearch` / `decideSearch` /
+  `Search.context` 已删除。
 - **用户可见的正文生成一律流式**：拆分镜 / 各页 AI 润色 / 新台词 / 关键帧规划走 `AiStream.text` 或 `TextAI.chatStream`；只有短 JSON 判定（反问 / 拆素材）、后台标题、AI 搜索这类没有正文面板的步骤保留一次性 `chat`。
 - 抽屉缺省是球旁的浮窗：贴着悬浮球摆（左上方，放不下就翻到另一侧，最后夹进视口并让开侧栏），
   宽 `--ac-w` / 高 `--ac-h` 由左沿与下沿两根把手拖，记本机 `ai_chat_w` / `ai_chat_h`；
@@ -1046,8 +1048,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     型号不收参考图或被首尾帧互斥挡住 → `Confirm.choose` 给「换一家会收的型号 / 放进首尾帧那一格 / 不动」，
     不静默改用户已选的型号，也不假装放成功了。
 - 右栏的「AI 搜索」与素材库 / 收藏 / 资产库同一份 `AiFind.run`：搜索框里那句话交给文字 AI，
-  它从这一栏已取回的历史（时间窗与「隐藏云端」都算上，最多 100 条）里挑几条；挑中的集合与名次
+  它从这一栏已取回的历史（只滤掉「隐藏云端」，最多 100 条）里挑几条；挑中的集合与名次
   并进 `filteredItems()` 的筛选与排序，清掉芯片就回到完整列表。
+- 这一栏的历史不按时间裁：没有「最近 30 天 / 查看全部」那一档，取回多少就列多少
+  （筛子只有搜索、类型档与分页）。
 - 输入模式（一次请求能用哪几类素材）只有 `Capabilities.combos` 一份；判据双向（缺料 / 超料 / 不收 / 互斥），
   `mode` 不是提交字段。
 - 四颗「存回本机」只走 `AssetLocal.pullMany`；页面里一次都不许出现 `AssetLocal.pull`。

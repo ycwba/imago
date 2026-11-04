@@ -892,7 +892,7 @@ export function render(_ctx, _cache) {
                     [_vModelText, _ctx.searchKey]
                   ]),
                   _createElementVNode("button", {
-                    class: "ghost mini",
+                    class: "ghost",
                     disabled: _ctx.searchBusy || !_ctx.search.hasKey,
                     onClick: $event => (_ctx.clearSearchKey($event))
                   }, "清掉", 8 /* PROPS */, _hoisted_72)

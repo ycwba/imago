@@ -99,6 +99,7 @@
     if (!window.MediaBackend) throw new Error('浏览器里的媒体后端没加载起来，抽不出音轨（可以改用本地或在线识别）');
     if (stage) stage({ stage: 'extract', progress: 0 });
     const wav = await window.MediaBackend.wav16(src, {
+      signal: a.signal,
       onProgress: p => { if (stage) stage({ stage: 'extract', progress: p }); },
     });
     if (a.signal && a.signal.aborted) throw new Error('已取消');
@@ -170,6 +171,7 @@
       const stage = typeof a.onStage === 'function' ? a.onStage : null;
       if (stage) stage({ stage: 'extract', progress: 0 });
       const wav = await window.MediaBackend.wav16(src, {
+        signal: a.signal,
         onProgress: p => { if (stage) stage({ stage: 'extract', progress: p }); },
       });
       if (stage) stage({ stage: 'upload', progress: 1 });

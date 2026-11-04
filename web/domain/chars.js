@@ -872,8 +872,7 @@ window.Chars = (function () {
     /* 熔断中就不问了：再问一次的结果和上一次一样，只是又让用户等满一个超时。 */
     if (!aiOk()) return plain;
     try {
-      const one = await TextAI.chat(REG, fillTpl(tpl, vals), '请写出这张图的提示词。',
-        { search: { query: [vals.name, vals.what, vals.look].filter(Boolean).join(' ') } });
+      const one = await TextAI.chat(REG, fillTpl(tpl, vals), '请写出这张图的提示词。', {});
       aiMarkOk();
       const t = String(one || '').trim().replace(/^["'「]|["'」]$/g, '');
       return t.length >= 8 ? t : plain;
@@ -1621,7 +1620,7 @@ window.Chars = (function () {
       preset: ways.preset.length ? ways.preset.map(v => '- ' + v.id + '｜' + [v.name, v.lang, v.gender].filter(Boolean).join(' ')).join('\n') : '（没有预设音色清单）',
       cast: cast,
     });
-    const chatOpts = Object.assign({}, o, { search: { query: pick.map(c => c.name + ' ' + (c.bio || c.look || '')).join(' ') } });
+    const chatOpts = Object.assign({}, o);
     const txt = o.onDelta
       ? await TextAI.chatStream(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', chatOpts, o.onDelta)
       : await TextAI.chat(REG, sys, '请给上面每一位角色定声音，只输出 JSON。', chatOpts);
@@ -1667,7 +1666,7 @@ window.Chars = (function () {
     /* 与 `assignVoices` 同一份写法：调用方给了 `onDelta` 就边收边显（那里是页面上的流式面板），
        没给就还是普通一次性调用 —— 判据不在这里拍，看调用方要不要过程。 */
     try {
-      const chatOpts = Object.assign({}, o, { search: { query: c.name + ' ' + who } });
+      const chatOpts = Object.assign({}, o);
       txt = o.onDelta
         ? await TextAI.chatStream(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', chatOpts, o.onDelta)
         : await TextAI.chat(REG, sys, '请只给上面这一个人定声音，只输出 JSON。', chatOpts);

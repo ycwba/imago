@@ -1249,7 +1249,7 @@ window.AiStream = {
     const host = opt.host || null;
     /* 没有容器、也没人要 onChunk：退回普通 chat（行为与以前一致，不摆一个看不见的面板） */
     if (!host && typeof opt.onChunk !== 'function') {
-      return await window.TextAI.chat(REG, sys, user, { images: opt.images, search: opt.search });
+      return await window.TextAI.chat(REG, sys, user, { images: opt.images });
     }
     const ctl = new AbortController();
     const live = this.panel(host, {
@@ -1257,7 +1257,7 @@ window.AiStream = {
     });
     try {
       const txt = await window.TextAI.chatStream(REG, sys, user,
-        { images: opt.images, search: opt.search, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
+        { images: opt.images, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
       live.done();
       /* 面板在最后会把「正在接收…」收掉；返回值优先用 chatStream 的正规返回，
          它为空（某家只吐片段不给收尾包）时用我们攒的那一份兜底。 */

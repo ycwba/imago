@@ -1062,7 +1062,7 @@ const SettingsView = {
           if (TextAI.ownsModel && !TextAI.ownsModel(p, model, fetchedOf(p))) {
             throw new Error('「' + model + '」不属于「' + (p.name || '这一家') + '」的型号列表 —— 多半是刚切供应商时留下的旧值，重新选一个或点「取一次型号清单」');
           }
-          const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok', { model }, p);
+          const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok', { model, noTools: true }, p);
           panelMsg(slot, '✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
         } catch (e) { panelMsg(slot, '✗ 测试失败：' + errText(e), 'msg err'); }
         finally { b.disabled = false; b.textContent = label0; }
@@ -3433,11 +3433,16 @@ const SettingsView = {
       })();
       return searchSaving;
     }
-    /* 换在线服务商 = 型号回到这一家的默认值（placeholder 里写着）；
-       表单本身也搬到新那家的账号卡里（能力在哪家、设置就在哪家）。 */
+    /* 换在线服务商：型号回到这一家的默认值（placeholder 里写着），接口地址与单独那把密钥
+       都属于上一家、一并清掉（服务端 patch 里有同一道）——不清的话，上一家的地址会把
+       这一家的密钥发到别人的域名上。表单本身也搬到新那家的账号卡里（能力在哪家、设置就在哪家）。 */
     function onAsrProvChange() {
       asr.service.model = '';
+      asr.service.baseUrl = '';
+      asr.service.hasKey = false;
+      asrKey.value = '';
       asr.route = 'service';
+      asrMsg.value = '换了在线服务商：上一家的接口地址 / 型号 / 单独密钥已清空';
       renderProv();
     }
     /* 语音识别路线（本机识别那张卡里）：换路线会改变「谁顶着这一档」，重画一次状态牌。 */
@@ -3445,6 +3450,15 @@ const SettingsView = {
       renderProv();
     }
     function onSearchProvChange() {
+      /* 换一家 = 上一家的接口地址 / 型号 / 单独密钥都作废（服务端 patch 里也有同一道）。
+         留在框里的上一家地址会把这一家的密钥发到别人的域名上；界面上先把值清掉，
+         免得下一次自动保存又把旧值原样发回去。 */
+      search.baseUrl = '';
+      search.model = '';
+      search.credentialSource = 'channel';
+      searchKey.value = '';
+      search.hasKey = false;
+      searchMsg.value = '换了搜索服务：上一家的接口地址 / 型号 / 单独密钥已清空，需要时重新填';
       renderProv();
     }
     /* 在「用这家账号的密钥」那一档往框里打字，就是要单独用这一把 ——

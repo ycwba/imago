@@ -19,10 +19,11 @@ env.allowRemoteModels = false;
 env.backends.onnx.wasm.wasmPaths = WASM_DIR; // 默认指 CDN，同源覆写（ORT 胶水与 .wasm 都在这一目录）
 
 let asr = null;
-let asrLang = null;
 
-async function ensurePipeline(language) {
-  if (asr && asrLang === (language || '')) return asr;
+/* 语言只影响 pipe() 的 opts（见下面 opts.language），不参与 pipeline 构建：
+   以前把它当缓存键，换一次语言就重建一次 pipeline（可能重新装载模型）。 */
+async function ensurePipeline() {
+  if (asr) return asr;
   const device = (typeof navigator !== 'undefined' && navigator.gpu) ? 'webgpu' : 'wasm';
   const build = dev => pipeline('automatic-speech-recognition', MODEL_ID, {
     dtype: 'q8',
@@ -31,7 +32,6 @@ async function ensurePipeline(language) {
   });
   try { asr = await build(device); }
   catch (e) { asr = await build('wasm'); }          // WebGPU 起不来退 WASM，同一只 worker 里换
-  asrLang = language || '';
   return asr;
 }
 
@@ -41,7 +41,7 @@ self.onmessage = async e => {
   try {
     self.postMessage({ type: 'progress', data: { status: 'worker', stage: 'decode' } });
     const audio = wavToPcm(await m.wav.arrayBuffer());
-    const pipe = await ensurePipeline(m.language);
+    const pipe = await ensurePipeline();
     self.postMessage({ type: 'progress', data: { status: 'worker', stage: 'transcribe' } });
     const opts = {
       chunk_length_s: 30,

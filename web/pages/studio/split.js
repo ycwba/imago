@@ -65,7 +65,7 @@ export function createSplit(d) {
       }
     } catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
     const txt = await window.AiStream.text(reg(), window.TextAI.prompt('img_split'), user,
-      { images, host: $('polishInline'), title: 'AI 正在拆分片段…', search: { query: src } });
+      { images, host: $('polishInline'), title: 'AI 正在拆分片段…' });
     const segs = parseSegs(txt);
     if (!segs.length) throw new Error('文字 AI 没有给出可用的拆分方案，换一条描述或再试一次');
     /* 图像栏一张参考图都没有时，「带参考图」这个决定没有可发的东西 —— 全部按不带处理，

@@ -91,6 +91,15 @@ const h = require('./harness.cjs');
     if (off.status !== 400 || !off.json || off.json.kind !== 'disabled') throw new Error('未启用时应当 400 disabled：' + off.status + ' ' + off.text);
     if (hits !== 0) throw new Error('未启用时还是打了上游');
 
+    /* 读网页不跟着总开关一起关：关着时也应走到出站护栏，而不是先回「没有启用」 */
+    const readOff = await call('/search/read', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:1/x' }),
+    });
+    if (readOff.status !== 400 || /没有启用/.test(readOff.text)) {
+      throw new Error('/search/read 不该跟着搜索总开关一起关：' + readOff.status + ' ' + readOff.text);
+    }
+
     const badProvider = await call('/search/settings', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: 'bing' }),
@@ -144,9 +153,10 @@ const h = require('./harness.cjs');
     if (putDs.status !== 200) throw new Error('切到 DeepSeek 搜索接口失败：' + putDs.status + ' ' + putDs.text);
     const ds = await call('/search/query', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: '官方搜索', limit: 2 }),
+      body: JSON.stringify({ query: '官方搜索', limit: 2, freshness: 'week' }),
     });
     if (ds.status !== 200 || ds.json.provider !== 'deepseek') throw new Error('DeepSeek 搜索接口没走通：' + ds.status + ' ' + ds.text);
+    if (ds.json.freshnessIgnored !== true) throw new Error('DeepSeek 没有标出 freshness 被忽略（时效只有 Tavily 生效）');
     if (ds.json.results[0].url !== 'https://example.com/ds' || ds.json.results[0].publishedAt !== '2026-10-19') {
       throw new Error('DeepSeek 结果字段没映射对：' + JSON.stringify(ds.json.results[0]));
     }
