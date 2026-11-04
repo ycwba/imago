@@ -103,17 +103,7 @@
 .studio-page #result .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
 .studio-page #result .cdet .det-row .k { flex: 0 0 auto; }
 .studio-page #result .cdet .det-row > span:last-child { color: var(--txt); }
-/* 卡片内的播放按钮：视频 / 音频共用一套（bindCardPlay 接线）。播放中淡出，鼠标移回画面才回来 */
-.studio-page #result .timg.playable { position: relative; }
-.studio-page #result .timg.playable .tplay { position: absolute; left: var(--sp-8); bottom: var(--sp-8); z-index: 4; width: var(--sz-ctl); height: var(--sz-ctl);
-  border-radius: 50%; border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) var(--a-72), transparent); box-shadow: var(--shadow-5);
-  transition: opacity var(--dur-180), transform var(--dur-180); }
-.studio-page #result .timg.playable .tplay:hover { transform: scale(1.08); }
-.studio-page #result .timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); }
-.studio-page #result .timg.playable.playing .tplay { opacity: 0; pointer-events: none; }
-.studio-page #result .timg.playable:hover.playing .tplay { opacity: 1; pointer-events: auto; }
-/* 音频卡：一个大音频符号做背景（不是空白占位），播放器叠在上面 */
+/* 播放钮的样式在 ui.css 的 .timg.playable 一族（与资产库共用一份）；这一页只剩音频卡的皮 */
 .studio-page #result .timg.sound { background: var(--panel2); justify-content: center; }
 .studio-page #result .timg.sound .tbg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--line); pointer-events: none; }

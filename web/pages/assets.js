@@ -594,8 +594,9 @@ export default {
         media = '<div class="timg"><span class="plate plate--plain"><span class="plate-st">已完成</span>'
           + '<span class="plate-t">正在同步列表…</span></span></div>';
       } else if (a.type === '视频') {
-        media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(a.src, { mediaAttrs: 'draggable="false"' })
-          + window.Wb.fullBtnHTML() + '</div>';
+        /* 与工作台同一份（Wb.playableMediaHTML）：视频在卡上就地播放，左下角播放 / 暂停，
+           右下角才是全屏入口 —— 点封面本身不再开灯箱。 */
+        media = window.Wb.playableMediaHTML(a.src, { mediaAttrs: 'draggable="false"' });
       } else if (window.isAudioType(a.type)) {
         media = '<div class="timg"><span class="plate plate--audio"><span class="plate-st">'
           + window.esc(window.fileExtOf(a).toUpperCase() || '音频') + '</span>'
@@ -633,10 +634,8 @@ export default {
       if (!wrap) return;
       const media = wrap.querySelector('video[data-src], video[src], img');
       if (media) window.Wb.thumbs.bind(wrap, media, a.src || '');
-      /* 缩略图右下角的「全屏观看」（与工作台同一枚）：视频停在封面上时，
-         点它直接进灯箱播；点封面本身也进灯箱，这颗只是把入口写明。 */
-      const full = wrap.querySelector('.tfull');
-      if (full) full.onclick = e => { e.stopPropagation(); window.Wb.lightbox.open(a); };
+      /* 左下角那颗就地播放；点封面本体进灯箱（thumb.onclick 接）。 */
+      window.Wb.bindCardPlay(wrap);
     }
 
     /* ---------- 详情：就地展开，不另起一层 ----------
@@ -718,8 +717,9 @@ export default {
           assetsMulti().toggle(a);
           return;
         }
-        /* 紧凑档：卡身上点一下 = 打开这一条的详情（缩略图仍是灯箱，动作那一排不动）。
-           清单档有「详情」那颗按钮，不靠点卡身 —— 免得拖完卡片手一松就开了一页详情。 */
+        /* 紧凑档：卡身上点一下 = 打开这一条的详情（缩略图自己管自己 —— 点封面开灯箱、
+           左下角就地播放，动作那一排不动）。清单档有「详情」那颗按钮，不靠点卡身 ——
+           免得拖完卡片手一松就开了一页详情。 */
         if (isGridView() && !e.target.closest('.timg') && !e.target.closest('.acts')) {
           toggleDetail(d, a);
         }
@@ -727,6 +727,9 @@ export default {
       const thumb = d.querySelector('.timg');
       if (thumb) thumb.onclick = e => {
         if (multiMode.value) { e.stopPropagation(); assetsMulti().toggle(a); return; }
+        /* 点封面进灯箱（视频也是）：先停掉卡里那份，别跟灯箱双声道；左下角那颗才是就地播放。 */
+        const v = thumb.querySelector('video');
+        if (v && !v.paused) v.pause();
         window.Wb.lightbox.open(a);
       };
       /* 标准那一排（详情 / 下载 / 取消 / 重试）整排交给公共件接线：确认框、忙碌态、报错、

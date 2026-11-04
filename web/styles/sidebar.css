@@ -163,7 +163,6 @@ html:not(.sb-open) .sidebar .sb-set { justify-content: center; padding: 0; heigh
 .sb-mirror .l3 { margin-top: var(--sp-4); font-size: var(--fs-11); color: var(--sub); line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-mirror .l3 b { color: var(--txt); }
-.sb-mirror.bad .l2 { color: var(--err); }
 /* 正在取数的那一张：转点跟在「正在读取…」前面（它比一句静态说明更像「在动」）。 */
 .sb-bal-card .l2 .spin-dot { display: inline-block; width: var(--sp-8); height: var(--sp-8); vertical-align: -1px; }
 

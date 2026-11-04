@@ -2141,11 +2141,29 @@
       }
       return '';
     },
-    /* 预览图右下角的「全屏观看」：工作台与资产库共用这一枚（点开灯箱看这一条）。
-       外观只在 ui.css 的 `.task .timg .tfull`；接线归页面（各有各的翻页列表）。
-       视频卡尤其需要它：视频在卡上就地播放，点缩略图不再是灯箱 —— 全屏要有自己的入口。 */
-    fullBtnHTML() {
-      return '<button type="button" class="tfull" title="全屏观看" aria-label="全屏观看">' + icon('expand', 16) + '</button>';
+    /* 卡片内就地播放的那一格（工作台右栏与资产库共用一份）：inline 视频 + 左下角播放钮；
+       点画面本体进灯箱（接线归页面）。外观在 ui.css 的 .timg.playable 一族；
+       接线是 bindCardPlay。 */
+    playableMediaHTML(src, opts = {}) {
+      return '<div class="timg playable">' + window.Wb.thumbs.mediaHTML(src, {
+        inline: true, videoAttrs: 'playsinline preload=metadata',
+        mediaAttrs: 'title="点画面全屏观看"' + (opts.mediaAttrs ? ' ' + opts.mediaAttrs : ''),
+      }) + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
+    },
+    /* playableMediaHTML 那一格的接线：左下角那颗在 播放 / 暂停 之间换图标，播放中整颗淡出、
+       鼠标移回画面才回来（.playing 归 CSS）。wrap 是 .timg 那一格；音频卡同吃这一份。 */
+    bindCardPlay(wrap) {
+      const btn = wrap && wrap.querySelector('.tplay');
+      const media = wrap && wrap.querySelector('video, audio');
+      if (!btn || !media) return;
+      const setState = playing => { wrap.classList.toggle('playing', !!playing); btn.innerHTML = icon(playing ? 'pause' : 'play', 22); };
+      btn.onclick = e => {
+        e.stopPropagation();
+        if (media.paused) { const pr = media.play(); if (pr && pr.catch) pr.catch(() => {}); }
+        else media.pause();
+      };
+      ['play', 'pause', 'ended'].forEach(ev => media.addEventListener(ev, () => setState(ev === 'play')));
+      setState(false);
     },
     taskHTML(o) {
       const err = String(o.error || '');

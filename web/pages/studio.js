@@ -2143,13 +2143,12 @@ const StudioView = {
       let serverEntries = [], serverCursors = {}, serverHasMore = true, serverGen = 0;
       let serverChain = Promise.resolve(), serverLoading = 0, serverErrs = {};
       let audioTasks = [];
-      let searchQ = '', filterKind = 'all', showAll = false;
+      let searchQ = '', filterKind = 'all';
       /* AI 搜索挑出来的那一批：集合 / 名次 / 它给的那句理由。三个字段一起由 AiFind.state 给，
          清空也走它 —— 只清一半会让列表按一句已经作废的话排序。 */
       let aiPick = null, aiRank = null, aiWhy = '';
       let aiChipHost = null, aiBtnEl = null;
       let aiAsked = false;   // 正在问 AI：回包落定时要把「这句话已经消化过」登记给公共搜索条
-      const RECENT_MS = 30 * 24 * 3600 * 1000;
       function loadAudioTasks() {
         audioTasks = Wb.History.read('audio');
         /* 刷新时还在途的不能判成「失败、可重试」：同步合成没有任务号，页面根本问不到平台那边
@@ -2257,10 +2256,11 @@ const StudioView = {
         }
         return out;
       }
-      function inWindow(it) { return showAll || !it.ts || (Date.now() - it.ts) <= RECENT_MS; }
+      /* 历史不按时间裁：平台取回多少就列多少（分页 / 搜索 / 类型档才是筛子）。
+         以前默认只看最近 30 天、要按一下「查看全部」才放开，那一档按钮与它旁边的读数
+         一起撤掉了 —— 库里本来就只有这一台机器的任务，藏掉旧的不省事，只让人以为丢了。 */
       let hiddenCloud = 0;
       function matched(it) {
-        if (!inWindow(it)) return false;
         if (searchQ) {
           const hay = [it.prompt, it.taskId, it.assetId, it.model].join(' ').toLowerCase();
           if (!hay.includes(searchQ)) return false;
@@ -2290,7 +2290,6 @@ const StudioView = {
         const passable = mergedItems().filter(matched);
         const matched_ = passable.filter(it => !AssetLocal.hideAsCloud(it));
         hiddenCloud = passable.length - matched_.length;
-        const total = mergedItems().length;
         const c = new Map();
         matched_.forEach(it => { const k = kindTabOf(it); if (k) c.set(k, (c.get(k) || 0) + 1); });
         kindCounts.clear();
@@ -2305,18 +2304,7 @@ const StudioView = {
           });
         }
         kindFilterApi.setValue(filterKind);
-        const note = $('histNote');
-        const hidden = total - matched_.length - hiddenCloud;
-        note.textContent = (showAll ? '全部时间范围' : '最近 30 天')
-          + (hidden > 0 ? ' · 另有 ' + hidden + ' 条更早的没显示' : '')
-          + (serverLoading ? ' · 正在取回…' : '');
       }
-      $('winAll').onclick = () => {
-        showAll = !showAll;
-        $('winAll').textContent = showAll ? '只看最近 30 天' : '查看全部';
-        pager.reset();
-        renderAll();
-      };
       /* 占位卡在「列表」这一路也要解：图出得快的时候，任务还没被轮询到就先以**已完成产物**
          进了列表（adoptBuf 里那条任务随即被它顶掉），而轮询器只轮询还在跑的条目 ——
          不在这里解，那几张占位卡就永远等不到人，回来还是占位状态。 */
@@ -2590,11 +2578,7 @@ const StudioView = {
         const plate = Wb.plateHTML({ kind: 'task', status: it.status, failMsg: it.error, progress: it.progress });
         if (plate) return plate;
         if (it.mtype === '视频' && it.media) {
-          return '<div class="timg playable">' + Wb.thumbs.mediaHTML(it.media, {
-            inline: true, videoAttrs: 'playsinline preload=metadata',
-            mediaAttrs: 'title="就地播放；全屏看右下角那颗"' })
-            + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button>'
-            + Wb.fullBtnHTML() + '</div>';
+          return window.Wb.playableMediaHTML(it.media);
         }
         if (window.isAudioType(it.mtype) && it.media) {
           return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
@@ -2603,19 +2587,6 @@ const StudioView = {
         if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" title="点一下看大图"' }) + '</div>';
         if (it.mtype) return '<div class="timg">' + icon(KIND_TAG[it.mtype] || 'image', 24) + '</div>';
         return '<div class="timg">…</div>';
-      }
-      function bindCardPlay(d, wrap) {
-        const btn = wrap && wrap.querySelector('.tplay');
-        const media = wrap && wrap.querySelector('video, audio');
-        if (!btn || !media) return;
-        const setState = playing => { wrap.classList.toggle('playing', !!playing); btn.innerHTML = icon(playing ? 'pause' : 'play', 22); };
-        btn.onclick = e => {
-          e.stopPropagation();
-          if (media.paused) { const pr = media.play(); if (pr && pr.catch) pr.catch(() => {}); }
-          else media.pause();
-        };
-        ['play', 'pause', 'ended'].forEach(ev => media.addEventListener(ev, () => setState(ev === 'play')));
-        setState(false);
       }
       /* 本机 / 云端标识：与资产库 / 收藏同一个开关（sk_media_badge），不参与筛选。
          哪边有只问 AssetLocal.stateOf（与「存回本机」范围同一份判据），
@@ -2667,11 +2638,15 @@ const StudioView = {
         /* 重画回来的卡带着 is-band 类：新画的按钮默认是「展开详情」，照类名对齐一次。 */
         window.Wb.expand.sync(d);
         const imgWrap = d.querySelector('.timg');
-        if (imgWrap && !imgWrap.querySelector('video,audio')) imgWrap.onclick = () => openLb(it);
-        bindCardPlay(d, imgWrap);
-        /* 视频卡的全屏入口（图片卡点缩略图本身就是灯箱，不再另给按钮）。 */
-        const fullBtn = d.querySelector('.tfull');
-        if (fullBtn) fullBtn.onclick = e => { e.stopPropagation(); openLb(it); };
+        /* 点画面本体进灯箱（视频也是）：先停掉卡里那份，别跟灯箱双声道；左下角那颗才是就地播放。 */
+        if (imgWrap && !imgWrap.querySelector('audio')) {
+          imgWrap.onclick = () => {
+            const v = imgWrap.querySelector('video');
+            if (v && !v.paused) v.pause();
+            openLb(it);
+          };
+        }
+        window.Wb.bindCardPlay(imgWrap);
         const wrap = imgWrap;
         const media = wrap ? wrap.querySelector('video[data-src], video[src], img') : null;
         if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
@@ -2856,8 +2831,6 @@ const StudioView = {
           if (tipEl) tipEl.textContent = ftip ? ('点卡片即可勾选 · ' + ftip) : '点卡片即可勾选';
           /* 自动补存：开关开着时把这一屏「本机还没有」的条目排进镜像队列。 */
           try { window.AssetLocal && AssetLocal.offerAll(items); } catch (e) { /* 补存失败不影响列表 */ }
-          const el = $('histNote');
-          if (el && serverLoading && !el.textContent.includes('正在取回')) el.textContent += ' · 正在取回…';
         } finally { mergedBatch = null; }
       }
       const tally = Wb.tally(() => AssetLib.countAll({ reg: REG, accept: e => !!e.type, maxPages: 3 }));
@@ -3114,9 +3087,9 @@ const StudioView = {
           },
         });
       }
-      /* 给 AI 看的那一屏只算**现在真能看见的**（时间窗与「隐藏云端任务」都算上），
+      /* 给 AI 看的那一屏只算**现在真能看见的**（「隐藏云端任务」算上），
          最多 100 条（与收藏页同一档）。当前搜索词与类型档不传 —— 那句话本身才是需求。 */
-      const aiRoster = () => mergedItems().filter(it => inWindow(it) && !AssetLocal.hideAsCloud(it)).slice(0, 100);
+      const aiRoster = () => mergedItems().filter(it => !AssetLocal.hideAsCloud(it)).slice(0, 100);
       const AI = {
         btn: () => aiBtnEl,
         ask: () => (searchFb ? searchFb.value() : ''),
@@ -3158,7 +3131,7 @@ const StudioView = {
           pager.reset();
         },
         done: () => { pager.reset(); renderAll(); },
-        say: t => { const el = $('histNote'); if (el) el.textContent = t; },
+        say: t => { if (t) Toast.warn(t); },
       };
       function pullScope() {
         /* 范围 = **勾选的那几条**（不是整屏）：「存回本机」是多选条里的一颗，

@@ -518,9 +518,11 @@
     /* 摘要行（「存 2/5」）读的就是这同一份读数：侧栏不再为它多问一次 AssetLocal。 */
     mirrorInfo = s2;
     const busy = s2.inFlight > 0;
-    /* 报红只属于「开着自动存却有东西没存上」——关着的时候那条老错误不会再重试，摆红只会误导。
+    /* 什么样的状态才轮到「坏消息」那几句（存不下几条 / 最近一次失败的原因）。
+       只换文案与 title，不染颜色：这一行常驻在侧栏底部、每一屏都看得见，红色等于把整页
+       都挂成告警；成因与下一步放在 title 里，看的人才展开。
        `dead`（本机存不下的那几条，跨会话不再重试）比 `lastErr`（最近一次失败的成因，多半还会再试）
-       更该报红：它是「开了却没反应」唯一看得见的解释。 */
+       更该被看见：它是「开了却没反应」唯一看得见的解释。 */
     const bad = !busy && s2.on && (s2.dead > 0 || !!s2.lastErr);
     const sizeOf = b => window.fmtBytes(b) || '0 KB';
     /* 第三行始终只有一行字：在途写「正在下这一份 + 名字」，空闲写「本次 N 份」。
@@ -548,7 +550,7 @@
           + '（选中它们按「存回本机」可再试一次）'
         : '最后一次没存成：' + window.esc(s2.lastErr))
       : (busy || s2.on ? '' : '自动存本机关着，新产物只留平台地址。');
-    return '<div class="sb-mirror' + (bad ? ' bad' : '') + '"'
+    return '<div class="sb-mirror"'
       + (tip ? ' title="' + window.esc(tip) + '"' : '')
       + '>' + head
       + '<div class="l2">' + l2 + '</div><div class="l3">' + line + '</div></div>';

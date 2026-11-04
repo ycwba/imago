@@ -345,17 +345,20 @@ body.wb-splitting-y * { user-select: none !important; }
 #lbStage .lb-hint { color: var(--pal-slate-2); font-size: var(--fs-13); text-align: center; }
 /* 视频缩略图：出画前盖一层占位底（Wb.thumbs 懒加载时用），出画后 .ready 才隐藏、露黑底留白 */
 .timg, .thumb, .sthumb-wrap { position: relative; }
-/* 预览图右下角的「全屏观看」（Wb.fullBtnHTML 画，工作台与资产库同一枚）：
-   与卡上那颗播放钮同一套外观（深底、白字、圆形、悬停微放大），位置固定在右下角。 */
-.task .timg .tfull {
-  position: absolute; right: var(--sp-8); bottom: var(--sp-8); z-index: 4;
+/* 卡片内播放的那颗（Wb.playableMediaHTML 画、Wb.bindCardPlay 接线，工作台与资产库共用）：
+   左下角。点画面本体进灯箱（接线归页面），zoom-in 的「可点预览」光标由 .task .timg 那条统一给。 */
+.timg.playable .tplay {
+  position: absolute; left: var(--sp-8); bottom: var(--sp-8); z-index: 4;
   width: var(--sz-ctl); height: var(--sz-ctl); border-radius: 50%; border: 0; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   color: var(--on-acc); background: color-mix(in srgb, var(--pal-scrim) var(--a-72), transparent);
   box-shadow: var(--shadow-5); transition: opacity var(--dur-180), transform var(--dur-180);
 }
-.task .timg .tfull:hover { transform: scale(1.08); }
-.task .timg .tfull svg { width: var(--sz-ico); height: var(--sz-ico); }
+.timg.playable .tplay:hover { transform: scale(1.08); }
+.timg.playable .tplay svg { width: var(--sz-ico); height: var(--sz-ico); }
+/* 播放中整颗收掉，画面干净、鼠标移开也收着；悬停画面才回来。 */
+.timg.playable.playing .tplay { opacity: 0; pointer-events: none; }
+.timg.playable:hover.playing .tplay { opacity: 1; pointer-events: auto; }
 /* 卡片缩略图统一「可点预览」的光标：图片/视频台本来就有，音乐台漏了 —— 收在这里一次管住 */
 .task .timg, .card .thumb, .thumb { cursor: zoom-in; }
 .tph { position: absolute; inset: 0; background: var(--thumbbg); pointer-events: none; }

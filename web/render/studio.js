@@ -216,24 +216,14 @@ export function render(_ctx, _cache) {
         })
       ]),
       _createElementVNode("div", { class: "col-right" }, [
-        _createCommentVNode(" 类型选择这一排在**上面**：下面那一排是搜索与「多选 / 刷新」这些动作，\n               筛选压在它们下面时，用户要先越过一排按钮才看见「按类型筛」；\n               资产库那一页也是这个次序（筛选在前、动作在后），两页次序一致。 "),
+        _createCommentVNode(" 类型选择这一排在**上面**：下面那一排是搜索与「多选 / 刷新」这些动作，\n               筛选压在它们下面时，用户要先越过一排按钮才看见「按类型筛」；\n               资产库那一页也是这个次序（筛选在前、动作在后），两页次序一致。\n               这一排只有类型档：历史不按时间裁，也就不再有「最近 30 天 / 查看全部」那一档。 "),
         _createElementVNode("div", { class: "hist-filters" }, [
           _createElementVNode("div", {
             class: "ui-seg",
             "data-r": "histFilter",
             role: "tablist",
             "aria-label": "按类型筛选"
-          }),
-          _createElementVNode("span", { class: "sp" }),
-          _createElementVNode("span", {
-            class: "hint",
-            "data-r": "histNote"
-          }),
-          _createElementVNode("button", {
-            class: "ghost",
-            "data-r": "winAll",
-            title: "默认只看最近 30 天"
-          }, "查看全部")
+          })
         ]),
         _createElementVNode("div", { class: "tasks-head" }, [
           _createElementVNode("span", { class: "sp" }),

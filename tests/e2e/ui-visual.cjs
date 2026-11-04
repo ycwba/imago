@@ -389,36 +389,33 @@ function diff(a, b) {
               hideIt + '{display:none!important}';
             document.head.appendChild(st);
           }, theme, hide);
-          /* 「正在取回…」是历史栏的异步回填（studio 三档）：不定下来就拍，同一页会在
-             「正在取回…」与稳定读数之间来回变指纹 —— 那是探针在赌机器快慢，不是画面改版。 */
+          /* 页面的异步回填（studio 三档）不定下来就拍，同一页会在「加载中 / 读取记录」
+             与稳定画面之间来回变指纹 —— 那是探针在赌机器快慢，不是画面改版。 */
           await page.waitFor(() => {
             const t = document.body.innerText;
-            const note = document.querySelector('.studio-page [data-r="histNote"]');
             return !t.includes('加载中…') && !t.includes('正在读取生成记录…')
-              && (!note || !/正在取回/.test(note.textContent))
               && !document.querySelector('.spa-frame-loading');
           }, 15000).catch(() => {});
           /* 只等 body 有字不够：外壳侧栏先有字，studio 页可能还没挂上 —— 那样会拍到
              「请选择」和半截设置区，接着历史那一栏才慢悠悠地回填。等型号真选上、
-             历史注脚真画出来再往下走（三档共用一个页面根）。
+             历史栏那一排（右栏的类型档）真画出来再往下走（三档共用一个页面根）。
              ⚠ 这两处是**页面的 data-r 登记名**（web/pages/studio.js 的 `$()` 读的是它），
              不是 DOM id —— 按 id 找会永远找不到，每条画面白等满 30 秒超时。 */
           if (name.startsWith('studio-')) {
             await page.waitFor(() => {
               const page = document.querySelector('.studio-page');
               const sel = document.querySelector('.studio-page [data-r="model"]');
-              const note = document.querySelector('.studio-page [data-r="histNote"]');
-              return !!page && !!sel && !!sel.value && !!note && !/正在取回/.test(note.textContent);
+              const hist = document.querySelector('.studio-page [data-r="histFilter"]');
+              return !!page && !!sel && !!sel.value && !!hist;
             }, 30000).catch(() => {});
           }
           let label = '';
           if (opts.prep) label = await opts.prep(page, proxy);
           await new Promise(r => setTimeout(r, 700));
-          /* 固定等待之后再看一眼：历史栏的回填可能恰好在这一段里才开始。 */
+          /* 固定等待之后再看一眼：型号可能恰好在这一段里才选上。 */
           await page.waitFor(() => {
-            const note = document.querySelector('.studio-page [data-r="histNote"]');
             const sel = document.querySelector('.studio-page [data-r="model"]');
-            return (!note || !/正在取回/.test(note.textContent)) && (!sel || !!sel.value);
+            return !sel || !!sel.value;
           }, 15000).catch(() => {});
           /* 导演台右栏有两处异步回填，不定下来同一档两次就是两种画面：
              ① 型号能力 —— 没回的时候「输入模式」那一排芯片（`#modeRow`）整块不画，
