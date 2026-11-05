@@ -17,7 +17,10 @@
      · 拖出来的值落盘（wb_split.sp0），刷新后还是那个宽度
      · 双击把手复位：行内 --sp0 撤掉、回到弹性默认档
      · 切到别的页再切回来，把手与宽度都还在（KeepAlive 不许把它吃掉）
-     · 页头那条与两栏块同宽同起点（标题落在左栏左缘）
+     · 页头左缘 == 两栏内容列左缘，那条线一路铺到内容区左右各内缩 --shell-px；
+       两栏块铺满内容区（横向 = 内容区宽），**不限宽、不居中** —— 居中会把首字推到内容区中间，
+       另外六页仍贴着左缘，切页就跳
+       —— 窗口取 1920：内容区比旧的那档限宽（1440）宽，居中才量得出来，窄窗里两边都是 88
      · 窄屏（≤960）滚动归 .wb .layout（.wb 不许自己滚，否则列表从透明页头下穿过），
        且标题与内容列的左右留白读同一枚 --shell-px
 
@@ -35,7 +38,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     proxy = await h.startProxy();
     browser = await h.launchBrowser();
     page = await browser.newPage();
-    await page.setSize(1600, 900);
+    await page.setSize(1920, 1080);
     await page.goto(proxy.base + '/shell.html#studio.html');
     await page.waitFor(() => !!document.querySelector('.studio-page'), 30000, 100);
     /* 等把手装上（Wb.split.enable 在页面初始化末尾才跑）。 */
@@ -71,6 +74,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         layoutW: lr ? Math.round(lr.width) : -1,
         headLeft: hr ? Math.round(hr.left) : -1,
         headRight: hr ? Math.round(hr.right) : -1,
+        /* 内容列的真实左右缘：.layout 是通栏的一整块，左右各让出 --shell-px 才是两栏，
+           页头那一格量到的就是这一对（那条分隔线画在页头的 border-bottom 上）。 */
+        colLeft: left ? Math.round(left.getBoundingClientRect().left) : -1,
+        colRight: right ? Math.round(right.getBoundingClientRect().right) : -1,
+        /* 这一页生效的那枚左右留白（.wb 上声明，760 以下收到 16）：块的左缘 = 页头左缘 − 它。 */
+        shellPx: Math.round(parseFloat(getComputedStyle(root).getPropertyValue('--shell-px')) || 0),
         inline: layout ? layout.getAttribute('style') || '' : '',
         rec: rec,
       };
@@ -105,9 +114,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     must(/--sp0\s*:/.test(m1.inline), '拖完该在 .layout 上写出 --sp0：' + m1.inline);
     must(m1.rec && Number(m1.rec.sp0) > 0, '拖出来的值该落盘（wb_split.sp0）：' + JSON.stringify(m1.rec));
 
-    /* ── ② 页头那条与两栏块同宽同起点（标题落在左栏左缘） ───────────── */
-    must(m1.headLeft === m1.layoutLeft && m1.headRight === m1.layoutRight,
-      '页头与两栏块该同宽同起点（' + JSON.stringify({ h: [m1.headLeft, m1.headRight], l: [m1.layoutLeft, m1.layoutRight] }) + '）');
+    /* ── ② 页头左缘 == 内容列左缘，那条线右端 == 内容列右缘 ──
+       窗口给到 1920：旧的那档「最大宽 + margin:0 auto 居中」只有在这个宽度上才露出来
+       （首字被推到 x=300，另外六页仍是 88）；窄窗里两块都贴着左缘，量不出差别。
+       现在两块都铺满内容区：块的左缘 = 内容区左缘，页头左缘 = 它 + 一枚 --shell-px。 */
+    must(m1.headLeft === m1.colLeft,
+      '页头左缘该与内容列左缘同一起点（' + JSON.stringify({ h: m1.headLeft, c: m1.colLeft }) + '）');
+    must(m1.headRight === m1.colRight,
+      '那条线的右端该与内容列右缘相同（' + JSON.stringify({ h: m1.headRight, c: m1.colRight }) + '）');
+    must(m1.layoutLeft === m1.headLeft - m1.shellPx,
+      '两栏块铺满内容区：块的左缘 = 内容区左缘（居中就会把它推到中间，标题跟着跳）'
+      + JSON.stringify({ h: m1.headLeft, l: m1.layoutLeft, px: m1.shellPx }));
 
     /* ── ③ 落盘：真的重载一次，宽度还是那个 ──────────────────────────── */
     const stored = m1.rec.sp0;
@@ -184,7 +201,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 工作台分栏：把手在本页 · 拖得动且跟手 · 拖动时页面左右空白不动 · 落盘 · 复位 · 切页不丢');
+    console.log('✓ 工作台分栏：把手在本页 · 拖得动且跟手 · 拖动时页面左右空白不动 · 落盘 · 复位 · 切页不丢 · 页头那条线随内容列');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

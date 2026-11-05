@@ -1,13 +1,17 @@
 /* 工作台（Vue 版）—— 由 studio.html 的 <style> 迁来，全部挂在 .studio-page 下。
    外壳文档与其它已迁移页面共用，所以这里一条都不许裸写全局选择器。 */
 
-/* ---------- 页面根：铺满外壳内容区，背景与 body 原来那一份一致 ---------- */
+/* ---------- 页面根：铺满外壳内容区，底色与另外六页同一枚 --bg ----------
+   以前这一页另带两团强调色的径向渐变（右上 + 左下）。它是全站唯一一处「页面自己有一层装饰底」：
+     · 顶排那条公共 .phead 是平色 --bg 的矩形，压在渐变上会露出一条接缝 —— 只能给它写
+       background:transparent 让渐变透过去，于是这一页的页头成了唯一一透的，
+       切页时标题那一格的颜色跟着变；
+     · 两栏块限宽居中，块外的空白是渐变、块内也是，但页头一旦定高就成了「一块不透明的板」。
+   底就交给 --bg，页头也就能用公共那一份（不透明），七个页面同一副。 */
 .studio-page {
   color: var(--txt);
   font-family: var(--font-ui);
-  background: radial-gradient(900px 500px at 85% -5%, color-mix(in srgb, var(--acc) var(--a-14), transparent), transparent 60%),
-    radial-gradient(700px 500px at -10% 100%, color-mix(in srgb, var(--acc2) var(--a-10), transparent), transparent 60%),
-    var(--bg);
+  background: var(--bg);
 }
 /* studio.html 开头那条 `* { box-sizing; margin: 0; padding:0 }`。
    ⚠ **整条都要零权重**：`:where()` 只把它自己那部分算成 0 —— 前面的 `.studio-page` 仍然算 (0,1,0)，

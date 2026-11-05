@@ -1311,21 +1311,29 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
      C 说明    .phead-sub   一句话：这页在干嘛         按页
      D 动作    .phead-acts  页面级动作（≤3 个）       按页
    横带跨页宽、**粘顶**：滚到一半标题还在原地 —— 切页不再丢名字。
-   壳的 padding-top 归零（--shell-px 只管左右），上留白由 .phead 自己给：
-   吸顶时页头已经在 scrollport 顶上，没有「从 24px 跳到 0」的位移。
-   背景不透明（桌面应用滚动频繁，毛玻璃每帧重算不划算）。 */
+   高度是**定**的（--sz-head），上下那 8px 只是「控件别贴边」的下限：
+   壳的 padding-top 归零（--shell-px 只管左右），所以吸顶时页头已经在 scrollport 顶上，
+   没有「从 24px 跳到 0」的位移。背景不透明（桌面应用滚动频繁，毛玻璃每帧重算不划算）。
+   左右内缩全部交给壳（.page-shell 用 padding，.wb 与导演台把页头这一格自己内缩
+   --shell-px）→ 那条分隔线的起止恒等于内容列的起止。 */
 .phead {
   position: sticky; top: 0; z-index: 20;
+  box-sizing: border-box;
   display: flex; align-items: center; gap: var(--sp-12);
-  padding: var(--sp-12) var(--shell-px) var(--sp-12);
+  /* 定高：横带高度只由 --sz-head 决定，不由「槽里最高的那颗控件」决定。
+     改之前三种高度并存 —— 纯文字页 50 / 带 32px 控件的页 57 / 导演台那颗 33px 的导出钮 58，
+     于是标题顶边在 y=12 与 y=16 之间跳、那条线也一页低一页高。
+     纵向 8px 只是「控件别贴边」的下限（8+32+8=48 < 56 → 说话的是定高那一枚）。
+     窄窗换行时内容超过 56 才长高（见下面 760 那一档）。 */
+  min-height: var(--sz-head); padding: var(--sp-8) 0;
   background: var(--bg);
   border-bottom: var(--hair) solid var(--line);
 }
-/* 普通页的壳（.page-shell）自己已经按 --shell-px 留了左右白，页头长在壳里，
-   再补一份就成了双份：标题比内容列右移 32px（page-head 判据直接量这两条左缘）。
-   壳里的页头只管上下，左右交给壳 —— 工作台（.wb）不吃这条：它的壳不留白，
-   页头与两栏块各自按 --shell-px 对齐。 */
-.page-shell > .phead { padding-left: 0; padding-right: 0; }
+/* 左右留白**全部交给壳**：页头这一格盒子的左右缘 == 内容列的左右缘 == 那条分隔线的起止。
+   以前是两套口径 —— .page-shell 那五页页头补 0（盒子已经在壳的留白里，线正好到内容列），
+   工作台与导演台由页头自己补 32（盒子通栏到那一块的外缘，线比内容列左右各多出一截），
+   同一条线两种长度。
+   线仍然画在 border-bottom 上（不用伪元素）：判据要能量出它的左右缘。 */
 /* 多选条粘顶时要让开页头（两者都 sticky top:0 时会叠在一起，批量条压住标题）。
    只认 .page-shell 的直接子级：素材库的 bulkbar 在 .mat-scroll 里，那里整块不滚。 */
 .page-shell > .bulkbar { top: var(--phead-h); }
@@ -1417,7 +1425,7 @@ button.phead-chip:hover b { color: var(--acc); }
 .raw-req.live.waiting > summary { opacity: .75; }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   卡片公共件：状态牌 / 就地展开 / 账条 / 诊断块 / 展开带子
+   卡片公共件：状态牌 / 就地展开 / 平台原话 / 动作行 / 展开带子
 
    这几件**不止一页要用**：资产库（`web/pages/assets.js`）与收藏页
    （`web/pages/favorites.js`）共用同一份，不各写一套
@@ -1425,9 +1433,7 @@ button.phead-chip:hover b { color: var(--acc); }
 
      .plate / .plate--*   状态牌：这一格没有画面、但有话要说
      .exp / .is-open      就地展开：卡自己长高，不另起一层
-     .led                 账条：人话用无衬线，机器记的账用等宽；可横着排多列
      .why                 平台原话：机器的话用等宽，不翻译
-     .diag                诊断块：出了什么事 + 代价 + 动作
      .exp-acts            展开后的动作行
      .band / .band-tether 网格档的展开带子 + 指回格子的连线
 
@@ -1463,25 +1469,13 @@ button.phead-chip:hover b { color: var(--acc); }
 .exp-in { overflow: hidden; min-height: 0; }
 .exp-body { padding-top: var(--sp-12); margin-top: var(--sp-8); border-top: var(--hair) solid var(--line); }
 
-/* ── 账条 ──
-   人话用无衬线，机器记的账用等宽（编号 / 体积 / 费用 / 任务号）。
-   `.led` 本身是排版骨架；**行**仍由页面自己的结构给出（资产库与收藏页各是那一段详情）。 */
-.led { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: var(--sp-8) var(--sp-16); }
-
+/* ── 等宽数字 ──
+   机器记的账（编号 / 体积 / 费用 / 任务号）用等宽；人话仍用无衬线。 */
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* ── 平台原话 ──
    机器的话用等宽，不翻译、不改写；放不下就截断（完整版在展开区里）。 */
 .why { display: flex; align-items: baseline; gap: var(--sp-8); margin: var(--sp-2) 0 var(--sp-4); }
-
-/* ── 诊断块 ──
-   出了什么事 + 代价 + 动作。资产库的失败条目、收藏页的「只剩外链」共用这一件。 */
-.diag { border: var(--hair) solid color-mix(in srgb, var(--err) var(--a-30), transparent);
-  background: color-mix(in srgb, var(--err) var(--a-8), transparent);
-  border-radius: var(--radius-10); padding: var(--sp-12) var(--sp-12); margin-bottom: var(--sp-16); }
-
-.diag .why { margin: 0 0 var(--sp-8); }
 
 /* ── 展开后的动作行 ── */
 .exp-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;

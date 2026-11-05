@@ -26,8 +26,8 @@ const wb = stripComments(read('web/styles/wb.css'));
 const pub = ui + '\n' + wb;
 
 /* ---------- 令牌：文档点名的那些必须存在，且不许回退到「序号=档位」 ---------- */
-for (const t of ['--sp-16', '--fs-13', '--radius-10', '--acc-tint-18', '--sz-ico', '--sz-ctl', '--sz-ctl-sm', '--sz-chip',
-  '--sz-tile', '--sz-thumb-h', '--sz-card', '--sz-scroll', '--sz-wb', '--a-10', '--a-90', '--hair', '--shadow-1', '--dur-180']) {
+for (const t of ['--sp-16', '--fs-13', '--radius-10', '--acc-tint-18', '--sz-ico', '--sz-ctl', '--sz-ctl-sm', '--sz-chip', '--sz-head',
+  '--sz-tile', '--sz-thumb-h', '--sz-card', '--sz-scroll', '--a-10', '--a-90', '--hair', '--shadow-1', '--dur-180']) {
   ok(new RegExp('\\' + t + '\\s*:').test(tokens), '令牌表里没有 ' + t + '（设计规范点名了它）');
 }
 ok(!/--sp-1\s*:\s*4px/.test(tokens) && !/--fs-1\s*:\s*12px/.test(tokens) && !/--radius-1\s*:\s*6px/.test(tokens),

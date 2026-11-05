@@ -19,7 +19,11 @@
      导演台不再自己一套 header —— 它与另外六页是同一副契约，
      只是「当前项目」这一档是它特有的。导演台整页不滚，所以这里不吸顶。
      横向留白读 .page-main 上的 --shell-px（与全站同一枚 32px，760 以下 14px）——
-     页头与下面三栏都读它 → 标题与三栏的左缘永远对齐。 */
+     页头与下面三栏都读它 → 标题与三栏的左缘永远对齐。
+     ⚠ 这一页的壳不留左右白（.layout 自己带 padding），所以页头的内缩写在**盒子**上：
+     左右 margin 各一枚 --shell-px，公共那一份 .phead 的左右 padding 是 0 ——
+     于是分隔线的起止 == 三栏内容列的起止（与另外六页同一口径，不再通栏到视口缘）。 */
+  .phead { margin: 0 var(--shell-px); }
   /* 导出按钮容器：按钮由 web/domain/export-formats.js 表现画，display:contents 让它们
      仍按页头动作区的 flex + gap 排，不因为多包一层而改变间距。 */
   #exportBtns { display: contents; }

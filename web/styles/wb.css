@@ -19,24 +19,32 @@
    轮询中任务开始/结束也不会让整列重排（表现为切页闪动、列表发「卡」）。 */
 /* 工作台的壳：定位与盒模型跟 .page-shell 同一份（公共层），滚法不同 ——
    整页不滚，左右两栏各自滚（见下面 .wb .col-left / .col-right）。
-   顶部那条统一页头 .phead 是**通栏**的（跨两栏），所以这一层是纵向的：
-   页头（自己那一份高）→ .layout（占满剩下）。标题因此不再跟着左栏一起滚走。 */
+   顶部那条统一页头 .phead 跨两栏（但它自己内缩一枚 --shell-px，见下），所以这一层是纵向的：
+   页头（定高那一枚）→ .layout（占满剩下）。标题因此不再跟着左栏一起滚走。 */
 .wb { position: absolute; inset: 0; height: 100%; overflow: hidden; box-sizing: border-box;
   display: flex; flex-direction: column; --shell-px: var(--sp-32); }
-/* 页头与两栏块用**同一条定宽口径**（width:100% + max-width + margin:0 auto）：
-   ① 标题落在左栏左缘（两块的左内边距都是 --shell-px）；② 两块永远同宽同起点。
-   ⚠ 底色透明：这一页的底是渐变（spa-studio.css），页头若用平色 --bg，
-   限宽居中的那条矩形压在渐变上 → 露出一条接缝。透明就连续过去了。 */
-.wb > .phead { width: 100%; max-width: var(--sz-wb); margin: 0 auto; background: transparent; }
+/* 页头这一格：**左右各外缩一枚 --shell-px，跟另外六页逐像素同一位置**（限宽居中的是下面那块，不是这一条）。
+   以前它跟着两栏块一起「定宽 1440 + margin:0 auto」→ 窗口比 1440 宽时整条被推到中间，
+   实测首字 x：1440 窗 = 88（看不出问题）、1920 窗 = 300、2560 窗 = 620，
+   而另外六页永远是 88 —— 切到工作台标题就往右跳一截，那条分隔线也跟着缩成一小段。
+   ⚠ 内缩走 margin 不走 width：.wb 是 flex 列，`align-items:stretch` 只把**没有定宽**的子项拉满，
+   写成 `width:calc(100% - 32px*2)` 后这一格不再被拉伸，落到交叉轴起点 → 右边缩了、左边贴着壳的左缘，
+   标题比内容列左出 32px（判据 page-head.cjs 直接比这两个数）。margin 让拉伸继续生效，盒子两缘都进。
+   ⚠ 底色走公共那一份（不透明 --bg）：这一页的装饰渐变已撤，页面根就是 --bg，
+   没有「限宽居中的不透明板压在渐变上 → 露接缝」那件事了，也就再也不需要给这页单开一条透明底。 */
+.wb > .phead { margin: 0 var(--shell-px); }
 .wb .layout {
   --sp0: clamp(380px, 30%, 520px);
   display: grid; grid-template-columns: var(--sp0) minmax(0, 1fr); gap: var(--sp-24);
   /* ⚠ width:100% 是这一条的关键（2026-10-27 补）：.wb 是 flex 列，这一块是它的子项
-     又带 margin:0 auto —— 按 flex 规则不拉伸，宽度落到 **fit-content**（= 内容的 max-content），
-     而那份 max-content 里含着 --sp0 → 拖一下分栏，这块宽度就变 → 因为居中，
-     **页面最左最右的空白跟着变**（用户报的那条）。写死宽度后它 = min(内容区宽, --sz-wb)，
-     与 --sp0 无关：空白恒定，两栏块的左缘也固定（与上面那条页头对齐）。 */
-  width: 100%; max-width: var(--sz-wb); margin: 0 auto; padding: var(--sp-16) var(--shell-px);
+     又带 margin —— 按 flex 规则不拉伸，宽度会落到 **fit-content**（= 内容的 max-content），
+     而那份 max-content 里含着 --sp0 → 拖一下分栏，这块宽度就变 →
+     **页面最左最右的空白跟着变**（用户报的那条）。写死宽度后它恒 = 内容区宽。
+     ⚠ 不限宽、不居中（2026-11-05 撤掉那档 --sz-wb 限宽 + margin:0 auto）：
+     另外六页的主体都是铺满内容区、贴着左缘 + --shell-px，这一页一旦限宽就只能居中或靠左 ——
+     居中实测把首字从 x=88 推到 300（1920 窗）/ 620（2560 窗），靠左也让那条线比别的页短一截。
+     铺满之后标题、分隔线、两栏块三样在七页与所有窗宽下同一位置，没有第三种画法需要特判。 */
+  width: 100%; margin: 0; padding: var(--sp-16) var(--shell-px);
   flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; position: relative;
 }
 .wb .col-left { overflow-y: auto; min-height: 0; min-width: 0; padding-right: var(--sp-4); scrollbar-gutter: stable; }
@@ -69,9 +77,9 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
 .wb #goWhy { display: none; margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--warn); }
 
 /* 窄窗口：两栏并成单列，由 .layout 自己滚。
-   滚动**不能交给 .wb**：页头是透明 sticky（这一页的底是渐变），滚在 .wb 上时
-   列表会从标题底下穿过去；而且 .wb 一旦 height:auto 就把整页撑开，页头也不粘了。
-   留白一律读 --shell-px（760 以下收到 14），标题与内容列才不会在窗口变窄时错位。 */
+   滚动**不能交给 .wb**：它是 absolute inset:0 + overflow:hidden 的定高壳，一改 height:auto
+   就把整页撑开、页头随之失去可粘的那只容器（标题跟着滚走），两栏自己那套滚动也一并失配。
+   留白一律读 --shell-px（760 以下收到 16），标题与内容列才不会在窗口变窄时错位。 */
 @media (max-width: 1100px) {
   /* 单列后两行按内容定高、顶对齐：不加 align-content:start，grid 会把两行
      拉成等高去填满 .layout（flex 撑出来的定高），内容比行高多就溢出到下一列的行盒上叠画。 */
