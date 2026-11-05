@@ -93,6 +93,22 @@ function wav(seconds = 0.2) {
     const noCookie = await fetch(proxy.base + '/asr/settings');
     if (noCookie.status !== 401) throw new Error('没带 Cookie 也读到了 ASR 设置：HTTP ' + noCookie.status);
 
+    /* 浏览器内 Whisper 的 ORT wasm 必须真拿得到：白名单漏 wasm 那阵子，这条返回 404 的
+       9 字节 "not found"，被 WebAssembly.instantiate 报成 magic word 错。回归锁三件事：
+       200 + application/wasm + 前 4 字节魔数；顺带锁「404 带 no-store」。 */
+    {
+      const wr = await fetch(proxy.base + '/web/vendor/asr/ort-wasm-simd-threaded.jsep.wasm');
+      if (wr.status !== 200) throw new Error('ORT wasm 应 200：HTTP ' + wr.status);
+      if (!/application\/wasm/.test(wr.headers.get('content-type') || '')) {
+        throw new Error('ORT wasm 的 Content-Type 不对：' + wr.headers.get('content-type'));
+      }
+      const magic = Buffer.from(await wr.arrayBuffer()).subarray(0, 4);
+      if (!magic.equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) throw new Error('ORT wasm 魔数不对（开头不是 00 61 73 6d）');
+      const nf = await fetch(proxy.base + '/web/vendor/asr/nope.wasm');
+      if (nf.status !== 404) throw new Error('白名单外的 .wasm 应 404：HTTP ' + nf.status);
+      if ((nf.headers.get('cache-control') || '') !== 'no-store') throw new Error('静态 404 应带 Cache-Control: no-store');
+    }
+
     let g = await call('/asr/settings');
     if (g.status !== 200) throw new Error('读 ASR 设置失败：HTTP ' + g.status + ' ' + g.text);
     if (!g.json || !g.json.settings) throw new Error('ASR 设置响应缺 settings');

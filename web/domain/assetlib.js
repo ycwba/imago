@@ -856,21 +856,34 @@ function clearQuoteCache() { QUOTE_CACHE.clear(); }
    拉不到就退回注册表里声明的那份（离线时也还能给个数）。 */
 const LIVE_PRICE_TTL = 60 * 1000;
 const livePrice = new Map();          // prov.id → { at, list }
+const liveFlight = new Map();         // prov.id → 正在途的那一次
 async function liveModelsOf(prov) {
   const id = (prov && prov.id) || '';
   const hit = livePrice.get(id);
   if (hit && Date.now() - hit.at < LIVE_PRICE_TTL) return hit.list;
+  /* TTL 那一份要等 await 回来才写，所以「一次加载里同时起好几笔估价」全在同一刻读表、
+     全读到空，于是同一家平台的型号清单被原样打了好几趟（实测一份页面加载里 6 趟）。
+     在途那一次挂进表里，后面进来的人接同一个 Promise：一家一趟。 */
+  const fly = liveFlight.get(id);
+  if (fly) return fly;
   /* 拉失败也要记进那张表（list 记成 null）：不记的话每一次估价都要重新问一趟一个正在挂掉的接口，
      60 秒 TTL 就成了「只缓存成功」的半边 —— 而调用方本来就已经会退回注册表声明的价。 */
-  try {
-    const r = await Api.request(prov, (prov && prov.pricing && prov.pricing.endpoint) || 'models');
-    const list = (r && (r.data || r.models)) || [];
-    livePrice.set(id, { at: Date.now(), list });
-    return list;
-  } catch (e) {
-    livePrice.set(id, { at: Date.now(), list: null });
-    throw e;
-  }
+  const flight = (async () => {
+    try {
+      const r = await Api.request(prov, (prov && prov.pricing && prov.pricing.endpoint) || 'models');
+      const list = (r && (r.data || r.models)) || [];
+      livePrice.set(id, { at: Date.now(), list });
+      return list;
+    } catch (e) {
+      livePrice.set(id, { at: Date.now(), list: null });
+      throw e;
+    }
+  })();
+  liveFlight.set(id, flight);
+  const endFlight = () => { if (liveFlight.get(id) === flight) liveFlight.delete(id); };
+  // 成败都要摘单：留着一条已经炸掉的 Promise，后面每一笔估价都接到同一个失败上，TTL 形同没有
+  flight.then(endFlight, endFlight);
+  return flight;
 }
 window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
   const pr = (prov && prov.pricing) || null;

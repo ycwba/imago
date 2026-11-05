@@ -617,6 +617,8 @@ const Timeline = createTimeline({
   transitionSet: (...a) => transitionSet(...a),
   toolAction: (...a) => toolAction(...a),
   strip: Strip,
+  /* 工具条播放/暂停那颗的换面真值（Play 在这之后才建，必须是箭头） */
+  playStateOf: () => Play.playing,
   seekRequest: (...a) => Play.seek(...a),
   /* 板上的手势在 Edit 域：重画之后把选中态与浮层接回去；工具条那排的状态也从 Edit 现读。 */
   onBoardRender: () => Edit.onBoardRender(),
@@ -624,6 +626,9 @@ const Timeline = createTimeline({
   dblClickEmpty: t => Edit.addSegmentAt(t),
   /* 缩放落定 = 用户明确的重试信号：取帧退避放行一次（frames.js 的表）。 */
   sliceForgetFail: () => Frames.sliceForgetFail(),
+  /* 插针落位 → 右栏「落在哪」那一行跟着换。Voice 在 Timeline 之后才建，
+     这一位必须是箭头（建包时直接引用会撞 TDZ）。 */
+  onPlayhead: () => Voice.paintVoicePos(),
 }, document, window);
 
 /* Play域（engine/play.js）：单调主时钟 + 单一预览面 + 配音对齐 + 转场层。
@@ -1391,9 +1396,8 @@ function bindCandActs(col) {
   };   // 选用后不自动锁定，可手动加锁（换候选 = 成片内容变了）
   const un = col.querySelector('#unsel');
   if (un) un.onclick = () => {
-    /* 就地确认走默认画法：整颗变红换字「确认取消？」，再点一下才真撤（Esc / 点别处自动还原）；
-       红环 / 角标那套装饰是删除那颗的，这里不用 —— 撤选用本来可逆，走 beginEdit 历史。 */
-    if (Confirm.arm(un, '确认取消？')) return;
+    /* 不设二次确认：撤选用一步可逆（重新点「选用」或 Ctrl/⌘+Z 都回得来），
+       这排里带「确认…」的只有删除那颗 —— 它真的删字节。 */
     beginEdit(`把「${sh.name || '这一镜'}」从成片里撤掉（取消选用第 ${Math.max(1, (sh.candidates || []).findIndex(x => x.vid === sh.selId) + 1)} 条候选）`);
     setSelectedCandidate(sh, null);
     filmEdited();
@@ -1456,16 +1460,8 @@ function selectCandidate(at) {
   } else if (pw) {
     // 当前这条还没有画面（排队/失败）或本来就没有播放器：重画播放区（这里没有视频缩略图，重建不会闪）
     pw.innerHTML = playerAreaHTML(sh);
-    const pl2 = col.querySelector('#player');
-    if (pl2) {
-      const pb = col.querySelector('#pbBtn'), mb = col.querySelector('#pbMute'), tb = col.querySelector('#pbTime');
-      if (pb) { pb.innerHTML = icon('play', 15); pb.onclick = () => { if (pl2.paused) playSafe(pl2); else pl2.pause(); }; }
-      if (mb) { pl2.muted = window.LS.get('dir_muted') === '1'; mb.innerHTML = icon(pl2.muted ? 'speakerOff' : 'speaker', 14); }
-      if (tb) { const syncTime = () => { tb.textContent = Wb.fmtClock(pl2.currentTime) + ' / ' + Wb.fmtClock(pl2.duration); }; pl2.addEventListener('timeupdate', syncTime); pl2.addEventListener('loadedmetadata', syncTime); syncTime(); }
-      pl2.addEventListener('loadedmetadata', () => updateArBadge(pl2));
-      if (pl2.readyState >= 1) updateArBadge(pl2);
-      bindPbFull(pw.querySelector('.player-box'));
-    }
+    // 接线与整栏重画是同一份（Mid.wireMidPlayer）：这里以前那份缩水接线少了播放态换面
+    Mid.wireMidPlayer(col, { sh, cur: target, keepPlay: null, keepBox: null });
   }
   /* 只换尾段（#candActsRest）：#candActs 里前面的导入与弹性空是常驻的，
      整行换会把导入抹掉、三颗按钮失了弹性空挤到左边去 */
@@ -2269,7 +2265,7 @@ function openLineVoice(sh) {
   if (!sameText) { voiceDraft.design = ''; voiceDraft.ref = null; }
   voiceDraft.text = p.text;
   voiceDraft.who = p.who;
-  vcTab = 'gen';
+  vcTab = 'voice';
   renderAll();
   /* 焦点 / 播放头 / 草稿都是视图状态（不进工程快照）：静默落盘即可，
      别在历史里压一步「点了一下台词行」。 */
@@ -2403,7 +2399,7 @@ const Caption = createCaptionDomain({
 /* 这几枚是 engine 的状态，只是声明恰好落在被搬走的那一段里：
    整条提到接线之前（模块只读访问器），engine.js 继续持有它们 —— 状态不外迁。 */
 let voiceDraft = { shotId: '', text: '', voice: '', format: '', design: '', ref: null, bools: {}, tb: {}, who: '' };
-let vcTab = 'list';
+let vcTab = 'voice';
 /* Voice域（engine/voice.js）：这一段（5297-6269）搬进模块，这里只留访问器包与一条解构。
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */

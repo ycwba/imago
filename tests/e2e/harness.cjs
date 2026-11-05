@@ -66,7 +66,16 @@ async function startProxy(opts = {}) {
   const log = [];
   const proc = cp.spawn(process.execPath, ['proxy.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ASSETS_DIR: assetsDir, RENDER_DIR: renderDir, SKILLS_DIR: skillsDir, ...(opts.env || {}) },
+    env: {
+      ...process.env, PORT: String(port), DATA_DIR: dataDir, ASSETS_DIR: assetsDir,
+      RENDER_DIR: renderDir, SKILLS_DIR: skillsDir,
+      /* 「下载」基座也一起指走：提示词归档（`下载\成像\提示词`）与默认库根都从它派生，
+         上面那四枚管不到它 —— 少指这一枚，判据里任何一次归档写入都落在用户真实的成品目录上
+         （`/prompts` 整目录兜底重建索引时会重写 `_index.json`）。`opts.env` 在后面展开，
+         要点名另一处的判据照样能盖掉这一默认。 */
+      AUTOSAVE_DIR: path.join(probeRoot, 'downloads'),
+      ...(opts.env || {}),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   proc.stdout.on('data', b => log.push(b.toString()));

@@ -7,7 +7,7 @@
    与**源秒**（clip.sourceStart / sourceDuration 指向素材里的那一段）。
    旧模型那套「源秒 ↔ 本镜轴秒 ↔ 成片秒」的折算层已整族删除。 */
 import { round1, round2, num } from './util.js';
-import { normalizeMarkers } from './tl-markers.js';
+import { normalizeMarkers, markerSpanEnd } from './tl-markers.js';
 
 export const TL_FPS = 30;
 export const MIN_CLIP_SECONDS = 0.05;
@@ -307,6 +307,21 @@ export function deriveTimeline(clips) {
 }
 
 export const filmTotal = clips => deriveTimeline(clips).total;
+
+/* 钉在成片秒的东西最右到几秒（配音 / 字幕 / 标记；都不随剪辑搬移）。
+   把成片剪短之后它们可以留在末尾之外 —— 轨道的水平跨度不盖住那一截，
+   尺、网格与行底色就画不到它：右边多出一条还能滚进去的空道，针也跳不到那一秒。 */
+export function pinnedEndOf(film) {
+  const f = film || {};
+  let end = 0;
+  (Array.isArray(f.voices) ? f.voices : []).forEach(v => {
+    end = Math.max(end, num(v && v.start) + Math.max(0, num(v && v.duration)));
+  });
+  (Array.isArray(f.captions) ? f.captions : []).forEach(c => {
+    end = Math.max(end, num(c && c.end));
+  });
+  return Math.max(end, markerSpanEnd(f.markers));
+}
 
 /* 一段的边界（成片秒）：主画面找第 index 段；找不到返回 null（不拿 0 冒充）。 */
 export function clipBoundary(clips, index) {

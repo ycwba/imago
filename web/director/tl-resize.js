@@ -39,6 +39,23 @@ export function trimClipLeft(clip, deltaFilm) {
   };
 }
 
+/* 画面段左缘**锚定裁剪**（波纹关）：左缘动、右缘钉死 —— 时长变化折进段前空隙（gap），
+   后面的段一秒都不挪。delta > 0 = 左缘往右裁（块从左边缩小、gap 变大）；
+   delta < 0 = 往左拉长（吃 gap，gap 用尽就贴住前一段）。源上限仍由 trimClipLeft 那把尺子夹
+   （实际吃下的量按「时长变了多少」反推，右缘锚定在任何夹取下都成立）。 */
+export function trimClipLeftAnchored(clip, deltaFilm) {
+  if (!clip) return null;
+  const dur = pos(clip.duration);
+  const gap = Math.max(0, num(clip.gap));
+  let d = num(deltaFilm);
+  if (d < -gap) d = -gap;                       // 往左最多吃到 gap 用尽
+  if (!d) return { ...clip };
+  const next = trimClipLeft(clip, d);
+  if (!next) return null;
+  const eff = round2(dur - pos(next.duration));  // 实际吃下的量（可能被源边界夹小）
+  return { ...next, gap: round2(Math.max(0, gap + eff)) };
+}
+
 /* 画面段右缘：delta > 0 = 往外拉（变长），delta < 0 = 往里裁（变短）。 */
 export function trimClipRight(clip, deltaFilm) {
   if (!clip) return null;

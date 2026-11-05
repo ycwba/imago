@@ -900,6 +900,9 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   `transitionWindow` / `transitionAtTime`（同一道夹算）；FCPXML 不写转场，但要在文件头按处报数。
 - **主画面只有一轨（成片那一轨）**：没有「本镜 / 全片」两档；针、读数、剪子、缩放只有一把尺子（成片秒）。
   生成态的候选条与顺序条照旧，换候选回生成态点。
+- **轨道水平跨度只有一处算**：`engine/timeline.js` 的 `navSpanOf` = `tl-scale.js` 的 `tlNavTotal(成片 + 尾垫, 钉在成片秒最右的那一枚)`，
+  后者由 `film.js` 的 `pinnedEndOf`（配音 / 字幕 / 标记）给出；尺、网格、行底色定宽与针的夹算都读它。
+  少算那一枚（或针不夹）就在右边露出一条没有刻度、还能滚进去的空道，读数同时念着成片里没有的那一秒。
 - **工具条上的动作全走 `Edit.toolAction`**：六档选择工具（左选 / 右选 / 编辑点 / 滑移 / 滑动 / 选择）、
   切刀 / 剪头剪尾 / 删除 / 复制 / 融合 / 新增一段 / 摘掉一段 / 缩短 / 加长 / 缩放三颗 / 回到播放头 /
   撤销 / 重做 / 吸附开关 / 波纹开关 / 关联 / 标记面板。按钮只派发动作名，动作本体只有一份。
@@ -1202,21 +1205,23 @@ UI_VISUAL_SAVE=1 node tests/e2e/ui-visual.cjs                     # 只留底不
 ### 写入隔离
 
 判据脚本自己起的实例一律由 `tests/e2e/harness.cjs` 的 `startProxy` 现建目录：系统临时目录下的
-`imago-probe-*`（一处 `mkdtemp` 父目录，`data` / `assets` / `renders` / `skills` 四个根都从它派生），
-收尾整组删除 —— 仓库根不出现 `.data-probe-*` 那一族；进程被硬杀时留下的也只是系统临时目录里的空壳。
-`local-chain` 的 `AUTOSAVE_DIR` 同样落在那个父目录里；`launcher.ps1 -SelfTest` 的三份探针目录在它自己的
-`aii-launcher-*` 临时目录下，跟自检一起清。
+`imago-probe-*`（一处 `mkdtemp` 父目录，`data` / `assets` / `renders` / `skills` 四个根与「下载」基座
+`downloads` 全从它派生），收尾整组删除 —— 仓库根不出现 `.data-probe-*` 那一族；进程被硬杀时留下的
+也只是系统临时目录里的空壳。`startProxy` 默认就把 `AUTOSAVE_DIR` 指进那个父目录（判据在 `opts.env`
+里点名另一处仍然覆盖得掉）；`launcher.ps1 -SelfTest` 的三份探针目录在它自己的 `aii-launcher-*`
+临时目录下，跟自检一起清。
 
 手动起一份探针实例排障时（目录名仍用 `.data-probe` 这一族，`.gitignore` 收着）：
 
 ```bash
 PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-probe \
-  SKILLS_DIR=.skills-probe node proxy.js
+  SKILLS_DIR=.skills-probe AUTOSAVE_DIR=.downloads-probe node proxy.js
 ```
 
 - 不给 `ASSETS_DIR` / `RENDER_DIR` 就会写进用户真实库根（默认在 `下载\成像`，仓库外）与成片目录。
 - **另一枚探针口**：`AUTOSAVE_DIR` 把整个「下载」基座指走（`server/user-dirs.js` 读它，
-  库根与提示词归档的默认目录都跟着它）；打这两条链路的判据必须一起给，否则探针真的往用户成品目录里写。
+  库根与提示词归档的默认目录都跟着它）；`startProxy` 默认给这一枚，**手动 spawn 必须自己给**，
+  否则一次提示词归档（或整目录兜底重建索引）就写到用户真实的成品目录里。
 - 自己 spawn 的探针要认领「答话的就是我刚起的那一份」：`/sys-status` 的三个目录都要点名，
   并判子进程没有提前退出。
 - 手动跑完清理 `.data-probe*` 等目录与孤儿进程；不要留在仓库里。

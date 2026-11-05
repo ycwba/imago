@@ -1001,7 +1001,12 @@ function syncAtBack(sh) {
   const ta = $('edPrompt'), back = $('edPromptBack');
   if (!ta || !back) return;
   back.innerHTML = atBackHTML(sh, ta.value);
-  back.scrollTop = ta.scrollTop;
+  /* 滚动位置读的是 onscroll 记在节点上的那一份（与胶片条的 `__stripSig` 同一做法），
+     不回读 `ta.scrollTop`：刚重建完整栏的那一下，读它会把整份布局同步催起来，
+     而能力是一家一家到货、每到货一遍就重画一次（实测这一行在开机里摊到近一百毫秒）。
+     没滚过就一个字都不写：新建的镜像层本来就在 0。 */
+  const top = ta.__atScroll || 0;
+  if (top) back.scrollTop = top;
 }
 /* 鼠标滑过提示词框：落在哪个 @片段 上就弹一张小卡（名字 + 类型 + 图） */
 let atPeek = null;
@@ -1508,6 +1513,18 @@ function paintLineWhen(row, x) {
    改台词一个字节都不动 `sh.prompt`：提示词改了台词不动，台词改了提示词也不动。 */
 function bindLineEditors(root, curSh) {
   if (!root) return;
+  /* 「生成语音」能不能点 / 说明句在打字时就要跟着走：只靠整栏重画的话，刚写完说话人它还是灰的。
+     三句提示挂在按钮的 data-tip-* 上（渲染那一份），这里只挑一条，不另抄文案。 */
+  const syncGenBtn = () => {
+    const btn = root.querySelector('#lineGenVoice');
+    if (!btn || !curSh) return;
+    const hasLine = !!String(curSh.line || '').trim();
+    const hasWho = !!String(curSh.lineWho || '').trim();
+    btn.disabled = !(hasLine && hasWho);
+    const tip = hasLine ? (hasWho ? btn.dataset.tipOk : btn.dataset.tipNoWho) : btn.dataset.tipNoLine;
+    if (tip) btn.title = tip;
+  };
+  syncGenBtn();
   /* 一行两件控件（台词在 textarea 的 data-line-text，说话人在 input 的 data-line-who），
      认镜头靠的是行上的 data-lineid（film.js 的 lineRowHTML 写的那一枚）——
      只读一件的 dataset 会让另一件写不进数据。 */
@@ -1538,21 +1555,27 @@ function bindLineEditors(root, curSh) {
         paintLineWhen(lrow, x);
       }
       paintLineCnts(curSh);
+      if (x === curSh) syncGenBtn();
       scheduleSave();
     };
     ta.onchange = () => { armed = false; if (of(ta)) filmEdited(); };
   });
   /* 说话人就地写：与台词同一份理由（重画整栏会把正在敲的那一格换掉），只写数据。
      名字对上素材库时这一行的缩略图跟着换成那一位（对不上画占位图，名字照留）。
-     它不改「要念的话」，所以不上成片账 —— 音色是合成那一下才进成片的。 */
+     它是工程数据（下一次合成按它选嗓子），所以与台词一样在第一个字落下之前压一份撤销快照；
+     它不改「要念的话」，所以不上成片账。 */
   root.querySelectorAll('[data-line-who]').forEach(inEl => {
+    let armed = false;
     inEl.oninput = () => {
       const x = of(inEl);
       if (!x) return;
+      if (!armed) { armed = true; beginEdit('改说话人'); }
       x.lineWho = inEl.value;
       paintLineWho(inEl.closest('.line-row'), x);
+      if (x === curSh) syncGenBtn();
       scheduleSave();
     };
+    inEl.onchange = () => { armed = false; };
   });
   /* 点缩略图 / 标题 = 切到那一镜并把这一句填进合成框（与点轨道上那句配音同一个出口，
      一个计费请求都不发：合成只在「合成并加到这一轨」那一下）。 */
@@ -1979,8 +2002,13 @@ function renderEditor() {
   ta.onkeydown = e => mentionKey(sh, e);
   ta.onkeyup = e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') syncMention(sh); };
   ta.onclick = () => syncMention(sh);
-  /* 镜像层与悬停小卡：框内滚动时要跟着走，否则高亮会停在错位的行上 */
-  ta.onscroll = () => { const b = $('edPromptBack'); if (b) b.scrollTop = ta.scrollTop; };
+  /* 镜像层与悬停小卡：框内滚动时要跟着走，否则高亮会停在错位的行上。
+     滚动位置顺手记在节点上给 syncAtBack 用（那边不回读，见那一段注释）。 */
+  ta.onscroll = () => {
+    ta.__atScroll = ta.scrollTop;
+    const b = $('edPromptBack');
+    if (b) b.scrollTop = ta.scrollTop;
+  };
   ta.onmousemove = e => hoverAt(sh, e);
   ta.onmouseleave = hideAtPeek;
   syncAtBack(sh);

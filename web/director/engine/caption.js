@@ -317,20 +317,20 @@ export function createCaptionDomain(E, document, window) {
       <div class="sub-meta">
         <span class="sub-tag">${esc(capTagOf(c))}</span>
         <input class="sub-t" type="number" step="0.1" min="0" data-cap-t="start" data-cap="${esc(c.id)}" value="${round1(num(c.start))}"
-          title="${esc('成片秒起点（与 SRT、烧录、导出同一把尺子）：输入秒数，回车或点别处生效')}">
+          title="成片秒起点">
         <span>–</span>
         <input class="sub-t" type="number" step="0.1" min="0" data-cap-t="end" data-cap="${esc(c.id)}" value="${round1(num(c.end))}"
-          title="${esc('成片秒终点：两头最短留 ' + MIN_CAPTION_SECONDS + ' 秒')}">
+          title="成片秒终点（最短 ${MIN_CAPTION_SECONDS} 秒）">
         <span class="sub-unit">秒</span>
-        <select class="sub-pos" data-cap="${esc(c.id)}" title="这一条出现在画面的哪一处（预览、烧录与 FCPXML 标题都读它）">
+        <select class="sub-pos" data-cap="${esc(c.id)}" title="出现在画面的哪一处">
           ${[['bottom', '底部'], ['middle', '居中'], ['top', '顶部']].map(o => `<option value="${o[0]}"${captionPosition(c) === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}
         </select>
-        <label class="sub-hl" title="高亮底只在预览与烧录里生效：FCPXML 的标题表达不了背景">
+        <label class="sub-hl" title="高亮底只在预览与烧录里生效">
           <input type="checkbox" data-cap-hl="${esc(c.id)}"${captionHighlighted(c) ? ' checked' : ''}> 高亮
         </label>
-        <button class="ghost mini" data-cap-del="${esc(c.id)}" title="删掉这一条字幕（台词与配音都不动；可 Ctrl+Z 退回）">${icon('trash', 11)}</button>
+        <button class="ghost mini" data-cap-del="${esc(c.id)}" title="删掉这一条字幕">${icon('trash', 11)}</button>
       </div>
-      <textarea class="ui-ta sub-ta" rows="1" data-cap-text="${esc(c.id)}" title="改这一条字幕的字：不反写台词，也不动挂在它身上的那句配音">${esc(c.text)}</textarea>
+      <textarea class="ui-ta sub-ta" rows="1" data-cap-text="${esc(c.id)}">${esc(c.text)}</textarea>
     </div>`;
   }
 
@@ -340,36 +340,33 @@ export function createCaptionDomain(E, document, window) {
     const f = filmOf();
     const list = captionList();
     const vis = visibleCaptions(f);
-    const total = deriveTimeline(f.clips || []).total;
     const sk = vis.skipped || {};
     const t = Math.max(0, num(Timeline.playhead()));
     const note = (sk.hidden || sk.empty)
-      ? `<div class="ui-note warn" style="margin-top: var(--sp-8)">有 ${(sk.hidden || 0) + (sk.empty || 0)} 条不进成片：${sk.hidden ? sk.hidden + ' 条挂在被收起的字幕行上；' : ''}${sk.empty ? sk.empty + ' 条没有字（把字填上就进）' : ''}</div>`
+      ? `<div class="ui-note warn">有 ${(sk.hidden || 0) + (sk.empty || 0)} 条不进成片：${sk.hidden ? sk.hidden + ' 条挂在被收起的字幕行上；' : ''}${sk.empty ? sk.empty + ' 条没有字（把字填上就进）' : ''}</div>`
       : '';
     const rows = list.length
       ? '<div class="sub-list">' + list.map(c => captionRowHTML(c, t >= num(c.start) && t < num(c.end))).join('') + '</div>'
-      : '<div class="hint">字幕轨还是空的。可以按配音补出来、导入一段 SRT，或对播放头指着的那一段素材自动识别。</div>';
+      : '<div class="hint">还没有字幕</div>';
     const busy = !!asrBusy;
-    return `<div class="ed-label" style="margin-top: var(--sp-16)"><span>字幕</span><span class="cnt">全片 ${list.length} 条 · 时间是成片秒</span></div>
-      <div class="hint">字幕排在成片时间线上（整片 ${tenth(total)} 秒）：改出现时间与安全边在轨道上拖那一块，改字、起止、位置在这里。</div>
+    return `<div class="ed-label"><span>字幕</span><span class="cnt">全片 ${list.length} 条 · 成片秒</span></div>
       ${note}
       ${rows}
-      <div class="btn-row" style="margin-top: var(--sp-8)">
-        ${window.aiBtnHTML({ id: 'capGen', label: '按配音补字幕', title: '给还没有字幕挂着的那几句配音各补一条字幕（已有的字幕一条都不覆盖；之后块挪位与变长，字幕跟着走）' })}
-        <button class="tool" id="capAdd" title="在播放头指着的那一秒加一条手写字幕（${CAP_ADD_SECONDS} 秒，字在上面的清单里改）">${icon('plus', 14)} 在播放头加一条</button>
+      <div class="btn-row">
+        ${window.aiBtnHTML({ id: 'capGen', label: '按配音补字幕', title: '给还没有字幕挂着的那几句配音各补一条（已有的不覆盖）' })}
+        <button class="tool" id="capAdd" title="在播放头那一秒加一条（${CAP_ADD_SECONDS} 秒）">${icon('plus', 14)} 在播放头加一条</button>
       </div>
       <div class="btn-row">
-        <button class="tool" id="capImport" title="导入 .srt：文件里的时间就是成片秒，直接并进现有字幕（不覆盖）">${icon('upload', 14)} 导入 SRT</button>
-        <button class="tool" id="capExport" title="把全片看得见的字幕导出成 .srt（时间是成片秒；这一步不依赖渲染）">${icon('download', 14)} 导出 SRT</button>
-        <button class="tool" id="capAsr" title="${busy ? '再点一下就不等了：掐掉在途的这一次识别（浏览器里整只 worker 终止，代理那一单补一次取消），字幕不会改动' : '用语音识别把播放头指着的那一段素材里的话变成字幕（会真跑一次识别；结果不反改台词与配音）。走浏览器内 Whisper 时首次要先经代理下载模型，可能等几分钟'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
+        <button class="tool" id="capImport" title="导入 .srt（时间就是成片秒，不覆盖）">${icon('upload', 14)} 导入 SRT</button>
+        <button class="tool" id="capExport" title="把全片字幕导出成 .srt">${icon('download', 14)} 导出 SRT</button>
+        <button class="tool" id="capAsr" title="${busy ? '再点一下掐掉在途的识别，字幕不会改动' : '识别播放头指着那一段素材里的话（浏览器内 Whisper 首次要先下模型，可能等几分钟）'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
       </div>
-      <div class="adv-grid" style="margin-top: var(--sp-8)">
+      <div class="adv-grid">
         <div><label>每行字数</label><input type="number" id="capMaxChars" min="8" max="120" step="1" value="${RESEGMENT_DEFAULT_CHARS}"></div>
       </div>
       <div class="btn-row">
-        <button class="tool" id="capReseg" title="按上面那个「每行字数」把长字幕切成几条：内容不变，时间按字数比例分">${icon('rows', 14)} 按每行字数重切</button>
-      </div>
-      <div class="hint">导出成片时自动烧录字幕；FCPXML 里写成时间线标题，媒体包另带一份 subtitles.srt。字号与描边由成片分辨率推，不再逐镜设。</div>`;
+        <button class="tool" id="capReseg" title="按「每行字数」把长字幕切成几条，时间按字数比例分">${icon('rows', 14)} 按每行字数重切</button>
+      </div>`;
   }
 
   function bindCapPanel(col) {

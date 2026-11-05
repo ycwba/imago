@@ -8,13 +8,16 @@ import {
 } from '../web/director/tl-cut.js';
 import { PEAKS_PER_SECOND, peaksBars, slicePeaks, resamplePeaks, normalizePeaks, peaksFromSamples } from '../web/director/tl-peaks.js';
 import {
-  trimClipLeft, trimClipRight, trimVoiceLeft, trimVoiceRight, trimCaptionLeft, trimCaptionRight,
+  trimClipLeft, trimClipRight, trimClipLeftAnchored,
+  trimVoiceLeft, trimVoiceRight, trimCaptionLeft, trimCaptionRight,
   filmSlipBounds, slipClip, filmBoundaryBounds, rollClipsBoundary, filmSlideBounds, slideClip, followCaptions,
 } from '../web/director/tl-resize.js';
 import { applyTimelineRipple, rippleCounts, rippleDeltaOf } from '../web/director/tl-ripple.js';
 import {
   reorderClips, dropIndexAt, moveClipToLane, moveTimedToLane, compactLanes, newLaneBelow, shiftGroupStart,
+  placeClipGroupStill,
 } from '../web/director/tl-reorder.js';
+import { deriveTimeline } from '../web/director/film.js';
 import {
   TL_SNAP_PX, collectTimelineSnapPoints, findClosestTimelineSnap, snapTimelineValue, snapTimelineRange, createTimelineSnapGuide,
 } from '../web/director/tl-snap.js';
@@ -149,6 +152,23 @@ assert.equal(trimClipLeft(rimg, 1).duration, 1);
 assert.equal(trimClipRight(rimg, 3).duration, 5);
 assert.equal(trimClipLeft(rimg, 1.96), null);
 
+/* 锚定裁（第一段的左缘，没有左邻可 roll）：左缘动、右缘钉死，变化折进段前 gap。 */
+{
+  const g0 = { kind: 'video', playbackRate: 1, sourceStart: 2, sourceDuration: 4, duration: 4, gap: 1 };
+  const inward = trimClipLeftAnchored(g0, 1);           // 左缘往右 1 秒
+  assert.equal(inward.duration, 3, '块从左边缩短');
+  assert.equal(inward.gap, 2, '变化折进段前 gap');
+  assert.equal(inward.sourceStart, 3, '源窗口跟着右移');
+  const tl = deriveTimeline([inward]).rows[0];           // 右缘锚定的账交给 deriveTimeline 对
+  assert.ok(Math.abs(tl.end - 5) < 1e-9, '右缘钉死：start+gap+duration 不变');
+  const outward = trimClipLeftAnchored(g0, -0.5);        // 往左拉长，吃 gap
+  assert.equal(outward.duration, 4.5);
+  assert.equal(outward.gap, 0.5);
+  const clamp0 = trimClipLeftAnchored(g0, -3);           // gap 用尽就贴住前一段
+  assert.equal(clamp0.duration, 5);
+  assert.equal(clamp0.gap, 0);
+}
+
 const rv = { start: 2, duration: 3, playbackRate: 2, sourceStart: 4, sourceDuration: 6, mediaDuration: 14 };
 assert.deepEqual(
   { start: trimVoiceLeft(rv, 1).start, dur: trimVoiceLeft(rv, 1).duration, ss: trimVoiceLeft(rv, 1).sourceStart, sd: trimVoiceLeft(rv, 1).sourceDuration },
@@ -258,6 +278,75 @@ assert.equal(down.moved, true);
 const up = moveTimedToLane(down.items, 'a', 0);
 assert.deepEqual(up.items.map(x => x.lane), [0, 1, 2]);
 assert.deepEqual(compactLanes([{ id: 'a', lane: 0 }, { id: 'b', lane: 3 }, { id: 'c', lane: 5 }]).items.map(x => x.lane), [0, 1, 2]);
+
+/* ---- 波纹关的画面段整组平移（placeClipGroupStill）----
+   顺序模型里「拖一段只挪这一段」= 改被拖组第一段的 gap、组后第一段的 gap 反向补回（后邻钉死）。 */
+const stillClips = [
+  { id: 'a', kind: 'video', duration: 2, gap: 0 },
+  { id: 'b', kind: 'video', duration: 2, gap: 1 },   // b 在成片 3–5s
+  { id: 'c', kind: 'video', duration: 2, gap: 0 },   // c 在成片 5–7s
+];
+const rowsOfStill = clips => deriveTimeline(clips).rows;
+// 洞内自由放：b 挪到 2.5 → gap_b 0.5，c 的 gap 补 0.5，c 起点钉在 5
+{
+  const r = placeClipGroupStill(stillClips, ['b'], 2.5);
+  assert.equal(r.moved, true);
+  assert.equal(r.clamped, '');
+  assert.equal(r.start, 2.5);
+  assert.equal(r.gapBefore, 0.5);
+  assert.equal(r.gapAfter, 0.5);
+  const rows = rowsOfStill(r.clips);
+  assert.deepEqual(rows.map(x => Math.round(Number(x.start) * 10) / 10), [0, 2.5, 5], 'a、c 起点都不动，只有 b 走');
+}
+// 右顶住：b 想去 4，但 c 钉在 5 放不下 → 夹回 3，没挪成
+{
+  const r = placeClipGroupStill(stillClips, ['b'], 4);
+  assert.equal(r.start, 3);
+  assert.equal(r.clamped, 'next');
+  assert.equal(r.moved, false, '夹回原位 = 没动，不该记历史');
+}
+// 左顶住：b 想去 1 → 贴住 a 的末尾（2），gap_b 归零，c 钉在 5（gap_c 补 1）
+{
+  const r = placeClipGroupStill(stillClips, ['b'], 1);
+  assert.equal(r.start, 2);
+  assert.equal(r.clamped, 'prev');
+  const rows = rowsOfStill(r.clips);
+  assert.deepEqual(rows.map(x => x.start), [0, 2, 5]);
+}
+// 首段无前邻：a 挪到 0.5 → gap_a 0.5，b 钉在 3
+{
+  const r = placeClipGroupStill(stillClips, ['a'], 0.5);
+  assert.equal(r.start, 0.5);
+  assert.equal(r.gapBefore, 0.5);
+  assert.equal(r.gapAfter, 0.5);
+  assert.deepEqual(rowsOfStill(r.clips).map(x => x.start), [0.5, 3, 5]);
+}
+// 末段无后邻：c 挪到 10 → 后面没有邻居，随便走
+{
+  const r = placeClipGroupStill(stillClips, ['c'], 10);
+  assert.equal(r.start, 10);
+  assert.equal(r.gapAfter, null);
+  assert.deepEqual(rowsOfStill(r.clips).map(x => x.start), [0, 3, 10]);
+}
+// 两段组拖：[b, c] 想去 1 → 整组贴住 a 的末尾（2），组内相对距离不动
+{
+  const r = placeClipGroupStill(stillClips, ['b', 'c'], 1);
+  assert.equal(r.moved, true);
+  assert.deepEqual(rowsOfStill(r.clips).map(x => x.start), [0, 2, 4]);
+}
+// 非连续多选（a、c，中间隔着没选的 b）：没有定义 → 不动
+{
+  const r = placeClipGroupStill(stillClips, ['a', 'c'], 1);
+  assert.equal(r.moved, false);
+  assert.equal(r.why, 'non-contiguous');
+  assert.deepEqual(rowsOfStill(r.clips).map(x => x.start), [0, 3, 5], '原样带回');
+}
+// 没选中的段引用原值不带别的改动：gap 语义（段前空隙）只落在被拖组与它的后邻身上
+{
+  const r = placeClipGroupStill(stillClips, ['b'], 2.5);
+  assert.deepEqual(r.clips.map(x => x.id), ['a', 'b', 'c'], '顺序不动');
+  assert.equal(r.clips[0].duration, 2, '未选中段的字段不碰');
+}
 assert.equal(compactLanes([{ lane: 0 }, { lane: 1 }]).changed, false);
 assert.equal(newLaneBelow([{ lane: 2 }]), 3);
 assert.equal(newLaneBelow([]), 0);
@@ -315,6 +404,9 @@ assert.equal(tlTail(1000), 30);
 assert.equal(tlNavTotal(0), 10);
 assert.equal(tlNavTotal(12), 17);                        // 12 + 5 → 17
 assert.equal(tlNavTotal(3), 10);                         // 下限 10 秒
+assert.equal(tlNavTotal(12, 5), 17);                     // reach 落在成片之内，不改变跨度
+assert.equal(tlNavTotal(8, 11.5), 16.5);                 // 末尾之外还有标记 → 按那一秒起尾垫
+assert.equal(tlNavTotal(0, 30), 35);                     // 空片只剩钉在外面的条目
 const z10 = tlZoomForVisible(10);
 assert.ok(Math.abs(tlWidthPct(20, z10) - 200) < 1e-3);   // 内容比一屏长 → 按比例
 assert.equal(tlWidthPct(5, z10), 100);                   // 不足一屏按一屏铺满

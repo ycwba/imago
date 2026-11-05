@@ -11,7 +11,7 @@ import {
   transitionWindow, transitionAtTime,
   createClip, clipDurationOf, rateOf, srcHeadOf, srcUsedOf, srcLenOf, withPlaybackRate,
   createVoiceClip, createCaption, captionForTimed,
-  normalizeFilm, filmOf, deriveTimeline, filmTotal, clipBoundary,
+  normalizeFilm, filmOf, deriveTimeline, filmTotal, pinnedEndOf, clipBoundary,
   chosenCandOf, candidateWindow, promoteCandidate, demoteShot,
   packVoiceLanes, packCaptionLanes, voiceLaneMap, captionLaneMap, filmLaneOf,
   rowVisible, rowLocked, rowSet, itemVisible, itemLocked,
@@ -19,7 +19,7 @@ import {
   audibleVoices, visibleCaptions, speakerOf, lineTimeOf, lineRowHTML,
   shiftTimed, windowOf, coversTime, gainOf, fadeGain,
 } from '../web/director/film.js';
-import { normalizeMarkers, markerClock, markerSnapPoints, markerCounts } from '../web/director/tl-markers.js';
+import { normalizeMarkers, markerClock, markerSnapPoints, markerSpanEnd, markerCounts } from '../web/director/tl-markers.js';
 
 /* ---------- 常量 ---------- */
 assert.equal(TL_FPS, 30);
@@ -99,6 +99,15 @@ assert.equal(filmTotal([]), 0);
 assert.deepEqual(clipBoundary([c1, c2, c3], 1), { start: 2, end: 5 });
 assert.equal(clipBoundary([c1, c2, c3], 3), null);     // 找不到不拿 0 冒充
 assert.equal(deriveTimeline([]).indexAtTime(1), -1);
+
+/* 钉在成片秒的条目最右到几秒：把成片剪短之后，配音 / 字幕 / 标记都不跟着搬，可以留在末尾之外。
+   轨道的水平跨度不盖住那一截，右边就露出一条还能滚进去、没有刻度也没有行底色的空道。 */
+assert.equal(pinnedEndOf(null), 0);
+assert.equal(pinnedEndOf({}), 0);
+assert.equal(pinnedEndOf({ voices: [{ start: 3, duration: 2 }], captions: [{ start: 1, end: 4 }], markers: [{ time: 5 }] }), 5);
+assert.equal(pinnedEndOf({ captions: [{ start: 2, end: 9.5 }] }), 9.5);
+assert.equal(pinnedEndOf({ markers: [{ type: 'range', time: 2, endTime: 11.5 }] }), 11.5);
+assert.equal(pinnedEndOf({ markers: [{ type: 'marker', time: 12, endTime: 40 }] }), 12, '非范围标记只看 time，endTime 不算');
 
 /* ---------- 片段之间可以留空（clip.gap） ---------- */
 const g1 = createClip({ src: '/a', sourceDuration: 2, gap: 1.5 });
@@ -419,5 +428,7 @@ assert.deepEqual(markerSnapPoints([{ id: 'm1', time: 2 }, { id: 'm2', time: 3, t
   [{ time: 2, kind: 'marker', id: 'm1' }, { time: 3, kind: 'marker', id: 'm2' }, { time: 5, kind: 'marker', id: 'm2' }]);
 assert.deepEqual(markerCounts([{ type: 'range' }, { type: 'range' }, null]),
   { marker: 0, chapter: 0, range: 2, note: 0, total: 2 });
+assert.equal(markerSpanEnd([{ time: 2 }, { type: 'range', time: 3, endTime: 5 }, null]), 5, '轨道跨度看到范围的最右');
+assert.equal(markerSpanEnd([]), 0);
 
-console.log('✓ 导演台成片模型：顺序真相 / 折算 / 转场窗 / 行打包 / 行眼与锁 / 进片闸 / 台词行 / 标记');
+console.log('✓ 导演台成片模型：顺序真相 / 折算 / 转场窗 / 行打包 / 行眼与锁 / 进片闸 / 台词行 / 标记 / 钉住的跨度');

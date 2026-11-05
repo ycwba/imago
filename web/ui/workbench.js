@@ -432,13 +432,43 @@
       if (n.clientHeight > 0 && n.scrollHeight > n.clientHeight + 1) return true;
       return n.clientWidth > 0 && n.scrollWidth > n.clientWidth + 1;
     },
-    _scrollers(root) {
-      const out = [];
-      if (!root || root.nodeType !== 1) return out;
-      if (this._scrolls(root)) out.push(root);
-      const all = root.querySelectorAll('*');
-      for (let i = 0; i < all.length; i++) { if (this._scrolls(all[i])) out.push(all[i]); }
-      return out;
+    /* 从浅到深铺一遍子节点（BFS），数够预算就收 —— 而不是整棵子树逐格读。
+       一次「找谁在滚」在长列表上是有价的：一张卡约 24 个节点，1500 张卡就是 3.6 万格，
+       每格最多四枚布局度量（实测每枚约 1.5µs，布局脏时更贵 —— 都是盒子那一份的读数，
+       不碰 `scrollHeight` / `scrollWidth`，那种读整棵子树可滚范围的那一枚还会把
+       `content-visibility` 故意跳过的一格重新排一遍）→ 而 `Wb.cards.paint` 每轮轮询都要走这一趟。
+       预算花在哪儿不心疼：会滚的容器是结构性那几只（列表自己、卡里展开的那一节），都在浅层；
+       预算见底时剩下的全是卡内部那些不会滚的文字行。
+       小子树（设置页的账号卡、导演台面板、侧栏卡片）整棵都在预算里，行为与逐格扫完全一致。 */
+    _VSCAN_MAX: 6000,
+    _eachNode(root, fn) {
+      let budget = this._VSCAN_MAX;
+      let frontier = [root];
+      while (frontier.length && budget > 0) {
+        const next = [];
+        for (let f = 0; f < frontier.length; f++) {
+          const kids = frontier[f].children;
+          for (let i = 0; i < kids.length; i++) {
+            if (--budget <= 0) break;
+            fn(kids[i]);
+            next.push(kids[i]);
+          }
+          if (budget <= 0) break;
+        }
+        frontier = next;
+      }
+    },
+    /* 这一格**此刻**在某一条轴上真的滚开过没有（离顶 / 离左不是 0 —— 亚像素的偏移也算，
+       那一格的锚点本来就要按当前位置量）。
+       与 `_scrolls` 的分工：`_scrolls` 问「会不会滚」，要读 `scrollHeight` / `scrollWidth` ——
+       那两枚读的是整棵子树的可滚范围，比 `clientHeight` 贵得多，而且会把 `content-visibility`
+       故意跳过的那一格重新排一遍。重画前找「该还哪几只」用不到「会不会滚」：
+       停在 0 的那一根本来就没有要还的位置（`_anchorOf` 对 ≤0 直接返回 null）。
+       所以扫描那一趟只读 `client*` 与 `scroll*`（当前位置），一次 `scrollHeight` 都不碰。 */
+    _scrolled(n) {
+      if (!n || n.nodeType !== 1) return false;
+      if (n.clientHeight > 0 && n.scrollTop > 0) return true;
+      return n.clientWidth > 0 && n.scrollLeft > 0;
     },
     /* 子节点在父节点里的下标链（不是 CSS 路径）：重画之后按同一条链找回**新**节点。 */
     _pathOf(el, root) {
@@ -524,9 +554,12 @@
         const kids = node.children;
         let next = null;
         for (let i = 0; i < kids.length; i++) {
-          if (pinned(kids[i])) continue;
+          /* 先读矩形，再看钉没钉住：滚过去的那一截占绝大多数，它们本来就不配当锚点，
+             不必为每一格付一次 getComputedStyle（实测约 1.6µs / 格，长列表上一趟几千格）。
+             两个条件是「与」关系，换次序挑中的还是同一格。 */
           const e2 = along(kids[i]);
           if (e2[1] <= start + 1) continue;
+          if (pinned(kids[i])) continue;
           next = kids[i]; path.push(i + 1); top = e2[0]; bottom = e2[1]; break;
         }
         if (!next) break;
@@ -538,26 +571,36 @@
     },
     _grab(root) {
       const keep = [];
-      for (const el of this._scrollers(root)) {
-        const path = this._pathOf(el, root);
-        if (!path) continue;
-        const y = this._anchorOf(el, 'y'), x = this._anchorOf(el, 'x');
-        if (!y && !x) continue;
-        keep.push({ path, skey: this._keyOf(el), y, x });
-      }
+      if (!root || root.nodeType !== 1) return keep;
+      const grabOne = n => {
+        if (!this._scrolled(n)) return;
+        const path = this._pathOf(n, root);
+        if (!path) return;
+        const y = this._anchorOf(n, 'y'), x = this._anchorOf(n, 'x');
+        if (!y && !x) return;
+        keep.push({ path, skey: this._keyOf(n), y, x });
+      };
+      grabOne(root);
+      this._eachNode(root, grabOne);
       return keep;
     },
-    /* 重画之后「这一只容器还是不是原来那一只」：整棵子树里带身份、且真的在滚的节点一张表。
-       卡片流会重排或增删，只按下标链找回会把位还到邻卡身上，所以身份优先、下标兜底。 */
-    _keyMap(root) {
+    /* 重画之后「这一只容器还是不是原来那一只」：只给 `_grab` 记下的那几枚身份建表。
+       卡片流会重排或增删，只按下标链找回会把位还到邻卡身上，所以身份优先、下标兜底。
+       先比对身份、再问「会不会滚」：一次 `getAttribute` 链不碰布局，而 `_scrolls` 要读
+       `scrollHeight` / `scrollWidth` —— 刚重画完那一下布局正脏，逐格问等于把整份布局催起来。
+       与 `_grab` 同一趟有预算的铺法（`_eachNode`）：两边看到的是同一批节点，
+       `_grab` 认出在滚的那几只，这里一定也建得上身份
+       —— 不然找回时只剩按下标，卡片流重排过就会把位还到邻卡身上。 */
+    _keyMap(root, keep) {
+      const want = new Set();
+      for (const k of keep || []) if (k.skey) want.add(k.skey);
       const map = new Map();
-      const all = root.querySelectorAll('*');
-      for (let i = 0; i < all.length; i++) {
-        const n = all[i];
-        if (!this._scrolls(n)) continue;
+      if (!want.size) return map;
+      this._eachNode(root, n => {
         const key = this._keyOf(n);
-        if (key && !map.has(key)) map.set(key, n);
-      }
+        if (!key || !want.has(key) || map.has(key)) return;
+        if (this._scrolls(n)) map.set(key, n);
+      });
       return map;
     },
     _putAxis(el, a, axis) {
@@ -572,7 +615,7 @@
     },
     _put(root, keep) {
       let map = null;
-      const keyed = () => map || (map = this._keyMap(root));
+      const keyed = () => map || (map = this._keyMap(root, keep));
       for (const k of keep) {
         try {
           const el = (k.skey && keyed().get(k.skey)) || this._byPath(root, k.path);
@@ -2520,7 +2563,10 @@
             const list = items || [];
             viewport.keep(box, () => {
               if (!list.length) {
-                els.clear();
+                /* els 不清：整片重画把节点从 DOM 里摘走，但「这一张卡长什么样」还在这些节点上。
+                   搜一个不命中的词再清空，是这一箱最贵的一趟 —— 1500 张卡从零重建实测约 1.2 秒，
+                   留着节点直接插回去就掉到「同一批节点对一遍序」那一档（约 0.25 秒）。
+                   内容变了照旧重画：下一次对齐按 key 找回节点，sig 对不上就走 paint。 */
                 box.innerHTML = (o.emptyHTML ? o.emptyHTML() : emptyHTML('暂无内容')) + (o.notesHTML ? o.notesHTML() : '');
                 return;
               }
@@ -2553,11 +2599,18 @@
               }
               while (ref) {
                 const nx = ref.nextElementSibling;
-                if (ref.classList && ref.classList.contains(CLS)) {
-                  if (ref.dataset && ref.dataset.tkey) els.delete(ref.dataset.tkey);
-                  ref.remove();
-                }
+                if (ref.classList && ref.classList.contains(CLS)) ref.remove();
                 ref = nx;
+              }
+              /* 摘下来的那些仍挂在 els 上（见空列表那一段），所以这里要给它一个上限：
+                 只多留「这一屏这么多」的一份，超出的按插入顺序（最旧的先）剪掉。
+                 不然反复筛几轮，节点数只涨不落。 */
+              const hold = list.length + 64;
+              if (els.size > hold * 2) {
+                for (const [k, n] of els) {
+                  if (els.size <= hold) break;
+                  if (!n.isConnected) els.delete(k);
+                }
               }
             }, { outer: true });
             back();

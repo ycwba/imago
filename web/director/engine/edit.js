@@ -13,11 +13,13 @@ import {
   splitClipAt, splitVoiceAt, splitCaptionAt, canMergeClips, mergeClipsAt, removeClipAt, duplicateClipAt,
 } from '../tl-cut.js';
 import {
-  trimClipLeft, trimClipRight, trimVoiceLeft, trimVoiceRight, trimCaptionLeft, trimCaptionRight,
+  trimClipLeft, trimClipRight, trimClipLeftAnchored,
+  trimVoiceLeft, trimVoiceRight, trimCaptionLeft, trimCaptionRight,
   slipClip, rollClipsBoundary, slideClip, followCaptions,
 } from '../tl-resize.js';
 import {
   reorderClips, dropIndexAt, moveClipToLane, moveTimedToLane, compactLanes, newLaneBelow, shiftGroupStart,
+  placeClipGroupStill,
 } from '../tl-reorder.js';
 import { applyTimelineRipple, rippleDeltaOf } from '../tl-ripple.js';
 import { collectTimelineSnapPoints, snapTimelineValue, TL_SNAP_PX } from '../tl-snap.js';
@@ -545,10 +547,13 @@ export function createEdit(E, document, window) {
         ? snapTime(oldStart + delta, d.id, alt)
         : snapTime(oldEnd + delta, d.id, alt);
       const dd = side === 'start' ? edge - oldStart : edge - oldEnd;
-      const fn = isClip ? (side === 'start' ? trimClipLeft : trimClipRight)
-        : d.kind === 'cap' ? (side === 'start' ? trimCaptionLeft : trimCaptionRight)
-          : (side === 'start' ? trimVoiceLeft : trimVoiceRight);
-      const next = fn(it, dd);
+      /* 画面段的左缘走到这里的只有**第一段**（切点上那一只走的是编辑点 roll，见 onPointerDownCapture）：
+         没有左邻可吸收变化，左缘动 = 段前 gap 开出来，右缘照样钉死（trimClipLeftAnchored）。
+         其余（右缘 / 配音 / 字幕）照旧。 */
+      const next = isClip && side === 'start' ? trimClipLeftAnchored(it, dd)
+        : isClip ? trimClipRight(it, dd)
+          : d.kind === 'cap' ? (side === 'start' ? trimCaptionLeft : trimCaptionRight)
+            : (side === 'start' ? trimVoiceLeft : trimVoiceRight);
       if (!next) { live = { start: oldStart, end: oldEnd }; return null; }
       if (isClip) {
         const nrows = deriveTimeline(applyClipAt(gg.tl.rows.length, indexOfItem('clip', d.id), next, drag ? drag.work.clips : filmOf().clips)).rows;
@@ -577,8 +582,10 @@ export function createEdit(E, document, window) {
         const w = rec.work;
         const label = `${isClip ? clipDesc(it, oldStart, oldEnd) : timedLabel(it, d.kind)}改成 ${fmtTenth(live.start)}–${fmtTenth(live.end)} 秒`;
         const next = listWith(w, d.kind, indexOfList(w, d.kind, d.id), r.next);
-        /* 只有画面段的右缘动的是「边界」：边界之后的定时块按波纹走。左缘是 end 锚定，不动边界。 */
-        const ripple = isClip && side === 'end' ? { boundary: oldEnd, delta: rippleDeltaOf(oldEnd, live.end) } : null;
+        /* 只有画面段的右缘动的是「边界」：边界之后的定时块按波纹走（波纹开着才带）。
+           左缘是 end 锚定，不动边界（第一段的左缘动的是段前 gap，同样不碰边界）。 */
+        const ripple = isClip && side === 'end' && Timeline.rippleOn()
+          ? { boundary: oldEnd, delta: rippleDeltaOf(oldEnd, live.end) } : null;
         return commit(next, label, ripple);
       },
     })) return;
@@ -796,27 +803,49 @@ export function createEdit(E, document, window) {
   /* 画面段：横着拖 = 换序（落点按「中点在指针之前」数出来），竖着拖 = 换行。 */
   /* 画面段：横着拖 = 换序 / 留空（落点按「中点在指针之前」数出来），竖着拖 = 换行。
      被拖的那一组**钉在指针那一秒**；后面的段按换序后的座位让开（挤开效果），
-     组前面空出来的那截就是 gap —— 片段之间允许有空。 */
+     组前面空出来的那截就是 gap —— 片段之间允许有空。
+     波纹关（默认）：只挪被拖的组 —— 落点被前后邻居顶住就夹在洞里，不换序、不推后面的段。 */
   function clipMovePreview(rec, p, originals, d) {
     /* 落点按**位移**算：块跟着手走。拿指针此刻的秒当落点，捏住块的中部一动手就会
        整块弹到指针底下（跳一个身位），吸附也就成了「吸到手指边」而不是「吸到块边」。 */
     const t = snapTime(originals[0].start + p.dx, d.id, p.alt);
-    const rows = g().tl.rows.map((r, i) => ({ ...r, ln: (originals[i] && originals[i].lane) || 0 }));
-    const drop = dropIndexAt(rows, t, originals[0] ? originals[0].idx : -1);
     const target = laneAtY('clip', p.y);
-    rec.state = { time: t, drop, lane: target.isNew ? newLaneBelow(originals.map(o => ({ lane: o.lane }))) : target.lane, isNew: target.isNew };
-    dropHint(t);
-    if (rec.ghostMove) rec.ghostMove(rec.lastX, rec.lastY);
+    const lane = target.isNew ? newLaneBelow(originals.map(o => ({ lane: o.lane }))) : target.lane;
     const ids = originals.map(o => o.id);
-    /* 换序（落点跨过了别的段的中点）= 「挪到那儿」，落地紧贴；
-       落点没变、只是往右拖出去 = 「这儿留一段空」。 */
-    const laid = layoutClipMove(groupReorder(rec.work.clips, ids, drop), ids, t, drop === originals[0].idx);
-    previewGroup(originals.map(o => {
-      const i = laid.rows.findIndex(r => r.clip.id === o.id);
-      return { d: { kind: 'clip', id: o.id }, start: i >= 0 ? num(laid.rows[i].start) : o.start, dur: o.dur };
-    }));
-    const gapNote = laid.gap > 0.001 ? ` · 前面空 ${round2(laid.gap)}s` : '';
-    setHint((target.isNew ? '松手就在下面新建一行' : `放到第 ${(rec.state.lane || 0) + 1} 行 · 第 ${drop + 1} 段`) + gapNote);
+    if (Timeline.rippleOn()) {
+      const rows = g().tl.rows.map((r, i) => ({ ...r, ln: (originals[i] && originals[i].lane) || 0 }));
+      const drop = dropIndexAt(rows, t, originals[0] ? originals[0].idx : -1);
+      rec.state = { time: t, drop, lane, isNew: target.isNew };
+      dropHint(t);
+      if (rec.ghostMove) rec.ghostMove(rec.lastX, rec.lastY);
+      /* 换序（落点跨过了别的段的中点）= 「挪到那儿」，落地紧贴；
+         落点没变、只是往右拖出去 = 「这儿留一段空」。 */
+      const laid = layoutClipMove(groupReorder(rec.work.clips, ids, drop), ids, t, drop === originals[0].idx);
+      previewGroup(originals.map(o => {
+        const i = laid.rows.findIndex(r => r.clip.id === o.id);
+        return { d: { kind: 'clip', id: o.id }, start: i >= 0 ? num(laid.rows[i].start) : o.start, dur: o.dur };
+      }));
+      const gapNote = laid.gap > 0.001 ? ` · 前面空 ${round2(laid.gap)}s` : '';
+      setHint((target.isNew ? '松手就在下面新建一行' : `放到第 ${(rec.state.lane || 0) + 1} 行 · 第 ${drop + 1} 段`) + gapNote);
+      return;
+    }
+    const laid = placeClipGroupStill(rec.work.clips, ids, t);
+    rec.state = { time: laid.start, lane, isNew: target.isNew, still: true, contiguous: !laid.why, clamped: laid.clamped || '' };
+    dropHint(laid.why ? t : laid.start);
+    if (rec.ghostMove) rec.ghostMove(rec.lastX, rec.lastY);
+    if (!laid.why) {
+      const rows = deriveTimeline(laid.clips).rows;
+      previewGroup(originals.map(o => {
+        const i = rows.findIndex(r => r.clip.id === o.id);
+        return { d: { kind: 'clip', id: o.id }, start: i >= 0 ? num(rows[i].start) : o.start, dur: o.dur };
+      }));
+    }
+    const laneNote = target.isNew ? '松手就在下面新建一行' : `放到第 ${(lane || 0) + 1} 行`;
+    const stillNote = laid.why === 'non-contiguous' ? ' · 多选的段不相邻，波纹关着不挪'
+      : laid.clamped === 'prev' ? ' · 顶住前一段'
+        : laid.clamped === 'next' ? ' · 顶住后一段'
+          : laid.gapBefore > 0.001 ? ` · 前面空 ${round2(laid.gapBefore)}s（后续段不动）` : '';
+    setHint(laneNote + stillNote);
   }
   /* 换序之后的落点：被拖的那一组从**指针那一秒**开始（被上一段顶住就贴住上一段末尾），
      它们前面空出来的那截记进第一块的 gap。返回 { list, rows, gap }。 */
@@ -837,6 +866,37 @@ export function createEdit(E, document, window) {
   function clipMoveCommit(rec, originals, d) {
     const st = rec.state;
     if (!st) return false;
+    /* 波纹关：只挪被拖的组（placeClipGroupStill 把后邻钉回原位），不换序、不推后面的段。 */
+    if (st.still) {
+      if (!st.contiguous) { if (setStatus) setStatus('多选的段不相邻：波纹关着不挪（开波纹后再拖，或先把它们排成相邻）'); return false; }
+      const ids = originals.map(o => o.id);
+      const laid = placeClipGroupStill(rec.work.clips, ids, st.time);
+      let clips = laid.clips;
+      const laneChanged = originals.filter(o => o.lane !== st.lane);
+      if (laneChanged.length) {
+        laneChanged.forEach(o => { clips = moveClipToLane(clips, o.id, st.lane).clips; });
+        /* 行号是「用到的行」连续编出来的：搬走一行的全部段之后，中间那行不能留成空洞。 */
+        const packed = compactLanes(clips.map(c => ({ ...c, lane: num(c.ln) })));
+        clips = packed.items.map((c, i) => ({ ...clips[i], ln: Math.max(0, Math.round(num(c.lane))) }));
+      }
+      const nr = deriveTimeline(clips).rows;
+      const startAt = id => {
+        const i = nr.findIndex(r => r.clip.id === id);
+        return i >= 0 ? num(nr[i].start) : -1;
+      };
+      const movedOnes = originals.filter(o => Math.abs(startAt(o.id) - o.start) > 0.001);
+      const gapBefore = originals.length ? Math.max(0, num(originals[0].it.gap)) : 0;
+      if (!movedOnes.length && !laneChanged.length && Math.abs(gapBefore - laid.gapBefore) < 0.001) return false;
+      const laneNote = `挪到第 ${st.lane + 1} 行${st.isNew ? '（新开的一行）' : ''}`;
+      const clampNote = st.clamped === 'prev' ? '，贴住前一段'
+        : st.clamped === 'next' ? '，贴住后一段'
+          : laid.gapBefore > 0.001 ? `，前面留出 ${round2(laid.gapBefore)}s 空（后续段不动）` : '';
+      const label = !movedOnes.length
+        ? `把${clipDesc(originals[0].it, originals[0].start, originals[0].start + originals[0].dur)}${laneNote}`
+        : `把「${clipTitle(originals[0].it)}」换位置：${movedOnes.map(o => `「${clipTitle(o.it)}」从 ${fmtTenth(o.start)}s 挪到 ${fmtTenth(startAt(o.id))}s`).join('、')}`
+          + clampNote + (laneChanged.length ? `，并${laneNote}` : '');
+      return commit({ ...rec.work, clips }, label);
+    }
     const ids = originals.map(o => o.id);
     const laid = layoutClipMove(groupReorder(rec.work.clips, ids, st.drop), ids, st.time, st.drop === originals[0].idx);
     let clips = laid.list;
@@ -1003,6 +1063,17 @@ export function createEdit(E, document, window) {
     if (!d || d.kind === 'clip') {
       items.push(['cut', '在播放头处切开'], ['duplicate', '复制这一段'], ['merge', '与下一段融合'],
         ['add-seg', '在这里新增一段'], ['delete', '删除这一段']);
+      /* 转场入口的第二条路（菱形骑在行顶那条带子上，找不着的时候右键一定找得着）：
+         指着哪一段就开它身上的缝 —— 有左邻开左缝，首段开右缝。 */
+      if (d) {
+        const cidx = indexOfItem('clip', d.id);
+        const clips = filmOf().clips || [];
+        const seam = cidx > 0 ? cidx : (clips.length > 1 ? cidx + 1 : -1);
+        if (seam > 0 && seam < clips.length) {
+          items.splice(3, 0, ['transition', clips[seam] && clips[seam].transition ? '改这条缝的转场' : '给这条缝加转场']);
+          ctxInfo.seam = seam;
+        }
+      }
     } else if (d.kind === 'cap') {
       items.push(['cap-link', '接上配音'], ['cap-unlink', '解除关联'], ['cap-align', '对齐到音频'], ['delete', '删除这条字幕']);
     } else {
@@ -1030,6 +1101,11 @@ export function createEdit(E, document, window) {
   function runCtxRow(act, info) {
     if (info.d) setSel([selKey(info.d.kind, info.d.id)], info.d);
     if (act === 'add-seg') { addSegmentAt(info.time); return; }
+    if (act === 'transition') {
+      const j = info.seam != null && host ? host.querySelector('[data-junction="' + info.seam + '"]') : null;
+      if (j) j.click();                                   // 轨道自己的 click 委托会开转场浮层
+      return;
+    }
     if (act === 'item-link' || act === 'item-unlink' || act === 'item-align'
       || act === 'cap-link' || act === 'cap-unlink' || act === 'cap-align') {
       focus = info.d || focus; linkAction(act); return;
@@ -1619,7 +1695,19 @@ export function createEdit(E, document, window) {
     const block = t.closest('.tl-clip,.tl-voice,.tl-cap');
     if (handle && block) {
       const d = describeEl(block);
-      if (d) { e.stopPropagation(); startTrim(e, block, d, handle.getAttribute('data-handle') === 'start' ? 'start' : 'end'); }
+      if (d) {
+        e.stopPropagation();
+        const hSide = handle.getAttribute('data-handle') === 'start' ? 'start' : 'end';
+    /* 画面段的**左把手骑在切点上**（与参考项目同一刀法）：与左邻贴着时捏它 = 拖切点（roll，
+       左邻吸收变化、右缘钉死、总长不变），不用先换「编辑点」工具；两段已经被拖开（段前 gap > 0）
+       就不再联动 —— 捏它 = 锚定裁，左缘动、右缘钉死，左邻一秒不挪。首段没有左邻，同为锚定裁。
+       右把手与其余两类块照旧走裁边。 */
+    const idx = d.kind === 'clip' ? indexOfItem('clip', d.id) : -1;
+    const clipIt = d.kind === 'clip' ? filmItemOf('clip', d.id) : null;
+    if (d.kind === 'clip' && hSide === 'start' && idx > 0 && clipIt && num(clipIt.gap) < 0.001) {
+      startBoundary(e, d, block, idx);
+    } else startTrim(e, block, d, hSide);
+      }
       return;
     }
     const tail = t.closest('[data-band-tail]');

@@ -137,7 +137,9 @@ function htmlHeaders(ext) {
 
 function serveStatic(req, res, full, ext, mime) {
   fs.stat(full, (err, st) => {
-    if (err || !st.isFile()) { res.writeHead(404); res.end('not found'); return; }
+    /* no-store：一次坏 404（比如白名单漏了 .wasm 那阵子）不许被浏览器启发式缓存，
+       否则修好之后 ORT 还在反复拿旧的那句 "not found" 当 wasm 喂给 WebAssembly.instantiate。 */
+    if (err || !st.isFile()) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return; }
     const isHead = req.method === 'HEAD';
     const type = (mime && mime[ext]) || 'application/octet-stream';
     const compressible = /^(text\/|application\/(javascript|json|svg))/.test(type) || /^image\/svg/.test(type);
@@ -182,7 +184,7 @@ function serveStatic(req, res, full, ext, mime) {
     const cached = want.find(r => entry && Buffer.isBuffer(entry[r]));
     if (cached) { ENC_STATS.hits++; respond(entry[cached], cached); return; }
     fs.readFile(full, (err2, raw) => {
-      if (err2) { res.writeHead(404); res.end('not found'); return; }
+      if (err2) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return; }
       /* 沿档位表往下退：压不动、压完不比原文短、不在这一档的适用区间 —— 都记 false 试下一档，
          全落空就发原文。任何一种失败都不让这一条请求 500；量不出该不该压时按「不压」走。 */
       const tryRepr = i => {

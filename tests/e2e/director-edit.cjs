@@ -244,7 +244,63 @@ const installProbe = () => {
     sc.scrollLeft = v === 'max' ? sc.scrollWidth : v;
     return sc.scrollLeft;
   }
-  window.__P = { pps, xOf, txt, val, state, list, drag, tap, seek, click, tool, ctx, setVal, key, hist, snap, playheadInView, scrollBoard, rectOf };
+  function scrollX() { const sc = q('#tlScroll'); return sc ? Math.round(sc.scrollLeft) : -1; }
+  /* 尺与轨道盖住「眼前这一把视野」没有：
+     · beyond = 轨道能滚到的尽头超出内容层多少像素 —— 超出的那一段既没刻度也没行底色，是条空道；
+       over 点名是哪几颗节点撑出去的（红在消息里就该说清是谁）。
+     · left / right = 视野两沿之外露出的空尺。刻度两侧本来各留 35% 视野的余量，
+       所以「超出余量」才是病，非零不是。 */
+  function rulerCover() {
+    const sc = q('#tlScroll'), content = q('#tlContent'), head = q('#tlPlayhead');
+    if (!sc || !content || !head) return null;
+    const xs = qa('#tlRulerInner .tl-tick').map(t => parseFloat(t.style.left) || 0);
+    const m = getComputedStyle(head).transform.match(/matrix.*\(([^)]+)\)/);
+    const cRight = content.getBoundingClientRect().right;
+    const over = qa('#tlContent *')
+      .map(el => ({ el, out: Math.round(el.getBoundingClientRect().right - cRight) }))
+      .filter(x => x.out > 2 && x.el.getBoundingClientRect().width > 0)
+      .sort((a, b) => b.out - a.out).slice(0, 3)
+      .map(x => (x.el.id || String(x.el.className).split(' ')[0] || x.el.tagName) + ' 超 ' + x.out);
+    return {
+      pad: Math.round(sc.clientWidth * 0.35),
+      beyond: Math.round(sc.scrollWidth - (parseFloat(content.style.width) || 0)),
+      left: xs.length ? Math.round(Math.min.apply(null, xs) - sc.scrollLeft) : 99999,
+      right: xs.length ? Math.round(sc.scrollLeft + sc.clientWidth - Math.max.apply(null, xs)) : 99999,
+      phX: m ? Math.round(parseFloat(m[1].split(',')[4])) : -1,
+      cw: sc.clientWidth, sl: Math.round(sc.scrollLeft),
+      contentW: Math.round(content.getBoundingClientRect().width),
+      read: '针 ' + txt('#tlT0') + ' / 片长 ' + txt('#tlT1'),
+      over: over.length ? over.join(' / ') : '没有节点撑出去',
+    };
+  }
+  /* 点下这颗钮之后**逐帧**盯尺：刻度只画「视野前后各 35%」那一截，窗口按重建**之前**的横滚位挑；
+     成片一变短、还位被浏览器夹回来，视野整条跑到左边，尺上就空出一段没有刻度也没有秒数的地方。
+     下一轮尺寸观察会自己补上，所以「落定之后」量不到 —— 只有逐帧抓得住那几帧。 */
+  function watchTool(act, ms) {
+    const b = q('#tlTools [data-tl="' + act + '"]');
+    if (!b || b.disabled) return Promise.resolve({ err: '点不动：' + act });
+    const limit = ms || 520;
+    const t0 = performance.now();
+    const bare = [];
+    let frames = 0;
+    b.click();
+    return new Promise(res => {
+      const step = () => {
+        const sc = q('#tlScroll');
+        const lefts = qa('#tlRulerInner .tl-tick').map(t => parseFloat(t.style.left) || 0);
+        if (sc && lefts.length) {
+          const l = sc.scrollLeft, to = l + sc.clientWidth;
+          const gap = Math.max(0, Math.min.apply(null, lefts) - l, to - Math.max.apply(null, lefts));
+          frames++;
+          if (gap > 10) bare.push({ t: Math.round(performance.now() - t0), gap: Math.round(gap), sl: Math.round(l) });
+        }
+        if (performance.now() - t0 < limit) requestAnimationFrame(step);
+        else res({ frames, bare: bare.length, worst: bare.reduce((a, x) => Math.max(a, x.gap), 0), at: bare.slice(0, 3).map(x => x.t + 'ms/' + x.gap + 'px').join(' ') });
+      };
+      requestAnimationFrame(step);
+    });
+  }
+  window.__P = { pps, xOf, txt, val, state, list, drag, tap, seek, click, tool, ctx, setVal, key, hist, snap, playheadInView, scrollBoard, scrollX, rulerCover, rectOf, watchTool };
   return true;
 };
 
@@ -438,6 +494,19 @@ async function boot1(proxy, browser) {
   re(r.after.status, /挪到 4\.5 秒$/, '①：吸附那一下的留痕要说清挪到 4.5 秒');
   near(byId(r.after.clips, 'c1').dur, 4.5, '①：只挪配音块，画面段一段都不许动');
 
+  /* —— 切点上拖左把手 = 拖切点（roll，参考项目同一刀法）：左邻吸收变化、右缘钉死、总长不变。
+     放在 ① 的最后：它会把 4.5 那道切点搬走，别扰动上面按 4.5 校准的吸附用例。 —— */
+  r = await page.eval(async () => {
+    const P = window.__P;
+    return P.drag({ sel: '[data-clip="c1b"]', handle: 'start', dx: 0.5, steps: 5 });
+  });
+  must(!r.err, '①：' + r.err);
+  re(r.after.status, /^移动「镜头一」\/「镜头一」之间的切点到 5\.0 秒$/, '①：切点上拖左把手的回执 = 拖切点');
+  near(byId(r.after.clips, 'c1').dur, 5, '①：左邻该长 0.5 秒（切点右移，左边吸收）');
+  near(byId(r.after.clips, 'c1b').start, 5, '①：右段起点跟着切缝走');
+  near(byId(r.after.clips, 'c1b').dur, 2, '①：右段从左边缩短（此前被滑移加长到 2.5），右缘钉死');
+  near(durSum(r.after.clips), 16.5, '①：拖切点不改片长');
+
   const errs = (page.errors || []).filter(Boolean).slice(0, 3);
   must(!errs.length, '①：页面异常：' + errs.join(' | '));
   await page.close();
@@ -471,7 +540,9 @@ async function boot2(proxy, browser) {
   re((await status(page)), /^把「镜头一」第 1 段（0\.0–5\.0 秒）缩短 1 秒，改成 0\.0–4\.0 秒$/, '②：关掉波纹就不该再带「波纹」那句');
   eq(r.total, '00:16', '②：缩回去之后片长回到 16 秒');
 
-  /* —— 横向拖 = 换序（落点按**位移**算：块起点跟着手走；往左拖过它自己起点的距离 = 排到最前） —— */
+  /* —— 横向拖 = 换序（落点按**位移**算：块起点跟着手走；往左拖过它自己起点的距离 = 排到最前）
+     换序是磁性联动的一支：波纹开着才有 —— 波纹关着只挪被拖的那一段（被邻居顶住就夹住）。 —— */
+  must(await page.eval(() => window.__P.tool('ripple')), '②：波纹那颗点不动');
   const before = await st();
   const c3start = byId(before.clips, 'c3').start;
   r = await page.eval(t => window.__P.drag({ sel: '[data-clip="c3"]', dx: -t - 1, steps: 8 }), c3start);
@@ -479,6 +550,7 @@ async function boot2(proxy, browser) {
   re(r.after.status, new RegExp('^把「镜头三」换位置：「镜头三」从 ' + c3start.toFixed(1) + 's 挪到 0\\.0s'), '②：换序要说清从第几秒挪到第几秒');
   eq(r.after.clips[0].id, 'c3', '②：拖到最前面，第一段就该是它');
   eq(r.after.total, '00:16', '②：换序不改片长');
+  must(await page.eval(() => window.__P.tool('ripple')), '②：波纹关不回来');
 
   /* —— 竖向拖 = 换行（拖到最后一行之下 = 新开一行；位移按行自己的矩形算，不猜行高） —— */
   r = await page.eval(() => {
@@ -573,6 +645,14 @@ async function boot3(proxy, browser) {
   r = await page.eval(async () => window.__P.drag({ sel: '[data-band="m-2"]', dx: 1, steps: 5 }));
   must(!r.err, '③：' + r.err);
   re(r.after.status, /^把范围从 00:00:10\.000 挪到 00:00:11\.000（止 00:00:12\.500）$/, '③：拖范围那一条要说清起点与止点都到哪');
+  /* 拖尾按**指针此刻的秒**结算，与拖标记头同一条道理：12.5 → 13 秒那一截得真在视野里。
+     这一档的视野是默认的 10 秒，范围块本来就落在视野右缘之外 —— 不先滚过去，压到边缘的指针
+     会触发自动滚动，画面在指针底下走，落点就不是 13 秒了。 */
+  await page.eval(() => {
+    const sc = document.querySelector('#tlScroll');
+    return window.__P.scrollBoard(Math.max(0, 13 * window.__P.pps() - sc.clientWidth / 2));
+  });
+  await sleep(150);
   r = await page.eval(async () => window.__P.drag({ sel: '[data-band-tail="m-2"]', toTime: 13, steps: 5 }));
   must(!r.err, '③：' + r.err);
   re(r.after.status, /^把范围的止点从 00:00:12\.500 挪到 00:00:13\.000$/, '③：拖尾只改止点，留痕不许把没动的起点说成动了');
@@ -636,6 +716,13 @@ async function boot3(proxy, browser) {
   eq(await page.eval(() => document.querySelectorAll('#tlBoard .tl-junction.has-tr').length), 0, '③：去掉之后不该还画着转场');
   await page.eval(() => window.__P.key('Escape'));
   must(await page.eval(() => document.getElementById('tlPop').hidden), '③：Esc 该把浮层收掉');
+
+  /* —— 转场的第二条路：右键菜单（菱形找不着的时候右键一定找得着） —— */
+  await page.eval(() => window.__P.ctx('[data-clip="c2"]'));
+  must(await page.eval(() => !!document.querySelector('#tlCtx [data-ctx="transition"]')), '③：右键菜单里没有「转场」那一行');
+  await page.eval(() => window.__P.click('[data-ctx="transition"]'));
+  must(await page.eval(() => { const p = document.getElementById('tlPop'); return p && !p.hidden; }), '③：右键菜单那一行该把转场浮层开出来');
+  await page.eval(() => window.__P.key('Escape'));
 
   const errs = (page.errors || []).filter(Boolean).slice(0, 3);
   must(!errs.length, '③：页面异常：' + errs.join(' | '));
@@ -781,6 +868,25 @@ async function boot4(proxy, browser) {
   await sleep(300);
   must(await page.eval(() => window.__P.playheadInView()), '④：点它要把视口带回播放头那一秒');
 
+  /* —— 切一刀不许把轨道甩回最左 ——
+     整块重画把 `#tlScroll` 换成新节点，横向滚动位由公共件按锚点还回去。针在视野里时，
+     横轴挑中的锚点正是那根针，而针的横向位置靠 transform 现写：落针排在还原之后的话，
+     还原量到的新针还停在内容 0 秒那一处，算出来是负偏移、被浏览器夹回 0 —— 画面跳到最左边。 */
+  await page.eval(async () => window.__P.seek(7));
+  await page.eval(() => {
+    const sc = document.querySelector('#tlScroll');
+    return window.__P.scrollBoard(Math.max(0, 7 * window.__P.pps() - sc.clientWidth / 2));
+  });
+  await sleep(200);
+  const keepX = await page.eval(() => window.__P.scrollX());
+  must(keepX > 0, '④：这一步要先把轨道横滚开（滚动位是 0 就判不出还没还）');
+  must(await page.eval(() => window.__P.playheadInView()), '④：切之前针该在视野里（它正是还原滚动位找的那颗锚点）');
+  must(await page.eval(() => window.__P.tool('cut')), '④：切刀那颗点不动');
+  await sleep(400);
+  eq((await st()).clips.length, 7, '④：切在段中该多出一段');
+  near(await page.eval(() => window.__P.scrollX()), keepX, '④：切完横向滚动位该还在原来那一秒附近', 2);
+  must(await page.eval(() => window.__P.playheadInView()), '④：切完针不该被甩出视野');
+
   /* —— 撤销 / 重做也在同一排按钮上 —— */
   await page.eval(async () => window.__P.tap({ sel: '[data-clip="c2"]' }));
   await page.eval(() => window.__P.tool('lengthen'));
@@ -799,6 +905,129 @@ async function boot4(proxy, browser) {
   await page.eval(() => window.__P.key('Delete'));
   await sleep(400);
   eq((await st()).clips.length, delCount - 1, '④：按 Delete 该删掉选中那一段');
+
+  /* —— 针停在末尾、连着删掉末尾两段：不许露出「到不了的那一截」，也不许留一把按旧视野挑的刻度 ——
+     成片一短，浏览器就把横滚位夹回来（落点比画的时候更靠左），这一族盯着两个病根：
+     · 钉在成片秒的标记 / 配音落在新末尾之外 —— 导航跨度不把它们算进去，那一截画不到尺、网格与行底色，
+       右边空出一条还能滚进去的道；
+     · 尺上那一段刻度是重建**之前**挑的窗口，夹回来的幅度超过刻度两侧那点余量时整段视野没有刻度，
+       要等尺寸观察器下一帧补画（肉眼是闪一下）。 */
+  let tailClips = (await st()).clips;
+  const kPx = await page.eval(() => window.__P.pps());
+  const viewW = await page.eval(() => document.querySelector('#tlScroll').clientWidth);
+  must(tailClips[tailClips.length - 1].dur * kPx > viewW * 0.35,
+    '④：删掉一段要让横滚位被夹的幅度超过刻度两侧那点余量（先放大一档再跑，末段只有 ' + Math.round(tailClips[tailClips.length - 1].dur * kPx) + ' 像素）');
+  for (let round = 0; round < 2; round++) {
+    tailClips = (await st()).clips;
+    const lastClip = tailClips[tailClips.length - 1];
+    await page.eval(async () => window.__P.scrollBoard(99999));
+    await sleep(250);
+    await page.eval(t => window.__P.seek(t), lastClip.start + 0.2);
+    await sleep(250);
+    must(await page.eval(() => window.__P.playheadInView()), '④：针该停在末尾那一段里（视野滚到最右才看得见它）');
+    await page.eval(id => window.__P.tap({ sel: '[data-clip="' + id + '"]' }), lastClip.id);
+    await sleep(200);
+    /* 刻度那一把要在**同一次任务**里量：内容层的定宽要到尺寸观察器那一轮才改，早量一次才抓得住「窗口还是旧视野」；
+       空道那一句反过来要等布局落定 —— 针撑出去的可滚范围只有内容层收回去之后才看得出来。 */
+    const ticksNow = await page.eval(() => {
+      const b = document.querySelector('#tlTools [data-tl="delete"]');
+      if (!b || b.disabled) return null;
+      b.click();
+      return window.__P.rulerCover();
+    });
+    must(ticksNow, '④：删除那颗点不动');
+    await sleep(300);
+    eq((await st()).clips.length, tailClips.length - 1, '④：第 ' + (round + 1) + ' 次该删掉最后那一段');
+    const cover = await page.eval(() => window.__P.rulerCover());
+    must(cover.beyond <= 4, '④：第 ' + (round + 1) + ' 次删完之后，轨道的可滚范围不许超出尺子尽头（露出的那一段是空道：' + cover.beyond + ' 像素 · ' + cover.over + ' · ' + cover.read + '）');
+    must(ticksNow.left <= ticksNow.pad + 4, '④：第 ' + (round + 1) + ' 次还位被夹之后尺子左边不许空着（空了 ' + ticksNow.left + ' 像素，余量只有 ' + ticksNow.pad + '）');
+    must(ticksNow.right <= ticksNow.pad + 4, '④：第 ' + (round + 1) + ' 次还位被夹之后尺子右边不许空着（空了 ' + ticksNow.right + ' 像素，余量只有 ' + ticksNow.pad + '）');
+    must(cover.left <= cover.pad + 4, '④：第 ' + (round + 1) + ' 次落定之后尺子左边不许空着（空了 ' + cover.left + ' 像素）');
+    must(cover.right <= cover.pad + 4, '④：第 ' + (round + 1) + ' 次落定之后尺子右边不许空着（空了 ' + cover.right + ' 像素）');
+  }
+
+  /* —— 把针停在片尾、再把末尾那一大段摘掉：针必须被夹回新的跨度里 ——
+     放针的几条入口（点空处 / 拖针 / 播放核）各自夹过，唯独「成片变了、针没动」这一条只能靠落位前那一次夹算。
+     针留在跨度之外时，它自己（2 像素宽）把 `#tlScroll` 撑到内容层右沿之外：右边多出一段没有刻度、
+     没有网格、没有行底色、还能滚进去的空道，页脚读数同时念着成片里根本没有的那一秒。
+     先把标记清掉：标记钉在成片秒、会把导航跨度撑住，跨度不缩短就判不到夹针。
+     再把末尾那一段复制四份接到片尾：摘掉这四份，跨度才收得动到「针原先那一秒」之外。 */
+  await page.eval(() => window.__P.key('M', { shift: true }));
+  await sleep(250);
+  await page.eval(() => window.__P.click('[data-mp-filter="all"]'));
+  for (let guard = 0; guard < 6; guard++) {
+    const left = (await st()).markers;
+    if (!left.length) break;
+    if (!(await page.eval(id => window.__P.click('[data-mp-jump="' + id + '"]'), left[0].id))) break;
+    await sleep(200);
+    if (!(await page.eval(() => window.__P.click('[data-mp="del"]')))) break;
+    await sleep(320);
+  }
+  await page.eval(() => window.__P.key('Escape'));
+  await sleep(250);
+  eq((await st()).markers.length, 0, '④：夹针这一族得先把标记清空（标记钉在成片秒，会把导航跨度撑住）');
+
+  const beforeGrow = (await st()).clips;
+  const beforeIds = new Set(beforeGrow.map(c => c.id));
+  const tailClip = beforeGrow[beforeGrow.length - 1];
+  await page.eval(id => window.__P.tap({ sel: '[data-clip="' + id + '"]' }), tailClip.id);
+  await sleep(200);
+  /* 复制不挑源长短（缩短只按素材时长放行，种子那 8 秒撑不出足够的一刀）：
+     四份副本紧接在选中那一段之后，摘掉它们一次收掉四段的时长。 */
+  for (let i = 0; i < 4; i++) {
+    must(await page.eval(() => window.__P.tool('duplicate')), '④：末尾那一段复制不动（第 ' + (i + 1) + ' 次）');
+    await sleep(240);
+  }
+  const added = (await st()).clips.filter(c => !beforeIds.has(c.id));
+  eq(added.length, 4, '④：末尾那一段该复制出四份接到片尾');
+  const grownTotal = durSum((await st()).clips);
+  const kPps = await page.eval(() => window.__P.pps());
+  await page.eval(t => window.__P.seek(t), grownTotal - 0.3);
+  await sleep(300);
+  const parked = await page.eval(() => window.__P.rulerCover());
+  must(parked.contentW - parked.phX < durSum(added) * kPps,
+    '④：针该停在末尾那几份副本里（摘掉它们才收得过针原先那一秒；针距内容层右沿 ' + (parked.contentW - parked.phX) +
+    ' 像素，那几份只有 ' + Math.round(durSum(added) * kPps) + ' 像素）');
+  for (const c of added) {
+    await page.eval(id => window.__P.tap({ sel: '[data-clip="' + id + '"]' }), c.id);
+    await sleep(180);
+    must(await page.eval(() => window.__P.tool('delete')), '④：摘掉副本那一颗点不动（' + c.id + '）');
+    await sleep(240);
+  }
+  await sleep(200);
+  eq(durSum((await st()).clips), durSum(beforeGrow), '④：四份副本该都摘干净，成片回到原先那一长');
+  const shrunk = await page.eval(() => window.__P.rulerCover());
+  must(shrunk.contentW < parked.phX, '④：摘掉那一大段之后内容层该收进针原先那一秒之内，不然判不到夹针（原针 ' + parked.phX + '，现在 ' + shrunk.contentW + '）');
+  must(shrunk.phX <= shrunk.contentW + 3, '④：成片剪短之后针该被夹回新跨度之内（针还停在 ' + shrunk.phX + '，内容层只有 ' + shrunk.contentW + ' · ' + shrunk.read + '）');
+  must(shrunk.beyond <= 4, '④：剪短之后轨道不许滚出内容层（露出的那一段是空道：' + shrunk.beyond + ' 像素 · ' + shrunk.over + '）');
+
+  /* —— 删掉「比刻度两侧那点余量还宽」的一整段：逐帧盯尺，一帧空着都不许 ——
+     同一把尺上还有第二处对不上：刻度那一段窗口是按重建**之前**的横滚位挑的，还位却被浏览器夹回来。
+     夹得比两侧余量（35% 视野）还多时，视野里就是一段没有刻度、没有秒数的空尺 —— 下一轮尺寸观察才补回来，
+     所以只有逐帧抓得住。把末尾那一段复制三份、再放大三档：删掉一份收掉的像素远超那点余量。 */
+  const tailNow = (await st()).clips.slice(-1)[0];
+  await page.eval(id => window.__P.tap({ sel: '[data-clip="' + id + '"]' }), tailNow.id);
+  await sleep(200);
+  for (let i = 0; i < 3; i++) {
+    must(await page.eval(() => window.__P.tool('duplicate')), '④：盯尺这一族复制末尾那一段点不动（第 ' + (i + 1) + ' 次）');
+    await sleep(240);
+  }
+  for (let i = 0; i < 3; i++) must(await page.eval(() => window.__P.tool('zoom-in')), '④：放大那颗点不动');
+  await sleep(600);
+  const wClip = (await st()).clips.slice(-1)[0];
+  const wPre = await page.eval(() => window.__P.rulerCover());
+  const wPps = await page.eval(() => window.__P.pps());
+  must(wClip.dur * wPps > wPre.cw * 0.35 + 40,
+    '④：这一段在屏幕上的宽度要压得过刻度两侧那点余量，不然判不到补画（那一段 ' + Math.round(wClip.dur * wPps) +
+    ' 像素，余量 ' + Math.round(wPre.cw * 0.35) + '）');
+  must(wPre.contentW > wPre.cw + wClip.dur * wPps, '④：轨道要长到能滚、且滚到最右时末尾那一段整条在视野里（内容层 ' + wPre.contentW + '，视野 ' + wPre.cw + '）');
+  await page.eval(() => window.__P.scrollBoard(99999));
+  await sleep(450);
+  await page.eval(id => window.__P.tap({ sel: '[data-clip="' + id + '"]' }), wClip.id);
+  await sleep(220);
+  const watched = await page.eval(act => window.__P.watchTool(act), 'delete');
+  must(!watched.err, '④：盯尺这一族的删除那颗点不动（' + (watched.err || '') + '）');
+  must(watched.bare === 0, '④：删掉那一段之后逐帧 ' + watched.frames + ' 次里尺上有 ' + watched.bare + ' 帧空着（最宽 ' + watched.worst + ' 像素：' + watched.at + '）');
 
   const errs = (page.errors || []).filter(Boolean).slice(0, 3);
   must(!errs.length, '④：页面异常：' + errs.join(' | '));

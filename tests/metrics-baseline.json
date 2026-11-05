@@ -1,453 +1,467 @@
 {
   "version": 1,
   "baseline": {
-    "at": "2026-10-27T12:52:56.101Z",
-    "totalLines": 78908,
-    "codeLines": 64400,
-    "totalBytes": 5985674,
-    "codeBytes": 3856327,
-    "moduleCount": 145,
+    "at": "2026-11-04T15:18:12.582Z",
+    "totalLines": 82989,
+    "codeLines": 67461,
+    "totalBytes": 6204857,
+    "codeBytes": 3965138,
+    "moduleCount": 151,
     "files": [
       {
-        "file": "web/pages/settings.js",
-        "lines": 4670,
-        "codeLines": 4298,
-        "bytes": 269013,
-        "codeBytes": 227324
+        "file": "web/director/engine.js",
+        "lines": 4597,
+        "codeLines": 3647,
+        "bytes": 290209,
+        "codeBytes": 184241
       },
       {
-        "file": "web/director/engine.js",
-        "lines": 4562,
-        "codeLines": 3629,
-        "bytes": 288104,
-        "codeBytes": 183971
+        "file": "web/pages/settings.js",
+        "lines": 4031,
+        "codeLines": 3721,
+        "bytes": 228257,
+        "codeBytes": 194195
       },
       {
         "file": "web/features/chat.js",
-        "lines": 3730,
-        "codeLines": 2997,
-        "bytes": 235032,
-        "codeBytes": 152064
+        "lines": 3702,
+        "codeLines": 2973,
+        "bytes": 229759,
+        "codeBytes": 147706
       },
       {
         "file": "web/pages/studio.js",
-        "lines": 3346,
-        "codeLines": 3018,
-        "bytes": 201300,
-        "codeBytes": 170592
+        "lines": 3584,
+        "codeLines": 3132,
+        "bytes": 212209,
+        "codeBytes": 167794
       },
       {
         "file": "web/ui/workbench.js",
-        "lines": 3168,
-        "codeLines": 2371,
-        "bytes": 201707,
-        "codeBytes": 113818
+        "lines": 3471,
+        "codeLines": 2595,
+        "bytes": 217066,
+        "codeBytes": 120947
       },
       {
         "file": "web/domain/chars.js",
-        "lines": 2368,
-        "codeLines": 2034,
-        "bytes": 183218,
-        "codeBytes": 145624
-      },
-      {
-        "file": "web/features/chat-tools.js",
-        "lines": 2218,
-        "codeLines": 1942,
-        "bytes": 156863,
-        "codeBytes": 126824
+        "lines": 2513,
+        "codeLines": 2173,
+        "bytes": 189956,
+        "codeBytes": 151976
       },
       {
         "file": "web/director/engine/panel.js",
-        "lines": 2163,
-        "codeLines": 1908,
-        "bytes": 139727,
-        "codeBytes": 110517
+        "lines": 2294,
+        "codeLines": 2026,
+        "bytes": 147628,
+        "codeBytes": 117023
+      },
+      {
+        "file": "web/features/chat-tools.js",
+        "lines": 2221,
+        "codeLines": 1943,
+        "bytes": 156846,
+        "codeBytes": 126696
       },
       {
         "file": "web/domain/api.js",
-        "lines": 1953,
-        "codeLines": 1348,
-        "bytes": 141768,
-        "codeBytes": 72580
-      },
-      {
-        "file": "web/pages/chars.js",
-        "lines": 1707,
-        "codeLines": 1569,
-        "bytes": 95291,
-        "codeBytes": 81439
+        "lines": 1928,
+        "codeLines": 1318,
+        "bytes": 138387,
+        "codeBytes": 68703
       },
       {
         "file": "web/director/engine/edit.js",
-        "lines": 1634,
-        "codeLines": 1526,
-        "bytes": 90779,
-        "codeBytes": 79327
+        "lines": 1795,
+        "codeLines": 1650,
+        "bytes": 101285,
+        "codeBytes": 85746
       },
       {
         "file": "web/ui/forms.js",
-        "lines": 1576,
-        "codeLines": 1241,
-        "bytes": 99262,
-        "codeBytes": 62984
+        "lines": 1703,
+        "codeLines": 1329,
+        "bytes": 108144,
+        "codeBytes": 67510
       },
       {
         "file": "web/ui/ui.js",
-        "lines": 1560,
-        "codeLines": 1181,
-        "bytes": 110903,
-        "codeBytes": 70283
-      },
-      {
-        "file": "web/domain/local.js",
-        "lines": 1556,
-        "codeLines": 1090,
-        "bytes": 96288,
-        "codeBytes": 43924
-      },
-      {
-        "file": "web/pages/assets.js",
-        "lines": 1526,
-        "codeLines": 1309,
-        "bytes": 84502,
-        "codeBytes": 62819
-      },
-      {
-        "file": "web/styles/ui.css",
-        "lines": 1388,
-        "codeLines": 974,
-        "bytes": 125470,
-        "codeBytes": 82617
-      },
-      {
-        "file": "server/registry-config.js",
-        "lines": 1387,
-        "codeLines": 779,
-        "bytes": 112740,
-        "codeBytes": 42793
+        "lines": 1596,
+        "codeLines": 1186,
+        "bytes": 110135,
+        "codeBytes": 66047
       },
       {
         "file": "web/domain/text-ai.js",
-        "lines": 1341,
-        "codeLines": 965,
-        "bytes": 111291,
-        "codeBytes": 70168
+        "lines": 1555,
+        "codeLines": 1161,
+        "bytes": 126331,
+        "codeBytes": 83736
+      },
+      {
+        "file": "server/registry-config.js",
+        "lines": 1502,
+        "codeLines": 858,
+        "bytes": 119462,
+        "codeBytes": 45779
+      },
+      {
+        "file": "web/pages/chars.js",
+        "lines": 1495,
+        "codeLines": 1358,
+        "bytes": 82175,
+        "codeBytes": 68018
+      },
+      {
+        "file": "web/styles/ui.css",
+        "lines": 1456,
+        "codeLines": 993,
+        "bytes": 131956,
+        "codeBytes": 83941
+      },
+      {
+        "file": "web/pages/assets.js",
+        "lines": 1444,
+        "codeLines": 1211,
+        "bytes": 77996,
+        "codeBytes": 54423
       },
       {
         "file": "web/director/engine/voice.js",
-        "lines": 1321,
-        "codeLines": 1042,
-        "bytes": 96575,
-        "codeBytes": 63445
+        "lines": 1438,
+        "codeLines": 1302,
+        "bytes": 98788,
+        "codeBytes": 82133
       },
       {
-        "file": "web/domain/gen-forms.js",
-        "lines": 1214,
-        "codeLines": 788,
-        "bytes": 85343,
-        "codeBytes": 38557
-      },
-      {
-        "file": "web/director/engine/bridge.js",
-        "lines": 1203,
-        "codeLines": 1141,
-        "bytes": 71790,
-        "codeBytes": 65230
+        "file": "web/domain/local.js",
+        "lines": 1352,
+        "codeLines": 954,
+        "bytes": 82654,
+        "codeBytes": 38152
       },
       {
         "file": "server/app.js",
-        "lines": 1182,
-        "codeLines": 1011,
-        "bytes": 87492,
-        "codeBytes": 68689
+        "lines": 1328,
+        "codeLines": 1124,
+        "bytes": 96505,
+        "codeBytes": 73516
       },
       {
         "file": "web/director/template.html",
-        "lines": 1177,
-        "codeLines": 1159,
-        "bytes": 107896,
-        "codeBytes": 105846
+        "lines": 1257,
+        "codeLines": 1238,
+        "bytes": 115137,
+        "codeBytes": 112999
+      },
+      {
+        "file": "web/domain/gen-forms.js",
+        "lines": 1252,
+        "codeLines": 810,
+        "bytes": 87772,
+        "codeBytes": 39370
+      },
+      {
+        "file": "web/director/engine/bridge.js",
+        "lines": 1216,
+        "codeLines": 1145,
+        "bytes": 72250,
+        "codeBytes": 64607
+      },
+      {
+        "file": "web/pages/settings/accounts.js",
+        "lines": 1113,
+        "codeLines": 918,
+        "bytes": 65906,
+        "codeBytes": 43331
       },
       {
         "file": "web/domain/capabilities.js",
-        "lines": 1033,
-        "codeLines": 665,
-        "bytes": 75005,
-        "codeBytes": 33547
-      },
-      {
-        "file": "web/domain/assetlib.js",
-        "lines": 1025,
-        "codeLines": 710,
-        "bytes": 71031,
-        "codeBytes": 36052
-      },
-      {
-        "file": "web/director/engine/timeline.js",
-        "lines": 959,
-        "codeLines": 902,
-        "bytes": 44425,
-        "codeBytes": 39280
-      },
-      {
-        "file": "web/ui/sidebar.js",
-        "lines": 831,
-        "codeLines": 554,
-        "bytes": 58585,
-        "codeBytes": 27360
+        "lines": 1076,
+        "codeLines": 686,
+        "bytes": 78593,
+        "codeBytes": 34417
       },
       {
         "file": "server/local-assets-store.js",
-        "lines": 827,
-        "codeLines": 570,
-        "bytes": 56717,
-        "codeBytes": 27298
+        "lines": 1057,
+        "codeLines": 742,
+        "bytes": 70281,
+        "codeBytes": 34329
       },
       {
-        "file": "web/pages/chars/detail.js",
-        "lines": 790,
-        "codeLines": 713,
-        "bytes": 42888,
-        "codeBytes": 36388
+        "file": "web/domain/assetlib.js",
+        "lines": 1056,
+        "codeLines": 730,
+        "bytes": 73265,
+        "codeBytes": 36963
       },
       {
-        "file": "web/domain/asset-picker.js",
-        "lines": 786,
-        "codeLines": 579,
-        "bytes": 56473,
-        "codeBytes": 31151
+        "file": "web/director/engine/timeline.js",
+        "lines": 972,
+        "codeLines": 900,
+        "bytes": 46241,
+        "codeBytes": 39374
+      },
+      {
+        "file": "web/ui/sidebar.js",
+        "lines": 835,
+        "codeLines": 574,
+        "bytes": 55296,
+        "codeBytes": 26062
       },
       {
         "file": "web/director/engine/gen.js",
-        "lines": 782,
-        "codeLines": 605,
-        "bytes": 49439,
-        "codeBytes": 28700
+        "lines": 810,
+        "codeLines": 624,
+        "bytes": 50571,
+        "codeBytes": 28730
       },
       {
         "file": "web/pages/favorites.js",
-        "lines": 767,
-        "codeLines": 655,
-        "bytes": 41583,
-        "codeBytes": 30028
+        "lines": 804,
+        "codeLines": 680,
+        "bytes": 42170,
+        "codeBytes": 29267
+      },
+      {
+        "file": "web/domain/asset-picker.js",
+        "lines": 792,
+        "codeLines": 583,
+        "bytes": 56697,
+        "codeBytes": 31095
       },
       {
         "file": "web/director/engine/apply.js",
-        "lines": 766,
-        "codeLines": 558,
-        "bytes": 51183,
-        "codeBytes": 28008
+        "lines": 771,
+        "codeLines": 562,
+        "bytes": 50370,
+        "codeBytes": 27238
       },
       {
-        "file": "web/media-export.js",
-        "lines": 735,
-        "codeLines": 645,
-        "bytes": 39377,
-        "codeBytes": 28972
-      },
-      {
-        "file": "server/cloud-store.js",
-        "lines": 668,
-        "codeLines": 655,
-        "bytes": 43742,
-        "codeBytes": 42408
+        "file": "web/pages/chars/detail.js",
+        "lines": 769,
+        "codeLines": 689,
+        "bytes": 40291,
+        "codeBytes": 33411
       },
       {
         "file": "web/styles/spa-settings.css",
-        "lines": 667,
-        "codeLines": 527,
-        "bytes": 60341,
-        "codeBytes": 45655
+        "lines": 756,
+        "codeLines": 584,
+        "bytes": 67080,
+        "codeBytes": 49057
       },
       {
-        "file": "web/director/engine/frames.js",
-        "lines": 648,
-        "codeLines": 495,
-        "bytes": 38718,
-        "codeBytes": 19077
-      },
-      {
-        "file": "web/director/engine/play.js",
-        "lines": 640,
-        "codeLines": 596,
-        "bytes": 24171,
-        "codeBytes": 19647
-      },
-      {
-        "file": "web/director/film.js",
-        "lines": 586,
-        "codeLines": 473,
-        "bytes": 32447,
-        "codeBytes": 20680
-      },
-      {
-        "file": "web/ui/datasync.js",
-        "lines": 576,
-        "codeLines": 396,
-        "bytes": 38165,
-        "codeBytes": 17809
-      },
-      {
-        "file": "web/pages/usage.js",
-        "lines": 571,
-        "codeLines": 524,
-        "bytes": 31783,
-        "codeBytes": 27088
-      },
-      {
-        "file": "web/media-backend.js",
-        "lines": 527,
-        "codeLines": 449,
-        "bytes": 28475,
-        "codeBytes": 19672
+        "file": "web/media-export.js",
+        "lines": 736,
+        "codeLines": 645,
+        "bytes": 39467,
+        "codeBytes": 28955
       },
       {
         "file": "server/routes/asr.js",
-        "lines": 516,
-        "codeLines": 492,
-        "bytes": 26901,
-        "codeBytes": 24141
+        "lines": 673,
+        "codeLines": 611,
+        "bytes": 37723,
+        "codeBytes": 30735
+      },
+      {
+        "file": "server/cloud-store.js",
+        "lines": 667,
+        "codeLines": 654,
+        "bytes": 43695,
+        "codeBytes": 42361
+      },
+      {
+        "file": "web/director/engine/frames.js",
+        "lines": 660,
+        "codeLines": 506,
+        "bytes": 38917,
+        "codeBytes": 19223
+      },
+      {
+        "file": "web/director/engine/play.js",
+        "lines": 659,
+        "codeLines": 605,
+        "bytes": 25625,
+        "codeBytes": 19985
+      },
+      {
+        "file": "web/director/film.js",
+        "lines": 591,
+        "codeLines": 473,
+        "bytes": 32821,
+        "codeBytes": 20556
+      },
+      {
+        "file": "web/ui/datasync.js",
+        "lines": 573,
+        "codeLines": 395,
+        "bytes": 37879,
+        "codeBytes": 17779
+      },
+      {
+        "file": "web/pages/usage.js",
+        "lines": 567,
+        "codeLines": 520,
+        "bytes": 30621,
+        "codeBytes": 25953
+      },
+      {
+        "file": "web/media-backend.js",
+        "lines": 548,
+        "codeLines": 463,
+        "bytes": 29479,
+        "codeBytes": 20042
       },
       {
         "file": "web/director/engine/mid.js",
-        "lines": 462,
-        "codeLines": 353,
-        "bytes": 29827,
-        "codeBytes": 17219
+        "lines": 467,
+        "codeLines": 366,
+        "bytes": 29707,
+        "codeBytes": 17619
       },
       {
         "file": "server/routes/local-assets.js",
-        "lines": 418,
-        "codeLines": 326,
-        "bytes": 29864,
-        "codeBytes": 19115
+        "lines": 442,
+        "codeLines": 336,
+        "bytes": 32494,
+        "codeBytes": 20161
       },
       {
         "file": "web/director/engine/caption.js",
-        "lines": 394,
-        "codeLines": 354,
-        "bytes": 25821,
-        "codeBytes": 21077
+        "lines": 391,
+        "codeLines": 351,
+        "bytes": 24111,
+        "codeBytes": 19410
       },
       {
         "file": "web/director/engine/export.js",
-        "lines": 386,
-        "codeLines": 304,
-        "bytes": 24481,
-        "codeBytes": 15405
-      },
-      {
-        "file": "web/director/board.js",
-        "lines": 385,
-        "codeLines": 311,
-        "bytes": 23977,
-        "codeBytes": 14774
+        "lines": 387,
+        "codeLines": 302,
+        "bytes": 24618,
+        "codeBytes": 15304
       },
       {
         "file": "web/director/fcpxml.js",
-        "lines": 380,
-        "codeLines": 321,
-        "bytes": 25649,
-        "codeBytes": 19108
+        "lines": 385,
+        "codeLines": 325,
+        "bytes": 24976,
+        "codeBytes": 18366
       },
       {
-        "file": "web/styles/spa-chars.css",
-        "lines": 379,
-        "codeLines": 334,
-        "bytes": 26613,
-        "codeBytes": 22224
+        "file": "web/director/board.js",
+        "lines": 382,
+        "codeLines": 308,
+        "bytes": 23707,
+        "codeBytes": 14539
       },
       {
         "file": "web/domain/asset-transfer.js",
         "lines": 374,
         "codeLines": 290,
-        "bytes": 25192,
+        "bytes": 25186,
         "codeBytes": 15550
       },
       {
         "file": "server/routes/relay.js",
-        "lines": 366,
-        "codeLines": 283,
-        "bytes": 25153,
-        "codeBytes": 15067
+        "lines": 372,
+        "codeLines": 285,
+        "bytes": 25697,
+        "codeBytes": 15132
+      },
+      {
+        "file": "server/routes/search.js",
+        "lines": 372,
+        "codeLines": 337,
+        "bytes": 21150,
+        "codeBytes": 17495
       },
       {
         "file": "server/routes/fcpxml.js",
         "lines": 356,
         "codeLines": 307,
-        "bytes": 20196,
+        "bytes": 20170,
         "codeBytes": 14876
       },
       {
         "file": "web/styles/chat.css",
-        "lines": 333,
-        "codeLines": 254,
-        "bytes": 29783,
-        "codeBytes": 21647
+        "lines": 324,
+        "codeLines": 246,
+        "bytes": 28985,
+        "codeBytes": 20967
       },
       {
         "file": "web/domain/fav.js",
-        "lines": 307,
-        "codeLines": 226,
-        "bytes": 18829,
-        "codeBytes": 10129
+        "lines": 317,
+        "codeLines": 234,
+        "bytes": 19430,
+        "codeBytes": 10515
       },
       {
-        "file": "server/skills-store.js",
-        "lines": 300,
-        "codeLines": 291,
-        "bytes": 17107,
-        "codeBytes": 16162
+        "file": "server/prompts-store.js",
+        "lines": 311,
+        "codeLines": 283,
+        "bytes": 17958,
+        "codeBytes": 14835
       },
       {
         "file": "web/director/chain.js",
-        "lines": 289,
-        "codeLines": 241,
-        "bytes": 14242,
-        "codeBytes": 9815
+        "lines": 309,
+        "codeLines": 252,
+        "bytes": 15657,
+        "codeBytes": 10240
       },
       {
-        "file": "server/routes/search.js",
-        "lines": 284,
-        "codeLines": 279,
-        "bytes": 15573,
-        "codeBytes": 15040
+        "file": "server/skills-store.js",
+        "lines": 296,
+        "codeLines": 287,
+        "bytes": 16679,
+        "codeBytes": 15741
+      },
+      {
+        "file": "server/asr-store.js",
+        "lines": 286,
+        "codeLines": 256,
+        "bytes": 13254,
+        "codeBytes": 10170
+      },
+      {
+        "file": "web/director/tl-resize.js",
+        "lines": 275,
+        "codeLines": 247,
+        "bytes": 11955,
+        "codeBytes": 9261
+      },
+      {
+        "file": "web/styles/spa-chars.css",
+        "lines": 274,
+        "codeLines": 268,
+        "bytes": 25066,
+        "codeBytes": 24500
       },
       {
         "file": "web/domain/prompt-log.js",
         "lines": 268,
         "codeLines": 253,
-        "bytes": 16981,
-        "codeBytes": 15225
+        "bytes": 17000,
+        "codeBytes": 15244
       },
       {
-        "file": "server/prompts-store.js",
-        "lines": 267,
-        "codeLines": 256,
-        "bytes": 15177,
-        "codeBytes": 14018
+        "file": "web/app.js",
+        "lines": 259,
+        "codeLines": 189,
+        "bytes": 15840,
+        "codeBytes": 8430
       },
       {
         "file": "web/domain/gen-rules.js",
-        "lines": 261,
-        "codeLines": 195,
-        "bytes": 17023,
-        "codeBytes": 10104
-      },
-      {
-        "file": "server/asr-store.js",
         "lines": 259,
-        "codeLines": 249,
-        "bytes": 10548,
-        "codeBytes": 9650
-      },
-      {
-        "file": "web/director/tl-resize.js",
-        "lines": 259,
-        "codeLines": 235,
-        "bytes": 10977,
-        "codeBytes": 8821
+        "codeLines": 194,
+        "bytes": 16843,
+        "codeBytes": 10048
       },
       {
         "file": "server/outbound.js",
@@ -457,32 +471,39 @@
         "codeBytes": 9284
       },
       {
-        "file": "web/ui/net.js",
-        "lines": 230,
-        "codeLines": 167,
-        "bytes": 14813,
-        "codeBytes": 7884
+        "file": "server/routes/cache.js",
+        "lines": 246,
+        "codeLines": 192,
+        "bytes": 13617,
+        "codeBytes": 7387
       },
       {
         "file": "server/routes/models.js",
-        "lines": 229,
-        "codeLines": 207,
-        "bytes": 12450,
-        "codeBytes": 9607
+        "lines": 243,
+        "codeLines": 216,
+        "bytes": 13392,
+        "codeBytes": 9968
       },
       {
-        "file": "web/styles/sidebar.css",
-        "lines": 227,
-        "codeLines": 149,
-        "bytes": 19039,
-        "codeBytes": 11525
+        "file": "server/routes/outbound.js",
+        "lines": 239,
+        "codeLines": 187,
+        "bytes": 14853,
+        "codeBytes": 8988
+      },
+      {
+        "file": "web/ui/net.js",
+        "lines": 229,
+        "codeLines": 166,
+        "bytes": 14612,
+        "codeBytes": 7747
       },
       {
         "file": "web/ui/skills.js",
         "lines": 225,
         "codeLines": 193,
-        "bytes": 11347,
-        "codeBytes": 8025
+        "bytes": 11259,
+        "codeBytes": 7949
       },
       {
         "file": "server/routes/capabilities.js",
@@ -492,46 +513,74 @@
         "codeBytes": 7015
       },
       {
-        "file": "web/app.js",
+        "file": "web/domain/asr.js",
         "lines": 219,
-        "codeLines": 165,
-        "bytes": 13318,
-        "codeBytes": 7627
+        "codeLines": 198,
+        "bytes": 12447,
+        "codeBytes": 10040
       },
       {
-        "file": "web/domain/asr.js",
-        "lines": 218,
-        "codeLines": 197,
-        "bytes": 12440,
-        "codeBytes": 10033
+        "file": "web/pages/studio/cross-col.js",
+        "lines": 217,
+        "codeLines": 196,
+        "bytes": 13642,
+        "codeBytes": 11420
       },
       {
         "file": "web/director/board-assets.js",
-        "lines": 213,
+        "lines": 215,
         "codeLines": 156,
-        "bytes": 11318,
-        "codeBytes": 6202
+        "bytes": 11288,
+        "codeBytes": 6026
+      },
+      {
+        "file": "server/static.js",
+        "lines": 210,
+        "codeLines": 157,
+        "bytes": 13474,
+        "codeBytes": 7296
       },
       {
         "file": "web/ui/raw-request.js",
-        "lines": 208,
-        "codeLines": 172,
-        "bytes": 11129,
-        "codeBytes": 7003
+        "lines": 210,
+        "codeLines": 169,
+        "bytes": 11466,
+        "codeBytes": 6807
       },
       {
         "file": "web/core/actions.js",
         "lines": 207,
         "codeLines": 201,
-        "bytes": 10829,
-        "codeBytes": 10120
+        "bytes": 10803,
+        "codeBytes": 10094
+      },
+      {
+        "file": "server/providers/validate.js",
+        "lines": 206,
+        "codeLines": 173,
+        "bytes": 12687,
+        "codeBytes": 9127
+      },
+      {
+        "file": "web/styles/sidebar.css",
+        "lines": 206,
+        "codeLines": 135,
+        "bytes": 17212,
+        "codeBytes": 10437
       },
       {
         "file": "server/index-store.js",
-        "lines": 199,
-        "codeLines": 162,
-        "bytes": 10451,
-        "codeBytes": 6454
+        "lines": 203,
+        "codeLines": 164,
+        "bytes": 10740,
+        "codeBytes": 6508
+      },
+      {
+        "file": "web/styles/tokens.css",
+        "lines": 198,
+        "codeLines": 106,
+        "bytes": 14634,
+        "codeBytes": 5636
       },
       {
         "file": "web/director/split-assets.js",
@@ -541,18 +590,18 @@
         "codeBytes": 7720
       },
       {
+        "file": "web/pages/studio/split.js",
+        "lines": 193,
+        "codeLines": 176,
+        "bytes": 10773,
+        "codeBytes": 8943
+      },
+      {
         "file": "server/relay-gate.js",
         "lines": 192,
         "codeLines": 152,
-        "bytes": 14462,
+        "bytes": 14416,
         "codeBytes": 8680
-      },
-      {
-        "file": "server/data-store.js",
-        "lines": 188,
-        "codeLines": 152,
-        "bytes": 10523,
-        "codeBytes": 6827
       },
       {
         "file": "web/director/tl-scale.js",
@@ -562,32 +611,25 @@
         "codeBytes": 6820
       },
       {
-        "file": "web/director/index.js",
-        "lines": 169,
-        "codeLines": 143,
-        "bytes": 10102,
-        "codeBytes": 7152
-      },
-      {
-        "file": "web/styles/tokens.css",
-        "lines": 168,
-        "codeLines": 98,
-        "bytes": 11477,
-        "codeBytes": 5149
-      },
-      {
-        "file": "server/routes/outbound.js",
-        "lines": 166,
-        "codeLines": 128,
-        "bytes": 10638,
-        "codeBytes": 6276
-      },
-      {
         "file": "server/media-src.js",
-        "lines": 163,
-        "codeLines": 159,
-        "bytes": 7797,
-        "codeBytes": 7221
+        "lines": 176,
+        "codeLines": 170,
+        "bytes": 8550,
+        "codeBytes": 7740
+      },
+      {
+        "file": "server/data-store.js",
+        "lines": 168,
+        "codeLines": 134,
+        "bytes": 9523,
+        "codeBytes": 6071
+      },
+      {
+        "file": "web/director/index.js",
+        "lines": 164,
+        "codeLines": 136,
+        "bytes": 9705,
+        "codeBytes": 6652
       },
       {
         "file": "server/security.js",
@@ -597,60 +639,39 @@
         "codeBytes": 5908
       },
       {
-        "file": "server/providers/validate.js",
-        "lines": 155,
-        "codeLines": 125,
-        "bytes": 9677,
-        "codeBytes": 6489
-      },
-      {
         "file": "web/director/naming.js",
         "lines": 151,
         "codeLines": 114,
-        "bytes": 8779,
+        "bytes": 8768,
         "codeBytes": 4763
       },
       {
-        "file": "web/styles/spa-studio.css",
-        "lines": 145,
-        "codeLines": 100,
-        "bytes": 13023,
-        "codeBytes": 8481
-      },
-      {
-        "file": "server/routes/cache.js",
-        "lines": 144,
-        "codeLines": 129,
-        "bytes": 6685,
-        "codeBytes": 5072
-      },
-      {
         "file": "web/director/tl-cut.js",
-        "lines": 144,
-        "codeLines": 130,
-        "bytes": 7417,
-        "codeBytes": 5814
+        "lines": 147,
+        "codeLines": 132,
+        "bytes": 7754,
+        "codeBytes": 5937
+      },
+      {
+        "file": "web/pages/studio/videofill.js",
+        "lines": 141,
+        "codeLines": 124,
+        "bytes": 6570,
+        "codeBytes": 4637
       },
       {
         "file": "server/routes/registry.js",
         "lines": 140,
         "codeLines": 79,
-        "bytes": 11083,
+        "bytes": 11043,
         "codeBytes": 4381
       },
       {
-        "file": "web/director/engine/strip.js",
-        "lines": 138,
-        "codeLines": 130,
-        "bytes": 6918,
-        "codeBytes": 6123
-      },
-      {
-        "file": "web/styles/spa-assets.css",
-        "lines": 138,
-        "codeLines": 92,
-        "bytes": 12780,
-        "codeBytes": 8116
+        "file": "server/channel-cred.js",
+        "lines": 136,
+        "codeLines": 110,
+        "bytes": 6514,
+        "codeBytes": 3872
       },
       {
         "file": "server/routes/pick-dir.js",
@@ -660,11 +681,18 @@
         "codeBytes": 7235
       },
       {
-        "file": "server/static.js",
-        "lines": 130,
-        "codeLines": 92,
-        "bytes": 9302,
-        "codeBytes": 4766
+        "file": "web/director/engine/strip.js",
+        "lines": 134,
+        "codeLines": 126,
+        "bytes": 6657,
+        "codeBytes": 5877
+      },
+      {
+        "file": "web/director/ref-plan.js",
+        "lines": 132,
+        "codeLines": 118,
+        "bytes": 6367,
+        "codeBytes": 5020
       },
       {
         "file": "web/ui/toast.js",
@@ -674,25 +702,53 @@
         "codeBytes": 3904
       },
       {
+        "file": "web/core/routes.js",
+        "lines": 127,
+        "codeLines": 90,
+        "bytes": 8312,
+        "codeBytes": 4395
+      },
+      {
+        "file": "web/styles/spa-studio.css",
+        "lines": 124,
+        "codeLines": 82,
+        "bytes": 10645,
+        "codeBytes": 6413
+      },
+      {
+        "file": "web/director/tl-reorder.js",
+        "lines": 122,
+        "codeLines": 104,
+        "bytes": 6663,
+        "codeBytes": 4564
+      },
+      {
+        "file": "server/fs-atomic.js",
+        "lines": 121,
+        "codeLines": 87,
+        "bytes": 6908,
+        "codeBytes": 3379
+      },
+      {
+        "file": "server/search-store.js",
+        "lines": 119,
+        "codeLines": 107,
+        "bytes": 5263,
+        "codeBytes": 3941
+      },
+      {
         "file": "web/director/srt.js",
         "lines": 114,
         "codeLines": 95,
-        "bytes": 6317,
+        "bytes": 6298,
         "codeBytes": 4354
-      },
-      {
-        "file": "web/core/routes.js",
-        "lines": 113,
-        "codeLines": 83,
-        "bytes": 7335,
-        "codeBytes": 4116
       },
       {
         "file": "web/domain/zip-read.js",
         "lines": 111,
         "codeLines": 107,
-        "bytes": 5494,
-        "codeBytes": 5044
+        "bytes": 5410,
+        "codeBytes": 4960
       },
       {
         "file": "server/routes/system.js",
@@ -712,22 +768,29 @@
         "file": "web/core/page-context.js",
         "lines": 108,
         "codeLines": 101,
-        "bytes": 5630,
-        "codeBytes": 4969
+        "bytes": 5520,
+        "codeBytes": 4863
+      },
+      {
+        "file": "server/user-dirs.js",
+        "lines": 106,
+        "codeLines": 70,
+        "bytes": 6832,
+        "codeBytes": 2930
+      },
+      {
+        "file": "web/domain/ai-find.js",
+        "lines": 104,
+        "codeLines": 72,
+        "bytes": 6693,
+        "codeBytes": 2806
       },
       {
         "file": "web/ui/kv.js",
-        "lines": 108,
-        "codeLines": 90,
-        "bytes": 6396,
-        "codeBytes": 4324
-      },
-      {
-        "file": "server/search-store.js",
-        "lines": 107,
-        "codeLines": 103,
-        "bytes": 4242,
-        "codeBytes": 3874
+        "lines": 104,
+        "codeLines": 89,
+        "bytes": 5938,
+        "codeBytes": 4200
       },
       {
         "file": "server/health.js",
@@ -744,6 +807,13 @@
         "codeBytes": 3959
       },
       {
+        "file": "web/styles/spa-assets.css",
+        "lines": 101,
+        "codeLines": 67,
+        "bytes": 8905,
+        "codeBytes": 5443
+      },
+      {
         "file": "web/director/script.js",
         "lines": 94,
         "codeLines": 74,
@@ -751,32 +821,18 @@
         "codeBytes": 2581
       },
       {
-        "file": "web/core/report.js",
-        "lines": 89,
-        "codeLines": 71,
-        "bytes": 5237,
-        "codeBytes": 3014
-      },
-      {
-        "file": "server/fs-atomic.js",
-        "lines": 88,
-        "codeLines": 66,
-        "bytes": 4943,
-        "codeBytes": 2338
-      },
-      {
-        "file": "web/styles/spa-pages.css",
+        "file": "web/ui/band.js",
         "lines": 87,
-        "codeLines": 61,
-        "bytes": 7907,
-        "codeBytes": 5210
+        "codeLines": 81,
+        "bytes": 3401,
+        "codeBytes": 2776
       },
       {
-        "file": "web/domain/ai-find.js",
+        "file": "shell.html",
         "lines": 86,
-        "codeLines": 64,
-        "bytes": 5303,
-        "codeBytes": 2546
+        "codeLines": 67,
+        "bytes": 6205,
+        "codeBytes": 4063
       },
       {
         "file": "server/zip.js",
@@ -786,25 +842,11 @@
         "codeBytes": 3016
       },
       {
-        "file": "web/styles/spa-usage.css",
-        "lines": 85,
-        "codeLines": 70,
-        "bytes": 7570,
-        "codeBytes": 6201
-      },
-      {
-        "file": "web/director/tl-reorder.js",
+        "file": "web/styles/spa-pages.css",
         "lines": 84,
-        "codeLines": 71,
-        "bytes": 4509,
-        "codeBytes": 3054
-      },
-      {
-        "file": "shell.html",
-        "lines": 83,
-        "codeLines": 66,
-        "bytes": 5883,
-        "codeBytes": 3969
+        "codeLines": 58,
+        "bytes": 7432,
+        "codeBytes": 4753
       },
       {
         "file": "web/director/tl-markers.js",
@@ -812,6 +854,13 @@
         "codeLines": 70,
         "bytes": 4482,
         "codeBytes": 3258
+      },
+      {
+        "file": "web/styles/spa-usage.css",
+        "lines": 83,
+        "codeLines": 64,
+        "bytes": 7445,
+        "codeBytes": 5634
       },
       {
         "file": "server/routes/skills.js",
@@ -828,32 +877,39 @@
         "codeBytes": 3343
       },
       {
+        "file": "server/routes/static.js",
+        "lines": 79,
+        "codeLines": 66,
+        "bytes": 4726,
+        "codeBytes": 3243
+      },
+      {
+        "file": "web/core/report.js",
+        "lines": 79,
+        "codeLines": 61,
+        "bytes": 4652,
+        "codeBytes": 2531
+      },
+      {
         "file": "web/director/tl-snap.js",
         "lines": 78,
         "codeLines": 67,
-        "bytes": 4207,
-        "codeBytes": 3114
+        "bytes": 4153,
+        "codeBytes": 3060
+      },
+      {
+        "file": "web/styles/wb.css",
+        "lines": 78,
+        "codeLines": 41,
+        "bytes": 6380,
+        "codeBytes": 2699
       },
       {
         "file": "web/ui/store.js",
         "lines": 78,
         "codeLines": 61,
-        "bytes": 4693,
-        "codeBytes": 2772
-      },
-      {
-        "file": "server/channel-cred.js",
-        "lines": 77,
-        "codeLines": 59,
-        "bytes": 3680,
-        "codeBytes": 1932
-      },
-      {
-        "file": "server/routes/static.js",
-        "lines": 77,
-        "codeLines": 66,
-        "bytes": 4395,
-        "codeBytes": 3102
+        "bytes": 4676,
+        "codeBytes": 2755
       },
       {
         "file": "web/director/tl-filmstrip.js",
@@ -863,20 +919,6 @@
         "codeBytes": 2704
       },
       {
-        "file": "web/styles/wb.css",
-        "lines": 72,
-        "codeLines": 40,
-        "bytes": 5701,
-        "codeBytes": 2585
-      },
-      {
-        "file": "web/director/board-preview.js",
-        "lines": 71,
-        "codeLines": 48,
-        "bytes": 4551,
-        "codeBytes": 2134
-      },
-      {
         "file": "web/domain/export-dir.js",
         "lines": 67,
         "codeLines": 55,
@@ -884,32 +926,53 @@
         "codeBytes": 2344
       },
       {
-        "file": "web/director/asr-worker.js",
-        "lines": 64,
-        "codeLines": 57,
-        "bytes": 3452,
-        "codeBytes": 2395
-      },
-      {
-        "file": "web/director/board-vars.js",
-        "lines": 63,
-        "codeLines": 44,
-        "bytes": 3181,
-        "codeBytes": 1406
+        "file": "web/director/board-preview.js",
+        "lines": 66,
+        "codeLines": 43,
+        "bytes": 4292,
+        "codeBytes": 1939
       },
       {
         "file": "server/local-root.js",
-        "lines": 62,
+        "lines": 65,
         "codeLines": 36,
-        "bytes": 4605,
-        "codeBytes": 1446
+        "bytes": 4950,
+        "codeBytes": 1450
+      },
+      {
+        "file": "web/director/asr-worker.js",
+        "lines": 64,
+        "codeLines": 55,
+        "bytes": 3544,
+        "codeBytes": 2297
+      },
+      {
+        "file": "web/director/board-vars.js",
+        "lines": 62,
+        "codeLines": 43,
+        "bytes": 3152,
+        "codeBytes": 1377
+      },
+      {
+        "file": "server/routes/http.js",
+        "lines": 56,
+        "codeLines": 36,
+        "bytes": 3497,
+        "codeBytes": 1420
+      },
+      {
+        "file": "web/boot-assistant.js",
+        "lines": 56,
+        "codeLines": 34,
+        "bytes": 3699,
+        "codeBytes": 1342
       },
       {
         "file": "web/director/tl-ripple.js",
-        "lines": 56,
-        "codeLines": 46,
-        "bytes": 3015,
-        "codeBytes": 1861
+        "lines": 55,
+        "codeLines": 45,
+        "bytes": 2945,
+        "codeBytes": 1803
       },
       {
         "file": "web/director/tl-peaks.js",
@@ -917,6 +980,13 @@
         "codeLines": 47,
         "bytes": 2733,
         "codeBytes": 2025
+      },
+      {
+        "file": "web/domain/search.js",
+        "lines": 54,
+        "codeLines": 44,
+        "bytes": 2517,
+        "codeBytes": 1633
       },
       {
         "file": "web/director/tl-autoscroll.js",
@@ -947,13 +1017,6 @@
         "codeBytes": 1598
       },
       {
-        "file": "web/domain/search.js",
-        "lines": 47,
-        "codeLines": 44,
-        "bytes": 1795,
-        "codeBytes": 1495
-      },
-      {
         "file": "web/director/util.js",
         "lines": 44,
         "codeLines": 34,
@@ -961,25 +1024,18 @@
         "codeBytes": 1794
       },
       {
+        "file": "web/shell-boot.js",
+        "lines": 44,
+        "codeLines": 29,
+        "bytes": 2545,
+        "codeBytes": 1177
+      },
+      {
         "file": "server/lock.js",
         "lines": 43,
         "codeLines": 41,
         "bytes": 1909,
         "codeBytes": 1720
-      },
-      {
-        "file": "server/user-dirs.js",
-        "lines": 42,
-        "codeLines": 29,
-        "bytes": 2493,
-        "codeBytes": 1349
-      },
-      {
-        "file": "web/boot-assistant.js",
-        "lines": 41,
-        "codeLines": 23,
-        "bytes": 3116,
-        "codeBytes": 1094
       },
       {
         "file": "web/core/activity.js",
@@ -990,17 +1046,10 @@
       },
       {
         "file": "web/core/page-css.js",
-        "lines": 36,
-        "codeLines": 28,
-        "bytes": 2051,
-        "codeBytes": 953
-      },
-      {
-        "file": "server/routes/http.js",
-        "lines": 30,
-        "codeLines": 20,
-        "bytes": 1816,
-        "codeBytes": 881
+        "lines": 41,
+        "codeLines": 29,
+        "bytes": 2575,
+        "codeBytes": 1006
       },
       {
         "file": "web/ui/badge-state.js",
@@ -1017,13 +1066,6 @@
         "codeBytes": 703
       },
       {
-        "file": "web/core/hooks.js",
-        "lines": 24,
-        "codeLines": 21,
-        "bytes": 1051,
-        "codeBytes": 739
-      },
-      {
         "file": "web/director/slice-worker.js",
         "lines": 23,
         "codeLines": 17,
@@ -1036,6 +1078,13 @@
         "codeLines": 20,
         "bytes": 845,
         "codeBytes": 766
+      },
+      {
+        "file": "web/core/hooks.js",
+        "lines": 20,
+        "codeLines": 19,
+        "bytes": 685,
+        "codeBytes": 583
       },
       {
         "file": "web/domain/text-ai/contracts.js",
@@ -1069,7 +1118,7 @@
         "file": "server/file-safe.js",
         "lines": 15,
         "codeLines": 10,
-        "bytes": 853,
+        "bytes": 841,
         "codeBytes": 292
       },
       {
@@ -1080,25 +1129,18 @@
         "codeBytes": 200
       },
       {
-        "file": "web/shell-boot.js",
-        "lines": 7,
-        "codeLines": 5,
-        "bytes": 374,
-        "codeBytes": 182
+        "file": "proxy.js",
+        "lines": 9,
+        "codeLines": 3,
+        "bytes": 824,
+        "codeBytes": 150
       },
       {
         "file": "web/ui/index.js",
-        "lines": 3,
-        "codeLines": 1,
-        "bytes": 241,
-        "codeBytes": 58
-      },
-      {
-        "file": "proxy.js",
-        "lines": 2,
-        "codeLines": 1,
-        "bytes": 117,
-        "codeBytes": 31
+        "lines": 4,
+        "codeLines": 2,
+        "bytes": 282,
+        "codeBytes": 99
       },
       {
         "file": "web/vendor/asr/transformers.min.js",

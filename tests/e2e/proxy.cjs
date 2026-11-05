@@ -62,11 +62,15 @@ const h = require('./harness.cjs');
     const ct = await call('/cloud/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     if (ct.status !== 400) throw new Error('没配云端时 /cloud/test 应 400，实际 ' + ct.status);
 
-    const cap = await call('/capabilities?provider=deepseek');
+    /* deepseek 自 v19 起声明了 endpoints.models（端点只活在注册表那一份）——
+       /capabilities 会照声明去问上游。密钥取「请求头 > 环境变量 > 设置页」三顺位，
+       而探针实例继承跑判据这台机器的 `.env`：这里要是有一把真能用的钥匙，上游就会正常答话
+       （source:'api'），这一格要判的「拿不到清单时怎么兜底」根本没被执行到。
+       所以点名带一把必然被拒的钥匙 —— 上游 401 与连不上两条路都落到 registry 兜底，
+       判的仍是兜底这一路，与这台机器配了哪些密钥无关。 */
+    const cap = await call('/capabilities?provider=deepseek', { headers: { authorization: 'Bearer probe-invalid-key' } });
     if (cap.status !== 200) throw new Error('GET /capabilities 应 200，实际 ' + cap.status);
     const capJson = await cap.json();
-    /* deepseek 自 v19 起声明了 endpoints.models（端点只活在注册表那一份）——
-       /capabilities 会照声明去问上游；探针环境没有密钥，上游 401 → 按 registry 兜底（source:'registry'）。 */
     if (!capJson || capJson.provider !== 'deepseek' || capJson.endpoint !== '/models' || capJson.source !== 'registry') {
       throw new Error('/capabilities 回包不对：' + JSON.stringify(capJson));
     }

@@ -63,11 +63,13 @@ export function tlTail(total) {
   return Math.min(30, t * 0.05);
 }
 
-/* 导航总长 = 内容 + 尾垫（向上取整到 0.5 秒），下限 10 秒 —— 针可以放到内容末尾之后。 */
-export function tlNavTotal(total) {
-  const t = Number(total) || 0;
-  if (t <= 0) return TL_VISIBLE_DEFAULT;
-  return Math.max(TL_VISIBLE_DEFAULT, Math.ceil((t + tlTail(t)) * 2) / 2);
+/* 导航总长 = 轨道要盖住的那一秒 + 尾垫（向上取整到 0.5 秒），下限 10 秒 —— 针可以放到内容末尾之后。
+   reach 是轨道上比成片更靠右的那个落点：标记钉在成片秒、不随剪辑搬移，剪短之后可以留在成片末尾之外。
+   不并进来的话那一截画不到尺、网格与行底色 —— 右边多出一条还能滚进去的空道，「跳到标记」也被针的夹算挡在门外。 */
+export function tlNavTotal(total, reach = 0) {
+  const span = Math.max(0, Number(total) || 0, Number(reach) || 0);
+  if (span <= 0) return TL_VISIBLE_DEFAULT;
+  return Math.max(TL_VISIBLE_DEFAULT, Math.ceil((span + tlTail(span)) * 2) / 2);
 }
 
 /* 内容层宽度 %（相对滚动视口）：内容不足一屏时按一屏铺满。 */

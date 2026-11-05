@@ -4,8 +4,8 @@
      拖到所有行之下 = 新开一行（行数由内容现算，不预分配）。
    指针命中哪一行/哪一格由 engine/edit.js 用 elementFromPoint 读 `data-drop-layer`，这里只算账。 */
 
-import { LANE_MAX, clamp } from './film.js';
-import { num } from './util.js';
+import { LANE_MAX, clamp, deriveTimeline } from './film.js';
+import { num, round2 } from './util.js';
 
 /* 画面段换序：从 from 挪到 to（to 是**挪走之后**的目标下标）。 */
 export function reorderClips(clips, from, to) {
@@ -89,4 +89,43 @@ export function shiftGroupStart(starts, delta, min = 0) {
   const lowest = Math.min(...list);
   const applied = Math.max(d, min - lowest);
   return { delta: applied, starts: list.map(v => v + applied) };
+}
+
+/* ---------------- 波纹关的画面段整组平移 ----------------
+   画面轨是顺序模型（start 按数组顺序 + gap 累加），「拖一段只挪这一段」在这里有定义：
+   被拖组的第一段改自己的 gap（组跟着走），组后第一段的 gap 反向补回来（后邻的绝对位置钉死）。
+   落点被前后邻居顶住就夹在洞里 —— 不换序、不推后面的段；磁性联动（换序 + 整体平移）开波纹才有。 */
+export function placeClipGroupStill(clips, ids, desired) {
+  const list = (Array.isArray(clips) ? clips : []).map(c => ({ ...(c || {}) }));
+  const idx = (Array.isArray(ids) ? ids : [])
+    .map(id => list.findIndex(c => c && c.id === id))
+    .filter(i => i >= 0)
+    .sort((a, b) => a - b);
+  if (!idx.length) return { clips: list, moved: false };
+  /* 非连续多选（中间隔着没选中的段）：「只挪组、不换序」没有定义 —— 不动，由调用方说明原因。 */
+  for (let k = 1; k < idx.length; k++) {
+    if (idx[k] !== idx[k - 1] + 1) return { clips: list, moved: false, why: 'non-contiguous' };
+  }
+  const rows = deriveTimeline(list).rows;
+  const first = idx[0], last = idx[idx.length - 1];
+  const prevEnd = first > 0 ? num(rows[first - 1].end) : 0;
+  const groupDur = Math.max(0, num(rows[last].end) - num(rows[first].start));   // 组内 gap 随组整体走
+  const hasAfter = last + 1 < rows.length;
+  const nextStart = hasAfter ? num(rows[last + 1].start) : Infinity;
+  const want = num(desired);
+  const lo = prevEnd;
+  const hi = Math.max(lo, nextStart - groupDur);
+  const start = Math.min(Math.max(want, lo), hi);
+  let clamped = '';
+  if (Math.abs(start - want) > 0.001) clamped = start > want ? 'prev' : 'next';
+  list[first].gap = round2(Math.max(0, start - prevEnd));
+  if (hasAfter) list[last + 1].gap = round2(Math.max(0, nextStart - (start + groupDur)));
+  return {
+    clips: list,
+    start: round2(start),
+    gapBefore: round2(num(list[first].gap)),
+    gapAfter: hasAfter ? round2(num(list[last + 1].gap)) : null,
+    clamped,
+    moved: Math.abs(start - num(rows[first].start)) > 0.001,
+  };
 }

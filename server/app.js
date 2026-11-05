@@ -146,7 +146,8 @@ const keyOf = name => (name && process.env[name]) || '';
    少了 .srt 则下载到的字幕没有类型、浏览器当纯文本乱码。 */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.cjs': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.mp4': 'video/mp4', '.webm': 'video/webm', '.woff2': 'font/woff2',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
-  '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.ass': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+  '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.ass': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+  '.wasm': 'application/wasm' };
 const LOG = path.join(ROOT, 'proxy.log');
 /* 日志轮转：超过 2 MiB 只保留尾部 256 KiB。启动时先转一次，运行中每写 200 行再检查一次
    （只查 statSync 的开销可以忽略），避免长时间运行把磁盘写满。 */
@@ -1163,7 +1164,12 @@ try {
   log('[致命] ' + ((e && e.message) || e));
   process.exit(1);
 }
-process.on('exit', () => { try { if (instanceLock) instanceLock.release(); } catch (e) {} });
+process.on('exit', () => {
+  /* 缩略图 / 切片索引是写后合并的（见 routes/cache.js 的 markDirty）：退出前把 pending 的那几趟补上，
+     否则刚批量生成的一屏缩略图只有字节、没有账，下次开机整屏重新生成一遍。 */
+  try { cacheRoutes.flushPendingSync(); } catch (e) {}
+  try { if (instanceLock) instanceLock.release(); } catch (e) {}
+});
 
 /* 系统代理在后台读（`reg query` 走异步 + 每 30 秒一次）：请求路径上 synchronous spawn 会把
    事件循环按住最长 3 秒，渲染进度、媒体流、健康检查一起停。 */

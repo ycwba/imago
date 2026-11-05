@@ -19,7 +19,7 @@
        数出来的是「重试了几轮」而不是「页面取了几轮」。rawFetch 必须原样把 opts 递给 Net.read ——
        全站默认值只留 Net.NUMS 一份，设置页那一格（`sk_net_retry`）才真正管住页面取数。
    实测数字用 `PERF_WRITE=1 node tests/e2e/asset-requests.cjs` 写进 `tests/fixtures/perf-baseline.json`
-   的 `assets` 一节（与切片基线同一份文件、同一个开关）；判据本身只按门槛红，不看基线。
+   的 `assets` 一节（与启动基线同一份文件）；判据本身只按门槛红，不看基线。
    写入型验证只碰 harness 在系统临时目录里建的探针目录（负责创建与清理），不写用户数据。 */
 'use strict';
 const path = require('path');

@@ -125,6 +125,15 @@ assert.match(asrClient, /asr-worker\.js.*type:\s*'module'/, 'worker 以 module �
 const asrStore = fs.readFileSync(path.join(root, 'server', 'asr-store.js'), 'utf8');
 assert.match(asrStore, /ROUTES\s*=\s*new Set\(\[.*'browser'/s, '服务端路线集合认 browser');
 
+/* 静态路由要真放行 .wasm 并带对类型：白名单漏了 wasm 那阵子，ORT 拿到的是 9 字节
+   404 文本 "not found"，报「expected magic word … found 6e 6f 74 20」。这两条是回归锁。 */
+const staticRouteSrc = fs.readFileSync(path.join(root, 'server', 'routes', 'static.js'), 'utf8');
+assert.match(staticRouteSrc, /\(html\|js\|cjs\|css\|wasm\|/, '静态扩展名白名单要含 wasm');
+const appMimeSrc = fs.readFileSync(path.join(root, 'server', 'app.js'), 'utf8');
+assert.match(appMimeSrc, /['"]\.wasm['"]\s*:\s*['"]application\/wasm['"]/, 'MIME 表要有 .wasm → application/wasm');
+assert.match(staticRouteSrc, /writeHead\(404,\s*\{\s*'Cache-Control':\s*'no-store'\s*\}\)/,
+  '静态 404 要 no-store（旧 404 不许被浏览器启发式缓存）');
+
 console.log('✓ director-asr-text：' + [
   'wavToPcm', 'groupWords', 'normalizeAsrWhitespace', 'applyChineseReplacements',
   'isSuspiciousChineseTranscript', 'vendor/CSP 静态档',

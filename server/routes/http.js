@@ -4,8 +4,11 @@
    - fail(res, code, msg, extra)：错误回包 `{ error: String(msg), ...extra }`，一律 no-store
      （4xx/5xx 不许被缓存）。
    - noStore(res)：给即将用别的 Content-Type 写出（zip / 视频流 / 手写 JSON）的响应补上 no-store。
+   - sendFileStream(res, file, headers)：把盘上的一份字节**流**出去（缓存里的缩略图 / 切片帧）。
    这里不做业务判断：谁该回多少、错误文案是什么，仍由各个 routes/*.js 决定。 */
 'use strict';
+
+const fs = require('fs');
 
 function sendJson(res, code, obj, headers) {
   const h = Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, headers || {});
@@ -40,4 +43,21 @@ async function readJsonBody(readBody, req, res, limit) {
   return JSON.parse(b.toString('utf8'));
 }
 
-module.exports = { sendJson, fail, noStore, readJsonBody };
+/* 盘上的一份字节 → 响应：先异步 stat 拿长度，正文交给流（64KB 一块，跟着写缓冲的排空走）。
+   为什么不 readFileSync + res.end(buf)：那一句把整份读进内存、而且**同步**读 ——
+   切片帧一条就是几 MB，读它的那几十毫秒里代理主线程一个别的请求也接不了。
+   文件不在（ENOENT）时把错抛回调用方：头还没写，正是让它决定回什么状态码的时机。
+   开流之后才出错（被别的进程占了、读到一半文件没了）就只能掐连接：头已经发出去了。 */
+async function sendFileStream(res, file, headers) {
+  const st = await fs.promises.stat(file);
+  res.writeHead(200, Object.assign({}, headers, { 'Content-Length': String(st.size) }));
+  await new Promise((resolve, reject) => {
+    const src = fs.createReadStream(file);
+    src.on('error', e => { try { res.destroy(); } catch {} reject(e); });
+    src.on('close', resolve);
+    src.pipe(res);
+  });
+  return st.size;
+}
+
+module.exports = { sendJson, fail, noStore, readJsonBody, sendFileStream };

@@ -15,6 +15,10 @@
    · **外层**：`opts.outer` 罩住「这一页在窄窗里改由外层滚」的那一只祖先。
    · **共享列表件**：`Wb.cards` 整箱重画（换一批条目、高度也变了）之后位置还在 ——
      工作台右栏 / 收藏 / 资产库的列表都走这一份，它是「点按钮重画列表」的实景。
+   · **节点跨空列表存活**：同一份 `Wb.cards` 画到空列表、再画回同一批条目时，必须按 key
+     找回**原来那一批 DOM 节点**（一张都不重建），而条目内容变了的那一张必须重画。
+     这一条管的是「搜一个不命中的词再清空」那一趟要不要从零重建整箱 —— 只数结构（画了几次、
+     是不是同一个节点），不量毫秒：机器负载会让计时读数假红。
    · **展开**：`viewport.reveal(块, { pin: 那一行 })` 把点中的那一行钉在视野里，
      块比容器高也不许把行顶出去（对照：不传 pin 就是旧的「底边对齐」滚法，行会没）。
 
@@ -130,6 +134,62 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     must(Math.abs(listOk.after.anchor.off - listOk.before.anchor.off) <= 2,
       'Wb.cards 整箱重画把锚点漂了：' + JSON.stringify(listOk) + '（paint 里没走 Wb.viewport.keep）');
 
+    /* ---------- 卡片节点跨「空列表」存活：对齐是复用，不是从零重建 ----------
+       搜一个不命中的词、再把框清空，是这一箱最贵的一趟：paint 到空列表时只换掉容器里的内容，
+       `els` 那一批节点必须留在手上，下一次同一批条目按 key 找回**同一批 DOM 节点**插回去。
+       留在手上与从零重建差一个数量级（1500 张卡那一档实测差近十倍），所以这一条盯结构事实
+       —— 画了几次、找回的是不是原来那个节点 —— 不盯毫秒：本机负载会让计时读数假红。
+       反向也要成立：留着节点不等于留着旧画面。条目内容变了那一张必须重画；反复筛几轮之后
+       摘下来的节点要有上限，不然留在手上的那份只涨不落。 */
+    const reuse = await page.eval(() => {
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:320px;height:200px;overflow:hidden';
+      const box = document.createElement('div');
+      box.style.cssText = 'width:100%;height:200px;overflow-y:auto';
+      host.appendChild(box);
+      document.body.appendChild(host);
+      let drawn = 0;
+      const api = window.Wb.cards.create({
+        box: box, keyOf: it => it.key, sigOf: it => it.key + ':' + it.txt,
+        htmlOf: it => { ++drawn; return '<div>' + it.txt + '</div>'; },
+      });
+      const mk = (n, pre) => Array.from({ length: n }, (_, i) => ({ key: pre + i, txt: 'a' }));
+      const keys = () => [...box.children].filter(e => e.classList.contains('task'))
+        .map(e => e.getAttribute('data-tkey'));
+      const list = mk(30, 'r');
+      api.paint(list);
+      const built = drawn;
+      const node7 = api.el('r7');
+      api.paint([]);
+      const afterEmpty = { cards: keys().length, empty: !!box.querySelector('.empty') };
+      drawn = 0;
+      api.paint(list);
+      const back = { drawn: drawn, same: !!node7 && api.el('r7') === node7, order: keys().join(',') === list.map(it => it.key).join(',') };
+      /* 内容变了那一张必须重画，不能因为节点还留着就留着旧画面。 */
+      const edited = list.map((it, i) => (i === 3 ? { key: it.key, txt: 'b' } : it));
+      drawn = 0;
+      api.paint(edited);
+      const changed = { drawn: drawn, text: api.el('r3').textContent };
+      /* 40 轮各 5 条、每轮换一批新 key：没有上限的话手上会攒下这 200 个节点。 */
+      for (let r = 0; r < 40; r++) api.paint(mk(5, 'c' + r + '-'));
+      const churn = api.count();
+      host.remove();
+      return { built, afterEmpty, back, changed, churn, touched: 30 + 200 };
+    });
+    must(reuse.built === 30, '第一次画没把 30 张都建出来（探针本身坏了）：' + JSON.stringify(reuse.built));
+    must(reuse.afterEmpty.cards === 0 && reuse.afterEmpty.empty,
+      '画空列表那一次没换成空态（列表里还有 ' + reuse.afterEmpty.cards + ' 张 / 空态 '
+      + reuse.afterEmpty.empty + '）——这一条是对照的地基，它坏了后面都算不准');
+    must(reuse.back.drawn === 0, '清空之后把同一批条目再画一遍，重建了 ' + reuse.back.drawn
+      + ' 张卡：空列表那一次不该把手上的节点清掉（一次「搜不命中→清空」就是从零重建那一趟）');
+    must(reuse.back.same, '找回的不是原来那一批节点（els 被清了，或者对齐没按 key 找回旧节点）');
+    must(reuse.back.order, '清空再画回来，卡片的次序没按列表复原：' + JSON.stringify(reuse.back.order));
+    must(reuse.changed.drawn === 1 && reuse.changed.text === 'b',
+      '条目内容变了没有只重画那一张（重画 ' + reuse.changed.drawn + ' 张 / 现在写着「'
+      + reuse.changed.text + '」）：留着节点不等于留着旧画面');
+    must(reuse.churn < reuse.touched, '反复筛 40 轮之后手上还留着 ' + reuse.churn + ' 个节点'
+      + '（这一路一共出现过 ' + reuse.touched + ' 个 key）：摘下来的节点没有上限，只涨不落');
+
     /* ---------- 横向：候选条那一族 ----------
        重画换掉容器时 scrollLeft 同样从 0 起；还原与纵向共用同一趟锚点记账。 */
     const xOk = await page.eval(() => {
@@ -243,6 +303,94 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       '壳子里塌掉一截，公共件没把眼前那一行还回原位：' + JSON.stringify(deepOk)
       + '（keep 的锚点只量滚动容器的直接子节点，得钻进壳子）');
 
+    /* ---------- 扫描那一趟不读「会不会滚」，只读「此刻滚开没有」 ----------
+       `_grab` 要找的是**重画前真的滚开着**的那几只：停在 0 的一格没有要还的位置（`_anchorOf`
+       对 ≤0 直接返回 null）。所以判定用 `scrollTop` / `scrollLeft`（盒子那一份读数），
+       不用 `scrollHeight` / `scrollWidth` —— 后两枚读的是整棵子树的可滚范围，除了贵，
+       还会把 `content-visibility` 故意跳过的那一格重新排一遍（资产库那 1500 张卡的列表最吃这个）。
+       这里数**读了几次**那两枚，不量毫秒：机器负载会让计时读数假红，而「读没读」是结构事实。
+       反向对照（把扫描改回逐格问「会不会滚」）就是这一条红。 */
+    const cheapScan = await page.eval(() => {
+      const rdH = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight');
+      const rdW = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollWidth');
+      let hits = 0;
+      Object.defineProperty(Element.prototype, 'scrollHeight', { configurable: true, get() { ++hits; return rdH.get.call(this); } });
+      Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { ++hits; return rdW.get.call(this); } });
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:300px;height:200px;overflow:hidden';
+      const box = document.createElement('div');
+      box.style.cssText = 'width:100%;height:200px;overflow-y:auto';
+      let html = '';
+      for (let i = 0; i < 160; i++) html += '<div style="height:30px">行' + i + '</div>';
+      /* 滚开着的那一只混在这几百格中间，带一枚身份（找回时走身份那张表，那一趟也只在
+         命中身份的那几格上才问「会不会滚」）。 */
+      box.innerHTML = html + '<div data-mid="m1" style="height:60px;overflow-y:auto">'
+        + '<div style="height:400px"></div></div>' + html;
+      host.appendChild(box);
+      document.body.appendChild(host);
+      const mid = box.querySelector('[data-mid="m1"]');
+      box.scrollTop = 900;
+      mid.scrollTop = 120;
+      const start = { box: Math.round(box.scrollTop), mid: Math.round(mid.scrollTop) };
+      hits = 0;
+      window.Wb.viewport.keep(host, () => { host.innerHTML = host.innerHTML; });
+      const reads = hits;
+      /* 重画之后两只容器都是**新节点**：读手上那只旧的（已从文档里摘掉）永远是 0，
+         量的就不是「还没还回来」了 —— 按 host 现取。 */
+      const nbox = host.firstElementChild;
+      const after = nbox && nbox.querySelector('[data-mid="m1"]');
+      const end = { box: nbox ? Math.round(nbox.scrollTop) : -1, mid: after ? Math.round(after.scrollTop) : -1 };
+      Object.defineProperty(Element.prototype, 'scrollHeight', rdH);
+      Object.defineProperty(Element.prototype, 'scrollWidth', rdW);
+      host.remove();
+      return { start, end, reads, nodes: 320 };
+    });
+    must(cheapScan.start.box === 900 && cheapScan.start.mid === 120,
+      '扫描探针没把两只容器都滚到位（探针本身坏了）：' + JSON.stringify(cheapScan));
+    must(cheapScan.end.box === 900 && cheapScan.end.mid === 120,
+      '几百格里混着一只在滚的容器，重画后位置没还回来：' + JSON.stringify(cheapScan));
+    must(cheapScan.reads <= 12, '重画前那一趟扫了 ' + cheapScan.reads + ' 次「会不会滚」'
+      + '（' + cheapScan.nodes + ' 格里逐格读 scrollHeight / scrollWidth）：'
+      + '扫描只该问「此刻滚开没有」，逐格问会把整份布局催起来、还会重排 content-visibility 跳过的那一格');
+
+    /* ---------- 有身份的容器被挪了位置：找回按身份，不按「第几格」 ----------
+       卡片流会重排：`_byPath` 按下标链找到的那张是**邻卡**，把位还到邻卡身上就是
+       「A 卡的滚动位跑到 B 卡上」。带身份（`_keyOf` 认得出）的那一只才走得通那张表；
+       那张表只给 `_grab` 记下的那几枚身份建，建表那一趟也只在命中身份的格上才问「会不会滚」。
+       对照：同样这一次换序，容器没有身份 → 只能够下标 → 还错（这一条保证探针真在量换序）。 */
+    const identity = await page.eval(() => {
+      const build = withKey => {
+        const card = (name, top) => '<div style="height:120px"><div ' + (withKey ? 'data-mid="' + name + '"' : '')
+          + ' style="height:60px;overflow-y:auto"><div style="height:' + top + 'px"></div></div></div>';
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;left:-9999px;top:0;width:260px;height:150px;overflow:hidden';
+        host.innerHTML = '<div>' + card('a', 400) + card('b', 400) + '</div>';
+        document.body.appendChild(host);
+        const box = host.children[0];
+        box.children[0].firstElementChild.scrollTop = 150;
+        const start = Math.round(box.children[0].firstElementChild.scrollTop);
+        /* 换序：A 卡与 B 卡对调 —— 重画之后「第 0 格」不再是当初那一只。 */
+        window.Wb.viewport.keep(host, () => {
+          host.innerHTML = '<div>' + card('b', 400) + card('a', 400) + '</div>';
+        });
+        const out = {
+          start,
+          a: Math.round(host.firstElementChild.children[1].firstElementChild.scrollTop),
+          b: Math.round(host.firstElementChild.children[0].firstElementChild.scrollTop),
+        };
+        host.remove();
+        return out;
+      };
+      return { keyed: build(true), naked: build(false) };
+    });
+    must(identity.keyed.start === 150, '身份探针没把那一格滚到位（探针本身坏了）：' + JSON.stringify(identity));
+    must(identity.keyed.a === 150 && identity.keyed.b === 0,
+      '带身份的容器被换序后没把位还给自己（或还给了邻卡）：' + JSON.stringify(identity.keyed)
+      + '（找回没走身份那张表）');
+    must(identity.naked.start === 150 && identity.naked.a === 0 && identity.naked.b === 150,
+      '对照不成立：没有身份的容器被换序后本该把位还到邻卡身上（这一条保证探针真在量换序）：'
+      + JSON.stringify(identity.naked));
+
     /* ---------- 展开：viewport.reveal 的钉位夹算 ----------
        等高卡里展开一坨比卡内可视区还高的面板：只按「把整块带进视野」滚，点中的那一行必然
        从容器上缘顶出去（用户报的「展开后找不到那颗收起按钮」）。传 pin 就是把那一行钉住，
@@ -295,7 +443,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       throw new Error('页面上有异常');
     }
     console.log('✓ 视口机制：裸重画甩回顶（对照）· keep 还原（纵向 / 横向 / opts.outer 外层 / 锚点钻进壳子）· '
-      + '共享列表件整箱重画不吃位 · reveal 钉住点中的那一行');
+      + '共享列表件整箱重画不吃位 · 空列表后按 key 找回同一批节点（不重建，改内容才重画）· '
+      + 'reveal 钉住点中的那一行');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

@@ -9,7 +9,7 @@
      · 轨道左列（眼睛 / 锁 / 名字）与右列逐行对齐 —— 两边由同一张 rows 表画出来。 */
 import {
   deriveTimeline, packVoiceLanes, packCaptionLanes, rowVisible, rowSet,
-  itemVisible, itemLocked, transitionOf, transitionNameOf, TRANSITIONS,
+  itemVisible, itemLocked, transitionOf, transitionNameOf, TRANSITIONS, pinnedEndOf,
   DEFAULT_TRANSITION_SECONDS, transitionMax, LANE_MAX,
 } from '../film.js';
 import {
@@ -45,8 +45,10 @@ export function createTimeline(E, document, window) {
     strip,
     onBoardRender,
     dblClickEmpty,
+    playStateOf,
     seekRequest,
     sliceForgetFail,
+    onPlayhead,
   } = E;
 
   let host = null;
@@ -68,6 +70,9 @@ export function createTimeline(E, document, window) {
   let selMenuOpen = false;
   let snapTime = null;
   let lastTicksLeft = 0;
+  /* 尺上这一段刻度「是为哪一把视野画的」：画的时候读的横滚位与视野宽。
+     整块重画里刻度先按重建之前的位置挑窗口，还位之后落点可能不是它 —— 这两个数就是核对用的。 */
+  let ticksFrom = 0, ticksWide = 0;
   /* 播放中的播放头走 WAAPI 线性滑行（transform 由合成器推进），不靠每帧改样式；
      暂停 / seek / 缩放时先落精确位、再撤动画 —— 否则会先露出上一轮的原点。 */
   let gliding = false;
@@ -79,10 +84,14 @@ export function createTimeline(E, document, window) {
   const qsa = sel => (host ? Array.prototype.slice.call(host.querySelectorAll(sel)) : []);
   const filmNow = () => filmOf();
 
+  /* 轨道要画多长：成片（含尾垫）与钉在成片秒最右的那一枚（配音 / 字幕 / 标记）取远的那一个。
+     三处（针的夹算、几何、内容层定宽）都走它，不然尺、网格、行底色的右沿跟针能到的最右一秒各说一套。 */
+  const navSpanOf = (total, film) => tlNavTotal(total, pinnedEndOf(film));
+
   /* ---------------- 播放头几何 ---------------- */
   const lineEl = () => qs('#tlPlayhead');
   const headEl = () => qs('#tlRulerHead');
-  const navTotalNow = () => tlNavTotal(deriveTimeline(filmNow().clips).total);
+  const navTotalNow = () => navSpanOf(deriveTimeline(filmNow().clips).total, filmNow());
   const clampPlayhead = t => Math.max(0, Math.min(navTotalNow(), num(t)));
   function playheadX(t, pps = ppsNow()) {
     return tlXOfTime(Math.max(0, num(t)), pps);
@@ -132,6 +141,8 @@ export function createTimeline(E, document, window) {
     const t1 = qs('#tlT1');
     if (t1) t1.textContent = secText(deriveTimeline(filmNow().clips).total);
     paintBack();
+    /* 插针落位后只有右栏那一行读数跟着换（不重画整栏）；订阅者自己要判「这一格画着没有」。 */
+    if (onPlayhead) onPlayhead(t);
   }
 
   /* ---------------- 行表（标签列与轨道列共用的一张） ---------------- */
@@ -177,7 +188,7 @@ export function createTimeline(E, document, window) {
     const film = filmNow();
     const tl = deriveTimeline(film.clips);
     const width = viewportWidth();
-    const navTotal = tlNavTotal(tl.total);
+    const navTotal = navSpanOf(tl.total, film);
     return {
       film, tl, total: tl.total, navTotal, width, zoom,
       pps: tlPxPerSec(width, zoom),
@@ -242,7 +253,7 @@ export function createTimeline(E, document, window) {
       ${tb('link', 'link', '字幕与配音关联：全部接上 / 全部解除', st.linkOn)}
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
-        <button type="button" class="tl-tb tl-play" data-tl="play" title="播放 / 暂停（空格）">${icon('play', 15)}</button>
+        <button type="button" class="tl-tb tl-play" data-tl="play" title="播放 / 暂停（空格）">${icon(playStateOf && playStateOf() ? 'pause' : 'play', 15)}</button>
         ${tb('add-seg', 'segAdd', '在播放头处新增一段')}
         ${tb('remove-seg', 'segRemove', '摘掉播放头指着的那一段')}
         ${tb('shorten', 'shorten', '把指着的那一段缩短 1 秒')}
@@ -285,6 +296,9 @@ export function createTimeline(E, document, window) {
     setOn('link', st.linkOn);
     const badge = qs('#tlMarkerCount');
     if (badge) { badge.textContent = String(film.markers.length); badge.hidden = !film.markers.length; }
+    // 播放/暂停那颗跟着播放态换面（playbackStart / playbackStop 各刷一次，重画模板也按真值画）
+    const pbtn = qs('[data-tl="play"]');
+    if (pbtn) pbtn.innerHTML = icon(playStateOf && playStateOf() ? 'pause' : 'play', 15);
     const none = (Number(st.selected) || 0) === 0;
     ['delete', 'duplicate', 'merge'].forEach(act => {
       const el = qs(`[data-tl="${act}"]`);
@@ -297,8 +311,10 @@ export function createTimeline(E, document, window) {
 
   /* ---------------- 刻度尺 ---------------- */
   function rulerTicksHTML(navTotal, pps) {
-    const start = (scrollEl ? scrollEl.scrollLeft : 0) / pps;
-    const end = start + viewportWidth() / pps;
+    const from = scrollEl ? scrollEl.scrollLeft : 0;
+    ticksFrom = from; ticksWide = viewportWidth();
+    const start = from / pps;
+    const end = start + ticksWide / pps;
     return tlTicks(navTotal, zoom, start, end).map(t => {
       const x = Math.round(t.time * pps * 100) / 100;
       return `<i class="tl-tick${t.isMajor ? ' major' : ''}" style="left:${x}px">${t.isMajor ? `<em>${t.label}</em>` : ''}</i>`;
@@ -469,7 +485,7 @@ export function createTimeline(E, document, window) {
     </div>`;
     const over = table.voiceOverflow ? `<div class="tl-overflow">配音超出 ${table.voiceOverflow} 行未画（上限 ${LANE_MAX} 行）</div>` : '';
     const overCap = table.capOverflow ? `<div class="tl-overflow">字幕超出 ${table.capOverflow} 行未画（上限 ${LANE_MAX} 行）</div>` : '';
-    const navTotal = tlNavTotal(table.tl.total);
+    const navTotal = navSpanOf(table.tl.total, film);
     return `<div class="tl-content" id="tlContent" style="width:${tlTimelineWidth(navTotal, viewportWidth(), zoom)}px;--tl-grid:${gridStepPx(navTotal, pps)}px">
       <div class="tl-playhead" id="tlPlayhead"><i class="tl-playhead-knob"></i></div>
       ${markersHTML(film, pps)}
@@ -512,7 +528,10 @@ export function createTimeline(E, document, window) {
     /* `host.innerHTML =` 会把 `#tlScroll` 换成新节点，两只滚动位（横：轨道长短；竖：行数多少）
        从 0 起 —— 公共件按锚点还回去。还原排在 keep 返回之后，所以**凡是「读滚动位再写样式」的
        那几步必须排在它后面**：尺与左列的平移量是从 `#tlScroll` 现读的，先滚后量才对得上。
-       重读节点引用留在这一趟里：还原要找的就是新那只 `#tlScroll`。 */
+       重读节点引用留在这一趟里：还原要找的就是新那只 `#tlScroll`。
+       落针却必须排在还原**之前**（就在这一趟回调里）：针在视野里时，公共件横轴挑中的锚点正是它 ——
+       针的横向位置靠 transform 写，刚落下来的新针还停在内容 0 秒那一处，量出来是个负偏移，
+       浏览器把它夹回 0，整条轨道就甩到最左边。 */
     window.Wb.viewport.keep(host, () => {
       host.innerHTML = boardHTML(film);
       scrollEl = qs('#tlScroll');
@@ -522,10 +541,14 @@ export function createTimeline(E, document, window) {
       popEl = qs('#tlPop');
       menuEl = qs('#tlSelMenu');
       if (scrollEl) observeScroll();
+      paintPlayhead();
     });
+    /* 尺上那一段刻度是按重建**之前**的横滚位挑的窗口，还位却可能落在别处（成片变短 → 浏览器把横滚位夹回来）。
+       夹得比刻度两侧那点余量还多时，视野里就有一段没有刻度也没有秒数的空尺；而下一行记的是夹完之后的数，
+       滚动那一路「差过四分之一个视野才重画刻度」因此永远不触发 —— 落点与画的窗口对不上就当场按新落点补一次刻度。 */
+    if (scrollEl && (scrollEl.scrollLeft !== ticksFrom || scrollEl.clientWidth !== ticksWide)) paintRuler();
     lastTicksLeft = scrollEl ? scrollEl.scrollLeft : 0;
     syncScroll();
-    paintPlayhead();
     strip.paint(contentEl, film);
     if (popIndex >= 0) {
       const j = qs(`[data-junction="${popIndex}"]`);
@@ -578,6 +601,11 @@ export function createTimeline(E, document, window) {
   }
 
   function paintPlayhead() {
+    /* 落位前先按当前的导航总长夹一次：放针的几条入口（setPlayhead / seekTo / 播放核三条）都夹过，
+       「成片变了、针没动」这一条却只能在这里补。针留在新尾垫之外时，那一截虽然没画任何东西，
+       也会把 `#tlScroll` 的可滚范围撑到尺子尽头之外 —— 右边多出一段没有刻度、没有网格、
+       没有行底色、还能滚进去的空道，读数同时念着成片里根本没有的那一秒。 */
+    playhead = clampPlayhead(playhead);
     anchorPlayhead(playhead);
     paintReadout(playhead);
   }
@@ -631,6 +659,7 @@ export function createTimeline(E, document, window) {
     anchorPlayhead(playhead);
     paintReadout(playhead);
     follow();
+    paintTimelineTools();
   }
   function playbackSync(t) {
     playhead = clampPlayhead(t);
@@ -645,6 +674,7 @@ export function createTimeline(E, document, window) {
     anchorPlayhead(playhead);
     paintReadout(playhead);
     follow();
+    paintTimelineTools();
   }
 
   function showSnap(time, label) {

@@ -165,11 +165,12 @@ PARITY_WRITE=1 node tests/e2e/parity.cjs
 
 ```bash
 PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
-  RENDER_DIR=.renders-probe SKILLS_DIR=.skills-probe node proxy.js
+  RENDER_DIR=.renders-probe SKILLS_DIR=.skills-probe AUTOSAVE_DIR=.downloads-probe node proxy.js
 ```
 
-`ASSETS_DIR` 指的是**库根**（默认在 `下载\成像`，仓库外）；打默认目录那两条链路的判据还要 `AUTOSAVE_DIR`
-（把整个「下载」基座指走，`server/user-dirs.js` 读它），否则探针会往用户真成品目录里写。
+`ASSETS_DIR` 指的是**库根**（默认在 `下载\成像`，仓库外）；手动起探针时还要 `AUTOSAVE_DIR`
+（把整个「下载」基座指走，`server/user-dirs.js` 读它），否则提示词归档会往用户真成品目录里写。
+判据自己起的实例由 `tests/e2e/harness.cjs` 的 `startProxy` 统一带上这一枚，不用每条判据各写一遍。
 
 `node tests/data-snapshot.cjs` 用来确认真实 `.data`、`.renders` 与库根本体没有被测试改动。
 测试细节、公共层唯一实现清单、平台事实与编码规范都在 `AGENTS.md`。

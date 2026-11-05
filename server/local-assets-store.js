@@ -245,6 +245,10 @@ function createLocalAssetsStore(deps) {
      跳开提示词那一档与回收站；30 秒内的同一份根直接复用（列表、认回、用量三处共用这一份）。 */
   let scanCache = null;
   const SCAN_TTL = 30 * 1000;
+  /* 快照「新到不用再翻一遍」的那一档：只有超过它的陈旧快照才值得为一条认不回的账补一趟强制重扫。
+     为什么要有这一档 —— 强制重扫挂在「这一条没命中」之后，一次批量读里凡是落空的账都翻得起一趟整库，
+     几百条本体被删掉的库就是几百趟同步 readdir + stat（跑在主线程上，别的请求全排着）。 */
+  const SCAN_FRESH_MS = 2000;
   function dirScan(force) {
     const root = DIR();
     if (!force && scanCache && scanCache.root === root && Date.now() - scanCache.at < SCAN_TTL) return scanCache;
@@ -312,12 +316,18 @@ function createLocalAssetsStore(deps) {
     if (!ent || !ent.file) return '';
     const direct = entryAbsOf(ent);
     if (direct && fs.existsSync(direct)) return direct;
-    /* 那一份磁盘快照可能是几十秒前的：用户在文件管理器里又挪了一刀，快照里就还留着**上一个位置**。
-       命中了但那个路径已经不在了 = 快照旧了，重扫一次再认；重扫还没有才说「文件不在了」。
-       （常态是第一句 existsSync 就返回，不花钱；只有账对不上盘的那几次才重扫。） */
+    /* 常态是第一句 existsSync 就返回，不花钱；走到这里都是「账对不上盘」的那几次。
+       那一份磁盘快照可能是几十秒前的：用户在文件管理器里又挪了一刀，快照里就还留着**上一个位置**。 */
     let sc = dirScan();
     let hit = resolveInScan(sc, ent);
-    if (!hit || !fs.existsSync(hit.abs)) {
+    /* 快照里没有 = 可能刚被挪了一刀（账还指着老位置），也可能是真删了。前者要靠强制重扫认回来，
+       后者重扫多少趟都还是不在 —— 所以查不到时只有快照已经过旧（超过 SCAN_FRESH_MS）才补这一趟：
+       一批落空的账合起来翻一趟，翻完那一份新快照交给同批剩下的每一条（走 TTL）。
+       改名 / 换目录那一级不吃这一档：ino 没变，旧快照里按 fid 照样查得着。 */
+    if (!hit) {
+      if (Date.now() - sc.at > SCAN_FRESH_MS) { sc = dirScan(true); hit = resolveInScan(sc, ent); }
+    } else if (!fs.existsSync(hit.abs)) {
+      /* 查着了但那个路径当场不在：这份快照连「还在不在」都在说假话，重扫一次。 */
       sc = dirScan(true);
       hit = resolveInScan(sc, ent);
     }
@@ -573,14 +583,28 @@ function createLocalAssetsStore(deps) {
       file: String(x.file || ''),
     };
   }
+  /* 「这一条账的本体还在不在」——批量那一族（别名快照 / 批量定位）的唯一走法。
+     为什么不能逐条 `localFileFromEntry`：那一条的常态是 `fs.existsSync(直接路径)`，
+     一次一问就是几百次同步 stat（实测 600 行 = 260ms，线性涨），而这两族都站在开机与
+     列表的关键路径上、又都跑在代理的主线程 —— 那 260ms 里别的请求一个也进不来。
+     磁盘对账那一趟 readdir+stat 已经把库根每个文件摸过一遍，账里的相对路径还在不在，
+     查那张表就够了；查不到才退回逐条认回（改名 / 挪目录 / 换盘那三级判据与「认一次落一次」
+     都只活在那里，快照里没有的也可能是刚落盘的新本体 —— 30 秒内的那一份是旧的）。 */
+  function bodyInScan(sc, x) {
+    const direct = entryAbsOf(x);
+    if (!direct) return '';
+    const hit = sc.byAbs.get(absKey(direct));
+    return hit ? hit.abs : '';
+  }
   function localAliases() {
+    const sc = dirScan();
     const rows = [];
     for (const x of localIndexRead()) {
       const row = aliasRowOf(x);
       if (!row) continue;
       /* 文件不在了就不许替它报「本机有」：否则界面会一直画着「本机+云端」，
          点开却是一条断链。认回（改名 / 挪目录 / 换盘）会在这里顺手把新落点写回账。 */
-      if (!localFileFromEntry(x)) continue;
+      if (!bodyInScan(sc, x) && !localFileFromEntry(x)) continue;
       row.file = String(x.file || '');
       rows.push(row);
     }
@@ -593,25 +617,32 @@ function createLocalAssetsStore(deps) {
   function localLocateBatch(queries) {
     const plat = platformIndex();
     const ups = upstreamIndex();
+    const list = Array.isArray(queries) ? queries : [];
+    /* 一次批量最多 2000 条问话，每条都可能顺着身份翻到几行账 —— 同一份磁盘快照查表，
+       别把每一问都变成一次同步 stat（判据与走法见上面 bodyInScan）。
+       快照按第一次真要判存在时才取：一批问话全落在平台号之外时不该扫一遍盘。 */
+    let snap = null;
+    const diskShot = () => (snap || (snap = dirScan()));
+    const present = x => !!(bodyInScan(diskShot(), x) || localFileFromEntry(x));
     const out = [];
-    for (const q of (Array.isArray(queries) ? queries : [])) {
+    for (const q of list) {
       const aid = String((q && q.assetId) || '');
       const task = String((q && q.taskId) || '');
       const url = String((q && (q.url || q.upstream)) || '');
       const allowGen = !!(q && q.allowGen);
       let ent = null;
       if (aid && !/^la_/.test(aid)) {
-        for (const x of (plat.byAsset.get(aid) || [])) { if (localFileFromEntry(x)) { ent = x; break; } }
+        for (const x of (plat.byAsset.get(aid) || [])) { if (present(x)) { ent = x; break; } }
       }
       /* 任务号只在**这一条任务恰好只有一份产物**时才算数：多图任务按任务号认，
          四张卡会一起指向同一个本机文件（比不合更糟）。 */
       if (!ent && allowGen && task) {
-        const list = plat.byTask.get(task) || [];
-        if (list.length === 1 && localFileFromEntry(list[0])) ent = list[0];
+        const one = plat.byTask.get(task) || [];
+        if (one.length === 1 && present(one[0])) ent = one[0];
       }
       if (!ent && url) {
         const key = localUpKey(url);
-        if (key) for (const x of (ups.get(key) || [])) { if (localFileFromEntry(x)) { ent = x; break; } }
+        if (key) for (const x of (ups.get(key) || [])) { if (present(x)) { ent = x; break; } }
       }
       out.push(ent ? aliasRowOf(ent) : null);
     }

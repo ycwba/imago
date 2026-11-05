@@ -59,20 +59,22 @@ function handleStatic(req, res, ctx) {
     return true;
   }
   let file = FILE_MAP[urlPath];
+  /* 四处 404 都带 no-store：一次坏 404 不许被浏览器启发式缓存（ORT 曾把旧 404 的
+     "not found" 反复当 wasm 喂给 WebAssembly.instantiate，修好了还报 magic word 错）。 */
   if (!file) {
     const single = /^\/[A-Za-z0-9._-]+$/.test(urlPath);
     const webTree = /^\/web\/[A-Za-z0-9._\/-]+$/.test(urlPath) && !urlPath.includes('..') && !/\/\./.test(urlPath);
     if ((!single && !webTree) || urlPath.includes('..') || /^\/\./.test(urlPath)) {
-      res.writeHead(404); res.end('not found'); return true;
+      res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return true;
     }
-    if (!/\.(html|js|cjs|css|png|jpe?g|webp|gif|svg|ico|json|mjs|mp4|webm|woff2?|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|txt)$/i.test(urlPath)) {
-      res.writeHead(404); res.end('not found'); return true;
+    if (!/\.(html|js|cjs|css|wasm|png|jpe?g|webp|gif|svg|ico|json|mjs|mp4|webm|woff2?|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|txt)$/i.test(urlPath)) {
+      res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return true;
     }
-    if (/^\/(proxy\.(js|log|out\.log)|package(-lock)?\.json|启动\.bat)$/i.test(urlPath)) { res.writeHead(404); res.end('not found'); return true; }
+    if (/^\/(proxy\.(js|log|out\.log)|package(-lock)?\.json|启动\.bat)$/i.test(urlPath)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return true; }
     file = urlPath;
   }
   const full = path.resolve(root, file.replace(/^\/+/, ''));
-  if (!full.startsWith(path.resolve(root) + path.sep)) { res.writeHead(404); res.end('not found'); return true; }
+  if (!full.startsWith(path.resolve(root) + path.sep)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end('not found'); return true; }
   serveStatic(req, res, full, path.extname(file), mime);
   return true;
 }

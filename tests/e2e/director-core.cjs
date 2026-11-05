@@ -147,7 +147,7 @@ function seed() {
     must(hist.every(x => x && x !== '编辑'), '历史条目的名字是空的「编辑」：' + JSON.stringify(hist));
 
     /* ⑩ 台词面板：AI 写台词 / 按角色生成语音两颗入口都在；没台词时后者禁用 */
-    await page.eval(() => { const b = document.querySelector('#vcTabs [data-vctab="lines"]'); if (b) b.click(); });
+    await page.eval(() => { const b = document.querySelector('#vcTabs [data-vctab="voice"]'); if (b) b.click(); });
     must(await page.eval(() => !!document.getElementById('lineGenAi')), '台词面板没有「AI 生成台词」按钮');
     must(await page.eval(() => !!document.getElementById('lineGenVoice')), '台词面板没有「生成语音」按钮');
     must(await page.eval(() => { const b = document.getElementById('lineGenVoice'); return !!b && b.disabled; }), '没有台词时「生成语音」该禁用');

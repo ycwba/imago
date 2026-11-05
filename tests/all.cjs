@@ -240,6 +240,10 @@ run('tests/local-fallback.cjs', process.execPath, ['tests/local-fallback.cjs']);
 /* 磁盘对账补的裸行没有来源地址也没有平台号，按平台产物号查不到 → 字节在盘上、卡片却加载不出来。
    「存回本机」取回的字节签名对上时，把身份补写到已有那一行：不重落字节、不新开账、不抢别人那张卡的身份。 */
 run('tests/local-byte-reclaim.cjs', process.execPath, ['tests/local-byte-reclaim.cjs']);
+/* 批量读「问了几次盘」：别名表 / 批量定位不逐条 existsSync、一批落空的本体只翻得起一趟磁盘对账；
+   提示词归档的整目录兜底与索引各自缓住，但刚落盘与刚导入的那一条当场要查得到。
+   量的是磁盘问话次数（不是墙钟），所以机器负载不会让它假红。 */
+run('tests/read-cache.cjs', process.execPath, ['tests/read-cache.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);

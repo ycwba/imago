@@ -147,9 +147,8 @@ function renderMid() {
     if (hs) hs.hidden = true;
     return;
   }
-  /* 记住播放器状态：整列会被重建（轮询每 3 秒一次），同一 src 时接着播，不再打断预览。
-     剪辑态记的是「成片第几秒」而不是甲板的 currentTime —— 后者是**段内**秒，
-     剪成几段之后拿它当进度接回去，会跳到另一段上去。 */
+  /* 记住播放器状态：整列每 3 秒重建一次，同一 src 时接着播，不再打断预览。
+     剪辑态记「成片第几秒」而非甲板的段内秒 —— 拿段内秒接回去会跳到另一段。 */
   const oldPl = col.querySelector('#player');
   const keepPlay = midEditTrimOf()
     ? (Play.plan.length ? { t: Play.t, paused: !Play.playing } : null)
@@ -161,21 +160,16 @@ function renderMid() {
   const cur = cands[projOf().curCand] || cands[0];
   const sel = sh.candidates.find(c => c.vid === sh.selId);
   /* 重画与接线整段罩在公共件里（`Wb.viewport.keep`）：`body.innerHTML =` 会把中栏的纵向滚动位与
-     候选条的横向滚动位连容器一起换成新节点（从 0 起），表现是「点一下切档 / 一次 3 秒轮询，画面弹回
-     栏顶、候选条跳回第一条」。宽窗时滚的是 `.mid-body` 自己（`overflow-y:auto`），窄窗（≤900px）那一档
-     把三栏放开成外层 `.director-page` 在滚 —— `outer` 把外面那一只一起稳住，两种窗宽都不跳。
+     候选条的横向滚动位连容器一起换掉，表现是「点一下切档 / 一次轮询，画面弹回栏顶」。
+     宽窗滚 `.mid-body` 自己，窄窗（≤900px）三栏放开、外层 `.director-page` 在滚 —— `outer` 一起稳住。
      播放器节点的收养（`keepBox`）管的是「不重新解码」，与滚动位是两件事，照旧留在这里。 */
   window.Wb.viewport.keep(body, () => {
     /* 整列重建会把播放区那一只 `.player-box` 一起换掉（新节点要重新加载素材、重新 seek，
        画面黑一下 —— 每 3 秒一次）。能保住就摘下来、画完塞回原处：节点不动就没有「闪」。
-       什么时候保（两种「不保」都比闪更糟）：
-       · **剪辑态**：这一轮画的还是一只播放器、旧的那只**确实是剪辑态的预览面**（有静止层），
-         且 `Play` 手里有成片可播。以前只在「正在播」时保 —— 暂停状态照样每 3 秒销毁重建，
-         而「我只是看着暂停的画面改剪辑」正是最常走的那一条。
-       · **不剪辑**：新画的这只放的**还是同一条素材**才保。换了候选 / 换了镜头，src 不是一个，
-         保着旧节点等于显示另一条视频。
-       ⚠ 保住之后下面那段「一次性接线」要跟着跳过：`addEventListener` 挂在一只长期活着的节点上
-         会一层层叠，几十格之后同一个 `timeupdate` 上有几十个 `syncTime`，每个闭包抓着它那一轮的候选。 */
+       · 剪辑态：这一轮画的还是剪辑态的预览面（有静止层）且 `Play` 手里有成片可播 ——
+         暂停状态照样每 3 秒销毁重建，而「看着暂停的画面改剪辑」正是最常走的那条。
+       · 不剪辑：新画的这只放的还是同一条素材才保；换了候选 / 镜头，保着旧节点等于显示另一条视频。
+       ⚠ 保住之后下面那段一次性接线要跟着跳过：监听挂在长期活着的节点上会一层层叠。 */
     let keepBox = null;
     {
       const old2 = col.querySelector('.player-box');
@@ -225,11 +219,9 @@ function renderMid() {
     }
     // 事件
     col.querySelector('.sname').oninput = e => { sh.name = e.target.value; renderScenesSoon(); scheduleSave('改镜头名'); };
-    /* 「‹ › 切上一镜 / 下一镜」与「撤销 / 重做」那一簇已删（2026-10 用户点名）：
-       切镜走左栏的分镜列表，撤销 / 重做走 Ctrl+Z / Ctrl+Y 与剪辑态左栏的「历史编辑记录」。 */
-    /* 「导出成片 / 导出素材」两颗搬到页头，接线也跟着搬到那里一次绑好（2026-10）：
-       这一排每 3 秒随整列重建，把出口绑在这里等于每次重建都要重绑，
-       而导出中的按钮文案（「取消渲染 45%」）会被下一次重画冲掉。 */
+    /* 切镜走左栏的分镜列表，撤销 / 重做走 Ctrl+Z / Ctrl+Y 与剪辑态左栏的「历史编辑记录」。
+       「导出成片 / 导出素材」的出口住在页头（绑一次就好）：这一排每 3 秒随整列重建，
+       绑在这里等于每次重建都重绑，导出中的按钮文案会被下一次重画冲掉。 */
     bindCandidateStrip(col);       // 候选瓦片 / 占位卡 / 「加一条候选」都要绑上（没有候选时也要能点）
     const cPrevEl = col.querySelector('#cPrev'), cNextEl = col.querySelector('#cNext');
     if (cands.length && cPrevEl && cNextEl) {
@@ -272,10 +264,20 @@ function renderMid() {
       if (hs) hs.hidden = !!midEditTrimOf();
       if (!midEditTrimOf()) { ensureStripSplit(col); renderShotStrip(col); }
     }
-    // 自制播放控件：只有播放 / 暂停（原生控件已移除，时间跳转只在剪辑里插针）
-    const pl = col.querySelector('#player'), pb = col.querySelector('#pbBtn');
-    /* 自制控件与播放约束那两段都要挂监听，所以可摘接线只有这一份：`pl.__pbCtl` 是**现读**的，
-       谁建了句柄就归谁摘（剪辑态由播放核接线，这里没有句柄就照旧直接挂）。
+    wireMidPlayer(col, { cur, sh, keepPlay, keepBox });
+    /* 剪辑态视频栏不滚（用户点名）：播放盒尺寸已改纯 CSS（.player-wrap 是 size 容器，
+       盒宽由容器高现算，template.html 那边一条 min() 定）—— 拖轨道坞 / 改窗口全程跟手，
+       不再需要整栏重画时 JS 现量 --mid-avail（那份旧量法拖坞后不重算，正是滚动条的根因）。 */
+    if (window.Dropdowns) Dropdowns.build(col);   // 中栏参数条重建后重新包装下拉
+  });
+}
+/* 中栏播放器的整段接线只有这一份（生成态整栏重画与 selectCandidate 重画播放区都调它）：
+   自制控件、播放态换面、剪辑态交播放核、生成态的保留窗约束。 */
+function wireMidPlayer(col, ctx) {
+  const { cur, sh, keepPlay, keepBox } = ctx;
+  // 自制播放控件：只有播放 / 暂停（原生控件已移除，时间跳转只在剪辑里插针）
+  const pl = col.querySelector('#player'), pb = col.querySelector('#pbBtn');
+    /* 可摘接线只有这一份：`pl.__pbCtl` 现读，谁建了句柄就归谁摘（剪辑态由播放核接线，没有句柄就直接挂）；
        mm:ss 读数只有 workbench.js 的 Wb.fmtClock 一份（这一处、候选播放器那一处、插针跳转那一处以前各写一份） */
     const onPl = (ev, fn, opt) => {
       const ctl = pl && pl.__pbCtl;
@@ -289,12 +291,10 @@ function renderMid() {
       bindPbFull(col.querySelector('.player-box'));
       if (pl.readyState >= 1) updateArBadge(pl);
       /* 整列重建保住旧节点之后，`addEventListener` 那一族不能每 3 秒再叠一层：
-         同一只 `<video>` 上会挂几十个 `syncTime`，每个闭包抓着**它那一轮**的那一条候选 ——
-         越滚越慢，而那行读数写的可能是旧一条的时长。
-         所以每次接线前先把上一份摘掉（`AbortController` 的 signal 传给 addEventListener）。
-         这也顺带修了「切换候选时节点不换、只换 src」那一路：`selectCandidate` 就地改地址之后，
-         旧的 `loadedmetadata` 监听还指着上一条候选，尺寸那一格会一直空着。
-         属性类接线（`onclick` / `onplay` / `onloadedmetadata`）本来就是「后者覆盖前者」，不用摘。 */
+         同一只 `<video>` 上会挂几十个 `syncTime`，每个闭包抓着它那一轮的候选，越滚越慢。
+         所以每次接线前先把上一份摘掉（`AbortController` 的 signal 传给 addEventListener）；
+         这也顺带修了「切换候选只换 src」那一路旧监听指着上一条候选的错。
+         属性类接线（`onclick` / `onplay` / `onloadedmetadata`）后者覆盖前者，不用摘。 */
       if (pl.__pbCtl) { try { pl.__pbCtl.abort(); } catch (e) { /* 播控句柄已经结束了就没有可中止的 */ } }
       const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
       pl.__pbCtl = ctl;
@@ -345,9 +345,8 @@ function renderMid() {
         }
       };
       sync();
-      /* 整列重建后接回原来的播放进度（src 未变时）。
-         ⚠ 上面把节点整块保住时**这一支整个跳过**：节点没换，进度与播放态本来就还在原地，
-         再 `currentTime =` 一次等于自己造一次 seek —— 画面黑一下，正是这一次要修的那件事。 */
+      /* 整列重建后接回原来的播放进度（src 未变时）。节点被整块保住时这一支整个跳过：
+         进度与播放态还在原地，再 `currentTime =` 一次等于自己造一次 seek，画面黑一下。 */
       if (!keepBox && keepPlay && keepPlay.src && pl.getAttribute('src') === keepPlay.src) {
         const resume = () => {
           if (keepPlay.t > 0.2) { try { pl.currentTime = keepPlay.t; } catch { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
@@ -359,11 +358,10 @@ function renderMid() {
     }
     // 生成态：播放裁剪约束（剪掉的那一截不放）
     if (pl && cur && !midEditTrimOf()) {
-      /* 保留窗按**成片那一份**算：这一镜已提升的片段在素材里各占一段源窗口（剪辑态改过刀
-         这里就跟着改）；还没提升时退候选自己的裁剪窗（`candidateWindow` 与 promoteCandidate
-         同一份）。按**窗**播，不是按「[第一段的头, 最后一段的尾]」播：中间剪掉的那一截
-         不会照样放过去。落在任何一窗之外就跳到紧随其后的那窗开头；
-         后面没有窗了就停在最后一窗末尾、暂停。 */
+      /* 保留窗按成片那一份算：这一镜已提升的片段在素材里各占一段源窗口（剪辑态改过刀这里跟着改）；
+         还没提升时退候选自己的裁剪窗（`candidateWindow` 与 promoteCandidate 同一份）。
+         按窗播，不是按「[第一段的头, 最后一段的尾]」播：中间剪掉的那一截不会照样放过去。
+         落在窗外跳到紧随其后的那窗开头；后面没有窗了就停在最后一窗末尾、暂停。 */
       const kept = (filmOf(projOf()).clips || [])
         .filter(c => c && c.shotId === sh.id && c.candId === cur.vid && c.kind !== 'image')
         .map(c => [srcHeadOf(c), srcHeadOf(c) + srcUsedOf(c)])
@@ -382,8 +380,6 @@ function renderMid() {
         } else { try { pl.currentTime = kept[0][0]; } catch (e) { /* seek 被拒（元数据还没到）就保持当前位置 */ } }
       });
     }
-    if (window.Dropdowns) Dropdowns.build(col);   // 中栏参数条重建后重新包装下拉
-  });
 }
 /* 顺序模式：一行镜头缩略图（每个镜头一张），可点击切换、可拖动排序 */
 function renderShotStrip(col) {
@@ -469,5 +465,6 @@ function renderShotStrip(col) {
     playerEmptyText,
     updateArBadge,
     renderMid,
+    wireMidPlayer,
   };
 }

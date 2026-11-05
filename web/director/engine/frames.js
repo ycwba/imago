@@ -619,6 +619,24 @@ async function tlClipSrc(c) {
       return { t, url: best };
     });
   }
+/* 解码中途就把已到的帧贴上屏：主链一趟要解完整条稠密索引（长素材十几秒），
+   以前 onFrame 是空函数 —— 帧明明一张张到了，却要等整趟结束才上屏，
+   表现正是「后面那几段的切片要拖一下轨道才出现」（拖动触发 strip 重画，把缓存里现成的帧贴上）。 */
+let slicePaintAt = 0, slicePaintTimer = 0;
+function slicePaintSoon() {
+  const now = Date.now();
+  if (now - slicePaintAt >= 200) {
+    slicePaintAt = now;
+    try { stripRepaint(); } catch (e) { /* 轨道没画出来就算了 */ }
+    return;
+  }
+  if (slicePaintTimer) return;
+  slicePaintTimer = setTimeout(() => {
+    slicePaintTimer = 0;
+    slicePaintAt = Date.now();
+    try { stripRepaint(); } catch (e) { /* 轨道没画出来就算了 */ }
+  }, 200 - (now - slicePaintAt));
+}
   async function ensureFrames(clip, times) {
     const list = (Array.isArray(times) ? times : []).map(Number).filter(Number.isFinite);
     const src = frameSrcOf(clip);
@@ -628,7 +646,7 @@ async function tlClipSrc(c) {
     touchFrameSrc(key);
     const hit = frameCacheOf(key);
     const need = Array.from(new Set(list.filter(t => !hit.has(t) && !sliceBadFresh(key, t))));
-    if (need.length) await Promise.all(sliceAsk(key, src, need, hit, -1, true, () => {}));
+    if (need.length) await Promise.all(sliceAsk(key, src, need, hit, -1, true, slicePaintSoon));
     /* 回来的是**整个文件里真实存在的帧时刻**（流式那条路给的是包时刻，与请求的栅格差零点几秒是常态），
        所以按「相邻两格跨多远」定容差取最近的一张 —— 按 0.04 秒死抠的话，一张都对不上，
        整条带子会一直停在占位斜纹上。 */

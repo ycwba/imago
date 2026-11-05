@@ -48,6 +48,14 @@ export function markerRangeOf(marker) {
   return { start, end };
 }
 
+/* 轨道要盖住的最右一秒（无标记为 0）：标记钉在成片秒、不随剪辑搬移，剪短之后可以留在成片末尾之外，
+   导航总长不把它算进去，尺与行底色就画不到那一截。 */
+export function markerSpanEnd(markers) {
+  let end = 0;
+  (Array.isArray(markers) ? markers : []).forEach(m => { if (m) end = Math.max(end, markerRangeOf(m).end); });
+  return end;
+}
+
 /* 吸附点：每一枚的起边 + 范围的尾边（参考「标记边缘进吸附点」）。 */
 export function markerSnapPoints(markers) {
   const out = [];

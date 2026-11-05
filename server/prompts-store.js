@@ -39,11 +39,27 @@ function createPromptsStore(opts) {
     return abs;
   }
   const promptIndexPath = dir => path.join(dir, PROMPT_INDEX);
+  /* 索引按「目录 + _index.json 的 mtime 与字节数」记住解析好的那一份：
+     列表、按任务号找、写归档前读底座三条路都读它，一次 readFileSync + JSON.parse
+     在 2000 行那一档上限上是几十毫秒的同步阻塞。凡是写归档的路径（POST 追加、导入重建、
+     索引缺失时现搭）都整份重写索引 —— 重写一次 mtime 就变，下一读自动重取，不用另外记时间窗。
+     ⚠ 交出去的是缓存里那一只数组：调用方只做 filter / slice（现在这三条都是），不许就地改它。 */
+  const indexMemo = new Map();
   function readPromptIndex(dir) {
+    const file = promptIndexPath(dir);
+    let st = null;
+    try { st = fs.statSync(file); } catch { return null; }
+    const key = path.resolve(dir);
+    const hit = indexMemo.get(key);
+    if (hit && hit.mt === st.mtimeMs && hit.size === st.size) return hit.rows;
+    let rows = null;
     try {
-      const a = JSON.parse(fs.readFileSync(promptIndexPath(dir), 'utf8'));
-      return Array.isArray(a) ? a : null;
-    } catch { return null; }
+      const a = JSON.parse(fs.readFileSync(file, 'utf8'));
+      rows = Array.isArray(a) ? a : null;
+    } catch { rows = null; }
+    if (!rows) { indexMemo.delete(key); return null; }
+    indexMemo.set(key, { mt: st.mtimeMs, size: st.size, rows });
+    return rows;
   }
   /* 索引写盘：整份覆盖，必须原子写 —— 直接 writeFileSync 写一半断电 / 被占用，
      下次读到的就是半截 JSON；而读不出来时 promptRows 会整目录重建，
@@ -59,7 +75,10 @@ function createPromptsStore(opts) {
     return run;
   }
   function writePromptIndex(dir, rows) {
-    try { atomicWrite(promptIndexPath(dir), JSON.stringify(rows.slice(0, 2000))); }
+    try {
+      atomicWrite(promptIndexPath(dir), JSON.stringify(rows.slice(0, 2000)));
+      forgetDirScan(dir);
+    }
     catch (e) { log('[prompts] 索引写入失败：' + e.message); }
   }
   function parseFrontMatter(text) {
@@ -88,31 +107,55 @@ function createPromptsStore(opts) {
       return i >= 0 ? text.slice(i + '## 提示词'.length).replace(/\s+/g, ' ').trim().slice(0, 300) : '';
     } catch { return ''; }
   }
-  function rebuildPromptIndex(dir) {
-    let files = [];
-    try { files = fs.readdirSync(dir).filter(f => f.endsWith('.md')); } catch { return []; }
+  /* 整目录那一遍（readdir + 逐条读 1KB front matter）缓住，30 秒内同一目录只翻一次：
+     索引文件只写 2000 行，比这更老的归档不在索引里，/prompts/find 查不到时必须整目录翻一遍 ——
+     600 条归档实测一次 130~200ms 的主线程同步阻塞，而一页十几张卡各问一次就是十几遍（2.3 秒）。
+     缓的只有元数据：`pr` 那一句要把整份文件读完，仍然只对命中的那几条现算。
+     写归档都经 writePromptIndex → forgetDirScan 清掉这一份，刚落盘的那一条当场认得到；
+     受这一窗影响的只剩「用户自己在资源管理器里往归档目录里拷 .md」那一种，最长 30 秒
+     （而索引整份不在时由 rebuildPromptIndex 强制重扫，不照这一份缓存搭索引）。 */
+  const SCAN_TTL = 30 * 1000;
+  const metaScans = new Map();
+  function readDirMetaRows(dir, force) {
+    const key = path.resolve(dir);
+    if (!force) {
+      const hit = metaScans.get(key);
+      if (hit && Date.now() - hit.at < SCAN_TTL) return hit.rows;
+    }
+    const files = fs.readdirSync(key).filter(f => f.endsWith('.md'));
     const rows = [];
     files.forEach(f => {
-      const o = promptMetaOf(path.join(dir, f));
+      const o = promptMetaOf(path.join(key, f));
       if (!o) return;
       rows.push({ f, t: o.title || '', k: o.type || '', ts: Number(o.ts) || 0,
-        p: o.provider || '', m: o.model || '', i: o.task || '', pr: promptBodyOf(path.join(dir, f)) });
+        p: o.provider || '', m: o.model || '', i: o.task || '' });
     });
+    metaScans.set(key, { at: Date.now(), rows });
+    return rows;
+  }
+  /* 落了新归档就清掉这一份：索引写盘排在异步队列里，那一段窗口里刚落盘的归档
+     只能靠「整目录那一遍」认到 —— 缓存不旧它就不会被翻到。 */
+  function forgetDirScan(dir) { metaScans.delete(path.resolve(dir)); }
+  /* 索引整份不在 / 读坏时的现搭：这是「以盘上那一份为准」的修复那一路，所以 force 重扫一遍 ——
+     缓存里那一份可能是用户自己往目录里拷了 .md 之前翻的，照它搭出来的索引会少几条，
+     而且少完还写回盘上，缺口就固定下来了。 */
+  function rebuildPromptIndex(dir) {
+    let meta = [];
+    try { meta = readDirMetaRows(dir, true); } catch { return []; }
+    const rows = meta.map(r => ({ ...r, pr: promptBodyOf(path.join(dir, r.f)) }));
     rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     writePromptIndex(dir, rows);
     return rows;
   }
   const promptRows = dir => readPromptIndex(dir) || rebuildPromptIndex(dir);
   function scanPromptTask(dir, id, cap) {
-    let files = [];
-    try { files = fs.readdirSync(dir).filter(f => f.endsWith('.md')); } catch { return []; }
+    let meta;
+    try { meta = readDirMetaRows(dir); } catch { return []; }
     const out = [];
-    for (const f of files) {
+    for (const r of meta) {
       if (out.length >= (cap || 50)) break;
-      const o = promptMetaOf(path.join(dir, f));
-      if (!o || String(o.task || '') !== id) continue;
-      out.push({ f, t: o.title || '', k: o.type || '', ts: Number(o.ts) || 0,
-        p: o.provider || '', m: o.model || '', i: o.task || '', pr: promptBodyOf(path.join(dir, f)) });
+      if (r.i !== id) continue;
+      out.push({ ...r, pr: promptBodyOf(path.join(dir, r.f)) });
     }
     return out;
   }
@@ -221,6 +264,7 @@ function createPromptsStore(opts) {
           catch (e) { if (e && e.code === 'EEXIST') continue; return json(500, { error: { message: '写不进文件（' + dir + '）：' + e.message } }); }
         }
         if (!wrote) return json(500, { error: { message: '同一个名字的归档太多（' + base + '），换一个标题再存' } });
+        forgetDirScan(dir);
         const row = { f: file, t: rawTitle, k: rawType, ts: now.getTime(), p: provider, m: model,
           i: task, pr: oneLine(prompt).slice(0, 300) };
         updateIndex(dir, () => writePromptIndex(dir, [row].concat(promptRows(dir).filter(r => r.f !== file))))

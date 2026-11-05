@@ -98,24 +98,25 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       };
     }, 15000);
     must(seg.tabs, '右栏档位条没有用公共 .ui-seg');
-    must(seg.on.length === 1 && seg.on[0] === 'list', '右栏默认应停在「这一镜上的配音」（.on 只有一颗）：' + JSON.stringify(seg.on));
+    must(seg.on.length === 1 && seg.on[0] === 'voice', '右栏默认应停在「配音」（.on 只有一颗）：' + JSON.stringify(seg.on));
     must(seg.legacy === 0, '旧的自制 .vc-tab 标记还在 DOM 里：' + seg.legacy);
     must(seg.zoomSvg === 3, '时间线缩放那三颗要用公共图标：' + seg.zoomSvg);
 
-    /* 右栏切到「台词」再切到「字幕」：.on 只落在点中的那一颗，对应那一格真的露出来（其余几格收起）。
+    /* 右栏切到「这一段」再切到「字幕」：.on 只落在点中的那一颗，对应那几格真的露出来（其余几格收起）。
        顶上那一层写的是**此刻看着的这一镜**（镜头名），不是档位名 —— 档位的名字由它自己那颗按钮说，
        两处都写同一个词就分出两个层级（见 `track.js` 的 paintTlGroups）。 */
     const lines = await readWhen(() => {
-      document.querySelector('#vcTabs [data-vctab="lines"]').click();
-      const g = document.getElementById('grpLines');
+      document.querySelector('#vcTabs [data-vctab="clip"]').click();
+      const g = document.getElementById('grpVoiceList');
       if (!g || g.hidden) return null;
       const on = [...document.querySelectorAll('#vcTabs .on')].map(b => b.dataset.vctab);
-      const other = ['grpPic', 'grpVoice', 'grpVoiceAdd', 'grpVoiceList', 'grpSub']
+      const other = ['grpLines', 'grpVoiceAdd', 'grpSub']
         .filter(id => { const e = document.getElementById(id); return e && !e.hidden; });
-      return { tabs: on, other, title: (document.getElementById('edTitle') || {}).textContent };
+      return { tabs: on, hidden: ['grpLines', 'grpVoiceAdd', 'grpSub'].map(id => { const e = document.getElementById(id); return e && e.hidden; }), other, title: (document.getElementById('edTitle') || {}).textContent };
     }, 15000);
-    must(lines.tabs.length === 1 && lines.tabs[0] === 'lines', '右栏选中态应只有一颗且在「台词」：' + JSON.stringify(lines.tabs));
-    must(!lines.other.length, '切到「台词」时别的那些格没收起：' + JSON.stringify(lines.other));
+    must(lines.tabs.length === 1 && lines.tabs[0] === 'clip', '右栏选中态应只有一颗且在「这一段」：' + JSON.stringify(lines.tabs));
+    must(!lines.other.length, '切到「这一段」时别的那些格没收起：' + JSON.stringify(lines.other));
+    must(lines.hidden.every(Boolean), '切到「这一段」时台词/生成配音/字幕三格要收起');
     must(lines.title === '镜头 A', '右栏顶上该写此刻看着的这一镜（档位名由按钮说）：' + lines.title);
 
     const sub = await page.eval(() => {

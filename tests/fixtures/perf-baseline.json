@@ -1,43 +1,21 @@
 {
   "boot": {
-    "firstScreenScriptBytes": 523196,
-    "initialScriptBytes": 1093192,
-    "fcpMs": 280,
-    "dclMs": 231,
-    "loadMs": 358,
-    "ttiMs": 4300,
-    "jsParseMs": 152,
-    "scriptMs": 48,
-    "jsHeapUsedBytes": 4220224
+    "firstScreenScriptBytes": 524987,
+    "initialScriptBytes": 526426,
+    "fcpMs": 236,
+    "dclMs": 189,
+    "loadMs": 237,
+    "ttiMs": 2200,
+    "jsParseMs": 212,
+    "scriptMs": 89,
+    "jsHeapUsedBytes": 4918876
   },
-  "generatedAt": "2026-10-20T17:57:28.537Z",
-  "slice": {
-    "firstMs": 155,
-    "rowMs": 373,
-    "refillMs": 18,
-    "refillBackMs": 18,
-    "firstRowDecodes": 20,
-    "decodesAfterRefill": 0,
-    "zoomHitRate": 1,
-    "secondOpenDecodes": 0,
-    "firstRowTiles": 20,
-    "videos": 1,
-    "workerPosts": 20,
-    "workerReplies": 20,
-    "budgets": {
-      "firstMs": 600,
-      "rowMs": 2500,
-      "refillMs": 1500,
-      "hitRate": 0.7,
-      "why": "收紧前的实测 × 0.6，先看这里的实测值"
-    },
-    "measuredAt": "2026-10-21T04:48:29.068Z"
-  },
+  "generatedAt": "2026-11-04T10:47:17.395Z",
   "memory": {
-    "soakSeconds": 1800,
-    "heapStartBytes": 3244516,
-    "heapEndBytes": 3448172,
-    "growthBytes": 203656
+    "soakSeconds": 90,
+    "heapStartBytes": 3715908,
+    "heapEndBytes": 4808764,
+    "growthBytes": 1092856
   },
   "assets": {
     "firstScreenListRequests": 10,

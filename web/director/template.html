@@ -59,10 +59,8 @@
   #scenesBox::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-6); }
   #scenesBox::-webkit-scrollbar-thumb:hover { background: var(--sub); }
   /* 中栏：flex-basis 写 0（不是 auto）——auto 会让基准尺寸跟着内容走，候选条一变多/变宽，
-     三栏占比就跟着飘；basis:0 之后中栏宽度只由容器与两侧栏决定，候选多少都不影响占比。 */
-  /* 中栏是「看片台」：两侧是编辑器（有卡片外框），中间这一栏不套外框 ——
-     底色直接是页面底，播放器与候选条自己站得住。三栏同底同边同角的时候，
-     「哪一栏是编辑器、哪一栏是看片」这件事得靠猜（用户点名：功能区分）。 */
+     三栏占比就跟着飘；basis:0 之后中栏宽度只由容器与两侧栏决定。
+     中栏是「看片台」不套外框（两侧编辑器有卡框，功能区分靠它 —— 用户点名）。 */
   .col-mid { flex: 1 1 0%; min-width: 0; background: none; border: 0; border-radius: 0;
     position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   /* 正文自己滚（页面不滚）：候选多了也不会把播放器顶出视口，顺序条钉在栏底不动。 */
@@ -75,9 +73,18 @@
     border-top: var(--hair) solid var(--line); }
   .shot-strip-host[data-split-fixed] { flex: 0 0 var(--strip-h); max-height: none; }
   .shot-strip-host[hidden] { display: none; }
-  /* 剪辑态预览与生成态**同一副尺寸**（用户点名）：同一条 `56vh` / 16:9 的盒子，
-     不因为下面多了轨道坞就缩成一小块 —— 不够高时中栏自己滚，轨道坞也能拖矮。 */
-  .col-mid.is-trim .mid-body { overflow-y: auto; }
+  /* 剪辑态视频栏不滚（用户点名）：`.player-wrap` 设成 size 容器，播放盒宽直接由容器高（cqh）
+     与栏宽（cqw）现算 —— 拖轨道坞（--dock-h）、改窗口全程跟手，不再靠整栏重画时 JS 现量
+     （那份旧量法在拖坞之后不重算，旧盒高溢出 `.player-wrap`，中栏就出滚动条）。
+     min 三参一次压住三个上限：栏宽、可用高折算宽、生成态同款的 56vh 封顶；cqw/cqh 指 content-box，
+     自动扣掉这一层的 16/16/8 padding。生成态不进这几条，仍是 calc(56vh * 16 / 9)。
+     ⚠ container-type:size 让这一层不再由内容撑高（高度只来自 flex 分配）—— 往这里塞流式内容会被裁。 */
+  .col-mid.is-trim .player-wrap { flex: 1 1 auto; min-height: 0; container-type: size; }
+  .col-mid.is-trim .player-box { width: min(100cqw, calc(100cqh * 16 / 9), calc(56vh * 16 / 9)); }
+  /* 盒宽已由 min() 封死，video 的 max-height 放开：矮窗那档 44vh 的媒体查询会在可用高不足时
+     把 16:9 压扁；显式排除全屏（全屏那条 100%/100% 不许被这枚特异度更高的规则盖住）。 */
+  .col-mid.is-trim .player-box:not(:fullscreen) video { max-height: none; }
+  .col-mid.is-trim .mid-body { overflow: hidden; }
   .col-mid.is-trim .mid-tools { flex: 0 0 auto; }
   .col-right { flex: 0 1 var(--sp1); min-width: 298px; }
   /* ---------- 窗口尺寸自适应 ----------
@@ -497,7 +504,7 @@
   .cand-acts .faces { display: grid; justify-items: end; }
   .cand-acts .faces > button { grid-area: 1 / 1; }
   .cand-acts .off { visibility: hidden; }
-  /* 武装二次确认（取消选用 / 删除两颗，同一副默认画法）在这排里保持 .ghost 的 padding：
+  /* 武装二次确认（这排里只有删除那颗）在这排里保持 .ghost 的 padding：
      默认画法会另改 padding，宽了一格就把左边的锁定 / 选用横推开。 */
   .cand-acts button.armed { padding: var(--sp-4) var(--sp-12); }
   .mid-tools { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-16) var(--sp-8); flex-wrap: wrap; }
@@ -518,21 +525,14 @@
     box-shadow: 0 0 0 var(--hair) color-mix(in srgb, var(--media-bg) var(--a-50), transparent); pointer-events: none; z-index: 9; }
   .tl-drop::before { content: ""; position: absolute; top: calc(-1 * var(--sp-8)); left: calc(-1 * var(--sp-4)); width: 11px; height: 11px;
     border-radius: 50%; background: var(--acc); }
-  /* 右栏「这一镜上的配音」那三个小选项（用户点名的第 ③ 条）：一排分段按钮，一次只露一格内容。
-     开关本体是公共 `.ui-seg`（选中态 `.on` 由 paintTlGroups 一处翻），这里只收满宽、四等分与小一号字。 */
-  .vc-tabs { display: flex; width: 100%; margin: var(--sp-8) 0 var(--sp-2); border-radius: var(--radius-6); }
+  /* 右栏那三个落点（这一段 / 配音 / 字幕）：开关本体是公共 `.ui-seg`（选中态与显隐由
+     paintVcCard 一处翻）。三个词一行放得下（298px 栏宽下每格约 92px），不用再换行。 */
+  .vc-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; height: auto;
+    margin: var(--sp-8) 0 var(--sp-2); border-radius: var(--radius-6); }
   .vc-tabs[hidden] { display: none; }
-  .vc-tabs > button { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
+  .vc-tabs > button { height: var(--sz-ctl); font-size: var(--fs-12); padding: 0 var(--sp-4);
     overflow: hidden; text-overflow: ellipsis; }
-  /* 「这一段画面」那枚**指示**（不是按钮：画面这一档由轨道上的指针决定，点它没有意义），
-     但要跟旁边的档位按钮长得一样 —— 它亮着就说明现在改的是画面那一段。 */
-  .vc-tabs .vc-lit { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sub);
-    display: flex; align-items: center; justify-content: center;
-    border-right: var(--hair) solid var(--line); }
-  .vc-tabs .vc-lit.on { background: var(--pri); color: var(--on-acc); font-weight: 600; }
-  /* 画面那一档亮着时，配音那几颗按不动（点了也不换档）：按暗 + 说明为什么。 */
-  .vc-tabs > button:disabled { color: var(--sub); opacity: .55; cursor: default; }
+  .vc-tabs > button + button { border-left: 0; }
   /* 预览字幕叠层：`100cqh` 要一个尺寸容器（.sub-wrap），字号才跟着画面高度走。 */
   .sub-wrap { position: absolute; inset: 0; z-index: 3; pointer-events: none; container-type: size; overflow: hidden; border-radius: var(--radius-4); }
   .sub-ov { position: absolute; left: 6%; right: 6%; text-align: center; line-height: 1.28; font-weight: 600; color: var(--on-acc);
@@ -557,25 +557,26 @@
   .sub-row [data-cap-del] { margin-left: auto; }
   .sub-ta { width: 100%; margin-top: var(--sp-4); font-size: var(--fs-12); line-height: 1.35; resize: vertical; min-height: 30px; }
   .player-box:fullscreen .sub-wrap { border-radius: 0; }
-  /* 音量：**只此一枚滑块**（0–200%，步进 0.1% = 无级）。上限 200% 与配音同一把尺子，
-     超过 100% 的部分只在合并成片时生效（浏览器给 <video>/<audio> 的音量封顶 1）。 */
+  /* 音量 / 倍速滑块的壳（卡片里两枚一组：上面那枚管指着的那一个，下面「整轨」那枚管这一排每一条）。
+     音量 0–400%（超过 100% 的部分只在成片 / 导出里生效，浏览器给 <video>/<audio> 的音量封顶 1），
+     倍速 0.25–4。 */
   .tl-vol { display: inline-flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-8) 0 var(--sp-2);
     border-left: var(--hair) solid var(--line); }
   .tl-vol input[type=range] { width: 116px; height: 14px; accent-color: var(--pri); cursor: pointer; }
   .tl-vol .vv { font-size: var(--fs-12); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; color: var(--sub); }
   .tl-vol.off { opacity: .45; }
   .tl-vol.off input[type=range] { pointer-events: none; cursor: default; }
-  /* 右栏那张「这一段 / 这一句」卡：音量 + 倍速两枚无级滑块。
-     滑块以前挂在轨道上面那一排（`.tl-tools`）里，和那一排剪子挤一行 —— 再加一枚倍速就放不下，
-     而「指着谁就改谁的参数」这两件事本来就该和右栏那句落点说明在一起（落点 + 参数 = 一件事的两半）。 */
-  .tl-adj { margin-top: var(--sp-12); padding: var(--sp-8) var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  /* 右栏那张「这一段 / 这一句」卡：单条的音量与倍速、整轨的音量与倍速、淡入淡出、入出点。
+     这些以前挂在轨道上面那一排（`.tl-tools`）里，和那一排剪子挤一行 —— 再加一枚倍速就放不下，
+     而「指着谁就改谁的参数」这件事本来就该和右栏那句落点说明在一起（落点 + 参数 = 一件事的两半）。 */
+  .tl-adj { margin-top: var(--sp-12); padding: var(--sp-8) var(--sp-12); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
     background: var(--panel2); display: flex; flex-direction: column; gap: var(--sp-8); }
   .tl-adj .adj-row { display: flex; align-items: center; gap: var(--sp-8); }
   .tl-adj .adj-row > .lab { flex: none; font-size: var(--fs-12); color: var(--sub); min-width: 30px; }
   /* 卡片里不复用条上那道左分隔线（`.tl-vol` 自带的 border-left 是给横排那一行分栏用的） */
   .tl-adj .tl-vol { border-left: none; padding: 0; flex: 1; min-width: 0; }
   .tl-adj input[type=range] { flex: 1 1 auto; min-width: 0; max-width: 160px; }
-  /* 右栏那张卡按「此刻指着哪一轨」分成的几组（paintTlGroups 只翻 hidden，节点不销毁）。
+  /* 右栏那几格（paintVcCard 只翻 hidden，节点不销毁）。
      组里沿用的是整张卡那 8px 间隔 —— 不设这一条，倍速与画面轨两行会贴成一格。
      `[hidden]` 必须显式压掉：这一条自己写了 display:flex，浏览器默认的「hidden 就藏起来」会被它盖掉
      （与 ui.css 的 `.tool[hidden]` 同一个坑）。 */
@@ -584,7 +585,10 @@
   /* 剪辑右栏「这一条上的配音」那一小列（与轨道上的块是同一批数据，不是第二份账） */
   .vc-list { display: flex; flex-direction: column; gap: var(--sp-4); }
   .vc-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--input); }
+    border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input); }
+  /* 区块间距的唯一一份：`.grp` 里第一层标题 / 按钮排的落位，页面里不再手写内联 margin。 */
+  .ed-body .grp > .ed-label { margin-top: var(--sp-16); }
+  .ed-body .grp > .btn-row { margin-top: var(--sp-4); }
   .vc-row b { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
   .vc-row span { color: var(--sub); font-size: var(--fs-11); margin-left: auto; white-space: nowrap; }
   /* 剪辑右栏「台词」那一档的两段清单：一行 = 一镜的一句台词（说话人缩略图 / 名字 + 镜号 + 两个时间读数）。
@@ -1041,7 +1045,10 @@
     font-size: var(--fs-11); color: var(--txt); pointer-events: none; }
 
   /* ---------------- 两端的剪裁把手 ---------------- */
-  .tl-board .tl-h { position: absolute; top: 0; bottom: 0; z-index: 4; width: 8px; cursor: ew-resize; }
+  /* 裁边把手（z-index 7）：必须压过转场菱形那一层（6）—— 菱形的命中区横在切缝正中，
+     以前 18×18 居中那块正好盖住两侧各 8px 把手在行中段的可抓区，用户点名的「切缝处裁不动」。
+     把手从行顶 16px 之下起步：行顶那条 16px 的横带让给转场菱形（两件事不打架）。 */
+  .tl-board .tl-h { position: absolute; top: var(--sp-16); bottom: 0; z-index: 7; width: 8px; cursor: ew-resize; }
   .tl-board .tl-h.is-start { left: 0; }
   .tl-board .tl-h.is-end { right: 0; }
   .tl-board .tl-h::after { content: ""; position: absolute; top: 26%; bottom: 26%; width: var(--hair-2);
@@ -1058,10 +1065,14 @@
   .tl-board .tl-junctions { position: absolute; left: 0; top: 0; z-index: 6; height: var(--tlh-image);
     pointer-events: none; }
   .tl-board .tl-junctions[hidden] { display: none; }
-  .tl-board .tl-junction { position: absolute; top: 50%; display: inline-flex; align-items: center;
-    justify-content: center; width: 18px; height: 18px; margin: calc(-1 * var(--sp-8)) 0 0 calc(-1 * var(--sp-8));
+  /* 转场菱形：命中区 32×16、占行顶那条横带（0–16px，把手从 16px 之下才起步）——
+     整条命中区都归菱形，点它开转场浮层；捏切缝 16px 以下的中段裁边 / 拖切点。
+     菱形 12px 带 1px 描边的键帽底，骑在缝上看得见摸得着 —— 以前 18×18 居中那枚
+     被把手压住点不动（「切点没有转场按钮」），缩小之后又一找不着。 */
+  .tl-board .tl-junction { position: absolute; top: 0; display: inline-flex; align-items: center;
+    justify-content: center; width: 32px; height: var(--sp-16); margin: 0 0 0 calc(-1 * var(--sp-16));
     padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; }
-  .tl-board .tl-junction-dot { width: 9px; height: 9px; border: var(--hair-1-5) solid var(--sub);
+  .tl-board .tl-junction-dot { width: 12px; height: 12px; border: var(--hair-1-5) solid var(--sub);
     border-radius: var(--radius-4); background: var(--panel); transform: rotate(45deg);
     box-shadow: var(--shadow-1); transition: border-color var(--dur-120), background var(--dur-120); }
   .tl-board .tl-junction:hover .tl-junction-dot { border-color: var(--acc);
