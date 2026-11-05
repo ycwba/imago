@@ -2359,14 +2359,19 @@
   function modelNow(prov) {
     return prov ? (TextAI.model(prov) || '') : '';
   }
+  let hintSeq = 0;
   async function paintHint() {
+    const seq = ++hintSeq;
     let r;
-    try { r = await reg(); } catch (e) { el.hint.textContent = '读不到注册表：' + errText(e); return; }
+    try { r = await reg(); } catch (e) { if (seq === hintSeq) el.hint.textContent = '读不到注册表：' + errText(e); return; }
     const cur = TextAI.prov(r);
     const model = modelNow(cur);
     /* 「这家能不能问」= 本机填了密钥 或 服务端 .env 配了。用 envHas 而不是 TextAI.usable：
        usable 读的那份 _envIds 在 /env-status 命中缓存时不会重建，会把「服务端配了」说成「没配」。 */
     const can = !!cur && (!!TextAI.key(cur) || await TextAI.envHas(cur));
+    /* 装配那一轮与开面板那一轮并发时，装配那轮（带着更旧的设置）可能后回来 —— 只许最新一轮写，
+       否则刚选好的型号会被抹回旧话。 */
+    if (seq !== hintSeq) return;
     el.hint.textContent = !cur ? '注册表里没有文字 AI 供应商，去设置页「供应商与密钥 → 文字」配一家'
       : (!model ? '这家还没选型号：去设置页「供应商与密钥 → 文字」那一档选一个'
         : (cur.name || cur.id) + ' · ' + model + '（在设置里换）· '
@@ -2625,7 +2630,7 @@
     try {
       if (window.WbSkills) {
         const items = await window.WbSkills.list();
-        ctx.skillIndex = items.filter(x => x.enabled && !x.conflict).slice(0, 24)
+        ctx.skillIndex = items.filter(x => x.enabled).slice(0, 24)
           .map(x => ({ id: x.id, description: x.description || '', triggers: x.triggers || [] }));
         /* 用户点名（问题里写着 id / 名字）= 钉死指定优先（opts.pinned）；
            没点名的走触发词自动补位 —— 钉了就不再自动换，给「我不喜欢它自己选」留一档。 */

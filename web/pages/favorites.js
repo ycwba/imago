@@ -46,7 +46,6 @@ export default {
     const favTotal = ref(0);
     const pagerTick = ref(0);
     const pagerVisible = ref(false);
-    const aiText = ref('');
     const uploadHtml = ref((window.icon ? icon('upload', 13) : '') + ' 上传本地文件');
     const uploading = ref(false);
     const pullBtn = ref(null);

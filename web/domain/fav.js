@@ -38,8 +38,22 @@
   }
   // 页面卸载时统一回收
   window.addEventListener('beforeunload', () => { urlCache.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); urlCache.clear(); });
-  /* 别的标签页改了收藏 → 本页那份缓存作废（失效判据之一；另一处是 write 自己） */
+  /* 缓存作废的路：write 自己、别的标签页的 storage 事件；同一标签页里别人直写 fav_items
+     （云同步把远端那份写回走的是全局 setItem 钩子，不触发本页的 storage 事件）——
+     在存储原型上认这枚键，见到写入就作废（挂在数据镜像那层钩子外面，谁先装都在）。 */
   window.addEventListener('storage', e => { if (e && e.key === KEY) { _fav = null; _favKeys = null; } });
+  (function watchInTabWrites() {
+    try {
+      const proto = window.Storage && window.Storage.prototype;
+      if (!proto || proto.__favWatched) return;
+      const rawSet = proto.setItem;
+      proto.setItem = function (k, v) {
+        rawSet.call(this, k, v);
+        try { if (k === KEY && this === localStorage) { _fav = null; _favKeys = null; } } catch (e) { /* 作废是顺手做的：不许打断真正的存储写入 */ }
+      };
+      proto.__favWatched = true;
+    } catch (e) { /* 挂不上不拦路：还有 write / storage / 3 秒软过期三档 */ }
+  })();
   /* 收藏项变了：只更新本地缓存，不主动重画（页面自己决定怎么刷新，避免打字时被重绘打断） */
   /* 读写都走 ui.js 的 Store：信封里的 ts 让「浏览器 ↔ .data/」能判出谁新（裸数组那份做不到） */
   /* 缓存：`list()` 每次都是 `getItem` + `JSON.parse` **整份**收藏，而 `has(key)` 是
@@ -51,8 +65,7 @@
      不依赖「每次拿到新对象」。 */
   let _fav = null, _favKeys = null, _favAt = 0;
   /* 3 秒软过期：够覆盖「一次渲染里几百次 has()」（它们全在同一瞬间），
-     又不会在「别处直写 fav_items」（云同步把远端那份写回 localStorage 时走的是
-     ui.js 里那条 setItem 钩子，不会触发本标签页的 storage 事件）之后长期读到旧值。 */
+     只给 localStorage.clear() 这类不经上面任何一条作废路的人兜底。 */
   const FAV_TTL = 3000;
   const list = () => {
     if (_fav && Date.now() - _favAt < FAV_TTL) return _fav;
