@@ -16,6 +16,7 @@ import {
   deriveTimeline, coversTime, itemVisible, voiceLaneMap, captionLaneMap,
   gainOf, fadeGain, transitionAtTime, captionPosition, captionHighlighted,
 } from '../film.js';
+import { num } from '../util.js';
 
 /* 界面读数节流：主时钟每帧都走，画读数 / 转场进度只按这个间隔。 */
 const UI_FRAME_MS = 15;
@@ -25,7 +26,6 @@ const SYNC_EPS = 0.04;
 const DRIFT_EPS = 0.3;
 
 const ZERO = 0;
-const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 
 /* 「开始播，并吞掉自动播放被浏览器拦下来的那个拒绝」只有这一份（生成态的播放器也走它）。
    onErr 只在真被拦下时叫一次 —— 静音轨 / 空 src 的 play() 拒绝不当成错误。 */

@@ -18,8 +18,7 @@ import {
   tlZoomByWheel, tlFitZoom, tlZoomFloor, tlInitialZoom,
 } from '../tl-scale.js';
 import { markerRangeOf, markerTimeText, MARKER_TYPE_ICON, MARKER_TYPE_ZH } from '../tl-markers.js';
-
-const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+import { num } from '../util.js';
 
 /* 时间读数的唯一一份（工具栏 / 播放头 / 块角标共用；带零点一秒）。 */
 export function clockText(sec) {

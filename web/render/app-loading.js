@@ -4,8 +4,8 @@ import { createElementVNode as _createElementVNode, openBlock as _openBlock, cre
 const _hoisted_1 = { class: "spa-frame-loading" }
 
 export function render(_ctx, _cache) {
-  return (_openBlock(), _createElementBlock("div", _hoisted_1, [...(_cache[0] || (_cache[0] = [
-    _createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
-    _createElementVNode("span", null, "加载中…", -1 /* CACHED */)
-  ]))]))
+return (_openBlock(), _createElementBlock("div", _hoisted_1, [...(_cache[0] || (_cache[0] = [
+_createElementVNode("span", { class: "spin-dot" }, null, -1 /* CACHED */),
+_createElementVNode("span", null, "加载中…", -1 /* CACHED */)
+]))]))
 }

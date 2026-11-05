@@ -1,8 +1,8 @@
 /* 时间线标记（纯件，无 DOM）—— 参考 timelineMarkers：
    四类（标记 / 章节 / 范围 / 便签）× 五色，钉在成片秒，**不随剪辑搬移**。
    模型、钟面格式、边缘吸附点只有这一份；film.js 的 normalizeFilm 也调这里。
-   颜色不新开主题令牌：五色直接落到既有的语义色上（深浅两档都成对），
-   见 MARKER_COLOR_VAR —— 新增一枚颜色只改这张表。 */
+   颜色不新开主题令牌：色名落到既有语义色上（深浅两档都成对），
+   那层「色名 → `var(--acc)` 一族」的映射在 template.html 的 `.color-*` 规则里，新增一枚改那里。 */
 
 import { num, round2 } from './util.js';
 
@@ -11,9 +11,6 @@ export const MARKER_COLORS = Object.freeze(['cyan', 'amber', 'violet', 'rose', '
 export const MARKER_TYPE_ZH = Object.freeze({ marker: '标记', chapter: '章节', range: '范围', note: '便签' });
 export const MARKER_COLOR_ZH = Object.freeze({ cyan: '青', amber: '琥珀', violet: '紫', rose: '玫红', green: '绿' });
 export const MARKER_TYPE_ICON = Object.freeze({ marker: 'flag', chapter: 'chapter', range: 'ripple', note: 'note' });
-export const MARKER_COLOR_VAR = Object.freeze({
-  cyan: '--acc', amber: '--warn', violet: '--pri', rose: '--err', green: '--ok',
-});
 /* 四类的默认色（参考 markersAbsoluteHint 的默认表）：用户不改就落这一枚。 */
 export const MARKER_DEFAULT_COLOR = Object.freeze({ marker: 'cyan', chapter: 'amber', range: 'violet', note: 'rose' });
 

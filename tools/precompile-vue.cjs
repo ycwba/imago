@@ -43,8 +43,12 @@ function build(name, compile) {
     throw new Error(name + '.html 编译失败：\n  ' + lines.join('\n  '));
   }
   const code = out.code.replace(/from "vue"/g, 'from "' + VUE_RUNTIME + '"');
+  /* 行首缩进纯排版，剥掉它不改变任何一个 token：编译器把模板里的换行全写成 `\n` 转义，
+     产物里没有跨行的字符串与模板串（按 @babel 词流逐份核过）。留着它，
+     发出去的 render 就多背 24% 的空白字节。 */
+  const lean = code.split('\n').map(line => line.replace(/^[ \t]+/, '')).join('\n');
   return '/* 生成文件：由 tools/precompile-vue.cjs 从 tools/vue-templates/' + name + '.html 编译，别手改。 */\n'
-    + code.trimEnd() + '\n';
+    + lean.trimEnd() + '\n';
 }
 
 const check = process.argv.includes('--check');

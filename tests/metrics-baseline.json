@@ -1,11 +1,11 @@
 {
   "version": 1,
   "baseline": {
-    "at": "2026-11-04T15:18:12.582Z",
-    "totalLines": 82989,
-    "codeLines": 67461,
-    "totalBytes": 6204857,
-    "codeBytes": 3965138,
+    "at": "2026-11-05T11:21:43.373Z",
+    "totalLines": 83017,
+    "codeLines": 67473,
+    "totalBytes": 6207489,
+    "codeBytes": 3965413,
     "moduleCount": 151,
     "files": [
       {
@@ -115,10 +115,10 @@
       },
       {
         "file": "web/styles/ui.css",
-        "lines": 1456,
-        "codeLines": 993,
-        "bytes": 131956,
-        "codeBytes": 83941
+        "lines": 1445,
+        "codeLines": 987,
+        "bytes": 131101,
+        "codeBytes": 83515
       },
       {
         "file": "web/pages/assets.js",
@@ -199,10 +199,10 @@
       },
       {
         "file": "web/director/engine/timeline.js",
-        "lines": 972,
-        "codeLines": 900,
-        "bytes": 46241,
-        "codeBytes": 39374
+        "lines": 992,
+        "codeLines": 906,
+        "bytes": 48418,
+        "codeBytes": 39699
       },
       {
         "file": "web/ui/sidebar.js",
@@ -220,10 +220,10 @@
       },
       {
         "file": "web/pages/favorites.js",
-        "lines": 804,
-        "codeLines": 680,
-        "bytes": 42170,
-        "codeBytes": 29267
+        "lines": 803,
+        "codeLines": 679,
+        "bytes": 42142,
+        "codeBytes": 29239
       },
       {
         "file": "web/domain/asset-picker.js",
@@ -285,15 +285,15 @@
         "file": "web/director/engine/play.js",
         "lines": 659,
         "codeLines": 605,
-        "bytes": 25625,
-        "codeBytes": 19985
+        "bytes": 25573,
+        "codeBytes": 19933
       },
       {
         "file": "web/director/film.js",
-        "lines": 591,
-        "codeLines": 473,
-        "bytes": 32821,
-        "codeBytes": 20556
+        "lines": 605,
+        "codeLines": 484,
+        "bytes": 33546,
+        "codeBytes": 20956
       },
       {
         "file": "web/ui/datasync.js",
@@ -605,10 +605,10 @@
       },
       {
         "file": "web/director/tl-scale.js",
-        "lines": 181,
+        "lines": 183,
         "codeLines": 149,
-        "bytes": 9883,
-        "codeBytes": 6820
+        "bytes": 10276,
+        "codeBytes": 6876
       },
       {
         "file": "server/media-src.js",
@@ -684,8 +684,8 @@
         "file": "web/director/engine/strip.js",
         "lines": 134,
         "codeLines": 126,
-        "bytes": 6657,
-        "codeBytes": 5877
+        "bytes": 6605,
+        "codeBytes": 5825
       },
       {
         "file": "web/director/ref-plan.js",
@@ -821,6 +821,13 @@
         "codeBytes": 2581
       },
       {
+        "file": "web/director/tl-markers.js",
+        "lines": 87,
+        "codeLines": 72,
+        "bytes": 4806,
+        "codeBytes": 3310
+      },
+      {
         "file": "web/ui/band.js",
         "lines": 87,
         "codeLines": 81,
@@ -847,13 +854,6 @@
         "codeLines": 58,
         "bytes": 7432,
         "codeBytes": 4753
-      },
-      {
-        "file": "web/director/tl-markers.js",
-        "lines": 83,
-        "codeLines": 70,
-        "bytes": 4482,
-        "codeBytes": 3258
       },
       {
         "file": "web/styles/spa-usage.css",

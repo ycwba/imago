@@ -6,8 +6,8 @@
    波形只读 `peaks`（源窗口上的 RMS，tl-peaks.js 的重采样），不在剪辑时再解码音频。 */
 import { frameCountFor, planFrameTimes } from '../tl-filmstrip.js';
 import { resamplePeaks } from '../tl-peaks.js';
+import { num } from '../util.js';
 
-const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 const IMAGE_CELL_PX = 84;
 
 /* 胶片格宽随缩放收紧（与参考 Timeline.jsx 的 targetCellWidth 同一口径）：

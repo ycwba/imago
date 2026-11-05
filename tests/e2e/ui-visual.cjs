@@ -19,6 +19,18 @@ catch (e) { console.error('缺少开发依赖 pngjs：先运行 npm install'); p
 const ROOT = path.resolve(__dirname, '../..');
 const BASE_FILE = path.join(ROOT, 'tests/fixtures/visual/fingerprints.json');
 const ACTUAL_DIR = path.join(ROOT, 'tests/fixtures/visual/actual');
+
+/* 基线文件按「一屏一行」写：44 档 × 336 个 RGB 三元组，用 JSON.stringify(_, null, 2)
+   铺开就是 7.4 万行 / 790 KB 的排版噪声，一次改版的 diff 淹在数字海里。
+   键按字典序输出：只点名跑几页时（UI_VISUAL_PAGES）旧键按文件原顺序留着，
+   新增画面会插在末尾，排过序才让「加一档」在 diff 里就是多出的那一行。 */
+function serialize(obj) {
+  const screens = (obj && obj.screens) || {};
+  const rows = Object.keys(screens).sort()
+    .map(k => '    ' + JSON.stringify(k) + ': ' + JSON.stringify(screens[k]));
+  return '{\n  "version": ' + JSON.stringify(obj.version) + ',\n  "at": ' + JSON.stringify(obj.at)
+    + ',\n  "screens": {\n' + (rows.length ? rows.join(',\n') + '\n' : '') + '  }\n}\n';
+}
 const WRITE = process.env.UI_VISUAL_WRITE === '1';
 /* 逐张留底（`UI_VISUAL_SAVE=1`，进的是 gitignore 的 actual/）：只凭指纹分不清
    「画面真的改了」与「同一页两档主题各拍在两种版式上」，留底能直接看。 */
@@ -465,7 +477,7 @@ function diff(a, b) {
     }
     if (WRITE) {
       fs.mkdirSync(path.dirname(BASE_FILE), { recursive: true });
-      fs.writeFileSync(BASE_FILE, JSON.stringify(next, null, 2) + '\n');
+      fs.writeFileSync(BASE_FILE, serialize(next));
       console.log('\n已写入视觉基线：' + path.relative(ROOT, BASE_FILE));
       return;
     }

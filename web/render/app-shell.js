@@ -5,20 +5,20 @@ const _hoisted_1 = { class: "spa-shell" }
 const _hoisted_2 = { class: "spa-frame-wrap" }
 
 export function render(_ctx, _cache) {
-  const _component_page_frame = _resolveComponent("page-frame")
+const _component_page_frame = _resolveComponent("page-frame")
 
-  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
-    _withDirectives(_createElementVNode("div", _hoisted_2, [
-      (_openBlock(), _createBlock(_KeepAlive, null, [
-        (_ctx.activeView)
-          ? (_openBlock(), _createBlock(_component_page_frame, {
-              key: _ctx.state.route.file,
-              view: _ctx.activeView
-            }, null, 8 /* PROPS */, ["view"]))
-          : _createCommentVNode("v-if", true)
-      ], 1024 /* DYNAMIC_SLOTS */))
-    ], 512 /* NEED_PATCH */), [
-      [_vShow, !!_ctx.activeView]
-    ])
-  ]))
+return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+_withDirectives(_createElementVNode("div", _hoisted_2, [
+(_openBlock(), _createBlock(_KeepAlive, null, [
+(_ctx.activeView)
+? (_openBlock(), _createBlock(_component_page_frame, {
+key: _ctx.state.route.file,
+view: _ctx.activeView
+}, null, 8 /* PROPS */, ["view"]))
+: _createCommentVNode("v-if", true)
+], 1024 /* DYNAMIC_SLOTS */))
+], 512 /* NEED_PATCH */), [
+[_vShow, !!_ctx.activeView]
+])
+]))
 }
