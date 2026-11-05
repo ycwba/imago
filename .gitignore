@@ -1,51 +1,63 @@
-# 运行时日志与缓存
-*.log
-.asset-cache/
-node_modules/
+# ============================================================================
+# 进仓库的只有「跟着产品发出去的东西 + 判据」：源码、模板源、预编译产物、
+# vendored 依赖、内置 Skill、判据与基线。下面这些一律是**在用户机器上长出来的**——
+# 真实密钥、本机数据、用户作品、探针残留、缓存与截图。
+# ⚠ 数据根与库根由设置页/.env 说了算（DATA_DIR / RENDER_DIR / SKILLS_DIR /
+#   ASSETS_DIR / .data\sk_local_dir.json / AUTOSAVE_DIR），用户可以把它指回项目目录，
+#   所以这一份只许**加**不许随手删：一次 `git add -A` 就能把几百 MB 媒体与真实密钥推进历史，
+#   而历史里的那一份要清得重写远端。
+# ============================================================================
 
-# 密钥与本地配置（绝不提交；只放行不含真实密钥的模板）
+# 依赖与运行时日志 / 单实例锁的端口印记
+node_modules/
+*.log
+.proxy-port
+
+# 密钥与本地配置：.env 里是真的平台密钥，只放行不含真实密钥的模板
 .env
 .env.*
 !.env.example
 
-# 本机状态 / 助手记忆
+# 本机状态 / 桌面助手在自己的目录里写的记忆（与产品无关，换一台机器也不该带走）。
+# 这一族不是本仓库的代码写的，所以不适用「代码里没有就删」——工具随时会在项目里落文件。
 .workbuddy/
 .workbuddy-ai/
-.proxy-port
-
-# 本地数据
-.data/
-.data-probe*/
-.assets/
-.assets-probe*/
-.renders/
-.renders-probe*/
-prompts/
-prompts-probe*/
-.skills/
-.skills-probe*/
-
-# 历史默认落点（现在默认在系统下载文件夹下的 成像\）。
-# 仍然忽略：库根由 ASSETS_DIR / .data\sk_local_dir.json 说了算，指回项目内这些老名字时
-# 里面装的是用户的作品，一次 git add -A 就会把几百 MB 媒体推进历史。
-文件/
-
-# 一次性备份 / 自动化探针残留
-.backup-*/
-_backup/
-*.before
-.chrome-probe*/
-.mig-*/
-.downloads-probe*/
-.legacy-probe*/
-.selftest/
-.selftest-tmp/
-.tmp-*
-.probe-inode/
-tests/fixtures/visual/actual/
-
-# Superdesign 设计上下文：正文（init/ 设计系统/ 报告/ 证据图）留仓，临时 HTML 不进历史
+.zcodeignore
 .superdesign/tmp/
 
-# 视觉/端到端测试截图产物（本地生成，不进历史）
+# 结构化数据（含 .data/cache 那份缩略图与切片缓存、.data/models 那份模型缓存、
+# .data/local-assets 那本资产账）、成片目录、用户 Skill —— 默认落点就是项目内这三枚点目录
+.data/
+.renders/
+.skills/
+
+# 探针实例：常驻判据与启动器自检都落系统临时目录（tests/e2e/harness.cjs 的 imago-probe-*、
+# launcher.ps1 的 aii-launcher-*），仓库里不会出现这一族；只有**手工排障**按
+# 「测试与验证 · 写入隔离」那一段点名 ASSETS_DIR / RENDER_DIR … 时才在项目内建它们。
+# 开头的 * 是「带不带前导点都挡」—— 手工命令里两种写法都出现过，漏一种就是把探针数据放进提交范围。
+*data-probe*/
+*assets-probe*/
+*renders-probe*/
+*skills-probe*/
+*downloads-probe*/
+*prompts-probe*/
+
+# 库根指回项目内时的**用户作品本体**：顶层那一个与根下四类 + 提示词归档。
+# 名字跟着 server/user-dirs.js（AUTOSAVE_TOP_DIR = 成像 / PROMPTS_DIR_NAME = 提示词）与
+# server/local-assets-store.js 的类型表（图片 / 视频 / 音频 / 其他）；这几枚是当前的落点，
+# 斜杠钉在仓库根，不误伤 web/ 与 tests/ 里的同名子路径。
+/成像/
+/图片/
+/视频/
+/音频/
+/其他/
+/提示词/
+
+# 同一件事的历史默认名：那些年里根整份住在项目内，账与字节都可能在里面
+文件/
+.assets/
+prompts/
+
+# 本地生成的画面：视觉回归的实际截图（判据红时逐张留底）与手工截图堆
+tests/fixtures/visual/actual/
 .shots/

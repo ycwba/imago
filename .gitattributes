@@ -1,0 +1,31 @@
+# 行尾的唯一权威。仓库里的文本 blob 全部存 LF，检出时不再按「这台机器怎么配」换算。
+# 缺这一份文件的后果：core.autocrlf=true 的机器把文本检成 CRLF，而
+# tools/precompile-vue.cjs 只吐 LF —— 同一份模板编出两份产物，npm run build:check
+# 在全新克隆上 10 份 render 一起假红（实测：干净检出 i/lf → w/crlf 348 份）。
+* text=auto eol=lf
+
+# 启动器那一族必须留在 CRLF：cmd.exe 对 LF-only 批处理不可靠，
+# PowerShell 5.1 更把无 BOM 的 UTF-8 按 ANSI 解码（中文全乱）。
+# launcher.ps1 的内嵌 C# 装载缓存按文件内容 SHA256 认，行尾一变就重编一次 —— 不自愈报错，只是慢一轮。
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 字节不做任何换算。git 的 text 探测靠有没有 NUL，随内容漂；显式声明才不会漂。
+*.wasm binary
+*.mp4 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.gz binary
+*.tgz binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+
+# vendored 压缩产物：一行到底，diff 与合并都没有意义。
+*.min.js -text
+*.min.mjs -text
