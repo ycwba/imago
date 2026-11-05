@@ -49,8 +49,9 @@
    照样按自己的规则排 —— 这一点与原来那份文档里的行为一致。 */
 /* box-sizing 由公共 .page-shell * 给（同一份）；这一页只保留 margin / padding 的归零。 */
 :where(.settings-page) * { margin: 0; padding: 0; }
-/* :where() 把页头的内边距也归零了 —— 这一页的横向留白由外层网格给，页头自己只补上下。 */
-.settings-page > .phead { padding: var(--sp-12) 0 var(--sp-12); }
+/* :where() 把页头的内边距也归零了 —— 这里按公共那一份**逐字补回**（上下 --sp-8、左右交给网格），
+   不另起一档：横带高度由公共 .phead 的 min-height: --sz-head 说话，这一行只管窄窗换行时的呼吸。 */
+.settings-page > .phead { padding: var(--sp-8) 0; }
 
 /* 窄窗口：收紧留白，键值行允许折行（这一档断点是原来就有的，要保留） */
 @media (max-width: 900px) {
@@ -589,18 +590,15 @@
 .settings-page .sk-srow.on { background: var(--acc-tint-10); }
 .settings-page .sk-srow.on::before { content: ''; position: absolute; left: 0; top: var(--sp-4); bottom: var(--sp-4);
   width: var(--hair-2); border-radius: var(--hair-2); background: var(--acc); }
-/* 槽位灯：contract 就是一个插槽，同一时刻只有一份 Skill 占着（服务端硬约束）。 */
+/* 槽位灯：contract 就是一个插槽，槽里恒有一份在用（服务端硬约束）：紫=我的、灰=内置。 */
 .settings-page .sk-lamp { width: var(--sp-8); height: var(--sp-8); flex: 0 0 auto;
   border-radius: var(--radius-4); border: var(--hair) solid var(--line); background: transparent; }
 .settings-page .sk-lamp.lit-mine { background: var(--acc); border-color: var(--acc); }
 .settings-page .sk-lamp.lit-builtin { background: color-mix(in srgb, var(--txt) var(--a-26), transparent); border-color: transparent; }
-.settings-page .sk-lamp.lit-empty { background: transparent; border-style: dashed; }
-.settings-page .sk-lamp.lit-conflict { background: color-mix(in srgb, var(--err) var(--a-18), transparent); border-color: var(--err); }
 
 .settings-page .sk-s-l { flex: 1 1 auto; min-width: 0; font-size: var(--fs-13); font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-page .sk-s-r { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); white-space: nowrap; }
-.settings-page .sk-s-r.err { color: var(--err); }
 .settings-page .sk-legend { border-top: var(--hair) solid var(--line); margin-top: var(--sp-4); padding-top: var(--sp-8);
   display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12); font-size: var(--fs-11); color: var(--sub); }
 .settings-page .sk-lg { display: inline-flex; align-items: center; gap: var(--sp-8); }

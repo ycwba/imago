@@ -69,8 +69,10 @@ async function handleSkills(req, res, ctx) {
       return true;
     }
     if (!part[1] && method === 'DELETE') {
-      store.remove(id);
-      sendJson(res, 200, { ok: true });
+      /* 删掉的是场景里最后那份启用时，内置份已被服务端顶回来 —— 回执要点名，
+         不然界面上「我的那份没了、内置那份亮着」看着像出错。 */
+      const restored = store.remove(id);
+      sendJson(res, 200, { ok: true, restored: restored || '' });
       return true;
     }
     sendJson(res, 404, { error: '不认识的 Skill 路由' });

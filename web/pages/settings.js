@@ -2692,32 +2692,34 @@ const SettingsView = {
       return tree.length ? (tree[0].scenes[0] || null) : null;
     });
 
-    /* 这个场景里的 Skill 与槽位状态。服务端口径（skills-store.list）：
-       同一 contract 下**第一个**启用的算数，后面那份被标成 conflict —— 别处也按这一份算。 */
+    /* 这个场景里的 Skill 与槽位状态。服务端口径（skills-store）：占 contract 的场景
+       **恰好一份启用** —— 停掉最后一份被拒、卸载最后一份把内置顶回来、开机修老状态，
+       所以「谁在生效」就是启用中的那一份；没有 conflict 一说。 */
     function skillSceneState(sc) {
       const items = skillItems.value || [];
-      if (!sc) return { list: [], active: null, conflict: false, lamp: 'empty', text: '空档' };
+      if (!sc) return { list: [], active: null, lamp: 'empty', text: '空档' };
       if (sc.assistant) {
         const on = items.filter(x => x && x.enabled);
-        return { list: on, active: null, conflict: false, lamp: 'asst', text: on.length + ' 份已启用' };
+        return { list: on, active: null, lamp: 'asst', text: on.length + ' 份已启用' };
       }
       const list = items.filter(x => x && x.contract === sc.contract);
-      const on = list.filter(x => x.enabled);
-      /* 谁在生效：**按服务端那枚 conflict 标签**取（它说谁是「被让位的那份」）。
-         页面不能自己按清单顺序取第一个 —— 两份都启用时（老版本状态文件 / 手改）那会选错，
-         界面说的「正在生效」和真正喂给 AI 的正文就不是同一份了。 */
-      const active = on.find(x => !x.conflict) || null;
-      const conflict = on.length > 1;
+      const active = list.find(x => x.enabled) || null;
       return {
-        list, active, conflict,
-        lamp: conflict ? 'conflict' : (active ? (active.source === 'user' ? 'mine' : 'builtin') : 'empty'),
-        text: conflict ? '冲突' : (active ? (active.source === 'user' ? '我的' : '内置') : '空档'),
+        list, active,
+        lamp: active ? (active.source === 'user' ? 'mine' : 'builtin') : 'empty',
+        text: active ? (active.source === 'user' ? '我的' : '内置') : '空档',
       };
     }
     const skillSceneNow = computed(() => skillSceneState(skillScene.value));
     function isSceneActive(s) {
       const st = skillSceneNow.value;
       return !!(st.active && st.active.id === s.id);
+    }
+    /* 这份 Skill 是它场景里最后一份启用的 → 停用按钮就地压住（服务端也会拒）。
+       助手那些不占 contract 的不受限。 */
+    function isLastEnabled(s) {
+      if (!s || !s.enabled || !s.contract) return false;
+      return !(skillItems.value || []).some(x => x && x.enabled && x.contract === s.contract && x.id !== s.id);
     }
     /* 这一步会拿到什么（变量表）：场景级 —— TextAI.SKILL_VARS 按 contract 声明 */
     const skillSceneVars = computed(() => {
@@ -3090,9 +3092,11 @@ const SettingsView = {
       }
       skillBusy.value = true;
       try {
-        await window.WbSkills.remove(id);
-        skillMsg.value = '✓ 已卸载 ' + id;
-        Toast.receipt('已卸载 ' + id);
+        const d = (await window.WbSkills.remove(id)) || {};
+        /* 删的是场景里最后那份启用时，服务端已把内置份顶回来 —— 回执要点名。 */
+        const tail = d.restored ? '（场景里最后一份 —— 内置 ' + d.restored + ' 已顶回来）' : '';
+        skillMsg.value = '✓ 已卸载 ' + id + tail;
+        Toast.receipt('已卸载 ' + id + tail);
         if (skillSelId.value === id) {
           skillSelId.value = '';
           skillFiles.value = [];
@@ -4078,7 +4082,7 @@ const SettingsView = {
       openPromptDir, promptOpenBusy, promptRecentEl,
       skillItems, skillMsg, skillBusy, skillFileEl, skillChipsEl,
       skillMode, skillTree, skillScene, skillSceneNow, skillSceneVars, skillSceneUnknown,
-      skillSceneState, isSceneActive, pickSkillScene, openSkillAll, closeSkillAll, skillSceneNameOf,
+      skillSceneState, isSceneActive, isLastEnabled, pickSkillScene, openSkillAll, closeSkillAll, skillSceneNameOf,
       skillQ, skillAllQ, skillAllFiltered, skillSelId,
       skillFiles, skillFilePath, skillFileNote, skillCntText, skillPages,
       onSkillSearch, onSkillAllSearch, toggleSkillOpen, setSkillPreEl,

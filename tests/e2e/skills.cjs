@@ -41,15 +41,26 @@ const skill = (id, contract, name) => ({
     const img = r.json.items.filter(x => x.contract === 'polish.image');
     if (!img.some(x => x.id === 'my-video' && !x.enabled)) throw new Error('原来那份没被停掉：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
     if (img.filter(x => x.enabled).length !== 1) throw new Error('同一个 contract 还有多份启用着：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
-    if (img.some(x => !x.enabled && x.conflict)) throw new Error('已停用的那份不该标冲突：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled, conflict: x.conflict }))));
+
+    /* 场景恒有一份：停用那一份在用的被拒；卸载它会把内置份顶回来并回执点名 */
+    r = await call(proxy, 'PUT', '/skills/my-video-2', { enabled: false });
+    if (r.status !== 400 || !/至少要有一份 Skill 在用/.test(r.text)) throw new Error('停用场景里最后一份应被拒：' + r.status + ' ' + r.text);
+    r = await call(proxy, 'DELETE', '/skills/my-video-2');
+    if (r.status !== 200 || r.json.restored !== 'image-prompt') throw new Error('卸载在用的最后一份应回执顶回的内置份：' + r.text);
+    r = await call(proxy, 'GET', '/skills');
+    const imgBack = r.json.items.filter(x => x.contract === 'polish.image');
+    if (imgBack.filter(x => x.enabled).length !== 1 || !imgBack.some(x => x.id === 'image-prompt' && x.enabled)) {
+      throw new Error('内置份没有顶回来：' + JSON.stringify(imgBack.map(x => ({ id: x.id, enabled: x.enabled }))));
+    }
 
     r = await call(proxy, 'POST', '/skills/install', { files: [{ path: '../evil/SKILL.md', text: 'x' }] });
     if (r.status === 200) throw new Error('路径穿越应被拒绝');
 
+    /* 停用的那份没有「最后一份」问题：停与删都照常走 */
     r = await call(proxy, 'PUT', '/skills/my-video', { enabled: false });
     if (r.status !== 200) throw new Error('停用失败：' + r.text);
     r = await call(proxy, 'DELETE', '/skills/my-video');
-    if (r.status !== 200) throw new Error('删除失败：' + r.text);
+    if (r.status !== 200 || r.json.restored) throw new Error('删除失败或不应顶回内置：' + r.text);
     console.log('✓ Skill 路由通过');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));

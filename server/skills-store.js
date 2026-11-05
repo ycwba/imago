@@ -3,6 +3,8 @@
    - frontmatter 只支持受限子集：key: value、[a, b]、字符串/数字/布尔
    - 同一个 contract 同一时刻只留一份启用的：启一份就把同 contract 的**别的直接停掉**
      （不报错、不让人先关掉再开 —— 用户的这份顶上去，内置那份也让位）
+   - 占 contract 的场景**恰好一份启用**：停掉场景里最后那份启用会被拒；卸载场景里最后那份启用
+     会把内置份拉回来；老状态文件里的「两份都启用 / 一份都不启用」开机修一次
    - 安装先写临时目录再原子替换；zip 解压在路由层完成并只提交文本文件 */
 'use strict';
 const fs = require('fs');
@@ -99,18 +101,11 @@ function createSkillsStore(opts) {
   };
   const get = id => all().find(x => x.id === id) || null;
   const list = () => {
-    const st = loadState();
     const items = all();
-    const byContract = new Map();
-    for (const x of items) if (x.enabled && x.contract) byContract.set(x.contract, x);
     return items.map(x => ({
       id: x.id, name: x.name || x.id, description: x.description || '', triggers: x.triggers || [],
       pages: x.pages || [], tools: x.tools || [], contract: x.contract || '', version: x.version || 1,
       source: x.source, enabled: !!x.enabled, replaces: x.replaces || '',
-      /* 冲突 = **两份都启用**、同占一个 contract。⚠ 自己已停用的那份**不算冲突**：
-         停着的那份压根不参与，让位之后它就该安安静静地显示「已停用」，
-         再挂一枚「冲突」红标签是白喊（页面与运行时都会把它当回事）。 */
-      conflict: !!(x.enabled && x.contract && byContract.get(x.contract) && byContract.get(x.contract).id !== x.id),
       /* 「素材范围优先」：一份 Skill 可以声明「这个项目优先用哪几个素材组」。
          拆分镜那一路的「素材范围」下拉会把这些组**排在前面**（不排除其它组）。
          ⚠ 这**不是**「项目引用规则」：项目引用规则指的是**正文里的变量占位符**
@@ -136,11 +131,45 @@ function createSkillsStore(opts) {
   const setEnabled = (id, on) => {
     const x = get(id);
     if (!x) throw new Error('没有这个 Skill：' + id);
+    /* 场景恰好一份启用：停掉场景里最后那份启用是非法操作 —— 先启用另一份
+       （那一走会把这份自动停掉），再回来停它就没有这条路了。助手（无 contract）随便停。 */
+    if (!on && x.enabled && x.contract && !all().some(o => o.enabled && o.contract === x.contract && o.id !== id)) {
+      throw new Error('这个场景至少要有一份 Skill 在用 —— 先启用另一份，再停这一份');
+    }
     const st = loadState();
     const displaced = on ? displaceSameContract(st, x.contract, id) : [];
     st.enabled[id] = !!on;
     saveState();
     return displaced;
+  };
+  /* 开机修一次老状态文件：多份启用的按 [builtin, user] 顺序留最后启用那份（与界面取「正在生效」
+     同一条尺子），其余停掉；一份都不启用且场景里还有 Skill 的，把内置份（没有内置就第一份用户）
+     拉回来。没修的东西不动盘。 */
+  const ensureInvariants = () => {
+    const st = loadState();
+    let fixed = false;
+    const seen = new Map();
+    for (const x of all()) {
+      if (!x.enabled || !x.contract) continue;
+      const prev = seen.get(x.contract);
+      if (prev) { st.enabled[prev.id] = false; fixed = true; log('[skills] 场景 ' + x.contract + ' 多份启用，停掉 ' + prev.id); }
+      seen.set(x.contract, x);
+    }
+    const byC = new Map();
+    for (const x of all()) {
+      if (!x.contract) continue;
+      if (!byC.has(x.contract)) byC.set(x.contract, []);
+      byC.get(x.contract).push(x);
+    }
+    for (const [contract, xs] of byC) {
+      if (xs.some(y => y.enabled)) continue;
+      const pick = xs.find(y => y.source === 'builtin') || xs[0];
+      if (!pick) continue;
+      st.enabled[pick.id] = true;
+      fixed = true;
+      log('[skills] 场景 ' + contract + ' 一份都不启用，拉回 ' + pick.id);
+    }
+    if (fixed) saveState();
   };
   const safeFiles = files => {
     if (!Array.isArray(files) || !files.length) throw new Error('没有文件');
@@ -226,8 +255,19 @@ function createSkillsStore(opts) {
     const x = get(id);
     if (!x) throw new Error('没有这个 Skill');
     if (x.source !== 'user') throw new Error('内置 Skill 不能删除');
+    /* 删的是场景里最后那份启用的：删完那份就落空 —— 内置份（没有内置就第一份用户）顶回来。 */
+    const wasLastEnabled = x.enabled && !!x.contract
+      && !all().some(o => o.enabled && o.contract === x.contract && o.id !== id);
     fs.rmSync(x.dir, { recursive: true, force: true });
-    const st = loadState(); delete st.enabled[id]; saveState();
+    const st = loadState(); delete st.enabled[id];
+    let restored = '';
+    if (wasLastEnabled) {
+      const cands = all().filter(o => o.contract === x.contract);
+      const pick = cands.find(o => o.source === 'builtin') || cands[0];
+      if (pick) { st.enabled[pick.id] = true; restored = pick.id; }
+    }
+    saveState();
+    return restored;
   };
   /* 根目录内的文本文件：列表 / 读取 / 整包哈希。
      路径规范化、扩展名、大小与行数上限都只在这里判一次；路由与助手不另写一套。 */
@@ -292,6 +332,7 @@ function createSkillsStore(opts) {
     return { skill: next.skill, hash: skillHash(id) };
   };
   const importBundle = (files, opts2 = {}) => install(files, opts2);
+  ensureInvariants();
   return { parseFrontmatter, list, all, get, enabled, setEnabled, install, remove, readRef,
     listFiles, readFile, skillHash, update, importBundle,
     statePath, userDir, builtinDir, CONTRACTS };

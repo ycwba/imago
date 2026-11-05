@@ -142,6 +142,7 @@
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面 / 触发词加载）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
+├─ .gitattributes               行尾的唯一权威（文本 LF · .ps1/.bat CRLF · 二进制不换算）
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
 ├─ package.json                 开发依赖：@vue/compiler-dom（模板预编译）+ pngjs（视觉指纹）
@@ -217,11 +218,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
   | 圆角 `--radius-*` | 4 / 6 / 10 / 14 / 999 | 方正内件 / 控件 / 小容器 / 大卡弹窗 / 胶囊 |
   | 时长 `--dur-*` | 120 / 180 / 280 / 800 / 1200 | 快 / 基准 / 慢 / 转圈周期 / 脉冲周期 |
   | 阴影 `--shadow-*` | 1 / 2 / 3 / 4 / 5 | 抬升 / 浮层 / 重浮层 / 模态 / 深底小浮起 |
-  | 控件高 `--sz-*` | `--sz-ctl-sm` 28 / `--sz-ctl` 32 / `--sz-ctl-lg` 36 / `--sz-chip` 24 | 小控件 / 控件 / 大控件 / 胶囊行高 |
+  | 控件高 `--sz-*` | `--sz-ctl-sm` 28 / `--sz-ctl` 32 / `--sz-ctl-lg` 36 / `--sz-chip` 24 / `--sz-head` 56 | 小控件 / 控件 / 大控件 / 胶囊行高 / 页头横带 |
 
   写裸值会被 `tools/tokenize-css.cjs` 的值吸附拉到最近一档（裸 6px → `--sp-8`），
   终表外的档名不许再出现（判据 G18 + check-vars 双重盯）。组件尺寸里
-  `--sz-ico` `--sz-tile` `--sz-thumb-h` `--sz-card` `--sz-scroll` `--sz-wb` 是角色命名，另见组件节。
+  `--sz-ico` `--sz-tile` `--sz-thumb-h` `--sz-card` `--sz-scroll` 是角色命名，另见组件节。
 - **不许写令牌兜底值**：`var(--x, #fallback)` 里的兜底是同一个数的第二份拷贝，两边会漂开。
   令牌要么在 `tokens.css` 里声明，要么由 JS 运行时写到 DOM 上（那种要在 CSS 里也声明一份默认值）。
 - **`calc()` 里必须写 `var(--x)`**：`calc(-1 * --sp-4)` 是非法 CSS —— 声明整条作废、退回初始值。
@@ -282,17 +283,37 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - **页头只有这一份**：`.phead` 是各页面共用的那条横带 —— 跨页宽、粘顶，四个槽按需留空、位置不挪：
   `A 身份`（标题，每页都有）/ `B 上下文`（计数 / 状态 / 当前项目）/ `C 说明`（一句话：这页在干嘛）/
-  `D 动作`（页面级动作 ≤3 个）。三条硬规矩：
+  `D 动作`（页面级动作 ≤3 个）。四条硬规矩：
   ① 页面名只说一次（素材库左轨不再重复写「素材库」，那里改成「目录」）；
   ② 筛选与视图切换不进页头 —— 页头放「这一页能干什么」，下面那行工具条放「怎么看这一页」；
-  ③ 标题不带图标 —— `.phead-id` 就是标题容器，不要再往里加图形 / 徽记 / 装饰。
+  ③ 标题不带图标 —— `.phead-id` 就是标题容器，不要再往里加图形 / 徽记 / 装饰；
+  ④ **横带定高 `--sz-head`（56px）**：高度不随「槽里最高的那颗控件」变。
+     以前纯文字页 50 / 带 32px 按钮的页 57 / 导演台那颗 33px 的导出钮 58 三种并存，
+     标题顶边跟着在 y=12 与 y=16 之间跳 —— 定高之后七页都是同一个数。
+     窄窗（≤760）换行时才长高，那一档用 `min-height` 说话。
 - **标题左缘 = 该页内容列的左缘，内容列离内容区左缘一律 32px**（`--shell-px: var(--sp-32)`）：
   七个页面各读同一枚变量，切页时标题不再左右跳。760 以下全站一起收到 `--sp-16`。
-  判据 `tests/e2e/page-head.cjs` 直接比「标题左缘」与「内容列左缘」（±1px）。
-- **两个「块」必须同宽同起点**：页头那条与页面主体那块（`.wb .layout` / 导演台 `.layout` /
-  设置页的网格）读同一套定宽口径。工作台那块尤其要写死宽度（`width: 100%`）：`.wb` 是 flex 列，
-  子项带 `margin: 0 auto` 会按内容定宽，而内容宽度里含着左栏那一轨 → 拖一下分栏，页面两端的空白跟着变。
-  `.page-shell` 的 `padding-top` 归零（`--shell-px` 只管左右），上留白由 `.phead` 自己给。
+  **那条分隔线（`border-bottom`）的起止 = 内容列的起止**：页头左右一律内缩一枚 `--shell-px`，
+  谁都不再多缩一层 —— `.page-shell` 由壳的 padding 给（页头自己不补左右），
+  `.wb` 与导演台由页头这一格自己内缩（壳不留白）。以前是两套口径：五页的线跟着内容缩进、
+  工作台与导演台的线通栏到那一块的外缘（比内容列左右各多出一截），同一条线两种长度。
+  判据 `tests/e2e/page-head.cjs` 逐页量「标题左缘 == 内容列左缘」「横带高 == `--sz-head`」
+  「线左右离本页根盒子 == `--shell-px`」「标题在横带垂直居中」，再比七页的标题顶边全等。
+- **页面根不许叠一层自己的装饰底**（渐变 / 图 / 第二份色）：七个页面的底恒是 `--bg`，
+  页头那一格才可能是同一个不透明色。工作台曾带两团强调色径向渐变 —— 唯一一格透明的页头就是那么来的
+  （平色矩形压在渐变上会露接缝），切页时标题那一条跟着变色。判据同上一条（量 `background-image` 与底色）。
+- **主体那块与页头那条都铺满内容区，谁都不限宽、不居中**：
+  · 页头这一格左右各内缩一枚 `--shell-px`（`.page-shell` 由壳的 padding 给，页头自己不补左右；
+    `.wb` 与导演台的壳不留白，页头这一格自己内缩）→ 那条分隔线（`border-bottom`）的起止就是
+    内容区内缩 32 的那一段，七页在同一个窗宽下量的都是同一条线。
+  · 页面主体那块（`.wb .layout` / 导演台 `.layout` / 设置页的网格）横向 = 内容区，
+    内缩同样只取那一枚 `--shell-px` → 内容列左缘 == 标题左缘 == 线的左端。
+    工作台那块尤其要写死宽度（`width: 100%`）：`.wb` 是 flex 列，子项带 `margin` 会按内容定宽，
+    而内容宽度里含着左栏那一轨 → 拖一下分栏，页面两端的空白跟着变。
+    **这一页曾另有一档「最大宽 1440 + `margin: 0 auto`」居中**（那枚 `--sz-wb` 已随之删掉）：
+    居中就把首字从 x=88 推到 300（1920 窗）/ 620（2560 窗），另外六页仍是 88 —— 切页标题左右跳的
+    正是这一档，别为了「宽屏少留白」把它接回来。
+  · `.page-shell` 的 `padding-top` 归零（`--shell-px` 只管左右），上留白在那一条定高里给。
 - **素材库与工作台是整屏不滚的外壳**：页头是它们的第一行，下面那层占满剩下
   （`.chars-page .mat` / `.wb .layout` 各改一行定位即可），所以那两页的页头不吸顶
   （没有可滚的容器），但形状与别的页一致。
@@ -343,6 +364,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 容器（表单行 / 参数卡 / 提示条 / 下拉面板 / 小卡） | `--radius-10` | 不锁高 |
 | 大卡 / 弹窗（`.task`、`dialog.ui-dlg` 一族） | `--radius-14` | 弹窗按内容 |
 | 胶囊（`.ui-tag` / `.ui-pill` / `.ai-chip` / `.phead-chip`） | `--radius-999` | `--sz-chip` |
+| 页头横带（`.phead`） | 不画圆角 | 定高 `--sz-head`（窄窗换行才长高） |
 | 方正内件（`.did` / `.seg-n` / 导演台方正覆盖） | `--radius-4` | 按内容 |
 
 **一行混排控件只许 `--sz-ctl` 一档**：一条 flex / grid 行里摆着两种以上原子控件
@@ -362,7 +384,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | --- | --- |
 | 页面页头（跨页宽、粘顶） | `.phead` + `.phead-id`（标题，不带图标）/ `.phead-meta`（上下文）/ `.phead-sub`（说明）/ `.phead-acts`（动作）/ `.phead-chip`（上下文胶囊） |
 | 卡片 / 列表行 | `.card` `.card-surface` `.task` `.ap-item`（竖排卡片的壳：`.card-shell-media` / `.card-shell-body` / `.card-shell-actions`） |
-| 卡片公共件 | `.plate`（+ `.plate--*`）`.exp` `.led` `.why` `.diag` `.exp-acts` `.band`（+ `.band-tether`）—— 资产库与收藏页共用；接线是 `Wb.expand` / `Wb.close` / `Wb.closeAll` / `Wb.anchor` |
+| 卡片公共件 | `.plate`（+ `.plate--*`）`.exp` `.why` `.exp-acts` `.band`（+ `.band-tether`）—— 资产库与收藏页共用；接线是 `Wb.expand` / `Wb.close` / `Wb.closeAll` / `Wb.anchor` |
 | 按钮 | `.pri`（主）`.ghost`（次）`.tool`（磁贴）`.ui-linkbtn`（文字链式小动作） |
 | 分段 / 芯片 | `.ui-seg` `.chip` |
 | 徽标 / 提示条 | `.ui-tag` `.ui-note` `.list-note` `.srcbadge` |
@@ -598,9 +620,13 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### 绝不提交、绝不擅自删
 
-- `.env`、`.data/`、`.assets/`、`.renders/`、`.skills/`、`node_modules/` 都在 `.gitignore`。
-  `.assets/` 与 `文件/` 这两条忽略的是库根被指回项目内的情况 —— 里面装的是用户作品，
-  一次 `git add -A` 就把几百 MB 媒体推进历史。它们是数据，不是缓存。
+- `.env`、`.data/`、`.renders/`、`.skills/`、`node_modules/` 都在 `.gitignore`。
+  库根被指回项目内时那一族才是重点：`/成像/`（顶层）与根下的 `/图片/` `/视频/` `/音频/` `/其他/`
+  `/提示词/`（跟着 `server/user-dirs.js` 的 `AUTOSAVE_TOP_DIR` / `PROMPTS_DIR_NAME` 与
+  `server/local-assets-store.js` 的类型表），加上历史默认名 `.assets/` `文件/` `prompts/` ——
+  里面装的是用户作品，一次 `git add -A` 就把几百 MB 媒体推进历史。它们是数据，不是缓存。
+  斜杠钉在仓库根，不误伤 `web/` 与 `tests/` 里的同名子路径；探针那一族写成 `*data-probe*/` 这种
+  「带不带前导点都挡」，因为手工命令里两种写法都出现过。
 - 用户的工作区、历史、归档、素材是用户数据：清理前确认是测试残留，不要擅自删。
 - 源码里绝不出现真实密钥；密钥只从 `.env` / 系统环境变量 / 设置页取。
 
@@ -1003,15 +1029,20 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   拆分镜「判断哪些新角色 / 场景 / 物品要建档并出图」那一条。
 - **设置页的 Skill 卡：一级菜单 = 使用场景**（`TextAI.SKILL_SCENE_GROUPS` / `SKILL_SCENES`）。
   点一个场景 → 右边给两件事：① 这一步会拿到什么（变量表，场景级，按 contract 取 `SKILL_VARS`）
-  ② 这个场景的 Skill（这一 contract 下的每一份、谁在生效、有没有冲突）。
+  ② 这个场景的 Skill（这一 contract 下的每一份、哪一份在用）。
   全量清单退到「全部 Skill」一个二级入口。槽位灯说的是「这个 contract 槽现在被谁占着」：
-  紫 = 我的、灰 = 内置、虚线 = 空档（用内置默认正文）、红 = 两份都启用（同一 contract 里都启用时，
-  被标 `conflict` 的那份不算数 —— 运行时与界面都取没被标冲突的那份，所以用户那份优先于内置那份；
-  已停用的那份不算冲突）。
-- **同一个 contract 同一时刻只留一份启用的**：启一份就把同 contract 的别的直接停掉 ——
-  不报错、不让人先关掉再开（`server/skills-store.js` 的 `displaceSameContract`，启停与安装两条路共用）。
-  内置那份同样让位；用户那份之间也让位。让位的那几份 id 由服务端回传（`displaced`），
-  前端要点名说清「哪一份停了」，不许让人自己猜；界面上停用那一行当场变成「已停用」。
+  紫 = 我的、灰 = 内置 —— 槽里恒有一份在用，没有空档与冲突两态。
+- **占 contract 的场景恰好一份启用（服务端硬约束，`server/skills-store.js` 一份实现）**：
+  · 启一份就把同 contract 的别的直接停掉 —— 不报错、不让人先关掉再开（`displaceSameContract`，
+    启停与安装两条路共用）。内置那份同样让位；用户那份之间也让位。让位的那几份 id 由服务端
+    回传（`displaced`），前端要点名说清「哪一份停了」，不许让人自己猜。
+  · 停掉场景里最后那份启用会被拒（400 + 「先启用另一份」的说明）；界面上那份在用的行，
+    停用按钮就地压住（`isLastEnabled`）。要换 = 启用另一份，不是先停再启。
+  · 卸载场景里最后那份启用时，服务端把该 contract 的内置份顶回来（没有内置就第一份用户），
+    DELETE 回执 `restored` 点名，前端照说。
+  · 开机 `ensureInvariants()` 把老状态文件里的「两份都启用」（留 [builtin, user] 顺序里最后启用
+    那份）/「一份都不启用」（拉回内置）修一次，修了才落盘。
+  · 助手那一档（不占 contract）不受限：随便启用几份、随便停。
 - **新建 / 编辑一份 Skill 在浏览器里做**（设置页场景详情里的「添加新 Skill」/「编辑正文」）：
   frontmatter 由表单生成、正文自己敲，落盘走 `POST /skills/install`（新建）或 `/skills/:id/update`（改）。
   内置 Skill 只读：改不了内置那一份，要改就自己新建一份占同一个 contract（服务端会把同 contract 的
@@ -1251,6 +1282,11 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 
 - **编码**：`.js/.mjs/.cjs/.html/.css/.md` UTF-8；`.bat` UTF-8（无 BOM）+ CRLF + `chcp 65001`；
   `.ps1` UTF-8 带 BOM + CRLF（PowerShell 5.1 无 BOM 会按 ANSI 解码，中文全乱）。不要在编辑器里存成 GBK。
+- **行尾由 `.gitattributes` 钉，不由 `core.autocrlf` 决定**：仓库里的文本 blob 全是 LF；检出时文本给 LF，
+  `.ps1` / `.bat` / `.cmd` 给 CRLF，`*.wasm` / `*.mp4` / `*.png` 与 `*.min.js` 一个字节都不换算。
+  `eol` 属性压过 `core.autocrlf`，所以同一份克隆在任何机器上检出都一样。
+  缺那一份文件的后果实测过：`core.autocrlf=true` 的机器全新检出 348 份文本变 CRLF，
+  而 `tools/precompile-vue.cjs` 只吐 LF，`npm run build:check` 于是 10 份 render 一起假红（没有一份真的过期）。
 - **注释只注释功能本身（硬约束）**：注释解释这段代码在做什么、为什么必须这样做（不明显的约束、
   踩过的坑、边界条件）；不写任何文档引用 —— 不写文档名 / 章节号 / 报告 / 方案 / 任务号 / 缺陷号 /
   提交号，也不写「详见某文档」「见上文」这类指路。代码文件、判据文件、函数名不算文档引用：

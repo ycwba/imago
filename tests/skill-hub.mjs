@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* Skill Hub 判据：
-   - skills-store：安装 / 同 contract 只留一份（启一份 → 别的直接停）/ expectedHash 409 / id 一致性 / 根目录读取上限
+   - skills-store：安装 / 同 contract 只留一份（启一份 → 别的直接停）/ 场景恒有一份（停最后一份被拒、
+     卸载最后一份把内置顶回来、开机修老状态）/ expectedHash 409 / id 一致性 / 根目录读取上限
    - zip 只在浏览器内存里解：store/deflate 两种方式、路径穿越 / 可执行文件 / 超量拒绝
    不碰真实 .skills / .data：全部在临时目录。 */
 import fs from 'node:fs';
@@ -36,7 +37,6 @@ assert.equal(store.get('builtin-a').enabled, false, '启用用户 Skill 时应�
 assert.deepEqual(a.displaced, ['builtin-a'], '装上去时应报出「谁让了位」');
 let items = store.list();
 assert.ok(items.some(x => x.id === 'my-a' && x.source === 'user'));
-assert.ok(items.some(x => x.id === 'my-a' && !x.conflict));
 /* 第二份「我的」不再被拒：装上去就把 my-a 直接停掉 */
 const b = store.install(sk('my-b', 'polish.image'), { enable: true });
 assert.equal(b.skill.id, 'my-b');
@@ -50,12 +50,23 @@ const dis = store.setEnabled('my-a', true);
 assert.equal(store.get('my-a').enabled, true);
 assert.equal(store.get('my-b').enabled, false, '启一份时同 contract 的另一份应被直接停掉');
 assert.deepEqual(dis, ['my-b']);
+/* 场景恒有一份：停掉场景里最后那份启用被拒；先启另一份、再回来停就没有阻碍 */
+assert.throws(() => store.setEnabled('my-a', false), /至少要有一份 Skill 在用/);
+store.setEnabled('my-b', true);
+assert.equal(store.get('my-a').enabled, false, '启另一份时这份让位');
 store.setEnabled('my-a', false);
+assert.equal(store.get('my-a').enabled, false);
 store.install(sk('my-b', 'polish.image'), { enable: true });
 store.setEnabled('my-a', true);
 assert.equal(store.get('my-b').enabled, false, '再启一份时又一份让位');
 assert.equal(store.get('my-a').enabled, true);
-store.remove('my-b');
+/* 卸载场景里最后那份启用的：内置份顶回来，回执点名 */
+store.install(sk('my-c', 'polish.image'), { enable: true });
+assert.equal(store.get('my-a').enabled, false, '装 my-c 时 my-a 让位');
+const restored = store.remove('my-c');
+assert.equal(restored, 'builtin-a', '删掉最后一份启用时应回执顶回来的内置份');
+assert.equal(store.get('my-c'), null);
+assert.equal(store.get('builtin-a').enabled, true);
 store.setEnabled('my-a', true);
 
 /* 内置不可覆盖 / 不可删除 */
@@ -90,6 +101,14 @@ fs.rmSync(path.join(dir, 'lines.md'));
 /* 重启后启停状态还在 */
 const store2 = createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'), log: () => {} });
 assert.equal(store2.get('my-a').enabled, true);
+
+/* 开机修一次老状态文件：多份启用的留 [builtin, user] 顺序里最后那份；一份都不启用的拉回内置 */
+write('skills/builtin-b/SKILL.md', '---\nid: builtin-b\nname: 内置 B\ndescription: 内置测试\ntriggers: ["测试"]\npages: ["assets.html"]\ncontract: story.json\nversion: 1\n---\n\n内置正文\n');
+write('.data/skills.json', JSON.stringify({ enabled: { 'builtin-a': true, 'my-a': true, 'builtin-b': false } }));
+const store3 = createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'), log: () => {} });
+assert.equal(store3.get('builtin-a').enabled, false, '同 contract 多份启用 → 留顺序里最后那份（my-a）');
+assert.equal(store3.get('my-a').enabled, true);
+assert.equal(store3.get('builtin-b').enabled, true, '一份都不启用的场景把内置拉回来');
 
 /* ---------- 浏览器 zip 读取器 ---------- */
 function crc32(buf) {

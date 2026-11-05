@@ -102,7 +102,7 @@
       var out = {};
       for (var i = 0; i < items.length; i++) {
         var s = items[i];
-        if (!s || !s.enabled || !s.contract || s.conflict) continue;
+        if (!s || !s.enabled || !s.contract) continue;
         try { var f = await full(s.id); if (f && f.body) out[s.contract] = String(f.body); } catch (e) {}
       }
       window.__skillBodies = out;
@@ -119,7 +119,7 @@
     var body = String(text || '');
     var out = [];
     (Array.isArray(items) ? items : []).forEach(function (s) {
-      if (!s || s.enabled === false || s.conflict) return;
+      if (!s || s.enabled === false) return;
       var pages = Array.isArray(s.pages) ? s.pages : [];
       if (pages.length && pageFile && pages.indexOf(pageFile) < 0 && pages.indexOf('*') < 0) return;
       var trig = Array.isArray(s.triggers) ? s.triggers : [];
@@ -214,7 +214,7 @@
   async function refRule() {
     let items = [];
     try { items = await list(); } catch (e) { return { assetGroups: [] }; }
-    const on = (items || []).filter(s => s && s.enabled !== false && !s.conflict);
+    const on = (items || []).filter(s => s && s.enabled !== false);
     const groups = [];
     const seen = new Set();
     on.forEach(s => {

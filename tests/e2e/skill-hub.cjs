@@ -123,9 +123,6 @@ const h = require('./harness.cjs');
     if (!takeover.builtinTags.includes('已停用')) {
       throw new Error('启了这一份，同 contract 的内置那份在前端没有自动显示停：' + JSON.stringify(takeover.builtinTags));
     }
-    if (takeover.builtinTags.indexOf('contract 冲突') >= 0) {
-      throw new Error('已停用的那份还挂着「contract 冲突」标签（停着的那份不参与，不算冲突）：' + JSON.stringify(takeover.builtinTags));
-    }
     if (takeover.builtinBtn !== '启用') throw new Error('内置那一行的按钮没变成「启用」：' + takeover.builtinBtn);
     if (!takeover.mineTags.includes('正在生效')) throw new Error('刚启的这一份没有标「正在生效」：' + JSON.stringify(takeover.mineTags));
     if (takeover.msg.indexOf('image-prompt') < 0) throw new Error('回执没点名是哪一份让了位：' + takeover.msg);
@@ -137,10 +134,18 @@ const h = require('./harness.cjs');
       throw new Error('同一个 contract 还有多份启用着：' + JSON.stringify(img.map(x => ({ id: x.id, enabled: x.enabled }))));
     }
 
-    await page.eval(() => document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]').click());
+    /* 场景恒有一份：在用的那份停用按钮就地压住（带原因说明），点了没有服务端变化 */
+    const lastState = await page.eval(() => {
+      const b = document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]');
+      return { disabled: !!b.disabled, title: b.title || '' };
+    });
+    if (!lastState.disabled) throw new Error('场景里最后一份在用的停用按钮应当被压住：' + JSON.stringify(lastState));
+    if (lastState.title.indexOf('至少要有一份') < 0) throw new Error('压住的停用按钮没有说明原因：' + lastState.title);
+    /* 换用 = 启用另一份：启内置那份 → e2e-skill 自动让位（按钮文字变回「启用」） */
+    await page.eval(() => document.querySelector('.sk-toggle[data-skill-id="image-prompt"]').click());
     await page.waitFor(() => /启用/.test((document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]') || {}).textContent || ''), 12000);
     state = await call('/skills');
-    if ((state.json.items || []).some(x => x.id === 'e2e-skill' && x.enabled)) throw new Error('点停用后服务端状态没变');
+    if ((state.json.items || []).some(x => x.id === 'e2e-skill' && x.enabled)) throw new Error('启内置后 e2e-skill 没让位');
 
     /* ⑦ 「全部 Skill」：原来的全量清单退到二级入口，筛选芯片还在 */
     await page.eval(() => document.querySelector('#skAllBtn').click());
