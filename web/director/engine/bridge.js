@@ -1035,11 +1035,9 @@ export function createBridge(E, document, window) {
       }).catch(e => settle({ ok: false, err: errText(e)}));
       return { ok: true, jobId: rec.id, format: fmt, state: 'running', 说明: f.startNote };
     }
-    /* 送到 NLE 要指定是哪一家：助手不弹选择框（那是用户界面），由动作参数给。 */
-    if (f.nle) {
-      const app = (a && (a.app === 'jianying' || a.app === 'resolve')) ? a.app : '';
-      if (!app) return loose('送到剪映 / 达芬奇要在 format 之外给 app：jianying 或 resolve');
-      Export.nle({ app, silent: true }).then(r => {
+    /* 工程目录：与单文件 / 媒体包同一份 FCPXML，只是摊开落在本机资产库下的 FCPXML工程/ 并回路径。 */
+    if (f.project) {
+      Export.project({ silent: true }).then(r => {
         settle(r);
         if (r && r.ok) rec.counts = { 画面段: r.rows, 配音句: r.voices, 字幕条: r.subtitles };
       }).catch(e => settle({ ok: false, err: errText(e)}));

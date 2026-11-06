@@ -934,14 +934,14 @@
     },
     export_status: {
       arg: '{ "jobId": "可选：export_start 返回的记录号；不给就看最近那一笔" }',
-      doc: '查助手发起的那次导出（film / assets / fcpxml / bundle）：状态、进度、说明、产物文件名、'
+      doc: '查助手发起的那次导出（film / fcpxml / bundle / project）：状态、进度、说明、产物文件名或工程目录、'
         + '画面段/配音句/字幕条三个数，以及未选用镜头、超尾夹取、超层这些警告',
       async run(a) { return dirRead('exportStatus', a || {}); },
     },
     export_list: {
       arg: '{ "limit": 10 }',
       doc: '最近导出清单：助手这一轮发起的那几笔 + 代理落盘的最近导出记录（文件名、状态、字节、在不在盘上）。'
-        + '读的是导演台同一份会话内导出账本（导出成片 / 导出素材 / FCPXML），不在这里另算一套',
+        + '读的是导演台同一份会话内导出账本（导出成片 / FCPXML / 媒体包 / 工程目录），不在这里另算一套',
       async run(a) { return dirRead('exportList', a || {}); },
     },
     asset_open: {
@@ -1848,7 +1848,14 @@
     const f = EF.of(fmt);
     if (!f) return { err: 'format 只能是 ' + EF.hint() + '，现在写的是「' + fmt + '」' };
     return { 说明: '导出：' + f.assistant,
-      人话: [f.assistant, f.nle ? '目标：' + (fmt === 'jianying' ? '剪映专业版' : 'DaVinci Resolve') : '写的是本机渲染目录里的文件；不动工程数据'],
+      /* 四行格式各说各的落点：成片是浏览器内合成、工程目录落资产库、另两档交给浏览器下载。
+         以前这里只用「有没有 project」二分，成片那一行会被说成 .fcpxml。 */
+      人话: [f.assistant, f.kind === 'film'
+        ? '在这个浏览器里逐帧合成，写进「设置 → 导出目录」选的文件夹（没选就进系统下载）；不动工程数据'
+        : f.project
+          ? '在本机资产库下的 FCPXML工程/ 写一份摊开的工程（含 media/ 与 subtitles.srt），不启动剪辑软件'
+          : f.bundle ? '导出成带素材的 zip 交给浏览器下载；不动工程数据'
+            : '导出单个 .fcpxml 交给浏览器下载；不动工程数据'],
       钉: null };
   }
   async function exportStartRun(a) {
@@ -2009,13 +2016,15 @@
       title: '开始一次导出（导演台）',
       doc: '按当前时间线导出：' + EF.list().map(f => f.id + '=' + f.doc).join('；')
         + '。只回记录号，进度用 export_status 查。导出始终本机优先：已有当前成片不会重联合成。'
-        + 'resolve / jianying 会生成可导入工程并尽量启动该软件，最后一步导入仍由用户在软件里点。',
+        + 'project 会在本机资产库下的 FCPXML工程/ 生成持久工程目录（project.fcpxml + media/ + '
+        + 'subtitles.srt + missing.txt，不写 zip），不启动任何剪辑软件，导入那一步由用户在自己的软件里完成。',
       check: exportStartCheck, run: exportStartRun,
     },
     export_save_to_assets: {
       arg: '{ "name": "export_list 里的文件名", "title": "可选：资产显示名" }',
       title: '把导出的那份存进本机资产库（导演台）',
-      doc: '从渲染目录里按文件名复制一份进本机资产库（代理直接拷字节，不走浏览器）。'
+      doc: '从**本次页面会话**里刚合成的那份成片字节存进本机资产库（读会话 Blob 缓存，走 Api.saveLocalAsset；'
+        + '不是从渲染目录按文件名复制，刷新页面后缓存就没了，得重新导出一次成片）。'
         + '**保存为新资产，不会删原文件，也没法撤销**（重复存同一份会认成已有那条，不会堆两份）。',
       check: exportSaveCheck, run: exportSaveRun,
     },

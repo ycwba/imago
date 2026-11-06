@@ -72,7 +72,7 @@
   `音频/` `其他/` 分，提示词归档在 `提示词/`。
 - **一条产物只有一个本体**：落在 `<库根>\<类型>\<规范名>.<ext>`，账在 `.data/local-assets/`，与本体分家；
   库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`。
-- `.renders/` 只剩 FCPXML 媒体包（浏览器内合成成片，服务端没有 ffmpeg）。
+- `.renders/` 只剩 FCPXML 媒体包的临时落盘（`fcpxml-<stamp>/`）；持久工程目录在本机资产库下的 `FCPXML工程/<id>/`，与「存回本机」的素材同根。浏览器内合成成片，服务端没有 ffmpeg。
 - 七个页面：导演台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
   路由表只有 `web/core/routes.js` 一份。
 
@@ -193,6 +193,16 @@ frame-ancestors 'none'; worker-src 'self' blob:
   `node --check` 看不见它。
 - 启动器自检：`powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest`
   （`-EnvFile` / `-StateFile` / `-EnvAdd` / `-NoBrowser` 只给探针用）。
+- `启动.bat` 另带命令：`menu` / `check` / `log` / `dir` / `page` / `selftest` / `clean` / `help`；
+  双击仍是「检查环境 → 预解析 → 隐藏控制台拉起启动器」，命令只给排障用。
+- 双击自检只留必要的外部进程：`node --version`（顺带判 node 在不在）、
+  `certutil -hashfile`（预解析印记）。powershell 存在性看 `%SystemRoot%` 下的 exe，
+  `.env` 的 PORT 用批处理原生 `for /f` 读 —— 不再为一行展示信息起 where / findstr / PowerShell。
+  彩色检测用 `ver` 的子进程读主版本号，老系统或 `WB_NOCOLOR=1` 自动降级纯文本。
+- 控制台颜色变量不许取名 `CD`：cmd 的动态变量 `%CD%` 会在变量为空时插进当前目录，
+  把「无彩色」那一档的输出搅乱（踩过，已改名 `CDIM`）。
+- `launcher.ps1` 的 `Update-Status` 只用状态文件与 `$DefaultPort` 拼忙线文案，
+  不在每 350ms 的定时器里重读 `.env`；端口说明那一行已按需求删除。
 
 ## 设计规范
 
@@ -803,7 +813,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 胶片条与取帧 | `web/director/tl-filmstrip.js`（显示层帧计划）+ `web/director/slice.js`（数据层帧索引预算）+ `engine/frames.js`（解码 / 缓存 / 退避）；判据 `tests/director-strip.mjs`、`tests/director-slice.mjs` |
 | 切片帧打包 / 编码 | `web/director/slice-pack.js`（`SLICES02` 打包 / 解包）+ `web/director/slice-worker.js`（JPEG 编码 worker，只编码不 seek / 解码）；判据 `tests/director-slice-pack.mjs` |
 | 导演台拆分镜 / 请求预览 / 候选地址 / 小纯函数 | `web/director/board.js` / `split-assets.js` / `board-preview.js` / `media.js` / `util.js`（拆分镜、这一镜将要发出的请求体、候选身份 → 预览 / 导出地址、导演台小纯函数） |
-| FCPXML / 媒体包拼装 | `web/director/fcpxml.js`（单文件 / 媒体包 / 送到剪映 / 达芬奇同一份拼装器） |
+| FCPXML 拼装 | `web/director/fcpxml.js`（单文件 / 媒体包 zip / 持久工程目录三档共用 `buildFCPXML`；转场按 FCPXML 1.10 的居中重叠写 `<transition>`，字幕样式写 `text-style`，不绑定任何剪辑软件） |
 | 浏览器内 ASR worker | `web/director/asr-worker.js`（module worker，Whisper q8；模型只走同源 `/models/`，`allowRemoteModels` 关死；取消 = `terminate()`，绝不回落主线程） |
 | 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `promptsRoot` / `AUTOSAVE_TOP_DIR`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
 | 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— 那份的正文就是 localStorage 原值：字符串类的键走 `window.LS.set`，落盘是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`） |
@@ -927,8 +937,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     拆分镜 / 改稿前的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 + `renderSplitPanel`
     重画钩子，宿主与润色面板同为 `#polishInline`）
   - `export.js`：渲染计划唯一组表 `buildRenderPlan()`（段顺序与起点、进片闸后的配音与字幕、每句在哪一行、
-    本机优先地址）、导出成片（浏览器内合成，`MediaExport`）、FCPXML / 媒体包与送到剪映 / 达芬奇
-    （`Export.resolve` / `Export.jianying` / 助手分派走 `Export.nle({app, silent})`）；服务端没有渲染任务账
+    本机优先地址）、导出成片（浏览器内合成，`MediaExport`）、FCPXML 三档（`Export.fcp` 单文件 / 媒体包，
+    `Export.project` 持久工程目录 + 打开文件夹）；三档与助手 `export_start` 共用 `fcpCtx()`；服务端没有渲染任务账
   - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，按身份对账）
 - 纯算法按域拆开，engine 只调用；每一份的落点、函数与判据在「公共层：唯一实现清单」的导演台各行
   （`film` / `slice` / `tl-*` / `srt` / `script` / `board*` / `groups` / `chain` / `naming` / `media` /
@@ -957,7 +967,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   一次编辑之后撤销栈读数是 1，不许是 0。
 - **转场挂在每一段的连接点上**：`clip.transition = { id, duration }` 表示「本段 → 下一段」；
   窗 = `[本段末 − dur, 本段末)`，`dur ≤ min(2 秒, 两段各一半)`。预览每帧与导出逐帧都读
-  `transitionWindow` / `transitionAtTime`（同一道夹算）；FCPXML 不写转场，但要在文件头按处报数。
+  `transitionWindow` / `transitionAtTime`（同一道夹算）。FCPXML 按 1.10 DTD 把每一窗写成 spine 里
+  夹在两段之间、以切点为中心的 `<transition duration=2h offset=切点−h>`（Cross Dissolve）：
+  片段 `offset/start/duration` 一个都不动，总时长与配音/字幕的绝对秒不变；「切点前淡入 → 跨切点各半窗」
+  这个差异、自制转场映射成 Cross Dissolve、以及写不出来的那几窗（一侧是 gap / 中间有空隙）都在文件头逐条报数。
 - **主画面只有一轨（成片那一轨）**：没有「本镜 / 全片」两档；针、读数、剪子、缩放只有一把尺子（成片秒）。
   生成态的候选条与顺序条照旧，换候选回生成态点。
 - **轨道水平跨度只有一处算**：`engine/timeline.js` 的 `navSpanOf` = `tl-scale.js` 的 `tlNavTotal(成片 + 尾垫, 钉在成片秒最右的那一枚)`，
@@ -1191,8 +1204,11 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   共用这只池，4 条预热线程之外仍要留给请求。判据 `tests/static-encoding.cjs`（含 `--live`）。
 - `/data` 写入是原子写 + `.bak`；`/data` 清单不包含 `.bak`。
 - `/prompts`：写文件 + 索引；`/prompts/find` 按 id 返回全部归档，客户端每个任务只问一次。
-- `/fcpxml/bundle`：只写 `RENDER_DIR/fcpxml-<stamp>/`，素材只按资产号 / 已过护栏的 URL 取，
-  取不到写 `missing.txt`。
+- `/fcpxml/bundle`：只写 `RENDER_DIR/fcpxml-<stamp>/`，素材只按资产号 / 已过护栏的 URL 取，取不到写 `missing.txt`；`bundle.zip` 只有这一条路生成。
+- `/fcpxml/project`：同一份 `writeBundle`（`needZip=false`）落到**本机资产库根下的 `FCPXML工程/<id>/`**，库根由 app.js 注入的 `localRoot` 现读 —— 用户在设置页换库根，下一次导出就跟着走；不写 `bundle.zip`，不把素材存第二遍。回 `id / dir / project / missingCount / assets`。
+  目录名只有 `server/user-dirs.js` 的 `FCPXML_PROJECT_DIR` 一份：导出端与 `local-assets-store.js` 的 `SKIP_DIR_NAMES` 同读它。**库根的 `dirScan` 是递归的**，不跳过这一档就会把 `media/` 里的素材副本当成用户新放进来的产物补进资产库索引、被用量体检算成重复文件（判据 `tests/e2e/fcpxml.cjs` 的 `/assets-usage`）；
+  `/fcpxml/reveal` 只按这个 `id` 拼目录（不收客户端绝对路径）；库根现读意味着**换了库根后旧 id 会找不到**，404 要把「已清理」与「库根改过」两种原因一起说清，且清扫只扫当前根，旧根下的工程目录不会被自动删。两条写盘出口都只留最近 20 个目录，且**只删代理自己造的名字**（时间戳 + 随机后缀），用户在 RENDER_DIR 或资产库里自己放的同名前缀文件夹不动。
+  **不启动任何外部软件**：旧的 `/fcpxml/import`、`/fcpxml/launch`（剪映 / 达芬奇）已删，导入由用户在软件里做。
 - **代理不转码、不合成**：取帧 / 抽音轨 / 混音 / 编码全在浏览器（`MediaBackend` / `MediaExport`），
   代理只做取数与落盘，没有渲染队列、没有编码器档位可配。成片能不能导由 `Api.exportCaps()` 现探
   （WebCodecs + H.264 编码器），设置页与助手「成片环境」读的是同一份探测结果。
@@ -1368,12 +1384,16 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 - 导演台的导出格式只有一张表 `web/domain/export-formats.js`：页头按钮、`export_start` 的校验 / 分派 / 文案、
   助手 `export_start` 的 enum 都从它派生。加一种导出 = 表里一行（`kind` 是 `film` / `xml` 之一）
   + engine 里一个 builder；判据 `tests/export-formats.cjs`。
-- 页头只有一颗拆分按钮：主钮「导出成片」，尾部 chevron 浮层里收其余四种去向
-  （导出 FCPXML / 导出媒体包 / 导出到达芬奇 / 导出到剪映）。旧「导入 FCPXML / 最近导出 / 导出素材」三颗与
-  `web/director/fcpxml-import.js`、`Export.sessionExports` 会话账本不恢复。
-- 直接送到剪映 / 达芬奇是表里的 `nle` 行（`kind:'xml'` + `nle:true`），走 `fcpxml.js` 的 `sendToNle`
-  → `POST /fcpxml/import` + `/fcpxml/launch`；不是第二种导出格式，也不在页面里另写一套。
-  页面按钮走 `Export.resolve()` / `Export.jianying()`，助手分派走 `Export.nle({app, silent})`。
+- 页头只有一颗拆分按钮：主钮「导出成片」，尾部 chevron 浮层里收其余三种去向
+  （导出 FCPXML / 导出媒体包 / 导出工程目录）。旧「导入 FCPXML / 最近导出 / 导出素材」三颗、
+  「导出到剪映 / 达芬奇」两条出口与 `web/director/fcpxml-import.js`、`Export.sessionExports` 会话账本不恢复。
+- 三档 XML 出口共用 `fcpxml.js` 的 `buildFCPXML`：单文件与媒体包走 `exportFCPXML(ctx, {bundle})`，
+  持久工程目录走 `exportProject(ctx)` → `POST /fcpxml/project`（`project.fcpxml + media/ + subtitles.srt +
+  missing.txt`，不写 zip），落在资产库下的 `FCPXML工程/`，回目录路径、可「打开文件夹 / 复制路径」，不启动软件。
+  页面按钮走 `EXPORT_RUN`，助手 `export_start` 走 `Export.project({silent:true})`，判据 `tests/export-formats.cjs` /
+  `tests/fcpxml-client.mjs` / `tests/e2e/fcpxml.cjs`。
+- 字幕样式（字体 / 字号 / 字色 / 高亮底色 / 粗体 / 投影）写在 `text-style` 上，默认与预览、烧录同源；
+  可用 `proj.fcpTitle` 或 `buildFCPXML` 的 `opts.titleStyle` 覆盖，不许在别处再抄一份常量。
 - 纯拼装在 `web/director/*`（如 `fcpxml.js`）或 `web/domain/*`，不在页面里拼字符串。
 - 缺失素材 / 段落一律报数（清单 / 状态行），不许静默丢。
 

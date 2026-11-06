@@ -1353,7 +1353,7 @@ export function createEdit(E, document, window) {
       else if (!reason) reason = r.reason;
     });
     if (!done) { if (setStatus) setStatus(reason || '播放头没有落在可切的块上'); return false; }
-    /* 切完之后选中**右边那一截**（剪映 / PR 同一条习惯：下一刀往往就在新段的起点）。 */
+    /* 切完之后选中**右边那一截**（剪辑软件的同一条习惯：下一刀往往就在新段的起点）。 */
     const keys = Array.from(sel);
     if (clipIdx >= 0) {
       const right = deriveTimeline(clips).rows[clipIdx + 1];

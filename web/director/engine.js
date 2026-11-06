@@ -4520,7 +4520,7 @@ $('genAll').onclick = async () => {
     Gen.refreshGenAllBtn();
   }
 };
-/* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 送到 NLE。
+/* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 工程目录。
    这里只把引擎的读写口递进去；导出状态（渲染中 / 取消）由那一份自己持有。
    时间线不再从这里递：`filmOf` 给出唯一的那份成片模型，段表由导出域自己按 `deriveTimeline` 现算，
    FCPXML 读同一份 `buildRenderPlan()` —— 递一堆折算口进去迟早和成片各说各话。 */
@@ -4534,15 +4534,14 @@ const Export = createExport({
    **「播放成片」那一颗已删**：看效果走剪辑态那条轨的实时预览（`#pbBtn` → Play），
    它从不为播放合成；要一个文件才点这里的「导出成片」。 */
 /* 每个 kind 给一个「返回点击处理器」的工厂：film 直接交现成函数，
-   xml 按这一行是裸 FCPXML、媒体包还是 NLE（达芬奇 / 剪映）现包一个。 */
+   xml 按这一行是裸 FCPXML、媒体包 zip 还是持久工程目录现包一个（三档同一份拼装器）。 */
 const EXPORT_RUN = {
   film: () => Export.filmClick,
-  xml: f => f.id === 'resolve' ? () => Export.resolve()
-    : f.id === 'jianying' ? () => Export.jianying()
+  xml: f => f.project ? () => Export.project()
     : () => Export.fcp({ bundle: !!f.bundle }),
 };
 /* 页头导出区只有一颗**拆分按钮**：主钮「导出成片」（表里第一行），尾部 chevron 的浮层里
-   收其余去向（FCPXML / 媒体包 / 达芬奇 / 剪映）—— 同一份时间线不用平铺五颗按钮。 */
+   收其余去向（FCPXML / 媒体包 / 工程目录）—— 同一份时间线不用平铺四颗按钮。 */
 const expFirst = ExportFormats.list()[0];
 $('exportBtns').innerHTML = '<span class="exp-split">'
   + '<button type="button" class="pri" id="' + expFirst.button + '" title="' + esc(expFirst.title) + '">'

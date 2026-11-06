@@ -3,10 +3,12 @@
    真的生成 XML。window 上的小工具换成桩，Net.save 接住 Blob，不联网、不花钱。
    钉的几件事：本机索引名 = 媒体包文件名 = <asset name>；同一素材多段复用只进包一次；
    扩展名恰好一个；片段显示名带场景与镜头；图片段写 still；配音独立 lane + timeMap 与淡入淡出；
-   字幕写 title 并同一份进 subtitles.srt；没地址的段写 <gap> 并点名；
-   单文件指向本机真实落点、媒体包写相对路径。 */
+   转场按 FCPXML 语义写成居中重叠的 Cross Dissolve（片段 offset 一个都不动）；
+   字幕写 title + text-style（高亮底色 / 字体 / 字号可配）并同一份进 subtitles.srt；
+   没地址的段写 <gap> 并点名；单文件指向本机真实落点、媒体包写相对路径；
+   工程目录档走 /fcpxml/project 并回目录信息、不启动任何软件。 */
 import assert from 'node:assert/strict';
-import { buildFCPXML, exportFCPXML, sendToNle } from '../web/director/fcpxml.js';
+import { buildFCPXML, exportFCPXML, exportProject } from '../web/director/fcpxml.js';
 
 let saved = null, status = '';
 /* path = 账里「相对库根的落点」（<类型子目录>\<规范名>.<ext>）：单文件 FCPXML 的 file://
@@ -103,7 +105,17 @@ assert.ok(/<gap name="素材没取到 · 第 4 段「镜一」" offset="150\/30s
 assert.ok(/本机没有可用文件的素材/.test(built.xml) && built.missing.length >= 1, '文件头要点名缺的素材');
 assert.ok(built.missing.some(m => /第 4 段/.test(m.name)), '缺地址的那一段要按段号点名');
 assert.equal(built.transitions, 1);
-assert.ok(built.warnings.some(w => /1 处转场没写进 XML/.test(w)), '转场不进 XML 要照实报数');
+/* 转场：FCPXML 1.10 的 <transition> 是 spine 里夹在两段之间的重叠元素，
+   offset 以切点为中心（2s = 60/30s，半窗 8/30s → 52/30s），duration 16/30s。
+   两段的 offset / start / duration 一个都不改 —— 总时长与配音/字幕的绝对时间才不动。 */
+assert.equal(built.transitionsWritten, 1, '转场要真的写进 XML');
+assert.equal(built.transitionsSkipped, 0);
+assert.ok(/<transition name="Cross Dissolve" offset="52\/30s" duration="16\/30s">/.test(built.xml), '转场按居中重叠写');
+assert.ok(/<filter-video ref="r_trans" name="Cross Dissolve"\/>/.test(built.xml), '转场引用内置交叉叠化效果');
+assert.ok(/<effect id="r_trans" name="Cross Dissolve" uid="FxPlug:/.test(built.xml), '效果资源要在 resources 里');
+assert.ok(/<transition[\s\S]*?<\/transition>[\s\S]*?offset="60\/30s"/.test(built.xml), '转场要排在左段与右段之间');
+assert.ok(built.warnings.some(w => /转场已写进 XML/.test(w)), '文件头要说清转场已写以及居中语义的差异');
+assert.ok(!built.warnings.some(w => /转场没写进 XML/.test(w)), '写进去了就不能再报「没写」');
 
 /* 图片段：写成 still，不是一段「有入出点的视频」 */
 const stillClip = (built.xml.match(/<asset-clip ref="r\d+" name="封面"[^>]*>[\s\S]*?<\/asset-clip>/) || [])[0] || '';
@@ -142,6 +154,27 @@ assert.ok(/value="0 0"/.test(titleClip), '中间档的纵向位置是 0');
 assert.ok(/一句字幕/.test(built.srt) && /00:00:00,500 --> 00:00:01,500/.test(built.srt), 'subtitles.srt 与时间线同一份表');
 assert.equal(built.subtitles, 1);
 assert.ok(/<sequence format="r1" duration="180\/30s"/.test(built.xml), 'sequence 时长 = 成片总长');
+/* text-style：DTD 1.10 的属性（不是 CSS）；默认与预览/烧录同源，高亮写 backgroundColor。 */
+assert.ok(/<text-style font="PingFang SC" fontSize="54" fontColor="1 1 1 1" bold="1" alignment="center" shadowColor="0 0 0 0\.9"/.test(built.xml),
+  '字幕样式按 DTD 属性写出（字体 / 字号 / 字色 / 粗体 / 投影）');
+assert.ok(!/backgroundColor=/.test(built.xml), '不高亮就不写底色');
+const hlPlan = { ...plan, captions: [{ ...plan.captions[0], highlight: true }] };
+const hl = await buildFCPXML({ ...ctx, buildRenderPlan: async () => hlPlan }, { bundle: false });
+assert.ok(/backgroundColor="0 0 0 0\.55"/.test(hl.xml), '高亮底色写进 text-style（黑 55%，与成片一致）');
+/* 可配置：工程上的 fcpTitle 与调用方的 opts.titleStyle 两条路都要生效，后者优先。 */
+const styledProj = { ...proj, fcpTitle: { font: 'Microsoft YaHei', sizePx: 64, color: '1 0.9 0.8 1', backgroundColor: '0.1 0.2 0.3 0.7' } };
+const styled = await buildFCPXML({ ...ctx, proj: styledProj, buildRenderPlan: async () => hlPlan }, { bundle: false });
+assert.ok(/font="Microsoft YaHei" fontSize="64" fontColor="1 0\.9 0\.8 1"/.test(styled.xml), 'proj.fcpTitle 改字体/字号/字色');
+assert.ok(/backgroundColor="0\.1 0\.2 0\.3 0\.7"/.test(styled.xml), 'proj.fcpTitle 改高亮底色');
+const over = await buildFCPXML({ ...ctx, proj: styledProj, buildRenderPlan: async () => hlPlan },
+  { bundle: false, titleStyle: { font: 'Songti SC', sizePx: 72, shadow: false } });
+assert.ok(/font="Songti SC" fontSize="72"/.test(over.xml) && !/shadowColor/.test(over.xml), 'opts.titleStyle 优先且能关掉投影');
+/* 写不出来的转场（一侧是 gap）照实报数，不假装写进去了。 */
+const skipPlan = { ...plan, transitions: [...plan.transitions, { id: 'fade', start: 4.5, end: 5, duration: 0.5, to: 3 }] };
+const skipped = await buildFCPXML({ ...ctx, buildRenderPlan: async () => skipPlan }, { bundle: true });
+assert.equal(skipped.transitionsWritten, 1);
+assert.equal(skipped.transitionsSkipped, 1);
+assert.ok(skipped.warnings.some(w => /1 处转场没写进 XML/.test(w)), '写不出来的那一窗要报数');
 
 /* ---------- 下载两档：单文件写真实路径，媒体包写相对路径 ---------- */
 await exportFCPXML(ctx, { bundle: false });
@@ -166,22 +199,34 @@ assert.notEqual(saved, before, '媒体包也要落盘');
 assert.ok(/媒体包/.test(saved.name), '媒体包文件名要对');
 assert.ok(/已导出媒体包/.test(status), '状态栏要说媒体包');
 
-/* ---------- 送到剪映 / 达芬奇：生成持久导入工程（不是假装全自动导入） ---------- */
-let importBody = null, launched = '';
+/* ---------- 工程目录档：持久落盘、回路径，不启动任何剪辑软件 ---------- */
+let projectBody = null;
+const called = [];
 ctx.Net = {
   ...window.Net,
   json: async (url, req) => {
-    if (url === '/fcpxml/import') { importBody = JSON.parse(req.body); return { ok: true, id: 'imp1', dir: 'D:/renders/fcpxml-import/imp1', project: '测试片', assets: 3, missingCount: 1 }; }
-    launched = url;
-    return { ok: true };
+    called.push(url);
+    projectBody = JSON.parse(req.body);
+    return { ok: true, id: 'prj1', dir: 'D:/成像/FCPXML工程/prj1',
+      project: 'D:/成像/FCPXML工程/prj1/project.fcpxml', assets: 3, missingCount: 1 };
   },
 };
-const nle = await sendToNle(ctx, { app: 'jianying' });
-assert.equal(nle.ok, true);
-assert.equal(nle.appName, '剪映专业版');
-assert.ok(importBody && importBody.fcpxml && importBody.assets.length === 3, '导入工程带同一份 XML 与素材清单');
-assert.ok(/一句字幕/.test(importBody.srt), '导入工程里的 srt 与 XML 同源');
-assert.equal(launched, '/fcpxml/launch');
-assert.ok(/已生成 剪映专业版 导入工程/.test(status) && /1 份素材没取到/.test(status), '回执要说清目录与缺失数');
+const p = await exportProject(ctx);
+assert.equal(p.ok, true);
+assert.equal(p.dir, 'D:/成像/FCPXML工程/prj1');
+assert.equal(p.missingCount, 1);
+assert.equal(p.assets, 3);
+assert.deepEqual(called, ['/fcpxml/project'], '只发一条工程目录请求，不启动软件');
+assert.ok(projectBody && projectBody.fcpxml && projectBody.assets.length === 3, '工程带同一份 XML 与素材清单');
+assert.ok(/一句字幕/.test(projectBody.srt), '工程里的 srt 与 XML 同源');
+assert.ok(/已导出 FCPXML 工程目录/.test(status) && /1 份没取到/.test(status), '回执要说清目录与缺失数');
 
-console.log('✓ FCPXML 模块：渲染计划 → 倍速 timeMap / 配音 lane / gap 段 / 图片 still / 本机路径 / 两档导出 / NLE 导入工程；场景镜头名与媒体包名一致、复用素材只进包一次');
+/* 错误处理：代理报错要说人话、结果 ok:false，且错误文本进状态栏前要转义（不能拼成 HTML）。
+   以前这层用裸的 errText() / String(e)，Node 与早期装载里会二次抛错或吐 "Error: …"。 */
+ctx.Net.json = async () => { throw new Error('盘满了 <script>'); };
+const failed = await exportProject(ctx);
+assert.equal(failed.ok, false);
+assert.ok(/导出工程目录失败/.test(status) && /盘满了/.test(status), '失败要报出代理的原话');
+assert.ok(!/<script>/.test(status) && /&lt;script&gt;/.test(status), '错误文本要转义');
+
+console.log('✓ FCPXML 模块：渲染计划 → 倍速 timeMap / 转场居中重叠 / 字幕样式与高亮 / 配音 lane / gap 段 / 图片 still / 本机路径 / 三档导出 / 工程目录回执与失败转义；场景镜头名与媒体包名一致、复用素材只进包一次');

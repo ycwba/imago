@@ -1,6 +1,7 @@
 /* 用户可见的本机目录根 —— 只有这一份。
    「下载\成像」是共用一个根：图片\ / 视频\ / 音频\ / 其他\ = 产物本体（库根按类型分），
-   提示词\ = 归档（.md）。两边各写各的子目录，互不覆盖。 */
+   提示词\ = 归档（.md）、FCPXML工程\ = 导出的交换工程（内含 media/ 素材副本）。
+   两边各写各的子目录，互不覆盖；后两档不算产物，库根的递归扫描要跳过。 */
 'use strict';
 const path = require('path');
 const os = require('os');
@@ -42,6 +43,10 @@ const LEGACY_TOP_DIR = '拾帧';
 /* 提示词归档在库根下那一档的名字。只要名字的地方读这一枚，不要为了拿个名字去走 downloadsRoot()
    —— 那个函数会动盘（见下面的一次性搬迁），只该由「这一份就是默认根」的解析路径调。 */
 const PROMPTS_DIR_NAME = '提示词';
+/* FCPXML 持久工程在库根下那一档的名字。导出端（routes/fcpxml.js）与资产库扫描的跳过名单
+   （local-assets-store.js 的 SKIP_DIR_NAMES）都读这一枚：两边各写一份字符串就会走散，
+   届时工程目录里的 media/ 副本会被当成用户新放进来的产物补进资产库索引。 */
+const FCPXML_PROJECT_DIR = 'FCPXML工程';
 /* 一次性搬迁：默认库根从 下载\拾帧 整体改名到 下载\成像（同卷 rename，提示词归档跟着走，
    账里的 fid / 相对路径认回不受影响）。改名没成（目录被占用）就本次继续用旧根并记一笔，
    下次启动重试 —— 绝不静默指到一个空的新根。
@@ -106,4 +111,4 @@ const downloadsRoot = () => resolveRoot();
 /* 归档第四类：成像\提示词（.md 归档不混进媒体堆） */
 const promptsRoot = () => path.join(downloadsRoot(), PROMPTS_DIR_NAME);
 
-module.exports = { systemDownloadsDir, downloadsRoot, promptsRoot, AUTOSAVE_TOP_DIR, PROMPTS_DIR_NAME };
+module.exports = { systemDownloadsDir, downloadsRoot, promptsRoot, AUTOSAVE_TOP_DIR, PROMPTS_DIR_NAME, FCPXML_PROJECT_DIR };

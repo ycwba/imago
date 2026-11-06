@@ -4,8 +4,8 @@
    + engine 里接一个 builder；模板按钮、接线、校验、文案不再各改一处。
    放在 domain 而不是 director：助手（web/features/chat.js）也要读同一份，而它是经典脚本，
    按需加载时只能拿 window 面（加载点见 web/boot-assistant.js 与 web/director/index.js）。
-   kind：film=整片合成；xml=交换文件（bundle 再带媒体包，
-   nle 生成持久工程并送到剪映 / 达芬奇）。 */
+   kind：film=整片合成；xml=交换文件（单文件 .fcpxml / bundle 媒体包 zip / project 持久工程目录，
+   三档共用同一份 FCPXML 拼装器，不绑定任何一款剪辑软件）。 */
 (function () {
   'use strict';
   const FORMATS = [
@@ -16,7 +16,7 @@
       doc: '合成成片（浏览器内合成，进度能查、能取消）',
       startNote: '已在页面里开始合成；进度用 export_status 查，取消用 export_cancel' },
     { id: 'fcpxml', button: 'exportFcp', kind: 'xml', label: '导出 FCPXML', icon: 'film',
-      title: '把当前时间线导出成 Final Cut Pro / 达芬奇可导入的 FCPXML：保留镜头顺序、入出点、倍速与配音位置；本机没有落盘的素材会在文件开头列出来',
+      title: '把当前时间线导出成 Final Cut Pro 及支持 FCPXML 的剪辑软件可导入的 XML：保留镜头顺序、入出点、倍速、转场、配音与字幕；本机没有落盘的素材会在文件开头列出来',
       assistant: '导出 FCPXML（当前字幕一起写入）',
       doc: '导出交换文件（**当前字幕自动一起写入**，没有单独开关）',
       startNote: '正在导出 FCPXML（字幕随导出一起写入）' },
@@ -26,16 +26,11 @@
       assistant: '导出 FCPXML 媒体包（含字幕 subtitles.srt）',
       doc: 'FCPXML 媒体包（另带 subtitles.srt）',
       startNote: '正在导出 FCPXML 媒体包（字幕随导出一起写入）' },
-    { id: 'resolve', button: 'exportResolve', kind: 'xml', nle: true, label: '导出到达芬奇', icon: 'film',
-      title: '生成一份持久工程（project.fcpxml + media/ + subtitles.srt），尽量启动达芬奇 Resolve 并打开工程目录；最后一步在软件里点一次导入',
-      assistant: '生成达芬奇 Resolve 的导入工程（启动软件 + 打开目录，不替你在软件里点导入）',
-      doc: '导出到达芬奇（生成可导入工程；启动 Resolve + 打开目录）',
-      startNote: '正在生成达芬奇 Resolve 的导入工程' },
-    { id: 'jianying', button: 'exportJianying', kind: 'xml', nle: true, label: '导出到剪映', icon: 'film',
-      title: '生成一份剪映专业版草稿（draft_content.json + media/），尽量启动剪映并打开草稿目录；最后一步在软件里点一次导入',
-      assistant: '生成剪映专业版草稿（启动软件 + 打开草稿目录，不替你在软件里点导入）',
-      doc: '导出到剪映（生成剪映草稿；启动剪映 + 打开草稿目录）',
-      startNote: '正在生成剪映专业版草稿' },
+    { id: 'project', button: 'exportProject', kind: 'xml', project: true, label: '导出工程目录', icon: 'film',
+      title: '在本机资产库下的 FCPXML工程/ 生成一份摊开的 FCPXML 工程：project.fcpxml + media/ + subtitles.srt + missing.txt；与素材放在一处、回目录路径、可打开文件夹，不启动任何剪辑软件',
+      assistant: '导出 FCPXML 工程目录（落到本机资产库，含素材与字幕）',
+      doc: '导出工程目录（与素材同在本机资产库，可打开文件夹）',
+      startNote: '正在生成 FCPXML 工程目录' },
   ];
   const byId = {};
   FORMATS.forEach(f => { byId[f.id] = f; });

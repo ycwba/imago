@@ -34,8 +34,14 @@ const ok = (name, cond, detail) => {
 const counters = {};
 let watched = [];
 const patch = [];
+/* 索引写入单独计：判据要量的是「__index.json 写了几趟」。
+   一程批量 PUT 的 .bin 字节也是异步 fs.promises.writeFile，响应回来了写未必落完，
+   会串到下一个采样窗口 —— 拿「本窗所有 p.writeFile」当索引的代理会偶发假红
+   （全量并发跑时尤其容易撞上）。按文件名分开数，判据才量到它真正想量的东西。 */
+const IDX_WRITE = 'p.writeFile:index';
 function startWatch(roots) {
   watched = roots.map(r => path.resolve(r));
+  counters[IDX_WRITE] = 0;
   const put = (name, host, key) => {
     const orig = host[name];
     counters[key] = 0;
@@ -43,7 +49,10 @@ function startWatch(roots) {
     host[name] = function (...a) {
       let p = '';
       try { p = path.resolve(String(a[0] || '')); } catch (e) { p = ''; }
-      if (watched.some(w => p === w || p.startsWith(w + path.sep))) counters[key]++;
+      if (watched.some(w => p === w || p.startsWith(w + path.sep))) {
+        counters[key]++;
+        if (key === 'p.writeFile' && path.basename(p) === '__index.json') counters[IDX_WRITE]++;
+      }
       return orig.apply(host, a);
     };
   };
@@ -303,7 +312,8 @@ const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + 
   reset();
   const flushed = await cache.flushPending();
   ok('没落盘的那几趟索引一补就落，且一张表只补一趟',
-    flushed === 1 && c('p.writeFile') === 1, '补了 ' + flushed + ' 张表，p.writeFile=' + c('p.writeFile'));
+    flushed === 1 && c(IDX_WRITE) === 1,
+    '补了 ' + flushed + ' 张表，索引写了 ' + c(IDX_WRITE) + ' 趟（本窗 p.writeFile=' + c('p.writeFile') + '）');
   const onDisk = JSON.parse(fs.readFileSync(path.join(cacheDir, '__index.json'), 'utf8'));
   const keysOnDisk = new Set(onDisk.map(e => e.key));
   ok('合并之后盘上那一份把这一批全认下来（一条都没丢）',
@@ -311,8 +321,8 @@ const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + 
     onDisk.length + ' 条');
   reset();
   ok('没有新写就不许再落一趟（合并不是「每隔一会儿重写一遍」）',
-    (await cache.flushPending()) === 0 && c('p.writeFile') === 0,
-    'p.writeFile=' + c('p.writeFile'));
+    (await cache.flushPending()) === 0 && c(IDX_WRITE) === 0,
+    '索引写了 ' + c(IDX_WRITE) + ' 趟');
 
   const firstHit = await ccall('GET', CU(0));
   ok('命中回的就是存进去的那一份字节（换成流出去也一样）',
@@ -324,8 +334,8 @@ const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + 
   for (let i = 0; i < CN; i++) if ((await ccall('GET', CU(i))).statusCode === 200) hits++;
   ok('每一枚键都认回自己那一条', hits === CN, hits + '/' + CN);
   ok('一整轮命中：索引一次都不许重读、更不许重写（整表驻内存，读只刷新内存里的 at）',
-    c('readFileSync') === 0 && c('writeFileSync') === 0 && c('p.writeFile') === 0,
-    'readSync=' + c('readFileSync') + ' writeSync=' + c('writeFileSync') + ' asyncWrite=' + c('p.writeFile')
+    c('readFileSync') === 0 && c('writeFileSync') === 0 && c(IDX_WRITE) === 0,
+    'readSync=' + c('readFileSync') + ' writeSync=' + c('writeFileSync') + ' indexWrite=' + c(IDX_WRITE)
     + '（' + CN + ' 次命中）');
   ok('一整轮命中也不逐条问「文件在不在」再读整份进内存（字节交给流，只留一次 stat 报长度）',
     c('existsSync') === 0 && c('openSync') === 0 && c('readFileSync') === 0 && c('p.readFile') === 0
@@ -361,7 +371,7 @@ const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + 
   const gone = await ccall('GET', CU(7));
   ok('字节没了的那一条当场回 404', gone.statusCode === 404, '状态码 ' + gone.statusCode);
   ok('摘掉这一条时索引真落了盘（下次开机不再白问这一枚键）',
-    c('p.writeFile') === 1, 'p.writeFile=' + c('p.writeFile'));
+    c(IDX_WRITE) === 1, '索引写了 ' + c(IDX_WRITE) + ' 趟');
   const afterHeal = JSON.parse((await ccall('GET', '/cache/thumbs')).body);
   ok('失效的那一条从整表拉回里也掉出去了',
     afterHeal.items.length === CN && !afterHeal.items.some(x => x.k === CKEY(7)),
@@ -378,9 +388,10 @@ const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + 
   reset();
   const syncFlushed = cache.flushPendingSync();
   const diskAfterSync = JSON.parse(fs.readFileSync(path.join(cacheDir, '__index.json'), 'utf8'));
-  ok('退出前的同步补盘把攒着的那一条落到盘上（这一路不发异步写）',
-    syncFlushed >= 1 && c('p.writeFile') === 0 && diskAfterSync.some(e => e.key === CKEY('exit')),
-    JSON.stringify({ syncFlushed, asyncWrite: c('p.writeFile'), 盘上: diskAfterSync.length }));
+  ok('退出前的同步补盘把攒着的那一条落到盘上（这一路走同步写，不排队等异步）',
+    syncFlushed >= 1 && c('writeFileSync') >= 1 && c(IDX_WRITE) === 0
+      && diskAfterSync.some(e => e.key === CKEY('exit')),
+    JSON.stringify({ syncFlushed, syncWrite: c('writeFileSync'), indexAsyncWrite: c(IDX_WRITE), 盘上: diskAfterSync.length }));
 
   stopWatch();
   try { fs.rmSync(tmpA, { recursive: true, force: true }); } catch (e) {}

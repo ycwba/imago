@@ -805,7 +805,7 @@
   .asset-slot .chain-ops .mini { padding: var(--sp-2) var(--sp-8); font-size: var(--fs-11); }
   .hint { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-8); }
   /* 导出拆分按钮：主钮（导出成片）+ 尾部 chevron，点开列其余去向
-     （FCPXML / 媒体包 / 达芬奇 / 剪映）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
+     （FCPXML / 媒体包 / 工程目录）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
      页头是常驻 DOM，不会被重建冲掉。
      这一颗是页头唯一的主操作，所以两半都穿公共主按钮那身（`.pri`：淡强调底 + 强调墨），
      而不是各穿一份中性 `.ghost` —— 中性底换配色时一个像素都不动，页头的主操作看着就和
@@ -1271,8 +1271,8 @@
     <!-- 普通提示就写在这行小字里，几秒后淡出：不再每点一下都弹浮层 -->
     <span class="opstate" id="opState"></span>
     <!-- 导出入口只剩中栏的「导入视频 / 素材」（同一份 AssetPicker）。
-         导出出口（成片 / FCPXML / 媒体包 / NLE）由 web/domain/export-formats.js 那张表现画现绑：
-         一颗拆分按钮 —— 主钮「导出成片」，尾部 chevron 的浮层里收其余四种去向。
+         导出出口（成片 / FCPXML / 媒体包 / 工程目录）由 web/domain/export-formats.js 那张表现画现绑：
+         一颗拆分按钮 —— 主钮「导出成片」，尾部 chevron 的浮层里收其余三种去向。
          这里只有**导出**，没有任何「播放」：看效果走剪辑态那条轨的实时预览。 -->
     <span id="exportBtns"></span>
   </div>

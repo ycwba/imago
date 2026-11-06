@@ -1,7 +1,8 @@
 /* 导演台导出域：成片计划（`proj.film` → 浏览器内导出那一份契约）、成片指纹、导出成片、
-   FCPXML / 媒体包、送到剪映 / 达芬奇。engine.js 只留状态与接线（内部保持命令式、按域拆模块）。
+   FCPXML 三档（单文件 / 媒体包 zip / 持久工程目录）。engine.js 只留状态与接线
+   （内部保持命令式、按域拆模块）。
    引擎状态一律经 createExport(E) 递进来的访问器读写；这里不放第二份工程数据。 */
-import { exportFCPXML as runFcpExport, sendToNle as runSendNle } from '../fcpxml.js';
+import { exportFCPXML as runFcpExport, exportProject as runExportProject } from '../fcpxml.js';
 import {
   deriveTimeline, transitionWindow, audibleVoices, visibleCaptions, captionPosition, captionHighlighted,
   clipDurationOf, rateOf, gainOf, TL_FPS, voiceLaneMap, captionLaneMap,
@@ -265,14 +266,21 @@ async function exportFilm(opts) {
 }
 
 /* ============================================================================
-   FCPXML 导出（Final Cut Pro / 达芬奇可导入的交换格式）
+   FCPXML 导出（Final Cut Pro 及支持 FCPXML 的剪辑软件可导入的交换格式）
    ----------------------------------------------------------------------------
-   导的是**当前成片**：段顺序、源窗口、倍速、配音位置、字幕位置都保留。
+   导的是**当前成片**：段顺序、源窗口、倍速、转场、配音位置、字幕位置都保留。
    素材引用优先用本机资产库里的真实文件（`/sys-status` 的资产目录 + la_ 号 + 格式）；
    本机没有落盘的那几条仍然建一个离线 asset（名字 + 原地址写进文件开头的注释），
    FCP 导入后会显示离线，用户按名单补文件 / 重新链接即可 —— 不静默丢段。
    **不改变任何工程数据**：只读 buildRenderPlan()（与导出成片同一张表）与镜头表。 */
-/* FCPXML 的上下文：单文件 / 媒体包 / 送到 NLE 三条出口传的是同一份。 */
+/* 错误文案只有公共件那一份（web/ui/net.js 的 window.errText）；ESM 模块在 Node 里被直接
+   import 时没有那一层，退回 message —— 不让「报错文案自己又抛一次」盖住真错误。 */
+const exportErrText = e => {
+  const W = typeof window === 'undefined' ? null : window;
+  const f = W && typeof W.errText === 'function' ? W.errText : null;
+  return f ? String(f(e)) : String(e instanceof Error ? e.message : (e || ''));
+};
+/* FCPXML 的上下文：单文件 / 媒体包 / 工程目录三条出口传的是同一份。 */
 function fcpCtx() {
   return {
     proj: projOf(), filmOf, allShots, clipNameOf, buildRenderPlan, outSrcOf,
@@ -285,43 +293,43 @@ async function exportFCPXML(opts) {
   return runFcpExport(fcpCtx(), opts || {});
 }
 
-/* 送到达芬奇 / 剪映：两个独立目标各走各的（拆成两行后不再弹选择框）。
-   「一键」到启动软件为止；最后那一步导入只能由用户在软件里点
-   （两家都没有可靠的命令行「打开并导入这个文件」协议，不假装能替他点）。 */
-async function exportNle(opts) {
+/* 持久工程目录：FCPXML 三档里唯一往本机资产库落盘的一档（FCPXML工程/，与素材同根）。
+   与「导出媒体包」共用 buildFCPXML 与服务端 writeBundle，只是不下载 zip、也不写 bundle.zip，
+   而是把 project.fcpxml + media/ + subtitles.srt + missing.txt 摊开留成一个目录并回路径。
+   不启动任何剪辑软件：导入那一步由用户在自己的软件里做，界面只把路径与缺失数说清。 */
+async function exportProject(opts) {
   opts = opts || {};
   warnPendingAssets();
-  const app = opts.app === 'jianying' ? 'jianying' : 'resolve';
   let r;
-  try { r = await runSendNle(fcpCtx(), { app }); }
+  try { r = await runExportProject(fcpCtx()); }
   catch (e) {
-    const msg = errText(e);
-    setStatus('<span class="err">送到 ' + (app === 'jianying' ? '剪映' : '达芬奇') + ' 失败：' + esc(msg) + '</span>');
+    const msg = exportErrText(e);
+    setStatus('<span class="err">导出工程目录失败：' + esc(msg) + '</span>');
     return { ok: false, err: msg };
   }
-  if (r && r.ok && !opts.silent) nleDialog(r);
+  if (r && r.ok && !opts.silent) projectDialog(r);
   return r;
 }
-/* 工程已经生成好了才有这一步：目录、缺失数与导入路径一次说清；
+/* 工程已经写好了才有这一步：目录、素材数、缺失数与导入路径一次说清；
    「打开文件夹」与「复制路径」都是可用的退路（软件没装 / 装在别处也不影响导入）。 */
-function nleDialog(r) {
-  const isJY = r.app === 'jianying';
+function projectDialog(r) {
   UiDialog.open({
-    title: '已生成' + r.appName + '导入工程',
-    sub: r.launch && r.launch.ok ? '软件已启动；最后一步在软件里点一次导入' : '工程已生成；软件没启动也不影响导入',
+    title: '已导出 FCPXML 工程目录',
+    sub: '工程与素材都留在本机资产库；不启动任何剪辑软件',
     body(el) {
       el.innerHTML = '<div class="dlg-line">工程目录：<b>' + esc(r.dir) + '</b></div>'
         + '<div class="dlg-line">时间线：' + r.rows + ' 段画面 · ' + r.voices + ' 句配音'
-        + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条' : '') + '</div>'
-        + (r.missingCount ? '<div class="dlg-warn">有 ' + r.missingCount + ' 份素材没取到：名单在同目录的 missing.txt（导入后显示离线，补齐文件再重新链接）</div>' : '')
-        + '<div class="dlg-hint">' + (isJY
-          ? '剪映：菜单 → 导入 → 时间线 / FCPXML，选目录里的 project.fcpxml。若找不到这一项，先到 全局设置 打开 FCPXML 导入；素材在 media/ 里。'
-          : '达芬奇：文件 → 导入 → 时间线（FCPXML），选目录里的 project.fcpxml；素材会自动从 media/ 链接。') + '</div>'
-        + (r.launch && !r.launch.ok ? '<div class="dlg-warn">没有自动启动软件：' + esc(r.launch.reason || '') + ' 请手动打开。</div>' : '');
+        + (r.subtitles ? ' · 字幕 ' + r.subtitles + ' 条' : '')
+        + (r.transitions ? ' · 转场 ' + r.transitions + ' 处' : '') + '</div>'
+        + '<div class="dlg-line">素材：' + r.assets + ' 份进包'
+        + (r.missingCount ? ' · ' + r.missingCount + ' 份没取到' : ' · 没有缺失') + '</div>'
+        + (r.missingCount ? '<div class="dlg-warn">取不到的素材名单在同目录的 missing.txt；导入后会显示离线，补齐文件再重新链接</div>' : '')
+        + '<div class="dlg-hint">在 Final Cut Pro 或支持 FCPXML 的剪辑软件里用「文件 → 导入 → XML / 时间线」打开目录里的 project.fcpxml；素材会自动从 media/ 链接，字幕另存为 subtitles.srt。</div>'
+        + '<div class="dlg-hint">要发给别人或换一台机器，用「导出媒体包」拿 zip：这个目录里不再放一份压缩副本。</div>';
     },
     actions: [
       { label: '打开文件夹', value: 'open', primary: true,
-        onClick: () => { revealNle(r.id); return false; } },
+        onClick: () => { revealProject(r.id); return false; } },
       { label: '复制路径', value: 'copy',
         onClick: async () => {
           const ok = window.copyText ? await window.copyText(r.dir) : false;
@@ -332,12 +340,12 @@ function nleDialog(r) {
     ],
   });
 }
-async function revealNle(id) {
+async function revealProject(id) {
   try {
     await window.Net.json('/fcpxml/reveal', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
     });
-  } catch (e) { Toast.warn('打不开文件夹：' + errText(e)); }
+  } catch (e) { Toast.warn('打不开文件夹：' + exportErrText(e)); }
 }
 
 /* ============================================================================
@@ -386,11 +394,9 @@ function stampName(ext) {
     filmClick: exportFilmClick,
     exportFilm: exportFilm,
     fcp: exportFCPXML,
-    resolve: () => exportNle({ app: 'resolve' }),
-    jianying: () => exportNle({ app: 'jianying' }),
-    /* 助手的 export_start 分派只认这一枚（bridge 按 formats 行的 nle 标记给 app）：
-       silent = 不弹 nleDialog，结果走助手自己的回执。 */
-    nle: opts => exportNle(Object.assign({}, opts)),
+    /* 页面按钮与助手 export_start 都走这一枚：silent = 不弹 projectDialog，
+       结果走助手自己的回执。 */
+    project: opts => exportProject(Object.assign({}, opts)),
     isRendering: () => rendering,
     cancelJob: () => abortRender(),
     /* 助手「把刚导出的成片存进资产库」读这一枚：它只看成片字节缓存（同内容再点直接给的那份），

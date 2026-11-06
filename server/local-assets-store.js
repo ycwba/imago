@@ -151,9 +151,11 @@ function createLocalAssetsStore(deps) {
      prompts-store 也 require 同一份，不许各拼各的「下载」路径。 */
   const userDirs = require('./user-dirs.js');
   const OTHER_DIR_NAME = '其他';
-  /* 库根里**不当产物**的那几档：提示词归档（.md）与回收站（搬东西时留下的空壳）。
-     扫描、用量、认回一律跳过 —— 把用户自己放的 .md 说成「一份没登记的产物」是假话。 */
-  const SKIP_DIR_NAMES = new Set([userDirs.PROMPTS_DIR_NAME, '.trash']);
+  /* 库根里**不当产物**的那几档：提示词归档（.md）、FCPXML 工程目录与回收站（搬东西时留下的空壳）。
+     dirScan 是递归的，第一层不跳过就等于把整棵子树都算进来：FCPXML工程/<id>/media/ 里全是
+     导出时拷进去的素材副本，会被 localAdopt 当成「用户自己放进来的产物」补进索引、被用量统计
+     算成重复文件。名字读 user-dirs 那一枚，与导出端同源。 */
+  const SKIP_DIR_NAMES = new Set([userDirs.PROMPTS_DIR_NAME, userDirs.FCPXML_PROJECT_DIR, '.trash']);
   /* 某一类本体的目录（绝对路径，按当前库根现算 —— 库根改了不必重启）。 */
   const bodyDirOf = zh => path.join(DIR(), String(zh || OTHER_DIR_NAME));
   /* 一条产物该落哪一档：**只认扩展名表与 mime**，认不出就 其他。

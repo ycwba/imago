@@ -27,8 +27,8 @@ ok('表挂在 window.ExportFormats 上并给出读法', !!EF && ['list', 'ids', 
 if (!EF) process.exit(1);
 
 const list = EF.list(), ids = EF.ids();
-ok('导出格式都在（成片 / FCPXML / 媒体包 / 送到 NLE；「导出素材」与「导入 FCPXML / 最近导出」已按用户要求撤掉）',
-  JSON.stringify(ids) === JSON.stringify(['film', 'fcpxml', 'bundle', 'resolve', 'jianying']));
+ok('导出格式都在（成片 / FCPXML / 媒体包 / 工程目录；「送到剪映 / 达芬奇」「导出素材」与「导入 FCPXML / 最近导出」已撤）',
+  JSON.stringify(ids) === JSON.stringify(['film', 'fcpxml', 'bundle', 'project']));
 ok('id 与页头按钮号都不重复',
   new Set(ids).size === ids.length && new Set(list.map(f => f.button)).size === list.length);
 ok('每条都有 engine 认识的 kind', list.every(f => ['film', 'xml'].includes(f.kind)),

@@ -678,7 +678,7 @@ function sysStatus(fresh) {
 }
 /* ---------- 同源保护 ----------
    /data 里存着设置（含 API 密钥）与工作区，/env-status 暴露密钥尾号，
-   /local-assets 是本机生成的素材清单，/cloud 会带着账号密码出网，/fcpxml 会写盘又启动外部软件。
+   /local-assets 是本机生成的素材清单，/cloud 会带着账号密码出网，/fcpxml 会写盘到渲染目录与本机资产库。
    代理的 CORS 是全站放开的（Access-Control-Allow-Origin: *），不加这一层的话
    任何网页都能跨域把这些读走 —— 和之前 .env 能直接下载是同一类问题。
    判定规则（比"固定 localhost"更准，也不牺牲局域网访问）：
@@ -1015,13 +1015,15 @@ const cacheRoutes = createCacheRoutes({ readBody, log, dataDirPath });
 /* 「这一条不判地址，交给处理器自己认」：处理器回 false 就是不归它，接着往下问。 */
 const ANY = () => true;
 const ROUTE_TABLE = [
-  /* FCPXML：媒体包 / 一键导入工程 / 打开目录 / 启动软件，四条都在 routes/fcpxml.js 里分派；
-     只走本机路由，输出到 RENDER_DIR；取不到的素材写 missing.txt */
+  /* FCPXML：媒体包 / 持久工程目录 / 打开目录，三条都在 routes/fcpxml.js 里分派；
+     只走本机路由：媒体包的内部临时目录在 RENDER_DIR，工程目录在本机资产库下的 FCPXML工程/
+     （跟着设置页的库根现读），取不到的素材写 missing.txt。代理不启动任何剪辑软件。 */
   {
     name: 'fcpxml',
     match: a => a.method === 'POST' && (a.path === '/fcpxml' || a.path.startsWith('/fcpxml/')),
     stop: 'always', run: a => handleFcpxml(a.req, a.res, {
       renderDir: RENDER_DIR,
+      localRoot,
       maxAssetBytes: FCPXML_MAX_ASSET_MB * 1024 * 1024,
       maxBundleBytes: FCPXML_MAX_BUNDLE_MB * 1024 * 1024,
       resolveSrc,

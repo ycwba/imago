@@ -66,6 +66,7 @@ $script:NetRunning = $false
 $script:Bad = 0
 $script:PortProbeCache = @{}   # 同一个 tick 里的直连探测结果（见 Test-PortListening）
 $script:NetFailNoted = $false  # netstat 读不到时只提醒一次（见 Get-NetRows）
+$script:UpSince = $null      # 界面上「已运行」的起点，停掉即清空
 $script:JsonCookies = $null    # 读本机路由时复用同一份会话 Cookie（见 Get-JsonUtf8）
 $script:JsonCookieOrigin = ''
 
@@ -212,7 +213,7 @@ function Get-PortOwnerPids([int]$Port) {
   # 两条路都问不到就返回空 —— 调用方据此判定「不知道是谁」，绝不猜一个 PID 去杀。
   try {
     for ($try = 0; $try -lt 3 -and $out.Count -eq 0; $try++) {
-      foreach ($c in @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)) {
+      foreach ($item in @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)) {
         $n = [int]$c.OwningProcess
         if ($n -gt 0) { [void]$out.Add($n) }
       }
@@ -955,102 +956,238 @@ function New-ScaledFont {
   catch { return [System.Drawing.SystemFonts]::DefaultFont }
 }
 
-$uiFont = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 9.0 ([System.Drawing.FontStyle]::Regular)
-$titleFont = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 11.5 ([System.Drawing.FontStyle]::Bold)
-$logFont = New-ScaledFont @('Consolas', 'Lucida Console') 9.5 ([System.Drawing.FontStyle]::Regular)
+# ---------- 配色与字体（浅色主题，和页面那套令牌同一路子） ----------
+$Palette = @{
+  Bg        = [System.Drawing.Color]::FromArgb(244, 246, 251)
+  Card      = [System.Drawing.Color]::White
+  Accent    = [System.Drawing.Color]::FromArgb(79, 99, 217)
+  AccentHi  = [System.Drawing.Color]::FromArgb(98, 118, 236)
+  Ink       = [System.Drawing.Color]::FromArgb(30, 37, 64)
+  Muted     = [System.Drawing.Color]::FromArgb(110, 120, 147)
+  Soft      = [System.Drawing.Color]::FromArgb(231, 236, 248)
+  SoftHi    = [System.Drawing.Color]::FromArgb(216, 225, 246)
+  SoftInk   = [System.Drawing.Color]::FromArgb(42, 53, 86)
+  LogBg     = [System.Drawing.Color]::FromArgb(251, 252, 254)
+  Ok        = [System.Drawing.Color]::FromArgb(30, 158, 99)
+  Warn      = [System.Drawing.Color]::FromArgb(210, 138, 22)
+  Err       = [System.Drawing.Color]::FromArgb(213, 67, 67)
+  Idle      = [System.Drawing.Color]::FromArgb(160, 168, 188)
+  QuitBg    = [System.Drawing.Color]::FromArgb(251, 233, 233)
+  QuitHi    = [System.Drawing.Color]::FromArgb(245, 214, 214)
+  QuitInk   = [System.Drawing.Color]::FromArgb(183, 59, 59)
+  Foot      = [System.Drawing.Color]::FromArgb(232, 236, 246)
+}
+
+$uiFont    = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 9.0   ([System.Drawing.FontStyle]::Regular)
+$headFont  = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 13.5  ([System.Drawing.FontStyle]::Bold)
+$dotFont   = New-ScaledFont @('Segoe UI Symbol', 'Microsoft YaHei UI') 17.0 ([System.Drawing.FontStyle]::Regular)
+$smallFont = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 8.5   ([System.Drawing.FontStyle]::Regular)
+$boldSmall = New-ScaledFont @('Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI') 9.0   ([System.Drawing.FontStyle]::Bold)
+$logFont   = New-ScaledFont @('Consolas', 'Lucida Console', 'Microsoft YaHei UI') 9.25 ([System.Drawing.FontStyle]::Regular)
+
+$aTop = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$aAll = $aTop -bor [System.Windows.Forms.AnchorStyles]::Bottom
+$aBot = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+
+# 扁平按钮：原色/悬停色一起塞进 Tag，事件里只读 sender，不依赖闭包捕获循环变量。
+function Style-Button {
+  param($b, $Base, $Hover, $Fore)
+  $b.Font = $uiFont
+  $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  $b.FlatAppearance.BorderSize = 0
+  $b.FlatAppearance.MouseOverBackColor = $Hover
+  $b.BackColor = $Base
+  $b.ForeColor = $Fore
+  $b.Tag = @{ Base = $Base; Hover = $Hover }
+  $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $b.Add_MouseEnter({ param($s, $e) if ($s.Enabled) { $s.BackColor = $s.Tag.Hover } })
+  $b.Add_MouseLeave({ param($s, $e) $s.BackColor = $s.Tag.Base })
+}
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = '成像 · AI 创作工作台 · 本地服务'
 $form.Font = $uiFont
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-$form.MinimumSize = New-Object System.Drawing.Size((px 580), (px 380))
-$form.ClientSize = New-Object System.Drawing.Size((px 780), (px 560))
-$form.BackColor = [System.Drawing.Color]::FromArgb(240, 242, 248)
+$form.ShowIcon = $false
+$form.MinimumSize = New-Object System.Drawing.Size((px 760), (px 540))
+$form.ClientSize = New-Object System.Drawing.Size((px 880), (px 640))
+$form.BackColor = $Palette.Bg
+
+# ---------- 状态卡 ----------
+$pnlStatus = New-Object System.Windows.Forms.Panel
+$pnlStatus.Location = New-Object System.Drawing.Point((px 20), (px 24))
+$pnlStatus.Size = New-Object System.Drawing.Size(($form.ClientSize.Width - (px 40)), (px 96))
+$pnlStatus.BackColor = $Palette.Card
+$pnlStatus.Anchor = $aTop
+
+$barState = New-Object System.Windows.Forms.Panel
+$barState.Location = New-Object System.Drawing.Point(0, 0)
+$barState.Size = New-Object System.Drawing.Size((px 5), (px 96))
+$barState.BackColor = $Palette.Idle
 
 $lblDot = New-Object System.Windows.Forms.Label
 $lblDot.Text = '●'
-$lblDot.Font = $titleFont
-$lblDot.ForeColor = [System.Drawing.Color]::Gray
+$lblDot.Font = $dotFont
+$lblDot.ForeColor = $Palette.Idle
 $lblDot.AutoSize = $true
-$lblDot.Location = New-Object System.Drawing.Point((px 18), (px 17))
+$lblDot.Location = New-Object System.Drawing.Point((px 20), (px 10))
 
 $lblState = New-Object System.Windows.Forms.Label
 $lblState.Text = '正在读配置…'
-$lblState.Font = $titleFont
+$lblState.Font = $headFont
+$lblState.ForeColor = $Palette.Ink
 $lblState.AutoSize = $true
-$lblState.Location = New-Object System.Drawing.Point((px 44), (px 16))
+$lblState.Location = New-Object System.Drawing.Point((px 54), (px 18))
 
-$lblInfo = New-Object System.Windows.Forms.Label
-$lblInfo.Text = ''
-$lblInfo.AutoSize = $true
-$lblInfo.MaximumSize = New-Object System.Drawing.Size((px 740), 0)
-$lblInfo.Location = New-Object System.Drawing.Point((px 18), (px 46))
+$lblBusy = New-Object System.Windows.Forms.Label
+$lblBusy.Text = ''
+$lblBusy.Font = $smallFont
+$lblBusy.ForeColor = $Palette.Warn
+$lblBusy.AutoSize = $true
+$lblBusy.MaximumSize = New-Object System.Drawing.Size(($pnlStatus.Width - (px 44)), 0)
+$lblBusy.Location = New-Object System.Drawing.Point((px 22), (px 68))
 
-$rowY = 92
-$bx = 18
+$lblUrl = New-Object System.Windows.Forms.Label
+$lblUrl.Text = '—'
+$lblUrl.Font = $logFont
+$lblUrl.ForeColor = $Palette.Accent
+$lblUrl.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblUrl.Location = New-Object System.Drawing.Point(($pnlStatus.Width - (px 270)), (px 16))
+$lblUrl.Size = New-Object System.Drawing.Size((px 250), (px 24))
+$lblUrl.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+
+$lblUptime = New-Object System.Windows.Forms.Label
+$lblUptime.Text = ''
+$lblUptime.Font = $smallFont
+$lblUptime.ForeColor = $Palette.Muted
+$lblUptime.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblUptime.Location = New-Object System.Drawing.Point(($pnlStatus.Width - (px 270)), (px 46))
+$lblUptime.Size = New-Object System.Drawing.Size((px 250), (px 20))
+$lblUptime.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+
+foreach ($item in @($barState, $lblDot, $lblState, $lblBusy, $lblUrl, $lblUptime)) { [void]$pnlStatus.Controls.Add($item) }
+
+# ---------- 操作区：两行按钮，主操作与辅助操作分开 ----------
 $btnStart = New-Object System.Windows.Forms.Button
 $btnStop = New-Object System.Windows.Forms.Button
 $btnRestart = New-Object System.Windows.Forms.Button
 $btnOpen = New-Object System.Windows.Forms.Button
+$btnCopy = New-Object System.Windows.Forms.Button
+$btnLog = New-Object System.Windows.Forms.Button
+$btnDir = New-Object System.Windows.Forms.Button
 $btnQuit = New-Object System.Windows.Forms.Button
+
 $btnStart.Text = '启动'
 $btnStop.Text = '停止'
 $btnRestart.Text = '重启'
 $btnOpen.Text = '打开页面'
-$btnQuit.Text = '退出（停掉服务）'
-$btnStart.BackColor = [System.Drawing.Color]::FromArgb(46, 125, 92)
-$btnStart.ForeColor = [System.Drawing.Color]::White
-$btnQuit.BackColor = [System.Drawing.Color]::FromArgb(228, 232, 242)
-foreach ($b in @($btnStart, $btnStop, $btnRestart, $btnOpen, $btnQuit)) {
-  # 宽度按**这一句文案**实测出来，不写死一个数：「退出（停掉服务）」在固定 124px 里被截成
-  # 「退出（停掉服…，而把它改成固定 152」下一句文案长一点又会截。测量必须用 $uiFont ——
-  # 这一刻按钮还没 Add 到 form 上，$b.Font 取到的是默认的 Microsoft Sans Serif，
-  # 中文按它量会窄一截（量出来的宽度比真渲染的窄，等于白量）。
-  $tw = [System.Windows.Forms.TextRenderer]::MeasureText($b.Text, $uiFont, [System.Drawing.Size]::Empty,
-    [System.Windows.Forms.TextFormatFlags]::NoPadding).Width
-  $b.Size = New-Object System.Drawing.Size([Math]::Max((px 96), ($tw + (px 28))), (px 34))
-  $b.Location = New-Object System.Drawing.Point((px $bx), (px $rowY))
-  $bx += $b.Width + (px 8)
+$btnCopy.Text = '复制地址'
+$btnLog.Text = '打开日志'
+$btnDir.Text = '项目目录'
+$btnQuit.Text = '退出并停服务'
+
+$mainY = 140
+$mainX = @(20, 140, 260, 380)
+$mainW = @(108, 108, 108, 128)
+$i = 0
+foreach ($b in @($btnStart, $btnStop, $btnRestart, $btnOpen)) {
+  $b.Location = New-Object System.Drawing.Point((px $mainX[$i]), (px $mainY))
+  $b.Size = New-Object System.Drawing.Size((px $mainW[$i]), (px 36))
+  if ($b -eq $btnStart) { Style-Button $b $Palette.Accent $Palette.AccentHi ([System.Drawing.Color]::White) }
+  else { Style-Button $b $Palette.Soft $Palette.SoftHi $Palette.SoftInk }
+  $i++
 }
 
-$lblBusy = New-Object System.Windows.Forms.Label
-$lblBusy.Text = ''
-$lblBusy.AutoSize = $true
-$lblBusy.ForeColor = [System.Drawing.Color]::FromArgb(150, 96, 16)
-$lblBusy.Location = New-Object System.Drawing.Point((px 18), (px ($rowY + 40)))
+$subY = 188
+$subX = @(20, 136, 252)
+$subW = @(108, 108, 108)
+$i = 0
+foreach ($b in @($btnCopy, $btnLog, $btnDir)) {
+  $b.Location = New-Object System.Drawing.Point((px $subX[$i]), (px $subY))
+  $b.Size = New-Object System.Drawing.Size((px $subW[$i]), (px 30))
+  Style-Button $b $Palette.Card $Palette.SoftHi $Palette.Muted
+  $i++
+}
+# 退出靠右：Anchor 只挂 Right，窗口拉宽时它跟着右边走。
+$btnQuit.Location = New-Object System.Drawing.Point(($form.ClientSize.Width - (px 172)), (px $subY))
+$btnQuit.Size = New-Object System.Drawing.Size((px 152), (px 30))
+$btnQuit.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+Style-Button $btnQuit $Palette.QuitBg $Palette.QuitHi $Palette.QuitInk
 
 $chkAuto = New-Object System.Windows.Forms.CheckBox
 $chkAuto.Text = '启动后自动打开页面'
+$chkAuto.Font = $smallFont
+$chkAuto.ForeColor = $Palette.Muted
 $chkAuto.AutoSize = $true
 $chkAuto.Checked = $true
-# +66 而不是 +60：正在启动那一句（$lblBusy，行高约 20px，从 +40 起画）会糊在「启动后自动打开页面」上，
-# 截图上两行文字叠成一团黑。忙线是整句、字数不可控，所以留一整行给它。
-$chkAuto.Location = New-Object System.Drawing.Point((px 18), (px ($rowY + 66)))
+$chkAuto.Location = New-Object System.Drawing.Point((px 380), (px ($subY + 6)))
+
+# ---------- 日志卡 ----------
+$pnlLog = New-Object System.Windows.Forms.Panel
+$pnlLog.Location = New-Object System.Drawing.Point((px 20), (px 234))
+$pnlLog.Size = New-Object System.Drawing.Size(($form.ClientSize.Width - (px 40)), ($form.ClientSize.Height - (px 274)))
+$pnlLog.BackColor = $Palette.Card
+$pnlLog.Anchor = $aAll
 
 $lblLog = New-Object System.Windows.Forms.Label
-$lblLog.Text = '服务日志（proxy.js 的输出；完整的一份在 proxy.log 里）'
+$lblLog.Text = '服务日志'
+$lblLog.Font = $boldSmall
+$lblLog.ForeColor = $Palette.Ink
 $lblLog.AutoSize = $true
-$lblLog.Location = New-Object System.Drawing.Point((px 18), (px ($rowY + 94)))
+$lblLog.Location = New-Object System.Drawing.Point((px 16), (px 12))
+
+$lblLogPath = New-Object System.Windows.Forms.Label
+$lblLogPath.Text = 'proxy.js 输出 · 完整日志见 proxy.log'
+$lblLogPath.Font = $smallFont
+$lblLogPath.ForeColor = $Palette.Muted
+$lblLogPath.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblLogPath.Location = New-Object System.Drawing.Point(($pnlLog.Width - (px 376)), (px 12))
+$lblLogPath.Size = New-Object System.Drawing.Size((px 360), (px 20))
+$lblLogPath.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
 
 $log = New-Object System.Windows.Forms.TextBox
 $log.Multiline = $true
 $log.ReadOnly = $true
 $log.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-# 换行而不是横向滚动：截图上「.env 里的 PORT=65」「DATA_D」正好被右边缘裁掉，
-# 而这两句（端口来源、哪几项被同名环境变量盖掉）就是这一整块存在的理由。
-# 只读日志框里换行不会破坏任何对齐，横向滚动条反而要点住拖才看得到后半句。
+# 换行而不是横向滚动：端口来源、被环境变量盖掉的那几项本来就长，横滚动条要点住拖才看得到后半句。
 $log.WordWrap = $true
-$log.BackColor = [System.Drawing.Color]::White
+$log.BackColor = $Palette.LogBg
+$log.ForeColor = $Palette.SoftInk
+$log.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 $log.Font = $logFont
-$log.Location = New-Object System.Drawing.Point((px 18), (px ($rowY + 114)))
-# 高度按窗口客户区现算，不写死：写死过一回（372）比客户区还剩的空间高 12px，
-# 日志框下沿整块掉到窗口外面，而 Anchor 是「相对初值」的，于是永远差那一截
-$log.Size = New-Object System.Drawing.Size((px 744), ($form.ClientSize.Height - $log.Location.Y - (px 18)))
-$log.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Bottom
+$log.Location = New-Object System.Drawing.Point((px 16), (px 40))
+$log.Size = New-Object System.Drawing.Size(($pnlLog.Width - (px 32)), ($pnlLog.Height - (px 56)))
+$log.Anchor = $aAll
 $script:LogBox = $log
+foreach ($item in @($lblLog, $lblLogPath, $log)) { [void]$pnlLog.Controls.Add($item) }
 
-foreach ($ctl in @($lblDot, $lblState, $lblInfo, $btnStart, $btnStop, $btnRestart, $btnOpen, $btnQuit, $lblBusy, $chkAuto, $lblLog, $log)) {
+# ---------- 底栏 ----------
+$pnlFoot = New-Object System.Windows.Forms.Panel
+$pnlFoot.Location = New-Object System.Drawing.Point(0, ($form.ClientSize.Height - (px 30)))
+$pnlFoot.Size = New-Object System.Drawing.Size($form.ClientSize.Width, (px 30))
+$pnlFoot.BackColor = $Palette.Foot
+$pnlFoot.Anchor = $aBot
+
+$lblFoot = New-Object System.Windows.Forms.Label
+$lblFoot.Text = '本地服务 · 状态自动刷新 · 完整日志见 proxy.log'
+$lblFoot.Font = $smallFont
+$lblFoot.ForeColor = $Palette.Muted
+$lblFoot.AutoSize = $true
+$lblFoot.Location = New-Object System.Drawing.Point((px 20), (px 7))
+
+$lblFootRight = New-Object System.Windows.Forms.Label
+$lblFootRight.Text = '数据只留在这台机器'
+$lblFootRight.Font = $smallFont
+$lblFootRight.ForeColor = $Palette.Muted
+$lblFootRight.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblFootRight.Location = New-Object System.Drawing.Point(($form.ClientSize.Width - (px 240)), (px 7))
+$lblFootRight.Size = New-Object System.Drawing.Size((px 220), (px 18))
+$lblFootRight.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+foreach ($item in @($lblFoot, $lblFootRight)) { [void]$pnlFoot.Controls.Add($item) }
+
+foreach ($ctl in @($pnlStatus, $btnStart, $btnStop, $btnRestart, $btnOpen,
+                   $btnCopy, $btnLog, $btnDir, $btnQuit, $chkAuto, $pnlLog, $pnlFoot)) {
   [void]$form.Controls.Add($ctl)
 }
 
@@ -1061,6 +1198,7 @@ function Set-Buttons {
   $btnStop.Enabled = ($Running -or $Starting -or $Alive)
   $btnRestart.Enabled = (-not $Starting)
   $btnOpen.Enabled = $Running
+  $btnCopy.Enabled = $Running
 }
 
 function Drain-Log {
@@ -1134,40 +1272,48 @@ function Refresh-View {
 
 function Update-Status {
   param([bool]$Running, [bool]$Starting, [bool]$Alive)
-  $d = Get-DesiredPort
+  # 端口说明那一行已按需求去掉；这里只剩一个给忙线用的号，不必每 350ms 再读一遍 .env。
   $last = Read-StatePort
-  $shownPort = $d.Port
+  $shownPort = $DefaultPort
   if ($last -gt 0) { $shownPort = $last }
   if ($script:ActivePort -gt 0) { $shownPort = $script:ActivePort }
 
   if ($Starting) {
-    $lblDot.ForeColor = [System.Drawing.Color]::FromArgb(150, 96, 16)
+    $col = $Palette.Warn
+    $lblDot.ForeColor = $col
     $lblState.Text = '正在启动'
     $lblBusy.Text = "正在等服务监听上 $shownPort …（下面正在逐行出它的输出）"
+    $lblUrl.Text = '—'
+    $lblUptime.Text = '等监听起来就能打开页面'
   } elseif ($Running) {
-    $lblDot.ForeColor = [System.Drawing.Color]::FromArgb(30, 130, 76)
+    $col = $Palette.Ok
+    $lblDot.ForeColor = $col
     $lblState.Text = "运行中 :$script:ActivePort"
     $lblBusy.Text = ''
+    $lblUrl.Text = "http://localhost:$script:ActivePort/"
+    if (-not $script:UpSince) { $script:UpSince = Get-Date }
+    $span = (Get-Date) - $script:UpSince
+    $lblUptime.Text = ('已运行 {0:00}:{1:00}:{2:00}' -f [int]$span.TotalHours, $span.Minutes, $span.Seconds)
   } elseif ($Alive) {
     # 进程在、监听没有 —— 这一格必须是红的，画成「运行中」就是让人对着打不开的页面干等
-    $lblDot.ForeColor = [System.Drawing.Color]::FromArgb(196, 43, 43)
+    $col = $Palette.Err
+    $lblDot.ForeColor = $col
     $lblState.Text = '没起来'
     $lblBusy.Text = "进程还在，但 $script:ActivePort 上没有监听 —— 上面几行里那一句才是原因"
+    $lblUrl.Text = '—'
+    $lblUptime.Text = ''
   } else {
-    $lblDot.ForeColor = [System.Drawing.Color]::Gray
+    $col = $Palette.Idle
+    $lblDot.ForeColor = $col
     $lblState.Text = '已停止'
     $lblBusy.Text = ''
+    $lblUrl.Text = '—'
+    $lblUptime.Text = ''
+    $script:UpSince = $null
   }
+  $barState.BackColor = $col
+  $lblState.ForeColor = $col
 
-  # 「上次跑在 0」是句假话：状态文件不存在时那个 0 是函数返回值，不是曾经跑在一个叫 0 的号上。
-  # 没有记录就说没有记录，否则用户会以为端口号被写坏了。
-  # 反过来，**正在跑的时候也不能写「上次」**（截图上就是这句：运行中 :6500 · 上次跑在 6500）——
-  # 那时候状态文件里是本轮自己写进去的号，说「上次」等于凭空多出一次没人记得的历史。
-  $lastNote = if ($last -le 0) { '没有跑起来的记录' }
-  elseif ($Running -and $last -eq $shownPort) { '状态文件里就是这个号' }
-  elseif ($Running) { "状态文件里写着 $last（跟当前监听不是一个号）" }
-  else { "上次跑在 $last" }
-  $lblInfo.Text = "期望端口 $shownPort（$($d.Source)） · $lastNote · 关掉这个窗口会停掉服务"
 }
 
 # 「退出」与关窗是同一条路（两条路两套判据早晚会漂）
@@ -1214,8 +1360,7 @@ $btnRestart.Add_Click({
     Refresh-View
     return
   }
-  # 停还没落地就起，第二份会撞上 EADDRINUSE —— 而那个报错发生在服务那一侧，
-  # 要是这一版也把它丢了，日志里同样看不见，所以用「等端口空了再起」这条状态位而不是直接起
+  # 停还没落地就起，第二份会撞上 EADDRINUSE —— 用「等端口空了再起」这条状态位而不是直接起
   $script:WantStart = $true
   Stop-Proxy
   Refresh-View
@@ -1223,6 +1368,27 @@ $btnRestart.Add_Click({
 $btnOpen.Add_Click({
   if (Restart-IfStale) { return }
   Open-Page
+})
+
+# 三个辅助动作只碰「看」和「打开」，不碰起停状态机。
+$btnCopy.Add_Click({
+  if ($script:ActivePort -le 0) { Add-LogLine '服务还没起来，没有地址可复制。'; Refresh-View; return }
+  $u = "http://localhost:$($script:ActivePort)/"
+  try { [System.Windows.Forms.Clipboard]::SetText($u); Add-LogLine "已复制地址：$u" }
+  catch { Add-LogLine "复制失败：$($_.Exception.Message)" }
+  Refresh-View
+})
+$btnLog.Add_Click({
+  $f = Join-Path $Root 'proxy.log'
+  if (-not (Test-Path -LiteralPath $f)) { Add-LogLine 'proxy.log 还没生成，服务启动后才有。'; Refresh-View; return }
+  try { Start-Process -FilePath $f; Add-LogLine '已用系统默认程序打开 proxy.log。' }
+  catch { Add-LogLine "打不开日志：$($_.Exception.Message)" }
+  Refresh-View
+})
+$btnDir.Add_Click({
+  try { Start-Process explorer.exe $Root; Add-LogLine '已在资源管理器里打开项目目录。' }
+  catch { Add-LogLine "打不开目录：$($_.Exception.Message)" }
+  Refresh-View
 })
 
 # 关掉这个窗口 = 停掉端口上的服务。这是点名要的语义，所以：
