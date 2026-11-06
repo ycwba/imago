@@ -20,6 +20,7 @@
    ========================================================================== */
 
 :root {
+  color-scheme: light;
   /* ---------- ① 主题色：深浅两档**必须成对覆盖** ----------
      这一段只有**别名**（--bg: var(--bg-base)）：语义名不变，取值指到 ①a 的同名基色。
      浅色那一份真值只在 ①a 写一次；深色那一份在文件末尾**由基色现算**（oklch 只换亮度），
@@ -37,12 +38,19 @@
        oklch(from var(--x-base) <L> c h)
      只换亮度，色相与彩度跟着基色走 —— 换一套配色，深浅两档一起换。
      ⚠ 相对色语法要 Chrome / Edge 119+（本项目本来就要 118+ 的 @scope）。 */
-  --bg-base:#f2f3f9; --panel-base:#ffffff; --panel2-base:#f3f4f9; --line-base:#e4e6f0;
-  --txt-base:#23262f; --sub-base:#8a8fa3; --acc-base:#6957e8; --acc2-base:#8b5cf6;
-  --ok-base:#16a34a; --warn-base:#d97706; --err-base:#dc2626; --pri-base:#7c5cff; --input-base:#f6f7fb;
-  --thumbbg-base:#e2e5ee;
-  --atbg-base: rgba(35, 38, 47, .13);
-  --scroll-base:#c4c9dc;
+  --bg-base:#f3f6fb; --panel-base:#ffffff; --panel2-base:#e9eff7; --line-base:#d7e0eb;
+  --txt-base:#182333; --sub-base:#465568; --acc-base:#5b48a8; --acc2-base:#5b48a8;
+  --ok-base:#167449; --warn-base:#955a06; --err-base:#b8383b; --pri-base:#5b48a8; --input-base:#e9f0f9;
+  /* 红与橙比「好看的那一档」更深一档：这两枚不只当底色，还直接当**文字墨**用
+     （「删除 / 卸载」这类危险按钮、状态牌、警告条），而它们落的那几块浅底本身就不是白的 ——
+     `--panel2` / `--input` 是 (233,239,247) 那一档。旧值当墨压上去是红 4.39 / 橙 4.26，读不出正文。
+     压深之后同一格是红 4.95 / 橙 4.85，浅档的「掏白墨压实底」也跟着从 5.08 / 4.92 抬到 5.73 / 5.61。
+     深色档不受这一档影响：那里写的是 `oklch(from var(--x-base) <固定L> c h)`，
+     换的又基本只是亮度，彩度与色相几乎原地 —— 实测深色那一枚红仍是 5.75:1（离 panel）。
+     绿（`--ok-base`）没跟着压：它当墨在最暗的那块浅底上已有 5.00:1。 */
+  --thumbbg-base:#dfe7f2;
+  --atbg-base: rgba(34, 42, 54, .12);
+  --scroll-base:#8493a6;
 
   /* ---------- ①b 两档一致的固定色：跟主题无关 ----------
      反白字、媒体黑底、图表调色板 —— 它们在深浅两档里都该是同一个值。 */
@@ -58,10 +66,25 @@
   --acc-tint-10:color-mix(in srgb, var(--acc) 10%, transparent);
   --acc-tint-18:color-mix(in srgb, var(--acc) 18%, transparent);
   --acc-line-32:color-mix(in srgb, var(--acc) 32%, transparent);
-  /* 语义色淡底：状态牌那一族（成功 / 失败 / 警告）与警告条 */
-  --ok-tint:color-mix(in srgb, var(--ok) 10%, transparent);
-  --err-tint:color-mix(in srgb, var(--err) 10%, transparent);
-  --warn-tint:color-mix(in srgb, var(--warn) 10%, transparent);
+  /* 选中态那一格底色：唯一一份「被选中」的写法（浅 18% / 深 14%）。
+     深浅两档的透明度不一样不是疏忽：深色档的底本身是深灰，强调色是亮色，
+     同一档 18% 抬起来会把格子推到强调色文字的近邻亮度 —— 量出来 berry 深色只有 4.18:1，读不出字。
+     压到 14% 之后同一组合 4.53:1 起，抬升仍有 1.33（选中照样看得出来）。 */
+  --sel-bg:color-mix(in srgb, var(--acc) var(--a-18), transparent);
+  /* 语义色淡底：状态牌那一族（成功 / 失败 / 警告）与警告条。
+     ⚠ 底要压在**不透明的面板**上，不是 transparent：状态牌（`.plate--*`）铺满整格，
+     背后是缩略图槽（`--thumbbg`）甚至还没落定的画面 —— 透明淡底等于把「墨 × 底」这一对
+     交给那张照片决定。实测深色档「生成失败」压在透明淡红 + 缩略图槽上只剩 4.05:1，
+     同一枚墨压在 `--panel` 上是 4.91:1；浅档那一格更糟（红墨 3.85、橙墨 3.76）。
+     换成压面板之后，同一形状在深浅两档、在任何格子背后都是同一个可算的颜色。
+     透明度也只从 `--a-*` 阶梯取（原来那三枚是裸 10% / 12%）。 */
+  --ok-tint:color-mix(in srgb, var(--ok) var(--a-10), var(--panel));
+  --err-tint:color-mix(in srgb, var(--err) var(--a-10), var(--panel));
+  --warn-tint:color-mix(in srgb, var(--warn) var(--a-12), var(--panel));
+  --control-bg:color-mix(in srgb, var(--txt) var(--a-4), var(--panel));
+  --control-hover:color-mix(in srgb, var(--txt) var(--a-8), var(--control-bg));
+  --control-pressed:color-mix(in srgb, var(--txt) var(--a-14), var(--control-bg));
+  --focus-shadow:0 0 0 var(--hair-3) var(--acc-tint-18);
 
   /* ---------- ③ 固定中性色：深浅两档一致 ----------
      只给**深底浮层**用（灯箱、缩略图上的播放钮遮罩）：那里的字与遮罩
@@ -102,6 +125,7 @@
   --sz-ctl-lg:36px;       /* 大控件高（设置行大按钮 / 侧栏导航行 / 大图标格） */
   --sz-chip:24px;         /* 胶囊/标签行高（.ui-tag / .ui-pill / .phead-chip / 分段按钮） */
   --sz-head:56px;         /* 页头横带高（.phead 定高：槽里装 25px 的标题还是 32px 的按钮都不改它） */
+  --sz-pname:320px;       /* 导演台页头那颗「当前短片名」按钮的宽度上限（名字再长也截断，全文在 title 里） */
   --sz-tile:132px;        /* 素材磁贴宽 */
   --sz-thumb-h:96px;      /* 缩略图高（与 --sz-tile 配对） */
   --sz-card:268px;        /* 卡片网格列宽 */
@@ -147,10 +171,10 @@
   /* ---------- 阴影（终表 5 档，按角色）----------
      抬升 / 浮层 / 重浮层 / 模态 / 深底小浮起。
      每一档的字面量就是它的角色，别再按「第几号」记。 */
-  --shadow-1:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);   /* 抬升：卡 / 勾选框 */
-  --shadow-2:0 8px 24px rgba(16,24,40,.12);                                 /* 浮层：卡 hover / 下拉 */
-  --shadow-3:0 12px 32px rgba(0,0,0,.25);                                   /* 重浮层：菜单 / 日期层 */
-  --shadow-4:0 20px 50px rgba(0, 0, 0, .3);                                 /* 模态：弹窗 / 灯箱 */
+  --shadow-1:0 1px 2px rgba(24,34,52,.04), 0 2px 4px rgba(24,34,52,.03);
+  --shadow-2:0 2px 6px rgba(24,34,52,.04), 0 8px 24px rgba(24,34,52,.07);
+  --shadow-3:0 4px 12px rgba(24,34,52,.06), 0 16px 40px rgba(24,34,52,.10);
+  --shadow-4:0 8px 24px rgba(24,34,52,.08), 0 24px 64px rgba(24,34,52,.16);
   --shadow-5:0 2px 10px rgba(0, 0, 0, .35);                                 /* 深底小浮起：媒体上的播放钮 */
 
   /* ---------- 动效（终表 5 档）----------
@@ -161,7 +185,7 @@
   --ease:cubic-bezier(.2,.8,.2,1);
 
   /* ---------- 字体 ---------- */
-  --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-ui:"Segoe UI Variable Text", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   /* 等宽：给「计数 / 编号 / 读数」用 —— 那一列要能上下对齐着看才像一列。
      系统字体里就有等宽，不用外链字体（CSP 是 font-src 'self' data:）。 */
   --font-mono:ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
@@ -177,26 +201,33 @@
    `oklch(from var(--x-base) <L> c h)` 只换亮度（L），色相与彩度沿用基色 ——
    换一套配色，深色档自动跟着换；深浅两档的色相关系不会漂开。
    尺寸档位（间距/字号/圆角）深浅两档刻意一致：那是同一套排版节奏，不该跟着主题变。
-   这里只许出现 ① 语义名 / ③b 标记名 / --shadow-*；写 *-base 就是在深色档里重设基色，
+   这里只许出现 ① 语义名 / ③b 标记名 / --shadow-*，外加两枚按透明度铺的 ② 派生底
+   （--atbg 文字底纹、--sel-bg 选中底纹：它们的深浅两档透明度本来就该不同，判据 G19 认这两枚）；
+   写 *-base 就是在深色档里重设基色，
    会把浅色那份真值盖掉（判据 G19）。 */
 html[data-theme="dark"] {
-  --bg: oklch(from var(--bg-base) 0.160 c h);
-  --panel: oklch(from var(--panel-base) 0.207 c h);
-  --panel2: oklch(from var(--panel2-base) 0.234 c h);
-  --line: oklch(from var(--line-base) 0.293 c h);
-  --txt: oklch(from var(--txt-base) 0.955 c h);
-  --sub: oklch(from var(--sub-base) 0.677 c h);
-  --acc: oklch(from var(--acc-base) 0.660 c h);
-  --acc2: oklch(from var(--acc2-base) 0.660 c h);
+  color-scheme: dark;
+  --bg: oklch(from var(--bg-base) 0.190 c h);
+  --panel: oklch(from var(--panel-base) 0.280 c h);
+  --panel2: oklch(from var(--panel2-base) 0.340 c h);
+  --line: oklch(from var(--line-base) 0.360 c h);
+  --txt: oklch(from var(--txt-base) 0.960 c h);
+  --sub: oklch(from var(--sub-base) 0.800 c h);
+  --acc: oklch(from var(--acc-base) 0.860 c h);
+  --acc2: oklch(from var(--acc2-base) 0.860 c h);
   --ok: oklch(from var(--ok-base) 0.800 c h);
   --warn: oklch(from var(--warn-base) 0.837 c h);
   --err: oklch(from var(--err-base) 0.735 c h);
-  --pri: oklch(from var(--pri-base) 0.580 c h);
-  --input: oklch(from var(--input-base) 0.182 c h);
-  --thumbbg: oklch(from var(--thumbbg-base) 0.379 c h);
+  --pri: oklch(from var(--pri-base) 0.530 c h);
+  /* 输入面在浅色档是**收进**面板的那一格（#e9f0f9 压在白面板上），深色档同一条关系
+     只能落在面板之下近旁：0.405 比 0.280 的面板亮出一大截，那一格既不像「收进去」，
+     又把落在它上面的强调色文字压到 3.7:1（选中那一格读不出字）。 */
+  --input: oklch(from var(--input-base) 0.340 c h);
+  --thumbbg: oklch(from var(--thumbbg-base) 0.370 c h);
   /* 文字底纹：深色档就是「深底上的浅字」按透明度铺一层 */
   --atbg: color-mix(in srgb, var(--txt) var(--a-14), transparent);
-  --scroll: oklch(from var(--scroll-base) 0.314 c h);
+  --sel-bg: color-mix(in srgb, var(--acc) var(--a-14), transparent);
+  --scroll: oklch(from var(--scroll-base) 0.580 c h);
   /* ③b 标记色：同一条推导（亮度换到深底上读得出来的那一档） */
   --mark-cut: oklch(from var(--mark-cut-base) 0.847 c h);
   --mark-ready: oklch(from var(--mark-ready-base) 0.800 c h);
@@ -210,10 +241,10 @@ html[data-theme="dark"] {
    换配色只覆盖三枚基色，
    深色档由上面的推导自动跟上（不需要在块里再写一遍深色）。
    ⚠ 选择器必须**单挂** data-palette：和 data-theme 叠在一起写，换配色就只在一档里生效。 */
-html[data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
-html[data-palette="teal"] { --acc-base:#0f766e; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
-html[data-palette="berry"] { --acc-base:#be185d; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
-html[data-palette="amber"] { --acc-base:#b45309; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="ocean"] { --acc-base:#2f52ab; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="teal"] { --acc-base:#0d655e; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="berry"] { --acc-base:#a91252; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
+html[data-palette="amber"] { --acc-base:#92400e; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }
 
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-120:0ms; --dur-180:0ms; --dur-280:0ms; --dur-800:0ms; --dur-1200:0ms; }

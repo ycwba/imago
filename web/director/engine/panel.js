@@ -1613,10 +1613,10 @@ function renderEditor() {
   hideAtPeek();                                   // 悬停小卡同理
   const sh = curShot();
   if (!sh) {
-    Wb.viewport.keep(col, () => { col.innerHTML = ''; });
     /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起（拆一份新的），
-       问答 / 过程面板的宿主由 renderSplitPanel 自己补一块（splitUI 在跑才有），重画后也在这里拼回来。 */
-    renderSplitPanel();
+       问答 / 过程面板的宿主由 renderSplitPanel 自己补一块（splitUI 在跑才有），重画后也在这里拼回来。
+       补宿主那一行和 innerHTML 同一次重画，所以一起圈在 keep 里。 */
+    Wb.viewport.keep(col, () => { col.innerHTML = ''; renderSplitPanel(); });
     return;                                         // 没有镜头先退出，别去解析模型
   }
   /* 接续镜头先确保型号能收首帧：能力槽位、素材判据与报价都读 `resolvedModel`，
@@ -1891,7 +1891,34 @@ function renderEditor() {
       <span class="est" id="estTxt">估价中…</span>
       <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
     </div>`;
-  Wb.viewport.keep(col, () => { col.innerHTML = edHtml; });
+  /* keep 要罩住**所有改这一块高度的画法**，不只是 innerHTML：模板里那三排声明驱动的容器
+     与关键帧高级设置那一块都是空壳（hidden），拼串时还没有内容；公共件还完视口之后才补画的话，
+     补画之前内容比进来时矮一截，靠底部的那一档读数被浏览器夹到新上限 —— 夹掉的那一截
+     事后补不回来（scrollTop 已经不在那儿了），用户看见「点一下高级设置里的开关，视角跳到顶上」。 */
+  Wb.viewport.keep(col, () => {
+    col.innerHTML = edHtml;
+    /* 三排声明驱动的额外参数（型号布尔 / 顶层开关 / 顶层非布尔字段）：整块编辑器每次重绘都重建 DOM，
+       所以不需要工作台那套指纹守卫，但**画法与判据与工作台是同一份**（AdvExtras）。 */
+    paintShotAdv(sh, edModelChanged);
+    edModelChanged = false;
+    /* 摘要里那句「顶层参数」必须在三排**画完之后**再读：模板串拼的时候 #edAdvBody 还是上一镜的那一份，
+       在拼串时读 DOM 等于把 A 镜的开关状态写成 B 镜的摘要。 */
+    const advSumEl = $('advSum');
+    if (advSumEl) advSumEl.textContent = advSumText(sh);
+    paintKfAdv(sh, kfModelChanged);
+    kfModelChanged = false;
+    const kfSumEl = $('kfAdvSum');
+    if (kfSumEl) kfSumEl.textContent = kfAdvSumText(sh);
+    /* 润色面板与拆分镜问答面板也在这一次重画里拼回来（两边都没在跑时它们把宿主清空）：
+       宿主是 `.ed-body` 的直接子块，留着公共件还完视口之后再画，就等于还位时内容比还完之后矮一整个面板。
+       先后次序照旧：润色面板先画（它一看自己没有状态就 clear 宿主），拆分镜面板再按 splitUI 抢回宿主。 */
+    renderPolishPanel(sh);
+    renderSplitPanel();
+    /* 高参那一排下拉交给公共件包装（与图片工作台同一套外观）。包装本身把 28px 的原生 select
+       换成 32px 的 `.dd-btn`，是**改高度**的画法，所以必须一起圈在 keep 里：
+       放在重画之后，公共件还视口时内容比还完之后的矮一截，靠底部的读数照样被夹掉。 */
+    if (window.Dropdowns) { Dropdowns.build(col); Dropdowns.sync(col); }
+  });
   /* 面板里的素材缩略图（首帧 / 尾帧 / 关键帧 / 参考图）也接公共缓存：图片按原图渐进显示，
      加载完顺手缩一份进缓存，之后任何页面渲染同一份素材都直接命中（见 workbench.js 的 Wb.thumbs） */
   Wb.thumbs.bindAll(col);
@@ -1901,18 +1928,6 @@ function renderEditor() {
   refreshShotPreview(sh);
   /* 「输入模式」那一排芯片接线（整块编辑器每次重绘都重建这一段，所以每次绑一次，不会越攒越多）。 */
   bindModeChips(sh);
-  /* 三排声明驱动的额外参数（型号布尔 / 顶层开关 / 顶层非布尔字段）在这里现画：
-     整块编辑器每次重绘都重建 DOM，所以不需要工作台那套指纹守卫，但**画法与判据是同一份**（AdvExtras）。 */
-  paintShotAdv(sh, edModelChanged);
-  edModelChanged = false;
-  /* 摘要里那句「顶层参数」必须在三排**画完之后**再读：模板串拼的时候 #edAdvBody 还是上一镜的那一份，
-     在拼串时读 DOM 等于把 A 镜的开关状态写成 B 镜的摘要。 */
-  const advSumEl = $('advSum');
-  if (advSumEl) advSumEl.textContent = advSumText(sh);
-  paintKfAdv(sh, kfModelChanged);
-  kfModelChanged = false;
-  const kfSumEl = $('kfAdvSum');
-  if (kfSumEl) kfSumEl.textContent = kfAdvSumText(sh);
   /* 右栏原来这里有一个「从资产库导入」按钮（把素材一次性塞进参考图 / 参考视频），已按要求去掉：
      素材入口在上面的参考图 / 首帧 / 尾帧 / 参考视频 / 参考音频各槽位上（点开就是同一个选择器），
      不再有一个「全塞进去」的第二入口。 */
@@ -2062,11 +2077,6 @@ function renderEditor() {
   };
   if (durNumEl) durNumEl.onchange = () => { durNumEl.value = sh.duration; renderMid(); };
   $('polishBtn').onclick = polishPrompt;
-  renderPolishPanel(sh);        // 润色面板（若这一镜有未处理的润色结果，重渲染后重新画出来）
-  /* 拆分镜 / 改分镜的问答与过程面板（splitUI 在 apply 域）：它在跑时宿主归它 ——
-     上面那颗润色面板一看 polishUI 为空就把宿主 clear 掉了，这里紧跟着按 splitUI 拼回来；
-     两边都没在跑时它什么都不画，宿主保持清空。 */
-  renderSplitPanel();
   /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。
      跑着的时候它整颗是禁的（busyOn 画进 disabled），所以这里不必再判一次 kfRun。 */
   $('kfGenBtn').onclick = () => { setKfSplitOpen(!kfSplitOpenOf()); renderEditor(); };
@@ -2263,8 +2273,6 @@ function renderEditor() {
     if (k === 'first' || k === 'last' || k === 'ref') slot.onclick = () => openPickDlg(sh, k);
     else slot.onclick = () => pickRefMedia(sh, k);
   });
-  // 高参设置里的下拉：交给 web/ui/ui.js 的自定义组件渲染（与图片工作台同一套外观）
-  if (window.Dropdowns) { Dropdowns.build(col); Dropdowns.sync(col); }
 }
 
 /* 一家能力落定就补画一次右栏（300ms 去抖，把同时落定的几家合成一遍）：

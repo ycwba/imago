@@ -92,14 +92,13 @@
 .settings-page .krow > .kicon + .kn { flex: 0 0 136px; }
 /* 行与行之间一条发丝线：一栏读下来是一排等距的行，不是一堆散件。 */
 .settings-page .kcols > .krow.thin { border-radius: 0; border-bottom-color: var(--line); }
-.settings-page .krow input { flex: 1 1 320px; min-width: 0; max-width: 560px; padding: var(--sp-8) var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-13); font-family: var(--font-ui); }
-.settings-page .krow input:focus { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
+.settings-page .krow input { flex: 1 1 320px; min-width: 0; max-width: 560px; }
 .settings-page .krow input.mono, .settings-page .dir-name { font-family: var(--font-mono); }
 /* .krow input 那条规则会把「输入框」撑成 240px 宽；复选框与单选框（侧栏余额勾选、
    供应商卡里的「作用文字 AI」）也写在 .krow 里，会被同一条撑成一条 240px 的横杠 ——
    表现是单选框孤零零杵在行中间，文字被甩到另一头。两种一起压回原形。 */
 .settings-page .krow input[type=checkbox], .settings-page .krow input[type=radio] {
-  flex: 0 0 auto; min-width: 0; width: 14px; height: 14px; padding: 0; margin: 0; accent-color: var(--acc); }
+  flex: 0 0 auto; min-width: 0; width: var(--sp-16); height: var(--sp-16); padding: 0; margin: 0; }
 .settings-page .krow .eye { flex: 0 0 auto; padding: var(--sp-8) var(--sp-8); line-height: 1; }
 .settings-page .krow .clr { flex: 0 0 auto; padding: var(--sp-8) var(--sp-8); line-height: 1; }
 /* 小按钮一档：用公共的 .ghost.mini，这一页不再有第三档（原 .ghost.xs / .ghost.wide 已收进按钮族）。 */
@@ -129,14 +128,14 @@
   border: var(--hair) solid var(--line); background: var(--panel); color: var(--txt);
   font-size: var(--fs-12); }
 .settings-page .fchip:hover { border-color: var(--acc); color: var(--acc); }
-.settings-page .fchip.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); font-weight: 600; }
+.settings-page .fchip.on { background: var(--sel-bg); border-color: var(--acc-line-32); color: var(--acc); font-weight: 600; }
 .settings-page .fchip .n { margin-left: var(--sp-4); color: var(--sub); font-family: var(--font-mono); font-size: var(--fs-11); }
 .settings-page .fchip.on .n { color: var(--acc); }
 .settings-page .fsum { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; min-height: 0;
   margin-top: var(--sp-8); padding: var(--sp-8) var(--sp-12); border-radius: var(--radius-10);
-  border: var(--hair) solid var(--acc-line-32); background: var(--acc-tint-10); font-size: var(--fs-13); }
+  border: var(--hair) solid var(--line); background: var(--panel2); font-size: var(--fs-13); }
 .settings-page .fsum:empty { display: none; }
-.settings-page .fsum b { color: var(--acc); }
+.settings-page .fsum b { color: var(--txt); }
 .settings-page .fsum .sp { flex: 1 1 auto; }
 .settings-page .fsum.err { border-color: var(--err); background: var(--err-tint); }
 .settings-page .fsum.err b { color: var(--err); }
@@ -147,7 +146,7 @@
   gap: var(--sp-12); align-items: start; }
 /* 卡片骨架（账号卡 / 添加卡共用这一副）：卡高固定，中段滚。 */
 .settings-page .fcard { display: flex; flex-direction: column; gap: var(--sp-8);
-  padding: var(--sp-16); border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel); }
+  padding: var(--sp-16); border: var(--hair) solid transparent; border-radius: var(--radius-10); background: var(--panel2); }
 .settings-page .fcard:hover { border-color: var(--acc-line-32); }
 .settings-page .acct { height: var(--sz-acct); box-sizing: border-box; }
 .settings-page .acct-off { opacity: .62; }
@@ -157,7 +156,7 @@
 .settings-page .add-tile:hover { border-style: solid; }
 .settings-page .fcard-h { display: flex; align-items: flex-start; gap: var(--sp-8); }
 .settings-page .fcard-ic { flex: 0 0 auto; width: var(--sp-24); height: var(--sp-24); border-radius: var(--radius-6);
-  background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-12);
+  background: var(--panel); color: var(--sub); font-family: var(--font-mono); font-size: var(--fs-12);
   display: flex; align-items: center; justify-content: center; }
 .settings-page .fcard-tt { flex: 1 1 auto; min-width: 0; }
 .settings-page .fcard-t { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
@@ -183,7 +182,7 @@
 .settings-page .keytoggle { height: var(--sz-chip); padding: 0 var(--sp-8); border-radius: var(--radius-6);
   border: var(--hair) solid var(--line); background: var(--panel2); color: var(--sub); font-size: var(--fs-11); }
 .settings-page .keytoggle:hover { border-color: var(--acc); color: var(--acc); }
-.settings-page .keytoggle.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
+.settings-page .keytoggle.on { background: var(--sel-bg); border-color: var(--acc-line-32); color: var(--acc); }
 /* 卡里的键值行：这一张卡只有 330px 宽，标签列与输入框都窄一档。 */
 .settings-page .acct .krow { gap: var(--sp-8); margin: 0; padding: var(--sp-8) 0; }
 /* 标签贴着自己的文字走：「走哪条路 / 本机运行包 / 浏览器内模型」这些 4–6 字的标签
@@ -211,12 +210,12 @@
 .settings-page .balnow.err { border-color: var(--err); }
 .settings-page .balnow.err b { color: var(--err); }
 
-/* 状态牌：实心 = 主位、淡底 = 在用、白底 = 备用、虚线压暗 = 停用。 */
+/* 状态牌：强调描边 = 主位、淡底 = 在用、白底 = 备用、虚线压暗 = 停用。 */
 .settings-page .st { display: inline-flex; align-items: center; gap: var(--sp-4); height: var(--sz-chip);
   padding: 0 var(--sp-8); border-radius: var(--radius-6); border: var(--hair) solid var(--line);
   background: var(--panel2); color: var(--sub); font-size: var(--fs-11); line-height: 1; white-space: nowrap; }
-.settings-page .st.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); }
-.settings-page .st.pri { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600; }
+.settings-page .st.on { background: var(--sel-bg); border-color: var(--acc-line-32); color: var(--acc); }
+.settings-page .st.pri { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .settings-page .st.alt { background: var(--panel); border-color: var(--line); color: var(--txt); }
 .settings-page .st.off { background: var(--panel2); border-color: var(--line); border-style: dashed; color: var(--sub); }
 .settings-page .st.ok { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
@@ -234,8 +233,8 @@
 .settings-page button.capcell { cursor: pointer; }
 .settings-page button.capcell:hover { border-color: var(--acc); }
 .settings-page .capcell.alt { background: var(--panel); color: var(--txt); }
-.settings-page .capcell.on { background: var(--acc-tint-18); border-color: var(--acc-line-32); color: var(--acc); font-weight: 600; }
-.settings-page .capcell.pri { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600; }
+.settings-page .capcell.on { background: var(--sel-bg); border-color: var(--acc-line-32); color: var(--acc); font-weight: 600; }
+.settings-page .capcell.pri { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .settings-page .capcell.off { border-style: dashed; color: var(--sub); }
 .settings-page .capcell.none { border-style: dashed; color: var(--sub); }
 .settings-page .capcell.hit { border-color: var(--acc); box-shadow: 0 0 0 2px var(--acc-line-32); }
@@ -318,7 +317,7 @@
 /* 能力档位那一排图标：与卡顶那排能力格同一副（.capcell），可多选；主档实心、其余淡底。
    300px 的卡里放六个 30px 的格子正好两行，所以允许换行。 */
 .settings-page .cappick { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
-.settings-page .cappick .capcell.main { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600; }
+.settings-page .cappick .capcell.main { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .settings-page .cappick .hint { flex: 1 1 100%; margin-top: var(--sp-4); font-size: var(--fs-11); line-height: 1.6; }
 
 /* 添加卡里的「还接着的那几家」：一行一家，点「添加」只把它请进界面，什么都不写。 */
@@ -425,15 +424,16 @@
      现在一个宽度只从令牌来，轨填满自己那一列。 */
   width: 100%; min-width: 0; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
-  padding: var(--sp-4) var(--sp-4) 0;
+  padding: var(--sp-8) var(--sp-4) 0; border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); background: var(--panel); box-shadow: var(--shadow-1);
 }
 .settings-page .set-rail-h { flex: 0 0 auto; padding: 0 var(--sp-12) var(--sp-8);
   font-size: var(--fs-12); font-weight: 600; color: var(--sub); letter-spacing: .08em; }
 .settings-page .set-rail-top { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); }
 .settings-page .set-rail-top input[type=search] { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl);
-  padding: 0 var(--sp-12); background: var(--panel2); border: var(--hair) solid var(--line);
+  padding: 0 var(--sp-12); background: var(--input); border: var(--hair) solid transparent;
   border-radius: var(--radius-6); color: var(--txt); font-size: var(--fs-13); }
-.settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); background: var(--panel); box-shadow: 0 0 0 var(--hair-2) var(--acc-tint-10); }
+.settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); box-shadow: var(--focus-shadow); }
 .settings-page .set-rail-top .ghost { flex: 0 0 auto; }
 /* 筛选时的那句解释（命中几行、按回车跳到第一处）—— 只在筛选期间占位，平时不留空带。 */
 .settings-page .set-rail-note { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); line-height: 1.6;
@@ -466,9 +466,7 @@
 .settings-page .set-rail-ic { display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: var(--sp-16); height: var(--sp-16); color: var(--sub); }
 .settings-page .set-rail-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
-/* 悬停：轨底是 --bg，这里必须用 --panel 才看得出变化（--panel2 与 --bg 在浅色下几乎同色，
-   以前那条 hover 等于没画）。图标与值速记跟着亮一档，扫轨时知道鼠标停在哪一行。 */
-.settings-page .set-rail-i:hover { background: var(--panel); }
+.settings-page .set-rail-i:hover { background: var(--panel2); }
 .settings-page .set-rail-i:hover .set-rail-ic { color: var(--acc); }
 .settings-page .set-rail-i:hover .set-rail-v { color: var(--txt); }
 .settings-page .set-rail-i.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
@@ -513,7 +511,7 @@
 .settings-page .set-hit { background: var(--acc-tint-10); border-radius: var(--radius-4); }
 .settings-page .set-flash { animation: set-flash var(--dur-180) ease-out 3 alternate; }
 @keyframes set-flash {
-  from { background: var(--acc-tint-18); outline: var(--hair) solid var(--acc); }
+  from { background: var(--sel-bg); outline: var(--hair) solid var(--acc); }
   to { background: var(--acc-tint-10); outline: var(--hair) solid transparent; }
 }
 /* 卡标题上那枚「N 处命中」（读数时 settings.js 会先把它摘掉，不会混进标题） */
@@ -637,7 +635,7 @@
 .settings-page .sk-vnote code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--acc); }
 .settings-page .sk-warn { display: flex; gap: var(--sp-8); align-items: flex-start; margin-top: var(--sp-8);
   font-size: var(--fs-12); line-height: 1.6; color: var(--warn);
-  background: color-mix(in srgb, var(--warn) var(--a-10), transparent);
+  background: var(--warn-tint);
   border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-35), transparent);
   border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); }
 .settings-page .sk-warn code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }

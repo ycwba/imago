@@ -918,7 +918,17 @@ function renderVoiceCol(col, sh) {
       <div class="hint">在台词里点「生成语音」，或到「配音」自己写一句</div>`}
       </div>
     </div>`;
-  Wb.viewport.keep(col, () => { col.innerHTML = voiceHtml; });
+  /* keep 要罩住**所有改这一块高度的画法**，不只是 innerHTML：三档的显隐由 paintVcCard 一处翻
+     hidden（拼串时三档全露着），公共件的下拉包装又把原生 select 换成 32px 的 `.dd-btn`。
+     这两步留到还视口之后再画，还位时内容与最终那一屏差一截，靠底部的读数会被浏览器夹掉。 */
+  Wb.viewport.keep(col, () => {
+    col.innerHTML = voiceHtml;
+    /* 卡片建好之后立刻跟着现算一次：中栏那一排在**这一栏之前**就画完了，那时这张卡还不存在
+       （那里全部是 getElementById 的守卫，所以它什么都不写也不报错）。
+       不补这一句就是「滑块画在 100%，而芯片指着的那一段其实调到了 30%」。 */
+    paintVcCard();
+    if (window.Dropdowns) Dropdowns.build(col);
+  });
   /* 卡片那几枚滑块：`input` 只改读数，松手（`change`）才写数据 + 落盘 —— 逐像素写盘会把 filmEdited
      那一串重渲染打成一片，而正在拖的那只手底下的节点会被换掉。目标只从 `Edit.focusOf` 现读（卡片不留
      第二份「我在改哪一段」），写入全部走 Edit.patch 那一对出口。 */
@@ -992,10 +1002,6 @@ function renderVoiceCol(col, sh) {
     el.addEventListener('change', applyTrimCard);
     el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyTrimCard(); } });
   });
-  /* 卡片建好之后立刻跟着现算一次：中栏那一排在**这一栏之前**就画完了，那时这张卡还不存在
-     （那里全部是 getElementById 的守卫，所以它什么都不写也不报错）。
-     不补这一句就是「滑块画在 100%，而芯片指着的那一段其实调到了 30%」。 */
-  paintVcCard();
   const sync = el => { if (window.Dropdowns) Dropdowns.sync(el); };
   const vm = col.querySelector('#voiceModel');
   if (vm) vm.onchange = () => {
@@ -1221,7 +1227,6 @@ function renderVoiceCol(col, sh) {
   if (window.RawRequest) RawRequest.bind(col);
   /* 声音栏画完算一次「这一句将要发出什么」：用户还没点合成就能看到实际会发什么。 */
   refreshVoicePreview(sh);
-  if (window.Dropdowns) Dropdowns.build(col);
 }
 /* 复刻用的参考音频 → base64 data URL（接口收的就是它，不是地址）。
    取字节只有一条通道：`AssetTransfer.blobOf` 认得本机资产 / 本机文件 / 平台资产 / 外链，

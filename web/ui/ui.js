@@ -284,6 +284,15 @@
       scope.querySelectorAll('select').forEach(sel => { if (sel._ddBuilt) sel._ddRebuild(); });
       if (openDd) place(openDd);
     },
+    /* 程序化展开某一格：调用点已经替用户点过旁边那颗按钮（「就地摊开」那一类），
+       不必让他再点一次下拉本身。参数可以是 select，也可以是装着它的容器。 */
+    open(root) {
+      const sel = root && root.matches && root.matches('select')
+        ? root
+        : (root && root.querySelector ? root.querySelector('select') : null);
+      const dd = sel && sel.closest ? sel.closest('.dd') : null;
+      if (dd && dd.isConnected) openDd_(dd);
+    },
     /* 没有对外的 `sweep()`：回收浮层是 `build` 自己开头做的一件事（见 `sweepPortals`）。
        以前它是一个导出的方法而**全站零调用** —— 于是「重画一块区域就攒一串孤立 .dd-list」
        这件事从来没被解决过，只是没人看见。接在唯一那个自然的时机上，比留一颗等人记得按的按钮可靠。 */
@@ -1572,6 +1581,8 @@ const LEGACY_KEYS = [
      同时没了。去工作台只剩工作台自己那两条「送过去」（`pages/studio/cross-col.js`），同一页换栏
      不需要往本机递载荷。 */
   'sk_reuse',
+  /* 中栏顺序条拖高撤掉后的旧高度。 */
+  'dir_strip',
   /* 素材库的「本页默认」作废（默认型号与张数归设置页 `Chars.SET`）：`char_opts` 存的是「上次在这页
      挑过什么」，而「按上次那个跑」不是这一页该有的行为。chars.js 开页时那一句 `LS.del` 一起删 ——
      它每开一次页发一次不带 `nobak` 的 `DELETE /data/char_opts`，还挡不住下次 boot 从镜像恢复回来。 */

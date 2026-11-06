@@ -66,13 +66,8 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
 /* 生成按钮 + 它下面那两行说明。
    #goWhy 默认不显示，由 workbench.js 的 Wb.ready 在用户动过手之后才显出来。 */
 .wb button.go {
-  margin-top: var(--sp-12); width: 100%; padding: var(--sp-12); border: 0; border-radius: var(--radius-6);
-  background: var(--pri); color: var(--on-acc); font-size: var(--fs-14); font-weight: 600;
-  cursor: pointer; transition: filter var(--dur-180), transform var(--dur-120);
+  margin-top: var(--sp-12); width: 100%; height: auto; padding: var(--sp-12); font-size: var(--fs-14);
 }
-.wb button.go:hover:not(:disabled) { filter: brightness(1.12); }
-.wb button.go:active:not(:disabled) { transform: scale(.99); }
-.wb button.go:disabled { opacity: .5; cursor: not-allowed; }
 .wb #status { margin-top: var(--sp-8); font-size: var(--fs-13); color: var(--sub); min-height: 17px; white-space: pre-wrap; }
 .wb #goWhy { display: none; margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--warn); }
 

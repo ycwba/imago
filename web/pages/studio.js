@@ -792,11 +792,6 @@ const StudioView = {
         const area = $('inputArea');
         if (!area) return;
         slots = modelSlots();
-        renderModeChips();
-        {
-          const a = renderTopBools(), b = renderShapeFields();
-          if (a || b) refreshEst();
-        }
         const ta = $('prompt');
         if (ta) {
           paintPromptHint();
@@ -807,8 +802,16 @@ const StudioView = {
            ≤960px 那一档 CSS 把左栏放开成 `overflow:visible`、改由 `.wb .layout` 整块滚（滚动容器搬家了，
            调用点不判窗宽，现问 `Wb.viewport.host`）。`area.innerHTML = ''` 之后逐格 appendChild，
            上面这一段矮下去时浏览器会把滚动位夹回上限 —— 表现是「点一颗槽位上的 × 移除素材，左栏弹回顶」。
-           移除 / 清空那两路都走这一份，所以只在重建处罩一次。 */
+           移除 / 清空那两路都走这一份，所以只在重建处罩一次。
+           keep 还要罩住 `modeRow` / `topBools` / `shapeFields` 这三块：它们也在同一只滚动容器里、
+           换型号时按声明增删行（空壳与有内容差出一整排）。画在 keep 之前的话，滚动位在抓到之前
+           就已经被浏览器夹过一次，夹掉的那一截事后补不回来。 */
         Wb.viewport.keep(Wb.viewport.host(area) || area, () => {
+          renderModeChips();
+          {
+            const a = renderTopBools(), b = renderShapeFields();
+            if (a || b) refreshEst();
+          }
           area.innerHTML = '';
           clearSlotOver();
           const head = $('slotHead'), headNote = $('slotHeadNote');

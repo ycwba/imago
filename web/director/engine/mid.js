@@ -107,19 +107,6 @@ function updateArBadge(media) {
 /* 撤销 / 重做那两颗按钮已删（2026-10 用户点名）：它们埋在候选条下面那一排里，
    笔记本 / 外接键盘没有 Ctrl 的场景用不上，而剪辑态左栏的「历史编辑记录」本来就能点着退回去。
    快捷键（Ctrl+Z / Ctrl+Y）与那一处历史都还在。 */
-/* 顺序条的高度可拖（与左右栏、轨道坞同一套 Wb.split，键 dir_strip）：
-   host 是静态壳里那一块，整片重画只换 `.mid-body`，所以这一套只接一次。 */
-function ensureStripSplit(col) {
-  const host = col.querySelector('#shotStripHost');
-  if (!host || col.__stripSplit || !(window.Wb && window.Wb.split)) return;
-  col.__stripSplit = true;
-  window.Wb.split.enable({
-    box: col, axis: 'y', key: 'dir_strip',
-    cols: [{ el: '#shotStripHost' }],
-    handles: [{ left: 0, right: 0, resize: 0, varName: 'strip-h', min: 96, max: 360 }],
-    handleHost: '#shotStripHost',
-  });
-}
 /* 拖动中途被推迟的那一次中栏重建（见 renderMid 开头那一条）：只留一个待补的定时器 */
 let midDeferT = 0;
 function renderMid() {
@@ -262,7 +249,7 @@ function renderMid() {
     {
       const hs = col.querySelector('#shotStripHost');
       if (hs) hs.hidden = !!midEditTrimOf();
-      if (!midEditTrimOf()) { ensureStripSplit(col); renderShotStrip(col); }
+      if (!midEditTrimOf()) renderShotStrip(col);
     }
     wireMidPlayer(col, { cur, sh, keepPlay, keepBox });
     /* 剪辑态视频栏不滚（用户点名）：播放盒尺寸已改纯 CSS（.player-wrap 是 size 容器，

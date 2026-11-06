@@ -62,13 +62,15 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       '装配窗口里的 flush 把工作区盖掉了（IndexedDB 现在的项目：' + JSON.stringify(afterFlush.ids) + '）');
     must(!afterFlush.unload, '没装配完也写了 dir_ws_unload 救生包（那份空值会被下一次启动当成更新的）');
 
-    /* 装配完成后种子工程要照常渲染出来；再真改一笔（改片名走页面自己的 oninput）让保存确实发生一次：
+    /* 装配完成后种子工程要照常渲染出来；再真改一笔（走短片菜单里的就地改名）让保存确实发生一次：
        落盘的两份都必须是带着那个工程的那一份。 */
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 25000);
     await page.eval(() => {
-      const el = document.getElementById('projName');
-      el.value = '装配窗口探针（改过）';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('projSwitch').click();
+      document.querySelector('#projMenu [data-rename]').click();
+      const inp = document.querySelector('#projMenu .pm-edit');
+      inp.value = '装配窗口探针（改过）';
+      inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
     const saved = await page.eval(() => new Promise(res => {
       const t0 = Date.now();

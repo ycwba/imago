@@ -59,7 +59,7 @@ for (const t of ['--bg', '--panel', '--line', '--txt', '--sub', '--acc', '--acc2
 for (const t of ['--on-acc', '--media-bg', '--chart-1', '--chart-12']) {
   ok(new RegExp('\\' + t + '\\s*:').test(s1b), '①b 固定色段里没有 ' + t);
 }
-for (const t of ['--acc-tint-10', '--acc-line-32', '--warn-tint']) {
+for (const t of ['--acc-tint-10', '--acc-line-32', '--warn-tint', '--sel-bg']) {
   ok(new RegExp('\\' + t + '\\s*:').test(s2), '② 派生色段里没有 ' + t);
 }
 for (const t of ['--pal-gray', '--pal-slate', '--pal-scrim']) {
@@ -71,13 +71,16 @@ ok(!/--dir-/.test(tokensRaw), 'tokens.css 里还有导演台那族固定深底�
 for (const t of ['--mark-cut', '--mark-ready', '--mark-mute', '--mark-loud']) {
   ok(new RegExp('\\' + t + '\\s*:').test(s3b), '③b 导演台标记色段里没有 ' + t);
 }
-/* 深色档里出现的名字必须属于 ①（语义色）/ ③b（标记色）或阴影 —— 拼错的会静默失效 */
+/* 深色档里出现的名字必须属于 ①（语义色）/ ②（派生色）/ ③b（标记色）或阴影 —— 拼错的会静默失效。
+   ② 那一族（--atbg 文字底纹 / --sel-bg 选中底纹）深浅两档的透明度本来就该不同：
+   深色档的底是深灰、强调色是亮色，同一档透明度压在同一族文字上会把对比推到 4.5 以下。 */
 const dark = (tokensRaw.split('html[data-theme="dark"] {')[1] || '').split('}')[0];
 const s1Names = new Set([...s1.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+const s2Names = new Set([...s2.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
 const s3bNames = new Set([...s3b.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
 for (const m of dark.matchAll(/(--[\w-]+)\s*:/g)) {
-  ok(s1Names.has(m[1]) || s3bNames.has(m[1]) || /^--shadow-/.test(m[1]),
-    '深色档里的 ' + m[1] + ' 不在 ① 主题色段 / ③b 标记色段里（拼错会静默失效）');
+  ok(s1Names.has(m[1]) || s2Names.has(m[1]) || s3bNames.has(m[1]) || /^--shadow-/.test(m[1]),
+    '深色档里的 ' + m[1] + ' 不在 ① 主题色段 / ② 派生色段 / ③b 标记色段里（拼错会静默失效）');
 }
 /* ③b 的四枚标记色必须在深色档成对覆盖：跟 ① 段主题色一个待遇，
    不成对覆盖就是切到夜间时它们悄悄沿用浅色档的值（浅色下读不出来的那几枚）。 */

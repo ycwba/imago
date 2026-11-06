@@ -1347,7 +1347,7 @@ function keepBodyScroll(el, fn) {
 })();
 
 /* ============================================================================
-   PromptForm —— 通用表单弹窗（剧本分镜 / 重命名短片 / 新建素材 共用）
+   PromptForm —— 通用表单弹窗（剧本分镜 / 新建素材 共用）
    const v = await PromptForm.open({
      title, sub, okLabel,
      fields: [{ key, label, type:'textarea'|'text'|'number'|'select'|'pic', value, placeholder, hint,

@@ -70,7 +70,7 @@
     },
     'director.html': root => {
       const o = {};
-      add(o, '项目', val(root, '#projName'));
+      add(o, '项目', txt(root, '#projLabel'));
       add(o, '镜头数', qa(root, '#scenesBox .shot-item').length || '');
       const sel = q(root, '#scenesBox .shot-item.sel');
       if (sel) {

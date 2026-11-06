@@ -112,6 +112,16 @@ const SNAP = () => {
     railW: Math.round(rail.getBoundingClientRect().width),
     railRight: Math.round(rail.getBoundingClientRect().right),
     navCount: links.length,
+    controls: [...rail.querySelectorAll('.sb-logo, nav a, .sb-set')].map(el => {
+      const r = el.getBoundingClientRect();
+      return { id: el.dataset.page || el.id || 'logo', left: r.left, top: r.top, height: r.height };
+    }),
+    navLabelFits: links.every(a => {
+      const label = a.querySelector('.sh'), icon = a.querySelector('.ic');
+      if (!label || getComputedStyle(label).display === 'none') return true;
+      const r = a.getBoundingClientRect(), l = label.getBoundingClientRect(), i = icon.getBoundingClientRect();
+      return l.top >= i.bottom && l.bottom <= r.bottom + 1;
+    }),
     navClipped: links.filter(a => { const r = a.getBoundingClientRect(); return r.top < nb.top - 1 || r.bottom > nb.bottom + 1; }).length,
     dots: dots.length,
     dotsOk: dots.filter(d => d.classList.contains('ok')).length,
@@ -360,37 +370,54 @@ const check = (name, cond, detail) => {
     await h.sleep(120);
 
     /* ---------- 档五：高度扫描 ——「余额区滚动条 = 0（任意窗口尺寸）」，导航不许被裁 ---------- */
-    const resizeOnly = async (ht, expanded) => {
-      await page.setSize(1440, ht);
+    const resizeOnly = async (w, ht, expanded) => {
+      await page.setSize(w, ht);
       if ((await isOpen()) !== expanded) await setOpen(expanded);
       await page.eval(() => { window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('sb-balance-refresh')); return true; });
       await h.sleep(450);
       return { b: await page.eval(BARS, '#sbBalance'), v: await page.eval(BARS, '.sidebar nav'),
         g: await page.eval(GUTTER, '#sbBalance .sb-bal-cards'), st: await page.eval(SNAP) };
     };
-    for (const expanded of [true, false]) {
-      for (const ht of [480, 560, 640, 720, 800, 960, 1100]) {
-        const tag = (expanded ? '满形态' : '窄形态') + ' @1440x' + ht;
-        const r = await resizeOnly(ht, expanded);
-        check(tag + '：余额区没有内滚动条（纵/横）', !r.b.barY && !r.b.barX && !r.b.miss, { bal: r.b });
-        check(tag + '：导航没有内滚动条且全部不被裁',
-          !r.v.barY && !r.v.barX && r.st.navCount >= 6 && r.st.navClipped === 0,
-          { nav: r.v, navClipped: r.st.navClipped });
-        if (r.g.miss) continue;
-        /* 卡列表可见时也不许露出滚动条槽（藏起来的那一条不算）。 */
-        check(tag + '：卡列表不画滚动条', r.g.gutter <= 0, { gutter: r.g.gutter });
+    for (const w of [1024, 1440]) {
+      for (const ht of [480, 560, 640, 660, 661, 720, 780, 781, 800, 960, 1100]) {
+        let expandedControls;
+        for (const expanded of [true, false]) {
+          const tag = (expanded ? '满形态' : '窄形态') + ' @' + w + 'x' + ht;
+          const r = await resizeOnly(w, ht, expanded);
+          check(tag + '：余额区没有内滚动条（纵/横）', !r.b.barY && !r.b.barX && !r.b.miss, { bal: r.b });
+          check(tag + '：导航没有内滚动条且全部不被裁',
+            !r.v.barY && !r.v.barX && r.st.navCount >= 6 && r.st.navClipped === 0,
+            { nav: r.v, navClipped: r.st.navClipped });
+          check(tag + '：短标签不与图标重叠且完整留在导航项内', r.st.navLabelFits);
+          if (expanded) expandedControls = r.st.controls;
+          else check(tag + '：收展按钮高度与位置逐项一致',
+            JSON.stringify(expandedControls) === JSON.stringify(r.st.controls),
+            { expanded: expandedControls, collapsed: r.st.controls });
+          if (r.g.miss) continue;
+          check(tag + '：卡列表不画滚动条', r.g.gutter <= 0, { gutter: r.g.gutter });
+        }
       }
     }
 
     /* ---------- 档六：两个形态之间来回切，一切都还在 ---------- */
     await open(1440, 900, true);
     await page.eval(() => { document.querySelector('.sidebar nav a[data-page="studio.html"]').click(); return true; });
-    for (let i = 0; i < 4; i++) {   /* 偶数次 → 回到原样 */
-      await page.eval(() => { document.querySelector('.sb-logo').click(); return true; });
+    const initialControls = (await page.eval(SNAP)).controls;
+    for (let i = 0; i < 4; i++) {
+      const logo = await page.eval(() => {
+        const r = document.querySelector('.sb-logo').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await page.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...logo, button: 'left', clickCount: 1 });
+      await page.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...logo, button: 'left', clickCount: 1 });
       await h.sleep(320);
+      const current = await page.eval(SNAP);
+      check('第 ' + (i + 1) + ' 次点击收展开关：状态切换且每颗按钮原位不动',
+        current.open === (i % 2 === 1) && JSON.stringify(initialControls) === JSON.stringify(current.controls),
+        { initial: initialControls, current: current.controls });
     }
     const back = await page.eval(SNAP);
-    check('来回切三次之后回到满形态', back.open === true && back.sbw === '232px', { open: back.open, sbw: back.sbw });
+    check('来回切四次之后回到满形态', back.open === true && back.sbw === '232px', { open: back.open, sbw: back.sbw });
     check('来回切之后当前项还在（切页没被侧栏重建冲掉）', await page.eval(() =>
       !!document.querySelector('.sidebar nav a.active[data-page="studio.html"]')), {});
     check('来回切之后余额区仍然完整（六张卡）', back.cardTotal === 6, { cards: back.cardTotal });

@@ -102,6 +102,8 @@ const PAGES = [
               /* 页头那一格的底：七页必须同一个色，且不许是透明 ——
                  透明那一格底下要是「页面自己的一层装饰底」，切页时标题那一条就跟着变色。 */
               bg: cs.backgroundColor,
+              colBg: colEl ? getComputedStyle(colEl).backgroundColor : '',
+              rootColor: getComputedStyle(root).backgroundColor,
               rootBg: getComputedStyle(root).backgroundImage,
               h: Math.round(r.height),
               titleLeft: hr ? Math.round(hr.left) : -1,
@@ -155,6 +157,11 @@ const PAGES = [
       must(head.rootBg === 'none',
         p.nm + '：这一页的页面根自己带了一层装饰底（background-image: ' + head.rootBg
         + '）—— 七页同一条 --bg，页头才可能七页同一个色');
+      if (p.hash === 'chars.html' || p.hash === 'settings.html') {
+        must(head.colBg && head.colBg !== 'rgba(0, 0, 0, 0)' && head.colBg !== 'transparent'
+          && head.colBg !== head.rootColor,
+          p.nm + '：左栏底色和页面底一样（' + head.colBg + ' vs ' + head.rootColor + '），分不出这是一栏');
+      }
       rows.push({ nm: p.nm, titleIn: head.titleIn, titleToLine: head.titleToLine, h: head.h,
         shellPx: head.shellPx, bg: head.bg, titleLeft: head.titleLeft });
     }

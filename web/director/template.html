@@ -4,7 +4,7 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: var(--font-ui);
     background: var(--bg); color: var(--txt); overflow: hidden;
   }
   /* 页面骨架：头部 + 三栏，默认占满一屏、由各栏自己滚；
@@ -27,10 +27,16 @@
   /* 导出按钮容器：按钮由 web/domain/export-formats.js 表现画，display:contents 让它们
      仍按页头动作区的 flex + gap 排，不因为多包一层而改变间距。 */
   #exportBtns { display: contents; }
-  header input.pname { width: 260px; padding: var(--sp-8) var(--sp-8); background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); }
-  /* 项目切换钮（「我的短片」）与「多选 / 刷新」那种按钮同一档圆角，不再是胶囊。 */
-  header .phead-chip { border-radius: var(--radius-6); }
-  header .phead-chip b { color: var(--acc); }
+  /* 页头这一排同时摆着短片切换钮与导出钮 —— 一行里的原子控件只许 --sz-ctl 一档：
+     以前切换钮走胶囊档 24、导出钮 32，两种高度并存。 */
+  header .phead-chip { border-radius: var(--radius-6); height: var(--sz-ctl); padding: 0 var(--sp-12);
+    max-width: var(--sz-pname); }
+  header button.phead-chip { font-size: var(--fs-13); }
+  /* 按钮上念的是当前短片名（不是「我的短片 N」）：名字长到截断为止，全文在 title 里。
+     改名不在这一格 —— 页头只报「现在是哪一部」，改与整理都在它点开的那份菜单里就地做。 */
+  #projLabel { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 那颗按钮与它点开的菜单共用一个定位容器；按钮要能在窄窗里被压短，容器得允许缩。 */
+  .phead-proj { position: relative; min-width: 0; }
   header .saved { color: var(--ok); font-size: var(--fs-12); white-space: nowrap; }
   /* 顶部那行操作提示：低调的小字，出现几秒后自己淡出，不打断操作 */
   header .opstate { font-size: var(--fs-12); color: var(--sub); opacity: 0; transition: opacity var(--dur-280);
@@ -71,11 +77,9 @@
   .mid-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   .mid-body::-webkit-scrollbar { width: 8px; }
   .mid-body::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
-  /* 顺序条（原来点「顺序」才出现的那一栏）常驻：高度走 --strip-h（Wb.split 的 dir_strip），
-     没拖过按内容、封顶；拖过之后写死。条内换行，多了自己滚。 */
+  /* 顺序条（原来点「顺序」才出现的那一栏）常驻、高度按内容封顶；条内换行，多了自己滚。 */
   .shot-strip-host { flex: 0 0 auto; max-height: var(--strip-h); display: flex; flex-direction: column;
-    border-top: var(--hair) solid var(--line); }
-  .shot-strip-host[data-split-fixed] { flex: 0 0 var(--strip-h); max-height: none; }
+    background: var(--panel); border-top: var(--hair) solid var(--line); }
   .shot-strip-host[hidden] { display: none; }
   /* 剪辑态视频栏不滚（用户点名）：`.player-wrap` 设成 size 容器，播放盒宽直接由容器高（cqh）
      与栏宽（cqw）现算 —— 拖轨道坞（--dock-h）、改窗口全程跟手，不再靠整栏重画时 JS 现量
@@ -96,11 +100,10 @@
      窄到三栏摆不下时整体堆叠成单列、页面本身滚动；再窄/再矮就收紧留白。 */
   @media (max-width: 1200px) {
     .layout { gap: var(--sp-12); padding: var(--sp-12) var(--shell-px); }
-    header input.pname { width: 180px; }
     header .opstate { display: none; }
   }
   @media (max-width: 1100px) {
-    /* 窄窗口下顶部按钮换到第二行，别把「导演台 / 我的短片」挤成竖排。
+    /* 窄窗口下顶部按钮换到第二行，别把「导演台」与它右边那一格短片名挤成竖排。
        换行的是**动作区**（.phead-acts），说明槽（.phead-sub）直接不画 ——
        让说明占满一整行会把按钮挤到第三行去。 */
     header .phead-sub { display: none; }
@@ -129,7 +132,6 @@
     .page-main { --shell-px: var(--sp-16); }
   }
   @media (max-width: 760px) {
-    header input.pname { width: 100%; order: 9; }
     .layout { padding: var(--sp-8) var(--shell-px); }
   }
   /* 矮窗口（横向拉长、纵向不够）：先把头部和留白压扁，播放区别把整屏占满。
@@ -145,14 +147,14 @@
   /* .ghost / .pri / .lb-btn / #lightbox 等公共组件样式统一来自 ui.css */
 
   /* 左栏 */
-  /* 我的短片下拉：与左栏分镜列表同一套样式。
+  /* 短片切换菜单：与左栏分镜列表同一套样式。
      .page-main 是 overflow:hidden，项目一多下半截就没有出路 —— 菜单自己滚。 */
   #projMenu { padding: var(--sp-8); max-height: 60vh; overflow-y: auto; }
   .pm-head { font-size: var(--fs-11); color: var(--sub); padding: var(--sp-8) var(--sp-8) var(--sp-4); }
   .pm-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-4); cursor: pointer;
     margin-bottom: var(--sp-4); font-size: var(--fs-13); border: var(--hair) solid transparent; border-left: var(--hair-3) solid transparent; }
   .pm-row:hover { background: var(--panel2); }
-  .pm-row.sel { background: color-mix(in srgb, var(--pri) var(--a-8), transparent); border-color: var(--line); border-left: var(--hair-3) solid var(--pri); }
+  .pm-row.sel { background: var(--acc-tint-10); border-color: var(--line); border-left: var(--hair-3) solid var(--acc); }
   .pm-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pm-cnt { color: var(--sub); font-size: var(--fs-11); }
   .pm-ops { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; visibility: hidden; }
@@ -183,6 +185,30 @@
   .pm-group.folded .pm-gname { color: var(--sub); }
   /* 组里的每一部短片都缩进一格，让「谁属于哪一组」一眼看得出来。 */
   .pm-row.pm-in-group { margin-left: var(--sp-8); border-left: var(--hair-2) solid var(--line); }
+  /* 就地改名：名称那一格当场换成输入框 + 保存 / 取消（Enter 保存 · Esc 收回），不弹表单窗
+     —— 与素材页「新建组」那一行同一副画法。 */
+  .pm-edit { flex: 1 1 auto; width: 100%; min-width: 0; box-sizing: border-box; height: var(--sz-ctl-sm);
+    padding: 0 var(--sp-8); border: var(--hair) solid var(--acc-line-32); border-radius: var(--radius-4);
+    background: var(--input); color: var(--txt); font-size: var(--fs-13); font-family: inherit; }
+  .pm-edit:focus { outline: none; box-shadow: var(--focus-shadow); }
+  /* 就地移组：点「文件夹」在那一行下面摊开一个下拉（公共 Dropdowns），选一处就归位。 */
+  .pm-move { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8);
+    margin: calc(-1 * var(--sp-2)) 0 var(--sp-4) var(--sp-8); padding: var(--sp-4) var(--sp-8);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--panel2); }
+  .pm-move .dd { flex: 1 1 140px; min-width: 0; }
+  /* 改组名之后对素材库那一组的追问：写在原位，点完就收（它不是第二份数据，只是同一件事的另一半）。
+     墨用 `--warn` 压在自己那枚不透明淡底上 —— 说明条不是正文，别用 `--txt`。 */
+  .pm-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); color: var(--warn);
+    margin: var(--sp-4) 0 var(--sp-4) var(--sp-8); padding: var(--sp-4) var(--sp-8);
+    border-left: var(--hair-3) solid var(--warn); border-radius: var(--radius-4);
+    background: var(--warn-tint); font-size: var(--fs-12); }
+  /* 新建项目组的草稿行：填名字 + 建组 / 取消，都在菜单里（占的正是「＋ 新建项目组」那一格）。 */
+  .pm-newg { display: flex; align-items: center; gap: var(--sp-4);
+    margin-top: var(--sp-4); padding: var(--sp-8) var(--sp-8) var(--sp-4); border-top: var(--hair) solid var(--line); }
+  /* 就地二次确认（公共 Confirm.arm）把图标换成一句话：那颗格子得容得下文字。
+     武装期间鼠标一挪开就自动还原，所以整行的操作列在这时候保持可见，不让它跟着 hover 收起。 */
+  .pm-btn.armed { min-width: 0; width: auto; padding: 0 var(--sp-8); white-space: nowrap; }
+  .pm-row:has(.armed) .pm-ops, .pm-group:has(.armed) .pm-ops { visibility: visible; }
 
   .left-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); }
   .left-head b { font-size: var(--fs-14); }
@@ -190,14 +216,14 @@
   .left-head > b { flex: 0 0 auto; font-size: var(--fs-13); white-space: nowrap; }
   .left-head .script-btn { flex: 1 1 0; min-width: 0; height: 28px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: var(--fs-12); line-height: 1; color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-14), transparent);
+    font-size: var(--fs-12); line-height: 1; color: var(--acc); background: var(--acc-tint-10);
     border: 0; border-radius: var(--radius-4); padding: 0 var(--sp-8); cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--dur-120); }
-  .left-head .script-btn:hover { background: color-mix(in srgb, var(--acc) var(--a-24), transparent); }
+  .left-head .script-btn:hover { background: var(--sel-bg); }
   /* 「剧本」是次级入口：与「拆分镜」并排，但只占自己那份宽度（左栏最窄时两枚会换行，不挤没字） */
   .left-head .script-btn.sec { flex: 0 0 auto; color: var(--sub); background: transparent;
     border: var(--hair) solid var(--line); }
-  .left-head .script-btn.sec:hover { color: var(--acc); border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
+  .left-head .script-btn.sec:hover { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); }
   .scene-block { padding: var(--sp-8) var(--sp-8) var(--sp-4); }
   /* 场景之间靠留白分区（照参考图，不画分隔线） */
   .scene-block + .scene-block { margin-top: var(--sp-8); padding-top: var(--sp-8); }
@@ -212,8 +238,10 @@
     border: 0; border-radius: var(--radius-4); background: none; color: var(--sub); cursor: pointer; font-size: var(--fs-14); line-height: 1;
     transition: background var(--dur-120), color var(--dur-120); }
   .scene-head .icon-btn:hover { background: var(--panel2); color: var(--acc); }
-  .scene-head .icon-btn.del:hover { background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); }
-  .scene-head .icon-btn.armed { width: auto; padding: 0 var(--sp-8); background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); font-size: var(--fs-11); }
+  .scene-head .icon-btn.del:hover { background: var(--err-tint); color: var(--err); }
+  /* 武装后的红底 + 掏出来的墨由公共的 `.armed`（带 !important）画；这里只剩几何：
+     图标按钮要撑成「真删?」那一小条，所以放开定宽。 */
+  .scene-head .icon-btn.armed { width: auto; padding: 0 var(--sp-8); font-size: var(--fs-11); }
   /* 场景图那一格：与旁边的图标按钮同宽同高，有图时是一张 24×24 的方图。
      position:relative 是给右上角那颗 × 用的（它绝对定位在这一格里面，不另占布局）。 */
   .scene-head .sc-thumb { position: relative; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; overflow: hidden;
@@ -231,11 +259,10 @@
     border-radius: var(--radius-4); cursor: pointer; margin-bottom: var(--sp-4); position: relative; }
   .shot-item:hover { background: var(--panel2); }
   /* 选中：淡紫底从左侧竖条之后才开始铺，圆角不裹住竖条 */
-  .shot-item.sel { background: linear-gradient(to right, color-mix(in srgb, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-10), transparent) 12px); }
-  .shot-item.sel:hover { background: linear-gradient(to right, color-mix(in srgb, transparent) 0 12px, color-mix(in srgb, var(--pri) var(--a-16), transparent) 12px); }
+  .shot-item.sel, .shot-item.sel:hover { background: linear-gradient(to right, transparent 0 12px, var(--sel-bg) 12px); }
   /* 独立的选中竖条（自己的圆角，不与行背景连成一体） */
   .shot-item.sel::before { content: ''; position: absolute; left: var(--sp-4); top: var(--sp-8); bottom: var(--sp-8); width: 4px;
-    border-radius: var(--radius-4); background: var(--pri); }
+    border-radius: var(--radius-4); background: var(--acc); }
   .shot-item .num { font-size: var(--fs-12); font-weight: 600; color: var(--txt); opacity: .62; width: 17px; flex: 0 0 17px; text-align: center;
     font-variant-numeric: tabular-nums; }
   /* 方形缩略图：46×46；内容按原比例完整放进框里（不裁切）；出画后才用黑底留白 */
@@ -265,8 +292,8 @@
   .shot-item:hover .ops { visibility: visible; }
   .shot-item .ops .op-btn { width: 23px; height: 23px; min-width: 23px; padding: 0; border: 0; background: none;
     border-radius: var(--radius-4); color: var(--sub); font-size: var(--fs-12); line-height: 1; }
-  .shot-item .ops .op-btn:hover { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-18), transparent); }
-  .shot-item .ops .op-btn.danger:hover { color: var(--err); background: color-mix(in srgb, var(--err) var(--a-14), transparent); }
+  .shot-item .ops .op-btn:hover { color: var(--acc); background: var(--sel-bg); }
+  .shot-item .ops .op-btn.danger:hover { color: var(--err); background: var(--err-tint); }
   /* 拖动：只有被拖动的那一行有阴影/高亮；投放位置只画一条细插入线 */
   /* 助手写完 / 点「定位」时闪两下：告诉用户「就是这一格」，不改变选中与视图。 */
   @keyframes shotFlash { 0%, 100% { box-shadow: inset 0 0 0 0 transparent; } 30% { box-shadow: inset 0 0 0 var(--hair-2) var(--acc); } }
@@ -475,15 +502,22 @@
   .cand-pager .cand-count { min-width: 34px; text-align: center; font-size: var(--fs-11); }
   /* 缩略图可以滚到控件底下再出来：给右端留出走位，否则最后一条永远被压住 */
   .cand-strip .thumbs { padding-right: calc(var(--sp-64) * 2); scroll-padding-right: calc(var(--sp-64) * 2); }
-  .cand-thumb { position: relative; width: 118px; border-radius: var(--radius-4); overflow: hidden; cursor: pointer; border: var(--hair-2) solid transparent; transition: border-color var(--dur-120); }
-  .cand-thumb:hover { border-color: var(--acc); }
-  .cand-thumb.cur { border-color: var(--pri); }
+  .cand-thumb { position: relative; width: 118px; border-radius: var(--radius-4); overflow: hidden; cursor: pointer; border: var(--hair-2) solid transparent; transition: border-color var(--dur-120), box-shadow var(--dur-120); }
+  /* 三档强调色是一条梯度，谁都不盖掉谁：
+     hover = 32% 强调描边（鼠标在这儿，但这一条不是答案）
+     cur（正在预览的那一条）= 整圈实心强调描边
+     sel（选用进成片的那一条）= 同一圈实心描边 + 内一圈强调环 + 右下角那枚实底角标
+     以前 hover 与 cur 是同一个数（鼠标一移就看不出哪条在预览），sel 又借时间线轨道
+     那枚「就绪」标记绿（`--mark-ready`）—— 「哪一条在用」是选中，不是状态色。 */
+  .cand-thumb:hover { border-color: var(--acc-line-32); }
+  .cand-thumb.cur { border-color: var(--acc); }
   /* 「已选用」是一枚**角标**（右下角），不是压在画面上的横幅：左上角是序号、右上角是锁，
-     三个角各管一件事，谁都不遮别人的脸。瓦片自己再加一圈亮边，扫一眼就知道这条在用。 */
-  .cand-thumb.sel { border-color: color-mix(in srgb, var(--mark-ready) var(--a-80), transparent);
-    box-shadow: inset 0 0 0 var(--hair) color-mix(in srgb, var(--mark-ready) var(--a-50), transparent); }
+     三个角各管一件事，谁都不遮别人的脸。
+     角标压在视频像素上 → 实底用强调色、墨从实底里掏（`--panel`）：深色档的强调色是浅的，
+     白字压上去只有 2.x:1；原先那层 90% 面板色的**透明**淡底等于让「能不能读」由背后那些像素决定。 */
+  .cand-thumb.sel { border-color: var(--acc); box-shadow: inset 0 0 0 var(--hair) var(--acc-line-32); }
   .cand-thumb.sel::after { content: "✓ 选用"; position: absolute; right: var(--sp-4); bottom: var(--sp-4); z-index: 2;
-    background: color-mix(in srgb, var(--panel) var(--a-90), transparent); color: var(--ok);
+    background: var(--acc); color: var(--panel);
     font-size: var(--fs-11); line-height: 14px; padding: 0 var(--sp-4); border-radius: var(--radius-4); font-weight: 600; }
   .cand-thumb .lockbadge { position: absolute; top: var(--sp-4); right: var(--sp-4); z-index: 2; display: flex; align-items: center;
     padding: var(--sp-2); border-radius: var(--radius-4); background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent); color: var(--on-acc); }
@@ -494,7 +528,7 @@
   .cand-thumb .pending { width: 100%; height: 72px; display: flex; align-items: center; justify-content: center;
     background: var(--input); color: var(--sub); font-size: var(--fs-12); line-height: 1; text-align: center; }
   .cand-thumb .pending.fail { color: var(--err); }
-  .cand-thumb .pending.draft { color: var(--acc); border: var(--hair) dashed var(--line); background: none; }
+  .cand-thumb .pending.draft { color: var(--acc); border: var(--hair) dashed var(--acc-line-32); background: none; }
   /* 草稿候选：这条候选自己的描述 */
   /* 动作行：左边「导入」，右边「选用 / 取消选用 / 锁定 / 删除」（用户点名把导入挪到这一排）。 */
   .cand-acts { display: flex; align-items: center; gap: var(--sp-8); padding: 0 var(--sp-16) var(--sp-8); }
@@ -550,12 +584,12 @@
   .sub-list { display: flex; flex-direction: column; gap: var(--sp-8); margin-top: var(--sp-8); max-height: 300px; overflow-y: auto; }
   .sub-row { border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2); padding: var(--sp-4) var(--sp-8); }
   .sub-meta { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
-  .sub-tag { flex: none; padding: 0 var(--sp-4); border-radius: var(--radius-4); background: color-mix(in srgb, var(--pri) var(--a-18), transparent); color: var(--pri); }
+  .sub-tag { flex: none; padding: 0 var(--sp-4); border-radius: var(--radius-4); background: var(--acc-tint-10); color: var(--acc); }
   /* 起止两框：能直接输数的读数（与轨道把手同一份账，subSetTime 一个出口落回源秒）。 */
   .sub-t { width: 58px; font-variant-numeric: tabular-nums; font-size: var(--fs-12); padding: var(--sp-2) var(--sp-4); }
   .sub-unit { color: var(--sub); font-size: var(--fs-11); }
   /* 播放头压着的那一条点亮（capRowHTML 的 is-now）：与轨道上那一排高亮读同一段时间覆盖。 */
-  .sub-row.is-now { border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
+  .sub-row.is-now { border-color: var(--acc); background: var(--acc-tint-10); }
   .sub-pos { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-4); }
   .sub-hl { display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; cursor: pointer; }
   .sub-row [data-cap-del] { margin-left: auto; }
@@ -640,7 +674,7 @@
   .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: var(--hair-2) solid transparent; border-radius: var(--radius-4);
     overflow: hidden; cursor: pointer; background: var(--input); transition: border-color var(--dur-120), transform var(--dur-120); }
   .strip-item:hover { transform: translateY(-2px); }
-  .strip-item.sel { border-color: var(--pri); }
+  .strip-item.sel { border-color: var(--acc); }
   .strip-item.ready { box-shadow: 0 0 0 var(--hair) color-mix(in srgb, var(--mark-ready) var(--a-50), transparent) inset; }
   .strip-item video, .strip-item img { width: 100%; height: 54px; object-fit: contain; display: block; background: transparent; }
   .strip-item .tph { position: absolute; left: 0; right: 0; top: 0; height: 54px; background: var(--thumbbg); }
@@ -665,7 +699,7 @@
   #advBox { margin: 0 0 var(--sp-16); }
   #advBox .dur-range { width: 100%; accent-color: var(--pri); cursor: pointer; }
   #advBox .dur-num { display: flex; align-items: center; gap: var(--sp-8); min-width: 96px; }
-  #advBox .dur-num input[type="number"] { width: 100%; padding: var(--sp-8) var(--sp-8); background: var(--input);
+  #advBox .dur-num input[type="number"] { width: 100%; padding: var(--sp-8) var(--sp-8); background: var(--control-bg);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); text-align: center; font-size: var(--fs-13);
     outline: none; transition: border-color var(--dur-120); }
   #advBox .dur-num input[type="number"]:focus { border-color: var(--acc); }
@@ -724,16 +758,16 @@
 
   /* 输入框右上角那颗 `@素材`：底色加深，一眼看得出是个入口 */
   .ed-label .at-btn { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); margin-right: var(--sp-8); border-radius: var(--radius-10); cursor: pointer;
-    color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-16), transparent); border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-35), transparent); }
-  .ed-label .at-btn:hover { background: color-mix(in srgb, var(--acc) var(--a-28), transparent); }
+    color: var(--acc); background: var(--sel-bg); border: var(--hair) solid var(--acc-line-32); }
+  .ed-label .at-btn:hover { border-color: var(--acc); }
 
   /* 「提到素材」那排芯片：底色加深；鼠标移上去弹一张预览（名字 + 图片）。
      预览朝**下**弹：编辑器那一列是 `overflow-y: auto`，朝上会被列的上边缘裁掉。 */
   .mchips { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-8); }
   .mchip { position: relative; display: inline-flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-4);
     border-radius: var(--radius-10); cursor: pointer; color: var(--acc);
-    background: color-mix(in srgb, var(--acc) var(--a-16), transparent); border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-34), transparent); }
-  .mchip:hover { background: color-mix(in srgb, var(--acc) var(--a-30), transparent); }
+    background: var(--sel-bg); border: var(--hair) solid var(--acc-line-32); }
+  .mchip:hover { border-color: var(--acc); }
   .mchip > img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; display: block; background: var(--thumbbg); }
   .mchip .mn { font-size: var(--fs-12); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mchip .peek { display: none; position: absolute; left: 0; top: calc(100% + var(--sp-8)); z-index: 62; padding: var(--sp-8);
@@ -761,7 +795,7 @@
   .chain-row { display: flex; align-items: center; gap: var(--sp-8); margin: var(--sp-4) 0 var(--sp-8);
     padding: var(--sp-4) var(--sp-8); border: var(--hair) dashed var(--line); border-radius: var(--radius-6);
     font-size: var(--fs-12); color: var(--sub); cursor: pointer; }
-  .chain-row.on { border-style: solid; border-color: var(--acc); color: var(--txt); background: color-mix(in srgb, var(--acc) var(--a-8), transparent); }
+  .chain-row.on { border-style: solid; border-color: var(--acc); color: var(--txt); background: var(--acc-tint-10); }
   .chain-row input { margin: 0; }
   .chain-row em { margin-left: auto; font-style: normal; font-size: var(--fs-11); color: var(--sub); }
   .chain-row.on em { color: var(--acc); }
@@ -772,10 +806,21 @@
   .hint { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-8); }
   /* 导出拆分按钮：主钮（导出成片）+ 尾部 chevron，点开列其余去向
      （FCPXML / 媒体包 / 达芬奇 / 剪映）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
-     页头是常驻 DOM，不会被重建冲掉。 */
+     页头是常驻 DOM，不会被重建冲掉。
+     这一颗是页头唯一的主操作，所以两半都穿公共主按钮那身（`.pri`：淡强调底 + 强调墨），
+     而不是各穿一份中性 `.ghost` —— 中性底换配色时一个像素都不动，页头的主操作看着就和
+     它左边那颗短片名胶囊一样普通。两半之间用强调描边分隔；`.pri` 自己 `border:0`，
+     所以分隔线写在这一格上（权重也压过 `.pri`）。 */
   .exp-split { display: inline-flex; align-items: stretch; position: relative; flex: 0 0 auto; }
-  .exp-split > .ghost:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-  .exp-split > .exp-more { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-8); }
+  .exp-split > .pri { border-radius: var(--radius-4); }
+  .exp-split > .pri:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .exp-split > .exp-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-8);
+    border-left: var(--hair) solid var(--acc-line-32); }
+  .exp-split > .exp-more .ui-icon { transition: transform var(--dur-180); }
+  /* 浮层开着 = 这一整颗正处于「按下了」：底部一圈内嵌强调环 + chevron 翻面，
+     与 ui.css 的 `.dd.open .dd-btn` 说的是同一件事。 */
+  .exp-split:has(.exp-menu:not([hidden])) > .pri { box-shadow: inset 0 0 0 var(--hair) var(--acc); }
+  .exp-split:has(.exp-menu:not([hidden])) > .exp-more .ui-icon { transform: rotate(180deg); }
   .exp-menu { position: absolute; right: 0; top: calc(100% + var(--sp-4)); z-index: 80; min-width: 190px;
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4);
     box-shadow: var(--shadow-4); padding: var(--sp-4); }
@@ -783,7 +828,9 @@
   .exp-menu > button { display: flex; align-items: center; gap: var(--sp-8); width: 100%; text-align: left;
     padding: var(--sp-8) var(--sp-8); border: 0; border-radius: var(--radius-4); background: none;
     color: var(--txt); font-size: var(--fs-13); cursor: pointer; white-space: nowrap; }
-  .exp-menu > button:hover { background: var(--panel2); color: var(--acc); }
+  /* 浮层里的一行 hover：强调墨压在强调淡底上（同 `.dd-opt:hover`），
+     不是压在 `--panel2` 那枚中性底上 —— 强调色配中性底是第五种画法。 */
+  .exp-menu > button:hover { background: var(--acc-tint-10); color: var(--acc); }
   /* #lbCount / #lbBar 的样式统一在 ui.css 的灯箱那一段 */
   dialog.script { background: var(--panel); color: var(--txt); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: var(--sp-24); width: 520px; max-width: 92vw; margin: auto; }
   dialog.script::backdrop { background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); }
@@ -796,7 +843,7 @@
     font-size: var(--fs-12); line-height: 1; cursor: pointer; user-select: none; transition: all var(--dur-120); }
   .op-btn:hover { border-color: var(--acc); color: var(--acc); }
   .op-btn.danger:hover { border-color: var(--err); color: var(--err); }
-  .op-btn.armed { border-color: var(--err); color: var(--err); background: color-mix(in srgb, var(--err) var(--a-8), transparent); width: auto; }
+  .op-btn.armed { width: auto; }
   .op-btn.grip { cursor: grab; }
   .op-btn.grip:active { cursor: grabbing; }
   .op-btn.addshot { height: 26px; padding: 0 var(--sp-12); font-size: var(--fs-12); flex: 0 0 auto; white-space: nowrap; }
@@ -842,8 +889,7 @@
   .tl-board .tl-tb:hover { background: var(--panel2); color: var(--txt); }
   .tl-board .tl-tb:active { background: var(--input); }
   .tl-board .tl-tb:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
-  .tl-board .tl-tb.is-on { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
-  .tl-board .tl-tb.is-on:hover { background: color-mix(in srgb, var(--acc) var(--a-18), transparent); }
+  .tl-board .tl-tb.is-on { color: var(--acc); background: var(--sel-bg); }
   .tl-board .tl-tb[disabled] { opacity: .35; cursor: not-allowed; }
   .tl-board .tl-zoom { min-width: 52px; padding: 0 var(--sp-4); text-align: center;
     font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -863,7 +909,7 @@
     padding: var(--sp-4) var(--sp-8); border: 0; border-radius: var(--radius-6);
     background: none; color: var(--txt); font-size: var(--fs-12); text-align: left; cursor: pointer; }
   .tl-board .tl-menu-row:hover { background: var(--panel2); }
-  .tl-board .tl-menu-row.is-on { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
+  .tl-board .tl-menu-row.is-on { color: var(--acc); background: var(--acc-tint-10); }
 
   /* ---------------- 刻度尺（自己一道，在滚动区外面） ---------------- */
   .tl-board .tl-ruler-row { display: flex; flex: 0 0 auto; height: var(--tlh-ruler);
@@ -1037,7 +1083,7 @@
   .tl-board .tl-cap { position: absolute; top: var(--sp-2); bottom: var(--sp-2);
     border: var(--hair) solid color-mix(in srgb, var(--ok) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
-    background: color-mix(in srgb, var(--ok) var(--a-10), var(--panel));
+    background: var(--ok-tint);
     transition: border-color var(--dur-120), box-shadow var(--dur-120); }
   .tl-board .tl-cap:hover { border-color: color-mix(in srgb, var(--ok) var(--a-72), transparent); }
   .tl-board .tl-cap:active { cursor: grabbing; }
@@ -1126,16 +1172,17 @@
   .tl-board .tl-pop-dur { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-8);
     font-size: var(--fs-12); color: var(--sub); }
   .tl-board .tl-pop-dur.is-off { opacity: .45; }
-  .tl-board .tl-pop-dur input[type=range] { flex: 1 1 auto; min-width: 0; accent-color: var(--acc); cursor: pointer; }
+  .tl-board .tl-pop-dur input[type=range] { flex: 1 1 auto; min-width: 0; accent-color: var(--pri); cursor: pointer; }
   .tl-board .tl-pop-dur em { flex: 0 0 auto; font-style: normal; color: var(--txt);
     font-variant-numeric: tabular-nums; }
 
   /* ---------------- 工具条上的计数角标 ---------------- */
   /* 「这一片有几枚标记 / 选中了几块」压在按钮右上角：按钮本身要说的是「这是干什么的」，
-     数不在那儿读。0 时整块不画（由画它的那一句 hidden 决定），不留一个空圈。 */
+     数不在那儿读。0 时整块不画（由画它的那一句 hidden 决定），不留一个空圈。
+     墨取掏出来的面板色而不是白 —— 实底是 `--acc`，深色档那一枚是**浅色**，白字压不住（只有 `--pri` 两档都深）。 */
   .tl-board .tl-badge { position: absolute; top: calc(-1 * var(--sp-2)); right: calc(-1 * var(--sp-2));
     min-width: 15px; height: 15px; padding: 0 var(--sp-4); border-radius: var(--radius-999);
-    background: var(--acc); color: var(--on-acc); font-size: var(--fs-11); font-weight: 600;
+    background: var(--acc); color: var(--panel); font-size: var(--fs-11); font-weight: 600;
     line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
   .tl-board .tl-badge[hidden] { display: none; }
 
@@ -1213,11 +1260,10 @@
     <h1 class="phead-h1">导演台</h1>
   </div>
   <div class="phead-meta">
-    <div style="position:relative">
-      <button class="phead-chip" id="projSwitch" style="cursor:pointer"><span data-icon="film" data-size="13"></span> 我的短片 <b id="projCount">1</b> <span data-icon="chevronDown" data-size="11"></span></button>
+    <div class="phead-proj">
+      <button type="button" class="phead-chip" id="projSwitch"><span data-icon="film" data-size="13"></span> <span id="projLabel">未命名短片</span> <span data-icon="chevronDown" data-size="11"></span></button>
       <div id="projMenu" hidden style="position:absolute;top:calc(100% + var(--sp-8));left:0;background:var(--panel);border:var(--hair) solid var(--line);border-radius:var(--radius-4);min-width:250px;z-index:80;box-shadow:var(--shadow-4);padding:var(--sp-8)"></div>
     </div>
-    <input class="pname" id="projName" value="新项目">
     <span class="saved" id="saveState">已保存</span>
   </div>
   <span class="phead-sub"></span>
@@ -1258,8 +1304,7 @@
   </div>
 
   <!-- 中栏分两段：`.mid-body` 是整片重画的那一层（播放器 / 候选条 / 动作行 / 总长），
-       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，所以它的拖高把手能一直挂着
-       （与左右栏、轨道坞同一套 Wb.split，键 dir_strip）。 -->
+       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，高度按内容封顶。 -->
   <div class="col col-mid" id="midCol">
     <div class="mid-body" id="midBody"></div>
     <div class="shot-strip-host" id="shotStripHost" hidden>

@@ -196,7 +196,8 @@ class: "note",
 }, "文生视频")
 ]),
 _createElementVNode("button", {
-class: "go",
+type: "button",
+class: "go pri",
 "data-r": "go"
 }, "生成视频"),
 _createElementVNode("div", {

@@ -80,6 +80,25 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     await page.goto(proxy.base + '/shell.html?probe=1#director.html');
     await page.waitFor(() => !!(window.WBBridge && window.WBBridge.get('director') && window.WBBridge.get('director').ready()), 25000);
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
+    const strip = await page.eval(() => {
+      const host = document.getElementById('shotStripHost');
+      const col = document.querySelector('.col-left');
+      const page = document.querySelector('.director-page');
+      return {
+        shown: !!host && !host.hidden,
+        split: host.querySelectorAll('.wb-split, .wb-split-y').length,
+        fixed: host.hasAttribute('data-split-fixed'),
+        stored: localStorage.getItem('dir_strip'),
+        bg: getComputedStyle(host).backgroundColor,
+        colBg: col ? getComputedStyle(col).backgroundColor : '',
+        pageBg: page ? getComputedStyle(page).backgroundColor : '',
+      };
+    });
+    must(strip.shown && strip.split === 0 && !strip.fixed && strip.stored == null,
+      '生成态中栏底栏仍留着上下拖高控件或旧高度：' + JSON.stringify(strip));
+    must(strip.bg !== 'rgba(0, 0, 0, 0)' && strip.bg !== 'transparent'
+      && strip.bg === strip.colBg && strip.bg !== strip.pageBg,
+      '生成态中栏底栏没有和左右栏同一张白底：' + JSON.stringify(strip));
     await page.eval(() => {
       const t = document.getElementById('trimBtn');
       if (t && !t.classList.contains('on')) t.click();
@@ -186,6 +205,9 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
         btnW: btn ? Math.round(btn.getBoundingClientRect().width) : 0,
         btnPad: padOf(btn),
         advBtnPad: padOf(advBtn),
+        advBtnBg: advBtn ? getComputedStyle(advBtn).backgroundColor : '',
+        advBtnShadow: advBtn ? getComputedStyle(advBtn).boxShadow : '',
+        theme: document.documentElement.dataset.theme,
         advPublic: !!(adv && adv.className.split(' ').includes('adv')),
         advSels: advSels.length,
         advInDD: advSels.length ? advSels.every(s => !!s.closest('.dd')) : false,
@@ -206,12 +228,100 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       + ' 颗，不是每一颗都在公共 .dd 里');
     must(studio.advBtnPad >= 8, '高级设置里公共那颗下拉按钮的内边距被页面那条重置抹掉了（padding-left '
       + studio.advBtnPad + 'px，公共件是 9px）');
+    if (studio.theme === 'light') {
+      must(studio.advBtnBg === 'rgb(255, 255, 255)' && studio.advBtnShadow !== 'none',
+        '高级设置里的下拉按钮不是白底轻阴影（' + studio.advBtnBg + ' / ' + studio.advBtnShadow + '）');
+    }
     must(studio.typeRow >= 0 && studio.dlRow >= 0 && studio.typeRow < studio.dlRow,
       '右栏次序不对：类型选择那一排（' + studio.typeRow + '）要排在下载/动作那一排（' + studio.dlRow + '）上面');
     must(studio.typeTop >= 0 && studio.dlTop >= 0 && studio.typeTop < studio.dlTop,
       '右栏视觉次序不对：类型选择那一排（top ' + studio.typeTop + '）没有排在下载/动作那一排（top '
       + studio.dlTop + '）上面');
     must(studio.bulkRow > studio.typeRow, '批量下载那一排要排在类型选择的下面');
+
+    const controls = await page.eval(() => {
+      const root = document.querySelector('.studio-page');
+      const seg = root.querySelector('[data-r="typeSeg"]');
+      const box = seg.getBoundingClientRect();
+      const on = seg.querySelector('.on');
+      const go = root.querySelector('[data-r="go"]');
+      const tool = root.querySelector('[data-r="clearAll"]');
+      const r = tool.getBoundingClientRect();
+      window.focusQuiet(seg.querySelector('button'));
+      return {
+        height: box.height,
+        inset: [...seg.children].every(b => { const r = b.getBoundingClientRect();
+          return r.top > box.top && r.bottom < box.bottom; }),
+        selectedShadow: getComputedStyle(on).boxShadow,
+        trackBg: getComputedStyle(seg).backgroundColor,
+        selectedBg: getComputedStyle(on).backgroundColor,
+        selectedFg: getComputedStyle(on).color,
+        primary: go.classList.contains('pri'),
+        disabled: go.disabled && getComputedStyle(go).cursor === 'not-allowed',
+        tool: { x: r.x, y: r.y, width: r.width, height: r.height },
+      };
+    });
+    must(controls.height === 32 && controls.inset, '分段按钮没有完整收在 32px 公共控件内');
+    must(controls.selectedShadow !== 'none' && controls.selectedBg !== controls.trackBg && controls.selectedFg !== controls.selectedBg,
+      '选中分段没有从底色和文字上拉开层次');
+    must(controls.primary && controls.disabled, '生成按钮没有复用公共主按钮或空提示词禁用态');
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+    const focus = await page.eval(() => {
+      const el = document.activeElement, css = getComputedStyle(el);
+      return el !== document.body && el.matches(':focus-visible') && css.outlineStyle === 'solid' && parseFloat(css.outlineWidth) >= 2;
+    });
+    must(focus, 'Tab 导航没有可见的公共焦点环');
+    await page.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved',
+      x: controls.tool.x + controls.tool.width / 2, y: controls.tool.y + controls.tool.height / 2 });
+    const hover = await page.eval(() => {
+      const el = document.querySelector('.studio-page [data-r="clearAll"]');
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, transform: getComputedStyle(el).transform, hover: el.matches(':hover') };
+    });
+    must(hover.hover && hover.transform === 'none' && hover.x === controls.tool.x && hover.y === controls.tool.y,
+      '工具按钮悬停时改变了位置');
+
+    await page.eval(() => window.GoPage.go('settings.html'));
+    await page.waitFor(() => !!document.querySelector('.settings-page button[data-panel]'), 30000);
+    const inputPadding = await page.eval(() => getComputedStyle(document.querySelector('#cloudUrl')).paddingLeft);
+    must(parseFloat(inputPadding) >= 8, '设置页文本输入框的公共内边距被页面复位抹掉');
+    await page.eval(() => document.querySelector('.settings-page button[data-panel]').click());
+    await page.waitFor(() => !!document.querySelector('.settings-page button[data-panel].active'));
+    await page.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+    await page.eval(() => Promise.all(document.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime))
+      .map(a => a.finished.catch(() => {}))));
+    const selected = await page.eval(() => {
+      const el = document.querySelector('.settings-page button[data-panel].active');
+      const css = getComputedStyle(el), r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, background: css.backgroundColor, color: css.color };
+    });
+    await page.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: selected.x, y: selected.y });
+    await page.eval(() => Promise.all(document.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime))
+      .map(a => a.finished.catch(() => {}))));
+    const selectedHover = await page.eval(() => {
+      const el = document.querySelector('.settings-page button[data-panel].active');
+      const css = getComputedStyle(el);
+      return { hover: el.matches(':hover'), background: css.backgroundColor, color: css.color };
+    });
+    must(selectedHover.hover && selectedHover.background === selected.background && selectedHover.color === selected.color,
+      '型号展开按钮悬停时丢失了选中态');
+
+    await page.eval(() => {
+      window.Confirm.ask({ title: '确认操作', body: '公共弹窗样式检查' })
+        .then(value => { document.body.dataset.confirmResult = String(value); });
+    });
+    const dialog = await page.eval(() => {
+      const el = document.querySelector('dialog.ui-dlg[open]'), css = getComputedStyle(el), r = el.getBoundingClientRect();
+      return { radius: css.borderRadius, border: css.borderTopWidth, shadow: css.boxShadow,
+        font: css.fontFamily === getComputedStyle(document.body).fontFamily,
+        fits: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
+    });
+    must(dialog.radius === '14px' && dialog.border === '1px' && dialog.shadow !== 'none' && dialog.font && dialog.fits,
+      '公共弹窗没有保持统一表面、字体或视口边界');
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await page.waitFor(() => document.body.dataset.confirmResult === 'false' && !document.querySelector('dialog.ui-dlg[open]'));
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     must(!errs.length, '页面异常：' + errs.join(' | '));

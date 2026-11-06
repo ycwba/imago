@@ -14,6 +14,30 @@
    那三页早被 SPA 取代 —— 全库再没有带 wb2 的 body，那一份已是**死代码**。
    现在唯一一份在 web/styles/wb.css（公共类 .wb）：谁用工作台谁把根元素挂上 .wb，不必再抄一遍。 */
 
+body { font-family: var(--font-ui); font-size: var(--fs-13); -webkit-font-smoothing: antialiased; }
+:where(button, input, textarea, select) { font-family: inherit; }
+:where(input, textarea)::placeholder { color: var(--sub); opacity: 1; }
+:where(input[type="checkbox"], input[type="radio"]) { appearance: none; position: relative; flex: 0 0 auto;
+  width: var(--sp-16); height: var(--sp-16); margin: 0; padding: 0; cursor: pointer;
+  vertical-align: calc(-1 * var(--sp-2));
+  border-radius: var(--radius-4); background: var(--control-bg); box-shadow: inset 0 0 0 var(--hair) var(--line);
+  transition: background var(--dur-120), box-shadow var(--dur-120); }
+:where(input[type="radio"]) { border-radius: var(--radius-999); }
+:where(input[type="checkbox"], input[type="radio"]):hover:not(:disabled) { background: var(--control-hover); }
+:where(input[type="checkbox"], input[type="radio"]):checked { background: var(--sel-bg);
+  box-shadow: inset 0 0 0 var(--hair) var(--acc-line-32); }
+:where(input[type="checkbox"], input[type="radio"]):disabled { opacity: var(--a-55); cursor: not-allowed; }
+:where(input[type="checkbox"])::before { content: ""; position: absolute; left: var(--sp-4); top: var(--hair);
+  width: calc(var(--sp-2) * 3); height: calc(var(--sp-8) + var(--sp-2));
+  border: solid var(--acc); border-width: 0 var(--hair-2) var(--hair-2) 0;
+  transform: rotate(45deg) scale(0); transition: transform var(--dur-120); }
+:where(input[type="checkbox"]):checked::before { transform: rotate(45deg) scale(1); }
+:where(input[type="radio"])::before { content: ""; position: absolute; inset: 0; width: var(--sp-8); height: var(--sp-8);
+  margin: auto; border-radius: var(--radius-999); background: var(--acc);
+  transform: scale(0); transition: transform var(--dur-120); }
+:where(input[type="radio"]):checked::before { transform: scale(1); }
+::selection { color: var(--txt); background: var(--sel-bg); }
+
 /* ---------- 可拖拽分栏的拖拽条（DOM 由 workbench.js 的 Wb.split 创建，绝对定位在两栏缝隙正中） ----------
    条子本身只有 10px 宽（热区），平时完全透明，悬停/拖动时才显出一条竖线：
    不占栅格轨道，所以三页栏宽仍然只由 --sp0 决定，不会因为多了个元素而错位。 */
@@ -71,14 +95,14 @@ body.wb-splitting-y * { user-select: none !important; }
   border: 0; border-radius: var(--radius-6); background: none; color: var(--sub); cursor: pointer;
   transition: background var(--dur-180), color var(--dur-180), box-shadow var(--dur-180); }
 .viewtoggle button:hover { color: var(--txt); }
-.viewtoggle button.active { background: var(--panel); color: var(--acc); box-shadow: var(--shadow-1); }
+.viewtoggle button.active { background: var(--sel-bg); color: var(--acc); box-shadow: var(--shadow-1); }
 .viewtoggle button svg { display: block; }
 .pginfo { font-size: var(--fs-12); color: var(--sub); min-width: 90px; text-align: center; align-self: center; }
 .pager-row { display: flex; align-items: center; gap: var(--sp-8); justify-content: center; margin: var(--sp-16) 0 var(--sp-4); flex-wrap: wrap; }
 /* 列表上方的提示条（Wb.cards 的 notesHTML 约定带 .list-note 类，便于原地替换/移除）：
    用来把「某个平台的列表这次没取回来」这类部分失败说出来，而不是让右栏静默变空。 */
 .list-note { font-size: var(--fs-12); line-height: 1.6; color: var(--warn);
-  background: color-mix(in srgb, var(--warn) var(--a-10), transparent); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-28), transparent);
+  background: var(--warn-tint); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-28), transparent);
   border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); margin-bottom: var(--sp-8); display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
 .list-note .txt { flex: 1 1 200px; min-width: 0; }
 .list-note b { color: var(--txt); }
@@ -93,21 +117,32 @@ body.wb-splitting-y * { user-select: none !important; }
 .ghost, .tool, .fb-ai, .dd-btn, .ui-inp, .ui-seg, .viewtoggle,
 .toolbar input[type="search"], .toolbar input[type="number"], .search { box-sizing: border-box; }
 .ghost { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8);
-  height: var(--sz-ctl); font-size: var(--fs-13); color: var(--sub); background: none; border: var(--hair) solid var(--line);
-  border-radius: var(--radius-6); padding: 0 var(--sp-12); cursor: pointer; transition: all var(--dur-180); white-space: nowrap; }
-.ghost:hover:not(:disabled) { color: var(--acc); border-color: var(--acc); }
-.ghost:disabled { opacity: var(--a-50); cursor: not-allowed; }
+  height: var(--sz-ctl); font-size: var(--fs-13); font-weight: 500; color: var(--txt); background: var(--control-bg); border: var(--hair) solid transparent;
+  border-radius: var(--radius-6); padding: 0 var(--sp-12); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-1);
+  transition: background var(--dur-180) var(--ease), border-color var(--dur-180), color var(--dur-180), box-shadow var(--dur-180); }
+.ghost:hover:not(:disabled):not(.active) { color: var(--txt); background: var(--control-hover); }
+.ghost:active:not(:disabled):not(.active) { background: var(--control-pressed); box-shadow: none; }
+.ghost:disabled { opacity: 1; color: var(--sub); background: var(--panel2); border-color: transparent; box-shadow: none; cursor: not-allowed; }
 /* 危险按钮只一套规格：常态即红字红框（一眼看出这不是普通操作），hover 才填充实底。
-   旧的 `.pri.danger`（常红实心、全项目零使用）删除。 */
+   旧的 `.pri.danger`（常红实心、全项目零使用）删除。
+   实底上的墨取 `--panel`（把面板色从实底里「掏」出来）而不是白：深色档的 `--err` 是**浅红**
+   （深色由浅色现算、只换亮度），白字压上去只剩 2.5:1；面板色在两档跟着主题翻 ——
+   浅色档它是白的（与白字等效，浅红底上 5:1 以上），深色档它是近的（浅红底上 5.7:1）。
+   只有 `--pri` 在两档都是深的，那一族才配 `--on-acc`。 */
 .ghost.danger { color: var(--err); border-color: var(--err); }
-.ghost.danger:hover:not(:disabled) { background: var(--err); color: var(--on-acc); border-color: var(--err); }
-.ghost.active { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); }
-/* 主按钮（实心强调色）：弹窗页脚与页面主操作共用这一份，页面只按需要改尺寸。 */
-.pri { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8);
-  height: var(--sz-ctl); background: var(--pri); border: 0; color: var(--on-acc); font-weight: 600; border-radius: var(--radius-6);
-  padding: 0 var(--sp-12); font-size: var(--fs-13); cursor: pointer; transition: filter var(--dur-180); white-space: nowrap; }
-.pri:hover:not(:disabled) { filter: brightness(1.12); }
-.pri:disabled { opacity: var(--a-50); cursor: not-allowed; }
+.ghost.danger:hover:not(:disabled) { background: var(--err); color: var(--panel); border-color: var(--err); }
+.ghost.active { color: var(--acc); border-color: transparent; background: var(--sel-bg); }
+/* 主按钮（浅强调底 + 强调文字）：弹窗页脚与页面主操作共用这一份，页面只按需要改尺寸。
+   hover / active 不再把底色往深里压 —— 强调色文字就压在这格底色上，18% 已经是读得出字的
+   那一档（深浅两档 × 五套配色实测 ≥4.5:1），再压到 24% / 28% 会把 berry 深色推到 4.1 以下。
+   所以「按下去了」用描边与阴影说，不用加深填充。 */
+.pri { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8); box-sizing: border-box;
+  height: var(--sz-ctl); background: var(--sel-bg); border: 0; color: var(--acc); font-weight: 600; border-radius: var(--radius-6);
+  padding: 0 var(--sp-12); font-size: var(--fs-13); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-1);
+  transition: box-shadow var(--dur-180) var(--ease), color var(--dur-180) var(--ease); }
+.pri:hover:not(:disabled) { box-shadow: var(--shadow-2), 0 0 0 var(--hair) var(--acc-line-32); }
+.pri:active:not(:disabled) { box-shadow: inset 0 0 0 var(--hair) var(--acc); }
+.pri:disabled { opacity: 1; color: var(--sub); background: var(--panel2); cursor: not-allowed; box-shadow: none; }
 
 /* ---------- 列表头（标签 + 工具按钮） ---------- */
 .tasks-head { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-12); flex-wrap: wrap; }
@@ -123,12 +158,12 @@ body.wb-splitting-y * { user-select: none !important; }
    只有一行字、不带图标。它不是紫色动作按钮：它和输入框是同一件事（框里那句话交给 AI）。
    .pgroup 里再压成组内那一档（--sz-ctl / 圆角 6 / --input 底色）。 */
 .fb-ai { display: inline-flex; align-items: center; flex: 0 0 auto;
-  height: var(--sz-ctl); padding: 0 var(--sp-12); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-6); background: var(--panel); color: var(--txt);
+  height: var(--sz-ctl); padding: 0 var(--sp-12); border: var(--hair) solid transparent;
+  border-radius: var(--radius-6); background: var(--control-bg); color: var(--txt);
   font-size: var(--fs-13); white-space: nowrap; cursor: pointer; }
 .fb-ai:hover:not(:disabled) { border-color: var(--acc); color: var(--acc); }
 .fb-ai:disabled { opacity: .6; cursor: default; }
-.pgroup .fb-ai { height: var(--sz-ctl); padding: 0 var(--sp-8); border-radius: var(--radius-6); background: var(--input); font-size: var(--fs-12); }
+.pgroup .fb-ai { height: var(--sz-ctl); padding: 0 var(--sp-8); border-radius: var(--radius-6); background: var(--panel); font-size: var(--fs-12); }
 .toolbar input[type="number"] { width: 74px; height: var(--sz-ctl); padding: 0 var(--sp-8); font-size: var(--fs-13); }
 .toolbar .info { font-size: var(--fs-13); color: var(--sub); }
 .pgroup { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); padding: var(--sp-4) var(--sp-8); border: var(--hair) solid var(--line);
@@ -140,10 +175,7 @@ body.wb-splitting-y * { user-select: none !important; }
    边框/底色/圆角也归到这里：以前只写了宽高与字号，搜索框与跳页框留着浏览器默认的
    2px inset 白框，夹在一排 styled 的 .ghost 按钮中间格外显眼（实测 computed：
    border 2px inset、radius 0、白底）—— 也就是「搜索框和跳页没有使用公共 UI」。 */
-.pgroup input { border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-  background: var(--input); color: var(--txt); font-family: inherit; }
-.pgroup input:focus { border-color: var(--acc); }
-.pgroup input:not([type="number"]) { flex: 0 1 150px; min-width: 96px; width: 150px; height: var(--sz-ctl); padding: 0 var(--sp-8); font-size: var(--fs-13); }
+.pgroup input:not([type="number"]) { flex: 0 1 150px; min-width: 96px; width: 150px; height: var(--sz-ctl); padding: 0 var(--sp-8); background: var(--panel); font-size: var(--fs-13); }
 .pgroup input[type="number"] { width: 50px; height: var(--sz-ctl); padding: 0 var(--sp-8); font-size: var(--fs-13); text-align: center; }
 .pgroup > button, .pgroup > .ghost { height: var(--sz-ctl); padding: 0 var(--sp-8); font-size: var(--fs-12); white-space: nowrap; }
 /* Wb.filterBar 的 extraHTML 按钮在 .fb-host 里（DOM 父级是那一格，不是 .pgroup 本身），
@@ -159,12 +191,20 @@ body.wb-splitting-y * { user-select: none !important; }
    工具行搜索框、选择器弹窗的 .search、各页标着 .ui-inp 的输入框是同一件事，写在一条里 ——
    以前 .ui-inp 自己一档 28/--fs-12，和它同一行的下拉、分段开关、按钮全是 32，
    一行里两种高度（素材库基本信息那三格尤其明显）。 */
-.toolbar input[type="search"], .search, .ui-inp { height: var(--sz-ctl); padding: 0 var(--sp-12); border: var(--hair) solid var(--line);
-  border-radius: var(--radius-6); background: var(--input); color: var(--txt); font-size: var(--fs-13); }
+.toolbar input[type="search"], .search, .ui-inp, .pgroup input,
+.krow :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])) {
+  box-sizing: border-box; height: var(--sz-ctl); padding: 0 var(--sp-12); border: var(--hair) solid transparent;
+  border-radius: var(--radius-6); background: var(--input); color: var(--txt); font-size: var(--fs-13);
+  transition: border-color var(--dur-180), background var(--dur-180), box-shadow var(--dur-180); }
 .toolbar input[type="search"], .search { min-width: 150px; }
 /* .ui-inp 常常挤在 flex 行的中间（素材行、参数格、批量条），得让它压得下去。 */
 .ui-inp { min-width: 0; }
-.toolbar input[type="search"]:focus, .search:focus, .ui-inp:focus { border-color: var(--acc); }
+:where(.toolbar input[type="search"], .search, .ui-inp, .ui-ta, .pgroup input,
+  .krow input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])):hover:not(:disabled):not(:focus) {
+  background: var(--control-hover); }
+.toolbar input[type="search"]:focus, .search:focus, .ui-inp:focus, .ui-ta:focus, .pgroup input:focus,
+.krow :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])):focus {
+  border-color: var(--acc); box-shadow: var(--focus-shadow); }
 .toolbar .cnt { color: var(--sub); font-size: var(--fs-13); }
 /* 卡片右下角那一排小动作按钮（角色库 / 收藏逐字相同）。列表档与紧凑档怎么排是各页自己的事，
    只有按钮本身这一条两边一样 —— .card .acts .tool 留在角色库那边（那边有个恒为空的 genBtns 预留位）。 */
@@ -180,7 +220,7 @@ body.wb-splitting-y * { user-select: none !important; }
 /* 文字链样的小动作按钮（栏目标题右侧的「换图 / 机位 / + 加一句 / AI 优化」那一类）：
    它们不是 .ghost（不要边框底色），也不是 .tool（磁贴太大，放进栏目标题会撑行）。
    以前每个页面自己写一份 .dr-link / .link / .lnk，颜色与交互一点点都不一致 —— 收到这里。 */
-.ui-linkbtn { color: var(--pri); background: none; border: 0; cursor: pointer;
+.ui-linkbtn { color: var(--acc); background: none; border: 0; cursor: pointer;
   font: inherit; font-size: var(--fs-13); padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-6); line-height: 1.2; white-space: nowrap; }
 .ui-linkbtn:hover:not(:disabled) { background: var(--panel2); text-decoration: underline; }
 .ui-linkbtn:disabled { opacity: var(--a-50); cursor: not-allowed; text-decoration: none; }
@@ -261,7 +301,7 @@ body.wb-splitting-y * { user-select: none !important; }
 .acts .card-act.ghost.card-act-primary:hover:not(:disabled), .acts .card-act.ghost[aria-pressed="true"],
 .acts .card-act.ghost[aria-expanded="true"] { color: var(--acc); background: var(--acc-tint-10); border-color: var(--acc-line-32); }
 .acts .card-act.ghost.danger { color: var(--err); }
-.acts .card-act.ghost.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err) var(--a-8), transparent);
+.acts .card-act.ghost.danger:hover:not(:disabled) { background: var(--err-tint);
   border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
 .acts .card-act.ghost.warn { color: var(--warn); }
 .acts .card-act.ghost:disabled { opacity: .45; cursor: not-allowed; }
@@ -305,7 +345,7 @@ body.wb-splitting-y * { user-select: none !important; }
   border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: none; color: var(--sub);
   cursor: pointer; white-space: nowrap; transition: border-color var(--dur-120), color var(--dur-120), background var(--dur-120); }
 .chip:hover { border-color: var(--acc); }
-.chip.on { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); }
+.chip.on { color: var(--acc); border-color: transparent; background: var(--sel-bg); font-weight: 600; }
 
 /* 卡片内展开的详情：中性描边小卡片（不带强调色元素）。
    显隐由 .exp 的 0fr → 1fr 折叠控制（资产库 / 收藏 / 工作台同一副骨架），这里默认藏好。 */
@@ -416,11 +456,12 @@ html[data-embedded] #lightbox { inset: 0; }
    往 select 的 class 里写尺寸是惰性的 —— 一个像素都不会变。 */
 .dd select { display: none; }
 .dd-btn { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); width: 100%;
-  height: var(--sz-ctl); padding: 0 var(--sp-12); background: var(--input); color: var(--txt);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); font-size: var(--fs-13);
-  cursor: pointer; transition: border-color var(--dur-180), background var(--dur-180); user-select: none; }
-.dd-btn:hover { border-color: var(--acc); background: var(--panel2); }
-.dd.open .dd-btn { border-color: var(--acc); }
+  height: var(--sz-ctl); padding: 0 var(--sp-12); background: var(--panel); color: var(--txt);
+  border: var(--hair) solid transparent; border-radius: var(--radius-6); font-size: var(--fs-13); box-shadow: var(--shadow-1);
+  cursor: pointer; transition: border-color var(--dur-180), background var(--dur-180), box-shadow var(--dur-180); user-select: none; }
+.dd-btn:hover:not(:disabled) { background: var(--control-hover); border-color: var(--acc-line-32); }
+.dd-btn:active:not(:disabled) { background: var(--control-pressed); }
+.dd.open .dd-btn { border-color: var(--acc); box-shadow: var(--focus-shadow); }
 .dd-btn .arw { display: inline-flex; transition: transform var(--dur-180); flex: 0 0 auto; color: var(--sub); }
 .dd.open .dd-btn .arw { transform: rotate(180deg); }
 .dd-btn .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -459,7 +500,16 @@ input[type="number"] { font-family: inherit; }
 /* ---------- 参数卡片（生图工作台「高级设置」同款结构） ---------- */
 .adv { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10); }
 .adv-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-16) var(--sp-16);
-  cursor: pointer; user-select: none; }
+  cursor: pointer; user-select: none; border-radius: var(--radius-10) var(--radius-10) 0 0;
+  transition: background var(--dur-180); }
+/* 折叠条是这一张卡上唯一点得中的东西，但它以前只有 cursor:pointer —— 鼠标移上去一个像素都不变，
+   「高级设置」读起来就像一段标题而不是一个开关。hover 给一层强调淡底，摘要与 chevron 转成强调墨
+   （压在 10% 淡底上实测 ≥4.5:1，与 `.dd-opt:hover` 同一画法；不往更深压，加深会把 berry 深色推到线下）。
+   圆角自己收：`.adv` 只在工作台那一份有 overflow:hidden，导演台那两份没有，
+   不写的话 hover 那层底会在卡片圆角处方出两个角；收起态整张卡只剩这一行，四角都得圆。 */
+.adv-head:hover { background: var(--acc-tint-10); }
+.adv-head:hover .sum, .adv-head:hover .chev { color: var(--acc); }
+.adv.closed .adv-head { border-radius: var(--radius-10); }
 /* margin:0 + line-height 不是洁癖：这一行是 flex 居中的标题条，浏览器默认的 `h2{margin:.83em 0}`
    会在 13.5px 字号下白占上下各 11px；而默认 line-height(≈1.6) 又把 13.5px 的字撑成 22px 高的行盒。
    两者叠加，头那条从本该的 36px 变成 68px —— 三个工作台的「高级设置」全都带着这一截没人要的高度。 */
@@ -480,6 +530,11 @@ input[type="number"] { font-family: inherit; }
 .adv-grid > div { display: flex; flex-direction: column; min-width: 0; }
 .adv-grid > div > label:first-child { margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .adv-grid > div > select, .adv-grid > div > input, .adv-grid > div > .dd { margin-bottom: 0; }
+/* 高级设置卡里的输入框与同一排的 `.tool` 磁贴取同一枚底色：以前是 `--input`（偏蓝的那一档），
+   和旁边的点按按钮并排像两种控件；这张卡里的可点元素按同一层底排。 */
+.adv .adv-body input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]) {
+  background: var(--control-bg);
+}
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-8); }
 .sel-hint { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-4); min-height: 14px; }
 
@@ -493,21 +548,20 @@ input[type="number"] { font-family: inherit; }
    display:contents 让按钮直接成为 .btn-row 的弹性子项 —— 套一层盒子会多出一个排版项，间距就变了。 */
 .btn-host { display: contents; }
 .tool { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-8); height: var(--sz-ctl);
-  padding: 0 var(--sp-12); background: var(--panel2);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); color: var(--sub);
-  font-size: var(--fs-13); line-height: 1; white-space: nowrap; cursor: pointer;
-  transition: color var(--dur-180), border-color var(--dur-180), background var(--dur-180), transform var(--dur-120);
+  padding: 0 var(--sp-12); background: var(--control-bg); box-shadow: var(--shadow-1);
+  border: var(--hair) solid transparent; border-radius: var(--radius-6); color: var(--txt);
+  font-size: var(--fs-13); font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer;
+  transition: color var(--dur-180), border-color var(--dur-180), background var(--dur-180);
   user-select: none; font-family: inherit; }
-.tool:hover:not(:disabled) { color: var(--txt); border-color: var(--acc); transform: translateY(-1px); }
-.tool:active:not(:disabled) { transform: translateY(0); }
-/* 图标走强调色、文字保持次级色（三页一致） */
-.tool .ic { display: inline-flex; align-items: center; justify-content: center; color: var(--acc); }
+.tool:hover:not(:disabled) { background: var(--control-hover); }
+.tool:active:not(:disabled) { background: var(--control-pressed); }
+.tool .ic { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
 .tool .ic svg { display: block; }
 .tool.acc { color: var(--acc); border-color: var(--acc-line-32); background: var(--acc-tint-10); }
 .tool.acc:hover:not(:disabled) { color: var(--acc); border-color: var(--acc); }
 .tool.danger:hover:not(:disabled) { color: var(--err); border-color: var(--err); }
 .tool.danger .ic { color: inherit; }
-.tool:disabled { opacity: var(--a-55); cursor: not-allowed; }
+.tool:disabled { opacity: var(--a-55); box-shadow: none; cursor: not-allowed; }
 /* ---------- 图标型删除按钮（只有一颗图标、没有文字的那种）：全站一份 ----------
    `.tool` / `.ghost` 都是**带文字**的胶囊，删一颗图标还要占一整个胶囊的位置 —— 素材槽、
    台词行、拍片记录那种窄格子塞不下，所以每一处都自己手写了一份按钮外观。
@@ -525,15 +579,16 @@ input[type="number"] { font-family: inherit; }
   color: var(--sub); font-family: inherit;
   transition: color var(--dur-180), border-color var(--dur-180), background var(--dur-180); }
 .iconbtn:hover:not(:disabled) { color: var(--err); border-color: var(--err);
-  background: color-mix(in srgb, var(--err) var(--a-8), transparent); }
+  background: var(--err-tint); }
 .iconbtn:disabled { opacity: var(--a-50); cursor: not-allowed; }
 .iconbtn .ic { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .iconbtn .ic svg { display: block; }
 /* 压在深色画面上的一颗（素材槽那个盖在图片上的 ✕）：要实底才看得见，
-   所以底色跟着宿主走，不吃上面那套「无底 + hover 才显形」。 */
+   所以底色跟着宿主走，不吃上面那套「无底 + hover 才显形」。
+   hover 填实红之后墨换成掏出来的面板色 —— 深色档的 `--err` 是浅红，白字压不住（同 `.ghost.danger:hover`）。 */
 .iconbtn.on-dark { width: 20px; height: 20px; border-radius: 50%;
   background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); }
-.iconbtn.on-dark:hover:not(:disabled) { background: var(--err); border-color: transparent; color: var(--on-acc); }
+.iconbtn.on-dark:hover:not(:disabled) { background: var(--err); border-color: transparent; color: var(--panel); }
 /* hidden 属性要真的生效：.tool 自己带 display，会和浏览器默认的 [hidden]{display:none} 同权重、
    又因为写在后面而赢掉 —— 于是 el.hidden = true 看着没反应，磁贴永远在那儿。
    能力驱动的显隐（语音台的参考音频、视频台的平台自动润色）全靠这一条，
@@ -544,36 +599,50 @@ input[type="number"] { font-family: inherit; }
    组件里再写 `.tool[hidden]` 这类具体规则仍然保留（权重更明确），这条只兜住漏网的。 */
 [hidden] { display: none !important; }
 .tool[hidden] { display: none; }
-/* 开关型磁贴（视频台「平台自动润色」）：选中态一眼能看出来 */
-.tool.on { color: var(--acc); border-color: var(--acc); background: var(--acc-tint-10); font-weight: 600; }
+/* 开关型磁贴（视频台「平台自动润色」）：这一颗说的是「这一档在用」，所以底穿全站「选中」那一身
+   （`--sel-bg` + 强调墨 + 加粗，同 `.ghost.active` / `.ui-seg > button.on` / `.pri`），
+   框留实心强调色 —— 开与关必须隔一眼分得清，32% 那一档淡框压在卡面上实测只有 1.8:1，
+   而「在用」框在别处也是实心一圈（`.dd.open .dd-btn` / `.chain-row.on` / `.asset-slot.chain`）。
+   hover / active 各写一条完整的：`.tool:hover:not(:disabled)` 的权重比 `.tool.on` 高，
+   不写的话鼠标一移上去 `--control-hover` 那层中性底就把强调底盖掉，按下时也毫无反馈。
+   hover 只加环不加更深底（同 `.pri`：底再往深压，强调墨就掉到 4.5:1 以下）。 */
+.tool.on { color: var(--acc); border-color: var(--acc); background: var(--sel-bg); font-weight: 600; }
 .tool.on .ic { color: var(--acc); }
+.tool.on:hover:not(:disabled) { color: var(--acc); border-color: var(--acc); background: var(--sel-bg);
+  box-shadow: var(--shadow-2), 0 0 0 var(--hair) var(--acc-line-32); }
+.tool.on:active:not(:disabled) { color: var(--acc); border-color: var(--acc); background: var(--sel-bg);
+  box-shadow: inset 0 0 0 var(--hair) var(--acc); }
 /* 就地二次确认（Confirm.arm）：删除按钮原地变成「确认删掉」的那几秒。
    危险色要**压过一切**——它此刻是这一屏上唯一点得中的东西，用户必须一眼看出
-   「再点一下就没了」。红底 + 白字而不是红字红框：红框在小磁贴上仍然看着像「危险动作」，
+   「再点一下就没了」。实心红底 + 掏出来的墨而不是红字红框：红框在小磁贴上仍然看着像「危险动作」，
    而「已经武装、等的就是这一下」得看起来像已经生效了。 */
 .armed, .tool.armed, button.armed {
-  color: var(--on-acc) !important; background: var(--err) !important;
+  color: var(--panel) !important; background: var(--err) !important;
   border-color: var(--err) !important; font-weight: 600;
   border-radius: var(--radius-6); padding: var(--sp-4) var(--sp-8); text-decoration: none !important;
   animation: armPulse var(--dur-1200) ease-in-out infinite;
 }
 .armed .ic { color: inherit !important; }
-/* 光晕用**白**而不是红：按钮已经是红底，红光晕在红底上看不见（一圈同色等于没有）。 */
-@keyframes armPulse { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 0 var(--hair-5) color-mix(in srgb, transparent); } }
+/* 光晕是环**外面**那一圈淡红（不是压在红底上）：从 2px 扩到 6px、红从 50% 淡到 16%，
+   红底 + 淡红环在浅/深两档都看得见 —— 白环落在浅色面板上等于没有，同色红环落在红底边上等于没有。 */
+@keyframes armPulse {
+  0%, 100% { box-shadow: 0 0 0 var(--hair-2) color-mix(in srgb, var(--err) var(--a-50), transparent); }
+  50% { box-shadow: 0 0 0 var(--hair-6) color-mix(in srgb, var(--err) var(--a-16), transparent); }
+}
 /* 图标型删除按钮（🗑 / ✕）武装后会被撑宽，给个最短宽度免得整行重排一下。
    别给太大：4.6em 刚好装下「真删?」三个字，再宽就只是把那一行推得更开。 */
 button.armed { min-width: 4.6em; }
 /* badge 模式（Confirm.arm 传了 opts.badge）：武装的是**一张图 / 一张脸**而不是一行文字，
    内容不能被 textContent 冲掉，所以通用那条「整块染红」在这里要盖掉 ——
    红底会把脸盖成一团红，等于「等这一下」反而不指向具体是哪一张。
-   改成红环 + 环外一枚红底白字的小标签：环是「现在正等着你再点一下」，标签是「点完会做什么」。 */
+   改成红环 + 环外一枚实心红底、掏出面板色墨的小标签：环是「现在正等着你再点一下」，标签是「点完会做什么」。 */
 .armed.armed-badge {
   background: transparent !important; color: inherit !important;
   padding: 0; border-width: var(--hair-2); animation: armRing var(--dur-1200) ease-in-out infinite;
 }
 .arm-badge {
   position: absolute; left: 50%; bottom: calc(-1 * var(--sp-8)); transform: translateX(-50%);
-  background: var(--err); color: var(--on-acc); font-style: normal; font-size: var(--fs-11);
+  background: var(--err); color: var(--panel); font-style: normal; font-size: var(--fs-11);
   font-weight: 600; line-height: 1; padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-6);
   white-space: nowrap; pointer-events: none; z-index: 2;
 }
@@ -597,23 +666,25 @@ button.armed { min-width: 4.6em; }
    .ui-note 提示条（醒目，带底色）；.ui-hint 是弱提示（一行小字）
    .ui-inp  一行高的单行输入框（角色素材行里的「这张叫什么」「要画什么」）
    .ui-ta   多行输入区（.ui-inp 的多行兄弟：同一套边框与圆角，只是不锁高度） */
-.ui-seg { display: inline-flex; height: var(--sz-ctl); border: var(--hair) solid var(--line); border-radius: var(--radius-6); overflow: hidden; background: var(--panel); }
-.ui-seg > button { border: 0; background: none; color: var(--sub); height: 100%; padding: 0 var(--sp-12);
-  cursor: pointer; font-size: var(--fs-13); font-family: inherit; white-space: nowrap; }
-.ui-seg > button + button { border-left: var(--hair) solid var(--line); }
-.ui-seg > button:hover:not(.on) { color: var(--txt); background: var(--panel2); }
-.ui-seg > button.on { background: var(--pri); color: var(--on-acc); font-weight: 600; }
+.ui-seg { display: inline-flex; align-items: center; gap: var(--sp-2); height: var(--sz-ctl); padding: var(--sp-2);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); overflow: hidden; background: var(--panel2); }
+.ui-seg > button { border: 0; border-radius: var(--radius-4); background: none; color: var(--sub); height: 100%; padding: 0 var(--sp-12);
+  cursor: pointer; font-size: var(--fs-13); font-family: inherit; white-space: nowrap;
+  transition: background var(--dur-180), color var(--dur-180), box-shadow var(--dur-180); }
+.ui-seg > button:hover:not(.on):not(:disabled) { color: var(--txt); background: var(--control-hover); }
+.ui-seg > button.on { background: var(--sel-bg); color: var(--acc); font-weight: 600; box-shadow: var(--shadow-1); }
+.ui-seg > button:active:not(:disabled) { background: var(--control-pressed); }
 .ui-seg:disabled { opacity: .5; }
 /* 分段按钮里的数量芯片（设置页「按生成类型配供应商」那一排：这一类有几家）。
    芯片底色在选中态要换 —— 否则紫底上配浅灰底等于看不见。 */
 .ui-seg > button .seg-n { display: inline-block; margin-left: var(--sp-8); padding: 0 var(--sp-8); border-radius: var(--radius-4);
   font-size: var(--fs-11); font-weight: 600; line-height: 16px; background: var(--panel2); color: var(--sub); }
-.ui-seg > button.on .seg-n { background: color-mix(in srgb, var(--on-acc) var(--a-24), transparent); color: var(--on-acc); }
+.ui-seg > button.on .seg-n { background: var(--panel); color: var(--acc); }
 .ui-pill { display: inline-flex; align-items: center; gap: var(--sp-4); border: var(--hair) solid var(--line);
   background: var(--panel); color: var(--txt); border-radius: var(--radius-999); height: var(--sz-chip); padding: 0 var(--sp-12);
   font-size: var(--fs-13); cursor: pointer; font-family: inherit; white-space: nowrap; }
 .ui-pill:hover:not(.on):not(:disabled) { border-color: var(--acc); color: var(--acc); }
-.ui-pill.on { background: var(--pri); border-color: var(--pri); color: var(--on-acc); font-weight: 600; }
+.ui-pill.on { background: var(--sel-bg); border-color: transparent; color: var(--acc); font-weight: 600; }
 .ui-pill:disabled { opacity: var(--a-50); cursor: not-allowed; }
 /* .mode-row 「输入模式」那一排（工作台与导演台共用）：单颗胶囊的样式就是上面的 .ui-pill，
    这里只管怎么排 —— 说明句要独占一行，所以最后那条 .why 占满整行宽。 */
@@ -622,28 +693,27 @@ button.armed { min-width: 4.6em; }
 .mode-row .why { flex-basis: 100%; font-size: var(--fs-12); color: var(--sub); }
 .ui-tag { display: inline-flex; align-items: center; gap: var(--sp-4); border-radius: var(--radius-999); height: var(--sz-chip); padding: 0 var(--sp-8);
   font-size: var(--fs-12); background: var(--panel2); color: var(--sub); white-space: nowrap; }
-.ui-tag.ok { background: color-mix(in srgb, var(--ok) var(--a-12), transparent); color: var(--ok); }
+/* 状态牌的淡底一律读 `--ok-tint` / `--warn-tint` / `--err-tint`（同一族只此一份透明度），
+   而且那一底是**不透明**的（color-mix 压在 `--panel` 上）：这些牌会浮在缩略图槽、
+   卡片、页面任何一块底色上，透明淡底等于让状态色的可读性跟着背后的像素漂。 */
+.ui-tag.ok { background: var(--ok-tint); color: var(--ok); }
 /* 「运行中」统一用 --warn（琥珀）表示进行中、--ok 表示完成：以前任务圆点写死 #fbbf24、
    这一档写紫，三处「在跑」各一个颜色。进行中与告警同色但语义靠文字区分。 */
-.ui-tag.run { background: color-mix(in srgb, var(--warn) var(--a-14), transparent); color: var(--warn); }
-.ui-tag.warn { background: color-mix(in srgb, var(--warn) var(--a-14), transparent); color: var(--warn); }
-.ui-tag.err { background: color-mix(in srgb, var(--err) var(--a-12), transparent); color: var(--err); }
-.ui-note { background: color-mix(in srgb, var(--warn) var(--a-10), transparent); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-35), transparent); color: var(--warn);
+.ui-tag.run { background: var(--warn-tint); color: var(--warn); }
+.ui-tag.warn { background: var(--warn-tint); color: var(--warn); }
+.ui-tag.err { background: var(--err-tint); color: var(--err); }
+.ui-note { background: var(--warn-tint); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-35), transparent); color: var(--warn);
   border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); line-height: 1.5; }
 .ui-note.info { background: var(--acc-tint-10); border-color: var(--acc-line-32); color: var(--acc); }
-.ui-note.err { background: color-mix(in srgb, var(--err) var(--a-8), transparent); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); color: var(--err); }
+.ui-note.err { background: var(--err-tint); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); color: var(--err); }
 .ui-hint { color: var(--sub); font-size: var(--fs-13); line-height: 1.5; }
 .ui-hint b { color: var(--txt); }
 /* .ui-inp 的几何（高度 / 内边距 / 边框 / 圆角 / 底色 / 字号）与工具行搜索框写在同一条里，
    在「通用按钮」那一节 —— 一行里的输入框和按钮只有一档高度。这里不重复一遍。 */
-/* .ui-ta 多行输入区：与 .ui-inp 同一套边框/圆角/底色，只是**不锁高度**（锁了就写不下两三行）。
-   以前多行的地方（导演台「要念的话」、各页的长文本）各自写一份 textarea 规则，
-   于是同是多行输入框，四个页面上边框粗细、圆角、字号都不一样 —— 这里收成一份。
-   不写 color：与 .ui-inp 同理，继承 body 的 --txt 本来就是对的。 */
-.ui-ta { width: 100%; padding: var(--sp-8) var(--sp-8); font-size: var(--fs-13); line-height: 1.6; resize: vertical;
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input);
-  font-family: inherit; min-width: 0; box-sizing: border-box; }
-.ui-ta:focus { border-color: var(--acc); }
+.ui-ta { width: 100%; padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); line-height: 1.6; resize: vertical;
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input); color: var(--txt);
+  font-family: inherit; min-width: 0; box-sizing: border-box;
+  transition: border-color var(--dur-180), box-shadow var(--dur-180); }
 /* ---------- .mlist 型号清单（全站一份，设置页两处共用）----------
    设置页有两处「一份平台接口给回来的型号清单」：供应商卡里那一张、添加自定义供应商时那一张。
    以前两边各写各的（`.mb-list` 与 `.cus-models`），结果是同一件事两种排版、两种勾选框、
@@ -656,8 +726,9 @@ button.armed { min-width: 4.6em; }
 .mlist { display: flex; flex-direction: column; gap: var(--sp-2); max-height: 264px; overflow-y: auto;
   overscroll-behavior: contain; border: var(--hair) solid var(--line); border-radius: var(--radius-6);
   padding: var(--sp-4) var(--sp-8); background: var(--panel); }
-/* 勾选框跟主题主色：浏览器原生那个永远是系统蓝，跟全站的紫放在一起一眼像没做完。 */
-.mlist input[type="checkbox"], .mlist input[type="radio"] { accent-color: var(--pri);
+/* 勾选框由上面那条 `:where(input[type=checkbox/radio])` 整颗自绘（appearance:none），
+   accent-color 对它已经不起作用，这里只留排布。 */
+.mlist input[type="checkbox"], .mlist input[type="radio"] {
   margin: 0; flex: 0 0 auto; }
 .mlist-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8);
   border-radius: var(--radius-6); }
@@ -700,7 +771,7 @@ button.armed { min-width: 4.6em; }
 .ui-cands > .lab { font-size: var(--fs-12); color: var(--sub); }
 .ui-cand { display: inline-flex; align-items: center; gap: var(--sp-4); border: var(--hair) solid var(--line);
   border-radius: var(--radius-10); padding: var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-4); background: var(--panel); font-size: var(--fs-12); }
-.ui-cand.on { border-color: var(--pri); box-shadow: 0 0 0 var(--hair) var(--pri) inset; }
+.ui-cand.on { border-color: var(--acc); box-shadow: 0 0 0 var(--hair) var(--acc) inset; }
 .ui-cand img { width: 34px; height: 34px; object-fit: cover; border-radius: var(--radius-6); display: block; cursor: zoom-in; }
 .ui-cand .t { color: var(--sub); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-cand .ui-linkbtn { font-size: var(--fs-12); padding: var(--sp-2) var(--sp-4); }
@@ -708,7 +779,7 @@ button.armed { min-width: 4.6em; }
 .ui-wait { display: inline-flex; align-items: center; gap: var(--sp-8); color: var(--sub); font-size: var(--fs-12);
   border: var(--hair) dashed var(--line); border-radius: var(--radius-10); padding: var(--sp-4) var(--sp-8); background: var(--panel2); }
 .ui-wait i { width: 12px; height: 12px; flex: 0 0 12px; border: var(--hair-2) solid var(--line);
-  border-top-color: var(--pri); border-radius: 50%; animation: ui-spin var(--dur-800) linear infinite; }
+  border-top-color: var(--acc); border-radius: 50%; animation: ui-spin var(--dur-800) linear infinite; }
 /* fill 档：铺满一个缩略格子用（深色槽也走这一份标记，页面只在自己的容器上覆盖颜色与字号）。
    没有这一档，页面就会为了「占位要铺满」再写第二份 spinner 标记。 */
 .ui-wait.fill { flex-direction: column; width: 100%; height: 100%; gap: var(--sp-8); text-align: center;
@@ -884,8 +955,10 @@ button.armed { min-width: 4.6em; }
 .ap-item .m { padding: var(--sp-8) var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
 .ap-item .m .t { color: var(--txt); font-size: var(--fs-12); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; margin-bottom: var(--sp-2); }
+/* 勾选圆点浮在缩略图**上面**，背后是任意画面而不是主题底色 —— 半透明强调底配强调色勾
+   在浅色照片上直接消失。这一颗用实心强调底 + 反白勾（`--on-acc` over `--pri` 实测 ≥5:1）。 */
 .ap-item .chk { position: absolute; top: var(--sp-8); right: var(--sp-8); width: 20px; height: 20px; border-radius: 50%;
-  background: var(--acc); color: var(--on-acc); font-size: var(--fs-12); line-height: 20px; text-align: center;
+  background: var(--pri); color: var(--on-acc); font-size: var(--fs-12); line-height: 20px; text-align: center;
   display: none; }
 .ap-item.sel .chk { display: block; }
 /* 选择器顶部的入口切换（资产库 / 我的收藏 / 本地上传 / AI 生成）+ 类型筛选。
@@ -935,7 +1008,7 @@ button.armed { min-width: 4.6em; }
    四张弹窗都挂 ui-dlg 类（id 只留给 JS 钩子），头/体/脚的皮肤只有这一份。
    .pf-* 是通用表单那张的头/体/脚（类名不同、皮肤相同，跟 .pr-* 并在同一条规则里）。
    各 id 的专属规则只声明尺寸与定位差异（宽高 / 最大高），不重复皮肤。 */
-dialog.ui-dlg { border: 0; padding: 0; border-radius: var(--radius-14); max-width: min(560px, 92vw); width: auto;
+dialog.ui-dlg { border: var(--hair) solid var(--line); padding: 0; border-radius: var(--radius-14); max-width: min(560px, 92vw); width: auto;
   background: var(--panel); color: var(--txt); box-shadow: var(--shadow-4); }
 dialog.ui-dlg[open] { display: flex; flex-direction: column; }
 dialog.ui-dlg::backdrop { background: color-mix(in srgb, var(--media-bg) var(--a-50), transparent); }
@@ -1044,7 +1117,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 /* 「接上一镜」只在拆长镜头时由程序标上：这里只读，能看见它、能拖着换顺序，但改不了。 */
 #prDlg .pr-row.brow .bchain { flex: 0 0 auto; display: inline-flex; align-items: center; height: 20px; padding: 0 var(--sp-8);
   border-radius: var(--radius-10); font-size: var(--fs-11); color: var(--acc); white-space: nowrap;
-  background: color-mix(in srgb, var(--acc) var(--a-14), transparent); border: var(--hair) solid var(--acc-line-32); }
+  background: var(--acc-tint-10); border: var(--hair) solid var(--acc-line-32); }
 #prDlg .pr-row.brow textarea { flex: 1 1 auto; min-width: 0; }
 /* 分开镜审阅里的台词（`lineEditable`）：提示词与「说话的人 + 台词」上下两格。
    行的外框仍是 .brow，这里只多一列把两块正文包住；台词格与导演台右栏同高一行起步。 */
@@ -1054,12 +1127,14 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #prDlg .pr-row.brow .bline .pb-who { flex: 0 0 104px; min-width: 0; height: var(--sz-ctl-sm); font-size: var(--fs-12); }
 #prDlg .pr-row.brow .bline .pb-line { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl-sm); min-height: var(--sz-ctl-sm); padding: var(--sp-4) var(--sp-8);
   font-size: var(--fs-12); line-height: 1.5; resize: vertical; }
-/* 拖动：手里那一格压暗，落点画在**格子自己身上**（inset 阴影，不改高度也不挤走邻居）。 */
+/* 拖动：手里那一格压暗，落点画在**格子自己身上**（inset 阴影，不改高度也不挤走邻居）。
+   负偏移必须写 `calc(-1 * var(--accent-bar))` —— `-var(--x)` 代入后是「减号 + 一个长度」，
+   整条声明作废（原来那两条 dropaft 就是这么静默画不出来的，拖到下一格没有任何反馈）。 */
 #prDlg .pr-row.brow.drag { opacity: .45; }
-#prDlg .pr-row.brow.dropbef { box-shadow: inset 0 var(--accent-bar) 0 var(--pri); }
-#prDlg .pr-row.brow.dropaft { box-shadow: inset 0 -var(--accent-bar) 0 var(--pri); }
-#prDlg .pr-row.brow.dropbef.pin { box-shadow: inset var(--accent-bar) 0 0 var(--acc), inset 0 var(--accent-bar) 0 var(--pri); }
-#prDlg .pr-row.brow.dropaft.pin { box-shadow: inset var(--accent-bar) 0 0 var(--acc), inset 0 -var(--accent-bar) 0 var(--pri); }
+#prDlg .pr-row.brow.dropbef { box-shadow: inset 0 var(--accent-bar) 0 var(--acc); }
+#prDlg .pr-row.brow.dropaft { box-shadow: inset 0 calc(-1 * var(--accent-bar)) 0 var(--acc); }
+#prDlg .pr-row.brow.dropbef.pin { box-shadow: inset var(--accent-bar) 0 0 var(--acc), inset 0 var(--accent-bar) 0 var(--acc); }
+#prDlg .pr-row.brow.dropaft.pin { box-shadow: inset var(--accent-bar) 0 0 var(--acc), inset 0 calc(-1 * var(--accent-bar)) 0 var(--acc); }
 
 /* ---------- 页内确认 / 选择弹窗（替代浏览器原生 confirm，样式与上面同一套） ---------- */
 #cfDlg { width: min(520px, 92vw); position: fixed; inset: 0; margin: auto;
@@ -1069,7 +1144,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #cfDlg .cf-opts { display: flex; flex-direction: column; gap: var(--sp-8); }
 #cfDlg .cf-opt { text-align: left; border: var(--hair) solid var(--line); background: var(--panel2);
   border-radius: var(--radius-6); padding: var(--sp-12) var(--sp-12); cursor: pointer; font-family: inherit; color: inherit; }
-#cfDlg .cf-opt:not(:disabled):hover { border-color: var(--pri); }
+#cfDlg .cf-opt:not(:disabled):hover { border-color: var(--acc-line-32); background: var(--acc-tint-10); }
 #cfDlg .cf-opt b { display: block; font-size: var(--fs-13); font-weight: 600; }
 #cfDlg .cf-opt span { display: block; font-size: var(--fs-12); color: var(--sub); margin-top: var(--sp-4); }
 
@@ -1114,7 +1189,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .dp-pop .dp-day:hover { background: var(--panel2); border-color: var(--line); }
 .dp-pop .dp-day.out { color: var(--sub); opacity: .55; }
 .dp-pop .dp-day.today { border-color: var(--acc); color: var(--acc); }
-.dp-pop .dp-day.sel { background: var(--pri); border-color: var(--pri); color: var(--on-acc); font-weight: 600; }
+.dp-pop .dp-day.sel { background: var(--sel-bg); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .dp-pop .dp-foot { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-8);
   padding-top: var(--sp-8); border-top: var(--hair) solid var(--line); }
 .dp-pop .dp-foot .ghost.mini { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-6); }
@@ -1126,8 +1201,10 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   background: var(--panel); border: var(--hair) solid var(--line); border-left-width: 3px;
   border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); line-height: 1.5; color: var(--txt);
   box-shadow: var(--shadow-2); animation: toastIn var(--dur-180) ease; }
+/* 状态圆点里的那个字符压在语义实底上（ok/err/warn/info 四家各有各的底色），
+   墨取掏出来的面板色：深色档这四枚语义色全是**浅色**，白字压不住（同 `.ghost.danger:hover`）。 */
 .toast .ic { flex: 0 0 16px; width: 16px; height: 16px; border-radius: 50%; display: flex;
-  align-items: center; justify-content: center; font-size: var(--fs-11); font-weight: 700; color: var(--on-acc); margin-top: var(--sp-2); }
+  align-items: center; justify-content: center; font-size: var(--fs-11); font-weight: 700; color: var(--panel); margin-top: var(--sp-2); }
 .toast .tx { flex: 1; word-break: break-word; }
 .toast.ok { border-left-color: var(--ok); }   .toast.ok .ic { background: var(--ok); }
 .toast.err { border-left-color: var(--err); } .toast.err .ic { background: var(--err); }
@@ -1156,7 +1233,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   font-family: inherit; }
 #banner .bx:hover { opacity: 1; background: color-mix(in srgb, var(--pal-gray) var(--a-14), transparent); }
 #banner.warn { background: var(--warn-tint); color: var(--warn); border-color: color-mix(in srgb, var(--warn) var(--a-26), transparent); }
-#banner.err { background: color-mix(in srgb, var(--err) var(--a-8), transparent); color: var(--err); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
+#banner.err { background: var(--err-tint); color: var(--err); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
 @media (max-width: 1200px) { #banner { margin: var(--sp-8) var(--sp-16) 0; } }
 
 /* ---------- 资产库批量操作条 ---------- */
@@ -1177,7 +1254,9 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   box-shadow: var(--shadow-1); transition: border-color var(--dur-120), background var(--dur-120); }
 .multi .task:hover .pick, .multi .card:hover .pick { border-color: var(--acc); }
 .task .pick:hover, .card .pick:hover { border-color: var(--acc); }
-.task .pick.on, .card .pick.on { background: var(--acc); border-color: var(--acc); }
+/* 勾上之后是**实心**那一档：这一颗浮在缩略图左上角，背后是任意画面，
+   半透明强调底 + 强调色勾在浅底照片上会整颗消失（和 .ap-item .chk 同一条理由）。 */
+.task .pick.on, .card .pick.on { background: var(--pri); border-color: transparent; color: var(--on-acc); }
 .task.picked, .card.picked { outline: var(--hair-2) solid var(--acc); outline-offset: calc(-1 * var(--hair)); }
 
 /* ---------- 状态文字的语义色（各页原本各自定义 .err/.ok，缺 .warn） ----------
@@ -1259,7 +1338,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 
 /* 本机 / 云端卡片标识（资产库与收藏共用一个开关 sk_media_badge；只在开关打开时由页面输出） */
 .srcbadge{display: inline-block;font-size: var(--fs-11);line-height: 1.5;padding: 0 var(--sp-4);border-radius: var(--radius-4);margin-right: var(--sp-8);vertical-align: 1px;white-space:nowrap;border: var(--hair) solid transparent}
-.srcbadge.local{color: var(--ok);background: color-mix(in srgb, var(--ok) var(--a-10), transparent);border-color: color-mix(in srgb, var(--ok) var(--a-28), transparent)}
+.srcbadge.local{color: var(--ok);background: var(--ok-tint);border-color: color-mix(in srgb, var(--ok) var(--a-28), transparent)}
 .srcbadge.cloud{color: var(--sub);background:var(--panel2);border-color:var(--line)}
 .srcbadge.both{color: var(--acc);background:var(--acc-tint-10);border-color:var(--acc-line-32)}
 
@@ -1280,15 +1359,9 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   opacity: .75;
 }
 
-/* ============================================================
-   共享表面 / 骨架基元（令牌收敛）：卡片、页面壳、页面标题、加载、空态。
-   这是新页面与后续迁移的唯一规格；各页现有同类规则已逐条对齐到同一令牌
-   （卡片圆角 --radius-10 + hover --shadow-2 + translateY(-1px)、页面留白统一）。
-   页面标题走下面那一份 .phead（七个页面共用，跨页宽、粘顶）。
-   需要模板挂类才吃到这份的（.card-surface / .page-shell / .phead），列在报告交给模板会话。 */
 .card-surface { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  transition: border-color var(--dur-180), box-shadow var(--dur-180), transform var(--dur-120); }
-.card-surface:hover { border-color: var(--acc); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+  box-shadow: var(--shadow-1); transition: border-color var(--dur-180), box-shadow var(--dur-180); }
+.card-surface:hover { border-color: var(--line); }
 /* 拖起来的那张卡压暗：三页（素材库 / 资产库 / 收藏）的拖动源共用这一档反馈。 */
 .card-surface.dragging { opacity: .45; }
 /* 页面外壳（**唯一一份**）：定位 + 滚动 + 盒模型 + 留白。
@@ -1342,7 +1415,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
    七页各挂一枚 → 切页时标题旁边多一格、强调色也多一个落点，标题本身反而不突出
    （用户点名：移除图标）。现在页头是全站唯一被强调色着色的元素那条约定作废。 */
 .phead-id { display: flex; align-items: center; gap: var(--sp-8); flex: 0 0 auto; min-width: 0; }
-.phead-h1 { font-family: var(--font-ui); font-size: var(--fs-20); font-weight: 700; margin: 0;
+.phead-h1 { font-family: var(--font-ui); font-size: var(--fs-20); font-weight: 600; letter-spacing: -.02em; margin: 0;
   line-height: 1.25; color: var(--txt); white-space: nowrap; }
 /* B 上下文 */
 .phead-meta { display: flex; align-items: center; gap: var(--sp-8); flex: 0 0 auto; }
@@ -1360,9 +1433,6 @@ button.phead-chip:hover { border-color: var(--acc); color: var(--acc); }
 button.phead-chip:hover b { color: var(--acc); }
 .phead-chip.on { background: var(--acc-tint-10); border-color: var(--acc-line-32); color: var(--acc); }
 .phead-chip.on b { color: var(--acc); }
-.phead-chip.warn { background: color-mix(in srgb, var(--warn) 10%, transparent);
-  border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
-.phead-chip.warn b { color: var(--warn); }
 /* 上下文槽里的状态点：形状也带信息 —— 实心琥珀=在跑 / 空心琥珀=结果未知 / 实心红=失败 */
 .phead-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
   display: inline-block; flex: 0 0 auto; }
@@ -1403,7 +1473,7 @@ button.phead-chip:hover b { color: var(--acc); }
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); padding: var(--sp-2) var(--sp-8); }
 .raw-req > summary .raw-chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) var(--a-30), transparent); }
 .raw-req > summary .raw-warn { font-size: var(--fs-11); color: var(--warn);
-  background: color-mix(in srgb, var(--warn) var(--a-10), transparent);
+  background: var(--warn-tint);
   border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-30), transparent);
   border-radius: var(--radius-999); padding: var(--sp-2) var(--sp-8); }
 .raw-req > summary::-webkit-details-marker { display: none; }
@@ -1448,14 +1518,16 @@ button.phead-chip:hover b { color: var(--acc); }
 .plate-st { font-size: var(--fs-13); font-weight: 600; line-height: 1.3; }
 .plate-t { font-size: var(--fs-11); line-height: 1.4; font-family: var(--font-mono);
   font-variant-numeric: tabular-nums; opacity: .85; }
-.plate--fail { background: color-mix(in srgb, var(--err) var(--a-10), transparent); color: var(--err); }
-.plate--unc { background: color-mix(in srgb, var(--warn) var(--a-12), transparent); color: var(--warn); }
-.plate--live { background: color-mix(in srgb, var(--warn) var(--a-10), transparent); color: var(--warn); }
+.plate--fail { background: var(--err-tint); color: var(--err); }
+.plate--unc { background: var(--warn-tint); color: var(--warn); }
+.plate--live { background: var(--warn-tint); color: var(--warn); }
 /* 中性牌：没有该说的坏消息，只是「这一格没有画面」（排队中 / 视频没缩略图 / 文件） */
 .plate--plain { background: var(--panel2); color: var(--sub); }
+/* 音频那一格的两团强调色渐变同样压在不透明面板上：这一整块牌是**替掉画面**铺满缩略图槽的，
+   背后既可能是槽底色也可能是还没落定的画面，透明淡底会让「强调色字 × 底」这一对比没个定数。 */
 .plate--audio { color: var(--acc);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), transparent),
-    color-mix(in srgb, var(--acc2) var(--a-16), transparent)); }
+  background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), var(--panel)),
+    color-mix(in srgb, var(--acc2) var(--a-16), var(--panel))); }
 .plate-bar { width: 100%; height: var(--hair-2); border-radius: var(--radius-4);
   background: color-mix(in srgb, currentColor var(--a-24), transparent); overflow: hidden; }
 .plate-bar i { display: block; height: 100%; background: currentColor; border-radius: var(--radius-4); }

@@ -97,9 +97,9 @@
 .assets-page #grid .band-in .cdet { margin-top: var(--sp-4); }
 .assets-page .asset .meta .cancel { color: var(--err); cursor: pointer; }
 .assets-page .badge { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-4); background: var(--panel2); color: var(--sub); }
-.assets-page .badge.acc { color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), transparent); }
-.assets-page .badge.run { color: var(--warn); background: color-mix(in srgb, var(--warn) var(--a-10), transparent); }
-.assets-page .badge.fail { color: var(--err); background: color-mix(in srgb, var(--err) var(--a-8), transparent); }
-.assets-page .badge.done { color: var(--ok); background: color-mix(in srgb, var(--ok) var(--a-10), transparent); }
+.assets-page .badge.acc { color: var(--acc); background: var(--acc-tint-10); }
+.assets-page .badge.run { color: var(--warn); background: var(--warn-tint); }
+.assets-page .badge.fail { color: var(--err); background: var(--err-tint); }
+.assets-page .badge.done { color: var(--ok); background: var(--ok-tint); }
 .assets-page .det-refs img { width: 100%; height: 84px; object-fit: cover; border-radius: var(--radius-6); border: var(--hair) solid var(--line); cursor: zoom-in; }
 .assets-page .det-refs img:hover { border-color: var(--acc); }

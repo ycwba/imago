@@ -595,9 +595,15 @@ function detectThemePair(file, src) {
       continue;
     }
     if (/^--shadow-/.test(name)) continue;                   // 阴影可以写死
-    if (name === '--atbg') {
-      if (!/^color-mix\(in srgb, var\(--txt\) var\(--a-[\d.]+%?\), transparent\)$/.test(val)) {
-        out[file + '#深色档的 --atbg 不是 color-mix(in srgb, var(--txt) var(--a-*), transparent)：' + val.slice(0, 60)] = 1;
+    /* 按透明度铺的那两枚底：深浅两档的透明度本来就该不同（同一档透明度在深底上会把
+       落在上面的强调色文字压到 4.5 以下），所以它们不走 oklch 推导那条式子。
+       源色钉死（--atbg 只能从 --txt 铺、--sel-bg 只能从 --acc 铺），档位仍只认 --a-* 阶梯。 */
+    const WASH_SRC = { '--atbg': '--txt', '--sel-bg': '--acc' };
+    if (WASH_SRC[name]) {
+      const re = new RegExp('^color-mix\\(in srgb, var\\(' + WASH_SRC[name] + '\\) var\\(--a-[\\d.]+%?\\), transparent\\)$');
+      if (!re.test(val)) {
+        out[file + '#深色档的 ' + name + ' 不是 color-mix(in srgb, ' + WASH_SRC[name]
+          + ' var(--a-*), transparent)：' + val.slice(0, 60)] = 1;
       }
       continue;
     }

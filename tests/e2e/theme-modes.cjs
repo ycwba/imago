@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 主题两根轴：5 套配色 + 跟随系统（深色由浅色现算）。
    用户要的是：底色配色能挑，日夜能跟系统走，深色不是另一份手写色值。
-   这一条盯七件事：
+   这一条盯八件事：
      ① 缺省：浅色 + 海洋（两个键都没设过时解析出来的就是这一档）
      ② 设置页「外观与界面」里两行都在（配色 5 档 / 日夜 3 档），点一下当场生效并落盘
      ③ 5 套配色 × 浅/深：强调色两两不同，中性色逐字节不动（换配色只换强调色那一族）
@@ -9,6 +9,11 @@
      ⑤ 侧栏那颗「换背景」：跟随系统时点一下 = 按**解析后**的那一档取反并钉住，不再跟系统
      ⑥ 坏值回落：存储里是认不出的名字时退回 浅色 / 海洋，data-theme 里永远不出现 system
      ⑦ 深色确实是「深色」：底与字的亮度掉转过来；换配色不动底色（深色档也一样）
+     ⑧ 强调色墨压在**组件真正用的那几块底**上仍然读得出来：淡底（选中态 / 软底 / 描边）压在表面上、
+        实心档上的墨（白字只许压 `--pri`，语义实底 `--acc/--ok/--warn/--err/--sub` 上换成掏出来的面板色），
+        状态牌一族（语义墨压在自己那枚**不透明**淡底上，与背后是什么无关）、
+        语义色不带淡底当文字墨时压在自己真正用的那几块面上，
+        而且淡底要把那一格从表面上抬起来（选中看得出来是选中）—— 量的是合成完的像素，不是色值表
 
    data-theme 只放解析后的 light / dark；配色在 data-palette。
    颜色一律读**解析之后**的像素（自定义属性本身是 token 流，oklch 推导要等浏览器算完）——
@@ -24,9 +29,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const PALETTES = ['violet', 'ocean', 'teal', 'berry', 'amber'];
 /* 换配色时**不许**动的那些：底色 / 面 / 描边 / 文字 / 底纹 / 滚动条。 */
-const NEUTRALS = ['--bg', '--panel', '--panel2', '--line', '--txt', '--sub', '--input', '--thumbbg', '--scroll', '--atbg'];
+const NEUTRALS = ['--bg', '--panel', '--panel2', '--line', '--txt', '--sub', '--input', '--control-bg', '--thumbbg', '--scroll', '--atbg'];
 /* 强调色那一族：换配色只动这三枚。 */
 const ACCENTS = ['--acc', '--acc2', '--pri'];
+/* ⑧ 里淡底会压在这几块表面上（组件真正用的那几块）。 */
+const SURFACES = ['--bg', '--panel', '--panel2', '--input', '--control-bg'];
+/* ⑧ 里当实底的语义色：深色档它们全变成**浅色**（深色由浅色现算、只换亮度），
+   所以这些底上的墨用面板色掏出来，不用白字 —— 只有 `--pri` 两档都深、配白字。 */
+const SOLIDS = ['--acc', '--ok', '--warn', '--err', '--sub'];
+/* 每一族的最低值：文字族按 WCAG 正文 4.5:1，图形族只看「看得出来」。
+   ring / lift 不是文字对比度 —— 描边与「选中那一格抬起来」只要各过 1.2 / 1.12，
+   再低就选不出来了；软底那一道比淡底更浅，抬升门槛压到 1.05。
+   chip = 状态牌（语义墨 × 自己那枚不透明淡底），sem = 语义墨不带淡底压在面上：
+   那两族画的都是字，所以跟 sel / soft / bare 一样钉 4.5。 */
+const WASH_MIN = { sel: 4.5, soft: 4.5, bare: 4.5, solid: 4.5, knock: 4.5, chip: 4.5, sem: 4.5, ring: 1.2, liftsel: 1.12, liftsoft: 1.05 };
 
 const lum = ([r, g, b]) => {
   const f = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
@@ -85,6 +101,82 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
       host.remove();
       return out;
     }, tokens);
+
+    /* ⑧ 组件里强调色的**组合**：淡底（选中态 / 软底 / 描边）压在表面上，墨色再压在淡底上。
+       这一步比①~⑦绕：`--sel-bg` 这类是 `color-mix(… , transparent)`，画布 fillStyle 不认这个表达式，
+       所以先把 var(--x) 塞进真属性让浏览器算完，再用「同一笔颜色压在黑底 / 白底各画一次」反解出 alpha
+       （黑底那一笔 = α·C，白底那一笔 = α·C + (1−α)·255，两式相减只剩 (1−α)·255），
+       然后在 JS 里按合成公式算出「屏幕上的那一个像素」。 */
+    const readWash = () => page.eval((surfaces, solids) => {
+      const cv = document.createElement('canvas');
+      cv.width = 1; cv.height = 1;
+      const cx = cv.getContext('2d', { willReadFrequently: true });
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px';
+      document.body.appendChild(host);
+      const px = str => {
+        const paint = base => {
+          cx.clearRect(0, 0, 1, 1);
+          cx.fillStyle = base; cx.fillRect(0, 0, 1, 1);
+          cx.fillStyle = str; cx.fillRect(0, 0, 1, 1);
+          return [...cx.getImageData(0, 0, 1, 1).data];
+        };
+        const dark = paint('#000'), light = paint('#fff');
+        const alpha = 1 - (light[0] - dark[0]) / 255;
+        if (alpha <= 0.001) return { rgb: [0, 0, 0], a: 0 };
+        return { rgb: dark.slice(0, 3).map(v => v / alpha), a: alpha };
+      };
+      const tok = t => {
+        host.style.color = '';
+        host.style.color = 'var(' + t + ')';
+        return px(getComputedStyle(host).color);
+      };
+      const over = (fg, bg) => ({ rgb: fg.rgb.map((v, i) => fg.a * v + (1 - fg.a) * bg.rgb[i]), a: 1 });
+      const L = c => {
+        const f = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(c.rgb[0]) + 0.7152 * f(c.rgb[1]) + 0.0722 * f(c.rgb[2]);
+      };
+      const cr = (x, y) => { const A = L(x), B = L(y); return (Math.max(A, B) + .05) / (Math.min(A, B) + .05); };
+      const surf = {};
+      surfaces.forEach(t => { surf[t] = tok(t); });
+      const sel = tok('--sel-bg'), soft = tok('--acc-tint-10'), line = tok('--acc-line-32');
+      const acc = tok('--acc'), pri = tok('--pri'), onAcc = tok('--on-acc');
+      const out = {};
+      const put = (fam, ink, wash, t) => {
+        out[fam + '.' + t.slice(2)] = +cr(ink, wash ? over(wash, surf[t]) : surf[t]).toFixed(2);
+      };
+      for (const t of surfaces) { put('sel', acc, sel, t); put('soft', acc, soft, t); }
+      /* 强调色当纯文字墨（链接式小动作 / 计数）落在没有淡底的面上。 */
+      for (const t of ['--bg', '--panel', '--panel2']) put('bare', acc, null, t);
+      /* 实心档：`--pri` 在两档都是深的，那一族配白字；
+         `--acc / --ok / --warn / --err / --sub` 在深色档会变成**浅色**，白字压不住，
+         所以这些实底上的墨一律掏面板色（浅色档 = 白，深色档 = 近黑）。 */
+      out['solid.on-acc@pri'] = +cr(onAcc, pri).toFixed(2);
+      const panel = tok('--panel');
+      for (const t of solids) out['knock.panel@' + t.slice(2)] = +cr(panel, tok(t)).toFixed(2);
+      /* 状态牌一族（`.ui-tag.*` / `.plate--*` / `.srcbadge.local` / `#banner.*` / 助手回执行）：
+         语义墨压在自己那一枚淡底上。淡底是**不透明**的（`--*-tint` 压在 `--panel` 上算出来那一个色），
+         所以这一对与背后的像素无关 —— 牌浮在缩略图槽、照片还是卡片上都是同一个数。
+         透明淡底等于把「墨 × 底」交给那张照片决定，屏幕上永远没有一个可算的下限。 */
+      for (const s of ['ok', 'warn', 'err']) {
+        out['chip.' + s] = +cr(tok('--' + s), tok('--' + s + '-tint')).toFixed(2);
+      }
+      /* 语义色**不带淡底**当文字墨落在组件真正用的那几块面上（ghost 危险按钮、卡片上的失败原因、
+         警示条）。深浅两档这一对是同时翻转的（深色档墨变浅、面也变深），所以两档都钉同一个门槛。 */
+      for (const t of ['--panel', '--panel2', '--input', '--control-bg']) {
+        for (const s of ['ok', 'warn', 'err']) {
+          out['sem.' + s + '@' + t.slice(2)] = +cr(tok('--' + s), surf[t]).toFixed(2);
+        }
+      }
+      for (const t of surfaces) {
+        /* 淡底把这一格从表面上抬起来的量（看不看得出「选中」），与描边压在表面上的量。 */
+        out['liftsel.' + t.slice(2)] = +cr(over(sel, surf[t]), surf[t]).toFixed(2);
+        out['liftsoft.' + t.slice(2)] = +cr(over(soft, surf[t]), surf[t]).toFixed(2);
+        out['ring.' + t.slice(2)] = +cr(over(line, surf[t]), surf[t]).toFixed(2);
+      }
+      host.remove();
+      return out;
+    }, SURFACES, SOLIDS);
 
     /* 写偏好 → 调唯一解析口（__themeApply）→ 读回 DOM 上那两根轴。 */
     const applyTheme = async (mode, palette) => {
@@ -177,7 +269,33 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
         const seen = await applyTheme(mode, pal);
         must(seen.theme === mode, mode + ' 档设了配色「' + pal + '」之后 data-theme 变成了「' + seen.theme + '」');
         must(seen.palette === pal, mode + ' 档设了配色「' + pal + '」之后 data-palette 是「' + seen.palette + '」');
-        const c = await readColors(NEUTRALS.concat(ACCENTS));
+        must(await page.eval(() => getComputedStyle(document.documentElement).colorScheme) === mode,
+          mode + ' 档没有把原生控件声明的 color-scheme 切到同一档');
+        const c = await readColors(NEUTRALS.concat(ACCENTS, '--on-acc'));
+        for (const [fg, bg] of [['--txt', '--bg'], ['--txt', '--input'], ['--txt', '--panel2'],
+          ['--sub', '--bg'], ['--sub', '--panel2'], ['--sub', '--input'],
+          ['--acc', '--panel'], ['--on-acc', '--pri']]) {
+          const a = lum(c[fg].rgba), b = lum(c[bg].rgba);
+          const contrast = (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+          must(contrast >= 4.5, mode + ' / ' + pal + ' 的 ' + fg + ' 对 ' + bg
+            + ' 文字对比度不足 4.5:1（实际 ' + contrast.toFixed(2) + ':1）');
+        }
+        for (const [near, far, need] of [['--panel', '--bg', 1.08], ['--panel2', '--panel', 1.08],
+          ['--input', '--panel', 1.08], ['--control-bg', '--panel', 1.02]]) {
+          const a = lum(c[near].rgba), b = lum(c[far].rgba);
+          const separation = (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+          must(separation >= need, mode + ' / ' + pal + ' 的 ' + near + ' 与 ' + far
+            + ' 表面层级不足（实际 ' + separation.toFixed(2) + ':1，至少 ' + need.toFixed(2) + ':1）');
+        }
+        /* ⑧ 这一档配色压在组件真正用的淡底上还剩多少对比。 */
+        const w = await readWash();
+        for (const [fam, need] of Object.entries(WASH_MIN)) {
+          for (const [k, v] of Object.entries(w)) {
+            if (!k.startsWith(fam + '.')) continue;
+            must(v >= need, mode + ' / ' + pal + ' 的 ' + k + ' 只有 ' + v
+              + ':1（这一族至少 ' + need + ':1）：强调色在那块淡底上读不出来');
+          }
+        }
         if (!base) base = c;
         else for (const k of NEUTRALS) {
           must(key(c[k].rgba) === key(base[k].rgba),
@@ -292,7 +410,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     must(!page.errors.length, '页面有异常：\n  ' + page.errors.join('\n  '));
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 主题两根轴：缺省浅色 + 海洋 · 设置页两行 · 5 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度');
+    console.log('✓ 主题两根轴：缺省浅色 + 海洋 · 设置页两行 · 5 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度 · 强调色压在淡底与实底上');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}
