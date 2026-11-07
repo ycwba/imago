@@ -32,7 +32,8 @@ export function createGroups(ctx) {
       seen.add(k);
       out.push({ id: g.id, name: name });
     });
-    out.sort((a, b) => nameKey(a.name).localeCompare(nameKey(b.name)));
+    // 显式 zh：不传 locale 时中文序随机器默认语言漂（en 按码点，甲 > 乙）
+    out.sort((a, b) => nameKey(a.name).localeCompare(nameKey(b.name), 'zh'));
     return out;
   }
 
